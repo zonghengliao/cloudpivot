@@ -123,7 +123,7 @@
           </t-row>
         </t-col>
 
-        <!-- 右栏：固定 360px，系统状态 + 关于项目 -->
+        <!-- 右栏：固定 360px，只剩系统状态卡片 -->
         <t-col class="dashboard__aside">
           <t-row :gutter="[16, 16]">
             <!-- 系统状态：沿用 /health 自检接口 -->
@@ -146,58 +146,6 @@
                   <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
                   <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
                 </t-descriptions>
-              </t-card>
-            </t-col>
-
-            <!-- 关于项目：小卡片形式，突出定位 / 技术栈 / 规模三个重点，不再用表格 -->
-            <t-col class="dashboard__full-col">
-              <t-card title="关于项目" :bordered="false" class="dashboard__card">
-                <div class="dashboard__about">
-                  <!-- 项目定位：名称 + 一句话简介 -->
-                  <div class="dashboard__about-hero">
-
-                    <div class="dashboard__about-hero-text">
-                      <h2>{{ PROJECT_INFO.name }}</h2>
-                      <h2>通用管理底座</h2>
-                       <p>极小化 Token 消耗 · 极大化 Attention 浓度<br>稳定生成高品质代码</p>
-                      <p class="dashboard__about-desc">{{ PROJECT_INFO.summary }}</p>
-                    </div>
-                  </div>
-
-                  <!-- 规模：后端 / 前端两个小卡片 -->
-                  <div class="dashboard__about-stats">
-                    <div class="dashboard__about-stat">
-                      <span class="dashboard__about-stat-value">
-                        {{ PROJECT_INFO.stats.backend }}
-                      </span>
-                      <span class="dashboard__about-stat-label">Rust 模块</span>
-                    </div>
-                    <div class="dashboard__about-stat">
-                      <span class="dashboard__about-stat-value">
-                        {{ PROJECT_INFO.stats.frontend }}
-                      </span>
-                      <span class="dashboard__about-stat-label">前端文件</span>
-                    </div>
-                    <div class="dashboard__about-stat">
-                      <span class="dashboard__about-stat-value">{{ PROJECT_INFO.stack.length }}</span>
-                      <span class="dashboard__about-stat-label">技术选型</span>
-                    </div>
-                  </div>
-
-                  <!-- 技术栈标签 -->
-                  <div class="dashboard__about-stack">
-                    <t-tag
-                      v-for="tech in PROJECT_INFO.stack"
-                      :key="tech"
-                      variant="light"
-                      size="small"
-                      class="dashboard__about-tag"
-                    >
-                      {{ tech }}
-                    </t-tag>
-                  </div>
-
-                </div>
               </t-card>
             </t-col>
           </t-row>
@@ -230,14 +178,6 @@ const isHealthLoading = ref(false);
 const overviewError = ref('');
 /** 健康检查失败提示 */
 const healthError = ref('');
-
-/** 项目介绍：与后端无关的静态文案，放在前端维护 */
-const PROJECT_INFO = {
-  name: 'AI Coding 下的',
-  summary: '基于 Rust + alun 与 Vue 3 + TDesign 的通用后台底座，认证鉴权、组织角色、菜单权限、日志审计开箱即用。',
-  stack: ['Rust', 'alun', 'PostgreSQL', 'Redis', 'Vue 3', 'TypeScript', 'Vite', 'TDesign'],
-  stats: { backend: 356, frontend: 168 },
-};
 
 /**
  * 首页只展示 8 个核心指标（后端共下发 12 个）。
@@ -551,7 +491,7 @@ onMounted(() => {
     margin-top: 16px;
   }
 
-  // 整行列（快捷入口卡 / 右栏两张卡）：显式占满 100%。
+  // 整行列（快捷入口卡 / 右栏系统状态卡）：显式占满 100%。
   // 不依赖 t-col 的断点类名——12 列制里没有 t-col-xs-24，只写 :xs 会在部分屏宽失效，
   // 导致卡片按内容收缩、右侧留下空白。
   &__full-col {
@@ -688,93 +628,6 @@ onMounted(() => {
     display: flex;
     // 栅格列只提供位置约束，按钮本身撑满该列
     max-width: 100%;
-  }
-
-  // ---------- 关于项目：小卡片形式 ----------
-  &__about {
-    display: flex;
-    flex-direction: column;
-    gap: 14px;
-  }
-
-  // 顶部：图标 + 名称 + 一句话定位
-  &__about-hero {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  &__about-logo {
-    display: inline-flex;
-    flex: none;
-    align-items: center;
-    justify-content: center;
-    width: 40px;
-    height: 40px;
-    font-size: 20px;
-    color: #fff;
-    background: var(--app-gradient-brand);
-    border-radius: 10px;
-    box-shadow: 0 4px 12px rgb(59 109 255 / 26%);
-  }
-
-  &__about-hero-text {
-    min-width: 0;
-  }
-
-  &__about-name {
-    margin: 0;
-    font-size: 15px;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--td-text-color-primary);
-  }
-
-  &__about-desc {
-    margin: 4px 0 0;
-    font-size: 12px;
-    line-height: 1.6;
-    color: var(--td-text-color-secondary);
-  }
-
-  // 中部：三个规模小卡片
-  &__about-stats {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    gap: 8px;
-  }
-
-  &__about-stat {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 10px 8px;
-    text-align: center;
-    background-color: var(--td-bg-color-container-hover);
-    border-radius: 8px;
-  }
-
-  &__about-stat-value {
-    font-size: 18px;
-    font-weight: 600;
-    line-height: 1.2;
-    color: var(--td-brand-color);
-  }
-
-  &__about-stat-label {
-    font-size: 11px;
-    color: var(--td-text-color-placeholder);
-  }
-
-  // 底部：技术栈标签
-  &__about-stack {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  &__about-tag {
-    margin: 0;
   }
 
   &__entry {
