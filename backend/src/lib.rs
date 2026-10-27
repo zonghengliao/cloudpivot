@@ -41,16 +41,20 @@ pub mod utils;
 ///
 /// 启动链按固定顺序装配：
 ///
-/// 1. [`App::new`] 读取 `config/config.toml` 与对应 profile 覆盖，并初始化日志；
-/// 2. [`App::parse_cli`] 解析 `gen-config` / `print-config` / `profile=xxx` 等命令行参数；
-/// 3. [`App::on_startup`] 注册启动钩子，在全局资源就绪、插件启动之前执行业务初始化
+/// 1. **启动预检**（[`shared::startup_guard::preflight`]）：在框架初始化任何资源之前，
+///    先拒绝「认证已开启但 JWT 签名密钥为空 / 过短」的启动，避免裸 `cargo run` 先死在
+///    数据库连接失败、把真正原因掩盖掉；
+/// 2. [`App::new`] 读取 `config/config.toml` 与对应 profile 覆盖，并初始化日志；
+/// 3. [`App::parse_cli`] 解析 `gen-config` / `print-config` / `profile=xxx` 等命令行参数；
+/// 4. [`App::on_startup`] 注册启动钩子，在全局资源就绪、插件启动之前执行业务初始化
 ///    （其中包含从 `sys_job` 装载定时任务）；
-/// 4. [`App::plugin`] 注册自定义插件：日志总线（[`support::log::plugin::LogPlugin`]）
-///    与调度器（[`task::scheduler`]）；
-/// 5. [`App::layer_from_fn`] 注入操作日志中间件（链**外**层：覆盖整站，含 401 / 403 / 429
+/// 5. [`App::plugin`] 注册自定义插件：启动守卫（[`shared::startup_guard::AuthSecretGuardPlugin`]，
+///    用框架权威配置再校验一次，认证已开启而密钥为空 / 过短时在此中止启动）、日志总线
+///    （[`support::log::plugin::LogPlugin`]）与调度器（[`task::scheduler`]）；
+/// 6. [`App::layer_from_fn`] 注入操作日志中间件（链**外**层：覆盖整站，含 401 / 403 / 429
 ///    与 404 兜底）；
-/// 6. [`App::scan`] 收集宏声明的路由；
-/// 7. [`App::start`] 初始化数据库/缓存等资源、启动插件并监听 `[server].listen`。
+/// 7. [`App::scan`] 收集宏声明的路由；
+/// 8. [`App::start`] 初始化数据库/缓存等资源、启动插件并监听 `[server].listen`。
 ///
 /// # 返回值
 ///
@@ -61,11 +65,22 @@ pub mod utils;
 ///
 /// 本函数不 panic：所有错误均通过 `Result` 向上传播，禁止 `unwrap` / `expect`。
 pub async fn run() -> Result<()> {
+    // 启动预检：必须在 App::new() 之前。App::start() 的顺序是「先连数据库/缓存 →
+    // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 ALUN_MIDDLEWARE_AUTH_JWT_SECRET）
+    // 会先死在数据库连接失败上，掩盖「密钥未注入」这个真正原因。
+    if let Err(violation) = shared::startup_guard::preflight() {
+        tracing::error!("{violation}");
+        return Err(Error::Config(violation.to_string()));
+    }
+
     App::new()?
         .parse_cli()
         // 根路径存活探针：手动注册以豁免 `[router] prefix`，保持在 `/health`
         .get("/health", support::health::health)
         .on_startup(bootstrap::bootstrap)
+        // 启动守卫必须**注册在最前**：插件按注册顺序（无依赖者）依次启动，
+        // 密钥不合格时会在其余插件启动之前就中止启动，绝不带着空签名密钥对外提供服务
+        .plugin(shared::startup_guard::AuthSecretGuardPlugin::new())
         .plugin(support::log::plugin::LogPlugin::new())
         .plugin(task::scheduler())
         .layer_from_fn(middleware::operation_log::layer)
