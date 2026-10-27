@@ -53,7 +53,7 @@
 
         <t-dropdown :options="userActions" :popup-props="userPopupProps" @click="onUserAction">
           <button class="basic-layout__user" type="button">
-            <t-avatar  size="medium">{{ avatarText }}</t-avatar>
+            <t-avatar class="basic-layout__avatar" size="medium">{{ avatarText }}</t-avatar>
             <span class="basic-layout__username">{{ userStore.displayName || '未登录' }}</span>
             <t-icon class="basic-layout__caret" name="chevron-down" />
           </button>
@@ -213,7 +213,8 @@ async function doLogout(): Promise<void> {
     white-space: nowrap;
     overflow: hidden;
     cursor: pointer;
-    border-bottom: 1px solid var(--td-component-stroke);
+    // 品牌区下沿用漂木棕半透明细线：全站点缀落点之一（不用大面积色块）
+    border-bottom: 1px solid var(--app-accent-soft);
     transition: background-color 0.2s;
 
     &:hover {
@@ -265,7 +266,8 @@ async function doLogout(): Promise<void> {
     padding: 0 16px 0 8px;
     background-color: var(--td-bg-color-container);
     border-bottom: 1px solid var(--td-component-stroke);
-    box-shadow: 0 1px 4px rgb(0 0 0 / 4%);
+    // 深海蓝调的轻投影，替代中性黑投影
+    box-shadow: 0 1px 4px rgb(81 105 124 / 12%);
   }
 
   &__collapse {
@@ -313,7 +315,8 @@ async function doLogout(): Promise<void> {
   }
 
   &__avatar {
-    background: linear-gradient(135deg, #4b8bff 0%, #7b5cff 100%);
+    // 深海蓝 → 漂木棕 的莫兰迪渐变，随明暗主题取不同深浅
+    background: linear-gradient(135deg, var(--td-brand-color-7) 0%, var(--app-brand-accent) 100%);
   }
 
   &__username {

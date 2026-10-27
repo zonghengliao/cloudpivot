@@ -28,7 +28,14 @@ body {
 // ---------- 卡片：统一圆角与轻投影，提升整体精致度 ----------
 .t-card {
   border-radius: 10px;
-  box-shadow: 0 1px 3px rgb(15 30 70 / 6%);
+  // 投影带一点深海蓝色调，与莫兰迪底色呼应，避免灰黑投影显脏
+  box-shadow: 0 1px 3px rgb(81 105 124 / 10%);
+}
+
+// ---------- 文本选中：漂木棕浅底（点缀色，不抢内容）----------
+::selection {
+  color: var(--td-text-color-primary);
+  background-color: var(--app-accent-soft);
 }
 
 // ---------- 列表页通用结构（沿用后台管理通用列表布局惯例）----------
@@ -53,6 +60,11 @@ body {
   margin-top: 16px;
 }
 
+// 表头：暖白底（雾蓝灰/霜月白同一家族），避免默认纯白让表头与行内容分层不清
+.t-table thead th {
+  background-color: var(--app-table-head-bg);
+}
+
 // 表格工具栏：左右分列，左侧放操作按钮，右侧放统计文案
 .table-toolbar {
   display: flex;
@@ -64,6 +76,18 @@ body {
 .table-toolbar-count {
   font-size: 13px;
   color: var(--td-text-color-secondary);
+
+  // 漂木棕短竖线：全站「少量点缀」的落点之一（不铺色，只做视觉锚点）
+  &::before {
+    content: '';
+    display: inline-block;
+    width: 3px;
+    height: 11px;
+    margin-right: 6px;
+    vertical-align: -1px;
+    background-color: var(--app-brand-accent);
+    border-radius: 2px;
+  }
 }
 
 // 多选列表：已选数量提示
@@ -98,11 +122,11 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: rgb(0 0 0 / 16%);
+  background-color: rgb(81 105 124 / 20%);
   border-radius: 4px;
 
   &:hover {
-    background-color: rgb(0 0 0 / 26%);
+    background-color: rgb(81 105 124 / 32%);
   }
 }
 

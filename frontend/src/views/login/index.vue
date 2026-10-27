@@ -127,8 +127,8 @@ async function handleSubmit(): Promise<void> {
   // 用 vh 而不是 100%：<router-view> 的包裹层不保证撑满，百分比会塌成内容高度
   min-height: 100vh;
   padding: 32px 24px;
-  // 整体柔和渐变：淡蓝 → 淡紫 → 淡青，低饱和，长时间看不刺眼
-  background: linear-gradient(135deg, #eff4ff 0%, #f6f2ff 50%, #e9f6fb 100%);
+  // 霜月白主底 + 雾蓝灰轻过渡：低饱和莫兰迪，长时间看不刺眼（深色主题走 --app-login-bg）
+  background: var(--app-login-bg);
 }
 
 .login__panel {
@@ -139,9 +139,9 @@ async function handleSubmit(): Promise<void> {
   min-height: 520px;
   overflow: hidden;
   background-color: var(--td-bg-color-container);
-  border: 1px solid rgb(255 255 255 / 70%);
+  border: 1px solid var(--td-component-stroke);
   border-radius: 16px;
-  box-shadow: 0 18px 48px rgb(94 112 180 / 14%);
+  box-shadow: 0 18px 48px rgb(81 105 124 / 14%);
 }
 
 // ---------- 左侧品牌区 ----------
@@ -151,18 +151,18 @@ async function handleSubmit(): Promise<void> {
   min-width: 0;
   padding: 48px 44px;
   overflow: hidden;
-  // 柔和渐变底，与页面外框同一色系但略深一档，形成层次
-  background: linear-gradient(155deg, #e6edff 0%, #efeaff 55%, #e5f4fa 100%);
+  // 柔和渐变底：霜月白 → 雾蓝灰 → 漂木棕微暖收尾（深色主题走 --app-login-brand）
+  background: var(--app-login-brand);
 }
 
-// 柔光装饰：不抢内容，只负责让渐变不死板
+// 柔光装饰：不抢内容，只负责让渐变不死板（漂木棕极轻光晕，全站唯一的大面积点缀）
 .login__brand-glow {
   position: absolute;
   top: -120px;
   right: -140px;
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgb(122 142 255 / 22%) 0%, rgb(122 142 255 / 0%) 70%);
+  background: radial-gradient(circle, rgb(183 157 136 / 26%) 0%, rgb(183 157 136 / 0%) 70%);
   pointer-events: none;
 }
 
@@ -198,7 +198,7 @@ async function handleSubmit(): Promise<void> {
   border-radius: 12px;
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 80%),
-    0 6px 16px rgb(94 112 180 / 22%);
+    0 6px 16px rgb(81 105 124 / 22%);
 
   > img {
     width: 70%;

@@ -402,7 +402,7 @@ const loginTrendOption = computed<EChartsCoreOption>(() => {
       smooth: true,
       showSymbol: false,
       data: line.data,
-      itemStyle: { color: index === 0 ? '#3b6dff' : '#f54a45' },
+      itemStyle: { color: index === 0 ? '#51697c' : '#d1544f' },
       areaStyle: index === 0 ? { opacity: 0.15 } : undefined,
     })),
   };
@@ -429,7 +429,7 @@ const latencyTrendOption = computed<EChartsCoreOption>(() => {
       // 无样本日为 null，断开连线而不是补 0 造成「假趋势」
       connectNulls: false,
       data: line.data,
-      itemStyle: { color: '#6a4bff' },
+      itemStyle: { color: '#b79d88' },
       areaStyle: { opacity: 0.12 },
     })),
   };
@@ -646,7 +646,7 @@ onUnmounted(() => {
     color: #fff;
     border-radius: 12px;
     background: var(--app-gradient-brand);
-    box-shadow: 0 6px 20px rgb(59 109 255 / 24%);
+    box-shadow: 0 6px 20px rgb(81 105 124 / 24%);
   }
 
   &__greeting {
@@ -832,19 +832,19 @@ onUnmounted(() => {
     height: 28px;
     font-size: 16px;
     color: #fff;
-    background-color: var(--metric-color, #3b6dff);
+    background-color: var(--metric-color, var(--td-brand-color-7));
     border-radius: 8px;
 
     &--green {
-      --metric-color: #12b76a;
+      --metric-color: #3e9b72;
     }
 
     &--orange {
-      --metric-color: #f5822b;
+      --metric-color: #d98b4a;
     }
 
     &--blue {
-      --metric-color: #3b6dff;
+      --metric-color: var(--td-brand-color-7);
     }
   }
 
