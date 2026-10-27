@@ -75,7 +75,7 @@ INSERT INTO sys_role_menu (...) SELECT ... WHERE r.role_code = 'SUPER_ADMIN' ON 
 ## 5. 测试基线
 
 ```bash
-cd /opt/cailu/backend  && cargo test        # 22 passed（新增 8 个：/proc/stat 解析、差值/除零、meminfo 正常+回退、df 正常+异常、redis INFO、format_bytes、truncate_chars）
+cd /opt/cailu/backend  && cargo test        # 31 passed（其中 business::monitor 9 个：/proc/stat 解析、差值/除零、meminfo 正常+回退、df 正常+异常、redis INFO、format_bytes、truncate_chars）
 cd /opt/cailu/frontend && pnpm typecheck    # rc=0
 ```
 
