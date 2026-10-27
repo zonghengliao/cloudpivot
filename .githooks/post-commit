@@ -1,5 +1,5 @@
 #!/bin/bash
-# post-commit：每次提交后自动同步到 origin（本地 bare 仓库 /opt/git/cailu.git）
+# post-commit：每次提交后自动同步到 origin（本地 bare 仓库 /opt/git/cloudpivot.git）
 # 设计原则：
 #   1. 绝不阻塞或改变 commit 结果 —— 任何失败都静默忽略（exit 0）
 #   2. 只推当前分支，不推 --all（避免意外推送/删除远端分支）
@@ -10,9 +10,11 @@ BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || exit 0
 [ -z "$BRANCH" ] && exit 0
 
 # 确认 origin 存在且是本机 bare（不向上游 GitHub 推任何东西）
+# 只接受 /opt/git/*.git 这种本机路径：既排除 GitHub 远端，也不把 bare 目录名写死
+# （目录改名前后都能命中，避免改名窗口内 post-commit 静默失效）
 ORIGIN_URL=$(git remote get-url origin 2>/dev/null) || exit 0
 case "$ORIGIN_URL" in
-  /opt/git/cailu.git*) ;;
+  /opt/git/*.git) ;;
   *) exit 0 ;;   # origin 不是本地 bare，宁可不推，防误操作
 esac
 

@@ -1,4 +1,4 @@
-# 菜芦通用后台管理系统 —— 基础配置（所有 profile 共享）
+# 云枢通用后台管理系统 —— 基础配置（所有 profile 共享）
 #
 # 加载顺序：config/config.toml → config/config-{profile}.toml → ALUN_* 环境变量
 # profile 选取：命令行 `profile=xxx` > ALUN_PROFILE > ALUN_ENV > 默认 dev
@@ -10,7 +10,7 @@
 #
 # 敏感值（数据库密码、JWT 密钥）在生产环境必须通过环境变量注入，不要提交到仓库。
 
-app_name = "cailu"
+app_name = "cloudpivot"
 profile = "dev"
 
 [server]
@@ -20,18 +20,18 @@ listen = "8023"
 [log]
 level = "info"
 format = "text"
-file_prefix = "cailu"
+file_prefix = "cloudpivot"
 
 [database]
 enabled = true
 type = "postgres"
 host = "127.0.0.1"
 port = 5432
-name = "cailu"
+name = "cloudpivot"
 # 账号名（非凭据）：与 docker/docker-compose.yml 的本地开发库一致，可用 ALUN_DATABASE_USER 覆盖
 user = "alun"
 # 库口令一律由 ALUN_DATABASE_PASSWORD 注入，仓库内保持空值（本仓库为 public，禁止写入明文）：
-#   dev/test/prod 见 /etc/cailu/*.env（600）；本地手工起服务前先 export ALUN_DATABASE_PASSWORD=...
+#   dev/test/prod 见 /etc/cloudpivot/*.env（600）；本地手工起服务前先 export ALUN_DATABASE_PASSWORD=...
 #   （docker/docker-compose.yml 里的 POSTGRES_PASSWORD 是那套本地 compose 自己的库口令，
 #     两者需保持一致；后端启动不再依赖任何 toml 默认口令）
 password = ""

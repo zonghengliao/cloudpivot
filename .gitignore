@@ -13,7 +13,7 @@
 /frontend/dist/
 
 # 环境与密钥（安全审计 CODE-01：只允许提交 *.example.toml / .env.example）
-# 本项目的 env 实际落在 /etc/cailu/*.env（600），仓库内一律不入库
+# 本项目的 env 实际落在 /etc/cloudpivot/*.env（600），仓库内一律不入库
 .env
 .env.*
 !.env.example

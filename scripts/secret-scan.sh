@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# cailu secret 扫描统一入口（pre-commit 与 CI 共用）
+# cloudpivot secret 扫描统一入口（pre-commit 与 CI 共用）
 #
 #   bash scripts/secret-scan.sh --staged    只扫暂存区（pre-commit）
 #   bash scripts/secret-scan.sh --tree      只扫 HEAD 跟踪的文件（默认）
@@ -77,19 +77,19 @@ if [ -n "$GITLEAKS" ] && [ -x "$GITLEAKS" ]; then
   case "$MODE" in
     --staged)
       "$GITLEAKS" git "$ROOT" --config "$CONFIG" --staged --redact --no-banner \
-        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
+        --report-format json --report-path "${TMPDIR:-/tmp}/cloudpivot-secret-scan.json"
       rc=$?
       ;;
     --history)
       "$GITLEAKS" git "$ROOT" --config "$CONFIG" --log-opts="--all" --redact --no-banner \
-        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
+        --report-format json --report-path "${TMPDIR:-/tmp}/cloudpivot-secret-scan.json"
       rc=$?
       ;;
     --tree|*)
       TMPTREE="$(mktemp -d)"
       git archive HEAD | tar -x -C "$TMPTREE"
       "$GITLEAKS" dir "$TMPTREE" --config "$CONFIG" --redact --no-banner \
-        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
+        --report-format json --report-path "${TMPDIR:-/tmp}/cloudpivot-secret-scan.json"
       rc=$?
       rm -rf "$TMPTREE"
       ;;
@@ -97,7 +97,7 @@ if [ -n "$GITLEAKS" ] && [ -x "$GITLEAKS" ]; then
   if [ "$rc" -eq 0 ]; then
     echo "✔ 未发现泄露"
   else
-    echo "✘ 发现疑似泄露（report: ${TMPDIR:-/tmp}/cailu-secret-scan.json，值已 redact）" >&2
+    echo "✘ 发现疑似泄露（report: ${TMPDIR:-/tmp}/cloudpivot-secret-scan.json，值已 redact）" >&2
   fi
   # 兜底规则同时跑一遍（git 跟踪文件），防止自定义 toml 规则被改坏
   echo "▶ 内置 toml 规则复核（git 跟踪文件）"

@@ -188,7 +188,7 @@ router.beforeEach(async (to) => {
 // 同步页面标题，便于多标签页区分
 router.afterEach((to) => {
   const title = to.meta.title;
-  document.title = typeof title === 'string' ? `${title} - 菜芦管理后台` : '菜芦管理后台';
+  document.title = typeof title === 'string' ? `${title} - 云枢管理后台` : '云枢管理后台';
 });
 
 export default router;

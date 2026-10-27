@@ -28,7 +28,7 @@
                 "used_text": "1.3 GB", "total_text": "7.2 GB" },
     "disk":   { "percent": 8.8, "used_bytes": 23880863744, "total_bytes": 271465345024,
                 "used_text": "22.2 GB", "total_text": "252.8 GB" },
-    "database": { "state": "up", "name": "cailu", "size_bytes": 9639615, "size_text": "9 MB",
+    "database": { "state": "up", "name": "cloudpivot", "size_bytes": 9639615, "size_text": "9 MB",
                   "connections": 25, "version": "PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26" },
     "redis":  { "state": "up", "version": "8.0.5", "used_memory_text": "1.08M",
                 "used_memory_bytes": 1131856, "connected_clients": 4, "uptime_seconds": 17363,
@@ -75,11 +75,11 @@ INSERT INTO sys_role_menu (...) SELECT ... WHERE r.role_code = 'SUPER_ADMIN' ON 
 ## 5. 测试基线
 
 ```bash
-cd /opt/cailu/backend  && cargo test        # 31 passed（其中 business::monitor 9 个：/proc/stat 解析、差值/除零、meminfo 正常+回退、df 正常+异常、redis INFO、format_bytes、truncate_chars）
-cd /opt/cailu/frontend && pnpm typecheck    # rc=0
+cd /opt/cloudpivot/backend  && cargo test        # 31 passed（其中 business::monitor 9 个：/proc/stat 解析、差值/除零、meminfo 正常+回退、df 正常+异常、redis INFO、format_bytes、truncate_chars）
+cd /opt/cloudpivot/frontend && pnpm typecheck    # rc=0
 ```
 
-实测（dev `cailu_dev` / prod `cailu` 双端）：
+实测（dev `cloudpivot_dev` / prod `cloudpivot` 双端）：
 
 | 场景 | 结果 |
 |---|---|

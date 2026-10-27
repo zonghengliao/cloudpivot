@@ -10,9 +10,9 @@
           <div class="login__brand-main">
             <div class="login__brand-head">
               <span class="login__badge">
-                <img src="/logo.png" alt="菜芦" />
+                <img src="/logo.png" alt="云枢" />
               </span>
-              <p class="login__brand-name">菜芦管理</p>
+              <p class="login__brand-name">云枢管理</p>
             </div>
 
             <h2 class="login__brand-title">AI Coding 的管理底座</h2>
@@ -27,7 +27,7 @@
       <section class="login__form-side">
         <!-- 右侧 Logo 仅小屏出现：大屏由左侧品牌区承载，两边同时出现会重复 -->
         <span class="login__badge login__badge--form">
-          <img src="/logo.png" alt="菜芦" />
+          <img src="/logo.png" alt="云枢" />
         </span>
 
         <header class="login__form-head">

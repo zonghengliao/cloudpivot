@@ -1,25 +1,25 @@
 #!/usr/bin/env bash
-# cailu 开发环境一键启动（dev 实例，与 prod 完全隔离）
+# cloudpivot 开发环境一键启动（dev 实例，与 prod 完全隔离）
 #
 #   dev 后端   : 127.0.0.1:8024  cargo-watch（改 src/**.rs、config/*.toml 自动重编译重启）
 #   dev 前端   : 127.0.0.1:5173 Vite（HMR）  ← P0 收口，外部访问走 SSH 隧道，/api /health 代理到 8024
 #   code-server: 127.0.0.1:8443 浏览器 IDE  ← P0 收口，外部访问走 SSH 隧道
 #
 # 用法：
-#   bash /opt/cailu/scripts/dev-up.sh                # 全部启动（幂等，已启动的跳过）
-#   WATCH=0 bash /opt/cailu/scripts/dev-up.sh        # 后端不开热重载（纯 cargo run）
-#   ONLY=backend bash /opt/cailu/scripts/dev-up.sh   # 只起某一部分：backend|frontend|ide
+#   bash /opt/cloudpivot/scripts/dev-up.sh                # 全部启动（幂等，已启动的跳过）
+#   WATCH=0 bash /opt/cloudpivot/scripts/dev-up.sh        # 后端不开热重载（纯 cargo run）
+#   ONLY=backend bash /opt/cloudpivot/scripts/dev-up.sh   # 只起某一部分：backend|frontend|ide
 #
-# 停止：bash /opt/cailu/scripts/dev-down.sh
-# 状态：bash /opt/cailu/scripts/dev-status.sh
+# 停止：bash /opt/cloudpivot/scripts/dev-down.sh
+# 状态：bash /opt/cloudpivot/scripts/dev-status.sh
 #
-# ❗ prod 实例（127.0.0.1:8023 + nginx:80，systemd cailu.service）不受本脚本影响。
+# ❗ prod 实例（127.0.0.1:8023 + nginx:80，systemd cloudpivot.service）不受本脚本影响。
 set -euo pipefail
 
-ROOT=/opt/cailu
-ENV_FILE=/etc/cailu/cailu-dev.env
-LOG_DIR=/var/log/cailu-dev
-PID_DIR=/var/run/cailu-dev
+ROOT=/opt/cloudpivot
+ENV_FILE=/etc/cloudpivot/cloudpivot-dev.env
+LOG_DIR=/var/log/cloudpivot-dev
+PID_DIR=/var/run/cloudpivot-dev
 export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [ -f "$ENV_FILE" ] || { echo "缺少 $ENV_FILE" >&2; exit 1; }
@@ -77,7 +77,7 @@ for svc in postgresql redis-server; do
   systemctl is-active --quiet "$svc" && ok "$svc active" || die "$svc 起不来"
 done
 
-# dev 库不存在则建（owner=cailu，UTF8）；表结构由后端 migrations auto_migrate 自动建
+# dev 库不存在则建（owner=cloudpivot，UTF8）；表结构由后端 migrations auto_migrate 自动建
 export PGPASSWORD="$ALUN_DATABASE_PASSWORD"
 if ! psql -h "$ALUN_DATABASE_HOST" -p "$ALUN_DATABASE_PORT" -U "$ALUN_DATABASE_USER" -d postgres -tAc \
       "select 1 from pg_database where datname='$ALUN_DATABASE_NAME'" | grep -q 1; then
@@ -148,7 +148,7 @@ EOF
     die "端口 $CODE_SERVER_PORT 已被占用"
   else
     nohup code-server --disable-telemetry --disable-update-check \
-      --bind-addr "$CODE_SERVER_BIND:$CODE_SERVER_PORT" /opt/cailu \
+      --bind-addr "$CODE_SERVER_BIND:$CODE_SERVER_PORT" /opt/cloudpivot \
       >>"$LOG_DIR/code-server.log" 2>&1 </dev/null &
     echo $! >"$PID_DIR/code-server.pid"
     ok "code-server 已启动（pid $(cat "$PID_DIR/code-server.pid")）"

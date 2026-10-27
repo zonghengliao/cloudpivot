@@ -1,6 +1,6 @@
-# Cailu — 菜芦通用后台系统（基础版）
+# CloudPivot — 云枢通用后台系统（基础版）
 
-> 基于 Rust + Alun 框架（alun）+ Vue 3 + TDesign 的通用后台底座。本仓库是**基础版**（用户 / 角色 / 菜单 / 字典 / 配置 / 文件 / 日志 / 在线用户 / 定时任务）。专业版 `cailu-pro` 与企业版 `cailu-saas` 为独立仓库。下方先给高频约定，再列应按需读取的关键文件。
+> 基于 Rust + Alun 框架（alun）+ Vue 3 + TDesign 的通用后台底座。本仓库是**基础版**（用户 / 角色 / 菜单 / 字典 / 配置 / 文件 / 日志 / 在线用户 / 定时任务）。专业版 `cloudpivot-pro` 与企业版 `cloudpivot-saas` 为独立仓库。下方先给高频约定，再列应按需读取的关键文件。
 
 ## Project map
 - [backend/](./backend/) : Rust + alun 后端（:8023，自动迁移）

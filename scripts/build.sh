@@ -3,7 +3,7 @@
 #
 # 用法：bash scripts/build.sh
 # 产物：
-#   backend/target/release/cailu   后端 Linux/本机 release 二进制（本机运行 / CI 用；生产镜像由 docker 内编译，不依赖本产物）
+#   backend/target/release/cloudpivot   后端 Linux/本机 release 二进制（本机运行 / CI 用；生产镜像由 docker 内编译，不依赖本产物）
 #   frontend/dist/                 前端构建产物（供 docker/frontend/Dockerfile 与 nginx 托管）
 set -euo pipefail
 
@@ -16,5 +16,5 @@ echo "==> 前端：pnpm build（含类型检查）"
 (cd "$ROOT/frontend" && pnpm build)
 
 echo "==> 构建完成"
-echo "    后端二进制：$ROOT/backend/target/release/cailu"
+echo "    后端二进制：$ROOT/backend/target/release/cloudpivot"
 echo "    前端产物 ：$ROOT/frontend/dist/"

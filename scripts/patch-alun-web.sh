@@ -10,7 +10,7 @@
 #           「第一条命中」的规则匹配没有静态段优先级，且免认证路径也走权限规则，
 #           导致 `GET /api/support/config/public` 被 `GET /support/config/{id}` 规则拦成 403。
 #
-# 本脚本对 registry 源码做**幂等**文本补丁（带 `cailu-patch` 标记，可重复执行）。
+# 本脚本对 registry 源码做**幂等**文本补丁（带 `cloudpivot-patch` 标记，可重复执行）。
 # 注意：`cargo update` / `cargo clean` / 换 CARGO_HOME 会重新解包 crate，届时需重跑本脚本；
 # 业务侧的启动守卫（backend/src/shared/startup_guard.rs）不依赖本补丁，二者互为兜底。
 #
@@ -42,8 +42,8 @@ src_root = Path(sys.argv[1])
 check_only = sys.argv[2] == "1"
 app_rs = src_root / "src" / "app.rs"
 perm_rs = src_root / "src" / "middleware" / "permission_check.rs"
-MARK_07 = "[cailu-patch code-07]"
-MARK_09 = "[cailu-patch code-09]"
+MARK_07 = "[cloudpivot-patch code-07]"
+MARK_09 = "[cloudpivot-patch code-09]"
 
 
 def load(path: Path) -> str:
@@ -57,14 +57,22 @@ def save(path: Path, text: str) -> None:
 
 
 def apply(path: Path, old: str, new: str, *, marker: str, label: str) -> bool:
-    """幂等替换：已含 marker 则跳过。返回是否真的改动。"""
+    """幂等替换：锚点已消失且补丁代码已在位 → 跳过。返回是否真的改动。
+
+    判据不依赖 marker 的字面前缀（marker 曾用旧项目名，改名不能导致已打的补丁
+    被重复插入）：只要「原锚点不存在」+「新代码的固定片段存在」就认定已打过。
+    """
     text = load(path)
-    if marker in text and new.split(marker, 1)[0][-40:] in text:
-        print(f"  [skip] {label}（已打过）")
-        return False
+    sig = new.split(marker, 1)[0][-40:]   # 补丁代码在 marker 之前的那 40 字符，作为签名
     if old not in text:
+        if sig in text:
+            print(f"  [skip] {label}（已打过）")
+            return False
         print(f"  [FAIL] {label}：锚点未命中 {path}", file=sys.stderr)
         raise SystemExit(3)
+    if sig in text and marker in text:
+        print(f"  [skip] {label}（已打过）")
+        return False
     text = text.replace(old, new, 1)
     save(path, text)
     print(f"  [ok]   {label}")
@@ -75,7 +83,7 @@ def apply(path: Path, old: str, new: str, *, marker: str, label: str) -> bool:
 old_auth = """            if cfg.middleware.auth.enabled && !cfg.middleware.auth.jwt_secret.is_empty() {
                 let auth_asm_started = std::time::Instant::now();"""
 new_auth = """            if cfg.middleware.auth.enabled {
-                // [cailu-patch code-07] fail-open → fail-fast。
+                // [cloudpivot-patch code-07] fail-open → fail-fast。
                 //
                 // 原实现是 `enabled && !jwt_secret.is_empty()`：密钥为空时**什么也不挂**，
                 // 且不报错；此时 AuthClaims 提取器仍会用空 HMAC 密钥验签，攻击者自签
@@ -101,7 +109,7 @@ changed_07 = apply(
 old_field = """    pub rules: Arc<Vec<PermissionRule>>,
 }"""
 new_field = """    pub rules: Arc<Vec<PermissionRule>>,
-    /// [cailu-patch code-09] 免认证路径（`#[alun::no_auth]` / 配置 / 插件三个来源，含全局前缀）。
+    /// [cloudpivot-patch code-09] 免认证路径（`#[alun::no_auth]` / 配置 / 插件三个来源，含全局前缀）。
     ///
     /// 这些路径上认证层放行且**不注入** `AuthClaims`；若仍参与权限规则匹配，
     /// 就会被判成「无权限」——正是 `GET /api/support/config/public` 被
@@ -139,13 +147,13 @@ new_from_config = """    pub fn from_config(config_rules: &[alun_config::Permiss
         }
     }
 
-    /// [cailu-patch code-09] 注入免认证路径（装配期调用一次）。
+    /// [cloudpivot-patch code-09] 注入免认证路径（装配期调用一次）。
     pub fn with_ignore_paths(mut self, paths: Vec<String>) -> Self {
         self.ignore_paths = Arc::new(paths);
         self
     }
 
-    /// [cailu-patch code-09] 该请求路径是否免认证（精确命中或作为前缀命中）。
+    /// [cloudpivot-patch code-09] 该请求路径是否免认证（精确命中或作为前缀命中）。
     pub fn is_no_auth_path(&self, request_path: &str) -> bool {
         self.ignore_paths.iter().any(|p| {
             let trimmed = p.trim_end_matches('/');
@@ -153,7 +161,7 @@ new_from_config = """    pub fn from_config(config_rules: &[alun_config::Permiss
         })
     }
 
-    /// [cailu-patch code-09] 规则遮蔽自检：返回「静态段规则被同方法模板规则覆盖」的描述。
+    /// [cloudpivot-patch code-09] 规则遮蔽自检：返回「静态段规则被同方法模板规则覆盖」的描述。
     ///
     /// 装配期调用并 `warn!` 出来，避免同类问题再次静默上线（CI 里可当 error）。
     pub fn detect_conflicts(&self) -> Vec<String> {
@@ -214,7 +222,7 @@ else:
     new_layer = """        PermissionCheckService {
             inner,
             rules: Arc::clone(&self.rules),
-            // [cailu-patch code-09] svc
+            // [cloudpivot-patch code-09] svc
             ignore_paths: Arc::clone(&self.ignore_paths),
         }"""
     old_svc_field = """    inner: S,
@@ -224,7 +232,7 @@ else:
     new_svc_field = """    inner: S,
     /// 权限规则列表（与层共享，装配时零深克隆）
     rules: Arc<Vec<PermissionRule>>,
-    /// [cailu-patch code-09] 免认证路径（与层共享）
+    /// [cloudpivot-patch code-09] 免认证路径（与层共享）
     ignore_paths: Arc<Vec<String>>,
 }"""
     for old, new, label in (
@@ -246,7 +254,7 @@ old_call = """        match self.rules.iter().find(|rule| {
             path_matches && method_matches
         }) {
             Some(rule) => {"""
-new_call = """        // [cailu-patch code-09] 免认证路径直接放行：认证层在这些路径上不注入
+new_call = """        // [cloudpivot-patch code-09] 免认证路径直接放行：认证层在这些路径上不注入
         // AuthClaims，若继续走规则匹配必然被判 403（`/support/config/public` 即此例）。
         if self.is_no_auth_path(&path) {
             tracing::debug!("权限检查: path={} 属于免认证路径，跳过权限规则", path);
@@ -254,7 +262,7 @@ new_call = """        // [cailu-patch code-09] 免认证路径直接放行：认
             return Box::pin(async move { inner.call(req).await });
         }
 
-        // [cailu-patch code-09] 匹配优先级：完全相等(0) > 纯静态段(1) > 含 {param}(2)。
+        // [cloudpivot-patch code-09] 匹配优先级：完全相等(0) > 纯静态段(1) > 含 {param}(2)。
         // 原实现取「第一条命中」，语义取决于注册顺序，静态子路径会被模板规则遮蔽。
         let mut best: Option<(&PermissionRule, u8)> = None;
         for rule in self.rules.iter() {
@@ -298,7 +306,7 @@ old_perm_asm = """            let perm_asm_started = std::time::Instant::now();
 new_perm_asm = """            let perm_asm_started = std::time::Instant::now();
             let mut perm_layer =
                 mw::PermissionCheckLayer::from_config(&cfg.middleware.permission.rules);
-            // [cailu-patch code-09] 免认证路径必须让权限层跳过（见 permission_check.rs 注释）
+            // [cloudpivot-patch code-09] 免认证路径必须让权限层跳过（见 permission_check.rs 注释）
             {
                 let plugin_no_auth: Vec<crate::NoAuthDef> = self
                     .web_plugins
@@ -327,7 +335,7 @@ else:
 
 old_count = """            let macro_rule_count = macro_rules.len() + self.extra_permissions.len();"""
 new_count = """            let macro_rule_count = macro_rules.len() + self.extra_permissions.len();
-            // [cailu-patch code-09] 规则遮蔽自检：装配期把「静态规则 vs 模板规则」冲突列出来
+            // [cloudpivot-patch code-09] 规则遮蔽自检：装配期把「静态规则 vs 模板规则」冲突列出来
             for conflict in perm_layer.detect_conflicts() {
                 tracing::warn!("权限规则冲突：{conflict}（已按「静态段优先」匹配，请修正规则）");
             }"""

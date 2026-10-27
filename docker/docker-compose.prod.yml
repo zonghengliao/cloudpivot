@@ -1,10 +1,10 @@
-# 菜芦通用后台系统 —— 生产编排（postgres + redis + backend + frontend）
+# 云枢通用后台系统 —— 生产编排（postgres + redis + backend + frontend）
 #
 # 前置：直接执行 scripts/deploy.sh（会先构建前端 dist、构建镜像并拉起本编排）；
 # 后端镜像在容器内多阶段编译，通过 crates.io 依赖 Alun 框架 0.4.2，无需本地框架源码（见 docker/backend/Dockerfile）。
 #
 # 使用：
-#   cd cailu/cailu
+#   cd cloudpivot/cloudpivot
 #   bash scripts/deploy.sh
 #   或手动分步：
 #   bash scripts/build.sh                                   # 前端 dist（后端镜像不依赖本机二进制）
@@ -18,29 +18,29 @@
 
 # 独立项目名：与 docker-compose.yml（开发依赖）分离，避免同目录下共享默认
 # 项目名导致 `docker compose down` 误删对方容器
-name: cailu-prod
+name: cloudpivot-prod
 
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cailu-prod-postgres
+    container_name: cloudpivot-prod-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: cailu
+      POSTGRES_DB: cloudpivot
       POSTGRES_USER: alun
       POSTGRES_PASSWORD: ${ALUN_DATABASE_PASSWORD:?请设置 ALUN_DATABASE_PASSWORD}
       TZ: Asia/Shanghai
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U alun -d cailu"]
+      test: ["CMD-SHELL", "pg_isready -U alun -d cloudpivot"]
       interval: 10s
       timeout: 5s
       retries: 5
 
   redis:
     image: redis:7-alpine
-    container_name: cailu-prod-redis
+    container_name: cloudpivot-prod-redis
     restart: unless-stopped
     # --maxmemory-policy noeviction（CODE-16 B6）：**不要**改回 allkeys-lru。
     # 这个 Redis 里存的是令牌吊销状态（token:blacklist:* / token:rotated:* / online:*）：
@@ -62,15 +62,15 @@ services:
     build:
       context: ..
       dockerfile: docker/backend/Dockerfile
-    image: cailu-prod-backend
-    container_name: cailu-backend
+    image: cloudpivot-prod-backend
+    container_name: cloudpivot-backend
     restart: unless-stopped
     environment:
       ALUN_PROFILE: prod
       ALUN_SERVER_LISTEN: 0.0.0.0:8023
       ALUN_DATABASE_HOST: postgres
       ALUN_DATABASE_PORT: 5432
-      ALUN_DATABASE_NAME: cailu
+      ALUN_DATABASE_NAME: cloudpivot
       ALUN_DATABASE_USER: alun
       ALUN_DATABASE_PASSWORD: ${ALUN_DATABASE_PASSWORD:?请设置 ALUN_DATABASE_PASSWORD}
       ALUN_DATABASE_SSL_MODE: disable
@@ -91,8 +91,8 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile
-    image: cailu-prod-frontend
-    container_name: cailu-frontend
+    image: cloudpivot-prod-frontend
+    container_name: cloudpivot-frontend
     restart: unless-stopped
     ports:
       - "80:80"
@@ -101,12 +101,12 @@ services:
 
 volumes:
   pgdata:
-    name: cailu-prod-pgdata
+    name: cloudpivot-prod-pgdata
   redisdata:
-    name: cailu-prod-redisdata
+    name: cloudpivot-prod-redisdata
   uploads:
-    name: cailu-uploads
+    name: cloudpivot-uploads
   downloads:
-    name: cailu-downloads
+    name: cloudpivot-downloads
   logs:
-    name: cailu-logs
+    name: cloudpivot-logs

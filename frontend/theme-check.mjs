@@ -40,7 +40,7 @@ ws.addEventListener('open', async () => {
       return JSON.stringify({
         themeMode: document.documentElement.getAttribute('theme-mode'),
         togglePresent: !!document.querySelector('.basic-layout__theme-toggle'),
-        localStorageTheme: (JSON.parse(localStorage.getItem('cailu-setting')||'{}')).themeMode || null,
+        localStorageTheme: (JSON.parse(localStorage.getItem('cloudpivot-setting')||'{}')).themeMode || null,
         bodyBg: cs.backgroundColor,
         textColor: cs.color,
         brand7: root.getPropertyValue('--td-brand-color-7').trim(),

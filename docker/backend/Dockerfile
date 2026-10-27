@@ -1,12 +1,12 @@
-# 菜芦通用后台系统 —— 后端镜像（容器内多阶段编译）
+# 云枢通用后台系统 —— 后端镜像（容器内多阶段编译）
 #
 # 说明：
 #   * 后端通过 crates.io 依赖 Alun 框架发布版（alun 0.4.2），构建时由 cargo 自动拉取，
 #     无需本地框架源码，也不再需要 scripts/deploy.sh 暂存本地框架源码的步骤；
 #   * 编译在容器内完成，产物为 Linux 二进制，与宿主机（macOS/Windows）无关。
 #
-# 构建（构建上下文须为 cailu 项目根，含 backend/）：
-#   cd cailu/cailu && docker build -f docker/backend/Dockerfile -t cailu-backend .
+# 构建（构建上下文须为 cloudpivot 项目根，含 backend/）：
+#   cd cloudpivot/cloudpivot && docker build -f docker/backend/Dockerfile -t cloudpivot-backend .
 
 # ---- 构建阶段 ----
 # rust 官方镜像按大版本打标签（rust:1 / rust:1-bookworm），无 1.94 小版本标签
@@ -28,7 +28,7 @@ FROM debian:bookworm-slim
 
 ENV ALUN_PROFILE=prod
 
-COPY --from=builder /app/backend/target/release/cailu /usr/local/bin/cailu
+COPY --from=builder /app/backend/target/release/cloudpivot /usr/local/bin/cloudpivot
 
 # 运行时需要的配置与迁移（App::new() 读取 config/，迁移 runner 读取 migrations/）
 COPY backend/config/ /app/config/
@@ -43,4 +43,4 @@ ENV ALUN_SERVER_LISTEN=0.0.0.0:8023
 
 EXPOSE 8023
 
-CMD ["cailu"]
+CMD ["cloudpivot"]

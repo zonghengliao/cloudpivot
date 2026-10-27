@@ -1,8 +1,8 @@
-# 菜芦通用后台系统（Cailu）
+# 云枢通用后台系统（CloudPivot）
 
 一套基于 **Rust（Alun 框架） + Vue 3 + TDesign** 的通用后台管理系统底座，覆盖登录鉴权、RBAC 权限、组织架构（部门）、数据字典、系统参数、文件管理、多类日志、定时任务、在线用户等管理系统必备能力，不含业务代码，可作为新业务系统的起手模板。
 
-本仓库对应 `菜芦系统` 中的**基础版 `cailu`**（独立项目，可单独开发、构建、部署）。
+本仓库对应 `云枢系统` 中的**基础版 `cloudpivot`**（独立项目，可单独开发、构建、部署）。
 
 ## 运行效果图
 
@@ -21,14 +21,14 @@
 ## 目录结构
 
 ```text
-cailu/
-├── backend/            # 后端：Rust crate `cailu`（二进制同名）
+cloudpivot/
+├── backend/            # 后端：Rust crate `cloudpivot`（二进制同名）
 │   ├── Cargo.toml      # 只声明 alun 门面 + feature
 │   ├── config/         # config.toml + dev/test/prod profile
 │   ├── migrations/     # 迁移（system/、support/、business/、seed/ 按业务域分目录）
 │   ├── uploads/        # 上传文件落盘
 │   └── src/            # main.rs / lib.rs / bootstrap.rs / system / support / business / 横切层
-├── frontend/           # 前端：Vue 包 `@cailu/web`（Vite + TDesign + Pinia）
+├── frontend/           # 前端：Vue 包 `@cloudpivot/web`（Vite + TDesign + Pinia）
 │   ├── vite.config.ts  # 开发代理 /api、/health → 127.0.0.1:8023
 │   ├── deploy/nginx.conf
 │   └── src/            # api / router / stores / layouts / views / components
@@ -55,7 +55,7 @@ cailu/
 ### 0. 开发依赖（PostgreSQL + Redis）
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d   # 拉起 PG（库 cailu）与 Redis
+docker compose -f docker/docker-compose.yml up -d   # 拉起 PG（库 cloudpivot）与 Redis
 # 或不用 docker：先装好 PG，再执行 bash scripts/init-db.sh 建库
 ```
 
@@ -64,7 +64,7 @@ docker compose -f docker/docker-compose.yml up -d   # 拉起 PG（库 cailu）�
 ### 后端
 
 ```bash
-cd cailu/backend
+cd cloudpivot/backend
 cargo run                                  # 自动迁移 + 启动（http://127.0.0.1:8023）
 cargo run -- print-config                  # 核对配置生效结果
 cargo check                                # 编译检查
@@ -74,7 +74,7 @@ cargo fmt && cargo clippy -- -D warnings   # 提交前检查
 ### 前端
 
 ```bash
-cd cailu/frontend
+cd cloudpivot/frontend
 pnpm install
 pnpm dev                                   # http://localhost:5173（代理 /api、/health → 8023）
 pnpm typecheck                             # TS 类型检查
@@ -89,7 +89,7 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
 | `bash scripts/check.sh` | 提交前检查（后端 fmt/clippy/check + 前端 typecheck） |
 | `bash scripts/build.sh` | 构建后端 release 二进制 + 前端 dist |
 | `bash scripts/deploy.sh` | 生产部署（构建产物 + 镜像 + 完整编排，见 docker/docker-compose.prod.yml） |
-| `bash scripts/init-db.sh` | 初始化本地 PG 的 `cailu` / `cailu_test` 库 |
+| `bash scripts/init-db.sh` | 初始化本地 PG 的 `cloudpivot` / `cloudpivot_test` 库 |
 
 ### 默认账号
 
@@ -111,10 +111,10 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
 
 | 项 | 值 |
 |----|----|
-| 仓库 / 项目目录 | `cailu/cailu` |
-| Rust crate / 二进制 | `cailu` |
-| Vue 包 | `@cailu/web`（前端目录 `frontend/`） |
-| 数据库 | `cailu` |
+| 仓库 / 项目目录 | `cloudpivot/cloudpivot` |
+| Rust crate / 二进制 | `cloudpivot` |
+| Vue 包 | `@cloudpivot/web`（前端目录 `frontend/`） |
+| 数据库 | `cloudpivot` |
 | 后端端口 | `8023` |
 | 前端 dev 端口 | `5173` |
 
@@ -126,5 +126,5 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
 它**显式包含专利授权条款**（第 3 条），企业法务在评估「可自由采用」时更放心；
 而后台脚手架的价值来自被大量采用，宽松协议的传播成本最低。
 
-> 专业版 `cailu-pro` 与企业版 `cailu-saas` 是**独立仓库的专有软件**，不适用本许可证。
+> 专业版 `cloudpivot-pro` 与企业版 `cloudpivot-saas` 是**独立仓库的专有软件**，不适用本许可证。
 

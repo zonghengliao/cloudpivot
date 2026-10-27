@@ -1,6 +1,6 @@
-# 菜芦通用后台系统 · 前端（frontend）
+# 云枢通用后台系统 · 前端（frontend）
 
-基于 **Vue 3 + TypeScript + Vite + TDesign** 的通用后台管理前端，与后端工程 [`cailu`](../backend) 配套使用。
+基于 **Vue 3 + TypeScript + Vite + TDesign** 的通用后台管理前端，与后端工程 [`cloudpivot`](../backend) 配套使用。
 覆盖登录鉴权、用户 / 角色 / 菜单 / 部门、字典 / 参数 / 文件 / 日志 / 定时任务 / 在线用户等管理页面。
 
 > 后端接口统一前缀 `/api`，健康探针 `/health`；开发期由 Vite 代理转发，生产期由 nginx 反向代理。
@@ -93,10 +93,10 @@ pnpm build           # 产出 dist/（含 .gz 预压缩文件）
 
 ```bash
 # 1. 上传产物到服务器
-scp -r dist/* user@server:/var/www/cailu/frontend/dist/
+scp -r dist/* user@server:/var/www/cloudpivot/frontend/dist/
 
 # 2. 放置 nginx 配置并按需修改 root 路径与后端地址
-sudo cp deploy/nginx.conf /etc/nginx/conf.d/cailu-frontend.conf
+sudo cp deploy/nginx.conf /etc/nginx/conf.d/cloudpivot-frontend.conf
 sudo nginx -t && sudo nginx -s reload
 ```
 

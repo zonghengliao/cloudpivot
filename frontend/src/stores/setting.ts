@@ -5,7 +5,7 @@ import { defineStore } from 'pinia';
 type ThemeMode = 'light' | 'dark';
 
 /** 持久化键：与后端无关的纯前端偏好 */
-const SETTING_KEY = 'cailu-setting';
+const SETTING_KEY = 'cloudpivot-setting';
 
 /** 从 localStorage 恢复上次保存的偏好（损坏时静默回退默认值） */
 function loadSettings(): { themeMode: ThemeMode; sideCompact: boolean } {

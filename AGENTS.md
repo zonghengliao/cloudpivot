@@ -1,15 +1,15 @@
-# AGENTS.md — 菜芦通用后台系统（基础版 Cailu）
+# AGENTS.md — 云枢通用后台系统（基础版 CloudPivot）
 
 给 AI 编码 Agent 的项目说明。读完本文件即可安全动手；深入约定见 `skill/SKILL.md`、`docs/README.md`（二开文档集入口）与各分册。
 
 ## 项目是什么
 基于 **Rust + Alun 框架（alun）+ Vue 3 + TDesign** 的通用后台底座（基础版）。提供用户 / 角色 / 菜单 / 字典 / 配置 / 文件 / 日志 / 在线用户 / 定时任务等通用后台能力。
 
-> 专业版 `cailu-pro`（数据权限 / 工作流 / 对象存储 / 导入导出）与企业版 `cailu-saas`（多租户）是**独立仓库**，不在本目录。
+> 专业版 `cloudpivot-pro`（数据权限 / 工作流 / 对象存储 / 导入导出）与企业版 `cloudpivot-saas`（多租户）是**独立仓库**，不在本目录。
 
 ## 技术栈
 - 后端：Rust 1.94.1+ / edition 2024，框架 `alun`（门面 crate，能力靠 feature 点单）；PostgreSQL。
-- 前端：`@cailu/web` Vue 3.5 + TS + Vite 6 + TDesign Vue Next + Pinia + ECharts。
+- 前端：`@cloudpivot/web` Vue 3.5 + TS + Vite 6 + TDesign Vue Next + Pinia + ECharts。
 - 默认端口：后端 `8023`，前端 dev `5173`（代理 `/api`、`/health` → `:8023`）。
 - 默认账号：`admin / Admin@123456`（SUPER_ADMIN 跳过权限校验）。
 

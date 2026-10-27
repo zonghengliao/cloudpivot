@@ -593,23 +593,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "cailu"
-version = "0.1.0"
-dependencies = [
- "alun",
- "alun-utils",
- "async-trait",
- "axum",
- "redis",
- "serde",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "tracing",
- "validator",
-]
-
-[[package]]
 name = "cc"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -659,6 +642,23 @@ dependencies = [
  "block-buffer 0.12.1",
  "crypto-common 0.2.2",
  "inout",
+]
+
+[[package]]
+name = "cloudpivot"
+version = "0.1.0"
+dependencies = [
+ "alun",
+ "alun-utils",
+ "async-trait",
+ "axum",
+ "redis",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tokio",
+ "tracing",
+ "validator",
 ]
 
 [[package]]

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 初始化 PostgreSQL 数据库：cailu（开发库）/ cailu_test（测试库）
+# 初始化 PostgreSQL 数据库：cloudpivot（开发库）/ cloudpivot_test（测试库）
 #
 # 用途：
 #   * 不使用 docker、直连本机 PG 时，先执行本脚本建库；
@@ -17,8 +17,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PGHOST="${PGHOST:-127.0.0.1}"
 PGPORT="${PGPORT:-5432}"
 PGUSER="${PGUSER:-alun}"
-DB_DEV="${DB_DEV:-cailu}"
-DB_TEST="${DB_TEST:-cailu_test}"
+DB_DEV="${DB_DEV:-cloudpivot}"
+DB_TEST="${DB_TEST:-cloudpivot_test}"
 
 # 执行通道：优先本机 psql，缺失时回退 docker compose 的 postgres 服务
 use_docker=false

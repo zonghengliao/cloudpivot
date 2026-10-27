@@ -5,7 +5,7 @@
 //! alun 0.4.2 的配置基线允许「`[middleware.auth] enabled = true` 且 `jwt_secret` 为空」
 //! 这一组合：此时认证中间件照常挂载，但签名密钥退化成**空字符串**，任何人都能自行
 //! 签发 `permissions = ["*:*:*"]` 的令牌绕过登录。dev 的密钥自 P0 修复起只由环境变量
-//! `ALUN_MIDDLEWARE_AUTH_JWT_SECRET`（`/etc/cailu/cailu-dev.env`）注入，一旦有人绕过
+//! `ALUN_MIDDLEWARE_AUTH_JWT_SECRET`（`/etc/cloudpivot/cloudpivot-dev.env`）注入，一旦有人绕过
 //! `scripts/dev-up.sh` 直接 `cargo run`（不带 env），进程就会落进这个不安全状态。
 //!
 //! # 两层结构（为什么不是一个检查）
@@ -158,7 +158,7 @@ impl fmt::Display for AuthSecretGuardError {
                 "安全守卫拒绝启动：profile={profile} 下 [middleware.auth] enabled = true，\
                  但签名密钥 jwt_secret 为空（{ENV_JWT_SECRET} 未注入）。\n\
                  危害：认证中间件仍会挂载，签名密钥退化为空字符串，任何人都能伪造令牌绕过登录。\n\
-                 修复：① 用 scripts/dev-up.sh 启动（它会 source /etc/cailu/cailu-dev.env 并注入密钥）；\
+                 修复：① 用 scripts/dev-up.sh 启动（它会 source /etc/cloudpivot/cloudpivot-dev.env 并注入密钥）；\
                  ② 或显式注入环境变量 {ENV_JWT_SECRET}=\"$(openssl rand -hex 32)\"。\n\
                  禁止为了「能跑起来」而把 [middleware.auth] enabled 改成 false。"
             ),
@@ -168,7 +168,7 @@ impl fmt::Display for AuthSecretGuardError {
                  但签名密钥 jwt_secret 太短（当前 {len} 个字符，要求至少 {MIN_JWT_SECRET_LEN} 个）。\n\
                  危害：弱密钥可被离线爆破，等价于认证失效。\n\
                  修复：重新生成强密钥并注入环境变量 {ENV_JWT_SECRET}=\"$(openssl rand -hex 32)\"；\
-                 dev 环境请用 scripts/dev-up.sh 启动（密钥只写在 /etc/cailu/cailu-dev.env，不落 git 跟踪文件）。"
+                 dev 环境请用 scripts/dev-up.sh 启动（密钥只写在 /etc/cloudpivot/cloudpivot-dev.env，不落 git 跟踪文件）。"
             ),
         }
     }

@@ -1,7 +1,7 @@
-# 菜芦通用后台系统 —— 前端镜像（构建产物 + nginx 托管）
+# 云枢通用后台系统 —— 前端镜像（构建产物 + nginx 托管）
 #
-# 构建（构建上下文须为 cailu 项目根）：
-#   cd cailu/cailu && docker build -f docker/frontend/Dockerfile -t cailu-frontend .
+# 构建（构建上下文须为 cloudpivot 项目根）：
+#   cd cloudpivot/cloudpivot && docker build -f docker/frontend/Dockerfile -t cloudpivot-frontend .
 # 运行：见 docker-compose.prod.yml（nginx 托管 dist 并反代 /api、/health 到后端）
 
 # ---- 构建阶段：安装依赖并产出 dist ----

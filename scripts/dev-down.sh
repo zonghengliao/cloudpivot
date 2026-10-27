@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# cailu 开发环境一键停止（只动 dev 的三件东西，prod 的 8023/80 绝不触碰）
+# cloudpivot 开发环境一键停止（只动 dev 的三件东西，prod 的 8023/80 绝不触碰）
 #
-# 用法： bash /opt/cailu/scripts/dev-down.sh            # 全停
-#        ONLY=backend bash /opt/cailu/scripts/dev-down.sh
+# 用法： bash /opt/cloudpivot/scripts/dev-down.sh            # 全停
+#        ONLY=backend bash /opt/cloudpivot/scripts/dev-down.sh
 set -uo pipefail
 
-ROOT=/opt/cailu
-ENV_FILE=/etc/cailu/cailu-dev.env
-PID_DIR=/var/run/cailu-dev
+ROOT=/opt/cloudpivot
+ENV_FILE=/etc/cloudpivot/cloudpivot-dev.env
+PID_DIR=/var/run/cloudpivot-dev
 BACKEND_PORT=8024
 FRONTEND_PORT=5173
 IDE_PORT=8443
@@ -24,7 +24,7 @@ warn(){ printf '\033[1;33m  !\033[0m %s\n' "$*"; }
 
 want() { [ -z "$ONLY" ] || [ "$ONLY" = "$1" ]; }
 
-kill_tree() { # kill_tree <pid> [信号] —— 先杀子孙再杀自己，cargo-watch→cargo→cailu 一并收
+kill_tree() { # kill_tree <pid> [信号] —— 先杀子孙再杀自己，cargo-watch→cargo→cloudpivot 一并收
   local p="$1" sig="${2:-TERM}" k
   for k in $(pgrep -P "$p" 2>/dev/null || true); do kill_tree "$k" "$sig"; done
   kill -"$sig" "$p" 2>/dev/null || true
@@ -56,7 +56,7 @@ stop_one() { # stop_one <name> <port> <中文名>
   fi
 }
 
-say "停止 cailu 开发环境"
+say "停止 cloudpivot 开发环境"
 want backend  && stop_one backend  "$BACKEND_PORT"  "dev 后端(8024)"
 want frontend && stop_one frontend "$FRONTEND_PORT" "dev 前端(5173)"
 want ide      && stop_one code-server "$IDE_PORT"   "code-server(8443)"

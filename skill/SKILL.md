@@ -1,12 +1,12 @@
 ---
-name: cailu
+name: cloudpivot
 description: >-
-  菜芦通用后台系统 基础版（Cailu）项目级 AI 知识包：Rust+alun 后端 / Vue3+TDesign 前端。
-  当需要在 cailu 下编写/审查/调试后端 Rust、前端 Vue、迁移 SQL、新增业务模块、鉴权/JWT 时加载，优先于逐文件检索，节省 token。
+  云枢通用后台系统 基础版（CloudPivot）项目级 AI 知识包：Rust+alun 后端 / Vue3+TDesign 前端。
+  当需要在 cloudpivot 下编写/审查/调试后端 Rust、前端 Vue、迁移 SQL、新增业务模块、鉴权/JWT 时加载，优先于逐文件检索，节省 token。
 agent_created: true
 ---
 
-# 菜芦通用后台系统 基础版 — AI 速查（项目级）
+# 云枢通用后台系统 基础版 — AI 速查（项目级）
 
 > 配套 `AGENTS.md`（操作指令）与 `llms.txt`（文件地图）。本文件为浓缩知识包，加载后即用。
 

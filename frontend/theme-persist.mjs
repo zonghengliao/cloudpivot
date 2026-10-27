@@ -19,7 +19,7 @@ ws.addEventListener('open', async () => {
 
   // 2) hard reload — initTheme() should restore dark from localStorage
   await send('Page.navigate', { url: BASE + '/dashboard' }); await sleep(3000);
-  const after = await ev("(function(){return JSON.stringify({mode:document.documentElement.getAttribute('theme-mode'), saved:(JSON.parse(localStorage.getItem('cailu-setting')||'{}')).themeMode, bodyBg:getComputedStyle(document.body).backgroundColor, layout:!!document.querySelector('.basic-layout')});})()");
+  const after = await ev("(function(){return JSON.stringify({mode:document.documentElement.getAttribute('theme-mode'), saved:(JSON.parse(localStorage.getItem('cloudpivot-setting')||'{}')).themeMode, bodyBg:getComputedStyle(document.body).backgroundColor, layout:!!document.querySelector('.basic-layout')});})()");
   console.log('before reload mode:', before.result.value);
   console.log('after reload:', after.result.value);
   const a = JSON.parse(after.result.value);

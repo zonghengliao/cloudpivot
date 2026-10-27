@@ -1,6 +1,6 @@
 [package]
-name = "cailu"
-description = "菜芦通用后台管理系统 —— 基于 Alun 框架 0.4.2"
+name = "cloudpivot"
+description = "云枢通用后台管理系统 —— 基于 Alun 框架 0.4.2"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.1"
