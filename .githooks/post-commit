@@ -1,0 +1,22 @@
+#!/bin/bash
+# post-commit：每次提交后自动同步到 origin（本地 bare 仓库 /opt/git/cailu.git）
+# 设计原则：
+#   1. 绝不阻塞或改变 commit 结果 —— 任何失败都静默忽略（exit 0）
+#   2. 只推当前分支，不推 --all（避免意外推送/删除远端分支）
+#   3. detach HEAD 状态跳过
+#   4. 超时保护，bare 在本地磁盘正常 <1s
+
+BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || exit 0
+[ -z "$BRANCH" ] && exit 0
+
+# 确认 origin 存在且是本机 bare（不向上游 GitHub 推任何东西）
+ORIGIN_URL=$(git remote get-url origin 2>/dev/null) || exit 0
+case "$ORIGIN_URL" in
+  /opt/git/cailu.git*) ;;
+  *) exit 0 ;;   # origin 不是本地 bare，宁可不推，防误操作
+esac
+
+# 10 秒超时，失败静默
+timeout 10 git push -q origin "$BRANCH" >/dev/null 2>&1 || true
+
+exit 0
