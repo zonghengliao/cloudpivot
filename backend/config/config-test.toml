@@ -10,5 +10,6 @@ name = "cailu_test"
 sql_logging = true
 
 [middleware.auth]
+# jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（/etc/cailu/cailu-test.env, 600），
+# 禁止把任何密钥写回本文件（该文件在 git 跟踪中，仓库为 public）
 enabled = true
-jwt_secret = "cailu-test-jwt-secret-please-change-in-production"

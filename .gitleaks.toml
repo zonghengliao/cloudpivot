@@ -1,0 +1,76 @@
+# cailu secret 扫描策略（gitleaks v8 配置）
+#
+# 目标：把「密钥明文进 git」这件事在提交阶段和 CI 阶段都拦住，
+# 至少覆盖 backend/config/*.toml 中的 jwt_secret / password / *_secret。
+#
+# 用法（本地/CI 统一走 scripts/secret-scan.sh，不要直接调 gitleaks）：
+#   bash scripts/secret-scan.sh --staged    # pre-commit：只扫暂存区
+#   bash scripts/secret-scan.sh --tree      # 只扫 HEAD 跟踪的文件
+#   bash scripts/secret-scan.sh --history   # 扫全部历史提交
+
+title = "cailu secrets policy"
+[extend]
+# 保留 gitleaks 内置规则（AWS/GitHub token/私钥/通用高熵串等）
+useDefault = true
+
+# ---------------------------------------------------------------- 规则 1
+# 本仓库最核心的一条：配置文件里的凭据赋值
+[[rules]]
+id = "cailu-config-toml-credential"
+description = "backend/config/*.toml 中出现 jwt_secret / password / *_secret 等明文赋值"
+regex = '''(?i)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']'''
+secretGroup = 2
+path = '''(^|/)backend/config/[^/]+\.toml$'''
+keywords = ["jwt_secret", "password", "_secret", "api_key", "secret"]
+
+  # 空值 / 明确的占位符不算泄露（例如 jwt_secret = ""、password = "${DB_PASSWORD}"）
+  [[rules.allowlists]]
+  description = "空值与占位符"
+  regexTarget = "secret"
+  regexes = [
+    '''^$''',
+    '''(?i)^(changeme|change_me|change-me|placeholder|dummy|todo|xxx+|your[_-]?[a-z]*|<[^>]+>|\$\{[^}]+\}|\$[A-Z_]+)$''',
+  ]
+
+  # config.toml 中的 `password = "alun"` 是 alun 框架 docker compose 的本地默认库口令，
+  # 生产/dev/test 三个真实环境都由 ALUN_DATABASE_PASSWORD 覆盖（见 /etc/cailu/*.env）。
+  # 已作为 P3 记入安全报告；在它被彻底去掉之前，这里先显式放行，避免 CI 永久红灯。
+  [[rules.allowlists]]
+  description = "config.toml 的 docker 本地默认库口令（P3，待改造）"
+  regexTarget = "match"
+  paths = ['''(^|/)backend/config/config\.toml$''']
+  regexes = ['''^\s*password\s*=\s*"alun"\s*$''']
+
+# ---------------------------------------------------------------- 规则 2
+# 兜底：任何文件里出现 jwt_secret 的字面赋值（防止有人换个扩展名 / 写进 .env.example）
+[[rules]]
+id = "cailu-jwt-secret-anywhere"
+description = "任何文件中出现 jwt_secret 字面赋值且值不像占位符"
+regex = '''(?i)jwt_secret["']?\s*[=:]\s*["']?([A-Za-z0-9_\-\.]{16,})["']?'''
+secretGroup = 1
+keywords = ["jwt_secret"]
+
+  [[rules.allowlists]]
+  description = "环境变量名/占位符/文档示例"
+  regexTarget = "secret"
+  regexes = [
+    '''(?i)^(please[_-]?change.*|change[_-]?me.*|your[_-].*|<.*>|\$\{.*\})$''',
+  ]
+
+# ---------------------------------------------------------------- 规则 3
+# 本仓库历史事故的直接防线：dev/test/prod 的 JWT 密钥前缀特征（cailu-<env>-jwt-secret-*）
+[[rules]]
+id = "cailu-jwt-secret-literal"
+description = "形如 cailu-{dev,test,prod}-jwt-secret-... 的历史密钥字面量"
+regex = '''cailu-(dev|test|prod)-jwt-secret-[A-Za-z0-9_\-]+'''
+keywords = ["jwt-secret-"]
+
+# ---------------------------------------------------------------- 全局排除
+[allowlist]
+description = "构建产物 / 依赖 / 版本库内部对象不参与扫描"
+paths = [
+  '''(^|/)backend/target/''',
+  '''(^|/)frontend/node_modules/''',
+  '''(^|/)frontend/dist/''',
+  '''(^|/)\.git/''',
+]

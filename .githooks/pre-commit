@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# cailu pre-commit：阻止密钥/口令明文进入 git
+#
+# 安装（每个克隆执行一次）：
+#   git config core.hooksPath .githooks
+#
+# 设计：fail closed —— 扫描器不可用时拒绝提交，而不是静默放行。
+set -uo pipefail
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+SCAN="$ROOT/scripts/secret-scan.sh"
+
+if [ ! -x "$SCAN" ]; then
+  chmod +x "$SCAN" 2>/dev/null || true
+fi
+if [ ! -f "$SCAN" ]; then
+  echo "✘ pre-commit: 找不到 $SCAN，拒绝提交。" >&2
+  echo "  如确需绕过（仅限紧急且已人工确认无密钥）：git commit --no-verify" >&2
+  exit 1
+fi
+
+# 允许跳过：仅在明确知道自己在做什么时使用
+if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
+  echo "! pre-commit: SKIP_SECRET_SCAN=1，跳过 secret 扫描（已记录到 stderr）" >&2
+  exit 0
+fi
+
+echo "▶ pre-commit secret 扫描（暂存区）"
+bash "$SCAN" --staged
+rc=$?
+[ "$rc" -eq 0 ] && exit 0
+
+echo "" >&2
+echo "✘ 提交被拒绝：疑似密钥/口令明文。" >&2
+echo "  处理方式：把密钥移出代码，改由环境变量注入（cailu 约定 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
+echo "  密钥文件放 /etc/cailu/<env>.env 并 chmod 600；详见 .gitleaks.toml 顶部说明。" >&2
+exit "$rc"
