@@ -12,7 +12,6 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    ContactDialog: typeof import('./../components/ContactDialog.vue')['default']
     DeptTreeSelect: typeof import('./../components/DeptTreeSelect.vue')['default']
     DictSelect: typeof import('./../components/DictSelect.vue')['default']
     DictTag: typeof import('./../components/DictTag.vue')['default']
@@ -74,7 +73,6 @@ declare module 'vue' {
 
 // For TSX support
 declare global {
-  const ContactDialog: typeof import('./../components/ContactDialog.vue')['default']
   const DeptTreeSelect: typeof import('./../components/DeptTreeSelect.vue')['default']
   const DictSelect: typeof import('./../components/DictSelect.vue')['default']
   const DictTag: typeof import('./../components/DictTag.vue')['default']

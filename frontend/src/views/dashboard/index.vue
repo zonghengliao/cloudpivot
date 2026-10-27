@@ -197,11 +197,6 @@
                     </t-tag>
                   </div>
 
-                  <!-- 卡片最下方：联系我们 -->
-                  <t-button block variant="outline" class="dashboard__about-contact" @click="showContact">
-                    <template #icon><t-icon name="call" /></template>
-                    联系我们
-                  </t-button>
                 </div>
               </t-card>
             </t-col>
@@ -209,8 +204,6 @@
         </t-col>
       </t-row>
     </t-loading>
-
-    <ContactDialog v-model:visible="contactVisible" />
   </div>
 </template>
 
@@ -220,7 +213,6 @@ import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import type { EChartsCoreOption } from 'echarts';
 import EChart from '@/components/EChart.vue';
-import ContactDialog from '@/components/ContactDialog.vue';
 import { fetchHealth, type HealthRes } from '@/api/health';
 import { fetchOverview, type OverviewRes } from '@/api/support/dashboard-api';
 import { ApiError } from '@/api/request';
@@ -246,13 +238,6 @@ const PROJECT_INFO = {
   stack: ['Rust', 'alun', 'PostgreSQL', 'Redis', 'Vue 3', 'TypeScript', 'Vite', 'TDesign'],
   stats: { backend: 356, frontend: 168 },
 };
-
-/** 联系我们弹窗（内含公众号二维码，文案与二维码见 `ContactDialog`） */
-const contactVisible = ref(false);
-
-function showContact(): void {
-  contactVisible.value = true;
-}
 
 /**
  * 首页只展示 8 个核心指标（后端共下发 12 个）。
@@ -790,11 +775,6 @@ onMounted(() => {
 
   &__about-tag {
     margin: 0;
-  }
-
-  // 卡片最下方的「联系我们」：通栏，与上方内容留一段间距
-  &__about-contact {
-    margin-top: 2px;
   }
 
   &__entry {
