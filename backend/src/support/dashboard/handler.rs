@@ -34,29 +34,28 @@ use crate::utils;
 )]
 #[alun::get("/support/dashboard/overview")]
 pub async fn overview() -> ResResult<OverviewRes> {
-    if let Some(store) = try_cache() {
-        if let Some(cached) = Cache::get::<OverviewRes>(store, constants::CACHE_KEY_DASHBOARD_METRICS)
-            .await
-            .ok()
-            .flatten()
-        {
-            return Ok(Res::ok(cached));
-        }
+    if let Some(store) = try_cache()
+        && let Some(cached) =
+            Cache::get::<OverviewRes>(store, constants::CACHE_KEY_DASHBOARD_METRICS)
+                .await
+                .ok()
+                .flatten()
+    {
+        return Ok(Res::ok(cached));
     }
 
     let overview = load_overview().await?;
 
-    if let Some(store) = try_cache() {
-        if let Err(e) = Cache::set_ex(
+    if let Some(store) = try_cache()
+        && let Err(e) = Cache::set_ex(
             store,
             constants::CACHE_KEY_DASHBOARD_METRICS,
             &overview,
             constants::CACHE_DASHBOARD_TTL_SECS,
         )
         .await
-        {
-            tracing::warn!(error = %e, "写入工作台概览缓存失败");
-        }
+    {
+        tracing::warn!(error = %e, "写入工作台概览缓存失败");
     }
 
     Ok(Res::ok(overview))

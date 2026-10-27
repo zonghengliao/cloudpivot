@@ -118,15 +118,10 @@ SELECT
        FROM operation_logs o, scope
       WHERE o.created_at >= scope.week_start AND o.created_at < scope.day_end)  AS op_log_week
 "#,
-        REPORT_TIME_ZONE,
-        REPORT_TIME_ZONE,
-        REPORT_TIME_ZONE,
+        REPORT_TIME_ZONE, REPORT_TIME_ZONE, REPORT_TIME_ZONE,
     );
 
-    let row = db()
-        .find_first(&sql)
-        .await?
-        .ok_or(DbError::NotFound)?;
+    let row = db().find_first(&sql).await?.ok_or(DbError::NotFound)?;
 
     Ok(MetricRow {
         user_total: row.get_typed::<i64>("user_total").unwrap_or_default(),
@@ -170,8 +165,7 @@ SELECT to_char(days.d, 'MM-DD')                        AS label,
  GROUP BY days.d
  ORDER BY days.d
 "#,
-        REPORT_TIME_ZONE,
-        REPORT_TIME_ZONE,
+        REPORT_TIME_ZONE, REPORT_TIME_ZONE,
     ))
     .await
 }
@@ -202,8 +196,7 @@ SELECT to_char(days.d, 'MM-DD')                        AS label,
  GROUP BY days.d
  ORDER BY days.d
 "#,
-        REPORT_TIME_ZONE,
-        REPORT_TIME_ZONE,
+        REPORT_TIME_ZONE, REPORT_TIME_ZONE,
     ))
     .await
 }
@@ -221,7 +214,9 @@ SELECT to_char(days.d, 'MM-DD')                        AS label,
 /// # 异常情况
 ///
 /// 数据库异常或缺少预期列时返回 [`DbError`]。
-async fn trend_rows<T: for<'r> FromTrendRow<'r>>(sql: String) -> std::result::Result<Vec<T>, DbError> {
+async fn trend_rows<T: for<'r> FromTrendRow<'r>>(
+    sql: String,
+) -> std::result::Result<Vec<T>, DbError> {
     let params = vec![Value::from(TREND_DAYS)];
     let rows = db().find_with_params(&sql, params).await?;
     rows.iter().map(T::from_row).collect()

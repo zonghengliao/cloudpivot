@@ -146,7 +146,11 @@ pub(crate) async fn invalidate_role_holders(role_id: &uuid::Uuid) {
         }
     }
     if !user_ids.is_empty() {
-        tracing::debug!(?role_id, users = user_ids.len(), "失效角色持有者的主体上下文缓存");
+        tracing::debug!(
+            ?role_id,
+            users = user_ids.len(),
+            "失效角色持有者的主体上下文缓存"
+        );
     }
     invalidate_users_principal(&user_ids).await;
 }
@@ -173,7 +177,11 @@ pub(crate) async fn load_role_codes(
 ) -> std::result::Result<Vec<String>, DbError> {
     let key = cache_key_user_roles(user_id);
     if let Some(cached) = cache_get::<Vec<CachedRole>>(&key).await {
-        return Ok(cached.into_iter().filter(|r| r.enabled).map(|r| r.role_code).collect());
+        return Ok(cached
+            .into_iter()
+            .filter(|r| r.enabled)
+            .map(|r| r.role_code)
+            .collect());
     }
     let roles = load_roles_uncached(user_id).await?;
     let projection = roles.iter().map(CachedRole::from_model).collect::<Vec<_>>();

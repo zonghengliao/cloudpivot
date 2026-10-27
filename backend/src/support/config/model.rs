@@ -292,7 +292,9 @@ pub(crate) async fn reload_runtime_snapshot() -> std::result::Result<usize, DbEr
 
     let mut values: HashMap<String, String> = HashMap::with_capacity(rows.len());
     for row in rows {
-        let Some(raw) = row.config_value else { continue };
+        let Some(raw) = row.config_value else {
+            continue;
+        };
         let plain = if row.is_encrypted {
             match decrypt_config_value(&raw) {
                 Ok(value) => value,
@@ -350,7 +352,11 @@ pub(crate) async fn reload_runtime_snapshot() -> std::result::Result<usize, DbEr
 ///
 /// 当前快照的键名升序列表；快照未装载或已过期时为空。
 pub(crate) fn runtime_snapshot_keys() -> Vec<String> {
-    let mut keys = runtime_snapshot().unwrap_or_default().keys().cloned().collect::<Vec<_>>();
+    let mut keys = runtime_snapshot()
+        .unwrap_or_default()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>();
     keys.sort();
     keys
 }
@@ -679,17 +685,16 @@ pub(crate) async fn bump_config_version() {
         .timestamp_nanos_opt()
         .unwrap_or_default()
         .to_string();
-    if let Some(store) = try_cache() {
-        if let Err(e) = Cache::set_ex(
+    if let Some(store) = try_cache()
+        && let Err(e) = Cache::set_ex(
             store,
             constants::CACHE_KEY_CONFIG_VERSION,
             &version,
             CONFIG_VERSION_TTL_SECS,
         )
         .await
-        {
-            tracing::warn!(error = %e, "写入参数版本号失败，其它实例将依赖快照 TTL 兜底");
-        }
+    {
+        tracing::warn!(error = %e, "写入参数版本号失败，其它实例将依赖快照 TTL 兜底");
     }
     if let Ok(mut guard) = last_seen_cell().write() {
         *guard = Some(version);
@@ -723,10 +728,10 @@ pub(crate) fn spawn_config_version_watcher() {
     }
     tokio::spawn(async move {
         // 先取一次基线，避免刚启动就把「首次读到版本」误判为外部变更
-        if let Some(version) = read_config_version().await {
-            if let Ok(mut guard) = last_seen_cell().write() {
-                *guard = Some(version);
-            }
+        if let Some(version) = read_config_version().await
+            && let Ok(mut guard) = last_seen_cell().write()
+        {
+            *guard = Some(version);
         }
         loop {
             tokio::time::sleep(Duration::from_secs(constants::CONFIG_VERSION_POLL_SECS)).await;
