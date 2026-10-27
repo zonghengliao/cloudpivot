@@ -64,8 +64,6 @@ for f in files():
         val = m.group(2)
         if ALLOW.match(val):
             continue
-        if re.search(r'(^|/)backend/config/config\.toml$', f) and re.fullmatch(r'\s*password\s*=\s*"alun"\s*', line):
-            continue
         hits += 1
         print(f"  ✘ {f}:{i}  {m.group(1)} = <REDACTED len={len(val)}>")
 print(f"内置规则命中 {hits} 处")

@@ -28,9 +28,13 @@ type = "postgres"
 host = "127.0.0.1"
 port = 5432
 name = "cailu"
-# 本机（docker compose 的 alun-db-postgres-1）默认账号；生产环境用 ALUN_DATABASE_* 注入
+# 账号名（非凭据）：与 docker/docker-compose.yml 的本地开发库一致，可用 ALUN_DATABASE_USER 覆盖
 user = "alun"
-password = "alun"
+# 库口令一律由 ALUN_DATABASE_PASSWORD 注入，仓库内保持空值（本仓库为 public，禁止写入明文）：
+#   dev/test/prod 见 /etc/cailu/*.env（600）；本地手工起服务前先 export ALUN_DATABASE_PASSWORD=...
+#   （docker/docker-compose.yml 里的 POSTGRES_PASSWORD 是那套本地 compose 自己的库口令，
+#     两者需保持一致；后端启动不再依赖任何 toml 默认口令）
+password = ""
 password_encrypted = false
 max_connections = 10
 # 启动期 bootstrap 并发（种子/字典预热/参数快照等）会同时借出多条连接；

@@ -17,8 +17,10 @@ useDefault = true
 # 本仓库最核心的一条：配置文件里的凭据赋值
 [[rules]]
 id = "cailu-config-toml-credential"
+# 必须带 (?m)：gitleaks 的多行匹配要显式开启，否则 `^` 只匹配整段文本首行，
+# 配置文件里第 2 行以后的赋值会漏检（2026-10-27 实测：加 (?m) 前 dir/--staged 均 no leaks）。
 description = "backend/config/*.toml 中出现 jwt_secret / password / *_secret 等明文赋值"
-regex = '''(?i)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']'''
+regex = '''(?im)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']'''
 secretGroup = 2
 path = '''(^|/)backend/config/[^/]+\.toml$'''
 keywords = ["jwt_secret", "password", "_secret", "api_key", "secret"]
@@ -31,15 +33,6 @@ keywords = ["jwt_secret", "password", "_secret", "api_key", "secret"]
     '''^$''',
     '''(?i)^(changeme|change_me|change-me|placeholder|dummy|todo|xxx+|your[_-]?[a-z]*|<[^>]+>|\$\{[^}]+\}|\$[A-Z_]+)$''',
   ]
-
-  # config.toml 中的 `password = "alun"` 是 alun 框架 docker compose 的本地默认库口令，
-  # 生产/dev/test 三个真实环境都由 ALUN_DATABASE_PASSWORD 覆盖（见 /etc/cailu/*.env）。
-  # 已作为 P3 记入安全报告；在它被彻底去掉之前，这里先显式放行，避免 CI 永久红灯。
-  [[rules.allowlists]]
-  description = "config.toml 的 docker 本地默认库口令（P3，待改造）"
-  regexTarget = "match"
-  paths = ['''(^|/)backend/config/config\.toml$''']
-  regexes = ['''^\s*password\s*=\s*"alun"\s*$''']
 
 # ---------------------------------------------------------------- 规则 2
 # 兜底：任何文件里出现 jwt_secret 的字面赋值（防止有人换个扩展名 / 写进 .env.example）
