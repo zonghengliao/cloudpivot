@@ -8,6 +8,7 @@
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
 use alun::prelude::*;
+use axum::Json;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use std::net::SocketAddr;
@@ -22,8 +23,8 @@ use crate::support::log::{
 };
 use crate::support::online::model::{OnlineSession, OnlineSessionModel};
 use crate::system::auth::dto::{
-    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, RefreshTokenReq, TokenRes,
-    UpdateProfileReq,
+    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq,
+    TokenRes, UpdateProfileReq,
 };
 use crate::system::auth::model;
 use crate::system::menu::dto::MenuRes;
@@ -346,6 +347,31 @@ pub async fn refresh(
         ));
     }
 
+    // 令牌版本号比对：改密 / 改角色 / 停用 / 删除会自增 token_version，
+    // 旧 refresh token 即使没被逐个拉黑，也在此处整体失效（安全审计 CODE-05 / CODE-08）。
+    let token_version = claims
+        .extra_i64(constants::CLAIM_TOKEN_VERSION)
+        .unwrap_or(0);
+    if token_version != i64::from(user.token_version) {
+        log::record_auth(
+            &headers,
+            &connect_info,
+            AuthLogInput {
+                user_id: Some(user.id),
+                username: Some(user.username.clone()),
+                auth_type: AuthType::RefreshToken,
+                auth_status: AuthStatus::Fail,
+                error_message: Some("刷新令牌的令牌版本号已过期".to_string()),
+                login_duration: None,
+            },
+        );
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_REVOKED,
+            "登录状态已失效，请重新登录",
+        ));
+    }
+
     // 刷新路径不采集分段耗时：令牌已存在，慢点只在首次登录需要定位。
     let (token, new_claims) = issue_token(&user, None).await?;
     register_online_session(&headers, &connect_info, &new_claims).await;
@@ -389,9 +415,39 @@ pub async fn logout(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    payload: Option<Json<LogoutReq>>,
 ) -> ResResult<()> {
-    JWT::from_config().logout(&claims).await;
+    let jwt = JWT::from_config();
+    jwt.logout(&claims).await;
     revoke_online_session(&claims).await;
+
+    // 同时吊销请求体带来的 refresh token：只拉黑 access 令牌时，refresh 仍能续期
+    // 7 天，「退出登录」形同虚设（安全审计 CODE-05）。
+    if let Some(Json(req)) = payload
+        && let Some(raw) = req
+            .refresh_token
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty())
+    {
+        match jwt.validate(raw) {
+            Ok(refresh_claims)
+                if refresh_claims.token_type == Some(TokenType::Refresh)
+                    && refresh_claims.sub == claims.sub =>
+            {
+                jwt.blacklist(&refresh_claims).await;
+            }
+            Ok(_) => tracing::warn!(
+                user_id = %claims.sub,
+                "登出时提交的 refresh token 与当前会话不匹配，已忽略"
+            ),
+            Err(e) => tracing::warn!(
+                user_id = %claims.sub,
+                error = %e,
+                "登出时提交的 refresh token 无效，已忽略"
+            ),
+        }
+    }
     log::record_auth(
         &headers,
         &connect_info,
@@ -446,6 +502,7 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
         dept_id: user.dept_id.map(|v| v.to_string()),
         roles: codes,
         permissions,
+        must_change_password: user.must_change_password,
     }))
 }
 
@@ -606,12 +663,22 @@ pub async fn change_password(
         .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "密码加密失败"))?;
     SysUserModel::of(user_id)
         .set(SysUserModel::password(), hashed)
+        // 改密成功即解除「首登强制改密」标记（安全审计 CODE-06）
+        .set(SysUserModel::must_change_password(), false)
         .set(SysUserModel::updated_at(), chrono::Utc::now())
         .set(SysUserModel::update_by(), utils::current_user_uuid(&claims))
         .update(db())
         .await
         .map(|_| ())
         .map_err(|e| utils::db_error(e, "修改密码"))?;
+
+    // 改密即全端下线：令牌版本号自增，使该用户已签发的 access / refresh 令牌全部失效
+    // （含本次请求所用的令牌），客户端须用新口令重新登录（安全审计 CODE-05 / CODE-08）。
+    if let Err(e) = crate::system::user::model::bump_token_version(&user_id).await {
+        tracing::error!(error = %e, user_id = %user_id, "改密后自增令牌版本号失败");
+    }
+    crate::system::auth::model::invalidate_user_principal(&user_id).await;
+    crate::support::online::model::force_logout_user(&user_id.to_string()).await;
 
     log::record_password_change(
         &headers,
@@ -769,6 +836,12 @@ async fn issue_token(
             .username(&user.username)
             .roles(&codes)
             .permissions(&permissions)
+            // 令牌版本号：认证层（middleware/session_guard.rs）逐请求与库中值比对，
+            // 改密 / 改角色 / 停用即整体作废旧令牌（安全审计 CODE-08）
+            .claim_i64(
+                constants::CLAIM_TOKEN_VERSION,
+                i64::from(user.token_version),
+            )
     };
     let access_token = jwt.issue(builder()).map_err(|e| {
         tracing::error!(error = %e, "签发访问令牌失败");
@@ -797,6 +870,8 @@ async fn issue_token(
             username: user.username.clone(),
             real_name: user.real_name.clone(),
         }),
+        // 前端据此直接跳改密页，不必先撞一次 403（安全审计 CODE-06）
+        must_change_password: user.must_change_password,
     };
     Ok((token, claims))
 }
@@ -977,7 +1052,7 @@ fn log_login_failure(
             auth_type: AuthType::Login,
             auth_status: AuthStatus::Fail,
             error_message: Some(reason.to_string()),
-            login_duration: Some(timer.total_ms() as i32),
+            login_duration: Some(timer.total_ms()),
         },
     );
     timer.report();

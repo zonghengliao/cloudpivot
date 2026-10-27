@@ -23,6 +23,13 @@ PID_DIR=/var/run/cailu-dev
 export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 [ -f "$ENV_FILE" ] || { echo "缺少 $ENV_FILE" >&2; exit 1; }
+# dev 的 profile 覆盖配置已移出 git（.gitignore，安全审计 CODE-01）：新环境先复制模板，
+# 否则会带着「认证关闭」的基础配置裸跑，看起来能起但不校验令牌。
+[ -f "$ROOT/backend/config/config-dev.toml" ] || {
+  echo "缺少 backend/config/config-dev.toml（该文件不入库）。请先执行：" >&2
+  echo "  cp backend/config/config-dev.example.toml backend/config/config-dev.toml" >&2
+  exit 1
+}
 set -a; . "$ENV_FILE"; set +a
 set +u
 

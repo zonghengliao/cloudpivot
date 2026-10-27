@@ -11,5 +11,7 @@
 //! | 中间件 | 职责 | 交付阶段 |
 //! |--------|------|----------|
 //! | [`operation_log`] | 记录写操作（方法 / 路径 / 操作人 / 耗时 / 结果）到 `operation_logs` | P4 |
+//! | [`session_guard`] | 会话守卫：令牌版本比对 + 首登强制改密（链内层，可读 `AuthClaims`） | P1 安全 |
 
 pub mod operation_log;
+pub mod session_guard;

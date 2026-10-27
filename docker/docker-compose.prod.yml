@@ -69,7 +69,7 @@ services:
       ALUN_DATABASE_SSL_MODE: disable
       ALUN_REDIS_URL: redis://redis:6379
       ALUN_MIDDLEWARE_AUTH_JWT_SECRET: ${ALUN_MIDDLEWARE_AUTH_JWT_SECRET:?请设置 ALUN_MIDDLEWARE_AUTH_JWT_SECRET}
-      ALUN_ADMIN_PASSWORD: ${ALUN_ADMIN_PASSWORD:-Admin@123456}
+      ALUN_ADMIN_PASSWORD: ${ALUN_ADMIN_PASSWORD:?请设置 ALUN_ADMIN_PASSWORD（管理员初始口令，禁止使用缺省值）}
     depends_on:
       postgres:
         condition: service_healthy

@@ -63,6 +63,17 @@ pub struct SysUserModel {
     pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 备注。
     pub remark: Option<String>,
+    /// 是否必须修改密码（`TRUE` 时除改密 / 登出外全部接口 403）。
+    ///
+    /// 由 `V0022__add_session_security_flags` 引入：管理员初始口令由环境变量或随机
+    /// 生成时置 `TRUE`，本人改密成功后置 `FALSE`（安全审计 CODE-06）。
+    pub must_change_password: bool,
+    /// 令牌版本号：自增即令该用户已签发的全部令牌失效。
+    ///
+    /// 改密 / 改角色 / 停用 / 重置口令时自增（[`bump_token_version`]）；签发时写入
+    /// 令牌 claim `ver`，认证层逐请求与库中值比对（见 `middleware::session_guard`）。
+    /// 安全审计 CODE-05 / CODE-08。
+    pub token_version: i32,
     /// 创建时间，由 `TimestampHook` 维护。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 更新时间，由 `TimestampHook` 维护。
@@ -479,4 +490,68 @@ pub(crate) async fn batch_update_dept(
         params.push(Value::from(id));
     }
     tx.execute_with_params(&sql, params).await
+}
+
+// ==================== 会话安全（令牌版本 / 首登改密） ====================
+
+/// 令牌版本号自增，返回自增后的新值。
+///
+/// 改密 / 重置口令 / 改角色 / 停用账号后调用：签发时写入令牌的 `ver` claim 与库中值
+/// 不再相等，该用户已签发的全部 access / refresh 令牌立即失效（CODE-08）。
+///
+/// # 参数
+///
+/// - `user_id`：目标用户 ID。
+///
+/// # 返回值
+///
+/// 自增后的 `token_version`。
+///
+/// # 异常情况
+///
+/// 用户不存在或数据库异常返回 [`DbError`]。
+pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Result<i32, DbError> {
+    let rows = db()
+        .find_with_params(
+            "UPDATE sys_user SET token_version = token_version + 1, updated_at = now() \
+             WHERE id = ? AND deleted_at IS NULL RETURNING token_version",
+            vec![Value::from(user_id)],
+        )
+        .await?;
+    rows.first()
+        .map(|row| row.get_typed::<i32>("token_version"))
+        .transpose()?
+        .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))
+}
+
+/// 读取会话安全字段（认证层逐请求比对用）。
+///
+/// # 参数
+///
+/// - `user_id`：用户 ID。
+///
+/// # 返回值
+///
+/// `Some((token_version, must_change_password))`；用户不存在（已删除）返回 `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn load_session_flags(
+    user_id: &uuid::Uuid,
+) -> std::result::Result<Option<(i32, bool)>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT token_version, must_change_password FROM sys_user \
+             WHERE id = ? AND deleted_at IS NULL",
+            vec![Value::from(user_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some((
+        row.get_typed::<i32>("token_version")?,
+        row.get_typed::<bool>("must_change_password")?,
+    )))
 }

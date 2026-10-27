@@ -11,3 +11,18 @@
 # 前端依赖与构建产物
 /frontend/node_modules/
 /frontend/dist/
+
+# 环境与密钥（安全审计 CODE-01：只允许提交 *.example.toml / .env.example）
+# 本项目的 env 实际落在 /etc/cailu/*.env（600），仓库内一律不入库
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+id_ed25519*
+
+# 环境私有配置：dev / test 的 profile 覆盖一律不入库（密钥只经 env 注入）。
+# 新环境从同目录的 *.example.toml 复制后再本地修改；模板里只放非敏感项。
+/backend/config/config-dev.toml
+/backend/config/config-test.toml

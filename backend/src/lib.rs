@@ -70,6 +70,9 @@ pub async fn run() -> Result<()> {
     // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 ALUN_MIDDLEWARE_AUTH_JWT_SECRET）
     // 会先死在数据库连接失败上，掩盖「密钥未注入」这个真正原因。
     if let Err(violation) = shared::startup_guard::preflight() {
+        // 此刻日志订阅者尚未初始化（App::new() 里才装 tracing），
+        // 因此必须直写标准错误，否则这条「为什么拒绝启动」会彻底丢失。
+        eprintln!("FATAL: {violation}");
         tracing::error!("{violation}");
         return Err(Error::Config(violation.to_string()));
     }
@@ -84,6 +87,9 @@ pub async fn run() -> Result<()> {
         .plugin(shared::startup_guard::AuthSecretGuardPlugin::new())
         .plugin(support::log::plugin::LogPlugin::new())
         .plugin(task::scheduler())
+        // 会话守卫走 `route_layer`（链内）：认证层注入 `AuthClaims` 之后才执行，
+        // 因此能比对令牌版本号、拦截「必须先改密」的会话（CODE-05/06/08）
+        .route_layer(axum::middleware::from_fn(middleware::session_guard::guard))
         .layer_from_fn(middleware::operation_log::layer)
         .scan()
         .start()

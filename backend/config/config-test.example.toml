@@ -1,0 +1,18 @@
+# 测试环境覆盖配置模板（profile=test）
+#
+# 用法：`cp backend/config/config-test.example.toml backend/config/config-test.toml`
+#       config-test.toml **不入库**（.gitignore）。
+#
+# 与开发环境同一台 PG 实例，改用独立库名，避免测试数据污染开发库。
+
+[log]
+level = "info"
+
+[database]
+name = "cailu_test"
+sql_logging = true
+
+[middleware.auth]
+# jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（如 /etc/cailu/cailu-test.env，600），
+# 禁止把任何密钥写回配置文件。
+enabled = true

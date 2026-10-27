@@ -19,7 +19,7 @@ cd frontend && pnpm install && pnpm dev   # :5173
 bash scripts/dev.sh                # 依赖容器+后端+前端
 bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
 ```
-默认账号 `admin/Admin@123456`；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
+默认账号 `admin`（口令无缺省值，由 `ALUN_ADMIN_PASSWORD` 注入，首登强制改密）；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
 
 ## 后端核心约定
 - **四件套**：每模块 `mod.rs+handler.rs+dto.rs+model.rs`；业务编排 handler、数据访问 model，**不设 service 层**。

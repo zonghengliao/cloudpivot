@@ -68,7 +68,7 @@
           </t-form-item>
         </t-form>
 
-        <p class="login__hint">默认账号：admin / Admin@123456</p>
+        <p class="login__hint">首次登录请使用运维注入的初始口令，并立即修改</p>
         <p class="login__signup">还没有账号？<b>联系管理员开通</b></p>
       </section>
     </div>

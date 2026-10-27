@@ -131,25 +131,32 @@ pub const ADMIN_USERNAME: &str = "admin";
 
 /// 管理员初始密码的注入环境变量名。
 ///
-/// 生产环境应通过该环境变量注入初始口令，避免使用内置默认口令。
+/// 生产环境**必须**通过该环境变量注入初始口令：缺失时启动引导直接
+/// `FATAL` 退出（见 [`crate::bootstrap`]），仓库内不再保留任何缺省口令或预置哈希
+/// （安全审计 CODE-06）。开发 / 测试环境缺失时由启动引导生成一次性随机口令并在
+/// 日志中打印一次，且置 `must_change_password = true` 强制首登改密。
 pub const ADMIN_PASSWORD_ENV: &str = "ALUN_ADMIN_PASSWORD";
 
-/// 管理员初始口令的缺省值。
-///
-/// 仅在未注入 [`ADMIN_PASSWORD_ENV`] 时使用；启动引导会打印提示日志，
-/// 首次登录后必须立即修改。
-pub const DEFAULT_ADMIN_PASSWORD: &str = "Admin@123456";
+// ==================== 会话安全（令牌版本 / 首登改密） ====================
 
-/// [`DEFAULT_ADMIN_PASSWORD`] 的 Argon2id 预置哈希。
+/// 令牌版本号 claim 键名。
 ///
-/// 空库首次启动直接以本常量写入管理员账号，省去现场执行慢哈希
-/// （Argon2 默认参数，debug 构建实测约 420ms，是首启第二大头）。
-/// 与 pro 版使用相同口令与参数生成，哈希通用。
+/// 签发时写入 `sys_user.token_version`，认证层逐请求与库中值比对；
+/// 改密 / 改角色 / 停用 / 删除时自增，使该用户已签发的全部令牌立即失效
+/// （安全审计 CODE-08）。
+pub const CLAIM_TOKEN_VERSION: &str = "ver";
+
+/// `must_change_password = true` 时**仍允许**访问的接口（不含全局前缀）。
 ///
-/// 修改 [`DEFAULT_ADMIN_PASSWORD`] 后必须重新生成并同步替换本常量：
-/// `cargo run -p alun-utils --example hash_password -- <新口令>`
-/// （tests 中的防漂移单测会校验两者一致）。
-pub const DEFAULT_ADMIN_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$XGRzRas3GnYicjTY6nAU+Q$IV/OSYNU4cV5IV224Ocar1N1qJDrpaTY15z+4PMMZP0";
+/// 除此之外的一切接口一律 403，使初始口令无法用于任何业务操作
+/// （安全审计 CODE-06）。
+pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] =
+    &["/system/auth/password", "/system/auth/logout"];
+
+/// 未注入 [`ADMIN_PASSWORD_ENV`] 时随机生成的初始口令字符数。
+///
+/// 24 位 base62 约 142 bit 熵，足以抵御离线爆破；口令只在启动日志中出现一次。
+pub const GENERATED_ADMIN_PASSWORD_LEN: usize = 24;
 
 // ==================== 登录安全 ====================
 
@@ -365,20 +372,34 @@ pub const MODULE_CODE_SUPPORT: &str = "support";
 mod tests {
     use super::*;
 
-    /// 预置哈希必须与默认口令匹配、且拒绝错误口令——防止「改了默认口令
-    /// 却忘记重新生成 [`DEFAULT_ADMIN_PASSWORD_HASH`]」的静默漂移
-    /// （一旦漂移，默认口令将无法登录）。
+    /// 仓库里不得再出现任何「内置缺省管理员口令」常量（安全审计 CODE-06）。
+    ///
+    /// 该单测是防回归闸门：谁把 `DEFAULT_ADMIN_PASSWORD` 之类的常量加回来，
+    /// 这里就会红。
     #[test]
-    fn default_admin_password_constant_matches_hash() {
+    fn no_builtin_default_admin_password_constant() {
+        // 常量已删除 → 只能通过环境变量注入。这里用「源码中不含缺省口令字面量」
+        // 做等价断言，避免测试依赖已不存在的标识符。
+        let source = include_str!("constants.rs");
+        // 注意：不能把口令字面量直接写进断言——它自己也是源码的一部分（会被
+        // include_str 读到）。这里在运行期拼出 needle，避免自证。
+        let needle = ["Admin@", "123456"].concat();
         assert!(
-            Crypto::verify_password(DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_PASSWORD_HASH)
-                .expect("verify default admin password"),
-            "DEFAULT_ADMIN_PASSWORD_HASH 与 DEFAULT_ADMIN_PASSWORD 不匹配，请重新生成"
+            !source.contains(&needle),
+            "constants.rs 中不允许出现内置缺省管理员口令"
         );
         assert!(
-            !Crypto::verify_password("definitely-wrong-password", DEFAULT_ADMIN_PASSWORD_HASH)
-                .expect("verify wrong password"),
-            "预置哈希未拒绝错误口令"
+            source.contains("ADMIN_PASSWORD_ENV"),
+            "必须保留管理员口令的环境变量名常量（唯一合法入口）"
         );
+        // 会话安全相关常量必须在位且取值符合契约（用运行期比较，避免 clippy 的
+        // `assertions_on_constants`：常量断言没有回归价值，值来自 include_str 才有）
+        let contract = format!(
+            "{}|{}|{}",
+            CLAIM_TOKEN_VERSION,
+            MUST_CHANGE_PASSWORD_ALLOWED_PATHS.join(","),
+            GENERATED_ADMIN_PASSWORD_LEN
+        );
+        assert_eq!(contract, "ver|/system/auth/password,/system/auth/logout|24");
     }
 }

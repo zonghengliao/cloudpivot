@@ -22,6 +22,18 @@ pub struct RefreshTokenReq {
     pub refresh_token: String,
 }
 
+/// 登出请求（可选请求体）。
+///
+/// 客户端应把当前持有的 refresh token 一并提交：服务端会把它加入黑名单，
+/// 使「登出后 refresh token 仍能续期 7 天」的窗口彻底关闭（安全审计 CODE-05）。
+/// 不提交也允许（兼容旧客户端），此时只拉黑访问令牌。
+#[derive(Debug, Default, Deserialize)]
+pub struct LogoutReq {
+    /// 当前持有的刷新令牌（可选）。
+    #[serde(default)]
+    pub refresh_token: Option<String>,
+}
+
 /// 登录用户摘要（嵌入令牌响应）。
 #[derive(Debug, Clone, Serialize)]
 pub struct LoginUserRes {
@@ -49,6 +61,9 @@ pub struct TokenRes {
     /// 登录用户摘要（可选）。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub user: Option<LoginUserRes>,
+    /// 是否必须修改密码：`true` 时除「改密 / 登出」外全部接口返回 403，
+    /// 前端应直接跳转改密页（安全审计 CODE-06）。
+    pub must_change_password: bool,
 }
 
 /// 更新当前登录用户个人资料的请求。
@@ -97,4 +112,6 @@ pub struct CurrentUserRes {
     pub roles: Vec<String>,
     /// 权限码列表（超级管理员为 `["*:*:*"]`）。
     pub permissions: Vec<String>,
+    /// 是否必须修改密码（`true` 时除改密 / 登出外全部接口 403）。
+    pub must_change_password: bool,
 }

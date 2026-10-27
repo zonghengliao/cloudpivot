@@ -7,7 +7,9 @@
 #[tokio::main]
 async fn main() {
     if let Err(err) = cailu::run().await {
-        eprintln!("服务启动失败: {err}");
+        // `FATAL:` 前缀是约定的运维检索锚点（journalctl / docker logs 里 grep 即可），
+        // 启动期错误一律以它开头，避免被业务日志淹没。
+        eprintln!("FATAL: 服务启动失败: {err}");
         std::process::exit(1);
     }
 }

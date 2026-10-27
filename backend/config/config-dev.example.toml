@@ -1,0 +1,29 @@
+# 开发环境覆盖配置模板（profile=dev）
+#
+# 用法：`cp backend/config/config-dev.example.toml backend/config/config-dev.toml`
+#       然后按本机情况修改。config-dev.toml **不入库**（.gitignore），
+#       因为环境私有配置里迟早会出现密钥。
+#
+# 只写「与基础配置/编译期默认值不同」的字段：基础配置里已是目标值的项不必重复。
+
+[log]
+# 开发期需要看到 SQL 与框架调试日志
+level = "debug"
+
+[database]
+# 打印每条 SQL，便于定位查询问题
+sql_logging = true
+slow_query_ms = 200
+
+# 开发期本机已启动 redis 容器，改用 redis 缓存以贴近生产验证缓存失效逻辑
+[cache]
+type = "redis"
+
+[redis]
+enabled = true
+
+[middleware.auth]
+# 开发环境开启认证。jwt_secret **绝不写在这里**，只经环境变量注入：
+#   ALUN_MIDDLEWARE_AUTH_JWT_SECRET=$(openssl rand -hex 32)
+# 缺失或短于 32 字符时进程拒绝启动（见 src/shared/startup_guard.rs）。
+enabled = true

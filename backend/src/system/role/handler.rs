@@ -16,6 +16,7 @@ use std::net::SocketAddr;
 use crate::shared::constants::EnableStatus;
 use crate::shared::{constants, error_code};
 use crate::support::log;
+use crate::system::menu::model::SysMenuModel;
 use crate::system::role::dto::{
     RoleMenuAssignReq, RolePageQuery, RoleRes, RoleSaveReq, RoleUserPageQuery, RoleUserRes,
 };
@@ -459,12 +460,24 @@ pub async fn assign_menus(
     ValidatedJson(req): ValidatedJson<RoleMenuAssignReq>,
 ) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
-    load_role(&id).await?;
+    let role = load_role(&id).await?;
+    // 内置超级管理员角色的授权集是「全部菜单」的语义，改动它等于公开改超管权限：
+    // 只允许超管操作（安全审计 CODE-04 的同类边界）。
+    if role.role_code == constants::SUPER_ADMIN_ROLE_CODE && !claims.is_super_admin() {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            "内置超级管理员角色的菜单授权只能由超级管理员修改",
+        ));
+    }
 
     let mut menu_ids = Vec::with_capacity(req.menu_ids.len());
     for raw in &req.menu_ids {
         menu_ids.push(utils::require_uuid(raw, "menu_ids")?);
     }
+    // 授予上限：只能授予自己已持有的权限码（菜单的 `auth_code` 必须在自己的
+    // 权限集合内），否则「角色授权」就成了提权通道（安全审计 CODE-04 / CODE-12）。
+    ensure_menus_grantable(&claims, &menu_ids).await?;
 
     // 记录授权变更前的菜单 id 列表，供审计 before 快照
     let before_menu_ids: Vec<String> = SysRoleMenuModel::find_by(db(), "role_id", (&id,))
@@ -586,6 +599,61 @@ async fn load_role(id: &uuid::Uuid) -> std::result::Result<SysRoleModel, ApiErro
         .await
         .map_err(|e| utils::db_error(e, "查询角色"))?
         .ok_or_else(|| ApiError::new(404, error_code::ROLE_NOT_FOUND, "角色不存在"))
+}
+
+/// 校验操作者能否把给定菜单授权给角色（授予上限）。
+///
+/// # 规则
+///
+/// - 菜单不存在 → 404（顺带补上原实现缺失的存在性校验）；
+/// - 操作者为超管 → 放行；
+/// - 菜单的 `auth_code` 非空且不在操作者权限集合内 → 403（不能授予自己没有的权限点，
+///   否则「角色授权」= 提权通道，安全审计 CODE-04 / CODE-12）；
+/// - `auth_code` 为空（目录 / 纯展示菜单）不构成额外权限，放行。
+///
+/// # 参数
+///
+/// - `claims`：当前请求的令牌声明（权限集合取自 claims）。
+/// - `menu_ids`：待授予的菜单 ID 列表。
+///
+/// # 返回值
+///
+/// 全部判定通过时返回 `Ok(())`。
+///
+/// # 异常情况
+///
+/// - 403：授予了操作者未持有的权限码；
+/// - 404：某个菜单不存在或已删除；
+/// - 500：数据库异常。
+async fn ensure_menus_grantable(
+    claims: &TokenClaims,
+    menu_ids: &[uuid::Uuid],
+) -> std::result::Result<(), ApiError> {
+    let super_admin = claims.is_super_admin();
+    for menu_id in menu_ids {
+        let menu = SysMenuModel::find_or_none(db(), menu_id)
+            .await
+            .map_err(|e| utils::db_error(e, "校验菜单"))?
+            .ok_or_else(|| {
+                ApiError::new(
+                    404,
+                    error_code::RESOURCE_NOT_FOUND,
+                    "菜单不存在或已删除".to_string(),
+                )
+            })?;
+        if super_admin {
+            continue;
+        }
+        let auth_code = menu.auth_code.trim();
+        if !auth_code.is_empty() && !claims.has_permission(auth_code) {
+            return Err(ApiError::new(
+                403,
+                error_code::PERMISSION_DENIED,
+                format!("不能授予自己未持有的权限点: {auth_code}"),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 校验角色编码唯一（软删表上仅比较未删除行）。

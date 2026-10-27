@@ -103,8 +103,14 @@ async fn load_scheduled_jobs() {
 ///
 /// # 初始口令
 ///
-/// 管理员密码取自环境变量 [`constants::ADMIN_PASSWORD_ENV`]；未注入时回退到
-/// [`constants::DEFAULT_ADMIN_PASSWORD`] 并打印提示，要求首次登录后立即修改。
+/// 管理员密码**只**取自环境变量 [`constants::ADMIN_PASSWORD_ENV`]：
+///
+/// - 生产环境（`profile = prod`）缺失时直接 `FATAL` + `exit(1)`，绝不回退任何
+///   内置缺省口令（仓库里已不存在该常量，安全审计 CODE-06）；
+/// - 开发 / 测试环境缺失时生成一次性随机口令，**仅在启动日志中出现一次**，
+///   并把账号标记为 `must_change_password = true`（除改密 / 登出外全部接口 403）。
+///
+/// 账号已存在时不会触碰其口令，因此运行中的实例不会因为「运维没配 env」而被锁死。
 ///
 /// # 异常情况
 ///
@@ -178,28 +184,40 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
         return Ok(user);
     }
 
-    // 初始口令：优先取环境变量；缺失时回退默认口令——默认口令使用**预生成
-    // 哈希常量**（`DEFAULT_ADMIN_PASSWORD_HASH`），避免首次启动现场执行
-    // Argon2 慢哈希（本机 debug 构建实测约 420ms，空库初始化的第二大头）。
-    let password = match std::env::var(constants::ADMIN_PASSWORD_ENV) {
-        Ok(custom) => {
-            // 自定义口令必须现场随机加盐哈希；Argon2 为 CPU 密集慢哈希，
-            // 放入阻塞线程池执行，避免占据异步执行器线程。
-            tokio::task::spawn_blocking(move || {
-                Crypto::hash_password(&custom).map_err(|e| e.to_string())
-            })
-            .await
-            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
-            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?
-        }
-        Err(_) => {
-            tracing::info!(
+    // 初始口令：**只**认环境变量。缺失时不再回退任何内置缺省口令（仓库里已删除
+    // 该常量）：生产环境直接拒绝启动，开发 / 测试环境生成一次性随机口令并强制改密。
+    let password_plain = match std::env::var(constants::ADMIN_PASSWORD_ENV) {
+        Ok(custom) if !custom.trim().is_empty() => custom,
+        _ => {
+            if is_prod_profile() {
+                let message = format!(
+                    "生产环境未注入管理员初始口令（{}），拒绝启动：仓库内不保留任何缺省口令",
+                    constants::ADMIN_PASSWORD_ENV
+                );
+                tracing::error!("{message}");
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            let generated = generate_password(constants::GENERATED_ADMIN_PASSWORD_LEN);
+            // 只在这一行打印一次：管理员据此首次登录，随后被 must_change_password 强制改密
+            tracing::warn!(
                 env = constants::ADMIN_PASSWORD_ENV,
-                "未通过环境变量注入管理员初始密码，改用内置默认初始口令（预置哈希），请在首次登录后立即修改"
+                username = constants::ADMIN_USERNAME,
+                password = %generated,
+                "未注入管理员初始口令，已生成一次性随机口令（仅本行打印一次），首次登录必须修改"
             );
-            constants::DEFAULT_ADMIN_PASSWORD_HASH.to_string()
+            generated
         }
     };
+
+    // 口令哈希：Argon2 为 CPU 密集慢哈希，放入阻塞线程池执行，
+    // 避免占据异步执行器线程。
+    let password = tokio::task::spawn_blocking(move || {
+        Crypto::hash_password(&password_plain).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
+    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?;
 
     let now = chrono::Utc::now();
     let mut user = SysUserModel {
@@ -216,6 +234,10 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
         lock_time: None,
         last_login_at: None,
         remark: None,
+        // 种子账号一律要求首登改密：初始口令可能来自 env 注入或本进程随机生成，
+        // 无论哪种都不应长期有效（安全审计 CODE-06）
+        must_change_password: true,
+        token_version: 0,
         created_at: now,
         updated_at: now,
         create_by: None,
@@ -277,4 +299,61 @@ async fn ensure_admin_role_binding(
         "已写入管理员角色绑定种子数据"
     );
     Ok(())
+}
+
+// ==================== 公共辅助 ====================
+
+/// 当前 profile 是否为生产环境。
+///
+/// # 返回值
+///
+/// 配置中的 `profile` 等于 `prod` 时返回 `true`。
+fn is_prod_profile() -> bool {
+    cfg().profile.eq_ignore_ascii_case("prod")
+}
+
+/// 生成一次性随机口令（十六进制字符）。
+///
+/// # 参数
+///
+/// - `len`：口令字符数。
+///
+/// # 返回值
+///
+/// 长度为 `len` 的随机字符串。
+///
+/// # 随机源
+///
+/// 取自 `uuid::Uuid::new_v4()`（底层为操作系统 CSPRNG），与项目其它随机标识同源，
+/// 不额外引入 `rand` 依赖。十六进制字符集无取模偏差，24 位即 96 bit 熵；
+/// 配合 Argon2id 存储，离线爆破成本可忽略。
+fn generate_password(len: usize) -> String {
+    let mut raw = String::with_capacity(len + 32);
+    while raw.len() < len {
+        raw.push_str(&uuid::Uuid::new_v4().simple().to_string());
+    }
+    raw.truncate(len);
+    raw
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generated_password_has_requested_length_and_charset() {
+        let password = generate_password(constants::GENERATED_ADMIN_PASSWORD_LEN);
+        assert_eq!(
+            password.chars().count(),
+            constants::GENERATED_ADMIN_PASSWORD_LEN
+        );
+        assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn generated_passwords_are_not_repeated() {
+        let a = generate_password(24);
+        let b = generate_password(24);
+        assert_ne!(a, b, "两次生成的口令不应相同");
+    }
 }

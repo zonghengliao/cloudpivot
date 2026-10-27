@@ -201,6 +201,10 @@ pub async fn create(
         lock_time: None,
         last_login_at: None,
         remark: req.remark.map(|v| v.trim().to_string()),
+        // 管理员代建的账号不强制改密（口令由建号人安全渠道告知）；
+        // 只有「种子管理员」在初始口令来自 env / 随机生成时才置 true（见 bootstrap.rs）
+        must_change_password: false,
+        token_version: 0,
         created_at: now,
         updated_at: now,
         create_by: operator,
@@ -297,6 +301,14 @@ pub async fn update(
         Some(value) => EnableStatus::from_i16(value)?,
         None => to_save.status,
     };
+    // 与 `change_status()` 的保护保持一致：不能把自己停用（否则当即自锁）
+    if to_save.status != EnableStatus::enabled && utils::current_user_uuid(&claims) == Some(id) {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            "不能停用当前登录账号",
+        ));
+    }
     to_save.remark = req.remark.map(|v| v.trim().to_string());
     to_save.updated_at = chrono::Utc::now();
     to_save.update_by = utils::current_user_uuid(&claims);
@@ -310,6 +322,9 @@ pub async fn update(
     // JWT 与黑名单、不查状态），需失效主体缓存并强制下线，与 change_status
     // 专用接口的行为保持一致；已是停用态则无需重复踢号。
     if to_save.status != EnableStatus::enabled && existing.status == EnableStatus::enabled {
+        // 令牌版本号自增：被停用账号已签发的令牌（含 refresh）整体作废，
+        // 不依赖「在线会话表里恰好还有记录」（安全审计 CODE-05 / CODE-08）
+        revoke_user_tokens(&id, "update_disable").await;
         crate::system::auth::model::invalidate_user_principal(&id).await;
         crate::support::online::model::force_logout_user(&id.to_string()).await;
     }
@@ -502,6 +517,10 @@ pub async fn change_status(
 
     // 停用即强制下线，使旧令牌在下次请求时被黑名单拦截
     if status != EnableStatus::enabled {
+        // 令牌版本号自增：该账号已签发的全部令牌（access + refresh）整体作废
+        // （安全审计 CODE-05 / CODE-08）
+        revoke_user_tokens(&id, "change_status_disable").await;
+        crate::system::auth::model::invalidate_user_principal(&id).await;
         crate::support::online::model::force_logout_user(&id.to_string()).await;
     }
     log::record_audit(
@@ -565,8 +584,12 @@ pub async fn change_password(
 
     // 操作者：本人改密记 SELF，管理员代改记 ADMIN
     let operator_id = utils::current_user_uuid(&claims);
+    let reset_by_admin = operator_id != Some(id);
     SysUserModel::of(id)
         .set(SysUserModel::password(), password)
+        // 管理员代改的口令属于「一次性凭据」：目标账号下次登录必须自行改密
+        // （安全审计 CODE-06）
+        .set(SysUserModel::must_change_password(), reset_by_admin)
         // ChangeSet 不自动刷新 updated_at / update_by，需显式设置
         .set(SysUserModel::updated_at(), chrono::Utc::now())
         .set(SysUserModel::update_by(), operator_id)
@@ -574,6 +597,11 @@ pub async fn change_password(
         .await
         .map(|_| ())
         .map_err(|e| utils::db_error(e, "重置用户密码"))?;
+
+    // 旧令牌整体作废：重置口令后原持有者的 access / refresh 一律失效
+    // （安全审计 CODE-05 / CODE-08）
+    revoke_user_tokens(&id, "admin_reset_password").await;
+    crate::system::auth::model::invalidate_user_principal(&id).await;
 
     log::record_password_change(
         &headers,
@@ -724,6 +752,8 @@ pub async fn assign_roles(
 
     // 权限变更立即生效：清理主体上下文缓存并强制下线该用户，旧令牌内固化的角色 /
     // 权限快照随之作废
+    // 令牌版本号自增：即便在线会话记录已被清理，旧令牌也无法再用（CODE-08）
+    revoke_user_tokens(&id, "assign_roles").await;
     crate::system::auth::model::invalidate_user_principal(&id).await;
     crate::support::online::model::force_logout_user(&id.to_string()).await;
     log::record_audit(
@@ -842,6 +872,26 @@ async fn load_user(id: &uuid::Uuid) -> std::result::Result<SysUserModel, ApiErro
         .await
         .map_err(|e| utils::db_error(e, "查询用户"))?
         .ok_or_else(|| ApiError::new(404, error_code::USER_NOT_FOUND, "用户不存在"))
+}
+
+/// 令指定用户的全部已签发令牌失效（令牌版本号自增）。
+///
+/// 与 [`crate::support::online::model::force_logout_user`] 的分工：
+///
+/// - `force_logout_user` 只清理「还在在线会话表里」的连接，且依赖缓存里的黑名单；
+///   会话已被清理（或换了实例/缓存重启）时，旧令牌仍可能通过；
+/// - 令牌版本号写在库里，认证层逐请求比对，是**不依赖缓存**的兜底
+///   （安全审计 CODE-05 / CODE-08）。
+///
+/// # 参数
+///
+/// - `user_id`：目标用户 ID。
+/// - `context`：调用场景（写入日志便于排查）。
+async fn revoke_user_tokens(user_id: &uuid::Uuid, context: &'static str) {
+    if let Err(e) = model::bump_token_version(user_id).await {
+        // 失败不回滚业务：强制下线与黑名单仍在，只是少了一层兜底
+        tracing::error!(error = %e, user_id = %user_id, context, "自增令牌版本号失败");
+    }
 }
 
 /// 校验用户名唯一（软删表上仅比较未删除行）。

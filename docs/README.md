@@ -30,7 +30,7 @@
 - **后端**：Rust 1.94.1+ / edition 2024，框架 `alun`（门面，底层 axum 0.8），PostgreSQL ≥ 14，Redis（缓存 / 令牌黑名单）。
 - **前端**：Vue 3.5 + TS 5.8 + Vite 6 + TDesign Vue Next 1.19 + Pinia 3 + ECharts 5，pnpm 10.5。
 - **端口**：后端 `8023`；前端 dev `5173`（Vite 代理 `/api`、`/health` → `:8023`）。
-- **默认账号**：`admin / Admin@123456`（`SUPER_ADMIN` 跳过全部权限校验）。
+- **默认账号**：`admin`（口令无缺省值，必须由 `ALUN_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
 
 ### 一条命令起环境
 ```bash
