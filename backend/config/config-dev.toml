@@ -19,6 +19,5 @@ type = "redis"
 enabled = true
 
 [middleware.auth]
-# 开发环境开启认证，使用本地固定密钥；生产环境必须改用环境变量注入
+# 开发环境开启认证；jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（P0 轮换后不再落盘）
 enabled = true
-jwt_secret = "cailu-dev-jwt-secret-please-change-in-production"

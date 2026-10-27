@@ -2,8 +2,8 @@
 # cailu 开发环境一键启动（dev 实例，与 prod 完全隔离）
 #
 #   dev 后端   : 127.0.0.1:8024  cargo-watch（改 src/**.rs、config/*.toml 自动重编译重启）
-#   dev 前端   : 0.0.0.0:5173    Vite（HMR），/api /health 代理到 8024
-#   code-server: 0.0.0.0:8443    浏览器 IDE，打开 /opt/cailu
+#   dev 前端   : 127.0.0.1:5173 Vite（HMR）  ← P0 收口，外部访问走 SSH 隧道，/api /health 代理到 8024
+#   code-server: 127.0.0.1:8443 浏览器 IDE  ← P0 收口，外部访问走 SSH 隧道
 #
 # 用法：
 #   bash /opt/cailu/scripts/dev-up.sh                # 全部启动（幂等，已启动的跳过）
@@ -29,7 +29,9 @@ set +u
 ONLY="${ONLY:-}"
 WATCH="${WATCH:-1}"
 VITE_PORT="${VITE_PORT:-5173}"
+VITE_HOST="${VITE_HOST:-127.0.0.1}"   # P0：默认只监听本机，外部走 SSH 隧道
 CODE_SERVER_PORT="${CODE_SERVER_PORT:-8443}"
+CODE_SERVER_BIND="${CODE_SERVER_BIND:-127.0.0.1}"  # P0：默认只监听本机
 mkdir -p "$LOG_DIR" "$PID_DIR"
 
 say()  { printf '\033[1;36m==>\033[0m %s\n' "$*"; }
@@ -105,14 +107,14 @@ fi
 
 # ------------------------------------------------------------------ 2. 前端
 if want frontend; then
-  say "[2/4] dev 前端 → 0.0.0.0:$VITE_PORT（Vite HMR，代理 → $BACKEND_ORIGIN）"
+  say "[2/4] dev 前端 → $VITE_HOST:$VITE_PORT（Vite HMR，代理 → $BACKEND_ORIGIN）"
   if pid="$(pid_of frontend)"; then
     ok "已在运行（pid $pid），跳过"
   elif port_busy "$VITE_PORT"; then
     die "端口 $VITE_PORT 已被占用：$(ss -ltnp "sport = :$VITE_PORT" | tail -n +2)"
   else
     pushd "$ROOT/frontend" >/dev/null
-    BACKEND_ORIGIN="$BACKEND_ORIGIN" nohup pnpm dev --port "$VITE_PORT" --strictPort \
+    BACKEND_ORIGIN="$BACKEND_ORIGIN" nohup pnpm dev --host "$VITE_HOST" --port "$VITE_PORT" --strictPort \
       >>"$LOG_DIR/frontend.log" 2>&1 </dev/null &
     echo $! >"$PID_DIR/frontend.pid"
     popd >/dev/null
@@ -123,11 +125,11 @@ fi
 
 # ------------------------------------------------------------------ 3. code-server
 if want ide; then
-  say "[3/4] code-server → 0.0.0.0:$CODE_SERVER_PORT（浏览器 IDE）"
+  say "[3/4] code-server → $CODE_SERVER_BIND:$CODE_SERVER_PORT（浏览器 IDE）"
   CS_CFG=/root/.config/code-server/config.yaml
   mkdir -p "$(dirname "$CS_CFG")"
   cat >"$CS_CFG" <<EOF
-bind-addr: 0.0.0.0:$CODE_SERVER_PORT
+bind-addr: $CODE_SERVER_BIND:$CODE_SERVER_PORT
 auth: password
 password: $CODE_SERVER_PASSWORD
 cert: false
@@ -139,7 +141,7 @@ EOF
     die "端口 $CODE_SERVER_PORT 已被占用"
   else
     nohup code-server --disable-telemetry --disable-update-check \
-      --bind-addr "0.0.0.0:$CODE_SERVER_PORT" /opt/cailu \
+      --bind-addr "$CODE_SERVER_BIND:$CODE_SERVER_PORT" /opt/cailu \
       >>"$LOG_DIR/code-server.log" 2>&1 </dev/null &
     echo $! >"$PID_DIR/code-server.pid"
     ok "code-server 已启动（pid $(cat "$PID_DIR/code-server.pid")）"
@@ -154,8 +156,8 @@ code() { curl -s -o /dev/null -m 3 -w '%{http_code}' "$1" 2>/dev/null || echo "-
 printf '  %-18s %-32s %s\n' 组件 地址 HTTP
 printf '  %-18s %-32s %s\n' ---------------- -------------------------------- ----
 printf '  %-18s %-32s %s\n' "dev 后端"    "http://127.0.0.1:8024/health"  "$(code http://127.0.0.1:8024/health)"
-printf '  %-18s %-32s %s\n' "dev 前端"    "http://$IP:$VITE_PORT/"        "$(code http://127.0.0.1:$VITE_PORT/)"
-printf '  %-18s %-32s %s\n' "code-server" "http://$IP:$CODE_SERVER_PORT/" "$(code http://127.0.0.1:$CODE_SERVER_PORT/login)"
+printf '  %-18s %-32s %s\n' "dev 前端"    "http://127.0.0.1:$VITE_PORT/"        "$(code http://127.0.0.1:$VITE_PORT/)"
+printf '  %-18s %-32s %s\n' "code-server" "http://127.0.0.1:$CODE_SERVER_PORT/" "$(code http://127.0.0.1:$CODE_SERVER_PORT/login)"
 printf '  %-18s %-32s %s\n' "prod 后端(不动)" "http://127.0.0.1:8023/health" "$(code http://127.0.0.1:8023/health)"
 printf '  %-18s %-32s %s\n' "prod 前端(不动)" "http://$IP/"               "$(code http://127.0.0.1/)"
 echo

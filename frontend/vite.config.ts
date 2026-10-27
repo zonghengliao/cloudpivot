@@ -47,7 +47,8 @@ export default defineConfig(({ mode }) => {
     server: {
       // 与后端 config.toml 的 [middleware.cors] allow_origins 保持一致
       port: 5173,
-      host: '0.0.0.0',
+      // 默认仅本机可访问；外部访问走 SSH 隧道（P0 收口，2026-10-27）
+      host: process.env.VITE_HOST || '127.0.0.1',
       proxy: {
         // 业务接口与健康探针统一转发到后端
         '/api': { target: BACKEND_ORIGIN, changeOrigin: true },
