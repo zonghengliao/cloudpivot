@@ -59,6 +59,8 @@ export interface LoginRes {
   token_type: string;
   /** 访问令牌有效期（秒） */
   expires_in: number;
+  /** 是否必须先修改初始密码（true 时后端只放行改密与登出） */
+  must_change_password: boolean;
   /** 登录用户摘要 */
   user: LoginUserInfo;
 }
@@ -93,6 +95,8 @@ export interface CurrentUserRes {
   roles: string[];
   /** 权限码列表，超级管理员为 ["*:*:*"] */
   permissions: string[];
+  /** 是否必须先修改初始密码（刷新页面后据此恢复强制改密状态） */
+  must_change_password: boolean;
 }
 
 /** 登录（认证）日志行：后端以 `to_jsonb` 下发整行，字段可能随表结构变化 */
@@ -145,9 +149,9 @@ export function refresh(refreshToken: string): Promise<RefreshRes> {
   return post<RefreshRes>('/api/system/auth/refresh', { refresh_token: refreshToken });
 }
 
-/** 登出 */
-export function logout(): Promise<null> {
-  return post<null>('/api/system/auth/logout');
+/** 登出（带上 refresh_token，后端据此把它一并拉黑，否则该令牌仍可续期） */
+export function logout(refreshToken?: string): Promise<null> {
+  return post<null>('/api/system/auth/logout', refreshToken ? { refresh_token: refreshToken } : undefined);
 }
 
 /** 查询当前登录用户信息（含角色编码与权限码） */

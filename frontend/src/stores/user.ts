@@ -49,6 +49,8 @@ export const useUserStore = defineStore('user', () => {
   const menus = ref<MenuNode[]>([]);
   /** 是否已完成用户信息加载（路由守卫据此决定是否拉取） */
   const loaded = ref(false);
+  /** 是否必须先修改初始密码（后端 must_change_password，登录与刷新都以此为准） */
+  const mustChangePassword = ref(false);
 
   /** 权限码列表 */
   const permissions = computed<string[]>(() => userInfo.value?.permissions ?? []);
@@ -79,6 +81,8 @@ export const useUserStore = defineStore('user', () => {
     refreshToken.value = res.refresh_token;
     // 令牌必须同步落盘：后续请求的 Authorization 头由 axios 拦截器从 localStorage 注入
     saveTokens(res.access_token, res.refresh_token);
+    // 首登强制改密：后端此时只放行 me / menus / password / logout
+    mustChangePassword.value = res.must_change_password === true;
     await loadProfile();
   }
 
@@ -86,6 +90,8 @@ export const useUserStore = defineStore('user', () => {
   async function loadProfile(): Promise<void> {
     const [me, menuTree] = await Promise.all([fetchMe(), fetchMenus()]);
     userInfo.value = me;
+    // 刷新页面后 Pinia 状态为空，强制改密状态以服务端为准（不能靠前端记忆）
+    mustChangePassword.value = me.must_change_password === true;
     menus.value = menuTree;
     loaded.value = true;
   }
@@ -98,12 +104,14 @@ export const useUserStore = defineStore('user', () => {
     userInfo.value = null;
     menus.value = [];
     loaded.value = false;
+    mustChangePassword.value = false;
   }
 
   /** 登出：无论后端是否成功，本地会话必须清理 */
   async function logout(): Promise<void> {
     try {
-      await logoutApi();
+      // 必须带上 refresh_token：后端只有拿到它才能把刷新令牌一并拉黑
+      await logoutApi(refreshToken.value || undefined);
     } catch {
       // 后端登出失败（如令牌已过期）不影响前端清理，忽略即可
     }
@@ -116,6 +124,7 @@ export const useUserStore = defineStore('user', () => {
     userInfo,
     menus,
     loaded,
+    mustChangePassword,
     permissions,
     roles,
     displayName,

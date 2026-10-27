@@ -150,8 +150,13 @@ pub const CLAIM_TOKEN_VERSION: &str = "ver";
 ///
 /// 除此之外的一切接口一律 403，使初始口令无法用于任何业务操作
 /// （安全审计 CODE-06）。
-pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] =
-    &["/system/auth/password", "/system/auth/logout"];
+pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] = &[
+    // me / menus 是前端渲染改密页所必需的最小身份与导航数据（只读、非业务数据）
+    "/system/auth/me",
+    "/system/auth/menus",
+    "/system/auth/password",
+    "/system/auth/logout",
+];
 
 /// 未注入 [`ADMIN_PASSWORD_ENV`] 时随机生成的初始口令字符数。
 ///
@@ -400,6 +405,9 @@ mod tests {
             MUST_CHANGE_PASSWORD_ALLOWED_PATHS.join(","),
             GENERATED_ADMIN_PASSWORD_LEN
         );
-        assert_eq!(contract, "ver|/system/auth/password,/system/auth/logout|24");
+        assert_eq!(
+            contract,
+            "ver|/system/auth/me,/system/auth/menus,/system/auth/password,/system/auth/logout|24"
+        );
     }
 }

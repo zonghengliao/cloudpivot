@@ -26,6 +26,13 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', public: true },
   },
   {
+    // 首登强制改密页：独立于工作台布局，避免强制改密时还要渲染侧边栏（菜单此时可能为空）
+    path: '/change-password',
+    name: 'ChangePassword',
+    component: () => import('@/views/user/change-password.vue'),
+    meta: { title: '修改初始密码' },
+  },
+  {
     path: '/',
     component: () => import('@/layouts/BasicLayout.vue'),
     children: [
@@ -157,6 +164,16 @@ router.beforeEach(async (to) => {
   }
 
   if (to.path === '/login') {
+    return { path: '/dashboard' };
+  }
+
+  // 首登强制改密：后端此时只放行 me / menus / password / logout，
+  // 前端必须把用户钉在改密页，任何其它路由一律重定向（不能靠用户自觉）。
+  if (userStore.mustChangePassword) {
+    return to.path === '/change-password' ? true : { path: '/change-password' };
+  }
+  if (to.path === '/change-password') {
+    // 无需改密时改密页无意义（个人中心已有改密入口），回工作台
     return { path: '/dashboard' };
   }
 
