@@ -7,7 +7,6 @@
 
 [log]
 format = "json"
-dir = "logs"
 
 [database]
 # 生产强制 SSL

@@ -8,7 +8,8 @@ import { TDesignResolver } from 'unplugin-vue-components/resolvers';
 import compression from 'vite-plugin-compression';
 
 /** 后端服务地址：开发期通过 Vite 代理转发，规避浏览器跨域 */
-const BACKEND_ORIGIN = 'http://127.0.0.1:8023';
+// dev 环境用 BACKEND_ORIGIN 覆盖（默认仍为 prod 后端 8023，prod 构建行为不变）
+const BACKEND_ORIGIN = process.env.BACKEND_ORIGIN || 'http://127.0.0.1:8023';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd());
