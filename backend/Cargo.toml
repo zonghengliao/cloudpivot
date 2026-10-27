@@ -50,3 +50,11 @@ validator = { version = "0.21", features = ["derive"] }
 async-trait = "0.1"
 # 文件秒传与完整性校验：上传时计算内容 SHA-256（见 support/file/handler.rs）
 sha2 = "0.10"
+
+# Redis 客户端（二开说明，已评审）：
+# 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，
+# 而框架的缓存门面 `Cache` 只暴露 KV 语义（get/set/del/incr/keys），拿不到 INFO。
+# 版本与 features 与 alun-cache 0.4.2 内部声明的完全一致（redis 1.7 + tokio-comp
+# + connection-manager），**不引入依赖树中不存在的新 crate**，仅把既有的间接依赖
+# 显式化，供 business/monitor 使用。
+redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }

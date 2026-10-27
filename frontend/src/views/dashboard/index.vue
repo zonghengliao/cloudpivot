@@ -123,29 +123,78 @@
           </t-row>
         </t-col>
 
-        <!-- 右栏：固定 360px，只剩系统状态卡片 -->
+        <!--
+          右栏：固定 360px。
+          服务器状态卡仅对超级管理员渲染：非超管时 v-if 为 false，DOM 里不会出现该卡片，
+          也不会发起 /api/business/monitor/server-status 请求（后端对非超管返回 403）。
+        -->
         <t-col class="dashboard__aside">
           <t-row :gutter="[16, 16]">
-            <!-- 系统状态：沿用 /health 自检接口 -->
-            <t-col class="dashboard__full-col">
-              <t-card title="系统状态" :bordered="false" class="dashboard__card">
+            <t-col v-if="isSuperAdmin" class="dashboard__full-col">
+              <t-card title="服务器状态" :bordered="false" class="dashboard__card">
                 <template #actions>
-                  <t-button variant="text" :loading="isHealthLoading" @click="loadHealth">
+                  <t-button variant="text" :loading="isStatusLoading" @click="loadServerStatus">
                     刷新
                   </t-button>
                 </template>
 
-                <t-alert v-if="healthError" theme="error" :message="healthError" />
-                <t-descriptions v-else :column="1" size="small">
-                  <t-descriptions-item label="服务状态">
-                    <t-tag :theme="isHealthy ? 'success' : 'danger'" variant="light">
-                      {{ health?.status ?? '-' }}
-                    </t-tag>
-                  </t-descriptions-item>
-                  <t-descriptions-item label="应用名称">{{ health?.app ?? '-' }}</t-descriptions-item>
-                  <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
-                  <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
-                </t-descriptions>
+                <t-alert v-if="statusError" theme="error" :message="statusError" />
+                <template v-else>
+                  <!-- 服务自检信息：沿用免鉴权 /health，保证采集接口异常时仍可判活 -->
+                  <t-descriptions :column="1" size="small">
+                    <t-descriptions-item label="服务状态">
+                      <t-tag :theme="isHealthy ? 'success' : 'danger'" variant="light">
+                        {{ health?.status ?? '-' }}
+                      </t-tag>
+                    </t-descriptions-item>
+                    <t-descriptions-item label="应用名称">{{ health?.app ?? '-' }}</t-descriptions-item>
+                    <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
+                    <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
+                  </t-descriptions>
+
+                  <!-- CPU / 内存 / 磁盘：进度条 + 容量文本 -->
+                  <div class="dashboard__usage-list">
+                    <div v-for="item in usageItems" :key="item.key" class="dashboard__usage">
+                      <div class="dashboard__usage-head">
+                        <span class="dashboard__usage-label">{{ item.label }}</span>
+                        <span class="dashboard__usage-value">{{ item.value }}</span>
+                      </div>
+                      <t-progress
+                        :percentage="item.percent"
+                        :label="false"
+                        :status="item.status"
+                        size="small"
+                      />
+                      <div class="dashboard__usage-sub">{{ item.sub }}</div>
+                    </div>
+                  </div>
+
+                  <!-- 数据库 / Redis：只展示聚合数值，不含连接串与密码 -->
+                  <t-descriptions :column="1" size="small">
+                    <t-descriptions-item label="数据库">
+                      <t-tag :theme="databaseStateTheme" variant="light">{{ databaseStateText }}</t-tag>
+                      <span class="dashboard__usage-hint">{{ serverStatus?.database.name || '-' }}</span>
+                    </t-descriptions-item>
+                    <t-descriptions-item label="数据库大小">
+                      {{ serverStatus?.database.size_text || '-' }}
+                    </t-descriptions-item>
+                    <t-descriptions-item label="数据库连接">
+                      {{ serverStatus ? `${serverStatus.database.connections} 个` : '-' }}
+                    </t-descriptions-item>
+                    <t-descriptions-item label="Redis">
+                      <t-tag :theme="redisStateTheme" variant="light">{{ redisStateText }}</t-tag>
+                      <span class="dashboard__usage-hint">{{ serverStatus?.redis.used_memory_text || '-' }}</span>
+                    </t-descriptions-item>
+                    <t-descriptions-item label="Redis 客户端">
+                      {{ serverStatus ? `${serverStatus.redis.connected_clients} 个` : '-' }}
+                    </t-descriptions-item>
+                    <t-descriptions-item label="Redis 运行">
+                      {{ redisUptimeText }}
+                    </t-descriptions-item>
+                  </t-descriptions>
+
+                  <div class="dashboard__status-foot">更新于 {{ statusUpdatedAt || '-' }}</div>
+                </template>
               </t-card>
             </t-col>
           </t-row>
@@ -156,12 +205,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import type { EChartsCoreOption } from 'echarts';
 import EChart from '@/components/EChart.vue';
 import { fetchHealth, type HealthRes } from '@/api/health';
+import { fetchServerStatus, type ServerStatusRes } from '@/api/business/monitor-api';
 import { fetchOverview, type OverviewRes } from '@/api/support/dashboard-api';
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
@@ -178,6 +228,15 @@ const isHealthLoading = ref(false);
 const overviewError = ref('');
 /** 健康检查失败提示 */
 const healthError = ref('');
+
+/** 服务器状态数据（仅超级管理员加载，未加载时为 null） */
+const serverStatus = ref<ServerStatusRes | null>(null);
+/** 服务器状态加载中标记 */
+const isStatusLoading = ref(false);
+/** 服务器状态加载失败提示 */
+const statusError = ref('');
+/** 服务器状态最近一次刷新时间（HH:mm:ss） */
+const statusUpdatedAt = ref('');
 
 /**
  * 首页只展示 8 个核心指标（后端共下发 12 个）。
@@ -408,9 +467,172 @@ async function loadHealth(): Promise<void> {
   }
 }
 
+/**
+ * 是否超级管理员。
+ *
+ * 服务器状态（CPU / 内存 / 磁盘 / DB / Redis）只对超管开放：后端用
+ * `business:monitor:server-status` 权限码（只授予 SUPER_ADMIN）硬校验，
+ * 前端据此决定是否渲染整卡、是否发起请求。
+ * 这里按**角色编码**判定而不是 `hasPermission`：超管持有 `*:*:*` 通配码，
+ * 若将来把该权限点授予普通角色，`hasPermission` 会放行，与「仅超管可见」相悖。
+ */
+const isSuperAdmin = computed(() => userStore.roles.includes('SUPER_ADMIN'));
+
+/** CPU / 内存 / 磁盘三条进度条的数据源 */
+interface UsageItem {
+  /** 稳定 key，用于 v-for */
+  key: string;
+  /** 指标名 */
+  label: string;
+  /** 百分比（0-100） */
+  percent: number;
+  /** 主数值文本 */
+  value: string;
+  /** 次要说明文本 */
+  sub: string;
+  /** 进度条状态色：低负载 success / 中负载 warning / 高负载 error */
+  status: 'success' | 'warning' | 'error';
+}
+
+/** 进度条状态色：≥85% 红、≥70% 橙、其余绿 */
+function usageStatus(percent: number): 'success' | 'warning' | 'error' {
+  if (percent >= 85) return 'error';
+  if (percent >= 70) return 'warning';
+  return 'success';
+}
+
+/** 百分比文本：空值显示 `-`，其余保留 1 位小数 */
+function percentText(percent?: number): string {
+  return typeof percent === 'number' && Number.isFinite(percent) ? `${percent.toFixed(1)}%` : '-';
+}
+
+/** 三条用量进度条（未采集到时全部显示 `-`，不报错） */
+const usageItems = computed<UsageItem[]>(() => {
+  const status = serverStatus.value;
+  if (!status) {
+    return [
+      { key: 'cpu', label: 'CPU 占用', percent: 0, value: '-', sub: '-', status: 'success' },
+      { key: 'memory', label: '内存占用', percent: 0, value: '-', sub: '-', status: 'success' },
+      { key: 'disk', label: '磁盘占用', percent: 0, value: '-', sub: '-', status: 'success' },
+    ];
+  }
+  return [
+    {
+      key: 'cpu',
+      label: 'CPU 占用',
+      percent: status.cpu.percent,
+      value: percentText(status.cpu.percent),
+      sub: `${status.cpu.cores} 核逻辑核心`,
+      status: usageStatus(status.cpu.percent),
+    },
+    {
+      key: 'memory',
+      label: '内存占用',
+      percent: status.memory.percent,
+      value: percentText(status.memory.percent),
+      sub: `${status.memory.used_text || '-'} / ${status.memory.total_text || '-'}`,
+      status: usageStatus(status.memory.percent),
+    },
+    {
+      key: 'disk',
+      label: '磁盘占用',
+      percent: status.disk.percent,
+      value: percentText(status.disk.percent),
+      sub: `${status.disk.used_text || '-'} / ${status.disk.total_text || '-'}`,
+      status: usageStatus(status.disk.percent),
+    },
+  ];
+});
+
+/** 数据库连通状态 -> TDesign 标签主题 */
+const databaseStateTheme = computed(() =>
+  serverStatus.value?.database.state === 'up' ? 'success' : 'danger',
+);
+/** 数据库连通状态 -> 展示文本 */
+const databaseStateText = computed(() =>
+  serverStatus.value?.database.state === 'up' ? '正常' : '异常',
+);
+/** Redis 连通状态 -> TDesign 标签主题 */
+const redisStateTheme = computed(() =>
+  serverStatus.value?.redis.state === 'up' ? 'success' : 'danger',
+);
+/** Redis 连通状态 -> 展示文本 */
+const redisStateText = computed(() => (serverStatus.value?.redis.state === 'up' ? '正常' : '异常'));
+
+/** Redis 运行时长：秒 -> 「X 天 Y 小时」/「Y 小时 Z 分」/「Z 分」 */
+function formatUptime(seconds?: number): string {
+  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '-';
+  const days = Math.floor(seconds / 86400);
+  const hours = Math.floor((seconds % 86400) / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (days > 0) return `${days} 天 ${hours} 小时`;
+  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
+  return `${minutes} 分`;
+}
+
+const redisUptimeText = computed(() => formatUptime(serverStatus.value?.redis.uptime_seconds));
+
+/** 拉取服务器状态；非超管直接跳过（不发必然 403 的请求） */
+async function loadServerStatus(): Promise<void> {
+  if (!isSuperAdmin.value) return;
+  isStatusLoading.value = true;
+  statusError.value = '';
+  try {
+    serverStatus.value = await fetchServerStatus();
+    statusUpdatedAt.value = dayjs().format('HH:mm:ss');
+  } catch (error) {
+    serverStatus.value = null;
+    statusError.value = error instanceof ApiError ? error.message : '服务器状态加载失败';
+  } finally {
+    isStatusLoading.value = false;
+  }
+}
+
+/** 轮询间隔：20s，兼顾实时性与后端 CPU 采样开销 */
+const STATUS_POLL_INTERVAL = 20000;
+/** 轮询句柄：页面不可见时暂停（切回来立即补一次） */
+let statusTimer: ReturnType<typeof setInterval> | null = null;
+
+/** 停止轮询（幂等） */
+function stopStatusPolling(): void {
+  if (statusTimer !== null) {
+    clearInterval(statusTimer);
+    statusTimer = null;
+  }
+}
+
+/** 启动轮询：仅超管启用 */
+function startStatusPolling(): void {
+  stopStatusPolling();
+  if (!isSuperAdmin.value) return;
+  statusTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') {
+      void loadServerStatus();
+    }
+  }, STATUS_POLL_INTERVAL);
+}
+
+/** 标签页重新可见时补一次刷新，避免长时间停留在旧数值上 */
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible') {
+    void loadServerStatus();
+  }
+}
+
 onMounted(() => {
   void loadOverview();
   void loadHealth();
+  // 服务器状态仅超管可见：非超管既不请求也不轮询，DOM 中也不会出现该卡片
+  if (isSuperAdmin.value) {
+    void loadServerStatus();
+    startStatusPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+  }
+});
+
+onUnmounted(() => {
+  stopStatusPolling();
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 </script>
 
@@ -518,6 +740,57 @@ onMounted(() => {
   &__card {
     height: 100%;
   }
+
+  // ---------- 服务器状态卡（右栏，仅超管） ----------
+  &__usage-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin: 12px 0 4px;
+  }
+
+  &__usage {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+  }
+
+  &__usage-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    font-size: 13px;
+  }
+
+  &__usage-label {
+    color: var(--td-text-color-secondary);
+  }
+
+  &__usage-value {
+    font-weight: 600;
+    color: var(--td-text-color-primary);
+  }
+
+  &__usage-sub {
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__usage-hint {
+    margin-left: 8px;
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__status-foot {
+    margin-top: 8px;
+    font-size: 12px;
+    text-align: right;
+    color: var(--td-text-color-placeholder);
+  }
+
 
   // ---------- 指标卡片 ----------
   &__metric-col {

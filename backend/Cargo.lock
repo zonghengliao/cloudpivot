@@ -600,6 +600,7 @@ dependencies = [
  "alun-utils",
  "async-trait",
  "axum",
+ "redis",
  "serde",
  "serde_json",
  "sha2 0.10.9",
