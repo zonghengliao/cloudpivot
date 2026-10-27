@@ -90,6 +90,11 @@ pub async fn run() -> Result<()> {
         // 会话守卫走 `route_layer`（链内）：认证层注入 `AuthClaims` 之后才执行，
         // 因此能比对令牌版本号、拦截「必须先改密」的会话（CODE-05/06/08）
         .route_layer(axum::middleware::from_fn(middleware::session_guard::guard))
+        // 吊销复检同样走 `route_layer`（链内）：框架认证层的黑名单检查是 fail-open 的
+        // （读缓存失败即放行），这里补一层「查不到即拒绝」（CODE-16 B3）。
+        // 注册在 session_guard 之后再被套一层，即本层在链内更靠外：先确认吊销状态，
+        // 再做令牌版本比对，两者都是 401，顺序不影响语义。
+        .route_layer(axum::middleware::from_fn(middleware::auth_guard::guard))
         .layer_from_fn(middleware::operation_log::layer)
         .scan()
         .start()

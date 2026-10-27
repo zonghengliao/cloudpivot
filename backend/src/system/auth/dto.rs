@@ -35,7 +35,7 @@ pub struct LogoutReq {
 }
 
 /// 登录用户摘要（嵌入令牌响应）。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoginUserRes {
     /// 用户 ID（UUID 字符串）。
     pub id: String,
@@ -48,7 +48,9 @@ pub struct LoginUserRes {
 /// 令牌响应。
 ///
 /// `user` 仅在登录 / 刷新时下发；续期接口复用同一结构时可通过 `None` 省略。
-#[derive(Debug, Serialize)]
+///
+/// `Deserialize` 供「轮换幂等」把整个响应体写入 `token:replay:{jti}` 后原样回放。
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenRes {
     /// 访问令牌。
     pub access_token: String,

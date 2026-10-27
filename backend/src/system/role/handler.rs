@@ -277,8 +277,21 @@ pub async fn update(
     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
     // 角色状态 / 名称等变更会影响持有该角色用户的权限快照，令非超管在线用户
-    // 重新登录获取最新角色与权限
-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
+    // 重新登录获取最新角色与权限。
+    //
+    // 吊销失败回 500（评审 §1.3）：角色变更**没有库侧兜底**——权限快照固化在 JWT 里，
+    // 只有缓存里的黑名单能让旧令牌立刻失效。悄悄回 200 会让管理员以为权限已收回，
+    // 而旧令牌在 access TTL 内仍带着旧权限可用。
+    if let Err(e) =
+        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
+    {
+        tracing::error!(error = %e, scene = "role_update", "角色变更后吊销在线会话失败");
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "角色已保存，但会话吊销失败，请重试",
+        ));
+    }
     log::record_audit(
         &headers,
         &connect_info,
@@ -495,8 +508,18 @@ pub async fn assign_menus(
     // 角色菜单授权变更直接改变该角色用户的可访问权限，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
     // 角色菜单授权变更直接改变该角色用户的可访问权限，令非超管在线用户令牌失效，
-    // 强制重新登录以获取最新权限，避免旧令牌仍可访问已收回的功能
-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
+    // 强制重新登录以获取最新权限，避免旧令牌仍可访问已收回的功能。
+    // 失败回 500：授权已落库但没有库侧兜底能收回令牌内的旧权限（评审 §1.3）。
+    if let Err(e) =
+        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
+    {
+        tracing::error!(error = %e, scene = "role_assign_menu", "角色授权后吊销在线会话失败");
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "授权已保存，但会话吊销失败，请重试",
+        ));
+    }
     log::record_audit(
         &headers,
         &connect_info,

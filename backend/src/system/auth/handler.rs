@@ -13,6 +13,7 @@ use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use std::net::SocketAddr;
 
+use crate::middleware::auth_guard;
 use crate::shared::constants::{self, EnableStatus};
 use crate::shared::error_code;
 use crate::support::log::dto::LogPageQuery;
@@ -21,7 +22,7 @@ use crate::support::log::{
     self, AuditLogInput, AuthLogInput, AuthStatus, AuthType, PasswordChangeLogInput,
     SecurityLogInput,
 };
-use crate::support::online::model::{OnlineSession, OnlineSessionModel};
+use crate::support::online::model::{OnlineSession, OnlineSessionModel, RefreshSession};
 use crate::system::auth::dto::{
     ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq,
     TokenRes, UpdateProfileReq,
@@ -212,8 +213,12 @@ pub async fn login(
         .map_err(|e| utils::db_error(e, "更新登录状态"))?;
 
     timer.mark("reset_status_done");
-    let (token, claims) = issue_token(&user, Some(&mut timer)).await?;
-    register_online_session(&headers, &connect_info, &claims).await;
+    // 登录即开新会话：`sid` / `siat` **只在这里生成**，之后每次轮换一律继承，
+    // 使 refresh 令牌的有效期有了不可滑动的绝对上限（CODE-16 B1）。
+    let session = SessionSeed::new_login();
+    let (token, issued) = issue_token(&user, Some(&mut timer), &session).await?;
+    register_online_session(&headers, &connect_info, &issued.access).await;
+    register_refresh_session(&issued.refresh).await;
     timer.mark("online_session");
 
     log::record_auth(
@@ -291,7 +296,52 @@ pub async fn refresh(
         ));
     }
 
-    if jwt.is_blacklisted(&claims).await {
+    // 旧令牌 `jti` 是轮换血缘的主键：没有它就无法登记「已作废」与「幂等回放」，
+    // 也无法判复用，只能拒绝。
+    let Some(old_jti) = claims.jti.clone().filter(|v| !v.is_empty()) else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_REFRESH_TOKEN_INVALID,
+            "刷新令牌缺少唯一标识",
+        ));
+    };
+
+    // ① 会话绝对上限（CODE-16 B1）：refresh 的 `exp` 恒等于 `siat + refresh_ttl`，
+    //    但 jsonwebtoken 验签带 60s leeway，所以必须再显式比一次 `siat`——
+    //    否则绝对上限会被 leeway 放宽，而「绝对」正是这条约束的全部意义。
+    //    这一步排在幂等回放之前：会话已到期的请求不该再换到一对新令牌。
+    let session = SessionSeed::inherit(&claims);
+    let refresh_ttl = jwt.refresh_token_expire_secs() as i64;
+    if now_secs() >= session.siat + refresh_ttl {
+        log::record_auth(
+            &headers,
+            &connect_info,
+            AuthLogInput {
+                user_id: utils::require_uuid(&claims.sub, "sub").ok(),
+                username: claims.username.clone(),
+                auth_type: AuthType::RefreshToken,
+                auth_status: AuthStatus::Fail,
+                error_message: Some("刷新令牌已超过会话绝对上限".to_string()),
+                login_duration: None,
+            },
+        );
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_REFRESH_TOKEN_INVALID,
+            "登录会话已到最长有效期，请重新登录",
+        ));
+    }
+
+    // ② 轮换幂等（60s 宽限，评审 §1.1）：跨标签页并发刷新时第二次请求拿到的是
+    //    同一个旧令牌，这里直接回放第一次的结果——不写审计、不杀会话。
+    if let Some(replayed) = load_replay(&old_jti).await? {
+        // 回放前必须确认「该会话仍然有效」：登出 / 强制下线会删掉 refresh 登记，
+        // 只按幂等缓存回放的话，登出后 60s 内旧令牌仍能换到一对可用的新令牌。
+        if replay_session_alive(&replayed).await? {
+            tracing::debug!(user_id = %claims.sub, "命中轮换幂等窗口，回放同一对令牌");
+            return Ok(Res::ok(replayed));
+        }
+        tracing::info!(user_id = %claims.sub, "幂等缓存对应的会话已被吊销，拒绝回放");
         return Err(ApiError::new(
             401,
             error_code::AUTH_TOKEN_REVOKED,
@@ -299,8 +349,30 @@ pub async fn refresh(
         ));
     }
 
-    // 旧刷新令牌一次性作废
-    jwt.blacklist(&claims).await;
+    // ③ 血缘检查：该 refresh 已经轮换过 → 有人在重放旧令牌（CODE-16 B4）
+    if let Some(mark) = load_rotated(&old_jti).await? {
+        return Err(reuse_detected(&headers, &connect_info, &claims, &mark).await);
+    }
+
+    // ④ 黑名单（登出 / 强制下线）：框架对该接口跳过检查，这里自己做且 **fail-closed**
+    match auth_guard::check_revoked(Some(old_jti.as_str())).await {
+        Ok(false) => {}
+        Ok(true) => {
+            return Err(ApiError::new(
+                401,
+                error_code::AUTH_TOKEN_REVOKED,
+                "刷新令牌已被撤销",
+            ));
+        }
+        Err(reason) => {
+            tracing::error!(
+                user_id = %claims.sub,
+                error = %reason,
+                "刷新路径的黑名单复检失败，按 fail-closed 拒绝"
+            );
+            return Err(cache_unavailable("校验刷新令牌吊销状态"));
+        }
+    }
 
     let user_id = utils::require_uuid(&claims.sub, "sub")?;
     let user = match SysUserModel::find_or_none(db(), &user_id).await {
@@ -372,9 +444,29 @@ pub async fn refresh(
         ));
     }
 
+    // 旧刷新令牌一次性作废：必须在签发新令牌**之前**落地，且写失败即 500——
+    // 「没记录作废就发新令牌」等于放过一次复用（CODE-16 B4 顺序第 5 步）。
+    crate::support::online::model::blacklist_token(&old_jti, claims.exp as i64)
+        .await
+        .map_err(|e| {
+            tracing::error!(user_id = %claims.sub, error = %e, "旧刷新令牌写黑名单失败");
+            cache_unavailable("作废旧刷新令牌")
+        })?;
+
     // 刷新路径不采集分段耗时：令牌已存在，慢点只在首次登录需要定位。
-    let (token, new_claims) = issue_token(&user, None).await?;
-    register_online_session(&headers, &connect_info, &new_claims).await;
+    let (token, issued) = issue_token(&user, None, &session).await?;
+
+    // 血缘标记（判复用）+ 幂等回放（宽限）+ 新旧在线登记
+    let mark = RotatedMark {
+        sid: session.sid.clone(),
+        at: now_secs(),
+    };
+    persist_rotation(&old_jti, &mark, &token, claims.exp).await?;
+    if let Err(e) = OnlineSessionModel::forget_refresh(&old_jti).await {
+        tracing::warn!(user_id = %claims.sub, error = %e, "移除旧 refresh 令牌登记失败");
+    }
+    register_online_session(&headers, &connect_info, &issued.access).await;
+    register_refresh_session(&issued.refresh).await;
 
     log::record_auth(
         &headers,
@@ -421,8 +513,23 @@ pub async fn logout(
     jwt.logout(&claims).await;
     revoke_online_session(&claims).await;
 
-    // 同时吊销请求体带来的 refresh token：只拉黑 access 令牌时，refresh 仍能续期
-    // 7 天，「退出登录」形同虚设（安全审计 CODE-05）。
+    // 同一会话（`sid`）名下的 refresh 令牌一并吊销：客户端不必回传 refresh，
+    // 「登出后旧 refresh 仍能续期」的窗口也关掉了（CODE-05 / CODE-16 B7）。
+    // 失败要出声：吊销失败却回 200 就是静默 fail-open（评审 §1.3）。
+    if let Some(sid) = claims.extra_str(constants::CLAIM_SESSION_ID)
+        && let Err(e) = crate::support::online::model::revoke_refresh_by_sid(&sid).await
+    {
+        tracing::error!(
+            user_id = %claims.sub,
+            sid = %sid,
+            error = %e,
+            "登出时吊销本次会话的 refresh 令牌失败"
+        );
+        return Err(cache_unavailable("吊销本次会话的刷新令牌"));
+    }
+
+    // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
+    // 按 jti 再兜底拉黑一次，失败同样必须让调用方看到。
     if let Some(Json(req)) = payload
         && let Some(raw) = req
             .refresh_token
@@ -435,7 +542,20 @@ pub async fn logout(
                 if refresh_claims.token_type == Some(TokenType::Refresh)
                     && refresh_claims.sub == claims.sub =>
             {
-                jwt.blacklist(&refresh_claims).await;
+                if let Some(jti) = refresh_claims.jti.as_deref()
+                    && let Err(e) = crate::support::online::model::blacklist_token(
+                        jti,
+                        refresh_claims.exp as i64,
+                    )
+                    .await
+                {
+                    tracing::error!(
+                        user_id = %claims.sub,
+                        error = %e,
+                        "登出时拉黑客户端提交的 refresh 令牌失败"
+                    );
+                    return Err(cache_unavailable("吊销刷新令牌"));
+                }
             }
             Ok(_) => tracing::warn!(
                 user_id = %claims.sub,
@@ -678,7 +798,17 @@ pub async fn change_password(
         tracing::error!(error = %e, user_id = %user_id, "改密后自增令牌版本号失败");
     }
     crate::system::auth::model::invalidate_user_principal(&user_id).await;
-    crate::support::online::model::force_logout_user(&user_id.to_string()).await;
+    // 缓存侧的会话吊销失败按**可接受降级**处理，不返回 500：上面已把库里的
+    // `token_version` 自增（认证层逐请求比对、刷新路径也比对），旧 access / refresh
+    // 在数据库这一侧已经作废；此时回 500 只会让「密码其实已改成功」的操作看起来失败，
+    // 反而诱发无意义的重复改密。失败仍以 `error` 级日志留痕（不静默）。
+    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
+        tracing::error!(
+            user_id = %user_id,
+            error = %e,
+            "改密后清理在线会话失败（令牌版本号已自增，库侧吊销仍生效）"
+        );
+    }
 
     log::record_password_change(
         &headers,
@@ -792,15 +922,63 @@ impl LoginTimer {
     }
 }
 
+/// 会话种子：`sid`（uuid v4）+ `siat`（Unix 秒）。
+///
+/// 登录时新建，轮换时**从旧 refresh 令牌的 claims 继承**——两条规则合起来才让
+/// refresh 令牌的有效期有了不可滑动的绝对上限（CODE-16 B1）：
+/// 只要 `now >= siat + refresh_ttl`，无论轮换过多少次都必须重新登录。
+struct SessionSeed {
+    /// 会话标识。
+    sid: String,
+    /// 会话创建时刻（Unix 秒）。
+    siat: i64,
+}
+
+impl SessionSeed {
+    /// 登录：开一个新会话。
+    fn new_login() -> Self {
+        Self {
+            sid: uuid::Uuid::new_v4().to_string(),
+            siat: now_secs(),
+        }
+    }
+
+    /// 刷新：继承旧 refresh 令牌的会话标识与创建时刻。
+    ///
+    /// 历史令牌（本整改上线前签发、没有 `sid` / `siat`）以 `iat` 兜底：它们的
+    /// `exp` 本来就等于 `iat + refresh_ttl`，因此绝对上限既不会被延长，
+    /// 也不会把正在使用的会话立刻踢下线。
+    fn inherit(claims: &TokenClaims) -> Self {
+        let sid = claims
+            .extra_str(constants::CLAIM_SESSION_ID)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+        let siat = claims
+            .extra_i64(constants::CLAIM_SESSION_ISSUED_AT)
+            .unwrap_or(claims.iat as i64);
+        Self { sid, siat }
+    }
+}
+
+/// 一次签发的令牌对（access + refresh）及其声明。
+struct IssuedTokens {
+    /// 访问令牌声明（在线会话登记用）。
+    access: TokenClaims,
+    /// 刷新令牌声明（refresh 登记与血缘标记用）。
+    refresh: TokenClaims,
+}
+
 /// 组装登录用户的角色编码、权限码与令牌对。
 ///
 /// # 参数
 ///
 /// - `user`：已通过身份校验的用户模型。
+/// - `timer`：耗时分段采集器（仅登录路径传入）。
+/// - `session`：会话种子（登录新建 / 刷新继承），决定 `sid` / `siat` 与 refresh 的 `exp`。
 ///
 /// # 返回值
 ///
-/// `(令牌响应, 访问令牌声明)`。声明用于登记在线会话（签发接口不直接返回 `jti`）。
+/// `(令牌响应, 令牌对声明)`。声明用于登记在线会话与 refresh 令牌（签发接口只返回字符串）。
 ///
 /// # 异常情况
 ///
@@ -808,7 +986,8 @@ impl LoginTimer {
 async fn issue_token(
     user: &SysUserModel,
     mut timer: Option<&mut LoginTimer>,
-) -> std::result::Result<(TokenRes, TokenClaims), ApiError> {
+    session: &SessionSeed,
+) -> std::result::Result<(TokenRes, IssuedTokens), ApiError> {
     // 计时器是可选的：登录路径传入采集器，刷新路径不采集。
     let mut mark_stage = |label: &'static str| {
         if let Some(timer) = timer.as_deref_mut() {
@@ -842,12 +1021,22 @@ async fn issue_token(
                 constants::CLAIM_TOKEN_VERSION,
                 i64::from(user.token_version),
             )
+            // 会话标识与创建时刻：refresh 轮换时原样继承，构成绝对上限基准（CODE-16 B1）
+            .claim_str(constants::CLAIM_SESSION_ID, session.sid.clone())
+            .claim_i64(constants::CLAIM_SESSION_ISSUED_AT, session.siat)
     };
     let access_token = jwt.issue(builder()).map_err(|e| {
         tracing::error!(error = %e, "签发访问令牌失败");
         ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
     })?;
-    let refresh_token = jwt.issue_refresh(builder()).map_err(|e| {
+
+    // refresh 的 `exp` **固定**为 `siat + refresh_ttl`：轮换只换 jti，不推后上限。
+    // `ClaimsBuilder::build(type, expire_secs)` 按「当前时刻 + expire_secs」算 exp，
+    // 因此这里传「距绝对上限的剩余秒数」即得到 `exp = siat + refresh_ttl`。
+    let refresh_ttl = jwt.refresh_token_expire_secs() as i64;
+    let remaining = (session.siat + refresh_ttl - now_secs()).max(1) as u64;
+    let refresh_claims = builder().build(TokenType::Refresh, remaining);
+    let refresh_token = jwt.create_token_with(refresh_claims.clone()).map_err(|e| {
         tracing::error!(error = %e, "签发刷新令牌失败");
         ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
     })?;
@@ -873,7 +1062,231 @@ async fn issue_token(
         // 前端据此直接跳改密页，不必先撞一次 403（安全审计 CODE-06）
         must_change_password: user.must_change_password,
     };
-    Ok((token, claims))
+    Ok((
+        token,
+        IssuedTokens {
+            access: claims,
+            refresh: refresh_claims,
+        },
+    ))
+}
+
+/// 当前 Unix 时间戳（秒）。
+fn now_secs() -> i64 {
+    chrono::Utc::now().timestamp()
+}
+
+/// 缓存不可用时的统一 500 错误。
+///
+/// 吊销 / 轮换状态都落在缓存里：缓存不可用时**不能**假装成功（那就是 fail-open），
+/// 一律回 500 让客户端重试（评审 §1.3）。
+fn cache_unavailable(action: &str) -> ApiError {
+    ApiError::new(
+        500,
+        error_code::INTERNAL_ERROR,
+        format!("会话状态暂不可用，无法{action}，请稍后重试"),
+    )
+}
+
+/// 已轮换（作废）refresh 令牌的血缘标记。
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct RotatedMark {
+    /// 会话标识。
+    sid: String,
+    /// 轮换时刻（Unix 秒）。
+    at: i64,
+}
+
+/// 读取轮换幂等结果（`token:replay:{旧 jti}`）。
+///
+/// # 返回值
+///
+/// - `Ok(Some(_))`：宽限窗口内命中，直接回放同一对令牌；
+/// - `Ok(None)`：未命中；
+/// - `Err(_)`：缓存不可用（500）。
+async fn load_replay(old_jti: &str) -> std::result::Result<Option<TokenRes>, ApiError> {
+    let Some(store) = try_cache() else {
+        return Err(cache_unavailable("校验令牌轮换状态"));
+    };
+    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
+    match Cache::get::<TokenRes>(store, &key).await {
+        Ok(pair) => Ok(pair),
+        Err(e) => {
+            tracing::error!(error = %e, "读取轮换幂等缓存失败");
+            Err(cache_unavailable("校验令牌轮换状态"))
+        }
+    }
+}
+
+/// 读取轮换血缘标记（`token:rotated:{旧 jti}`）。
+///
+/// # 返回值
+///
+/// - `Ok(Some(_))`：该 refresh 令牌已被轮换过；
+/// - `Ok(None)`：未轮换过；
+/// - `Err(_)`：缓存不可用（500）。
+async fn load_rotated(old_jti: &str) -> std::result::Result<Option<RotatedMark>, ApiError> {
+    let Some(store) = try_cache() else {
+        return Err(cache_unavailable("校验令牌轮换状态"));
+    };
+    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
+    match Cache::get::<RotatedMark>(store, &key).await {
+        Ok(mark) => Ok(mark),
+        Err(e) => {
+            tracing::error!(error = %e, "读取轮换血缘标记失败");
+            Err(cache_unavailable("校验令牌轮换状态"))
+        }
+    }
+}
+
+/// 判断幂等回放出的令牌对所属会话是否仍然有效。
+///
+/// 判据：它携带的 refresh 令牌**仍在 `online:refresh:*` 注册表里**。登出
+/// （`revoke_refresh_by_sid`）与强制下线（`force_logout_user`）都会删掉登记，
+/// 因此「登记缺失」即视为已吊销——这是 60s 宽限窗口不会绕过登出的关键。
+///
+/// # 返回值
+///
+/// - `Ok(true)`：会话仍有效，可以回放；
+/// - `Ok(false)`：会话已吊销 / 缓存内容无法验签，不可回放；
+/// - `Err(_)`：缓存不可用（500，fail-closed）。
+async fn replay_session_alive(pair: &TokenRes) -> std::result::Result<bool, ApiError> {
+    let jwt = JWT::from_config();
+    let claims = match jwt.validate(&pair.refresh_token) {
+        Ok(claims) => claims,
+        Err(e) => {
+            // 回放的是自己刚签发的令牌；验不过说明缓存内容异常或密钥已轮换
+            tracing::warn!(error = %e, "幂等缓存中的 refresh 令牌无法验签，按已吊销处理");
+            return Ok(false);
+        }
+    };
+    let Some(jti) = claims.jti.as_deref() else {
+        return Ok(false);
+    };
+    match OnlineSessionModel::find_refresh(jti).await {
+        Ok(Some(_)) => Ok(true),
+        Ok(None) => Ok(false),
+        Err(e) => {
+            tracing::error!(error = %e, "查询 refresh 令牌登记失败，回放按 fail-closed 拒绝");
+            Err(cache_unavailable("校验令牌轮换状态"))
+        }
+    }
+}
+
+/// 记录一次成功轮换：写血缘标记（判复用）+ 幂等回放（宽限）。
+///
+/// # 参数
+///
+/// - `old_jti`：被换下的 refresh 令牌 `jti`。
+/// - `mark`：血缘标记。
+/// - `pair`：本次签发的新令牌对（幂等回放时原样返回）。
+/// - `old_exp`：旧 refresh 令牌的 `exp`（血缘标记的存活上限）。
+///
+/// # 异常情况
+///
+/// 缓存不可用或写入失败返回 500——写不进去就意味着下次复用无法识别。
+async fn persist_rotation(
+    old_jti: &str,
+    mark: &RotatedMark,
+    pair: &TokenRes,
+    old_exp: usize,
+) -> std::result::Result<(), ApiError> {
+    let Some(store) = try_cache() else {
+        return Err(cache_unavailable("记录令牌轮换"));
+    };
+    let rotated_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
+    let replay_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
+    let ttl = (old_exp as i64 - now_secs()).max(1) as u64;
+    Cache::set_ex(store, &rotated_key, mark, ttl)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, old_jti, "写轮换血缘标记失败");
+            cache_unavailable("记录令牌轮换")
+        })?;
+    Cache::set_ex(
+        store,
+        &replay_key,
+        pair,
+        constants::TOKEN_ROTATION_REPLAY_GRACE_SECS,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, old_jti, "写轮换幂等缓存失败");
+        cache_unavailable("记录令牌轮换")
+    })
+}
+
+/// 判定「refresh 令牌复用」并执行处置（CODE-16 B4）。
+///
+/// 处置三件事：
+///
+/// 1. **注销该用户全部会话**（access 与 refresh 都在注册表里，一次全杀）——
+///    令牌被复用意味着它已经泄露，只作废这一个 jti 不够；
+/// 2. 写 `auth_logs`（`REFRESH_TOKEN/FAIL`，`error_message` 带 `REUSE_DETECTED`）
+///    与 `security_logs`（`REFRESH_TOKEN_REUSE`）；
+/// 3. 返回 401 `AUTH_TOKEN_REVOKED`（复用现有错误码，不新增无语义码）。
+///
+/// # 返回值
+///
+/// 供调用方直接 `return Err(...)` 的 401 错误。
+async fn reuse_detected(
+    headers: &HeaderMap,
+    connect_info: &SocketAddr,
+    claims: &TokenClaims,
+    mark: &RotatedMark,
+) -> ApiError {
+    let kicked = match crate::support::online::model::force_logout_user(&claims.sub).await {
+        Ok(count) => count,
+        Err(e) => {
+            // 会话吊销失败也不能放行：仍按复用拒绝，并且必须留痕
+            tracing::error!(user_id = %claims.sub, error = %e, "复用检测后吊销全部会话失败");
+            0
+        }
+    };
+    tracing::warn!(
+        user_id = %claims.sub,
+        sid = %mark.sid,
+        rotated_at = mark.at,
+        revoked_tokens = kicked,
+        "检测到 refresh 令牌复用，已注销该用户全部会话"
+    );
+
+    let user_id = utils::require_uuid(&claims.sub, "sub").ok();
+    log::record_auth(
+        headers,
+        connect_info,
+        AuthLogInput {
+            user_id,
+            username: claims.username.clone(),
+            auth_type: AuthType::RefreshToken,
+            auth_status: AuthStatus::Fail,
+            error_message: Some(format!(
+                "REUSE_DETECTED: 刷新令牌在 {} 轮换后再次被使用，已注销该用户全部会话（吊销 {kicked} 个令牌）",
+                mark.at
+            )),
+            login_duration: None,
+        },
+    );
+    log::record_security(
+        headers,
+        connect_info,
+        SecurityLogInput {
+            user_id,
+            username: claims.username.clone(),
+            event_type: "REFRESH_TOKEN_REUSE".to_string(),
+            detail: Some(serde_json::json!({
+                "sid": mark.sid,
+                "rotated_at": mark.at,
+                "revoked_tokens": kicked,
+            })),
+        },
+    );
+
+    ApiError::new(
+        401,
+        error_code::AUTH_TOKEN_REVOKED,
+        "登录状态已失效，请重新登录",
+    )
 }
 
 /// 登记在线会话（登录 / 刷新成功后调用）。
@@ -938,6 +1351,43 @@ async fn register_online_session(
 async fn revoke_online_session(claims: &TokenClaims) {
     if let Some(token_id) = claims.jti.as_deref() {
         OnlineSessionModel::record_logout(token_id).await;
+    }
+}
+
+/// 登记 refresh 令牌（登录 / 轮换成功后调用，CODE-16 B7）。
+///
+/// # 参数
+///
+/// - `claims`：本次签发的 refresh 令牌声明（需含 `jti` / `sid` / `exp`）。
+///
+/// # 说明
+///
+/// 登记进 `online:refresh:{jti}` 后，`force_logout_user` / `force_logout_all_except`
+/// 才能枚举到 refresh 令牌并按 `user_id` 清理——这是「改密 / 停用 / 改角色后旧 refresh
+/// 立即失效」的底座。登记失败只记 `error` 日志：此时缓存本身已不可用，认证层会整体
+/// fail-closed，不存在「静默放行」的窗口。
+async fn register_refresh_session(claims: &TokenClaims) {
+    let Some(jti) = claims.jti.clone().filter(|v| !v.is_empty()) else {
+        tracing::warn!(user_id = %claims.sub, "refresh 令牌缺少 jti，跳过登记");
+        return;
+    };
+    let Some(sid) = claims.extra_str(constants::CLAIM_SESSION_ID) else {
+        tracing::warn!(user_id = %claims.sub, "refresh 令牌缺少 sid，跳过登记");
+        return;
+    };
+    let session = RefreshSession {
+        jti,
+        user_id: claims.sub.clone(),
+        sid,
+        exp: claims.exp as i64,
+    };
+    let ttl = (session.exp - now_secs()).max(1) as u64;
+    if let Err(e) = OnlineSessionModel::record_refresh(&session, ttl).await {
+        tracing::error!(
+            user_id = %claims.sub,
+            error = %e,
+            "登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单）"
+        );
     }
 }
 

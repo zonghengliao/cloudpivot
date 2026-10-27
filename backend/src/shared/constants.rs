@@ -193,6 +193,53 @@ pub const CACHE_KEY_PREFIX_ONLINE: &str = "online:token:";
 /// （`token:blacklist:{jti}`），否则强制下线写入的黑名单不会被认证层识别。
 pub const CACHE_KEY_PREFIX_TOKEN_BLACKLIST: &str = "token:blacklist:";
 
+// ==================== 令牌轮换 / 复用检测 / 会话绝对上限（CODE-16 B） ====================
+
+/// 会话标识 claim 键名（`sid`，uuid v4）。
+///
+/// 登录时生成、轮换时**原样继承**：同一登录会话内签发的全部 refresh 令牌共享它，
+/// 登出 / 复用检测据此一次性收敛该会话的全部 refresh 令牌。
+pub const CLAIM_SESSION_ID: &str = "sid";
+
+/// 会话创建时刻 claim 键名（`siat`，Unix 秒）。
+///
+/// refresh 令牌的 `exp` 恒等于 `siat + refresh_token_expire_secs`（**固定不滑动**），
+/// 因此无论轮换多少次，绝对上限都不会被刷新推后（评审 §4.1）。
+pub const CLAIM_SESSION_ISSUED_AT: &str = "siat";
+
+/// 已轮换（作废）refresh 令牌的血缘标记键前缀（完整键形如 `token:rotated:{旧 jti}`）。
+///
+/// 值为 `{"sid": ..., "at": 轮换时刻}`，TTL 取旧 refresh 令牌剩余有效期。
+/// 命中即说明「该 refresh 令牌已被用过」——这是复用检测的唯一依据（评审 §4.2）：
+/// 框架的 `token:blacklist:{jti}` 只存 `true`、不带原因，无法区分「登出被拉黑」
+/// 与「轮换后被重复使用」。
+pub const CACHE_KEY_PREFIX_TOKEN_ROTATED: &str = "token:rotated:";
+
+/// 轮换幂等缓存键前缀（完整键形如 `token:replay:{旧 jti}`）。
+///
+/// 值为本次轮换签发的**完整令牌响应**，TTL 固定 [`TOKEN_ROTATION_REPLAY_GRACE_SECS`]。
+/// 命中时原样返回同一对令牌，不写审计、不杀会话。
+pub const CACHE_KEY_PREFIX_TOKEN_REPLAY: &str = "token:replay:";
+
+/// refresh 令牌在线登记键前缀（完整键形如 `online:refresh:{refresh jti}`）。
+///
+/// 值含 `user_id` / `sid` / `exp`，TTL 同 refresh 剩余有效期。它把 refresh 令牌也纳入
+/// 「在线会话」注册表，使 `force_logout_user` 能枚举并按 `user_id` 清理
+/// （覆盖改密 / 停用 / 改角色 / 登出等全部吊销入口）。
+pub const CACHE_KEY_PREFIX_ONLINE_REFRESH: &str = "online:refresh:";
+
+/// 轮换幂等宽限窗口（秒）。
+///
+/// # 为什么必须存在
+///
+/// 前端的刷新单飞只在**单个标签页内**生效（`frontend/src/api/request.ts:110-125`），
+/// 多标签页会同时用同一个旧 refresh 令牌各发一次刷新。若第二次直接判为「复用」，
+/// 正常用户会被服务端杀光会话——access TTL 缩短到 15 分钟后刷新频率提高，
+/// 这个竞态只会更容易被触发（评审 §1.1）。
+///
+/// 窗口内第二次请求复用第一次的结果（同一对令牌），窗口外才判定为复用。
+pub const TOKEN_ROTATION_REPLAY_GRACE_SECS: u64 = 60;
+
 /// `sys_config` 中控制 IP 归属地解析的参数键。
 pub const CONFIG_KEY_IP_LOCATION: &str = "log.ip_location_enabled";
 

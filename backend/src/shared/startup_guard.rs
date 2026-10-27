@@ -65,6 +65,71 @@ pub const ENV_JWT_SECRET_ALIAS: &str = "FACAI_JWT_SECRET";
 /// 认证中间件在 TOML 中的段名。
 const AUTH_SECTION: &str = "middleware.auth";
 
+/// 必须使用 Redis 缓存的 profile。
+///
+/// 吊销状态（`token:blacklist:*` / `token:rotated:*` / `online:*`）全部落在缓存里：
+///
+/// - `local`（进程内 LRU）重启即清空 → 重启后所有黑名单与轮换标记一起消失，
+///   「已登出的 refresh 仍可用」重新出现；
+/// - 多实例部署时各进程各有一份 → A 实例吊销、B 实例照放行。
+///
+/// 因此 prod / dev 只接受 `type = "redis"`；`test` / 其它临时 profile 不强制。
+pub const CACHE_REDIS_REQUIRED_PROFILES: &[&str] = &["prod", "dev"];
+
+/// 缓存后端不合规（吊销状态无法可靠保存）时的拒绝原因。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CacheBackendError {
+    /// 当前运行的配置 profile（如 `dev` / `prod`）。
+    pub profile: String,
+    /// 实际生效的 `[cache] type`。
+    pub cache_type: String,
+}
+
+impl fmt::Display for CacheBackendError {
+    /// 输出可直接贴进终端 / 日志的中文错误，包含危害说明与修复步骤。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "安全守卫拒绝启动：profile={profile} 下 [cache] type = \"{cache_type}\"，必须为 \"redis\"。\n\
+             危害：令牌黑名单 / 轮换血缘 / 在线会话全部存在缓存里；进程内 LRU 缓存重启即清空、\
+             多实例之间不共享，吊销（登出、强制下线、改密）会静默失效——旧 refresh 令牌可继续续期。\n\
+             修复：在 config/config-{profile}.toml 里写 [cache] type = \"redis\" 与 [redis] enabled = true，\
+             并用 ALUN_REDIS_URL 指向真实 Redis；不要让基础配置的 [cache] type = \"local\" 兜底生效。",
+            profile = self.profile,
+            cache_type = self.cache_type
+        )
+    }
+}
+
+impl std::error::Error for CacheBackendError {}
+
+/// 校验缓存后端（纯函数，不读全局状态与文件，便于单测）。
+///
+/// # 参数
+///
+/// - `profile`：当前配置 profile
+/// - `cache_type`：`[cache].type` 的有效值
+///
+/// # 返回值
+///
+/// - `Ok(())`：profile 不在 [`CACHE_REDIS_REQUIRED_PROFILES`]，或已是 redis（大小写不敏感）
+/// - `Err(CacheBackendError)`：prod / dev 下使用了非 redis 缓存
+pub fn check_cache_backend(
+    profile: &str,
+    cache_type: &str,
+) -> std::result::Result<(), CacheBackendError> {
+    if !CACHE_REDIS_REQUIRED_PROFILES.contains(&profile) {
+        return Ok(());
+    }
+    if cache_type.trim().eq_ignore_ascii_case("redis") {
+        return Ok(());
+    }
+    Err(CacheBackendError {
+        profile: profile.to_string(),
+        cache_type: cache_type.trim().to_string(),
+    })
+}
+
 /// 启动守卫的拒绝原因。
 ///
 /// 枚举分支各自携带定位信息，**不包含密钥内容本身**，可安全写入日志与终端。
@@ -370,12 +435,12 @@ impl Plugin for AuthSecretGuardPlugin {
         "startup-auth-secret-guard"
     }
 
-    /// 校验 `[middleware.auth]`，不通过则返回 `Err` 中止启动。
+    /// 校验 `[middleware.auth]` 与 `[cache]`，不通过则返回 `Err` 中止启动。
     ///
     /// # 返回值
     ///
-    /// - `Ok(())`：认证未开启，或密钥长度达标（此时打印一条不含密钥的 `info` 日志）
-    /// - `Err(Error::Config)`：密钥为空 / 过短，错误消息含危害说明与修复步骤
+    /// - `Ok(())`：认证未开启或密钥长度达标；且缓存后端符合该 profile 的要求
+    /// - `Err(Error::Config)`：密钥为空 / 过短，或 prod / dev 下缓存不是 redis
     async fn start(&self) -> std::result::Result<(), Error> {
         let config = cfg();
         let auth = &config.middleware.auth;
@@ -390,13 +455,33 @@ impl Plugin for AuthSecretGuardPlugin {
                         "启动守卫通过：认证密钥长度满足下限"
                     );
                 }
-                Ok(())
             }
             Err(violation) => {
                 // 先落一条 error 日志（便于 journalctl 检索），再作为启动错误向上传播
                 tracing::error!(
                     profile = %config.profile,
                     auth_enabled = auth.enabled,
+                    "启动守卫拦截：{violation}"
+                );
+                return Err(Error::Config(violation.to_string()));
+            }
+        }
+
+        // 缓存后端：吊销状态（黑名单 / 轮换血缘 / 在线会话）全在缓存里，
+        // prod / dev 用进程内 LRU 等于吊销静默失效（CODE-16 B6）。
+        match check_cache_backend(&config.profile, &config.cache.r#type) {
+            Ok(()) => {
+                tracing::info!(
+                    profile = %config.profile,
+                    cache_type = %config.cache.r#type,
+                    "启动守卫通过：缓存后端满足吊销耐久性要求"
+                );
+                Ok(())
+            }
+            Err(violation) => {
+                tracing::error!(
+                    profile = %config.profile,
+                    cache_type = %config.cache.r#type,
                     "启动守卫拦截：{violation}"
                 );
                 Err(Error::Config(violation.to_string()))
@@ -596,5 +681,37 @@ enabled = false
         );
         // 配置目录不存在：无法判定 → None（预检放行，插件守卫兜底）
         assert_eq!(auth_enabled_in_files("no-such-dir", "dev"), None);
+    }
+
+    /// 缓存后端守卫：prod / dev 必须是 redis，其它 profile 不强制。
+    #[test]
+    fn cache_backend_requires_redis_for_prod_and_dev() {
+        assert_eq!(check_cache_backend("prod", "redis"), Ok(()));
+        assert_eq!(check_cache_backend("dev", "redis"), Ok(()));
+        // 大小写与空白不敏感（配置里写成 Redis / " redis " 也应通过）
+        assert_eq!(check_cache_backend("dev", " Redis "), Ok(()));
+        // test / 未知 profile：不强制（临时环境可以退回进程内缓存）
+        assert_eq!(check_cache_backend("test", "local"), Ok(()));
+        assert_eq!(check_cache_backend("no-such-profile", "local"), Ok(()));
+    }
+
+    /// 缓存后端守卫：prod / dev 用进程内缓存即拒绝启动，错误信息含危害与修复。
+    #[test]
+    fn cache_backend_rejects_local_for_prod_and_dev() {
+        for profile in ["prod", "dev"] {
+            let err = check_cache_backend(profile, "local")
+                .expect_err("prod/dev 使用 local 缓存必须被拒绝");
+            assert_eq!(err.profile, profile);
+            assert_eq!(err.cache_type, "local");
+            let text = err.to_string();
+            assert!(
+                text.contains("必须为 \"redis\""),
+                "错误文案缺修复指引: {text}"
+            );
+            assert!(
+                text.contains("吊销"),
+                "错误文案缺危害说明（吊销会静默失效）: {text}"
+            );
+        }
     }
 }

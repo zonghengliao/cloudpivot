@@ -205,8 +205,18 @@ pub async fn update(
         .map_err(|e| utils::db_error(e, "更新菜单"))?;
 
     // 菜单的权限码 / 状态 / 标题等可能变更，令非超管在线用户令牌失效后重新登录，
-    // 避免旧令牌内固化的权限快照与最新授权不一致
-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
+    // 避免旧令牌内固化的权限快照与最新授权不一致。
+    // 失败回 500：菜单即权限来源，旧令牌里的权限码没有任何库侧兜底能撤回（评审 §1.3）。
+    if let Err(e) =
+        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
+    {
+        tracing::error!(error = %e, scene = "menu_update", "菜单变更后吊销在线会话失败");
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "菜单已保存，但会话吊销失败，请重试",
+        ));
+    }
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,
@@ -297,8 +307,18 @@ pub async fn delete(
     .map_err(|e| utils::db_error(e, "删除菜单"))?;
 
     // 菜单是权限来源：删除后令非超管在线用户的旧令牌失效，强制重新登录获取新权限，
-    // 防止仍持有旧权限快照的令牌继续访问
-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
+    // 防止仍持有旧权限快照的令牌继续访问。
+    // 失败回 500：权限码已随菜单删除，但令牌里的旧权限快照只能靠黑名单收回（评审 §1.3）。
+    if let Err(e) =
+        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
+    {
+        tracing::error!(error = %e, scene = "menu_delete", "菜单删除后吊销在线会话失败");
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "菜单已删除，但会话吊销失败，请重试",
+        ));
+    }
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,

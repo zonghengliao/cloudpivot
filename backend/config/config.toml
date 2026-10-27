@@ -60,6 +60,10 @@ url = "redis://127.0.0.1:6379"
 max_connections = 10
 
 [cache]
+# 兜底值：仅在未覆盖的临时 profile 上生效。
+# **prod / dev 必须是 redis**（两者在各自的 config-{profile}.toml 里已覆盖）：
+# 令牌黑名单 / 轮换血缘 / 在线会话全在缓存里，进程内 LRU 重启即清空、多实例不共享，
+# 用它会吊销静默失效。启动守卫（shared/startup_guard.rs）会拒绝这类启动（CODE-16 B6）。
 type = "local"
 max_capacity = 10000
 default_ttl = 3600
@@ -80,8 +84,12 @@ enabled = false
 jwt_secret = ""
 # 默认按「不含 [router] prefix 前缀」书写；`!/health` 表示绝对路径豁免前缀
 ignore_paths = ["!/health", "/system/auth/login", "/system/auth/refresh"]
-access_token_expire_secs = 7200
-refresh_token_expire_secs = 604800
+# 短 TTL（CODE-16 B1）：access 15 分钟、refresh 24 小时**绝对上限**。
+# refresh 的 exp 固定为「登录时刻 + refresh_token_expire_secs」，轮换不滑动，
+# 因此 24h 之后无论刷新多少次都必须重新登录（见 system/auth/handler.rs 的 siat claim）。
+# 前端 `expires_in` 直接取 access_token_expire_secs，无需另行配置。
+access_token_expire_secs = 900
+refresh_token_expire_secs = 86400
 
 [middleware.cors]
 enabled = true

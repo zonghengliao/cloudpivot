@@ -326,7 +326,7 @@ pub async fn update(
         // 不依赖「在线会话表里恰好还有记录」（安全审计 CODE-05 / CODE-08）
         revoke_user_tokens(&id, "update_disable").await;
         crate::system::auth::model::invalidate_user_principal(&id).await;
-        crate::support::online::model::force_logout_user(&id.to_string()).await;
+        revoke_online_sessions(&id, "update_disable").await;
     }
 
     let dept_name = dept_name_of(to_save.dept_id).await?;
@@ -418,7 +418,7 @@ pub async fn delete(
 
     // 用户删除后其令牌应立即失效（JWT 无状态，需主动拉黑其在线会话）
     crate::system::auth::model::invalidate_user_principal(&id).await;
-    crate::support::online::model::force_logout_user(&id.to_string()).await;
+    revoke_online_sessions(&id, "delete_user").await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -521,7 +521,7 @@ pub async fn change_status(
         // （安全审计 CODE-05 / CODE-08）
         revoke_user_tokens(&id, "change_status_disable").await;
         crate::system::auth::model::invalidate_user_principal(&id).await;
-        crate::support::online::model::force_logout_user(&id.to_string()).await;
+        revoke_online_sessions(&id, "change_status_disable").await;
     }
     log::record_audit(
         &headers,
@@ -624,7 +624,7 @@ pub async fn change_password(
 
     // 管理员重置他人密码后，强制其下线，须用新密码重新登录；本人改密不踢自己
     if operator_id != Some(id) {
-        crate::support::online::model::force_logout_user(&id.to_string()).await;
+        revoke_online_sessions(&id, "admin_reset_password").await;
     }
 
     log::record_audit(
@@ -755,7 +755,7 @@ pub async fn assign_roles(
     // 令牌版本号自增：即便在线会话记录已被清理，旧令牌也无法再用（CODE-08）
     revoke_user_tokens(&id, "assign_roles").await;
     crate::system::auth::model::invalidate_user_principal(&id).await;
-    crate::support::online::model::force_logout_user(&id.to_string()).await;
+    revoke_online_sessions(&id, "assign_roles").await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -891,6 +891,36 @@ async fn revoke_user_tokens(user_id: &uuid::Uuid, context: &'static str) {
     if let Err(e) = model::bump_token_version(user_id).await {
         // 失败不回滚业务：强制下线与黑名单仍在，只是少了一层兜底
         tracing::error!(error = %e, user_id = %user_id, context, "自增令牌版本号失败");
+    }
+}
+
+/// 清理指定用户的在线会话（access + refresh，`online:token:*` / `online:refresh:*`）。
+///
+/// 与 [`revoke_user_tokens`] 的分工见上；两者一起构成「库侧兜底 + 缓存侧即时」。
+///
+/// # 失败处理：可接受降级（不返回 500）
+///
+/// 本仓库用户管理侧的全部调用点（停用 / 删除 / 重置口令 / 改角色）都在**同一处**
+/// 先自增 `token_version`（或已把用户软删，认证层查不到会话直接 401），因此库侧
+/// 吊销不依赖缓存；缓存枚举失败只意味着少一层即时性，旧令牌最迟在 access TTL
+/// （15 分钟）内自然过期，或在下一次请求被 `ver` 比对拦下。
+///
+/// 反过来若这里回 500，前端会把「其实已经成功」的停用 / 改密显示成失败，诱发
+/// 重复操作——所以**只留痕、不改结果**，但日志必须是 `error` 级，不许静默
+/// （评审 §1.3）。
+///
+/// # 参数
+///
+/// - `user_id`：目标用户 ID。
+/// - `context`：调用场景（写入日志便于排查）。
+async fn revoke_online_sessions(user_id: &uuid::Uuid, context: &'static str) {
+    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
+        tracing::error!(
+            error = %e,
+            user_id = %user_id,
+            context,
+            "清理在线会话失败（令牌版本号 / 软删已在库侧生效）"
+        );
     }
 }
 

@@ -16,3 +16,10 @@ sql_logging = true
 # jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（如 /etc/cailu/cailu-test.env，600），
 # 禁止把任何密钥写回配置文件。
 enabled = true
+# TTL 必须在**每个 profile** 里重复写一遍（CODE-16 B1）：
+#   alun-config 0.4.2 的 merge_middleware 判定是 `overlay.auth.access_token_expire_secs != 0`，
+#   而 profile 缺该字段时 serde 填的是编译期默认值 7200/604800（≠ 0），
+#   于是基础配置 config.toml 的值会被 profile 的默认值盖掉（实测 `print-config` 仍输出 7200）。
+# access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
+access_token_expire_secs = 900
+refresh_token_expire_secs = 86400
