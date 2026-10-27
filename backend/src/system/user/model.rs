@@ -14,7 +14,7 @@
 
 use alun::prelude::*;
 
-use crate::shared::constants::EnableStatus;
+use crate::shared::constants::{self, EnableStatus};
 use crate::utils;
 
 /// `sys_user` 表对应的强类型模型（用户）。
@@ -284,6 +284,73 @@ pub(crate) async fn find_user_roles_for_users(
         });
     }
     Ok(result)
+}
+
+/// 查询内置超级管理员角色的 ID（`sys_role.role_code = 'SUPER_ADMIN'`）。
+///
+/// # 超管标识依据（按实际 schema，不是猜的）
+///
+/// - 迁移 `V0002__create_sys_role.up.sql` 建表时只有 `role_code` 承载角色语义；
+/// - 种子 `S__role_data.sql` 写入 `role_code = 'SUPER_ADMIN'`；
+/// - 表中**没有** `is_super` 之类布尔列，`id` 为 `gen_random_uuid()` 随机值，
+///   无法用固定 ID 判定；
+/// - 与 `system/auth/model.rs::is_super_admin`（按角色编码短路全部权限）口径一致。
+///
+/// # 返回值
+///
+/// 存在返回角色 ID；角色不存在或已软删返回 `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub(crate) async fn find_super_admin_role_id() -> std::result::Result<Option<uuid::Uuid>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM sys_role WHERE role_code = ? AND deleted_at IS NULL LIMIT 1",
+            vec![Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(Some(row.get_typed::<uuid::Uuid>("id")?)),
+        None => Ok(None),
+    }
+}
+
+/// 判断用户当前是否持有超级管理员角色（按 `role_code` 判定）。
+///
+/// 有效条件与权限装载口径保持一致：角色未软删、绑定未过期（`expire_time` 为空或
+/// 尚未到期），避免「已过期绑定」被误判为仍持有超管。
+///
+/// # 参数
+///
+/// - `user_id`：待判定的用户 ID。
+///
+/// # 返回值
+///
+/// 持有 `SUPER_ADMIN` 角色返回 `true`。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub(crate) async fn user_holds_super_admin_role(
+    user_id: &uuid::Uuid,
+) -> std::result::Result<bool, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT count(*) AS cnt FROM sys_user_role ur \
+             INNER JOIN sys_role r ON r.id = ur.role_id AND r.deleted_at IS NULL \
+             WHERE ur.user_id = ? AND r.role_code = ? \
+               AND (ur.expire_time IS NULL OR ur.expire_time > now())",
+            vec![
+                Value::from(user_id),
+                Value::from(constants::SUPER_ADMIN_ROLE_CODE),
+            ],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(row.get_typed::<i64>("cnt")? > 0),
+        None => Ok(false),
+    }
 }
 
 /// 统计占用指定登录账号的用户数（软删表上仅统计未删除行）。

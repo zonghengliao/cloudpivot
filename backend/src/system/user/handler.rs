@@ -21,6 +21,7 @@ use crate::system::user::dto::{
     RoleBriefRes, UserBatchDeptReq, UserCreateReq, UserDetailRes, UserPageQuery, UserPasswordReq,
     UserRes, UserRoleAssignReq, UserStatusReq, UserUpdateReq,
 };
+use crate::system::user::guard;
 use crate::system::user::model::{self, SysUserModel, SysUserRoleModel};
 use crate::utils;
 
@@ -155,6 +156,7 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<UserDetailRes> {
 /// # 异常情况
 ///
 /// - 400：参数非法；
+/// - 403：无权授予超级管理员角色（权限上限，见 [`guard`]）；
 /// - 409：用户名已存在；
 /// - 500：密码加密或数据库异常。
 #[alun::permission(
@@ -174,6 +176,8 @@ pub async fn create(
 
     // 先解析并校验角色全部存在，避免事务内才失败
     let role_ids = parse_and_check_roles(&req.role_ids).await?;
+    // 权限上限：非超管不得在新建账号时携带 SUPER_ADMIN 角色（堵「建号即提权」）
+    guard::ensure_role_grant_allowed(&claims, &role_ids, None).await?;
 
     let status = EnableStatus::from_optional_i16(req.status)?;
     let dept_id = utils::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
@@ -262,6 +266,7 @@ pub async fn create(
 /// # 异常情况
 ///
 /// - 400：ID 或状态参数非法；
+/// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
 #[alun::permission(
@@ -279,6 +284,8 @@ pub async fn update(
 ) -> ResResult<UserDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let existing = load_user(&id).await?;
+    // 权限上限：非超管不得修改超管账号的资料 / 状态（堵「改超管资料」）
+    guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
 
     // 基于原记录派生，天然保留 created_at / create_by（仿 menu 的 update 写法）
     let mut to_save = existing.clone();
@@ -356,6 +363,7 @@ pub async fn update(
 /// # 异常情况
 ///
 /// - 400：ID 格式非法；
+/// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 409：目标为内置管理员账号；
 /// - 500：数据库异常。
@@ -373,6 +381,8 @@ pub async fn delete(
 ) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
     let user = load_user(&id).await?;
+    // 权限上限：非超管不得删除超管账号（超管删除内置 admin 仍由下方 409 拦截）
+    guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
     if user.username == constants::ADMIN_USERNAME {
         return Err(ApiError::new(
             409,
@@ -433,6 +443,7 @@ pub async fn delete(
 /// # 异常情况
 ///
 /// - 400：ID 或状态取值非法；
+/// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 409：试图停用内置管理员或当前登录账号；
 /// - 500：数据库异常。
@@ -456,6 +467,8 @@ pub async fn change_status(
 ) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
     let user = load_user(&id).await?;
+    // 权限上限：非超管不得启停超管账号（堵「禁用超管」）
+    guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
     let status = EnableStatus::from_i16(req.status)?;
 
     // 停用场景的保护：内置管理员不可停用，也不能停用当前登录的自己
@@ -523,6 +536,7 @@ pub async fn change_status(
 /// # 异常情况
 ///
 /// - 400：ID 格式非法或密码长度不合规；
+/// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 500：密码加密或数据库异常。
 /// # 日志
@@ -544,6 +558,8 @@ pub async fn change_password(
 ) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
     let user = load_user(&id).await?;
+    // 权限上限：非超管不得改超管密码（堵「改超管密码即接管」）；本人改自己密码不受限
+    guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
     let password = Crypto::hash_password(&req.password)
         .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "密码加密失败"))?;
 
@@ -655,6 +671,7 @@ pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
 /// # 异常情况
 ///
 /// - 400：ID 或角色 ID 格式非法；
+/// - 403：无权操作超管账号 / 无权授予超管角色 / 无权自我提权（权限上限，见 [`guard`]）；
 /// - 404：用户或某个角色不存在；
 /// - 409：目标为内置管理员账号（角色固定，不可修改）；
 /// - 500：数据库异常（事务回滚）。
@@ -688,6 +705,8 @@ pub async fn assign_roles(
 
     // 校验所有角色均存在，再进入事务重建
     let role_ids = parse_and_check_roles(&req.role_ids).await?;
+    // 权限上限：非超管不得授予/剥夺超管角色，也不得给自己新增未持有的角色
+    guard::ensure_role_grant_allowed(&claims, &role_ids, Some(id)).await?;
     // 记录替换前的既有授权与替换后的目标授权，用于审计 before / after 快照
     let before_role_ids = SysUserRoleModel::find_by(db(), "user_id", (&id,))
         .await

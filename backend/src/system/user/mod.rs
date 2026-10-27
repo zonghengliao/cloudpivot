@@ -2,6 +2,7 @@
 //!
 //! | 文件 | 内容 |
 //! |------|------|
+//! | [`guard`] | 写操作的权限上限（delegation cap）：非超管不得动超管账号 / 授予超管角色 / 自我提权 |
 //! | [`model`] | [`model::SysUserModel`]（`sys_user`）、[`model::SysUserRoleModel`]（`sys_user_role`） |
 //! | [`dto`] | 用户列表 / 详情 / 增改 / 状态 / 密码 / 角色分配的请求与响应结构 |
 //! | [`handler`] | 用户分页、详情、增删改、启停、重置密码与角色分配 |
@@ -24,5 +25,6 @@
 //! | PUT | `/{id}/roles` | `system:user:role` | 分配角色（先清空再逐条写入） |
 
 pub mod dto;
+pub mod guard;
 pub mod handler;
 pub mod model;
