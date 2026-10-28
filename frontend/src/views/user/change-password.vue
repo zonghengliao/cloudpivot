@@ -121,7 +121,7 @@ async function onLogout(): Promise<void> {
   align-items: center;
   justify-content: center;
   min-height: 100vh;
-  background: var(--app-page-bg, #f2f2ee);
+  background: var(--app-page-bg, #e5eae1);
   padding: 24px;
 
   &__panel {
@@ -130,7 +130,7 @@ async function onLogout(): Promise<void> {
     padding: 32px;
     background: var(--app-card-bg, #ffffff);
     border-radius: 12px;
-    box-shadow: 0 8px 24px rgb(81 105 124 / 12%);
+    box-shadow: 0 8px 24px rgb(111 138 184 / 12%);
   }
 
   &__head {
@@ -141,14 +141,14 @@ async function onLogout(): Promise<void> {
     margin: 0 0 8px;
     font-size: 20px;
     font-weight: 600;
-    color: var(--app-text-primary, #2a3843);
+    color: var(--app-text-primary, #2f3a4d);
   }
 
   &__desc {
     margin: 0;
     font-size: 13px;
     line-height: 20px;
-    color: var(--app-text-secondary, #5f6e7a);
+    color: var(--app-text-secondary, #5a6377);
   }
 
   &__alert {

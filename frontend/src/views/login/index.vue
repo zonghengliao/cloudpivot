@@ -141,7 +141,7 @@ async function handleSubmit(): Promise<void> {
   background-color: var(--td-bg-color-container);
   border: 1px solid var(--td-component-stroke);
   border-radius: 16px;
-  box-shadow: 0 18px 48px rgb(81 105 124 / 14%);
+  box-shadow: 0 18px 48px rgb(111 138 184 / 14%);
 }
 
 // ---------- 左侧品牌区 ----------
@@ -162,7 +162,7 @@ async function handleSubmit(): Promise<void> {
   right: -140px;
   width: 320px;
   height: 320px;
-  background: radial-gradient(circle, rgb(183 157 136 / 26%) 0%, rgb(183 157 136 / 0%) 70%);
+  background: radial-gradient(circle, rgb(193 172 123 / 26%) 0%, rgb(193 172 123 / 0%) 70%);
   pointer-events: none;
 }
 
@@ -198,7 +198,7 @@ async function handleSubmit(): Promise<void> {
   border-radius: 12px;
   box-shadow:
     inset 0 0 0 1px rgb(255 255 255 / 80%),
-    0 6px 16px rgb(81 105 124 / 22%);
+    0 6px 16px rgb(111 138 184 / 22%);
 
   > img {
     width: 70%;

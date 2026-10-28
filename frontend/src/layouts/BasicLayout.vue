@@ -267,7 +267,7 @@ async function doLogout(): Promise<void> {
     background-color: var(--td-bg-color-container);
     border-bottom: 1px solid var(--td-component-stroke);
     // 深海蓝调的轻投影，替代中性黑投影
-    box-shadow: 0 1px 4px rgb(81 105 124 / 12%);
+    box-shadow: 0 1px 4px rgb(111 138 184 / 12%);
   }
 
   &__collapse {

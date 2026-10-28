@@ -402,7 +402,7 @@ const loginTrendOption = computed<EChartsCoreOption>(() => {
       smooth: true,
       showSymbol: false,
       data: line.data,
-      itemStyle: { color: index === 0 ? '#51697c' : '#d1544f' },
+      itemStyle: { color: index === 0 ? '#6f8ab8' : '#c17b7e' },
       areaStyle: index === 0 ? { opacity: 0.15 } : undefined,
     })),
   };
@@ -429,7 +429,7 @@ const latencyTrendOption = computed<EChartsCoreOption>(() => {
       // 无样本日为 null，断开连线而不是补 0 造成「假趋势」
       connectNulls: false,
       data: line.data,
-      itemStyle: { color: '#b79d88' },
+      itemStyle: { color: '#c1ac7b' },
       areaStyle: { opacity: 0.12 },
     })),
   };
@@ -646,7 +646,7 @@ onUnmounted(() => {
     color: #fff;
     border-radius: 12px;
     background: var(--app-gradient-brand);
-    box-shadow: 0 6px 20px rgb(81 105 124 / 24%);
+    box-shadow: 0 6px 20px rgb(111 138 184 / 24%);
   }
 
   &__greeting {

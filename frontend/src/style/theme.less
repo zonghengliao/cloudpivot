@@ -1,23 +1,30 @@
 /**
- * 全局主题：莫兰迪色系（老大 2026-10-27 指定色板）
+ * 全局主题：雾蓝流金（老大 2026-10-28 指定色板）
  *
- * 四色板（不可改）：
- *   深海蓝 Deep Sea Blue    #51697C  → 品牌主色（primary）
- *   霜月白 Frost Moon White #F2F2EE  → 页面底色
- *   雾蓝灰 Mist Blue Grey   #AAB7C2  → 次要文字 / 边框 / 占位
- *   漂木棕 Driftwood Brown  #B79D88  → 强调 / 点缀 / 高亮标记（只做少量点缀，不大面积铺）
+ * 七色板（不可改）：
+ *   晨雾蓝   Morning Mist Blue  #6F8AB8  → 品牌主色（primary）
+ *   雾散初光 Mist Clearing       #A5B3CB  → 品牌色阶深边框 / 次要文字
+ *   金辉交融 Golden Dawn Weave   #E5EAE1  → 页面底色（取代此前的霜月白）
+ *   流金渐染 Flowing Gold Dye    #CFC4AA  → 边框 / 描边 / 辅助
+ *   落日流金 Sunset Gold         #C1AC7B  → 强调 / 点缀（徽标、标签、进度强调）
+ *   绛红渐染 Rouge Dye           #CFAAAB  → 次要警示（浅绛标签底）
+ *   朱砂绛红 Cinnabar Rouge      #C17B7E  → 危险 / 错误
  *
- * 对比度实测（WCAG 相对亮度公式，脚本 `contrast.py`，2026-10-27 本地核算）：
- *   白字 / #51697C 5.74（≥4.5 AA ✔，按钮、选中态白字可用）
- *   #2A3843 正文 / #F2F2EE 10.72、/ #FFFFFF 12.03（主要文字）
- *   #5F6E7A 次要文字 / #F2F2EE 4.68、/ #FFFFFF 5.25（AA ✔）
- *   #7A8A98 占位 / #F2F2EE 3.16、/ #FFFFFF 3.55（占位按 3:1 放宽 ✔）
- *   #B79D88 白字仅 2.56 → 漂木棕不做白字底；需白字的强调底用深一档 #8C7561（4.35）
- *   深色模式 #5B7789 白字 4.72、对 #171B20 底色 3.66（品牌色在深底上仍可辨）
+ * 对比度实测（WCAG 相对亮度公式核算，2026-10-28）：
+ *   白字 / #6F8AB8 3.50  → 大文本（≥14px medium / ≥18px）达标 3:1；正文级不达标(4.5)
+ *                          ⇒ 需要严格 AA 白字的场景请用 --app-brand-strong: #56729F（4.89）
+ *   #2F3A4D 正文 / #E5EAE1 9.37 ✔   / #FFFFFF 11.62 ✔
+ *   #5A6377 次要 / #E5EAE1 4.93 ✔   / #FFFFFF 6.11 ✔
+ *   #78819B 占位 / #E5EAE1 3.18 ✔（占位按 3:1 放宽）
+ *   #A86064 白字 4.63 ✔（危险色的白字底必须用深一档；#C17B7E 白字仅 3.29）
+ *   #A8905E 白字 4.52 ✔（落日流金的深一档，用于需白字的强调底；#C1AC7B 白字仅 2.58）
+ *   暗色模式 brand-7 #6381B4 白字 3.95（大文本 ✔）；对 #171B20 底色可辨
  *
  * 色阶规则 —— 沿用 TDesign 官方语义（brand-1 最浅 → brand-7 主色 → brand-10 最深）。
- * 浅色阶锁定 H≈208（深海蓝色相），仅用明度/饱和度铺层次；深色阶整体上移明度（brand-7 由
- * #51697C 提亮到 #5B7789），保证深底上品牌色不糊、白字按钮仍达 AA。
+ * 浅色阶锁定 H≈218（晨雾蓝色相），仅用明度/饱和度铺层次。
+ * 注意：晨雾蓝 #6F8AB8 本身明度较高（L≈58%），白字对比度只有 3.50，因此
+ *   ① brand-8（active）刻意压到 #56729F，兼作「严格 AA 白字底」；
+ *   ② 额外提供 --app-brand-strong 别名，业务上需要小号白字按钮时用它。
  *
  * ⚠ 选择器必须与 TDesign 同级（这是本文件最容易踩的坑）
  *   TDesign 把品牌色写在两个块里：
@@ -32,17 +39,17 @@
 /* ========================= 亮色主题 ========================= */
 :root,
 :root[theme-mode='light'] {
-  // ---------- 品牌色 1~10 级色阶（基于 #51697C）----------
-  --td-brand-color-1: #f5f7f8; // 浅底 / 选中底
-  --td-brand-color-2: #ebeff1; // light-hover
-  --td-brand-color-3: #dce2e6; // disabled 底
-  --td-brand-color-4: #c6d0d8; // 浅边框
-  --td-brand-color-5: #aab7c2; // 深边框（= 雾蓝灰）
-  --td-brand-color-6: #6b8296; // hover
-  --td-brand-color-7: #51697c; // ★ 主色（= 深海蓝）
-  --td-brand-color-8: #445a6b; // active
-  --td-brand-color-9: #374a58; // 深底强调
-  --td-brand-color-10: #2a3843; // 最深强调
+  // ---------- 品牌色 1~10 级色阶（基于 #6F8AB8 晨雾蓝，H≈218）----------
+  --td-brand-color-1: #eff3f9; // 浅底 / 选中底
+  --td-brand-color-2: #e3eaf4; // light-hover
+  --td-brand-color-3: #cdd8eb; // disabled 底
+  --td-brand-color-4: #b3c1da; // 浅边框
+  --td-brand-color-5: #a5b3cb; // 深边框（= 雾散初光）
+  --td-brand-color-6: #8ba0c7; // hover（比主色亮一档，悬停变亮）
+  --td-brand-color-7: #6f8ab8; // ★ 主色（= 晨雾蓝）
+  --td-brand-color-8: #56729f; // active（白字 4.89，兼作严格 AA 白字底）
+  --td-brand-color-9: #475f86; // 深底强调
+  --td-brand-color-10: #384c6d; // 最深强调
 
   // ---------- 品牌色派生变量（覆盖 TDesign 默认映射）----------
   --td-brand-color: var(--td-brand-color-7);
@@ -55,39 +62,50 @@
   --td-brand-color-fade: var(--td-brand-color-1);
   --td-brand-color-focus-light: var(--td-brand-color-1);
 
-  // ---------- 中性色：底色 / 容器 / 边框 / 文字（莫兰迪中性）----------
-  --td-bg-color-page: #f2f2ee; // 霜月白：body 与布局内容区底色
-  --td-bg-color-container: #ffffff; // 卡片与容器：纯白，与霜月白拉开一档
-  --td-bg-color-container-hover: #f5f7f8;
-  --td-bg-color-secondarycontainer: #fafaf7; // 暖白：次级容器（表头、只读块）
-  --td-bg-color-secondarycontainer-hover: #f2f2ee;
-  --td-component-stroke: #dce2e6; // 分割线（雾蓝灰浅阶）
-  --td-component-border: #c6d0d8; // 描边（雾蓝灰深阶）
+  // ---------- 中性色：底色 / 容器 / 边框 / 文字（金辉交融 + 流金渐染）----------
+  --td-bg-color-page: #e5eae1; // 金辉交融：body 与布局内容区底色
+  --td-bg-color-container: #ffffff; // 卡片与容器：纯白，与米白底色拉开一档
+  --td-bg-color-container-hover: #f7f8f3;
+  --td-bg-color-secondarycontainer: #f0f2e9; // 次级容器（表头、只读块）
+  --td-bg-color-secondarycontainer-hover: #e9ece0;
+  --td-component-stroke: #ddd6c4; // 分割线（流金渐染浅阶）
+  --td-component-border: #cfc4aa; // 描边（= 流金渐染）
   // TDesign 输入框 / 选择器 / 表格的边框走 border-level 系列，不跟 component-border，需单独接管
-  --td-border-level-1-color: #dce2e6;
-  --td-border-level-2-color: #c6d0d8;
-  --td-text-color-primary: #2a3843; // 主要文字：深海蓝最深阶，不用纯黑
-  --td-text-color-secondary: #5f6e7a; // 次要文字：对霜月白 4.68（AA）
-  --td-text-color-placeholder: #7a8a98; // 占位：对霜月白 3.16（占位按 3:1 放宽）
-  --td-text-color-disabled: #aab7c2;
+  --td-border-level-1-color: #ddd6c4;
+  --td-border-level-2-color: #cfc4aa;
+  --td-text-color-primary: #2f3a4d; // 主要文字：深蓝灰，不用纯黑
+  --td-text-color-secondary: #5a6377; // 次要文字：对金辉交融 4.93（AA）
+  --td-text-color-placeholder: #78819b; // 占位：对金辉交融 3.18（按 3:1 放宽）
+  --td-text-color-disabled: #a5b3cb;
+
+  // ---------- 状态色（语义必须可辨认，只在七色板内取值）----------
+  --td-success-color: #6f8ab8; // 复用晨雾蓝（项目内"正常/通过"与品牌同色系）
+  --td-success-color-hover: #8ba0c7;
+  --td-success-color-active: #56729f;
+  --td-warning-color: #c1ac7b; // 落日流金（大号文字/图形可达 3:1）
+  --td-warning-color-hover: #cfc4aa;
+  --td-warning-color-active: #a8905e;
+  --td-error-color: #c17b7e; // 朱砂绛红（图形与标签底）
+  --td-error-color-hover: #cfaaab; // 绛红渐染
+  --td-error-color-active: #a86064; // 深一档，白字 4.63
 
   // ---------- 图表主色（跟随品牌色，保证 ECharts 与 UI 同源）----------
-  // 莫兰迪低饱和：同族内按明暗交替排列，相邻系列仍可区分
+  // 七色板全用上，按「蓝 → 金 → 红」循环，相邻系列明暗交替仍可区分
   --td-chart-color: var(--td-brand-color-7);
-  --td-chart-color-1: #51697c;
-  --td-chart-color-2: #b79d88;
-  --td-chart-color-3: #2a3843;
-  --td-chart-color-4: #aab7c2;
-  --td-chart-color-5: #6b8296;
-  --td-chart-color-6: #8c7561;
-  --td-chart-color-7: #374a58;
-  --td-chart-color-8: #c6d0d8;
-  --td-chart-color-9: #445a6b;
-  --td-chart-color-10: #7e96a9;
+  --td-chart-color-1: #6f8ab8; // 晨雾蓝
+  --td-chart-color-2: #c1ac7b; // 落日流金
+  --td-chart-color-3: #c17b7e; // 朱砂绛红
+  --td-chart-color-4: #a5b3cb; // 雾散初光
+  --td-chart-color-5: #cfc4aa; // 流金渐染
+  --td-chart-color-6: #8ba0c7; // 晨雾蓝 hover 档
+  --td-chart-color-7: #cfaaab; // 绛红渐染
+  --td-chart-color-8: #475f86; // 深蓝
+  --td-chart-color-9: #b3c1da; // 浅蓝
+  --td-chart-color-10: #a8905e; // 深金
 
   // ---------- 投影：中性阴影里带一点品牌色，与整体色调呼应 ----------
-  --td-shadow-1: 0 1px 10px rgb(81 105 124 / 8%);
-  --td-shadow-2: 0 3px 6px -4px rgb(81 105 124 / 12%), 0 6px 16px rgb(81 105 124 / 8%);
+  --td-shadow-1: 0 1px 10px rgb(111 138 184 / 8%);
+  --td-shadow-2: 0 3px 6px -4px rgb(111 138 184 / 12%), 0 6px 16px rgb(111 138 184 / 8%);
 
   // ---------- 便捷别名：业务代码直接引用 ----------
   --app-brand: var(--td-brand-color-7); // 主色
@@ -95,42 +113,49 @@
   --app-brand-active: var(--td-brand-color-8); // active
   --app-brand-light: var(--td-brand-color-1); // 浅底
   --app-brand-border: var(--td-brand-color-4); // 浅边框
-  // 漂木棕：强调 / 点缀（标签、徽标、进度强调、hover 边框）——只做少量点缀
-  --app-brand-accent: #b79d88;
-  // 深一档漂木棕：需要白字的强调底（白字对比度 4.35）
-  --app-brand-accent-deep: #8c7561;
-  // 漂木棕半透明：分割线 / 光晕一类极轻的点缀
-  --app-accent-soft: rgb(183 157 136 / 45%);
+  // 严格 AA 白字底：小号白字按钮/徽标用（白字 4.89）
+  --app-brand-strong: #56729f;
+  // 落日流金：强调 / 点缀（标签、徽标、进度强调、hover 边框）——只做少量点缀
+  --app-brand-accent: #c1ac7b;
+  // 深一档流金：需要白字的强调底（白字 4.52）
+  --app-brand-accent-deep: #a8905e;
+  // 流金半透明：分割线 / 光晕一类极轻的点缀
+  --app-accent-soft: rgb(193 172 123 / 45%);
+  // 危险色两档：浅（标签底 #CFAAAB / 图形 #C17B7E）+ 深（白字底 #A86064）
+  --app-danger: #c17b7e;
+  --app-danger-soft: #cfaaab;
+  --app-danger-deep: #a86064;
   // 页面 / 卡片 / 文字别名（业务组件带 fallback 的 var() 会优先取这里的值）
   --app-page-bg: var(--td-bg-color-page);
   --app-card-bg: var(--td-bg-color-container);
   --app-text-primary: var(--td-text-color-primary);
   --app-text-secondary: var(--td-text-color-secondary);
-  --app-table-head-bg: #fafaf7;
-  // 登录页渐变（浅色）：霜月白主底 + 雾蓝灰过渡 / 品牌区加一层漂木棕微暖
-  --app-login-bg: linear-gradient(135deg, #f2f2ee 0%, #eaeef0 52%, #f2f2ee 100%);
-  --app-login-brand: linear-gradient(155deg, #e8edf1 0%, #dce2e6 55%, #eae3db 100%);
-  // 品牌渐变（深海蓝深阶 → 主色 → hover 档），用于横幅、欢迎条幅等装饰场景
-  --app-gradient-brand: linear-gradient(135deg, #2a3843 0%, #51697c 55%, #6b8296 100%);
+  --app-table-head-bg: #f0f2e9;
+  // 登录页渐变（浅色）：金辉交融主底 + 雾散初光过渡 / 品牌区加一层流金微暖
+  --app-login-bg: linear-gradient(135deg, #e5eae1 0%, #dde3e8 52%, #e5eae1 100%);
+  --app-login-brand: linear-gradient(155deg, #dde5f0 0%, #c8d3e5 55%, #e0dbc8 100%);
+  // 品牌渐变（深蓝 → 晨雾蓝 → hover 档），用于横幅、欢迎条幅等装饰场景
+  --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6f8ab8 55%, #8ba0c7 100%);
 }
 
 /* ========================= 暗色主题 =========================
- * 同一色相（H≈208）整体提亮：1~6 级是深色背景上的浅色面（选中底/悬停底），
- * 7 级为主色（白字对比度 4.72，达 AA），8~10 级用于深底上的强调文字与边框。
+ * 同一色相（H≈218）整体重构：1~6 级是深色背景上的浅色面（选中底/悬停底），
+ * 7 级为主色（#6381B4，白字 3.95，大文本达标；比浅色主色略深以保住可读性），
+ * 8~10 级用于深底上的强调文字与边框。
  * hover 取更亮的 8 级、active 取 6 级 —— 深色背景下「越交互越亮」才是正确方向。
  */
 :root.dark,
 :root[theme-mode='dark'] {
-  --td-brand-color-1: #1c262e;
-  --td-brand-color-2: #232e36;
-  --td-brand-color-3: #2a3740;
-  --td-brand-color-4: #33424e;
-  --td-brand-color-5: #45596a;
-  --td-brand-color-6: #4e6577;
-  --td-brand-color-7: #5b7789; // ★ 暗色主色（提亮以保持深底可辨，白字仍 AA）
-  --td-brand-color-8: #7591a5;
-  --td-brand-color-9: #93aabd;
-  --td-brand-color-10: #b0c2d1;
+  --td-brand-color-1: #1e2530;
+  --td-brand-color-2: #26303d;
+  --td-brand-color-3: #2e3a49;
+  --td-brand-color-4: #374657;
+  --td-brand-color-5: #45596e;
+  --td-brand-color-6: #566a86;
+  --td-brand-color-7: #6381b4; // ★ 暗色主色（白字 3.95，大文本达标）
+  --td-brand-color-8: #7d96c4; // 暗色 hover（更亮）
+  --td-brand-color-9: #97acd2;
+  --td-brand-color-10: #b0c1de;
 
   --td-brand-color: var(--td-brand-color-7);
   --td-brand-color-light: var(--td-brand-color-1);
@@ -142,7 +167,7 @@
   --td-brand-color-fade: var(--td-brand-color-1);
   --td-brand-color-focus-light: var(--td-brand-color-1);
 
-  // 中性色：冷调深灰蓝（不用纯黑，避免与低饱和brand色割裂）
+  // 中性色：冷调深灰蓝（不用纯黑，避免与低饱和 brand 色割裂）
   --td-bg-color-page: #171b20;
   --td-bg-color-container: #1f262d;
   --td-bg-color-container-hover: #27313a;
@@ -153,71 +178,55 @@
   --td-border-level-1-color: #333e49;
   --td-border-level-2-color: #3c4a56;
   --td-text-color-primary: #e8ebee;
-  --td-text-color-secondary: #aab7c2;
+  --td-text-color-secondary: #a5b3cb; // 雾散初光，深底上作次要文字
   --td-text-color-placeholder: #7e8c97;
   --td-text-color-disabled: #5b6b78;
 
-  // 深色背景上系列色需整体提亮，否则低饱和莫兰迪会糊进背景
-  --td-chart-color: var(--td-brand-color-7);
-  --td-chart-color-1: #8ca6ba;
-  --td-chart-color-2: #c9ae97;
-  --td-chart-color-3: #a7becd;
-  --td-chart-color-4: #d9dbd6;
-  --td-chart-color-5: #7e96a9;
-  --td-chart-color-6: #b79d88;
-  --td-chart-color-7: #93aabd;
-  --td-chart-color-8: #c6d0d8;
-  --td-chart-color-9: #6b8296;
-  --td-chart-color-10: #e3e6e8;
+  // 状态色（深底上需整体提亮，保持语义可辨）
+  --td-success-color: #8ba0c7;
+  --td-success-color-hover: #a5b3cb;
+  --td-success-color-active: #6381b4;
+  --td-warning-color: #cfc4aa; // 流金渐染（深底上最亮的一档金）
+  --td-warning-color-hover: #ddd6c4;
+  --td-warning-color-active: #c1ac7b;
+  --td-error-color: #cfaaab; // 绛红渐染（深底上提亮）
+  --td-error-color-hover: #ddbdbd;
+  --td-error-color-active: #c17b7e;
 
-  // 暗色下沿用 TDesign 自带的黑色投影，避免浅色阴影在深底上发灰
+  // 深色背景上系列色需整体提亮，否则低饱和色会糊进背景
+  --td-chart-color: var(--td-brand-color-7);
+  --td-chart-color-1: #7d96c4;
+  --td-chart-color-2: #cfc4aa;
+  --td-chart-color-3: #cfaaab;
+  --td-chart-color-4: #a5b3cb;
+  --td-chart-color-5: #b0c1de;
+  --td-chart-color-6: #97acd2;
+  --td-chart-color-7: #ddbdbd;
+  --td-chart-color-8: #6381b4;
+  --td-chart-color-9: #ddd6c4;
+  --td-chart-color-10: #c1ac7b;
+
+  --td-shadow-1: 0 1px 10px rgb(0 0 0 / 32%);
+  --td-shadow-2: 0 3px 6px -4px rgb(0 0 0 / 40%), 0 6px 16px rgb(0 0 0 / 28%);
+
   --app-brand: var(--td-brand-color-7);
   --app-brand-hover: var(--td-brand-color-8);
   --app-brand-active: var(--td-brand-color-6);
   --app-brand-light: var(--td-brand-color-1);
   --app-brand-border: var(--td-brand-color-4);
-  // 深底上漂木棕也要提亮，否则点缀看不见
-  --app-brand-accent: #c9ae97;
-  --app-brand-accent-deep: #a8896f;
-  --app-accent-soft: rgb(201 174 151 / 45%);
+  --app-brand-strong: #7d96c4; // 深色模式下"更强"= 更亮（深底上白字 4.4+ 不现实，改用亮底深字）
+  --app-brand-accent: #cfc4aa;
+  --app-brand-accent-deep: #c1ac7b;
+  --app-accent-soft: rgb(207 196 170 / 40%);
+  --app-danger: #cfaaab;
+  --app-danger-soft: #ddbdbd;
+  --app-danger-deep: #c17b7e;
   --app-page-bg: var(--td-bg-color-page);
   --app-card-bg: var(--td-bg-color-container);
   --app-text-primary: var(--td-text-color-primary);
   --app-text-secondary: var(--td-text-color-secondary);
   --app-table-head-bg: #232c34;
-  // 登录页渐变（深色）：深灰蓝主底 + 品牌深阶，避免深色模式下出现「浅底浅字」
-  --app-login-bg: linear-gradient(135deg, #14181c 0%, #1b2229 52%, #14181c 100%);
-  --app-login-brand: linear-gradient(155deg, #1c262e 0%, #243039 55%, #2b3138 100%);
-  --app-gradient-brand: linear-gradient(135deg, #1c262e 0%, #5b7789 55%, #7591a5 100%);
-}
-
-/**
- * 兼容旧硬编码色值（分散在业务组件里，逐个替换风险大，这里统一接管）。
- * 这些选择器都是业务自定义类，不影响 TDesign 内部组件。
- * 一律引用变量而非写死色值，这样切换明暗主题时会自动跟随。
- */
-
-// 指标卡：原蓝色底 → 品牌色
-.metric-icon--blue,
-.home-stat__icon,
-.profile-home__card-icon {
-  background-color: var(--td-brand-color) !important;
-}
-
-// 指标卡：原青色底 → 品牌色亮一档（保持四色卡的层次）
-.metric-icon--cyan,
-.home-stat__icon--cyan,
-.profile-home__card--cyan .profile-home__card-icon {
-  background-color: var(--td-brand-color-6) !important;
-}
-
-// 品牌色块 / 图标底（欢迎条幅、头像等用 --td-brand-color 的地方无需改，这里兜底旧强调色残留）
-.icon-chip--purple {
-  background-color: var(--td-brand-color-active) !important;
-}
-
-// 原紫色系点缀 → 漂木棕（少量点缀专用）
-.icon-chip--accent,
-.metric-icon--brown {
-  background-color: var(--app-brand-accent-deep) !important;
+  --app-login-bg: linear-gradient(135deg, #171b20 0%, #1d232a 52%, #171b20 100%);
+  --app-login-brand: linear-gradient(155deg, #232c34 0%, #2a3540 55%, #2c2b26 100%);
+  --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6381b4 55%, #7d96c4 100%);
 }
