@@ -652,23 +652,25 @@ onUnmounted(() => {
     margin: 0 0 6px;
     font-size: 20px;
     font-weight: 600;
-    // 渐变右端是方案浅色，白色微光让深色文字在浅段边缘更清晰
-    text-shadow: 0 1px 2px rgb(255 255 255 / 60%);
+    // 白字在深色品牌段上，加一点深色微阴影提升边缘清晰度
+    text-shadow: 0 1px 3px rgb(0 0 0 / 26%);
   }
 
   &__subtitle {
     margin: 0;
     font-size: 13px;
     // 渐变终点是浅色，副标题用同色文字（略透明以区分层级，主色端仍 ≥4.5）
-    color: var(--app-on-gradient, #1a2230);
-    opacity: 0.92;
-    text-shadow: 0 1px 2px rgb(255 255 255 / 60%);
+    color: var(--app-on-gradient, #ffffff);
+    opacity: 0.94;
+    // 白字在深色段已足够清晰，给一点深色微阴影防止后段浅色区发虚
+    text-shadow: 0 1px 2px rgb(0 0 0 / 22%);
   }
 
   &__banner-icon {
     font-size: 72px;
-    color: var(--app-on-gradient, #1a2230);
-    opacity: 0.12;
+    // 图标在横幅右侧（浅色段），必须用深色油墨才可见
+    color: var(--app-on-gradient-soft, #1a2230);
+    opacity: 0.16;
   }
 
   // t-row 用 gutter 负边距（-8px）抵消列 padding，两栏基准宽度需按内容盒计算，

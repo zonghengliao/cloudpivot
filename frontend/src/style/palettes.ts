@@ -535,13 +535,17 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
   // 老大两次反馈"前段太浅"：最终方案 = 前 72% 纯主色，只在最后 28% 过渡到方案浅色。
   // 因为终点是浅色，白字在上面只有约 2.1，所以渐变上的文字改用同色相极深油墨 --app-on-gradient，
   // 并做两轮 ensureContrast：分别对起点(主色)与终点(浅色)都保证 ≥ 4.5。
-  const gradientStart = palette.brand.toLowerCase();
-  // 中段直接用纯主色：任何与浅色的混合都会把前段提亮，老大两次反馈"前段太浅"。
+  // 起点用压暗版 brandStrong：白字在其上恒 ≥4.5，且前段视觉更深（老大反馈"太浅"）。
+  // 前 38% 保持纯压暗版 —— 标题/副标题都落在这段里，保证白字可读（青碧/翠绿主色太浅，
+  // 若文字跨进主色段会掉到 2.3 不可读）。
+  const gradientStart = brandStrong.toLowerCase();
   const gradientMid = palette.brand.toLowerCase();
   const gradientEnd = palette.brandLight.toLowerCase();
-  // 渐变文字统一用「主色相的极深油墨」：L=9% 时两端都 ≥3:1（标题 20px 属大文本）；
-  // 不做 ensureContrast 强推——那会把深色主色端推成白色，反而让浅色端失效。
-  const onGradient = withL(hexToHsl(palette.brand), 9, 28);
+  // 渐变文字用白字：起点是压暗版 brandStrong（白字 ≥4.5），前 55% 区域文字均落在深色段。
+  // 后段渐浅处不放文字（副标题也左对齐），浅色端只留图标。
+  const onGradient = '#ffffff';
+  // 图标/浅色端用的深色油墨（浅色段上白字不可见）
+  const onGradientSoft = withL(hexToHsl(palette.brand), 12, 30);
 
   // ---------- 图表色 ----------
   // 图表是"有意义的图形"，按 WCAG 1.4.11 不低于 2.5 的可见度底线；
@@ -659,8 +663,9 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     '--app-bg-page': page,
     '--app-bg-container': container,
     '--app-border': borderColor,
-    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientMid} 72%, ${gradientEnd} 100%)`,
+    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientStart} 38%, ${gradientMid} 64%, ${gradientEnd} 100%)`,
     '--app-on-gradient': onGradient,
+    '--app-on-gradient-soft': onGradientSoft,
     // 色卡 / 预览区用：5 个基准色原值（不做任何修正，永远等于需求色表）
     '--app-swatch-1': palette.brand.toLowerCase(),
     '--app-swatch-2': palette.brandLight.toLowerCase(),
@@ -684,11 +689,10 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     makeCheck('brand-on-tint', '品牌文字 / 品牌浅底块', onBrandTint, scale[0], 4.5, onBrandTint !== brandMain),
     makeCheck('chart-1-on-page', '图表主色 / 页面底', chartPrimary, page, 2.5, chartPrimary !== brandMain),
     makeCheck('chart-2-on-page', '图表强调色 / 页面底', chartColors[1], page, 2.5, accentSafe !== palette.accent),
-    // 横幅是 20px 标题（大文本），按 WCAG 1.4.3 大文本线 3:1 判定；
-    // 渐变两端明暗相反，单一文字色无法同时满足 4.5（见 onGradient 注释）。
-    makeCheck('on-gradient-start', '渐变文字 / 起点(主色)', onGradient, gradientStart, 3.0, true),
-    makeCheck('on-gradient-mid', '渐变文字 / 中段', onGradient, gradientMid, 3.0, true),
-    makeCheck('on-gradient-end', '渐变文字 / 终点(方案浅色)', onGradient, gradientEnd, 3.0, true),
+    // 文字区锁在 0~38% 的纯压暗版段（白字 ≥4.5）；主色段(38~64%)与浅色端只作视觉过渡，
+    // 浅色段若放文字则由深色油墨承担（如图标）。
+    makeCheck('on-gradient-start', '白字 / 渐变起点(压暗版)', onGradient, gradientStart, 4.5, true),
+    makeCheck('on-gradient-end', '深油墨 / 渐变终点(浅色)', onGradientSoft, gradientEnd, 4.5, true),
   ];
 
   return { palette, mode, vars, checks, warnings };
