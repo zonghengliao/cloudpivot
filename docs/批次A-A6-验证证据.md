@@ -284,7 +284,37 @@ for (;;) {
 
 ---
 
-## 7. 结论
+## 7. 补充验证：SSE 端点的鉴权不可穿透（红线：走现有鉴权）
+
+脚本 `backend/tests/sql/a6/auth_probe.py`，原始输出 `backend/tests/sql/a6/auth_probe.log`：
+
+```
+① 不带 Authorization 访问 SSE 端点
+  HTTP 401 {"code": 401, "msg": "未授权访问，请先登录"}
+  [PASS] 未登录访问 SSE 返回 401
+
+② 用 B 的 token 拼 ?user_id=A（试图抢 A 的频道）
+  响应：HTTP 200，Content-Type=text/event-stream
+  stats：total_users=1 total_receivers=1
+    - a6000000-0000-0000-0000-0000000000b1 → receivers=1
+  [PASS] 频道归属 B（token 的真实身份）：1
+  [PASS] A 的频道没有被 query 参数建出来：0
+
+③ 推给 A 的通知不会到达这条（B 的）连接
+  POST /business/notice → HTTP 200，notice_id=01a18283-2b4b-76ae-9c4f-00170ec902e9
+  B 的连接收到的数据帧数：0
+  [PASS] B 的连接一帧都没收到：0 帧
+  断开后 stats：total_users=0 total_receivers=0
+  [PASS] 断开后频道表为空：0
+
+✅ 鉴权不可穿透：无 token 401、query 不能伪造频道归属、A 的通知不会到 B 的连接
+```
+
+结论：用户身份**只**来自 `AuthClaims`；`?user_id=` / `?userId=` 一律被忽略（频道按 token 的真实身份建立）。
+
+---
+
+## 8. 结论
 
 - 三条硬指标**全部实测通过**（隔离帧 / 计数归零 / `SKIPPED` 记录），21 条断言全 PASS；
 - `cargo fmt -- --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`（217 passed）全绿；
