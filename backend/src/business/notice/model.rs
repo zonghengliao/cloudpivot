@@ -487,10 +487,7 @@ pub async fn record_dispatch_failure(id: &uuid::Uuid, max_attempts: i16) -> DbRe
                                     ELSE dispatch_status END, \
              updated_at = CURRENT_TIMESTAMP \
          WHERE id = ?::uuid AND dispatch_status = 'PENDING'",
-        vec![
-            TypeMapper::to_value(&max_attempts),
-            Value::from(*id),
-        ],
+        vec![TypeMapper::to_value(&max_attempts), Value::from(*id)],
     )
     .await
 }

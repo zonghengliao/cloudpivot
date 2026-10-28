@@ -1,7 +1,14 @@
 #!/usr/bin/env bash
-# 提交前检查：后端 fmt / clippy / check + 前端 typecheck
+# 提交前检查：后端 fmt / clippy / check + 前端 typecheck + 批次B 数据权限防漏门禁
 #
 # 用法：bash scripts/check.sh
+#
+#   BATCHB_GATE=warn bash scripts/check.sh
+#       批次B 两条门禁只告警不失败（B2–B4 施工期用；B5 完成后默认行为即为全绿）
+#
+# 说明：本脚本的退出码 = 「任一检查失败」。批次B 门禁是**故意**会在当前树上报错的
+#       —— 它度量的是「还没接入数据权限的存量查询」，见 docs/批次B-DDL.md §6 与
+#       docs/后端二开指南.md「数据权限检查清单」。
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -18,4 +25,102 @@ echo "==> 后端：cargo check"
 echo "==> 前端：pnpm typecheck"
 (cd "$ROOT/frontend" && pnpm typecheck)
 
-echo "==> 全部检查通过"
+# ======================================================================
+# 批次 B · 数据权限防漏门禁（架构文档 §2.4 的「闸 2」）
+#
+# 为什么放在最后：这两条门禁在 B5（存量登记表接入）完成前**必然**失败，
+# 放在最后能让 fmt / clippy / check / typecheck 的结果先完整呈现 ——
+# 否则一次门禁失败会把整个检查链的结果都遮掉，开发者无法判断自己是否引入了新问题。
+#
+# 两条门禁的口径（与架构文档 §2.4 逐字一致）：
+#   闸①：分页只有一种正确写法（scope::paginate）→ 硬门禁，除白名单外必须 0 命中；
+#   闸②：登记表的查询要么接入 scope::，要么写一行 `// SCOPE-EXEMPT: <理由>`
+#        → 允许「带理由的显式豁免」，因为清理任务 / 聚合计数 / 扇出这类查询
+#          **不该**注入 scope（注入了会静默少数据，比漏权限更危险）。
+# ======================================================================
+
+# 登记表清单（架构文档 §2.5）：这些表的查询必须有 scope:: 或 SCOPE-EXEMPT
+BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice
+sys_file operation_logs audit_logs auth_logs security_logs"
+
+# 闸② 的 B0 实测基线（2026-10-28，本卡在 cf84231 树上实测）。
+# 架构文档 §2.4 记的是 17 处——那是同一套脚本在更早的树上跑的；差异 4 处的来源
+# 逐条列在 docs/批次B-B0B1-验证证据.md §3，不是口径放宽，而是把那 4 个
+# file×table 组合也算进来了（附录 C 的 #9/#11/#24 本来就要求处理它们）。
+BATCHB_GATE2_BASELINE=21
+
+# 闸① 白名单：scope::paginate 自身的实现文件（B2 落地）
+BATCHB_GATE1_WHITELIST="business/shared/scope.rs"
+
+# warn 模式下用来记住「门禁按告警处理」的条数（0 = 没有告警）
+BATCHB_GATE_WARNED=0
+
+batchb_gates() {
+    local src="$ROOT/backend/src"
+    local failed=0
+    local gate1_out gate1_n i t f gate2_n gate2_tmp
+
+    echo "==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）"
+    echo "    白名单：$BATCHB_GATE1_WHITELIST（+ 注释行不计）"
+    # 注意写法：这里不能用 `! grep ...`（「找不到」时反而命中 → 门禁永远报错，
+    # 是这类脚本最常见的自伤）；统一用变量 + 空判。
+    gate1_out=$(grep -rn "paginate_with_params" "$src" --include=*.rs \
+        | grep -v "$BATCHB_GATE1_WHITELIST" \
+        | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" || true)
+    if [ -n "$gate1_out" ]; then
+        gate1_n=$(printf '%s\n' "$gate1_out" | wc -l | tr -d ' ')
+        echo "  FAIL：$gate1_n 处直接调 paginate_with_params（基线 20 处；B5 完成后应为 0）"
+        printf '%s\n' "$gate1_out" | sed 's/^/    /'
+        failed=$((failed + 1))
+    else
+        echo "  PASS：0 处（分页全部走 scope::paginate）"
+    fi
+
+    echo "==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由"
+    echo "    登记表：$(echo "$BATCHB_SCOPED_TABLES" | tr '\n' ' ')"
+    gate2_tmp="$(mktemp)"
+    # 注意写法：不用 `grep -l | while read`（子 shell 里的退出码/计数传不出来），
+    # 改用 for 遍历 + 临时文件累计，计数与输出都在同一 shell 内。
+    for t in $BATCHB_SCOPED_TABLES; do
+        for f in $(grep -rl "FROM $t" "$src" --include=*.rs 2>/dev/null || true); do
+            if ! grep -q -e "scope::" -e "SCOPE-EXEMPT" "$f"; then
+                printf '    FAIL: %s 查询 %s 未接入 scope:: 且无 SCOPE-EXEMPT\n' \
+                    "${f#"$src"/}" "$t" >>"$gate2_tmp"
+            fi
+        done
+    done
+    gate2_n=$(wc -l <"$gate2_tmp" | tr -d ' ')
+    if [ "$gate2_n" -gt 0 ]; then
+        echo "  FAIL：$gate2_n 处（B0 实测基线 ${BATCHB_GATE2_BASELINE} 处；B5 完成后只应剩 SCOPE-EXEMPT 豁免）"
+        cat "$gate2_tmp"
+        failed=$((failed + 1))
+    else
+        echo "  PASS：0 处"
+    fi
+    rm -f "$gate2_tmp"
+
+    echo "==> 批次B 门禁汇总：闸①=${gate1_n:-0} 处  闸②=${gate2_n:-0} 处  （B0 基线 20 / ${BATCHB_GATE2_BASELINE}）"
+
+    if [ "$failed" -gt 0 ]; then
+        if [ "${BATCHB_GATE:-fail}" = "warn" ]; then
+            echo "==> 批次B 门禁：$failed 条未通过（BATCHB_GATE=warn → 仅告警，不中断）" >&2
+            BATCHB_GATE_WARNED="$failed"
+            return 0
+        fi
+        echo "==> 批次B 门禁：$failed 条未通过。修法（二选一）：" >&2
+        echo "    ① 分页接口改成 scope::paginate；单条/导出查询用 scope::filter_for" >&2
+        echo "    ② 确实不需要数据权限的查询，在函数上方写一行 // SCOPE-EXEMPT: <理由>" >&2
+        echo "    B2–B4 施工期可临时用 BATCHB_GATE=warn bash scripts/check.sh 绕过本门禁。" >&2
+        return 1
+    fi
+    echo "==> 批次B 门禁：全部通过"
+    return 0
+}
+
+batchb_gates
+
+if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
+    echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
+else
+    echo "==> 全部检查通过"
+fi
