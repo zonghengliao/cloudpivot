@@ -323,8 +323,17 @@ async function doLogout(): Promise<void> {
   }
 
   &__avatar {
-    // 深海蓝 → 漂木棕 的莫兰迪渐变，随明暗主题取不同深浅
-    background: linear-gradient(135deg, var(--td-brand-color-7) 0%, var(--app-brand-accent) 100%);
+    // 纯色底 = 压暗版主色（白字对比度恒 ≥4.5）。
+    // 曾用「主色 → 强调色」渐变，但强调色多为浅色（落日流金/琥珀金），
+    // 白色首字在渐变右半段只剩 1.5~2.0 对比度，看起来发糊。
+    background: var(--app-brand-strong, var(--td-brand-color-8));
+    color: #fff;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1;
+    // 内高光让圆盘边界清晰；文字轻阴影进一步提升字形辨识度
+    box-shadow: inset 0 0 0 1px rgb(255 255 255 / 22%);
+    text-shadow: 0 1px 1px rgb(0 0 0 / 20%);
   }
 
   &__username {
