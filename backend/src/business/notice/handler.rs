@@ -41,7 +41,7 @@ use axum::response::{IntoResponse, Response};
 use crate::business::notice::dto::{
     ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes,
     NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq,
-    NoticeType, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq,
+    NoticeType, StreamQuery, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq,
     TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes,
     parse_var_decls,
 };
@@ -643,9 +643,22 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
 
 /// 订阅实时通知（SSE 长连接）。
 ///
-/// # 鉴权
+/// # 鉴权口径（遗留修复⑥定稿，文档见 `docs/批次A-SSE鉴权口径.md`）
 ///
-/// 走现有 `AuthLayer`，用户身份只从 `AuthClaims` 取。
+/// **优先** `Authorization: Bearer <token>`（与其它接口完全一致，令牌不进 URL）。
+///
+/// **降级**：浏览器原生 `EventSource` 不能自定义请求头，此时才允许 `?token=<token>`：
+///
+/// | 约束 | 实现 |
+/// |------|------|
+/// | 仅此端点 | 认证层只对 `ALUN_AUTH_QUERY_TOKEN_PATHS` 白名单里的路径采信查询令牌（默认空 = 关闭） |
+/// | 与头认证等价 | 走同一条 JWT 校验（签名 / 过期 / 类型 / 黑名单），不是「另一套放行逻辑」 |
+/// | 短期有效 | 只接受 access token（`access_token_expire_secs` 决定寿命），refresh token 过不了类型校验 |
+/// | 日志脱敏 | 认证层只记来源 header/query；`request_log` 只记 path 不记 query；令牌本体从不打印 |
+/// | 不可伪造他人频道 | 身份**只**取自令牌声明；`?user_id=` / `?receiver_id=` 一律 400 |
+///
+/// 前端也可用 `fetch` + `ReadableStream` 带头读流（示例见 `docs/批次A-A6-验证证据.md`），
+/// 那条路不受白名单约束，是更推荐的姿势。用户身份**只**从 `AuthClaims` 取。
 ///
 /// # 返回值
 ///
@@ -671,7 +684,22 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
     permission = "business:notice:mine"
 )]
 #[alun::get("/business/notice/stream")]
-pub async fn stream(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> Response {
+pub async fn stream(
+    Query(query): Query<StreamQuery>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> Response {
+    // 频道归属只认令牌：客户端若显式指定身份，直接 400 而不是「偷偷忽略」——
+    // 静默忽略会让攻击者以为成功，排障时也难分辨「前端传错了」还是「后端没校验」。
+    if query.user_id.is_some() || query.receiver_id.is_some() {
+        return ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "不接受客户端指定频道归属（user_id / receiver_id），用户身份只取自令牌",
+        )
+        .into_response();
+    }
+    // `query.token` 已由认证层校验（白名单端点才会采信）；此处**不打印其值**，
+    // 避免令牌进入 tracing 日志。
     let user_id = match utils::current_user_uuid(&claims) {
         Some(user_id) => user_id,
         None => {

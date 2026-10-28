@@ -318,6 +318,28 @@ pub struct NoticeSendReq {
     pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// SSE 订阅的查询参数（A6 / 遗留修复⑥定口径）。
+///
+/// # 允许什么
+///
+/// - `token`：浏览器 `EventSource` 无法设置 `Authorization` 头时的**唯一**降级通道；
+///   只有 `ALUN_AUTH_QUERY_TOKEN_PATHS` 白名单里的端点才会被认证层采信（默认空 = 关闭）。
+///
+/// # 禁止什么（显式拒绝而不是静默忽略）
+///
+/// - `user_id` / `receiver_id`：任何「客户端指定频道归属」的参数一律 400。
+///   频道归属**只**来自令牌声明（`AuthClaims`），否则 A 用户塞一个 `?user_id=B`
+///   就能订阅 B 的通知 —— 这是 A6 验收里明确要拒的攻击面。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StreamQuery {
+    /// 访问令牌（仅 EventSource 降级场景；等价于 `Authorization: Bearer`）。
+    pub token: Option<String>,
+    /// 试图指定用户（**应被拒**，仅用于给出明确错误信息）。
+    pub user_id: Option<String>,
+    /// 试图指定接收行（**应被拒**）。
+    pub receiver_id: Option<String>,
+}
+
 /// 通知主体分页查询（管理视角）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct NoticePageQuery {

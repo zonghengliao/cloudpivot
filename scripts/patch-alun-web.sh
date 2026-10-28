@@ -13,6 +13,10 @@
 #           路由**全报成冲突（startup 实测刷 22 条 WARN，全是正常 REST 写法）。静态优先
 #           打分已保证静态段胜出，兄弟路由不可能互相遮蔽；真正的缺陷是「同一路径模式被
 #           声明了不同权限」（结果取决于注册顺序）。09b 把自检收敛到后者。
+#   CODE-10  alun-web-0.4.2/src/middleware/auth.rs 只认 `Authorization` 头，
+#           浏览器原生 `EventSource`（SSE）无法带自定义头 → 实时通知没法用头认证。
+#           新增「查询参数令牌」，**仅**对 `ALUN_AUTH_QUERY_TOKEN_PATHS` 声明的端点开放，
+#           走同一条 JWT 校验（签名/过期/类型/黑名单），身份只取令牌声明，令牌不落日志。
 #
 # 本脚本对 registry 源码做**幂等**文本补丁（带 `cloudpivot-patch` 标记，可重复执行）。
 # 注意：`cargo update` / `cargo clean` / 换 CARGO_HOME 会重新解包 crate，届时需重跑本脚本；
@@ -46,6 +50,7 @@ src_root = Path(sys.argv[1])
 check_only = sys.argv[2] == "1"
 app_rs = src_root / "src" / "app.rs"
 perm_rs = src_root / "src" / "middleware" / "permission_check.rs"
+auth_rs = src_root / "src" / "middleware" / "auth.rs"
 MARK_07 = "[cloudpivot-patch code-07]"
 MARK_09 = "[cloudpivot-patch code-09]"
 
@@ -463,6 +468,198 @@ else:
     save(app_rs, text)
     print("  [ok]   CODE-09 app.rs 装配期冲突告警")
 
+# ── CODE-10 ①：AuthLayer 增加「查询参数令牌白名单」字段 ──────────────────────
+old_layer_tail = """    /// 缓存层引用（用于缓存用户信息）
+    #[cfg(feature = "cache")]
+    pub cache: Option<alun_cache::SharedCache>,
+}
+
+impl<S> Layer<S> for AuthLayer {"""
+new_layer_tail = """    /// 缓存层引用（用于缓存用户信息）
+    #[cfg(feature = "cache")]
+    pub cache: Option<alun_cache::SharedCache>,
+    /// [cloudpivot-patch code-10] 允许用 `?token=` 认证的路径白名单（含全局前缀）。
+    ///
+    /// 只给浏览器 `EventSource` 这类无法设置自定义请求头的端点用（当前仅 SSE）。
+    /// 空列表 = 完全不接受查询参数令牌（fail-closed，与打补丁前行为一致）。
+    pub query_token_paths: Vec<String>,
+}
+
+impl<S> Layer<S> for AuthLayer {"""
+auth_text = load(auth_rs)
+if "code-10" in auth_text:
+    print("  [skip] CODE-10 auth.rs 字段（已打过）")
+else:
+    if old_layer_tail not in auth_text:
+        print("  [FAIL] CODE-10 auth.rs 字段锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    auth_text = auth_text.replace(old_layer_tail, new_layer_tail, 1)
+    save(auth_rs, auth_text)
+    print("  [ok]   CODE-10 auth.rs 字段")
+
+# ── CODE-10 ②：Layer::layer 转发 + AuthService 字段 + 查询参数解析实现 ────────
+# 注意：锚点**不包含** `jwt_secret:` 那一行 —— 一是没必要，二是仓库的 gitleaks 规则会把
+# 「jwt_secret: <非占位符>」这类文本判成疑似密钥（本文件只是引用框架字段名，不是密钥）。
+old_layer_build = """            ignore_paths: self.ignore_paths.iter().cloned().collect(),
+            #[cfg(feature = "cache")]
+            cache: self.cache.clone(),
+        }"""
+new_layer_build = """            ignore_paths: self.ignore_paths.iter().cloned().collect(),
+            #[cfg(feature = "cache")]
+            cache: self.cache.clone(),
+            // [cloudpivot-patch code-10] svc
+            query_token_paths: self.query_token_paths.iter().cloned().collect(),
+        }"""
+
+old_svc = """#[derive(Clone)]
+/// JWT 认证服务——验证 Bearer Token 并注入用户上下文到请求 extensions
+pub struct AuthService<S> {
+    /// 下游服务
+    inner: S,
+    /// JWT 密钥（HS256）
+    jwt_secret: String,
+    /// 跳过认证的路径集合
+    ignore_paths: HashSet<String>,
+    /// 缓存层引用（用于缓存用户信息）
+    #[cfg(feature = "cache")]
+    cache: Option<alun_cache::SharedCache>,
+}"""
+new_svc = """#[derive(Clone)]
+/// JWT 认证服务——验证 Bearer Token 并注入用户上下文到请求 extensions
+pub struct AuthService<S> {
+    /// 下游服务
+    inner: S,
+    /// JWT 密钥（HS256）
+    jwt_secret: String,
+    /// 跳过认证的路径集合
+    ignore_paths: HashSet<String>,
+    /// 缓存层引用（用于缓存用户信息）
+    #[cfg(feature = "cache")]
+    cache: Option<alun_cache::SharedCache>,
+    /// [cloudpivot-patch code-10] 允许用 `?token=` 认证的路径白名单（与层共享）
+    query_token_paths: HashSet<String>,
+}
+
+impl<S> AuthService<S> {
+    /// [cloudpivot-patch code-10] 从查询串取令牌 —— **只**认白名单路径上的 `token` 参数。
+    ///
+    /// 安全边界（与业务侧文档 `docs/批次A-SSE鉴权口径.md` 一一对应）：
+    /// * 仅白名单路径（默认空 → 此函数永远 `None`）；
+    /// * 只读 `token`，**绝不**接受 `user_id` / `receiver_id` 之类「客户端指定身份」的参数；
+    /// * 拒绝含 `%` 的取值（JWT 字符集不需要百分号编码，出现即视为异常输入）；
+    /// * 令牌只用于校验，不写日志、不进事件（日志只记 header|query 来源）。
+    fn query_token_of(&self, path: &str, query: Option<&str>) -> Option<String> {
+        if !self
+            .query_token_paths
+            .iter()
+            .any(|allowed| allowed.trim_end_matches('/') == path)
+        {
+            return None;
+        }
+        let query = query?;
+        for pair in query.split('&') {
+            if let Some(value) = pair.strip_prefix("token=") {
+                let value = value.trim();
+                if !value.is_empty() && !value.contains('%') {
+                    return Some(value.to_string());
+                }
+            }
+        }
+        None
+    }
+}"""
+auth_text = load(auth_rs)
+if "query_token_of" in auth_text:
+    print("  [skip] CODE-10 auth.rs 服务字段与解析（已打过）")
+else:
+    for old, new, label in (
+        (old_layer_build, new_layer_build, "Layer::layer 转发 query_token_paths"),
+        (old_svc, new_svc, "AuthService 字段 + query_token_of"),
+    ):
+        if old not in auth_text:
+            print(f"  [FAIL] CODE-10 {label} 锚点未命中", file=sys.stderr)
+            raise SystemExit(3)
+        auth_text = auth_text.replace(old, new, 1)
+        print(f"  [ok]   CODE-10 {label}")
+    save(auth_rs, auth_text)
+
+# ── CODE-10 ③：call() 里接受查询参数令牌 ─────────────────────────────────────
+old_token = """        let token_opt: Option<&str> = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+
+        match token_opt {"""
+new_token = """        // [cloudpivot-patch code-10] 令牌来源：**优先** `Authorization: Bearer`；
+        // 仅当没有头、且路径在白名单时，才回落到 `?token=`（浏览器 EventSource 用）。
+        // 两条来源后续走完全相同的校验路径（签名 / 过期 / 类型 / 黑名单），
+        // 身份只来自令牌声明 —— 查询串里任何「身份类」参数一律不予采信。
+        let header_token: Option<&str> = req
+            .headers()
+            .get(axum::http::header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.strip_prefix("Bearer "));
+        let query_token: Option<String> = if header_token.is_some() {
+            None
+        } else {
+            self.query_token_of(&path, req.uri().query())
+        };
+        let token_opt: Option<&str> = header_token.or(query_token.as_deref());
+
+        match token_opt {"""
+auth_text = load(auth_rs)
+if "code-10] 令牌来源" in auth_text:
+    print("  [skip] CODE-10 auth.rs 取令牌（已打过）")
+else:
+    if old_token not in auth_text:
+        print("  [FAIL] CODE-10 auth.rs 取令牌锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    save(auth_rs, auth_text.replace(old_token, new_token, 1))
+    print("  [ok]   CODE-10 auth.rs 取令牌（header 优先 + query 白名单回落）")
+
+# ── CODE-10 ④：app.rs 装配 —— 从环境变量读白名单并传给 AuthLayer ────────────
+# 两段小锚点拼装（同样避开 `jwt_secret:` 行，理由见上）
+old_auth_head = """                let auth_layer = mw::AuthLayer {"""
+new_auth_head = """                // [cloudpivot-patch code-10] `?token=` 白名单（逗号分隔、含全局前缀）。
+                // 默认空 = 关闭（fail-closed）：只有显式配置了 SSE 端点的环境才接受查询令牌。
+                let query_token_paths: Vec<String> = std::env::var("ALUN_AUTH_QUERY_TOKEN_PATHS")
+                    .unwrap_or_default()
+                    .split(',')
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty())
+                    .collect();
+                if !query_token_paths.is_empty() {
+                    info!(
+                        "查询参数令牌白名单 endpoints={:?}（仅 EventSource 类端点；令牌不落日志）",
+                        query_token_paths
+                    );
+                }
+                let auth_layer = mw::AuthLayer {"""
+
+old_auth_field = """                    ignore_paths: ignore,
+                    #[cfg(feature = "cache")]
+                    cache,
+                };"""
+new_auth_field = """                    ignore_paths: ignore,
+                    // [cloudpivot-patch code-10] 仅这些端点接受 `?token=`
+                    query_token_paths,
+                    #[cfg(feature = "cache")]
+                    cache,
+                };"""
+
+app_text = load(app_rs)
+if "code-10] `?token=` 白名单" in app_text:
+    print("  [skip] CODE-10 app.rs 装配（已打过）")
+else:
+    if old_auth_head not in app_text or old_auth_field not in app_text:
+        print("  [FAIL] CODE-10 app.rs 装配锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    app_text = app_text.replace(old_auth_head, new_auth_head, 1)
+    app_text = app_text.replace(old_auth_field, new_auth_field, 1)
+    save(app_rs, app_text)
+    print("  [ok]   CODE-10 app.rs 装配（读取 ALUN_AUTH_QUERY_TOKEN_PATHS）")
+
 # ── 收尾校验 ─────────────────────────────────────────────────────────────────
 final_app = load(app_rs)
 final_perm = load(perm_rs)
@@ -476,12 +673,17 @@ if "pub fn with_ignore_paths" not in final_perm or "let mut best:" not in final_
 if "normalized_pattern" not in final_perm:
     problems.append("permission_check.rs 缺少 CODE-09b（冲突自检归一化路径）")
 
+final_auth = load(auth_rs)
+if "query_token_of" not in final_auth or "header_token" not in final_auth:
+    problems.append("auth.rs 缺少 CODE-10 查询参数令牌")
+if "ALUN_AUTH_QUERY_TOKEN_PATHS" not in final_app:
+    problems.append("app.rs 缺少 CODE-10 装配（ALUN_AUTH_QUERY_TOKEN_PATHS）")
 
 if problems:
     print("补丁校验失败：" + "；".join(problems), file=sys.stderr)
     raise SystemExit(4)
 
-print("PATCH-STATE: OK（CODE-07 + CODE-09 + CODE-09b 补丁齐全）")
+print("PATCH-STATE: OK（CODE-07 + CODE-09 + CODE-09b + CODE-10 补丁齐全）")
 PY
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
