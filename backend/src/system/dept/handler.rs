@@ -11,6 +11,7 @@ use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use std::net::SocketAddr;
 
+use crate::business::shared::{guard as scope_guard, principal, scope};
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::support::log;
@@ -42,10 +43,33 @@ use crate::utils;
     permission = "system:dept:list"
 )]
 #[alun::get("/system/dept/tree")]
-pub async fn tree(Query(query): Query<DeptTreeQuery>) -> ResResult<Vec<DeptNode>> {
+pub async fn tree(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<DeptTreeQuery>,
+) -> ResResult<Vec<DeptNode>> {
+    // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树按范围裁剪。
+    // 一次请求解析一次，之后既用于 SQL 裁剪，也决定「能不能用全量树缓存」。
+    let user_id = utils::current_user_uuid(&claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "当前令牌缺少用户标识，无法解析数据范围",
+        )
+    })?;
+    let principal = principal::resolve(&user_id)
+        .await
+        .map_err(|e| utils::db_error(e, "解析当前用户数据范围"))?;
+    let scope_filter = scope::filter_for(&principal, scope::ScopeTarget::SYS_DEPT);
+    // `is_noop()` = 超管或范围「全部数据」：可见集合就是全表，才允许读全量树缓存。
+    // 否则读缓存会把**别人范围**的树直接发给当前用户（最危险的缓存形态）。
+    let unscoped = scope_filter.is_noop();
+
     // 仅「无任何过滤条件」的全量树走缓存；带名称 / 状态过滤的结果不缓存
     let no_filter = query.dept_name.is_none() && query.status.is_none();
-    if no_filter && let Some(cached) = model::load_cached_tree().await {
+    if unscoped
+        && no_filter
+        && let Some(cached) = model::load_cached_tree().await
+    {
         return Ok(Res::ok(cached));
     }
 
@@ -53,7 +77,7 @@ pub async fn tree(Query(query): Query<DeptTreeQuery>) -> ResResult<Vec<DeptNode>
         dept_name: query.dept_name,
         status: query.status,
     };
-    let depts = model::find_dept_list(&filter)
+    let depts = model::find_dept_list(&filter, &principal)
         .await
         .map_err(|e| utils::db_error(e, "查询部门列表"))?;
 
@@ -73,6 +97,20 @@ pub async fn tree(Query(query): Query<DeptTreeQuery>) -> ResResult<Vec<DeptNode>
         }
     }
 
+    // 裁剪后「上级不可见」的节点必须**提升为根**，否则 `build_tree` 会把它连同
+    // 整棵子树静默丢掉（它按「父节点存在」挂载）。语义：可见范围之外的上层
+    // 结构对本用户不存在，他要看的那片就是自己的树顶。
+    let visible_ids: std::collections::HashSet<String> =
+        nodes.iter().map(|n| n.id.clone()).collect();
+    for node in &mut nodes {
+        if let Some(parent) = node.parent_id.as_deref()
+            && !parent.is_empty()
+            && !visible_ids.contains(parent)
+        {
+            node.parent_id = None;
+        }
+    }
+
     let nodes = utils::build_tree(
         nodes,
         |n| n.id.clone(),
@@ -81,7 +119,8 @@ pub async fn tree(Query(query): Query<DeptTreeQuery>) -> ResResult<Vec<DeptNode>
         |n, children| n.children = children,
     );
 
-    if no_filter {
+    // 只缓存「全量 + 无范围裁剪」的树：带范围的树与用户相关，写进同一个键就是脏读源
+    if unscoped && no_filter {
         model::cache_tree(&nodes).await;
     }
     Ok(Res::ok(nodes))
@@ -188,6 +227,10 @@ pub async fn create(
         .await
         .map_err(|e| utils::db_error(e, "新建部门"))?;
     model::invalidate_tree_cache().await;
+    // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
+    // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
+    // 漏掉某个写点的最坏后果是 300 s（TTL）内看到旧范围，不会永久错（架构 §2.8）。
+    scope_guard::bump_epoch().await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -307,6 +350,10 @@ pub async fn update(
         .await
         .map_err(|e| utils::db_error(e, "更新部门"))?;
     model::invalidate_tree_cache().await;
+    // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
+    // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
+    // 漏掉某个写点的最坏后果是 300 s（TTL）内看到旧范围，不会永久错（架构 §2.8）。
+    scope_guard::bump_epoch().await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -397,6 +444,10 @@ pub async fn delete(
         .map(|_| ())
         .map_err(|e| utils::db_error(e, "删除部门"))?;
     model::invalidate_tree_cache().await;
+    // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
+    // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
+    // 漏掉某个写点的最坏后果是 300 s（TTL）内看到旧范围，不会永久错（架构 §2.8）。
+    scope_guard::bump_epoch().await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -523,6 +574,10 @@ pub async fn migrate_and_delete(
     .map_err(|e| utils::db_error(e, "迁移用户并删除部门"))?;
 
     model::invalidate_tree_cache().await;
+    // 数据权限（批次 B · B3，报批 §5.3-#8）：部门树结构变更 → `INCR` epoch，
+    // **O(1) 全量失效**所有用户的数据范围缓存（子树结果对所有用户都变了）。
+    // 漏掉某个写点的最坏后果是 300 s（TTL）内看到旧范围，不会永久错（架构 §2.8）。
+    scope_guard::bump_epoch().await;
     log::record_audit(
         &headers,
         &connect_info,

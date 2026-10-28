@@ -34,6 +34,7 @@
 //! | `3000x` | 授权（无权限、角色 / 菜单 / 部门冲突） |
 //! | `4000x` | 支撑域（字典 / 参数 / 文件 / 任务 / 日志） |
 //! | `6000x` | 业务域 · 批次 A（对象存储 / 导入导出 / 消息通知） |
+//! | `6100x` | 权限增强 · 批次 B（数据权限 / 列级脱敏 / 角色互斥） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -279,7 +280,8 @@ pub const EXPORT_FILE_MISSING: i32 = 60033;
 // ==================== 6100x：数据权限（批次 B） ====================
 //
 // 依据 `docs/批次B-技术架构.md` §5.3 的 6100x 段码表。本段最终 12 个码（61001–61012），
-// B2（数据权限基座）用 61001/61002，B4（范围配置 API）补 61003/61004；其余由 B3/B6/B7 按各自交付步补齐，**码值不得改动**
+// B2（数据权限基座）用 61001/61002，B4（范围配置 API）补 61003/61004，
+// B3（底座接入）补满 61005–61012；B6/B7 直接使用，**码值不得改动**
 // （前端映射表已按此段规划）。统一在这里定义是为了守住项目铁律「错误码统一在此定义，
 // 禁止散落魔法数字」——即使 B2 只用到两个，也不在 `business/` 里另开第二处码表。
 
@@ -294,3 +296,65 @@ pub const DATA_SCOPE_SELF_ROLE_LOCKED: i32 = 61003;
 
 /// `custom_dept_ids` 里有不存在 / 已软删的部门（HTTP 404）。
 pub const DATA_SCOPE_DEPT_NOT_FOUND: i32 = 61004;
+
+/// `mask_type` 非法 / `mask_param` 格式不符（如手机号参数不是 `"3,4"`，HTTP 400）。
+pub const FIELD_MASK_TYPE_INVALID: i32 = 61005;
+
+/// `table_name` / `column_name` 在 `information_schema` 里不存在（HTTP 404）。
+pub const FIELD_MASK_TARGET_NOT_FOUND: i32 = 61006;
+
+/// 自定义正则编译失败 / 捕获组越界（HTTP 422）。
+pub const FIELD_MASK_REGEX_INVALID: i32 = 61007;
+
+/// **导出 fail-closed**：敏感列没有生效规则（HTTP 422）。
+pub const FIELD_MASK_RULE_MISSING: i32 = 61008;
+
+/// 授予角色命中互斥（HTTP 409）。
+pub const ROLE_MUTEX_CONFLICT: i32 = 61009;
+
+/// 建立互斥时已有用户同时持有这两个角色（HTTP 409）。
+pub const ROLE_MUTEX_HAS_HOLDERS: i32 = 61010;
+
+/// 互斥关系已存在（含反向，HTTP 409）。
+pub const ROLE_MUTEX_DUPLICATE: i32 = 61011;
+
+/// 角色与自身互斥（HTTP 400）。
+pub const ROLE_MUTEX_SELF_PAIR: i32 = 61012;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// B3 段码位自检：6100x 段 12 个码齐全、码值不重复、与架构 §5.3 码表逐字一致。
+    ///
+    /// 这条测试的作用不是「测代码」，而是**防止后续实施步（B4/B6/B7）改码值**：
+    /// 前端 `error-code.ts` 的文案映射已按此段规划，改一个值就是前端文案错位。
+    #[test]
+    fn batch_b_error_codes_are_stable() {
+        let codes = [
+            (DATA_SCOPE_INVALID, 61001),
+            (DATA_SCOPE_EXCEED_LIMIT, 61002),
+            (DATA_SCOPE_SELF_ROLE_LOCKED, 61003),
+            (DATA_SCOPE_DEPT_NOT_FOUND, 61004),
+            (FIELD_MASK_TYPE_INVALID, 61005),
+            (FIELD_MASK_TARGET_NOT_FOUND, 61006),
+            (FIELD_MASK_REGEX_INVALID, 61007),
+            (FIELD_MASK_RULE_MISSING, 61008),
+            (ROLE_MUTEX_CONFLICT, 61009),
+            (ROLE_MUTEX_HAS_HOLDERS, 61010),
+            (ROLE_MUTEX_DUPLICATE, 61011),
+            (ROLE_MUTEX_SELF_PAIR, 61012),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "6100x 段码值不得改动");
+        }
+        // 与批次 A 的 6003x 段不重叠（60033 < 61001）
+        assert!(codes[0].0 > 60033, "6100x 段必须排在批次 A 之后");
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "6100x 段不得有重复码值");
+        println!(
+            "[码表] 6100x 段 {} 个码齐全且不重复（61001–61012）✓",
+            codes.len()
+        );
+    }
+}

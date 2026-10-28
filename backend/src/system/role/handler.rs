@@ -13,6 +13,9 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::shared::guard as scope_guard;
+use crate::business::shared::principal;
+use crate::business::shared::scope::ScopeKind;
 use crate::shared::constants::EnableStatus;
 use crate::shared::{constants, error_code};
 use crate::support::log;
@@ -158,6 +161,10 @@ pub async fn create(
 ) -> ResResult<RoleRes> {
     let role_code = req.role_code.trim().to_string();
     ensure_role_code_unique(&role_code, None).await?;
+    // 数据范围（报批 §5.3-#5 ①）：缺省 = 1「全部」，与迁移默认值逐字一致；
+    // 非超管新建角色时同样走「范围上限」校验，否则「建一个新角色」就是提权通道。
+    let data_scope = resolve_data_scope(req.data_scope, ScopeKind::All.as_i16())?;
+    ensure_data_scope_grantable(&claims, None, data_scope, &[]).await?;
 
     let now = chrono::Utc::now();
     let operator = utils::current_user_uuid(&claims);
@@ -167,6 +174,7 @@ pub async fn create(
         role_name: req.role_name.trim().to_string(),
         description: req.description.map(|v| v.trim().to_string()),
         status: EnableStatus::from_optional_i16(req.status)?,
+        data_scope,
         sort_order: req.sort_order.unwrap_or(0),
         remark: req.remark.map(|v| v.trim().to_string()),
         created_at: now,
@@ -254,12 +262,21 @@ pub async fn update(
         ));
     }
 
+    // 数据范围（报批 §5.3-#4/#5）：`None` = **保留现值**——这是架构点名的坑：
+    // `RoleSaveReq` 是 PUT 全量更新，若把 None 当默认值处理，「只改角色名」就会把
+    // data_scope 重置成「全部」（数据破坏）。所以缺省取 `existing.data_scope`。
+    let data_scope = resolve_data_scope(req.data_scope, existing.data_scope)?;
+    if data_scope != existing.data_scope {
+        ensure_data_scope_grantable(&claims, Some(existing.data_scope), data_scope, &[]).await?;
+    }
+
     let role = SysRoleModel {
         id,
         role_code,
         role_name: req.role_name.trim().to_string(),
         description: req.description.map(|v| v.trim().to_string()),
         status,
+        data_scope,
         sort_order: req.sort_order.unwrap_or(existing.sort_order),
         remark: req.remark.map(|v| v.trim().to_string()),
         // 保留创建审计字段，仅更新业务字段
@@ -276,6 +293,12 @@ pub async fn update(
     model::invalidate_enabled_roles_cache().await;
     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
+    if data_scope != existing.data_scope {
+        // 数据范围缓存（`perm:user_scope:{epoch}:{uid}`）与权限快照是**两套键**：
+        // 上面只清了权限，范围缓存必须单独按持有者清理，否则最长 300 s（TTL）内
+        // 这些用户仍按旧范围过滤 —— 放宽时是「看不到」，收紧时是**越权可见**。
+        invalidate_role_scope_cache(&id).await;
+    }
     // 角色状态 / 名称等变更会影响持有该角色用户的权限快照，令非超管在线用户
     // 重新登录获取最新角色与权限。
     //
@@ -303,10 +326,12 @@ pub async fn update(
             Some(serde_json::json!({
                 "role_name": existing.role_name,
                 "role_code": existing.role_code,
+                "data_scope": existing.data_scope,
             })),
             Some(serde_json::json!({
                 "role_name": role.role_name,
                 "role_code": role.role_code,
+                "data_scope": role.data_scope,
             })),
         ),
     );
@@ -702,4 +727,437 @@ async fn ensure_role_code_unique(
         .await
         .map_err(|e| utils::db_error(e, "校验角色编码唯一性"))?;
     utils::ensure_unique(count, error_code::ROLE_CODE_EXISTS, "角色编码已存在")
+}
+
+// ==================== 数据范围（批次 B · B3，报批 §5.3-#5） ====================
+
+/// 解析并校验请求里的 `data_scope`。
+///
+/// # 参数
+///
+/// - `raw`：请求体里的取值（`None` = 请求未带该字段）；
+/// - `fallback`：`raw` 为 `None` 时的取值（新建取 `1`「全部」，更新取**库中现值**）。
+///
+/// # 返回值
+///
+/// 校验通过的 `i16`（1..5）。
+///
+/// # 异常情况
+///
+/// 取值不在 1..5 → `400 + DATA_SCOPE_INVALID(61001)`。校验走
+/// [`ScopeKind::from_i16`]，与写入 / 读取 / 缓存反序列化**同一个**转换口，
+/// 不允许在这里另写一份 `match 1 => …`（架构 §2.1：任何 `data_scope` 都必须经它）。
+fn resolve_data_scope(raw: Option<i16>, fallback: i16) -> std::result::Result<i16, ApiError> {
+    let value = raw.unwrap_or(fallback);
+    Ok(ScopeKind::from_i16(value)?.as_i16())
+}
+
+/// 数据范围的「宽窄等级」——用于非超管的**范围上限**校验（纯函数，可单测）。
+///
+/// # 分级理由
+///
+/// 部门类范围（`DEPT` / `DEPT_AND_CHILD` / `CUSTOM`）在 B3 阶段没有
+/// `custom_dept_ids` 入参（该字段由 B4 的专用接口提供），其最终部门集合取决于
+/// **持有者**所在部门，无法在授权时刻静态判定，因此三者同属一级：同级可互授
+/// （管理员按部门维度调整），但**不得**越过等级。
+///
+/// | 等级 | 范围 | 语义 |
+/// |---|---|---|
+/// | 0 | `SELF` | 只能看自己 |
+/// | 1 | `DEPT` / `DEPT_AND_CHILD` / `CUSTOM` | 部门维度（自己可见的那片） |
+/// | 2 | `ALL` | 全公司 |
+///
+/// 「授出比自己更宽的范围」=「把自己看不见的数据授权出去」，这是与批次 A
+/// delegation cap 同源的提权路径（架构 §2.7 末条）。
+const fn scope_class(kind: ScopeKind) -> u8 {
+    match kind {
+        ScopeKind::SelfOnly => 0,
+        ScopeKind::Dept | ScopeKind::DeptAndChild | ScopeKind::Custom => 1,
+        ScopeKind::All => 2,
+    }
+}
+
+/// 数据范围的「宽度」——用于判定「这一次修改是收紧还是放宽」（纯函数，可单测）。
+///
+/// # 分级理由（与 [`scope_class`] 是两个不同问题，别合并）
+///
+/// [`scope_class`] 比的是「操作者自己能看多远」，只有三档；这里比的是「两个范围谁更宽」，
+/// 需要把部门类再细分，否则 `DEPT → DEPT_AND_CHILD` 会被判成「同级 = 不算放宽」——
+/// 而它对持有者本人**就是**扩大可见范围（`b3_mgr` 改完立刻能看到原先看不见的后端组）。
+///
+/// | 宽度 | 范围 | 说明 |
+/// |---|---|---|
+/// | 0 | `SELF` | 仅本人，最窄 |
+/// | 1 | `DEPT` | 单个部门 |
+/// | 2 | `CUSTOM` / `DEPT_AND_CHILD` | 一组部门 / 一棵子树，**互不包含**，同宽（互相切换一律按放宽处理，保守） |
+/// | 3 | `ALL` | 全公司 |
+///
+/// 判定式：`new != current && width(new) >= width(current)` → 放宽 / 平级换形 → 拒。
+const fn scope_width(kind: ScopeKind) -> u8 {
+    match kind {
+        ScopeKind::SelfOnly => 0,
+        ScopeKind::Dept => 1,
+        ScopeKind::Custom | ScopeKind::DeptAndChild => 2,
+        ScopeKind::All => 3,
+    }
+}
+
+/// 校验「操作者能否把这个数据范围授给角色」（范围上限，架构 §2.7 / S14 的第二个入口）。
+///
+/// # 规则
+///
+/// | 操作者 | 结果 |
+/// |---|---|
+/// | 超管（**库侧**判定，不用令牌快照） | 恒 `Ok` |
+/// | 范围 = `ALL` 的非超管 | 恒 `Ok`（他的可见集合本来就是全部） |
+/// | 其他 | 新范围等级 ≤ 操作者自身等级 **且** ≤ 角色现值等级，见下 |
+///
+/// # 为什么还要比「角色现值」（`current_scope`）
+///
+/// 只比操作者等级是不够的：`DEPT → DEPT_AND_CHILD` 在等级上同级（都是部门维度），
+/// 但**对持有者本人就是可见范围的放宽**——操作者 `b3_mgr`（本部门 = 研发部）
+/// 把自己持有的角色改成「本部门及以下」后，立刻能看到原先看不见的后端组用户。
+/// 这是「通过改角色配置给自己扩权」，与直接提权没有区别。
+///
+/// 但部门类范围的最终集合取决于**持有者**所在部门（B3 阶段没有 `custom_dept_ids`
+/// 入参，无法在授权时刻静态判定 N 个持有者各自的子树），因此取更保守、可判定的口径：
+///
+/// - **非超管（范围 ≠ ALL）不得把任何角色的数据范围放宽**（放宽只能由超管或持
+///   「全部数据」范围的管理员执行）；
+/// - 收紧（如 `3 → 2`、`2 → 4`）与「不改」一律放行。
+///
+/// B4 的专用接口（`PUT /system/role/{id}/data-scope`）拿到 `custom_dept_ids` 后，
+/// 可再补「逐部门集合包含」的精细判定；那一步不会放宽本处结论。
+///
+/// # 参数
+///
+/// - `claims`：当前请求声明（只用来定位用户，**不用** `is_super_admin()` 快照判超管：
+///   §2.7 要求按库侧 `role_code` 判定，令牌里的权限快照可能过期）；
+/// - `current_scope`：角色**库中现值**；新建角色传 `None`（没有可放宽的基准）；
+/// - `new_scope`：待写入的范围（1..5）；
+/// - `custom_dept_ids`：`data_scope = 5` 时的自定义部门集合；B3 传空切片（B4 接线）。
+///
+/// # 异常情况
+///
+/// - 令牌里取不到用户 ID → `401`（理论上不会发生，属防御）；
+/// - 超出上限 → `403 + DATA_SCOPE_EXCEED_LIMIT(61002)`；
+/// - 解析范围失败（查库失败）→ `500`。
+async fn ensure_data_scope_grantable(
+    claims: &TokenClaims,
+    current_scope: Option<i16>,
+    new_scope: i16,
+    custom_dept_ids: &[uuid::Uuid],
+) -> std::result::Result<(), ApiError> {
+    let user_id = utils::current_user_uuid(claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "当前令牌缺少用户标识，无法校验数据范围上限",
+        )
+    })?;
+    let operator = principal::resolve(&user_id)
+        .await
+        .map_err(|e| utils::db_error(e, "解析当前用户数据范围"))?;
+
+    ensure_data_scope_grantable_with(&operator, current_scope, new_scope, custom_dept_ids)
+}
+
+/// [`ensure_data_scope_grantable`] 的纯逻辑部分（不连库，可单测）。
+///
+/// 抽出来的原因：规则本身是「等级比较 + 集合包含」，与查库无关；
+/// 混在一起就只能靠真库测，而这类提权防护必须能在 `cargo test` 里穷举。
+fn ensure_data_scope_grantable_with(
+    operator: &principal::ScopedPrincipal,
+    current_scope: Option<i16>,
+    new_scope: i16,
+    custom_dept_ids: &[uuid::Uuid],
+) -> std::result::Result<(), ApiError> {
+    // 超管不受配置上限约束（架构 §2.7：与批次 A 的 delegation cap 同口径）
+    if operator.is_super() {
+        return Ok(());
+    }
+    let new_kind = ScopeKind::from_i16(new_scope)?;
+    // 操作者自己的可见集合就是「全部」时，任何部门类范围都不构成扩权
+    if operator.kind() == ScopeKind::All {
+        return scope_guard::ensure_scope_grant_allowed(operator, custom_dept_ids);
+    }
+    if scope_class(new_kind) > scope_class(operator.kind()) {
+        return Err(ApiError::new(
+            403,
+            error_code::DATA_SCOPE_EXCEED_LIMIT,
+            format!(
+                "不能把数据范围设为「{}」：超出你自身的可见范围（当前为「{}」）",
+                new_kind.label(),
+                operator.kind().label()
+            ),
+        ));
+    }
+    if let Some(current) = current_scope {
+        let current_kind = ScopeKind::from_i16(current)?;
+        if new_kind != current_kind && scope_width(new_kind) >= scope_width(current_kind) {
+            return Err(ApiError::new(
+                403,
+                error_code::DATA_SCOPE_EXCEED_LIMIT,
+                format!(
+                    "不能把数据范围从「{}」调整为「{}」：非超管只能收紧或保持不变（放宽由超管执行）",
+                    current_kind.label(),
+                    new_kind.label()
+                ),
+            ));
+        }
+    }
+    // 逐部门比对（`CUSTOM` 的部门集合必须是自己看得见的那片）
+    scope_guard::ensure_scope_grant_allowed(operator, custom_dept_ids)
+}
+
+/// 失效「持有该角色的全部用户」的数据范围缓存（角色 `data_scope` 变更后调用）。
+///
+/// # 说明
+///
+/// 反查失败只告警不阻断：授权已经落库，缓存脏读最长 300 s 由 TTL 兜底
+/// （架构 §2.8「缓存不可用 → 回退查库」的同一取向，这里是「失效失败 → TTL 兜底」）。
+async fn invalidate_role_scope_cache(role_id: &uuid::Uuid) {
+    match model::find_role_holder_ids(role_id).await {
+        Ok(holders) => {
+            if holders.is_empty() {
+                tracing::debug!(%role_id, "角色无持有者，跳过数据范围缓存失效");
+            } else {
+                tracing::info!(
+                    %role_id,
+                    holders = holders.len(),
+                    "角色数据范围变更 → 失效持有者的数据范围缓存"
+                );
+                scope_guard::invalidate_user_scopes(&holders).await;
+            }
+        }
+        Err(e) => {
+            tracing::warn!(%role_id, error = %e, "反查角色持有者失败，数据范围缓存靠 TTL 兜底");
+        }
+    }
+}
+
+// ==================== 单元测试（范围上限的纯逻辑） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::business::shared::principal::ScopedPrincipal;
+    use alun::uuid::Uuid;
+
+    fn uid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    fn principal(
+        kind: ScopeKind,
+        dept_ids: Vec<Uuid>,
+        self_only: bool,
+        is_super: bool,
+    ) -> ScopedPrincipal {
+        ScopedPrincipal::for_test(
+            uid(0xB3_0001),
+            dept_ids.first().copied(),
+            is_super,
+            kind,
+            dept_ids,
+            self_only,
+        )
+    }
+
+    /// `resolve_data_scope`：`None` 取兜底值；非法取值 → 61001；合法值原样返回。
+    ///
+    /// 这条守的是「改角色名不得重置 data_scope」的第一层：兜底值由调用方传入
+    /// （更新场景传**库中现值**），函数本身绝不自作主张回退到 1。
+    #[test]
+    fn data_scope_resolution_keeps_fallback() {
+        assert_eq!(resolve_data_scope(None, 3).unwrap(), 3);
+        assert_eq!(resolve_data_scope(None, 1).unwrap(), 1);
+        assert_eq!(resolve_data_scope(Some(4), 1).unwrap(), 4);
+        for bad in [0_i16, 6, -1] {
+            let error = resolve_data_scope(Some(bad), 1).expect_err("非法取值必须报错");
+            assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
+            assert_eq!(error.status, 400);
+        }
+        println!("[范围] None→兜底(3)；Some(4)→4；0/6/-1→61001 ✓");
+    }
+
+    /// `scope_class` 分级：SELF(0) < 部门类(1) < ALL(2)。
+    #[test]
+    fn scope_class_ordering() {
+        assert_eq!(scope_class(ScopeKind::SelfOnly), 0);
+        for kind in [ScopeKind::Dept, ScopeKind::DeptAndChild, ScopeKind::Custom] {
+            assert_eq!(scope_class(kind), 1, "{kind:?} 应属部门类");
+        }
+        assert_eq!(scope_class(ScopeKind::All), 2);
+        println!("[上限] 分级 SELF=0 < DEPT/DEPT_AND_CHILD/CUSTOM=1 < ALL=2 ✓");
+    }
+
+    /// `scope_width` 分级：SELF(0) < DEPT(1) < CUSTOM/DEPT_AND_CHILD(2) < ALL(3)。
+    ///
+    /// 这一档与 [`scope_class`] 分开是刻意的：只按 class 比，`DEPT → DEPT_AND_CHILD`
+    /// 会被判成「同级不算放宽」，而那正是「改角色配置给自己扩权」的真实路径。
+    #[test]
+    fn scope_width_ordering() {
+        assert_eq!(scope_width(ScopeKind::SelfOnly), 0);
+        assert_eq!(scope_width(ScopeKind::Dept), 1);
+        assert_eq!(scope_width(ScopeKind::Custom), 2);
+        assert_eq!(scope_width(ScopeKind::DeptAndChild), 2);
+        assert_eq!(scope_width(ScopeKind::All), 3);
+        println!("[宽度] SELF=0 < DEPT=1 < CUSTOM=DEPT_AND_CHILD=2 < ALL=3 ✓");
+    }
+
+    /// S14 的授权入口：非超管既不得授出比自身更宽的范围，也不得把角色的范围**放宽**
+    /// （含验收用例 ④ 的路径）。
+    #[test]
+    fn non_super_cannot_escalate_scope() {
+        let dept = uid(0xB3_0101);
+
+        // ① 部门类操作者：保持同级 / 收紧 可授；ALL 与「放宽到本部门及以下」→ 403 / 61002
+        let dept_manager = principal(ScopeKind::Dept, vec![dept], false, false);
+        assert!(
+            ensure_data_scope_grantable_with(
+                &dept_manager,
+                Some(ScopeKind::Dept.as_i16()),
+                ScopeKind::Dept.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+        // 收紧：本部门 → 仅本人
+        assert!(
+            ensure_data_scope_grantable_with(
+                &dept_manager,
+                Some(ScopeKind::Dept.as_i16()),
+                ScopeKind::SelfOnly.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+        // 放宽（同级的本部门 → 本部门及以下，对持有者本人就是扩大可见范围）
+        let error = ensure_data_scope_grantable_with(
+            &dept_manager,
+            Some(ScopeKind::Dept.as_i16()),
+            ScopeKind::DeptAndChild.as_i16(),
+            &[],
+        )
+        .expect_err("同级放宽必须被拒");
+        assert_eq!(error.status, 403);
+        assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
+        assert!(error.msg.contains("放宽"), "消息={}", error.msg);
+
+        // 越级到 ALL
+        let error = ensure_data_scope_grantable_with(
+            &dept_manager,
+            Some(ScopeKind::Dept.as_i16()),
+            ScopeKind::All.as_i16(),
+            &[],
+        )
+        .expect_err("部门类操作者授出 ALL 必须被拒");
+        assert_eq!(error.status, 403);
+        assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
+        assert!(error.msg.contains("全部数据"), "消息={}", error.msg);
+
+        // ② 仅本人操作者：任何部门类都与「自己只能看自己」不符 → 拒
+        let self_only = principal(ScopeKind::SelfOnly, vec![], true, false);
+        for widen in [
+            ScopeKind::Dept,
+            ScopeKind::DeptAndChild,
+            ScopeKind::Custom,
+            ScopeKind::All,
+        ] {
+            let error = ensure_data_scope_grantable_with(
+                &self_only,
+                Some(ScopeKind::SelfOnly.as_i16()),
+                widen.as_i16(),
+                &[],
+            )
+            .expect_err("仅本人操作者不得授出更宽范围");
+            assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT, "{widen:?}");
+        }
+        // 收紧（自己 → 自己）允许
+        assert!(
+            ensure_data_scope_grantable_with(
+                &self_only,
+                Some(ScopeKind::SelfOnly.as_i16()),
+                ScopeKind::SelfOnly.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+
+        // ③ 超管不受限（放宽也允许）
+        let super_admin = principal(ScopeKind::SelfOnly, vec![], true, true);
+        assert!(
+            ensure_data_scope_grantable_with(
+                &super_admin,
+                Some(ScopeKind::SelfOnly.as_i16()),
+                ScopeKind::All.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+
+        // ④ 范围 = ALL 的非超管同样不受限（他的可见集合本来就是全部）
+        let all_scope = principal(ScopeKind::All, vec![], false, false);
+        assert!(
+            ensure_data_scope_grantable_with(
+                &all_scope,
+                Some(ScopeKind::SelfOnly.as_i16()),
+                ScopeKind::All.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+
+        // ⑤ 新建角色（无现值基准）：只看操作者自身等级
+        assert!(
+            ensure_data_scope_grantable_with(
+                &dept_manager,
+                None,
+                ScopeKind::DeptAndChild.as_i16(),
+                &[],
+            )
+            .is_ok()
+        );
+        let error =
+            ensure_data_scope_grantable_with(&dept_manager, None, ScopeKind::All.as_i16(), &[])
+                .expect_err("新建角色也不得授出 ALL");
+        assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
+
+        // ⑥ 自定义部门集合越界 → 61002（B4 传 custom_dept_ids 后即生效）
+        let intruder = uid(0xB3_0199);
+        let error = ensure_data_scope_grantable_with(
+            &dept_manager,
+            Some(ScopeKind::Custom.as_i16()),
+            ScopeKind::Custom.as_i16(),
+            &[intruder],
+        )
+        .expect_err("自定义部门越界必须被拒");
+        assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
+        // 集合内 → 允许
+        assert!(
+            ensure_data_scope_grantable_with(
+                &dept_manager,
+                Some(ScopeKind::Custom.as_i16()),
+                ScopeKind::Custom.as_i16(),
+                &[dept],
+            )
+            .is_ok()
+        );
+
+        println!(
+            "[上限] 部门类→ALL 拒；同级放宽拒；SELF→部门类拒；收紧放行；超管与 ALL 放行；自定义部门越界拒 ✓"
+        );
+    }
+
+    /// 非法 `data_scope` 直接写库前就被拦（不经 `resolve_data_scope` 的路径也必须拦）。
+    #[test]
+    fn invalid_scope_rejected_by_grant_check() {
+        let dept_manager = principal(ScopeKind::Dept, vec![uid(0xB3_0201)], false, false);
+        let error = ensure_data_scope_grantable_with(&dept_manager, Some(1), 9, &[])
+            .expect_err("非法范围必须报错");
+        assert_eq!(error.code, error_code::DATA_SCOPE_INVALID);
+        assert_eq!(error.status, 400);
+        println!("[上限] data_scope=9 → 400/61001 ✓");
+    }
 }

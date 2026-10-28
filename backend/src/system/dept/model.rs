@@ -10,6 +10,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants::{self, EnableStatus};
 use crate::utils;
 
@@ -75,32 +77,49 @@ pub(crate) struct DeptTreeFilter {
 
 /// 按条件查询部门（扁平列表，供上层组装为树）。
 ///
+/// 批次 B · B3（报批 §5.3-#8）：部门树必须**按数据范围裁剪**——否则「看不见人但
+/// 看得见部门」仍是信息泄露（部门名 / 负责人 / 电话 / 邮箱，架构 §2.5）。
+///
+/// 注入形态：`scope::filter_for(principal, ScopeTarget::SYS_DEPT)` 产生
+/// `AND d.id = ?`（`SELF` = 本人所在部门那一行）或 `AND d.id = ANY(?...)`
+/// （`DEPT` / `DEPT_AND_CHILD` / `CUSTOM`），超管与 `ALL` 为 `AND 1 = 1`。
+/// 片段**追加在业务过滤条件之后**，参数也按同样顺序追加——这里不用
+/// `scope::paginate`（部门树不分页），因此不受 `{FILTER}` 位置契约约束。
+///
 /// # 参数
 ///
-/// - `filter`：过滤条件（部门名模糊与状态过滤，均可选）。
+/// - `filter`：过滤条件（部门名模糊与状态过滤，均可选）；
+/// - `principal`：当前用户的数据范围（只能由 `principal::resolve` 构造）。
 ///
 /// # 返回值
 ///
-/// 已按 `sort_order`、`created_at` 升序的扁平部门列表。
+/// 已按 `sort_order`、`created_at` 升序的扁平部门列表（**已按范围裁剪**）。
 ///
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
 pub(crate) async fn find_dept_list(
     filter: &DeptTreeFilter,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Vec<SysDeptModel>, DbError> {
-    let mut sql = String::from("SELECT * FROM sys_dept WHERE deleted_at IS NULL");
+    // 主体表统一用别名 `d`（与 `ScopeTarget::SYS_DEPT` 的 alias 一致；
+    // 片段只锚定主体表，见架构 §2.6 规则 1）
+    let mut sql = String::from("SELECT * FROM sys_dept d WHERE d.deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
 
     if let Some(pattern) = utils::like_pattern(filter.dept_name.as_deref()) {
-        sql.push_str(" AND dept_name LIKE ?");
+        sql.push_str(" AND d.dept_name LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(status) = filter.status {
-        sql.push_str(" AND status = ?");
+        sql.push_str(" AND d.status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, created_at ASC");
+    // 数据范围片段：追加在业务条件之后，参数同序追加
+    let row_filter = scope::filter_for(principal, scope::ScopeTarget::SYS_DEPT);
+    sql.push_str(row_filter.sql());
+    params.extend(row_filter.params().iter().cloned());
+    sql.push_str(" ORDER BY d.sort_order ASC, d.created_at ASC");
 
     let rows = db().find_with_params(&sql, params).await?;
     rows.into_iter()

@@ -12,6 +12,7 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::shared::{guard as scope_guard, principal};
 use crate::shared::constants::EnableStatus;
 use crate::shared::{constants, error_code};
 use crate::support::log::{self, PasswordChangeLogInput};
@@ -47,7 +48,25 @@ use crate::utils;
     permission = "system:user:list"
 )]
 #[alun::get("/system/user/page")]
-pub async fn page(Query(query): Query<UserPageQuery>) -> ResResult<PageData<Vec<UserRes>>> {
+pub async fn page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<UserPageQuery>,
+) -> ResResult<PageData<Vec<UserRes>>> {
+    // 数据权限（批次 B · B3，报批 §5.3-#7）：本接口是首个真实接入的样板。
+    // 一次请求只解析一次（`resolve` 内部带 Redis 缓存 + epoch 失效），
+    // 之后把 `&ScopedPrincipal` 传给 `page_users` —— 想查分页就必须先解析范围，
+    // 这条由类型系统强制（`ScopedPrincipal` 字段私有，见架构 §2.4 闸 1）。
+    let user_id = utils::current_user_uuid(&claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "当前令牌缺少用户标识，无法解析数据范围",
+        )
+    })?;
+    let principal = principal::resolve(&user_id)
+        .await
+        .map_err(|e| utils::db_error(e, "解析当前用户数据范围"))?;
+
     // 部门过滤：include_children 时展开为整棵部门子树，否则仅本部门
     let dept_ids = match utils::parse_optional_uuid(query.dept_id.as_deref(), "dept_id")? {
         Some(dept_id) => {
@@ -75,7 +94,7 @@ pub async fn page(Query(query): Query<UserPageQuery>) -> ResResult<PageData<Vec<
         create_end: query.create_end,
     };
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
-    let page_data = model::page_users(&filter, page, page_size)
+    let page_data = model::page_users(&filter, page, page_size, &principal)
         .await
         .map_err(|e| utils::db_error(e, "分页查询用户"))?;
 
@@ -317,6 +336,16 @@ pub async fn update(
         .update(db())
         .await
         .map_err(|e| utils::db_error(e, "更新用户"))?;
+
+    // 数据权限（批次 B · B3，架构 §2.8 失效矩阵「用户换部门」行）：
+    // 换了部门 → 该用户的可见部门集合整片变化（`Dept` / `DeptAndChild` / `Custom`
+    // 都依赖它），必须立刻删掉其范围缓存；否则最长 300 s（TTL）内仍按旧部门过滤。
+    // 注意范围缓存键带 epoch，是**与权限快照不同的另一套键**，`invalidate_user_principal`
+    // 不会顺带清它。
+    if to_save.dept_id != existing.dept_id {
+        tracing::info!(%id, "用户所属部门变更 → 失效数据范围缓存");
+        scope_guard::invalidate_user_scope(&id).await;
+    }
 
     // 状态由启用改为停用时，旧访问令牌在自然过期前仍然有效（认证中间件只验
     // JWT 与黑名单、不查状态），需失效主体缓存并强制下线，与 change_status
@@ -755,6 +784,9 @@ pub async fn assign_roles(
     // 令牌版本号自增：即便在线会话记录已被清理，旧令牌也无法再用（CODE-08）
     revoke_user_tokens(&id, "assign_roles").await;
     crate::system::auth::model::invalidate_user_principal(&id).await;
+    // 数据权限（批次 B · B3，架构 §2.8 失效矩阵第一行「用户角色变更」）：
+    // 角色集合决定 `data_scope` 的并集结果，换角色即换可见范围 → 删该用户范围缓存。
+    scope_guard::invalidate_user_scope(&id).await;
     revoke_online_sessions(&id, "assign_roles").await;
     log::record_audit(
         &headers,
@@ -826,6 +858,8 @@ pub async fn batch_update_dept(
     let operator = utils::current_user_uuid(&claims);
     // 审计快照用的用户 ID 字符串列表（user_ids 随后会移入事务闭包）
     let user_id_strs = user_ids.iter().map(|v| v.to_string()).collect::<Vec<_>>();
+    // 事务闭包会 move `user_ids`，数据范围缓存失效在事务后执行，先留一份副本
+    let scope_targets = user_ids.clone();
 
     db().transaction(|tx| async move {
         model::batch_update_dept(&tx, &user_ids, &dept_id, operator).await?;
@@ -833,6 +867,9 @@ pub async fn batch_update_dept(
     })
     .await
     .map_err(|e| utils::db_error(e, "批量调整用户部门"))?;
+    // 数据权限（批次 B · B3，架构 §2.8 失效矩阵「用户换部门」行）：批量换部门
+    // 等于批量换可见集合，逐用户删范围缓存（键带用户 ID，不能整模式删）。
+    scope_guard::invalidate_user_scopes(&scope_targets).await;
     log::record_audit(
         &headers,
         &connect_info,

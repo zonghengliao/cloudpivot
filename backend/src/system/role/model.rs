@@ -40,6 +40,18 @@ pub struct SysRoleModel {
     pub description: Option<String>,
     /// 角色状态（1 启用 / 0 禁用）。
     pub status: EnableStatus,
+    /// 数据范围（1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义部门）。
+    ///
+    /// # 为什么必须出现在模型里（报批 §5.3-#3）
+    ///
+    /// `Model` 派生的 `insert` / `update` / `from_row` 都按**字段清单**生成 SQL：
+    /// 缺这一列 → `INSERT` 不含 `data_scope`（落默认 `1`），`UPDATE` 更糟——
+    /// 整行 update 用全字段，这一列的写入值取决于派生实现而**不是**库里的现值，
+    /// 于是「只改角色名」会把数据范围悄悄改掉。这是数据破坏，不是功能缺失。
+    ///
+    /// 取值经 `ScopeKind::from_i16`（`business/shared/scope.rs`）转换，
+    /// 库侧另有 `ck_sys_role_data_scope CHECK (data_scope IN (1,2,3,4,5))` 兜底。
+    pub data_scope: i16,
     /// 排序号，升序展示。
     pub sort_order: i32,
     /// 备注。
@@ -281,6 +293,44 @@ pub(crate) async fn replace_role_menus(
         Ok(())
     })
     .await
+}
+
+// ==================== 数据范围缓存失效的持有者反查 ====================
+
+/// 反查持有指定角色的**全部**用户 ID（`SELECT DISTINCT user_id`）。
+///
+/// # 为什么需要（架构 §2.8 失效矩阵）
+///
+/// 角色的 `data_scope` 变了 → 受影响的不是单个用户，而是所有持有该角色的用户。
+/// 数据范围缓存键带用户 ID，只能逐个 `DEL`，因此必须先反查持有者。
+/// 授权变更是低频操作，反查成本可接受（与 `auth::model::invalidate_role_holders`
+/// 同一论断）。
+///
+/// # 参数
+///
+/// - `role_id`：角色 ID。
+///
+/// # 返回值
+///
+/// 持有该角色的用户 ID 列表（去重；可能为空）。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]（调用方通常降级为只告警）。
+pub(crate) async fn find_role_holder_ids(
+    role_id: &uuid::Uuid,
+) -> std::result::Result<Vec<uuid::Uuid>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT DISTINCT user_id FROM sys_user_role WHERE role_id = ?",
+            vec![Value::from(role_id)],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in rows {
+        ids.push(row.get_typed::<uuid::Uuid>("user_id")?);
+    }
+    Ok(ids)
 }
 
 // ==================== 启用角色下拉缓存 ====================

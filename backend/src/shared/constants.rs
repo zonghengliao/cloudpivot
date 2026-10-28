@@ -368,6 +368,26 @@ pub const CACHE_KEY_PREFIX_USER_PERMS: &str = "perm:user_perms:";
 /// 用户可见菜单列表缓存键前缀（完整键形如 `perm:user_menus:{user_id}`）。
 pub const CACHE_KEY_PREFIX_USER_MENUS: &str = "perm:user_menus:";
 
+/// 用户数据范围缓存键前缀（完整键形如 `perm:user_scope:{epoch}:{user_id}`）。
+///
+/// 批次 B · B3（报批 §5.3-#11）。与 `perm:user_roles|perms|menus` 同族同 TTL，
+/// 运维只需记一套语义；**键里夹 `epoch`** 是刻意的：部门树一改，
+/// [`CACHE_KEY_USER_SCOPE_EPOCH`] 递增，所有旧键即刻不可达，无需 `KEYS` 逐用户清理
+/// （大基数下 `KEYS` 是阻塞风险，见架构 `docs/批次B-技术架构.md` §2.8）。
+pub const CACHE_KEY_PREFIX_USER_SCOPE: &str = "perm:user_scope:";
+
+/// 数据范围缓存的「变更版本号」键（部门树结构变更时 `INCR`）。
+///
+/// 值是单调递增的整数；每次部门增 / 删 / 改 `parent_id` / 移动都 `INCR` 一次，
+/// 等价于**O(1) 全量失效**（架构 §2.8 失效矩阵最后一行）。
+pub const CACHE_KEY_USER_SCOPE_EPOCH: &str = "perm:user_scope_epoch";
+
+/// 用户字段脱敏规则缓存键前缀（完整键形如 `perm:user_mask:{user_id}`）。
+///
+/// 批次 B · B6 使用（E3 段的 `MaskSet`）；B3 只把键位登记在此，避免后续在
+/// `business/` 里另开一处键常量表（架构 §5.3-#11 的理由）。
+pub const CACHE_KEY_PREFIX_USER_MASK: &str = "perm:user_mask:";
+
 /// 主体上下文缓存的统一有效期（秒）。
 ///
 /// 取较短值（5 分钟）而非热查询的 1 小时：授权变更有写侧失效兜底，但「用户被改角色」

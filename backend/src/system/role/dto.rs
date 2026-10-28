@@ -22,6 +22,12 @@ pub struct RoleRes {
     pub description: String,
     /// 状态（0 停用 / 1 正常）
     pub status: i16,
+    /// 数据范围（1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义部门）
+    ///
+    /// 批次 B · B3（报批 §5.3-#4）：**必须下发**，否则前端无法回显、
+    /// 也无法在「新建角色」表单里把默认值「全部数据」显式展示出来（架构 §5.6 R5：
+    /// 隐藏字段会让管理员以为默认是「仅本人」）。
+    pub data_scope: i16,
     /// 排序值
     pub sort_order: i32,
     /// 备注
@@ -47,6 +53,7 @@ impl From<&SysRoleModel> for RoleRes {
             role_name: m.role_name.clone(),
             description: m.description.clone().unwrap_or_default(),
             status: m.status.as_i16(),
+            data_scope: m.data_scope,
             sort_order: m.sort_order,
             remark: m.remark.clone().unwrap_or_default(),
             created_at: m.created_at,
@@ -83,6 +90,18 @@ pub struct RoleSaveReq {
     pub description: Option<String>,
     /// 状态（0 停用 / 1 正常），缺省启用
     pub status: Option<i16>,
+    /// 数据范围（1 全部 / 2 本部门 / 3 本部门及以下 / 4 仅本人 / 5 自定义部门）
+    ///
+    /// # 为什么是 `Option` 而不是带默认值（报批 §5.3-#4，架构点名的坑）
+    ///
+    /// `RoleSaveReq` 是 **PUT 全量更新**：`update` 用 `req` 重建整个模型。
+    /// 若把该字段设成必填 / 带默认值，老前端（不带这个字段）任何一次
+    /// 「只改角色名」都会把 `data_scope` 重置成默认值 —— 这不是功能缺失，是
+    /// **数据破坏**。因此：
+    ///
+    /// - `None` → 保留库里的现值（`create` 时取 `1`「全部」，与迁移默认值一致）；
+    /// - `Some(v)` → 校验 1..5 后写入（非法值 → `400 + DATA_SCOPE_INVALID`）。
+    pub data_scope: Option<i16>,
     /// 排序值
     pub sort_order: Option<i32>,
     /// 备注

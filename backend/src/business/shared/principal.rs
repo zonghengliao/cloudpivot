@@ -40,15 +40,19 @@ use super::scope::ScopeKind;
 use crate::shared::constants;
 
 // ==================== 缓存键（架构 §2.8） ====================
+//
+// 两个键常量集中定义在 `shared/constants.rs`（报批 §5.3-#11：缓存键一律集中，
+// 散落会导致键冲突与失效遗漏）。这里用 `pub use` 转出，保持 `business/shared`
+// 内部的引用路径稳定（`guard.rs` 与单测都按 `principal::CACHE_KEY_*` 引用）。
 
 /// 用户数据范围缓存键前缀（完整键 `perm:user_scope:{epoch}:{user_id}`）。
 ///
 /// 中间夹 `epoch` 是刻意的：部门树一改，`epoch` 递增，**所有**旧键即刻不可达，
 /// 无需 `keys()` / `delete_pattern` 逐用户清理（大基数下 `KEYS` 是阻塞风险）。
-pub const CACHE_KEY_PREFIX_USER_SCOPE: &str = "perm:user_scope:";
+pub use crate::shared::constants::CACHE_KEY_PREFIX_USER_SCOPE;
 
 /// 数据范围缓存的「变更版本号」键（部门树结构变更时 `INCR`）。
-pub const CACHE_KEY_USER_SCOPE_EPOCH: &str = "perm:user_scope_epoch";
+pub use crate::shared::constants::CACHE_KEY_USER_SCOPE_EPOCH;
 
 /// 组装缓存键 `perm:user_scope:{epoch}:{user_id}`。
 ///

@@ -82,3 +82,9 @@ futures-util = "0.3"
 # + connection-manager），**不引入依赖树中不存在的新 crate**，仅把既有的间接依赖
 # 显式化，供 business/monitor 使用。
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
+
+# 数据权限（批次 B · B3，报批 §5.3「Cargo.toml 加 regex」）：
+# 列级脱敏的自定义正则类型（B6）与范围自检接口的标识符校验需要编译正则；
+# `regex 1.13.1` **本就在依赖树中**（alun-utils 的依赖，见 Cargo.lock），
+# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
+regex = "1"

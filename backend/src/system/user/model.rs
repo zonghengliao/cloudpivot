@@ -14,6 +14,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants::{self, EnableStatus};
 use crate::utils;
 
@@ -163,11 +165,22 @@ pub(crate) struct UserRoleRow {
 
 /// 分页查询用户（支持用户名 / 姓名 / 邮箱 / 手机号模糊、状态、部门子树与创建时间范围过滤）。
 ///
+/// 批次 B · B3（报批 §5.3-#7）：本函数是**首个真实接入** `scope::paginate` 的分页查询，
+/// 作为后续接入（B5）的样板。三处关键约定（架构 §2.6）：
+///
+/// 1. 数据权限片段只锚定**主体表** `u`（`LEFT JOIN` 出来的 `d` 只用于取
+///    `dept_name`，绝不把 scope 写进 `ON` —— 那样行数不变、只是部门名变空，
+///    是最隐蔽的漏洞）；
+/// 2. 片段用 `scope::FILTER_MARKER` 标出注入位置，且**位于业务过滤条件之前**，
+///    这样 SQL 里 `?` 的顺序（片段在前）才与参数顺序（片段参数前置）一致；
+/// 3. `ORDER BY` 作为独立参数传给 `paginate`（count 会剥掉它，POC-5：11.17 ms → 4.49 ms）。
+///
 /// # 参数
 ///
-/// - `filter`：分页与过滤条件。
-/// - `page`：页码（从 1 开始）。
-/// - `page_size`：每页条数。
+/// - `filter`：分页与过滤条件；
+/// - `page`：页码（从 1 开始）；
+/// - `page_size`：每页条数；
+/// - `principal`：当前用户的数据范围（只能由 `principal::resolve` 构造，闸 1）。
 ///
 /// # 返回值
 ///
@@ -180,11 +193,13 @@ pub(crate) async fn page_users(
     filter: &UserPageFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<UserWithDept>, DbError> {
+    // `{FILTER}` 紧跟在 WHERE 的恒真条件之后、业务条件之前（参数顺序契约）
     let mut sql = String::from(
         "SELECT u.*, d.dept_name AS dept_name FROM sys_user u \
          LEFT JOIN sys_dept d ON d.id = u.dept_id AND d.deleted_at IS NULL \
-         WHERE u.deleted_at IS NULL",
+         WHERE u.deleted_at IS NULL {FILTER}",
     );
     let mut params: Vec<Value> = Vec::new();
 
@@ -228,17 +243,25 @@ pub(crate) async fn page_users(
         sql.push_str(" AND u.created_at <= ?");
         params.push(Value::from(end));
     }
-    sql.push_str(" ORDER BY u.created_at DESC");
 
+    // 唯一入口：注入范围片段 + 自己算 count（剥 ORDER BY）+ 分页取数。
+    // 注意 `ORDER BY` 必须留在 `order_by` 参数里，**不能**拼进 sql（传进去会报错）。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::SYS_USER,
+        &sql,
+        params,
+        Some("ORDER BY u.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
 
     let mut users: Vec<UserWithDept> = Vec::with_capacity(list.len());
     for row in list {

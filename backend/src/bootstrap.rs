@@ -41,14 +41,68 @@ pub async fn bootstrap() {
         "启动引导完成"
     );
 
-    // 四步互不依赖，并发执行：原先串行会把各步等待累加进启动耗时；
+    // 五步互不依赖，并发执行：原先串行会把各步等待累加进启动耗时；
     // 每步自身的失败处理（只记日志、不阻断启动）保持不变，
     // 仅启动日志的先后顺序不再固定。
+    //
+    // 第 5 步 `preflight_permission` 是批次 B 的「闸 3」（架构 §2.4）：查
+    // `information_schema` 确认登记表的部门列 / 归属列真实存在，并确认
+    // `SUPER_ADMIN` 角色存在。它是**唯一**在「资源就绪、插件未启动」时执行的入口，
+    // 因此把「部署即失败」的校验放在这里（与 `seed_super_admin` 的 prod `exit(1)` 先例一致）。
     tokio::join!(
         seed_super_admin(),
         load_scheduled_jobs(),
         crate::support::dict::model::warm_dict_cache(),
         load_runtime_config(),
+        preflight_permission_guard(),
+    );
+}
+
+/// 启动自检：数据权限登记表 / 超管角色（批次 B 的「闸 3」，架构 §2.4、§5.3-#9）。
+///
+/// # 为什么必须在启动期查
+///
+/// 表被改名 / 删列后，注入点会在**运行期**抛 `column does not exist`——那时是 500
+/// 与用户报障。启动期查 = 部署即失败。超管角色同理：`data_scope` 的短路逻辑依赖
+/// `role_code = 'SUPER_ADMIN'`，角色缺失等于超管被自己锁在数据权限外面。
+///
+/// # 失败处理
+///
+/// - **prod**：`eprintln!` + `exit(1)`（宁可不启动也不带病上线，与
+///   [`ensure_admin_user`] 缺初始口令的处理同口径）；
+/// - 其它 profile：只记 `error` 日志并继续（开发 / 测试环境需要能带着不完整的
+///   登记表启动来调试；且 `cargo test` 的
+///   [`crate::business::shared::guard`] 单测不依赖真库）。
+///
+/// # 异常情况
+///
+/// 查库失败（连不上 / 权限不足）与「自检不健康」同样处理：prod 拒启动，其余告警。
+async fn preflight_permission_guard() {
+    let report = match crate::business::shared::guard::preflight_permission().await {
+        Ok(report) => report,
+        Err(e) => {
+            let message = format!("数据权限自检无法完成（查库失败）：{e}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            return;
+        }
+    };
+    if report.is_ok() {
+        return;
+    }
+    // `preflight_permission` 内部已按 error 级打过摘要，这里只决定要不要中止启动
+    if is_prod_profile() {
+        let message = format!("数据权限自检不通过，拒绝启动：{}", report.summary());
+        tracing::error!("{message}");
+        eprintln!("FATAL: {message}");
+        std::process::exit(1);
+    }
+    tracing::warn!(
+        "数据权限自检不通过（非 prod，继续启动）：{}",
+        report.summary()
     );
 }
 
