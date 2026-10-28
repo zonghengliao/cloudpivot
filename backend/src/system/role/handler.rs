@@ -13,6 +13,7 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::mutex;
 use crate::business::shared::guard as scope_guard;
 use crate::business::shared::principal;
 use crate::business::shared::scope::ScopeKind;
@@ -260,6 +261,15 @@ pub async fn update(
             error_code::ROLE_IN_USE,
             "内置超级管理员角色不可禁用",
         ));
+    }
+
+    // 角色互斥（批次 B · B7，校验点 2）：角色由停用变启用时，原本「休眠」的绑定会变成
+    // 有效持有（停用角色不计入持有，见 `business/mutex/model.rs::HELD_ROLE_SQL`），
+    // 可能让互斥关系真正成立 —— 不在这里复核，互斥就会被「先停用 → 授完 → 再启用」绕过。
+    // 改 `role_code` / `role_name` 不需要校验：互斥规则按角色 **ID** 定义，名称变更不改变
+    // 互斥拓扑。必须发生在写库之前，否则拦截时库里已经处于违规状态。
+    if existing.status != status && status == EnableStatus::enabled {
+        mutex::ensure_role_enable_no_mutex(&id, &role_code, req.role_name.trim()).await?;
     }
 
     // 数据范围（报批 §5.3-#4/#5）：`None` = **保留现值**——这是架构点名的坑：

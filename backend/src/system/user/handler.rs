@@ -12,6 +12,7 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::mutex;
 use crate::business::shared::{guard as scope_guard, principal};
 use crate::shared::constants::EnableStatus;
 use crate::shared::{constants, error_code};
@@ -224,6 +225,11 @@ pub async fn create(
     let role_ids = parse_and_check_roles(&req.role_ids).await?;
     // 权限上限：非超管不得在新建账号时携带 SUPER_ADMIN 角色（堵「建号即提权」）
     guard::ensure_role_grant_allowed(&claims, &role_ids, None).await?;
+    // 角色互斥（批次 B · B7，校验点 1）：新账号「已持有」为空，并集退化为「本次授予」，
+    // 于是「同一次请求里同时带上两个互斥角色」同样被拒（架构 D3 的防绕过用例）。
+    // 顺序不可交换：先 cap（能不能授）再互斥（能不能共存）。
+    let new_user_id = uuid::Uuid::now_v7();
+    mutex::ensure_no_mutex(&new_user_id, &role_ids).await?;
 
     let status = EnableStatus::from_optional_i16(req.status)?;
     let dept_id = utils::parse_optional_uuid(req.dept_id.as_deref(), "dept_id")?;
@@ -233,7 +239,7 @@ pub async fn create(
     let now = chrono::Utc::now();
     let operator = utils::current_user_uuid(&claims);
     let new_user = SysUserModel {
-        id: uuid::Uuid::now_v7(),
+        id: new_user_id,
         username,
         password,
         real_name: req.real_name.map(|v| v.trim().to_string()),
@@ -791,6 +797,10 @@ pub async fn assign_roles(
     let role_ids = parse_and_check_roles(&req.role_ids).await?;
     // 权限上限：非超管不得授予/剥夺超管角色，也不得给自己新增未持有的角色
     guard::ensure_role_grant_allowed(&claims, &role_ids, Some(id)).await?;
+    // 角色互斥（批次 B · B7，校验点 1）：校验集合 = `已持有 ∪ 本次授予` 两两配对
+    // （架构 D9 —— 只比「本次 vs 已持有」会被同次授予绕过）。
+    // 顺序不可交换：② cap 先报越权（安全审计要优先看到的信号），③ 互斥后报共存冲突。
+    mutex::ensure_no_mutex(&id, &role_ids).await?;
     // 记录替换前的既有授权与替换后的目标授权，用于审计 before / after 快照
     let before_role_ids = SysUserRoleModel::find_by(db(), "user_id", (&id,))
         .await
