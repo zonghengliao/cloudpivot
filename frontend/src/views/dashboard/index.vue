@@ -642,7 +642,7 @@ onUnmounted(() => {
     align-items: center;
     justify-content: space-between;
     padding: 24px 28px;
-    color: #fff;
+    color: var(--app-on-gradient, #1a2230);
     border-radius: 12px;
     background: var(--app-gradient-brand);
     box-shadow: 0 6px 20px rgb(111 138 184 / 24%);
@@ -652,17 +652,23 @@ onUnmounted(() => {
     margin: 0 0 6px;
     font-size: 20px;
     font-weight: 600;
+    // 渐变右端是方案浅色，白色微光让深色文字在浅段边缘更清晰
+    text-shadow: 0 1px 2px rgb(255 255 255 / 60%);
   }
 
   &__subtitle {
     margin: 0;
     font-size: 13px;
-    color: rgb(255 255 255 / 82%);
+    // 渐变终点是浅色，副标题用同色文字（略透明以区分层级，主色端仍 ≥4.5）
+    color: var(--app-on-gradient, #1a2230);
+    opacity: 0.92;
+    text-shadow: 0 1px 2px rgb(255 255 255 / 60%);
   }
 
   &__banner-icon {
     font-size: 72px;
-    color: rgb(255 255 255 / 18%);
+    color: var(--app-on-gradient, #1a2230);
+    opacity: 0.12;
   }
 
   // t-row 用 gutter 负边距（-8px）抵消列 padding，两栏基准宽度需按内容盒计算，
