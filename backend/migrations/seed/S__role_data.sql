@@ -36,3 +36,13 @@ CROSS JOIN (VALUES ('10000000-0000-0000-0000-000000000050'::uuid),
                    ('10000000-0000-0000-0000-000000000051'::uuid)) AS m(id)
 WHERE r.role_code = 'SUPER_ADMIN'
 ON CONFLICT DO NOTHING;
+
+-- ---------- 外观设置（个人偏好页）默认授予全部角色 ----------
+-- 「外观设置」是用户自己的显示偏好，不属于业务授权范围：不给任何角色授权就等于
+-- 普通账号无法打开自己的配色页。这里对全部角色做幂等授权，管理员后续若要收紧，
+-- 可在角色授权页取消勾选（本语句只在种子指纹变化时重跑）。
+INSERT INTO sys_role_menu (role_id, menu_id, created_at)
+SELECT r.id, m.id, CURRENT_TIMESTAMP
+FROM sys_role r
+CROSS JOIN (VALUES ('10000000-0000-0000-0000-000000000052'::uuid)) AS m(id)
+ON CONFLICT DO NOTHING;

@@ -109,6 +109,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '个人中心' },
       },
       {
+        // 外观设置（配色方案 × 明暗模式）：纯前端 localStorage 持久化，无后端接口。
+        // 权限点 system:preference:view 已种到 sys_menu 并授予全部现有角色，
+        // 便于后续按角色收回（菜单本身 is_visible=false，不进侧栏）。
+        path: 'user/preference',
+        name: 'UserPreference',
+        component: () => import('@/views/user/preference.vue'),
+        meta: { title: '外观设置', permission: 'system:preference:view' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

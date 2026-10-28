@@ -402,7 +402,7 @@ const loginTrendOption = computed<EChartsCoreOption>(() => {
       smooth: true,
       showSymbol: false,
       data: line.data,
-      itemStyle: { color: index === 0 ? '#6f8ab8' : '#c17b7e' },
+      // 不写死颜色：由 EChart 组件注入当前配色方案的图表色（切换配色时自动重绘）
       areaStyle: index === 0 ? { opacity: 0.15 } : undefined,
     })),
   };
@@ -429,7 +429,6 @@ const latencyTrendOption = computed<EChartsCoreOption>(() => {
       // 无样本日为 null，断开连线而不是补 0 造成「假趋势」
       connectNulls: false,
       data: line.data,
-      itemStyle: { color: '#c1ac7b' },
       areaStyle: { opacity: 0.12 },
     })),
   };

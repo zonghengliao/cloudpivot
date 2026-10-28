@@ -40,6 +40,8 @@
           </t-breadcrumb-item>
         </t-breadcrumb>
 
+        <palette-switch />
+
         <t-tooltip :content="setting.themeMode === 'dark' ? '切换亮色主题' : '切换暗色主题'">
           <t-button
             class="basic-layout__theme-toggle"
@@ -76,6 +78,7 @@ import { computed, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
+import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
 import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
@@ -83,6 +86,7 @@ import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
 /** 用户下拉菜单项 */
 const userActions: DropdownOption[] = [
   { content: '个人中心', value: 'profile' },
+  { content: '外观设置', value: 'preference' },
   { content: '退出登录', value: 'logout' },
 ];
 
@@ -161,6 +165,10 @@ function onMenuChange(value: unknown): void {
 function onUserAction(item: DropdownOption): void {
   if (item.value === 'profile') {
     void router.push('/user/profile');
+    return;
+  }
+  if (item.value === 'preference') {
+    void router.push('/user/preference');
     return;
   }
   if (item.value === 'logout') {

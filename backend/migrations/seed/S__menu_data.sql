@@ -143,7 +143,14 @@ FROM (VALUES
     ('10000000-0000-0000-0000-000000000050'::uuid, '工作台', 2, 'support:dashboard:list',
      '/dashboard', NULL::uuid, 'dashboard/index', 5, 1, 'dashboard', '工作台', FALSE, 'support'),
     ('10000000-0000-0000-0000-000000000051'::uuid, '工作台概览', 3, 'support:dashboard:list',
-     NULL, '10000000-0000-0000-0000-000000000050'::uuid, NULL, 10, 1, NULL, NULL, TRUE, 'support')
+     NULL, '10000000-0000-0000-0000-000000000050'::uuid, NULL, 10, 1, NULL, NULL, TRUE, 'support'),
+
+    -- ---------- 用户 / 外观设置（个人偏好页：隐藏项，仅作权限点载体） ----------
+    -- 配色方案 × 明暗模式的选择结果存在前端 localStorage，无后端接口，故这里只种
+    -- 权限点本身：前端 router meta.permission = 'system:preference:view'。
+    -- is_visible = FALSE → 不进侧栏，入口在顶栏配色按钮与用户下拉菜单。
+    ('10000000-0000-0000-0000-000000000052'::uuid, '外观设置', 2, 'system:preference:view',
+     '/user/preference', NULL::uuid, 'user/preference', 95, 1, 'palette', '外观设置', FALSE, 'system')
 ) AS v(id, name, menu_type, auth_code, path, parent_id, component,
        sort_order, status, icon, title, is_visible, module_code)
 ON CONFLICT (id) DO UPDATE SET
