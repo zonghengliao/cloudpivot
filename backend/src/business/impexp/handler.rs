@@ -715,32 +715,44 @@ pub async fn import_confirm(
 ///
 /// # 参数
 ///
+/// - `claims`：当前用户（解析数据范围与脱敏规则）；
 /// - `query`：`biz_type` + 业务过滤条件。
 ///
 /// # 返回值
 ///
-/// xlsx 文件流。
+/// xlsx 文件流（敏感列已按当前用户的生效规则脱敏）。
 ///
 /// # 异常情况
 ///
+/// - 401 + `20005`：令牌缺少用户标识（无法判定脱敏规则，拒绝导出）；
 /// - 404 + `60011`：定义未注册；
 /// - 409 + `60015`：命中行数超过同步上限（异步导出属 A4）；
-/// - 422：命中 0 行（E-EXP-10）。
+/// - 422：命中 0 行（E-EXP-10）；422 + `61008`：敏感列没有生效规则（fail-closed）。
 #[alun::permission(
     path = "/business/impexp/export/sync",
     method = "GET",
     permission = "business:impexp:export:create"
 )]
 #[alun::get("/business/impexp/export/sync")]
-pub async fn export_sync(Query(query): Query<ExportSyncQuery>) -> Response {
-    match export_sync_response(&query).await {
+pub async fn export_sync(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<ExportSyncQuery>,
+) -> Response {
+    match export_sync_response(&query, &claims).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
 }
 
 /// 同步导出响应构造。
-async fn export_sync_response(query: &ExportSyncQuery) -> std::result::Result<Response, ApiError> {
+///
+/// 批次 B · B6：导出必须与列表同口径——先解析**发起人**的数据范围与脱敏规则，
+/// 取数走 `count_scoped` / `fetch_scoped`，出参走
+/// [`crate::business::impexp::engine::format_export_rows`] 的脱敏分支。
+async fn export_sync_response(
+    query: &ExportSyncQuery,
+    claims: &TokenClaims,
+) -> std::result::Result<Response, ApiError> {
     let definition = global_registry()
         .export_definition(query.biz_type.trim())
         .ok_or_else(|| def_not_found(&query.biz_type))?;
@@ -748,8 +760,14 @@ async fn export_sync_response(query: &ExportSyncQuery) -> std::result::Result<Re
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
         status: query.status,
     };
+    // 批次 B · B6：数据范围 + 脱敏规则都必须来自**发起人**。令牌里没有用户标识时
+    // 直接拒绝导出——无法判定脱敏规则就等于无法保证不出明文（fail-closed）。
+    let principal = principal::resolve_for_claims(claims).await?;
+    let mask = crate::business::masking::resolve(Some(&principal), Some(claims))
+        .await
+        .map_err(|error| utils::db_error(error, "解析当前用户脱敏规则"))?;
     let total = definition
-        .count(&filter)
+        .count_scoped(&filter, Some(&principal))
         .await
         .map_err(|error| utils::db_error(error, "统计导出行数"))?;
     if total == 0 {
@@ -777,7 +795,7 @@ async fn export_sync_response(query: &ExportSyncQuery) -> std::result::Result<Re
     let mut after_id: Option<String> = None;
     loop {
         let page = definition
-            .fetch(&filter, after_id.as_deref(), PAGE)
+            .fetch_scoped(&filter, after_id.as_deref(), PAGE, Some(&principal))
             .await
             .map_err(|error| utils::db_error(error, "查询导出数据"))?;
         if page.is_empty() {
@@ -809,8 +827,16 @@ async fn export_sync_response(query: &ExportSyncQuery) -> std::result::Result<Re
         .iter()
         .map(|column| column.header)
         .collect::<Vec<_>>();
-    let formatted =
-        crate::business::impexp::engine::format_export_rows(definition.columns(), &rows, &dicts);
+    let formatted = crate::business::impexp::engine::format_export_rows(
+        definition.columns(),
+        &rows,
+        &dicts,
+        &mask,
+    )
+    .map_err(|error| {
+        // 脱敏失败 → 拒绝导出（422），绝不返回明文文件
+        ApiError::new(error.http_status(), error.error_code(), error.message())
+    })?;
     let bytes = crate::business::impexp::engine::write_sheet(&headers, &formatted)?;
     Ok(xlsx_response(
         bytes,
@@ -1067,8 +1093,11 @@ pub async fn export_create(
         keyword: utils::trimmed(req.keyword.as_deref()).map(str::to_string),
         status: req.status,
     };
+    // 批次 B · B6：建任务时的「命中行数」也必须按**发起人的数据范围**统计（复用上面
+    // B5 解析好的 `principal`），否则会出现「列表只看得到 5 个人、导出任务却报 5000 行、
+    // 产物却是 5 行」的口径错位（更糟的是：不过滤范围时，这个行数本身就是一次越权侦察）。
     let total = definition
-        .count(&filter)
+        .count_scoped(&filter, Some(&principal))
         .await
         .map_err(|error| utils::db_error(error, "统计导出行数"))?;
     if total <= 0 {

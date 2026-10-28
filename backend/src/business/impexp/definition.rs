@@ -626,7 +626,14 @@ pub struct ExportColumn {
     pub kind: ColumnKind,
     /// 列宽提示。
     pub width: Option<u16>,
-    /// 是否敏感字段（导出脱敏由 A4/A7 的权限与 Mask 能力接管；此处仅标记）。
+    /// **该列所属的表名**（批次 B · B6 新增）。
+    ///
+    /// 列级脱敏按 `(表, 列)` 查 `sys_field_mask`：没有表名就无法回答
+    /// 「这一列该套哪条规则」（`real_name` 在 `sys_user` 是姓名，在别的表可能是别的语义）。
+    /// 架构 §3.7 把它列为导出脱敏的前置硬约束，所以这里是**必填**而不是 `Option`——
+    /// 漏填直接编译不过。
+    pub table: &'static str,
+    /// 是否敏感字段（`true` 时导出必须脱敏；没有生效规则 → 422 fail-closed）。
     pub sensitive: bool,
 }
 
@@ -823,6 +830,47 @@ pub trait ExportDefinition: Send + Sync {
         after_id: Option<&str>,
         limit: u32,
     ) -> std::result::Result<Vec<(String, HashMap<&'static str, String>)>, DbError>;
+
+    // ---------- 带数据权限的入口（批次 B · B6 新增，默认实现向下兼容） ----------
+    //
+    // 导出的取数必须与列表同口径（否则「列表只看得到本部门 5 个人，导出却拿到全公司」），
+    // 而原始签名里没有「谁在导」这个信息。这里以**新增带默认实现的方法**扩展，而不是
+    // 改 `count` / `fetch` 的签名：已注册的定义（`system.dict_item`）不需要改动就能继续工作，
+    // 需要按范围取数的定义（`system.user`）覆盖这两个方法即可。
+
+    /// 带数据权限的命中行数；默认忽略 `principal`，等价 [`Self::count`]。
+    ///
+    /// # 参数
+    ///
+    /// - `filter`：业务过滤条件；
+    /// - `principal`：导出发起人的数据范围（`None` = 无法确认发起人）。
+    async fn count_scoped(
+        &self,
+        filter: &ExportFilter,
+        principal: Option<&crate::business::shared::principal::ScopedPrincipal>,
+    ) -> std::result::Result<i64, DbError> {
+        let _ = principal;
+        self.count(filter).await
+    }
+
+    /// 带数据权限的取数；默认忽略 `principal`，等价 [`Self::fetch`]。
+    ///
+    /// # 参数
+    ///
+    /// - `filter`：业务过滤条件；
+    /// - `after_id`：上一页最后一条主键（keyset 分页）；
+    /// - `limit`：本页行数上限；
+    /// - `principal`：导出发起人的数据范围。
+    async fn fetch_scoped(
+        &self,
+        filter: &ExportFilter,
+        after_id: Option<&str>,
+        limit: u32,
+        principal: Option<&crate::business::shared::principal::ScopedPrincipal>,
+    ) -> std::result::Result<Vec<(String, HashMap<&'static str, String>)>, DbError> {
+        let _ = principal;
+        self.fetch(filter, after_id, limit).await
+    }
 }
 
 #[cfg(test)]

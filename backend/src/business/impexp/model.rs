@@ -1175,6 +1175,7 @@ pub async fn finish_export_success(
     file_name: &str,
     file_size: i64,
     file_sha256: &str,
+    mask_applied: bool,
     ttl_seconds: i64,
 ) -> std::result::Result<(), DbError> {
     // 过期时刻在应用侧算好再作为 timestamptz 绑定：
@@ -1184,7 +1185,7 @@ pub async fn finish_export_success(
     db().execute_with_params(
         "UPDATE sys_export_task \
          SET status = 'SUCCESS', progress = 100, file_path = ?, file_name = ?, file_size = ?, \
-             file_sha256 = ?, expire_at = ?, \
+             file_sha256 = ?, expire_at = ?, mask_applied = ?, \
              locked_by = NULL, heartbeat_at = NULL, message = NULL, \
              finished_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
          WHERE id = ?::uuid AND status = 'RUNNING'",
@@ -1194,6 +1195,7 @@ pub async fn finish_export_success(
             Value::from(file_size),
             Value::from(file_sha256),
             Value::from(expire_at),
+            Value::Bool(mask_applied),
             Value::from(*id),
         ],
     )

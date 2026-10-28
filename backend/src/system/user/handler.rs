@@ -114,6 +114,15 @@ pub async fn page(
             item.roles = roles.clone();
         }
     }
+    // 列级脱敏（批次 B · B6）：DTO 出参前脱敏（架构 §3.3 的 D6）。
+    // 规则按「角色 ∪ 全局」解析（§3.5：数据范围不参与脱敏判定），超管 / 明版权限
+    // 持有者拿到的是豁免集合，`mask` 为 no-op。
+    let mask = crate::business::masking::resolve(Some(&principal), Some(&claims))
+        .await
+        .map_err(|error| utils::db_error(error, "解析列级脱敏规则"))?;
+    for item in &mut list {
+        crate::business::masking::Maskable::mask(item, &mask);
+    }
     Ok(Res::page(
         list,
         page_data.total,
@@ -143,7 +152,10 @@ pub async fn page(
     permission = "system:user:list"
 )]
 #[alun::get("/system/user/{id}")]
-pub async fn detail(Path(id): Path<String>) -> ResResult<UserDetailRes> {
+pub async fn detail(
+    Path(id): Path<String>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<UserDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let user = load_user(&id).await?;
     let dept_name = dept_name_of(user.dept_id).await?;
@@ -152,6 +164,21 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<UserDetailRes> {
     if let Some(roles) = role_map.get(&id) {
         res.roles = roles.clone();
     }
+    // 列级脱敏（批次 B · B6）：详情与列表必须同口径，否则「列表打码、详情明文」就是绕过
+    let user_id = utils::current_user_uuid(&claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "当前令牌缺少用户标识，无法解析脱敏规则",
+        )
+    })?;
+    let principal = principal::resolve(&user_id)
+        .await
+        .map_err(|error| utils::db_error(error, "解析当前用户数据范围"))?;
+    let mask = crate::business::masking::resolve(Some(&principal), Some(&claims))
+        .await
+        .map_err(|error| utils::db_error(error, "解析列级脱敏规则"))?;
+    crate::business::masking::Maskable::mask(&mut res, &mask);
     Ok(Res::ok(res))
 }
 

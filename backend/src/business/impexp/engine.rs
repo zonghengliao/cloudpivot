@@ -26,6 +26,8 @@ use alun::prelude::*;
 use calamine::{Data, Reader, Xlsx};
 
 use crate::business::impexp::definition::{DictTranslation, ExportColumn, ImportColumn};
+use crate::business::masking::masker::MaskError;
+use crate::business::masking::registry::MaskSet;
 use crate::shared::error_code;
 
 /// xlsx 文件头（zip 容器魔数 `PK\x03\x04`）。
@@ -394,22 +396,33 @@ fn export_headers(columns: &'static [ExportColumn]) -> Vec<&'static str> {
     columns.iter().map(|column| column.header).collect()
 }
 
-/// 按导出列定义格式化数据行（枚举 / 字典翻译、布尔转是/否、日期去时间）。
+/// 按导出列定义格式化数据行（枚举 / 字典翻译、布尔转是/否、日期去时间）**并同步脱敏**。
 ///
 /// # 参数
 ///
 /// - `columns`：导出列定义。
 /// - `rows`：库中值（键为列 `key`）。
 /// - `dicts`：字典翻译表（键为字典编码）。
+/// - `mask`：本次导出请求者的脱敏规则集合（由 handler / worker 解析后传入）。
 ///
 /// # 返回值
 ///
 /// 表头为中文列名的行集合，可直接交给 `Export::to_xlsx_bytes`。
+///
+/// # 异常情况
+///
+/// - `sensitive: true` 的列**没有生效规则** → [`MaskError::MissingRule`]（422 + 61008）；
+/// - 规则参数不合法 → 对应的 [`MaskError`]。
+///
+/// 这是**刻意的 fail-closed**（架构 §3.4 闸 3）：宁可让导出失败，也不要出一份明文
+/// Excel 流到微信群里。函数签名里带 `mask` 参数同样是刻意的——它会让所有调用点
+/// 在编译期就暴露出来，漏改一条路径是不可能的。
 pub fn format_export_rows(
     columns: &'static [ExportColumn],
     rows: &[HashMap<&'static str, String>],
     dicts: &HashMap<String, DictTranslation>,
-) -> Vec<HashMap<String, String>> {
+    mask: &MaskSet,
+) -> std::result::Result<Vec<HashMap<String, String>>, MaskError> {
     rows.iter()
         .map(|row| {
             let mut formatted = HashMap::with_capacity(columns.len());
@@ -419,9 +432,27 @@ pub fn format_export_rows(
                     crate::business::impexp::definition::ColumnKind::Dict(code) => dicts.get(code),
                     _ => None,
                 };
-                formatted.insert(column.header.to_string(), column.kind.format(stored, dict));
+                let value = column.kind.format(stored, dict);
+                // 豁免（超管 / 持 `system:field-mask:plain`）→ 不看规则、不脱敏，直接出明文。
+                // 这是架构 §3.6 的口径，不是 fail-closed 的例外：豁免本身就是「允许明文」，
+                // 且明版权限持有者的访问已由 `registry::audit_plain_read` 留痕。
+                let value = if column.sensitive && !mask.is_exempt() {
+                    match mask.mask_value(column.table, column.key, &value) {
+                        Ok(Some(masked)) => masked,
+                        Ok(None) => {
+                            return Err(MaskError::MissingRule {
+                                table: column.table.to_string(),
+                                column: column.key.to_string(),
+                            });
+                        }
+                        Err(error) => return Err(error),
+                    }
+                } else {
+                    value
+                };
+                formatted.insert(column.header.to_string(), value);
             }
-            formatted
+            Ok(formatted)
         })
         .collect()
 }
@@ -681,12 +712,76 @@ mod tests {
                 code: "1",
             }]),
             width: None,
+            table: "sys_dict_item",
             sensitive: false,
         }];
         let mut row = HashMap::new();
         row.insert("status", "1".to_string());
-        let formatted = format_export_rows(EXPORT_COLUMNS, &[row], &HashMap::new());
+        let formatted =
+            format_export_rows(EXPORT_COLUMNS, &[row], &HashMap::new(), &MaskSet::empty())
+                .expect("非敏感列不需要脱敏规则");
         assert_eq!(formatted[0].get("状态").map(String::as_str), Some("启用"));
         assert_eq!(export_headers(EXPORT_COLUMNS), vec!["状态"]);
+    }
+
+    /// 导出脱敏的两条性质：敏感列被脱敏；没有规则时 **fail-closed**（不返回明文）。
+    #[test]
+    fn export_rows_mask_sensitive_columns_and_fail_closed() {
+        static COLUMNS: &[ExportColumn] = &[
+            ExportColumn {
+                key: "username",
+                header: "用户名",
+                kind: ColumnKind::Text { max_len: None },
+                width: None,
+                table: "sys_user",
+                sensitive: false,
+            },
+            ExportColumn {
+                key: "mobile",
+                header: "手机号",
+                kind: ColumnKind::Text { max_len: None },
+                width: None,
+                table: "sys_user",
+                sensitive: true,
+            },
+        ];
+        let mut row = HashMap::new();
+        row.insert("username", "alice".to_string());
+        row.insert("mobile", "13812345678".to_string());
+
+        // ① 有规则 → 单元格被打码，非敏感列不动
+        let mask = crate::business::masking::registry::single_rule_set(
+            "sys_user",
+            "mobile",
+            crate::business::masking::masker::MaskType::Mobile,
+            None,
+        );
+        let masked = format_export_rows(COLUMNS, &[row.clone()], &HashMap::new(), &mask)
+            .expect("有规则应成功");
+        assert_eq!(masked[0].get("用户名").map(String::as_str), Some("alice"));
+        assert_eq!(
+            masked[0].get("手机号").map(String::as_str),
+            Some("138****5678")
+        );
+
+        // ② 没有规则 → 明确报错（61008），绝不返回明文
+        let error = format_export_rows(COLUMNS, &[row.clone()], &HashMap::new(), &MaskSet::empty())
+            .expect_err("敏感列没有规则必须失败");
+        assert_eq!(error.error_code(), error_code::FIELD_MASK_RULE_MISSING);
+        assert_eq!(error.http_status(), 422);
+        assert!(
+            error.message().contains("sys_user.mobile"),
+            "{}",
+            error.message()
+        );
+
+        // ③ 豁免（超管 / 明版权限）→ 明文，且**不**触发 fail-closed（架构 §3.6）
+        let exempt = crate::business::masking::registry::resolve_super();
+        let plain = format_export_rows(COLUMNS, &[row], &HashMap::new(), &exempt)
+            .expect("豁免用户导出不应 fail-closed");
+        assert_eq!(
+            plain[0].get("手机号").map(String::as_str),
+            Some("13812345678")
+        );
     }
 }

@@ -135,6 +135,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "字典编码",
         kind: ColumnKind::Text { max_len: None },
         width: Some(18),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -142,6 +143,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "字典项值",
         kind: ColumnKind::Text { max_len: None },
         width: Some(14),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -149,6 +151,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "字典项名称",
         kind: ColumnKind::Text { max_len: None },
         width: Some(16),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -156,6 +159,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "描述",
         kind: ColumnKind::Text { max_len: None },
         width: Some(28),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -166,6 +170,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
             max: None,
         },
         width: Some(8),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -173,6 +178,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "是否默认",
         kind: ColumnKind::Bool,
         width: Some(10),
+        table: "sys_dict_item",
         sensitive: false,
     },
     ExportColumn {
@@ -180,6 +186,7 @@ static EXPORT_COLUMNS: &[ExportColumn] = &[
         header: "状态",
         kind: ColumnKind::Enum(STATUS_ITEMS),
         width: Some(10),
+        table: "sys_dict_item",
         sensitive: false,
     },
 ];

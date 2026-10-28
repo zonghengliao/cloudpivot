@@ -51,6 +51,7 @@ use crate::business::impexp::engine;
 use crate::business::impexp::model::{self, ExportTask};
 use crate::business::impexp::registry::global_registry;
 use crate::business::impexp::validate::global_dicts;
+use crate::business::shared::principal;
 use crate::task::Scheduler;
 
 /// 调度任务名（同时用作调度名与日志标识）。
@@ -420,6 +421,8 @@ struct ExportArtifact {
     bytes: i64,
     /// 文件 SHA-256。
     sha256: String,
+    /// 本次产物是否已应用列级脱敏（写入 `sys_export_task.mask_applied`，供审计）。
+    mask_applied: bool,
 }
 
 /// 执行一条已认领的任务（内部函数：失败路径也在里面落库）。
@@ -438,6 +441,7 @@ async fn export_one(task: &ExportTask, options: &WorkerOptions) -> Outcome {
                 &file_name,
                 artifact.bytes,
                 &artifact.sha256,
+                artifact.mask_applied,
                 options.ttl_seconds,
             )
             .await
@@ -519,8 +523,21 @@ async fn do_export(
         })?;
 
     let filter = filter_from_params(task.query_params.as_deref());
+    // 批次 B · B6（架构 §3.7 第 3 条）：异步导出的身份来自 `sys_export_task.create_by`，
+    // 并且**每次执行都重新解析**规则——任务可能跑 10 分钟，期间管理员可能收紧了规则；
+    // 用当前规则宁可在任务完成前改变结果，也不要出一份「按旧规则」的明文文件。
+    let principal = match task.create_by {
+        Some(user_id) => Some(principal::resolve(&user_id).await.map_err(|error| {
+            ExportFailure::Retryable(format!("解析发起人数据范围失败: {error}"))
+        })?),
+        None => None,
+    };
+    let mask = crate::business::masking::resolve(principal.as_ref(), None)
+        .await
+        .map_err(|error| ExportFailure::Retryable(format!("解析脱敏规则失败: {error}")))?;
+    let mask_applied = !mask.is_exempt();
     let total = definition
-        .count(&filter)
+        .count_scoped(&filter, principal.as_ref())
         .await
         .map_err(|error| ExportFailure::Retryable(format!("统计导出行数失败: {error}")))?;
     if total <= 0 {
@@ -560,7 +577,12 @@ async fn do_export(
         }
         let started = std::time::Instant::now();
         let page = definition
-            .fetch(&filter, after_id.as_deref(), options.batch_size as u32)
+            .fetch_scoped(
+                &filter,
+                after_id.as_deref(),
+                options.batch_size as u32,
+                principal.as_ref(),
+            )
             .await
             .map_err(|error| ExportFailure::Retryable(format!("分块取数失败: {error}")))?;
         if page.is_empty() {
@@ -604,7 +626,12 @@ async fn do_export(
         .iter()
         .map(|column| column.header)
         .collect::<Vec<_>>();
-    let formatted = engine::format_export_rows(definition.columns(), &rows, &dicts);
+    let formatted = engine::format_export_rows(definition.columns(), &rows, &dicts, &mask)
+        .map_err(|error| {
+            // 脱敏失败 → 终止任务（Terminal）。重试没有意义（规则不会自己变好），
+            // 而且**绝不允许**退回明文产物。
+            ExportFailure::Terminal(error.message())
+        })?;
     let format = task.format.to_ascii_uppercase();
     let bytes = match format.as_str() {
         "CSV" => build_csv(&headers, &formatted),
@@ -630,6 +657,7 @@ async fn do_export(
         path,
         bytes: size,
         sha256,
+        mask_applied,
     })
 }
 

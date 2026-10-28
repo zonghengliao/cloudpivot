@@ -13,6 +13,7 @@
 //! | [`shared`] | 数据权限基座（批次 B · B2）：`ScopedPrincipal` / `scope::paginate` / epoch 缓存 |
 
 pub mod impexp;
+pub mod masking;
 pub mod monitor;
 pub mod notice;
 pub mod permission;

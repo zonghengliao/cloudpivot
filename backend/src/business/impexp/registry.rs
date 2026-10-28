@@ -175,6 +175,14 @@ pub fn global_registry() -> &'static DefinitionRegistry {
         if let Err(error) = crate::business::impexp::builtin::register(&mut registry) {
             panic!("内置导入导出定义注册失败：{error}");
         }
+        // 批次 B · B6：`sys_user` 导出定义（三个敏感列）。注册在 `masking/` 而不是
+        // `builtin/`，因为它是「导出脱敏」的验证载体，属于 B6 的交付面；
+        // 脱敏本身在 `engine::format_export_rows` 里统一处理，与定义放哪无关。
+        if let Err(error) = registry.register_export(std::sync::Arc::new(
+            crate::business::masking::user_export::UserExport,
+        )) {
+            panic!("用户导出定义注册失败：{error}");
+        }
         registry
     })
 }
