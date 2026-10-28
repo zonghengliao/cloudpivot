@@ -231,6 +231,8 @@ impl Scheduler {
         }
         // 业务侧内置任务：注册点必须在这里（与日志清理同批），不能挪到 bootstrap.rs
         crate::business::storage::cleanup::register_builtin(self);
+        // 过期通知清理（A5）：同样必须在此注册，放在 bootstrap.rs 会被随后的 reload 清空
+        crate::business::notice::cleanup::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

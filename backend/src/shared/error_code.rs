@@ -227,3 +227,41 @@ pub const EXPORT_EXPIRED: i32 = 60016;
 
 /// 导入文件格式不合法（魔数不符 / 无法解析 / 只有表头 / 表头缺必需列，HTTP 400 或 422）。
 pub const IMPORT_FILE_INVALID: i32 = 60020;
+
+// ==================== 6002x：消息通知（A5） ====================
+//
+// 命名与语义对应 `docs/批次A-技术架构.md` §4（消息通知）；渲染类错误码的
+// HTTP 状态统一 422（「请求语法没问题，但内容不可用」），与前端错误提示约定一致。
+
+/// 通知不存在或已删除（HTTP 404）。
+pub const NOTICE_NOT_FOUND: i32 = 60021;
+
+/// 通知模板不存在或已停用（HTTP 404）。
+pub const NOTICE_TEMPLATE_NOT_FOUND: i32 = 60022;
+
+/// 模板变量缺失（未提供或值为 `null`，HTTP 422）。
+pub const NOTICE_TEMPLATE_VAR_MISSING: i32 = 60023;
+
+/// 模板语法错误 / 占位符未在 `variables` 中声明（HTTP 422）。
+pub const NOTICE_TEMPLATE_SYNTAX: i32 = 60024;
+
+/// 渲染后标题超 255 字符 / 正文超 64 KiB（HTTP 422）。
+pub const NOTICE_TEMPLATE_TOO_LONG: i32 = 60025;
+
+/// 发送目标非法（`target_ids` 为空或类型未知，HTTP 400）。
+pub const NOTICE_TARGET_INVALID: i32 = 60026;
+
+/// 单条通知接收人超过 5 万上限（HTTP 422）。
+pub const NOTICE_RECEIVER_LIMIT: i32 = 60027;
+
+/// 模板已被通知引用，不允许删除（HTTP 409）。
+pub const NOTICE_TEMPLATE_IN_USE: i32 = 60028;
+
+/// 模板编码重复（HTTP 409）。
+pub const NOTICE_TEMPLATE_DUPLICATE: i32 = 60029;
+
+/// 接收行不存在 / 不属于当前用户 / 已读或已删除（HTTP 404）。
+pub const NOTICE_RECEIVER_NOT_FOUND: i32 = 60030;
+
+/// 幂等键已存在但读不到对应通知（并发下的极端情况，HTTP 409）。
+pub const NOTICE_DUPLICATE_KEY: i32 = 60031;
