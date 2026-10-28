@@ -2,7 +2,7 @@
 
 > 卡号：`t_45238f21`（【批次A修复】6项遗留）
 > 代码分支：`fix/batch-a-legacy`（worktree `/var/tmp/fixA`，基线 `9a412ff`）
-> 最终 HEAD：`1cc7946`（本文件提交后再追加一笔 docs 提交）
+> 最终 HEAD：`ea7472f`（6 个功能提交 + 2 个证据 docs 提交，HEAD == origin/main）
 > 验收环境：`172.18.10.144`，验收实例 `127.0.0.1:8027`，`profile=test`，库 `cloudpivot_test`
 > 二进制指纹：`sha256 da3fd04cc83c0ac327b979ab4c25f83b52eb6a982afe21bbb874668e59053fa2`（size 289,968,928）
 > 生产未动：prod（`8023` / systemd）与服务源码副本 `/opt/cloudpivot` 均未重启/未合并，等 laoliu 统一部署。
