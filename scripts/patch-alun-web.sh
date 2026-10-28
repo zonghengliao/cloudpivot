@@ -9,6 +9,10 @@
 #   CODE-09  alun-web-0.4.2/src/middleware/permission_check.rs:139
 #           「第一条命中」的规则匹配没有静态段优先级，且免认证路径也走权限规则，
 #           导致 `GET /api/support/config/public` 被 `GET /support/config/{id}` 规则拦成 403。
+#   CODE-09b 装配期「规则遮蔽自检」把 `xxx/page`（静态）与 `xxx/{id}`（模板）这种**兄弟
+#           路由**全报成冲突（startup 实测刷 22 条 WARN，全是正常 REST 写法）。静态优先
+#           打分已保证静态段胜出，兄弟路由不可能互相遮蔽；真正的缺陷是「同一路径模式被
+#           声明了不同权限」（结果取决于注册顺序）。09b 把自检收敛到后者。
 #
 # 本脚本对 registry 源码做**幂等**文本补丁（带 `cloudpivot-patch` 标记，可重复执行）。
 # 注意：`cargo update` / `cargo clean` / 换 CARGO_HOME 会重新解包 crate，届时需重跑本脚本；
@@ -53,6 +57,14 @@ def load(path: Path) -> str:
 
 
 def save(path: Path, text: str) -> None:
+    """落盘（`--check` 模式下只报「需要改动」，绝不写文件）。
+
+    修复点：原实现在 `--check` 时也照样写盘 —— 与「检查模式只读」的约定相反，
+    在别的机器上跑 `--check` 会顺手改掉 registry 源码（编译器随后重编）。
+    """
+    if check_only:
+        print(f"  [check] 需要改动但未写入：{path.name}")
+        return
     path.write_bytes(text.encode("utf-8"))
 
 
@@ -161,29 +173,35 @@ new_from_config = """    pub fn from_config(config_rules: &[alun_config::Permiss
         })
     }
 
-    /// [cloudpivot-patch code-09] 规则遮蔽自检：返回「静态段规则被同方法模板规则覆盖」的描述。
+    /// [cloudpivot-patch code-09b] 规则冲突自检：返回「同一路径被声明了不同权限」的描述。
     ///
     /// 装配期调用并 `warn!` 出来，避免同类问题再次静默上线（CI 里可当 error）。
+    ///
+    /// 判定口径（09b 收紧，理由见下）：
+    /// * **兄弟路由不算冲突**：`/x/page`（静态）与 `/x/{id}`（模板）天然会同时匹配到
+    ///   `/x/page`，但匹配器已按「完全相等(0) > 纯静态(1) > 含参数(2)」打分（CODE-09），
+    ///   静态段永远胜出，两者的权限谁更严都不会串味。把这种成对路由都报成冲突，只会在
+    ///   启动日志里刷几十条「请修正规则」的噪音（实测 22 条，全部是正常 REST 写法）。
+    /// * **真正的冲突**是「同一路径模式被两条规则要求了不同权限」：此时最终用哪条权限
+    ///   取决于注册顺序，属确定性缺陷 —— 这正是本自检要抓的东西。
     pub fn detect_conflicts(&self) -> Vec<String> {
         let mut conflicts = Vec::new();
-        for static_rule in self.rules.iter().filter(|r| !r.path.contains('{')) {
-            for param_rule in self.rules.iter().filter(|r| r.path.contains('{')) {
-                if static_rule.path == param_rule.path {
+        for (index, left) in self.rules.iter().enumerate() {
+            for right in self.rules.iter().skip(index + 1) {
+                if left.permission == right.permission {
                     continue;
                 }
-                let methods_overlap = static_rule.methods.is_empty()
-                    || param_rule.methods.is_empty()
-                    || static_rule
+                let methods_overlap = left.methods.is_empty()
+                    || right.methods.is_empty()
+                    || left
                         .methods
                         .iter()
-                        .any(|m| param_rule.methods.iter().any(|p| p.eq_ignore_ascii_case(m)));
-                if methods_overlap && match_path(&static_rule.path, &param_rule.path) {
+                        .any(|m| right.methods.iter().any(|p| p.eq_ignore_ascii_case(m)));
+                if methods_overlap && normalized_pattern(&left.path) == normalized_pattern(&right.path)
+                {
                     conflicts.push(format!(
-                        "静态规则 {} ({}) 与模板规则 {} ({}) 同时命中同一请求",
-                        static_rule.path,
-                        static_rule.permission,
-                        param_rule.path,
-                        param_rule.permission
+                        "同一路径被声明了不同权限：{} ({}) 与 {} ({})",
+                        left.path, left.permission, right.path, right.permission
                     ));
                 }
             }
@@ -209,6 +227,97 @@ if "pub fn with_ignore_paths" not in text:
     print("  [ok]   CODE-09 from_config 初始化 ignore_paths + 新增能力方法")
 else:
     print("  [skip] CODE-09 from_config（已打过）")
+
+# ── CODE-09b：冲突自检收敛到「同一路径不同权限」（幂等，版本无关） ──────────
+# 不贴历史文本判重（历史上有原始版 / 中间版 / 最终版，旧标记还是 `cailu-patch`）：
+# 用「方法起点 → 下一个方法文档注释起点」的区间整段替换，天然兼容任意历史形态。
+_perm_text = load(perm_rs)
+FINAL_BODY = """    /// [cloudpivot-patch code-09b] 规则冲突自检：返回「同一路径被声明了不同权限」的描述。
+    ///
+    /// 装配期调用并 `warn!` 出来，避免同类问题再次静默上线（CI 里可当 error）。
+    ///
+    /// 判定口径（09b 收紧，理由见下）：
+    /// * **兄弟路由不算冲突**：`/x/page`（静态）与 `/x/{id}`（模板）天然会同时匹配到
+    ///   `/x/page`，但匹配器已按「完全相等(0) > 纯静态(1) > 含参数(2)」打分（CODE-09），
+    ///   静态段永远胜出，两者权限谁更严都不会串味。把这种成对路由都报成冲突，只会在
+    ///   启动日志里刷几十条「请修正规则」的噪音（实测 22 条，全部是正常 REST 写法）。
+    /// * **真正的冲突**是「同一路径模式被两条规则要求了不同权限」：此时最终用哪条权限
+    ///   取决于注册顺序，属确定性缺陷 —— 这正是本自检要抓的东西。
+    pub fn detect_conflicts(&self) -> Vec<String> {
+        let mut conflicts = Vec::new();
+        for (index, left) in self.rules.iter().enumerate() {
+            for right in self.rules.iter().skip(index + 1) {
+                if left.permission == right.permission {
+                    continue;
+                }
+                let methods_overlap = left.methods.is_empty()
+                    || right.methods.is_empty()
+                    || left
+                        .methods
+                        .iter()
+                        .any(|m| right.methods.iter().any(|p| p.eq_ignore_ascii_case(m)));
+                if methods_overlap
+                    && normalized_pattern(&left.path) == normalized_pattern(&right.path)
+                {
+                    conflicts.push(format!(
+                        "同一路径被声明了不同权限：{} ({}) 与 {} ({})",
+                        left.path, left.permission, right.path, right.permission
+                    ));
+                }
+            }
+        }
+        conflicts
+    }"""
+if "normalized_pattern" in _perm_text:
+    print("  [skip] CODE-09b 冲突自检（已是最终版）")
+else:
+    _key = "pub fn detect_conflicts(&self) -> Vec<String> {"
+    _next_marker = "/// 合并 `#[permission]` 宏注解的编译期规则"
+    _at = _perm_text.find(_key)
+    _next = _perm_text.find(_next_marker, _at) if _at >= 0 else -1
+    if _at < 0 or _next < 0:
+        print("  [FAIL] CODE-09b detect_conflicts 定位失败", file=sys.stderr)
+        raise SystemExit(3)
+    # 按行操作：从方法行向上吃掉连续的 `///` 文档注释，向下到下一个方法的文档注释
+    _lines = _perm_text.split("\n")
+    _method_line = next(i for i, line in enumerate(_lines) if _key in line)
+    _doc_start_line = _method_line
+    while _doc_start_line > 0 and _lines[_doc_start_line - 1].strip().startswith("///"):
+        _doc_start_line -= 1
+    _end_line = next(
+        i
+        for i, line in enumerate(_lines)
+        if _next_marker in line and i > _method_line
+    )
+    _new_lines = _lines[:_doc_start_line] + FINAL_BODY.split("\n") + [""] + _lines[_end_line:]
+    _perm_text = "\n".join(_new_lines)
+    if "fn normalized_pattern" not in _perm_text:
+        _anchor = "/// 路径级权限校验中间件（配置 + 宏注解联合校验）"
+        _helper = """/// 把路径里的参数段归一化成 `{}`（`/x/{id}` 与 `/x/{uuid}` 视为同一模式）。
+///
+/// [cloudpivot-patch code-09b] 冲突自检要比较的是「路径模式是否相同」，
+/// 参数名不同（`{id}` / `{uuid}`）的同一模式同样会互相遮蔽，必须视为同一路径。
+fn normalized_pattern(path: &str) -> String {
+    path.trim_matches('/')
+        .split('/')
+        .map(|seg| {
+            if seg.starts_with('{') && seg.ends_with('}') {
+                "{}"
+            } else {
+                seg
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// 路径级权限校验中间件（配置 + 宏注解联合校验）"""
+        if _anchor not in _perm_text:
+            print("  [FAIL] CODE-09b normalized_pattern 锚点未命中", file=sys.stderr)
+            raise SystemExit(3)
+        _perm_text = _perm_text.replace(_anchor, _helper, 1)
+    save(perm_rs, _perm_text)
+    print("  [ok]   CODE-09b 冲突自检升级为「同一路径不同权限」")
 
 # ── CODE-09 ②：Service 传递 ignore_paths ──────────────────────────────────────
 # 判重按「补丁代码是否已在位」，不按 marker 字面（marker 前缀随项目改名变过，
@@ -364,16 +473,19 @@ if "with_ignore_paths" not in final_app or "detect_conflicts" not in final_app:
     problems.append("app.rs 缺少 CODE-09 装配")
 if "pub fn with_ignore_paths" not in final_perm or "let mut best:" not in final_perm:
     problems.append("permission_check.rs 缺少 CODE-09 补丁")
+if "normalized_pattern" not in final_perm:
+    problems.append("permission_check.rs 缺少 CODE-09b（冲突自检归一化路径）")
+
 
 if problems:
     print("补丁校验失败：" + "；".join(problems), file=sys.stderr)
     raise SystemExit(4)
 
-print("PATCH-STATE: OK（CODE-07 + CODE-09 补丁齐全）")
+print("PATCH-STATE: OK（CODE-07 + CODE-09 + CODE-09b 补丁齐全）")
 PY
 
 if [[ "$CHECK_ONLY" == "1" ]]; then
-    echo "仅检查模式：补丁齐全。"
+    echo "仅检查模式：补丁齐全（--check 不写任何文件）。"
     exit 0
 fi
 
