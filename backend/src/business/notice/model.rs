@@ -103,6 +103,12 @@ pub struct SysNoticeModel {
     pub status: i16,
     /// 过期时间。
     pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 计划发送时间（`None` = 立即发送；V0051）。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 投递状态（`PENDING` 待发 / `SENT` 已投递 / `FAILED` 重试耗尽 / `CANCELED`；V0051）。
+    pub dispatch_status: String,
+    /// 定时投递尝试次数（V0051）。
+    pub dispatch_attempts: i16,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 更新时间。
@@ -240,6 +246,10 @@ pub struct NewNotice<'a> {
     pub idempotency_key: Option<&'a str>,
     /// 过期时间。
     pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 计划发送时间（`None` = 立即发送；V0051）。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 投递状态（立即发送为 `SENT`，定时为 `PENDING`；V0051）。
+    pub dispatch_status: &'a str,
     /// 操作人。
     pub operator: MaybeId,
 }
@@ -279,7 +289,8 @@ pub struct TemplateFields<'a> {
 const NOTICE_COLUMNS: &str = "id, notice_no, notice_type, level, title, content, content_format, \
      link_url, biz_type, biz_id, template_code, sender_id, sender_name, target_type, \
      target_ids::text AS target_ids, channel_mask, receiver_count, read_count, status, \
-     expire_at, created_at, updated_at, deleted_at";
+     expire_at, scheduled_at, dispatch_status, dispatch_attempts, \
+     created_at, updated_at, deleted_at";
 
 /// 模板的 SELECT 列。
 const TEMPLATE_COLUMNS: &str = "id, template_code, template_name, notice_type, default_level, \
@@ -307,11 +318,13 @@ pub async fn insert_notice(ex: &Executor<'_>, new: &NewNotice<'_>) -> DbResult<b
             "INSERT INTO sys_notice (id, notice_no, notice_type, level, title, content, \
              content_format, link_url, biz_type, biz_id, template_code, template_vars, sender_id, \
              sender_name, target_type, target_ids, channel_mask, receiver_count, read_count, \
-             idempotency_key, status, expire_at, create_by, update_by) \
+             idempotency_key, status, expire_at, scheduled_at, dispatch_status, \
+             create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?, ?, ?, NULLIF(?::text, ''), NULLIF(?::text, ''), \
              NULLIF(?::text, ''), NULLIF(?::text, ''), ?::jsonb, \
              NULLIF(?::text, '')::uuid, NULLIF(?::text, ''), ?, ?::jsonb, ?, 0, 0, \
              NULLIF(?::text, ''), 1, NULLIF(?::text, '')::timestamptz, \
+             NULLIF(?::text, '')::timestamptz, ?, \
              NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid) \
              ON CONFLICT (idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING",
             vec![
@@ -340,6 +353,8 @@ pub async fn insert_notice(ex: &Executor<'_>, new: &NewNotice<'_>) -> DbResult<b
                 TypeMapper::to_value(&new.channel_mask),
                 Value::from(new.idempotency_key.unwrap_or("")),
                 Value::from(opt_time_text(new.expire_at)),
+                Value::from(opt_time_text(new.scheduled_at)),
+                Value::from(new.dispatch_status),
                 Value::from(opt_uuid_text(new.operator)),
                 Value::from(opt_uuid_text(new.operator)),
             ],
@@ -372,6 +387,132 @@ pub async fn find_notice_by_idempotency(
     );
     let rows = ex.rows(&sql, vec![Value::from(key)]).await?;
     rows.first().map(map_notice).transpose()
+}
+
+// ==================== 定时发送（V0051） ====================
+
+/// 取一批「到点待发」的通知 ID（巡逻任务用，**不加锁**，真正的抢占在
+/// [`lock_due_notice`] 里做）。
+///
+/// # 参数
+///
+/// - `limit`：单批条数。
+///
+/// # 返回值
+///
+/// 按 `scheduled_at` 升序的 ID（最早的先发）。
+///
+/// # 说明
+///
+/// 只读判定条件与 [`lock_due_notice`] 保持一致（`PENDING` + 已到点 + 未软删），
+/// 命中部分索引 `idx_sys_notice_due`。
+pub async fn find_due_notice_ids(limit: i64) -> DbResult<Vec<uuid::Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM sys_notice \
+             WHERE dispatch_status = 'PENDING' AND scheduled_at IS NOT NULL \
+               AND scheduled_at <= CURRENT_TIMESTAMP AND deleted_at IS NULL \
+             ORDER BY scheduled_at ASC LIMIT ?",
+            vec![Value::from(limit)],
+        )
+        .await?;
+    rows.iter().map(|row| row.get_typed("id")).collect()
+}
+
+/// 在事务内抢占一条到点通知（`FOR UPDATE SKIP LOCKED`，并发巡逻不会重复投递）。
+///
+/// # 参数
+///
+/// - `ex`：执行器（**必须是事务**，否则 `FOR UPDATE` 报错）。
+/// - `id`：通知 ID。
+///
+/// # 返回值
+///
+/// 命中（仍是 `PENDING` 且已到点）返回模型；已被别的实例抢走 / 已被取消 / 未到点
+/// 返回 `None`（调用方直接跳过）。
+pub async fn lock_due_notice(
+    ex: &Executor<'_>,
+    id: &uuid::Uuid,
+) -> DbResult<Option<SysNoticeModel>> {
+    let sql = format!(
+        "SELECT {NOTICE_COLUMNS} FROM sys_notice \
+         WHERE id = ?::uuid AND dispatch_status = 'PENDING' \
+           AND scheduled_at IS NOT NULL AND scheduled_at <= CURRENT_TIMESTAMP \
+           AND deleted_at IS NULL \
+         LIMIT 1 FOR UPDATE SKIP LOCKED"
+    );
+    let rows = ex.rows(&sql, vec![Value::from(*id)]).await?;
+    rows.first().map(map_notice).transpose()
+}
+
+/// 投递完成：`dispatch_status` 置 `SENT`。
+///
+/// # 参数
+///
+/// - `ex`：执行器（与扇出 / 投递同事务）。
+/// - `id`：通知 ID。
+///
+/// # 返回值
+///
+/// 受影响行数（0 表示状态已不是 `PENDING`，说明被并发改过）。
+pub async fn mark_notice_dispatched(ex: &Executor<'_>, id: &uuid::Uuid) -> DbResult<u64> {
+    ex.exec(
+        "UPDATE sys_notice SET dispatch_status = 'SENT', updated_at = CURRENT_TIMESTAMP \
+         WHERE id = ?::uuid AND dispatch_status = 'PENDING'",
+        vec![Value::from(*id)],
+    )
+    .await
+}
+
+/// 记录一次定时投递失败：尝试次数 +1，达到上限置 `FAILED` 不再重试。
+///
+/// # 参数
+///
+/// - `id`：通知 ID。
+/// - `max_attempts`：失败上限（含本次）。
+///
+/// # 返回值
+///
+/// 受影响行数（0 = 行已不是 `PENDING`，无需计入）。
+///
+/// # 说明
+///
+/// 在**失败事务之外**单独执行（失败会回滚事务，计数器必须落得住，否则同一行会被
+/// 每个调度周期重试到天荒地老）。
+pub async fn record_dispatch_failure(id: &uuid::Uuid, max_attempts: i16) -> DbResult<u64> {
+    db().execute_with_params(
+        "UPDATE sys_notice \
+         SET dispatch_attempts = dispatch_attempts + 1, \
+             dispatch_status = CASE WHEN dispatch_attempts + 1 >= ? THEN 'FAILED' \
+                                    ELSE dispatch_status END, \
+             updated_at = CURRENT_TIMESTAMP \
+         WHERE id = ?::uuid AND dispatch_status = 'PENDING'",
+        vec![
+            TypeMapper::to_value(&max_attempts),
+            Value::from(*id),
+        ],
+    )
+    .await
+}
+
+/// 把「到点前被软删」的定时通知标成 `CANCELED`（巡逻任务顺带收尾，幂等）。
+///
+/// # 参数
+///
+/// - `limit`：单批条数。
+///
+/// # 返回值
+///
+/// 本次置位的行数。
+pub async fn cancel_soft_deleted_scheduled(limit: i64) -> DbResult<u64> {
+    db().execute_with_params(
+        "UPDATE sys_notice SET dispatch_status = 'CANCELED', updated_at = CURRENT_TIMESTAMP \
+         WHERE id IN (SELECT id FROM sys_notice \
+                      WHERE dispatch_status = 'PENDING' AND deleted_at IS NOT NULL \
+                      LIMIT ?)",
+        vec![Value::from(limit)],
+    )
+    .await
 }
 
 /// 通知主体分页（管理视角，按创建时间倒序）。
@@ -1092,6 +1233,9 @@ fn map_notice(row: &Row) -> std::result::Result<SysNoticeModel, DbError> {
         read_count: row.get_typed("read_count")?,
         status: row.get_typed("status")?,
         expire_at: row.get_typed("expire_at")?,
+        scheduled_at: row.get_typed("scheduled_at")?,
+        dispatch_status: row.get_typed("dispatch_status")?,
+        dispatch_attempts: row.get_typed("dispatch_attempts")?,
         created_at: row.get_typed("created_at")?,
         updated_at: row.get_typed("updated_at")?,
         deleted_at: row.get_typed("deleted_at")?,

@@ -58,6 +58,7 @@ pub mod fanout;
 pub mod handler;
 pub mod model;
 pub mod render;
+pub mod scheduled;
 pub mod sse_hub;
 
 pub use fanout::NoticeTarget;
@@ -103,6 +104,9 @@ pub struct NoticeDraft {
     pub idempotency_key: Option<String>,
     /// 过期时间（过期后由清理任务硬删）。
     pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 计划发送时间（V0051）：`None` / `<= now` → 立即发送；未来时间 → 建
+    /// `PENDING` 通知，到点由巡逻任务扇出投递（用户侧到点前不可见）。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 发送人 ID（系统触发可空）。
     pub sender_id: Option<uuid::Uuid>,
     /// 发送人名称（展示用，如「工作流引擎」）。
@@ -139,6 +143,7 @@ impl NoticeDraft {
             channel_mask: CHANNEL_INBOX,
             idempotency_key: None,
             expire_at: None,
+            scheduled_at: None,
             sender_id: None,
             sender_name: None,
         }
@@ -168,8 +173,13 @@ pub struct DispatchResult {
     pub receiver_count: i64,
     /// 是否命中幂等键（`true` 表示本次没有新发通知）。
     pub duplicated: bool,
-    /// 各通道结果。
+    /// 各通道结果（定时通知到点前为空：尚未投递）。
     pub channels: Vec<ChannelState>,
+    /// 是否为**定时**发送（`true` 时通知已建但尚未扇出：`receiver_count = 0`，
+    /// 用户侧看不到，直到 `scheduled_at` 到点被巡逻任务投递）。
+    pub scheduled: bool,
+    /// 定点发送时间（`scheduled = false` 时为 `None`）。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// 发送失败原因（渲染 / 校验类走 [`DispatchError::Api`]，数据库类走 [`DispatchError::Db`]）。
@@ -378,6 +388,89 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
         .filter(|key| !key.is_empty())
         .map(str::to_string);
 
+    // ---------- 5.5 定时发送（V0051）：只建任务，不扇出 / 不投递 / 不推送 ----------
+    //
+    // 语义（PRD N3「立即 / 定时」）：
+    // * `scheduled_at` 为空或已过 → 走下面的立即发送链路（秒级可见）；
+    // * 未来时间 → 落一条 `dispatch_status = 'PENDING'` 的通知，**不写**
+    //   `sys_notice_receiver`，因此用户侧「我的通知 / 未读数」到点前天然看不到；
+    //   到点由 [`scheduled`] 巡逻任务扇出 → 投递 → 实时推送，再把状态置 `SENT`。
+    //
+    // 模板渲染 / 目标校验 / 接收人数上限预演都在上面做完了，所以「定时建任务」
+    // 同样不会放过非法参数（不会出现「到点了才发现模板缺变量」）。
+    if let Some(when) = resolve_schedule(draft.scheduled_at)? {
+        let scheduled = model::NewNotice {
+            id: notice_id,
+            notice_no: &notice_no_in,
+            notice_type: notice_type.as_str(),
+            level: level.as_str(),
+            title: &title,
+            content: &content,
+            content_format: format.as_str(),
+            link_url: link_url.as_deref(),
+            biz_type: draft
+                .biz_type
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty()),
+            biz_id: draft
+                .biz_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|v| !v.is_empty()),
+            template_code: template_code.as_deref(),
+            template_vars_json: template_vars_json.clone(),
+            sender_id: draft.sender_id,
+            sender_name: draft.sender_name.as_deref(),
+            target_type,
+            target_ids_json: target_ids_json.clone(),
+            channel_mask: mask as i16,
+            idempotency_key: idempotency_key.as_deref(),
+            expire_at: draft.expire_at,
+            scheduled_at: Some(when),
+            dispatch_status: "PENDING",
+            operator: draft.sender_id,
+        };
+        let reuse_key = idempotency_key.clone().unwrap_or_default();
+        let duplicate = db()
+            .transaction(|tx| async move {
+                let ex = Executor::Tx(&tx);
+                if model::insert_notice(&ex, &scheduled).await? {
+                    return Ok(None::<(uuid::Uuid, String)>);
+                }
+                // 幂等命中：回吐首次任务，不重复建任务
+                let existing = model::find_notice_by_idempotency(&ex, &reuse_key).await?;
+                Ok(existing.map(|notice| (notice.id, notice.notice_no)))
+            })
+            .await
+            .map_err(DispatchError::Db)?;
+        tracing::info!(
+            notice_id = %notice_id,
+            scheduled_at = %when,
+            "定时通知已建立（PENDING，到点由巡逻任务投递）"
+        );
+        return match duplicate {
+            None => Ok(DispatchResult {
+                notice_id,
+                notice_no,
+                receiver_count: 0,
+                duplicated: false,
+                channels: Vec::new(),
+                scheduled: true,
+                scheduled_at: Some(when),
+            }),
+            Some((id, no)) => Ok(DispatchResult {
+                notice_id: id,
+                notice_no: no,
+                receiver_count: 0,
+                duplicated: true,
+                channels: Vec::new(),
+                scheduled: true,
+                scheduled_at: Some(when),
+            }),
+        };
+    }
+
     let outcome = db()
         .transaction(|tx| async move {
             let ex = Executor::Tx(&tx);
@@ -409,6 +502,9 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 channel_mask: mask as i16,
                 idempotency_key: idempotency_key.as_deref(),
                 expire_at: draft.expire_at,
+                // 立即发送：无计划时间、建出来就是 SENT（扇出与它同事务完成）
+                scheduled_at: None,
+                dispatch_status: "SENT",
                 operator: draft.sender_id,
             };
 
@@ -453,6 +549,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 receiver_count,
                 duplicated: false,
                 channels,
+                scheduled: false,
+                scheduled_at: None,
             })
         }
         Outcome::Duplicate(found) => match found {
@@ -462,6 +560,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 receiver_count: count,
                 duplicated: true,
                 channels: Vec::new(),
+                scheduled: false,
+                scheduled_at: None,
             }),
             None => Err(DispatchError::Api(ApiError::new(
                 409,
@@ -470,6 +570,44 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
             ))),
         },
     }
+}
+
+/// 定时发送最多提前的天数（超过按参数错误拒绝，防「2100 年提醒」这类脏数据长期占着待发队列）。
+pub const MAX_SCHEDULE_AHEAD_DAYS: i64 = 366;
+
+/// 判定一次发送请求是「立即」还是「定时」。
+///
+/// # 参数
+///
+/// - `scheduled_at`：调用方给的计划发送时间（`None` = 立即）。
+///
+/// # 返回值
+///
+/// - `Ok(None)`：立即发送（未给时间，或给的时间已到/已过 —— 时钟偏差与「补发」
+///   语义都按立即处理，避免用户因为 1 秒误差收到 400）；
+/// - `Ok(Some(t))`：定时发送，`t` 为计划时间（已规整为 UTC）。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：计划时间超过 [`MAX_SCHEDULE_AHEAD_DAYS`] 天。
+fn resolve_schedule(
+    scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+) -> std::result::Result<Option<chrono::DateTime<chrono::Utc>>, DispatchError> {
+    let Some(when) = scheduled_at else {
+        return Ok(None);
+    };
+    let now = chrono::Utc::now();
+    if when <= now {
+        return Ok(None);
+    }
+    if when - now > chrono::Duration::days(MAX_SCHEDULE_AHEAD_DAYS) {
+        return Err(DispatchError::Api(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("定时发送时间最多提前 {MAX_SCHEDULE_AHEAD_DAYS} 天"),
+        )));
+    }
+    Ok(Some(when))
 }
 
 /// 事务内结果（避免函数体内出现 `None` 语义不清的 `Option` 元组）。
@@ -501,7 +639,7 @@ enum Outcome {
 ///
 /// **推送失败绝不影响发送结果**：通知已经落库（站内信已送达），SSE 只是「立即刷新」
 /// 的加速器，查询或推送出错只记日志，前端轮询未读数兜底。
-async fn push_realtime(notice_id: &uuid::Uuid, seed: &sse_hub::NoticeEvent) {
+pub(crate) async fn push_realtime(notice_id: &uuid::Uuid, seed: &sse_hub::NoticeEvent) {
     let online = sse_hub::online_user_ids();
     if online.is_empty() {
         return;
@@ -636,5 +774,39 @@ mod tests {
             delivery::plan_channels(Some(crate::business::notice::dto::CHANNEL_INBOX), 2),
             CHANNEL_INBOX | 2
         );
+    }
+
+    /// 正常分支：未来的计划时间 → 定时发送，返回原时间。
+    #[test]
+    fn resolve_schedule_accepts_future_time() {
+        let when = chrono::Utc::now() + chrono::Duration::minutes(1);
+        let resolved = resolve_schedule(Some(when)).expect("未来时间应被接受");
+        assert_eq!(resolved, Some(when));
+    }
+
+    /// 边界分支：未给时间 / 已到点 / 已过期 → 立即发送（`None`），不报错。
+    #[test]
+    fn resolve_schedule_falls_back_to_immediate() {
+        assert_eq!(resolve_schedule(None).expect("None 应放行"), None);
+        let past = chrono::Utc::now() - chrono::Duration::minutes(5);
+        assert_eq!(
+            resolve_schedule(Some(past)).expect("过期时间按立即发送处理"),
+            None
+        );
+    }
+
+    /// 错误分支：超过上限（366 天）→ 400 + 10001，不允许建任务。
+    #[test]
+    fn resolve_schedule_rejects_too_far_future() {
+        let when = chrono::Utc::now() + chrono::Duration::days(MAX_SCHEDULE_AHEAD_DAYS + 1);
+        let error = resolve_schedule(Some(when)).expect_err("超上限必须拒绝");
+        match error {
+            DispatchError::Api(api) => {
+                assert_eq!(api.status, 400);
+                assert_eq!(api.code, error_code::PARAM_INVALID);
+                assert!(api.msg.contains("366"), "{}", api.msg);
+            }
+            other => panic!("应为 Api 错误：{other:?}"),
+        }
     }
 }

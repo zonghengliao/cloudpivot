@@ -57,10 +57,17 @@ use crate::utils;
 
 /// 发送通知（管理端手工 / 业务模块转发）。
 ///
+/// # 定时发送（V0051）
+///
+/// `scheduled_at` 给了**未来时间** → 只建一条 `dispatch_status='PENDING'` 的通知，
+/// 不写接收行、不投递、不推送：用户侧「我的通知 / 未读数」到点前看不到它；
+/// 到点后由 [`crate::business::notice::scheduled`] 巡逻任务（每 30 秒）扇出并投递。
+/// `scheduled_at` 为空或已过 → 立即发送（正常链路）。
+///
 /// # 参数
 ///
 /// - `claims`：当前登录用户（写入 `sender_id` / `sender_name`）。
-/// - `req`：发送请求（目标 / 模板 / 通道 / 幂等键）。
+/// - `req`：发送请求（目标 / 模板 / 通道 / 幂等键 / 计划发送时间）。
 ///
 /// # 返回值
 ///
@@ -68,7 +75,7 @@ use crate::utils;
 ///
 /// # 异常情况
 ///
-/// - 400：目标为空 / 类型非法 / 通道越界 / 缺标题正文；
+/// - 400：目标为空 / 类型非法 / 通道越界 / 缺标题正文 / 计划时间超过 366 天；
 /// - 404：模板不存在或停用；
 /// - 422：渲染失败（缺变量 / 语法 / 超长）、接收人超上限；
 /// - 500：数据库异常。
@@ -112,6 +119,8 @@ pub async fn send(
         channel_mask: req.channel_mask.unwrap_or(1),
         idempotency_key: utils::trimmed(req.idempotency_key.as_deref()).map(str::to_string),
         expire_at: req.expire_at,
+        // 定时发送（V0051）：未来时间 → 建 PENDING 任务，到点由巡逻任务投递
+        scheduled_at: req.scheduled_at,
         sender_id,
         sender_name: claims.username.clone(),
     };
@@ -636,12 +645,7 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
 ///
 /// # 鉴权
 ///
-/// 走**现有** `AuthLayer`（`Authorization: Bearer <token>`），与其他接口完全一致；
-/// 用户身份只从 `AuthClaims` 取，**绝不接受 query 里的 `user_id` / token 透传**
-/// （否则 A 用户把 `?user_id=B` 塞进 URL 就能收 B 的通知）。
-///
-/// 浏览器原生 `EventSource` 不能自定义请求头，前端需用 `fetch` + `ReadableStream`
-/// 携带 `Authorization` 读流（示例见 `docs/批次A-A6-验证证据.md`）。
+/// 走现有 `AuthLayer`，用户身份只从 `AuthClaims` 取。
 ///
 /// # 返回值
 ///

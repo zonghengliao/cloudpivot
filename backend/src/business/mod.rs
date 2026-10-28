@@ -45,6 +45,8 @@ fn _example_notice_dispatch_from_external_module() {
         channel_mask: 1,
         idempotency_key: Some(format!("wf:{instance_id}:todo:{assignee}")),
         expire_at: None,
+        // 定时发送（V0051）：外部模块同样可以给未来的计划时间
+        scheduled_at: None,
         sender_id: None,
         sender_name: Some("工作流引擎".to_string()),
     };

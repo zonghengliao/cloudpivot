@@ -313,6 +313,9 @@ pub struct NoticeSendReq {
     pub idempotency_key: Option<String>,
     /// 过期时间（过期后由清理任务硬删）。
     pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 计划发送时间（V0051）：未来时间 → 定时发送（到点前用户侧不可见）；
+    /// 空或已过 → 立即发送。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 /// 通知主体分页查询（管理视角）。
@@ -450,6 +453,13 @@ pub struct NoticeRes {
     pub status: i16,
     /// 过期时间。
     pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 计划发送时间（`null` = 立即发送；V0051）。
+    pub scheduled_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 投递状态：`PENDING` 待发（定时未到点，用户侧不可见）/ `SENT` 已投递 /
+    /// `FAILED` 重试耗尽 / `CANCELED` 到点前被取消（V0051）。
+    pub dispatch_status: String,
+    /// 投递尝试次数（定时投递失败重试用；V0051）。
+    pub dispatch_attempts: i16,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
@@ -488,6 +498,9 @@ impl NoticeRes {
             read_rate,
             status: model.status,
             expire_at: model.expire_at,
+            scheduled_at: model.scheduled_at,
+            dispatch_status: model.dispatch_status.clone(),
+            dispatch_attempts: model.dispatch_attempts,
             created_at: model.created_at,
         }
     }
@@ -823,6 +836,9 @@ mod tests {
             read_count: 0,
             status: 1,
             expire_at: None,
+            scheduled_at: None,
+            dispatch_status: "SENT".into(),
+            dispatch_attempts: 0,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
