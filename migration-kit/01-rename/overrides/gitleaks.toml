@@ -1,0 +1,72 @@
+# cloudpivot secret 扫描策略（gitleaks v8 配置）
+#
+# 目标：把「密钥明文进 git」这件事在提交阶段和 CI 阶段都拦住，
+# 至少覆盖 backend/config/*.toml 中的 jwt_secret / password / *_secret。
+#
+# 用法（本地/CI 统一走 scripts/secret-scan.sh，不要直接调 gitleaks）：
+#   bash scripts/secret-scan.sh --staged    # pre-commit：只扫暂存区
+#   bash scripts/secret-scan.sh --tree      # 只扫 HEAD 跟踪的文件
+#   bash scripts/secret-scan.sh --history   # 扫全部历史提交
+
+title = "cloudpivot secrets policy"
+[extend]
+# 保留 gitleaks 内置规则（AWS/GitHub token/私钥/通用高熵串等）
+useDefault = true
+
+# ---------------------------------------------------------------- 规则 1
+# 本仓库最核心的一条：配置文件里的凭据赋值
+[[rules]]
+id = "cloudpivot-config-toml-credential"
+# 必须带 (?m)：gitleaks 的多行匹配要显式开启，否则 `^` 只匹配整段文本首行，
+# 配置文件里第 2 行以后的赋值会漏检（2026-10-27 实测：加 (?m) 前 dir/--staged 均 no leaks）。
+description = "backend/config/*.toml 中出现 jwt_secret / password / *_secret 等明文赋值"
+regex = '''(?im)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']'''
+secretGroup = 2
+path = '''(^|/)backend/config/[^/]+\.toml$'''
+keywords = ["jwt_secret", "password", "_secret", "api_key", "secret"]
+
+  # 空值 / 明确的占位符不算泄露（例如 jwt_secret = ""、password = "${DB_PASSWORD}"）
+  [[rules.allowlists]]
+  description = "空值与占位符"
+  regexTarget = "secret"
+  regexes = [
+    '''^$''',
+    '''(?i)^(changeme|change_me|change-me|placeholder|dummy|todo|xxx+|your[_-]?[a-z]*|<[^>]+>|\$\{[^}]+\}|\$[A-Z_]+)$''',
+  ]
+
+# ---------------------------------------------------------------- 规则 2
+# 兜底：任何文件里出现 jwt_secret 的字面赋值（防止有人换个扩展名 / 写进 .env.example）
+[[rules]]
+id = "cloudpivot-jwt-secret-anywhere"
+description = "任何文件中出现 jwt_secret 字面赋值且值不像占位符"
+regex = '''(?i)jwt_secret["']?\s*[=:]\s*["']?([A-Za-z0-9_\-\.]{16,})["']?'''
+secretGroup = 1
+keywords = ["jwt_secret"]
+
+  [[rules.allowlists]]
+  description = "环境变量名/占位符/文档示例"
+  regexTarget = "secret"
+  regexes = [
+    '''(?i)^(please[_-]?change.*|change[_-]?me.*|your[_-].*|<.*>|\$\{.*\})$''',
+  ]
+
+# ---------------------------------------------------------------- 规则 3
+# 本仓库历史事故的直接防线：dev/test/prod 的 JWT 密钥前缀特征（cloudpivot-<env>-jwt-secret-*）
+# ⚠ 正则里**故意保留旧前缀 cailu**：git 历史里已泄露的字面量就是 cailu-<env>-jwt-secret-* 形态，
+#   只写新前缀等于把已知历史泄露从扫描器里藏掉（历史扫描会由红变绿，属于安全回归）。
+#   密钥本身已轮换，这条规则只用来拦住「历史泄露被重新引入」，跟项目标识无关。
+[[rules]]
+id = "cloudpivot-jwt-secret-literal"
+description = "形如 {cloudpivot,cailu}-{dev,test,prod}-jwt-secret-... 的历史密钥字面量（含改名前的旧前缀）"
+regex = '''(?:cloudpivot|cailu)-(dev|test|prod)-jwt-secret-[A-Za-z0-9_\-]+'''
+keywords = ["jwt-secret-"]
+
+# ---------------------------------------------------------------- 全局排除
+[allowlist]
+description = "构建产物 / 依赖 / 版本库内部对象不参与扫描"
+paths = [
+  '''(^|/)backend/target/''',
+  '''(^|/)frontend/node_modules/''',
+  '''(^|/)frontend/dist/''',
+  '''(^|/)\.git/''',
+]

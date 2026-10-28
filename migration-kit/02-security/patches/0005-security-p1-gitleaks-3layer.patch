@@ -1,0 +1,347 @@
+From 2a930073c11bb0c1c13905ca8d480e7fc7866146 Mon Sep 17 00:00:00 2001
+From: manong <manong@local>
+Date: Tue, 27 Oct 2026 17:39:21 +0800
+Subject: [PATCH 05/15] =?UTF-8?q?security(P1):=20config-test=20jwt=5Fsecre?=
+ =?UTF-8?q?t=20=E6=94=B9=E7=8E=AF=E5=A2=83=E5=8F=98=E9=87=8F=E6=B3=A8?=
+ =?UTF-8?q?=E5=85=A5=20+=20=E6=8E=A5=E5=85=A5=20gitleaks=20=E4=B8=89?=
+ =?UTF-8?q?=E7=BA=A7=E9=98=B2=E7=BA=BF?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- backend/config/config-test.toml: 删除明文 jwt_secret（旧值曾随公开仓库泄露），
+  改由 /etc/cloudpivot/cloudpivot-test.env 的 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（600，本机生成）
+- .gitleaks.toml: 自定义规则覆盖 backend/config/*.toml 的 jwt_secret|password|*_secret，
+  另加任意文件 jwt_secret 字面量与 cloudpivot-<env>-jwt-secret-* 特征规则
+- scripts/secret-scan.sh: 统一入口（--staged/--tree/--history），无 gitleaks 时降级为内置 python 规则
+- .githooks/pre-commit: fail-closed 拦截（git config core.hooksPath .githooks）
+- .github/workflows/secret-scan.yml: CI 扫 HEAD 树 + 全历史
+---
+ .githooks/pre-commit              |  37 ++++++++++
+ .github/workflows/secret-scan.yml |  55 +++++++++++++++
+ .gitleaks.toml                    |  76 ++++++++++++++++++++
+ backend/config/config-test.toml   |   3 +-
+ scripts/secret-scan.sh            | 113 ++++++++++++++++++++++++++++++
+ 5 files changed, 283 insertions(+), 1 deletion(-)
+ create mode 100755 .githooks/pre-commit
+ create mode 100644 .github/workflows/secret-scan.yml
+ create mode 100644 .gitleaks.toml
+ create mode 100755 scripts/secret-scan.sh
+
+diff --git a/.githooks/pre-commit b/.githooks/pre-commit
+new file mode 100755
+index 0000000..51889ae
+--- /dev/null
++++ b/.githooks/pre-commit
+@@ -0,0 +1,37 @@
++#!/usr/bin/env bash
++# cailu pre-commit：阻止密钥/口令明文进入 git
++#
++# 安装（每个克隆执行一次）：
++#   git config core.hooksPath .githooks
++#
++# 设计：fail closed —— 扫描器不可用时拒绝提交，而不是静默放行。
++set -uo pipefail
++
++ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
++SCAN="$ROOT/scripts/secret-scan.sh"
++
++if [ ! -x "$SCAN" ]; then
++  chmod +x "$SCAN" 2>/dev/null || true
++fi
++if [ ! -f "$SCAN" ]; then
++  echo "✘ pre-commit: 找不到 $SCAN，拒绝提交。" >&2
++  echo "  如确需绕过（仅限紧急且已人工确认无密钥）：git commit --no-verify" >&2
++  exit 1
++fi
++
++# 允许跳过：仅在明确知道自己在做什么时使用
++if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
++  echo "! pre-commit: SKIP_SECRET_SCAN=1，跳过 secret 扫描（已记录到 stderr）" >&2
++  exit 0
++fi
++
++echo "▶ pre-commit secret 扫描（暂存区）"
++bash "$SCAN" --staged
++rc=$?
++[ "$rc" -eq 0 ] && exit 0
++
++echo "" >&2
++echo "✘ 提交被拒绝：疑似密钥/口令明文。" >&2
++echo "  处理方式：把密钥移出代码，改由环境变量注入（cailu 约定 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
++echo "  密钥文件放 /etc/cailu/<env>.env 并 chmod 600；详见 .gitleaks.toml 顶部说明。" >&2
++exit "$rc"
+diff --git a/.github/workflows/secret-scan.yml b/.github/workflows/secret-scan.yml
+new file mode 100644
+index 0000000..1be0062
+--- /dev/null
++++ b/.github/workflows/secret-scan.yml
+@@ -0,0 +1,55 @@
++name: secret-scan
++
++# 目的：任何 PR / push 都不允许把 jwt_secret、password、*_secret 等明文带进仓库。
++# 规则见仓库根目录 .gitleaks.toml；扫描入口统一为 scripts/secret-scan.sh。
++#
++# 建议（上线前）：把 actions/checkout 固定到 commit SHA，避免 tag 被移动带来的供应链风险。
++
++on:
++  push:
++  pull_request:
++  workflow_dispatch:
++
++permissions:
++  contents: read
++
++concurrency:
++  group: secret-scan-${{ github.ref }}
++  cancel-in-progress: true
++
++jobs:
++  gitleaks:
++    name: gitleaks (tree + history)
++    runs-on: ubuntu-latest
++    timeout-minutes: 10
++    env:
++      GITLEAKS_VERSION: 8.30.1
++    steps:
++      - name: Checkout (full history for history scan)
++        uses: actions/checkout@v4
++        with:
++          fetch-depth: 0
++
++      - name: Install gitleaks
++        run: |
++          set -euo pipefail
++          curl -sSL -o /tmp/gl.tar.gz \
++            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
++          tar xzf /tmp/gl.tar.gz -C /tmp gitleaks
++          sudo install -m 0755 /tmp/gitleaks /usr/local/bin/gitleaks
++          gitleaks version
++
++      - name: Scan tracked files (HEAD tree)
++        run: bash scripts/secret-scan.sh --tree
++
++      - name: Scan full history
++        run: bash scripts/secret-scan.sh --history
++
++      - name: Upload report on failure
++        if: failure()
++        uses: actions/upload-artifact@v4
++        with:
++          name: secret-scan-report
++          path: /tmp/cailu-secret-scan.json
++          if-no-files-found: ignore
++          retention-days: 7
+diff --git a/.gitleaks.toml b/.gitleaks.toml
+new file mode 100644
+index 0000000..1b3e002
+--- /dev/null
++++ b/.gitleaks.toml
+@@ -0,0 +1,76 @@
++# cailu secret 扫描策略（gitleaks v8 配置）
++#
++# 目标：把「密钥明文进 git」这件事在提交阶段和 CI 阶段都拦住，
++# 至少覆盖 backend/config/*.toml 中的 jwt_secret / password / *_secret。
++#
++# 用法（本地/CI 统一走 scripts/secret-scan.sh，不要直接调 gitleaks）：
++#   bash scripts/secret-scan.sh --staged    # pre-commit：只扫暂存区
++#   bash scripts/secret-scan.sh --tree      # 只扫 HEAD 跟踪的文件
++#   bash scripts/secret-scan.sh --history   # 扫全部历史提交
++
++title = "cailu secrets policy"
++[extend]
++# 保留 gitleaks 内置规则（AWS/GitHub token/私钥/通用高熵串等）
++useDefault = true
++
++# ---------------------------------------------------------------- 规则 1
++# 本仓库最核心的一条：配置文件里的凭据赋值
++[[rules]]
++id = "cailu-config-toml-credential"
++description = "backend/config/*.toml 中出现 jwt_secret / password / *_secret 等明文赋值"
++regex = '''(?i)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']'''
++secretGroup = 2
++path = '''(^|/)backend/config/[^/]+\.toml$'''
++keywords = ["jwt_secret", "password", "_secret", "api_key", "secret"]
++
++  # 空值 / 明确的占位符不算泄露（例如 jwt_secret = ""、password = "${DB_PASSWORD}"）
++  [[rules.allowlists]]
++  description = "空值与占位符"
++  regexTarget = "secret"
++  regexes = [
++    '''^$''',
++    '''(?i)^(changeme|change_me|change-me|placeholder|dummy|todo|xxx+|your[_-]?[a-z]*|<[^>]+>|\$\{[^}]+\}|\$[A-Z_]+)$''',
++  ]
++
++  # config.toml 中的 `password = "alun"` 是 alun 框架 docker compose 的本地默认库口令，
++  # 生产/dev/test 三个真实环境都由 ALUN_DATABASE_PASSWORD 覆盖（见 /etc/cailu/*.env）。
++  # 已作为 P3 记入安全报告；在它被彻底去掉之前，这里先显式放行，避免 CI 永久红灯。
++  [[rules.allowlists]]
++  description = "config.toml 的 docker 本地默认库口令（P3，待改造）"
++  regexTarget = "match"
++  paths = ['''(^|/)backend/config/config\.toml$''']
++  regexes = ['''^\s*password\s*=\s*"alun"\s*$''']
++
++# ---------------------------------------------------------------- 规则 2
++# 兜底：任何文件里出现 jwt_secret 的字面赋值（防止有人换个扩展名 / 写进 .env.example）
++[[rules]]
++id = "cailu-jwt-secret-anywhere"
++description = "任何文件中出现 jwt_secret 字面赋值且值不像占位符"
++regex = '''(?i)jwt_secret["']?\s*[=:]\s*["']?([A-Za-z0-9_\-\.]{16,})["']?'''
++secretGroup = 1
++keywords = ["jwt_secret"]
++
++  [[rules.allowlists]]
++  description = "环境变量名/占位符/文档示例"
++  regexTarget = "secret"
++  regexes = [
++    '''(?i)^(please[_-]?change.*|change[_-]?me.*|your[_-].*|<.*>|\$\{.*\})$''',
++  ]
++
++# ---------------------------------------------------------------- 规则 3
++# 本仓库历史事故的直接防线：dev/test/prod 的 JWT 密钥前缀特征（cailu-<env>-jwt-secret-*）
++[[rules]]
++id = "cailu-jwt-secret-literal"
++description = "形如 cailu-{dev,test,prod}-jwt-secret-... 的历史密钥字面量"
++regex = '''cailu-(dev|test|prod)-jwt-secret-[A-Za-z0-9_\-]+'''
++keywords = ["jwt-secret-"]
++
++# ---------------------------------------------------------------- 全局排除
++[allowlist]
++description = "构建产物 / 依赖 / 版本库内部对象不参与扫描"
++paths = [
++  '''(^|/)backend/target/''',
++  '''(^|/)frontend/node_modules/''',
++  '''(^|/)frontend/dist/''',
++  '''(^|/)\.git/''',
++]
+diff --git a/backend/config/config-test.toml b/backend/config/config-test.toml
+index e40c5ce..8133130 100644
+--- a/backend/config/config-test.toml
++++ b/backend/config/config-test.toml
+@@ -10,5 +10,6 @@ name = "cailu_test"
+ sql_logging = true
+ 
+ [middleware.auth]
++# jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（/etc/cailu/cailu-test.env, 600），
++# 禁止把任何密钥写回本文件（该文件在 git 跟踪中，仓库为 public）
+ enabled = true
+-jwt_secret = "cailu-test-jwt-secret-please-change-in-production"
+diff --git a/scripts/secret-scan.sh b/scripts/secret-scan.sh
+new file mode 100755
+index 0000000..972e484
+--- /dev/null
++++ b/scripts/secret-scan.sh
+@@ -0,0 +1,113 @@
++#!/usr/bin/env bash
++# cailu secret 扫描统一入口（pre-commit 与 CI 共用）
++#
++#   bash scripts/secret-scan.sh --staged    只扫暂存区（pre-commit）
++#   bash scripts/secret-scan.sh --tree      只扫 HEAD 跟踪的文件（默认）
++#   bash scripts/secret-scan.sh --history   扫全部历史提交
++#
++# 退出码：0 = 干净；1 = 发现泄露；2 = 扫描器不可用（fail closed）
++#
++# 设计要点：
++#  - 只扫「git 跟踪的文件」，不扫 backend/target、node_modules 这些构建产物
++#    （否则 rpm/rmeta 里的私钥字样会大量误报）；
++#  - 输出统一 --redact，命中值不会进入 CI 日志；
++#  - gitleaks 不在 PATH 时回退到内置 python 规则（覆盖 backend/config/*.toml），
++#    保证「没有网络的机器」也能拦住最关键的这一类泄露。
++set -uo pipefail
++
++MODE="${1:---tree}"
++ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo .)"
++cd "$ROOT" || exit 2
++
++CONFIG="$ROOT/.gitleaks.toml"
++[ -f "$CONFIG" ] || { echo "✘ 缺少 .gitleaks.toml" >&2; exit 2; }
++
++GITLEAKS="${GITLEAKS_BIN:-}"
++if [ -z "$GITLEAKS" ]; then
++  if command -v gitleaks >/dev/null 2>&1; then
++    GITLEAKS="$(command -v gitleaks)"
++  elif [ -x /usr/local/bin/gitleaks ]; then
++    GITLEAKS=/usr/local/bin/gitleaks
++  elif [ -x "$ROOT/scripts/bin/gitleaks" ]; then
++    GITLEAKS="$ROOT/scripts/bin/gitleaks"
++  fi
++fi
++
++# ------------------------------------------------- 内置兜底扫描（gitleaks 缺失时的降级）
++# 覆盖 backend/config/*.toml 的 jwt_secret / password / *_secret 明文赋值
++fallback_scan() {
++  python3 - "$ROOT" "$MODE" <<'PY'
++import re, subprocess, sys
++
++root, mode = sys.argv[1], sys.argv[2]
++PAT = re.compile(r'''(?i)^\s*(jwt_secret|password|passwd|pwd|secret|secret_key|db_password|api_key|apikey|access_key|private_key|client_secret|[a-z0-9_]+_secret)\s*=\s*["']([^"']{2,})["']''')
++ALLOW = re.compile(r'''(?i)^(|changeme|change_me|change-me|placeholder|dummy|todo|xxx+|your[_-]?[a-z]*|<[^>]+>|\$\{[^}]+\}|\$[A-Z_]+)$''')
++
++def files():
++    cmd = ["git", "diff", "--cached", "--name-only", "--diff-filter=ACM"] if mode == "--staged" \
++          else ["git", "ls-files"]
++    out = subprocess.run(cmd, cwd=root, capture_output=True, text=True).stdout
++    for f in out.splitlines():
++        if re.search(r'(^|/)backend/config/[^/]+\.toml$', f):
++            yield f
++
++hits = 0
++for f in files():
++    try:
++        txt = open(f"{root}/{f}", encoding="utf-8", errors="replace").read()
++    except OSError:
++        continue
++    for i, line in enumerate(txt.splitlines(), 1):
++        m = PAT.match(line)
++        if not m:
++            continue
++        val = m.group(2)
++        if ALLOW.match(val):
++            continue
++        if re.search(r'(^|/)backend/config/config\.toml$', f) and re.fullmatch(r'\s*password\s*=\s*"alun"\s*', line):
++            continue
++        hits += 1
++        print(f"  ✘ {f}:{i}  {m.group(1)} = <REDACTED len={len(val)}>")
++print(f"内置规则命中 {hits} 处")
++sys.exit(1 if hits else 0)
++PY
++}
++
++# ---------------------------------------------------------------- gitleaks 存在
++if [ -n "$GITLEAKS" ] && [ -x "$GITLEAKS" ]; then
++  echo "▶ gitleaks $("$GITLEAKS" version 2>/dev/null)  mode=$MODE"
++  case "$MODE" in
++    --staged)
++      "$GITLEAKS" git "$ROOT" --config "$CONFIG" --staged --redact --no-banner \
++        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
++      rc=$?
++      ;;
++    --history)
++      "$GITLEAKS" git "$ROOT" --config "$CONFIG" --log-opts="--all" --redact --no-banner \
++        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
++      rc=$?
++      ;;
++    --tree|*)
++      TMPTREE="$(mktemp -d)"
++      git archive HEAD | tar -x -C "$TMPTREE"
++      "$GITLEAKS" dir "$TMPTREE" --config "$CONFIG" --redact --no-banner \
++        --report-format json --report-path "${TMPDIR:-/tmp}/cailu-secret-scan.json"
++      rc=$?
++      rm -rf "$TMPTREE"
++      ;;
++  esac
++  if [ "$rc" -eq 0 ]; then
++    echo "✔ 未发现泄露"
++  else
++    echo "✘ 发现疑似泄露（report: ${TMPDIR:-/tmp}/cailu-secret-scan.json，值已 redact）" >&2
++  fi
++  # 兜底规则同时跑一遍（git 跟踪文件），防止自定义 toml 规则被改坏
++  echo "▶ 内置 toml 规则复核（git 跟踪文件）"
++  fallback_scan || rc=1
++  exit "$rc"
++fi
++
++# ---------------------------------------------------------------- 无 gitleaks
++echo "! 未找到 gitleaks（本机未安装）。生产建议：sudo install -m0755 gitleaks /usr/local/bin/" >&2
++echo "▶ 内置 toml 规则扫描（降级模式，仅覆盖 backend/config/*.toml）"
++fallback_scan

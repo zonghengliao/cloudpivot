@@ -1,0 +1,43 @@
+From 58504632d09f5c2db800f33a61c0d63c6df72d95 Mon Sep 17 00:00:00 2001
+From: laoliu <laoliu@local>
+Date: Tue, 27 Oct 2026 18:27:03 +0800
+Subject: [PATCH 09/15] =?UTF-8?q?chore(hooks):=20post-commit=20=E8=87=AA?=
+ =?UTF-8?q?=E5=8A=A8=E5=90=8C=E6=AD=A5=E5=88=B0=E6=9C=AC=E5=9C=B0=20bare?=
+ =?UTF-8?q?=20=E4=BB=93=E5=BA=93?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .githooks/post-commit | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+ create mode 100755 .githooks/post-commit
+
+diff --git a/.githooks/post-commit b/.githooks/post-commit
+new file mode 100755
+index 0000000..6a8aca4
+--- /dev/null
++++ b/.githooks/post-commit
+@@ -0,0 +1,22 @@
++#!/bin/bash
++# post-commit：每次提交后自动同步到 origin（本地 bare 仓库 /opt/git/cailu.git）
++# 设计原则：
++#   1. 绝不阻塞或改变 commit 结果 —— 任何失败都静默忽略（exit 0）
++#   2. 只推当前分支，不推 --all（避免意外推送/删除远端分支）
++#   3. detach HEAD 状态跳过
++#   4. 超时保护，bare 在本地磁盘正常 <1s
++
++BRANCH=$(git symbolic-ref --short -q HEAD 2>/dev/null) || exit 0
++[ -z "$BRANCH" ] && exit 0
++
++# 确认 origin 存在且是本机 bare（不向上游 GitHub 推任何东西）
++ORIGIN_URL=$(git remote get-url origin 2>/dev/null) || exit 0
++case "$ORIGIN_URL" in
++  /opt/git/cailu.git*) ;;
++  *) exit 0 ;;   # origin 不是本地 bare，宁可不推，防误操作
++esac
++
++# 10 秒超时，失败静默
++timeout 10 git push -q origin "$BRANCH" >/dev/null 2>&1 || true
++
++exit 0

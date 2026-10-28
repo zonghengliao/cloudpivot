@@ -1,0 +1,1390 @@
+From 55d3c5dcbc65971fc409ece4ebbbcb87caac9319 Mon Sep 17 00:00:00 2001
+From: manong <manong@local>
+Date: Tue, 27 Oct 2026 17:43:30 +0800
+Subject: [PATCH 07/15] =?UTF-8?q?feat(dashboard):=20=E5=8F=B3=E6=A0=8F?=
+ =?UTF-8?q?=E6=94=B9=E4=B8=BA=E6=9C=8D=E5=8A=A1=E5=99=A8=E7=8A=B6=E6=80=81?=
+ =?UTF-8?q?=E5=8D=A1=EF=BC=88=E4=BB=85=E8=B6=85=E7=AE=A1=E5=8F=AF=E8=A7=81?=
+ =?UTF-8?q?=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+新增二开模块 business/monitor（首个 business 模块，登记 business/mod.rs 与 lib.rs）：
+- GET /api/business/monitor/server-status，权限码 business:monitor:server-status（仅 SUPER_ADMIN）
+- 采集 CPU(/proc/stat 差值) / 内存(/proc/meminfo) / 磁盘(df -P) / PostgreSQL / Redis(INFO)，
+  单项失败降级为 0 / state=down，接口不返回 5xx
+- 迁移 V0020：sys_menu 权限点 + SUPER_ADMIN 授权（幂等）
+- 前端：dashboard 右栏「系统状态」升级为「服务器状态」，仅超管渲染且不发请求；
+  保留 服务状态/应用名/profile/时间，新增三项进度条 + DB/Redis 明细，刷新 + 20s 轮询（页面隐藏暂停）
+- 单测 8 个（解析/差值/除零/格式化边界），cargo test 22 passed
+---
+ backend/Cargo.lock                            |   1 +
+ backend/Cargo.toml                            |   8 +
+ ...V0020__add_biz_monitor_permission.down.sql |   8 +
+ .../V0020__add_biz_monitor_permission.up.sql  |  31 ++
+ backend/src/business/mod.rs                   |  10 +
+ backend/src/business/monitor/dto.rs           |  86 +++
+ backend/src/business/monitor/handler.rs       |  32 ++
+ backend/src/business/monitor/mod.rs           |  22 +
+ backend/src/business/monitor/model.rs         | 502 ++++++++++++++++++
+ backend/src/lib.rs                            |   1 +
+ ...45\345\217\243\345\245\221\347\272\246.md" |  94 ++++
+ frontend/src/api/business/monitor-api.ts      |  85 +++
+ frontend/src/types/components.d.ts            |   2 +
+ frontend/src/views/dashboard/index.vue        | 307 ++++++++++-
+ 14 files changed, 1172 insertions(+), 17 deletions(-)
+ create mode 100644 backend/migrations/business/V0020__add_biz_monitor_permission.down.sql
+ create mode 100644 backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
+ create mode 100644 backend/src/business/mod.rs
+ create mode 100644 backend/src/business/monitor/dto.rs
+ create mode 100644 backend/src/business/monitor/handler.rs
+ create mode 100644 backend/src/business/monitor/mod.rs
+ create mode 100644 backend/src/business/monitor/model.rs
+ create mode 100644 "docs/\344\272\214\345\274\200-business-monitor-\346\216\245\345\217\243\345\245\221\347\272\246.md"
+ create mode 100644 frontend/src/api/business/monitor-api.ts
+
+diff --git a/backend/Cargo.lock b/backend/Cargo.lock
+index b434ea8..7bb22c1 100644
+--- a/backend/Cargo.lock
++++ b/backend/Cargo.lock
+@@ -600,6 +600,7 @@ dependencies = [
+  "alun-utils",
+  "async-trait",
+  "axum",
++ "redis",
+  "serde",
+  "serde_json",
+  "sha2 0.10.9",
+diff --git a/backend/Cargo.toml b/backend/Cargo.toml
+index 74e81a8..a238414 100644
+--- a/backend/Cargo.toml
++++ b/backend/Cargo.toml
+@@ -50,3 +50,11 @@ validator = { version = "0.21", features = ["derive"] }
+ async-trait = "0.1"
+ # 文件秒传与完整性校验：上传时计算内容 SHA-256（见 support/file/handler.rs）
+ sha2 = "0.10"
++
++# Redis 客户端（二开说明，已评审）：
++# 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，
++# 而框架的缓存门面 `Cache` 只暴露 KV 语义（get/set/del/incr/keys），拿不到 INFO。
++# 版本与 features 与 alun-cache 0.4.2 内部声明的完全一致（redis 1.7 + tokio-comp
++# + connection-manager），**不引入依赖树中不存在的新 crate**，仅把既有的间接依赖
++# 显式化，供 business/monitor 使用。
++redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
+diff --git a/backend/migrations/business/V0020__add_biz_monitor_permission.down.sql b/backend/migrations/business/V0020__add_biz_monitor_permission.down.sql
+new file mode 100644
+index 0000000..06e0085
+--- /dev/null
++++ b/backend/migrations/business/V0020__add_biz_monitor_permission.down.sql
+@@ -0,0 +1,8 @@
++-- 回滚 V0020：移除服务器状态权限点及其角色授权。
++-- 先删授权行（外键指向 sys_menu），再删菜单行。
++
++DELETE FROM sys_role_menu
++WHERE menu_id = '20000000-0000-0000-0000-000000000001'::uuid;
++
++DELETE FROM sys_menu
++WHERE id = '20000000-0000-0000-0000-000000000001'::uuid;
+diff --git a/backend/migrations/business/V0020__add_biz_monitor_permission.up.sql b/backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
+new file mode 100644
+index 0000000..fdbb485
+--- /dev/null
++++ b/backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
+@@ -0,0 +1,31 @@
++-- ======================================================
++-- V0020：新增权限点 business:monitor:server-status（服务器状态，仅超管）
++--
++-- 背景：工作台右栏需展示服务器运行状态（CPU/内存/磁盘/DB/Redis），
++--       该信息只对超级管理员开放；接口由
++--       src/business/monitor/handler.rs 的 #[alun::permission] 校验，
++--       权限码必须与 sys_menu.auth_code 逐字一致。
++--
++-- 权限码：business:monitor:server-status
++-- 授权范围：仅 SUPER_ADMIN。
++--   超管鉴权本身由 role_code 短路（src/system/auth/model.rs::is_super_admin，
++--   权限列表下发 *:*:*），此处写入 sys_role_menu 是为了让「角色授权」页的
++--   权限树能完整展示本权限点，并非鉴权所必需。
++--
++-- 幂等：固定 UUID + ON CONFLICT DO NOTHING，重复执行不报错、不覆盖人工改名。
++-- ======================================================
++
++INSERT INTO sys_menu (id, name, menu_type, auth_code, path, parent_id, component,
++                      sort_order, status, icon, title, is_visible, module_code)
++VALUES ('20000000-0000-0000-0000-000000000001'::uuid,
++        'business:monitor:server-status', 3, 'business:monitor:server-status',
++        NULL, '10000000-0000-0000-0000-000000000050'::uuid, NULL,
++        20, 1, NULL, '服务器状态', FALSE, 'business')
++ON CONFLICT (id) DO NOTHING;
++
++INSERT INTO sys_role_menu (role_id, menu_id, created_at)
++SELECT r.id, m.id, CURRENT_TIMESTAMP
++FROM sys_role r
++CROSS JOIN (VALUES ('20000000-0000-0000-0000-000000000001'::uuid)) AS m(id)
++WHERE r.role_code = 'SUPER_ADMIN'
++ON CONFLICT DO NOTHING;
+diff --git a/backend/src/business/mod.rs b/backend/src/business/mod.rs
+new file mode 100644
+index 0000000..4a436a8
+--- /dev/null
++++ b/backend/src/business/mod.rs
+@@ -0,0 +1,10 @@
++//! 业务模块容器（二开业务）。
++//!
++//! `system/` 与 `support/` 属底座，二开业务一律落在本容器下，每个子模块统一遵循
++//! `mod.rs + handler.rs + dto.rs + model.rs` 四件套，不设 service 层。
++//!
++//! | 子模块 | 职责 |
++//! |--------|------|
++//! | [`monitor`] | 服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis），仅超管可读 |
++
++pub mod monitor;
+diff --git a/backend/src/business/monitor/dto.rs b/backend/src/business/monitor/dto.rs
+new file mode 100644
+index 0000000..5bd7dce
+--- /dev/null
++++ b/backend/src/business/monitor/dto.rs
+@@ -0,0 +1,86 @@
++//! 服务器状态接口的响应结构。
++//!
++//! 所有字段均为**聚合数值或版本号**，不含主机地址、连接串、密码等敏感信息。
++
++use serde::{Deserialize, Serialize};
++
++/// CPU 使用情况。
++#[derive(Debug, Clone, Serialize, Deserialize, Default)]
++pub struct CpuRes {
++    /// 最近一次采样窗口（约 200ms）内的使用率，0-100，保留 1 位小数。
++    ///
++    /// 取不到 `/proc/stat` 时为 `0.0`（前端按 `-` 之外显示 0%，不报错）。
++    pub percent: f64,
++    /// 逻辑核心数（`available_parallelism`，取不到时 0）。
++    pub cores: u32,
++}
++
++/// 内存 / 磁盘通用容量信息。
++#[derive(Debug, Clone, Serialize, Deserialize, Default)]
++pub struct UsageRes {
++    /// 使用率百分比（0-100，保留 1 位小数）。
++    pub percent: f64,
++    /// 已用字节数。
++    pub used_bytes: u64,
++    /// 总字节数。
++    pub total_bytes: u64,
++    /// 已用容量的人类可读文本（GB 口径）。
++    pub used_text: String,
++    /// 总容量的人类可读文本（GB 口径）。
++    pub total_text: String,
++}
++
++/// 数据库（PostgreSQL）状态。
++#[derive(Debug, Clone, Serialize, Deserialize, Default)]
++pub struct DatabaseRes {
++    /// 连通状态：`up` / `down`。
++    pub state: String,
++    /// 当前连接的库名。
++    pub name: String,
++    /// 库大小（字节）。
++    pub size_bytes: u64,
++    /// 库大小的人类可读文本（MB / GB）。
++    pub size_text: String,
++    /// 当前数据库连接数（`pg_stat_activity` 行数）。
++    pub connections: i64,
++    /// 数据库版本（`version()` 截断至 40 字符）。
++    pub version: String,
++}
++
++/// Redis 状态。
++#[derive(Debug, Clone, Serialize, Deserialize, Default)]
++pub struct RedisRes {
++    /// 连通状态：`up` / `down`。
++    pub state: String,
++    /// Redis 版本。
++    pub version: String,
++    /// 已用内存的人类可读文本（Redis 自报，如 `1.20M`）。
++    pub used_memory_text: String,
++    /// 已用内存（字节）。
++    pub used_memory_bytes: u64,
++    /// 当前客户端连接数。
++    pub connected_clients: i64,
++    /// 运行时长（秒）。
++    pub uptime_seconds: i64,
++    /// 命中次数。
++    pub keyspace_hits: i64,
++    /// 未命中次数。
++    pub keyspace_misses: i64,
++}
++
++/// 服务器状态响应体。
++#[derive(Debug, Clone, Serialize, Deserialize, Default)]
++pub struct ServerStatusRes {
++    /// CPU 使用率与核心数。
++    pub cpu: CpuRes,
++    /// 内存使用情况。
++    pub memory: UsageRes,
++    /// 根分区磁盘使用情况。
++    pub disk: UsageRes,
++    /// 数据库状态。
++    pub database: DatabaseRes,
++    /// Redis 状态。
++    pub redis: RedisRes,
++    /// 采集时间（RFC 3339）。
++    pub collected_at: String,
++}
+diff --git a/backend/src/business/monitor/handler.rs b/backend/src/business/monitor/handler.rs
+new file mode 100644
+index 0000000..f6b19c7
+--- /dev/null
++++ b/backend/src/business/monitor/handler.rs
+@@ -0,0 +1,32 @@
++//! 服务器状态接口处理器。
++//!
++//! 单个只读接口：`GET /api/business/monitor/server-status`（后端宏路径不含 `/api`，
++//! 前缀由 `config.toml` 的 `[router] prefix` 注入）。
++//!
++//! 权限码 `business:monitor:server-status` 在迁移 `V0020` 中只授予 `SUPER_ADMIN`，
++//! 因此非超管调用会被 `#[alun::permission]` 校验层直接拒绝（403），而不是仅靠前端隐藏。
++
++use alun::prelude::*;
++
++use crate::business::monitor::dto::ServerStatusRes;
++use crate::business::monitor::model;
++
++/// 服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis）。
++///
++/// # 返回值
++///
++/// 始终 `code = 0`：单项指标采集失败时对应字段降级为 `0` / `state = "down"`，
++/// 由前端展示为 `-`，不因外部依赖抖动导致整卡报错。
++///
++/// # 异常情况
++///
++/// - 403：当前用户不具备 `business:monitor:server-status`（非超级管理员）。
++#[alun::permission(
++    path = "/business/monitor/server-status",
++    method = "GET",
++    permission = "business:monitor:server-status"
++)]
++#[alun::get("/business/monitor/server-status")]
++pub async fn server_status() -> ResResult<ServerStatusRes> {
++    Ok(Res::ok(model::collect().await))
++}
+diff --git a/backend/src/business/monitor/mod.rs b/backend/src/business/monitor/mod.rs
+new file mode 100644
+index 0000000..4c8692e
+--- /dev/null
++++ b/backend/src/business/monitor/mod.rs
+@@ -0,0 +1,22 @@
++//! 服务器运行状态（二开模块 `business/monitor`）。
++//!
++//! # 接口
++//!
++//! | 方法 | 路径 | 权限码 |
++//! |------|------|--------|
++//! | GET | `/api/business/monitor/server-status` | `business:monitor:server-status` |
++//!
++//! > 处理器宏里的路径**不含** `/api`，前缀由 `config.toml` 的 `[router] prefix` 注入。
++//!
++//! # 设计约束
++//!
++//! - **只读旁路**：不写表、不加锁，全部指标现场采集，采样失败降级为 `down` / `0`，
++//!   绝不因某个外部依赖抖动把整个接口打成 500（工作台右栏不能因为 Redis 掉了就白屏）。
++//! - **仅超管可见**：权限码只授予 `SUPER_ADMIN` 角色（见迁移 `V0020`），
++//!   非超管调用 `#[alun::permission]` 校验层直接 403。
++//! - **安全红线**：响应只含聚合数值与版本号，不含数据库密码 / 连接串 / Redis 密码 /
++//!   内部路径 / 主机地址。
++
++pub mod dto;
++pub mod handler;
++pub mod model;
+diff --git a/backend/src/business/monitor/model.rs b/backend/src/business/monitor/model.rs
+new file mode 100644
+index 0000000..b478f5b
+--- /dev/null
++++ b/backend/src/business/monitor/model.rs
+@@ -0,0 +1,502 @@
++//! 服务器指标的采集与解析（数据访问 + 纯逻辑）。
++//!
++//! # 采集口径
++//!
++//! | 指标 | 来源 | 说明 |
++//! |------|------|------|
++//! | CPU | `/proc/stat` 首行 | 间隔 [`CPU_SAMPLE_INTERVAL`] 采两次，按时间片差值算使用率 |
++//! | 内存 | `/proc/meminfo` | `MemTotal` / `MemAvailable`（缺失时退化为 Free+Buffers+Cached） |
++//! | 磁盘 | `df -P -k /` | 不引入 `libc`，解析 POSIX 输出；失败降级为 0 |
++//! | 数据库 | 现有连接 | `current_database()` / `pg_database_size()` / `pg_stat_activity` / `version()` |
++//! | Redis | `INFO` | 使用与 `alun-cache` 同版本的 redis 客户端，连接失败降级为 `down` |
++//!
++//! 所有采集函数都**不返回错误**：单项失败只把该指标降级为 0 / `down`，接口整体保持 200。
++//! 解析与格式化逻辑拆成纯函数，便于单测覆盖除零、空输入等边界。
++
++use alun::prelude::*;
++
++use std::time::Duration;
++
++use crate::business::monitor::dto::{CpuRes, DatabaseRes, RedisRes, ServerStatusRes, UsageRes};
++
++/// `/proc/stat` 路径。
++const PROC_STAT: &str = "/proc/stat";
++/// `/proc/meminfo` 路径。
++const PROC_MEMINFO: &str = "/proc/meminfo";
++/// CPU 两次采样的间隔（决定使用率窗口宽度）。
++const CPU_SAMPLE_INTERVAL: Duration = Duration::from_millis(200);
++/// 数据库版本号下发时的最大字符数（`version()` 全文含编译参数，太长且无展示价值）。
++const DB_VERSION_MAX_CHARS: usize = 40;
++
++// ==================== 采集入口 ====================
++
++/// 采集一次完整的服务器状态。
++///
++/// # 返回值
++///
++/// 始终返回 [`ServerStatusRes`]：任一子项采集失败时该子项为默认值（`down` / 0），
++/// 由前端展示为 `-`，不会让接口失败。
++pub async fn collect() -> ServerStatusRes {
++    ServerStatusRes {
++        cpu: collect_cpu().await,
++        memory: collect_memory().await,
++        disk: collect_disk(),
++        database: collect_database().await,
++        redis: collect_redis().await,
++        collected_at: chrono::Utc::now().to_rfc3339(),
++    }
++}
++
++/// 采集 CPU 使用率：两次 `/proc/stat` 快照的差值。
++async fn collect_cpu() -> CpuRes {
++    let cores = std::thread::available_parallelism().map_or(0, |n| n.get() as u32);
++    let Some(prev) = read_cpu_times().await else {
++        return CpuRes {
++            percent: 0.0,
++            cores,
++        };
++    };
++    tokio::time::sleep(CPU_SAMPLE_INTERVAL).await;
++    let Some(curr) = read_cpu_times().await else {
++        return CpuRes {
++            percent: 0.0,
++            cores,
++        };
++    };
++    CpuRes {
++        percent: round1(cpu_percent(prev, curr)),
++        cores,
++    }
++}
++
++/// 读取并解析一次 `/proc/stat` 的 CPU 时间片快照。
++async fn read_cpu_times() -> Option<CpuTimes> {
++    tokio::fs::read_to_string(PROC_STAT)
++        .await
++        .ok()
++        .and_then(|text| parse_proc_stat(&text))
++}
++
++/// 采集内存使用情况。
++async fn collect_memory() -> UsageRes {
++    let Ok(text) = tokio::fs::read_to_string(PROC_MEMINFO).await else {
++        return UsageRes::default();
++    };
++    let Some(mem) = parse_meminfo(&text) else {
++        return UsageRes::default();
++    };
++    let used = mem.total_bytes.saturating_sub(mem.available_bytes);
++    usage(used, mem.total_bytes)
++}
++
++/// 采集根分区磁盘使用情况（`df -P -k /`，失败降级为 0）。
++fn collect_disk() -> UsageRes {
++    let Ok(output) = std::process::Command::new("df")
++        .args(["-P", "-k", "/"])
++        .output()
++    else {
++        return UsageRes::default();
++    };
++    if !output.status.success() {
++        return UsageRes::default();
++    }
++    let text = String::from_utf8_lossy(&output.stdout);
++    let Some(disk) = parse_df(&text) else {
++        return UsageRes::default();
++    };
++    usage(disk.used_bytes, disk.total_bytes)
++}
++
++/// 采集数据库状态：库名 / 大小 / 连接数 / 版本。
++///
++/// 查询失败（连接不可用、SQL 出错）时返回 `state = "down"`，不向上抛错。
++async fn collect_database() -> DatabaseRes {
++    const SQL: &str = r#"
++        SELECT current_database()                                             AS db_name,
++               pg_database_size(current_database())::bigint                    AS db_size,
++               (SELECT COUNT(*) FROM pg_stat_activity)::bigint                 AS db_conns,
++               version()                                                       AS db_version
++    "#;
++
++    let row = match db().find_first(SQL).await {
++        Ok(Some(row)) => row,
++        Ok(None) | Err(_) => {
++            return DatabaseRes {
++                state: "down".to_string(),
++                ..DatabaseRes::default()
++            };
++        }
++    };
++
++    let size_bytes = row.get_typed::<i64>("db_size").unwrap_or_default().max(0) as u64;
++    DatabaseRes {
++        state: "up".to_string(),
++        name: row.get_typed::<String>("db_name").unwrap_or_default(),
++        size_bytes,
++        size_text: format_bytes(size_bytes),
++        connections: row.get_typed::<i64>("db_conns").unwrap_or_default(),
++        version: truncate_chars(
++            &row.get_typed::<String>("db_version").unwrap_or_default(),
++            DB_VERSION_MAX_CHARS,
++        ),
++    }
++}
++
++/// 采集 Redis 状态（`INFO`）；连接或命令失败返回 `state = "down"`。
++async fn collect_redis() -> RedisRes {
++    let Some(info) = fetch_redis_info(&cfg().redis.url).await else {
++        return RedisRes {
++            state: "down".to_string(),
++            ..RedisRes::default()
++        };
++    };
++    let parsed = parse_redis_info(&info);
++    RedisRes {
++        state: "up".to_string(),
++        version: parsed.version,
++        used_memory_text: parsed.used_memory_text,
++        used_memory_bytes: parsed.used_memory_bytes,
++        connected_clients: parsed.connected_clients,
++        uptime_seconds: parsed.uptime_seconds,
++        keyspace_hits: parsed.keyspace_hits,
++        keyspace_misses: parsed.keyspace_misses,
++    }
++}
++
++/// 对 Redis 执行 `INFO` 并取回原始文本。
++///
++/// 使用与 `alun-cache` 相同版本的 redis 客户端（见 `Cargo.toml` 注释）；
++/// 任何失败都折叠成 `None`，由调用方降级。
++async fn fetch_redis_info(url: &str) -> Option<String> {
++    let client = redis::Client::open(url).ok()?;
++    let mut conn = client.get_multiplexed_async_connection().await.ok()?;
++    redis::cmd("INFO")
++        .query_async::<String>(&mut conn)
++        .await
++        .ok()
++}
++
++// ==================== 纯逻辑（含单测） ====================
++
++/// `/proc/stat` 首行的一条 CPU 时间片快照（单位：jiffies）。
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub struct CpuTimes {
++    /// 非空闲时间片（total - idle - iowait）。
++    pub busy: u64,
++    /// 全部时间片之和。
++    pub total: u64,
++}
++
++/// 解析 `/proc/stat` 首行，得到 CPU 时间片快照。
++///
++/// # 返回值
++///
++/// 首行不是 `cpu` 汇总行、字段不足 8 个或含非数字字段时返回 `None`。
++pub fn parse_proc_stat(text: &str) -> Option<CpuTimes> {
++    let line = text.lines().find(|line| line.starts_with("cpu "))?;
++    let values: Vec<u64> = line
++        .split_whitespace()
++        .skip(1)
++        .filter_map(|field| field.parse::<u64>().ok())
++        .collect();
++    // 至少要有 user nice system idle iowait irq softirq steal 八列，后面的 guest 列可缺
++    if values.len() < 8 {
++        return None;
++    }
++    let total: u64 = values.iter().take(8).sum();
++    let idle = values[3].saturating_add(values[4]);
++    Some(CpuTimes {
++        busy: total.saturating_sub(idle),
++        total,
++    })
++}
++
++/// 按两次快照的时间片差值计算 CPU 使用率（0-100）。
++///
++/// # 边界
++///
++/// 两次快照相同时（total 差值为 0）返回 `0.0`，不做除法，避免除零 panic。
++pub fn cpu_percent(prev: CpuTimes, curr: CpuTimes) -> f64 {
++    let total_delta = curr.total.saturating_sub(prev.total);
++    if total_delta == 0 {
++        return 0.0;
++    }
++    let busy_delta = curr.busy.saturating_sub(prev.busy);
++    (busy_delta as f64 * 100.0 / total_delta as f64).clamp(0.0, 100.0)
++}
++
++/// 内存快照（字节）。
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub struct MemSnapshot {
++    /// 物理内存总量。
++    pub total_bytes: u64,
++    /// 可用内存。
++    pub available_bytes: u64,
++}
++
++/// 解析 `/proc/meminfo`。
++///
++/// `MemAvailable` 缺失（老内核）时退化为 `MemFree + Buffers + Cached`。
++///
++/// # 返回值
++///
++/// 缺少 `MemTotal` 或可用内存三项全缺时返回 `None`。
++pub fn parse_meminfo(text: &str) -> Option<MemSnapshot> {
++    let mut total_kb: Option<u64> = None;
++    let mut available_kb: Option<u64> = None;
++    let mut fallback_kb = 0_u64;
++    let mut fallback_hits = 0_u8;
++
++    for line in text.lines() {
++        let Some((key, rest)) = line.split_once(':') else {
++            continue;
++        };
++        let Some(value) = rest
++            .split_whitespace()
++            .next()
++            .and_then(|v| v.parse::<u64>().ok())
++        else {
++            continue;
++        };
++        match key.trim() {
++            "MemTotal" => total_kb = Some(value),
++            "MemAvailable" => available_kb = Some(value),
++            "MemFree" | "Buffers" | "Cached" => {
++                fallback_kb = fallback_kb.saturating_add(value);
++                fallback_hits = fallback_hits.saturating_add(1);
++            }
++            _ => {}
++        }
++    }
++
++    let total_kb = total_kb?;
++    let available_kb = match available_kb {
++        Some(value) => value,
++        // 三项必须都在才会有满 3 次命中，否则视为无法判定可用内存
++        None if fallback_hits >= 3 => fallback_kb,
++        None => return None,
++    };
++    Some(MemSnapshot {
++        total_bytes: total_kb.saturating_mul(1024),
++        available_bytes: available_kb.saturating_mul(1024),
++    })
++}
++
++/// 磁盘快照（字节）。
++#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
++pub struct DiskSnapshot {
++    /// 总容量。
++    pub total_bytes: u64,
++    /// 已用容量。
++    pub used_bytes: u64,
++}
++
++/// 解析 `df -P -k` 输出（取最后一行数据行）。
++///
++/// # 返回值
++///
++/// 缺少数据行、列数不足或列值非数字时返回 `None`。
++pub fn parse_df(text: &str) -> Option<DiskSnapshot> {
++    let line = text.lines().rfind(|line| !line.trim().is_empty())?;
++    let cols: Vec<&str> = line.split_whitespace().collect();
++    if cols.len() < 4 {
++        return None;
++    }
++    let total_kb = cols[1].parse::<u64>().ok()?;
++    let used_kb = cols[2].parse::<u64>().ok()?;
++    Some(DiskSnapshot {
++        total_bytes: total_kb.saturating_mul(1024),
++        used_bytes: used_kb.saturating_mul(1024),
++    })
++}
++
++/// Redis `INFO` 中需要下发的字段。
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct RedisInfo {
++    /// 版本号。
++    pub version: String,
++    /// 已用内存文本（Redis 自报单位）。
++    pub used_memory_text: String,
++    /// 已用内存字节数。
++    pub used_memory_bytes: u64,
++    /// 客户端连接数。
++    pub connected_clients: i64,
++    /// 运行时长（秒）。
++    pub uptime_seconds: i64,
++    /// 命中次数。
++    pub keyspace_hits: i64,
++    /// 未命中次数。
++    pub keyspace_misses: i64,
++}
++
++/// 解析 Redis `INFO` 文本。
++///
++/// 只认 `key:value` 行，`# Section` 与空行直接跳过；缺失字段保留默认值（0 / 空串），
++/// 因此空输入也返回全默认结构而不报错。
++pub fn parse_redis_info(text: &str) -> RedisInfo {
++    let mut info = RedisInfo::default();
++    for line in text.lines() {
++        let Some((key, value)) = line.split_once(':') else {
++            continue;
++        };
++        let value = value.trim();
++        match key.trim() {
++            "redis_version" => info.version = value.to_string(),
++            "used_memory_human" => info.used_memory_text = value.to_string(),
++            "used_memory" => info.used_memory_bytes = value.parse().unwrap_or_default(),
++            "connected_clients" => info.connected_clients = value.parse().unwrap_or_default(),
++            "uptime_in_seconds" => info.uptime_seconds = value.parse().unwrap_or_default(),
++            "keyspace_hits" => info.keyspace_hits = value.parse().unwrap_or_default(),
++            "keyspace_misses" => info.keyspace_misses = value.parse().unwrap_or_default(),
++            _ => {}
++        }
++    }
++    info
++}
++
++/// 组装容量响应（百分比 + 字节 + GB 文本）。
++pub fn usage(used_bytes: u64, total_bytes: u64) -> UsageRes {
++    UsageRes {
++        percent: round1(usage_percent(used_bytes, total_bytes)),
++        used_bytes,
++        total_bytes,
++        used_text: format_bytes(used_bytes),
++        total_text: format_bytes(total_bytes),
++    }
++}
++
++/// 计算使用率百分比（0-100）。
++///
++/// # 边界
++///
++/// `total == 0`（未采集到容量）时返回 `0.0`，不做除法。
++pub fn usage_percent(used: u64, total: u64) -> f64 {
++    if total == 0 {
++        return 0.0;
++    }
++    (used as f64 * 100.0 / total as f64).clamp(0.0, 100.0)
++}
++
++/// 字节数转人类可读文本：≥ 1 GB 用 GB（1 位小数），否则用 MB（整数）。
++pub fn format_bytes(bytes: u64) -> String {
++    const MB: f64 = 1024.0 * 1024.0;
++    const GB: f64 = 1024.0 * MB;
++    let value = bytes as f64;
++    if value >= GB {
++        format!("{:.1} GB", value / GB)
++    } else {
++        format!("{:.0} MB", value / MB)
++    }
++}
++
++/// 保留 1 位小数。
++fn round1(value: f64) -> f64 {
++    (value * 10.0).round() / 10.0
++}
++
++/// 按字符数截断（避免在多字节边界切分）。
++fn truncate_chars(input: &str, max: usize) -> String {
++    if input.chars().count() <= max {
++        return input.to_string();
++    }
++    input.chars().take(max).collect()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn parse_proc_stat_normal() {
++        // cpu user nice system idle iowait irq softirq steal
++        let text = "cpu  100 20 30 800 50 10 5 5 0 0\ncpu0 1 2 3 4 5 6 7 8\n";
++        let times = parse_proc_stat(text).expect("应能解析 CPU 汇总行");
++        assert_eq!(times.total, 1020);
++        // idle + iowait = 850
++        assert_eq!(times.busy, 170);
++    }
++
++    #[test]
++    fn cpu_percent_normal_and_zero_delta() {
++        let prev = CpuTimes {
++            busy: 100,
++            total: 1000,
++        };
++        let curr = CpuTimes {
++            busy: 200,
++            total: 2000,
++        };
++        assert_eq!(cpu_percent(prev, curr), 10.0);
++
++        // 边界：两次快照完全相同 → 不 panic，返回 0
++        assert_eq!(cpu_percent(prev, prev), 0.0);
++        // 边界：计数器回绕（curr < prev）→ 饱和为 0
++        assert_eq!(cpu_percent(curr, prev), 0.0);
++    }
++
++    #[test]
++    fn parse_proc_stat_invalid() {
++        assert!(parse_proc_stat("intr 1 2 3\n").is_none());
++        assert!(parse_proc_stat("cpu  1 2 3\n").is_none());
++    }
++
++    #[test]
++    fn parse_meminfo_normal() {
++        let text = "MemTotal:       16384000 kB\nMemFree:         1000000 kB\nMemAvailable:    8192000 kB\nBuffers:          500000 kB\nCached:          4000000 kB\n";
++        let mem = parse_meminfo(text).expect("应能解析内存");
++        assert_eq!(mem.total_bytes, 16_384_000 * 1024);
++        assert_eq!(mem.available_bytes, 8_192_000 * 1024);
++    }
++
++    #[test]
++    fn parse_meminfo_fallback_and_missing() {
++        // 边界：无 MemAvailable（老内核）→ Free + Buffers + Cached
++        let fallback = "MemTotal: 1000 kB\nMemFree: 100 kB\nBuffers: 50 kB\nCached: 150 kB\n";
++        let mem = parse_meminfo(fallback).expect("回退口径应可用");
++        assert_eq!(mem.available_bytes, 300 * 1024);
++        // 边界：缺 MemTotal → None
++        assert!(parse_meminfo("MemFree: 100 kB\n").is_none());
++    }
++
++    #[test]
++    fn parse_df_normal_and_invalid() {
++        let text = "Filesystem     1024-blocks    Used Available Capacity Mounted on\n/dev/sda1         1000000  250000    750000      25% /\n";
++        let disk = parse_df(text).expect("应能解析 df 输出");
++        assert_eq!(disk.total_bytes, 1_000_000 * 1024);
++        assert_eq!(disk.used_bytes, 250_000 * 1024);
++        // 边界：空输出 / 列数不足
++        assert!(parse_df("").is_none());
++        assert!(parse_df("Filesystem\n/dev/sda1\n").is_none());
++    }
++
++    #[test]
++    fn parse_redis_info_normal_and_empty() {
++        let text = "# Server\r\nredis_version:7.2.4\r\nused_memory:1048576\r\nused_memory_human:1.00M\r\nconnected_clients:3\r\nuptime_in_seconds:3600\r\nkeyspace_hits:100\r\nkeyspace_misses:7\r\n";
++        let info = parse_redis_info(text);
++        assert_eq!(info.version, "7.2.4");
++        assert_eq!(info.used_memory_bytes, 1_048_576);
++        assert_eq!(info.connected_clients, 3);
++        assert_eq!(info.keyspace_misses, 7);
++        // 边界：空输入返回全默认，不 panic
++        assert_eq!(parse_redis_info(""), RedisInfo::default());
++    }
++
++    #[test]
++    fn format_bytes_and_usage_boundaries() {
++        assert_eq!(format_bytes(0), "0 MB");
++        assert_eq!(format_bytes(2 * 1024 * 1024 * 1024), "2.0 GB");
++        assert_eq!(format_bytes(64 * 1024 * 1024), "64 MB");
++        // 边界：总量为 0 时不做除法
++        assert_eq!(usage_percent(100, 0), 0.0);
++        assert_eq!(usage_percent(1, 4), 25.0);
++        // 已用大于总量（statvfs/df 口径差异）时饱和到 100
++        assert_eq!(usage_percent(200, 100), 100.0);
++    }
++
++    #[test]
++    fn truncate_chars_keeps_multibyte_boundary() {
++        assert_eq!(truncate_chars("PostgreSQL 17.0", 11), "PostgreSQL ");
++        assert_eq!(truncate_chars("数据库版本很长", 3), "数据库");
++        assert_eq!(truncate_chars("short", 40), "short");
++    }
++}
+diff --git a/backend/src/lib.rs b/backend/src/lib.rs
+index 367ec2c..5829bb3 100644
+--- a/backend/src/lib.rs
++++ b/backend/src/lib.rs
+@@ -30,6 +30,7 @@
+ use alun::prelude::*;
+ 
+ pub mod bootstrap;
++pub mod business;
+ pub mod middleware;
+ pub mod shared;
+ pub mod support;
+diff --git "a/docs/\344\272\214\345\274\200-business-monitor-\346\216\245\345\217\243\345\245\221\347\272\246.md" "b/docs/\344\272\214\345\274\200-business-monitor-\346\216\245\345\217\243\345\245\221\347\272\246.md"
+new file mode 100644
+index 0000000..4f9cfe4
+--- /dev/null
++++ "b/docs/\344\272\214\345\274\200-business-monitor-\346\216\245\345\217\243\345\245\221\347\272\246.md"
+@@ -0,0 +1,94 @@
++# 二开模块 `business/monitor` —— 服务器状态接口契约
++
++> 引入版本：迁移 `V0020`（二开号段，基础版封顶 V0017）
++> 代码位置：`backend/src/business/monitor/`（`mod.rs` / `handler.rs` / `dto.rs` / `model.rs`）
++> 前端位置：`frontend/src/api/business/monitor-api.ts` + `frontend/src/views/dashboard/index.vue`
++> 这是本项目**第一个 `business/` 业务模块**，同时完成了「`business/` 容器首次登记」：`src/business/mod.rs` + `lib.rs` 的 `pub mod business;`
++
++## 1. 接口
++
++| 项 | 值 |
++|---|---|
++| 方法 / 路径 | `GET /api/business/monitor/server-status` |
++| 后端宏路径 | `/business/monitor/server-status`（**不含** `/api`，前缀由 `[router] prefix` 注入） |
++| 权限码 | `business:monitor:server-status` |
++| 授权范围 | 仅 `SUPER_ADMIN`（种子授权 + 迁移 V0020 写入 `sys_menu` / `sys_role_menu`） |
++| 鉴权失败 | 401（无令牌） / 403（非超管：`{"code":403,"msg":"无权限访问，需要权限: business:monitor:server-status"}`） |
++| 响应 | 统一 `Res<ServerStatusRes>`，`code=0`；**恒 200，不因单项采集失败返回 5xx** |
++
++### 响应结构（字段名与前端 TS 类型严格一致）
++
++```json
++{
++  "code": 0,
++  "msg": "ok",
++  "data": {
++    "cpu": { "percent": 1.2, "cores": 4 },
++    "memory": { "percent": 19.6, "used_bytes": 1375494144, "total_bytes": 7756943360,
++                "used_text": "1.3 GB", "total_text": "7.2 GB" },
++    "disk":   { "percent": 8.8, "used_bytes": 23880863744, "total_bytes": 271465345024,
++                "used_text": "22.2 GB", "total_text": "252.8 GB" },
++    "database": { "state": "up", "name": "cailu", "size_bytes": 9639615, "size_text": "9 MB",
++                  "connections": 25, "version": "PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26" },
++    "redis":  { "state": "up", "version": "8.0.5", "used_memory_text": "1.08M",
++                "used_memory_bytes": 1131856, "connected_clients": 4, "uptime_seconds": 17363,
++                "keyspace_hits": 199, "keyspace_misses": 5281 },
++    "collected_at": "2026-10-27T09:40:25.051869938+00:00"
++  }
++}
++```
++
++## 2. 采集口径
++
++| 指标 | 实现 | 失败时 |
++|---|---|---|
++| CPU | `/proc/stat` 首行，间隔 200ms 采两次，`(busyΔ / totalΔ) × 100`，busy = total − idle − iowait，结果 clamp 0-100 | `percent=0.0` |
++| 内存 | `/proc/meminfo`：`MemTotal` − `MemAvailable`；`MemAvailable` 缺失时退化为 `MemFree+Buffers+Cached` | 全 0 |
++| 磁盘 | `df -P -k /` 解析（未引入 `libc`，避免新增系统依赖） | 全 0 |
++| 数据库 | 复用 `db()` 连接：`current_database()` / `pg_database_size()` / `pg_stat_activity` 计数 / `version()`（截 40 字符） | `state="down"` |
++| Redis | `redis::cmd("INFO")`（依赖已在依赖树中，见 `Cargo.toml` 注释）取版本、`used_memory*`、`connected_clients`、`uptime_in_seconds`、`keyspace_hits/misses` | `state="down"` |
++
++**安全边界**：响应只含聚合数值 / 版本号；**不含**数据库密码、连接串、Redis 密码、内部路径、主机地址。
++
++## 3. 前端行为
++
++- 卡片位于工作台右栏（360px，`dashboard__card` 体系），标题「服务器状态」。
++- **仅超管渲染**：`v-if="isSuperAdmin"`（`userStore.roles.includes('SUPER_ADMIN')`）。非超管时整卡不进 DOM，且**不发请求**（实测 `performance` 中 `server-status` 请求数为 0）。
++  - 不用 `hasPermission('business:monitor:server-status')` 作为唯一判据：超管持有 `*:*:*` 通配码，若该权限点将来授予普通角色，`hasPermission` 会放行，与「仅超管可见」相悖。
++- 保留原「服务状态 / 应用名称 / 运行 profile / 服务端时间」（数据仍来自免鉴权 `/health`）。
++- 新增：CPU / 内存 / 磁盘三条 `t-progress`（≥85% 红、≥70% 橙、其余绿）+ 容量文本；数据库（状态 / 名称 / 大小 / 连接数）；Redis（状态 / 内存 / 客户端数 / 运行时长）。
++- 刷新按钮 + 20s 轮询；`document.visibilityState !== 'visible'` 时暂停轮询，标签页回到前台立即补一次并重新计时；`onUnmounted` 清理定时器与监听。
++
++## 4. 迁移与权限种子
++
++```sql
++-- backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
++INSERT INTO sys_menu (...) VALUES ('20000000-0000-0000-0000-000000000001', 'business:monitor:server-status', ...)
++ON CONFLICT (id) DO NOTHING;
++INSERT INTO sys_role_menu (...) SELECT ... WHERE r.role_code = 'SUPER_ADMIN' ON CONFLICT DO NOTHING;
++```
++
++- 超管鉴权本身由 `role_code` 短路（`is_super_admin` → 权限列表下发 `*:*:*`），`sys_role_menu` 的写入是为了「角色授权」页权限树完整展示。
++- `.down.sql` 先删授权行再删菜单行。
++- 幂等：固定 UUID + `ON CONFLICT DO NOTHING`，重复执行不报错、不覆盖人工改名。
++
++## 5. 测试基线
++
++```bash
++cd /opt/cailu/backend  && cargo test        # 22 passed（新增 8 个：/proc/stat 解析、差值/除零、meminfo 正常+回退、df 正常+异常、redis INFO、format_bytes、truncate_chars）
++cd /opt/cailu/frontend && pnpm typecheck    # rc=0
++```
++
++实测（dev `cailu_dev` / prod `cailu` 双端）：
++
++| 场景 | 结果 |
++|---|---|
++| 超管 token `GET /api/business/monitor/server-status` | 200，`code=0`，字段齐全有真实数值 |
++| 普通角色 token 同接口 | **403**，`msg` 明确给出所需权限码 |
++| 超管工作台（浏览器） | 卡片渲染，CPU/内存/磁盘/DB 名+大小/Redis 状态均有真实值，原 4 项信息保留 |
++| 非超管工作台（浏览器） | 卡片不在 DOM，`server-status` 请求数 0 |
++| 20s 轮询 | 「更新于」自动前进（visible 时）；页面隐藏时按设计暂停 |
++
++## 6. 后续二开参考
++
++新增 `business/<模块>` 时按同一套路走：四件套 + `pub mod` 登记（首次需建 `business/mod.rs` 并在 `lib.rs` 声明）+ `migrations/business/V00xx__*.{up,down}.sql`（从 V0020 起）+ `sys_menu` 权限点 + 前端 `api/business/<模块>-api.ts` + 单测（正常 + 1 个边界）+ `cargo test` 全绿。
+diff --git a/frontend/src/api/business/monitor-api.ts b/frontend/src/api/business/monitor-api.ts
+new file mode 100644
+index 0000000..7a41801
+--- /dev/null
++++ b/frontend/src/api/business/monitor-api.ts
+@@ -0,0 +1,85 @@
++import { get } from '@/api/request';
++
++/** CPU 使用情况（对应后端 `business::monitor::dto::CpuRes`） */
++export interface CpuRes {
++  /** 采样窗口内的使用率，0-100，保留 1 位小数 */
++  percent: number;
++  /** 逻辑核心数 */
++  cores: number;
++}
++
++/** 内存 / 磁盘容量信息（对应后端 `UsageRes`） */
++export interface UsageRes {
++  /** 使用率百分比，0-100 */
++  percent: number;
++  /** 已用字节数 */
++  used_bytes: number;
++  /** 总字节数 */
++  total_bytes: number;
++  /** 已用容量文本（GB 口径） */
++  used_text: string;
++  /** 总容量文本（GB 口径） */
++  total_text: string;
++}
++
++/** 数据库状态（对应后端 `DatabaseRes`） */
++export interface DatabaseRes {
++  /** `up` / `down` */
++  state: string;
++  /** 当前库名 */
++  name: string;
++  /** 库大小（字节） */
++  size_bytes: number;
++  /** 库大小文本（MB / GB） */
++  size_text: string;
++  /** 数据库连接数 */
++  connections: number;
++  /** 数据库版本（截断至 40 字符） */
++  version: string;
++}
++
++/** Redis 状态（对应后端 `RedisRes`） */
++export interface RedisRes {
++  /** `up` / `down` */
++  state: string;
++  /** Redis 版本 */
++  version: string;
++  /** 已用内存文本（Redis 自报单位） */
++  used_memory_text: string;
++  /** 已用内存字节数 */
++  used_memory_bytes: number;
++  /** 客户端连接数 */
++  connected_clients: number;
++  /** 运行时长（秒） */
++  uptime_seconds: number;
++  /** 命中次数 */
++  keyspace_hits: number;
++  /** 未命中次数 */
++  keyspace_misses: number;
++}
++
++/** 服务器状态响应体（对应后端 `ServerStatusRes`） */
++export interface ServerStatusRes {
++  /** CPU */
++  cpu: CpuRes;
++  /** 内存 */
++  memory: UsageRes;
++  /** 磁盘 */
++  disk: UsageRes;
++  /** 数据库 */
++  database: DatabaseRes;
++  /** Redis */
++  redis: RedisRes;
++  /** 采集时间（RFC 3339） */
++  collected_at: string;
++}
++
++/**
++ * 查询服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis）。
++ *
++ * 权限码 `business:monitor:server-status` 只授予超级管理员，非超管调用返回 403；
++ * 调用方应在渲染前先判断角色，避免无谓的拒绝请求。
++ */
++export function fetchServerStatus(): Promise<ServerStatusRes> {
++  return get<ServerStatusRes>('/api/business/monitor/server-status');
++}
+diff --git a/frontend/src/types/components.d.ts b/frontend/src/types/components.d.ts
+index c516abe..f0f58dd 100644
+--- a/frontend/src/types/components.d.ts
++++ b/frontend/src/types/components.d.ts
+@@ -53,6 +53,7 @@ declare module 'vue' {
+     TOption: typeof import('tdesign-vue-next')['Option']
+     TPopconfirm: typeof import('tdesign-vue-next')['Popconfirm']
+     TPopup: typeof import('tdesign-vue-next')['Popup']
++    TProgress: typeof import('tdesign-vue-next')['Progress']
+     TRadio: typeof import('tdesign-vue-next')['Radio']
+     TRadioGroup: typeof import('tdesign-vue-next')['RadioGroup']
+     TRow: typeof import('tdesign-vue-next')['Row']
+@@ -114,6 +115,7 @@ declare global {
+   const TOption: typeof import('tdesign-vue-next')['Option']
+   const TPopconfirm: typeof import('tdesign-vue-next')['Popconfirm']
+   const TPopup: typeof import('tdesign-vue-next')['Popup']
++  const TProgress: typeof import('tdesign-vue-next')['Progress']
+   const TRadio: typeof import('tdesign-vue-next')['Radio']
+   const TRadioGroup: typeof import('tdesign-vue-next')['RadioGroup']
+   const TRow: typeof import('tdesign-vue-next')['Row']
+diff --git a/frontend/src/views/dashboard/index.vue b/frontend/src/views/dashboard/index.vue
+index efd66c3..c7c5c68 100644
+--- a/frontend/src/views/dashboard/index.vue
++++ b/frontend/src/views/dashboard/index.vue
+@@ -123,29 +123,78 @@
+           </t-row>
+         </t-col>
+ 
+-        <!-- 右栏：固定 360px，只剩系统状态卡片 -->
++        <!--
++          右栏：固定 360px。
++          服务器状态卡仅对超级管理员渲染：非超管时 v-if 为 false，DOM 里不会出现该卡片，
++          也不会发起 /api/business/monitor/server-status 请求（后端对非超管返回 403）。
++        -->
+         <t-col class="dashboard__aside">
+           <t-row :gutter="[16, 16]">
+-            <!-- 系统状态：沿用 /health 自检接口 -->
+-            <t-col class="dashboard__full-col">
+-              <t-card title="系统状态" :bordered="false" class="dashboard__card">
++            <t-col v-if="isSuperAdmin" class="dashboard__full-col">
++              <t-card title="服务器状态" :bordered="false" class="dashboard__card">
+                 <template #actions>
+-                  <t-button variant="text" :loading="isHealthLoading" @click="loadHealth">
++                  <t-button variant="text" :loading="isStatusLoading" @click="loadServerStatus">
+                     刷新
+                   </t-button>
+                 </template>
+ 
+-                <t-alert v-if="healthError" theme="error" :message="healthError" />
+-                <t-descriptions v-else :column="1" size="small">
+-                  <t-descriptions-item label="服务状态">
+-                    <t-tag :theme="isHealthy ? 'success' : 'danger'" variant="light">
+-                      {{ health?.status ?? '-' }}
+-                    </t-tag>
+-                  </t-descriptions-item>
+-                  <t-descriptions-item label="应用名称">{{ health?.app ?? '-' }}</t-descriptions-item>
+-                  <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
+-                  <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
+-                </t-descriptions>
++                <t-alert v-if="statusError" theme="error" :message="statusError" />
++                <template v-else>
++                  <!-- 服务自检信息：沿用免鉴权 /health，保证采集接口异常时仍可判活 -->
++                  <t-descriptions :column="1" size="small">
++                    <t-descriptions-item label="服务状态">
++                      <t-tag :theme="isHealthy ? 'success' : 'danger'" variant="light">
++                        {{ health?.status ?? '-' }}
++                      </t-tag>
++                    </t-descriptions-item>
++                    <t-descriptions-item label="应用名称">{{ health?.app ?? '-' }}</t-descriptions-item>
++                    <t-descriptions-item label="运行 profile">{{ health?.profile ?? '-' }}</t-descriptions-item>
++                    <t-descriptions-item label="服务端时间">{{ formattedTime }}</t-descriptions-item>
++                  </t-descriptions>
++
++                  <!-- CPU / 内存 / 磁盘：进度条 + 容量文本 -->
++                  <div class="dashboard__usage-list">
++                    <div v-for="item in usageItems" :key="item.key" class="dashboard__usage">
++                      <div class="dashboard__usage-head">
++                        <span class="dashboard__usage-label">{{ item.label }}</span>
++                        <span class="dashboard__usage-value">{{ item.value }}</span>
++                      </div>
++                      <t-progress
++                        :percentage="item.percent"
++                        :label="false"
++                        :status="item.status"
++                        size="small"
++                      />
++                      <div class="dashboard__usage-sub">{{ item.sub }}</div>
++                    </div>
++                  </div>
++
++                  <!-- 数据库 / Redis：只展示聚合数值，不含连接串与密码 -->
++                  <t-descriptions :column="1" size="small">
++                    <t-descriptions-item label="数据库">
++                      <t-tag :theme="databaseStateTheme" variant="light">{{ databaseStateText }}</t-tag>
++                      <span class="dashboard__usage-hint">{{ serverStatus?.database.name || '-' }}</span>
++                    </t-descriptions-item>
++                    <t-descriptions-item label="数据库大小">
++                      {{ serverStatus?.database.size_text || '-' }}
++                    </t-descriptions-item>
++                    <t-descriptions-item label="数据库连接">
++                      {{ serverStatus ? `${serverStatus.database.connections} 个` : '-' }}
++                    </t-descriptions-item>
++                    <t-descriptions-item label="Redis">
++                      <t-tag :theme="redisStateTheme" variant="light">{{ redisStateText }}</t-tag>
++                      <span class="dashboard__usage-hint">{{ serverStatus?.redis.used_memory_text || '-' }}</span>
++                    </t-descriptions-item>
++                    <t-descriptions-item label="Redis 客户端">
++                      {{ serverStatus ? `${serverStatus.redis.connected_clients} 个` : '-' }}
++                    </t-descriptions-item>
++                    <t-descriptions-item label="Redis 运行">
++                      {{ redisUptimeText }}
++                    </t-descriptions-item>
++                  </t-descriptions>
++
++                  <div class="dashboard__status-foot">更新于 {{ statusUpdatedAt || '-' }}</div>
++                </template>
+               </t-card>
+             </t-col>
+           </t-row>
+@@ -156,12 +205,13 @@
+ </template>
+ 
+ <script setup lang="ts">
+-import { computed, onMounted, ref } from 'vue';
++import { computed, onMounted, onUnmounted, ref } from 'vue';
+ import { useRouter } from 'vue-router';
+ import dayjs from 'dayjs';
+ import type { EChartsCoreOption } from 'echarts';
+ import EChart from '@/components/EChart.vue';
+ import { fetchHealth, type HealthRes } from '@/api/health';
++import { fetchServerStatus, type ServerStatusRes } from '@/api/business/monitor-api';
+ import { fetchOverview, type OverviewRes } from '@/api/support/dashboard-api';
+ import { ApiError } from '@/api/request';
+ import { useUserStore } from '@/stores/user';
+@@ -179,6 +229,15 @@ const overviewError = ref('');
+ /** 健康检查失败提示 */
+ const healthError = ref('');
+ 
++/** 服务器状态数据（仅超级管理员加载，未加载时为 null） */
++const serverStatus = ref<ServerStatusRes | null>(null);
++/** 服务器状态加载中标记 */
++const isStatusLoading = ref(false);
++/** 服务器状态加载失败提示 */
++const statusError = ref('');
++/** 服务器状态最近一次刷新时间（HH:mm:ss） */
++const statusUpdatedAt = ref('');
++
+ /**
+  * 首页只展示 8 个核心指标（后端共下发 12 个）。
+  *
+@@ -408,9 +467,172 @@ async function loadHealth(): Promise<void> {
+   }
+ }
+ 
++/**
++ * 是否超级管理员。
++ *
++ * 服务器状态（CPU / 内存 / 磁盘 / DB / Redis）只对超管开放：后端用
++ * `business:monitor:server-status` 权限码（只授予 SUPER_ADMIN）硬校验，
++ * 前端据此决定是否渲染整卡、是否发起请求。
++ * 这里按**角色编码**判定而不是 `hasPermission`：超管持有 `*:*:*` 通配码，
++ * 若将来把该权限点授予普通角色，`hasPermission` 会放行，与「仅超管可见」相悖。
++ */
++const isSuperAdmin = computed(() => userStore.roles.includes('SUPER_ADMIN'));
++
++/** CPU / 内存 / 磁盘三条进度条的数据源 */
++interface UsageItem {
++  /** 稳定 key，用于 v-for */
++  key: string;
++  /** 指标名 */
++  label: string;
++  /** 百分比（0-100） */
++  percent: number;
++  /** 主数值文本 */
++  value: string;
++  /** 次要说明文本 */
++  sub: string;
++  /** 进度条状态色：低负载 success / 中负载 warning / 高负载 error */
++  status: 'success' | 'warning' | 'error';
++}
++
++/** 进度条状态色：≥85% 红、≥70% 橙、其余绿 */
++function usageStatus(percent: number): 'success' | 'warning' | 'error' {
++  if (percent >= 85) return 'error';
++  if (percent >= 70) return 'warning';
++  return 'success';
++}
++
++/** 百分比文本：空值显示 `-`，其余保留 1 位小数 */
++function percentText(percent?: number): string {
++  return typeof percent === 'number' && Number.isFinite(percent) ? `${percent.toFixed(1)}%` : '-';
++}
++
++/** 三条用量进度条（未采集到时全部显示 `-`，不报错） */
++const usageItems = computed<UsageItem[]>(() => {
++  const status = serverStatus.value;
++  if (!status) {
++    return [
++      { key: 'cpu', label: 'CPU 占用', percent: 0, value: '-', sub: '-', status: 'success' },
++      { key: 'memory', label: '内存占用', percent: 0, value: '-', sub: '-', status: 'success' },
++      { key: 'disk', label: '磁盘占用', percent: 0, value: '-', sub: '-', status: 'success' },
++    ];
++  }
++  return [
++    {
++      key: 'cpu',
++      label: 'CPU 占用',
++      percent: status.cpu.percent,
++      value: percentText(status.cpu.percent),
++      sub: `${status.cpu.cores} 核逻辑核心`,
++      status: usageStatus(status.cpu.percent),
++    },
++    {
++      key: 'memory',
++      label: '内存占用',
++      percent: status.memory.percent,
++      value: percentText(status.memory.percent),
++      sub: `${status.memory.used_text || '-'} / ${status.memory.total_text || '-'}`,
++      status: usageStatus(status.memory.percent),
++    },
++    {
++      key: 'disk',
++      label: '磁盘占用',
++      percent: status.disk.percent,
++      value: percentText(status.disk.percent),
++      sub: `${status.disk.used_text || '-'} / ${status.disk.total_text || '-'}`,
++      status: usageStatus(status.disk.percent),
++    },
++  ];
++});
++
++/** 数据库连通状态 -> TDesign 标签主题 */
++const databaseStateTheme = computed(() =>
++  serverStatus.value?.database.state === 'up' ? 'success' : 'danger',
++);
++/** 数据库连通状态 -> 展示文本 */
++const databaseStateText = computed(() =>
++  serverStatus.value?.database.state === 'up' ? '正常' : '异常',
++);
++/** Redis 连通状态 -> TDesign 标签主题 */
++const redisStateTheme = computed(() =>
++  serverStatus.value?.redis.state === 'up' ? 'success' : 'danger',
++);
++/** Redis 连通状态 -> 展示文本 */
++const redisStateText = computed(() => (serverStatus.value?.redis.state === 'up' ? '正常' : '异常'));
++
++/** Redis 运行时长：秒 -> 「X 天 Y 小时」/「Y 小时 Z 分」/「Z 分」 */
++function formatUptime(seconds?: number): string {
++  if (typeof seconds !== 'number' || !Number.isFinite(seconds) || seconds <= 0) return '-';
++  const days = Math.floor(seconds / 86400);
++  const hours = Math.floor((seconds % 86400) / 3600);
++  const minutes = Math.floor((seconds % 3600) / 60);
++  if (days > 0) return `${days} 天 ${hours} 小时`;
++  if (hours > 0) return `${hours} 小时 ${minutes} 分`;
++  return `${minutes} 分`;
++}
++
++const redisUptimeText = computed(() => formatUptime(serverStatus.value?.redis.uptime_seconds));
++
++/** 拉取服务器状态；非超管直接跳过（不发必然 403 的请求） */
++async function loadServerStatus(): Promise<void> {
++  if (!isSuperAdmin.value) return;
++  isStatusLoading.value = true;
++  statusError.value = '';
++  try {
++    serverStatus.value = await fetchServerStatus();
++    statusUpdatedAt.value = dayjs().format('HH:mm:ss');
++  } catch (error) {
++    serverStatus.value = null;
++    statusError.value = error instanceof ApiError ? error.message : '服务器状态加载失败';
++  } finally {
++    isStatusLoading.value = false;
++  }
++}
++
++/** 轮询间隔：20s，兼顾实时性与后端 CPU 采样开销 */
++const STATUS_POLL_INTERVAL = 20000;
++/** 轮询句柄：页面不可见时暂停（切回来立即补一次） */
++let statusTimer: ReturnType<typeof setInterval> | null = null;
++
++/** 停止轮询（幂等） */
++function stopStatusPolling(): void {
++  if (statusTimer !== null) {
++    clearInterval(statusTimer);
++    statusTimer = null;
++  }
++}
++
++/** 启动轮询：仅超管启用 */
++function startStatusPolling(): void {
++  stopStatusPolling();
++  if (!isSuperAdmin.value) return;
++  statusTimer = setInterval(() => {
++    if (document.visibilityState === 'visible') {
++      void loadServerStatus();
++    }
++  }, STATUS_POLL_INTERVAL);
++}
++
++/** 标签页重新可见时补一次刷新，避免长时间停留在旧数值上 */
++function handleVisibilityChange(): void {
++  if (document.visibilityState === 'visible') {
++    void loadServerStatus();
++  }
++}
++
+ onMounted(() => {
+   void loadOverview();
+   void loadHealth();
++  // 服务器状态仅超管可见：非超管既不请求也不轮询，DOM 中也不会出现该卡片
++  if (isSuperAdmin.value) {
++    void loadServerStatus();
++    startStatusPolling();
++    document.addEventListener('visibilitychange', handleVisibilityChange);
++  }
++});
++
++onUnmounted(() => {
++  stopStatusPolling();
++  document.removeEventListener('visibilitychange', handleVisibilityChange);
+ });
+ </script>
+ 
+@@ -519,6 +741,57 @@ onMounted(() => {
+     height: 100%;
+   }
+ 
++  // ---------- 服务器状态卡（右栏，仅超管） ----------
++  &__usage-list {
++    display: flex;
++    flex-direction: column;
++    gap: 12px;
++    margin: 12px 0 4px;
++  }
++
++  &__usage {
++    display: flex;
++    flex-direction: column;
++    gap: 4px;
++    min-width: 0;
++  }
++
++  &__usage-head {
++    display: flex;
++    align-items: baseline;
++    justify-content: space-between;
++    gap: 8px;
++    font-size: 13px;
++  }
++
++  &__usage-label {
++    color: var(--td-text-color-secondary);
++  }
++
++  &__usage-value {
++    font-weight: 600;
++    color: var(--td-text-color-primary);
++  }
++
++  &__usage-sub {
++    font-size: 12px;
++    color: var(--td-text-color-placeholder);
++  }
++
++  &__usage-hint {
++    margin-left: 8px;
++    font-size: 12px;
++    color: var(--td-text-color-secondary);
++  }
++
++  &__status-foot {
++    margin-top: 8px;
++    font-size: 12px;
++    text-align: right;
++    color: var(--td-text-color-placeholder);
++  }
++
++
+   // ---------- 指标卡片 ----------
+   &__metric-col {
+     // 栅格列只提供位置，卡片高度由自身撑开

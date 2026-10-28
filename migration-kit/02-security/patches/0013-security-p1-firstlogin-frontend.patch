@@ -1,0 +1,341 @@
+From a23c276435cb56c7822f60342ace0af753f5c0a7 Mon Sep 17 00:00:00 2001
+From: manong <manong@local>
+Date: Tue, 27 Oct 2026 18:43:29 +0800
+Subject: [PATCH 13/15] =?UTF-8?q?security(P1):=20=E9=A6=96=E7=99=BB?=
+ =?UTF-8?q?=E5=BC=BA=E5=88=B6=E6=94=B9=E5=AF=86=E5=89=8D=E7=AB=AF=E9=97=AD?=
+ =?UTF-8?q?=E7=8E=AF=20+=20=E6=94=B9=E5=AF=86=E7=99=BD=E5=90=8D=E5=8D=95?=
+ =?UTF-8?q?=E8=A1=A5=20me/menus?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+后端 20ba9b5 已实现 token_version(claim ver) 与 must_change_password 强约束；本提交补齐两处缺口并实测：\n\n1. 白名单补 /system/auth/me、/system/auth/menus（原仅 password/logout）：不改的话前端 loadProfile() 在强制改密态下 403，登录直接失败、改密页拿不到身份；contract 单测同步更新为 4 条路径。\n2. 前端强制改密链路：LoginRes/CurrentUserRes 增 must_change_password → stores/user 增 mustChangePassword（登录与 /auth/me 双来源，刷新页面不丢）→ 路由守卫把用户钉在 /change-password，其余路由一律重定向；新增独立改密页（改完 reset + 回登录页，因版本号已递增）。\n3. logout() 现在携带 refresh_token：后端只有收到它才会把刷新令牌一并拉黑，否则登出后该令牌仍可续期 7 天。\n\n实测（profile=test :8025, cloudpivot_test）：mcp=true 时 /system/user/page 403、/auth/me 200、/auth/menus 200；改密后旧 token 401；新口令登录 mcp=false 且 /user/page 200。
+---
+ backend/src/shared/constants.rs             |  14 +-
+ frontend/src/api/system/auth-api.ts         |  10 +-
+ frontend/src/router/index.ts                |  17 +++
+ frontend/src/stores/user.ts                 |  11 +-
+ frontend/src/views/user/change-password.vue | 158 ++++++++++++++++++++
+ 5 files changed, 203 insertions(+), 7 deletions(-)
+ create mode 100644 frontend/src/views/user/change-password.vue
+
+diff --git a/backend/src/shared/constants.rs b/backend/src/shared/constants.rs
+index 3b2a844..91e5e5c 100644
+--- a/backend/src/shared/constants.rs
++++ b/backend/src/shared/constants.rs
+@@ -150,8 +150,13 @@ pub const CLAIM_TOKEN_VERSION: &str = "ver";
+ ///
+ /// 除此之外的一切接口一律 403，使初始口令无法用于任何业务操作
+ /// （安全审计 CODE-06）。
+-pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] =
+-    &["/system/auth/password", "/system/auth/logout"];
++pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] = &[
++    // me / menus 是前端渲染改密页所必需的最小身份与导航数据（只读、非业务数据）
++    "/system/auth/me",
++    "/system/auth/menus",
++    "/system/auth/password",
++    "/system/auth/logout",
++];
+ 
+ /// 未注入 [`ADMIN_PASSWORD_ENV`] 时随机生成的初始口令字符数。
+ ///
+@@ -400,6 +405,9 @@ mod tests {
+             MUST_CHANGE_PASSWORD_ALLOWED_PATHS.join(","),
+             GENERATED_ADMIN_PASSWORD_LEN
+         );
+-        assert_eq!(contract, "ver|/system/auth/password,/system/auth/logout|24");
++        assert_eq!(
++            contract,
++            "ver|/system/auth/me,/system/auth/menus,/system/auth/password,/system/auth/logout|24"
++        );
+     }
+ }
+diff --git a/frontend/src/api/system/auth-api.ts b/frontend/src/api/system/auth-api.ts
+index aa20473..3411d4a 100644
+--- a/frontend/src/api/system/auth-api.ts
++++ b/frontend/src/api/system/auth-api.ts
+@@ -59,6 +59,8 @@ export interface LoginRes {
+   token_type: string;
+   /** 访问令牌有效期（秒） */
+   expires_in: number;
++  /** 是否必须先修改初始密码（true 时后端只放行改密与登出） */
++  must_change_password: boolean;
+   /** 登录用户摘要 */
+   user: LoginUserInfo;
+ }
+@@ -93,6 +95,8 @@ export interface CurrentUserRes {
+   roles: string[];
+   /** 权限码列表，超级管理员为 ["*:*:*"] */
+   permissions: string[];
++  /** 是否必须先修改初始密码（刷新页面后据此恢复强制改密状态） */
++  must_change_password: boolean;
+ }
+ 
+ /** 登录（认证）日志行：后端以 `to_jsonb` 下发整行，字段可能随表结构变化 */
+@@ -145,9 +149,9 @@ export function refresh(refreshToken: string): Promise<RefreshRes> {
+   return post<RefreshRes>('/api/system/auth/refresh', { refresh_token: refreshToken });
+ }
+ 
+-/** 登出 */
+-export function logout(): Promise<null> {
+-  return post<null>('/api/system/auth/logout');
++/** 登出（带上 refresh_token，后端据此把它一并拉黑，否则该令牌仍可续期） */
++export function logout(refreshToken?: string): Promise<null> {
++  return post<null>('/api/system/auth/logout', refreshToken ? { refresh_token: refreshToken } : undefined);
+ }
+ 
+ /** 查询当前登录用户信息（含角色编码与权限码） */
+diff --git a/frontend/src/router/index.ts b/frontend/src/router/index.ts
+index cefe9ae..d650a31 100644
+--- a/frontend/src/router/index.ts
++++ b/frontend/src/router/index.ts
+@@ -25,6 +25,13 @@ const routes: RouteRecordRaw[] = [
+     component: () => import('@/views/login/index.vue'),
+     meta: { title: '登录', public: true },
+   },
++  {
++    // 首登强制改密页：独立于工作台布局，避免强制改密时还要渲染侧边栏（菜单此时可能为空）
++    path: '/change-password',
++    name: 'ChangePassword',
++    component: () => import('@/views/user/change-password.vue'),
++    meta: { title: '修改初始密码' },
++  },
+   {
+     path: '/',
+     component: () => import('@/layouts/BasicLayout.vue'),
+@@ -160,6 +167,16 @@ router.beforeEach(async (to) => {
+     return { path: '/dashboard' };
+   }
+ 
++  // 首登强制改密：后端此时只放行 me / menus / password / logout，
++  // 前端必须把用户钉在改密页，任何其它路由一律重定向（不能靠用户自觉）。
++  if (userStore.mustChangePassword) {
++    return to.path === '/change-password' ? true : { path: '/change-password' };
++  }
++  if (to.path === '/change-password') {
++    // 无需改密时改密页无意义（个人中心已有改密入口），回工作台
++    return { path: '/dashboard' };
++  }
++
+   const permission = to.meta.permission;
+   if (permission && !userStore.hasPermission(permission)) {
+     return { path: '/result/403' };
+diff --git a/frontend/src/stores/user.ts b/frontend/src/stores/user.ts
+index 8fa0a2d..497f2bb 100644
+--- a/frontend/src/stores/user.ts
++++ b/frontend/src/stores/user.ts
+@@ -49,6 +49,8 @@ export const useUserStore = defineStore('user', () => {
+   const menus = ref<MenuNode[]>([]);
+   /** 是否已完成用户信息加载（路由守卫据此决定是否拉取） */
+   const loaded = ref(false);
++  /** 是否必须先修改初始密码（后端 must_change_password，登录与刷新都以此为准） */
++  const mustChangePassword = ref(false);
+ 
+   /** 权限码列表 */
+   const permissions = computed<string[]>(() => userInfo.value?.permissions ?? []);
+@@ -79,6 +81,8 @@ export const useUserStore = defineStore('user', () => {
+     refreshToken.value = res.refresh_token;
+     // 令牌必须同步落盘：后续请求的 Authorization 头由 axios 拦截器从 localStorage 注入
+     saveTokens(res.access_token, res.refresh_token);
++    // 首登强制改密：后端此时只放行 me / menus / password / logout
++    mustChangePassword.value = res.must_change_password === true;
+     await loadProfile();
+   }
+ 
+@@ -86,6 +90,8 @@ export const useUserStore = defineStore('user', () => {
+   async function loadProfile(): Promise<void> {
+     const [me, menuTree] = await Promise.all([fetchMe(), fetchMenus()]);
+     userInfo.value = me;
++    // 刷新页面后 Pinia 状态为空，强制改密状态以服务端为准（不能靠前端记忆）
++    mustChangePassword.value = me.must_change_password === true;
+     menus.value = menuTree;
+     loaded.value = true;
+   }
+@@ -98,12 +104,14 @@ export const useUserStore = defineStore('user', () => {
+     userInfo.value = null;
+     menus.value = [];
+     loaded.value = false;
++    mustChangePassword.value = false;
+   }
+ 
+   /** 登出：无论后端是否成功，本地会话必须清理 */
+   async function logout(): Promise<void> {
+     try {
+-      await logoutApi();
++      // 必须带上 refresh_token：后端只有拿到它才能把刷新令牌一并拉黑
++      await logoutApi(refreshToken.value || undefined);
+     } catch {
+       // 后端登出失败（如令牌已过期）不影响前端清理，忽略即可
+     }
+@@ -116,6 +124,7 @@ export const useUserStore = defineStore('user', () => {
+     userInfo,
+     menus,
+     loaded,
++    mustChangePassword,
+     permissions,
+     roles,
+     displayName,
+diff --git a/frontend/src/views/user/change-password.vue b/frontend/src/views/user/change-password.vue
+new file mode 100644
+index 0000000..a0ca9d9
+--- /dev/null
++++ b/frontend/src/views/user/change-password.vue
+@@ -0,0 +1,158 @@
++<!-- 首登强制改密页：must_change_password = true 的用户登录后被路由守卫钉在此页 -->
++<template>
++  <div class="force-pwd">
++    <div class="force-pwd__panel">
++      <header class="force-pwd__head">
++        <h1 class="force-pwd__title">修改初始密码</h1>
++        <p class="force-pwd__desc">
++          当前账号使用的是初始密码，必须先修改后才能进入工作台。新密码请勿与原密码相同。
++        </p>
++      </header>
++
++      <t-alert v-if="errorMessage" class="force-pwd__alert" theme="error" :message="errorMessage" />
++
++      <t-form
++        ref="formRef"
++        :data="form"
++        :rules="rules"
++        label-align="top"
++        @submit="onSubmit"
++      >
++        <t-form-item label="原密码（初始密码）" name="old_password">
++          <t-input v-model="form.old_password" type="password" placeholder="请输入初始密码" />
++        </t-form-item>
++        <t-form-item label="新密码" name="new_password">
++          <t-input
++            v-model="form.new_password"
++            type="password"
++            placeholder="至少 6 位，建议包含大小写字母、数字与符号"
++          />
++        </t-form-item>
++        <t-form-item label="确认新密码" name="confirm_password">
++          <t-input v-model="form.confirm_password" type="password" placeholder="请再次输入新密码" />
++        </t-form-item>
++        <t-form-item>
++          <t-button theme="primary" type="submit" block :loading="submitting">确认修改并重新登录</t-button>
++        </t-form-item>
++      </t-form>
++
++      <t-button variant="text" block :disabled="submitting" @click="onLogout">退出登录</t-button>
++    </div>
++  </div>
++</template>
++
++<script setup lang="ts">
++import { onMounted, reactive, ref } from 'vue';
++import { useRouter } from 'vue-router';
++import { MessagePlugin, type FormInstanceFunctions, type FormRules } from 'tdesign-vue-next';
++import { changePassword } from '@/api/system/auth-api';
++import { useUserStore } from '@/stores/user';
++
++/** 改密表单 */
++interface PasswordForm {
++  /** 原密码 */
++  old_password: string;
++  /** 新密码 */
++  new_password: string;
++  /** 确认新密码 */
++  confirm_password: string;
++}
++
++const router = useRouter();
++const userStore = useUserStore();
++const formRef = ref<FormInstanceFunctions | null>(null);
++const submitting = ref(false);
++const errorMessage = ref('');
++const form = reactive<PasswordForm>({ old_password: '', new_password: '', confirm_password: '' });
++
++const rules: FormRules<PasswordForm> = {
++  old_password: [{ required: true, message: '请输入原密码' }],
++  new_password: [
++    { required: true, message: '请输入新密码' },
++    { min: 6, message: '新密码至少 6 位' },
++    {
++      validator: (value: string) => value !== form.old_password,
++      message: '新密码不能与原密码相同',
++    },
++  ],
++  confirm_password: [
++    { required: true, message: '请再次输入新密码' },
++    {
++      validator: (value: string) => value === form.new_password,
++      message: '两次输入的新密码不一致',
++    },
++  ],
++};
++
++onMounted(() => {
++  // 直接访问改密页但无需改密时，交给路由守卫处理（这里只兜底清错误）
++  errorMessage.value = '';
++});
++
++async function onSubmit(): Promise<void> {
++  const valid = await formRef.value?.validate();
++  if (valid !== true) {
++    return;
++  }
++  submitting.value = true;
++  errorMessage.value = '';
++  try {
++    await changePassword({ old_password: form.old_password, new_password: form.new_password });
++    // 后端改密后递增 token_version，既有令牌全部失效：必须用新密码重新登录
++    MessagePlugin.success('密码已修改，请用新密码重新登录');
++    userStore.reset();
++    await router.replace('/login');
++  } catch (error) {
++    errorMessage.value = error instanceof Error ? error.message : '修改密码失败，请稍后重试';
++  } finally {
++    submitting.value = false;
++  }
++}
++
++async function onLogout(): Promise<void> {
++  await userStore.logout();
++  await router.replace('/login');
++}
++</script>
++
++<style scoped lang="less">
++.force-pwd {
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  min-height: 100vh;
++  background: var(--app-page-bg, #f5f7fa);
++  padding: 24px;
++
++  &__panel {
++    width: 100%;
++    max-width: 460px;
++    padding: 32px;
++    background: var(--app-card-bg, #fff);
++    border-radius: 12px;
++    box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
++  }
++
++  &__head {
++    margin-bottom: 20px;
++  }
++
++  &__title {
++    margin: 0 0 8px;
++    font-size: 20px;
++    font-weight: 600;
++    color: var(--app-text-primary, rgb(0 0 0 / 88%));
++  }
++
++  &__desc {
++    margin: 0;
++    font-size: 13px;
++    line-height: 20px;
++    color: var(--app-text-secondary, rgb(0 0 0 / 60%));
++  }
++
++  &__alert {
++    margin-bottom: 16px;
++  }
++}
++</style>

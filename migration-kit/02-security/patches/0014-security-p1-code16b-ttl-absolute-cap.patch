@@ -1,0 +1,2080 @@
+From 42f7a8408d7116cecbb2b926b51416e15be943bf Mon Sep 17 00:00:00 2001
+From: manong <manong@local>
+Date: Tue, 27 Oct 2026 19:03:24 +0800
+Subject: [PATCH 14/15] =?UTF-8?q?security(P1):=20CODE-16=20B=20=E8=90=BD?=
+ =?UTF-8?q?=E5=9C=B0=20=E2=80=94=E2=80=94=20=E7=9F=AD=20TTL=20+=20?=
+ =?UTF-8?q?=E4=BC=9A=E8=AF=9D=E7=BB=9D=E5=AF=B9=E4=B8=8A=E9=99=90=20+=20fa?=
+ =?UTF-8?q?il-closed=20=E5=90=8A=E9=94=80=20+=20=E5=A4=8D=E7=94=A8?=
+ =?UTF-8?q?=E6=A3=80=E6=B5=8B?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+token 存储方案评审（t_3f523e56）结论「B 先行」的后端落地，六项：
+
+B1 短 TTL 与绝对上限
+- access 7200→900s，refresh 604800→86400s。**TTL 必须在每个 profile 里各写一遍**：
+  alun-config 0.4.2 的 merge_middleware 用 `overlay.auth.access_token_expire_secs != 0`
+  判定，而 profile 缺该字段时 serde 填默认值 7200（≠ 0），只改 config.toml 会被盖回
+  7200/604800（实测 print-config）。因此 config.toml + config-{dev,prod,test}.toml +
+  两份 .example 同步写入。
+- login 生成 sid(uuid v4)/siat(Unix 秒)，refresh 从旧令牌 claims 继承（不重新生成）；
+  新 refresh 的 exp 恒为 siat + refresh_ttl（用 ClaimsBuilder::build 传"距上限的剩余秒数"
+  + create_token_with 签发），轮换不滑动。
+- now >= siat+refresh_ttl → 401 AUTH_REFRESH_TOKEN_INVALID + auth_logs。
+  必须显式比 siat：jsonwebtoken Validation::default 带 60s leeway，只看 exp 会放宽上限。
+- 历史令牌（无 sid/siat）以 iat 兜底：其 exp 本就是 iat+ttl，既不放宽也不误杀。
+
+B3 吊销 fail-closed（读 + 写）
+- 新增 middleware/auth_guard.rs，App::route_layer 挂载（链内、可读 AuthClaims）：
+  黑名单命中 → 401；查询失败 / 缓存缺失 / 无 jti → 401（fail-closed）+ error 日志。
+  框架认证层的黑名单检查是 fail-open 的（`if let Ok(Some(_))`），且 alun-web 是 crates.io
+  依赖、仓库内无副本，只能在项目侧补这一层。
+- refresh 路径原先用 jwt.is_blacklisted（同样 fail-open，且该接口在 ignore_paths 里被
+  框架跳过检查）→ 改用 auth_guard::check_revoked，Err 即视为已吊销。
+- online/model.rs 的 force_logout / force_logout_user / force_logout_all_except 改为
+  返回 Result：枚举失败即 Err；单个令牌失败记 error、继续处理其余、最后仍返回 Err。
+
+写侧失败的逐处判定（评审 §1.3 要求给出依据）：
+- 升级为 500（无库侧兜底）：role/handler.rs 的角色更新与角色菜单授权、menu/handler.rs
+  的菜单更新与删除。理由：这四处改的是"权限快照来源"，JWT 里固化的权限码只能靠缓存
+  黑名单收回，没有 token_version 可用；吊销失败若回 200，管理员会以为权限已收回，
+  而旧令牌在 access TTL 内仍带旧权限可访问。
+- 可接受降级（记 error 日志、保持 2xx）：user/handler.rs 的停用 / 删除 / 重置口令 /
+  改角色、auth/handler.rs 的本人改密。理由：这些入口都在同一处先自增 token_version
+  （或把用户软删，认证层查不到会话直接 401），库侧吊销不依赖缓存；回 500 会让"其实
+  已经成功"的操作显示失败、诱发重复操作。验证见 t_2844c2d8 的 T6（同一 Redis 写失败
+  条件下，角色更新 500、用户停用 200）。
+
+B4 复用检测（jti 血缘，不用 token_version）
+- 新键：token:rotated:{旧jti}（{sid,at}，TTL=旧 refresh 剩余期）、
+  token:replay:{旧jti}（本次令牌对，TTL=60s）、online:refresh:{refresh jti}
+  （{user_id,sid,exp}）。
+- refresh 判定顺序：validate → token_type → 绝对上限 → replay（60s 幂等回放）→
+  rotated（命中=复用）→ blacklist（登出/强踢）→ 写 blacklist(旧) → 轮换 → 写
+  rotated+replay+online:refresh(新)，并删旧登记。
+- 60s 宽限的理由：前端单飞只在单标签页内生效（request.ts:110-125），跨标签页并发
+  刷新会被误判复用并杀会话；access TTL 缩短后刷新更频繁，竞态只会更容易触发。
+- 回放前额外校验"会话仍有效"（该 refresh 是否仍在 online:refresh 注册表里）：
+  否则登出后 60s 内旧令牌仍能从幂等缓存换到一对可用令牌。
+- 判复用动作：force_logout_user（全杀）+ auth_logs（REFRESH_TOKEN/FAIL，REUSE_DETECTED）
+  + security_logs（REFRESH_TOKEN_REUSE）+ 401 AUTH_TOKEN_REVOKED（复用现有码）。
+
+B6 缓存耐久性收口
+- startup_guard 新增 check_cache_backend：profile 为 prod/dev 且 cache.type != redis
+  时拒绝启动（FATAL），含危害与修复说明 + 2 个单测。
+- docker/docker-compose.prod.yml：--maxmemory-policy allkeys-lru → noeviction，
+  并在注释写明"淘汰 = 黑名单/轮换标记失效 = 吊销静默失效"。
+- 新增 docs/会话吊销的耐久性边界.md：吊销状态分层（库侧 token_version 强保证 vs
+  缓存侧一次性 refresh 统计保证）、退化边界、Redis 水位阈值（70% 预警 / 85% 严重 /
+  evicted_keys 必须 0）、5.0 节记录 TTL 必须写进 profile 的坑；docs/README.md 收录。
+
+B7 refresh 登记进在线会话
+- 登录/轮换写 online:refresh:{jti}（TTL=refresh 剩余期），轮换删旧键；
+  force_logout_user / force_logout_all_except 一并枚举并按 user_id 清理+拉黑；
+  登出按 sid 吊销本次会话的全部 refresh（无需客户端回传 refresh），另兼容 body 传参。
+  补上"登出后旧 refresh 仍可用"（CODE-05 的旁路）与"改密/停用/改角色后 refresh 还
+  活着"的缺口。
+
+验证（dev 8024 + 隔离实例 18025 + 独立 Redis 6398，prod 8023 全程 200 未动）：
+- expires_in=900，refresh exp == siat+86400，sid/siat 平铺顶层。
+- 绝对上限：refresh TTL=60s 用例下 t=5/t=35 两次轮换后 exp 恒为 siat+60；t=62 刷新
+  → 401 20007 且 auth_logs 有"已超过会话绝对上限"。
+- 复用：R0→R1 后 61s 再用 R0 → 401 20006，该用户 online:token/online:refresh 清空、
+  两者均进黑名单，auth_logs 有 REUSE_DETECTED、security_logs 有 REFRESH_TOKEN_REUSE。
+- 宽限：R0→R1 后立即再用 R0 → 返回与 R1 完全相同的令牌对，REFRESH_TOKEN 审计行数
+  不变（5→5），会话仍可用。
+- fail-closed 读：停掉隔离 Redis 后 /system/auth/me 200→401（正控制先 200），
+  refresh → 500。
+- fail-closed 写：Redis ACL 只拒 SETEX/SET（读正常）时 PUT 角色 → 500
+  "角色已保存，但会话吊销失败，请重试"；同条件下 PATCH 用户状态 → 200（降级，含
+  error 日志），正控制恢复写权限后同一 PUT → 200。
+- 登出：logout 后旧 refresh → 401，旧 access → 401。
+- cargo fmt --check / clippy -D warnings / test 全绿（45 passed，较基线 +2 为本卡新增）。
+
+不改 alun-web（crates.io 依赖，仓库无副本）；不做 A 方案（cookie/CSRF/TLS，A0 前置）
+与 token_version（B5）。
+---
+ backend/config/config-dev.example.toml        |   7 +
+ backend/config/config-prod.toml               |   7 +
+ backend/config/config-test.example.toml       |   7 +
+ backend/config/config.toml                    |  12 +-
+ backend/src/lib.rs                            |   5 +
+ backend/src/middleware/auth_guard.rs          | 133 +++++
+ backend/src/middleware/mod.rs                 |  18 +-
+ backend/src/shared/constants.rs               |  47 ++
+ backend/src/shared/startup_guard.rs           | 125 ++++-
+ backend/src/support/online/model.rs           | 401 +++++++++++++--
+ backend/src/system/auth/dto.rs                |   6 +-
+ backend/src/system/auth/handler.rs            | 482 +++++++++++++++++-
+ backend/src/system/menu/handler.rs            |  28 +-
+ backend/src/system/role/handler.rs            |  31 +-
+ backend/src/system/user/handler.rs            |  40 +-
+ docker/docker-compose.prod.yml                |   9 +-
+ docs/README.md                                |   1 +
+ ...05\346\200\247\350\276\271\347\225\214.md" | 150 ++++++
+ 18 files changed, 1411 insertions(+), 98 deletions(-)
+ create mode 100644 backend/src/middleware/auth_guard.rs
+ create mode 100644 "docs/\344\274\232\350\257\235\345\220\212\351\224\200\347\232\204\350\200\220\344\271\205\346\200\247\350\276\271\347\225\214.md"
+
+diff --git a/backend/config/config-dev.example.toml b/backend/config/config-dev.example.toml
+index dfef8f8..18c349b 100644
+--- a/backend/config/config-dev.example.toml
++++ b/backend/config/config-dev.example.toml
+@@ -27,3 +27,10 @@ enabled = true
+ #   ALUN_MIDDLEWARE_AUTH_JWT_SECRET=$(openssl rand -hex 32)
+ # 缺失或短于 32 字符时进程拒绝启动（见 src/shared/startup_guard.rs）。
+ enabled = true
++# TTL 必须在**每个 profile** 里重复写一遍（CODE-16 B1）：
++#   alun-config 0.4.2 的 merge_middleware 判定是 `overlay.auth.access_token_expire_secs != 0`，
++#   而 profile 缺该字段时 serde 填的是编译期默认值 7200/604800（≠ 0），
++#   于是基础配置 config.toml 的值会被 profile 的默认值盖掉（实测 `print-config` 仍输出 7200）。
++# access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
++access_token_expire_secs = 900
++refresh_token_expire_secs = 86400
+diff --git a/backend/config/config-prod.toml b/backend/config/config-prod.toml
+index 97ec620..65c0ac4 100644
+--- a/backend/config/config-prod.toml
++++ b/backend/config/config-prod.toml
+@@ -23,6 +23,13 @@ enabled = true
+ [middleware.auth]
+ # 开启认证；jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入，不落配置文件
+ enabled = true
++# TTL 必须在**每个 profile** 里重复写一遍（CODE-16 B1）：
++#   alun-config 0.4.2 的 merge_middleware 判定是 `overlay.auth.access_token_expire_secs != 0`，
++#   而 profile 缺该字段时 serde 填的是编译期默认值 7200/604800（≠ 0），
++#   于是基础配置 config.toml 的值会被 profile 的默认值盖掉（实测 `print-config` 仍输出 7200）。
++# access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
++access_token_expire_secs = 900
++refresh_token_expire_secs = 86400
+ 
+ [middleware.permission]
+ # 生产环境开启权限校验：宏规则（#[alun::permission]）经此开关统一生效
+diff --git a/backend/config/config-test.example.toml b/backend/config/config-test.example.toml
+index c8de720..6c60126 100644
+--- a/backend/config/config-test.example.toml
++++ b/backend/config/config-test.example.toml
+@@ -16,3 +16,10 @@ sql_logging = true
+ # jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（如 /etc/cailu/cailu-test.env，600），
+ # 禁止把任何密钥写回配置文件。
+ enabled = true
++# TTL 必须在**每个 profile** 里重复写一遍（CODE-16 B1）：
++#   alun-config 0.4.2 的 merge_middleware 判定是 `overlay.auth.access_token_expire_secs != 0`，
++#   而 profile 缺该字段时 serde 填的是编译期默认值 7200/604800（≠ 0），
++#   于是基础配置 config.toml 的值会被 profile 的默认值盖掉（实测 `print-config` 仍输出 7200）。
++# access 15 分钟；refresh 24 小时是**绝对上限**（登录时刻 + 该值，轮换不滑动）。
++access_token_expire_secs = 900
++refresh_token_expire_secs = 86400
+diff --git a/backend/config/config.toml b/backend/config/config.toml
+index 0c6e6c7..9faaac3 100644
+--- a/backend/config/config.toml
++++ b/backend/config/config.toml
+@@ -60,6 +60,10 @@ url = "redis://127.0.0.1:6379"
+ max_connections = 10
+ 
+ [cache]
++# 兜底值：仅在未覆盖的临时 profile 上生效。
++# **prod / dev 必须是 redis**（两者在各自的 config-{profile}.toml 里已覆盖）：
++# 令牌黑名单 / 轮换血缘 / 在线会话全在缓存里，进程内 LRU 重启即清空、多实例不共享，
++# 用它会吊销静默失效。启动守卫（shared/startup_guard.rs）会拒绝这类启动（CODE-16 B6）。
+ type = "local"
+ max_capacity = 10000
+ default_ttl = 3600
+@@ -80,8 +84,12 @@ enabled = false
+ jwt_secret = ""
+ # 默认按「不含 [router] prefix 前缀」书写；`!/health` 表示绝对路径豁免前缀
+ ignore_paths = ["!/health", "/system/auth/login", "/system/auth/refresh"]
+-access_token_expire_secs = 7200
+-refresh_token_expire_secs = 604800
++# 短 TTL（CODE-16 B1）：access 15 分钟、refresh 24 小时**绝对上限**。
++# refresh 的 exp 固定为「登录时刻 + refresh_token_expire_secs」，轮换不滑动，
++# 因此 24h 之后无论刷新多少次都必须重新登录（见 system/auth/handler.rs 的 siat claim）。
++# 前端 `expires_in` 直接取 access_token_expire_secs，无需另行配置。
++access_token_expire_secs = 900
++refresh_token_expire_secs = 86400
+ 
+ [middleware.cors]
+ enabled = true
+diff --git a/backend/src/lib.rs b/backend/src/lib.rs
+index da97a2d..8ab55b7 100644
+--- a/backend/src/lib.rs
++++ b/backend/src/lib.rs
+@@ -90,6 +90,11 @@ pub async fn run() -> Result<()> {
+         // 会话守卫走 `route_layer`（链内）：认证层注入 `AuthClaims` 之后才执行，
+         // 因此能比对令牌版本号、拦截「必须先改密」的会话（CODE-05/06/08）
+         .route_layer(axum::middleware::from_fn(middleware::session_guard::guard))
++        // 吊销复检同样走 `route_layer`（链内）：框架认证层的黑名单检查是 fail-open 的
++        // （读缓存失败即放行），这里补一层「查不到即拒绝」（CODE-16 B3）。
++        // 注册在 session_guard 之后再被套一层，即本层在链内更靠外：先确认吊销状态，
++        // 再做令牌版本比对，两者都是 401，顺序不影响语义。
++        .route_layer(axum::middleware::from_fn(middleware::auth_guard::guard))
+         .layer_from_fn(middleware::operation_log::layer)
+         .scan()
+         .start()
+diff --git a/backend/src/middleware/auth_guard.rs b/backend/src/middleware/auth_guard.rs
+new file mode 100644
+index 0000000..fc29449
+--- /dev/null
++++ b/backend/src/middleware/auth_guard.rs
+@@ -0,0 +1,133 @@
++//! 吊销复检中间件（fail-closed）。
++//!
++//! # 为什么需要它
++//!
++//! 框架认证层（`alun-web` 0.4.2 `middleware/auth.rs`）的黑名单检查是 **fail-open** 的：
++//!
++//! ```ignore
++//! if let Ok(Some(_)) = Cache::get::<Value>(c, &key).await { /* 401 */ }   // Err(_) 直接放行
++//! ```
++//!
++//! 也就是说，缓存读失败时「已登出 / 已被强制下线的令牌」照样能通过。缓存不可用
++//! 期间吊销名单等于不存在（评审 §1.3）。而 `alun-web` 是 crates.io 依赖、仓库里
++//! 没有副本，改不了它——只能在项目侧补一层复检（评审 §3）。
++//!
++//! # 挂载位置（关键）
++//!
++//! 通过 [`alun::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**
++//! （`app.rs` 先应用 `route_layers`、再 `build_middleware_chain`），因此：
++//!
++//! - 认证层已经验签并注入 [`AuthClaims`]，本层直接读声明、不必重复验签；
++//! - 权限层（`permission`）在本层**外层**，所以本层只做「复检 / 拒绝」，
++//!   不注入身份、也不做权限判断。
++//!
++//! # 三条判定
++//!
++//! | 情形 | 动作 |
++//! |------|------|
++//! | extensions 里没有 `AuthClaims` | 放行（匿名 / no_auth 路径，由认证层与处理器各自负责） |
++//! | 黑名单命中 | 401 |
++//! | 查询失败 / 缓存缺失 / 令牌无 `jti` | **401**（fail-closed）+ `error` 日志 |
++//!
++//! 认证路径本来就必须有缓存（吊销状态就在缓存里），缺了就是配置错误，
++//! 此时放行等于「吊销静默失效」，因此按拒绝处理。
++
++use alun::prelude::*;
++use axum::body::Body;
++use axum::extract::Request;
++use axum::http::StatusCode;
++use axum::middleware::Next;
++use axum::response::{IntoResponse, Response};
++
++use crate::shared::constants;
++
++/// 复检令牌 `jti` 是否已被吊销（黑名单命中）。
++///
++/// # 参数
++///
++/// - `jti`：令牌唯一标识；`None` 表示令牌没有 `jti`（无法复检）。
++///
++/// # 返回值
++///
++/// - `Ok(true)`：已被吊销（登出 / 强制下线 / 轮换作废）；
++/// - `Ok(false)`：未被吊销；
++/// - `Err(原因)`：**无法判定**（缓存未初始化 / 查询失败 / 无 `jti`），
++///   调用方必须按「已吊销」处理。
++///
++/// # 说明
++///
++/// 刷新路径（`/system/auth/refresh`）在框架 `ignore_paths` 里，框架中间件会跳过
++/// 黑名单检查，因此它直接用本函数做 fail-closed 复检，与中间件保持同一语义。
++pub(crate) async fn check_revoked(jti: Option<&str>) -> std::result::Result<bool, String> {
++    let Some(jti) = jti.filter(|v| !v.is_empty()) else {
++        return Err("令牌缺少 jti，无法复检吊销状态".to_string());
++    };
++    let Some(store) = try_cache() else {
++        return Err("缓存未初始化（认证路径必须有缓存）".to_string());
++    };
++    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_BLACKLIST, jti);
++    match Cache::get::<serde_json::Value>(store, &key).await {
++        Ok(Some(_)) => Ok(true),
++        Ok(None) => Ok(false),
++        Err(e) => Err(format!("黑名单查询失败: {e}")),
++    }
++}
++
++/// 吊销复检本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。
++///
++/// # 参数
++///
++/// - `request`：进入的请求（认证层的 `AuthClaims` 已在 extensions 中）。
++/// - `next`：后续处理链。
++///
++/// # 返回值
++///
++/// 放行时原样返回下游响应；已吊销或无法判定时返回 401。
++pub async fn guard(request: Request, next: Next) -> Response {
++    // CORS 预检不携带凭据，认证层亦已放行，这里同样不拦
++    if request.method() == axum::http::Method::OPTIONS {
++        return next.run(request).await;
++    }
++
++    // 未注入声明：匿名接口（登录 / 刷新 / 公共参数）或无令牌请求，交给认证层与处理器处理
++    let Some(AuthClaims(claims)) = request.extensions().get::<AuthClaims>().cloned() else {
++        return next.run(request).await;
++    };
++
++    match check_revoked(claims.jti.as_deref()).await {
++        Ok(false) => next.run(request).await,
++        Ok(true) => {
++            tracing::debug!(
++                user_id = %claims.sub,
++                jti = ?claims.jti,
++                "令牌黑名单复检命中，拒绝请求"
++            );
++            unauthorized("登录状态已失效，请重新登录")
++        }
++        Err(reason) => {
++            // fail-closed：判定不了宁可让用户重登，也不放行已吊销的令牌
++            tracing::error!(
++                user_id = %claims.sub,
++                jti = ?claims.jti,
++                error = %reason,
++                "吊销状态复检失败，按 fail-closed 拒绝请求"
++            );
++            unauthorized("登录状态无法校验，请重新登录")
++        }
++    }
++}
++
++/// 构造 401 响应（与框架认证层同样式，客户端可统一处理）。
++fn unauthorized(msg: &str) -> Response {
++    let body = serde_json::to_string(&Res::<()>::fail(401, msg))
++        .unwrap_or_else(|_| r#"{"code":401,"msg":"请重新登录"}"#.to_string());
++    (
++        StatusCode::UNAUTHORIZED,
++        [(
++            axum::http::header::CONTENT_TYPE,
++            "application/json; charset=utf-8",
++        )],
++        Body::from(body),
++    )
++        .into_response()
++}
+diff --git a/backend/src/middleware/mod.rs b/backend/src/middleware/mod.rs
+index 6d3bd15..94e25b4 100644
+--- a/backend/src/middleware/mod.rs
++++ b/backend/src/middleware/mod.rs
+@@ -4,14 +4,20 @@
+ //! 驱动装配了安全头 / CORS / 请求日志 / 认证 / 权限 / 限流 / 压缩等标准中间件，
+ //! 本目录只补充业务特有需求（如操作日志落库）。
+ //!
+-//! 装配方式：在 [`crate::run`] 中通过 `App::layer_from_fn` 注册，
+-//! 该层在框架默认中间件链与 404 / 静态资源兜底**之后**应用，因此位于最外层
+-//! （能观测到 401 / 403 / 429 与真实端到端耗时）。
++//! 装配方式有两种，能力边界完全不同：
+ //!
+-//! | 中间件 | 职责 | 交付阶段 |
++//! - [`crate::run`] 中的 `App::layer_from_fn`：作用于框架默认中间件链与 404 / 静态资源
++//!   兜底**之后**，位于最外层（能观测到 401 / 403 / 429 与真实端到端耗时），
++//!   **读不到**认证层注入的 `AuthClaims`；
++//! - [`crate::run`] 中的 `App::route_layer`：位于内置链**之内**、认证层之后，
++//!   能读 `AuthClaims`，用于「已通过认证但会话已作废」这类复检。
++//!
++//! | 中间件 | 职责 | 挂载方式 |
+ //! |--------|------|----------|
+-//! | [`operation_log`] | 记录写操作（方法 / 路径 / 操作人 / 耗时 / 结果）到 `operation_logs` | P4 |
+-//! | [`session_guard`] | 会话守卫：令牌版本比对 + 首登强制改密（链内层，可读 `AuthClaims`） | P1 安全 |
++//! | [`operation_log`] | 记录写操作（方法 / 路径 / 操作人 / 耗时 / 结果）到 `operation_logs` | `layer_from_fn`（链外层） |
++//! | [`session_guard`] | 会话守卫：令牌版本比对 + 首登强制改密 | `route_layer`（链内层） |
++//! | [`auth_guard`] | 吊销复检：黑名单查询失败即拒绝（fail-closed） | `route_layer`（链内层） |
+ 
++pub mod auth_guard;
+ pub mod operation_log;
+ pub mod session_guard;
+diff --git a/backend/src/shared/constants.rs b/backend/src/shared/constants.rs
+index 91e5e5c..756b515 100644
+--- a/backend/src/shared/constants.rs
++++ b/backend/src/shared/constants.rs
+@@ -193,6 +193,53 @@ pub const CACHE_KEY_PREFIX_ONLINE: &str = "online:token:";
+ /// （`token:blacklist:{jti}`），否则强制下线写入的黑名单不会被认证层识别。
+ pub const CACHE_KEY_PREFIX_TOKEN_BLACKLIST: &str = "token:blacklist:";
+ 
++// ==================== 令牌轮换 / 复用检测 / 会话绝对上限（CODE-16 B） ====================
++
++/// 会话标识 claim 键名（`sid`，uuid v4）。
++///
++/// 登录时生成、轮换时**原样继承**：同一登录会话内签发的全部 refresh 令牌共享它，
++/// 登出 / 复用检测据此一次性收敛该会话的全部 refresh 令牌。
++pub const CLAIM_SESSION_ID: &str = "sid";
++
++/// 会话创建时刻 claim 键名（`siat`，Unix 秒）。
++///
++/// refresh 令牌的 `exp` 恒等于 `siat + refresh_token_expire_secs`（**固定不滑动**），
++/// 因此无论轮换多少次，绝对上限都不会被刷新推后（评审 §4.1）。
++pub const CLAIM_SESSION_ISSUED_AT: &str = "siat";
++
++/// 已轮换（作废）refresh 令牌的血缘标记键前缀（完整键形如 `token:rotated:{旧 jti}`）。
++///
++/// 值为 `{"sid": ..., "at": 轮换时刻}`，TTL 取旧 refresh 令牌剩余有效期。
++/// 命中即说明「该 refresh 令牌已被用过」——这是复用检测的唯一依据（评审 §4.2）：
++/// 框架的 `token:blacklist:{jti}` 只存 `true`、不带原因，无法区分「登出被拉黑」
++/// 与「轮换后被重复使用」。
++pub const CACHE_KEY_PREFIX_TOKEN_ROTATED: &str = "token:rotated:";
++
++/// 轮换幂等缓存键前缀（完整键形如 `token:replay:{旧 jti}`）。
++///
++/// 值为本次轮换签发的**完整令牌响应**，TTL 固定 [`TOKEN_ROTATION_REPLAY_GRACE_SECS`]。
++/// 命中时原样返回同一对令牌，不写审计、不杀会话。
++pub const CACHE_KEY_PREFIX_TOKEN_REPLAY: &str = "token:replay:";
++
++/// refresh 令牌在线登记键前缀（完整键形如 `online:refresh:{refresh jti}`）。
++///
++/// 值含 `user_id` / `sid` / `exp`，TTL 同 refresh 剩余有效期。它把 refresh 令牌也纳入
++/// 「在线会话」注册表，使 `force_logout_user` 能枚举并按 `user_id` 清理
++/// （覆盖改密 / 停用 / 改角色 / 登出等全部吊销入口）。
++pub const CACHE_KEY_PREFIX_ONLINE_REFRESH: &str = "online:refresh:";
++
++/// 轮换幂等宽限窗口（秒）。
++///
++/// # 为什么必须存在
++///
++/// 前端的刷新单飞只在**单个标签页内**生效（`frontend/src/api/request.ts:110-125`），
++/// 多标签页会同时用同一个旧 refresh 令牌各发一次刷新。若第二次直接判为「复用」，
++/// 正常用户会被服务端杀光会话——access TTL 缩短到 15 分钟后刷新频率提高，
++/// 这个竞态只会更容易被触发（评审 §1.1）。
++///
++/// 窗口内第二次请求复用第一次的结果（同一对令牌），窗口外才判定为复用。
++pub const TOKEN_ROTATION_REPLAY_GRACE_SECS: u64 = 60;
++
+ /// `sys_config` 中控制 IP 归属地解析的参数键。
+ pub const CONFIG_KEY_IP_LOCATION: &str = "log.ip_location_enabled";
+ 
+diff --git a/backend/src/shared/startup_guard.rs b/backend/src/shared/startup_guard.rs
+index 8831ad3..daab908 100644
+--- a/backend/src/shared/startup_guard.rs
++++ b/backend/src/shared/startup_guard.rs
+@@ -65,6 +65,71 @@ pub const ENV_JWT_SECRET_ALIAS: &str = "FACAI_JWT_SECRET";
+ /// 认证中间件在 TOML 中的段名。
+ const AUTH_SECTION: &str = "middleware.auth";
+ 
++/// 必须使用 Redis 缓存的 profile。
++///
++/// 吊销状态（`token:blacklist:*` / `token:rotated:*` / `online:*`）全部落在缓存里：
++///
++/// - `local`（进程内 LRU）重启即清空 → 重启后所有黑名单与轮换标记一起消失，
++///   「已登出的 refresh 仍可用」重新出现；
++/// - 多实例部署时各进程各有一份 → A 实例吊销、B 实例照放行。
++///
++/// 因此 prod / dev 只接受 `type = "redis"`；`test` / 其它临时 profile 不强制。
++pub const CACHE_REDIS_REQUIRED_PROFILES: &[&str] = &["prod", "dev"];
++
++/// 缓存后端不合规（吊销状态无法可靠保存）时的拒绝原因。
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct CacheBackendError {
++    /// 当前运行的配置 profile（如 `dev` / `prod`）。
++    pub profile: String,
++    /// 实际生效的 `[cache] type`。
++    pub cache_type: String,
++}
++
++impl fmt::Display for CacheBackendError {
++    /// 输出可直接贴进终端 / 日志的中文错误，包含危害说明与修复步骤。
++    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
++        write!(
++            f,
++            "安全守卫拒绝启动：profile={profile} 下 [cache] type = \"{cache_type}\"，必须为 \"redis\"。\n\
++             危害：令牌黑名单 / 轮换血缘 / 在线会话全部存在缓存里；进程内 LRU 缓存重启即清空、\
++             多实例之间不共享，吊销（登出、强制下线、改密）会静默失效——旧 refresh 令牌可继续续期。\n\
++             修复：在 config/config-{profile}.toml 里写 [cache] type = \"redis\" 与 [redis] enabled = true，\
++             并用 ALUN_REDIS_URL 指向真实 Redis；不要让基础配置的 [cache] type = \"local\" 兜底生效。",
++            profile = self.profile,
++            cache_type = self.cache_type
++        )
++    }
++}
++
++impl std::error::Error for CacheBackendError {}
++
++/// 校验缓存后端（纯函数，不读全局状态与文件，便于单测）。
++///
++/// # 参数
++///
++/// - `profile`：当前配置 profile
++/// - `cache_type`：`[cache].type` 的有效值
++///
++/// # 返回值
++///
++/// - `Ok(())`：profile 不在 [`CACHE_REDIS_REQUIRED_PROFILES`]，或已是 redis（大小写不敏感）
++/// - `Err(CacheBackendError)`：prod / dev 下使用了非 redis 缓存
++pub fn check_cache_backend(
++    profile: &str,
++    cache_type: &str,
++) -> std::result::Result<(), CacheBackendError> {
++    if !CACHE_REDIS_REQUIRED_PROFILES.contains(&profile) {
++        return Ok(());
++    }
++    if cache_type.trim().eq_ignore_ascii_case("redis") {
++        return Ok(());
++    }
++    Err(CacheBackendError {
++        profile: profile.to_string(),
++        cache_type: cache_type.trim().to_string(),
++    })
++}
++
+ /// 启动守卫的拒绝原因。
+ ///
+ /// 枚举分支各自携带定位信息，**不包含密钥内容本身**，可安全写入日志与终端。
+@@ -370,12 +435,12 @@ impl Plugin for AuthSecretGuardPlugin {
+         "startup-auth-secret-guard"
+     }
+ 
+-    /// 校验 `[middleware.auth]`，不通过则返回 `Err` 中止启动。
++    /// 校验 `[middleware.auth]` 与 `[cache]`，不通过则返回 `Err` 中止启动。
+     ///
+     /// # 返回值
+     ///
+-    /// - `Ok(())`：认证未开启，或密钥长度达标（此时打印一条不含密钥的 `info` 日志）
+-    /// - `Err(Error::Config)`：密钥为空 / 过短，错误消息含危害说明与修复步骤
++    /// - `Ok(())`：认证未开启或密钥长度达标；且缓存后端符合该 profile 的要求
++    /// - `Err(Error::Config)`：密钥为空 / 过短，或 prod / dev 下缓存不是 redis
+     async fn start(&self) -> std::result::Result<(), Error> {
+         let config = cfg();
+         let auth = &config.middleware.auth;
+@@ -390,7 +455,6 @@ impl Plugin for AuthSecretGuardPlugin {
+                         "启动守卫通过：认证密钥长度满足下限"
+                     );
+                 }
+-                Ok(())
+             }
+             Err(violation) => {
+                 // 先落一条 error 日志（便于 journalctl 检索），再作为启动错误向上传播
+@@ -399,6 +463,27 @@ impl Plugin for AuthSecretGuardPlugin {
+                     auth_enabled = auth.enabled,
+                     "启动守卫拦截：{violation}"
+                 );
++                return Err(Error::Config(violation.to_string()));
++            }
++        }
++
++        // 缓存后端：吊销状态（黑名单 / 轮换血缘 / 在线会话）全在缓存里，
++        // prod / dev 用进程内 LRU 等于吊销静默失效（CODE-16 B6）。
++        match check_cache_backend(&config.profile, &config.cache.r#type) {
++            Ok(()) => {
++                tracing::info!(
++                    profile = %config.profile,
++                    cache_type = %config.cache.r#type,
++                    "启动守卫通过：缓存后端满足吊销耐久性要求"
++                );
++                Ok(())
++            }
++            Err(violation) => {
++                tracing::error!(
++                    profile = %config.profile,
++                    cache_type = %config.cache.r#type,
++                    "启动守卫拦截：{violation}"
++                );
+                 Err(Error::Config(violation.to_string()))
+             }
+         }
+@@ -597,4 +682,36 @@ enabled = false
+         // 配置目录不存在：无法判定 → None（预检放行，插件守卫兜底）
+         assert_eq!(auth_enabled_in_files("no-such-dir", "dev"), None);
+     }
++
++    /// 缓存后端守卫：prod / dev 必须是 redis，其它 profile 不强制。
++    #[test]
++    fn cache_backend_requires_redis_for_prod_and_dev() {
++        assert_eq!(check_cache_backend("prod", "redis"), Ok(()));
++        assert_eq!(check_cache_backend("dev", "redis"), Ok(()));
++        // 大小写与空白不敏感（配置里写成 Redis / " redis " 也应通过）
++        assert_eq!(check_cache_backend("dev", " Redis "), Ok(()));
++        // test / 未知 profile：不强制（临时环境可以退回进程内缓存）
++        assert_eq!(check_cache_backend("test", "local"), Ok(()));
++        assert_eq!(check_cache_backend("no-such-profile", "local"), Ok(()));
++    }
++
++    /// 缓存后端守卫：prod / dev 用进程内缓存即拒绝启动，错误信息含危害与修复。
++    #[test]
++    fn cache_backend_rejects_local_for_prod_and_dev() {
++        for profile in ["prod", "dev"] {
++            let err = check_cache_backend(profile, "local")
++                .expect_err("prod/dev 使用 local 缓存必须被拒绝");
++            assert_eq!(err.profile, profile);
++            assert_eq!(err.cache_type, "local");
++            let text = err.to_string();
++            assert!(
++                text.contains("必须为 \"redis\""),
++                "错误文案缺修复指引: {text}"
++            );
++            assert!(
++                text.contains("吊销"),
++                "错误文案缺危害说明（吊销会静默失效）: {text}"
++            );
++        }
++    }
+ }
+diff --git a/backend/src/support/online/model.rs b/backend/src/support/online/model.rs
+index a734548..3176a80 100644
+--- a/backend/src/support/online/model.rs
++++ b/backend/src/support/online/model.rs
+@@ -6,6 +6,20 @@
+ //! - 令牌过期即自动从在线列表消失，无需清理任务；
+ //! - 登出 / 强制下线只需删除键并写入框架同格式的令牌黑名单。
+ //!
++//! 自 CODE-16（B7）起，**refresh 令牌同样登记**（`online:refresh:{jti}`）：此前只有
++//! access 令牌在注册表里，`force_logout_user` 枚举不到 refresh，于是「改密 / 停用 /
++//! 改角色后旧 refresh 仍能续期」一直是个缺口。两套键共用同一套吊销语义：
++//!
++//! | 键 | 值 | 吊销动作 |
++//! |----|----|----------|
++//! | `online:token:{access jti}` | [`OnlineSession`] | 删键 + 拉黑 `jti`（TTL 取剩余期） |
++//! | `online:refresh:{refresh jti}` | [`RefreshSession`] | 删键 + 拉黑 `jti`（TTL 取剩余期） |
++//!
++//! # 失败传播
++//!
++//! 吊销是安全动作，**不许静默失败**（评审 §1.3）：枚举 / 拉黑任一步失败都通过
++//! [`Result`] 传给调用方，由处理器决定返回 500 还是可接受降级（判断依据见各调用点注释）。
++//!
+ //! 数据访问与领域行为集中在本文件，处理器只做业务编排。
+ 
+ use alun::prelude::*;
+@@ -36,6 +50,22 @@ pub struct OnlineSession {
+     pub expire_at: i64,
+ }
+ 
++/// 已签发 refresh 令牌的登记快照。
++///
++/// 只登记吊销所需的最小字段：`user_id`（按用户清理）、`sid`（按会话清理）、
++/// `exp`（拉黑 TTL）；令牌正文不落缓存。
++#[derive(Debug, Clone, Serialize, Deserialize)]
++pub struct RefreshSession {
++    /// refresh 令牌唯一标识（`jti`），同时是缓存键后缀。
++    pub jti: String,
++    /// 用户 ID（令牌 `sub`）。
++    pub user_id: String,
++    /// 会话标识（令牌 claim `sid`）：同一登录会话内的全部 refresh 令牌共享。
++    pub sid: String,
++    /// 令牌到期时间（Unix 时间戳，秒），等于 `siat + refresh_ttl`。
++    pub exp: i64,
++}
++
+ /// 在线会话数据访问（缓存命名空间）。
+ pub struct OnlineSessionModel;
+ 
+@@ -101,7 +131,8 @@ impl OnlineSessionModel {
+     ///
+     /// # 返回值
+     ///
+-    /// 在线会话列表；缓存未初始化时返回空列表。
++    /// 在线会话列表；缓存未初始化时返回空列表（在线列表属于旁路观测，
++    /// 读取侧允许降级）。
+     ///
+     /// # 异常情况
+     ///
+@@ -110,6 +141,23 @@ impl OnlineSessionModel {
+         let Some(store) = try_cache() else {
+             return Ok(Vec::new());
+         };
++        Self::collect_all(store).await
++    }
++
++    /// 列出全部在线会话（缓存缺失即报错，供吊销路径使用）。
++    ///
++    /// 与 [`OnlineSessionModel::list_all`] 的差别只在「缓存未初始化」时：这里返回
++    /// `Err` 而不是空列表——吊销路径上「拿不到列表」等于「吊销不了」，必须让
++    /// 调用方看见，否则就是又一次 fail-open。
++    async fn list_all_strict() -> std::result::Result<Vec<OnlineSession>, Error> {
++        let Some(store) = try_cache() else {
++            return Err(Error::Msg("缓存未初始化，无法枚举在线会话".to_string()));
++        };
++        Self::collect_all(store).await
++    }
++
++    /// 按 `online:token:*` 枚举并读取在线会话（调用方已确保缓存可用）。
++    async fn collect_all(store: &impl Cache) -> std::result::Result<Vec<OnlineSession>, Error> {
+         let pattern = format!("{}*", constants::CACHE_KEY_PREFIX_ONLINE);
+         let keys = Cache::keys(store, &pattern).await?;
+         let mut sessions = Vec::with_capacity(keys.len());
+@@ -124,6 +172,91 @@ impl OnlineSessionModel {
+         Ok(sessions)
+     }
+ 
++    /// 登记一条 refresh 令牌（登录 / 轮换成功后调用）。
++    ///
++    /// # 参数
++    ///
++    /// - `session`：refresh 登记快照。
++    /// - `ttl_secs`：缓存有效期（秒），取该令牌剩余有效期。
++    ///
++    /// # 异常情况
++    ///
++    /// 缓存未初始化或写入失败时返回错误。
++    pub async fn record_refresh(
++        session: &RefreshSession,
++        ttl_secs: u64,
++    ) -> std::result::Result<(), Error> {
++        let Some(store) = try_cache() else {
++            return Err(Error::Msg(
++                "缓存未初始化，无法登记 refresh 令牌".to_string(),
++            ));
++        };
++        Cache::set_ex(store, &refresh_key(&session.jti), session, ttl_secs).await
++    }
++
++    /// 移除一条 refresh 令牌登记（轮换 / 登出时调用）。
++    ///
++    /// 键不存在不视为错误。
++    ///
++    /// # 异常情况
++    ///
++    /// 缓存未初始化或删除失败时返回错误——轮换路径上「删不掉旧键」意味着注册表
++    /// 会残留一条已作废的令牌，宁可报错也不算成功。
++    pub async fn forget_refresh(jti: &str) -> std::result::Result<(), Error> {
++        let Some(store) = try_cache() else {
++            return Err(Error::Msg(
++                "缓存未初始化，无法移除 refresh 令牌登记".to_string(),
++            ));
++        };
++        Cache::del(store, &refresh_key(jti)).await
++    }
++
++    /// 读取单条 refresh 令牌登记（判「该 refresh 是否仍被登记为有效」）。
++    ///
++    /// # 参数
++    ///
++    /// - `jti`：refresh 令牌 `jti`。
++    ///
++    /// # 返回值
++    ///
++    /// 存在返回 `Some`（仍被登记为有效），不存在或已过期返回 `None`（已吊销 / 已作废）。
++    ///
++    /// # 异常情况
++    ///
++    /// 缓存未初始化或读取失败时返回错误。
++    pub async fn find_refresh(jti: &str) -> std::result::Result<Option<RefreshSession>, Error> {
++        let Some(store) = try_cache() else {
++            return Err(Error::Msg(
++                "缓存未初始化，无法查询 refresh 令牌登记".to_string(),
++            ));
++        };
++        Cache::get(store, &refresh_key(jti)).await
++    }
++
++    /// 列出全部 refresh 令牌登记。
++    ///
++    /// # 异常情况
++    ///
++    /// 缓存未初始化或枚举失败时返回错误；个别键读取失败只记告警并跳过。
++    pub async fn list_refresh() -> std::result::Result<Vec<RefreshSession>, Error> {
++        let Some(store) = try_cache() else {
++            return Err(Error::Msg(
++                "缓存未初始化，无法枚举 refresh 令牌".to_string(),
++            ));
++        };
++        let pattern = format!("{}*", constants::CACHE_KEY_PREFIX_ONLINE_REFRESH);
++        let keys = Cache::keys(store, &pattern).await?;
++        let mut sessions = Vec::with_capacity(keys.len());
++        for key in keys {
++            match Cache::get::<RefreshSession>(store, &key).await {
++                Ok(Some(session)) => sessions.push(session),
++                Ok(None) => {}
++                Err(e) => tracing::warn!(key, error = %e, "读取 refresh 令牌登记失败，已跳过"),
++            }
++        }
++        Ok(sessions)
++    }
++
+     /// 强制下线：移除在线会话并把令牌写入黑名单（立即失效）。
+     ///
+     /// 黑名单键格式与框架 [`JWT::is_blacklisted`] 保持一致，TTL 取令牌剩余
+@@ -141,15 +274,7 @@ impl OnlineSessionModel {
+             return Err(Error::Msg("缓存未初始化，无法强制下线".to_string()));
+         };
+         Cache::del(store, &Self::key(&session.token_id)).await?;
+-
+-        let now = chrono::Utc::now().timestamp();
+-        let ttl = (session.expire_at - now).max(1) as u64;
+-        let blacklist_key = format!(
+-            "{}{}",
+-            constants::CACHE_KEY_PREFIX_TOKEN_BLACKLIST,
+-            session.token_id
+-        );
+-        Cache::set_ex(store, &blacklist_key, &serde_json::json!(true), ttl).await
++        blacklist_jti(store, &session.token_id, remaining_ttl(session.expire_at)).await
+     }
+ 
+     /// 生成在线会话缓存键。
+@@ -166,11 +291,14 @@ impl OnlineSessionModel {
+     }
+ }
+ 
+-/// 强制下线指定用户的全部在线令牌（权限被收回 / 停用 / 删除用户时调用）。
++/// 强制下线指定用户的全部已签发令牌（权限被收回 / 停用 / 删除 / 改密时调用）。
++///
++/// 一次遍历两个注册表：
++///
++/// 1. `online:token:*` —— 该用户的 access 令牌，删键 + 拉黑；
++/// 2. `online:refresh:*` —— 该用户的 refresh 令牌，删键 + 拉黑。
+ ///
+-/// 枚举全部在线会话，对 `user_id` 命中的每个会话执行
+-/// [`OnlineSessionModel::force_logout`]，从而该用户所有已签发但仍有效的访问令牌
+-/// 在下次请求时即被黑名单拦截。
++/// 只有两者都做，「改密 / 停用后旧 refresh 仍能续期」的缺口才算补上（CODE-16 B7）。
+ ///
+ /// # 参数
+ ///
+@@ -178,37 +306,65 @@ impl OnlineSessionModel {
+ ///
+ /// # 返回值
+ ///
+-/// 实际下线的令牌数量。缓存未初始化时返回 0（按「无在线会话」处理）。
+-/// 单个令牌拉黑失败只记告警，不中断其余令牌处理。
+-pub(crate) async fn force_logout_user(user_id: &str) -> usize {
+-    let sessions = match OnlineSessionModel::list_all().await {
+-        Ok(sessions) => sessions,
+-        Err(e) => {
+-            tracing::warn!(user_id, error = %e, "枚举在线会话失败，跳过强制下线");
+-            return 0;
+-        }
+-    };
++/// 实际下线的令牌数量（access + refresh 合计）。
++///
++/// # 异常情况
++///
++/// - 枚举任一注册表失败 → `Err`（吊销不了就必须让调用方知道）；
++/// - 个别令牌拉黑失败 → 记 `error` 日志，继续处理其余令牌，最终返回 `Err`，
++///   避免「一个坏键让其余会话逃过吊销」。
++pub(crate) async fn force_logout_user(user_id: &str) -> std::result::Result<usize, Error> {
++    let sessions = OnlineSessionModel::list_all_strict().await?;
++    let refresh_sessions = OnlineSessionModel::list_refresh().await?;
++
+     let mut kicked = 0usize;
++    let mut failure: Option<Error> = None;
++
+     for session in sessions.into_iter().filter(|s| s.user_id == user_id) {
+         match OnlineSessionModel::force_logout(&session).await {
+             Ok(()) => kicked += 1,
+-            Err(e) => tracing::warn!(
+-                user_id,
+-                token_id = %session.token_id,
+-                error = %e,
+-                "强制下线令牌失败"
+-            ),
++            Err(e) => {
++                tracing::error!(
++                    user_id,
++                    token_id = %session.token_id,
++                    error = %e,
++                    "强制下线 access 令牌失败"
++                );
++                failure = Some(e);
++            }
++        }
++    }
++
++    for session in refresh_sessions
++        .into_iter()
++        .filter(|s| s.user_id == user_id)
++    {
++        match revoke_refresh(&session).await {
++            Ok(()) => kicked += 1,
++            Err(e) => {
++                tracing::error!(
++                    user_id,
++                    refresh_jti = %session.jti,
++                    error = %e,
++                    "吊销 refresh 令牌失败"
++                );
++                failure = Some(e);
++            }
+         }
+     }
+-    kicked
++
++    match failure {
++        Some(e) => Err(e),
++        None => Ok(kicked),
++    }
+ }
+ 
+ /// 强制下线除指定用户名外的全部在线用户（菜单 / 角色权限全局变更时调用）。
+ ///
+ /// 菜单、角色菜单授权等变更会影响一批用户，而 JWT 权限在签发时即固化在令牌中，
+-/// 无法按权限点批量撤回；因此把受影响的在线令牌统一拉黑，令其重新登录获取新权限。
+-/// 通常排除内置超级管理员（权限短路、不受菜单变更影响），避免管理员改完权限后
+-/// 把自己踢下线。
++/// 无法按权限点批量撤回；因此把受影响的在线令牌（access + refresh）统一拉黑，
++/// 令其重新登录获取新权限。通常排除内置超级管理员（权限短路、不受菜单变更影响），
++/// 避免管理员改完权限后把自己踢下线。
+ ///
+ /// # 参数
+ ///
+@@ -216,29 +372,166 @@ pub(crate) async fn force_logout_user(user_id: &str) -> usize {
+ ///
+ /// # 返回值
+ ///
+-/// 实际下线的令牌数量。缓存未初始化时返回 0。
+-pub(crate) async fn force_logout_all_except(exclude_usernames: &[&str]) -> usize {
+-    let sessions = match OnlineSessionModel::list_all().await {
+-        Ok(sessions) => sessions,
+-        Err(e) => {
+-            tracing::warn!(error = %e, "枚举在线会话失败，跳过批量强制下线");
+-            return 0;
+-        }
++/// 实际下线的令牌数量（access + refresh 合计）。
++///
++/// # 异常情况
++///
++/// 与 [`force_logout_user`] 相同：枚举失败或任一令牌吊销失败都返回 `Err`。
++pub(crate) async fn force_logout_all_except(
++    exclude_usernames: &[&str],
++) -> std::result::Result<usize, Error> {
++    let sessions = OnlineSessionModel::list_all_strict().await?;
++    let refresh_sessions = OnlineSessionModel::list_refresh().await?;
++
++    // refresh 登记里只有 user_id，需要 user_id → username 才能套用排除规则；
++    // 用 access 会话表里的映射（同一用户在两张表里一致）。
++    let username_of = |user_id: &str| -> Option<String> {
++        sessions
++            .iter()
++            .find(|s| s.user_id == user_id)
++            .map(|s| s.username.clone())
+     };
++
+     let mut kicked = 0usize;
+-    for session in sessions
+-        .into_iter()
+-        .filter(|s| !exclude_usernames.contains(&s.username.as_str()))
+-    {
+-        match OnlineSessionModel::force_logout(&session).await {
++    let mut failure: Option<Error> = None;
++
++    for session in &sessions {
++        if exclude_usernames.contains(&session.username.as_str()) {
++            continue;
++        }
++        match OnlineSessionModel::force_logout(session).await {
+             Ok(()) => kicked += 1,
+-            Err(e) => tracing::warn!(
+-                user_id = %session.user_id,
+-                token_id = %session.token_id,
+-                error = %e,
+-                "强制下线令牌失败"
+-            ),
++            Err(e) => {
++                tracing::error!(
++                    user_id = %session.user_id,
++                    token_id = %session.token_id,
++                    error = %e,
++                    "强制下线 access 令牌失败"
++                );
++                failure = Some(e);
++            }
++        }
++    }
++
++    for session in &refresh_sessions {
++        if let Some(username) = username_of(&session.user_id)
++            && exclude_usernames.contains(&username.as_str())
++        {
++            continue;
++        }
++        match revoke_refresh(session).await {
++            Ok(()) => kicked += 1,
++            Err(e) => {
++                tracing::error!(
++                    user_id = %session.user_id,
++                    refresh_jti = %session.jti,
++                    error = %e,
++                    "吊销 refresh 令牌失败"
++                );
++                failure = Some(e);
++            }
++        }
++    }
++
++    match failure {
++        Some(e) => Err(e),
++        None => Ok(kicked),
++    }
++}
++
++/// 吊销指定会话（`sid`）名下的全部 refresh 令牌（登出时调用）。
++///
++/// 登出请求手里只有 access 令牌，但 access 与 refresh 共享同一个 `sid`，
++/// 因此无需客户端回传 refresh 令牌也能把该会话的续期能力一次收掉
++/// （安全审计 CODE-05）。
++///
++/// # 参数
++///
++/// - `sid`：会话标识（access 令牌 claim `sid`）。
++///
++/// # 返回值
++///
++/// 实际吊销的 refresh 令牌数量。
++///
++/// # 异常情况
++///
++/// 枚举失败或任一令牌吊销失败返回 `Err`。
++pub(crate) async fn revoke_refresh_by_sid(sid: &str) -> std::result::Result<usize, Error> {
++    let sessions = OnlineSessionModel::list_refresh().await?;
++    let mut revoked = 0usize;
++    let mut failure: Option<Error> = None;
++    for session in sessions.iter().filter(|s| s.sid == sid) {
++        match revoke_refresh(session).await {
++            Ok(()) => revoked += 1,
++            Err(e) => {
++                tracing::error!(
++                    sid,
++                    refresh_jti = %session.jti,
++                    error = %e,
++                    "按会话吊销 refresh 令牌失败"
++                );
++                failure = Some(e);
++            }
+         }
+     }
+-    kicked
++    match failure {
++        Some(e) => Err(e),
++        None => Ok(revoked),
++    }
++}
++
++/// 吊销单条 refresh 令牌：删登记键 + 写黑名单（TTL 取剩余有效期）。
++///
++/// # 异常情况
++///
++/// 缓存未初始化、删键失败或写黑名单失败返回 `Err`。
++async fn revoke_refresh(session: &RefreshSession) -> std::result::Result<(), Error> {
++    let Some(store) = try_cache() else {
++        return Err(Error::Msg(
++            "缓存未初始化，无法吊销 refresh 令牌".to_string(),
++        ));
++    };
++    Cache::del(store, &refresh_key(&session.jti)).await?;
++    blacklist_jti(store, &session.jti, remaining_ttl(session.exp)).await
++}
++
++/// 显式写入令牌黑名单（错误可见）。
++///
++/// 供「登出时拉黑客户端提交的 refresh 令牌」「轮换时作废旧 refresh」直接使用：
++/// 框架的 `JWT::blacklist` 内部吞掉写入错误（`let _ = ...`），吊销路径需要能感知
++/// 失败，因此在这里自己写、把错误传上去（评审 §1.3）。
++///
++/// # 参数
++///
++/// - `jti`：令牌唯一标识。
++/// - `exp`：令牌到期时间（Unix 秒），黑名单 TTL 取其剩余期。
++///
++/// # 异常情况
++///
++/// 缓存未初始化或写入失败返回错误。
++pub(crate) async fn blacklist_token(jti: &str, exp: i64) -> std::result::Result<(), Error> {
++    let Some(store) = try_cache() else {
++        return Err(Error::Msg("缓存未初始化，无法写入令牌黑名单".to_string()));
++    };
++    blacklist_jti(store, jti, remaining_ttl(exp)).await
++}
++
++/// 把令牌 `jti` 写入框架格式的黑名单键（`token:blacklist:{jti}`）。
++async fn blacklist_jti(
++    store: &impl Cache,
++    jti: &str,
++    ttl_secs: u64,
++) -> std::result::Result<(), Error> {
++    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_BLACKLIST, jti);
++    Cache::set_ex(store, &key, &serde_json::json!(true), ttl_secs).await
++}
++
++/// 取「距到期的剩余秒数」（已过期按 1 秒，避免写出永久键）。
++fn remaining_ttl(expire_at: i64) -> u64 {
++    (expire_at - chrono::Utc::now().timestamp()).max(1) as u64
++}
++
++/// 生成 refresh 登记缓存键。
++fn refresh_key(jti: &str) -> String {
++    format!("{}{}", constants::CACHE_KEY_PREFIX_ONLINE_REFRESH, jti)
+ }
+diff --git a/backend/src/system/auth/dto.rs b/backend/src/system/auth/dto.rs
+index ce7f04c..05af133 100644
+--- a/backend/src/system/auth/dto.rs
++++ b/backend/src/system/auth/dto.rs
+@@ -35,7 +35,7 @@ pub struct LogoutReq {
+ }
+ 
+ /// 登录用户摘要（嵌入令牌响应）。
+-#[derive(Debug, Clone, Serialize)]
++#[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct LoginUserRes {
+     /// 用户 ID（UUID 字符串）。
+     pub id: String,
+@@ -48,7 +48,9 @@ pub struct LoginUserRes {
+ /// 令牌响应。
+ ///
+ /// `user` 仅在登录 / 刷新时下发；续期接口复用同一结构时可通过 `None` 省略。
+-#[derive(Debug, Serialize)]
++///
++/// `Deserialize` 供「轮换幂等」把整个响应体写入 `token:replay:{jti}` 后原样回放。
++#[derive(Debug, Clone, Serialize, Deserialize)]
+ pub struct TokenRes {
+     /// 访问令牌。
+     pub access_token: String,
+diff --git a/backend/src/system/auth/handler.rs b/backend/src/system/auth/handler.rs
+index af98096..1e4a99f 100644
+--- a/backend/src/system/auth/handler.rs
++++ b/backend/src/system/auth/handler.rs
+@@ -13,6 +13,7 @@ use axum::extract::ConnectInfo;
+ use axum::http::HeaderMap;
+ use std::net::SocketAddr;
+ 
++use crate::middleware::auth_guard;
+ use crate::shared::constants::{self, EnableStatus};
+ use crate::shared::error_code;
+ use crate::support::log::dto::LogPageQuery;
+@@ -21,7 +22,7 @@ use crate::support::log::{
+     self, AuditLogInput, AuthLogInput, AuthStatus, AuthType, PasswordChangeLogInput,
+     SecurityLogInput,
+ };
+-use crate::support::online::model::{OnlineSession, OnlineSessionModel};
++use crate::support::online::model::{OnlineSession, OnlineSessionModel, RefreshSession};
+ use crate::system::auth::dto::{
+     ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq,
+     TokenRes, UpdateProfileReq,
+@@ -212,8 +213,12 @@ pub async fn login(
+         .map_err(|e| utils::db_error(e, "更新登录状态"))?;
+ 
+     timer.mark("reset_status_done");
+-    let (token, claims) = issue_token(&user, Some(&mut timer)).await?;
+-    register_online_session(&headers, &connect_info, &claims).await;
++    // 登录即开新会话：`sid` / `siat` **只在这里生成**，之后每次轮换一律继承，
++    // 使 refresh 令牌的有效期有了不可滑动的绝对上限（CODE-16 B1）。
++    let session = SessionSeed::new_login();
++    let (token, issued) = issue_token(&user, Some(&mut timer), &session).await?;
++    register_online_session(&headers, &connect_info, &issued.access).await;
++    register_refresh_session(&issued.refresh).await;
+     timer.mark("online_session");
+ 
+     log::record_auth(
+@@ -291,7 +296,52 @@ pub async fn refresh(
+         ));
+     }
+ 
+-    if jwt.is_blacklisted(&claims).await {
++    // 旧令牌 `jti` 是轮换血缘的主键：没有它就无法登记「已作废」与「幂等回放」，
++    // 也无法判复用，只能拒绝。
++    let Some(old_jti) = claims.jti.clone().filter(|v| !v.is_empty()) else {
++        return Err(ApiError::new(
++            401,
++            error_code::AUTH_REFRESH_TOKEN_INVALID,
++            "刷新令牌缺少唯一标识",
++        ));
++    };
++
++    // ① 会话绝对上限（CODE-16 B1）：refresh 的 `exp` 恒等于 `siat + refresh_ttl`，
++    //    但 jsonwebtoken 验签带 60s leeway，所以必须再显式比一次 `siat`——
++    //    否则绝对上限会被 leeway 放宽，而「绝对」正是这条约束的全部意义。
++    //    这一步排在幂等回放之前：会话已到期的请求不该再换到一对新令牌。
++    let session = SessionSeed::inherit(&claims);
++    let refresh_ttl = jwt.refresh_token_expire_secs() as i64;
++    if now_secs() >= session.siat + refresh_ttl {
++        log::record_auth(
++            &headers,
++            &connect_info,
++            AuthLogInput {
++                user_id: utils::require_uuid(&claims.sub, "sub").ok(),
++                username: claims.username.clone(),
++                auth_type: AuthType::RefreshToken,
++                auth_status: AuthStatus::Fail,
++                error_message: Some("刷新令牌已超过会话绝对上限".to_string()),
++                login_duration: None,
++            },
++        );
++        return Err(ApiError::new(
++            401,
++            error_code::AUTH_REFRESH_TOKEN_INVALID,
++            "登录会话已到最长有效期，请重新登录",
++        ));
++    }
++
++    // ② 轮换幂等（60s 宽限，评审 §1.1）：跨标签页并发刷新时第二次请求拿到的是
++    //    同一个旧令牌，这里直接回放第一次的结果——不写审计、不杀会话。
++    if let Some(replayed) = load_replay(&old_jti).await? {
++        // 回放前必须确认「该会话仍然有效」：登出 / 强制下线会删掉 refresh 登记，
++        // 只按幂等缓存回放的话，登出后 60s 内旧令牌仍能换到一对可用的新令牌。
++        if replay_session_alive(&replayed).await? {
++            tracing::debug!(user_id = %claims.sub, "命中轮换幂等窗口，回放同一对令牌");
++            return Ok(Res::ok(replayed));
++        }
++        tracing::info!(user_id = %claims.sub, "幂等缓存对应的会话已被吊销，拒绝回放");
+         return Err(ApiError::new(
+             401,
+             error_code::AUTH_TOKEN_REVOKED,
+@@ -299,8 +349,30 @@ pub async fn refresh(
+         ));
+     }
+ 
+-    // 旧刷新令牌一次性作废
+-    jwt.blacklist(&claims).await;
++    // ③ 血缘检查：该 refresh 已经轮换过 → 有人在重放旧令牌（CODE-16 B4）
++    if let Some(mark) = load_rotated(&old_jti).await? {
++        return Err(reuse_detected(&headers, &connect_info, &claims, &mark).await);
++    }
++
++    // ④ 黑名单（登出 / 强制下线）：框架对该接口跳过检查，这里自己做且 **fail-closed**
++    match auth_guard::check_revoked(Some(old_jti.as_str())).await {
++        Ok(false) => {}
++        Ok(true) => {
++            return Err(ApiError::new(
++                401,
++                error_code::AUTH_TOKEN_REVOKED,
++                "刷新令牌已被撤销",
++            ));
++        }
++        Err(reason) => {
++            tracing::error!(
++                user_id = %claims.sub,
++                error = %reason,
++                "刷新路径的黑名单复检失败，按 fail-closed 拒绝"
++            );
++            return Err(cache_unavailable("校验刷新令牌吊销状态"));
++        }
++    }
+ 
+     let user_id = utils::require_uuid(&claims.sub, "sub")?;
+     let user = match SysUserModel::find_or_none(db(), &user_id).await {
+@@ -372,9 +444,29 @@ pub async fn refresh(
+         ));
+     }
+ 
++    // 旧刷新令牌一次性作废：必须在签发新令牌**之前**落地，且写失败即 500——
++    // 「没记录作废就发新令牌」等于放过一次复用（CODE-16 B4 顺序第 5 步）。
++    crate::support::online::model::blacklist_token(&old_jti, claims.exp as i64)
++        .await
++        .map_err(|e| {
++            tracing::error!(user_id = %claims.sub, error = %e, "旧刷新令牌写黑名单失败");
++            cache_unavailable("作废旧刷新令牌")
++        })?;
++
+     // 刷新路径不采集分段耗时：令牌已存在，慢点只在首次登录需要定位。
+-    let (token, new_claims) = issue_token(&user, None).await?;
+-    register_online_session(&headers, &connect_info, &new_claims).await;
++    let (token, issued) = issue_token(&user, None, &session).await?;
++
++    // 血缘标记（判复用）+ 幂等回放（宽限）+ 新旧在线登记
++    let mark = RotatedMark {
++        sid: session.sid.clone(),
++        at: now_secs(),
++    };
++    persist_rotation(&old_jti, &mark, &token, claims.exp).await?;
++    if let Err(e) = OnlineSessionModel::forget_refresh(&old_jti).await {
++        tracing::warn!(user_id = %claims.sub, error = %e, "移除旧 refresh 令牌登记失败");
++    }
++    register_online_session(&headers, &connect_info, &issued.access).await;
++    register_refresh_session(&issued.refresh).await;
+ 
+     log::record_auth(
+         &headers,
+@@ -421,8 +513,23 @@ pub async fn logout(
+     jwt.logout(&claims).await;
+     revoke_online_session(&claims).await;
+ 
+-    // 同时吊销请求体带来的 refresh token：只拉黑 access 令牌时，refresh 仍能续期
+-    // 7 天，「退出登录」形同虚设（安全审计 CODE-05）。
++    // 同一会话（`sid`）名下的 refresh 令牌一并吊销：客户端不必回传 refresh，
++    // 「登出后旧 refresh 仍能续期」的窗口也关掉了（CODE-05 / CODE-16 B7）。
++    // 失败要出声：吊销失败却回 200 就是静默 fail-open（评审 §1.3）。
++    if let Some(sid) = claims.extra_str(constants::CLAIM_SESSION_ID)
++        && let Err(e) = crate::support::online::model::revoke_refresh_by_sid(&sid).await
++    {
++        tracing::error!(
++            user_id = %claims.sub,
++            sid = %sid,
++            error = %e,
++            "登出时吊销本次会话的 refresh 令牌失败"
++        );
++        return Err(cache_unavailable("吊销本次会话的刷新令牌"));
++    }
++
++    // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
++    // 按 jti 再兜底拉黑一次，失败同样必须让调用方看到。
+     if let Some(Json(req)) = payload
+         && let Some(raw) = req
+             .refresh_token
+@@ -435,7 +542,20 @@ pub async fn logout(
+                 if refresh_claims.token_type == Some(TokenType::Refresh)
+                     && refresh_claims.sub == claims.sub =>
+             {
+-                jwt.blacklist(&refresh_claims).await;
++                if let Some(jti) = refresh_claims.jti.as_deref()
++                    && let Err(e) = crate::support::online::model::blacklist_token(
++                        jti,
++                        refresh_claims.exp as i64,
++                    )
++                    .await
++                {
++                    tracing::error!(
++                        user_id = %claims.sub,
++                        error = %e,
++                        "登出时拉黑客户端提交的 refresh 令牌失败"
++                    );
++                    return Err(cache_unavailable("吊销刷新令牌"));
++                }
+             }
+             Ok(_) => tracing::warn!(
+                 user_id = %claims.sub,
+@@ -678,7 +798,17 @@ pub async fn change_password(
+         tracing::error!(error = %e, user_id = %user_id, "改密后自增令牌版本号失败");
+     }
+     crate::system::auth::model::invalidate_user_principal(&user_id).await;
+-    crate::support::online::model::force_logout_user(&user_id.to_string()).await;
++    // 缓存侧的会话吊销失败按**可接受降级**处理，不返回 500：上面已把库里的
++    // `token_version` 自增（认证层逐请求比对、刷新路径也比对），旧 access / refresh
++    // 在数据库这一侧已经作废；此时回 500 只会让「密码其实已改成功」的操作看起来失败，
++    // 反而诱发无意义的重复改密。失败仍以 `error` 级日志留痕（不静默）。
++    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
++        tracing::error!(
++            user_id = %user_id,
++            error = %e,
++            "改密后清理在线会话失败（令牌版本号已自增，库侧吊销仍生效）"
++        );
++    }
+ 
+     log::record_password_change(
+         &headers,
+@@ -792,15 +922,63 @@ impl LoginTimer {
+     }
+ }
+ 
++/// 会话种子：`sid`（uuid v4）+ `siat`（Unix 秒）。
++///
++/// 登录时新建，轮换时**从旧 refresh 令牌的 claims 继承**——两条规则合起来才让
++/// refresh 令牌的有效期有了不可滑动的绝对上限（CODE-16 B1）：
++/// 只要 `now >= siat + refresh_ttl`，无论轮换过多少次都必须重新登录。
++struct SessionSeed {
++    /// 会话标识。
++    sid: String,
++    /// 会话创建时刻（Unix 秒）。
++    siat: i64,
++}
++
++impl SessionSeed {
++    /// 登录：开一个新会话。
++    fn new_login() -> Self {
++        Self {
++            sid: uuid::Uuid::new_v4().to_string(),
++            siat: now_secs(),
++        }
++    }
++
++    /// 刷新：继承旧 refresh 令牌的会话标识与创建时刻。
++    ///
++    /// 历史令牌（本整改上线前签发、没有 `sid` / `siat`）以 `iat` 兜底：它们的
++    /// `exp` 本来就等于 `iat + refresh_ttl`，因此绝对上限既不会被延长，
++    /// 也不会把正在使用的会话立刻踢下线。
++    fn inherit(claims: &TokenClaims) -> Self {
++        let sid = claims
++            .extra_str(constants::CLAIM_SESSION_ID)
++            .filter(|v| !v.is_empty())
++            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
++        let siat = claims
++            .extra_i64(constants::CLAIM_SESSION_ISSUED_AT)
++            .unwrap_or(claims.iat as i64);
++        Self { sid, siat }
++    }
++}
++
++/// 一次签发的令牌对（access + refresh）及其声明。
++struct IssuedTokens {
++    /// 访问令牌声明（在线会话登记用）。
++    access: TokenClaims,
++    /// 刷新令牌声明（refresh 登记与血缘标记用）。
++    refresh: TokenClaims,
++}
++
+ /// 组装登录用户的角色编码、权限码与令牌对。
+ ///
+ /// # 参数
+ ///
+ /// - `user`：已通过身份校验的用户模型。
++/// - `timer`：耗时分段采集器（仅登录路径传入）。
++/// - `session`：会话种子（登录新建 / 刷新继承），决定 `sid` / `siat` 与 refresh 的 `exp`。
+ ///
+ /// # 返回值
+ ///
+-/// `(令牌响应, 访问令牌声明)`。声明用于登记在线会话（签发接口不直接返回 `jti`）。
++/// `(令牌响应, 令牌对声明)`。声明用于登记在线会话与 refresh 令牌（签发接口只返回字符串）。
+ ///
+ /// # 异常情况
+ ///
+@@ -808,7 +986,8 @@ impl LoginTimer {
+ async fn issue_token(
+     user: &SysUserModel,
+     mut timer: Option<&mut LoginTimer>,
+-) -> std::result::Result<(TokenRes, TokenClaims), ApiError> {
++    session: &SessionSeed,
++) -> std::result::Result<(TokenRes, IssuedTokens), ApiError> {
+     // 计时器是可选的：登录路径传入采集器，刷新路径不采集。
+     let mut mark_stage = |label: &'static str| {
+         if let Some(timer) = timer.as_deref_mut() {
+@@ -842,12 +1021,22 @@ async fn issue_token(
+                 constants::CLAIM_TOKEN_VERSION,
+                 i64::from(user.token_version),
+             )
++            // 会话标识与创建时刻：refresh 轮换时原样继承，构成绝对上限基准（CODE-16 B1）
++            .claim_str(constants::CLAIM_SESSION_ID, session.sid.clone())
++            .claim_i64(constants::CLAIM_SESSION_ISSUED_AT, session.siat)
+     };
+     let access_token = jwt.issue(builder()).map_err(|e| {
+         tracing::error!(error = %e, "签发访问令牌失败");
+         ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
+     })?;
+-    let refresh_token = jwt.issue_refresh(builder()).map_err(|e| {
++
++    // refresh 的 `exp` **固定**为 `siat + refresh_ttl`：轮换只换 jti，不推后上限。
++    // `ClaimsBuilder::build(type, expire_secs)` 按「当前时刻 + expire_secs」算 exp，
++    // 因此这里传「距绝对上限的剩余秒数」即得到 `exp = siat + refresh_ttl`。
++    let refresh_ttl = jwt.refresh_token_expire_secs() as i64;
++    let remaining = (session.siat + refresh_ttl - now_secs()).max(1) as u64;
++    let refresh_claims = builder().build(TokenType::Refresh, remaining);
++    let refresh_token = jwt.create_token_with(refresh_claims.clone()).map_err(|e| {
+         tracing::error!(error = %e, "签发刷新令牌失败");
+         ApiError::new(500, error_code::INTERNAL_ERROR, "服务器内部错误")
+     })?;
+@@ -873,7 +1062,231 @@ async fn issue_token(
+         // 前端据此直接跳改密页，不必先撞一次 403（安全审计 CODE-06）
+         must_change_password: user.must_change_password,
+     };
+-    Ok((token, claims))
++    Ok((
++        token,
++        IssuedTokens {
++            access: claims,
++            refresh: refresh_claims,
++        },
++    ))
++}
++
++/// 当前 Unix 时间戳（秒）。
++fn now_secs() -> i64 {
++    chrono::Utc::now().timestamp()
++}
++
++/// 缓存不可用时的统一 500 错误。
++///
++/// 吊销 / 轮换状态都落在缓存里：缓存不可用时**不能**假装成功（那就是 fail-open），
++/// 一律回 500 让客户端重试（评审 §1.3）。
++fn cache_unavailable(action: &str) -> ApiError {
++    ApiError::new(
++        500,
++        error_code::INTERNAL_ERROR,
++        format!("会话状态暂不可用，无法{action}，请稍后重试"),
++    )
++}
++
++/// 已轮换（作废）refresh 令牌的血缘标记。
++#[derive(Debug, serde::Serialize, serde::Deserialize)]
++struct RotatedMark {
++    /// 会话标识。
++    sid: String,
++    /// 轮换时刻（Unix 秒）。
++    at: i64,
++}
++
++/// 读取轮换幂等结果（`token:replay:{旧 jti}`）。
++///
++/// # 返回值
++///
++/// - `Ok(Some(_))`：宽限窗口内命中，直接回放同一对令牌；
++/// - `Ok(None)`：未命中；
++/// - `Err(_)`：缓存不可用（500）。
++async fn load_replay(old_jti: &str) -> std::result::Result<Option<TokenRes>, ApiError> {
++    let Some(store) = try_cache() else {
++        return Err(cache_unavailable("校验令牌轮换状态"));
++    };
++    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
++    match Cache::get::<TokenRes>(store, &key).await {
++        Ok(pair) => Ok(pair),
++        Err(e) => {
++            tracing::error!(error = %e, "读取轮换幂等缓存失败");
++            Err(cache_unavailable("校验令牌轮换状态"))
++        }
++    }
++}
++
++/// 读取轮换血缘标记（`token:rotated:{旧 jti}`）。
++///
++/// # 返回值
++///
++/// - `Ok(Some(_))`：该 refresh 令牌已被轮换过；
++/// - `Ok(None)`：未轮换过；
++/// - `Err(_)`：缓存不可用（500）。
++async fn load_rotated(old_jti: &str) -> std::result::Result<Option<RotatedMark>, ApiError> {
++    let Some(store) = try_cache() else {
++        return Err(cache_unavailable("校验令牌轮换状态"));
++    };
++    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
++    match Cache::get::<RotatedMark>(store, &key).await {
++        Ok(mark) => Ok(mark),
++        Err(e) => {
++            tracing::error!(error = %e, "读取轮换血缘标记失败");
++            Err(cache_unavailable("校验令牌轮换状态"))
++        }
++    }
++}
++
++/// 判断幂等回放出的令牌对所属会话是否仍然有效。
++///
++/// 判据：它携带的 refresh 令牌**仍在 `online:refresh:*` 注册表里**。登出
++/// （`revoke_refresh_by_sid`）与强制下线（`force_logout_user`）都会删掉登记，
++/// 因此「登记缺失」即视为已吊销——这是 60s 宽限窗口不会绕过登出的关键。
++///
++/// # 返回值
++///
++/// - `Ok(true)`：会话仍有效，可以回放；
++/// - `Ok(false)`：会话已吊销 / 缓存内容无法验签，不可回放；
++/// - `Err(_)`：缓存不可用（500，fail-closed）。
++async fn replay_session_alive(pair: &TokenRes) -> std::result::Result<bool, ApiError> {
++    let jwt = JWT::from_config();
++    let claims = match jwt.validate(&pair.refresh_token) {
++        Ok(claims) => claims,
++        Err(e) => {
++            // 回放的是自己刚签发的令牌；验不过说明缓存内容异常或密钥已轮换
++            tracing::warn!(error = %e, "幂等缓存中的 refresh 令牌无法验签，按已吊销处理");
++            return Ok(false);
++        }
++    };
++    let Some(jti) = claims.jti.as_deref() else {
++        return Ok(false);
++    };
++    match OnlineSessionModel::find_refresh(jti).await {
++        Ok(Some(_)) => Ok(true),
++        Ok(None) => Ok(false),
++        Err(e) => {
++            tracing::error!(error = %e, "查询 refresh 令牌登记失败，回放按 fail-closed 拒绝");
++            Err(cache_unavailable("校验令牌轮换状态"))
++        }
++    }
++}
++
++/// 记录一次成功轮换：写血缘标记（判复用）+ 幂等回放（宽限）。
++///
++/// # 参数
++///
++/// - `old_jti`：被换下的 refresh 令牌 `jti`。
++/// - `mark`：血缘标记。
++/// - `pair`：本次签发的新令牌对（幂等回放时原样返回）。
++/// - `old_exp`：旧 refresh 令牌的 `exp`（血缘标记的存活上限）。
++///
++/// # 异常情况
++///
++/// 缓存不可用或写入失败返回 500——写不进去就意味着下次复用无法识别。
++async fn persist_rotation(
++    old_jti: &str,
++    mark: &RotatedMark,
++    pair: &TokenRes,
++    old_exp: usize,
++) -> std::result::Result<(), ApiError> {
++    let Some(store) = try_cache() else {
++        return Err(cache_unavailable("记录令牌轮换"));
++    };
++    let rotated_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
++    let replay_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
++    let ttl = (old_exp as i64 - now_secs()).max(1) as u64;
++    Cache::set_ex(store, &rotated_key, mark, ttl)
++        .await
++        .map_err(|e| {
++            tracing::error!(error = %e, old_jti, "写轮换血缘标记失败");
++            cache_unavailable("记录令牌轮换")
++        })?;
++    Cache::set_ex(
++        store,
++        &replay_key,
++        pair,
++        constants::TOKEN_ROTATION_REPLAY_GRACE_SECS,
++    )
++    .await
++    .map_err(|e| {
++        tracing::error!(error = %e, old_jti, "写轮换幂等缓存失败");
++        cache_unavailable("记录令牌轮换")
++    })
++}
++
++/// 判定「refresh 令牌复用」并执行处置（CODE-16 B4）。
++///
++/// 处置三件事：
++///
++/// 1. **注销该用户全部会话**（access 与 refresh 都在注册表里，一次全杀）——
++///    令牌被复用意味着它已经泄露，只作废这一个 jti 不够；
++/// 2. 写 `auth_logs`（`REFRESH_TOKEN/FAIL`，`error_message` 带 `REUSE_DETECTED`）
++///    与 `security_logs`（`REFRESH_TOKEN_REUSE`）；
++/// 3. 返回 401 `AUTH_TOKEN_REVOKED`（复用现有错误码，不新增无语义码）。
++///
++/// # 返回值
++///
++/// 供调用方直接 `return Err(...)` 的 401 错误。
++async fn reuse_detected(
++    headers: &HeaderMap,
++    connect_info: &SocketAddr,
++    claims: &TokenClaims,
++    mark: &RotatedMark,
++) -> ApiError {
++    let kicked = match crate::support::online::model::force_logout_user(&claims.sub).await {
++        Ok(count) => count,
++        Err(e) => {
++            // 会话吊销失败也不能放行：仍按复用拒绝，并且必须留痕
++            tracing::error!(user_id = %claims.sub, error = %e, "复用检测后吊销全部会话失败");
++            0
++        }
++    };
++    tracing::warn!(
++        user_id = %claims.sub,
++        sid = %mark.sid,
++        rotated_at = mark.at,
++        revoked_tokens = kicked,
++        "检测到 refresh 令牌复用，已注销该用户全部会话"
++    );
++
++    let user_id = utils::require_uuid(&claims.sub, "sub").ok();
++    log::record_auth(
++        headers,
++        connect_info,
++        AuthLogInput {
++            user_id,
++            username: claims.username.clone(),
++            auth_type: AuthType::RefreshToken,
++            auth_status: AuthStatus::Fail,
++            error_message: Some(format!(
++                "REUSE_DETECTED: 刷新令牌在 {} 轮换后再次被使用，已注销该用户全部会话（吊销 {kicked} 个令牌）",
++                mark.at
++            )),
++            login_duration: None,
++        },
++    );
++    log::record_security(
++        headers,
++        connect_info,
++        SecurityLogInput {
++            user_id,
++            username: claims.username.clone(),
++            event_type: "REFRESH_TOKEN_REUSE".to_string(),
++            detail: Some(serde_json::json!({
++                "sid": mark.sid,
++                "rotated_at": mark.at,
++                "revoked_tokens": kicked,
++            })),
++        },
++    );
++
++    ApiError::new(
++        401,
++        error_code::AUTH_TOKEN_REVOKED,
++        "登录状态已失效，请重新登录",
++    )
+ }
+ 
+ /// 登记在线会话（登录 / 刷新成功后调用）。
+@@ -941,6 +1354,43 @@ async fn revoke_online_session(claims: &TokenClaims) {
+     }
+ }
+ 
++/// 登记 refresh 令牌（登录 / 轮换成功后调用，CODE-16 B7）。
++///
++/// # 参数
++///
++/// - `claims`：本次签发的 refresh 令牌声明（需含 `jti` / `sid` / `exp`）。
++///
++/// # 说明
++///
++/// 登记进 `online:refresh:{jti}` 后，`force_logout_user` / `force_logout_all_except`
++/// 才能枚举到 refresh 令牌并按 `user_id` 清理——这是「改密 / 停用 / 改角色后旧 refresh
++/// 立即失效」的底座。登记失败只记 `error` 日志：此时缓存本身已不可用，认证层会整体
++/// fail-closed，不存在「静默放行」的窗口。
++async fn register_refresh_session(claims: &TokenClaims) {
++    let Some(jti) = claims.jti.clone().filter(|v| !v.is_empty()) else {
++        tracing::warn!(user_id = %claims.sub, "refresh 令牌缺少 jti，跳过登记");
++        return;
++    };
++    let Some(sid) = claims.extra_str(constants::CLAIM_SESSION_ID) else {
++        tracing::warn!(user_id = %claims.sub, "refresh 令牌缺少 sid，跳过登记");
++        return;
++    };
++    let session = RefreshSession {
++        jti,
++        user_id: claims.sub.clone(),
++        sid,
++        exp: claims.exp as i64,
++    };
++    let ttl = (session.exp - now_secs()).max(1) as u64;
++    if let Err(e) = OnlineSessionModel::record_refresh(&session, ttl).await {
++        tracing::error!(
++            user_id = %claims.sub,
++            error = %e,
++            "登记 refresh 令牌失败（吊销将退回依赖令牌版本号与黑名单）"
++        );
++    }
++}
++
+ /// 把扁平菜单列表组装为树。
+ ///
+ /// # 参数
+diff --git a/backend/src/system/menu/handler.rs b/backend/src/system/menu/handler.rs
+index 096db9a..5c4d5c6 100644
+--- a/backend/src/system/menu/handler.rs
++++ b/backend/src/system/menu/handler.rs
+@@ -205,8 +205,18 @@ pub async fn update(
+         .map_err(|e| utils::db_error(e, "更新菜单"))?;
+ 
+     // 菜单的权限码 / 状态 / 标题等可能变更，令非超管在线用户令牌失效后重新登录，
+-    // 避免旧令牌内固化的权限快照与最新授权不一致
+-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
++    // 避免旧令牌内固化的权限快照与最新授权不一致。
++    // 失败回 500：菜单即权限来源，旧令牌里的权限码没有任何库侧兜底能撤回（评审 §1.3）。
++    if let Err(e) =
++        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
++    {
++        tracing::error!(error = %e, scene = "menu_update", "菜单变更后吊销在线会话失败");
++        return Err(ApiError::new(
++            500,
++            error_code::INTERNAL_ERROR,
++            "菜单已保存，但会话吊销失败，请重试",
++        ));
++    }
+     model::invalidate_tree_cache().await;
+     log::record_audit(
+         &headers,
+@@ -297,8 +307,18 @@ pub async fn delete(
+     .map_err(|e| utils::db_error(e, "删除菜单"))?;
+ 
+     // 菜单是权限来源：删除后令非超管在线用户的旧令牌失效，强制重新登录获取新权限，
+-    // 防止仍持有旧权限快照的令牌继续访问
+-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
++    // 防止仍持有旧权限快照的令牌继续访问。
++    // 失败回 500：权限码已随菜单删除，但令牌里的旧权限快照只能靠黑名单收回（评审 §1.3）。
++    if let Err(e) =
++        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
++    {
++        tracing::error!(error = %e, scene = "menu_delete", "菜单删除后吊销在线会话失败");
++        return Err(ApiError::new(
++            500,
++            error_code::INTERNAL_ERROR,
++            "菜单已删除，但会话吊销失败，请重试",
++        ));
++    }
+     model::invalidate_tree_cache().await;
+     log::record_audit(
+         &headers,
+diff --git a/backend/src/system/role/handler.rs b/backend/src/system/role/handler.rs
+index 0f671c3..44f4bed 100644
+--- a/backend/src/system/role/handler.rs
++++ b/backend/src/system/role/handler.rs
+@@ -277,8 +277,21 @@ pub async fn update(
+     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
+     crate::system::auth::model::invalidate_role_holders(&id).await;
+     // 角色状态 / 名称等变更会影响持有该角色用户的权限快照，令非超管在线用户
+-    // 重新登录获取最新角色与权限
+-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
++    // 重新登录获取最新角色与权限。
++    //
++    // 吊销失败回 500（评审 §1.3）：角色变更**没有库侧兜底**——权限快照固化在 JWT 里，
++    // 只有缓存里的黑名单能让旧令牌立刻失效。悄悄回 200 会让管理员以为权限已收回，
++    // 而旧令牌在 access TTL 内仍带着旧权限可用。
++    if let Err(e) =
++        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
++    {
++        tracing::error!(error = %e, scene = "role_update", "角色变更后吊销在线会话失败");
++        return Err(ApiError::new(
++            500,
++            error_code::INTERNAL_ERROR,
++            "角色已保存，但会话吊销失败，请重试",
++        ));
++    }
+     log::record_audit(
+         &headers,
+         &connect_info,
+@@ -495,8 +508,18 @@ pub async fn assign_menus(
+     // 角色菜单授权变更直接改变该角色用户的可访问权限，清理其主体上下文缓存
+     crate::system::auth::model::invalidate_role_holders(&id).await;
+     // 角色菜单授权变更直接改变该角色用户的可访问权限，令非超管在线用户令牌失效，
+-    // 强制重新登录以获取最新权限，避免旧令牌仍可访问已收回的功能
+-    crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await;
++    // 强制重新登录以获取最新权限，避免旧令牌仍可访问已收回的功能。
++    // 失败回 500：授权已落库但没有库侧兜底能收回令牌内的旧权限（评审 §1.3）。
++    if let Err(e) =
++        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
++    {
++        tracing::error!(error = %e, scene = "role_assign_menu", "角色授权后吊销在线会话失败");
++        return Err(ApiError::new(
++            500,
++            error_code::INTERNAL_ERROR,
++            "授权已保存，但会话吊销失败，请重试",
++        ));
++    }
+     log::record_audit(
+         &headers,
+         &connect_info,
+diff --git a/backend/src/system/user/handler.rs b/backend/src/system/user/handler.rs
+index df06830..06c5568 100644
+--- a/backend/src/system/user/handler.rs
++++ b/backend/src/system/user/handler.rs
+@@ -326,7 +326,7 @@ pub async fn update(
+         // 不依赖「在线会话表里恰好还有记录」（安全审计 CODE-05 / CODE-08）
+         revoke_user_tokens(&id, "update_disable").await;
+         crate::system::auth::model::invalidate_user_principal(&id).await;
+-        crate::support::online::model::force_logout_user(&id.to_string()).await;
++        revoke_online_sessions(&id, "update_disable").await;
+     }
+ 
+     let dept_name = dept_name_of(to_save.dept_id).await?;
+@@ -418,7 +418,7 @@ pub async fn delete(
+ 
+     // 用户删除后其令牌应立即失效（JWT 无状态，需主动拉黑其在线会话）
+     crate::system::auth::model::invalidate_user_principal(&id).await;
+-    crate::support::online::model::force_logout_user(&id.to_string()).await;
++    revoke_online_sessions(&id, "delete_user").await;
+     log::record_audit(
+         &headers,
+         &connect_info,
+@@ -521,7 +521,7 @@ pub async fn change_status(
+         // （安全审计 CODE-05 / CODE-08）
+         revoke_user_tokens(&id, "change_status_disable").await;
+         crate::system::auth::model::invalidate_user_principal(&id).await;
+-        crate::support::online::model::force_logout_user(&id.to_string()).await;
++        revoke_online_sessions(&id, "change_status_disable").await;
+     }
+     log::record_audit(
+         &headers,
+@@ -624,7 +624,7 @@ pub async fn change_password(
+ 
+     // 管理员重置他人密码后，强制其下线，须用新密码重新登录；本人改密不踢自己
+     if operator_id != Some(id) {
+-        crate::support::online::model::force_logout_user(&id.to_string()).await;
++        revoke_online_sessions(&id, "admin_reset_password").await;
+     }
+ 
+     log::record_audit(
+@@ -755,7 +755,7 @@ pub async fn assign_roles(
+     // 令牌版本号自增：即便在线会话记录已被清理，旧令牌也无法再用（CODE-08）
+     revoke_user_tokens(&id, "assign_roles").await;
+     crate::system::auth::model::invalidate_user_principal(&id).await;
+-    crate::support::online::model::force_logout_user(&id.to_string()).await;
++    revoke_online_sessions(&id, "assign_roles").await;
+     log::record_audit(
+         &headers,
+         &connect_info,
+@@ -894,6 +894,36 @@ async fn revoke_user_tokens(user_id: &uuid::Uuid, context: &'static str) {
+     }
+ }
+ 
++/// 清理指定用户的在线会话（access + refresh，`online:token:*` / `online:refresh:*`）。
++///
++/// 与 [`revoke_user_tokens`] 的分工见上；两者一起构成「库侧兜底 + 缓存侧即时」。
++///
++/// # 失败处理：可接受降级（不返回 500）
++///
++/// 本仓库用户管理侧的全部调用点（停用 / 删除 / 重置口令 / 改角色）都在**同一处**
++/// 先自增 `token_version`（或已把用户软删，认证层查不到会话直接 401），因此库侧
++/// 吊销不依赖缓存；缓存枚举失败只意味着少一层即时性，旧令牌最迟在 access TTL
++/// （15 分钟）内自然过期，或在下一次请求被 `ver` 比对拦下。
++///
++/// 反过来若这里回 500，前端会把「其实已经成功」的停用 / 改密显示成失败，诱发
++/// 重复操作——所以**只留痕、不改结果**，但日志必须是 `error` 级，不许静默
++/// （评审 §1.3）。
++///
++/// # 参数
++///
++/// - `user_id`：目标用户 ID。
++/// - `context`：调用场景（写入日志便于排查）。
++async fn revoke_online_sessions(user_id: &uuid::Uuid, context: &'static str) {
++    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
++        tracing::error!(
++            error = %e,
++            user_id = %user_id,
++            context,
++            "清理在线会话失败（令牌版本号 / 软删已在库侧生效）"
++        );
++    }
++}
++
+ /// 校验用户名唯一（软删表上仅比较未删除行）。
+ ///
+ /// # 参数
+diff --git a/docker/docker-compose.prod.yml b/docker/docker-compose.prod.yml
+index adde401..b1b8a5b 100644
+--- a/docker/docker-compose.prod.yml
++++ b/docker/docker-compose.prod.yml
+@@ -42,7 +42,14 @@ services:
+     image: redis:7-alpine
+     container_name: cailu-prod-redis
+     restart: unless-stopped
+-    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
++    # --maxmemory-policy noeviction（CODE-16 B6）：**不要**改回 allkeys-lru。
++    # 这个 Redis 里存的是令牌吊销状态（token:blacklist:* / token:rotated:* / online:*）：
++    #   · 淘汰 = 黑名单 / 轮换标记失效 = 已登出、已被强制下线的令牌重新可用（吊销静默失效）；
++    #   · 轮换标记丢失还会让「一次性 refresh」退化成可重放。
++    # 因此宁可让写在内存满时失败（后端会把失败回传给调用方，返回 5xx），也不允许悄悄淘汰。
++    # 内存水位必须按「不会写满」来设计，阈值见 docs/session-revocation-durability.md：
++    #   used_memory 持续 > 70% 告警，> 85% 严重告警（此时写入开始被拒）。
++    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
+     volumes:
+       - redisdata:/data
+     healthcheck:
+diff --git a/docs/README.md b/docs/README.md
+index fdf2a2f..da6a57c 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -15,6 +15,7 @@
+ | [后端二开指南.md](./后端二开指南.md) | 后端 / AI | 四件套模板、新增模块 7 步流程、迁移 / 事务 / 错误出口 |
+ | [前端二开指南.md](./前端二开指南.md) | 前端 / AI | api 封装、列表页范本、路由注册、主题变量、TDesign 坑 |
+ | [编码规范.md](./编码规范.md) | 所有人 / AI | 后端+前端强制规范、提交前检查命令 |
++| [会话吊销的耐久性边界.md](./会话吊销的耐久性边界.md) | 后端 / 运维 | 令牌吊销状态存哪、缓存丢失时退化到什么程度、Redis 水位与淘汰策略要求 |
+ | [AI二开指引.md](./AI二开指引.md) | AI Agent | 强制铁律、反魔幻清单、二开设计方案骨架、范本指针 |
+ | `skill/SKILL.md`（仓库根） | AI Agent | 浓缩速查知识包（命令 / 约定 / 踩坑） |
+ | `AGENTS.md`（仓库根） | AI Agent | AI 操作指令与入口 |
+diff --git "a/docs/\344\274\232\350\257\235\345\220\212\351\224\200\347\232\204\350\200\220\344\271\205\346\200\247\350\276\271\347\225\214.md" "b/docs/\344\274\232\350\257\235\345\220\212\351\224\200\347\232\204\350\200\220\344\271\205\346\200\247\350\276\271\347\225\214.md"
+new file mode 100644
+index 0000000..6d95daa
+--- /dev/null
++++ "b/docs/\344\274\232\350\257\235\345\220\212\351\224\200\347\232\204\350\200\220\344\271\205\346\200\247\350\276\271\347\225\214.md"
+@@ -0,0 +1,150 @@
++# 会话吊销的耐久性边界（CODE-16 B）
++
++> 适用范围：`backend/src/system/auth/handler.rs`（登录 / 刷新 / 登出）、
++> `backend/src/middleware/auth_guard.rs`（吊销复检）、
++> `backend/src/support/online/model.rs`（在线会话与 refresh 登记）。
++> 相关配置：`backend/config/config.toml`、`docker/docker-compose.prod.yml`。
++
++## 1. 结论先说
++
++令牌吊销（登出 / 强制下线 / 改密 / 停用 / 改角色）的真实性由**三样东西分层保证**：
++
++| 层 | 载体 | 覆盖的东西 | 缓存全丢时是否还成立 |
++|----|------|-----------|----------------------|
++| ① `ver` claim ↔ `sys_user.token_version` | **PostgreSQL** | 该用户**全部**已签发令牌（access + refresh） | ✅ 成立（不依赖缓存） |
++| ② 用户软删 / 停用 | **PostgreSQL** | 会话主体不存在即 401 | ✅ 成立 |
++| ③ 黑名单 / 轮换血缘 / 在线会话 | **Redis** | 单条令牌的即时失效、一次性 refresh、复用检测 | ❌ 不成立（一次性保证退化为统计保证） |
++
++也就是说：**「改密 / 停用 / 改角色后旧令牌立刻失效」是库侧强保证**；
++**「旧 refresh 令牌只能兑换一次」是缓存侧保证**，缓存丢失或淘汰时它会退化。
++本文件说明退化的边界、为什么可接受、以及运维上必须守住什么。
++
++## 2. 吊销状态具体存在哪
++
++| 键 | 值 | TTL | 写入者 | 语义 |
++|----|----|-----|--------|------|
++| `token:blacklist:{jti}` | `true` | 令牌剩余有效期 | 登出、强制下线、轮换作废旧 refresh | 该 jti 立刻失效 |
++| `token:rotated:{jti}` | `{sid, at}` | 旧 refresh 剩余有效期 | 刷新轮换成功后 | 该 refresh **已被用过**（判复用的唯一依据） |
++| `token:replay:{jti}` | 本次签发的令牌对 | 60 秒 | 刷新轮换成功后 | 60s 内重放同一旧令牌 → 原样回放（跨标签页幂等） |
++| `online:token:{access jti}` | 在线会话快照 | access 剩余有效期 | 登录 / 刷新 | 在线用户列表 + 强制下线枚举依据 |
++| `online:refresh:{refresh jti}` | `{user_id, sid, exp}` | refresh 剩余有效期 | 登录 / 刷新 | 强制下线能枚举到 refresh（B7 补的缺口） |
++
++框架自身的认证层也会查 `token:blacklist:{jti}`，但它是 **fail-open** 的
++（`alun-web 0.4.2` `middleware/auth.rs`：`if let Ok(Some(_)) = Cache::get(..)`，读失败即放行）。
++因此项目侧加了 `App::route_layer` 的复检层（`middleware/auth_guard.rs`）：
++**查不到 = 拒绝**（401 + `error` 日志）。缓存不可用期间，带令牌的请求全部被拒，
++不存在「吊销名单读不到但仍放行」的窗口。
++
++## 3. 缓存丢失 / 淘汰时，具体退化成什么样
++
++假设 Redis 被清空、被淘汰、或换了新实例（`online:*` 与 `token:*` 一起消失）：
++
++| 场景 | 退化后的状态 | 真实影响 |
++|------|-------------|----------|
++| 用户已登出，但 Redis 被清空 | 旧 access 在 `exp` 前重新可用；旧 refresh 能再次兑换 | 直到 access 过期（≤15 分钟）或用户下次登录 |
++| 管理员停用 / 改密 / 改角色 | **不受影响**：`token_version` 自增 + 会话主体校验在库里，下一次请求即 401 | 无 |
++| 旧 refresh 被复用（泄露） | `token:rotated` 丢失 → 复用检测失效，最坏退化为「旧 refresh 可再兑换一次」 | 一次性保证退化为统计保证 |
++| refresh 被强制下线 | 库里 `ver` 不匹配 → 刷新路径同样 401 | 无 |
++
++## 4. 为什么这个边界可以接受
++
++1. **access TTL 已经从 2 小时压到 15 分钟**（`access_token_expire_secs = 900`）。
++   即使彻底失去吊销名单，单条 access 的暴露窗口也只有 15 分钟——这就是把
++   「缓存是统计保证」变成可接受风险的那个几何因子。
++2. **改密 / 停用 / 改角色走库侧，不依赖缓存**：`ver` claim 逐请求比对
++   （`middleware/session_guard.rs`）+ 刷新路径比对（`handler.rs`）。这类「最需要
++   立刻生效」的吊销与缓存健康无关。
++3. **一次性 refresh 的退化有一道上限**：绝对上限是 `siat + refresh_ttl`（24 小时，
++   轮换不滑动）。就算攻击者抢到一条旧 refresh，他最多也只能在这个窗口里用它，
++   而且一旦正常客户端用它刷新，复用检测会把整条会话杀掉。
++4. **写侧失败不再静默**：吊销写不进去时，接口回 5xx
++   （用户管理侧有库侧兜底，故按可接受降级处理并记 `error` 日志；角色 / 菜单这类
++   纯靠缓存收回权限的入口直接回 500）。
++
++## 5. 运维必须守住的四件事
++
++### 5.0 TTL 必须在**每个 profile** 里各写一遍
++
++`alun-config 0.4.2` 的 `merge_middleware` 判定是：
++
++```rust
++if overlay.auth.access_token_expire_secs != 0 { base.auth.access_token_expire_secs = overlay.auth.access_token_expire_secs; }
++```
++
++而 profile 文件里**缺**该字段时，serde 填的是编译期默认值 `7200`（≠ 0），于是：
++
++- `config/config.toml` 写成 `900` 也**会被 profile 的默认值盖掉**（实测 `print-config` 仍输出 `7200/604800`）；
++- 只改基础配置 = 什么都没改。
++
++因此 TTL 在 `config.toml` **和** `config-{dev,prod,test}.toml`（含两份 `.example` 模板）里都写了一遍。
++验证方法：
++
++```bash
++cd /opt/cailu/backend && set -a && . /etc/cailu/cailu-dev.env && set +a
++./target/debug/cailu print-config | grep expire_secs      # 期望 900 / 86400
++```
++
++### 5.1 `cache.type` 必须是 redis（prod / dev）
++
++`config/config.toml` 的 `[cache] type = "local"` 只是兜底值：进程内 LRU 缓存**重启即清空、
++多实例不共享**，用它等于把上述退化变成常态。因此启动守卫
++（`shared/startup_guard.rs::check_cache_backend`）在 profile 为 `prod` / `dev`
++且 `cache.type != "redis"` 时**直接拒绝启动**，并打印含危害说明的 FATAL 日志。
++
++### 5.2 `--maxmemory-policy` 必须是 `noeviction`
++
++`docker/docker-compose.prod.yml` 里已经改成 `noeviction`。**不要改回 `allkeys-lru`**：
++
++- 淘汰 = 黑名单 / 轮换标记失效 = 已登出、已被强制下线的令牌重新可用（吊销静默失效）；
++- 轮换标记丢失还会让「一次性 refresh」退化成可重放。
++
++`noeviction` 下内存写满时写入会失败，后端把这些失败回传给调用方（5xx），
++是可观测的失败而不是静默的降级。
++
++### 5.3 Redis 内存水位监控阈值
++
++吊销键都很小（黑名单 `true`、轮换标记 ~60 字节、refresh 登记 ~120 字节），
++按并发在线用户数估算：`10 万在线 × (1 access + 1 refresh) ≈ 30–40 MB`，
++512 MB 上限留有 10 倍余量。但必须有告警兜住「异常流量 / 键泄漏」：
++
++| 指标 | 告警阈值 | 处置 |
++|------|---------|------|
++| `used_memory / maxmemory` | 持续 **> 70%** 预警 | 查 `INFO keyspace` 的键数量与增长曲线 |
++| `used_memory / maxmemory` | 持续 **> 85%** 严重 | 立刻扩容或清理非吊销类键；此水位下写入可能开始被拒 |
++| `redis_commands_processed` 中 `OOM` 错误 | **> 0 即告警** | 说明已经在丢吊销写入（接口会回 5xx） |
++| `evicted_keys` | **必须恒为 0** | 非 0 说明 `noeviction` 没生效或被改回 LRU |
++
++采集方式：`redis-cli INFO memory` / `redis-cli INFO stats`（或容器内
++`docker exec cailu-prod-redis redis-cli INFO`）。
++
++### 5.4 多实例与缓存重启
++
++- 多实例**必须共享同一个 Redis**（`ALUN_REDIS_URL` 指向同一实例、不同 db 需谨慎）：
++  黑名单只在写入方可见时，其它实例照放行。
++- Redis 重启后 `token:*` 与 `online:*` 全空。此时库侧 `ver` 仍然拦得住改密 / 停用 /
++  改角色，但「已登出的 refresh」会重新可用直到绝对上限。**升级 / 重启 Redis 属于
++  安全事件**，须记录在变更单里，必要时配合 `token_version` 自增（管理端「强制下线」）。
++
++## 6. 复用检测（一次性 refresh）的完整链条
++
++一次刷新请求的判定顺序（顺序本身是设计，勿调）：
++
++```
++validate  → token_type == Refresh → 绝对上限(siat) → token:replay（60s 幂等回放）
++          → token:rotated（命中 = 复用 → 杀会话）→ token:blacklist（登出/强踢）
++          → 写 blacklist(旧) → 轮换签发 → 写 rotated + replay + online:refresh(新) → 删旧登记
++```
++
++- **60 秒宽限**是为了跨标签页并发刷新：前端单飞只在单标签页内生效
++  （`frontend/src/api/request.ts`），没有宽限时第二个标签页的请求会被判复用、
++  整条会话被杀（正常用户被踢下线）。
++- **判复用的动作**：注销该用户全部会话（access + refresh）+
++  `auth_logs`（`REFRESH_TOKEN/FAIL`，`REUSE_DETECTED`）+ `security_logs`
++  （`REFRESH_TOKEN_REUSE`）+ 401 `AUTH_TOKEN_REVOKED`。
++
++## 7. 已知边界（不在本卡范围）
++
++- **cookie / CSRF / TLS（A 方案）未做**：令牌仍在 localStorage，XSS 可直接读；
++  `docker/frontend/nginx.conf` 目前只 `listen 80`，TLS 是 A 方案的前置阻断项。
++- **`token_version` 是用户级粒度**：它让「该用户全部令牌失效」，无法只踢一个设备。
++  需要按设备吊销时用 `force_logout`（单条 jti）而不是自增版本号。

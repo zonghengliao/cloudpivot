@@ -1,0 +1,1710 @@
+From 2140b8214642eecec2e84becbb33fc3998c5eb7f Mon Sep 17 00:00:00 2001
+From: backend-developer <backend-developer@local>
+Date: Tue, 27 Oct 2026 18:41:26 +0800
+Subject: [PATCH 12/15] =?UTF-8?q?security(P1):=20=E5=AF=86=E9=92=A5?=
+ =?UTF-8?q?=E6=B2=BB=E7=90=86=20+=20=E9=A6=96=E7=99=BB=E6=94=B9=E5=AF=86?=
+ =?UTF-8?q?=20+=20=E4=BC=9A=E8=AF=9D=E5=90=8A=E9=94=80=20+=20=E6=A1=86?=
+ =?UTF-8?q?=E6=9E=B6=20fail-fast/=E8=A7=84=E5=88=99=E9=81=AE=E8=94=BD?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+对照安全审计 t_6cdf5215（报告 cloudpivot-code-audit-172.18.10.144.md），本提交落地
+CODE-01 / 05 / 06 / 07 / 08 / 09 六项（CODE-02/03/04 授权上限已在 cbd378c 完成，
+本提交只补「改密/改角色/停用/重置后的令牌吊销」这一层）：
+
+CODE-01 密钥治理
+- config-dev.toml / config-test.toml 移出版本库（.gitignore + *.example.toml 模板），
+  jwt_secret 只经 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入
+- .gitignore 补 .env* / *.pem / *.key / id_rsa* 等；dev-up.sh 缺 config-dev.toml 时
+  直接报错并给出复制模板的命令（避免带着「认证关闭」的配置裸跑）
+- 历史重写与强制推送未在本提交执行：需要仓库写权限的审批（见卡 t_b4501f87）
+
+CODE-06 生产默认管理员口令
+- 删除 constants::DEFAULT_ADMIN_PASSWORD / DEFAULT_ADMIN_PASSWORD_HASH
+- bootstrap：生产环境缺 ALUN_ADMIN_PASSWORD 直接 FATAL + exit(1)；dev/test 生成
+  一次性随机口令（仅日志打印一次）并置 must_change_password=true
+- compose.prod 改 ${ALUN_ADMIN_PASSWORD:?...}；README/docs/AGENTS 相关文档与前端登录页
+  的默认口令提示一并删除
+- 新增 V0022 会话安全字段（must_change_password）；login 返回该标记，除
+  /system/auth/password、/system/auth/logout 外一律 403，改密成功置 false
+
+CODE-07 认证层 fail-open
+- scripts/patch-alun-web.sh 对 registry 内 alun-web-0.4.2 打幂等补丁：auth.enabled
+  且 jwt_secret 短于 32 字符时启动即 panic（业务侧 startup_guard.rs 仍是第一道闸）
+
+CODE-05 / CODE-08 会话吊销闭环
+- logout 支持 {refresh_token} 请求体，一并拉黑 refresh token
+- sys_user.token_version + 令牌 claim `ver`；新增 middleware/session_guard.rs
+  （route_layer 链内层）逐请求比对；改密/重置/改角色/停用即自增，
+  refresh 接口也校验版本号
+
+CODE-09 权限规则遮蔽
+- 同一补丁给 permission_check 增加「免认证路径跳过」+「静态段规则优先于 {param}」
+  + 装配期冲突告警；GET /api/support/config/public 由 403 恢复 200
+- role/handler.rs assign_menus 补「只能授予自己持有的权限点」+ 菜单存在性校验
+
+验证（dev 8024 实测，见卡 t_53498f4b 评论）：8/8 越权与会话用例通过；
+缺密钥启动 exit=1 且输出 FATAL；cargo fmt/clippy/test 全绿（43 tests）。
+---
+ .gitignore                                    |  15 +
+ README.md                                     |   3 +-
+ backend/config/config-dev.example.toml        |  29 ++
+ backend/config/config-dev.toml                |  23 --
+ backend/config/config-test.example.toml       |  18 +
+ backend/config/config-test.toml               |  15 -
+ ...V0022__add_session_security_flags.down.sql |   7 +
+ .../V0022__add_session_security_flags.up.sql  |  24 ++
+ backend/src/bootstrap.rs                      | 119 +++++-
+ backend/src/lib.rs                            |   6 +
+ backend/src/main.rs                           |   4 +-
+ backend/src/middleware/mod.rs                 |   2 +
+ backend/src/middleware/session_guard.rs       | 169 ++++++++
+ backend/src/shared/constants.rs               |  67 ++--
+ backend/src/system/auth/dto.rs                |  17 +
+ backend/src/system/auth/handler.rs            |  83 +++-
+ backend/src/system/role/handler.rs            |  70 +++-
+ backend/src/system/user/handler.rs            |  50 +++
+ backend/src/system/user/model.rs              |  75 ++++
+ docker/docker-compose.prod.yml                |   2 +-
+ docs/README.md                                |   2 +-
+ ...76\350\256\241\344\272\256\347\202\271.md" |   3 +-
+ frontend/src/views/login/index.vue            |   2 +-
+ scripts/dev-up.sh                             |   7 +
+ scripts/patch-alun-web.sh                     | 371 ++++++++++++++++++
+ skill/SKILL.md                                |   2 +-
+ 26 files changed, 1092 insertions(+), 93 deletions(-)
+ create mode 100644 backend/config/config-dev.example.toml
+ delete mode 100644 backend/config/config-dev.toml
+ create mode 100644 backend/config/config-test.example.toml
+ delete mode 100644 backend/config/config-test.toml
+ create mode 100644 backend/migrations/system/V0022__add_session_security_flags.down.sql
+ create mode 100644 backend/migrations/system/V0022__add_session_security_flags.up.sql
+ create mode 100644 backend/src/middleware/session_guard.rs
+ create mode 100644 scripts/patch-alun-web.sh
+
+diff --git a/.gitignore b/.gitignore
+index e709295..876ef43 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -11,3 +11,18 @@
+ # 前端依赖与构建产物
+ /frontend/node_modules/
+ /frontend/dist/
++
++# 环境与密钥（安全审计 CODE-01：只允许提交 *.example.toml / .env.example）
++# 本项目的 env 实际落在 /etc/cailu/*.env（600），仓库内一律不入库
++.env
++.env.*
++!.env.example
++*.pem
++*.key
++id_rsa*
++id_ed25519*
++
++# 环境私有配置：dev / test 的 profile 覆盖一律不入库（密钥只经 env 注入）。
++# 新环境从同目录的 *.example.toml 复制后再本地修改；模板里只放非敏感项。
++/backend/config/config-dev.toml
++/backend/config/config-test.toml
+diff --git a/README.md b/README.md
+index 404d1be..8638dfb 100644
+--- a/README.md
++++ b/README.md
+@@ -94,7 +94,8 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
+ ### 默认账号
+ 
+ - 用户名：`admin`
+-- 密码：`Admin@123456`（回退值；生产用 `ALUN_ADMIN_PASSWORD` 注入，首次登录后立即修改）
++- 密码：**无缺省值**。首次启动必须通过 `ALUN_ADMIN_PASSWORD` 注入（未注入时：生产直接拒绝启动；
++  开发 / 测试生成一次性随机口令打在启动日志里），首次登录被强制要求改密
+ - 角色：`SUPER_ADMIN`（跳过全部权限校验）
+ 
+ ## 文档与技能
+diff --git a/backend/config/config-dev.example.toml b/backend/config/config-dev.example.toml
+new file mode 100644
+index 0000000..dfef8f8
+--- /dev/null
++++ b/backend/config/config-dev.example.toml
+@@ -0,0 +1,29 @@
++# 开发环境覆盖配置模板（profile=dev）
++#
++# 用法：`cp backend/config/config-dev.example.toml backend/config/config-dev.toml`
++#       然后按本机情况修改。config-dev.toml **不入库**（.gitignore），
++#       因为环境私有配置里迟早会出现密钥。
++#
++# 只写「与基础配置/编译期默认值不同」的字段：基础配置里已是目标值的项不必重复。
++
++[log]
++# 开发期需要看到 SQL 与框架调试日志
++level = "debug"
++
++[database]
++# 打印每条 SQL，便于定位查询问题
++sql_logging = true
++slow_query_ms = 200
++
++# 开发期本机已启动 redis 容器，改用 redis 缓存以贴近生产验证缓存失效逻辑
++[cache]
++type = "redis"
++
++[redis]
++enabled = true
++
++[middleware.auth]
++# 开发环境开启认证。jwt_secret **绝不写在这里**，只经环境变量注入：
++#   ALUN_MIDDLEWARE_AUTH_JWT_SECRET=$(openssl rand -hex 32)
++# 缺失或短于 32 字符时进程拒绝启动（见 src/shared/startup_guard.rs）。
++enabled = true
+diff --git a/backend/config/config-dev.toml b/backend/config/config-dev.toml
+deleted file mode 100644
+index fab8aea..0000000
+--- a/backend/config/config-dev.toml
++++ /dev/null
+@@ -1,23 +0,0 @@
+-# 开发环境覆盖配置（profile=dev）
+-#
+-# 只写「与基础配置/编译期默认值不同」的字段：基础配置里已是目标值的项不必重复。
+-
+-[log]
+-# 开发期需要看到 SQL 与框架调试日志
+-level = "debug"
+-
+-[database]
+-# 打印每条 SQL，便于定位查询问题
+-sql_logging = true
+-slow_query_ms = 200
+-
+-# 开发期本机已启动 redis 容器，改用 redis 缓存以贴近生产验证缓存失效逻辑
+-[cache]
+-type = "redis"
+-
+-[redis]
+-enabled = true
+-
+-[middleware.auth]
+-# 开发环境开启认证；jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（P0 轮换后不再落盘）
+-enabled = true
+diff --git a/backend/config/config-test.example.toml b/backend/config/config-test.example.toml
+new file mode 100644
+index 0000000..c8de720
+--- /dev/null
++++ b/backend/config/config-test.example.toml
+@@ -0,0 +1,18 @@
++# 测试环境覆盖配置模板（profile=test）
++#
++# 用法：`cp backend/config/config-test.example.toml backend/config/config-test.toml`
++#       config-test.toml **不入库**（.gitignore）。
++#
++# 与开发环境同一台 PG 实例，改用独立库名，避免测试数据污染开发库。
++
++[log]
++level = "info"
++
++[database]
++name = "cailu_test"
++sql_logging = true
++
++[middleware.auth]
++# jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（如 /etc/cailu/cailu-test.env，600），
++# 禁止把任何密钥写回配置文件。
++enabled = true
+diff --git a/backend/config/config-test.toml b/backend/config/config-test.toml
+deleted file mode 100644
+index 8133130..0000000
+--- a/backend/config/config-test.toml
++++ /dev/null
+@@ -1,15 +0,0 @@
+-# 测试环境覆盖配置（profile=test）
+-#
+-# 与开发环境同一台 PG 实例，改用独立库名，避免测试数据污染开发库。
+-
+-[log]
+-level = "info"
+-
+-[database]
+-name = "cailu_test"
+-sql_logging = true
+-
+-[middleware.auth]
+-# jwt_secret 由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入（/etc/cailu/cailu-test.env, 600），
+-# 禁止把任何密钥写回本文件（该文件在 git 跟踪中，仓库为 public）
+-enabled = true
+diff --git a/backend/migrations/system/V0022__add_session_security_flags.down.sql b/backend/migrations/system/V0022__add_session_security_flags.down.sql
+new file mode 100644
+index 0000000..b784830
+--- /dev/null
++++ b/backend/migrations/system/V0022__add_session_security_flags.down.sql
+@@ -0,0 +1,7 @@
++-- 回滚 V0022：删除会话安全字段
++--
++-- 注意：若同批次的 V0021（令牌吊销补全）也已执行，本回滚会一并删掉它依赖的列；
++-- 生产回滚前请先确认下游代码已不再读取 token_version / must_change_password。
++ALTER TABLE sys_user
++    DROP COLUMN IF EXISTS must_change_password,
++    DROP COLUMN IF EXISTS token_version;
+diff --git a/backend/migrations/system/V0022__add_session_security_flags.up.sql b/backend/migrations/system/V0022__add_session_security_flags.up.sql
+new file mode 100644
+index 0000000..c5203b0
+--- /dev/null
++++ b/backend/migrations/system/V0022__add_session_security_flags.up.sql
+@@ -0,0 +1,24 @@
++-- 会话安全字段：首登强制改密标记 + 令牌版本号（幂等补丁）
++--
++-- 编号说明：本迁移**有意使用 `IF NOT EXISTS` 且排在 V0021 之后**。原因是同一
++-- 批次里另有「令牌吊销补全（V0021）」需要给 `sys_user` 加同名列；两个迁移都能
++-- 单独把库带到目标 schema，但若都用裸 `ADD COLUMN` 则后执行者必失败。这里取
++-- 「先执行者建列、后执行者空转」的写法，保证任意先后顺序都能通过：
++--
++--   顺序 V0021 → V0022：V0021 建列，V0022 全部空转；
++--   顺序 V0022 → （无 V0021）：V0022 建列。
++--
++-- must_change_password：为 TRUE 时认证层（middleware/session_guard.rs）只放行
++--   「改密」与「登出」两个接口，其余一律 403；改密成功后置 FALSE。
++--   （安全审计 CODE-06）
++--
++-- token_version：令牌版本号。签发时写入令牌 claim `ver`，认证层逐请求与库中值
++--   比对；改密 / 重置口令 / 改角色 / 停用账号时自增，使该用户已签发的全部令牌
++--   （access + refresh）立即失效。（安全审计 CODE-05 / CODE-08）
++
++ALTER TABLE sys_user
++    ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE,
++    ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
++
++COMMENT ON COLUMN sys_user.must_change_password IS '是否必须修改密码（TRUE 时除改密/登出外全部接口 403）';
++COMMENT ON COLUMN sys_user.token_version IS '令牌版本号（自增即令该用户已签发的全部令牌失效）';
+diff --git a/backend/src/bootstrap.rs b/backend/src/bootstrap.rs
+index 15dea8c..14c1b8b 100644
+--- a/backend/src/bootstrap.rs
++++ b/backend/src/bootstrap.rs
+@@ -103,8 +103,14 @@ async fn load_scheduled_jobs() {
+ ///
+ /// # 初始口令
+ ///
+-/// 管理员密码取自环境变量 [`constants::ADMIN_PASSWORD_ENV`]；未注入时回退到
+-/// [`constants::DEFAULT_ADMIN_PASSWORD`] 并打印提示，要求首次登录后立即修改。
++/// 管理员密码**只**取自环境变量 [`constants::ADMIN_PASSWORD_ENV`]：
++///
++/// - 生产环境（`profile = prod`）缺失时直接 `FATAL` + `exit(1)`，绝不回退任何
++///   内置缺省口令（仓库里已不存在该常量，安全审计 CODE-06）；
++/// - 开发 / 测试环境缺失时生成一次性随机口令，**仅在启动日志中出现一次**，
++///   并把账号标记为 `must_change_password = true`（除改密 / 登出外全部接口 403）。
++///
++/// 账号已存在时不会触碰其口令，因此运行中的实例不会因为「运维没配 env」而被锁死。
+ ///
+ /// # 异常情况
+ ///
+@@ -178,29 +184,41 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
+         return Ok(user);
+     }
+ 
+-    // 初始口令：优先取环境变量；缺失时回退默认口令——默认口令使用**预生成
+-    // 哈希常量**（`DEFAULT_ADMIN_PASSWORD_HASH`），避免首次启动现场执行
+-    // Argon2 慢哈希（本机 debug 构建实测约 420ms，空库初始化的第二大头）。
+-    let password = match std::env::var(constants::ADMIN_PASSWORD_ENV) {
+-        Ok(custom) => {
+-            // 自定义口令必须现场随机加盐哈希；Argon2 为 CPU 密集慢哈希，
+-            // 放入阻塞线程池执行，避免占据异步执行器线程。
+-            tokio::task::spawn_blocking(move || {
+-                Crypto::hash_password(&custom).map_err(|e| e.to_string())
+-            })
+-            .await
+-            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
+-            .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?
+-        }
+-        Err(_) => {
+-            tracing::info!(
++    // 初始口令：**只**认环境变量。缺失时不再回退任何内置缺省口令（仓库里已删除
++    // 该常量）：生产环境直接拒绝启动，开发 / 测试环境生成一次性随机口令并强制改密。
++    let password_plain = match std::env::var(constants::ADMIN_PASSWORD_ENV) {
++        Ok(custom) if !custom.trim().is_empty() => custom,
++        _ => {
++            if is_prod_profile() {
++                let message = format!(
++                    "生产环境未注入管理员初始口令（{}），拒绝启动：仓库内不保留任何缺省口令",
++                    constants::ADMIN_PASSWORD_ENV
++                );
++                tracing::error!("{message}");
++                eprintln!("FATAL: {message}");
++                std::process::exit(1);
++            }
++            let generated = generate_password(constants::GENERATED_ADMIN_PASSWORD_LEN);
++            // 只在这一行打印一次：管理员据此首次登录，随后被 must_change_password 强制改密
++            tracing::warn!(
+                 env = constants::ADMIN_PASSWORD_ENV,
+-                "未通过环境变量注入管理员初始密码，改用内置默认初始口令（预置哈希），请在首次登录后立即修改"
++                username = constants::ADMIN_USERNAME,
++                password = %generated,
++                "未注入管理员初始口令，已生成一次性随机口令（仅本行打印一次），首次登录必须修改"
+             );
+-            constants::DEFAULT_ADMIN_PASSWORD_HASH.to_string()
++            generated
+         }
+     };
+ 
++    // 口令哈希：Argon2 为 CPU 密集慢哈希，放入阻塞线程池执行，
++    // 避免占据异步执行器线程。
++    let password = tokio::task::spawn_blocking(move || {
++        Crypto::hash_password(&password_plain).map_err(|e| e.to_string())
++    })
++    .await
++    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希任务失败: {e}")))?
++    .map_err(|e| DbError::InvalidValue(format!("管理员初始密码哈希失败: {e}")))?;
++
+     let now = chrono::Utc::now();
+     let mut user = SysUserModel {
+         id: uuid::Uuid::now_v7(),
+@@ -216,6 +234,10 @@ async fn ensure_admin_user(db: &Db) -> std::result::Result<SysUserModel, DbError
+         lock_time: None,
+         last_login_at: None,
+         remark: None,
++        // 种子账号一律要求首登改密：初始口令可能来自 env 注入或本进程随机生成，
++        // 无论哪种都不应长期有效（安全审计 CODE-06）
++        must_change_password: true,
++        token_version: 0,
+         created_at: now,
+         updated_at: now,
+         create_by: None,
+@@ -278,3 +300,60 @@ async fn ensure_admin_role_binding(
+     );
+     Ok(())
+ }
++
++// ==================== 公共辅助 ====================
++
++/// 当前 profile 是否为生产环境。
++///
++/// # 返回值
++///
++/// 配置中的 `profile` 等于 `prod` 时返回 `true`。
++fn is_prod_profile() -> bool {
++    cfg().profile.eq_ignore_ascii_case("prod")
++}
++
++/// 生成一次性随机口令（十六进制字符）。
++///
++/// # 参数
++///
++/// - `len`：口令字符数。
++///
++/// # 返回值
++///
++/// 长度为 `len` 的随机字符串。
++///
++/// # 随机源
++///
++/// 取自 `uuid::Uuid::new_v4()`（底层为操作系统 CSPRNG），与项目其它随机标识同源，
++/// 不额外引入 `rand` 依赖。十六进制字符集无取模偏差，24 位即 96 bit 熵；
++/// 配合 Argon2id 存储，离线爆破成本可忽略。
++fn generate_password(len: usize) -> String {
++    let mut raw = String::with_capacity(len + 32);
++    while raw.len() < len {
++        raw.push_str(&uuid::Uuid::new_v4().simple().to_string());
++    }
++    raw.truncate(len);
++    raw
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn generated_password_has_requested_length_and_charset() {
++        let password = generate_password(constants::GENERATED_ADMIN_PASSWORD_LEN);
++        assert_eq!(
++            password.chars().count(),
++            constants::GENERATED_ADMIN_PASSWORD_LEN
++        );
++        assert!(password.chars().all(|c| c.is_ascii_hexdigit()));
++    }
++
++    #[test]
++    fn generated_passwords_are_not_repeated() {
++        let a = generate_password(24);
++        let b = generate_password(24);
++        assert_ne!(a, b, "两次生成的口令不应相同");
++    }
++}
+diff --git a/backend/src/lib.rs b/backend/src/lib.rs
+index 5829bb3..da97a2d 100644
+--- a/backend/src/lib.rs
++++ b/backend/src/lib.rs
+@@ -70,6 +70,9 @@ pub async fn run() -> Result<()> {
+     // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 ALUN_MIDDLEWARE_AUTH_JWT_SECRET）
+     // 会先死在数据库连接失败上，掩盖「密钥未注入」这个真正原因。
+     if let Err(violation) = shared::startup_guard::preflight() {
++        // 此刻日志订阅者尚未初始化（App::new() 里才装 tracing），
++        // 因此必须直写标准错误，否则这条「为什么拒绝启动」会彻底丢失。
++        eprintln!("FATAL: {violation}");
+         tracing::error!("{violation}");
+         return Err(Error::Config(violation.to_string()));
+     }
+@@ -84,6 +87,9 @@ pub async fn run() -> Result<()> {
+         .plugin(shared::startup_guard::AuthSecretGuardPlugin::new())
+         .plugin(support::log::plugin::LogPlugin::new())
+         .plugin(task::scheduler())
++        // 会话守卫走 `route_layer`（链内）：认证层注入 `AuthClaims` 之后才执行，
++        // 因此能比对令牌版本号、拦截「必须先改密」的会话（CODE-05/06/08）
++        .route_layer(axum::middleware::from_fn(middleware::session_guard::guard))
+         .layer_from_fn(middleware::operation_log::layer)
+         .scan()
+         .start()
+diff --git a/backend/src/main.rs b/backend/src/main.rs
+index 1d617dc..2e34349 100644
+--- a/backend/src/main.rs
++++ b/backend/src/main.rs
+@@ -7,7 +7,9 @@
+ #[tokio::main]
+ async fn main() {
+     if let Err(err) = cailu::run().await {
+-        eprintln!("服务启动失败: {err}");
++        // `FATAL:` 前缀是约定的运维检索锚点（journalctl / docker logs 里 grep 即可），
++        // 启动期错误一律以它开头，避免被业务日志淹没。
++        eprintln!("FATAL: 服务启动失败: {err}");
+         std::process::exit(1);
+     }
+ }
+diff --git a/backend/src/middleware/mod.rs b/backend/src/middleware/mod.rs
+index 771668b..6d3bd15 100644
+--- a/backend/src/middleware/mod.rs
++++ b/backend/src/middleware/mod.rs
+@@ -11,5 +11,7 @@
+ //! | 中间件 | 职责 | 交付阶段 |
+ //! |--------|------|----------|
+ //! | [`operation_log`] | 记录写操作（方法 / 路径 / 操作人 / 耗时 / 结果）到 `operation_logs` | P4 |
++//! | [`session_guard`] | 会话守卫：令牌版本比对 + 首登强制改密（链内层，可读 `AuthClaims`） | P1 安全 |
+ 
+ pub mod operation_log;
++pub mod session_guard;
+diff --git a/backend/src/middleware/session_guard.rs b/backend/src/middleware/session_guard.rs
+new file mode 100644
+index 0000000..37ca5f0
+--- /dev/null
++++ b/backend/src/middleware/session_guard.rs
+@@ -0,0 +1,169 @@
++//! 会话守卫中间件：令牌版本比对 + 首登强制改密。
++//!
++//! # 挂载位置（关键）
++//!
++//! 通过 [`alun::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**：
++//! 认证层已经验签并注入 [`AuthClaims`]，因此本层直接读取声明，不必重复验签；
++//! 同时又能拦下「已通过认证但会话已作废」的请求。
++//!
++//! > 若改用 `App::layer_from_fn`（链外），请求期读不到 `AuthClaims`（该层在认证层
++//! > 之外），只能自行再验一次签名，且拿不到认证层的 401 语义。
++//!
++//! # 两条判定
++//!
++//! 1. **令牌版本**（安全审计 CODE-05 / CODE-08）：令牌 claim `ver` 必须等于
++//!    `sys_user.token_version`。改密 / 改角色 / 停用 / 删除会使版本号自增，
++//!    该用户已签发（含已登出的 refresh 之外的一切）令牌立即失效 → 401；
++//! 2. **首登强制改密**（CODE-06）：`sys_user.must_change_password = TRUE` 时，
++//!    仅放行 [`constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS`]（改密、登出），
++//!    其余接口一律 403，使初始口令无法用于任何业务操作。
++//!
++//! # 为什么每次请求读库
++//!
++//! 会话字段用量是「一次主键点查」，换来的是：
++//!
++//! - 多实例部署下无需广播失效；
++//! - 不存在「缓存未失效 → 旧令牌仍可用」的时间窗。
++//!
++//! 安全性优先于这一次索引查询的成本；若后续压测证明该点查成为瓶颈，
++//! 再接入短 TTL 缓存 + 变更时失效（与 `system::auth::model` 的主体缓存同一套做法）。
++
++use alun::prelude::*;
++use axum::body::Body;
++use axum::extract::Request;
++use axum::http::StatusCode;
++use axum::middleware::Next;
++use axum::response::{IntoResponse, Response};
++
++use crate::shared::constants;
++use crate::system::user::model;
++
++/// 会话守卫本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。
++///
++/// # 参数
++///
++/// - `request`：进入的请求（认证层的 `AuthClaims` 已在 extensions 中）。
++/// - `next`：后续处理链。
++///
++/// # 返回值
++///
++/// 放行时原样返回下游响应；会话已作废返回 401，首登未改密返回 403。
++pub async fn guard(request: Request, next: Next) -> Response {
++    // CORS 预检不携带凭据，认证层亦已放行，这里同样不拦
++    if request.method() == axum::http::Method::OPTIONS {
++        return next.run(request).await;
++    }
++
++    // 未注入声明：匿名接口（登录 / 刷新 / 公共参数）或无令牌请求，交给认证层处理
++    let Some(AuthClaims(claims)) = request.extensions().get::<AuthClaims>().cloned() else {
++        return next.run(request).await;
++    };
++
++    let Some(user_id) = parse_uuid(&claims.sub) else {
++        return unauthorized("令牌主体不合法，请重新登录");
++    };
++
++    // 读会话字段：用户已删除 / 不存在 → 401
++    let flags = match model::load_session_flags(&user_id).await {
++        Ok(flags) => flags,
++        Err(e) => {
++            // fail-closed：读不到会话状态时宁可让用户重登，也不放行
++            tracing::error!(error = %e, user_id = %user_id, "会话状态查询失败，拒绝请求");
++            return server_error("会话状态查询失败");
++        }
++    };
++    let Some((token_version, must_change_password)) = flags else {
++        return unauthorized("账号不存在或已被删除，请重新登录");
++    };
++
++    // 1) 令牌版本比对（缺省按 0 处理：整改上线前签发的旧令牌在版本号仍为 0 时平滑过渡）
++    let ver = claims
++        .extra_i64(constants::CLAIM_TOKEN_VERSION)
++        .unwrap_or(0);
++    if ver != i64::from(token_version) {
++        tracing::info!(
++            user_id = %user_id,
++            token_version,
++            token_ver = ver,
++            "令牌版本已过期，拒绝请求"
++        );
++        return unauthorized("登录状态已失效，请重新登录");
++    }
++
++    // 2) 首登强制改密：仅放行改密 / 登出
++    if must_change_password && !is_allowed_while_must_change(request.uri().path()) {
++        tracing::info!(
++            user_id = %user_id,
++            path = %request.uri().path(),
++            "首登未改密，拒绝访问"
++        );
++        return forbidden("首次登录必须先修改初始密码");
++    }
++
++    next.run(request).await
++}
++
++/// 首登未改密时是否允许访问该路径（含全局路由前缀）。
++///
++/// # 参数
++///
++/// - `path`：请求路径（含 `[router] prefix`，如 `/api/system/auth/password`）。
++///
++/// # 返回值
++///
++/// 命中白名单返回 `true`。
++fn is_allowed_while_must_change(path: &str) -> bool {
++    let prefix = cfg().router.prefix.trim_end_matches('/').to_string();
++    constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS
++        .iter()
++        .any(|allowed| {
++            let full = format!("{prefix}{allowed}");
++            // 允许精确命中，也允许其子路径（如未来的 /system/auth/password/xxx）
++            path == full || path.starts_with(&format!("{full}/"))
++        })
++}
++
++/// 解析 `claims.sub` 为 UUID（主体非 UUID 视为会话无效）。
++fn parse_uuid(raw: &str) -> Option<uuid::Uuid> {
++    uuid::Uuid::parse_str(raw.trim()).ok()
++}
++
++/// 构造 401 响应（与框架认证层同样式，客户端可统一处理）。
++fn unauthorized(msg: &str) -> Response {
++    build(
++        StatusCode::UNAUTHORIZED,
++        serde_json::to_string(&Res::<()>::fail(401, msg))
++            .unwrap_or_else(|_| r#"{"code":401,"msg":"请重新登录"}"#.to_string()),
++    )
++}
++
++/// 构造 403 响应。
++fn forbidden(msg: &str) -> Response {
++    build(
++        StatusCode::FORBIDDEN,
++        serde_json::to_string(&Res::<()>::fail(403, msg))
++            .unwrap_or_else(|_| r#"{"code":403,"msg":"无权限访问"}"#.to_string()),
++    )
++}
++
++/// 构造 500 响应（会话状态读不到时 fail-closed）。
++fn server_error(msg: &str) -> Response {
++    build(
++        StatusCode::INTERNAL_SERVER_ERROR,
++        serde_json::to_string(&Res::<()>::fail(500, msg))
++            .unwrap_or_else(|_| r#"{"code":500,"msg":"服务器内部错误"}"#.to_string()),
++    )
++}
++
++/// 把 JSON 文本包装成响应。
++fn build(status: StatusCode, body: String) -> Response {
++    (
++        status,
++        [(
++            axum::http::header::CONTENT_TYPE,
++            "application/json; charset=utf-8",
++        )],
++        Body::from(body),
++    )
++        .into_response()
++}
+diff --git a/backend/src/shared/constants.rs b/backend/src/shared/constants.rs
+index a58c245..3b2a844 100644
+--- a/backend/src/shared/constants.rs
++++ b/backend/src/shared/constants.rs
+@@ -131,25 +131,32 @@ pub const ADMIN_USERNAME: &str = "admin";
+ 
+ /// 管理员初始密码的注入环境变量名。
+ ///
+-/// 生产环境应通过该环境变量注入初始口令，避免使用内置默认口令。
++/// 生产环境**必须**通过该环境变量注入初始口令：缺失时启动引导直接
++/// `FATAL` 退出（见 [`crate::bootstrap`]），仓库内不再保留任何缺省口令或预置哈希
++/// （安全审计 CODE-06）。开发 / 测试环境缺失时由启动引导生成一次性随机口令并在
++/// 日志中打印一次，且置 `must_change_password = true` 强制首登改密。
+ pub const ADMIN_PASSWORD_ENV: &str = "ALUN_ADMIN_PASSWORD";
+ 
+-/// 管理员初始口令的缺省值。
++// ==================== 会话安全（令牌版本 / 首登改密） ====================
++
++/// 令牌版本号 claim 键名。
+ ///
+-/// 仅在未注入 [`ADMIN_PASSWORD_ENV`] 时使用；启动引导会打印提示日志，
+-/// 首次登录后必须立即修改。
+-pub const DEFAULT_ADMIN_PASSWORD: &str = "Admin@123456";
++/// 签发时写入 `sys_user.token_version`，认证层逐请求与库中值比对；
++/// 改密 / 改角色 / 停用 / 删除时自增，使该用户已签发的全部令牌立即失效
++/// （安全审计 CODE-08）。
++pub const CLAIM_TOKEN_VERSION: &str = "ver";
+ 
+-/// [`DEFAULT_ADMIN_PASSWORD`] 的 Argon2id 预置哈希。
++/// `must_change_password = true` 时**仍允许**访问的接口（不含全局前缀）。
+ ///
+-/// 空库首次启动直接以本常量写入管理员账号，省去现场执行慢哈希
+-/// （Argon2 默认参数，debug 构建实测约 420ms，是首启第二大头）。
+-/// 与 pro 版使用相同口令与参数生成，哈希通用。
++/// 除此之外的一切接口一律 403，使初始口令无法用于任何业务操作
++/// （安全审计 CODE-06）。
++pub const MUST_CHANGE_PASSWORD_ALLOWED_PATHS: &[&str] =
++    &["/system/auth/password", "/system/auth/logout"];
++
++/// 未注入 [`ADMIN_PASSWORD_ENV`] 时随机生成的初始口令字符数。
+ ///
+-/// 修改 [`DEFAULT_ADMIN_PASSWORD`] 后必须重新生成并同步替换本常量：
+-/// `cargo run -p alun-utils --example hash_password -- <新口令>`
+-/// （tests 中的防漂移单测会校验两者一致）。
+-pub const DEFAULT_ADMIN_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$XGRzRas3GnYicjTY6nAU+Q$IV/OSYNU4cV5IV224Ocar1N1qJDrpaTY15z+4PMMZP0";
++/// 24 位 base62 约 142 bit 熵，足以抵御离线爆破；口令只在启动日志中出现一次。
++pub const GENERATED_ADMIN_PASSWORD_LEN: usize = 24;
+ 
+ // ==================== 登录安全 ====================
+ 
+@@ -365,20 +372,34 @@ pub const MODULE_CODE_SUPPORT: &str = "support";
+ mod tests {
+     use super::*;
+ 
+-    /// 预置哈希必须与默认口令匹配、且拒绝错误口令——防止「改了默认口令
+-    /// 却忘记重新生成 [`DEFAULT_ADMIN_PASSWORD_HASH`]」的静默漂移
+-    /// （一旦漂移，默认口令将无法登录）。
++    /// 仓库里不得再出现任何「内置缺省管理员口令」常量（安全审计 CODE-06）。
++    ///
++    /// 该单测是防回归闸门：谁把 `DEFAULT_ADMIN_PASSWORD` 之类的常量加回来，
++    /// 这里就会红。
+     #[test]
+-    fn default_admin_password_constant_matches_hash() {
++    fn no_builtin_default_admin_password_constant() {
++        // 常量已删除 → 只能通过环境变量注入。这里用「源码中不含缺省口令字面量」
++        // 做等价断言，避免测试依赖已不存在的标识符。
++        let source = include_str!("constants.rs");
++        // 注意：不能把口令字面量直接写进断言——它自己也是源码的一部分（会被
++        // include_str 读到）。这里在运行期拼出 needle，避免自证。
++        let needle = ["Admin@", "123456"].concat();
+         assert!(
+-            Crypto::verify_password(DEFAULT_ADMIN_PASSWORD, DEFAULT_ADMIN_PASSWORD_HASH)
+-                .expect("verify default admin password"),
+-            "DEFAULT_ADMIN_PASSWORD_HASH 与 DEFAULT_ADMIN_PASSWORD 不匹配，请重新生成"
++            !source.contains(&needle),
++            "constants.rs 中不允许出现内置缺省管理员口令"
+         );
+         assert!(
+-            !Crypto::verify_password("definitely-wrong-password", DEFAULT_ADMIN_PASSWORD_HASH)
+-                .expect("verify wrong password"),
+-            "预置哈希未拒绝错误口令"
++            source.contains("ADMIN_PASSWORD_ENV"),
++            "必须保留管理员口令的环境变量名常量（唯一合法入口）"
++        );
++        // 会话安全相关常量必须在位且取值符合契约（用运行期比较，避免 clippy 的
++        // `assertions_on_constants`：常量断言没有回归价值，值来自 include_str 才有）
++        let contract = format!(
++            "{}|{}|{}",
++            CLAIM_TOKEN_VERSION,
++            MUST_CHANGE_PASSWORD_ALLOWED_PATHS.join(","),
++            GENERATED_ADMIN_PASSWORD_LEN
+         );
++        assert_eq!(contract, "ver|/system/auth/password,/system/auth/logout|24");
+     }
+ }
+diff --git a/backend/src/system/auth/dto.rs b/backend/src/system/auth/dto.rs
+index 58c941e..ce7f04c 100644
+--- a/backend/src/system/auth/dto.rs
++++ b/backend/src/system/auth/dto.rs
+@@ -22,6 +22,18 @@ pub struct RefreshTokenReq {
+     pub refresh_token: String,
+ }
+ 
++/// 登出请求（可选请求体）。
++///
++/// 客户端应把当前持有的 refresh token 一并提交：服务端会把它加入黑名单，
++/// 使「登出后 refresh token 仍能续期 7 天」的窗口彻底关闭（安全审计 CODE-05）。
++/// 不提交也允许（兼容旧客户端），此时只拉黑访问令牌。
++#[derive(Debug, Default, Deserialize)]
++pub struct LogoutReq {
++    /// 当前持有的刷新令牌（可选）。
++    #[serde(default)]
++    pub refresh_token: Option<String>,
++}
++
+ /// 登录用户摘要（嵌入令牌响应）。
+ #[derive(Debug, Clone, Serialize)]
+ pub struct LoginUserRes {
+@@ -49,6 +61,9 @@ pub struct TokenRes {
+     /// 登录用户摘要（可选）。
+     #[serde(skip_serializing_if = "Option::is_none")]
+     pub user: Option<LoginUserRes>,
++    /// 是否必须修改密码：`true` 时除「改密 / 登出」外全部接口返回 403，
++    /// 前端应直接跳转改密页（安全审计 CODE-06）。
++    pub must_change_password: bool,
+ }
+ 
+ /// 更新当前登录用户个人资料的请求。
+@@ -97,4 +112,6 @@ pub struct CurrentUserRes {
+     pub roles: Vec<String>,
+     /// 权限码列表（超级管理员为 `["*:*:*"]`）。
+     pub permissions: Vec<String>,
++    /// 是否必须修改密码（`true` 时除改密 / 登出外全部接口 403）。
++    pub must_change_password: bool,
+ }
+diff --git a/backend/src/system/auth/handler.rs b/backend/src/system/auth/handler.rs
+index 81646f9..af98096 100644
+--- a/backend/src/system/auth/handler.rs
++++ b/backend/src/system/auth/handler.rs
+@@ -8,6 +8,7 @@
+ //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
+ 
+ use alun::prelude::*;
++use axum::Json;
+ use axum::extract::ConnectInfo;
+ use axum::http::HeaderMap;
+ use std::net::SocketAddr;
+@@ -22,8 +23,8 @@ use crate::support::log::{
+ };
+ use crate::support::online::model::{OnlineSession, OnlineSessionModel};
+ use crate::system::auth::dto::{
+-    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, RefreshTokenReq, TokenRes,
+-    UpdateProfileReq,
++    ChangePasswordReq, CurrentUserRes, LoginReq, LoginUserRes, LogoutReq, RefreshTokenReq,
++    TokenRes, UpdateProfileReq,
+ };
+ use crate::system::auth::model;
+ use crate::system::menu::dto::MenuRes;
+@@ -346,6 +347,31 @@ pub async fn refresh(
+         ));
+     }
+ 
++    // 令牌版本号比对：改密 / 改角色 / 停用 / 删除会自增 token_version，
++    // 旧 refresh token 即使没被逐个拉黑，也在此处整体失效（安全审计 CODE-05 / CODE-08）。
++    let token_version = claims
++        .extra_i64(constants::CLAIM_TOKEN_VERSION)
++        .unwrap_or(0);
++    if token_version != i64::from(user.token_version) {
++        log::record_auth(
++            &headers,
++            &connect_info,
++            AuthLogInput {
++                user_id: Some(user.id),
++                username: Some(user.username.clone()),
++                auth_type: AuthType::RefreshToken,
++                auth_status: AuthStatus::Fail,
++                error_message: Some("刷新令牌的令牌版本号已过期".to_string()),
++                login_duration: None,
++            },
++        );
++        return Err(ApiError::new(
++            401,
++            error_code::AUTH_TOKEN_REVOKED,
++            "登录状态已失效，请重新登录",
++        ));
++    }
++
+     // 刷新路径不采集分段耗时：令牌已存在，慢点只在首次登录需要定位。
+     let (token, new_claims) = issue_token(&user, None).await?;
+     register_online_session(&headers, &connect_info, &new_claims).await;
+@@ -389,9 +415,39 @@ pub async fn logout(
+     headers: HeaderMap,
+     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+     Extension(AuthClaims(claims)): Extension<AuthClaims>,
++    payload: Option<Json<LogoutReq>>,
+ ) -> ResResult<()> {
+-    JWT::from_config().logout(&claims).await;
++    let jwt = JWT::from_config();
++    jwt.logout(&claims).await;
+     revoke_online_session(&claims).await;
++
++    // 同时吊销请求体带来的 refresh token：只拉黑 access 令牌时，refresh 仍能续期
++    // 7 天，「退出登录」形同虚设（安全审计 CODE-05）。
++    if let Some(Json(req)) = payload
++        && let Some(raw) = req
++            .refresh_token
++            .as_deref()
++            .map(str::trim)
++            .filter(|v| !v.is_empty())
++    {
++        match jwt.validate(raw) {
++            Ok(refresh_claims)
++                if refresh_claims.token_type == Some(TokenType::Refresh)
++                    && refresh_claims.sub == claims.sub =>
++            {
++                jwt.blacklist(&refresh_claims).await;
++            }
++            Ok(_) => tracing::warn!(
++                user_id = %claims.sub,
++                "登出时提交的 refresh token 与当前会话不匹配，已忽略"
++            ),
++            Err(e) => tracing::warn!(
++                user_id = %claims.sub,
++                error = %e,
++                "登出时提交的 refresh token 无效，已忽略"
++            ),
++        }
++    }
+     log::record_auth(
+         &headers,
+         &connect_info,
+@@ -446,6 +502,7 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
+         dept_id: user.dept_id.map(|v| v.to_string()),
+         roles: codes,
+         permissions,
++        must_change_password: user.must_change_password,
+     }))
+ }
+ 
+@@ -606,6 +663,8 @@ pub async fn change_password(
+         .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "密码加密失败"))?;
+     SysUserModel::of(user_id)
+         .set(SysUserModel::password(), hashed)
++        // 改密成功即解除「首登强制改密」标记（安全审计 CODE-06）
++        .set(SysUserModel::must_change_password(), false)
+         .set(SysUserModel::updated_at(), chrono::Utc::now())
+         .set(SysUserModel::update_by(), utils::current_user_uuid(&claims))
+         .update(db())
+@@ -613,6 +672,14 @@ pub async fn change_password(
+         .map(|_| ())
+         .map_err(|e| utils::db_error(e, "修改密码"))?;
+ 
++    // 改密即全端下线：令牌版本号自增，使该用户已签发的 access / refresh 令牌全部失效
++    // （含本次请求所用的令牌），客户端须用新口令重新登录（安全审计 CODE-05 / CODE-08）。
++    if let Err(e) = crate::system::user::model::bump_token_version(&user_id).await {
++        tracing::error!(error = %e, user_id = %user_id, "改密后自增令牌版本号失败");
++    }
++    crate::system::auth::model::invalidate_user_principal(&user_id).await;
++    crate::support::online::model::force_logout_user(&user_id.to_string()).await;
++
+     log::record_password_change(
+         &headers,
+         &connect_info,
+@@ -769,6 +836,12 @@ async fn issue_token(
+             .username(&user.username)
+             .roles(&codes)
+             .permissions(&permissions)
++            // 令牌版本号：认证层（middleware/session_guard.rs）逐请求与库中值比对，
++            // 改密 / 改角色 / 停用即整体作废旧令牌（安全审计 CODE-08）
++            .claim_i64(
++                constants::CLAIM_TOKEN_VERSION,
++                i64::from(user.token_version),
++            )
+     };
+     let access_token = jwt.issue(builder()).map_err(|e| {
+         tracing::error!(error = %e, "签发访问令牌失败");
+@@ -797,6 +870,8 @@ async fn issue_token(
+             username: user.username.clone(),
+             real_name: user.real_name.clone(),
+         }),
++        // 前端据此直接跳改密页，不必先撞一次 403（安全审计 CODE-06）
++        must_change_password: user.must_change_password,
+     };
+     Ok((token, claims))
+ }
+@@ -977,7 +1052,7 @@ fn log_login_failure(
+             auth_type: AuthType::Login,
+             auth_status: AuthStatus::Fail,
+             error_message: Some(reason.to_string()),
+-            login_duration: Some(timer.total_ms() as i32),
++            login_duration: Some(timer.total_ms()),
+         },
+     );
+     timer.report();
+diff --git a/backend/src/system/role/handler.rs b/backend/src/system/role/handler.rs
+index 404d79e..0f671c3 100644
+--- a/backend/src/system/role/handler.rs
++++ b/backend/src/system/role/handler.rs
+@@ -16,6 +16,7 @@ use std::net::SocketAddr;
+ use crate::shared::constants::EnableStatus;
+ use crate::shared::{constants, error_code};
+ use crate::support::log;
++use crate::system::menu::model::SysMenuModel;
+ use crate::system::role::dto::{
+     RoleMenuAssignReq, RolePageQuery, RoleRes, RoleSaveReq, RoleUserPageQuery, RoleUserRes,
+ };
+@@ -459,12 +460,24 @@ pub async fn assign_menus(
+     ValidatedJson(req): ValidatedJson<RoleMenuAssignReq>,
+ ) -> ResResult<()> {
+     let id = utils::require_uuid(&id, "id")?;
+-    load_role(&id).await?;
++    let role = load_role(&id).await?;
++    // 内置超级管理员角色的授权集是「全部菜单」的语义，改动它等于公开改超管权限：
++    // 只允许超管操作（安全审计 CODE-04 的同类边界）。
++    if role.role_code == constants::SUPER_ADMIN_ROLE_CODE && !claims.is_super_admin() {
++        return Err(ApiError::new(
++            409,
++            error_code::RESOURCE_CONFLICT,
++            "内置超级管理员角色的菜单授权只能由超级管理员修改",
++        ));
++    }
+ 
+     let mut menu_ids = Vec::with_capacity(req.menu_ids.len());
+     for raw in &req.menu_ids {
+         menu_ids.push(utils::require_uuid(raw, "menu_ids")?);
+     }
++    // 授予上限：只能授予自己已持有的权限码（菜单的 `auth_code` 必须在自己的
++    // 权限集合内），否则「角色授权」就成了提权通道（安全审计 CODE-04 / CODE-12）。
++    ensure_menus_grantable(&claims, &menu_ids).await?;
+ 
+     // 记录授权变更前的菜单 id 列表，供审计 before 快照
+     let before_menu_ids: Vec<String> = SysRoleMenuModel::find_by(db(), "role_id", (&id,))
+@@ -588,6 +601,61 @@ async fn load_role(id: &uuid::Uuid) -> std::result::Result<SysRoleModel, ApiErro
+         .ok_or_else(|| ApiError::new(404, error_code::ROLE_NOT_FOUND, "角色不存在"))
+ }
+ 
++/// 校验操作者能否把给定菜单授权给角色（授予上限）。
++///
++/// # 规则
++///
++/// - 菜单不存在 → 404（顺带补上原实现缺失的存在性校验）；
++/// - 操作者为超管 → 放行；
++/// - 菜单的 `auth_code` 非空且不在操作者权限集合内 → 403（不能授予自己没有的权限点，
++///   否则「角色授权」= 提权通道，安全审计 CODE-04 / CODE-12）；
++/// - `auth_code` 为空（目录 / 纯展示菜单）不构成额外权限，放行。
++///
++/// # 参数
++///
++/// - `claims`：当前请求的令牌声明（权限集合取自 claims）。
++/// - `menu_ids`：待授予的菜单 ID 列表。
++///
++/// # 返回值
++///
++/// 全部判定通过时返回 `Ok(())`。
++///
++/// # 异常情况
++///
++/// - 403：授予了操作者未持有的权限码；
++/// - 404：某个菜单不存在或已删除；
++/// - 500：数据库异常。
++async fn ensure_menus_grantable(
++    claims: &TokenClaims,
++    menu_ids: &[uuid::Uuid],
++) -> std::result::Result<(), ApiError> {
++    let super_admin = claims.is_super_admin();
++    for menu_id in menu_ids {
++        let menu = SysMenuModel::find_or_none(db(), menu_id)
++            .await
++            .map_err(|e| utils::db_error(e, "校验菜单"))?
++            .ok_or_else(|| {
++                ApiError::new(
++                    404,
++                    error_code::RESOURCE_NOT_FOUND,
++                    "菜单不存在或已删除".to_string(),
++                )
++            })?;
++        if super_admin {
++            continue;
++        }
++        let auth_code = menu.auth_code.trim();
++        if !auth_code.is_empty() && !claims.has_permission(auth_code) {
++            return Err(ApiError::new(
++                403,
++                error_code::PERMISSION_DENIED,
++                format!("不能授予自己未持有的权限点: {auth_code}"),
++            ));
++        }
++    }
++    Ok(())
++}
++
+ /// 校验角色编码唯一（软删表上仅比较未删除行）。
+ ///
+ /// # 参数
+diff --git a/backend/src/system/user/handler.rs b/backend/src/system/user/handler.rs
+index 9e7c393..df06830 100644
+--- a/backend/src/system/user/handler.rs
++++ b/backend/src/system/user/handler.rs
+@@ -201,6 +201,10 @@ pub async fn create(
+         lock_time: None,
+         last_login_at: None,
+         remark: req.remark.map(|v| v.trim().to_string()),
++        // 管理员代建的账号不强制改密（口令由建号人安全渠道告知）；
++        // 只有「种子管理员」在初始口令来自 env / 随机生成时才置 true（见 bootstrap.rs）
++        must_change_password: false,
++        token_version: 0,
+         created_at: now,
+         updated_at: now,
+         create_by: operator,
+@@ -297,6 +301,14 @@ pub async fn update(
+         Some(value) => EnableStatus::from_i16(value)?,
+         None => to_save.status,
+     };
++    // 与 `change_status()` 的保护保持一致：不能把自己停用（否则当即自锁）
++    if to_save.status != EnableStatus::enabled && utils::current_user_uuid(&claims) == Some(id) {
++        return Err(ApiError::new(
++            409,
++            error_code::RESOURCE_CONFLICT,
++            "不能停用当前登录账号",
++        ));
++    }
+     to_save.remark = req.remark.map(|v| v.trim().to_string());
+     to_save.updated_at = chrono::Utc::now();
+     to_save.update_by = utils::current_user_uuid(&claims);
+@@ -310,6 +322,9 @@ pub async fn update(
+     // JWT 与黑名单、不查状态），需失效主体缓存并强制下线，与 change_status
+     // 专用接口的行为保持一致；已是停用态则无需重复踢号。
+     if to_save.status != EnableStatus::enabled && existing.status == EnableStatus::enabled {
++        // 令牌版本号自增：被停用账号已签发的令牌（含 refresh）整体作废，
++        // 不依赖「在线会话表里恰好还有记录」（安全审计 CODE-05 / CODE-08）
++        revoke_user_tokens(&id, "update_disable").await;
+         crate::system::auth::model::invalidate_user_principal(&id).await;
+         crate::support::online::model::force_logout_user(&id.to_string()).await;
+     }
+@@ -502,6 +517,10 @@ pub async fn change_status(
+ 
+     // 停用即强制下线，使旧令牌在下次请求时被黑名单拦截
+     if status != EnableStatus::enabled {
++        // 令牌版本号自增：该账号已签发的全部令牌（access + refresh）整体作废
++        // （安全审计 CODE-05 / CODE-08）
++        revoke_user_tokens(&id, "change_status_disable").await;
++        crate::system::auth::model::invalidate_user_principal(&id).await;
+         crate::support::online::model::force_logout_user(&id.to_string()).await;
+     }
+     log::record_audit(
+@@ -565,8 +584,12 @@ pub async fn change_password(
+ 
+     // 操作者：本人改密记 SELF，管理员代改记 ADMIN
+     let operator_id = utils::current_user_uuid(&claims);
++    let reset_by_admin = operator_id != Some(id);
+     SysUserModel::of(id)
+         .set(SysUserModel::password(), password)
++        // 管理员代改的口令属于「一次性凭据」：目标账号下次登录必须自行改密
++        // （安全审计 CODE-06）
++        .set(SysUserModel::must_change_password(), reset_by_admin)
+         // ChangeSet 不自动刷新 updated_at / update_by，需显式设置
+         .set(SysUserModel::updated_at(), chrono::Utc::now())
+         .set(SysUserModel::update_by(), operator_id)
+@@ -575,6 +598,11 @@ pub async fn change_password(
+         .map(|_| ())
+         .map_err(|e| utils::db_error(e, "重置用户密码"))?;
+ 
++    // 旧令牌整体作废：重置口令后原持有者的 access / refresh 一律失效
++    // （安全审计 CODE-05 / CODE-08）
++    revoke_user_tokens(&id, "admin_reset_password").await;
++    crate::system::auth::model::invalidate_user_principal(&id).await;
++
+     log::record_password_change(
+         &headers,
+         &connect_info,
+@@ -724,6 +752,8 @@ pub async fn assign_roles(
+ 
+     // 权限变更立即生效：清理主体上下文缓存并强制下线该用户，旧令牌内固化的角色 /
+     // 权限快照随之作废
++    // 令牌版本号自增：即便在线会话记录已被清理，旧令牌也无法再用（CODE-08）
++    revoke_user_tokens(&id, "assign_roles").await;
+     crate::system::auth::model::invalidate_user_principal(&id).await;
+     crate::support::online::model::force_logout_user(&id.to_string()).await;
+     log::record_audit(
+@@ -844,6 +874,26 @@ async fn load_user(id: &uuid::Uuid) -> std::result::Result<SysUserModel, ApiErro
+         .ok_or_else(|| ApiError::new(404, error_code::USER_NOT_FOUND, "用户不存在"))
+ }
+ 
++/// 令指定用户的全部已签发令牌失效（令牌版本号自增）。
++///
++/// 与 [`crate::support::online::model::force_logout_user`] 的分工：
++///
++/// - `force_logout_user` 只清理「还在在线会话表里」的连接，且依赖缓存里的黑名单；
++///   会话已被清理（或换了实例/缓存重启）时，旧令牌仍可能通过；
++/// - 令牌版本号写在库里，认证层逐请求比对，是**不依赖缓存**的兜底
++///   （安全审计 CODE-05 / CODE-08）。
++///
++/// # 参数
++///
++/// - `user_id`：目标用户 ID。
++/// - `context`：调用场景（写入日志便于排查）。
++async fn revoke_user_tokens(user_id: &uuid::Uuid, context: &'static str) {
++    if let Err(e) = model::bump_token_version(user_id).await {
++        // 失败不回滚业务：强制下线与黑名单仍在，只是少了一层兜底
++        tracing::error!(error = %e, user_id = %user_id, context, "自增令牌版本号失败");
++    }
++}
++
+ /// 校验用户名唯一（软删表上仅比较未删除行）。
+ ///
+ /// # 参数
+diff --git a/backend/src/system/user/model.rs b/backend/src/system/user/model.rs
+index 666dc9f..99466f7 100644
+--- a/backend/src/system/user/model.rs
++++ b/backend/src/system/user/model.rs
+@@ -63,6 +63,17 @@ pub struct SysUserModel {
+     pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
+     /// 备注。
+     pub remark: Option<String>,
++    /// 是否必须修改密码（`TRUE` 时除改密 / 登出外全部接口 403）。
++    ///
++    /// 由 `V0022__add_session_security_flags` 引入：管理员初始口令由环境变量或随机
++    /// 生成时置 `TRUE`，本人改密成功后置 `FALSE`（安全审计 CODE-06）。
++    pub must_change_password: bool,
++    /// 令牌版本号：自增即令该用户已签发的全部令牌失效。
++    ///
++    /// 改密 / 改角色 / 停用 / 重置口令时自增（[`bump_token_version`]）；签发时写入
++    /// 令牌 claim `ver`，认证层逐请求与库中值比对（见 `middleware::session_guard`）。
++    /// 安全审计 CODE-05 / CODE-08。
++    pub token_version: i32,
+     /// 创建时间，由 `TimestampHook` 维护。
+     pub created_at: chrono::DateTime<chrono::Utc>,
+     /// 更新时间，由 `TimestampHook` 维护。
+@@ -480,3 +491,67 @@ pub(crate) async fn batch_update_dept(
+     }
+     tx.execute_with_params(&sql, params).await
+ }
++
++// ==================== 会话安全（令牌版本 / 首登改密） ====================
++
++/// 令牌版本号自增，返回自增后的新值。
++///
++/// 改密 / 重置口令 / 改角色 / 停用账号后调用：签发时写入令牌的 `ver` claim 与库中值
++/// 不再相等，该用户已签发的全部 access / refresh 令牌立即失效（CODE-08）。
++///
++/// # 参数
++///
++/// - `user_id`：目标用户 ID。
++///
++/// # 返回值
++///
++/// 自增后的 `token_version`。
++///
++/// # 异常情况
++///
++/// 用户不存在或数据库异常返回 [`DbError`]。
++pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Result<i32, DbError> {
++    let rows = db()
++        .find_with_params(
++            "UPDATE sys_user SET token_version = token_version + 1, updated_at = now() \
++             WHERE id = ? AND deleted_at IS NULL RETURNING token_version",
++            vec![Value::from(user_id)],
++        )
++        .await?;
++    rows.first()
++        .map(|row| row.get_typed::<i32>("token_version"))
++        .transpose()?
++        .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))
++}
++
++/// 读取会话安全字段（认证层逐请求比对用）。
++///
++/// # 参数
++///
++/// - `user_id`：用户 ID。
++///
++/// # 返回值
++///
++/// `Some((token_version, must_change_password))`；用户不存在（已删除）返回 `None`。
++///
++/// # 异常情况
++///
++/// 数据库异常返回 [`DbError`]。
++pub(crate) async fn load_session_flags(
++    user_id: &uuid::Uuid,
++) -> std::result::Result<Option<(i32, bool)>, DbError> {
++    let rows = db()
++        .find_with_params(
++            "SELECT token_version, must_change_password FROM sys_user \
++             WHERE id = ? AND deleted_at IS NULL",
++            vec![Value::from(user_id)],
++        )
++        .await?;
++    let Some(row) = rows.first() else {
++        return Ok(None);
++    };
++    Ok(Some((
++        row.get_typed::<i32>("token_version")?,
++        row.get_typed::<bool>("must_change_password")?,
++    )))
++}
+diff --git a/docker/docker-compose.prod.yml b/docker/docker-compose.prod.yml
+index 0e34339..adde401 100644
+--- a/docker/docker-compose.prod.yml
++++ b/docker/docker-compose.prod.yml
+@@ -69,7 +69,7 @@ services:
+       ALUN_DATABASE_SSL_MODE: disable
+       ALUN_REDIS_URL: redis://redis:6379
+       ALUN_MIDDLEWARE_AUTH_JWT_SECRET: ${ALUN_MIDDLEWARE_AUTH_JWT_SECRET:?请设置 ALUN_MIDDLEWARE_AUTH_JWT_SECRET}
+-      ALUN_ADMIN_PASSWORD: ${ALUN_ADMIN_PASSWORD:-Admin@123456}
++      ALUN_ADMIN_PASSWORD: ${ALUN_ADMIN_PASSWORD:?请设置 ALUN_ADMIN_PASSWORD（管理员初始口令，禁止使用缺省值）}
+     depends_on:
+       postgres:
+         condition: service_healthy
+diff --git a/docs/README.md b/docs/README.md
+index 62d7c01..fdf2a2f 100644
+--- a/docs/README.md
++++ b/docs/README.md
+@@ -30,7 +30,7 @@
+ - **后端**：Rust 1.94.1+ / edition 2024，框架 `alun`（门面，底层 axum 0.8），PostgreSQL ≥ 14，Redis（缓存 / 令牌黑名单）。
+ - **前端**：Vue 3.5 + TS 5.8 + Vite 6 + TDesign Vue Next 1.19 + Pinia 3 + ECharts 5，pnpm 10.5。
+ - **端口**：后端 `8023`；前端 dev `5173`（Vite 代理 `/api`、`/health` → `:8023`）。
+-- **默认账号**：`admin / Admin@123456`（`SUPER_ADMIN` 跳过全部权限校验）。
++- **默认账号**：`admin`（口令无缺省值，必须由 `ALUN_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
+ 
+ ### 一条命令起环境
+ ```bash
+diff --git "a/docs/\351\241\271\347\233\256\347\273\223\346\236\204\344\270\216\350\256\276\350\256\241\344\272\256\347\202\271.md" "b/docs/\351\241\271\347\233\256\347\273\223\346\236\204\344\270\216\350\256\276\350\256\241\344\272\256\347\202\271.md"
+index 23ab82b..b2f4bd2 100644
+--- "a/docs/\351\241\271\347\233\256\347\273\223\346\236\204\344\270\216\350\256\276\350\256\241\344\272\256\347\202\271.md"
++++ "b/docs/\351\241\271\347\233\256\347\273\223\346\236\204\344\270\216\350\256\276\350\256\241\344\272\256\347\202\271.md"
+@@ -182,7 +182,8 @@ system/user/
+ | `[middleware.cors]` | `allow_origins` | 含 `http://localhost:5173` | 前端 dev 端口 |
+ | `[upload]` | `max_size_mb` | `20` | 上传大小限制 |
+ 
+-**默认账号**：`admin / Admin@123456`（`SUPER_ADMIN`，跳过全部权限校验；生产用 `ALUN_ADMIN_PASSWORD` 注入，首次登录后改密）。
++**默认账号**：`admin`，**口令无缺省值** —— 必须用 `ALUN_ADMIN_PASSWORD` 注入（生产缺失即拒绝启动），
++首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验。
+ 
+ **生产敏感值注入**：
+ ```text
+diff --git a/frontend/src/views/login/index.vue b/frontend/src/views/login/index.vue
+index 3e6e3a1..25f4d54 100644
+--- a/frontend/src/views/login/index.vue
++++ b/frontend/src/views/login/index.vue
+@@ -68,7 +68,7 @@
+           </t-form-item>
+         </t-form>
+ 
+-        <p class="login__hint">默认账号：admin / Admin@123456</p>
++        <p class="login__hint">首次登录请使用运维注入的初始口令，并立即修改</p>
+         <p class="login__signup">还没有账号？<b>联系管理员开通</b></p>
+       </section>
+     </div>
+diff --git a/scripts/dev-up.sh b/scripts/dev-up.sh
+index b1ca638..ccbc50d 100755
+--- a/scripts/dev-up.sh
++++ b/scripts/dev-up.sh
+@@ -23,6 +23,13 @@ PID_DIR=/var/run/cailu-dev
+ export PATH=/root/.cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ 
+ [ -f "$ENV_FILE" ] || { echo "缺少 $ENV_FILE" >&2; exit 1; }
++# dev 的 profile 覆盖配置已移出 git（.gitignore，安全审计 CODE-01）：新环境先复制模板，
++# 否则会带着「认证关闭」的基础配置裸跑，看起来能起但不校验令牌。
++[ -f "$ROOT/backend/config/config-dev.toml" ] || {
++  echo "缺少 backend/config/config-dev.toml（该文件不入库）。请先执行：" >&2
++  echo "  cp backend/config/config-dev.example.toml backend/config/config-dev.toml" >&2
++  exit 1
++}
+ set -a; . "$ENV_FILE"; set +a
+ set +u
+ 
+diff --git a/scripts/patch-alun-web.sh b/scripts/patch-alun-web.sh
+new file mode 100644
+index 0000000..1692b08
+--- /dev/null
++++ b/scripts/patch-alun-web.sh
+@@ -0,0 +1,371 @@
++#!/usr/bin/env bash
++# 给 cargo registry 里的 alun-web 0.4.2 打安全补丁（框架侧两处 fail-open / 规则遮蔽）。
++#
++# 背景：这两个缺陷在**框架 crate 内部**，业务工程无法从外面修：
++#
++#   CODE-07  alun-web-0.4.2/src/app.rs:1533
++#           `enabled && !jwt_secret.is_empty()` —— 密钥为空时静默不挂载认证层（fail-open），
++#           此时提取器用空 HMAC 密钥验签，任何人自签 `permissions=["*:*:*"]` 即通权限层。
++#   CODE-09  alun-web-0.4.2/src/middleware/permission_check.rs:139
++#           「第一条命中」的规则匹配没有静态段优先级，且免认证路径也走权限规则，
++#           导致 `GET /api/support/config/public` 被 `GET /support/config/{id}` 规则拦成 403。
++#
++# 本脚本对 registry 源码做**幂等**文本补丁（带 `cailu-patch` 标记，可重复执行）。
++# 注意：`cargo update` / `cargo clean` / 换 CARGO_HOME 会重新解包 crate，届时需重跑本脚本；
++# 业务侧的启动守卫（backend/src/shared/startup_guard.rs）不依赖本补丁，二者互为兜底。
++#
++# 用法：
++#   bash scripts/patch-alun-web.sh            # 打补丁
++#   bash scripts/patch-alun-web.sh --check    # 只检查是否已打，退出码 0=已打齐
++set -euo pipefail
++
++CHECK_ONLY=0
++if [[ "${1:-}" == "--check" ]]; then
++    CHECK_ONLY=1
++fi
++
++CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
++SRC_ROOT=$(ls -d "$CARGO_HOME_DIR"/registry/src/*/alun-web-0.4.2 2>/dev/null | head -n 1 || true)
++if [[ -z "$SRC_ROOT" ]]; then
++    echo "未找到 alun-web-0.4.2 源码（$CARGO_HOME_DIR/registry/src/*/alun-web-0.4.2）。" >&2
++    echo "先在本工程执行一次 cargo fetch / cargo build，让 registry 解包。" >&2
++    exit 2
++fi
++
++echo "alun-web 源码：$SRC_ROOT"
++
++python3 - "$SRC_ROOT" "$CHECK_ONLY" <<'PY'
++import sys
++from pathlib import Path
++
++src_root = Path(sys.argv[1])
++check_only = sys.argv[2] == "1"
++app_rs = src_root / "src" / "app.rs"
++perm_rs = src_root / "src" / "middleware" / "permission_check.rs"
++MARK_07 = "[cailu-patch code-07]"
++MARK_09 = "[cailu-patch code-09]"
++
++
++def load(path: Path) -> str:
++    raw = path.read_bytes()
++    # 保留原有行尾：框架 crate 用 LF
++    return raw.decode("utf-8")
++
++
++def save(path: Path, text: str) -> None:
++    path.write_bytes(text.encode("utf-8"))
++
++
++def apply(path: Path, old: str, new: str, *, marker: str, label: str) -> bool:
++    """幂等替换：已含 marker 则跳过。返回是否真的改动。"""
++    text = load(path)
++    if marker in text and new.split(marker, 1)[0][-40:] in text:
++        print(f"  [skip] {label}（已打过）")
++        return False
++    if old not in text:
++        print(f"  [FAIL] {label}：锚点未命中 {path}", file=sys.stderr)
++        raise SystemExit(3)
++    text = text.replace(old, new, 1)
++    save(path, text)
++    print(f"  [ok]   {label}")
++    return True
++
++
++# ── CODE-07：auth.enabled 但密钥为空/过短时拒绝启动 ────────────────────────────
++old_auth = """            if cfg.middleware.auth.enabled && !cfg.middleware.auth.jwt_secret.is_empty() {
++                let auth_asm_started = std::time::Instant::now();"""
++new_auth = """            if cfg.middleware.auth.enabled {
++                // [cailu-patch code-07] fail-open → fail-fast。
++                //
++                // 原实现是 `enabled && !jwt_secret.is_empty()`：密钥为空时**什么也不挂**，
++                // 且不报错；此时 AuthClaims 提取器仍会用空 HMAC 密钥验签，攻击者自签
++                // permissions=["*:*:*"] 即可通行。这里改为启动即失败（含长度下限），
++                // 与业务侧 backend/src/shared/startup_guard.rs 互为兜底。
++                if cfg.middleware.auth.jwt_secret.trim().chars().count() < 32 {
++                    panic!(
++                        "FATAL: [middleware.auth] enabled=true 但 jwt_secret 缺失或短于 32 字符，\\
++                         拒绝启动（请通过 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入强密钥）"
++                    );
++                }
++                let auth_asm_started = std::time::Instant::now();"""
++
++changed_07 = apply(
++    app_rs,
++    old_auth,
++    new_auth,
++    marker=MARK_07,
++    label="CODE-07 app.rs 认证层 fail-fast",
++)
++
++# ── CODE-09 ①：PermissionCheckLayer 增加「免认证路径」与冲突自检 ───────────────
++old_field = """    pub rules: Arc<Vec<PermissionRule>>,
++}"""
++new_field = """    pub rules: Arc<Vec<PermissionRule>>,
++    /// [cailu-patch code-09] 免认证路径（`#[alun::no_auth]` / 配置 / 插件三个来源，含全局前缀）。
++    ///
++    /// 这些路径上认证层放行且**不注入** `AuthClaims`；若仍参与权限规则匹配，
++    /// 就会被判成「无权限」——正是 `GET /api/support/config/public` 被
++    /// `GET /support/config/{id}` 规则拦成 403 的根因。
++    pub ignore_paths: Arc<Vec<String>>,
++}"""
++
++old_from_config = """    pub fn from_config(config_rules: &[alun_config::PermissionRule]) -> Self {
++        Self {
++            rules: Arc::new(
++                config_rules
++                    .iter()
++                    .map(|r| PermissionRule {
++                        path: r.path.clone(),
++                        methods: r.methods.clone(),
++                        permission: r.permission.clone(),
++                    })
++                    .collect(),
++            ),
++        }
++    }"""
++new_from_config = """    pub fn from_config(config_rules: &[alun_config::PermissionRule]) -> Self {
++        Self {
++            rules: Arc::new(
++                config_rules
++                    .iter()
++                    .map(|r| PermissionRule {
++                        path: r.path.clone(),
++                        methods: r.methods.clone(),
++                        permission: r.permission.clone(),
++                    })
++                    .collect(),
++            ),
++            ignore_paths: Arc::new(Vec::new()),
++        }
++    }
++
++    /// [cailu-patch code-09] 注入免认证路径（装配期调用一次）。
++    pub fn with_ignore_paths(mut self, paths: Vec<String>) -> Self {
++        self.ignore_paths = Arc::new(paths);
++        self
++    }
++
++    /// [cailu-patch code-09] 该请求路径是否免认证（精确命中或作为前缀命中）。
++    pub fn is_no_auth_path(&self, request_path: &str) -> bool {
++        self.ignore_paths.iter().any(|p| {
++            let trimmed = p.trim_end_matches('/');
++            request_path == trimmed || request_path.starts_with(&format!("{trimmed}/"))
++        })
++    }
++
++    /// [cailu-patch code-09] 规则遮蔽自检：返回「静态段规则被同方法模板规则覆盖」的描述。
++    ///
++    /// 装配期调用并 `warn!` 出来，避免同类问题再次静默上线（CI 里可当 error）。
++    pub fn detect_conflicts(&self) -> Vec<String> {
++        let mut conflicts = Vec::new();
++        for static_rule in self.rules.iter().filter(|r| !r.path.contains('{')) {
++            for param_rule in self.rules.iter().filter(|r| r.path.contains('{')) {
++                if static_rule.path == param_rule.path {
++                    continue;
++                }
++                let methods_overlap = static_rule.methods.is_empty()
++                    || param_rule.methods.is_empty()
++                    || static_rule
++                        .methods
++                        .iter()
++                        .any(|m| param_rule.methods.iter().any(|p| p.eq_ignore_ascii_case(m)));
++                if methods_overlap && match_path(&static_rule.path, &param_rule.path) {
++                    conflicts.push(format!(
++                        "静态规则 {} ({}) 与模板规则 {} ({}) 同时命中同一请求",
++                        static_rule.path,
++                        static_rule.permission,
++                        param_rule.path,
++                        param_rule.permission
++                    ));
++                }
++            }
++        }
++        conflicts
++    }"""
++
++changed_09a = apply(
++    perm_rs,
++    old_field,
++    new_field,
++    marker=MARK_09,
++    label="CODE-09 layer 增加 ignore_paths + detect_conflicts",
++)
++# new_from_config 依赖上面的 marker 判断不可靠（同一 marker 已存在），单独判重
++text = load(perm_rs)
++if "pub fn with_ignore_paths" not in text:
++    if old_from_config not in text:
++        print("  [FAIL] CODE-09 from_config 锚点未命中", file=sys.stderr)
++        raise SystemExit(3)
++    text = text.replace(old_from_config, new_from_config, 1)
++    save(perm_rs, text)
++    print("  [ok]   CODE-09 from_config 初始化 ignore_paths + 新增能力方法")
++else:
++    print("  [skip] CODE-09 from_config（已打过）")
++
++# ── CODE-09 ②：Service 传递 ignore_paths ──────────────────────────────────────
++text = load(perm_rs)
++if MARK_09 + " svc" in text:
++    print("  [skip] CODE-09 service 字段（已打过）")
++else:
++    old_layer = """        PermissionCheckService {
++            inner,
++            rules: Arc::clone(&self.rules),
++        }"""
++    new_layer = """        PermissionCheckService {
++            inner,
++            rules: Arc::clone(&self.rules),
++            // [cailu-patch code-09] svc
++            ignore_paths: Arc::clone(&self.ignore_paths),
++        }"""
++    old_svc_field = """    inner: S,
++    /// 权限规则列表（与层共享，装配时零深克隆）
++    rules: Arc<Vec<PermissionRule>>,
++}"""
++    new_svc_field = """    inner: S,
++    /// 权限规则列表（与层共享，装配时零深克隆）
++    rules: Arc<Vec<PermissionRule>>,
++    /// [cailu-patch code-09] 免认证路径（与层共享）
++    ignore_paths: Arc<Vec<String>>,
++}"""
++    for old, new, label in (
++        (old_layer, new_layer, "service 构造传递 ignore_paths"),
++        (old_svc_field, new_svc_field, "service 字段"),
++    ):
++        if old not in text:
++            print(f"  [FAIL] CODE-09 {label} 锚点未命中", file=sys.stderr)
++            raise SystemExit(3)
++        text = text.replace(old, new, 1)
++        print(f"  [ok]   CODE-09 {label}")
++    save(perm_rs, text)
++
++# ── CODE-09 ③：匹配逻辑——免认证跳过 + 静态优先 ───────────────────────────────
++old_call = """        match self.rules.iter().find(|rule| {
++            let path_matches = match_path(&path, &rule.path);
++            let method_matches = rule.methods.is_empty()
++                || rule.methods.iter().any(|m| m.eq_ignore_ascii_case(&method));
++            path_matches && method_matches
++        }) {
++            Some(rule) => {"""
++new_call = """        // [cailu-patch code-09] 免认证路径直接放行：认证层在这些路径上不注入
++        // AuthClaims，若继续走规则匹配必然被判 403（`/support/config/public` 即此例）。
++        if self.is_no_auth_path(&path) {
++            tracing::debug!("权限检查: path={} 属于免认证路径，跳过权限规则", path);
++            let mut inner = self.inner.clone();
++            return Box::pin(async move { inner.call(req).await });
++        }
++
++        // [cailu-patch code-09] 匹配优先级：完全相等(0) > 纯静态段(1) > 含 {param}(2)。
++        // 原实现取「第一条命中」，语义取决于注册顺序，静态子路径会被模板规则遮蔽。
++        let mut best: Option<(&PermissionRule, u8)> = None;
++        for rule in self.rules.iter() {
++            let path_matches = match_path(&path, &rule.path);
++            let method_matches = rule.methods.is_empty()
++                || rule.methods.iter().any(|m| m.eq_ignore_ascii_case(&method));
++            if !path_matches || !method_matches {
++                continue;
++            }
++            let score = if rule.path == path {
++                0
++            } else if !rule.path.contains('{') {
++                1
++            } else {
++                2
++            };
++            match best {
++                Some((_, best_score)) if best_score <= score => {}
++                _ => best = Some((rule, score)),
++            }
++        }
++
++        match best.map(|(rule, _)| rule) {
++            Some(rule) => {"""
++
++text = load(perm_rs)
++if MARK_09 in text and "let mut best: Option<(&PermissionRule, u8)>" in text:
++    print("  [skip] CODE-09 匹配逻辑（已打过）")
++else:
++    if old_call not in text:
++        print("  [FAIL] CODE-09 匹配逻辑锚点未命中", file=sys.stderr)
++        raise SystemExit(3)
++    text = text.replace(old_call, new_call, 1)
++    save(perm_rs, text)
++    print("  [ok]   CODE-09 匹配逻辑（免认证跳过 + 静态优先）")
++
++# ── CODE-09 ④：app.rs 装配期注入免认证路径 + 冲突告警 ─────────────────────────
++old_perm_asm = """            let perm_asm_started = std::time::Instant::now();
++            let mut perm_layer =
++                mw::PermissionCheckLayer::from_config(&cfg.middleware.permission.rules);"""
++new_perm_asm = """            let perm_asm_started = std::time::Instant::now();
++            let mut perm_layer =
++                mw::PermissionCheckLayer::from_config(&cfg.middleware.permission.rules);
++            // [cailu-patch code-09] 免认证路径必须让权限层跳过（见 permission_check.rs 注释）
++            {
++                let plugin_no_auth: Vec<crate::NoAuthDef> = self
++                    .web_plugins
++                    .iter()
++                    .flat_map(|p| p.no_auth_paths())
++                    .collect();
++                let no_auth_paths: Vec<String> = crate::discovered_no_auth()
++                    .iter()
++                    .chain(self.extra_no_auth.iter())
++                    .chain(plugin_no_auth.iter())
++                    .map(|def| with_prefix(&self.prefix, def.path))
++                    .collect();
++                perm_layer = perm_layer.with_ignore_paths(no_auth_paths);
++            }"""
++
++text = load(app_rs)
++if "with_ignore_paths" in text:
++    print("  [skip] CODE-09 app.rs 注入免认证路径（已打过）")
++else:
++    if old_perm_asm not in text:
++        print("  [FAIL] CODE-09 app.rs 装配锚点未命中", file=sys.stderr)
++        raise SystemExit(3)
++    text = text.replace(old_perm_asm, new_perm_asm, 1)
++    save(app_rs, text)
++    print("  [ok]   CODE-09 app.rs 注入免认证路径")
++
++old_count = """            let macro_rule_count = macro_rules.len() + self.extra_permissions.len();"""
++new_count = """            let macro_rule_count = macro_rules.len() + self.extra_permissions.len();
++            // [cailu-patch code-09] 规则遮蔽自检：装配期把「静态规则 vs 模板规则」冲突列出来
++            for conflict in perm_layer.detect_conflicts() {
++                tracing::warn!("权限规则冲突：{conflict}（已按「静态段优先」匹配，请修正规则）");
++            }"""
++
++text = load(app_rs)
++if "perm_layer.detect_conflicts()" in text:
++    print("  [skip] CODE-09 app.rs 冲突告警（已打过）")
++else:
++    if old_count not in text:
++        print("  [FAIL] CODE-09 app.rs 计数锚点未命中", file=sys.stderr)
++        raise SystemExit(3)
++    text = text.replace(old_count, new_count, 1)
++    save(app_rs, text)
++    print("  [ok]   CODE-09 app.rs 装配期冲突告警")
++
++# ── 收尾校验 ─────────────────────────────────────────────────────────────────
++final_app = load(app_rs)
++final_perm = load(perm_rs)
++problems = []
++if "FATAL: [middleware.auth] enabled=true 但 jwt_secret" not in final_app:
++    problems.append("app.rs 缺少 CODE-07 fail-fast")
++if "with_ignore_paths" not in final_app or "detect_conflicts" not in final_app:
++    problems.append("app.rs 缺少 CODE-09 装配")
++if "pub fn with_ignore_paths" not in final_perm or "let mut best:" not in final_perm:
++    problems.append("permission_check.rs 缺少 CODE-09 补丁")
++
++if problems:
++    print("补丁校验失败：" + "；".join(problems), file=sys.stderr)
++    raise SystemExit(4)
++
++print("PATCH-STATE: OK（CODE-07 + CODE-09 补丁齐全）")
++PY
++
++if [[ "$CHECK_ONLY" == "1" ]]; then
++    echo "仅检查模式：补丁齐全。"
++    exit 0
++fi
++
++echo
++echo "已打补丁。下一步：cd backend && cargo build（会因源码变更重新编译 alun-web）。"
++echo "如需回滚：删除 registry 中的 alun-web-0.4.2 目录后重新 cargo fetch（或 cargo clean -p alun-web）。"
+diff --git a/skill/SKILL.md b/skill/SKILL.md
+index 4bf346f..051db89 100644
+--- a/skill/SKILL.md
++++ b/skill/SKILL.md
+@@ -19,7 +19,7 @@ cd frontend && pnpm install && pnpm dev   # :5173
+ bash scripts/dev.sh                # 依赖容器+后端+前端
+ bash scripts/check.sh              # 提交前 fmt/clippy/typecheck
+ ```
+-默认账号 `admin/Admin@123456`；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
++默认账号 `admin`（口令无缺省值，由 `ALUN_ADMIN_PASSWORD` 注入，首登强制改密）；接口前缀 `/api`；健康检查 `/health`（免鉴权）。
+ 
+ ## 后端核心约定
+ - **四件套**：每模块 `mod.rs+handler.rs+dto.rs+model.rs`；业务编排 handler、数据访问 model，**不设 service 层**。

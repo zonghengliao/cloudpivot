@@ -1,0 +1,585 @@
+From 04792dce2e2fc3ae0d0c7bada44f19ff631a216f Mon Sep 17 00:00:00 2001
+From: manong <manong@local>
+Date: Tue, 27 Oct 2026 20:20:04 +0800
+Subject: [PATCH] =?UTF-8?q?style(theme):=20=E5=85=A8=E7=AB=99=E6=8D=A2?=
+ =?UTF-8?q?=E8=8E=AB=E5=85=B0=E8=BF=AA=E8=89=B2=E7=B3=BB=EF=BC=88=E6=B7=B1?=
+ =?UTF-8?q?=E6=B5=B7=E8=93=9D/=E9=9C=9C=E6=9C=88=E7=99=BD/=E9=9B=BE?=
+ =?UTF-8?q?=E8=93=9D=E7=81=B0/=E6=BC=82=E6=9C=A8=E6=A3=95=EF=BC=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- theme.less 品牌色阶重写：基于 #51697C 的 10 级色阶（浅色 brand-7=#51697C、
+  brand-5≈#AAB7C2），深色阶整体提亮（brand-7=#5B7789，白字 4.72 AA）
+- TDesign 中性色接管：页面底 #F2F2EE、容器白、分割线 #DCE2E6、描边/输入框边框 #C6D0D8、
+  主文字 #2A3843、次文字 #5F6E7A(4.68 AA)、占位 #7A8A98(3.16)
+- 补 --td-border-level-{1,2}-color（TDesign 输入框/表格边框不跟 component-border，实测才发现）
+- 漂木棕 #B79D88 只做点缀 5 处：登录页光晕、侧栏品牌线下沿、头像渐变末端、
+  列表统计竖条、文本选中底；需白字的强调底用深一档 #8C7561
+- 清散落硬编码：dashboard/change-password/login/BasicLayout/index.less 共 12 处按角色映射；
+  语义色（成功/警告/危险）只降饱和不改色相，危险操作仍一眼可辨
+- 登录页渐变改为 --app-login-{bg,brand} 变量，深色主题下不再「浅底浅字」
+- 头像补 .basic-layout__avatar 类（原 CSS 存在但未挂上，渐变一直是死代码）
+- logo/favicon 图片文件未替换（待设计资源），CSS 侧已无旧色滤镜
+---
+ frontend/src/layouts/BasicLayout.vue        |  11 +-
+ frontend/src/style/index.less               |  30 ++-
+ frontend/src/style/theme.less               | 208 +++++++++++++-------
+ frontend/src/views/dashboard/index.vue      |  14 +-
+ frontend/src/views/login/index.vue          |  18 +-
+ frontend/src/views/user/change-password.vue |  10 +-
+ 6 files changed, 191 insertions(+), 100 deletions(-)
+
+diff --git a/frontend/src/layouts/BasicLayout.vue b/frontend/src/layouts/BasicLayout.vue
+index 85eb454..0eff099 100644
+--- a/frontend/src/layouts/BasicLayout.vue
++++ b/frontend/src/layouts/BasicLayout.vue
+@@ -53,7 +53,7 @@
+ 
+         <t-dropdown :options="userActions" :popup-props="userPopupProps" @click="onUserAction">
+           <button class="basic-layout__user" type="button">
+-            <t-avatar  size="medium">{{ avatarText }}</t-avatar>
++            <t-avatar class="basic-layout__avatar" size="medium">{{ avatarText }}</t-avatar>
+             <span class="basic-layout__username">{{ userStore.displayName || '未登录' }}</span>
+             <t-icon class="basic-layout__caret" name="chevron-down" />
+           </button>
+@@ -213,7 +213,8 @@ async function doLogout(): Promise<void> {
+     white-space: nowrap;
+     overflow: hidden;
+     cursor: pointer;
+-    border-bottom: 1px solid var(--td-component-stroke);
++    // 品牌区下沿用漂木棕半透明细线：全站点缀落点之一（不用大面积色块）
++    border-bottom: 1px solid var(--app-accent-soft);
+     transition: background-color 0.2s;
+ 
+     &:hover {
+@@ -265,7 +266,8 @@ async function doLogout(): Promise<void> {
+     padding: 0 16px 0 8px;
+     background-color: var(--td-bg-color-container);
+     border-bottom: 1px solid var(--td-component-stroke);
+-    box-shadow: 0 1px 4px rgb(0 0 0 / 4%);
++    // 深海蓝调的轻投影，替代中性黑投影
++    box-shadow: 0 1px 4px rgb(81 105 124 / 12%);
+   }
+ 
+   &__collapse {
+@@ -313,7 +315,8 @@ async function doLogout(): Promise<void> {
+   }
+ 
+   &__avatar {
+-    background: linear-gradient(135deg, #4b8bff 0%, #7b5cff 100%);
++    // 深海蓝 → 漂木棕 的莫兰迪渐变，随明暗主题取不同深浅
++    background: linear-gradient(135deg, var(--td-brand-color-7) 0%, var(--app-brand-accent) 100%);
+   }
+ 
+   &__username {
+diff --git a/frontend/src/style/index.less b/frontend/src/style/index.less
+index bc2d672..6a3246b 100644
+--- a/frontend/src/style/index.less
++++ b/frontend/src/style/index.less
+@@ -28,7 +28,14 @@ body {
+ // ---------- 卡片：统一圆角与轻投影，提升整体精致度 ----------
+ .t-card {
+   border-radius: 10px;
+-  box-shadow: 0 1px 3px rgb(15 30 70 / 6%);
++  // 投影带一点深海蓝色调，与莫兰迪底色呼应，避免灰黑投影显脏
++  box-shadow: 0 1px 3px rgb(81 105 124 / 10%);
++}
++
++// ---------- 文本选中：漂木棕浅底（点缀色，不抢内容）----------
++::selection {
++  color: var(--td-text-color-primary);
++  background-color: var(--app-accent-soft);
+ }
+ 
+ // ---------- 列表页通用结构（沿用后台管理通用列表布局惯例）----------
+@@ -53,6 +60,11 @@ body {
+   margin-top: 16px;
+ }
+ 
++// 表头：暖白底（雾蓝灰/霜月白同一家族），避免默认纯白让表头与行内容分层不清
++.t-table thead th {
++  background-color: var(--app-table-head-bg);
++}
++
+ // 表格工具栏：左右分列，左侧放操作按钮，右侧放统计文案
+ .table-toolbar {
+   display: flex;
+@@ -64,6 +76,18 @@ body {
+ .table-toolbar-count {
+   font-size: 13px;
+   color: var(--td-text-color-secondary);
++
++  // 漂木棕短竖线：全站「少量点缀」的落点之一（不铺色，只做视觉锚点）
++  &::before {
++    content: '';
++    display: inline-block;
++    width: 3px;
++    height: 11px;
++    margin-right: 6px;
++    vertical-align: -1px;
++    background-color: var(--app-brand-accent);
++    border-radius: 2px;
++  }
+ }
+ 
+ // 多选列表：已选数量提示
+@@ -98,11 +122,11 @@ body {
+ }
+ 
+ ::-webkit-scrollbar-thumb {
+-  background-color: rgb(0 0 0 / 16%);
++  background-color: rgb(81 105 124 / 20%);
+   border-radius: 4px;
+ 
+   &:hover {
+-    background-color: rgb(0 0 0 / 26%);
++    background-color: rgb(81 105 124 / 32%);
+   }
+ }
+ 
+diff --git a/frontend/src/style/theme.less b/frontend/src/style/theme.less
+index 3c94da3..2a3e2e0 100644
+--- a/frontend/src/style/theme.less
++++ b/frontend/src/style/theme.less
+@@ -1,46 +1,48 @@
+ /**
+- * 全局主题：品牌色取自 logo 渐变区间
++ * 全局主题：莫兰迪色系（老大 2026-10-27 指定色板）
+  *
+- * 背景 —— `public/logo.png` 是「深蓝 → 青绿」的横向渐变，实测渐变曲线为：
+- *   10% #033c85(深蓝, H=214) → 30% #055e95 → 50% #0c93ab → 70% #0db3b5 → 85% #0fbdba(青绿, H=179)
+- * 色相沿渐变从 214° 过渡到 179°，明度从 27% 升到 40%。
++ * 四色板（不可改）：
++ *   深海蓝 Deep Sea Blue    #51697C  → 品牌主色（primary）
++ *   霜月白 Frost Moon White #F2F2EE  → 页面底色
++ *   雾蓝灰 Mist Blue Grey   #AAB7C2  → 次要文字 / 边框 / 占位
++ *   漂木棕 Driftwood Brown  #B79D88  → 强调 / 点缀 / 高亮标记（只做少量点缀，不大面积铺）
+  *
+- * 主色选取 —— 在渐变区间内逐点做「白字 WCAG 对比度 + 到渐变线距离 + 色相接近度」筛选，
+- * 最终取 t≈42% 处的 `#0580a2`：
+- *   - H=193 / S=94 / L=33，处在深蓝与青绿的交汇处，是渐变里最"干净"的经典青蓝色；
+- *   - 白字对比度 4.55，达到 WCAG AA（按钮、选中态等白字场景可读）；
+- *   - 与 logo 渐变线的最近距离 <1（RGB 空间），视觉上完全同源。
+- * 渐变后半段（t>55%，如 #0db3b5）虽然更"青"，但白字对比度跌到 2.6~3.3，不适合作主色。
++ * 对比度实测（WCAG 相对亮度公式，脚本 `contrast.py`，2026-10-27 本地核算）：
++ *   白字 / #51697C 5.74（≥4.5 AA ✔，按钮、选中态白字可用）
++ *   #2A3843 正文 / #F2F2EE 10.72、/ #FFFFFF 12.03（主要文字）
++ *   #5F6E7A 次要文字 / #F2F2EE 4.68、/ #FFFFFF 5.25（AA ✔）
++ *   #7A8A98 占位 / #F2F2EE 3.16、/ #FFFFFF 3.55（占位按 3:1 放宽 ✔）
++ *   #B79D88 白字仅 2.56 → 漂木棕不做白字底；需白字的强调底用深一档 #8C7561（4.35）
++ *   深色模式 #5B7789 白字 4.72、对 #171B20 底色 3.66（品牌色在深底上仍可辨）
++ *
++ * 色阶规则 —— 沿用 TDesign 官方语义（brand-1 最浅 → brand-7 主色 → brand-10 最深）。
++ * 浅色阶锁定 H≈208（深海蓝色相），仅用明度/饱和度铺层次；深色阶整体上移明度（brand-7 由
++ * #51697C 提亮到 #5B7789），保证深底上品牌色不糊、白字按钮仍达 AA。
+  *
+  * ⚠ 选择器必须与 TDesign 同级（这是本文件最容易踩的坑）
+  *   TDesign 把品牌色写在两个块里：
+  *     `:root, :root[theme-mode='light'] { ... }`   → 特异性 (0,1,0) / (0,1,1)
+- *     `:root.dark, :root[theme-mode='dark'] { ... }` → 特异性 (0,2,0) / (0,1,1)
++ *     `:root.dark, :root[theme-mode='dark'] { ... }` → (0,2,0) / (0,1,1)
+  *   若这里只写 `:root`，一旦 `<html>` 上出现 `theme-mode` 属性（`stores/setting.ts` 切换主题时
+  *   就会写），TDesign 的 `[theme-mode]` 块特异性更高，会把品牌色压回默认蓝；再切回浅色依旧如此。
+  *   所以下面严格镜像 TDesign 的两套选择器：本文件在 `style/index.less` 引入、晚于 TDesign 基础样式
+  *   加载，同特异性下靠「后加载」取胜，主题色才能在明暗切换中保持稳定。
+- *
+- * 色阶规则 —— 沿用 TDesign 官方色阶语义（brand-1 浅底 → brand-7 主色 → brand-10 最深），
+- * 全部锁定 H=193（不漂移），仅通过明度/饱和度铺层次，保证 10 级色相一致、观感统一。
+- * 暗色色阶同样锁 H=193，但整体上移明度（主色 `#0a7e9e`，白字对比度 4.68，保持 AA），
+- * 使品牌色在深色背景上依然清晰可辨。
+  */
+ 
+ /* ========================= 亮色主题 ========================= */
+ :root,
+ :root[theme-mode='light'] {
+-  // ---------- 品牌色 1~10 级色阶 ----------
+-  --td-brand-color-1: #f6fafb; // 浅底 / 选中底
+-  --td-brand-color-2: #ecf6f8; // light-hover
+-  --td-brand-color-3: #ddf0f5; // disabled 底
+-  --td-brand-color-4: #c6e7f1; // 浅边框
+-  --td-brand-color-5: #90d6ea; // 深边框
+-  --td-brand-color-6: #0398c1; // hover
+-  --td-brand-color-7: #0580a2; // ★ 主色（logo 渐变中段）
+-  --td-brand-color-8: #017190; // active
+-  --td-brand-color-9: #035e77; // 深底强调
+-  --td-brand-color-10: #054d61; // 最深强调
++  // ---------- 品牌色 1~10 级色阶（基于 #51697C）----------
++  --td-brand-color-1: #f5f7f8; // 浅底 / 选中底
++  --td-brand-color-2: #ebeff1; // light-hover
++  --td-brand-color-3: #dce2e6; // disabled 底
++  --td-brand-color-4: #c6d0d8; // 浅边框
++  --td-brand-color-5: #aab7c2; // 深边框（= 雾蓝灰）
++  --td-brand-color-6: #6b8296; // hover
++  --td-brand-color-7: #51697c; // ★ 主色（= 深海蓝）
++  --td-brand-color-8: #445a6b; // active
++  --td-brand-color-9: #374a58; // 深底强调
++  --td-brand-color-10: #2a3843; // 最深强调
+ 
+   // ---------- 品牌色派生变量（覆盖 TDesign 默认映射）----------
+   --td-brand-color: var(--td-brand-color-7);
+@@ -53,22 +55,39 @@
+   --td-brand-color-fade: var(--td-brand-color-1);
+   --td-brand-color-focus-light: var(--td-brand-color-1);
+ 
++  // ---------- 中性色：底色 / 容器 / 边框 / 文字（莫兰迪中性）----------
++  --td-bg-color-page: #f2f2ee; // 霜月白：body 与布局内容区底色
++  --td-bg-color-container: #ffffff; // 卡片与容器：纯白，与霜月白拉开一档
++  --td-bg-color-container-hover: #f5f7f8;
++  --td-bg-color-secondarycontainer: #fafaf7; // 暖白：次级容器（表头、只读块）
++  --td-bg-color-secondarycontainer-hover: #f2f2ee;
++  --td-component-stroke: #dce2e6; // 分割线（雾蓝灰浅阶）
++  --td-component-border: #c6d0d8; // 描边（雾蓝灰深阶）
++  // TDesign 输入框 / 选择器 / 表格的边框走 border-level 系列，不跟 component-border，需单独接管
++  --td-border-level-1-color: #dce2e6;
++  --td-border-level-2-color: #c6d0d8;
++  --td-text-color-primary: #2a3843; // 主要文字：深海蓝最深阶，不用纯黑
++  --td-text-color-secondary: #5f6e7a; // 次要文字：对霜月白 4.68（AA）
++  --td-text-color-placeholder: #7a8a98; // 占位：对霜月白 3.16（占位按 3:1 放宽）
++  --td-text-color-disabled: #aab7c2;
++
+   // ---------- 图表主色（跟随品牌色，保证 ECharts 与 UI 同源）----------
++  // 莫兰迪低饱和：同族内按明暗交替排列，相邻系列仍可区分
+   --td-chart-color: var(--td-brand-color-7);
+-  --td-chart-color-1: #0580a2;
+-  --td-chart-color-2: #03a3cc;
+-  --td-chart-color-3: #35c0d8;
+-  --td-chart-color-4: #6fd5e8;
+-  --td-chart-color-5: #a3e5f2;
+-  --td-chart-color-6: #cdefa9;
+-  --td-chart-color-7: #e8f5b8;
+-  --td-chart-color-8: #f3e9a6;
+-  --td-chart-color-9: #f7dfa0;
+-  --td-chart-color-10: #f4d99c;
++  --td-chart-color-1: #51697c;
++  --td-chart-color-2: #b79d88;
++  --td-chart-color-3: #2a3843;
++  --td-chart-color-4: #aab7c2;
++  --td-chart-color-5: #6b8296;
++  --td-chart-color-6: #8c7561;
++  --td-chart-color-7: #374a58;
++  --td-chart-color-8: #c6d0d8;
++  --td-chart-color-9: #445a6b;
++  --td-chart-color-10: #7e96a9;
+ 
+   // ---------- 投影：中性阴影里带一点品牌色，与整体色调呼应 ----------
+-  --td-shadow-1: 0 1px 10px rgb(5 128 162 / 8%);
+-  --td-shadow-2: 0 3px 6px -4px rgb(5 128 162 / 12%), 0 6px 16px rgb(5 128 162 / 8%);
++  --td-shadow-1: 0 1px 10px rgb(81 105 124 / 8%);
++  --td-shadow-2: 0 3px 6px -4px rgb(81 105 124 / 12%), 0 6px 16px rgb(81 105 124 / 8%);
+ 
+   // ---------- 便捷别名：业务代码直接引用 ----------
+   --app-brand: var(--td-brand-color-7); // 主色
+@@ -76,29 +95,42 @@
+   --app-brand-active: var(--td-brand-color-8); // active
+   --app-brand-light: var(--td-brand-color-1); // 浅底
+   --app-brand-border: var(--td-brand-color-4); // 浅边框
+-  // 四色指标卡的第二档（青），与主色同族但更亮，保持卡片层次
+-  --app-brand-accent: #03a3cc;
+-  // logo 渐变（深蓝 → 青绿），用于横幅、欢迎条幅等装饰场景
+-  --app-gradient-brand: linear-gradient(135deg, #033c85 0%, #0580a2 45%, #0db3b5 100%);
++  // 漂木棕：强调 / 点缀（标签、徽标、进度强调、hover 边框）——只做少量点缀
++  --app-brand-accent: #b79d88;
++  // 深一档漂木棕：需要白字的强调底（白字对比度 4.35）
++  --app-brand-accent-deep: #8c7561;
++  // 漂木棕半透明：分割线 / 光晕一类极轻的点缀
++  --app-accent-soft: rgb(183 157 136 / 45%);
++  // 页面 / 卡片 / 文字别名（业务组件带 fallback 的 var() 会优先取这里的值）
++  --app-page-bg: var(--td-bg-color-page);
++  --app-card-bg: var(--td-bg-color-container);
++  --app-text-primary: var(--td-text-color-primary);
++  --app-text-secondary: var(--td-text-color-secondary);
++  --app-table-head-bg: #fafaf7;
++  // 登录页渐变（浅色）：霜月白主底 + 雾蓝灰过渡 / 品牌区加一层漂木棕微暖
++  --app-login-bg: linear-gradient(135deg, #f2f2ee 0%, #eaeef0 52%, #f2f2ee 100%);
++  --app-login-brand: linear-gradient(155deg, #e8edf1 0%, #dce2e6 55%, #eae3db 100%);
++  // 品牌渐变（深海蓝深阶 → 主色 → hover 档），用于横幅、欢迎条幅等装饰场景
++  --app-gradient-brand: linear-gradient(135deg, #2a3843 0%, #51697c 55%, #6b8296 100%);
+ }
+ 
+ /* ========================= 暗色主题 =========================
+- * 同一色相（H=193）整体提亮：1~6 级是深色背景上的浅色面（选中底/悬停底），
+- * 7 级为主色（白字对比度 4.68，达 AA），8~10 级用于深底上的强调文字与边框。
++ * 同一色相（H≈208）整体提亮：1~6 级是深色背景上的浅色面（选中底/悬停底），
++ * 7 级为主色（白字对比度 4.72，达 AA），8~10 级用于深底上的强调文字与边框。
+  * hover 取更亮的 8 级、active 取 6 级 —— 深色背景下「越交互越亮」才是正确方向。
+  */
+ :root.dark,
+ :root[theme-mode='dark'] {
+-  --td-brand-color-1: #10333c;
+-  --td-brand-color-2: #134553;
+-  --td-brand-color-3: #16586a;
+-  --td-brand-color-4: #15687f;
+-  --td-brand-color-5: #137996;
+-  --td-brand-color-6: #0f8bae;
+-  --td-brand-color-7: #0a7e9e; // ★ 暗色主色
+-  --td-brand-color-8: #1491b3;
+-  --td-brand-color-9: #35aed0;
+-  --td-brand-color-10: #81c7da;
++  --td-brand-color-1: #1c262e;
++  --td-brand-color-2: #232e36;
++  --td-brand-color-3: #2a3740;
++  --td-brand-color-4: #33424e;
++  --td-brand-color-5: #45596a;
++  --td-brand-color-6: #4e6577;
++  --td-brand-color-7: #5b7789; // ★ 暗色主色（提亮以保持深底可辨，白字仍 AA）
++  --td-brand-color-8: #7591a5;
++  --td-brand-color-9: #93aabd;
++  --td-brand-color-10: #b0c2d1;
+ 
+   --td-brand-color: var(--td-brand-color-7);
+   --td-brand-color-light: var(--td-brand-color-1);
+@@ -110,18 +142,33 @@
+   --td-brand-color-fade: var(--td-brand-color-1);
+   --td-brand-color-focus-light: var(--td-brand-color-1);
+ 
+-  // 深色背景上系列色需整体提亮，否则 1~4 号色会糊进背景
++  // 中性色：冷调深灰蓝（不用纯黑，避免与低饱和brand色割裂）
++  --td-bg-color-page: #171b20;
++  --td-bg-color-container: #1f262d;
++  --td-bg-color-container-hover: #27313a;
++  --td-bg-color-secondarycontainer: #232c34;
++  --td-bg-color-secondarycontainer-hover: #2a3540;
++  --td-component-stroke: #333e49;
++  --td-component-border: #3c4a56;
++  --td-border-level-1-color: #333e49;
++  --td-border-level-2-color: #3c4a56;
++  --td-text-color-primary: #e8ebee;
++  --td-text-color-secondary: #aab7c2;
++  --td-text-color-placeholder: #7e8c97;
++  --td-text-color-disabled: #5b6b78;
++
++  // 深色背景上系列色需整体提亮，否则低饱和莫兰迪会糊进背景
+   --td-chart-color: var(--td-brand-color-7);
+-  --td-chart-color-1: #0a7e9e;
+-  --td-chart-color-2: #1491b3;
+-  --td-chart-color-3: #35aed0;
+-  --td-chart-color-4: #81c7da;
+-  --td-chart-color-5: #b6dbe8;
+-  --td-chart-color-6: #cdefa9;
+-  --td-chart-color-7: #e8f5b8;
+-  --td-chart-color-8: #f3e9a6;
+-  --td-chart-color-9: #f7dfa0;
+-  --td-chart-color-10: #f4d99c;
++  --td-chart-color-1: #8ca6ba;
++  --td-chart-color-2: #c9ae97;
++  --td-chart-color-3: #a7becd;
++  --td-chart-color-4: #d9dbd6;
++  --td-chart-color-5: #7e96a9;
++  --td-chart-color-6: #b79d88;
++  --td-chart-color-7: #93aabd;
++  --td-chart-color-8: #c6d0d8;
++  --td-chart-color-9: #6b8296;
++  --td-chart-color-10: #e3e6e8;
+ 
+   // 暗色下沿用 TDesign 自带的黑色投影，避免浅色阴影在深底上发灰
+   --app-brand: var(--td-brand-color-7);
+@@ -129,8 +176,19 @@
+   --app-brand-active: var(--td-brand-color-6);
+   --app-brand-light: var(--td-brand-color-1);
+   --app-brand-border: var(--td-brand-color-4);
+-  --app-brand-accent: #1491b3;
+-  --app-gradient-brand: linear-gradient(135deg, #033c85 0%, #0580a2 45%, #0db3b5 100%);
++  // 深底上漂木棕也要提亮，否则点缀看不见
++  --app-brand-accent: #c9ae97;
++  --app-brand-accent-deep: #a8896f;
++  --app-accent-soft: rgb(201 174 151 / 45%);
++  --app-page-bg: var(--td-bg-color-page);
++  --app-card-bg: var(--td-bg-color-container);
++  --app-text-primary: var(--td-text-color-primary);
++  --app-text-secondary: var(--td-text-color-secondary);
++  --app-table-head-bg: #232c34;
++  // 登录页渐变（深色）：深灰蓝主底 + 品牌深阶，避免深色模式下出现「浅底浅字」
++  --app-login-bg: linear-gradient(135deg, #14181c 0%, #1b2229 52%, #14181c 100%);
++  --app-login-brand: linear-gradient(155deg, #1c262e 0%, #243039 55%, #2b3138 100%);
++  --app-gradient-brand: linear-gradient(135deg, #1c262e 0%, #5b7789 55%, #7591a5 100%);
+ }
+ 
+ /**
+@@ -139,21 +197,27 @@
+  * 一律引用变量而非写死色值，这样切换明暗主题时会自动跟随。
+  */
+ 
+-// 指标卡：蓝色底 → 品牌色
++// 指标卡：原蓝色底 → 品牌色
+ .metric-icon--blue,
+ .home-stat__icon,
+ .profile-home__card-icon {
+   background-color: var(--td-brand-color) !important;
+ }
+ 
+-// 指标卡：青色底 → 品牌色亮一档（保持四色卡的层次）
++// 指标卡：原青色底 → 品牌色亮一档（保持四色卡的层次）
+ .metric-icon--cyan,
+ .home-stat__icon--cyan,
+ .profile-home__card--cyan .profile-home__card-icon {
+-  background-color: var(--app-brand-accent) !important;
++  background-color: var(--td-brand-color-6) !important;
+ }
+ 
+-// 品牌色块 / 图标底（欢迎条幅、头像等用 --td-brand-color 的地方无需改，这里兜底紫色系残留）
++// 品牌色块 / 图标底（欢迎条幅、头像等用 --td-brand-color 的地方无需改，这里兜底旧强调色残留）
+ .icon-chip--purple {
+   background-color: var(--td-brand-color-active) !important;
+ }
++
++// 原紫色系点缀 → 漂木棕（少量点缀专用）
++.icon-chip--accent,
++.metric-icon--brown {
++  background-color: var(--app-brand-accent-deep) !important;
++}
+diff --git a/frontend/src/views/dashboard/index.vue b/frontend/src/views/dashboard/index.vue
+index c7c5c68..d2fc498 100644
+--- a/frontend/src/views/dashboard/index.vue
++++ b/frontend/src/views/dashboard/index.vue
+@@ -402,7 +402,7 @@ const loginTrendOption = computed<EChartsCoreOption>(() => {
+       smooth: true,
+       showSymbol: false,
+       data: line.data,
+-      itemStyle: { color: index === 0 ? '#3b6dff' : '#f54a45' },
++      itemStyle: { color: index === 0 ? '#51697c' : '#d1544f' },
+       areaStyle: index === 0 ? { opacity: 0.15 } : undefined,
+     })),
+   };
+@@ -429,7 +429,7 @@ const latencyTrendOption = computed<EChartsCoreOption>(() => {
+       // 无样本日为 null，断开连线而不是补 0 造成「假趋势」
+       connectNulls: false,
+       data: line.data,
+-      itemStyle: { color: '#6a4bff' },
++      itemStyle: { color: '#b79d88' },
+       areaStyle: { opacity: 0.12 },
+     })),
+   };
+@@ -646,7 +646,7 @@ onUnmounted(() => {
+     color: #fff;
+     border-radius: 12px;
+     background: var(--app-gradient-brand);
+-    box-shadow: 0 6px 20px rgb(59 109 255 / 24%);
++    box-shadow: 0 6px 20px rgb(81 105 124 / 24%);
+   }
+ 
+   &__greeting {
+@@ -832,19 +832,19 @@ onUnmounted(() => {
+     height: 28px;
+     font-size: 16px;
+     color: #fff;
+-    background-color: var(--metric-color, #3b6dff);
++    background-color: var(--metric-color, var(--td-brand-color-7));
+     border-radius: 8px;
+ 
+     &--green {
+-      --metric-color: #12b76a;
++      --metric-color: #3e9b72;
+     }
+ 
+     &--orange {
+-      --metric-color: #f5822b;
++      --metric-color: #d98b4a;
+     }
+ 
+     &--blue {
+-      --metric-color: #3b6dff;
++      --metric-color: var(--td-brand-color-7);
+     }
+   }
+ 
+diff --git a/frontend/src/views/login/index.vue b/frontend/src/views/login/index.vue
+index dca53c3..87973e8 100644
+--- a/frontend/src/views/login/index.vue
++++ b/frontend/src/views/login/index.vue
+@@ -127,8 +127,8 @@ async function handleSubmit(): Promise<void> {
+   // 用 vh 而不是 100%：<router-view> 的包裹层不保证撑满，百分比会塌成内容高度
+   min-height: 100vh;
+   padding: 32px 24px;
+-  // 整体柔和渐变：淡蓝 → 淡紫 → 淡青，低饱和，长时间看不刺眼
+-  background: linear-gradient(135deg, #eff4ff 0%, #f6f2ff 50%, #e9f6fb 100%);
++  // 霜月白主底 + 雾蓝灰轻过渡：低饱和莫兰迪，长时间看不刺眼（深色主题走 --app-login-bg）
++  background: var(--app-login-bg);
+ }
+ 
+ .login__panel {
+@@ -139,9 +139,9 @@ async function handleSubmit(): Promise<void> {
+   min-height: 520px;
+   overflow: hidden;
+   background-color: var(--td-bg-color-container);
+-  border: 1px solid rgb(255 255 255 / 70%);
++  border: 1px solid var(--td-component-stroke);
+   border-radius: 16px;
+-  box-shadow: 0 18px 48px rgb(94 112 180 / 14%);
++  box-shadow: 0 18px 48px rgb(81 105 124 / 14%);
+ }
+ 
+ // ---------- 左侧品牌区 ----------
+@@ -151,18 +151,18 @@ async function handleSubmit(): Promise<void> {
+   min-width: 0;
+   padding: 48px 44px;
+   overflow: hidden;
+-  // 柔和渐变底，与页面外框同一色系但略深一档，形成层次
+-  background: linear-gradient(155deg, #e6edff 0%, #efeaff 55%, #e5f4fa 100%);
++  // 柔和渐变底：霜月白 → 雾蓝灰 → 漂木棕微暖收尾（深色主题走 --app-login-brand）
++  background: var(--app-login-brand);
+ }
+ 
+-// 柔光装饰：不抢内容，只负责让渐变不死板
++// 柔光装饰：不抢内容，只负责让渐变不死板（漂木棕极轻光晕，全站唯一的大面积点缀）
+ .login__brand-glow {
+   position: absolute;
+   top: -120px;
+   right: -140px;
+   width: 320px;
+   height: 320px;
+-  background: radial-gradient(circle, rgb(122 142 255 / 22%) 0%, rgb(122 142 255 / 0%) 70%);
++  background: radial-gradient(circle, rgb(183 157 136 / 26%) 0%, rgb(183 157 136 / 0%) 70%);
+   pointer-events: none;
+ }
+ 
+@@ -198,7 +198,7 @@ async function handleSubmit(): Promise<void> {
+   border-radius: 12px;
+   box-shadow:
+     inset 0 0 0 1px rgb(255 255 255 / 80%),
+-    0 6px 16px rgb(94 112 180 / 22%);
++    0 6px 16px rgb(81 105 124 / 22%);
+ 
+   > img {
+     width: 70%;
+diff --git a/frontend/src/views/user/change-password.vue b/frontend/src/views/user/change-password.vue
+index a0ca9d9..5872d34 100644
+--- a/frontend/src/views/user/change-password.vue
++++ b/frontend/src/views/user/change-password.vue
+@@ -121,16 +121,16 @@ async function onLogout(): Promise<void> {
+   align-items: center;
+   justify-content: center;
+   min-height: 100vh;
+-  background: var(--app-page-bg, #f5f7fa);
++  background: var(--app-page-bg, #f2f2ee);
+   padding: 24px;
+ 
+   &__panel {
+     width: 100%;
+     max-width: 460px;
+     padding: 32px;
+-    background: var(--app-card-bg, #fff);
++    background: var(--app-card-bg, #ffffff);
+     border-radius: 12px;
+-    box-shadow: 0 8px 24px rgb(0 0 0 / 8%);
++    box-shadow: 0 8px 24px rgb(81 105 124 / 12%);
+   }
+ 
+   &__head {
+@@ -141,14 +141,14 @@ async function onLogout(): Promise<void> {
+     margin: 0 0 8px;
+     font-size: 20px;
+     font-weight: 600;
+-    color: var(--app-text-primary, rgb(0 0 0 / 88%));
++    color: var(--app-text-primary, #2a3843);
+   }
+ 
+   &__desc {
+     margin: 0;
+     font-size: 13px;
+     line-height: 20px;
+-    color: var(--app-text-secondary, rgb(0 0 0 / 60%));
++    color: var(--app-text-secondary, #5f6e7a);
+   }
+ 
+   &__alert {
