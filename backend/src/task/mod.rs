@@ -20,9 +20,15 @@
 //! | 认证日志清理 | `20 3 * * *` | `clean_auth_log` | P4 |
 //! | 安全日志清理 | `30 3 * * *` | `clean_security_log` | P4 |
 //! | 密码变更日志清理 | `40 3 * * *` | `clean_password_log` | P4 |
+//! | 存储对象回收 | `0 30 4 * * *` | `storage_object_cleanup` | 批次 A · A1 |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
-//! 数据库瞬时压力。
+//! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
+//! `sys_file` 并按后端删物理对象，IO 比纯 SQL 更重）。
+//!
+//! 业务侧的定时任务通过 [`Scheduler::register_cron`] 在 [`Scheduler::register_builtin`]
+//! 中挂载（框架调度器对注册表做一次性快照，注册必须发生在 `start()` 之前；
+//! 在 `bootstrap.rs` 里追加注册会被随后的 `reload()` 清空）。
 //!
 //! 在线用户会话存于缓存并按令牌有效期自动过期，因此**不实现**「在线用户清理」任务。
 //!
@@ -214,7 +220,8 @@ impl Scheduler {
     /// 注册系统内置任务。
     ///
     /// 内置任务无 `sys_job` 记录，执行结果只写运行日志（不写 `sys_job_log`）。
-    /// 全部任务来自 [`LOG_CLEAN_TASKS`]，逐一注册。
+    /// 全部任务来自 [`LOG_CLEAN_TASKS`]，逐一注册；随后挂载**业务侧**内置任务
+    /// （当前只有存储对象回收，见 [`crate::business::storage::cleanup`]）。
     fn register_builtin(&self) {
         for (name, cron) in LOG_CLEAN_TASKS {
             let runner = move || tokio::spawn(run_builtin(name));
@@ -222,6 +229,32 @@ impl Scheduler {
                 .register(name, cron, "系统任务：日志清理", runner);
             self.remember(name);
         }
+        // 业务侧内置任务：注册点必须在这里（与日志清理同批），不能挪到 bootstrap.rs
+        crate::business::storage::cleanup::register_builtin(self);
+    }
+
+    /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。
+    ///
+    /// # 参数
+    ///
+    /// - `name`：调度名（同时用于日志与 [`Self::trigger_registered`]）。
+    /// - `cron`：cron 表达式（支持 5 段与 6 段）。
+    /// - `desc`：任务描述。
+    /// - `runner`：每次触发时调用的闭包（内部自行 `tokio::spawn`，不要阻塞调度线程）。
+    ///
+    /// # 说明
+    ///
+    /// 只解决「注册 + 记账」两件事：注册到框架调度器，并把名字记入 [`Self::names`]，
+    /// 使下一次 [`Self::reload`] 的 `clear_registered` 能正确移除，不会残留重复调度。
+    pub fn register_cron(
+        &self,
+        name: &str,
+        cron: &str,
+        desc: &str,
+        runner: impl Fn() -> tokio::task::JoinHandle<()> + Send + Sync + 'static,
+    ) {
+        self.inner.register(name, cron, desc, runner);
+        self.remember(name);
     }
 
     /// 注册单个动态任务（来自 `sys_job`）。

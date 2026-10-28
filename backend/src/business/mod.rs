@@ -6,5 +6,7 @@
 //! | 子模块 | 职责 |
 //! |--------|------|
 //! | [`monitor`] | 服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis），仅超管可读 |
+//! | [`storage`] | 对象存储底座：多后端路由、SigV4 预签名、AK/SK 加密、配置与策略管理 |
 
 pub mod monitor;
+pub mod storage;

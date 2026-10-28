@@ -37,11 +37,22 @@
 //!
 //! 两层都在**绑定监听端口之前**完成，因此不存在「认证层已对外提供服务、签名密钥却为空」
 //! 的时间窗。
+//!
+//! # 第二道守卫：存储主密钥（批次 A · A1）
+//!
+//! 对象存储后端配置里的 AK/SK 用独立主密钥（`CLOUDPIVOT_STORAGE_MASTER_KEY`，
+//! 64 位十六进制）做 AES-256-GCM 加密。主密钥缺失 / 长度不符 / 非十六进制时，
+//! 存储配置解不开、S3 后端全部不可用——因此与 JWT 密钥同款处理：**拒绝启动**，
+//! 绝不「先启动再用默认密钥」。校验逻辑复用
+//! [`crate::business::storage::cipher::MasterKey`] 的解析实现（单一事实来源），
+//! 本文件只负责「启动期拦下来 + 给出可操作的修复文案」。
 
 use std::fmt;
 
 use alun::prelude::*;
 use async_trait::async_trait;
+
+use crate::business::storage::cipher::{ENV_STORAGE_MASTER_KEY, MASTER_KEY_HEX_LEN, MasterKey};
 
 /// JWT 签名密钥的最小长度（字符数）。
 ///
@@ -390,13 +401,147 @@ fn is_config_only_mode() -> bool {
     })
 }
 
+/// 存储主密钥校验错误。
+///
+/// 只携带「缺失 / 长度 / 非十六进制」的定位信息，**绝不包含密钥内容**，可安全落日志。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageKeyGuardError {
+    /// 环境变量未注入或为空。
+    Missing {
+        /// 当前运行的配置 profile。
+        profile: String,
+    },
+    /// 长度或字符集不合法。
+    Invalid {
+        /// 当前运行的配置 profile。
+        profile: String,
+        /// 具体原因（来自主密钥解析，不含密钥内容）。
+        reason: String,
+    },
+}
+
+impl fmt::Display for StorageKeyGuardError {
+    /// 输出可直接贴进终端 / 日志的中文错误，含危害说明与修复步骤。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Missing { profile } => write!(
+                f,
+                "安全守卫拒绝启动：profile={profile} 下存储主密钥 {ENV_STORAGE_MASTER_KEY} 未注入。\n\
+                 危害：存储后端配置里的 AK/SK 无法加解密，S3 兼容后端全部不可用（本地后端仍可用）。\n\
+                 修复：在 /etc/cloudpivot/cloudpivot{profile_suffix}.env 中写入 \
+                 {ENV_STORAGE_MASTER_KEY}=\"$(openssl rand -hex 32)\"（每个环境用不同的值，文件权限 600）。",
+                profile_suffix = if profile == "prod" {
+                    String::new()
+                } else {
+                    format!("-{profile}")
+                }
+            ),
+            Self::Invalid { profile, reason } => write!(
+                f,
+                "安全守卫拒绝启动：profile={profile} 下存储主密钥不合法（{reason}）。\n\
+                 要求：恰好 {MASTER_KEY_HEX_LEN} 位十六进制（32 字节，供 AES-256-GCM 使用）。\n\
+                 修复：用 openssl rand -hex 32 重新生成后写入 {ENV_STORAGE_MASTER_KEY}，\
+                 已加密的存储配置需要重新填写 AK/SK。"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StorageKeyGuardError {}
+
+/// 校验存储主密钥（纯函数，不读全局状态，便于单测）。
+///
+/// # 参数
+///
+/// - `profile`：当前 profile（仅用于错误文案）。
+/// - `raw`：环境变量原文；`None` 表示未注入。
+///
+/// # 返回值
+///
+/// - `Ok(())`：密钥存在且为 64 位十六进制；
+/// - `Err(StorageKeyGuardError::Missing)`：未注入或全空白；
+/// - `Err(StorageKeyGuardError::Invalid)`：长度 / 字符集不合法。
+pub fn check_storage_master_key(
+    profile: &str,
+    raw: Option<&str>,
+) -> std::result::Result<(), StorageKeyGuardError> {
+    let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
+        return Err(StorageKeyGuardError::Missing {
+            profile: profile.to_string(),
+        });
+    };
+    MasterKey::parse(raw)
+        .map(|_| ())
+        .map_err(|error| StorageKeyGuardError::Invalid {
+            profile: profile.to_string(),
+            reason: error
+                .to_string()
+                .lines()
+                .next()
+                .unwrap_or_default()
+                .to_string(),
+        })
+}
+
+/// 读取环境变量注入的存储主密钥（不校验）。
+///
+/// # 返回值
+///
+/// 未注入或空白时返回 `None`。
+pub fn resolve_storage_master_key() -> Option<String> {
+    std::env::var(ENV_STORAGE_MASTER_KEY)
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+}
+
+/// 启动期拒绝原因（JWT 密钥守卫 + 存储主密钥守卫的统一出口）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StartupViolation {
+    /// JWT 签名密钥不合规。
+    AuthSecret(AuthSecretGuardError),
+    /// 存储主密钥不合规。
+    StorageKey(StorageKeyGuardError),
+}
+
+impl fmt::Display for StartupViolation {
+    /// 直接转发内部错误的中文文案。
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::AuthSecret(inner) => write!(f, "{inner}"),
+            Self::StorageKey(inner) => write!(f, "{inner}"),
+        }
+    }
+}
+
+impl std::error::Error for StartupViolation {}
+
+impl From<AuthSecretGuardError> for StartupViolation {
+    /// 由 JWT 密钥错误转换。
+    fn from(error: AuthSecretGuardError) -> Self {
+        Self::AuthSecret(error)
+    }
+}
+
+impl From<StorageKeyGuardError> for StartupViolation {
+    /// 由存储主密钥错误转换。
+    fn from(error: StorageKeyGuardError) -> Self {
+        Self::StorageKey(error)
+    }
+}
+
 /// 启动预检：在 `App::new()` **之前**判定并返回拒绝原因。
 ///
 /// # 返回值
 ///
-/// - `Ok(())`：放行（认证关闭 / 无法判定 / 密钥合规，或当前是 gen-config、print-config 模式）
-/// - `Err(AuthSecretGuardError)`：认证明确开启而密钥为空 / 过短
-pub fn preflight() -> std::result::Result<(), AuthSecretGuardError> {
+/// - `Ok(())`：放行（认证关闭 / 无法判定 / 密钥合规，且存储主密钥合规；或当前是
+///   gen-config、print-config 模式）；
+/// - `Err(StartupViolation)`：JWT 密钥为空 / 过短，或存储主密钥缺失 / 不合法。
+///
+/// # 检查顺序
+///
+/// 先 JWT 密钥（历史守卫，语义不变），再存储主密钥——两者的错误文案各自独立，
+/// 一次只报第一个问题，避免运维面对两条互相干扰的提示。
+pub fn preflight() -> std::result::Result<(), StartupViolation> {
     if is_config_only_mode() {
         return Ok(());
     }
@@ -405,7 +550,9 @@ pub fn preflight() -> std::result::Result<(), AuthSecretGuardError> {
     let auth_enabled = auth_enabled_in_files(DEFAULT_CONFIG_DIR, &profile);
     let secret = resolve_env_secret();
 
-    evaluate_preflight(&profile, auth_enabled, secret.as_deref())
+    evaluate_preflight(&profile, auth_enabled, secret.as_deref())?;
+    check_storage_master_key(&profile, resolve_storage_master_key().as_deref())?;
+    Ok(())
 }
 
 /// 启动守卫插件：在插件启动阶段用框架**权威配置**再校验一次，不合格即中止启动。
@@ -476,12 +623,32 @@ impl Plugin for AuthSecretGuardPlugin {
                     cache_type = %config.cache.r#type,
                     "启动守卫通过：缓存后端满足吊销耐久性要求"
                 );
-                Ok(())
             }
             Err(violation) => {
                 tracing::error!(
                     profile = %config.profile,
                     cache_type = %config.cache.r#type,
+                    "启动守卫拦截：{violation}"
+                );
+                return Err(Error::Config(violation.to_string()));
+            }
+        }
+
+        // 存储主密钥（批次 A · A1）：缺失 / 长度不符 / 非十六进制即拒绝启动。
+        // 只记录长度，绝不打印密钥内容。
+        let master_key = resolve_storage_master_key();
+        match check_storage_master_key(&config.profile, master_key.as_deref()) {
+            Ok(()) => {
+                tracing::info!(
+                    profile = %config.profile,
+                    storage_master_key_len = master_key.as_deref().map(|key| key.trim().len()).unwrap_or_default(),
+                    "启动守卫通过：存储主密钥长度满足要求"
+                );
+                Ok(())
+            }
+            Err(violation) => {
+                tracing::error!(
+                    profile = %config.profile,
                     "启动守卫拦截：{violation}"
                 );
                 Err(Error::Config(violation.to_string()))
@@ -713,5 +880,69 @@ enabled = false
                 "错误文案缺危害说明（吊销会静默失效）: {text}"
             );
         }
+    }
+
+    // ────────────── 存储主密钥守卫（批次 A · A1） ──────────────
+
+    /// 正常路径：64 位十六进制主密钥放行。
+    #[test]
+    fn storage_master_key_accepts_hex64() {
+        assert_eq!(
+            check_storage_master_key("dev", Some(VALID_SECRET_HEX64)),
+            Ok(())
+        );
+        // 首尾空白容忍（env 文件里常带引号或换行）
+        let padded = format!("  {VALID_SECRET_HEX64}\n");
+        assert_eq!(check_storage_master_key("dev", Some(&padded)), Ok(()));
+    }
+
+    /// 错误分支：主密钥缺失 / 空白 → `Missing`（文案含环境变量名与修复命令）。
+    #[test]
+    fn storage_master_key_missing_blocks_startup() {
+        for raw in [None, Some(""), Some("   ")] {
+            let error = check_storage_master_key("dev", raw).expect_err("缺失必须被拒绝");
+            match &error {
+                StorageKeyGuardError::Missing { profile } => assert_eq!(profile, "dev"),
+                other => panic!("应返回 Missing，实际为 {other:?}"),
+            }
+            let text = error.to_string();
+            assert!(text.contains(ENV_STORAGE_MASTER_KEY), "{text}");
+            assert!(text.contains("openssl rand -hex 32"), "{text}");
+        }
+    }
+
+    /// 错误分支：长度不符 / 非十六进制 → `Invalid`，且文案里不含密钥内容。
+    #[test]
+    fn storage_master_key_invalid_rejected() {
+        // 63 位
+        let short = "a".repeat(MASTER_KEY_HEX_LEN - 1);
+        let error = check_storage_master_key("prod", Some(&short)).expect_err("长度不符必须拒绝");
+        assert!(matches!(error, StorageKeyGuardError::Invalid { .. }));
+        assert!(error.to_string().contains("64"));
+
+        // 64 位但含非法字符
+        let bad = "z".repeat(MASTER_KEY_HEX_LEN);
+        let error = check_storage_master_key("prod", Some(&bad)).expect_err("非十六进制必须拒绝");
+        assert!(matches!(error, StorageKeyGuardError::Invalid { .. }));
+        assert!(!error.to_string().contains(&bad), "错误文案泄露了密钥");
+    }
+
+    /// 边界：统一出口 `StartupViolation` 的文案与内层一致（预检报错不丢信息）。
+    #[test]
+    fn startup_violation_delegates_message() {
+        let inner = StorageKeyGuardError::Missing {
+            profile: "dev".to_string(),
+        };
+        let violation = StartupViolation::from(inner.clone());
+        assert_eq!(violation.to_string(), inner.to_string());
+        assert_eq!(violation, StartupViolation::StorageKey(inner));
+
+        let auth = AuthSecretGuardError::Empty {
+            profile: "dev".to_string(),
+        };
+        assert_eq!(
+            StartupViolation::from(auth.clone()).to_string(),
+            auth.to_string()
+        );
     }
 }

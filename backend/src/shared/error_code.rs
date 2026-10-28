@@ -33,6 +33,7 @@
 //! | `2000x` | 认证（凭据错误、令牌过期、账号锁定） |
 //! | `3000x` | 授权（无权限、角色 / 菜单 / 部门冲突） |
 //! | `4000x` | 支撑域（字典 / 参数 / 文件 / 任务 / 日志） |
+//! | `6000x` | 业务域 · 批次 A（对象存储 / 导入导出 / 消息通知） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -166,3 +167,40 @@ pub const CONFIG_SECRET_MISSING: i32 = 40014;
 
 /// 参数值解密失败（密钥不匹配或密文损坏，HTTP 500）。
 pub const CONFIG_DECRYPT_FAILED: i32 = 40015;
+
+// ==================== 6000x：业务域 · 批次 A ====================
+//
+// 批次 A（对象存储 / 导入导出 / 消息通知）新增码段，清单见
+// `docs/批次A-技术架构.md` §5.6。本批次**不改动任何既有码值**，只在本段追加。
+// 当前已落地的为对象存储（A1）所需的 60001–60010；导入导出与消息通知的
+// 60011–60019 由各自实施卡追加，避免提前占用未来语义。
+
+/// 文件所在存储后端已停用 / 删除（HTTP 409）。
+pub const STORAGE_BACKEND_UNAVAILABLE: i32 = 60001;
+
+/// 目标后端 `status = 0`（HTTP 409）。
+pub const STORAGE_BACKEND_DISABLED: i32 = 60002;
+
+/// 超过策略 `max_size_mb`（HTTP 422）。
+pub const STORAGE_SIZE_EXCEEDED: i32 = 60003;
+
+/// 扩展名不在策略白名单（HTTP 400）。
+pub const STORAGE_TYPE_NOT_ALLOWED: i32 = 60004;
+
+/// MIME 与扩展名 / 白名单不符（HTTP 400）。
+pub const STORAGE_MIME_NOT_ALLOWED: i32 = 60005;
+
+/// 该分类未开启直传（HTTP 422）。
+pub const STORAGE_DIRECT_UPLOAD_DISABLED: i32 = 60006;
+
+/// 登记时对象不存在（直传未真正完成，HTTP 404）。
+pub const STORAGE_OBJECT_MISSING: i32 = 60007;
+
+/// 删除被 `sys_file` 引用的后端（HTTP 409）。
+pub const STORAGE_CONFIG_IN_USE: i32 = 60008;
+
+/// endpoint 指向私网 / 回环（SSRF 防护，HTTP 400）。
+pub const STORAGE_ENDPOINT_FORBIDDEN: i32 = 60009;
+
+/// AK/SK 解密失败或探测鉴权失败（不区分，防探测，HTTP 422）。
+pub const STORAGE_CREDENTIAL_INVALID: i32 = 60010;
