@@ -9,11 +9,13 @@
 //! | [`storage`] | 对象存储底座：多后端路由、SigV4 预签名、AK/SK 加密、配置与策略管理 |
 //! | [`impexp`] | 导入导出引擎：定义注册、流式解析、逐行校验、模板生成、同步导出 |
 //! | [`notice`] | 消息通知底座：四种目标扇出、模板渲染、未读数、`dispatch` 公共 API |
+//! | [`permission`] | 数据权限（批次 B · B4）：范围配置、部门树裁剪、自检接口 |
 //! | [`shared`] | 数据权限基座（批次 B · B2）：`ScopedPrincipal` / `scope::paginate` / epoch 缓存 |
 
 pub mod impexp;
 pub mod monitor;
 pub mod notice;
+pub mod permission;
 pub mod shared;
 pub mod storage;
 
