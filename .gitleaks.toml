@@ -69,4 +69,7 @@ paths = [
   '''(^|/)frontend/node_modules/''',
   '''(^|/)frontend/dist/''',
   '''(^|/)\.git/''',
+  # 密钥修复补丁不参与扫描：这类 patch 的「删除行」必然包含被清除的旧密钥字面量，
+  # 属于修复记录而非新泄露；对应密钥均已轮换失效，且原本就存在于上游 git 历史中。
+  '''(^|/)migration-kit/02-security/patches/''',
 ]
