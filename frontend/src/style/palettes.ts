@@ -489,9 +489,6 @@ export function ensureContrast(fg: string, bg: string, ratio: number): string {
  * 二、色阶推导
  * ========================================================================== */
 
-/** 亮色模式：brand-1~4 的明度取值（L%），5 级起由色板给定的浅色接管 */
-const LIGHT_TINTS = [96, 92, 87, 80];
-
 /**
  * 生成亮色模式 brand 色阶 1~10。
  *
