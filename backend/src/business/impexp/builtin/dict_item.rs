@@ -365,6 +365,12 @@ impl ExportDefinition for DictItemExport {
             params.push(Value::from(i32::from(status)));
         }
         if let Some(after) = after_id {
+            // `?::uuid` 位置必须绑 uuid 值：传 `Value::Text`（字符串）会在驱动侧就
+            // 「error serializing parameter」失败（A4 实测：10 万行导出的第 2 页必挂，
+            // 因为第一页之后才开始带 after_id）。
+            let after = uuid::Uuid::parse_str(after).map_err(|error| {
+                DbError::InvalidValue(format!("after_id 不是合法 UUID（{after}）：{error}"))
+            })?;
             sql.push_str(" AND i.id > ?::uuid");
             params.push(Value::from(after));
         }
