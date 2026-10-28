@@ -532,11 +532,12 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
   // 品牌渐变：起点用压暗版、中段再按白字 4.5 兜底 —— 渐变条上的白字必须能读
   // ── 横幅渐变（老大 2026-10-28 第三版要求）──
   // 起点 = 方案主色，终点 = 方案第 2 色（同色系较浅那个 palette.brandLight）。
-  // 老大反馈"前段太浅"：中段只混 30% 浅色、停靠点后移到 62%，使前段基本保持纯主色。
+  // 老大两次反馈"前段太浅"：最终方案 = 前 72% 纯主色，只在最后 28% 过渡到方案浅色。
   // 因为终点是浅色，白字在上面只有约 2.1，所以渐变上的文字改用同色相极深油墨 --app-on-gradient，
   // 并做两轮 ensureContrast：分别对起点(主色)与终点(浅色)都保证 ≥ 4.5。
   const gradientStart = palette.brand.toLowerCase();
-  const gradientMid = blend(palette.brand, palette.brandLight, 0.3);
+  // 中段直接用纯主色：任何与浅色的混合都会把前段提亮，老大两次反馈"前段太浅"。
+  const gradientMid = palette.brand.toLowerCase();
   const gradientEnd = palette.brandLight.toLowerCase();
   // 渐变文字统一用「主色相的极深油墨」：L=9% 时两端都 ≥3:1（标题 20px 属大文本）；
   // 不做 ensureContrast 强推——那会把深色主色端推成白色，反而让浅色端失效。
@@ -658,7 +659,7 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     '--app-bg-page': page,
     '--app-bg-container': container,
     '--app-border': borderColor,
-    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientMid} 62%, ${gradientEnd} 100%)`,
+    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientMid} 72%, ${gradientEnd} 100%)`,
     '--app-on-gradient': onGradient,
     // 色卡 / 预览区用：5 个基准色原值（不做任何修正，永远等于需求色表）
     '--app-swatch-1': palette.brand.toLowerCase(),
