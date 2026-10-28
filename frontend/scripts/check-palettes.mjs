@@ -2,7 +2,7 @@
 /**
  * 配色方案检查脚本（C7 测试证据）
  *
- * 对 6 套方案 × 明暗双模式 = 12 组组合，逐项校验对比度底线，并输出报告。
+ * 对 8 套方案 × 明暗双模式 = 16 组组合，逐项校验对比度底线，并输出报告。
  * 任何一个检查项不达标 → 退出码 1，可用于提交前检查（`pnpm check:palettes`）。
  *
  * 与 `src/style/palettes.ts` 共用同一份推导代码，避免"脚本一套逻辑、页面另一套逻辑"的漂移。
@@ -76,7 +76,7 @@ const errors = [];
 const notes = [];
 
 /* ------------------------------------------------------------------ *
- * 0. 色板数据自检：6 套、色值严格等于需求表、无脏字符
+ * 0. 色板数据自检：8 套、色值严格等于需求表、无脏字符
  * ------------------------------------------------------------------ */
 
 const EXPECTED = [
@@ -88,8 +88,8 @@ const EXPECTED = [
   ['jade-crimson', '翠绿绛红', '#6FB885', '#A5CBB0', '#E8EAE1', '#CFAAAB', '#C17B7E'],
 ];
 
-if (PALETTES.length !== 6) {
-  dataErrors.push(`色板数量应为 6，实际 ${PALETTES.length}`);
+if (PALETTES.length !== 8) {
+  dataErrors.push(`色板数量应为 8，实际 ${PALETTES.length}`);
 }
 
 for (const [index, expected] of EXPECTED.entries()) {
@@ -226,7 +226,7 @@ for (const palette of PALETTES) {
 }
 
 /* ------------------------------------------------------------------ *
- * 2. 对比度底线校验（12 组）
+ * 2. 对比度底线校验（16 组）
  * ------------------------------------------------------------------ */
 
 const builds = [];
@@ -306,7 +306,7 @@ if (asJson) {
   });
   console.log([...header, ...lines].join('\n'));
 } else {
-  console.log('配色方案对比度报告（6 套 × 明暗 = 12 组）\n');
+  console.log('配色方案对比度报告（8 套 × 明暗 = 16 组）\n');
   const fmt = (v) => String(v).padEnd(8);
   console.log(
     `${'#'.padEnd(3)}${'方案'.padEnd(10)}${'模式'.padEnd(7)}${'正文'.padEnd(8)}${'次要'.padEnd(8)}${'占位'.padEnd(8)}${'品牌字'.padEnd(9)}${'白字/主色'.padEnd(12)}${'白字/交互面'.padEnd(10)}结论`,

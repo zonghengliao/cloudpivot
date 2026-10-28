@@ -18,7 +18,15 @@
 export type ColorMode = 'light' | 'dark';
 
 /** 方案 id（写入 localStorage，勿随意改） */
-export type PaletteId = 'mist-blue' | 'deep-sea' | 'teal-sunset' | 'rose-gold' | 'violet-honey' | 'jade-crimson';
+export type PaletteId =
+  | 'mist-blue'
+  | 'deep-sea'
+  | 'teal-sunset'
+  | 'rose-gold'
+  | 'violet-honey'
+  | 'jade-crimson'
+  | 'glaze-teal'
+  | 'inkberry';
 
 /** 一套方案的基准色（5 个色值 + 文案） */
 export interface PaletteDef {
@@ -41,7 +49,7 @@ export interface PaletteDef {
 }
 
 /**
- * 六套色板（严格按需求表）。
+ * 八套色板（前六套 + 釉青 / 墨莓）。
  *
  * 色块语义：
  * - brand   → `--td-brand-color-7`，主按钮 / 选中态 / 图表主色
@@ -113,6 +121,26 @@ export const PALETTES: readonly PaletteDef[] = [
     merge: '#E8EAE1',
     border: '#CFAAAB',
     accent: '#C17B7E',
+  },
+  {
+    id: 'glaze-teal',
+    name: '釉青',
+    note: '湖缥 × 银贝 × 墨青 —— 冷瓷清透',
+    brand: '#7BA0A3',
+    brandLight: '#A3BEBC',
+    merge: '#ECEEEB',
+    border: '#CDDDDF',
+    accent: '#567076',
+  },
+  {
+    id: 'inkberry',
+    name: '墨莓',
+    note: '绛莓 × 雪絮 × 夜绀 —— 沉静莓紫',
+    brand: '#7D5266',
+    brandLight: '#B299AB',
+    merge: '#EDEBE9',
+    border: '#D3C4CB',
+    accent: '#484D61',
   },
 ] as const;
 
@@ -513,7 +541,9 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     );
   }
 
-  const brandSurface = brandStrongNeeded && mode === 'light' ? brandStrong : brandMain;
+  // 主交互面统一用压暗版：深色模式下若仍用主色，白字与深油墨都可能压不到 4.5
+  //（例：墨莓深色主色 #a3738a 白字仅 3.91、深油墨上限约 4.3）。
+  const brandSurface = brandStrongNeeded ? brandStrong : brandMain;
   // 主色上的文字色：优先白字，白字不达标则用与主色同色相的深色油墨
   const onBrand =
     contrast('#ffffff', brandSurface) >= 4.5
