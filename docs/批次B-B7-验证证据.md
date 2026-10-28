@@ -282,14 +282,18 @@ PASS=27  FAIL=0
 
 ```
 $ git -C /opt/cloudpivot log --oneline -3
-<证据提交> docs(b7): 角色互斥验证证据
+81df81b docs(b7): 角色互斥验证证据
 f6f4aaf feat(mutex): B7 角色互斥 —— 对称索引 + 三校验点 + 存量扫描
 f543abc feat(masking): B6 列级脱敏 —— 7 种类型 + DTO 层应用 + 导出同步脱敏
 
-$ git rev-parse HEAD            → <见下（收尾记录）>
-$ git rev-parse origin/main     → 同 HEAD
-$ git --git-dir=/opt/git/cloudpivot.git rev-parse main  → 同 HEAD
-$ git status --short            → 空
+$ git rev-parse HEAD                                    → 与 origin/main 相同
+$ git rev-parse origin/main                             → 与 HEAD 相同
+$ git --git-dir=/opt/git/cloudpivot.git rev-parse main  → 与 HEAD 相同
+$ git status --short                                    → 空
 ```
 
-（`<见下（收尾记录）>` 在证据提交后由 `Run History` 的 summary 与本节末尾的同步核对输出补齐。）
+- **功能提交**：`f6f4aaf`（6 个新文件 + V0068 + 3 处底座接线 + 真库集成测试）
+- **证据提交**：`81df81b`（本文件）
+
+收尾核验在交付时执行：`HEAD` / `origin/main` / `bare main` **三值一致**，工作区干净；具体哈希见本卡 Run History 的 summary（把某个提交哈希写进它自己所在的文件里是不可能的，故此处只固化功能 / 证据两个提交号）。
+
