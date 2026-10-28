@@ -638,25 +638,21 @@ onUnmounted(() => {
 
 <style scoped lang="less">
 .dashboard {
-  // 欢迎横幅：晨昏流金五色渐变（晨雾蓝→雾散初光→金辉交融→流金渐染→落日流金）
-  // 中段是浅色，故文字用深蓝灰 #2f3a4d；左端在晨雾蓝上对比度 3.27（20px 标题属大文本，达 3:1）
   &__banner {
     display: flex;
     align-items: center;
     justify-content: space-between;
     padding: 24px 28px;
-    color: #2f3a4d;
+    color: #fff;
     border-radius: 12px;
-    background: var(--app-gradient-banner);
-    box-shadow: 0 6px 20px rgb(111 138 184 / 18%);
+    background: var(--app-gradient-brand);
+    box-shadow: 0 6px 20px rgb(111 138 184 / 24%);
   }
 
   &__greeting {
     margin: 0 0 6px;
     font-size: 20px;
     font-weight: 600;
-    // 渐变左端偏深，加一层白色微阴影提升深色区可读性（不改变色值）
-    text-shadow: 0 1px 3px rgb(255 255 255 / 55%);
   }
 
   &__subtitle {
@@ -667,7 +663,7 @@ onUnmounted(() => {
 
   &__banner-icon {
     font-size: 72px;
-    color: rgb(47 58 77 / 12%);
+    color: rgb(255 255 255 / 18%);
   }
 
   // t-row 用 gutter 负边距（-8px）抵消列 padding，两栏基准宽度需按内容盒计算，
