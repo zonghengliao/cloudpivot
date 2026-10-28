@@ -727,9 +727,26 @@ pub async fn upload(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     multipart: Multipart,
 ) -> ResResult<StorageFileRes> {
-    let (original_name, mime_type, bytes) = read_single_file(multipart).await?;
+    // 顺序很重要（修复「110 MB 上传报 10006 上传文件内容读取失败」）：
+    // ① 先取分类策略（只查库，不碰 body）；
+    // ② 再用 `Content-Length` 做**读流之前**的大小校验；
+    // ③ 最后才读 multipart。
+    //
+    // 框架的 `DefaultBodyLimit`（由 `[upload].max_size_mb` 推导，见 alun-web
+    // `app.rs`「请求体上限就绪」）会在读取 body 的过程中掐断超限请求，此时
+    // `field.bytes()` 只会给出一个笼统的读取错误 —— 若把策略校验放在读完之后，
+    // 用户看到的永远是「上传文件内容读取失败 / 10006」而不是「超过分类上限」。
+    // 因此大小判定必须发生在读取之前（Content-Length 可用时），并且读取失败时
+    // 再按「是否命中 body 上限」映射成 `60003`（见 [`upload_read_error`]）。
     let category = category_of(query.category.as_deref());
     let policy = resolve_policy(&category).await?;
+    let server_limit_bytes = server_upload_limit_bytes();
+    if let Some(declared) = declared_content_length(&headers) {
+        ensure_size_allowed(&policy, declared, server_limit_bytes)?;
+    }
+
+    let (original_name, mime_type, bytes) =
+        read_single_file(multipart, &policy, server_limit_bytes).await?;
     model::check_upload(
         &policy,
         &original_name,
@@ -1785,11 +1802,147 @@ fn build_file_record(input: FileRecordInput<'_>) -> StorageFileModel {
     }
 }
 
+/// multipart 表单本身的开销余量（字节）。
+///
+/// `Content-Length` 是**整个 body** 的长度（边界串 + 各段头 + 文件名），比文件
+/// 本身多出几百字节。前置校验若不留余量，恰好等于上限的文件会被误判超限。
+/// 这里给 1 MiB（远大于任何真实 multipart 头，且不会放过任何真实超限）。
+pub const MULTIPART_OVERHEAD_ALLOWANCE: u64 = 1024 * 1024;
+
+/// 服务端上传的单文件上限（字节）：与框架 `DefaultBodyLimit` 同源
+/// （alun-web `app.rs` 用 `[upload].max_size_mb` 推导请求体硬顶）。
+///
+/// # 返回值
+///
+/// `[upload].max_size_mb` × 1 MiB；配置为 0 时返回 0（表示不限）。
+pub(crate) fn server_upload_limit_bytes() -> u64 {
+    cfg().upload.max_size_mb as u64 * 1024 * 1024
+}
+
+/// 取请求声明的 `Content-Length`（缺失或非法 → `None`，如 chunked 上传）。
+///
+/// # 参数
+///
+/// - `headers`：请求头。
+///
+/// # 返回值
+///
+/// 声明的字节数。
+pub(crate) fn declared_content_length(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(header::CONTENT_LENGTH)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse::<u64>()
+        .ok()
+}
+
+/// 「超过该分类大小上限」错误（HTTP 422 + `60003`）。
+///
+/// # 参数
+///
+/// - `policy_max_mb`：该分类策略上限（MB）。
+/// - `size_bytes`：已知的实际大小（`None` 表示只在读流失败时推断，大小未知）。
+pub(crate) fn category_size_error(policy_max_mb: i32, size_bytes: Option<u64>) -> ApiError {
+    let message = match size_bytes {
+        Some(size) => format!(
+            "文件大小 {:.2} MB 超过该分类大小上限 {policy_max_mb} MB",
+            size as f64 / (1024.0 * 1024.0)
+        ),
+        None => format!("上传内容超过该分类大小上限 {policy_max_mb} MB"),
+    };
+    ApiError::new(422, error_code::STORAGE_SIZE_EXCEEDED, message)
+}
+
+/// 「超过服务端单文件上限」错误（HTTP 422 + `60003`）。
+///
+/// 语义：分类策略允许更大的文件，但**服务端中转上传**（整包读进内存）有硬顶，
+/// 此时必须引导用户改用预签名直传，而不是让人以为策略配错了。
+///
+/// # 参数
+///
+/// - `server_limit_bytes`：服务端单文件上限（字节）。
+pub(crate) fn server_size_error(server_limit_bytes: u64) -> ApiError {
+    ApiError::new(
+        422,
+        error_code::STORAGE_SIZE_EXCEEDED,
+        format!(
+            "上传内容超过服务端单文件上限 {} MB，请改用预签名直传（POST /business/storage/presign）",
+            server_limit_bytes / (1024 * 1024)
+        ),
+    )
+}
+
+/// 读流之前的整体大小校验（`Content-Length` 可用时调用）。
+///
+/// # 判定顺序（与语义一致性有关，不要调换）
+///
+/// 1. 分类策略上限（业务权威口径）→ `60003`「超过该分类大小上限 N MB」；
+/// 2. 服务端单文件上限（框架 body 硬顶）→ `60003`「超过服务端单文件上限 N MB」。
+///
+/// 两者都留 [`MULTIPART_OVERHEAD_ALLOWANCE`] 余量；真实字节数还要在读完后再由
+/// `model::check_upload` 用精确长度判定一次（本条只是把「超大请求」提前拒掉）。
+///
+/// # 异常情况
+///
+/// 超任一上限 → 422 + `60003`。
+pub(crate) fn ensure_size_allowed(
+    policy: &SysStoragePolicyModel,
+    size_bytes: u64,
+    server_limit_bytes: u64,
+) -> std::result::Result<(), ApiError> {
+    let policy_max_mb = policy.max_size_mb.max(0) as u64;
+    if policy_max_mb > 0 && size_bytes > policy_max_mb * 1024 * 1024 + MULTIPART_OVERHEAD_ALLOWANCE
+    {
+        return Err(category_size_error(policy.max_size_mb, Some(size_bytes)));
+    }
+    if server_limit_bytes > 0 && size_bytes > server_limit_bytes + MULTIPART_OVERHEAD_ALLOWANCE {
+        return Err(server_size_error(server_limit_bytes));
+    }
+    Ok(())
+}
+
+/// 读取 multipart 失败 → 对外错误。
+///
+/// axum 在 body 超过 `DefaultBodyLimit` 时给出 `413 PAYLOAD_TOO_LARGE`；如果不翻译，
+/// 用户只会看到「上传文件内容读取失败 / 10006」，完全看不出是「文件太大」。
+/// 这里把 413 翻译成 `60003`：
+///
+/// - 分类策略上限 **小于** 服务端上限 → 一定是超了分类上限 → 报分类口径；
+/// - 否则（分类放宽但服务端扛不住）→ 报服务端上限 + 引导走预签名直传。
+///
+/// # 参数
+///
+/// - `status`：读取失败时 axum 给出的状态码。
+/// - `policy`：该分类策略。
+/// - `server_limit_bytes`：服务端单文件上限（字节）。
+pub(crate) fn upload_read_error(
+    status: StatusCode,
+    policy: &SysStoragePolicyModel,
+    server_limit_bytes: u64,
+) -> ApiError {
+    if status == StatusCode::PAYLOAD_TOO_LARGE {
+        let policy_max_mb = policy.max_size_mb.max(0) as u64;
+        let policy_max_bytes = policy_max_mb * 1024 * 1024;
+        return if policy_max_bytes > 0
+            && (server_limit_bytes == 0 || policy_max_bytes < server_limit_bytes)
+        {
+            category_size_error(policy.max_size_mb, None)
+        } else {
+            server_size_error(server_limit_bytes)
+        };
+    }
+    ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败")
+}
+
 /// 读取 multipart 里的第一个 `file` 字段（服务端上传只要一个文件）。
 ///
 /// # 参数
 ///
 /// - `multipart`：axum 表单提取器（须为最后一个提取器参数）。
+/// - `policy`：该分类策略（读取失败时用于翻译「太大」的文案）。
+/// - `server_limit_bytes`：服务端单文件上限（字节）。
 ///
 /// # 返回值
 ///
@@ -1797,14 +1950,17 @@ fn build_file_record(input: FileRecordInput<'_>) -> StorageFileModel {
 ///
 /// # 异常情况
 ///
-/// - 400：表单解析失败 / 缺少 `file` 字段 / 文件名为空。
+/// - 400：表单解析失败 / 缺少 `file` 字段 / 文件名为空；
+/// - 422 + `60003`：body 超过上限（框架掐断，见 [`upload_read_error`]）。
 async fn read_single_file(
     mut multipart: Multipart,
+    policy: &SysStoragePolicyModel,
+    server_limit_bytes: u64,
 ) -> std::result::Result<(String, String, Vec<u8>), ApiError> {
     while let Some(field) = multipart
         .next_field()
         .await
-        .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传表单解析失败"))?
+        .map_err(|error| upload_read_error(error.status(), policy, server_limit_bytes))?
     {
         if field.name() != Some("file") {
             continue;
@@ -1817,7 +1973,7 @@ async fn read_single_file(
         let bytes = field
             .bytes()
             .await
-            .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败"))?;
+            .map_err(|error| upload_read_error(error.status(), policy, server_limit_bytes))?;
         if original_name.is_empty() {
             return Err(ApiError::new(
                 400,
@@ -2151,5 +2307,100 @@ mod tests {
     fn handler_truncate_is_char_based() {
         assert_eq!(truncate("存储连接失败", 3), "存储连");
         assert_eq!(truncate("abcdef", 10), "abcdef");
+    }
+
+    /// 修复项 A-遗留①：110 MB 打 `attachment`（上限 100 MB）→ 422 + 60003，
+    /// 文案必须点明「该分类大小上限 100 MB」（修复前是 10006「上传文件内容读取失败」）。
+    #[test]
+    fn upload_size_guard_rejects_over_category_limit() {
+        let mut policy = model::default_policy("attachment");
+        policy.max_size_mb = 100;
+        let mb = 1024 * 1024;
+        let error = ensure_size_allowed(&policy, 110 * mb, 128 * mb)
+            .expect_err("110 MB 超过 100 MB 上限必须被拒");
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
+        assert!(
+            error.msg.contains("该分类大小上限 100 MB"),
+            "文案应指明分类上限：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("110.00 MB"),
+            "文案应带实际大小：{}",
+            error.msg
+        );
+    }
+
+    /// 边界分支：分类策略放宽（5 GB）但服务端中转上限 128 MB → 报服务端上限并引导直传
+    /// （不能报「超过分类上限」，否则运维会去改策略，改多少都没用）。
+    #[test]
+    fn upload_size_guard_rejects_over_server_limit() {
+        let mut policy = model::default_policy("attachment");
+        policy.max_size_mb = 5120;
+        let mb = 1024 * 1024;
+        let error =
+            ensure_size_allowed(&policy, 200 * mb, 128 * mb).expect_err("超过服务端上限必须被拒");
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
+        assert!(
+            error.msg.contains("服务端单文件上限 128 MB"),
+            "文案应指明服务端上限：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("presign"),
+            "应引导预签名直传：{}",
+            error.msg
+        );
+    }
+
+    /// 正常分支：50 MB（< 100 MB 上限、< 128 MB 服务端上限）必须放行；
+    /// 恰好等于上限的文件也要放行（Content-Length 含 multipart 开销，靠余量吸收）。
+    #[test]
+    fn upload_size_guard_allows_within_limits() {
+        let mut policy = model::default_policy("attachment");
+        policy.max_size_mb = 100;
+        let mb = 1024 * 1024;
+        assert!(ensure_size_allowed(&policy, 50 * mb, 128 * mb).is_ok());
+        assert!(ensure_size_allowed(&policy, 100 * mb + 4096, 128 * mb).is_ok());
+        // 策略 0 = 不限：只要不超服务端上限就放行
+        policy.max_size_mb = 0;
+        assert!(ensure_size_allowed(&policy, 120 * mb, 128 * mb).is_ok());
+        assert!(ensure_size_allowed(&policy, 200 * mb, 128 * mb).is_err());
+    }
+
+    /// 读取阶段被框架掐断（413）：分类上限更严时报分类口径，否则报服务端口径；
+    /// 非 413 的读取失败仍沿用 400 + 10006（不掩盖真正的表单错误）。
+    #[test]
+    fn upload_read_error_translates_body_limit() {
+        let mb = 1024 * 1024;
+        let mut strict = model::default_policy("attachment");
+        strict.max_size_mb = 100;
+        let error = upload_read_error(StatusCode::PAYLOAD_TOO_LARGE, &strict, 128 * mb);
+        assert_eq!(error.status, 422);
+        assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
+        assert!(error.msg.contains("该分类大小上限 100 MB"), "{}", error.msg);
+
+        let mut loose = model::default_policy("attachment");
+        loose.max_size_mb = 5120;
+        let error = upload_read_error(StatusCode::PAYLOAD_TOO_LARGE, &loose, 128 * mb);
+        assert_eq!(error.code, error_code::STORAGE_SIZE_EXCEEDED);
+        assert!(error.msg.contains("服务端单文件上限"), "{}", error.msg);
+
+        let error = upload_read_error(StatusCode::BAD_REQUEST, &strict, 128 * mb);
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PAYLOAD_INVALID);
+    }
+
+    /// 边界：`Content-Length` 缺失 / 非数字 → `None`（chunked 上传走读完后的精确校验）。
+    #[test]
+    fn declared_content_length_parsing() {
+        let mut headers = HeaderMap::new();
+        assert_eq!(declared_content_length(&headers), None);
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("1048576"));
+        assert_eq!(declared_content_length(&headers), Some(1_048_576));
+        headers.insert(header::CONTENT_LENGTH, HeaderValue::from_static("abc"));
+        assert_eq!(declared_content_length(&headers), None);
     }
 }

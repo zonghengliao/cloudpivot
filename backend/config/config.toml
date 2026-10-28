@@ -148,7 +148,19 @@ workers = 0
 
 [upload]
 path = "uploads"
-max_size_mb = 20
+# 单文件上限（MB）。这个值有两个作用，必须一起看：
+#   ① 框架用它推导**请求体硬顶**（`max_request_body_bytes()` = 本值 + multipart 余量），
+#      超限请求会在读 body 的过程中被掐断；
+#   ② 业务侧（`business/storage/handler.rs`、`business/impexp/handler.rs`）用它做
+#      服务端中转上传的上限口径。
+#
+# 取值依据（批次 A 修复项①）：对象存储策略允许的分类上限最高 5120 MB，但**服务端中转
+# 上传**会把整包读进内存，不能让请求体硬顶跟着策略无限放大（DoS 面）。故这里定格为
+# 128 MB —— 覆盖 `attachment`（100 MB）等常用分类，更大的文件一律走预签名直传
+# （`POST /business/storage/presign`，浏览器直传对象存储，不经过服务端内存）。
+# 超限时业务侧返回 422/60003 并给出「该分类大小上限 N MB」或「服务端单文件上限 128 MB，
+# 请改用预签名直传」的明确文案（修复前会被框架掐断成 10006「上传文件内容读取失败」）。
+max_size_mb = 128
 
 [download]
 path = "downloads"
