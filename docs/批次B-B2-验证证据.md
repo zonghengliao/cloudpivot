@@ -48,8 +48,27 @@ timeout 30 ./target/debug/cloudpivot        # 只需看到「数据库迁移完�
 export B2_DB_URL="postgres://cloudpivot:${ALUN_DATABASE_PASSWORD}@127.0.0.1:5432/cloudpivot_b2v"
 cargo test --test batchB_b2_scope -- --nocapture --test-threads=1
 
-# ④ 门禁（闸①/闸② 口径与 scripts/check.sh 的 batchb_gates 逐字相同）
-bash /tmp/gate_only.sh
+# ④ 门禁（闸①/闸② 口径与 scripts/check.sh 的 batchb_gates 逐字相同；
+#    check.sh 会先跑 fmt/clippy/前端 typecheck，前端缺 pnpm 时会提前退出，
+#    所以这里只复刻那两段循环）
+cd /opt/cloudpivot
+src=backend/src
+BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice \
+sys_file operation_logs audit_logs auth_logs security_logs"
+# 闸①
+grep -rn "paginate_with_params" "$src" --include=*.rs \
+  | grep -v "business/shared/scope.rs" \
+  | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" >/tmp/_gate1.txt || true
+echo "闸①命中：$(wc -l < /tmp/_gate1.txt)"
+# 闸②
+gate2=$(mktemp)
+for t in $BATCHB_SCOPED_TABLES; do
+  for f in $(grep -rl "FROM $t" "$src" --include=*.rs 2>/dev/null || true); do
+    grep -q -e "scope::" -e "SCOPE-EXEMPT" "$f" \
+      || echo "FAIL: ${f#"$src"/} 查询 $t" >>"$gate2"
+  done
+done
+echo "闸②命中：$(wc -l < "$gate2")"
 ```
 
 ---
