@@ -10,6 +10,7 @@
 #   bash migration-kit/replay.sh                       # 默认：基线 c4e8950 → /tmp/replay-test
 #   bash migration-kit/replay.sh --dir /tmp/replay2 --keep
 #   bash migration-kit/replay.sh --no-build            # 跳过 cargo test / typecheck
+#   bash migration-kit/replay.sh --no-color-diff       # 跳过「重放产物 vs 主线 tip」色值集合对比
 #   bash migration-kit/replay.sh --baseline <pro-commit> --expect-patches none \
 #        --expect-rename none --expect-final none      # Pro 到手后：只跑流程，不做历史比对
 #
@@ -28,7 +29,15 @@ KEEP=0
 BUILD=1
 EXPECT_PATCHES="d5a2b61"
 EXPECT_RENAME="df9f658"
-EXPECT_FINAL="46bbe9a"
+# 配色品牌这一步已经**没有**「和我们历史 commit 逐字节比对」的闸门了：
+#   v1 用 patch 打，末态 == 46bbe9a（莫兰迪）可比；
+#   v2 改成「theme 直放 + 色值替换脚本」，产物与线上只在**注释文案**与
+#   一处刻意修正的 var fallback 上有差别（详见 03-brand/brand-points.md §7），
+#   所以逐字节闸门改成两个更强的替代：
+#     ① 03-brand/apply.sh 自带 --check（关键变量 / 旧青色清零 / 未映射告警）
+#     ② ④b 色值字面量多重集合对比（重放产物 vs 主线 tip，必须完全一致）
+EXPECT_FINAL="none"
+COLOR_DIFF=1
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -39,6 +48,7 @@ while [ $# -gt 0 ]; do
     --expect-patches) EXPECT_PATCHES="${2:?}"; shift 2 ;;
     --expect-rename) EXPECT_RENAME="${2:?}"; shift 2 ;;
     --expect-final) EXPECT_FINAL="${2:?}"; shift 2 ;;
+    --no-color-diff) COLOR_DIFF=0; shift ;;
     -h|--help) sed -n '2,20p' "$0"; exit 0 ;;
     *) echo "未知参数: $1" >&2; exit 2 ;;
   esac
@@ -130,9 +140,24 @@ gate "改名声明的终态" "$EXPECT_RENAME"
 # ---- 3) 改名副作用修正（patch-alun-web 判重改为代码签名）
 step "③ 应用改名副作用修正（patch-alun-web 判重）" git apply --whitespace=nowarn migration-kit/01-rename/post-rename-patch-alun-web-dedupe.patch
 
-# ---- 4) 品牌 / 配色
-step "④ 应用配色 + 品牌资源（03-brand）" bash migration-kit/03-brand/apply.sh \
+# ---- 4) 品牌 / 配色（theme 直放 + 组件色值替换）
+step "④ 应用配色 + 品牌资源（03-brand：theme 直放 + replace-colors.py）" bash migration-kit/03-brand/apply.sh --root "$DIR" \
   && gate "配色+品牌终态" "$EXPECT_FINAL"
+
+# ---- 4b) 色值一致性：重放产物 vs 主线 tip（替代 v1 的逐字节闸门）
+#        逐字节不同是**预期内**的（注释文案 + 一处刻意修正的 var fallback + 上游 CRLF），
+#        但「色值字面量多重集合」必须完全一致 —— 这才是「配色没重做歪」的机器判据。
+if [ "$COLOR_DIFF" = "1" ]; then
+  step "④b 色值一致性对比（重放产物 vs 主线 tip 的色值集合）" bash -c '
+    set -u
+    KIT_DIR="$1"; MAIN_DIR="$2"; WORK_DIR="$3"
+    cmp_py="$KIT_DIR/03-brand/compare-colors.py"
+    if [ ! -f "$cmp_py" ]; then echo "  缺少 03-brand/compare-colors.py，跳过对比"; exit 0; fi
+    python3 "$cmp_py" "$MAIN_DIR" "$WORK_DIR"
+  ' _ "$HERE" "$MAIN" "$DIR"
+else
+  printf "\n${YEL}▶ ④b 色值一致性对比：--no-color-diff，跳过${RST}\n"
+fi
 
 # ---- 5) 模块落地（重置基线路径下应为「一致」，移植路径下应为「新增」）
 step "⑤ 落地 business-monitor 模块（04-modules）" bash migration-kit/04-modules/business-monitor/copy.sh --root "$DIR"

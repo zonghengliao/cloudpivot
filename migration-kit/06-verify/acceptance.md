@@ -74,8 +74,11 @@ systemctl start redis-server
 | F2 | 接口权限码 == 迁移里的 `auth_code` | 不一致 → 超管也看不到状态卡 |
 | F3 | 所有迁移 `up`/`down` 成对 | 回滚能力 |
 | F4 | 状态卡仅超管渲染（`isSuperAdmin`） | 非超管不发请求、看不到主机指标 |
-| F5 | 莫兰迪主色 `#51697C` 生效 | 视觉一致 |
-| F6 | logo/favicon 已替换 | 品牌一致 |
+| F5 | 品牌主色 `#6F8AB8` 生效（`--td-brand-color-7`） | 视觉一致（白字 3.50，大文本达标） |
+| F5b | 页面底 `#F2F2EE` / 描边 `#AAB7C2` / 辅助色 `#51697C` 三个关键变量到位 | 见 `03-brand/brand-points.md` §3 |
+| F5c | 上游青蓝色系清零（6 位 hex / 8 位 hex / `rgb()` 三种写法全覆盖） | `03-brand/replace-colors.py --check` 通过 |
+| F5d | 横幅渐变仍是 `--app-gradient-brand` **三档**（深蓝→晨雾蓝→hover） | 「五色渐变」已被老大 revert（`ad55727`），不要再加 |
+| F6 | logo/favicon 已替换（512×512 / 64×64） | 品牌一致 |
 
 ## D. 改名残留（脚本自动，`01-rename/verify.sh --strict`）
 
@@ -101,5 +104,5 @@ systemctl start redis-server
 
 ## 一句话结论模板
 
-> 静态 26 项 + 功能 6 项 + 改名残留 4 项 + 构建 2 项全通过；运行时 B1~B6 在部署机实测通过。
+> 静态 26 项 + 品牌/配色 12 项 + 功能 6 项 + 改名残留 4 项 + 构建 2 项全通过；运行时 B1~B6 在部署机实测通过。
 > 唯一的已知缺口：`merge_semantics_or_base_and_profile` 依赖未入库配置文件（F 节）。

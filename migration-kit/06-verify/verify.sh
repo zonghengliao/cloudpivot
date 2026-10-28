@@ -125,9 +125,56 @@ t "F3) 所有迁移 up/down 成对" \
   'test -z "$(for f in $(find backend/migrations -name "*.up.sql"); do d="${f%.up.sql}.down.sql"; [ -f "$d" ] || echo "$f"; done)"'
 t "F4) 状态卡仅超管渲染（isSuperAdmin 门）" \
   'grep -q "isSuperAdmin" frontend/src/views/dashboard/index.vue'
-t "F5) 莫兰迪主色生效（#51697C 深海蓝）" 'grep -qi "51697C" frontend/src/style/theme.less'
+t "F5) 品牌主色生效（#6F8AB8 晨雾蓝 = --td-brand-color-7）" \
+  'grep -qi -- "--td-brand-color-7: #6f8ab8" frontend/src/style/theme.less'
 t "F6) 品牌资源替换（logo 512x512 / favicon 64x64）" \
   'test -f frontend/public/logo.png -a -f frontend/public/favicon.png'
+
+# ---------------------------------------------------------------------------
+# 品牌 / 配色（03-brand 的「最终态」断言）
+# 这些断言就是「重放出来的东西和线上视觉一致」的机器判据，缺一不可。
+# ---------------------------------------------------------------------------
+sec "S3b 品牌与配色（主题变量 / 组件色值 / 资源 / 旧青色残留）"
+PYBIN="${PYTHON:-python3}"
+BRAND_PY="$KIT/03-brand/replace-colors.py"
+if [ -f "$BRAND_PY" ]; then
+  if "$PYBIN" "$BRAND_PY" --root "$ROOT" --check > /tmp/brand-check.log 2>&1; then
+    pass "B1) 03-brand 自检通过：上游青色系已清零 + 6 个关键变量到位"
+  else
+    fail "B1) 03-brand 自检失败（详情 /tmp/brand-check.log）"
+    sed 's/^/      /' /tmp/brand-check.log | tail -22
+  fi
+else
+  fail "B1) 缺少 03-brand/replace-colors.py（配色无法自证）"
+fi
+t "B2) theme.less == 03-brand/theme-final.less（逐字节，防被本地手改）" \
+  'cmp -s frontend/src/style/theme.less "$KIT/03-brand/theme-final.less"'
+t "B3) --td-bg-color-page = #f2f2ee（霜月白）" \
+  'grep -qi -- "--td-bg-color-page: #f2f2ee" frontend/src/style/theme.less'
+t "B4) --td-component-border = #aab7c2（雾蓝灰描边）" \
+  'grep -qi -- "--td-component-border: #aab7c2" frontend/src/style/theme.less'
+t "B5) --app-brand-secondary: #51697c（深海蓝转辅助色）" \
+  'grep -qi -- "--app-brand-secondary: #51697c" frontend/src/style/theme.less'
+t "B6) --app-brand-strong: #56729f（严格 AA 白字底）" \
+  'grep -qi -- "--app-brand-strong: #56729f" frontend/src/style/theme.less'
+t "B7) 横幅渐变 --app-gradient-brand 仍是三档（深蓝→晨雾蓝→hover）" \
+  'test "$(grep -m1 -- "--app-gradient-brand" frontend/src/style/theme.less | grep -o "#[0-9a-fA-F]\{6\}" | wc -l)" = "3"'
+t "B8) 横幅渐变没有被改成五色（历史 1172658 已被 revert，不许回来）" \
+  '! grep -q "app-gradient-brand-five\|gradient-brand.*#c1ac7b.*#c17b7e" frontend/src/style/theme.less'
+t "B9) 上游青色系清零（6 位 hex，frontend/src）" \
+  '! grep -rqiE "#(0580a2|0398c1|017190|035e77|054d61|90d6ea|f6fafb|ecf6f8|ddf0f5|c6e7f1|03a3cc)" frontend/src'
+t "B10) 上游青色系清零（8 位 hex 带 alpha，frontend/src）" \
+  '! grep -rqiE "#(0580a2|0398c1|017190)[0-9a-f]{2}\\b" frontend/src'
+t "B11) 上游青色系清零（rgb() 现代语法：rgb(5 128 162 / …)）" \
+  '! grep -rqiE "rgb\\(0*5[ ,]+128[ ,]+162" frontend/src'
+t "B12) 组件里旧的蓝/紫/红散落色清零（rgb 形式：59 109 255 / 94 112 180 / 122 142 255 / 15 30 70）" \
+  '! grep -rqiE "rgb\\((59 109 255|94 112 180|122 142 255|15 30 70)" frontend/src'
+t "B13) 语义色未被改成灰度（成功绿 #3e9b72 / 警告橙 #d98b4a / 危险绛红 #c17b7e 都在）" \
+  'grep -q "#3e9b72" frontend/src/views/dashboard/index.vue && grep -q "#d98b4a" frontend/src/views/dashboard/index.vue && grep -q "#c17b7e" frontend/src/views/dashboard/index.vue'
+t "B14) 登录页渐变走变量（--app-login-bg / --app-login-brand），不是写死 hex" \
+  'grep -q "var(--app-login-bg)" frontend/src/views/login/index.vue && grep -q "var(--app-login-brand)" frontend/src/views/login/index.vue'
+t "B15) 登录页柔光改流金（rgb(193 172 123 …)）" \
+  'grep -q "rgb(193 172 123 / 26%)" frontend/src/views/login/index.vue'
 
 if [ "$BUILD" = "1" ]; then
   sec "S4 构建与测试"

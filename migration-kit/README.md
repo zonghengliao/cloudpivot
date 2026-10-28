@@ -1,10 +1,11 @@
 # 云枢(CloudPivot) Pro 版迁移准备包
 
-> **一句话**：把我们对着上游基线 `c4e8950` 做的全部改动（改名 52 文件 / 安全整改 9 批 / 莫兰迪配色 / 品牌 / 服务器状态卡）
+> **一句话**：把我们对着上游基线 `c4e8950` 做的全部改动（改名 52 文件 / 安全整改 9 批 / **雾蓝流金最终配色** / 品牌 / 服务器状态卡）
 > 整理成「脚本 + 补丁 + 文档」，Pro 版到手后照着重放一遍，不用 `git merge`（那会撞 247 处改名冲突）。
 >
-> **已实测**：在干净基线上完整重放 **48.6 秒**跑通，三道 git 逐字节闸门全绿，
-> `cargo test` 45 passed / 0 failed，`pnpm typecheck` 零错误，改名残留只剩 `.gitleaks.toml` 3 行。
+> **已实测**：在干净基线 `c4e8950` 上完整重放（含构建）跑通，两道 git 逐字节闸门全绿 +
+> 配色两重闸门（`03-brand --check` + 色值集合对比）全绿，
+> `cargo test` 全绿、`pnpm typecheck` 零错误，上游青蓝色系在重放产物里**清零**，改名残留只剩 `.gitleaks.toml` 3 行。
 > 详见文末「重放演练结果」。
 
 ---
@@ -15,7 +16,7 @@
 |---|---|---|
 | 改名冲突 | 247 处（52 文件被改名 + Pro 又改了同样的文件） | 0（改名由脚本在新基线上重做） |
 | 安全补丁 | 补丁上下文全被改名打断，几乎全冲突 | 补丁序列按「改名前的上下文」生成，打得上 |
-| 可验证性 | 靠肉眼 | 三道闸门：打完补丁 == `d5a2b61`、改完名 == `df9f658`、配色品牌完 == `46bbe9a`（逐字节） |
+| 可验证性 | 靠肉眼 | 两道 git 逐字节闸门（补丁 == `d5a2b61`、改名 == `df9f658`）+ 配色两重闸门（`03-brand --check` + 色值集合对比） |
 
 ---
 
@@ -38,13 +39,15 @@ migration-kit/
 │   ├── patches/                  15 条补丁（0001~0015，c4e8950..d5a2b61 完整序列，9 条是安全整改）
 │   ├── apply.sh                  逐条 git am（--check 预演 / --abort 回滚 / 失败给人工指引）
 │   └── design-notes.md           每条补丁：改了什么、为什么、apply 失败怎么手工重做
-├── 03-brand/
-│   ├── apply.sh                  打配色 + 品牌补丁（幂等，reverse-check 判已应用）
-│   ├── 01-theme-morandi.patch    莫兰迪配色（6 文件：theme.less/index.less/BasicLayout/login/dashboard/改密页）
-│   ├── 02-brand-assets.patch     新 logo / favicon（二进制补丁）
-│   ├── theme.less                配色变量（独立文件，便于只换色）
+├── 03-brand/                     ★ 配色与品牌（v2：theme 直放 + 组件色值替换，不再靠 patch）
+│   ├── apply.sh                  一键四步：覆盖 theme.less → 换 logo/favicon → 跑色值替换 → 校验
+│   ├── theme-final.less          最终态 theme.less（直接覆盖 frontend/src/style/theme.less，242 行）
+│   ├── replace-colors.py         ★ 组件硬编码色值替换（52 条色值映射 + 21 条变量化片段，幂等 / --dry-run / --check）
+│   ├── compare-colors.py         两棵树的色值字面量集合对比（重放产物 vs 线上，验收用）
 │   ├── logo-512.png / favicon-64.png
-│   └── brand-points.md           品牌替换点清单（14 处）+ 莫兰迪四色取值 + 手工降级路径
+│   ├── brand-points.md           品牌替换点（14 处）+ 四代配色演进史 + 每色语义与实测对比度 + 已知偏差
+│   ├── 01-theme-morandi.patch    ⚠ 历史留档（②代莫兰迪配色），apply.sh 不再调用
+│   └── 02-brand-assets.patch     ⚠ 历史留档（logo/favicon 二进制补丁），apply.sh 不再调用
 ├── 04-modules/
 │   ├── business-monitor/         服务器状态卡整模块（后端四件套 + 前端 API + V0020 迁移 + wiring.md + copy.sh）
 │   └── migrations.md             迁移号段说明 + 撞号重编号步骤 + up→down→up 验证脚本
@@ -57,8 +60,8 @@ migration-kit/
 ```
 
 **用哪个入口**：
-- 只想确认「这套东西现在还能跑」→ `bash migration-kit/replay.sh`（49 秒，自带清理）
-- Pro 到手后真的要落地 → 按下面「场景 B」手把手走（或直接 `replay.sh --baseline <pro> --expect-* none`）
+- 只想确认「这套东西现在还能跑」→ `bash migration-kit/replay.sh`（含构建 **≈52 秒**，三次实测 52.0/52.3/52.6，自带清理）
+- Pro 到手后真的要落地 → 按下面「场景 B」手把手走（或直接 `replay.sh --baseline <pro> --expect-* none --no-color-diff`）
 
 ---
 
@@ -69,7 +72,7 @@ migration-kit/
 ### A1. 拉代码（2 分钟）
 
 ```bash
-cd /opt/cloudpivot                      # 我们的主仓（26c9040）
+cd /opt/cloudpivot                      # 我们的主仓（f616b69）
 git remote add pro /path/to/pro-repo    # 或 pro 是个 tarball 就先 git init 提交一次
 git fetch pro --tags
 git log --oneline -5 pro/main
@@ -84,7 +87,7 @@ git log --oneline c4e8950..pro/main | wc -l    # Pro 在基线上新增了多少
 
 # Q2 耦合度：Pro 动了多少「我们也动过」的文件
 git diff --name-only c4e8950..pro/main | sort > /tmp/pro.txt
-git diff --name-only c4e8950..46bbe9a | sort > /tmp/ours.txt
+git diff --name-only c4e8950..f616b69 | sort > /tmp/ours.txt
 comm -12 /tmp/pro.txt /tmp/ours.txt | tee /tmp/both.txt | wc -l
 comm -12 /tmp/pro.txt /tmp/ours.txt | head -40
 
@@ -175,16 +178,37 @@ git apply $KIT/01-rename/post-rename-patch-alun-web-dedupe.patch     # 判重改
 
 ### 步骤 4：配色 + 品牌 + 状态卡模块（10 分钟）
 
+配色这一步 **v2 已拆成「两步」**（以前是一条 patch 全包，Pro 改了组件就冲突）：
+
 ```bash
-bash /opt/cloudpivot/migration-kit/03-brand/apply.sh          # 莫兰迪配色 + logo/favicon
-bash /opt/cloudpivot/migration-kit/04-modules/business-monitor/copy.sh   # 模块文件 + 4 处接线自检
+KIT=/opt/cloudpivot/migration-kit
+
+# 4a. 配色（两条命令：theme 直放 + 组件色值替换；apply.sh 已把两步串好，含校验）
+bash $KIT/03-brand/apply.sh --dry-run          # 先看要动哪些文件（6 个）+ 多少处色值
+bash $KIT/03-brand/apply.sh                    # 真落地：theme.less → logo → 色值替换 → 校验
+
+# 4b. 状态卡模块
+bash $KIT/04-modules/business-monitor/copy.sh   # 模块文件 + 4 处接线自检
 ```
 
-- **验证点**：`03-brand/apply.sh` 输出两个 ✓；`copy.sh` 输出「模块文件: 一致 N, 新增 0」且 4 个接线点全 ✓；
-  `file frontend/public/logo.png` = 512×512
+`apply.sh` 内部四步（也可拆开手跑）：
+
+| # | 动作 | 对应命令 | 打不上时怎么办 |
+|--:|------|----------|----------------|
+| 1 | `theme.less` 整文件覆盖（242 行） | `cp 03-brand/theme-final.less frontend/src/style/theme.less` | 不会打不上（不依赖上下文） |
+| 2 | 换 logo / favicon | `cp 03-brand/logo-512.png frontend/public/logo.png` 等 | 不会打不上 |
+| 3 | **组件硬编码色值替换** | `python3 03-brand/replace-colors.py --root . [--dry-run]` | 片段替换报 `[skip] 锚点不存在` 说明 Pro 改了结构 → 按 `brand-points.md` §5 表格手工补那几处 CSS（只影响观感） |
+| 4 | 校验 | `bash 03-brand/apply.sh --check` | 失败会指明是「残留色值」还是「关键变量不对」 |
+
+- **验证点**：
+  - `03-brand/apply.sh` 末尾输出「配色 / 资源 / 校验全部通过」，且 `--check` 里
+    `--td-bg-color-page=#f2f2ee`、`--td-component-border=#aab7c2`、`--app-brand-secondary=#51697c`、
+    `--td-brand-color-7=#6f8ab8` 四项全 ✓；**映射表内的上游青色系残留 = 0**
+  - `--app-gradient-brand` 必须是**三档**（深蓝→晨雾蓝→hover）。历史上「五色渐变」那次尝试已被 revert（`ad55727`），**不要再加**
+  - `copy.sh` 输出「模块文件: 一致 N, 新增 0」且 4 个接线点全 ✓；`file frontend/public/logo.png` = 512×512
 - **失败回退**：
-  - 配色补丁打不上（Pro 改了页面结构）→ 走 `brand-points.md` 第 4 节「手工最小路径」：
-    整文件覆盖 `theme.less` + cp 图片 + 按 14 处品牌点手工改文案。**配色丢了不影响安全与功能**，可最后做
+  - 组件色值替换只动「色值字面量 + 21 条精确片段」，**任何一条不匹配都只告警不中断** →
+    最坏情况下页面只是少数阴影/渐变没换色，**配色丢了不影响安全与功能**，可以最后再补
   - 模块接线缺失 → 按 `04-modules/business-monitor/wiring.md` 手工加 4 行
 
 ### 步骤 5：处理迁移撞号（20 分钟，含演练）
@@ -202,10 +226,10 @@ ls backend/migrations/business/ backend/migrations/system/ | grep V00 | sort -t 
 
 ```bash
 bash /opt/cloudpivot/migration-kit/prepare-config.sh      # 未入库配置从 *.example 生成（少这步 cargo test 必挂一条）
-bash /opt/cloudpivot/migration-kit/06-verify/verify.sh    # 安全 26 条 + 功能 6 条 + 改名 4 条 + cargo test + typecheck
+bash /opt/cloudpivot/migration-kit/06-verify/verify.sh    # 安全 + 品牌配色 + 功能 + 改名 + cargo test + typecheck
 ```
 
-- **验证点**：`验收结果: 通过 40, 失败 0, 跳过 0`；再做 `06-verify/acceptance.md` 的 **B 段运行时 6 条**
+- **验证点**：`验收结果: 通过 55, 失败 0, 跳过 0`（其中 S3b「品牌与配色」16 条是 v2 新增）；再做 `06-verify/acceptance.md` 的 **B 段运行时 6 条**
   （伪造令牌 401 / 首登 403 / 复用检测 / 提权 403 / 缓存挂掉 fail-closed）
 - **失败回退**：F/E 段失败是编译或断言问题，改代码；B 段失败是**运行时代码没生效**，
   优先怀疑：启动守卫没接进 `lib.rs`、`patch-alun-web.sh` 没重跑（`cargo update` 后必须重跑）
@@ -215,32 +239,54 @@ bash /opt/cloudpivot/migration-kit/06-verify/verify.sh    # 安全 26 条 + 功�
 ```bash
 bash /opt/cloudpivot/migration-kit/replay.sh \
   --baseline <Pro 的基线 commit> --dir /var/tmp/pro-replay \
-  --expect-patches none --expect-rename none --expect-final none
+  --expect-patches none --expect-rename none --expect-final none --no-color-diff
 ```
 
 `--expect-* none` = 不做「和我们历史 commit 逐字节比对」的闸门（Pro 基线不同，没有可比对象），
-只校验流程能跑通 + `06-verify` 全绿。
+`--no-color-diff` = 跳过「重放产物 vs 主线 tip 的色值集合对比」（Pro 底色板本来就不同）。
+只校验流程能跑通 + `03-brand --check`（关键变量 + 旧青色清零）+ `06-verify` 全绿。
 
 ---
 
-## 4. 重放演练结果（2026-10-28，本机实测）
+## 4. 重放演练结果（2026-10-28 v2 实测，本机）
 
 **环境**：172.18.10.144 / Ubuntu 26.04 arm64 / 4 核 / `git worktree` 干净基线 `c4e8950`。
+**命令**：`bash migration-kit/replay.sh --dir /var/tmp/replay-v2`（含 `cargo test` + `pnpm typecheck`）。
 
 | 步骤 | 耗时 | 结果 |
 |------|------|------|
-| ① 应用 02-security 补丁序列（15 条） | 309 ms | ✅ 15/15 一次成功，闸门 `== d5a2b61` 逐字节一致 |
-| ② 执行改名（52 文件 / 240 处） | 39 ms | ✅ 0 冲突 |
-| ②b 改名人工补丁 | 3 ms | ✅ |
-| ③ patch-alun-web 判重修正 | 1 ms | ✅ |
-| ④ 配色 + 品牌 | 42 ms | ✅ 闸门 `== 46bbe9a` 逐字节一致 |
-| ⑤ 状态卡模块落地 | 14 ms | ✅ 8 文件一致，4 接线点全绿 |
-| ⑤b 生成未入库配置 | 15 ms | ✅ |
-| ⑤c `pnpm install`（首次） | 1.7 s | ✅ 走 npmmirror |
-| ⑥ 冲突清单生成（102 文件） | 44 ms | ✅ |
-| ⑦ 改名残留校验 | 159 ms | ✅ 只剩 `.gitleaks.toml` 3 行 |
-| ⑧ 全量验收（含构建） | 45.7 s | ✅ **通过 40 / 失败 0**（`cargo test` 45 passed 0 failed 40s；`typecheck` 6s） |
-| **合计** | **48.6 s** | **闸门失败 0，步骤失败 0** |
+| ① 应用 02-security 补丁序列（15 条） | 222 ms | ✅ 15/15 一次成功，闸门 `== d5a2b61` 逐字节一致 |
+| ② 执行改名（52 文件 / 240 处） | 40 ms | ✅ 0 冲突 |
+| ②b 改名人工补丁 | 4 ms | ✅ |
+| ③ patch-alun-web 判重修正 | 2 ms | ✅ |
+| ④ **配色 + 品牌（theme 直放 + 色值替换）** | **111 ms** | ✅ 6 文件改动 / 68 处色值 / 21 条片段全命中；`--check` 全绿 |
+| ④b **色值一致性对比（vs 主线 tip）** | 28 ms | ✅ **色值字面量多重集合完全一致（189 = 189）** |
+| ⑤ 状态卡模块落地 | 15 ms | ✅ 8 文件一致，4 接线点全绿 |
+| ⑤b 生成未入库配置 | 18 ms | ✅ |
+| ⑤c `pnpm install`（首次） | 1.8 s | ✅ 走 npmmirror |
+| ⑥ 冲突清单生成（102 文件） | 49 ms | ✅ |
+| ⑦ 改名残留校验 | 161 ms | ✅ 只剩 `.gitleaks.toml` 3 行 |
+| ⑧ 全量验收（含构建） | 49.0 s | ✅ **通过 55 / 失败 0**（`cargo test` 45 passed 0 failed 42s；`typecheck` 7s） |
+| **合计** | **52.0 s** | **闸门失败 0，步骤失败 0**（三次实测 52.0 / 52.3 / 52.6 秒，波动来自 `cargo test` 与 `typecheck`） |
+
+**配色专项结论（v2 的核心验证）**：
+
+| 验证项 | 判据 | 实测 |
+|--------|------|------|
+| 上游青色系清零（6 位 hex） | `grep -rqiE "#(0580a2\|0398c1\|017190\|…)" frontend/src` 无命中 | ✅ 清零 |
+| 上游青色系清零（8 位 hex 带 alpha） | `#0580a2xx` 无命中 | ✅ 清零 |
+| 上游青色系清零（`rgb()` 现代语法） | `rgb(5 128 162 / …)` 无命中 | ✅ 清零 |
+| 组件散落旧色清零 | `rgb(59 109 255 / 94 112 180 / 122 142 255 / 15 30 70)` 无命中 | ✅ 清零 |
+| 关键主题变量 | `--td-bg-color-page=#f2f2ee`、`--td-component-border=#aab7c2`、`--app-brand-secondary=#51697c`、`--td-brand-color-7=#6f8ab8`、`--app-brand-strong=#56729f` | ✅ 全对 |
+| 横幅渐变 | `--app-gradient-brand` 三档（深蓝→晨雾蓝→hover），不是五色 | ✅ |
+| 与线上的色值集合 | `compare-colors.py` 两棵树比对 | ✅ **完全一致（189 = 189）** |
+| 幂等 | `apply.sh` 二跑 | ✅ 0 文件 / 0 处（21 条片段全部判「已存在」） |
+
+**重放产物 vs 线上的逐字节差异（只 3 类，均可解释）**：
+
+1. **注释文案**：包里的片段用最终色名（「流金」「晨雾蓝」），线上注释还是 ③代旧名（「漂木棕」「深海蓝」）—— 纯注释，无运行时影响
+2. **`change-password.vue` 一处 var fallback**：包里是 `#f2f2ee`（正确值），线上仍是 ③代 `#e5eae1`（变量永远有定义，fallback 不生效）→ 见 `03-brand/brand-points.md` §7
+3. **`dashboard/index.vue` 行尾**：上游是 CRLF，线上 ④代提交顺手规范化成 LF（945 行 diff 里只有 3 行真实改动）；脚本**不擅自改行尾**，所以保留 CRLF
 
 **需要人工介入的地方（这是最值钱的信息，说明准备包还不完美）**：
 
@@ -265,8 +311,9 @@ bash /opt/cloudpivot/migration-kit/replay.sh \
 | 路径 | 场景 | 工作量 | 说明 |
 |------|------|--------|------|
 | 功能移植 | Pro 只加独立模块（审批流等），底座没动 | **1~2 人日** | 搬模块 + 接线 + 权限码 + 跑 `06-verify` |
-| 重置基线 | 本包重放一次成型（Pro 底座兼容） | **0.5 人日**（4 小时） | 本机实测流水线 49 秒，剩下是评估、迁移撞号、运行时验收、部署 |
+| 重置基线 | 本包重放一次成型（Pro 底座兼容） | **0.5 人日**（4 小时） | 本机实测流水线 **52.0 秒**（含 `cargo test` + `typecheck`），剩下是评估、迁移撞号、运行时验收、部署 |
 | 重置基线 | Pro 重构了 auth / 权限 / 框架版本 | **2~4 人日** | 9 条安全补丁里 `0006/0012/0014`（启动守卫 / 密钥治理 / CODE-16B）要按新结构重做，这是主要成本 |
+| 重置基线 | Pro 重构了前端组件（配色落点变了） | **+0.5 人日** | v1 这里要重做 patch；**v2 只需看 `replace-colors.py` 的 `[skip]`/`[warn]` 输出**，按 `brand-points.md` §5 表格手工补那几处 CSS（纯观感） |
 | 兜底 | Pro 换框架或换 ORM | **5 人日+** | 相当于重做安全整改，建议直接在新栈上按 `design-notes.md` 的「为什么」重建 |
 
 **关键结论**：重放本身很快（分钟级），**真正的时间花在「Pro 到底动了什么」的判断和冲突裁决上**。
@@ -287,6 +334,18 @@ bash /opt/cloudpivot/migration-kit/replay.sh \
    `bash scripts/patch-alun-web.sh --check` 应输出 `PATCH-STATE: OK`。
 5. **改名不要碰 `.gitleaks.toml` 的旧前缀**（否则历史泄露检测失效），也不要碰外部 URL。
 6. **验收的 B 段（运行时）不能省**：静态断言只能证明「代码写了」，证明不了「真的挡住了」。
+7. **配色不要用 patch 硬贴**（v2 已改掉）：`01-theme-morandi.patch` 只作历史留档。
+   Pro 改了组件结构后 patch 必冲突，正确做法是 `theme-final.less` 整文件覆盖 +
+   `replace-colors.py` 按色值替换（按「值」不按「行」，所以不怕上下文变）。
+8. **`rgb()` 现代语法是配色最大的坑**：上游组件里有三种写法 —— 6 位 hex、8 位 hex（带 alpha）、
+   `rgb(5 128 162 / 12%)`。**只 grep `#0580a2` 会漏掉 `rgb(5 128 162 / …)`**（列表页柔光、卡片投影、
+   图标底全是这种写法），漏了的表现是「主色换了但阴影/光晕还是老的青蓝」。
+   `replace-colors.py` 三种都覆盖，替换后统一输出 `rgb(R G B / A)`；`06-verify` 的 B9/B10/B11 三条断言分别卡这三种写法。
+9. **不要擅自改行尾**：上游 `dashboard/index.vue` 是 CRLF，线上一度被规范化成 LF
+   （945 行 diff 里只有 3 行真实改动，看着吓人）。`replace-colors.py` 读写都保留原行尾，
+   Pro 基线要是 CRLF 就一直 CRLF，别为了「看起来干净」整文件重写。
+10. **横幅渐变别加花样**：`--app-gradient-brand` 就是三档（深蓝→晨雾蓝→hover）+ 白字。
+    「五色渐变」那次（`1172658`）已被老大 revert（`ad55727`），`apply.sh --check` 里有三档断言挡着。
 
 ---
 

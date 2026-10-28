@@ -8,7 +8,7 @@
 | **上游基线 commit** | `c4e8950` — `feat: 工作台增加「联系我们」弹窗，展示弘纹公众号二维码` |
 | 基线之前的两个提交 | `c46451e`（alun 框架升 0.4.2）、`dc6d86d`（README 加联系方式）、`a97569b`（Apache-2.0 + 运行效果图）、`b00dbe1`（初始提交） |
 | 我们的改动 | `c4e8950..HEAD`，26 个提交里 **22 个是我们的**（其余为基线本身） |
-| 当前 HEAD | `26c9040`（含 ERP 文档归档）；「云枢改动终态」参照 `46bbe9a` |
+| 当前 HEAD | `f616b69`（雾蓝流金最终配色）；「云枢改动终态」参照 `f616b69`（文档增量见 `26c9040`） |
 | 本机路径（生产/dev） | `/opt/cloudpivot`，bare 备份 `/opt/git/cloudpivot.git` |
 
 > 命名提醒：仓库里所有 `cailu` 都已改名为 `cloudpivot`，但**上游历史 commit 的 hash 不变**
@@ -34,11 +34,15 @@ a23c276  security(P1): 首登强制改密前端闭环
 42f7a84  security(P1): CODE-16 B（短 TTL / 绝对上限 / 复用检测）
 d5a2b61  chore(lint): 收掉 §6 lint 债务          ← 以上整体 = 02-security/patches 序列
 df9f658  refactor(rename): 改名 云枢(CloudPivot)  ← 01-rename 负责
-04792dc  style(theme): 莫兰迪配色                 ← 03-brand/01-theme-morandi.patch
+04792dc  style(theme): 莫兰迪配色                 ← ②代配色（patch 已作历史留档，03-brand v2 不再调用）
 f3fc278  fix(scripts): patch-alun-web 判重        ← 01-rename/post-rename-patch-alun-web-dedupe.patch
 d2d4775  chore: 验证 bare 同步链路（空提交）
-46bbe9a  feat(brand): 新 logo/favicon            ← 03-brand/02-brand-assets.patch
+46bbe9a  feat(brand): 新 logo/favicon            ← 03-brand/02-brand-assets.patch（图片仍按文件直放）
 26c9040  docs(erp): ERP 批次1 文档归档            ← 迁移准备包不重放（纯文档，见第 5 节）
+2794c40  style(theme): 换雾蓝流金七色板            ← ③代配色（晨雾蓝 #6F8AB8 主色）
+1172658  style(theme): 配色二次调整（含五色渐变横幅）← 已 revert，仅留痕
+ad55727  Revert "style(theme): 配色二次调整…"      ← 五色渐变被撤掉
+f616b69  style(theme): 底色霜月白/边框雾蓝灰/深海蓝转辅助色  ← ④代 = 最终态
 ```
 
 ## 3. 怎么重新拉上游
@@ -77,7 +81,7 @@ git log --oneline c4e8950..pro/main | wc -l  # Pro 在基线上加了多少提�
 
 # ② Pro 动了多少我们动过的文件？（耦合度）
 git diff --name-only c4e8950..pro/main  > /tmp/pro-touched.txt
-git diff --name-only c4e8950..46bbe9a   > /tmp/ours-touched.txt
+git diff --name-only c4e8950..f616b69   > /tmp/ours-touched.txt
 comm -12 <(sort /tmp/pro-touched.txt) <(sort /tmp/ours-touched.txt) | wc -l   # 交集文件数
 comm -12 <(sort /tmp/pro-touched.txt) <(sort /tmp/ours-touched.txt) | head -30 # 看是哪些
 
@@ -101,7 +105,20 @@ done
 | `02-security/apply.sh` 跑完 | `d5a2b61` |
 | `01-rename/rename.sh` 跑完 | `df9f658` |
 | `01-rename/post-rename-patch-alun-web-dedupe.patch` 跑完 | `f3fc278` |
-| `03-brand/apply.sh` 跑完 | `46bbe9a` |
+| `03-brand/apply.sh` 跑完 | **不再逐字节比对**（见下） |
+
+**为什么配色品牌这一步没有逐字节闸门了**：v1 用 patch 打配色，末态能对上 `46bbe9a`（②代莫兰迪）；
+v2 改成「`theme-final.less` 直放 + `replace-colors.py` 按色值替换 + 21 条变量化片段」，
+产物的**功能 CSS 与线上完全一致**，但有三处**预期内**差异：注释文案（包里用最终色名，线上注释仍是 ②代旧名）、
+`change-password.vue` 一处刻意修正的 var fallback（包内 `#f2f2ee`，线上遗留 `#e5eae1`）、
+`dashboard/index.vue` 的行尾（上游 CRLF，线上被规范化成 LF）。
+
+替代闸门是两条更硬的判据（`replay.sh` 每次都会跑）：
+
+1. `03-brand/apply.sh --check`：关键变量（`--td-bg-color-page=#f2f2ee` / `--td-component-border=#aab7c2` /
+   `--app-brand-secondary=#51697c` / `--td-brand-color-7=#6f8ab8`）+ 映射表内上游青色系**残留必须为 0**
+2. `03-brand/compare-colors.py <主线> <重放>`：两棵树的**色值字面量多重集合必须完全一致**
+   （实测 189 = 189；`--no-color-diff` 可跳过，Pro 基线场景用）
 
 **有意不重放的**：`d2d4775`（空提交，只验证 bare 同步）、`26c9040`（ERP 文档 5219 行）。
 这两者与可运行代码无关；需要时从老仓库直接取：

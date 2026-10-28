@@ -102,16 +102,16 @@
 | 78 | `frontend/src/api/business/monitor-api.ts` | +85/-0 | 状态卡功能 | 55d3c5d |
 | 79 | `frontend/src/api/system/auth-api.ts` | +7/-3 | 安全 | a23c276 |
 | 80 | `frontend/src/components/ContactDialog.vue` | +0/-85 | 清理 | 272e4ba |
-| 81 | `frontend/src/layouts/BasicLayout.vue` | +9/-6 | 改名/配色 | 04792dc, df9f658 |
+| 81 | `frontend/src/layouts/BasicLayout.vue` | +9/-6 | 改名/配色 | 04792dc, 2794c40, f616b69, df9f658 |
 | 82 | `frontend/src/router/index.ts` | +18/-1 | 改名/安全 | a23c276, df9f658 |
 | 83 | `frontend/src/stores/setting.ts` | +1/-1 | 改名 | df9f658 |
 | 84 | `frontend/src/stores/user.ts` | +10/-1 | 安全 | a23c276 |
-| 85 | `frontend/src/style/index.less` | +28/-4 | 改名/配色 | 04792dc, df9f658 |
-| 86 | `frontend/src/style/theme.less` | +136/-72 | 配色 | 04792dc |
+| 85 | `frontend/src/style/index.less` | +28/-4 | 改名/配色 | 04792dc, 2794c40, df9f658 |
+| 86 | `frontend/src/style/theme.less` | +136/-72 | 配色（四代） | 04792dc, 2794c40, 1172658/revert(ad55727), f616b69 |
 | 87 | `frontend/src/types/components.d.ts` | +2/-2 | 状态卡功能/清理 | 272e4ba, 55d3c5d |
-| 88 | `frontend/src/views/dashboard/index.vue` | +295/-189 | 配色/状态卡功能/清理 | 04792dc, 272e4ba, 55d3c5d, b08f3a4 |
-| 89 | `frontend/src/views/login/index.vue` | +13/-13 | 改名/配色/安全 | 04792dc, 2140b82, df9f658 |
-| 90 | `frontend/src/views/user/change-password.vue` | +158/-0 | 配色/安全 | 04792dc, a23c276 |
+| 88 | `frontend/src/views/dashboard/index.vue` | +295/-189 | 配色/状态卡功能/清理 | 04792dc, 2794c40, f616b69, 272e4ba, 55d3c5d, b08f3a4 |
+| 89 | `frontend/src/views/login/index.vue` | +13/-13 | 改名/配色/安全 | 04792dc, 2794c40, f616b69, 2140b82, df9f658 |
+| 90 | `frontend/src/views/user/change-password.vue` | +158/-0 | 配色/安全 | 04792dc, 2794c40, f616b69, a23c276 |
 | 91 | `frontend/theme-check.mjs` | +1/-1 | 改名 | df9f658 |
 | 92 | `frontend/theme-persist.mjs` | +1/-1 | 改名 | df9f658 |
 | 93 | `frontend/vite.config.ts` | +4/-2 | 安全/工程/钩子 | a37e09c, ba84d2a |
