@@ -211,8 +211,10 @@ else:
     print("  [skip] CODE-09 from_config（已打过）")
 
 # ── CODE-09 ②：Service 传递 ignore_paths ──────────────────────────────────────
+# 判重按「补丁代码是否已在位」，不按 marker 字面（marker 前缀随项目改名变过，
+# 用 marker 判重会在改名后误判成未打，进而重复插入 ignore_paths 字段）
 text = load(perm_rs)
-if MARK_09 + " svc" in text:
+if "ignore_paths: Arc::clone(&self.ignore_paths)," in text:
     print("  [skip] CODE-09 service 字段（已打过）")
 else:
     old_layer = """        PermissionCheckService {
@@ -289,7 +291,8 @@ new_call = """        // [cloudpivot-patch code-09] 免认证路径直接放行�
             Some(rule) => {"""
 
 text = load(perm_rs)
-if MARK_09 in text and "let mut best: Option<(&PermissionRule, u8)>" in text:
+# 判重按补丁代码是否已在位（同上：不能拿 marker 字面判重；`let mut best` 只存在于打过补丁的版本）
+if "let mut best: Option<(&PermissionRule, u8)>" in text:
     print("  [skip] CODE-09 匹配逻辑（已打过）")
 else:
     if old_call not in text:

@@ -1,9 +1,19 @@
 # 改名不能机械替换的地方（special-cases.md）
 
-> `rename.sh` 做的是「整仓文本替换 + 文件名重命名」，但有 **7 处** 不能按字面改，
-> 其中 4 处已内置处理逻辑，3 处必须人工判断。改名的坑都在这里，重放时按本文核对。
+> `rename.sh` 做的是「整仓文本替换 + 文件名重命名」，但有 **7 类** 不能按字面改，
+> 其中 4 类已内置处理逻辑，3 类必须人工判断。改名的坑都在这里，重放时按本文核对。
+>
+> **本脚本是双向的**：默认正向（`cailu → cloudpivot`，做出云枢版），加 `--reverse` 反向
+> （`cloudpivot → cailu`，做出原名版）。两个方向按同一张表严格互逆，往返必须逐字节还原 ——
+> 见 `docs/双版本说明.md` 与 `01-rename/verify-roundtrip.sh`。
 
-替换映射：`cailu → cloudpivot`、`Cailu → CloudPivot`、`菜芦 → 云枢`
+替换映射（正向 / 反向严格互换）：
+
+| 正向 | 反向 |
+|------|------|
+| `cailu → cloudpivot` | `cloudpivot → cailu` |
+| `Cailu → CloudPivot` | `CloudPivot → Cailu` |
+| `菜芦 → 云枢` | `云枢 → 菜芦` |
 
 ---
 
@@ -89,14 +99,34 @@ regex = '''(?:cloudpivot|cailu)-(dev|test|prod)-jwt-secret-[A-Za-z0-9_\-]+'''
 （同技术栈的旧版源码，用来做二开核查），不是本仓库，不在本次改名范围内。
 脚本把 `cailu-src` 列为保护串。别问「为什么改名了还留着 cailu」—— 那是别人的目录名。
 
-### 特例 7：`docs/ERP-批次1-*.md` —— 历史文档，整文件跳过
+### 特例 7：`docs/ERP-批次1-*.md` —— 历史叙述里的「旧基线引用」（逐 span 保留，不再整文件跳过）
 
-这三篇 ERP 设计文档是对**旧基线**的描述性记录（"crate `cailu` v0.1.0"、"基线 `/root/work/c144`"、
-"项目库 `cloudpivot_test` / `cailu`"）。把里面的 `cailu` 改掉等于**篡改历史记录**，
-而且会让「当时到底基于什么」无法追溯。脚本按 `SKIP_FILE_GLOBS` 整文件跳过。
+这三篇 ERP 设计文档里有一批**历史基线引用**："crate `cailu` v0.1.0"、"前端 `@cailu/web` v0.1.0"、
+"不触碰项目库 `cloudpivot_test` / `cailu`"、以及大数据文档里的 `GRANT CONNECT ON DATABASE cailu`、
+`host cailu ...`、`dbname=cailu`、`psql ... -d cailu`。这些指的是**改名前的旧基线**（旧 crate 名 / 旧库名 /
+`/root/work/c144` 基线），改掉就是篡改历史记录。
+
+早期版本是把这三篇**整文件跳过**。这个做法在「双版本」体系下不成立：
+跳过 = 这些文档在**原名版**里会留着 `cloudpivot/云枢` 字样，直接违反「原名版不得有改名痕迹」的红线，
+而且往返校验（反向→正向）一定会在这几个文件上对不上。
+
+现在的做法：不再整文件跳过，而是在 `rename.sh` 的 `STICKY_BY_FILE` 里**逐 span 精确放行**：
+
+| 文件 | 保护的 span（正则） |
+|------|--------------------|
+| `docs/大数据-技术架构.md` | ``crate `cailu` `` / `@cailu/web` / `` `cailu` `` / `DATABASE cailu` / `host\s+cailu` / `dbname=cailu` / `(?<=-d )cailu` |
+| `docs/ERP-批次1-技术架构.md` | ``crate `cailu` v0.1.0`` / `@cailu/web` / `` `cailu` `` |
+
+另外 `cailu-src`（另一台机器上的参考仓目录）是全局保护串（特例 6）。
+
+放行范围必须满足一个条件才安全：**这些 span 的「新标识形态」在该文件里不存在**
+（例如 `docs/大数据-技术架构.md` 里没有 `` `cloudpivot` `` / `DATABASE cloudpivot` / `-d cloudpivot`）。
+一旦某天有 `cloudpivot` 出现在同样上下文里，反向就分不清两者，必须改回「整文件跳过」并同步调整双版本策略 ——
+`verify-roundtrip.sh` 会在往返不一致时把这个文件报出来。
 
 因此 `01-rename/verify.sh` 的残留白名单是**两类**：
-`.gitleaks.toml`（1~3 行）+ `docs/ERP-批次1-*.md`（历史文档）。其它任何命中都算失败。
+`.gitleaks.toml`（规则 3 那几行）+ 上面两张表里的 sticky span。其它任何命中都算失败。
+
 
 ---
 
@@ -117,8 +147,33 @@ regex = '''(?:cloudpivot|cailu)-(dev|test|prod)-jwt-secret-[A-Za-z0-9_\-]+'''
 ## 重放后的自检清单
 
 ```bash
+# 云枢版（正向）
 bash 01-rename/rename.sh --dry-run     # 应输出「内容改动文件: 0 替换次数: 0 重命名: 0」
-bash 01-rename/verify.sh               # 残留只允许 .gitleaks.toml + docs/ERP-*，失败项应为 0
-grep -n cailu .gitleaks.toml           # 必须仍有 3 行（旧前缀检测器）
+bash 01-rename/verify.sh               # 残留只允许 .gitleaks.toml + sticky 基线引用，失败项应为 0
+
+# 原名版（反向）
+bash 01-rename/rename.sh --reverse --dry-run   # 幂等时同样应为 0 改动
+bash 01-rename/verify.sh --reverse             # cloudpivot/云枢 残留必须为 0
+
+# 双版本往返一致性（核心验收）
+bash 01-rename/verify-roundtrip.sh --base /opt/cloudpivot   # diff -r 必须无差异
+
+grep -n cailu .gitleaks.toml           # 云枢版：必须仍有旧前缀检测行
 grep -rn "wild1024" . --include=*.md   # 外部 URL 若出现，必须原样保留
 ```
+
+## 特例 8：双版本（云枢版 / 原名版）—— 反向改名的三处「反向特例」
+
+反向不是「再写一份映射表」那么简单：正向脚本里有 3 处**非对称加工**，反向必须逐一撤销，
+否则往返一定对不上（这 3 处都是实测出来的）：
+
+| 正向加工 | 反向必须做什么 | 不做会怎样 |
+|---|---|---|
+| `.gitleaks.toml` 规则 3：插入 3 行 guard 注释 + 把 desc/正则改成 `{cloudpivot,cailu}` 双前缀 | 删掉 3 行 guard 注释，desc/正则还原成**纯 cailu** 的上游形态 | 正向再跑时锚点仍命中，会**重复插入**注释（实测多出 3 行） |
+| `.githooks/post-commit`：白名单改 `/opt/git/*.git` + 插入 2 行说明注释 | 还原成 `/opt/git/<项目>.git*` 并删掉那 2 行注释 | 反向版里留着「改名」痕迹；正向再跑会再插一次注释 |
+| `scripts/patch-alun-web.sh`：整文件覆盖成「按补丁代码签名判重」的终态版 | **不做覆盖**，只做文本替换（终态版反向替换就是上游形态） | 若反向也覆盖成同名 overrides，会把 cailu 版写回 cloudpivot 命名 |
+
+`overrides/patch-alun-web.sh` 必须与目标树里的 `scripts/patch-alun-web.sh` **保持一致**
+（本次已同步）。不一致时正向会「覆盖降级」，往返 diff 会在该文件上报差异 —— 这是刻意留的信号，
+不是脚本 bug：说明 overrides 落后于真实终态了。
+
