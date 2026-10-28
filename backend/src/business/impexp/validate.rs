@@ -211,7 +211,7 @@ impl FkResolver for DbFkResolver {
         // 计数在**发语句之前**自增：即使查询报错，也如实反映「发过一条」。
         self.statements.fetch_add(1, Ordering::SeqCst);
         let rows = db()
-            .find_with_params(&sql, vec![Value::from(payload)])
+            .find_with_params(&sql, vec![Value::Json(payload)])
             .await?;
         let mut found = HashSet::with_capacity(rows.len());
         for row in rows {
@@ -350,15 +350,13 @@ pub async fn validate(
     let mut fk_values: Vec<Vec<String>> = vec![Vec::new(); columns.len()];
     let mut fk_seen: Vec<HashSet<String>> = vec![HashSet::new(); columns.len()];
 
-    for index in 0..reader.data_len() {
-        let Some(row) = reader.row(index) else {
-            break;
-        };
+    for (index, row) in reader.data_rows().enumerate() {
         if SheetReader::is_blank(row) {
             skipped_blank += 1;
             continue;
         }
-        if reader.is_example_row(row) {
+        // 示例行只可能出现在 Excel 第 2 行（PRD §4.2.2）：只判首行，避免 10 万次逐列比较
+        if index == 0 && reader.is_example_row(row) {
             skipped_example += 1;
             continue;
         }
@@ -433,11 +431,8 @@ pub async fn validate(
     let mut valid = 0usize;
     let mut error_rows = 0usize;
 
-    for index in 0..reader.data_len() {
-        let Some(row) = reader.row(index) else {
-            break;
-        };
-        if SheetReader::is_blank(row) || reader.is_example_row(row) {
+    for (index, row) in reader.data_rows().enumerate() {
+        if SheetReader::is_blank(row) || (index == 0 && reader.is_example_row(row)) {
             continue;
         }
         let row_no = SheetReader::excel_row_no(index);
@@ -462,12 +457,16 @@ pub async fn validate(
                         message: "必填项为空".to_string(),
                     },
                 ));
-                unique_complete = false;
+                if column.unique_key {
+                    unique_complete = false;
+                }
                 continue;
             }
             if raw_trimmed.is_empty() {
                 values.fields.insert(column.key, String::new());
-                unique_complete = false;
+                if column.unique_key {
+                    unique_complete = false;
+                }
                 continue;
             }
             let dict = match column.kind {
@@ -483,7 +482,9 @@ pub async fn validate(
                     values.fields.insert(column.key, parsed);
                 }
                 Err(issue) => {
-                    unique_complete = false;
+                    if column.unique_key {
+                        unique_complete = false;
+                    }
                     row_issues.push(RowIssue::column(row_no, column, raw_trimmed, issue));
                 }
             }
@@ -810,6 +811,36 @@ mod tests {
         assert_eq!(required.row_no, 3);
         assert_eq!(required.column_header, Some("编码"));
         assert!(outcome.rows.is_empty(), "keep_rows=false 不应保留行");
+    }
+
+    /// 回归：可选的非唯一列留空，不能让「文件内唯一」判定被跳过。
+    #[tokio::test]
+    async fn duplicate_detected_even_when_optional_column_is_empty() {
+        // 状态列（可选、非唯一）留空；编码列（唯一）两行重复
+        let bytes = bytes_of(vec![
+            vec!["EX-5001", "user_status", "1", ""],
+            vec!["EX-5001", "user_status", "1", ""],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.total, 2);
+        assert_eq!(report.error, 1, "第二行应被判为文件内重复");
+        assert!(
+            report
+                .errors
+                .iter()
+                .any(|issue| issue.kind == ErrorKind::Unique),
+            "错误类型应为 UNIQUE"
+        );
+        assert_eq!(report.errors[0].row_no, 3, "重复行行号应为 Excel 第 3 行");
     }
 
     #[tokio::test]

@@ -160,37 +160,43 @@ const IMPORT_TASK_COLUMNS: &str = "id, task_no, biz_type, biz_name, file_path, f
 ///
 /// 数据库异常返回 [`DbError`]。
 pub async fn insert_import_task(task: &NewImportTask<'_>) -> std::result::Result<(), DbError> {
-    db().execute_with_params(
-        "INSERT INTO sys_import_task \
+    // 有操作人 / 无操作人两条**常量 SQL**：不能把 `Value::Null` 绑到 `?::uuid`（驱动按
+    // Unknown 类型编码会失败：「error serializing parameter」），所以无操作人时直接用 SQL 里的 NULL。
+    const SQL_WITH_OPERATOR: &str = "INSERT INTO sys_import_task \
          (id, task_no, biz_type, biz_name, module_code, file_path, file_sha256, file_name, \
           file_size, mode, status, progress, create_by, update_by, options) \
          VALUES (?::uuid, ?, ?, ?, 'business', ?, ?, ?, ?, ?, 'PENDING', 0, ?::uuid, ?::uuid, \
-                 ?::jsonb)",
-        vec![
-            Value::from(task.id),
-            Value::from(task.task_no),
-            Value::from(task.biz_type),
-            Value::from(task.biz_name),
-            Value::from(task.file_path),
-            Value::from(task.file_sha256),
-            Value::from(task.file_name),
-            Value::from(task.file_size),
-            Value::from(task.mode),
-            match task.operator {
-                Some(id) => Value::from(id),
-                None => Value::Null,
-            },
-            match task.operator {
-                Some(id) => Value::from(id),
-                None => Value::Null,
-            },
-            match task.options {
-                Some(raw) => Value::from(raw),
-                None => Value::Null,
-            },
-        ],
-    )
-    .await?;
+                 ?::jsonb)";
+    const SQL_WITHOUT_OPERATOR: &str = "INSERT INTO sys_import_task \
+         (id, task_no, biz_type, biz_name, module_code, file_path, file_sha256, file_name, \
+          file_size, mode, status, progress, create_by, update_by, options) \
+         VALUES (?::uuid, ?, ?, ?, 'business', ?, ?, ?, ?, ?, 'PENDING', 0, NULL, NULL, ?::jsonb)";
+
+    let options = task.options.unwrap_or("{}");
+    let mut params = vec![
+        Value::from(task.id),
+        Value::from(task.task_no),
+        Value::from(task.biz_type),
+        Value::from(task.biz_name),
+        Value::from(task.file_path),
+        Value::from(task.file_sha256),
+        Value::from(task.file_name),
+        Value::from(task.file_size),
+        Value::from(task.mode),
+    ];
+    let sql = match task.operator {
+        Some(operator) => {
+            params.push(Value::from(operator));
+            params.push(Value::from(operator));
+            params.push(Value::Json(options.to_string()));
+            SQL_WITH_OPERATOR
+        }
+        None => {
+            params.push(Value::Json(options.to_string()));
+            SQL_WITHOUT_OPERATOR
+        }
+    };
+    db().execute_with_params(sql, params).await?;
     Ok(())
 }
 
@@ -218,7 +224,8 @@ pub async fn update_precheck_result(
 ) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_import_task SET status = ?, total_rows = ?, valid_rows = ?, error_rows = ?, \
-         progress = 100, error_summary = ?::jsonb, message = ?, \
+         progress = 100, error_summary = NULLIF(?::text, '')::jsonb, \
+         message = NULLIF(?::text, ''), \
          finished_at = CASE WHEN ? IN ('FAILED') THEN CURRENT_TIMESTAMP ELSE finished_at END, \
          updated_at = CURRENT_TIMESTAMP WHERE id = ?::uuid AND deleted_at IS NULL",
         vec![
@@ -226,14 +233,8 @@ pub async fn update_precheck_result(
             Value::from(total),
             Value::from(valid),
             Value::from(error),
-            match summary {
-                Some(raw) => Value::from(raw),
-                None => Value::Null,
-            },
-            match message {
-                Some(raw) => Value::from(raw),
-                None => Value::Null,
-            },
+            Value::from(summary.unwrap_or("")),
+            Value::from(message.unwrap_or("")),
             Value::from(status),
             Value::from(*id),
         ],
@@ -260,14 +261,11 @@ pub async fn update_status(
 ) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_import_task SET status = ?, \
-         message = COALESCE(?, message), updated_at = CURRENT_TIMESTAMP \
+         message = COALESCE(NULLIF(?::text, ''), message), updated_at = CURRENT_TIMESTAMP \
          WHERE id = ?::uuid AND deleted_at IS NULL",
         vec![
             Value::from(status),
-            match message {
-                Some(raw) => Value::from(raw),
-                None => Value::Null,
-            },
+            Value::from(message.unwrap_or("")),
             Value::from(*id),
         ],
     )
@@ -295,15 +293,12 @@ pub async fn update_import_result(
 ) -> std::result::Result<(), DbError> {
     db().execute_with_params(
         "UPDATE sys_import_task SET status = ?, imported_rows = ?, progress = 100, \
-         message = COALESCE(?, message), finished_at = CURRENT_TIMESTAMP, \
+         message = COALESCE(NULLIF(?::text, ''), message), finished_at = CURRENT_TIMESTAMP, \
          updated_at = CURRENT_TIMESTAMP WHERE id = ?::uuid AND deleted_at IS NULL",
         vec![
             Value::from(status),
             Value::from(imported),
-            match message {
-                Some(raw) => Value::from(raw),
-                None => Value::Null,
-            },
+            Value::from(message.unwrap_or("")),
             Value::from(*id),
         ],
     )
@@ -447,7 +442,7 @@ pub async fn insert_task_errors(
                 v.error_message \
          FROM jsonb_to_recordset(?::jsonb) AS v(row_no int, column_key text, column_header text, \
                 raw_value text, error_code text, error_message text)",
-        vec![Value::from(*task_id), Value::from(payload)],
+        vec![Value::from(*task_id), Value::Json(payload)],
     )
     .await?;
     Ok(())

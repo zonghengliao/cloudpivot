@@ -202,7 +202,8 @@ impl ImportDefinition for DictItemImport {
     }
 
     fn max_rows(&self) -> usize {
-        50_000
+        // 与 PRD「单次最多 100,000 行」及模板「填写须知」保持一致
+        100_000
     }
 
     fn batch_size(&self) -> usize {
@@ -240,34 +241,56 @@ impl ImportDefinition for DictItemImport {
         )
         .map_err(|error| DbError::InvalidValue(format!("字典项序列化失败：{error}")))?;
 
-        let operator = match ctx.operator {
-            Some(id) => Value::from(id),
-            None => Value::Null,
+        // 操作人为空时直接用 SQL 里的 NULL（`Value::Null` 绑到 `?::uuid` 会编码失败）
+        const SQL_WITH_OPERATOR: &str = "INSERT INTO sys_dict_item \
+             (id, dict_type_id, item_value, item_label, description, sort_order, is_default, \
+              status, created_at, updated_at, create_by, update_by) \
+             SELECT gen_random_uuid(), t.id, v.item_value, v.item_label, v.description, \
+                    v.sort_order, v.is_default, v.status, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, \
+                    ?::uuid, ?::uuid \
+             FROM jsonb_to_recordset(?::jsonb) AS v(dict_type_code text, item_value text, \
+                    item_label text, description text, sort_order int, is_default boolean, \
+                    status smallint) \
+             INNER JOIN sys_dict_type t ON t.dict_code = v.dict_type_code \
+                    AND t.deleted_at IS NULL \
+             ON CONFLICT (dict_type_id, item_value) WHERE deleted_at IS NULL \
+             DO UPDATE SET item_label = EXCLUDED.item_label, \
+                    description = EXCLUDED.description, \
+                    sort_order = EXCLUDED.sort_order, \
+                    is_default = EXCLUDED.is_default, \
+                    status = EXCLUDED.status, \
+                    updated_at = CURRENT_TIMESTAMP, \
+                    update_by = EXCLUDED.update_by";
+        const SQL_WITHOUT_OPERATOR: &str = "INSERT INTO sys_dict_item \
+             (id, dict_type_id, item_value, item_label, description, sort_order, is_default, \
+              status, created_at, updated_at) \
+             SELECT gen_random_uuid(), t.id, v.item_value, v.item_label, v.description, \
+                    v.sort_order, v.is_default, v.status, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP \
+             FROM jsonb_to_recordset(?::jsonb) AS v(dict_type_code text, item_value text, \
+                    item_label text, description text, sort_order int, is_default boolean, \
+                    status smallint) \
+             INNER JOIN sys_dict_type t ON t.dict_code = v.dict_type_code \
+                    AND t.deleted_at IS NULL \
+             ON CONFLICT (dict_type_id, item_value) WHERE deleted_at IS NULL \
+             DO UPDATE SET item_label = EXCLUDED.item_label, \
+                    description = EXCLUDED.description, \
+                    sort_order = EXCLUDED.sort_order, \
+                    is_default = EXCLUDED.is_default, \
+                    status = EXCLUDED.status, \
+                    updated_at = CURRENT_TIMESTAMP";
+
+        let (sql, params) = match ctx.operator {
+            Some(operator) => (
+                SQL_WITH_OPERATOR,
+                vec![
+                    Value::from(operator),
+                    Value::from(operator),
+                    Value::Json(payload),
+                ],
+            ),
+            None => (SQL_WITHOUT_OPERATOR, vec![Value::from(payload)]),
         };
-        let affected = tx
-            .execute_with_params(
-                "INSERT INTO sys_dict_item \
-                 (id, dict_type_id, item_value, item_label, description, sort_order, is_default, \
-                  status, created_at, updated_at, create_by, update_by) \
-                 SELECT gen_random_uuid(), t.id, v.item_value, v.item_label, v.description, \
-                        v.sort_order, v.is_default, v.status, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, \
-                        ?::uuid, ?::uuid \
-                 FROM jsonb_to_recordset(?::jsonb) AS v(dict_type_code text, item_value text, \
-                        item_label text, description text, sort_order int, is_default boolean, \
-                        status smallint) \
-                 INNER JOIN sys_dict_type t ON t.dict_code = v.dict_type_code \
-                        AND t.deleted_at IS NULL \
-                 ON CONFLICT (dict_type_id, item_value) WHERE deleted_at IS NULL \
-                 DO UPDATE SET item_label = EXCLUDED.item_label, \
-                        description = EXCLUDED.description, \
-                        sort_order = EXCLUDED.sort_order, \
-                        is_default = EXCLUDED.is_default, \
-                        status = EXCLUDED.status, \
-                        updated_at = CURRENT_TIMESTAMP, \
-                        update_by = EXCLUDED.update_by",
-                vec![operator.clone(), operator, Value::from(payload)],
-            )
-            .await?;
+        let affected = tx.execute_with_params(sql, params).await?;
         Ok(affected as usize)
     }
 }

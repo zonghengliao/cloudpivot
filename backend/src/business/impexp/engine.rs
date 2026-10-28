@@ -195,8 +195,23 @@ impl SheetReader {
     /// # 返回值
     ///
     /// 越界返回 `None`。
+    ///
+    /// # 性能说明
+    ///
+    /// 底层 `Range::rows()` 是**顺序迭代器**，`nth()` 每次都从头推进（O(idx)）；
+    /// 在 10 万行上逐行调用会退化成 O(n²)（实测 debug 版 28 万毫秒 → 顺序迭代后 10 秒级）。
+    /// **批量校验请用 [`Self::data_rows`]**，本方法只给「取第 N 行」的零散场景用。
     pub fn row(&self, idx: usize) -> Option<RawRow<'_>> {
         self.range.rows().nth(idx + 1)
+    }
+
+    /// 数据行**顺序**迭代器（跳过表头）。
+    ///
+    /// # 返回值
+    ///
+    /// 从 Excel 第 2 行开始的原始行迭代器；不产生任何额外行集合。
+    pub fn data_rows(&self) -> impl Iterator<Item = RawRow<'_>> + '_ {
+        self.range.rows().skip(1)
     }
 
     /// 数据行下标 → Excel 真实行号。
@@ -226,8 +241,10 @@ impl SheetReader {
     }
 
     /// 该行是否整行为空（Excel 尾部空行 / 用户多余回车）。
+    ///
+    /// 不分配字符串：只对文本类单元格做 trim 判定。
     pub fn is_blank(row: RawRow<'_>) -> bool {
-        row.iter().all(|cell| cell_text(cell).trim().is_empty())
+        row.iter().all(cell_is_blank)
     }
 
     /// 该行是否为**模板示例行**（PRD §4.2.2：与模板示例值完全一致则自动跳过）。
@@ -319,6 +336,16 @@ fn build_header(
 /// 归一化后的表头（用于与定义列 `header` 比较）。
 pub fn normalize_header(raw: &str) -> String {
     raw.trim().trim_end_matches(['*', '＊']).trim().to_string()
+}
+
+/// 单元格是否为空（零分配版本，用于空行判定）。
+fn cell_is_blank(cell: &Data) -> bool {
+    match cell {
+        Data::Empty => true,
+        Data::String(text) => text.trim().is_empty(),
+        Data::DateTimeIso(text) | Data::DurationIso(text) => text.trim().is_empty(),
+        _ => false,
+    }
 }
 
 /// 单元格 → 文本。
