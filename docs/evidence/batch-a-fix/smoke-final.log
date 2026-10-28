@@ -1,0 +1,14 @@
+① attachment 110MB → 422 {"code":60003,"msg":"文件大小 110.00 MB 超过该分类大小上限 100 MB"}
+① attachment 50MB → 200 code=0 size=52428800
+② /storage/config/page → HTTP 200 code=0
+② /storage/config/{id} → HTTP 200 code=0
+② 启动日志冲突 WARN = 0
+④ 别名下载（复用上轮任务）→ 见 part1/part2 证据；本次抽验 errors/file 与 download 均 200
+⑥ 无 token → HTTP 401
+⑥ query token 建连 → HTTP 200 type=text/event-stream
+⑥ query token + user_id 伪造 → HTTP 400 {"code":10001,"msg":"不接受客户端指定频道归属（user_id / receiver_id），用户身份只取自令牌"}
+⑥ 日志含 token 次数 = 0
+③ V0051 列已存在：dispatch_attempts,dispatch_status,scheduled_at
+⑤ V0052 种子：1 行
+
+迁移版本尾部：

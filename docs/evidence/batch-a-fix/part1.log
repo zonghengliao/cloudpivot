@@ -1,0 +1,80 @@
+admin token 长度=461
+---- ①-a attachment(上限100MB) 上传 110MB → 期望 422 + 60003，文案含「该分类大小上限 100 MB」 ----
+HTTP 422
+{"code":60003,"msg":"文件大小 110.00 MB 超过该分类大小上限 100 MB"}
+---- ①-b attachment 上传 50MB → 期望 200 + code=0 ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"id":"01a18304-d1d6-7161-aa69-009924e1e588","file_name":"2026/10/28/01a18304-d1cd-769c-b013-4595a2dadedd.pdf","original_name":"ok50.pdf","file_key":"2026/10/28/01a18304-d1cd-769c-b013-4595a2dadedd.pdf","file_size":52428800,"mime_type":"application/pdf","extension":"pdf","category":"attachment","status":1,"uploaded_by":"01a17cf2-4de2-7517-b52b-c2f56f06132a","created_at":"2026-10-28T14:58:13.590618Z","url":"/api/business/storage/download/01a18304-d1d6-7161-aa69-009924e1e588","storage_code":"local-default","upload_mode":"SERVER"}}
+---- ①-c document(上限200MB) 上传 110MB → 期望 422 + 60003，文案含「服务端单文件上限 128 MB」+ presign 引导 ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"id":"01a18304-e711-7472-806b-57537864d32e","file_name":"2026/10/28/01a18304-e6ff-764f-a757-a57a1ed85c4c.pdf","original_name":"big110.pdf","file_key":"2026/10/28/01a18304-e6ff-764f-a757-a57a1ed85c4c.pdf","file_size":115343360,"mime_type":"application/pdf","extension":"pdf","category":"document","status":1,"uploaded_by":"01a17cf2-4de2-7517-b52b-c2f56f06132a","created_at":"2026-10-28T14:58:19.025644Z","url":"/api/business/storage/download/01a18304-e711-7472-806b-57537864d32e","storage_code":"local-default","upload_mode":"SERVER"}}
+---- ②-a GET /business/storage/config/page → 期望 200 code=0 ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"list":[{"id":"01a1823e-630f-7273-ae99-f8a57b10fea5","config_code":"local-default","config_name":"本地磁盘（默认）","backend_type":"LOCAL","endpoint":"","bucket":"","region":"us-east-1","base_path":"","use_tls":true,"path_style":true,"ak_masked":"****","has_secret":false,"key_version":1,"is_default":true,"status":1,"health_status":"HEALTHY","last_check_at":"2026-10-28T11:21:29.224367Z","last_error":"","sort_order":0,"remark":"A1 实测创建的本地后端","created_at":"2026-10-28T11:21:29.103320Z","updated_at":"2026-10-28T11:48:25.120813Z"},{"id":"01a1825
+② 取到 config id=01a1823e-630f-7273-ae99-f8a57b10fea5
+---- ②-b GET /business/storage/config/{id} → 期望 200 code=0 ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"id":"01a1823e-630f-7273-ae99-f8a57b10fea5","config_code":"local-default","config_name":"本地磁盘（默认）","backend_type":"LOCAL","endpoint":"","bucket":"","region":"us-east-1","base_path":"","use_tls":true,"path_style":true,"ak_masked":"****","has_secret":false,"key_version":1,"is_default":true,"status":1,"health_status":"HEALTHY","last_check_at":"2026-10-28T11:21:29.224367Z","last_error":"","sort_order":0,"remark":"A1 实测创建的本地后端","created_at":"2026-10-28T11:21:29.103320Z","updated_at":"2026-10-28T11:48:25.120813Z"}}
+②-c 启动日志「权限规则冲突」行数 = 0（期望 0）
+---- ④-a GET /business/impexp/import/template?biz_type=system.dict_item → 期望 200 xlsx ----
+HTTP 200 type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=8084
+④ 模板文件：Microsoft Excel 2007+
+④ 导入任务 task_id= status= total= error=
+---- ④-b 文档别名 GET /business/impexp/import/{id}/download → 期望 200 xlsx ----
+HTTP 400 type=application/json; charset=utf-8 bytes=41
+---- ④-c 推荐路径 GET /business/impexp/import/{id}/errors/file → 期望 200 xlsx ----
+HTTP 400 type=application/json; charset=utf-8 bytes=41
+④ 两个路径产物大小：alias=41 bytes / errors=41 bytes，内容一致=yes
+⑤-a POST /business/impexp/export 建异步导出 → task_id=01a18304-e773-7489-b877-7e2445ffb0b0 status=PENDING code=0
+---- ⑤-b POST export/{id}/cancel（PENDING 直接取消）→ 期望 200 CANCELED ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"task_id":"01a18304-e773-7489-b877-7e2445ffb0b0","status":"CANCELED","message":"任务已取消"}}
+---- ⑤-c 再次 cancel（已 CANCELED）→ 期望 409 + 60032 ----
+HTTP 409
+{"code":60032,"msg":"当前状态为 CANCELED，不允许取消"}
+---- ⑤-d POST export/{id}/retry（CANCELED 可重试）→ 期望 200 + PENDING ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"id":"01a18304-e773-7489-b877-7e2445ffb0b0","task_no":"EXP20261028-B0B0","biz_type":"system.dict_item","biz_name":"字典项","export_name":"字典项_20261028_225819","format":"XLSX","status":"PENDING","total_rows":0,"exported_rows":0,"progress":0,"file_name":null,"file_size":null,"file_sha256":null,"expire_at":null,"attempt_count":0,"max_attempts":3,"message":null,"created_at":"2026-10-28T14:58:19.123364Z","started_at":null,"finished_at":null}}
+---- ⑤-e 对刚重排(PENDING)的任务再 retry → 期望 409 + 60032（非法状态拒绝） ----
+HTTP 409
+{"code":60032,"msg":"当前状态为 PENDING，只有失败 / 取消 / 过期的任务才能重试"}
+---- ⑤-f POST import/{id}/cancel（VALIDATED 直接取消）→ 期望 200 CANCELED ----
+HTTP 400
+{"code":10001,"msg":"id 格式不正确"}
+---- ⑤-g POST import/{id}/retry（CANCELED 可重试，新建任务）→ 期望 code=0 且 task_id 不同 ----
+code=10001 新 task_id= 原 task_id= status=
+---- ⑤-h cancel 不存在的任务 → 期望 404 ----
+HTTP 404
+{"code":10002,"msg":"导入任务不存在"}
+⑤-i V0052 种子核对（sys_menu 应有 business:impexp:export:retry）：
+ business:impexp:export:retry | 重试导出任务
+
+⑤-j V0052 授权行数（sys_role_menu，>0 表示已授给角色）：
+     8
+
+---- ⑥-a 无 token → 期望 401 ----
+HTTP 401
+{"code":401,"msg":"未授权访问，请先登录"}
+---- ⑥-b 伪造 token（header）→ 期望 401 ----
+HTTP 401
+{"code":401,"msg":"Token 无效或已过期"}
+---- ⑥-c 伪造 token（query）→ 期望 401 ----
+HTTP 401
+{"code":401,"msg":"Token 无效或已过期"}
+---- ⑥-d 合法 token（header）→ 期望 200 text/event-stream ----
+HTTP 200 type=text/event-stream
+  首字节： {"code":401,"msg":"Token 无效或已过期"}
+---- ⑥-e 合法 token（query ?token=）→ 期望 200 text/event-stream ----
+HTTP 200 type=text/event-stream
+  首字节： {"code":401,"msg":"Token 无效或已过期"}
+---- ⑥-f query token + user_id=<别人> → 期望 400（拒绝客户端指定频道归属）----
+HTTP 400
+{"code":10001,"msg":"不接受客户端指定频道归属（user_id / receiver_id），用户身份只取自令牌"}
+---- ⑥-g query token + receiver_id → 期望 400 ----
+HTTP 400
+{"code":10001,"msg":"不接受客户端指定频道归属（user_id / receiver_id），用户身份只取自令牌"}
+---- ⑥-h 日志脱敏：run.log 中 token 前 24 字符出现次数（期望 0）----
+  出现次数 = 0
+  日志里的 stream 请求行（应只有 path，无 query 串）：
+
+=== 第 1 部分完成，证据：/var/tmp/fixA-evidence/part1.log ===

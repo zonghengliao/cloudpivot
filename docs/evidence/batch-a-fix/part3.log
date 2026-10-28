@@ -1,0 +1,56 @@
+admin=01a17cf2-4de2-7517-b52b-c2f56f06132a
+---- ③-0 scheduled_at=2027-12-02T14:59:36Z（超 366 天上限）→ 期望 400 + 10001 ----
+HTTP 400
+{"code":10001,"msg":"定时发送时间最多提前 366 天"}
+---- ③-1 建定时通知 scheduled_at=2026-10-28T15:00:46Z（约 70 秒后）----
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "notice_id": "01a18306-15c8-7172-b796-199a66e505f2",
+    "notice_no": "NTS2026102814593666e505f2",
+    "receiver_count": 0,
+    "duplicated": false,
+    "channels": [],
+    "scheduled": true,
+    "scheduled_at": "2026-10-28T15:00:46Z"
+  }
+}
+  notice_id=01a18306-15c8-7172-b796-199a66e505f2 scheduled=true receiver_count=0
+---- ③-2 当时（未到点）状态核对 ----
+  DB: PENDING / receiver_count=0 / scheduled_at=2026-10-28 23:00:46
+  DB 接收行数：0（期望 0 —— 未扇出，用户侧天然不可见）
+  /notice/mine 是否包含该通知：0（期望 0）
+  管理侧 /notice/page 能看到并显示 PENDING：{"id":"01a18306-15c8-7172-b796-199a66e505f2","title":"定时发送验收-1分钟后","dispatch_status":"PENDING","scheduled_at":"2026-10-28T15:00:46Z","receiver_count":0}
+---- ③-3 等待到点 + 巡逻任务投递（最多 150 秒轮询）----
+  +5s dispatch_status=PENDING receiver_count=0
+  +10s dispatch_status=PENDING receiver_count=0
+  +15s dispatch_status=PENDING receiver_count=0
+  +20s dispatch_status=PENDING receiver_count=0
+  +25s dispatch_status=PENDING receiver_count=0
+  +30s dispatch_status=PENDING receiver_count=0
+  +35s dispatch_status=PENDING receiver_count=0
+  +40s dispatch_status=PENDING receiver_count=0
+  +45s dispatch_status=PENDING receiver_count=0
+  +50s dispatch_status=PENDING receiver_count=0
+  +55s dispatch_status=PENDING receiver_count=0
+  +60s dispatch_status=PENDING receiver_count=0
+  +65s dispatch_status=PENDING receiver_count=0
+  +70s dispatch_status=PENDING receiver_count=0
+  +75s dispatch_status=PENDING receiver_count=0
+  +80s dispatch_status=PENDING receiver_count=0
+  +85s dispatch_status=SENT receiver_count=1
+  ✓ 到点后被投递（SENT）
+---- ③-4 投递后可见性核对 ----
+  /notice/mine 中该通知条数：1（期望 1）
+{"notice_id":"01a18306-15c8-7172-b796-199a66e505f2","title":"定时发送验收-1分钟后","receiver_id":"4a784368-49ab-47c1-a592-9b1b049390ba","read_flag":false}
+  DB 接收行数：1（期望 1）
+  投递记录：
+  巡逻任务日志：
+[2m2026-10-28T15:00:30.003812Z[0m [32m INFO[0m [2mcloudpivot::business::notice::scheduled[0m[2m:[0m 定时通知投递完成 [3msummary[0m[2m=[0mnotice_scheduled_dispatch: scanned=0 dispatched=0 skipped=0 failed=0 canceled=0
+[2m2026-10-28T15:01:00.009360Z[0m [32m INFO[0m [2mcloudpivot::business::notice::scheduled[0m[2m:[0m 定时通知已到点投递 [3mnotice_id[0m[2m=[0m01a18306-15c8-7172-b796-199a66e505f2
+[2m2026-10-28T15:01:00.009402Z[0m [32m INFO[0m [2mcloudpivot::business::notice::scheduled[0m[2m:[0m 定时通知投递完成 [3msummary[0m[2m=[0mnotice_scheduled_dispatch: scanned=1 dispatched=1 skipped=0 failed=0 canceled=0
+---- ③-5 scheduled_at=2026-10-28T14:56:02Z（已过去）→ 按立即发送处理 ----
+  code=0 scheduled=false receiver_count=1（scheduled=false、receiver_count=1 表示立即扇出）
+
+=== 第 3 部分完成，证据：/var/tmp/fixA-evidence/part3.log ===

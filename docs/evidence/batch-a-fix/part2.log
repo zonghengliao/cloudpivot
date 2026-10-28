@@ -1,0 +1,47 @@
+---- ①-d document(上限200MB) 上传 150MB → 期望 422 + 60003，文案含「服务端单文件上限 128 MB」+ presign 引导 ----
+HTTP 422
+{"code":60003,"msg":"上传内容超过服务端单文件上限 128 MB，请改用预签名直传（POST /business/storage/presign）"}
+---- ④-0 先取一份真实数据 xlsx：GET /business/impexp/export/sync?biz_type=system.dict_item ----
+HTTP 200 type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=8683
+  文件类型：Microsoft Excel 2007+ 大小=8683
+④-1 上传建导入任务：code=0 task_id=01a18305-7082-75a6-9f30-bab421925c56 status=VALIDATED total=71 error=0
+---- ④-b 文档别名 GET /business/impexp/import/{id}/download → 期望 200 xlsx ----
+HTTP 200 type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=5690
+---- ④-c 推荐路径 GET /business/impexp/import/{id}/errors/file → 期望 200 xlsx ----
+HTTP 200 type=application/vnd.openxmlformats-officedocument.spreadsheetml.sheet bytes=5690
+  产物：alias=Microsoft Excel 2007+ 5690B / errors=Microsoft Excel 2007+ 5690B / 内容一致=yes
+---- ⑤-f POST import/{id}/cancel（VALIDATED → 直接取消）→ 期望 200 CANCELED ----
+HTTP 200
+{"code":0,"msg":"ok","data":{"task_id":"01a18305-7082-75a6-9f30-bab421925c56","status":"CANCELED","message":"任务已取消"}}
+---- ⑤-f2 再次 cancel（已 CANCELED）→ 期望 409 + 60013 ----
+HTTP 409
+{"code":60013,"msg":"当前状态为 CANCELED，不允许取消"}
+---- ⑤-g POST import/{id}/retry（CANCELED → 新建任务，原任务保留）----
+  code=0 新 task_id=01a18305-70d0-7690-a2d0-f6b9e919891b 状态=VALIDATED 原 task_id=01a18305-7082-75a6-9f30-bab421925c56（应不同）
+⑥ admin user_id=01a17cf2-4de2-7517-b52b-c2f56f06132a
+⑥-d 订阅中发送通知（header 鉴权）：notice_id=01a18305-78e4-72c0-a5d6-e6f4dd3aaf57 receiver=1
+  header 订阅收到：
+event: notice
+data: {"notice_id":"01a18305-78e4-72c0-a5d6-e6f4dd3aaf57","notice_no":"NTS20261028145856dd3aaf57","notice_type":"SYSTEM","level":"INFO","title":"SSE-header-鉴权验收","link_url":null,"biz_type":null,"biz_id":null,"receiver_id":"0edad7ea-00ef-44ed-9004-f1dcaa4ce2b1","created_at":"2026-10-28T14:58:56.356290646+00:00"}
+
+
+  ✓ header 鉴权收到数据帧
+⑥-e 订阅中发送通知（query token 鉴权）：notice_id=01a18305-9490-7031-9952-8d940f98a977 receiver=1
+  query 订阅收到：
+event: notice
+data: {"notice_id":"01a18305-9490-7031-9952-8d940f98a977","notice_no":"NTS202610281459030f98a977","notice_type":"SYSTEM","level":"INFO","title":"SSE-query-鉴权验收","link_url":null,"biz_type":null,"biz_id":null,"receiver_id":"a69379b4-3e75-472b-9670-c1c426a94c28","created_at":"2026-10-28T14:59:03.440543454+00:00"}
+
+
+  ✓ query token 鉴权收到数据帧（与 header 等价）
+⑥-f2 借用他人 userId=01a17ce7-57c1-7201-b89b-4eaf3851c440（真账号）订阅 → 期望 400
+  HTTP 400
+{"code":10001,"msg":"不接受客户端指定频道归属（user_id / receiver_id），用户身份只取自令牌"}
+⑥-h 日志脱敏核对：
+  token 前 24 字符在 run.log 出现次数 = 0（期望 0）
+  run.log 中出现 'token=' 的次数 = 0（期望 0）
+  stream 请求日志样例（应只有 path）：
+[2m2026-10-28T14:58:54.330799Z[0m [32m INFO[0m [2malun_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mGET [3mpath[0m[2m=[0m/api/business/notice/stream [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m0ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-10-28T14:59:01.411949Z[0m [32m INFO[0m [2malun_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mGET [3mpath[0m[2m=[0m/api/business/notice/stream [3mstatus[0m[2m=[0m200 [3mduration[0m[2m=[0m1ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+[2m2026-10-28T14:59:08.523887Z[0m [32m INFO[0m [2malun_web::middleware::request_log[0m[2m:[0m 请求完成 [3mmethod[0m[2m=[0mGET [3mpath[0m[2m=[0m/api/business/notice/stream [3mstatus[0m[2m=[0m400 [3mduration[0m[2m=[0m1ms [3mrequest_id[0m[2m=[0m- [3mip[0m[2m=[0mSome("127.0.0.1")
+
+=== 第 2 部分完成，证据：/var/tmp/fixA-evidence/part2.log ===
