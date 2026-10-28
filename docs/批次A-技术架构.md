@@ -521,7 +521,8 @@ pub trait ExportDefinition: Send + Sync {
 | GET | `/impexp/import/page` | `business:impexp:import:list` | 导入任务分页（我的/全部） |
 | GET | `/impexp/import/{id}` | `business:impexp:import:list` | 任务详情（含摘要错误） |
 | GET | `/impexp/import/{id}/errors` | `business:impexp:import:list` | 错误明细分页（行号/列/原因） |
-| GET | `/impexp/import/{id}/errors/file` | `business:impexp:import:download-error` | 下载「错误行」xlsx |
+| GET | `/impexp/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx（推荐路径） |
+| GET | `/impexp/import/{id}/download` | `business:impexp:import:download` | 同上（文档别名，与上一条同实现；遗留修复④） |
 | POST | `/impexp/import/{id}/confirm` | `business:impexp:import:confirm` | 确认入库（`VALIDATED → IMPORTING`） |
 | POST | `/impexp/import/{id}/cancel` | `business:impexp:import:cancel` | 取消（仅 PENDING/VALIDATED） |
 | POST | `/impexp/import/{id}/retry` | `business:impexp:import:retry` | 失败重试（新建任务，保留原任务） |
@@ -531,6 +532,7 @@ pub trait ExportDefinition: Send + Sync {
 | GET | `/impexp/export/{id}` | `business:impexp:export:list` | 任务详情（进度/文件） |
 | GET | `/impexp/export/{id}/download` | `business:impexp:export:download` | 下载结果（过期返回 410） |
 | POST | `/impexp/export/{id}/cancel` | `business:impexp:export:cancel` | 取消（仅 PENDING） |
+| POST | `/impexp/export/{id}/retry` | `business:impexp:export:retry` | 重试（FAILED/CANCELED/已过期；V0052 补种权限点） |
 | DELETE | `/impexp/export/{id}` | `business:impexp:export:delete` | 删除任务与文件 |
 
 ---
@@ -752,7 +754,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 | `business:storage:download` | 下载 / 取限时链接 | 全部业务角色 |
 | `business:storage:delete` | 软删文件 | 超管 / 文件所有者 |
 
-**导入导出（13）**
+**导入导出（14）**
 
 | 权限码 | 用途 |
 |---|---|
@@ -763,11 +765,12 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 | `business:impexp:import:confirm` | 确认入库 |
 | `business:impexp:import:cancel` | 取消任务 |
 | `business:impexp:import:retry` | 失败重试 |
-| `business:impexp:import:download-error` | 下载「错误行」文件 |
+| `business:impexp:import:download` | 下载「错误行」文件（原文档笔误写 `download-error`，以实现为准；遗留修复④） |
 | `business:impexp:export:create` | 同步 / 异步导出 |
 | `business:impexp:export:list` | 导出任务列表 / 详情 |
 | `business:impexp:export:download` | 下载导出结果 |
 | `business:impexp:export:cancel` | 取消导出 |
+| `business:impexp:export:retry` | 重试导出（V0052 补种；遗留修复⑤） |
 | `business:impexp:export:delete` | 删除导出任务 |
 
 **消息通知（9）**

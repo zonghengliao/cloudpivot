@@ -1,8 +1,9 @@
-# 批次 A · 导入导出接口契约（A3）
+# 批次 A · 导入导出接口契约（A3 + A4 合并后的最终口径）
 
 > 代码：`backend/src/business/impexp/`
-> 迁移：`V0041__create_impexp_task`（`sys_import_task` / `sys_export_task`）、`V0042__create_impexp_error_detail`（`sys_import_task_error`）
+> 迁移：`V0041__create_impexp_task`（`sys_import_task` / `sys_export_task`）、`V0042__create_impexp_error_detail`（`sys_import_task_error`）、`V0052__seed_impexp_export_retry`（补 `export:retry` 权限点）
 > 依据：`docs/批次A-技术架构.md` §3、`docs/批次A-产品需求PRD.md` 第四章
+> 本文件在「批次 A 遗留修复」中已按实现校正（下载路径别名、权限码、取消 / 重试 / 异步导出），差异见文末「§7 变更记录」。
 
 前缀：`/api/business/impexp`（`[router].prefix` 注入，宏内写 `/business/impexp/...`）。
 所有接口要求 `Authorization: Bearer <token>`，权限码见每行；错误统一返回 `{code, msg}`，`code` 为 `shared/error_code.rs` 的业务码。
@@ -17,11 +18,23 @@
 | GET | `/import/page` | `business:impexp:import:list` | 导入任务分页（默认只看自己创建的任务） |
 | GET | `/import/{id}` | `business:impexp:import:list` | 任务详情（含前 100 条错误摘要） |
 | GET | `/import/{id}/errors` | `business:impexp:import:list` | 错误明细分页（行号 / 列名 / 原因） |
-| GET | `/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx（行号 / 列名 / 原因） |
+| GET | `/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx（行号 / 列名 / 原因；**推荐路径**） |
+| GET | `/import/{id}/download` | `business:impexp:import:download` | 同上（**文档别名**，与上一条同一实现、同一权限码，见 §2.5） |
 | POST | `/import/{id}/confirm` | `business:impexp:import:confirm` | 确认入库（按批事务） |
+| POST | `/import/{id}/cancel` | `business:impexp:import:cancel` | 取消（`PENDING`/`PARSING`/`VALIDATED` 直接取消；`IMPORTING` 打标记，批次边界中止） |
+| POST | `/import/{id}/retry` | `business:impexp:import:retry` | 失败重试（**新建任务**，原任务保留做审计） |
 | GET | `/export/sync?biz_type=&keyword=&status=` | `business:impexp:export:create` | 同步导出（≤ 定义 `sync_max_rows`，默认 10 000 行） |
+| POST | `/export` | `business:impexp:export:create` | 创建**异步导出**任务（`{biz_type, keyword?, status?, format?, export_name?}`） |
+| GET | `/export/page` | `business:impexp:export:list` | 导出任务分页 |
+| GET | `/export/{id}` | `business:impexp:export:list` | 导出任务详情（进度 / 产物） |
+| GET | `/export/{id}/download` | `business:impexp:export:download` | 下载产物（未完成 409 / 过期 410） |
+| POST | `/export/{id}/cancel` | `business:impexp:export:cancel` | 取消（`PENDING` 直接取消；`RUNNING` 打标记，分块边界中止） |
+| POST | `/export/{id}/retry` | `business:impexp:export:retry` | 重试（仅 `FAILED` / `CANCELED` / 已过期；复用同一任务行） |
+| DELETE | `/export/{id}` | `business:impexp:export:delete` | 删除任务与产物（`RUNNING` 拒绝，先取消） |
 
-> 异步导出 / 取消 / 重试 / 过期清理属 **A4**，本批不提供。
+> 任务书里出现过的「泛型」写法 `POST /business/impexp/{task_id}/cancel` **不提供**：导入与导出是两张表、两套状态机，
+> 泛型路径还得再传类型判别参数，比 `/import/{id}/cancel` / `/export/{id}/cancel` 更容易用错；架构文档 §3.8、
+> 后端注解、前端 `api/business/impexp/index.ts` 三处用的都是带类型前缀的写法，保持一致。
 
 ## 2. 关键约定
 
@@ -61,6 +74,34 @@ WHERE <col>::text IN (SELECT jsonb_array_elements_text(?::jsonb)) [AND deleted_a
 
 10 万行 × 1 个外键列 = **1 条 SQL**（不是 10 万条）。执行条数写入预检报告的 `fk_sql_statements`，
 并以 `tracing::info!` 同时落到日志，可与 PG 日志交叉验证。
+
+### 2.5 下载路径（两个都可用，同一实现）
+
+历史原因：架构文档 §3.8 与本文档早期把导入下载写成 `/import/{id}/download`，A3 实现时落成了语义更精确的
+`/import/{id}/errors/file`，A7 前端两种写法都出现过 → 出现「按文档路径 404」。
+
+最终口径：**两个都提供**（同一 handler、同一权限码 `business:impexp:import:download`）：
+
+| 路径 | 定位 |
+|------|------|
+| `GET /import/{id}/errors/file` | 推荐路径（语义精确：下的是错误行明细） |
+| `GET /import/{id}/download` | 文档别名（对外承诺的路径，已按文档接入的调用方无需改代码） |
+
+导出的下载只有 `GET /export/{id}/download`（文档与实现一直一致）。
+
+### 2.6 取消 / 重试 / 异步导出（A4 落地，遗留修复⑤实测确认）
+
+| 动作 | 接口 | 合法前置状态 | 非法状态返回 |
+|------|------|--------------|--------------|
+| 取消导入 | `POST /import/{id}/cancel` | `PENDING`/`PARSING`/`VALIDATED`（直接 CANCELED）、`IMPORTING`（打标记） | `409 + 60013` |
+| 重试导入 | `POST /import/{id}/retry` | `FAILED` / `CANCELED` / `PARTIAL` → **新建任务** | `409 + 60013` |
+| 建异步导出 | `POST /export` | — | 定义未注册 `404 + 60011` |
+| 取消导出 | `POST /export/{id}/cancel` | `PENDING`（直接 CANCELED）、`RUNNING`（打标记） | `409 + 60032` |
+| 重试导出 | `POST /export/{id}/retry` | `FAILED` / `CANCELED` / 已过期（复用同一任务行） | `409 + 60032` |
+
+> 遗留修复⑤ 的真问题不在接口，而在**权限种子**：`business:impexp:export:retry` 是 A4 才加的注解权限码，
+> `V0047` 只种了 13 个 impexp 权限点、不含它 → 非超管角色点「重试导出」必然 403。
+> `V0052` 已补种（按钮级菜单点 + 授 SUPER_ADMIN + 授其余所有角色），前端 `PERM.impexpExportRetry` 与导出任务页按钮同步补齐。
 
 ## 3. 上传 + 预检响应
 
@@ -103,9 +144,11 @@ WHERE <col>::text IN (SELECT jsonb_array_elements_text(?::jsonb)) [AND deleted_a
 | 60012 | `IMPORT_ROW_LIMIT` | 422 | 超过定义 `max_rows` |
 | 60013 | `IMPORT_STATUS_INVALID` | 409 | 状态机非法跃迁（如对 `SUCCESS` 再 confirm） |
 | 60014 | `IMPORT_BATCH_FAILED` | 422 | 未开部分导入但存在失败行 / 某批入库失败 |
-| 60015 | `EXPORT_NOT_READY` | 409 | 超出同步导出上限（异步属 A4） |
-| 60016 | `EXPORT_EXPIRED` | 410 | 产物过期（A4 使用） |
-| 60020 | `IMPORT_FILE_INVALID` | 400/422 | 魔数不符 / 无法解析 / 只有表头 / 表头缺必需列 |
+| 60015 | `EXPORT_NOT_READY` | 409 | 任务未完 / 失败时请求下载，或超出同步导出上限 |
+| 60016 | `EXPORT_EXPIRED` | 410 | 产物过期 |
+| 60020 | `IMPORT_FILE_INVALID` | 400/422 | 魔数不符 / 无法解析 / 只有表头 / 表头缺必需列 / 没有数据行 |
+| 60032 | `EXPORT_STATUS_INVALID` | 409 | 导出任务状态机非法跃迁（取消 / 重试 / 删除） |
+| 60033 | `EXPORT_FILE_MISSING` | 410 | 产物文件已被清理（记录在库但文件没了） |
 
 行级错误码（`sys_import_task_error.error_code`）：
 `REQUIRED` / `TYPE` / `LENGTH` / `ENUM` / `RANGE` / `DATE` / `DICT` / `UNIQUE` / `FK_NOT_FOUND` / `RULE` / `ROW_LIMIT` / `STRUCTURE`。
@@ -146,3 +189,14 @@ impl ImportDefinition for MaterialImport {
 | 状态 | 否 | 枚举 启用/停用 | 落库 `'1'/'0'`，空按启用 |
 
 入库：`INSERT ... ON CONFLICT (dict_type_id, item_value) WHERE deleted_at IS NULL DO UPDATE`（幂等重导）。
+
+## 7. 变更记录（批次 A 遗留修复）
+
+1. **下载路径**：补 `GET /import/{id}/download` 别名路由（以文档为准补齐），本文档同步标注「推荐路径 / 别名」，
+   并给出「两个都保留」的理由（见 §2.5）。
+2. **权限码统一**：架构文档 §3.8 原写 `business:impexp:import:download-error`，而实现、种子（`V0047`）、
+   前端常量一直是 `business:impexp:import:download` → **以实现为准改文档**。理由：改码要同时动注解 / 种子 /
+   前端三处，且会让已按 `import:download` 授权的角色失效；文档笔误的修正成本最低、风险为零。
+3. **补 `business:impexp:export:retry` 权限种子**（`V0052`）与前端常量 / 按钮（见 §2.6）。
+4. **补齐取消 / 重试 / 异步导出**接口与合法状态（原文只有一句「属 A4，本批不提供」）。
+5. 错误码表补 `60032` / `60033`，并修正 60015 / 60016 / 60020 的场景描述。

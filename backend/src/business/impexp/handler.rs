@@ -10,7 +10,8 @@
 //! | GET | `/impexp/import/page` | `business:impexp:import:list` | 导入任务分页 |
 //! | GET | `/impexp/import/{id}` | `business:impexp:import:list` | 任务详情（含错误摘要） |
 //! | GET | `/impexp/import/{id}/errors` | `business:impexp:import:list` | 错误明细分页（行号 / 列 / 原因） |
-//! | GET | `/impexp/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx |
+//! | GET | `/impexp/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx（推荐路径） |
+//! | GET | `/impexp/import/{id}/download` | `business:impexp:import:download` | 同上（**文档别名**，与上一条同实现） |
 //! | POST | `/impexp/import/{id}/confirm` | `business:impexp:import:confirm` | 确认入库（批事务） |
 //! | GET | `/impexp/export/sync` | `business:impexp:export:create` | 同步导出（`sync_max_rows` 内） |
 //! | POST | `/impexp/import/{id}/cancel` | `business:impexp:import:cancel` | 取消（PENDING/VALIDATED 直接取消；IMPORTING 打标记） |
@@ -430,6 +431,44 @@ pub async fn import_errors(
 )]
 #[alun::get("/business/impexp/import/{id}/errors/file")]
 pub async fn import_errors_file(Path(id): Path<String>) -> Response {
+    match errors_file_response(&id).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+/// 下载导入「结果 / 错误明细」文件（**文档路径**，与 [`import_errors_file`] 同一实现）。
+///
+/// # 为什么有两个路径
+///
+/// - `docs/批次A-技术架构.md` §3.8 与 `docs/批次A-导入导出接口.md` 早期把下载写成
+///   `/impexp/import/{id}/download`；A3 实现时落成了更精确的 `/import/{id}/errors/file`
+///   （明确「下的是错误行 xlsx」）。A7 前端两种写法都出现过，形成「文档写的路径 404」。
+/// - 修复口径：**两个都提供**。`/import/{id}/download` 作为文档承诺的对外别名，
+///   与 `/errors/file` 指向同一个处理器（同一权限码 `business:impexp:import:download`），
+///   文档同步改成「别名 + 推荐路径」两栏，前端可继续用任一。
+///
+/// 别名优于「只改文档」的理由：文档是**对外契约**，已经按文档接入的调用方不该因为
+/// 实现命名更细而被迫改代码；别名只是多一条路由，没有额外逻辑与数据风险。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// 三列（行号 / 列名 / 错误原因）的 xlsx。
+///
+/// # 异常情况
+///
+/// 404：任务不存在。
+#[alun::permission(
+    path = "/business/impexp/import/{id}/download",
+    method = "GET",
+    permission = "business:impexp:import:download"
+)]
+#[alun::get("/business/impexp/import/{id}/download")]
+pub async fn import_download(Path(id): Path<String>) -> Response {
     match errors_file_response(&id).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
