@@ -1,5 +1,6 @@
 /**
- * 批次 A（对象存储 / 导入导出 / 消息通知）权限码字典。
+ * 批次 A（对象存储 / 导入导出 / 消息通知）+ 批次 B（数据权限 / 字段脱敏 / 角色互斥）
+ * 权限码字典。
  *
  * # 单一来源
  *
@@ -98,11 +99,60 @@ export const NOTICE_PERMISSIONS = {
   noticeChannelConfig: 'business:notice:channel:config',
 } as const;
 
-/** 全部批次 A 权限码合集（供迁移脚本与自检脚本比对） */
+/**
+ * 批次 B（数据权限 / 字段脱敏 / 角色互斥）权限码字典 —— 15 个节点（3 菜单 + 12 按钮）。
+ *
+ * # 单一来源
+ *
+ * 与批次 A 同样的纪律：每个常量必须与以下三处**逐字一致**，改一处要三处同步：
+ * 1. 后端 `#[alun::permission(permission = "...")]` 注解；
+ * 2. 菜单种子 `sys_menu.auth_code`（`V0065` + `V0068`）；
+ * 3. 本文件。
+ *
+ * # 与 PRD / 架构的已知偏差（以后端已验收的注解为准，前端不单方面抹平）
+ *
+ * - PRD §6.1 写 `system:data-scope:{view,update,check}`、`system:role-mutex:matrix`、
+ *   `system:field-mask:{status,view-plain,scan}`，共 16 个码；
+ * - 后端实际落库 15 个：数据范围三码改域为 `business:permission:scope:{read,write,self-check}`
+ *   （`V0065` 头注释记了原因：配置接口落在 `business/permission/`），脱敏三码合并为
+ *   `system:field-mask:{list,create,update,delete,plain}`（启停走 update，无独立 status 码），
+ *   互斥四码为 `system:role-mutex:{list,create,delete,conflict}`（编辑复用 create，
+ *   扫描复用 conflict，无 matrix / status 码）。
+ * - 偏差已记入 B8 summary；页面上出现的就是后端能放行的码，**不存在「按钮能点但接口 403」**。
+ */
+export const BATCH_B_PERMISSIONS = {
+  /** 查看角色数据范围配置 / 自定义部门树（同时是「数据权限」菜单的入口码） */
+  scopeRead: 'business:permission:scope:read',
+  /** 保存角色数据范围（含自定义部门集合） */
+  scopeWrite: 'business:permission:scope:write',
+  /** 数据权限自检 / 未接入表清单 */
+  scopeSelfCheck: 'business:permission:scope:self-check',
+  /** 字段脱敏规则列表 / 试运行 / 生效清单（同时是菜单入口码） */
+  fieldMaskList: 'system:field-mask:list',
+  /** 新建脱敏规则 */
+  fieldMaskCreate: 'system:field-mask:create',
+  /** 修改脱敏规则 / 启停（后端无独立 status 接口） */
+  fieldMaskUpdate: 'system:field-mask:update',
+  /** 删除脱敏规则（软删） */
+  fieldMaskDelete: 'system:field-mask:delete',
+  /** 查看未脱敏明文（豁免码，判定位，无独立路由） */
+  fieldMaskPlain: 'system:field-mask:plain',
+  /** 互斥规则列表（同时是菜单入口码） */
+  mutexList: 'system:role-mutex:list',
+  /** 新建 / 修改互斥规则（后端同一码） */
+  mutexCreate: 'system:role-mutex:create',
+  /** 删除互斥规则（软删 = 停用） */
+  mutexDelete: 'system:role-mutex:delete',
+  /** 冲突预检：单用户体检 + 存量全量扫描 */
+  mutexConflict: 'system:role-mutex:conflict',
+} as const;
+
+/** 全部权限码合集（批次 A + 批次 B；`PERM.xxx` 是页面里唯一的取码方式） */
 export const PERM = {
   ...STORAGE_PERMISSIONS,
   ...IMPEXP_PERMISSIONS,
   ...NOTICE_PERMISSIONS,
+  ...BATCH_B_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */

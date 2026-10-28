@@ -168,6 +168,27 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '发送通知', permission: 'business:notice:send' },
       },
       {
+        // ==================== 通用底座 · 批次 B（数据权限 / 字段脱敏 / 角色互斥） ====================
+        // path 与 `sys_menu.path`（V0065 种子）逐字一致：侧栏链接来自后端菜单，
+        // 路由不存在 = 点菜单进 404。权限码同样与后端注解 / 种子三方一致。
+        path: 'system/data-scope',
+        name: 'SystemDataScope',
+        component: () => import('@/views/system/data-scope/index.vue'),
+        meta: { title: '数据权限', permission: 'business:permission:scope:read' },
+      },
+      {
+        path: 'system/field-mask',
+        name: 'SystemFieldMask',
+        component: () => import('@/views/system/masking/index.vue'),
+        meta: { title: '字段脱敏', permission: 'system:field-mask:list' },
+      },
+      {
+        path: 'system/role-mutex',
+        name: 'SystemRoleMutex',
+        component: () => import('@/views/system/mutex/index.vue'),
+        meta: { title: '角色互斥', permission: 'system:role-mutex:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

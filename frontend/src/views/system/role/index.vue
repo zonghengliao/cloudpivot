@@ -170,6 +170,19 @@
                 <t-empty description="暂无用户拥有此角色" />
               </div>
             </t-tab-panel>
+            <!--
+              数据权限（批次 B · B8）：可见性由 business:permission:scope:read 控制。
+              t-tabs 的页签导航由子面板推导，因此 v-if 掉面板 = 页签整体消失，
+              非授权用户既看不到页签也点不到内容（不是 display:none 的假隐藏）。
+            -->
+            <t-tab-panel v-if="canViewScope" value="scope" label="数据权限">
+              <data-scope-panel
+                v-if="activeTab === 'scope' && selectedRoleId"
+                :key="selectedRoleId"
+                :role-id="selectedRoleId"
+                :role-name="selectedRole?.role_name ?? ''"
+              />
+            </t-tab-panel>
           </t-tabs>
         </t-card>
         <t-card v-else :bordered="false" class="perm-placeholder">
@@ -216,7 +229,7 @@
 </template>
 
 <script setup lang="ts">
-import { nextTick, onMounted, reactive, ref } from 'vue';
+import { computed, nextTick, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type {
   EnhancedTableInstanceFunctions,
@@ -242,6 +255,9 @@ import { getMenuTree } from '@/api/system/menu-api';
 import type { MenuNode, MenuType } from '@/api/system/auth-api';
 import type { StatusValue } from '@/api/system/user-api';
 import { ApiError } from '@/api/request';
+import { PERM } from '@/constants/permissions';
+import { useUserStore } from '@/stores/user';
+import DataScopePanel from '@/views/system/role/components/DataScopePanel.vue';
 
 /// 权限树节点：按钮类型（menu_type=3）被分离到父节点的 buttons 数组中
 interface PermRow {
@@ -288,7 +304,12 @@ const selectedRoleId = ref('');
 const selectedRole = ref<RoleRes | null>(null);
 
 // ===== 权限 tab =====
-const activeTab = ref<'perm' | 'users'>('perm');
+/// 页签值：perm 功能权限 / users 持有者 / scope 数据权限（批次 B）
+type RoleTab = 'perm' | 'users' | 'scope';
+const activeTab = ref<RoleTab>('perm');
+const userStore = useUserStore();
+/// 「数据权限」页签可见性：缺少读取码时整块页签不存在（不是 disabled）
+const canViewScope = computed<boolean>(() => userStore.hasPermission(PERM.scopeRead));
 const permTableRef = ref<EnhancedTableInstanceFunctions>();
 const permTreeData = ref<PermRow[]>([]);
 const checkedIds = ref<string[]>([]);
@@ -492,7 +513,8 @@ async function loadRoleUsers(): Promise<void> {
 
 /// 页签切换：进入「角色用户列表」时重置分页并加载
 function onTabChange(value: string | number): void {
-  activeTab.value = value === 'users' ? 'users' : 'perm';
+  const tab = value as RoleTab;
+  activeTab.value = tab === 'users' ? 'users' : tab === 'scope' ? 'scope' : 'perm';
   if (activeTab.value === 'users' && selectedRoleId.value) {
     usersPagination.current = 1;
     void loadRoleUsers();
