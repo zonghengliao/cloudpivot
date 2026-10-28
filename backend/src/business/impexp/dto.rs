@@ -6,7 +6,7 @@
 use alun::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::business::impexp::model::{ImportTask, ImportTaskError};
+use crate::business::impexp::model::{ExportTask, ImportTask, ImportTaskError};
 use crate::business::impexp::validate::PrecheckReport;
 
 /// 模板下载查询。
@@ -193,4 +193,126 @@ impl ImportErrorRes {
             error_message: error.error_message,
         }
     }
+}
+
+// ==================== 异步导出 / 任务操作（A4） ====================
+
+/// 创建异步导出任务。
+#[derive(Debug, Deserialize)]
+pub struct ExportCreateReq {
+    /// 导出定义编码。
+    pub biz_type: String,
+    /// 关键词（业务自定义解释）。
+    pub keyword: Option<String>,
+    /// 状态过滤（1 启用 / 0 停用）。
+    pub status: Option<i16>,
+    /// 格式（`XLSX` / `CSV`；缺省按行数自动选：≤ 20 万行 XLSX，超过 CSV）。
+    pub format: Option<String>,
+    /// 导出文件名（不含扩展名；缺省 `业务名_时间戳`）。
+    pub export_name: Option<String>,
+}
+
+/// 导出任务分页查询。
+#[derive(Debug, Deserialize)]
+pub struct ExportPageQuery {
+    /// 页码。
+    pub page: Option<u64>,
+    /// 每页条数。
+    pub page_size: Option<u64>,
+    /// 关键词（任务号 / 文件名 / 业务名）。
+    pub keyword: Option<String>,
+    /// 状态过滤。
+    pub status: Option<String>,
+    /// 业务编码过滤。
+    pub biz_type: Option<String>,
+    /// 只看自己的任务（默认 `true`）。
+    pub only_mine: Option<bool>,
+}
+
+/// 导出任务详情 / 列表项。
+#[derive(Debug, Serialize)]
+pub struct ExportTaskRes {
+    /// 任务 ID。
+    pub id: String,
+    /// 任务号。
+    pub task_no: String,
+    /// 业务编码。
+    pub biz_type: String,
+    /// 业务名称。
+    pub biz_name: String,
+    /// 导出文件名（不含扩展名）。
+    pub export_name: String,
+    /// 格式。
+    pub format: String,
+    /// 状态。
+    pub status: String,
+    /// 预计总行数。
+    pub total_rows: i64,
+    /// 已导出行数。
+    pub exported_rows: i64,
+    /// 进度百分比（**单调递增**，100 表示产物已落盘）。
+    pub progress: i16,
+    /// 产物文件名。
+    pub file_name: Option<String>,
+    /// 产物字节数。
+    pub file_size: Option<i64>,
+    /// 产物 SHA-256（下载后可比对）。
+    pub file_sha256: Option<String>,
+    /// 下载过期时间。
+    pub expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 已尝试次数。
+    pub attempt_count: i16,
+    /// 最大尝试次数。
+    pub max_attempts: i16,
+    /// 失败原因 / 排队说明。
+    pub message: Option<String>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 开始时间。
+    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 结束时间。
+    pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl ExportTaskRes {
+    /// 由模型转换（`file_path` / `query_params` 等内部字段不外泄）。
+    ///
+    /// # 参数
+    ///
+    /// - `task`：导出任务模型。
+    pub fn from_model(task: ExportTask) -> Self {
+        Self {
+            id: task.id.to_string(),
+            task_no: task.task_no,
+            biz_type: task.biz_type,
+            biz_name: task.biz_name,
+            export_name: task.export_name,
+            format: task.format,
+            status: task.status,
+            total_rows: task.total_rows,
+            exported_rows: task.exported_rows,
+            progress: task.progress,
+            file_name: task.file_name,
+            file_size: task.file_size,
+            file_sha256: task.file_sha256,
+            expire_at: task.expire_at,
+            attempt_count: task.attempt_count,
+            max_attempts: task.max_attempts,
+            message: task.message,
+            created_at: task.created_at,
+            started_at: task.started_at,
+            finished_at: task.finished_at,
+        }
+    }
+}
+
+/// 任务操作结果（取消 / 重试 / 删除）。
+#[derive(Debug, Serialize)]
+pub struct TaskActionRes {
+    /// 任务 ID。
+    pub task_id: String,
+    /// 操作后的状态。
+    pub status: String,
+    /// 说明（如「已打上取消标记，worker 将在批次边界中止」）。
+    pub message: String,
 }

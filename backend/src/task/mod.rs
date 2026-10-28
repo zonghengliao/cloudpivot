@@ -21,6 +21,8 @@
 //! | 安全日志清理 | `30 3 * * *` | `clean_security_log` | P4 |
 //! | 密码变更日志清理 | `40 3 * * *` | `clean_password_log` | P4 |
 //! | 存储对象回收 | `0 30 4 * * *` | `storage_object_cleanup` | 批次 A · A1 |
+//! | 导出任务执行 | `*/5 * * * * *` | `impexp_export_worker` | 批次 A · A4 |
+//! | 导入导出回收 | `0 40 4 * * *` | `impexp_task_cleanup` | 批次 A · A4 |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
 //! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
@@ -235,6 +237,9 @@ impl Scheduler {
         crate::business::notice::cleanup::register_builtin(self);
         // SSE 空频道回收（A6）：每 5 分钟巡逻一次，回收「无人订阅且空置 30 分钟」的频道
         crate::business::notice::sse_hub::register_builtin(self);
+        // 批次 A · A4：异步导出执行（每 5 秒扫一次）与任务/产物回收（每天 04:40）
+        crate::business::impexp::worker::register_builtin(self);
+        crate::business::impexp::cleanup::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

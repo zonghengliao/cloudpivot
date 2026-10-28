@@ -13,8 +13,19 @@
 //! | GET | `/impexp/import/{id}/errors/file` | `business:impexp:import:download` | 下载「错误行」xlsx |
 //! | POST | `/impexp/import/{id}/confirm` | `business:impexp:import:confirm` | 确认入库（批事务） |
 //! | GET | `/impexp/export/sync` | `business:impexp:export:create` | 同步导出（`sync_max_rows` 内） |
+//! | POST | `/impexp/import/{id}/cancel` | `business:impexp:import:cancel` | 取消（PENDING/VALIDATED 直接取消；IMPORTING 打标记） |
+//! | POST | `/impexp/import/{id}/retry` | `business:impexp:import:retry` | 失败重试（新建任务，保留原任务） |
+//! | POST | `/impexp/export` | `business:impexp:export:create` | 建异步导出任务 |
+//! | GET | `/impexp/export/page` | `business:impexp:export:list` | 导出任务分页 |
+//! | GET | `/impexp/export/{id}` | `business:impexp:export:list` | 任务详情（进度 / 产物 / 重试次数） |
+//! | GET | `/impexp/export/{id}/download` | `business:impexp:export:download` | 下载产物（**过期返回 410**） |
+//! | POST | `/impexp/export/{id}/cancel` | `business:impexp:export:cancel` | 取消（PENDING 直接取消；RUNNING 打标记） |
+//! | POST | `/impexp/export/{id}/retry` | `business:impexp:export:retry` | 重试（FAILED/CANCELED/EXPIRED 重排队） |
+//! | DELETE | `/impexp/export/{id}` | `business:impexp:export:delete` | 删除任务与产物文件 |
 //!
-//! 异步导出 / 取消 / 重试 / 清理属 A4，本卡不提供。
+//! 异步导出的**执行**（认领 / 进度 / 重试 / 取消中止）在
+//! [`crate::business::impexp::worker`]，过期与僵尸回收在
+//! [`crate::business::impexp::cleanup`]；本文件只做接口层的编排与状态校验。
 //!
 //! # 事务边界（架构文档 §3.4）
 //!
@@ -30,20 +41,29 @@
 use std::collections::HashMap;
 
 use alun::prelude::*;
+use axum::Json;
+use axum::body::Body;
 use axum::extract::Multipart;
-use axum::http::{HeaderMap, HeaderValue, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use sha2::{Digest, Sha256};
+use tokio_util::io::ReaderStream;
 
-use crate::business::impexp::definition::{ExportFilter, ImportCtx, ImportMode, RowIssue};
-use crate::business::impexp::dto::{
-    ConfirmRes, ErrorPageQuery, ExportSyncQuery, ImportErrorRes, ImportPageQuery, ImportTaskRes,
-    TemplateQuery, UploadQuery, UploadRes,
+use crate::business::impexp::definition::{
+    ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
 };
-use crate::business::impexp::model::{self, ImportTaskFilter, NewImportTask};
+use crate::business::impexp::dto::{
+    ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery, ExportTaskRes,
+    ImportErrorRes, ImportPageQuery, ImportTaskRes, TaskActionRes, TemplateQuery, UploadQuery,
+    UploadRes,
+};
+use crate::business::impexp::model::{
+    self, ExportTaskFilter, ImportTaskFilter, NewExportTask, NewImportTask,
+};
 use crate::business::impexp::registry::{DefinitionBrief, ensure_mode_allowed, global_registry};
 use crate::business::impexp::template;
 use crate::business::impexp::validate::{self, DbFkResolver, global_dicts};
+use crate::business::impexp::worker;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -191,30 +211,74 @@ pub async fn import_upload(
     .await
     .map_err(|error| utils::db_error(error, "创建导入任务"))?;
 
+    let outcome = run_precheck(
+        &definition,
+        task_id,
+        &bytes,
+        utils::current_user_uuid(&claims),
+        mode,
+    )
+    .await?;
+
+    Ok(Res::ok(UploadRes {
+        task_id: task_id.to_string(),
+        task_no,
+        status: "VALIDATED".to_string(),
+        report: outcome,
+    }))
+}
+
+/// 跑一次预检并把结果落库（上传与「重试」共用）。
+///
+/// # 参数
+///
+/// - `definition`：导入定义。
+/// - `task_id`：任务主键（错误明细与会话上下文都挂在它上面）。
+/// - `bytes`：上传文件内容（**调用方负责**校验 SHA-256，本函数只解析）。
+/// - `operator`：操作人。
+/// - `mode`：导入模式。
+///
+/// # 返回值
+///
+/// 预检报告；任务行被回写为 `VALIDATED`（无错误）或仍 `VALIDATED`（有错误行时由调用方
+/// 决定能不能入库）。
+///
+/// # 异常情况
+///
+/// - 结构性问题（非 xlsx / 缺列 / 空表）：任务置 `FAILED` 并留痕后返回原错误；
+/// - 数据库异常：返回 500。
+async fn run_precheck(
+    definition: &std::sync::Arc<dyn ImportDefinition>,
+    task_id: uuid::Uuid,
+    bytes: &[u8],
+    operator: Option<uuid::Uuid>,
+    mode: ImportMode,
+) -> std::result::Result<validate::PrecheckReport, ApiError> {
     let ctx = ImportCtx {
         task_id,
-        operator: utils::current_user_uuid(&claims),
+        operator,
         mode,
     };
     let resolver = DbFkResolver::new();
-    let outcome = match validate::precheck(
-        definition.as_ref(),
-        &bytes,
-        global_dicts(),
-        &resolver,
-        &ctx,
-    )
-    .await
-    {
-        Ok(report) => report,
-        Err(error) => {
-            // 结构性问题也要把任务置为失败并留痕，方便运营回看「他到底传了什么」
-            let _ =
-                model::update_precheck_result(&task_id, "FAILED", 0, 0, 0, None, Some(&error.msg))
-                    .await;
-            return Err(error);
-        }
-    };
+    let outcome =
+        match validate::precheck(definition.as_ref(), bytes, global_dicts(), &resolver, &ctx).await
+        {
+            Ok(report) => report,
+            Err(error) => {
+                // 结构性问题也要把任务置为失败并留痕，方便运营回看「他到底传了什么」
+                let _ = model::update_precheck_result(
+                    &task_id,
+                    "FAILED",
+                    0,
+                    0,
+                    0,
+                    None,
+                    Some(&error.msg),
+                )
+                .await;
+                return Err(error);
+            }
+        };
 
     model::insert_task_errors(
         &task_id,
@@ -234,13 +298,7 @@ pub async fn import_upload(
     )
     .await
     .map_err(|error| utils::db_error(error, "回写预检结果"))?;
-
-    Ok(Res::ok(UploadRes {
-        task_id: task_id.to_string(),
-        task_no,
-        status: "VALIDATED".to_string(),
-        report: outcome,
-    }))
+    Ok(outcome)
 }
 
 // ==================== 任务查询 ====================
@@ -502,6 +560,24 @@ pub async fn import_confirm(
     let batch_size = definition.batch_size().max(1);
     let total_batches = outcome.rows.len().div_ceil(batch_size);
     let mut imported = 0usize;
+
+    // 取消检查放在**批次边界**（与导出 worker 同一取舍）：一次事务内的批量写入不再打断，
+    // 但下一批开始前一定先看取消标记，且如实回写「已入库 m 行」
+    if model::import_cancel_requested(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "读取取消标记"))?
+        .unwrap_or(false)
+    {
+        let message = format!("用户取消：已在批次边界中止入库，前 {imported} 行已入库");
+        model::finish_import_canceled(&task.id, imported as i32, &message)
+            .await
+            .map_err(|error| utils::db_error(error, "回写取消状态"))?;
+        return Err(ApiError::new(
+            409,
+            error_code::IMPORT_STATUS_INVALID,
+            message,
+        ));
+    }
 
     for (batch_index, batch) in outcome.rows.chunks(batch_size).enumerate() {
         let rows = batch.to_vec();
@@ -828,6 +904,661 @@ fn percent_encode(value: &str) -> String {
         }
     }
     out
+}
+
+// ==================== 异步导出（A4） ====================
+//
+// 与同步导出的分工（架构 §3.5）：≤ `sync_max_rows` 走 `GET /export/sync` 直接回文件流，
+// 不落任务表；更大的量走 `POST /export` 建任务，由
+// [`crate::business::impexp::worker`] 在后台执行，前端轮询 `/export/{id}` 看进度。
+
+/// CSV 的 Content-Type。
+const CSV_MIME: &str = "text/csv";
+
+/// 超过该行数时默认改用 CSV（xlsx 写 20 万行以上内存与耗时都不划算，架构 §3.4 第三档）。
+const CSV_DEFAULT_THRESHOLD: i64 = 200_000;
+
+/// 解析导出格式：显式指定优先，否则按行数自动选。
+///
+/// # 参数
+///
+/// - `raw`：请求里的 `format`（可为空）。
+/// - `total`：预计行数。
+///
+/// # 返回值
+///
+/// `XLSX` 或 `CSV`（大写）。
+///
+/// # 异常情况
+///
+/// 422：格式不在白名单。
+fn resolve_export_format(raw: Option<&str>, total: i64) -> std::result::Result<String, ApiError> {
+    match utils::trimmed(raw) {
+        Some(value) => {
+            let upper = value.to_ascii_uppercase();
+            if matches!(upper.as_str(), "XLSX" | "CSV") {
+                Ok(upper)
+            } else {
+                Err(ApiError::new(
+                    422,
+                    error_code::PARAM_INVALID,
+                    "format 只能是 XLSX 或 CSV",
+                ))
+            }
+        }
+        None => Ok(if total > CSV_DEFAULT_THRESHOLD {
+            "CSV".to_string()
+        } else {
+            "XLSX".to_string()
+        }),
+    }
+}
+
+/// 创建异步导出任务。
+///
+/// # 参数
+///
+/// - `claims`：当前用户（任务归属）。
+/// - `req`：`biz_type` + 过滤条件 + 可选格式与文件名。
+///
+/// # 返回值
+///
+/// 新建任务（状态 `PENDING`，`progress = 0`）；真正的执行由 worker 在数秒内接手。
+///
+/// # 异常情况
+///
+/// - 404 + `60011`：定义未注册；
+/// - 422：过滤后 0 行 / 格式非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/impexp/export",
+    method = "POST",
+    permission = "business:impexp:export:create"
+)]
+#[alun::post("/business/impexp/export")]
+pub async fn export_create(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<ExportCreateReq>,
+) -> ResResult<ExportTaskRes> {
+    let biz_type = req.biz_type.trim().to_string();
+    let definition = global_registry()
+        .export_definition(&biz_type)
+        .ok_or_else(|| def_not_found(&biz_type))?;
+    let filter = ExportFilter {
+        keyword: utils::trimmed(req.keyword.as_deref()).map(str::to_string),
+        status: req.status,
+    };
+    let total = definition
+        .count(&filter)
+        .await
+        .map_err(|error| utils::db_error(error, "统计导出行数"))?;
+    if total <= 0 {
+        return Err(ApiError::new(
+            422,
+            error_code::PARAM_INVALID,
+            "当前筛选条件下没有可导出的数据",
+        ));
+    }
+    let format = resolve_export_format(req.format.as_deref(), total)?;
+    let export_name = utils::trimmed(req.export_name.as_deref())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            format!(
+                "{}_{}",
+                definition.biz_name(),
+                chrono::Local::now().format("%Y%m%d_%H%M%S")
+            )
+        });
+
+    let task_id = uuid::Uuid::now_v7();
+    let task_no = model::build_export_task_no(&task_id);
+    // 过滤条件与列定义都存快照：定义改版后，历史任务的进度/产物语义仍然自洽
+    let query_params = serde_json::json!({
+        "keyword": filter.keyword,
+        "status": filter.status,
+    })
+    .to_string();
+    let columns_snapshot = serde_json::to_string(
+        &definition
+            .columns()
+            .iter()
+            .map(|column| {
+                serde_json::json!({
+                    "key": column.key,
+                    "header": column.header,
+                })
+            })
+            .collect::<Vec<_>>(),
+    )
+    .unwrap_or_else(|_| "[]".to_string());
+
+    model::insert_export_task(&NewExportTask {
+        id: task_id,
+        task_no: &task_no,
+        biz_type: definition.biz_type(),
+        biz_name: definition.biz_name(),
+        export_name: &export_name,
+        format: &format,
+        query_params: Some(&query_params),
+        columns_snapshot: Some(&columns_snapshot),
+        max_attempts: worker::DEFAULT_MAX_ATTEMPTS,
+        operator: utils::current_user_uuid(&claims),
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "创建导出任务"))?;
+
+    let task = model::find_export_task(&task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询导出任务"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                "导出任务创建后未能读回，请稍后重试",
+            )
+        })?;
+    tracing::info!(
+        task_id = %task.id,
+        task_no = %task.task_no,
+        total = total,
+        format = %format,
+        "已创建异步导出任务"
+    );
+    Ok(Res::ok(ExportTaskRes::from_model(task)))
+}
+
+/// 导出任务分页。
+///
+/// # 参数
+///
+/// - `query`：分页与过滤（默认只看自己创建的任务）。
+///
+/// # 返回值
+///
+/// 按创建时间倒序的分页数据。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/impexp/export/page",
+    method = "GET",
+    permission = "business:impexp:export:list"
+)]
+#[alun::get("/business/impexp/export/page")]
+pub async fn export_page(
+    Query(query): Query<ExportPageQuery>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<PageData<Vec<ExportTaskRes>>> {
+    let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    let only_mine = query.only_mine.unwrap_or(true);
+    let filter = ExportTaskFilter {
+        keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
+        status: utils::trimmed(query.status.as_deref()).map(str::to_string),
+        biz_type: utils::trimmed(query.biz_type.as_deref()).map(str::to_string),
+        create_by: if only_mine {
+            utils::current_user_uuid(&claims)
+        } else {
+            None
+        },
+    };
+    let result = model::page_export_tasks(&filter, page, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询导出任务"))?;
+    let list = result
+        .list
+        .into_iter()
+        .map(ExportTaskRes::from_model)
+        .collect();
+    Ok(Res::page(list, result.total, result.page, result.size))
+}
+
+/// 导出任务详情（前端轮询这个接口看进度）。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// 任务详情（进度 / 产物信息 / 重试次数 / 失败原因）。
+///
+/// # 异常情况
+///
+/// 404：任务不存在；400：ID 格式非法。
+#[alun::permission(
+    path = "/business/impexp/export/{id}",
+    method = "GET",
+    permission = "business:impexp:export:list"
+)]
+#[alun::get("/business/impexp/export/{id}")]
+pub async fn export_detail(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
+    let task = load_export_task(&id).await?;
+    Ok(Res::ok(ExportTaskRes::from_model(task)))
+}
+
+/// 下载导出产物。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// 文件流（本地磁盘流式下发，不整文件进内存）；响应头带 `X-File-SHA256` 供客户端校验。
+///
+/// # 异常情况
+///
+/// - **410 + `60016`**：产物已过期（`expire_at` 已过或已被清理任务回收）；
+/// - 409 + `60015`：任务未完成（`PENDING` / `RUNNING` / `FAILED` / `CANCELED`）；
+/// - 404：任务不存在。
+#[alun::permission(
+    path = "/business/impexp/export/{id}/download",
+    method = "GET",
+    permission = "business:impexp:export:download"
+)]
+#[alun::get("/business/impexp/export/{id}/download")]
+pub async fn export_download(Path(id): Path<String>) -> Response {
+    match export_download_response(&id).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+/// 下载响应构造（把 410 / 409 的判定集中在一处，便于单测覆盖）。
+async fn export_download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
+    let task = load_export_task(raw_id).await?;
+
+    if task.status == "EXPIRED" {
+        return Err(expired_error());
+    }
+    if task.status != "SUCCESS" {
+        return Err(ApiError::new(
+            409,
+            error_code::EXPORT_NOT_READY,
+            format!(
+                "任务当前状态为 {}，产物尚未就绪（完成后才能下载）",
+                task.status
+            ),
+        ));
+    }
+    // 懒过期：清理任务是每天 04:40 跑，过期但还没被扫到的行状态仍是 SUCCESS
+    if task.is_expired(chrono::Utc::now()) {
+        let _ = model::expire_export_task(&task.id).await;
+        if let Some(path) = task.file_path.as_deref() {
+            let _ = tokio::fs::remove_file(path).await;
+            tracing::info!(task_no = %task.task_no, path = path, "下载命中过期产物，已回收文件");
+        }
+        return Err(expired_error());
+    }
+
+    let Some(path) = task.file_path.clone() else {
+        // 记录在库但路径被清理过：对用户而言与过期等价
+        return Err(ApiError::new(
+            410,
+            error_code::EXPORT_FILE_MISSING,
+            "导出产物文件已不存在（可能已被清理），请重新导出",
+        ));
+    };
+    let file = tokio::fs::File::open(&path).await.map_err(|error| {
+        tracing::warn!(path = path, error = %error, "打开导出产物失败");
+        ApiError::new(
+            410,
+            error_code::EXPORT_FILE_MISSING,
+            "导出产物文件已不存在（可能已被清理），请重新导出",
+        )
+    })?;
+    let size = file
+        .metadata()
+        .await
+        .map(|meta| meta.len())
+        .unwrap_or_default();
+    let file_name = task
+        .file_name
+        .clone()
+        .unwrap_or_else(|| format!("{}.xlsx", task.task_no));
+    let mime = if task.format.eq_ignore_ascii_case("CSV") {
+        CSV_MIME
+    } else {
+        XLSX_MIME
+    };
+
+    let mut response = Response::new(Body::from_stream(ReaderStream::new(file)));
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(mime)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&size.to_string())
+            .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "响应头构造失败"))?,
+    );
+    headers.insert(
+        header::CONTENT_DISPOSITION,
+        HeaderValue::from_str(&content_disposition(&file_name))
+            .unwrap_or_else(|_| HeaderValue::from_static("attachment")),
+    );
+    if let Some(sha) = task.file_sha256.as_deref()
+        && let Ok(value) = HeaderValue::from_str(sha)
+    {
+        headers.insert(header::HeaderName::from_static("x-file-sha256"), value);
+    }
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
+/// 取消导出任务。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// `PENDING` 直接取消（`CANCELED`）；`RUNNING` 只打标记，由 worker 在批次边界中止。
+///
+/// # 异常情况
+///
+/// 409 + `60021`：当前状态不允许取消（`SUCCESS` / `FAILED` / `EXPIRED` / 终态）。
+#[alun::permission(
+    path = "/business/impexp/export/{id}/cancel",
+    method = "POST",
+    permission = "business:impexp:export:cancel"
+)]
+#[alun::post("/business/impexp/export/{id}/cancel")]
+pub async fn export_cancel(Path(id): Path<String>) -> ResResult<TaskActionRes> {
+    let task = load_export_task(&id).await?;
+    let outcome = model::cancel_export_task(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "取消导出任务"))?;
+    match outcome {
+        Some(true) => Ok(Res::ok(TaskActionRes {
+            task_id: task.id.to_string(),
+            status: "CANCELED".to_string(),
+            message: "任务已取消".to_string(),
+        })),
+        Some(false) => Ok(Res::ok(TaskActionRes {
+            task_id: task.id.to_string(),
+            status: "RUNNING".to_string(),
+            message: "已打上取消标记，后台任务会在当前分块结束后中止".to_string(),
+        })),
+        None => Err(ApiError::new(
+            409,
+            error_code::EXPORT_STATUS_INVALID,
+            format!("当前状态为 {}，不允许取消", task.status),
+        )),
+    }
+}
+
+/// 重试导出任务：把 `FAILED` / `CANCELED` / `EXPIRED` 重新排队。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// 重排后的任务（`PENDING`，`attempt_count` 归零）。
+///
+/// # 说明
+///
+/// 导出重试**复用同一条任务行**（任务号不变，前端只维护一个 id）。这与导入重试
+/// 「新建一条任务」不同：导入的原任务是「某次上传的文件 + 校验结论」，必须留档；
+/// 而导出没有输入文件，同一意图重跑不产生歧义。
+///
+/// # 异常情况
+///
+/// 409 + `60021`：当前状态不允许重试（`PENDING` / `RUNNING` / `SUCCESS`）。
+#[alun::permission(
+    path = "/business/impexp/export/{id}/retry",
+    method = "POST",
+    permission = "business:impexp:export:retry"
+)]
+#[alun::post("/business/impexp/export/{id}/retry")]
+pub async fn export_retry(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
+    let task = load_export_task(&id).await?;
+    let affected = model::requeue_export_task(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "重试导出任务"))?;
+    if affected == 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::EXPORT_STATUS_INVALID,
+            format!(
+                "当前状态为 {}，只有失败 / 取消 / 过期的任务才能重试",
+                task.status
+            ),
+        ));
+    }
+    if let Some(path) = task.file_path.as_deref() {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+    let refreshed = model::find_export_task(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询导出任务"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导出任务不存在"))?;
+    Ok(Res::ok(ExportTaskRes::from_model(refreshed)))
+}
+
+/// 删除导出任务与产物文件（软删任务行）。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// 删除后的状态说明。
+///
+/// # 异常情况
+///
+/// 409 + `60021`：任务正在执行（`RUNNING`），不允许删除（先取消）。
+#[alun::permission(
+    path = "/business/impexp/export/{id}",
+    method = "DELETE",
+    permission = "business:impexp:export:delete"
+)]
+#[alun::delete("/business/impexp/export/{id}")]
+pub async fn export_delete(Path(id): Path<String>) -> ResResult<TaskActionRes> {
+    let task = load_export_task(&id).await?;
+    let affected = model::soft_delete_export_task(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "删除导出任务"))?;
+    if affected == 0 {
+        return Err(ApiError::new(
+            409,
+            error_code::EXPORT_STATUS_INVALID,
+            "任务正在执行（RUNNING），请先取消再删除",
+        ));
+    }
+    if let Some(path) = task.file_path.as_deref() {
+        let _ = tokio::fs::remove_file(path).await;
+    }
+    Ok(Res::ok(TaskActionRes {
+        task_id: task.id.to_string(),
+        status: "DELETED".to_string(),
+        message: "任务与产物已删除".to_string(),
+    }))
+}
+
+// ==================== 导入任务取消 / 重试（A4） ====================
+
+/// 取消导入任务。
+///
+/// # 参数
+///
+/// - `id`：任务 ID。
+///
+/// # 返回值
+///
+/// `PENDING` / `PARSING` / `VALIDATED` 直接取消；`IMPORTING` 打标记，
+/// `import_confirm` 会在下一个批次前中止并回写已入库行数。
+///
+/// # 异常情况
+///
+/// 409 + `60013`：当前状态不允许取消（`SUCCESS` / `PARTIAL` / `FAILED` / 已取消）。
+#[alun::permission(
+    path = "/business/impexp/import/{id}/cancel",
+    method = "POST",
+    permission = "business:impexp:import:cancel"
+)]
+#[alun::post("/business/impexp/import/{id}/cancel")]
+pub async fn import_cancel(Path(id): Path<String>) -> ResResult<TaskActionRes> {
+    let task = load_task(&id).await?;
+    let outcome = model::cancel_import_task(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "取消导入任务"))?;
+    match outcome {
+        Some(true) => Ok(Res::ok(TaskActionRes {
+            task_id: task.id.to_string(),
+            status: "CANCELED".to_string(),
+            message: "任务已取消".to_string(),
+        })),
+        Some(false) => Ok(Res::ok(TaskActionRes {
+            task_id: task.id.to_string(),
+            status: "IMPORTING".to_string(),
+            message: "已打上取消标记，入库会在当前批次结束后中止".to_string(),
+        })),
+        None => Err(ApiError::new(
+            409,
+            error_code::IMPORT_STATUS_INVALID,
+            format!("当前状态为 {}，不允许取消", task.status),
+        )),
+    }
+}
+
+/// 重试导入任务：**新建一条任务**并重跑预检（原任务保留，审计可追溯）。
+///
+/// # 参数
+///
+/// - `id`：原任务 ID。
+/// - `claims`：当前用户（新任务归属）。
+///
+/// # 返回值
+///
+/// 新任务 ID + 完整预检报告（与上传接口同款）。
+///
+/// # 异常情况
+///
+/// - 409 + `60013`：当前状态不允许重试（未到失败 / 取消态）；
+/// - 404：原任务的上传文件已被回收，需重新上传。
+#[alun::permission(
+    path = "/business/impexp/import/{id}/retry",
+    method = "POST",
+    permission = "business:impexp:import:retry"
+)]
+#[alun::post("/business/impexp/import/{id}/retry")]
+pub async fn import_retry(
+    Path(id): Path<String>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<UploadRes> {
+    let task = load_task(&id).await?;
+    if !matches!(task.status.as_str(), "FAILED" | "CANCELED" | "PARTIAL") {
+        return Err(ApiError::new(
+            409,
+            error_code::IMPORT_STATUS_INVALID,
+            format!(
+                "当前状态为 {}，只有失败 / 取消 / 部分成功的任务才能重试",
+                task.status
+            ),
+        ));
+    }
+    let definition = global_registry()
+        .import_definition(&task.biz_type)
+        .ok_or_else(|| def_not_found(&task.biz_type))?;
+    let file_path = task.file_path.clone().ok_or_else(|| {
+        ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            "原任务的上传文件已被回收，请重新上传文件",
+        )
+    })?;
+    let bytes = tokio::fs::read(&file_path).await.map_err(|error| {
+        ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            format!("读取原上传文件失败（可能已被回收）：{error}"),
+        )
+    })?;
+    if let Some(expected) = task.file_sha256.as_deref()
+        && sha256_hex(&bytes) != expected
+    {
+        return Err(ApiError::new(
+            409,
+            error_code::IMPORT_STATUS_INVALID,
+            "原上传文件内容已变化（SHA-256 校验失败），请重新上传",
+        ));
+    }
+
+    let mode = ImportMode::parse(&task.mode).unwrap_or(ImportMode::Strict);
+    let mode = ensure_mode_allowed(definition.allow_partial(), mode)?;
+    let operator = utils::current_user_uuid(&claims);
+    let new_id = uuid::Uuid::now_v7();
+    let new_task_no = model::build_import_task_no(&new_id);
+    let file_name = task
+        .file_name
+        .clone()
+        .unwrap_or_else(|| "import.xlsx".to_string());
+    // 来源留档：新任务的 options 里记下「从哪条任务重试而来」，审计可回溯
+    let options = serde_json::json!({ "retry_from": task.id.to_string() }).to_string();
+    model::insert_import_task(&NewImportTask {
+        id: new_id,
+        task_no: &new_task_no,
+        biz_type: definition.biz_type(),
+        biz_name: definition.biz_name(),
+        file_path: &file_path,
+        file_sha256: task.file_sha256.as_deref().unwrap_or_default(),
+        file_name: &file_name,
+        file_size: task.file_size.unwrap_or(bytes.len() as i64),
+        mode: mode.as_str(),
+        operator,
+        options: Some(&options),
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "创建重试任务"))?;
+
+    let outcome = run_precheck(&definition, new_id, &bytes, operator, mode).await?;
+    tracing::info!(
+        source_task = %task.task_no,
+        new_task = %new_task_no,
+        total = outcome.total,
+        error = outcome.error,
+        "导入任务重试已新建任务并完成预检"
+    );
+    Ok(Res::ok(UploadRes {
+        task_id: new_id.to_string(),
+        task_no: new_task_no,
+        status: "VALIDATED".to_string(),
+        report: outcome,
+    }))
+}
+
+/// 按 ID 装载导出任务。
+///
+/// # 异常情况
+///
+/// 400：ID 格式非法；404：任务不存在（含已软删）。
+async fn load_export_task(raw_id: &str) -> std::result::Result<model::ExportTask, ApiError> {
+    let id = utils::require_uuid(raw_id, "id")?;
+    model::find_export_task(&id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询导出任务"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导出任务不存在"))
+}
+
+/// 410：产物已过期。
+fn expired_error() -> ApiError {
+    ApiError::new(
+        410,
+        error_code::EXPORT_EXPIRED,
+        "导出结果已过期（可下载时间已结束），请重新发起导出",
+    )
 }
 
 #[cfg(test)]

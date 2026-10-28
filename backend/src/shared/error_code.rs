@@ -265,3 +265,13 @@ pub const NOTICE_RECEIVER_NOT_FOUND: i32 = 60030;
 
 /// 幂等键已存在但读不到对应通知（并发下的极端情况，HTTP 409）。
 pub const NOTICE_DUPLICATE_KEY: i32 = 60031;
+
+// ==================== 6003x：任务状态机与产物（A4） ====================
+//
+// A5 的 6002x 段（60021–60031）已占用，A4 从这里接着往后排，**不改动 A5 任何码值**。
+
+/// 任务当前状态不允许该操作（导出任务的取消 / 重试 / 删除状态机非法跃迁，HTTP 409）。
+pub const EXPORT_STATUS_INVALID: i32 = 60032;
+
+/// 导出产物文件已丢失（记录在库但文件已被清理，与过期同语义，HTTP 410）。
+pub const EXPORT_FILE_MISSING: i32 = 60033;

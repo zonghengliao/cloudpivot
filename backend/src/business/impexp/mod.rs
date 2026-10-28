@@ -17,14 +17,18 @@
 //! | [`template`] | 模板生成（表头 / 示例 / 字段说明三要素）与错误行导出 |
 //! | [`model`] | 任务与错误明细的数据访问 |
 //! | [`dto`] | 请求 / 响应 DTO |
-//! | [`handler`] | HTTP 接口（模板 / 预检 / 确认 / 查询 / 同步导出） |
+//! | [`handler`] | HTTP 接口（模板 / 预检 / 确认 / 查询 / 同步导出 / 异步任务） |
+//! | [`worker`] | 异步导出执行器：`SKIP LOCKED` 认领 + 分块进度 + 失败退避重试 |
+//! | [`cleanup`] | 僵尸任务回收（30 min 无心跳）+ 过期产物清理（下载 410） |
 //! | [`builtin`] | 内置真实业务定义（`sys_dict_item`） |
 //!
-//! # 本卡边界（明确不做）
+//! # 交付边界（A3 + A4 合并后的现状）
 //!
-//! - **异步导入 / 导出 worker、取消、重试、过期清理**：属 A4；
-//! - **CSV 超大档（> 20 万行）流式导入**：属 A4（架构文档 §3.4 的第三档）；
-//! - **导出脱敏与明文权限**：A4/A7（`ExportColumn.sensitive` 只做标记）；
+//! - **异步导出**（`worker` / `cleanup` / 接口层取消重试下载）：A4 已交付；
+//! - **导入仍是两步式同步链路**（上传即预检 → 确认入库），未改异步：
+//!   改它会推翻 A3 已验收的「上传返回完整预检报告」契约，留待单独卡；
+//! - **CSV 超大档（> 20 万行）流式导入**：未做；
+//! - **导出脱敏与明文权限**：未做（`ExportColumn.sensitive` 只做标记）；
 //! - 前端页面：A7。
 //!
 //! # 性能取舍（对应验收 4）
@@ -35,6 +39,7 @@
 //! ②外键取值**聚合去重**后才发 SQL；③错误明细有上限（2000 条）且有界。
 
 pub mod builtin;
+pub mod cleanup;
 pub mod definition;
 pub mod dto;
 pub mod engine;
@@ -43,6 +48,7 @@ pub mod model;
 pub mod registry;
 pub mod template;
 pub mod validate;
+pub mod worker;
 
 pub use definition::{ExportDefinition, ImportDefinition};
 pub use registry::global_registry;
