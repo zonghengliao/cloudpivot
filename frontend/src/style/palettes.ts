@@ -532,6 +532,13 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
   // 品牌渐变：起点用压暗版、中段再按白字 4.5 兜底 —— 渐变条上的白字必须能读
   const gradientStart = brandStrong;
   const gradientMid = ensureContrast(blend(palette.brand, brandStrong, 0.4), '#ffffff', 4.5);
+  // 渐变终点：同色相提亮（原实现用 palette.accent，会跨色系变成"蓝→金""青→金"，
+  // 老大要求横幅必须是同色系渐变）。提亮后仍按白字 4.5 兜底：达不到会被 ensureContrast 自动压回。
+  const gradientEnd = ensureContrast(
+    withL(hexToHsl(palette.brand), Math.min(90, hexToHsl(palette.brand).l + 16)),
+    '#ffffff',
+    4.5,
+  );
 
   // ---------- 图表色 ----------
   // 图表是"有意义的图形"，按 WCAG 1.4.11 不低于 2.5 的可见度底线；
@@ -649,7 +656,7 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     '--app-bg-page': page,
     '--app-bg-container': container,
     '--app-border': borderColor,
-    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientMid} 52%, ${palette.accent.toLowerCase()} 100%)`,
+    '--app-gradient-brand': `linear-gradient(135deg, ${gradientStart} 0%, ${gradientMid} 52%, ${gradientEnd} 100%)`,
     // 色卡 / 预览区用：5 个基准色原值（不做任何修正，永远等于需求色表）
     '--app-swatch-1': palette.brand.toLowerCase(),
     '--app-swatch-2': palette.brandLight.toLowerCase(),
@@ -675,6 +682,7 @@ export function buildPalette(paletteId: string, mode: ColorMode): PaletteBuild {
     makeCheck('chart-2-on-page', '图表强调色 / 页面底', chartColors[1], page, 2.5, accentSafe !== palette.accent),
     makeCheck('white-on-gradient-start', '白字 / 渐变起点', '#ffffff', gradientStart, 4.5, gradientStart !== palette.brand),
     makeCheck('white-on-gradient-mid', '白字 / 渐变中段', '#ffffff', gradientMid, 4.5, true),
+    makeCheck('white-on-gradient-end', '白字 / 渐变终点', '#ffffff', gradientEnd, 4.5, gradientEnd !== palette.accent),
   ];
 
   return { palette, mode, vars, checks, warnings };
