@@ -336,6 +336,16 @@ export function cancelExport(id: string): Promise<null> {
   return post<null>(`/api/business/impexp/export/${id}/cancel`);
 }
 
+/**
+ * 重试失败的导出任务（后端 `POST /business/impexp/export/{id}/retry`）。
+ *
+ * 仅 `FAILED` / `CANCELLED` / 已过期（`EXPIRED`）的任务可重试 —— 后端复用同一条任务行
+ * （任务号不变，`attempt_count` 归零后重新排队）；其它状态返回 409 + 60032。
+ */
+export function retryExport(id: string): Promise<ExportTaskRes> {
+  return post<ExportTaskRes>(`/api/business/impexp/export/${id}/retry`);
+}
+
 /** 删除导出任务与产物 */
 export function deleteExport(id: string): Promise<null> {
   return del<null>(`/api/business/impexp/export/${id}`);

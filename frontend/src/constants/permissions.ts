@@ -44,7 +44,7 @@ export const STORAGE_PERMISSIONS = {
   storageDelete: 'business:storage:delete',
 } as const;
 
-/** 导入导出权限码（13 个） */
+/** 导入导出权限码（14 个） */
 export const IMPEXP_PERMISSIONS = {
   /** 可用导入 / 导出定义 */
   impexpDefList: 'business:impexp:def:list',
@@ -70,6 +70,8 @@ export const IMPEXP_PERMISSIONS = {
   impexpExportDownload: 'business:impexp:export:download',
   /** 取消导出 */
   impexpExportCancel: 'business:impexp:export:cancel',
+  /** 重试导出（仅失败 / 已取消 / 已过期；V0052 补种） */
+  impexpExportRetry: 'business:impexp:export:retry',
   /** 删除导出任务 */
   impexpExportDelete: 'business:impexp:export:delete',
 } as const;
@@ -103,5 +105,5 @@ export const PERM = {
   ...NOTICE_PERMISSIONS,
 } as const;
 
-/** 批次 A 权限码总数自检值（33） */
-export const BATCH_A_PERMISSION_COUNT = 33;
+/** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */
+export const BATCH_A_PERMISSION_COUNT = 34;

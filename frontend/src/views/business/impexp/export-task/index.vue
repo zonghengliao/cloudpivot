@@ -86,6 +86,14 @@
             >
               取消
             </t-link>
+            <t-link
+              v-if="canRetry(row)"
+              v-privilege="[PERM.impexpExportRetry]"
+              theme="primary"
+              @click="confirmRetry(row)"
+            >
+              重试
+            </t-link>
             <t-link v-privilege="[PERM.impexpExportDelete]" theme="danger" @click="confirmRemove(row)">删除</t-link>
           </t-space>
         </template>
@@ -136,6 +144,7 @@ import {
   downloadExport,
   listDefinitions,
   pageExportTasks,
+  retryExport,
   type DefinitionBrief,
   type ExportTaskRes,
   type ExportTaskStatus,
@@ -199,6 +208,17 @@ function isExpired(expireAt?: string | null): boolean {
     return false;
   }
   return dayjs(expireAt).isBefore(dayjs());
+}
+
+/**
+ * 是否可重试：失败 / 已取消 / 产物已过期（后端 `requeue_export_task` 的三种前置状态）。
+ * 与后端状态机保持一致，避免出现「按钮能点但必然 409」。
+ */
+function canRetry(row: ExportTaskRes): boolean {
+  if (row.status === 'FAILED' || row.status === 'CANCELLED') {
+    return true;
+  }
+  return row.status === 'SUCCESS' && isExpired(row.expire_at);
 }
 
 /** 有效期文案：剩余时间比绝对时间更好读 */
@@ -337,6 +357,27 @@ function confirmCancel(row: ExportTaskRes): void {
         try {
           await cancelExport(row.id);
           void MessagePlugin.success('任务已取消');
+          await loadList();
+        } catch (error) {
+          showError(error);
+        }
+      })();
+    },
+  });
+}
+
+function confirmRetry(row: ExportTaskRes): void {
+  const dialog = DialogPlugin.confirm({
+    header: '重试导出',
+    body: `确定重新执行任务 ${row.task_no}？将复用同一条任务记录重新排队。`,
+    theme: 'info',
+    confirmBtn: { content: '重新执行', theme: 'primary' },
+    onConfirm: () => {
+      dialog.destroy();
+      void (async () => {
+        try {
+          await retryExport(row.id);
+          void MessagePlugin.success('已重新排队，完成后可在本页下载');
           await loadList();
         } catch (error) {
           showError(error);
