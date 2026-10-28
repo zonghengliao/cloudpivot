@@ -320,3 +320,44 @@ for (;;) {
 - `cargo fmt -- --check` + `cargo clippy --all-targets -- -D warnings` + `cargo test`（217 passed）全绿；
 - `system/`、`support/` 零改动，`shared/error_code.rs` 零改动，无新增迁移；
 - 对外契约：`GET /api/business/notice/stream`（`business:notice:mine`）、`GET /api/business/notice/stream/stats`（`business:notice:list`）、`dispatch` 签名不变（C/D 批次照旧调用）。
+
+---
+
+## 9. 生产工作副本同步核对（A5 踩过的坑，本卡收尾必查）
+
+A6 全程在独立 worktree `/var/tmp/a6` 开发（A4 卡当时正在 `/opt/cloudpivot` 里改 `impexp/*` 与 `task/mod.rs`），
+收尾时 A4 已 rebase 到 A6 之上并推送，生产工作副本 `/opt/cloudpivot` 已快进到同一 tip：
+
+```console
+$ cd /opt/cloudpivot && git rev-parse HEAD origin/main
+d7c2db954f49f154e9b836f3688255da1f72c5a0
+d7c2db954f49f154e9b836f3688255da1f72c5a0
+$ git status --short
+（空 → 工作区干净）
+$ git log --oneline -6
+d7c2db9 docs(impexp): 归档 A4 验收证据（四条硬指标实测输出 + 两个实测踩坑）
+d7be183 feat(impexp): A4 异步任务 —— SKIP LOCKED 抢占 + 进度 + 重试 + 僵尸回收 + 过期 410
+2c59f97 fix(impexp): 导出定义 after_id 绑定 uuid 类型 —— 10 万行导出的第 2 页必然失败
+215cef0 test(notice): A6 补充 SSE 鉴权穿透验证（无 auth 401 / query 不能伪造频道归属 / A 的通知不到 B 的连接）
+dddb22c docs(notice): 归档 A6 验证证据（三条硬指标实测输出 + 三检查日志 + 4 条踩坑记录）
+dee5488 feat(notice): A6 SSE 实时推送 + per-user 频道 + 通道投递预留
+```
+
+在**生产工作副本**（`/opt/cloudpivot/backend`，已含 A6 + A4 合并后的代码）复跑三检查：
+
+```console
+### cargo fmt -- --check
+FMT_OK
+### cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 7.60s
+### cargo test
+running 248 tests
+test result: ok. 248 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+running 7 tests   → test result: ok. 7 passed
+running 2 tests   → test result: ok. 2 passed (s3 minio)
+running 4 tests   → 4 ignored
+```
+
+248 = A5 基线 202 + A6 新增 15 + A4 新增 31：**合并后的主分支全绿**，`task/mod.rs` 里双方的注册行并存
+（`notice::sse_hub::register_builtin` 与 `impexp::worker/cleanup::register_builtin` 都在，启动日志可见
+`定时任务 notice_sse_channel_sweep [0 */5 * * * *] 已排程`）。
