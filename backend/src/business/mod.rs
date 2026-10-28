@@ -7,6 +7,8 @@
 //! |--------|------|
 //! | [`monitor`] | 服务器运行状态（CPU / 内存 / 磁盘 / 数据库 / Redis），仅超管可读 |
 //! | [`storage`] | 对象存储底座：多后端路由、SigV4 预签名、AK/SK 加密、配置与策略管理 |
+//! | [`impexp`] | 导入导出引擎：定义注册、流式解析、逐行校验、模板生成、同步导出 |
 
+pub mod impexp;
 pub mod monitor;
 pub mod storage;

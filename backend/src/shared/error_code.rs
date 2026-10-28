@@ -204,3 +204,26 @@ pub const STORAGE_ENDPOINT_FORBIDDEN: i32 = 60009;
 
 /// AK/SK 解密失败或探测鉴权失败（不区分，防探测，HTTP 422）。
 pub const STORAGE_CREDENTIAL_INVALID: i32 = 60010;
+
+// ==================== 6001x：导入导出（A3） ====================
+
+/// `biz_type` 未注册（HTTP 404）。
+pub const IMPORT_DEF_NOT_FOUND: i32 = 60011;
+
+/// 超过导入定义的单次行数上限（HTTP 422）。
+pub const IMPORT_ROW_LIMIT: i32 = 60012;
+
+/// 导入任务状态机非法跃迁（如对 `SUCCESS` 再 confirm，HTTP 409）。
+pub const IMPORT_STATUS_INVALID: i32 = 60013;
+
+/// 导入批次入库失败 / 未开部分导入但存在失败行（HTTP 422）。
+pub const IMPORT_BATCH_FAILED: i32 = 60014;
+
+/// 导出任务未就绪 / 超出同步导出上限（HTTP 409）。
+pub const EXPORT_NOT_READY: i32 = 60015;
+
+/// 导出产物已过期（HTTP 410）。
+pub const EXPORT_EXPIRED: i32 = 60016;
+
+/// 导入文件格式不合法（魔数不符 / 无法解析 / 只有表头 / 表头缺必需列，HTTP 400 或 422）。
+pub const IMPORT_FILE_INVALID: i32 = 60020;

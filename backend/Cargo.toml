@@ -30,11 +30,20 @@ alun = { version = "0.4.2", features = [
     "ipnetwork",
     # HTML 净化：社区公告等富文本入库前过滤
     "xss",
+    # 真 XLSX 读写（框架 alun-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
+    # 读走 calamine。不开此 feature 时这些 API 根本不存在（不是静默退化成 CSV）。
+    "xlsx",
 ] }
 
 # 工具集：门面 prelude 未转发 UA 解析，而 `auth_logs` 需要写入设备 / 浏览器 / 操作系统，
 # 故按「必要时可声明 alun-utils」的约定直接依赖（与 alun 同源，不会引入第二份实例）。
 alun-utils = { version = "0.4.2" }
+
+# Excel 读取：与 alun-utils 的 xlsx feature 锁定同一版本（alun-utils 0.4.2 声明 calamine = "0.36"），
+# 依赖树里只有一份 calamine，不引入 alun 之外的新 crate。
+# 直连原因：框架 Import::from_xlsx 把整表转成 Vec<HashMap> 且不暴露表头——
+# E-IMP-02/03/04/05 四条结构校验必须读表头；逐行 range.rows() 也省掉第二份行集合的内存。
+calamine = "0.36"
 
 # Web 层：multipart 用于文件上传；中间件钩子需要 axum::Router
 axum = { version = "0.8", features = ["multipart"] }
