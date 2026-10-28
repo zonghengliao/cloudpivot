@@ -63,20 +63,20 @@
   --td-brand-color-focus-light: var(--td-brand-color-1);
 
   // ---------- 中性色：底色 / 容器 / 边框 / 文字（金辉交融 + 流金渐染）----------
-  --td-bg-color-page: #e5eae1; // 金辉交融：body 与布局内容区底色
-  --td-bg-color-container: #ffffff; // 卡片与容器：纯白，与米白底色拉开一档
-  --td-bg-color-container-hover: #f7f8f3;
-  --td-bg-color-secondarycontainer: #f0f2e9; // 次级容器（表头、只读块）
-  --td-bg-color-secondarycontainer-hover: #e9ece0;
-  --td-component-stroke: #ddd6c4; // 分割线（流金渐染浅阶）
-  --td-component-border: #cfc4aa; // 描边（= 流金渐染）
+  --td-bg-color-page: #f2f2ee; // 霜月白：body 与布局内容区底色
+  --td-bg-color-container: #ffffff; // 卡片与容器：纯白，与霜月白拉开一档
+  --td-bg-color-container-hover: #f7f7f4;
+  --td-bg-color-secondarycontainer: #fafaf7; // 暖白：次级容器（表头、只读块）
+  --td-bg-color-secondarycontainer-hover: #f2f2ee;
+  --td-component-stroke: #dce2e6; // 分割线（雾蓝灰浅阶）
+  --td-component-border: #aab7c2; // 描边（= 雾蓝灰）
   // TDesign 输入框 / 选择器 / 表格的边框走 border-level 系列，不跟 component-border，需单独接管
-  --td-border-level-1-color: #ddd6c4;
-  --td-border-level-2-color: #cfc4aa;
+  --td-border-level-1-color: #dce2e6;
+  --td-border-level-2-color: #aab7c2;
   --td-text-color-primary: #2f3a4d; // 主要文字：深蓝灰，不用纯黑
-  --td-text-color-secondary: #5a6377; // 次要文字：对金辉交融 4.93（AA）
-  --td-text-color-placeholder: #78819b; // 占位：对金辉交融 3.18（按 3:1 放宽）
-  --td-text-color-disabled: #a5b3cb;
+  --td-text-color-secondary: #5a6377; // 次要文字：对霜月白 4.94（AA）
+  --td-text-color-placeholder: #7a8a98; // 占位：雾蓝灰加深，对霜月白 3.16（按 3:1 放宽）
+  --td-text-color-disabled: #aab7c2; // 雾蓝灰
 
   // ---------- 状态色（语义必须可辨认，只在七色板内取值）----------
   --td-success-color: #6f8ab8; // 复用晨雾蓝（项目内"正常/通过"与品牌同色系）
@@ -115,6 +115,12 @@
   --app-brand-border: var(--td-brand-color-4); // 浅边框
   // 严格 AA 白字底：小号白字按钮/徽标用（白字 4.89）
   --app-brand-strong: #56729f;
+  // ---------- 辅助色：深海蓝（次级操作、深层文字、图表第 2 色、侧栏强调）----------
+  // 白字 / #51697C 5.74（AA ✔）；作正文色对霜月白 8.9（AA ✔）
+  --app-brand-secondary: #51697c;
+  --app-brand-secondary-hover: #6b8296;
+  --app-brand-secondary-active: #445a6b;
+  --app-brand-secondary-light: #e8edf1;
   // 落日流金：强调 / 点缀（标签、徽标、进度强调、hover 边框）——只做少量点缀
   --app-brand-accent: #c1ac7b;
   // 深一档流金：需要白字的强调底（白字 4.52）
@@ -130,12 +136,16 @@
   --app-card-bg: var(--td-bg-color-container);
   --app-text-primary: var(--td-text-color-primary);
   --app-text-secondary: var(--td-text-color-secondary);
-  --app-table-head-bg: #f0f2e9;
+  --app-table-head-bg: #fafaf7;
   // 登录页渐变（浅色）：金辉交融主底 + 雾散初光过渡 / 品牌区加一层流金微暖
-  --app-login-bg: linear-gradient(135deg, #e5eae1 0%, #dde3e8 52%, #e5eae1 100%);
-  --app-login-brand: linear-gradient(155deg, #dde5f0 0%, #c8d3e5 55%, #e0dbc8 100%);
-  // 品牌渐变（深蓝 → 晨雾蓝 → hover 档），用于横幅、欢迎条幅等装饰场景
+  --app-login-bg: linear-gradient(135deg, #f2f2ee 0%, #eaeef0 52%, #f2f2ee 100%);
+  --app-login-brand: linear-gradient(155deg, #e8edf1 0%, #dce2e6 55%, #eae3db 100%);
+  // 品牌渐变（深蓝 → 晨雾蓝 → hover 档），用于普通装饰场景
   --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6f8ab8 55%, #8ba0c7 100%);
+  // 晨昏流金渐变（老大指定）：晨雾蓝 → 雾散初光 → 金辉交融 → 流金渐染 → 落日流金
+  // 用于首页欢迎横幅，寓意"晨雾散开、日光渐暖"。因中段是浅色（金辉交融），
+  // 配深色文字 #2F3A4D：左端 3.27（大号标题达 3:1）、中段 9.37、右端 5.19，全段可读
+  --app-gradient-banner: linear-gradient(100deg, #6f8ab8 0%, #a5b3cb 22%, #e5eae1 50%, #cfc4aa 78%, #c1ac7b 100%);
 }
 
 /* ========================= 暗色主题 =========================
@@ -215,6 +225,10 @@
   --app-brand-light: var(--td-brand-color-1);
   --app-brand-border: var(--td-brand-color-4);
   --app-brand-strong: #7d96c4; // 深色模式下"更强"= 更亮（深底上白字 4.4+ 不现实，改用亮底深字）
+  --app-brand-secondary: #8fa6bd; // 深海蓝在深底上提亮，作辅助色与次级文字
+  --app-brand-secondary-hover: #aab7c2;
+  --app-brand-secondary-active: #6b8296;
+  --app-brand-secondary-light: #1e2530;
   --app-brand-accent: #cfc4aa;
   --app-brand-accent-deep: #c1ac7b;
   --app-accent-soft: rgb(207 196 170 / 40%);
@@ -229,4 +243,6 @@
   --app-login-bg: linear-gradient(135deg, #171b20 0%, #1d232a 52%, #171b20 100%);
   --app-login-brand: linear-gradient(155deg, #232c34 0%, #2a3540 55%, #2c2b26 100%);
   --app-gradient-brand: linear-gradient(135deg, #384c6d 0%, #6381b4 55%, #7d96c4 100%);
+  // 暗色横幅：同一色相压暗，保持"晨雾→流金"的过渡但降低亮度，文字仍用浅色
+  --app-gradient-banner: linear-gradient(100deg, #2b3a52 0%, #3d4f6b 22%, #4a5563 50%, #5a5344 78%, #6b5f42 100%);
 }
