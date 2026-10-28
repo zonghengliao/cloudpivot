@@ -1,0 +1,135 @@
+==== 0. 新建空库 a7_permcheck ====
+==== 1. 按版本序应用底座迁移（system → support → business） ====
+  OK   backend/migrations/system/V0001__create_sys_user.up.sql
+  OK   backend/migrations/system/V0002__create_sys_role.up.sql
+  OK   backend/migrations/system/V0003__create_sys_user_role.up.sql
+  OK   backend/migrations/system/V0004__create_sys_menu.up.sql
+  OK   backend/migrations/system/V0005__create_sys_role_menu.up.sql
+  OK   backend/migrations/system/V0006__create_sys_dept.up.sql
+  OK   backend/migrations/system/V0022__add_session_security_flags.up.sql
+  OK   backend/migrations/support/V0007__create_sys_dict_type.up.sql
+  OK   backend/migrations/support/V0008__create_sys_dict_item.up.sql
+  OK   backend/migrations/support/V0009__create_sys_config.up.sql
+  OK   backend/migrations/support/V0010__create_sys_file.up.sql
+  OK   backend/migrations/support/V0011__create_operation_logs.up.sql
+  OK   backend/migrations/support/V0012__create_sys_job.up.sql
+  OK   backend/migrations/support/V0013__create_sys_job_log.up.sql
+  OK   backend/migrations/support/V0014__create_audit_logs.up.sql
+  OK   backend/migrations/support/V0015__create_auth_logs.up.sql
+  OK   backend/migrations/support/V0016__create_security_logs.up.sql
+  OK   backend/migrations/support/V0017__create_password_change_logs.up.sql
+  OK   backend/migrations/business/V0020__add_biz_monitor_permission.up.sql
+  OK   backend/migrations/business/V0040__create_storage_config.up.sql
+  OK   backend/migrations/business/V0046__seed_storage_permissions.up.sql
+  OK   backend/migrations/business/V0047__seed_impexp_notice_permissions.up.sql
+  OK   backend/migrations/business/V0048__seed_storage_default_and_policies.up.sql
+==== 2. 应用种子数据（角色 / 菜单） ====
+  OK   backend/migrations/seed/S__config_data.sql
+  OK   backend/migrations/seed/S__dict_data.sql
+  OK   backend/migrations/seed/S__menu_data.sql
+  OK   backend/migrations/seed/S__role_data.sql
+==== 2.1 造一个非超管角色（验证「所有角色」授权分支） ====
+  OK   非超管角色 OPS_ONLY 已建
+==== 3. 首次执行 V0046 / V0047 ====
+  OK   V0046__seed_storage_permissions.up.sql
+  OK   V0047__seed_impexp_notice_permissions.up.sql
+==== 4. 幂等复跑（第二次执行不应报错、不产生重复行） ====
+  OK   V0046__seed_storage_permissions.up.sql (2nd)
+  OK   V0047__seed_impexp_notice_permissions.up.sql (2nd)
+==== 5. 结果核对 ====
+ menu_type | rows | distinct_codes 
+-----------+------+----------------
+         1 |    1 |              1
+         2 |    7 |              7
+         3 |   25 |             25
+(3 rows)
+
+            auth_code            |             title              
+---------------------------------+--------------------------------
+ business:impexp:def:list        | 导入导出定义查看
+ business:impexp:export:cancel   | 取消导出
+ business:impexp:export:create   | 发起导出 / 同步导出
+ business:impexp:export:delete   | 删除导出任务与产物
+ business:impexp:export:download | 下载导出结果
+ business:impexp:export:list     | 导出任务列表 / 详情
+ business:impexp:export:list     | 导出任务
+ business:impexp:import:cancel   | 取消导入任务
+ business:impexp:import:confirm  | 确认入库
+ business:impexp:import:download | 下载错误行文件
+ business:impexp:import:list     | 导入任务
+ business:impexp:import:list     | 导入任务列表 / 详情 / 错误明细
+ business:impexp:import:retry    | 失败重试
+ business:impexp:import:template | 下载导入模板
+ business:impexp:import:upload   | 导入向导
+ business:impexp:import:upload   | 上传并建导入任务
+ business:storage:config:create  | 新增存储配置
+ business:storage:config:delete  | 删除存储配置
+ business:storage:config:list    | 存储管理
+ business:storage:config:list    | 存储配置查看
+ business:storage:config:test    | 连通性测试
+ business:storage:config:update  | 编辑 / 设默认 / 启停存储配置
+ business:storage:delete         | 删除文件（软删）
+ business:storage:download       | 文件下载 / 限时链接
+ business:storage:list           | 文件管理
+ business:storage:list           | 文件分页查看
+ business:storage:policy:list    | 上传策略查看
+ business:storage:policy:update  | 上传策略编辑
+ business:storage:upload         | 上传文件（含直传）
+(29 rows)
+
+             path             |  title   | is_visible 
+------------------------------+----------+------------
+ /business/storage/backend    | 存储管理 | t
+ /business/storage/file       | 文件管理 | t
+ /business/impexp/import      | 导入向导 | t
+ /business/impexp/import-task | 导入任务 | t
+ /business/impexp/export-task | 导出任务 | t
+ /business/notice/message     | 消息中心 | f
+ /business/notice/send        | 发送通知 | f
+(7 rows)
+
+  role_code  | granted_menus 
+-------------+---------------
+ OPS_ONLY    |            21
+ SUPER_ADMIN |            35
+(2 rows)
+
+            auth_code            |             title              
+---------------------------------+--------------------------------
+                                 | 通用底座
+ business:impexp:def:list        | 导入导出定义查看
+ business:impexp:export:cancel   | 取消导出
+ business:impexp:export:create   | 发起导出 / 同步导出
+ business:impexp:export:download | 下载导出结果
+ business:impexp:export:list     | 导出任务列表 / 详情
+ business:impexp:export:list     | 导出任务
+ business:impexp:import:cancel   | 取消导入任务
+ business:impexp:import:confirm  | 确认入库
+ business:impexp:import:download | 下载错误行文件
+ business:impexp:import:list     | 导入任务
+ business:impexp:import:list     | 导入任务列表 / 详情 / 错误明细
+ business:impexp:import:retry    | 失败重试
+ business:impexp:import:template | 下载导入模板
+ business:impexp:import:upload   | 上传并建导入任务
+ business:impexp:import:upload   | 导入向导
+ business:notice:mine            | 消息中心
+ business:storage:download       | 文件下载 / 限时链接
+ business:storage:list           | 文件分页查看
+ business:storage:list           | 文件管理
+ business:storage:upload         | 上传文件（含直传）
+(21 rows)
+
+==== 6. 回滚 V0047 / V0046（down） ====
+  OK   V0047__seed_impexp_notice_permissions.down.sql
+  OK   V0046__seed_storage_permissions.down.sql
+==== 7. 回滚后应为 0 行 ====
+ leftover_batch_a_menus 
+------------------------
+                      0
+(1 row)
+
+ leftover_grants 
+-----------------
+               0
+(1 row)
+

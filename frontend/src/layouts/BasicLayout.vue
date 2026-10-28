@@ -42,6 +42,9 @@
 
         <palette-switch />
 
+        <!-- 顶栏消息铃铛：未读角标 + 最近 5 条未读（SSE 推送） -->
+        <notice-bell />
+
         <t-tooltip :content="setting.themeMode === 'dark' ? '切换亮色主题' : '切换暗色主题'">
           <t-button
             class="basic-layout__theme-toggle"
@@ -74,13 +77,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
 import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
+import NoticeBell from '@/layouts/components/NoticeBell.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
+import { useNoticeStore } from '@/stores/notice';
 import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
 
 /** 用户下拉菜单项 */
@@ -193,6 +198,17 @@ async function doLogout(): Promise<void> {
   await userStore.logout();
   await router.push('/login');
 }
+
+/** SSE 订阅生命周期：布局挂载即连，卸载即断（全局仅一条连接） */
+const noticeStore = useNoticeStore();
+
+onMounted(() => {
+  noticeStore.connect();
+});
+
+onBeforeUnmount(() => {
+  noticeStore.disconnect();
+});
 </script>
 
 <style scoped lang="less">

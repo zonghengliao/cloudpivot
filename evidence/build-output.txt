@@ -1,0 +1,109 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 build /root/work/a7/frontend
+> vue-tsc --noEmit && vite build
+
+vite v6.3.7 building for production...
+transforming...
+✓ 4583 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                                                 0.61 kB │ gzip:   0.36 kB
+dist/assets/EChart-CBtkWo53.css                                                 0.04 kB │ gzip:   0.06 kB
+dist/assets/index-BWLRblPI.css                                                  0.32 kB │ gzip:   0.20 kB
+dist/assets/index-CmZsS8I8.css                                                  0.32 kB │ gzip:   0.20 kB
+dist/assets/index-BjkeXFqu.css                                                  0.39 kB │ gzip:   0.23 kB
+dist/assets/index-BF87KSOU.css                                                  0.46 kB │ gzip:   0.25 kB
+dist/assets/index-D6GuI0lP.css                                                  0.52 kB │ gzip:   0.29 kB
+dist/assets/index-CTopka9g.css                                                  0.53 kB │ gzip:   0.24 kB
+dist/assets/index-EtDaQsAN.css                                                  0.53 kB │ gzip:   0.24 kB
+dist/assets/index-CsTIpoct.css                                                  0.53 kB │ gzip:   0.24 kB
+dist/assets/change-password-2S89RJek.css                                        0.66 kB │ gzip:   0.34 kB
+dist/assets/profile-D3DHjSzr.css                                                0.92 kB │ gzip:   0.35 kB
+dist/assets/index-D_gw3PC6.css                                                  1.05 kB │ gzip:   0.33 kB
+dist/assets/index-DyoxQY3_.css                                                  1.06 kB │ gzip:   0.34 kB
+dist/assets/index-DnrQf55J.css                                                  1.40 kB │ gzip:   0.47 kB
+dist/assets/index-DFgHLbMq.css                                                  1.62 kB │ gzip:   0.48 kB
+dist/assets/index-CxLEn83o.css                                                  1.95 kB │ gzip:   0.61 kB
+dist/assets/index-OGalfjKW.css                                                  2.23 kB │ gzip:   0.60 kB
+dist/assets/index-DGB911bL.css                                                  2.28 kB │ gzip:   0.66 kB
+dist/assets/index-CHxpxFNe.css                                                  2.50 kB │ gzip:   0.71 kB
+dist/assets/index-CDbVXus0.css                                                  2.71 kB │ gzip:   0.69 kB
+dist/assets/index-xoEZG5R2.css                                                  2.71 kB │ gzip:   0.65 kB
+dist/assets/index-nSCBR7zl.css                                                  3.48 kB │ gzip:   0.96 kB
+dist/assets/index-BYkUQAIY.css                                                  3.48 kB │ gzip:   0.75 kB
+dist/assets/index-W9-PFWdD.css                                                  3.58 kB │ gzip:   0.84 kB
+dist/assets/index-DKYzMKaH.css                                                  3.65 kB │ gzip:   0.84 kB
+dist/assets/index-T20WSO7u.css                                                  4.91 kB │ gzip:   1.18 kB
+dist/assets/preference-lw3QtNuM.css                                             6.52 kB │ gzip:   1.33 kB
+dist/assets/BasicLayout-CuX35HCD.css                                            6.97 kB │ gzip:   1.61 kB
+dist/assets/index-BdAPX2vC.css                                                  7.98 kB │ gzip:   1.99 kB
+dist/assets/tdesign-DCVn99yc.css                                              448.31 kB │ gzip:  51.34 kB
+dist/assets/logo-CxXS7KxG.js                                                    0.04 kB │ gzip:   0.06 kB
+dist/assets/_plugin-vue_export-helper-DlAUqK2U.js                               0.09 kB │ gzip:   0.10 kB
+dist/assets/download-DSxzK7DZ.js                                                0.30 kB │ gzip:   0.24 kB
+dist/assets/menu-api-PeBVzI4G.js                                                0.35 kB │ gzip:   0.19 kB
+dist/assets/format-CKkF0Pf6.js                                                  0.36 kB │ gzip:   0.28 kB
+dist/assets/role-api-BOf0srGp.js                                                0.60 kB │ gzip:   0.25 kB
+dist/assets/notice-B9yEbbqr.js                                                  0.75 kB │ gzip:   0.45 kB
+dist/assets/index-BUkrB6vR.js                                                   0.77 kB │ gzip:   0.55 kB
+dist/assets/index-CPtK0sc6.js                                                   0.78 kB │ gzip:   0.55 kB
+dist/assets/index-bv-4iHzH.js                                                   0.81 kB │ gzip:   0.57 kB
+dist/assets/user-api-DatoZ0LD.js                                                0.93 kB │ gzip:   0.32 kB
+dist/assets/index-BI0uGK0E.js                                                   0.94 kB │ gzip:   0.36 kB
+dist/assets/DeptTreeSelect.vue_vue_type_script_setup_true_lang-C7HlbQzp.js      1.07 kB │ gzip:   0.66 kB
+dist/assets/dict-CBIOKNTy.js                                                    1.18 kB │ gzip:   0.48 kB
+dist/assets/index-B5eDkbON.js                                                   1.51 kB │ gzip:   0.59 kB
+dist/assets/permissions-1Sri6wNn.js                                             1.64 kB │ gzip:   0.41 kB
+dist/assets/index-BhbSa2Km.js                                                   1.92 kB │ gzip:   0.92 kB
+dist/assets/EChart-DuEXsV5b.js                                                  1.99 kB │ gzip:   1.07 kB
+dist/assets/change-password-Cbj04N4Y.js                                         3.03 kB │ gzip:   1.45 kB
+dist/assets/index-CHEnl9gM.js                                                   3.39 kB │ gzip:   1.63 kB
+dist/assets/index-CufsNo3b.js                                                   4.49 kB │ gzip:   2.11 kB
+dist/assets/index-DqZIkzdd.js                                                   6.16 kB │ gzip:   2.65 kB
+dist/assets/index-weqzWHYT.js                                                   6.72 kB │ gzip:   2.83 kB
+dist/assets/profile-BdjqMUte.js                                                 7.09 kB │ gzip:   2.69 kB
+dist/assets/dayjs.min-DSOD-5U9.js                                               7.16 kB │ gzip:   3.12 kB
+dist/assets/index-BLM_V1ED.js                                                   8.52 kB │ gzip:   3.66 kB
+dist/assets/index-CDQJnLtq.js                                                   8.63 kB │ gzip:   3.24 kB
+dist/assets/index-hXYEnRcL.js                                                   9.56 kB │ gzip:   3.97 kB
+dist/assets/BasicLayout-qotZDeq-.js                                             9.96 kB │ gzip:   4.16 kB
+dist/assets/index-DyF4SqT1.js                                                  10.05 kB │ gzip:   3.81 kB
+dist/assets/preference-CNk797oi.js                                             10.31 kB │ gzip:   4.35 kB
+dist/assets/index-DnEWgzzJ.js                                                  10.37 kB │ gzip:   4.19 kB
+dist/assets/index-Da_DBdOh.js                                                  11.53 kB │ gzip:   3.89 kB
+dist/assets/index-DXHSfFfW.js                                                  11.63 kB │ gzip:   4.52 kB
+dist/assets/index-BunViz3w.js                                                  12.01 kB │ gzip:   3.89 kB
+dist/assets/index-UFHpHrXW.js                                                  12.64 kB │ gzip:   3.87 kB
+dist/assets/index-uRPZ2300.js                                                  12.89 kB │ gzip:   4.50 kB
+dist/assets/index-DWgyyUD5.js                                                  13.13 kB │ gzip:   4.35 kB
+dist/assets/index-CKP7ZF9g.js                                                  13.73 kB │ gzip:   4.93 kB
+dist/assets/index-C2rNnyGK.js                                                  13.88 kB │ gzip:   4.65 kB
+dist/assets/index-94iQNhxL.js                                                  13.88 kB │ gzip:   5.01 kB
+dist/assets/index-DxeAPqF_.js                                                  22.26 kB │ gzip:   7.13 kB
+dist/assets/index-It6sceKf.js                                                  52.92 kB │ gzip:  13.16 kB
+dist/assets/index-2woGTWRD.js                                                  98.34 kB │ gzip:  38.09 kB
+dist/assets/tdesign-RaYyS35S.js                                             1,013.23 kB │ gzip: 275.01 kB
+dist/assets/echarts-CuV_skF0.js                                             1,026.96 kB │ gzip: 340.14 kB
+✓ built in 17.17s
+
+✨ [vite-plugin-compression]:algorithm=gzip - compressed file successfully: 
+dist//root/work/a7/frontend/assets/index-94iQNhxL.js.gz        13.55kb / gzip: 4.89kb
+dist//root/work/a7/frontend/assets/index-BunViz3w.js.gz        11.73kb / gzip: 3.79kb
+dist//root/work/a7/frontend/assets/index-CKP7ZF9g.js.gz        13.41kb / gzip: 4.81kb
+dist//root/work/a7/frontend/assets/index-C2rNnyGK.js.gz        13.55kb / gzip: 4.54kb
+dist//root/work/a7/frontend/assets/index-DWgyyUD5.js.gz        12.82kb / gzip: 4.24kb
+dist//root/work/a7/frontend/assets/index-DXHSfFfW.js.gz        11.36kb / gzip: 4.41kb
+dist//root/work/a7/frontend/assets/index-DnEWgzzJ.js.gz        10.12kb / gzip: 4.09kb
+dist//root/work/a7/frontend/assets/index-Da_DBdOh.js.gz        11.26kb / gzip: 3.80kb
+dist//root/work/a7/frontend/assets/index-UFHpHrXW.js.gz        12.35kb / gzip: 3.78kb
+dist//root/work/a7/frontend/assets/index-uRPZ2300.js.gz        12.58kb / gzip: 4.39kb
+dist//root/work/a7/frontend/assets/index-DxeAPqF_.js.gz        21.74kb / gzip: 6.95kb
+dist//root/work/a7/frontend/assets/preference-CNk797oi.js.gz   10.07kb / gzip: 4.24kb
+dist//root/work/a7/frontend/assets/index-It6sceKf.js.gz        51.68kb / gzip: 12.85kb
+dist//root/work/a7/frontend/assets/index-2woGTWRD.js.gz        96.04kb / gzip: 37.18kb
+dist//root/work/a7/frontend/assets/tdesign-DCVn99yc.css.gz     437.80kb / gzip: 49.58kb
+dist//root/work/a7/frontend/assets/tdesign-RaYyS35S.js.gz      989.48kb / gzip: 267.87kb
+dist//root/work/a7/frontend/assets/echarts-CuV_skF0.js.gz      1002.89kb / gzip: 331.52kb
+
+

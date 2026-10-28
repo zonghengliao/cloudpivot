@@ -117,6 +117,56 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/user/preference.vue'),
         meta: { title: '外观设置', permission: 'system:preference:view' },
       },
+      // ==================== 通用底座 · 批次 A（对象存储 / 导入导出 / 消息通知） ====================
+      {
+        path: 'business/storage/backend',
+        name: 'BusinessStorageBackend',
+        component: () => import('@/views/business/storage/backend/index.vue'),
+        meta: { title: '存储管理', permission: 'business:storage:config:list' },
+      },
+      {
+        path: 'business/storage/file',
+        name: 'BusinessStorageFile',
+        component: () => import('@/views/business/storage/file/index.vue'),
+        meta: { title: '文件管理', permission: 'business:storage:list' },
+      },
+      {
+        path: 'business/impexp/import',
+        name: 'BusinessImpexpImport',
+        component: () => import('@/views/business/impexp/import/index.vue'),
+        meta: { title: '导入向导', permission: 'business:impexp:import:upload' },
+      },
+      {
+        path: 'business/impexp/import-task',
+        name: 'BusinessImpexpImportTask',
+        component: () => import('@/views/business/impexp/import-task/index.vue'),
+        meta: { title: '导入任务', permission: 'business:impexp:import:list' },
+      },
+      {
+        path: 'business/impexp/export-task',
+        name: 'BusinessImpexpExportTask',
+        component: () => import('@/views/business/impexp/export-task/index.vue'),
+        meta: { title: '导出任务', permission: 'business:impexp:export:list' },
+      },
+      {
+        // 消息中心：菜单 is_visible=false，从顶栏铃铛进入（PRD §7.2 隐藏菜单口径）
+        path: 'business/notice/message',
+        name: 'BusinessNoticeMessage',
+        component: () => import('@/views/business/notice/message/index.vue'),
+        meta: { title: '消息中心', permission: 'business:notice:mine' },
+      },
+      {
+        path: 'business/notice/template',
+        name: 'BusinessNoticeTemplate',
+        component: () => import('@/views/business/notice/template/index.vue'),
+        meta: { title: '通知模板', permission: 'business:notice:template:list' },
+      },
+      {
+        path: 'business/notice/send',
+        name: 'BusinessNoticeSend',
+        component: () => import('@/views/business/notice/send/index.vue'),
+        meta: { title: '发送通知', permission: 'business:notice:send' },
+      },
       {
         path: 'result/403',
         name: 'Result403',

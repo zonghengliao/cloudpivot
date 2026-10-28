@@ -1,0 +1,5 @@
+
+> @cloudpivot/web@0.1.0 typecheck /root/work/a7/frontend
+> vue-tsc --noEmit
+
+TYPECHECK_EXIT=0

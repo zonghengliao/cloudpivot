@@ -26,3 +26,5 @@ id_ed25519*
 # 新环境从同目录的 *.example.toml 复制后再本地修改；模板里只放非敏感项。
 /backend/config/config-dev.toml
 /backend/config/config-test.toml
+evidence/a7-direct-100mb.bin
+evidence/a7-import-test.xlsx
