@@ -404,3 +404,39 @@ psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/tests/sql/batchb/ver
 # 4) 门禁基线
 bash scripts/check.sh     # 期望 闸①=20 闸②=21、exit 1
 ```
+
+---
+
+## 附录 C：交付指纹与同步核对（验收「收尾必须自检」）
+
+```
+功能提交      c4a8b54d49d28e729e880da18a0e017ae06fc9c9
+              feat(batchB): B0 门禁基线 + B1 迁移 V0060–V0064/V0067
+父提交        cf84231f09030f8861409540f83acb00d2b0be6e   (docs(batchB): 归档批次B权限增强设计文档)
+              ↑ 本附录所在提交紧随功能提交之后（仅补指纹，不改代码/迁移），
+                核对同步时以 `git rev-parse HEAD` 的最新值与 `git rev-parse origin/main` 比对。
+
+工作副本 /opt/cloudpivot
+  HEAD        = c4a8b54d49d28e729e880da18a0e017ae06fc9c9
+  origin/main = c4a8b54d49d28e729e880da18a0e017ae06fc9c9
+  IDENTICAL: YES
+
+bare /opt/git/cloudpivot.git  main = c4a8b54d49d28e729e880da18a0e017ae06fc9c9
+（`git push` 报 "Everything up-to-date" 是因为 .githooks/post-commit 已把提交自动推到 bare；
+  随后 `git fetch origin && git merge --ff-only origin/main` 返回 "Already up to date"，
+  三方（本地 HEAD / origin/main / bare main）逐字一致 —— 针对上一张卡「推了 bare 但工作副本没同步」
+  的问题，本卡专门把这三条值一起打出来。）
+```
+
+**验收自检清单**
+
+| 验收项 | 结果 | 证据位置 |
+|---|---|---|
+| 1 空库全量迁移（4 类对象） | ✅ 6 条迁移 success=t，`data_scope`/`uk_sys_field_mask_rule`/`uk_sys_role_mutex_pair`/`mask_applied` 全在 | §1 |
+| 2 down 可逆（回 V0059 再回 V0067） | ✅ 往返 1 次，32 → 38 条已应用迁移 | §2 |
+| 3 索引并发性判断 | ✅ 保持普通 `CREATE INDEX`（prod 2 行 / test 34 行 ≪ 100 万） | `docs/批次B-DDL.md` §3 |
+| 4 `docs/批次B-DDL.md`（附录 A 原文 + down 说明） | ✅ 279 行，6 条迁移逐条给出 down 语义与顺序风险 | `docs/批次B-DDL.md` |
+| B0 门禁在当前代码报预期失败 | ✅ 闸①=20（与架构一致）、闸②=21（差异 4 处已逐条交代），`check.sh` exit 1 | §3 |
+| `cargo test` 全绿 | ✅ 258 passed / 0 failed（+ 7、+ 2 另两个 target，4 ignored 为既有） | 本卡运行日志 |
+| 不动 prod | ✅ prod `cloudpivot` 只做过只读 `count(*)`；`data_scope` 列在 prod 仍不存在（=0） | §0 红线自检 |
+
