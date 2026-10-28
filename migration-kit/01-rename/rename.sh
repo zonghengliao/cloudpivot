@@ -98,6 +98,9 @@ EXCLUDE_DIRS = {
     ".git", "node_modules", "target", "dist", ".rename-backup",
     ".pnpm-store", "__pycache__", ".venv", "venv", ".mypy_cache",
     "migration-kit",  # 准备包自身含大量旧标识字面量（它就是改名工具），必须排除（否则自我污染）
+    # 运行态目录：日志/上传/下载件是按当时项目名生成的磁盘数据（可能还有数据库/nginx 引用），
+    # 改文件名既不会迁移数据，还会让「旧名日志」消失、幂等性检查永远失败。不属于代码，排除。
+    "logs", "uploads", "downloads",
 }
 MAX_BYTES = 8 * 1024 * 1024
 

@@ -54,7 +54,7 @@ echo "== 0) 方向：${DIRNAME}  root=$ROOT"
 
 # 「历史基线引用」逐 span 白名单（与 rename.sh 的 STICKY_BY_FILE 保持一致）
 STICKY_E='crate `cailu`|@cailu/web|`cailu`|DATABASE cailu|host[[:space:]]+cailu|dbname=cailu|-d cailu|cailu-src'
-STICKY_FILES='^\./docs/大数据-技术架构\.md:|^\./docs/ERP-批次1-技术架构\.md:|^\./docs/大数据-产品需求PRD\.md:|^\./docs/ERP-批次1-产品需求PRD\.md:'
+STICKY_FILES='^\./docs/大数据-技术架构\.md:|^\./docs/ERP-批次1-技术架构\.md:|^\./docs/ERP-批次1-开发计划\.md:|^\./docs/大数据-产品需求PRD\.md:|^\./docs/ERP-批次1-产品需求PRD\.md:'
 
 echo "== 1) 旧标识残留扫描（排除 node_modules/target/.git/dist/migration-kit）=="
 RAW="$(grep -rniE "$OLD_RE" . "${EXCLUDES[@]}" 2>/dev/null || true)"
@@ -141,8 +141,10 @@ fi
 
 echo "== 4) 文件名残留 =="
 if [ "$REVERSE" -eq 1 ]; then PAT='*cloudpivot*'; else PAT='*cailu*'; fi
-FN="$(find . -path ./node_modules -prune -o -path ./target -prune -o -path ./.git -prune \
-        -o -path ./migration-kit -prune -o -iname "$PAT" -print 2>/dev/null || true)"
+FN="$(find . \( -name node_modules -o -name target -o -name dist -o -name .git \
+        -o -name migration-kit -o -name logs -o -name uploads -o -name downloads \
+        -o -name .rename-backup -o -name .pnpm-store \) -prune \
+        -o -iname "$PAT" -print 2>/dev/null || true)"
 [ -z "$FN" ] && ok "无含旧标识的文件/目录名" || { bad "仍有旧名文件："; printf '%s\n' "$FN" | sed 's/^/      /'; }
 
 echo "== 5) 幂等自检（同方向再跑一次 dry-run 应为 0 改动）=="
