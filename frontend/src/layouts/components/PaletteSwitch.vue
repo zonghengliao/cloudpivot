@@ -13,7 +13,12 @@
         shape="square"
         data-testid="palette-switch-trigger"
       >
-        <t-icon name="palette" />
+        <!-- 当前配色主色圆点：比调色板图标在 16px 下清晰得多，且一眼可见当前配色 -->
+        <span
+          class="palette-switch__dot"
+          :class="{ 'is-default': !paletteId }"
+          :style="{ '--dot-color': currentPalette.brand }"
+        />
       </t-button>
     </t-tooltip>
 
@@ -115,6 +120,31 @@ function goPreference(): void {
   &__trigger {
     flex-shrink: 0;
     color: var(--td-text-color-secondary);
+  }
+
+  // 当前配色指示点：实心 = 已选方案；空心环 = 跟随默认
+  &__dot {
+    display: inline-block;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: var(--dot-color);
+    // 内外双描边：浅色底上看得见边界，深色底上也不糊
+    box-shadow:
+      0 0 0 1px rgb(0 0 0 / 18%),
+      inset 0 0 0 1.5px rgb(255 255 255 / 55%);
+    vertical-align: middle;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+
+    &.is-default {
+      background: transparent;
+      box-shadow: 0 0 0 2px var(--dot-color);
+      opacity: 0.6;
+    }
+  }
+
+  &__trigger:hover &__dot {
+    transform: scale(1.08);
   }
 }
 </style>
