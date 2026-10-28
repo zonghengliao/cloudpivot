@@ -13,7 +13,9 @@ use serde::{Deserialize, Serialize};
 use validator::Validate;
 
 use crate::business::storage::cipher::{self, MasterKey};
-use crate::business::storage::model::{SysStorageConfigModel, SysStoragePolicyModel};
+use crate::business::storage::model::{
+    StorageFileModel, SysStorageConfigModel, SysStoragePolicyModel,
+};
 
 /// 存储配置分页查询参数。
 #[derive(Debug, Clone, Deserialize)]
@@ -334,6 +336,185 @@ impl StoragePolicyRes {
             updated_at: model.updated_at,
         }
     }
+}
+
+// ==================== 文件接口（A2：上传 / 直传 / 下载 / 软删 / 重新登记） ====================
+
+/// 上传查询参数（`?category=`，缺省 `attachment`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StorageUploadQuery {
+    /// 业务分类。
+    pub category: Option<String>,
+}
+
+/// 预签名直传初始化请求（`POST /business/storage/presign`）。
+///
+/// # 语义
+///
+/// ① 按 `category` 取策略校验大小 / 扩展名 / MIME；② 命中 `file_hash` 直接秒传
+/// （返回 `duplicated=true` + 已有记录，**不签 URL**）；③ 未命中则签一个 PUT URL，
+/// 前端直传对象存储，完成后调 `POST /business/storage/complete` 登记。
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct StoragePresignReq {
+    /// 业务分类。
+    #[validate(length(min = 1, max = 50, message = "分类长度 1-50"))]
+    pub category: String,
+    /// 原始文件名（决定扩展名校验与对象键后缀）。
+    #[validate(length(min = 1, max = 255, message = "文件名长度 1-255"))]
+    pub file_name: String,
+    /// 文件字节数（可选：给了就先做大小校验，避免白签一个必然失败的 URL）。
+    pub file_size: Option<u64>,
+    /// 内容 SHA-256（可选：给了就能秒传短路）。
+    pub file_hash: Option<String>,
+    /// MIME（可选：给了就做 MIME 白名单校验，并写入对象元数据）。
+    pub mime_type: Option<String>,
+}
+
+/// 预签名直传初始化响应。
+#[derive(Debug, Clone, Serialize)]
+pub struct StoragePresignRes {
+    /// 对象键（`complete` 阶段原样回传）。
+    pub file_key: String,
+    /// 直传 URL（已签名）。
+    pub upload_url: String,
+    /// HTTP 方法（恒 `PUT`）。
+    pub method: String,
+    /// 客户端应当携带的请求头。
+    pub headers: Vec<StorageHeader>,
+    /// 链接过期时间。
+    pub expire_at: chrono::DateTime<chrono::Utc>,
+    /// 目标后端编码。
+    pub storage_code: String,
+    /// 业务分类。
+    pub category: String,
+    /// 是否命中秒传（命中时 `upload_url` 为空串、`file` 为已有记录）。
+    pub duplicated: bool,
+    /// 秒传命中的已有记录。
+    pub file: Option<StorageFileRes>,
+}
+
+/// 一个 HTTP 请求头（`name` / `value`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct StorageHeader {
+    /// 头名。
+    pub name: String,
+    /// 头值。
+    pub value: String,
+}
+
+/// 直传完成登记请求（`POST /business/storage/complete`）。
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct StorageCompleteReq {
+    /// 业务分类。
+    #[validate(length(min = 1, max = 50, message = "分类长度 1-50"))]
+    pub category: String,
+    /// `presign` 阶段返回的对象键。
+    #[validate(length(min = 1, max = 1024, message = "对象键长度 1-1024"))]
+    pub file_key: String,
+    /// 原始文件名。
+    #[validate(length(min = 1, max = 255, message = "文件名长度 1-255"))]
+    pub file_name: String,
+    /// 客户端声明的字节数（后端以 `stat()` 复核）。
+    pub file_size: u64,
+    /// 内容 SHA-256（可选，给了就做完整性校验）。
+    pub file_hash: Option<String>,
+    /// MIME（可选）。
+    pub mime_type: Option<String>,
+}
+
+/// 文件记录响应（新接口；字段是 `FileRes` 的超集，前端可复用类型）。
+#[derive(Debug, Clone, Serialize)]
+pub struct StorageFileRes {
+    /// 文件 ID。
+    pub id: String,
+    /// 存储文件名（与 `file_key` 相同）。
+    pub file_name: String,
+    /// 原始文件名。
+    pub original_name: String,
+    /// 对象键。
+    pub file_key: String,
+    /// 字节数。
+    pub file_size: i64,
+    /// MIME。
+    pub mime_type: String,
+    /// 扩展名。
+    pub extension: String,
+    /// 分类。
+    pub category: String,
+    /// 状态（1 / 0）。
+    pub status: i16,
+    /// 上传人。
+    pub uploaded_by: String,
+    /// 上传时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 下载地址（新接口）。
+    pub url: String,
+    /// 所在后端编码（历史文件为空串，视为本地）。
+    pub storage_code: String,
+    /// 上传方式：`SERVER` / `DIRECT`。
+    pub upload_mode: String,
+}
+
+impl StorageFileRes {
+    /// 由模型构造响应（`url` 指向新下载接口）。
+    ///
+    /// # 参数
+    ///
+    /// - `model`：文件记录。
+    ///
+    /// # 返回值
+    ///
+    /// 文件响应（可空文本列降级为空串，与底座 `FileRes` 约定一致）。
+    pub fn from_model(model: &StorageFileModel) -> Self {
+        Self {
+            id: model.id.to_string(),
+            file_name: model.file_name.clone(),
+            original_name: model.original_name.clone().unwrap_or_default(),
+            file_key: model.file_key.clone(),
+            file_size: model.file_size,
+            mime_type: model.mime_type.clone().unwrap_or_default(),
+            extension: model.extension.clone().unwrap_or_default(),
+            category: model.category.clone().unwrap_or_default(),
+            status: model.status.as_i16(),
+            uploaded_by: model
+                .uploaded_by
+                .map(|id| id.to_string())
+                .unwrap_or_default(),
+            created_at: model.created_at,
+            url: format!("/api/business/storage/download/{}", model.id),
+            storage_code: model.storage_code.clone().unwrap_or_default(),
+            upload_mode: model.upload_mode.clone(),
+        }
+    }
+}
+
+/// 文件分页查询参数。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StorageFilePageQuery {
+    /// 页码。
+    pub page: Option<u64>,
+    /// 每页条数。
+    pub page_size: Option<u64>,
+    /// 原始文件名（模糊）。
+    pub original_name: Option<String>,
+    /// 分类（精确）。
+    pub category: Option<String>,
+    /// 后端编码（精确）。
+    pub storage_code: Option<String>,
+    /// 内容哈希（精确，查秒传用）。
+    pub file_hash: Option<String>,
+}
+
+/// 重新登记请求（`POST /business/storage/{id}/rebind`）。
+///
+/// 把一条（多为已软删的）记录的**同一个对象键**重新登记为新记录，
+/// 供「秒传共享记录被他人删除」的业务自救（架构文档 §2.8 第 5 点）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct StorageRebindReq {
+    /// 覆盖原始文件名（不传则沿用原记录）。
+    pub original_name: Option<String>,
+    /// 覆盖分类（不传则沿用原记录）。
+    pub category: Option<String>,
 }
 
 #[cfg(test)]

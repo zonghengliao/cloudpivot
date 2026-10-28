@@ -59,6 +59,11 @@ validator = { version = "0.21", features = ["derive"] }
 async-trait = "0.1"
 # 文件秒传与完整性校验：上传时计算内容 SHA-256（见 support/file/handler.rs）
 sha2 = "0.10"
+# 流式下载：`ReaderStream` 把 `AsyncRead`（本地文件 / S3 连接）直接转成响应 body，
+# 避免整文件进内存（A2 硬指标：1 GB 下载 RSS 增长 < 200 MB）。
+# 注意：该 crate **本就在依赖树中**（axum / hyper 的间接依赖，见 Cargo.lock），
+# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
+tokio-util = { version = "0.7", features = ["io"] }
 
 # Redis 客户端（二开说明，已评审）：
 # 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，

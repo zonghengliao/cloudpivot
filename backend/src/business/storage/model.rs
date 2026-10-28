@@ -820,9 +820,282 @@ pub fn validate_policy_fields(
     Ok(())
 }
 
+// ==================== 文件记录（sys_file + 后端两列） ====================
+
+/// `sys_file` 表在业务侧的强类型模型（**含 A1 新增的两列**）。
+///
+/// # 为什么不复用 `support::file::model::SysFileModel`
+///
+/// 底座模型（`support/file/model.rs`）是**只读**的（红线：不改 `support/`），
+/// 它没有 `storage_code` / `upload_mode` 两列，无法表达「文件落在哪个后端」。
+/// 本结构映射同一张表，只读/写业务侧需要的列集合，`support/file` 的既有行为
+/// 完全不受影响（它的 `SELECT *` + `from_row` 会忽略多出来的列）。
+///
+/// # 历史数据
+///
+/// `storage_code IS NULL` 表示 A1 之前上传的文件 → 一律按「本地默认目录」读取，
+/// 因此**不需要数据回填**（架构文档 §2.7）。
+#[derive(Debug, Clone, Model)]
+#[table("sys_file")]
+pub struct StorageFileModel {
+    /// 主键（UUID v7）。
+    pub id: uuid::Uuid,
+    /// 存储文件名（与 `file_key` 相同）。
+    pub file_name: String,
+    /// 原始文件名。
+    pub original_name: Option<String>,
+    /// 对象键（相对后端根）。
+    pub file_key: String,
+    /// 字节数。
+    pub file_size: i64,
+    /// 内容 SHA-256。
+    pub file_hash: Option<String>,
+    /// MIME。
+    pub mime_type: Option<String>,
+    /// 扩展名（小写、不含点）。
+    pub extension: Option<String>,
+    /// 物理路径 / 对象键（本地为绝对路径，S3 为 `bucket/key` 描述）。
+    pub storage_path: Option<String>,
+    /// 业务分类。
+    pub category: Option<String>,
+    /// 状态（1 正常 / 0 停用）。
+    pub status: EnableStatus,
+    /// 上传人。
+    pub uploaded_by: Option<uuid::Uuid>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 更新时间。
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// 创建人。
+    pub create_by: Option<uuid::Uuid>,
+    /// 更新人。
+    pub update_by: Option<uuid::Uuid>,
+    /// 软删时间（`NULL` = 未删除）。
+    pub deleted_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 文件所在后端编码（`NULL` = A1 之前的历史文件，按本地默认目录读）。
+    pub storage_code: Option<String>,
+    /// 上传方式：`SERVER` 服务端上传 / `DIRECT` 浏览器直传。
+    pub upload_mode: String,
+}
+
+/// 文件分页过滤条件。
+#[derive(Debug, Clone, Default)]
+pub struct StorageFileFilter {
+    /// 原始文件名（模糊）。
+    pub original_name: Option<String>,
+    /// 分类（精确）。
+    pub category: Option<String>,
+    /// 后端编码（精确；`Some("local")` 之类不特殊处理）。
+    pub storage_code: Option<String>,
+    /// 内容哈希（精确）。
+    pub file_hash: Option<String>,
+}
+
+/// 按 ID 查**未删除**的文件记录。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub async fn find_active_file(
+    id: &uuid::Uuid,
+) -> std::result::Result<Option<StorageFileModel>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT * FROM sys_file WHERE id = ? AND deleted_at IS NULL LIMIT 1",
+            vec![Value::from(*id)],
+        )
+        .await?;
+    match rows.into_iter().next() {
+        Some(row) => Ok(Some(StorageFileModel::from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 按 ID 查文件记录（**含已软删**，`rebind` 重新登记用）。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub async fn find_any_file(
+    id: &uuid::Uuid,
+) -> std::result::Result<Option<StorageFileModel>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT * FROM sys_file WHERE id = ? LIMIT 1",
+            vec![Value::from(*id)],
+        )
+        .await?;
+    match rows.into_iter().next() {
+        Some(row) => Ok(Some(StorageFileModel::from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 按内容哈希查可复用的有效记录（跨后端秒传）。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub async fn find_reusable_file(
+    file_hash: &str,
+) -> std::result::Result<Option<StorageFileModel>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT * FROM sys_file WHERE file_hash = ? AND deleted_at IS NULL AND status = 1 LIMIT 1",
+            vec![Value::from(file_hash)],
+        )
+        .await?;
+    match rows.into_iter().next() {
+        Some(row) => Ok(Some(StorageFileModel::from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 分页查询文件记录（新接口用，支持按后端 / 分类 / 哈希过滤）。
+///
+/// # 异常情况
+///
+/// 数据库异常或行映射失败返回 [`DbError`]。
+pub async fn page_storage_files(
+    filter: &StorageFileFilter,
+    page: u64,
+    page_size: u64,
+) -> std::result::Result<Page<StorageFileModel>, DbError> {
+    let mut sql = String::from("SELECT * FROM sys_file WHERE deleted_at IS NULL");
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(pattern) = utils::like_pattern(filter.original_name.as_deref()) {
+        sql.push_str(" AND original_name LIKE ?");
+        params.push(Value::from(pattern));
+    }
+    if let Some(category) = filter.category.as_deref() {
+        sql.push_str(" AND category = ?");
+        params.push(Value::from(category.to_string()));
+    }
+    if let Some(code) = filter.storage_code.as_deref() {
+        sql.push_str(" AND storage_code = ?");
+        params.push(Value::from(code.to_string()));
+    }
+    if let Some(hash) = filter.file_hash.as_deref() {
+        sql.push_str(" AND file_hash = ?");
+        params.push(Value::from(hash.to_string()));
+    }
+    sql.push_str(" ORDER BY created_at DESC");
+
+    let Page {
+        list,
+        total,
+        page,
+        size,
+        pages,
+    } = db()
+        .paginate_with_params(&sql, params, page, page_size)
+        .await?;
+    let list = list
+        .into_iter()
+        .map(StorageFileModel::from_row)
+        .collect::<std::result::Result<Vec<_>, _>>()?;
+    Ok(Page {
+        list,
+        total,
+        page,
+        size,
+        pages,
+    })
+}
+
+/// 软删一条文件记录（只写 `deleted_at`，物理对象交给回收任务）。
+///
+/// # 参数
+///
+/// - `id`：文件 ID。
+/// - `operator`：操作人。
+///
+/// # 返回值
+///
+/// 受影响行数（0 表示记录不存在或已删除）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn soft_delete_file(
+    id: &uuid::Uuid,
+    operator: Option<uuid::Uuid>,
+) -> std::result::Result<u64, DbError> {
+    let affected = db()
+        .execute_with_params(
+            "UPDATE sys_file SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP, update_by = ? WHERE id = ? AND deleted_at IS NULL",
+            vec![Value::from(operator), Value::from(*id)],
+        )
+        .await?;
+    Ok(affected)
+}
+
+/// 没有策略行时的内置默认策略（纯函数，便于单测）。
+///
+/// # 参数
+///
+/// - `category`：业务分类。
+///
+/// # 返回值
+///
+/// 50 MB 上限、无扩展名/MIME 白名单、不允许直传、TTL 900 秒的策略模型。
+///
+/// # 说明
+///
+/// 之所以要有兜底：`V0048` 只种了 5 个常用分类，业务方自定义分类（如 ERP 的
+/// `contract`）在管理员建策略之前也要能上传 —— 用内置默认策略，而不是报 500。
+pub fn default_policy(category: &str) -> SysStoragePolicyModel {
+    let now = chrono::Utc::now();
+    SysStoragePolicyModel {
+        id: uuid::Uuid::nil(),
+        category: category.to_string(),
+        category_name: format!("{category}（内置默认）"),
+        max_size_mb: 50,
+        allowed_extensions: String::new(),
+        allowed_mimes: String::new(),
+        allow_overwrite: false,
+        direct_upload: false,
+        presign_ttl_secs: 900,
+        storage_code: None,
+        status: EnableStatus::enabled,
+        sort_order: 0,
+        remark: None,
+        created_at: now,
+        updated_at: now,
+        create_by: None,
+        update_by: None,
+        deleted_at: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A2：没有策略行时的内置默认策略 —— 50 MB 上限、不限制扩展名、不允许直传。
+    #[test]
+    fn default_policy_shape() {
+        let policy = default_policy("contract");
+        assert_eq!(policy.category, "contract");
+        assert_eq!(policy.max_size_mb, 50);
+        assert!(policy.allowed_extensions.is_empty());
+        assert!(policy.allowed_mimes.is_empty());
+        assert!(!policy.direct_upload);
+        assert_eq!(policy.presign_ttl_secs, 900);
+        assert_eq!(policy.status.as_i16(), 1);
+        // 内置策略必须能通过 check_upload（任何文件名都放行）
+        assert!(check_upload(&policy, "任一文件.pdf", 1024, Some("application/pdf")).is_ok());
+        // 但大小上限仍然生效（错误分支）
+        assert!(matches!(
+            check_upload(&policy, "big.pdf", 51 * 1024 * 1024, None),
+            Err(PolicyViolation::SizeExceeded { .. })
+        ));
+        // 未开直传（错误分支）
+        assert!(matches!(
+            check_direct_upload(&policy),
+            Err(PolicyViolation::DirectUploadDisabled { .. })
+        ));
+    }
 
     /// 构造一条测试策略（不落库）。
     fn sample_policy() -> SysStoragePolicyModel {

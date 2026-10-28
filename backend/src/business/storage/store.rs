@@ -11,33 +11,36 @@
 //!
 //! | 后端 | 服务端读 / 写 / 删 | 预签名下载 | 预签名上传 | 说明 |
 //! |------|--------------------|-----------|-----------|------|
-//! | `LOCAL` | ✅ `tokio::fs` 实现 | ❌（返回 `None`，由 handler 流式下载） | ❌（返回 `Unsupported`） | 与历史 `sys_file` 行为兼容 |
-//! | `S3` | ⏳ A2 交付（见下） | ✅ SigV4 | ✅ SigV4 | 浏览器直传的主力路径 |
+//! | `LOCAL` | ✅ `tokio::fs` 实现 + **流式读** | ❌（返回 `None`，由 handler 流式下载） | ❌（返回 `Unsupported`） | 与历史 `sys_file` 行为兼容 |
+//! | `S3` | ✅ 手写 SigV4 HTTP（PUT / GET 流式 / HEAD / DELETE / 分片上传） | ✅ SigV4 | ✅ SigV4 | 浏览器直传的主力路径 |
 //!
-//! # 关于 S3 的服务端 I/O（诚实说明，不含糊）
+//! # 为什么 S3 服务端 I/O 是手写 HTTP 而不是 `aws-sdk-s3`
 //!
-//! A1 只交付「底座」：预签名 URL 生成（[`crate::business::storage::sigv4`]）与连通性
-//! 探测**是真的**；`put/get/delete/stat` 在 `S3Store` 上返回
-//! [`StoreError::Unsupported`]，因为项目当前只开了框架的 `fs-local` feature，
-//! `fs-minio` 与它**互斥**（同一个 `fs()` 全局单例），而本卡红线要求
-//! 「不改 `support/file` 的现有实现」——开启 `fs-minio` 会把 `support/file` 的本地
-//! 后端顶掉。真正的 S3 服务端读写由 A2 在「直传 + 兼容层」卡里按以下之一落地：
+//! 项目铁律「`Cargo.toml` 只声明 `alun` 一个框架 crate」，而框架的 `fs-minio`
+//! 与 `fs-local` **互斥**（同一个 `fs()` 全局单例）——开启 `fs-minio` 会把
+//! `support/file` 的本地后端顶掉，违反「不改底座」红线。因此 A2 直接复用
+//! [`crate::business::storage::sigv4`] 的签名实现 + `tokio` 的 TCP 自己发 HTTP/1.1：
+//! 零新增依赖树（`aws-sdk-s3` 会拉进 ~20 个 smithy 子 crate）。
 //!
-//! 1. 评审放行 `aws-sdk-s3` 声明（框架铁律的唯一缺口）；
-//! 2. 或后端只做预签名直传 + 302 下载，不落服务端对象 I/O。
+//! # 已知边界（坦诚记录）
 //!
-//! 现在把边界写死在代码里，比 A2 才发现「本地后端被顶掉」要好。
+//! 1. **https 端点不做服务端代理 I/O**：没有 TLS 客户端就不假装能读；此时
+//!    [`S3Store::send`] 返回 [`StoreError::Unsupported`]，生产环境的 AWS / OSS
+//!    走「浏览器预签名直传 + 下载 302 到预签名 URL」两条主路径（都不经后端流量）。
+//! 2. **分片上传按需**：≤ 8 MB 单次 PUT，超过则 `CreateMultipartUpload → UploadPart → Complete`。
 
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::result::Result;
+use std::task::{Context, Poll};
 
 use alun::prelude::*;
 use async_trait::async_trait;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 
-use crate::business::storage::sigv4::{self, PresignOptions};
+use crate::business::storage::sigv4::{self, PresignOptions, SignOptions};
 
 /// 对象元信息。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -116,6 +119,12 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+/// 对象流式读取句柄（本地文件 / S3 连接）。
+///
+/// 交给 `tokio_util::io::ReaderStream` 即可直接转成响应 body，
+/// **整个对象不会进内存**（A2 硬指标：1 GB 下载 RSS 增长 < 200 MB）。
+pub type ObjectStream = Box<dyn AsyncRead + Send + Unpin>;
+
 /// 存储后端统一契约。
 ///
 /// 实例由 [`crate::business::storage::router::StorageRouter`] 按配置创建并缓存，
@@ -139,6 +148,19 @@ pub trait ObjectStore: Send + Sync {
 
     /// 读取对象全量字节（供小文件服务端代理下载；大文件应走预签名 / 流式）。
     async fn get(&self, key: &str) -> Result<Vec<u8>, StoreError>;
+
+    /// 流式读取对象（**不整文件进内存**，大文件下载走这里）。
+    ///
+    /// # 参数
+    ///
+    /// - `key`：对象键。
+    /// - `offset`：起始字节偏移（`0` 表示从头读，断点续传用）。
+    ///
+    /// # 返回值
+    ///
+    /// 可读句柄：本地后端是 `tokio::fs::File`，S3 后端是「已收到响应头的连接」。
+    /// 调用方应结合 [`ObjectStore::stat`] 的 `size` 设置 `Content-Length`。
+    async fn stream(&self, key: &str, offset: u64) -> Result<ObjectStream, StoreError>;
 
     /// 删除对象。
     async fn delete(&self, key: &str) -> Result<(), StoreError>;
@@ -225,6 +247,13 @@ pub fn sanitize_key(key: &str) -> Result<String, StoreError> {
 /// 主机是回环 / 私网 / 链路本地 / 未指定地址的字面量，或主机名为 `localhost`
 /// 时返回 [`StoreError::Invalid`]。
 ///
+/// # 显式例外（架构文档 §5.5 R2 的「例外白名单」）
+///
+/// 内网自建 MinIO 必然落在私网段，全部拒绝会让它无法接入。运维通过环境变量
+/// `CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST`（逗号分隔的主机名 / IP，逐字比对、
+/// 大小写不敏感）显式放行——**默认空串 = 维持严格模式**，不配置就没有任何例外。
+/// 例：`CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST=172.18.10.99,minio.internal`
+///
 /// # 已知局限（坦诚记录）
 ///
 /// 只拦截**字面量 IP** 与 `localhost`：域名是否解析到内网需要 DNS 查询，
@@ -243,6 +272,11 @@ pub fn ensure_endpoint_allowed(endpoint: &str, use_tls: bool) -> Result<(), Stor
     } else {
         host.split(':').next().unwrap_or(&host).to_string()
     };
+
+    // 显式白名单（内网自建 MinIO 的唯一例外通道）
+    if host_in_allowlist(&hostname, &endpoint_allowlist()) {
+        return Ok(());
+    }
 
     if hostname.eq_ignore_ascii_case("localhost") {
         return Err(StoreError::Invalid(
@@ -384,6 +418,24 @@ impl ObjectStore for LocalStore {
         })
     }
 
+    /// 流式读取本地文件（**不整文件进内存**，1 GB 下载 RSS 不随文件增长）。
+    async fn stream(&self, key: &str, offset: u64) -> Result<ObjectStream, StoreError> {
+        let path = self.resolve(key)?;
+        let mut file = tokio::fs::File::open(&path).await.map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                StoreError::NotFound(key.to_string())
+            } else {
+                StoreError::Io(format!("打开文件失败: {e}"))
+            }
+        })?;
+        if offset > 0 {
+            file.seek(std::io::SeekFrom::Start(offset))
+                .await
+                .map_err(|e| StoreError::Io(format!("定位文件失败: {e}")))?;
+        }
+        Ok(Box::new(file))
+    }
+
     /// 删除本地文件（不存在视为已达成目标）。
     async fn delete(&self, key: &str) -> Result<(), StoreError> {
         let path = self.resolve(key)?;
@@ -448,7 +500,260 @@ impl ObjectStore for LocalStore {
     }
 }
 
+/// 判断主机是否在显式白名单内（纯函数，便于单测；比对大小写不敏感、逐字相等）。
+///
+/// # 参数
+///
+/// - `hostname`：endpoint 的主机名 / IP（已去端口与方括号）。
+/// - `allowlist`：白名单条目。
+///
+/// # 返回值
+///
+/// 命中返回 `true`。
+pub fn host_in_allowlist(hostname: &str, allowlist: &[String]) -> bool {
+    allowlist
+        .iter()
+        .any(|allowed| allowed.eq_ignore_ascii_case(hostname))
+}
+
+/// 读取 SSRF 例外白名单（`CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST`，逗号分隔）。
+///
+/// # 返回值
+///
+/// 逐字比对用的主机名 / IP 列表（去空白、丢空项、原样保留大小写，
+/// 比对时用 `eq_ignore_ascii_case`）。未配置或全为空 → 空 `Vec`（严格模式）。
+pub fn endpoint_allowlist() -> Vec<String> {
+    std::env::var("CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST")
+        .unwrap_or_default()
+        .split(',')
+        .map(str::trim)
+        .filter(|item| !item.is_empty())
+        .map(str::to_string)
+        .collect()
+}
+
 // ==================== S3 兼容后端 ====================
+
+/// S3 请求超时（秒）：连接 / 发送 / 读响应头 / 读正文单次上限。
+pub const S3_TIMEOUT_SECS: u64 = 30;
+
+/// 超过该大小改用分片上传（S3 单次 PUT 上限 5 GB，但一次性把大文件压给
+/// 单个 PUT 对网关与内存都不友好；8 MB 以上走分片）。
+pub const MULTIPART_THRESHOLD: u64 = 8 * 1024 * 1024;
+
+/// S3 分片最小字节数（协议硬约束：除最后一片外每片 ≥ 5 MiB）。
+pub const MIN_PART_SIZE: usize = 5 * 1024 * 1024;
+
+/// 分片数上限（S3 限制 10000，这里取 1000：片越多合并越慢）。
+pub const MAX_PARTS: usize = 1000;
+
+/// 一次 S3 响应的「头部已解析」形态。
+///
+/// 正文保留在连接上按需读取（[`S3Response::read_all`] 读全量，
+/// [`S3Response::into_stream`] 走流式），因此大对象不会因为「先读头」而被整块吃进内存。
+struct S3Response {
+    /// HTTP 状态码。
+    status: u16,
+    /// 响应头（键统一小写）。
+    headers: Vec<(String, String)>,
+    /// 读完响应头之后多读到的字节（属于正文开头）。
+    buffered: Vec<u8>,
+    /// 连接（正文在此之上继续读）。
+    stream: TcpStream,
+    /// 读正文超时（秒）。
+    timeout_secs: u64,
+}
+
+impl S3Response {
+    /// 2xx 视为成功。
+    fn is_success(&self) -> bool {
+        (200..300).contains(&self.status)
+    }
+
+    /// 按小写键取响应头。
+    fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(key, _)| key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
+    /// `Content-Length`（缺失或非法时 `None`）。
+    fn content_length(&self) -> Option<u64> {
+        self.header("content-length")
+            .and_then(|value| value.trim().parse::<u64>().ok())
+    }
+
+    /// 读出全部正文（小响应：错误体 / XML / 小对象）。
+    ///
+    /// # 返回语义
+    ///
+    /// - `Transfer-Encoding: chunked`：按块解码；
+    /// - 有 `Content-Length`：截断到该长度（`Connection: close` 下可能多读）；
+    /// - 其它：读到 EOF。
+    async fn read_all(mut self) -> Result<Vec<u8>, StoreError> {
+        let mut body = std::mem::take(&mut self.buffered);
+        tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs),
+            self.stream.read_to_end(&mut body),
+        )
+        .await
+        .map_err(|_| StoreError::Backend("读取响应正文超时".to_string()))?
+        .map_err(|e| StoreError::Backend(format!("读取响应正文失败: {e}")))?;
+
+        let chunked = self
+            .header("transfer-encoding")
+            .is_some_and(|value| value.to_ascii_lowercase().contains("chunked"));
+        if chunked {
+            return decode_chunked(&body);
+        }
+        if let Some(length) = self.content_length() {
+            let length = length as usize;
+            if body.len() > length {
+                body.truncate(length);
+            }
+        }
+        Ok(body)
+    }
+
+    /// 把正文转成流式读取句柄（长度由 `Content-Length` 限定）。
+    ///
+    /// # 异常情况
+    ///
+    /// 响应缺少 `Content-Length`（例如分块传输）时返回 [`StoreError::Backend`]：
+    /// S3 对象 GET 带上 `Range` 后一定回 `Content-Length`，缺了说明对端不是 S3。
+    fn into_stream(self) -> Result<ObjectStream, StoreError> {
+        let length = self.content_length().ok_or_else(|| {
+            StoreError::Backend(
+                "对象响应缺少 Content-Length（不支持分块传输的流式下载）".to_string(),
+            )
+        })?;
+        let reader = PrefixReader {
+            prefix: self.buffered,
+            position: 0,
+            inner: self.stream,
+        };
+        Ok(Box::new(reader.take(length)))
+    }
+}
+
+/// 「已缓存前缀 + 连接」的读取器：把响应头之后多读到的字节先吐出，再读连接。
+struct PrefixReader {
+    /// 已缓存的正文字节。
+    prefix: Vec<u8>,
+    /// 前缀读取位置。
+    position: usize,
+    /// 连接。
+    inner: TcpStream,
+}
+
+impl AsyncRead for PrefixReader {
+    /// 先读缓存，缓存读空后转给连接。
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        if self.position < self.prefix.len() {
+            let start = self.position;
+            let available = self.prefix.len() - start;
+            let take = available.min(buf.remaining());
+            let slice = self.prefix[start..start + take].to_vec();
+            buf.put_slice(&slice);
+            self.position += take;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+/// 在字节流里查找子串（不引入 `memchr`，响应用量很小）。
+///
+/// # 参数
+///
+/// - `haystack`：被搜索的字节。
+/// - `needle`：要找的子串。
+///
+/// # 返回值
+///
+/// 首次出现的下标。
+pub(crate) fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() || haystack.len() < needle.len() {
+        return None;
+    }
+    haystack
+        .windows(needle.len())
+        .position(|window| window == needle)
+}
+
+/// 从 S3 XML（错误体 / 分片响应）里取一个简单标签的文本。
+///
+/// # 参数
+///
+/// - `body`：XML 字节。
+/// - `tag`：标签名，如 `Code` / `UploadId`。
+///
+/// # 返回值
+///
+/// 标签内文本（去空白）；标签不存在返回 `None`。
+pub(crate) fn xml_tag(body: &[u8], tag: &str) -> Option<String> {
+    let text = String::from_utf8_lossy(body);
+    let open = format!("<{tag}>");
+    let close = format!("</{tag}>");
+    let start = text.find(&open)? + open.len();
+    let end = text[start..].find(&close)? + start;
+    let value = text[start..end].trim().to_string();
+    if value.is_empty() { None } else { Some(value) }
+}
+
+/// 解码 `Transfer-Encoding: chunked` 正文。
+///
+/// # 参数
+///
+/// - `data`：原始字节（含块长度行与 CRLF）。
+///
+/// # 返回值
+///
+/// 解码后的正文。
+///
+/// # 异常情况
+///
+/// 块长度行非法 / 数据被截断时返回 [`StoreError::Backend`]。
+fn decode_chunked(data: &[u8]) -> Result<Vec<u8>, StoreError> {
+    let mut out = Vec::with_capacity(data.len());
+    let mut index = 0usize;
+    loop {
+        let line_end = match find_bytes(&data[index..], b"\r\n") {
+            Some(end) => index + end,
+            None => {
+                return Err(StoreError::Backend(
+                    "分块正文被截断（缺少块长度行）".to_string(),
+                ));
+            }
+        };
+        let line = String::from_utf8_lossy(&data[index..line_end]).to_string();
+        let size_text = line
+            .split(';')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let size = usize::from_str_radix(&size_text, 16)
+            .map_err(|_| StoreError::Backend(format!("分块长度非法：{size_text}")))?;
+        index = line_end + 2;
+        if size == 0 {
+            return Ok(out);
+        }
+        let end = index.saturating_add(size);
+        if end > data.len() {
+            return Err(StoreError::Backend(
+                "分块正文被截断（块体不足）".to_string(),
+            ));
+        }
+        out.extend_from_slice(&data[index..end]);
+        index = end + 2; // 跳过块尾 CRLF
+    }
+}
 
 /// S3 兼容对象存储后端（MinIO / AWS S3 / 阿里 OSS / 腾讯 COS，同一套 SigV4）。
 ///
@@ -477,6 +782,9 @@ pub struct S3Store {
     access_key: String,
     /// SecretKey 明文（仅在内存中，禁止落日志 / 禁落库）。
     secret_key: String,
+    /// 单次 HTTP 读 / 写 / 连接超时（秒）。远程对象 I/O 必须有上界，
+    /// 否则一个挂死的 endpoint 会把请求线程拖到网关超时。
+    timeout_secs: u64,
 }
 
 /// S3 后端构造参数（字段多，用结构体避免 `too_many_arguments`，也让调用点自解释）。
@@ -537,6 +845,7 @@ impl S3Store {
             base_path: params.base_path.trim().trim_matches('/').to_string(),
             access_key: params.access_key.to_string(),
             secret_key: params.secret_key.to_string(),
+            timeout_secs: S3_TIMEOUT_SECS,
         })
     }
 
@@ -712,6 +1021,369 @@ impl S3Store {
             .unwrap_or(&self.host)
             .to_string()
     }
+
+    // ==================== A2：真实对象 I/O（手写 SigV4 + HTTP/1.1） ====================
+
+    /// 主机是否已带端口（IPv6 方括号写法也能正确判断）。
+    ///
+    /// # 参数
+    ///
+    /// - `host`：端点主机串。
+    ///
+    /// # 返回值
+    ///
+    /// 带端口返回 `true`。
+    fn host_has_port(host: &str) -> bool {
+        match host.rfind(']') {
+            Some(index) => host[index + 1..].starts_with(':'),
+            None => host.contains(':'),
+        }
+    }
+
+    /// TCP 连接地址（虚拟主机风格时连 `bucket.endpoint`，path 风格时连 `endpoint`）。
+    ///
+    /// # 返回值
+    ///
+    /// `host:port` 形式；未显式给端口时按协议补 80 / 443。
+    fn connect_addr(&self) -> String {
+        let host = sigv4::request_host(&self.host, &self.bucket, self.path_style);
+        if Self::host_has_port(&host) {
+            host
+        } else if self.scheme == "https" {
+            format!("{host}:443")
+        } else {
+            format!("{host}:80")
+        }
+    }
+
+    /// 对象请求的 `(规范 URI, Host 头)`。
+    ///
+    /// # 参数
+    ///
+    /// - `key`：对象键（会先过 [`sanitize_key`]）。
+    ///
+    /// # 返回值
+    ///
+    /// 已编码的规范 URI 与必须逐字一致的 `Host` 头值。
+    ///
+    /// # 异常情况
+    ///
+    /// 对象键非法时返回 [`StoreError::Invalid`]。
+    fn object_uri(&self, key: &str) -> Result<(String, String), StoreError> {
+        let object_key = self.object_key(&sanitize_key(key)?);
+        let canonical_uri = sigv4::object_canonical_uri(&self.bucket, &object_key, self.path_style);
+        let host = sigv4::request_host(&self.host, &self.bucket, self.path_style);
+        Ok((canonical_uri, host))
+    }
+
+    /// 发一次已签名的 S3 请求，返回「头部已解析 + 正文可继续读」的响应。
+    ///
+    /// # 参数
+    ///
+    /// - `method`：HTTP 方法。
+    /// - `canonical_uri`：规范 URI（[`Self::object_uri`] 产出）。
+    /// - `query`：查询参数对（未编码；内部按 SigV4 规则排序编码，如 `uploads` / `uploadId`）。
+    /// - `extra_headers`：附加请求头（`content-type` / `range` 等，**不参与签名**）。
+    /// - `body`：请求正文（`None` 表示无正文，此时不发送 `Content-Length`）。
+    ///
+    /// # 返回值
+    ///
+    /// [`S3Response`]：状态码、响应头、已缓存的正文字节与连接。
+    ///
+    /// # 异常情况
+    ///
+    /// - `https` 端点：返回 [`StoreError::Unsupported`]（本模块未引入 TLS 客户端，
+    ///   见文件头「已知边界」）；
+    /// - 连接 / 读写超时、非 HTTP 响应：返回 [`StoreError::Backend`]（消息不含凭据）。
+    async fn send(
+        &self,
+        method: &str,
+        canonical_uri: &str,
+        query: &[(String, String)],
+        extra_headers: &[(&str, String)],
+        body: Option<&[u8]>,
+    ) -> Result<S3Response, StoreError> {
+        if self.scheme != "http" {
+            return Err(StoreError::Unsupported(format!(
+                "服务端代理 I/O 仅支持 http 端点（当前 {}）：https 端点请走预签名直传 / 302 下载",
+                self.scheme
+            )));
+        }
+        let host = sigv4::request_host(&self.host, &self.bucket, self.path_style);
+        let payload_hash = match body {
+            Some(bytes) => sigv4::hex_sha256(bytes),
+            None => sigv4::hex_sha256(b""),
+        };
+        let canonical_query = sigv4::canonical_query(query);
+        let signed = sigv4::sign_headers(&SignOptions {
+            method,
+            canonical_uri,
+            canonical_query: &canonical_query,
+            host: &host,
+            payload_hash: &payload_hash,
+            access_key: &self.access_key,
+            secret_key: &self.secret_key,
+            region: &self.region,
+            now: chrono::Utc::now(),
+        });
+
+        let mut head = String::with_capacity(512);
+        head.push_str(method);
+        head.push(' ');
+        head.push_str(canonical_uri);
+        if !canonical_query.is_empty() {
+            head.push('?');
+            head.push_str(&canonical_query);
+        }
+        head.push_str(" HTTP/1.1\r\n");
+        head.push_str(&format!("Host: {host}\r\n"));
+        head.push_str(&format!("x-amz-date: {}\r\n", signed.amz_date));
+        head.push_str(&format!(
+            "x-amz-content-sha256: {}\r\n",
+            signed.payload_hash
+        ));
+        head.push_str(&format!("Authorization: {}\r\n", signed.authorization));
+        for (name, value) in extra_headers {
+            head.push_str(name);
+            head.push_str(": ");
+            head.push_str(value);
+            head.push_str("\r\n");
+        }
+        if let Some(bytes) = body {
+            head.push_str(&format!("Content-Length: {}\r\n", bytes.len()));
+        }
+        head.push_str("Connection: close\r\n\r\n");
+
+        let addr = self.connect_addr();
+        let mut stream = tokio::time::timeout(
+            std::time::Duration::from_secs(self.timeout_secs),
+            TcpStream::connect(&addr),
+        )
+        .await
+        .map_err(|_| StoreError::Backend(format!("连接存储端点 {addr} 超时")))?
+        .map_err(|e| StoreError::Backend(format!("连接存储端点失败: {e}")))?;
+        let _ = stream.set_nodelay(true);
+
+        tokio::time::timeout(std::time::Duration::from_secs(self.timeout_secs), async {
+            stream.write_all(head.as_bytes()).await?;
+            if let Some(bytes) = body {
+                stream.write_all(bytes).await?;
+            }
+            stream.flush().await
+        })
+        .await
+        .map_err(|_| StoreError::Backend("发送请求超时".to_string()))?
+        .map_err(|e| StoreError::Backend(format!("发送请求失败: {e}")))?;
+
+        // 读到响应头结束（`\r\n\r\n`），余下字节属于正文
+        let mut buffer: Vec<u8> = Vec::with_capacity(8192);
+        let mut chunk = [0u8; 8192];
+        let head_end = loop {
+            let read = tokio::time::timeout(
+                std::time::Duration::from_secs(self.timeout_secs),
+                stream.read(&mut chunk),
+            )
+            .await
+            .map_err(|_| StoreError::Backend("读取响应头超时".to_string()))?
+            .map_err(|e| StoreError::Backend(format!("读取响应头失败: {e}")))?;
+            if read == 0 {
+                return Err(StoreError::Backend("存储端点提前关闭连接".to_string()));
+            }
+            buffer.extend_from_slice(&chunk[..read]);
+            if let Some(position) = find_bytes(&buffer, b"\r\n\r\n") {
+                break position + 4;
+            }
+            if buffer.len() > 64 * 1024 {
+                return Err(StoreError::Backend(
+                    "响应头超过 64 KB，疑似非 S3 响应".to_string(),
+                ));
+            }
+        };
+
+        let head_text = String::from_utf8_lossy(&buffer[..head_end]).to_string();
+        let mut lines = head_text.split("\r\n");
+        let status_line = lines.next().unwrap_or_default();
+        let status = status_line
+            .split_whitespace()
+            .nth(1)
+            .and_then(|code| code.parse::<u16>().ok())
+            .ok_or_else(|| StoreError::Backend("存储端点返回非 HTTP 响应".to_string()))?;
+        let headers: Vec<(String, String)> = lines
+            .filter_map(|line| {
+                line.split_once(':').map(|(name, value)| {
+                    (name.trim().to_ascii_lowercase(), value.trim().to_string())
+                })
+            })
+            .collect();
+
+        Ok(S3Response {
+            status,
+            headers,
+            buffered: buffer[head_end..].to_vec(),
+            stream,
+            timeout_secs: self.timeout_secs,
+        })
+    }
+
+    /// 把非 2xx 响应翻译成**不含凭据与 endpoint 细节**的错误。
+    ///
+    /// # 参数
+    ///
+    /// - `action`：动作名（写日志 / 返回给用户的动词，如「上传对象」）。
+    /// - `status`：HTTP 状态码。
+    /// - `body`：响应正文（用于提取 S3 `<Code>`）。
+    ///
+    /// # 返回值
+    ///
+    /// [`StoreError::Backend`]（S3 语义错误码，如 `NoSuchBucket` / `SignatureDoesNotMatch`）。
+    fn backend_error(action: &str, status: u16, body: &[u8]) -> StoreError {
+        let code = xml_tag(body, "Code").unwrap_or_else(|| format!("HTTP {status}"));
+        StoreError::Backend(format!("{action}失败（{code}）"))
+    }
+
+    /// 单次 PUT 写入对象（≤ 分片阈值）。
+    ///
+    /// # 异常情况
+    ///
+    /// 非 2xx 返回 [`StoreError::Backend`]。
+    async fn put_single(
+        &self,
+        key: &str,
+        data: &[u8],
+        content_type: &str,
+    ) -> Result<(), StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let headers: Vec<(&str, String)> = if content_type.trim().is_empty() {
+            Vec::new()
+        } else {
+            vec![("content-type", content_type.trim().to_string())]
+        };
+        let response = self.send("PUT", &uri, &[], &headers, Some(data)).await?;
+        if response.is_success() {
+            return Ok(());
+        }
+        let status = response.status;
+        let body = response.read_all().await.unwrap_or_default();
+        Err(Self::backend_error("上传对象", status, &body))
+    }
+
+    /// 分片上传（`CreateMultipartUpload` → `UploadPart` → `CompleteMultipartUpload`）。
+    ///
+    /// # 参数
+    ///
+    /// - `key`：对象键。
+    /// - `data`：对象全文（服务端上传场景已在内存中）。
+    /// - `content_type`：对象 MIME。
+    ///
+    /// # 返回值
+    ///
+    /// 成功返回 `Ok(())`。
+    ///
+    /// # 异常情况
+    ///
+    /// - 初始化失败（缺少 `UploadId`）：[`StoreError::Backend`]，并尽力 `AbortMultipartUpload`；
+    /// - 任一分片失败：[`StoreError::Backend`]，同样尽力中止会话；
+    /// - 完成阶段返回 `<Error>`（S3 在 200 里报错的老坑）：[`StoreError::Backend`]。
+    async fn put_multipart(
+        &self,
+        key: &str,
+        data: &[u8],
+        content_type: &str,
+    ) -> Result<(), StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let mut init_headers: Vec<(&str, String)> = Vec::new();
+        if !content_type.trim().is_empty() {
+            init_headers.push(("content-type", content_type.trim().to_string()));
+        }
+        let init_query = vec![("uploads".to_string(), String::new())];
+        let init = self
+            .send("POST", &uri, &init_query, &init_headers, None)
+            .await?;
+        let init_status = init.status;
+        let init_body = init.read_all().await.unwrap_or_default();
+        if !(200..300).contains(&init_status) {
+            return Err(Self::backend_error(
+                "初始化分片上传",
+                init_status,
+                &init_body,
+            ));
+        }
+        let upload_id = xml_tag(&init_body, "UploadId").ok_or_else(|| {
+            StoreError::Backend("初始化分片上传失败（响应缺少 UploadId）".to_string())
+        })?;
+
+        // 分片大小：≥ 5 MB（S3 硬约束），片数不超过 1000
+        let part_size = std::cmp::max(MIN_PART_SIZE, data.len().div_ceil(MAX_PARTS));
+        let mut parts: Vec<(usize, String)> = Vec::new();
+        for (index, chunk) in data.chunks(part_size).enumerate() {
+            let number = index + 1;
+            let query = vec![
+                ("partNumber".to_string(), number.to_string()),
+                ("uploadId".to_string(), upload_id.clone()),
+            ];
+            let response = match self.send("PUT", &uri, &query, &[], Some(chunk)).await {
+                Ok(response) => response,
+                Err(error) => {
+                    self.abort_multipart(&uri, &upload_id).await;
+                    return Err(error);
+                }
+            };
+            if !response.is_success() {
+                let status = response.status;
+                let body = response.read_all().await.unwrap_or_default();
+                self.abort_multipart(&uri, &upload_id).await;
+                return Err(Self::backend_error(
+                    &format!("上传第 {number} 个分片"),
+                    status,
+                    &body,
+                ));
+            }
+            let etag = response
+                .header("etag")
+                .map(str::to_string)
+                .ok_or_else(|| StoreError::Backend("分片响应缺少 ETag".to_string()))?;
+            parts.push((number, etag));
+        }
+
+        let mut xml = String::from("<CompleteMultipartUpload>");
+        for (number, etag) in &parts {
+            xml.push_str(&format!(
+                "<Part><PartNumber>{number}</PartNumber><ETag>{etag}</ETag></Part>"
+            ));
+        }
+        xml.push_str("</CompleteMultipartUpload>");
+        let complete_query = vec![("uploadId".to_string(), upload_id.clone())];
+        let complete_headers = [("content-type", "application/xml".to_string())];
+        let response = self
+            .send(
+                "POST",
+                &uri,
+                &complete_query,
+                &complete_headers,
+                Some(xml.as_bytes()),
+            )
+            .await?;
+        let status = response.status;
+        let body = response.read_all().await.unwrap_or_default();
+        if !(200..300).contains(&status) || find_bytes(&body, b"<Error>").is_some() {
+            self.abort_multipart(&uri, &upload_id).await;
+            return Err(Self::backend_error("合并分片", status, &body));
+        }
+        Ok(())
+    }
+
+    /// 尽力中止分片上传会话（失败只记日志，不覆盖主错误）。
+    ///
+    /// # 参数
+    ///
+    /// - `uri`：对象规范 URI。
+    /// - `upload_id`：会话 ID。
+    async fn abort_multipart(&self, uri: &str, upload_id: &str) {
+        let query = vec![("uploadId".to_string(), upload_id.to_string())];
+        if let Err(error) = self.send("DELETE", uri, &query, &[], None).await {
+            tracing::warn!(error = %error, "中止分片上传失败（已忽略，服务端会按生命周期清理）");
+        }
+    }
 }
 
 impl fmt::Debug for S3Store {
@@ -743,35 +1415,83 @@ impl ObjectStore for S3Store {
         &self.code
     }
 
-    /// A1 不做 S3 服务端写入（见模块文档的边界说明）。
-    async fn put(&self, _key: &str, _data: &[u8], _content_type: &str) -> Result<(), StoreError> {
-        Err(StoreError::Unsupported(
-            "S3 服务端写入由 A2 交付（A1 只提供预签名直传能力）".to_string(),
-        ))
+    /// 写入对象：≤ 8 MB 单次 PUT，更大走分片上传（`put_multipart`）。
+    async fn put(&self, key: &str, data: &[u8], content_type: &str) -> Result<(), StoreError> {
+        if data.len() as u64 > MULTIPART_THRESHOLD {
+            return self.put_multipart(key, data, content_type).await;
+        }
+        self.put_single(key, data, content_type).await
     }
 
-    /// A1 不做 S3 服务端读取。
-    async fn get(&self, _key: &str) -> Result<Vec<u8>, StoreError> {
-        Err(StoreError::Unsupported(
-            "S3 服务端读取由 A2 交付（A1 只提供预签名下载能力）".to_string(),
-        ))
+    /// 读取对象全量字节（服务端代理小文件 / 校验用；大文件走 [`Self::stream`]）。
+    async fn get(&self, key: &str) -> Result<Vec<u8>, StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let response = self.send("GET", &uri, &[], &[], None).await?;
+        if response.status == 404 {
+            return Err(StoreError::NotFound(key.to_string()));
+        }
+        if !response.is_success() {
+            let status = response.status;
+            let body = response.read_all().await.unwrap_or_default();
+            return Err(Self::backend_error("读取对象", status, &body));
+        }
+        response.read_all().await
     }
 
-    /// A1 不做 S3 服务端删除（清理任务对本后端会跳过，见 cleanup 模块）。
-    async fn delete(&self, _key: &str) -> Result<(), StoreError> {
-        Err(StoreError::Unsupported(
-            "S3 服务端删除由 A2 交付".to_string(),
-        ))
+    /// 流式读取对象：发一次带 `Range` 的 GET，正文直接在连接上流式吐出。
+    ///
+    /// # 说明
+    ///
+    /// 恒带 `Range: bytes={offset}-`：这样 S3 / MinIO 一定回 `Content-Length`
+    /// （分块传输无法用于 `ReaderStream` 的定长下发），`offset=0` 时等价于全量读。
+    async fn stream(&self, key: &str, offset: u64) -> Result<ObjectStream, StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let headers = [("range", format!("bytes={offset}-"))];
+        let response = self.send("GET", &uri, &[], &headers, None).await?;
+        if response.status == 404 {
+            return Err(StoreError::NotFound(key.to_string()));
+        }
+        if !response.is_success() {
+            let status = response.status;
+            let body = response.read_all().await.unwrap_or_default();
+            return Err(Self::backend_error("流式读取对象", status, &body));
+        }
+        response.into_stream()
     }
 
-    /// 无 HEAD 能力时无法确认存在性，保守返回 `false`。
-    async fn exists(&self, _key: &str) -> bool {
-        false
+    /// 删除对象（S3 语义：不存在也返回成功）。
+    async fn delete(&self, key: &str) -> Result<(), StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let response = self.send("DELETE", &uri, &[], &[], None).await?;
+        if response.is_success() || response.status == 404 {
+            return Ok(());
+        }
+        let status = response.status;
+        let body = response.read_all().await.unwrap_or_default();
+        Err(Self::backend_error("删除对象", status, &body))
     }
 
-    /// 无 HEAD 能力时返回 `Ok(None)`（调用方须按「未知」处理）。
-    async fn stat(&self, _key: &str) -> Result<Option<ObjectStat>, StoreError> {
-        Ok(None)
+    /// 判断对象是否存在（`HeadObject`）。
+    async fn exists(&self, key: &str) -> bool {
+        matches!(self.stat(key).await, Ok(Some(_)))
+    }
+
+    /// 读取对象元信息（`HeadObject`）；404 视为不存在。
+    async fn stat(&self, key: &str) -> Result<Option<ObjectStat>, StoreError> {
+        let (uri, _) = self.object_uri(key)?;
+        let response = self.send("HEAD", &uri, &[], &[], None).await?;
+        if response.status == 404 {
+            return Ok(None);
+        }
+        if !response.is_success() {
+            let status = response.status;
+            return Err(Self::backend_error("读取对象元信息", status, &[]));
+        }
+        Ok(Some(ObjectStat {
+            size: response.content_length().unwrap_or_default(),
+            content_type: response.header("content-type").map(str::to_string),
+            etag: response.header("etag").map(str::to_string),
+        }))
     }
 
     /// 预签名上传（A1 的核心交付）。
@@ -873,6 +1593,27 @@ impl ObjectStore for MemoryStore {
             .ok_or_else(|| StoreError::NotFound(key))
     }
 
+    /// 内存后端流式读取（把字节喂进 duplex 管道，行为与真实后端一致）。
+    async fn stream(&self, key: &str, offset: u64) -> Result<ObjectStream, StoreError> {
+        let key = sanitize_key(key)?;
+        let data = self
+            .objects
+            .lock()
+            .ok()
+            .and_then(|guard| guard.get(&key).cloned())
+            .ok_or_else(|| StoreError::NotFound(key.clone()))?;
+        let start = usize::try_from(offset)
+            .unwrap_or(usize::MAX)
+            .min(data.len());
+        let payload = data[start..].to_vec();
+        let (mut writer, reader) = tokio::io::duplex(64 * 1024);
+        tokio::spawn(async move {
+            let _ = writer.write_all(&payload).await;
+            // writer 在两处 drop：写入完成后由 drop 关闭管道，读者读到 EOF
+        });
+        Ok(Box::new(reader))
+    }
+
     async fn delete(&self, key: &str) -> Result<(), StoreError> {
         let key = sanitize_key(key)?;
         if let Ok(mut guard) = self.objects.lock() {
@@ -928,6 +1669,165 @@ impl ObjectStore for MemoryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A2：本地后端必须能**从指定偏移流式读**（断点续传 / Range 的基础）。
+    #[tokio::test]
+    async fn local_store_stream_reads_from_offset() {
+        let root = temp_root("local-stream");
+        let store = LocalStore::with_root("local-default", &root);
+        store
+            .put("a/b.bin", b"0123456789", "application/octet-stream")
+            .await
+            .expect("写入应成功");
+
+        let mut reader = store.stream("a/b.bin", 4).await.expect("流式打开应成功");
+        let mut out = Vec::new();
+        reader.read_to_end(&mut out).await.expect("读取应成功");
+        assert_eq!(out, b"456789");
+
+        // 错误分支：不存在的对象必须是 NotFound（handler 据此回 404）
+        assert!(matches!(
+            store.stream("a/missing.bin", 0).await,
+            Err(StoreError::NotFound(_))
+        ));
+
+        let _ = tokio::fs::remove_dir_all(&root).await;
+    }
+
+    /// A2：内存后端的流式读与全量读结果一致（handler 单测用的桩）。
+    #[tokio::test]
+    async fn memory_store_stream_matches_get() {
+        let store = MemoryStore::new("mem");
+        store
+            .put("k.txt", b"hello-stream", "text/plain")
+            .await
+            .expect("写入应成功");
+        let mut reader = store.stream("k.txt", 6).await.expect("流式打开应成功");
+        let mut out = Vec::new();
+        reader.read_to_end(&mut out).await.expect("读取应成功");
+        assert_eq!(out, b"stream");
+    }
+
+    /// A2：`find_bytes` 边界（空针 / 超长 / 正常）。
+    #[test]
+    fn find_bytes_boundaries() {
+        assert_eq!(find_bytes(b"abc\r\n\r\ndef", b"\r\n\r\n"), Some(3));
+        assert_eq!(find_bytes(b"abc", b""), None);
+        assert_eq!(find_bytes(b"ab", b"abc"), None);
+        assert_eq!(find_bytes(b"aaa", b"aa"), Some(0));
+    }
+
+    /// A2：S3 XML 里取标签（`Code` / `UploadId`），缺失与空值都返回 `None`。
+    #[test]
+    fn xml_tag_extracts_and_tolerates() {
+        let body = b"<Error><Code>NoSuchBucket</Code><Message>x</Message></Error>";
+        assert_eq!(xml_tag(body, "Code").as_deref(), Some("NoSuchBucket"));
+        assert_eq!(xml_tag(body, "UploadId"), None);
+        assert_eq!(xml_tag(b"<Code>  </Code>", "Code"), None);
+        assert_eq!(
+            xml_tag(b"<InitiateMultipartUploadResult><UploadId>abc-123</UploadId></InitiateMultipartUploadResult>", "UploadId")
+                .as_deref(),
+            Some("abc-123")
+        );
+    }
+
+    /// A2：分块正文解码（正常两段 + 零块结束；截断报错）。
+    #[test]
+    fn decode_chunked_roundtrip_and_truncated() {
+        let encoded = b"5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+        assert_eq!(decode_chunked(encoded).expect("应解码成功"), b"hello world");
+        assert!(matches!(
+            decode_chunked(b"5\r\nhel"),
+            Err(StoreError::Backend(_))
+        ));
+        assert!(matches!(
+            decode_chunked(b"zz\r\nhello\r\n"),
+            Err(StoreError::Backend(_))
+        ));
+    }
+
+    /// A2：S3 端点地址推导 —— path 风格连 `endpoint`，virtual-host 连 `bucket.endpoint`，
+    /// 未写端口时按协议补 80 / 443（预签名 403 的头号原因就是 Host 不一致）。
+    #[test]
+    fn s3_connect_addr_derivation() {
+        let path_style = S3Store::new(S3StoreParams {
+            code: "minio",
+            endpoint: "http://minio.local:9000",
+            bucket: "mybucket",
+            region: "us-east-1",
+            path_style: true,
+            base_path: "",
+            access_key: "ak",
+            secret_key: "sk",
+            use_tls: false,
+        })
+        .expect("构造应成功");
+        assert_eq!(path_style.connect_addr(), "minio.local:9000");
+
+        let virtual_host = S3Store::new(S3StoreParams {
+            code: "oss",
+            endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+            bucket: "mybucket",
+            region: "cn-hangzhou",
+            path_style: false,
+            base_path: "files",
+            access_key: "ak",
+            secret_key: "sk",
+            use_tls: true,
+        })
+        .expect("构造应成功");
+        assert_eq!(
+            virtual_host.connect_addr(),
+            "mybucket.oss-cn-hangzhou.aliyuncs.com:443"
+        );
+    }
+
+    /// A2：对象 URI —— path 风格带桶名，virtual-host 不带；`base_path` 参与拼接。
+    #[test]
+    fn s3_object_uri_shapes() {
+        let store = S3Store::new(S3StoreParams {
+            code: "minio",
+            endpoint: "http://127.0.0.1:9000",
+            bucket: "mybucket",
+            region: "us-east-1",
+            path_style: true,
+            base_path: "files",
+            access_key: "ak",
+            secret_key: "sk",
+            use_tls: false,
+        })
+        .expect("构造应成功");
+        let (uri, host) = store.object_uri("2026/10/28/a.png").expect("应成功");
+        assert_eq!(uri, "/mybucket/files/2026/10/28/a.png");
+        assert_eq!(host, "127.0.0.1:9000");
+        // 越权键必须被拒（目录穿越防护）
+        assert!(matches!(
+            store.object_uri("../etc/passwd"),
+            Err(StoreError::Invalid(_))
+        ));
+    }
+
+    /// A2：https 端点不允许服务端代理 I/O —— 必须明确返回「不支持」而不是假装成功。
+    #[tokio::test]
+    async fn s3_https_server_io_is_unsupported() {
+        let store = S3Store::new(S3StoreParams {
+            code: "oss",
+            endpoint: "https://oss-cn-hangzhou.aliyuncs.com",
+            bucket: "mybucket",
+            region: "cn-hangzhou",
+            path_style: false,
+            base_path: "",
+            access_key: "ak",
+            secret_key: "sk",
+            use_tls: true,
+        })
+        .expect("构造应成功");
+        let result = store.put("a.txt", b"x", "text/plain").await;
+        assert!(
+            matches!(result, Err(StoreError::Unsupported(_))),
+            "{result:?}"
+        );
+    }
 
     /// 构造一个临时根目录（单测结束即删除）。
     fn temp_root(tag: &str) -> PathBuf {
@@ -1119,9 +2019,32 @@ mod tests {
         assert!(S3Store::new(missing_bucket).is_err());
     }
 
+    /// A2：SSRF 例外白名单（内网自建 MinIO 的唯一通道）—— 纯函数匹配规则。
+    #[test]
+    fn host_allowlist_matching() {
+        let allow = vec!["172.18.10.99".to_string(), "MinIO.Internal".to_string()];
+        assert!(host_in_allowlist("172.18.10.99", &allow));
+        assert!(host_in_allowlist("minio.internal", &allow));
+        assert!(host_in_allowlist("MINIO.INTERNAL", &allow));
+        // 不做前缀 / 后缀模糊匹配（避免 172.18.10.99.evil.com 这类绕过）
+        assert!(!host_in_allowlist("172.18.10.9", &allow));
+        assert!(!host_in_allowlist("172.18.10.99.evil.com", &allow));
+        assert!(!host_in_allowlist("minio.internal.evil.com", &allow));
+        // 空白名单 = 严格模式
+        assert!(!host_in_allowlist("172.18.10.99", &[]));
+        // env 读取：未配置时为空（默认严格）
+        if std::env::var("CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST").is_err() {
+            assert!(endpoint_allowlist().is_empty());
+        }
+    }
+
     /// 安全（SSRF 防护）：内网 / 回环 / 链路本地字面量地址一律拒绝，公网域名放行。
+    ///
+    /// A2 补充：`CLOUDPIVOT_STORAGE_ENDPOINT_ALLOWLIST` 是唯一例外通道 ——
+    /// 内网自建 MinIO 只能通过它显式放行（默认不配置 = 严格模式）。
     #[test]
     fn store_rejects_private_endpoint() {
+        // 默认严格模式：白名单为空时，内网一律拒绝
         // 云元数据端点（最典型的 SSRF 目标）
         assert!(ensure_endpoint_allowed("http://169.254.169.254/latest/meta-data", false).is_err());
         // 回环 / 私网 / IPv6 回环与唯一本地

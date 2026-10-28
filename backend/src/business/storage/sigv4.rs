@@ -170,6 +170,117 @@ pub fn request_host(endpoint_host: &str, bucket: &str, path_style: bool) -> Stri
     }
 }
 
+/// 请求头签名入参（A2：服务端 S3 真实读写用，区别于 [`PresignOptions`] 的查询串签名）。
+///
+/// 字段均为「已规整」的值：`canonical_uri` 必须已按 [`object_canonical_uri`] 编码、
+/// `canonical_query` 必须已按 [`canonical_query`] 排序编码（无查询参数时传空串）、
+/// `host` 必须已按 [`request_host`] 拼好。
+#[derive(Debug, Clone)]
+pub struct SignOptions<'a> {
+    /// HTTP 方法（`GET` / `PUT` / `POST` / `HEAD` / `DELETE`）。
+    pub method: &'a str,
+    /// 规范 URI（以 `/` 开头、已编码）。
+    pub canonical_uri: &'a str,
+    /// 规范查询串（已排序已编码；无参数时为空串）。
+    pub canonical_query: &'a str,
+    /// 请求 `Host` 头值。
+    pub host: &'a str,
+    /// 载荷哈希：实体正文的 SHA-256 十六进制，或 [`UNSIGNED_PAYLOAD`]
+    /// （`x-amz-content-sha256` 头的值必须与它逐字一致）。
+    pub payload_hash: &'a str,
+    /// AccessKey（明文，仅在内存中使用，禁止落日志）。
+    pub access_key: &'a str,
+    /// SecretKey（明文，仅在内存中使用，禁止落日志）。
+    pub secret_key: &'a str,
+    /// 区域。
+    pub region: &'a str,
+    /// 签名时刻（调用方传入，便于单测固定时间）。
+    pub now: chrono::DateTime<chrono::Utc>,
+}
+
+/// 请求头签名的结果。
+#[derive(Debug, Clone)]
+pub struct SignedHeaders {
+    /// `Authorization` 头值。
+    pub authorization: String,
+    /// `x-amz-date` 头值。
+    pub amz_date: String,
+    /// `x-amz-content-sha256` 头值（与入参 `payload_hash` 相同）。
+    pub payload_hash: String,
+    /// 参与签名的头（分号分隔，恒为 [`SERVICE_SIGNED_HEADERS`]）。
+    pub signed_headers: &'static str,
+    /// 规范请求（排查 403 时打印对拍）。
+    pub canonical_request: String,
+    /// 待签字符串。
+    pub string_to_sign: String,
+    /// 十六进制签名。
+    pub signature: String,
+}
+
+/// 请求头签名（非预签名）参与签名的头列表。
+///
+/// 只签 `host` 与两个 `x-amz-*`：AWS / MinIO / OSS 都要求 host 与
+/// `x-amz-content-sha256` / `x-amz-date` 参与签名；`content-type` 与
+/// `content-length` 不签（少一个「值被代理改写就 403」的坑）。
+pub const SERVICE_SIGNED_HEADERS: &str = "host;x-amz-content-sha256;x-amz-date";
+
+/// 生成 SigV4 **请求头**签名（服务端直连 S3 的 PUT / GET / HEAD / DELETE 用）。
+///
+/// # 参数
+///
+/// - `opts`：见 [`SignOptions`]。
+///
+/// # 返回值
+///
+/// [`SignedHeaders`]：`Authorization` / `x-amz-date` / `x-amz-content-sha256` 等。
+///
+/// # 异常情况
+///
+/// 纯运算，不会失败（不 panic、不 `unwrap`）。
+pub fn sign_headers(opts: &SignOptions<'_>) -> SignedHeaders {
+    let amz_date = opts.now.format("%Y%m%dT%H%M%SZ").to_string();
+    let date_stamp = opts.now.format("%Y%m%d").to_string();
+    let scope = format!("{}/{}/{}/aws4_request", date_stamp, opts.region, SERVICE);
+
+    // 1. 规范请求（头签名：host + 两个 x-amz 头，按头名升序）
+    let canonical_request = format!(
+        "{}\n{}\n{}\nhost:{}\nx-amz-content-sha256:{}\nx-amz-date:{}\n\n{}\n{}",
+        opts.method,
+        opts.canonical_uri,
+        opts.canonical_query,
+        opts.host,
+        opts.payload_hash,
+        amz_date,
+        SERVICE_SIGNED_HEADERS,
+        opts.payload_hash
+    );
+
+    // 2. 待签串
+    let string_to_sign = format!(
+        "{ALGORITHM}\n{amz_date}\n{scope}\n{}",
+        hex_sha256(canonical_request.as_bytes())
+    );
+
+    // 3. 签名密钥链 + 最终签名
+    let key = signing_key(opts.secret_key, &date_stamp, opts.region, SERVICE);
+    let signature = to_hex(&hmac_sha256(&key, string_to_sign.as_bytes()));
+
+    let authorization = format!(
+        "{ALGORITHM} Credential={}/{scope}, SignedHeaders={SERVICE_SIGNED_HEADERS}, Signature={signature}",
+        opts.access_key
+    );
+
+    SignedHeaders {
+        authorization,
+        amz_date,
+        payload_hash: opts.payload_hash.to_string(),
+        signed_headers: SERVICE_SIGNED_HEADERS,
+        canonical_request,
+        string_to_sign,
+        signature,
+    }
+}
+
 /// 预签名入参。
 ///
 /// 字段均为「已规整」的值：`canonical_uri` 必须已按 [`object_canonical_uri`] 编码、
@@ -382,6 +493,76 @@ pub fn to_hex(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A2：请求头签名的规范请求逐字节格式（与方法 / URI / 空查询 / 三个签名头一致）。
+    ///
+    /// 这条断言的价值：SigV4 的 403 有 90% 来自「规范请求差一个字节」
+    /// （多一个空行、头顺序错、query 没排序）。把它固化成字符串比对。
+    #[test]
+    fn sign_headers_canonical_request_is_exact() {
+        let payload = hex_sha256(b"");
+        let signed = sign_headers(&SignOptions {
+            method: "PUT",
+            canonical_uri: "/mybucket/files/a.txt",
+            canonical_query: "",
+            host: "127.0.0.1:9000",
+            payload_hash: &payload,
+            access_key: "AK-TEST",
+            secret_key: "SK-TEST",
+            region: "us-east-1",
+            now: fixed_now(),
+        });
+        let expected = format!(
+            "PUT\n/mybucket/files/a.txt\n\nhost:127.0.0.1:9000\nx-amz-content-sha256:{payload}\nx-amz-date:20261028T031415Z\n\nhost;x-amz-content-sha256;x-amz-date\n{payload}"
+        );
+        assert_eq!(signed.canonical_request, expected);
+        assert_eq!(signed.amz_date, "20261028T031415Z");
+        assert_eq!(signed.payload_hash, payload);
+        assert_eq!(signed.signature.len(), 64);
+        assert!(signed.signature.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(
+            signed.string_to_sign.starts_with(
+                "AWS4-HMAC-SHA256\n20261028T031415Z\n20261028/us-east-1/s3/aws4_request\n"
+            ),
+            "{}",
+            signed.string_to_sign
+        );
+        assert!(
+            signed.authorization.starts_with(
+                "AWS4-HMAC-SHA256 Credential=AK-TEST/20261028/us-east-1/s3/aws4_request, SignedHeaders=host;x-amz-content-sha256;x-amz-date, Signature="
+            ),
+            "{}",
+            signed.authorization
+        );
+        // 授权头里不得出现 SecretKey 明文
+        assert!(!signed.authorization.contains("SK-TEST"));
+    }
+
+    /// A2 边界：同一入参的签名必须确定性；换 SK / region 必须变。
+    #[test]
+    fn sign_headers_is_deterministic_and_key_sensitive() {
+        let payload = hex_sha256(b"body");
+        let build = |secret: &'static str, region: &'static str| {
+            sign_headers(&SignOptions {
+                method: "GET",
+                canonical_uri: "/bucket/k",
+                canonical_query: "uploads=",
+                host: "minio:9000",
+                payload_hash: &payload,
+                access_key: "AK",
+                secret_key: secret,
+                region,
+                now: fixed_now(),
+            })
+        };
+        let first = build("SK1", "us-east-1");
+        let second = build("SK1", "us-east-1");
+        assert_eq!(first.signature, second.signature);
+        assert_ne!(first.signature, build("SK2", "us-east-1").signature);
+        assert_ne!(first.signature, build("SK1", "cn-hangzhou").signature);
+        // 查询串参与签名（分片上传的 uploadId / partNumber 就是靠它）
+        assert!(first.canonical_request.contains("\nuploads=\nhost:"));
+    }
 
     /// 单测固定签名时刻（与参考向量的 `X-Amz-Date` 一致）。
     fn fixed_now() -> chrono::DateTime<chrono::Utc> {

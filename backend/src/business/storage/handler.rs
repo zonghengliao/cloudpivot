@@ -28,20 +28,29 @@
 //! 路由方法在前，公共辅助函数在后（与底座其它 handler 一致）。
 
 use alun::prelude::*;
-use axum::extract::ConnectInfo;
-use axum::http::HeaderMap;
+use axum::body::Body;
+use axum::extract::{ConnectInfo, Multipart};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::response::{IntoResponse, Response};
+use tokio_util::io::ReaderStream;
 
 use std::net::SocketAddr;
 
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::dto::{
-    StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq, StoragePolicyPageQuery,
-    StoragePolicyRes, StoragePolicySaveReq, StorageTestRes,
+    StorageCompleteReq, StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq,
+    StorageFilePageQuery, StorageFileRes, StorageHeader, StoragePolicyPageQuery, StoragePolicyRes,
+    StoragePolicySaveReq, StoragePresignReq, StoragePresignRes, StorageRebindReq, StorageTestRes,
+    StorageUploadQuery,
 };
 use crate::business::storage::model::{
-    self, StorageConfigFilter, StoragePolicyFilter, SysStorageConfigModel, SysStoragePolicyModel,
+    self, PolicyViolation, StorageConfigFilter, StorageFileFilter, StorageFileModel,
+    StoragePolicyFilter, SysStorageConfigModel, SysStoragePolicyModel,
 };
-use crate::business::storage::{reload_router_best_effort, router as storage_router, store};
+use crate::business::storage::store::{ObjectStore, StoreError};
+use crate::business::storage::{
+    ensure_router, global_router, reload_router_best_effort, router as storage_router, sigv4, store,
+};
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::support::log;
@@ -675,6 +684,591 @@ pub async fn policy_update(
     Ok(Res::ok(StoragePolicyRes::from_model(&policy)))
 }
 
+// ==================== 文件接口（A2：上传 / 直传 / 下载 / 软删 / 重新登记） ====================
+
+/// 缺省业务分类。
+pub const DEFAULT_CATEGORY: &str = "attachment";
+
+/// 下载链接默认有效期（秒）：S3 后端 302 到预签名 URL 时使用。
+pub const DOWNLOAD_TTL_SECS: u64 = 900;
+
+/// 直传完成时做内容哈希校验的大小上限（字节）：超过则不整读回校验
+/// （大文件读回会同时吃掉带宽与内存，架构文档 §2.6 已把它列为可配置取舍）。
+pub const HASH_VERIFY_MAX_BYTES: u64 = 8 * 1024 * 1024;
+
+/// 服务端上传（`multipart`，字段名 `file`，`?category=` 可选）。
+///
+/// # 语义
+///
+/// ① 按 `category` 取策略校验大小 / 扩展名 / MIME；② 内容 SHA-256 命中已有记录
+/// 直接秒传（**不写对象、不插行**）；③ 否则按策略选后端写入对象，再落 `sys_file`
+/// （带 `storage_code` 与 `upload_mode='SERVER'`）。
+///
+/// # 返回值
+///
+/// 文件记录（字段是旧 `FileRes` 的超集，多 `storage_code` / `upload_mode`）。
+///
+/// # 异常情况
+///
+/// - 400：表单非法 / 扩展名或 MIME 不符；
+/// - 422：超过策略大小上限；
+/// - 409：策略指定的后端不可用；
+/// - 500 / 502：落对象或入库失败（对象失败时回滚：不插行）。
+#[alun::permission(
+    path = "/business/storage/upload",
+    method = "POST",
+    permission = "business:storage:upload"
+)]
+#[alun::post("/business/storage/upload")]
+pub async fn upload(
+    Query(query): Query<StorageUploadQuery>,
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    multipart: Multipart,
+) -> ResResult<StorageFileRes> {
+    let (original_name, mime_type, bytes) = read_single_file(multipart).await?;
+    let category = category_of(query.category.as_deref());
+    let policy = resolve_policy(&category).await?;
+    model::check_upload(
+        &policy,
+        &original_name,
+        bytes.len() as u64,
+        Some(mime_type.as_str()),
+    )
+    .map_err(violation_error)?;
+
+    // 秒传：内容相同直接复用已有记录（跨后端天然成立，记录里带 storage_code）
+    let file_hash = sigv4::hex_sha256(&bytes);
+    if let Some(existing) = model::find_reusable_file(&file_hash)
+        .await
+        .map_err(|error| utils::db_error(error, "查询可复用文件"))?
+    {
+        tracing::info!(file_hash = %file_hash, file_id = %existing.id, "命中秒传，复用已有文件记录");
+        return Ok(Res::ok(StorageFileRes::from_model(&existing)));
+    }
+
+    ensure_router().await?;
+    let backend = global_router().pick(Some(&policy))?;
+    let file_key = build_object_key(&original_name);
+    backend
+        .put(&file_key, &bytes, &mime_type)
+        .await
+        .map_err(store_error)?;
+
+    let operator = utils::current_user_uuid(&claims);
+    let mut record = build_file_record(FileRecordInput {
+        original_name: &original_name,
+        file_key: &file_key,
+        file_size: bytes.len() as i64,
+        file_hash: &file_hash,
+        mime_type: &mime_type,
+        category: &category,
+        storage_code: backend.config_code(),
+        storage_path: storage_path_for(backend.as_ref(), &file_key),
+        upload_mode: "SERVER",
+        operator,
+    });
+
+    if let Err(error) = record.insert(db()).await {
+        // 并发首传同内容：`uk_sys_file_hash` 命中后转查旧记录（不冒 500）
+        if let Some(existing) = model::find_reusable_file(&file_hash).await.unwrap_or(None) {
+            tracing::info!(file_hash = %file_hash, file_id = %existing.id, "并发秒传冲突，复用已有记录");
+            return Ok(Res::ok(StorageFileRes::from_model(&existing)));
+        }
+        return Err(utils::db_error(error, "写入文件元数据"));
+    }
+
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            "STORAGE_FILE_UPLOAD",
+            "StorageFile",
+            record.id.to_string(),
+            None,
+            Some(serde_json::json!({
+                "original_name": record.original_name,
+                "file_size": record.file_size,
+                "category": record.category,
+                "storage_code": record.storage_code,
+                "upload_mode": record.upload_mode,
+            })),
+        ),
+    );
+
+    Ok(Res::ok(StorageFileRes::from_model(&record)))
+}
+
+/// 预签名直传初始化（`POST /business/storage/presign`）。
+///
+/// # 语义
+///
+/// 策略校验（含「该分类是否允许直传」）→ 命中 `file_hash` 秒传短路 →
+/// 否则签一个 `PUT` URL 交给浏览器直传，直传完成后调
+/// [`complete`] 登记记录。
+///
+/// # 异常情况
+///
+/// - 400：策略不允许该扩展名 / MIME；
+/// - 409：目标后端不可用；
+/// - 422：超大小上限、该分类未开直传、或后端是本地磁盘（无法直传）。
+#[alun::permission(
+    path = "/business/storage/presign",
+    method = "POST",
+    permission = "business:storage:upload"
+)]
+#[alun::post("/business/storage/presign")]
+pub async fn presign(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    ValidatedJson(req): ValidatedJson<StoragePresignReq>,
+) -> ResResult<StoragePresignRes> {
+    let category = category_of(Some(&req.category));
+    let policy = resolve_policy(&category).await?;
+    model::check_upload(
+        &policy,
+        &req.file_name,
+        req.file_size.unwrap_or_default(),
+        req.mime_type.as_deref(),
+    )
+    .map_err(violation_error)?;
+    model::check_direct_upload(&policy).map_err(violation_error)?;
+
+    // 给了哈希就先查秒传：命中时不必签 URL，也就不会产生一个空对象
+    let file_hash = utils::trimmed(req.file_hash.as_deref()).map(str::to_lowercase);
+    if let Some(hash) = file_hash.as_deref()
+        && let Some(existing) = model::find_reusable_file(hash)
+            .await
+            .map_err(|error| utils::db_error(error, "查询可复用文件"))?
+    {
+        return Ok(Res::ok(StoragePresignRes {
+            file_key: existing.file_key.clone(),
+            upload_url: String::new(),
+            method: "PUT".to_string(),
+            headers: Vec::new(),
+            expire_at: chrono::Utc::now(),
+            storage_code: existing.storage_code.clone().unwrap_or_default(),
+            category,
+            duplicated: true,
+            file: Some(StorageFileRes::from_model(&existing)),
+        }));
+    }
+
+    ensure_router().await?;
+    let backend = global_router().pick(Some(&policy))?;
+    if backend.backend_type() != "S3" {
+        return Err(ApiError::new(
+            422,
+            error_code::STORAGE_DIRECT_UPLOAD_DISABLED,
+            "本地后端不支持浏览器直传，请改用服务端上传接口",
+        ));
+    }
+
+    let file_key = build_object_key(&req.file_name);
+    let ttl = u64::try_from(policy.presign_ttl_secs).unwrap_or(DOWNLOAD_TTL_SECS);
+    let presigned = backend
+        .presign_put(&file_key, ttl, req.mime_type.as_deref())
+        .await
+        .map_err(store_error)?;
+
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            "STORAGE_FILE_PRESIGN",
+            "StorageFile",
+            file_key.clone(),
+            None,
+            Some(serde_json::json!({
+                "category": category,
+                "file_key": file_key,
+                "storage_code": backend.config_code(),
+                "expire_at": presigned.expire_at,
+            })),
+        ),
+    );
+
+    Ok(Res::ok(StoragePresignRes {
+        file_key,
+        upload_url: presigned.url,
+        method: presigned.method.to_string(),
+        headers: presigned
+            .headers
+            .iter()
+            .map(|(name, value)| StorageHeader {
+                name: name.clone(),
+                value: value.clone(),
+            })
+            .collect(),
+        expire_at: presigned.expire_at,
+        storage_code: backend.config_code().to_string(),
+        category,
+        duplicated: false,
+        file: None,
+    }))
+}
+
+/// 直传完成登记（`POST /business/storage/complete`）。
+///
+/// # 语义
+///
+/// 后端 `stat()` 复核「对象真的存在 + 大小一致」，必要时读回算 SHA-256；
+/// 校验通过才写 `sys_file`（`upload_mode='DIRECT'`）。**不信任前端声明**。
+///
+/// # 异常情况
+///
+/// - 404：对象不存在（直传没真正完成）；
+/// - 422：大小 / 哈希与声明不一致；
+/// - 409：后端不可用。
+#[alun::permission(
+    path = "/business/storage/complete",
+    method = "POST",
+    permission = "business:storage:upload"
+)]
+#[alun::post("/business/storage/complete")]
+pub async fn complete(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    ValidatedJson(req): ValidatedJson<StorageCompleteReq>,
+) -> ResResult<StorageFileRes> {
+    let category = category_of(Some(&req.category));
+    let policy = resolve_policy(&category).await?;
+    model::check_upload(
+        &policy,
+        &req.file_name,
+        req.file_size,
+        req.mime_type.as_deref(),
+    )
+    .map_err(violation_error)?;
+
+    ensure_router().await?;
+    let backend = global_router().pick(Some(&policy))?;
+    let stat = backend.stat(&req.file_key).await.map_err(store_error)?;
+    let Some(stat) = stat else {
+        return Err(ApiError::new(
+            404,
+            error_code::STORAGE_OBJECT_MISSING,
+            "对象不存在，直传可能未完成或已被清理",
+        ));
+    };
+    if stat.size != req.file_size {
+        return Err(ApiError::new(
+            422,
+            error_code::STORAGE_OBJECT_MISSING,
+            format!(
+                "对象大小 {} 与声明 {} 不一致，请重新直传",
+                stat.size, req.file_size
+            ),
+        ));
+    }
+
+    // 完整性：小文件读回算哈希（大文件跳过，靠 S3 的 x-amz-content-sha256 保证）
+    let declared_hash = utils::trimmed(req.file_hash.as_deref()).map(str::to_lowercase);
+    if let Some(hash) = declared_hash.as_deref()
+        && stat.size <= HASH_VERIFY_MAX_BYTES
+    {
+        let bytes = backend.get(&req.file_key).await.map_err(store_error)?;
+        let actual = sigv4::hex_sha256(&bytes);
+        if actual != hash {
+            return Err(ApiError::new(
+                422,
+                error_code::STORAGE_OBJECT_MISSING,
+                "对象内容哈希与声明不一致，请重新直传",
+            ));
+        }
+    }
+
+    if let Some(hash) = declared_hash.as_deref()
+        && let Some(existing) = model::find_reusable_file(hash)
+            .await
+            .map_err(|error| utils::db_error(error, "查询可复用文件"))?
+    {
+        return Ok(Res::ok(StorageFileRes::from_model(&existing)));
+    }
+
+    let operator = utils::current_user_uuid(&claims);
+    let mime_type = utils::trimmed(req.mime_type.as_deref()).unwrap_or("application/octet-stream");
+    let mut record = build_file_record(FileRecordInput {
+        original_name: &req.file_name,
+        file_key: &req.file_key,
+        file_size: i64::try_from(stat.size).unwrap_or(i64::MAX),
+        file_hash: declared_hash.as_deref().unwrap_or_default(),
+        mime_type,
+        category: &category,
+        storage_code: backend.config_code(),
+        storage_path: storage_path_for(backend.as_ref(), &req.file_key),
+        upload_mode: "DIRECT",
+        operator,
+    });
+    if let Err(error) = record.insert(db()).await {
+        if let Some(hash) = declared_hash.as_deref()
+            && let Some(existing) = model::find_reusable_file(hash).await.unwrap_or(None)
+        {
+            return Ok(Res::ok(StorageFileRes::from_model(&existing)));
+        }
+        return Err(utils::db_error(error, "写入文件元数据"));
+    }
+
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            "STORAGE_FILE_COMPLETE",
+            "StorageFile",
+            record.id.to_string(),
+            None,
+            Some(serde_json::json!({
+                "file_key": record.file_key,
+                "file_size": record.file_size,
+                "storage_code": record.storage_code,
+                "upload_mode": record.upload_mode,
+            })),
+        ),
+    );
+
+    Ok(Res::ok(StorageFileRes::from_model(&record)))
+}
+
+/// 文件分页（`GET /business/storage/file/page`）。
+///
+/// # 过滤
+///
+/// `original_name` 模糊、`category` / `storage_code` / `file_hash` 精确。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/storage/file/page",
+    method = "GET",
+    permission = "business:storage:list"
+)]
+#[alun::get("/business/storage/file/page")]
+pub async fn file_page(
+    Query(query): Query<StorageFilePageQuery>,
+) -> ResResult<PageData<Vec<StorageFileRes>>> {
+    let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    let filter = StorageFileFilter {
+        original_name: utils::trimmed(query.original_name.as_deref()).map(str::to_string),
+        category: utils::trimmed(query.category.as_deref()).map(str::to_string),
+        storage_code: utils::trimmed(query.storage_code.as_deref()).map(str::to_string),
+        file_hash: utils::trimmed(query.file_hash.as_deref()).map(str::to_string),
+    };
+    let result = model::page_storage_files(&filter, page, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询文件"))?;
+    let list = result
+        .list
+        .iter()
+        .map(StorageFileRes::from_model)
+        .collect::<Vec<_>>();
+    Ok(Res::page(list, result.total, result.page, result.size))
+}
+
+/// 下载文件（流式；S3 后端 302 到预签名 URL）。
+///
+/// # 行为
+///
+/// | 后端 | 行为 |
+/// |------|------|
+/// | `LOCAL` | `tokio::fs::File` + `ReaderStream` **流式**下发（不整文件进内存） |
+/// | `S3` | 302 到现签的预签名 GET URL（`ttl = 900 s`），后端零流量 |
+///
+/// # 返回值
+///
+/// 二进制响应（非统一响应体）：`Content-Type` 取记录 MIME，
+/// `Content-Disposition` 恒为 `attachment`（防 inline 执行），
+/// `X-Content-Type-Options: nosniff`。
+///
+/// # 异常情况
+///
+/// - 400：ID 格式非法；
+/// - 404：记录不存在 / 已软删 / 物理对象丢失（**不泄露对象是否存在**）；
+/// - 409：记录所在后端已停用；
+/// - 502：远端后端访问失败。
+#[alun::permission(
+    path = "/business/storage/download/{file_id}",
+    method = "GET",
+    permission = "business:storage:download"
+)]
+#[alun::get("/business/storage/download/{file_id}")]
+pub async fn download(Path(file_id): Path<String>) -> Response {
+    match download_response(&file_id).await {
+        Ok(response) => response,
+        Err(error) => error.into_response(),
+    }
+}
+
+/// 软删文件（物理对象延迟回收）。
+///
+/// # 语义
+///
+/// 只写 `deleted_at`：秒传复用者手里的 `file_id` 不会因别人删除而立刻失效，
+/// 物理对象由 [`crate::business::storage::cleanup`] 在软删 7 天后回收。
+///
+/// # 异常情况
+///
+/// - 404：记录不存在；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/storage/{file_id}",
+    method = "DELETE",
+    permission = "business:storage:delete"
+)]
+#[alun::delete("/business/storage/{file_id}")]
+pub async fn remove(
+    Path(file_id): Path<String>,
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<()> {
+    let id = utils::require_uuid(&file_id, "file_id")?;
+    let record = model::find_any_file(&id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询文件"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在"))?;
+
+    // 幂等：已删除直接返回成功（重试 / 并发删除不报错）
+    if record.deleted_at.is_none() {
+        let operator = utils::current_user_uuid(&claims);
+        let affected = model::soft_delete_file(&id, operator)
+            .await
+            .map_err(|error| utils::db_error(error, "软删文件"))?;
+        if affected == 0 {
+            return Err(ApiError::new(
+                404,
+                error_code::RESOURCE_NOT_FOUND,
+                "文件不存在或已删除",
+            ));
+        }
+        log::record_audit(
+            &headers,
+            &connect_info,
+            log::audit_input(
+                &claims,
+                "STORAGE_FILE_DELETE",
+                "StorageFile",
+                id.to_string(),
+                Some(serde_json::json!({
+                    "file_key": record.file_key,
+                    "storage_code": record.storage_code,
+                })),
+                Some(serde_json::json!({ "deleted": true })),
+            ),
+        );
+    }
+    Ok(Res::ok_empty())
+}
+
+/// 重新登记（`POST /business/storage/{file_id}/rebind`）。
+///
+/// # 语义
+///
+/// 用**同一个对象键**生成一条新记录（新 ID），供「共享记录被别人删了」的业务自救；
+/// 不复制物理对象，也不改变原记录。若同内容已有有效记录，直接返回那一条（幂等）。
+///
+/// # 异常情况
+///
+/// - 404：原记录不存在；
+/// - 409：原记录所在后端已停用；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/storage/{file_id}/rebind",
+    method = "POST",
+    permission = "business:storage:upload"
+)]
+#[alun::post("/business/storage/{file_id}/rebind")]
+pub async fn rebind(
+    Path(file_id): Path<String>,
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    body: Option<axum::Json<StorageRebindReq>>,
+) -> ResResult<StorageFileRes> {
+    let id = utils::require_uuid(&file_id, "file_id")?;
+    let request = body.map(|axum::Json(value)| value).unwrap_or_default();
+    let origin = model::find_any_file(&id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询文件"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在"))?;
+
+    // 同内容已有有效记录 → 直接复用（避免 uk_sys_file_hash 撞车）
+    if let Some(hash) = origin.file_hash.as_deref()
+        && let Some(existing) = model::find_reusable_file(hash)
+            .await
+            .map_err(|error| utils::db_error(error, "查询可复用文件"))?
+    {
+        return Ok(Res::ok(StorageFileRes::from_model(&existing)));
+    }
+
+    let operator = utils::current_user_uuid(&claims);
+    let original_name = utils::trimmed(request.original_name.as_deref())
+        .map(str::to_string)
+        .or_else(|| origin.original_name.clone())
+        .unwrap_or_else(|| origin.file_name.clone());
+    let category = utils::trimmed(request.category.as_deref())
+        .map(str::to_string)
+        .or_else(|| origin.category.clone())
+        .unwrap_or_else(|| DEFAULT_CATEGORY.to_string());
+
+    // 后端必须仍在路由表里：不在则 409，不做自动跨后端复制
+    ensure_router().await?;
+    if let Some(code) = origin.storage_code.as_deref()
+        && !code.is_empty()
+        && global_router().by_code(code).is_none()
+    {
+        return Err(ApiError::new(
+            409,
+            error_code::STORAGE_BACKEND_UNAVAILABLE,
+            format!("文件所在存储后端 {code} 已停用或删除，无法重新登记"),
+        ));
+    }
+
+    let mut record = build_file_record(FileRecordInput {
+        original_name: &original_name,
+        file_key: &origin.file_key,
+        file_size: origin.file_size,
+        file_hash: origin.file_hash.as_deref().unwrap_or_default(),
+        mime_type: origin
+            .mime_type
+            .as_deref()
+            .unwrap_or("application/octet-stream"),
+        category: &category,
+        storage_code: origin.storage_code.as_deref().unwrap_or_default(),
+        storage_path: origin.storage_path.clone(),
+        upload_mode: &origin.upload_mode,
+        operator,
+    });
+    record
+        .insert(db())
+        .await
+        .map_err(|error| utils::db_error(error, "重新登记文件"))?;
+
+    log::record_audit(
+        &headers,
+        &connect_info,
+        log::audit_input(
+            &claims,
+            "STORAGE_FILE_REBIND",
+            "StorageFile",
+            record.id.to_string(),
+            Some(serde_json::json!({ "source_id": id.to_string() })),
+            Some(serde_json::json!({
+                "file_key": record.file_key,
+                "storage_code": record.storage_code,
+            })),
+        ),
+    );
+
+    Ok(Res::ok(StorageFileRes::from_model(&record)))
+}
+
 // ==================== 公共辅助 ====================
 
 /// 读取主密钥（缺失 / 非法时返回 500，消息含修复步骤但不含密钥）。
@@ -962,10 +1556,539 @@ fn truncate(text: &str, limit: usize) -> String {
     text.chars().take(limit).collect()
 }
 
+// ==================== 文件接口辅助（A2） ====================
+
+/// 归一化业务分类（去空白，空值回落 [`DEFAULT_CATEGORY`]）。
+///
+/// # 参数
+///
+/// - `raw`：查询参数 / 请求体里的分类。
+///
+/// # 返回值
+///
+/// 可直接用于查策略的分类名。
+fn category_of(raw: Option<&str>) -> String {
+    utils::trimmed(raw).unwrap_or(DEFAULT_CATEGORY).to_string()
+}
+
+/// 取分类策略：有策略行用策略行，没有则用内置默认策略。
+///
+/// # 异常情况
+///
+/// - 400：策略行存在但已停用；
+/// - 500：数据库异常。
+async fn resolve_policy(category: &str) -> std::result::Result<SysStoragePolicyModel, ApiError> {
+    let found = model::find_policy_by_category(category)
+        .await
+        .map_err(|error| utils::db_error(error, "查询上传策略"))?;
+    match found {
+        Some(policy) => {
+            if policy.status.as_i16() == 0 {
+                return Err(ApiError::new(
+                    400,
+                    error_code::PARAM_INVALID,
+                    format!("分类 {category} 的上传策略已停用，请联系管理员"),
+                ));
+            }
+            Ok(policy)
+        }
+        None => Ok(model::default_policy(category)),
+    }
+}
+
+/// 策略违规 → 统一错误（HTTP 状态码与业务码都来自 [`PolicyViolation`]）。
+///
+/// # 参数
+///
+/// - `violation`：策略校验失败原因。
+///
+/// # 返回值
+///
+/// 带中文消息的 [`ApiError`]。
+fn violation_error(violation: PolicyViolation) -> ApiError {
+    ApiError::new(
+        violation.http_status(),
+        violation.code(),
+        violation.message(),
+    )
+}
+
+/// 存储层错误 → 统一错误（**只透出脱敏后的中文消息**）。
+///
+/// # 参数
+///
+/// - `error`：存储层错误。
+///
+/// # 返回值
+///
+/// | 错误 | HTTP | 业务码 |
+/// |------|------|--------|
+/// | `NotFound` | 404 | `STORAGE_OBJECT_MISSING` |
+/// | `Invalid` | 400 | `PARAM_INVALID` |
+/// | `Unsupported` | 422 | `STORAGE_DIRECT_UPLOAD_DISABLED` |
+/// | `Io` | 500 | `INTERNAL_ERROR` |
+/// | `Backend` | 502 | `INTERNAL_ERROR` |
+fn store_error(error: StoreError) -> ApiError {
+    let (status, code) = match &error {
+        StoreError::NotFound(_) => (404, error_code::STORAGE_OBJECT_MISSING),
+        StoreError::Invalid(_) => (400, error_code::PARAM_INVALID),
+        StoreError::Unsupported(_) => (422, error_code::STORAGE_DIRECT_UPLOAD_DISABLED),
+        StoreError::Io(_) => (500, error_code::INTERNAL_ERROR),
+        StoreError::Backend(_) => (502, error_code::INTERNAL_ERROR),
+    };
+    tracing::warn!(status, error = %error, "存储后端操作失败");
+    ApiError::new(status, code, error.message())
+}
+
+/// 解析文件所在后端（读路径）。
+///
+/// # 参数
+///
+/// - `storage_code`：`sys_file.storage_code`；`None` / 空串表示历史文件。
+///
+/// # 返回值
+///
+/// 后端实例。
+///
+/// # 异常情况
+///
+/// - 409：记录指向的后端已停用 / 删除（**不做自动跨后端复制**）。
+///
+/// # 兼容语义
+///
+/// `storage_code IS NULL` ⇒ **恒按本地默认目录**（`upload_path()`）读取，
+/// 不看当前默认后端是谁：否则把默认后端切成 MinIO 后，老文件会全部 404
+/// （架构文档 §2.7 兼容矩阵第 3 行）。
+async fn resolve_file_store(
+    storage_code: Option<&str>,
+) -> std::result::Result<std::sync::Arc<dyn ObjectStore>, ApiError> {
+    if let Some(code) = storage_code.map(str::trim).filter(|code| !code.is_empty()) {
+        ensure_router().await?;
+        return global_router().by_code(code).ok_or_else(|| {
+            ApiError::new(
+                409,
+                error_code::STORAGE_BACKEND_UNAVAILABLE,
+                format!("文件所在存储后端 {code} 已停用或删除，请重新上传"),
+            )
+        });
+    }
+    Ok(std::sync::Arc::new(store::LocalStore::new(
+        "local-default",
+        "",
+    )))
+}
+
+/// 生成对象键：`{yyyy}/{MM}/{dd}/{uuidv7}.{ext}`。
+///
+/// # 参数
+///
+/// - `original_name`：原始文件名（只取扩展名）。
+///
+/// # 返回值
+///
+/// 相对后端根的对象键（无扩展名时没有点号后缀）。
+fn build_object_key(original_name: &str) -> String {
+    let now = chrono::Utc::now();
+    let extension = model::extension_of(original_name).unwrap_or_default();
+    let suffix = if extension.is_empty() {
+        String::new()
+    } else {
+        format!(".{extension}")
+    };
+    format!(
+        "{}/{}/{}/{}{}",
+        now.format("%Y"),
+        now.format("%m"),
+        now.format("%d"),
+        uuid::Uuid::now_v7(),
+        suffix
+    )
+}
+
+/// `storage_path` 列取值（本地存绝对路径，S3 存后端内相对键）。
+///
+/// # 说明
+///
+/// 历史行的语义是「磁盘绝对路径」；新行沿用同一列但语义按后端区分。
+/// 读取一律以 `file_key` + 后端根为准，`storage_path` 仅供排查。
+fn storage_path_for(backend: &dyn ObjectStore, file_key: &str) -> Option<String> {
+    if backend.backend_type() == "LOCAL" {
+        Some(format!("{}/{}", alun::upload_path(), file_key))
+    } else {
+        Some(file_key.to_string())
+    }
+}
+
+/// 构造 `sys_file` 记录用的入参（字段多，避免 `too_many_arguments`）。
+struct FileRecordInput<'a> {
+    /// 原始文件名。
+    original_name: &'a str,
+    /// 对象键。
+    file_key: &'a str,
+    /// 字节数。
+    file_size: i64,
+    /// 内容哈希（空串 = 未知，落库为 NULL）。
+    file_hash: &'a str,
+    /// MIME。
+    mime_type: &'a str,
+    /// 分类。
+    category: &'a str,
+    /// 后端编码（空串 = 历史本地语义，落库为 NULL）。
+    storage_code: &'a str,
+    /// 物理路径 / 后端内键。
+    storage_path: Option<String>,
+    /// `SERVER` / `DIRECT`。
+    upload_mode: &'a str,
+    /// 操作人。
+    operator: Option<uuid::Uuid>,
+}
+
+/// 由入参构造待落库的文件记录。
+///
+/// # 参数
+///
+/// - `input`：见 [`FileRecordInput`]。
+///
+/// # 返回值
+///
+/// 主键已生成（UUID v7）、时间戳为当前时间的记录。
+fn build_file_record(input: FileRecordInput<'_>) -> StorageFileModel {
+    let now = chrono::Utc::now();
+    StorageFileModel {
+        id: uuid::Uuid::now_v7(),
+        file_name: input.file_key.to_string(),
+        original_name: Some(input.original_name.to_string()),
+        file_key: input.file_key.to_string(),
+        file_size: input.file_size,
+        file_hash: if input.file_hash.is_empty() {
+            None
+        } else {
+            Some(input.file_hash.to_string())
+        },
+        mime_type: Some(input.mime_type.to_string()),
+        extension: model::extension_of(input.original_name),
+        storage_path: input.storage_path,
+        category: Some(input.category.to_string()),
+        status: EnableStatus::enabled,
+        uploaded_by: input.operator,
+        created_at: now,
+        updated_at: now,
+        create_by: input.operator,
+        update_by: input.operator,
+        deleted_at: None,
+        storage_code: if input.storage_code.is_empty() {
+            None
+        } else {
+            Some(input.storage_code.to_string())
+        },
+        upload_mode: input.upload_mode.to_string(),
+    }
+}
+
+/// 读取 multipart 里的第一个 `file` 字段（服务端上传只要一个文件）。
+///
+/// # 参数
+///
+/// - `multipart`：axum 表单提取器（须为最后一个提取器参数）。
+///
+/// # 返回值
+///
+/// `(原始文件名, MIME, 字节)`。
+///
+/// # 异常情况
+///
+/// - 400：表单解析失败 / 缺少 `file` 字段 / 文件名为空。
+async fn read_single_file(
+    mut multipart: Multipart,
+) -> std::result::Result<(String, String, Vec<u8>), ApiError> {
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传表单解析失败"))?
+    {
+        if field.name() != Some("file") {
+            continue;
+        }
+        let original_name = field.file_name().unwrap_or("").trim().to_string();
+        let content_type = field
+            .content_type()
+            .unwrap_or("application/octet-stream")
+            .to_string();
+        let bytes = field
+            .bytes()
+            .await
+            .map_err(|_| ApiError::new(400, error_code::PAYLOAD_INVALID, "上传文件内容读取失败"))?;
+        if original_name.is_empty() {
+            return Err(ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                "缺少文件名（multipart 的 filename）",
+            ));
+        }
+        return Ok((original_name, content_type, bytes.to_vec()));
+    }
+    Err(ApiError::new(
+        400,
+        error_code::PARAM_INVALID,
+        "缺少文件字段 file",
+    ))
+}
+
+/// 构造 `Content-Disposition`（ASCII 回退名 + RFC 5987 编码名，恒 `attachment`）。
+///
+/// # 参数
+///
+/// - `original`：原始文件名。
+///
+/// # 返回值
+///
+/// 合法的头值；构造失败时退化为 `attachment`。
+fn content_disposition(original: &str) -> HeaderValue {
+    let ascii: String = original
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && c != '"' && c != '\\' && !c.is_control() {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let mut encoded = String::new();
+    for byte in original.as_bytes() {
+        let keep = byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~');
+        if keep {
+            encoded.push(*byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    HeaderValue::from_str(&format!(
+        "attachment; filename=\"{ascii}\"; filename*=UTF-8''{encoded}"
+    ))
+    .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
+}
+
+/// 组装下载响应（本地流式 / S3 302）。
+///
+/// # 参数
+///
+/// - `raw_id`：路径里的文件 ID。
+///
+/// # 返回值
+///
+/// 二进制响应。
+///
+/// # 异常情况
+///
+/// 见 [`download`] 的「异常情况」段。
+async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
+    let id = utils::require_uuid(raw_id, "file_id")?;
+    let record = model::find_active_file(&id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询下载文件"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在或已删除"))?;
+
+    let backend = resolve_file_store(record.storage_code.as_deref()).await?;
+    let mime = record
+        .mime_type
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "application/octet-stream".to_string());
+    let original = record
+        .original_name
+        .clone()
+        .unwrap_or_else(|| record.file_name.clone());
+
+    // S3 后端：302 到现签 URL（后端零流量，且天然支持 Range / 断点续传）
+    if backend.backend_type() == "S3"
+        && let Some(url) = backend
+            .presign_get(&record.file_key, DOWNLOAD_TTL_SECS)
+            .await
+            .map_err(store_error)?
+    {
+        let location = HeaderValue::from_str(&url).map_err(|_| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                "预签名下载链接生成失败（含非法字符）",
+            )
+        })?;
+        let mut response = Response::new(Body::empty());
+        *response.status_mut() = StatusCode::FOUND;
+        let headers = response.headers_mut();
+        headers.insert(header::LOCATION, location);
+        headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+        headers.insert(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        );
+        return Ok(response);
+    }
+
+    // 本地后端（以及 S3 无法预签名的兜底）：服务端流式下发
+    let stat = backend.stat(&record.file_key).await.map_err(store_error)?;
+    let Some(stat) = stat else {
+        return Err(ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            "文件已丢失（记录存在但对象被清理）",
+        ));
+    };
+    let reader = backend
+        .stream(&record.file_key, 0)
+        .await
+        .map_err(store_error)?;
+    let mut response = Response::new(Body::from_stream(ReaderStream::new(reader)));
+    *response.status_mut() = StatusCode::OK;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&mime)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        header::CONTENT_LENGTH,
+        HeaderValue::from_str(&stat.size.to_string())
+            .map_err(|_| ApiError::new(500, error_code::INTERNAL_ERROR, "响应头构造失败"))?,
+    );
+    headers.insert(header::CONTENT_DISPOSITION, content_disposition(&original));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    Ok(response)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    /// A2 正常分支：对象键格式 `{yyyy}/{MM}/{dd}/{uuidv7}.{ext}`。
+    #[test]
+    fn handler_build_object_key_shape() {
+        let key = build_object_key("合同扫描件.PDF");
+        let parts: Vec<&str> = key.split('/').collect();
+        assert_eq!(parts.len(), 4, "{key}");
+        assert_eq!(parts[0].len(), 4);
+        assert_eq!(parts[1].len(), 2);
+        assert_eq!(parts[2].len(), 2);
+        assert!(parts[3].ends_with(".pdf"), "{key}");
+        assert_eq!(parts[3].trim_end_matches(".pdf").len(), 36, "{key}");
+        // 两次生成不重复（UUID v7）
+        assert_ne!(key, build_object_key("合同扫描件.PDF"));
+    }
+
+    /// A2 边界分支：无扩展名时对象键没有点号后缀。
+    #[test]
+    fn handler_build_object_key_without_extension() {
+        let key = build_object_key("README");
+        let leaf = key.rsplit('/').next().unwrap_or_default();
+        assert!(!leaf.contains('.'), "{key}");
+        assert_eq!(leaf.len(), 36, "{key}");
+    }
+
+    /// A2 正常/边界：分类归一化（空值 / 空白回落默认，其余去空白）。
+    #[test]
+    fn handler_category_of_normalizes() {
+        assert_eq!(category_of(None), "attachment");
+        assert_eq!(category_of(Some("   ")), "attachment");
+        assert_eq!(category_of(Some(" avatar ")), "avatar");
+    }
+
+    /// A2 安全：中文文件名走 RFC 5987，ASCII 回退名不出现非 ASCII 字节。
+    #[test]
+    fn handler_content_disposition_encodes_chinese() {
+        let value = content_disposition("报价单 2026.pdf");
+        let text = value.to_str().expect("头值应为可见 ASCII");
+        assert!(text.starts_with("attachment;"));
+        assert!(text.contains("filename*=UTF-8''"), "{text}");
+        assert!(text.contains("%20"), "{text}");
+        assert!(
+            text.split("filename*")
+                .next()
+                .unwrap_or_default()
+                .is_ascii(),
+            "{text}"
+        );
+        // 引号被替换，不会破坏头语法
+        assert!(
+            !content_disposition("a\"b.txt")
+                .to_str()
+                .unwrap_or_default()
+                .contains("a\"b")
+        );
+    }
+
+    /// A2 错误分支：存储错误 → HTTP / 业务码映射齐全（不漏任何一种）。
+    #[test]
+    fn handler_store_error_mapping() {
+        let cases = [
+            (
+                StoreError::NotFound("k".into()),
+                404u16,
+                error_code::STORAGE_OBJECT_MISSING,
+            ),
+            (
+                StoreError::Invalid("k".into()),
+                400u16,
+                error_code::PARAM_INVALID,
+            ),
+            (
+                StoreError::Unsupported("k".into()),
+                422u16,
+                error_code::STORAGE_DIRECT_UPLOAD_DISABLED,
+            ),
+            (
+                StoreError::Io("k".into()),
+                500u16,
+                error_code::INTERNAL_ERROR,
+            ),
+            (
+                StoreError::Backend("k".into()),
+                502u16,
+                error_code::INTERNAL_ERROR,
+            ),
+        ];
+        for (error, status, code) in cases {
+            let api = store_error(error);
+            assert_eq!(api.status, status);
+            assert_eq!(api.code, code);
+        }
+    }
+
+    /// A2 正常分支：记录字段映射（`upload_mode` / `storage_code` / 空哈希降级 NULL）。
+    #[test]
+    fn handler_build_file_record_fields() {
+        let record = build_file_record(FileRecordInput {
+            original_name: "报表.xlsx",
+            file_key: "2026/10/28/abc.xlsx",
+            file_size: 42,
+            file_hash: "",
+            mime_type: "application/vnd.ms-excel",
+            category: "import",
+            storage_code: "",
+            storage_path: None,
+            upload_mode: "DIRECT",
+            operator: None,
+        });
+        assert_eq!(record.file_name, "2026/10/28/abc.xlsx");
+        assert_eq!(record.extension.as_deref(), Some("xlsx"));
+        assert_eq!(record.upload_mode, "DIRECT");
+        // 空哈希 / 空后端 → NULL（历史本地语义）
+        assert!(record.file_hash.is_none());
+        assert!(record.storage_code.is_none());
+        assert_eq!(record.status.as_i16(), 1);
+        assert!(record.deleted_at.is_none());
+
+        let res = StorageFileRes::from_model(&record);
+        assert_eq!(
+            res.url,
+            format!("/api/business/storage/download/{}", record.id)
+        );
+        assert_eq!(res.storage_code, "");
+        assert_eq!(res.upload_mode, "DIRECT");
+    }
     /// 正常/错误分支：后端编码格式校验（与 DB CHECK 同款）。
     #[test]
     fn handler_validates_config_code() {
