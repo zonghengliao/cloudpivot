@@ -157,7 +157,8 @@ impl ScopeKind {
 /// - `dept_col`：部门列，`None` 表示**该表没有部门列**（如日志表、`sys_file`），
 ///   此时部门类范围无法表达，[`filter_for`] 会安全侧降级为「仅本人」；
 /// - `owner_col`：归属列（SELF 范围用），`None` 表示该表没有归属人（如 `sys_dept`，
-///   它的「本人」就是本人所在部门这一行）。
+///   它的「本人」就是本人所在部门这一行）；
+/// - `scoped`：该表**是否参与数据权限注入**。见 [`ScopeTarget::unscoped`]。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ScopeTarget {
     /// 真实表名。
@@ -168,10 +169,12 @@ pub struct ScopeTarget {
     pub dept_col: Option<&'static str>,
     /// 归属列；`None` = 该表无归属人。
     pub owner_col: Option<&'static str>,
+    /// 是否参与数据权限注入（`false` 只能由 [`ScopeTarget::unscoped`] 构造）。
+    scoped: bool,
 }
 
 impl ScopeTarget {
-    /// 构造一个锚点（`const`，可在常量上下文里用）。
+    /// 构造一个「参与数据权限」的锚点（`const`，可在常量上下文里用）。
     pub const fn new(
         table: &'static str,
         alias: &'static str,
@@ -183,7 +186,38 @@ impl ScopeTarget {
             alias,
             dept_col,
             owner_col,
+            scoped: true,
         }
+    }
+
+    /// 构造一个**不参与**数据权限的锚点（架构 §2.5 判为 ❌ 的全局元数据表）。
+    ///
+    /// # 为什么需要它
+    ///
+    /// 闸 ① 要求「分页只有一种写法」（`scope::paginate`），但 §2.5 明确判了一批表
+    /// **不该**注入范围：`sys_role` / `sys_menu` 是全局元数据、`sys_config` /
+    /// `sys_dict_*` / `sys_job*` / `sys_storage_config|policy` / `sys_notice_template`
+    /// 是全局配置。对这些表强行注入 scope 会让「有权限码的人看不到配置」，
+    /// 属于**静默少数据**（比漏权限更危险，见架构 §2.4 的取向）。
+    ///
+    /// 所以把它们显式声明成 `unscoped`：注入形态恒为 `AND 1 = 1`（[`RowFilter::allow_all`]），
+    /// 且**不会被登记进** [`SCOPED_TABLES`]（启动自检不校验它们）。这是一个
+    /// **写下来的决定**，不是一个疏漏 —— 想给某张表加数据权限，就得改用 [`Self::new`]
+    /// 并登记进 [`SCOPED_TABLES`]，那时 `paginate_unscoped` 会直接报错逼你走
+    /// [`paginate`]（见 [`paginate_unscoped`] 的守卫）。
+    pub const fn unscoped(table: &'static str) -> Self {
+        Self {
+            table,
+            alias: "",
+            dept_col: None,
+            owner_col: None,
+            scoped: false,
+        }
+    }
+
+    /// 是否参与数据权限注入。
+    pub const fn is_scoped(self) -> bool {
+        self.scoped
     }
 
     /// 换一个别名（调用方的 SQL 用了别的别名时用）。
@@ -216,6 +250,11 @@ impl ScopeTarget {
     /// `security_logs`：安全日志，同上。
     pub const SECURITY_LOGS: Self = Self::new("security_logs", "l", None, Some("user_id"));
 
+    /// `password_change_logs`：密码变更日志（B5 补登记，§2.5 的 ✅(P1) 行）。
+    /// 归属列是 `user_id`（迁移 `V0017`，`information_schema` 已核对）。
+    pub const PASSWORD_CHANGE_LOGS: Self =
+        Self::new("password_change_logs", "l", None, Some("user_id"));
+
     /// `sys_notice`（管理视角 `page_notices`）：发送人是 `sender_id`。
     pub const SYS_NOTICE: Self = Self::new("sys_notice", "n", None, Some("sender_id"));
 
@@ -241,6 +280,7 @@ pub const SCOPED_TABLES: &[ScopeTarget] = &[
     ScopeTarget::AUDIT_LOGS,
     ScopeTarget::AUTH_LOGS,
     ScopeTarget::SECURITY_LOGS,
+    ScopeTarget::PASSWORD_CHANGE_LOGS,
     ScopeTarget::SYS_NOTICE,
     ScopeTarget::SYS_FILE,
 ];
@@ -394,6 +434,11 @@ impl RowFilter {
 /// 3. `SelfOnly` 作用在没有归属列的表上（`sys_dept`）→ 用「本人所在部门」这一行
 ///    （`AND {a}.{dept} = ?`）；连部门都没有 → 拒绝全部。
 pub fn filter_for(principal: &ScopedPrincipal, target: ScopeTarget) -> RowFilter {
+    // ⓪ 不参与数据权限的表（§2.5 判为 ❌ 的全局元数据/配置，见 `ScopeTarget::unscoped`）：
+    //    恒真，且**不看** principal —— 这类表的可见性由权限码控制，不看数据范围。
+    if !target.is_scoped() {
+        return RowFilter::allow_all();
+    }
     // ① 超管短路（S9）：不看库里的 data_scope，直接恒真。
     if principal.is_super() {
         return RowFilter::allow_all();
@@ -579,31 +624,115 @@ pub async fn paginate(
     page_size: u64,
     principal: &ScopedPrincipal,
 ) -> DbResult<Page<Row>> {
+    let filter = filter_for(principal, target);
+    paginate_with_filter(base_sql, base_params, order_by, page, page_size, &filter).await
+}
+
+/// 列表分页的第二入口：**只用于 §2.5 判为 ❌ 的表**（`ScopeTarget::unscoped`）。
+///
+/// # 为什么必须有它，而不是「让调用方自己拼分页」
+///
+/// 闸 ① 的硬门禁是「`paginate_with_params` 只能出现在 `scope.rs`」。全局元数据
+/// （`sys_role` / `sys_config` / `sys_dict_*` / `sys_job*` / `sys_storage_*` /
+/// `sys_notice_template`）**不该**注入数据范围，但它们的列表仍要分页 —— 如果允许
+/// 调用方自己调框架分页，闸 ① 就退化成了「谁都可以绕过」，门禁等于没有。
+/// 所以给它们一个**显式的**入口：必须传 [`ScopeTarget::unscoped`] 构造的锚点。
+///
+/// # 守卫（不是靠自觉）
+///
+/// `target.is_scoped()` 为真 → 直接 `DbError::InvalidValue`。也就是说：某张表一旦
+/// 被登记进 [`SCOPED_TABLES`]（获得 `ScopeTarget::new` 构造的常量），就走不了本函数，
+/// 只能走 [`paginate`]。反之，未被登记的表明明有部门/归属列却想蒙混过关，也不会
+/// 被 `unscoped` 之外的路径放到这里来（`unscoped` 要求调用方在源码里写清表名）。
+///
+/// # 参数 / 返回值 / 异常
+///
+/// 与 [`paginate`] 一致（少了 `principal`：不参与数据权限的表不需要解析范围）。
+pub async fn paginate_unscoped(
+    target: ScopeTarget,
+    base_sql: &str,
+    base_params: Vec<Value>,
+    order_by: Option<&str>,
+    page: u64,
+    page_size: u64,
+) -> DbResult<Page<Row>> {
+    if target.is_scoped() {
+        return Err(DbError::InvalidValue(format!(
+            "{} 参与数据权限（或已登记进 SCOPED_TABLES），必须走 scope::paginate(…, &principal)，\
+             不得使用 paginate_unscoped（架构 §2.5 / §2.4 闸①）",
+            target.table
+        )));
+    }
+    paginate_with_filter(
+        base_sql,
+        base_params,
+        order_by,
+        page,
+        page_size,
+        &RowFilter::allow_all(),
+    )
+    .await
+}
+
+/// [`paginate`] 与 [`paginate_unscoped`] 的共用实现（count + 数据页）。
+async fn paginate_with_filter(
+    base_sql: &str,
+    base_params: Vec<Value>,
+    order_by: Option<&str>,
+    page: u64,
+    page_size: u64,
+    filter: &RowFilter,
+) -> DbResult<Page<Row>> {
     if let Some(word) = forbidden_clause(base_sql) {
         return Err(DbError::InvalidValue(format!(
             "scope::paginate 的 base_sql 不得包含 {word}：ORDER BY / LIMIT 必须作为参数单独传入\
              （架构 §2.3：禁止对 SQL 做字符串切割）"
         )));
     }
-    ensure_injection_point(base_sql, base_params.len())?;
+    if filter.params().is_empty() {
+        // 片段无绑定参数（ALL 范围 / 不参与数据权限的表）：追加到末尾不会让 `?` 顺序错位，
+        // 所以只校验「标记至多一次」，不强制要求 `{FILTER}`。
+        let markers = base_sql.matches(FILTER_MARKER).count();
+        if markers > 1 {
+            return Err(DbError::InvalidValue(format!(
+                "{FILTER_MARKER} 在 base_sql 里出现了 {markers} 次，只允许出现一次（无法判断插哪个）"
+            )));
+        }
+    } else {
+        ensure_injection_point(base_sql, base_params.len())?;
+    }
 
-    let filter = filter_for(principal, target);
     let page = page.max(1);
     let size = page_size.max(1);
     let offset = (page - 1) * size;
 
     // ① count：剥掉 ORDER BY 的形态（S12）
-    let count_sql = build_count_sql(base_sql, &filter);
-    let total: i64 = db()
-        .scalar_with_params(&count_sql, merge_params(&filter, &base_params))
-        .await?;
+    let count_sql = build_count_sql(base_sql, filter);
+    let total: i64 = match db()
+        .scalar_with_params(&count_sql, merge_params(filter, &base_params))
+        .await
+    {
+        Ok(total) => total,
+        Err(error) => {
+            // 数据权限片段是拼进去的：出错时 SQL 原文是唯一可诊断的线索（不含参数值）。
+            tracing::error!(%error, count_sql, "scope::paginate count 查询失败");
+            return Err(error);
+        }
+    };
     let total = u64::try_from(total).unwrap_or(0);
 
     // ② 数据页：片段 + ORDER BY + LIMIT/OFFSET
-    let data_sql = build_data_sql(base_sql, &filter, order_by, size, offset);
-    let list = db()
-        .find_with_params(&data_sql, merge_params(&filter, &base_params))
-        .await?;
+    let data_sql = build_data_sql(base_sql, filter, order_by, size, offset);
+    let list = match db()
+        .find_with_params(&data_sql, merge_params(filter, &base_params))
+        .await
+    {
+        Ok(list) => list,
+        Err(error) => {
+            tracing::error!(%error, data_sql, "scope::paginate 数据页查询失败");
+            return Err(error);
+        }
+    };
 
     Ok(Page {
         list,
@@ -632,15 +761,34 @@ pub(crate) fn ensure_injection_point(base_sql: &str, base_param_count: usize) ->
 }
 
 /// 把片段拼进 `base_sql`（`{FILTER}` 原位替换；无标记则追加到末尾）。
+///
+/// # 为什么不直接 `replacen`
+///
+/// 调用方推送标记的姿势有两种：写在 SQL 字面量里（`… IS NULL {FILTER}`）和
+/// `sql.push_str(scope::FILTER_MARKER)`（`… IS NULL{FILTER}`）。后者若直接替换
+/// 会拼成 `… IS NULLAND 1 = 1` —— 一条**语法合法但语义错误**的 SQL（PG 会把它
+/// 当成 `NULLAND` 标识符报错，实际是 500）。B5 真机验收就在这里踩过一次，
+/// 所以替换时对**两侧**各补一个空格并裁掉原空白，任何姿势都得到单空格分隔。
 fn inject_filter(base_sql: &str, filter: &RowFilter) -> String {
-    if base_sql.contains(FILTER_MARKER) {
-        base_sql.replacen(FILTER_MARKER, filter.sql().trim(), 1)
-    } else {
-        let mut sql = String::with_capacity(base_sql.len() + filter.sql().len());
+    let fragment = filter.sql().trim();
+    let Some((head, tail)) = base_sql.split_once(FILTER_MARKER) else {
+        // 无标记：追加到末尾（片段参数为空时安全，非空时 ensure_injection_point 已拦住）
+        let mut sql = String::with_capacity(base_sql.len() + fragment.len() + 1);
         sql.push_str(base_sql.trim_end());
-        sql.push_str(filter.sql());
-        sql
+        sql.push(' ');
+        sql.push_str(fragment);
+        return sql;
+    };
+    let mut sql = String::with_capacity(base_sql.len() + fragment.len() + 2);
+    sql.push_str(head.trim_end());
+    sql.push(' ');
+    sql.push_str(fragment);
+    let tail = tail.trim_start();
+    if !tail.is_empty() {
+        sql.push(' ');
+        sql.push_str(tail);
     }
+    sql
 }
 
 /// 构造 count 语句：**不含** `ORDER BY`（S12）。
@@ -1105,5 +1253,109 @@ mod tests {
         }
         assert_eq!(tables.len(), SCOPED_TABLES.len());
         println!("[清单] SCOPED_TABLES {} 张表自洽 ✓", SCOPED_TABLES.len());
+    }
+
+    /// B5：登记表清单里的每一张都必须是 `scoped = true`（防「用 unscoped 混进登记清单」）。
+    #[test]
+    fn registered_tables_are_all_scoped() {
+        for target in SCOPED_TABLES {
+            assert!(
+                target.is_scoped(),
+                "{} 在 SCOPED_TABLES 里但 is_scoped=false（unscoped 不能登记）",
+                target.table
+            );
+            assert!(!target.alias.is_empty(), "{} 缺少别名", target.table);
+        }
+        println!("[清单] {} 张登记表全部 scoped=true ✓", SCOPED_TABLES.len());
+    }
+
+    /// B5：不参与数据权限的表（§2.5 判为 ❌）→ 五种范围都恒真、不产生绑定参数。
+    #[test]
+    fn unscoped_target_always_allows() {
+        let target = ScopeTarget::unscoped("sys_config");
+        assert!(!target.is_scoped());
+        for kind in [
+            ScopeKind::All,
+            ScopeKind::Dept,
+            ScopeKind::DeptAndChild,
+            ScopeKind::SelfOnly,
+            ScopeKind::Custom,
+        ] {
+            let filter = filter_for(
+                &principal(kind, vec![uid(0xF1)], false, Some(uid(0xF1)), false),
+                target,
+            );
+            assert_eq!(filter.sql(), " AND 1 = 1", "范围={}", kind.code());
+            assert!(filter.params().is_empty(), "范围={}", kind.code());
+            assert!(filter.is_noop(), "范围={}", kind.code());
+        }
+        // 与「登记表 + SELF」形成对照：登记表必须收口
+        let scoped = filter_for(
+            &principal(ScopeKind::SelfOnly, vec![], true, Some(uid(0xF2)), false),
+            ScopeTarget::SYS_FILE,
+        );
+        assert_eq!(scoped.sql(), " AND f.uploaded_by = ?");
+        println!("[unscoped] sys_config → ` AND 1 = 1`（五范围都不注入）；sys_file → 收口 ✓");
+    }
+
+    /// B5 守卫：参与数据权限的锚点传给 `paginate_unscoped` → 立即报错（不允许绕过闸①）。
+    ///
+    /// 不需要数据库：守卫在任何 `db()` 调用之前返回。
+    #[tokio::test]
+    async fn paginate_unscoped_rejects_scoped_target() {
+        let error = super::paginate_unscoped(
+            ScopeTarget::SYS_IMPORT_TASK,
+            "SELECT t.* FROM sys_import_task t WHERE t.deleted_at IS NULL",
+            Vec::new(),
+            Some("ORDER BY t.created_at DESC"),
+            1,
+            10,
+        )
+        .await
+        .expect_err("登记表必须走 scope::paginate");
+        match error {
+            DbError::InvalidValue(message) => {
+                assert!(message.contains("sys_import_task"), "message={message}");
+                assert!(message.contains("scope::paginate"), "message={message}");
+            }
+            other => panic!("期望 DbError::InvalidValue，实际 {other:?}"),
+        }
+        println!("[守卫] paginate_unscoped 拒绝登记表 ✓");
+    }
+
+    /// B5 回归（真机踩过）：`{FILTER}` 两侧的空格必须由 `inject_filter` 自己保证。
+    ///
+    /// 调用方两种姿势：字面量里写 `… {FILTER}`、或 `push_str(FILTER_MARKER)` 拼成
+    /// `…{FILTER}`。后者若直接 `replacen` 会产生 `NULLAND`（500）。
+    #[test]
+    fn inject_filter_keeps_token_boundaries() {
+        let filter = RowFilter::allow_all();
+
+        // 姿势 A：标记前已有空格
+        let with_space = "SELECT * FROM t WHERE a = 1 {FILTER} AND b = 2";
+        assert_eq!(
+            inject_filter(with_space, &filter),
+            "SELECT * FROM t WHERE a = 1 AND 1 = 1 AND b = 2"
+        );
+
+        // 姿势 B：push_str 紧随 WHERE 条件，**没有**空格（本次真机踩到的形态）
+        let no_space = "SELECT * FROM t WHERE a IS NULL{FILTER}";
+        let sql = inject_filter(no_space, &filter);
+        assert_eq!(sql, "SELECT * FROM t WHERE a IS NULL AND 1 = 1");
+        assert!(!sql.contains("NULLAND"), "sql={sql}");
+
+        // 姿势 C：标记在末尾且前后都有空白
+        let trailing = "SELECT * FROM t WHERE a = 1 {FILTER}   ";
+        assert_eq!(
+            inject_filter(trailing, &filter),
+            "SELECT * FROM t WHERE a = 1 AND 1 = 1"
+        );
+
+        // 无标记 → 追加到末尾（语言无关地补一个空格）
+        assert_eq!(
+            inject_filter("SELECT * FROM t WHERE a = 1", &filter),
+            "SELECT * FROM t WHERE a = 1 AND 1 = 1"
+        );
+        println!("[注入] 三种标记姿势都得到单空格分隔的 SQL，无 NULLAND 粘连 ✓");
     }
 }

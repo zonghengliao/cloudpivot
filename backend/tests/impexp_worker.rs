@@ -242,7 +242,7 @@ async fn zombie_running_task_is_reclaimed() {
         mine.previous_heartbeat
     );
 
-    let after = model::find_export_task(&id)
+    let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");
@@ -290,7 +290,7 @@ async fn zombie_reclaim_marks_failed_when_attempts_exhausted() {
         reclaimed.iter().any(|task| task.id == id.to_string()),
         "应被回收"
     );
-    let after = model::find_export_task(&id)
+    let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");
@@ -353,7 +353,7 @@ async fn expired_artifact_file_is_purged() {
     )
     .await
     .expect("制造过期产物失败");
-    let before = model::find_export_task(&id)
+    let before = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");
@@ -374,7 +374,7 @@ async fn expired_artifact_file_is_purged() {
         "清理结果: task_no={} file_path={:?} file_deleted={}",
         mine.task_no, mine.file_path, mine.file_deleted
     );
-    let after = model::find_export_task(&id)
+    let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");
@@ -412,7 +412,7 @@ async fn worker_marks_failed_when_definition_missing() {
     println!("worker 报告: {}", report.summary());
     assert_eq!(report.claimed, 1);
     assert_eq!(report.failed, 1, "未注册定义应判终态失败");
-    let after = model::find_export_task(&id)
+    let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");
@@ -454,7 +454,7 @@ async fn failure_schedules_backoff_and_stays_pending() {
         .expect("任务应处于 RUNNING 才能收尾");
     println!("失败收尾结果: {outcome:?}");
     assert_eq!(outcome.0, "PENDING");
-    let after = model::find_export_task(&id)
+    let after = model::find_export_task_unscoped(&id)
         .await
         .expect("查询失败")
         .expect("任务不存在");

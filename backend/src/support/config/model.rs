@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
+use crate::business::shared::scope;
 use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::shared::enums::{EnumItem, EnumsRes, color};
@@ -435,17 +436,25 @@ pub(crate) async fn page_configs(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, created_at ASC");
-
+    // 闸① 唯一入口：`sys_config` 是 §2.5 判为 ❌ 的全局配置类（附录 C #18），
+    // 不注入数据范围 —— 传 `ScopeTarget::unscoped` 是**写下来的决定**，不是漏接；
+    // 若将来要给它加数据权限，必须改用 `ScopeTarget::new` 并登记进 SCOPED_TABLES，
+    // 那时本函数会直接报错逼你走 `scope::paginate`。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_config"),
+        &sql,
+        params,
+        Some("ORDER BY sort_order ASC, created_at ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysConfigModel::from_row)

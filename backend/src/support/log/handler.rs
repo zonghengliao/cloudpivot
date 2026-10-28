@@ -8,6 +8,7 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal;
 use crate::shared::constants;
 use crate::shared::error_code;
 use crate::support::log::dto::{CleanQuery, CleanRes, LogDetailRes, LogPageQuery, LogRes};
@@ -36,8 +37,14 @@ use crate::utils;
     permission = "support:log:list"
 )]
 #[alun::get("/support/log/page")]
-pub async fn page(Query(query): Query<LogPageQuery>) -> ResResult<PageData<Vec<LogRes>>> {
+pub async fn page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<LogPageQuery>,
+) -> ResResult<PageData<Vec<LogRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5：一次请求解析一次数据范围（Redis 缓存 + epoch 失效），
+    // 之后交给分页唯一入口 —— `ScopedPrincipal` 字段私有，绕不过解析。
+    let principal = principal::resolve_for_claims(&claims).await?;
 
     let filter = model::OperationLogFilter {
         username: query.username,
@@ -48,7 +55,7 @@ pub async fn page(Query(query): Query<LogPageQuery>) -> ResResult<PageData<Vec<L
         end_time: parse_optional_time(query.end_time.as_deref(), "end_time")?,
     };
 
-    let result = model::page_operation_logs(&filter, page, page_size)
+    let result = model::page_operation_logs(&filter, page, page_size, &principal)
         .await
         .map_err(|e| utils::db_error(e, "分页查询操作日志"))?;
     let list = result.list.iter().map(LogRes::from).collect::<Vec<_>>();
@@ -135,8 +142,11 @@ pub async fn clean(Query(query): Query<CleanQuery>) -> ResResult<CleanRes> {
     permission = "support:log:list"
 )]
 #[alun::get("/support/log/audit/page")]
-pub async fn page_audit(Query(query): Query<LogPageQuery>) -> ResResult<PageData<Vec<JsonValue>>> {
-    json_log_page(JsonLogTable::Audit, query).await
+pub async fn page_audit(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<LogPageQuery>,
+) -> ResResult<PageData<Vec<JsonValue>>> {
+    json_log_page(JsonLogTable::Audit, query, &claims).await
 }
 
 /// 分页查询认证日志。
@@ -153,8 +163,11 @@ pub async fn page_audit(Query(query): Query<LogPageQuery>) -> ResResult<PageData
     permission = "support:log:list"
 )]
 #[alun::get("/support/log/auth/page")]
-pub async fn page_auth(Query(query): Query<LogPageQuery>) -> ResResult<PageData<Vec<JsonValue>>> {
-    json_log_page(JsonLogTable::Auth, query).await
+pub async fn page_auth(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<LogPageQuery>,
+) -> ResResult<PageData<Vec<JsonValue>>> {
+    json_log_page(JsonLogTable::Auth, query, &claims).await
 }
 
 /// 分页查询安全日志。
@@ -172,9 +185,10 @@ pub async fn page_auth(Query(query): Query<LogPageQuery>) -> ResResult<PageData<
 )]
 #[alun::get("/support/log/security/page")]
 pub async fn page_security(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
 ) -> ResResult<PageData<Vec<JsonValue>>> {
-    json_log_page(JsonLogTable::Security, query).await
+    json_log_page(JsonLogTable::Security, query, &claims).await
 }
 
 /// 分页查询密码变更日志。
@@ -192,9 +206,10 @@ pub async fn page_security(
 )]
 #[alun::get("/support/log/password/page")]
 pub async fn page_password(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
 ) -> ResResult<PageData<Vec<JsonValue>>> {
-    json_log_page(JsonLogTable::PasswordChange, query).await
+    json_log_page(JsonLogTable::PasswordChange, query, &claims).await
 }
 
 // ==================== 公共辅助 ====================
@@ -271,15 +286,25 @@ fn parse_time(
 async fn json_log_page(
     table: JsonLogTable,
     query: LogPageQuery,
+    claims: &TokenClaims,
 ) -> ResResult<PageData<Vec<JsonValue>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let start_time = parse_optional_time(query.start_time.as_deref(), "start_time")?;
     let end_time = parse_optional_time(query.end_time.as_deref(), "end_time")?;
+    // 批次 B · B5：四类日志表（审计/认证/安全/密码变更）逐个按数据范围收口。
+    let principal = principal::resolve_for_claims(claims).await?;
 
-    let result =
-        model::page_json_logs(table, query.username, start_time, end_time, page, page_size)
-            .await
-            .map_err(|e| utils::db_error(e, "分页查询日志"))?;
+    let result = model::page_json_logs(
+        table,
+        query.username,
+        start_time,
+        end_time,
+        page,
+        page_size,
+        &principal,
+    )
+    .await
+    .map_err(|e| utils::db_error(e, "分页查询日志"))?;
 
     Ok(Res::page(
         result.list,

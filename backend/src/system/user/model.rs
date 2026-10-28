@@ -475,6 +475,46 @@ pub(crate) async fn replace_user_roles(
     insert_user_roles(ex, user_id, role_ids).await
 }
 
+/// 统计一批用户里**当前操作者数据范围内可见**的条数（批次 B · B5，附录 C #4）。
+///
+/// # 为什么写操作也需要它
+///
+/// 列表收口只解决了「看」，但 `PUT /system/user/batch-dept` 能改**任意** `id` 的部门：
+/// 本部门主管只要知道对方 UUID，就能把别的部门的人挪进自己部门（等于「把人拉进来」），
+/// 甚至把超管挪走。所以写操作前必须先用同一份 `filter_for(SYS_USER)` 校验目标集合。
+///
+/// # 参数
+///
+/// - `ids`：请求里的目标用户 ID；
+/// - `principal`：当前操作者的数据范围。
+///
+/// # 返回值
+///
+/// 落在可见范围内且未软删的用户条数；与 `ids` 去重后的长度不等 → 调用方应拒绝。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn count_visible_users(
+    ids: &[uuid::Uuid],
+    principal: &ScopedPrincipal,
+) -> std::result::Result<u64, DbError> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+    let mut sql = format!(
+        "SELECT COUNT(*) FROM sys_user u WHERE u.deleted_at IS NULL AND u.id IN ({placeholders})"
+    );
+    // 片段追加在业务条件之后，因此参数顺序是「ids…, 片段参数…」（与 SQL 里 `?` 的顺序一致）
+    let filter = scope::filter_for(principal, scope::ScopeTarget::SYS_USER);
+    sql.push_str(filter.sql());
+    let mut params: Vec<Value> = ids.iter().map(Value::from).collect();
+    params.extend(filter.params().iter().cloned());
+    let visible: i64 = db().scalar_with_params(&sql, params).await?;
+    Ok(u64::try_from(visible).unwrap_or(0))
+}
+
 /// 批量把一批用户调入指定部门（单条 `UPDATE ... WHERE id IN (...)`）。
 ///
 /// 仅在事务内调用（`execute_with_params` 为连接 / 事务的固有写方法）。

@@ -18,6 +18,8 @@
 use alun::prelude::*;
 
 use crate::business::impexp::definition::RowIssue;
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::utils;
 
 /// `sys_import_task` 的强类型视图。
@@ -385,11 +387,20 @@ pub async fn finish_import_canceled(
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_import_task(id: &uuid::Uuid) -> std::result::Result<Option<ImportTask>, DbError> {
-    let sql = format!(
-        "SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task WHERE id = ?::uuid AND deleted_at IS NULL"
+pub async fn find_import_task(
+    id: &uuid::Uuid,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<Option<ImportTask>, DbError> {
+    // 批次 B · B5：单条读取与列表同口径（附录 C #12）。片段追加在业务条件**之后**，
+    // 因此参数顺序是「id, 片段参数」（与 SQL 里 `?` 的出现顺序一致）。
+    let mut sql = format!(
+        "SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL"
     );
-    let rows = db().find_with_params(&sql, vec![Value::from(*id)]).await?;
+    let filter = scope::filter_for(principal, scope::ScopeTarget::SYS_IMPORT_TASK);
+    sql.push_str(filter.sql());
+    let mut params = vec![Value::from(*id)];
+    params.extend(filter.params().iter().cloned());
+    let rows = db().find_with_params(&sql, params).await?;
     match rows.into_iter().next() {
         Some(row) => Ok(Some(map_import_task(&row)?)),
         None => Ok(None),
@@ -427,33 +438,45 @@ pub async fn page_import_tasks(
     filter: &ImportTaskFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<ImportTask>, DbError> {
+    // 批次 B · B5（附录 C #12）：`sys_import_task` 登记进数据范围。此前只有 `only_mine`
+    // 开关，不开启时任何持 `business:impexp:list` 的人都能看到**全站**导入任务
+    // （含他人上传的文件名、行数、错误摘要）—— 这里按 `create_by` 收口。
+    // `{FILTER}` 必须在业务条件之前（片段参数恒前置，§2.6）；片段只锚定主体表 `t`。
     let mut sql =
-        format!("SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task WHERE deleted_at IS NULL");
+        format!("SELECT {IMPORT_TASK_COLUMNS} FROM sys_import_task t WHERE t.deleted_at IS NULL");
+    sql.push_str(scope::FILTER_MARKER);
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.keyword.as_deref()) {
-        sql.push_str(" AND (task_no LIKE ? OR file_name LIKE ? OR biz_name LIKE ?)");
+        sql.push_str(" AND (t.task_no LIKE ? OR t.file_name LIKE ? OR t.biz_name LIKE ?)");
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
     if let Some(status) = filter.status.as_deref() {
-        sql.push_str(" AND status = ?");
+        sql.push_str(" AND t.status = ?");
         params.push(Value::from(status));
     }
     if let Some(biz_type) = filter.biz_type.as_deref() {
-        sql.push_str(" AND biz_type = ?");
+        sql.push_str(" AND t.biz_type = ?");
         params.push(Value::from(biz_type));
     }
     if let Some(operator) = filter.create_by {
-        sql.push_str(" AND create_by = ?::uuid");
+        sql.push_str(" AND t.create_by = ?::uuid");
         params.push(Value::from(operator));
     }
-    sql.push_str(" ORDER BY created_at DESC, id DESC");
 
-    let result = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    let result = scope::paginate(
+        scope::ScopeTarget::SYS_IMPORT_TASK,
+        &sql,
+        params,
+        Some("ORDER BY t.created_at DESC, t.id DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = result
         .list
         .iter()
@@ -543,11 +566,22 @@ pub async fn page_task_errors(
     page: u64,
     page_size: u64,
 ) -> std::result::Result<Page<ImportTaskError>, DbError> {
+    // `sys_import_task_error` 是导入任务的**子表**（无部门列、无 create_by），它的可见性
+    // 完全由父任务的可见性决定：调用方 `handler::import_errors` 先用带 scope 的
+    // `load_task` 取任务（越权 → 404），再按 `task_id` 取错误明细。
+    // 因此这里只分页、不注入（`unscoped` 显式声明）。SCOPE-EXEMPT: 子表按 task_id 收口，
+    // 父任务可见性已由 load_task 的 scope::filter_for(SYS_IMPORT_TASK) 判定。
     let sql = "SELECT id, row_no, column_key, column_header, raw_value, error_code, error_message \
-               FROM sys_import_task_error WHERE task_id = ?::uuid ORDER BY row_no ASC, id ASC";
-    let result = db()
-        .paginate_with_params(sql, vec![Value::from(*task_id)], page, page_size)
-        .await?;
+               FROM sys_import_task_error WHERE task_id = ?::uuid";
+    let result = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_import_task_error"),
+        sql,
+        vec![Value::from(*task_id)],
+        Some("ORDER BY row_no ASC, id ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = result
         .list
         .iter()
@@ -840,7 +874,39 @@ pub async fn insert_export_task(task: &NewExportTask<'_>) -> std::result::Result
 /// # 异常情况
 ///
 /// 数据库异常或行映射失败返回 [`DbError`]。
-pub async fn find_export_task(id: &uuid::Uuid) -> std::result::Result<Option<ExportTask>, DbError> {
+pub async fn find_export_task(
+    id: &uuid::Uuid,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<Option<ExportTask>, DbError> {
+    // 批次 B · B5：单条读取与列表同口径（附录 C #13）。
+    let mut sql = format!(
+        "SELECT {} FROM sys_export_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
+        export_task_columns("t.")
+    );
+    let filter = scope::filter_for(principal, scope::ScopeTarget::SYS_EXPORT_TASK);
+    sql.push_str(filter.sql());
+    let mut params = vec![Value::from(*id)];
+    params.extend(filter.params().iter().cloned());
+    let rows = db().find_with_params(&sql, params).await?;
+    match rows.into_iter().next() {
+        Some(row) => Ok(Some(map_export_task(&row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 按 ID 装载导出任务，**不做数据范围过滤**（仅供后台 worker 与集成测试）。
+///
+/// # 为什么允许存在
+///
+/// 后台任务（`worker` 的调度循环）与集成测试都没有「请求者」这个概念：worker 要处理
+/// 全站排队的任务，测试要断言任务被回收后的状态。它们传不进 `ScopedPrincipal`
+/// （该类型没有公开构造器，这是闸 1 的一部分），所以只能走这个显式命名的出口。
+///
+/// **任何面向用户的 handler 都不得调用本函数** —— 用错一次就是越权读；
+/// 用户侧一律走 [`find_export_task`]（带 `principal`）。
+pub async fn find_export_task_unscoped(
+    id: &uuid::Uuid,
+) -> std::result::Result<Option<ExportTask>, DbError> {
     let sql = format!(
         "SELECT {} FROM sys_export_task WHERE id = ?::uuid AND deleted_at IS NULL",
         export_task_columns("")
@@ -883,35 +949,45 @@ pub async fn page_export_tasks(
     filter: &ExportTaskFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<ExportTask>, DbError> {
+    // 批次 B · B5（附录 C #13）：`sys_export_task` 与导入任务同口径，按 `create_by` 收口；
+    // 否则 `only_mine=false` 时任何持 `business:impexp:list` 的人都能看到全站导出任务。
     let mut sql = format!(
-        "SELECT {} FROM sys_export_task WHERE deleted_at IS NULL",
-        export_task_columns("")
+        "SELECT {} FROM sys_export_task t WHERE t.deleted_at IS NULL",
+        export_task_columns("t.")
     );
+    sql.push_str(scope::FILTER_MARKER);
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.keyword.as_deref()) {
-        sql.push_str(" AND (task_no LIKE ? OR file_name LIKE ? OR biz_name LIKE ?)");
+        sql.push_str(" AND (t.task_no LIKE ? OR t.file_name LIKE ? OR t.biz_name LIKE ?)");
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
     if let Some(status) = filter.status.as_deref() {
-        sql.push_str(" AND status = ?");
+        sql.push_str(" AND t.status = ?");
         params.push(Value::from(status));
     }
     if let Some(biz_type) = filter.biz_type.as_deref() {
-        sql.push_str(" AND biz_type = ?");
+        sql.push_str(" AND t.biz_type = ?");
         params.push(Value::from(biz_type));
     }
     if let Some(operator) = filter.create_by {
-        sql.push_str(" AND create_by = ?::uuid");
+        sql.push_str(" AND t.create_by = ?::uuid");
         params.push(Value::from(operator));
     }
-    sql.push_str(" ORDER BY created_at DESC, id DESC");
 
-    let result = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    let result = scope::paginate(
+        scope::ScopeTarget::SYS_EXPORT_TASK,
+        &sql,
+        params,
+        Some("ORDER BY t.created_at DESC, t.id DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = result
         .list
         .iter()

@@ -21,6 +21,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants::EnableStatus;
 use crate::utils;
 
@@ -522,29 +524,35 @@ pub async fn page_notices(
     filter: &crate::business::notice::dto::NoticeFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> DbResult<Page<SysNoticeModel>> {
-    let mut sql = format!("SELECT {NOTICE_COLUMNS} FROM sys_notice WHERE deleted_at IS NULL");
+    // 批次 B · B5（附录 C #14）：`sys_notice` 管理视角列表按**发送人**收口。
+    // 此前 `page_notices` 的过滤条件只有关键词/类型/级别/业务类型，没有任何范围约束 ——
+    // 任何持 `business:notice:list` 的人都能看到全站公告（含未发给自己的）。
+    // `sys_notice` 无部门列，部门类范围在 `filter_for` 里 fail-closed 降级为「仅本人」
+    // （`AND n.sender_id = ?`）并置 `is_degraded()`；片段只锚定主体表 `n`。
+    let mut sql = format!("SELECT {NOTICE_COLUMNS} FROM sys_notice n WHERE n.deleted_at IS NULL");
+    sql.push_str(scope::FILTER_MARKER);
     let mut params: Vec<Value> = Vec::new();
 
     if let Some(pattern) = utils::like_pattern(filter.keyword.as_deref()) {
-        sql.push_str(" AND (title LIKE ? OR notice_no LIKE ? OR content LIKE ?)");
+        sql.push_str(" AND (n.title LIKE ? OR n.notice_no LIKE ? OR n.content LIKE ?)");
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern.clone()));
         params.push(Value::from(pattern));
     }
     if let Some(notice_type) = &filter.notice_type {
-        sql.push_str(" AND notice_type = ?");
+        sql.push_str(" AND n.notice_type = ?");
         params.push(Value::from(notice_type.clone()));
     }
     if let Some(level) = &filter.level {
-        sql.push_str(" AND level = ?");
+        sql.push_str(" AND n.level = ?");
         params.push(Value::from(level.clone()));
     }
     if let Some(biz_type) = &filter.biz_type {
-        sql.push_str(" AND biz_type = ?");
+        sql.push_str(" AND n.biz_type = ?");
         params.push(Value::from(biz_type.clone()));
     }
-    sql.push_str(" ORDER BY created_at DESC, id DESC");
 
     let Page {
         list,
@@ -552,9 +560,16 @@ pub async fn page_notices(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::SYS_NOTICE,
+        &sql,
+        params,
+        Some("ORDER BY n.created_at DESC, n.id DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .iter()
         .map(map_notice)
@@ -646,6 +661,10 @@ pub async fn page_my_notices(
     page: u64,
     page_size: u64,
 ) -> DbResult<Page<MyNoticeRow>> {
+    // SCOPE-EXEMPT: 「我的通知」已按 user_id 硬绑定（`WHERE r.user_id = ?::uuid`，值取自令牌的
+    // sub，不是请求参数），数据权限注入在这里既无意义也有害 —— 部门/归属条件会把
+    // 「别人发给我的通知」二次过滤掉（静默少数据）。主体表 `sys_notice_receiver` 也不在
+    // §2.5 登记清单里。闸① 仍走唯一入口 `scope::paginate_unscoped`（显式 unscoped 锚点）。
     let mut sql = String::from(
         "SELECT r.id AS receiver_id, r.notice_id, r.read_flag, r.read_at, r.created_at, \
          n.notice_no, n.notice_type, n.level, n.title, n.content, n.content_format, n.link_url \
@@ -658,7 +677,6 @@ pub async fn page_my_notices(
         sql.push_str(" AND r.read_flag = ?");
         params.push(Value::from(flag));
     }
-    sql.push_str(" ORDER BY r.created_at DESC, r.id DESC");
 
     let Page {
         list,
@@ -666,9 +684,15 @@ pub async fn page_my_notices(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_notice_receiver"),
+        &sql,
+        params,
+        Some("ORDER BY r.created_at DESC, r.id DESC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .iter()
         .map(|row| {
@@ -802,6 +826,8 @@ pub async fn page_templates(
     page: u64,
     page_size: u64,
 ) -> DbResult<Page<SysNoticeTemplateModel>> {
+    // 闸① 唯一入口：`sys_notice_template` 是全局资产（§2.5 / 附录 C #16），
+    // 可见性由权限码 `business:notice:template:*` 控制，不注入数据范围 → 显式 unscoped。
     let mut sql =
         format!("SELECT {TEMPLATE_COLUMNS} FROM sys_notice_template WHERE deleted_at IS NULL");
     let mut params: Vec<Value> = Vec::new();
@@ -818,7 +844,6 @@ pub async fn page_templates(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY created_at DESC");
 
     let Page {
         list,
@@ -826,9 +851,15 @@ pub async fn page_templates(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_notice_template"),
+        &sql,
+        params,
+        Some("ORDER BY created_at DESC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .iter()
         .map(map_template)

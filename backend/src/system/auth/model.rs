@@ -120,6 +120,10 @@ pub(crate) async fn invalidate_users_principal(user_ids: &[uuid::Uuid]) {
 /// 为避免漏失效导致越权，这里按 `sys_user_role` 反查全部用户逐个清理
 /// （授权变更是低频操作，反查成本可接受）。
 ///
+/// SCOPE-EXEMPT: 查的是**关联表** `sys_user_role`（门禁按子串匹配 `FROM sys_user`
+/// 会把它算成 `sys_user`），用途是按角色反查「哪些主体的缓存要失效」——
+/// 系统内部的缓存维护，与「当前用户能看到哪些数据」无关；注入范围会导致漏失效（越权）。
+///
 /// # 参数
 ///
 /// - `role_id`：角色 ID。
@@ -194,6 +198,9 @@ pub(crate) async fn load_role_codes(
 }
 
 /// 查询用户当前生效的角色（不走缓存，供内部装载 / 回填复用）。
+///
+/// SCOPE-EXEMPT: 装载的是**当前登录者本人**的角色（`user_id` 取自令牌 `sub`），
+/// 这是权限快照的构成部分 —— 「算权限」的查询不能再被「权限」过滤，否则会自我循环。
 async fn load_roles_uncached(
     user_id: &uuid::Uuid,
 ) -> std::result::Result<Vec<SysRoleModel>, DbError> {

@@ -19,6 +19,7 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::scope;
 use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::support::dict::dto::DictItemRes;
@@ -163,17 +164,23 @@ pub(crate) async fn page_dict_types(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, created_at ASC");
-
+    // 闸① 唯一入口：`sys_dict_type` 是 §2.5 判为 ❌ 的全局配置类（附录 C #18），
+    // 不注入数据范围（`unscoped` 显式声明，见 `scope::paginate_unscoped`）。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_dict_type"),
+        &sql,
+        params,
+        Some("ORDER BY sort_order ASC, created_at ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysDictTypeModel::from_row)
@@ -285,17 +292,22 @@ pub(crate) async fn page_dict_items(
         sql.push_str(" AND i.status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY i.sort_order ASC, i.created_at ASC");
-
+    // 闸① 唯一入口：`sys_dict_item` 同属全局配置类（附录 C #18），不注入数据范围。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_dict_item"),
+        &sql,
+        params,
+        Some("ORDER BY i.sort_order ASC, i.created_at ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysDictItemModel::from_row)

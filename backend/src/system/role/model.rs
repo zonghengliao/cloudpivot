@@ -16,6 +16,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::system::user::model::SysUserModel;
@@ -138,17 +140,24 @@ pub(crate) async fn page_roles(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, created_at DESC");
-
+    // 闸① 唯一入口：`sys_role` 是**全局元数据**（§2.5 判为 ❌，附录 C #8）——
+    // 「谁能管角色」由权限码 `system:role:*` 控制，给角色加数据范围会让角色授权
+    // 本身变成分布式的、无法审计。因此显式声明 unscoped（不注入范围）。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_role"),
+        &sql,
+        params,
+        Some("ORDER BY sort_order ASC, created_at DESC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysRoleModel::from_row)
@@ -199,11 +208,16 @@ pub(crate) async fn page_role_users(
     role_id: &uuid::Uuid,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<SysUserModel>, DbError> {
+    // 批次 B · B5（附录 C #7）：角色详情页签本质是**人员列表**，必须按数据范围收口，
+    // 否则「本部门主管」能从角色页签把全公司人员翻出来（绕开 `page_users`）。
+    //
+    // `{FILTER}` 放在业务参数 `ur.role_id = ?` **之前**：片段参数恒前置（架构 §2.6）。
+    // 片段只锚定主体表 `u`（`sys_user`），不进 `INNER JOIN … ON`（§2.6 规则 1/3）。
     let sql = "SELECT u.* FROM sys_user u \
          INNER JOIN sys_user_role ur ON ur.user_id = u.id \
-         WHERE ur.role_id = ? AND u.deleted_at IS NULL \
-         ORDER BY u.created_at DESC";
+         WHERE u.deleted_at IS NULL {FILTER} AND ur.role_id = ?";
     let params: Vec<Value> = vec![Value::from(role_id)];
 
     let Page {
@@ -212,9 +226,16 @@ pub(crate) async fn page_role_users(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::SYS_USER,
+        sql,
+        params,
+        Some("ORDER BY u.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysUserModel::from_row)

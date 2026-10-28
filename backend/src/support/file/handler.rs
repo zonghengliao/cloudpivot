@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 
 use std::net::SocketAddr;
 
+use crate::business::shared::principal;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::support::file::dto::{
@@ -216,8 +217,14 @@ pub async fn check_duplicate(
     permission = "support:file:list"
 )]
 #[alun::get("/support/file/page")]
-pub async fn page(Query(query): Query<FilePageQuery>) -> ResResult<PageData<Vec<FileRes>>> {
+pub async fn page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<FilePageQuery>,
+) -> ResResult<PageData<Vec<FileRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5（附录 C #11）：文件列表按数据范围收口（sys_file 无部门列，
+    // 部门类范围在 filter_for 里降级为「仅本人」，见 model::page_files 的说明）。
+    let principal = principal::resolve_for_claims(&claims).await?;
 
     let filter = model::FileFilter {
         original_name: query.original_name,
@@ -226,7 +233,7 @@ pub async fn page(Query(query): Query<FilePageQuery>) -> ResResult<PageData<Vec<
         mime_type: utils::trimmed(query.mime_type.as_deref()).map(str::to_string),
     };
 
-    let result = model::page_files(&filter, page, page_size)
+    let result = model::page_files(&filter, page, page_size, &principal)
         .await
         .map_err(|e| utils::db_error(e, "分页查询文件"))?;
     let list = result.list.iter().map(FileRes::from).collect::<Vec<_>>();

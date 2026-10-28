@@ -13,6 +13,7 @@ use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use std::net::SocketAddr;
 
+use crate::business::shared::principal;
 use crate::middleware::auth_guard;
 use crate::shared::constants::{self, EnableStatus};
 use crate::shared::error_code;
@@ -849,6 +850,9 @@ pub async fn login_logs(
     Query(query): Query<LogPageQuery>,
 ) -> ResResult<PageData<Vec<JsonValue>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5：本人认证日志也要过一遍数据范围（`auth_logs` 归属列 user_id）。
+    // 这里已按 `claims.username` 过滤，但范围片段是第二道闸：非超管一律收口到本人。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let result = page_json_logs(
         JsonLogTable::Auth,
         claims.username.clone(),
@@ -856,6 +860,7 @@ pub async fn login_logs(
         None,
         page,
         page_size,
+        &principal,
     )
     .await
     .map_err(|e| utils::db_error(e, "查询登录日志"))?;

@@ -20,6 +20,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::utils;
@@ -208,17 +210,23 @@ pub async fn page_configs(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, created_at ASC");
-
+    // 闸① 唯一入口：`sys_storage_config` 是全局基础设施配置（§2.5 判为 ❌，附录 C #17），
+    // 只有超管 + 专属权限码能碰，注入数据范围无意义 → 显式 unscoped。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_storage_config"),
+        &sql,
+        params,
+        Some("ORDER BY sort_order ASC, created_at ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysStorageConfigModel::from_row)
@@ -453,17 +461,22 @@ pub async fn page_policies(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY sort_order ASC, category ASC");
-
+    // 闸① 唯一入口：`sys_storage_policy` 是全局基础设施配置（§2.5 判为 ❌），显式 unscoped。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_storage_policy"),
+        &sql,
+        params,
+        Some("ORDER BY sort_order ASC, category ASC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysStoragePolicyModel::from_row)
@@ -960,26 +973,29 @@ pub async fn page_storage_files(
     filter: &StorageFileFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<StorageFileModel>, DbError> {
-    let mut sql = String::from("SELECT * FROM sys_file WHERE deleted_at IS NULL");
+    // 批次 B · B5（附录 C #11）：`sys_file` 列表收口。本批按归属列 `uploaded_by`
+    // （部门形态要 join `sys_user`，Q3 判为下一批；`filter_for` 会 fail-closed 降级为
+    // 「仅本人」并置 `is_degraded()`）。别名 `f` 与 `ScopeTarget::SYS_FILE` 一致。
+    let mut sql = String::from("SELECT * FROM sys_file f WHERE f.deleted_at IS NULL {FILTER}");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.original_name.as_deref()) {
-        sql.push_str(" AND original_name LIKE ?");
+        sql.push_str(" AND f.original_name LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(category) = filter.category.as_deref() {
-        sql.push_str(" AND category = ?");
+        sql.push_str(" AND f.category = ?");
         params.push(Value::from(category.to_string()));
     }
     if let Some(code) = filter.storage_code.as_deref() {
-        sql.push_str(" AND storage_code = ?");
+        sql.push_str(" AND f.storage_code = ?");
         params.push(Value::from(code.to_string()));
     }
     if let Some(hash) = filter.file_hash.as_deref() {
-        sql.push_str(" AND file_hash = ?");
+        sql.push_str(" AND f.file_hash = ?");
         params.push(Value::from(hash.to_string()));
     }
-    sql.push_str(" ORDER BY created_at DESC");
 
     let Page {
         list,
@@ -987,9 +1003,16 @@ pub async fn page_storage_files(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::SYS_FILE,
+        &sql,
+        params,
+        Some("ORDER BY f.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(StorageFileModel::from_row)

@@ -94,6 +94,10 @@ pub fn register_builtin(scheduler: &Scheduler) {
 /// # 异常情况
 ///
 /// 数据库异常返回错误消息；单条对象删除失败计入 `failed`，不中断整批。
+///
+/// SCOPE-EXEMPT: 孤儿文件回收是**后台定时任务**（无请求者身份）：筛「软删超保留期且
+/// 无同哈希有效记录」的行做物理回收；按 `uploaded_by` 注入会让别人的孤儿文件
+/// 永久留在对象存储里（磁盘泄漏），与用户数据权限无关。
 pub async fn run_once() -> std::result::Result<CleanupReport, String> {
     ensure_router().await.map_err(|error| error.msg)?;
 

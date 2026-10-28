@@ -288,6 +288,10 @@ pub async fn run_once_with(options: &CleanupOptions) -> std::result::Result<Clea
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
+///
+/// SCOPE-EXEMPT: 僵尸任务回收是**后台定时任务**（无请求者身份），按 `heartbeat_at`
+/// 扫描 `RUNNING` 的导出任务做全局回收；与用户数据权限无关（注入范围会让别人的
+/// 僵尸任务永远回收不掉，反而制造永久 `RUNNING` 状态）。
 pub async fn reclaim_stale(
     stale_seconds: i64,
     batch: i64,
@@ -353,6 +357,9 @@ pub async fn reclaim_stale(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]；单文件删除失败只记日志并计入 `files_missing`。
+///
+/// SCOPE-EXEMPT: 产物过期回收是**后台定时任务**（无请求者身份），按 `expire_at`
+/// 全局扫描；用户数据权限对它没有语义（定时任务不服务某个用户）。
 pub async fn expire_artifacts(batch: i64) -> std::result::Result<Vec<ExpiredArtifact>, DbError> {
     let rows = db()
         .find_with_params(
@@ -413,6 +420,9 @@ pub async fn expire_artifacts(batch: i64) -> std::result::Result<Vec<ExpiredArti
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
+///
+/// SCOPE-EXEMPT: 上传文件回收同为**后台定时任务**（无请求者身份），按保留期全局扫描
+/// 终态任务；注入范围会让其他部门的历史文件永远堆在磁盘上。
 pub async fn purge_import_files(
     retention_days: i64,
     batch: i64,

@@ -855,6 +855,29 @@ pub async fn batch_update_dept(
     for raw in &req.user_ids {
         user_ids.push(utils::require_uuid(raw, "user_ids")?);
     }
+    // 批次 B · B5（附录 C #4）：写操作受数据范围约束 —— 不能把「看不见的用户」挪到别的部门。
+    // 判据：目标集合里落在 `filter_for(SYS_USER)` 可见范围内的条数与入参去重后长度相等。
+    // 不足时只报差集条数，不逐个点名（避免用本接口探测「谁存在」）。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let visible = model::count_visible_users(&user_ids, &principal)
+        .await
+        .map_err(|e| utils::db_error(e, "校验目标用户数据范围"))?;
+    let requested = {
+        let mut unique = user_ids.clone();
+        unique.sort_unstable();
+        unique.dedup();
+        unique.len() as u64
+    };
+    if visible != requested {
+        return Err(ApiError::new(
+            403,
+            error_code::DATA_SCOPE_EXCEED_LIMIT,
+            format!(
+                "有 {} 个用户不在你的数据范围内（或已删除），批量调整部门已拒绝",
+                requested.saturating_sub(visible)
+            ),
+        ));
+    }
     let operator = utils::current_user_uuid(&claims);
     // 审计快照用的用户 ID 字符串列表（user_ids 随后会移入事务闭包）
     let user_id_strs = user_ids.iter().map(|v| v.to_string()).collect::<Vec<_>>();

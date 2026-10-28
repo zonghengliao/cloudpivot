@@ -49,6 +49,7 @@ use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
 use crate::business::notice::sse_hub;
 use crate::business::notice::{DispatchResult, NoticeDraft, NoticeTarget, dispatch};
+use crate::business::shared::principal;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::utils;
@@ -150,8 +151,14 @@ pub async fn send(
     permission = "business:notice:list"
 )]
 #[alun::get("/business/notice/page")]
-pub async fn page(Query(query): Query<NoticePageQuery>) -> ResResult<PageData<Vec<NoticeRes>>> {
+pub async fn page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<NoticePageQuery>,
+) -> ResResult<PageData<Vec<NoticeRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5（附录 C #14）：管理视角公告列表按数据范围收口（`sys_notice` 无部门列，
+    // 部门类范围在 filter_for 里降级为「仅本人」并置 is_degraded()）。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let filter = NoticeFilter {
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
         notice_type: match utils::trimmed(query.notice_type.as_deref()) {
@@ -165,7 +172,7 @@ pub async fn page(Query(query): Query<NoticePageQuery>) -> ResResult<PageData<Ve
         biz_type: utils::trimmed(query.biz_type.as_deref()).map(str::to_string),
     };
 
-    let result = model::page_notices(&filter, page, page_size)
+    let result = model::page_notices(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询通知"))?;
     let list = result.list.iter().map(NoticeRes::from_model).collect();

@@ -613,6 +613,42 @@ pub async fn resolve(user_id: &Uuid) -> DbResult<ScopedPrincipal> {
     resolve_with(&PgScopeSource, &GlobalScopeCache, user_id).await
 }
 
+/// handler 侧的便捷入口：从已认证的 `AuthClaims`/`TokenClaims` 解析数据范围。
+///
+/// # 为什么要有它
+///
+/// B5 要在 9 个 handler 里各解析一次范围。若每处都手写「取 sub → 判空 → 401 →
+/// `resolve` → `db_error` 包装」，18 行重复代码里只要有一处写成「取不到就跳过」，
+/// 就是一次静默越权（列表退回全量）。收敛成一个函数后，「解析失败 = 请求失败」只有
+/// 一处实现。
+///
+/// # 参数
+///
+/// - `claims`：中间件注入的令牌声明（业务代码**不得**用请求体里的 user_id 代替它）。
+///
+/// # 返回值
+///
+/// [`ScopedPrincipal`]。
+///
+/// # 异常情况
+///
+/// - 令牌缺少 `sub` / `sub` 非 UUID → `401 + AUTH_TOKEN_INVALID`；
+/// - 查库失败 → `500`（经 [`crate::utils::db_error`] 收敛，与项目既有口径一致）。
+pub async fn resolve_for_claims(
+    claims: &TokenClaims,
+) -> std::result::Result<ScopedPrincipal, ApiError> {
+    let user_id = crate::utils::current_user_uuid(claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            crate::shared::error_code::AUTH_TOKEN_INVALID,
+            "当前令牌缺少用户标识，无法解析数据范围",
+        )
+    })?;
+    resolve(&user_id)
+        .await
+        .map_err(|error| crate::utils::db_error(error, "解析当前用户数据范围"))
+}
+
 /// [`resolve`] 的可注入版本（测试用：可替换数据源与缓存）。
 ///
 /// 三件事：读 epoch → 拼键读缓存 → 未命中/不可用则查库并回填。

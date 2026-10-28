@@ -36,6 +36,7 @@ use tokio_util::io::ReaderStream;
 
 use std::net::SocketAddr;
 
+use crate::business::shared::principal;
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::dto::{
     StorageCompleteReq, StorageConfigPageQuery, StorageConfigRes, StorageConfigSaveReq,
@@ -1068,16 +1069,20 @@ pub async fn complete(
 )]
 #[alun::get("/business/storage/file/page")]
 pub async fn file_page(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<StorageFilePageQuery>,
 ) -> ResResult<PageData<Vec<StorageFileRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5（附录 C #11）：`/business/storage/file/page` 是 sys_file 的第二个
+    // 列表入口，与 `/support/file/page` 同口径收口（同一 ScopeTarget::SYS_FILE）。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let filter = StorageFileFilter {
         original_name: utils::trimmed(query.original_name.as_deref()).map(str::to_string),
         category: utils::trimmed(query.category.as_deref()).map(str::to_string),
         storage_code: utils::trimmed(query.storage_code.as_deref()).map(str::to_string),
         file_hash: utils::trimmed(query.file_hash.as_deref()).map(str::to_string),
     };
-    let result = model::page_storage_files(&filter, page, page_size)
+    let result = model::page_storage_files(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询文件"))?;
     let list = result

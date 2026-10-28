@@ -65,6 +65,7 @@ use crate::business::impexp::registry::{DefinitionBrief, ensure_mode_allowed, gl
 use crate::business::impexp::template;
 use crate::business::impexp::validate::{self, DbFkResolver, global_dicts};
 use crate::business::impexp::worker;
+use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -328,6 +329,8 @@ pub async fn import_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<PageData<Vec<ImportTaskRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5（附录 C #12）：解析一次数据范围，导入任务列表按 create_by 收口。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let only_mine = query.only_mine.unwrap_or(true);
     let filter = ImportTaskFilter {
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
@@ -339,7 +342,7 @@ pub async fn import_page(
             None
         },
     };
-    let result = model::page_import_tasks(&filter, page, page_size)
+    let result = model::page_import_tasks(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询导入任务"))?;
     let list = result
@@ -369,8 +372,13 @@ pub async fn import_page(
     permission = "business:impexp:import:list"
 )]
 #[alun::get("/business/impexp/import/{id}")]
-pub async fn import_detail(Path(id): Path<String>) -> ResResult<ImportTaskRes> {
-    let task = load_task(&id).await?;
+pub async fn import_detail(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<ImportTaskRes> {
+    // 批次 B · B5：详情与列表同口径（越权读他人任务 → 404，而不是 200）。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
     Ok(Res::ok(ImportTaskRes::from_model(task)))
 }
 
@@ -395,10 +403,13 @@ pub async fn import_detail(Path(id): Path<String>) -> ResResult<ImportTaskRes> {
 )]
 #[alun::get("/business/impexp/import/{id}/errors")]
 pub async fn import_errors(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Query(query): Query<ErrorPageQuery>,
 ) -> ResResult<PageData<Vec<ImportErrorRes>>> {
-    let task = load_task(&id).await?;
+    // 批次 B · B5：先按数据范围取父任务（子表按 task_id 收口，见 model::page_task_errors）。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let result = model::page_task_errors(&task.id, page, page_size)
         .await
@@ -430,8 +441,17 @@ pub async fn import_errors(
     permission = "business:impexp:import:download"
 )]
 #[alun::get("/business/impexp/import/{id}/errors/file")]
-pub async fn import_errors_file(Path(id): Path<String>) -> Response {
-    match errors_file_response(&id).await {
+pub async fn import_errors_file(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> Response {
+    // 批次 B · B5：错误行文件下载与详情同口径（越权 → 404 响应体）。
+    let result = async {
+        let principal = principal::resolve_for_claims(&claims).await?;
+        errors_file_response(&id, &principal).await
+    }
+    .await;
+    match result {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
@@ -468,16 +488,28 @@ pub async fn import_errors_file(Path(id): Path<String>) -> Response {
     permission = "business:impexp:import:download"
 )]
 #[alun::get("/business/impexp/import/{id}/download")]
-pub async fn import_download(Path(id): Path<String>) -> Response {
-    match errors_file_response(&id).await {
+pub async fn import_download(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> Response {
+    // 批次 B · B5：下载与详情同口径（越权 → 404 响应体）。
+    let result = async {
+        let principal = principal::resolve_for_claims(&claims).await?;
+        errors_file_response(&id, &principal).await
+    }
+    .await;
+    match result {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
 }
 
 /// 错误行文件响应构造。
-async fn errors_file_response(id: &str) -> std::result::Result<Response, ApiError> {
-    let task = load_task(id).await?;
+async fn errors_file_response(
+    id: &str,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<Response, ApiError> {
+    let task = load_task(id, principal).await?;
     let rows = model::list_task_errors(&task.id, MAX_PERSIST_ERRORS as i64)
         .await
         .map_err(|error| utils::db_error(error, "查询错误明细"))?;
@@ -526,7 +558,8 @@ pub async fn import_confirm(
     Path(id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<ConfirmRes> {
-    let task = load_task(&id).await?;
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
     if task.status != "VALIDATED" {
         return Err(ApiError::new(
             409,
@@ -805,9 +838,13 @@ fn def_not_found(biz_type: &str) -> ApiError {
 /// # 异常情况
 ///
 /// 400：ID 格式非法；404：任务不存在。
-async fn load_task(raw_id: &str) -> std::result::Result<model::ImportTask, ApiError> {
+async fn load_task(
+    raw_id: &str,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<model::ImportTask, ApiError> {
+    // 批次 B · B5：统一入口 —— 看不见的任务一律按 404 处理（不暴露"存在但无权"的差异）。
     let id = utils::require_uuid(raw_id, "id")?;
-    model::find_import_task(&id)
+    model::find_import_task(&id, principal)
         .await
         .map_err(|error| utils::db_error(error, "查询导入任务"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导入任务不存在"))
@@ -1019,6 +1056,9 @@ pub async fn export_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<ExportCreateReq>,
 ) -> ResResult<ExportTaskRes> {
+    // 批次 B · B5：创建任务是**单条写入**，但仍要先解析范围 —— 下面的读回
+    // （`find_export_task`）与列表同口径，看不见的任务不会被当成创建成功返回。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let biz_type = req.biz_type.trim().to_string();
     let definition = global_registry()
         .export_definition(&biz_type)
@@ -1086,7 +1126,7 @@ pub async fn export_create(
     .await
     .map_err(|error| utils::db_error(error, "创建导出任务"))?;
 
-    let task = model::find_export_task(&task_id)
+    let task = model::find_export_task(&task_id, &principal)
         .await
         .map_err(|error| utils::db_error(error, "查询导出任务"))?
         .ok_or_else(|| {
@@ -1130,6 +1170,8 @@ pub async fn export_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<PageData<Vec<ExportTaskRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    // 批次 B · B5（附录 C #13）：导出任务列表同样按 create_by 收口（only_mine=false 不再放开全站）。
+    let principal = principal::resolve_for_claims(&claims).await?;
     let only_mine = query.only_mine.unwrap_or(true);
     let filter = ExportTaskFilter {
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
@@ -1141,7 +1183,7 @@ pub async fn export_page(
             None
         },
     };
-    let result = model::page_export_tasks(&filter, page, page_size)
+    let result = model::page_export_tasks(&filter, page, page_size, &principal)
         .await
         .map_err(|error| utils::db_error(error, "分页查询导出任务"))?;
     let list = result
@@ -1171,8 +1213,12 @@ pub async fn export_page(
     permission = "business:impexp:export:list"
 )]
 #[alun::get("/business/impexp/export/{id}")]
-pub async fn export_detail(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
-    let task = load_export_task(&id).await?;
+pub async fn export_detail(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<ExportTaskRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_export_task(&id, &principal).await?;
     Ok(Res::ok(ExportTaskRes::from_model(task)))
 }
 
@@ -1197,16 +1243,27 @@ pub async fn export_detail(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
     permission = "business:impexp:export:download"
 )]
 #[alun::get("/business/impexp/export/{id}/download")]
-pub async fn export_download(Path(id): Path<String>) -> Response {
-    match export_download_response(&id).await {
+pub async fn export_download(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> Response {
+    let result = async {
+        let principal = principal::resolve_for_claims(&claims).await?;
+        export_download_response(&id, &principal).await
+    }
+    .await;
+    match result {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
 }
 
 /// 下载响应构造（把 410 / 409 的判定集中在一处，便于单测覆盖）。
-async fn export_download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
-    let task = load_export_task(raw_id).await?;
+async fn export_download_response(
+    raw_id: &str,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<Response, ApiError> {
+    let task = load_export_task(raw_id, principal).await?;
 
     if task.status == "EXPIRED" {
         return Err(expired_error());
@@ -1311,8 +1368,12 @@ async fn export_download_response(raw_id: &str) -> std::result::Result<Response,
     permission = "business:impexp:export:cancel"
 )]
 #[alun::post("/business/impexp/export/{id}/cancel")]
-pub async fn export_cancel(Path(id): Path<String>) -> ResResult<TaskActionRes> {
-    let task = load_export_task(&id).await?;
+pub async fn export_cancel(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TaskActionRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_export_task(&id, &principal).await?;
     let outcome = model::cancel_export_task(&task.id)
         .await
         .map_err(|error| utils::db_error(error, "取消导出任务"))?;
@@ -1360,8 +1421,12 @@ pub async fn export_cancel(Path(id): Path<String>) -> ResResult<TaskActionRes> {
     permission = "business:impexp:export:retry"
 )]
 #[alun::post("/business/impexp/export/{id}/retry")]
-pub async fn export_retry(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
-    let task = load_export_task(&id).await?;
+pub async fn export_retry(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<ExportTaskRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_export_task(&id, &principal).await?;
     let affected = model::requeue_export_task(&task.id)
         .await
         .map_err(|error| utils::db_error(error, "重试导出任务"))?;
@@ -1378,7 +1443,7 @@ pub async fn export_retry(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
     if let Some(path) = task.file_path.as_deref() {
         let _ = tokio::fs::remove_file(path).await;
     }
-    let refreshed = model::find_export_task(&task.id)
+    let refreshed = model::find_export_task(&task.id, &principal)
         .await
         .map_err(|error| utils::db_error(error, "查询导出任务"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导出任务不存在"))?;
@@ -1404,8 +1469,12 @@ pub async fn export_retry(Path(id): Path<String>) -> ResResult<ExportTaskRes> {
     permission = "business:impexp:export:delete"
 )]
 #[alun::delete("/business/impexp/export/{id}")]
-pub async fn export_delete(Path(id): Path<String>) -> ResResult<TaskActionRes> {
-    let task = load_export_task(&id).await?;
+pub async fn export_delete(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TaskActionRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_export_task(&id, &principal).await?;
     let affected = model::soft_delete_export_task(&task.id)
         .await
         .map_err(|error| utils::db_error(error, "删除导出任务"))?;
@@ -1448,8 +1517,13 @@ pub async fn export_delete(Path(id): Path<String>) -> ResResult<TaskActionRes> {
     permission = "business:impexp:import:cancel"
 )]
 #[alun::post("/business/impexp/import/{id}/cancel")]
-pub async fn import_cancel(Path(id): Path<String>) -> ResResult<TaskActionRes> {
-    let task = load_task(&id).await?;
+pub async fn import_cancel(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TaskActionRes> {
+    // 批次 B · B5：写操作同样先按数据范围取任务（看不见的任务不能取消）。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
     let outcome = model::cancel_import_task(&task.id)
         .await
         .map_err(|error| utils::db_error(error, "取消导入任务"))?;
@@ -1497,7 +1571,8 @@ pub async fn import_retry(
     Path(id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<UploadRes> {
-    let task = load_task(&id).await?;
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
     if !matches!(task.status.as_str(), "FAILED" | "CANCELED" | "PARTIAL") {
         return Err(ApiError::new(
             409,
@@ -1583,9 +1658,12 @@ pub async fn import_retry(
 /// # 异常情况
 ///
 /// 400：ID 格式非法；404：任务不存在（含已软删）。
-async fn load_export_task(raw_id: &str) -> std::result::Result<model::ExportTask, ApiError> {
+async fn load_export_task(
+    raw_id: &str,
+    principal: &ScopedPrincipal,
+) -> std::result::Result<model::ExportTask, ApiError> {
     let id = utils::require_uuid(raw_id, "id")?;
-    model::find_export_task(&id)
+    model::find_export_task(&id, principal)
         .await
         .map_err(|error| utils::db_error(error, "查询导出任务"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "导出任务不存在"))

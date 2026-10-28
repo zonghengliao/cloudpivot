@@ -10,6 +10,7 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::scope;
 use crate::shared::constants::EnableStatus;
 use crate::utils;
 
@@ -244,17 +245,22 @@ pub(crate) async fn page_jobs(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY created_at DESC");
-
+    // 闸① 唯一入口：`sys_job` 是运维类全局数据（§2.5 判为 ❌），不注入数据范围。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_job"),
+        &sql,
+        params,
+        Some("ORDER BY created_at DESC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysJobModel::from_row)
@@ -302,17 +308,23 @@ pub(crate) async fn page_job_logs(
         sql.push_str(" AND status = ?");
         params.push(TypeMapper::to_value(&status));
     }
-    sql.push_str(" ORDER BY created_at DESC");
-
+    // 闸① 唯一入口：`sys_job_log` 是运维数据（§2.5 判为 ❌，权限码 `support:job:list` 控制），
+    // 不注入数据范围 —— 任务日志没有部门/归属人语义，硬注入只会静默丢行。
     let Page {
         list,
         total,
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate_unscoped(
+        scope::ScopeTarget::unscoped("sys_job_log"),
+        &sql,
+        params,
+        Some("ORDER BY created_at DESC"),
+        page,
+        page_size,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysJobLogModel::from_row)

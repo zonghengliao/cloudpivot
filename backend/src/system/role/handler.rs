@@ -583,13 +583,17 @@ pub async fn assign_menus(
 )]
 #[alun::get("/system/role/{id}/users")]
 pub async fn users(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Query(query): Query<RoleUserPageQuery>,
 ) -> ResResult<PageData<Vec<RoleUserRes>>> {
     let id = utils::require_uuid(&id, "id")?;
     load_role(&id).await?;
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
-    let page_data = model::page_role_users(&id, page, page_size)
+    // 批次 B · B5（附录 C #7）：角色用户页签是「人员列表」的第二个入口，
+    // 必须按数据范围收口，否则本部门主管能从角色页签翻出全公司人员。
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let page_data = model::page_role_users(&id, page, page_size, &principal)
         .await
         .map_err(|e| utils::db_error(e, "分页查询角色用户"))?;
 

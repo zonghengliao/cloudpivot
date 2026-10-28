@@ -123,6 +123,11 @@ impl NoticeTarget {
     /// 命中用户集合的子查询（`SELECT ... AS user_id`），扇出与计数共用同一份口径。
     ///
     /// 返回 `(SQL 片段, 参数)`；片段可安全地嵌入 `INSERT ... SELECT` 或 `SELECT COUNT(*)`。
+    ///
+    /// SCOPE-EXEMPT: 扇出**必须**能枚举目标用户（ALL / DEPT / DEPT_AND_CHILD / ROLE / USER）。
+    /// 这里是「按发送者选定的目标找收件人」，注入**发送者**的数据范围会让「该收到的人收不到」
+    /// ——那是业务正确性故障（静默少数据），比权限问题更危险；收件范围的合法性由
+    /// `NoticeTarget` 的入参校验 + `business:notice:create` 权限码控制。
     fn user_set_sql(&self) -> (String, Vec<Value>) {
         match self {
             NoticeTarget::User(_) => (

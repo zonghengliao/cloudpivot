@@ -86,6 +86,9 @@ pub fn register_builtin(scheduler: &Scheduler) {
 /// # 异常情况
 ///
 /// 数据库异常返回错误消息（由调用方记日志，不影响服务运行）。
+///
+/// SCOPE-EXEMPT: 过期通知清理是**后台定时任务**（无请求者身份），按 `expire_at`
+/// 全局硬删；与「某个用户能看到哪些数据」无关（注入范围会让别人的过期通知永不清理）。
 pub async fn run_once() -> std::result::Result<CleanupReport, String> {
     // 1) 过期通知：硬删（`sys_notice_receiver` / `sys_notice_delivery` 有 ON DELETE CASCADE）
     let expired_notices = db()

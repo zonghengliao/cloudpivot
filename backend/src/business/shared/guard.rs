@@ -423,9 +423,15 @@ mod tests {
     /// 附加：登记表清单与自检函数用的是同一份清单（避免两处清单漂移）。
     #[test]
     fn preflight_uses_the_registry() {
-        assert_eq!(SCOPED_TABLES.len(), 10, "架构 §2.5 登记表 10 张");
+        // 10 张（B2 基线）+ `password_change_logs`（B5 按 §2.5 的 ✅(P1) 行补登记）= 11 张
+        assert_eq!(
+            SCOPED_TABLES.len(),
+            11,
+            "架构 §2.5 登记表 10 张 + B5 补登记的 password_change_logs"
+        );
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_USER));
         assert!(SCOPED_TABLES.contains(&ScopeTarget::SYS_FILE));
+        assert!(SCOPED_TABLES.contains(&ScopeTarget::PASSWORD_CHANGE_LOGS));
         println!(
             "[清单] preflight 直接遍历 SCOPED_TABLES（{} 张）✓",
             SCOPED_TABLES.len()

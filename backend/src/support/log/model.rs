@@ -13,6 +13,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::utils;
 
 /// `operation_logs` 表对应的强类型模型（操作日志）。
@@ -273,6 +275,20 @@ impl JsonLogTable {
             JsonLogTable::PasswordChange => "password_change_logs",
         }
     }
+
+    /// 该日志表对应的数据权限锚点（批次 B · B5，附录 C #10）。
+    ///
+    /// 四张日志表都以 `user_id` 为归属列（`information_schema` 实测列名，
+    /// 架构 §2.5 注里的 `operate_by` / `operator_id` 是笔误）；别名固定 `t`，
+    /// 与 [`page_json_logs`] 的 SQL 一致。
+    fn scope_target(&self) -> scope::ScopeTarget {
+        match self {
+            JsonLogTable::Audit => scope::ScopeTarget::AUDIT_LOGS.aliased("t"),
+            JsonLogTable::Auth => scope::ScopeTarget::AUTH_LOGS.aliased("t"),
+            JsonLogTable::Security => scope::ScopeTarget::SECURITY_LOGS.aliased("t"),
+            JsonLogTable::PasswordChange => scope::ScopeTarget::PASSWORD_CHANGE_LOGS.aliased("t"),
+        }
+    }
 }
 
 /// 分页查询操作日志。
@@ -294,34 +310,38 @@ pub(crate) async fn page_operation_logs(
     filter: &OperationLogFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<OperationLogModel>, DbError> {
-    let mut sql = String::from("SELECT * FROM operation_logs WHERE 1=1");
+    // 批次 B · B5（附录 C #9）：操作日志是审计数据，非超管不该看到全站操作轨迹。
+    // `operation_logs` 无部门列，部门类范围在 `filter_for` 里 fail-closed 降级为
+    // 「仅本人」（`AND l.user_id = ?`）并置 `is_degraded()`；超管 / ALL 走 `AND 1 = 1`。
+    // 别名 `l` 与 `ScopeTarget::OPERATION_LOGS` 一致（片段只锚定主体表）。
+    let mut sql = String::from("SELECT * FROM operation_logs l WHERE 1=1 {FILTER}");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.username.as_deref()) {
-        sql.push_str(" AND username LIKE ?");
+        sql.push_str(" AND l.username LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(pattern) = utils::like_pattern(filter.operation.as_deref()) {
-        sql.push_str(" AND operation LIKE ?");
+        sql.push_str(" AND l.operation LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(pattern) = utils::like_pattern(filter.request_path.as_deref()) {
-        sql.push_str(" AND request_path LIKE ?");
+        sql.push_str(" AND l.request_path LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(status_code) = filter.status_code {
-        sql.push_str(" AND status_code = ?");
+        sql.push_str(" AND l.status_code = ?");
         params.push(TypeMapper::to_value(&status_code));
     }
     if let Some(start) = filter.start_time {
-        sql.push_str(" AND created_at >= ?");
+        sql.push_str(" AND l.created_at >= ?");
         params.push(TypeMapper::to_value(&start));
     }
     if let Some(end) = filter.end_time {
-        sql.push_str(" AND created_at < ?");
+        sql.push_str(" AND l.created_at < ?");
         params.push(TypeMapper::to_value(&end));
     }
-    sql.push_str(" ORDER BY created_at DESC");
 
     let Page {
         list,
@@ -329,9 +349,16 @@ pub(crate) async fn page_operation_logs(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::OPERATION_LOGS,
+        &sql,
+        params,
+        Some("ORDER BY l.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(OperationLogModel::from_row)
@@ -418,11 +445,17 @@ pub(crate) async fn page_json_logs(
     end_time: Option<chrono::DateTime<chrono::Utc>>,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<JsonValue>, DbError> {
+    // 批次 B · B5（附录 C #10）：审计 / 认证 / 安全 / 密码变更日志同样按数据范围收口。
+    // `{FILTER}` 必须在业务过滤条件之前（片段参数恒前置，§2.6）。
+    // 先取锚点再消费 `table`（`JsonLogTable` 不是 `Copy`）。
+    let target = table.scope_target();
     let mut sql = format!(
         "SELECT to_jsonb(t) AS data FROM {} t WHERE 1=1",
         table.name()
     );
+    sql.push_str(" {FILTER}");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(username.as_deref()) {
         sql.push_str(" AND t.username LIKE ?");
@@ -436,7 +469,6 @@ pub(crate) async fn page_json_logs(
         sql.push_str(" AND t.created_at < ?");
         params.push(TypeMapper::to_value(&end));
     }
-    sql.push_str(" ORDER BY t.created_at DESC");
 
     let Page {
         list,
@@ -444,9 +476,16 @@ pub(crate) async fn page_json_logs(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        target,
+        &sql,
+        params,
+        Some("ORDER BY t.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .iter()
         .map(|row| match row.get("data") {

@@ -10,6 +10,8 @@
 
 use alun::prelude::*;
 
+use crate::business::shared::principal::ScopedPrincipal;
+use crate::business::shared::scope;
 use crate::shared::constants::EnableStatus;
 use crate::utils;
 
@@ -126,22 +128,30 @@ pub(crate) async fn page_files(
     filter: &FileFilter,
     page: u64,
     page_size: u64,
+    principal: &ScopedPrincipal,
 ) -> std::result::Result<Page<SysFileModel>, DbError> {
-    let mut sql = String::from("SELECT * FROM sys_file WHERE deleted_at IS NULL");
+    // 批次 B · B5（附录 C #11）：`sys_file` 已登记进 SCOPED_TABLES，列表必须按数据范围收口。
+    //
+    // `sys_file` **没有部门列**，部门形态要先 join `sys_user` 取 `dept_id` —— 那是 Q3 决策
+    // 的「下一批（P1）」。本批先用归属列 `uploaded_by` 收口：部门类范围在 `filter_for` 里
+    // fail-closed 降级为「仅本人」并置 `is_degraded()`（自检接口可见），所以这里关掉的是
+    // 「有 `support:file:list` 就能翻全站文件」这个越权口子，不会把不该看的放开。
+    //
+    // 主体表别名 `f`（与 `ScopeTarget::SYS_FILE` 一致），片段只锚定主体表（§2.6 规则 1）。
+    let mut sql = String::from("SELECT * FROM sys_file f WHERE f.deleted_at IS NULL {FILTER}");
     let mut params: Vec<Value> = Vec::new();
     if let Some(pattern) = utils::like_pattern(filter.original_name.as_deref()) {
-        sql.push_str(" AND original_name LIKE ?");
+        sql.push_str(" AND f.original_name LIKE ?");
         params.push(Value::from(pattern));
     }
     if let Some(category) = filter.category.as_deref() {
-        sql.push_str(" AND category = ?");
+        sql.push_str(" AND f.category = ?");
         params.push(Value::from(category));
     }
     if let Some(mime_type) = filter.mime_type.as_deref() {
-        sql.push_str(" AND mime_type = ?");
+        sql.push_str(" AND f.mime_type = ?");
         params.push(Value::from(mime_type));
     }
-    sql.push_str(" ORDER BY created_at DESC");
 
     let Page {
         list,
@@ -149,9 +159,16 @@ pub(crate) async fn page_files(
         page,
         size,
         pages,
-    } = db()
-        .paginate_with_params(&sql, params, page, page_size)
-        .await?;
+    } = scope::paginate(
+        scope::ScopeTarget::SYS_FILE,
+        &sql,
+        params,
+        Some("ORDER BY f.created_at DESC"),
+        page,
+        page_size,
+        principal,
+    )
+    .await?;
     let list = list
         .into_iter()
         .map(SysFileModel::from_row)
