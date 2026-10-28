@@ -30,6 +30,9 @@ alun = { version = "0.4.2", features = [
     "ipnetwork",
     # HTML 净化：社区公告等富文本入库前过滤
     "xss",
+    # SSE 实时推送（批次 A · A6）：框架 `alun-web::sse` 的 `Broadcaster` / `sse_json`
+    # 在这个 feature 之后才存在（不开就根本没有这两个 API，而不是静默退化）。
+    "sse",
     # 真 XLSX 读写（框架 alun-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
     # 读走 calamine。不开此 feature 时这些 API 根本不存在（不是静默退化成 CSV）。
     "xlsx",
@@ -64,6 +67,13 @@ sha2 = "0.10"
 # 注意：该 crate **本就在依赖树中**（axum / hyper 的间接依赖，见 Cargo.lock），
 # 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
 tokio-util = { version = "0.7", features = ["io"] }
+
+# SSE 流适配（A6）：`futures_util::stream::unfold` 把 `tokio::sync::broadcast::Receiver`
+# 驱动的异步接收转成 `Stream`，供 axum 的 `Sse` 消费；同时用 `unfold` 的 state 持有
+# 订阅守卫，客户端断开时随流 drop 自动退订（框架未公开 `poll_recv`，见 alun-web/src/sse.rs）。
+# 注意：该 crate **本就在依赖树中**（alun-web 的 SSE 模块直接依赖，见 Cargo.lock），
+# 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
+futures-util = "0.3"
 
 # Redis 客户端（二开说明，已评审）：
 # 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，

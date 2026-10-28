@@ -19,8 +19,11 @@
 //! | DELETE | `/notice/template/{id}` | `business:notice:template:delete` | 删除模板（被通知引用时 409） |
 //! | POST | `/notice/template/{id}/preview` | `business:notice:template:list` | 试渲染 |
 //! | GET | `/notice/channel/config` | `business:notice:channel:config` | 通道配置（邮件 / Webhook 掩码） |
+//! | GET | `/notice/stream` | `business:notice:mine` | **SSE 实时订阅（A6）**：per-user 频道，断连即退订 |
+//! | GET | `/notice/stream/stats` | `business:notice:list` | **SSE 频道表统计（A6）**：排障 / 验收取证 |
 //!
-//! > SSE 订阅（`GET /notice/sse`）**不在本卡范围**：按架构文档 §4.5 由 A6 实现。
+//! > SSE 按架构文档 §4.5 实现：走普通 HTTP + 现有 `AuthLayer`（`Authorization` 头），
+//! > 每用户一个独立频道（A 用户物理上收不到 B 的通知）。见 [`crate::business::notice::sse_hub`]。
 //!
 //! # 权限
 //!
@@ -33,15 +36,18 @@
 
 use alun::prelude::*;
 use axum::Json;
+use axum::response::{IntoResponse, Response};
 
 use crate::business::notice::dto::{
     ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes,
     NoticeDetailRes, NoticeFilter, NoticeLevel, NoticePageQuery, NoticeRes, NoticeSendReq,
-    NoticeType, TemplateFilter, TemplatePageQuery, TemplatePreviewReq, TemplatePreviewRes,
-    TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes, parse_var_decls,
+    NoticeType, StreamStatsRes, TemplateFilter, TemplatePageQuery, TemplatePreviewReq,
+    TemplatePreviewRes, TemplateRes, TemplateSaveReq, TemplateVarDecl, UnreadCountRes,
+    parse_var_decls,
 };
 use crate::business::notice::model::{self, TemplateFields};
 use crate::business::notice::render;
+use crate::business::notice::sse_hub;
 use crate::business::notice::{DispatchResult, NoticeDraft, NoticeTarget, dispatch};
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
@@ -622,6 +628,78 @@ pub async fn template_preview(
 pub async fn channel_config() -> ResResult<ChannelConfigRes> {
     let settings = model::channel_settings_best_effort().await;
     Ok(Res::ok(settings.config))
+}
+
+// ==================== 实时推送（SSE，A6） ====================
+
+/// 订阅实时通知（SSE 长连接）。
+///
+/// # 鉴权
+///
+/// 走**现有** `AuthLayer`（`Authorization: Bearer <token>`），与其他接口完全一致；
+/// 用户身份只从 `AuthClaims` 取，**绝不接受 query 里的 `user_id` / token 透传**
+/// （否则 A 用户把 `?user_id=B` 塞进 URL 就能收 B 的通知）。
+///
+/// 浏览器原生 `EventSource` 不能自定义请求头，前端需用 `fetch` + `ReadableStream`
+/// 携带 `Authorization` 读流（示例见 `docs/批次A-A6-验证证据.md`）。
+///
+/// # 返回值
+///
+/// `text/event-stream`：
+///
+/// | 帧 | 内容 |
+/// |----|------|
+/// | 数据帧 | `event: notice` + `data: {notice_id, notice_no, notice_type, level, title, link_url, biz_type, biz_id, receiver_id, created_at}` |
+/// | 心跳帧 | 每 [`sse_hub::HEARTBEAT_SECS`] 秒一条注释帧 `: keep-alive`（不触发 `onmessage`，只防代理超时断连） |
+///
+/// # 生命周期
+///
+/// 连接断开（客户端关闭 / 网络中断 / 服务端关停）→ 订阅端立即退订，该用户
+/// `receiver_count` 归零且频道从内存表摘除（见 [`sse_hub`]，防内存泄漏）。
+///
+/// # 异常情况
+///
+/// - 401：凭证缺少有效的用户标识；
+/// - 403：无 `business:notice:mine`。
+#[alun::permission(
+    path = "/business/notice/stream",
+    method = "GET",
+    permission = "business:notice:mine"
+)]
+#[alun::get("/business/notice/stream")]
+pub async fn stream(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> Response {
+    let user_id = match utils::current_user_uuid(&claims) {
+        Some(user_id) => user_id,
+        None => {
+            return ApiError::new(
+                401,
+                error_code::AUTH_TOKEN_INVALID,
+                "当前凭证缺少有效的用户标识",
+            )
+            .into_response();
+        }
+    };
+    tracing::info!(user_id = %user_id, "SSE 订阅请求已受理");
+    sse_hub::subscribe(user_id).into_sse().into_response()
+}
+
+/// SSE 频道表统计（排障 / 验收取证：可直接看到每个用户的 `receiver_count`）。
+///
+/// # 返回值
+///
+/// 频道数 / 订阅端总数 / 每用户订阅端数 / 累计推送量 / 心跳间隔。
+///
+/// # 异常情况
+///
+/// - 403：无 `business:notice:list`。
+#[alun::permission(
+    path = "/business/notice/stream/stats",
+    method = "GET",
+    permission = "business:notice:list"
+)]
+#[alun::get("/business/notice/stream/stats")]
+pub async fn stream_stats() -> ResResult<StreamStatsRes> {
+    Ok(Res::ok(sse_hub::stats()))
 }
 
 // ==================== 内部辅助 ====================

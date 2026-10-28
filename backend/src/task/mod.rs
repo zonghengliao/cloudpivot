@@ -233,6 +233,8 @@ impl Scheduler {
         crate::business::storage::cleanup::register_builtin(self);
         // 过期通知清理（A5）：同样必须在此注册，放在 bootstrap.rs 会被随后的 reload 清空
         crate::business::notice::cleanup::register_builtin(self);
+        // SSE 空频道回收（A6）：每 5 分钟巡逻一次，回收「无人订阅且空置 30 分钟」的频道
+        crate::business::notice::sse_hub::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

@@ -930,6 +930,60 @@ pub async fn delivery_summary(notice_id: &uuid::Uuid) -> DbResult<Vec<DeliverySu
         .collect()
 }
 
+/// 查询某条通知在**给定用户集合**内的接收行（A6 SSE 推送用）。
+///
+/// # 参数
+///
+/// - `notice_id`：通知主键。
+/// - `user_ids`：候选接收人（通常是「当前在线用户」；为空直接返回空 `Vec`，不查库）。
+///
+/// # 返回值
+///
+/// `(user_id, receiver_id)` 列表。`receiver_id` 是**该用户自己的**接收行主键，
+/// 前端据此调 `PUT /notice/read/{receiver_id}`，无需再查一次。
+///
+/// # 为什么按用户集合过滤
+///
+/// 全员通知的接收行可能有 5 万条，而在线用户通常只有几十个。用 `user_id IN (...)`
+/// 让数据库只回这几行（走 `uk_sys_notice_receiver(notice_id, user_id)` 索引），
+/// 避免「为了推几十条消息把 5 万行拉进内存」。
+///
+/// # 参数传递
+///
+/// 与扇出（[`crate::business::notice::fanout`]）同一口径：UUID 数组用
+/// `jsonb_array_elements_text((?::text)::jsonb)` 作为**一个文本参数**传入，不拼 SQL 字符串。
+///
+/// 参数类型必须显式钉成 `text` 再转 `jsonb`：驱动按语句描述里推断出的参数类型校验
+/// `Value` 变体，直接写 `?::jsonb` 时推断出的是 jsonb 而这里给的是文本，
+/// 会在驱动侧报 `error serializing parameter`（A6 实测踩过：先绑 `Value::Json` 再绑
+/// `Value::from(String)` 都失败，`(?::text)::jsonb` + `Value::Text` 才稳定）。
+pub async fn online_receivers(
+    notice_id: &uuid::Uuid,
+    user_ids: &[uuid::Uuid],
+) -> DbResult<Vec<(uuid::Uuid, uuid::Uuid)>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let ids = serde_json::Value::from(
+        user_ids
+            .iter()
+            .map(uuid::Uuid::to_string)
+            .collect::<Vec<String>>(),
+    );
+    let rows = db()
+        .find_with_params(
+            "SELECT r.user_id, r.id FROM sys_notice_receiver r \
+             WHERE r.notice_id = ?::uuid AND r.is_deleted = FALSE \
+               AND r.user_id IN \
+                   (SELECT (x)::uuid FROM jsonb_array_elements_text((?::text)::jsonb) AS x)",
+            vec![Value::from(*notice_id), Value::Text(ids.to_string())],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| Ok((row.get_typed("user_id")?, row.get_typed("id")?)))
+        .collect()
+}
+
 /// 通道配置（内部视图：掩码化的对外响应 + 真实 Webhook 地址）。
 ///
 /// `webhook_url` 只用于写 `sys_notice_delivery.target`（投递记录必须记下投往哪里），

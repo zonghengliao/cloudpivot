@@ -684,6 +684,34 @@ impl ChannelConfigRes {
     }
 }
 
+/// 单个用户的 SSE 频道统计（运维排障 / 验收取证用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamUserStat {
+    /// 用户主键。
+    pub user_id: String,
+    /// 该用户当前的订阅端数量（断连后应回到 0，且该用户从列表里消失）。
+    pub receivers: usize,
+}
+
+/// SSE 频道表统计响应（A6：`GET /business/notice/stream/stats`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct StreamStatsRes {
+    /// 频道数（含尚无订阅端的空频道；正常情况下等于在线用户数）。
+    pub total_users: usize,
+    /// 全部订阅端总数。
+    pub total_receivers: usize,
+    /// 每个用户的订阅端数量（按用户主键升序）。
+    pub users: Vec<StreamUserStat>,
+    /// 累计 `publish` 调用次数。
+    pub published_total: u64,
+    /// 累计入队到订阅端的消息条数（一次推送命中 N 个连接即 +N）。
+    pub delivered_total: u64,
+    /// 累计建立的订阅连接数。
+    pub subscribe_total: u64,
+    /// 心跳间隔（秒）：每 N 秒发一条 `: keep-alive` 注释帧。
+    pub heartbeat_seconds: u64,
+}
+
 // ==================== 过滤器 ====================
 
 /// 通知主体分页过滤。

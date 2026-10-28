@@ -8,7 +8,9 @@
 //! | [`dto`] | 领域枚举（类型 / 级别 / 格式 / 通道掩码）与请求响应 DTO |
 //! | [`render`] | 自研 `{{var}}` 模板渲染器（含 5 条规则的单测） |
 //! | [`fanout`] | 四种目标的集合式扇出（用户 / 角色 / 部门含下级 / 全员） |
-//! | [`handler`] | 发送 / 列表 / 详情 / 已读 / 未读数 / 删除 / 模板 CRUD / 通道配置 |
+//! | [`handler`] | 发送 / 列表 / 详情 / 已读 / 未读数 / 删除 / 模板 CRUD / 通道配置 / **SSE 订阅（A6）** |
+//! | [`delivery`] | 通道投递计划与投递记录（站内信必投；邮件 / Webhook / 短信未配置记 `SKIPPED`，A6） |
+//! | [`sse_hub`] | **per-user** SSE 频道中心（订阅 / 取消 / 推送 / 计数 / 心跳 / 空频道回收，A6） |
 //! | [`cleanup`] | 过期通知与用户删除行的清理任务（每日 04:50） |
 //!
 //! # 对外唯一发送口径：[`dispatch`]
@@ -45,16 +47,18 @@
 //!
 //! # 本批次**不做**的事
 //!
-//! - SSE 实时推送（A6）：本模块只落库与提供未读数，推送端点由 A6 实现；
-//! - 邮件 / Webhook / 短信的真实发送：只落 `sys_notice_delivery` 状态机，
-//!   未配置通道一律记 `SKIPPED`（不报错，不影响站内信送达）。
+//! - 邮件 / Webhook / 短信的**真实发送**：只落 `sys_notice_delivery` 状态机，
+//!   未配置通道一律记 `SKIPPED`（不报错，不影响站内信送达）。投递计划见 [`delivery`]；
+//! - 跨副本推送：SSE 频道是进程内的（见 [`sse_hub`] 头注释），B 批次用 Redis Pub/Sub 替换。
 
 pub mod cleanup;
+pub mod delivery;
 pub mod dto;
 pub mod fanout;
 pub mod handler;
 pub mod model;
 pub mod render;
+pub mod sse_hub;
 
 pub use fanout::NoticeTarget;
 
@@ -62,8 +66,7 @@ use alun::prelude::*;
 use serde::Serialize;
 
 use crate::business::notice::dto::{
-    CHANNEL_EMAIL, CHANNEL_INBOX, CHANNEL_SMS, CHANNEL_WEBHOOK, ContentFormat, NoticeLevel,
-    NoticeType, channel_mask_of_csv,
+    CHANNEL_INBOX, ContentFormat, NoticeLevel, NoticeType, channel_mask_of_csv,
 };
 use crate::business::notice::model::Executor;
 use crate::shared::error_code;
@@ -233,11 +236,14 @@ impl std::fmt::Display for DispatchError {
 pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult, DispatchError> {
     draft.target.validate()?;
 
-    let mut mask = draft.channel_mask;
-    if mask == 0 {
-        mask = CHANNEL_INBOX;
-    }
-    dto::ensure_channel_mask(mask)?;
+    // 调用方通道先校验（0 表示未指定，按站内信处理）；模板声明的通道稍后并入
+    let requested_mask = if draft.channel_mask == 0 {
+        CHANNEL_INBOX
+    } else {
+        draft.channel_mask
+    };
+    dto::ensure_channel_mask(requested_mask)?;
+    let mut template_mask: Option<u16> = None;
 
     // ---------- 1. 模板解析（有模板则以模板的类型 / 级别 / 格式 / 通道为准） ----------
     //
@@ -258,10 +264,8 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                         )
                     })?;
                 let format = ContentFormat::parse(&template.content_format)?;
-                // 调用方显式指定了通道就用它的，否则用模板默认通道（站内信恒开）
-                if draft.channel_mask == 0 {
-                    mask = channel_mask_of_csv(&template.channels);
-                }
+                // 模板声明的通道：与调用方通道取**并集**（见 delivery::plan_channels）
+                template_mask = Some(channel_mask_of_csv(&template.channels));
                 let link = draft
                     .link_url
                     .clone()
@@ -313,7 +317,11 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
             }
         };
 
-    // ---------- 2. 渲染（长度 / 缺变量 / HTML 转义都在 render 内统一处理） ----------
+    // ---------- 2. 生效通道掩码：模板通道 ∪ 调用方通道，站内信必投 ----------
+    let mask = delivery::plan_channels(template_mask, draft.channel_mask);
+    dto::ensure_channel_mask(mask)?;
+
+    // ---------- 3. 渲染（长度 / 缺变量 / HTML 转义都在 render 内统一处理） ----------
     let vars = match &draft.template_vars {
         serde_json::Value::Null => serde_json::json!({}),
         other => other.clone(),
@@ -321,19 +329,42 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
     let (title, content) = render::render_notice(&title_source, &content_source, &vars, format)
         .map_err(DispatchError::Api)?;
 
-    // ---------- 3. 扇出规模预演（超 5 万先拒，不先插再回滚） ----------
+    // ---------- 4. 扇出规模预演（超 5 万先拒，不先插再回滚） ----------
     let planned = fanout::count_receivers(&draft.target)
         .await
         .map_err(DispatchError::Db)?;
     fanout::ensure_within_limit(planned)?;
 
-    // ---------- 4. 通道配置（未配置 → SKIPPED，不报错） ----------
+    // ---------- 5. 通道配置（未配置 → SKIPPED，不报错） ----------
     let settings = model::channel_settings_best_effort().await;
 
-    // ---------- 5. 一个事务内完成落库 / 扇出 / 计数 / 投递 ----------
+    // ---------- 6. 一个事务内完成落库 / 扇出 / 计数 / 投递 ----------
     let notice_id = uuid::Uuid::now_v7();
     let notice_no = build_notice_no(&notice_id, &notice_type);
     let notice_no_in = notice_no.clone();
+    // 实时推送种子（事务闭包会 move 掉 title / link_url / draft，这里先留一份）
+    let push_seed = sse_hub::NoticeEvent {
+        notice_id: notice_id.to_string(),
+        notice_no: notice_no.clone(),
+        notice_type: notice_type.as_str().to_string(),
+        level: level.as_str().to_string(),
+        title: title.clone(),
+        link_url: link_url.clone(),
+        biz_type: draft
+            .biz_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        biz_id: draft
+            .biz_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        receiver_id: String::new(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    };
     let target_ids_json = draft.target.ids_json();
     let target_type = draft.target.target_type();
     let template_vars_json = match &draft.template_vars {
@@ -397,51 +428,9 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
             let rows = fanout::fanout(&tx, &notice_id, &draft.target).await?;
             let receiver_count = model::refresh_receiver_count(&ex, &notice_id).await?;
 
-            let mut channels = vec![ChannelState {
-                channel: "INBOX".to_string(),
-                status: "DELIVERED".to_string(),
-                rows,
-            }];
-
-            if mask & CHANNEL_EMAIL != 0 {
-                let inserted = model::insert_receiver_deliveries(
-                    &ex,
-                    &notice_id,
-                    "EMAIL",
-                    settings.config.email,
-                )
-                .await?;
-                channels.push(ChannelState {
-                    channel: "EMAIL".to_string(),
-                    status: delivery_status(settings.config.email),
-                    rows: inserted,
-                });
-            }
-            if mask & CHANNEL_WEBHOOK != 0 {
-                let inserted = model::insert_notice_delivery(
-                    &ex,
-                    &notice_id,
-                    "WEBHOOK",
-                    &settings.webhook_url,
-                    settings.config.webhook,
-                )
-                .await?;
-                channels.push(ChannelState {
-                    channel: "WEBHOOK".to_string(),
-                    status: delivery_status(settings.config.webhook),
-                    rows: inserted,
-                });
-            }
-            if mask & CHANNEL_SMS != 0 {
-                let inserted =
-                    model::insert_receiver_deliveries(&ex, &notice_id, "SMS", settings.config.sms)
-                        .await?;
-                channels.push(ChannelState {
-                    channel: "SMS".to_string(),
-                    status: delivery_status(settings.config.sms),
-                    rows: inserted,
-                });
-            }
+            // 通道投递（A6 抽到 delivery 模块）：站内信必投（DELIVERED），
+            // 邮件 / Webhook / 短信未配置记 SKIPPED —— 落库即「非失败」，不影响整条通知。
+            let channels = delivery::deliver(&ex, &notice_id, mask, &settings, rows).await?;
 
             Ok(Outcome::Created {
                 receiver_count,
@@ -455,13 +444,17 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
         Outcome::Created {
             receiver_count,
             channels,
-        } => Ok(DispatchResult {
-            notice_id,
-            notice_no,
-            receiver_count,
-            duplicated: false,
-            channels,
-        }),
+        } => {
+            // ---------- 7. 实时推送（A6）：只推给「接收人 ∩ 在线用户」 ----------
+            push_realtime(&notice_id, &push_seed).await;
+            Ok(DispatchResult {
+                notice_id,
+                notice_no,
+                receiver_count,
+                duplicated: false,
+                channels,
+            })
+        }
         Outcome::Duplicate(found) => match found {
             Some((id, no, count)) => Ok(DispatchResult {
                 notice_id: id,
@@ -492,12 +485,47 @@ enum Outcome {
     Duplicate(Option<(uuid::Uuid, String, i64)>),
 }
 
-/// 通道状态文案：已配置 `PENDING`，未配置 `SKIPPED`。
-fn delivery_status(configured: bool) -> String {
-    if configured {
-        "PENDING".to_string()
-    } else {
-        "SKIPPED".to_string()
+/// 把一条通知实时推给「接收人 ∩ 在线用户」（A6）。
+///
+/// # 参数
+///
+/// - `notice_id`：通知主键。
+/// - `seed`：事件模板（`receiver_id` 逐接收人填充）。
+///
+/// # 为什么只查在线用户
+///
+/// 全员通知可能有 5 万接收人，而在线用户通常只有几十个。SQL 里用
+/// `user_id IN (在线集合)` 让数据库只回这几十行，避免为一次推送拉 5 万行进来。
+///
+/// # 失败语义
+///
+/// **推送失败绝不影响发送结果**：通知已经落库（站内信已送达），SSE 只是「立即刷新」
+/// 的加速器，查询或推送出错只记日志，前端轮询未读数兜底。
+async fn push_realtime(notice_id: &uuid::Uuid, seed: &sse_hub::NoticeEvent) {
+    let online = sse_hub::online_user_ids();
+    if online.is_empty() {
+        return;
+    }
+    match model::online_receivers(notice_id, &online).await {
+        Ok(rows) => {
+            let mut pushed = 0usize;
+            for (user_id, receiver_id) in rows {
+                let mut event = seed.clone();
+                event.receiver_id = receiver_id.to_string();
+                pushed += sse_hub::publish(user_id, &event);
+            }
+            tracing::info!(
+                notice_id = %notice_id,
+                online = online.len(),
+                pushed,
+                "通知已实时推送（SSE per-user 频道）"
+            );
+        }
+        Err(error) => tracing::warn!(
+            notice_id = %notice_id,
+            error = %error,
+            "查询在线接收人失败，跳过实时推送（站内信不受影响）"
+        ),
     }
 }
 
@@ -563,11 +591,12 @@ mod tests {
         );
     }
 
-    /// 通道状态只可能是 PENDING / SKIPPED（未配置不报错）。
+    /// 通道状态只可能是 PENDING / SKIPPED（未配置不报错，绝不是 FAILED）。
     #[test]
     fn channel_status_mapping() {
-        assert_eq!(delivery_status(true), "PENDING");
-        assert_eq!(delivery_status(false), "SKIPPED");
+        assert_eq!(delivery::status_for(true), "PENDING");
+        assert_eq!(delivery::status_for(false), "SKIPPED");
+        assert_ne!(delivery::status_for(false), "FAILED");
     }
 
     /// `dispatch` 的公共 API 形状必须稳定：C/D 批次按此签名调用（编译期契约）。
@@ -593,6 +622,19 @@ mod tests {
         assert!(draft.idempotency_key.is_none());
         assert_eq!(draft.notice_type, NoticeType::Todo);
         assert_future(dispatch(draft));
-        assert_eq!(delivery_status(true), "PENDING");
+        assert_eq!(delivery::status_for(true), "PENDING");
+    }
+
+    /// A6：通道计划把「模板通道 + 调用方通道」取并集，站内信必投。
+    #[test]
+    fn dispatch_channel_plan_is_union() {
+        assert_eq!(
+            delivery::plan_channels(Some(crate::business::notice::dto::CHANNEL_INBOX), 0),
+            CHANNEL_INBOX
+        );
+        assert_eq!(
+            delivery::plan_channels(Some(crate::business::notice::dto::CHANNEL_INBOX), 2),
+            CHANNEL_INBOX | 2
+        );
     }
 }
