@@ -24,6 +24,11 @@
 //! | 导出任务执行 | `*/5 * * * * *` | `impexp_export_worker` | 批次 A · A4 |
 //! | 导入导出回收 | `0 40 4 * * *` | `impexp_task_cleanup` | 批次 A · A4 |
 //! | 定时通知投递 | `*/30 * * * * *` | `notice_scheduled_dispatch` | 批次 A · 遗留修复③ |
+//! | 公告到期自动下线 | `0 5 0 * * *` | `announcement_auto_expire` | 批次 C · C0（空实现） |
+//! | 公告置顶到期取消 | `0 10 0 * * *` | `announcement_top_expire` | 批次 C · C0（空实现） |
+//! | 公告扇出补偿重试 | `0 */10 * * * *` | `announcement_dispatch_retry` | 批次 C · C0（空实现） |
+//! | 变更日志分区运维 | `0 20 1 1 * *` | `changelog_partition_maintain` | 批次 C · C0（空实现） |
+//! | 帮助历史版本清理 | `0 40 2 * * *` | `help_version_cleanup` | 批次 C · C0（空实现） |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
 //! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
@@ -61,6 +66,43 @@ const LOG_CLEAN_TASKS: [(&str, &str); 5] = [
     ("clean_auth_log", "20 3 * * *"),
     ("clean_security_log", "30 3 * * *"),
     ("clean_password_log", "40 3 * * *"),
+];
+
+/// 批次 C 的内置任务：`(调度名 / 处理器标识, cron, 描述)`。
+///
+/// **本卡（C0）只挂空实现**：先把 5 个任务注册进调度器，让启动日志能看到它们「已排程」，
+/// 任务体在 C3（公告自动下线 / 置顶到期 / 扇出补偿）、C4（帮助历史版本清理）、
+/// C6（变更日志分区预建与清理）落地时接到对应业务模块的 `register_builtin` 里
+/// （与 [`crate::business::notice::cleanup::register_builtin`] 同构）。
+///
+/// 注册点必须是 [`Scheduler::register_builtin`]：框架调度器在 `start()` 时对注册表做一次性
+/// 快照，写进 `bootstrap.rs` 会被随后的 `reload()` 清空（B 批次已实测）。
+const BATCH_C_TASKS: [(&str, &str, &str); 5] = [
+    (
+        "announcement_auto_expire",
+        "0 5 0 * * *",
+        "系统任务：公告到期自动下线",
+    ),
+    (
+        "announcement_top_expire",
+        "0 10 0 * * *",
+        "系统任务：公告置顶到期取消",
+    ),
+    (
+        "announcement_dispatch_retry",
+        "0 */10 * * * *",
+        "系统任务：公告扇出补偿重试",
+    ),
+    (
+        "changelog_partition_maintain",
+        "0 20 1 1 * *",
+        "系统任务：变更日志分区预建与清理",
+    ),
+    (
+        "help_version_cleanup",
+        "0 40 2 * * *",
+        "系统任务：帮助文档历史版本清理",
+    ),
 ];
 
 /// 把框架错误转换为统一的 500 内部错误（对外隐藏细节，细节写入日志）。
@@ -243,6 +285,33 @@ impl Scheduler {
         // 批次 A · A4：异步导出执行（每 5 秒扫一次）与任务/产物回收（每天 04:40）
         crate::business::impexp::worker::register_builtin(self);
         crate::business::impexp::cleanup::register_builtin(self);
+        // 批次 C · C0：5 个公告 / 帮助 / 变更日志任务（空实现，先挂上让启动日志能看到）
+        self.register_batch_c_placeholders();
+    }
+
+    /// 注册批次 C 的 5 个内置任务（**空实现**：只注册 + 打一行日志，让启动日志能看到任务名）。
+    ///
+    /// 任务体先留空：C3 / C4 / C6 落地时把 `tokio::spawn` 里的空实现换成对应业务模块的
+    /// `run_once()`，并同步把注册搬进那个模块的 `register_builtin`（与 `notice::cleanup` 同构）。
+    /// 现在必须挂在这里的原因是框架调度器**启动时一次性快照**：晚注册等于没注册。
+    fn register_batch_c_placeholders(&self) {
+        for (name, cron, desc) in BATCH_C_TASKS {
+            self.register_cron(name, cron, desc, move || {
+                tokio::spawn(async move {
+                    // 空实现（占位）：只记一条「被调度到了」，不做任何数据库 / IO 操作
+                    tracing::info!(
+                        invoke_target = name,
+                        "批次C定时任务占位执行（任务体待 C3/C4/C6 接入）"
+                    );
+                })
+            });
+            // 注册期再打一行：启动日志里 5 个任务名一眼可见（验收项）
+            tracing::info!(
+                invoke_target = name,
+                cron = cron,
+                "批次C内置任务已注册（空实现）"
+            );
+        }
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

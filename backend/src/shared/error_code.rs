@@ -321,6 +321,53 @@ pub const ROLE_MUTEX_DUPLICATE: i32 = 61011;
 /// 角色与自身互斥（HTTP 400）。
 pub const ROLE_MUTEX_SELF_PAIR: i32 = 61012;
 
+// ───────────────────────── 批次 C · 62xxx 段（13 个） ─────────────────────────
+//
+// 依据 `docs/批次C-技术架构.md` §5.2 码表（逐字一致，**码值不得改动**）。
+// 项目纪律「错误三出口」要求业务码集中定义在这里，散落定义一律评审打回；
+// 前端 `error-code.ts` 的文案映射按此段规划，改一个值就是前端文案错位。
+
+/// 公告标题/正文格式或长度不合法（HTTP 400）。
+pub const ANNOUNCEMENT_CONTENT_INVALID: i32 = 62001;
+
+/// 公告不存在或已删除（HTTP 404）。
+pub const ANNOUNCEMENT_NOT_FOUND: i32 = 62002;
+
+/// 附件不存在或不属于该公告（HTTP 404）。
+pub const ANNOUNCEMENT_ATTACHMENT_NOT_FOUND: i32 = 62003;
+
+/// 无权访问该公告（HTTP 403）。
+pub const ANNOUNCEMENT_FORBIDDEN: i32 = 62004;
+
+/// 公告未发布或已过期（HTTP 403）。
+pub const ANNOUNCEMENT_NOT_AVAILABLE: i32 = 62005;
+
+/// 发布范围为空或超过 500 个对象（HTTP 400）。
+pub const ANNOUNCEMENT_SCOPE_INVALID: i32 = 62006;
+
+/// 置顶必须指定未来到期时间（HTTP 400）。
+pub const ANNOUNCEMENT_TOP_INVALID: i32 = 62007;
+
+/// 有效期不合法（须晚于发布时间，HTTP 400）。
+pub const ANNOUNCEMENT_EXPIRE_INVALID: i32 = 62008;
+
+/// 已发布公告不可直接编辑，请先下线（HTTP 409）。
+pub const ANNOUNCEMENT_STATUS_CONFLICT: i32 = 62009;
+
+/// 帮助文档分类层级超过 3 层（HTTP 422）。
+pub const HELP_CATEGORY_DEPTH_EXCEEDED: i32 = 62010;
+
+/// 帮助文档分类下仍有文档，不可删除（HTTP 409）。
+pub const HELP_CATEGORY_NOT_EMPTY: i32 = 62011;
+
+/// 变更日志：资源未登记白名单（HTTP 500）。
+///
+/// **用 500 是有意的**：它不是用户输入问题，是开发接入缺陷，必须报警而不是静默。
+pub const CHANGE_LOG_RESOURCE_UNREGISTERED: i32 = 62012;
+
+/// 变更时间不合法（未来时间或早于保留期，HTTP 400）。
+pub const CHANGE_LOG_TIME_INVALID: i32 = 62013;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -354,6 +401,42 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "6100x 段不得有重复码值");
         println!(
             "[码表] 6100x 段 {} 个码齐全且不重复（61001–61012）✓",
+            codes.len()
+        );
+    }
+
+    /// C0 段码位自检：62xxx 段 **13 个**码齐全、码值不重复、与架构 §5.2 码表逐字一致。
+    ///
+    /// 与上面 B3 那条测试同性质：防止后续实施步（C2/C4/C6）顺手改码值 ——
+    /// 前端 `error-code.ts` 的文案映射按此段规划，改一个值就是前端文案错位。
+    /// 另断言与 6100x 段不重叠，且 62012 的 HTTP 语义有意为 500（接入缺陷，必须报警）。
+    #[test]
+    fn batch_c_error_codes_are_stable() {
+        let codes = [
+            (ANNOUNCEMENT_CONTENT_INVALID, 62001),
+            (ANNOUNCEMENT_NOT_FOUND, 62002),
+            (ANNOUNCEMENT_ATTACHMENT_NOT_FOUND, 62003),
+            (ANNOUNCEMENT_FORBIDDEN, 62004),
+            (ANNOUNCEMENT_NOT_AVAILABLE, 62005),
+            (ANNOUNCEMENT_SCOPE_INVALID, 62006),
+            (ANNOUNCEMENT_TOP_INVALID, 62007),
+            (ANNOUNCEMENT_EXPIRE_INVALID, 62008),
+            (ANNOUNCEMENT_STATUS_CONFLICT, 62009),
+            (HELP_CATEGORY_DEPTH_EXCEEDED, 62010),
+            (HELP_CATEGORY_NOT_EMPTY, 62011),
+            (CHANGE_LOG_RESOURCE_UNREGISTERED, 62012),
+            (CHANGE_LOG_TIME_INVALID, 62013),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "62xxx 段码值不得改动");
+        }
+        // 与批次 B 的 6100x 段严格不重叠
+        assert!(codes[0].0 > 61012, "62xxx 段必须排在批次 B 之后");
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), 13, "62xxx 段必须是 13 个码");
+        assert_eq!(unique.len(), codes.len(), "62xxx 段不得有重复码值");
+        println!(
+            "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62013）✓",
             codes.len()
         );
     }

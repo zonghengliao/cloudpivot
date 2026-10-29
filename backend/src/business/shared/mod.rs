@@ -9,6 +9,7 @@
 //! | [`principal`] | [`principal::ScopedPrincipal`] + [`principal::resolve`]（一次往返解析 + Redis 缓存 + 埋点） | 所有需要知道「当前用户能看到哪些数据」的地方 |
 //! | [`scope`] | [`scope::ScopeKind`] / [`scope::RowFilter`] / [`scope::ScopeTarget`] / [`scope::filter_for`] / [`scope::paginate`]（列表查询唯一入口） | 列表分页走 `paginate`；单条 / 导出 / 下拉走 `filter_for` |
 //! | [`guard`] | `bump_epoch` / `invalidate_user_scope` / `preflight_permission` / `ensure_scope_grant_allowed` | 部门与授权写点（失效）、`bootstrap`（自检）、角色范围配置接口（上限校验） |
+//! | [`content`] | Markdown 内容管线（批次 C · C1）：`render` 渲染 + 三套净化配方 + TOC 树 | 公告（C2/C3）与帮助文档（C4）写入 / 出参前的统一入口 |
 //!
 //! # 本卡（B2）的边界
 //!
@@ -40,6 +41,7 @@
 //! params.extend(filter.params().iter().cloned());
 //! ```
 
+pub mod content;
 pub mod guard;
 pub mod principal;
 pub mod scope;
