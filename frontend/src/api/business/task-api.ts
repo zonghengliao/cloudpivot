@@ -23,7 +23,7 @@
  * （`changeTaskStatus`，T7b 看板拖拽用）；`PATCH /business/task/{id}/progress`
  * 尚无页面调用方，**不预置**（避免对着假路径写死）。
  */
-import { del, get, patch, post, put, type PageData } from '@/api/request';
+import service, { ApiError, del, get, patch, post, put, type ApiResult, type PageData } from '@/api/request';
 
 /**
  * 把强类型查询对象交给 axios 的 `params`。
@@ -556,4 +556,273 @@ export function changeTaskStatus(id: string, to: TaskStatus, reason?: string): P
     body.reason = text;
   }
   return patch<TaskStatusChangeResult>(`/api/business/task/${id}/status`, body);
+}
+
+// ======================================================================
+// T6b：评论 / 附件 / 工时（补齐 T1「建了表没功能」的三张表）
+// ======================================================================
+
+/**
+ * 评论类型（与后端 `biz_task_comment.comment_type` 的 CHECK 逐字一致）。
+ *
+ * ⚠️ **人写的评论是 `PLAIN`**：卡面把它写作 `COMMENT`，但库里（`V0108`）的值是
+ * `PLAIN`，`V0112` 的 CHECK 也只有下面这 6 个值 —— 前端判据必须按库里来。
+ *
+ * `readonly = true` 的四类（`STATUS_CHANGE` / `ASSIGN` / `PROGRESS_AUTO` /
+ * `AI_PROGRESS`）是**系统生成**的时间线事实，不可改删；`AI_REPORT` 是 AI 写的
+ * 执行报告，管理员可按普通评论的规则清理。
+ */
+export type TaskCommentType = 'PLAIN' | 'AI_REPORT' | 'STATUS_CHANGE' | 'ASSIGN' | 'PROGRESS_AUTO' | 'AI_PROGRESS';
+
+/** 单条评论（对应后端 `TaskCommentItemRes`） */
+export interface TaskCommentItem {
+  /** 评论 id */
+  id: string;
+  /** 评论类型 */
+  comment_type: TaskCommentType;
+  /** 作者 id */
+  user_id: string;
+  /** 作者姓名 */
+  user_name: string;
+  /** 正文（Markdown 原文，前端渲染 + 净化） */
+  content: string;
+  /** 被 @ 的用户 id */
+  mentions: string[];
+  /** 回复的上级评论 */
+  parent_comment_id: string | null;
+  /** 发表时间（RFC3339） */
+  created_at: string;
+  /** 是否系统生成（只读） */
+  readonly: boolean;
+  /** 当前用户能否删除（**服务端算好的结论**，前端不要自己推导） */
+  can_delete: boolean;
+}
+
+/** 评论分页（对应后端 `TaskCommentsRes`） */
+export interface TaskComments {
+  list: TaskCommentItem[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
+/** 评论分页查询 */
+export interface TaskCommentQuery {
+  page?: number;
+  page_size?: number;
+}
+
+/**
+ * 评论列表（`GET /api/business/task/{id}/comments`）。
+ *
+ * 时间**正序**（时间线的阅读方向）；看不见任务时后端返回 404（不暴露 id 是否存在）。
+ */
+export function listTaskComments(id: string, query: TaskCommentQuery = {}): Promise<TaskComments> {
+  return get<TaskComments>(`/api/business/task/${id}/comments`, asParams(query));
+}
+
+/**
+ * 删除评论（`DELETE /api/business/task/{id}/comments/{commentId}`）。
+ *
+ * 软删：列表不再返回。作者本人可删自己的；删别人的需要 `business:task:comment:delete`；
+ * **系统生成的评论一律 403**（`readonly = true` 的那些，前端不该显示删除按钮）。
+ */
+export function deleteTaskComment(id: string, commentId: string): Promise<{ id: string; deleted: boolean }> {
+  return del<{ id: string; deleted: boolean }>(`/api/business/task/${id}/comments/${commentId}`);
+}
+
+/**
+ * 发表评论请求（对应后端 `TaskCommentReq`）。
+ *
+ * 字段名是 **`mentions`**（T5b 定下的，与 `biz_task_comment.mentions` 列同名）；
+ * 卡面早期写的 `mentioned_user_ids` 在代码里并不存在 —— 以代码为准。
+ */
+export interface TaskCommentCreateReq {
+  /** 正文（Markdown 原文；后端存原文，前端渲染 + 净化） */
+  content: string;
+  /** 被 @ 的用户 id（**每个人都收到强制通知**） */
+  mentions?: string[];
+  /** 回复的上级评论 id */
+  parent_comment_id?: string;
+}
+
+/** 发表评论回执（对应后端 `TaskCommentRes`） */
+export interface TaskCommentCreateResult {
+  id: string;
+  comment_type: string;
+  user_id: string;
+  user_name: string;
+  created_at: string;
+}
+
+/**
+ * 发表评论（`POST /api/business/task/{id}/comment`）。
+ *
+ * 这条写接口是 T5b 建的（同时接受 AI 任务令牌），T6b 只是把它接到详情页的发表框上。
+ * `mentions` 里的人会收到**强制**站内通知（修正 8：被 @ = 强制，不看偏好开关）。
+ */
+export function addTaskComment(id: string, data: TaskCommentCreateReq): Promise<TaskCommentCreateResult> {
+  return post<TaskCommentCreateResult>(`/api/business/task/${id}/comment`, data);
+}
+
+/** 单条附件（对应后端 `TaskAttachmentItemRes`） */
+export interface TaskAttachmentItem {
+  /** 绑定行 id（删除 / 下载都用它，**不是** file_id） */
+  id: string;
+  /** 文件 id（`sys_file.id`） */
+  file_id: string;
+  /** 原始文件名 */
+  file_name: string;
+  /** 大小（字节） */
+  file_size: number;
+  /** MIME */
+  mime_type: string;
+  /** 来源：`HUMAN` 人上传 / `AI` AI 产出 */
+  source: 'HUMAN' | 'AI';
+  /** 产出的 AI profile（仅 AI 有值） */
+  ai_profile: string | null;
+  /** 上传人 id */
+  uploader_id: string | null;
+  /** 上传人姓名 */
+  uploader_name: string;
+  /** 上传时间（RFC3339） */
+  created_at: string;
+  /** 当前用户能否删除（上传者 / 管理员；服务端判定） */
+  can_delete: boolean;
+}
+
+/** 附件列表（对应后端 `TaskAttachmentsRes`） */
+export interface TaskAttachments {
+  list: TaskAttachmentItem[];
+  /** 当前数量 */
+  total: number;
+  /** 单任务上限（50） */
+  max_count: number;
+}
+
+/** 附件上传回执（对应后端 `TaskUploadRes`） */
+export interface TaskAttachmentUploadResult {
+  attachment_id: string;
+  file_id: string;
+  file_name: string;
+  file_size: number;
+  /** `HUMAN` / `AI` */
+  source: string;
+  /** 命中的存储策略分类（`task` / `task_ai`） */
+  category: string;
+}
+
+/** 附件列表（`GET /api/business/task/{id}/attachments`） */
+export function listTaskAttachments(id: string): Promise<TaskAttachments> {
+  return get<TaskAttachments>(`/api/business/task/${id}/attachments`);
+}
+
+/**
+ * 上传附件（`POST /api/business/task/{id}/attachment`，multipart 字段名 `file`）。
+ *
+ * 走 A 批次的存储策略（人类 → `task` 50 MB 白名单；AI → `task_ai`）。
+ * **第 51 个会被后端 400 拒**（单任务上限 50）。
+ */
+export function uploadTaskAttachment(id: string, file: File): Promise<TaskAttachmentUploadResult> {
+  const formData = new FormData();
+  formData.append('file', file);
+  return service.post<ApiResult<TaskAttachmentUploadResult>>(`/api/business/task/${id}/attachment`, formData).then((response) => {
+    const body = response.data;
+    if (!body || typeof body.code !== 'number' || body.code !== 0) {
+      throw new ApiError(typeof body?.code === 'number' ? body.code : -1, body?.msg || '上传失败');
+    }
+    return body.data;
+  });
+}
+
+/** 删除附件（`DELETE /api/business/task/{id}/attachments/{attId}`，软删 + 文件标记删除） */
+export function deleteTaskAttachment(
+  id: string,
+  attId: string,
+): Promise<{ id: string; file_id: string; deleted: boolean }> {
+  return del<{ id: string; file_id: string; deleted: boolean }>(`/api/business/task/${id}/attachments/${attId}`);
+}
+
+/**
+ * 下载附件（`GET /api/business/task/{id}/attachments/{attId}/download`）。
+ *
+ * 必须走 `service` 取 Blob（**不能**直接 `<a href>`）：接口要 Bearer 鉴权，
+ * 裸链接触发的是浏览器导航，不带 `Authorization` → 401。后端在出流之前
+ * **已校验任务可见性**（红线），越权拿 att_id 只会得到 404。
+ */
+export async function downloadTaskAttachment(id: string, attId: string): Promise<Blob> {
+  const response = await service.get<Blob>(`/api/business/task/${id}/attachments/${attId}/download`, {
+    responseType: 'blob',
+  });
+  return response.data;
+}
+
+/** 单条工时（对应后端 `TaskWorklogItemRes`） */
+export interface TaskWorklogItem {
+  id: string;
+  user_id: string;
+  user_name: string;
+  /** 工时日期（`YYYY-MM-DD`） */
+  work_date: string;
+  /** 工时（小时） */
+  hours: number;
+  description: string | null;
+  created_at: string;
+  /** 当前用户能否删除（本人 / 管理员） */
+  can_delete: boolean;
+}
+
+/** 工时列表（对应后端 `TaskWorklogsRes`） */
+export interface TaskWorklogs {
+  list: TaskWorklogItem[];
+  /** 记录条数 */
+  total: number;
+  /** 明细合计 */
+  sum_hours: number;
+  /** 任务卡实际工时（**服务端汇总**；没有记录时为 null） */
+  actual_hours: number | null;
+  /** 单任务记录上限（500） */
+  max_records: number;
+}
+
+/** 工时登记请求（**没有** actual_hours：汇总只由服务端算） */
+export interface TaskWorklogCreateReq {
+  /** 工时（0.25–24） */
+  hours: number;
+  /** 日期（`YYYY-MM-DD`，不得晚于今天） */
+  work_date: string;
+  /** 工作说明（可空） */
+  note?: string;
+}
+
+/** 工时登记回执 */
+export interface TaskWorklogSaveResult {
+  id: string;
+  work_date: string;
+  hours: number;
+  sum_hours: number;
+  actual_hours: number | null;
+}
+
+/** 工时删除回执 */
+export interface TaskWorklogDeleteResult {
+  id: string;
+  deleted: boolean;
+  sum_hours: number;
+  actual_hours: number | null;
+}
+
+/** 工时列表（`GET /api/business/task/{id}/worklogs`，含合计） */
+export function listTaskWorklogs(id: string): Promise<TaskWorklogs> {
+  return get<TaskWorklogs>(`/api/business/task/${id}/worklogs`);
+}
+
+/** 登记工时（`POST /api/business/task/{id}/worklogs`；只有负责人 / 协作人 / 有 worklog 权限的人） */
+export function addTaskWorklog(id: string, data: TaskWorklogCreateReq): Promise<TaskWorklogSaveResult> {
+  return post<TaskWorklogSaveResult>(`/api/business/task/${id}/worklogs`, data);
+}
+
+/** 删除工时（`DELETE /api/business/task/{id}/worklogs/{wlId}`，本人 / 管理员） */
+export function deleteTaskWorklog(id: string, wlId: string): Promise<TaskWorklogDeleteResult> {
+  return del<TaskWorklogDeleteResult>(`/api/business/task/${id}/worklogs/${wlId}`);
 }

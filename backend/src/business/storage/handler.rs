@@ -2073,6 +2073,15 @@ fn content_disposition(original: &str) -> HeaderValue {
 
 /// 组装下载响应（本地流式 / S3 302）。
 ///
+/// # 为什么是 `pub(crate)`
+///
+/// 任务附件（C+ · T6b）的下载入口 `GET /business/task/{id}/attachments/{att_id}/download`
+/// 必须先校验**任务可见性**，再复用本函数出流 —— 这样「出流」只有一份实现
+/// （`LOCAL` 流式 / `S3` 302 预签名 / Range / nosniff 都在这里），
+/// 任务侧只需要在前面加一道 `att_id ↔ task_id` 的归属校验。
+/// 若任务侧自己写一遍 `stream()`，两处的响应头（`Content-Disposition` / `nosniff`）
+/// 迟早会不一致 —— 而那两个头正是「浏览器不 inline 执行上传物」的防线。
+///
 /// # 参数
 ///
 /// - `raw_id`：路径里的文件 ID。
@@ -2084,7 +2093,7 @@ fn content_disposition(original: &str) -> HeaderValue {
 /// # 异常情况
 ///
 /// 见 [`download`] 的「异常情况」段。
-async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
+pub(crate) async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
     let id = utils::require_uuid(raw_id, "file_id")?;
     let record = model::find_active_file(&id)
         .await

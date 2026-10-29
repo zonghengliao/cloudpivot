@@ -1072,6 +1072,212 @@ pub struct TaskStatsRes {
     pub by_exec_mode: Vec<ExecModeStatRes>,
 }
 
+/// 权限码：删除他人评论（T6b）。
+///
+/// 作者本人删自己的评论**不需要**这个码（行级关系优先）；它解决的是
+/// 「管理员 / 版主清理他人留言」这一类跨人操作。
+pub const PERM_COMMENT_DELETE: &str = "business:task:comment:delete";
+
+/// 权限码：删除他人上传的任务附件（T6b）。
+pub const PERM_ATTACHMENT_DELETE: &str = "business:task:attachment:delete";
+
+/// 权限码：给「非负责人 / 非协作人」登记与删除工时（T6b）。
+pub const PERM_WORKLOG: &str = "business:task:worklog";
+
+// ==================== T6b：评论 / 附件 / 工时 ====================
+
+/// 评论列表查询（`GET /business/task/{id}/comments`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskCommentPageQuery {
+    /// 页码（从 1 开始；缺省 1）。
+    pub page: Option<u64>,
+    /// 每页条数（缺省 20，上限 100 由 `utils::normalize_page` 收口）。
+    pub page_size: Option<u64>,
+}
+
+/// 单条评论（出参）。
+///
+/// `readonly` 与 `can_delete` 都是**服务端算好的结论**：前端只负责渲染，
+/// 不许自己按 `comment_type` 推导 —— 推导逻辑一漂移就会出现「按钮能点、
+/// 点下去 403」的死路（卡面 §一 规则 7 的交互面）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskCommentItemRes {
+    /// 评论 ID。
+    pub id: String,
+    /// 评论类型：`PLAIN`（人写的）/ `AI_REPORT` / `STATUS_CHANGE` / `ASSIGN` /
+    /// `PROGRESS_AUTO` / `AI_PROGRESS`。
+    ///
+    /// **注意**：卡面把「人写的」写作 `COMMENT`，而库里（`V0108`）的类型值是
+    /// `PLAIN`。以库为准：`PLAIN` 就是人类评论，`V0112` 的 CHECK 也只有这 6 个值。
+    pub comment_type: String,
+    /// 评论人 ID。
+    pub user_id: String,
+    /// 评论人姓名。
+    pub user_name: String,
+    /// 正文（Markdown 原文，前端渲染 + 净化）。
+    pub content: String,
+    /// 被 @ 的用户 ID 数组。
+    pub mentions: Vec<String>,
+    /// 回复的上级评论。
+    pub parent_comment_id: Option<String>,
+    /// 发表时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 是否系统生成（只读，不可编辑 / 删除）。
+    pub readonly: bool,
+    /// 当前用户能否删除（作者本人 / 管理员）。
+    pub can_delete: bool,
+}
+
+/// 评论列表（`GET /business/task/{id}/comments`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskCommentsRes {
+    /// 当前页评论（时间正序）。
+    pub list: Vec<TaskCommentItemRes>,
+    /// 未删评论总数。
+    pub total: u64,
+    /// 当前页码。
+    pub page: u64,
+    /// 每页条数。
+    pub page_size: u64,
+}
+
+/// 删除评论的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskCommentDeleteRes {
+    /// 评论 ID。
+    pub id: String,
+    /// 是否真的删掉了（软删；重复删除返回 `false` 且不报错之外的副作用）。
+    pub deleted: bool,
+}
+
+/// 单条附件（出参）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAttachmentItemRes {
+    /// 绑定行 ID。
+    pub id: String,
+    /// 文件 ID。
+    pub file_id: String,
+    /// 原始文件名。
+    pub file_name: String,
+    /// 大小（字节）。
+    pub file_size: i64,
+    /// MIME。
+    pub mime_type: String,
+    /// 来源：`HUMAN` / `AI`。
+    pub source: String,
+    /// 产出的 AI profile（仅 `AI` 有值）。
+    pub ai_profile: Option<String>,
+    /// 上传人 ID。
+    pub uploader_id: Option<String>,
+    /// 上传人姓名。
+    pub uploader_name: String,
+    /// 上传时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 当前用户能否删除（上传者 / 管理员）。
+    pub can_delete: bool,
+}
+
+/// 附件列表（`GET /business/task/{id}/attachments`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAttachmentsRes {
+    /// 附件（未软删，按 `sort_order` 升序）。
+    pub list: Vec<TaskAttachmentItemRes>,
+    /// 当前数量。
+    pub total: u64,
+    /// 单任务上限（前端据此提示「还能传几个」）。
+    pub max_count: i64,
+}
+
+/// 删除附件的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAttachmentDeleteRes {
+    /// 绑定行 ID。
+    pub id: String,
+    /// 文件 ID（存储记录已同步软删）。
+    pub file_id: String,
+    /// 是否真的删掉了。
+    pub deleted: bool,
+}
+
+/// 工时登记请求（`POST /business/task/{id}/worklogs`）。
+///
+/// **没有** `actual_hours` 字段：任务卡上的实际工时只由服务端 `SUM(hours)` 汇总
+/// （卡面红线）。少一个字段就少一条造假路径。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskWorklogCreateReq {
+    /// 工时（小时，0.25–24）。
+    pub hours: f64,
+    /// 工时日期（`YYYY-MM-DD`，不得晚于今天）。
+    pub work_date: String,
+    /// 工作说明（可空；列名是 `description`，接口上用 `note` 更贴近前端文案）。
+    #[serde(default, alias = "description")]
+    pub note: Option<String>,
+}
+
+/// 单条工时（出参）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskWorklogItemRes {
+    /// 记录 ID。
+    pub id: String,
+    /// 填报人。
+    pub user_id: String,
+    /// 填报人姓名。
+    pub user_name: String,
+    /// 工时日期。
+    pub work_date: NaiveDate,
+    /// 工时（小时）。
+    pub hours: f64,
+    /// 工作说明。
+    pub description: Option<String>,
+    /// 记录时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 当前用户能否删除（本人 / 管理员）。
+    pub can_delete: bool,
+}
+
+/// 工时列表（`GET /business/task/{id}/worklogs`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskWorklogsRes {
+    /// 明细（日期倒序）。
+    pub list: Vec<TaskWorklogItemRes>,
+    /// 记录条数。
+    pub total: u64,
+    /// 明细合计（`SUM(hours)`）。
+    pub sum_hours: f64,
+    /// 任务卡上的实际工时（服务端冗余；正常情况下 == `sum_hours`）。
+    pub actual_hours: Option<f64>,
+    /// 单任务记录上限。
+    pub max_records: i64,
+}
+
+/// 登记工时的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskWorklogSaveRes {
+    /// 新记录 ID。
+    pub id: String,
+    /// 落库日期（归一后）。
+    pub work_date: NaiveDate,
+    /// 落库工时（按 `NUMERIC(5,1)` 归一后）。
+    pub hours: f64,
+    /// 明细合计。
+    pub sum_hours: f64,
+    /// 任务卡实际工时（**服务端汇总**）。
+    pub actual_hours: Option<f64>,
+}
+
+/// 删除工时的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskWorklogDeleteRes {
+    /// 记录 ID。
+    pub id: String,
+    /// 是否删除成功。
+    pub deleted: bool,
+    /// 删除后的明细合计。
+    pub sum_hours: f64,
+    /// 删除后的任务卡实际工时。
+    pub actual_hours: Option<f64>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -12,6 +12,7 @@
 //! | **T4** | FS 依赖（加 / 删 / 列表 + 环检测 + 进 DOING 前置校验）+ 前置完成/取消联动 + 只读甘特数据 | 已交付 |
 //! | **T5** | AI 执行者（`user_type=ROBOT` + 禁登录 + API 流程） | 已交付 |
 //! | **T5b** | 云枢 ↔ Hermes kanban：派活（`dispatch-ai`）/ 任务级令牌（`middleware::task_token`）/ 30s 轮询 + done 三层回传（→ `REVIEW`）/ `ai-progress` / 统计 `exec_mode` 维度（`V0112`） | 已交付 |
+//! | **T6b** | 补齐 T1 建表未实现的三张表：评论（列表 / 软删 / @强制通知）/ 附件（列表 / 软删 / **可见性校验的下载**）/ 工时（登记 / 删除 / **服务端汇总 `actual_hours`**）+ `V0113` | 已交付 |
 //! | T6 | 前端 4 页（看板 / 我的 / 我分派的 / 详情）+ 快速添加 | 待做 |
 //! | T7 | 甘特图 + 提醒定时任务 + 基础统计（**统计接口的 `exec_mode` 维度已在 T5b 交付**：`GET /business/task/stats`） | 待做 |
 //!
@@ -67,6 +68,7 @@
 //!    `bar.offset_days` / `length_days`），前端**不绑拖拽**。拖拽改期属 T7，
 //!    且必须重跑依赖校验（修正 10：改期后前置不得晚于后继开始）。
 
+pub mod collab;
 pub mod dep;
 pub mod dto;
 pub mod handler;

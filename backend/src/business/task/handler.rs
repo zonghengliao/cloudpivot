@@ -1850,6 +1850,13 @@ fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), 
 /// 人类 JWT 或 AI 任务令牌（两者都能写，作者分别是账号本人 / 任务的 AI 负责人员）。
 /// 人类侧要求 `business:task:read` + 任务可见；AI 侧由中间件保证「令牌 ↔ 任务一致」。
 ///
+/// # `@` 提及（T6b 补齐）
+///
+/// `mentions` 里的每个人都会收到一条**强制**通知（修正 8：被 @ = 强制，不看偏好），
+/// 内容含任务标题 + 评论摘要。实现在
+/// [`crate::business::task::collab::notify_mentions`]（去重 / 剔除作者 / 剔除不存在账号都在那里）。
+/// 通知失败**不回滚评论**：通知是评论写入之后的副作用。
+///
 /// # 异常情况
 ///
 /// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
@@ -1866,7 +1873,7 @@ pub async fn add_comment(
     let reader = resolve_reader(claims, ai_actor)?;
     let me = reader.principal().await?;
     // 人类侧：看不见就 404（不暴露 ID 是否存在）；AI 侧：中间件已确认任务存在
-    model::find_detail(&me, task_id)
+    let task = model::find_detail(&me, task_id)
         .await
         .map_err(|error| utils::db_error(error, "查询任务"))?
         .ok_or_else(not_found)?;
@@ -1902,6 +1909,25 @@ pub async fn add_comment(
     .await
     .map_err(|error| utils::db_error(error, "写入任务评论"))?;
 
+    // T6b：@ 提及 = 强制通知（修正 8）。评论已落库，通知失败只记 warn。
+    if !mentions.is_empty() {
+        let notified = crate::business::task::collab::notify_mentions(
+            &task,
+            &content,
+            &mentions,
+            author,
+            &reader.display_name(),
+        )
+        .await;
+        tracing::info!(
+            task_id = %task_id,
+            comment_id = %comment_id,
+            mentioned = mentions.len(),
+            notified = notified.len(),
+            "评论提及通知已处理"
+        );
+    }
+
     Ok(Res::ok(TaskCommentRes {
         id: comment_id.to_string(),
         comment_type: comment_type.to_string(),
@@ -1925,7 +1951,7 @@ pub async fn add_comment(
 /// # 异常情况
 ///
 /// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
-/// - 400：没有 `file` 字段 / 扩展名或 MIME 不被策略允许；
+/// - 400：没有 `file` 字段 / 扩展名或 MIME 不被策略允许 / **单任务附件已达 50 个**；
 /// - 413：超过策略或服务端上限；500/502：写对象或落库失败。
 #[alun::no_auth("/business/task/{id}/attachment")]
 #[alun::post("/business/task/{id}/attachment")]
@@ -1943,6 +1969,19 @@ pub async fn upload_attachment(
         .await
         .map_err(|error| utils::db_error(error, "查询任务"))?
         .ok_or_else(not_found)?;
+
+    // T6b：单任务附件上限 50（卡面 §二 规则 2）。**读流之前**判 ——
+    // 否则一个 50 MB 的文件会先被完整读进内存再被拒（白烧一次 IO 与内存）。
+    let existing = crate::business::task::collab::count_attachments(task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "统计任务附件"))?;
+    if let Err(limit) = crate::business::task::collab::attachment_quota_verdict(existing) {
+        return Err(ApiError::new(
+            400,
+            error_code::TASK_FIELD_INVALID,
+            format!("单任务附件最多 {limit} 个，请先删除不再需要的附件"),
+        ));
+    }
 
     // 读流之前先用 Content-Length 判一次（框架 DefaultBodyLimit 会中途掐断 body，
     // 掐断时的错误信息是「读取失败」，很容易被误判成策略问题）
@@ -2367,7 +2406,7 @@ fn current_user(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
 }
 
 /// 解析 UUID 字段（失败 → 400 + `10001`）。
-fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uuid, ApiError> {
+pub(crate) fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uuid, ApiError> {
     utils::parse_uuid(raw).ok_or_else(|| param_invalid(format!("{label} ID 不是合法 UUID：{raw}")))
 }
 
@@ -2377,7 +2416,7 @@ fn param_invalid(message: String) -> ApiError {
 }
 
 /// 任务不存在 / 看不见 → `404 + 63001`。
-fn not_found() -> ApiError {
+pub(crate) fn not_found() -> ApiError {
     ApiError::new(404, error_code::TASK_NOT_FOUND, "任务不存在或已删除")
 }
 

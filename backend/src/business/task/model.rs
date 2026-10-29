@@ -2891,8 +2891,12 @@ pub async fn bind_ai_attachment(
         .first()
     {
         let id: Uuid = existing.get_typed("id")?;
+        // T6b：`uk_biz_task_attachment (task_id, file_id)` 是**全表**唯一，
+        // 所以「删掉附件后重新上传同一个文件」必须走**复活**这条路
+        // （清 `deleted_at`），否则 bind 会返回一条已删行、列表里永远看不到它。
         ex.exec_sql(
-            "UPDATE biz_task_attachment SET source = 'AI', ai_profile = ? \
+            "UPDATE biz_task_attachment \
+                SET source = 'AI', ai_profile = ?, deleted_at = NULL \
               WHERE id = ?::uuid"
                 .to_string(),
             vec![
@@ -2953,6 +2957,12 @@ pub async fn bind_human_attachment(
         .first()
     {
         let id: Uuid = existing.get_typed("id")?;
+        // 同 `bind_ai_attachment`：全表唯一 → 重新上传同一个文件走「复活」。
+        ex.exec_sql(
+            "UPDATE biz_task_attachment SET deleted_at = NULL WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
         return Ok(id);
     }
     let id = Uuid::now_v7();

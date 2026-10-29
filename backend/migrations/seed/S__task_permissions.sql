@@ -148,3 +148,71 @@ BEGIN
     END IF;
 END
 $$;
+
+-- ---------- 4) T6b：评论删除 / 附件删除 / 工时（**只授超管**） ----------
+--
+-- 三个码都是「跨人操作」的加项，**不进**上面的全员授予清单：
+--
+--   · `business:task:comment:delete` —— 删**别人的**评论。作者本人不需要它
+--     （行级关系优先），全员授予等于「谁都能删谁的留言」；
+--   · `business:task:attachment:delete` —— 删**别人**上传的附件，同理；
+--   · `business:task:worklog` —— 给**不是自己负责 / 协作**的任务登记工时。
+--     注意工时登记的默认通路是「负责人 / 协作人」（行级关系），这个码只给
+--     「财务 / PMO 代填」这类角色，全员授予会让「无关用户登记工时 → 403」
+--     这条验收永远不成立。
+--
+-- 时序：本文件在 `S__role_data.sql` 之后执行（按文件名升序），全新库上
+-- SUPER_ADMIN 已存在；老库升级时也照样生效（种子每次指纹变化就重跑）。
+INSERT INTO sys_role_menu (role_id, menu_id, created_at)
+SELECT r.id, m.id, CURRENT_TIMESTAMP
+  FROM sys_role r
+ CROSS JOIN (VALUES ('20000000-0000-0000-0000-000000000772'::uuid),
+                    ('20000000-0000-0000-0000-000000000773'::uuid),
+                    ('20000000-0000-0000-0000-000000000774'::uuid)) AS m(id)
+ WHERE r.role_code = 'SUPER_ADMIN'
+   AND r.deleted_at IS NULL
+   AND NOT EXISTS (
+           SELECT 1 FROM sys_role_menu granted
+            WHERE granted.role_id = r.id AND granted.menu_id = m.id
+       )
+ON CONFLICT (role_id, menu_id) DO NOTHING;
+
+-- 自检：超管必须持有 3 个码；且**不许**有非超管角色被误授（误授 = 隔离失效）。
+DO $$
+DECLARE
+    btn_comment uuid := '20000000-0000-0000-0000-000000000772'::uuid;
+    btn_att     uuid := '20000000-0000-0000-0000-000000000773'::uuid;
+    btn_worklog uuid := '20000000-0000-0000-0000-000000000774'::uuid;
+    super_id    uuid;
+    missing     int;
+    leaked      int;
+BEGIN
+    SELECT id INTO super_id FROM sys_role
+     WHERE role_code = 'SUPER_ADMIN' AND deleted_at IS NULL LIMIT 1;
+
+    IF super_id IS NULL THEN
+        RAISE NOTICE 'S__task_permissions 第 4 段：未找到 SUPER_ADMIN 角色，跳过 T6b 权限自检';
+        RETURN;
+    END IF;
+
+    SELECT count(*) INTO missing
+      FROM (VALUES (btn_comment), (btn_att), (btn_worklog)) AS b(id)
+     WHERE NOT EXISTS (
+               SELECT 1 FROM sys_role_menu rm
+                WHERE rm.role_id = super_id AND rm.menu_id = b.id
+           );
+    IF missing > 0 THEN
+        RAISE EXCEPTION 'S__task_permissions 自检失败：SUPER_ADMIN 缺 % 个 T6b 权限（评论删除 / 附件删除 / 工时）', missing;
+    END IF;
+
+    SELECT count(*) INTO leaked
+      FROM sys_role_menu rm
+      JOIN sys_role r ON r.id = rm.role_id AND r.deleted_at IS NULL
+     WHERE rm.menu_id IN (btn_comment, btn_att, btn_worklog)
+       AND r.role_code <> 'SUPER_ADMIN';
+    -- 管理员显式勾选属预期 → 只提示不报错（与第 3 段同口径）
+    IF leaked > 0 THEN
+        RAISE NOTICE 'S__task_permissions 提示：% 行 T6b 权限授权给了非超管角色（管理员显式勾选的，属预期）', leaked;
+    END IF;
+END
+$$;
