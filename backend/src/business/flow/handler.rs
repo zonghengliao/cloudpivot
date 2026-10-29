@@ -1959,6 +1959,271 @@ pub async fn my_instances(
     }))
 }
 
+// ==================== 统计（D4b：总览 / 效率 / 卡点） ====================
+
+/// 统计查询参数（`start` / `end` 均可省略，缺省近 30 天）。
+///
+/// 时间格式：`YYYY-MM-DD`（按 UTC 零点，左闭）或 RFC3339（右开）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct StatsQuery {
+    /// 起始时间（含）。
+    #[serde(default)]
+    pub start: Option<String>,
+    /// 结束时间（不含）。
+    #[serde(default)]
+    pub end: Option<String>,
+}
+
+/// 总览响应（**无数据一律 0，绝不下发 null**）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatsOverviewRes {
+    /// 时间窗起点。
+    pub start: chrono::DateTime<chrono::Utc>,
+    /// 时间窗终点。
+    pub end: chrono::DateTime<chrono::Utc>,
+    /// 发起数。
+    pub total: i64,
+    /// 通过数。
+    pub approved: i64,
+    /// 驳回数。
+    pub rejected: i64,
+    /// 在跑数。
+    pub pending: i64,
+    /// 撤回数。
+    pub cancelled: i64,
+    /// 发起人撤回数。
+    pub withdrawn: i64,
+    /// 已结束数。
+    pub finished: i64,
+    /// 通过率（0–1，4 位小数）。
+    pub approved_rate: f64,
+    /// 平均审批时长（秒）。
+    pub avg_duration_seconds: i64,
+}
+
+/// 单流程效率行。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FlowEfficiencyRes {
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 实例数。
+    pub total: i64,
+    /// 通过数。
+    pub approved: i64,
+    /// 驳回数。
+    pub rejected: i64,
+    /// 在跑数。
+    pub running: i64,
+    /// 已结束数。
+    pub finished: i64,
+    /// 平均审批时长（秒）。
+    pub avg_duration_seconds: i64,
+    /// 最长单实例时长（秒）。
+    pub max_duration_seconds: i64,
+}
+
+/// 流程效率响应。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatsEfficiencyRes {
+    /// 时间窗起点。
+    pub start: chrono::DateTime<chrono::Utc>,
+    /// 时间窗终点。
+    pub end: chrono::DateTime<chrono::Utc>,
+    /// 各流程效率（按总耗时降序）。
+    pub list: Vec<FlowEfficiencyRes>,
+}
+
+/// 单节点卡点行。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeBottleneckRes {
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 样本数。
+    pub samples: i64,
+    /// 平均停留（秒）。
+    pub avg_dwell_seconds: i64,
+    /// 最长停留（秒）。
+    pub max_dwell_seconds: i64,
+}
+
+/// 卡点响应（`slowest_*` 无数据时为**空串 / 空数组**，不是 null）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct StatsBottleneckRes {
+    /// 时间窗起点。
+    pub start: chrono::DateTime<chrono::Utc>,
+    /// 时间窗终点。
+    pub end: chrono::DateTime<chrono::Utc>,
+    /// 最慢节点 key（无数据 → 空串）。
+    pub slowest_node_key: String,
+    /// 最慢节点名（无数据 → 空串）。
+    pub slowest_node_name: String,
+    /// 最慢节点平均停留（秒；无数据 → 0）。
+    pub slowest_avg_dwell_seconds: i64,
+    /// 卡点榜。
+    pub list: Vec<NodeBottleneckRes>,
+}
+
+/// 解析统计时间参数（`YYYY-MM-DD` → UTC 零点；否则按 RFC3339）。
+fn parse_stat_time(
+    raw: Option<&str>,
+    label: &str,
+) -> std::result::Result<Option<chrono::DateTime<chrono::Utc>>, ApiError> {
+    match raw.map(str::trim) {
+        None => Ok(None),
+        Some("") => Ok(None),
+        Some(value) => {
+            if let Ok(date) = chrono::NaiveDate::parse_from_str(value, "%Y-%m-%d")
+                && let Some(local) = date.and_hms_opt(0, 0, 0)
+            {
+                return Ok(Some(local.and_utc()));
+            }
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(value) {
+                return Ok(Some(dt.with_timezone(&chrono::Utc)));
+            }
+            Err(field_invalid(format!(
+                "{label} 时间格式非法（只允许 YYYY-MM-DD 或 RFC3339）：{value}"
+            )))
+        }
+    }
+}
+
+/// 归一化时间窗（缺省近 30 天；`start < end`；跨度 ≤ 366 天）。
+fn stats_window(query: &StatsQuery) -> std::result::Result<model::StatsWindow, ApiError> {
+    let start = parse_stat_time(query.start.as_deref(), "start")?;
+    let end = parse_stat_time(query.end.as_deref(), "end")?;
+    model::StatsWindow::normalize(start, end, chrono::Utc::now()).map_err(field_invalid)
+}
+
+/// 审批总览（发起数 / 通过数 / 驳回数 / 平均时长）。
+///
+/// 可见性：**只统计当前用户可见的实例**（复用列表接口的并集口径）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：时间格式非法 / `start >= end` / 跨度超限；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/stats/overview",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/stats/overview")]
+pub async fn stats_overview(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<StatsQuery>,
+) -> ResResult<StatsOverviewRes> {
+    me_of(&claims)?;
+    let window = stats_window(&query)?;
+    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let rows = model::efficiency_rows(&principal, window)
+        .await
+        .map_err(|error| utils::db_error(error, "统计审批总览"))?;
+    let overview = model::fold_overview(&rows);
+    Ok(Res::ok(StatsOverviewRes {
+        start: window.start,
+        end: window.end,
+        total: overview.total,
+        approved: overview.approved,
+        rejected: overview.rejected,
+        pending: overview.running,
+        cancelled: overview.cancelled,
+        withdrawn: overview.withdrawn,
+        finished: overview.finished,
+        approved_rate: overview.approved_rate(),
+        avg_duration_seconds: overview.avg_duration_seconds(),
+    }))
+}
+
+/// 流程效率（各流程平均审批时长 = 实例结束时间 − 发起时间）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：时间格式非法 / 范围非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/stats/efficiency",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/stats/efficiency")]
+pub async fn stats_efficiency(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<StatsQuery>,
+) -> ResResult<StatsEfficiencyRes> {
+    me_of(&claims)?;
+    let window = stats_window(&query)?;
+    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let rows = model::efficiency_rows(&principal, window)
+        .await
+        .map_err(|error| utils::db_error(error, "统计流程效率"))?;
+    let list = rows
+        .iter()
+        .map(|row| FlowEfficiencyRes {
+            flow_code: row.flow_code.clone(),
+            flow_name: row.flow_name.clone(),
+            total: row.total,
+            approved: row.approved,
+            rejected: row.rejected,
+            running: row.running,
+            finished: row.finished,
+            avg_duration_seconds: row.avg_duration_seconds(),
+            max_duration_seconds: row.max_duration_seconds,
+        })
+        .collect();
+    Ok(Res::ok(StatsEfficiencyRes {
+        start: window.start,
+        end: window.end,
+        list,
+    }))
+}
+
+/// 卡点（哪个节点平均停留最久）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：时间格式非法 / 范围非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/stats/node-bottleneck",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/stats/node-bottleneck")]
+pub async fn stats_node_bottleneck(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<StatsQuery>,
+) -> ResResult<StatsBottleneckRes> {
+    me_of(&claims)?;
+    let window = stats_window(&query)?;
+    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let rows = model::bottleneck_rows(&principal, window, model::BOTTLENECK_TOP)
+        .await
+        .map_err(|error| utils::db_error(error, "统计流程卡点"))?;
+    let slowest = model::slowest_of(&rows);
+    let list = rows
+        .iter()
+        .map(|row| NodeBottleneckRes {
+            node_key: row.node_key.clone(),
+            node_name: row.node_name.clone(),
+            samples: row.samples,
+            avg_dwell_seconds: row.avg_dwell_seconds,
+            max_dwell_seconds: row.max_dwell_seconds,
+        })
+        .collect();
+    Ok(Res::ok(StatsBottleneckRes {
+        start: window.start,
+        end: window.end,
+        slowest_node_key: slowest.map(|row| row.node_key.clone()).unwrap_or_default(),
+        slowest_node_name: slowest.map(|row| row.node_name.clone()).unwrap_or_default(),
+        slowest_avg_dwell_seconds: slowest.map(|row| row.avg_dwell_seconds).unwrap_or(0),
+        list,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2101,5 +2366,178 @@ mod tests {
         assert_eq!(res.form_data["amount"], 100);
         assert_eq!(res.form_data["reason"], "差旅");
         assert_eq!(res.my_task_id, "");
+    }
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    fn row(
+        code: &str,
+        total: i64,
+        approved: i64,
+        rejected: i64,
+        running: i64,
+        sum: i64,
+    ) -> model::EfficiencyRow {
+        model::EfficiencyRow {
+            flow_code: code.to_string(),
+            flow_name: format!("{code}-名称"),
+            total,
+            approved,
+            rejected,
+            running,
+            cancelled: 0,
+            withdrawn: 0,
+            finished: total - running,
+            sum_duration_seconds: sum,
+            max_duration_seconds: sum,
+        }
+    }
+
+    /// 造 5 实例（3 通过 1 驳回 1 在跑）→ 总览数字与平均时长正确。
+    #[test]
+    fn overview_counts_five_instances() {
+        let rows = vec![row("leave", 5, 3, 1, 1, 3600)];
+        let overview = model::fold_overview(&rows);
+        assert_eq!(overview.total, 5);
+        assert_eq!(overview.approved, 3);
+        assert_eq!(overview.rejected, 1);
+        assert_eq!(overview.running, 1);
+        assert_eq!(overview.finished, 4);
+        assert_eq!(overview.avg_duration_seconds(), 900, "3600/4");
+        assert_eq!(overview.approved_rate(), 0.6);
+    }
+
+    /// 无数据 → 全部 0（红线：不许 null），JSON 里也必须出现 0。
+    #[test]
+    fn empty_stats_are_zero_not_null() {
+        let overview = model::fold_overview(&[]);
+        assert_eq!(overview.total, 0);
+        assert_eq!(overview.avg_duration_seconds(), 0);
+        assert_eq!(overview.approved_rate(), 0.0);
+        let res = StatsOverviewRes {
+            start: chrono::Utc::now(),
+            end: chrono::Utc::now(),
+            total: overview.total,
+            approved: overview.approved,
+            rejected: overview.rejected,
+            pending: overview.running,
+            cancelled: overview.cancelled,
+            withdrawn: overview.withdrawn,
+            finished: overview.finished,
+            approved_rate: overview.approved_rate(),
+            avg_duration_seconds: overview.avg_duration_seconds(),
+        };
+        let json = serde_json::to_string(&res).expect("序列化");
+        assert!(!json.contains("null"), "不许下发 null：{json}");
+        assert!(json.contains("\"avg_duration_seconds\":0"), "{json}");
+        let empty = StatsBottleneckRes {
+            start: chrono::Utc::now(),
+            end: chrono::Utc::now(),
+            slowest_node_key: String::new(),
+            slowest_node_name: String::new(),
+            slowest_avg_dwell_seconds: 0,
+            list: Vec::new(),
+        };
+        let json = serde_json::to_string(&empty).expect("序列化");
+        assert!(!json.contains("null"), "不许下发 null：{json}");
+    }
+
+    /// 平均时长按「已结束数」加权（在跑实例不参与）。
+    #[test]
+    fn avg_uses_finished_only() {
+        let mut done = row("a", 3, 2, 1, 0, 900);
+        done.finished = 3;
+        let mut running = row("b", 1, 0, 0, 1, 0);
+        running.finished = 0;
+        let overview = model::fold_overview(&[done, running]);
+        assert_eq!(overview.total, 4);
+        assert_eq!(overview.avg_duration_seconds(), 300, "900/3，不是 900/4");
+    }
+
+    /// 卡点取平均停留最久，同平均看样本数。
+    #[test]
+    fn slowest_picks_max_avg() {
+        let rows = vec![
+            model::BottleneckRow {
+                node_key: "n_fast".into(),
+                node_name: "快".into(),
+                samples: 9,
+                avg_dwell_seconds: 60,
+                max_dwell_seconds: 90,
+            },
+            model::BottleneckRow {
+                node_key: "n_slow".into(),
+                node_name: "慢".into(),
+                samples: 2,
+                avg_dwell_seconds: 600,
+                max_dwell_seconds: 900,
+            },
+            model::BottleneckRow {
+                node_key: "n_tie".into(),
+                node_name: "并列".into(),
+                samples: 5,
+                avg_dwell_seconds: 600,
+                max_dwell_seconds: 700,
+            },
+        ];
+        let slowest = model::slowest_of(&rows).expect("不能为空");
+        assert_eq!(slowest.node_key, "n_tie", "平均相同取样本多的");
+        assert!(model::slowest_of(&[]).is_none());
+    }
+
+    /// 时间参数：`YYYY-MM-DD` 按 UTC 零点、RFC3339 原样。
+    #[test]
+    fn parse_time_accepts_date_and_rfc3339() {
+        let date = parse_stat_time(Some("2026-10-01"), "start")
+            .expect("日期")
+            .expect("有值");
+        assert_eq!(date.to_rfc3339(), "2026-10-01T00:00:00+00:00");
+        let rfc = parse_stat_time(Some("2026-10-01T08:30:00+08:00"), "start")
+            .expect("rfc3339")
+            .expect("有值");
+        assert_eq!(rfc.to_rfc3339(), "2026-10-01T00:30:00+00:00");
+        assert!(parse_stat_time(None, "start").expect("缺省").is_none());
+        assert!(
+            parse_stat_time(Some("  "), "start")
+                .expect("空白")
+                .is_none()
+        );
+    }
+
+    /// 非法时间 → 400 + 65005（不是 500，也不静默忽略）。
+    #[test]
+    fn parse_time_rejects_garbage() {
+        let error = parse_stat_time(Some("2026/10/01"), "start").expect_err("必须报错");
+        assert_eq!(error.code, error_code::FLOW_FIELD_INVALID);
+        assert_eq!(error.status, 400);
+    }
+
+    /// 时间窗：缺省近 30 天；`start >= end` 报错；跨度超限报错。
+    #[test]
+    fn window_defaults_and_validates() {
+        let now = chrono::Utc::now();
+        let window = stats_window(&StatsQuery::default()).expect("缺省窗口");
+        assert!(window.end >= now, "end 缺省=现在");
+        assert_eq!(
+            (window.end - window.start).num_days(),
+            model::STATS_DEFAULT_DAYS,
+            "缺省应回看 30 天"
+        );
+        assert!(window.start < window.end);
+        let bad = stats_window(&StatsQuery {
+            start: Some("2026-10-10".into()),
+            end: Some("2026-10-01".into()),
+        })
+        .expect_err("start >= end 必须报错");
+        assert_eq!(bad.code, error_code::FLOW_FIELD_INVALID);
+        let widen = stats_window(&StatsQuery {
+            start: Some("2020-01-01".into()),
+            end: Some("2026-10-01".into()),
+        })
+        .expect_err("跨度超限必须报错");
+        assert_eq!(widen.code, error_code::FLOW_FIELD_INVALID);
     }
 }
