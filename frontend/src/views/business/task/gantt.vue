@@ -492,8 +492,16 @@ function geomOfSpan(
   if (!range) {
     return null;
   }
-  const offsetDays = dayjs(start).startOf('day').diff(dayjs(range.start).startOf('day'), 'day');
-  const lengthDays = Math.max(1, dayjs(due).startOf('day').diff(dayjs(start).startOf('day'), 'day') + 1);
+  const rawOffset = dayjs(start).startOf('day').diff(dayjs(range.start).startOf('day'), 'day');
+  const rawLength = Math.max(1, dayjs(due).startOf('day').diff(dayjs(start).startOf('day'), 'day') + 1);
+  // 与后端 `dep::bar_span` 同口径：**裁到时间窗内**。
+  // 不裁的话，拖动一个「窗口左边界之前开始」的任务时，条形会画到 x < LEFT_W 的
+  // 任务名区域里（实测 x=160 < 280），松手重新拉数据后才被后端裁回来 —— 视觉上「跳一下」。
+  const maxDays = Math.max(1, range.days);
+  const clippedStart = Math.max(0, Math.min(maxDays - 1, rawOffset));
+  const clippedEnd = Math.min(maxDays, rawOffset + rawLength);
+  const offsetDays = clippedStart;
+  const lengthDays = Math.max(1, clippedEnd - clippedStart);
   return {
     x: LEFT_W + offsetDays * dayWidth.value,
     width: Math.max(6, lengthDays * dayWidth.value - 2),
@@ -574,7 +582,11 @@ const dragLabel = computed(() => {
 
 /** 条形 transition（拖动中的那一行关掉，避免「跟手迟滞」；其余时刻保留以便回弹） */
 function barTransition(row: GanttRow): string {
-  return dragState.value?.id === row.id ? 'none' : 'x 0.28s ease, width 0.28s ease';
+  // 注意：`:style` 传字符串时必须是**合法声明**（含属性名），
+  // 只写 `x 0.28s ease` 会被浏览器当非法声明丢掉（实测：style 属性为空、回弹瞬移）。
+  return dragState.value?.id === row.id
+    ? 'transition: none'
+    : 'transition: x 0.28s ease, width 0.28s ease';
 }
 
 /** 依赖线：前置条右端 → 后继条左端（折线，拐点在中缝）；拖动时随 barGeom 跟随 */
@@ -854,7 +866,7 @@ async function commitSchedule(
     // 依赖线 / 阻塞标记 / 逾期标记都依赖新日期，重新拉一次保证与库一致
     await load();
   } catch (error) {
-    rollback(state);
+    await rollback(state);
     MessagePlugin.error(
       error instanceof ApiError
         ? error.message
@@ -870,14 +882,31 @@ async function commitSchedule(
 }
 
 /** 回弹到拖拽前的快照（条形带 transition，视觉上是平滑退回） */
-function rollback(state: DragState): void {
+async function rollback(state: DragState): Promise<void> {
   const task = data.value?.tasks.find((item) => item.id === state.id);
   if (!task) {
     return;
   }
+  const rect = scrollRef.value?.querySelector(
+    `rect.gantt-bar__body[data-task-no="${state.taskNo}"]`,
+  );
+  // 关键：先「强制一次样式计算」，确认 transition 已经在生效状态，再写回旧值。
+  // 否则「切回 transition」与「改回 x」落在同一帧 → 浏览器认为前后样式没有过渡声明，
+  // 条形会瞬移回原位（实测就是这样，不是 CSS 不支持：SVG 几何属性 x/width 从
+  // Chrome 84 起就是可过渡的 CSS 属性，本机 HeadlessChrome 145 实测 460→326 有插值）。
+  forceStyle(rect);
+  await nextTick();
+  forceStyle(rect);
   task.start_date = state.origStart;
   task.due_date = state.origDue;
   task.bar = state.origBar ? { ...state.origBar } : task.bar;
+}
+
+/** 读一次 SVG 几何属性，迫使浏览器结算样式（等价于读 `offsetWidth` 的老办法） */
+function forceStyle(element: Element | null | undefined): void {
+  if (element) {
+    void getComputedStyle(element).x;
+  }
 }
 
 /**
