@@ -604,6 +604,52 @@ pub const AI_DATA_SCOPE_FORBIDDEN: i32 = 63203;
 /// 这类能力只留给人类管理员。
 pub const AI_AGENT_ADMIN_FORBIDDEN: i32 = 63204;
 
+// ── T5b 追加（**633xx** 子段）：任务级令牌 / 派活 / 轮询 ──────────────────────
+//
+// 为什么单开 633xx：这组错误的判定主体不是「任务数据不合法」（630xx），也不是
+// 「AI 这个账号被永久禁止做什么」（632xx），而是**这把短期令牌的边界**
+// （它属于谁、还能不能用、能用在哪个端点）。混进 630xx 会让前端把「令牌过期」
+// 与「任务状态不合法」用同一段文案兜住。
+//
+// 三个 403 有意分开（63301/63302/63303）：验收脚本与前端文案都要能把
+// 「令牌无效」「令牌过期」「越权访问别的任务」区分开 —— 合成一个码，越权那条
+// 断言就只能靠文案匹配，太脆。
+
+/// 任务级令牌不可用（HTTP 403）：hash 无命中 / 任务已终结 / 非 AI 执行模式。
+pub const TASK_AI_TOKEN_INVALID: i32 = 63301;
+
+/// 任务级令牌已过期（HTTP 403）。
+pub const TASK_AI_TOKEN_EXPIRED: i32 = 63302;
+
+/// 令牌越权（HTTP 403）：路径任务 ≠ 令牌登记任务。
+///
+/// 这是「任务级令牌不能访问其它任务」这条验收项的判定码，单列出来才能在
+/// 验收脚本里精确断言（而不是「反正 403 就算过」）。
+pub const TASK_AI_TOKEN_SCOPE: i32 = 63303;
+
+/// 端点不在令牌白名单内（HTTP 403）：带着任务令牌访问别的接口。
+pub const TASK_AI_ENDPOINT_FORBIDDEN: i32 = 63304;
+
+/// 派活失败（HTTP 502）：`hermes kanban create` 非 0 退出 / 超时 / 输出无法解析。
+///
+/// 语义是**上游（Hermes）失败**，不是云枢内部错误：任务此时仍然留在 TODO，
+/// 派活人可直接重试。用 502 而不是 500 是为了让前端「重试」提示与真正的
+/// 服务端 bug 区分开。
+pub const TASK_DISPATCH_FAILED: i32 = 63305;
+
+/// 任务已经派给 AI 了（HTTP 409）：`hermes_task_id` 非空且任务未终结。
+///
+/// 重复派活必须被拦住：新令牌会覆盖旧令牌，而旧令牌的明文已经写进了
+/// 上一张 kanban body，覆盖后那一份就变成「拿了也白拿」——AI 会卡在 403 里。
+/// 需要重派就先取消/收尾当前任务（`hermes_task_id` 清空），或显式指定重试。
+pub const TASK_DISPATCH_CONFLICT: i32 = 63306;
+
+/// 任务的负责人不是 AI 账号（HTTP 400）：派活前必须先把负责人改成一个 ROBOT 用户。
+pub const TASK_DISPATCH_OWNER_NOT_ROBOT: i32 = 63307;
+
+/// AI 进度回写参数不合法（HTTP 400）：`percent` 越界 / 既无 percent 也无 note。
+pub const TASK_AI_PROGRESS_INVALID: i32 = 63308;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
@@ -783,6 +829,15 @@ mod tests {
             (TASK_DEPENDENCY_INVALID, 63103),
             (TASK_DEPENDENCY_NOT_FOUND, 63104),
             (TASK_GANTT_RANGE_INVALID, 63105),
+            // T5b 追加：任务级令牌 / 派活 / 进度回写
+            (TASK_AI_TOKEN_INVALID, 63301),
+            (TASK_AI_TOKEN_EXPIRED, 63302),
+            (TASK_AI_TOKEN_SCOPE, 63303),
+            (TASK_AI_ENDPOINT_FORBIDDEN, 63304),
+            (TASK_DISPATCH_FAILED, 63305),
+            (TASK_DISPATCH_CONFLICT, 63306),
+            (TASK_DISPATCH_OWNER_NOT_ROBOT, 63307),
+            (TASK_AI_PROGRESS_INVALID, 63308),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "63xxx 段码值不得改动");
@@ -792,7 +847,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105 + 63301–63308）✓",
             codes.len()
         );
     }

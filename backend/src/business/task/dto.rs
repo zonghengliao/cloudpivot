@@ -79,6 +79,12 @@ pub const MAX_MEMBERS_PER_TASK: i64 = 50;
 /// **它不走中间件硬校验**，而是 handler 里的「加项」：创建人 / 当前负责人 / 分派人
 /// 这三类**行级关系**天然可派，权限码只解决「管理员 / AI 主管要能跨任务派活」。
 /// 若把它写成 `#[alun::permission(...)]`，创建人（没有这个码）会被中间件挡在门外。
+/// 读权限码（详情 / 评论 / 附件的人类侧入口闸）。
+///
+/// T5b 把详情端点纳入「任务令牌白名单」后，权限层不再覆盖该路径，
+/// 人类侧的这条判定改由 handler 显式执行（`ensure_task_read_permission`）。
+pub const PERM_TASK_READ: &str = "business:task:read";
+
 pub const PERM_ASSIGN: &str = "business:task:assign";
 
 /// 权限码：管理协作人（V0109 建的菜单节点 `…0769`），语义同 [`PERM_ASSIGN`]。
@@ -338,6 +344,107 @@ pub struct TaskAttachmentRes {
     pub file_size: i64,
     /// 展示顺序。
     pub sort_order: i32,
+    /// 来源：`HUMAN` 人类上传 / `AI` AI 产出（T5b）。
+    pub source: String,
+    /// 产出该附件的 AI profile（仅 `source = 'AI'` 时有值）。
+    pub ai_profile: Option<String>,
+}
+
+// ==================== T5b：评论 / 附件 / 派活 / AI 进度 ====================
+
+/// 写一条任务评论（`POST /business/task/{id}/comment`）。
+///
+/// 人类（JWT）与 AI（任务令牌）走同一份 DTO：AI 的评论内容由它自己决定，
+/// 云枢只约束长度与类型。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskCommentReq {
+    /// 评论正文（纯文本，1–5000 字符）。
+    pub content: String,
+    /// 回复的上级评论 ID（可空）。
+    pub parent_comment_id: Option<String>,
+    /// 被 @ 的用户 ID 数组（可空；当前只落库，通知扇出属后续卡）。
+    #[serde(default)]
+    pub mentions: Vec<String>,
+}
+
+/// 评论写的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskCommentRes {
+    /// 评论 ID。
+    pub id: String,
+    /// 评论类型（`PLAIN` / `AI_REPORT` / …）。
+    pub comment_type: String,
+    /// 评论人。
+    pub user_id: String,
+    /// 评论人姓名。
+    pub user_name: String,
+    /// 落库时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 附件上传的回执（`POST /business/task/{id}/attachment`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskUploadRes {
+    /// 绑定行 ID。
+    pub attachment_id: String,
+    /// 文件 ID（`sys_file.id`，下载走 `/business/storage/file/{file_id}/download`）。
+    pub file_id: String,
+    /// 原始文件名。
+    pub file_name: String,
+    /// 字节数。
+    pub file_size: i64,
+    /// 来源：`HUMAN` / `AI`。
+    pub source: String,
+    /// 上传分类（`task` / `task_ai`）。
+    pub category: String,
+}
+
+/// 派活给 AI（`POST /business/task/{id}/dispatch-ai`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TaskDispatchReq {
+    /// 派活说明（写进评论，可空）。
+    pub reason: Option<String>,
+    /// 传给 Hermes 的工作区（`dir:<绝对路径>`）；空 = 用 AI profile 的默认 workspace。
+    pub workspace: Option<String>,
+}
+
+/// 派活的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDispatchRes {
+    /// 云枢任务 id。
+    pub task_id: String,
+    /// Hermes 任务 id（形如 `t_4b7abf18`）。
+    pub hermes_task_id: String,
+    /// Hermes 看板 slug。
+    pub hermes_board: String,
+    /// Hermes 侧回报的状态（正常是 `ready`）。
+    pub hermes_status: String,
+    /// 云枢执行模式（派活成功后恒为 `AI`）。
+    pub exec_mode: String,
+    /// 云枢状态（**派活不改状态**，仍为调用前的值）。
+    pub status: String,
+    /// 任务令牌的过期时间（前端展示「AI 的凭据到什么时候有效」）。
+    pub token_expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// AI 进度回写（`PATCH /business/task/{id}/ai-progress`，任务令牌认证）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TaskAiProgressReq {
+    /// 百分比 0–100（**有子任务时被忽略**：进度由子任务汇总）。
+    pub percent: Option<i32>,
+    /// 进度说明（写一条 `AI_PROGRESS` 评论）。
+    pub note: Option<String>,
+}
+
+/// AI 进度回写的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAiProgressRes {
+    /// 落库后的进度（`ignored_percent = true` 时是任务当前进度，未被本次请求改动）。
+    pub progress: i32,
+    /// 是否忽略了 `percent`（任务有子任务 → 进度由子任务汇总，D4 规则）。
+    pub ignored_percent: bool,
+    /// 评论 ID（写了 note 才有）。
+    pub comment_id: Option<String>,
 }
 
 /// 任务详情（`GET /business/task/{id}`）。
@@ -376,6 +483,18 @@ pub struct TaskDetailRes {
     pub reject_reason: Option<String>,
     /// 审批流实例（批次 D 预留，本批恒为 `null`）。
     pub approval_instance_id: Option<String>,
+    /// 执行模式：`HUMAN` / `AI`（T5b）。
+    pub exec_mode: String,
+    /// Hermes 看板（未派活为 `null`）。
+    pub hermes_board: Option<String>,
+    /// Hermes 任务 id（未派活为 `null`）。
+    pub hermes_task_id: Option<String>,
+    /// Hermes 原始状态（未派活为 `null`；`MISSING` 表示关联任务已丢失）。
+    pub hermes_status: Option<String>,
+    /// AI 执行摘要（`latest_summary` 的冗余）。
+    pub ai_summary: Option<String>,
+    /// AI 结构化结果（`runs[..].metadata`，前端渲染「交付清单」）。
+    pub ai_result: Option<serde_json::Value>,
     /// 子任务列表（**已按调用者的可见性过滤**，见 `model::list_children`）。
     pub children: Vec<TaskCardRes>,
     /// 协作人 / 关注者。
@@ -894,6 +1013,64 @@ pub struct TaskGanttRes {
 }
 
 // ==================== 单元测试（纯逻辑，不连库） ====================
+
+// ==================== 统计（T5b · b4：exec_mode 维度） ====================
+
+/// `GET /business/task/stats` 的查询参数。
+///
+/// 窗口按**创建时间**的 CST 日区间；默认最近 30 天（含今天）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TaskStatsQuery {
+    /// 统计窗口开始日（`YYYY-MM-DD`，CST，含）。缺省 = `end` 往前 29 天。
+    pub start: Option<NaiveDate>,
+    /// 统计窗口结束日（`YYYY-MM-DD`，CST，含）。缺省 = 今天（CST）。
+    pub end: Option<NaiveDate>,
+    /// 项目 id（可空）。
+    pub project_id: Option<String>,
+    /// `my` / `all`（与甘特同口径）；缺省 = `all`。
+    pub scope: Option<String>,
+}
+
+/// 单个执行模式（`HUMAN` / `AI`）的统计行。
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecModeStatRes {
+    /// 执行模式；合计行为 `TOTAL`。
+    pub exec_mode: String,
+    /// 任务总数。
+    pub total: i64,
+    /// 待开始。
+    pub todo: i64,
+    /// 进行中。
+    pub doing: i64,
+    /// 待验收。
+    pub review: i64,
+    /// 已完成。
+    pub done: i64,
+    /// 已取消。
+    pub cancelled: i64,
+    /// 完成率 = `done / (total - cancelled)`，`0.0–1.0`（4 位小数）。
+    pub completion_rate: f64,
+    /// 平均耗时（小时，1 位小数）；窗口内没有已完成任务时为 `null`。
+    pub avg_done_hours: Option<f64>,
+    /// 平均进度（0–100，1 位小数，排除已取消）。
+    pub avg_progress: Option<f64>,
+}
+
+/// 统计数据（`GET /business/task/stats`）。
+///
+/// `by_exec_mode` **恒含 `HUMAN` 与 `AI` 两行**（窗口内没有任务就给 0）：前端是固定
+/// 两列的对比卡片，返回变长数组会让前端再写一层「缺哪行」的分支。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskStatsRes {
+    /// 窗口开始日（CST）。
+    pub start: NaiveDate,
+    /// 窗口结束日（CST）。
+    pub end: NaiveDate,
+    /// 合计行（各模式之和；平均耗时按已完成数加权）。
+    pub total: ExecModeStatRes,
+    /// 按执行模式分行（`HUMAN` / `AI`，可能追加历史脏值行）。
+    pub by_exec_mode: Vec<ExecModeStatRes>,
+}
 
 #[cfg(test)]
 mod tests {

@@ -660,6 +660,187 @@ else:
     save(app_rs, app_text)
     print("  [ok]   CODE-10 app.rs 装配（读取 ALUN_AUTH_QUERY_TOKEN_PATHS）")
 
+# ── CODE-11：忽略列表支持**模板段**（T5b 任务级令牌的 4 个端点是 `/business/task/{id}/…`） ──
+# 背景：`#[alun::no_auth]` 收集到的路径串里 `{id}` 是**字面量**，而原实现只做
+# 「精确 / 前缀」比较，真实请求 `/api/business/task/0199…/comment` 永远命中不了：
+#   · 认证层 → 没有 JWT 的请求直接 401（AI 的任务令牌不是 JWT）；
+#   · 权限层 → 规则匹配不到 no_auth 路径，`business:task:read` 一律 403。
+# 于是「AI 只能凭任务令牌写自己那一个任务」这条设计在 HTTP 层根本走不通（T5b 卡）。
+#
+# 本补丁把「忽略路径判定」抽成 `auth::is_ignored_path()`：保留原有精确 / 前缀语义，
+# 新增**逐段比对**（模板段 `{param}` 或 `*` 匹配任意单段，段数必须相同）。
+# 只放宽「忽略列表」的匹配，**不动**任何权限规则匹配（规则仍走 match_path 打分）。
+MARK_11 = "[cloudpivot-patch code-11]"
+
+old_ignore = """        let is_ignore_path = self.ignore_paths.contains(&path)
+            || self
+                .ignore_paths
+                .iter()
+                .any(|p| path.starts_with(&format!("{}/", p)));"""
+
+new_ignore = """        // [cloudpivot-patch code-11] 忽略路径判定支持模板段（`{param}` / `*`）
+        let is_ignore_path = is_ignored_path(self.ignore_paths.iter(), &path);"""
+
+helper_anchor = "/// 校验 JWT 并提取声明 —— **认证的唯一真值实现**。"
+
+helper_code = """/// [cloudpivot-patch code-11] 路径是否命中忽略列表（**精确 / 前缀 / 模板段**）。
+///
+/// 语义：
+/// 1. 完全相等 → 命中（原行为）；
+/// 2. 作为前缀命中（`/api/files/dl` 命中 `/api/files/dl/xxx`，原行为）；
+/// 3. **逐段比对**：忽略项里的一段写成 `{param}` 或 `*` 时匹配任意单段，
+///    段数必须相同。于是 `/api/business/task/{id}/comment` 能命中
+///    `/api/business/task/0199…/comment`，但**不会**命中
+///    `/api/business/task/0199…/comment/extra`（段数不同）。
+///
+/// 只用于「免认证路径」这一处判定；权限规则匹配仍由 `permission_check::match_path`
+/// 负责（那边有静态段优先的打分，语义更强）。两处共用本函数保证「认证放行的路径」
+/// 与「权限层跳过的路径」永远是同一批 —— 否则「认证过了但权限层 403」会变成
+/// 一类只在特定路径上出现的怪问题。
+pub(crate) fn is_ignored_path<'a, I>(paths: I, path: &str) -> bool
+where
+    I: IntoIterator<Item = &'a String>,
+{
+    paths.into_iter().any(|pattern| {
+        let trimmed = pattern.trim_end_matches('/');
+        if path == trimmed || path.starts_with(&format!("{trimmed}/")) {
+            return true;
+        }
+        let mut want = trimmed.split('/');
+        let mut got = path.split('/');
+        loop {
+            match (want.next(), got.next()) {
+                (None, None) => return true,
+                (Some(w), Some(g)) => {
+                    let wildcard = (w.starts_with('{') && w.ends_with('}')) || w == "*";
+                    if !wildcard && w != g {
+                        return false;
+                    }
+                }
+                _ => return false,
+            }
+        }
+    })
+}
+
+/// 校验 JWT 并提取声明 —— **认证的唯一真值实现**。"""
+
+auth_text = load(auth_rs)
+if "code-11] 忽略路径判定" in auth_text:
+    print("  [skip] CODE-11 auth.rs 忽略路径判定（已打过）")
+else:
+    if old_ignore not in auth_text:
+        print("  [FAIL] CODE-11 auth.rs 忽略路径判定锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    if helper_anchor not in auth_text:
+        print("  [FAIL] CODE-11 auth.rs is_ignored_path 插入锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    auth_text = auth_text.replace(old_ignore, new_ignore, 1)
+    auth_text = auth_text.replace(helper_anchor, helper_code, 1)
+    save(auth_rs, auth_text)
+    print("  [ok]   CODE-11 auth.rs 忽略路径判定（is_ignored_path 支持模板段）")
+
+# CODE-11 ②：permission_check.rs 的两处忽略判定改为与认证层同源
+old_perm_fn = """    /// [cailu-patch code-09] 该请求路径是否免认证（精确命中或作为前缀命中）。
+    pub fn is_no_auth_path(&self, request_path: &str) -> bool {
+        self.ignore_paths.iter().any(|p| {
+            let trimmed = p.trim_end_matches('/');
+            request_path == trimmed || request_path.starts_with(&format!("{trimmed}/"))
+        })
+    }"""
+new_perm_fn = """    /// [cailu-patch code-09] 该请求路径是否免认证（精确命中或作为前缀命中）。
+    /// [cloudpivot-patch code-11] 增加模板段支持（`{param}` / `*`），实现与认证层同源。
+    pub fn is_no_auth_path(&self, request_path: &str) -> bool {
+        super::auth::is_ignored_path(self.ignore_paths.iter(), request_path)
+    }"""
+
+old_perm_call = """        if self.ignore_paths.iter().any(|p| {
+            let trimmed = p.trim_end_matches('/');
+            path == trimmed || path.starts_with(&format!("{trimmed}/"))
+        }) {"""
+new_perm_call = """        // [cloudpivot-patch code-11] 与认证层同一套判定（支持模板段）
+        if super::auth::is_ignored_path(self.ignore_paths.iter(), &path) {"""
+
+perm_text = load(perm_rs)
+if "code-11] 与认证层同一套判定" in perm_text:
+    print("  [skip] CODE-11 permission_check.rs 忽略路径（已打过）")
+else:
+    if old_perm_fn not in perm_text or old_perm_call not in perm_text:
+        print("  [FAIL] CODE-11 permission_check.rs 锚点未命中", file=sys.stderr)
+        raise SystemExit(3)
+    perm_text = perm_text.replace(old_perm_fn, new_perm_fn, 1)
+    perm_text = perm_text.replace(old_perm_call, new_perm_call, 1)
+    save(perm_rs, perm_text)
+    print("  [ok]   CODE-11 permission_check.rs 忽略路径与认证层同源")
+
+# ── CODE-11b：模板段只匹配「像 id 的段」（收窄 CODE-11 的放行面） ──────────────
+# 起因（生产实测）：CODE-11 让 `{param}` 匹配**任意**单段后，`/api/business/task/{id}`
+# 这条 no_auth 模板把 `/api/business/task/page`、`/my`、`/gantt`、`/stats` 一起放行了 ——
+# 认证层与权限层都跳过，请求直接落到「必须有人类/令牌身份」的 handler 上：
+#   401「未授权访问」变成 500「Missing request extension AuthClaims」。
+# 更危险的是：将来任何加在同一条路径下的公开端点都会**静默失去鉴权**。
+# 修法：模板段只匹配 UUID / 纯数字 / 16–64 位不透明串（`page`/`my`/`gantt` 都不像 id）。
+MARK_11B = "[cloudpivot-patch code-11b]"
+
+old_wildcard = """                (Some(w), Some(g)) => {
+                    let wildcard = (w.starts_with('{') && w.ends_with('}')) || w == "*";
+                    if !wildcard && w != g {
+                        return false;
+                    }
+                }"""
+
+new_wildcard = """                (Some(w), Some(g)) => {
+                    let wildcard = (w.starts_with('{') && w.ends_with('}')) || w == "*";
+                    if wildcard {
+                        if !wildcard_segment_matches(g) {
+                            return false;
+                        }
+                    } else if w != g {
+                        return false;
+                    }
+                }"""
+
+regex_anchor = """pub(crate) fn is_ignored_path<'a, I>(paths: I, path: &str) -> bool"""
+
+wildcard_helper = """/// [cloudpivot-patch code-11b] 模板段是否「像 id」。
+///
+/// 只接受三种形态：UUID（36 位十六进制 + 短横）、纯数字、16–64 位不透明串。
+/// **不接受任意单段**：`/api/business/task/{id}` 是把「任务详情」声明成免认证的模板，
+/// 若 `{id}` 能匹配 `page` / `my` / `gantt` / `stats`，那些静态端点会连认证层一起跳过，
+/// 401 变 500，且将来加在同前缀下的公开端点会静默失去鉴权（生产实测踩过）。
+/// 新增免认证模板且参数不是 id 形态时，必须在这里显式扩展规则，而不是放宽成 `*`。
+fn wildcard_segment_matches(got: &str) -> bool {
+    if got.is_empty() {
+        return false;
+    }
+    let uuid_like =
+        got.len() == 36 && got.chars().all(|c| c.is_ascii_hexdigit() || c == '-');
+    let digits_only = got.chars().all(|c| c.is_ascii_digit());
+    let opaque = (16..=64).contains(&got.len())
+        && got
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    uuid_like || digits_only || opaque
+}
+
+pub(crate) fn is_ignored_path<'a, I>(paths: I, path: &str) -> bool"""
+
+auth_text = load(auth_rs)
+if MARK_11B in auth_text:
+    print("  [skip] CODE-11b 模板段收窄（已打过）")
+else:
+    if old_wildcard not in auth_text:
+        print("  [FAIL] CODE-11b 通配判定锚点未命中", file=sys.stderr)
+        raise SystemExit(5)
+    if regex_anchor not in auth_text:
+        print("  [FAIL] CODE-11b is_ignored_path 锚点未命中", file=sys.stderr)
+        raise SystemExit(5)
+    auth_text = auth_text.replace(old_wildcard, new_wildcard, 1)
+    auth_text = auth_text.replace(regex_anchor, wildcard_helper, 1)
+    save(auth_rs, auth_text)
+    print("  [ok]   CODE-11b auth.rs 模板段只匹配 id 形态（page/my/gantt 不再被放行）")
+
+
 # ── 收尾校验 ─────────────────────────────────────────────────────────────────
 final_app = load(app_rs)
 final_perm = load(perm_rs)
@@ -678,12 +859,16 @@ if "query_token_of" not in final_auth or "header_token" not in final_auth:
     problems.append("auth.rs 缺少 CODE-10 查询参数令牌")
 if "ALUN_AUTH_QUERY_TOKEN_PATHS" not in final_app:
     problems.append("app.rs 缺少 CODE-10 装配（ALUN_AUTH_QUERY_TOKEN_PATHS）")
+if "is_ignored_path" not in final_auth:
+    problems.append("auth.rs 缺少 CODE-11 忽略路径模板段（is_ignored_path）")
+if "is_ignored_path" not in final_perm:
+    problems.append("permission_check.rs 缺少 CODE-11 忽略路径同源判定")
 
 if problems:
     print("补丁校验失败：" + "；".join(problems), file=sys.stderr)
     raise SystemExit(4)
 
-print("PATCH-STATE: OK（CODE-07 + CODE-09 + CODE-09b + CODE-10 补丁齐全）")
+print("PATCH-STATE: OK（CODE-07 + CODE-09 + CODE-09b + CODE-10 + CODE-11 补丁齐全）")
 PY
 
 if [[ "$CHECK_ONLY" == "1" ]]; then

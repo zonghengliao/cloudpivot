@@ -404,6 +404,18 @@ pub struct TaskDetailRow {
     pub reject_reason: Option<String>,
     /// 审批实例（预留）。
     pub approval_instance_id: Option<Uuid>,
+    /// 执行模式：`HUMAN` / `AI`（T5b）。
+    pub exec_mode: String,
+    /// Hermes 看板（可空）。
+    pub hermes_board: Option<String>,
+    /// Hermes 任务 id（可空）。
+    pub hermes_task_id: Option<String>,
+    /// Hermes 原始状态（可空）。
+    pub hermes_status: Option<String>,
+    /// AI 执行摘要（可空）。
+    pub ai_summary: Option<String>,
+    /// AI 结构化结果（jsonb 原文本，可空）；handler 侧按需 parse 成 JSON。
+    pub ai_result: Option<String>,
 }
 
 /// 协作人行。
@@ -432,6 +444,10 @@ pub struct TaskAttachmentRow {
     pub file_size: i64,
     /// 排序号。
     pub sort_order: i32,
+    /// 来源：`HUMAN` / `AI`（T5b）。
+    pub source: String,
+    /// 产出该附件的 AI profile（仅 `source = 'AI'` 时有值）。
+    pub ai_profile: Option<String>,
 }
 
 // ==================== SQL 片段 ====================
@@ -633,7 +649,9 @@ async fn find_detail_with_visibility(
          COALESCE(d.dept_name, '') AS dept_name, \
          t.parent_id, pt.task_no AS parent_task_no, t.project_id, t.done_at, \
          t.estimate_hours::float8 AS estimate_hours, t.actual_hours::float8 AS actual_hours, \
-         t.cancel_reason, t.reject_reason, t.approval_instance_id ",
+         t.cancel_reason, t.reject_reason, t.approval_instance_id, \
+         t.exec_mode, t.hermes_board, t.hermes_task_id, t.hermes_status, \
+         t.ai_summary, t.ai_result::text AS ai_result ",
     );
     sql.push_str(CARD_FROM);
     sql.push_str(" LEFT JOIN sys_user cu ON cu.id = t.creator_id");
@@ -684,6 +702,12 @@ fn detail_from_row(row: &Row) -> DbResult<TaskDetailRow> {
         cancel_reason: row.get_typed("cancel_reason")?,
         reject_reason: row.get_typed("reject_reason")?,
         approval_instance_id: row.get_typed("approval_instance_id")?,
+        exec_mode: row.get_typed("exec_mode")?,
+        hermes_board: row.get_typed("hermes_board")?,
+        hermes_task_id: row.get_typed("hermes_task_id")?,
+        hermes_status: row.get_typed("hermes_status")?,
+        ai_summary: row.get_typed("ai_summary")?,
+        ai_result: row.get_typed("ai_result")?,
     })
 }
 
@@ -756,7 +780,8 @@ pub async fn list_attachments(task_id: Uuid) -> DbResult<Vec<TaskAttachmentRow>>
         .find_with_params(
             "SELECT a.id, a.file_id, \
                     COALESCE(f.original_name, f.file_name, '') AS file_name, \
-                    COALESCE(f.file_size, 0) AS file_size, a.sort_order \
+                    COALESCE(f.file_size, 0) AS file_size, a.sort_order, \
+                    a.source, a.ai_profile \
                FROM biz_task_attachment a LEFT JOIN sys_file f ON f.id = a.file_id \
               WHERE a.task_id = ?::uuid \
               ORDER BY a.sort_order ASC, a.id ASC",
@@ -771,6 +796,8 @@ pub async fn list_attachments(task_id: Uuid) -> DbResult<Vec<TaskAttachmentRow>>
             file_name: row.get_typed("file_name")?,
             file_size: row.get_typed("file_size")?,
             sort_order: row.get_typed("sort_order")?,
+            source: row.get_typed("source")?,
+            ai_profile: row.get_typed("ai_profile")?,
         });
     }
     Ok(list)
@@ -878,7 +905,9 @@ pub async fn find_raw(id: Uuid) -> DbResult<Option<TaskDetailRow>> {
                     t.parent_id, pt.task_no AS parent_task_no, t.project_id, t.done_at, \
                     t.estimate_hours::float8 AS estimate_hours, \
                     t.actual_hours::float8 AS actual_hours, \
-                    t.cancel_reason, t.reject_reason, t.approval_instance_id \
+                    t.cancel_reason, t.reject_reason, t.approval_instance_id, \
+                    t.exec_mode, t.hermes_board, t.hermes_task_id, t.hermes_status, \
+                    t.ai_summary, t.ai_result::text AS ai_result \
                FROM biz_task t \
                LEFT JOIN sys_user u ON u.id = t.owner_id \
                LEFT JOIN sys_user cu ON cu.id = t.creator_id \
@@ -1229,7 +1258,7 @@ pub async fn update_task(
         "UPDATE biz_task SET {} WHERE id = ?::uuid AND deleted_at IS NULL",
         sets.join(", ")
     );
-    ex.execute_with_params(&sql, params).await
+    ex.exec_sql(sql, params).await
 }
 
 /// 软删除任务。
@@ -1491,7 +1520,7 @@ pub async fn apply_status(
         "UPDATE biz_task SET {} WHERE id = ?::uuid AND deleted_at IS NULL",
         sets.join(", ")
     );
-    ex.execute_with_params(&sql, params).await
+    ex.exec_sql(sql, params).await
 }
 
 /// 直接改进度（**无子任务的任务才允许**；有子任务的闸在 handler 侧）。
@@ -1521,11 +1550,19 @@ pub async fn set_progress(
     .await
 }
 
-/// 写一条任务评论（状态变更 / 进度自动汇总都走它）。
+/// 写一条任务评论（状态变更 / 进度自动汇总 / AI 报告都走它）。
 ///
-/// `comment_type` 是 `V0108` 新增的列：`PLAIN` / `STATUS_CHANGE` / `PROGRESS_AUTO`。
+/// `comment_type` 是 `V0108` 新增的列：`PLAIN` / `STATUS_CHANGE` / `PROGRESS_AUTO`
+/// （`V0109` 加 `ASSIGN`、`V0112` 加 `AI_REPORT` / `AI_PROGRESS`）。
 /// 状态流转的评论**必须**用 `STATUS_CHANGE`（前端详情页的时间线按它画箭头），
 /// 否则「谁把任务改成了什么」会和普通闲聊混在一起。
+///
+/// # 为什么吃 `&impl SqlExecutor` 而不是 `&Transaction`
+///
+/// T5b 的轮询回传里，评论有三处是「独立写一条」的（失败说明 / 阻塞说明 / 任务丢失），
+/// 它们不需要与状态更新同事务；而状态流转那几处仍然要进事务。`SqlExecutor` 同时覆盖
+/// `&Db` 与 `&Transaction`（与 `recalc_ancestors` / `add_member` 同一口径），
+/// 于是「进不进事务」由调用方决定，写评论的实现只有一份。
 ///
 /// # 返回值
 ///
@@ -1535,24 +1572,78 @@ pub async fn set_progress(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn insert_comment(
-    ex: &Transaction,
+    ex: &impl SqlExecutor,
     task_id: Uuid,
     user_id: Uuid,
     content: &str,
     comment_type: &str,
     operator: Uuid,
 ) -> DbResult<Uuid> {
+    insert_comment_full(
+        ex,
+        task_id,
+        user_id,
+        content,
+        comment_type,
+        CommentExtra::default(),
+        operator,
+    )
+    .await
+}
+
+/// 完整版写评论的附加项（回复目标 + `@` 名单）。
+#[derive(Debug, Clone, Copy, Default)]
+pub struct CommentExtra<'a> {
+    /// 回复的目标评论（`None` = 顶层评论）。
+    pub parent_id: Option<Uuid>,
+    /// 被 @ 的用户 ID 列表。
+    pub mentions: &'a [Uuid],
+}
+
+/// 完整版写评论：额外支持「回复某条评论」与 `@` 名单（T5b 的评论接口用）。
+///
+/// # 参数
+///
+/// - `extra.parent_id`：回复的目标评论。数据库外键会保证它存在，
+///   但**不校验它属于同一个任务** —— 跨任务回复在 UI 上不会出现（详情页只按
+///   `task_id` 取评论），因此这里不做额外查询（少一次往返）。
+/// - `extra.mentions`：被 @ 的用户 ID（写进 `mentions` jsonb；空数组写 `'[]'`）。
+///
+/// 附加项收成 [`CommentExtra`] 而不是两个平铺参数：`clippy` 的
+/// `too_many_arguments` 阈值是 7，平铺会直接编译失败（`-D warnings`）。
+pub async fn insert_comment_full(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    user_id: Uuid,
+    content: &str,
+    comment_type: &str,
+    extra: CommentExtra<'_>,
+    operator: Uuid,
+) -> DbResult<Uuid> {
     let id = Uuid::now_v7();
-    ex.execute_with_params(
+    let mentions_json = serde_json::Value::Array(
+        extra
+            .mentions
+            .iter()
+            .map(|user_id| serde_json::Value::String(user_id.to_string()))
+            .collect(),
+    );
+    ex.exec_sql(
         "INSERT INTO biz_task_comment \
-             (id, task_id, user_id, content, mentions, comment_type, \
+             (id, task_id, user_id, content, mentions, parent_comment_id, comment_type, \
               created_at, updated_at, create_by, update_by) \
-         VALUES (?::uuid, ?::uuid, ?::uuid, ?, '[]'::jsonb, ?, now(), now(), ?::uuid, ?::uuid)",
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?::jsonb, ?::uuid, ?, now(), now(), ?::uuid, ?::uuid)"
+            .to_string(),
         vec![
             Value::from(&id),
             Value::from(&task_id),
             Value::from(&user_id),
             Value::Text(content.to_string()),
+            Value::Json(mentions_json.to_string()),
+            match extra.parent_id {
+                Some(parent) => Value::from(&parent),
+                None => Value::Null,
+            },
             Value::Text(comment_type.to_string()),
             Value::from(&operator),
             Value::from(&operator),
@@ -1678,6 +1769,18 @@ pub const COMMENT_TYPE_STATUS_CHANGE: &str = "STATUS_CHANGE";
 
 /// 评论类型：进度自动汇总。
 pub const COMMENT_TYPE_PROGRESS_AUTO: &str = "PROGRESS_AUTO";
+
+/// 评论类型：普通评论（人类手写 / 系统留痕）。`V0108` 的默认值。
+pub const COMMENT_TYPE_PLAIN: &str = "PLAIN";
+
+/// 评论类型：AI 执行报告（T5b 三层回传的第一层）。
+///
+/// 与 `PLAIN` 分开的理由：前端详情页把 AI 报告渲染成**折叠卡片**（长文本 + 交付清单），
+/// 和人类闲聊放在同一时间线样式里会把验收人淹掉。
+pub const COMMENT_TYPE_AI_REPORT: &str = "AI_REPORT";
+
+/// 评论类型：AI 进度回写（T5b 的 `PATCH /ai-progress`）。
+pub const COMMENT_TYPE_AI_PROGRESS: &str = "AI_PROGRESS";
 
 /// 任务的父任务 ID（`None` = 顶层任务 / 不存在）。
 async fn parent_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
@@ -2485,7 +2588,619 @@ pub async fn gantt_edges(ids: &[Uuid]) -> DbResult<Vec<dep::DepEdge>> {
     Ok(edges)
 }
 
+// ==================== T5b：Hermes kanban 集成 ====================
+
+/// 一条「需要与 Hermes 同步」的任务快照。
+///
+/// 只取轮询要用的列：Hermes 三件套 + 云枢侧的状态 / 相关人（通知要用人）。
+#[derive(Debug, Clone)]
+pub struct SyncTargetRow {
+    /// 云枢任务 id。
+    pub id: Uuid,
+    /// Hermes 看板。
+    pub board: String,
+    /// Hermes 任务 id。
+    pub hermes_task_id: String,
+    /// 云枢当前状态。
+    pub status: String,
+    /// 上一次同步到的 Hermes 状态（用于去重：状态没变就不再写评论 / 不再通知）。
+    pub hermes_status: Option<String>,
+    /// 负责人（AI 账号）。
+    pub owner_id: Uuid,
+    /// 创建人（验收人之一）。
+    pub creator_id: Uuid,
+    /// 分派人（验收人之一，可空）。
+    pub assigner_id: Option<Uuid>,
+    /// 任务标题。
+    pub title: String,
+    /// 任务编号。
+    pub task_no: String,
+}
+
+/// 登记 / 覆盖任务级令牌（一任务一令牌：重复派活用 `ON CONFLICT DO UPDATE` 覆盖）。
+///
+/// # 为什么重派要覆盖而不是新增
+///
+/// 主键是 `task_id`（见 V0112 的设计说明）。重派时覆盖 hash 并**把 `used_count` 归零**，
+/// 于是旧令牌立刻失效 —— 它的明文还躺在上一张 kanban body 里，但它再也换不出任何东西。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn upsert_ai_token(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    token_hash: &str,
+    expires_at: chrono::DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "INSERT INTO biz_task_ai_token (task_id, token_hash, expires_at, used_count, created_at) \
+         VALUES (?::uuid, ?, ?::timestamptz, 0, now()) \
+         ON CONFLICT (task_id) DO UPDATE \
+            SET token_hash = EXCLUDED.token_hash, \
+                expires_at = EXCLUDED.expires_at, \
+                used_count = 0, \
+                created_at = now()"
+            .to_string(),
+        vec![
+            Value::from(&task_id),
+            Value::Text(token_hash.to_string()),
+            TypeMapper::to_value(&expires_at),
+        ],
+    )
+    .await
+}
+
+/// 撤销任务令牌（派活失败 / 任务终结时调用）。
+pub async fn delete_ai_token(ex: &impl SqlExecutor, task_id: Uuid) -> DbResult<u64> {
+    ex.exec_sql(
+        "DELETE FROM biz_task_ai_token WHERE task_id = ?::uuid".to_string(),
+        vec![Value::from(&task_id)],
+    )
+    .await
+}
+
+/// 派活成功：写 Hermes 三件套 + `exec_mode='AI'`。
+///
+/// **只由派活接口在 CLI 成功之后调用**（派活失败绝不允许写这一笔，否则云枢会显示
+/// 「已派出」而 Hermes 侧什么都没有 —— 卡面红线）。
+pub async fn mark_dispatched(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    board: &str,
+    hermes_task_id: &str,
+    hermes_status: &str,
+    operator: Uuid,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_task \
+            SET exec_mode = 'AI', hermes_board = ?, hermes_task_id = ?, hermes_status = ?, \
+                hermes_synced_at = now(), updated_at = now(), update_by = ?::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::Text(board.to_string()),
+            Value::Text(hermes_task_id.to_string()),
+            Value::Text(hermes_status.to_string()),
+            Value::from(&operator),
+            Value::from(&task_id),
+        ],
+    )
+    .await
+}
+
+/// 轮询目标：已派活、未终态的任务（按 `hermes_synced_at` 升序，最久没同步的先看）。
+///
+/// # 参数
+///
+/// - `limit`：单轮最多同步多少个（防止一次轮询把 30 秒的调度窗口撑爆）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 轮询目标是**系统级扫描**（所有 AI 任务都必须同步），按 exec_mode /
+// hermes_task_id 过滤，没有「当前用户」语义；注入数据范围会让别人的 AI 任务永远停在 DOING。
+pub async fn sync_targets(limit: i64) -> DbResult<Vec<SyncTargetRow>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id, COALESCE(hermes_board, '') AS board, COALESCE(hermes_task_id, '') AS hermes_task_id, \
+                    status, hermes_status, owner_id, creator_id, assigner_id, title, task_no \
+               FROM biz_task \
+              WHERE deleted_at IS NULL \
+                AND exec_mode = 'AI' \
+                AND hermes_task_id IS NOT NULL \
+                AND status NOT IN ('DONE', 'CANCELLED') \
+              ORDER BY hermes_synced_at ASC NULLS FIRST, updated_at ASC \
+              LIMIT ?",
+            vec![Value::I64(limit)],
+        )
+        .await?;
+    let mut list = Vec::with_capacity(rows.len());
+    for row in &rows {
+        list.push(SyncTargetRow {
+            id: row.get_typed("id")?,
+            board: row.get_typed("board")?,
+            hermes_task_id: row.get_typed("hermes_task_id")?,
+            status: row.get_typed("status")?,
+            hermes_status: row.get_typed("hermes_status").unwrap_or(None),
+            owner_id: row.get_typed("owner_id")?,
+            creator_id: row.get_typed("creator_id")?,
+            assigner_id: row.get_typed("assigner_id").unwrap_or(None),
+            title: row.get_typed("title")?,
+            task_no: row.get_typed("task_no")?,
+        });
+    }
+    Ok(list)
+}
+
+/// 记录 Hermes 原始状态（**不改云枢状态**），用于去重与排障。
+pub async fn touch_hermes(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    hermes_status: &str,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_task SET hermes_status = ?, hermes_synced_at = now() \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::Text(hermes_status.to_string()),
+            Value::from(&task_id),
+        ],
+    )
+    .await
+}
+
+/// 同步推进云枢状态（`running → DOING` 等），同时记 Hermes 原始状态。
+///
+/// # 参数
+///
+/// - `cloud_status`：要推进到的云枢状态；`None` = 只同步时间戳与 Hermes 状态。
+/// - `progress`：同时写进度（`running` 时给 10%），`None` = 不动进度。
+pub async fn sync_progress_of_ai(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    hermes_status: &str,
+    cloud_status: Option<&str>,
+    progress: Option<i16>,
+    operator: Uuid,
+) -> DbResult<u64> {
+    let mut sets = vec![
+        "hermes_status = ?".to_string(),
+        "hermes_synced_at = now()".to_string(),
+        "updated_at = now()".to_string(),
+    ];
+    let mut params = vec![Value::Text(hermes_status.to_string())];
+    if let Some(status) = cloud_status {
+        sets.push("status = ?".to_string());
+        params.push(Value::Text(status.to_string()));
+    }
+    if let Some(value) = progress {
+        sets.push("progress = ?::smallint".to_string());
+        params.push(Value::I16(value));
+    }
+    sets.push("update_by = ?::uuid".to_string());
+    params.push(Value::from(&operator));
+    params.push(Value::from(&task_id));
+    let sql = format!(
+        "UPDATE biz_task SET {} WHERE id = ?::uuid AND deleted_at IS NULL",
+        sets.join(", ")
+    );
+    ex.exec_sql(sql, params).await
+}
+
+/// 记录 AI 的活跃信号：`TODO → DOING`（其余状态不动）。
+///
+/// # 为什么进度回写要顺手推进状态
+///
+/// `PATCH /ai-progress` 意味着 AI **已经在干活了**。若云枢还显示「待开始」，
+/// 看板上看不到「AI 执行中」（设计文档 §三 running 那一行要求 DOING）。
+/// 这里只做**单向**推进：已经是 `DOING` / `REVIEW` 的一律不动（不后退）。
+///
+/// 注意**不改** `hermes_status`：那个列是「最近一次从 Hermes 读到的原始状态」，
+/// 让进度回写去改写它，会让轮询的去重判断（`hermes_status` 有没有变）失真。
+pub async fn mark_ai_active(ex: &impl SqlExecutor, task_id: Uuid, operator: Uuid) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_task \
+            SET status = CASE WHEN status = 'TODO' THEN 'DOING' ELSE status END, \
+                hermes_synced_at = now(), \
+                updated_at = now(), \
+                update_by = ?::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![Value::from(&operator), Value::from(&task_id)],
+    )
+    .await
+}
+
+/// AI 完成回传：写摘要 / 结构化结果，并把状态推进到 **REVIEW**（老大 2A 拍板）。
+///
+/// # 为什么「即使 `need_review = false` 也走 REVIEW」
+///
+/// AI 的活必须有人点头。`need_review = FALSE` 的语义是「人类自己干的活不用别人验收」，
+/// 它不该变成「AI 可以直接把任务结掉」的旁路。所以这里**不读** `need_review`。
+///
+/// # 参数
+///
+/// - `summary`：执行摘要（`latest_summary`），空则把 `ai_summary` 置 NULL；
+/// - `result`：`runs[..].metadata` 原样（jsonb）；`None` 时保留原值（不覆盖已有结果）。
+pub async fn apply_ai_done(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    summary: Option<&str>,
+    result: Option<&serde_json::Value>,
+    operator: Uuid,
+) -> DbResult<u64> {
+    let mut sets = vec![
+        "status = 'REVIEW'".to_string(),
+        "progress = 100".to_string(),
+        "hermes_status = 'done'".to_string(),
+        "hermes_synced_at = now()".to_string(),
+        "ai_summary = ?".to_string(),
+        "updated_at = now()".to_string(),
+    ];
+    let mut params = vec![match summary {
+        Some(text) => Value::Text(text.to_string()),
+        None => Value::Null,
+    }];
+    if let Some(json) = result {
+        sets.push("ai_result = ?::jsonb".to_string());
+        // JSONB 列必须用 Value::Json(JSON 文本)：绑 Value::Text / Value::from 会报
+        // `error serializing parameter`（本仓库 A5 卡实测踩过）
+        params.push(Value::Json(json.to_string()));
+    }
+    sets.push("update_by = ?::uuid".to_string());
+    params.push(Value::from(&operator));
+    params.push(Value::from(&task_id));
+    let sql = format!(
+        "UPDATE biz_task SET {} WHERE id = ?::uuid AND deleted_at IS NULL",
+        sets.join(", ")
+    );
+    ex.exec_sql(sql, params).await
+}
+
+/// 该任务是否已经有 AI 产出的附件（路径 A 的判据）。
+pub async fn count_ai_attachments(task_id: Uuid) -> DbResult<i64> {
+    db().scalar_with_params(
+        "SELECT count(*) FROM biz_task_attachment \
+          WHERE task_id = ?::uuid AND source = 'AI'",
+        vec![Value::from(&task_id)],
+    )
+    .await
+}
+
+/// 绑定一个 AI 产出的附件（幂等：`(task_id, file_id)` 唯一，重复绑定不报错）。
+///
+/// # 返回值
+///
+/// 新绑定的附件 id；已绑定过则返回既有 id。
+pub async fn bind_ai_attachment(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    file_id: Uuid,
+    ai_profile: Option<&str>,
+    operator: Uuid,
+) -> DbResult<Uuid> {
+    if let Some(existing) = ex
+        .query_sql(
+            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&task_id), Value::from(&file_id)],
+        )
+        .await?
+        .first()
+    {
+        let id: Uuid = existing.get_typed("id")?;
+        ex.exec_sql(
+            "UPDATE biz_task_attachment SET source = 'AI', ai_profile = ? \
+              WHERE id = ?::uuid"
+                .to_string(),
+            vec![
+                match ai_profile {
+                    Some(profile) => Value::Text(profile.to_string()),
+                    None => Value::Null,
+                },
+                Value::from(&id),
+            ],
+        )
+        .await?;
+        return Ok(id);
+    }
+    let id = Uuid::now_v7();
+    let sort_order: i64 = ex
+        .scalar_sql(
+            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&task_id)],
+        )
+        .await
+        .unwrap_or(0);
+    ex.exec_sql(
+        "INSERT INTO biz_task_attachment \
+             (id, task_id, file_id, sort_order, source, ai_profile, created_at, create_by) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'AI', ?, now(), ?::uuid)"
+            .to_string(),
+        vec![
+            Value::from(&id),
+            Value::from(&task_id),
+            Value::from(&file_id),
+            Value::I32(sort_order as i32),
+            match ai_profile {
+                Some(profile) => Value::Text(profile.to_string()),
+                None => Value::Null,
+            },
+            Value::from(&operator),
+        ],
+    )
+    .await?;
+    Ok(id)
+}
+
+/// 绑定一个人工上传的附件（幂等）。
+pub async fn bind_human_attachment(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+    file_id: Uuid,
+    operator: Uuid,
+) -> DbResult<Uuid> {
+    if let Some(existing) = ex
+        .query_sql(
+            "SELECT id FROM biz_task_attachment WHERE task_id = ?::uuid AND file_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&task_id), Value::from(&file_id)],
+        )
+        .await?
+        .first()
+    {
+        let id: Uuid = existing.get_typed("id")?;
+        return Ok(id);
+    }
+    let id = Uuid::now_v7();
+    let sort_order: i64 = ex
+        .scalar_sql(
+            "SELECT COALESCE(max(sort_order), -1) + 1 FROM biz_task_attachment WHERE task_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&task_id)],
+        )
+        .await
+        .unwrap_or(0);
+    ex.exec_sql(
+        "INSERT INTO biz_task_attachment \
+             (id, task_id, file_id, sort_order, source, created_at, create_by) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?::int4, 'HUMAN', now(), ?::uuid)"
+            .to_string(),
+        vec![
+            Value::from(&id),
+            Value::from(&task_id),
+            Value::from(&file_id),
+            Value::I32(sort_order as i32),
+            Value::from(&operator),
+        ],
+    )
+    .await?;
+    Ok(id)
+}
+
+/// AI 进度回写要用的最小上下文：任务是否还有子任务（有子任务时 `percent` 无效）。
+pub async fn has_open_or_any_children(task_id: Uuid) -> DbResult<bool> {
+    let count: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    Ok(count > 0)
+}
+
 // ==================== 单元测试（纯逻辑） ====================
+
+// ==================== 统计（T5b · b4：exec_mode 维度） ====================
+
+/// 统计窗口上限（天）。
+///
+/// 与甘特的 180 天不同：统计是**聚合**查询（一次 GROUP BY），扫一年也不会拖页面；
+/// 但再宽就失去对比意义（AI 员工是分批接入的），而且会让误传的 `start=1970-01-01`
+/// 变成一次全表扫描。超过上限一律 400，不做静默裁剪 —— 裁掉用户给的窗口比报错更坏。
+pub const MAX_STATS_WINDOW_DAYS: i64 = 366;
+
+/// 统计窗口（按 `biz_task.created_at` 落在 `[start, end]` 的 **CST 日区间**内计入）。
+#[derive(Debug, Clone)]
+pub struct StatsFilter {
+    /// 窗口开始日（CST，含）。
+    pub start: NaiveDate,
+    /// 窗口结束日（CST，含）。
+    pub end: NaiveDate,
+    /// 只看某个项目（可空）。
+    pub project_id: Option<Uuid>,
+    /// 只看某个负责人（`scope=my` 时传当前用户 id；可空）。
+    pub mine: Option<Uuid>,
+}
+
+/// 单个执行模式的统计行（`exec_mode` = `HUMAN` / `AI`）。
+#[derive(Debug, Clone, Default)]
+pub struct ExecModeStat {
+    /// 执行模式。
+    pub exec_mode: String,
+    /// 窗口内任务总数（顶层任务）。
+    pub total: i64,
+    /// 待开始。
+    pub todo: i64,
+    /// 进行中。
+    pub doing: i64,
+    /// 待验收。
+    pub review: i64,
+    /// 已完成。
+    pub done: i64,
+    /// 已取消。
+    pub cancelled: i64,
+    /// 平均耗时（小时）= `avg(done_at - created_at)`，只算已完成且有 `done_at` 的行。
+    pub avg_done_hours: Option<f64>,
+    /// 平均进度（0–100，排除已取消）。
+    pub avg_progress: Option<f64>,
+}
+
+/// 完成率 = `done / (total - cancelled)`，结果保留 4 位小数、钳在 `0..=1`。
+///
+/// 分母剔除已取消：取消是**分派人**的动作，不是执行者的失败；把取消算进分母，
+/// 「派了活又撤销」就会拉低该 AI 员工的完成率，统计就变成了考核分派人的指标。
+///
+/// 分母为 0（窗口内没有有效任务）返回 `0.0` 而不是 `NaN`：后者会让前端 `toFixed`
+/// 渲染成 `NaN%`。
+pub fn completion_rate(done: i64, total: i64, cancelled: i64) -> f64 {
+    let denominator = total - cancelled;
+    if denominator <= 0 {
+        return 0.0;
+    }
+    let rate = done.max(0) as f64 / denominator as f64;
+    (rate.clamp(0.0, 1.0) * 10_000.0).round() / 10_000.0
+}
+
+/// 统计默认窗口：`end` 往前 29 天 到 `end`（含），即 **30 天**。
+pub fn stats_default_window(end: NaiveDate) -> (NaiveDate, NaiveDate) {
+    (end - Duration::days(29), end)
+}
+
+/// 窗口合法性校验；合法返回 `None`，非法返回 400 的白话原因。
+///
+/// 抽成纯函数：`start > end` 和「跨年算错天数」这两类错误都只会在 HTTP 层表现为
+/// 「没数据」，靠人眼看统计卡片是查不出来的。
+pub fn stats_window_error(start: NaiveDate, end: NaiveDate) -> Option<String> {
+    if start > end {
+        return Some(format!("统计窗口非法：开始日 {start} 晚于结束日 {end}"));
+    }
+    let days = (end - start).num_days() + 1;
+    if days > MAX_STATS_WINDOW_DAYS {
+        return Some(format!(
+            "统计窗口过长：{days} 天，最多 {MAX_STATS_WINDOW_DAYS} 天"
+        ));
+    }
+    None
+}
+
+/// 按执行模式统计任务（**可见性 = 数据范围 ∪ 参与 id 数组**，与列表页同一谓词）。
+///
+/// # 口径（前端卡片直接照这四条解释）
+///
+/// 1. **只统计顶层任务**（`parent_id IS NULL`）：子任务是父任务的拆解，两边都算会让
+///    「完成率」随任务拆解粗细漂移（拆得越细，完成率越好看）；
+/// 2. **窗口按 `created_at`** 的 CST 日区间（闭区间）：`created_at < end + 1 天`
+///    的写法能吃到 `idx_biz_task_created`，写成 `created_at::date <= end` 会退化成全表扫；
+/// 3. `avg_done_hours` 只算 `status = 'DONE' AND done_at IS NOT NULL`；
+/// 4. `avg_progress` 排除已取消（取消的任务谈进度没有意义）。
+///
+/// # 异常情况
+///
+/// - 片段形态异常 → `DbError::InvalidValue`（`500 + 63008`）；
+/// - 数据库异常 → [`DbError`]。
+pub async fn task_stats(
+    principal: &ScopedPrincipal,
+    filter: &StatsFilter,
+) -> DbResult<Vec<ExecModeStat>> {
+    assert_scope_fragment(principal)?;
+    let fragment = scope::filter_for(principal, TASK_TARGET);
+    let tail = VISIBLE_OR_TAIL.replacen(scope::FILTER_MARKER, fragment.sql().trim(), 1);
+    let scope_ids = my_member_task_ids(principal.user_id()).await?;
+
+    let mut sql = String::with_capacity(768);
+    sql.push_str(
+        "SELECT t.exec_mode, \
+                count(*) AS total, \
+                count(*) FILTER (WHERE t.status = 'TODO') AS todo, \
+                count(*) FILTER (WHERE t.status = 'DOING') AS doing, \
+                count(*) FILTER (WHERE t.status = 'REVIEW') AS review, \
+                count(*) FILTER (WHERE t.status = 'DONE') AS done, \
+                count(*) FILTER (WHERE t.status = 'CANCELLED') AS cancelled, \
+                (avg(EXTRACT(EPOCH FROM (t.done_at - t.created_at)) / 3600.0) \
+                    FILTER (WHERE t.status = 'DONE' AND t.done_at IS NOT NULL))::float8 \
+                    AS avg_done_hours, \
+                (avg(t.progress) FILTER (WHERE t.status <> 'CANCELLED'))::float8 \
+                    AS avg_progress \
+           FROM biz_task t \
+          WHERE t.deleted_at IS NULL \
+            AND t.parent_id IS NULL \
+            AND t.created_at >= ?::date \
+            AND t.created_at < (?::date + 1)",
+    );
+    sql.push_str(&tail);
+    let mut params: Vec<Value> = vec![Value::from(filter.start), Value::from(filter.end)];
+    params.extend(fragment.params().to_vec());
+    params.extend(visible_params(&scope_ids));
+    if let Some(project_id) = filter.project_id {
+        sql.push_str(" AND t.project_id = ?::uuid");
+        params.push(Value::from(&project_id));
+    }
+    if let Some(owner_id) = filter.mine {
+        sql.push_str(" AND t.owner_id = ?::uuid");
+        params.push(Value::from(&owner_id));
+    }
+    sql.push_str(" GROUP BY t.exec_mode ORDER BY t.exec_mode");
+
+    let rows = db().find_with_params(&sql, params).await?;
+    let mut stats = Vec::with_capacity(rows.len());
+    for row in &rows {
+        stats.push(ExecModeStat {
+            exec_mode: row.get_typed("exec_mode")?,
+            total: row.get_typed("total")?,
+            todo: row.get_typed("todo")?,
+            doing: row.get_typed("doing")?,
+            review: row.get_typed("review")?,
+            done: row.get_typed("done")?,
+            cancelled: row.get_typed("cancelled")?,
+            avg_done_hours: row.get_typed("avg_done_hours")?,
+            avg_progress: row.get_typed("avg_progress")?,
+        });
+    }
+    Ok(stats)
+}
+
+#[cfg(test)]
+mod stats_tests {
+    use super::*;
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).expect("合法日期")
+    }
+
+    #[test]
+    fn completion_rate_excludes_cancelled_and_clamps() {
+        assert_eq!(completion_rate(0, 0, 0), 0.0, "空窗口给 0.0 而不是 NaN");
+        assert_eq!(completion_rate(0, 5, 5), 0.0, "全取消 → 分母 0 → 0.0");
+        assert_eq!(completion_rate(3, 4, 0), 0.75);
+        assert_eq!(completion_rate(4, 5, 1), 1.0, "取消剔除后 4/4 = 100%");
+        assert_eq!(completion_rate(1, 3, 0), 0.3333, "保留 4 位小数");
+        assert_eq!(completion_rate(9, 3, 0), 1.0, "脏数据也不返回 >1");
+    }
+
+    #[test]
+    fn default_stats_window_is_thirty_days_inclusive() {
+        let end = date(2026, 10, 29);
+        let (start, same_end) = stats_default_window(end);
+        assert_eq!(same_end, end);
+        assert_eq!(start, date(2026, 9, 30));
+        assert_eq!((end - start).num_days() + 1, 30);
+        // 跨月 / 跨年边界
+        let (start, _) = stats_default_window(date(2026, 1, 1));
+        assert_eq!(start, date(2025, 12, 3));
+    }
+
+    #[test]
+    fn stats_window_error_covers_reversed_and_too_long() {
+        let start = date(2026, 10, 1);
+        assert!(stats_window_error(start, date(2026, 10, 29)).is_none());
+        assert!(stats_window_error(start, start).is_none(), "单日窗口合法");
+        assert!(
+            stats_window_error(date(2026, 10, 2), start)
+                .expect("倒置必须报错")
+                .contains("开始日")
+        );
+        let too_long = stats_window_error(date(2025, 1, 1), date(2026, 10, 29));
+        assert!(
+            too_long.expect("超 366 天必须报错").contains("366"),
+            "文案必须点名上限"
+        );
+        assert_eq!(MAX_STATS_WINDOW_DAYS, 366);
+    }
+}
 
 #[cfg(test)]
 mod tests {

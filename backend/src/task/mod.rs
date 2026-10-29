@@ -286,6 +286,8 @@ impl Scheduler {
         }
         // 批次 C · C4：帮助文档历史版本清理（真实现，已从占位数组移出）
         crate::business::help::model::register_builtin(self);
+        // 批次 C+ · T5b：AI 任务状态同步（每 30 秒扫一遍「已派活且未终态」的 AI 任务）
+        crate::business::task::hermes_sync::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

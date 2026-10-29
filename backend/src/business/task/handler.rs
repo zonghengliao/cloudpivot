@@ -91,19 +91,24 @@ use axum::extract::{Path, Query};
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
-use crate::business::shared::principal;
+use crate::business::shared::principal::{self, ScopedPrincipal};
+use crate::business::storage;
 use crate::business::task::dep;
 use crate::business::task::dto::{
     self, GanttBarRes, GanttDepRes, GanttRangeRes, GanttTaskRes, MyCounts, MyTasksRes,
-    ParentProgressRes, TaskAssignReq, TaskAssignRes, TaskAttachmentRes, TaskCardRes, TaskCreateReq,
-    TaskDeleteRes, TaskDependenciesRes, TaskDependencyAddReq, TaskDependencyAddRes,
-    TaskDependencyItemRes, TaskDependencyRemoveRes, TaskDetailRes, TaskGanttQuery, TaskGanttRes,
-    TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes, TaskMemberRes, TaskMembersRes,
-    TaskPageQuery, TaskPageRes, TaskProgressReq, TaskProgressRes, TaskSaveRes, TaskStatusChangeReq,
-    TaskStatusRes, TaskSubtaskCreateReq, TaskSubtaskListRes, TaskUpdateReq,
+    ParentProgressRes, TaskAiProgressReq, TaskAiProgressRes, TaskAssignReq, TaskAssignRes,
+    TaskAttachmentRes, TaskCardRes, TaskCommentReq, TaskCommentRes, TaskCreateReq, TaskDeleteRes,
+    TaskDependenciesRes, TaskDependencyAddReq, TaskDependencyAddRes, TaskDependencyItemRes,
+    TaskDependencyRemoveRes, TaskDetailRes, TaskDispatchReq, TaskDispatchRes, TaskGanttQuery,
+    TaskGanttRes, TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes, TaskMemberRes,
+    TaskMembersRes, TaskPageQuery, TaskPageRes, TaskProgressReq, TaskProgressRes, TaskSaveRes,
+    TaskStatusChangeReq, TaskStatusRes, TaskSubtaskCreateReq, TaskSubtaskListRes, TaskUpdateReq,
+    TaskUploadRes,
 };
+use crate::business::task::hermes_sync;
 use crate::business::task::model::{self, MyBucket, TaskCardRow, TaskDetailRow, TaskFilter};
 use crate::business::task::state::{self, TaskStatus};
+use crate::middleware::task_token::AiTaskActor;
 use crate::shared::ai_actor;
 use crate::shared::error_code;
 use crate::utils;
@@ -549,23 +554,38 @@ pub async fn delete(
 /// 看不见的任务 → **404**（不是 403）。子任务列表同样按可见性过滤：
 /// 一个跨部门协作人能看到父任务，但看不到父任务下属于别的部门、且没把他拉进去的子任务。
 ///
+/// # 双身份（T5b · 令牌白名单的 4 个端点之一）
+///
+/// 这个端点同时接受两种身份：
+///
+/// - **人类 JWT**：身份由框架认证层注入 `AuthClaims`；因为路径在
+///   `#[alun::no_auth]` 白名单里，权限层会跳过本路径，所以 `business:task:read`
+///   的判定**挪到 handler 里**（[`ensure_task_read_permission`]），可见性照旧走
+///   [`principal`]；
+/// - **AI 任务令牌**（`Authorization: Bearer cpai_…`）：
+///   [`crate::middleware::task_token::guard`] 已校验「令牌 ↔ 路径任务一致」，
+///   这里以任务的 AI 负责人身份解析数据范围（**不再做 scope 检查**：令牌本身
+///   已把范围限定在这一个任务上）。
+///
+/// 两条身份都不会为 `None`：都没有时返回 `401`。
+///
 /// # 异常情况
 ///
+/// - 401：既没有有效 JWT 也没有任务令牌；
+/// - 403 + `63002`：人类账号没有 `business:task:read`；
 /// - 404 + `63001`：任务不存在 / 已软删 / 不在可见范围内；
 /// - 400 + `10001`：路径里的 id 不是 UUID；
 /// - 500：数据库异常。
-#[alun::permission(
-    path = "/business/task/{id}",
-    method = "GET",
-    permission = "business:task:read"
-)]
+#[alun::no_auth("/business/task/{id}")]
 #[alun::get("/business/task/{id}")]
 pub async fn detail(
-    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    claims: Option<Extension<AuthClaims>>,
+    ai_actor: Option<Extension<AiTaskActor>>,
     Path(id): Path<String>,
 ) -> ResResult<TaskDetailRes> {
-    let me = principal::resolve_for_claims(&claims).await?;
     let task_id = parse_uuid_field(&id, "任务")?;
+    let reader = resolve_reader(claims, ai_actor)?;
+    let me = reader.principal().await?;
     let row = model::find_detail(&me, task_id)
         .await
         .map_err(|error| utils::db_error(error, "查询任务详情"))?
@@ -597,6 +617,15 @@ pub async fn detail(
         cancel_reason: row.cancel_reason.clone(),
         reject_reason: row.reject_reason.clone(),
         approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+        exec_mode: row.exec_mode.clone(),
+        hermes_board: row.hermes_board.clone(),
+        hermes_task_id: row.hermes_task_id.clone(),
+        hermes_status: row.hermes_status.clone(),
+        ai_summary: row.ai_summary.clone(),
+        ai_result: row
+            .ai_result
+            .as_deref()
+            .and_then(|raw| serde_json::from_str(raw).ok()),
         children: children.iter().map(card_res).collect(),
         members: members
             .iter()
@@ -615,6 +644,8 @@ pub async fn detail(
                 file_name: item.file_name.clone(),
                 file_size: item.file_size,
                 sort_order: item.sort_order,
+                source: item.source.clone(),
+                ai_profile: item.ai_profile.clone(),
             })
             .collect(),
     }))
@@ -1709,6 +1740,622 @@ pub async fn gantt(
         truncated: gantt.truncated,
         member_scope_truncated: gantt.member_scope_truncated,
     }))
+}
+
+// ==================== T5b：评论 / 附件 / 派活 / AI 进度 ====================
+
+/// 端点身份的两种来源（人类 JWT / 任务令牌）。
+///
+/// # 为什么要有这层抽象
+///
+/// T5b 的 3 个写端点（评论 / 附件 / AI 进度）与 1 个读端点（详情）同时接受两种身份。
+/// 若在每个 handler 里写「先看 actor、再看 claims、都没有就 401」，四份重复代码里
+/// 只要有一处把「都没有」写成「按匿名放行」，就是一个静默越权。收成一个枚举 +
+/// [`resolve_reader`] 之后，「身份从哪来」与「权限怎么判」各只有一处实现。
+#[derive(Debug, Clone)]
+pub(crate) enum TaskReader {
+    /// 人类账号（框架认证层注入的 JWT 声明）。
+    Human(Box<TokenClaims>),
+    /// AI 任务令牌（[`crate::middleware::task_token::guard`] 注入）。
+    Ai(Box<AiTaskActor>),
+}
+
+impl TaskReader {
+    /// 解析数据范围用的主体。
+    ///
+    /// - 人类：`business:task:read` 权限码 + 数据范围（可见性照旧）；
+    /// - AI：以任务负责人的身份解析范围，**不判权限码**（令牌的边界是「这一个任务」，
+    ///   而不是「这个 AI 账号的角色」）。
+    pub(crate) async fn principal(&self) -> std::result::Result<ScopedPrincipal, ApiError> {
+        match self {
+            Self::Human(claims) => {
+                ensure_task_read_permission(claims)?;
+                principal::resolve_for_claims(claims).await
+            }
+            Self::Ai(actor) => principal::resolve(&actor.user_id)
+                .await
+                .map_err(|error| utils::db_error(error, "解析 AI 任务数据范围")),
+        }
+    }
+
+    /// 操作人（评论 / 附件的作者、审计列）。
+    pub(crate) fn user_id(&self) -> Uuid {
+        match self {
+            Self::Human(claims) => utils::current_user_uuid(claims).unwrap_or(Uuid::nil()),
+            Self::Ai(actor) => actor.user_id,
+        }
+    }
+
+    /// 操作人姓名（评论回执 / 通知显示）。
+    pub(crate) fn display_name(&self) -> String {
+        match self {
+            Self::Human(claims) => display_name(claims),
+            Self::Ai(actor) => actor
+                .profile
+                .clone()
+                .map(|profile| format!("AI 员工 {profile}"))
+                .unwrap_or_else(|| "AI 员工".to_string()),
+        }
+    }
+
+    /// 是不是 AI 令牌身份。
+    pub(crate) fn is_ai(&self) -> bool {
+        matches!(self, Self::Ai(_))
+    }
+}
+
+/// 从两个可选身份里解析出唯一身份。
+///
+/// # 异常情况
+///
+/// 两者都缺 → `401 + AUTH_TOKEN_INVALID`（消息点明「需要登录或任务令牌」）。
+pub(crate) fn resolve_reader(
+    claims: Option<Extension<AuthClaims>>,
+    ai_actor: Option<Extension<AiTaskActor>>,
+) -> std::result::Result<TaskReader, ApiError> {
+    if let Some(Extension(actor)) = ai_actor {
+        // 令牌身份优先：中间件已在令牌路径上摘掉 Authorization 头，理论上不会同时出现
+        // 两种身份；万一同现，令牌的边界更窄，按它处理更安全。
+        return Ok(TaskReader::Ai(Box::new(actor)));
+    }
+    let Some(Extension(AuthClaims(claims))) = claims else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_INVALID,
+            "需要登录会话或有效的任务令牌",
+        ));
+    };
+    Ok(TaskReader::Human(Box::new(claims)))
+}
+
+/// 人类账号的读权限判定（`business:task:read`）。
+///
+/// 提成函数是因为详情路径进了 `#[alun::no_auth]` 白名单（AI 令牌要能读），
+/// 权限层因此不再覆盖它 —— 这条判定必须由 handler 补上，且**只补人类侧**。
+fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
+    if claims.has_permission(dto::PERM_TASK_READ) {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        403,
+        error_code::TASK_FORBIDDEN,
+        "没有任务读取权限（business:task:read）",
+    ))
+}
+
+/// 写一条任务评论（`POST /business/task/{id}/comment`）。
+///
+/// # 身份
+///
+/// 人类 JWT 或 AI 任务令牌（两者都能写，作者分别是账号本人 / 任务的 AI 负责人员）。
+/// 人类侧要求 `business:task:read` + 任务可见；AI 侧由中间件保证「令牌 ↔ 任务一致」。
+///
+/// # 异常情况
+///
+/// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
+/// - 400 + `63004`：正文为空或超 5000 字；`parent_comment_id` 非法。
+#[alun::no_auth("/business/task/{id}/comment")]
+#[alun::post("/business/task/{id}/comment")]
+pub async fn add_comment(
+    claims: Option<Extension<AuthClaims>>,
+    ai_actor: Option<Extension<AiTaskActor>>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskCommentReq>,
+) -> ResResult<TaskCommentRes> {
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let reader = resolve_reader(claims, ai_actor)?;
+    let me = reader.principal().await?;
+    // 人类侧：看不见就 404（不暴露 ID 是否存在）；AI 侧：中间件已确认任务存在
+    model::find_detail(&me, task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务"))?
+        .ok_or_else(not_found)?;
+
+    let content = normalize_comment_content(&req.content)?;
+    let author = reader.user_id();
+    // 评论一律 `PLAIN`：`AI_REPORT` 只由轮询回传（Done 那一层）写，
+    // `AI_PROGRESS` 只由 `/ai-progress` 写 —— 类型是「这条评论的来历」，不是「谁写的」。
+    let comment_type = model::COMMENT_TYPE_PLAIN;
+    let parent = match req
+        .parent_comment_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|raw| !raw.is_empty())
+    {
+        Some(raw) => Some(parse_uuid_field(raw, "上级评论")?),
+        None => None,
+    };
+    let mentions = normalize_mentions(&req.mentions)?;
+
+    let comment_id = model::insert_comment_full(
+        db(),
+        task_id,
+        author,
+        &content,
+        comment_type,
+        model::CommentExtra {
+            parent_id: parent,
+            mentions: &mentions,
+        },
+        author,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "写入任务评论"))?;
+
+    Ok(Res::ok(TaskCommentRes {
+        id: comment_id.to_string(),
+        comment_type: comment_type.to_string(),
+        user_id: author.to_string(),
+        user_name: reader.display_name(),
+        created_at: Utc::now(),
+    }))
+}
+
+/// 上传任务附件（`POST /business/task/{id}/attachment`，`multipart` 字段名 `file`）。
+///
+/// # 分类（老大 1A 的落点）
+///
+/// - 人类上传 → `category='task'`（50 MB，允许办公文档 / 压缩包）；
+/// - AI 上传 → `category='task_ai'`（100 MB，白名单更严、禁可执行扩展名、禁直传）。
+///
+/// 两者的策略校验 / 秒传 / 落库都走
+/// [`crate::business::storage::handler::store_server_upload`] —— 与存储模块的
+/// 通用上传**逐字节同一套**，AI 因此拿不到比人类更宽的入口。
+///
+/// # 异常情况
+///
+/// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
+/// - 400：没有 `file` 字段 / 扩展名或 MIME 不被策略允许；
+/// - 413：超过策略或服务端上限；500/502：写对象或落库失败。
+#[alun::no_auth("/business/task/{id}/attachment")]
+#[alun::post("/business/task/{id}/attachment")]
+pub async fn upload_attachment(
+    claims: Option<Extension<AuthClaims>>,
+    ai_actor: Option<Extension<AiTaskActor>>,
+    Path(id): Path<String>,
+    headers: axum::http::HeaderMap,
+    mut multipart: axum::extract::Multipart,
+) -> ResResult<TaskUploadRes> {
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let reader = resolve_reader(claims, ai_actor)?;
+    let me = reader.principal().await?;
+    model::find_detail(&me, task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务"))?
+        .ok_or_else(not_found)?;
+
+    // 读流之前先用 Content-Length 判一次（框架 DefaultBodyLimit 会中途掐断 body，
+    // 掐断时的错误信息是「读取失败」，很容易被误判成策略问题）
+    let server_limit = storage::handler::server_upload_limit_bytes();
+    if let Some(declared) = storage::handler::declared_content_length(&headers)
+        && declared > server_limit
+    {
+        return Err(storage::handler::server_size_error(server_limit));
+    }
+
+    let (file_name, mime_type, bytes) = read_single_upload(&mut multipart).await?;
+    let category = if reader.is_ai() {
+        hermes_sync::AI_UPLOAD_CATEGORY
+    } else {
+        HUMAN_UPLOAD_CATEGORY
+    };
+    let operator = reader.user_id();
+    let record = storage::handler::store_server_upload(
+        category,
+        &file_name,
+        &mime_type,
+        &bytes,
+        Some(operator),
+    )
+    .await?;
+
+    let attachment_id = if reader.is_ai() {
+        let profile = match &reader {
+            TaskReader::Ai(actor) => actor.profile.clone(),
+            TaskReader::Human(_) => None,
+        };
+        model::bind_ai_attachment(db(), task_id, record.id, profile.as_deref(), operator)
+            .await
+            .map_err(|error| utils::db_error(error, "绑定 AI 附件"))?
+    } else {
+        model::bind_human_attachment(db(), task_id, record.id, operator)
+            .await
+            .map_err(|error| utils::db_error(error, "绑定任务附件"))?
+    };
+
+    tracing::info!(
+        task_id = %task_id,
+        file_id = %record.id,
+        file_size = record.file_size,
+        category,
+        ai = reader.is_ai(),
+        "任务附件已上传"
+    );
+
+    Ok(Res::ok(TaskUploadRes {
+        attachment_id: attachment_id.to_string(),
+        file_id: record.id.to_string(),
+        file_name: record.original_name.clone().unwrap_or(file_name),
+        file_size: record.file_size,
+        source: if reader.is_ai() { "AI" } else { "HUMAN" }.to_string(),
+        category: category.to_string(),
+    }))
+}
+
+/// 人类上传任务附件用的分类（`V0107` 已种策略：50 MB）。
+const HUMAN_UPLOAD_CATEGORY: &str = "task";
+
+/// AI 进度回写（`PATCH /business/task/{id}/ai-progress`，**只接受任务令牌**）。
+///
+/// # 规则
+///
+/// - `percent` 0–100；任务**有子任务**时忽略它（进度由子任务汇总，D4 规则），
+///   回执里 `ignored_percent = true`；
+/// - `note` 写一条 `AI_PROGRESS` 评论（AI 的执行流水，验收人能看到进度节奏）；
+/// - 两者都空 → `400 + 63308`（空请求不该产生一次写事务）。
+///
+/// # 异常情况
+///
+/// - 401 + `63304`：走的不是任务令牌（本端点不给人类会话用，人类改进度走
+///   `PATCH /business/task/{id}/progress`）；
+/// - 400 + `63308`：参数不合法。
+#[alun::no_auth("/business/task/{id}/ai-progress")]
+#[alun::patch("/business/task/{id}/ai-progress")]
+pub async fn ai_progress(
+    ai_actor: Option<Extension<AiTaskActor>>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskAiProgressReq>,
+) -> ResResult<TaskAiProgressRes> {
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let Some(Extension(actor)) = ai_actor else {
+        return Err(ApiError::new(
+            403,
+            error_code::TASK_AI_ENDPOINT_FORBIDDEN,
+            "AI 进度回写只接受任务令牌（人类请用 PATCH /business/task/{id}/progress）",
+        ));
+    };
+    let actor = TaskReader::Ai(Box::new(actor));
+    let author = actor.user_id();
+
+    let note = req
+        .note
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(|text| dto::truncate_chars(text, MAX_COMMENT_CHARS));
+    let percent = match req.percent {
+        Some(value) if !(0..=100).contains(&value) => {
+            return Err(ApiError::new(
+                400,
+                error_code::TASK_AI_PROGRESS_INVALID,
+                format!("percent 必须在 0–100 之间，收到 {value}"),
+            ));
+        }
+        other => other,
+    };
+    if percent.is_none() && note.is_none() {
+        return Err(ApiError::new(
+            400,
+            error_code::TASK_AI_PROGRESS_INVALID,
+            "percent 与 note 至少要给一个",
+        ));
+    }
+
+    let has_children = model::has_open_or_any_children(task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询子任务"))?;
+    let write_percent = percent.filter(|_| !has_children);
+    let ignored_percent = percent.is_some() && has_children;
+
+    let content = match (&note, percent) {
+        (Some(text), Some(value)) if !has_children => format!("AI 进度 {value}%：{text}"),
+        (Some(text), _) if has_children && percent.is_some() => {
+            format!("AI 进度由子任务汇总（本次 percent 已忽略）：{text}")
+        }
+        (Some(text), _) => format!("AI 进度更新：{text}"),
+        (None, Some(value)) => format!("AI 进度 {value}%"),
+        (None, None) => unreachable!("上面已拦住「两者都空」"),
+    };
+
+    let progress_after = db()
+        .transaction(|tx| {
+            let content = content.clone();
+            async move {
+                if let Some(value) = write_percent {
+                    model::set_progress(&tx, task_id, value as i16, author).await?;
+                }
+                model::insert_comment(
+                    &tx,
+                    task_id,
+                    author,
+                    &content,
+                    model::COMMENT_TYPE_AI_PROGRESS,
+                    author,
+                )
+                .await?;
+                model::mark_ai_active(&tx, task_id, author).await?;
+                // SCOPE-EXEMPT: 事务内回读**刚刚写入的那一行**（task_id 已由任务令牌
+                // 绑定 + 令牌校验判定过归属），不是列表 / 导出查询；注入 scope 反而会
+                // 在「任务刚被转派」的瞬间少读到一行，把进度静默写回 0。
+                let rows = tx
+                    .query_sql(
+                        "SELECT progress FROM biz_task WHERE id = ?::uuid".to_string(),
+                        vec![Value::from(&task_id)],
+                    )
+                    .await?;
+                let progress: i16 = match rows.first() {
+                    Some(row) => row.get_typed("progress")?,
+                    None => 0,
+                };
+                Ok(i32::from(progress))
+            }
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "回写 AI 进度"))?;
+
+    Ok(Res::ok(TaskAiProgressRes {
+        progress: progress_after,
+        ignored_percent,
+        comment_id: None,
+    }))
+}
+
+/// 派活给 AI（`POST /business/task/{id}/dispatch-ai`，**人类会话调用**）。
+///
+/// # 流程（设计文档 §一）
+///
+/// 1. 权限：与分派同一套矩阵（行级关系 ∪ `business:task:assign`）——「派给 AI」
+///    本质就是一次分派，只是执行者换成了机器人；
+/// 2. 前置：负责人必须是一个 `user_type='ROBOT'` 且有 `sys_ai_agent` 登记的账号
+///    （否则没有 Hermes profile 可指）；
+/// 3. 已派活（`hermes_task_id` 非空且任务未终结）→ `409 + 63306`，
+///    **不再创建第二个**（Hermes 侧幂等键也会返回同一个 id，但这里更早拦住：
+///    重派会覆盖任务令牌，而旧令牌的明文已经写进上一张 kanban body）；
+/// 4. 生成令牌 → 拼 body → `hermes kanban create` → 只有成功才回写三件套；
+/// 5. 失败 → `502 + 63305`，任务状态**一字不改**，令牌当场删除。
+///
+/// # 异常情况
+///
+/// 见上；其余：404 任务不存在、400 负责人不是 AI 账号 / 缺 profile。
+#[alun::permission(
+    path = "/business/task/{id}/dispatch-ai",
+    method = "POST",
+    permission = "business:task:read"
+)]
+#[alun::post("/business/task/{id}/dispatch-ai")]
+pub async fn dispatch_ai(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskDispatchReq>,
+) -> ResResult<TaskDispatchRes> {
+    let me = current_user(&claims)?;
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let task = require_task(task_id).await?;
+
+    // ① 权限矩阵与分派一致（行级关系 ∪ 权限码）
+    let role = actor_role(me, task.creator_id, task.card.owner_id, task.assigner_id);
+    if !may_assign(role, claims.has_permission(dto::PERM_ASSIGN)) {
+        return Err(forbidden_assign(is_robot(me).await?));
+    }
+
+    // ② 任务必须还在可派活的状态（终态不允许派活）
+    if matches!(task.card.status.as_str(), "DONE" | "CANCELLED") {
+        return Err(ApiError::new(
+            409,
+            error_code::TASK_STATUS_TRANSITION_INVALID,
+            format!(
+                "任务当前是「{}」，不能派活给 AI（请先流转到待开始 / 进行中）",
+                task.card.status
+            ),
+        ));
+    }
+    // ③ 已派活：拦住第二个 Hermes 任务
+    if let Some(hermes_task_id) = task.hermes_task_id.as_deref() {
+        let missing = task
+            .hermes_status
+            .as_deref()
+            .is_some_and(|status| status.eq_ignore_ascii_case("MISSING"));
+        if !missing {
+            return Err(ApiError::new(
+                409,
+                error_code::TASK_DISPATCH_CONFLICT,
+                format!(
+                    "任务已派给 AI（Hermes 任务 {hermes_task_id}，看板 {}），不会重复派活；\
+                     如需重派请先处理该 Hermes 任务",
+                    task.hermes_board.as_deref().unwrap_or("dev")
+                ),
+            ));
+        }
+        // 关联任务已丢失：允许重派（幂等键加 `:retry` 后缀，避免撞上那张已删的任务）
+        tracing::warn!(
+            task_id = %task_id,
+            hermes_task_id,
+            "关联的 Hermes 任务已丢失，本次按重派处理"
+        );
+    }
+
+    // ④ 负责人必须是 AI 账号且登记了 Hermes profile
+    let owner_id = task.card.owner_id;
+    if !is_robot(owner_id).await? {
+        return Err(ApiError::new(
+            400,
+            error_code::TASK_DISPATCH_OWNER_NOT_ROBOT,
+            format!(
+                "任务的负责人不是 AI 账号（{}），请先把负责人改成一个 AI 员工再派活",
+                task.card.owner_name
+            ),
+        ));
+    }
+    let agent = crate::business::aiagent::model::find_by_user(&owner_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询 AI 员工配置"))?
+        .ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::AI_AGENT_NOT_FOUND,
+                "该账号标记为 AI 用户，但没有 sys_ai_agent 登记（缺少 Hermes profile）".to_string(),
+            )
+        })?;
+
+    // ⑤ 工作区：显式传优先，否则用 AI profile 的默认 workspace（`dir:<绝对路径>`）
+    let workspace = req
+        .workspace
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| {
+            format!(
+                "dir:{}",
+                crate::business::aiagent::hermes::Hermes::from_env()
+                    .workspace_path(&agent.hermes_profile)
+                    .display()
+            )
+        });
+
+    let reason = req
+        .reason
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let operator_name = display_name(&claims);
+    let retry = task.hermes_task_id.is_some();
+    let outcome = hermes_sync::dispatch(
+        &task,
+        &agent.hermes_profile,
+        Some(&workspace),
+        me,
+        &operator_name,
+        reason,
+        retry,
+    )
+    .await?;
+
+    Ok(Res::ok(TaskDispatchRes {
+        task_id: task_id.to_string(),
+        hermes_task_id: outcome.hermes_task_id,
+        hermes_board: outcome.board,
+        hermes_status: outcome.hermes_status,
+        exec_mode: "AI".to_string(),
+        status: task.card.status.clone(),
+        token_expires_at: outcome.expires_at,
+    }))
+}
+
+/// 评论正文上限（字符）。与 `biz_task_comment.content` 的 TEXT 列相比留足余量：
+/// 前端详情页把评论折叠到 800 字，超长正文一律截断而不是拒绝。
+pub(crate) const MAX_COMMENT_CHARS: usize = 8_000;
+
+/// 评论正文归一化：折叠首尾空白、拒绝空串、超长截断。
+fn normalize_comment_content(raw: &str) -> std::result::Result<String, ApiError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::TASK_FIELD_INVALID,
+            "评论正文不能为空",
+        ));
+    }
+    Ok(dto::truncate_chars(trimmed, MAX_COMMENT_CHARS))
+}
+
+/// 被 @ 的用户列表：逐个校验 UUID、去重、上限 50（防一次请求把通知扇出放大）。
+fn normalize_mentions(raw: &[String]) -> std::result::Result<Vec<Uuid>, ApiError> {
+    let mut list = Vec::with_capacity(raw.len());
+    for item in raw {
+        let trimmed = item.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let user_id = parse_uuid_field(trimmed, "被 @ 的用户")?;
+        if !list.contains(&user_id) {
+            list.push(user_id);
+        }
+    }
+    if list.len() > 50 {
+        return Err(param_invalid("单条评论最多 @ 50 人".to_string()));
+    }
+    Ok(list)
+}
+
+/// 从 multipart 里读**第一个**文件字段（表单字段名 `file`，允许其它字段混排）。
+///
+/// # 为什么自己读而不用存储模块的 `read_single_file`
+///
+/// 那个函数绑定在存储模块的策略（大小 / 扩展名）上，而任务附件必须先按
+/// 「人类 / AI」选分类（`task` / `task_ai`）才能取策略。这里只负责「把字节读出来」，
+/// 策略校验留给 `store_server_upload`（唯一实现）。
+///
+/// # 异常情况
+///
+/// - 400 + `10006`：没有文件字段 / 读取失败；
+/// - 413：单字段超过服务端上限（框架 `DefaultBodyLimit` 兜底，这里提前给白话文案）。
+async fn read_single_upload(
+    multipart: &mut axum::extract::Multipart,
+) -> std::result::Result<(String, String, Vec<u8>), ApiError> {
+    let limit = storage::handler::server_upload_limit_bytes();
+    while let Some(field) = multipart.next_field().await.map_err(|error| {
+        ApiError::new(
+            400,
+            error_code::PAYLOAD_INVALID,
+            format!("上传表单解析失败：{error}"),
+        )
+    })? {
+        let name = field.name().unwrap_or_default().to_string();
+        let file_name = field.file_name().map(|value| value.to_string());
+        let mime = field
+            .content_type()
+            .map(|value| value.to_string())
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        if name != "file" && file_name.is_none() {
+            // 表单里的普通字段（如 category）直接跳过
+            continue;
+        }
+        let bytes = field.bytes().await.map_err(|error| {
+            ApiError::new(
+                400,
+                error_code::PAYLOAD_INVALID,
+                format!("读取上传文件失败：{error}（单文件上限 {limit} 字节）"),
+            )
+        })?;
+        if bytes.is_empty() {
+            return Err(ApiError::new(
+                400,
+                error_code::PAYLOAD_INVALID,
+                "上传的文件是空的".to_string(),
+            ));
+        }
+        let file_name = file_name
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "upload.bin".to_string());
+        return Ok((file_name, mime, bytes.to_vec()));
+    }
+    Err(ApiError::new(
+        400,
+        error_code::PAYLOAD_INVALID,
+        "上传表单里没有文件字段（字段名应为 file）".to_string(),
+    ))
 }
 
 // ==================== 内部工具 ====================
@@ -2906,6 +3553,241 @@ pub async fn members(
 // 那里才解析 `ScopedPrincipal`。
 
 // ==================== 单元测试（纯逻辑） ====================
+
+// ==================== 统计（T5b · b4：exec_mode 维度） ====================
+
+/// 按执行模式统计（`GET /business/task/stats`，**人类会话调用**）。
+///
+/// # 为什么要单开一个接口，而不是在 `page` 上加 `group_by`
+///
+/// 「人类 / AI 分别统计完成率与平均耗时」是**聚合**语义：它要跨全部可见任务做
+/// `GROUP BY exec_mode`，而分页接口每页最多 200 行，前端自己算出来的完成率只代表
+/// 当前页。聚合必须在服务端做，且必须走同一条可见性谓词（否则「我的完成率」会被
+/// 别人的任务稀释）。
+///
+/// # 出参口径
+///
+/// - `by_exec_mode` **恒含 `HUMAN` 与 `AI` 两行**，窗口内没有任务就给全 0；
+/// - `total` 是合计行：计数直接相加，**平均耗时按已完成数加权、平均进度按有效任务数加权**
+///   （见 [`stats_total`]）；
+/// - 窗口按**创建时间**的 CST 日区间，默认最近 30 天（含今天），上限 366 天。
+///
+/// # 权限
+///
+/// 与列表 / 甘特同一套：`business:task:read` 决定能否进页面，
+/// `scope ∪ 参与关系` 决定能统计到哪些任务。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：日期 / uuid / scope 取值非法，或窗口倒置 / 超过 366 天；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/task/stats",
+    method = "GET",
+    permission = "business:task:read"
+)]
+#[alun::get("/business/task/stats")]
+pub async fn stats(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::TaskStatsQuery>,
+) -> ResResult<dto::TaskStatsRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let end = query.end.unwrap_or_else(model::today_cst);
+    let start = query
+        .start
+        .unwrap_or_else(|| model::stats_default_window(end).0);
+    if let Some(message) = model::stats_window_error(start, end) {
+        return Err(param_invalid(message));
+    }
+    let project_id = match query.project_id.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(raw) => Some(parse_uuid_field(raw, "项目")?),
+    };
+    let mine = match query.scope.as_deref().map(str::trim) {
+        None | Some("") | Some("all") => None,
+        Some("my") => Some(principal.user_id()),
+        Some(raw) => {
+            return Err(param_invalid(format!(
+                "scope 取值非法：{raw}（应为 my / all）"
+            )));
+        }
+    };
+
+    let rows = model::task_stats(
+        &principal,
+        &model::StatsFilter {
+            start,
+            end,
+            project_id,
+            mine,
+        },
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "统计任务"))?;
+
+    // 固定两行（HUMAN / AI）——前端的对比卡片是固定两列
+    let mut by_exec_mode: Vec<dto::ExecModeStatRes> = Vec::with_capacity(2);
+    for mode in ["HUMAN", "AI"] {
+        let row = rows.iter().find(|item| item.exec_mode == mode);
+        by_exec_mode.push(stats_row(mode, row));
+    }
+    // 兜底：库里出现第三种 exec_mode（历史脏数据）时如实列出，不静默吞掉
+    for row in &rows {
+        if !matches!(row.exec_mode.as_str(), "HUMAN" | "AI") {
+            by_exec_mode.push(stats_row(&row.exec_mode, Some(row)));
+        }
+    }
+    let total = stats_total(&by_exec_mode);
+
+    tracing::info!(
+        start = %start,
+        end = %end,
+        modes = by_exec_mode.len(),
+        total_tasks = total.total,
+        "任务统计已生成（按执行模式）"
+    );
+    Ok(Res::ok(dto::TaskStatsRes {
+        start,
+        end,
+        total,
+        by_exec_mode,
+    }))
+}
+
+/// 把一行统计转成响应（`None` = 窗口内没有该模式的任务 → 全 0）。
+fn stats_row(mode: &str, row: Option<&model::ExecModeStat>) -> dto::ExecModeStatRes {
+    let empty = model::ExecModeStat {
+        exec_mode: mode.to_string(),
+        ..Default::default()
+    };
+    let stat = row.unwrap_or(&empty);
+    dto::ExecModeStatRes {
+        exec_mode: mode.to_string(),
+        total: stat.total,
+        todo: stat.todo,
+        doing: stat.doing,
+        review: stat.review,
+        done: stat.done,
+        cancelled: stat.cancelled,
+        completion_rate: model::completion_rate(stat.done, stat.total, stat.cancelled),
+        avg_done_hours: stat.avg_done_hours.map(round_one_decimal),
+        avg_progress: stat.avg_progress.map(round_one_decimal),
+    }
+}
+
+/// 合计行：计数直接相加；**平均值按权重加权**，不是把两个平均数再平均。
+///
+/// 反例（为什么必须加权）：人类 100 条已完成（平均 10 h）+ AI 1 条已完成（平均 40 h）。
+/// 直接平均 = 25 h（把一条 AI 任务的权重放大到 50%）；加权 = `(10×100 + 40×1)/101 ≈ 10.3 h`，
+/// 这才是「全体任务的平均耗时」。
+fn stats_total(rows: &[dto::ExecModeStatRes]) -> dto::ExecModeStatRes {
+    let sum = |pick: fn(&dto::ExecModeStatRes) -> i64| rows.iter().map(pick).sum::<i64>();
+    let total = sum(|row| row.total);
+    let done = sum(|row| row.done);
+    let cancelled = sum(|row| row.cancelled);
+    let hours = weighted_average(
+        rows.iter()
+            .filter_map(|row| row.avg_done_hours.map(|avg| (avg, row.done))),
+    );
+    let progress = weighted_average(rows.iter().filter_map(|row| {
+        let effective = (row.total - row.cancelled).max(0);
+        row.avg_progress.map(|avg| (avg, effective))
+    }));
+    dto::ExecModeStatRes {
+        exec_mode: "TOTAL".to_string(),
+        total,
+        todo: sum(|row| row.todo),
+        doing: sum(|row| row.doing),
+        review: sum(|row| row.review),
+        done,
+        cancelled,
+        completion_rate: model::completion_rate(done, total, cancelled),
+        avg_done_hours: hours.map(round_one_decimal),
+        avg_progress: progress.map(round_one_decimal),
+    }
+}
+
+/// 加权平均 `Σ(value × weight) / Σweight`；权重和为 0 时返回 `None`。
+fn weighted_average<I>(items: I) -> Option<f64>
+where
+    I: Iterator<Item = (f64, i64)>,
+{
+    let (weighted, weight) = items.fold((0.0_f64, 0_i64), |(sum, count), (value, item_weight)| {
+        let item_weight = item_weight.max(0);
+        (sum + value * item_weight as f64, count + item_weight)
+    });
+    if weight == 0 {
+        None
+    } else {
+        Some(weighted / weight as f64)
+    }
+}
+
+/// 保留 1 位小数（`10.26 → 10.3`）。前端只显示 1 位，服务端先归一避免「9.9 vs 10.0」两处不一致。
+fn round_one_decimal(value: f64) -> f64 {
+    (value * 10.0).round() / 10.0
+}
+
+#[cfg(test)]
+mod stats_handler_tests {
+    use super::*;
+
+    fn row(mode: &str, done: i64, cancelled: i64, hours: Option<f64>) -> dto::ExecModeStatRes {
+        let total = done + cancelled + 1;
+        dto::ExecModeStatRes {
+            exec_mode: mode.to_string(),
+            total,
+            todo: 1,
+            doing: 0,
+            review: 0,
+            done,
+            cancelled,
+            completion_rate: model::completion_rate(done, total, cancelled),
+            avg_done_hours: hours,
+            avg_progress: Some(50.0),
+        }
+    }
+
+    #[test]
+    fn total_is_weighted_by_done_count_not_a_plain_mean() {
+        let rows = vec![
+            row("HUMAN", 100, 0, Some(10.0)),
+            row("AI", 1, 0, Some(40.0)),
+        ];
+        let total = stats_total(&rows);
+        assert_eq!(total.total, 103, "101 + 2（每行多 1 条待开始）");
+        assert_eq!(total.done, 101);
+        assert_eq!(
+            total.avg_done_hours,
+            Some(10.3),
+            "加权：(10×100 + 40×1)/101 ≈ 10.297 → 10.3；直接平均会得 25.0"
+        );
+    }
+
+    #[test]
+    fn total_handles_empty_and_cancelled_only() {
+        let rows = vec![row("HUMAN", 0, 0, None), row("AI", 0, 3, None)];
+        let total = stats_total(&rows);
+        assert_eq!(total.avg_done_hours, None, "没有已完成任务 → null 而不是 0");
+        assert_eq!(total.completion_rate, 0.0);
+        assert_eq!(total.exec_mode, "TOTAL");
+    }
+
+    #[test]
+    fn weighted_average_ignores_zero_and_negative_weights() {
+        assert_eq!(weighted_average(std::iter::empty()), None);
+        assert_eq!(weighted_average(vec![(5.0, 0)].into_iter()), None);
+        assert_eq!(
+            weighted_average(vec![(5.0, 0), (3.0, 2)].into_iter()),
+            Some(3.0)
+        );
+        assert_eq!(
+            weighted_average(vec![(99.0, -4), (2.0, 1)].into_iter()),
+            Some(2.0),
+            "负权重按 0 处理，不能把平均值带偏"
+        );
+    }
+}
 
 #[cfg(test)]
 mod tests {

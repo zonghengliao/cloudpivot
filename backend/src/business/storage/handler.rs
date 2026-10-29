@@ -748,54 +748,11 @@ pub async fn upload(
 
     let (original_name, mime_type, bytes) =
         read_single_file(multipart, &policy, server_limit_bytes).await?;
-    model::check_upload(
-        &policy,
-        &original_name,
-        bytes.len() as u64,
-        Some(mime_type.as_str()),
-    )
-    .map_err(violation_error)?;
-
-    // 秒传：内容相同直接复用已有记录（跨后端天然成立，记录里带 storage_code）
-    let file_hash = sigv4::hex_sha256(&bytes);
-    if let Some(existing) = model::find_reusable_file(&file_hash)
-        .await
-        .map_err(|error| utils::db_error(error, "查询可复用文件"))?
-    {
-        tracing::info!(file_hash = %file_hash, file_id = %existing.id, "命中秒传，复用已有文件记录");
-        return Ok(Res::ok(StorageFileRes::from_model(&existing)));
-    }
-
-    ensure_router().await?;
-    let backend = global_router().pick(Some(&policy))?;
-    let file_key = build_object_key(&original_name);
-    backend
-        .put(&file_key, &bytes, &mime_type)
-        .await
-        .map_err(store_error)?;
-
     let operator = utils::current_user_uuid(&claims);
-    let mut record = build_file_record(FileRecordInput {
-        original_name: &original_name,
-        file_key: &file_key,
-        file_size: bytes.len() as i64,
-        file_hash: &file_hash,
-        mime_type: &mime_type,
-        category: &category,
-        storage_code: backend.config_code(),
-        storage_path: storage_path_for(backend.as_ref(), &file_key),
-        upload_mode: "SERVER",
-        operator,
-    });
-
-    if let Err(error) = record.insert(db()).await {
-        // 并发首传同内容：`uk_sys_file_hash` 命中后转查旧记录（不冒 500）
-        if let Some(existing) = model::find_reusable_file(&file_hash).await.unwrap_or(None) {
-            tracing::info!(file_hash = %file_hash, file_id = %existing.id, "并发秒传冲突，复用已有记录");
-            return Ok(Res::ok(StorageFileRes::from_model(&existing)));
-        }
-        return Err(utils::db_error(error, "写入文件元数据"));
-    }
+    // 策略校验 → 秒传 → 选后端 → 落 `sys_file`：与任务附件 / AI 产出回传**共用同一套**
+    // （抽成 store_server_upload，避免「AI 传的文件绕过人类上传那套白名单」）。
+    let record =
+        store_server_upload(&category, &original_name, &mime_type, &bytes, operator).await?;
 
     log::record_audit(
         &headers,
@@ -1813,6 +1770,90 @@ fn build_file_record(input: FileRecordInput<'_>) -> StorageFileModel {
 /// 本身多出几百字节。前置校验若不留余量，恰好等于上限的文件会被误判超限。
 /// 这里给 1 MiB（远大于任何真实 multipart 头，且不会放过任何真实超限）。
 pub const MULTIPART_OVERHEAD_ALLOWANCE: u64 = 1024 * 1024;
+
+/// 服务端「已读到内存」的上传核心（**任务附件 / AI 产出回传复用**）。
+///
+/// # 为什么从 [`upload`] 里抽出来
+///
+/// T5b 有三处需要「把一段字节写进云枢存储并落 `sys_file`」：
+///
+/// 1. `POST /business/storage/upload`（人类上传，走 multipart）；
+/// 2. `POST /business/task/{id}/attachment`（任务附件，人类与 **AI 令牌**两条路径）；
+/// 3. 轮询回传的**路径 B**：AI 在 `metadata.new_files` 里声明了本机路径，
+///    云枢自己读盘再上传。
+///
+/// 三处的策略校验 / 秒传 / 选后端 / 落库必须**逐字节同一套**——否则「AI 传的文件
+/// 绕过了人类上传那套白名单」就是一个静默的安全缺口。抽成一个函数，调用方只管
+/// 「字节从哪来」。
+///
+/// # 参数
+///
+/// - `category`：上传分类（决定策略：`task` / `task_ai` / …）；
+/// - `original_name`：原始文件名（决定扩展名白名单与对象键后缀）；
+/// - `mime_type`：MIME（策略 `allowed_mimes` 为空时不校验）；
+/// - `bytes`：文件内容；
+/// - `operator`：操作人（`sys_file.uploaded_by` / `create_by`；AI 产出传 AI 用户的 id）。
+///
+/// # 返回值
+///
+/// 落库后的文件记录（命中秒传时是**已有**的那条，id 可能属于别的任务 ——
+/// 调用方按 `(task_id, file_id)` 唯一约束绑定附件即可）。
+///
+/// # 异常情况
+///
+/// 与 [`upload`] 一致：400 策略/表单非法、422 超限、409 后端不可用、500/502 落库或写对象失败。
+pub(crate) async fn store_server_upload(
+    category: &str,
+    original_name: &str,
+    mime_type: &str,
+    bytes: &[u8],
+    operator: Option<uuid::Uuid>,
+) -> std::result::Result<StorageFileModel, ApiError> {
+    let policy = resolve_policy(category).await?;
+    model::check_upload(&policy, original_name, bytes.len() as u64, Some(mime_type))
+        .map_err(violation_error)?;
+
+    // 秒传：内容相同直接复用已有记录（跨后端天然成立，记录里带 storage_code）
+    let file_hash = sigv4::hex_sha256(bytes);
+    if let Some(existing) = model::find_reusable_file(&file_hash)
+        .await
+        .map_err(|error| utils::db_error(error, "查询可复用文件"))?
+    {
+        tracing::info!(file_hash = %file_hash, file_id = %existing.id, "命中秒传，复用已有文件记录");
+        return Ok(existing);
+    }
+
+    ensure_router().await?;
+    let backend = global_router().pick(Some(&policy))?;
+    let file_key = build_object_key(original_name);
+    backend
+        .put(&file_key, bytes, mime_type)
+        .await
+        .map_err(store_error)?;
+
+    let mut record = build_file_record(FileRecordInput {
+        original_name,
+        file_key: &file_key,
+        file_size: bytes.len() as i64,
+        file_hash: &file_hash,
+        mime_type,
+        category,
+        storage_code: backend.config_code(),
+        storage_path: storage_path_for(backend.as_ref(), &file_key),
+        upload_mode: "SERVER",
+        operator,
+    });
+
+    if let Err(error) = record.insert(db()).await {
+        // 并发首传同内容：`uk_sys_file_hash` 命中后转查旧记录（不冒 500）
+        if let Some(existing) = model::find_reusable_file(&file_hash).await.unwrap_or(None) {
+            tracing::info!(file_hash = %file_hash, file_id = %existing.id, "并发秒传冲突，复用已有记录");
+            return Ok(existing);
+        }
+        return Err(utils::db_error(error, "写入文件元数据"));
+    }
+    Ok(record)
+}
 
 /// 服务端上传的单文件上限（字节）：与框架 `DefaultBodyLimit` 同源
 /// （alun-web `app.rs` 用 `[upload].max_size_mb` 推导请求体硬顶）。

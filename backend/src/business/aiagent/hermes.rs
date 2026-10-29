@@ -390,6 +390,19 @@ impl Hermes {
                 ),
             ));
         }
+        // 建号即把**模型凭据**复制进 profile：`hermes profile create` 只复制 SOUL.md，
+        // 不复制 config.yaml；而 worker 的 HERMES_HOME 是 profile 目录，没有 config.yaml
+        // 就等于「没配过模型」，派活后立刻退出（见 ensure_profile_config 的说明）。
+        // 失败不阻断建号（L1 只需要 profile 存在），但必须留下明确的 WARN。
+        match self.ensure_profile_config(name).await {
+            Ok(true) => tracing::info!(profile = name, "已把全局模型配置复制进新 profile"),
+            Ok(false) => tracing::info!(profile = name, "profile 已有 config.yaml，未覆盖"),
+            Err(error) => tracing::warn!(
+                profile = name,
+                error = %error.msg,
+                "复制模型配置失败：该 AI 员工派活后会因「无模型凭据」跑不起来"
+            ),
+        }
         Ok(())
     }
 
@@ -456,6 +469,162 @@ impl Hermes {
             return Err(Self::cli_failed("删除 profile", &out));
         }
         Ok(())
+    }
+
+    // ---------- kanban（T5b：派活 / 拉状态） ----------
+
+    /// 派活：`hermes kanban --board <board> create <标题> … --json`。
+    ///
+    /// # 参数
+    ///
+    /// 见 [`KanbanCreate`]。`body` 走 `--body` 参数（**参数数组**，不经过 shell）：
+    ///
+    /// - Local 形态：`Command::new(hermes).args([...])`，正文里有什么引号 / 换行 /
+    ///   `$(...)` 都只是参数字节，不构成注入面；
+    /// - Ssh 形态：正文会经 [`shell_quote`] 单引号包裹后交给远端 shell（本层唯一的
+    ///   拼接点，6 条单测覆盖含 `'; rm -rf /'` 的取值）。
+    ///
+    /// > **为什么不是卡面写的 `--body-file`**：144 上的 Hermes v0.15.2 的
+    /// > `kanban create` **没有** `--body-file` 选项（实测 `--help` 只有 `--body`）。
+    /// > 卡面要求「body 用临时文件（不拼 shell 字符串）」的目的是避免 shell 拼接，
+    /// > 而参数数组天然满足这一点（比临时文件更强：没有落盘、没有 TOCTOU）。
+    /// > 升级 Hermes 后若 `--body-file` 出现，可改成写临时文件再传路径，语义不变。
+    ///
+    /// # 返回值
+    ///
+    /// Hermes 侧的任务 id（形如 `t_4b7abf18`），取自 `--json` 输出的 `id` 字段。
+    ///
+    /// # 异常情况
+    ///
+    /// - 名字 / 看板 / 幂等键不合法：`400`（在任何进程启动之前）；
+    /// - CLI 非 0 退出 / 超时 / 输出不是 JSON / JSON 里没有 id：`500 + AI_AGENT_HERMES_FAILED`
+    ///   （带 stderr 摘录，便于运维定位）。
+    pub async fn kanban_create(&self, req: KanbanCreate<'_>) -> Result<String, ApiError> {
+        Self::validate_profile_name(req.assignee)?;
+        validate_board_slug(req.board)?;
+        if req.title.trim().is_empty() {
+            return Err(ApiError::new(
+                400,
+                error_code::TASK_FIELD_INVALID,
+                "派活标题不能为空".to_string(),
+            ));
+        }
+        if !req.idempotency_key.is_empty() {
+            validate_idempotency_key(req.idempotency_key)?;
+        }
+        let mut argv = vec![
+            "kanban".to_string(),
+            "--board".to_string(),
+            req.board.to_string(),
+            "create".to_string(),
+            req.title.trim().to_string(),
+            "--assignee".to_string(),
+            req.assignee.to_string(),
+            "--body".to_string(),
+            req.body.to_string(),
+            "--priority".to_string(),
+            req.priority.to_string(),
+            "--max-runtime".to_string(),
+            req.max_runtime_secs.to_string(),
+            "--json".to_string(),
+        ];
+        if !req.idempotency_key.is_empty() {
+            argv.push("--idempotency-key".to_string());
+            argv.push(req.idempotency_key.to_string());
+        }
+        if let Some(created_by) = req.created_by.filter(|value| !value.trim().is_empty()) {
+            argv.push("--created-by".to_string());
+            argv.push(created_by.to_string());
+        }
+        if let Some(workspace) = req.workspace.filter(|value| !value.trim().is_empty()) {
+            argv.push("--workspace".to_string());
+            argv.push(workspace.to_string());
+        }
+
+        let out = self.run_hermes(argv, None).await?;
+        if !out.ok {
+            return Err(Self::cli_failed("派活到 Hermes kanban", &out));
+        }
+        let parsed: serde_json::Value = serde_json::from_str(out.stdout.trim()).map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::AI_AGENT_HERMES_FAILED,
+                format!(
+                    "派活失败：`hermes kanban create --json` 输出无法解析（{error}）；原始输出：{}",
+                    excerpt(&out.stdout)
+                ),
+            )
+        })?;
+        let task_id = parsed
+            .get("id")
+            .and_then(|value| value.as_str())
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ApiError::new(
+                    500,
+                    error_code::AI_AGENT_HERMES_FAILED,
+                    format!(
+                        "派活失败：`hermes kanban create --json` 输出里没有 id 字段；原始输出：{}",
+                        excerpt(&out.stdout)
+                    ),
+                )
+            })?;
+        validate_kanban_task_id(&task_id)?;
+        Ok(task_id)
+    }
+
+    /// 拉状态：`hermes kanban --board <board> show <id> --json`。
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(None)`：Hermes 侧**没有这个任务**（CLI 报 `no such task`）。调用方据此
+    ///   标「关联任务丢失」，**不是**同步失败；
+    /// - `Ok(Some(snapshot))`：解析成功；
+    /// - `Err(..)`：CLI 本身跑不起来 / 超时 / 输出不是 JSON —— 调用方必须**保持任务
+    ///   状态不变**（轮询失败不改状态，避免把「CLI 抖了一下」判成「AI 失败了」）。
+    ///
+    /// # 异常情况
+    ///
+    /// 见上；错误一律是 `500 + AI_AGENT_HERMES_FAILED`（带 stderr 摘录）。
+    pub async fn kanban_show(
+        &self,
+        board: &str,
+        task_id: &str,
+    ) -> Result<Option<KanbanSnapshot>, ApiError> {
+        validate_board_slug(board)?;
+        validate_kanban_task_id(task_id)?;
+        let argv = vec![
+            "kanban".to_string(),
+            "--board".to_string(),
+            board.to_string(),
+            "show".to_string(),
+            task_id.to_string(),
+            "--json".to_string(),
+        ];
+        let out = self.run_hermes(argv, None).await?;
+        if !out.ok {
+            let combined = format!("{}\n{}", out.stdout, out.stderr).to_ascii_lowercase();
+            if combined.contains("no such task")
+                || combined.contains("not found")
+                || combined.contains("no task with")
+            {
+                return Ok(None);
+            }
+            return Err(Self::cli_failed("读取 Hermes 任务状态", &out));
+        }
+        let parsed: serde_json::Value =
+            serde_json::from_str(out.stdout.trim()).map_err(|error| {
+                ApiError::new(
+                    500,
+                    error_code::AI_AGENT_HERMES_FAILED,
+                    format!(
+                        "读取 Hermes 任务状态失败：输出无法解析（{error}）；原始输出：{}",
+                        excerpt(&out.stdout)
+                    ),
+                )
+            })?;
+        Ok(Some(KanbanSnapshot::from_json(&parsed)?))
     }
 
     // ---------- SOUL.md ----------
@@ -575,6 +744,124 @@ impl Hermes {
                     return Err(Self::cli_failed("原子替换 SOUL.md", &out));
                 }
                 Ok(())
+            }
+        }
+    }
+
+    /// 确保 profile 目录里有**自己的** `config.yaml`（模型凭据），返回是否本次新建。
+    ///
+    /// # 为什么必须有这一步（144 实测踩到）
+    ///
+    /// `hermes profile create <name> --clone-from <模板>` **只复制 SOUL.md**，不复制
+    /// `config.yaml`。而 Hermes 0.15.2 起每个 profile 有自己的 `HERMES_HOME`
+    /// （`~/.hermes/profiles/<name>/`），`load_config()` 读的是**那个目录**下的
+    /// `config.yaml` —— profile 里没有它就等于「这台机器上没配过模型」：
+    /// worker 一启动就打印
+    /// `It looks like Hermes isn't configured yet -- no API keys or providers found.`
+    /// 并退出。派活看起来成功了（kanban 有任务），AI 却永远跑不起来。
+    ///
+    /// 因此「派活/建号」必须把全局凭据**复制**进 profile（写 0600，与 `~/.hermes/config.yaml`
+    /// 同权限）。已有 `config.yaml` 的 profile **不覆盖** —— 运维可能给某个 AI 员工
+    /// 配了专用模型，覆盖掉属于破坏配置。
+    ///
+    /// # 返回值
+    ///
+    /// `Ok(true)` = 本次新建；`Ok(false)` = 已存在（未改动）。
+    ///
+    /// # 异常情况
+    ///
+    /// - profile 目录不存在 → `404 + AI_AGENT_PROFILE_MISSING`；
+    /// - 全局 `config.yaml` 不存在 / 读不出 / 为空 → `500 + AI_AGENT_SOUL_IO_FAILED`
+    ///   （沿用「AI 配置文件 IO」这一码，消息点明是模型配置缺失）；
+    /// - 写盘失败 → 同上。
+    pub async fn ensure_profile_config(&self, name: &str) -> Result<bool, ApiError> {
+        Self::validate_profile_name(name)?;
+        if !self.profile_dir_exists(name).await? {
+            return Err(ApiError::new(
+                404,
+                error_code::AI_AGENT_PROFILE_MISSING,
+                format!("profile 目录不存在：{}", self.profile_dir(name).display()),
+            ));
+        }
+        let target = self.profile_dir(name).join("config.yaml");
+        let global = self.cfg.hermes_home.join("config.yaml");
+        match &self.cfg.transport {
+            Transport::Local => {
+                if tokio::fs::metadata(&target).await.is_ok() {
+                    return Ok(false);
+                }
+                let content = tokio::fs::read_to_string(&global).await.map_err(|e| {
+                    ApiError::new(
+                        500,
+                        error_code::AI_AGENT_SOUL_IO_FAILED,
+                        format!(
+                            "全局模型配置读不到（{}）：{e}；AI profile 没有模型凭据，worker 起不来",
+                            global.display()
+                        ),
+                    )
+                })?;
+                if content.trim().is_empty() {
+                    return Err(ApiError::new(
+                        500,
+                        error_code::AI_AGENT_SOUL_IO_FAILED,
+                        format!("全局模型配置是空的：{}", global.display()),
+                    ));
+                }
+                tokio::fs::write(&target, content.as_bytes())
+                    .await
+                    .map_err(|e| {
+                        ApiError::new(
+                            500,
+                            error_code::AI_AGENT_SOUL_IO_FAILED,
+                            format!("写 profile config.yaml 失败：{e}"),
+                        )
+                    })?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let mode = std::fs::Permissions::from_mode(0o600);
+                    if let Err(e) = tokio::fs::set_permissions(&target, mode).await {
+                        tracing::warn!(error = %e, path = %target.display(), "设置 config.yaml 权限 600 失败");
+                    }
+                }
+                Ok(true)
+            }
+            Transport::Ssh { .. } => {
+                // 已存在就不动（`test -f` 用退出码表达真假）
+                let probe = self
+                    .run_remote_raw(
+                        format!("test -f {}", shell_quote(&path_string(&target))),
+                        None,
+                    )
+                    .await?;
+                if probe.status {
+                    return Ok(false);
+                }
+                let out = self
+                    .run_remote(format!("cat {}", shell_quote(&path_string(&global))), None)
+                    .await?;
+                if !out.ok || out.stdout.trim().is_empty() {
+                    return Err(Self::cli_failed("读取全局模型配置", &out));
+                }
+                let out = self
+                    .run_remote(
+                        format!("dd of={} status=none", shell_quote(&path_string(&target))),
+                        Some(out.stdout),
+                    )
+                    .await?;
+                if !out.ok {
+                    return Err(Self::cli_failed("写 profile config.yaml", &out));
+                }
+                let out = self
+                    .run_remote(
+                        format!("chmod 600 {}", shell_quote(&path_string(&target))),
+                        None,
+                    )
+                    .await?;
+                if !out.ok {
+                    return Err(Self::cli_failed("设置 profile config.yaml 权限", &out));
+                }
+                Ok(true)
             }
         }
     }
@@ -938,6 +1225,227 @@ impl Hermes {
         };
         ApiError::new(500, error_code::AI_AGENT_HERMES_FAILED, message)
     }
+}
+
+// ==================== kanban 载荷（T5b） ====================
+
+/// `hermes kanban create` 的入参（`&str` 借用，调用方拼好后一次传入）。
+#[derive(Debug, Clone)]
+pub struct KanbanCreate<'a> {
+    /// 看板 slug（当前固定 `dev`）。
+    pub board: &'a str,
+    /// 任务标题（= 云枢任务标题）。
+    pub title: &'a str,
+    /// 执行者 profile（AI 员工的 `sys_ai_agent.hermes_profile`）。
+    pub assignee: &'a str,
+    /// 任务正文：云枢任务描述 + 交付要求（**含任务级令牌明文**）。
+    pub body: &'a str,
+    /// 优先级数值（P0→10 / P1→8 / P2→5 / P3→2）。
+    pub priority: i32,
+    /// 单次运行上限（秒）。
+    pub max_runtime_secs: i64,
+    /// 幂等键（`cailu-task:<云枢任务id>`）；空串 = 不带该参数。
+    pub idempotency_key: &'a str,
+    /// 作者（`cailu:<分派人用户名>`）。
+    pub created_by: Option<&'a str>,
+    /// 工作区（`dir:<绝对路径>`）；`None` = 用 Hermes 默认（scratch）。
+    pub workspace: Option<&'a str>,
+}
+
+/// `hermes kanban show <id> --json` 的**用得到的那部分**。
+///
+/// 只取云枢回传需要的字段：状态 / 执行摘要 / 最近一次 run 的 error 与 metadata。
+/// 其余（events / comments / parents）不解析 —— 解析得越多，Hermes 升级时的
+/// 兼容面越大，而云枢根本不用它们。
+#[derive(Debug, Clone, Default)]
+pub struct KanbanSnapshot {
+    /// `task.status`：`ready` / `running` / `done` / `failed` / `blocked` / …
+    pub status: String,
+    /// `latest_summary`（长文本执行报告，**done 的第一层回传**）。
+    pub latest_summary: Option<String>,
+    /// 最近一次 run 的状态（`running` / `done` / `failed` / …）。
+    pub run_status: Option<String>,
+    /// 最近一次 run 的 `error`（failed 时写进评论）。
+    pub run_error: Option<String>,
+    /// 最近一次 run 的 `metadata`（**done 的第二层回传**：交付清单）。
+    pub metadata: Option<serde_json::Value>,
+    /// 最近一次 run 的 `summary`（`latest_summary` 为空时的兜底）。
+    pub run_summary: Option<String>,
+    /// `task.completed_at`（Unix 秒，可空）。
+    pub completed_at: Option<i64>,
+}
+
+impl KanbanSnapshot {
+    /// 从 `show --json` 的整份 JSON 里取字段。
+    ///
+    /// # 口径（逐条说明，评审会问）
+    ///
+    /// - **status** 取 `task.status`，缺失时回落 `""`（映射层按「未知」处理，不改状态）；
+    /// - **run** 取**最后一条**（`runs` 在 CLI 里按 run id 升序，最后一条是最新一次执行）。
+    ///   卡面写 `runs[0]`，那是「单次执行」场景的简写；重试过的任务若取 `runs[0]`
+    ///   会把**第一次**的 error 当成最终结果，所以这里取最后一条 —— 语义更准，且
+    ///   单次执行时两者完全相同；
+    /// - **metadata** 可能是 JSON 对象，也可能是**字符串**（SQLite 里存的是文本，
+    ///   CLI 有的版本原样透传）→ 字符串再 parse 一次，解析失败就当没有（不让
+    ///   一份坏 metadata 把整轮同步打断）。
+    pub fn from_json(root: &serde_json::Value) -> Result<Self, ApiError> {
+        let task = root.get("task").ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::AI_AGENT_HERMES_FAILED,
+                "Hermes 任务输出缺少 task 字段".to_string(),
+            )
+        })?;
+        let status = task
+            .get("status")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let latest_summary = text_field(root, "latest_summary");
+        let completed_at = task.get("completed_at").and_then(|value| value.as_i64());
+        let runs = root.get("runs").and_then(|value| value.as_array());
+        let last = runs.and_then(|list| list.last());
+        let run_status = last
+            .and_then(|run| run.get("status"))
+            .and_then(|value| value.as_str())
+            .map(|value| value.to_string());
+        let run_error = last.and_then(|run| text_field(run, "error"));
+        let run_summary = last.and_then(|run| text_field(run, "summary"));
+        let metadata = last
+            .and_then(|run| run.get("metadata"))
+            .and_then(normalize_metadata);
+        Ok(Self {
+            status,
+            latest_summary,
+            run_status,
+            run_error,
+            metadata,
+            run_summary,
+            completed_at,
+        })
+    }
+
+    /// 交付文件列表（`metadata.new_files`，绝对路径数组）。
+    ///
+    /// 只接受字符串数组；单条字符串不认（契约写的是数组，宽松解析会把
+    /// 「一个恰好叫 new_files 的字符串字段」当成路径列表）。
+    pub fn new_files(&self) -> Vec<String> {
+        self.metadata
+            .as_ref()
+            .and_then(|meta| meta.get("new_files"))
+            .and_then(|value| value.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|item| item.as_str())
+                    .map(|item| item.trim().to_string())
+                    .filter(|item| !item.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// 执行报告文本：优先 `latest_summary`，其次最近一次 run 的 `summary`。
+    pub fn report_text(&self) -> Option<String> {
+        self.latest_summary
+            .as_ref()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .or_else(|| {
+                self.run_summary
+                    .as_ref()
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty())
+            })
+    }
+}
+
+/// 取字符串字段（空串视为缺失）。
+fn text_field(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(|item| item.as_str())
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+}
+
+/// `metadata` 归一化：对象原样、字符串再 parse 一次、其余（数字 / 数组 / null）丢弃。
+fn normalize_metadata(value: &serde_json::Value) -> Option<serde_json::Value> {
+    match value {
+        serde_json::Value::Object(_) => Some(value.clone()),
+        serde_json::Value::String(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+            serde_json::from_str::<serde_json::Value>(trimmed)
+                .ok()
+                .filter(|parsed| parsed.is_object())
+        }
+        _ => None,
+    }
+}
+
+/// 看板 slug 校验：小写字母开头，只含小写字母 / 数字 / 连字符，1–32 字符。
+///
+/// 它会进命令行参数（`--board <slug>`），因此与 profile 名同一套规矩。
+pub fn validate_board_slug(slug: &str) -> Result<(), ApiError> {
+    let ok = !slug.is_empty()
+        && slug.len() <= 32
+        && slug.starts_with(|c: char| c.is_ascii_lowercase())
+        && slug
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    if ok {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        400,
+        error_code::TASK_FIELD_INVALID,
+        format!(
+            "Hermes 看板 slug 不合法：{slug:?}（小写字母开头，只含小写字母/数字/连字符，1–32 字符）"
+        ),
+    ))
+}
+
+/// Hermes 任务 id 校验：`t_` + 十六进制/字母数字，长度 3–64。
+///
+/// 它同样进命令行参数，必须挡住 `--board` 之类的「看起来像 id 的选项」。
+pub fn validate_kanban_task_id(task_id: &str) -> Result<(), ApiError> {
+    let ok = task_id.len() >= 3
+        && task_id.len() <= 64
+        && !task_id.starts_with('-')
+        && task_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if ok {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        400,
+        error_code::TASK_FIELD_INVALID,
+        format!("Hermes 任务 id 不合法：{task_id:?}"),
+    ))
+}
+
+/// 幂等键校验：只允许 `[A-Za-z0-9:_-]`，1–128 字符。
+///
+/// 幂等键是「重复派活只产生一个 Hermes 任务」的唯一保证（验收项 4），
+/// 它的取值由云枢拼（`cailu-task:<uuid>`），但仍要在入口挡一次脏值 ——
+/// 它进的是命令行参数。
+pub fn validate_idempotency_key(key: &str) -> Result<(), ApiError> {
+    let ok = !key.is_empty()
+        && key.len() <= 128
+        && key
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '_' | '-' | '.'));
+    if ok {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        400,
+        error_code::TASK_FIELD_INVALID,
+        format!("幂等键不合法：{key:?}（只允许字母/数字/冒号/下划线/连字符/点，1–128 字符）"),
+    ))
 }
 
 /// 进程结果。

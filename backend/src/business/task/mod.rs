@@ -10,9 +10,10 @@
 //! | **T2** | 状态机（10 条白名单流转）+ 进度（工时加权汇总 / 手动 + 状态联动）+ 子任务 3 个接口 + `V0108` | 已交付 |
 //! | **T3** | 分派 / 转派 + 协作人（加/移除/列表）+ 通知分级（`force`）+ AI 分派按角色授予 | 已交付 |
 //! | **T4** | FS 依赖（加 / 删 / 列表 + 环检测 + 进 DOING 前置校验）+ 前置完成/取消联动 + 只读甘特数据 | 已交付 |
-//! | T5 | AI 执行者（`user_type=ROBOT` + 禁登录 + API 流程） | 待做 |
+//! | **T5** | AI 执行者（`user_type=ROBOT` + 禁登录 + API 流程） | 已交付 |
+//! | **T5b** | 云枢 ↔ Hermes kanban：派活（`dispatch-ai`）/ 任务级令牌（`middleware::task_token`）/ 30s 轮询 + done 三层回传（→ `REVIEW`）/ `ai-progress` / 统计 `exec_mode` 维度（`V0112`） | 已交付 |
 //! | T6 | 前端 4 页（看板 / 我的 / 我分派的 / 详情）+ 快速添加 | 待做 |
-//! | T7 | 甘特图 + 提醒定时任务 + 基础统计 | 待做 |
+//! | T7 | 甘特图 + 提醒定时任务 + 基础统计（**统计接口的 `exec_mode` 维度已在 T5b 交付**：`GET /business/task/stats`） | 待做 |
 //!
 //! # 本卡（T1）落地的 6 个接口
 //!
@@ -69,5 +70,6 @@
 pub mod dep;
 pub mod dto;
 pub mod handler;
+pub mod hermes_sync;
 pub mod model;
 pub mod state;
