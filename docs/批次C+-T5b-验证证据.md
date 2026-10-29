@@ -258,10 +258,25 @@ C7 G1–G6              PASS（21 个 record 调用点全部在事务内）
 | 真实端到端 | §四（生产库、生产二进制、真实 AI worker） |
 
 ### 7.3 生产运行前置（运维必读，写进 `docs/Hermes集成部署记录-144.md`）
-
 1. **`CLOUDPIVOT_AIAGENT_HERMES_BIN`**：Hermes 升级会换掉 CLI 路径。v0.15.2 是 `…/venv/bin/hermes`，v0.22.5 是 `/root/.hermes/hermes-agent/hermes`。路径错 → 轮询整轮失败（按红线不改任务状态），表象是「AI 跑完了但云枢一直 DOING」。
 2. **AI profile 必须开 `approvals.mode: "off"`**：kanban worker 无人值守，任何「危险命令」都会等审批，60 秒后返回 `BLOCKED: User denied this command`，任务只会烧完迭代预算。同时把 `agent.max_turns` 调到 ≥200（真实任务要跑几十轮工具调用）。
 3. **改框架补丁后必须 `cargo clean -p alun-web --release`**：`scripts/patch-alun-web.sh` 改的是 registry 源码，而 cargo 对 registry 依赖**不按 mtime 重编**（按 crate 校验和），release 会静默继续链旧 rlib。
+
+### 7.4 §6.2 第 4/5 条：前端产物与真实可见性（走 nginx :80）
+
+本卡**没有前端改动**（T6 的 4 个页面仍待做），所以 `frontend/dist` 沿用上一版构建产物；可见性按
+「真实账号走 nginx 能否拿到数据」验证：
+
+```
+[1] nginx 登录 admin                        -> HTTP 200 code=0 token_chars=461 user=admin
+[2] GET /api/business/task/stats            -> HTTP 200 code=0 bytes=539
+    GET /api/business/task/page?page_size=1 -> HTTP 200 code=0 bytes=544
+    GET /api/business/task/my               -> HTTP 200 code=0 bytes=1048
+[3] 前端首页 /                              -> HTTP 200 bytes=609 含 vue 入口=True
+[4] 匿名 GET /api/business/task/stats       -> HTTP 401 {"code":401,"msg":"未授权访问，请先登录"}
+```
+
+（`/stats` 返回 539 字节是因为 §十一 已清理夹具，窗口内无任务 —— HUMAN / AI 两行仍按契约返回。）
 
 ---
 
