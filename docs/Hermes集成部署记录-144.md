@@ -60,7 +60,7 @@ CLOUDPIVOT_AIAGENT_CLONE_FROM=agent-template
 
 ## 五、运维注意
 
-1. **两个环境各有一套 Hermes**：99（开发/我的工作机，v0.22.5）、144（生产，v0.15.2）
+1. **两个环境各有一套 Hermes**：99（开发/我的工作机，v0.22.5）、144（生产，**2026-10-29 已由 v0.15.2 升到 v0.22.5**）
    - profile / workspace **不共享**，是两套独立数据
    - 云枢只操作 144 的这一套
 2. **升级谨慎**：PyPI 的 0.15.2 与 99 的 0.22.5 有 CLI 差异（如 `-c` 在 0.15.2 是"继续会话"不是"执行命令"）。升级前先验证 `profile create/describe/kanban` 三个命令的参数没变。
@@ -68,12 +68,32 @@ CLOUDPIVOT_AIAGENT_CLONE_FROM=agent-template
 4. **首次装完 profile 列表里只有 `default`**，需要 `agent-template` 作为 clone 源（已建）。
 5. 建 AI 用户失败时先查：
    - `CLOUDPIVOT_AIAGENT_CLONE_FROM` 指向的 profile 是否存在
-   - `/root/.hermes/hermes-agent/venv/bin/hermes` 是否可执行
+   - `CLOUDPIVOT_AIAGENT_HERMES_BIN` 指向的 CLI 是否可执行
+     （**v0.15.2**：`/root/.hermes/hermes-agent/venv/bin/hermes`；**v0.22.5**：`/root/.hermes/hermes-agent/hermes`。
+     升级会换路径 —— 路径错的表现是「AI 跑完了，云枢一直 DOING」，因为轮询失败按红线不改任务状态）
    - `journalctl -u cloudpivot` 里的 64005/64006 错误码
 
-## 六、待办（T5b 阶段）
+## 六、T5b 已落地（原待办已清）
 
-- AI 用户目前只能**创建/编辑/删除 profile**（L1）
-- **派任务给 AI**（调 `hermes kanban create`）属于 **T5b**，届时需要：
-  - 确认 144 的 v0.15.2 支持 `kanban` 子命令（待验证！99 的 0.22.5 支持）
-  - 若 0.15.2 无 kanban → 要么升级 144 的 Hermes，要么改走 HTTP API
+- **派任务给 AI**：`POST /api/business/task/{id}/dispatch-ai` → `hermes kanban --board dev create … --json`；
+  body 里带**任务级令牌**（`cpai_` + 64 hex，库内只存 sha256），AI 用它在**本任务**上传附件 / 写评论。
+- **状态回传**：云枢每 30 秒 `hermes kanban show <id> --json` → ready/queued→TODO、running→DOING、
+  done→三层回传后 **REVIEW**（2A）、failed/blocked/404 各有处理；**同一状态只回传一次**。
+- kanban 子命令在 v0.15.2 与 v0.22.5 上都已实测可用，`--body/--idempotency-key/--workspace/--max-runtime/--json` 参数一致。
+
+### T5b 期间新增的三条运维约束
+
+1. **`CLOUDPIVOT_AIAGENT_HERMES_BIN`** 必须跟着 Hermes 升级改（见 §五 第 5 条）。
+2. **AI 执行者 profile 必须关审批、放开迭代预算**：
+   ```yaml
+   agent:
+     max_turns: 200     # 真实任务要跑几十轮工具调用
+   approvals:
+     mode: "off"        # kanban worker 无人值守，任何「危险命令」会等审批 → 60s 后判「用户拒绝」
+     cron_mode: approve
+   ```
+   不开这一项的字面表现：`BLOCKED: User denied this command. The user has NOT consented…`，然后任务 `blocked`。
+3. **改 `scripts/patch-alun-web.sh` 后必须 `cargo clean -p alun-web --release`**：补丁改的是
+   registry 源码，而 cargo 对 registry 依赖按 crate 校验和判定，**不会因为源码 mtime 变化重编** ——
+   否则 release 会静默链着打补丁前的 `alun-web`（T5b 实测：任务令牌被当作坏 JWT，一律 401
+   「Token 无效或已过期」；`grep -ac is_ignored_path target/release/cloudpivot` 应为 1）。
