@@ -192,18 +192,35 @@ BEGIN
         RAISE EXCEPTION 'V0085 自检失败：有 % 条变更日志授权落在非 SUPER_ADMIN/AUDITOR 角色上', leaked;
     END IF;
 
-    -- 4.4 已由 V0087 / V0088 种好的用户侧入口仍须在（本迁移不动它们，只做回归断言）
-    IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = ann_page AND deleted_at IS NULL) THEN
-        RAISE EXCEPTION 'V0085 自检失败：公告中心 % 不存在（应由 V0087 种下）', ann_page;
+    -- 4.4 用户侧入口（公告中心 / 帮助中心 / 两个 read 按钮）由 V0087、V0088 种下。
+    --
+    -- ⚠ 时序修正（2026-10-29 生产部署事故）：这两个迁移的**版本号大于 V0085**，
+    --   按版本号升序执行时它们在 V0085 之后才跑，因此**首次部署时必然还不存在**。
+    --   原实现在此硬断言它们存在 → 首次 `cargo run` 迁移直接 FATAL 失败
+    --   （已复现：'V0085 自检失败：公告中心 ...0700 不存在（应由 V0087 种下）'）。
+    --
+    -- 现改为：**存在才做一致性校验，不存在则跳过**（首次部署的正常路径）。
+    -- 若将来需要在 V0087/V0088 之后做回归校验，应当新增一个号更大的断言迁移，
+    -- 而不是在本迁移里假设后序迁移已完成。
+    IF EXISTS (SELECT 1 FROM sys_menu WHERE id = ann_page AND deleted_at IS NULL) THEN
+        IF NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE menu_id = ann_page) THEN
+            RAISE EXCEPTION 'V0085 自检失败：公告中心 % 已存在但未授权给任何角色', ann_page;
+        END IF;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = ann_btn AND deleted_at IS NULL) THEN
-        RAISE EXCEPTION 'V0085 自检失败：business:announcement:read 按钮 % 不存在（应由 V0087 种下）', ann_btn;
+    IF EXISTS (SELECT 1 FROM sys_menu WHERE id = ann_btn AND deleted_at IS NULL) THEN
+        IF NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE menu_id = ann_btn) THEN
+            RAISE EXCEPTION 'V0085 自检失败：announcement:read 按钮 % 已存在但未授权', ann_btn;
+        END IF;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = help_page AND deleted_at IS NULL) THEN
-        RAISE EXCEPTION 'V0085 自检失败：帮助中心 % 不存在（应由 V0088 种下）', help_page;
+    IF EXISTS (SELECT 1 FROM sys_menu WHERE id = help_page AND deleted_at IS NULL) THEN
+        IF NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE menu_id = help_page) THEN
+            RAISE EXCEPTION 'V0085 自检失败：帮助中心 % 已存在但未授权给任何角色', help_page;
+        END IF;
     END IF;
-    IF NOT EXISTS (SELECT 1 FROM sys_menu WHERE id = help_read AND deleted_at IS NULL) THEN
-        RAISE EXCEPTION 'V0085 自检失败：system:help:read 按钮 % 不存在（应由 V0088 种下）', help_read;
+    IF EXISTS (SELECT 1 FROM sys_menu WHERE id = help_read AND deleted_at IS NULL) THEN
+        IF NOT EXISTS (SELECT 1 FROM sys_role_menu WHERE menu_id = help_read) THEN
+            RAISE EXCEPTION 'V0085 自检失败：help:read 按钮 % 已存在但未授权', help_read;
+        END IF;
     END IF;
 END
 $$;
