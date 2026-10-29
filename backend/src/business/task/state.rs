@@ -666,6 +666,10 @@ impl TransitionCheckError {
 ///
 /// - [`TransitionCheckError::ApprovalPending`] → `409 + 65030`；
 /// - [`TransitionCheckError::Transition`] → 沿用 `authorize` 的三档（`400/63013`、`403/63011`、`409/63010`）。
+// 8 个入参就是「状态机 + 门闸」的全部判定输入（身份 / 起止态 / 角色 / 验收开关 / 原因 / 实例 id / 实例状态）。
+// 打包成结构体只会让每个调用点多一层构造，而不减少任何误用（参数都是必填的原始值），
+// 故沿用仓内既有做法（announcement / changelog 的同款 allow）。
+#[allow(clippy::too_many_arguments)]
 pub fn check_transition(
     actor: ActorKind,
     from: TaskStatus,

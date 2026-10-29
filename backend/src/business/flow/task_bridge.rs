@@ -240,12 +240,8 @@ struct CallbackTaskRow {
 /// 重复回调（同一条审批单被两次 settle）时，任务已不在 `REVIEW` →
 /// `callback_transition` 返回 `IllegalPair` → 记一条 `debug` 后返回 `None`，不报错。
 pub async fn on_instance_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
-    let Some(instance_id) = instance_id else {
-        return None;
-    };
-    let Some(target) = settle_target(instance_status) else {
-        return None;
-    };
+    let instance_id = instance_id?;
+    let target = settle_target(instance_status)?;
 
     match settle(instance_id, target).await {
         Ok(task_id) => {
