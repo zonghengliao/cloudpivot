@@ -17,8 +17,16 @@
  * 配色方案切换（6 套 × 明暗）与暗色模式下，徽标必须跟着变。
  */
 
-/** 徽标域：本期只实现 task，另两套为后续扩展位 */
-export type StatusDomain = 'task' | 'announcement' | 'import';
+/** 徽标域：task / announcement / import / 审批流（流程定义 + 审批实例 + 节点 + 任务 + 抄送） */
+export type StatusDomain =
+  | 'task'
+  | 'announcement'
+  | 'import'
+  | 'flow-def'
+  | 'flow-instance'
+  | 'flow-node'
+  | 'flow-task'
+  | 'flow-cc';
 
 /** TDesign `t-tag` 的主题取值 */
 export type StatusTagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
@@ -75,6 +83,71 @@ const TASK_STATUS_MAP: Record<string, StatusMeta> = {
 };
 
 /**
+ * 审批流状态映射（批次 D · D5）。
+ *
+ * 三套域：
+ * - `flow-def`：流程定义 `DRAFT|PUBLISHED|DISABLED`（**停用叫 DISABLED，不是 OFFLINE**，
+ *   与 D1 的 `dto::DEF_STATUSES` 逐字一致）；
+ * - `flow-instance`：审批实例 `RUNNING|APPROVED|REJECTED|WITHDRAWN|VOID|CANCELLED`（PRD §3.3.1）；
+ * - `flow-node`：节点实例 `PENDING|ACTIVE|APPROVED|REJECTED|SKIPPED|TERMINATED`（PRD §3.4）；
+ * - `flow-task`：审批任务 `PENDING|APPROVED|REJECTED|SKIPPED|TERMINATED|TRANSFERRED|DELEGATED`（PRD §3.5）。
+ *
+ * 实例侧接口由 D2 交付，这里先按 PRD 的状态机落表 —— D2 上线若改了字面量，
+ * 未知状态会走兜底显示原值，不会白屏（见 {@link statusMeta}）。
+ */
+const FLOW_DEF_STATUS_MAP: Record<string, StatusMeta> = {
+  DRAFT: { label: '草稿', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+  PUBLISHED: { label: '已发布', theme: 'success', dotVar: 'var(--td-success-color)' },
+  DISABLED: { label: '已停用', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+};
+
+/** 版本状态（`PUBLISHED` 之外还有 `ARCHIVED`：被新版本取代的旧发布版） */
+const FLOW_VERSION_STATUS_MAP: Record<string, StatusMeta> = {
+  DRAFT: { label: '草稿', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+  PUBLISHED: { label: '已发布', theme: 'success', dotVar: 'var(--td-success-color)' },
+  ARCHIVED: { label: '已归档', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+};
+
+/** 审批实例状态 */
+const FLOW_INSTANCE_STATUS_MAP: Record<string, StatusMeta> = {
+  RUNNING: { label: '审批中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  // 架构 §10.4.1 的旧样例用的是 PENDING，兼容一下（后端若按旧样例实现也不会显示成灰）
+  PENDING: { label: '审批中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  APPROVED: { label: '已通过', theme: 'success', dotVar: 'var(--td-success-color)' },
+  REJECTED: { label: '已驳回', theme: 'danger', dotVar: 'var(--td-error-color)' },
+  WITHDRAWN: { label: '已撤回', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+  VOID: { label: '已作废', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+  CANCELLED: { label: '已取消', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+};
+
+/** 节点实例状态 */
+const FLOW_NODE_STATUS_MAP: Record<string, StatusMeta> = {
+  PENDING: { label: '未到达', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+  ACTIVE: { label: '审批中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  APPROVED: { label: '已通过', theme: 'success', dotVar: 'var(--td-success-color)' },
+  REJECTED: { label: '已驳回', theme: 'danger', dotVar: 'var(--td-error-color)' },
+  SKIPPED: { label: '已跳过', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+  TERMINATED: { label: '已中止', theme: 'warning', dotVar: 'var(--td-warning-color)' },
+};
+
+/** 审批任务状态 */
+const FLOW_TASK_STATUS_MAP: Record<string, StatusMeta> = {
+  PENDING: { label: '待处理', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  APPROVED: { label: '已同意', theme: 'success', dotVar: 'var(--td-success-color)' },
+  REJECTED: { label: '已驳回', theme: 'danger', dotVar: 'var(--td-error-color)' },
+  SKIPPED: { label: '已跳过', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
+  TERMINATED: { label: '已中止', theme: 'warning', dotVar: 'var(--td-warning-color)' },
+  TRANSFERRED: { label: '已转办', theme: 'default', dotVar: 'var(--td-text-color-secondary)' },
+  DELEGATED: { label: '已委托', theme: 'default', dotVar: 'var(--td-text-color-secondary)' },
+};
+
+/** 抄送阅读状态（`CcRes.is_read` 是布尔，这里映射成两个字面量给徽标用） */
+const FLOW_CC_STATUS_MAP: Record<string, StatusMeta> = {
+  UNREAD: { label: '未读', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  READ: { label: '已读', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+};
+
+/**
  * 全部域的映射表。
  *
  * `announcement` / `import` 为**扩展位**：留空对象，等对应页面迁移时填充。
@@ -86,7 +159,18 @@ export const STATUS_MAP: Record<StatusDomain, Record<string, StatusMeta>> = {
   announcement: {},
   // TODO(批次C+·T6 后续小卡)：把导入/导出任务的状态抽到这里
   import: {},
+  'flow-def': FLOW_DEF_STATUS_MAP,
+  'flow-instance': FLOW_INSTANCE_STATUS_MAP,
+  'flow-node': FLOW_NODE_STATUS_MAP,
+  'flow-task': FLOW_TASK_STATUS_MAP,
+  'flow-cc': FLOW_CC_STATUS_MAP,
 };
+
+/** 版本状态徽标（`flow-def` 域之外单独一套：`ARCHIVED` 只出现在版本列表里） */
+export function flowVersionStatusMeta(status: string): StatusMeta {
+  const key = (status ?? '').toString().trim().toUpperCase();
+  return FLOW_VERSION_STATUS_MAP[key] ?? { ...FALLBACK_META, label: key || FALLBACK_META.label };
+}
 
 /** 未知状态的兜底元信息（原样显示状态字面量，灰色） */
 const FALLBACK_META: StatusMeta = {

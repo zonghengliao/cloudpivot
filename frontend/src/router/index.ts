@@ -264,6 +264,50 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '项目', permission: 'business:project:read' },
       },
       {
+        // ==================== 批次 D（工作流审批 · D5） ====================
+        // `/flow/def` 与 `sys_menu.path`（V0121 种子 …0780）逐字一致。
+        // 注意 V0121 把该菜单种成 `is_visible = FALSE`（D1 当时还没有页面，避免坏链接），
+        // 本卡交付页面后可以直接按 URL 访问；是否放进侧栏由 D6 用一条 UPDATE 打开，
+        // 前端**不改后端迁移**（卡面「工作方式」）。
+        //
+        // 权限口径：定义侧两条用 `business:flow:read`（V0121）；
+        // 实例侧三条用 D2 的 V0124 码（instance:create / instance:read）。
+        // 注意 V0124 只种码不授权 —— 非超管角色需要在「角色管理」里勾选后才看得到这几个页面。
+        path: 'flow/def',
+        name: 'BusinessFlowDef',
+        component: () => import('@/views/business/flow/def/index.vue'),
+        meta: { title: '流程定义', permission: 'business:flow:read' },
+      },
+      {
+        // 流程编辑器：三栏（节点面板 / SVG 画布 / 属性面板）。
+        // 已发布版本进这里是**只读**的（后端 `version.editable=false` 驱动，不是前端藏按钮）。
+        path: 'flow/def/:id/edit',
+        name: 'BusinessFlowDefEdit',
+        component: () => import('@/views/business/flow/def/edit.vue'),
+        meta: { title: '流程编辑器', permission: 'business:flow:read' },
+      },
+      {
+        // 发起审批：只列 PUBLISHED 流程；提交走实例侧接口。
+        path: 'flow/start',
+        name: 'BusinessFlowStart',
+        component: () => import('@/views/business/flow/start/index.vue'),
+        meta: { title: '发起审批', permission: 'business:flow:instance:create' },
+      },
+      {
+        // 审批中心：待办 / 已办 / 我发起 / 抄送我的 四 Tab。
+        path: 'flow/task',
+        name: 'BusinessFlowTask',
+        component: () => import('@/views/business/flow/task/index.vue'),
+        meta: { title: '审批中心', permission: 'business:flow:instance:read' },
+      },
+      {
+        // 审批详情：进度条 + 时间线 + 操作区。
+        path: 'flow/instance/:id',
+        name: 'BusinessFlowInstance',
+        component: () => import('@/views/business/flow/instance/detail.vue'),
+        meta: { title: '审批详情', permission: 'business:flow:instance:read' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

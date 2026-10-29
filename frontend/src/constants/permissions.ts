@@ -249,7 +249,48 @@ export const PROJECT_PERMISSIONS = {
   projectDelete: 'business:project:delete',
 } as const;
 
-/** 全部权限码合集（批次 A + B + C + C+；`PERM.xxx` 是页面里唯一的取码方式） */
+/**
+ * 审批流权限码（批次 D · D1 定义侧 5 个，`business:flow:*`）。
+ *
+ * 与 `backend/migrations/business/V0121__flow_def_permissions.up.sql` 的 5 个
+ * `auth_code` 逐字一致（第 6 个节点 …0780 是页面本身，auth_code 复用 `read`）；
+ * 后端注解在 `backend/src/business/flow/handler.rs`。三处任一处改名都要同步。
+ *
+ * # 实例侧码位（D2 追加，页面里**先不用**）
+ *
+ * 架构 §10.2 规划了 `business:flow:instance:read/create` / `business:flow:approve` /
+ * `business:flow:stats:read` / `business:flow:admin`，但 V0121 只种了定义侧 5 个 ——
+ * 本卡（D5）的实例侧页面因此在路由上用 `business:flow:read` 守门（已有码），
+ * 等 D2/D3 把实例侧码种进 `sys_menu` 后再换成细码，**不在这里提前写不存在的码**。
+ */
+export const FLOW_PERMISSIONS = {
+  /** 查看流程定义 / 版本 / 图（同时是「流程定义」菜单的入口码） */
+  flowRead: 'business:flow:read',
+  /** 新建流程（自动建 v1 草稿） */
+  flowCreate: 'business:flow:create',
+  /** 编辑元信息 / 保存整图 / 另存草稿 / 校验 */
+  flowUpdate: 'business:flow:update',
+  /** 删除流程（软删） */
+  flowDelete: 'business:flow:delete',
+  /** 发布 / 停用 */
+  flowPublish: 'business:flow:publish',
+} as const;
+
+/** 实例侧权限码（D2 · V0124 已种，父节点 = D1 的流程定义页面） */
+export const FLOW_INSTANCE_PERMISSIONS = {
+  /** 发起审批 */
+  flowInstanceCreate: 'business:flow:instance:create',
+  /** 查看审批单 / 待办 / 已办 / 抄送 */
+  flowInstanceRead: 'business:flow:instance:read',
+  /** 撤回自己发起的（零人已审才允许） */
+  flowInstanceWithdraw: 'business:flow:instance:withdraw',
+  /** 审批（同意 / 驳回 / 转办 / 加签 / 批量） */
+  flowApprove: 'business:flow:approve',
+  /** 流程管理员（退回任意节点 / 终止） */
+  flowAdmin: 'business:flow:admin',
+} as const;
+
+/** 全部权限码合集（批次 A + B + C + C+ + D；`PERM.xxx` 是页面里唯一的取码方式） */
 export const PERM = {
   ...STORAGE_PERMISSIONS,
   ...IMPEXP_PERMISSIONS,
@@ -260,6 +301,8 @@ export const PERM = {
   ...CHANGELOG_PERMISSIONS,
   ...TASK_PERMISSIONS,
   ...PROJECT_PERMISSIONS,
+  ...FLOW_PERMISSIONS,
+  ...FLOW_INSTANCE_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */
