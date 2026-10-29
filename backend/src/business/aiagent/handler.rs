@@ -117,8 +117,9 @@ pub async fn create(
         .filter(|v| !v.is_empty())
     {
         Some(raw) => {
-            // 模板名同样进命令参数，必须同样校验（第二条注入面）
-            Hermes::validate_profile_name(raw)?;
+            // 模板名同样进命令参数，必须同样校验（第二条注入面）；
+            // 允许 `default`（Hermes 内置模板）—— 见 Hermes::validate_template_name。
+            Hermes::validate_template_name(raw)?;
             Some(raw.to_string())
         }
         None => None,

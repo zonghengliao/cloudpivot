@@ -272,6 +272,36 @@ impl Hermes {
         Ok(())
     }
 
+    /// 校验 `--clone-from` 的**模板名**（克隆来源 profile）。
+    ///
+    /// # 与 [`Self::validate_profile_name`] 的唯一差别：允许 `default`
+    ///
+    /// `default` 是 Hermes 内置的默认 profile，也是「新建 AI 员工」时最自然的模板。
+    /// `RESERVED_PROFILE_NAMES` 的语义是「**不许新建**一个叫 default 的 profile」
+    /// —— 它不适用于「从谁那儿克隆」。把这条规则套到克隆来源上，会让
+    /// `clone_from = "default"` 这条正当请求直接 `400 + 64002`
+    /// （HEAD 8f0c7f2 把默认模板从 `manong` 改成 `default` 后就是这么挂的：
+    /// 单测 `create_profile_failure_is_reported_with_stderr` 报 64002 而不是 64005）。
+    ///
+    /// # 安全检查没有放松
+    ///
+    /// 模板名同样会进命令行参数，所以**正则与长度照样校验**（注入面还是那一处）。
+    ///
+    /// # 异常情况
+    ///
+    /// 非法返回 `400 + AI_AGENT_PROFILE_INVALID`。
+    pub fn validate_template_name(name: &str) -> Result<(), ApiError> {
+        if name.is_empty() {
+            return Err(Self::profile_name_error("模板 profile 名不能为空"));
+        }
+        if !PROFILE_NAME_RE.is_match(name) {
+            return Err(Self::profile_name_error(&format!(
+                "模板 profile 名不合法：{name:?}（必须以小写字母开头，只含小写字母/数字/连字符，长度 2–31）"
+            )));
+        }
+        Ok(())
+    }
+
     fn profile_name_error(message: &str) -> ApiError {
         ApiError::new(
             400,
@@ -326,8 +356,9 @@ impl Hermes {
     ) -> Result<(), ApiError> {
         Self::validate_profile_name(name)?;
         if let Some(template) = clone_from {
-            // 模板名同样进参数，必须同样校验（否则这里就是第二条注入面）
-            Self::validate_profile_name(template)?;
+            // 模板名同样进参数，必须同样校验（否则这里就是第二条注入面）；
+            // 但**允许 `default`** —— 它是内置模板，见 validate_template_name 的说明。
+            Self::validate_template_name(template)?;
         }
         let mut argv = vec![
             "profile".to_string(),
@@ -1138,6 +1169,28 @@ mod tests {
         // 同上，末尾锚定：`agent-1!` 的子串 `agent-1` 不能算命中
         assert!(!PROFILE_NAME_RE.is_match("agent-1!"));
         assert!(!PROFILE_NAME_RE.is_match("agent-1x\n"));
+    }
+
+    /// 模板名校验：允许 `default`，但**新建 profile 名**仍不许叫 default；注入字符照旧拒绝。
+    ///
+    /// 这条守的是「克隆来源 vs 新建名字」两类输入的语义差：合成一个校验函数
+    /// 就会二选一地牺牲一方（HEAD 8f0c7f2 牺牲的是「从 default 克隆」）。
+    #[test]
+    fn template_name_allows_reserved_default() {
+        assert!(
+            Hermes::validate_template_name("default").is_ok(),
+            "default 是内置模板，克隆来源必须允许"
+        );
+        assert!(Hermes::validate_template_name("agent-1").is_ok());
+        // 新建名字仍然不许占用默认 profile
+        assert!(
+            Hermes::validate_profile_name("default").is_err(),
+            "新建一个叫 default 的 profile 必须被拒"
+        );
+        // 注入面没有放松
+        assert!(Hermes::validate_template_name("abc; rm -rf /").is_err());
+        assert!(Hermes::validate_template_name("").is_err());
+        assert!(Hermes::validate_template_name("1agent").is_err());
     }
 
     /// `shell_quote` 的产物交给真 shell 后必须还原成原串（6 类危险输入）。
