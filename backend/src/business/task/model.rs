@@ -72,6 +72,7 @@ use alun::uuid::Uuid;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
+use crate::business::task::state::{self, ChildSnapshot, TaskStatus};
 
 // ==================== 数据权限锚点 ====================
 
@@ -1299,6 +1300,442 @@ pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult
         }
     }
     Ok(())
+}
+
+// ==================== 状态机 / 进度（T2） ====================
+//
+// 本段的每个函数都只做「一件事」，状态机规则本身全部在 [`crate::business::task::state`]
+// （纯函数、可无库单测）。这里只负责把它翻译成 SQL。
+//
+// 三条写路径的边界（改这里之前先读）：
+//   ① **状态流转** [`apply_status`]：只写 `biz_task` 的 5 个列，不碰子任务、不碰父任务；
+//   ② **进度汇总** [`recalc_ancestors`]：**只由子任务变更触发**，沿 `parent_id` 向上逐级；
+//   ③ **进度直改** [`set_progress`]：**有子任务时必须先被 handler 拦下来**（409 + 63012），
+//      本函数不做这项判断 —— 它拿不到「谁在调」，把闸放在 handler 是刻意的（一处判定）。
+
+/// 父任务链向上重算的最大深度（防御性上限：`parent_id` 成环时不会死循环）。
+///
+/// 业务上限是 2 层（T1 的 `validate_parent`），这里给 8 层是留给将来放宽深度的余量，
+/// 同时保证「数据被手工改环」时也能停下来（配合 [`recalc_ancestors`] 的 visited 集合）。
+pub const MAX_PARENT_DEPTH: usize = 8;
+
+/// 父任务重算后是否写一条 `PROGRESS_AUTO` 评论（「可配置静默」的开关）。
+///
+/// 默认 `true`：进度是任务卡上最显眼的数字，被自动改动必须留痕（谁在什么时候
+/// 把 60% 变成 80%、因为哪个子任务）。**只有进度真的变了才写**，所以不会刷屏。
+/// 将来接 `sys_config` 时把这里换成配置读取即可，调用方不用改。
+pub const PROGRESS_AUTO_COMMENT: bool = true;
+
+/// 子任务快照行（聚合口径只需要 `status` / `progress` / `estimate_hours`）。
+#[derive(Debug, Clone)]
+pub struct ChildRow {
+    /// 子任务 ID。
+    pub id: Uuid,
+    /// 状态字面量。
+    pub status: String,
+    /// 进度 0~100。
+    pub progress: i16,
+    /// 预估工时（小时，可空）。
+    pub estimate_hours: Option<f64>,
+}
+
+impl ChildRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            status: row.get_typed("status")?,
+            progress: row.get_typed("progress")?,
+            estimate_hours: row.get_typed("estimate_hours")?,
+        })
+    }
+
+    /// 转成纯逻辑层的快照（状态字符串解析失败按 `TODO` 处理，不 panic）。
+    pub fn snapshot(&self) -> ChildSnapshot {
+        ChildSnapshot {
+            status: TaskStatus::parse(&self.status).unwrap_or(TaskStatus::Todo),
+            progress: self.progress,
+            estimate_hours: self.estimate_hours,
+        }
+    }
+}
+
+/// 子任务清单（按创建顺序；`deleted_at IS NULL`）。
+///
+/// 通用执行器版本：既能吃 `&Transaction`（写路径重算），也能吃 `db()`（读路径）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+async fn child_rows_with(ex: &impl SqlExecutor, parent_id: Uuid) -> DbResult<Vec<ChildRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, status, progress, estimate_hours::float8 AS estimate_hours \
+               FROM biz_task \
+              WHERE parent_id = ?::uuid AND deleted_at IS NULL \
+              ORDER BY created_at ASC, id ASC"
+                .to_string(),
+            vec![Value::from(&parent_id)],
+        )
+        .await?;
+    rows.iter().map(ChildRow::from_row).collect()
+}
+
+/// 子任务清单（读路径：`GET /{id}/subtasks`、进度锁定判定）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn children_of(parent_id: Uuid) -> DbResult<Vec<ChildRow>> {
+    child_rows_with(db(), parent_id).await
+}
+
+/// 把子任务行投影成纯逻辑层的快照（聚合 / 锁定判定的入参）。
+pub fn snapshots_of(children: &[ChildRow]) -> Vec<ChildSnapshot> {
+    children.iter().map(ChildRow::snapshot).collect()
+}
+
+/// 任务的三列「人」（状态机判权用）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn people_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<state::TaskPeople>> {
+    let rows = ex
+        .query_sql(
+            "SELECT owner_id, creator_id, assigner_id FROM biz_task \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(state::TaskPeople {
+        owner_id: row.get_typed("owner_id")?,
+        creator_id: row.get_typed("creator_id")?,
+        assigner_id: row.get_typed("assigner_id")?,
+    }))
+}
+
+/// 状态流转的写库载荷（由 handler 依 [`crate::business::task::state::Transition`] 构造）。
+#[derive(Debug, Clone, Default)]
+pub struct StatusUpdate {
+    /// 目标状态字面量。
+    pub to: String,
+    /// 新进度（`None` = 不动；有子任务的任务恒为 `None`）。
+    pub progress: Option<i16>,
+    /// `done_at` 的三态写法：`None` = 不动 / `Some(None)` = 清空 / `Some(Some(t))` = 写 t。
+    ///
+    /// 时间点在 **Rust 侧算好**再绑定（不写 SQL 的 `now()`）：变更日志的 diff 必须与
+    /// 库里落的是**同一个**值，否则审计里会出现「日志说 12:00:00.001、库里 12:00:00.002」。
+    pub done_at: Option<Option<chrono::DateTime<chrono::Utc>>>,
+    /// 打回原因（`REVIEW → DOING` 时写）。
+    pub reject_reason: Option<String>,
+    /// 取消原因（可选）。
+    pub cancel_reason: Option<String>,
+}
+
+/// 落库一次状态流转（**只碰本行**，副作用由调用方另行处理）。
+///
+/// # 返回值
+///
+/// 受影响行数（0 = 任务不存在 / 已软删）。
+///
+/// # 异常情况
+///
+/// 数据库异常（含 `ck_biz_task_status` 违约）→ [`DbError`]。
+pub async fn apply_status(
+    ex: &Transaction,
+    id: Uuid,
+    update: &StatusUpdate,
+    operator: Uuid,
+) -> DbResult<u64> {
+    let mut sets: Vec<&'static str> = vec!["status = ?"];
+    let mut params: Vec<Value> = vec![Value::Text(update.to.clone())];
+
+    if let Some(progress) = update.progress {
+        sets.push("progress = ?::smallint");
+        params.push(Value::I16(progress));
+    }
+    match update.done_at {
+        None => {}
+        // 清空与写值分成两条**静态** SQL 片段：`?::timestamptz` 绑 NULL 在驱动层不可靠
+        // （alun-db 的参数编码按类型推断，NULL 会被推断成 text），所以清空直接写 `NULL`。
+        Some(None) => sets.push("done_at = NULL"),
+        Some(Some(stamp)) => {
+            sets.push("done_at = ?::timestamptz");
+            params.push(Value::from(stamp));
+        }
+    }
+    if let Some(reason) = update.reject_reason.as_ref() {
+        sets.push("reject_reason = ?");
+        params.push(Value::Text(reason.clone()));
+    }
+    if let Some(reason) = update.cancel_reason.as_ref() {
+        sets.push("cancel_reason = ?");
+        params.push(Value::Text(reason.clone()));
+    }
+    sets.push("updated_at = now()");
+    sets.push("update_by = ?::uuid");
+    params.push(Value::from(&operator));
+    params.push(Value::from(&id));
+
+    let sql = format!(
+        "UPDATE biz_task SET {} WHERE id = ?::uuid AND deleted_at IS NULL",
+        sets.join(", ")
+    );
+    ex.execute_with_params(&sql, params).await
+}
+
+/// 直接改进度（**无子任务的任务才允许**；有子任务的闸在 handler 侧）。
+///
+/// # 返回值
+///
+/// 受影响行数（0 = 任务不存在 / 已软删）。
+///
+/// # 异常情况
+///
+/// 数据库异常（含 `ck_biz_task_progress` 越界）→ [`DbError`]。
+pub async fn set_progress(
+    ex: &Transaction,
+    id: Uuid,
+    progress: i16,
+    operator: Uuid,
+) -> DbResult<u64> {
+    ex.execute_with_params(
+        "UPDATE biz_task SET progress = ?::smallint, updated_at = now(), update_by = ?::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL",
+        vec![
+            Value::I16(progress),
+            Value::from(&operator),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 写一条任务评论（状态变更 / 进度自动汇总都走它）。
+///
+/// `comment_type` 是 `V0108` 新增的列：`PLAIN` / `STATUS_CHANGE` / `PROGRESS_AUTO`。
+/// 状态流转的评论**必须**用 `STATUS_CHANGE`（前端详情页的时间线按它画箭头），
+/// 否则「谁把任务改成了什么」会和普通闲聊混在一起。
+///
+/// # 返回值
+///
+/// 新评论 ID（UUIDv7，便于按时间排序）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn insert_comment(
+    ex: &Transaction,
+    task_id: Uuid,
+    user_id: Uuid,
+    content: &str,
+    comment_type: &str,
+    operator: Uuid,
+) -> DbResult<Uuid> {
+    let id = Uuid::now_v7();
+    ex.execute_with_params(
+        "INSERT INTO biz_task_comment \
+             (id, task_id, user_id, content, mentions, comment_type, \
+              created_at, updated_at, create_by, update_by) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?, '[]'::jsonb, ?, now(), now(), ?::uuid, ?::uuid)",
+        vec![
+            Value::from(&id),
+            Value::from(&task_id),
+            Value::from(&user_id),
+            Value::Text(content.to_string()),
+            Value::Text(comment_type.to_string()),
+            Value::from(&operator),
+            Value::from(&operator),
+        ],
+    )
+    .await?;
+    Ok(id)
+}
+
+/// 一次父任务重算的结果（通知与日志用）。
+#[derive(Debug, Clone)]
+pub struct ProgressRecalc {
+    /// 被重算的任务（父 / 祖父 …）。
+    pub task_id: Uuid,
+    /// 重算前。
+    pub old: i16,
+    /// 重算后。
+    pub new: i16,
+    /// 参与聚合的子任务数。
+    pub children: usize,
+    /// 子任务是否已全部完成（「待汇总」通知的触发条件）。
+    pub all_done: bool,
+    /// 聚合口径（「工时加权」/「等权平均」/「子任务全部完成」）。
+    pub mode: &'static str,
+}
+
+/// 沿 `parent_id` 向上逐级重算进度（**写路径**：子任务变更后调用）。
+///
+/// # 为什么是「写路径重算」而不是「读时计算」
+///
+/// 读路径（列表 / 详情 / 甘特图）每次都要聚合子任务 = 每条父任务多一次聚合查询，
+/// 一个 20 行的看板就是 20 次额外往返；而写操作是少数（一次状态变更 = 1 次重算）。
+/// 代价是「父任务进度可能短暂过期」—— 所以**所有**会改子任务进度的写路径
+/// （状态流转、进度直改、建子任务）都必须调用本函数，这是本段的唯一契约。
+///
+/// # 行为
+///
+/// - 从 `start` 的父任务开始，逐级向上（深度上限 [`MAX_PARENT_DEPTH`] + visited 防环）；
+/// - 每级用 [`state::aggregate_progress`] 算出新进度，**变了才写**；
+/// - 变了就写 `biz_task.progress` + 一条 `PROGRESS_AUTO` 评论（[`PROGRESS_AUTO_COMMENT`]）；
+/// - **绝不改状态**（架构 D5：父任务进度到 100% 也不自动 DONE）。
+///
+/// # 返回值
+///
+/// 每一级的重算结果（顺序：由近及远）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（由调用方的事务整体回滚）。
+pub async fn recalc_ancestors(
+    ex: &Transaction,
+    start: Uuid,
+    operator: Uuid,
+) -> DbResult<Vec<ProgressRecalc>> {
+    let mut results = Vec::new();
+    let mut visited = std::collections::BTreeSet::new();
+    let mut cursor = parent_of(ex, start).await?;
+    while let Some(parent_id) = cursor {
+        if visited.len() >= MAX_PARENT_DEPTH {
+            tracing::warn!(
+                task_id = %start,
+                depth = visited.len() as i64,
+                "父任务链过深（疑似成环），停止向上重算"
+            );
+            break;
+        }
+        if !visited.insert(parent_id) {
+            tracing::warn!(
+                task_id = %start,
+                parent_id = %parent_id,
+                "父任务链成环，停止向上重算"
+            );
+            break;
+        }
+        let children = child_rows_with(ex, parent_id).await?;
+        let snapshots: Vec<ChildSnapshot> = children.iter().map(ChildRow::snapshot).collect();
+        let Some(new_progress) = state::aggregate_progress(&snapshots) else {
+            // 没有（未删除的）子任务：这一级由手动进度维护，继续向上没有意义
+            break;
+        };
+        let old_progress = scalar_progress(ex, parent_id).await?;
+        let all_done = state::ready_to_close(&snapshots);
+        let mode = state::aggregation_label(&snapshots);
+        if old_progress != new_progress {
+            set_progress(ex, parent_id, new_progress, operator).await?;
+            if PROGRESS_AUTO_COMMENT {
+                insert_comment(
+                    ex,
+                    parent_id,
+                    operator,
+                    &format!(
+                        "进度自动汇总：{old_progress}% → {new_progress}%（{} 个子任务，{mode}）",
+                        snapshots.len()
+                    ),
+                    COMMENT_TYPE_PROGRESS_AUTO,
+                    operator,
+                )
+                .await?;
+            }
+            tracing::info!(
+                task_id = %parent_id,
+                old = i64::from(old_progress),
+                new = i64::from(new_progress),
+                children = snapshots.len() as i64,
+                "父任务进度已重算"
+            );
+        }
+        results.push(ProgressRecalc {
+            task_id: parent_id,
+            old: old_progress,
+            new: new_progress,
+            children: snapshots.len(),
+            all_done,
+            mode,
+        });
+        cursor = parent_of(ex, parent_id).await?;
+    }
+    Ok(results)
+}
+
+/// 评论类型：状态变更（时间线箭头）。
+pub const COMMENT_TYPE_STATUS_CHANGE: &str = "STATUS_CHANGE";
+
+/// 评论类型：进度自动汇总。
+pub const COMMENT_TYPE_PROGRESS_AUTO: &str = "PROGRESS_AUTO";
+
+/// 任务的父任务 ID（`None` = 顶层任务 / 不存在）。
+async fn parent_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
+    let rows = ex
+        .query_sql(
+            "SELECT parent_id FROM biz_task WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => row.get_typed("parent_id"),
+        None => Ok(None),
+    }
+}
+
+/// 任务的当前进度（重算前读旧值，只用于「变了才写」与评论）。
+async fn scalar_progress(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i16> {
+    let rows = ex
+        .query_sql(
+            "SELECT progress FROM biz_task WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => row.get_typed("progress"),
+        // 行不存在时按 0 处理：随后 `set_progress` 的 WHERE 会命中 0 行，
+        // 不会凭空造出一条进度。
+        None => Ok(0),
+    }
+}
+
+/// 用户是否开启站内信（`notify.inbox` 偏好，缺省 `true`）。
+///
+/// 通知分级（修正 8）：**强制**通知忽略本开关；普通通知尊重它。
+///
+/// # 为什么读偏好失败时返回 `true`（fail-open）
+///
+/// 这是「多收一条站内信」和「该知道的事没收到」之间的取舍：偏好表在、但读失败
+/// （缓存抖动 / 连接打满）时，静默丢掉通知的代价远大于多一条噪音。真正的
+/// fail-closed 场景（越权读数据）不在这条路径上。
+///
+/// # 异常情况
+///
+/// 不返回错误（数据库异常降级为 `true` 并记 WARN）。
+pub async fn inbox_enabled(user_id: Uuid) -> bool {
+    match crate::system::preference::model::load_values(db(), &user_id).await {
+        Ok(values) => values
+            .get("notify.inbox")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(true),
+        Err(error) => {
+            tracing::warn!(
+                user_id = %user_id,
+                error = %error,
+                "读取 notify.inbox 偏好失败，按开启处理"
+            );
+            true
+        }
+    }
 }
 
 // ==================== 单元测试（纯逻辑） ====================

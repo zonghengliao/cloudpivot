@@ -7,7 +7,7 @@
 //! | 卡 | 内容 | 状态 |
 //! |----|------|------|
 //! | **T1** | 7 张表（`V0100`/`V0101`）+ `sys_user.user_type`（`V0102`）+ 权限种子（`V0103`）+ 任务 CRUD + **可见性（scope ∪ 参与关系）** | 已交付 |
-//! | T2 | 状态机（8 条迁移）+ 进度（自动/手动 + 联动） | 待做 |
+//! | **T2** | 状态机（10 条白名单流转）+ 进度（工时加权汇总 / 手动 + 状态联动）+ 子任务 3 个接口 + `V0108` | 已交付 |
 //! | T3 | 分派 / 转派 / 拆子任务 + 协作人 + 评论 @ | 待做 |
 //! | T4 | 依赖（循环检测 + 阻塞校验 + 前置完成通知） | 待做 |
 //! | T5 | AI 执行者（`user_type=ROBOT` + 禁登录 + API 流程） | 待做 |
@@ -34,10 +34,12 @@
 //!
 //! # 与其它模块的边界
 //!
-//! - **变更日志**：T1 不写 `sys_change_log`。`changelog` 模块要求目标表先在
-//!   `changelog/diff.rs` 的 `REGISTRY` 登记（未登记会报 `62012`），而 `changelog`
-//!   是批次 C 的模块（本卡红线不动）。T2 落状态机时随「状态迁移留痕」一起登记。
-//! - **通知**：被分派 / 被拉协作 / 待验收的通知属 T3/T2，走 `business::notice::dispatch`。
+//! - **变更日志**：T1 不写 `sys_change_log`；**T2 已登记 `biz_task`**
+//!   （`changelog/diff.rs` 的 `REGISTRY`）并只记状态流转（`action = STATUS`）——
+//!   白名单字段：`status` / `progress` / `done_at` / `reject_reason` / `cancel_reason`。
+//!   编辑类字段（标题 / 优先级 / 负责人）的留痕属 T3（转派要记「原来是谁」）。
+//! - **通知**：走 `business::notice::dispatch`，按修正 8 分级（打回 / 待验收强制，
+//!   其它状态变更尊重 `notify.inbox`）；**通知失败不回滚业务**。
 //! - **附件**：`biz_task_attachment` 只落绑定关系，文件本体由 `business::storage` 管
 //!   （T1 建表，接口随 T3 的评论/附件一起做）。
 //! - **审批流**：`biz_task.approval_instance_id` 本批恒为 NULL（批次 D 预留）。
@@ -45,3 +47,4 @@
 pub mod dto;
 pub mod handler;
 pub mod model;
+pub mod state;

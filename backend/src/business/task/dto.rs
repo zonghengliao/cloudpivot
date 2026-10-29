@@ -28,6 +28,9 @@ pub const MAX_TITLE_CHARS: usize = 200;
 /// 描述最大字符数（TEXT 列，但接口层限长，避免一次请求塞进 10 MB）。
 pub const MAX_DESCRIPTION_CHARS: usize = 20_000;
 
+/// 原因（打回 / 取消）最大字符数（与 `biz_task.reject_reason VARCHAR(500)` 对齐）。
+pub const MAX_REASON_CHARS: usize = 500;
+
 /// 状态：待开始。
 pub const STATUS_TODO: &str = "TODO";
 /// 状态：进行中。
@@ -432,6 +435,128 @@ pub struct MyCounts {
     pub later: i64,
     /// 无期限条数。
     pub no_due: i64,
+}
+
+// ==================== 请求：状态机（T2） ====================
+
+/// 改状态（`PATCH /business/task/{id}/status`）。
+///
+/// # `reason` 的三种用途（同一个字段，按流转解释）
+///
+/// | 流转 | `reason` 语义 | 必填 |
+/// |---|---|---|
+/// | `REVIEW → DOING`（打回） | 打回原因（进 `reject_reason` + 评论） | ✅ 至少 5 字 |
+/// | `任意 → CANCELLED` | 取消原因（进 `cancel_reason` + 评论） | ❌ 可选 |
+/// | 其它 | 备注（只进评论） | ❌ |
+///
+/// 一个字段而不是三个：前端只有一个「原因」输入框，多开字段会让「填了但没生效」的
+/// 情况变多（卡面也只声明了 `{to, reason?}`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskStatusChangeReq {
+    /// 目标状态（`TODO` / `DOING` / `REVIEW` / `DONE` / `CANCELLED`，大小写不敏感）。
+    pub to: String,
+    /// 原因（打回必填，见上方表格）。
+    pub reason: Option<String>,
+}
+
+/// 改进度（`PATCH /business/task/{id}/progress`）。
+///
+/// `i32` 而不是 `i16`：越界值要回 `400 + 63004` 并带上原值提示，
+/// 用 `i16` 反序列化时 serde 会先报「类型错误」，用户看到的是框架的英文错误。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskProgressReq {
+    /// 目标进度 0~100（超出范围 → 400）。
+    pub progress: i32,
+}
+
+/// 建子任务（`POST /business/task/{id}/subtask`）。
+///
+/// 只有 `title` 必填：其余字段缺省时**继承父任务**（`priority` / `project_id` /
+/// `need_review` / `due_date`），负责人缺省 = 当前操作人。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskSubtaskCreateReq {
+    /// 标题（必填，1–200 字符）。
+    pub title: String,
+    /// 描述（可空）。
+    pub description: Option<String>,
+    /// 优先级（缺省继承父任务）。
+    pub priority: Option<String>,
+    /// 负责人（缺省 = 当前操作人）。
+    pub owner_id: Option<String>,
+    /// 计划开始日。
+    pub start_date: Option<NaiveDate>,
+    /// 截止日（缺省继承父任务）。
+    pub due_date: Option<NaiveDate>,
+    /// 预估工时（小时）。
+    pub estimate_hours: Option<f64>,
+    /// 是否需验收（缺省继承父任务）。
+    pub need_review: Option<bool>,
+}
+
+// ==================== 响应：状态机（T2） ====================
+
+/// 父任务重算结果（子任务流转 / 改进度时回传，前端可直接刷新父卡片）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ParentProgressRes {
+    /// 被重算的任务 ID（父 / 祖父 …，顺序由近及远）。
+    pub id: String,
+    /// 重算前进度。
+    pub previous: i32,
+    /// 重算后进度。
+    pub progress: i32,
+    /// 聚合口径（`工时加权` / `等权平均` / `子任务全部完成`）。
+    pub mode: String,
+    /// 子任务是否已全部完成（前端可据此把父卡片标成「可结项」，但**不会**自动改状态）。
+    pub all_done: bool,
+}
+
+/// 改状态回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskStatusRes {
+    /// 任务 ID。
+    pub id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 流转前的状态。
+    pub from: String,
+    /// 流转后的状态（= 库里的现值）。
+    pub status: String,
+    /// 流转后的进度（无子任务时可能被联动改动）。
+    pub progress: i32,
+    /// 完成时间（进入 `DONE` 后有值；重开后为 `null`）。
+    pub done_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 本次写入的状态变更评论 ID（前端时间线可直接定位）。
+    pub comment_id: String,
+    /// 父任务重算结果（顶层任务为空数组）。
+    pub parent_progress: Vec<ParentProgressRes>,
+}
+
+/// 改进度回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskProgressRes {
+    /// 任务 ID。
+    pub id: String,
+    /// 落库后的进度（**可能不等于 `requested`**：状态联动会抬高）。
+    pub progress: i32,
+    /// 请求里提交的原值（前端据此提示「你要 5，实际落 10（开工至少 10%）」）。
+    pub requested: i32,
+}
+
+/// 子任务列表（`GET /business/task/{id}/subtasks`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskSubtaskListRes {
+    /// 父任务 ID。
+    pub parent_id: String,
+    /// 父任务状态（前端据此决定「能不能加子任务」）。
+    pub parent_status: String,
+    /// 父任务进度（**汇总值**，不是子任务的平均手算值）。
+    pub progress: i32,
+    /// 父任务进度是否被锁定（有子任务即 `true` → 前端隐藏滑块）。
+    pub progress_locked: bool,
+    /// 子任务总数（**全部**未软删子任务，不受可见性过滤影响）。
+    pub total: i64,
+    /// 子任务列表（**已按调用者可见性过滤**）。
+    pub list: Vec<TaskCardRes>,
 }
 
 // ==================== 单元测试（纯逻辑，不连库） ====================

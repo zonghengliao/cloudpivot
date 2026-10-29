@@ -462,6 +462,27 @@ pub const TASK_SCOPE_UNEXPECTED: i32 = 63008;
 /// 任务负责人不存在或已停用（HTTP 400）。
 pub const TASK_OWNER_INVALID: i32 = 63009;
 
+/// 状态流转不在白名单内 / 状态冲突（HTTP 409）。
+///
+/// 覆盖四种语义相同的「这个流转现在不能做」：跳级（`TODO → DONE`）、终态直取
+/// （`DONE → CANCELLED`）、同状态自环、`need_review=true` 时想跳过验收直接完成。
+/// **不许把它们合并成 400 或静默成功**：409 才能让前端提示「刷新看看当前状态」。
+pub const TASK_STATUS_TRANSITION_INVALID: i32 = 63010;
+
+/// 当前身份无权执行该状态流转（HTTP 403）。
+///
+/// 典型场景：`REVIEW → DONE` 是**验收权**，负责人自己点必须被拒（哪怕他是负责人）。
+pub const TASK_STATUS_FORBIDDEN: i32 = 63011;
+
+/// 有子任务的父任务不许手改进度（HTTP 409）。
+///
+/// 红线：父任务进度由子任务汇总，手改必须**显式报错**（返回 409 + 提示
+/// 「进度由子任务汇总」），不许悄悄改成一个下次重算就会被覆盖的值。
+pub const TASK_PROGRESS_LOCKED: i32 = 63012;
+
+/// 打回（`REVIEW → DOING`）必须填写原因，且不少于 5 个字（HTTP 400）。
+pub const TASK_REJECT_REASON_REQUIRED: i32 = 63013;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
@@ -606,10 +627,10 @@ mod tests {
         );
     }
 
-    /// T 段码位自检：63xxx 段 9 个码齐全、码值不重复、与 62xxx 段不重叠。
+    /// T 段码位自检：63xxx 段 13 个码齐全、码值不重复、与 62xxx 段不重叠。
     ///
     /// 与另外两条同性质：**码值一旦发给前端就不能改**（`error-code.ts` 的文案映射
-    /// 按码值命中）。新增 T 段错误时只许顺延 63010+，不许改已有值。
+    /// 按码值命中）。新增 T 段错误时只许顺延 63014+，不许改已有值。
     #[test]
     fn task_error_codes_are_stable() {
         let codes = [
@@ -622,6 +643,11 @@ mod tests {
             (TASK_NO_GENERATE_FAILED, 63007),
             (TASK_SCOPE_UNEXPECTED, 63008),
             (TASK_OWNER_INVALID, 63009),
+            // T2 追加：状态机 / 进度锁定 / 打回原因
+            (TASK_STATUS_TRANSITION_INVALID, 63010),
+            (TASK_STATUS_FORBIDDEN, 63011),
+            (TASK_PROGRESS_LOCKED, 63012),
+            (TASK_REJECT_REASON_REQUIRED, 63013),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "63xxx 段码值不得改动");
@@ -631,7 +657,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63009）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63013）✓",
             codes.len()
         );
     }

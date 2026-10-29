@@ -14,6 +14,15 @@
 //! | GET | `/business/task/{id}` | `business:task:read` | 详情（子任务 + 协作人 + 附件） |
 //! | GET | `/business/task/my` | `business:task:read` | 我的任务（逾期 / 今日 / 本周 / 以后 / 无期限） |
 //!
+//! ## T2 追加的 4 个（状态机 + 进度 + 子任务）
+//!
+//! | 方法 | 路径 | 权限码 | 说明 |
+//! |------|------|--------|------|
+//! | PATCH | `/business/task/{id}/status` | `business:task:status` | 改状态（**白名单流转**，非法一律 4xx） |
+//! | PATCH | `/business/task/{id}/progress` | `business:task:progress` | 改进度（有子任务 → **409**） |
+//! | POST | `/business/task/{id}/subtask` | `business:task:subtask` | 建子任务（继承父任务的项目 / 优先级） |
+//! | GET | `/business/task/{id}/subtasks` | `business:task:read` | 子任务列表（含各自进度 / 状态） |
+//!
 //! # 三条贯穿全卡的硬约束
 //!
 //! 1. **读路径一律带可见性**：`/page`、`/{id}`、`/{id}` 的子任务列表都走
@@ -31,17 +40,24 @@
 //! 决定**能看到哪些任务**。V0103 把 4 个权限码授给了所有角色，所以「谁都进得来」；
 //! 真正的隔离在 [`model::page_visible`] 的可见性谓词里（scope ∪ 参与关系）。
 
+use alun::prelude::chrono::Utc;
 use alun::prelude::*;
 use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::Path;
 
+use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
+use crate::business::notice::dto::{NoticeLevel, NoticeType};
+use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::principal;
 use crate::business::task::dto::{
-    self, MyCounts, MyTasksRes, TaskAttachmentRes, TaskCardRes, TaskCreateReq, TaskDeleteRes,
-    TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskPageRes, TaskSaveRes, TaskUpdateReq,
+    self, MyCounts, MyTasksRes, ParentProgressRes, TaskAttachmentRes, TaskCardRes, TaskCreateReq,
+    TaskDeleteRes, TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskPageRes, TaskProgressReq,
+    TaskProgressRes, TaskSaveRes, TaskStatusChangeReq, TaskStatusRes, TaskSubtaskCreateReq,
+    TaskSubtaskListRes, TaskUpdateReq,
 };
 use crate::business::task::model::{self, MyBucket, TaskCardRow, TaskDetailRow, TaskFilter};
+use crate::business::task::state::{self, TaskStatus};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -601,6 +617,541 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
     }))
 }
 
+// ==================== 状态机（T2） ====================
+
+/// 改状态（`PATCH /business/task/{id}/status`）。
+///
+/// # 三段式判定（顺序不可换，见 [`crate::business::task::state::authorize`]）
+///
+/// 1. **可见性**：看不见的任务 → `404 + 63001`（不暴露「存在但无权」）；
+/// 2. **白名单**：`from → to` 不在 [`state::TRANSITIONS`] 里 → `409 + 63010`；
+/// 3. **角色 + 附加条件**：无权 → `403 + 63011`；打回缺原因 → `400 + 63013`；
+///    `need_review=true` 却想直接完成 → `409 + 63010`。
+///
+/// # 副作用（全部在同一个事务里）
+///
+/// - 改 `status` / `progress`（无子任务才联动）/ `done_at` / 打回或取消原因；
+/// - 写一条 `comment_type = STATUS_CHANGE` 的评论（含 from/to/reason）；
+/// - 写 `sys_change_log`（`action = STATUS`，白名单字段 diff）；
+/// - 若本条是子任务 → 沿 `parent_id` 逐级重算父任务进度（架构 D4/D5）。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：路径 id 不是 UUID；400 + `63004`：`to` 不是 5 态之一；
+/// - 400 + `63013`：打回没填原因 / 不足 5 字；
+/// - 403 + `63011`：当前身份无权推这个流转；
+/// - 404 + `63001`：任务不存在 / 不可见；
+/// - 409 + `63010`：非法流转（跳级 / 终态直取 / 同状态）；
+/// - 409 + `63006`：还有未完成子任务，不能完成；
+/// - 500：数据库异常 / 变更日志未登记。
+#[alun::permission(
+    path = "/business/task/{id}/status",
+    method = "PATCH",
+    permission = "business:task:status"
+)]
+#[alun::patch("/business/task/{id}/status")]
+pub async fn change_status(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskStatusChangeReq>,
+) -> ResResult<TaskStatusRes> {
+    let me = current_user(&claims)?;
+    let mine = principal::resolve_for_claims(&claims).await?;
+    let task_id = parse_uuid_field(&id, "任务")?;
+
+    // ① 可见性：只有看得见的人才能推（协作人看得见 → 下一步会被角色判定挡在 403）
+    let current = model::find_detail(&mine, task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务详情"))?
+        .ok_or_else(not_found)?;
+
+    // ② 目标状态取值
+    let to = TaskStatus::parse(&req.to).ok_or_else(|| {
+        param_invalid(format!(
+            "状态取值非法：{}（应为 {}）",
+            req.to,
+            TaskStatus::ALL
+                .iter()
+                .map(|status| status.code())
+                .collect::<Vec<_>>()
+                .join(" / ")
+        ))
+    })?;
+    let from = TaskStatus::parse(&current.card.status).ok_or_else(|| {
+        ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("库里的任务状态不是 5 态之一：{}", current.card.status),
+        )
+    })?;
+
+    // ③ 白名单 + 角色 + 附加条件
+    let people = state::TaskPeople {
+        owner_id: current.card.owner_id,
+        creator_id: current.creator_id,
+        assigner_id: current.assigner_id,
+    };
+    let role_mask = people.role_mask(&state::Actor::new(me, mine.is_super()));
+    let reason = normalize_reason(req.reason.as_deref())?;
+    let transition = state::authorize(
+        from,
+        to,
+        role_mask,
+        current.card.need_review,
+        reason.as_deref(),
+    )
+    .map_err(transition_error)?;
+
+    // ④ 进入 DONE：有未完成子任务 → 409（设计 §三「父任务 DONE 前置检查」）
+    if to == TaskStatus::Done {
+        let open = model::count_open_children(task_id)
+            .await
+            .map_err(|error| utils::db_error(error, "统计未完成子任务"))?;
+        if open > 0 {
+            return Err(ApiError::new(
+                409,
+                error_code::TASK_HAS_OPEN_CHILDREN,
+                format!("还有 {open} 个未完成子任务，不能直接完成父任务"),
+            ));
+        }
+    }
+
+    // ⑤ 前置依赖校验（H-DEP）：T4 落地「所有 FS 前置必须 DONE」。
+    //    这里保留调用点与注释，T4 只需把 `check_dependencies_ready` 换成真实实现，
+    //    本函数的其余部分不用改。
+    if from == TaskStatus::Todo && to == TaskStatus::Doing {
+        check_dependencies_ready(task_id).await?;
+    }
+
+    // ⑥ 进度：有子任务的任务由汇总决定，**任何流转都不许手改**
+    let children = model::children_of(task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询子任务"))?;
+    let locked = state::progress_locked(&model::snapshots_of(&children));
+    let new_progress = if locked {
+        None
+    } else {
+        transition.progress.apply(current.card.progress)
+    };
+
+    // ⑦ 评论正文（from/to/reason 三件套，前端时间线按它渲染）
+    let mut content = format!(
+        "状态变更：{}（{}）→ {}（{}）",
+        from.label(),
+        from.code(),
+        to.label(),
+        to.code()
+    );
+    if let Some(reason) = reason.as_deref() {
+        content.push_str(&format!("；原因：{reason}"));
+    }
+    if locked {
+        content.push_str("；本条有子任务，进度由子任务汇总");
+    } else if let Some(progress) = new_progress
+        && progress != current.card.progress
+    {
+        content.push_str(&format!("；进度 {}% → {progress}%", current.card.progress));
+    }
+
+    let update = model::StatusUpdate {
+        to: to.code().to_string(),
+        progress: new_progress,
+        done_at: match transition.done_at {
+            state::DoneAtEffect::Keep => None,
+            state::DoneAtEffect::Clear => Some(None),
+            // 时间点在 Rust 侧算好：变更日志的 diff 与库里的值必须是同一个
+            state::DoneAtEffect::SetNow => Some(Some(Utc::now())),
+        },
+        reject_reason: if from == TaskStatus::Review && to == TaskStatus::Doing {
+            reason.clone()
+        } else {
+            None
+        },
+        cancel_reason: if to == TaskStatus::Cancelled {
+            reason.clone()
+        } else {
+            None
+        },
+    };
+    let after_progress = i32::from(new_progress.unwrap_or(current.card.progress));
+    let after_done_at = match update.done_at.as_ref() {
+        Some(value) => value.as_ref().map(|at| at.to_rfc3339()),
+        None => current.done_at.map(|at| at.to_rfc3339()),
+    };
+
+    // ⑧ 同事务：写状态 → 写评论 → 写变更日志 → 重算父任务
+    let before = serde_json::json!({
+        "status": from.code(),
+        "progress": i32::from(current.card.progress),
+        "done_at": current.done_at.map(|at| at.to_rfc3339()),
+        "reject_reason": current.reject_reason,
+        "cancel_reason": current.cancel_reason,
+    });
+    let after = serde_json::json!({
+        "status": to.code(),
+        "progress": after_progress,
+        "done_at": after_done_at,
+        "reject_reason": if update.reject_reason.is_some() { reason.clone() } else { current.reject_reason.clone() },
+        "cancel_reason": if update.cancel_reason.is_some() { reason.clone() } else { current.cancel_reason.clone() },
+    });
+    let operator_name = display_name(&claims);
+    let operator_name_tx = operator_name.clone();
+    let action_label = transition.label;
+    let (comment_id, affected, recalcs) = db()
+        .transaction(|tx| async move {
+            let affected = model::apply_status(&tx, task_id, &update, me).await?;
+            if affected == 0 {
+                // 事务里被并发软删：评论与日志都不该落
+                return Ok((Uuid::nil(), 0, Vec::new()));
+            }
+            let comment_id = model::insert_comment(
+                &tx,
+                task_id,
+                me,
+                &content,
+                model::COMMENT_TYPE_STATUS_CHANGE,
+                me,
+            )
+            .await?;
+            changelog::record(
+                &tx,
+                &ChangeCtx::api(Some(me), Some(&operator_name_tx)),
+                ChangeTarget::of(
+                    "biz_task",
+                    task_id.to_string(),
+                    Action::Status,
+                    action_label,
+                ),
+                DiffInput::update(&before, &after),
+            )
+            .await
+            .map_err(|error| {
+                DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
+            })?;
+            let recalcs = model::recalc_ancestors(&tx, task_id, me).await?;
+            Ok((comment_id, affected, recalcs))
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "变更任务状态"))?;
+    if affected == 0 {
+        return Err(not_found());
+    }
+
+    // ⑨ 通知（事务外：通知失败不该回滚状态）
+    notify_status_change(&current, from, to, me, &operator_name, reason.as_deref()).await;
+    notify_ready_to_close(&recalcs, me, &operator_name).await;
+
+    let updated = require_task(task_id).await?;
+    tracing::info!(
+        task_id = %task_id,
+        from = from.code(),
+        to = to.code(),
+        operator = %me,
+        "任务状态已流转"
+    );
+    Ok(Res::ok(TaskStatusRes {
+        id: task_id.to_string(),
+        task_no: updated.card.task_no.clone(),
+        from: from.code().to_string(),
+        status: updated.card.status.clone(),
+        progress: i32::from(updated.card.progress),
+        done_at: updated.done_at,
+        comment_id: comment_id.to_string(),
+        parent_progress: recalcs
+            .iter()
+            .map(|recalc| ParentProgressRes {
+                id: recalc.task_id.to_string(),
+                progress: i32::from(recalc.new),
+                previous: i32::from(recalc.old),
+                mode: recalc.mode.to_string(),
+                all_done: recalc.all_done,
+            })
+            .collect(),
+    }))
+}
+
+/// 改进度（`PATCH /business/task/{id}/progress`）。
+///
+/// # 两条硬规则
+///
+/// 1. **有子任务 → `409 + 63012`**（红线：父任务的进度由子任务汇总，手改无效且必须报错，
+///    不许「静默改成想要的值然后被下次重算覆盖」）；
+/// 2. **状态联动**：`DOING → max(进度, 10)`、`REVIEW` / `DONE → 100`、`CANCELLED` 冻结
+///    （取消中的任务改进度没有意义，也不该被状态机之外的操作改）。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：路径 id 不是 UUID；400 + `63004`：进度不在 0~100；
+/// - 403 + `63002`：既不是负责人 / 创建人，也不是管理员；
+/// - 404 + `63001`：任务不存在 / 不可见；
+/// - 409 + `63012`：有子任务，进度由子任务汇总；
+/// - 409 + `63010`：已取消的任务进度被冻结；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/task/{id}/progress",
+    method = "PATCH",
+    permission = "business:task:progress"
+)]
+#[alun::patch("/business/task/{id}/progress")]
+pub async fn change_progress(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskProgressReq>,
+) -> ResResult<TaskProgressRes> {
+    let me = current_user(&claims)?;
+    let mine = principal::resolve_for_claims(&claims).await?;
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let current = model::find_detail(&mine, task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务详情"))?
+        .ok_or_else(not_found)?;
+
+    // 写权限：负责人 / 创建人 / 管理员（协作人看得见但改不了）
+    if current.card.owner_id != me && current.creator_id != me && !mine.is_super() {
+        return Err(ApiError::new(
+            403,
+            error_code::TASK_FORBIDDEN,
+            "只有任务的负责人、创建人或管理员可以修改进度",
+        ));
+    }
+    if !(0..=100).contains(&req.progress) {
+        return Err(param_invalid(format!(
+            "进度必须在 0 ~ 100 之间（收到 {}）",
+            req.progress
+        )));
+    }
+
+    let children = model::children_of(task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询子任务"))?;
+    if state::progress_locked(&model::snapshots_of(&children)) {
+        return Err(ApiError::new(
+            409,
+            error_code::TASK_PROGRESS_LOCKED,
+            format!(
+                "进度由子任务汇总，不能手动修改（当前 {} 个子任务，汇总值已写入任务）",
+                children.len()
+            ),
+        ));
+    }
+
+    let status = TaskStatus::parse(&current.card.status).ok_or_else(|| {
+        ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("库里的任务状态不是 5 态之一：{}", current.card.status),
+        )
+    })?;
+    let value = requested_progress(status, req.progress)?;
+
+    let (affected, recalcs) = db()
+        .transaction(|tx| async move {
+            let affected = model::set_progress(&tx, task_id, value, me).await?;
+            let recalcs = if affected == 0 {
+                Vec::new()
+            } else {
+                model::recalc_ancestors(&tx, task_id, me).await?
+            };
+            Ok((affected, recalcs))
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "修改任务进度"))?;
+    if affected == 0 {
+        return Err(not_found());
+    }
+    let operator_name = display_name(&claims);
+    notify_ready_to_close(&recalcs, me, &operator_name).await;
+    let updated = require_task(task_id).await?;
+    tracing::info!(task_id = %task_id, progress = value, operator = %me, "任务进度已修改");
+    Ok(Res::ok(TaskProgressRes {
+        id: task_id.to_string(),
+        progress: i32::from(updated.card.progress),
+        requested: req.progress,
+    }))
+}
+
+/// 建子任务（`POST /business/task/{id}/subtask`，快捷入口）。
+///
+/// # 继承规则（卡面「inherit parent 的 project / 优先级默认」）
+///
+/// 未显式传的字段按父任务取：`project_id`、`priority`、`need_review`、`due_date`。
+/// 负责人缺省 = **当前操作人**（不是父任务负责人：拆子任务的人自己认领更符合直觉，
+/// 要指派给别人就显式传 `owner_id`）。
+///
+/// # 深度
+///
+/// 复用 T1 的 [`model::validate_parent`]：父任务自身不能已有 `parent_id`（限 2 层）、
+/// 不能成环 —— 三级嵌套只可能由 T1 的历史数据造成（本接口不会造出来）。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：路径 / 字段 id 不是 UUID；400 + `63003` / `63004`：标题 / 字段非法；
+/// - 400 + `63005`：父任务已是子任务（超过 2 层）；
+/// - 404 + `63001`：父任务不存在 / 不可见；
+/// - 409 + `63006`：父任务已完成 / 已取消（终态不允许再加子任务）；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/task/{id}/subtask",
+    method = "POST",
+    permission = "business:task:subtask"
+)]
+#[alun::post("/business/task/{id}/subtask")]
+pub async fn create_subtask(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<TaskSubtaskCreateReq>,
+) -> ResResult<TaskSaveRes> {
+    let me = current_user(&claims)?;
+    let mine = principal::resolve_for_claims(&claims).await?;
+    let parent_id = parse_uuid_field(&id, "父任务")?;
+    let parent = model::find_detail(&mine, parent_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询父任务"))?
+        .ok_or_else(not_found)?;
+    let parent_status = TaskStatus::parse(&parent.card.status).unwrap_or(TaskStatus::Todo);
+    if parent_status.is_terminal() {
+        return Err(ApiError::new(
+            409,
+            error_code::TASK_HAS_OPEN_CHILDREN,
+            format!(
+                "父任务已处于终态（{}），不能再添加子任务；请先重开",
+                parent_status.label()
+            ),
+        ));
+    }
+    // 深度 / 成环：父任务自身不能已是子任务
+    model::validate_parent(parent_id, None)
+        .await
+        .map_err(parent_invalid)?;
+
+    let title = normalize_title(&req.title)?;
+    let description = normalize_description(req.description.as_deref())?;
+    let priority = match req.priority.as_deref() {
+        None => parent.card.priority.clone(),
+        Some(raw) => dto::normalize_priority(Some(raw)).ok_or_else(|| {
+            param_invalid(format!(
+                "优先级取值非法：{raw}（应为 {}）",
+                dto::PRIORITIES.join(" / ")
+            ))
+        })?,
+    };
+    let estimate_hours = validate_hours(req.estimate_hours)?;
+    let owner_id = match req.owner_id.as_deref().map(str::trim) {
+        None | Some("") => me,
+        Some(raw) => parse_uuid_field(raw, "负责人")?,
+    };
+    if owner_id != me
+        && !model::user_exists(owner_id)
+            .await
+            .map_err(|error| utils::db_error(error, "校验任务负责人"))?
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::TASK_OWNER_INVALID,
+            "负责人不存在或已停用",
+        ));
+    }
+    let dept_id = model::user_dept(owner_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询负责人所属部门"))?;
+    let due_date = req.due_date.or(parent.card.due_date);
+
+    let id = Uuid::now_v7();
+    let month = model::month_key(model::today_cst());
+    let new = model::NewTask {
+        id,
+        title,
+        description,
+        priority: priority.clone(),
+        need_review: req.need_review.unwrap_or(parent.card.need_review),
+        owner_id,
+        creator_id: me,
+        assigner_id: (owner_id != me).then_some(me),
+        dept_id,
+        parent_id: Some(parent_id),
+        project_id: parent.project_id,
+        start_date: req.start_date,
+        due_date,
+        estimate_hours,
+        source: if owner_id == me {
+            dto::SOURCE_SELF.to_string()
+        } else {
+            dto::SOURCE_ASSIGNED.to_string()
+        },
+        add_creator_as_collaborator: owner_id != me,
+    };
+    let task_no = db()
+        .transaction(|tx| async move {
+            let task_no = model::create_task(&tx, &new, me, &month).await?;
+            // 新增子任务会改变父任务的聚合分母 → 立刻重算（写路径契约）
+            model::recalc_ancestors(&tx, id, me).await?;
+            Ok(task_no)
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "新建子任务"))?;
+
+    tracing::info!(
+        parent_id = %parent_id,
+        task_id = %id,
+        task_no = %task_no,
+        owner_id = %owner_id,
+        "子任务已创建"
+    );
+    Ok(Res::ok(TaskSaveRes {
+        id: id.to_string(),
+        task_no,
+        status: dto::STATUS_TODO.to_string(),
+        priority,
+        progress: 0,
+        due_date,
+        owner_id: owner_id.to_string(),
+    }))
+}
+
+/// 子任务列表（`GET /business/task/{id}/subtasks`）。
+///
+/// # 两份数据，口径要分清
+///
+/// - `list`：**按调用者可见性过滤**（与 T1 详情页左栏一致：看不见的子任务不下发）；
+/// - `total` / `progress_locked` / `progress`：**按全部子任务算**（聚合口径不能被
+///   「你看不见的那条」影响，否则同一个父任务在不同人眼里进度不一样）。
+///
+/// # 异常情况
+///
+/// - 404 + `63001`：父任务不存在 / 不可见；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/task/{id}/subtasks",
+    method = "GET",
+    permission = "business:task:read"
+)]
+#[alun::get("/business/task/{id}/subtasks")]
+pub async fn list_subtasks(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TaskSubtaskListRes> {
+    let mine = principal::resolve_for_claims(&claims).await?;
+    let parent_id = parse_uuid_field(&id, "父任务")?;
+    let parent = model::find_detail(&mine, parent_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询父任务"))?
+        .ok_or_else(not_found)?;
+    let visible = model::list_children(&mine, parent_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询子任务"))?;
+    let all = model::children_of(parent_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询子任务"))?;
+    Ok(Res::ok(TaskSubtaskListRes {
+        parent_id: parent_id.to_string(),
+        parent_status: parent.card.status.clone(),
+        progress: i32::from(parent.card.progress),
+        progress_locked: state::progress_locked(&model::snapshots_of(&all)),
+        total: all.len() as i64,
+        list: visible.iter().map(card_res).collect(),
+    }))
+}
+
 // ==================== 内部工具 ====================
 
 /// 当前用户（令牌 `sub`）。
@@ -723,6 +1274,266 @@ fn save_res(row: &TaskDetailRow) -> TaskSaveRes {
         progress: i32::from(row.card.progress),
         due_date: row.card.due_date,
         owner_id: row.card.owner_id.to_string(),
+    }
+}
+
+/// 原因归一化：去首尾空白、空白视为未填、限长 `VARCHAR(500)`。
+fn normalize_reason(raw: Option<&str>) -> std::result::Result<Option<String>, ApiError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > dto::MAX_REASON_CHARS {
+        return Err(param_invalid(format!(
+            "原因不能超过 {} 个字符",
+            dto::MAX_REASON_CHARS
+        )));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+/// 状态机判定失败 → HTTP 错误（**三档**，不许统一成 500）。
+///
+/// - 打回缺原因 → `400 + 63013`（客户端补上就能成功）；
+/// - 身份不够 → `403 + 63011`（换个有权限的人来做）；
+/// - 其余（跳级 / 终态直取 / 同状态 / 需验收却直接完成）→ `409 + 63010`（状态冲突）。
+fn transition_error(error: state::TransitionError) -> ApiError {
+    match &error {
+        state::TransitionError::RejectReasonRequired { .. } => ApiError::new(
+            400,
+            error_code::TASK_REJECT_REASON_REQUIRED,
+            error.message(),
+        ),
+        state::TransitionError::Forbidden { .. } => {
+            ApiError::new(403, error_code::TASK_STATUS_FORBIDDEN, error.message())
+        }
+        state::TransitionError::SameStatus
+        | state::TransitionError::IllegalPair
+        | state::TransitionError::ReviewRequired => ApiError::new(
+            409,
+            error_code::TASK_STATUS_TRANSITION_INVALID,
+            error.message(),
+        ),
+    }
+}
+
+/// 操作人显示名（`username` → `sub`）。
+///
+/// 取令牌里的 `username`：审计表要的是「人看得懂的名字」，`sub` 是兜底
+/// （令牌缺 `username` 时至少不写空串）。
+fn display_name(claims: &TokenClaims) -> String {
+    claims
+        .username
+        .clone()
+        .unwrap_or_else(|| claims.sub.clone())
+}
+
+/// 手动进度按状态联动（核心设计 §三）。
+///
+/// | 状态 | 落库值 |
+/// |------|--------|
+/// | `DOING` | `max(请求值, 10)`（开工至少 10%） |
+/// | `REVIEW` / `DONE` | `100`（待验收 / 已完成一律满进度） |
+/// | `TODO` | 请求值（0~100） |
+/// | `CANCELLED` | 拒绝（进度已冻结，`409 + 63010`） |
+///
+/// # 异常情况
+///
+/// 已取消除 → `409 + 63010`。
+fn requested_progress(status: TaskStatus, requested: i32) -> std::result::Result<i16, ApiError> {
+    let requested = i16::try_from(requested)
+        .map_err(|_| param_invalid(format!("进度必须在 0 ~ 100 之间（收到 {requested}）")))?;
+    match status {
+        TaskStatus::Doing => Ok(state::clamp_progress(requested.max(10))),
+        TaskStatus::Review | TaskStatus::Done => Ok(100),
+        TaskStatus::Todo => Ok(state::clamp_progress(requested)),
+        TaskStatus::Cancelled => Err(ApiError::new(
+            409,
+            error_code::TASK_STATUS_TRANSITION_INVALID,
+            "已取消的任务进度已冻结，不能修改（先恢复为待开始）",
+        )),
+    }
+}
+
+/// 前置依赖校验钩子（**H-DEP**，T4 接线）。
+///
+/// 核心设计 §二 规则 1：`TODO → DOING` 要求「所有 FS 前置必须 DONE」。
+/// T2 的交付范围不含依赖接口（`biz_task_dependency` 表 T1 已建、无写入路径），
+/// 所以此刻依赖恒为空、恒放行。**保留这个调用点**是为了让 T4 只改函数体：
+/// 换成「查 FS 前置 → 有未完成的就 `409 + 63014`」即可，状态机与 handler 骨架不动。
+async fn check_dependencies_ready(task_id: Uuid) -> std::result::Result<(), ApiError> {
+    tracing::debug!(task_id = %task_id, "前置依赖校验：T2 阶段无依赖数据，放行（T4 接入）");
+    Ok(())
+}
+
+/// 发一条任务站内信（**唯一的任务通知出口**）。
+///
+/// # 参数
+///
+/// - `task`：任务（取标题 / 编号 / 主键拼链接）；
+/// - `recipients`：候选接收人（会自动去掉操作人自己、去重）；
+/// - `force`：`true` 时**跳过** `notify.inbox` 偏好（修正 8 的强制分级）；
+/// - `title` / `content`：文案；
+/// - `operator` / `operator_name`：发送人（通知里显示「谁干的」）。
+///
+/// # 失败口径
+///
+/// **通知失败不影响业务**：状态已经落库、评论已经写好，这里只记 WARN。
+/// 把通知当强一致会让「通知服务抖一下 → 任务改不了」。
+async fn dispatch_task_notice(
+    task: &TaskDetailRow,
+    recipients: Vec<Uuid>,
+    force: bool,
+    title: &str,
+    content: &str,
+    operator: Uuid,
+    operator_name: &str,
+) {
+    let mut targets: Vec<Uuid> = recipients
+        .into_iter()
+        .filter(|user_id| *user_id != operator)
+        .collect();
+    targets.sort();
+    targets.dedup();
+    if targets.is_empty() {
+        return;
+    }
+    if !force {
+        let mut kept = Vec::with_capacity(targets.len());
+        for user_id in targets {
+            if model::inbox_enabled(user_id).await {
+                kept.push(user_id);
+            }
+        }
+        targets = kept;
+        if targets.is_empty() {
+            tracing::debug!(task_id = %task.card.id, "接收人都关闭了站内信，跳过通知");
+            return;
+        }
+    }
+    let mut draft = NoticeDraft::text(
+        NoticeType::Todo,
+        NoticeLevel::Info,
+        title,
+        content,
+        NoticeTarget::User(targets),
+    );
+    draft.link_url = Some(format!("/task/{}", task.card.id));
+    draft.biz_type = Some("task".to_string());
+    draft.biz_id = Some(task.card.id.to_string());
+    draft.sender_id = Some(operator);
+    draft.sender_name = Some(operator_name.to_string());
+    match notice::dispatch(draft).await {
+        Ok(result) => tracing::info!(
+            notice_id = %result.notice_id,
+            receivers = result.receiver_count,
+            force,
+            "任务通知已发送"
+        ),
+        Err(error) => tracing::warn!(error = %error, force, "任务通知发送失败（不影响业务）"),
+    }
+}
+
+/// 状态流转通知（修正 8 分级表，逐行实现）。
+///
+/// | 事件 | 接收人 | 强制 |
+/// |---|---|---|
+/// | 被打回（`REVIEW → DOING`） | 负责人 | ✅ |
+/// | 待你验收（`→ REVIEW`） | 创建人 + 分派人 | ✅ |
+/// | 其它状态变更（他人操作） | 负责人 + 创建人 | ❌ 尊重 `notify.inbox` |
+async fn notify_status_change(
+    task: &TaskDetailRow,
+    from: TaskStatus,
+    to: TaskStatus,
+    operator: Uuid,
+    operator_name: &str,
+    reason: Option<&str>,
+) {
+    let (recipients, force, title, content) = match (from, to) {
+        (TaskStatus::Review, TaskStatus::Doing) => (
+            vec![task.card.owner_id],
+            true,
+            "任务被打回".to_string(),
+            format!(
+                "任务「{}」（{}）被打回：{}；改完请重新提交验收",
+                task.card.title,
+                task.card.task_no,
+                reason.unwrap_or("未填写原因")
+            ),
+        ),
+        (_, TaskStatus::Review) => {
+            let mut recipients = vec![task.creator_id];
+            if let Some(assigner_id) = task.assigner_id {
+                recipients.push(assigner_id);
+            }
+            (
+                recipients,
+                true,
+                "任务待你验收".to_string(),
+                format!(
+                    "任务「{}」（{}）已由 {operator_name} 提交验收，请确认",
+                    task.card.title, task.card.task_no
+                ),
+            )
+        }
+        _ => (
+            vec![task.card.owner_id, task.creator_id],
+            false,
+            "任务状态变更".to_string(),
+            format!(
+                "任务「{}」（{}）由 {operator_name} 从「{}」改为「{}」",
+                task.card.title,
+                task.card.task_no,
+                from.label(),
+                to.label()
+            ),
+        ),
+    };
+    dispatch_task_notice(
+        task,
+        recipients,
+        force,
+        &title,
+        &content,
+        operator,
+        operator_name,
+    )
+    .await;
+}
+
+/// 父任务「子任务全部完成」通知（尊重偏好，修正 8）。
+///
+/// 只在**这次重算把父任务推到 100%** 时发一次（`old != 100 && new == 100`），
+/// 避免同一次批量流转里对同一个父任务重复通知。
+async fn notify_ready_to_close(
+    recalcs: &[model::ProgressRecalc],
+    operator: Uuid,
+    operator_name: &str,
+) {
+    for recalc in recalcs {
+        if !recalc.all_done || recalc.new != 100 || recalc.old == 100 {
+            continue;
+        }
+        let Ok(Some(parent)) = model::find_raw(recalc.task_id).await else {
+            continue;
+        };
+        let content = format!(
+            "任务「{}」（{}）的子任务已全部完成，进度汇总为 100%，可以结项了",
+            parent.card.title, parent.card.task_no
+        );
+        dispatch_task_notice(
+            &parent,
+            vec![parent.card.owner_id],
+            false,
+            "子任务全部完成",
+            &content,
+            operator,
+            operator_name,
+        )
+        .await;
     }
 }
 

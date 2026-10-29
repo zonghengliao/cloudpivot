@@ -38,7 +38,11 @@ SELECT r.id, m.id, CURRENT_TIMESTAMP
                     ('20000000-0000-0000-0000-000000000761'::uuid),
                     ('20000000-0000-0000-0000-000000000762'::uuid),
                     ('20000000-0000-0000-0000-000000000763'::uuid),
-                    ('20000000-0000-0000-0000-000000000764'::uuid)) AS m(id)
+                    ('20000000-0000-0000-0000-000000000764'::uuid),
+                    -- T2 追加（V0108 建节点）：改状态 / 改进度 / 建子任务
+                    ('20000000-0000-0000-0000-000000000765'::uuid),
+                    ('20000000-0000-0000-0000-000000000766'::uuid),
+                    ('20000000-0000-0000-0000-000000000767'::uuid)) AS m(id)
  WHERE r.deleted_at IS NULL
    AND NOT EXISTS (
            SELECT 1 FROM sys_role_menu granted
@@ -47,21 +51,26 @@ SELECT r.id, m.id, CURRENT_TIMESTAMP
 ON CONFLICT (role_id, menu_id) DO NOTHING;
 
 -- ---------- 2) 自检（失败即启动失败） ----------
--- **每个**未软删角色都必须持有 4 个按钮：缺一个就是「有人登录后点不到工作任务」。
+-- **每个**未软删角色都必须持有 7 个按钮：缺一个就是「有人登录后点不到工作任务 / 推不动状态」。
 -- 宁可在启动期炸掉，也不要等上线后被用户发现。
 DO $$
 DECLARE
-    btn_read   uuid := '20000000-0000-0000-0000-000000000761'::uuid;
-    btn_create uuid := '20000000-0000-0000-0000-000000000762'::uuid;
-    btn_update uuid := '20000000-0000-0000-0000-000000000763'::uuid;
-    btn_delete uuid := '20000000-0000-0000-0000-000000000764'::uuid;
-    missing    int;
+    btn_read     uuid := '20000000-0000-0000-0000-000000000761'::uuid;
+    btn_create   uuid := '20000000-0000-0000-0000-000000000762'::uuid;
+    btn_update   uuid := '20000000-0000-0000-0000-000000000763'::uuid;
+    btn_delete   uuid := '20000000-0000-0000-0000-000000000764'::uuid;
+    btn_status   uuid := '20000000-0000-0000-0000-000000000765'::uuid;
+    btn_progress uuid := '20000000-0000-0000-0000-000000000766'::uuid;
+    btn_subtask  uuid := '20000000-0000-0000-0000-000000000767'::uuid;
+    missing      int;
 BEGIN
     SELECT count(*) INTO missing
       FROM sys_role r
      WHERE r.deleted_at IS NULL
        AND EXISTS (
-               SELECT 1 FROM (VALUES (btn_read), (btn_create), (btn_update), (btn_delete)) AS b(id)
+               SELECT 1
+                 FROM (VALUES (btn_read), (btn_create), (btn_update), (btn_delete),
+                              (btn_status), (btn_progress), (btn_subtask)) AS b(id)
                 WHERE NOT EXISTS (
                           SELECT 1 FROM sys_role_menu rm
                            WHERE rm.role_id = r.id AND rm.menu_id = b.id
