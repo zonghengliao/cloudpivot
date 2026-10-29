@@ -15,17 +15,18 @@
 //! |------|------|
 //! | [`hermes`] | Hermes CLI 适配层（**唯一**启动 `hermes` 进程 / 读写 profile 目录的代码） |
 //! | [`model`] | `sys_ai_agent` 行与 SQL（手写，因为 `model_override` 是 jsonb） |
-//! | [`dto`] | 五个接口的请求 / 响应与字段规整 |
-//! | [`handler`] | 五个接口 + 创建 saga（含补偿回滚） |
+//! | [`dto`] | 六个接口的请求 / 响应与字段规整 |
+//! | [`handler`] | 六个接口 + 创建 saga（含补偿回滚） |
 //!
-//! # 五个接口（`/api` 前缀由 `[router].prefix` 注入）
+//! # 六个接口（`/api` 前缀由 `[router].prefix` 注入）
 //!
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | POST | `/system/user/ai` | `system:user:create` | 创建 AI 用户（`sys_user` + profile + SOUL.md + workspace） |
+//! | POST | `/system/user/ai` | `system:user:create` | 创建 AI 用户（`sys_user` + profile + SOUL.md + workspace + 凭据） |
 //! | PUT | `/system/user/ai/{user_id}` | `system:user:update` | 编辑职责 / SOUL.md / 模型 |
 //! | GET | `/system/user/ai/{user_id}` | `system:user:list` | 读配置（含 SOUL.md 全文） |
-//! | GET | `/system/user/ai/{user_id}/status` | `system:user:list` | 探活（目录 / SOUL.md / workspace / CLI / gateway） |
+//! | GET | `/system/user/ai/{user_id}/status` | `system:user:list` | 探活（目录 / SOUL.md / workspace / CLI / gateway / 凭据） |
+//! | POST | `/system/user/ai/{user_id}/repair` | `system:user:update` | 修复 profile 级凭据（补 `.env` 缺失的 provider key） |
 //! | DELETE | `/system/user/ai/{user_id}` | `system:user:delete` | 删号（备份 SOUL.md → 删 profile → 删 workspace → 软删 user） |
 //!
 //! # 不变式（laoliu 2026-10-29 追加硬要求）
@@ -38,7 +39,7 @@
 //!
 //! | 位置 | 保证 |
 //! |------|------|
-//! | [`handler::create`] | `INSERT sys_user`（打标 ROBOT）与 `INSERT sys_ai_agent` **同一事务**，任一失败两行一起回滚；外部副作用（profile / workspace）失败则补偿删除 + 同事务软删两行 |
+//! | [`handler::create`] | `INSERT sys_user`（打标 ROBOT）与 `INSERT sys_ai_agent` **同一事务**，任一失败两行一起回滚；外部副作用（profile / workspace / 凭据）失败则补偿删除磁盘资产 + **同事务物理删除**两行（账号从未可见，不留垃圾行） |
 //! | [`handler::delete`] | `sys_ai_agent` 与 `sys_user` **同一事务**软删（中间态不可见） |
 //! | `system/user/handler.rs` 的 update / delete | 通用用户接口对 `ROBOT` 账号返回 `409 + 64013`：不许绕过本模块改/删 AI 账号 |
 //! | [`crate::shared::startup_guard::check_ai_agent_invariant`] | 每次启动各查一次（两条 SQL），有违规 → `ERROR` 日志，**prod 拒启动** |
