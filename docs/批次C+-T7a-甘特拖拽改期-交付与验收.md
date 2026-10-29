@@ -223,15 +223,22 @@ toast：「请先设置起止日期（任务需要「计划开始」和「截止
 
 | 步骤 | 结果 |
 |---|---|
-| 二进制就位 | `/opt/cloudpivot/backend/target/release/cloudpivot` ← 本次提交编译；`sha256=e3f7ff4b…82f214`（替换正在运行的二进制用**同盘 rename**，`cp` 会 `Text file busy`） |
-| 迁移 | 生产库 `cloudpivot` 的 `ck_biz_task_comment_type` 已含 `SCHEDULE`（7 值）；`V0114` 自检 NOTICE「comment_type 7 种类型（新增 SCHEDULE）」 |
+| 二进制就位 | `/opt/cloudpivot/backend/target/release/cloudpivot` ← 由**合并后的主线**编译；`sha256=d3fee04cb35cac90d90b2a837e63306e185e82e5f07c6f96668fb001f3d0ece6`（替换正在运行的二进制用**同盘 rename**，`cp` 会 `Text file busy`） |
+| 迁移 | 生产库 `cloudpivot`：`schema_migrations` 已记录 `114 / versioned`；`ck_biz_task_comment_type` = 7 值（含 `SCHEDULE`）；启动日志有 `V0114 自检通过：comment_type 7 种类型（新增 SCHEDULE）` |
 | 前端 dist | `index.html` = `9f3c6f85…564043`，甘特 chunk `gantt-CRuYXmdD.js` 内含 `transition: x 0.28s, width 0.28s` 签名 |
 | 服务 | `systemctl restart cloudpivot` → active；`/health` = 200；`http://172.18.10.144/` = 200 |
 | 接口 401 | 无令牌 `PATCH /api/business/task/{id}/schedule` → **401** `{"code":401,"msg":"未授权访问，请先登录"}` |
 | 真实登录 | `POST /api/system/auth/login`（admin，生产口令来自 `/etc/cloudpivot/cloudpivot.env`）→ 200 + 461 字符 token |
 | 真机拖拽成功 + 库值变更 | 生产页面上拖 `TSK-202610-000084` 中部 +3 天 → toast「已改期：2026-11-04 ~ 2026-11-08 → 2026-11-07 ~ 2026-11-11」；库 `start_date=2026-11-07 due_date=2026-11-11`；`SCHEDULE` 评论 + `sys_change_log`（`甘特拖拽改期`）各 1 行 |
+| 合并后复验（merged 二进制） | 真实登录 → 建 `T7a复验-前置/主体` 并加依赖 → `shift_days:3` 200 且库 `2026-11-01~11-05 → 2026-11-04~11-08`；`start_date=2026-10-28` → 400 `63110`「前置 TSK-202610-000089「T7a复验-前置」（截止 2026-10-30）尚未完成」且库不变；浏览器再拖一次 +2 天 → toast「已改期：2026-11-04 ~ 2026-11-08 → 2026-11-06 ~ 2026-11-10」，库值一致 |
 | 失败不落库 | 63110 的那次拖动回弹后，库值仍是 `2026-11-07 ~ 2026-11-11`（没有任何半写状态） |
-| 清理后复核 | 6 条 `T7a真机-*` 全部软删（`left_live=0`），生产剩余 5 条真实任务；一次性令牌文件已删；验收实例 18086 已停、验收库 `cloudpivot_t7a` 已删 |
+| 清理后复核 | 6 条 `T7a真机-*` + 2 条 `T7a复验-*` 全部软删（`T7a* live = 0`），生产剩余 5 条真实任务；一次性令牌文件已删；验收实例 18086 已停、验收库 `cloudpivot_t7a` 已删 |
+
+> **替换正在运行的二进制必须用同盘 `mv`**：`cp` 会报 `Text file busy`（进程正持有旧 inode），
+> 而 `/var/tmp` 与 `/opt` 同一文件系统 → `cp` 到同目录的 `.new` 再 `mv -f` 是原子的。
+> 另注意：合并后**必须重建 release**——并行卡的 `cargo build --release` 会覆盖
+> `/opt/cloudpivot/backend/target/release/cloudpivot`（实测被换成不含 `/schedule` 的版本，
+> 现象是「401 探测突然变 404」）。
 
 ## 六、偏差与已知边界（诚实说明）
 
@@ -252,17 +259,24 @@ toast：「请先设置起止日期（任务需要「计划开始」和「截止
    这也说明「先移动条形、再请求」的顺序是真的（请求前条形已在目标位）。
 7. **部署与 git 合并的先后**：本卡开工时主仓被并行卡（`business/aiagent/`，L1）的未提交改动
    占着，其中 `shared/error_code.rs` 与本卡同文件 → `git merge --ff-only` 被 git 拒绝。
-   因此部署用的是**从本卡提交 `362dce0` 编出的二进制与 dist**（内容与该 commit 一致），
-   合并等并行卡提交后再执行（见 §七 的收尾核对）。生产库的 `V0114` 也因此先手工 `psql -f`
-   应用（DDL 幂等：`DROP CONSTRAINT IF EXISTS` + `ADD`），合并后应用启动会再跑一遍并写入
-   `schema_migrations` 的 114 行。
+   因此第一次部署用的是**从本卡提交 `362dce0`/`1e7ba15` 编出的二进制与 dist**；
+   等 L1 提交（`0d6300a`）落主线后，本卡在 worktree 里 `git merge origin/main`（顺带把两边新增的
+   错误码段合并，无冲突）→ 合并树重跑 `cargo test`（**667 passed**，含 L1 的 9 条）与
+   `scripts/check.sh`（RC=0）→ 推 bare main → 主仓 `merge --ff-only` → **按合并树重建 release
+   二进制并重新部署 + 重启**，因此生产指纹以 `d3fee04c…` 为准。
+   生产库的 `V0114` 在合并前先手工 `psql -f` 应用过（DDL 幂等），合并重启后由迁移器正式记录
+   `schema_migrations = 114`。
 
 ## 七、收尾核对
 
 ```
-本卡功能提交        362dce0
-分支                feat/t7a-gantt-schedule
-三方一致            HEAD == origin/main == bare main（收尾时按 §6 的说明合并后核对；
-                    本文件自身提交会推高 HEAD，故此处不写死最终哈希）
-主仓工作区          仅并行卡（L1 · business/aiagent）的未提交改动，本卡未碰
+本卡功能提交        362dce0（功能）/ 1e7ba15（真机缺陷修复）/ 610ad4e（本文档 + 复现脚本）
+与并行卡合并        b02183e  Merge remote-tracking branch 'origin/main' into feat/t7a-gantt-schedule
+                     （并入 L1 的 0d6300a「建 AI 用户写 provider key」）
+合并树质量闸        cargo test 667 passed / 0 failed；scripts/check.sh RC=0（全部检查通过）
+三方一致            HEAD == origin/main == bare main == b02183e（本节提交前的最后一次核对；
+                     本文件自身的后续提交会推高 HEAD，功能代码哈希见上面三行）
+主仓工作区          0 改动（合并后已全部提交）
+生产                二进制 d3fee04c…（合并树重建）/ dist index.html 9f3c6f85… /
+                     migration 114 已记录 / 401 探测 401 / 真实登录 + 真机拖拽库值变更已复核
 ```
