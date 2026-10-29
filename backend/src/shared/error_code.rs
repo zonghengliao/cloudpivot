@@ -368,6 +368,30 @@ pub const CHANGE_LOG_RESOURCE_UNREGISTERED: i32 = 62012;
 /// 变更时间不合法（未来时间或早于保留期，HTTP 400）。
 pub const CHANGE_LOG_TIME_INVALID: i32 = 62013;
 
+// ── 帮助文档（C4）── 架构 §5.2 的 62010/62011 只覆盖「分类」两条规则，
+// 文档 CRUD / 版本 / slug 的失败语义需要独立码位，顺延 62014–62019。
+// 号段说明：62001–62009 属公告（C2/C3），62012/62013 属变更日志（C5），互不重叠。
+
+/// 帮助文档分类不存在 / 已软删（HTTP 404）。
+pub const HELP_CATEGORY_NOT_FOUND: i32 = 62014;
+
+/// 帮助文档不存在 / 已软删 / 对当前用户不可见（HTTP 404）。
+///
+/// 未发布的文档对普通用户**也返回这个码**（而不是 403）：403 会泄露"这份文档存在"。
+pub const HELP_DOC_NOT_FOUND: i32 = 62015;
+
+/// 帮助文档 slug 已被占用（HTTP 409）。
+pub const HELP_DOC_SLUG_CONFLICT: i32 = 62016;
+
+/// 帮助文档当前状态不允许该操作（HTTP 409）。
+pub const HELP_DOC_STATUS_CONFLICT: i32 = 62017;
+
+/// 帮助文档标题 / 正文 / slug 格式或长度不合法（HTTP 400）。
+pub const HELP_DOC_CONTENT_INVALID: i32 = 62018;
+
+/// 帮助文档指定的历史版本不存在（HTTP 404）。
+pub const HELP_DOC_VERSION_NOT_FOUND: i32 = 62019;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,7 +429,8 @@ mod tests {
         );
     }
 
-    /// C0 段码位自检：62xxx 段 **13 个**码齐全、码值不重复、与架构 §5.2 码表逐字一致。
+    /// C0 段码位自检：62xxx 段 **19 个**码齐全、码值不重复、与架构 §5.2 码表逐字一致
+    /// （C4 在 62013 之后顺延了帮助文档的 62014–62019）。
     ///
     /// 与上面 B3 那条测试同性质：防止后续实施步（C2/C4/C6）顺手改码值 ——
     /// 前端 `error-code.ts` 的文案映射按此段规划，改一个值就是前端文案错位。
@@ -426,6 +451,13 @@ mod tests {
             (HELP_CATEGORY_NOT_EMPTY, 62011),
             (CHANGE_LOG_RESOURCE_UNREGISTERED, 62012),
             (CHANGE_LOG_TIME_INVALID, 62013),
+            // C4：帮助文档 6 个码（62014–62019）
+            (HELP_CATEGORY_NOT_FOUND, 62014),
+            (HELP_DOC_NOT_FOUND, 62015),
+            (HELP_DOC_SLUG_CONFLICT, 62016),
+            (HELP_DOC_STATUS_CONFLICT, 62017),
+            (HELP_DOC_CONTENT_INVALID, 62018),
+            (HELP_DOC_VERSION_NOT_FOUND, 62019),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "62xxx 段码值不得改动");
@@ -433,10 +465,10 @@ mod tests {
         // 与批次 B 的 6100x 段严格不重叠
         assert!(codes[0].0 > 61012, "62xxx 段必须排在批次 B 之后");
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
-        assert_eq!(unique.len(), 13, "62xxx 段必须是 13 个码");
+        assert_eq!(unique.len(), 19, "62xxx 段必须是 19 个码");
         assert_eq!(unique.len(), codes.len(), "62xxx 段不得有重复码值");
         println!(
-            "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62013）✓",
+            "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62019）✓",
             codes.len()
         );
     }
