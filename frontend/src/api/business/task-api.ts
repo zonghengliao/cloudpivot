@@ -17,12 +17,13 @@
  * 编辑用 `TaskUpdateReq`：字段**缺席 = 保持原值**，显式 `null` = 清空。
  * 所以编辑表单提交时，被清空的可空字段必须显式传 `null`，不能省掉。
  *
- * # T2（状态机 + 进度）尚未就绪
+ * # T2（状态机）已接入，进度接口仍缺
  *
- * `PATCH /business/task/{id}/status`、`PATCH /business/task/{id}/progress`
- * 属 T2 交付物，本文件**先不实现**（避免对着假路径写死），只在文件末尾留 TODO。
+ * `PATCH /business/task/{id}/status` 已按后端 `TaskStatusChangeReq` 落地
+ * （`changeTaskStatus`，T7b 看板拖拽用）；`PATCH /business/task/{id}/progress`
+ * 尚无页面调用方，**不预置**（避免对着假路径写死）。
  */
-import { del, get, post, put, type PageData } from '@/api/request';
+import { del, get, patch, post, put, type PageData } from '@/api/request';
 
 /**
  * 把强类型查询对象交给 axios 的 `params`。
@@ -475,18 +476,84 @@ export function fetchGantt(query: TaskGanttQuery): Promise<TaskGantt> {
   return get<TaskGantt>('/api/business/task/gantt', asParams(query));
 }
 // ======================================================================
-// T2 接入位（状态机 + 进度）—— 后端已就绪（T2 已交付），前端待 T6 接按钮
-//
-// 设计文档 §二 / §三 定了两个接口，属 T2 交付物：
-//   PATCH /api/business/task/{id}/status    { status, reason? }  8 条迁移规则
-//   PATCH /api/business/task/{id}/progress  { progress, mode }   自动/手动 + 联动
-// 卡片（t_f1b956b7）要求：按钮先画出来但 disabled + tooltip「状态流转功能即将上线」，
-// 这里不放**假路径**（会让人误以为已接好）—— T2 合并后由后续小卡在此追加：
-//
-// export function updateTaskStatus(id: string, status: TaskStatus, reason?: string) {
-//   return patch<TaskSaveResult>(`/api/business/task/${id}/status`, { status, reason });
-// }
-// export function updateTaskProgress(id: string, progress: number, mode: 'AUTO' | 'MANUAL') {
-//   return patch<TaskSaveResult>(`/api/business/task/${id}/progress`, { progress, mode });
-// }
+// T7b 接入位（看板拖拽改状态）—— 后端 T2 已交付：PATCH /status（10 条白名单流转）
 // ======================================================================
+
+/**
+ * 任务域错误码（与后端 `backend/src/shared/error_code.rs` 逐字一致）。
+ *
+ * 前端只有「按码给文案」这一条路：HTTP 状态码在 `api/request.ts` 里已被
+ * 规整成 `ApiError`（只保留业务码），所以判据只能是业务码。
+ */
+export const TASK_ERROR_CODE = {
+  /** 409：`from → to` 不在白名单里（跳级 / 同状态 / 终态直取） */
+  TRANSITION_INVALID: 63010,
+  /** 403：当前身份无权推这个流转（如 `REVIEW → DONE` 只有验收人能推） */
+  STATUS_FORBIDDEN: 63011,
+  /** 400：打回（`REVIEW → DOING`）必须填原因，且 ≥5 字 */
+  REJECT_REASON_REQUIRED: 63013,
+  /** 409：还有未完成子任务，父任务不能完成 */
+  HAS_OPEN_CHILDREN: 63006,
+  /** 404：任务不存在 / 不可见 */
+  NOT_FOUND: 63001,
+} as const;
+
+/**
+ * 改状态请求（对应后端 `TaskStatusChangeReq`）。
+ *
+ * 字段名是 **`to`**（目标状态），不是 `status` —— 后端用 serde `alias` 也收
+ * `status`，但**两个都传会 400**（duplicate field），所以前端只传 `to`。
+ */
+export interface TaskStatusChangeReq {
+  /** 目标状态（5 态大写） */
+  to: TaskStatus;
+  /** 原因：`REVIEW → DOING` 必填（≥5 字，进 `reject_reason`）；`→ CANCELLED` 可选；其它只进评论 */
+  reason?: string;
+}
+
+/** 父任务重算结果（对应后端 `ParentProgressRes`；顶层任务为空数组） */
+export interface ParentProgress {
+  id: string;
+  previous: number;
+  progress: number;
+  mode: string;
+  all_done: boolean;
+}
+
+/** 改状态回执（对应后端 `TaskStatusRes`） */
+export interface TaskStatusChangeResult {
+  id: string;
+  task_no: string;
+  /** 流转前状态 */
+  from: string;
+  /** 流转后状态（= 库里的现值） */
+  status: string;
+  /** 流转后进度（无子任务时可能被联动改动） */
+  progress: number;
+  /** 完成时间（进入 DONE 后有值；重开后为 null） */
+  done_at: string | null;
+  /** 本次写入的状态变更评论 id（时间线定位用） */
+  comment_id: string;
+  /** 父任务重算结果（顶层任务为空数组） */
+  parent_progress: ParentProgress[];
+}
+
+/**
+ * 改任务状态（`PATCH /api/business/task/{id}/status`，权限 `business:task:status`）。
+ *
+ * # 参数
+ * - `id`：任务 id（UUID）
+ * - `to`：目标状态
+ * - `reason`：原因（仅打回 / 取消时有意义；空白串按「没填」处理，不会发出该字段）
+ *
+ * # 失败口径（由后端判定，前端只负责翻译）
+ * - 409 + `63010` 非法流转；403 + `63011` 无权；400 + `63013` 打回缺原因。
+ */
+export function changeTaskStatus(id: string, to: TaskStatus, reason?: string): Promise<TaskStatusChangeResult> {
+  const body: TaskStatusChangeReq = { to };
+  const text = reason?.trim();
+  if (text) {
+    body.reason = text;
+  }
+  return patch<TaskStatusChangeResult>(`/api/business/task/${id}/status`, body);
+}

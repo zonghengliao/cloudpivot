@@ -35,7 +35,7 @@
               <t-switch v-model="myMode" size="small" />
               <span class="my-switch__label">只看我的任务</span>
             </label>
-            <span class="filter-hint">
+            <span v-if="view === 'list'" class="filter-hint">
               我的任务按「逾期 / 今日 / 本周 / 以后 / 无期限」分组统计（CST 计算），共 {{ myTotal }} 条
             </span>
           </t-space>
@@ -43,25 +43,30 @@
       </t-row>
     </t-card>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="table-card">
+    <!-- 工具条：三视图切换 + 主操作（列表 / 看板共用同一份筛选条件） -->
+    <t-card :bordered="false" class="toolbar-card">
       <div class="toolbar">
-        <t-space>
-          <t-button v-privilege="[PERM.taskCreate]" theme="primary" @click="openCreate">
+        <t-space align="center">
+          <t-radio-group v-model="view" variant="default-filled" size="small" class="view-switch">
+            <t-radio-button value="list">列表</t-radio-button>
+            <t-radio-button value="board">看板</t-radio-button>
+            <t-radio-button value="gantt">甘特</t-radio-button>
+          </t-radio-group>
+          <t-button v-privilege="[PERM.taskCreate]" theme="primary" size="small" @click="openCreate">
             <template #icon><t-icon name="add" /></template>
             新建任务
           </t-button>
-          <t-button variant="outline" :loading="loading" @click="loadList">
+          <t-button variant="outline" size="small" :loading="loading" @click="refreshCurrent">
             <template #icon><t-icon name="refresh" /></template>
             刷新
           </t-button>
-          <t-button variant="outline" @click="goGantt">
-            <template #icon><t-icon name="chart" /></template>
-            甘特图
-          </t-button>
         </t-space>
-        <span class="toolbar__count">{{ myMode ? '我的任务' : '全部可见任务' }} · 共 {{ pagination.total }} 条</span>
+        <span class="toolbar__count">{{ countText }}</span>
       </div>
+    </t-card>
+
+    <!-- 列表视图 -->
+    <t-card v-if="view === 'list'" :bordered="false" class="table-card">
 
       <!-- 可见性截断提示（后端「我参与」id 数组超 2000 上限时的降级） -->
       <t-alert
@@ -151,6 +156,21 @@
       </t-table>
     </t-card>
 
+    <!-- 看板视图（交互见 components/TaskBoard.vue：原生 HTML5 拖拽改状态） -->
+    <t-card v-else :bordered="false" class="board-view">
+      <TaskBoard
+        ref="boardRef"
+        :keyword="query.keyword"
+        :priority="query.priority"
+        :owner-id="query.owner_id"
+        :due-from="dueRange?.[0] ?? ''"
+        :due-to="dueRange?.[1] ?? ''"
+        :mine="myMode"
+        @open="openDetail"
+        @loaded="handleBoardLoaded"
+      />
+    </t-card>
+
     <!-- 新建 / 编辑 -->
     <TaskForm v-model:visible="formVisible" :task-id="editingId" @saved="handleSaved" />
 
@@ -175,19 +195,21 @@
  * 详情接口里下发。所以列表的「创建人」列改为「来源」（自建 / 被分派 / 转派），
  * 创建人在详情抽屉里看。
  *
- * # 状态流转（T2）未就绪
+ * # 三视图（T7b）
  *
- * 详情里的「开始 / 提交验收 / 完成 / 取消」按卡片要求**画出来但禁用**，
- * 接口位留在 `api/business/task-api.ts` 末尾的 TODO 注释里。
+ * `[列表] [看板] [甘特]`：列表 / 看板在 `/task` 内切换，选中态持久化到 URL query
+ * （`?view=board`，刷新保持）；甘特是独立路由 `/task/gantt`，点它 `router.push` 跳走。
+ * 看板（`components/TaskBoard.vue`）自己拖拽改状态 —— 这里不碰 T2 的状态机。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
 import UserSelect from './components/UserSelect.vue';
 import TaskForm from './components/TaskForm.vue';
+import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
 import { ApiError } from '@/api/request';
 import {
@@ -291,13 +313,76 @@ function flattenMyTasks(data: Awaited<ReturnType<typeof listMyTasks>>): TaskRow[
   return groups.flatMap(([label, list]) => list.map((item) => ({ ...item, bucketLabel: label })));
 }
 
-/** 拉列表 */
-/** 路由（跳甘特图 / 回列表都用它） */
+/** 路由（视图切换 / 跳甘特图都用它） */
+const route = useRoute();
 const router = useRouter();
 
-/** 跳只读甘特图（T4；拖拽改期属 T7） */
-function goGantt(): void {
-  void router.push('/task/gantt');
+/** 当前视图（`gantt` 只是切换开关的过渡值：选中即跳独立路由，本页不渲染甘特） */
+const view = ref<'list' | 'board' | 'gantt'>(route.query.view === 'board' ? 'board' : 'list');
+/** 看板实例（保存 / 删除后让它重拉） */
+const boardRef = ref<InstanceType<typeof TaskBoard> | null>(null);
+/** 看板总条数（工具条展示） */
+const boardTotal = ref(0);
+
+/** 工具条计数文案（列表 / 看板各用各的总数） */
+const countText = computed(() => {
+  const scope = myMode.value ? '我的任务' : '全部可见任务';
+  const total = view.value === 'board' ? boardTotal.value : pagination.total;
+  return `${scope} · 共 ${total} 条`;
+});
+
+/** 把视图写回 URL query（列表是默认值 → 删掉参数，URL 保持干净） */
+function syncViewQuery(next: 'list' | 'board'): void {
+  const current = typeof route.query.view === 'string' ? route.query.view : '';
+  const target = next === 'board' ? 'board' : '';
+  if (current === target) {
+    return;
+  }
+  const nextQuery = { ...route.query };
+  if (target) {
+    nextQuery.view = target;
+  } else {
+    delete nextQuery.view;
+  }
+  void router.replace({ path: route.path, query: nextQuery });
+}
+
+/** 视图切换：甘特走独立路由，列表 / 看板在页内切 */
+watch(view, (next) => {
+  if (next === 'gantt') {
+    void router.push('/task/gantt');
+    return;
+  }
+  syncViewQuery(next);
+  if (next === 'list') {
+    // 看板里刚拖过状态 → 切回列表必须重拉，别拿旧数据糊弄
+    void loadList();
+  }
+});
+
+/** 浏览器前进 / 后退改了 query → 视图跟着回同步 */
+watch(
+  () => route.query.view,
+  (value) => {
+    const next = value === 'board' ? 'board' : 'list';
+    if (view.value !== 'gantt' && view.value !== next) {
+      view.value = next;
+    }
+  },
+);
+
+/** 刷新当前视图（列表重拉 / 看板重拉五列） */
+function refreshCurrent(): void {
+  if (view.value === 'board') {
+    boardRef.value?.reload();
+    return;
+  }
+  void loadList();
+}
+
+/** 看板每次加载后回报总条数 */
+function handleBoardLoaded(total: number): void {
+  boardTotal.value = total;
 }
 
 async function loadList(): Promise<void> {
@@ -394,8 +479,12 @@ function openDetail(row: TaskCard): void {
   detailVisible.value = true;
 }
 
-/** 保存成功：刷新列表并提示 */
+/** 保存成功：刷新当前视图（看板 / 列表各自的数据源） */
 function handleSaved(): void {
+  if (view.value === 'board') {
+    boardRef.value?.reload();
+    return;
+  }
   void loadList();
 }
 
@@ -427,13 +516,20 @@ function confirmRemove(row: TaskCard): void {
   });
 }
 
-/** 详情抽屉里删除成功 → 刷新列表 */
+/** 详情抽屉里删除成功 → 刷新当前视图 */
 function handleDeleted(): void {
+  if (view.value === 'board') {
+    boardRef.value?.reload();
+    return;
+  }
   void loadList();
 }
 
 onMounted(() => {
-  void loadList();
+  // 看板视图由 TaskBoard 自己在 onMounted 里拉五列，这里只负责列表
+  if (view.value === 'list') {
+    void loadList();
+  }
 });
 </script>
 
@@ -469,11 +565,27 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  gap: 12px;
 
   &__count {
     font-size: 13px;
     color: var(--td-text-color-placeholder);
+  }
+}
+
+.toolbar-card {
+  :deep(.t-card__body) {
+    padding: 10px 16px;
+  }
+}
+
+.view-switch {
+  margin-right: 4px;
+}
+
+.board-view {
+  :deep(.t-card__body) {
+    padding: 12px 16px;
   }
 }
 

@@ -5,10 +5,12 @@
       <t-row :gutter="[16, 12]" align="middle">
         <t-col :span="4">
           <t-space align="center">
-            <t-button variant="text" @click="goList">
-              <template #icon><t-icon name="chevron-left" /></template>
-              返回列表
-            </t-button>
+            <!-- 三视图切换（T7b）：甘特页也要能一眼切回列表 / 看板 -->
+            <t-radio-group :model-value="'gantt'" variant="default-filled" size="small" @change="handleViewChange">
+              <t-radio-button value="list">列表</t-radio-button>
+              <t-radio-button value="board">看板</t-radio-button>
+              <t-radio-button value="gantt">甘特</t-radio-button>
+            </t-radio-group>
             <span class="toolbar__title">甘特图</span>
             <t-tag size="small" variant="light-outline" theme="default">只读</t-tag>
           </t-space>
@@ -498,9 +500,17 @@ function openDetail(id: string): void {
   detailVisible.value = true;
 }
 
-/** 回列表页 */
-function goList(): void {
-  void router.push('/task');
+/** 回列表页 / 看板页（三视图切换） */
+function handleViewChange(value: unknown): void {
+  const next = String(value);
+  if (next === 'board') {
+    void router.push('/task?view=board');
+    return;
+  }
+  if (next === 'list') {
+    void router.push('/task');
+  }
+  // `gantt` = 当前页，不动作
 }
 
 /** 把时间窗推回默认（今天起 30 天） */
