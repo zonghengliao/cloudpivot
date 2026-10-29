@@ -32,15 +32,18 @@
         <div v-for="card in cards" :key="card.id" class="task-card" @click="openDetail(card)">
           <div class="task-card__main">
             <div class="task-card__title">
-              {{ card.title || '（无标题）' }}
+              <span class="task-card__title-text">{{ card.title || '（无标题）' }}</span>
+              <span v-if="card.flowName" class="task-card__flow">{{ card.flowName }}</span>
               <t-tag v-if="card.tag" size="small" variant="light" :theme="card.tagTheme">{{ card.tag }}</t-tag>
             </div>
             <div class="task-card__meta">
               <span class="task-card__no">{{ card.instanceNo || '—' }}</span>
               <span class="task-card__dot">·</span>
-              <span>{{ card.flowName || '—' }}</span>
-              <span class="task-card__dot">·</span>
-              <span>当前节点：{{ card.nodeLabel }}</span>
+              <span>发起人：{{ card.initiatorName || '—' }}</span>
+              <template v-if="card.nodeLabel">
+                <span class="task-card__dot">·</span>
+                <span>当前节点：{{ card.nodeLabel }}</span>
+              </template>
               <span v-if="card.extra" class="task-card__dot">·</span>
               <span v-if="card.extra">{{ card.extra }}</span>
             </div>
@@ -124,23 +127,18 @@
 /**
  * 审批中心（卡面页面 4 / `/flow/task`）：待办 / 已办 / 我发起 / 抄送我的 四个 Tab。
  *
- * # 数据来源（D2 已交付，全部真实接口）
+ * # 数据来源（全部真实接口，D4a 后无前端补字段）
  *
  * | Tab | 接口 | 出参 |
  * |---|---|---|
  * | 待我审批 | `GET /business/flow/task/todo` | `PageData<TaskRes>` |
  * | 我已审批 | `GET /business/flow/task/done` | `PageData<TaskRes>` |
- * | 我发起的 | `GET /business/flow/instance/page`（按 `initiator_id` 前端过滤） | `PageData<InstanceRes>` |
+ * | 我发起的 | `GET /business/flow/instance/my`（`initiator_id = 我`，按发起时间倒序） | `PageData<InstanceRes>` |
  * | 抄送我的 | `GET /business/flow/task/cc` | `PageData<CcRes>` |
  *
- * # 一个必须说清的 DTO 缺口
- *
- * `TaskRes` **只有 `instance_no` + `title`**（D2 的 `enrich_tasks` 只补这两个），
- * 没有 `flow_name` / `initiator_name` / `node_name`。所以待办卡片上：
- * - 「当前节点」显示 `node_key`（点进详情才有中文节点名）；
- * - 「流程名 / 发起人」在待办 / 已办 Tab 上显示 `—`，在「我发起的」Tab 上能拿到（那是 InstanceRes）。
- *
- * 已作为联调发现记进 `docs/批次D-D5-前端验证证据.md`，等 D2 补字段后这里只需换映射。
+ * `TaskRes` / `CcRes` 自 D4a 起下发 `flow_name` / `initiator_name` / `current_node_name` /
+ * `arrived_at`，所以卡片上的流程名、发起人、当前节点中文名全部直接取字段，
+ * 「当前节点」不再显示 `node_key`，时间口径统一用 `arrived_at`。
  */
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
@@ -150,19 +148,18 @@ import {
   approveFlowTask,
   listDoneTasks,
   listMyCc,
+  listMyInstances,
   listTodoTasks,
-  pageFlowInstances,
   rejectFlowTask,
   transferFlowTask,
+  type FlowTaskItem,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
-import { useUserStore } from '@/stores/user';
 import type { StatusDomain } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 
 const router = useRouter();
-const userStore = useUserStore();
 
 /** 统一卡片形状（四类列表字段各不相同，这里归一成「首页要展示什么」） */
 interface CardItem {
@@ -176,13 +173,15 @@ interface CardItem {
   title: string;
   /** 单据号 */
   instanceNo: string;
-  /** 流程名（只有「我发起的」能拿到） */
+  /** 流程名 */
   flowName: string;
-  /** 当前节点的显示名（待办只有 key） */
+  /** 发起人姓名（空串 = 未知 / 已删） */
+  initiatorName: string;
+  /** 当前节点的显示名（中文名；缺失时回退 `—`） */
   nodeLabel: string;
   /** 附注（如「第 2 轮」「加签」） */
   extra: string;
-  /** 时间（待办到达 / 抄送创建 / 发起） */
+  /** 时间（到达时间 `arrived_at` / 发起时间） */
   at: string;
   /** 已等待毫秒（前端按到达时间算） */
   waitedMs?: number;
@@ -246,19 +245,8 @@ function waitedText(ms: number): string {
   return `已等 ${Math.floor(hours / 24)} 天`;
 }
 
-/** 待办 / 已办卡片（`TaskRes` → 卡片） */
-function taskToCard(task: {
-  id: string;
-  instance_id: string;
-  instance_no: string;
-  title: string;
-  node_key: string;
-  round: number;
-  status: string;
-  task_kind: string;
-  is_added_sign: boolean;
-  created_at: string;
-}): CardItem {
+/** 待办 / 已办卡片（`TaskRes` → 卡片；字段全部来自后端，不做前端补全） */
+function taskToCard(task: FlowTaskItem): CardItem {
   const tags: string[] = [];
   if (task.is_added_sign) {
     tags.push('加签');
@@ -272,12 +260,13 @@ function taskToCard(task: {
     taskId: task.id,
     title: task.title,
     instanceNo: task.instance_no,
-    // 列表 DTO 没有流程名 / 发起人（见文件头「DTO 缺口」），这里如实留空
-    flowName: '',
-    nodeLabel: task.node_key,
+    flowName: task.flow_name,
+    initiatorName: task.initiator_name,
+    // 节点显示中文名（`current_node_name`）；节点行缺失时后端给空串，模板回退 `—`
+    nodeLabel: task.current_node_name,
     extra: task.round > 1 ? `第 ${task.round} 轮` : '',
-    at: task.created_at,
-    waitedMs: task.task_kind === 'APPROVAL' ? Math.max(0, Date.now() - new Date(task.created_at).getTime()) : undefined,
+    at: task.arrived_at,
+    waitedMs: task.task_kind === 'APPROVAL' ? Math.max(0, Date.now() - new Date(task.arrived_at).getTime()) : undefined,
     status: task.status,
     statusDomain: 'flow-task',
     tag: tags[0],
@@ -298,26 +287,29 @@ async function loadCurrent(): Promise<void> {
       const data = await listDoneTasks({ page: 1, page_size: 50 });
       cards.value = (data.list ?? []).map(taskToCard);
     } else if (activeTab.value === 'mine') {
-      const data = await pageFlowInstances({ page: 1, page_size: 50 });
-      const me = userStore.userInfo?.id ?? '';
-      cards.value = (data.list ?? [])
-        // 后端没有「我发起的」专用接口（`instance/page` 是「可见的单子」），
-        // 这里按发起人精确过滤 —— 不猜、不从别处拼数据
-        .filter((item) => !me || item.initiator_id === me)
-        .map(
-          (item): CardItem => ({
-            id: item.id,
-            instanceId: item.id,
-            title: item.title,
-            instanceNo: item.instance_no,
-            flowName: `${item.flow_name}（v${item.version_no}）`,
-            nodeLabel: item.my_task_id ? '待我处理' : '—',
-            extra: item.auto_passed_nodes > 0 ? `自动通过 ${item.auto_passed_nodes} 个节点` : '',
-            at: item.started_at,
-            status: item.status,
-            statusDomain: 'flow-instance',
-          }),
-        );
+      // 服务端按 `initiator_id = 我` 过滤并倒序，前端不再过滤 / 不再拼数据
+      const data = await listMyInstances({ page: 1, page_size: 50 });
+      cards.value = (data.list ?? []).map(
+        (item): CardItem => ({
+          id: item.id,
+          instanceId: item.id,
+          title: item.title,
+          instanceNo: item.instance_no,
+          flowName: `${item.flow_name}（v${item.version_no}）`,
+          initiatorName: item.initiator_name,
+          // InstanceRes 没有 `current_node_name`，这里不编造节点名，只把「轮到我处理」放进附注
+          nodeLabel: '',
+          extra: [
+            item.my_task_id ? '待我处理' : '',
+            item.auto_passed_nodes > 0 ? `自动通过 ${item.auto_passed_nodes} 个节点` : '',
+          ]
+            .filter(Boolean)
+            .join(' · '),
+          at: item.started_at,
+          status: item.status,
+          statusDomain: 'flow-instance',
+        }),
+      );
     } else {
       const data = await listMyCc({ page: 1, page_size: 50 });
       cards.value = (data.list ?? []).map((item) => ({
@@ -325,10 +317,11 @@ async function loadCurrent(): Promise<void> {
         instanceId: item.instance_id,
         title: item.title,
         instanceNo: item.instance_no,
-        flowName: '',
-        nodeLabel: item.node_key,
+        flowName: item.flow_name,
+        initiatorName: item.initiator_name,
+        nodeLabel: item.current_node_name,
         extra: item.round > 1 ? `第 ${item.round} 轮` : '',
-        at: item.created_at,
+        at: item.arrived_at,
         status: item.is_read ? 'READ' : 'UNREAD',
         statusDomain: 'flow-cc' as StatusDomain,
         tag: item.is_read ? undefined : '未读',
@@ -577,6 +570,25 @@ onMounted(() => {
     color: var(--td-text-color-primary);
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  &__title-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 流程名（`flow_name`）：标题旁的中性小 chip；中性色是为跨 22 套配色都能过 AA 对比 */
+  &__flow {
+    flex: none;
+    padding: 0 6px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--td-text-color-secondary);
+    white-space: nowrap;
+    background: var(--td-bg-color-secondarycontainer);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 3px;
   }
 
   &__meta {

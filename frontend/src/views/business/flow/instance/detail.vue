@@ -83,17 +83,13 @@
             <div class="section-title">审批内容</div>
             <div class="content">
               <p class="content__title">{{ detail.instance.title }}</p>
-              <t-alert
-                v-if="!hasFormData"
-                theme="info"
-                message="发起时填写的内容（form_data）当前接口未下发：D2 的实例详情 DTO 只返回实例摘要 / 节点 / 时间线 / 抄送，不含 form_data。数据已冻结在 biz_flow_instance.form_data 里，接口补字段后本块直接展示。"
-              />
-              <div v-else class="content__fields">
+              <div v-if="formFields.length > 0" class="content__fields">
                 <div v-for="field in formFields" :key="field.key" class="content__field">
                   <span class="content__field-key">{{ field.key }}</span>
                   <span class="content__field-value">{{ field.value }}</span>
                 </div>
               </div>
+              <p v-else class="content__empty">发起时未填写表单内容</p>
               <p v-if="detail.instance.result_comment" class="content__comment">
                 结束说明：{{ detail.instance.result_comment }}
               </p>
@@ -406,16 +402,33 @@ function toProgressNode(row: FlowNodeProgress): FlowProgressNode {
 }
 
 /**
- * 详情里是否有表单数据。
+ * 表单字段（读 `detail.instance.form_data`，D4a 起接口下发）。
  *
- * D2 的 `InstanceDetailRes` **没有下发 `form_data`**（虽然 `biz_flow_instance.form_data` 里存着），
- * 所以这里恒为 false，页面显示一条明确的「接口未下发」说明 —— 不假装内容为空、也不编内容。
- * D2 补字段后把下面 `formFields` 的取值改成读 `detail.instance.form_data` 即可。
+ * 口径照卡面：键名原样展示（不做中文映射 —— 键里是什么就显示什么），
+ * 值用 `String(v)`；`null` / `undefined` 显示空；数组 / 对象用 JSON 字符串。
  */
-const hasFormData = computed(() => false);
+function formatFormValue(value: unknown): string {
+  if (value === null || value === undefined) {
+    return '';
+  }
+  if (typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
 
-/** 附带的表单字段（接口补 `form_data` 后在此展开） */
-const formFields = computed<Array<{ key: string; value: string }>>(() => []);
+/** 附带的表单字段（无表单 → 空数组，模板显示「发起时未填写表单内容」） */
+const formFields = computed<Array<{ key: string; value: string }>>(() => {
+  const data = detail.value?.instance?.form_data;
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  return Object.entries(data).map(([key, value]) => ({ key, value: formatFormValue(value) }));
+});
 
 /** 时间线条目 */
 interface TimelineItem {
@@ -888,6 +901,7 @@ onBeforeUnmount(() => {
 
   &__field-value {
     color: var(--td-text-color-primary);
+    word-break: break-word;
   }
 }
 

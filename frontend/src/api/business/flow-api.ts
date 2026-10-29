@@ -21,10 +21,9 @@
  * | 11 | POST | `/business/flow/version/{vid}/validate` | `business:flow:update` |
  * | 12 | POST | `/business/flow/def/{id}/draft` | `business:flow:update` |
  *
- * # 实例侧（**D2 尚未交付**，本文件只按架构 §10.1.2–§10.1.4 的契约预置函数）
+ * # 实例侧（D2 已交付，D4a 补齐列表字段与 `/instance/my`）
  *
- * 所有实例侧函数都带 `TODO(D2)` 标记。调用它们**允许失败**：D2 未上线时后端返回
- * 404 / 405，页面的处理是「暂无数据」空态，**不许在前端造数据**（红线）。
+ * 所有函数都打真接口，**不许在前端造数据**：接口失败就渲染错误态 / 空态（红线）。
  *
  * # 三条取值口径（照后端 `dto.rs`，别自己发明）
  *
@@ -632,9 +631,8 @@ export function createFlowDraft(id: string, body: FlowDraftReq = {}): Promise<Fl
 /**
  * 审批任务（`TaskRes`）。
  *
- * **列表接口（todo / done）只填 `instance_no` + `title`**：`flow_name` / `initiator_name` /
- * `node_name` 都不在 DTO 里（D2 的 `enrich_tasks` 只补单据号与标题）。
- * 所以待办卡片上「当前节点」显示的是 `node_key`，需要节点中文名时要点进详情。
+ * 列表接口（todo / done）一次 JOIN 取齐展示字段：`flow_name` / `initiator_name` /
+ * `current_node_name` / `arrived_at` 都由后端下发（D4a 补齐），卡片不用再点进详情才知道节点中文名。
  */
 export interface FlowTaskItem {
   /** 待办 id */
@@ -645,6 +643,14 @@ export interface FlowTaskItem {
   instance_no: string;
   /** 单据标题（列表场景填） */
   title: string;
+  /** 流程名称（如「财务审批」） */
+  flow_name: string;
+  /** 发起人姓名（发起人已删 → 空串） */
+  initiator_name: string;
+  /** 当前节点中文名（如「主管审批」；**卡片显示它，不显示 node_key**） */
+  current_node_name: string;
+  /** 到达时间（= `created_at`；待办列表按它倒序） */
+  arrived_at: string;
   /** 节点 key */
   node_key: string;
   /** 轮次（退回一次 +1） */
@@ -685,6 +691,14 @@ export interface FlowCcItem {
   instance_no: string;
   /** 单据标题 */
   title: string;
+  /** 流程名称 */
+  flow_name: string;
+  /** 发起人姓名（已删 → 空串） */
+  initiator_name: string;
+  /** 节点中文名（节点行缺失 → 空串） */
+  current_node_name: string;
+  /** 抄送到达时间（= `created_at`；抄送列表按它倒序） */
+  arrived_at: string;
   /** 节点 key */
   node_key: string;
   /** 轮次 */
@@ -725,6 +739,8 @@ export interface FlowInstance {
   initiator_name: string;
   /** 发起人部门 id（空串 = 无） */
   initiator_dept_id: string;
+  /** 表单数据（发起时冻结在 `biz_flow_instance.form_data`；无表单 → `{}`） */
+  form_data?: Record<string, unknown>;
   /** 自动通过的节点数（审计口径，详情页要显著提示） */
   auto_passed_nodes: number;
   /** 最大退回轮次（打回次数 = round_total - 1） */
@@ -864,6 +880,16 @@ export function createFlowInstance(body: FlowInstanceCreateReq): Promise<FlowAct
 /** 审批单分页（`GET /business/flow/instance/page`，可见性由后端按参与关系过滤）。 */
 export function pageFlowInstances(query: FlowInstancePageQuery = {}): Promise<PageData<FlowInstance>> {
   return get<PageData<FlowInstance>>('/api/business/flow/instance/page', asParams(query));
+}
+
+/**
+ * 我发起的（`GET /business/flow/instance/my?page=1&page_size=20`）。
+ *
+ * 口径是 `initiator_id = 我`、按发起时间倒序（D4a）。**不是**可见性并集：
+ * 抄送我的 / 待我审的单子不会混进来，也不需要前端再按 `initiator_id` 过滤。
+ */
+export function listMyInstances(query: { page?: number; page_size?: number } = {}): Promise<PageData<FlowInstance>> {
+  return get<PageData<FlowInstance>>('/api/business/flow/instance/my', asParams(query));
 }
 
 /** 审批单详情（`GET /business/flow/instance/{id}`：实例 + 节点进度 + 时间线 + 抄送 + 我的待办）。 */

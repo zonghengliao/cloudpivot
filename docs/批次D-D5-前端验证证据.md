@@ -88,6 +88,10 @@
 
 ## 5. 联调发现（D2 的 DTO 缺口，建议 D2/D6 补）
 
+> **已闭环（2026-10-29）**：D4a 后端（`27f1fba`）补齐了下面 3 项，前端接线见
+> `docs/批次D-D4a-前端接线-验证证据.md`（我发起 Tab 改打 `/instance/my`、卡片直取 4 个新字段、详情读 `form_data`）。
+> 本节保留作历史记录。
+
 1. **详情 DTO 没有 `form_data`**：`biz_flow_instance.form_data` 里存着发起时填的内容，但
    `InstanceDetailRes` 只返回 `instance / nodes / timeline / cc / my_task`。
    详情页的「审批内容」区因此改为显示「接口未下发」的显式说明（**不假装内容为空、不编内容**）。
