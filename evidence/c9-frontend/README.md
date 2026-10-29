@@ -157,6 +157,21 @@ XSS 双保险实测：把**未净化** HTML 直写库后，前端二次净化删
 补充：变更日志导出走后端 xlsx 字节流（实测 `200` + `content-type: …spreadsheetml.sheet` + `PK` 魔数 + 10 102 字节），
 前端 `saveBlob` 落盘；`<a href>` 会 401（无鉴权头），所以必须取 blob。
 
+### 7.1 发布 / 下线 / 附件（真实 UI 点击，非仅接口）
+
+- **发布**：草稿行点「发布」→ 确认框「发布后…将推送给范围内 ? 位用户（含站内信），确认发布？」→ 确认后行状态
+  `草稿 → 已发布`、受众 34；后端同时落 `PUBLISH` 变更日志。
+- **下线**：点「下线」→ 弹「下线公告」对话框；**空原因提交被前端拦下**（toast「下线原因必填」），
+  填写原因后确认 → 状态 `已下线`；变更日志 `action_label` = `下线公告：C9 验收：验证下线留痕（原因会进变更日志 action_label）`
+  （原因随凭证留痕）。
+- **附件**：`POST /business/announcement/{id}/attachment` 绑定 `c9-attach.pdf`（192 B，后端按存储策略只收
+  jpg/pdf/docx/xlsx/zip，`.txt` 直接被拒 60004）；公告中心详情底部出现「附件（1）」区，
+  行内展示 `c9-attach.pdf 192 B 下载`；点「下载」走鉴权 blob 路径（页面无报错），
+  代理接口实测 `200 + application/pdf + content-length: 192 + disposition`，响应体以 `%PDF-1.4` 开头。
+
+截图：`09-announcement-attachment.png`。
+
+
 ## 8. 与 PRD 的偏差（以后端已验收的注解 / 种子为准，已写入 `constants/permissions.ts` 头注释）
 
 1. 帮助码是 `system:help:*`（PRD 写 `business:help:*`），分类四码 `category:*`；
