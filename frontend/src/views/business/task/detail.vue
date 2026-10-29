@@ -172,15 +172,21 @@
             <!-- ---------- 评论 ---------- -->
             <t-tab-panel value="comment" :label="`评论${comments.total > 0 ? ` ${comments.total}` : ''}`">
               <!-- 发表框：@ 提及 = 强制通知（被选中的每个人都会收到） -->
-              <div class="composer">
+              <div class="composer" @keydown="onComposerKeydown">
                 <t-textarea
                   v-model="composer.content"
-                  placeholder="写下评论…（支持 Markdown；右侧可 @ 提醒同事）"
-                  :autosize="{ minRows: 2, maxRows: 6 }"
-                  :maxlength="8000"
+                  placeholder="写下评论…（支持 Markdown；Ctrl / ⌘ + Enter 快捷发送）"
+                  :autosize="{ minRows: 3, maxRows: 6 }"
+                  :maxlength="COMMENT_MAX_CHARS"
                 />
-                <div class="composer__ops">
+                <div class="composer__row">
                   <MentionSelect v-model="composer.mentions" class="composer__mention" />
+                  <span class="composer__count">
+                    {{ composer.content.trim().length }} / {{ COMMENT_MAX_CHARS }}
+                  </span>
+                </div>
+                <div class="composer__ops">
+                  <span class="composer__tip">Ctrl / ⌘ + Enter 发送</span>
                   <t-button
                     size="small"
                     theme="primary"
@@ -188,7 +194,7 @@
                     :disabled="!composer.content.trim()"
                     @click="submitComment"
                   >
-                    发表评论
+                    发送
                   </t-button>
                 </div>
               </div>
@@ -365,7 +371,6 @@ import MentionSelect from './components/MentionSelect.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
 import { ApiError } from '@/api/request';
 import {
-  addTaskComment,
   addTaskWorklog,
   deleteTask,
   deleteTaskAttachment,
@@ -376,8 +381,10 @@ import {
   listTaskAttachments,
   listTaskComments,
   listTaskWorklogs,
+  postTaskComment,
   uploadTaskAttachment,
   type TaskAttachmentItem,
+  type TaskCommentCreateResult,
   type TaskCommentItem,
   type TaskCommentType,
   type TaskDetail,
@@ -542,6 +549,9 @@ const comments = reactive({
   loading: false,
 });
 
+/** 人类评论正文上限（与后端 `MAX_USER_COMMENT_CHARS` 同口径：超长服务端 400） */
+const COMMENT_MAX_CHARS = 5000;
+
 /** 评论发表框 */
 const composer = reactive({
   content: '',
@@ -655,7 +665,48 @@ async function loadComments(page = 1): Promise<void> {
   }
 }
 
-/** 发表评论（成功后重拉第一页，保证顺序与服务端一致） */
+/**
+ * Ctrl / ⌘ + Enter 快捷发送。
+ *
+ * 监听挂在 **composer 容器**上而不是 `t-textarea` 上：TDesign 的 textarea 根节点
+ * 是包裹层，`@keydown` 直接写在组件上不保证落到真正的 `<textarea>`；原生 keydown
+ * 会冒泡到容器，这里命中率 100%。`preventDefault` 是为了不让换行插进正文。
+ */
+function onComposerKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey)) {
+    return;
+  }
+  event.preventDefault();
+  void submitComment();
+}
+
+/**
+ * 把发表回执拼成本地列表项（**不重拉整页**：顺序与服务端一致即可）。
+ *
+ * - 时间线是正序 → 新评论追加到已加载列表末尾（即最新的位置）；
+ * - `can_delete` = true（人写的评论作者本人可删，与后端 `comment_delete_verdict` 同口径）；
+ * - `readonly` = false（后端只允许 `PLAIN`，`PLAIN` 不是只读类型）。
+ */
+function toCommentItem(created: TaskCommentCreateResult, content: string): TaskCommentItem {
+  return {
+    id: created.id,
+    comment_type: 'PLAIN',
+    user_id: created.user_id,
+    user_name: created.user_name,
+    content,
+    mentions: created.mentions ?? [],
+    parent_comment_id: null,
+    created_at: created.created_at,
+    readonly: false,
+    can_delete: true,
+  };
+}
+
+/**
+ * 发表评论（`POST /api/business/task/{id}/comments`）。
+ *
+ * 红线：**失败不清空输入** —— 只有服务端确认落库后才重置，否则用户白写。
+ */
 async function submitComment(): Promise<void> {
   const taskId = props.taskId;
   const content = composer.content.trim();
@@ -664,12 +715,16 @@ async function submitComment(): Promise<void> {
   }
   composer.submitting = true;
   try {
-    // 走 T5b 已建的写接口（`POST /{id}/comment`）：与本卡新增的列表同一张表
-    await addTaskComment(taskId, { content, mentions: composer.mentions });
+    const created = await postTaskComment(taskId, { content, mentions: composer.mentions });
+    // 成功才清空；随后把新评论按时间位置插进列表 + total + 1。
     composer.content = '';
     composer.mentions = [];
-    await loadComments(1);
+    comments.list = [...comments.list, toCommentItem(created, content)];
+    comments.total += 1;
     MessagePlugin.success('评论已发表');
+    if (created.mentions_ignored && created.mentions_ignored.length > 0) {
+      MessagePlugin.warning(`${created.mentions_ignored.length} 个被 @ 的账号不存在，已忽略`);
+    }
   } catch (error) {
     MessagePlugin.error(error instanceof ApiError ? error.message : '评论发表失败');
   } finally {
@@ -1143,6 +1198,13 @@ function resetCollab(): void {
   background: var(--td-bg-color-container-hover);
   border-radius: var(--td-radius-medium);
 
+  &__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
   &__ops {
     display: flex;
     align-items: center;
@@ -1154,6 +1216,12 @@ function resetCollab(): void {
     flex: 1;
     min-width: 160px;
     max-width: 320px;
+  }
+
+  &__count,
+  &__tip {
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
   }
 }
 

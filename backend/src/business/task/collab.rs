@@ -687,7 +687,7 @@ pub async fn sum_worklog_hours(task_id: Uuid) -> DbResult<f64> {
 /// 可见性闸：解析数据范围 + 单条任务可见性。
 ///
 /// 看不见 / 不存在 / 已软删一律 **404**（不暴露 ID 是否存在）。
-async fn visible_task(
+pub(crate) async fn visible_task(
     claims: &TokenClaims,
     task_id: Uuid,
 ) -> std::result::Result<(ScopedPrincipal, TaskDetailRow), ApiError> {

@@ -672,6 +672,10 @@ export interface TaskCommentCreateResult {
   user_id: string;
   user_name: string;
   created_at: string;
+  /** 实际生效的被 @ 用户（只有真正收到强制通知的账号） */
+  mentions?: string[];
+  /** 被忽略的 `mentions`（账号不存在 / 已停用 / 已删除；后端忽略而不是报错） */
+  mentions_ignored?: string[];
 }
 
 /**
@@ -683,6 +687,34 @@ export interface TaskCommentCreateResult {
 export function addTaskComment(id: string, data: TaskCommentCreateReq): Promise<TaskCommentCreateResult> {
   return post<TaskCommentCreateResult>(`/api/business/task/${id}/comment`, data);
 }
+
+/**
+ * 发表评论（`POST /api/business/task/${id}/comments`）—— **人写评论的唯一入口**。
+ *
+ * # 为什么与 `addTaskComment` 并存
+ *
+ * 单数路径 `/comment` 是 T5b 给 **AI 任务令牌**开的（`no_auth` + 任务级令牌校验）；
+ * 复数路径 `/comments` 是 REST 语义的人类入口（与 `GET /comments`、
+ * `DELETE /comments/{id}` 同前缀，权限 `business:task:read`），T6b 补漏补的。
+ * 后端两个 handler 共用同一份写入实现，差别只有正文上限（人 5000 超长 400 /
+ * AI 8000 超长截断）。
+ *
+ * # 服务端的四条约束（前端只做提示，判定只有后端一份）
+ *
+ * - `content` trim 后 1–5000 字，超长 **400**；
+ * - `mentions` 里不存在的账号**被忽略**，回执 `mentions_ignored` 里逐个列出；
+ * - `parent_comment_id` 必须属于同一任务，跨任务 **400**；
+ * - `comment_type` 只能是 `PLAIN`，伪造 `AI_REPORT` 等一律 **400**。
+ */
+export function postTaskComment(
+  id: string,
+  data: TaskCommentCreateReq,
+): Promise<TaskCommentCreateResult> {
+  return post<TaskCommentCreateResult>(`/api/business/task/${id}/comments`, data);
+}
+
+/** 卡面里的名字（`postComment`）与 {@link postTaskComment} 是同一个函数。 */
+export const postComment = postTaskComment;
 
 /** 单条附件（对应后端 `TaskAttachmentItemRes`） */
 export interface TaskAttachmentItem {

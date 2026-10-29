@@ -372,9 +372,30 @@ pub struct TaskCommentReq {
     pub content: String,
     /// 回复的上级评论 ID（可空）。
     pub parent_comment_id: Option<String>,
-    /// 被 @ 的用户 ID 数组（可空；当前只落库，通知扇出属后续卡）。
+    /// 被 @ 的用户 ID 数组（可空；**每个人都收到强制通知**，不存在的账号会被忽略）。
     #[serde(default)]
     pub mentions: Vec<String>,
+}
+
+/// 人类发表评论（`POST /business/task/{id}/comments`，T6b 补漏）。
+///
+/// # 为什么单独一个 DTO（而不是复用 [`TaskCommentReq`]）
+///
+/// 区别只有一处：**显式收下 `comment_type`**。用户伪造 `AI_REPORT` / `STATUS_CHANGE`
+/// 时要给出 400（红线：用户只能发 `PLAIN`），而不是靠 serde 静默丢弃 —— 静默丢弃
+/// 在验收与排障时看不出「模型被拒了」还是「字段名写错了」。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskPostCommentReq {
+    /// 正文（trim 后 1–5000 字符）。
+    pub content: String,
+    /// 回复的上级评论 ID（可空；**必须属于同一任务**，否则 400）。
+    pub parent_comment_id: Option<String>,
+    /// 被 @ 的用户 ID（不存在 / 已停用的账号**忽略**，回执里见 `mentions_ignored`）。
+    #[serde(default)]
+    pub mentions: Vec<String>,
+    /// 只允许 `PLAIN`（缺省 = `PLAIN`）；其它值一律 400。
+    #[serde(default)]
+    pub comment_type: Option<String>,
 }
 
 /// 评论写的回执。
@@ -390,6 +411,13 @@ pub struct TaskCommentRes {
     pub user_name: String,
     /// 落库时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 实际生效的被 @ 用户（去重后；只有真正收到通知的账号）。
+    pub mentions: Vec<String>,
+    /// 被忽略的 `mentions`（账号不存在 / 已停用 / 已删除）。
+    ///
+    /// 卡面 §一 的方案是「忽略而不是报错」：一次 @ 里有一个人已离职，不该让整条评论发不出去；
+    /// 但也不能假装成功，所以逐个回传，前端弹一条提示。
+    pub mentions_ignored: Vec<String>,
 }
 
 /// 附件上传的回执（`POST /business/task/{id}/attachment`）。
