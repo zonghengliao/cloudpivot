@@ -286,7 +286,7 @@ pub const TRANSITIONS: [Transition; 10] = [
         done_at: DoneAtEffect::Keep,
         requires_reject_reason: false,
         requires_no_review: false,
-        label: "开始执行（H-DEP 前置依赖校验在 T4 接入）",
+        label: "开始执行（前置依赖由 T4 校验：未完成前置 → 409）",
     },
     Transition {
         from: TaskStatus::Doing,

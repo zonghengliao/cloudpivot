@@ -242,6 +242,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '工作任务', permission: 'business:task:read' },
       },
       {
+        // ==================== 批次 C+（工作任务管理 · T4 甘特图） ====================
+        // path 与 `sys_menu.path`（V0110 种子 …0770）逐字一致：`/task/gantt`。
+        // **只读**页：拖拽改期属 T7，且改期后必须重跑依赖校验（修正 10）。
+        path: 'task/gantt',
+        name: 'BusinessTaskGantt',
+        component: () => import('@/views/business/task/gantt.vue'),
+        meta: { title: '甘特图', permission: 'business:task:read' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

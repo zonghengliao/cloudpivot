@@ -36,7 +36,7 @@
 //! | `6000x` | 业务域 · 批次 A（对象存储 / 导入导出 / 消息通知） |
 //! | `6100x` | 权限增强 · 批次 B（数据权限 / 列级脱敏 / 角色互斥） |
 //! | `62xxx` | 批次 C（公告 / 帮助 / 变更日志）+ 批次 D（偏好体系 KV） |
-//! | `63xxx` | 批次 C+（工作任务管理 T 段：`63001`–`63009`） |
+//! | `63xxx` | 批次 C+（工作任务管理 T 段：`63001`–`63020`，`63101`–`63105` 为依赖 / 甘特子段） |
 //! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64013`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
@@ -521,6 +521,38 @@ pub const TASK_MEMBER_INVALID: i32 = 63019;
 /// 该用户不是本任务的协作人（HTTP 404）。
 pub const TASK_MEMBER_NOT_FOUND: i32 = 63020;
 
+// ── T4 追加（631xx 子段）：依赖环检测 / 前置阻塞 / 甘特时间窗 ─────────────
+//
+// 为什么这批码跳到 **631xx** 而不是接着 63021：卡面 t_687d35b1 明确要求
+// 「成环 → 400 + **63101**」「前置未完成 → 409 + **63102**」，这两个码值是
+// 前端文案映射与验收脚本的契约，不能为了「连续好看」改成 63021/63022。
+// 630xx 段留给任务管理的后续小改（63021+），631xx 子段专用于依赖与甘特。
+
+/// 依赖会成环，已拒绝（HTTP 400）。
+///
+/// 消息里**必须点名环上的每一个任务**（`task_no「标题」→ …`）——只回「有环」
+/// 等于让用户自己去几百条依赖里找环。环路径由 `task/dep.rs::render_cycle` 渲染。
+/// 依赖链超过 100 层（无法在安全成本内判定）时也用这个码：同样是「拒绝加依赖」。
+pub const TASK_DEPENDENCY_CYCLE: i32 = 63101;
+
+/// 前置任务未完成，不能进入 DOING（HTTP 409）。
+///
+/// 消息里**必须列出未完成的前置**（编号 + 标题 + 状态）。`CANCELLED` 的前置
+/// 视为「已解除」，不在名单里（见 `task/dep.rs::is_blocking_status`）。
+pub const TASK_DEPENDENCY_BLOCKED: i32 = 63102;
+
+/// 依赖本身不合法（HTTP 400）：自依赖 / 父子任务互依赖 / 跨项目 / 类型非 FS /
+/// 滞后天数越界 / 用了本版不支持的 `board_id` 维度。
+pub const TASK_DEPENDENCY_INVALID: i32 = 63103;
+
+/// 这条依赖不存在（HTTP 404）：解除依赖时命中 0 行。
+///
+/// **不静默成功**：静默成功会让前端以为删掉了，刷新后又出现。
+pub const TASK_DEPENDENCY_NOT_FOUND: i32 = 63104;
+
+/// 甘特时间窗非法（HTTP 400）：`end < start`，或跨度超过 180 天。
+pub const TASK_GANTT_RANGE_INVALID: i32 = 63105;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
@@ -694,6 +726,12 @@ mod tests {
             (TASK_ASSIGN_CONFLICT, 63018),
             (TASK_MEMBER_INVALID, 63019),
             (TASK_MEMBER_NOT_FOUND, 63020),
+            // T4 追加：依赖环检测 / 前置阻塞 / 依赖不合法 / 依赖不存在 / 甘特时间窗
+            (TASK_DEPENDENCY_CYCLE, 63101),
+            (TASK_DEPENDENCY_BLOCKED, 63102),
+            (TASK_DEPENDENCY_INVALID, 63103),
+            (TASK_DEPENDENCY_NOT_FOUND, 63104),
+            (TASK_GANTT_RANGE_INVALID, 63105),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "63xxx 段码值不得改动");
@@ -703,7 +741,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105）✓",
             codes.len()
         );
     }

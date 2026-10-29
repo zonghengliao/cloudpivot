@@ -55,6 +55,10 @@
             <template #icon><t-icon name="refresh" /></template>
             刷新
           </t-button>
+          <t-button variant="outline" @click="goGantt">
+            <template #icon><t-icon name="chart" /></template>
+            甘特图
+          </t-button>
         </t-space>
         <span class="toolbar__count">{{ myMode ? '我的任务' : '全部可见任务' }} · 共 {{ pagination.total }} 条</span>
       </div>
@@ -177,6 +181,7 @@
  * 接口位留在 `api/business/task-api.ts` 末尾的 TODO 注释里。
  */
 import { computed, onMounted, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
@@ -287,6 +292,14 @@ function flattenMyTasks(data: Awaited<ReturnType<typeof listMyTasks>>): TaskRow[
 }
 
 /** 拉列表 */
+/** 路由（跳甘特图 / 回列表都用它） */
+const router = useRouter();
+
+/** 跳只读甘特图（T4；拖拽改期属 T7） */
+function goGantt(): void {
+  void router.push('/task/gantt');
+}
+
 async function loadList(): Promise<void> {
   loading.value = true;
   errorMessage.value = '';

@@ -687,6 +687,212 @@ pub struct TaskMemberRemoveRes {
     pub total: i64,
 }
 
+// ==================== 依赖 / 甘特（T4） ====================
+
+/// 依赖权限码（**加项**：行级关系之外的授权）。
+///
+/// 与 `business:task:assign` / `member` 同一套路：中间件闸只要求
+/// `business:task:read`（能看见任务的人才谈得上管依赖），真矩阵在 handler 里：
+/// 「负责人 / 创建人 / 分派人」天然可管依赖，其他人要 `business:task:dependency`。
+///
+/// V0110 只把这个码授给 SUPER_ADMIN，其余角色按需勾选。
+pub const PERM_DEPENDENCY: &str = "business:task:dependency";
+
+/// 滞后天数上限（`FS+lag` 的 lag 部分，本版只存不算排程）。
+pub const MAX_LAG_DAYS: i32 = 365;
+
+/// 加前置依赖（`POST /business/task/{id}/dependencies`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskDependencyAddReq {
+    /// 前置任务 id（必填，必须可见 / 未软删 / 不是自己 / 不是父子）。
+    pub depends_on_id: String,
+    /// 滞后天数（`FS+lag`，缺省 0，范围 0–365）。
+    pub lag_days: Option<i32>,
+}
+
+/// 依赖项（前置组 / 后继组共用一条形状，`dep_id` 是对端任务 id）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDependencyItemRes {
+    /// 对端任务 id（前置组 = 前置 id，后继组 = 后继 id）；删除时用它。
+    pub dep_id: String,
+    /// 对端任务编号。
+    pub task_no: String,
+    /// 对端任务标题。
+    pub title: String,
+    /// 对端任务状态。
+    pub status: String,
+    /// 对端任务优先级。
+    pub priority: String,
+    /// 对端任务进度。
+    pub progress: i32,
+    /// 对端任务负责人。
+    pub owner_id: String,
+    /// 负责人姓名。
+    pub owner_name: String,
+    /// 计划开始日。
+    pub start_date: Option<NaiveDate>,
+    /// 截止日。
+    pub due_date: Option<NaiveDate>,
+    /// 依赖类型（本版恒 `FS`）。
+    pub dep_type: String,
+    /// 滞后天数。
+    pub lag_days: i32,
+    /// 对端是否**仍在阻塞**本任务（前置组：状态非 DONE/CANCELLED 时为 `true`；
+    /// 后继组：恒 `false` —— 阈值只对「我要等的人」有意义）。
+    pub blocking: bool,
+    /// 依赖建立时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 依赖列表（`GET /business/task/{id}/dependencies`，两组分开）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDependenciesRes {
+    /// 任务 id。
+    pub task_id: String,
+    /// 前置任务（必须先完成）。
+    pub prerequisites: Vec<TaskDependencyItemRes>,
+    /// 后继任务（本任务完成后才能做）。
+    pub successors: Vec<TaskDependencyItemRes>,
+    /// 未完成前置数量（前端画「被 N 个前置阻塞」可直接用，不用自己数）。
+    pub blocking_count: i64,
+}
+
+/// 加依赖回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDependencyAddRes {
+    /// 任务 id（后继）。
+    pub task_id: String,
+    /// 前置任务 id。
+    pub depends_on_id: String,
+    /// 是否**真的新增**了一行（`false` = 幂等命中：依赖已存在，未重复插入）。
+    pub created: bool,
+    /// 落库的滞后天数。
+    pub lag_days: i32,
+    /// 加完之后的完整两组（前端不必再请求一次）。
+    pub prerequisites: Vec<TaskDependencyItemRes>,
+    /// 后继组。
+    pub successors: Vec<TaskDependencyItemRes>,
+    /// 未完成前置数量。
+    pub blocking_count: i64,
+}
+
+/// 删依赖回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDependencyRemoveRes {
+    /// 任务 id。
+    pub task_id: String,
+    /// 被解除的对端任务 id。
+    pub dep_id: String,
+    /// 恒 `true`（不存在时直接 404，不静默成功）。
+    pub removed: bool,
+    /// 删完之后的完整两组。
+    pub prerequisites: Vec<TaskDependencyItemRes>,
+    /// 后继组。
+    pub successors: Vec<TaskDependencyItemRes>,
+    /// 未完成前置数量。
+    pub blocking_count: i64,
+}
+
+/// 甘特图查询（`GET /business/task/gantt`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TaskGanttQuery {
+    /// 看板维度（**本版不支持**：没有自定义看板列，传了就 400）。
+    pub board_id: Option<String>,
+    /// 项目维度（`biz_task.project_id`，P1 表已预留）。
+    pub project_id: Option<String>,
+    /// 负责人维度（`biz_task.owner_id`）。
+    pub assignee_id: Option<String>,
+    /// 窗口起始日（缺省今天，CST）。
+    pub start: Option<NaiveDate>,
+    /// 窗口结束日（缺省 `start + 29` 天；窗口上限 180 天）。
+    pub end: Option<NaiveDate>,
+    /// `my` = 只看我负责的；缺省 / `all` = 我的可见范围。
+    pub scope: Option<String>,
+}
+
+/// 甘特时间窗。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct GanttRangeRes {
+    /// 窗口第一天。
+    pub start: NaiveDate,
+    /// 窗口最后一天。
+    pub end: NaiveDate,
+    /// 总天数（含首尾）。
+    pub days: i64,
+    /// 今天（CST）。前端据此画「今天线」，不用本机时钟算（防时区漂移）。
+    pub today: NaiveDate,
+    /// 今天在窗口里的第几天（0 开始）；今天不在窗口内 → `null`（不画线）。
+    pub today_offset: Option<i64>,
+}
+
+/// 甘特任务条的位置（**后端算好**，前端只按缩放比例乘列宽）。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct GanttBarRes {
+    /// 距窗口第一天的天数（0 开始，已按窗口裁剪）。
+    pub offset_days: i64,
+    /// 条形长度（天，>= 1）。
+    pub length_days: i64,
+}
+
+/// 甘特任务。
+#[derive(Debug, Clone, Serialize)]
+pub struct GanttTaskRes {
+    /// 任务 id。
+    pub id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 标题。
+    pub title: String,
+    /// 状态（5 态，前端按它上色）。
+    pub status: String,
+    /// 优先级。
+    pub priority: String,
+    /// 进度 0~100（前端画内条）。
+    pub progress: i32,
+    /// 负责人 id。
+    pub owner_id: String,
+    /// 负责人姓名。
+    pub owner_name: String,
+    /// 计划开始日（原值）。
+    pub start_date: Option<NaiveDate>,
+    /// 截止日（原值）。
+    pub due_date: Option<NaiveDate>,
+    /// 父任务（前端折叠子任务用）。
+    pub parent_id: Option<String>,
+    /// 里程碑（P1 才有，本版恒 `false`）。
+    pub is_milestone: bool,
+    /// 是否被未完成前置阻塞（前端画斜纹）。
+    pub blocked: bool,
+    /// 是否逾期（`due_date < 今天` 且未终态）。
+    pub overdue: bool,
+    /// 条形位置（`null` = 排不进窗口，理论上不会出现：SQL 已按窗口过滤）。
+    pub bar: Option<GanttBarRes>,
+}
+
+/// 甘特依赖边。`from` = 前置（先做完），`to` = 后继（被阻塞）。
+#[derive(Debug, Clone, Serialize)]
+pub struct GanttDepRes {
+    /// 前置任务 id。
+    pub from: String,
+    /// 后继任务 id。
+    pub to: String,
+}
+
+/// 甘特图数据（`GET /business/task/gantt`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskGanttRes {
+    /// 时间窗。
+    pub range: GanttRangeRes,
+    /// 任务（只有排得上期的：`start_date` 或 `due_date` 至少有一个）。
+    pub tasks: Vec<GanttTaskRes>,
+    /// 依赖边（两端都在 `tasks` 里才下发）。
+    pub dependencies: Vec<GanttDepRes>,
+    /// 任务数超过上限（500）→ 已截断，前端应提示缩小区间或加筛选。
+    pub truncated: bool,
+    /// 「我参与」id 超 2000 → 可见性已降级为「只按范围」（D7，与列表页同一标记）。
+    pub member_scope_truncated: bool,
+}
+
 // ==================== 单元测试（纯逻辑，不连库） ====================
 
 #[cfg(test)]

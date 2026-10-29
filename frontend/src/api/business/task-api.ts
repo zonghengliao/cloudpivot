@@ -327,7 +327,155 @@ export function deleteTask(id: string): Promise<TaskDeleteResult> {
 }
 
 // ======================================================================
-// T2 接入位（状态机 + 进度）—— **接口未就绪，先不实现**
+// T4（依赖 + 只读甘特图）
+//
+// 路径与后端 `handler.rs` 的注解逐条对应（注解不含 `/api`，这里写全）：
+//   GET    /api/business/task/{id}/dependencies
+//   POST   /api/business/task/{id}/dependencies
+//   DELETE /api/business/task/{id}/dependencies/{dep_id}
+//   GET    /api/business/task/gantt
+//
+// 三条口径（照后端 `dto.rs`，别自己发明）：
+//   1. `dep_id` 是**对端任务 id**（前置组 = 前置 id，后继组 = 后继 id），删除按 pair 双向匹配；
+//   2. 甘特只读：`bar.offset_days` / `bar.length_days` 由**后端**算好，前端只乘列宽，不自己算日期差；
+//   3. 时间窗上限 180 天（超了后端 400 + 63105），默认今天起 30 天。
+// ======================================================================
+
+/** 依赖项（前置 / 后继共用一条形状） */
+export interface TaskDependencyItem {
+  /** 对端任务 id（删除时用它） */
+  dep_id: string;
+  task_no: string;
+  title: string;
+  status: string;
+  priority: string;
+  progress: number;
+  owner_id: string;
+  owner_name: string;
+  start_date: string | null;
+  due_date: string | null;
+  /** 本版恒 `FS` */
+  dep_type: string;
+  /** 滞后天数（只存不算排程） */
+  lag_days: number;
+  /** 对端是否仍在阻塞本任务（只有前置组会为 true） */
+  blocking: boolean;
+  created_at: string;
+}
+
+/** 依赖列表（两组 + 未完成前置数） */
+export interface TaskDependencies {
+  task_id: string;
+  prerequisites: TaskDependencyItem[];
+  successors: TaskDependencyItem[];
+  blocking_count: number;
+}
+
+/** 加依赖回执（`created=false` = 幂等命中，依赖已存在） */
+export interface TaskDependencyAddResult extends TaskDependencies {
+  depends_on_id: string;
+  created: boolean;
+  lag_days: number;
+}
+
+/** 删依赖回执 */
+export interface TaskDependencyRemoveResult extends TaskDependencies {
+  dep_id: string;
+  removed: boolean;
+}
+
+/** 甘特查询参数 */
+export interface TaskGanttQuery {
+  /** 本版不支持（传了后端 400） */
+  board_id?: string;
+  project_id?: string;
+  assignee_id?: string;
+  /** `YYYY-MM-DD` */
+  start?: string;
+  /** `YYYY-MM-DD`（缺省 start + 29 天，跨度上限 180 天） */
+  end?: string;
+  /** `my` = 只看我负责的；`all` / 省略 = 我的可见范围 */
+  scope?: 'my' | 'all';
+}
+
+/** 甘特时间窗（含今天与今天在窗口里的偏移） */
+export interface GanttRange {
+  start: string;
+  end: string;
+  days: number;
+  today: string;
+  /** 今天不在窗口内 → null（不画今天线） */
+  today_offset: number | null;
+}
+
+/** 甘特任务条位置（后端算好的天数） */
+export interface GanttBar {
+  offset_days: number;
+  length_days: number;
+}
+
+/** 甘特任务 */
+export interface GanttTask {
+  id: string;
+  task_no: string;
+  title: string;
+  status: string;
+  priority: string;
+  progress: number;
+  owner_id: string;
+  owner_name: string;
+  start_date: string | null;
+  due_date: string | null;
+  parent_id: string | null;
+  /** P1 才有，本版恒 false */
+  is_milestone: boolean;
+  /** 被未完成前置阻塞（画斜纹） */
+  blocked: boolean;
+  /** 逾期（due_date < 今天且未终态） */
+  overdue: boolean;
+  bar: GanttBar | null;
+}
+
+/** 甘特依赖边：`from` = 前置，`to` = 后继 */
+export interface GanttDependency {
+  from: string;
+  to: string;
+}
+
+/** 甘特数据 */
+export interface TaskGantt {
+  range: GanttRange;
+  tasks: GanttTask[];
+  dependencies: GanttDependency[];
+  /** 任务数超 500 → 已截断 */
+  truncated: boolean;
+  member_scope_truncated: boolean;
+}
+
+/** 依赖列表（`GET /api/business/task/{id}/dependencies`） */
+export function listDependencies(id: string): Promise<TaskDependencies> {
+  return get<TaskDependencies>(`/api/business/task/${id}/dependencies`);
+}
+
+/** 加前置依赖（`POST /api/business/task/{id}/dependencies`；成环 → 400 + 63101） */
+export function addDependency(
+  id: string,
+  data: { depends_on_id: string; lag_days?: number },
+): Promise<TaskDependencyAddResult> {
+  return post<TaskDependencyAddResult>(`/api/business/task/${id}/dependencies`, data);
+}
+
+/** 解除依赖（`DELETE /api/business/task/{id}/dependencies/{dep_id}`，`dep_id` = 对端任务 id） */
+export function removeDependency(id: string, depId: string): Promise<TaskDependencyRemoveResult> {
+  return del<TaskDependencyRemoveResult>(`/api/business/task/${id}/dependencies/${depId}`);
+}
+
+/** 甘特图数据（`GET /api/business/task/gantt`，**只读**；时间窗 ≤ 180 天） */
+export function fetchGantt(query: TaskGanttQuery): Promise<TaskGantt> {
+  return get<TaskGantt>('/api/business/task/gantt', asParams(query));
+}
+// ======================================================================
+// T2 接入位（状态机 + 进度）—— 后端已就绪（T2 已交付），前端待 T6 接按钮
 //
 // 设计文档 §二 / §三 定了两个接口，属 T2 交付物：
 //   PATCH /api/business/task/{id}/status    { status, reason? }  8 条迁移规则
