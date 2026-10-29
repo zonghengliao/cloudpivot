@@ -451,11 +451,28 @@ pub struct MyCounts {
 ///
 /// 一个字段而不是三个：前端只有一个「原因」输入框，多开字段会让「填了但没生效」的
 /// 情况变多（卡面也只声明了 `{to, reason?}`）。
+///
+/// # 为什么 `to` 还接受 `status` 别名
+///
+/// 卡面定的字段名是 `to`（与「目标状态」对齐），但前端任务书（T6a）的草稿里写的是
+/// `{ status, reason? }` —— 卡片与前端各写一套，最容易出现的结局是「接口 400、
+/// 前端以为后端没实现」。两个名字都收（`to` 为主、`status` 为别名）成本为零，
+/// 却把这类联调返工直接消灭。
+///
+/// **只能二选一**：serde 的 `alias` 是「同一个字段的另一个名字」，两个都传会被判
+/// `duplicate field`（400）。这是刻意的 —— 「既传 to 又传 status」本身就是歧义请求，
+/// 与其猜用户想要哪个，不如直接拒绝。
 #[derive(Debug, Clone, Deserialize)]
 pub struct TaskStatusChangeReq {
     /// 目标状态（`TODO` / `DOING` / `REVIEW` / `DONE` / `CANCELLED`，大小写不敏感）。
+    ///
+    /// 别名 `status`：兼容前端草稿字段名（见上方说明）。
+    #[serde(alias = "status")]
     pub to: String,
     /// 原因（打回必填，见上方表格）。
+    ///
+    /// 别名 `reject_reason`：打回场景前端可能直接叫这个名字。
+    #[serde(alias = "reject_reason")]
     pub reason: Option<String>,
 }
 
@@ -634,5 +651,33 @@ mod tests {
             ..TaskPageQuery::default()
         };
         assert!(blank.normalized_keyword().is_none());
+    }
+
+    /// 改状态请求同时接受 `to` 与前端草稿里的 `status`（别名），`to` 优先。
+    ///
+    /// 这条测试守的是「卡片写的 `{to}` ↔ 前端任务书草稿写的 `{status}`」这个联调缝隙：
+    /// 两个名字都收，前端怎么写都不会 400。
+    #[test]
+    fn status_change_req_accepts_both_to_and_status() {
+        let canonical: TaskStatusChangeReq =
+            serde_json::from_str(r#"{"to":"DOING","reason":"开始做"}"#).expect("合法 JSON");
+        assert_eq!(canonical.to, "DOING");
+        assert_eq!(canonical.reason.as_deref(), Some("开始做"));
+
+        let aliased: TaskStatusChangeReq =
+            serde_json::from_str(r#"{"status":"REVIEW"}"#).expect("别名也应被接受");
+        assert_eq!(aliased.to, "REVIEW");
+        assert!(aliased.reason.is_none());
+
+        let both = serde_json::from_str::<TaskStatusChangeReq>(r#"{"to":"DOING","status":"DONE"}"#);
+        assert!(
+            both.is_err(),
+            "同时传 to 与 status 是歧义请求：serde 判 duplicate field（400），不猜用户意图"
+        );
+
+        let reject_alias: TaskStatusChangeReq =
+            serde_json::from_str(r#"{"to":"DOING","reject_reason":"单测没跑"}"#)
+                .expect("打回原因别名");
+        assert_eq!(reject_alias.reason.as_deref(), Some("单测没跑"));
     }
 }

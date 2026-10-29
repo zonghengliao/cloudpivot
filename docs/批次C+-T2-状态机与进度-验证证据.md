@@ -7,7 +7,7 @@
   （空库全量迁移 + `up→down→up` 往返 + 真服务走查）
 - 验证方式：空库迁移往返（`psql` 逐条断言）+ 真服务 HTTP 走查
   （`scripts/verify/t2_task_status_verify.py`，**104 条断言全 PASS**）+
-  `cargo test`（**626 passed / 0 failed**）+ `scripts/check.sh`（闸①/②=0/0、C7 G1–G6 全 PASS）+
+  `cargo test`（**627 passed / 0 failed**）+ `scripts/check.sh`（闸①/②=0/0、C7 G1–G6 全 PASS）+
   `pnpm typecheck && pnpm build`
 
 > 下面所有输出都是本次真跑的原文（脚本在 `scripts/verify/`，可原样复现），没有手工修饰。
@@ -31,7 +31,7 @@
 | 11. 三级嵌套 A→B→C 逐级重算 | ✅ C 完成 → B 100% → A 50%，A 状态不变 | §4-11 |
 | 12. 可见性仍然生效（无关用户 → 404） | ✅ 404 + `63001` | §4-12 |
 | 13. 跨部门协作人 | ✅ 看得见 200 / 改状态 403+`63011` / 改进度 403+`63002` | §4-13 |
-| 14. `cargo test` 全绿（604+） | ✅ **626 passed / 0 failed**（新增 15 条状态机 +2 条进度单测） | §7 |
+| 14. `cargo test` 全绿（604+） | ✅ **627 passed / 0 failed**（新增 15 条状态机 +2 条进度 +1 条 DTO 别名单测） | §7 |
 | 15. `scripts/check.sh` 全绿 | ✅ 闸①=0 / 闸②=0；C7 G1–G6 全 PASS；fmt/clippy/check/typecheck 全过 | §8 |
 | 16. `pnpm typecheck && pnpm build` | ✅ 均通过（dist 产物正常） | §9 |
 
@@ -252,14 +252,14 @@ PASS  A 的状态没有自动变（仍是 DOING）：DOING
 
 ---
 
-## 7. 单元测试（626 passed / 0 failed）
+## 7. 单元测试（627 passed / 0 failed）
 
 ```
 $ cargo test -j 1        # 144 只有 7GB 内存，-j 4 会让 ld 被 OOM 杀掉
 running 585 tests
 test result: ok. 585 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 （其余 8 个集成测试二进制 + doctest 见 §10 附录 B）
-TOTAL_PASSED= 626
+TOTAL_PASSED= 627
 ```
 
 新增 15 条单测（`business::task::state::tests`，全部无库）：
@@ -421,11 +421,40 @@ $ git status --porcelain
 
 | 检查 | 结果 |
 |---|---|
-| `cargo test -j 1` | **626 passed / 0 failed** |
+| `cargo test -j 1` | **627 passed / 0 failed** |
 | `scripts/check.sh`（干净 clone，见 §8.1） | exit=0，全绿 |
 | `pnpm typecheck` | 通过（无输出） |
 | `pnpm build` | 通过（dist 产物正常） |
 | 走查 104 条断言 | 全 PASS |
+| 字段名别名走查（`t2_alias_check.py`） | `ALIAS_OK`（见 §12） |
+
+---
+
+## 12. 前端联调：`{to}` 与 `{status}` 两个字段名都收
+
+交付时发现前端任务书（T6a 的 `src/api/business/task-api.ts`）里写的是
+`PATCH /business/task/{id}/status { status, reason? }`，而卡面写的是 `{ to, reason? }`。
+两套字段名会让联调时出现「接口 422、前端以为后端没实现」，所以 DTO 同时接受两个名字
+（`to` 为主字段，`status` 为 `#[serde(alias)]`；`reason` 同理接受 `reject_reason`）。
+
+真服务实测（`scripts/verify/t2_alias_check.py`）：
+
+```
+$ python3 scripts/verify/t2_alias_check.py
+task = 01a18639-025b-76db-8e03-424906aefa77
+卡面字段名 {to:'DOING'}      → 200 DOING
+前端草稿 {status:'REVIEW'}   → 200 REVIEW
+同时传 {to,status}          → 422 （body: 'Failed to deserialize the JSON body into the ta ）
+ALIAS_OK
+```
+
+第三行是刻意的：「既传 `to` 又传 `status`」是歧义请求（serde 判 `duplicate field`），
+由框架的 JSON 提取器统一挡成 **422**（body 是框架文案，不是 `630xx` 业务码）——
+这与「缺必填字段」同一档，属于**请求格式错误**，不属于业务状态冲突。
+
+`progress` 接口不受影响：前端草稿的 `{ progress, mode }` 里多出的 `mode` 字段
+serde 默认忽略（DTO 没有 `deny_unknown_fields`），`{ progress }` 直接生效。
+
 
 
 ```text
@@ -441,7 +470,7 @@ $ git status --porcelain
 ==============================================================================
 1) 合法流转全走一遍：TODO→DOING→REVIEW→DONE（need_review=true）
 ==============================================================================
-  task=01a1862f-ffcc-7233-8ca1-c20f0be77704  creator=t2_maker  owner=t2_owner  need_review=true
+  task=01a18639-1ea2-7690-9b0d-7b0558689075  creator=t2_maker  owner=t2_owner  need_review=true
   PASS  初始状态：TODO
   PASS  初始进度：0
   PASS  TODO→DOING 由负责人做 HTTP：200
@@ -460,9 +489,9 @@ $ git status --porcelain
   PASS  STATUS_CHANGE 评论条数：3
   PASS  每条评论都带 from→to：True
   变更日志（sys_change_log）：
-    STATUS|progress,status|{"v": 1, "meta": {"pk": "01a1862f-ffcc-7233-8ca1-c20f0be77704", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "DOING", "b": "TODO"}, 
-    STATUS|progress,status|{"v": 1, "meta": {"pk": "01a1862f-ffcc-7233-8ca1-c20f0be77704", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "REVIEW", "b": "DOING"}
-    STATUS|done_at,status|{"v": 1, "meta": {"pk": "01a1862f-ffcc-7233-8ca1-c20f0be77704", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "DONE", "b": "REVIEW"}, 
+    STATUS|progress,status|{"v": 1, "meta": {"pk": "01a18639-1ea2-7690-9b0d-7b0558689075", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "DOING", "b": "TODO"}, 
+    STATUS|progress,status|{"v": 1, "meta": {"pk": "01a18639-1ea2-7690-9b0d-7b0558689075", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "REVIEW", "b": "DOING"}
+    STATUS|done_at,status|{"v": 1, "meta": {"pk": "01a18639-1ea2-7690-9b0d-7b0558689075", "table": "biz_task", "action": "STATUS"}, "mode": "WHITELIST", "fields": {"status": {"a": "DONE", "b": "REVIEW"}, 
   PASS  变更日志条数：3
   PASS  变更日志动作：STATUS
   PASS  变更日志 diff 里有 status 字段：True
@@ -539,7 +568,7 @@ $ git status --porcelain
 ==============================================================================
 7) 有子任务：1h/2h/7h，进度 0/50/100 → 期望 (1×0 + 2×50 + 7×100)/10 = 80
 ==============================================================================
-  父=01a18630-01f6-77c5-953c-e6487ab17801  子=01a18630-01fd-71a2-bb6f-65422d7b6d54(1h) 01a18630-0205-7702-bd52-fa370b764671(2h) 01a18630-020b-76f7-a816-36a23053a292(7h)
+  父=01a18639-20ca-751d-8102-318cb205b798  子=01a18639-20d0-70b5-84bd-1e64d72767fa(1h) 01a18639-20d9-7167-95e1-58b74cf4c091(2h) 01a18639-20e0-7483-997e-bb3bbf38309b(7h)
   PASS  子任务设进度 HTTP：200
   PASS  父任务汇总值：80
   计算：(1×0 + 2×50 + 7×100) / 10 = 800 / 10 = 80.0 → 80
@@ -564,8 +593,8 @@ $ git status --porcelain
 ==============================================================================
 10) 子任务全 DONE → 父 progress=100 但 status 不变（架构 D5）
 ==============================================================================
-  PASS  子任务 01a18630 推到 DONE：200
-  PASS  子任务 01a18630 推到 DONE：200
+  PASS  子任务 01a18639 推到 DONE：200
+  PASS  子任务 01a18639 推到 DONE：200
   PASS  父任务 progress|status：100|TODO
 
 ==============================================================================
@@ -596,7 +625,7 @@ $ git status --porcelain
 13) 跨部门协作人：看得见（200）但推不动（403）
 ==============================================================================
   PASS  协作人看详情 HTTP：200
-  PASS    协作人能看见：01a18630-03ab-7749-836a-c35ad037443e
+  PASS    协作人能看见：01a18639-2265-7690-a019-7265c31b91b2
   PASS  协作人改状态 HTTP：403
   PASS    业务码（状态流转专用码）：63011
     文案：当前身份（无（协作人 / 关注者 / 无关用户））无权执行该流转，允许的身份：负责人 / 创建人 / 分派人 / 管理员
@@ -612,7 +641,7 @@ $ git status --porcelain
   PASS  子任务继承父任务优先级：P1
   PASS  子任务继承父任务截止日：2026-12-31
   PASS  子任务继承 need_review：True
-  PASS  子任务父指向正确：01a18630-03e9-7116-8a3d-c4cc27545333
+  PASS  子任务父指向正确：01a18639-22a4-71b6-a0f5-aade9ab92d88
   PASS  子任务列表 HTTP：200
   PASS    列表条数：1
   PASS    进度已锁：True
@@ -625,14 +654,14 @@ $ git status --porcelain
 ==============================================================================
 15) 通知分级：待验收 / 被打回（强制）；其它状态变更（尊重偏好）
 ==============================================================================
-  被打回 t3（01a18630）通知：
+  被打回 t3（01a18639）通知：
     任务状态变更 → 7d000000-0000-0000-0000-000000000012
     任务待你验收 → 7d000000-0000-0000-0000-000000000012
     任务被打回 → 7d000000-0000-0000-0000-000000000011
-  需验收 t5（01a18630）通知：
+  需验收 t5（01a18639）通知：
     任务状态变更 → 7d000000-0000-0000-0000-000000000012
     任务待你验收 → 7d000000-0000-0000-0000-000000000012
-  普通变更 t12（01a18630）通知：
+  普通变更 t12（01a18639）通知：
     任务状态变更 → 7d000000-0000-0000-0000-000000000012
   PASS  被打回通知到负责人：True
   PASS  待验收通知到创建人：True
