@@ -27,6 +27,20 @@
 //!
 //! 卡面写的是「`need_review=true` 时必须走这里；`need_review=false` 可直接 DONE」——
 //! 后半句是「允许」而不是「强制」，所以 `need_review=false` 时 `REVIEW` 仍然开放。
+//!
+//! # 审批流门闸（批次 D · D3a，报批项）
+//!
+//! 本批唯一改动既有状态机逻辑的地方：给 `REVIEW` 的两条出边（`→ DONE` / `→ DOING`）
+//! 加一道**审批门闸**（见 [`flow_gate_blocked`] / [`check_transition`]）。
+//! **`TRANSITIONS` 白名单一行没动** —— 门闸是它之外的一层判定，不是新的流转。
+//!
+//! 为什么门闸不进白名单：白名单回答「这个 `from → to` 组合存在不存在」（常量，与数据无关），
+//! 门闸回答「**这张任务现在**能不能推」（随审批实例状态变化）。塞进常量表会让
+//! [`find`] / [`outgoing`]（前端按钮显隐）开始依赖实例数据。
+//!
+//! 为什么判据是「任务上有没有 `approval_instance_id`」而不是「流程定义开没开审批」：
+//! 存量任务可能是「开审批之前」建的，也可能流程后来被停用；以任务自身字段为准，
+//! 语义是「这张单确实挂了审批」（架构 §5.2.2）。
 
 use alun::uuid::Uuid;
 
@@ -498,6 +512,123 @@ pub fn authorize(
 /// 去首尾空白后的字符数（按 `char` 计：中文 5 个字 = 5，不是 15 字节）。
 fn count_chars(raw: &str) -> usize {
     raw.trim().chars().count()
+}
+
+// ==================== 审批流门闸（批次 D · D3a） ====================
+
+/// 审批实例「进行中」的状态字面量（`biz_flow_instance.status`，与 flow 模块 CHECK 同字面量）。
+pub const APPROVAL_INSTANCE_PENDING: &str = "PENDING";
+
+/// 门闸拦截时给用户看的文案（handler 映射 `409 + 65030` 时直接用）。
+///
+/// 卡面定稿文案：先告诉用户「这事不是你点一下能过的」，再告诉他去哪儿（审批单）。
+pub const FLOW_GATE_BLOCKED_MESSAGE: &str = "任务正在审批中，请等待审批结果";
+
+/// 该流转是否属于「被审批单接管」的两条（`REVIEW → DONE` / `REVIEW → DOING`）。
+///
+/// 只锁这两条：`REVIEW → CANCELLED` 是「审批中也要能刹车」（取消是人工权限，不该被审批单锁死），
+/// 其它 `from` 与本门闸无关。
+pub fn gate_applies(from: TaskStatus, to: TaskStatus) -> bool {
+    from == TaskStatus::Review && matches!(to, TaskStatus::Done | TaskStatus::Doing)
+}
+
+/// 任务是否被审批门闸拦截（`REVIEW` 出边 且 审批单 `PENDING`）—— **纯函数，不查库**。
+///
+/// # 参数（与卡面 `task: &TaskRow` 的差异）
+///
+/// 本模块是**纯逻辑**（模块头第一行：不碰数据库），而任务行结构体在库里叫
+/// `task::model::TaskDetailRow`、且状态列是 `String`。所以入参拆成三个原始值：
+/// 已 `parse` 的当前状态 / 目标状态 / 任务上的 `approval_instance_id` + 实例状态。
+/// 调用方（handler）负责查库，本函数负责判定 —— 这正是「纯函数便于单测」的形态。
+///
+/// # 判据
+///
+/// | 条件 | 结果 |
+/// |---|---|
+/// | 不是 `REVIEW → DONE` / `REVIEW → DOING` | `false`（不受影响） |
+/// | 任务没挂审批单（`approval_instance_id = None`） | `false`（老逻辑照跑） |
+/// | 挂了审批单且实例状态 `PENDING`（大小写 / 空白不敏感） | `true`（拦） |
+/// | 挂了审批单、实例 `APPROVED` / `REJECTED` / 其它 / 读不到 | `false`（放行，见下） |
+///
+/// 「读不到实例状态」（`None`）**不拦**：这张任务的审批单可能已被撤回或数据不一致，
+/// 让任务永久卡在 `REVIEW` 比放行更坏；实例合法性归 flow 引擎（65024
+/// `FLOW_INSTANCE_NOT_PENDING` 等）自己判定，本门闸只管「审批正在进行中」这一件事。
+pub fn flow_gate_blocked(
+    from: TaskStatus,
+    to: TaskStatus,
+    approval_instance_id: Option<Uuid>,
+    instance_status: Option<&str>,
+) -> bool {
+    if !gate_applies(from, to) {
+        return false;
+    }
+    if approval_instance_id.is_none() {
+        return false;
+    }
+    instance_status.is_some_and(|status| {
+        status
+            .trim()
+            .eq_ignore_ascii_case(APPROVAL_INSTANCE_PENDING)
+    })
+}
+
+/// 门闸 + 状态机的联合判定结果。
+///
+/// 单独一个枚举而不是往 [`TransitionError`] 里加变体：`TransitionError` 是「状态机说不行」，
+/// 与「审批还没结束」是两类事（HTTP 码与业务码都不同：`409/65030` vs `400/403/409`）。
+/// 混进一个变体会让既有 `handler::transition_error` 的三档映射多一个例外分支。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TransitionCheckError {
+    /// 审批单 `PENDING`，人工路径一律拦 → `409 + 65030`（`FLOW_GATE_BLOCKED_MESSAGE`）。
+    ApprovalPending,
+    /// 状态机自身的拒绝（白名单 / 角色 / 附加条件）。
+    Transition(TransitionError),
+}
+
+impl TransitionCheckError {
+    /// 面向用户的文案（门闸用自己的定稿文案，其余转发状态机的）。
+    pub fn message(&self) -> String {
+        match self {
+            TransitionCheckError::ApprovalPending => FLOW_GATE_BLOCKED_MESSAGE.to_string(),
+            TransitionCheckError::Transition(error) => error.message(),
+        }
+    }
+
+    /// 是否被**审批门闸**拦截（handler 用它区分 65030 与 63010/63011/63013）。
+    pub fn is_gate(&self) -> bool {
+        matches!(self, TransitionCheckError::ApprovalPending)
+    }
+}
+
+/// 带审批门闸的流转判定：**门闸先于白名单 / 角色**（一处判定，不在 handler 里各写一遍）。
+///
+/// # 为什么门闸排在最前面
+///
+/// 门闸回答的是「这张任务的审批还没结束」——**与你是谁无关**。所以创建人、管理员、
+/// 负责人、甚至协作人点下去得到的都是同一个 `409 + 65030`，而不是「有的人 409、
+/// 有的人 403」：此时正确的下一步只有「去审批单里处理/等人批」，换个人来做结论一样。
+/// （因此本函数的门闸分支不看 `role_mask`；`REVIEW → DOING` 即便操作人角色不够，
+/// 在审批中也先报 65030。）
+///
+/// 参数与 [`authorize`] 一致，另外两个是门闸输入（见 [`flow_gate_blocked`]）。
+///
+/// # 异常情况
+///
+/// - [`TransitionCheckError::ApprovalPending`] → `409 + 65030`；
+/// - [`TransitionCheckError::Transition`] → 沿用 `authorize` 的三档（`400/63013`、`403/63011`、`409/63010`）。
+pub fn check_transition(
+    from: TaskStatus,
+    to: TaskStatus,
+    role_mask: u8,
+    need_review: bool,
+    reason: Option<&str>,
+    approval_instance_id: Option<Uuid>,
+    instance_status: Option<&str>,
+) -> std::result::Result<&'static Transition, TransitionCheckError> {
+    if flow_gate_blocked(from, to, approval_instance_id, instance_status) {
+        return Err(TransitionCheckError::ApprovalPending);
+    }
+    authorize(from, to, role_mask, need_review, reason).map_err(TransitionCheckError::Transition)
 }
 
 // ==================== 进度算法 ====================
@@ -1119,5 +1250,306 @@ mod tests {
         assert_eq!(TaskStatus::Review.label(), "待验收");
         assert_eq!(clamp_progress(120), 100);
         assert_eq!(clamp_progress(-5), 0);
+    }
+}
+
+// ==================== 单元测试：审批门闸（批次 D · D3a） ====================
+
+#[cfg(test)]
+mod gate_tests {
+    use super::*;
+
+    /// `Some` = 这张任务挂了审批单。
+    fn bill() -> Option<Uuid> {
+        Some(Uuid::from_u128(0xF10_0001))
+    }
+
+    // ---------- 清单 1/2：没挂审批单时，REVIEW 两条出边与 T2 完全一致 ----------
+
+    #[test]
+    fn without_approval_instance_the_gate_never_fires() {
+        // 没挂单就不管：即便实例状态被误传成 PENDING 也不拦
+        for to in [TaskStatus::Done, TaskStatus::Doing, TaskStatus::Cancelled] {
+            assert!(!flow_gate_blocked(TaskStatus::Review, to, None, None));
+            assert!(!flow_gate_blocked(
+                TaskStatus::Review,
+                to,
+                None,
+                Some("PENDING")
+            ));
+        }
+        // 状态机口径不变：创建人 / 分派人 / 管理员可验收通过
+        for mask in [ROLE_CREATOR, ROLE_ASSIGNER, ROLE_ADMIN] {
+            assert!(
+                check_transition(
+                    TaskStatus::Review,
+                    TaskStatus::Done,
+                    mask,
+                    true,
+                    None,
+                    None,
+                    None
+                )
+                .is_ok(),
+                "无审批单时掩码 {mask} 应可验收通过"
+            );
+        }
+        // 负责人仍**不是**验收人（T2 红线，不受本卡影响）
+        assert_eq!(
+            check_transition(
+                TaskStatus::Review,
+                TaskStatus::Done,
+                ROLE_OWNER,
+                true,
+                None,
+                None,
+                None
+            )
+            .expect_err("负责人没有验收权"),
+            TransitionCheckError::Transition(TransitionError::Forbidden {
+                allowed: ROLE_CREATOR | ROLE_ASSIGNER | ROLE_ADMIN,
+                actual: ROLE_OWNER,
+            })
+        );
+        // 无审批单：REVIEW → DOING 打回照常（原因够 5 字即可）
+        assert!(
+            check_transition(
+                TaskStatus::Review,
+                TaskStatus::Doing,
+                ROLE_CREATOR,
+                true,
+                Some("缺三处用例"),
+                None,
+                None
+            )
+            .is_ok()
+        );
+    }
+
+    // ---------- 清单 3/4/5：PENDING 时，手工推 REVIEW 出边一律 409/65030 ----------
+
+    #[test]
+    fn pending_approval_blocks_review_exits_for_every_role() {
+        // 创建人 / 分派人 / 管理员 手动 REVIEW → DONE
+        for mask in [ROLE_CREATOR, ROLE_ASSIGNER, ROLE_ADMIN] {
+            let error = check_transition(
+                TaskStatus::Review,
+                TaskStatus::Done,
+                mask,
+                true,
+                None,
+                bill(),
+                Some("PENDING"),
+            )
+            .expect_err("审批中不许手工验收通过");
+            assert_eq!(error, TransitionCheckError::ApprovalPending);
+            assert!(error.is_gate());
+            assert_eq!(error.message(), "任务正在审批中，请等待审批结果");
+        }
+        // 负责人 手动 REVIEW → DOING：门闸先于角色 → 也是 65030（不是 403）
+        assert_eq!(
+            check_transition(
+                TaskStatus::Review,
+                TaskStatus::Doing,
+                ROLE_OWNER,
+                true,
+                Some("打回补用例"),
+                bill(),
+                Some("PENDING"),
+            )
+            .expect_err("审批中不许手工打回"),
+            TransitionCheckError::ApprovalPending
+        );
+        // 协作人（掩码 0）同样拿到 65030：门闸不看你是谁
+        assert_eq!(
+            check_transition(
+                TaskStatus::Review,
+                TaskStatus::Done,
+                0,
+                true,
+                None,
+                bill(),
+                Some("PENDING")
+            )
+            .expect_err("协作人也不许绕过审批"),
+            TransitionCheckError::ApprovalPending
+        );
+        // 纯函数本身：两条 REVIEW 出边都被锁
+        assert!(flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Done,
+            bill(),
+            Some("PENDING")
+        ));
+        assert!(flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Doing,
+            bill(),
+            Some("PENDING")
+        ));
+    }
+
+    // ---------- 清单 6/7：审批结论落地后放行 ----------
+
+    #[test]
+    fn approved_releases_review_to_done_and_rejected_releases_reject() {
+        // APPROVED → REVIEW → DONE 成功（流程已放行，验收人照常点）
+        assert!(!flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Done,
+            bill(),
+            Some("APPROVED")
+        ));
+        let transition = check_transition(
+            TaskStatus::Review,
+            TaskStatus::Done,
+            ROLE_CREATOR,
+            true,
+            None,
+            bill(),
+            Some("APPROVED"),
+        )
+        .expect("审批通过后必须能验收通过");
+        assert_eq!(transition.to, TaskStatus::Done);
+        assert_eq!(transition.progress, ProgressEffect::Force(100));
+        // REJECTED → REVIEW → DOING 成功（驳回后人工返工）
+        assert!(!flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Doing,
+            bill(),
+            Some("REJECTED")
+        ));
+        assert!(
+            check_transition(
+                TaskStatus::Review,
+                TaskStatus::Doing,
+                ROLE_ADMIN,
+                true,
+                Some("审批驳回后返工"),
+                bill(),
+                Some("REJECTED"),
+            )
+            .is_ok()
+        );
+    }
+
+    // ---------- 清单 8：其它流转完全不受影响 ----------
+
+    #[test]
+    fn other_transitions_are_untouched_while_approval_pending() {
+        // 只要不是 REVIEW 出边，门闸一概不响（含 REVIEW → CANCELLED：审批中也要能刹车）
+        for (from, to) in [
+            (TaskStatus::Todo, TaskStatus::Doing),
+            (TaskStatus::Doing, TaskStatus::Review),
+            (TaskStatus::Todo, TaskStatus::Cancelled),
+            (TaskStatus::Doing, TaskStatus::Cancelled),
+            (TaskStatus::Review, TaskStatus::Cancelled),
+            (TaskStatus::Done, TaskStatus::Doing),
+            (TaskStatus::Cancelled, TaskStatus::Todo),
+        ] {
+            assert!(
+                !flow_gate_blocked(from, to, bill(), Some("PENDING")),
+                "{} → {} 不该被审批门闸拦",
+                from.code(),
+                to.code()
+            );
+        }
+        // 行为与 T2 逐条一致：这三种流转在审批中照样能推
+        assert!(
+            check_transition(
+                TaskStatus::Todo,
+                TaskStatus::Doing,
+                ROLE_OWNER,
+                true,
+                None,
+                bill(),
+                Some("PENDING")
+            )
+            .is_ok()
+        );
+        assert!(
+            check_transition(
+                TaskStatus::Doing,
+                TaskStatus::Review,
+                ROLE_OWNER,
+                true,
+                None,
+                bill(),
+                Some("PENDING")
+            )
+            .is_ok()
+        );
+        for from in [TaskStatus::Todo, TaskStatus::Doing, TaskStatus::Review] {
+            assert!(
+                check_transition(
+                    from,
+                    TaskStatus::Cancelled,
+                    ROLE_ADMIN,
+                    true,
+                    None,
+                    bill(),
+                    Some("PENDING")
+                )
+                .is_ok(),
+                "{} → CANCELLED 不该被拦",
+                from.code()
+            );
+        }
+        // 白名单本身没动：非法组合仍是 IllegalPair（400/409 系，不是 65030）
+        assert_eq!(
+            check_transition(
+                TaskStatus::Todo,
+                TaskStatus::Done,
+                ROLE_ADMIN,
+                false,
+                None,
+                bill(),
+                Some("PENDING")
+            )
+            .expect_err("跳级必须仍被白名单拒绝"),
+            TransitionCheckError::Transition(TransitionError::IllegalPair)
+        );
+        // 白名单条数也没变（红线：TRANSITIONS 一行没动）
+        assert_eq!(TRANSITIONS.len(), 10);
+    }
+
+    // ---------- 边界：状态字面量归一化 / 读不到实例状态 ----------
+
+    #[test]
+    fn pending_match_is_case_insensitive_and_unknown_status_does_not_lock() {
+        assert!(flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Done,
+            bill(),
+            Some(" pending ")
+        ));
+        assert!(flow_gate_blocked(
+            TaskStatus::Review,
+            TaskStatus::Done,
+            bill(),
+            Some("Pending")
+        ));
+        // 已结束 / 驳回 / 撤回 / 读不到 → 本门闸不拦（实例合法性归 flow 引擎 65024）
+        for status in [
+            Some("APPROVED"),
+            Some("REJECTED"),
+            Some("CANCELLED"),
+            Some("WITHDRAWN"),
+            None,
+        ] {
+            assert!(
+                !flow_gate_blocked(TaskStatus::Review, TaskStatus::Done, bill(), status),
+                "实例状态 {status:?} 不该被本门闸拦"
+            );
+        }
+        // 起点不是 REVIEW 就与门闸无关
+        assert!(!flow_gate_blocked(
+            TaskStatus::Done,
+            TaskStatus::Doing,
+            bill(),
+            Some("PENDING")
+        ));
+        assert!(!gate_applies(TaskStatus::Review, TaskStatus::Cancelled));
+        assert!(gate_applies(TaskStatus::Review, TaskStatus::Done));
     }
 }

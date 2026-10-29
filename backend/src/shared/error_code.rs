@@ -854,6 +854,13 @@ pub const FLOW_INSTANCE_NOT_PENDING: i32 = 65024;
 /// 该任务正在审批中，请在审批单里处理（HTTP 409，**任务侧使用**，架构 D19）。
 pub const TASK_APPROVAL_PENDING: i32 = 65030;
 
+/// D3a 卡面的命名别名：**与 [`TASK_APPROVAL_PENDING`] 同码同义**（`65030`）。
+///
+/// 卡面写「新增错误码 `TASK_FLOW_GATE_BLOCKED = 65030`」，但 65030 已由 D1 按架构 §10.3
+/// 的码表**预先定义**过（那是整体契约，码值不许改）。所以这里落成**别名**而不是第二个
+/// 定义体：任务侧「审批中」只有一个语义，两处各写一遍 `= 65030` 迟早被人改歪一个。
+pub const TASK_FLOW_GATE_BLOCKED: i32 = TASK_APPROVAL_PENDING;
+
 /// 超时自动通过需要流程级开关（`flow_def.allow_auto_approve`，HTTP 422，架构 D10）。
 pub const FLOW_TIMEOUT_CONFIG_INVALID: i32 = 65031;
 
@@ -1177,6 +1184,9 @@ mod tests {
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
         }
+        // D3a：卡面命名的 `TASK_FLOW_GATE_BLOCKED` 必须仍是 65030（别名，不新增码值）
+        assert_eq!(TASK_FLOW_GATE_BLOCKED, 65030, "D3a 别名必须仍指向 65030");
+        assert_eq!(TASK_FLOW_GATE_BLOCKED, TASK_APPROVAL_PENDING);
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
