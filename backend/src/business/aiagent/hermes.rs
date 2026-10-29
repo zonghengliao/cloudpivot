@@ -107,7 +107,7 @@ pub enum Transport {
 /// | `CLOUDPIVOT_AIAGENT_PROFILES_ROOT` | `/root/.hermes/profiles` | profile 目录根 |
 /// | `CLOUDPIVOT_AIAGENT_WORKSPACE_ROOT` | `/root/.hermes/workspace` | 工作区根 |
 /// | `CLOUDPIVOT_AIAGENT_BACKUP_DIR` | `/root/.hermes/aiagent-soul-backups` | 删号前 SOUL.md 备份目录 |
-/// | `CLOUDPIVOT_AIAGENT_CLONE_FROM` | `manong` | 建 profile 时的模板 profile |
+/// | `CLOUDPIVOT_AIAGENT_CLONE_FROM` | `default` | 建 profile 时的模板 profile（Hermes 内置默认 profile，不依赖任何自建 profile） |
 /// | `CLOUDPIVOT_AIAGENT_TIMEOUT_SECS` | `60` | 单条命令超时 |
 ///
 /// 之所以用环境变量而不是 `config.toml` 新段：`config.toml` 由框架的强类型配置反序列化，
@@ -171,7 +171,7 @@ impl HermesConfig {
                 "/root/.hermes/aiagent-soul-backups",
             ),
             clone_from: env_non_empty("CLOUDPIVOT_AIAGENT_CLONE_FROM")
-                .unwrap_or_else(|| "manong".to_string()),
+                .unwrap_or_else(|| "default".to_string()),
             timeout: Duration::from_secs(timeout_secs),
         }
     }
@@ -1023,7 +1023,7 @@ pub fn shell_quote(raw: &str) -> String {
 
 /// 渲染默认 `SOUL.md`（用户留空时用）。
 ///
-/// 结构照 `manong` 的既有模板（实测 1189 字节）：首行身份 → `# 核心职责` →
+/// 结构照 Hermes 既有模板：首行身份 → `# 核心职责` →
 /// `# 所属团队` → `# 工作原则` → `# 个性特点`。这样云枢建出来的 AI 用户与团队现有
 /// 成员同构，后续「编辑职责」时能直接改对应段落。
 pub fn render_default_soul(name: &str, display_name: &str, description: &str) -> String {
@@ -1077,7 +1077,7 @@ mod tests {
             profiles_root: root.join("profiles"),
             workspace_root: root.join("workspace"),
             backup_dir: root.join("backups"),
-            clone_from: "manong".to_string(),
+            clone_from: "default".to_string(),
             timeout: Duration::from_secs(10),
         }
     }
@@ -1298,7 +1298,7 @@ mod tests {
         let hermes = Hermes::new(local_config(&root, fake_bin.clone()));
 
         let err = hermes
-            .create_profile("agent-01", Some("manong"), "职责")
+            .create_profile("agent-01", Some("default"), "职责")
             .await
             .expect_err("必须失败");
         assert_eq!(err.code, error_code::AI_AGENT_HERMES_FAILED);
@@ -1456,7 +1456,7 @@ mod tests {
             profiles_root: PathBuf::from("/root/.hermes/profiles"),
             workspace_root: PathBuf::from("/root/.hermes/workspace"),
             backup_dir: PathBuf::from("/root/.hermes/aiagent-soul-backups"),
-            clone_from: "manong".to_string(),
+            clone_from: "default".to_string(),
             timeout: Duration::from_secs(60),
         };
         let hermes = Hermes::new(cfg);
@@ -1493,7 +1493,7 @@ mod tests {
             profiles_root: PathBuf::from("/root/.hermes/profiles"),
             workspace_root: PathBuf::from("/root/.hermes/workspace"),
             backup_dir: PathBuf::from("/root/.hermes/aiagent-soul-backups"),
-            clone_from: "manong".to_string(),
+            clone_from: "default".to_string(),
             timeout: Duration::from_secs(60),
         };
         // 这里只断言默认值本身与 env 读取函数的行为，避免在测试里改全局环境变量
