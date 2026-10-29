@@ -560,6 +560,32 @@ pub const TASK_DEPENDENCY_NOT_FOUND: i32 = 63104;
 /// 甘特时间窗非法（HTTP 400）：`end < start`，或跨度超过 180 天。
 pub const TASK_GANTT_RANGE_INVALID: i32 = 63105;
 
+// ── T7a 追加（631xx 子段续段）：甘特拖拽改期的三类依赖 / 父子冲突 ─────────
+//
+// 为什么接着 63106+ 而不是 63021+：这三条与 63101–63105 同属「依赖与甘特排期」
+// 子段（改期本质是排期变更），且 T7a 卡面把码值写死成 63110 / 63111 / 63112，
+// 前端文案映射与验收脚本按码值命中，**不许改值**。
+// 三条的共同红线：消息里**必须点名冲突对象**（`task_no` + 标题 + 冲突日期），
+// 只回「改期违反依赖」等于让用户自己去几百条依赖里找冲突。
+
+/// 改期违反**前置**依赖（HTTP 400）：改期后本任务开始日早于某个未完成前置的截止日。
+///
+/// 文案形如：`改期违反依赖：前置 TSK-202610-000012「数据库设计」（截止 2026-10-30）尚未完成`。
+/// 口径与 [`TASK_DEPENDENCY_BLOCKED`] 一致：`DONE` / `CANCELLED` 的前置已解除，不算冲突。
+pub const TASK_SCHEDULE_PREDECESSOR: i32 = 63110;
+
+/// 改期违反**后继**依赖（HTTP 400）：改期后本任务截止日晚于某个后继的计划开始日。
+///
+/// 文案形如：`改期违反依赖：后继 TSK-202610-000015「接口联调」计划 2026-11-01 开始`。
+/// `CANCELLED` 的后继已无排期意义，不参与判定（其余状态一律参与，含 `DONE`）。
+pub const TASK_SCHEDULE_SUCCESSOR: i32 = 63111;
+
+/// 改期违反**父子区间**（HTTP 400）：子任务日期跑出父任务区间，或父任务改期把
+/// 已有子任务甩在区间外（本卡默认**不级联**，所以父任务不许把子任务甩出去）。
+///
+/// 文案里点名父/子任务的编号 + 标题 + 区间。
+pub const TASK_SCHEDULE_PARENT_RANGE: i32 = 63112;
+
 // ── T5 追加（**632xx** 子段）：AI 执行者硬拒 ──────────────────────────────
 //
 // 为什么单开 632xx 而不是继续用 630xx：T5 卡面把这四件事的错误码写死成
@@ -829,6 +855,10 @@ mod tests {
             (TASK_DEPENDENCY_INVALID, 63103),
             (TASK_DEPENDENCY_NOT_FOUND, 63104),
             (TASK_GANTT_RANGE_INVALID, 63105),
+            // T7a 追加：甘特拖拽改期的前置 / 后继 / 父子冲突
+            (TASK_SCHEDULE_PREDECESSOR, 63110),
+            (TASK_SCHEDULE_SUCCESSOR, 63111),
+            (TASK_SCHEDULE_PARENT_RANGE, 63112),
             // T5b 追加：任务级令牌 / 派活 / 进度回写
             (TASK_AI_TOKEN_INVALID, 63301),
             (TASK_AI_TOKEN_EXPIRED, 63302),
@@ -847,7 +877,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105 + 63301–63308）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105 + 63110–63112 + 63301–63308）✓",
             codes.len()
         );
     }

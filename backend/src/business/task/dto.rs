@@ -1278,6 +1278,114 @@ pub struct TaskWorklogDeleteRes {
     pub actual_hours: Option<f64>,
 }
 
+// ==================== T7a：甘特拖拽改期 ====================
+
+/// 平移天数的绝对值上限（10 年）。
+///
+/// 不是业务规则，是**防误输**：前端算出来的 `shift_days` 不该超过一屏（180 天），
+/// 但接口是公开契约，直接 curl 一个 `shift_days=999999` 会把日期推到公元 4799 年，
+/// 随后的「不得早于 created_at 前 1 年」也拦不住它。上限取 10 年，够任何真实场景。
+pub const MAX_SHIFT_DAYS: i64 = 3650;
+
+/// 改期请求（`PATCH /api/business/task/{id}/schedule`）。
+///
+/// # 两种形态**二选一**（都传 / 都不传 → 400）
+///
+/// | 形态 | 字段 | 语义 |
+/// |------|------|------|
+/// | 整体平移 | `shift_days` | `start_date + N`、`due_date + N`（两个非空日期一起动） |
+/// | 显式日期 | `start_date` / `due_date` | 只改传了的那个；两个都传就都改 |
+///
+/// 前端拖「条形中部」发 `shift_days`，拖「左边缘」发 `start_date`，拖「右边缘」发
+/// `due_date` —— 三种拖法与三种请求形态一一对应，语义不会串。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TaskScheduleReq {
+    /// 新的计划开始日（显式形态）。
+    pub start_date: Option<NaiveDate>,
+    /// 新的截止日（显式形态）。
+    pub due_date: Option<NaiveDate>,
+    /// 平移天数（平移形态；可负）。
+    pub shift_days: Option<i64>,
+}
+
+impl TaskScheduleReq {
+    /// 判定本次请求属于哪种形态。
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(ScheduleMode::Shift(n))`：`shift_days = n`（`n != 0`）；
+    /// - `Ok(ScheduleMode::Explicit)`：至少传了一个显式日期；
+    ///
+    /// # 异常情况
+    ///
+    /// 返回 `Err(中文消息)`（handler 统一映射 `400 + 63004`）：
+    /// - 两个形态同时出现（歧义：到底按哪个算）；
+    /// - 一个都没传（空请求）；
+    /// - `shift_days = 0`（等价于没改，前端应在拖动 0 格时根本不发请求）；
+    /// - `|shift_days| > MAX_SHIFT_DAYS`。
+    pub fn mode(&self) -> std::result::Result<ScheduleMode, String> {
+        let has_explicit = self.start_date.is_some() || self.due_date.is_some();
+        match (self.shift_days, has_explicit) {
+            (Some(_), true) => Err(
+                "shift_days 与 start_date / due_date 只能二选一（同时传无法判断以哪个为准）"
+                    .to_string(),
+            ),
+            (None, false) => {
+                Err("请求体必须给 shift_days 或 start_date / due_date 之一".to_string())
+            }
+            (None, true) => Ok(ScheduleMode::Explicit),
+            (Some(days), false) => {
+                if days == 0 {
+                    return Err(
+                        "shift_days = 0 等于没改期（前端应在拖动 0 格时不发请求）".to_string()
+                    );
+                }
+                if days.abs() > MAX_SHIFT_DAYS {
+                    return Err(format!(
+                        "shift_days 超出范围：{days}（绝对值上限 {MAX_SHIFT_DAYS} 天）"
+                    ));
+                }
+                Ok(ScheduleMode::Shift(days))
+            }
+        }
+    }
+}
+
+/// 改期请求的两种形态（见 [`TaskScheduleReq::mode`]）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScheduleMode {
+    /// 整体平移 N 天。
+    Shift(i64),
+    /// 显式日期（只改传了的那些）。
+    Explicit,
+}
+
+/// 改期结果（`PATCH /business/task/{id}/schedule`）。
+///
+/// 只回「改期前 / 改期后 + 留痕 id」，不回整张任务卡：甘特图手上的其余字段没变，
+/// 回全量反而让前端拿旧快照覆盖新快照（T7b 的回弹逻辑也依赖「只信这一条的日期」）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskScheduleRes {
+    /// 任务 id。
+    pub id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 改期前的计划开始日。
+    pub old_start_date: Option<NaiveDate>,
+    /// 改期前的截止日。
+    pub old_due_date: Option<NaiveDate>,
+    /// 改期后的计划开始日（**贴库值**）。
+    pub start_date: Option<NaiveDate>,
+    /// 改期后的截止日（**贴库值**）。
+    pub due_date: Option<NaiveDate>,
+    /// 本次实际平移天数（显式形态下按开始日位移算；无法算出时为 0）。
+    pub shift_days: i64,
+    /// `SCHEDULE` 评论 id（时间线上点得进去）。
+    pub comment_id: String,
+    /// 变更日志是否落库（`false` = diff 为空被跳过，理论上不会发生）。
+    pub changelog_written: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

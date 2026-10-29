@@ -3212,6 +3212,241 @@ mod stats_tests {
     }
 }
 
+// ==================== T7a：甘特拖拽改期（读快照 + 落库） ====================
+
+/// 改期评论的 `comment_type`（V0114 扩进 `ck_biz_task_comment_type`）。
+///
+/// 为什么单开一个类型而不是复用 `PLAIN`：改期是**系统产生的排期事实**，
+/// 与「谁在什么时候把起止日从 X 改到 Y」是同一类留痕；复用 `PLAIN` 会让它在
+/// 评论列表里和人的随手发言混在一起，也没法按类型筛（与 `STATUS_CHANGE` 同理）。
+pub const COMMENT_TYPE_SCHEDULE: &str = "SCHEDULE";
+
+/// 改期用的本任务排期快照（**事务内读**，防「读到的旧日期算出错误的平移」）。
+///
+/// 为什么不在事务外读一次就够：`shift_days` 的语义是「在当前日期上平移 N 天」，
+/// 两个人同时把同一条任务平移 +3，正确结果是 +6 或第二次基于新值 +3 —— 两者都要求
+/// 「读到的旧值」与「写入」在同一个事务里（配合 `pg_advisory_xact_lock` 串行化）。
+#[derive(Debug, Clone)]
+pub struct ScheduleRow {
+    /// 任务主键。
+    pub id: Uuid,
+    /// 任务编号。
+    pub task_no: String,
+    /// 标题。
+    pub title: String,
+    /// 状态（5 态）。
+    pub status: String,
+    /// 当前计划开始日。
+    pub start_date: Option<NaiveDate>,
+    /// 当前截止日。
+    pub due_date: Option<NaiveDate>,
+    /// 创建时间（「不得早于创建时间前 1 年」的下界由它推）。
+    pub created_at: chrono::DateTime<Utc>,
+    /// 父任务。
+    pub parent_id: Option<Uuid>,
+}
+
+impl ScheduleRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            task_no: row.get_typed("task_no")?,
+            title: row.get_typed("title")?,
+            status: row.get_typed("status")?,
+            start_date: row.get_typed("start_date")?,
+            due_date: row.get_typed("due_date")?,
+            created_at: row.get_typed("created_at")?,
+            parent_id: row.get_typed("parent_id")?,
+        })
+    }
+}
+
+/// 改期校验用到的「对端任务」排期快照（前置 / 后继 / 父 / 子四种关系共用）。
+///
+/// 四种关系只需要「编号 + 标题 + 状态 + 区间」这五个字段就能把冲突讲清楚，
+/// 所以不按关系各建一个结构：文案里的点名格式只有一处实现
+/// （见 [`crate::business::task::schedule`]），四个拷贝迟早不同步。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PeerSchedule {
+    /// 对端任务主键。
+    pub peer_id: Uuid,
+    /// 对端任务编号。
+    pub task_no: String,
+    /// 对端任务标题。
+    pub title: String,
+    /// 对端任务状态（5 态；前置是否「已解除」由纯逻辑判）。
+    pub status: String,
+    /// 对端任务计划开始日。
+    pub start_date: Option<NaiveDate>,
+    /// 对端任务截止日。
+    pub due_date: Option<NaiveDate>,
+}
+
+impl PeerSchedule {
+    /// 由查询行构造（四个关系查询共用同一列清单 [`PEER_SCHEDULE_COLUMNS`]）。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            peer_id: row.get_typed("peer_id")?,
+            task_no: row.get_typed("task_no")?,
+            title: row.get_typed("title")?,
+            status: row.get_typed("status")?,
+            start_date: row.get_typed("start_date")?,
+            due_date: row.get_typed("due_date")?,
+        })
+    }
+}
+
+/// 排期快照的列清单（四种关系共用，避免列名漂移）。
+const PEER_SCHEDULE_COLUMNS: &str = "p.id AS peer_id, p.task_no, p.title, p.status, \
+                                     p.start_date, p.due_date";
+
+/// 事务内读本任务的排期快照（不存在 / 已软删 → `None`）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_schedule_row(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ScheduleRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, task_no, title, status, start_date, due_date, created_at, parent_id \
+               FROM biz_task WHERE id = ?::uuid AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(Some(ScheduleRow::from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 未完成 / 未取消的前置（FS 边，「我依赖谁」）。
+///
+/// SQL 只做「关系筛选」（`d.task_id = 我` + `dep_type = 'FS'` + 对端未软删），
+/// **不在这里过滤状态**：`DONE` / `CANCELLED` 是否算「已解除」的唯一判据是
+/// [`crate::business::task::dep::is_blocking_status`]（纯逻辑，可单测）。
+pub async fn schedule_prerequisites(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+) -> DbResult<Vec<PeerSchedule>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT {PEER_SCHEDULE_COLUMNS} \
+                   FROM biz_task_dependency d \
+                   JOIN biz_task p ON p.id = d.depends_on_id AND p.deleted_at IS NULL \
+                  WHERE d.task_id = ?::uuid AND d.dep_type = 'FS' \
+                  ORDER BY p.id"
+            ),
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    rows.iter().map(PeerSchedule::from_row).collect()
+}
+
+/// 后继（谁依赖我；`depends_on_id = 我`）。
+pub async fn schedule_successors(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+) -> DbResult<Vec<PeerSchedule>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT {PEER_SCHEDULE_COLUMNS} \
+                   FROM biz_task_dependency d \
+                   JOIN biz_task p ON p.id = d.task_id AND p.deleted_at IS NULL \
+                  WHERE d.depends_on_id = ?::uuid AND d.dep_type = 'FS' \
+                  ORDER BY p.id"
+            ),
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    rows.iter().map(PeerSchedule::from_row).collect()
+}
+
+/// 父任务的排期（本任务没有父任务 / 父任务已软删 → `None`）。
+pub async fn schedule_parent(
+    ex: &impl SqlExecutor,
+    parent_id: Uuid,
+) -> DbResult<Option<PeerSchedule>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT {PEER_SCHEDULE_COLUMNS} \
+                   FROM biz_task p \
+                  WHERE p.id = ?::uuid AND p.deleted_at IS NULL"
+            ),
+            vec![Value::from(&parent_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(Some(PeerSchedule::from_row(row)?)),
+        None => Ok(None),
+    }
+}
+
+/// 子任务的排期（本卡**不级联**：父任务改期时用它做「别把子任务甩出去」的校验）。
+pub async fn schedule_children(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+) -> DbResult<Vec<PeerSchedule>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT {PEER_SCHEDULE_COLUMNS} \
+                   FROM biz_task p \
+                  WHERE p.parent_id = ?::uuid AND p.deleted_at IS NULL \
+                  ORDER BY p.id"
+            ),
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    rows.iter().map(PeerSchedule::from_row).collect()
+}
+
+/// 落库新的起止日（只写这两列 + 更新时间）。
+///
+/// # 为什么复用 `TaskPatch` 的绑法而不是自己拼
+///
+/// `start_date = ?::date` 配 `Value::from(Option<NaiveDate>)` 是编辑接口已经验证
+/// 过的组合（`Value::Text` 绑 `?::date` 会在驱动层报
+/// `error serializing parameter`，T6b 踩过）。这里只写两列，`sets` 固定非空，
+/// 不走 `update_task` 的「字段缺席」分支 —— 改期一定会改至少一个日期。
+///
+/// # 返回值
+///
+/// 受影响行数（0 = 任务不存在 / 已软删，调用方转 404）。
+pub async fn update_schedule(
+    ex: &Transaction,
+    id: Uuid,
+    start_date: Option<NaiveDate>,
+    due_date: Option<NaiveDate>,
+    operator: Uuid,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_task SET start_date = ?::date, due_date = ?::date, \
+                updated_at = now(), update_by = ?::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::from(start_date),
+            Value::from(due_date),
+            Value::from(&operator),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

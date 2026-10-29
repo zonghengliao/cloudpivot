@@ -2400,7 +2400,7 @@ async fn read_single_upload(
 // ==================== 内部工具 ====================
 
 /// 当前用户（令牌 `sub`）。
-fn current_user(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
+pub(crate) fn current_user(claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
     utils::current_user_uuid(claims)
         .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "当前令牌缺少用户标识"))
 }
@@ -2411,7 +2411,7 @@ pub(crate) fn parse_uuid_field(raw: &str, label: &str) -> std::result::Result<Uu
 }
 
 /// 400 参数错误。
-fn param_invalid(message: String) -> ApiError {
+pub(crate) fn param_invalid(message: String) -> ApiError {
     ApiError::new(400, error_code::PARAM_INVALID, message)
 }
 
@@ -2569,7 +2569,7 @@ fn transition_error(error: state::TransitionError) -> ApiError {
 ///
 /// 取令牌里的 `username`：审计表要的是「人看得懂的名字」，`sub` 是兜底
 /// （令牌缺 `username` 时至少不写空串）。
-fn display_name(claims: &TokenClaims) -> String {
+pub(crate) fn display_name(claims: &TokenClaims) -> String {
     claims
         .username
         .clone()

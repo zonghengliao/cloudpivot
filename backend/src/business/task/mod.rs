@@ -74,4 +74,5 @@ pub mod dto;
 pub mod handler;
 pub mod hermes_sync;
 pub mod model;
+pub mod schedule;
 pub mod state;

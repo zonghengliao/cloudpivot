@@ -148,7 +148,7 @@ pub const SYS_HELP_DOC: ResourceSpec = ResourceSpec {
 
 /// `biz_task`（工作任务，批次 C+ · T2 接入）。
 ///
-/// 白名单口径：T2 的状态机 5 列 + **T3 的转派 3 列**。
+/// 白名单口径：T2 的状态机 5 列 + **T3 的转派 3 列** + **T7a 的排期 2 列**。
 ///
 /// | 列 | 谁写 | 为什么必须留痕 |
 /// |----|------|----------------|
@@ -156,6 +156,7 @@ pub const SYS_HELP_DOC: ResourceSpec = ResourceSpec {
 /// | `owner_id` | T3 分派 / 转派 | **「原来派给谁」是转派审计的核心**（责任链） |
 /// | `assigner_id` | T3 分派 / 转派 | 谁派的活（与「谁干的」分开） |
 /// | `source` | T3 转派 | `SELF → ASSIGNED → TRANSFERRED` 的来源演变 |
+/// | `start_date` / `due_date` | T7a 甘特拖拽改期 | 「原来计划哪天 → 现在计划哪天」是排期审计的核心 |
 ///
 /// 刻意**不含**：
 /// - `updated_at` / `update_by`：每次都会变的运行时列，进白名单等于把审计表变成访问日志
@@ -178,6 +179,9 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
         "owner_id",
         "assigner_id",
         "source",
+        // T7a 追加：甘特拖拽改期（「原来计划哪天 → 现在计划哪天」是排期审计的核心）
+        "start_date",
+        "due_date",
     ],
     big: &[],
 };

@@ -496,6 +496,12 @@ export const TASK_ERROR_CODE = {
   HAS_OPEN_CHILDREN: 63006,
   /** 404：任务不存在 / 不可见 */
   NOT_FOUND: 63001,
+  /** 400：改期后开始日早于未完成前置的截止日（后端点名前置：编号 + 标题 + 截止日） */
+  SCHEDULE_PREDECESSOR: 63110,
+  /** 400：改期后截止日晚于后继的计划开始日（后端点名后继） */
+  SCHEDULE_SUCCESSOR: 63111,
+  /** 400：子任务跑出父任务区间，或父任务把子任务甩出区间（后端点名父子） */
+  SCHEDULE_PARENT_RANGE: 63112,
 } as const;
 
 /**
@@ -825,4 +831,61 @@ export function addTaskWorklog(id: string, data: TaskWorklogCreateReq): Promise<
 /** 删除工时（`DELETE /api/business/task/{id}/worklogs/{wlId}`，本人 / 管理员） */
 export function deleteTaskWorklog(id: string, wlId: string): Promise<TaskWorklogDeleteResult> {
   return del<TaskWorklogDeleteResult>(`/api/business/task/${id}/worklogs/${wlId}`);
+}
+
+// ======================================================================
+// T7a 接入位（甘特拖拽改期）—— 后端已交付：PATCH /business/task/{id}/schedule
+// ======================================================================
+
+/**
+ * 改期请求（对应后端 `TaskScheduleReq`）。
+ *
+ * # 两种形态**二选一**（后端 `mode()` 会拒绝两种同时传 / 都不传）
+ *
+ * - 拖条形**中部**：`{ shift_days: 3 }` → 起止日一起 +3 天；
+ * - 拖**左边缘**：`{ start_date: '2026-11-04' }` → 只改开始日；
+ * - 拖**右边缘**：`{ due_date: '2026-11-08' }` → 只改截止日。
+ */
+export interface TaskScheduleReq {
+  /** 新的计划开始日（`YYYY-MM-DD`） */
+  start_date?: string;
+  /** 新的截止日（`YYYY-MM-DD`） */
+  due_date?: string;
+  /** 平移天数（可负；0 会被后端 400 拒绝，前端拖动 0 格时不该发请求） */
+  shift_days?: number;
+}
+
+/** 改期结果（对应后端 `TaskScheduleRes`；日期是**贴库值**） */
+export interface TaskScheduleResult {
+  id: string;
+  task_no: string;
+  old_start_date: string | null;
+  old_due_date: string | null;
+  start_date: string | null;
+  due_date: string | null;
+  /** 实际平移天数（显式形态下按开始日位移算） */
+  shift_days: number;
+  /** `SCHEDULE` 类型评论 id（时间线上点得进去） */
+  comment_id: string;
+  /** 变更日志是否落库 */
+  changelog_written: boolean;
+}
+
+/**
+ * 改期（`PATCH /api/business/task/{id}/schedule`）。
+ *
+ * # 后端会重跑四类校验（修正 10），失败一律 400 + 点名冲突对象
+ *
+ * | 码 | 含义 | 前端文案 |
+ * |----|------|----------|
+ * | `63004` | 形态 / 日期非法 | 直接用后端 `msg`（已含具体日期） |
+ * | `63110` | 违反前置依赖 | `改期违反依赖：前置 TSK-xxx「标题」（截止 xx）尚未完成` |
+ * | `63111` | 违反后继依赖 | `改期违反依赖：后继 TSK-xxx「标题」计划 xx 开始` |
+ * | `63112` | 父子区间冲突 | `子任务日期必须在父任务范围内…`（后端已点名父子） |
+ *
+ * 前端**不自己拼冲突文案**：后端 `msg` 里已经有 `task_no + 标题 + 日期`，
+ * 自己再拼一遍就等于把「点名哪个冲突对象」的逻辑写了两份（迟早不一致）。
+ */
+export function scheduleTask(id: string, data: TaskScheduleReq): Promise<TaskScheduleResult> {
+  return patch<TaskScheduleResult>(`/api/business/task/${id}/schedule`, data);
 }
