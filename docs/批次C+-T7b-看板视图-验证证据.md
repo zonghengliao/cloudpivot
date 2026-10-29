@@ -7,7 +7,7 @@
 - 三方一致：`HEAD` == `origin/main` == `bare main`（收尾 `git rev-parse` 三处同值；本文件自身的提交会推高 HEAD，故这里不写死最终哈希，**功能代码哈希见上一行 `a57ed71`**）；`/opt/cloudpivot` 工作区 0 改动
 - 生产：`http://172.18.10.144/`（nginx root = `/opt/cloudpivot/frontend/dist`，dist 构建于 **17:34:54**，晚于合并）
 - 环境：`cloudpivot` 库 + 真实 admin 表单登录（`Input.insertText` 敲键 → 点「登录」）；拖拽用 **CDP 原生拖拽管线**（`Input.setInterceptDrags` + `dragIntercepted` + `dispatchDragEvent(dragEnter/dragOver/drop)`），不是合成 DOM 事件
-- 截图：`docs/evidence/t7b-board.png`（清理前的看板：五列 + 已取消折叠 + 50/58 张卡片）
+- 截图：`docs/evidence/t7b-board.png`（**清理后**的生产看板：五列齐全、已取消列默认折叠、5 条真实任务；验收期 68 条时的形态见下文第 2、11 节文字证据）
 - 复现脚本：`scripts/verify/t7b_board_fixture.sql`（临时账号/角色）、`t7b_board_setup.py`（造 7 条覆盖 5 状态）、`t7b_board_page.py`（造 55 条验加载更多）、`t7b_board_cleanup.sql`（软删清理）
 
 ## 一、交付文件
