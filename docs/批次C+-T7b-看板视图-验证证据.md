@@ -1,9 +1,10 @@
 # T7b 看板视图 · 验证证据
 
 - 任务：`t_ff10fbc4`（`【任务管理·T7b】看板视图（五列+原生拖拽改状态+乐观回弹+打回必填原因）`）
-- 功能提交：`a57ed71` — `feat(task): T7b 看板视图 —— 五列 + 原生 HTML5 拖拽改状态 + 乐观回弹 + 打回必填原因`
+- 功能提交：`a57ed71` — `feat(task): T7b 看板视图 —— 五列 + HTML5 原生拖拽改状态 + 乐观回弹 + 打回必填原因`
   （5 files changed, 1371 insertions(+), 49 deletions(-)，**只动 `frontend/`**）
-- 三方一致：`HEAD` == `origin/main` == `bare main` == `a57ed715323230f0d6e4a97724eae4df7f683127`；`/opt/cloudpivot` 工作区 0 改动
+- 文档提交：`6d90e6b`（本文件 + 复现脚本；`git diff a57ed71..6d90e6b -- frontend/` 为空 → 生产 dist 与 HEAD 的前端源码一致）
+- 三方一致：`HEAD` == `origin/main` == `bare main` == `6d90e6b0713aab06f18b62c3bb37ecea0b5ae949`；`/opt/cloudpivot` 工作区 0 改动
 - 生产：`http://172.18.10.144/`（nginx root = `/opt/cloudpivot/frontend/dist`，dist 构建于 **17:34:54**，晚于合并）
 - 环境：`cloudpivot` 库 + 真实 admin 表单登录（`Input.insertText` 敲键 → 点「登录」）；拖拽用 **CDP 原生拖拽管线**（`Input.setInterceptDrags` + `dragIntercepted` + `dispatchDragEvent(dragEnter/dragOver/drop)`），不是合成 DOM 事件
 - 截图：`docs/evidence/t7b-board.png`（清理前的看板：五列 + 已取消折叠 + 50/58 张卡片）
