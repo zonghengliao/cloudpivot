@@ -274,3 +274,16 @@ lib: 610 passed; 0 failed
 3. **`lag_days` 只存不算排程**：`FS+lag` 的滞后语义不参与本次条形几何；T7 改期校验时才会用到。
 4. **`board_id` 维度不做**：无自定义看板列（P1），接口显式 400 拒绝。
 5. **甘特单次上限 500 条**（超过按排期升序截断并置 `truncated=true`），时间窗上限 180 天 —— 两者都是防「一次查询把整表画出来」。
+
+---
+
+## 十、产物指纹（供安全 / 运维复核）
+
+| 项 | 值 |
+|---|---|
+| 功能提交 | `29ed91d` — `feat(task): T4 FS 依赖（环检测/前置阻塞/联动通知）+ 只读 SVG 甘特图` |
+| 提交内容 | 15 files changed, 3603 insertions(+), 17 deletions(-) |
+| 三方一致 | `HEAD` == `origin/main` == `bare main` == `29ed91d692…db931d` |
+| 后端产物 | `backend/target/release/cloudpivot`，sha256 `3d3aab25563b6ea75b7816ad47de6ae21d29f338dbd08be5832f854f4e4a5564`（构建于 15:08，即本次功能代码；验收脚本跑的就是这个二进制） |
+| 前端产物 | 甘特页独立 chunk `assets/gantt-Bl7qznxS.js`（11420 B，内含 `gantt-blocked` 斜纹定义），构建于 15:09 |
+| 生产库 | `schema_migrations` 含 `110`；`sys_menu` 含 `…0770` / `…0771` |
