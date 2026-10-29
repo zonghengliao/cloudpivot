@@ -77,7 +77,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
@@ -116,8 +116,17 @@ const setting = useSettingStore();
 /** 应用启动时恢复上次保存的主题（明暗），避免刷新后回到默认亮色 */
 setting.initTheme();
 
-/** 侧边栏折叠状态 */
-const collapsed = ref(false);
+/**
+ * 侧边栏折叠状态：绑到 setting store，而不是组件内 `ref`。
+ *
+ * 折叠状态也属于用户偏好（`ui.side_compact`），绑组件内 ref 的话「折叠一下」
+ * 只在本页面生命周期内有效、刷新就丢，也不会同步到后端。
+ * 写的是 `setting.setSideCompact` → 本地 localStorage 立即生效 + 异步 PUT。
+ */
+const collapsed = computed<boolean>({
+  get: () => setting.sideCompact,
+  set: (value: boolean) => setting.setSideCompact(value),
+});
 
 /** 侧边栏宽度：折叠后仅保留图标 */
 const asideWidth = computed(() => (collapsed.value ? '64px' : '232px'));

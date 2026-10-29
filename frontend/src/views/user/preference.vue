@@ -5,7 +5,7 @@
       <div class="preference-hero__text">
         <h2 class="preference-hero__title">外观设置</h2>
         <p class="preference-hero__desc">
-          选择顺眼的配色方案与明暗模式，点击即生效并自动记住（仅影响当前浏览器）。
+          选择顺眼的配色方案与明暗模式，点击即生效并保存到当前账号 —— 换浏览器、清缓存后用同一账号登录仍是这套外观。
           共 {{ palettes.length }} 套方案 × 明暗 2 种模式，全部经过 WCAG AA 对比度校验。
         </p>
       </div>

@@ -392,6 +392,30 @@ pub const HELP_DOC_CONTENT_INVALID: i32 = 62018;
 /// 帮助文档指定的历史版本不存在（HTTP 404）。
 pub const HELP_DOC_VERSION_NOT_FOUND: i32 = 62019;
 
+// ── 批次 D · 偏好体系（平台通用 KV + 字典）── 62xxx 段顺延 62020–62024。
+// 与 C 段（公告/帮助/变更日志）同段但互不重叠：62001–62019 属批次 C，62020 起属偏好。
+
+/// 偏好键不在字典里（或已被停用）（HTTP 400）。
+///
+/// 「字典里没有的键一律拒绝」是偏好体系的第一道防线：前端乱塞的脏数据不会进库。
+pub const PREFERENCE_KEY_UNKNOWN: i32 = 62020;
+
+/// 偏好值类型与字典的 `value_type` 不符（HTTP 400）。
+pub const PREFERENCE_VALUE_TYPE_INVALID: i32 = 62021;
+
+/// 偏好值不满足字典的 `validator`（oneof / range）（HTTP 400）。
+pub const PREFERENCE_VALUE_INVALID: i32 = 62022;
+
+/// 更新偏好的请求体里一个偏好项都没有（HTTP 400）。
+///
+/// 不当作「无操作成功」：空请求通常是前端 bug，静默成功会把设置丢掉。
+pub const PREFERENCE_PAYLOAD_EMPTY: i32 = 62023;
+
+/// 偏好字典自身配置损坏（`value_type` / `validator` / `default_value` 非法）（HTTP 500）。
+///
+/// **用 500 是有意的**：这不是用户输入问题，是字典数据被改坏，必须报警而不是静默放行。
+pub const PREFERENCE_DEF_INVALID: i32 = 62024;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,7 +453,7 @@ mod tests {
         );
     }
 
-    /// C0 段码位自检：62xxx 段 **19 个**码齐全、码值不重复、与架构 §5.2 码表逐字一致
+    /// C0 段码位自检：62xxx 段 **24 个**码齐全（C 段 19 + 批次 D 偏好 5）、码值不重复、与架构 §5.2 码表逐字一致
     /// （C4 在 62013 之后顺延了帮助文档的 62014–62019）。
     ///
     /// 与上面 B3 那条测试同性质：防止后续实施步（C2/C4/C6）顺手改码值 ——
@@ -458,6 +482,12 @@ mod tests {
             (HELP_DOC_STATUS_CONFLICT, 62017),
             (HELP_DOC_CONTENT_INVALID, 62018),
             (HELP_DOC_VERSION_NOT_FOUND, 62019),
+            // 批次 D：偏好体系 5 个码（62020–62024）
+            (PREFERENCE_KEY_UNKNOWN, 62020),
+            (PREFERENCE_VALUE_TYPE_INVALID, 62021),
+            (PREFERENCE_VALUE_INVALID, 62022),
+            (PREFERENCE_PAYLOAD_EMPTY, 62023),
+            (PREFERENCE_DEF_INVALID, 62024),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "62xxx 段码值不得改动");
@@ -465,7 +495,11 @@ mod tests {
         // 与批次 B 的 6100x 段严格不重叠
         assert!(codes[0].0 > 61012, "62xxx 段必须排在批次 B 之后");
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
-        assert_eq!(unique.len(), 19, "62xxx 段必须是 19 个码");
+        assert_eq!(
+            unique.len(),
+            24,
+            "62xxx 段必须是 24 个码（C 段 19 + 偏好 5）"
+        );
         assert_eq!(unique.len(), codes.len(), "62xxx 段不得有重复码值");
         println!(
             "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62019）✓",

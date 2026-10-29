@@ -11,6 +11,7 @@
 //! | [`role`] | 角色管理与菜单授权 | P2 |
 //! | [`menu`] | 菜单与权限点维护（树形结构） | P2 |
 //! | [`dept`] | 部门机构（树形结构） | P2 |
+//! | [`preference`] | 用户偏好体系（通用 KV + 字典元数据） | 批次 D |
 //!
 //! P1 阶段各子模块只交付强类型模型（`model.rs`，后缀 `*Model`）：结构体、字段
 //! 与枚举先落定，接口层（`handler.rs` / `dto.rs`）随 P2 补齐。
@@ -23,5 +24,6 @@
 pub mod auth;
 pub mod dept;
 pub mod menu;
+pub mod preference;
 pub mod role;
 pub mod user;

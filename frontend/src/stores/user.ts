@@ -10,6 +10,7 @@ import {
   type MenuNode,
 } from '@/api/system/auth-api';
 import { clearTokens, REFRESH_TOKEN_KEY, saveTokens, TOKEN_KEY } from '@/api/request';
+import { syncPreferenceFromServer } from '@/composables/usePalette';
 
 /** 超级管理员通配权限码 */
 const SUPER_PERMISSION = '*:*:*';
@@ -94,6 +95,13 @@ export const useUserStore = defineStore('user', () => {
     mustChangePassword.value = me.must_change_password === true;
     menus.value = menuTree;
     loaded.value = true;
+    // 登录后拉取后端偏好并校正本地（加载优先级：后端 > localStorage > 默认）。
+    // 失败只 warn：偏好同步绝不能阻塞登录，也不能让页面打不开（验收第 4 条 fail-safe）。
+    try {
+      await syncPreferenceFromServer();
+    } catch (error) {
+      console.warn('[user] 偏好同步失败（继续使用本地偏好）：', error);
+    }
   }
 
   /** 清空本地会话状态 */

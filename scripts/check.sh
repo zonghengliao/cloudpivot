@@ -232,6 +232,20 @@ batchc_gates() {
 
 batchc_gates
 
+# ======================================================================
+# 批次 D · 偏好体系：字典 `ui.palette` 的 oneof 必须与前端色板逐字一致
+#
+# 漂移后果是静默故障：前端加了色板后端没加 → 「界面能选、保存被 400 拒绝」；
+# 后端多留已删色板 → 库里存着前端不认识的值（刷新后配色被打回默认）。
+# 这条检查秒级，放在所有编译类检查之后、汇总之前。
+# ======================================================================
+
+echo "==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）"
+if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
+    echo "==> 一致性门禁未通过：改色板时必须同步改 V0091 的 validator" >&2
+    exit 1
+fi
+
 # 批次B 的 warn 模式提示保留在最后（C7 门禁是硬门禁，没有 warn 开关）
 if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
     echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
