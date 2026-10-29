@@ -66,6 +66,15 @@ pub mod model;
 pub mod partition;
 pub mod query;
 
+/// 强制回滚测试钩子（**仅** `test-hooks` feature 下编译）。
+///
+/// 为什么整个模块用 feature 门控、为什么里面没有 `db()`、为什么输出格式固定成 `0|1|0`，
+/// 见模块文档。声明放在这里（而不是 `#[cfg(test)]`）是因为它要被
+/// `cargo test --features test-hooks` 的**集成测试**与 `scripts/verify/changelog_rollback.sh`
+/// 驱动的 example 共同使用——`#[cfg(test)]` 只覆盖单元测试，够不到这两者。
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
+
 use alun::prelude::*;
 use alun::uuid::Uuid;
 

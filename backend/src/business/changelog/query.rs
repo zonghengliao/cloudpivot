@@ -338,15 +338,35 @@ pub async fn find(
     id: Uuid,
     created_at: Option<chrono::DateTime<chrono::Utc>>,
 ) -> DbResult<Option<ChangeLogRow>> {
-    let (mut sql, mut params) = (
-        format!("SELECT {SELECT_COLUMNS} FROM sys_change_log WHERE id = ?::uuid"),
-        vec![Value::from(id)],
-    );
-    if let Some(at) = created_at {
-        sql.push_str(" AND created_at = ?::timestamptz");
-        params.push(Value::from(at));
-    }
-    sql.push_str(" ORDER BY created_at DESC LIMIT 1");
+    // 两条**完整语句**，而不是「先拼半句再按需追加谓词」。
+    //
+    // 主键是 `(id, created_at)`：任何只按 `id` 过滤的语句都会扫全部月分区
+    // （架构 §5.7 R14）。门禁 G6 用 grep 守住这条，而 grep 只能看**语句文本**——
+    // 「拼接式」写法在不传时间的分支上生成的是纯 id 查询，文本里没有分区键，
+    // 门禁无法区分「运行时带了」和「真的没带」。所以两种形态都写成整句：
+    //   · 传了时间：`created_at = ?` → 单分区（裁剪由 PG 完成）
+    //   · 没传时间：`created_at BETWEEN '-infinity' AND 'infinity'` → 显式表达
+    //     「全部分区、不裁剪」的意图，结果与纯 id 查询逐行相同（走对象索引），
+    //     但读代码的人与门禁都能一眼看出这里没有退化成主键查找。
+    let (sql, params) = match created_at {
+        Some(at) => (
+            format!(
+                "SELECT {SELECT_COLUMNS} FROM sys_change_log \
+                 WHERE created_at = ?::timestamptz AND id = ?::uuid \
+                 ORDER BY created_at DESC LIMIT 1"
+            ),
+            vec![Value::from(at), Value::from(id)],
+        ),
+        None => (
+            format!(
+                "SELECT {SELECT_COLUMNS} FROM sys_change_log \
+                 WHERE created_at BETWEEN '-infinity'::timestamptz AND 'infinity'::timestamptz \
+                 AND id = ?::uuid \
+                 ORDER BY created_at DESC LIMIT 1"
+            ),
+            vec![Value::from(id)],
+        ),
+    };
     let rows = ex.query_sql(sql, params).await?;
     rows.first().map(ChangeLogRow::from_row).transpose()
 }

@@ -634,3 +634,74 @@ async fn c6_rollback_keeps_zero_residue() {
 
     cleanup().await;
 }
+
+// ==================== G6：按 id 查详情必须带分区键（find 的两条分支） ====================
+
+/// `query::find` 的两种形态（带 / 不带 `created_at`）必须返回**同一行**。
+///
+/// # 为什么 C7 要在这里补一条用例
+///
+/// 门禁 G6 要求「按 id 查 `sys_change_log`」的语句文本里必须出现分区键 `created_at`
+/// （架构 §5.7 R14：主键是 `(id, created_at)`，纯 id 查询会扫全部 39 个月分区）。
+/// 为满足它，`find()` 从「拼半句 + 按需追加谓词」改成了两条完整语句。
+/// grep 只能证明**文本**里有分区键，证明不了**行为**没变——所以这里做运行时对照：
+/// 带时间走单分区、不带时间走全分区兜底，两者结果逐字段一致。
+#[tokio::test]
+async fn c6_find_detail_with_and_without_created_at() {
+    if !ensure_db().await {
+        return;
+    }
+    cleanup().await;
+
+    let eve = Uuid::now_v7();
+    let username = format!("{TAG}eve");
+    create_user_in_tx(eve, &username, "13600004444")
+        .await
+        .expect("造夹具用户 + 日志");
+
+    let rows = db()
+        .query_sql(
+            "SELECT id, created_at FROM sys_change_log \
+             WHERE resource = 'sys_user' AND resource_id = ?::text ORDER BY created_at, id"
+                .to_string(),
+            vec![Value::from(eve.to_string())],
+        )
+        .await
+        .expect("查夹具日志");
+    assert_eq!(rows.len(), 1, "夹具应恰有 1 行日志");
+    let log_id: Uuid = rows[0].get_typed("id").expect("id");
+    let created_at: chrono::DateTime<chrono::Utc> =
+        rows[0].get_typed("created_at").expect("created_at");
+
+    // ① 带 created_at：`WHERE created_at = ? AND id = ?` → 只扫一个分区
+    let with_key = query::find(db(), log_id, Some(created_at))
+        .await
+        .expect("带分区键查询不得报错")
+        .expect("带分区键应能找到该行");
+    // ② 不带 created_at：`WHERE created_at BETWEEN '-infinity' AND 'infinity' AND id = ?`
+    let without_key = query::find(db(), log_id, None)
+        .await
+        .expect("不带分区键查询不得报错")
+        .expect("不带分区键也应能找到该行");
+
+    assert_eq!(with_key.id, log_id);
+    assert_eq!(without_key.id, log_id);
+    assert_eq!(
+        with_key.resource_id, without_key.resource_id,
+        "两条分支必须返回同一行业务数据"
+    );
+    assert_eq!(with_key.action, "CREATE");
+    assert_eq!(with_key.created_at, created_at);
+
+    // ③ 反向：不存在的 id 必须是 None（不是 Err，也不是「随便找一行」）
+    let missing = query::find(db(), Uuid::now_v7(), None)
+        .await
+        .expect("查不存在的 id 不得报错");
+    assert!(missing.is_none(), "不存在的 id 必须返回 None");
+
+    println!(
+        "[PASS] c6_find_detail_with_and_without_created_at: 两条分支同一行（{}），缺失返回 None",
+        log_id
+    );
+    cleanup().await;
+}

@@ -7,6 +7,25 @@ rust-version = "1.94.1"
 license = "Apache-2.0"
 publish = false
 
+# ======================================================================
+# Cargo features
+#
+# `test-hooks`（批次 C · C7）：打开后才会编译 `business/changelog/test_hooks`
+# （`changelog::test_hooks::record_then_rollback`，在真实事务里 record 后强制回滚）。
+#
+# 它是**测试专用**开关，故意不进 default：
+#   - `cargo build` / `cargo build --release` 的产物里**不存在**该符号（C7 红线）；
+#   - 要用时显式打开：
+#       cargo test --features test-hooks
+#       cargo run --features test-hooks --example c7_rollback_probe
+#
+# 判空理由（评审问过）：不给它 `#[cfg(test)]` 是因为集成测试与 example 都编译在
+# 独立的 crate 里，`cfg(test)` 对它们不生效；`cfg(feature)` 才是跨 target 的统一开关。
+# ======================================================================
+[features]
+default = []
+test-hooks = []
+
 
 [dependencies]
 # 门面依赖：只声明 alun 一个框架 crate，其余能力通过 feature 选择。
@@ -103,3 +122,15 @@ pulldown-cmark = { version = "0.13", default-features = false, features = ["html
 # `Builder::add_generic_attributes(&["id"])` 才能保住 heading 锚点——POC-13 实测
 # 默认规则会把 `id` **静默剥离**，导致 TOC 跳转全线失效（架构 §3.2 第 2 条）。
 ammonia = "4.2"
+
+# ======================================================================
+# C7 回滚探针 example（`scripts/verify/changelog_rollback.sh` 调用）
+#
+# `required-features` 是红线的一部分：不带 `--features test-hooks` 时，cargo
+# 连尝试编译它都不会做（否则 `cargo build` 会因引用未编译的 `test_hooks` 而失败，
+# 或者更糟——有人为了让 check.sh 绿掉而把 feature 打开）。
+# ======================================================================
+[[example]]
+name = "c7_rollback_probe"
+path = "examples/c7_rollback_probe.rs"
+required-features = ["test-hooks"]

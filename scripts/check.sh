@@ -119,6 +119,120 @@ batchb_gates() {
 
 batchb_gates
 
+# ======================================================================
+# 批次 C · C7：变更日志「回滚零残留」六条门禁（G1–G6）
+#
+# 依据 docs/批次C-技术架构.md §4.12.4（G1–G5）与 §5.7 R14（G6）。
+# 这六条在这里**只做 grep / 静态检查**（秒级），运行时行为由
+# `scripts/verify/changelog_rollback.sh`（真库 + 真事务，`0|1|0`）与
+# `cargo test --features test-hooks` 兜底。三者必须同时存在：
+# 静态检查防「写错位置」，真库断言防「位置对了但语义错了」。
+#
+# 口径说明（为什么不按架构文档逐字照抄 grep）：
+#   架构写的是 `grep -rn "db()" …`，而本仓库的 changelog 模块注释里大量出现
+#   `db()`、`record(`（都是为了讲清「不要这么写」），照抄会把文档判红。
+#   因此六条统一加一条「排除整行注释」的过滤（G2 的口径在 C7 卡面上已写明）
+#   ——这是**排除注释**，不是放宽标准：任何真实代码命中仍然报红。
+# ======================================================================
+
+# 复用同一条「排除整行注释」的过滤：// 、//! 、/// 、* 开头都算注释
+batchc_strip_comments() {
+    grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(//|\*)' || true
+}
+
+batchc_gates() {
+    local src="$ROOT/backend/src"
+    local failed=0
+    local out n
+
+    echo "==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）"
+    out=$(grep -rn "sys_change_log" "$src" --include=*.rs | grep -v "/business/changelog/" | batchc_strip_comments || true)
+    if [ -n "$out" ]; then
+        n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+        echo "  FAIL：$n 处（应在 0 处；变更日志只能由 changelog 模块写）"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        failed=$((failed + 1))
+    else
+        echo "  PASS：0 处"
+    fi
+
+    echo "==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）"
+    out=$(grep -rn "db()" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+    if [ -n "$out" ]; then
+        n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+        echo "  FAIL：$n 处（模块内只能吃 &impl SqlExecutor，不能 db()）"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        failed=$((failed + 1))
+    else
+        echo "  PASS：0 处（注释中的示例不计）"
+    fi
+
+    echo "==> C7 G3：record 的签名必须带 &impl SqlExecutor"
+    if awk '/^pub async fn record\(/{flag=1} flag{print; if ($0 ~ /\) ->/) exit}' \
+        "$src/business/changelog/mod.rs" | grep -q "&impl SqlExecutor"; then
+        echo "  PASS"
+    else
+        echo "  FAIL：mod.rs 里 pub async fn record( 之后没找到 &impl SqlExecutor"
+        failed=$((failed + 1))
+    fi
+
+    echo "==> C7 G4：不得存在『无 executor 版本』的 record 函数"
+    # 注意 `record(_in)?[[:space:]]*\(`：必须有词边界收尾，否则
+    # `async fn record_then_rollback(`（C7 的测试钩子）会被误判成 record 家族成员。
+    out=""
+    while IFS=: read -r file line _rest; do
+        [ -n "$file" ] || continue
+        if ! awk -v start="$line" 'NR >= start && NR <= start + 20 {print; if ($0 ~ /\) ->/) exit}' "$file" \
+            | grep -q "impl SqlExecutor"; then
+            out="${out}${file}:${line}: async fn record* 缺 executor 参数"$'\n'
+        fi
+    done < <(grep -rnE "async fn record(_in)?[[:space:]]*\(" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+    if [ -n "$out" ]; then
+        echo "  FAIL："
+        printf '%s' "$out" | sed 's/^/    /'
+        failed=$((failed + 1))
+    else
+        echo "  PASS"
+    fi
+
+    echo "==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx"
+    if command -v python3 >/dev/null 2>&1; then
+        if ! python3 "$ROOT/scripts/lint/changelog_in_tx.py" --root "$ROOT"; then
+            failed=$((failed + 1))
+        fi
+    else
+        echo "  FAIL：找不到 python3（G5 需要它做词法检查）"
+        failed=$((failed + 1))
+    fi
+
+    echo "==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）"
+    out=$(grep -rn "FROM sys_change_log WHERE id" "$src" --include=*.rs | batchc_strip_comments || true)
+    if [ -n "$out" ]; then
+        n=$(printf '%s\n' "$out" | wc -l | tr -d ' ')
+        echo "  FAIL：$n 处（主键含分区键，纯 id 查询会扫全部分区）"
+        printf '%s\n' "$out" | sed 's/^/    /'
+        failed=$((failed + 1))
+    else
+        echo "  PASS：0 处"
+    fi
+
+    echo "==> C7 门禁汇总：G1–G6 共 6 条，未通过 $failed 条"
+    if [ "$failed" -gt 0 ]; then
+        echo "==> C7 门禁：$failed 条未通过。修法：" >&2
+        echo "    G1 sys_change_log 只能由 business/changelog/ 访问" >&2
+        echo "    G2 changelog 模块内不要 db()，改用调用方传进来的 &impl SqlExecutor" >&2
+        echo "    G3/G4 record 必须只吃 &impl SqlExecutor（不许有无 executor 的重载）" >&2
+        echo "    G5 record(_in) 只能在 db().transaction(|tx| async move { … }) 里调用，第一个实参传 &tx" >&2
+        echo "    G6 按 id 查必须带 created_at（分区键），否则会扫全部月分区" >&2
+        return 1
+    fi
+    echo "==> C7 门禁：全部通过"
+    return 0
+}
+
+batchc_gates
+
+# 批次B 的 warn 模式提示保留在最后（C7 门禁是硬门禁，没有 warn 开关）
 if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
     echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
 else
