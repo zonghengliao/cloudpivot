@@ -38,7 +38,8 @@
 //! | `62xxx` | 批次 C（公告 / 帮助 / 变更日志）+ 批次 D（偏好体系 KV） |
 //! | `63xxx` | 批次 C+（工作任务管理 T 段：`63001`–`63020`，`63101`–`63105` 为依赖 / 甘特子段） |
 //! | `632xx` | 批次 C+（AI 执行者硬拒：`63201`–`63204`，T5 子段） |
-//! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64013`） |
+//! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64014`） |
+//! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -777,6 +778,85 @@ pub const AI_AGENT_USER_TYPE_LOCKED: i32 = 64013;
 /// 运维搜码也搜不到这条真实故障形态，因此单列 64014：**能建号但不能干活**统一落到这个码上。
 pub const AI_AGENT_CREDENTIAL_MISSING: i32 = 64014;
 
+// ── 业务审批流（批次 D）── **65xxx 段** ──────────────────────────────────
+//
+// 依据：`docs/批次D-工作流审批-技术架构.md` §1.9（65xxx 整段空闲，实测无占用）、
+//       §10.3（22 个码的码表，本段逐字落地）。
+//
+// 为什么单开一段：审批流是**独立业务域**（定义 / 实例 / 待办 / 抄送），
+// 且架构 §10.3 的 22 个码里有一半是「运行期状态冲突」（65020–65024），
+// 与 63xxx（任务）的语义边界必须清楚 —— 前端文案映射按码值命中，不许改值。
+//
+// 本卡（D1）只用到定义侧 12 个（65001/65005/65010–65017/65021/65022）；
+// 运行侧 65002/65003/65004/65018–65020/65023/65024/65030/65031 由 D2/D3 使用，
+// **一并定义**：码值一旦对外发布就不能改，先占位比事后补更安全（架构 §10.3 的码表是整体契约）。
+
+/// 流程定义不存在 / 已软删（HTTP 404）。
+pub const FLOW_NOT_FOUND: i32 = 65001;
+
+/// 审批单不存在或无权查看（HTTP 404）。
+pub const FLOW_INSTANCE_NOT_FOUND: i32 = 65002;
+
+/// 待办不存在或已处理（HTTP 404）。
+pub const FLOW_TASK_NOT_FOUND: i32 = 65003;
+
+/// 无权执行该审批操作（HTTP 403）。
+pub const FLOW_FORBIDDEN: i32 = 65004;
+
+/// 审批流字段取值非法（HTTP 400）：流程编码格式 / 名称超长 / 状态取值 / 版本不属于该流程。
+pub const FLOW_FIELD_INVALID: i32 = 65005;
+
+/// 流程结构非法（HTTP 400）：V1 开始节点数、V2 结束节点、V4 可达性（R1/R2/R11/R12）。
+pub const FLOW_GRAPH_STRUCTURE: i32 = 65010;
+
+/// 流程存在环（HTTP 400）：文案必须给出**闭合路径**（架构 §3.7 V3）。
+pub const FLOW_GRAPH_CYCLE: i32 = 65011;
+
+/// 节点出入度非法（HTTP 400）：R4/R5/R6/R7（审批节点多出边、条件节点单出边等）。
+pub const FLOW_GRAPH_DEGREE: i32 = 65012;
+
+/// 条件节点缺少兜底分支（HTTP 400）：R13（架构 V7）。
+pub const FLOW_GRAPH_DEFAULT_EDGE: i32 = 65013;
+
+/// 汇聚方式与分支来源不匹配（HTTP 400）：R8（禁止混流汇聚，架构 V8 / D6）。
+pub const FLOW_GRAPH_JOIN_MODE: i32 = 65014;
+
+/// 节点未配置审批人 / 会签模式或阈值缺失（HTTP 400）：R9/R14（架构 V9/V10）。
+pub const FLOW_NODE_ASSIGNEE_MISSING: i32 = 65015;
+
+/// 条件表达式非法（HTTP 400）：R10（结构 / 深度 / 节点数 / 字段白名单 / 字面量类型）。
+pub const FLOW_CONDITION_INVALID: i32 = 65016;
+
+/// 流程过大（HTTP 400）：R15（节点 ≤ 200 / 边 ≤ 400，架构 V12）。
+pub const FLOW_GRAPH_TOO_LARGE: i32 = 65017;
+
+/// 节点「X」没有可用审批人（HTTP 422，运行期解析为空）。
+pub const FLOW_NO_ASSIGNEE: i32 = 65018;
+
+/// 节点「X」的审批人是发起人本人且流程不允许自审（HTTP 422）。
+pub const FLOW_SELF_APPROVAL_FORBIDDEN: i32 = 65019;
+
+/// 该待办已被处理（HTTP 409，**幂等成功语义**：前端按「已处理，刷新」展示，不弹错误）。
+pub const FLOW_TASK_ALREADY_DONE: i32 = 65020;
+
+/// 流程有进行中的审批单，不能删除（HTTP 409）。
+pub const FLOW_DEF_IN_USE: i32 = 65021;
+
+/// 该版本已发布，不能直接编辑（HTTP 409）：改流程必须「另存为新草稿」。
+pub const FLOW_VERSION_NOT_EDITABLE: i32 = 65022;
+
+/// 已有人审批，不能撤回（HTTP 409）。
+pub const FLOW_INSTANCE_NOT_WITHDRAWABLE: i32 = 65023;
+
+/// 审批单已结束（HTTP 409）。
+pub const FLOW_INSTANCE_NOT_PENDING: i32 = 65024;
+
+/// 该任务正在审批中，请在审批单里处理（HTTP 409，**任务侧使用**，架构 D19）。
+pub const TASK_APPROVAL_PENDING: i32 = 65030;
+
+/// 超时自动通过需要流程级开关（`flow_def.allow_auto_approve`，HTTP 422，架构 D10）。
+pub const FLOW_TIMEOUT_CONFIG_INVALID: i32 = 65031;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1033,6 +1113,52 @@ mod tests {
         assert_eq!(unique.len(), 14, "64xxx 段必须是 14 个码（64001–64014）");
         println!(
             "[码表] 64xxx 段 {} 个码齐全且不重复（64001–64014）✓",
+            codes.len()
+        );
+    }
+
+    /// 审批流段自检：65xxx 段 22 个码齐全、码值不重复、与 64xxx 段不重叠。
+    ///
+    /// D1 契约：架构 §10.3 的码表是**整体契约**（前端文案映射按码值命中），
+    /// 定义侧先用 12 个，运行侧 10 个由 D2/D3 使用 —— 值不许改，也不许重复。
+    #[test]
+    fn flow_error_codes_are_stable() {
+        let codes = [
+            (FLOW_NOT_FOUND, 65001),
+            (FLOW_INSTANCE_NOT_FOUND, 65002),
+            (FLOW_TASK_NOT_FOUND, 65003),
+            (FLOW_FORBIDDEN, 65004),
+            (FLOW_FIELD_INVALID, 65005),
+            (FLOW_GRAPH_STRUCTURE, 65010),
+            (FLOW_GRAPH_CYCLE, 65011),
+            (FLOW_GRAPH_DEGREE, 65012),
+            (FLOW_GRAPH_DEFAULT_EDGE, 65013),
+            (FLOW_GRAPH_JOIN_MODE, 65014),
+            (FLOW_NODE_ASSIGNEE_MISSING, 65015),
+            (FLOW_CONDITION_INVALID, 65016),
+            (FLOW_GRAPH_TOO_LARGE, 65017),
+            (FLOW_NO_ASSIGNEE, 65018),
+            (FLOW_SELF_APPROVAL_FORBIDDEN, 65019),
+            (FLOW_TASK_ALREADY_DONE, 65020),
+            (FLOW_DEF_IN_USE, 65021),
+            (FLOW_VERSION_NOT_EDITABLE, 65022),
+            (FLOW_INSTANCE_NOT_WITHDRAWABLE, 65023),
+            (FLOW_INSTANCE_NOT_PENDING, 65024),
+            (TASK_APPROVAL_PENDING, 65030),
+            (FLOW_TIMEOUT_CONFIG_INVALID, 65031),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "65xxx 段码值不得改动");
+        }
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
+        assert_eq!(unique.len(), 22, "65xxx 段必须是 22 个码（架构 §10.3）");
+        assert!(
+            codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
+            "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
+        );
+        println!(
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65024 / 65030–65031）✓",
             codes.len()
         );
     }

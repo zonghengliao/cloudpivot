@@ -21,6 +21,7 @@
 pub mod aiagent;
 pub mod announcement;
 pub mod changelog;
+pub mod flow;
 pub mod help;
 pub mod impexp;
 pub mod masking;

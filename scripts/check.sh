@@ -56,7 +56,8 @@ BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_noti
 sys_file operation_logs audit_logs auth_logs security_logs
 biz_task biz_task_comment biz_task_attachment biz_task_worklog
 biz_task_member biz_task_dependency biz_task_status_def
-biz_project biz_project_member"
+biz_project biz_project_member
+biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee"
 
 # 2026-10-29 T7c 补入 2 张项目表（`biz_project` / `biz_project_member`）：
 #   · 卡面 t_b9f70dab「其他·12」明确要求 `biz_project` 进闸② 清单
@@ -66,6 +67,15 @@ biz_project biz_project_member"
 #     `biz_task/model.rs` 里新增的 `LEFT JOIN biz_project pj` 只是展示字段，不产生新查询入口。
 #   · 成员表 `biz_project_member` 一并列入（和 `biz_task_member` 同口径：它是按 project_id
 #     挂在项目下的子表，一旦有人写「按 project_id 直查成员」的分页，就必须过门禁）。
+
+# 2026-10-29 批次D · D1 补入 5 张审批流定义侧表（`biz_flow_def` / `biz_flow_def_version` /
+# `biz_flow_node` / `biz_flow_edge` / `biz_flow_node_assignee`），卡面 t_a92e9d5e「其他·13」要求。
+#   口径：**这 5 张表写 SCOPE-EXEMPT，不接 scope** —— 流程定义是**全局配置**
+#   （「全平台共用的规则」，不是谁的业务数据）。按部门范围裁剪会导致
+#   「A 部门的人看不到自己的单据要走哪个流程」；写权限由 `business:flow:create/update/delete/publish`
+#   这 4 个权限码隔离，可见范围由统一门禁 `business:flow:read` 控制。
+#   同一口径的先例：`biz_task_status_def`（全局字典）。豁免理由写在
+#   `backend/src/business/flow/model.rs` 的文件头（`// SCOPE-EXEMPT: …` 两行），闸② 命中即放过。
 
 # 闸② 的 B0 实测基线（2026-10-28，本卡在 cf84231 树上实测）。
 # 架构文档 §2.4 记的是 17 处——那是同一套脚本在更早的树上跑的；差异 4 处的来源
