@@ -203,6 +203,20 @@ pub struct ProfileStatus {
     pub gateway: String,
     /// `hermes` CLI 本身是否可用（Local：文件存在；Ssh：能跑通 `profile show`）。
     pub cli_available: bool,
+    /// profile 的 `.env` 里有当前 provider 的 key 且权限 600（**能不能干活**的判据）。
+    ///
+    /// 与 [`Self::healthy`] 分开：`healthy` 是「磁盘资产还在」，`credentials_ok` 是
+    /// 「认证能过」。两者都真才算一个能派活的 AI 员工，但分开暴露才能让运维一眼看出
+    /// 「目录都在、就是缺 key」这类故障（2026-10-29 的 AuthError 事故就是这种形态）。
+    pub credentials_ok: bool,
+    /// 凭据文件里**非空**的键名（值不外传）。
+    pub credential_keys: Vec<String>,
+    /// 当前 provider 需要的键名（解析不出 provider 时为 `None`）。
+    pub credential_required: Option<String>,
+    /// 凭据文件权限位（`0o600` 合规；不存在为 `None`）。
+    pub env_file_mode: Option<u32>,
+    /// 凭据自检的补充说明（缺哪个键 / 权限不对等）。
+    pub credential_detail: Option<String>,
     /// 探活过程里的补充说明（命令失败原因等，便于运维定位）。
     pub detail: Option<String>,
 }
@@ -211,6 +225,58 @@ impl ProfileStatus {
     /// 是否整体健康（目录与 SOUL.md 都在且 CLI 可用）。
     pub fn healthy(&self) -> bool {
         self.profile_dir_exists && self.soul_file_exists && self.cli_available
+    }
+}
+
+/// 凭据文件权限位：`.env` 里是 API key 明文，必须 `600`（与 `~/.hermes/.env` 同口径）。
+pub const CREDENTIAL_FILE_MODE: u32 = 0o600;
+
+/// profile 凭据同步结果（[`Hermes::ensure_profile_env`] 的返回值，也用于建号日志）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EnvSync {
+    /// profile 凭据文件绝对路径。
+    pub env_path: String,
+    /// 当前 provider（解析不出时为 `None`）。
+    pub provider: Option<String>,
+    /// 当前 provider 对应的环境变量名（解析不出时为空串）。
+    pub required_key: String,
+    /// 本次**实际写入**的键名（空 = 原本就齐，无需改动）。
+    pub written_keys: Vec<String>,
+    /// 落盘后的权限位。
+    pub env_file_mode: Option<u32>,
+}
+
+/// profile 凭据自检结果（[`Hermes::verify_profile_credentials`]）。
+///
+/// **只含键名，绝不含键值** —— 这个结构体会进 HTTP 响应与日志。
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct CredentialCheck {
+    /// profile 凭据文件绝对路径。
+    pub env_path: String,
+    /// 权限位（`0o600` = 合规；文件不存在为 `None`）。
+    pub env_file_mode: Option<u32>,
+    /// 当前 provider。
+    pub provider: Option<String>,
+    /// 当前 provider 需要的键名。
+    pub required_key: Option<String>,
+    /// 文件里**非空**的键名列表（值不外传）。
+    pub present_keys: Vec<String>,
+    /// 是否满足「能干活」：provider key 非空 **且** 权限 600。
+    pub ok: bool,
+    /// 不满足时的原因（可直接进错误消息）。
+    pub detail: Option<String>,
+}
+
+impl CredentialCheck {
+    /// 自检不通过时的错误消息（`ok=true` 时返回一个兜底描述）。
+    pub fn failure_message(&self) -> String {
+        match &self.detail {
+            Some(detail) => format!(
+                "AI 员工凭据自检不通过（{}）：worker 会因 AuthError 跑不起来",
+                detail
+            ),
+            None => format!("AI 员工凭据自检不通过：{}", self.env_path),
+        }
     }
 }
 
@@ -403,6 +469,21 @@ impl Hermes {
                 "复制模型配置失败：该 AI 员工派活后会因「无模型凭据」跑不起来"
             ),
         }
+        // 凭据必须**硬性**补齐（与上面 config.yaml 的「失败只告警」不同）：
+        // worker 的凭据池只读 profile 级 `.env`，缺 key 的表现是「号建得出来、活干不了」
+        // —— kanban 派活成功、worker 一启动就 AuthError、连 crash 两次后 blocked。
+        // 这种半成品账号比建号失败更糟（占用用户名与 profile 名，还要人工清理），
+        // 所以这里失败即返回 Err，由调用方的补偿逻辑删 profile / 删 workspace / 软删账号。
+        let sync = self.ensure_profile_env(name).await?;
+        tracing::info!(
+            profile = name,
+            provider = ?sync.provider,
+            required_key = %sync.required_key,
+            written_keys = ?sync.written_keys,
+            mode = ?sync.env_file_mode,
+            env = %sync.env_path,
+            "已确认 profile 级凭据（worker 凭据池可认证）"
+        );
         Ok(())
     }
 
@@ -866,6 +947,367 @@ impl Hermes {
         }
     }
 
+    // ---------- 凭据：profile 级 `.env`（L1 修复：worker 只读 profile 级凭据） ----------
+
+    /// 确保 `<profiles_root>/<name>/.env` 含**当前 provider 的 API key**（缺则补、有则不覆盖），
+    /// 并强制文件权限 `600`。返回本次同步结果。
+    ///
+    /// # 为什么必须有这一步（2026-10-29 端到端实测发现的真实缺陷）
+    ///
+    /// `hermes profile create` 建出的 profile，其 `.env` **不继承全局 `~/.hermes/.env`**：
+    ///
+    /// - 带 `--clone-from` 时从模板 profile 复制（模板有 key 才有 key，模板没有就没有）；
+    /// - 不带模板时只有三行注释，**一个键都没有**。
+    ///
+    /// 而 Hermes worker 启动时 `HERMES_HOME` 指向 **profile 目录**，凭据池只认
+    /// 「profile 级 `.env` + 进程环境」，缺键的直接后果是：
+    ///
+    /// ```text
+    /// AuthError: No usable credentials found for provider 'deepseek'. Set DEEPSEEK_API_KEY.
+    /// credential pool: no available entries (all exhausted or empty)
+    ///   ↓ Kanban owner refused / crash x2 → blocked
+    /// ```
+    ///
+    /// 即「号建得出来、活干不了」。`config.yaml` 里哪怕写着 `api_key`，0.15.2 的
+    /// provider 解析仍走凭据池（`credential_pool`），所以**全局 `.env` 有 key 不等于
+    /// profile 有 key**（红线：不能只在全局写 key 就完事）。
+    ///
+    /// # 键的来源（优先级）
+    ///
+    /// 1. 全局 `<hermes_home>/.env`（与 CLI 同源的凭据文件，600）；
+    /// 2. 云枢进程环境（`/etc/cloudpivot/*.env` 里也可能注入同一个键）。
+    ///
+    /// 搬运范围：全局 `.env` 里所有 `*_API_KEY`（不只是当前 provider 的）——
+    /// `fallback_providers` 用的 `ARK_API_KEY` 之类也在其中，多带几个键的代价是
+    /// profile 文件大几行，收益是将来换 provider / 走降级链路时不会又「能建号不能干活」。
+    ///
+    /// # 不覆盖已有值
+    ///
+    /// profile 里**已有非空值**的键保持原样：运维可能给某个 AI 员工配了专用 key，
+    /// 覆盖它属于破坏配置。只有「缺键」或「键存在但值为空」时才写入。
+    ///
+    /// # 权限
+    ///
+    /// 落盘先写同目录临时文件 → `chmod 600` → `rename` 覆盖，因此目标文件
+    /// **任何时候**都不会以 644 存在（profile 目录本身是 0700，双保险）。
+    ///
+    /// # 异常情况
+    ///
+    /// - 400 + `64002`：profile 名不合法；
+    /// - 404 + `64004`：profile 目录不存在；
+    /// - 500 + `64014`：找不到当前 provider 的 key（全局 `.env` 与进程环境都没有），
+    ///   或写入后自检不通过（缺键 / 权限不是 600）——**调用方必须把它当创建失败并回滚**；
+    /// - 500 + `64008`：`.env` 读写失败。
+    pub async fn ensure_profile_env(&self, name: &str) -> Result<EnvSync, ApiError> {
+        Self::validate_profile_name(name)?;
+        if !self.profile_dir_exists(name).await? {
+            return Err(ApiError::new(
+                404,
+                error_code::AI_AGENT_PROFILE_MISSING,
+                format!("profile 目录不存在：{}", self.profile_dir(name).display()),
+            ));
+        }
+        let env_path = self.env_file_path(name);
+        let existing = self.read_text_opt(&env_path).await?.unwrap_or_default();
+        let provider = self.resolve_provider(name).await?;
+        let required_key = provider.as_deref().map(provider_api_key_var);
+
+        // 候选：全局 .env 里所有非空的 `*_API_KEY`
+        let mut incoming: Vec<(String, String)> = self
+            .global_env_pairs()
+            .await?
+            .into_iter()
+            .filter(|(key, value)| !value.trim().is_empty() && is_credential_env_key(key))
+            .collect();
+        // 全局 .env 里没有该键时再看进程环境（部署形态不同，两条路都可能带 key）
+        if let Some(key) = &required_key
+            && !incoming.iter().any(|(k, _)| k == key)
+            && let Some(value) = env_non_empty(key)
+        {
+            incoming.push((key.clone(), value));
+        }
+
+        // 决定性判定①：当前 provider 的 key 必须找得到，否则直接拒绝建号
+        let profile_pairs = parse_env_pairs(&existing);
+        let key_available = match &required_key {
+            Some(key) => {
+                env_lookup(&profile_pairs, key).is_some()
+                    || incoming
+                        .iter()
+                        .any(|(k, v)| k == key && !v.trim().is_empty())
+            }
+            // provider 解析不出来时退一步：至少要搬进来一个凭据键
+            None => !parse_env_pairs(&existing).is_empty() || !incoming.is_empty(),
+        };
+        if !key_available {
+            let key = required_key
+                .clone()
+                .unwrap_or_else(|| "*_API_KEY".to_string());
+            return Err(ApiError::new(
+                500,
+                error_code::AI_AGENT_CREDENTIAL_MISSING,
+                format!(
+                    "profile {name} 缺少 {}：全局凭据文件 {} 与云枢进程环境里都没有该键，\
+                     而 worker 只读 profile 级凭据（缺键必然 AuthError）；\
+                     拒绝留下一个「能建号、不能干活」的 AI 用户",
+                    key,
+                    self.cfg.hermes_home.join(".env").display()
+                ),
+            ));
+        }
+
+        let (merged, written) = merge_env_text(&existing, &incoming);
+        // 内容没变也要校正权限：历史 profile 可能是 644（含 clone 带来的）
+        if merged != existing || self.file_mode(&env_path).await? != Some(CREDENTIAL_FILE_MODE) {
+            self.write_env_text(&env_path, &merged).await?;
+        }
+
+        // 决定性判定②：写完立刻按「创建成功判定」复核（缺键 / 权限不对 → 失败）
+        let check = self.verify_profile_credentials(name).await?;
+        if !check.ok {
+            return Err(ApiError::new(
+                500,
+                error_code::AI_AGENT_CREDENTIAL_MISSING,
+                check.failure_message(),
+            ));
+        }
+        Ok(EnvSync {
+            env_path: path_string(&env_path),
+            provider,
+            required_key: required_key.unwrap_or_default(),
+            written_keys: written,
+            env_file_mode: check.env_file_mode,
+        })
+    }
+
+    /// 只读自检：profile 的 `.env` 里有没有**当前 provider 的 key**、权限是不是 600。
+    ///
+    /// # 与 [`Self::ensure_profile_env`] 的分工
+    ///
+    /// - 本函数**不改盘**，只回答「现在能不能干活」，供探活接口 / 建号成功判定 / 运维排查使用；
+    /// - 「缺键」不是 `Err`（那是业务事实，不是 IO 故障）：返回 `ok=false` + `detail` 说明；
+    ///   只有传输层（`ssh` / 文件系统）失败才 `Err`。
+    ///
+    /// # 返回值里的密码纪律
+    ///
+    /// [`CredentialCheck::present_keys`] **只含键名**，键值永不进返回值、日志或错误消息。
+    pub async fn verify_profile_credentials(
+        &self,
+        name: &str,
+    ) -> Result<CredentialCheck, ApiError> {
+        Self::validate_profile_name(name)?;
+        let env_path = self.env_file_path(name);
+        let text = self.read_text_opt(&env_path).await?;
+        let mode = self.file_mode(&env_path).await?;
+        let provider = self.resolve_provider(name).await?;
+        let required_key = provider.as_deref().map(provider_api_key_var);
+        let pairs = text.as_deref().map(parse_env_pairs).unwrap_or_default();
+        let present_keys: Vec<String> = pairs
+            .iter()
+            .filter(|(_, value)| !value.trim().is_empty())
+            .map(|(key, _)| key.clone())
+            .collect();
+
+        let key_ok = match &required_key {
+            Some(key) => env_lookup(&pairs, key).is_some(),
+            None => !present_keys.is_empty(),
+        };
+        let mode_ok = mode == Some(CREDENTIAL_FILE_MODE);
+        let detail = if text.is_none() {
+            Some(format!("profile 没有凭据文件：{}", env_path.display()))
+        } else if !key_ok {
+            Some(format!(
+                "缺少 {}（现有键：{}）",
+                required_key
+                    .clone()
+                    .unwrap_or_else(|| "*_API_KEY".to_string()),
+                if present_keys.is_empty() {
+                    "无".to_string()
+                } else {
+                    present_keys.join(", ")
+                }
+            ))
+        } else if !mode_ok {
+            Some(format!(
+                "凭据文件权限是 {}（要求 600）",
+                mode.map(|m| format!("{m:o}"))
+                    .unwrap_or_else(|| "未知".to_string())
+            ))
+        } else {
+            None
+        };
+        Ok(CredentialCheck {
+            env_path: path_string(&env_path),
+            env_file_mode: mode,
+            provider,
+            required_key,
+            present_keys,
+            ok: key_ok && mode_ok,
+            detail,
+        })
+    }
+
+    /// `<profiles_root>/<name>/.env`（只在名字已校验后调用）。
+    pub fn env_file_path(&self, name: &str) -> PathBuf {
+        debug_assert!(Self::validate_profile_name(name).is_ok());
+        self.profile_dir(name).join(".env")
+    }
+
+    /// 当前 profile 用的 provider：先读 profile 自己的 `config.yaml`，读不出再读全局的。
+    async fn resolve_provider(&self, name: &str) -> Result<Option<String>, ApiError> {
+        for path in [
+            self.profile_dir(name).join("config.yaml"),
+            self.cfg.hermes_home.join("config.yaml"),
+        ] {
+            if let Some(text) = self.read_text_opt(&path).await?
+                && let Some(provider) = parse_model_provider(&text)
+            {
+                return Ok(Some(provider));
+            }
+        }
+        Ok(None)
+    }
+
+    /// 全局凭据文件（`<hermes_home>/.env`）里的键值对；文件不存在按「空」处理。
+    async fn global_env_pairs(&self) -> Result<Vec<(String, String)>, ApiError> {
+        let path = self.cfg.hermes_home.join(".env");
+        match self.read_text_opt(&path).await? {
+            Some(text) => Ok(parse_env_pairs(&text)),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// 读文本文件（两种形态通用）：不存在返回 `Ok(None)`，其余 IO 错误 → `500 + 64008`。
+    async fn read_text_opt(&self, path: &Path) -> Result<Option<String>, ApiError> {
+        match &self.cfg.transport {
+            Transport::Local => match tokio::fs::read_to_string(path).await {
+                Ok(text) => Ok(Some(text)),
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(ApiError::new(
+                    500,
+                    error_code::AI_AGENT_SOUL_IO_FAILED,
+                    format!("读取 {} 失败：{e}", path.display()),
+                )),
+            },
+            Transport::Ssh { .. } => {
+                let out = self
+                    .run_remote(format!("cat {}", shell_quote(&path_string(path))), None)
+                    .await?;
+                if out.ok {
+                    Ok(Some(out.stdout))
+                } else if out.stderr.contains("No such file") {
+                    Ok(None)
+                } else {
+                    Err(Self::cli_failed("读取凭据文件", &out))
+                }
+            }
+        }
+    }
+
+    /// 文件权限位（`600` → `0o600`）；文件不存在返回 `Ok(None)`。
+    async fn file_mode(&self, path: &Path) -> Result<Option<u32>, ApiError> {
+        match &self.cfg.transport {
+            Transport::Local => match tokio::fs::metadata(path).await {
+                Ok(meta) => {
+                    #[cfg(unix)]
+                    {
+                        use std::os::unix::fs::PermissionsExt;
+                        Ok(Some(meta.permissions().mode() & 0o777))
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let _ = meta;
+                        Ok(None)
+                    }
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                Err(e) => Err(ApiError::new(
+                    500,
+                    error_code::AI_AGENT_SOUL_IO_FAILED,
+                    format!("读取 {} 权限失败：{e}", path.display()),
+                )),
+            },
+            Transport::Ssh { .. } => {
+                // `stat` 在文件不存在时非 0 退出 → 这里用 `|| true` 把「不存在」与
+                // 「stat 坏了」区分开：输出为空 = 不存在，解析失败也算不存在（自检会判红）
+                let out = self
+                    .run_remote(
+                        format!(
+                            "stat -c %a {} 2>/dev/null || true",
+                            shell_quote(&path_string(path))
+                        ),
+                        None,
+                    )
+                    .await?;
+                let raw = out.stdout.trim();
+                Ok(u32::from_str_radix(raw, 8).ok())
+            }
+        }
+    }
+
+    /// 原子写凭据文件：同目录临时文件 → `chmod 600` → `rename` 覆盖。
+    async fn write_env_text(&self, path: &Path, content: &str) -> Result<(), ApiError> {
+        let dir = path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf();
+        let tmp = dir.join(format!(".env.tmp-{}-{}", std::process::id(), now_nanos()));
+        match &self.cfg.transport {
+            Transport::Local => {
+                tokio::fs::write(&tmp, content.as_bytes())
+                    .await
+                    .map_err(|e| {
+                        ApiError::new(
+                            500,
+                            error_code::AI_AGENT_SOUL_IO_FAILED,
+                            format!("写凭据临时文件失败：{e}"),
+                        )
+                    })?;
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    tokio::fs::set_permissions(
+                        &tmp,
+                        std::fs::Permissions::from_mode(CREDENTIAL_FILE_MODE),
+                    )
+                    .await
+                    .map_err(|e| {
+                        ApiError::new(
+                            500,
+                            error_code::AI_AGENT_SOUL_IO_FAILED,
+                            format!("设置凭据文件权限 600 失败：{e}"),
+                        )
+                    })?;
+                }
+                tokio::fs::rename(&tmp, path).await.map_err(|e| {
+                    ApiError::new(
+                        500,
+                        error_code::AI_AGENT_SOUL_IO_FAILED,
+                        format!("原子替换凭据文件失败：{e}"),
+                    )
+                })
+            }
+            Transport::Ssh { .. } => {
+                let script = format!("dd of={} status=none", shell_quote(&path_string(&tmp)));
+                let out = self.run_remote(script, Some(content.to_string())).await?;
+                if !out.ok {
+                    return Err(Self::cli_failed("写凭据临时文件", &out));
+                }
+                let script = format!(
+                    "chmod 600 {} && mv -f {} {}",
+                    shell_quote(&path_string(&tmp)),
+                    shell_quote(&path_string(&tmp)),
+                    shell_quote(&path_string(path))
+                );
+                let out = self.run_remote(script, None).await?;
+                if !out.ok {
+                    return Err(Self::cli_failed("写入凭据文件", &out));
+                }
+                Ok(())
+            }
+        }
+    }
+
     /// 把当前 `SOUL.md` 备份到 `backup_dir`，返回备份的**远端/本地路径**。
     ///
     /// 删号前调用（卡面验收 4：SOUL.md 先备份）。备份内容由调用方传入（它已经读过一次，
@@ -1016,12 +1458,32 @@ impl Hermes {
             }
         };
 
+        // 凭据自检：即便 `profile show` 正常，缺 key 的账号也干不了活（AuthError），
+        // 所以它必须是探活结果的一部分。自检失败不阻断探活（运维要看到完整的磁盘状态）。
+        let credentials = self
+            .verify_profile_credentials(name)
+            .await
+            .unwrap_or_else(|error| CredentialCheck {
+                env_path: path_string(&self.env_file_path(name)),
+                env_file_mode: None,
+                provider: None,
+                required_key: None,
+                present_keys: Vec::new(),
+                ok: false,
+                detail: Some(format!("凭据自检失败：{}", error.msg)),
+            });
+
         Ok(ProfileStatus {
             profile_dir_exists,
             soul_file_exists,
             workspace_exists,
             gateway,
             cli_available,
+            credentials_ok: credentials.ok,
+            credential_keys: credentials.present_keys,
+            credential_required: credentials.required_key,
+            env_file_mode: credentials.env_file_mode,
+            credential_detail: credentials.detail,
             detail,
         })
     }
@@ -1539,6 +2001,227 @@ fn parse_gateway(stdout: &str) -> String {
         }
     }
     "unknown".to_string()
+}
+
+/// 已知 provider id → Hermes 凭据池读取的环境变量名。
+///
+/// 表里是**实测口径**；表外的 provider 走通用规则：大写 + 非字母数字换 `_` + `_API_KEY`
+/// 后缀，这样将来新增 provider 时不需要改代码。
+pub fn provider_api_key_var(provider: &str) -> String {
+    let normalized = provider.trim().to_ascii_lowercase();
+    let known = match normalized.as_str() {
+        "deepseek" => Some("DEEPSEEK_API_KEY"),
+        "openai" => Some("OPENAI_API_KEY"),
+        "anthropic" => Some("ANTHROPIC_API_KEY"),
+        "openrouter" => Some("OPENROUTER_API_KEY"),
+        "xai" | "grok" => Some("XAI_API_KEY"),
+        "google" | "gemini" => Some("GEMINI_API_KEY"),
+        "nous" => Some("NOUS_API_KEY"),
+        "moonshot" | "kimi" => Some("MOONSHOT_API_KEY"),
+        "zhipu" | "glm" => Some("ZHIPU_API_KEY"),
+        "dashscope" | "qwen" => Some("DASHSCOPE_API_KEY"),
+        "ark" | "volcengine" | "volces" => Some("ARK_API_KEY"),
+        "minimax" => Some("MINIMAX_API_KEY"),
+        "mistral" => Some("MISTRAL_API_KEY"),
+        "groq" => Some("GROQ_API_KEY"),
+        "together" => Some("TOGETHER_API_KEY"),
+        _ => None,
+    };
+    if let Some(key) = known {
+        return key.to_string();
+    }
+    let mut out = String::new();
+    for ch in normalized.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_uppercase());
+        } else if !out.is_empty() && !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    if !out.ends_with("_API_KEY") {
+        out.push_str("_API_KEY");
+    }
+    out
+}
+
+/// 该环境变量名是否属于「凭据键」（要从全局 `.env` 搬进 profile 的那一类）。
+///
+/// 口径故意收窄成 `*_API_KEY`：`.env` 里还有 `THS_PASSWORD` / `OBSIDIAN_VAULT_PATH`
+/// 这类与 inference provider 无关的变量，整文件复制进 profile 既违反最小权限，
+/// 也会让「凭据文件里到底有什么」变得不可审计。
+pub fn is_credential_env_key(key: &str) -> bool {
+    key.ends_with("_API_KEY")
+}
+
+/// 合法环境变量名：首字符字母或 `_`，其余字母数字或 `_`。
+fn is_valid_env_key(key: &str) -> bool {
+    let mut chars = key.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// 解析 `.env` 文本 → `[(键, 值)]`（保持顺序，忽略注释 / 空行 / 非法键名）。
+///
+/// # 支持与不支持的写法
+///
+/// - 支持 `KEY=value`、`export KEY=value`、`KEY="value"`、`KEY='value'`，
+///   以及未加引号值后的行内注释（`KEY=v # 说明`）；
+/// - 不支持多行值与变量插值 —— Hermes 自己的 `.env` 只有单行 `KEY=value`，
+///   为它引入依赖不划算，也会让「值里带 `#`」这类边角语义不可预测。
+pub fn parse_env_pairs(text: &str) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    for raw in text.lines() {
+        let line = raw.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let line = line.strip_prefix("export ").unwrap_or(line).trim();
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim();
+        if !is_valid_env_key(key) {
+            continue;
+        }
+        let raw_value = value.trim();
+        let quoted = raw_value.len() >= 2
+            && ((raw_value.starts_with('"') && raw_value.ends_with('"'))
+                || (raw_value.starts_with('\'') && raw_value.ends_with('\'')));
+        let value = if quoted {
+            raw_value[1..raw_value.len() - 1].to_string()
+        } else {
+            // 未加引号时剥掉行内注释（" #" 之后的部分）
+            match raw_value.find(" #") {
+                Some(pos) => raw_value[..pos].trim().to_string(),
+                None => raw_value.to_string(),
+            }
+        };
+        pairs.push((key.to_string(), value));
+    }
+    pairs
+}
+
+/// 从解析结果里取某键的**非空**值。
+pub fn env_lookup<'a>(pairs: &'a [(String, String)], key: &str) -> Option<&'a String> {
+    pairs
+        .iter()
+        .find(|(k, v)| k == key && !v.trim().is_empty())
+        .map(|(_, v)| v)
+}
+
+/// 行 → 该行声明的环境变量名（注释 / 空行 / 非 `KEY=value` 行返回 `None`）。
+fn line_env_key(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    if trimmed.is_empty() || trimmed.starts_with('#') {
+        return None;
+    }
+    let trimmed = trimmed.strip_prefix("export ").unwrap_or(trimmed).trim();
+    let (key, _) = trimmed.split_once('=')?;
+    let key = key.trim();
+    is_valid_env_key(key).then(|| key.to_string())
+}
+
+/// 把 `incoming` 里 profile `.env` **缺的键**补上，返回 `(新文本, 实际写入的键名)`。
+///
+/// # 语义（三条，缺一条就会写坏别人的配置）
+///
+/// 1. profile 里已有**非空值**的键：**原样保留**（可能是给这个 AI 员工配的专用 key）；
+/// 2. profile 里有键但**值为空**（`KEY=`）：就地填上新值，不追加第二行；
+/// 3. profile 里没有的键：追加到文件末尾（保持原有注释与顺序，不重排）。
+pub fn merge_env_text(existing: &str, incoming: &[(String, String)]) -> (String, Vec<String>) {
+    let mut lines: Vec<String> = existing.lines().map(|line| line.to_string()).collect();
+    let mut written = Vec::new();
+    for (key, value) in incoming {
+        if value.trim().is_empty() {
+            continue;
+        }
+        match lines
+            .iter()
+            .position(|line| line_env_key(line).as_deref() == Some(key.as_str()))
+        {
+            Some(index) => {
+                // 已有该键：非空则保持原样，空的就地填
+                let current = parse_env_pairs(&lines[index])
+                    .into_iter()
+                    .next()
+                    .map(|(_, value)| value)
+                    .unwrap_or_default();
+                if current.trim().is_empty() {
+                    lines[index] = format!("{key}={value}");
+                    written.push(key.clone());
+                }
+            }
+            None => {
+                lines.push(format!("{key}={value}"));
+                written.push(key.clone());
+            }
+        }
+    }
+    let mut text = lines.join("\n");
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    (text, written)
+}
+
+/// 解析 `config.yaml` 里 `model:` 段的 `provider:`（**行式解析**，不引入 yaml crate）。
+///
+/// # 为什么不用 serde_yaml
+///
+/// 本仓库没有 yaml 依赖（`Cargo.toml` 只有 `serde_json` + `regex`），为一个字段加依赖会在
+/// 别人的 `Cargo.lock` 上制造冲突；而这里需要的只是「`model:` 块里的 `provider: x`」。
+///
+/// 口径：
+///
+/// - 只认**列 0** 的 `model:` 作为块首（`fallback_providers:` 里的 `provider:` 不算）；
+/// - 支持 `model: {provider: x}` 这种行内写法；
+/// - 块内缩进行里第一个 `provider:` 即为答案。
+pub fn parse_model_provider(yaml: &str) -> Option<String> {
+    let mut in_model = false;
+    for raw in yaml.lines() {
+        let line = raw.trim_end();
+        let trimmed = line.trim_start();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let indent = line.len() - trimmed.len();
+        if indent == 0 {
+            in_model = trimmed == "model:" || trimmed.starts_with("model:");
+            if let Some(rest) = trimmed.strip_prefix("model:") {
+                let rest = rest.trim();
+                if rest.starts_with('{') {
+                    return inline_provider(rest);
+                }
+            }
+            continue;
+        }
+        if in_model && let Some(rest) = trimmed.strip_prefix("provider:") {
+            let value = rest.trim().trim_matches('"').trim_matches('\'').trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// 行内映射 `{provider: deepseek, base_url: …}` 里取 `provider` 的值。
+fn inline_provider(rest: &str) -> Option<String> {
+    let start = rest.find("provider:")?;
+    let tail = rest[start + "provider:".len()..].trim_start();
+    let value: String = tail
+        .chars()
+        .take_while(|c| *c != ',' && *c != '}')
+        .collect::<String>()
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string();
+    (!value.is_empty()).then_some(value)
 }
 
 /// POSIX shell 单引号包裹。
@@ -2065,5 +2748,400 @@ mod tests {
             env_path("CLOUDPIVOT_AIAGENT_这个变量不存在", "/tmp/x"),
             PathBuf::from("/tmp/x")
         );
+    }
+
+    // ==================== 凭据（L1 修复） ====================
+
+    /// provider → 环境变量名：已知表 + 通用规则（表外 provider 不必改代码）。
+    #[test]
+    fn provider_api_key_var_maps_known_and_generic() {
+        assert_eq!(provider_api_key_var("deepseek"), "DEEPSEEK_API_KEY");
+        assert_eq!(provider_api_key_var(" DeepSeek "), "DEEPSEEK_API_KEY");
+        assert_eq!(provider_api_key_var("openai"), "OPENAI_API_KEY");
+        assert_eq!(provider_api_key_var("xai"), "XAI_API_KEY");
+        assert_eq!(provider_api_key_var("ark"), "ARK_API_KEY");
+        assert_eq!(provider_api_key_var("volcengine"), "ARK_API_KEY");
+        // 表外：大写 + 非字母数字转下划线 + 后缀
+        assert_eq!(provider_api_key_var("foo-bar"), "FOO_BAR_API_KEY");
+        assert_eq!(provider_api_key_var("my.provider"), "MY_PROVIDER_API_KEY");
+        assert_eq!(provider_api_key_var("weird"), "WEIRD_API_KEY");
+        // 口径：只把 `*_API_KEY` 当凭据键（THS_PASSWORD 之类不搬）
+        assert!(is_credential_env_key("DEEPSEEK_API_KEY"));
+        assert!(is_credential_env_key("ARK_API_KEY"));
+        assert!(!is_credential_env_key("THS_PASSWORD"));
+        assert!(!is_credential_env_key("OBSIDIAN_VAULT_PATH"));
+    }
+
+    /// `.env` 解析：引号 / `export` / 行内注释 / 非法行。
+    #[test]
+    fn parse_env_pairs_handles_quotes_comments_and_export() {
+        let text = "\
+# 注释行不算
+DEEPSEEK_API_KEY=sk-plain-0001
+ARK_API_KEY=\"ark-quoted-0002\"
+export OPENROUTER_API_KEY='sk-or-0003'
+XAI_API_KEY=sk-xai-0004 # 行内注释
+BAD LINE 没有等号
+1BAD=value
+EMPTY_KEY=
+";
+        let pairs = parse_env_pairs(text);
+        assert_eq!(
+            pairs,
+            vec![
+                ("DEEPSEEK_API_KEY".to_string(), "sk-plain-0001".to_string()),
+                ("ARK_API_KEY".to_string(), "ark-quoted-0002".to_string()),
+                ("OPENROUTER_API_KEY".to_string(), "sk-or-0003".to_string()),
+                ("XAI_API_KEY".to_string(), "sk-xai-0004".to_string()),
+                ("EMPTY_KEY".to_string(), String::new()),
+            ]
+        );
+        // 空值不算「有 key」
+        assert!(env_lookup(&pairs, "EMPTY_KEY").is_none());
+        assert_eq!(
+            env_lookup(&pairs, "DEEPSEEK_API_KEY").map(String::as_str),
+            Some("sk-plain-0001")
+        );
+    }
+
+    /// 合并：缺的补、空值填、**已有非空值绝不覆盖**、原有注释与顺序保留。
+    #[test]
+    fn merge_env_text_keeps_existing_values_and_fills_empty() {
+        let existing = "# 头部注释\nDEEPSEEK_API_KEY=sk-mine-0001\nARK_API_KEY=\n";
+        let incoming = vec![
+            ("DEEPSEEK_API_KEY".to_string(), "sk-global-9999".to_string()),
+            ("ARK_API_KEY".to_string(), "ark-global-0002".to_string()),
+            ("OPENROUTER_API_KEY".to_string(), "sk-or-0003".to_string()),
+            ("EMPTY_INCOMING".to_string(), "  ".to_string()),
+        ];
+        let (merged, written) = merge_env_text(existing, &incoming);
+        // 已有非空值保持原样（专用 key 不被全局值顶掉）
+        assert!(merged.contains("DEEPSEEK_API_KEY=sk-mine-0001"));
+        assert!(!merged.contains("sk-global-9999"));
+        // 空值就地填，不新增重复行
+        assert!(merged.contains("ARK_API_KEY=ark-global-0002"));
+        assert_eq!(merged.matches("ARK_API_KEY").count(), 1);
+        // 缺的追加
+        assert!(merged.contains("OPENROUTER_API_KEY=sk-or-0003"));
+        // 空字符串值不写入
+        assert!(!merged.contains("EMPTY_INCOMING"));
+        // 注释保留在首行
+        assert!(merged.starts_with("# 头部注释\n"));
+        assert_eq!(
+            written,
+            vec!["ARK_API_KEY".to_string(), "OPENROUTER_API_KEY".to_string()]
+        );
+
+        // 幂等：同样的输入再合并一次，不产生任何写入
+        let (again, written_again) = merge_env_text(&merged, &incoming);
+        assert_eq!(again, merged);
+        assert!(
+            written_again.is_empty(),
+            "第二次合并不应再写：{written_again:?}"
+        );
+    }
+
+    /// `config.yaml` 解析：只认 `model:` 块；`fallback_providers` 里的 `provider:` 不算。
+    #[test]
+    fn parse_model_provider_reads_only_model_block() {
+        let yaml = "\
+model:
+  default: deepseek-flash
+  provider: deepseek
+  base_url: https://api.deepseek.com
+  api_key: sk-xxx
+fallback_providers:
+- provider: custom
+  model: deepseek-v4.1-flash
+";
+        assert_eq!(parse_model_provider(yaml).as_deref(), Some("deepseek"));
+
+        // 「model: 在前、但 provider 写到 fallback 段里」不能误判
+        let only_fallback = "fallback_providers:\n- provider: custom\n";
+        assert_eq!(parse_model_provider(only_fallback), None);
+
+        // 行内写法
+        assert_eq!(
+            parse_model_provider("model: {provider: openai, default: gpt-5}\n").as_deref(),
+            Some("openai")
+        );
+        // 引号包裹
+        assert_eq!(
+            parse_model_provider("model:\n  provider: \"anthropic\"\n").as_deref(),
+            Some("anthropic")
+        );
+        assert_eq!(parse_model_provider(""), None);
+    }
+
+    /// 建一个「profile 目录 + config.yaml（provider=deepseek）+ 只有注释的 .env」的夹具，
+    /// 复刻 `hermes profile create` 的真实产物（这正是 2026-10-29 事故的现场）。
+    fn seed_profile(root: &Path, name: &str) {
+        let dir = root.join("profiles").join(name);
+        std::fs::create_dir_all(&dir).expect("建 profile 目录");
+        std::fs::write(
+            dir.join("config.yaml"),
+            "model:\n  default: deepseek-flash\n  provider: deepseek\n",
+        )
+        .expect("写 profile config.yaml");
+        std::fs::write(
+            dir.join(".env"),
+            "# Per-profile secrets for this Hermes profile.\n# API keys and tokens set here override the shell environment.\n# Behavioral settings belong in config.yaml, not here.\n",
+        )
+        .expect("写默认 .env");
+    }
+
+    fn seed_global_env(root: &Path, content: &str) {
+        let home = root.join("home");
+        std::fs::create_dir_all(&home).expect("建 hermes_home");
+        std::fs::write(home.join(".env"), content).expect("写全局 .env");
+    }
+
+    /// **核心用例**：profile 的 `.env` 只有注释（没有 provider key）→ 同步后补齐 `DEEPSEEK_API_KEY`
+    /// 且权限 600，自检通过。
+    #[tokio::test]
+    async fn ensure_profile_env_adds_missing_provider_key() {
+        let root = temp_root("env-add");
+        let hermes = Hermes::new(local_config(&root, root.join("hermes")));
+        seed_profile(&root, "agent-01");
+        seed_global_env(&root, "# 全局凭据\nDEEPSEEK_API_KEY=sk-global-0001\n");
+
+        // 同步前：自检不通过（这就是事故现场的状态）
+        let before = hermes
+            .verify_profile_credentials("agent-01")
+            .await
+            .expect("自检");
+        assert!(!before.ok, "缺 key 时必须判红");
+        assert_eq!(before.required_key.as_deref(), Some("DEEPSEEK_API_KEY"));
+        assert_eq!(before.provider.as_deref(), Some("deepseek"));
+        assert!(before.present_keys.is_empty());
+
+        let sync = hermes
+            .ensure_profile_env("agent-01")
+            .await
+            .expect("同步凭据");
+        assert_eq!(sync.provider.as_deref(), Some("deepseek"));
+        assert_eq!(sync.required_key, "DEEPSEEK_API_KEY");
+        assert_eq!(sync.written_keys, vec!["DEEPSEEK_API_KEY".to_string()]);
+        assert_eq!(sync.env_file_mode, Some(0o600));
+
+        let after = hermes
+            .verify_profile_credentials("agent-01")
+            .await
+            .expect("自检");
+        assert!(after.ok, "补齐后必须判绿：{after:?}");
+        assert_eq!(after.present_keys, vec!["DEEPSEEK_API_KEY".to_string()]);
+
+        // 落盘内容与权限：值真的在里面、注释保留、600
+        let env_path = root.join("profiles/agent-01/.env");
+        let text = std::fs::read_to_string(&env_path).expect("读 .env");
+        assert!(text.contains("DEEPSEEK_API_KEY=sk-global-0001"), "{text}");
+        assert!(
+            text.contains("# Per-profile secrets"),
+            "原有注释必须保留：{text}"
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&env_path)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "凭据文件权限必须 600");
+        }
+
+        // 幂等：第二次不写任何键
+        let again = hermes
+            .ensure_profile_env("agent-01")
+            .await
+            .expect("二次同步");
+        assert!(again.written_keys.is_empty(), "{:?}", again.written_keys);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 已有**专用 key** 不被全局值覆盖（运维给某个 AI 员工配了独立 key 的场景）。
+    #[tokio::test]
+    async fn ensure_profile_env_does_not_overwrite_existing_key() {
+        let root = temp_root("env-keep");
+        let hermes = Hermes::new(local_config(&root, root.join("hermes")));
+        seed_profile(&root, "agent-01");
+        std::fs::write(
+            root.join("profiles/agent-01/.env"),
+            "DEEPSEEK_API_KEY=sk-dedicated-0007\n",
+        )
+        .expect("写专用 key");
+        // 夹具按真 Hermes 的落盘口径给 600（`hermes` 自己写 .env 就是 600）
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(
+                root.join("profiles/agent-01/.env"),
+                std::fs::Permissions::from_mode(0o600),
+            )
+            .expect("设置 600");
+        }
+        seed_global_env(&root, "DEEPSEEK_API_KEY=sk-global-0001\n");
+
+        let check = hermes
+            .verify_profile_credentials("agent-01")
+            .await
+            .expect("自检");
+        assert!(check.ok);
+
+        let sync = hermes.ensure_profile_env("agent-01").await.expect("同步");
+        assert!(sync.written_keys.is_empty(), "{:?}", sync.written_keys);
+        let text = std::fs::read_to_string(root.join("profiles/agent-01/.env")).expect("读");
+        assert!(text.contains("sk-dedicated-0007"), "{text}");
+        assert!(
+            !text.contains("sk-global-0001"),
+            "全局值不得顶掉专用 key：{text}"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 全局 `.env` 与进程环境都没有 key → **拒绝建号**（500 + 64014），且不写坏已有文件。
+    #[tokio::test]
+    async fn ensure_profile_env_fails_without_global_key() {
+        let root = temp_root("env-missing");
+        let hermes = Hermes::new(local_config(&root, root.join("hermes")));
+        seed_profile(&root, "agent-01");
+        // 全局 .env 只有无关变量（不是凭据键）
+        seed_global_env(&root, "THS_USERNAME=nobody\n");
+
+        let err = hermes
+            .ensure_profile_env("agent-01")
+            .await
+            .expect_err("必须失败");
+        assert_eq!(err.code, error_code::AI_AGENT_CREDENTIAL_MISSING);
+        assert!(err.msg.contains("DEEPSEEK_API_KEY"), "{}", err.msg);
+        assert!(err.msg.contains("profile 级凭据"), "{}", err.msg);
+        // 夹具的 .env 未被改写
+        let text = std::fs::read_to_string(root.join("profiles/agent-01/.env")).expect("读");
+        assert!(
+            !text.contains("THS_USERNAME"),
+            "无关变量不得搬进 profile：{text}"
+        );
+
+        // 全局 .env 干脆不存在也走同一条失败路径（不是 panic / 不是静默成功）
+        std::fs::remove_file(root.join("home/.env")).ok();
+        let err = hermes
+            .ensure_profile_env("agent-01")
+            .await
+            .expect_err("必须失败");
+        assert_eq!(err.code, error_code::AI_AGENT_CREDENTIAL_MISSING);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// 权限不合规（644）→ 自检判红；同步后被纠正成 600。未带 key 的 profile 目录不存在 → 404。
+    #[tokio::test]
+    async fn verify_flags_bad_mode_and_sync_fixes_it() {
+        let root = temp_root("env-mode");
+        let hermes = Hermes::new(local_config(&root, root.join("hermes")));
+        seed_profile(&root, "agent-01");
+        seed_global_env(&root, "DEEPSEEK_API_KEY=sk-global-0001\n");
+        let env_path = root.join("profiles/agent-01/.env");
+        std::fs::write(&env_path, "DEEPSEEK_API_KEY=sk-global-0001\n").expect("写");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&env_path, std::fs::Permissions::from_mode(0o644))
+                .expect("改权限");
+        }
+
+        let check = hermes
+            .verify_profile_credentials("agent-01")
+            .await
+            .expect("自检");
+        #[cfg(unix)]
+        {
+            assert!(!check.ok, "644 必须判红");
+            assert_eq!(check.env_file_mode, Some(0o644));
+            assert!(
+                check.detail.as_deref().unwrap_or("").contains("600"),
+                "{:?}",
+                check.detail
+            );
+        }
+
+        let sync = hermes.ensure_profile_env("agent-01").await.expect("同步");
+        assert_eq!(sync.env_file_mode, Some(0o600));
+
+        // profile 目录不存在：404 + 64004
+        let err = hermes
+            .ensure_profile_env("agent-99")
+            .await
+            .expect_err("必须 404");
+        assert_eq!(err.code, error_code::AI_AGENT_PROFILE_MISSING);
+        assert_eq!(err.status, 404);
+
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// **根因回归**：`hermes profile create` 建出的 profile `.env` 只有三行注释（无 key）时，
+    /// `create_profile` 必须自己把凭据补上——否则 worker 一执行就 AuthError。
+    #[tokio::test]
+    async fn create_profile_provisions_credentials() {
+        let root = temp_root("create-cred");
+        let fake_bin = root.join("hermes");
+        let profiles = root.join("profiles");
+        // 假 CLI：复刻真 CLI 的产物（建目录 + 只有注释的 .env，**不含任何 key**）
+        std::fs::write(
+            &fake_bin,
+            format!(
+                "#!/bin/sh\n\
+                 if [ \"$1\" = profile ] && [ \"$2\" = create ]; then\n\
+                 \x20 mkdir -p '{profiles}/'\"$3\"\n\
+                 \x20 printf '# Per-profile secrets for this Hermes profile.\\n# API keys and tokens set here override the shell environment.\\n# Behavioral settings belong in config.yaml, not here.\\n' > '{profiles}/'\"$3\"/.env\n\
+                 \x20 exit 0\n\
+                 fi\n\
+                 exit 0\n",
+                profiles = profiles.display()
+            ),
+        )
+        .expect("写假 CLI");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&fake_bin, std::fs::Permissions::from_mode(0o755))
+                .expect("加执行位");
+        }
+        seed_global_env(
+            &root,
+            "DEEPSEEK_API_KEY=sk-global-0001\nARK_API_KEY=ark-global-0002\n",
+        );
+        std::fs::write(
+            root.join("home/config.yaml"),
+            "model:\n  provider: deepseek\n  default: deepseek-flash\n",
+        )
+        .expect("写全局 config.yaml");
+        let hermes = Hermes::new(local_config(&root, fake_bin.clone()));
+
+        hermes
+            .create_profile("agent-01", None, "职责")
+            .await
+            .expect("建号必须成功");
+
+        // 成果：.env 里有 DEEPSEEK_API_KEY（以及顺带搬来的 ARK_API_KEY），权限 600
+        let check = hermes
+            .verify_profile_credentials("agent-01")
+            .await
+            .expect("自检");
+        assert!(check.ok, "建号后凭据必须可用：{check:?}");
+        assert!(check.present_keys.contains(&"DEEPSEEK_API_KEY".to_string()));
+        assert!(check.present_keys.contains(&"ARK_API_KEY".to_string()));
+        assert_eq!(check.env_file_mode, Some(0o600));
+
+        // 没有全局 key 时：建号必须失败（64014），而不是留下一个不能干活的账号
+        std::fs::remove_file(root.join("home/.env")).ok();
+        let err = hermes
+            .create_profile("agent-02", None, "")
+            .await
+            .expect_err("缺 key 必须失败");
+        assert_eq!(err.code, error_code::AI_AGENT_CREDENTIAL_MISSING);
+
+        std::fs::remove_dir_all(&root).ok();
     }
 }

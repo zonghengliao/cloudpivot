@@ -109,6 +109,19 @@ pub struct AiUserStatusRes {
     pub gateway_status: String,
     /// 整体健康（目录 + SOUL.md + CLI 都在）。
     pub healthy: bool,
+    /// 凭据是否可用于认证（profile 级 `.env` 有当前 provider 的 key 且权限 600）。
+    ///
+    /// **这是「能不能干活」的判据**：`healthy=true` 但 `credentials_ok=false` 的账号，
+    /// 派活会 200、worker 一执行就 `AuthError`（2026-10-29 的真实故障形态）。
+    pub credentials_ok: bool,
+    /// 凭据文件里非空的**键名**（值永不出后端）。
+    pub credential_keys: Vec<String>,
+    /// 当前 provider 需要的键名。
+    pub credential_required: Option<String>,
+    /// 凭据文件权限位（`384` = `0o600`；文件不存在为 `null`）。
+    pub env_file_mode: Option<u32>,
+    /// 凭据自检的补充说明（缺哪个键 / 权限不对）。
+    pub credential_detail: Option<String>,
     /// 探测过程中的补充说明（命令失败原因等）。
     pub detail: Option<String>,
 }
@@ -131,9 +144,42 @@ impl AiUserStatusRes {
             gateway: status.gateway.clone(),
             gateway_status: db_gateway_status.to_string(),
             healthy: status.healthy(),
+            credentials_ok: status.credentials_ok,
+            credential_keys: status.credential_keys.clone(),
+            credential_required: status.credential_required.clone(),
+            env_file_mode: status.env_file_mode,
+            credential_detail: status.credential_detail.clone(),
             detail: status.detail.clone(),
         }
     }
+}
+
+/// 凭据检查 / 修复响应（`POST /api/system/user/ai/{user_id}/repair`）。
+///
+/// 与 [`AiUserStatusRes`] 的差别：这里是**修复动作**的结果（`repaired_keys` 说明补了哪些键），
+/// 而 status 是「现在什么状态」的只读探活。
+#[derive(Debug, Clone, Serialize)]
+pub struct AiUserCredentialRes {
+    /// `sys_user.id`。
+    pub user_id: String,
+    /// profile 名。
+    pub hermes_profile: String,
+    /// profile 凭据文件绝对路径。
+    pub env_path: String,
+    /// 权限位（`384` = `0o600`）。
+    pub env_file_mode: Option<u32>,
+    /// 当前 provider。
+    pub provider: Option<String>,
+    /// 当前 provider 需要的键名。
+    pub required_key: Option<String>,
+    /// 修复后凭据文件里非空的键名。
+    pub present_keys: Vec<String>,
+    /// 修复后是否可用（缺键 / 权限不对 → `false`）。
+    pub credentials_ok: bool,
+    /// 本次**实际写入**的键名（空数组 = 原本就齐）。
+    pub repaired_keys: Vec<String>,
+    /// 不可用时的原因。
+    pub detail: Option<String>,
 }
 
 /// 删除 AI 用户响应（`DELETE /api/system/user/ai/{user_id}`）。

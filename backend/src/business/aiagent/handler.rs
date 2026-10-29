@@ -9,7 +9,8 @@
 //! | POST | `/system/user/ai` | `system:user:create` | 创建 AI 用户（建 `sys_user` + Hermes profile + SOUL.md + workspace） |
 //! | PUT | `/system/user/ai/{user_id}` | `system:user:update` | 编辑职责 / SOUL.md / 模型 |
 //! | GET | `/system/user/ai/{user_id}` | `system:user:list` | 读配置（含 SOUL.md 全文与真实路径） |
-//! | GET | `/system/user/ai/{user_id}/status` | `system:user:list` | 探活（目录 / SOUL.md / workspace / CLI / gateway） |
+//! | GET | `/system/user/ai/{user_id}/status` | `system:user:list` | 探活（目录 / SOUL.md / workspace / CLI / gateway / 凭据） |
+//! | POST | `/system/user/ai/{user_id}/repair` | `system:user:update` | 修复 profile 级凭据（补 `.env` 缺失的 provider key） |
 //! | DELETE | `/system/user/ai/{user_id}` | `system:user:delete` | 删号（备份 SOUL.md → 删 profile → 删 workspace → 软删 user） |
 //!
 //! # 为什么复用 `system:user:*` 权限码
@@ -27,11 +28,18 @@
 //! ```text
 //! ① 事务（提交）：INSERT sys_user → UPDATE user_type=ROBOT → INSERT sys_ai_agent
 //!                  任一失败 → 整个事务回滚（库内零残留，且中间态不可见）
-//! ② hermes profile create            ← 失败 → 补偿：软删两行（同事务）
-//! ③ 写 SOUL.md（原子）               ← 失败 → 补偿：删 profile + 软删两行
-//! ④ 建 workspace                     ← 失败 → 补偿：删 profile + 删 workspace + 软删两行
-//! ⑤ 探活回写 gateway_status（失败忽略：不影响正确性）
+//! ② hermes profile create            ← 失败 → 补偿：物理删除两行（同事务）
+//! ③ 写 SOUL.md（原子）               ← 失败 → 补偿：删 profile + 物理删除两行
+//! ④ 建 workspace                     ← 失败 → 补偿：删 profile + 删 workspace + 物理删除两行
+//! ⑤ 补齐 + 自检 profile 级凭据        ← 失败 → 同上（缺 provider key 的账号「能建号不能干活」，
+//!                                      worker 一启动就 AuthError，比建号失败更糟）
+//! ⑥ 探活回写 gateway_status（失败忽略：不影响正确性）
 //! ```
+//!
+//! 「补偿」以**磁盘事实**为准（探测目录是否存在），不看标志位：CLI 可能已经建出目录
+//! 而后续步骤才失败，标志位那时还是 false，只看标志位会留孤儿 profile。
+//! 库内两行走**物理删除**（账号从未对用户可见，软删只会留一条指向不存在账号的垃圾行）；
+//! 删号（`DELETE /system/user/ai/{id}`）仍走软删，两者语义不同、不共用。
 //!
 //! 补偿失败**不会被吞掉**：错误消息里逐条列出「回滚未完成项」，业务码换成
 //! [`error_code::AI_AGENT_ROLLBACK_FAILED`]，让运维知道需要人工收尾（这比伪装成功、
@@ -44,8 +52,8 @@ use axum::extract::Path;
 use axum::http::HeaderMap;
 
 use crate::business::aiagent::dto::{
-    AiUserCreateReq, AiUserDeleteRes, AiUserRes, AiUserStatusRes, AiUserUpdateReq,
-    normalize_description,
+    AiUserCreateReq, AiUserCredentialRes, AiUserDeleteRes, AiUserRes, AiUserStatusRes,
+    AiUserUpdateReq, normalize_description,
 };
 use crate::business::aiagent::hermes::Hermes;
 use crate::business::aiagent::model::{self, AiAgentRow, AiUserBrief};
@@ -73,8 +81,10 @@ use crate::utils;
 /// 4. `hermes profile create <name> --clone-from <模板> --description <职责> --no-alias`；
 /// 5. 写 `SOUL.md`（内容已随 3 落库；留空则用模板渲染）；
 /// 6. 建 `<workspace_root>/<name>/`；
-/// 7. 探活回写 `gateway_status`；
-/// 8. 4–6 任一步失败 → 补偿删除 profile / workspace + 同事务软删两行。
+/// 7. **补齐并自检 profile 级凭据**（`<profiles_root>/<name>/.env` 里当前 provider 的 key
+///    非空且权限 600）——不满足就是创建失败，因为 worker 的凭据池只读 profile 级 `.env`；
+/// 8. 探活回写 `gateway_status`；
+/// 9. 4–7 任一步失败 → 补偿删除 profile / workspace + 同事务软删两行。
 ///
 /// # 返回值
 ///
@@ -88,6 +98,8 @@ use crate::utils;
 /// - 404 + `64004`：克隆模板 profile 不存在（Hermes 侧报错）；
 /// - 409 + `64003`：用户名 / profile 名已被占用；
 /// - 500 + `64005`：Hermes CLI 失败（消息里带 stderr 前 500 字符）；
+/// - 500 + `64014`：profile 级凭据不可用（全局 `.env` 与进程环境都没有 provider key，
+///   或 `.env` 权限不是 600）——**已回滚，磁盘与库零残留**；
 /// - 500 + `64009`：回滚未完全成功（消息里逐条列出残留项）。
 #[alun::permission(
     path = "/system/user/ai",
@@ -275,6 +287,53 @@ pub async fn create(
         }
     }
 
+    // ---- ⑤ 凭据自检（**创建成功判定的一部分**：能不能干活）
+    //
+    // `create_profile` 内部已经硬性补齐并自检过一次；这里是**接口层的判定**，
+    // 也是卡面要求的「成功条件」：profile 级 `.env` 里当前 provider 的 key 非空
+    // 且权限 600，否则整个创建算失败并回滚。
+    // 为什么值得判两次：`create_profile` 是 Hermes 适配层的自检（它自己写完立刻读回），
+    // 而这里读的是「调用方视角的最终状态」——两者之间还可能有人改了盘（运维手工改 .env、
+    // 别的卡 clone 覆盖）。代价是一次读文件，收益是「建号 API 返回 200」这件事
+    // 从此等于「worker 认证能过」。
+    match hermes.verify_profile_credentials(&username).await {
+        Ok(check) if check.ok => tracing::info!(
+            user_id = %user_id,
+            profile = %username,
+            provider = ?check.provider,
+            required_key = ?check.required_key,
+            keys = ?check.present_keys,
+            mode = ?check.env_file_mode,
+            "AI 员工凭据自检通过（worker 可认证）"
+        ),
+        Ok(check) => {
+            return Err(compensate(
+                &hermes,
+                &user_id,
+                &username,
+                profile_created,
+                workspace_created,
+                ApiError::new(
+                    500,
+                    error_code::AI_AGENT_CREDENTIAL_MISSING,
+                    check.failure_message(),
+                ),
+            )
+            .await);
+        }
+        Err(e) => {
+            return Err(compensate(
+                &hermes,
+                &user_id,
+                &username,
+                profile_created,
+                workspace_created,
+                e,
+            )
+            .await);
+        }
+    }
+
     // ---- ⑥ 立刻探活（body 里的 gateway_status 就不是「未知」）
     if let Ok(status) = hermes.status(&username).await {
         row.gateway_status = status.gateway;
@@ -434,6 +493,77 @@ pub async fn status(Path(user_id): Path<String>) -> ResResult<AiUserStatusRes> {
         &row.gateway_status,
         &probe,
     )))
+}
+
+// ==================== 凭据修复（L1 修复） ====================
+
+/// 修复 AI 用户的 profile 级凭据（`<profiles_root>/<name>/.env`）。
+///
+/// # 为什么需要这个接口（卡面第 4 条「已有 AI 用户的补救」）
+///
+/// 修复之前的存量账号可能是「能建号、不能干活」的形态（`.env` 里没有 provider key）。
+/// 自动批量修是危险动作（可能覆盖运维给某个 AI 员工配的专用 key），所以这里做成
+/// **单账号、显式触发**的运维按钮，语义与建号时的那一步完全一致：
+///
+/// - 缺的键从全局 `<hermes_home>/.env` / 云枢进程环境补；
+/// - **已有非空值不覆盖**；
+/// - 落盘 600；
+/// - 修完立刻自检，把「补了哪些键 / 现在能不能认证」如实回给前端。
+///
+/// # 返回值
+///
+/// [`AiUserCredentialRes`]：`repaired_keys` 空数组 = 本来就齐（幂等，可反复点）。
+///
+/// # 异常情况
+///
+/// - 403 + `63204`：AI 账号不能给自己修凭据（AI 不管理 AI）；
+/// - 404 + `64001`：该用户不是 AI 用户 / 已删除；
+/// - 404 + `64004`：库里有行但 profile 目录已丢（先重建 profile）；
+/// - 500 + `64014`：全局凭据与进程环境都找不到当前 provider 的 key（**不会**伪造成功）；
+/// - 500 + `64008`：`.env` 读写失败。
+#[alun::permission(
+    path = "/system/user/ai/{user_id}/repair",
+    method = "POST",
+    permission = "system:user:update"
+)]
+#[alun::post("/system/user/ai/{user_id}/repair")]
+pub async fn repair_credentials(
+    Path(user_id): Path<String>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<AiUserCredentialRes> {
+    forbid_robot(&claims).await?;
+    let id = utils::require_uuid(&user_id, "user_id")?;
+    let hermes = Hermes::from_env();
+    let row = model::find_by_user(&id)
+        .await
+        .map_err(|e| utils::db_error(e, "查询 AI 用户"))?
+        .ok_or_else(|| ai_not_found(&id))?;
+
+    let sync = hermes.ensure_profile_env(&row.hermes_profile).await?;
+    let check = hermes
+        .verify_profile_credentials(&row.hermes_profile)
+        .await?;
+    tracing::info!(
+        user_id = %id,
+        profile = %row.hermes_profile,
+        repaired_keys = ?sync.written_keys,
+        provider = ?check.provider,
+        credentials_ok = check.ok,
+        mode = ?check.env_file_mode,
+        "AI 员工凭据修复完成"
+    );
+    Ok(Res::ok(AiUserCredentialRes {
+        user_id: id.to_string(),
+        hermes_profile: row.hermes_profile.clone(),
+        env_path: check.env_path.clone(),
+        env_file_mode: check.env_file_mode,
+        provider: check.provider.clone(),
+        required_key: check.required_key.clone(),
+        present_keys: check.present_keys.clone(),
+        credentials_ok: check.ok,
+        repaired_keys: sync.written_keys,
+        detail: check.detail.clone(),
+    }))
 }
 
 // ==================== 删除 ====================
@@ -612,10 +742,24 @@ async fn compensate(
     )
 }
 
-/// 逆序回滚：删 profile → 删 workspace → **同事务**软删 `sys_ai_agent` + `sys_user`。
+/// 逆序回滚：删 profile → 删 workspace → **同事务物理删除** `sys_ai_agent` + `sys_user` + 角色绑定。
 ///
-/// 返回**失败项**列表（空 = 干净）。两行必须一起软删：只删一行就会破坏
-/// 「`user_type='ROBOT'` ⇔ `sys_ai_agent` 有该 user_id」这条不变式。
+/// 返回**失败项**列表（空 = 干净）。
+///
+/// # 为什么以「磁盘事实」为准，而不是只看调用方的标志位
+///
+/// `create_profile` 是「CLI 建目录 + 写 config.yaml + 补凭据」的复合动作：**CLI 已经建出目录、
+/// 后面的步骤失败**时它返回 `Err`，而调用方那一侧的 `profile_created` 还是 `false`
+/// —— 只看标志位就会漏删，磁盘上留下一个不完整的 profile（2026-10-29 实测踩到，
+/// 正是卡面验收 6「磁盘零残留」挡下的那条）。所以这里先探一次磁盘，标志位与磁盘任一为真就删。
+///
+/// # 为什么回滚用物理删除（而删号用软删）
+///
+/// 删号是**业务动作**，软删留痕才有价值（谁在什么时候删了哪个 AI 员工）。
+/// 回滚是**事务补偿**：这个账号从未对任何用户可见过，软删只会给 `sys_user` 留一条
+/// 「指向不存在的账号」的垃圾行；卡面要求「库内零残留」，物理删除才是那个语义。
+/// 角色绑定（`sys_user_role`）一并清掉，`sys_ai_agent` 有 FK CASCADE 也显式删一次，
+/// 不依赖级联的行为差异。
 async fn rollback(
     hermes: &Hermes,
     user_id: &Uuid,
@@ -624,19 +768,51 @@ async fn rollback(
     workspace_created: bool,
 ) -> Vec<String> {
     let mut failures = Vec::new();
-    if profile_created && let Err(e) = hermes.delete_profile(profile).await {
+    let profile_on_disk = hermes.profile_dir_exists(profile).await.unwrap_or(false);
+    if (profile_created || profile_on_disk)
+        && let Err(e) = hermes.delete_profile(profile).await
+    {
         failures.push(format!("删除 profile 失败（{}）", e.msg));
     }
-    if workspace_created && let Err(e) = hermes.remove_workspace(profile).await {
+    let workspace_on_disk = hermes.workspace_path_exists(profile).await.unwrap_or(false);
+    if (workspace_created || workspace_on_disk)
+        && let Err(e) = hermes.remove_workspace(profile).await
+    {
         failures.push(format!("删除 workspace 失败（{}）", e.msg));
     }
-    if let Err(e) = soft_delete_records(user_id).await {
-        failures.push(format!("软删 sys_user / sys_ai_agent 失败（{e}）"));
+    if let Err(e) = hard_delete_records(user_id).await {
+        failures.push(format!("物理删除 sys_user / sys_ai_agent 失败（{e}）"));
     }
     failures
 }
 
-/// 同事务软删 `sys_ai_agent` + `sys_user` + 角色绑定（删号与回滚共用）。
+/// **回滚专用**：物理删除本次请求刚插入的两行 + 角色绑定。
+///
+/// 只由 [`rollback`] 调用（删号走 [`soft_delete_records`]，语义不同，别混用）。
+// SCOPE-EXEMPT: 按主键物理删除**本请求刚插入**的两行（创建失败的事务补偿），
+// 不存在「读哪些行」的问题，注入数据范围谓词在语义上是错的（会让补偿漏删、留下
+// 一个删不掉的半成品账号）。框架的 `delete_by_pk` 对软删模型只会写 `deleted_at`，
+// 拿不到物理删除，所以这里必须手写 SQL。
+async fn hard_delete_records(user_id: &Uuid) -> std::result::Result<(), DbError> {
+    let id = *user_id;
+    db().transaction(|tx| async move {
+        SysUserRoleModel::delete_by(&tx, "user_id", (&id,)).await?;
+        tx.exec_sql(
+            "DELETE FROM sys_ai_agent WHERE user_id = ?".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+        tx.exec_sql(
+            "DELETE FROM sys_user WHERE id = ?".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+}
+
+/// 同事务软删 `sys_ai_agent` + `sys_user` + 角色绑定（**删号**专用，回滚走 [`hard_delete_records`]）。
 ///
 /// # 为什么必须同事务
 ///

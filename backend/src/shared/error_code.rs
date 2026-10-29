@@ -703,6 +703,20 @@ pub const AI_AGENT_MODEL_INVALID: i32 = 64012;
 /// 所以这类操作必须走 `/api/system/user/ai/*`。
 pub const AI_AGENT_USER_TYPE_LOCKED: i32 = 64013;
 
+/// AI 员工的 **profile 级凭据** 不可用（HTTP 500）：`.env` 里缺当前 provider 的 API key，
+/// 或凭据文件权限不是 600。
+///
+/// # 为什么单列一个码（2026-10-29 端到端事故）
+///
+/// `hermes profile create` 建出的 profile **不继承**全局 `~/.hermes/.env`，而 Hermes worker
+/// 的凭据池只读 **profile 级** `.env`。缺 key 的账号表现极具欺骗性：建号 200、派活成功、
+/// 库与磁盘都「正常」，worker 一执行就
+/// `AuthError: No usable credentials found for provider 'deepseek'` → 连 crash 两次 → blocked。
+///
+/// 用 64008（AI 配置文件 IO 失败）会把「业务上不可用」伪装成「磁盘读写故障」，
+/// 运维搜码也搜不到这条真实故障形态，因此单列 64014：**能建号但不能干活**统一落到这个码上。
+pub const AI_AGENT_CREDENTIAL_MISSING: i32 = 64014;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -913,6 +927,7 @@ mod tests {
             (AI_AGENT_WORKSPACE_FAILED, 64011),
             (AI_AGENT_MODEL_INVALID, 64012),
             (AI_AGENT_USER_TYPE_LOCKED, 64013),
+            (AI_AGENT_CREDENTIAL_MISSING, 64014),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "64xxx 段码值不得改动");
@@ -921,9 +936,9 @@ mod tests {
         assert!(codes[0].0 > 63009, "64xxx 段必须排在 63xxx 段之后");
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "64xxx 段不得有重复码值");
-        assert_eq!(unique.len(), 13, "64xxx 段必须是 13 个码（64001–64013）");
+        assert_eq!(unique.len(), 14, "64xxx 段必须是 14 个码（64001–64014）");
         println!(
-            "[码表] 64xxx 段 {} 个码齐全且不重复（64001–64013）✓",
+            "[码表] 64xxx 段 {} 个码齐全且不重复（64001–64014）✓",
             codes.len()
         );
     }
