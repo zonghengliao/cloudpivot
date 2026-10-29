@@ -316,6 +316,45 @@ G5 PASS：20 个 record/record_in 调用点全部在 transaction 闭包内且传
 > `db().transaction(|tx| async move { … })` 闭包体内 —— 状态变更与审计日志**同事务**，
 > 业务回滚则日志一起消失（C5 的 D11）。
 
+### 8.1 一个必须说清的现象：共享工作区里 `cargo fmt --check` 会红
+
+`/opt/cloudpivot` 是**多卡共享工作区**。本次交付期间，另一张卡（T6a）在
+`backend/src/bin/` 下留了一个**未跟踪的临时工具** `genhash.rs`（文件头自述「临时工具…用完即删」），
+它没有格式化，于是共享工作区里的 `bash scripts/check.sh` 在第一步 `cargo fmt --check` 就红：
+
+```
+==> 后端：cargo fmt --check
+Diff in /opt/cloudpivot/backend/src/bin/genhash.rs:2:
+-    let pwd = std::env::args().nth(1).unwrap_or_else(|| "Test@12345".to_string());
++    let pwd = std::env::args()
++        .nth(1)
++        .unwrap_or_else(|| "Test@12345".to_string());
+```
+
+**我没有去动那个文件**（不动别人的在途文件是纪律），而是**从 bare 远端 clone 一份干净树**
+（`git clone /opt/git/cloudpivot.git /root/t2-check`，HEAD = `6a2444d`）重跑了一遍完整门禁：
+
+```
+$ cd /root/t2-check && bash scripts/check.sh          # 干净树，无未跟踪文件
+check.sh exit=0
+==> 后端：cargo fmt --check
+==> 后端：cargo clippy -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 31.70s
+==> 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.98s
+==> 前端：pnpm typecheck
+==> 批次B 闸①：0 处            ==> 批次B 闸②：0 处
+==> 批次B 门禁：全部通过
+==> C7 G1–G6：未通过 0 条        ==> C7 门禁：全部通过
+G5 PASS：20 个 record/record_in 调用点全部在 transaction 闭包内且传 &tx（扫了 161 个文件）
+==> 偏好字典与色板一致性：PASS：22 套
+==> 全部检查通过
+```
+
+结论：**提交树本身的门禁全绿**（fmt / clippy / check / typecheck / 闸①闸② / C7 G1–G6 / 色板），
+红色只来自别人未提交的临时文件。
+
+
 ---
 
 ## 9. 前端 `pnpm typecheck && pnpm build`
@@ -346,8 +385,51 @@ dist//opt/cloudpivot/frontend/assets/echarts-CuV_skF0.js.gz 1002.89kb / gzip: 33
 - 单测 + 走查第 16 项都断言「全表 `status_semantic` 为 NULL」，
   防止有人在 P1 之前偷偷填值。
 
+---
+
+## 11. 最终一致性（提交 → 推 bare → HEAD == origin/main）
+
+```
+$ git log --oneline -3
+6a2444d feat(task): T2 状态机（10 条白名单流转）+ 进度（工时加权 / 父任务锁定）+ 子任务
+1a2d524 feat(task): T6a 任务管理前端骨架 —— 列表 / 详情 / 新建编辑 + 统一状态徽标
+8ac8546 docs(规范): 新增「四、部署验收」—— dev done ≠ 上线
+
+$ git show --stat --oneline HEAD
+6a2444d … 13 files changed, 4035 insertions(+), 19 deletions(-)
+
+$ git rev-parse HEAD            → 6a2444d0625c529ab7563f0d39da42c2293c2982
+$ git rev-parse origin/main     → 6a2444d0625c529ab7563f0d39da42c2293c2982
+$ git --git-dir=/opt/git/cloudpivot.git rev-parse main
+                                → 6a2444d0625c529ab7563f0d39da42c2293c2982
+$ git status --porcelain
+?? backend/src/bin/            （别人的未跟踪临时工具，不是本卡的交付物，未提交）
+```
+
+提交前钩子（`pre-commit`）通过：
+
+```
+▶ pre-commit secret 扫描（暂存区）
+▶ gitleaks 8.30.1  mode=--staged
+1:48PM INF scanned ~174408 bytes (174.41 KB) in 154ms
+1:48PM INF no leaks found
+✔ 未发现泄露
+▶ 内置 toml 规则复核（git 跟踪文件）：内置规则命中 0 处
+```
+
+最终 HEAD 上重跑（不是提交前的旧树）：
+
+| 检查 | 结果 |
+|---|---|
+| `cargo test -j 1` | **626 passed / 0 failed** |
+| `scripts/check.sh`（干净 clone，见 §8.1） | exit=0，全绿 |
+| `pnpm typecheck` | 通过（无输出） |
+| `pnpm build` | 通过（dist 产物正常） |
+| 走查 104 条断言 | 全 PASS |
+
+
 ```text
-## 10 附录 A：走查原文（`scripts/verify/t2_task_status_verify.py`，104 条断言全 PASS）
+## 附录 A：走查原文（`scripts/verify/t2_task_status_verify.py`，104 条断言全 PASS）
 
 
 ==============================================================================
