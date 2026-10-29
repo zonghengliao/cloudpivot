@@ -89,6 +89,7 @@ use axum::Json;
 use axum::extract::{Path, Query};
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
+use crate::business::flow::task_bridge;
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::principal::{self, ScopedPrincipal};
@@ -738,8 +739,10 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 
 /// 改状态（`PATCH /business/task/{id}/status`）。
 ///
-/// # 三段式判定（顺序不可换，见 [`crate::business::task::state::authorize`]）
+/// # 四段式判定（顺序不可换，见 [`crate::business::task::state::check_transition`]）
 ///
+/// 0. **审批门闸**：任务挂了审批单且实例 `PENDING` 时的 `REVIEW → DONE / DOING` → `409 + 65030`
+///    （**先于**白名单与角色：审批中换谁来点都是同一个答案）；
 /// 1. **可见性**：看不见的任务 → `404 + 63001`（不暴露「存在但无权」）；
 /// 2. **白名单**：`from → to` 不在 [`state::TRANSITIONS`] 里 → `409 + 63010`；
 /// 3. **角色 + 附加条件**：无权 → `403 + 63011`；打回缺原因 → `400 + 63013`；
@@ -750,7 +753,10 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 改 `status` / `progress`（无子任务才联动）/ `done_at` / 打回或取消原因；
 /// - 写一条 `comment_type = STATUS_CHANGE` 的评论（含 from/to/reason）；
 /// - 写 `sys_change_log`（`action = STATUS`，白名单字段 diff）；
-/// - 若本条是子任务 → 沿 `parent_id` 逐级重算父任务进度（架构 D4/D5）。
+/// - 若本条是子任务 → 沿 `parent_id` 逐级重算父任务进度（架构 D4/D5）；
+/// - **`DOING → REVIEW` 且配了 `TASK_ACCEPT` 审批流程 → 自动发起审批单并回写
+///   `approval_instance_id`**（没配流程则什么都不做，保持原两级验收，见
+///   [`crate::business::flow::task_bridge::prepare_accept`]）。
 ///
 /// # 异常情况
 ///
@@ -759,8 +765,9 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 403 + `63011`：当前身份无权推这个流转；
 /// - 404 + `63001`：任务不存在 / 不可见；
 /// - 409 + `63010`：非法流转（跳级 / 终态直取 / 同状态）；
+/// - 409 + `65030`：审批单还在跑，`REVIEW` 出边一律不许人工推（等审批结论）；
 /// - 409 + `63006`：还有未完成子任务，不能完成；
-/// - 500：数据库异常 / 变更日志未登记。
+/// - 500：数据库异常 / 变更日志未登记 / 审批单发起失败（整笔回滚）。
 #[alun::permission(
     path = "/business/task/{id}/status",
     method = "PATCH",
@@ -802,7 +809,7 @@ pub async fn change_status(
         )
     })?;
 
-    // ③ 白名单 + 角色 + 附加条件
+    // ③ 审批门闸 + 白名单 + 角色 + 附加条件（D3b：门闸在状态机之前）
     let people = state::TaskPeople {
         owner_id: current.card.owner_id,
         creator_id: current.creator_id,
@@ -810,14 +817,22 @@ pub async fn change_status(
     };
     let role_mask = people.role_mask(&state::Actor::new(me, mine.is_super()));
     let reason = normalize_reason(req.reason.as_deref())?;
-    let transition = state::authorize(
+    // 门闸输入：任务上挂了审批单就现查实例状态（读不到 → 不拦，见 state::flow_gate_blocked）
+    let instance_status = task_bridge::instance_status_of(current.approval_instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单状态"))?;
+    let transition = state::check_transition(
+        // 红线：HTTP 路径永远是「人类」身份，不从请求读这个值
+        state::ActorKind::User,
         from,
         to,
         role_mask,
         current.card.need_review,
         reason.as_deref(),
+        current.approval_instance_id,
+        instance_status.as_deref(),
     )
-    .map_err(transition_error)?;
+    .map_err(transition_check_error)?;
 
     // ④ 进入 DONE：有未完成子任务 → 409（设计 §三「父任务 DONE 前置检查」）
     if to == TaskStatus::Done {
@@ -839,6 +854,29 @@ pub async fn change_status(
     if from == TaskStatus::Todo && to == TaskStatus::Doing {
         check_dependencies_ready(task_id).await?;
     }
+
+    // ⑤b 提交验收（DOING → REVIEW）且 `flow_def` 里配了 `TASK_ACCEPT` 流程 → 自动发起审批单。
+    //    没配流程 → `prepare_accept` 返回 `None`，照原两级验收走（**不报错**，存量行为不变）。
+    //    真正的入库在 ⑧ 的事务里（`start_in_tx`）：审批单建不出来就整笔回滚。
+    let accept = if from == TaskStatus::Doing && to == TaskStatus::Review {
+        let form_data = serde_json::json!({
+            "task_id": task_id.to_string(),
+            "task_no": current.card.task_no,
+            "title": current.card.title,
+            "priority": current.card.priority,
+        });
+        task_bridge::prepare_accept(
+            task_id,
+            &current.card.task_no,
+            &current.card.title,
+            me,
+            form_data,
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "准备验收审批单"))?
+    } else {
+        None
+    };
 
     // ⑥ 进度：有子任务的任务由汇总决定，**任何流转都不许手改**
     let children = model::children_of(task_id)
@@ -920,6 +958,10 @@ pub async fn change_status(
             if affected == 0 {
                 // 事务里被并发软删：评论与日志都不该落
                 return Ok((Uuid::nil(), 0, Vec::new()));
+            }
+            // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
+            if let Some(start) = accept.as_ref() {
+                task_bridge::start_in_tx(&tx, start, task_id).await?;
             }
             let comment_id = model::insert_comment(
                 &tx,
@@ -2743,6 +2785,22 @@ fn normalize_reason(raw: Option<&str>) -> std::result::Result<Option<String>, Ap
         )));
     }
     Ok(Some(trimmed.to_string()))
+}
+
+/// 门闸 + 状态机联合判定失败 → HTTP 错误（**门闸单独一档**）。
+///
+/// - 审批单还在跑 → `409 + 65030`（`TASK_FLOW_GATE_BLOCKED`，文案「任务正在审批中，请等待审批结果」）；
+/// - 其余 → 转 [`transition_error`] 的三档（`400 + 63013` / `403 + 63011` / `409 + 63010`）。
+///
+/// 为什么不把 65030 并进 `transition_error`：两件事的下一步动作完全不同
+/// （「去审批单里处理」vs「换个有权的人 / 补个原因」），合成一个码前端就没法给出正确引导。
+fn transition_check_error(error: state::TransitionCheckError) -> ApiError {
+    match error {
+        gate @ state::TransitionCheckError::ApprovalPending => {
+            ApiError::new(409, error_code::TASK_FLOW_GATE_BLOCKED, gate.message())
+        }
+        state::TransitionCheckError::Transition(inner) => transition_error(inner),
+    }
 }
 
 /// 状态机判定失败 → HTTP 错误（**三档**，不许统一成 500）。

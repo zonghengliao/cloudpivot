@@ -56,7 +56,9 @@
 //!   （所以「授予 AI 团队主管角色后能分派」自然成立）；删任务则**硬拒 ROBOT**。
 //! - **附件**：`biz_task_attachment` 只落绑定关系，文件本体由 `business::storage` 管
 //!   （T1 建表，接口随 T3 的评论/附件一起做）。
-//! - **审批流**：`biz_task.approval_instance_id` 本批恒为 NULL（批次 D 预留）。
+//! - **审批流**：`biz_task.approval_instance_id` 由 `DOING → REVIEW` 时自动写入（批次 D · D3b，
+//!   见 [`crate::business::flow::task_bridge`]）；未配置 `TASK_ACCEPT` 流程时保持 `NULL`，
+//!   走原两级验收。`REVIEW` 两条出边受 `state::check_transition` 的审批门闸保护。
 //!
 //! # T4 落地的两条不变式（依赖 + 甘特）
 //!

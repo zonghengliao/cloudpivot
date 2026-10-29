@@ -41,6 +41,19 @@
 //! 为什么判据是「任务上有没有 `approval_instance_id`」而不是「流程定义开没开审批」：
 //! 存量任务可能是「开审批之前」建的，也可能流程后来被停用；以任务自身字段为准，
 //! 语义是「这张单确实挂了审批」（架构 §5.2.2）。
+//!
+//! # 身份维度（批次 D · D3b）
+//!
+//! 门闸上线后还差两件事，都在本文件里补齐（接线在 `task::handler` 与 `flow::task_bridge`）：
+//!
+//! 1. **人工路径要知道实例状态**：[`check_transition`] 的第一个参数是 [`ActorKind`]，
+//!    调用方（handler）负责查库拿到 `biz_flow_instance.status` 再传进来 —— 本文件仍是纯逻辑。
+//! 2. **审批结论要能自动推进任务**：[`ActorKind::FlowCallback`] 是流程引擎的身份，
+//!    它绕过门闸与角色（[`callback_transition`]），但**只能在 `REVIEW` 态**推那两条出边。
+//!    没有它，「审批通过后任务还停在待验收等人再点一次」会让门闸变成纯减速带。
+//!
+//! **`TRANSITIONS` 依旧一行没动**：`FlowCallback` 借的是表项里的副作用（进度 / `done_at`），
+//! 不是给自己加了一条流转。
 
 use alun::uuid::Uuid;
 
@@ -142,6 +155,37 @@ impl Actor {
     /// 构造操作人。
     pub fn new(user_id: Uuid, is_admin: bool) -> Self {
         Self { user_id, is_admin }
+    }
+}
+
+/// 谁在推这次流转（架构 §5.2.2：人工请求 vs 流程回调）。
+///
+/// 两个身份走**同一张白名单**（[`TRANSITIONS`] 一行没动），但判定分支不同：
+///
+/// | 身份 | 审批门闸 | 白名单 | 角色 | 附加条件 |
+/// |---|---|---|---|---|
+/// | [`ActorKind::User`] | 查 | 查 | 查 | 查 |
+/// | [`ActorKind::FlowCallback`] | **跳过** | 只认 `REVIEW → DONE / DOING` | **跳过** | **跳过** |
+///
+/// `FlowCallback` 是「审批单已落终态，引擎替人推进任务」的系统身份：它没有 `role_mask`
+/// （不是某个人），审批结论本身就替代了人工验收与打回意见，所以角色 / 附加条件一并跳过；
+/// 但它**仍然只能在 `REVIEW` 态**里推（见 [`callback_transition`]）—— 否则「审批通过」
+/// 会变成一把能跨状态跳级的万能钥匙。
+///
+/// **红线**：`FlowCallback` 只能由流程回调（`flow::task_bridge::on_instance_settled`）使用。
+/// HTTP handler 一律传 [`ActorKind::User`]，**不许从请求体 / 请求头里读这个值**。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActorKind {
+    /// 人类（HTTP 请求，走 `#[alun::permission]` 的那条链）。
+    User,
+    /// 流程引擎回调（审批单落终态后自动推进任务）。
+    FlowCallback,
+}
+
+impl ActorKind {
+    /// 是否流程回调身份。
+    pub fn is_callback(self) -> bool {
+        matches!(self, ActorKind::FlowCallback)
     }
 }
 
@@ -610,13 +654,20 @@ impl TransitionCheckError {
 /// （因此本函数的门闸分支不看 `role_mask`；`REVIEW → DOING` 即便操作人角色不够，
 /// 在审批中也先报 65030。）
 ///
-/// 参数与 [`authorize`] 一致，另外两个是门闸输入（见 [`flow_gate_blocked`]）。
+/// 参数与 [`authorize`] 一致，另外两个是门闸输入（见 [`flow_gate_blocked`]），第一个是身份。
+///
+/// # 身份分支（D3b）
+///
+/// - [`ActorKind::User`]：门闸 → 白名单 → 角色 → 附加条件（上面那一整套）；
+/// - [`ActorKind::FlowCallback`]：走 [`callback_transition`]，**门闸与角色都不看**，
+///   但仍要求 `from = REVIEW` 且 `to ∈ {DONE, DOING}`。
 ///
 /// # 异常情况
 ///
 /// - [`TransitionCheckError::ApprovalPending`] → `409 + 65030`；
 /// - [`TransitionCheckError::Transition`] → 沿用 `authorize` 的三档（`400/63013`、`403/63011`、`409/63010`）。
 pub fn check_transition(
+    actor: ActorKind,
     from: TaskStatus,
     to: TaskStatus,
     role_mask: u8,
@@ -625,10 +676,49 @@ pub fn check_transition(
     approval_instance_id: Option<Uuid>,
     instance_status: Option<&str>,
 ) -> std::result::Result<&'static Transition, TransitionCheckError> {
+    // ⓪ 流程回调：系统身份，绕过门闸与角色判定（但只能在 REVIEW 态推两条出边）
+    if actor.is_callback() {
+        return callback_transition(from, to).map_err(TransitionCheckError::Transition);
+    }
+    // ① 审批门闸：先于白名单 / 角色（人工路径）
     if flow_gate_blocked(from, to, approval_instance_id, instance_status) {
         return Err(TransitionCheckError::ApprovalPending);
     }
+    // ② 白名单 + 角色 + 附加条件
     authorize(from, to, role_mask, need_review, reason).map_err(TransitionCheckError::Transition)
+}
+
+/// `FlowCallback` 身份的流转判定：**绕过门闸 / 角色 / 附加条件**，
+/// 但**仍受「必须在 REVIEW 态」约束**。
+///
+/// # 允许的两条（其余一律 [`TransitionError::IllegalPair`]）
+///
+/// | from → to | 语义 | 审批意见的落点 |
+/// |---|---|---|
+/// | `REVIEW → DONE` | 审批通过 → 任务完成 | 评论正文 |
+/// | `REVIEW → DOING` | 审批驳回 → 任务返工 | `reject_reason` |
+///
+/// # 为什么还要 `find(from, to)` 查表
+///
+/// 进度副作用（`Force(100)` / `Reset(10)`）、`done_at` 副作用与中文文案都挂在表项上。
+/// 回调**只借表项、不借它的角色判定**，这样「审批通过 = 进度 100 + 写完成时间」与人工
+/// 点「验收通过」是同一份口径；直接 `if` 造一条 Transition 就会分叉出第二份副作用规则。
+///
+/// # 为什么仍然必须 `from = REVIEW`
+///
+/// 审批结论只对「等待验收」有意义。放开 `from` 就等于让一条审批通过把任务从 `TODO`
+/// 直接推到 `DONE`——那是跳级，白名单的 25 选 10 就白定了。
+pub fn callback_transition(
+    from: TaskStatus,
+    to: TaskStatus,
+) -> std::result::Result<&'static Transition, TransitionError> {
+    if from != TaskStatus::Review {
+        return Err(TransitionError::IllegalPair);
+    }
+    if !matches!(to, TaskStatus::Done | TaskStatus::Doing) {
+        return Err(TransitionError::IllegalPair);
+    }
+    find(from, to).ok_or(TransitionError::IllegalPair)
 }
 
 // ==================== 进度算法 ====================
@@ -1282,6 +1372,7 @@ mod gate_tests {
         for mask in [ROLE_CREATOR, ROLE_ASSIGNER, ROLE_ADMIN] {
             assert!(
                 check_transition(
+                    ActorKind::User,
                     TaskStatus::Review,
                     TaskStatus::Done,
                     mask,
@@ -1297,6 +1388,7 @@ mod gate_tests {
         // 负责人仍**不是**验收人（T2 红线，不受本卡影响）
         assert_eq!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Done,
                 ROLE_OWNER,
@@ -1314,6 +1406,7 @@ mod gate_tests {
         // 无审批单：REVIEW → DOING 打回照常（原因够 5 字即可）
         assert!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Doing,
                 ROLE_CREATOR,
@@ -1333,6 +1426,7 @@ mod gate_tests {
         // 创建人 / 分派人 / 管理员 手动 REVIEW → DONE
         for mask in [ROLE_CREATOR, ROLE_ASSIGNER, ROLE_ADMIN] {
             let error = check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Done,
                 mask,
@@ -1349,6 +1443,7 @@ mod gate_tests {
         // 负责人 手动 REVIEW → DOING：门闸先于角色 → 也是 65030（不是 403）
         assert_eq!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Doing,
                 ROLE_OWNER,
@@ -1363,6 +1458,7 @@ mod gate_tests {
         // 协作人（掩码 0）同样拿到 65030：门闸不看你是谁
         assert_eq!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Done,
                 0,
@@ -1401,6 +1497,7 @@ mod gate_tests {
             Some("APPROVED")
         ));
         let transition = check_transition(
+            ActorKind::User,
             TaskStatus::Review,
             TaskStatus::Done,
             ROLE_CREATOR,
@@ -1421,6 +1518,7 @@ mod gate_tests {
         ));
         assert!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Review,
                 TaskStatus::Doing,
                 ROLE_ADMIN,
@@ -1457,6 +1555,7 @@ mod gate_tests {
         // 行为与 T2 逐条一致：这三种流转在审批中照样能推
         assert!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Todo,
                 TaskStatus::Doing,
                 ROLE_OWNER,
@@ -1469,6 +1568,7 @@ mod gate_tests {
         );
         assert!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Doing,
                 TaskStatus::Review,
                 ROLE_OWNER,
@@ -1482,6 +1582,7 @@ mod gate_tests {
         for from in [TaskStatus::Todo, TaskStatus::Doing, TaskStatus::Review] {
             assert!(
                 check_transition(
+                    ActorKind::User,
                     from,
                     TaskStatus::Cancelled,
                     ROLE_ADMIN,
@@ -1498,6 +1599,7 @@ mod gate_tests {
         // 白名单本身没动：非法组合仍是 IllegalPair（400/409 系，不是 65030）
         assert_eq!(
             check_transition(
+                ActorKind::User,
                 TaskStatus::Todo,
                 TaskStatus::Done,
                 ROLE_ADMIN,
@@ -1551,5 +1653,104 @@ mod gate_tests {
         ));
         assert!(!gate_applies(TaskStatus::Review, TaskStatus::Cancelled));
         assert!(gate_applies(TaskStatus::Review, TaskStatus::Done));
+    }
+}
+
+// ==================== 单元测试：流程回调放行（批次 D · D3b） ====================
+
+#[cfg(test)]
+mod callback_tests {
+    use super::*;
+
+    /// `Some` = 这张任务挂了审批单（与门闸测试用不同的 id，避免「碰巧相等」掩盖 bug）。
+    fn bill() -> Option<Uuid> {
+        Some(Uuid::from_u128(0xF10_0002))
+    }
+
+    #[test]
+    fn callback_bypasses_gate_on_review_to_done() {
+        // 审批单还 PENDING、操作人角色掩码 0（不是任何人的身份）——回调照样能推进
+        let transition = check_transition(
+            ActorKind::FlowCallback,
+            TaskStatus::Review,
+            TaskStatus::Done,
+            0,
+            true,
+            None,
+            bill(),
+            Some("PENDING"),
+        )
+        .expect("审批通过后流程回调必须能推 REVIEW → DONE");
+        assert_eq!(transition.to, TaskStatus::Done);
+        // 借的是表项的副作用：与人工验收同口径
+        assert_eq!(transition.progress, ProgressEffect::Force(100));
+        assert_eq!(transition.done_at, DoneAtEffect::SetNow);
+        assert_eq!(transition.label, "验收通过");
+    }
+
+    #[test]
+    fn callback_bypasses_role_and_reason_on_review_to_doing() {
+        // 驳回意见不足 5 字也不拦（审批意见自带语义，不该被人工打回的字数规则挡住）
+        let transition = check_transition(
+            ActorKind::FlowCallback,
+            TaskStatus::Review,
+            TaskStatus::Doing,
+            0,
+            true,
+            Some("不通过"),
+            bill(),
+            Some("PENDING"),
+        )
+        .expect("审批驳回后流程回调必须能推 REVIEW → DOING");
+        assert_eq!(transition.to, TaskStatus::Doing);
+        assert_eq!(transition.progress, ProgressEffect::Reset(10));
+        assert_eq!(transition.done_at, DoneAtEffect::Keep);
+        // 连原因都不给也能过（角色 / 附加条件全跳过）
+        assert!(callback_transition(TaskStatus::Review, TaskStatus::Doing).is_ok());
+    }
+
+    #[test]
+    fn callback_stays_inside_review() {
+        // 只有 REVIEW 的两条出边对回调开放，其余一律 IllegalPair（哪怕白名单允许）
+        for (from, to) in [
+            (TaskStatus::Todo, TaskStatus::Doing),
+            (TaskStatus::Doing, TaskStatus::Review),
+            (TaskStatus::Doing, TaskStatus::Done),
+            (TaskStatus::Done, TaskStatus::Doing),
+            (TaskStatus::Cancelled, TaskStatus::Todo),
+            (TaskStatus::Review, TaskStatus::Cancelled),
+            (TaskStatus::Review, TaskStatus::Review),
+        ] {
+            assert_eq!(
+                callback_transition(from, to).expect_err("回调只能在 REVIEW 态推两条出边"),
+                TransitionError::IllegalPair,
+                "{} → {} 不该对流程回调开放",
+                from.code(),
+                to.code()
+            );
+        }
+    }
+
+    #[test]
+    fn callback_identity_does_not_leak_into_user_path() {
+        // 同一组输入换成人类身份：门闸照旧（65030），说明放行只属于回调分支
+        assert_eq!(
+            check_transition(
+                ActorKind::User,
+                TaskStatus::Review,
+                TaskStatus::Done,
+                0,
+                true,
+                None,
+                bill(),
+                Some("PENDING"),
+            )
+            .expect_err("人类身份在审批中仍被拦"),
+            TransitionCheckError::ApprovalPending
+        );
+        assert!(!ActorKind::User.is_callback());
+        assert!(ActorKind::FlowCallback.is_callback());
+        // 白名单依旧 10 条（红线：TRANSITIONS 一行没动）
+        assert_eq!(TRANSITIONS.len(), 10);
     }
 }

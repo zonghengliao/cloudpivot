@@ -52,7 +52,9 @@
 //!
 //! # 与其它模块的边界
 //!
-//! - **不碰 `business/task/`**：任务侧的 `approval_instance_id` 与 `REVIEW→DONE` 闸门是 D3 的报批项。
+//! - **不碰 `business/task/`**（除 [`task_bridge`]）：任务侧的 `approval_instance_id` 与
+//!   `REVIEW→DONE` 闸门由 D3a 的门闸 + D3b 的 [`task_bridge`] 负责；本模块其余部分对任务表
+//!   零依赖，任务 ↔ 流程的全部耦合都收在那一个文件里。
 //! - **不碰 `business/aiagent/`**：AI 审批人是 D4 的解析逻辑（D18）。
 //! - **不碰 `shared/scope.rs`**：流程定义是全局配置，走权限码而不是数据范围（见 `model.rs` 的 SCOPE-EXEMPT）。
 
@@ -62,4 +64,5 @@ pub mod engine;
 pub mod graph;
 pub mod handler;
 pub mod model;
+pub mod task_bridge;
 pub mod timeout;
