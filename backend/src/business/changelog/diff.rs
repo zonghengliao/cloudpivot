@@ -148,14 +148,21 @@ pub const SYS_HELP_DOC: ResourceSpec = ResourceSpec {
 
 /// `biz_task`（工作任务，批次 C+ · T2 接入）。
 ///
-/// 白名单只收「状态机改的 5 个字段」：`status` / `progress` / `done_at` /
-/// `reject_reason` / `cancel_reason`。刻意**不含** `title` / `priority` / `owner_id`：
+/// 白名单口径：T2 的状态机 5 列 + **T3 的转派 3 列**。
 ///
-/// - T2 只记状态流转（`action = STATUS`），编辑类字段的留痕要等 T3 的转派/改派
-///   （那时「原来派给谁」才是关键信息）；
-/// - `updated_at` / `update_by` 是每次都会变的运行时列，进白名单等于把审计表变成访问日志
+/// | 列 | 谁写 | 为什么必须留痕 |
+/// |----|------|----------------|
+/// | `status` / `progress` / `done_at` / `reject_reason` / `cancel_reason` | T2 状态机 | 「谁把任务推到了哪一步」 |
+/// | `owner_id` | T3 分派 / 转派 | **「原来派给谁」是转派审计的核心**（责任链） |
+/// | `assigner_id` | T3 分派 / 转派 | 谁派的活（与「谁干的」分开） |
+/// | `source` | T3 转派 | `SELF → ASSIGNED → TRANSFERRED` 的来源演变 |
+///
+/// 刻意**不含**：
+/// - `updated_at` / `update_by`：每次都会变的运行时列，进白名单等于把审计表变成访问日志
 ///   （与 `SYS_USER` 排除 `last_login_at` 同一个理由）；
-/// - `description` 是 TEXT 大字段，状态流转时根本不会变，进白名单只会白占 `big` 摘要的计算。
+/// - `description`：TEXT 大字段，状态流转 / 转派时根本不会变，进白名单只会白占 `big` 摘要；
+/// - `title` / `priority`：T3 的编辑接口（`PUT /{id}`）属于「普通编辑」，等 T6 前端
+///   详情页一起定稿（避免本卡把白名单放开成「什么都能记」）。
 ///
 /// 登记之后 `biz_task` 的**任何** `record()` 调用都按这份白名单裁剪 ——
 /// 想把字段加进审计，改这里（这是刻意的摩擦）。
@@ -168,6 +175,9 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
         "done_at",
         "reject_reason",
         "cancel_reason",
+        "owner_id",
+        "assigner_id",
+        "source",
     ],
     big: &[],
 };

@@ -38,9 +38,26 @@
 //!     expire_at: None,
 //!     sender_id: None,
 //!     sender_name: Some("工作流引擎".into()),
+//!     force: true, // 强制送达（跳过 notify.inbox 偏好）；噪音型通知传 false
 //! })
 //! .await?;
 //! ```
+//!
+//! # 通知分级（修正 8）：`force`
+//!
+//! `force = true` 跳过收件人的 `notify.inbox` 偏好；`force = false` 让偏好生效
+//! （关掉站内信的人不会被扇出）。分级表（哪类事件强制、哪类尊重偏好）见
+//! `docs/云枢设计修正补丁-20261029.md` 修正 8，落地调用点见
+//! `business/task/handler.rs::notify_*`。
+//!
+//! 偏好过滤落在**扇出 SQL** 里（`fanout::respecting_preference` 的
+//! `NOT EXISTS (… p.pref_key = 'notify.inbox' …)` 子查询），不在 Rust 侧循环判断：
+//! 集合式扇出是模块铁律（§4.2 D8），5 万人的通知不能变成 5 万次往返。
+//!
+//! **范围说明**：本口径只作用于**立即发送**链路。定时通知（`scheduled_at` 未来）
+//! 在到点投递时由 [`scheduled`] 巡逻任务扇出，它读的是落库的 `target_type/target_ids`
+//! ，此刻没有 `force` 标记（要不要在 `sys_notice` 上加一列属于批次 A 的接口变更，
+//! 本卡不动）—— 定时通知维持「不过滤偏好」的历史行为。
 //!
 //! **重复调用天然幂等**：`uk_sys_notice_idem` 保证同一 `idempotency_key` 只落一条通知，
 //! 重放时返回 `duplicated = true` 与首次的 `notice_id`（不重复扇出、不重复推送）。
@@ -111,6 +128,17 @@ pub struct NoticeDraft {
     pub sender_id: Option<uuid::Uuid>,
     /// 发送人名称（展示用，如「工作流引擎」）。
     pub sender_name: Option<String>,
+    /// **是否强制送达**（修正 8 的通知分级开关）。
+    ///
+    /// - `true`：强制 —— 跳过 `notify.inbox` 偏好，收件人把站内信关掉也照发。
+    ///   用于「漏掉就直接造成损失」的四类事件：被分派任务 / 被打回 / 待你验收 /
+    ///   被加为协作人；
+    /// - `false`：尊重偏好 —— `notify.inbox = false` 的收件人**不落**
+    ///   `sys_notice_receiver`（通知主体仍落库，`receiver_count = 0`，这样
+    ///   「发过、但被偏好过滤掉」在审计里看得见，不是黑箱）。
+    ///
+    /// 缺省值见 [`NoticeDraft::text`]：`true`（保持 T3 之前所有调用方的行为不变）。
+    pub force: bool,
 }
 
 impl NoticeDraft {
@@ -121,6 +149,13 @@ impl NoticeDraft {
     /// - `notice_type` / `level`：类型与级别。
     /// - `title` / `content`：标题与正文。
     /// - `target`：发送目标。
+    ///
+    /// # `force` 缺省为 `true`（**刻意的向后兼容**）
+    ///
+    /// T3 之前所有调用方（公告扇出、系统通知、导入导出回执）都**不看**偏好开关。
+    /// 把缺省改成 `false` 会让「关掉站内信的人收不到全员公告」——那不是本卡的需求，
+    /// 是一次静默的行为变更。需要分级的调用方（如任务通知）显式赋值即可，见
+    /// [`NoticeDraft::with_force`]。
     pub fn text(
         notice_type: NoticeType,
         level: NoticeLevel,
@@ -146,7 +181,16 @@ impl NoticeDraft {
             scheduled_at: None,
             sender_id: None,
             sender_name: None,
+            force: true,
         }
+    }
+
+    /// 设置送达强度（`true` = 强制跳过 `notify.inbox` 偏好，`false` = 尊重偏好）。
+    ///
+    /// 链式写法：`NoticeDraft::text(..).with_force(false)`。
+    pub fn with_force(mut self, force: bool) -> Self {
+        self.force = force;
+        self
     }
 }
 
@@ -340,9 +384,15 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
         .map_err(DispatchError::Api)?;
 
     // ---------- 4. 扇出规模预演（超 5 万先拒，不先插再回滚） ----------
-    let planned = fanout::count_receivers(&draft.target)
-        .await
-        .map_err(DispatchError::Db)?;
+    // 偏好分流（修正 8）：`force = false` 时把关了 `notify.inbox` 的收件人整条剔除。
+    // 预算与扇出必须用**同一口径**，否则上限校验会失真（5.5 万的号段问题）。
+    let respect_preference = !draft.force;
+    let planned = if respect_preference {
+        fanout::count_receivers_respecting_preference(&draft.target).await
+    } else {
+        fanout::count_receivers(&draft.target).await
+    }
+    .map_err(DispatchError::Db)?;
     fanout::ensure_within_limit(planned)?;
 
     // ---------- 5. 通道配置（未配置 → SKIPPED，不报错） ----------
@@ -521,7 +571,11 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
                 })));
             }
 
-            let rows = fanout::fanout(&tx, &notice_id, &draft.target).await?;
+            let rows = if respect_preference {
+                fanout::fanout_respecting_preference(&tx, &notice_id, &draft.target).await?
+            } else {
+                fanout::fanout(&tx, &notice_id, &draft.target).await?
+            };
             let receiver_count = model::refresh_receiver_count(&ex, &notice_id).await?;
 
             // 通道投递（A6 抽到 delivery 模块）：站内信必投（DELIVERED），

@@ -66,6 +66,8 @@ fn _example_notice_dispatch_from_external_module() {
         scheduled_at: None,
         sender_id: None,
         sender_name: Some("工作流引擎".to_string()),
+        // 工作流待办属「阻塞流转」类事件 → 强制送达（修正 8）
+        force: true,
     };
 
     // 只构造 Future 不执行：证明签名可用，且不在编译期触发任何 IO

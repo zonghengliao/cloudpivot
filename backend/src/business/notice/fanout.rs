@@ -129,6 +129,48 @@ impl NoticeTarget {
     /// ——那是业务正确性故障（静默少数据），比权限问题更危险；收件范围的合法性由
     /// `NoticeTarget` 的入参校验 + `business:notice:create` 权限码控制。
     fn user_set_sql(&self) -> (String, Vec<Value>) {
+        self.base_user_set_sql()
+    }
+
+    /// 按 `force` 选取用户集合：`true` = 叠加站内信偏好过滤，`false` = 原样。
+    ///
+    /// `count` 与 `fanout` 都必须走这里，保证「预算人数」与「实际落库人数」同口径。
+    fn set_sql(&self, respect_preference: bool) -> (String, Vec<Value>) {
+        if respect_preference {
+            self.respecting_preference()
+        } else {
+            self.user_set_sql()
+        }
+    }
+
+    /// 剔除把 `notify.inbox` 关掉的用户（修正 8 的「尊重偏好」那一档）。
+    ///
+    /// # 为什么是一层 `NOT EXISTS` 而不是 Rust 侧过滤
+    ///
+    /// 扇出是集合式的（一条 `INSERT ... SELECT`，见模块文档的铁律）。拉回 Rust
+    /// 逐个判断再逐个插入，会把 5 万人的通知变成 5 万次往返；`NOT EXISTS` 让 PG
+    /// 一次算完，成本是每个候选用户一次 `sys_user_preference` 主键探测。
+    ///
+    /// # fail-open
+    ///
+    /// 用户没设过偏好 → 没有行 → `NOT EXISTS` 成立 → 照发。
+    /// 「多收一条」比「该知道的事没收到」便宜得多。
+    fn respecting_preference(&self) -> (String, Vec<Value>) {
+        let (body, params) = self.base_user_set_sql();
+        (
+            format!(
+                "SELECT u.user_id FROM ({body}) u \
+                 WHERE NOT EXISTS (SELECT 1 FROM sys_user_preference p \
+                                    WHERE p.user_id = u.user_id \
+                                      AND p.pref_key = 'notify.inbox' \
+                                      AND p.pref_value = 'false'::jsonb)"
+            ),
+            params,
+        )
+    }
+
+    /// 原始用户集合（不含偏好过滤）。
+    fn base_user_set_sql(&self) -> (String, Vec<Value>) {
         match self {
             NoticeTarget::User(_) => (
                 "SELECT u.id AS user_id FROM sys_user u \
@@ -175,8 +217,8 @@ impl NoticeTarget {
     }
 
     /// 扇出用的完整 `INSERT ... SELECT` 语句与参数（顺序：`notice_id` 在前）。
-    fn insert_sql(&self) -> (String, Vec<Value>) {
-        let (body, body_params) = self.user_set_sql();
+    fn insert_sql(&self, respect_preference: bool) -> (String, Vec<Value>) {
+        let (body, body_params) = self.set_sql(respect_preference);
         let sql = format!(
             "INSERT INTO sys_notice_receiver (notice_id, user_id) \
              SELECT ?::uuid, t.user_id FROM ({body}) t \
@@ -190,8 +232,8 @@ impl NoticeTarget {
     }
 
     /// 计数用的 `SELECT COUNT(*)` 语句与参数。
-    fn count_sql(&self) -> (String, Vec<Value>) {
-        let (body, params) = self.user_set_sql();
+    fn count_sql(&self, respect_preference: bool) -> (String, Vec<Value>) {
+        let (body, params) = self.set_sql(respect_preference);
         (format!("SELECT COUNT(*) FROM ({body}) t"), params)
     }
 }
@@ -210,7 +252,20 @@ impl NoticeTarget {
 ///
 /// 数据库异常返回 [`DbError`]。
 pub async fn count_receivers(target: &NoticeTarget) -> DbResult<i64> {
-    let (sql, params) = target.count_sql();
+    let (sql, params) = target.count_sql(false);
+    db().scalar_with_params(&sql, params).await
+}
+
+/// 预演命中人数，**剔除**关闭了 `notify.inbox` 的用户（`force = false` 的预算口径）。
+///
+/// 与 [`count_receivers`] 的差别只有一层偏好过滤；两者必须与各自的扇出函数配对使用，
+/// 否则「预算 100 人、实投 60 人」的计数校验会失真。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn count_receivers_respecting_preference(target: &NoticeTarget) -> DbResult<i64> {
+    let (sql, params) = target.count_sql(true);
     db().scalar_with_params(&sql, params).await
 }
 
@@ -234,7 +289,25 @@ pub async fn fanout(
     notice_id: &uuid::Uuid,
     target: &NoticeTarget,
 ) -> DbResult<u64> {
-    let (sql, mut params) = target.insert_sql();
+    let (sql, mut params) = target.insert_sql(false);
+    params[0] = Value::from(*notice_id);
+    tx.execute_with_params(&sql, params).await
+}
+
+/// 在事务内执行扇出，**剔除**关闭了 `notify.inbox` 的用户（`force = false` 的投递口径）。
+///
+/// 关掉站内信的人不会拿到 `sys_notice_receiver` 行 —— 这正是修正 8「非强制通知尊重
+/// 偏好」的实现点；通知主体（`sys_notice`）仍然落库，`receiver_count` 如实反映 0。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn fanout_respecting_preference(
+    tx: &Transaction,
+    notice_id: &uuid::Uuid,
+    target: &NoticeTarget,
+) -> DbResult<u64> {
+    let (sql, mut params) = target.insert_sql(true);
     params[0] = Value::from(*notice_id);
     tx.execute_with_params(&sql, params).await
 }
@@ -342,7 +415,7 @@ mod tests {
         let ids = uuids(1);
         for kind in ["USER", "ROLE", "DEPT", "ALL"] {
             let target = NoticeTarget::parse(kind, &ids).unwrap();
-            let (sql, params) = target.insert_sql();
+            let (sql, params) = target.insert_sql(false);
             assert!(
                 sql.starts_with("INSERT INTO sys_notice_receiver"),
                 "{kind} 必须是单条 INSERT ... SELECT"
@@ -354,16 +427,69 @@ mod tests {
         }
 
         let dept = NoticeTarget::parse("DEPT", &ids).unwrap();
-        let (sql, _) = dept.insert_sql();
+        let (sql, _) = dept.insert_sql(false);
         assert!(
             sql.contains("WITH RECURSIVE dept_tree"),
             "部门必须递归展开子树"
         );
 
         // 计数与扇出共用同一份用户集合口径（口径不一致会导致上限校验失真）
-        let (count_sql, params) = dept.count_sql();
+        let (count_sql, params) = dept.count_sql(false);
         assert!(count_sql.starts_with("SELECT COUNT(*) FROM (WITH RECURSIVE"));
         assert_eq!(params.len(), 1);
+    }
+
+    /// 偏好分级（修正 8）：`force = false` 才叠加 `notify.inbox` 过滤层。
+    ///
+    /// 四条目标的两种口径逐条断言，防止「改了一处漏了另一处」——
+    /// 漏掉偏好层 = 关掉站内信的人继续收到噪音（用例失败在用户侧，很难发现）；
+    /// 多加偏好层 = 强制通知被偏好静默吞掉（是**事故**，所以单独锁死）。
+    #[test]
+    fn preference_filter_only_when_not_forced() {
+        let ids = uuids(1);
+        for kind in ["USER", "ROLE", "DEPT", "ALL"] {
+            let target = NoticeTarget::parse(kind, &ids).unwrap();
+
+            // force = true（强制）：SQL 里**不许**出现偏好过滤
+            let (forced, _) = target.insert_sql(false);
+            assert!(
+                !forced.contains("sys_user_preference"),
+                "{kind} 的强制通知不得过滤偏好"
+            );
+            let (forced_count, _) = target.count_sql(false);
+            assert!(!forced_count.contains("sys_user_preference"));
+
+            // force = false（尊重偏好）：必须带 NOT EXISTS 偏好层，且仍是单条 INSERT ... SELECT
+            let (soft, _) = target.insert_sql(true);
+            assert!(
+                soft.contains("NOT EXISTS (SELECT 1 FROM sys_user_preference p"),
+                "{kind} 的尊重偏好路径必须带偏好过滤"
+            );
+            assert!(soft.contains("p.pref_key = 'notify.inbox'"));
+            assert!(soft.contains("p.pref_value = 'false'::jsonb"));
+            assert!(
+                soft.starts_with("INSERT INTO sys_notice_receiver"),
+                "{kind} 过滤偏好后仍必须是单条集合式插入"
+            );
+            assert!(soft.contains("ON CONFLICT (notice_id, user_id) DO NOTHING"));
+            let (soft_count, _) = target.count_sql(true);
+            assert!(soft_count.starts_with("SELECT COUNT(*) FROM ("));
+            assert!(soft_count.contains("sys_user_preference"));
+        }
+    }
+
+    /// 偏好层的包裹不改变参数个数（`notice_id` + 目标 ID 数组），否则绑参会错位。
+    #[test]
+    fn preference_layer_keeps_params() {
+        let ids = uuids(2);
+        for kind in ["USER", "ROLE", "DEPT"] {
+            let target = NoticeTarget::parse(kind, &ids).unwrap();
+            let (_, plain) = target.insert_sql(false);
+            let (_, filtered) = target.insert_sql(true);
+            assert_eq!(plain.len(), filtered.len(), "{kind} 参数个数必须一致");
+        }
+        let all = NoticeTarget::parse("ALL", &[]).unwrap();
+        assert_eq!(all.insert_sql(false).1.len(), all.insert_sql(true).1.len());
     }
 
     /// 超出 5 万上限 → 422 + 60027；等于上限是允许的。

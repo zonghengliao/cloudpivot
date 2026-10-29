@@ -1708,34 +1708,231 @@ async fn scalar_progress(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i16> {
     }
 }
 
-/// 用户是否开启站内信（`notify.inbox` 偏好，缺省 `true`）。
+// 说明（T3）：T2 在这里放过一个 `inbox_enabled(user_id)`（Rust 侧逐个判断偏好），
+// 已**删除**。理由：T3 加分派 / 协作人通知后，通知偏好会变成「任务通知看这一份、
+// 公告 / 系统通知看另一份」的双实现，迟早不一致（实测过的教训：两处实现 = 两个
+// 真相源）。现在偏好过滤**只有一处**：`business/notice` 的
+// `fanout::respecting_preference`，由 `notice::dispatch(draft.force = false)` 触发。
+// 要改偏好口径，改 `notice`；**不要在本文件加回本地过滤**。
+
+// ==================== 分派 / 转派 / 协作人（T3） ====================
+
+/// 分派 / 转派评论的类型（`biz_task_comment.comment_type`）。
 ///
-/// 通知分级（修正 8）：**强制**通知忽略本开关；普通通知尊重它。
+/// 与 `STATUS_CHANGE` / `PROGRESS_AUTO` 并列：前端时间线按类型画不同的行（分派是
+/// 「箭头 + 两个人的头像」，状态变更是「状态徽章前后对比」）。
+pub const COMMENT_TYPE_ASSIGN: &str = "ASSIGN";
+
+/// 转派写库的口径（**唯一**的负责人变更入口）。
 ///
-/// # 为什么读偏好失败时返回 `true`（fail-open）
+/// `WHERE owner_id = expected_owner` 是**乐观并发**：两个人同时转派同一条任务时，
+/// 后到的那次命中 0 行 → handler 回 409（`63018`）让调用者刷新。
+/// 不加这个条件的话，「原负责人自动变协作人」会记在读到旧值的那个错觉上
+/// （A 把任务从甲转给乙的同时 B 转给丙，最终丙是负责人、乙却是协作人）。
+pub const ASSIGN_OWNER_SQL: &str = "UPDATE biz_task \
+     SET owner_id = ?::uuid, dept_id = ?::uuid, assigner_id = ?::uuid, \
+         source = ?, updated_at = now(), update_by = ?::uuid \
+   WHERE id = ?::uuid AND owner_id = ?::uuid AND deleted_at IS NULL";
+
+/// 协作人批量入库的 SQL（**集合式**：一条 `INSERT ... SELECT`）。
 ///
-/// 这是「多收一条站内信」和「该知道的事没收到」之间的取舍：偏好表在、但读失败
-/// （缓存抖动 / 连接打满）时，静默丢掉通知的代价远大于多一条噪音。真正的
-/// fail-closed 场景（越权读数据）不在这条路径上。
+/// 铁律（notice 模块 §4.2 D8 同款）：一次加 N 个人只许一条语句，不许在 Rust 侧
+/// 循环单条 insert（50 人 = 50 次往返，且失败时留下半批数据）。
+/// `ON CONFLICT ... DO NOTHING` + `RETURNING user_id` 同时解决两件事：
+/// 幂等（重复添加不报错）与「本次真正新增了谁」（回执里的 `added`）。
+pub const MEMBERS_INSERT_SQL: &str = "INSERT INTO biz_task_member (task_id, user_id, role, created_at, create_by) \
+     SELECT ?::uuid, m.user_id, ?, now(), ?::uuid \
+       FROM (SELECT DISTINCT unnest(?::text::uuid[]) AS user_id) m \
+     ON CONFLICT (task_id, user_id) DO NOTHING \
+     RETURNING user_id";
+
+/// 账号类型（`sys_user.user_type`：`HUMAN` / `ROBOT`）；用户不存在 / 已软删 → `None`。
+///
+/// # 用途边界（红线）
+///
+/// 只用于**文案**与「两条硬拒」（AI 用户不能删任务）。
+/// 分派 / 协作人的准入判定**不许**看它 —— 修正 11 要求「默认不能、可按角色授予」，
+/// 在这里硬拒 `user_type` 会把「授予 AI 团队主管角色后就能分派」这条路彻底焊死。
 ///
 /// # 异常情况
 ///
-/// 不返回错误（数据库异常降级为 `true` 并记 WARN）。
-pub async fn inbox_enabled(user_id: Uuid) -> bool {
-    match crate::system::preference::model::load_values(db(), &user_id).await {
-        Ok(values) => values
-            .get("notify.inbox")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(true),
-        Err(error) => {
-            tracing::warn!(
-                user_id = %user_id,
-                error = %error,
-                "读取 notify.inbox 偏好失败，按开启处理"
-            );
-            true
-        }
+/// 数据库异常 → [`DbError`]。
+pub async fn user_type_of(user_id: Uuid) -> DbResult<Option<String>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT user_type FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&user_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => row.get_typed("user_type"),
+        None => Ok(None),
     }
+}
+
+/// 用户显示名（`real_name` 优先，回落 `username`）；不存在返回空串。
+///
+/// 只用于**通知文案 / 评论正文**（「分派：张三 → 李四」比一串 UUID 有用得多），
+/// 不参与任何判定。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn user_display_name(user_id: Uuid) -> DbResult<String> {
+    let rows = db()
+        .find_with_params(
+            "SELECT COALESCE(NULLIF(real_name, ''), username, '') AS name FROM sys_user \
+              WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&user_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => row.get_typed("name"),
+        None => Ok(String::new()),
+    }
+}
+
+/// 从一批 id 里筛出**有效用户**（未软删且 `status = 1`）的 id。
+///
+/// 一条查询解决「这批人里谁不能加」：比逐个 `user_exists` 少 N 次往返，也保证
+/// 判定口径只有一处（`deleted_at IS NULL AND status = 1`）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn valid_users(user_ids: &[Uuid]) -> DbResult<Vec<Uuid>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = db()
+        .find_with_params(
+            "SELECT u.id FROM sys_user u \
+              WHERE u.id = ANY(?::text::uuid[]) AND u.deleted_at IS NULL AND u.status = 1",
+            vec![ids_array_param(user_ids)],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in &rows {
+        ids.push(row.get_typed("id")?);
+    }
+    Ok(ids)
+}
+
+/// 负责人变更的入参（分派 / 转派共用；`dept_id` 是负责人部门的新快照）。
+#[derive(Debug, Clone)]
+pub struct OwnerChange {
+    /// 任务。
+    pub task_id: Uuid,
+    /// 新负责人。
+    pub owner_id: Uuid,
+    /// 新负责人的部门（部门看板按它过滤，所以必须跟着换）。
+    pub dept_id: Option<Uuid>,
+    /// 落库后的分派人。
+    pub assigner_id: Option<Uuid>,
+    /// 落库后的来源（转派 = `TRANSFERRED`）。
+    pub source: String,
+    /// 操作人（写 `update_by`）。
+    pub operator: Uuid,
+    /// 读到的旧负责人（乐观并发条件）。
+    pub expected_owner: Uuid,
+}
+
+/// 改负责人（分派 / 转派，见 [`ASSIGN_OWNER_SQL`]）。
+///
+/// # 返回值
+///
+/// 受影响行数：`0` = 任务已软删 **或** 负责人已被别人改掉（handler 回 409）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn assign_owner(ex: &Transaction, change: &OwnerChange) -> DbResult<u64> {
+    ex.execute_with_params(
+        ASSIGN_OWNER_SQL,
+        vec![
+            Value::from(&change.owner_id),
+            Value::from(change.dept_id.as_ref()),
+            Value::from(change.assigner_id.as_ref()),
+            Value::Text(change.source.clone()),
+            Value::from(&change.operator),
+            Value::from(&change.task_id),
+            Value::from(&change.expected_owner),
+        ],
+    )
+    .await
+}
+
+/// 任务现有协作人 id（按加入时间升序，与 [`list_members`] 同序）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn member_ids(task_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT user_id FROM biz_task_member WHERE task_id = ?::uuid \
+              ORDER BY created_at ASC, user_id ASC",
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in &rows {
+        ids.push(row.get_typed("user_id")?);
+    }
+    Ok(ids)
+}
+
+/// 批量加协作人（集合式，见 [`MEMBERS_INSERT_SQL`]）。
+///
+/// # 返回值
+///
+/// **本次真正新增**的 user_id（幂等命中的不在其中，用于回执里的 `added`）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn insert_members(
+    ex: &Transaction,
+    task_id: Uuid,
+    user_ids: &[Uuid],
+    operator: Uuid,
+) -> DbResult<Vec<Uuid>> {
+    if user_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let rows = ex
+        .query_sql(
+            MEMBERS_INSERT_SQL.to_string(),
+            vec![
+                Value::from(&task_id),
+                Value::Text("COLLABORATOR".to_string()),
+                Value::from(&operator),
+                ids_array_param(user_ids),
+            ],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len());
+    for row in &rows {
+        ids.push(row.get_typed("user_id")?);
+    }
+    Ok(ids)
+}
+
+/// 移除一个协作人。
+///
+/// # 返回值
+///
+/// 受影响行数（`0` = 该用户本来就不是协作人 → handler 回 404）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn remove_member(ex: &Transaction, task_id: Uuid, user_id: Uuid) -> DbResult<u64> {
+    ex.execute_with_params(
+        "DELETE FROM biz_task_member WHERE task_id = ?::uuid AND user_id = ?::uuid",
+        vec![Value::from(&task_id), Value::from(&user_id)],
+    )
+    .await
 }
 
 // ==================== 单元测试（纯逻辑） ====================
@@ -1746,6 +1943,67 @@ mod tests {
 
     fn date(y: i32, m: u32, d: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(y, m, d).expect("合法日期")
+    }
+
+    /// T3：负责人变更只许一条 SQL，且必须带**乐观并发**条件（否则并发转派会串味）。
+    #[test]
+    fn assign_owner_sql_is_guarded() {
+        assert!(
+            ASSIGN_OWNER_SQL.starts_with("UPDATE biz_task"),
+            "负责人变更只能是 biz_task 的单条 UPDATE"
+        );
+        assert_eq!(
+            ASSIGN_OWNER_SQL.matches("?::uuid").count(),
+            6,
+            "owner_id / dept_id / assigner_id / update_by / id / expected_owner 六个 uuid 参数"
+        );
+        assert!(
+            ASSIGN_OWNER_SQL.contains("AND owner_id = ?::uuid"),
+            "必须按读到的旧负责人做乐观并发（并发转派 → 0 行 → 409）"
+        );
+        assert!(
+            ASSIGN_OWNER_SQL.contains("deleted_at IS NULL"),
+            "已软删的任务不许被分派"
+        );
+        assert!(
+            ASSIGN_OWNER_SQL.contains("dept_id = ?::uuid"),
+            "部门快照要跟着换"
+        );
+        assert!(
+            ASSIGN_OWNER_SQL.contains("source = ?"),
+            "来源要能改成 TRANSFERRED"
+        );
+    }
+
+    /// T3：加协作人必须是**一条**集合式 INSERT（不许 N+1），且幂等 + 回吐新增行。
+    #[test]
+    fn members_insert_sql_is_set_based() {
+        assert_eq!(
+            MEMBERS_INSERT_SQL.matches("INSERT INTO").count(),
+            1,
+            "50 个人也必须只有一条 INSERT"
+        );
+        assert!(MEMBERS_INSERT_SQL.contains("unnest(?::text::uuid[])"));
+        assert!(MEMBERS_INSERT_SQL.contains("ON CONFLICT (task_id, user_id) DO NOTHING"));
+        assert!(
+            MEMBERS_INSERT_SQL.contains("RETURNING user_id"),
+            "要靠 RETURNING 区分「新增」与「本来就存在」"
+        );
+    }
+
+    /// T3：协作人 id 数组参数沿用 `{uuid,uuid}` 文本字面量（驱动不支持 uuid[] 直绑）。
+    #[test]
+    fn ids_array_param_is_pg_literal() {
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        match ids_array_param(&[a, b]) {
+            Value::Text(text) => assert_eq!(text, format!("{{{a},{b}}}")),
+            other => panic!("必须是文本字面量，实际 {other:?}"),
+        }
+        match ids_array_param(&[]) {
+            Value::Text(text) => assert_eq!(text, "{}"),
+            other => panic!("空集合必须是 {{}}，实际 {other:?}"),
+        }
     }
 
     #[test]

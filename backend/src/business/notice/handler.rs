@@ -124,6 +124,9 @@ pub async fn send(
         scheduled_at: req.scheduled_at,
         sender_id,
         sender_name: claims.username.clone(),
+        // 人工发送（管理端「发通知」接口）保持 T3 之前的行为：不看收件人偏好。
+        // 分级只对**业务事件**（任务分派 / 打回等）有意义，人工公告不在此列。
+        force: true,
     };
 
     let result = dispatch(draft).await.map_err(|error| error.into_api())?;

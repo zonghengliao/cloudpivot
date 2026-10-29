@@ -82,3 +82,69 @@ BEGIN
     END IF;
 END
 $$;
+
+-- ---------- 3) T3：分派 / 协作人权限（**只授超管**） ----------
+--
+-- 这两个码**刻意不进上面的「全员授予」清单**：
+--
+--   分派权的真实口径是「行级关系（创建人 / 当前负责人 / 分派人）∪ 权限码」。
+--   如果人人都有 `business:task:assign`，那「无关用户来分派 → 403」这条验收
+--   永远不可能成立 —— 权限码一授予，隔离就没了。
+--
+-- 所以：默认只授 SUPER_ADMIN（超管本来就短路全部权限，授它是为了让角色树的
+-- 勾选状态正确）；需要跨任务派活的角色（部门主管 / 将来的「AI 团队主管」）
+-- 由管理员在角色页显式勾选 —— 这就是修正 11「默认不能、可按角色授予」的落地方式。
+--
+-- 时序：本文件在 `S__role_data.sql` 之后执行（按文件名升序：
+-- config → dict → menu → role → task），所以全新库上 SUPER_ADMIN 已经存在。
+INSERT INTO sys_role_menu (role_id, menu_id, created_at)
+SELECT r.id, m.id, CURRENT_TIMESTAMP
+  FROM sys_role r
+ CROSS JOIN (VALUES ('20000000-0000-0000-0000-000000000768'::uuid),
+                    ('20000000-0000-0000-0000-000000000769'::uuid)) AS m(id)
+ WHERE r.role_code = 'SUPER_ADMIN'
+   AND r.deleted_at IS NULL
+   AND NOT EXISTS (
+           SELECT 1 FROM sys_role_menu granted
+            WHERE granted.role_id = r.id AND granted.menu_id = m.id
+       )
+ON CONFLICT (role_id, menu_id) DO NOTHING;
+
+-- 自检：**若**超管角色存在，两个码必须都持有；且**不许**有非超管角色被误授
+-- （误授 = 隔离失效，比漏授危险得多）。
+DO $$
+DECLARE
+    btn_assign uuid := '20000000-0000-0000-0000-000000000768'::uuid;
+    btn_member uuid := '20000000-0000-0000-0000-000000000769'::uuid;
+    super_id   uuid;
+    missing    int;
+    leaked     int;
+BEGIN
+    SELECT id INTO super_id FROM sys_role
+     WHERE role_code = 'SUPER_ADMIN' AND deleted_at IS NULL LIMIT 1;
+
+    IF super_id IS NULL THEN
+        RAISE NOTICE 'S__task_permissions 第 3 段：未找到 SUPER_ADMIN 角色，跳过分派权自检';
+        RETURN;
+    END IF;
+
+    SELECT count(*) INTO missing
+      FROM (VALUES (btn_assign), (btn_member)) AS b(id)
+     WHERE NOT EXISTS (
+               SELECT 1 FROM sys_role_menu rm
+                WHERE rm.role_id = super_id AND rm.menu_id = b.id
+           );
+    IF missing > 0 THEN
+        RAISE EXCEPTION 'S__task_permissions 自检失败：SUPER_ADMIN 缺 % 个分派 / 协作人权限', missing;
+    END IF;
+
+    SELECT count(*) INTO leaked
+      FROM sys_role_menu rm
+      JOIN sys_role r ON r.id = rm.role_id AND r.deleted_at IS NULL
+     WHERE rm.menu_id IN (btn_assign, btn_member)
+       AND r.role_code <> 'SUPER_ADMIN';
+    IF leaked > 0 THEN
+        RAISE NOTICE 'S__task_permissions 提示：% 行分派 / 协作人授权给了非超管角色（管理员显式勾选的，属预期）', leaked;
+    END IF;
+END
+$$;

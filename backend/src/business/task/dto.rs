@@ -62,6 +62,28 @@ pub const SOURCE_SELF: &str = "SELF";
 /// 来源：被分派。
 pub const SOURCE_ASSIGNED: &str = "ASSIGNED";
 
+/// 来源：被转派（T3：把已有任务改派给别人）。
+pub const SOURCE_TRANSFERRED: &str = "TRANSFERRED";
+
+/// 协作人角色（`biz_task_member.role`）：协作人 / 关注者两档中的协作人。
+pub const MEMBER_ROLE_COLLABORATOR: &str = "COLLABORATOR";
+
+/// 单任务协作人上限（T3 硬上限，`biz_task_member` 行数）。
+///
+/// 50 是一个**滥用防线**而不是业务规则：协作人直接进可见性 id 数组，人数越多
+/// 「我参与」数组越大（决策 D7 的 2000 上限就是这个放大链的终点）。
+pub const MAX_MEMBERS_PER_TASK: i64 = 50;
+
+/// 权限码：分派 / 转派（V0109 建的菜单节点 `…0768`）。
+///
+/// **它不走中间件硬校验**，而是 handler 里的「加项」：创建人 / 当前负责人 / 分派人
+/// 这三类**行级关系**天然可派，权限码只解决「管理员 / AI 主管要能跨任务派活」。
+/// 若把它写成 `#[alun::permission(...)]`，创建人（没有这个码）会被中间件挡在门外。
+pub const PERM_ASSIGN: &str = "business:task:assign";
+
+/// 权限码：管理协作人（V0109 建的菜单节点 `…0769`），语义同 [`PERM_ASSIGN`]。
+pub const PERM_MEMBER: &str = "business:task:member";
+
 /// 校验优先级取值。
 ///
 /// # 异常情况
@@ -574,6 +596,95 @@ pub struct TaskSubtaskListRes {
     pub total: i64,
     /// 子任务列表（**已按调用者可见性过滤**）。
     pub list: Vec<TaskCardRes>,
+}
+
+// ==================== 分派 / 协作人（T3） ====================
+
+/// 分派 / 转派（`PATCH /business/task/{id}/assign`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskAssignReq {
+    /// 新负责人（`sys_user.id`，必填）。
+    ///
+    /// 会被校验为**有效用户**：存在、未软删、`status = 1`；否则 `400 + 63009`。
+    /// `ROBOT` 账号**可以**被分派（AI 是执行者，被派活是它的本职）。
+    pub owner_id: String,
+    /// 转派原因（可空，≤ 500 字）。会拼进 `ASSIGN` 评论正文。
+    pub reason: Option<String>,
+}
+
+/// 分派 / 转派回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskAssignRes {
+    /// 任务 ID。
+    pub id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 新负责人 ID。
+    pub owner_id: String,
+    /// 原负责人 ID（前端可直接用来提示「已从 X 转给 Y」）。
+    pub previous_owner_id: String,
+    /// 落库后的分派人（操作人非创建人时 = 操作人）。
+    pub assigner_id: Option<String>,
+    /// 落库后的来源（转派恒为 `TRANSFERRED`）。
+    pub source: String,
+    /// 原负责人是否被**自动加为协作人**（分派给他人时恒 `true`）。
+    pub auto_member: bool,
+    /// 写入的 `ASSIGN` 评论 ID（详情页时间线用它定位这条记录）。
+    pub comment_id: String,
+    /// 实际收到**强制通知**的人（已剔除操作人自己；通知失败时为空，业务仍成功）。
+    pub notified: Vec<String>,
+}
+
+/// 加协作人（`POST /business/task/{id}/members`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskMemberAddReq {
+    /// 用户 ID 列表（去重后使用；空列表 → 400）。
+    pub user_ids: Vec<String>,
+}
+
+/// 协作人列表（`GET /business/task/{id}/members`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskMembersRes {
+    /// 任务 ID。
+    pub task_id: String,
+    /// 协作人列表（按加入时间升序）。
+    pub list: Vec<TaskMemberRes>,
+    /// 协作人总数。
+    pub total: i64,
+    /// 单任务上限（前端据此隐藏「再加一个」按钮）。
+    pub limit: i64,
+}
+
+/// 加协作人回执（三份名单分开，前端可以分别提示）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskMemberAddRes {
+    /// 任务 ID。
+    pub task_id: String,
+    /// 本次**新增**的用户 ID（幂等：已存在的不在这里）。
+    pub added: Vec<String>,
+    /// 本来就已经是协作人的用户 ID（幂等命中，不报错）。
+    pub existing: Vec<String>,
+    /// 被跳过的用户 ID：创建人 / 负责人（他们本来就能看，不落协作人行）。
+    pub skipped: Vec<String>,
+    /// 加完之后的完整列表。
+    pub list: Vec<TaskMemberRes>,
+    /// 加完之后的协作人总数。
+    pub total: i64,
+    /// 单任务上限。
+    pub limit: i64,
+}
+
+/// 移除协作人回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskMemberRemoveRes {
+    /// 任务 ID。
+    pub task_id: String,
+    /// 被移除的用户 ID。
+    pub user_id: String,
+    /// 是否真的删掉了一行（`false` 不会出现：不是协作人一律 404）。
+    pub removed: bool,
+    /// 移除之后的协作人总数。
+    pub total: i64,
 }
 
 // ==================== 单元测试（纯逻辑，不连库） ====================

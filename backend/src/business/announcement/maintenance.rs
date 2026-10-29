@@ -284,6 +284,10 @@ pub async fn dispatch_announcement(
         } else {
             row.publisher_name.clone()
         }),
+        // 公告是**正式发布物**，批次 A/C 的历史口径一直不看 `notify.inbox`。
+        // 本卡（T3）只给任务域定级，**不动公告口径** —— 改它属于产品决策，
+        // 要改请单独提卡（并同步 PRD 的公告章节）。
+        force: true,
     };
     notice::dispatch(draft).await
 }

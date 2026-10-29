@@ -483,6 +483,44 @@ pub const TASK_PROGRESS_LOCKED: i32 = 63012;
 /// 打回（`REVIEW → DOING`）必须填写原因，且不少于 5 个字（HTTP 400）。
 pub const TASK_REJECT_REASON_REQUIRED: i32 = 63013;
 
+// ── T3 追加（63014–63020）：分派 / 转派 / 协作人 ─────────────────────────
+
+/// 单任务协作人超过上限（50 人）（HTTP 400）。
+///
+/// 上限是**防滥用**而不是业务规则：协作人越多，可见性 id 数组与通知扇出越贵
+/// （决策 D7 的 2000 上限就是从这类放大效应来的）。要更多人协作就拆子任务。
+pub const TASK_MEMBER_LIMIT: i32 = 63014;
+
+/// 不许把任务的创建人 / 负责人从协作人里移除（HTTP 400）。
+///
+/// 他们是任务的天然可见方（可见性谓词的前两个分支），移除协作人行并不能
+/// 「让他看不见」，只会让列表少一个人 —— 这类操作要么无意义要么是误操作。
+pub const TASK_MEMBER_PROTECTED: i32 = 63015;
+
+/// AI 用户（`user_type = 'ROBOT'`）被硬禁止的操作（HTTP 403）。
+///
+/// **只用于删任务**：修正 11 要求「删任务、改数据权限」两条保持硬拒，而
+/// **分派 / 转派不许硬拒**（要能按角色授予，见 [`TASK_FORBIDDEN`] 的说明）。
+pub const TASK_ROBOT_FORBIDDEN: i32 = 63016;
+
+/// 新负责人与当前负责人相同（HTTP 400）。
+///
+/// 静默成功会让调用方以为「转派成功了」，实际什么都没发生（也没有通知）；
+/// 报错比「什么都没做却返回 200」诚实。
+pub const TASK_ASSIGN_SAME_OWNER: i32 = 63017;
+
+/// 分派时任务负责人已被他人改动（HTTP 409）。
+///
+/// 分派带乐观并发（`WHERE owner_id = 读到的旧值`）：两个人同时转派，
+/// 后到的那次必须失败并提示刷新，否则「原负责人自动成为协作人」会记在错的人身上。
+pub const TASK_ASSIGN_CONFLICT: i32 = 63018;
+
+/// 协作人里有不存在 / 已删除 / 已停用的用户（HTTP 400）。
+pub const TASK_MEMBER_INVALID: i32 = 63019;
+
+/// 该用户不是本任务的协作人（HTTP 404）。
+pub const TASK_MEMBER_NOT_FOUND: i32 = 63020;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
@@ -627,7 +665,7 @@ mod tests {
         );
     }
 
-    /// T 段码位自检：63xxx 段 13 个码齐全、码值不重复、与 62xxx 段不重叠。
+    /// T 段码位自检：63xxx 段 20 个码齐全、码值不重复、与 62xxx 段不重叠。
     ///
     /// 与另外两条同性质：**码值一旦发给前端就不能改**（`error-code.ts` 的文案映射
     /// 按码值命中）。新增 T 段错误时只许顺延 63014+，不许改已有值。
@@ -648,6 +686,14 @@ mod tests {
             (TASK_STATUS_FORBIDDEN, 63011),
             (TASK_PROGRESS_LOCKED, 63012),
             (TASK_REJECT_REASON_REQUIRED, 63013),
+            // T3 追加：分派 / 转派 / 协作人
+            (TASK_MEMBER_LIMIT, 63014),
+            (TASK_MEMBER_PROTECTED, 63015),
+            (TASK_ROBOT_FORBIDDEN, 63016),
+            (TASK_ASSIGN_SAME_OWNER, 63017),
+            (TASK_ASSIGN_CONFLICT, 63018),
+            (TASK_MEMBER_INVALID, 63019),
+            (TASK_MEMBER_NOT_FOUND, 63020),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "63xxx 段码值不得改动");
@@ -657,7 +703,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63013）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020）✓",
             codes.len()
         );
     }
