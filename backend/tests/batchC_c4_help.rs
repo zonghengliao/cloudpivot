@@ -294,7 +294,9 @@ async fn h03_slug_unique_and_format() {
     }
 
     // 软删后同一 slug 可复用（部分唯一索引 WHERE deleted_at IS NULL）
-    let first = model::find_doc_by_slug(&format!("{TAG}doc-h03")).await.unwrap();
+    let first = model::find_doc_by_slug(&format!("{TAG}doc-h03"))
+        .await
+        .unwrap();
     let first = first.expect("应能按 slug 找到");
     model::delete_doc(&first.id).await.expect("软删");
     let reused = make_doc(cat.id, "h03", "## 复用\n\n同 slug 重建").await;
@@ -398,7 +400,7 @@ async fn h06_rollback_creates_new_version() {
             &doc.id,
             &DocInput {
                 category_id: cat.id,
-                title: format!("C4 文档 h06"),
+                title: "C4 文档 h06".to_string(),
                 slug: format!("{TAG}doc-h06"),
                 summary: None,
                 content_md: format!("## 第 {round} 版\n\n内容 V{round}"),
@@ -513,7 +515,9 @@ async fn h08_search_escapes_wildcards() {
     let percent = make_doc(cat.id, "h08-percent", "## 折扣\n\n满 100% 返现说明").await;
     model::publish_doc(&percent.id, None, None).await.unwrap();
     let underscore = make_doc(cat.id, "h08-underscore", "## 命名\n\n变量 a_b 的含义").await;
-    model::publish_doc(&underscore.id, None, None).await.unwrap();
+    model::publish_doc(&underscore.id, None, None)
+        .await
+        .unwrap();
     let plain = make_doc(cat.id, "h08-plain", "## 无关\n\n这里没有任何通配符").await;
     model::publish_doc(&plain.id, None, None).await.unwrap();
 
@@ -564,8 +568,11 @@ async fn h08_search_escapes_wildcards() {
     )
     .await
     .expect("搜 a_b 不能报错");
-    let underscore_slugs: Vec<String> =
-        underscore_hits.list.iter().map(|r| r.slug.clone()).collect();
+    let underscore_slugs: Vec<String> = underscore_hits
+        .list
+        .iter()
+        .map(|r| r.slug.clone())
+        .collect();
     assert_eq!(
         underscore_slugs,
         vec![format!("{TAG}doc-h08-underscore")],
@@ -696,7 +703,11 @@ async fn h10_h11_h12_snippet_and_toc() {
     }
     collect(toc, &mut ids);
     let unique: std::collections::BTreeSet<&String> = ids.iter().collect();
-    assert_eq!(unique.len(), ids.len(), "H-12：同名标题的 id 不能重复：{ids:?}");
+    assert_eq!(
+        unique.len(),
+        ids.len(),
+        "H-12：同名标题的 id 不能重复：{ids:?}"
+    );
     for id in &ids {
         assert!(
             rendered.content_html.contains(&format!("id=\"{id}\"")),
@@ -777,7 +788,10 @@ async fn search_performance_2000_docs() {
         );
         assert_eq!(hits.list.len(), 20, "分页大小应为 20");
     }
-    assert!(worst < 100, "2000 篇检索最坏耗时应 < 100 ms，实测 {worst} ms");
+    assert!(
+        worst < 100,
+        "2000 篇检索最坏耗时应 < 100 ms，实测 {worst} ms"
+    );
     println!("[PASS] 检索性能：2000 篇最坏 {worst} ms（阈值 100 ms）");
     cleanup().await;
 }
