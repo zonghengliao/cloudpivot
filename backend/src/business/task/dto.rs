@@ -141,6 +141,10 @@ pub struct TaskPageQuery {
     pub priority: Option<String>,
     /// 负责人过滤（用户 UUID）。
     pub owner_id: Option<String>,
+    /// 项目过滤（`biz_task.project_id`；T7c 项目分组）。
+    ///
+    /// 只是**过滤条件**，不改变可见性 —— 可见性恒为 `数据范围 ∪ 参与关系`。
+    pub project_id: Option<String>,
     /// 截止日下界（含）。
     pub due_from: Option<NaiveDate>,
     /// 截止日上界（含）。
@@ -285,6 +289,12 @@ pub struct TaskCardRes {
     pub due_date: Option<NaiveDate>,
     /// 子任务数（未软删）。
     pub child_count: i64,
+    /// 所属项目 ID（T7c；`null` = 未归入项目）。
+    pub project_id: Option<String>,
+    /// 项目编码（空串 = 无项目 / 项目已删）。
+    pub project_code: String,
+    /// 项目名称（空串 = 无项目 / 项目已删）。
+    pub project_name: String,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 最后更新时间。
@@ -469,8 +479,6 @@ pub struct TaskDetailRes {
     pub parent_id: Option<String>,
     /// 父任务编号（面包屑用）。
     pub parent_task_no: Option<String>,
-    /// 所属项目 ID。
-    pub project_id: Option<String>,
     /// 完成时间。
     pub done_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 预估工时。

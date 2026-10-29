@@ -92,6 +92,15 @@
               <dd>{{ detail.dept_name || '—' }}</dd>
             </div>
             <div class="info__item">
+              <dt>所属项目</dt>
+              <dd>
+                <t-link v-if="detail.project_id" theme="primary" @click="openProject">
+                  {{ detail.project_name || detail.project_code || '未命名项目' }}
+                </t-link>
+                <span v-else>—</span>
+              </dd>
+            </div>
+            <div class="info__item">
               <dt>计划开始</dt>
               <dd>{{ detail.start_date || '—' }}</dd>
             </div>
@@ -347,6 +356,7 @@
  * 不渲染删除按钮：**权限判定只有后端一份**，前端不按 `comment_type` 自己推导。
  */
 import { computed, reactive, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
@@ -383,6 +393,9 @@ const props = defineProps<{
   /** 要展示的任务 id */
   taskId?: string | null;
 }>();
+
+/** 路由（点「所属项目」跳项目页用） */
+const router = useRouter();
 
 const emit = defineEmits<{
   /** 可见性变化 */
@@ -425,6 +438,19 @@ const isOverdue = computed(() => {
 function sourceLabel(source: string): string {
   const map: Record<string, string> = { SELF: '自建', ASSIGNED: '被分派', TRANSFERRED: '转派' };
   return map[source] ?? source;
+}
+
+/**
+ * 点「所属项目」→ 跳项目页并直接打开该项目详情（T7c）。
+ *
+ * 项目页支持 `?id=` 自动展开详情抽屉，所以这里只 push 一个 query。
+ * 后端对「我在该项目下有任务」的用户放开了项目壳的可见性，这条链接不会 404。
+ */
+function openProject(): void {
+  if (!detail.value?.project_id) {
+    return;
+  }
+  void router.push({ path: '/project', query: { id: detail.value.project_id } });
 }
 
 /** 工时展示：null → 未估 */

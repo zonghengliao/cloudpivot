@@ -335,6 +335,12 @@ pub struct TaskCardRow {
     pub due_date: Option<NaiveDate>,
     /// 子任务数。
     pub child_count: i64,
+    /// 所属项目（T7c：可空，`None` = 未归入任何项目）。
+    pub project_id: Option<Uuid>,
+    /// 项目编码（空串 = 无项目，或项目已被软删）。
+    pub project_code: String,
+    /// 项目名称（空串 = 无项目，或项目已被软删）。
+    pub project_name: String,
     /// 创建时间。
     pub created_at: chrono::DateTime<Utc>,
     /// 更新时间。
@@ -363,6 +369,9 @@ impl TaskCardRow {
             start_date: row.get_typed("start_date")?,
             due_date: row.get_typed("due_date")?,
             child_count: row.get_typed("child_count")?,
+            project_id: row.get_typed("project_id")?,
+            project_code: row.get_typed("project_code")?,
+            project_name: row.get_typed("project_name")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -457,11 +466,19 @@ const CARD_COLUMNS: &str = "\
     t.id, t.task_no, t.title, t.status, t.priority, t.progress, t.need_review, \
     t.owner_id, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS owner_name, \
     t.dept_id, t.source, t.start_date, t.due_date, t.created_at, t.updated_at, \
-    (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL) AS child_count";
+    (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL) AS child_count, \
+    t.project_id, COALESCE(pj.project_no, '') AS project_code, \
+    COALESCE(pj.project_name, '') AS project_name";
 
 /// 任务卡 FROM 子句（负责人姓名来自 `sys_user`：SELECT 里没有部门类过滤，
 /// 数据权限片段只锚定 `t`，见 §2.6 规则 1）。
-const CARD_FROM: &str = " FROM biz_task t LEFT JOIN sys_user u ON u.id = t.owner_id ";
+///
+/// `biz_project` 的 JOIN 是 **T7c 追加的展示字段**（任务列表的「项目」列 / 详情抽屉的
+/// 项目名）：`LEFT JOIN` + `deleted_at IS NULL` 保证项目被删后任务仍在列表里（`project_id`
+/// 仍指向软删行 —— 由 T7c 的删除流程置空，这里再兜一层，历史脏数据也不会让任务消失）。
+const CARD_FROM: &str = " FROM biz_task t \
+     LEFT JOIN sys_user u ON u.id = t.owner_id \
+     LEFT JOIN biz_project pj ON pj.id = t.project_id AND pj.deleted_at IS NULL ";
 
 /// 分页业务过滤条件构造：返回 SQL 片段，并把参数按**文本顺序**追加进 `params`。
 ///
@@ -480,6 +497,12 @@ fn build_filters(filter: &TaskFilter, params: &mut Vec<Value>) -> String {
     if let Some(owner_id) = filter.owner_id {
         sql.push_str(" AND t.owner_id = ?::uuid");
         params.push(Value::from(&owner_id));
+    }
+    if let Some(project_id) = filter.project_id {
+        // T7c：项目分组筛选。**只做过滤，不做可见性** —— 可见性由 VISIBLE_OR_TAIL 决定，
+        // 因此「按项目筛选」永远不会绕过 T1（项目不是权限边界）。
+        sql.push_str(" AND t.project_id = ?::uuid");
+        params.push(Value::from(&project_id));
     }
     if let Some(from) = filter.due_from {
         sql.push_str(" AND t.due_date >= ?::date");
@@ -514,6 +537,8 @@ pub struct TaskFilter {
     pub priority: Option<String>,
     /// 负责人。
     pub owner_id: Option<Uuid>,
+    /// 所属项目（T7c：项目分组筛选；项目下任务列表也用它，**但可见性仍走 VISIBLE_OR_TAIL**）。
+    pub project_id: Option<Uuid>,
     /// 截止日下界（含）。
     pub due_from: Option<NaiveDate>,
     /// 截止日上界（含）。
@@ -902,7 +927,9 @@ pub async fn find_raw(id: Uuid) -> DbResult<Option<TaskDetailRow>> {
                     t.assigner_id, \
                     COALESCE(NULLIF(au.real_name, ''), au.username, '') AS assigner_name, \
                     COALESCE(d.dept_name, '') AS dept_name, \
-                    t.parent_id, pt.task_no AS parent_task_no, t.project_id, t.done_at, \
+                    t.parent_id, pt.task_no AS parent_task_no, t.project_id, \
+                    COALESCE(pj.project_no, '') AS project_code, \
+                    COALESCE(pj.project_name, '') AS project_name, t.done_at, \
                     t.estimate_hours::float8 AS estimate_hours, \
                     t.actual_hours::float8 AS actual_hours, \
                     t.cancel_reason, t.reject_reason, t.approval_instance_id, \
@@ -914,6 +941,7 @@ pub async fn find_raw(id: Uuid) -> DbResult<Option<TaskDetailRow>> {
                LEFT JOIN sys_user au ON au.id = t.assigner_id \
                LEFT JOIN sys_dept d ON d.id = t.dept_id \
                LEFT JOIN biz_task pt ON pt.id = t.parent_id \
+               LEFT JOIN biz_project pj ON pj.id = t.project_id AND pj.deleted_at IS NULL \
               WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
             vec![Value::from(&id)],
         )

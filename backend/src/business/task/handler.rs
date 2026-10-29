@@ -183,6 +183,10 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
         None | Some("") => None,
         Some(raw) => Some(parse_uuid_field(raw, "负责人")?),
     };
+    let project_id = match query.project_id.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(raw) => Some(parse_uuid_field(raw, "项目")?),
+    };
     if let (Some(from), Some(to)) = (query.due_from, query.due_to)
         && from > to
     {
@@ -194,10 +198,33 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
         status,
         priority,
         owner_id,
+        project_id,
         due_from: query.due_from,
         due_to: query.due_to,
         keyword: query.normalized_keyword(),
     })
+}
+
+/// 把任务分页查询参数归一化成 [`TaskFilter`]（**供项目模块复用**）。
+///
+/// 项目下任务列表（`GET /business/project/{id}/tasks`）必须与任务页**同一套过滤口径**，
+/// 否则「项目里没有这条任务」与「筛选条件不同」会混在一起，排查成本极高。
+/// 项目模块只在本函数的结果上覆盖 `project_id` 一个字段。
+pub(crate) fn build_task_filter(
+    query: &TaskPageQuery,
+) -> std::result::Result<TaskFilter, ApiError> {
+    build_filter(query)
+}
+
+/// 把可见性分页结果包装成出参（**供项目模块复用同一个出参形状**）。
+pub(crate) fn page_res(result: &model::VisiblePage) -> TaskPageRes {
+    TaskPageRes {
+        list: result.list.iter().map(card_res).collect(),
+        total: result.total,
+        page: result.page,
+        page_size: result.size,
+        member_scope_truncated: result.member_scope_truncated,
+    }
 }
 
 // ==================== 创建 ====================
@@ -610,7 +637,6 @@ pub async fn detail(
         dept_name: row.dept_name.clone(),
         parent_id: row.parent_id.map(|id| id.to_string()),
         parent_task_no: row.parent_task_no.clone(),
-        project_id: row.project_id.map(|id| id.to_string()),
         done_at: row.done_at,
         estimate_hours: row.estimate_hours,
         actual_hours: row.actual_hours,
@@ -2504,6 +2530,9 @@ fn card_res(row: &TaskCardRow) -> TaskCardRes {
         start_date: row.start_date,
         due_date: row.due_date,
         child_count: row.child_count,
+        project_id: row.project_id.map(|id| id.to_string()),
+        project_code: row.project_code.clone(),
+        project_name: row.project_name.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
     }

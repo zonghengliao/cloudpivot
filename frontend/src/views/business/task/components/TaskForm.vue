@@ -56,6 +56,18 @@
               />
             </t-form-item>
           </t-col>
+          <t-col :span="6">
+            <t-form-item label="所属项目" name="project_id">
+              <t-select
+                v-model="projectProxy"
+                :options="projectOptions"
+                :loading="projectLoading"
+                placeholder="可不选（移出项目）"
+                clearable
+                filterable
+              />
+            </t-form-item>
+          </t-col>
           <t-col :span="12">
             <t-form-item label="需要验收" name="need_review">
               <t-switch v-model="form.need_review" />
@@ -85,6 +97,7 @@ import dayjs from 'dayjs';
 import UserSelect from './UserSelect.vue';
 import { ApiError } from '@/api/request';
 import { createTask, getTask, updateTask, type TaskCreateReq, type TaskUpdateReq } from '@/api/business/task-api';
+import { pageProjects } from '@/api/business/project-api';
 import { priorityOptions } from '@/constants/status-map';
 
 const props = defineProps<{
@@ -117,10 +130,39 @@ interface TaskFormModel {
   estimate_hours: number | null;
   /** 是否需验收 */
   need_review: boolean;
+  /** 所属项目 id（T7c；null = 不归入项目） */
+  project_id: string | null;
 }
 
 /** 优先级选项（P0 最高 → P3 最低，文案来自 status-map） */
 const priorityOpts = priorityOptions();
+
+/** 项目下拉选项（打开表单时拉一次；项目数量不大，一次取 200 条足够） */
+const projectOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 项目下拉加载中 */
+const projectLoading = ref(false);
+
+/**
+ * 拉项目下拉选项。
+ *
+ * 只显示**归档项目也包含**：历史任务可能还挂在已归档项目上，编辑时若下拉里没有它，
+ * t-select 会显示成裸 id（看起来像 bug）。项目页负责展示「已归档」标签。
+ */
+async function loadProjectOptions(): Promise<void> {
+  projectLoading.value = true;
+  try {
+    const data = await pageProjects({ page: 1, page_size: 200 });
+    projectOptions.value = data.list.map((item) => ({
+      label: `${item.code} ${item.name}`,
+      value: item.id,
+    }));
+  } catch {
+    // 拉不到项目选项不该挡住建任务：任务可以不归入项目
+    projectOptions.value = [];
+  } finally {
+    projectLoading.value = false;
+  }
+}
 
 /** 表单实例 */
 const formRef = ref();
@@ -139,6 +181,7 @@ function emptyForm(): TaskFormModel {
     due_date: '',
     estimate_hours: null,
     need_review: false,
+    project_id: null,
   };
 }
 
@@ -158,6 +201,19 @@ const estimateHoursProxy = computed<number | undefined>({
   get: () => form.estimate_hours ?? undefined,
   set: (value) => {
     form.estimate_hours = typeof value === 'number' && !Number.isNaN(value) ? value : null;
+  },
+});
+
+/**
+ * 所属项目双向代理。
+ *
+ * `t-select` 的 modelValue 不吃 `null`（类型里没有），而表单模型用 `null` 表示
+ * 「不归入项目」—— 这里做一次 `null ↔ undefined` 转换（与预估工时的代理同款）。
+ */
+const projectProxy = computed<string | undefined>({
+  get: () => form.project_id ?? undefined,
+  set: (value) => {
+    form.project_id = typeof value === 'string' && value ? value : null;
   },
 });
 
@@ -219,6 +275,7 @@ async function loadDetail(id: string): Promise<void> {
     form.due_date = detail.due_date ?? '';
     form.estimate_hours = detail.estimate_hours;
     form.need_review = detail.need_review;
+    form.project_id = detail.project_id;
   } catch (error) {
     const message = error instanceof ApiError ? error.message : '任务详情加载失败';
     MessagePlugin.error(message);
@@ -237,6 +294,7 @@ watch(
     }
     Object.assign(form, emptyForm());
     formRef.value?.clearValidate?.();
+    void loadProjectOptions();
     if (props.taskId) {
       void loadDetail(props.taskId);
     }
@@ -261,6 +319,8 @@ async function handleSubmit(): Promise<void> {
         need_review: form.need_review,
         due_date: form.due_date || null,
         estimate_hours: form.estimate_hours ?? null,
+        // 所属项目：显式传 null = 移出项目（后端 double Option 语义）
+        project_id: form.project_id || null,
       };
       if (form.owner_id) {
         payload.owner_id = form.owner_id;
@@ -285,6 +345,9 @@ async function handleSubmit(): Promise<void> {
       }
       if (form.estimate_hours !== null) {
         payload.estimate_hours = form.estimate_hours;
+      }
+      if (form.project_id) {
+        payload.project_id = form.project_id;
       }
       const saved = await createTask(payload);
       MessagePlugin.success(`任务已创建：${saved.task_no}`);

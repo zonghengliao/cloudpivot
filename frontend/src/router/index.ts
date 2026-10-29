@@ -251,6 +251,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '甘特图', permission: 'business:task:read' },
       },
       {
+        // ==================== 批次 C+（工作任务管理 · T7c 项目分组） ====================
+        // path 与 `sys_menu.path`（V0115 种子 …0775）逐字一致：`/project`。
+        // component 字段是 `business/project/index`，对应本文件的
+        // `@/views/business/project/index.vue`。
+        //
+        // ⚠️ 项目页**不是**任务页的子路由：它是独立菜单项（`/project`），
+        // 因为「项目」是任务之上的一层分组，而不是任务页的一个 tab。
+        path: 'project',
+        name: 'BusinessProject',
+        component: () => import('@/views/business/project/index.vue'),
+        meta: { title: '项目', permission: 'business:project:read' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

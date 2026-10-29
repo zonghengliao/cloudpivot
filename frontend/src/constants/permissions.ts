@@ -237,6 +237,18 @@ export const TASK_PERMISSIONS = {
   taskDelete: 'business:task:delete',
 } as const;
 
+/** 项目分组权限码（T7c，4 个；`V0115` 建节点 + `S__task_project_permissions` 授权） */
+export const PROJECT_PERMISSIONS = {
+  /** 查看项目（菜单入口 / 分页 / 详情 / 统计 / 项目下任务 / 成员列表） */
+  projectRead: 'business:project:read',
+  /** 新建项目 */
+  projectCreate: 'business:project:create',
+  /** 编辑项目 / 维护成员（后端行级：负责人与创建人不需要此码） */
+  projectUpdate: 'business:project:update',
+  /** 删除项目（后端行级：负责人与创建人不需要此码；**删项目不删任务**） */
+  projectDelete: 'business:project:delete',
+} as const;
+
 /** 全部权限码合集（批次 A + B + C + C+；`PERM.xxx` 是页面里唯一的取码方式） */
 export const PERM = {
   ...STORAGE_PERMISSIONS,
@@ -247,6 +259,7 @@ export const PERM = {
   ...HELP_PERMISSIONS,
   ...CHANGELOG_PERMISSIONS,
   ...TASK_PERMISSIONS,
+  ...PROJECT_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */

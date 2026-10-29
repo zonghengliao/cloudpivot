@@ -28,6 +28,7 @@ pub mod monitor;
 pub mod mutex;
 pub mod notice;
 pub mod permission;
+pub mod project;
 pub mod shared;
 pub mod storage;
 pub mod task;

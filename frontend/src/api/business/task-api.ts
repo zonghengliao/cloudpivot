@@ -82,6 +82,12 @@ export interface TaskCard {
   due_date: string | null;
   /** 子任务数 */
   child_count: number;
+  /** 所属项目 id（T7c；`null` = 未归入项目） */
+  project_id: string | null;
+  /** 项目编码（空串 = 无项目 / 项目已删） */
+  project_code: string;
+  /** 项目名称（空串 = 无项目 / 项目已删） */
+  project_name: string;
   /** 创建时间 RFC3339 */
   created_at: string;
   /** 最后更新时间 RFC3339 */
@@ -178,6 +184,13 @@ export interface TaskPageQuery {
   priority?: string;
   /** 负责人过滤（用户 id） */
   owner_id?: string;
+  /**
+   * 项目过滤（T7c；`biz_task.project_id`）。
+   *
+   * 只是**过滤条件**，不改变可见性 —— 可见性恒为「数据范围 ∪ 参与关系」，
+   * 所以「按项目筛选」永远不会看到项目里别人的任务。
+   */
+  project_id?: string;
   /** 截止日下界（含）`YYYY-MM-DD` */
   due_from?: string;
   /** 截止日上界（含）`YYYY-MM-DD` */

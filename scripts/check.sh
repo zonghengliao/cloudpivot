@@ -55,7 +55,17 @@ echo "==> 前端：pnpm typecheck"
 BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice
 sys_file operation_logs audit_logs auth_logs security_logs
 biz_task biz_task_comment biz_task_attachment biz_task_worklog
-biz_task_member biz_task_dependency biz_task_status_def"
+biz_task_member biz_task_dependency biz_task_status_def
+biz_project biz_project_member"
+
+# 2026-10-29 T7c 补入 2 张项目表（`biz_project` / `biz_project_member`）：
+#   · 卡面 t_b9f70dab「其他·12」明确要求 `biz_project` 进闸② 清单
+#     （要么接 scope 要么写 SCOPE-EXEMPT 理由）；
+#   · 两个模块都**接的是 scope**：`business/project/model.rs` 的项目分页走
+#     `scope::paginate(PROJECT_TARGET, …)`、单条走 `scope::filter_for`；
+#     `biz_task/model.rs` 里新增的 `LEFT JOIN biz_project pj` 只是展示字段，不产生新查询入口。
+#   · 成员表 `biz_project_member` 一并列入（和 `biz_task_member` 同口径：它是按 project_id
+#     挂在项目下的子表，一旦有人写「按 project_id 直查成员」的分页，就必须过门禁）。
 
 # 闸② 的 B0 实测基线（2026-10-28，本卡在 cf84231 树上实测）。
 # 架构文档 §2.4 记的是 17 处——那是同一套脚本在更早的树上跑的；差异 4 处的来源

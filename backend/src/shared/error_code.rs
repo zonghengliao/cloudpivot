@@ -676,6 +676,40 @@ pub const TASK_DISPATCH_OWNER_NOT_ROBOT: i32 = 63307;
 /// AI 进度回写参数不合法（HTTP 400）：`percent` 越界 / 既无 percent 也无 note。
 pub const TASK_AI_PROGRESS_INVALID: i32 = 63308;
 
+// ── 任务管理 · 项目分组（T7c）── **634xx 段** ────────────────────────────────
+//
+// 为什么单开 634xx 而不是接着 633xx：T5b 的 633xx 是「AI 执行者 / 任务令牌」子段，
+// 语义边界清楚；项目分组是独立实体（`biz_project`），单开一段便于前端文案映射
+// 与验收脚本按码值命中。634xx 与 64xxx（AI 用户）之间留空号，避免再遇到
+// 「往满段里塞码会让既有自检断言失效」的问题（633xx 段的注释里记过这件事）。
+
+/// 项目不存在 / 已软删 / **不在我的可见范围内**（HTTP 404）。
+///
+/// 「看不见」与「不存在」合并成同一个 404：项目只是逻辑分组，
+/// 猜 id 也不该能区分「有这个东西但你没权」。
+pub const PROJECT_NOT_FOUND: i32 = 63401;
+
+/// 项目编码（`project_no`）重复（HTTP 400）。
+pub const PROJECT_CODE_DUPLICATE: i32 = 63402;
+
+/// 项目字段不合法（HTTP 400）：编码格式 / 名称超长 / 起止日期倒挂 / 负责人不存在。
+pub const PROJECT_FIELD_INVALID: i32 = 63403;
+
+/// 无权修改 / 删除该项目（HTTP 403）：既不是负责人也不是创建人，且没有对应权限码。
+pub const PROJECT_FORBIDDEN: i32 = 63404;
+
+/// 项目成员参数不合法（HTTP 400）：成员不存在 / 已停用 / 重复添加。
+pub const PROJECT_MEMBER_INVALID: i32 = 63405;
+
+/// 项目成员不存在（HTTP 404）。
+pub const PROJECT_MEMBER_NOT_FOUND: i32 = 63406;
+
+/// 无权把任务归入 / 移出项目（HTTP 403）。
+///
+/// 口径 = 任务负责人 ∪ 任务创建人 ∪ `business:task:update`（卡面规则 5）。
+/// **不认「项目负责人」**：项目不是权限边界，负责人身份不能换来对别人任务的写权限。
+pub const PROJECT_TASK_FORBIDDEN: i32 = 63407;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
@@ -892,6 +926,36 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
             "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105 + 63110–63112 + 63301–63308）✓",
+            codes.len()
+        );
+    }
+
+    /// 项目分组段自检：634xx 段 7 个码齐全、码值不重复、与 63xxx / 64xxx 都不重叠。
+    ///
+    /// T7c 契约：前端文案映射（`error-code.ts`）与验收脚本按码值命中，**不许改值**。
+    #[test]
+    fn project_error_codes_are_stable() {
+        let codes = [
+            (PROJECT_NOT_FOUND, 63401),
+            (PROJECT_CODE_DUPLICATE, 63402),
+            (PROJECT_FIELD_INVALID, 63403),
+            (PROJECT_FORBIDDEN, 63404),
+            (PROJECT_MEMBER_INVALID, 63405),
+            (PROJECT_MEMBER_NOT_FOUND, 63406),
+            (PROJECT_TASK_FORBIDDEN, 63407),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "634xx 段码值不得改动");
+        }
+        assert_eq!(codes.len(), 7, "634xx 段必须是 7 个码（63401–63407）");
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "634xx 段不得有重复码值");
+        assert!(
+            codes.iter().all(|(c, _)| *c > 63308 && *c < 64001),
+            "634xx 段必须落在 63308 与 64001 之间（不侵占 AI 用户段）"
+        );
+        println!(
+            "[码表] 634xx 段 {} 个码齐全且不重复（63401–63407）✓",
             codes.len()
         );
     }

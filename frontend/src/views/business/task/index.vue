@@ -17,6 +17,17 @@
         <t-col :span="2">
           <UserSelect v-model="query.owner_id" placeholder="负责人" :disabled="myMode" />
         </t-col>
+        <t-col :span="2">
+          <t-select
+            v-model="query.project_id"
+            :options="projectOptions"
+            :loading="projectLoading"
+            placeholder="所属项目"
+            clearable
+            filterable
+            :disabled="myMode"
+          />
+        </t-col>
         <t-col :span="3">
           <t-date-range-picker v-model="dueRange" placeholder="截止日期范围" clearable format="YYYY-MM-DD" />
         </t-col>
@@ -121,6 +132,13 @@
 
         <template #owner_name="{ row }">{{ row.owner_name || '—' }}</template>
 
+        <template #project_name="{ row }">
+          <t-link v-if="row.project_id" theme="primary" @click="openProject(row)">
+            {{ row.project_name || row.project_code || '未命名项目' }}
+          </t-link>
+          <span v-else class="cell-project-empty">未归入项目</span>
+        </template>
+
         <template #due_date="{ row }">
           <span :class="{ 'cell-due--overdue': isOverdue(row) }">
             {{ row.due_date || '无期限' }}
@@ -220,6 +238,7 @@ import {
   type TaskCard,
   type TaskPageQuery,
 } from '@/api/business/task-api';
+import { pageProjects } from '@/api/business/project-api';
 import { PERM } from '@/constants/permissions';
 import { priorityOptions, statusOptions } from '@/constants/status-map';
 
@@ -240,11 +259,13 @@ const errorMessage = ref('');
 const scopeTruncated = ref(false);
 
 /** 筛选条件 */
-const query = reactive<Required<Pick<TaskPageQuery, 'keyword' | 'status' | 'priority' | 'owner_id'>>>({
+const query = reactive<Required<Pick<TaskPageQuery, 'keyword' | 'status' | 'priority' | 'owner_id' | 'project_id'>>>({
   keyword: '',
   status: '',
   priority: '',
   owner_id: '',
+  // 项目筛选：初值留空，`onMounted` 里从 URL query 读（项目页「查看项目下任务」会带过来）
+  project_id: '',
 });
 /** 截止日期范围（`[from, to]`，`YYYY-MM-DD`） */
 const dueRange = ref<string[]>([]);
@@ -265,8 +286,8 @@ const detailVisible = ref(false);
 const viewingId = ref<string | null>(null);
 
 /** 是否处于筛选态（空态文案据此变化） */
-const hasFilter = computed(
-  () => Boolean(query.keyword || query.status || query.priority || query.owner_id || dueRange.value?.length),
+const hasFilter = computed(() =>
+  Boolean(query.keyword || query.status || query.priority || query.owner_id || query.project_id || dueRange.value?.length),
 );
 
 /** 我的任务总条数（后端 `MyTasksRes.total`；未切到我的任务视图时为 0） */
@@ -277,15 +298,42 @@ const myTotal = computed(() => myTotalCount.value);
 /** 列定义 */
 const columns = [
   { colKey: 'task_no', title: '任务号', width: 132 },
-  { colKey: 'title', title: '标题', width: 260, ellipsis: true },
+  { colKey: 'title', title: '标题', width: 240, ellipsis: true },
   { colKey: 'status', title: '状态', width: 104 },
   { colKey: 'priority', title: '优先级', width: 96 },
   { colKey: 'progress', title: '进度', width: 140 },
   { colKey: 'owner_name', title: '负责人', width: 100 },
+  { colKey: 'project_name', title: '项目', width: 140, ellipsis: true },
   { colKey: 'due_date', title: '截止日期', width: 130 },
   { colKey: 'source', title: '来源', width: 96 },
   { colKey: 'op', title: '操作', width: 150, fixed: 'right' as const },
 ];
+
+/** 项目下拉选项（T7c 项目筛选；项目数量不大，一次取 200 条足够） */
+const projectOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 项目下拉加载中 */
+const projectLoading = ref(false);
+
+/** 拉项目下拉（筛选用；失败不影响任务列表） */
+async function loadProjectOptions(): Promise<void> {
+  projectLoading.value = true;
+  try {
+    const data = await pageProjects({ page: 1, page_size: 200 });
+    projectOptions.value = data.list.map((item) => ({ label: `${item.code} ${item.name}`, value: item.id }));
+  } catch {
+    projectOptions.value = [];
+  } finally {
+    projectLoading.value = false;
+  }
+}
+
+/** 点项目名 → 跳项目页并直接打开该项目详情（`?id=`） */
+function openProject(row: TaskCard): void {
+  if (!row.project_id) {
+    return;
+  }
+  void router.push({ path: '/project', query: { id: row.project_id } });
+}
 
 /** 来源文案 */
 function sourceLabel(source: string): string {
@@ -406,6 +454,8 @@ async function loadList(): Promise<void> {
       status: query.status,
       priority: query.priority,
       owner_id: query.owner_id,
+      // T7c：项目筛选只作为过滤条件，可见性仍由后端 T1 决定
+      project_id: query.project_id,
       due_from: dueFrom || '',
       due_to: dueTo || '',
     });
@@ -435,6 +485,7 @@ function handleReset(): void {
   query.status = '';
   query.priority = '';
   query.owner_id = '';
+  query.project_id = '';
   dueRange.value = [];
   myMode.value = false;
   pagination.current = 1;
@@ -526,7 +577,12 @@ function handleDeleted(): void {
 }
 
 onMounted(() => {
+  // 从 URL 读项目筛选（项目页「打开任务」带 `?project_id=`，刷新也要保持）
+  if (typeof route.query.project_id === 'string' && route.query.project_id) {
+    query.project_id = route.query.project_id;
+  }
   // 看板视图由 TaskBoard 自己在 onMounted 里拉五列，这里只负责列表
+  void loadProjectOptions();
   if (view.value === 'list') {
     void loadList();
   }
@@ -635,6 +691,11 @@ onMounted(() => {
 .cell-due--overdue {
   font-weight: 600;
   color: var(--td-error-color);
+}
+
+.cell-project-empty {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
 }
 
 .cell-bucket {
