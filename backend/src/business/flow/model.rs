@@ -2678,7 +2678,149 @@ pub async fn page_instances(
     })
 }
 
-/// 我的待办 / 已办 / 抄送列表（三处共用一条查询形状，靠 `statuses` 与来源区分）。
+/// 我的待办的唯一状态口径（**红线：只返回 PENDING**）。
+pub const MY_TODO_STATUSES: &[&str] = &["PENDING"];
+
+/// 我的已办的状态口径（**我操作过的**：同意 / 驳回 / 转办出去）。
+pub const MY_DONE_STATUSES: &[&str] = &["APPROVED", "REJECTED", "TRANSFERRED"];
+
+/// 「我发起的」where 片段（**身份口径 `initiator_id`**，不看数据范围 / 待办 / 抄送）。
+const MY_INSTANCE_WHERE: &str = " WHERE i.initiator_id = ?::uuid AND i.deleted_at IS NULL";
+
+/// 「抄送我的」where 片段（**身份口径 `biz_flow_cc.receiver_id`**）。
+const MY_CC_WHERE: &str = " WHERE c.receiver_id = ?::uuid";
+
+/// 我发起的审批单（`initiator_id = me`，按发起时间倒序；架构 §7 API 24）。
+///
+/// 走 `idx_biz_flow_instance_initiator (initiator_id, started_at DESC)`，
+/// 不掺任何可见性并集 —— 「我发起的」是身份口径，不是数据范围口径。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn page_my_instances(user_id: Uuid, page: u64, page_size: u64) -> DbResult<InstancePage> {
+    let where_sql = MY_INSTANCE_WHERE;
+    let count_sql = format!("SELECT count(*) AS total FROM biz_flow_instance i{where_sql}");
+    let total: i64 = match db()
+        .find_with_params(&count_sql, vec![Value::from(&user_id)])
+        .await?
+        .first()
+    {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
+    let sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i{where_sql} \
+          ORDER BY i.started_at DESC, i.id DESC LIMIT ? OFFSET ?"
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![
+                Value::from(&user_id),
+                Value::from(page_size as i64),
+                Value::from(((page.saturating_sub(1)) * page_size) as i64),
+            ],
+        )
+        .await?;
+    let list = rows
+        .iter()
+        .map(InstanceRow::from_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    Ok(InstancePage {
+        list,
+        total: total.max(0) as u64,
+        page,
+        size: page_size,
+    })
+}
+
+/// 待办 / 已办列表的排序口径。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MyTaskOrder {
+    /// 按**到达时间**倒序（我的待办）。
+    Arrived,
+    /// 按**操作时间**倒序（我的已办，`completed_at`）。
+    Operated,
+}
+
+impl MyTaskOrder {
+    /// 排序片段（列已带表别名，防 JOIN 后二义）。
+    fn order_sql(self) -> &'static str {
+        match self {
+            Self::Arrived => "t.created_at DESC, t.id DESC",
+            Self::Operated => "t.completed_at DESC, t.id DESC",
+        }
+    }
+}
+
+/// 待办 / 已办列表行：任务行 + 展示期需要的单据 / 流程字段。
+///
+/// 一次 JOIN 取齐（不再逐行 `find_instance` 的 N+1），D5 缺口 2 的
+/// `flow_name` / `initiator_name` / `current_node_name` 就来自这里。
+#[derive(Debug, Clone)]
+pub struct MyTaskRow {
+    /// 任务行。
+    pub task: TaskRow,
+    /// 单据号。
+    pub instance_no: String,
+    /// 单据标题。
+    pub title: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 发起人姓名。
+    pub initiator_name: Option<String>,
+    /// 当前节点中文名（`biz_flow_instance_node.node_name` 快照）。
+    pub node_name: String,
+}
+
+/// 待办 / 已办分页结果。
+#[derive(Debug, Clone)]
+pub struct MyTaskPage {
+    /// 当前页。
+    pub list: Vec<MyTaskRow>,
+    /// 跨页总数（`count(*)` 现算）。
+    pub total: u64,
+}
+
+/// 抄送列表行。
+#[derive(Debug, Clone)]
+pub struct MyCcRow {
+    /// 抄送行。
+    pub cc: CcRow,
+    /// 单据号。
+    pub instance_no: String,
+    /// 单据标题。
+    pub title: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 发起人姓名。
+    pub initiator_name: Option<String>,
+    /// 节点中文名（节点行缺失 → 空串）。
+    pub node_name: String,
+}
+
+/// 抄送分页结果。
+#[derive(Debug, Clone)]
+pub struct MyCcPage {
+    /// 当前页。
+    pub list: Vec<MyCcRow>,
+    /// 跨页总数（`count(*)` 现算）。
+    pub total: u64,
+}
+
+/// 我的待办 / 已办（**身份口径：`assignee_id = me`**，与实例可见性无关）。
+///
+/// - 待办：`status = PENDING`，按到达时间倒序；
+/// - 已办：`status IN (APPROVED/REJECTED/TRANSFERRED)`，按**操作时间**（`completed_at`）倒序。
+///
+/// `biz_flow_task` 没有独立的 `operator_id` 列 —— 「操作人」就是这条任务行的
+/// `assignee_id`（审批 / 驳回 / 转办都由该行的审批人本人完成，`ck_biz_flow_task_done`
+/// 保证非 PENDING 行必有 `completed_at`）。所以「我操作过的」= `assignee_id = me
+/// AND status <> 'PENDING'`，不需要额外列、不需要迁移。
+///
+/// `statuses` / `kinds` 只由本模块的常量传入（不是用户输入），格式化成 `IN (...)`
+/// 字面量是安全的；本仓没有绑定数组的 `IN` 语法糖，`= ANY(...)` 只用于 uuid 数组。
 ///
 /// # 异常情况
 ///
@@ -2687,9 +2829,10 @@ pub async fn page_my_tasks(
     user_id: Uuid,
     statuses: &[&str],
     kinds: &[&str],
+    order: MyTaskOrder,
     page: u64,
     page_size: u64,
-) -> DbResult<Vec<TaskRow>> {
+) -> DbResult<MyTaskPage> {
     let status_list = statuses
         .iter()
         .map(|status| format!("'{status}'"))
@@ -2700,11 +2843,31 @@ pub async fn page_my_tasks(
         .map(|kind| format!("'{kind}'"))
         .collect::<Vec<_>>()
         .join(",");
+    let where_sql = format!(
+        " WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
+           AND t.task_kind IN ({kind_list})"
+    );
+    let count_sql = format!(
+        "SELECT count(*) AS total FROM biz_flow_task t \
+           JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL{where_sql}"
+    );
+    let total: i64 = match db()
+        .find_with_params(&count_sql, vec![Value::from(&user_id)])
+        .await?
+        .first()
+    {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
     let sql = format!(
-        "SELECT {TASK_COLUMNS} FROM biz_flow_task t \
-          WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
-            AND t.task_kind IN ({kind_list}) \
-          ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?"
+        "SELECT {TASK_COLUMNS}, i.instance_no AS instance_no, i.title AS title, \
+                i.flow_name AS flow_name, i.initiator_name AS initiator_name, \
+                n.node_name AS node_name \
+           FROM biz_flow_task t \
+           JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL \
+           JOIN biz_flow_instance_node n ON n.id = t.instance_node_id{where_sql} \
+          ORDER BY {} LIMIT ? OFFSET ?",
+        order.order_sql()
     );
     let rows = db()
         .find_with_params(
@@ -2716,24 +2879,54 @@ pub async fn page_my_tasks(
             ],
         )
         .await?;
-    rows.iter().map(TaskRow::from_row).collect()
+    let mut list = Vec::with_capacity(rows.len());
+    for row in &rows {
+        list.push(MyTaskRow {
+            task: TaskRow::from_row(row)?,
+            instance_no: row.get_typed("instance_no")?,
+            title: row.get_typed("title")?,
+            flow_name: row.get_typed("flow_name")?,
+            initiator_name: row.get_typed("initiator_name")?,
+            node_name: row.get_typed("node_name")?,
+        });
+    }
+    Ok(MyTaskPage {
+        list,
+        total: total.max(0) as u64,
+    })
 }
 
-/// 我收到的抄送（未读优先）。
+/// 我收到的抄送（**身份口径：`biz_flow_cc.receiver_id = me`**，按抄送时间倒序）。
+///
+/// 走 `idx_biz_flow_cc_mine (receiver_id, created_at DESC)`；刻意不加
+/// `is_read` 到排序首位（已读状态不参与排序，否则索引失效）。
 ///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn page_my_cc(
-    user_id: Uuid,
-    page: u64,
-    page_size: u64,
-) -> DbResult<Vec<(CcRow, String, String)>> {
+pub async fn page_my_cc(user_id: Uuid, page: u64, page_size: u64) -> DbResult<MyCcPage> {
+    let count_sql = format!(
+        "SELECT count(*) AS total FROM biz_flow_cc c \
+           JOIN biz_flow_instance i ON i.id = c.instance_id AND i.deleted_at IS NULL{MY_CC_WHERE}"
+    );
+    let total: i64 = match db()
+        .find_with_params(&count_sql, vec![Value::from(&user_id)])
+        .await?
+        .first()
+    {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
     let sql = format!(
-        "SELECT {CC_COLUMNS}, i.instance_no AS instance_no, i.title AS title \
-           FROM biz_flow_cc c JOIN biz_flow_instance i ON i.id = c.instance_id \
-          WHERE c.receiver_id = ?::uuid AND i.deleted_at IS NULL \
-          ORDER BY c.is_read, c.created_at DESC LIMIT ? OFFSET ?"
+        "SELECT {CC_COLUMNS}, i.instance_no AS instance_no, i.title AS title, \
+                i.flow_name AS flow_name, i.initiator_name AS initiator_name, \
+                COALESCE(n.node_name, '') AS node_name \
+           FROM biz_flow_cc c \
+           JOIN biz_flow_instance i ON i.id = c.instance_id AND i.deleted_at IS NULL \
+           LEFT JOIN biz_flow_instance_node n \
+                  ON n.instance_id = c.instance_id AND n.node_key = c.node_key AND n.round = c.round \
+          {MY_CC_WHERE} \
+          ORDER BY c.created_at DESC, c.id DESC LIMIT ? OFFSET ?"
     );
     let rows = db()
         .find_with_params(
@@ -2745,15 +2938,21 @@ pub async fn page_my_cc(
             ],
         )
         .await?;
-    let mut out = Vec::with_capacity(rows.len());
+    let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
-        out.push((
-            CcRow::from_row(row)?,
-            row.get_typed("instance_no")?,
-            row.get_typed("title")?,
-        ));
+        list.push(MyCcRow {
+            cc: CcRow::from_row(row)?,
+            instance_no: row.get_typed("instance_no")?,
+            title: row.get_typed("title")?,
+            flow_name: row.get_typed("flow_name")?,
+            initiator_name: row.get_typed("initiator_name")?,
+            node_name: row.get_typed("node_name")?,
+        });
     }
-    Ok(out)
+    Ok(MyCcPage {
+        list,
+        total: total.max(0) as u64,
+    })
 }
 
 // ---------- 用户小工具 ----------
@@ -2873,5 +3072,52 @@ mod tests {
                      node_count = ?, edge_count = ?, updated_at = now(), update_by = ?::uuid \
                      WHERE id = ?::uuid AND version_status = 'DRAFT'";
         assert!(touch.contains("version_status = 'DRAFT'"));
+    }
+
+    // ---------- D4a：三个身份列表的口径守卫（纯文本 / 常量断言，无 DB） ----------
+
+    #[test]
+    fn todo_status_set_is_pending_only() {
+        assert_eq!(MY_TODO_STATUSES, &["PENDING"], "待办只允许 PENDING");
+    }
+
+    #[test]
+    fn done_status_set_is_my_operations_and_excludes_pending() {
+        assert_eq!(MY_DONE_STATUSES.len(), 3);
+        for status in ["APPROVED", "REJECTED", "TRANSFERRED"] {
+            assert!(MY_DONE_STATUSES.contains(&status), "已办必须含 {status}");
+        }
+        assert!(
+            !MY_DONE_STATUSES.contains(&"PENDING"),
+            "已办不许出现 PENDING（否则「待办」与「已办」重复）"
+        );
+        assert!(
+            !MY_DONE_STATUSES.contains(&"CANCELLED"),
+            "CANCELLED 是节点被撤销，不是我操作过的"
+        );
+    }
+
+    #[test]
+    fn list_orders_follow_index_and_card_spec() {
+        // 待办按到达时间倒序、已办按操作时间倒序（卡面 §一），且都带 id 兜底防翻页重复。
+        let arrived = MyTaskOrder::Arrived.order_sql();
+        let operated = MyTaskOrder::Operated.order_sql();
+        assert!(arrived.starts_with("t.created_at DESC"), "{arrived}");
+        assert!(operated.starts_with("t.completed_at DESC"), "{operated}");
+        assert!(arrived.ends_with("t.id DESC"));
+        assert!(operated.ends_with("t.id DESC"));
+    }
+
+    #[test]
+    fn identity_wheres_never_use_instance_visibility() {
+        // 红线：三个列表的可见性必须走 initiator / assignee / cc 三类身份，
+        // 不许复用实例可见性（数据范围并集）或 `my_instance_ids` 的 OR 集合。
+        assert!(MY_INSTANCE_WHERE.contains("i.initiator_id = ?::uuid"));
+        assert!(MY_INSTANCE_WHERE.contains("i.deleted_at IS NULL"));
+        assert!(MY_CC_WHERE.contains("c.receiver_id = ?::uuid"));
+        for fragment in [MY_INSTANCE_WHERE, MY_CC_WHERE] {
+            assert!(!fragment.contains("ANY("), "身份列表不许退化成 id 数组并集");
+            assert!(!fragment.contains(" OR "), "身份列表不许写成可见性并集");
+        }
     }
 }

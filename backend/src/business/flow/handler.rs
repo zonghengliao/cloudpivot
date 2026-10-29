@@ -984,6 +984,7 @@ fn instance_res(row: &model::InstanceRow, my_task_id: Option<Uuid>) -> dto::Inst
         auto_passed_nodes: row.auto_passed_nodes,
         round_total: row.round_total,
         result_comment: row.result_comment.clone().unwrap_or_default(),
+        form_data: row.form_data.clone(),
         started_at: row.started_at,
         ended_at: row.ended_at,
         created_at: row.created_at,
@@ -1011,12 +1012,30 @@ fn node_progress_res(row: &model::NodeRow) -> dto::NodeProgressRes {
     }
 }
 
-fn task_res(row: &model::TaskRow, instance_no: &str, title: &str) -> dto::TaskRes {
+/// 待办 / 抄送条目的展示上下文（列表由 SQL JOIN 取齐，详情由实例行 + 节点表回填）。
+struct TaskCtx<'a> {
+    /// 单据号。
+    instance_no: &'a str,
+    /// 单据标题。
+    title: &'a str,
+    /// 流程名称。
+    flow_name: &'a str,
+    /// 发起人姓名。
+    initiator_name: &'a str,
+    /// 当前节点中文名。
+    current_node_name: &'a str,
+}
+
+fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
     dto::TaskRes {
         id: row.id.to_string(),
         instance_id: row.instance_id.to_string(),
-        instance_no: instance_no.to_string(),
-        title: title.to_string(),
+        instance_no: ctx.instance_no.to_string(),
+        title: ctx.title.to_string(),
+        flow_name: ctx.flow_name.to_string(),
+        initiator_name: ctx.initiator_name.to_string(),
+        current_node_name: ctx.current_node_name.to_string(),
+        arrived_at: row.created_at,
         node_key: row.node_key.clone(),
         round: row.round,
         task_kind: row.task_kind.clone(),
@@ -1037,12 +1056,16 @@ fn task_res(row: &model::TaskRow, instance_no: &str, title: &str) -> dto::TaskRe
     }
 }
 
-fn cc_res(row: &model::CcRow, instance_no: &str, title: &str) -> dto::CcRes {
+fn cc_res(row: &model::CcRow, ctx: &TaskCtx<'_>) -> dto::CcRes {
     dto::CcRes {
         id: row.id.to_string(),
         instance_id: row.instance_id.to_string(),
-        instance_no: instance_no.to_string(),
-        title: title.to_string(),
+        instance_no: ctx.instance_no.to_string(),
+        title: ctx.title.to_string(),
+        flow_name: ctx.flow_name.to_string(),
+        initiator_name: ctx.initiator_name.to_string(),
+        current_node_name: ctx.current_node_name.to_string(),
+        arrived_at: row.created_at,
         node_key: row.node_key.clone(),
         round: row.round,
         is_read: row.is_read,
@@ -1387,20 +1410,35 @@ pub async fn instance_detail(
         .await
         .map_err(|error| utils::db_error(error, "查询我的待办"))?;
 
+    // 节点中文名：详情的时间线 / 抄送不带 JOIN，用本单节点行做一次内存映射
+    // （同一 node_key 的 node_name 是快照固定值，跨轮次不会变）。
+    let node_names = nodes
+        .iter()
+        .map(|node| (node.node_key.as_str(), node.node_name.as_str()))
+        .collect::<std::collections::HashMap<&str, &str>>();
+    let initiator_name = row.initiator_name.clone().unwrap_or_default();
+    let ctx_of = |node_key: &str| TaskCtx {
+        instance_no: row.instance_no.as_str(),
+        title: row.title.as_str(),
+        flow_name: row.flow_name.as_str(),
+        initiator_name: initiator_name.as_str(),
+        current_node_name: node_names.get(node_key).copied().unwrap_or(""),
+    };
+
     Ok(Res::ok(dto::InstanceDetailRes {
         instance: instance_res(&row, my_task.as_ref().map(|task| task.id)),
         nodes: nodes.iter().map(node_progress_res).collect(),
         timeline: timeline
             .iter()
-            .map(|task| task_res(task, &row.instance_no, &row.title))
+            .map(|task| task_res(task, &ctx_of(&task.node_key)))
             .collect(),
         cc: cc
             .iter()
-            .map(|entry| cc_res(entry, &row.instance_no, &row.title))
+            .map(|entry| cc_res(entry, &ctx_of(&entry.node_key)))
             .collect(),
         my_task: my_task
             .as_ref()
-            .map(|task| task_res(task, &row.instance_no, &row.title)),
+            .map(|task| task_res(task, &ctx_of(&task.node_key))),
         auto_passed_nodes: row.auto_passed_nodes,
     }))
 }
@@ -1742,7 +1780,38 @@ pub async fn batch_task(
 
 // ==================== 21–23. 我的待办 / 已办 / 抄送 ====================
 
-/// 我的待办（`APPROVAL` + `RESUBMIT`，只返回 `PENDING`）。
+/// 待办 / 已办列表行 → 出参（展示字段由 `model::page_my_tasks` 的 JOIN 一次取齐，无 N+1）。
+fn my_task_res(row: &model::MyTaskRow) -> dto::TaskRes {
+    let initiator_name = row.initiator_name.clone().unwrap_or_default();
+    task_res(
+        &row.task,
+        &TaskCtx {
+            instance_no: &row.instance_no,
+            title: &row.title,
+            flow_name: &row.flow_name,
+            initiator_name: &initiator_name,
+            current_node_name: &row.node_name,
+        },
+    )
+}
+
+/// 抄送列表行 → 出参。
+fn my_cc_res(row: &model::MyCcRow) -> dto::CcRes {
+    let initiator_name = row.initiator_name.clone().unwrap_or_default();
+    cc_res(
+        &row.cc,
+        &TaskCtx {
+            instance_no: &row.instance_no,
+            title: &row.title,
+            flow_name: &row.flow_name,
+            initiator_name: &initiator_name,
+            current_node_name: &row.node_name,
+        },
+    )
+}
+
+/// 我的待办（**`assignee_id = me AND status = PENDING`**，`APPROVAL` + `RESUBMIT`，
+/// 按到达时间倒序）。
 ///
 /// # 异常情况
 ///
@@ -1759,19 +1828,27 @@ pub async fn my_todo(
 ) -> ResResult<dto::TaskPageRes> {
     let me = me_of(&claims)?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
-    let rows = model::page_my_tasks(me, &["PENDING"], &dto::TASK_KINDS, page_no, page_size)
-        .await
-        .map_err(|error| utils::db_error(error, "查询我的待办"))?;
-    let list = enrich_tasks(&rows).await?;
+    let result = model::page_my_tasks(
+        me,
+        model::MY_TODO_STATUSES,
+        &dto::TASK_KINDS,
+        model::MyTaskOrder::Arrived,
+        page_no,
+        page_size,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "查询我的待办"))?;
     Ok(Res::ok(dto::TaskPageRes {
-        total: rows.len() as u64,
-        list,
+        list: result.list.iter().map(my_task_res).collect(),
+        total: result.total,
         page: page_no,
         page_size,
     }))
 }
 
-/// 我的已办（同意 / 驳回 / 被转办出去的，按时间倒序）。
+/// 我的已办（**我操作过的**：`APPROVED` / `REJECTED` / `TRANSFERRED`，按操作时间倒序）。
+///
+/// 「操作人」口径见 `model::page_my_tasks` 的文档：任务行的 `assignee_id` 即操作人。
 ///
 /// # 异常情况
 ///
@@ -1788,25 +1865,25 @@ pub async fn my_done(
 ) -> ResResult<dto::TaskPageRes> {
     let me = me_of(&claims)?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
-    let rows = model::page_my_tasks(
+    let result = model::page_my_tasks(
         me,
-        &["APPROVED", "REJECTED", "TRANSFERRED"],
+        model::MY_DONE_STATUSES,
         &dto::TASK_KINDS,
+        model::MyTaskOrder::Operated,
         page_no,
         page_size,
     )
     .await
     .map_err(|error| utils::db_error(error, "查询我的已办"))?;
-    let list = enrich_tasks(&rows).await?;
     Ok(Res::ok(dto::TaskPageRes {
-        total: rows.len() as u64,
-        list,
+        list: result.list.iter().map(my_task_res).collect(),
+        total: result.total,
         page: page_no,
         page_size,
     }))
 }
 
-/// 抄送我的（未读优先）。
+/// 抄送我的（**`biz_flow_cc.receiver_id = me`**，按抄送时间倒序）。
 ///
 /// # 异常情况
 ///
@@ -1823,33 +1900,199 @@ pub async fn my_cc(
 ) -> ResResult<dto::CcPageRes> {
     let me = me_of(&claims)?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
-    let rows = model::page_my_cc(me, page_no, page_size)
+    let result = model::page_my_cc(me, page_no, page_size)
         .await
         .map_err(|error| utils::db_error(error, "查询抄送我的"))?;
-    let list = rows
-        .iter()
-        .map(|(row, instance_no, title)| cc_res(row, instance_no, title))
-        .collect();
     Ok(Res::ok(dto::CcPageRes {
-        total: rows.len() as u64,
-        list,
+        list: result.list.iter().map(my_cc_res).collect(),
+        total: result.total,
         page: page_no,
         page_size,
     }))
 }
 
-/// 待办列表补齐单据号 / 标题（前端列表要显示「哪张单的哪一步」）。
-async fn enrich_tasks(rows: &[model::TaskRow]) -> std::result::Result<Vec<dto::TaskRes>, ApiError> {
-    let mut out = Vec::with_capacity(rows.len());
-    for row in rows {
-        let instance = model::find_instance(row.instance_id)
+// ==================== 24. 我发起的 ====================
+
+/// 我发起的审批单（**`initiator_id = me`**，按发起时间倒序）。
+///
+/// D5 缺口 3：D2 只给了 `/instance/page`（可见性并集），「我发起」Tab 没有稳定的
+/// 身份口径列表 —— 这里补一条只按发起人过滤的列表（数据范围/抄送/待办身份都不掺）。
+/// 静态段 `/my` 与 `/instance/{id}` 共存时 matchit 静态优先，已实测可达。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/instance/my",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/instance/my")]
+pub async fn my_instances(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::MyTaskQuery>,
+) -> ResResult<dto::InstancePageRes> {
+    let me = me_of(&claims)?;
+    let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    let result = model::page_my_instances(me, page_no, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我发起的审批单"))?;
+    let mut list = Vec::with_capacity(result.list.len());
+    for row in &result.list {
+        let my_task = model::my_task_of(row.id, me)
             .await
-            .map_err(|error| utils::db_error(error, "查询待办所属审批单"))?;
-        let (instance_no, title) = match instance {
-            Some(instance) => (instance.instance_no, instance.title),
-            None => (String::new(), String::new()),
-        };
-        out.push(task_res(row, &instance_no, &title));
+            .map_err(|error| utils::db_error(error, "查询我的待办"))?;
+        list.push(instance_res(row, my_task.map(|task| task.id)));
     }
-    Ok(out)
+    Ok(Res::ok(dto::InstancePageRes {
+        list,
+        total: result.total,
+        page: result.page,
+        page_size: result.size,
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn task_row(status: &str) -> model::TaskRow {
+        let now = chrono::Utc::now();
+        model::TaskRow {
+            id: Uuid::nil(),
+            instance_id: Uuid::nil(),
+            instance_node_id: Uuid::nil(),
+            node_key: "n_approve".to_string(),
+            round: 1,
+            task_kind: "APPROVAL".to_string(),
+            assignee_id: Uuid::nil(),
+            assignee_name: Some("张三".to_string()),
+            assignee_source: "USER".to_string(),
+            assignee_source_ref: None,
+            status: status.to_string(),
+            is_added_sign: false,
+            is_self_approval: false,
+            is_auto: false,
+            comment: None,
+            attachments: serde_json::Value::Array(Vec::new()),
+            transferred_from: None,
+            transferred_to: None,
+            due_at: None,
+            remind_count: 0,
+            created_at: now,
+            completed_at: if status == "PENDING" { None } else { Some(now) },
+        }
+    }
+
+    fn cc_row() -> model::CcRow {
+        model::CcRow {
+            id: Uuid::nil(),
+            instance_id: Uuid::nil(),
+            node_key: "n_approve".to_string(),
+            round: 2,
+            receiver_id: Uuid::nil(),
+            receiver_name: Some("李四".to_string()),
+            source_type: "USER".to_string(),
+            source_ref: None,
+            is_read: false,
+            read_at: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    #[test]
+    fn task_res_carries_d5_display_fields() {
+        // D5 缺口 2：待办项必须有 flow_name / initiator_name / current_node_name，
+        // 否则前端卡片只能显示 node_key 与单据号。
+        let row = model::MyTaskRow {
+            task: task_row("PENDING"),
+            instance_no: "FLW-202610-000001".to_string(),
+            title: "报销申请".to_string(),
+            flow_name: "财务审批".to_string(),
+            initiator_name: Some("王五".to_string()),
+            node_name: "财务会签".to_string(),
+        };
+        let res = my_task_res(&row);
+        assert_eq!(res.flow_name, "财务审批");
+        assert_eq!(res.initiator_name, "王五");
+        assert_eq!(res.current_node_name, "财务会签");
+        assert_eq!(res.instance_no, "FLW-202610-000001");
+        assert_eq!(res.title, "报销申请");
+        assert_eq!(res.status, "PENDING");
+        // 到达时间 = 任务创建时间（待办按它倒序）。
+        assert_eq!(res.arrived_at, res.created_at);
+    }
+
+    #[test]
+    fn my_task_res_degrades_missing_initiator_name() {
+        // 发起人已删 → initiator_name 为 NULL，必须降级空串（前端不判 null）。
+        let row = model::MyTaskRow {
+            task: task_row("APPROVED"),
+            instance_no: "FLW-202610-000002".to_string(),
+            title: "请假".to_string(),
+            flow_name: "假勤审批".to_string(),
+            initiator_name: None,
+            node_name: "主管审批".to_string(),
+        };
+        let res = my_task_res(&row);
+        assert_eq!(res.initiator_name, "");
+        assert_eq!(res.current_node_name, "主管审批");
+        assert!(res.completed_at.is_some(), "已办行必有操作时间");
+    }
+
+    #[test]
+    fn cc_res_carries_d5_display_fields() {
+        let row = model::MyCcRow {
+            cc: cc_row(),
+            instance_no: "FLW-202610-000003".to_string(),
+            title: "采购".to_string(),
+            flow_name: "采购审批".to_string(),
+            initiator_name: Some("赵六".to_string()),
+            node_name: "".to_string(),
+        };
+        let res = my_cc_res(&row);
+        assert_eq!(res.flow_name, "采购审批");
+        assert_eq!(res.initiator_name, "赵六");
+        assert_eq!(res.current_node_name, "", "节点行缺失时降级空串");
+        assert_eq!(res.arrived_at, res.created_at);
+        assert_eq!(res.round, 2);
+    }
+
+    #[test]
+    fn instance_res_exposes_form_data() {
+        // D5 缺口 1：实例详情必须能读回发起时填的表单内容。
+        let now = chrono::Utc::now();
+        let row = model::InstanceRow {
+            id: Uuid::nil(),
+            instance_no: "FLW-202610-000004".to_string(),
+            def_id: Uuid::nil(),
+            version_id: Uuid::nil(),
+            version_no: 1,
+            flow_code: "finance".to_string(),
+            flow_name: "财务审批".to_string(),
+            biz_type: "FINANCE".to_string(),
+            biz_id: None,
+            biz_no: None,
+            title: "报销 100 元".to_string(),
+            status: "PENDING".to_string(),
+            initiator_id: Uuid::nil(),
+            initiator_name: Some("王五".to_string()),
+            initiator_dept_id: None,
+            form_data: serde_json::json!({ "amount": 100, "reason": "差旅" }),
+            result_comment: None,
+            auto_passed_nodes: 0,
+            round_total: 1,
+            prev_instance_id: None,
+            revision: 1,
+            started_at: now,
+            ended_at: None,
+            due_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let res = instance_res(&row, None);
+        assert_eq!(res.form_data["amount"], 100);
+        assert_eq!(res.form_data["reason"], "差旅");
+        assert_eq!(res.my_task_id, "");
+    }
 }

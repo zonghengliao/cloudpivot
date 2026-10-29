@@ -1270,6 +1270,11 @@ pub struct InstanceRes {
     pub initiator_name: String,
     /// 发起人部门 id（空串 = 无）。
     pub initiator_dept_id: String,
+    /// **表单数据**（发起时冻结在 `biz_flow_instance.form_data`）。
+    ///
+    /// D5 缺口 1：D2 的实例详情不下发它 → 发起时填的内容前端读不回来。现在随摘要一起下发，
+    /// 前端读 `detail.instance.form_data` 即可（无表单 → `{}`）。
+    pub form_data: Value,
     /// **自动通过节点数**（坑 3 的审计口径，详情页必须显著提示）。
     pub auto_passed_nodes: i32,
     /// 最大退回轮次（打回次数 = `round_total - 1`）。
@@ -1345,6 +1350,14 @@ pub struct TaskRes {
     pub instance_no: String,
     /// 单据标题（列表场景填）。
     pub title: String,
+    /// 流程名称（D5 缺口 2：待办卡片要显示「哪个流程」）。
+    pub flow_name: String,
+    /// 发起人姓名（D5 缺口 2；发起人已删 → 空串）。
+    pub initiator_name: String,
+    /// 当前节点中文名（D5 缺口 2；取 `biz_flow_instance_node.node_name` 快照）。
+    pub current_node_name: String,
+    /// 到达时间（= `created_at`；**我的待办按它倒序**）。
+    pub arrived_at: chrono::DateTime<chrono::Utc>,
     /// 节点 key。
     pub node_key: String,
     /// 轮次。
@@ -1386,6 +1399,14 @@ pub struct CcRes {
     pub instance_no: String,
     /// 单据标题。
     pub title: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 发起人姓名（已删 → 空串）。
+    pub initiator_name: String,
+    /// 节点中文名（节点行缺失 → 空串）。
+    pub current_node_name: String,
+    /// 抄送到达时间（= `created_at`；**抄送列表按它倒序**）。
+    pub arrived_at: chrono::DateTime<chrono::Utc>,
     /// 节点 key。
     pub node_key: String,
     /// 轮次。
@@ -1445,7 +1466,7 @@ pub struct ActionRes {
 pub struct TaskPageRes {
     /// 当前页。
     pub list: Vec<TaskRes>,
-    /// 总数（本卡按页内条数回填，跨页总数由前端「加载更多」累积）。
+    /// 总数（**跨页总数**，`count(*)` 现算；不再按页内条数回填）。
     pub total: u64,
     /// 页码。
     pub page: u64,
