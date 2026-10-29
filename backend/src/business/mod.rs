@@ -15,6 +15,7 @@
 //! | [`announcement`] | 公告管理（批次 C · C2/C3）：公告 CRUD、可见性、已读、扇出与自动下线 |
 //! | [`help`] | 帮助文档（批次 C · C4）：分类树、文档 CRUD、版本与回滚、站内检索 |
 //! | [`changelog`] | 变更日志（批次 C · C5/C6）：白名单登记、diff 引擎、脱敏、分区运维 |
+//! | [`task`] | 工作任务管理（批次 C+ · T1）：7 张表、任务 CRUD、可见性（scope ∪ 参与关系） |
 
 pub mod announcement;
 pub mod changelog;
@@ -27,6 +28,7 @@ pub mod notice;
 pub mod permission;
 pub mod shared;
 pub mod storage;
+pub mod task;
 
 /// 编译期契约示例：**外部模块可以直接调用 `notice::dispatch`**（架构文档 §4.7 接口预留）。
 ///

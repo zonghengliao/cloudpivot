@@ -1,0 +1,13 @@
+-- V0101 回滚：工作任务管理索引（先索引后表，回滚时反着来 —— 索引先删）
+DROP INDEX IF EXISTS idx_biz_project_dept;
+DROP INDEX IF EXISTS idx_biz_task_project;
+DROP INDEX IF EXISTS idx_biz_task_worklog_task;
+DROP INDEX IF EXISTS idx_biz_task_attachment_task;
+DROP INDEX IF EXISTS idx_biz_task_comment_task;
+DROP INDEX IF EXISTS idx_biz_task_member_user;
+DROP INDEX IF EXISTS idx_biz_task_due_open;
+DROP INDEX IF EXISTS idx_biz_task_parent;
+DROP INDEX IF EXISTS idx_biz_task_assigner_status;
+DROP INDEX IF EXISTS idx_biz_task_dept_status;
+DROP INDEX IF EXISTS idx_biz_task_owner_status_due;
+DROP INDEX IF EXISTS uk_biz_task_task_no;

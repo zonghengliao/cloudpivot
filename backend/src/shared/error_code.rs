@@ -35,6 +35,8 @@
 //! | `4000x` | 支撑域（字典 / 参数 / 文件 / 任务 / 日志） |
 //! | `6000x` | 业务域 · 批次 A（对象存储 / 导入导出 / 消息通知） |
 //! | `6100x` | 权限增强 · 批次 B（数据权限 / 列级脱敏 / 角色互斥） |
+//! | `62xxx` | 批次 C（公告 / 帮助 / 变更日志）+ 批次 D（偏好体系 KV） |
+//! | `63xxx` | 批次 C+（工作任务管理 T 段：`63001`–`63009`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -416,6 +418,49 @@ pub const PREFERENCE_PAYLOAD_EMPTY: i32 = 62023;
 /// **用 500 是有意的**：这不是用户输入问题，是字典数据被改坏，必须报警而不是静默放行。
 pub const PREFERENCE_DEF_INVALID: i32 = 62024;
 
+// ── 批次 C+ · 工作任务管理（T 段）── **63xxx 段**（62025 起让给下一张 C 卡，避免与 62xxx 抢段）。
+//
+// 为什么单开 63xxx 而不是继续顺延 62025+：
+//   ① 62xxx 段的既有单测硬断言「24 个码、62001–62024」，那是**冻结**的契约（前端
+//      `error-code.ts` 的文案映射按段规划）；往里塞会逼着改一条「不得改动」的测试；
+//   ② 任务管理的错误语义与公告/帮助/偏好没有重叠，独立成段更好维护。
+
+/// 任务不存在 / 已软删 / 不在我的可见范围内（HTTP 404）。
+///
+/// **有意用 404 而不是 403**：403 会告诉调用者「这个 ID 存在」，等于把任务 ID
+/// 变成可枚举的资源清单。看不见就是看不见。
+pub const TASK_NOT_FOUND: i32 = 63001;
+
+/// 没有操作该任务的权限（HTTP 403）。
+///
+/// 编辑只认「负责人 / 创建人」；删除额外认「超管」；协作人**看得见但改不了**。
+pub const TASK_FORBIDDEN: i32 = 63002;
+
+/// 任务标题为空或超长（HTTP 400）。
+pub const TASK_TITLE_INVALID: i32 = 63003;
+
+/// 任务字段取值非法（优先级 / 状态 / 工时 / 日期范围）（HTTP 400）。
+pub const TASK_FIELD_INVALID: i32 = 63004;
+
+/// 父任务非法（不存在 / 已删除 / 超过 2 层 / 成环 / 指向自己）（HTTP 400）。
+pub const TASK_PARENT_INVALID: i32 = 63005;
+
+/// 任务还有未完成的子任务，不允许删除（HTTP 409）。
+pub const TASK_HAS_OPEN_CHILDREN: i32 = 63006;
+
+/// 任务编号生成失败（月内序号取不到 / 咨询锁失败）（HTTP 500）。
+pub const TASK_NO_GENERATE_FAILED: i32 = 63007;
+
+/// 数据权限片段形态与本模块的可见性拼法不符（HTTP 500）。
+///
+/// 这条**不是**给用户看的错误，是给运维的信号：`shared/scope.rs` 生成的片段形态
+/// 变了（比如去掉了前导 `AND`），任务可见性的 OR 拼法必须同步复查 ——
+/// 否则 `(1 = 1 OR …)` 会让全表可见（静默越权）。
+pub const TASK_SCOPE_UNEXPECTED: i32 = 63008;
+
+/// 任务负责人不存在或已停用（HTTP 400）。
+pub const TASK_OWNER_INVALID: i32 = 63009;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -503,6 +548,36 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "62xxx 段不得有重复码值");
         println!(
             "[码表] 62xxx 段 {} 个码齐全且不重复（62001–62019）✓",
+            codes.len()
+        );
+    }
+
+    /// T 段码位自检：63xxx 段 9 个码齐全、码值不重复、与 62xxx 段不重叠。
+    ///
+    /// 与另外两条同性质：**码值一旦发给前端就不能改**（`error-code.ts` 的文案映射
+    /// 按码值命中）。新增 T 段错误时只许顺延 63010+，不许改已有值。
+    #[test]
+    fn task_error_codes_are_stable() {
+        let codes = [
+            (TASK_NOT_FOUND, 63001),
+            (TASK_FORBIDDEN, 63002),
+            (TASK_TITLE_INVALID, 63003),
+            (TASK_FIELD_INVALID, 63004),
+            (TASK_PARENT_INVALID, 63005),
+            (TASK_HAS_OPEN_CHILDREN, 63006),
+            (TASK_NO_GENERATE_FAILED, 63007),
+            (TASK_SCOPE_UNEXPECTED, 63008),
+            (TASK_OWNER_INVALID, 63009),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "63xxx 段码值不得改动");
+        }
+        // 与批次 C / 偏好体系的 62xxx 段严格不重叠
+        assert!(codes[0].0 > 62024, "63xxx 段必须排在 62xxx 段之后");
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
+        println!(
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63009）✓",
             codes.len()
         );
     }
