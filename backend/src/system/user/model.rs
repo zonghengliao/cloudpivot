@@ -149,6 +149,12 @@ pub(crate) struct UserWithDept {
     pub user: SysUserModel,
     /// 所属部门名称（无部门或部门已删除时为空串）。
     pub dept_name: String,
+    /// 账号类型（`HUMAN` / `ROBOT`）。
+    ///
+    /// 不在 [`SysUserModel`] 上：该列由 `V0102` 引入、本卡（L1）只在读取侧使用，
+    /// 给模型加字段会连带改所有构造点（建号 / 种子 / 测试），风险与收益不成比例。
+    /// 读取侧用 `u.*` 里多出来的那一列即可（`SELECT u.*` 已经带它）。
+    pub user_type: String,
 }
 
 /// 用户关联角色的查询行（`sys_user_role` JOIN `sys_role`）。
@@ -268,8 +274,18 @@ pub(crate) async fn page_users(
         let dept_name = row
             .get_typed::<Option<String>>("dept_name")?
             .unwrap_or_default();
+        // 账号类型：列缺失（老库未跑 V0102）时回落 HUMAN，不让列表整体 500
+        let user_type = row
+            .get_typed::<Option<String>>("user_type")
+            .unwrap_or(None)
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| "HUMAN".to_string());
         let user = SysUserModel::from_row(row)?;
-        users.push(UserWithDept { user, dept_name });
+        users.push(UserWithDept {
+            user,
+            dept_name,
+            user_type,
+        });
     }
     Ok(Page {
         list: users,
@@ -384,6 +400,33 @@ pub(crate) async fn user_holds_super_admin_role(
     match rows.first() {
         Some(row) => Ok(row.get_typed::<i64>("cnt")? > 0),
         None => Ok(false),
+    }
+}
+
+/// 读取用户的账号类型（`HUMAN` / `ROBOT`）。
+///
+/// 供「用户详情 / 编辑保存」的出参使用：`SysUserModel` 不含 `user_type`（见
+/// [`UserWithDept::user_type`] 的说明），单查一列比给模型加字段更安全。
+///
+/// # 返回值
+///
+/// 用户不存在或已软删返回 `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn find_user_type(
+    user_id: &uuid::Uuid,
+) -> std::result::Result<Option<String>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT user_type FROM sys_user WHERE id = ? AND deleted_at IS NULL",
+            vec![Value::from(user_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(row.get_typed::<Option<String>>("user_type")?),
+        None => Ok(None),
     }
 }
 

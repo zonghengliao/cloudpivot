@@ -55,7 +55,42 @@ pub async fn bootstrap() {
         crate::support::dict::model::warm_dict_cache(),
         load_runtime_config(),
         preflight_permission_guard(),
+        ai_agent_invariant_guard(),
     );
+}
+
+/// AI 用户不变式自检（L1 · laoliu 2026-10-29 追加硬要求）。
+///
+/// 不变式：`sys_user.user_type = 'ROBOT'` ⇔ `sys_ai_agent` 有该 `user_id` 的记录。
+///
+/// # 为什么要查
+///
+/// 破坏形态都是**静默的**：
+/// - 手工删掉一条 `sys_ai_agent` → 那个机器人的 Hermes profile 再也没人能编辑 / 清理；
+/// - 把账号 `user_type` 改成 `HUMAN` 而没清配置行 → 审计与数据权限把它当普通账号。
+///
+/// 两种都不会让任何接口报错，只会在「该有的机器人不见了 / 该清理的磁盘没清理」时
+/// 才被发现。所以启动即自检。
+///
+/// # 处置
+///
+/// - 恒打 `ERROR` 日志（带 id 清单，最多各 50 条）；
+/// - **prod 拒启动**（`exit(1)`，与 `seed_super_admin` / 数据权限自检同一先例）：
+///   带病上线比不启动更危险；
+/// - 其余 profile 只告警，便于开发/测试环境先修数据。
+async fn ai_agent_invariant_guard() {
+    match crate::shared::startup_guard::check_ai_agent_invariant().await {
+        Ok(()) => {}
+        Err(error) => {
+            let message = format!("AI 用户不变式自检不通过：{error}");
+            tracing::error!("{message}");
+            if is_prod_profile() {
+                eprintln!("FATAL: {message}");
+                std::process::exit(1);
+            }
+            tracing::warn!("AI 用户不变式自检不通过（非 prod，继续启动，请尽快修复数据）");
+        }
+    }
 }
 
 /// 启动自检：数据权限登记表 / 超管角色（批次 B 的「闸 3」，架构 §2.4、§5.3-#9）。

@@ -37,6 +37,7 @@
 //! | `6100x` | 权限增强 · 批次 B（数据权限 / 列级脱敏 / 角色互斥） |
 //! | `62xxx` | 批次 C（公告 / 帮助 / 变更日志）+ 批次 D（偏好体系 KV） |
 //! | `63xxx` | 批次 C+（工作任务管理 T 段：`63001`–`63009`） |
+//! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64013`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -461,6 +462,59 @@ pub const TASK_SCOPE_UNEXPECTED: i32 = 63008;
 /// 任务负责人不存在或已停用（HTTP 400）。
 pub const TASK_OWNER_INVALID: i32 = 63009;
 
+// ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
+//
+// 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，
+// 往里塞码会让那条断言失效（等于放宽一条既有门禁）。AI 用户是独立业务域
+// （profile 生命周期 + SOUL.md），单开一段最清楚。
+
+/// AI 用户不存在或已删除（HTTP 404）。
+pub const AI_AGENT_NOT_FOUND: i32 = 64001;
+
+/// profile 名不合法（**命令注入的唯一入口**，HTTP 400）。
+///
+/// 触发条件：不命中 `^[a-z][a-z0-9-]{1,30}$`，或命中保留名 `default`。
+/// 这条错误码出现即说明有调用方在试探，值得在日志/告警里盯。
+pub const AI_AGENT_PROFILE_INVALID: i32 = 64002;
+
+/// 用户名或 Hermes profile 名已被占用（HTTP 409）。
+pub const AI_AGENT_PROFILE_EXISTS: i32 = 64003;
+
+/// profile 目录不存在（例如磁盘上被外部删除，HTTP 404）。
+pub const AI_AGENT_PROFILE_MISSING: i32 = 64004;
+
+/// Hermes CLI 执行失败 / 超时 / CLI 不存在（HTTP 500，消息里带 stderr 前 500 字符）。
+pub const AI_AGENT_HERMES_FAILED: i32 = 64005;
+
+/// SOUL.md 内容非法（超上限，HTTP 400）。
+pub const AI_AGENT_SOUL_INVALID: i32 = 64006;
+
+/// SOUL.md 文件不存在（HTTP 404）。
+pub const AI_AGENT_SOUL_MISSING: i32 = 64007;
+
+/// SOUL.md 读写失败（IO 错误，HTTP 500）。
+pub const AI_AGENT_SOUL_IO_FAILED: i32 = 64008;
+
+/// 创建失败且回滚未完全成功（HTTP 500，消息里逐条列出残留项，需人工清理）。
+pub const AI_AGENT_ROLLBACK_FAILED: i32 = 64009;
+
+/// 职责（profile description）超长（HTTP 400）。
+pub const AI_AGENT_DESCRIPTION_INVALID: i32 = 64010;
+
+/// workspace 目录创建 / 删除失败（HTTP 500）。
+pub const AI_AGENT_WORKSPACE_FAILED: i32 = 64011;
+
+/// 模型覆盖不是 JSON 对象（HTTP 400）。
+pub const AI_AGENT_MODEL_INVALID: i32 = 64012;
+
+/// AI 用户的账号类型受保护：禁止用通用用户接口改 / 删 `user_type='ROBOT'` 的账号（HTTP 409）。
+///
+/// 不变式：`user_type='ROBOT'` ⇔ `sys_ai_agent` 有该 user_id 的记录。
+/// 通用接口动它会打破「账号 ↔ 配置行」的一一对应（配置行还在、账号变了；
+/// 或账号被删、Hermes profile 与 workspace 留在磁盘上没人清理），
+/// 所以这类操作必须走 `/api/system/user/ai/*`。
+pub const AI_AGENT_USER_TYPE_LOCKED: i32 = 64013;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -578,6 +632,41 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
             "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63009）✓",
+            codes.len()
+        );
+    }
+
+    /// AI 段码位自检：64xxx 段 12 个码齐全、码值不重复、与 63xxx 段不重叠。
+    ///
+    /// 与另外三条同性质：**码值一旦发给前端就不能改**（`frontend/src/api/error-code.ts`
+    /// 的文案映射按码值命中）。新增 AI 段错误时只许顺延 64013+。
+    #[test]
+    fn ai_agent_error_codes_are_stable() {
+        let codes = [
+            (AI_AGENT_NOT_FOUND, 64001),
+            (AI_AGENT_PROFILE_INVALID, 64002),
+            (AI_AGENT_PROFILE_EXISTS, 64003),
+            (AI_AGENT_PROFILE_MISSING, 64004),
+            (AI_AGENT_HERMES_FAILED, 64005),
+            (AI_AGENT_SOUL_INVALID, 64006),
+            (AI_AGENT_SOUL_MISSING, 64007),
+            (AI_AGENT_SOUL_IO_FAILED, 64008),
+            (AI_AGENT_ROLLBACK_FAILED, 64009),
+            (AI_AGENT_DESCRIPTION_INVALID, 64010),
+            (AI_AGENT_WORKSPACE_FAILED, 64011),
+            (AI_AGENT_MODEL_INVALID, 64012),
+            (AI_AGENT_USER_TYPE_LOCKED, 64013),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "64xxx 段码值不得改动");
+        }
+        // 与任务管理 63xxx 段严格不重叠
+        assert!(codes[0].0 > 63009, "64xxx 段必须排在 63xxx 段之后");
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "64xxx 段不得有重复码值");
+        assert_eq!(unique.len(), 13, "64xxx 段必须是 13 个码（64001–64013）");
+        println!(
+            "[码表] 64xxx 段 {} 个码齐全且不重复（64001–64013）✓",
             codes.len()
         );
     }

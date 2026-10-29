@@ -551,6 +551,7 @@ mod tests {
                 is_locked: false,
                 last_login_at: None,
                 created_at: chrono::Utc::now(),
+                user_type: "HUMAN".to_string(),
                 roles: vec![crate::system::user::dto::RoleBriefRes {
                     role_id: "0199a0b0-0000-7000-8000-000000000003".to_string(),
                     role_code: "TEST_VIEWER".to_string(),
@@ -575,6 +576,7 @@ mod tests {
                 last_login_at: None,
                 created_at: chrono::Utc::now(),
                 remark: "样例备注".to_string(),
+                user_type: "ROBOT".to_string(),
                 roles: vec![crate::system::user::dto::RoleBriefRes {
                     role_id: "0199a0b0-0000-7000-8000-000000000003".to_string(),
                     role_code: "TEST_VIEWER".to_string(),

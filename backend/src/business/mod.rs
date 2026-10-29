@@ -16,7 +16,9 @@
 //! | [`help`] | 帮助文档（批次 C · C4）：分类树、文档 CRUD、版本与回滚、站内检索 |
 //! | [`changelog`] | 变更日志（批次 C · C5/C6）：白名单登记、diff 引擎、脱敏、分区运维 |
 //! | [`task`] | 工作任务管理（批次 C+ · T1）：7 张表、任务 CRUD、可见性（scope ∪ 参与关系） |
+//! | [`aiagent`] | AI 用户（云枢 × Hermes · L1）：profile 自动创建、SOUL.md 编辑、事务性回滚 |
 
+pub mod aiagent;
 pub mod announcement;
 pub mod changelog;
 pub mod help;

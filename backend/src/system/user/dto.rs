@@ -46,12 +46,16 @@ pub struct UserRes {
     pub last_login_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 创建时间
     pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 账号类型：`HUMAN` 人类 / `ROBOT` AI 用户（前端据此显示机器人徽标）
+    pub user_type: String,
     /// 关联角色简要列表
     pub roles: Vec<RoleBriefRes>,
 }
 
 impl UserRes {
     /// 由用户模型与部门名称构造列表项（`roles` 初始为空，由处理器聚合后填充）。
+    ///
+    /// 账号类型固定按 `HUMAN` 下发；AI 用户请用 [`UserRes::from_model_typed`]。
     ///
     /// # 参数
     ///
@@ -62,6 +66,17 @@ impl UserRes {
     ///
     /// 用户列表项响应；可空文本列统一降级为空串。
     pub fn from_model(m: &SysUserModel, dept_name: String) -> Self {
+        Self::from_model_typed(m, dept_name, "HUMAN")
+    }
+
+    /// 同 [`UserRes::from_model`]，但显式给账号类型。
+    ///
+    /// # 参数
+    ///
+    /// - `m`：用户模型引用；
+    /// - `dept_name`：部门名称（无则空串）；
+    /// - `user_type`：`HUMAN` / `ROBOT`（`sys_user.user_type` 的库内值）。
+    pub fn from_model_typed(m: &SysUserModel, dept_name: String, user_type: &str) -> Self {
         Self {
             id: m.id.to_string(),
             username: m.username.clone(),
@@ -74,6 +89,11 @@ impl UserRes {
             is_locked: m.is_locked,
             last_login_at: m.last_login_at,
             created_at: m.created_at,
+            user_type: if user_type.is_empty() {
+                "HUMAN".to_string()
+            } else {
+                user_type.to_string()
+            },
             roles: Vec::new(),
         }
     }
@@ -106,12 +126,16 @@ pub struct UserDetailRes {
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 备注
     pub remark: String,
+    /// 账号类型：`HUMAN` 人类 / `ROBOT` AI 用户
+    pub user_type: String,
     /// 关联角色简要列表
     pub roles: Vec<RoleBriefRes>,
 }
 
 impl UserDetailRes {
     /// 由用户模型与部门名称构造详情（`roles` 初始为空，由处理器聚合后填充）。
+    ///
+    /// 账号类型固定按 `HUMAN` 下发；AI 用户请用 [`UserDetailRes::from_model_typed`]。
     ///
     /// # 参数
     ///
@@ -122,7 +146,12 @@ impl UserDetailRes {
     ///
     /// 用户详情响应；可空文本列统一降级为空串。
     pub fn from_model(m: &SysUserModel, dept_name: String) -> Self {
-        let base = UserRes::from_model(m, dept_name);
+        Self::from_model_typed(m, dept_name, "HUMAN")
+    }
+
+    /// 同 [`UserDetailRes::from_model`]，但显式给账号类型。
+    pub fn from_model_typed(m: &SysUserModel, dept_name: String, user_type: &str) -> Self {
+        let base = UserRes::from_model_typed(m, dept_name, user_type);
         Self {
             id: base.id,
             username: base.username,
@@ -136,6 +165,7 @@ impl UserDetailRes {
             last_login_at: base.last_login_at,
             created_at: base.created_at,
             remark: m.remark.clone().unwrap_or_default(),
+            user_type: base.user_type,
             roles: Vec::new(),
         }
     }

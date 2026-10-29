@@ -666,6 +666,133 @@ impl Plugin for AuthSecretGuardPlugin {
     }
 }
 
+// ==================== 第三道守卫：AI 用户不变式（L1） ====================
+
+/// AI 用户不变式被破坏的具体清单。
+///
+/// 不变式（laoliu 2026-10-29 追加硬要求）：
+///
+/// ```text
+/// sys_user.user_type = 'ROBOT'  ⇔  sys_ai_agent 存在该 user_id 的记录
+/// （两侧都只看「未软删」行：软删的账号与配置行不算存在）
+/// ```
+///
+/// 破坏形态只有两种，各自带一份 id 清单，便于运维直接拿 id 去查：
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiAgentInvariantError {
+    /// 「是 ROBOT 账号但没有配置行」的 `sys_user.id`（配置行被手工删 / 建号只写了一半）。
+    pub robot_without_agent: Vec<String>,
+    /// 「有配置行但账号不是 ROBOT（或已被软删）」的 `sys_ai_agent.user_id`。
+    pub agent_without_robot: Vec<String>,
+}
+
+impl AiAgentInvariantError {
+    /// 是否确实有违规（空 = 健康）。
+    pub fn is_violated(&self) -> bool {
+        !self.robot_without_agent.is_empty() || !self.agent_without_robot.is_empty()
+    }
+
+    /// 一行摘要（写进 ERROR 日志 / 启动失败原因）。
+    pub fn summary(&self) -> String {
+        format!(
+            "AI 用户不变式被破坏：{} 个 ROBOT 账号缺少 sys_ai_agent 配置行（user_id: {}）；\
+             {} 条 sys_ai_agent 配置行对应非 ROBOT / 已删除账号（user_id: {}）。\
+             修复：删除孤立行，或走 /api/system/user/ai 接口重建 AI 用户",
+            self.robot_without_agent.len(),
+            join_ids(&self.robot_without_agent),
+            self.agent_without_robot.len(),
+            join_ids(&self.agent_without_robot),
+        )
+    }
+}
+
+impl fmt::Display for AiAgentInvariantError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.summary())
+    }
+}
+
+impl std::error::Error for AiAgentInvariantError {}
+
+fn join_ids(ids: &[String]) -> String {
+    const MAX: usize = 10;
+    if ids.is_empty() {
+        return "-".to_string();
+    }
+    let mut out = ids.iter().take(MAX).cloned().collect::<Vec<_>>().join(", ");
+    if ids.len() > MAX {
+        out.push_str(&format!(" …（共 {} 条）", ids.len()));
+    }
+    out
+}
+
+/// 启动自检：AI 用户不变式（`ROBOT` 账号 ⇔ `sys_ai_agent` 配置行）。
+///
+/// # 为什么放在启动路径上
+///
+/// 「账号是 ROBOT 但配置行没了」意味着 Hermes profile 无人管理（云枢既不能编辑它的
+/// SOUL.md，也不会在删号时清理磁盘），而「配置行还在但账号不是 ROBOT」意味着
+/// 数据权限/审计把「机器人」当成了普通账号。两种都是**静默错**，不查库永远发现不了，
+/// 所以每次启动都各查一次（两条走 `deleted_at` 部分索引的轻量查询，毫秒级，最多各取 50 条 id）。
+///
+/// # 参数
+///
+/// 无。使用全局 `db()`（调用点必须在数据库初始化之后，即 `bootstrap` 阶段）。
+///
+/// # 返回值
+///
+/// 健康返回 `Ok(())`；有违规返回 [`AiAgentInvariantError`]（带 id 清单）。
+///
+/// # 异常情况
+///
+/// 查库失败（连接不可用 / 权限不足）时返回 [`Error`]（`Error::Config`），
+/// 调用方与「违规」同样处理：prod 拒启动，其余告警。
+pub async fn check_ai_agent_invariant() -> std::result::Result<(), Error> {
+    // ① ROBOT 账号必须都有配置行
+    // SCOPE-EXEMPT: 启动自检是全局计数（跨全部用户），注入数据范围会让它漏检——
+    // 这里要的恰恰是「不受任何范围限制地看全库」。
+    let robot_rows = db()
+        .find_with_params(
+            "SELECT u.id::text AS user_id FROM sys_user u \
+             WHERE u.user_type = 'ROBOT' AND u.deleted_at IS NULL \
+               AND NOT EXISTS (SELECT 1 FROM sys_ai_agent a \
+                               WHERE a.user_id = u.id AND a.deleted_at IS NULL) \
+             ORDER BY u.id LIMIT 50",
+            vec![],
+        )
+        .await
+        .map_err(|e| Error::Config(format!("AI 用户自检无法完成（查询 ROBOT 账号）：{e}")))?;
+
+    // ② 配置行必须都对应未删的 ROBOT 账号
+    // SCOPE-EXEMPT: 同 ①，启动自检是全局一致性校验，不做数据范围过滤。
+    let agent_rows = db()
+        .find_with_params(
+            "SELECT a.user_id::text AS user_id FROM sys_ai_agent a \
+             JOIN sys_user u ON u.id = a.user_id \
+             WHERE a.deleted_at IS NULL \
+               AND (u.deleted_at IS NOT NULL OR u.user_type <> 'ROBOT') \
+             ORDER BY a.user_id LIMIT 50",
+            vec![],
+        )
+        .await
+        .map_err(|e| Error::Config(format!("AI 用户自检无法完成（查询 sys_ai_agent）：{e}")))?;
+
+    let collect = |rows: Vec<Row>| -> Vec<String> {
+        rows.iter()
+            .filter_map(|row| row.get_typed::<String>("user_id").ok())
+            .collect()
+    };
+    let violation = AiAgentInvariantError {
+        robot_without_agent: collect(robot_rows),
+        agent_without_robot: collect(agent_rows),
+    };
+    if violation.is_violated() {
+        return Err(Error::Config(violation.summary()));
+    }
+    tracing::info!("AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

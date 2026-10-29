@@ -107,7 +107,7 @@ pub async fn page(
     let mut list: Vec<UserRes> = page_data
         .list
         .iter()
-        .map(|item| UserRes::from_model(&item.user, item.dept_name.clone()))
+        .map(|item| UserRes::from_model_typed(&item.user, item.dept_name.clone(), &item.user_type))
         .collect();
     for item in &mut list {
         if let Some(id) = utils::parse_uuid(&item.id)
@@ -161,7 +161,12 @@ pub async fn detail(
     let id = utils::require_uuid(&id, "id")?;
     let user = load_user(&id).await?;
     let dept_name = dept_name_of(user.dept_id).await?;
-    let mut res = UserDetailRes::from_model(&user, dept_name);
+    // 账号类型：AI 用户（ROBOT）走独立编辑页，前端需要这个字段决定渲染哪套表单
+    let user_type = model::find_user_type(&id)
+        .await
+        .map_err(|e| utils::db_error(e, "查询用户账号类型"))?
+        .unwrap_or_else(|| "HUMAN".to_string());
+    let mut res = UserDetailRes::from_model_typed(&user, dept_name, &user_type);
     let role_map = role_map_of(std::slice::from_ref(&id)).await?;
     if let Some(roles) = role_map.get(&id) {
         res.roles = roles.clone();
@@ -355,6 +360,20 @@ pub async fn update(
     let existing = load_user(&id).await?;
     // 权限上限：非超管不得修改超管账号的资料 / 状态（堵「改超管资料」）
     guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
+    // 不变式（L1）：AI 用户（`user_type=ROBOT`）的账号与 `sys_ai_agent` 配置行是一对，
+    // 只能走 AI 用户接口维护 —— 通用接口改不了类型（`SysUserModel` 无该字段），
+    // 但放行会让前端以为「在这里改就行」，从而绕过 SOUL.md / profile 的同步。
+    let user_type = model::find_user_type(&id)
+        .await
+        .map_err(|e| utils::db_error(e, "查询用户账号类型"))?
+        .unwrap_or_else(|| "HUMAN".to_string());
+    if user_type == "ROBOT" {
+        return Err(ApiError::new(
+            409,
+            error_code::AI_AGENT_USER_TYPE_LOCKED,
+            "AI 用户（ROBOT）请通过 /api/system/user/ai/{id} 维护（职责 / SOUL.md / 模型）",
+        ));
+    }
 
     // 基于原记录派生，天然保留 created_at / create_by（仿 menu 的 update 写法）
     let mut to_save = existing.clone();
@@ -419,7 +438,8 @@ pub async fn update(
     }
 
     let dept_name = dept_name_of(to_save.dept_id).await?;
-    let mut res = UserDetailRes::from_model(&to_save, dept_name);
+    // 上面已查过账号类型（此处必为 HUMAN：ROBOT 在函数开头就被 409 拦下）
+    let mut res = UserDetailRes::from_model_typed(&to_save, dept_name, &user_type);
     let role_map = role_map_of(std::slice::from_ref(&id)).await?;
     if let Some(roles) = role_map.get(&id) {
         res.roles = roles.clone();
@@ -487,6 +507,19 @@ pub async fn delete(
     let user = load_user(&id).await?;
     // 权限上限：非超管不得删除超管账号（超管删除内置 admin 仍由下方 409 拦截）
     guard::ensure_role_grant_allowed(&claims, &[], Some(id)).await?;
+    // 不变式（L1）：删 AI 用户必须同时清理 Hermes profile / workspace / `sys_ai_agent`，
+    // 通用删除只软删 `sys_user` —— 走它会留下孤立配置行与磁盘目录（不变式立刻破）。
+    let user_type = model::find_user_type(&id)
+        .await
+        .map_err(|e| utils::db_error(e, "查询用户账号类型"))?
+        .unwrap_or_else(|| "HUMAN".to_string());
+    if user_type == "ROBOT" {
+        return Err(ApiError::new(
+            409,
+            error_code::AI_AGENT_USER_TYPE_LOCKED,
+            "AI 用户（ROBOT）请通过 DELETE /api/system/user/ai/{id} 删除（会先备份 SOUL.md 再清理 profile）",
+        ));
+    }
     if user.username == constants::ADMIN_USERNAME {
         return Err(ApiError::new(
             409,

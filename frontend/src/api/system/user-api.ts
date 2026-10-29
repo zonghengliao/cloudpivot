@@ -27,6 +27,8 @@ export interface UserRes {
   last_login_at: string | null;
   /** 创建时间 */
   created_at: string;
+  /** 账号类型：HUMAN 人类 / ROBOT AI 用户（云枢 × Hermes） */
+  user_type: string;
   /** 关联角色简要列表 */
   roles: UserRoleBrief[];
 }

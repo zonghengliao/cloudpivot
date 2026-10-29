@@ -80,6 +80,18 @@
             :pagination="pagination"
             @page-change="handlePageChange"
           >
+            <template #username="{ row }">
+              <t-space size="4" align="center">
+                <t-icon v-if="row.user_type === 'ROBOT'" name="robot" class="cell-robot" />
+                <span>{{ row.username }}</span>
+              </t-space>
+            </template>
+            <template #user_type="{ row }">
+              <t-tag v-if="row.user_type === 'ROBOT'" size="small" theme="primary" variant="light">
+                机器人
+              </t-tag>
+              <t-tag v-else size="small" variant="light">人类</t-tag>
+            </template>
             <template #status="{ row }">
               <t-switch
                 :value="row.status === 1"
@@ -111,7 +123,7 @@
                 <t-link v-privilege="['system:user:assign']" theme="primary" @click="openAssignRoles(row)">
                   分配角色
                 </t-link>
-                <t-link v-privilege="['system:user:reset']" theme="warning" @click="openResetPassword(row)">
+                <t-link v-privilege="['system:user:reset']" v-if="row.user_type !== 'ROBOT'" theme="warning" @click="openResetPassword(row)">
                   重置密码
                 </t-link>
                 <t-link v-privilege="['system:user:delete']" theme="danger" @click="confirmRemove(row)">
@@ -126,51 +138,94 @@
 
     <t-dialog
       v-model:visible="formVisible"
-      :header="isEdit ? '编辑用户' : '新增用户'"
+      :header="dialogTitle"
       :confirm-btn="{ content: '确定', theme: 'primary', loading: submitting }"
-      width="560px"
+      :width="isAiForm ? '980px' : '560px'"
       destroy-on-close
       @confirm="submitForm"
     >
       <t-form ref="formRef" :data="form" :rules="formRules" label-width="90px">
-        <t-form-item v-if="!isEdit" label="用户名" name="username">
-          <t-input v-model="form.username" placeholder="请输入用户名" />
+        <!-- 账号类型：只有新建时可选；AI 用户会连带创建 Hermes profile -->
+        <t-form-item v-if="!isEdit" label="账号类型" name="account_type">
+          <t-radio-group v-model="form.account_type">
+            <t-radio value="HUMAN">人类用户</t-radio>
+            <t-radio value="ROBOT">AI 用户（自动创建 Hermes profile）</t-radio>
+          </t-radio-group>
         </t-form-item>
-        <t-form-item v-if="!isEdit" label="密码" name="password">
+        <t-form-item v-if="!isEdit" label="用户名" name="username">
+          <div class="form-field">
+            <t-input
+              v-model="form.username"
+              :placeholder="isAiForm ? '小写字母开头，只含小写字母/数字/连字符' : '请输入用户名'"
+            />
+            <div v-if="isAiForm" class="form-field__hint">
+              该用户名同时是 Hermes profile 名（<code>^[a-z][a-z0-9-]&#123;1,30&#125;$</code>），创建后不可修改。
+            </div>
+          </div>
+        </t-form-item>
+        <t-form-item v-if="!isEdit && !isAiForm" label="密码" name="password">
           <t-input v-model="form.password" type="password" placeholder="请输入初始密码" />
         </t-form-item>
         <t-form-item label="姓名" name="real_name">
           <t-input v-model="form.real_name" placeholder="请输入姓名" />
         </t-form-item>
-        <t-form-item label="部门" name="dept_id">
-          <dept-tree-select v-model="form.dept_id" @error="showError" />
-        </t-form-item>
-        <t-form-item label="角色" name="role_ids">
-          <t-select
-            v-model="form.role_ids"
-            :options="roleOptions"
-            multiple
-            clearable
-            filterable
-            :loading="roleOptionsLoading"
-            placeholder="请选择角色（可多选）"
+
+        <!-- 人类用户：沿用原有字段 -->
+        <template v-if="!isAiForm">
+          <t-form-item label="部门" name="dept_id">
+            <dept-tree-select v-model="form.dept_id" @error="showError" />
+          </t-form-item>
+          <t-form-item label="角色" name="role_ids">
+            <t-select
+              v-model="form.role_ids"
+              :options="roleOptions"
+              multiple
+              clearable
+              filterable
+              :loading="roleOptionsLoading"
+              placeholder="请选择角色（可多选）"
+            />
+          </t-form-item>
+          <t-form-item label="手机号" name="mobile">
+            <t-input v-model="form.mobile" placeholder="请输入手机号" />
+          </t-form-item>
+          <t-form-item label="邮箱" name="email">
+            <t-input v-model="form.email" placeholder="请输入邮箱" />
+          </t-form-item>
+          <t-form-item label="状态" name="status">
+            <t-radio-group v-model="form.status">
+              <t-radio :value="1">正常</t-radio>
+              <t-radio :value="0">停用</t-radio>
+            </t-radio-group>
+          </t-form-item>
+          <t-form-item label="备注" name="remark">
+            <t-textarea v-model="form.remark" placeholder="请输入备注" :maxlength="200" />
+          </t-form-item>
+        </template>
+
+        <!-- AI 用户：职责 + 模型 + SOUL.md（+ 编辑态 profile 状态徽标） -->
+        <template v-else>
+          <AiUserForm
+            :mode="isEdit ? 'edit' : 'create'"
+            :show-username="false"
+            :show-status="isEdit"
+            :username="form.username"
+            :description="form.agent_description"
+            :model="form.model"
+            :soul="form.soul_md"
+            :soul-path="aiSoulPath"
+            :profile="aiProfile"
+            :healthy="aiHealthy"
+            :profile-exists="aiProfileExists"
+            :gateway="aiGateway"
+            :status-detail="aiStatusDetail"
+            :status-loading="aiStatusLoading"
+            @update:description="form.agent_description = $event"
+            @update:model="form.model = $event"
+            @update:soul="form.soul_md = $event"
+            @refresh-status="refreshAiStatus"
           />
-        </t-form-item>
-        <t-form-item label="手机号" name="mobile">
-          <t-input v-model="form.mobile" placeholder="请输入手机号" />
-        </t-form-item>
-        <t-form-item label="邮箱" name="email">
-          <t-input v-model="form.email" placeholder="请输入邮箱" />
-        </t-form-item>
-        <t-form-item label="状态" name="status">
-          <t-radio-group v-model="form.status">
-            <t-radio :value="1">正常</t-radio>
-            <t-radio :value="0">停用</t-radio>
-          </t-radio-group>
-        </t-form-item>
-        <t-form-item label="备注" name="remark">
-          <t-textarea v-model="form.remark" placeholder="请输入备注" :maxlength="200" />
-        </t-form-item>
+        </template>
       </t-form>
     </t-dialog>
 
@@ -216,6 +271,14 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin, type FormInstanceFunctions, type FormRules, type PrimaryTableCol } from 'tdesign-vue-next';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
+import AiUserForm from './components/AiUserForm.vue';
+import {
+  createAiUser,
+  deleteAiUser,
+  getAiUser,
+  getAiUserStatus,
+  updateAiUser,
+} from '@/api/system/ai-user-api';
 import {
   changeUserStatus,
   createUser,
@@ -259,11 +322,11 @@ interface UserQuery {
 interface UserForm {
   /** 用户 id，新增时为空 */
   id: string;
-  /** 用户名 */
+  /** 用户名（AI 用户时同时是 Hermes profile 名） */
   username: string;
-  /** 密码 */
+  /** 密码（AI 用户不需要） */
   password: string;
-  /** 姓名 */
+  /** 姓名 / 显示名 */
   real_name: string;
   /** 手机号 */
   mobile: string;
@@ -277,6 +340,14 @@ interface UserForm {
   remark: string;
   /** 角色 id 列表（新增随创建一并分配；编辑时保存后单独提交） */
   role_ids: string[];
+  /** 账号类型：人类 / AI（仅新建可选，创建后不可改） */
+  account_type: 'HUMAN' | 'ROBOT';
+  /** AI 用户职责 */
+  agent_description: string;
+  /** AI 用户模型名（映射为 model_override.model） */
+  model: string;
+  /** AI 用户 SOUL.md 全文 */
+  soul_md: string;
 }
 
 const userStore = useUserStore();
@@ -299,7 +370,8 @@ const deptLoading = ref(false);
 const activeDeptKeys = ref<Array<string | number>>([]);
 
 const columns: PrimaryTableCol[] = [
-  { colKey: 'username', title: '用户名', width: 140 },
+  { colKey: 'username', title: '用户名', width: 150, cell: 'username' },
+  { colKey: 'user_type', title: '类型', width: 90, cell: 'user_type' },
   { colKey: 'real_name', title: '姓名', width: 120 },
   { colKey: 'dept_name', title: '部门', width: 160 },
   { colKey: 'roles', title: '角色', width: 180, cell: 'roles' },
@@ -326,13 +398,33 @@ const form = reactive<UserForm>({
   status: 1,
   remark: '',
   role_ids: [],
+  account_type: 'HUMAN',
+  agent_description: '',
+  model: '',
+  soul_md: '',
 });
-const formRules = computed<FormRules<UserForm>>(() => ({
-  username: isEdit.value ? [] : [{ required: true, message: '请输入用户名' }],
-  password: isEdit.value ? [] : [{ required: true, message: '请输入初始密码' }],
-  real_name: [{ required: true, message: '请输入姓名' }],
-  email: [{ email: true, message: '邮箱格式不正确' }],
-}));
+const formRules = computed<FormRules<UserForm>>(() => {
+  if (form.account_type === 'ROBOT') {
+    // AI 用户：用户名是 profile 名（正则与后端逐字一致），密码不需要，姓名为选填
+    return {
+      username: isEdit.value
+        ? []
+        : [
+            { required: true, message: '请输入用户名（= Hermes profile 名）' },
+            {
+              pattern: /^[a-z][a-z0-9-]{1,30}$/,
+              message: '必须以小写字母开头，只含小写字母/数字/连字符，长度 2–31',
+            },
+          ],
+    };
+  }
+  return {
+    username: isEdit.value ? [] : [{ required: true, message: '请输入用户名' }],
+    password: isEdit.value ? [] : [{ required: true, message: '请输入初始密码' }],
+    real_name: [{ required: true, message: '请输入姓名' }],
+    email: [{ email: true, message: '邮箱格式不正确' }],
+  };
+});
 
 const roleVisible = ref(false);
 const roleSubmitting = ref(false);
@@ -433,6 +525,70 @@ function handlePageChange(pageInfo: TablePageInfo): void {
   void loadList();
 }
 
+// ===== AI 用户（云枢 × Hermes）=====
+
+/** 当前表单是否是 AI 用户（新建看选择，编辑看行数据带入的 account_type） */
+const isAiForm = computed(() => form.account_type === 'ROBOT');
+
+const dialogTitle = computed(() => {
+  if (!isEdit.value) {
+    return isAiForm.value ? '新增 AI 用户' : '新增用户';
+  }
+  return isAiForm.value ? '编辑 AI 用户' : '编辑用户';
+});
+
+/** SOUL.md 服务器绝对路径（编辑态由后端下发，保存前提示要用） */
+const aiSoulPath = ref('');
+/** profile 名（编辑态展示） */
+const aiProfile = ref('');
+const aiProfileExists = ref(false);
+const aiHealthy = ref(false);
+const aiGateway = ref('unknown');
+const aiStatusDetail = ref<string | null>(null);
+const aiStatusLoading = ref(false);
+
+function resetAiStatus(): void {
+  aiSoulPath.value = '';
+  aiProfile.value = '';
+  aiProfileExists.value = false;
+  aiHealthy.value = false;
+  aiGateway.value = 'unknown';
+  aiStatusDetail.value = null;
+  aiStatusLoading.value = false;
+}
+
+/** `model_override`（任意 JSON）→ 表单里的模型名（只认 `{ model: string }` 这一种形态） */
+function modelNameOf(model: Record<string, unknown> | null): string {
+  const value = model?.model;
+  return typeof value === 'string' ? value : '';
+}
+
+/** 表单里的模型名 → `model_override`（空串 = 不设覆盖） */
+function toModelOverride(name: string): Record<string, unknown> | null {
+  const trimmed = name.trim();
+  return trimmed ? { model: trimmed } : null;
+}
+
+/** 探活：拿到 profile 目录 / SOUL.md / workspace / CLI / gateway 的真实状态 */
+async function refreshAiStatus(): Promise<void> {
+  if (!form.id) {
+    return;
+  }
+  aiStatusLoading.value = true;
+  try {
+    const status = await getAiUserStatus(form.id);
+    aiProfileExists.value = status.profile_dir_exists;
+    aiHealthy.value = status.healthy;
+    aiGateway.value = status.gateway;
+    aiStatusDetail.value = status.detail;
+    aiProfile.value = status.hermes_profile;
+  } catch (error) {
+    aiStatusDetail.value = error instanceof ApiError ? error.message : '探活失败';
+  } finally {
+    aiStatusLoading.value = false;
+  }
+}
+
 /** 重置表单为初始值 */
 function resetForm(): void {
   Object.assign(form, {
@@ -446,7 +602,12 @@ function resetForm(): void {
     status: 1,
     remark: '',
     role_ids: [],
+    account_type: 'HUMAN',
+    agent_description: '',
+    model: '',
+    soul_md: '',
   });
+  resetAiStatus();
 }
 
 function openCreate(): void {
@@ -470,8 +631,22 @@ async function openEdit(row: UserRes): Promise<void> {
       status: detail.status,
       remark: detail.remark,
       // 角色 id 走独立接口：详情里的 roles 只有名称，选择器需要 id
-      role_ids: await getUserRoles(detail.id),
+      role_ids: detail.user_type === 'ROBOT' ? [] : await getUserRoles(detail.id),
+      account_type: detail.user_type === 'ROBOT' ? 'ROBOT' : 'HUMAN',
+      agent_description: '',
+      model: '',
+      soul_md: '',
     });
+    if (detail.user_type === 'ROBOT') {
+      // AI 用户：补拉职责 / SOUL.md / 模型 + 探活（两次调用，编辑页才需要）
+      const ai = await getAiUser(detail.id);
+      form.agent_description = ai.agent_description;
+      form.soul_md = ai.soul_md;
+      form.model = modelNameOf(ai.model_override);
+      aiSoulPath.value = ai.soul_path;
+      aiProfile.value = ai.hermes_profile;
+      void refreshAiStatus();
+    }
     formVisible.value = true;
   } catch (error) {
     showError(error instanceof ApiError ? error.message : '用户详情加载失败');
@@ -486,17 +661,37 @@ async function submitForm(): Promise<void> {
   submitting.value = true;
   try {
     if (isEdit.value) {
-      await updateUser(form.id, {
+      if (isAiForm.value) {
+        // AI 用户：职责 / SOUL.md / 模型走专用接口（会写磁盘 + 同步 profile 描述）
+        await updateAiUser(form.id, {
+          agent_description: form.agent_description,
+          soul_md: form.soul_md,
+          model_override: toModelOverride(form.model),
+        });
+        void MessagePlugin.success('AI 用户已更新（SOUL.md 已写入服务器）');
+      } else {
+        await updateUser(form.id, {
+          real_name: form.real_name,
+          mobile: form.mobile,
+          email: form.email,
+          dept_id: form.dept_id,
+          status: form.status,
+          remark: form.remark,
+        });
+        // 后端编辑接口不含角色字段，角色单独提交；两者都成功才算保存完成
+        await updateUserRoles(form.id, form.role_ids);
+        void MessagePlugin.success('用户已更新');
+      }
+    } else if (isAiForm.value) {
+      // 新建 AI 用户：建号 + Hermes profile + SOUL.md + workspace（后端一个事务 + 补偿）
+      await createAiUser({
+        username: form.username,
         real_name: form.real_name,
-        mobile: form.mobile,
-        email: form.email,
-        dept_id: form.dept_id,
-        status: form.status,
-        remark: form.remark,
+        agent_description: form.agent_description,
+        soul_md: form.soul_md,
+        model_override: toModelOverride(form.model),
       });
-      // 后端编辑接口不含角色字段，角色单独提交；两者都成功才算保存完成
-      await updateUserRoles(form.id, form.role_ids);
-      void MessagePlugin.success('用户已更新');
+      void MessagePlugin.success('AI 用户已创建（Hermes profile 与 SOUL.md 已就绪）');
     } else {
       await createUser({
         username: form.username,
@@ -543,17 +738,28 @@ function toggleStatus(row: UserRes): void {
 }
 
 function confirmRemove(row: UserRes): void {
+  const isRobot = row.user_type === 'ROBOT';
   const dialog = DialogPlugin.confirm({
-    header: '删除用户',
-    body: `确认删除用户「${row.username}」？该操作不可恢复。`,
+    header: isRobot ? '删除 AI 用户' : '删除用户',
+    body: isRobot
+      ? `确认删除 AI 用户「${row.username}」？将先备份 SOUL.md，再删除 Hermes profile 与 workspace 目录，最后软删账号。`
+      : `确认删除用户「${row.username}」？该操作不可恢复。`,
     theme: 'danger',
     confirmBtn: { content: '删除', theme: 'danger' },
     onConfirm: () => {
       dialog.destroy();
       void (async () => {
         try {
-          await deleteUser(row.id);
-          void MessagePlugin.success('用户已删除');
+          if (isRobot) {
+            // AI 用户必须走专用删除接口：通用删除只软删 sys_user，会留下孤立 profile
+            const res = await deleteAiUser(row.id);
+            void MessagePlugin.success(
+              `AI 用户已删除${res.soul_backup_path ? '（SOUL.md 已备份）' : ''}`,
+            );
+          } else {
+            await deleteUser(row.id);
+            void MessagePlugin.success('用户已删除');
+          }
           await loadList();
         } catch (error) {
           showError(error instanceof ApiError ? error.message : '删除失败');
@@ -706,6 +912,32 @@ onMounted(() => {
     &__count {
       font-size: 13px;
       color: var(--td-text-color-secondary);
+    }
+  }
+
+  /* AI 用户：列表里的机器人图标（与「类型」列的标签配合使用） */
+  .cell-robot {
+    color: var(--td-brand-color);
+  }
+
+  /* 表单内的辅助说明（如「用户名即 profile 名」） */
+  .form-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+
+    &__hint {
+      font-size: 12px;
+      line-height: 1.5;
+      color: var(--td-text-color-secondary);
+
+      code {
+        font-family: var(--td-font-family-mono, Menlo, Consolas, monospace);
+        background: rgba(0, 0, 0, 0.04);
+        padding: 0 4px;
+        border-radius: 2px;
+      }
     }
   }
 }
