@@ -245,8 +245,10 @@ S6 阅读名单（A-08/A-09 观测口径）
 ## 3. 质量闸
 
 ```text
-$ cargo test            → 456 passed（lib）+ 20 passed（集成/文档）= 476 passed / 0 failed
-                          （C2 基线 415 → 456，本卡 +41 单测；+1 真库集成测试默认 SKIP 计为 pass）
+$ cargo test            → lib 483 passed / 0 failed（含 C4 合并后的 help 用例）
+                          合计 514 passed / 0 failed（lib 483 + 集成 1+1+1+11+8+7+2 + 文档 7 ignored）
+                          C2 基线 lib 415 → 本卡 456（+41 单测）；rebase 到 C4（750ab29）后 lib 483
+                          新增真库集成测试 tests/batchC_c3_dispatch.rs（无 C3_DB_URL 时 SKIP 计为 pass）
 $ cargo fmt -- --check  → 0（本卡只对改动文件跑 rustfmt，未重排无关文件）
 $ cargo clippy --all-targets -- -D warnings → 0 warning / 0 error
 $ bash scripts/check.sh → EXIT=0
@@ -256,6 +258,10 @@ $ bash scripts/check.sh → EXIT=0
     ==> 前端：pnpm typecheck                       通过
     ==> 批次B 闸①：0 处   闸②：0 处               全部通过
 ```
+
+> rebase 到 C4（`750ab29`）后**重跑**：`e2e_c3.py` 85/85 PASS（退出码 0）、真库集成测试 1/1 ok、
+> `cargo test` 483/0、`check.sh` EXIT=0。附带清理了 C4 `tests/batchC_c4_help.rs` 在 `750ab29`
+> 上就存在的 fmt/clippy 债（纯格式 + 一处 `useless_format`），否则团队闸一恒红。
 
 ## 4. 实现要点与取舍（给评审与下游）
 
