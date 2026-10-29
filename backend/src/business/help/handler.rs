@@ -41,7 +41,11 @@
 
 use alun::prelude::*;
 use axum::Json;
+use axum::extract::ConnectInfo;
+use axum::http::HeaderMap;
+use std::net::SocketAddr;
 
+use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::help::dto::{
     CategorySaveReq, CategoryTreeQuery, ChangeNoteReq, DocPageQuery, DocSaveReq,
     HelpCategoryNodeRes, HelpDocCardRes, HelpDocDetailRes, HelpReadRes, HelpSearchHitRes,
@@ -258,13 +262,49 @@ pub async fn doc_detail(
 )]
 #[alun::post("/business/help/doc")]
 pub async fn doc_create(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<DocSaveReq>,
 ) -> ResResult<HelpDocDetailRes> {
     let input = to_doc_input(&req)?;
-    let row = model::create_doc(&input, utils::current_user_uuid(&claims))
+    let operator = utils::current_user_uuid(&claims);
+    // 批次 C · C6：业务写 + 变更日志同事务（传 &tx，不传全局连接）
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let snapshot = HelpDocSnapshot {
+        category_id: input.category_id,
+        title: &input.title,
+        slug: &input.slug,
+        summary: input.summary.as_deref().unwrap_or(""),
+        content_md: &input.content_md,
+        keywords: input.keywords.as_deref().unwrap_or(""),
+        status: "DRAFT",
+        sort_order: input.sort_order,
+        version: 1,
+    }
+    .to_json();
+    let doc_id = db()
+        .transaction(|tx| async move {
+            let doc_id = model::create_doc_in(&tx, &input, operator)
+                .await
+                .map_err(model::help_error_to_db)?;
+            changelog::record_in(
+                &tx,
+                &ctx.ctx(),
+                ChangeTarget::of(
+                    "sys_help_doc",
+                    doc_id.to_string(),
+                    Action::Create,
+                    "新建帮助文档",
+                ),
+                DiffInput::create(&snapshot),
+            )
+            .await?;
+            Ok(doc_id)
+        })
         .await
-        .map_err(help_error)?;
+        .map_err(|error| utils::db_error(error, "新建帮助文档"))?;
+    let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
 
@@ -281,20 +321,57 @@ pub async fn doc_create(
 )]
 #[alun::put("/business/help/doc/{id}")]
 pub async fn doc_update(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<DocSaveReq>,
 ) -> ResResult<HelpDocDetailRes> {
     let doc = load_doc(&id, true).await?;
     let input = to_doc_input(&req)?;
-    let row = model::save_doc(
-        &doc.id,
-        &input,
-        utils::current_user_uuid(&claims),
-        Some("保存"),
-    )
+    let operator = utils::current_user_uuid(&claims);
+    // 批次 C · C6：前后快照 + 保存 + 日志同事务
+    let before_snapshot = HelpDocSnapshot::from_row(&doc).to_json();
+    let after_snapshot = HelpDocSnapshot {
+        category_id: input.category_id,
+        title: &input.title,
+        slug: &input.slug,
+        summary: input.summary.as_deref().unwrap_or(""),
+        content_md: &input.content_md,
+        keywords: input.keywords.as_deref().unwrap_or(""),
+        // 保存会把 PUBLISHED 退回 DRAFT（状态机在 model 里），其余状态保持不变
+        status: if doc.status == "PUBLISHED" {
+            "DRAFT"
+        } else {
+            doc.status.as_str()
+        },
+        sort_order: input.sort_order,
+        version: doc.version + 1,
+    }
+    .to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let doc_id = doc.id;
+    db().transaction(|tx| async move {
+        model::save_doc_in(&tx, &doc_id, &input, operator, Some("保存"))
+            .await
+            .map_err(model::help_error_to_db)?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_help_doc",
+                doc_id.to_string(),
+                Action::Update,
+                "保存帮助文档",
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
     .await
-    .map_err(help_error)?;
+    .map_err(|error| utils::db_error(error, "保存帮助文档"))?;
+    let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
 
@@ -305,9 +382,37 @@ pub async fn doc_update(
     permission = "system:help:doc:delete"
 )]
 #[alun::delete("/business/help/doc/{id}")]
-pub async fn doc_delete(Path(id): Path<String>) -> ResResult<()> {
+pub async fn doc_delete(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<()> {
     let doc = load_doc(&id, true).await?;
-    model::delete_doc(&doc.id).await.map_err(help_error)?;
+    // 批次 C · C6：软删与日志同事务
+    let before_snapshot = HelpDocSnapshot::from_row(&doc).to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let doc_id = doc.id;
+    db().transaction(|tx| async move {
+        model::delete_doc_in(&tx, &doc_id)
+            .await
+            .map_err(model::help_error_to_db)?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_help_doc",
+                doc_id.to_string(),
+                Action::Delete,
+                "删除帮助文档",
+            ),
+            DiffInput::delete(&before_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "删除帮助文档"))?;
     Ok(Res::ok(()))
 }
 
@@ -319,15 +424,52 @@ pub async fn doc_delete(Path(id): Path<String>) -> ResResult<()> {
 )]
 #[alun::post("/business/help/doc/{id}/publish")]
 pub async fn doc_publish(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     body: Option<Json<ChangeNoteReq>>,
 ) -> ResResult<HelpDocDetailRes> {
     let doc = load_doc(&id, true).await?;
     let note = body.and_then(|Json(req)| req.change_note);
-    let row = model::publish_doc(&doc.id, utils::current_user_uuid(&claims), note.as_deref())
-        .await
-        .map_err(help_error)?;
+    let operator = utils::current_user_uuid(&claims);
+    // 批次 C · C6：发布（状态 + 版本快照）与日志同事务
+    let before_snapshot = HelpDocSnapshot::from_row(&doc).to_json();
+    let after_snapshot = HelpDocSnapshot {
+        category_id: doc.category_id,
+        title: &doc.title,
+        slug: &doc.slug,
+        summary: &doc.summary,
+        content_md: &doc.content_md,
+        keywords: &doc.keywords,
+        status: "PUBLISHED",
+        sort_order: doc.sort_order,
+        version: doc.version + 1,
+    }
+    .to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let doc_id = doc.id;
+    db().transaction(|tx| async move {
+        model::publish_doc_in(&tx, &doc_id, operator, note.as_deref())
+            .await
+            .map_err(model::help_error_to_db)?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_help_doc",
+                doc_id.to_string(),
+                Action::Publish,
+                "发布帮助文档",
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "发布帮助文档"))?;
+    let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
 
@@ -354,20 +496,50 @@ pub async fn doc_versions(Path(id): Path<String>) -> ResResult<Vec<HelpVersionRe
 )]
 #[alun::post("/business/help/doc/{id}/versions/{ver}/rollback")]
 pub async fn doc_rollback(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, version)): Path<(String, i32)>,
     body: Option<Json<ChangeNoteReq>>,
 ) -> ResResult<HelpDocDetailRes> {
     let doc = load_doc(&id, true).await?;
     let note = body.and_then(|Json(req)| req.change_note);
-    let row = model::rollback_doc(
-        &doc.id,
-        version,
-        utils::current_user_uuid(&claims),
-        note.as_deref(),
-    )
+    let operator = utils::current_user_uuid(&claims);
+    // 批次 C · C6：回滚记 `UPDATE`（动作枚举里没有 ROLLBACK；文案说清是回滚到 vN）。
+    // after 快照取目标版本的内容（title / content_md 来自版本快照，version 递增）。
+    let target = model::find_version(&doc.id, version)
+        .await
+        .map_err(|error| utils::db_error(error, "查询帮助文档版本"))?
+        .ok_or_else(|| help_error(model::HelpError::VersionNotFound))?;
+    let before_snapshot = HelpDocSnapshot::from_row(&doc).to_json();
+    let mut after_snapshot = before_snapshot.clone();
+    after_snapshot["title"] = serde_json::json!(target.title.as_str());
+    after_snapshot["content_md"] = serde_json::json!(target.content_md.as_str());
+    after_snapshot["version"] = serde_json::json!(doc.version + 1);
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let doc_id = doc.id;
+    let action_label = format!("回滚帮助文档到 v{version}");
+    db().transaction(|tx| async move {
+        model::rollback_doc_in(&tx, &doc_id, version, operator, note.as_deref())
+            .await
+            .map_err(model::help_error_to_db)?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_help_doc",
+                doc_id.to_string(),
+                Action::Update,
+                action_label.as_str(),
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
     .await
-    .map_err(help_error)?;
+    .map_err(|error| utils::db_error(error, "回滚帮助文档"))?;
+    let row = load_doc(&doc_id.to_string(), true).await?;
     Ok(Res::ok(detail_res(&row)))
 }
 
@@ -747,6 +919,55 @@ fn accumulate_counts(mut nodes: Vec<HelpCategoryNodeRes>) -> Vec<HelpCategoryNod
         node.accumulate();
     }
     nodes
+}
+
+/// 帮助文档审计快照（批次 C · C6）。
+///
+/// 与公告同样的理由：一处定义字段集合，5 个接入点不各写一份 `json!`。
+/// `content_html` / `view_count` 这类派生与统计列**不进快照**（`content_md` 才是真源，
+/// 且它会走 diff 的 `big` 摘要化）。
+struct HelpDocSnapshot<'a> {
+    category_id: uuid::Uuid,
+    title: &'a str,
+    slug: &'a str,
+    summary: &'a str,
+    content_md: &'a str,
+    keywords: &'a str,
+    status: &'a str,
+    sort_order: i32,
+    version: i32,
+}
+
+impl<'a> HelpDocSnapshot<'a> {
+    /// 从详情行构造。
+    fn from_row(row: &'a model::DocDetailRow) -> Self {
+        Self {
+            category_id: row.category_id,
+            title: &row.title,
+            slug: &row.slug,
+            summary: &row.summary,
+            content_md: &row.content_md,
+            keywords: &row.keywords,
+            status: &row.status,
+            sort_order: row.sort_order,
+            version: row.version,
+        }
+    }
+
+    /// 序列化为 diff 输入（时间列不进快照：`published_at` 由发布动作本身表达）。
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "category_id": self.category_id.to_string(),
+            "title": self.title,
+            "slug": self.slug,
+            "summary": self.summary,
+            "content_md": self.content_md,
+            "keywords": self.keywords,
+            "status": self.status,
+            "sort_order": self.sort_order,
+            "version": self.version,
+        })
+    }
 }
 
 #[cfg(test)]

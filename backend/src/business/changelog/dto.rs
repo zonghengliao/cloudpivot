@@ -326,3 +326,427 @@ pub enum RecordOutcome {
     /// （架构 §4.12.2 `record_skips_unchanged`）。
     Skipped,
 }
+
+// ==================== 查询接口 DTO（批次 C · C6）====================
+//
+// 追加在 C5 的 DTO 之后，**不改上面任何一个类型**（C5 的写入侧契约保持原样）。
+// 这里只有两类东西：
+//
+// 1. `*Query`：HTTP 查询参数（字符串进、解析在 handler 里做，DTO 不碰时间格式）；
+// 2. `*Res`：出参。`from_row` 负责把 `query::ChangeLogRow` 转成前端契约，
+//    **不做任何脱敏**——库里的 `diff` 已经是 L1 脱敏值，读侧不二次变形；
+//    唯一会「再脱敏一次」的出口是导出（见 `handler::render_diff` 的 L3）。
+
+/// 列表 / 导出共用的查询参数（`GET /business/changelog/page`、`.../export`）。
+///
+/// 全部可缺省：缺省即「不过滤」。时间窗的默认值补在 handler 里（近 90 天），
+/// 不在 DTO 里补 —— DTO 保持「用户传了什么就是什么」的纯粹语义。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ChangeLogPageQuery {
+    /// 起始时间（RFC3339 / `YYYY-MM-DD HH:MM:SS` / `YYYY-MM-DD`）。
+    pub start_time: Option<String>,
+    /// 结束时间（同上）。
+    pub end_time: Option<String>,
+    /// 操作人 ID。
+    pub operator_id: Option<String>,
+    /// 操作人部门（架构 §4.7.4 的显式部门视角）。
+    pub operator_dept_id: Option<String>,
+    /// 操作人名字（模糊）。
+    pub operator_name: Option<String>,
+    /// 模块 `system` / `business` / `support`。
+    pub module: Option<String>,
+    /// 资源表名（如 `sys_user`）。
+    pub resource: Option<String>,
+    /// 对象主键。
+    pub resource_id: Option<String>,
+    /// 动作码（如 `UPDATE`）。
+    pub action: Option<String>,
+    /// 结果（v1 只有 `SUCCESS`）。
+    pub result: Option<String>,
+    /// 关键词（动作名 / 操作人 / 对象 ID 三处模糊）。
+    pub keyword: Option<String>,
+    /// 页码（缺省 1）。
+    pub page: Option<u64>,
+    /// 每页条数（缺省 20）。
+    pub page_size: Option<u64>,
+    /// 导出条数（仅 `/export` 用，缺省与上限都是 5000）。
+    pub limit: Option<u64>,
+}
+
+/// 详情查询参数（`GET /business/changelog/{id}`）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ChangeLogDetailQuery {
+    /// 业务发生时刻。传了就能只扫一个分区（主键含分区键）。
+    pub created_at: Option<String>,
+}
+
+/// 对象历史查询参数（`GET /business/changelog/timeline`）。
+///
+/// `table` 是 SQL 保留字，字段名加 `#[serde(rename)]` 保持对外的参数名不变
+/// （任务书就是 `?table=&target_id=`）。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ChangeLogTimelineQuery {
+    /// 资源表名（如 `sys_user`）。
+    #[serde(rename = "table")]
+    pub table: Option<String>,
+    /// 对象主键。
+    pub target_id: Option<String>,
+    /// 可选起始时间（不传 = 全部历史）。
+    pub start_time: Option<String>,
+    /// 可选结束时间。
+    pub end_time: Option<String>,
+    /// 条数（缺省 50，上限 200）。
+    pub limit: Option<u32>,
+}
+
+/// 统计查询参数（`GET /business/changelog/stats`）——与列表同口径，去掉分页字段。
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+pub struct ChangeLogStatsQuery {
+    /// 起始时间。
+    pub start_time: Option<String>,
+    /// 结束时间。
+    pub end_time: Option<String>,
+    /// 操作人 ID。
+    pub operator_id: Option<String>,
+    /// 操作人部门。
+    pub operator_dept_id: Option<String>,
+    /// 操作人名字（模糊）。
+    pub operator_name: Option<String>,
+    /// 模块。
+    pub module: Option<String>,
+    /// 资源表名。
+    pub resource: Option<String>,
+    /// 对象主键。
+    pub resource_id: Option<String>,
+    /// 动作码。
+    pub action: Option<String>,
+    /// 结果。
+    pub result: Option<String>,
+    /// 关键词。
+    pub keyword: Option<String>,
+}
+
+/// 列表项（列表页只给需要的字段，`diff` 只给变化字段名）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangeLogListItem {
+    /// 行 ID。
+    pub id: String,
+    /// 业务发生时刻（RFC3339）。
+    pub created_at: String,
+    /// 模块。
+    pub module: String,
+    /// 资源表名。
+    pub resource: String,
+    /// 对象主键。
+    pub resource_id: String,
+    /// 动作码。
+    pub action: String,
+    /// 动作中文名。
+    pub action_label: String,
+    /// 操作人 ID。
+    pub operator_id: Option<String>,
+    /// 操作人名字。
+    pub operator_name: Option<String>,
+    /// 来源。
+    pub trace_source: String,
+    /// 变化字段名（升序）。
+    pub changed_fields: Vec<String>,
+    /// 是否含脱敏字段（列表页角标用）。
+    pub masked: bool,
+    /// 结果。
+    pub result: String,
+}
+
+impl ChangeLogListItem {
+    /// 从查询行构造。
+    pub fn from_row(row: &crate::business::changelog::query::ChangeLogRow) -> Self {
+        Self {
+            id: row.id.to_string(),
+            created_at: row.created_at.to_rfc3339(),
+            module: row.module.clone(),
+            resource: row.resource.clone(),
+            resource_id: row.resource_id.clone(),
+            action: row.action.clone(),
+            action_label: row.action_label.clone(),
+            operator_id: row.operator_id.map(|id| id.to_string()),
+            operator_name: row.operator_name.clone(),
+            trace_source: row.trace_source.clone(),
+            changed_fields: row.changed_fields.clone(),
+            masked: row.masked(),
+            result: row.result.clone(),
+        }
+    }
+}
+
+/// 一个字段的前后值（详情页的「前后值对比」一行）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FieldDiffRes {
+    /// 列名。
+    pub field: String,
+    /// 变更前（新增时为 `null`）。
+    pub before: serde_json::Value,
+    /// 变更后（删除时为 `null`）。
+    pub after: serde_json::Value,
+    /// 该字段的值是否经过脱敏（L1）。
+    pub masked: bool,
+    /// 是否被整值抹掉（`{"redacted":true}`）。
+    pub redacted: bool,
+}
+
+/// 大字段摘要（**不含全文**）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BigSummaryRes {
+    /// 原值字符数。
+    pub len: u64,
+    /// 原文 SHA-256（被抹掉时为空串）。
+    pub sha256: String,
+    /// 前 200 字预览。
+    pub preview: String,
+    /// 是否被整值抹掉。
+    pub redacted: bool,
+}
+
+/// 一个大字段的前后摘要。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BigFieldRes {
+    /// 列名。
+    pub field: String,
+    /// 变更前摘要。
+    pub before: BigSummaryRes,
+    /// 变更后摘要。
+    pub after: BigSummaryRes,
+}
+
+/// 详情。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangeLogDetailRes {
+    /// 行 ID。
+    pub id: String,
+    /// 业务发生时刻（RFC3339）。
+    pub created_at: String,
+    /// 模块。
+    pub module: String,
+    /// 资源表名。
+    pub resource: String,
+    /// 对象主键。
+    pub resource_id: String,
+    /// 动作码。
+    pub action: String,
+    /// 动作中文名。
+    pub action_label: String,
+    /// 请求 ID（可与 `operation_logs` 关联）。
+    pub request_id: Option<String>,
+    /// 来源。
+    pub trace_source: String,
+    /// 操作人 ID。
+    pub operator_id: Option<String>,
+    /// 操作人名字。
+    pub operator_name: Option<String>,
+    /// 操作人部门。
+    pub operator_dept_id: Option<String>,
+    /// 客户端 IP。
+    pub client_ip: Option<String>,
+    /// 变化字段名（升序）。
+    pub changed_fields: Vec<String>,
+    /// 逐字段前后值（按列名升序）。
+    pub fields: Vec<FieldDiffRes>,
+    /// 大字段摘要。
+    pub big: Vec<BigFieldRes>,
+    /// 结果。
+    pub result: String,
+    /// 记录模式。
+    pub diff_mode: String,
+    /// 耗时（毫秒）。
+    pub duration_ms: Option<i32>,
+    /// 脱敏标记（任一字段被脱敏即为 `true`）。
+    pub masked: bool,
+    /// 原始 diff（前端要自己渲染时用；**已是脱敏值**）。
+    pub diff: serde_json::Value,
+}
+
+/// 值是否是 `{"redacted": true}` 形态。
+fn is_redacted(value: &serde_json::Value) -> bool {
+    value
+        .get("redacted")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+}
+
+/// 解析大字段摘要（缺字段用默认值，不 panic）。
+fn big_summary(value: Option<&serde_json::Value>) -> BigSummaryRes {
+    let Some(serde_json::Value::Object(map)) = value else {
+        return BigSummaryRes {
+            len: 0,
+            sha256: String::new(),
+            preview: String::new(),
+            redacted: false,
+        };
+    };
+    BigSummaryRes {
+        len: map
+            .get("len")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0),
+        sha256: map
+            .get("sha256")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        preview: map
+            .get("preview")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .to_string(),
+        redacted: map
+            .get("redacted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false),
+    }
+}
+
+impl ChangeLogDetailRes {
+    /// 从查询行构造（`fields` / `big` 按列名升序，前端渲染顺序稳定）。
+    pub fn from_row(row: &crate::business::changelog::query::ChangeLogRow) -> Self {
+        let mut fields: Vec<FieldDiffRes> = Vec::new();
+        if let Some(map) = row.diff.get("fields").and_then(|v| v.as_object()) {
+            for (name, pair) in map {
+                let before = pair.get("b").cloned().unwrap_or(serde_json::Value::Null);
+                let after = pair.get("a").cloned().unwrap_or(serde_json::Value::Null);
+                fields.push(FieldDiffRes {
+                    field: name.clone(),
+                    masked: pair
+                        .get("masked")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(false),
+                    redacted: is_redacted(&before) || is_redacted(&after),
+                    before,
+                    after,
+                });
+            }
+        }
+        fields.sort_by(|left, right| left.field.cmp(&right.field));
+
+        let mut big: Vec<BigFieldRes> = Vec::new();
+        if let Some(map) = row.diff.get("big").and_then(|v| v.as_object()) {
+            for (name, pair) in map {
+                big.push(BigFieldRes {
+                    field: name.clone(),
+                    before: big_summary(pair.get("b")),
+                    after: big_summary(pair.get("a")),
+                });
+            }
+        }
+        big.sort_by(|left, right| left.field.cmp(&right.field));
+
+        Self {
+            id: row.id.to_string(),
+            created_at: row.created_at.to_rfc3339(),
+            module: row.module.clone(),
+            resource: row.resource.clone(),
+            resource_id: row.resource_id.clone(),
+            action: row.action.clone(),
+            action_label: row.action_label.clone(),
+            request_id: row.request_id.clone(),
+            trace_source: row.trace_source.clone(),
+            operator_id: row.operator_id.map(|id| id.to_string()),
+            operator_name: row.operator_name.clone(),
+            operator_dept_id: row.operator_dept_id.map(|id| id.to_string()),
+            client_ip: row.client_ip.clone(),
+            changed_fields: row.changed_fields.clone(),
+            fields,
+            big,
+            result: row.result.clone(),
+            diff_mode: row.diff_mode.clone(),
+            duration_ms: row.duration_ms,
+            masked: row.masked(),
+            diff: row.diff.clone(),
+        }
+    }
+}
+
+/// 时间线一项（比详情精简：不带 big / meta，保留前端 Tab 需要的字段）。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangeLogTimelineItem {
+    /// 行 ID。
+    pub id: String,
+    /// 业务发生时刻（RFC3339）。
+    pub created_at: String,
+    /// 动作码。
+    pub action: String,
+    /// 动作中文名。
+    pub action_label: String,
+    /// 操作人名字。
+    pub operator_name: Option<String>,
+    /// 变化字段名。
+    pub changed_fields: Vec<String>,
+    /// 原始 diff（脱敏值）。
+    pub diff: serde_json::Value,
+}
+
+impl ChangeLogTimelineItem {
+    /// 从查询行构造。
+    pub fn from_row(row: &crate::business::changelog::query::ChangeLogRow) -> Self {
+        Self {
+            id: row.id.to_string(),
+            created_at: row.created_at.to_rfc3339(),
+            action: row.action.clone(),
+            action_label: row.action_label.clone(),
+            operator_name: row.operator_name.clone(),
+            changed_fields: row.changed_fields.clone(),
+            diff: row.diff.clone(),
+        }
+    }
+}
+
+/// 对象历史响应。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangeLogTimelineRes {
+    /// 该对象的**总**变更次数（不受 `limit` 影响）。
+    pub total: i64,
+    /// 本次返回的条数上限（回显，避免前端猜）。
+    pub limit: u32,
+    /// 变更列表（时间倒序）。
+    pub items: Vec<ChangeLogTimelineItem>,
+}
+
+/// 一个聚合桶。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct CountBucketRes {
+    /// 分组键。
+    pub key: String,
+    /// 条数。
+    pub count: i64,
+}
+
+/// 统计响应。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ChangeLogStatsRes {
+    /// 过滤条件下的总条数。
+    pub total: i64,
+    /// 按模块。
+    pub by_module: Vec<CountBucketRes>,
+    /// 按操作人（Top 20）。
+    pub by_operator: Vec<CountBucketRes>,
+    /// 按天（升序）。
+    pub by_day: Vec<CountBucketRes>,
+}
+
+/// 一张登记表。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TableRegistryEntryRes {
+    /// 表名。
+    pub table: String,
+    /// 模块归属。
+    pub module: String,
+    /// 审计白名单字段。
+    pub fields: Vec<String>,
+    /// 大字段列（无论多短都摘要化）。
+    pub big_fields: Vec<String>,
+}
+
+/// 登记表清单响应。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct TableRegistryRes {
+    /// 已登记的表（按表名升序）。
+    pub tables: Vec<TableRegistryEntryRes>,
+}

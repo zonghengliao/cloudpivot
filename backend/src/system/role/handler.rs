@@ -13,6 +13,7 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::mutex;
 use crate::business::shared::guard as scope_guard;
 use crate::business::shared::principal;
@@ -169,7 +170,7 @@ pub async fn create(
 
     let now = chrono::Utc::now();
     let operator = utils::current_user_uuid(&claims);
-    let mut role = SysRoleModel {
+    let role = SysRoleModel {
         id: uuid::Uuid::now_v7(),
         role_code,
         role_name: req.role_name.trim().to_string(),
@@ -184,9 +185,28 @@ pub async fn create(
         update_by: operator,
         deleted_at: None,
     };
-    role.insert(db())
-        .await
-        .map_err(|e| utils::db_error(e, "新建角色"))?;
+    // 批次 C · C6：写库与变更日志同事务（D11），失败一起回滚
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let snapshot = role_snapshot(&role);
+    let mut tx_role = role.clone();
+    db().transaction(|tx| async move {
+        tx_role.insert(&tx).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_role",
+                tx_role.id.to_string(),
+                Action::Create,
+                "新增角色",
+            ),
+            DiffInput::create(&snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| utils::db_error(e, "新建角色"))?;
     model::invalidate_enabled_roles_cache().await;
     log::record_audit(
         &headers,
@@ -296,9 +316,29 @@ pub async fn update(
         update_by: utils::current_user_uuid(&claims),
         deleted_at: None,
     };
-    role.update(db())
-        .await
-        .map_err(|e| utils::db_error(e, "更新角色"))?;
+    // 批次 C · C6：前后快照 + 写库 + 日志同事务
+    let before_snapshot = role_snapshot(&existing);
+    let after_snapshot = role_snapshot(&role);
+    let tx_role = role.clone();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        tx_role.update(&tx).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_role",
+                tx_role.id.to_string(),
+                Action::Update,
+                "修改角色",
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| utils::db_error(e, "更新角色"))?;
 
     model::invalidate_enabled_roles_cache().await;
     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
@@ -406,8 +446,20 @@ pub async fn delete(
     }
 
     // 事务：软删角色 + 物理清理其菜单授权绑定，避免角色已删而授权残留
+    //
+    // 批次 C · C6：同事务补一条字段级凭证（`data_scope` 在内 —— 删掉一个宽范围角色
+    // 本身就是权限收缩动作，值得可追溯）。
+    let before_snapshot = role_snapshot(&role);
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
     db().transaction(|tx| async move {
         SysRoleModel::of(id).delete(&tx).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of("sys_role", id.to_string(), Action::Delete, "删除角色"),
+            DiffInput::delete(&before_snapshot),
+        )
+        .await?;
         // 关联表为硬删表：物理删除该角色的全部菜单授权
         SysRoleMenuModel::delete_by(&tx, "role_id", (&id,)).await?;
         Ok(())
@@ -951,6 +1003,22 @@ async fn invalidate_role_scope_cache(role_id: &uuid::Uuid) {
 }
 
 // ==================== 单元测试（范围上限的纯逻辑） ====================
+
+/// `sys_role` 的审计快照（批次 C · C6）。
+///
+/// 白名单（`diff::SYS_ROLE.fields`）+ `data_scope`：数据范围本身是**提权面**
+/// （批次 B · B3），改了必须留字段级凭证，否则「谁把哪个角色放宽到全部」无从追查。
+fn role_snapshot(role: &SysRoleModel) -> serde_json::Value {
+    serde_json::json!({
+        "role_code": role.role_code,
+        "role_name": role.role_name,
+        "description": role.description,
+        "status": role.status.as_i16(),
+        "data_scope": role.data_scope,
+        "sort_order": role.sort_order,
+        "remark": role.remark,
+    })
+}
 
 #[cfg(test)]
 mod tests {

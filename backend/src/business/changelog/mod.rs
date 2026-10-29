@@ -60,8 +60,11 @@
 
 pub mod diff;
 pub mod dto;
+pub mod handler;
 pub mod mask;
 pub mod model;
+pub mod partition;
+pub mod query;
 
 use alun::prelude::*;
 use alun::uuid::Uuid;
@@ -197,6 +200,95 @@ fn preflight<'a>(
         ));
     }
     Ok((spec, created_at))
+}
+
+// ==================== C6 追加：请求上下文与「事务内」记录入口 ====================
+
+/// 一次 HTTP 请求派生出的变更日志上下文。
+///
+/// # 为什么不在每个接入点手拼 [`ChangeCtx`]
+///
+/// 「操作人 / 请求 ID / 客户端 IP 从哪来」这件事在每个 handler 里各写一遍，
+/// 口径必然漂移（本次实测：公告与帮助的 handler 连 `headers` 都没接收，IP 根本拿不到）。
+/// 本结构把派生逻辑收到一处，并**持有自己的字符串**——这样它能被搬进
+/// `db().transaction(|tx| async move { ... })` 的闭包（闭包要求 `'static`，
+/// 直接借 `&HeaderMap` 是搬不进去的）。
+#[derive(Debug, Clone)]
+pub struct RequestCtx {
+    /// 请求追踪 ID（与 `operation_logs.request_id` 可 join）。
+    pub request_id: String,
+    /// 客户端 IP 的文本形态（解析不到就是 `None`，不填假值）。
+    pub client_ip: Option<String>,
+    /// 操作人 ID。
+    pub operator_id: Option<Uuid>,
+    /// 操作人名字（冗余存储：用户改名后历史仍可读）。
+    pub operator_name: Option<String>,
+}
+
+impl RequestCtx {
+    /// 从请求件派生。
+    ///
+    /// # 参数
+    ///
+    /// - `claims`：当前用户令牌声明（取 `sub` 与 `username`）；
+    /// - `headers`：请求头（`x-request-id` 与 `x-forwarded-for` 等）；
+    /// - `connect_info`：TCP 对端地址（无反向代理时的真实来源）。
+    pub fn from_request(
+        claims: &TokenClaims,
+        headers: &axum::http::HeaderMap,
+        connect_info: Option<&std::net::SocketAddr>,
+    ) -> Self {
+        Self {
+            request_id: crate::utils::request_id(headers),
+            client_ip: crate::utils::client_ip(headers, connect_info).map(|ip| ip.to_string()),
+            operator_id: crate::utils::current_user_uuid(claims),
+            operator_name: claims.username.clone(),
+        }
+    }
+
+    /// 借出 [`ChangeCtx`]（供 [`record`] 使用；生命周期跟着 `self`）。
+    pub fn ctx(&self) -> ChangeCtx<'_> {
+        ChangeCtx::api(self.operator_id, self.operator_name.as_deref())
+            .with_request_id(Some(self.request_id.as_str()))
+            .with_client_ip(self.client_ip.as_deref())
+    }
+}
+
+/// [`record`] 的「事务闭包内」形态：把 [`ApiError`] 折成 [`DbError`]。
+///
+/// # 为什么需要它
+///
+/// 接入点是 `db().transaction(|tx| async move { ... })`，闭包的返回类型是
+/// `DbResult<T>`，`?` 只能传播 [`DbError`]。而 [`record`] 的失败是 [`ApiError`]
+/// （62012 未登记 / 62013 未来时间）。中间不做转换，接入代码就只能写
+/// `.map_err(|e| ...)`——那才是最容易被写成「忽略错误、日志静默丢失」的形态。
+///
+/// 转换**不降级语义**：错误信息（含码值）原样进 `DbError::InvalidValue` 的消息，
+/// 并额外打一条 `tracing::error!`（码值与表名进日志，方便按码值告警）。
+/// 之后由 handler 的 `utils::db_error(..)` 统一成 500 —— 与 `record()` 文档里
+/// 写明的一致：日志写不进去是**接入缺陷或数据库故障**，必须让业务一起失败。
+///
+/// # 参数
+///
+/// - `ex`：**业务事务的执行器**（红线：不能传全局连接，否则退化成异步旁路）；
+/// - `ctx` / `target` / `input`：同 [`record`]。
+pub async fn record_in(
+    ex: &impl SqlExecutor,
+    ctx: &ChangeCtx<'_>,
+    target: ChangeTarget<'_>,
+    input: DiffInput<'_>,
+) -> DbResult<RecordOutcome> {
+    let resource = target.resource;
+    let resource_id = target.resource_id.clone();
+    record(ex, ctx, target, input).await.map_err(|error| {
+        tracing::error!(
+            code = error.code,
+            resource = resource,
+            resource_id = %resource_id,
+            "变更日志写入失败（业务事务将整体回滚）"
+        );
+        DbError::InvalidValue(format!("变更日志写入失败 [{}]：{}", error.code, error.msg))
+    })
 }
 
 #[cfg(test)]

@@ -93,10 +93,57 @@ pub const SYS_ROLE: ResourceSpec = ResourceSpec {
         "role_name",
         "description",
         "status",
+        // C6 追加：数据范围是提权面（B3），改它必须留字段级凭证
+        "data_scope",
         "sort_order",
         "remark",
     ],
     big: &["remark"],
+};
+
+/// `sys_announcement`（公告主体，批次 C · C6 接入）。
+///
+/// 白名单挑了「改了会被追问」的字段：`content_md` 是 Markdown 唯一真源（进 `big` 摘要化），
+/// `content_html` / `receiver_count` / `read_count` 是派生与统计列，进 diff 只会制造噪声
+/// （扇出与已读每次都变，等于把审计表当访问日志）。`ann_no` 包含在内：编号被改是事故。
+pub const SYS_ANNOUNCEMENT: ResourceSpec = ResourceSpec {
+    table: "sys_announcement",
+    module: "business",
+    fields: &[
+        "ann_no",
+        "title",
+        "summary",
+        "content_md",
+        "level",
+        "scope_type",
+        "is_top",
+        "top_expire_at",
+        "status",
+        "expire_at",
+        "remark",
+    ],
+    big: &["content_md"],
+};
+
+/// `sys_help_doc`（帮助文档，批次 C · C6 接入）。
+///
+/// `content_md` 进 `big`（正文可达 128 KiB）；`view_count` 是运行时计数、`content_html`
+/// 是渲染快照，都不进白名单。`version` 保留：版本号跳变本身是审计线索。
+pub const SYS_HELP_DOC: ResourceSpec = ResourceSpec {
+    table: "sys_help_doc",
+    module: "business",
+    fields: &[
+        "category_id",
+        "title",
+        "slug",
+        "summary",
+        "content_md",
+        "keywords",
+        "status",
+        "sort_order",
+        "version",
+    ],
+    big: &["content_md"],
 };
 
 /// 全部登记项。
@@ -104,9 +151,10 @@ pub const SYS_ROLE: ResourceSpec = ResourceSpec {
 /// **新增资源只能加在这里**（并且必须在同一提交里给 `record()` 的调用点补白名单字段），
 /// 否则 `record()` 会以 62012 拒绝——这正是 fail-closed 的目的。
 ///
-/// C6 会在这里追加 `sys_announcement` / `sys_help_doc`（它们的 DDL 由 C2/C4 落地，
-/// 本卡落地时表还不存在，提前登记会让白名单与真实列名脱节，比不登记更危险）。
-pub const REGISTRY: &[&ResourceSpec] = &[&SYS_USER, &SYS_ROLE];
+/// C6 已追加 `sys_announcement` / `sys_help_doc`（C2/C4 的 DDL 已落地，列名逐字取
+/// V0080 / V0082）。**每加一张表，必须在同一提交里给它补上 `record()` 的调用点**，
+/// 否则表登记了却永远没有日志 —— `table-registry` 接口会如实显示这份承诺。
+pub const REGISTRY: &[&ResourceSpec] = &[&SYS_USER, &SYS_ROLE, &SYS_ANNOUNCEMENT, &SYS_HELP_DOC];
 
 /// 按表名取登记项；`None` = 未登记（调用方必须拒绝记录）。
 ///

@@ -1213,7 +1213,11 @@ pub async fn list_scope_ids(announcement_id: &uuid::Uuid) -> DbResult<Vec<uuid::
 /// # 异常情况
 ///
 /// - 数据库异常（含 `uk_sys_announcement_no` 冲突）返回 [`DbError`]。
-pub async fn insert_announcement(new: &NewAnnouncement<'_>, operator: uuid::Uuid) -> DbResult<()> {
+pub async fn insert_announcement(
+    ex: &Transaction,
+    new: &NewAnnouncement<'_>,
+    operator: uuid::Uuid,
+) -> DbResult<()> {
     let id = new.id;
     let ann_no = new.ann_no.to_string();
     let title = new.title.to_string();
@@ -1231,41 +1235,38 @@ pub async fn insert_announcement(new: &NewAnnouncement<'_>, operator: uuid::Uuid
     let expire_at = new.expire_at;
     let publisher_id = new.publisher_id;
 
-    db().transaction(|tx| async move {
-        tx.execute_with_params(
-            "INSERT INTO sys_announcement \
+    ex.execute_with_params(
+        "INSERT INTO sys_announcement \
                  (id, ann_no, title, summary, content_md, content_html, content_format, level, \
                   scope_type, is_top, top_expire_at, status, publish_at, expire_at, \
                   publisher_id, publisher_name, receiver_count, read_count, version, remark, \
                   created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?, ?, 'MARKDOWN', ?, ?, ?, ?, 'DRAFT', NULL, ?, \
                      ?::uuid, ?, 0, 0, 1, ?, now(), now(), ?::uuid, ?::uuid)",
-            vec![
-                Value::from(&id),
-                Value::Text(ann_no),
-                Value::Text(title),
-                Value::Text(summary),
-                Value::Text(content_md),
-                Value::Text(content_html),
-                Value::Text(level),
-                Value::Text(scope_type),
-                Value::Bool(is_top),
-                Value::from(top_expire_at),
-                Value::from(expire_at),
-                Value::from(&publisher_id),
-                Value::Text(publisher_name),
-                Value::from(remark),
-                Value::from(&operator),
-                Value::from(&operator),
-            ],
-        )
-        .await?;
+        vec![
+            Value::from(&id),
+            Value::Text(ann_no),
+            Value::Text(title),
+            Value::Text(summary),
+            Value::Text(content_md),
+            Value::Text(content_html),
+            Value::Text(level),
+            Value::Text(scope_type),
+            Value::Bool(is_top),
+            Value::from(top_expire_at),
+            Value::from(expire_at),
+            Value::from(&publisher_id),
+            Value::Text(publisher_name),
+            Value::from(remark),
+            Value::from(&operator),
+            Value::from(&operator),
+        ],
+    )
+    .await?;
 
-        insert_scope_rows(&tx, &id, &scope_ids).await?;
-        insert_attachment_rows(&tx, &id, &attachments).await?;
-        Ok(())
-    })
-    .await
+    insert_scope_rows(ex, &id, &scope_ids).await?;
+    insert_attachment_rows(ex, &id, &attachments).await?;
+    Ok(())
 }
 
 /// 更新公告（内容 + 范围 + 附件），同事务。
@@ -1284,6 +1285,7 @@ pub async fn insert_announcement(new: &NewAnnouncement<'_>, operator: uuid::Uuid
 /// 数据库异常返回 [`DbError`]。
 #[allow(clippy::too_many_arguments)]
 pub async fn update_announcement(
+    ex: &Transaction,
     id: &uuid::Uuid,
     title: &str,
     summary: &str,
@@ -1310,39 +1312,38 @@ pub async fn update_announcement(
     let remark = remark.map(str::to_string);
     let attachments = attachments.map(<[(uuid::Uuid, i32)]>::to_vec);
 
-    db().transaction(|tx| async move {
-        tx.execute_with_params(
-            "UPDATE sys_announcement \
+    ex.execute_with_params(
+        "UPDATE sys_announcement \
                 SET title = ?, summary = ?, content_md = ?, content_html = ?, level = ?, \
                     scope_type = ?, is_top = ?, top_expire_at = ?, expire_at = ?, remark = ?, \
                     updated_at = now(), update_by = ?::uuid \
               WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::Text(title),
-                Value::Text(summary),
-                Value::Text(content_md),
-                Value::Text(content_html),
-                Value::Text(level),
-                Value::Text(scope_type),
-                Value::Bool(is_top),
-                Value::from(top_expire_at),
-                Value::from(expire_at),
-                Value::from(remark),
-                Value::from(&operator),
-                Value::from(&id),
-            ],
-        )
-        .await?;
+        vec![
+            Value::Text(title),
+            Value::Text(summary),
+            Value::Text(content_md),
+            Value::Text(content_html),
+            Value::Text(level),
+            Value::Text(scope_type),
+            Value::Bool(is_top),
+            Value::from(top_expire_at),
+            Value::from(expire_at),
+            Value::from(remark),
+            Value::from(&operator),
+            Value::from(&id),
+        ],
+    )
+    .await?;
 
-        tx.execute_with_params(
-            "DELETE FROM sys_announcement_scope WHERE announcement_id = ?::uuid",
-            vec![Value::from(&id)],
-        )
-        .await?;
-        insert_scope_rows(&tx, &id, &scope_ids).await?;
+    ex.execute_with_params(
+        "DELETE FROM sys_announcement_scope WHERE announcement_id = ?::uuid",
+        vec![Value::from(&id)],
+    )
+    .await?;
+    insert_scope_rows(ex, &id, &scope_ids).await?;
 
-        if let Some(items) = attachments {
-            tx.execute_with_params(
+    if let Some(items) = attachments {
+        ex.execute_with_params(
                 "DELETE FROM sys_announcement_attachment \
                   WHERE announcement_id = ?::uuid \
                     AND file_id NOT IN (SELECT (x)::uuid FROM jsonb_array_elements_text(?::jsonb) AS x)",
@@ -1362,16 +1363,14 @@ pub async fn update_announcement(
                 ],
             )
             .await?;
-            insert_attachment_rows(&tx, &id, &items).await?;
-        }
-        Ok(())
-    })
-    .await
+        insert_attachment_rows(ex, &id, &items).await?;
+    }
+    Ok(())
 }
 
 /// 往事务里写范围明细（单条 `INSERT ... SELECT jsonb_array_elements_text`）。
 async fn insert_scope_rows(
-    tx: &Transaction,
+    ex: &Transaction,
     announcement_id: &uuid::Uuid,
     scope_ids: &[uuid::Uuid],
 ) -> DbResult<()> {
@@ -1386,7 +1385,7 @@ async fn insert_scope_rows(
     )
     .to_string();
     // scope_type 由公告主体决定；这里从主体表取，避免两处传参不一致
-    tx.execute_with_params(
+    ex.execute_with_params(
         "INSERT INTO sys_announcement_scope (id, announcement_id, scope_type, target_id, created_at) \
          SELECT gen_random_uuid(), a.id, a.scope_type, (x)::uuid, now() \
            FROM sys_announcement a, jsonb_array_elements_text(?::jsonb) AS x \
@@ -1403,13 +1402,13 @@ async fn insert_scope_rows(
 
 /// 往事务里写附件关联行（`ON CONFLICT DO NOTHING` + 更新排序号）。
 async fn insert_attachment_rows(
-    tx: &Transaction,
+    ex: &Transaction,
     announcement_id: &uuid::Uuid,
     attachments: &[(uuid::Uuid, i32)],
 ) -> DbResult<()> {
     for (file_id, sort_order) in attachments {
         // 元数据从 `sys_file` 现查：前端不需要（也不允许）自报文件名 / 大小 / MIME。
-        tx.execute_with_params(
+        ex.execute_with_params(
             "INSERT INTO sys_announcement_attachment \
                  (id, announcement_id, file_id, file_name, file_size, mime_type, sort_order, created_at) \
              SELECT gen_random_uuid(), ?::uuid, f.id, \
@@ -1438,8 +1437,8 @@ async fn insert_attachment_rows(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn soft_delete(id: &uuid::Uuid, operator: uuid::Uuid) -> DbResult<u64> {
-    db().execute_with_params(
+pub async fn soft_delete(ex: &Transaction, id: &uuid::Uuid, operator: uuid::Uuid) -> DbResult<u64> {
+    ex.execute_with_params(
         "UPDATE sys_announcement \
             SET deleted_at = now(), updated_at = now(), update_by = ?::uuid \
           WHERE id = ?::uuid AND deleted_at IS NULL",
@@ -1465,12 +1464,13 @@ pub async fn soft_delete(id: &uuid::Uuid, operator: uuid::Uuid) -> DbResult<u64>
 ///
 /// 数据库异常返回 [`DbError`]（含并发下 `promote` 失败的 0 行情形）。
 pub async fn apply_publish(
+    ex: &Transaction,
     id: &uuid::Uuid,
     content_html: &str,
     summary: &str,
     operator: uuid::Uuid,
 ) -> DbResult<i32> {
-    let rows = db()
+    let rows = ex
         .find_with_params(
             "UPDATE sys_announcement \
                 SET status = 'PUBLISHED', version = version + 1, publish_at = now(), \
@@ -1536,8 +1536,12 @@ pub async fn backfill_notice(
 /// # 异常情况
 ///
 /// 数据库异常返回 [`DbError`]。
-pub async fn apply_offline(id: &uuid::Uuid, operator: uuid::Uuid) -> DbResult<()> {
-    db().execute_with_params(
+pub async fn apply_offline(
+    ex: &Transaction,
+    id: &uuid::Uuid,
+    operator: uuid::Uuid,
+) -> DbResult<()> {
+    ex.execute_with_params(
         "UPDATE sys_announcement \
             SET status = 'OFFLINE', updated_at = now(), update_by = ?::uuid \
           WHERE id = ?::uuid AND deleted_at IS NULL",

@@ -1162,10 +1162,11 @@ pub struct DocInput {
 /// - [`HelpError::CategoryNotFound`]：分类不存在；
 /// - [`HelpError::DocContentInvalid`]：标题 / 正文 / slug 不合法；
 /// - [`HelpError::DocSlugConflict`]：slug 重复（H-03）。
-pub async fn create_doc(
+pub async fn create_doc_in(
+    ex: &Transaction,
     input: &DocInput,
     operator: Option<uuid::Uuid>,
-) -> std::result::Result<DocDetailRow, HelpError> {
+) -> std::result::Result<uuid::Uuid, HelpError> {
     validate_doc_input(input)?;
     find_category(&input.category_id)
         .await?
@@ -1177,7 +1178,7 @@ pub async fn create_doc(
     let id = uuid::Uuid::now_v7();
     let summary = resolve_summary(input);
     let html = render_content(&input.content_md);
-    let affected = db()
+    let affected = ex
         .execute_with_params(
             "INSERT INTO sys_help_doc \
                  (id, category_id, title, slug, summary, content_md, content_html, keywords, \
@@ -1204,6 +1205,25 @@ pub async fn create_doc(
             "新建文档未写入任何行".to_string(),
         )));
     }
+    Ok(id)
+}
+
+/// 兼容包装（批次 C · C6）：开一个事务跑 [`create_doc_in`]，提交后读回详情。
+///
+/// 保留这个形态有两个用处：① C4 的既有调用方与单测一行不用改；② 「业务写与变更日志
+/// 同事务」只发生在 handler 那条路径上（handler 直接调 `*_in` 并写日志），
+/// 包装版不写日志 —— 它只服务于「没有 HTTP 上下文」的内部调用（迁移/脚本/测试）。
+pub async fn create_doc(
+    input: &DocInput,
+    operator: Option<uuid::Uuid>,
+) -> std::result::Result<DocDetailRow, HelpError> {
+    let id = db()
+        .transaction(|tx| async move {
+            create_doc_in(&tx, input, operator)
+                .await
+                .map_err(help_error_to_db)
+        })
+        .await?;
     find_doc(&id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1228,12 +1248,13 @@ pub async fn create_doc(
 /// # 异常情况
 ///
 /// 同 [`create_doc`]，另加 [`HelpError::DocNotFound`]。
-pub async fn save_doc(
+pub async fn save_doc_in(
+    ex: &Transaction,
     id: &uuid::Uuid,
     input: &DocInput,
     operator: Option<uuid::Uuid>,
     note: Option<&str>,
-) -> std::result::Result<DocDetailRow, HelpError> {
+) -> std::result::Result<(), HelpError> {
     validate_doc_input(input)?;
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
     find_category(&input.category_id)
@@ -1255,9 +1276,8 @@ pub async fn save_doc(
     let keywords = input.keywords.clone().unwrap_or_default();
     let sort_order = input.sort_order;
 
-    db().transaction(move |tx| async move {
-        tx.execute_with_params(
-            "UPDATE sys_help_doc \
+    ex.execute_with_params(
+        "UPDATE sys_help_doc \
                 SET category_id = ?::uuid, title = ?::text, slug = ?::text, summary = ?::text, \
                     content_md = ?::text, content_html = ?::text, keywords = ?::text, \
                     sort_order = ?::int, version = version + 1, \
@@ -1265,24 +1285,38 @@ pub async fn save_doc(
                     published_at = CASE WHEN status = 'PUBLISHED' THEN NULL ELSE published_at END, \
                     update_by = NULLIF(?::text, '')::uuid, updated_at = now() \
               WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::from(&category_id),
-                Value::Text(title),
-                Value::Text(slug),
-                Value::Text(summary),
-                Value::Text(content_md),
-                Value::Text(html),
-                Value::Text(keywords),
-                Value::I32(sort_order),
-                Value::Text(operator_text.clone()),
-                Value::from(&doc_id),
-            ],
-        )
-        .await?;
-        snapshot_in_tx(&tx, &doc_id, Some(&note_text), &operator_text).await
+        vec![
+            Value::from(&category_id),
+            Value::Text(title),
+            Value::Text(slug),
+            Value::Text(summary),
+            Value::Text(content_md),
+            Value::Text(html),
+            Value::Text(keywords),
+            Value::I32(sort_order),
+            Value::Text(operator_text.clone()),
+            Value::from(&doc_id),
+        ],
+    )
+    .await?;
+    snapshot_in_tx(ex, &doc_id, Some(&note_text), &operator_text).await?;
+    Ok(())
+}
+
+/// 兼容包装（批次 C · C6），口径同 [`create_doc`]。
+pub async fn save_doc(
+    id: &uuid::Uuid,
+    input: &DocInput,
+    operator: Option<uuid::Uuid>,
+    note: Option<&str>,
+) -> std::result::Result<DocDetailRow, HelpError> {
+    let doc_id = *id;
+    db().transaction(|tx| async move {
+        save_doc_in(&tx, &doc_id, input, operator, note)
+            .await
+            .map_err(help_error_to_db)
     })
     .await?;
-
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1302,30 +1336,43 @@ pub async fn save_doc(
 ///
 /// - [`HelpError::DocNotFound`]；
 /// - [`HelpError::Db`]。
-pub async fn publish_doc(
+pub async fn publish_doc_in(
+    ex: &Transaction,
     id: &uuid::Uuid,
     operator: Option<uuid::Uuid>,
     note: Option<&str>,
-) -> std::result::Result<DocDetailRow, HelpError> {
+) -> std::result::Result<(), HelpError> {
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
     let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
     let note_text = note.unwrap_or("发布").to_string();
     let doc_id = *id;
 
-    db().transaction(move |tx| async move {
-        tx.execute_with_params(
-            "UPDATE sys_help_doc \
+    ex.execute_with_params(
+        "UPDATE sys_help_doc \
                 SET status = 'PUBLISHED', published_at = COALESCE(published_at, now()), \
                     version = version + 1, update_by = NULLIF(?::text, '')::uuid, \
                     updated_at = now() \
               WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![Value::Text(operator_text.clone()), Value::from(&doc_id)],
-        )
-        .await?;
-        snapshot_in_tx(&tx, &doc_id, Some(&note_text), &operator_text).await
+        vec![Value::Text(operator_text.clone()), Value::from(&doc_id)],
+    )
+    .await?;
+    snapshot_in_tx(ex, &doc_id, Some(&note_text), &operator_text).await?;
+    Ok(())
+}
+
+/// 兼容包装（批次 C · C6），口径同 [`create_doc`]。
+pub async fn publish_doc(
+    id: &uuid::Uuid,
+    operator: Option<uuid::Uuid>,
+    note: Option<&str>,
+) -> std::result::Result<DocDetailRow, HelpError> {
+    let doc_id = *id;
+    db().transaction(|tx| async move {
+        publish_doc_in(&tx, &doc_id, operator, note)
+            .await
+            .map_err(help_error_to_db)
     })
     .await?;
-
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1347,12 +1394,13 @@ pub async fn publish_doc(
 /// - [`HelpError::DocNotFound`]；
 /// - [`HelpError::VersionNotFound`]：目标版本不存在；
 /// - [`HelpError::Db`]。
-pub async fn rollback_doc(
+pub async fn rollback_doc_in(
+    ex: &Transaction,
     id: &uuid::Uuid,
     version: i32,
     operator: Option<uuid::Uuid>,
     note: Option<&str>,
-) -> std::result::Result<DocDetailRow, HelpError> {
+) -> std::result::Result<(), HelpError> {
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
     let target = find_version(id, version)
         .await?
@@ -1367,26 +1415,39 @@ pub async fn rollback_doc(
     let content_md = target.content_md;
     let content_html = target.content_html;
 
-    db().transaction(move |tx| async move {
-        tx.execute_with_params(
-            "UPDATE sys_help_doc \
+    ex.execute_with_params(
+        "UPDATE sys_help_doc \
                 SET title = ?::text, content_md = ?::text, content_html = ?::text, \
                     version = version + 1, update_by = NULLIF(?::text, '')::uuid, \
                     updated_at = now() \
               WHERE id = ?::uuid AND deleted_at IS NULL",
-            vec![
-                Value::Text(title),
-                Value::Text(content_md),
-                Value::Text(content_html),
-                Value::Text(operator_text.clone()),
-                Value::from(&doc_id),
-            ],
-        )
-        .await?;
-        snapshot_in_tx(&tx, &doc_id, Some(&note_text), &operator_text).await
+        vec![
+            Value::Text(title),
+            Value::Text(content_md),
+            Value::Text(content_html),
+            Value::Text(operator_text.clone()),
+            Value::from(&doc_id),
+        ],
+    )
+    .await?;
+    snapshot_in_tx(ex, &doc_id, Some(&note_text), &operator_text).await?;
+    Ok(())
+}
+
+/// 兼容包装（批次 C · C6），口径同 [`create_doc`]。
+pub async fn rollback_doc(
+    id: &uuid::Uuid,
+    version: i32,
+    operator: Option<uuid::Uuid>,
+    note: Option<&str>,
+) -> std::result::Result<DocDetailRow, HelpError> {
+    let doc_id = *id;
+    db().transaction(|tx| async move {
+        rollback_doc_in(&tx, &doc_id, version, operator, note)
+            .await
+            .map_err(help_error_to_db)
     })
     .await?;
-
     find_doc(id).await?.ok_or(HelpError::DocNotFound)
 }
 
@@ -1396,12 +1457,25 @@ pub async fn rollback_doc(
 ///
 /// - [`HelpError::DocNotFound`]；
 /// - [`HelpError::Db`]。
-pub async fn delete_doc(id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
+pub async fn delete_doc_in(
+    ex: &Transaction,
+    id: &uuid::Uuid,
+) -> std::result::Result<(), HelpError> {
     find_doc(id).await?.ok_or(HelpError::DocNotFound)?;
-    db().execute_with_params(
+    ex.execute_with_params(
         "UPDATE sys_help_doc SET deleted_at = now(), updated_at = now() \
           WHERE id = ?::uuid AND deleted_at IS NULL",
         vec![Value::from(id)],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 兼容包装（批次 C · C6），口径同 [`create_doc`]。
+pub async fn delete_doc(id: &uuid::Uuid) -> std::result::Result<(), HelpError> {
+    let doc_id = *id;
+    db().transaction(
+        |tx| async move { delete_doc_in(&tx, &doc_id).await.map_err(help_error_to_db) },
     )
     .await?;
     Ok(())
@@ -1695,6 +1769,19 @@ fn doc_detail_from_row(row: &Row) -> DbResult<DocDetailRow> {
         created_at: row.get_typed("created_at")?,
         updated_at: row.get_typed("updated_at")?,
     })
+}
+
+/// 把 [`HelpError`] 折成 [`DbError`]（批次 C · C6）。
+///
+/// 事务闭包的返回类型是 `DbResult<T>`，`?` 只能传播 [`DbError`]；而本模块的错误类型是
+/// [`HelpError`]。这个折叠只用于「闭包内的传播」：非数据库错误（层级超限、slug 冲突……）
+/// 折成 `InvalidValue`，文案原样保留，最终仍由 `handler::help_error` 给状态码 ——
+/// 因为那些校验都发生在**进入事务之前**，走到这条路的只有真正的数据库异常。
+pub fn help_error_to_db(error: HelpError) -> DbError {
+    match error {
+        HelpError::Db(inner) => inner,
+        other => DbError::InvalidValue(format!("帮助文档：{}", other.message())),
+    }
 }
 
 #[cfg(test)]

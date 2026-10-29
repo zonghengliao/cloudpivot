@@ -12,6 +12,7 @@ use axum::http::HeaderMap;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
+use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::mutex;
 use crate::business::shared::{guard as scope_guard, principal};
 use crate::shared::constants::EnableStatus;
@@ -265,10 +266,22 @@ pub async fn create(
     };
 
     // 事务：插入用户与角色绑定原子完成，任一失败整体回滚
+    //
+    // 批次 C · C6：**变更日志在同一事务内**写（D11）。顺序是「业务行 → 日志 → 角色绑定」，
+    // 于是「日志之后任何一步失败」都会连日志一起回滚 —— 这正是 T-CL-01/12 要证明的形态。
     let tx_user = new_user.clone();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
     db().transaction(|tx| async move {
         let mut u = tx_user;
         u.insert(&tx).await?;
+        let snapshot = user_snapshot(&u);
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of("sys_user", u.id.to_string(), Action::Create, "新增用户"),
+            DiffInput::create(&snapshot),
+        )
+        .await?;
         model::insert_user_roles(&tx, &u.id, &role_ids).await?;
         Ok(())
     })
@@ -365,10 +378,24 @@ pub async fn update(
     to_save.updated_at = chrono::Utc::now();
     to_save.update_by = utils::current_user_uuid(&claims);
 
-    to_save
-        .update(db())
-        .await
-        .map_err(|e| utils::db_error(e, "更新用户"))?;
+    // 批次 C · C6：前后快照是纯函数（事务外算好），写库与日志同事务提交
+    let before_snapshot = user_snapshot(&existing);
+    let after_snapshot = user_snapshot(&to_save);
+    let tx_user = to_save.clone();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        tx_user.update(&tx).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of("sys_user", id.to_string(), Action::Update, "修改用户"),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| utils::db_error(e, "更新用户"))?;
 
     // 数据权限（批次 B · B3，架构 §2.8 失效矩阵「用户换部门」行）：
     // 换了部门 → 该用户的可见部门集合整片变化（`Dept` / `DeptAndChild` / `Custom`
@@ -469,8 +496,20 @@ pub async fn delete(
     }
 
     // 事务：软删用户 + 物理清理角色绑定，避免用户已删而授权残留
+    //
+    // 批次 C · C6：删除也留一条字段级凭证（`a` 侧全 null、`b` 侧是删除前的值），
+    // 否则「谁删了谁」只剩 `audit_logs` 的粗快照可查。
+    let before_snapshot = user_snapshot(&user);
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
     db().transaction(|tx| async move {
         SysUserModel::of(id).delete(&tx).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of("sys_user", id.to_string(), Action::Delete, "删除用户"),
+            DiffInput::delete(&before_snapshot),
+        )
+        .await?;
         // 关联表为硬删表：物理删除该用户的全部角色绑定
         SysUserRoleModel::delete_by(&tx, "user_id", (&id,)).await?;
         Ok(())
@@ -567,15 +606,31 @@ pub async fn change_status(
     }
 
     let operator = utils::current_user_uuid(&claims);
-    SysUserModel::of(id)
-        .set(SysUserModel::status(), status)
-        // ChangeSet 不自动刷新 updated_at / update_by，需显式设置
-        .set(SysUserModel::updated_at(), chrono::Utc::now())
-        .set(SysUserModel::update_by(), operator)
-        .update(db())
-        .await
-        .map(|_| ())
-        .map_err(|e| utils::db_error(e, "修改用户状态"))?;
+    // 批次 C · C6：启停是**独立动作**（Action::Status），与普通编辑分成两条日志，
+    // 而不是合并成一条 UPDATE —— 一个操作一条凭证（架构 T-CL-05 的口径）。
+    let before_snapshot = user_snapshot(&user);
+    let mut after_snapshot = before_snapshot.clone();
+    after_snapshot["status"] = serde_json::json!(status.as_i16());
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        SysUserModel::of(id)
+            .set(SysUserModel::status(), status)
+            // ChangeSet 不自动刷新 updated_at / update_by，需显式设置
+            .set(SysUserModel::updated_at(), chrono::Utc::now())
+            .set(SysUserModel::update_by(), operator)
+            .update(&tx)
+            .await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of("sys_user", id.to_string(), Action::Status, "修改用户状态"),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| utils::db_error(e, "修改用户状态"))?;
 
     // 停用即强制下线，使旧令牌在下次请求时被黑名单拦截
     if status != EnableStatus::enabled {
@@ -1135,4 +1190,30 @@ async fn role_map_of(
         });
     }
     Ok(map)
+}
+
+/// `sys_user` 的审计快照（批次 C · C6）。
+///
+/// # 为什么手写而不是 `serde_json::to_value(user)`
+///
+/// ① `SysUserModel` 的派生宏不保证 `Serialize`（`#[derive(Model)]` 只管表映射）；
+/// ② 即使能序列化，整行会有 `login_fail_count` / `last_login_at` / `token_version`
+///    这类**每次登录都变**的运行时列，它们进 diff 只会把审计表变成访问日志。
+///    所以快照按 `business/changelog/diff.rs::SYS_USER.fields` 白名单逐列构造 ——
+///    白名单增删时这里会漏列，而 `tests/batchC_c6_changelog.rs` 有一条断言盯着
+///    「登记的白名单字段必须全部出现在快照里」（宁可立刻红，也不要静默少记）。
+fn user_snapshot(user: &SysUserModel) -> serde_json::Value {
+    serde_json::json!({
+        "username": user.username,
+        "real_name": user.real_name,
+        "email": user.email,
+        "mobile": user.mobile,
+        "dept_id": user.dept_id.map(|value| value.to_string()),
+        "status": user.status.as_i16(),
+        "is_locked": user.is_locked,
+        "remark": user.remark,
+        // 口令只放哈希（bcrypt）：diff 的 L1 会把它整值抹成 {"redacted":true}，
+        // 但「改过密码」这件事必须留痕（changed_fields 含 password）
+        "password": user.password,
+    })
 }

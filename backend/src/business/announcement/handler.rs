@@ -43,8 +43,11 @@
 use alun::prelude::*;
 use axum::Json;
 use axum::body::Body;
+use axum::extract::ConnectInfo;
+use axum::http::HeaderMap;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_util::io::ReaderStream;
 
@@ -61,6 +64,7 @@ use crate::business::announcement::model::{
     VisibleFilter,
 };
 use crate::business::announcement::{dto, maintenance};
+use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
 use crate::business::shared::content::{self, Recipe};
 use crate::business::storage::model as storage_model;
 use crate::business::storage::store::{LocalStore, ObjectStore, StoreError};
@@ -863,6 +867,8 @@ fn enum_param(
 )]
 #[alun::post("/business/announcement")]
 pub async fn create(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<AnnouncementSaveReq>,
 ) -> ResResult<AnnouncementSaveRes> {
@@ -908,9 +914,40 @@ pub async fn create(
         publisher_name: &publisher_name,
         attachments: &attachments,
     };
-    model::insert_announcement(&new, operator)
-        .await
-        .map_err(|error| utils::db_error(error, "新建公告"))?;
+    // 批次 C · C6：业务写 + 变更日志同事务（D11）。传的是 &tx，不是全局连接。
+    let snapshot = AnnouncementSnapshot {
+        ann_no: &ann_no,
+        title: &normalized.title,
+        summary: &summary,
+        content_md: &normalized.content_md,
+        level: &normalized.level,
+        scope_type: &normalized.scope_type,
+        is_top: normalized.is_top,
+        top_expire_at: normalized.top_expire_at,
+        status: model::STATUS_DRAFT,
+        expire_at: normalized.expire_at,
+        remark: normalized.remark.as_deref(),
+    }
+    .to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        model::insert_announcement(&tx, &new, operator).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_announcement",
+                id.to_string(),
+                Action::Create,
+                "新建公告",
+            ),
+            DiffInput::create(&snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "新建公告"))?;
     tracing::info!(
         announcement_id = %id,
         ann_no = %ann_no,
@@ -945,6 +982,8 @@ pub async fn create(
 )]
 #[alun::put("/business/announcement/{id}")]
 pub async fn update(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<AnnouncementSaveReq>,
@@ -976,22 +1015,56 @@ pub async fn update(
         ensure_attachments(attachments).await?;
     }
 
-    model::update_announcement(
-        &announcement_id,
-        &normalized.title,
-        &summary,
-        &normalized.content_md,
-        &rendered.content_html,
-        &normalized.level,
-        &normalized.scope_type,
-        &scope_ids,
-        normalized.is_top,
-        normalized.top_expire_at,
-        normalized.expire_at,
-        normalized.remark.as_deref(),
-        normalized.attachments.as_deref(),
-        operator,
-    )
+    // 批次 C · C6：前后快照 + 业务写 + 日志同事务
+    let before_snapshot = AnnouncementSnapshot::from_row(&existing).to_json();
+    let after_snapshot = AnnouncementSnapshot {
+        ann_no: &existing.ann_no,
+        title: &normalized.title,
+        summary: &summary,
+        content_md: &normalized.content_md,
+        level: &normalized.level,
+        scope_type: &normalized.scope_type,
+        is_top: normalized.is_top,
+        top_expire_at: normalized.top_expire_at,
+        status: &existing.status,
+        expire_at: normalized.expire_at,
+        remark: normalized.remark.as_deref(),
+    }
+    .to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        model::update_announcement(
+            &tx,
+            &announcement_id,
+            &normalized.title,
+            &summary,
+            &normalized.content_md,
+            &rendered.content_html,
+            &normalized.level,
+            &normalized.scope_type,
+            &scope_ids,
+            normalized.is_top,
+            normalized.top_expire_at,
+            normalized.expire_at,
+            normalized.remark.as_deref(),
+            normalized.attachments.as_deref(),
+            operator,
+        )
+        .await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_announcement",
+                announcement_id.to_string(),
+                Action::Update,
+                "修改公告",
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
     .await
     .map_err(|error| utils::db_error(error, "编辑公告"))?;
     tracing::info!(
@@ -1028,6 +1101,8 @@ pub async fn update(
 )]
 #[alun::delete("/business/announcement/{id}")]
 pub async fn delete(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> ResResult<()> {
@@ -1035,7 +1110,28 @@ pub async fn delete(
     let announcement_id = utils::require_uuid(&id, "id")?;
     let existing = require_manage(&announcement_id).await?;
     model::ensure_deletable(&existing.status)?;
-    let affected = model::soft_delete(&announcement_id, operator)
+    // 批次 C · C6：软删与日志同事务；只有真的删到行（affected > 0）才留凭证
+    let before_snapshot = AnnouncementSnapshot::from_row(&existing).to_json();
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    let affected = db()
+        .transaction(|tx| async move {
+            let affected = model::soft_delete(&tx, &announcement_id, operator).await?;
+            if affected > 0 {
+                changelog::record_in(
+                    &tx,
+                    &ctx.ctx(),
+                    ChangeTarget::of(
+                        "sys_announcement",
+                        announcement_id.to_string(),
+                        Action::Delete,
+                        "删除公告",
+                    ),
+                    DiffInput::delete(&before_snapshot),
+                )
+                .await?;
+            }
+            Ok(affected)
+        })
         .await
         .map_err(|error| utils::db_error(error, "删除公告"))?;
     if affected == 0 {
@@ -1076,18 +1172,23 @@ pub async fn delete(
 )]
 #[alun::post("/business/announcement/{id}/publish")]
 pub async fn publish(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
 ) -> ResResult<AnnouncementPublishRes> {
     let operator = current_user(&claims)?;
     let announcement_id = utils::require_uuid(&id, "id")?;
-    publish_inner(&announcement_id, operator).await
+    // 批次 C · C6：发布要留「谁在什么时候把它发出去了」，因此把请求上下文传进去
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    publish_inner(&announcement_id, operator, &ctx).await
 }
 
 /// 发布的内部实现（便于将来做「批量发布」复用，逻辑只有一份）。
 async fn publish_inner(
     announcement_id: &uuid::Uuid,
     operator: uuid::Uuid,
+    req_ctx: &changelog::RequestCtx,
 ) -> ResResult<AnnouncementPublishRes> {
     let row = require_manage(announcement_id).await?;
     model::ensure_publishable(&row.status)?;
@@ -1112,7 +1213,36 @@ async fn publish_inner(
     // 发布时**重算**渲染快照：确保快照与当前 Markdown 一致（编辑后未发布的中间态可能不一致）
     let rendered = content::render(&row.content_md, Recipe::Announcement);
     let summary = resolve_summary(&row.summary, &rendered.plain_text);
-    let version = model::apply_publish(announcement_id, &rendered.content_html, &summary, operator)
+    // 批次 C · C6：状态落库与「发布」这条凭证同事务（扇出仍在提交后，见下方注释）
+    let before_snapshot = AnnouncementSnapshot::from_row(&row).to_json();
+    let mut after_snapshot = before_snapshot.clone();
+    after_snapshot["status"] = serde_json::json!(model::STATUS_PUBLISHED);
+    // 单独克隆一份给闭包：`summary` 在扇出分支里还要用（发布成功的站内信正文）
+    let snapshot_summary = summary.clone();
+    let version = db()
+        .transaction(|tx| async move {
+            let version = model::apply_publish(
+                &tx,
+                announcement_id,
+                &rendered.content_html,
+                &snapshot_summary,
+                operator,
+            )
+            .await?;
+            changelog::record_in(
+                &tx,
+                &req_ctx.ctx(),
+                ChangeTarget::of(
+                    "sys_announcement",
+                    announcement_id.to_string(),
+                    Action::Publish,
+                    "发布公告",
+                ),
+                DiffInput::update(&before_snapshot, &after_snapshot),
+            )
+            .await?;
+            Ok(version)
+        })
         .await
         .map_err(|error| utils::db_error(error, "发布公告（状态落库）"))?;
 
@@ -1232,6 +1362,8 @@ pub const FANOUT_SKIPPED: &str = "SKIPPED";
 )]
 #[alun::post("/business/announcement/{id}/offline")]
 pub async fn offline(
+    headers: HeaderMap,
+    ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<AnnouncementOfflineReq>,
@@ -1241,9 +1373,34 @@ pub async fn offline(
     let reason = require_offline_reason(&req.reason)?;
     let row = require_manage(&announcement_id).await?;
     model::ensure_offlinable(&row.status)?;
-    model::apply_offline(&announcement_id, operator)
-        .await
-        .map_err(|error| utils::db_error(error, "下线公告"))?;
+    // 批次 C · C6：下线与日志同事务。下线原因进 action_label（`sys_announcement`
+    // 没有下线原因列，V0080 DDL 不在本卡可改范围 —— 原因只能进日志）。
+    let before_snapshot = AnnouncementSnapshot::from_row(&row).to_json();
+    let mut after_snapshot = before_snapshot.clone();
+    after_snapshot["status"] = serde_json::json!(model::STATUS_OFFLINE);
+    let mut action_label = "下线公告".to_string();
+    if !reason.is_empty() {
+        action_label = format!("下线公告：{reason}");
+    }
+    let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
+    db().transaction(|tx| async move {
+        model::apply_offline(&tx, &announcement_id, operator).await?;
+        changelog::record_in(
+            &tx,
+            &ctx.ctx(),
+            ChangeTarget::of(
+                "sys_announcement",
+                announcement_id.to_string(),
+                Action::Offline,
+                action_label.as_str(),
+            ),
+            DiffInput::update(&before_snapshot, &after_snapshot),
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| utils::db_error(error, "下线公告"))?;
     // 已发出的站内信**不撤回**：它已经进了用户信箱，撤回会让「他点进来 404」。
     // 下线后用户侧详情返回 403 + 62005（公告未发布 / 已下线）。
     tracing::info!(
@@ -1925,6 +2082,67 @@ mod manage_tests {
         assert_eq!(FANOUT_DUPLICATED, "DUPLICATED");
         assert_eq!(FANOUT_FAILED, "FAILED");
         assert_eq!(FANOUT_SKIPPED, "SKIPPED");
+    }
+}
+
+/// 公告审计快照的字段集合（批次 C · C6）。
+///
+/// # 为什么用一个结构而不是 11 个参数的函数
+///
+/// 公告有 5 个写操作要记日志（建 / 改 / 删 / 发 / 下线），每处手写一份 `json!`
+/// 必然漂移（漏一个字段就是「这个字段改了没人知道」）。结构体 + 两个构造器让
+/// 「快照包含哪些字段」只有一处定义，且 clippy 不会因为参数过多报警。
+struct AnnouncementSnapshot<'a> {
+    ann_no: &'a str,
+    title: &'a str,
+    summary: &'a str,
+    content_md: &'a str,
+    level: &'a str,
+    scope_type: &'a str,
+    is_top: bool,
+    top_expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    status: &'a str,
+    expire_at: Option<chrono::DateTime<chrono::Utc>>,
+    remark: Option<&'a str>,
+}
+
+impl<'a> AnnouncementSnapshot<'a> {
+    /// 从管理详情行构造（「变更前」一侧的主力）。
+    fn from_row(row: &'a model::ManageDetailRow) -> Self {
+        Self {
+            ann_no: &row.ann_no,
+            title: &row.title,
+            summary: &row.summary,
+            content_md: &row.content_md,
+            level: &row.level,
+            scope_type: &row.scope_type,
+            is_top: row.is_top_flag,
+            top_expire_at: row.top_expire_at,
+            status: &row.status,
+            expire_at: row.expire_at,
+            remark: Some(row.remark.as_str()),
+        }
+    }
+
+    /// 序列化为 diff 输入。
+    ///
+    /// 时间统一转 RFC3339 字符串：`json!` 里混进 `DateTime` 会让「同一时刻的两种写法」
+    /// 被判成变化（`+00:00` vs `Z`），而 `content_html` / `receiver_count` / `read_count`
+    /// 这些派生与统计列**有意不进快照**（它们每次都变，等于把审计表当访问日志）。
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "ann_no": self.ann_no,
+            "title": self.title,
+            "summary": self.summary,
+            "content_md": self.content_md,
+            "level": self.level,
+            "scope_type": self.scope_type,
+            "is_top": self.is_top,
+            "top_expire_at": self.top_expire_at.map(|value| value.to_rfc3339()),
+            "status": self.status,
+            "expire_at": self.expire_at.map(|value| value.to_rfc3339()),
+            "remark": self.remark,
+        })
     }
 }
 
