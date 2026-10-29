@@ -6,6 +6,13 @@
 - 验证时间：2026-10-29（CST）
 - 验证方式：`backend/tests/batchT_t1_task.rs`（真库 5 用例）+ 真服务 curl 走查（29 条断言）+ 真库 EXPLAIN + `cargo test` 全量 + `scripts/check.sh`
 
+> **2026-10-29 返工更新（任务卡 `t_4c09fcc7`）**：可见性谓词已从「4 列 OR + `EXISTS`」改为
+> **参与 id 数组**（`AND ( (1 = 1 {FILTER}) OR t.id = ANY(?::text::uuid[]) )`，架构决策 D6/D7），
+> 20 万/5 万规模实测 `Seq Scan on biz_task` → `BitmapOr`（166 ms → 17 ms）。
+> 本文 §5/§7 的**四场景可见性结论仍然有效且逐条复验一致**（1 / 2 / 1 / 3 / 5、协作人 404 + `63001`），
+> 但谓词形态、新增迁移 `V0104__task_creator_index` 与 EXPLAIN 对比请看
+> **`docs/批次C+-T1-返工-可见性id数组-验证证据.md`**（supersedes 本文关于谓词写法的描述）。
+
 > 下面所有输出都是本次真跑的原文（脚本在 `scripts/verify/`，可原样复现），没有手工修饰。
 
 ---

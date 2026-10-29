@@ -1,0 +1,33 @@
+-- ======================================================
+-- V0104：工作任务管理 · 补一条「我参与」id 集合的索引（批次 C+ · T1 返工 / 决策 D6）
+--
+-- 依据：docs/批次C+-工作任务管理-详细架构.md §4.4（D6 参与 id 数组）
+-- 回滚：V0104__task_creator_index.down.sql
+--
+-- 为什么需要它：
+--   可见性谓词改成 `数据范围 OR t.id = ANY(?::text::uuid[])` 后，数组本身由一条
+--   **先算好** 的查询产出（model::my_member_task_ids）：
+--
+--     SELECT t.id FROM biz_task t
+--      WHERE t.deleted_at IS NULL
+--        AND (t.owner_id = ? OR t.creator_id = ? OR t.assigner_id = ?)
+--     UNION
+--     SELECT m.task_id FROM biz_task_member m JOIN biz_task t ON t.id = m.task_id
+--      WHERE m.user_id = ? AND t.deleted_at IS NULL
+--
+--   四个分支里三个已经有索引：
+--     owner_id     → idx_biz_task_owner_status_due（最左列）
+--     assigner_id  → idx_biz_task_assigner_status（最左列）
+--     协作人       → idx_biz_task_member_user（user_id 最左）
+--   **只有 creator_id 没有索引**。缺这一条时 PG 只能对 50 万行的 biz_task 做
+--   Seq Scan + 过滤，等于把「优化可见性主查询」省下来的时间又还回去。
+--   加上之后三路 OR 可以 BitmapOr 到三个索引（EXPLAIN 见返工证据文档 §3.2）。
+--
+-- 为什么不做成部分索引（`WHERE deleted_at IS NULL`）：
+--   查询里确实带 `deleted_at IS NULL`，但部分索引会让「谓词蕴含」判定成为
+--   计划稳定性的额外前提；本索引只服务一个等值条件、体积本来就小，
+--   与 owner/assigner 两条既有的非部分索引保持同一形态更稳。
+-- ======================================================
+
+CREATE INDEX idx_biz_task_creator ON biz_task (creator_id);
+COMMENT ON INDEX idx_biz_task_creator IS '可见性「我参与」id 集合的创建人分支（决策 D6）：creator_id 等值';

@@ -39,7 +39,7 @@ use axum::extract::Path;
 use crate::business::shared::principal;
 use crate::business::task::dto::{
     self, MyCounts, MyTasksRes, TaskAttachmentRes, TaskCardRes, TaskCreateReq, TaskDeleteRes,
-    TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskSaveRes, TaskUpdateReq,
+    TaskDetailRes, TaskMemberRes, TaskPageQuery, TaskPageRes, TaskSaveRes, TaskUpdateReq,
 };
 use crate::business::task::model::{self, MyBucket, TaskCardRow, TaskDetailRow, TaskFilter};
 use crate::shared::error_code;
@@ -47,7 +47,7 @@ use crate::utils;
 
 // ==================== 分页 ====================
 
-/// 任务分页（**可见性 = scope ∪ 参与关系**）。
+/// 任务分页（**可见性 = 数据范围 ∪ 我参与的任务 id 数组**）。
 ///
 /// # 参数
 ///
@@ -56,7 +56,9 @@ use crate::utils;
 ///
 /// # 返回值
 ///
-/// `PageData<Vec<TaskCardRes>>`，排序：截止日升序（无期限垫底）→ 创建时间倒序。
+/// [`TaskPageRes`]（`list` / `total` / `page` / `page_size` + `member_scope_truncated`），
+/// 排序：截止日升序（无期限垫底）→ 创建时间倒序。
+/// `member_scope_truncated = true` 表示「我参与」id 超限、本次只按范围过滤（D7 降级）。
 ///
 /// # 异常情况
 ///
@@ -72,7 +74,7 @@ use crate::utils;
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<TaskPageQuery>,
-) -> ResResult<PageData<Vec<TaskCardRes>>> {
+) -> ResResult<TaskPageRes> {
     let me = principal::resolve_for_claims(&claims).await?;
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
     let filter = build_filter(&query)?;
@@ -80,7 +82,13 @@ pub async fn page(
         .await
         .map_err(|error| utils::db_error(error, "分页查询任务"))?;
     let list = result.list.iter().map(card_res).collect();
-    Ok(Res::page(list, result.total, result.page, result.size))
+    Ok(Res::ok(TaskPageRes {
+        list,
+        total: result.total,
+        page: result.page,
+        page_size: result.size,
+        member_scope_truncated: result.member_scope_truncated,
+    }))
 }
 
 /// 把查询参数归一化成 [`TaskFilter`]（非法枚举值 → 400，不静默忽略）。

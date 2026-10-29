@@ -22,8 +22,10 @@
 //!
 //! 1. **可见性只有一处实现**：任何"列出任务"的查询都必须经由
 //!    [`model::page_visible`] / [`model::find_detail`] / [`model::list_children`]，
-//!    它们共用一条谓词 [`model::VISIBLE_OR_TAIL`]（`scope ∪ 负责人 ∪ 创建人 ∪ 分派人 ∪ 协作人`）。
-//!    另写一条 `WHERE owner_id = ?` 当"可见性"用，就会退化成"看不到别人分给我的任务"。
+//!    它们共用一条谓词 [`model::VISIBLE_OR_TAIL`]（`数据范围 ∪ 参与 id 数组`，
+//!    数组由 [`model::my_member_task_ids`] 解析：负责人 ∪ 创建人 ∪ 分派人 ∪ 协作人）。
+//!    另写一条 `WHERE owner_id = ?` 当"可见性"用，就会退化成"看不到别人分给我的任务"；
+//!    往谓词里再加 `OR` 分支则会让索引失效（决策 D6，见 [`model`] 模块文档的实测对比）。
 //! 2. **不改 `business/shared/scope.rs`**：它是批次 B 的门禁核心（闸①/闸② 与启动自检
 //!    都盯着它）。任务表的可见性是 OR 语义，本模块用**本地锚点** [`model::TASK_TARGET`]
 //!    + `(1 = 1 {FILTER})` 拼法实现，`scope.rs` 一行没动。

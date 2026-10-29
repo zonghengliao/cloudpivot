@@ -260,6 +260,31 @@ pub struct TaskCardRes {
     pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
+// ==================== 响应：分页 ====================
+
+/// 任务分页出参（`GET /business/task/page`）。
+///
+/// 是框架 `PageData<Vec<TaskCardRes>>` 的**超集**：前四个字段与它逐字一致
+/// （前端 `request.ts` 的 `PageData<T>` 照旧可用），多一个 `member_scope_truncated`。
+///
+/// 为什么需要这个标记（决策 D7）：可见性 = 数据范围 ∪ 我参与的任务 id 数组，
+/// 而数组有 2000 硬上限。超限时后端**降级为只按范围**过滤，必须让前端知道
+/// 「这不是你的全部任务」，否则用户会以为任务丢了。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskPageRes {
+    /// 当前页任务卡。
+    pub list: Vec<TaskCardRes>,
+    /// 可见总数。
+    pub total: u64,
+    /// 当前页码。
+    pub page: u64,
+    /// 每页条数。
+    pub page_size: u64,
+    /// 「我参与」的任务 id 超过上限（2000）→ 本视图只按数据范围过滤，
+    /// 前端应提示「我参与的任务过多，本视图只显示范围内的；『我参与的』请走独立 tab」。
+    pub member_scope_truncated: bool,
+}
+
 // ==================== 响应：详情 ====================
 
 /// 任务协作人。

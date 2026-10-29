@@ -15,24 +15,43 @@
 //! 这是跨部门协作能成立的唯一原因：把市场部的人拉进研发部的任务后，他必须能看见
 //! **那一条**，而不是「因为他不在研发部所以看不见」。
 //!
-//! ## 实现方式（不改 `shared/scope.rs`，也不复制它的逻辑）
+//! ## 实现方式：**参与 id 数组**（`docs/批次C+-工作任务管理-详细架构.md` §4.4 决策 D6）
 //!
 //! `scope.rs` 是批次 B 的门禁核心（闸①/闸② 都盯着它），本卡红线不许动。所以这里
 //! 用一个**不改变片段语义**的拼法把 AND 片段包进 OR 组：
 //!
 //! ```sql
 //! WHERE t.deleted_at IS NULL
-//!   AND ( (1 = 1 {FILTER})                    -- ← paginate 把 ` AND …` 片段原位注入这里
-//!         OR t.owner_id = ?::uuid
-//!         OR t.creator_id = ?::uuid
-//!         OR t.assigner_id = ?::uuid
-//!         OR EXISTS (SELECT 1 FROM biz_task_member m
-//!                     WHERE m.task_id = t.id AND m.user_id = ?::uuid) )
+//!   AND ( (1 = 1 {FILTER})                     -- ← paginate 把 ` AND …` 片段原位注入这里
+//!         OR t.id = ANY(?::text::uuid[]) )     -- ← 我参与的 task_id 数组（含负责人/创建人/分派人）
 //! ```
 //!
 //! `{FILTER}` 会被替换成 ` AND <scope 条件>`，于是左半边等价于 `(1 = 1 AND <scope 条件>)`
 //! = `<scope 条件>`；整体就是 `scope 条件 OR 参与关系`。片段本身、参数顺序、count 剥离
 //! ORDER BY 的能力全部仍由 [`scope::paginate`] 提供 —— 本模块只负责「放在哪儿」。
+//!
+//! ### 为什么是数组而不是 `OR EXISTS(...)`（D6 的实测依据）
+//!
+//! 第一版写的是「4 个列 OR + 1 个 `EXISTS` 子查询」。20 万任务下实测：
+//!
+//! | 写法 | `DeptAndChild` 范围耗时 | 计划 |
+//! |---|---|---|
+//! | 多 OR + `EXISTS` | **539 ms** | `Seq Scan on biz_task`（5 个 OR 把索引全废） |
+//! | **参与 id 数组 `t.id = ANY(?)`** | **40 ms** | `BitmapOr(idx_biz_task_dept, biz_task_pkey)` |
+//!
+//! 优化器无法在「列 OR 子查询 EXISTS」之上做位图合并，只能退化成顺序扫描；换成
+//! 一个「已经算好的 id 集合」后，`t.id = ANY(…)` 是纯粹的 pkey 条件，可以和部门条件
+//! 组成 `BitmapOr`。id 集合由 [`my_member_task_ids`] 用一条索引查询算好（一次请求一次），
+//! 把「我负责 / 我创建 / 我分派 / 我是协作人」四种身份**全部 OR 进同一个数组**，
+//! 于是谓词里只剩一个 `ANY(?)`。
+//!
+//! ### 上限与降级（D7）
+//!
+//! 数组不是免费的：每个 id 一次索引探测。实测 6.6 万个 id 时查询 >15 s 被
+//! `statement_timeout` 打断。所以 [`my_member_task_ids`] 有 **2000 硬上限**（[`MEMBER_SCOPE_LIMIT`]）：
+//! 超过就返回 `truncated = true`，谓词降级成「只按范围」（数组参数传 `{}`，`ANY('{}')`
+//! 恒假），并在分页响应里带 `member_scope_truncated: true` 让前端提示
+//! 「我参与的任务过多，本视图只显示范围内的；『我参与的』请走独立 tab」。
 //!
 //! **这条拼法依赖一个前提**：`RowFilter::sql()` 生成的片段一定以 ` AND ` 开头。
 //! 该前提由 [`assert_scope_fragment`] 在每次查询前运行时校验：将来若 `scope.rs` 改了
@@ -64,26 +83,108 @@ use crate::business::shared::scope;
 pub const TASK_TARGET: scope::ScopeTarget =
     scope::ScopeTarget::new("biz_task", "t", Some("dept_id"), Some("owner_id"));
 
-/// 可见性谓词（OR 合并）。`{FILTER}` 是 `scope::FILTER_MARKER` 的字面量形态。
+/// 可见性谓词：**数据范围 ∪ 参与 id 数组**（决策 D6）。
 ///
 /// 占位符顺序（**文本顺序**，必须与参数顺序一致）：
-/// ① `{FILTER}` 内的 scope 片段参数（由 `paginate` 前置）
-/// ② owner_id ③ creator_id ④ assigner_id ⑤ 协作人 user_id —— 见 [`visible_params`]。
-pub const VISIBLE_OR_TAIL: &str = " AND ( (1 = 1 {FILTER}) \
-      OR t.owner_id = ?::uuid \
-      OR t.creator_id = ?::uuid \
-      OR t.assigner_id = ?::uuid \
-      OR EXISTS (SELECT 1 FROM biz_task_member m \
-                  WHERE m.task_id = t.id AND m.user_id = ?::uuid) )";
+/// ① `{FILTER}` 内的 scope 片段参数（由 [`scope::paginate`] 前置）；
+/// ② 参与 id 数组（`?::text::uuid[]`）—— 见 [`visible_params`]。
+///
+/// # 不许在这里再加 `OR` 分支
+///
+/// 多 OR（尤其带 `EXISTS` 子查询）会让优化器放弃 OR 上的位图合并、退化成
+/// `Seq Scan on biz_task`（20 万任务实测 539 ms，见模块文档）。
+/// 新的「我参与」身份要并进 [`my_member_task_ids`] 的 id 集合，而不是加 OR。
+pub const VISIBLE_OR_TAIL: &str = " AND ( (1 = 1 {FILTER}) OR t.id = ANY(?::text::uuid[]) )";
 
-/// 可见性谓词的 4 个「我」参数（顺序：owner / creator / assigner / member）。
-pub fn visible_params(me: Uuid) -> Vec<Value> {
-    vec![
-        Value::from(&me),
-        Value::from(&me),
-        Value::from(&me),
-        Value::from(&me),
-    ]
+/// 「我参与」id 数组的硬上限（决策 D7：6.6 万个 id 时查询 >15 s 被 statement_timeout 打断）。
+pub const MEMBER_SCOPE_LIMIT: i64 = 2000;
+
+/// 「我参与的 task_id 集合」+ 降级标记（决策 D6 / D7）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct MyScopeIds {
+    /// 参与 id：负责人 ∪ 创建人 ∪ 分派人 ∪ 协作人/关注者（已去重）。
+    pub ids: Vec<Uuid>,
+    /// 是否超过 [`MEMBER_SCOPE_LIMIT`]；`true` = 谓词已降级为「只按范围」。
+    pub truncated: bool,
+}
+
+impl MyScopeIds {
+    /// 绑定给 `?::text::uuid[]` 的参数。
+    ///
+    /// 降级（`truncated`）时**刻意传空数组**：`t.id = ANY('{}')` 恒假，谓词自动退化成
+    /// 「只按范围」（设计文档 D7 的降级口径），且参数个数恒定、不会错位。
+    pub fn param(&self) -> Value {
+        if self.truncated {
+            return ids_array_param(&[]);
+        }
+        ids_array_param(&self.ids)
+    }
+}
+
+/// 把 id 集合编码成 PostgreSQL 文本数组字面量 `{uuid,uuid}`（空集合 = `{}`）。
+///
+/// 与 `scope.rs::array_param` 同一套路：本栈驱动不支持 `Value::Array` 绑 `uuid[]`
+/// （`shared/scope.rs` 开头记录了该限制），「文本字面量 + `?::text::uuid[]`」是唯一稳写法。
+fn ids_array_param(ids: &[Uuid]) -> Value {
+    let mut literal = String::with_capacity(ids.len() * 37 + 2);
+    literal.push('{');
+    for (index, id) in ids.iter().enumerate() {
+        if index > 0 {
+            literal.push(',');
+        }
+        literal.push_str(&id.to_string());
+    }
+    literal.push('}');
+    Value::Text(literal)
+}
+
+/// 可见性谓词的参数（顺序必须与 [`VISIBLE_OR_TAIL`] 里 `?` 的文本顺序一致）。
+pub fn visible_params(scope: &MyScopeIds) -> Vec<Value> {
+    vec![scope.param()]
+}
+
+/// 返回「我参与」的 task_id 集合（决策 D6）。
+///
+/// 口径 = 负责人 ∪ 创建人 ∪ 分派人 ∪ 协作人/关注者：
+/// - 三个列各自有索引（`idx_biz_task_owner_status_due` / `idx_biz_task_creator` /
+///   `idx_biz_task_assigner_status`）→ 单条查询即可 `BitmapOr` 三路；
+/// - 协作人走 `idx_biz_task_member_user`（`user_id` 在前的复合索引），
+///   **刻意不 join `biz_task`**：软删由外层主查询的 `t.deleted_at IS NULL` 兜住，
+///   而「按 user_id 取协作行」一旦带 join，规划器会退化成 `biz_task` 的全表 Hash Join
+///   （实测 5 万行时 6.8 ms、20 万行会线性上升）——这正是 D6 要避免的形态；
+/// - 只取 `MEMBER_SCOPE_LIMIT + 1` 条，够判断是否越限（[`MyScopeIds::truncated`]）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn my_member_task_ids(me: Uuid) -> DbResult<MyScopeIds> {
+    let rows = db()
+        .find_with_params(
+            "SELECT t.id FROM biz_task t \
+              WHERE t.deleted_at IS NULL \
+                AND (t.owner_id = ?::uuid OR t.creator_id = ?::uuid OR t.assigner_id = ?::uuid) \
+             UNION \
+             SELECT m.task_id FROM biz_task_member m WHERE m.user_id = ?::uuid \
+             LIMIT ?",
+            vec![
+                Value::from(&me),
+                Value::from(&me),
+                Value::from(&me),
+                Value::from(&me),
+                Value::I64(MEMBER_SCOPE_LIMIT + 1),
+            ],
+        )
+        .await?;
+    let mut ids = Vec::with_capacity(rows.len().min(MEMBER_SCOPE_LIMIT as usize));
+    for row in &rows {
+        let id: Uuid = row.get_typed("id")?;
+        ids.push(id);
+    }
+    let truncated = ids.len() as i64 > MEMBER_SCOPE_LIMIT;
+    if truncated {
+        ids.truncate(MEMBER_SCOPE_LIMIT as usize);
+    }
+    Ok(MyScopeIds { ids, truncated })
 }
 
 /// 校验 `scope.rs` 生成的片段仍然是可以被 `(1 = 1 …)` 包住注入的形态。
@@ -405,7 +506,29 @@ pub struct TaskFilter {
 
 // ==================== 读路径 ====================
 
-/// 任务分页（**可见性 = scope ∪ 参与关系**）。
+/// 任务分页结果（分页元数据 + D7 降级标记）。
+///
+/// 为什么不用框架的 `Page<T>`：降级标记必须随分页一起下发（前端据此提示
+/// 「我参与的任务过多，本视图只显示范围内的；『我参与的』请走独立 tab」），
+/// 而 `Page<T>` 没有扩展位。字段与 `Page<T>` 一一对应，出参 `list/total/page/page_size`
+/// 的形态不变（`PageData` 的 JSON 契约对前端保持兼容）。
+#[derive(Debug, Clone)]
+pub struct VisiblePage {
+    /// 当前页任务卡。
+    pub list: Vec<TaskCardRow>,
+    /// 可见总数。
+    pub total: u64,
+    /// 当前页码。
+    pub page: u64,
+    /// 每页条数。
+    pub size: u64,
+    /// 总页数。
+    pub pages: u64,
+    /// 「我参与」id 超过 [`MEMBER_SCOPE_LIMIT`] → 本次查询已降级为「只按范围」（D7）。
+    pub member_scope_truncated: bool,
+}
+
+/// 任务分页（**可见性 = 数据范围 ∪ 参与 id 数组**）。
 ///
 /// # 参数
 ///
@@ -415,7 +538,8 @@ pub struct TaskFilter {
 ///
 /// # 返回值
 ///
-/// [`Page<TaskCardRow>`]，排序 `截止日升序（NULL 最后）→ 创建时间倒序`。
+/// [`VisiblePage`]，排序 `截止日升序（NULL 最后）→ 创建时间倒序`。
+/// `member_scope_truncated = true` 表示「我参与」id 超过 2000、本次只按范围过滤。
 ///
 /// # 异常情况
 ///
@@ -426,8 +550,11 @@ pub async fn page_visible(
     filter: &TaskFilter,
     page: u64,
     page_size: u64,
-) -> DbResult<Page<TaskCardRow>> {
+) -> DbResult<VisiblePage> {
     assert_scope_fragment(principal)?;
+    // ① 先解析「我参与」id 数组（一次索引查询；D6 的关键：把它算成集合，
+    //    而不是让优化器在 OR 里现场判断）。
+    let scope_ids = my_member_task_ids(principal.user_id()).await?;
 
     let mut sql = String::with_capacity(1024);
     sql.push_str("SELECT ");
@@ -436,9 +563,9 @@ pub async fn page_visible(
     sql.push_str(" WHERE t.deleted_at IS NULL");
     sql.push_str(VISIBLE_OR_TAIL);
 
-    // 参数顺序：可见性 4 个「我」在前（`{FILTER}` 片段参数由 paginate 前置），
+    // 参数顺序：参与 id 数组在前（`{FILTER}` 片段参数由 paginate 前置），
     // 业务过滤参数在后 —— 与 SQL 里 `?` 的文本顺序一致。
-    let mut params = visible_params(principal.user_id());
+    let mut params = visible_params(&scope_ids);
     let filters = build_filters(filter, &mut params);
     sql.push_str(&filters);
 
@@ -463,12 +590,13 @@ pub async fn page_visible(
         .iter()
         .map(TaskCardRow::from_row)
         .collect::<DbResult<Vec<_>>>()?;
-    Ok(Page {
+    Ok(VisiblePage {
         list: rows,
         total,
         page,
         size,
         pages,
+        member_scope_truncated: scope_ids.truncated,
     })
 }
 
@@ -514,9 +642,10 @@ async fn find_detail_with_visibility(
     sql.push_str(&tail);
 
     // 参数顺序必须与 SQL 文本顺序一致：先 `id`（若在可见性之前）——这里刻意把
-    // id / parent_id 放在可见性谓词**之后**，于是参数也是「片段 + 4 个我 + 定位」。
+    // id / parent_id 放在可见性谓词**之后**，于是参数也是「片段 + 参与 id 数组 + 定位」。
+    let scope_ids = my_member_task_ids(principal.user_id()).await?;
     let mut params = fragment.params().to_vec();
-    params.extend(visible_params(principal.user_id()));
+    params.extend(visible_params(&scope_ids));
     if let Some(id) = id {
         sql.push_str(" AND t.id = ?::uuid");
         params.push(Value::from(&id));
@@ -577,8 +706,9 @@ pub async fn list_children(
     sql.push_str(&tail);
     sql.push_str(" AND t.parent_id = ?::uuid ORDER BY t.created_at ASC, t.id ASC");
 
+    let scope_ids = my_member_task_ids(principal.user_id()).await?;
     let mut params = fragment.params().to_vec();
-    params.extend(visible_params(principal.user_id()));
+    params.extend(visible_params(&scope_ids));
     params.push(Value::from(&parent_id));
 
     let rows = db().find_with_params(&sql, params).await?;
@@ -1182,7 +1312,7 @@ mod tests {
     }
 
     #[test]
-    fn visible_tail_keeps_the_scope_marker() {
+    fn visible_tail_uses_member_id_array_only() {
         // 拼法的前提：片段标记必须在 OR 组的左半边，且只出现一次
         assert_eq!(
             VISIBLE_OR_TAIL.matches(scope::FILTER_MARKER).count(),
@@ -1193,16 +1323,78 @@ mod tests {
             VISIBLE_OR_TAIL.contains("(1 = 1 {FILTER})"),
             "scope 片段必须包在 (1 = 1 …) 里，否则 AND 片段会退化成裸条件"
         );
-        // 4 个 OR 分支 + 1 个 EXISTS = 可见性并集的全部来源
-        assert_eq!(VISIBLE_OR_TAIL.matches("t.owner_id = ?::uuid").count(), 1);
-        assert_eq!(VISIBLE_OR_TAIL.matches("t.creator_id = ?::uuid").count(), 1);
-        assert_eq!(
-            VISIBLE_OR_TAIL.matches("t.assigner_id = ?::uuid").count(),
-            1
+        // D6：参与关系只允许用一个 id 数组表达
+        assert!(
+            VISIBLE_OR_TAIL.contains("t.id = ANY(?::text::uuid[])"),
+            "参与关系必须用 id 数组（D6），不能改回 EXISTS / 多 OR"
         );
-        assert!(VISIBLE_OR_TAIL.contains("FROM biz_task_member m"));
+        assert!(
+            !VISIBLE_OR_TAIL.contains("EXISTS"),
+            "EXISTS 子查询会让优化器放弃 BitmapOr、退化成 Seq Scan（实测 539 ms）"
+        );
+        for banned in ["t.owner_id", "t.creator_id", "t.assigner_id"] {
+            assert!(
+                !VISIBLE_OR_TAIL.contains(banned),
+                "{banned} 的 OR 分支必须并入 my_member_task_ids 的 id 数组，不得留在谓词里"
+            );
+        }
         // 占位符数量（不含 {FILTER} 内的）必须等于 visible_params 的长度
-        assert_eq!(VISIBLE_OR_TAIL.matches("?::uuid").count(), 4);
+        assert_eq!(VISIBLE_OR_TAIL.matches('?').count(), 1);
+    }
+
+    #[test]
+    fn visible_params_are_one_uuid_array() {
+        let ids = [
+            Uuid::parse_str("018f0000-0000-7000-8000-000000000001").expect("合法 uuid"),
+            Uuid::parse_str("018f0000-0000-7000-8000-000000000002").expect("合法 uuid"),
+        ];
+        let scope_ids = MyScopeIds {
+            ids: ids.to_vec(),
+            truncated: false,
+        };
+        let params = visible_params(&scope_ids);
+        assert_eq!(
+            params.len(),
+            VISIBLE_OR_TAIL.matches('?').count(),
+            "参数个数必须与 SQL 里 `?` 的文本顺序一一对应"
+        );
+        assert_eq!(
+            params[0],
+            Value::Text(
+                "{018f0000-0000-7000-8000-000000000001,018f0000-0000-7000-8000-000000000002}"
+                    .to_string()
+            ),
+            "uuid[] 必须编码成 PG 文本数组字面量 {{uuid,uuid}}"
+        );
+    }
+
+    #[test]
+    fn truncated_scope_degrades_to_empty_array() {
+        // D7 降级：超过 2000 个 id → 传空数组（ANY('{}') 恒假 = 只按范围），
+        // 且参数个数不变（降级不会让绑定错位）。
+        let oversized = MyScopeIds {
+            ids: vec![Uuid::nil()],
+            truncated: true,
+        };
+        assert_eq!(
+            visible_params(&oversized),
+            vec![Value::Text("{}".to_string())]
+        );
+        // 空集合本身的编码就是 `{}`（没有任何参与关系时同样安全）
+        assert_eq!(
+            visible_params(&MyScopeIds::default()),
+            vec![Value::Text("{}".to_string())]
+        );
+        assert_eq!(MEMBER_SCOPE_LIMIT, 2000);
+    }
+
+    #[test]
+    fn member_limit_truncation_rule() {
+        // 纯逻辑镜像 my_member_task_ids 的截断判定（2000 允许、2001 降级）
+        let check = |n: usize| n as i64 > MEMBER_SCOPE_LIMIT;
+        assert!(!check(0));
+        assert!(!check(2000));
+        assert!(check(2001));
     }
 
     #[test]
@@ -1214,16 +1406,6 @@ mod tests {
         // 未来的 OR 片段必须被拦下（否则 (1 = 1 OR …) 恒真 → 全表可见）
         assert!(check_fragment_shape(" OR t.dept_id = ?").is_err());
         assert!(check_fragment_shape("t.dept_id = ?").is_err());
-    }
-
-    #[test]
-    fn visible_params_are_all_me() {
-        let me = Uuid::nil();
-        let params = visible_params(me);
-        assert_eq!(params.len(), 4);
-        for param in params {
-            assert_eq!(param, Value::from(&me));
-        }
     }
 
     #[test]
