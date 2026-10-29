@@ -104,6 +104,7 @@ use crate::business::task::dto::{
 };
 use crate::business::task::model::{self, MyBucket, TaskCardRow, TaskDetailRow, TaskFilter};
 use crate::business::task::state::{self, TaskStatus};
+use crate::shared::ai_actor;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -480,6 +481,7 @@ pub async fn update(
 /// # 异常情况
 ///
 /// - 404 + `63001`：任务不存在 / 已软删；
+/// - 403 + `63202`：**操作者是 AI 用户（`user_type='ROBOT'`）** —— 硬拒，无角色可解；
 /// - 403 + `63002`：既不是负责人 / 创建人，也不是超管；
 /// - 409 + `63006`：仍有未完成子任务；
 /// - 500：数据库异常。
@@ -494,18 +496,17 @@ pub async fn delete(
     Path(id): Path<String>,
 ) -> ResResult<TaskDeleteRes> {
     let me = current_user(&claims)?;
-    // 红线（修正 11）：AI 用户（`user_type=ROBOT`）**永远不能删任务**。
+    // 红线（修正 11 + T5）：AI 用户（`user_type=ROBOT`）**永远不能删任务**。
     //
     // 这是**硬拒**，与分派不同：分派「默认不能、可按角色授予」（只查权限码），
     // 删除则连超管角色都救不回来 —— 理由是一条 AI 执行者被注入后
     // 「删掉任务」是不可逆的破坏（评论 / 日志 / 通知全指向一个软删的主键），
     // 而「停止执行」有正当替代路径（转派给人类 / 取消任务）。
-    if is_robot(me).await? {
-        return Err(ApiError::new(
-            403,
-            error_code::TASK_ROBOT_FORBIDDEN,
-            "AI 用户不能删除任务（如需停止执行，请把任务转派给人类用户或改为「已取消」）",
-        ));
+    //
+    // 错误码 `63202`（`AI_TASK_DELETE_FORBIDDEN`）：T5 卡面把 AI 执行者硬拒
+    // 统一到 632xx 子段，T3 临时用的 `63016` 保留但不再返回（见 error_code 注释）。
+    if let Some(error) = ai_actor::task_delete_forbidden(user_type_of(me).await?.as_deref()) {
+        return Err(error);
     }
     let me_scope = principal::resolve_for_claims(&claims).await?;
     let task_id = parse_uuid_field(&id, "任务")?;
@@ -2305,15 +2306,21 @@ fn protected_member(user_id: Uuid, creator_id: Uuid, owner_id: Uuid) -> bool {
     user_id == creator_id || user_id == owner_id
 }
 
+/// 当前账号的 `sys_user.user_type`（`HUMAN` / `ROBOT`；读不到就是 `None`）。
+///
+/// 判定统一交给 [`crate::shared::ai_actor`]：本模块只负责「把类型读出来」，
+/// 不自己写 `== "ROBOT"`（四处入口各写一遍，文案与状态码必然漂移）。
+async fn user_type_of(user_id: Uuid) -> std::result::Result<Option<String>, ApiError> {
+    model::user_type_of(user_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询账号类型"))
+}
+
 /// 当前账号是不是 AI 用户（`sys_user.user_type = 'ROBOT'`）。
 ///
 /// **只用于文案与「硬拒」**（删任务），不参与分派 / 协作人的准入判定（修正 11）。
 async fn is_robot(user_id: Uuid) -> std::result::Result<bool, ApiError> {
-    Ok(model::user_type_of(user_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询账号类型"))?
-        .as_deref()
-        == Some("ROBOT"))
+    Ok(ai_actor::is_robot(user_type_of(user_id).await?.as_deref()))
 }
 
 /// 分派被拒 → 403（AI 账号给「怎么才能有权限」的文案，人给的文案列出四条通路）。

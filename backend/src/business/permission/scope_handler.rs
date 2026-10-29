@@ -40,6 +40,7 @@ use crate::business::permission::scope_model;
 use crate::business::shared::guard;
 use crate::business::shared::principal::{self, cache_stats, current_epoch};
 use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind, filter_for};
+use crate::shared::ai_actor;
 use crate::shared::constants;
 use crate::shared::error_code;
 use crate::utils;
@@ -98,6 +99,8 @@ pub async fn role_scope_detail(Path(role_id): Path<String>) -> ResResult<RoleSco
 /// # 异常情况
 ///
 /// - 400 + `10001`：ID / UUID 格式非法；
+/// - 403 + `63203`：操作者是 **AI 用户（`user_type='ROBOT'`）** —— 硬拒，有 `scope:write`
+///   角色也拒（批次 C+ · T5）；
 /// - 400 + `61001`：`data_scope` 不在 1..5；`data_scope=5` 但集合为空；
 ///   `data_scope≠5` 却提交了非空集合；
 /// - 403 + `61003`：试图修改**自己持有**角色的数据范围（防自我扩权）；
@@ -117,6 +120,18 @@ pub async fn role_scope_update(
 ) -> ResResult<SetRoleScopeRes> {
     let role_id = utils::require_uuid(&role_id, "role_id")?;
     let operator_id = current_user_id(&claims)?;
+    // 红线（批次 C+ · T5）：AI 用户**不能改数据权限**，即使被授予了
+    // `business:permission:scope:write` 也硬拒（`63203`）。
+    //
+    // 放在最前面（先于角色存在性、参数校验）：让「AI + 不存在的角色」也返回 63203
+    // 而不是 404 —— 否则 AI 账号可以拿这个接口当角色存在性探测器。
+    // 注意只拦**写**：读（`scope:read` / `self-check`）不拦，AI 需要知道自己的边界。
+    let operator_type = crate::system::user::model::find_user_type(&operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询操作者账号类型"))?;
+    if let Some(error) = ai_actor::data_scope_forbidden(operator_type.as_deref()) {
+        return Err(error);
+    }
     let role = require_role(&role_id).await?;
 
     // ① 取值与集合校验（纯逻辑，61001）

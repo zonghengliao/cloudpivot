@@ -15,6 +15,7 @@ use std::net::SocketAddr;
 
 use crate::business::shared::principal;
 use crate::middleware::auth_guard;
+use crate::shared::ai_actor;
 use crate::shared::constants::{self, EnableStatus};
 use crate::shared::error_code;
 use crate::support::log::dto::LogPageQuery;
@@ -55,6 +56,8 @@ const TOKEN_TYPE: &str = "Bearer";
 /// - 429：登录尝试过于频繁；
 /// - 401：用户名或密码错误；
 /// - 403：账号已禁用或被锁定；
+/// - 403 + `63201`：**AI 用户（`user_type='ROBOT'`）禁止网页登录**（批次 C+ · T5）。
+///   判定在密码校验之前，且**必记 `auth_logs`**（`error_message = "AI 用户禁止网页登录"`）；
 /// - 500：内部错误。
 ///
 /// # 日志
@@ -115,6 +118,41 @@ pub async fn login(
         }
         Err(e) => return Err(utils::db_error(e, "查询登录用户")),
     };
+
+    // 红线（批次 C+ · T5）：AI 用户（`user_type = 'ROBOT'`）**禁止网页登录**。
+    //
+    // 位置刻意在「查到用户之后、校验密码之前」：
+    //   · 不校验密码也拒绝 —— 账号类型本身就不允许网页会话，与「密码对不对」无关；
+    //     先比密码会让「用 AI 账号 + 正确密码」走到发放令牌那一步再失败，白算一次
+    //     bcrypt（约 100 ms）；
+    //   · 在锁定判定之前 —— AI 账号不应该被失败计数锁住（它永远不会登录成功，
+    //     锁不锁都一样），也不该因为被撞而写脏 `login_fail_count`。
+    //
+    // **必须记 `auth_logs`**（卡面红线）：这条 `LOGIN/FAIL` 回答的是「谁在拿 AI 账号
+    // 撞登录页」，是审计 AI 账号被误用的唯一线索。`log_login_failure` 同时写
+    // `security_logs(LOGIN_FAIL)`，与其它失败路径同一口径。
+    let user_type = crate::system::user::model::find_user_type(&user.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询账号类型"))?;
+    if let Some(error) = ai_actor::login_forbidden(user_type.as_deref()) {
+        timer.mark("load_user");
+        log_login_failure(
+            &headers,
+            &connect_info,
+            &req.username,
+            Some(user.id),
+            "AI 用户禁止网页登录",
+            &timer,
+        );
+        tracing::warn!(
+            user_id = %user.id,
+            username = %user.username,
+            ip = %ip_text,
+            code = error.code,
+            "AI 用户尝试网页登录，已拒绝"
+        );
+        return Err(error);
+    }
 
     // 锁定期内直接拒绝；锁定已到期则自动解锁（重置失败计数）
     if is_locked_now(&user, lock_minutes) {

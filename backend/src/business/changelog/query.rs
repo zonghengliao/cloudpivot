@@ -191,6 +191,12 @@ pub struct ChangeLogRow {
     pub operator_id: Option<Uuid>,
     /// 操作人名字。
     pub operator_name: Option<String>,
+    /// 操作人类型（`HUMAN` / `ROBOT`；批次 C+ · T5）。
+    ///
+    /// 用 `String` 而不是枚举：这是**读**路径，库里若有历史行（`V0111` 之前的
+    /// 默认值 `HUMAN`）或将来新增的取值（如 `SYSTEM`），读侧不该因此 500 ——
+    /// 枚举封闭性由写侧的 [`crate::business::changelog::OperatorType`] 保证。
+    pub operator_type: String,
     /// 操作人部门。
     pub operator_dept_id: Option<Uuid>,
     /// 客户端 IP（文本形态，`inet` 列）。
@@ -216,7 +222,7 @@ pub struct ChangeLogRow {
 /// `changed_fields` 同理走 `array_to_json`，避免手写 PG 数组字面量解析。
 const SELECT_COLUMNS: &str = "\
     id, created_at, module, resource, resource_id, action, action_label, \
-    request_id, trace_source, operator_id, operator_name, operator_dept_id, \
+    request_id, trace_source, operator_id, operator_name, operator_type, operator_dept_id, \
     client_ip::text AS client_ip, diff::text AS diff_text, \
     COALESCE(array_to_json(changed_fields), '[]'::json)::text AS changed_fields_json, \
     result, diff_mode, error_code, duration_ms";
@@ -248,6 +254,14 @@ impl ChangeLogRow {
             trace_source: row.get_typed::<String>("trace_source")?,
             operator_id: row.get_typed::<Option<Uuid>>("operator_id")?,
             operator_name: row.get_typed::<Option<String>>("operator_name")?,
+            operator_type: row
+                .get_typed::<Option<String>>("operator_type")?
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| {
+                    crate::business::changelog::OperatorType::Human
+                        .code()
+                        .to_string()
+                }),
             operator_dept_id: row.get_typed::<Option<Uuid>>("operator_dept_id")?,
             client_ip: row.get_typed::<Option<String>>("client_ip")?,
             diff,

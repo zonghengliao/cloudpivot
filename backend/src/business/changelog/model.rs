@@ -33,6 +33,8 @@
 use alun::prelude::*;
 use alun::uuid::Uuid;
 
+use crate::business::changelog::dto::OperatorType;
+
 /// 表名（门禁 G1 的唯一写入者在 `business/changelog/model.rs`）。
 pub const TABLE: &str = "sys_change_log";
 
@@ -52,6 +54,11 @@ pub struct NewChangeLog<'a> {
     pub operator_id: Option<Uuid>,
     /// 操作人名字（冗余）。
     pub operator_name: Option<&'a str>,
+    /// 操作人类型（`HUMAN` / `ROBOT`，批次 C+ · T5）。
+    ///
+    /// 冗余落库而不是 join 出来：`sys_user.user_type` 会变（今天 ROBOT 明天改回
+    /// HUMAN 也合法），审计要的是「**当时**是谁在操作」。
+    pub operator_type: &'a str,
     /// 操作人部门（冗余）。
     pub operator_dept_id: Option<Uuid>,
     /// 客户端 IP。
@@ -114,6 +121,7 @@ pub async fn insert(ex: &impl SqlExecutor, row: &NewChangeLog<'_>) -> DbResult<(
         Value::from(row.trace_source),
         Value::from(operator_id),
         Value::from(row.operator_name.unwrap_or("")),
+        Value::from(row.operator_type),
         Value::from(operator_dept),
         Value::from(row.client_ip.unwrap_or("")),
         Value::from(row.module),
@@ -136,13 +144,13 @@ pub async fn insert(ex: &impl SqlExecutor, row: &NewChangeLog<'_>) -> DbResult<(
 /// 一条 INSERT 语句（列顺序与 [`NewChangeLog`] 一致）。
 const INSERT_SQL: &str = "\
 INSERT INTO sys_change_log \
-    (id, request_id, trace_source, operator_id, operator_name, operator_dept_id, client_ip, \
-     module, resource, resource_id, action, action_label, diff, diff_mode, changed_fields, \
-     result, error_code, duration_ms, created_at) \
+    (id, request_id, trace_source, operator_id, operator_name, operator_type, operator_dept_id, \
+     client_ip, module, resource, resource_id, action, action_label, diff, diff_mode, \
+     changed_fields, result, error_code, duration_ms, created_at) \
 VALUES \
     (?::uuid, NULLIF(?::text, ''), ?::text, NULLIF(?::text, '')::uuid, NULLIF(?::text, ''), \
-     NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::inet, ?::text, ?::text, ?::text, ?::text, \
-     ?::text, ?::jsonb, ?::text, NULLIF(?::text, '')::text[], ?::text, \
+     ?::text, NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::inet, ?::text, ?::text, ?::text, \
+     ?::text, ?::text, ?::jsonb, ?::text, NULLIF(?::text, '')::text[], ?::text, \
      NULLIF(?::text, '')::integer, NULLIF(?::text, '')::integer, ?::timestamptz)";
 
 /// 把字段名数组拼成 PG 数组字面量（`{"mobile","status"}`）；空数组返回空串（SQL 侧转 NULL）。
@@ -222,6 +230,52 @@ pub async fn purge_for_object(
     .await
 }
 
+/// 按操作人 ID 读「操作人类型」（`HUMAN` / `ROBOT`）。
+///
+/// # 为什么放在 `model` 而不是 `record`
+///
+/// 它是一条 SQL，必须和 [`insert`] 一样只吃调用方传进来的执行器：
+/// 在**业务事务的快照**里读 `sys_user.user_type`，保证「日志记的类型」与
+/// 「同一事务里读到的账号类型」一致（会话外改 `user_type` 不会插进来）。
+///
+/// # SCOPE-EXEMPT
+///
+/// 按主键读一列的账号类型，不涉及行级可见性（不是列表 / 导出查询），
+/// 因此不注入数据范围片段 —— 见函数上方的门禁豁免标记。
+///
+/// # 参数
+///
+/// - `ex`：业务事务的执行器；
+/// - `operator_id`：日志行上的 `operator_id`。`None`（系统任务）**不查库**，
+///   直接返回 `HUMAN` —— 与迁移里的 `DEFAULT 'HUMAN'` 一致；系统任务的来源靠
+///   `trace_source = SYSTEM/JOB` 表达，不靠 `operator_type`。
+///
+/// # 返回值
+///
+/// 查到 `ROBOT` → [`OperatorType::Robot`]；查不到 / 读到脏值 → [`OperatorType::Human`]。
+/// **读侧不因为找不到人而报错**：日志是「事后凭证」，不该被一个已删除的账号卡住。
+// SCOPE-EXEMPT: 按主键读 sys_user.user_type（单列账号类型，不涉及行级可见性，非列表/导出查询）
+pub async fn operator_type_of(
+    ex: &impl SqlExecutor,
+    operator_id: Option<Uuid>,
+) -> DbResult<OperatorType> {
+    let Some(operator_id) = operator_id else {
+        return Ok(OperatorType::Human);
+    };
+    let rows = ex
+        .query_sql(
+            "SELECT user_type FROM sys_user WHERE id = ?::uuid".to_string(),
+            vec![Value::from(operator_id)],
+        )
+        .await?;
+    match rows.first() {
+        Some(row) => Ok(OperatorType::from_user_type(
+            row.get_typed::<Option<String>>("user_type")?.as_deref(),
+        )),
+        None => Ok(OperatorType::Human),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,11 +290,11 @@ mod tests {
         );
     }
 
-    /// SQL 形态自检：19 个占位符、19 个参数位、没有任何字面量拼接进 SQL。
+    /// SQL 形态自检：20 个占位符、20 个参数位、没有任何字面量拼接进 SQL。
     #[test]
     fn insert_sql_placeholder_count_matches_params() {
         let holes = INSERT_SQL.matches('?').count();
-        assert_eq!(holes, 19, "INSERT 必须有 19 个占位符，实际 {holes}");
+        assert_eq!(holes, 20, "INSERT 必须有 20 个占位符，实际 {holes}");
         // 关键列必须在 SQL 里（防止手改 SQL 漏列）
         for column in [
             "id",
@@ -248,6 +302,7 @@ mod tests {
             "trace_source",
             "operator_id",
             "operator_name",
+            "operator_type",
             "operator_dept_id",
             "client_ip",
             "module",

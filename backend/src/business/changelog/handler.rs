@@ -56,7 +56,7 @@ use crate::utils;
 const XLSX_MIME: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 
 /// 导出表头（顺序即列顺序；脱敏证据按这份表头逐列核对）。
-const EXPORT_HEADERS: [&str; 15] = [
+const EXPORT_HEADERS: [&str; 16] = [
     "序号",
     "变更时间",
     "模块",
@@ -65,6 +65,7 @@ const EXPORT_HEADERS: [&str; 15] = [
     "动作",
     "动作名称",
     "操作人",
+    "操作人类型",
     "来源",
     "变化字段",
     "变更内容（前后值）",
@@ -345,6 +346,9 @@ async fn export_response(query: ChangeLogPageQuery) -> std::result::Result<Respo
             "操作人".to_string(),
             row.operator_name.clone().unwrap_or_default(),
         );
+        // 操作人类型（T5）：`HUMAN` / `ROBOT`，导出里保留原始码值，
+        // 便于审计用数据透视按类型筛（中文标签留给前端渲染）。
+        line.insert("操作人类型".to_string(), row.operator_type.clone());
         line.insert("来源".to_string(), row.trace_source.clone());
         line.insert("变化字段".to_string(), row.changed_fields.join(","));
         line.insert("变更内容（前后值）".to_string(), rendered);
@@ -644,6 +648,7 @@ mod tests {
             trace_source: "API".to_string(),
             operator_id: None,
             operator_name: Some("admin".to_string()),
+            operator_type: "HUMAN".to_string(),
             operator_dept_id: None,
             client_ip: None,
             diff,

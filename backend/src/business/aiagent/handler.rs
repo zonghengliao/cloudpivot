@@ -49,6 +49,7 @@ use crate::business::aiagent::dto::{
 };
 use crate::business::aiagent::hermes::Hermes;
 use crate::business::aiagent::model::{self, AiAgentRow, AiUserBrief};
+use crate::shared::ai_actor;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
 use crate::system::user::model::{self as user_model, SysUserModel, SysUserRoleModel};
@@ -98,6 +99,8 @@ pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<AiUserCreateReq>,
 ) -> ResResult<AiUserRes> {
+    // 红线（T5）：只有人类管理员能建 AI 用户（AI 建 AI = 自我复制，没人是它的上级）
+    forbid_robot(&claims).await?;
     let hermes = Hermes::from_env();
     let username = req.username.trim().to_string();
     // 红线：任何命令之前先校验名字（`hermes` 会把 Bad_Name 静默小写成 bad_name 并建盘）
@@ -324,6 +327,8 @@ pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<AiUserUpdateReq>,
 ) -> ResResult<AiUserRes> {
+    // 红线（T5）：AI 用户不许改自己 / 他人的 profile（含 SOUL.md）
+    forbid_robot(&claims).await?;
     let id = utils::require_uuid(&user_id, "user_id")?;
     let hermes = Hermes::from_env();
     let mut row = model::find_by_user(&id)
@@ -463,6 +468,8 @@ pub async fn delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     _headers: HeaderMap,
 ) -> ResResult<AiUserDeleteRes> {
+    // 红线（T5）：AI 用户不许删自己 / 他人的 profile
+    forbid_robot(&claims).await?;
     let id = utils::require_uuid(&user_id, "user_id")?;
     let hermes = Hermes::from_env();
     let row = model::find_by_user(&id)
@@ -534,6 +541,39 @@ pub async fn delete(
 }
 
 // ==================== 私有辅助 ====================
+
+/// 断言调用者不是 AI 用户（批次 C+ · T5：`63204`）。
+///
+/// # 为什么 AI 用户不能碰这些接口
+///
+/// 建号 / 改 SOUL.md / 删号决定的是「AI 的行为准则与生命周期」。AI 若能改自己的
+/// SOUL.md，就能改自己的行为约束；若能改别人的 profile，就能冒充别的执行者。
+/// 因此这三个写接口**只允许人类管理员**调用 —— 即使 AI 账号被授予了
+/// `system:user:create/update/delete` 权限码，也照样拒绝。
+///
+/// 读接口（详情 / 探活）不拦：AI 需要知道自己在系统里的配置。
+///
+/// # 异常情况
+///
+/// - 403 + `63204`：调用者是 AI 用户；
+/// - 401 + `20004`：令牌里没有可用的用户 ID（`sub` 不是 UUID）；
+/// - 500：查账号类型时数据库异常。
+async fn forbid_robot(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
+    let operator_id = utils::current_user_uuid(claims).ok_or_else(|| {
+        ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "令牌缺少有效的用户标识",
+        )
+    })?;
+    let user_type = user_model::find_user_type(&operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询操作者账号类型"))?;
+    match ai_actor::aiagent_admin_forbidden(user_type.as_deref()) {
+        Some(error) => Err(error),
+        None => Ok(()),
+    }
+}
 
 /// 补偿（回滚）未成功时的错误包装：保留原始错误语义，把残留项逐条塞进消息。
 async fn compensate(

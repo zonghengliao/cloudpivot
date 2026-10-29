@@ -85,6 +85,60 @@ pub enum Action {
     Login,
 }
 
+/// 操作人类型（`sys_change_log.operator_type`，批次 C+ · T5）。
+///
+/// # 为什么变更日志要单独记一份「操作人是不是 AI」
+///
+/// `operator_id` 指向 `sys_user`，而 `user_type` 是**可变**的（今天是 `ROBOT`，
+/// 明天管理员把它改回 `HUMAN` 也合法）。审计要回答的是「**当时**这条变更是人或
+/// AI 做的」，所以必须把类型**冗余落在日志行上**——与 `operator_name` 冗余
+/// 同一理由（改名后历史仍可读）。前端据此给 AI 的操作打「AI」标签。
+///
+/// # 取值
+///
+/// 与 `sys_user.user_type` 逐字一致（`HUMAN` / `ROBOT`），库侧有 CHECK 兜底；
+/// 判定入口是 [`crate::shared::ai_actor::is_robot`]（严格等于 `ROBOT`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OperatorType {
+    /// 人类账号（默认）。
+    #[default]
+    Human,
+    /// AI 账号（`user_type = 'ROBOT'`）。
+    Robot,
+}
+
+impl OperatorType {
+    /// 两个取值（顺序即库表 CHECK 的书写顺序）。
+    pub const ALL: &'static [OperatorType] = &[OperatorType::Human, OperatorType::Robot];
+
+    /// 写入 `sys_change_log.operator_type` 的字符串。
+    pub fn code(self) -> &'static str {
+        match self {
+            OperatorType::Human => "HUMAN",
+            OperatorType::Robot => "ROBOT",
+        }
+    }
+
+    /// 由 `sys_user.user_type` 的行值判定。
+    ///
+    /// `None` / 空串 / 任何非 `ROBOT` 的脏值都折成 [`OperatorType::Human`]：
+    /// 这一列是**展示与检索**用的，遇到脏数据宁可显示「人」，也不要在写日志时
+    /// 因为一个无法解释的枚举把整条业务事务打回滚（日志写不进去 → 业务失败）。
+    /// 数据一致性由迁移里的 CHECK 与启动自检负责，不靠这里容错。
+    pub fn from_user_type(user_type: Option<&str>) -> Self {
+        if crate::shared::ai_actor::is_robot(user_type) {
+            OperatorType::Robot
+        } else {
+            OperatorType::Human
+        }
+    }
+
+    /// 是否 AI 账号（前端「AI」标签的判据）。
+    pub fn is_robot(self) -> bool {
+        matches!(self, OperatorType::Robot)
+    }
+}
+
 impl Action {
     /// 十一个取值（顺序即库表 CHECK 的书写顺序）。
     pub const ALL: &'static [Action] = &[
@@ -148,6 +202,17 @@ pub struct ChangeCtx<'a> {
     pub operator_name: Option<&'a str>,
     /// 操作人当时所属部门（冗余存储：调部门后历史不乱）。
     pub operator_dept_id: Option<Uuid>,
+    /// 操作人类型（`HUMAN` / `ROBOT`）。
+    ///
+    /// `None` 表示「**由 [`crate::business::changelog::record`] 按 `operator_id`
+    /// 现查 `sys_user.user_type`**」——默认就走这条路，调用方不用管。
+    /// 只有在「操作人账号已被物理删掉 / 不是库里的用户」这类查不到的场景，
+    /// 才需要 `with_operator_type` 显式指定。
+    ///
+    /// 为什么默认查库而不是默认 `Human`：`ROBOT` 的日志必须正确落 `ROBOT`
+    /// （卡面验收 8），而调用点有十几个，靠每个调用点自觉填一定漏。
+    /// 查库走的是**同一个业务事务的执行器**，成本是一次主键查找（亚毫秒）。
+    pub operator_type: Option<OperatorType>,
     /// 客户端 IP（按 [`crate::utils::client_ip`] 的口径解析，与中间件一致）。
     pub client_ip: Option<&'a str>,
     /// 业务发生时刻；`None` 表示「就是现在」。
@@ -173,6 +238,7 @@ impl<'a> ChangeCtx<'a> {
             operator_id,
             operator_name,
             operator_dept_id: None,
+            operator_type: None,
             client_ip: None,
             occurred_at: None,
             duration_ms: None,
@@ -187,6 +253,7 @@ impl<'a> ChangeCtx<'a> {
             operator_id: None,
             operator_name: None,
             operator_dept_id: None,
+            operator_type: None,
             client_ip: None,
             occurred_at: None,
             duration_ms: None,
@@ -204,6 +271,17 @@ impl<'a> ChangeCtx<'a> {
     #[must_use]
     pub fn with_operator_dept(mut self, dept_id: Option<Uuid>) -> Self {
         self.operator_dept_id = dept_id;
+        self
+    }
+
+    /// 显式指定操作人类型（**跳过** `record` 的查库推断）。
+    ///
+    /// 只在「`operator_id` 查不到 `sys_user` 行」时需要（例如记录一条
+    /// 已被物理删除的账号、或导入任务的系统操作人）。正常 API 路径**不要调用它**：
+    /// 让 `record` 自己按 `operator_id` 查，才不会出现「明明是 AI 却记成 HUMAN」。
+    #[must_use]
+    pub fn with_operator_type(mut self, operator_type: OperatorType) -> Self {
+        self.operator_type = Some(operator_type);
         self
     }
 
@@ -447,6 +525,8 @@ pub struct ChangeLogListItem {
     pub operator_id: Option<String>,
     /// 操作人名字。
     pub operator_name: Option<String>,
+    /// 操作人类型（`HUMAN` / `ROBOT`；前端据此显示「AI」标签，批次 C+ · T5）。
+    pub operator_type: String,
     /// 来源。
     pub trace_source: String,
     /// 变化字段名（升序）。
@@ -470,6 +550,7 @@ impl ChangeLogListItem {
             action_label: row.action_label.clone(),
             operator_id: row.operator_id.map(|id| id.to_string()),
             operator_name: row.operator_name.clone(),
+            operator_type: row.operator_type.clone(),
             trace_source: row.trace_source.clone(),
             changed_fields: row.changed_fields.clone(),
             masked: row.masked(),
@@ -542,6 +623,8 @@ pub struct ChangeLogDetailRes {
     pub operator_id: Option<String>,
     /// 操作人名字。
     pub operator_name: Option<String>,
+    /// 操作人类型（`HUMAN` / `ROBOT`，批次 C+ · T5）。
+    pub operator_type: String,
     /// 操作人部门。
     pub operator_dept_id: Option<String>,
     /// 客户端 IP。
@@ -650,6 +733,7 @@ impl ChangeLogDetailRes {
             trace_source: row.trace_source.clone(),
             operator_id: row.operator_id.map(|id| id.to_string()),
             operator_name: row.operator_name.clone(),
+            operator_type: row.operator_type.clone(),
             operator_dept_id: row.operator_dept_id.map(|id| id.to_string()),
             client_ip: row.client_ip.clone(),
             changed_fields: row.changed_fields.clone(),
@@ -677,6 +761,8 @@ pub struct ChangeLogTimelineItem {
     pub action_label: String,
     /// 操作人名字。
     pub operator_name: Option<String>,
+    /// 操作人类型（`HUMAN` / `ROBOT`，批次 C+ · T5）。
+    pub operator_type: String,
     /// 变化字段名。
     pub changed_fields: Vec<String>,
     /// 原始 diff（脱敏值）。
@@ -692,6 +778,7 @@ impl ChangeLogTimelineItem {
             action: row.action.clone(),
             action_label: row.action_label.clone(),
             operator_name: row.operator_name.clone(),
+            operator_type: row.operator_type.clone(),
             changed_fields: row.changed_fields.clone(),
             diff: row.diff.clone(),
         }

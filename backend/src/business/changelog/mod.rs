@@ -80,7 +80,9 @@ use alun::uuid::Uuid;
 
 use crate::shared::error_code;
 
-pub use dto::{Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome, TraceSource};
+pub use dto::{
+    Action, ChangeCtx, ChangeTarget, DiffInput, OperatorType, RecordOutcome, TraceSource,
+};
 pub use model::NewChangeLog;
 
 /// 允许的时钟偏斜：`occurred_at` 最多可以领先「现在」这么多，再多就是未来时间。
@@ -134,6 +136,15 @@ pub async fn record(
     if doc.is_empty() {
         return Ok(RecordOutcome::Skipped);
     }
+    // 操作人类型（批次 C+ · T5）：没显式指定就按 `operator_id` 在同事务里查
+    // `sys_user.user_type`。放在「跳过空 diff」之后 —— 没有实际变化的写不付这次查库。
+    //
+    // 为什么不让调用方各自填：写入点有十几个（用户 / 角色 / 公告 / 帮助 / 任务…），
+    // 靠每个调用点自觉填 `ROBOT` 一定会漏；而漏掉的行在审计里会显示成「人」。
+    let operator_type = match ctx.operator_type {
+        Some(explicit) => explicit,
+        None => model::operator_type_of(ex, ctx.operator_id).await?,
+    };
     let changed_fields = doc.changed_fields();
     let diff = doc.to_json_string().map_err(|error| {
         ApiError::new(
@@ -149,6 +160,7 @@ pub async fn record(
         trace_source: ctx.trace_source.code(),
         operator_id: ctx.operator_id,
         operator_name: ctx.operator_name,
+        operator_type: operator_type.code(),
         operator_dept_id: ctx.operator_dept_id,
         client_ip: ctx.client_ip,
         module: spec.module,
