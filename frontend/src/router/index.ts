@@ -231,6 +231,17 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '变更详情', permission: 'system:change-log:list' },
       },
       {
+        // ==================== 批次 C+（工作任务管理 · T6a） ====================
+        // path 与 `sys_menu.path`（V0103 种子 …0760）逐字一致：`/task`。
+        // component 字段是 `business/task/index`，对应本文件的
+        // `@/views/business/task/index.vue` —— 路由是**手工注册**的（没有 views 自动扫描），
+        // 漏注册的表现就是点菜单进 404 / 空白页。
+        path: 'task',
+        name: 'BusinessTask',
+        component: () => import('@/views/business/task/index.vue'),
+        meta: { title: '工作任务', permission: 'business:task:read' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

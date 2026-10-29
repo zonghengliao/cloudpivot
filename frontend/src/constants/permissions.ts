@@ -1,6 +1,6 @@
 /**
  * 批次 A（对象存储 / 导入导出 / 消息通知）+ 批次 B（数据权限 / 字段脱敏 / 角色互斥）
- * 权限码字典。
+ * + 批次 C（公告 / 帮助 / 变更日志）+ 批次 C+（工作任务）权限码字典。
  *
  * # 单一来源
  *
@@ -219,7 +219,25 @@ export const CHANGELOG_PERMISSIONS = {
   changelogClean: 'system:change-log:clean',
 } as const;
 
-/** 全部权限码合集（批次 A + B + C；`PERM.xxx` 是页面里唯一的取码方式） */
+/**
+ * 工作任务权限码（4 个，`business:task:*`）。
+ *
+ * 与后台 `V0103__seed_task_permissions.up.sql` 的 4 个 `auth_code` 逐字一致
+ * （第 5 个节点 …0760 是页面本身，auth_code 复用 `read`）；后端注解在
+ * `backend/src/business/task/handler.rs`。三处任一处改名都要同步。
+ */
+export const TASK_PERMISSIONS = {
+  /** 查看任务（菜单入口 / 分页 / 详情 / 我的任务） */
+  taskRead: 'business:task:read',
+  /** 新建任务 */
+  taskCreate: 'business:task:create',
+  /** 编辑任务（后端只认负责人 / 创建人） */
+  taskUpdate: 'business:task:update',
+  /** 删除任务（软删：负责人 / 创建人 / 管理员） */
+  taskDelete: 'business:task:delete',
+} as const;
+
+/** 全部权限码合集（批次 A + B + C + C+；`PERM.xxx` 是页面里唯一的取码方式） */
 export const PERM = {
   ...STORAGE_PERMISSIONS,
   ...IMPEXP_PERMISSIONS,
@@ -228,6 +246,7 @@ export const PERM = {
   ...ANNOUNCEMENT_PERMISSIONS,
   ...HELP_PERMISSIONS,
   ...CHANGELOG_PERMISSIONS,
+  ...TASK_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */
