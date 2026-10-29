@@ -575,6 +575,14 @@ pub enum PolicyViolation {
         /// 白名单原文。
         allowed: String,
     },
+    /// 扩展名命中**硬禁止黑名单**（可执行 / 脚本），与策略白名单无关，一律拒绝。
+    ///
+    /// 与 [`ExtensionNotAllowed`] 分开，是为了让报错文案与排障路径不同：
+    /// 前者「这个分类不收这种文件」，后者「这种文件在任何分类都不许上传」。
+    ExtensionForbidden {
+        /// 实际扩展名（小写、不含点）。
+        extension: String,
+    },
     /// MIME 不在白名单。
     MimeNotAllowed {
         /// 实际 MIME。
@@ -598,7 +606,9 @@ impl PolicyViolation {
     pub fn http_status(&self) -> u16 {
         match self {
             Self::SizeExceeded { .. } | Self::DirectUploadDisabled { .. } => 422,
-            Self::ExtensionNotAllowed { .. } | Self::MimeNotAllowed { .. } => 400,
+            Self::ExtensionNotAllowed { .. }
+            | Self::ExtensionForbidden { .. }
+            | Self::MimeNotAllowed { .. } => 400,
         }
     }
 
@@ -610,7 +620,9 @@ impl PolicyViolation {
     pub fn code(&self) -> i32 {
         match self {
             Self::SizeExceeded { .. } => error_code::STORAGE_SIZE_EXCEEDED,
-            Self::ExtensionNotAllowed { .. } => error_code::STORAGE_TYPE_NOT_ALLOWED,
+            Self::ExtensionNotAllowed { .. } | Self::ExtensionForbidden { .. } => {
+                error_code::STORAGE_TYPE_NOT_ALLOWED
+            }
             Self::MimeNotAllowed { .. } => error_code::STORAGE_MIME_NOT_ALLOWED,
             Self::DirectUploadDisabled { .. } => error_code::STORAGE_DIRECT_UPLOAD_DISABLED,
         }
@@ -633,6 +645,9 @@ impl PolicyViolation {
             Self::ExtensionNotAllowed { extension, allowed } => {
                 format!("不支持的文件类型 .{extension}，允许的类型：{allowed}")
             }
+            Self::ExtensionForbidden { extension } => format!(
+                "禁止上传可执行/脚本文件 .{extension}：该类型在硬禁止黑名单内，任何分类都不放行"
+            ),
             Self::MimeNotAllowed { mime, allowed } => {
                 format!("文件内容类型 {mime} 与允许的类型不符（{allowed}）")
             }
@@ -641,6 +656,43 @@ impl PolicyViolation {
             }
         }
     }
+}
+
+/// **硬禁止**的可执行 / 脚本扩展名（全局下限，任何分类都不放行）。
+///
+/// # 为什么需要它（`sys_storage_policy` 只有白名单）
+///
+/// 白名单本身是 fail-closed 的，但它的安全性**依赖没人把可执行扩展名写进白名单**：
+/// 一次运维手滑往 `task_ai` 的白名单里加个 `sh`，上传口子就开了，而且**不会有任何**
+/// 静态检查发现（迁移里的自检只在迁移期跑）。这里把「可执行一律禁止」做成代码层的
+/// **下限**：`check_upload` 先查黑名单再查白名单，命中即拒，与策略行怎么配无关。
+///
+/// # 与设计文档的对应关系
+///
+/// `docs/云枢设计修正补丁-20261029.md` 修正 4 的硬禁止列：
+///   · `task`（人类上传的任务附件）：`exe,sh,bat,ps1,so,dll,jar`
+///   · `task_ai`（AI 产出文件）：追加 `py,js`（AI 写的脚本人可能直接运行，风险更高）
+///
+/// 这里取两者的**并集**作为全局下限 —— 白名单本来就是「各分类更严」的抓手，
+/// 黑名单没有分叉的理由；并另补 `vbs/msi/cmd/com/scr/psm1/wasm/apk` 这几个同类
+/// 可执行 / 安装包扩展名（它们从未出现在任何白名单里，属纯兜底，不放宽任何既有行为）。
+pub const FORBIDDEN_EXECUTABLE_EXTENSIONS: &[&str] = &[
+    "exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi", "cmd", "com", "scr",
+    "psm1", "wasm", "apk",
+];
+
+/// 判断扩展名是否命中 [`FORBIDDEN_EXECUTABLE_EXTENSIONS`]（大小写不敏感）。
+///
+/// # 参数
+///
+/// - `extension`：扩展名（可带前后空白与大写，内部统一归一化）。
+///
+/// # 返回值
+///
+/// 命中硬禁止返回 `true`。
+pub fn is_forbidden_extension(extension: &str) -> bool {
+    let e = extension.trim().to_ascii_lowercase();
+    FORBIDDEN_EXECUTABLE_EXTENSIONS.contains(&e.as_str())
 }
 
 /// 取文件扩展名（小写，不含点）。
@@ -717,7 +769,14 @@ pub fn check_upload(
         });
     }
 
-    // 2. 扩展名
+    // 2. 扩展名：**先黑名单、后白名单**
+    //    黑名单是全局下限（见 FORBIDDEN_EXECUTABLE_EXTENSIONS 的文档）：
+    //    连「某人把 sh 写进白名单」这种配置事故都兜住；白名单此时只是「各分类更严」。
+    if let Some(extension) = extension_of(file_name)
+        && is_forbidden_extension(&extension)
+    {
+        return Err(PolicyViolation::ExtensionForbidden { extension });
+    }
     let allowed_extensions = parse_whitelist(&policy.allowed_extensions);
     if !allowed_extensions.is_empty() {
         let extension = extension_of(file_name).unwrap_or_else(|| "(无)".to_string());
@@ -817,6 +876,13 @@ pub fn validate_policy_fields(
         }
         if item != item.to_ascii_lowercase() {
             return Err(format!("扩展名必须小写：{item}"));
+        }
+        // 硬禁止的扩展名不许进任何白名单（与 check_upload 的黑名单同一份清单）：
+        // 保存侧就拦住「把 sh 加进白名单」这种配置事故，别等上传时才拒。
+        if is_forbidden_extension(item) {
+            return Err(format!(
+                "扩展名 {item} 在硬禁止黑名单内（可执行/脚本），不允许写进任何策略白名单"
+            ));
         }
     }
     for item in allowed_mimes.split(',') {
@@ -1187,7 +1253,21 @@ mod tests {
     fn policy_rejects_bad_extension() {
         let policy = sample_policy();
 
+        // 非黑名单、但不在白名单 → ExtensionNotAllowed（「这个分类不收」）
+        let violation =
+            check_upload(&policy, "evil.xyz", 10, None).expect_err("白名单外必须被拒绝");
+        assert!(matches!(
+            violation,
+            PolicyViolation::ExtensionNotAllowed { .. }
+        ));
+        assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
+
+        // 黑名单命中 → ExtensionForbidden（「任何分类都不许」），码值同为 60004
         let violation = check_upload(&policy, "evil.exe", 10, None).expect_err("exe 必须被拒绝");
+        assert!(matches!(
+            violation,
+            PolicyViolation::ExtensionForbidden { .. }
+        ));
         assert_eq!(violation.http_status(), 400);
         assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
         assert!(violation.message().contains(".exe"));
@@ -1198,6 +1278,128 @@ mod tests {
 
         // 大写扩展名按小写比对（PDF → pdf 合法）
         assert_eq!(check_upload(&policy, "A.PDF", 10, None), Ok(()));
+    }
+
+    /// 设计修正 A · 修正 4：硬禁止清单必须覆盖设计文档点名的全部扩展名。
+    ///
+    /// 这条测试的作用是**锁住清单**：将来有人为了「方便」从
+    /// [`FORBIDDEN_EXECUTABLE_EXTENSIONS`] 里删掉 `sh` / `py` / `js`，测试立刻红。
+    /// 清单来源：docs/云枢设计修正补丁-20261029.md 修正 4（task 7 个 + task_ai 追加 2 个）。
+    #[test]
+    fn forbidden_list_covers_design_document() {
+        for ext in ["exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js"] {
+            assert!(
+                FORBIDDEN_EXECUTABLE_EXTENSIONS.contains(&ext),
+                "{ext} 必须留在硬禁止清单里（设计文档修正 4 明确列出）"
+            );
+            assert!(is_forbidden_extension(ext));
+            // 大小写 / 空白归一化
+            assert!(is_forbidden_extension(&format!(
+                "  {}  ",
+                ext.to_uppercase()
+            )));
+        }
+        // 常见文档类型不受影响（黑名单不能顺手误伤合法类型）
+        for ext in ["pdf", "md", "csv", "json", "zip", "log", "png", "docx"] {
+            assert!(!is_forbidden_extension(ext), "{ext} 不该被硬禁止");
+        }
+    }
+
+    /// 设计修正 A · 修正 4：即便白名单里被写进了 `sh`，上传口子仍然是关的。
+    ///
+    /// 这是「黑名单 = 全局下限」的核心价值：白名单是配置数据，运维能改；
+    /// 黑名单在代码里，改要过评审 + 单测。
+    #[test]
+    fn forbidden_extension_blocked_even_if_whitelisted() {
+        let mut policy = sample_policy();
+        policy.category = "task_ai".to_string();
+        policy.allowed_extensions = "md,sh,py".to_string();
+        policy.allowed_mimes = String::new();
+
+        let violation =
+            check_upload(&policy, "deploy.sh", 10, None).expect_err("白名单里写了 sh 也必须拒");
+        assert!(matches!(
+            violation,
+            PolicyViolation::ExtensionForbidden { .. }
+        ));
+        assert_eq!(violation.http_status(), 400);
+        assert_eq!(violation.code(), error_code::STORAGE_TYPE_NOT_ALLOWED);
+        assert!(violation.message().contains(".sh"));
+
+        // 同一条策略下合法文件照常通过（黑名单不误伤）
+        assert_eq!(check_upload(&policy, "说明.md", 10, None), Ok(()));
+    }
+
+    /// V0107 的两条策略语义：`task_ai` 拒脚本、收 md/log；`task` 50 MB 边界。
+    #[test]
+    fn task_and_task_ai_policies_behave_as_designed() {
+        // task_ai：白名单与 V0107 迁移逐字一致
+        let mut ai = sample_policy();
+        ai.category = "task_ai".to_string();
+        ai.max_size_mb = 100;
+        ai.allowed_extensions = "jpg,jpeg,png,gif,webp,pdf,txt,md,csv,json,zip,log".to_string();
+        ai.allowed_mimes = String::new();
+        ai.direct_upload = false;
+
+        assert_eq!(check_upload(&ai, "report.md", 1024, None), Ok(()));
+        assert_eq!(check_upload(&ai, "build.log", 1024, None), Ok(()));
+        assert_eq!(
+            check_upload(&ai, "huge.log", 100 * 1024 * 1024, None),
+            Ok(())
+        );
+        for name in ["run.sh", "run.py", "run.js", "app.jar", "lib.so"] {
+            let violation =
+                check_upload(&ai, name, 10, None).expect_err("AI 产出里的可执行/脚本必须被拒绝");
+            assert!(matches!(
+                violation,
+                PolicyViolation::ExtensionForbidden { .. }
+            ));
+        }
+        // 不在白名单（也非黑名单）的 docx 被白名单拒掉 —— 白名单比 task 更严的那部分
+        assert!(matches!(
+            check_upload(&ai, "a.docx", 10, None),
+            Err(PolicyViolation::ExtensionNotAllowed { .. })
+        ));
+        // 未开直传
+        assert!(matches!(
+            check_direct_upload(&ai),
+            Err(PolicyViolation::DirectUploadDisabled { .. })
+        ));
+
+        // task：50 MB 上限，边界值放行、超 1 字节拒绝
+        let mut task = sample_policy();
+        task.category = "task".to_string();
+        task.max_size_mb = 50;
+        task.allowed_extensions =
+            "jpg,jpeg,png,gif,webp,pdf,doc,docx,xls,xlsx,ppt,pptx,txt,md,csv,json,zip,7z,rar"
+                .to_string();
+        task.allowed_mimes = String::new();
+
+        assert_eq!(
+            check_upload(&task, "包.zip", 50 * 1024 * 1024, None),
+            Ok(())
+        );
+        assert!(matches!(
+            check_upload(&task, "包.7z", 50 * 1024 * 1024 + 1, None),
+            Err(PolicyViolation::SizeExceeded { .. })
+        ));
+        assert!(matches!(
+            check_upload(&task, "x.sh", 10, None),
+            Err(PolicyViolation::ExtensionForbidden { .. })
+        ));
+    }
+
+    /// 保存侧：白名单里写可执行扩展名直接报错（别等上传时才拒）。
+    #[test]
+    fn validate_rejects_forbidden_extension_in_whitelist() {
+        let err = validate_policy_fields(50, 900, "jpg,sh", "image/jpeg")
+            .expect_err("白名单含 sh 必须被拒绝");
+        assert!(err.contains("硬禁止"), "错误文案应点名硬禁止：{err}");
+        let err =
+            validate_policy_fields(100, 900, "md,png,js", "").expect_err("白名单含 js 必须被拒绝");
+        assert!(err.contains("js"));
+        // 合法清单照常通过
+        assert!(validate_policy_fields(50, 900, "jpg,png,pdf", "image/png").is_ok());
     }
 
     /// 错误分支：扩展名与 MIME 不一致 → 400 / 60005；通配 MIME 支持。

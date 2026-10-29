@@ -40,8 +40,22 @@ echo "==> 前端：pnpm typecheck"
 # ======================================================================
 
 # 登记表清单（架构文档 §2.5）：这些表的查询必须有 scope:: 或 SCOPE-EXEMPT
+#
+# 2026-10-29 设计修正 A（docs/云枢设计修正补丁-20261029.md 修正 2）补入 C+ 任务管理 7 张表：
+#   卡面点名的 4 张：biz_task / biz_task_comment / biz_task_attachment / biz_task_worklog
+#   另外 3 张（biz_task_member / biz_task_dependency / biz_task_status_def）一并列入：
+#     · biz_task_member 在 business/task/model.rs 被**直接查询** 2 处（「我参与」的 id 集合
+#       + 协作人列表），本来就该受闸②约束；
+#     · biz_task_dependency / biz_task_status_def 目前还没有 Rust 查询（T1 只建表），
+#       但它们是按 task_id 挂在任务下的子表，将来一旦分页查询就得有 scope —— 提前列入，
+#       避免「新代码没有对应门禁条目」这类静默缺口；确实不需要数据范围的查询写
+#       `// SCOPE-EXEMPT: <理由>` 即可（status_def 是全局字典，属典型豁免场景）。
+# 注：闸② 用 `grep -rl "FROM $t"` 做**前缀匹配**，`biz_task` 本身就会命中
+# biz_task_* 全家族；7 条并列列出是为了让清单自解释，重复命中由下面的 `sort -u` 收敛。
 BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice
-sys_file operation_logs audit_logs auth_logs security_logs"
+sys_file operation_logs audit_logs auth_logs security_logs
+biz_task biz_task_comment biz_task_attachment biz_task_worklog
+biz_task_member biz_task_dependency biz_task_status_def"
 
 # 闸② 的 B0 实测基线（2026-10-28，本卡在 cf84231 树上实测）。
 # 架构文档 §2.4 记的是 17 处——那是同一套脚本在更早的树上跑的；差异 4 处的来源
@@ -58,7 +72,7 @@ BATCHB_GATE_WARNED=0
 batchb_gates() {
     local src="$ROOT/backend/src"
     local failed=0
-    local gate1_out gate1_n i t f gate2_n gate2_tmp
+    local gate1_out gate1_n i t f gate2_n gate2_tmp file tables
 
     echo "==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）"
     echo "    白名单：$BATCHB_GATE1_WHITELIST（+ 注释行不计）"
@@ -78,21 +92,66 @@ batchb_gates() {
 
     echo "==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由"
     echo "    登记表：$(echo "$BATCHB_SCOPED_TABLES" | tr '\n' ' ')"
+
+    # 扫描范围自检（设计修正 A · 修正 2 第②条）：
+    # 闸② 的扫描根是**整个** backend/src（不是只扫 business/ 或某几个模块），
+    # 因此 business/task/ 天然在范围内。但「天然在范围内」这种结论会随着目录搬家
+    # 静默失效（模块改名 / 挪到别处 / 被 .gitignore 掉），所以这里把「必须在范围内
+    # 且真有 .rs 文件」写成硬断言：宁可门禁自己红，也不要在缺少覆盖时假绿。
+    local missing=0 d n_rs code_lines
+    for d in business/task business system support shared; do
+        if [ ! -d "$src/$d" ]; then
+            echo "  FAIL：扫描范围缺少目录 backend/src/$d（闸② 会漏掉该目录下的查询）"
+            missing=$((missing + 1))
+            continue
+        fi
+        n_rs=$(find "$src/$d" -name '*.rs' -type f | wc -l | tr -d ' ')
+        if [ "$n_rs" -eq 0 ]; then
+            echo "  FAIL：扫描范围 backend/src/$d 下没有 .rs 文件（目录搬走或未纳入版本管理）"
+            missing=$((missing + 1))
+        fi
+    done
+    if [ "$missing" -eq 0 ]; then
+        echo "  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}"
+    else
+        failed=$((failed + 1))
+    fi
+
     gate2_tmp="$(mktemp)"
     # 注意写法：不用 `grep -l | while read`（子 shell 里的退出码/计数传不出来），
     # 改用 for 遍历 + 临时文件累计，计数与输出都在同一 shell 内。
+    #
+    # 判定**只看真实代码行**（整行注释先剥掉），两侧都剥：
+    #   · `FROM <表>`：文档注释里举例的 SQL（如 business/shared/mod.rs 的 `//!` 示例）
+    #     不是查询，不该把文件拖进门禁；
+    #   · `scope::`：注释里写一句「本文件参考 `scope::ScopeKind`」就能让整个文件被判成
+    #     已接入 —— 这类**假绿**比漏接更危险，它让门禁永远绿（skill cailu-dev §9.15-6 实测踩过）。
+    # SCOPE-EXEMPT 相反：它本身就是注释标记，必须整文件搜。
     for t in $BATCHB_SCOPED_TABLES; do
         for f in $(grep -rl "FROM $t" "$src" --include=*.rs 2>/dev/null || true); do
-            if ! grep -q -e "scope::" -e "SCOPE-EXEMPT" "$f"; then
-                printf '    FAIL: %s 查询 %s 未接入 scope:: 且无 SCOPE-EXEMPT\n' \
-                    "${f#"$src"/}" "$t" >>"$gate2_tmp"
+            code_lines="$(mktemp)"
+            grep -v -E '^[[:space:]]*(//|\*)' "$f" >"$code_lines" || true
+            if grep -q "FROM $t" "$code_lines" \
+                && ! grep -q "SCOPE-EXEMPT" "$f" \
+                && ! grep -q "scope::" "$code_lines"; then
+                # 只记「文件|表」原始对，展示与计数在下面按文件聚合
+                printf '%s|%s\n' "${f#"$src"/}" "$t" >>"$gate2_tmp"
             fi
+            rm -f "$code_lines"
         done
     done
-    gate2_n=$(wc -l <"$gate2_tmp" | tr -d ' ')
+    # 按**文件**聚合：一个文件漏接多张表只算 1 处（`biz_task` 会前缀命中
+    # biz_task_member 等，同一文件因此可能出现多行），表名并列显示。
+    gate2_n=0
+    if [ -s "$gate2_tmp" ]; then
+        while IFS= read -r file; do
+            tables=$(grep -F "${file}|" "$gate2_tmp" | cut -d'|' -f2 | sort -u | tr '\n' ' ')
+            printf '    FAIL: %s 查询 %s未接入 scope:: 且无 SCOPE-EXEMPT\n' "$file" "$tables"
+            gate2_n=$((gate2_n + 1))
+        done < <(cut -d'|' -f1 "$gate2_tmp" | sort -u)
+    fi
     if [ "$gate2_n" -gt 0 ]; then
-        echo "  FAIL：$gate2_n 处（B0 实测基线 ${BATCHB_GATE2_BASELINE} 处；B5 完成后只应剩 SCOPE-EXEMPT 豁免）"
-        cat "$gate2_tmp"
+        echo "  FAIL：$gate2_n 个文件（按文件计；B0 实测基线 ${BATCHB_GATE2_BASELINE} 处是 file×table 口径，仅作历史参考）"
         failed=$((failed + 1))
     else
         echo "  PASS：0 处"
