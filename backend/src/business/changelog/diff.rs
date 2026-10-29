@@ -186,6 +186,190 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
     big: &[],
 };
 
+/// `biz_flow_def`（流程定义，批次 D · D3c 接入）。
+///
+/// 口径：**配置面**（名字/类型/是否默认/自动通过开关）进白名单，运行时列不进。
+/// `status` 保留：`DRAFT → PUBLISHED → DISABLED` 的每次跳变都是审计线索（与
+/// `Action::Publish` / `Action::Offline` 配对出现，见 [`FlowAction`]）。
+/// `current_version_id` / `current_version_no` 保留：发布换了哪一版必须能查。
+pub const FLOW_DEF: ResourceSpec = ResourceSpec {
+    table: "biz_flow_def",
+    module: "business",
+    fields: &[
+        "flow_code",
+        "flow_name",
+        "biz_type",
+        "category",
+        "status",
+        "current_version_id",
+        "current_version_no",
+        "is_default",
+        "allow_auto_approve",
+        "owner_dept_id",
+        "description",
+    ],
+    big: &["description"],
+};
+
+/// `biz_flow_instance`（审批实例，批次 D · D3c 接入）。
+///
+/// `status` 是实例状态机（5 态）；`result_comment` 是终态理由（驳回/终止）。
+/// `auto_passed_nodes` 保留：**「本单有 N 个节点因无有效审批人自动通过」是审计
+/// 必须能查出来的事**（架构 §13.3 的最危险组合）。
+/// 刻意不含 `revision` / `updated_at`（每次流转都变，进白名单等于把审计表变访问日志）。
+pub const FLOW_INSTANCE: ResourceSpec = ResourceSpec {
+    table: "biz_flow_instance",
+    module: "business",
+    fields: &[
+        "instance_no",
+        "status",
+        "flow_code",
+        "flow_name",
+        "version_no",
+        "biz_type",
+        "biz_id",
+        "biz_no",
+        "title",
+        "initiator_id",
+        "result_comment",
+        "auto_passed_nodes",
+        "round_total",
+        "due_at",
+        "ended_at",
+    ],
+    big: &["result_comment"],
+};
+
+/// `biz_flow_task`（审批待办，批次 D · D3c 接入）。
+///
+/// 白名单 = 「为什么是他审 / 这一票怎么来的 / 结果是什么」三问：
+/// `assignee_source`（来源）、`is_added_sign` / `is_self_approval` / `is_auto`
+/// （四个标记里的三个，X6）、`status` + `comment` + `completed_at`（结论）。
+/// `comment` 上限 1000 字符 < [`BIG_FIELD_BYTES`]，**不进 `big`**：审批意见是
+/// 审计要读的原文，摘要化就没意义了。
+pub const FLOW_TASK: ResourceSpec = ResourceSpec {
+    table: "biz_flow_task",
+    module: "business",
+    fields: &[
+        "node_key",
+        "round",
+        "task_kind",
+        "assignee_id",
+        "assignee_source",
+        "status",
+        "is_added_sign",
+        "is_self_approval",
+        "is_auto",
+        "comment",
+        "transferred_to",
+        "completed_at",
+    ],
+    big: &[],
+};
+
+/// 审批事件（**业务语义**，不是库里的 `action` 取值）。
+///
+/// 架构 D17：`sys_change_log.action` 的 CHECK 挂在**分区表**上，扩枚举值要扫全部
+/// 历史分区（锁表）→ **不扩，只映射**。这个枚举就是映射表的输入侧：
+/// 业务侧永远说「他转办了」「他加签了」，落库时统一折叠成现有 11 个值里的一个。
+///
+/// | 事件 | 落 `action` | 中文标签 |
+/// |------|-------------|----------|
+/// | 发起 / 重新提交 | `CREATE` | 发起审批 |
+/// | 同意 / 驳回 / 撤回 / 终止 | `STATUS` | 审批同意 / 审批驳回 … |
+/// | 转办 / 加签 | `ASSIGN` | 转办给 X / 加签 X |
+/// | 发布流程 | `PUBLISH` | 发布版本 vN |
+/// | 停用流程 | `OFFLINE` | 停用流程 |
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FlowAction {
+    /// 发起审批（提交验收 / 重新提交）。
+    Submit,
+    /// 同意。
+    Approve,
+    /// 驳回（含退回）。
+    Reject,
+    /// 转办。
+    Transfer,
+    /// 加签。
+    AddSign,
+    /// 发起人撤回。
+    Withdraw,
+    /// 管理员终止。
+    Terminate,
+    /// 流程发布。
+    Publish,
+    /// 流程停用。
+    Offline,
+}
+
+impl FlowAction {
+    /// 九个事件（顺序即 [`FlowAction::label`] 的书写顺序）。
+    pub const ALL: &'static [FlowAction] = &[
+        FlowAction::Submit,
+        FlowAction::Approve,
+        FlowAction::Reject,
+        FlowAction::Transfer,
+        FlowAction::AddSign,
+        FlowAction::Withdraw,
+        FlowAction::Terminate,
+        FlowAction::Publish,
+        FlowAction::Offline,
+    ];
+
+    /// 业务事件码（**不落库**，只用于日志 / 幂等键 / 前端动作名）。
+    pub fn code(self) -> &'static str {
+        match self {
+            FlowAction::Submit => "SUBMIT",
+            FlowAction::Approve => "APPROVE",
+            FlowAction::Reject => "REJECT",
+            FlowAction::Transfer => "TRANSFER",
+            FlowAction::AddSign => "ADD_SIGN",
+            FlowAction::Withdraw => "WITHDRAW",
+            FlowAction::Terminate => "TERMINATE",
+            FlowAction::Publish => "PUBLISH",
+            FlowAction::Offline => "OFFLINE",
+        }
+    }
+
+    /// 折叠成 `sys_change_log.action` 的**现有**取值（D17 的唯一映射表）。
+    ///
+    /// 改这里之前先读架构 D17：**任何**「给审批新开一个 action」的想法都要先回答
+    /// 「为什么不能折叠进 STATUS/ASSIGN」。
+    pub fn action(self) -> Action {
+        match self {
+            FlowAction::Submit => Action::Create,
+            FlowAction::Approve | FlowAction::Reject => Action::Status,
+            FlowAction::Transfer | FlowAction::AddSign => Action::Assign,
+            FlowAction::Withdraw | FlowAction::Terminate => Action::Status,
+            FlowAction::Publish => Action::Publish,
+            FlowAction::Offline => Action::Offline,
+        }
+    }
+
+    /// `action_label` 示例（写进日志的可读文案，架构 D17 表格右列）。
+    pub fn label(self) -> &'static str {
+        match self {
+            FlowAction::Submit => "发起审批",
+            FlowAction::Approve => "审批同意",
+            FlowAction::Reject => "审批驳回",
+            FlowAction::Transfer => "转办",
+            FlowAction::AddSign => "加签",
+            FlowAction::Withdraw => "发起人撤回",
+            FlowAction::Terminate => "管理员终止",
+            FlowAction::Publish => "发布版本",
+            FlowAction::Offline => "停用流程",
+        }
+    }
+
+    /// 由事件码反查（幂等键 / 回调报文里带字符串时用）。
+    pub fn parse(code: &str) -> Option<FlowAction> {
+        FlowAction::ALL
+            .iter()
+            .copied()
+            .find(|item| item.code() == code)
+    }
+}
+
 /// 全部登记项。
 ///
 /// **新增资源只能加在这里**（并且必须在同一提交里给 `record()` 的调用点补白名单字段），
@@ -200,6 +384,10 @@ pub const REGISTRY: &[&ResourceSpec] = &[
     &SYS_ANNOUNCEMENT,
     &SYS_HELP_DOC,
     &BIZ_TASK,
+    // 批次 D · D3c：审批三张表（实例 / 待办 / 定义）
+    &FLOW_DEF,
+    &FLOW_INSTANCE,
+    &FLOW_TASK,
 ];
 
 /// 按表名取登记项；`None` = 未登记（调用方必须拒绝记录）。
@@ -648,5 +836,91 @@ mod tests {
             !text.contains(&"甲".repeat(PREVIEW_CHARS + 1)),
             "预览必须截断"
         );
+    }
+}
+
+/// 批次 D · D3c：审批三表登记 + D17 语义映射的单测。
+///
+/// 三个断言面：① 三张表都进了 REGISTRY（否则 `record()` 以 62012 拒绝，审批一条日志
+/// 都写不进去）；② 九个业务事件**全部**折叠进现有 11 个 `action`；③ **没有新增任何
+/// `action` 取值**（映射结果集合是 11 值集合的子集 —— 分区表 CHECK 不许扩，D17 红线）。
+#[cfg(test)]
+mod flow_action_tests {
+    use super::*;
+
+    /// 三个新资源都已登记，且表名与迁移一致（`biz_flow_*` 小写下划线）。
+    #[test]
+    fn flow_tables_are_registered() {
+        for table in ["biz_flow_def", "biz_flow_instance", "biz_flow_task"] {
+            let entry = spec(table).unwrap_or_else(|| panic!("{table} 未登记，record() 会 62012"));
+            assert_eq!(entry.module, "business");
+            assert!(!entry.fields.is_empty(), "{table} 白名单不能为空");
+            // 大字段必须在白名单内（否则 big 摘要永远不生效）
+            for big in entry.big {
+                assert!(
+                    entry.fields.contains(big),
+                    "{table}.{big} 在 big 但不在 fields"
+                );
+            }
+            assert!(registered_tables().contains(&table));
+        }
+    }
+
+    /// D17 映射表：五个语义对照逐条钉死。
+    #[test]
+    fn flow_action_mapping_matches_d17() {
+        assert_eq!(FlowAction::Submit.action(), Action::Create);
+        assert_eq!(FlowAction::Approve.action(), Action::Status);
+        assert_eq!(FlowAction::Reject.action(), Action::Status);
+        assert_eq!(FlowAction::Transfer.action(), Action::Assign);
+        assert_eq!(FlowAction::AddSign.action(), Action::Assign);
+        assert_eq!(FlowAction::Withdraw.action(), Action::Status);
+        assert_eq!(FlowAction::Terminate.action(), Action::Status);
+        assert_eq!(FlowAction::Publish.action(), Action::Publish);
+        assert_eq!(FlowAction::Offline.action(), Action::Offline);
+    }
+
+    /// 红线：没有新增 `action` 枚举值。
+    ///
+    /// 断言口径：`Action::ALL` 仍**恰好 11 个**（`V0084` 的 CHECK 就这 11 个），
+    /// 且九个审批事件的映射结果全在这个集合里 —— 一个都不许是「新造的」。
+    #[test]
+    fn no_action_value_added() {
+        let check_values: &[&str] = &[
+            "CREATE", "UPDATE", "DELETE", "STATUS", "ASSIGN", "PUBLISH", "OFFLINE", "UPLOAD",
+            "DOWNLOAD", "CLEAN", "LOGIN",
+        ];
+        assert_eq!(
+            Action::ALL.len(),
+            11,
+            "sys_change_log.action 的 CHECK 是 11 值，不许扩"
+        );
+        let mut codes: Vec<&str> = Action::ALL.iter().map(|item| item.code()).collect();
+        codes.sort_unstable();
+        let mut expect = check_values.to_vec();
+        expect.sort_unstable();
+        assert_eq!(codes, expect, "action 枚举必须与 V0084 的 CHECK 逐字一致");
+
+        for event in FlowAction::ALL {
+            let code = event.action().code();
+            assert!(
+                check_values.contains(&code),
+                "事件 {} 映射到了 CHECK 之外的 action={code}",
+                event.code()
+            );
+        }
+    }
+
+    /// 事件码唯一且可反查（幂等键 / 回调报文依赖它）。
+    #[test]
+    fn flow_action_codes_roundtrip() {
+        let mut seen = Vec::new();
+        for event in FlowAction::ALL {
+            assert!(seen.iter().all(|code| *code != event.code()), "事件码重复");
+            seen.push(event.code());
+            assert_eq!(FlowAction::parse(event.code()), Some(*event));
+            assert!(!event.label().is_empty());
+        }
+        assert_eq!(FlowAction::parse("NOPE"), None);
     }
 }
