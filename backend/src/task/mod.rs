@@ -24,9 +24,9 @@
 //! | 导出任务执行 | `*/5 * * * * *` | `impexp_export_worker` | 批次 A · A4 |
 //! | 导入导出回收 | `0 40 4 * * *` | `impexp_task_cleanup` | 批次 A · A4 |
 //! | 定时通知投递 | `*/30 * * * * *` | `notice_scheduled_dispatch` | 批次 A · 遗留修复③ |
-//! | 公告到期自动下线 | `0 5 0 * * *` | `announcement_auto_expire` | 批次 C · C0（空实现） |
-//! | 公告置顶到期取消 | `0 10 0 * * *` | `announcement_top_expire` | 批次 C · C0（空实现） |
-//! | 公告扇出补偿重试 | `0 */10 * * * *` | `announcement_dispatch_retry` | 批次 C · C0（空实现） |
+//! | 公告到期自动下线 | `0 5 0 * * *` | `announcement_auto_expire` | 批次 C · C3 |
+//! | 公告置顶到期取消 | `0 10 0 * * *` | `announcement_top_expire` | 批次 C · C3 |
+//! | 公告扇出补偿重试 | `0 */10 * * * *` | `announcement_dispatch_retry` | 批次 C · C3 |
 //! | 变更日志分区运维 | `0 20 1 1 * *` | `changelog_partition_maintain` | 批次 C · C0（空实现） |
 //! | 帮助历史版本清理 | `0 40 2 * * *` | `help_version_cleanup` | 批次 C · C4（真实现，见 `business::help::model::register_builtin`） |
 //!
@@ -70,35 +70,21 @@ const LOG_CLEAN_TASKS: [(&str, &str); 5] = [
 
 /// 批次 C 的内置任务：`(调度名 / 处理器标识, cron, 描述)`。
 ///
-/// **本卡（C0）只挂空实现**：先把 5 个任务注册进调度器，让启动日志能看到它们「已排程」，
-/// 任务体在 C3（公告自动下线 / 置顶到期 / 扇出补偿）、C4（帮助历史版本清理）、
-/// C6（变更日志分区预建与清理）落地时接到对应业务模块的 `register_builtin` 里
+/// **C3 已收编 3 个公告任务**：`announcement_auto_expire` / `announcement_top_expire` /
+/// `announcement_dispatch_retry` 的真实任务体在
+/// [`crate::business::announcement::maintenance::register_builtin`] 里注册，
+/// 本常量只剩变更日志（C6）这 1 个空实现占位（帮助已由 C4 接真、公告 3 个已由 C3 接真）。
+/// 占位的原因：先把任务名注册进调度器，让启动日志能看到它们「已排程」，
+/// 任务体在 C6 落地时接到对应业务模块的 `register_builtin` 里
 /// （与 [`crate::business::notice::cleanup::register_builtin`] 同构）。
 ///
 /// 注册点必须是 [`Scheduler::register_builtin`]：框架调度器在 `start()` 时对注册表做一次性
 /// 快照，写进 `bootstrap.rs` 会被随后的 `reload()` 清空（B 批次已实测）。
-const BATCH_C_TASKS: [(&str, &str, &str); 4] = [
-    (
-        "announcement_auto_expire",
-        "0 5 0 * * *",
-        "系统任务：公告到期自动下线",
-    ),
-    (
-        "announcement_top_expire",
-        "0 10 0 * * *",
-        "系统任务：公告置顶到期取消",
-    ),
-    (
-        "announcement_dispatch_retry",
-        "0 */10 * * * *",
-        "系统任务：公告扇出补偿重试",
-    ),
-    (
-        "changelog_partition_maintain",
-        "0 20 1 1 * *",
-        "系统任务：变更日志分区预建与清理",
-    ),
-];
+const BATCH_C_TASKS: [(&str, &str, &str); 1] = [(
+    "changelog_partition_maintain",
+    "0 20 1 1 * *",
+    "系统任务：变更日志分区预建与清理",
+)];
 
 /// 把框架错误转换为统一的 500 内部错误（对外隐藏细节，细节写入日志）。
 ///
@@ -280,20 +266,24 @@ impl Scheduler {
         // 批次 A · A4：异步导出执行（每 5 秒扫一次）与任务/产物回收（每天 04:40）
         crate::business::impexp::worker::register_builtin(self);
         crate::business::impexp::cleanup::register_builtin(self);
-        // 批次 C · C0：公告 / 变更日志的 4 个任务（空实现，先挂上让启动日志能看到）
+        // 批次 C · C3：公告三个任务（到期下线 / 置顶到期 / **扇出补偿重试**）已接上真实任务体
+        crate::business::announcement::maintenance::register_builtin(self);
+        // 批次 C · C0：变更日志分区运维（空实现，先挂上让启动日志能看到）
         self.register_batch_c_placeholders();
         // 批次 C · C4：帮助文档历史版本清理（真实现，已从占位数组移出）
         crate::business::help::model::register_builtin(self);
     }
 
-    /// 注册批次 C 的 4 个占位任务（**空实现**：只注册 + 打一行日志，让启动日志能看到任务名）。
+    /// 注册批次 C 剩余的 **1 个**占位任务（变更日志分区运维，空实现：只注册 + 打一行日志）。
     ///
-    /// 帮助文档的历史版本清理已由 C4 接成真实现（见 `business::help::model::register_builtin`），
-    /// 因此不在本数组内，避免同名任务被注册两次。
+    /// 公告的 3 个任务已由 C3 接成真实现（`business::announcement::maintenance`），
+    /// 帮助文档的历史版本清理已由 C4 接成真实现（`business::help::model`），
+    /// 两者的注册都在 [`Self::register_builtin`] 里，不在本数组内 —— 同名任务注册两次会叠跑。
     ///
-    /// 任务体先留空：C3 / C4 / C6 落地时把 `tokio::spawn` 里的空实现换成对应业务模块的
+    /// 任务体先留空：C4 / C6 落地时把 `tokio::spawn` 里的空实现换成对应业务模块的
     /// `run_once()`，并同步把注册搬进那个模块的 `register_builtin`（与 `notice::cleanup` 同构）。
     /// 现在必须挂在这里的原因是框架调度器**启动时一次性快照**：晚注册等于没注册。
+    /// （C3 的三个公告任务已经搬走，见 [`crate::business::announcement::maintenance`]。）
     fn register_batch_c_placeholders(&self) {
         for (name, cron, desc) in BATCH_C_TASKS {
             self.register_cron(name, cron, desc, move || {
@@ -305,7 +295,7 @@ impl Scheduler {
                     );
                 })
             });
-            // 注册期再打一行：启动日志里 5 个任务名一眼可见（验收项）
+            // 注册期再打一行：启动日志里任务名一眼可见（验收项）
             tracing::info!(
                 invoke_target = name,
                 cron = cron,

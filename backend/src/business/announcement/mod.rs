@@ -2,14 +2,14 @@
 //!
 //! 依据 `docs/批次C-技术架构.md` §2（公告）：内容 vs 投递的边界（§2.1）、表设计（§2.3）、
 //! 附件复用 `business/storage`（§2.5）、有效期与自动下线（§2.6）、已读未读（§2.7）、
-//! API 契约（§2.8）。
+//! API 契约（§2.8 用户侧 / 管理侧）。
 //!
 //! # 交付拆分
 //!
 //! | 卡 | 交付物 | 状态 |
 //! |----|--------|------|
 //! | C2 | `V0080` / `V0081` / `V0087` 迁移 + [`model`]（可见性查询 / 已读 / 计数）+ [`dto`] + [`handler`]（**用户侧 7 个接口**） | 已交付 |
-//! | C3 | 管理侧 10 个接口（含 `preview`）+ 发布/下线状态机 + 扇出与补偿 + 附件绑定 | 待办 |
+//! | C3 | 管理侧 **10 个接口**（含 `preview`）+ 发布 / 下线状态机 + 扇出与补偿 + 附件绑定 + [`maintenance`]（3 个定时任务） | 已交付 |
 //!
 //! # 两条不变量（C2/C3 都必须遵守）
 //!
@@ -33,7 +33,20 @@
 //! | GET | `/business/announcement/{id}/attachment/{att_id}` | 附件代理下载 |
 //!
 //! 另有架构 §2.8.1 的 `/mine/*` 与 `/attachments/{file_id}/download` **别名**（同一实现）。
+//!
+//! # 管理侧接口一览（C3，详见 [`handler`] 的管理侧文档表）
+//!
+//! `page` / `POST /` / `PUT /{id}` / `DELETE /{id}` / `{id}/publish` / `{id}/offline` /
+//! `preview` / `{id}/attachment` / `{id}/readers` / `{id}/top` 共 10 个，
+//! 另加 `{id}/manage`（管理详情）、`{id}/read-stats`（阅读统计）、`POST {id}/top`（动词别名）。
+//!
+//! # 三个定时任务（[`maintenance`]）
+//!
+//! `announcement_auto_expire`（到期下线）/ `announcement_top_expire`（置顶到期）/
+//! `announcement_dispatch_retry`（**扇出补偿重试**，幂等）。它们在
+//! [`crate::task::Scheduler::register_builtin`] 里注册（C0 已排程，C3 接上真实任务体）。
 
 pub mod dto;
 pub mod handler;
+pub mod maintenance;
 pub mod model;

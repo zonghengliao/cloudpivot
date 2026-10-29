@@ -41,6 +41,7 @@
 //! （公告栏是人人可见的入口，只授超管等于没发公告）。
 
 use alun::prelude::*;
+use axum::Json;
 use axum::body::Body;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
@@ -48,12 +49,18 @@ use std::sync::Arc;
 use tokio_util::io::ReaderStream;
 
 use crate::business::announcement::dto::{
-    AnnouncementCardRes, AnnouncementDetailRes, MarkReadRes, ReadAllRes, UnreadCountRes,
-    VisibleQuery,
+    AnnouncementAttachmentBindReq, AnnouncementCardRes, AnnouncementDetailRes,
+    AnnouncementManageDetailRes, AnnouncementOfflineReq, AnnouncementOfflineRes,
+    AnnouncementPreviewReq, AnnouncementPreviewRes, AnnouncementPublishRes, AnnouncementSaveReq,
+    AnnouncementSaveRes, AnnouncementTopReq, AnnouncementTopRes, AttachmentRes, ManageCardRes,
+    ManagePageQuery, MarkReadRes, ReadAllRes, ReaderRes, ReaderState, ReadersQuery, ReadersRes,
+    UnreadCountRes, VisibleQuery,
 };
 use crate::business::announcement::model::{
-    self, AnnouncementDetailRow, Audience, Visibility, VisibleFilter,
+    self, AnnouncementDetailRow, Audience, ManageFilter, ReaderStateFilter, Visibility,
+    VisibleFilter,
 };
+use crate::business::announcement::{dto, maintenance};
 use crate::business::shared::content::{self, Recipe};
 use crate::business::storage::model as storage_model;
 use crate::business::storage::store::{LocalStore, ObjectStore, StoreError};
@@ -677,6 +684,1248 @@ async fn load_audience(user_id: &uuid::Uuid) -> std::result::Result<Audience, Ap
     model::load_audience(user_id)
         .await
         .map_err(|error| utils::db_error(error, "解析公告受众身份"))
+}
+
+// ==================== 管理侧接口（批次 C · C3）====================
+//
+// 依据 `docs/批次C-技术架构.md` §2.8.2（管理侧契约）+ §2.8.3（校验规则表）+ §2.2（发布扇出）
+// + §2.6（有效期与自动下线）；PRD A1-01 ~ A1-10。
+//
+// # 接口一览（`/api` 前缀由 `[router].prefix` 注入）
+//
+// | # | 方法 | 路径 | 权限码 | 说明 |
+// |---|------|------|--------|------|
+// | 1 | GET | `/business/announcement/page` | `business:announcement:list` | 管理列表（含草稿 / 已发布 / 已下线 / 已过期） |
+// | 2 | POST | `/business/announcement` | `business:announcement:create` | 新建（`DRAFT`，可带附件与置顶） |
+// | 3 | PUT | `/business/announcement/{id}` | `business:announcement:update` | 编辑（仅 `DRAFT` / `OFFLINE` / `EXPIRED`） |
+// | 4 | DELETE | `/business/announcement/{id}` | `business:announcement:delete` | 软删 |
+// | 5 | POST | `/business/announcement/{id}/publish` | `business:announcement:publish` | 发布（状态机 + `version+1` + 扇出 + 补偿兜底） |
+// | 6 | POST | `/business/announcement/{id}/offline` | `business:announcement:offline` | 下线（必填 `reason`） |
+// | 7 | POST | `/business/announcement/preview` | `business:announcement:create` | 预览（Markdown → 净化 HTML，不入库） |
+// | 8 | POST | `/business/announcement/{id}/attachment` | `business:announcement:update` | 绑定附件（文件本体走 `business/storage`） |
+// | 9 | GET | `/business/announcement/{id}/readers` | `business:announcement:list` | 阅读名单（谁读了 / 谁没读） |
+// | 10 | PUT | `/business/announcement/{id}/top` | `business:announcement:update` | 置顶 / 取消置顶 |
+//
+// 另有 3 个**配套**路径（不是新增能力，只为契约兼容 / 编辑器可用）：
+//
+// | 方法 | 路径 | 说明 |
+// |------|------|------|
+// | GET | `/business/announcement/{id}/manage` | 管理详情（`content_md` 原文 + 范围明细 + 附件）—— 架构 §2.8.2 的 `GET /{id}` 已被 C2 的用户侧占用同一路径，管理侧只能换个段名 |
+// | GET | `/business/announcement/{id}/read-stats` | 阅读统计（架构 §2.8.2 的名称，与 `readers` 同源同实现） |
+// | POST | `/business/announcement/{id}/top` | 置顶（架构 §2.8.2 写的是 POST，票面写的是 PUT，两个动词都注册，同一实现） |
+//
+// # 三条硬约束
+//
+// 1. **渲染 + 净化只走 `business::shared::content`**（与 C2 同一条管线，`Recipe::Announcement`）：
+//    预览、发布快照、管理详情出参三处都过它，前端不自行渲染（§2.4.2）；
+// 2. **扇出只走 `maintenance::dispatch_announcement` → `notice::dispatch()`**，幂等键
+//    `announcement:{id}:v{version}`（§2.2）；
+// 3. **状态机只有 `model::ensure_*` 四个判定**，不在这里散写 `if status == ...`。
+
+/// 管理列表。
+///
+/// # 参数
+///
+/// - `query`：`keyword` / `status` / `scope_type` / `level` / 发布时间窗 / 分页。
+///
+/// # 返回值
+///
+/// `PageData<Vec<ManageCardRes>>`：置顶生效优先 → 发布时间倒序。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：状态 / 范围 / 级别取值非法、时间格式非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/announcement/page",
+    method = "GET",
+    permission = "business:announcement:list"
+)]
+#[alun::get("/business/announcement/page")]
+pub async fn manage_page(
+    Query(query): Query<ManagePageQuery>,
+) -> ResResult<PageData<Vec<ManageCardRes>>> {
+    let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    let filter = manage_filter(&query)?;
+    let result = model::page_manage(&filter, page, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询公告（管理端）"))?;
+    let list = result.list.iter().map(ManageCardRes::from_row).collect();
+    Ok(Res::page(list, result.total, result.page, result.size))
+}
+
+/// 把查询参数解析成 [`ManageFilter`]（纯函数，便于单测）。
+///
+/// # 异常情况
+///
+/// 状态 / 范围 / 级别取值非法 → `400 + 10001`；时间格式非法 → `400 + 62001`。
+fn manage_filter(query: &ManagePageQuery) -> std::result::Result<ManageFilter, ApiError> {
+    let mut statuses = Vec::new();
+    for raw in query.status.as_deref().unwrap_or_default().split(',') {
+        let value = raw.trim().to_ascii_uppercase();
+        if value.is_empty() {
+            continue;
+        }
+        if ![
+            model::STATUS_DRAFT,
+            model::STATUS_PUBLISHED,
+            model::STATUS_OFFLINE,
+            model::STATUS_EXPIRED,
+        ]
+        .contains(&value.as_str())
+        {
+            return Err(ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                format!("status 非法：{value}（允许 DRAFT/PUBLISHED/OFFLINE/EXPIRED）"),
+            ));
+        }
+        if !statuses.contains(&value) {
+            statuses.push(value);
+        }
+    }
+    let scope_type = enum_param(
+        query.scope_type.as_deref(),
+        &["ALL", "ROLE", "DEPT", "USER"],
+        "scope_type",
+    )?;
+    let level = enum_param(
+        query.level.as_deref(),
+        &["NORMAL", "IMPORTANT", "URGENT"],
+        "level",
+    )?;
+    let publish_from = dto::parse_rfc3339(query.publish_from.as_deref(), "publish_from")?;
+    let publish_to = dto::parse_rfc3339(query.publish_to.as_deref(), "publish_to")?;
+    if let (Some(from), Some(to)) = (publish_from, publish_to)
+        && from > to
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            "发布时间窗起点晚于终点",
+        ));
+    }
+    Ok(ManageFilter {
+        keyword: utils::like_pattern(query.keyword.as_deref()),
+        statuses,
+        scope_type,
+        level,
+        publish_from,
+        publish_to,
+    })
+}
+
+/// 归一化可空枚举查询参数（空白视为未传）。
+fn enum_param(
+    raw: Option<&str>,
+    allowed: &[&str],
+    field: &str,
+) -> std::result::Result<Option<String>, ApiError> {
+    let Some(value) = raw.map(str::trim).filter(|text| !text.is_empty()) else {
+        return Ok(None);
+    };
+    let upper = value.to_ascii_uppercase();
+    if allowed.contains(&upper.as_str()) {
+        Ok(Some(upper))
+    } else {
+        Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("{field} 非法：{value}（允许 {}）", allowed.join(" / ")),
+        ))
+    }
+}
+
+/// 新建公告（草稿）。
+///
+/// # 参数
+///
+/// - `claims`：操作人（`publisher_id` / 审计列）；
+/// - `req`：见 `AnnouncementSaveReq`（§2.8.3 的请求体）。
+///
+/// # 返回值
+///
+/// `{ id, ann_no, status: "DRAFT", version: 1 }`。
+///
+/// # 异常情况
+///
+/// - 400 + `62001`：标题 / 正文 / 摘要 / 备注不合规、附件超数量；
+/// - 400 + `62003`：附件 `file_id` 不存在或已删；
+/// - 400 + `62006`：范围明细缺失 / 超 500；
+/// - 400 + `62007`：置顶缺到期时间；
+/// - 400 + `62008`：有效期已过；
+/// - 400 + `60003`~`60006`：存储策略不允许该附件（大小 / 扩展名 / MIME）；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/announcement",
+    method = "POST",
+    permission = "business:announcement:create"
+)]
+#[alun::post("/business/announcement")]
+pub async fn create(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<AnnouncementSaveReq>,
+) -> ResResult<AnnouncementSaveRes> {
+    let operator = current_user(&claims)?;
+    let now = chrono::Utc::now();
+    let normalized = dto::normalize_save(&req, now)?;
+    let scope_ids = model::resolve_scope_ids(&normalized.scope_type, &normalized.scope_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "展开公告发布范围"))?;
+    if normalized.scope_type != "ALL" && scope_ids.is_empty() {
+        // 部门被删 / 不存在时，展开结果会变空 —— 此时发布出去「没人能看到」
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_SCOPE_INVALID,
+            "发布范围内的部门 / 角色已全部失效，请重新选择",
+        ));
+    }
+    let rendered = content::render(&normalized.content_md, Recipe::Announcement);
+    let summary = resolve_summary(&normalized.summary, &rendered.plain_text);
+    let attachments = normalized.attachments.clone().unwrap_or_default();
+    ensure_attachments(&attachments).await?;
+
+    let publisher_name = model::user_display_name(&operator)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发布人姓名"))?;
+    let id = uuid::Uuid::now_v7();
+    let ann_no = model::build_ann_no(now, &id);
+    let new = model::NewAnnouncement {
+        id,
+        ann_no: &ann_no,
+        title: &normalized.title,
+        summary: &summary,
+        content_md: &normalized.content_md,
+        content_html: &rendered.content_html,
+        level: &normalized.level,
+        scope_type: &normalized.scope_type,
+        scope_ids: &scope_ids,
+        is_top: normalized.is_top,
+        top_expire_at: normalized.top_expire_at,
+        expire_at: normalized.expire_at,
+        remark: normalized.remark.as_deref(),
+        publisher_id: operator,
+        publisher_name: &publisher_name,
+        attachments: &attachments,
+    };
+    model::insert_announcement(&new, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "新建公告"))?;
+    tracing::info!(
+        announcement_id = %id,
+        ann_no = %ann_no,
+        operator = %operator,
+        scope_type = normalized.scope_type,
+        attachments = attachments.len(),
+        "公告已建立（草稿）"
+    );
+    Ok(Res::ok(AnnouncementSaveRes {
+        id: id.to_string(),
+        ann_no,
+        status: model::STATUS_DRAFT.to_string(),
+        version: 1,
+    }))
+}
+
+/// 编辑公告（仅 `DRAFT` / `OFFLINE` / `EXPIRED`）。
+///
+/// # 返回值
+///
+/// `{ id, ann_no, status, version }`（版本不在这里 +1，发布时才 +1）。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：公告不存在 / 已软删；
+/// - 409 + `62009`：公告已发布（必须先下线，见 §2.8.3 校验表）；
+/// - 其余同 [`create`]。
+#[alun::permission(
+    path = "/business/announcement/{id}",
+    method = "PUT",
+    permission = "business:announcement:update"
+)]
+#[alun::put("/business/announcement/{id}")]
+pub async fn update(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<AnnouncementSaveReq>,
+) -> ResResult<AnnouncementSaveRes> {
+    let operator = current_user(&claims)?;
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    let existing = require_manage(&announcement_id).await?;
+    model::ensure_editable(&existing.status)?;
+
+    let now = chrono::Utc::now();
+    // PUT 是全量更新，但**缺席的可选字段沿用原值**：漏传范围会把定向公告静默改成全员可见，
+    // 漏传有效期会让公告永不过期 —— 这两类事故比 500 更难发现，所以在 dto 里统一合并后再校验。
+    let merged = dto::merge_with_existing(&req, &existing);
+    let normalized = dto::normalize_save(&merged, now)?;
+    model::ensure_expire_after_publish(existing.publish_at, normalized.expire_at)?;
+    let scope_ids = model::resolve_scope_ids(&normalized.scope_type, &normalized.scope_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "展开公告发布范围"))?;
+    if normalized.scope_type != "ALL" && scope_ids.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_SCOPE_INVALID,
+            "发布范围内的部门 / 角色已全部失效，请重新选择",
+        ));
+    }
+    let rendered = content::render(&normalized.content_md, Recipe::Announcement);
+    let summary = resolve_summary(&normalized.summary, &rendered.plain_text);
+    if let Some(attachments) = normalized.attachments.as_deref() {
+        ensure_attachments(attachments).await?;
+    }
+
+    model::update_announcement(
+        &announcement_id,
+        &normalized.title,
+        &summary,
+        &normalized.content_md,
+        &rendered.content_html,
+        &normalized.level,
+        &normalized.scope_type,
+        &scope_ids,
+        normalized.is_top,
+        normalized.top_expire_at,
+        normalized.expire_at,
+        normalized.remark.as_deref(),
+        normalized.attachments.as_deref(),
+        operator,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "编辑公告"))?;
+    tracing::info!(
+        announcement_id = %announcement_id,
+        operator = %operator,
+        status = existing.status,
+        "公告已编辑"
+    );
+    Ok(Res::ok(AnnouncementSaveRes {
+        id: announcement_id.to_string(),
+        ann_no: existing.ann_no,
+        status: existing.status,
+        version: existing.version,
+    }))
+}
+
+/// 删除公告（软删；已发布需先下线）。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：不存在；
+/// - 409 + `62009`：已发布（先下线）；
+/// - 500：数据库异常。
+///
+/// # 附件为什么不删
+///
+/// `sys_announcement_attachment` 没有 `deleted_at` 列（V0080 DDL 不在本卡可改范围）；
+/// 主体软删后附件行随可见性判定一起失效，`sys_file` 里的文件本体是共享资产不删
+/// （PRD §3.10「删除公告 → 附件关联软删；`sys_file` 里的文件不删」）。
+#[alun::permission(
+    path = "/business/announcement/{id}",
+    method = "DELETE",
+    permission = "business:announcement:delete"
+)]
+#[alun::delete("/business/announcement/{id}")]
+pub async fn delete(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<()> {
+    let operator = current_user(&claims)?;
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    let existing = require_manage(&announcement_id).await?;
+    model::ensure_deletable(&existing.status)?;
+    let affected = model::soft_delete(&announcement_id, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "删除公告"))?;
+    if affected == 0 {
+        return Err(not_found());
+    }
+    tracing::info!(announcement_id = %announcement_id, operator = %operator, "公告已软删");
+    Ok(Res::ok(()))
+}
+
+/// 发布公告（状态机 + `version+1` + 扇出 + 补偿兜底）。
+///
+/// # 流程（架构 §2.2）
+///
+/// 1. 状态机校验（`DRAFT` / `OFFLINE` / `EXPIRED` → `PUBLISHED`；已是 `PUBLISHED` → `400 + 62009`）；
+/// 2. 事务内落 `PUBLISHED` / `version+1` / `publish_at=now()` / `notice_id=NULL`；
+/// 3. 事务**外**调 `notice::dispatch()`（幂等键 `announcement:{id}:v{version}`）；
+/// 4. 成功回填 `notice_id` + `receiver_count`；失败只记日志（`notice_id` 留空），
+///    由 `announcement_dispatch_retry` 每 10 分钟补一次。
+///
+/// # 返回值
+///
+/// `{ id, status, version, notice_id, receiver_count, fanout, warning }`。
+/// `fanout` 取值：`DISPATCHED` 新发 / `DUPLICATED` 幂等重放 / `FAILED` 失败待补偿 /
+/// `SKIPPED` 全局开关关闭。**发布本身永远返回成功**（公告已对外可见），
+/// 扇出失败只通过 `fanout` + `warning` 告知前端 —— 这是 A-07 的语义：
+/// 「公告 `PUBLISHED` 且 `notice_id IS NULL`」是一个合法的中间态。
+///
+/// # 异常情况
+///
+/// - 400 + `62009`：状态不允许发布；
+/// - 400 + `62008`：有效期已过（重新发布前必须先改有效期）；
+/// - 400 + `62001`：正文为空（历史脏数据）；
+/// - 404 + `62002`：不存在。
+#[alun::permission(
+    path = "/business/announcement/{id}/publish",
+    method = "POST",
+    permission = "business:announcement:publish"
+)]
+#[alun::post("/business/announcement/{id}/publish")]
+pub async fn publish(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<AnnouncementPublishRes> {
+    let operator = current_user(&claims)?;
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    publish_inner(&announcement_id, operator).await
+}
+
+/// 发布的内部实现（便于将来做「批量发布」复用，逻辑只有一份）。
+async fn publish_inner(
+    announcement_id: &uuid::Uuid,
+    operator: uuid::Uuid,
+) -> ResResult<AnnouncementPublishRes> {
+    let row = require_manage(announcement_id).await?;
+    model::ensure_publishable(&row.status)?;
+    if row.content_md.trim().is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            "正文为空，不能发布",
+        ));
+    }
+    let now = chrono::Utc::now();
+    if let Some(expire_at) = row.expire_at
+        && expire_at <= now
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_EXPIRE_INVALID,
+            "公告已过有效期，请先调整有效期再发布",
+        ));
+    }
+
+    // 发布时**重算**渲染快照：确保快照与当前 Markdown 一致（编辑后未发布的中间态可能不一致）
+    let rendered = content::render(&row.content_md, Recipe::Announcement);
+    let summary = resolve_summary(&row.summary, &rendered.plain_text);
+    let version = model::apply_publish(announcement_id, &rendered.content_html, &summary, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "发布公告（状态落库）"))?;
+
+    let mut response = AnnouncementPublishRes {
+        id: announcement_id.to_string(),
+        status: model::STATUS_PUBLISHED.to_string(),
+        version,
+        notice_id: None,
+        notice_no: None,
+        receiver_count: 0,
+        fanout: FANOUT_SKIPPED.to_string(),
+        warning: None,
+    };
+
+    // ---------- 扇出（提交后调用；失败不回滚发布）----------
+    if !model::fanout_enabled().await {
+        response.warning = Some(format!(
+            "全局扇出开关已关闭（{}），本次只发布、不发送站内信；打开开关后补偿任务会自动补发",
+            model::CONFIG_FANOUT_ENABLED
+        ));
+        tracing::warn!(
+            announcement_id = %announcement_id,
+            "公告已发布，但全局扇出开关关闭，跳过站内信"
+        );
+        return Ok(Res::ok(response));
+    }
+
+    let pending = model::PendingDispatchRow {
+        id: *announcement_id,
+        version,
+        title: row.title.clone(),
+        summary: summary.clone(),
+        content_md: row.content_md.clone(),
+        level: row.level.clone(),
+        scope_type: row.scope_type.clone(),
+        scope_ids: row.scope_ids.clone(),
+        expire_at: row.expire_at,
+        publisher_id: Some(operator),
+        publisher_name: row.publisher_name.clone(),
+    };
+    match maintenance::dispatch_announcement(&pending).await {
+        Ok(result) => {
+            if let Err(error) =
+                model::backfill_notice(announcement_id, &result.notice_id, result.receiver_count)
+                    .await
+            {
+                tracing::warn!(
+                    announcement_id = %announcement_id,
+                    %error,
+                    "扇出成功但回填 notice_id 失败（补偿任务会重放，幂等）"
+                );
+                response.fanout = FANOUT_FAILED.to_string();
+                response.warning = Some(
+                    "公告已发布，站内信已发出但回执未能落库；补偿任务会自动补齐（不会重复发送）"
+                        .to_string(),
+                );
+                return Ok(Res::ok(response));
+            }
+            response.notice_id = Some(result.notice_id.to_string());
+            response.notice_no = Some(result.notice_no.clone());
+            response.receiver_count = result.receiver_count;
+            response.fanout = if result.duplicated {
+                FANOUT_DUPLICATED.to_string()
+            } else {
+                FANOUT_DISPATCHED.to_string()
+            };
+            tracing::info!(
+                announcement_id = %announcement_id,
+                version,
+                notice_id = %result.notice_id,
+                receiver_count = result.receiver_count,
+                duplicated = result.duplicated,
+                "公告已发布并完成扇出"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(
+                announcement_id = %announcement_id,
+                version,
+                error = %error,
+                "公告已发布，但站内信扇出失败（等待补偿任务重试）"
+            );
+            response.fanout = FANOUT_FAILED.to_string();
+            response.warning = Some(format!(
+                "公告已发布，但站内信扇出失败（{error}）；补偿任务将在 10 分钟内自动重试"
+            ));
+        }
+    }
+    Ok(Res::ok(response))
+}
+
+/// 扇出方式：新发。
+pub const FANOUT_DISPATCHED: &str = "DISPATCHED";
+/// 扇出方式：幂等重放（同一版本重复调用）。
+pub const FANOUT_DUPLICATED: &str = "DUPLICATED";
+/// 扇出方式：失败待补偿。
+pub const FANOUT_FAILED: &str = "FAILED";
+/// 扇出方式：全局开关关闭而跳过。
+pub const FANOUT_SKIPPED: &str = "SKIPPED";
+
+/// 下线公告（`PUBLISHED` → `OFFLINE`）。
+///
+/// # 参数
+///
+/// - `req.reason`：下线原因（必填，≤200 字符；写审计日志 —— `sys_announcement`
+///   没有下线原因列，V0080 DDL 不在本卡可改范围，原因只能进日志）。
+///
+/// # 异常情况
+///
+/// - 400 + `62009`：非已发布状态；
+/// - 400 + `10001`：`reason` 为空 / 超长；
+/// - 404 + `62002`：不存在。
+#[alun::permission(
+    path = "/business/announcement/{id}/offline",
+    method = "POST",
+    permission = "business:announcement:offline"
+)]
+#[alun::post("/business/announcement/{id}/offline")]
+pub async fn offline(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<AnnouncementOfflineReq>,
+) -> ResResult<AnnouncementOfflineRes> {
+    let operator = current_user(&claims)?;
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    let reason = require_offline_reason(&req.reason)?;
+    let row = require_manage(&announcement_id).await?;
+    model::ensure_offlinable(&row.status)?;
+    model::apply_offline(&announcement_id, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "下线公告"))?;
+    // 已发出的站内信**不撤回**：它已经进了用户信箱，撤回会让「他点进来 404」。
+    // 下线后用户侧详情返回 403 + 62005（公告未发布 / 已下线）。
+    tracing::info!(
+        announcement_id = %announcement_id,
+        operator = %operator,
+        reason = %reason,
+        "公告已下线"
+    );
+    Ok(Res::ok(AnnouncementOfflineRes {
+        id: announcement_id.to_string(),
+        status: model::STATUS_OFFLINE.to_string(),
+        version: row.version,
+    }))
+}
+
+/// 下线原因校验（必填 + 长度）。
+///
+/// # 异常情况
+///
+/// 空 / 超 200 字符 → `400 + 10001`。
+fn require_offline_reason(raw: &str) -> std::result::Result<String, ApiError> {
+    let reason = raw.trim();
+    if reason.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "下线原因不能为空（审计要求）",
+        ));
+    }
+    if reason.chars().count() > 200 {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "下线原因最多 200 个字符",
+        ));
+    }
+    Ok(reason.to_string())
+}
+
+/// 预览（Markdown → 净化 HTML，**不入库**）。
+///
+/// # 参数
+///
+/// - `req.content_md`：正文 Markdown（1–128 KiB）。
+///
+/// # 返回值
+///
+/// `{ content_html, summary, warnings[] }`：与发布走同一条渲染 + 净化管线，
+/// 因此「预览看到的」就是「发布后落库的」（架构 §2.4.2）。
+///
+/// # 异常情况
+///
+/// - 400 + `62001`：正文超 128 KiB。
+///
+/// # 为什么不校验「正文为空」
+///
+/// 编辑器打开新公告时正文就是空的，预览必须能返回空 HTML（而不是 400），
+/// 只给一条 `warnings` 提示 —— 这与「保存」时的强校验（空正文 → 62001）不冲突。
+#[alun::permission(
+    path = "/business/announcement/preview",
+    method = "POST",
+    permission = "business:announcement:create"
+)]
+#[alun::post("/business/announcement/preview")]
+pub async fn preview(Json(req): Json<AnnouncementPreviewReq>) -> ResResult<AnnouncementPreviewRes> {
+    let markdown = req.content_md.trim();
+    if markdown.len() > dto::MAX_CONTENT_BYTES {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!(
+                "正文过大（{} 字节 > {} KiB 上限），请精简或改用附件",
+                markdown.len(),
+                dto::MAX_CONTENT_BYTES / 1024
+            ),
+        ));
+    }
+    let rendered = content::render(markdown, Recipe::Announcement);
+    // 闸 3 的提前演练：发布时落库的也是「再净化一次」的结果，预览与落库必须同形
+    let content_html = content::sanitize_html(&rendered.content_html, Recipe::Announcement);
+    Ok(Res::ok(AnnouncementPreviewRes {
+        content_html,
+        summary: auto_summary(&rendered.plain_text),
+        warnings: preview_warnings(markdown, &rendered),
+    }))
+}
+
+/// 预览的提示信息（**纯函数**，把「被净化掉了什么」如实告诉作者）。
+///
+/// # 参数
+///
+/// - `markdown`：原文（用于判断是否为空）；
+/// - `rendered`：渲染产物（含三个移除计数）。
+pub fn preview_warnings(markdown: &str, rendered: &content::Rendered) -> Vec<String> {
+    let mut warnings = Vec::new();
+    if markdown.trim().is_empty() {
+        warnings.push("正文为空：这是一条空公告，保存前请补充内容".to_string());
+    }
+    if rendered.removed_images > 0 {
+        warnings.push(format!(
+            "{} 张外链图片已被移除（公告只允许站内存储的图片）",
+            rendered.removed_images
+        ));
+    }
+    if rendered.removed_links > 0 {
+        warnings.push(format!(
+            "{} 个不安全链接已降级为纯文本（只允许 http / https / 站内相对路径）",
+            rendered.removed_links
+        ));
+    }
+    if rendered.escaped_html > 0 {
+        warnings.push(format!(
+            "{} 段原始 HTML 已转义为文本（公告正文不支持内联 HTML）",
+            rendered.escaped_html
+        ));
+    }
+    warnings
+}
+
+/// 绑定附件（文件本体走 `business/storage`，这里只写关联行）。
+///
+/// # 参数
+///
+/// - `req.file_id`：`sys_file.id`（必须已通过 `/api/business/storage/upload?category=announcement` 上传）；
+/// - `req.sort_order`：排序号（缺省追加到末尾）。
+///
+/// # 返回值
+///
+/// 绑定后的附件（`download_url` 是公告侧的代理下载地址）。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：公告不存在；
+/// - 400 + `62003`：`file_id` 不存在 / 已删；
+/// - 400 + `62001`：附件超 10 个 / 合计超 50MB / 扩展名为可执行类型；
+/// - 400 + `60003`~`60006`：存储策略不允许；
+/// - 409 + `62009`：公告已发布（先下线再改附件）。
+#[alun::permission(
+    path = "/business/announcement/{id}/attachment",
+    method = "POST",
+    permission = "business:announcement:update"
+)]
+#[alun::post("/business/announcement/{id}/attachment")]
+pub async fn bind_attachment(
+    Path(id): Path<String>,
+    Json(req): Json<AnnouncementAttachmentBindReq>,
+) -> ResResult<AttachmentRes> {
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    let file_id = utils::require_uuid(&req.file_id, "file_id").map_err(|_| {
+        ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_ATTACHMENT_NOT_FOUND,
+            "file_id 不是合法 UUID",
+        )
+    })?;
+    let row = require_manage(&announcement_id).await?;
+    model::ensure_editable(&row.status)?;
+
+    let (count, total_bytes) = model::attachment_totals(&announcement_id)
+        .await
+        .map_err(|error| utils::db_error(error, "统计公告附件"))?;
+    let already = model::find_attachment(&announcement_id, &file_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询公告附件"))?;
+    // 已绑定的重复调用不该因为「已经 10 个」被拒（幂等语义）
+    if already.is_none() && count >= dto::MAX_ATTACHMENTS as i64 {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!("最多上传 {} 个附件", dto::MAX_ATTACHMENTS),
+        ));
+    }
+
+    let file = ensure_attachment_file(&file_id).await?;
+    if already.is_none() && total_bytes + file.file_size > dto::MAX_ATTACHMENT_TOTAL_BYTES {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!(
+                "附件合计大小不能超过 {} MB",
+                dto::MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+
+    let sort_order = req
+        .sort_order
+        .unwrap_or(i32::try_from(count).unwrap_or(i32::MAX));
+    let attachment_id = model::bind_attachment(&announcement_id, &file_id, sort_order)
+        .await
+        .map_err(|error| utils::db_error(error, "绑定公告附件"))?
+        .ok_or_else(attachment_not_found)?;
+    let attachment = model::find_attachment(&announcement_id, &attachment_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询公告附件"))?
+        .ok_or_else(attachment_not_found)?;
+    tracing::info!(
+        announcement_id = %announcement_id,
+        file_id = %file_id,
+        sort_order,
+        "公告附件已绑定"
+    );
+    Ok(Res::ok(AttachmentRes::from_row(
+        &announcement_id,
+        &attachment,
+    )))
+}
+
+/// 阅读名单 / 阅读统计（谁读了、谁没读）。
+///
+/// # 参数
+///
+/// - `query.state`：`ALL`（默认）/ `READ` / `UNREAD`；
+/// - `query.keyword`：账号 / 姓名模糊。
+///
+/// # 返回值
+///
+/// `{ receiver_count, read_count, read_rate, total, page, page_size, list[] }`。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：公告不存在；
+/// - 400 + `10001`：`state` 非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/announcement/{id}/readers",
+    method = "GET",
+    permission = "business:announcement:list"
+)]
+#[alun::get("/business/announcement/{id}/readers")]
+pub async fn readers(
+    Path(id): Path<String>,
+    Query(query): Query<ReadersQuery>,
+) -> ResResult<ReadersRes> {
+    readers_inner(&id, &query).await
+}
+
+/// 阅读统计（架构 §2.8.2 的路径名；与 [`readers`] 同源同实现）。
+#[alun::permission(
+    path = "/business/announcement/{id}/read-stats",
+    method = "GET",
+    permission = "business:announcement:list"
+)]
+#[alun::get("/business/announcement/{id}/read-stats")]
+pub async fn read_stats(
+    Path(id): Path<String>,
+    Query(query): Query<ReadersQuery>,
+) -> ResResult<ReadersRes> {
+    readers_inner(&id, &query).await
+}
+
+async fn readers_inner(raw_id: &str, query: &ReadersQuery) -> ResResult<ReadersRes> {
+    let announcement_id = utils::require_uuid(raw_id, "id")?;
+    let row = require_manage(&announcement_id).await?;
+    let state = ReaderState::parse(query.state.as_deref())?;
+    let filter = ReaderStateFilter::from(state);
+    let keyword = utils::like_pattern(query.keyword.as_deref());
+    let (page, page_size) = utils::normalize_page(query.page, query.page_size);
+    let result = model::page_readers(
+        &announcement_id,
+        row.notice_id.as_ref(),
+        filter,
+        keyword.as_deref(),
+        page,
+        page_size,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "查询公告阅读名单"))?;
+    let receiver_count = i64::from(row.receiver_count);
+    let read_count = i64::from(row.read_count);
+    Ok(Res::ok(ReadersRes {
+        announcement_id: announcement_id.to_string(),
+        receiver_count,
+        read_count,
+        read_rate: dto::read_rate(read_count, receiver_count),
+        total: result.total,
+        page: result.page,
+        page_size: result.size,
+        list: result.list.iter().map(ReaderRes::from_row).collect(),
+    }))
+}
+
+impl From<ReaderState> for ReaderStateFilter {
+    fn from(state: ReaderState) -> Self {
+        match state {
+            ReaderState::All => ReaderStateFilter::All,
+            ReaderState::Read => ReaderStateFilter::Read,
+            ReaderState::Unread => ReaderStateFilter::Unread,
+        }
+    }
+}
+
+/// 置顶 / 取消置顶（票面动词 `PUT`）。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：不存在；
+/// - 400 + `62007`：置顶缺 `top_expire_at` 或时间已过；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/announcement/{id}/top",
+    method = "PUT",
+    permission = "business:announcement:update"
+)]
+#[alun::put("/business/announcement/{id}/top")]
+pub async fn set_top(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<AnnouncementTopReq>,
+) -> ResResult<AnnouncementTopRes> {
+    set_top_inner(&claims, &id, req).await
+}
+
+/// 置顶 / 取消置顶（架构 §2.8.2 的动词是 `POST`，同一实现）。
+#[alun::permission(
+    path = "/business/announcement/{id}/top",
+    method = "POST",
+    permission = "business:announcement:update"
+)]
+#[alun::post("/business/announcement/{id}/top")]
+pub async fn set_top_alias(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<AnnouncementTopReq>,
+) -> ResResult<AnnouncementTopRes> {
+    set_top_inner(&claims, &id, req).await
+}
+
+async fn set_top_inner(
+    claims: &TokenClaims,
+    raw_id: &str,
+    req: AnnouncementTopReq,
+) -> ResResult<AnnouncementTopRes> {
+    let operator = current_user(claims)?;
+    let announcement_id = utils::require_uuid(raw_id, "id")?;
+    let now = chrono::Utc::now();
+    let normalized = dto::normalize_top(&req, now)?;
+    require_manage(&announcement_id).await?;
+    model::apply_top(
+        &announcement_id,
+        normalized.is_top,
+        normalized.top_expire_at,
+        operator,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "置顶公告"))?;
+    tracing::info!(
+        announcement_id = %announcement_id,
+        is_top = normalized.is_top,
+        top_expire_at = ?normalized.top_expire_at,
+        operator = %operator,
+        "公告置顶状态已更新"
+    );
+    Ok(Res::ok(AnnouncementTopRes {
+        id: announcement_id.to_string(),
+        is_top: normalized.is_top,
+        top_expire_at: normalized.top_expire_at,
+    }))
+}
+
+/// 管理详情（编辑器回填：`content_md` 原文 + 范围明细 + 附件）。
+///
+/// # 说明
+///
+/// 架构 §2.8.2 把管理详情写在 `GET /business/announcement/{id}`，但该路径已被 C2 的
+/// **用户侧**详情占用（权限码 `business:announcement:read`，且带可见性判定）。
+/// matchit 不允许同一路径注册两次，管理侧只能换段名 `/manage`。
+///
+/// # 异常情况
+///
+/// - 404 + `62002`：不存在 / 已软删；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/announcement/{id}/manage",
+    method = "GET",
+    permission = "business:announcement:list"
+)]
+#[alun::get("/business/announcement/{id}/manage")]
+pub async fn manage_detail(Path(id): Path<String>) -> ResResult<AnnouncementManageDetailRes> {
+    let announcement_id = utils::require_uuid(&id, "id")?;
+    let row = require_manage(&announcement_id).await?;
+    let attachments = model::list_attachments(&announcement_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询公告附件"))?;
+    let html = purified_html(&row.content_html, &row.content_md);
+    Ok(Res::ok(AnnouncementManageDetailRes::from_row(
+        &row,
+        html,
+        &attachments,
+    )))
+}
+
+// ==================== 管理侧公共辅助 ====================
+
+/// 出参 HTML：快照为空则从 Markdown 现渲染，**两种情况都再净化一次**（闸 3）。
+///
+/// # 参数
+///
+/// - `snapshot`：库里存的渲染快照；
+/// - `content_md`：Markdown 原文。
+pub fn purified_html(snapshot: &str, content_md: &str) -> String {
+    let html = if snapshot.trim().is_empty() {
+        content::render(content_md, Recipe::Announcement).content_html
+    } else {
+        snapshot.to_string()
+    };
+    content::sanitize_html(&html, Recipe::Announcement)
+}
+
+/// 最终摘要：手工填的优先，否则从纯文本自动截取。
+///
+/// # 参数
+///
+/// - `manual`：请求里填的摘要（可为空）；
+/// - `plain_text`：渲染产物的纯文本。
+pub fn resolve_summary(manual: &str, plain_text: &str) -> String {
+    let manual = manual.trim();
+    if manual.is_empty() {
+        auto_summary(plain_text)
+    } else {
+        dto::truncate_chars(manual, dto::MAX_SUMMARY_CHARS)
+    }
+}
+
+/// 自动摘要：折叠空白后截取前 200 个字符（超出补 `…`）。
+///
+/// # 参数
+///
+/// - `plain_text`：正文纯文本。
+pub fn auto_summary(plain_text: &str) -> String {
+    let collapsed = plain_text.split_whitespace().collect::<Vec<_>>().join(" ");
+    dto::truncate_chars(&collapsed, 200)
+}
+
+/// 加载管理详情行，不存在直接 404。
+async fn require_manage(
+    announcement_id: &uuid::Uuid,
+) -> std::result::Result<model::ManageDetailRow, ApiError> {
+    model::find_manage(announcement_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询公告（管理端）"))?
+        .ok_or_else(not_found)
+}
+
+/// 公告不存在 / 已软删 → `404 + 62002`。
+fn not_found() -> ApiError {
+    ApiError::new(
+        404,
+        error_code::ANNOUNCEMENT_NOT_FOUND,
+        "公告不存在或已删除",
+    )
+}
+
+/// 附件不存在 → `400 + 62003`（§2.8.3 校验表：附件 file_id 不存在为 400）。
+fn attachment_not_found() -> ApiError {
+    ApiError::new(
+        400,
+        error_code::ANNOUNCEMENT_ATTACHMENT_NOT_FOUND,
+        "附件文件不存在或已删除，请重新上传",
+    )
+}
+
+/// 校验一批附件（存在性 + 危险扩展名 + 存储策略 + 数量 / 合计大小）。
+///
+/// # 异常情况
+///
+/// 见 [`ensure_attachment_file`] 与数量 / 大小校验的中文错误。
+async fn ensure_attachments(
+    attachments: &[(uuid::Uuid, i32)],
+) -> std::result::Result<(), ApiError> {
+    if attachments.len() > dto::MAX_ATTACHMENTS {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!("最多上传 {} 个附件", dto::MAX_ATTACHMENTS),
+        ));
+    }
+    let mut total: i64 = 0;
+    for (file_id, _) in attachments {
+        let file = ensure_attachment_file(file_id).await?;
+        total += file.file_size;
+    }
+    if total > dto::MAX_ATTACHMENT_TOTAL_BYTES {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!(
+                "附件合计大小不能超过 {} MB",
+                dto::MAX_ATTACHMENT_TOTAL_BYTES / (1024 * 1024)
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 校验单个附件：文件存在 → 扩展名不是可执行类型 → 通过存储策略。
+///
+/// # 为什么分类回退到 `document`
+///
+/// 架构 §5.3 把 `sys_storage_policy` 的 `announcement` 分类策略放在 **V0086**（C8 交付）；
+/// 本卡先按「`announcement` → `document` → 内置默认策略」三级回退，V0086 落地后自动生效，
+/// 无需再改代码（回退顺序写在这里，是唯一的一处定义）。
+///
+/// # 异常情况
+///
+/// 见各分支的中文错误码。
+async fn ensure_attachment_file(
+    file_id: &uuid::Uuid,
+) -> std::result::Result<storage_model::StorageFileModel, ApiError> {
+    let file = storage_model::find_active_file(file_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询附件文件记录"))?
+        .ok_or_else(attachment_not_found)?;
+    let file_name = file
+        .original_name
+        .as_deref()
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(&file.file_name)
+        .to_string();
+    if dto::is_forbidden_attachment(&file_name) {
+        return Err(ApiError::new(
+            400,
+            error_code::ANNOUNCEMENT_CONTENT_INVALID,
+            format!("公告不允许挂载可执行文件：{file_name}"),
+        ));
+    }
+    let policy = resolve_upload_policy().await?;
+    storage_model::check_upload(
+        &policy,
+        &file_name,
+        u64::try_from(file.file_size).unwrap_or(0),
+        file.mime_type.as_deref(),
+    )
+    .map_err(|violation| {
+        ApiError::new(
+            violation.http_status(),
+            violation.code(),
+            violation.message(),
+        )
+    })?;
+    Ok(file)
+}
+
+/// 附件分类策略（`announcement` → `document` → 内置默认）。
+async fn resolve_upload_policy()
+-> std::result::Result<storage_model::SysStoragePolicyModel, ApiError> {
+    for category in ["announcement", "document"] {
+        let found = storage_model::find_policy_by_category(category)
+            .await
+            .map_err(|error| utils::db_error(error, "查询附件上传策略"))?;
+        if let Some(policy) = found
+            && policy.status.as_i16() != 0
+        {
+            return Ok(policy);
+        }
+    }
+    Ok(storage_model::default_policy("announcement"))
+}
+
+#[cfg(test)]
+mod manage_tests {
+    use super::*;
+
+    fn query() -> ManagePageQuery {
+        ManagePageQuery::default()
+    }
+
+    /// 正常路径：状态多选去重 + 大写化，其余过滤器原样透传。
+    #[test]
+    fn manage_filter_parses_multi_status() {
+        let mut q = query();
+        q.status = Some("draft, PUBLISHED,draft".into());
+        q.scope_type = Some("role".into());
+        q.level = Some("urgent".into());
+        let filter = manage_filter(&q).expect("合法参数");
+        assert_eq!(filter.statuses, vec!["DRAFT", "PUBLISHED"]);
+        assert_eq!(filter.scope_type.as_deref(), Some("ROLE"));
+        assert_eq!(filter.level.as_deref(), Some("URGENT"));
+        assert!(filter.keyword.is_none());
+    }
+
+    /// 错误分支：非法状态 → 400 + 10001。
+    #[test]
+    fn manage_filter_rejects_unknown_status() {
+        let mut q = query();
+        q.status = Some("DELETED".into());
+        let error = manage_filter(&q).expect_err("非法状态必须拒绝");
+        assert_eq!((error.status, error.code), (400, 10001));
+    }
+
+    /// 错误分支：发布窗口起点晚于终点 → 62001。
+    #[test]
+    fn manage_filter_rejects_reversed_window() {
+        let mut q = query();
+        q.publish_from = Some("2026-11-02T00:00:00Z".into());
+        q.publish_to = Some("2026-11-01T00:00:00Z".into());
+        let error = manage_filter(&q).expect_err("倒置时间窗必须拒绝");
+        assert_eq!(error.code, 62001);
+    }
+
+    /// 摘要：手工优先；自动摘要折叠空白并截断到 200 字符。
+    #[test]
+    fn summary_resolution() {
+        assert_eq!(resolve_summary("  手工摘要 ", "正文"), "手工摘要");
+        let long = "字".repeat(300);
+        let auto = resolve_summary("", &long);
+        assert_eq!(auto.chars().count(), 201, "200 字 + 省略号");
+        assert!(auto.ends_with('…'));
+        assert_eq!(
+            auto_summary("  多   空格\n换行 "),
+            "多 空格 换行",
+            "空白应折叠"
+        );
+    }
+
+    /// A-18 XSS 口径（管理侧）：脏快照 / Markdown 内嵌 HTML 都不可执行。
+    #[test]
+    fn purified_html_blocks_scripts() {
+        let dirty = purified_html(
+            "<p>看图</p><img src=x onerror=alert(1)><script>alert(2)</script>",
+            "x",
+        );
+        assert!(!dirty.contains("<script"), "{dirty}");
+        assert!(!dirty.contains("onerror"), "{dirty}");
+
+        let escaped = purified_html("", "<img src=x onerror=alert(1)>");
+        assert!(
+            !escaped.contains("<img"),
+            "ENABLE_HTML=false 必须转义：{escaped}"
+        );
+        assert!(escaped.contains("&lt;img"), "{escaped}");
+    }
+
+    /// 预览提示：空正文 / 外链图片 / 危险链接 / 内联 HTML 都要如实告知。
+    #[test]
+    fn preview_warnings_report_sanitizing() {
+        let rendered = content::render(
+            "![](https://evil.example/x.png)\n\n[x](javascript:alert(1))\n\n<div onclick=\"x\">y</div>\n",
+            Recipe::Announcement,
+        );
+        let warnings = preview_warnings("非空正文", &rendered);
+        assert!(
+            warnings.iter().any(|w| w.contains("外链图片")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("不安全链接")),
+            "{warnings:?}"
+        );
+        assert!(
+            warnings.iter().any(|w| w.contains("原始 HTML")),
+            "{warnings:?}"
+        );
+
+        let empty = content::render("", Recipe::Announcement);
+        let warnings = preview_warnings("", &empty);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("正文为空"));
+    }
+
+    /// 下线原因必填（审计要求）。
+    #[test]
+    fn offline_reason_required() {
+        let error = require_offline_reason("   ").expect_err("空原因必须拒绝");
+        assert_eq!((error.status, error.code), (400, 10001));
+        assert_eq!(
+            require_offline_reason(" 内容有误 ").expect("合法"),
+            "内容有误"
+        );
+        let too_long = "字".repeat(201);
+        assert!(require_offline_reason(&too_long).is_err());
+    }
+
+    /// 扇出方式常量稳定（前端按它分支）。
+    #[test]
+    fn fanout_labels_are_stable() {
+        assert_eq!(FANOUT_DISPATCHED, "DISPATCHED");
+        assert_eq!(FANOUT_DUPLICATED, "DUPLICATED");
+        assert_eq!(FANOUT_FAILED, "FAILED");
+        assert_eq!(FANOUT_SKIPPED, "SKIPPED");
+    }
 }
 
 #[cfg(test)]
