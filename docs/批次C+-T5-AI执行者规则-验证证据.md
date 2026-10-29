@@ -271,6 +271,7 @@ cargo clippy --all-targets --features test-hooks -- -D warnings
 | **存量行语义** | 迁移前的 13 条历史日志行**全部**取默认值 `HUMAN`（`存量日志行 operator_type 分布 → HUMAN:13`） |
 | 二进制含新逻辑 | `grep -ac 'AI 用户不能登录网页'` → 1；`grep -ac 'AI 用户不能修改数据权限'` → 1（`strings` 只认 ASCII，中文须用 `grep -a`） |
 | 接口冒烟 | 匿名 `GET /api/business/changelog/page` → **401**；空体登录 → **400** |
+| 人类账号生产登录（验收 2 生产侧） | `admin` → `HTTP 200 code=0 msg=ok has_access_token=True user=admin`；nginx 首页/登录页均 **200** |
 | **生产库上的功能实测** | 造 `t5_probe`（ROBOT）探针 → `POST /api/system/auth/login`（**admin 的正确口令**）→ `403 {"code":63201}`；`auth_logs` 记下 `FAIL / AI 用户禁止网页登录`；再以**错误口令**登录仍 `63201` → 判定确在验密之前 |
 | 收尾 | 探针账号 / `sys_ai_agent` 行 / 探针自己的 `auth_logs` 全部删除，残留计数 `0 / 0 / 0`；生产未留任何业务夹具 |
 
