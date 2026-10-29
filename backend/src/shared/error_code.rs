@@ -857,6 +857,28 @@ pub const TASK_APPROVAL_PENDING: i32 = 65030;
 /// 超时自动通过需要流程级开关（`flow_def.allow_auto_approve`，HTTP 422，架构 D10）。
 pub const FLOW_TIMEOUT_CONFIG_INVALID: i32 = 65031;
 
+/// 退回目标非法（HTTP 400）：`return_to` 取值不认识 / 指定的 `node_key` 不在图上 /
+/// 非管理员选了「退回任意节点」（架构 §4.6.1）。
+pub const FLOW_RETURN_TARGET_INVALID: i32 = 65025;
+
+/// 转办非法（HTTP 400/422）：目标用户不存在 / 已停用 / 是机器人（且节点不允许）/
+/// 转给自己 / 目标已有同名待办（架构 §4.8.1）。
+pub const FLOW_TRANSFER_INVALID: i32 = 65026;
+
+/// 加签非法（HTTP 400/422）：`user_ids` 为空 / 超过 10 个 / 节点不是 `ACTIVE` /
+/// 被加签人已在审批人里（架构 §4.8.2）。
+pub const FLOW_ADD_SIGN_INVALID: i32 = 65027;
+
+/// 该待办不属于当前用户（HTTP 403）：与 `65004` 的区别是它专指「行级归属」不匹配
+/// （「这条待办不是你的」），前端文案不同（架构 §10.2 的中间件闸只挂粗粒度码）。
+pub const FLOW_TASK_NOT_MINE: i32 = 65028;
+
+/// 审批人来源「动态表达式」本期未实现（HTTP 501，架构 D5 / §4.3.1）。
+///
+/// 刻意**不**退化成「空审批人 → 自动通过」：一个配了表达式审批人的节点如果静默跳过，
+/// 等于把「谁审批」变成没人审批，是坑 3/坑 5 的叠加形态。
+pub const FLOW_EXPRESSION_UNSUPPORTED: i32 = 65032;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1146,19 +1168,28 @@ mod tests {
             (FLOW_INSTANCE_NOT_PENDING, 65024),
             (TASK_APPROVAL_PENDING, 65030),
             (FLOW_TIMEOUT_CONFIG_INVALID, 65031),
+            (FLOW_RETURN_TARGET_INVALID, 65025),
+            (FLOW_TRANSFER_INVALID, 65026),
+            (FLOW_ADD_SIGN_INVALID, 65027),
+            (FLOW_TASK_NOT_MINE, 65028),
+            (FLOW_EXPRESSION_UNSUPPORTED, 65032),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
         }
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
-        assert_eq!(unique.len(), 22, "65xxx 段必须是 22 个码（架构 §10.3）");
+        assert_eq!(
+            unique.len(),
+            27,
+            "65xxx 段必须是 27 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码）"
+        );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65024 / 65030–65031）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65032）✓",
             codes.len()
         );
     }

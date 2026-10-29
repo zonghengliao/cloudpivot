@@ -21,6 +21,7 @@
 //! 边的 `from` / `to` 用的是 **key 而不是 id**：编辑器只认 key，id 是服务端内部映射。
 
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
 use alun::prelude::chrono;
 
@@ -1015,6 +1016,481 @@ pub struct DraftRes {
 }
 
 // ==================== 单元测试 ====================
+
+// ==================== 运行侧：实例 / 待办 / 抄送（D2） ====================
+//
+// 依据：卡面 t_3715c446「4. 实例侧 API（12–23）」+ 架构 §10.1.2 / §10.1.3 / §10.1.4。
+//
+// 与定义侧同一套约定：主键一律 `String`、时间 `chrono::DateTime<Utc>`、
+// 枚举大写（与库 CHECK 逐字一致）、可空文本降级空串。
+
+/// 实例状态全集（与 `biz_flow_instance.status` 的 CHECK 逐字一致）。
+pub const INSTANCE_STATUSES: [&str; 5] =
+    ["PENDING", "APPROVED", "REJECTED", "CANCELLED", "WITHDRAWN"];
+
+/// 待办状态全集（与 `biz_flow_task.status` 的 CHECK 逐字一致）。
+pub const TASK_STATUSES: [&str; 6] = [
+    "PENDING",
+    "APPROVED",
+    "REJECTED",
+    "CANCELLED",
+    "SKIPPED",
+    "TRANSFERRED",
+];
+
+/// 待办种类全集。
+pub const TASK_KINDS: [&str; 2] = ["APPROVAL", "RESUBMIT"];
+
+/// 实例标题最大长度（`title VARCHAR(200)`）。
+pub const MAX_INSTANCE_TITLE_CHARS: usize = 200;
+
+/// 审批意见最大长度（`comment VARCHAR(1000)`）。
+pub const MAX_FLOW_COMMENT_CHARS: usize = 1000;
+
+/// 驳回意见最小字数（卡面「驳回（必填意见 ≥5 字）」）。
+pub const MIN_REJECT_COMMENT_CHARS: usize = 5;
+
+/// 单次批量审批上限（架构 §10.1.3 #28）。
+pub const MAX_BATCH_TASKS: usize = 50;
+
+/// 单次加签上限（架构 §4.8.2）。
+pub const MAX_ADD_SIGN_USERS: usize = 10;
+
+/// 校验实例状态取值（大小写不敏感）。
+pub fn normalize_instance_status(raw: &str) -> Option<String> {
+    let normalized = raw.trim().to_ascii_uppercase();
+    INSTANCE_STATUSES
+        .into_iter()
+        .find(|candidate| *candidate == normalized)
+        .map(str::to_string)
+}
+
+/// 归一化标题（必填、去多余空白、限长）。
+pub fn normalize_instance_title(raw: &str) -> Result<String, String> {
+    let collapsed = collapse_whitespace(raw);
+    if collapsed.is_empty() {
+        return Err("审批单标题不能为空".to_string());
+    }
+    if collapsed.chars().count() > MAX_INSTANCE_TITLE_CHARS {
+        return Err(format!(
+            "审批单标题不能超过 {MAX_INSTANCE_TITLE_CHARS} 个字符"
+        ));
+    }
+    Ok(collapsed)
+}
+
+/// 归一化审批意见（可选；限长；空 → `None`）。
+pub fn normalize_comment(raw: Option<&str>) -> Result<Option<String>, String> {
+    let Some(text) = raw else { return Ok(None) };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.chars().count() > MAX_FLOW_COMMENT_CHARS {
+        return Err(format!("审批意见不能超过 {MAX_FLOW_COMMENT_CHARS} 个字符"));
+    }
+    Ok(Some(trimmed.to_string()))
+}
+
+/// 归一化驳回意见（**必填且 ≥ 5 字**，卡面「驳回（必填意见 ≥5 字）」）。
+pub fn normalize_reject_comment(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("驳回必须填写意见".to_string());
+    }
+    let count = trimmed.chars().count();
+    if count < MIN_REJECT_COMMENT_CHARS {
+        return Err(format!(
+            "驳回意见至少 {MIN_REJECT_COMMENT_CHARS} 个字（当前 {count} 个）"
+        ));
+    }
+    if count > MAX_FLOW_COMMENT_CHARS {
+        return Err(format!("驳回意见不能超过 {MAX_FLOW_COMMENT_CHARS} 个字符"));
+    }
+    Ok(trimmed.to_string())
+}
+
+/// 发起审批的请求。
+#[derive(Debug, Clone, Deserialize)]
+pub struct InstanceCreateReq {
+    /// 流程定义 id（与 `flow_code` / `biz_type` 三选一）。
+    #[serde(default)]
+    pub def_id: Option<String>,
+    /// 流程编码（三选一）。
+    #[serde(default)]
+    pub flow_code: Option<String>,
+    /// 业务类型（三选一；未给 def/flow_code 时取该类型的默认发布流程）。
+    #[serde(default)]
+    pub biz_type: Option<String>,
+    /// 业务单据 id（可选；给了就会做「同一单据只能有一个在跑实例」的校验）。
+    #[serde(default)]
+    pub biz_id: Option<String>,
+    /// 业务单号（展示用）。
+    #[serde(default)]
+    pub biz_no: Option<String>,
+    /// 标题（必填）。
+    pub title: String,
+    /// 表单数据（条件表达式的作用域，发起时冻结）。
+    #[serde(default)]
+    pub form_data: Option<Value>,
+}
+
+/// 实例分页查询。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct InstancePageQuery {
+    /// 页码。
+    #[serde(default)]
+    pub page: Option<u64>,
+    /// 每页条数。
+    #[serde(default)]
+    pub page_size: Option<u64>,
+    /// 单据号 / 标题关键词。
+    #[serde(default)]
+    pub keyword: Option<String>,
+    /// 状态。
+    #[serde(default)]
+    pub status: Option<String>,
+    /// 流程编码。
+    #[serde(default)]
+    pub flow_code: Option<String>,
+    /// 业务类型。
+    #[serde(default)]
+    pub biz_type: Option<String>,
+}
+
+impl InstancePageQuery {
+    /// 归一化关键词（空 → `None`）。
+    pub fn normalized_keyword(&self) -> Option<String> {
+        self.keyword
+            .as_deref()
+            .map(collapse_whitespace)
+            .filter(|value| !value.is_empty())
+    }
+}
+
+/// 撤回请求。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct WithdrawReq {
+    /// 撤回理由（可选）。
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// 同意请求。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ApproveReq {
+    /// 审批意见（可选）。
+    #[serde(default)]
+    pub comment: Option<String>,
+}
+
+/// 驳回请求。
+#[derive(Debug, Clone, Deserialize)]
+pub struct RejectReq {
+    /// 驳回意见（必填，≥ 5 字）。
+    pub comment: String,
+    /// 退回目标（`PREV` 默认 / `INITIATOR` / `NONE` / 节点 key）。
+    #[serde(default)]
+    pub return_to: Option<String>,
+}
+
+/// 转办请求。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TransferReq {
+    /// 目标用户 id。
+    pub to_user_id: String,
+    /// 转办理由。
+    #[serde(default)]
+    pub reason: Option<String>,
+}
+
+/// 加签请求。
+#[derive(Debug, Clone, Deserialize)]
+pub struct AddSignReq {
+    /// 被加签人 id 列表（≤ 10）。
+    #[serde(default)]
+    pub user_ids: Vec<String>,
+}
+
+/// 批量审批请求。
+#[derive(Debug, Clone, Deserialize)]
+pub struct BatchReq {
+    /// 待办 id 列表（≤ 50）。
+    #[serde(default)]
+    pub task_ids: Vec<String>,
+    /// 动作（`APPROVE` / `REJECT`）。
+    pub action: String,
+    /// 意见（驳回时必填 ≥ 5 字）。
+    #[serde(default)]
+    pub comment: Option<String>,
+    /// 退回目标（驳回时用，默认 `PREV`）。
+    #[serde(default)]
+    pub return_to: Option<String>,
+}
+
+/// 我的待办 / 已办 / 抄送的分页查询。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MyTaskQuery {
+    /// 页码。
+    #[serde(default)]
+    pub page: Option<u64>,
+    /// 每页条数。
+    #[serde(default)]
+    pub page_size: Option<u64>,
+}
+
+// ---------- 出参 ----------
+
+/// 实例摘要。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceRes {
+    /// 主键。
+    pub id: String,
+    /// 单据号。
+    pub instance_no: String,
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 绑定版本号（架构 D2：实例绑版本）。
+    pub version_no: i32,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 业务 id（空串 = 无）。
+    pub biz_id: String,
+    /// 业务单号（空串 = 无）。
+    pub biz_no: String,
+    /// 标题。
+    pub title: String,
+    /// 状态。
+    pub status: String,
+    /// 发起人 id。
+    pub initiator_id: String,
+    /// 发起人姓名。
+    pub initiator_name: String,
+    /// 发起人部门 id（空串 = 无）。
+    pub initiator_dept_id: String,
+    /// **自动通过节点数**（坑 3 的审计口径，详情页必须显著提示）。
+    pub auto_passed_nodes: i32,
+    /// 最大退回轮次（打回次数 = `round_total - 1`）。
+    pub round_total: i32,
+    /// 结束说明。
+    pub result_comment: String,
+    /// 发起时间。
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// 结束时间。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 我在本单上的待办 id（没有 → 空串）。
+    pub my_task_id: String,
+}
+
+/// 实例分页出参。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstancePageRes {
+    /// 当前页。
+    pub list: Vec<InstanceRes>,
+    /// 总数。
+    pub total: u64,
+    /// 页码。
+    pub page: u64,
+    /// 每页条数。
+    pub page_size: u64,
+}
+
+/// 节点进度。
+#[derive(Debug, Clone, Serialize)]
+pub struct NodeProgressRes {
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 节点类型。
+    pub node_type: String,
+    /// 轮次（退回一次就 +1，第 1 轮历史保留）。
+    pub round: i32,
+    /// 状态。
+    pub status: String,
+    /// 会签模式。
+    pub approval_mode: String,
+    /// 会签阈值（0 = 非 RATIO）。
+    pub approve_ratio: f64,
+    /// 应到人数。
+    pub approver_count: i32,
+    /// 已同意（`COUNT(*)` 现算）。
+    pub approved_count: i32,
+    /// 已驳回。
+    pub rejected_count: i32,
+    /// 是否自动通过。
+    pub is_auto_passed: bool,
+    /// 条件命中的边。
+    pub taken_edge_key: String,
+    /// 激活时间。
+    pub activated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 结束时间。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 耗时（毫秒）。
+    pub duration_ms: Option<i64>,
+}
+
+/// 待办 / 时间线条目。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskRes {
+    /// 待办 id。
+    pub id: String,
+    /// 实例 id。
+    pub instance_id: String,
+    /// 单据号（列表场景填）。
+    pub instance_no: String,
+    /// 单据标题（列表场景填）。
+    pub title: String,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 种类（`APPROVAL` / `RESUBMIT`）。
+    pub task_kind: String,
+    /// 审批人 id。
+    pub assignee_id: String,
+    /// 审批人姓名。
+    pub assignee_name: String,
+    /// 来源（8 种之一）。
+    pub assignee_source: String,
+    /// 状态。
+    pub status: String,
+    /// 是否加签。
+    pub is_added_sign: bool,
+    /// 是否自审。
+    pub is_self_approval: bool,
+    /// 是否系统代点。
+    pub is_auto: bool,
+    /// 意见。
+    pub comment: String,
+    /// 转办来源行。
+    pub transferred_from: String,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 完成时间。
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 抄送条目。
+#[derive(Debug, Clone, Serialize)]
+pub struct CcRes {
+    /// 抄送行 id。
+    pub id: String,
+    /// 实例 id。
+    pub instance_id: String,
+    /// 单据号。
+    pub instance_no: String,
+    /// 单据标题。
+    pub title: String,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 是否已读。
+    pub is_read: bool,
+    /// 读取时间。
+    pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 实例详情（进度 + 时间线 + 抄送 + 我的可用动作）。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceDetailRes {
+    /// 实例摘要。
+    pub instance: InstanceRes,
+    /// 节点进度（按 round / 到达顺序）。
+    pub nodes: Vec<NodeProgressRes>,
+    /// 审批时间线（含 SKIPPED / TRANSFERRED 留痕，按 round 分组由前端做）。
+    pub timeline: Vec<TaskRes>,
+    /// 抄送。
+    pub cc: Vec<CcRes>,
+    /// 我在本单上的 PENDING 待办（没有 → `null`）。
+    pub my_task: Option<TaskRes>,
+    /// 自动通过节点数（与 `instance.auto_passed_nodes` 同值，方便前端直接取）。
+    pub auto_passed_nodes: i32,
+}
+
+/// 审批动作的出参。
+#[derive(Debug, Clone, Serialize)]
+pub struct ActionRes {
+    /// 实例 id。
+    pub instance_id: String,
+    /// 动作后的实例状态。
+    pub instance_status: String,
+    /// 当前节点状态（投票类动作）。
+    pub node_status: String,
+    /// 待办是否已处理完。
+    pub done: bool,
+    /// 是否幂等命中（重复提交 / 23505 兜底）。
+    pub idempotent: bool,
+    /// 本次激活的下游节点 key。
+    pub next_nodes: Vec<String>,
+    /// 自动通过节点数。
+    pub auto_passed_nodes: i32,
+    /// 应到人数。
+    pub approver_count: i32,
+    /// 已同意。
+    pub approved_count: i32,
+    /// 已驳回。
+    pub rejected_count: i32,
+}
+
+/// 我的待办 / 已办 分页出参。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskPageRes {
+    /// 当前页。
+    pub list: Vec<TaskRes>,
+    /// 总数（本卡按页内条数回填，跨页总数由前端「加载更多」累积）。
+    pub total: u64,
+    /// 页码。
+    pub page: u64,
+    /// 每页条数。
+    pub page_size: u64,
+}
+
+/// 抄送分页出参。
+#[derive(Debug, Clone, Serialize)]
+pub struct CcPageRes {
+    /// 当前页。
+    pub list: Vec<CcRes>,
+    /// 总数。
+    pub total: u64,
+    /// 页码。
+    pub page: u64,
+    /// 每页条数。
+    pub page_size: u64,
+}
+
+/// 批量审批的单条结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchItemRes {
+    /// 待办 id。
+    pub task_id: String,
+    /// 是否成功。
+    pub ok: bool,
+    /// 失败码（成功 → 0）。
+    pub code: i32,
+    /// 失败原因（成功 → 空串）。
+    pub message: String,
+}
+
+/// 批量审批出参（**逐条独立事务**：一条失败不影响其它条）。
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchRes {
+    /// 提交总数。
+    pub total: usize,
+    /// 成功数。
+    pub succeeded: usize,
+    /// 失败数。
+    pub failed: usize,
+    /// 逐条结果。
+    pub items: Vec<BatchItemRes>,
+}
 
 #[cfg(test)]
 mod tests {

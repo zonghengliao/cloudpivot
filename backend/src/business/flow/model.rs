@@ -33,6 +33,7 @@
 
 use alun::prelude::*;
 use alun::uuid::Uuid;
+use serde_json::Value as Json;
 
 use crate::business::flow::graph::{
     ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, NodeSpec, NodeType,
@@ -854,7 +855,7 @@ pub async fn replace_graph(ex: &Transaction, version_id: Uuid, graph: &FlowGraph
                   self_approval, allow_robot, join_mode, fork_mode, timeout_hours, timeout_action, \
                   remind_before_hours, max_remind_times, cc_on_approved, \
                   position_x, position_y, sort_order, config) \
-             VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::numeric, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
+             VALUES (?::uuid, ?::uuid, ?, ?, ?, ?, ?, ?, ?, ?::text::numeric, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, \
                      ?, ?, ?, ?::jsonb)",
             vec![
                 Value::from(&id),
@@ -1154,10 +1155,19 @@ pub async fn copy_version_to_draft(
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn has_running_instance(def_id: Uuid) -> DbResult<bool> {
-    // D2 落地后替换为：
-    //   SELECT count(*) FROM biz_flow_instance WHERE def_id = ? AND status = 'PENDING'
-    let _ = def_id;
-    Ok(false)
+    // D2 落地：定义侧删流程前必须查「还有没有在跑的单子」（架构 §7.1 #5 的前置校验）。
+    let rows = db()
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_instance \
+              WHERE def_id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL",
+            vec![Value::from(&def_id)],
+        )
+        .await?;
+    let total: i64 = match rows.first() {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
+    Ok(total > 0)
 }
 
 /// 流程错误码转 [`ApiError`]（写路径复用的 404 文案）。
@@ -1168,6 +1178,1660 @@ pub fn not_found() -> ApiError {
 /// 版本不存在 → 404。
 pub fn version_not_found() -> ApiError {
     ApiError::new(404, error_code::FLOW_NOT_FOUND, "流程版本不存在")
+}
+
+/// 按 `flow_code` 取流程定义（未软删）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_def_by_code(code: &str) -> DbResult<Option<DefRow>> {
+    let sql =
+        format!("SELECT {DEF_COLUMNS}{DEF_FROM} WHERE d.flow_code = ? AND d.deleted_at IS NULL");
+    let rows = db()
+        .find_with_params(&sql, vec![Value::Text(code.to_string())])
+        .await?;
+    rows.first().map(DefRow::from_row).transpose()
+}
+
+/// 取某业务类型的**默认已发布流程**（发起时只给 `biz_type` 用）。
+///
+/// 排序口径：`is_default` 优先，其次当前版本号大的（最新发布的那个）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn default_def_of_biz_type(biz_type: &str) -> DbResult<Option<DefRow>> {
+    let sql = format!(
+        "SELECT {DEF_COLUMNS}{DEF_FROM} \
+          WHERE d.biz_type = ? AND d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
+            AND d.current_version_id IS NOT NULL \
+          ORDER BY d.is_default DESC, d.current_version_no DESC, d.updated_at DESC \
+          LIMIT 1"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::Text(biz_type.to_string())])
+        .await?;
+    rows.first().map(DefRow::from_row).transpose()
+}
+
+// ---------- 运行侧批注：run-time runtime block (D2) ----------
+// ==================== 运行侧：实例 / 节点 / 待办 / 抄送（D2） ====================
+//
+// 依据：`docs/批次D-工作流审批-技术架构.md` §6.2（4 张表的列清单）、§4.4（一次流转算法）、
+// §4.5（并发三件套）、§4.6（退回 round）、§9.1（实例可见性谓词）。
+//
+// # 本段的三条纪律
+//
+// 1. **锁顺序固定** `biz_flow_task` → `biz_flow_instance_node` → `biz_flow_instance`
+//    （架构 §4.5.1）。所有 `*_for_update` 函数只做 `SELECT … FOR UPDATE`，
+//    由 `engine.rs` 按上述顺序调用；这里不隐含任何加锁顺序，避免「函数内部顺手锁了实例」。
+// 2. **计票一律现算**：`tally_of_node` 是唯一的票数来源，`approved_count` / `rejected_count`
+//    只是 `update_node_counts` 写进去的展示冗余（**没有任何 `+=`**）。
+// 3. **`auto_passed_nodes` 也是派生的**：`sync_auto_passed(instance_id)` 用
+//    `count(*) WHERE is_auto_passed` 覆写，而不是 `auto_passed_nodes + 1`
+//    —— 审计计数一旦能漂移，坑 3 的「本单有 1 个节点自动通过」就不可信了。
+
+// ---------- 列清单 ----------
+
+const INSTANCE_COLUMNS: &str = "\
+     i.id, i.instance_no, i.def_id, i.version_id, i.version_no, i.flow_code, i.flow_name, \
+     i.biz_type, i.biz_id, i.biz_no, i.title, i.status, i.initiator_id, i.initiator_name, \
+     i.initiator_dept_id, i.form_data::text AS form_data_text, i.result_comment, \
+     i.auto_passed_nodes, i.round_total, i.prev_instance_id, i.revision, \
+     i.started_at, i.ended_at, i.due_at, i.created_at, i.updated_at";
+
+const NODE_RT_COLUMNS: &str = "\
+     n.id, n.instance_id, n.node_id, n.node_key, n.node_name, n.node_type, n.round, n.status, \
+     n.approval_mode, n.approve_ratio::float8 AS approve_ratio, n.reject_veto, \
+     n.approver_count, n.approved_count, n.rejected_count, n.taken_edge_key, n.is_auto_passed, \
+     n.activated_at, n.ended_at, n.duration_ms, n.created_at, n.updated_at";
+
+const TASK_COLUMNS: &str = "\
+     t.id, t.instance_id, t.instance_node_id, t.node_key, t.round, t.task_kind, t.assignee_id, \
+     t.assignee_name, t.assignee_source, t.assignee_source_ref, t.status, t.is_added_sign, \
+     t.is_self_approval, t.is_auto, t.comment, t.attachments::text AS attachments_text, \
+     t.transferred_from, t.transferred_to, t.due_at, t.remind_count, t.created_at, t.completed_at";
+
+const CC_COLUMNS: &str = "\
+     c.id, c.instance_id, c.node_key, c.round, c.receiver_id, c.receiver_name, c.source_type, \
+     c.source_ref, c.is_read, c.read_at, c.created_at";
+
+// ---------- 行结构 ----------
+
+/// 实例行。
+#[derive(Debug, Clone)]
+pub struct InstanceRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 单据号。
+    pub instance_no: String,
+    /// 流程定义。
+    pub def_id: Uuid,
+    /// 绑定版本（架构 D2：引擎只读该版本的快照）。
+    pub version_id: Uuid,
+    /// 版本号。
+    pub version_no: i32,
+    /// 流程编码（冗余，防展示期 JOIN 定义表）。
+    pub flow_code: String,
+    /// 流程名称（冗余）。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 业务 id。
+    pub biz_id: Option<Uuid>,
+    /// 业务单号。
+    pub biz_no: Option<String>,
+    /// 标题。
+    pub title: String,
+    /// 状态（`PENDING` / `APPROVED` / `REJECTED` / `CANCELLED` / `WITHDRAWN`）。
+    pub status: String,
+    /// 发起人。
+    pub initiator_id: Uuid,
+    /// 发起人姓名。
+    pub initiator_name: Option<String>,
+    /// 发起人部门。
+    pub initiator_dept_id: Option<Uuid>,
+    /// 表单数据（发起时冻结）。
+    pub form_data: Json,
+    /// 结束说明。
+    pub result_comment: Option<String>,
+    /// 自动通过节点数（派生值）。
+    pub auto_passed_nodes: i32,
+    /// 最大退回轮次。
+    pub round_total: i32,
+    /// 上一次实例（重新发起时串联）。
+    pub prev_instance_id: Option<Uuid>,
+    /// CAS 版本号。
+    pub revision: i32,
+    /// 发起时间。
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// 结束时间。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 截止时间。
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 更新时间。
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl InstanceRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        let form_text: String = row.get_typed("form_data_text")?;
+        Ok(Self {
+            id: row.get_typed("id")?,
+            instance_no: row.get_typed("instance_no")?,
+            def_id: row.get_typed("def_id")?,
+            version_id: row.get_typed("version_id")?,
+            version_no: row.get_typed("version_no")?,
+            flow_code: row.get_typed("flow_code")?,
+            flow_name: row.get_typed("flow_name")?,
+            biz_type: row.get_typed("biz_type")?,
+            biz_id: row.get_typed("biz_id")?,
+            biz_no: row.get_typed("biz_no")?,
+            title: row.get_typed("title")?,
+            status: row.get_typed("status")?,
+            initiator_id: row.get_typed("initiator_id")?,
+            initiator_name: row.get_typed("initiator_name")?,
+            initiator_dept_id: row.get_typed("initiator_dept_id")?,
+            form_data: serde_json::from_str(&form_text)
+                .unwrap_or_else(|_| Json::Object(Default::default())),
+            result_comment: row.get_typed("result_comment")?,
+            auto_passed_nodes: row.get_typed("auto_passed_nodes")?,
+            round_total: row.get_typed("round_total")?,
+            prev_instance_id: row.get_typed("prev_instance_id")?,
+            revision: row.get_typed("revision")?,
+            started_at: row.get_typed("started_at")?,
+            ended_at: row.get_typed("ended_at")?,
+            due_at: row.get_typed("due_at")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+        })
+    }
+
+    /// 是否进行中。
+    pub fn is_pending(&self) -> bool {
+        self.status == "PENDING"
+    }
+
+    /// 审批人解析上下文（`assignee::InstanceCtx`）。
+    pub fn assignee_ctx(&self) -> crate::business::flow::assignee::InstanceCtx {
+        crate::business::flow::assignee::InstanceCtx {
+            instance_id: self.id,
+            initiator_id: self.initiator_id,
+            initiator_dept_id: self.initiator_dept_id,
+            biz_type: self.biz_type.clone(),
+            biz_id: self.biz_id,
+            form_data: self.form_data.clone(),
+        }
+    }
+}
+
+/// 实例节点行。
+#[derive(Debug, Clone)]
+pub struct NodeRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 定义侧节点 id（可空，删版本时 `SET NULL`）。
+    pub node_id: Option<Uuid>,
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 节点类型。
+    pub node_type: String,
+    /// 退回轮次。
+    pub round: i32,
+    /// 状态。
+    pub status: String,
+    /// 会签模式。
+    pub approval_mode: Option<String>,
+    /// 会签阈值。
+    pub approve_ratio: Option<f64>,
+    /// 一票否决。
+    pub reject_veto: Option<bool>,
+    /// 应到人数。
+    pub approver_count: i32,
+    /// 已同意（展示冗余）。
+    pub approved_count: i32,
+    /// 已驳回（展示冗余）。
+    pub rejected_count: i32,
+    /// 条件节点命中的边。
+    pub taken_edge_key: Option<String>,
+    /// 是否自动通过。
+    pub is_auto_passed: bool,
+    /// 激活时间。
+    pub activated_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 结束时间。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 耗时（毫秒）。
+    pub duration_ms: Option<i64>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 更新时间。
+    pub updated_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl NodeRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            instance_id: row.get_typed("instance_id")?,
+            node_id: row.get_typed("node_id")?,
+            node_key: row.get_typed("node_key")?,
+            node_name: row.get_typed("node_name")?,
+            node_type: row.get_typed("node_type")?,
+            round: row.get_typed("round")?,
+            status: row.get_typed("status")?,
+            approval_mode: row.get_typed("approval_mode")?,
+            approve_ratio: row.get_typed("approve_ratio")?,
+            reject_veto: row.get_typed("reject_veto")?,
+            approver_count: row.get_typed("approver_count")?,
+            approved_count: row.get_typed("approved_count")?,
+            rejected_count: row.get_typed("rejected_count")?,
+            taken_edge_key: row.get_typed("taken_edge_key")?,
+            is_auto_passed: row.get_typed("is_auto_passed")?,
+            activated_at: row.get_typed("activated_at")?,
+            ended_at: row.get_typed("ended_at")?,
+            duration_ms: row.get_typed("duration_ms")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+        })
+    }
+
+    /// 是否已经结束（终态）。
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self.status.as_str(),
+            "APPROVED" | "REJECTED" | "SKIPPED" | "CANCELLED"
+        )
+    }
+}
+
+/// 待办 / 审批记录行。
+#[derive(Debug, Clone)]
+pub struct TaskRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 实例节点。
+    pub instance_node_id: Uuid,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 待办种类（`APPROVAL` / `RESUBMIT`）。
+    pub task_kind: String,
+    /// 审批人。
+    pub assignee_id: Uuid,
+    /// 审批人姓名快照。
+    pub assignee_name: Option<String>,
+    /// 来源。
+    pub assignee_source: String,
+    /// 来源引用（角色 / 部门）。
+    pub assignee_source_ref: Option<Uuid>,
+    /// 状态。
+    pub status: String,
+    /// 是否加签。
+    pub is_added_sign: bool,
+    /// 是否自审。
+    pub is_self_approval: bool,
+    /// 是否系统代点。
+    pub is_auto: bool,
+    /// 意见。
+    pub comment: Option<String>,
+    /// 附件（JSON 数组）。
+    pub attachments: Json,
+    /// 转办来源。
+    pub transferred_from: Option<Uuid>,
+    /// 转办去向。
+    pub transferred_to: Option<Uuid>,
+    /// 截止时间。
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 提醒次数。
+    pub remind_count: i16,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+    /// 完成时间。
+    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl TaskRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        let attachments_text: String = row.get_typed("attachments_text")?;
+        Ok(Self {
+            id: row.get_typed("id")?,
+            instance_id: row.get_typed("instance_id")?,
+            instance_node_id: row.get_typed("instance_node_id")?,
+            node_key: row.get_typed("node_key")?,
+            round: row.get_typed("round")?,
+            task_kind: row.get_typed("task_kind")?,
+            assignee_id: row.get_typed("assignee_id")?,
+            assignee_name: row.get_typed("assignee_name")?,
+            assignee_source: row.get_typed("assignee_source")?,
+            assignee_source_ref: row.get_typed("assignee_source_ref")?,
+            status: row.get_typed("status")?,
+            is_added_sign: row.get_typed("is_added_sign")?,
+            is_self_approval: row.get_typed("is_self_approval")?,
+            is_auto: row.get_typed("is_auto")?,
+            comment: row.get_typed("comment")?,
+            attachments: serde_json::from_str(&attachments_text)
+                .unwrap_or_else(|_| Json::Array(Vec::new())),
+            transferred_from: row.get_typed("transferred_from")?,
+            transferred_to: row.get_typed("transferred_to")?,
+            due_at: row.get_typed("due_at")?,
+            remind_count: row.get_typed("remind_count")?,
+            created_at: row.get_typed("created_at")?,
+            completed_at: row.get_typed("completed_at")?,
+        })
+    }
+
+    /// 是否还在待办里。
+    pub fn is_pending(&self) -> bool {
+        self.status == "PENDING"
+    }
+}
+
+/// 抄送行。
+#[derive(Debug, Clone)]
+pub struct CcRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 收件人。
+    pub receiver_id: Uuid,
+    /// 收件人姓名。
+    pub receiver_name: Option<String>,
+    /// 来源。
+    pub source_type: String,
+    /// 来源引用。
+    pub source_ref: Option<Uuid>,
+    /// 是否已读。
+    pub is_read: bool,
+    /// 读取时间。
+    pub read_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CcRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            instance_id: row.get_typed("instance_id")?,
+            node_key: row.get_typed("node_key")?,
+            round: row.get_typed("round")?,
+            receiver_id: row.get_typed("receiver_id")?,
+            receiver_name: row.get_typed("receiver_name")?,
+            source_type: row.get_typed("source_type")?,
+            source_ref: row.get_typed("source_ref")?,
+            is_read: row.get_typed("is_read")?,
+            read_at: row.get_typed("read_at")?,
+            created_at: row.get_typed("created_at")?,
+        })
+    }
+}
+
+/// 票数（**唯一权威来源是 `COUNT(*)`**，架构 D15）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Tally {
+    /// 已同意。
+    pub approved: i64,
+    /// 已驳回。
+    pub rejected: i64,
+    /// 未表态。
+    pub pending: i64,
+    /// 应到（在册票数：`PENDING + APPROVED + REJECTED`，**不含** `SKIPPED` / `TRANSFERRED` / `CANCELLED`）。
+    pub total: i64,
+}
+
+// ---------- 单据号 ----------
+
+/// 生成单据号 `FLW-YYYYMMDD-<uuid 末 8 位>`。
+///
+/// **用 UUIDv7 的末 8 位而不是前 8 位**：v7 的高位就是时间戳，同一毫秒连发的两条
+/// 会拿到相同前缀 → 撞 `uk_biz_flow_instance_no`（skill cailu-dev §9.12-3 实测）。
+pub fn new_instance_no(now: chrono::DateTime<chrono::Utc>) -> String {
+    let id = Uuid::now_v7().to_string();
+    let tail: String = id.chars().filter(|c| *c != '-').collect::<String>();
+    let tail = tail
+        .get(tail.len().saturating_sub(8)..)
+        .unwrap_or("00000000");
+    format!("FLW-{}-{}", now.format("%Y%m%d"), tail.to_ascii_uppercase())
+}
+
+// ---------- 写：实例 ----------
+
+/// 新建实例入参。
+#[derive(Debug, Clone)]
+pub struct NewInstance {
+    /// 主键。
+    pub id: Uuid,
+    /// 单据号。
+    pub instance_no: String,
+    /// 流程定义。
+    pub def_id: Uuid,
+    /// 绑定版本。
+    pub version_id: Uuid,
+    /// 版本号。
+    pub version_no: i32,
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 业务 id。
+    pub biz_id: Option<Uuid>,
+    /// 业务单号。
+    pub biz_no: Option<String>,
+    /// 标题。
+    pub title: String,
+    /// 发起人。
+    pub initiator_id: Uuid,
+    /// 发起人姓名。
+    pub initiator_name: Option<String>,
+    /// 发起人部门。
+    pub initiator_dept_id: Option<Uuid>,
+    /// 表单数据。
+    pub form_data: Json,
+    /// 截止时间。
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// 新建实例（事务内）。
+///
+/// # 异常情况
+///
+/// `uk_biz_flow_instance_biz_active` / `uk_biz_flow_instance_no` 冲突 → [`DbError`]。
+pub async fn create_instance(ex: &Transaction, new: &NewInstance) -> DbResult<()> {
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_instance \
+             (id, instance_no, def_id, version_id, version_no, flow_code, flow_name, \
+              biz_type, biz_id, biz_no, title, status, initiator_id, initiator_name, \
+              initiator_dept_id, form_data, auto_passed_nodes, round_total, revision, \
+              started_at, due_at, created_at, updated_at, create_by, update_by) \
+         VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?::uuid, ?, ?, 'PENDING', \
+                 ?::uuid, ?, ?::uuid, ?::jsonb, 0, 1, 0, now(), ?, now(), now(), ?::uuid, ?::uuid)",
+        vec![
+            Value::from(&new.id),
+            Value::Text(new.instance_no.clone()),
+            Value::from(&new.def_id),
+            Value::from(&new.version_id),
+            Value::from(new.version_no),
+            Value::Text(new.flow_code.clone()),
+            Value::Text(new.flow_name.clone()),
+            Value::Text(new.biz_type.clone()),
+            opt_uuid(new.biz_id),
+            opt_text(new.biz_no.as_deref()),
+            Value::Text(new.title.clone()),
+            Value::from(&new.initiator_id),
+            opt_text(new.initiator_name.as_deref()),
+            opt_uuid(new.initiator_dept_id),
+            Value::Json(new.form_data.to_string()),
+            opt_ts(new.due_at),
+            Value::from(&new.initiator_id),
+            Value::from(&new.initiator_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 读实例（含软删过滤）。不存在 → `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_instance(id: Uuid) -> DbResult<Option<InstanceRow>> {
+    let sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i \
+          WHERE i.id = ?::uuid AND i.deleted_at IS NULL"
+    );
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(InstanceRow::from_row).transpose()
+}
+
+/// 锁实例行（`SELECT … FOR UPDATE`，锁序第三）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn lock_instance(ex: &Transaction, id: Uuid) -> DbResult<Option<InstanceRow>> {
+    let sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i WHERE i.id = ?::uuid FOR UPDATE"
+    );
+    let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(InstanceRow::from_row).transpose()
+}
+
+/// 实例 CAS：`revision` 自增并写入状态 / 轮次 / 说明。
+///
+/// 返回受影响行数：**0 表示 CAS 失败**（别人先推进了同一实例），调用方重新读取后重试一次
+/// （架构 §4.5.1 第 ⑦ 步）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn bump_instance(
+    ex: &Transaction,
+    id: Uuid,
+    expected_revision: i32,
+    status: Option<&str>,
+    result_comment: Option<&str>,
+    round_total: i32,
+) -> DbResult<u64> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance \
+            SET status = COALESCE(?, status), \
+                result_comment = COALESCE(?, result_comment), \
+                round_total = ?, \
+                revision = revision + 1, \
+                ended_at = CASE WHEN COALESCE(?, status) = 'PENDING' THEN NULL ELSE now() END, \
+                updated_at = now() \
+          WHERE id = ?::uuid AND revision = ?",
+        vec![
+            opt_text(status),
+            opt_text(result_comment),
+            Value::from(round_total),
+            opt_text(status),
+            Value::from(&id),
+            Value::from(expected_revision),
+        ],
+    )
+    .await
+}
+
+/// 用 `count(*)` 覆写 `auto_passed_nodes`（**派生值，不是 `+=`**）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn sync_auto_passed(ex: &Transaction, instance_id: Uuid) -> DbResult<i32> {
+    let rows = ex
+        .find_with_params(
+            "UPDATE biz_flow_instance \
+                SET auto_passed_nodes = ( \
+                        SELECT count(*) FROM biz_flow_instance_node \
+                         WHERE instance_id = ?::uuid AND is_auto_passed), \
+                    updated_at = now() \
+              WHERE id = ?::uuid \
+          RETURNING auto_passed_nodes",
+            vec![Value::from(&instance_id), Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(0),
+        Some(row) => row.get_typed("auto_passed_nodes"),
+    }
+}
+
+/// 同一业务单据是否还有在跑的实例（`start` 的前置校验 + 并发兜底）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn biz_instance_running(biz_type: &str, biz_id: Uuid) -> DbResult<bool> {
+    let rows = db()
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_instance \
+              WHERE biz_type = ? AND biz_id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL",
+            vec![Value::Text(biz_type.to_string()), Value::from(&biz_id)],
+        )
+        .await?;
+    let total: i64 = match rows.first() {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
+    Ok(total > 0)
+}
+
+// ---------- 写：实例节点 ----------
+
+/// 节点「到达」入参。
+#[derive(Debug, Clone)]
+pub struct NewNode {
+    /// 主键。
+    pub id: Uuid,
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 定义侧节点 id。
+    pub node_id: Option<Uuid>,
+    /// 节点 key。
+    pub node_key: String,
+    /// 节点名。
+    pub node_name: String,
+    /// 节点类型。
+    pub node_type: String,
+    /// 轮次。
+    pub round: i32,
+    /// 会签模式。
+    pub approval_mode: Option<String>,
+    /// 会签阈值。
+    pub approve_ratio: Option<f64>,
+    /// 一票否决。
+    pub reject_veto: Option<bool>,
+}
+
+/// 幂等地登记「本轮到达过这个节点」。
+///
+/// `ON CONFLICT (instance_id, node_key, round) DO UPDATE` 让重复激活变成一次无害的
+/// `updated_at` 刷新（**幂等**而不报 23505）—— 与 `biz_flow_task` 的插入刻意不同：
+/// 那边要求「23505 当幂等成功」的红线走显式错误分支，这边没有外部可观察语义。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn touch_node(ex: &Transaction, new: &NewNode) -> DbResult<()> {
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_instance_node \
+             (id, instance_id, node_id, node_key, node_name, node_type, round, status, \
+              approval_mode, approve_ratio, reject_veto, approver_count, approved_count, \
+              rejected_count, is_auto_passed, created_at, updated_at) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?, 'PENDING', ?, ?::text::numeric, ?, 0, 0, 0, \
+                 FALSE, now(), now()) \
+         ON CONFLICT (instance_id, node_key, round) DO UPDATE SET updated_at = now()",
+        vec![
+            Value::from(&new.id),
+            Value::from(&new.instance_id),
+            opt_uuid(new.node_id),
+            Value::Text(new.node_key.clone()),
+            Value::Text(new.node_name.clone()),
+            Value::Text(new.node_type.clone()),
+            Value::from(new.round),
+            opt_text(new.approval_mode.as_deref()),
+            new.approve_ratio
+                .map(|ratio| Value::Text(format!("{ratio:.3}")))
+                .unwrap_or(Value::Null),
+            new.reject_veto.map(Value::from).unwrap_or(Value::Null),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 读某轮次的节点行（不加锁）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_node(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+) -> DbResult<Option<NodeRow>> {
+    let sql = format!(
+        "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n \
+          WHERE n.instance_id = ?::uuid AND n.node_key = ? AND n.round = ?"
+    );
+    let rows = ex
+        .find_with_params(
+            &sql,
+            vec![
+                Value::from(&instance_id),
+                Value::Text(node_key.to_string()),
+                Value::from(round),
+            ],
+        )
+        .await?;
+    rows.first().map(NodeRow::from_row).transpose()
+}
+
+/// 锁节点行（`SELECT … FOR UPDATE`，锁序第二）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn lock_node(ex: &Transaction, id: Uuid) -> DbResult<Option<NodeRow>> {
+    let sql = format!(
+        "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n WHERE n.id = ?::uuid FOR UPDATE"
+    );
+    let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(NodeRow::from_row).transpose()
+}
+
+/// 把节点置为 `ACTIVE` 并写应到人数。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn activate_node_row(ex: &Transaction, id: Uuid, approver_count: i32) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance_node \
+            SET status = 'ACTIVE', approver_count = ?, activated_at = now(), \
+                ended_at = NULL, duration_ms = NULL, updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![Value::from(approver_count), Value::from(&id)],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 结束节点：写终态 / 计数 / 结束时间 / 耗时 / 是否自动通过。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn end_node_row(
+    ex: &Transaction,
+    id: Uuid,
+    status: &str,
+    tally: Tally,
+    taken_edge_key: Option<&str>,
+    is_auto_passed: bool,
+) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance_node \
+            SET status = ?, approved_count = ?, rejected_count = ?, \
+                approver_count = CASE WHEN ? > 0 THEN ? ELSE approver_count END, \
+                taken_edge_key = COALESCE(?, taken_edge_key), \
+                is_auto_passed = ?, \
+                activated_at = COALESCE(activated_at, now()), \
+                ended_at = now(), \
+                duration_ms = (EXTRACT(EPOCH FROM (now() - COALESCE(activated_at, now()))) * 1000)::bigint, \
+                updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![
+            Value::Text(status.to_string()),
+            Value::from(tally.approved),
+            Value::from(tally.rejected),
+            Value::from(tally.total),
+            Value::from(tally.total),
+            opt_text(taken_edge_key),
+            Value::from(is_auto_passed),
+            Value::from(&id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 覆写节点上的票数展示冗余（**绝对值，不是 `+=`**，架构 D15）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn update_node_counts(ex: &Transaction, id: Uuid, tally: Tally) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance_node \
+            SET approved_count = ?, rejected_count = ?, \
+                approver_count = CASE WHEN ? > 0 THEN ? ELSE approver_count END, \
+                updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![
+            Value::from(tally.approved),
+            Value::from(tally.rejected),
+            Value::from(tally.total),
+            Value::from(tally.total),
+            Value::from(&id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 把节点标成「等人齐」（汇聚点 `AND` 未到齐）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn mark_node_waiting(ex: &Transaction, id: Uuid) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance_node \
+            SET status = CASE WHEN status = 'ACTIVE' THEN status ELSE 'PENDING' END, \
+                updated_at = now() \
+          WHERE id = ?::uuid",
+        vec![Value::from(&id)],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 实例下所有节点行（按轮次、到达顺序）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn nodes_of(instance_id: Uuid) -> DbResult<Vec<NodeRow>> {
+    let sql = format!(
+        "SELECT {NODE_RT_COLUMNS} FROM biz_flow_instance_node n \
+          WHERE n.instance_id = ?::uuid ORDER BY n.round, n.created_at, n.node_key"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&instance_id)])
+        .await?;
+    rows.iter().map(NodeRow::from_row).collect()
+}
+
+/// 掐断实例里所有 `ACTIVE` 节点（退回 / 撤回 / 终止时用）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn cancel_active_nodes(
+    ex: &Transaction,
+    instance_id: Uuid,
+    except_node_id: Option<Uuid>,
+) -> DbResult<u64> {
+    let mut sql = String::from(
+        "UPDATE biz_flow_instance_node \
+            SET status = 'CANCELLED', ended_at = now(), \
+                duration_ms = (EXTRACT(EPOCH FROM (now() - COALESCE(activated_at, now()))) * 1000)::bigint, \
+                updated_at = now() \
+          WHERE instance_id = ?::uuid AND status IN ('ACTIVE','PENDING')",
+    );
+    let mut params = vec![Value::from(&instance_id)];
+    if let Some(node_id) = except_node_id {
+        sql.push_str(" AND id <> ?::uuid");
+        params.push(Value::from(&node_id));
+    }
+    ex.execute_with_params(&sql, params).await
+}
+
+/// 实例当前最大轮次。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn max_round(ex: &Transaction, instance_id: Uuid) -> DbResult<i32> {
+    let rows = ex
+        .find_with_params(
+            "SELECT COALESCE(max(round), 1) AS max_round FROM biz_flow_instance_node \
+              WHERE instance_id = ?::uuid",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(1),
+        Some(row) => row.get_typed("max_round"),
+    }
+}
+
+/// 某节点在某轮次的行是否存在且为 `APPROVED`/`SKIPPED`（汇聚判定用，**必须带 round**）。
+///
+/// 这是坑 4 的核心：不带 `round` 就会读到**上一轮**的通过记录，退回后汇聚点直接放行。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn node_arrived(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+) -> DbResult<bool> {
+    let rows = ex
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_instance_node \
+              WHERE instance_id = ?::uuid AND node_key = ? AND round = ? \
+                AND status IN ('APPROVED','SKIPPED')",
+            vec![
+                Value::from(&instance_id),
+                Value::Text(node_key.to_string()),
+                Value::from(round),
+            ],
+        )
+        .await?;
+    let total: i64 = match rows.first() {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
+    Ok(total > 0)
+}
+
+// ---------- 写：待办 ----------
+
+/// 新建待办入参。
+#[derive(Debug, Clone)]
+pub struct NewTask {
+    /// 主键。
+    pub id: Uuid,
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 实例节点。
+    pub instance_node_id: Uuid,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 种类（`APPROVAL` / `RESUBMIT`）。
+    pub task_kind: String,
+    /// 审批人。
+    pub assignee_id: Uuid,
+    /// 审批人姓名快照。
+    pub assignee_name: Option<String>,
+    /// 来源。
+    pub assignee_source: String,
+    /// 来源引用。
+    pub assignee_source_ref: Option<Uuid>,
+    /// 是否加签。
+    pub is_added_sign: bool,
+    /// 是否自审。
+    pub is_self_approval: bool,
+    /// 是否系统代点。
+    pub is_auto: bool,
+    /// 状态（`PENDING` / `SKIPPED`）。
+    pub status: String,
+    /// 意见。
+    pub comment: Option<String>,
+    /// 截止时间。
+    pub due_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 转办来源行。
+    pub transferred_from: Option<Uuid>,
+}
+
+/// 插入一条待办行。
+///
+/// **不用 `ON CONFLICT DO NOTHING`**：三层去重的第 2 层必须真的能挡住重复
+/// （验收 2 要贴 23505），并让应用显式走「把 23505 当幂等成功」这条红线路径。
+/// 调用方用 [`is_pending_duplicate`] 判定。
+///
+/// `SKIPPED` 行没有 `PENDING` 槽位，不受部分唯一索引约束。
+///
+/// # 异常情况
+///
+/// `uk_biz_flow_task_pending` 冲突 → [`DbError::UniqueViolation`]；其它 → [`DbError`]。
+pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
+    // `completed_at` 必须与 status 同真同假（`ck_biz_flow_task_done`）：
+    // PENDING → NULL；其它（SKIPPED）→ now()。用 CASE 而不是绑时间值，保证与库时钟一致。
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_task \
+             (id, instance_id, instance_node_id, node_key, round, task_kind, assignee_id, \
+              assignee_name, assignee_source, assignee_source_ref, status, is_added_sign, \
+              is_self_approval, is_auto, comment, attachments, transferred_from, due_at, \
+              remind_count, created_at, completed_at) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, \
+                 '[]'::jsonb, ?::uuid, ?, 0, now(), \
+                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END)",
+        vec![
+            Value::from(&new.id),
+            Value::from(&new.instance_id),
+            Value::from(&new.instance_node_id),
+            Value::Text(new.node_key.clone()),
+            Value::from(new.round),
+            Value::Text(new.task_kind.clone()),
+            Value::from(&new.assignee_id),
+            opt_text(new.assignee_name.as_deref()),
+            Value::Text(new.assignee_source.clone()),
+            opt_uuid(new.assignee_source_ref),
+            Value::Text(new.status.clone()),
+            Value::from(new.is_added_sign),
+            Value::from(new.is_self_approval),
+            Value::from(new.is_auto),
+            opt_text(new.comment.as_deref()),
+            opt_uuid(new.transferred_from),
+            opt_ts(new.due_at),
+            Value::Text(new.status.clone()),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 是否「同一节点同一人已有 PENDING 待办」的唯一约束冲突（三层去重第 2 层）。
+pub fn is_pending_duplicate(error: &DbError) -> bool {
+    match error {
+        DbError::UniqueViolation { constraint, .. } => constraint
+            .as_deref()
+            .map(|name| name.contains("uk_biz_flow_task_pending"))
+            .unwrap_or(false),
+        other => other.to_string().contains("uk_biz_flow_task_pending"),
+    }
+}
+
+/// 是否「同一实例同一节点同一轮次」的唯一约束冲突（幂等激活）。
+pub fn is_node_duplicate(error: &DbError) -> bool {
+    match error {
+        DbError::UniqueViolation { constraint, .. } => constraint
+            .as_deref()
+            .map(|name| name.contains("uk_biz_flow_instance_node"))
+            .unwrap_or(false),
+        other => other.to_string().contains("uk_biz_flow_instance_node"),
+    }
+}
+
+/// 锁待办行（`SELECT … FOR UPDATE`，锁序第一）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn lock_task(ex: &Transaction, id: Uuid) -> DbResult<Option<TaskRow>> {
+    let sql = format!("SELECT {TASK_COLUMNS} FROM biz_flow_task t WHERE t.id = ?::uuid FOR UPDATE");
+    let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(TaskRow::from_row).transpose()
+}
+
+/// 读待办（不加锁）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_task(id: Uuid) -> DbResult<Option<TaskRow>> {
+    let sql = format!("SELECT {TASK_COLUMNS} FROM biz_flow_task t WHERE t.id = ?::uuid");
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(TaskRow::from_row).transpose()
+}
+
+/// 结束一条待办（写状态 / 意见 / 完成时间）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn finish_task(
+    ex: &Transaction,
+    id: Uuid,
+    status: &str,
+    comment: Option<&str>,
+    is_auto: bool,
+) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_task \
+            SET status = ?, comment = COALESCE(?, comment), is_auto = is_auto OR ?, \
+                completed_at = CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END \
+          WHERE id = ?::uuid",
+        vec![
+            Value::Text(status.to_string()),
+            opt_text(comment),
+            Value::from(is_auto),
+            Value::Text(status.to_string()),
+            Value::from(&id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 把某节点其余 `PENDING` 待办置 `CANCELLED`（节点通过 / 驳回 / 退回时）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn cancel_pending_of_node(
+    ex: &Transaction,
+    node_id: Uuid,
+    except_task_id: Option<Uuid>,
+    comment: &str,
+) -> DbResult<u64> {
+    let mut sql = String::from(
+        "UPDATE biz_flow_task \
+            SET status = 'CANCELLED', comment = COALESCE(comment, ?), completed_at = now() \
+          WHERE instance_node_id = ?::uuid AND status = 'PENDING'",
+    );
+    let mut params = vec![Value::Text(comment.to_string()), Value::from(&node_id)];
+    if let Some(task_id) = except_task_id {
+        sql.push_str(" AND id <> ?::uuid");
+        params.push(Value::from(&task_id));
+    }
+    ex.execute_with_params(&sql, params).await
+}
+
+/// 把整个实例的 `PENDING` 待办置 `CANCELLED`（撤回 / 终止）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn cancel_pending_of_instance(
+    ex: &Transaction,
+    instance_id: Uuid,
+    comment: &str,
+) -> DbResult<u64> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_task \
+            SET status = 'CANCELLED', comment = COALESCE(comment, ?), completed_at = now() \
+          WHERE instance_id = ?::uuid AND status = 'PENDING'",
+        vec![Value::Text(comment.to_string()), Value::from(&instance_id)],
+    )
+    .await
+}
+
+/// 现算票数（**唯一的票数来源**，`COUNT(*) FILTER`，架构 D15 第 3 层）。
+///
+/// `total` 只统计「在册票」= `PENDING + APPROVED + REJECTED`：
+/// `SKIPPED`（自审跳过）与 `TRANSFERRED`（已转办）不是票，`CANCELLED` 是已作废的票。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn tally_of_node(ex: &Transaction, node_id: Uuid, round: i32) -> DbResult<Tally> {
+    let rows = ex
+        .find_with_params(
+            "SELECT count(*) FILTER (WHERE status = 'APPROVED') AS approved, \
+                    count(*) FILTER (WHERE status = 'REJECTED') AS rejected, \
+                    count(*) FILTER (WHERE status = 'PENDING') AS pending, \
+                    count(*) FILTER (WHERE status IN ('PENDING','APPROVED','REJECTED')) AS total \
+               FROM biz_flow_task \
+              WHERE instance_node_id = ?::uuid AND round = ?",
+            vec![Value::from(&node_id), Value::from(round)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(Tally::default()),
+        Some(row) => Ok(Tally {
+            approved: row.get_typed("approved")?,
+            rejected: row.get_typed("rejected")?,
+            pending: row.get_typed("pending")?,
+            total: row.get_typed("total")?,
+        }),
+    }
+}
+
+/// 实例里「已经表过态」的票数（撤回的「零人已审」判定，架构 §4.7）。
+///
+/// **不算** `SKIPPED`（自动跳过的人没审过）与 `TRANSFERRED`（转办出去的人也没审）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn reviewed_count(ex: &Transaction, instance_id: Uuid) -> DbResult<i64> {
+    let rows = ex
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status IN ('APPROVED','REJECTED')",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(0),
+        Some(row) => row.get_typed("total"),
+    }
+}
+
+/// 实例的审批时间线（全部轮次，含 `SKIPPED` / `TRANSFERRED` / `CANCELLED` 留痕）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn timeline(instance_id: Uuid) -> DbResult<Vec<TaskRow>> {
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM biz_flow_task t \
+          WHERE t.instance_id = ?::uuid ORDER BY t.round, t.created_at, t.id"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&instance_id)])
+        .await?;
+    rows.iter().map(TaskRow::from_row).collect()
+}
+
+/// 我在这个实例上的待办 id（详情页的「可用动作」）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn my_task_of(instance_id: Uuid, user_id: Uuid) -> DbResult<Option<TaskRow>> {
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM biz_flow_task t \
+          WHERE t.instance_id = ?::uuid AND t.assignee_id = ?::uuid AND t.status = 'PENDING' \
+          ORDER BY t.round DESC, t.created_at DESC LIMIT 1"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&instance_id), Value::from(&user_id)])
+        .await?;
+    rows.first().map(TaskRow::from_row).transpose()
+}
+
+// ---------- 写：抄送 ----------
+
+/// 新建抄送行入参（参数收成结构体：clippy 的 `too_many_arguments` 阈值是 7）。
+#[derive(Debug, Clone)]
+pub struct NewCc {
+    /// 实例。
+    pub instance_id: Uuid,
+    /// 节点 key。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+    /// 收件人。
+    pub receiver_id: Uuid,
+    /// 收件人姓名快照。
+    pub receiver_name: Option<String>,
+    /// 来源（与 `assignee_source` 同取值域）。
+    pub source_type: String,
+    /// 来源引用（角色 / 部门 id）。
+    pub source_ref: Option<Uuid>,
+}
+
+/// 新建抄送行。///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（重复由 `uk_biz_flow_cc` + `ON CONFLICT DO NOTHING` 吞掉）。
+pub async fn insert_cc(ex: &Transaction, new: &NewCc) -> DbResult<()> {
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_cc \
+             (id, instance_id, node_key, round, receiver_id, receiver_name, source_type, \
+              source_ref, is_read, created_at) \
+         VALUES (?::uuid, ?::uuid, ?, ?, ?::uuid, ?, ?, ?::uuid, FALSE, now()) \
+         ON CONFLICT (instance_id, node_key, round, receiver_id) DO NOTHING",
+        vec![
+            Value::from(&Uuid::now_v7()),
+            Value::from(&new.instance_id),
+            Value::Text(new.node_key.clone()),
+            Value::from(new.round),
+            Value::from(&new.receiver_id),
+            opt_text(new.receiver_name.as_deref()),
+            Value::Text(new.source_type.clone()),
+            opt_uuid(new.source_ref),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 实例的抄送列表。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn cc_of(instance_id: Uuid) -> DbResult<Vec<CcRow>> {
+    let sql = format!(
+        "SELECT {CC_COLUMNS} FROM biz_flow_cc c \
+          WHERE c.instance_id = ?::uuid ORDER BY c.created_at"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&instance_id)])
+        .await?;
+    rows.iter().map(CcRow::from_row).collect()
+}
+
+/// 实例里所有 `PENDING` 待办的审批人（撤回时通知他们）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn pending_assignees(ex: &Transaction, instance_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT DISTINCT assignee_id FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'PENDING'",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(row.get_typed("assignee_id")?);
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// 某节点某轮次的抄送收件人（抄送节点落库后发通知用）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn cc_receivers(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+) -> DbResult<Vec<Uuid>> {
+    let rows = ex
+        .find_with_params(
+            "SELECT receiver_id FROM biz_flow_cc \
+              WHERE instance_id = ?::uuid AND node_key = ? AND round = ?",
+            vec![
+                Value::from(&instance_id),
+                Value::Text(node_key.to_string()),
+                Value::from(round),
+            ],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(row.get_typed("receiver_id")?);
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// 实例里还在跑的节点数（`ACTIVE` + 汇聚等待中的 `PENDING`）。
+///
+/// **0 表示可以判定实例结束了**（[`crate::business::flow::engine::Run::maybe_finish`]）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn count_inflight(ex: &Transaction, instance_id: Uuid) -> DbResult<i64> {
+    let rows = ex
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_instance_node \
+              WHERE instance_id = ?::uuid AND status IN ('ACTIVE','PENDING')",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(0),
+        Some(row) => row.get_typed("total"),
+    }
+}
+
+// ---------- 可见性：我的相关实例 id 集合（架构 §9.1 / D16） ----------
+
+/// 我的相关实例 id（待办 + 抄送，**一次 UNION 查完**）。
+///
+/// 架构 D16：可见性用「应用层预解析 id 集合 → `id = ANY(?::text::uuid[])`」，
+/// 不写相关子查询（实测 0.887 ms vs 227 ms）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn my_instance_ids(user_id: Uuid) -> DbResult<Vec<Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT DISTINCT instance_id FROM biz_flow_task WHERE assignee_id = ?::uuid \
+             UNION \
+             SELECT DISTINCT instance_id FROM biz_flow_cc WHERE receiver_id = ?::uuid",
+            vec![Value::from(&user_id), Value::from(&user_id)],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push(row.get_typed("instance_id")?);
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// 实例分页条件。
+#[derive(Debug, Clone, Default)]
+pub struct InstanceFilter {
+    /// 单据号 / 标题关键词。
+    pub keyword: Option<String>,
+    /// 状态。
+    pub status: Option<String>,
+    /// 流程编码。
+    pub flow_code: Option<String>,
+    /// 业务类型。
+    pub biz_type: Option<String>,
+}
+
+/// 实例分页结果。
+#[derive(Debug, Clone)]
+pub struct InstancePage {
+    /// 当前页。
+    pub list: Vec<InstanceRow>,
+    /// 总数。
+    pub total: u64,
+    /// 页码。
+    pub page: u64,
+    /// 每页条数。
+    pub size: u64,
+}
+
+/// 实例可见性目标（`initiator_dept_id` 走数据范围、`initiator_id` 走「仅本人」降级）。
+pub const INSTANCE_TARGET: crate::business::shared::scope::ScopeTarget =
+    crate::business::shared::scope::ScopeTarget::new(
+        "biz_flow_instance",
+        "i",
+        Some("initiator_dept_id"),
+        Some("initiator_id"),
+    );
+
+/// 实例分页（**可见性过滤**：数据范围 ∪ 我发起的 ∪ 我待办/已办 ∪ 抄送我）。
+///
+/// 这里刻意不用 `scope::paginate`：可见性是**并集**（`OR`），而 `paginate` 的
+/// `{FILTER}` 只能做 `AND` 注入。口径仍是架构 D16 的「预解析 id 集合 + `id = ANY(…)`」，
+/// 数据范围片段用 `scope::filter_for` 生成后**拼成并集的第一支**（`AND` 前缀去掉）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn page_instances(
+    principal: &crate::business::shared::principal::ScopedPrincipal,
+    filter: &InstanceFilter,
+    page: u64,
+    page_size: u64,
+) -> DbResult<InstancePage> {
+    let user_id = principal.user_id();
+    let mine = my_instance_ids(user_id).await?;
+    let scope = crate::business::shared::scope::filter_for(principal, INSTANCE_TARGET);
+    let scope_sql = scope
+        .sql()
+        .trim()
+        .trim_start_matches("AND ")
+        .trim()
+        .to_string();
+
+    let mut where_sql = format!(
+        " WHERE i.deleted_at IS NULL AND ({scope_sql} OR i.initiator_id = ?::uuid \
+           OR i.id = ANY(?::text::uuid[]))"
+    );
+    let mut params: Vec<Value> = scope.params().to_vec();
+    params.push(Value::from(&user_id));
+    params.push(crate::business::flow::assignee::array_param(&mine));
+
+    if let Some(keyword) = filter.keyword.as_deref() {
+        where_sql.push_str(" AND (i.instance_no ILIKE ? OR i.title ILIKE ?)");
+        let pattern = format!("%{}%", keyword.replace('%', "\\%").replace('_', "\\_"));
+        params.push(Value::Text(pattern.clone()));
+        params.push(Value::Text(pattern));
+    }
+    if let Some(status) = filter.status.as_deref() {
+        where_sql.push_str(" AND i.status = ?");
+        params.push(Value::Text(status.to_string()));
+    }
+    if let Some(flow_code) = filter.flow_code.as_deref() {
+        where_sql.push_str(" AND i.flow_code = ?");
+        params.push(Value::Text(flow_code.to_string()));
+    }
+    if let Some(biz_type) = filter.biz_type.as_deref() {
+        where_sql.push_str(" AND i.biz_type = ?");
+        params.push(Value::Text(biz_type.to_string()));
+    }
+
+    let count_sql = format!("SELECT count(*) AS total FROM biz_flow_instance i{where_sql}");
+    let total_row = db().find_with_params(&count_sql, params.clone()).await?;
+    let total: i64 = match total_row.first() {
+        Some(row) => row.get_typed("total")?,
+        None => 0,
+    };
+
+    let mut sql = String::with_capacity(1024);
+    sql.push_str("SELECT ");
+    sql.push_str(INSTANCE_COLUMNS);
+    sql.push_str(" FROM biz_flow_instance i");
+    sql.push_str(&where_sql);
+    sql.push_str(" ORDER BY i.started_at DESC, i.id DESC LIMIT ? OFFSET ?");
+    let mut page_params = params;
+    page_params.push(Value::from(page_size as i64));
+    page_params.push(Value::from(((page.saturating_sub(1)) * page_size) as i64));
+
+    let rows = db().find_with_params(&sql, page_params).await?;
+    let list = rows
+        .iter()
+        .map(InstanceRow::from_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    Ok(InstancePage {
+        list,
+        total: total.max(0) as u64,
+        page,
+        size: page_size,
+    })
+}
+
+/// 我的待办 / 已办 / 抄送列表（三处共用一条查询形状，靠 `statuses` 与来源区分）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn page_my_tasks(
+    user_id: Uuid,
+    statuses: &[&str],
+    kinds: &[&str],
+    page: u64,
+    page_size: u64,
+) -> DbResult<Vec<TaskRow>> {
+    let status_list = statuses
+        .iter()
+        .map(|status| format!("'{status}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let kind_list = kinds
+        .iter()
+        .map(|kind| format!("'{kind}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let sql = format!(
+        "SELECT {TASK_COLUMNS} FROM biz_flow_task t \
+          WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
+            AND t.task_kind IN ({kind_list}) \
+          ORDER BY t.created_at DESC, t.id DESC LIMIT ? OFFSET ?"
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![
+                Value::from(&user_id),
+                Value::from(page_size as i64),
+                Value::from(((page.saturating_sub(1)) * page_size) as i64),
+            ],
+        )
+        .await?;
+    rows.iter().map(TaskRow::from_row).collect()
+}
+
+/// 我收到的抄送（未读优先）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn page_my_cc(
+    user_id: Uuid,
+    page: u64,
+    page_size: u64,
+) -> DbResult<Vec<(CcRow, String, String)>> {
+    let sql = format!(
+        "SELECT {CC_COLUMNS}, i.instance_no AS instance_no, i.title AS title \
+           FROM biz_flow_cc c JOIN biz_flow_instance i ON i.id = c.instance_id \
+          WHERE c.receiver_id = ?::uuid AND i.deleted_at IS NULL \
+          ORDER BY c.is_read, c.created_at DESC LIMIT ? OFFSET ?"
+    );
+    let rows = db()
+        .find_with_params(
+            &sql,
+            vec![
+                Value::from(&user_id),
+                Value::from(page_size as i64),
+                Value::from(((page.saturating_sub(1)) * page_size) as i64),
+            ],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((
+            CcRow::from_row(row)?,
+            row.get_typed("instance_no")?,
+            row.get_typed("title")?,
+        ));
+    }
+    Ok(out)
+}
+
+// ---------- 用户小工具 ----------
+
+/// 用户简要信息（转办 / 加签校验用）。
+#[derive(Debug, Clone)]
+pub struct UserBrief {
+    /// id。
+    pub id: Uuid,
+    /// 姓名（`real_name` 为空时用 `username`）。
+    pub name: String,
+    /// 是否机器人。
+    pub is_robot: bool,
+    /// 是否启用。
+    pub active: bool,
+}
+
+/// 按 id 取用户（未软删）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn user_brief(id: Uuid) -> DbResult<Option<UserBrief>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT u.id, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS name, \
+                    u.user_type, (u.status = 1) AS active \
+               FROM sys_user u WHERE u.id = ?::uuid AND u.deleted_at IS NULL",
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => {
+            let user_type: String = row.get_typed("user_type")?;
+            Ok(Some(UserBrief {
+                id: row.get_typed("id")?,
+                name: row.get_typed("name")?,
+                is_robot: user_type.eq_ignore_ascii_case("ROBOT"),
+                active: row.get_typed("active")?,
+            }))
+        }
+    }
+}
+
+/// 按 id 取用户姓名与部门（发起时冻结发起人快照）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn user_profile(id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT COALESCE(NULLIF(u.real_name, ''), u.username, '') AS name, u.dept_id \
+               FROM sys_user u WHERE u.id = ?::uuid AND u.deleted_at IS NULL",
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some((row.get_typed("name")?, row.get_typed("dept_id")?))),
+    }
+}
+
+// ---------- 参数小工具 ----------
+
+fn opt_uuid(value: Option<Uuid>) -> Value {
+    match value {
+        Some(id) => Value::from(&id),
+        None => Value::Null,
+    }
+}
+
+fn opt_ts(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
+    match value {
+        Some(ts) => Value::Text(ts.to_rfc3339()),
+        None => Value::Null,
+    }
 }
 
 // ==================== 单元测试 ====================

@@ -57,7 +57,8 @@ sys_file operation_logs audit_logs auth_logs security_logs
 biz_task biz_task_comment biz_task_attachment biz_task_worklog
 biz_task_member biz_task_dependency biz_task_status_def
 biz_project biz_project_member
-biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee"
+biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee
+biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc"
 
 # 2026-10-29 T7c 补入 2 张项目表（`biz_project` / `biz_project_member`）：
 #   · 卡面 t_b9f70dab「其他·12」明确要求 `biz_project` 进闸② 清单
@@ -76,6 +77,15 @@ biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assi
 #   这 4 个权限码隔离，可见范围由统一门禁 `business:flow:read` 控制。
 #   同一口径的先例：`biz_task_status_def`（全局字典）。豁免理由写在
 #   `backend/src/business/flow/model.rs` 的文件头（`// SCOPE-EXEMPT: …` 两行），闸② 命中即放过。
+
+# 2026-10-29 批次D · D2 补入 4 张审批流运行侧表（`biz_flow_instance` /
+# `biz_flow_instance_node` / `biz_flow_task` / `biz_flow_cc`），卡面 t_3715c446「其他·26」要求。
+#   口径：**运行侧接 scope**（与定义侧相反）—— 实例有 `initiator_dept_id` / `initiator_id`，
+#   可见性是「数据范围 ∪ 我发起的 ∪ 我待办/已办 ∪ 抄送我」的并集，`flow/model.rs::page_instances`
+#   用 `scope::filter_for(…, INSTANCE_TARGET)` 生成数据范围片段后与 id 集合做 OR（架构 §9.1 / D16）。
+#   `biz_flow_task` / `biz_flow_cc` / `biz_flow_instance_node` 与实例同文件（`flow/model.rs`），
+#   闸② 按**文件**判定，因此只要该文件里有 `scope::` 即整体通过；
+#   `flow/timeout.rs` 里的到期扫描是后台任务，写了 `SCOPE-EXEMPT` 理由。
 
 # 闸② 的 B0 实测基线（2026-10-28，本卡在 cf84231 树上实测）。
 # 架构文档 §2.4 记的是 17 处——那是同一套脚本在更早的树上跑的；差异 4 处的来源

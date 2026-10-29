@@ -46,6 +46,7 @@ use crate::business::flow::graph::{EdgeSpec, FlowGraph, Issue, NodeSpec, NodeTyp
 use crate::business::flow::{dto, model};
 use crate::shared::error_code;
 use crate::utils;
+use serde_json::Map;
 
 // ==================== 小工具 ====================
 
@@ -934,4 +935,921 @@ pub async fn create_draft(
         node_count,
         edge_count,
     }))
+}
+
+// ==================== 运行侧：实例 / 待办 / 抄送（12–23，批次 D · D2） ====================
+//
+// 依据：卡面 t_3715c446「4. 实例侧 API（12–23）」+ 架构 §10.1.2 / §10.1.3 / §10.1.4。
+//
+// | # | 方法 | 路径 | 权限码 |
+// |---|------|------|--------|
+// | 12 | POST | `/business/flow/instance` | `business:flow:instance:create` |
+// | 13 | GET | `/business/flow/instance/page` | `business:flow:instance:read` |
+// | 14 | GET | `/business/flow/instance/{id}` | `business:flow:instance:read` |
+// | 15 | POST | `/business/flow/instance/{id}/withdraw` | `business:flow:instance:withdraw` |
+// | 16 | POST | `/business/flow/task/{id}/approve` | `business:flow:approve` |
+// | 17 | POST | `/business/flow/task/{id}/reject` | `business:flow:approve` |
+// | 18 | POST | `/business/flow/task/{id}/transfer` | `business:flow:approve` |
+// | 19 | POST | `/business/flow/task/{id}/add-sign` | `business:flow:approve` |
+// | 20 | POST | `/business/flow/task/batch` | `business:flow:approve` |
+// | 21 | GET | `/business/flow/task/todo` | `business:flow:instance:read` |
+// | 22 | GET | `/business/flow/task/done` | `business:flow:instance:read` |
+// | 23 | GET | `/business/flow/task/cc` | `business:flow:instance:read` |
+//
+// **业务拒绝走引擎的 `rejected`**（不是 DbError）：所以这里统一
+// `if let Some(error) = out.rejected { return Err(error) }`，把 `650xx` 码原样交给前端。
+
+use crate::business::flow::engine;
+
+// ---------- 行 → 出参 ----------
+
+fn instance_res(row: &model::InstanceRow, my_task_id: Option<Uuid>) -> dto::InstanceRes {
+    dto::InstanceRes {
+        id: row.id.to_string(),
+        instance_no: row.instance_no.clone(),
+        flow_code: row.flow_code.clone(),
+        flow_name: row.flow_name.clone(),
+        version_no: row.version_no,
+        biz_type: row.biz_type.clone(),
+        biz_id: row.biz_id.map(|id| id.to_string()).unwrap_or_default(),
+        biz_no: row.biz_no.clone().unwrap_or_default(),
+        title: row.title.clone(),
+        status: row.status.clone(),
+        initiator_id: row.initiator_id.to_string(),
+        initiator_name: row.initiator_name.clone().unwrap_or_default(),
+        initiator_dept_id: row
+            .initiator_dept_id
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
+        auto_passed_nodes: row.auto_passed_nodes,
+        round_total: row.round_total,
+        result_comment: row.result_comment.clone().unwrap_or_default(),
+        started_at: row.started_at,
+        ended_at: row.ended_at,
+        created_at: row.created_at,
+        my_task_id: my_task_id.map(|id| id.to_string()).unwrap_or_default(),
+    }
+}
+
+fn node_progress_res(row: &model::NodeRow) -> dto::NodeProgressRes {
+    dto::NodeProgressRes {
+        node_key: row.node_key.clone(),
+        node_name: row.node_name.clone(),
+        node_type: row.node_type.clone(),
+        round: row.round,
+        status: row.status.clone(),
+        approval_mode: row.approval_mode.clone().unwrap_or_default(),
+        approve_ratio: row.approve_ratio.unwrap_or(0.0),
+        approver_count: row.approver_count,
+        approved_count: row.approved_count,
+        rejected_count: row.rejected_count,
+        is_auto_passed: row.is_auto_passed,
+        taken_edge_key: row.taken_edge_key.clone().unwrap_or_default(),
+        activated_at: row.activated_at,
+        ended_at: row.ended_at,
+        duration_ms: row.duration_ms,
+    }
+}
+
+fn task_res(row: &model::TaskRow, instance_no: &str, title: &str) -> dto::TaskRes {
+    dto::TaskRes {
+        id: row.id.to_string(),
+        instance_id: row.instance_id.to_string(),
+        instance_no: instance_no.to_string(),
+        title: title.to_string(),
+        node_key: row.node_key.clone(),
+        round: row.round,
+        task_kind: row.task_kind.clone(),
+        assignee_id: row.assignee_id.to_string(),
+        assignee_name: row.assignee_name.clone().unwrap_or_default(),
+        assignee_source: row.assignee_source.clone(),
+        status: row.status.clone(),
+        is_added_sign: row.is_added_sign,
+        is_self_approval: row.is_self_approval,
+        is_auto: row.is_auto,
+        comment: row.comment.clone().unwrap_or_default(),
+        transferred_from: row
+            .transferred_from
+            .map(|id| id.to_string())
+            .unwrap_or_default(),
+        created_at: row.created_at,
+        completed_at: row.completed_at,
+    }
+}
+
+fn cc_res(row: &model::CcRow, instance_no: &str, title: &str) -> dto::CcRes {
+    dto::CcRes {
+        id: row.id.to_string(),
+        instance_id: row.instance_id.to_string(),
+        instance_no: instance_no.to_string(),
+        title: title.to_string(),
+        node_key: row.node_key.clone(),
+        round: row.round,
+        is_read: row.is_read,
+        read_at: row.read_at,
+        created_at: row.created_at,
+    }
+}
+
+fn action_res(out: engine::ActionOut) -> dto::ActionRes {
+    dto::ActionRes {
+        instance_id: out.instance_id.map(|id| id.to_string()).unwrap_or_default(),
+        instance_status: out.instance_status,
+        node_status: out.node_status.unwrap_or_default(),
+        done: out.done,
+        idempotent: out.idempotent,
+        next_nodes: out.next_nodes,
+        auto_passed_nodes: out.auto_passed_nodes,
+        approver_count: out.approver_count,
+        approved_count: out.approved_count,
+        rejected_count: out.rejected_count,
+    }
+}
+
+/// `uk_biz_flow_instance_biz_active` 冲突 = 同一业务单据已有在跑实例（并发双击的库级兜底）。
+fn is_biz_active_duplicate(error: &DbError) -> bool {
+    match error {
+        DbError::UniqueViolation { constraint, .. } => constraint
+            .as_deref()
+            .map(|name| name.contains("uk_biz_flow_instance_biz_active"))
+            .unwrap_or(false),
+        other => other
+            .to_string()
+            .contains("uk_biz_flow_instance_biz_active"),
+    }
+}
+
+/// 事务跑完把锁内收集的副作用发出去（**锁外发送**，§4.5.1 第 ④ 条）。
+async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    out.rejected.take()
+}
+
+// ==================== 12. 发起 ====================
+
+/// 发起一张审批单（`POST /business/flow/instance`）。
+///
+/// 流程解析三选一：`def_id` → `flow_code` → `biz_type` 的默认发布流程。
+/// **只有 `PUBLISHED` 的流程能发起**（DRAFT 给 `400 + 65005`，不是 404）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：字段非法 / 流程未发布 / `form_data` 不是对象；
+/// - 404 + `65001`：流程不存在；
+/// - 409 + `10003`：同一业务单据已有在跑的审批单（`uk_biz_flow_instance_biz_active`）。
+#[alun::permission(
+    path = "/business/flow/instance",
+    method = "POST",
+    permission = "business:flow:instance:create"
+)]
+#[alun::post("/business/flow/instance")]
+pub async fn create_instance(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<dto::InstanceCreateReq>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let title = dto::normalize_instance_title(&req.title).map_err(field_invalid)?;
+
+    // ① 找流程定义
+    let def = if let Some(raw_id) = req.def_id.as_deref().filter(|id| !id.trim().is_empty()) {
+        let def_id = parse_uuid_field(raw_id, "流程 id")?;
+        load_def(def_id).await?
+    } else if let Some(code) = req
+        .flow_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|code| !code.is_empty())
+    {
+        match model::find_def_by_code(code)
+            .await
+            .map_err(|error| utils::db_error(error, "按编码查询流程定义"))?
+        {
+            Some(row) => row,
+            None => return Err(model::not_found()),
+        }
+    } else if let Some(biz_type) = req
+        .biz_type
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        let normalized = dto::normalize_biz_type(biz_type).map_err(field_invalid)?;
+        match model::default_def_of_biz_type(&normalized)
+            .await
+            .map_err(|error| utils::db_error(error, "查询默认流程定义"))?
+        {
+            Some(row) => row,
+            None => {
+                return Err(ApiError::new(
+                    404,
+                    error_code::FLOW_NOT_FOUND,
+                    format!("业务类型 {normalized} 没有默认的发布流程"),
+                ));
+            }
+        }
+    } else {
+        return Err(field_invalid(
+            "必须指定流程：def_id / flow_code / biz_type 三选一",
+        ));
+    };
+
+    // ② 只有已发布的流程能发起（DRAFT 上的图还没过快照，引擎读不到图）
+    let Some(version_id) = def.current_version_id else {
+        return Err(field_invalid(format!(
+            "流程 {} 尚未发布（status={}），不能发起审批",
+            def.flow_code, def.status
+        )));
+    };
+    if def.status != "PUBLISHED" {
+        return Err(field_invalid(format!(
+            "流程 {} 当前状态为 {}，只有 PUBLISHED 才能发起审批",
+            def.flow_code, def.status
+        )));
+    }
+    let version = model::find_version(version_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询流程版本"))?
+        .ok_or_else(model::version_not_found)?;
+
+    // ③ 业务单据：同一单据同时只能有一个在跑实例
+    let biz_id = match req
+        .biz_id
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+    {
+        None => None,
+        Some(raw) => Some(parse_uuid_field(raw, "业务单据 id")?),
+    };
+    if let Some(biz_id) = biz_id
+        && model::biz_instance_running(&def.biz_type, biz_id)
+            .await
+            .map_err(|error| utils::db_error(error, "校验业务单据在跑实例"))?
+    {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            "该业务单据已有正在审批中的审批单，请先处理完",
+        ));
+    }
+
+    // ④ 发起人快照
+    let (initiator_name, initiator_dept_id) = model::user_profile(operator)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人信息"))?
+        .ok_or_else(|| ApiError::new(401, error_code::AUTH_TOKEN_INVALID, "发起人账号不存在"))?;
+
+    let form_data = match req.form_data {
+        None => JsonValue::Object(Map::new()),
+        Some(value) if value.is_object() => value,
+        Some(_) => return Err(field_invalid("form_data 必须是 JSON 对象")),
+    };
+    let biz_no = req
+        .biz_no
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    let biz_type = req
+        .biz_type
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .map(dto::normalize_biz_type)
+        .transpose()
+        .map_err(field_invalid)?
+        .unwrap_or_else(|| def.biz_type.clone());
+
+    let instance_id = Uuid::now_v7();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: def.id,
+        version_id,
+        version_no: version.version_no,
+        flow_code: def.flow_code.clone(),
+        flow_name: def.flow_name.clone(),
+        biz_type,
+        biz_id,
+        biz_no,
+        title: title.clone(),
+        initiator_id: operator,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data,
+    };
+
+    let result = db()
+        .transaction(|tx| async move { engine::start(&tx, &start).await })
+        .await;
+    let mut out = match result {
+        Ok(out) => out,
+        Err(error) if is_biz_active_duplicate(&error) => {
+            return Err(ApiError::new(
+                409,
+                error_code::RESOURCE_CONFLICT,
+                "该业务单据已有正在审批中的审批单（并发提交被数据库挡下）",
+            ));
+        }
+        Err(error) => return Err(utils::db_error(error, "发起审批")),
+    };
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    tracing::info!(
+        %instance_id,
+        flow_code = %def.flow_code,
+        %operator,
+        status = %out.instance_status,
+        auto_passed = out.auto_passed_nodes,
+        "审批单已发起"
+    );
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 13. 分页 ====================
+
+/// 实例分页（**可见性过滤**：数据范围 ∪ 我发起的 ∪ 我待办/已办 ∪ 抄送我）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：状态 / 业务类型取值非法；
+/// - 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/instance/page",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/instance/page")]
+pub async fn page_instances(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::InstancePageQuery>,
+) -> ResResult<dto::InstancePageRes> {
+    let me = me_of(&claims)?;
+    let principal = crate::business::shared::principal::resolve_for_claims(&claims).await?;
+    let status = match query.status.as_deref() {
+        None => None,
+        Some(raw) if raw.trim().is_empty() => None,
+        Some(raw) => Some(dto::normalize_instance_status(raw).ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::FLOW_FIELD_INVALID,
+                format!("状态 {raw} 非法（只允许 PENDING / APPROVED / REJECTED / CANCELLED / WITHDRAWN）"),
+            )
+        })?),
+    };
+    let biz_type = match query.biz_type.as_deref() {
+        None => None,
+        Some(raw) if raw.trim().is_empty() => None,
+        Some(raw) => Some(dto::normalize_biz_type(raw).map_err(field_invalid)?),
+    };
+    let filter = model::InstanceFilter {
+        keyword: query.normalized_keyword(),
+        status,
+        flow_code: query
+            .flow_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string),
+        biz_type,
+    };
+    let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    let result = model::page_instances(&principal, &filter, page_no, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询审批单"))?;
+    let mut list = Vec::with_capacity(result.list.len());
+    for row in &result.list {
+        let my_task = model::my_task_of(row.id, me)
+            .await
+            .map_err(|error| utils::db_error(error, "查询我的待办"))?;
+        list.push(instance_res(row, my_task.map(|task| task.id)));
+    }
+    Ok(Res::ok(dto::InstancePageRes {
+        list,
+        total: result.total,
+        page: result.page,
+        page_size: result.size,
+    }))
+}
+
+// ==================== 14. 详情 ====================
+
+/// 审批单详情（实例 + 节点进度 + 时间线 + 抄送 + 我的待办）。
+///
+/// 可见性：发起人 / 审批人（含已审）/ 抄送人 / 流程管理员（架构 §9.2）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：id 不是 UUID；
+/// - 404 + `65002`：审批单不存在；
+/// - 403 + `65004`：与本单无关。
+#[alun::permission(
+    path = "/business/flow/instance/{id}",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/instance/{id}")]
+pub async fn instance_detail(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<dto::InstanceDetailRes> {
+    let me = me_of(&claims)?;
+    let instance_id = parse_uuid_field(&id, "审批单 id")?;
+    let row = model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单"))?
+        .ok_or_else(|| ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "审批单不存在"))?;
+
+    let mine = model::my_instance_ids(me)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我的相关审批单"))?;
+    let allowed = row.initiator_id == me
+        || mine.contains(&row.id)
+        || claims.has_permission("business:flow:admin");
+    if !allowed {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_FORBIDDEN,
+            "你与这张审批单无关，不能查看",
+        ));
+    }
+
+    let nodes = model::nodes_of(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询节点进度"))?;
+    let timeline = model::timeline(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批时间线"))?;
+    let cc = model::cc_of(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询抄送"))?;
+    let my_task = model::my_task_of(row.id, me)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我的待办"))?;
+
+    Ok(Res::ok(dto::InstanceDetailRes {
+        instance: instance_res(&row, my_task.as_ref().map(|task| task.id)),
+        nodes: nodes.iter().map(node_progress_res).collect(),
+        timeline: timeline
+            .iter()
+            .map(|task| task_res(task, &row.instance_no, &row.title))
+            .collect(),
+        cc: cc
+            .iter()
+            .map(|entry| cc_res(entry, &row.instance_no, &row.title))
+            .collect(),
+        my_task: my_task
+            .as_ref()
+            .map(|task| task_res(task, &row.instance_no, &row.title)),
+        auto_passed_nodes: row.auto_passed_nodes,
+    }))
+}
+
+// ==================== 15. 撤回 ====================
+
+/// 撤回（只允许发起人本人 + 零人已审，架构 D9）。
+///
+/// # 异常情况
+///
+/// - 403 + `65004`：不是发起人；
+/// - 409 + `65023`：已有人审批过；
+/// - 409 + `65024`：审批单已结束。
+#[alun::permission(
+    path = "/business/flow/instance/{id}/withdraw",
+    method = "POST",
+    permission = "business:flow:instance:withdraw"
+)]
+#[alun::post("/business/flow/instance/{id}/withdraw")]
+pub async fn withdraw_instance(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<dto::WithdrawReq>>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let instance_id = parse_uuid_field(&id, "审批单 id")?;
+    let reason = match body {
+        None => None,
+        Some(Json(req)) => dto::normalize_comment(req.reason.as_deref()).map_err(field_invalid)?,
+    };
+    let _ = reason;
+    let mut out = db()
+        .transaction(|tx| async move { engine::withdraw(&tx, instance_id, operator).await })
+        .await
+        .map_err(|error| utils::db_error(error, "撤回审批单"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 16. 同意 ====================
+
+/// 同意（含会签：`ALL` / `RATIO` 达到阈值即通过，`ANY` 一票即过）。
+///
+/// # 异常情况
+///
+/// - 403 + `65028`：这条待办不是你的；
+/// - 404 + `65003`：待办不存在；
+/// - 409 + `65024`：审批单已结束。
+#[alun::permission(
+    path = "/business/flow/task/{id}/approve",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[alun::post("/business/flow/task/{id}/approve")]
+pub async fn approve_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<dto::ApproveReq>>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let task_id = parse_uuid_field(&id, "待办 id")?;
+    let comment = match body {
+        None => None,
+        Some(Json(req)) => dto::normalize_comment(req.comment.as_deref()).map_err(field_invalid)?,
+    };
+    let mut out = db()
+        .transaction(|tx| async move {
+            engine::approve(&tx, task_id, operator, comment.as_deref()).await
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "审批同意"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 17. 驳回 ====================
+
+/// 驳回（必填意见 ≥ 5 字 + 退回目标，架构 §4.6）。
+///
+/// `return_to`：`PREV`（默认，退上一节点）/ `INITIATOR`（退发起人，生成 `RESUBMIT` 待办）/
+/// `NONE`（驳回并终止，需 `business:flow:admin`）/ 节点 key（退回指定节点，需 `business:flow:admin`）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：意见少于 5 字；
+/// - 403 + `65004`：选了「退任意节点 / 终止」但不是流程管理员；
+/// - 403 + `65028`：这条待办不是你的；
+/// - 400 + `65025`：退回目标节点不在图上。
+#[alun::permission(
+    path = "/business/flow/task/{id}/reject",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[alun::post("/business/flow/task/{id}/reject")]
+pub async fn reject_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::RejectReq>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let task_id = parse_uuid_field(&id, "待办 id")?;
+    let comment = dto::normalize_reject_comment(&req.comment).map_err(field_invalid)?;
+    let return_to = engine::ReturnTo::parse(req.return_to.as_deref().unwrap_or(""));
+    if return_to.needs_admin() && !claims.has_permission("business:flow:admin") {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_FORBIDDEN,
+            "退回任意节点 / 驳回并终止需要流程管理员权限（business:flow:admin）",
+        ));
+    }
+    let mut out = db()
+        .transaction(|tx| async move {
+            engine::reject(&tx, task_id, operator, &comment, return_to).await
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "审批驳回"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 18. 转办 ====================
+
+/// 转办（旧行 `TRANSFERRED` 留痕，新行 `transferred_from` 指向旧行，架构 D12）。
+///
+/// # 异常情况
+///
+/// - 400 + `65026`：目标用户不存在 / 已停用 / 是机器人且节点未开 `allow_robot` / 转给自己；
+/// - 403 + `65028`：只能转办自己的待办。
+#[alun::permission(
+    path = "/business/flow/task/{id}/transfer",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[alun::post("/business/flow/task/{id}/transfer")]
+pub async fn transfer_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::TransferReq>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let task_id = parse_uuid_field(&id, "待办 id")?;
+    let to_user_id = parse_uuid_field(&req.to_user_id, "目标用户 id")?;
+    let reason = dto::normalize_comment(req.reason.as_deref()).map_err(field_invalid)?;
+    let mut out = db()
+        .transaction(|tx| async move {
+            engine::transfer(&tx, task_id, operator, to_user_id, reason.as_deref()).await
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "转办待办"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 19. 加签 ====================
+
+/// 并行加签（同节点加人，应到 + 1，架构 D11）。
+///
+/// # 异常情况
+///
+/// - 400 + `65027`：`user_ids` 为空 / 超过 10 个 / 没有一个可用；
+/// - 409 + `65027`：节点不是审批中；
+/// - 403 + `65028`：只能给自己的待办加签。
+#[alun::permission(
+    path = "/business/flow/task/{id}/add-sign",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[alun::post("/business/flow/task/{id}/add-sign")]
+pub async fn add_sign_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::AddSignReq>,
+) -> ResResult<dto::ActionRes> {
+    let operator = me_of(&claims)?;
+    let task_id = parse_uuid_field(&id, "待办 id")?;
+    if req.user_ids.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::FLOW_ADD_SIGN_INVALID,
+            "加签人不能为空",
+        ));
+    }
+    if req.user_ids.len() > dto::MAX_ADD_SIGN_USERS {
+        return Err(ApiError::new(
+            400,
+            error_code::FLOW_ADD_SIGN_INVALID,
+            format!("单次加签最多 {} 人", dto::MAX_ADD_SIGN_USERS),
+        ));
+    }
+    let mut user_ids = Vec::with_capacity(req.user_ids.len());
+    for raw in &req.user_ids {
+        user_ids.push(parse_uuid_field(raw, "加签人 id")?);
+    }
+    let mut out = db()
+        .transaction(|tx| async move { engine::add_sign(&tx, task_id, operator, &user_ids).await })
+        .await
+        .map_err(|error| utils::db_error(error, "加签"))?;
+    if let Some(error) = drain(&mut out).await {
+        return Err(error);
+    }
+    Ok(Res::ok(action_res(out)))
+}
+
+// ==================== 20. 批量审批 ====================
+
+/// 批量同意 / 驳回（**逐条独立事务**，单条失败不影响其它条，架构 §10.1.3 #28）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：`task_ids` 为空 / 超过 50 条 / 动作非法 / 驳回意见不足 5 字。
+#[alun::permission(
+    path = "/business/flow/task/batch",
+    method = "POST",
+    permission = "business:flow:approve"
+)]
+#[alun::post("/business/flow/task/batch")]
+pub async fn batch_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<dto::BatchReq>,
+) -> ResResult<dto::BatchRes> {
+    let operator = me_of(&claims)?;
+    if req.task_ids.is_empty() {
+        return Err(field_invalid("task_ids 不能为空"));
+    }
+    if req.task_ids.len() > dto::MAX_BATCH_TASKS {
+        return Err(field_invalid(format!(
+            "单次批量审批最多 {} 条",
+            dto::MAX_BATCH_TASKS
+        )));
+    }
+    let approve = match req.action.trim().to_ascii_uppercase().as_str() {
+        "APPROVE" => true,
+        "REJECT" => false,
+        other => {
+            return Err(field_invalid(format!(
+                "动作 {other} 非法（只允许 APPROVE / REJECT）"
+            )));
+        }
+    };
+    let comment = if approve {
+        dto::normalize_comment(req.comment.as_deref()).map_err(field_invalid)?
+    } else {
+        Some(
+            dto::normalize_reject_comment(req.comment.as_deref().unwrap_or(""))
+                .map_err(field_invalid)?,
+        )
+    };
+    let return_to = engine::ReturnTo::parse(req.return_to.as_deref().unwrap_or(""));
+    if !approve && return_to.needs_admin() && !claims.has_permission("business:flow:admin") {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_FORBIDDEN,
+            "批量驳回并终止 / 退任意节点需要流程管理员权限",
+        ));
+    }
+
+    let mut items = Vec::with_capacity(req.task_ids.len());
+    let mut succeeded = 0usize;
+    for raw in &req.task_ids {
+        let task_id = match Uuid::parse_str(raw.trim()) {
+            Ok(id) => id,
+            Err(_) => {
+                items.push(dto::BatchItemRes {
+                    task_id: raw.clone(),
+                    ok: false,
+                    code: error_code::FLOW_FIELD_INVALID,
+                    message: "待办 id 格式非法".to_string(),
+                });
+                continue;
+            }
+        };
+        let comment = comment.clone();
+        let return_to = return_to.clone();
+        // 逐条独立事务：一条 409 不影响另外 49 条
+        let result = db()
+            .transaction(|tx| async move {
+                if approve {
+                    engine::approve(&tx, task_id, operator, comment.as_deref()).await
+                } else {
+                    engine::reject(
+                        &tx,
+                        task_id,
+                        operator,
+                        comment.as_deref().unwrap_or("批量驳回"),
+                        return_to,
+                    )
+                    .await
+                }
+            })
+            .await;
+        match result {
+            Ok(mut out) => {
+                let rejected = drain(&mut out).await;
+                match rejected {
+                    None => {
+                        succeeded += 1;
+                        items.push(dto::BatchItemRes {
+                            task_id: raw.clone(),
+                            ok: true,
+                            code: 0,
+                            message: String::new(),
+                        });
+                    }
+                    Some(error) => items.push(dto::BatchItemRes {
+                        task_id: raw.clone(),
+                        ok: false,
+                        code: error.code,
+                        message: error.msg,
+                    }),
+                }
+            }
+            Err(error) => {
+                let api = utils::db_error(error, "批量审批");
+                items.push(dto::BatchItemRes {
+                    task_id: raw.clone(),
+                    ok: false,
+                    code: api.code,
+                    message: api.msg,
+                });
+            }
+        }
+    }
+    let failed = items.len() - succeeded;
+    Ok(Res::ok(dto::BatchRes {
+        total: items.len(),
+        succeeded,
+        failed,
+        items,
+    }))
+}
+
+// ==================== 21–23. 我的待办 / 已办 / 抄送 ====================
+
+/// 我的待办（`APPROVAL` + `RESUBMIT`，只返回 `PENDING`）。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/task/todo",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/task/todo")]
+pub async fn my_todo(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::MyTaskQuery>,
+) -> ResResult<dto::TaskPageRes> {
+    let me = me_of(&claims)?;
+    let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    let rows = model::page_my_tasks(me, &["PENDING"], &dto::TASK_KINDS, page_no, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我的待办"))?;
+    let list = enrich_tasks(&rows).await?;
+    Ok(Res::ok(dto::TaskPageRes {
+        total: rows.len() as u64,
+        list,
+        page: page_no,
+        page_size,
+    }))
+}
+
+/// 我的已办（同意 / 驳回 / 被转办出去的，按时间倒序）。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/task/done",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/task/done")]
+pub async fn my_done(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::MyTaskQuery>,
+) -> ResResult<dto::TaskPageRes> {
+    let me = me_of(&claims)?;
+    let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    let rows = model::page_my_tasks(
+        me,
+        &["APPROVED", "REJECTED", "TRANSFERRED"],
+        &dto::TASK_KINDS,
+        page_no,
+        page_size,
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "查询我的已办"))?;
+    let list = enrich_tasks(&rows).await?;
+    Ok(Res::ok(dto::TaskPageRes {
+        total: rows.len() as u64,
+        list,
+        page: page_no,
+        page_size,
+    }))
+}
+
+/// 抄送我的（未读优先）。
+///
+/// # 异常情况
+///
+/// 500：数据库异常。
+#[alun::permission(
+    path = "/business/flow/task/cc",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[alun::get("/business/flow/task/cc")]
+pub async fn my_cc(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::MyTaskQuery>,
+) -> ResResult<dto::CcPageRes> {
+    let me = me_of(&claims)?;
+    let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
+    let rows = model::page_my_cc(me, page_no, page_size)
+        .await
+        .map_err(|error| utils::db_error(error, "查询抄送我的"))?;
+    let list = rows
+        .iter()
+        .map(|(row, instance_no, title)| cc_res(row, instance_no, title))
+        .collect();
+    Ok(Res::ok(dto::CcPageRes {
+        total: rows.len() as u64,
+        list,
+        page: page_no,
+        page_size,
+    }))
+}
+
+/// 待办列表补齐单据号 / 标题（前端列表要显示「哪张单的哪一步」）。
+async fn enrich_tasks(rows: &[model::TaskRow]) -> std::result::Result<Vec<dto::TaskRes>, ApiError> {
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        let instance = model::find_instance(row.instance_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询待办所属审批单"))?;
+        let (instance_no, title) = match instance {
+            Some(instance) => (instance.instance_no, instance.title),
+            None => (String::new(), String::new()),
+        };
+        out.push(task_res(row, &instance_no, &title));
+    }
+    Ok(out)
 }
