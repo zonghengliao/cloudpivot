@@ -188,6 +188,48 @@ const routes: RouteRecordRaw[] = [
         component: () => import('@/views/system/mutex/index.vue'),
         meta: { title: '角色互斥', permission: 'system:role-mutex:list' },
       },
+      // ==================== 通用底座 · 批次 C（公告 / 帮助 / 变更日志） ====================
+      // path 与 `sys_menu.path` 逐字一致，否则侧栏点了进 404：
+      //   公告中心 V0087 → `/announcement`；公告管理 V0085 → `/business/announcement`；
+      //   帮助中心 V0088 → `/help`；变更日志 V0085 → `/system/change-log`。
+      // 帮助文档管理没有独立菜单（`V0088` 只种了帮助中心一个页面），由帮助中心的
+      // 「文档管理」按钮进入，用 `system:help:doc:list` 守门；变更详情是列表的子路由。
+      {
+        path: 'announcement',
+        name: 'AnnouncementCenter',
+        component: () => import('@/views/business/announcement/center/index.vue'),
+        meta: { title: '公告中心', permission: 'business:announcement:read' },
+      },
+      {
+        path: 'business/announcement',
+        name: 'AnnouncementManage',
+        component: () => import('@/views/business/announcement/manage/index.vue'),
+        meta: { title: '公告管理', permission: 'business:announcement:list' },
+      },
+      {
+        path: 'help',
+        name: 'HelpCenter',
+        component: () => import('@/views/business/help/center/index.vue'),
+        meta: { title: '帮助中心', permission: 'system:help:read' },
+      },
+      {
+        path: 'help/manage',
+        name: 'HelpManage',
+        component: () => import('@/views/business/help/manage/index.vue'),
+        meta: { title: '帮助文档管理', permission: 'system:help:doc:list' },
+      },
+      {
+        path: 'system/change-log',
+        name: 'ChangeLogList',
+        component: () => import('@/views/system/changelog/list/index.vue'),
+        meta: { title: '变更日志', permission: 'system:change-log:list' },
+      },
+      {
+        path: 'system/change-log/detail/:id',
+        name: 'ChangeLogDetail',
+        component: () => import('@/views/system/changelog/detail/index.vue'),
+        meta: { title: '变更详情', permission: 'system:change-log:list' },
+      },
       {
         path: 'result/403',
         name: 'Result403',

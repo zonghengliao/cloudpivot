@@ -147,13 +147,91 @@ export const BATCH_B_PERMISSIONS = {
   mutexConflict: 'system:role-mutex:conflict',
 } as const;
 
-/** 全部权限码合集（批次 A + 批次 B；`PERM.xxx` 是页面里唯一的取码方式） */
+/**
+ * 批次 C（公告管理 / 帮助文档 / 变更日志）权限码字典 —— 20 个节点。
+ *
+ * # 与 PRD §6.1 的偏差（**以后端已验收的注解与迁移种子为准**，不在前端单方面抹平）
+ *
+ * - PRD 写 `business:help:*`（7 码）、`business:changelog:*`（4 码）、公告 10 码；
+ * - 后端实际落库 20 个：
+ *   · 公告 7 个 `business:announcement:{read,list,create,update,delete,publish,offline}`
+ *     —— 读码是 `read`（不是 `view`，`V0087` 补种并**授予所有未软删角色**），
+ *     下线单独成码 `offline`（PRD 叫 `revoke`），**没有** `publish-all` / `top` /
+ *     `read-stat`：全员发布未拆码，置顶与阅读明细分别复用 `update` / `list`；
+ *   · 帮助 10 个 `system:help:{read,doc:list,doc:create,doc:update,doc:delete,doc:publish,
+ *     category:list,category:create,category:update,category:delete}`（`V0088`），
+ *     PRD 的 `business:help:view` 对应 `system:help:read`，分类四码是 `category:*`；
+ *   · 变更日志 3 个 `system:change-log:{list,export,clean}`（`V0085`），
+ *     PRD 的 `detail` 码不存在（详情复用 `list`），另有 `clean`（清分区）本批不出按钮。
+ *
+ * 结论：页面里出现的就是后端能放行的码，**不存在「按钮能点但接口 403」**。
+ */
+
+/** 公告权限码（7 个，`business:announcement:*`） */
+export const ANNOUNCEMENT_PERMISSIONS = {
+  /** 阅读公告（用户端；所有未软删角色默认授予） */
+  announcementRead: 'business:announcement:read',
+  /** 公告管理列表 / 详情 / 阅读统计 / 预览（管理端入口码） */
+  announcementList: 'business:announcement:list',
+  /** 新建草稿 */
+  announcementCreate: 'business:announcement:create',
+  /** 编辑 / 置顶 / 取消置顶 */
+  announcementUpdate: 'business:announcement:update',
+  /** 删除（软删） */
+  announcementDelete: 'business:announcement:delete',
+  /** 发布（含扇出 / 再次发布） */
+  announcementPublish: 'business:announcement:publish',
+  /** 下线 */
+  announcementOffline: 'business:announcement:offline',
+} as const;
+
+/** 帮助文档权限码（10 个，`system:help:*`） */
+export const HELP_PERMISSIONS = {
+  /** 阅读帮助文档（分类树 / 列表 / 详情 / 检索；所有未软删角色默认授予） */
+  helpRead: 'system:help:read',
+  /** 文档管理列表 / 编辑回显 / 版本列表（管理端入口码） */
+  helpDocList: 'system:help:doc:list',
+  /** 新建文档（草稿） */
+  helpDocCreate: 'system:help:doc:create',
+  /** 编辑文档（敏感：官方口径变更单独授权） */
+  helpDocUpdate: 'system:help:doc:update',
+  /** 删除文档（软删） */
+  helpDocDelete: 'system:help:doc:delete',
+  /** 发布 / 回滚文档 */
+  helpDocPublish: 'system:help:doc:publish',
+  /** 分类管理列表（含停用） */
+  helpCategoryList: 'system:help:category:list',
+  /** 新建分类 */
+  helpCategoryCreate: 'system:help:category:create',
+  /** 编辑 / 移动分类 */
+  helpCategoryUpdate: 'system:help:category:update',
+  /** 删除分类 */
+  helpCategoryDelete: 'system:help:category:delete',
+} as const;
+
+/** 变更日志权限码（3 个，`system:change-log:*`） */
+export const CHANGELOG_PERMISSIONS = {
+  /** 全局检索 / 详情 / 对象历史 / 分区清单（入口码） */
+  changelogList: 'system:change-log:list',
+  /** 导出检索结果（导出的是脱敏数据，每次导出写审计） */
+  changelogExport: 'system:change-log:export',
+  /** 手工清理过期分区（本批不出按钮，仅登记码值） */
+  changelogClean: 'system:change-log:clean',
+} as const;
+
+/** 全部权限码合集（批次 A + B + C；`PERM.xxx` 是页面里唯一的取码方式） */
 export const PERM = {
   ...STORAGE_PERMISSIONS,
   ...IMPEXP_PERMISSIONS,
   ...NOTICE_PERMISSIONS,
   ...BATCH_B_PERMISSIONS,
+  ...ANNOUNCEMENT_PERMISSIONS,
+  ...HELP_PERMISSIONS,
+  ...CHANGELOG_PERMISSIONS,
 } as const;
 
 /** 批次 A 权限码总数自检值（34 —— V0052 补种 `business:impexp:export:retry`） */
 export const BATCH_A_PERMISSION_COUNT = 34;
+
+/** 批次 C 权限码总数自检值（20 —— 公告 7 + 帮助 10 + 变更日志 3） */
+export const BATCH_C_PERMISSION_COUNT = 20;
