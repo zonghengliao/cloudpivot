@@ -11,9 +11,9 @@
  *
  * # 为什么目录要去重相加
  *
- * 任务列表 / 任务看板 / 甘特图三个菜单**共用** `task_todo` 一个桶（同一个数字）。
- * 目录若直接「把三个子菜单的数字相加」，工作任务目录会显示 6 而不是 2。
- * 所以目录徽标的口径是「把子树里出现过的**桶**去重后相加」，不是「子节点徽标之和」。
+ * 工作任务的三视图（列表 / 看板 / 甘特 / 燃尽）是**同一批任务的不同展现**，
+ * 所以徽标只挂在**目录** `/task` 上，子菜单不挂（否则四处显示同一个数字）。
+ * 目录徽标的口径仍是「子树里出现过的**桶**去重后相加」。
  *
  * # 切路由为什么不重新请求
  *
@@ -41,9 +41,10 @@ const PATH_BADGE: Record<string, BadgeKey> = {
   '/announcement': 'announcement_unread',
   '/business/notice/message': 'notice_unread',
   '/flow/task': 'flow_todo',
-  '/task/list': 'task_todo',
-  '/task/board': 'task_todo',
-  '/task/gantt': 'task_todo',
+  // 工作任务：只在**目录**上挂徽标（三视图是同一批任务的不同展现，
+  // 每个子菜单各显示一个同样的数字只是视觉噪音）。
+  // `badgeKeysOfSubtree` 会收集目录自身的 path，所以目录仍有徽标。
+  '/task': 'task_todo',
 };
 
 /** 去掉尾部斜杠（`/task/list/` 与 `/task/list` 视为同一菜单） */
