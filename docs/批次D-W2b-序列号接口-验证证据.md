@@ -140,7 +140,23 @@ HTTP 全链路 2 ms（含 JWT 中间件 + JSON），两条都远低于 10 ms。
 6. `location_id` 语义：硬外键指向 `biz_inventory_location.id`（不是 `biz_location.id`），
    所以扫码取库位名多一跳（`serial.location_id → biz_inventory_location.location_id → biz_location.location_name`）。
 
-## 八、遗留债（给后续卡）
+## 八、rebase 到最新 main 后的复跑（`6748d48`，含他人 `6001bc5`）
+
+rebase 后（任务模块有他人提交）在**最终树**上重跑一遍全链，结论不变、数字更新：
+
+```
+cargo test --lib -j 2（ERP_DB_URL → 隔离库）: 1066 passed; 0 failed   （1005 基线 + 本卡 42 + 他人 12 …）
+scripts/check.sh: exit 0（闸① 0 / 闸② 0 / C7 G1–G6 全过）
+scripts/verify/w2b_serial_api.sh: 73 项 PASS / 0 FAIL
+  · 1000 条批量生成 102 ms；首号 SN-20261030-000001 末号 SN-20261030-001000
+  · EXPLAIN ANALYZE：Index Scan using uk_biz_material_serial_no，Execution Time 0.060 ms
+  · 扫码 HTTP 全链路 2 ms
+  · 真库单测 42 passed / 0 failed
+dev 库（cargo-watch 监听 migrations）：已自动应用到 142，序列号权限码 5 个
+prod 库：仍是 141，序列号权限码 0 个（未动生产）；prod 8023 / dev 8024 /health 均 200
+```
+
+## 九、遗留债（给后续卡）
 
 1. `serial.location_id` 指向**库位库存行**，但生成接口只校验「行存在 + 属于该仓库」，
    不校验「该库存行的 material_id 与本次物料一致」——同一库位库存行可能被另一个物料借用。
