@@ -474,6 +474,47 @@ async fn callback_task_row(task_id: Uuid) -> DbResult<Option<CallbackTaskRow>> {
     }
 }
 
+// ==================== 写：任务 → 流程（删除即终止，T12） ====================
+
+/// 任务删除时写进审批单 `result_comment` / 待办 `comment` 的文案。
+///
+/// 这句文案是**审计口径**的一部分（用户在「审批中心」看到的就是它），
+/// 验收脚本按它做精确断言 —— 集中在这里定义，不许在别处另写一份。
+pub const TASK_DELETE_CANCEL_COMMENT: &str = "任务已删除，审批单自动终止";
+
+/// 任务被**软删**时，终止它名下所有在跑的审批单（T12）。
+///
+/// # 必须与删任务同一事务
+///
+/// 卡面决策：终止失败 → 整笔回滚。「留一个孤儿待办」比「这个任务这次删不掉」更麻烦
+/// —— 孤儿 `PENDING` 实例会污染待办数、审批统计与工作量报表（用户已经踩过），
+/// 而删不掉只是重试一次。
+///
+/// # 返回值
+///
+/// 三张表各被终止多少行（实例 / 待办 / 节点），用于结构化日志与 e2e 断言。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（调用方事务回滚，任务不会被删掉）。
+pub async fn cancel_on_task_deleted(
+    tx: &Transaction,
+    task_id: Uuid,
+    task_no: &str,
+) -> DbResult<model::CancelledOfBiz> {
+    let out =
+        model::cancel_pending_of_biz(tx, task_id, task_no, TASK_DELETE_CANCEL_COMMENT).await?;
+    tracing::info!(
+        %task_id,
+        task_no,
+        instances = out.instances,
+        tasks = out.tasks,
+        nodes = out.nodes,
+        "任务已删除，在跑审批单已终止"
+    );
+    Ok(out)
+}
+
 // ==================== 单元测试（纯逻辑部分） ====================
 
 #[cfg(test)]

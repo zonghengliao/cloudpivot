@@ -545,6 +545,13 @@ pub async fn update(
 /// - 403 + `63002`：既不是负责人 / 创建人，也不是超管；
 /// - 409 + `63006`：仍有未完成子任务；
 /// - 500：数据库异常。
+///
+/// # 副作用（T12）
+///
+/// 软删任务与「终止它的在跑审批单」在**同一事务**里：该任务名下 `PENDING` 的
+/// 审批实例 → `CANCELLED`（同写 `ended_at` + `result_comment`），其 `PENDING`
+/// 待办 → `CANCELLED`（同写 `completed_at`）。否则审批单成孤儿，一直挂在待办里。
+/// `APPROVED` / `REJECTED` / `WITHDRAWN` 的实例**不动**（已完成的事实留作审计）。
 #[nik::permission(
     path = "/business/task/{id}",
     method = "DELETE",
@@ -589,11 +596,31 @@ pub async fn delete(
             format!("还有 {open_children} 个未完成子任务，请先处理再删除"),
         ));
     }
-    let affected = db()
-        .transaction(|tx| async move { model::soft_delete(&tx, task_id, me).await })
+    // T12：软删任务与「终止它的在跑审批单」必须**同一事务**。
+    // 只删任务会留下 `PENDING` 孤儿实例（一直挂在审批待办里，点进去任务已不存在）；
+    // 终止失败就整笔回滚 —— 留个孤儿待办比这次删不掉任务更麻烦（卡面决策）。
+    let task_no = current.card.task_no.clone();
+    let (affected, cancelled) = db()
+        .transaction(|tx| async move {
+            let affected = model::soft_delete(&tx, task_id, me).await?;
+            // 已经删过（重复删除幂等，affected = 0）→ 没有在跑实例可终止，省一次写。
+            let cancelled = if affected > 0 {
+                task_bridge::cancel_on_task_deleted(&tx, task_id, &task_no).await?
+            } else {
+                crate::business::flow::model::CancelledOfBiz::default()
+            };
+            Ok((affected, cancelled))
+        })
         .await
         .map_err(|error| utils::db_error(error, "删除任务"))?;
-    tracing::info!(task_id = %task_id, operator = %me, affected, "任务已软删");
+    tracing::info!(
+        task_id = %task_id,
+        operator = %me,
+        affected,
+        cancelled_instances = cancelled.instances,
+        cancelled_tasks = cancelled.tasks,
+        "任务已软删并终止在跑审批单"
+    );
     Ok(Res::ok(TaskDeleteRes {
         id: task_id.to_string(),
         deleted: affected > 0,
