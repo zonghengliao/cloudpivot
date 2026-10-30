@@ -1297,20 +1297,57 @@ pub async fn update_task(
     ex.exec_sql(sql, params).await
 }
 
-/// 软删除任务。
+/// 软删除任务 (+ 清理它的依赖行)。
+///
+/// # 为什么这里还要删依赖（软删不触发 CASCADE）
+///
+/// `biz_task_dependency` 的两个外键都写了 `ON DELETE CASCADE`，但任务是**软删**
+/// （`deleted_at`），CASCADE 只在**物理**删除时触发 —— 所以软删会把依赖行留成孤儿
+/// （指向一条已删任务）。孤儿不影响读路径（所有依赖查询都 `JOIN biz_task … AND
+/// deleted_at IS NULL`），但它会永久累积，且让启动自检（[`crate::shared::startup_guard`]）
+/// 报警。
+///
+/// 依赖关系本身**没有历史价值**（谁依赖谁随时可按业务重建），且该表没有 `deleted_at`
+/// 列，所以这里直接 `DELETE`，并与任务软删**同一事务**（要么都成、要么都回滚）。
 ///
 /// # 返回值
 ///
-/// 受影响行数（0 = 任务不存在 / 已软删）。
+/// 任务受影响行数（0 = 任务不存在 / 已软删；此时依赖清理照做，重复删除因此幂等）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（事务由调用方回滚）。
+pub async fn soft_delete(ex: &Transaction, id: Uuid, operator: Uuid) -> DbResult<u64> {
+    let affected = ex
+        .execute_with_params(
+            "UPDATE biz_task SET deleted_at = now(), updated_at = now(), update_by = ?::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&operator), Value::from(&id)],
+        )
+        .await?;
+    purge_dependencies(ex, id).await?;
+    Ok(affected)
+}
+
+/// 清掉与某个任务相关的**全部**依赖行（双向：我作为后继 + 我作为前置）。
+///
+/// # 为什么双向
+///
+/// 只删一侧会留下另一半孤儿：A→B 在库里是一行 `(task_id=A, depends_on_id=B)`，
+/// 删 A 要看 `task_id`、删 B 要看 `depends_on_id`。
+///
+/// # 返回值
+///
+/// 被删掉的依赖行数（0 = 该任务没有依赖，属正常）。
 ///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn soft_delete(ex: &Transaction, id: Uuid, operator: Uuid) -> DbResult<u64> {
-    ex.execute_with_params(
-        "UPDATE biz_task SET deleted_at = now(), updated_at = now(), update_by = ?::uuid \
-          WHERE id = ?::uuid AND deleted_at IS NULL",
-        vec![Value::from(&operator), Value::from(&id)],
+pub async fn purge_dependencies(ex: &impl SqlExecutor, id: Uuid) -> DbResult<u64> {
+    ex.exec_sql(
+        "DELETE FROM biz_task_dependency WHERE task_id = ?::uuid OR depends_on_id = ?::uuid"
+            .to_string(),
+        vec![Value::from(&id), Value::from(&id)],
     )
     .await
 }

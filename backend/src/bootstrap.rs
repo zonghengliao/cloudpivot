@@ -56,7 +56,31 @@ pub async fn bootstrap() {
         load_runtime_config(),
         preflight_permission_guard(),
         ai_agent_invariant_guard(),
+        orphan_dependency_guard(),
     );
+}
+
+/// 启动自检：孤儿任务依赖（E7 兜底告警）。
+///
+/// # 为什么只 WARN、任何 profile 都不拒启动
+///
+/// 孤儿依赖（后继或前置已软删的 `biz_task_dependency` 行）不影响任何读路径 ——
+/// 列表 / 详情 / 甘特全部带 `JOIN biz_task … AND deleted_at IS NULL`，看不见它。
+/// 它的危害是「脏数据永久累积」，所以**点名告警**给运维，但不值得为它拒绝上线
+/// （与 [`ai_agent_invariant_guard`] 的 prod `exit(1)` 刻意不同：那一项错的是权限与
+/// 审计口径，带病上线比不启动更危险）。
+///
+/// # 异常情况
+///
+/// 查库失败（连不上 / 权限不足）只记 `warn` 并继续启动：这一项不该成为启动的单点故障。
+async fn orphan_dependency_guard() {
+    match crate::shared::startup_guard::count_orphan_task_dependencies().await {
+        Ok(count) => match crate::shared::startup_guard::orphan_dependency_warning(count) {
+            Some(message) => tracing::warn!("{message}"),
+            None => tracing::info!("孤儿任务依赖自检通过：0 条"),
+        },
+        Err(error) => tracing::warn!("孤儿任务依赖自检无法完成（继续启动）：{error}"),
+    }
 }
 
 /// AI 用户不变式自检（L1 · laoliu 2026-10-29 追加硬要求）。

@@ -793,6 +793,58 @@ pub async fn check_ai_agent_invariant() -> std::result::Result<(), Error> {
     Ok(())
 }
 
+/// 启动自检：孤儿任务依赖的**数量**（后继或前置已被软删的 `biz_task_dependency` 行）。
+///
+/// # 为什么要有这一项
+///
+/// `biz_task_dependency` 的两个外键都是 `ON DELETE CASCADE`，但任务是**软删**
+/// （`deleted_at`）：CASCADE 只在物理删除时触发，软删不会带走依赖行。写完删除路径的
+/// 清理（`business::task::model::soft_delete` 在同一事务里 `DELETE`）之后，本项是
+/// 那道清理的**兜底**：历史残留、绕过接口的手工改库、并发漏删，都能在启动日志里被点名。
+///
+/// # 处置
+///
+/// **只告警、不阻启动**（调用方 [`crate::bootstrap`] 决定级别）：孤儿依赖不影响任何
+/// 读路径（列表 / 详情 / 甘特全带 `JOIN biz_task … AND deleted_at IS NULL`），
+/// 它只是脏数据在累积 —— 为它拒绝上线代价远大于收益。
+///
+/// # 返回值
+///
+/// 孤儿依赖行数；`0` = 干净。
+///
+/// # 异常情况
+///
+/// 查库失败（连接不可用 / 权限不足）→ [`Error::Config`]，调用方同样只告警。
+// SCOPE-EXEMPT: 启动自检要的是「不受任何数据范围限制地看全库」，注入范围会漏检。
+pub async fn count_orphan_task_dependencies() -> std::result::Result<u64, Error> {
+    let count: i64 = db()
+        .scalar_with_params(
+            "SELECT count(*) FROM biz_task_dependency d \
+             WHERE NOT EXISTS (SELECT 1 FROM biz_task x \
+                                WHERE x.id = d.task_id AND x.deleted_at IS NULL) \
+                OR NOT EXISTS (SELECT 1 FROM biz_task y \
+                                WHERE y.id = d.depends_on_id AND y.deleted_at IS NULL)",
+            vec![],
+        )
+        .await
+        .map_err(|e| Error::Config(format!("孤儿任务依赖自检无法完成（查库失败）：{e}")))?;
+    Ok(count.max(0) as u64)
+}
+
+/// 孤儿依赖的告警文案：`0` 条 → `None`（正常，不打告警日志）；`> 0` → 点名数量。
+///
+/// 抽成纯函数是为了能单测「多少条才告警」这条判定，不必连库。
+pub fn orphan_dependency_warning(count: u64) -> Option<String> {
+    if count == 0 {
+        return None;
+    }
+    Some(format!(
+        "发现 {count} 条孤儿任务依赖（后继或前置已软删；ON DELETE CASCADE 对软删不生效）。\
+         不阻断业务（查询已按 deleted_at 过滤），但属脏数据累积，建议清理：\
+         自本版本起任务删除会在同事务里清理依赖，存量行请按同条件 DELETE。"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1071,5 +1123,21 @@ enabled = false
             StartupViolation::from(auth.clone()).to_string(),
             auth.to_string()
         );
+    }
+
+    /// 孤儿任务依赖的告警判定（E7）：0 条不告警，>0 告警且点名数量。
+    #[test]
+    fn orphan_dependency_warning_only_fires_when_positive() {
+        assert!(
+            orphan_dependency_warning(0).is_none(),
+            "0 条孤儿不应产生告警文案"
+        );
+
+        let one = orphan_dependency_warning(1).expect("1 条孤儿必须告警");
+        assert!(one.contains('1'), "{one}");
+
+        let many = orphan_dependency_warning(17).expect("17 条孤儿必须告警");
+        assert!(many.contains("17"), "{many}");
+        assert!(many.contains("依赖"), "{many}");
     }
 }
