@@ -420,7 +420,11 @@ mod tests {
                 "urgeCount",
             ] {
                 assert!(vars.get(key).is_some(), "{} 缺变量 {key}", event.code());
-                assert!(!vars[key].is_null(), "{} 的 {key} 不能是 null", event.code());
+                assert!(
+                    !vars[key].is_null(),
+                    "{} 的 {key} 不能是 null",
+                    event.code()
+                );
             }
         }
     }
@@ -446,7 +450,10 @@ mod tests {
             base.idempotency_key(),
             base.clone().with_round(2).idempotency_key()
         );
-        assert_ne!(base.idempotency_key(), notice(FlowEvent::Urge).idempotency_key());
+        assert_ne!(
+            base.idempotency_key(),
+            notice(FlowEvent::Urge).idempotency_key()
+        );
         assert!(base.idempotency_key().starts_with("FLOW:TODO:"));
         // 幂等键长度：`sys_notice.idempotency_key` 一列最多 128 字符
         assert!(base.idempotency_key().chars().count() <= 128);
