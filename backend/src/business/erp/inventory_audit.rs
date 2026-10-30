@@ -61,24 +61,24 @@
 //!    是 0 位小数、`qty` 是 4 位，不显式定标会让**同一个字段**在不同行出现 `"3"` 与
 //!    `"5.0000"` 两种字符串形态（e2e 实测踩到）。
 //!
-//! # 已知的跨卡耦合（V0139 三列唯一键，W3a）
+//! # 与 V0139（W3a · 三列唯一键）的对齐
 //!
-//! 本卡按**当前**已提交的 schema（V0137/V0138，`biz_inventory` 的唯一键是
-//! `uk_biz_inv_mat_wh (material_id, warehouse_id)`、每 (物料, 仓库) 一行）落地。
-//! W3a 的 V0139 会把 `biz_inventory` 加 `location_id` 并把唯一键换成
-//! `uk_biz_inv_mat_wh_loc (material_id, warehouse_id, COALESCE(location_id, 零 uuid))`，
-//! 届时本文件有**两处**要跟着改（报账单侧已经提前做成汇总，不受影响）：
+//! W3a 的 `V0139` 给 `biz_inventory` 加了 `location_id`，唯一键从
+//! `uk_biz_inv_mat_wh (material_id, warehouse_id)` 换成
+//! `uk_biz_inv_mat_wh_loc (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`。
+//! `location_id IS NULL` 是**整仓汇总桶**（W0 §2.4），`serial_model::recompute_quantity`
+//! 也是往这一桶写。本文件两处按这个口径落地：
 //!
-//! 1. [`fix_sql`] 的 `ON CONFLICT (material_id, warehouse_id) DO UPDATE` →
-//!    `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))`，
-//!    否则 PG 报 42P10（`no unique or exclusion constraint matching the ON CONFLICT specification`），
-//!    与 `serial_model::recompute_quantity` 同一处修法（V0139 文件头 ④ 已写明）；
-//!    另外 `INSERT` 的列清单要补 `location_id`（写 NULL = 整仓汇总桶）。
-//! 2. 只有**报账单侧**已经防御：`book` CTE 用 `SUM(qty) GROUP BY (material_id, warehouse_id)`，
-//!    库位维度出现后仍然是「仓级汇总」，不会因为多行而重复计数。
+//! 1. **账面侧**（[`AUDIT_CTE`] 的 `book`）：`COALESCE(MAX(qty) FILTER (WHERE location_id IS NULL), SUM(qty))`
+//!    —— 有汇总桶就取汇总桶（唯一索引保证最多 1 行），没有（纯库位行）才按库位求和。
+//!    直接 `SUM(qty)` 会在「汇总桶 + 库位行并存」时**双计**，直接取单行又会漏掉纯库位行。
+//! 2. **修正侧**（[`fix_sql`]）：`INSERT` 显式写 `location_id = NULL`（汇总桶），冲突目标用
+//!    `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`。
+//!    与 `recompute_quantity` 同一处修法（V0139 文件头 ④ / commit 40fe39e）——
+//!    两列目标在 V0139 之后会以 PG 42P10 失败，`dry_run=false` 直接 500。
 //!
-//! 这两点写在代码里而不是只写在卡面：W3a 落地时 `grep -n "ON CONFLICT (material_id, warehouse_id)"`
-//! 就会同时命中 `recompute_quantity` 与本文件。
+//! 卡面写的是「不改 V0139」，那不是「不用管 V0139」：本文件在 V0139 落地后仍要按新唯一键写
+//! （这里已对齐并实测），但**不碰** V0139 文件本身。
 //!
 //! # 数据权限（门禁闸①/闸②）
 //!
@@ -127,7 +127,9 @@ WITH serial_cnt AS ( \
        AND s.status = 'IN_STOCK' AND s.deleted_at IS NULL \
      GROUP BY s.material_id, s.warehouse_id \
 ), book AS ( \
-    SELECT i.material_id, i.warehouse_id, SUM(i.qty)::numeric AS book_qty \
+    SELECT i.material_id, i.warehouse_id, \
+           COALESCE(MAX(i.qty) FILTER (WHERE i.location_id IS NULL), \
+                    SUM(i.qty))::numeric AS book_qty \
       FROM biz_inventory i \
       JOIN biz_material m ON m.id = i.material_id \
      WHERE m.serial_required IS TRUE AND m.deleted_at IS NULL \
@@ -168,11 +170,10 @@ fn audit_sql() -> String {
 /// - 只处理 `warehouse_id IS NOT NULL` 的行（没有仓库维度就写不进 `biz_inventory`，
 ///   这类行在报告里以 `warehouse_id = null` + `unfixable` 计数暴露）；
 /// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）；
-/// - **V0139 联动**：下面的 `ON CONFLICT (material_id, warehouse_id)` 依赖当前的
-///   `uk_biz_inv_mat_wh`。W3a 换成三列唯一键后必须同步改成
-///   `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`
-///   并在 `INSERT` 列清单里补 `location_id`（详见模块头「已知的跨卡耦合」），
-///   否则本语句会以 PG 42P10 失败、`dry_run=false` 直接 500。
+/// - **V0139 联动**：冲突目标是三列表达式 `ON CONFLICT (material_id, warehouse_id,
+///   COALESCE(location_id, 全零 uuid))`（`uk_biz_inv_mat_wh_loc`），`INSERT` 显式写
+///   `location_id = NULL` = 整仓汇总桶。写两列目标会在 V0139 之后以 PG 42P10 失败、
+///   `dry_run=false` 直接 500（与 `recompute_quantity` 同一处修法，见模块头）。
 fn fix_sql() -> String {
     format!(
         "{AUDIT_CTE} \
@@ -181,14 +182,17 @@ fn fix_sql() -> String {
              WHERE book_qty <> actual_qty AND warehouse_id IS NOT NULL \
          ) \
          INSERT INTO biz_inventory AS i \
-             (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
-         SELECT gen_random_uuid(), b.material_id, b.warehouse_id, b.actual_qty, \
+             (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount) \
+         SELECT gen_random_uuid(), b.material_id, b.warehouse_id, NULL::uuid, b.actual_qty, \
                 0, COALESCE(i_amt.avg_cost, 0)::numeric, \
                 b.actual_qty * COALESCE(i_amt.avg_cost, 0)::numeric \
            FROM bad b \
            LEFT JOIN biz_inventory i_amt \
              ON i_amt.material_id = b.material_id AND i_amt.warehouse_id = b.warehouse_id \
-         ON CONFLICT (material_id, warehouse_id) DO UPDATE \
+            AND i_amt.location_id IS NULL \
+         ON CONFLICT (material_id, warehouse_id, \
+                      COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) \
+         DO UPDATE \
             SET qty = EXCLUDED.qty, \
                 amount = EXCLUDED.qty * i.avg_cost, \
                 updated_at = now() \
@@ -566,9 +570,17 @@ mod tests {
             sql.matches("COUNT(*)").count() >= 1,
             "checked 用一次聚合算出来：{sql}"
         );
-        // 修正语句必须带 ON CONFLICT（反向脏账要能建档）
+        // 修正语句必须带三列表达式的 ON CONFLICT 目标（V0139 之后两列目标会 42P10）
         let fix = fix_sql();
-        assert!(fix.contains("ON CONFLICT (material_id, warehouse_id) DO UPDATE"));
+        assert!(
+            fix.contains("ON CONFLICT (material_id, warehouse_id,"),
+            "冲突目标必须是三列表达式：{fix}"
+        );
+        assert!(
+            fix.contains("COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)"),
+            "冲突目标必须与 uk_biz_inv_mat_wh_loc 逐字一致：{fix}"
+        );
+        assert!(fix.contains("DO UPDATE"));
         assert!(fix.contains("warehouse_id IS NOT NULL"), "没有仓库的行不修");
     }
 
