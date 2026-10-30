@@ -7,7 +7,7 @@
         <t-input v-model="query.keyword" class="filter-ctl filter-ctl--wide" placeholder="任务标题 / 描述关键词" clearable @enter="handleSearch">
           <template #prefix-icon><t-icon name="search" /></template>
         </t-input>
-        <t-select v-model="query.status" class="filter-ctl" placeholder="状态" clearable :options="statusOpts" />
+        <!-- T9-B：状态筛选从这一行移出，改成表格上方的勾选标签（可多选） -->
         <t-select v-model="query.priority" class="filter-ctl" placeholder="优先级" clearable :options="priorityOpts" />
         <UserSelect v-model="query.owner_id" class="filter-ctl" placeholder="负责人" :disabled="myMode" />
         <t-select
@@ -80,6 +80,30 @@
         <span class="toolbar__count">{{ countText }}</span>
       </div>
     </t-card>
+
+    <!-- 状态筛选：勾选标签、可多选，紧贴表格上方（老大 2026-10-30 要求，T9-B）
+         只在列表视图出现 —— 看板按状态分列显示全部，勾选在这里没有意义 -->
+    <div v-if="view === 'list'" class="status-bar">
+      <span class="status-bar__label">状态</span>
+      <t-check-tag
+        v-for="opt in statusOpts"
+        :key="opt.value"
+        :checked="query.statuses.includes(opt.value)"
+        class="status-bar__tag"
+        @change="toggleStatus(opt.value)"
+      >
+        {{ opt.label }}
+      </t-check-tag>
+      <t-button
+        v-if="query.statuses.length > 0"
+        variant="text"
+        size="small"
+        class="status-bar__clear"
+        @click="clearStatuses"
+      >
+        清空（{{ query.statuses.length }}）
+      </t-button>
+    </div>
 
     <!-- 列表视图 -->
     <t-card v-if="view === 'list'" :bordered="false" class="table-card">
@@ -276,6 +300,7 @@ import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
 import NewDot from '@/components/NewDot.vue';
 import { isParentRow, rowClassNameOf, treeConfigOf } from './components/tree-layout';
+import { clearStatusList, hasStatusFilter, statusesParam, toggleStatusIn } from './components/status-filter';
 import { ApiError } from '@/api/request';
 import {
   deleteTask,
@@ -349,10 +374,18 @@ const errorMessage = ref('');
 /** 「我参与」id 数组被后端截断（本视图只含数据范围内任务） */
 const scopeTruncated = ref(false);
 
-/** 筛选条件 */
-const query = reactive<Required<Pick<TaskPageQuery, 'keyword' | 'status' | 'priority' | 'owner_id' | 'project_id'>>>({
+/**
+ * 筛选条件。
+ *
+ * `statuses` 是**数组**（T9-B：勾选标签多选），不在 `TaskPageQuery` 里 ——
+ * 单值 `status` 已随下拉一起下线，多值参数由 {@link statusesParam} 序列化。
+ */
+type QueryState = Required<Pick<TaskPageQuery, 'keyword' | 'priority' | 'owner_id' | 'project_id'>> & {
+  statuses: string[];
+};
+const query = reactive<QueryState>({
   keyword: '',
-  status: '',
+  statuses: [],
   priority: '',
   owner_id: '',
   // 项目筛选：初值留空，`onMounted` 里从 URL query 读（项目页「查看项目下任务」会带过来）
@@ -378,7 +411,14 @@ const viewingId = ref<string | null>(null);
 
 /** 是否处于筛选态（空态文案据此变化） */
 const hasFilter = computed(() =>
-  Boolean(query.keyword || query.status || query.priority || query.owner_id || query.project_id || dueRange.value?.length),
+  Boolean(
+    query.keyword ||
+      hasStatusFilter(query.statuses) ||
+      query.priority ||
+      query.owner_id ||
+      query.project_id ||
+      dueRange.value?.length,
+  ),
 );
 
 /** 我的任务总条数（后端 `MyTasksRes.total`；未切到我的任务视图时为 0） */
@@ -649,11 +689,14 @@ async function loadList(): Promise<void> {
       return;
     }
     const [dueFrom, dueTo] = dueRange.value ?? [];
+    // T9-B：状态多选 → `statuses=TODO,DOING`（空 = 不传，后端即不筛）。
+    // `TaskPageQuery` 是 api 层的契约文件（本卡不动），多值字段先用局部交叉类型收口；
+    // 等 T9-A 的多值接口落地后把它并回 `TaskPageQuery` 即可，调用点无需再改。
     const data = await pageTasks({
       page: pagination.current,
       page_size: pagination.pageSize,
       keyword: query.keyword,
-      status: query.status,
+      statuses: statusesParam(query.statuses),
       priority: query.priority,
       owner_id: query.owner_id,
       // T7c：项目筛选只作为过滤条件，可见性仍由后端 T1 决定
@@ -664,7 +707,7 @@ async function loadList(): Promise<void> {
       // 子任务靠 TDesign 展开箭头逐层懒加载（listSubtasks）；看板 / 甘特 / 燃尽图
       // 走各自的接口，不传这个参数 —— 它们不是树形，需要全部任务。
       root_only: true,
-    });
+    } as TaskPageQuery & { statuses?: string });
     rows.value = buildTreeRows(data.list);
     pagination.total = data.total;
     scopeTruncated.value = data.member_scope_truncated;
@@ -679,6 +722,23 @@ async function loadList(): Promise<void> {
   }
 }
 
+/**
+ * 勾选 / 取消一个状态（多选）。
+ *
+ * 勾选即查询 —— 老大要的是「直接筛选」，不该再点一次「查询」按钮
+ * （关键词 / 优先级要保持「打完字再点查询」的节奏，所以它们不走这里）。
+ */
+function toggleStatus(value: string): void {
+  query.statuses = toggleStatusIn(query.statuses, value);
+  handleSearch();
+}
+
+/** 清空所有状态勾选（同样立即查询，回到全量） */
+function clearStatuses(): void {
+  query.statuses = clearStatusList();
+  handleSearch();
+}
+
 /** 查询：回到第一页再拉 */
 function handleSearch(): void {
   pagination.current = 1;
@@ -688,7 +748,7 @@ function handleSearch(): void {
 /** 重置：清条件 + 回全部视图 */
 function handleReset(): void {
   query.keyword = '';
-  query.status = '';
+  query.statuses = clearStatusList();
   query.priority = '';
   query.owner_id = '';
   query.project_id = '';
@@ -859,6 +919,38 @@ onMounted(() => {
 
 .table-alert {
   margin-bottom: 12px;
+}
+
+/* 状态勾选条：紧贴表格上方，一行铺开（T9-B） */
+.status-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--td-bg-color-container);
+  border-radius: var(--td-radius-medium);
+
+  &__label {
+    color: var(--td-text-color-secondary);
+    font-size: 13px;
+    margin-right: 4px;
+  }
+
+  /* t-check-tag 自带样式，这里只把默认外边距抹平（间距统一走 flex gap） */
+  &__tag {
+    margin: 0;
+  }
+
+  &__clear {
+    margin-left: auto;
+  }
+}
+
+/* 勾选条已经紧贴表格上方：抹掉表格卡片自带的 16px 上外边距，
+   只保留页面级 12px 行距（否则勾选条与表格之间空出 28px，看起来是一块无主空白） */
+.status-bar + .table-card {
+  margin-top: 0;
 }
 
 .cell-no {
