@@ -681,21 +681,21 @@ function handleStatusChanged(): void {
   }
 }
 
-/** 外部 `taskId` 变化 → 同步当前 id（列表页点了另一行 / 抽屉重开） */
-watch(
-  () => props.taskId,
-  (value) => {
-    currentId.value = value ?? null;
-  },
-);
-
-/** 打开抽屉时加载（同一任务重复打开也重新拉，保证看到最新进度） */
+/**
+ * 打开抽屉时加载（同一任务重复打开也重新拉，保证看到最新进度）。
+ *
+ * E6a：`currentId` 的同步**必须放在这一个 watcher 里**（不再单独 watch `props.taskId`）——
+ * 拆成两个 watcher 时执行顺序靠 uid，实测会出现「先 loadDetail、后同步 currentId」，
+ * 结果是抽屉拉起后一直是空的（`currentId` 还是 null，直接 early return，连请求都没发）。
+ */
 watch(
   () => [props.visible, props.taskId] as const,
-  ([visible]) => {
-    if (visible) {
-      void loadDetail();
+  ([visible, taskId]) => {
+    if (!visible) {
+      return;
     }
+    currentId.value = taskId ?? null;
+    void loadDetail();
   },
   { immediate: true },
 );
