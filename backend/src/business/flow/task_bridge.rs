@@ -34,6 +34,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
+use crate::business::erp::transfer_model as erp_transfer;
 use crate::business::flow::{engine, model};
 use crate::business::task::model as task_model;
 use crate::business::task::state::{self, ActorKind, TaskStatus};
@@ -622,6 +623,124 @@ pub async fn cancel_on_task_deleted(
         "任务已删除，在跑审批单已终止"
     );
     Ok(out)
+}
+
+// ==================== 第二类业务单据：库存调拨单（批次 D · W3b） ====================
+
+/// 库存调拨单的业务类型（`biz_flow_def.biz_type`，与
+/// [`crate::business::erp::transfer_model::published_transfer_flow`] 的查询条件同口径）。
+pub const STOCK_TRANSFER_BIZ_TYPE: &str = "STOCK_TRANSFER";
+
+/// 审批单落终态后推进**库存调拨单**（`FlowCallback` 身份）。
+///
+/// 与任务那条（[`on_instance_settled`]）完全并列的第二类业务回调，**两者互不影响**：
+///
+/// | 实例状态 | 调拨单 | 依据 |
+/// |---|---|---|
+/// | `APPROVED` | `PENDING → APPROVED` | 审批通过 = 可以发货 |
+/// | `REJECTED` | `PENDING → DRAFT`（打回） | 审批意见写 `reason`，`submitted_at` / `approved_at` 清回 NULL（`ck_biz_transfer_state` 的 DRAFT 分支要求时间戳全空） |
+/// | 其它（`PENDING` / `CANCELLED` / `WITHDRAWN`） | 不动 | 还在跑 / 已撤回 |
+///
+/// # 为什么不让它走 [`settle`]
+///
+/// [`settle`] 的判据是 `biz_type == TASK_ACCEPT` 且目标状态是任务 5 态；
+/// 调拨单是另一张表、另一套 6 态、另一套时间戳约束。把两者塞进一个函数只会让
+/// 「谁的 biz_id 指到谁」变成运行期猜谜。共同点是**时序**：都跑在审批事务提交之后、
+/// 失败只记 `warn`（审批结论已落库，不许因业务侧失败而回滚审批单）。
+///
+/// # 返回值
+///
+/// 被推进的调拨单 id（没推进 / 不该推进 → `None`）。本函数**不返回错误**。
+///
+/// # 幂等
+///
+/// 重复回调时调拨单已不在 `PENDING` → [`crate::business::erp::transfer_model::settle_approval`]
+/// 的 `WHERE status = 'PENDING'` 命中 0 行 → 返回 `None`，不报错。
+pub async fn on_transfer_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
+    let instance_id = instance_id?;
+    let approved = match instance_status.trim().to_ascii_uppercase().as_str() {
+        INSTANCE_APPROVED => true,
+        INSTANCE_REJECTED => false,
+        _ => return None,
+    };
+    match settle_transfer(instance_id, approved).await {
+        Ok(Some(transfer_id)) => {
+            tracing::info!(
+                %instance_id,
+                %transfer_id,
+                approved,
+                "审批结论已回调调拨单状态"
+            );
+            Some(transfer_id)
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(%instance_id, %error, "审批结论回调调拨单失败（不影响审批单）");
+            None
+        }
+    }
+}
+
+/// [`on_transfer_settled`] 的实现体（可失败，由调用方吞掉错误）。
+async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<Uuid>> {
+    // ① 审批单必须是调拨类的（别的业务类型与本回调无关）
+    let Some(instance) = model::find_instance(instance_id).await? else {
+        tracing::debug!(%instance_id, "审批单不存在，跳过调拨单回调");
+        return Ok(None);
+    };
+    if instance.biz_type != STOCK_TRANSFER_BIZ_TYPE {
+        return Ok(None);
+    }
+    let Some(transfer_id) = instance.biz_id else {
+        return Ok(None);
+    };
+
+    // ② 调拨单当前态（只推进 PENDING）
+    let Some(row) = erp_transfer::find_by_id(transfer_id).await? else {
+        tracing::warn!(%transfer_id, "调拨单不存在或已删除，跳过审批回调");
+        return Ok(None);
+    };
+    if row.status != erp_transfer::STATUS_PENDING {
+        tracing::debug!(
+            %transfer_id,
+            status = %row.status,
+            "调拨单不在 PENDING（重复回调 / 已人工撤回），跳过"
+        );
+        return Ok(None);
+    }
+
+    // ③ 驳回意见：实例行的 `result_comment` 常为空（引擎把意见写在待办行），读不到就回退
+    let opinion = match instance
+        .result_comment
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+    {
+        Some(text) => Some(text.to_string()),
+        None => latest_verdict_comment(instance_id).await?,
+    };
+    let opinion_for_tx = opinion.clone();
+    // 时间点在 Rust 侧算好（与日志 / 详情同一个值）
+    let now = chrono::Utc::now();
+    let affected = db()
+        .transaction(move |tx| async move {
+            erp_transfer::settle_approval(
+                &tx,
+                transfer_id,
+                approved,
+                opinion_for_tx.as_deref(),
+                now,
+            )
+            .await
+        })
+        .await?;
+    if affected == 0 {
+        return Ok(None);
+    }
+    if !approved && let Some(opinion) = opinion.as_deref() {
+        tracing::info!(%transfer_id, opinion, "调拨单被审批驳回，已打回草稿");
+    }
+    Ok(Some(transfer_id))
 }
 
 // ==================== 单元测试（纯逻辑部分） ====================

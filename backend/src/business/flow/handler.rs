@@ -1525,6 +1525,8 @@ pub async fn approve_task(
     // D3b：审批单可能已落终态（APPROVED）→ 以 FlowCallback 身份推进任务
     // （**事务已提交**：回调失败只记日志，不回滚审批单）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
+    task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1575,6 +1577,8 @@ pub async fn reject_task(
     // D3b：驳回并终止（REJECTED）→ 以 FlowCallback 身份把任务打回 DOING
     // （「退回上一节点」仍是 PENDING，回调不推进；落到 REJECTED 才动任务）
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
+    // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
+    task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
 }
 
