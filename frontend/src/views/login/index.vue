@@ -19,7 +19,7 @@
             <p class="login__brand-desc">极小化 Token 消耗 · 极大化 Attention 浓度<br>稳定生成高品质代码</p>
           </div>
 
-          <p class="login__brand-footer">Rust + alun · Vue 3 + TDesign</p>
+          <p class="login__brand-footer">Rust + nik · Vue 3 + TDesign</p>
         </div>
       </section>
 

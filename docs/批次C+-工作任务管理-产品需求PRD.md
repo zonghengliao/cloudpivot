@@ -7,7 +7,7 @@
 | 文档版本 | v1.0（待评审） |
 | 所属批次 | **批次 C+（工作任务管理）**，插在 C（内容管理）与 D（工作流审批）之间 |
 | 编制 | 产品经理（product-manager） |
-| 适用系统 | 云枢后台管理平台（Rust / Alun 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
+| 适用系统 | 云枢后台管理平台（Rust / Nik 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
 | 上游依赖 | 批次 A（对象存储 / 导入导出 / **消息通知**）已上线；批次 B（数据权限）已上线；批次 C（**变更日志** `sys_change_log`）已上线 |
 | 下游批次 | 批次 D（工作流审批）—— **本批不做任何审批流**，任务验收最多两级（第 4.6） |
 | 交付形态 | 纯需求文档，不含代码 |
@@ -109,7 +109,7 @@
 | **F12** | 变更日志 `sys_change_log` 由**批次 C 新建**，唯一写入契约 `record(&mut tx, ChangeLogInput)`，**必须在业务事务内调用** | 批次 C PRD 5.3.3（`backend/src/shared/change_log.rs`，本次随 C 批落地） | 任务的每一次状态变更、改派、进度改动都走这个契约；**禁止**另建一张任务日志表（14.3 给理由与分工） |
 | **F13** | 定时任务是**五段 cron**，现役 5 个清理任务占 03:00–03:40 每 10 分钟一个 | `backend/src/task/mod.rs:50-54` | 本批 6 个新增任务排在 **07:00 / 08:30 / 09:00 / 09:30 / 18:30 / 每周一 08:00**，与清理任务零冲突（9.5） |
 | **F14** | `sys_job` 表可存任务定义（`job_name/cron_expr/invoke_target/params/status`），运行期增删要 stop→reload→start | `backend/migrations/support/V0012__create_sys_job.up.sql`；`backend/src/task/mod.rs:229-250` | 提醒类任务做成**注册在代码里的处理器**（`invoke_target`），`sys_job` 只放可调的 cron 与开关，不放到期任务逻辑 |
-| **F15** | 分页上限 `MAX_PAGE_SIZE=1000`、默认 `DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/alun-web-0.4.2/src/api.rs:104,107` | 任务列表默认 20 条/页；导出走批次 A 异步导出（不受此限）；**看板每列上限 100 条**（超出显示「还有 N 条，请用筛选」） |
+| **F15** | 分页上限 `MAX_PAGE_SIZE=1000`、默认 `DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/nik-web-0.4.2/src/api.rs:104,107` | 任务列表默认 20 条/页；导出走批次 A 异步导出（不受此限）；**看板每列上限 100 条**（超出显示「还有 N 条，请用筛选」） |
 | **F16** | axios 全局 `timeout: 15000` | `frontend/src/api/request.ts:68,138` | 统计报表、甘特/燃尽、批量操作 200 条以上要**单独放宽 timeout 到 30s** |
 | **F17** | 错误码段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；批次 C 追加 `5000x` 内容域 | `backend/src/shared/error_code.rs:26-31`；批次 C PRD F37 | 本批追加 **`6000x` 任务域**（60001–60019，清单在附录 E.4）；**界面上永远不出现错误码**，用户看到的是 12.8 的原文 |
 
@@ -120,7 +120,7 @@
 | **F18** | 图标存在性实测（`ICON_NAMES` 共 **2355** 个）：✅ `task` `task-checked` `task-add` `task-1` `calendar` `calendar-event` `flag` `time` `time-filled` `user` `user-add` `usergroup` `check-circle` `close-circle` `rollback` `refresh` `view-module` `view-list` `chart-bar` `chart-pie` `chart-line` `chart-ring` `chart-bubble` `filter` `move` `swap` `star` `star-filled` `chat` `attach` `root-list` `queue` `dashboard` `assignment` `template` `copy` `history` `pin` `notification` `error-circle` `info-circle` `edit-1` `add` `delete` `search` `more` `ellipsis` `link` `share` `jump` `play` `pause` `thumb-up` `folder` `tree-round-dot`；❌ **不存在** `checklist` `comment` `sorting` `exchange` `list` `component` `transfer` `announcement` | `frontend/src/components/IconSelect/icons.ts`（去 CRLF 后逐个 `grep -x` 实测） | 任务=`task`、我的任务=`assignment`、任务板=`view-module`、评论=`chat`（**不是** `comment`）、转派=`swap`（**不是** `transfer`）、拆子任务=`swap`/`add`、模板=`template`、统计=`chart-bar`、依赖=`link`。**前端照这张表选图标，选不存在的图标会让整个菜单渲染报错** |
 | **F19** | `v-privilege` 指令存在，无权限时 `display:none`（保留 DOM） | `frontend/src/directives/permission/privilege.ts:26-27` | 页面内所有按钮统一 `v-privilege="['code']"`，不要写 `v-if="hasPermission(...)"`（两套写法会导致有人绕过） |
 | **F20** | 路由 `meta.permission` 做页面级权限；`meta.title` 供面包屑 | `frontend/src/router/index.ts:5-13,39-43` | 6 个新路由全部带 `meta.permission`；「我的任务」「任务板」这两个**人人可用**的页面例外，见 11.5 |
-| **F21** | 后端路由 `prefix = "/api"`，处理器用 `#[alun::permission(path=…, method=…, permission=…)]` + `#[alun::get("/业务/资源/动作")]` 声明两遍，由 `App::scan()` 收集 | `backend/config/config.toml:121`；`backend/src/system/user/handler.rs:44-49`；`backend/src/lib.rs`（文档注释「路由使用宏声明…无需手工注册」） | 新接口一律 `/business/task/…`；`permission` 与 `get` 的 path **必须写成一样的字符串**，否则鉴权表与路由表对不上（底座现有代码就是这么写的，照抄） |
+| **F21** | 后端路由 `prefix = "/api"`，处理器用 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/业务/资源/动作")]` 声明两遍，由 `App::scan()` 收集 | `backend/config/config.toml:121`；`backend/src/system/user/handler.rs:44-49`；`backend/src/lib.rs`（文档注释「路由使用宏声明…无需手工注册」） | 新接口一律 `/business/task/…`；`permission` 与 `get` 的 path **必须写成一样的字符串**，否则鉴权表与路由表对不上（底座现有代码就是这么写的，照抄） |
 | **F22** | 后端业务容器只有 `system/` 与 `support/` 两个，`lib.rs` 里 `pub mod` 只列了它们；**没有 `business/`** | `backend/src/lib.rs:33-38` | 本批第一次引入 `backend/src/business/task/`（`mod.rs + handler.rs + dto.rs + model.rs`，**不设 service 层**），必须在 `lib.rs` 加 `pub mod business;` 并加 `business/mod.rs`。这是**结构性改动**，写进附录 C.1 上线顺序 |
 
 ## 0.4 数据库实测事实（F23–F31）—— 本机 PostgreSQL 18.6 真跑
@@ -143,13 +143,13 @@
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F32** | 后端 `alun` features **没有 `sse`**（只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss）；框架自带 `sse` feature 可用但要显式开启 | `backend/Cargo.toml:14-32`；`alun-0.4.2/src/lib.rs:65-73` | **不做实时推送**（任务被分派时对方页面自动冒泡）。P0 用「进入页面拉取 + 60 秒轮询未读数」，SSE 列 P1 |
+| **F32** | 后端 `nik` features **没有 `sse`**（只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss）；框架自带 `sse` feature 可用但要显式开启 | `backend/Cargo.toml:14-32`；`nik-0.4.2/src/lib.rs:65-73` | **不做实时推送**（任务被分派时对方页面自动冒泡）。P0 用「进入页面拉取 + 60 秒轮询未读数」，SSE 列 P1 |
 | **F33** | `support/dashboard` 的既定哲学：**不新增统计表**、只读旁路、**口径随响应下发**（每张卡片带 `tip`）、缓存异常降级为 0 不报 500 | `backend/src/support/dashboard/mod.rs:1-20` | 第 10 章统计报表**完全沿用这三条**，不发明第二套 |
 | **F34** | 字典能力完备：`sys_dict_type` / `sys_dict_item`，前端有 `DictSelect.vue` / `DictTag.vue` | `backend/migrations/support/V0007,V0008`；`frontend/src/components/DictSelect.vue`、`DictTag.vue` | 任务状态/优先级/来源/验收结果**全部走字典**（`task_status`/`task_priority`/`task_source`/`task_review`），不自造枚举常量到前端 |
 | **F35** | 业务写入不一定在事务里（底座现有 `update()` 很多是单条 UPDATE 无事务） | `backend/src/system/user/handler.rs:297-300`（无事务）vs `:209,385`（有事务） | 任务的写操作（改状态 + 写变更日志 + 汇总父进度）**必须包在一个事务里**，否则会出现「状态变了、日志没写、父进度没算」三者不一致（5.1.4 给出事务边界清单） |
 | **F36** | nginx `client_max_body_size 50m`；上传白名单是硬编码扩展名、下载恒为 `Content-Disposition: attachment` | `docker/frontend/nginx.conf:16`；批次 A PRD 3.4/F38 | 任务附件单文件 ≤ 50MB；**不做在线预览**（图片可缩略图，PDF/Office 只给下载） |
 | **F37** | TDesign 主题变量全部是 `--td-brand-color-1…10` 等 `--td-*`；主题文件用**两套选择器** `:root,:root[theme-mode='light']` 与 `:root.dark,:root[theme-mode='dark']` 镜像 TDesign，否则明暗切换会掉回默认蓝 | `frontend/src/style/theme.less:1-60` | 任务卡片的**优先级/逾期/状态颜色必须取 `--td-*` 语义色**（`--td-error-color`/`--td-warning-color`/`--td-success-color`/`--td-brand-color`），业务页面**零硬编码色值**，否则 22 套配色切过去会花（12.9） |
-| **F38** | 分页返回体是 `PageData {list,total,page,page_size}`；`ResResult<T>` 包一层 `code/message/data` | `frontend/src/api/request.ts:15-22`；`alun-web-0.4.2/src/api.rs` | 看板接口**不用 PageData**（它是"每列若干条"的结构），自定义 DTO；列表接口用 PageData |
+| **F38** | 分页返回体是 `PageData {list,total,page,page_size}`；`ResResult<T>` 包一层 `code/message/data` | `frontend/src/api/request.ts:15-22`；`nik-web-0.4.2/src/api.rs` | 看板接口**不用 PageData**（它是"每列若干条"的结构），自定义 DTO；列表接口用 PageData |
 | **F39** | **按月任务编号**用 `INSERT … ON CONFLICT (ym) DO UPDATE SET last_val = last_val + 1 RETURNING last_val` 实测：连续取号得 `TK-202610-00001/2/3`，200 次自增后 `last_val=200` 且**无重号**（行锁保证原子） | 实测输出：`sample_task_no = TK-202610-00003`、`final_last_val=200` | 编号生成**不用序列、不用 count(*)+1**（后者并发必重号），用这张单行序号表（3.2.3） |
 
 ---
@@ -3740,7 +3740,7 @@ P0 **不做**（D14）。P1 做的时候按这四条来，不要发明新的：
 
 | 端 | 依赖 | 是否必需 | 说明 |
 |---|---|---|---|
-| 后端 | **无新增 crate** | — | 只用 `alun 0.4.2` 已开的 feature（db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss）。**不需要 `xlsx`、不需要 `sse`** |
+| 后端 | **无新增 crate** | — | 只用 `nik 0.4.2` 已开的 feature（db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss）。**不需要 `xlsx`、不需要 `sse`** |
 | 前端 | `vuedraggable@4`（或原生 HTML5 拖拽） | 建议 | 若私服不可用，用原生 `draggable` + `dragover` 手写（工作量 +1 天，功能不受影响） |
 | 前端 | 无其他 | — | `echarts` 已在（报表用）；`dayjs` 已在（时间处理） |
 

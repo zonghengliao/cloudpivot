@@ -7,7 +7,7 @@
 | 撰写人 | product-manager |
 | 日期 | 2026-10-28 |
 | 产品 | 云枢（CloudPivot）后台 · **大数据平台 第 1 批** |
-| 技术底座 | Rust（Alun 框架）+ Vue 3 + TDesign Vue Next 1.19 + **ECharts 5.4（已随前端引入）** + Pinia + Vite；分析引擎 **Apache Doris**；平台库 **PostgreSQL 16** |
+| 技术底座 | Rust（Nik 框架）+ Vue 3 + TDesign Vue Next 1.19 + **ECharts 5.4（已随前端引入）** + Pinia + Vite；分析引擎 **Apache Doris**；平台库 **PostgreSQL 16** |
 | 本批范围（BI） | 数据源（Doris 单源）→ 数据集 → 图表 → 仪表盘 → 分享/权限；1 个真实业务看板「采购金额趋势」；自助取数；分析师 SQL 工作台（受限只读） |
 | 本批范围（MDM） | **物料**一个主数据域的完整闭环：域建模 → 录入/Excel 导入 → 查重 → 合并 → 审核发布 → 订阅接口（REST + 变更推送） |
 | **不含范围** | 销售分析 / 生产分析 / 财务分析主题包；复杂大屏（轮播、暗色、秒级）、移动端、指标平台（口径中心）、多主数据域（供应商/客户/组织）、审批流、数据血缘、调度编排平台 |
@@ -48,7 +48,7 @@
 
 # 第 0 章 前置事实核查（本 PRD 的落地依据）
 
-> 为避免"凭空设计"，撰写前做了三类核查：① 对同技术栈底座工程 `/root/.hermes/workspace/information-security/cailu-src`（Rust + Alun + Vue3 + TDesign，与云枢同栈）做源码核查；② 对 Apache Doris 官方文档核对引擎能力边界；③ 对 PostgreSQL 官方文档核对模糊匹配能力。以下 25 条直接决定本文的权限码、菜单、页面结构、SQL 安全规则与 MDM 算法写法。
+> 为避免"凭空设计"，撰写前做了三类核查：① 对同技术栈底座工程 `/root/.hermes/workspace/information-security/cailu-src`（Rust + Nik + Vue3 + TDesign，与云枢同栈）做源码核查；② 对 Apache Doris 官方文档核对引擎能力边界；③ 对 PostgreSQL 官方文档核对模糊匹配能力。以下 25 条直接决定本文的权限码、菜单、页面结构、SQL 安全规则与 MDM 算法写法。
 
 ## 0.1 平台与框架事实（F1–F13）
 
@@ -56,7 +56,7 @@
 |---|---|---|
 | **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值只有 `system` / `support` | `backend/migrations/system/V0004__create_sys_menu.up.sql` |
 | **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20）；ERP 第 1 批 PRD 已占 sort 40 | `backend/migrations/seed/S__menu_data.sql`（`'system'…10`、`'app'…20`）、ERP PRD 决策 D3 |
-| **F3** | 后端接口鉴权用声明式宏 `#[alun::permission(path=…, method=…, permission=…)]` + `#[alun::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49`、`125`、`165` |
+| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49`、`125`、`165` |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` | `frontend/src/router/index.ts:42,47,52,58`、`views/system/user/index.vue:63` |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`，**不支持 `business:bi:*` 这种前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:19,63-71` |
 | **F6** | 导航树由 `filterNavMenus` **递归**过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`；**目录下无可见子菜单则整目录隐藏** | `frontend/src/stores/user.ts:17-38` |
@@ -75,7 +75,7 @@
 | # | 核查结论 | 证据 |
 |---|---|---|
 | **F14** | 平台库是 **PostgreSQL 16**（`postgres:16-alpine`），迁移大量使用 `gen_random_uuid()` / `JSONB` / 部分唯一索引；**现有 migrations 里没有任何 `CREATE EXTENSION`** | `docker/docker-compose.prod.yml:24-34`、`backend/migrations/**/*.sql` |
-| **F15** | 框架**已内置 XLSX 真读写能力**：`xlsx` feature → `Export::to_xlsx_*` 写（rust_xlsxwriter）、`Import::from_xlsx_*` 读（calamine）；**未开该 feature 时这些 API 根本不存在** | `alun-0.4.2/src/lib.rs:70,93,155,1199,1265` |
+| **F15** | 框架**已内置 XLSX 真读写能力**：`xlsx` feature → `Export::to_xlsx_*` 写（rust_xlsxwriter）、`Import::from_xlsx_*` 读（calamine）；**未开该 feature 时这些 API 根本不存在** | `nik-0.4.2/src/lib.rs:70,93,155,1199,1265` |
 | **F16** | 已有两张日志表：`operation_logs`（接口级：operation/target_type/target_id/detail/耗时/路径）、`audit_logs`（**前后快照** `before_data`/`after_data JSONB`，只写不改删） | `backend/migrations/support/V0011`、`V0014` |
 | **F17** | 已有字典体系 `sys_dict_type` / `sys_dict_item`（如 `user_status`/`menu_type`/`job_status`）、参数表 `sys_config` | `backend/migrations/support/V0007/V0009`、`seed/S__dict_data.sql` |
 | **F18** | 已有定时任务体系 `sys_job`（cron_expr/invoke_target/params/next_run_at）+ `sys_job_log`；已有 Redis 缓存（`try_cache()`） | `V0012__create_sys_job.up.sql`、`dept/model.rs:281-290` |
@@ -2918,7 +2918,7 @@ MAT-01-0000217-8  M8螺丝       修改 · 提交人 周敏 · 2026-10-28 14:20
 | 1 | Doris 集群可用 + 提供**只读账号**（`GRANT SELECT_PRIV ON dw.*`） | DBA / 数仓 | SQL 工作台不能上线（2.5.3 闸 1） |
 | 2 | Doris 为 BI 单独建 **Workload Group**（CPU 限额） | DBA | 分析师一条大 SQL 能把看板打死 |
 | 3 | PostgreSQL 允许执行 `CREATE EXTENSION pg_trgm` | DBA | 模糊查重降级为"仅同分类"（3.7.2） |
-| 4 | 后端 Cargo 启用 alun `xlsx` feature | 架构/后端 | Excel 导入导出 API 根本不存在（F15） |
+| 4 | 后端 Cargo 启用 nik `xlsx` feature | 架构/后端 | Excel 导入导出 API 根本不存在（F15） |
 | 5 | 前端确认 `echarts` 与 `EChart.vue` 可直接复用（含主题色注入） | 前端 | 图表层要重造（F13） |
 | 6 | ERP 侧同意附录 C 的 5 处改造（物料改只读 + 建副本表 + 接订阅） | 老大拍 B5 + ERP 开发 | 两套物料主数据分叉 |
 

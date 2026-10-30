@@ -1,6 +1,6 @@
 # nik
 
-Alun：一个**配置驱动、插件可扩展、开箱即用**的 Rust Web 框架门面（facade）。
+Nik：一个**配置驱动、插件可扩展、开箱即用**的 Rust Web 框架门面（facade）。
 
 `nik` 是整个框架的出口：它把全部 crate 再导出一遍，**业务项目通常只需要声明这一个依赖** ——
 路由、配置、`#[derive(Model)]`、`Res<T>` 全部来自 `nik::prelude::*`，
@@ -46,7 +46,7 @@ mod api {
 | Crate | 主要 API |
 |-------|---------|
 | [`nik-core`](https://crates.io/crates/nik-core) | `Error` / `Result`、`Plugin` / `PluginManager`、`Res` / `ResResult` / `ApiError` / `PageData` / `PageQuery` / `codes` |
-| [`nik-web`](https://crates.io/crates/nik-web) | `App`、`AlunRouter`、`JWT`、`TokenClaims` / `AuthClaims`、`ValidatedJson` / `ValidateExt`、`PageResponseExt`、全局资源访问器、SSE、可观测 |
+| [`nik-web`](https://crates.io/crates/nik-web) | `App`、`NikRouter`、`JWT`、`TokenClaims` / `AuthClaims`、`ValidatedJson` / `ValidateExt`、`PageResponseExt`、全局资源访问器、SSE、可观测 |
 | [`nik-utils`](https://crates.io/crates/nik-utils) | `Sid`、`Mask`、`Crypto`、`Valid`、`Date`、`Export` / `Import`、`StrExt`、单号引擎 |
 | [`nik-config`](https://crates.io/crates/nik-config) | `AppConfig`、`ConfigManager` |
 | [`nik-log`](https://crates.io/crates/nik-log) | `init(&LogConfig)` —— tracing 引导 |

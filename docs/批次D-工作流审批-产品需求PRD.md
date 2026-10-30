@@ -7,7 +7,7 @@
 | 文档版本 | v1.0（待评审） |
 | 所属批次 | **批次 D（工作流审批）** |
 | 编制 | 产品经理（product-manager） |
-| 适用系统 | 云枢后台管理平台（Rust / Alun 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
+| 适用系统 | 云枢后台管理平台（Rust / Nik 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
 | 上游依赖 | 批次 A（**消息通知** `business/notice`、对象存储、导入导出）已上线；批次 B（数据权限 `sys_role.data_scope` + 字段脱敏 `sys_field_mask`）已上线；批次 C（**变更日志** `sys_change_log`）已上线；批次 C+（**工作任务管理** + AI 执行者）已上线 |
 | 下游批次 | 无强依赖。P2 的「流程模板市场」「移动端」另立批次 |
 | 交付形态 | 纯需求文档，不含代码；不写技术实现（表结构只给字段/约束的**语义**，DDL 由 architect 出） |
@@ -127,7 +127,7 @@
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
 | **F20** | 定时任务现状（**全部实测 grep `pub const`**）：日志清理 `03:00/03:10/03:20/03:30/03:40`；变更日志分区 `0 20 1 1 * *`（每月 1 日）；帮助文档清理 `0 40 2 * * *`；导入导出清理 `0 40 4 * * *`；通知清理 `0 50 4 * * *`；公告自动下线 `0 5 0 * * *`、置顶过期 `0 10 0 * * *`、投递重试 `0 */10 * * * *`；导入导出 worker `*/5 * * * * *`；通知巡逻 `*/30 * * * * *`；SSE 清扫 `0 */5 * * * *`；任务 Hermes 同步 `*/30 * * * * *` | `backend/src/task/mod.rs:64-68`；`changelog/partition.rs:45`；`help/model.rs:53`；`impexp/cleanup.rs:40`；`impexp/worker.rs:61`；`notice/cleanup.rs:28`；`notice/scheduled.rs:47`；`notice/sse_hub.rs:79`；`announcement/maintenance.rs:39,44,49`；`task/hermes_sync.rs:72` | 本批 3 个定时任务排在 **`0 15 * * * *`（每小时催办扫描）/ `0 30 9 * * *`（每日逾期知会）/ `0 10 4 * * *`（04:10 清理）**，与现存 0 冲突（9.7 给完整时刻表） |
-| **F21** | 分页 `MAX_PAGE_SIZE=1000`、`DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/alun-web-0.4.2/src/api.rs:104,107` | 待办列表默认 20 条/页；「我发起的」可筛全部状态，导出走批次 A 异步导出 |
+| **F21** | 分页 `MAX_PAGE_SIZE=1000`、`DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/nik-web-0.4.2/src/api.rs:104,107` | 待办列表默认 20 条/页；「我发起的」可筛全部状态，导出走批次 A 异步导出 |
 | **F22** | 前端 axios 全局 `timeout: 15000` | `frontend/src/api/request.ts:68` | 流程设计器的「发布校验」「预览走向」要单独放宽到 **30s**（要走一遍图遍历 + 审批人解析） |
 | **F23** | 图标清单**实测 2363 个**（`tdesign-icons-vue-next 0.4.11`）。✅ 存在：`flowchart` `flowchart-filled` `git-branch` `git-merge` `git-pull-request` `tree-round-dot` `check-double` `check-circle` `close-circle` `rollback` `swap` `user-add` `usergroup` `send` `mail` `chat-bubble` `history` `view-list` `view-module` `chart-bar` `setting` `task-checked` `assignment-checked` `pending` `notification` `drag-move` `fullscreen` `zoom-in` `zoom-out` `file-add` `file-copy` `filter-1` `search` `more` `ellipsis` `edit-1` `delete` `add` `close` `arrow-right` `chevron-right` `mode-light` `poweroff` `secured-filled` `certificate-1`；❌ **不存在**：`flow` `workflow` `flow-chart` `stamp` `node-tree` `branch` `list` `user-check` `view-kanban` `kanban` `sort` `funnel` `undo` `redo` `preview` `publish` `version` `connection` `arrow-triangle` | `frontend/src/components/IconSelect/icons.ts`（去 CRLF 后 `grep -x` 逐个实测）；TDesign `esm/components/` 目录 | 本批 6 个菜单 + 设计器工具条的图标**只能**从 ✅ 里选：审批目录=`flowchart`、待办=`check-double`、已办=`assignment-checked`、我发起=`send`、抄送我=`mail`、流程定义=`git-branch`、监控=`chart-bar`。选 ❌ 里的名字**不会报错**，但菜单左侧是空白（F25），评审时极难发现 |
 | **F24** | 🔴 **顺带发现的存量缺陷**：批次 C+ 已上线的菜单里用了 3 个**不存在**的图标——`/task/list` 用 `list`、`/task/mine` 用 `user-check`、`/task/board` 用 `view-kanban`（**实测**从 `c_task_v3` 库读 `sys_menu` 得到，与 `icons.ts` 逐个比对全部不存在） | `business/V0103__seed_task_permissions.up.sql:38-42`（写入值）+ 数据库实测 + `icons.ts` | 本批的 `V0120` 迁移**顺带修**这 3 行（改成 `view-list` / `user` / `view-module`），并在附录 C.2 记为"跨批修复项"，不动其它任何 C+ 逻辑 |

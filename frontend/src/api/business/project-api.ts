@@ -2,7 +2,7 @@
  * 项目分组接口（批次 C+ · T7c）。
  *
  * 路径与后端 `backend/src/business/project/handler.rs` 的
- * `#[alun::get/post/put/delete("/business/project/...")]` 逐条对应
+ * `#[nik::get/post/put/delete("/business/project/...")]` 逐条对应
  * （注解不含 `/api`，前端必须写全 —— 漏了 `/api` 会命中 SPA fallback 返回 HTML，
  * 报「响应体格式不符合」）。
  *

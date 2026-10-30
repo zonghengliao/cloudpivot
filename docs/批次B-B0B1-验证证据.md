@@ -357,7 +357,7 @@ docs/批次B-B0B1-验证证据.md                        （本文）
 //!   B1_DB_URL='postgres://user:pass@127.0.0.1:5432/cloudpivot_b' cargo run --example b1_migrate -- status
 //!   B1_DB_URL='...' cargo run --example b1_migrate -- rollback 6
 //!   B1_DB_URL='...' cargo run --example b1_migrate -- run
-use alun::prelude::*;
+use nik::prelude::*;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -395,7 +395,7 @@ su postgres -c "createdb -O cloudpivot cloudpivot_b2"
 B1_DB=cloudpivot_b2 B1_LISTEN=127.0.0.1:8027 /var/tmp/b1_run.sh
 
 # 2) 结构断言
-export PGPASSWORD=$(grep -m1 '^ALUN_DATABASE_PASSWORD' /etc/cloudpivot/cloudpivot-test.env | cut -d= -f2-)
+export PGPASSWORD=$(grep -m1 '^NIK_DATABASE_PASSWORD' /etc/cloudpivot/cloudpivot-test.env | cut -d= -f2-)
 psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_b2 -f backend/tests/sql/batchb/verify_up.sql
 
 # 3) 约束语义（事务内，自动 ROLLBACK）

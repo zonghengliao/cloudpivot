@@ -1,7 +1,7 @@
 # 云枢 ERP 第 1 批 — 技术架构设计
 
 > **范围**：最小主数据 + 采购 → 收货入库 → 库存 → 应付 → 凭证引擎 → 总账（垂直闭环）
-> **技术栈**：Rust 1.94.1 / edition 2024 + alun 0.4.2 + PostgreSQL 16（`docker/init/Dockerfile` = `postgres:16-alpine`）+ Vue 3.5 + TDesign Vue Next 1.19
+> **技术栈**：Rust 1.94.1 / edition 2024 + nik 0.4.2 + PostgreSQL 16（`docker/init/Dockerfile` = `postgres:16-alpine`）+ Vue 3.5 + TDesign Vue Next 1.19
 > **代码基线**：`/root/work/c144`（`backend` = crate `cailu` v0.1.0，前端 = `@cailu/web` v0.1.0）
 > **文档版本**：v1.0 / 2026-10-27
 > **状态**：设计定稿，待评审 → 可直接作为实施依据
@@ -14,14 +14,14 @@
 
 **本设计已通过三类真实验证**（不是纸面推演，详见 §9.1）：
 1. **算法验证**：用 `rust_decimal 1.43` 实跑移动加权平均、尾差倒挤、含税拆分，拿到真实数字（POC-1~5）；
-2. **依赖验证**：`alun 0.4.2 + features=["lite","rust_decimal"]` 依赖解析实测通过，无版本冲突（POC-6）；
+2. **依赖验证**：`nik 0.4.2 + features=["lite","rust_decimal"]` 依赖解析实测通过，无版本冲突（POC-6）；
 3. **DDL 真库验证**：§2 的 20 张表**原样提取**后在 PostgreSQL 18.6 执行，并用 12 组业务场景检验约束，10 项全部按设计拦住了脏数据，过程中发现并修正 1 个真实的会计科目定义缺陷（§9.1.8）。
 
 ### 0.1 十条硬结论
 
 | # | 决策点 | 结论 | 一句话理由 |
 |---|--------|------|-----------|
-| D1 | 金额/数量的 Rust 类型 | `rust_decimal::Decimal`（开启 alun `rust_decimal` feature） | 会计必须精确十进制；已实测 `alun::prelude::rust_decimal` 可用，**不需要**违反"只声明 alun"铁律 |
+| D1 | 金额/数量的 Rust 类型 | `rust_decimal::Decimal`（开启 nik `rust_decimal` feature） | 会计必须精确十进制；已实测 `nik::prelude::rust_decimal` 可用，**不需要**违反"只声明 nik"铁律 |
 | D2 | 金额列 DB 类型 | `NUMERIC(18,4)`（金额）/ `NUMERIC(18,6)`（单价、成本）/ `NUMERIC(20,4)`（科目余额） | PG 驱动原生二进制编解码 NUMERIC；单价必须比金额多 2 位，否则移动加权累计误差 |
 | D3 | 状态列 DB 类型 | `VARCHAR(24)` + `CHECK` 约束（**不用** SMALLINT） | ERP 状态要给会计/审计直接读 SQL；偏离底座 `SMALLINT` 约定，理由见 §1.6 |
 | D4 | 凭证生成时机 | **入库即生成**，贷方记"应付账款—暂估应付款" | 本批无发票模块；暂估科目为批次 2 的发票冲回留出路径，符合中国实务 |
@@ -87,14 +87,14 @@
 | 能力 | 实测结论 | 证据 |
 |------|---------|------|
 | 事务 | `db().transaction(\|tx\| async move { ... })`，返回 `Err` 自动回滚（RAII） | `docs/后端二开指南.md` §5；`src/system/role/model.rs:268` 实跑用例 |
-| 事务内原生 SQL | `tx.find_with_params(sql, params)` / `tx.execute_with_params(...)` | `alun-db-0.4.2/src/tx.rs:165,109` |
-| 原生 SQL 占位符 | 统一写 `?`，PG 驱动执行前 `rewrite_placeholders` 转 `$1,$2` | `alun-db-driver-postgres-0.4.2/src/lib.rs:33`、`connection.rs:142` |
+| 事务内原生 SQL | `tx.find_with_params(sql, params)` / `tx.execute_with_params(...)` | `nik-db-0.4.2/src/tx.rs:165,109` |
+| 原生 SQL 占位符 | 统一写 `?`，PG 驱动执行前 `rewrite_placeholders` 转 `$1,$2` | `nik-db-driver-postgres-0.4.2/src/lib.rs:33`、`connection.rs:142` |
 | 动态条件 SQL | 拼**片段**（列名/占位符），值一律走 `Value` 参数 | 范本 `src/system/user/model.rs:184-228` |
-| 分页响应 | `PageData { list, total, page, page_size }` | `alun-web-0.4.2/src/api.rs:75-84`；前端 `src/api/request.ts:14-23` 同构 |
+| 分页响应 | `PageData { list, total, page, page_size }` | `nik-web-0.4.2/src/api.rs:75-84`；前端 `src/api/request.ts:14-23` 同构 |
 | 分页规整 | `utils::normalize_page(page, page_size)`（默认 1/20，限幅） | `docs/后端二开指南.md` §6 |
 | 软删除 | 字段 `deleted_at: Option<DateTime<Utc>>` 自动：查询追加 `WHERE deleted_at IS NULL`、`delete` 改 `UPDATE` | `src/shared/constants.rs` 模块文档 |
 | 物理删表 | `#[model(hard_delete)]`；无 `updated_at` 用 `#[model(no_timestamps)]` | `src/support/log/model.rs` 实跑用例 |
-| 错误出口 | handler `ResResult<T>` / model `DbResult<T>` / 启动任务 `alun::Result<T>`；`utils::db_error(e, "上下文")` 补中文 | `docs/后端二开指南.md` §4 |
+| 错误出口 | handler `ResResult<T>` / model `DbResult<T>` / 启动任务 `nik::Result<T>`；`utils::db_error(e, "上下文")` 补中文 | `docs/后端二开指南.md` §4 |
 | 权限校验 | `SELECT DISTINCT m.auth_code FROM sys_menu ...` → 字符串集合 contains，**无格式校验** | `src/system/auth/model.rs:255-267` |
 | 枚举落库 | `#[derive(TypeMapper)] #[int]` → SMALLINT | `src/shared/constants.rs` `EnableStatus` |
 | 日志总线 | `bus::enqueue_*` 无阻塞投递，后台 worker 批量落库；**与业务事务无关**（独立连接） | `src/support/log/bus.rs` 模块文档 |
@@ -102,14 +102,14 @@
 
 ### 1.4 金额类型现状与唯一正确落地路径（关键）
 
-**现状**：`backend/Cargo.toml` 的 alun features 为
+**现状**：`backend/Cargo.toml` 的 nik features 为
 `["db","postgres","cache","plugin","fs-local","chrono","uuid","json","ipnetwork","xss"]`
 **不含 `rust_decimal`**，`Cargo.lock` 中 `rust_decimal` 出现次数 = **0**。
 
 **结论路径**（已实测，见 §9.1 POC-6）：
 
-1. `backend/Cargo.toml` 的 alun features 追加 `"rust_decimal"`（**不是**新增 crate 依赖）；
-2. 业务代码 `use alun::prelude::rust_decimal::Decimal;`（门面重导出，不走 `extern prelude`，符合"只声明 alun"铁律）；
+1. `backend/Cargo.toml` 的 nik features 追加 `"rust_decimal"`（**不是**新增 crate 依赖）；
+2. 业务代码 `use nik::prelude::rust_decimal::Decimal;`（门面重导出，不走 `extern prelude`，符合"只声明 nik"铁律）；
 3. `Decimal` 已实现 `TypeMapper`：`Type::Decimal` ↔ `Value::Decimal(CompactDecimal)`；
 4. PG 驱动原生支持 NUMERIC 二进制编解码（`encode_numeric` / `decode_numeric`）；
 5. `serde` 序列化为**字符串**（实测 `Decimal("1234567.8901")` → `"1234567.8901"`），前端拿到 string，天然无精度损失。
@@ -1693,7 +1693,7 @@ pub(crate) fn ensure_transition(doc: DocKind, from: &str, to: &str) -> ResResult
 | 项 | 约定 | 依据 |
 |----|------|------|
 | 路径前缀 | 后端宏路径**不含** `/api`（如 `/business/erp/material/page`），前端**必须写全** `/api/business/erp/material/page` | `AGENTS.md` 约定 8 / 踩坑 1 |
-| 响应包装 | `Res::ok(data)` / `Res::page(list, total, page, size)`；错误统一 `ApiError` | `alun::prelude::Res` |
+| 响应包装 | `Res::ok(data)` / `Res::page(list, total, page, size)`；错误统一 `ApiError` | `nik::prelude::Res` |
 | 分页字段 | `list` / `total` / `page` / `page_size` | `PageData`（§1.3） |
 | 分页入参 | `page`（默认 1）、`page_size`（默认 20，限幅），统一过 `utils::normalize_page` | `docs/后端二开指南.md` §6 |
 | ID | UUID 字符串；路径参数用 `utils::require_uuid(&s, "id")` 解析，失败 400 | 同上 |
@@ -1711,7 +1711,7 @@ pub(crate) fn ensure_transition(doc: DocKind, from: &str, to: &str) -> ResResult
 | 期间不可用 | 400 | `期间 2026-10 已结账，禁止记账` |
 | 规则缺失 | 400 | `未配置 STOCK_IN 的凭证规则，拒绝过账` |
 | 科目缺失 | 400 | `物料「冷轧钢板」未配置存货科目，且无默认值` |
-| 无权限 | 403 | （由 `#[alun::permission]` 统一返回） |
+| 无权限 | 403 | （由 `#[nik::permission]` 统一返回） |
 | 对象不存在 | 404 | `入库单不存在` |
 | 数据库/内部异常 | 500 | `过账入库单失败`（`utils::db_error` 补充上下文） |
 
@@ -2013,7 +2013,7 @@ status?         0/1
 
 ### 4.9 权限码清单（三方一致，缺一即 403 或菜单不显示）
 
-**共 58 个权限点 + 1 个菜单（目录）**。`sys_menu.auth_code` = `#[alun::permission(...)]` = 前端 `meta.permission` / `v-perm` 判断，三处逐字一致。
+**共 58 个权限点 + 1 个菜单（目录）**。`sys_menu.auth_code` = `#[nik::permission(...)]` = 前端 `meta.permission` / `v-perm` 判断，三处逐字一致。
 
 | 模块 | 权限码 | 说明 |
 |------|--------|------|
@@ -2455,7 +2455,7 @@ const derived = computed(() => items.value.map((it, i) => {
 | 菜单级 | `sys_menu` 种子（`V0038`）+ 现有动态菜单渲染（`module_code='business'`） |
 | 按钮级 | `v-perm="'business:erp:stock-in:post'"`（项目已有 `src/directives`，照现有用法） |
 
-> 权限码必须与 §4.9 表**逐字一致**。允许前端隐藏按钮，但**后端校验不可省**——`#[alun::permission]` 是唯一有效防线（前端隐藏可被绕过）。
+> 权限码必须与 §4.9 表**逐字一致**。允许前端隐藏按钮，但**后端校验不可省**——`#[nik::permission]` 是唯一有效防线（前端隐藏可被绕过）。
 
 ---
 ## 6. 扩展性预留（为第 2/3/4 批铺路）
@@ -2610,14 +2610,14 @@ pub(crate) async fn generate(
 | R9 | 取号热点（`biz_seq` 单行锁） | 低 | 低 | 单据量日均百级，单行 UPDATE 持锁 < 1ms；不引入 Redis | 若将来量级上到千级/日，改为按日分行的 `biz_seq` + 唯一键重试 |
 | R10 | 长事务持锁（一单 20 行 + 5 张表） | 中 | 中 | ① 目标 < 100ms；② 事务内禁止外部 IO（不发通知、不调第三方）；③ 过账接口 P99 < 300ms 验收 | 超过 1s 需拆分或异步化（批次 3） |
 
-### 8.3 与 alun 框架集成风险
+### 8.3 与 nik 框架集成风险
 
 | # | 风险 | 概率 | 影响 | 缓解措施 |
 |---|------|------|------|---------|
-| R11 | `rust_decimal` feature 引入编译问题 | 低 | 中 | **已实测**（§9.1 POC-6）：`alun 0.4.2 + features=["lite","rust_decimal"]` 依赖解析成功（352 包，rust_decimal 1.43.0，无版本冲突）。实施第一步就是加 feature + `cargo check` |
+| R11 | `rust_decimal` feature 引入编译问题 | 低 | 中 | **已实测**（§9.1 POC-6）：`nik 0.4.2 + features=["lite","rust_decimal"]` 依赖解析成功（352 包，rust_decimal 1.43.0，无版本冲突）。实施第一步就是加 feature + `cargo check` |
 | R12 | `Decimal` 参数绑错列类型 | 中 | 中（运行时报错） | PG 驱动要求 `Value::Decimal` 只能绑 `NUMERIC` 列（§1.4）；所有金额列统一定义为 NUMERIC，模型字段统一 `Decimal`，映射一一对应 |
 | R13 | 想加 service 层 / 想在 model 里开事务 | 中 | 中（破坏架构一致性） | ① §3.0 已明确 engine 是 model 层；② 事务只在 handler 开；③ code review 检查"model 里是否出现 `db().transaction`"（现有代码里仅 `count_by` 类读函数在 model，事务在 handler） |
-| R14 | 错误出口用错（model 返回 ApiError） | 中 | 低 | `DbResult` / `ResResult` / `alun::Result` 三出口铁律；`utils::db_error` 补中文上下文；clippy `-D warnings` 拦住 `unwrap` |
+| R14 | 错误出口用错（model 返回 ApiError） | 中 | 低 | `DbResult` / `ResResult` / `nik::Result` 三出口铁律；`utils::db_error` 补中文上下文；clippy `-D warnings` 拦住 `unwrap` |
 | R15 | 宏路径误加 `/api` | 中 | 中（404） | 后端宏路径一律 `/business/erp/...`；前端一律 `/api/business/erp/...`；code review 逐条核对 §4 表格 |
 | R16 | 迁移号段冲突 | 低 | 低 | 本批占 V0030–V0038；动手前 `ls migrations/*/` 复核；已应用迁移禁止回改 |
 
@@ -2692,25 +2692,25 @@ pub(crate) async fn generate(
 
 **结论**：前端拿到的是 string，TypeScript 类型必须声明 `string`，且不能直接参与算术（§5.3）。
 
-#### POC-6 依赖可行性（`alun` + `rust_decimal` feature）
+#### POC-6 依赖可行性（`nik` + `rust_decimal` feature）
 
 ```
 cargo metadata 解析结果（features = ["lite","rust_decimal"]）：
-alun                       -> 0.4.2
-alun-db                    -> 0.4.2
-alun-db-core               -> 0.4.2
-alun-db-driver-postgres    -> 0.4.2
+nik                       -> 0.4.2
+nik-db                    -> 0.4.2
+nik-db-core               -> 0.4.2
+nik-db-driver-postgres    -> 0.4.2
 rust_decimal              -> 1.43.0
 chrono                    -> 0.4.45
 uuid                      -> 1.29.0
 serde                     -> 1.0.229
 总包数: 352
-alun-db 依赖 rust_decimal: True
-alun-db-core 依赖 rust_decimal: True
+nik-db 依赖 rust_decimal: True
+nik-db-core 依赖 rust_decimal: True
 ```
 
 **关键代码事实（读源码确认，非推测）**：
-- `alun::prelude::rust_decimal` 可用（`alun-db-core/src/lib.rs` 的 `prelude` 模块 `#[cfg(feature="rust_decimal")] pub use rust_decimal;`）→ **业务代码无需在 Cargo.toml 声明 rust_decimal 直接依赖**，符合"只声明 alun"铁律；
+- `nik::prelude::rust_decimal` 可用（`nik-db-core/src/lib.rs` 的 `prelude` 模块 `#[cfg(feature="rust_decimal")] pub use rust_decimal;`）→ **业务代码无需在 Cargo.toml 声明 rust_decimal 直接依赖**，符合"只声明 nik"铁律；
 - `Decimal` 实现 `TypeMapper`（`type_mapper.rs` 的 `rust_decimal_impls`）：`stmt_type() = Type::Decimal`，`to_value() = Value::Decimal(CompactDecimal{mantissa, scale})`；
 - PG 驱动原生支持 NUMERIC 二进制编解码（`convert.rs` 的 `encode_numeric` / `decode_numeric`，`PgParam::Numeric` / `PgValue::Numeric`）；
 - **约束**：`PgParam::Numeric` 要求目标列类型为 `Type::NUMERIC`（`convert.rs:298`），绑错列型直接报错；
@@ -2819,18 +2819,18 @@ biz_account_balance    biz_voucher_rule        biz_voucher_rule_entry  biz_wareh
 
 | 库 | 用途 | License | 包体 | 维护活跃度 | 与现有依赖冲突 | 结论 |
 |----|------|---------|------|-----------|--------------|------|
-| `rust_decimal` 1.43.0 | 后端金额/成本计算 | **MIT** | crate 压缩 168KB / 解压 976KB；必需依赖仅 `arrayvec 0.7`（`serde` 由默认 features 开启） | rust-num 组织维护，1.x 稳定线，2025 仍有发布 | **无冲突**：`Cargo.lock` 现有依赖中不含 rust_decimal；经 `alun` 的 `rust_decimal` feature 间接引入，不新增顶层 crate 声明 | ✅ **采用**（经 alun feature，不直接依赖） |
+| `rust_decimal` 1.43.0 | 后端金额/成本计算 | **MIT** | crate 压缩 168KB / 解压 976KB；必需依赖仅 `arrayvec 0.7`（`serde` 由默认 features 开启） | rust-num 组织维护，1.x 稳定线，2025 仍有发布 | **无冲突**：`Cargo.lock` 现有依赖中不含 rust_decimal；经 `nik` 的 `rust_decimal` feature 间接引入，不新增顶层 crate 声明 | ✅ **采用**（经 nik feature，不直接依赖） |
 | `decimal.js-light` | 前端金额运算（备选） | MIT | ≈8KB gzip | 活跃（MikeMcl） | 与现有前端依赖无冲突 | ❌ **本批不引入**：前端金额只做预览，`bigint` 定点够用且零依赖。批次 4 若需前端试算平衡/账龄运算再评估引入 |
 | `bignumber.js` | 前端大数（备选） | MIT | ≈15KB gzip | 活跃 | 无冲突 | ❌ 不引入（同上的理由，且体积更大） |
-| 任何 ORM / 迁移工具（sea-orm、sqlx、diesel） | — | — | — | — | **与框架铁律冲突**（只声明 alun） | ❌ 禁止 |
+| 任何 ORM / 迁移工具（sea-orm、sqlx、diesel） | — | — | — | — | **与框架铁律冲突**（只声明 nik） | ❌ 禁止 |
 
-> **不引入的第三方能力**：PDF 生成（打印用前端 `window.print()` + 打印样式）、定时任务外的消息队列（无跨服务异步需求）、Redis 取号（D1 已否决）。ERP 本批的复杂度全部落在**领域逻辑**上，不在技术组件上——这也是能在 alun 里落地的原因。
+> **不引入的第三方能力**：PDF 生成（打印用前端 `window.print()` + 打印样式）、定时任务外的消息队列（无跨服务异步需求）、Redis 取号（D1 已否决）。ERP 本批的复杂度全部落在**领域逻辑**上，不在技术组件上——这也是能在 nik 里落地的原因。
 
 ### 9.3 决策日志（ADR 摘要）
 
 | ID | 决策 | 备选方案 | 采纳理由 | 可逆性 |
 |----|------|---------|---------|--------|
-| D1 | `Decimal` + alun `rust_decimal` feature | ① `i64` 存"分" ② `f64` ③ `bigdecimal` | ① i64 存分无法表达 6 位单价（移动加权必需）；② f64 精度不可接受；③ bigdecimal 同样可用但性能与生态弱于 rust_decimal，且 alun 两 feature 都支持，选社区更活跃的 | 可逆（换类型需迁移数据，成本高） |
+| D1 | `Decimal` + nik `rust_decimal` feature | ① `i64` 存"分" ② `f64` ③ `bigdecimal` | ① i64 存分无法表达 6 位单价（移动加权必需）；② f64 精度不可接受；③ bigdecimal 同样可用但性能与生态弱于 rust_decimal，且 nik 两 feature 都支持，选社区更活跃的 | 可逆（换类型需迁移数据，成本高） |
 | D2 | 金额 NUMERIC(18,4) / 单价 NUMERIC(18,6) | 统一 NUMERIC(18,2) | 2 位小数会在移动加权中持续被舍入，误差累积可见 | 可逆（ALTER 提精度安全） |
 | D3 | 状态列 VARCHAR + CHECK | SMALLINT + 字典 | 会计/审计直接读 SQL 可懂；日志表 `from_status/to_status` 天然一致 | 可逆 |
 | D4 | 入库即生成凭证（贷方暂估应付） | 发票到达才生成 | 本批无发票模块；暂估科目为批次 2 冲回留路径 | 可逆（改规则即可） |
@@ -2885,7 +2885,7 @@ biz_account_balance    biz_voucher_rule        biz_voucher_rule_entry  biz_wareh
 | 硬约束：符合基本会计准则 | §2.5（借贷平衡/期间/余额方向）、§3.1（引擎）、§3.3（期间） | ✅ |
 | 硬约束：每个关键决策给对比 + 推荐 | D1–D12 + §3.1.4 / §3.1.7 / §3.1.8 / §3.2.2 / §5.4 / §6.3 / §6.4 | ✅ |
 | 硬约束：第三方库评估 | §9.2（License/包体/维护/冲突，含实测包体 168KB） | ✅ |
-| 硬约束：能在 Rust + alun 0.4.2 落地 | §1.3（框架能力实测表）、§1.4（Decimal 落地路径）、§9.1 POC-6（依赖解析实测） | ✅ |
+| 硬约束：能在 Rust + nik 0.4.2 落地 | §1.3（框架能力实测表）、§1.4（Decimal 落地路径）、§9.1 POC-6（依赖解析实测） | ✅ |
 | 附加：设计可执行性 | §9.1.8（DDL 在 PostgreSQL 18.6 实跑 + 12 组约束验证，含发现的 1 个缺陷已修正） | ✅ |
 | 红线：只进 `business/` / 不动 system/support | §3.0 模块结构（全部在 `business/erp/`）、§1.5（因此不改 middleware） | ✅ |
 | 红线：不设 service 层 | §3.0（engine 归属论证，四项判据） | ✅ |

@@ -4,7 +4,7 @@
 >
 > | 项 | 值 |
 > |---|---|
-> | 项目 | 云枢通用后台（基础版 CloudPivot，Rust 1.94.1 / edition 2024 / alun 0.4.2 / PostgreSQL 18.6） |
+> | 项目 | 云枢通用后台（基础版 CloudPivot，Rust 1.94.1 / edition 2024 / nik 0.4.2 / PostgreSQL 18.6） |
 > | 基线 | 批次 A 已交付并上生产（`8825b75`，258 tests，prod 27 张表）；本设计基于工作副本 `/root/.hermes/workspace/manong/fixA` |
 > | 迁移占用 | `V0040`–`V0052` 已被批次 A 用掉；**本批 V0060 起**（V0053–V0059 留空，见 §5.2） |
 > | 本文档性质 | **只做设计**。所有 SQL / DDL 均在真库（PG 18.6）跑过；所有结论附文件路径与行号；无业务代码交付 |
@@ -37,13 +37,13 @@
 
 | # | 决策点 | 结论 | 一句话理由（含证据） |
 |---|--------|------|---------------------|
-| **D1** | 数据权限注入机制 | **选 (b) 查询构造器封装**：新建 `business/shared/scope.rs`，提供 `RowFilter{sql,params}` + `scope::paginate()` 单入口；**并把 `db().paginate_with_params` 收敛为「只允许出现在 scope.rs 与白名单」** | 框架 Hook 是 **Model 生命周期钩子**，源码明确写「绕过 Model 直接写 SQL 时 Hook 不触发——这是设计决策」（`alun-db-core-0.4.2/src/traits/hook.rs:9-10`）；方案 (c) 在本栈**物理不可行**。方案 (a) 无收口点：现有 22 个文件里有 130 处 `SELECT`、20 处 `paginate_with_params`、43 处 `find_with_params`，逐处手写必然漏 |
+| **D1** | 数据权限注入机制 | **选 (b) 查询构造器封装**：新建 `business/shared/scope.rs`，提供 `RowFilter{sql,params}` + `scope::paginate()` 单入口；**并把 `db().paginate_with_params` 收敛为「只允许出现在 scope.rs 与白名单」** | 框架 Hook 是 **Model 生命周期钩子**，源码明确写「绕过 Model 直接写 SQL 时 Hook 不触发——这是设计决策」（`nik-db-core-0.4.2/src/traits/hook.rs:9-10`）；方案 (c) 在本栈**物理不可行**。方案 (a) 无收口点：现有 22 个文件里有 130 处 `SELECT`、20 处 `paginate_with_params`、43 处 `find_with_params`，逐处手写必然漏 |
 | **D2** | 范围片段形态 | **应用层先解析 dept_id 集合，SQL 里只出现 `dept_id = ANY(?)` 绑定数组**，SQL 内**不嵌**递归 CTE 子查询 | POC-4b（20 万用户）：内嵌递归 CTE → `Seq Scan` **28.0 ms**；预解析成 `= ANY(ARRAY[…])` → `Bitmap Index Scan on idx_sys_user_dept_id` **7.8 ms**，快 3.6× |
-| **D3** | 分页 count 代价 | 本批**新增 `scope::paginate()` 自己算 count（剥掉 ORDER BY）**；已有的 `paginate_with_params` 不动 | POC-5：`COUNT(*) FROM (…ORDER BY…)` **11.17 ms**（Parallel Sort 780 kB）vs 剥 ORDER BY **4.49 ms**。框架的 count 包裹不剥排序（`alun-db-0.4.2/src/db.rs:206-208`） |
-| **D4** | 多角色范围合并 | **并集（最宽松获胜）**，SUPER_ADMIN 直接短路 | 与既有权限码合并口径一致（`alun-web-0.4.2/src/middleware/mod.rs:148-150` 的 `any()`）；交集合会让「本职角色 + 临时角色」互削，产生不可解释的取数结果 |
+| **D3** | 分页 count 代价 | 本批**新增 `scope::paginate()` 自己算 count（剥掉 ORDER BY）**；已有的 `paginate_with_params` 不动 | POC-5：`COUNT(*) FROM (…ORDER BY…)` **11.17 ms**（Parallel Sort 780 kB）vs 剥 ORDER BY **4.49 ms**。框架的 count 包裹不剥排序（`nik-db-0.4.2/src/db.rs:206-208`） |
+| **D4** | 多角色范围合并 | **并集（最宽松获胜）**，SUPER_ADMIN 直接短路 | 与既有权限码合并口径一致（`nik-web-0.4.2/src/middleware/mod.rs:148-150` 的 `any()`）；交集合会让「本职角色 + 临时角色」互削，产生不可解释的取数结果 |
 | **D5** | scope 缓存 | **走 Redis**：`perm:user_scope:{epoch}:{uid}`，TTL 300 s（复用 `CACHE_PRINCIPAL_TTL_SECS`），部门树变更用 **epoch INCR** 全量失效 | POC-8：一次解析（3–4 表 join + 递归 CTE）**0.54–1.18 ms**——单次不贵，但它是**每个列表请求**的固定开销；既有 `perm:user_perms:` 已是同一模式（`system/auth/model.rs:24-36`、`shared/constants.rs:375`） |
 | **D6** | 列级脱敏机制 | **选 (a) DTO 出参前脱敏**（`Maskable` trait + `MaskSet`），**不用** serde 自定义序列化器、**不用** SQL 层脱敏 | POC-7b：SQL 层 `regexp_replace` 对 20 万行做脱敏 **140.25 ms vs 10.06 ms（14×）**；且脱敏值无法被精确匹配（同一行明文命中 1、脱敏后命中 0）——过滤/排序/导出全部失真 |
-| **D7** | 脱敏类型实现 | **复用 `alun_utils::Mask` 的 6 个具体方法，但绝不复用 `mask_by_type`**；自定义正则引入 `regex`（把既有间接依赖显式化） | 实测 `Mask::mask_by_type("custom", "张三")` **panic**：`byte index 2 is not a char boundary`（`alun-utils-0.4.2/src/mask.rs:198`，POC-9 真跑） |
+| **D7** | 脱敏类型实现 | **复用 `nik_utils::Mask` 的 6 个具体方法，但绝不复用 `mask_by_type`**；自定义正则引入 `regex`（把既有间接依赖显式化） | 实测 `Mask::mask_by_type("custom", "张三")` **panic**：`byte index 2 is not a char boundary`（`nik-utils-0.4.2/src/mask.rs:198`，POC-9 真跑） |
 | **D8** | 导出脱敏 | **必须脱敏，且 fail-closed**：`ExportColumn.sensitive=true` 但解析不到规则 → 直接 422 拒绝导出，不静默出明文 | `definition.rs:630` 的 `sensitive` 字段注释已写明「导出脱敏由 A4/A7 的权限与 Mask 能力接管；此处仅标记」，而 `business/impexp/mod.rs:31` 自认「导出脱敏与明文权限：未做」——这正是本批要补的洞 |
 | **D9** | 互斥校验形态 | 校验集合 = **`已持有 ∪ 本次授予`** 做两两配对（不是「本次 vs 已持有」） | POC-6b-6c：同一次请求里同时授予互斥的 A+B 时，「本次 vs 已持有」形态**命中 0 条**（可绕过）；UNION 形态命中 1 条 |
 | **D10** | 互斥配置与存量冲突 | **阻止配置（409）+ 独立冲突预检接口**；不做「允许但告警」，也不自动解绑 | SoD 的价值在于「不可共存」；告警即默认失效。「先自动解绑」是不可逆破坏性动作，必须人来做 |
@@ -52,8 +52,8 @@
 
 | 任务书假设 | 代码实况（证据） | 本设计的处理 |
 |---|---|---|
-| 「现有项目用 `sql!` 宏手写 SQL」 | **项目里 `sql!` 出现 0 次**（`grep -rn "sql!" backend/src` → 0 命中）。真实写法是 `String` 拼接 + `?` 占位符 + `Vec<Value>` 按序绑定，例：`system/role/model.rs:115-139`、`system/user/model.rs:185-250`。框架侧**确实有** `sql!` 宏（`alun-db-macro-0.4.2/src/lib.rs:124-160`，支持 `SqlFragment` 嵌套与参数自动配对），但项目一处未用 | 选型对比表仍按 (a)(b)(c) 给（§2.3），并增加 (b′) 「`sql!` 片段组合」子选项；**本批不迁移既有 130 处 `SELECT`（22 个文件）**（回归风险 >> 收益），仅**新增/改动的查询**可以选 `sql!` 形态。防漏靠"单入口 + grep 门禁"，不靠宏 |
-| 「框架层 hook 若支持需查证」 | **不支持查询改写**。`Hook` trait 只有 `before/after_insert/update/delete`（无 query hook），且文档明写绕过 Model 的 raw SQL 不触发；`AsyncHook` 只有 `after_*` 且**延迟到事务提交后**，无法用于"阻止/缩小结果集" | 方案 (c) 在结论表里标 **不可行（证据见 `alun-db-core-0.4.2/src/traits/hook.rs:9-10, 36-42`）**，不作为候选 |
+| 「现有项目用 `sql!` 宏手写 SQL」 | **项目里 `sql!` 出现 0 次**（`grep -rn "sql!" backend/src` → 0 命中）。真实写法是 `String` 拼接 + `?` 占位符 + `Vec<Value>` 按序绑定，例：`system/role/model.rs:115-139`、`system/user/model.rs:185-250`。框架侧**确实有** `sql!` 宏（`nik-db-macro-0.4.2/src/lib.rs:124-160`，支持 `SqlFragment` 嵌套与参数自动配对），但项目一处未用 | 选型对比表仍按 (a)(b)(c) 给（§2.3），并增加 (b′) 「`sql!` 片段组合」子选项；**本批不迁移既有 130 处 `SELECT`（22 个文件）**（回归风险 >> 收益），仅**新增/改动的查询**可以选 `sql!` 形态。防漏靠"单入口 + grep 门禁"，不靠宏 |
+| 「框架层 hook 若支持需查证」 | **不支持查询改写**。`Hook` trait 只有 `before/after_insert/update/delete`（无 query hook），且文档明写绕过 Model 的 raw SQL 不触发；`AsyncHook` 只有 `after_*` 且**延迟到事务提交后**，无法用于"阻止/缩小结果集" | 方案 (c) 在结论表里标 **不可行（证据见 `nik-db-core-0.4.2/src/traits/hook.rs:9-10, 36-42`）**，不作为候选 |
 | 「`sys_role` 无 `data_scope`，需新增」 | 属实（`migrations/system/V0002__create_sys_role.up.sql`：只有 `role_code/role_name/description/status/sort_order/remark` + 审计列）。另有一条**任务书未提**的同源事实：`auth/model.rs:241-243` 的注释引用了 `shared/principal.rs`，**该文件不存在**（`ls backend/src/shared/` → `constants/enums/error_code/mod/startup_guard`），是一处悬空引用 | 本批正好补上「业务侧主体口径」这一层：新建 `business/shared/principal.rs`（超管判定 + 范围解析 + 脱敏集合），并把 `system/` 侧悬空注释的指向修正（1 行注释，随 §5.3-#7 同批提交） |
 | 「脱敏可考虑 SQL 层（PG 函数）」 | 技术可行但实测代价与副作用都不可接受（14× 耗时、破坏过滤、破坏排序聚合、且 `SELECT *` 的写法无从下手） | 结论定为**不用**，把实测数字写进 §3.3 对比表，避免下一批再讨论一次 |
 | 「Excel 导出是否也脱敏（必须，否则绕过）」 | 导出确实存在**两条**产出路径：同步导出 `impexp/handler.rs:780`、异步 worker `impexp/worker.rs:607`，**都**调 `engine::format_export_rows` | 改 1 处 `format_export_rows` 签名即可双路覆盖（§3.7）；异步 path 需要靠 `sys_export_task.create_by` 回查请求者身份——该列已存在（`V0041:95`），无需加列 |
@@ -127,14 +127,14 @@ for id in dept_ids { params.push(Value::from(id)); }             // 参数同序
 
 1. **没有 ORM 拦截器**——`WHERE` 是字符串，注入点只能在「拼字符串的那一层」；
 2. **参数位置是脆弱的**：任何"追加 WHERE 片段"的代码一旦忘了同步 `params`，就是**占位符数量错位**（运行期报 `number of parameters must be at least N`，或更糟：错位绑定出一批不报错的错数据）。所以注入接口必须**同时返回 SQL 与 params 且不允许分两次调用**（本设计用 `RowFilter{sql, params}` 单一结构强制这一点）；
-3. **占位符是 `?`**（框架的 `SqlQuery` 在 Postgres 方言下会 rewrite 成 `$n`，`alun-db-sql-0.4.2/src/placeholder.rs`），业务侧只写 `?`。
+3. **占位符是 `?`**（框架的 `SqlQuery` 在 Postgres 方言下会 rewrite 成 `$n`，`nik-db-sql-0.4.2/src/placeholder.rs`），业务侧只写 `?`。
 
 ### 1.3 权限校验实现（及其双口径）
 
 | 层 | 实现 | 位置 |
 |---|---|---|
-| 声明 | `#[alun::permission(path, method, permission = "system:user:list")]` + `#[alun::get(...)]` | `system/user/handler.rs:44-49` 等 50+ 处 |
-| 校验 | 框架中间件读 `TokenClaims.permissions`，`has_permission()` = 命中即过；`is_super_admin()` = permissions 含 `*` 或 `*:*:*` | `alun-web-0.4.2/src/middleware/mod.rs:148-160` |
+| 声明 | `#[nik::permission(path, method, permission = "system:user:list")]` + `#[nik::get(...)]` | `system/user/handler.rs:44-49` 等 50+ 处 |
+| 校验 | 框架中间件读 `TokenClaims.permissions`，`has_permission()` = 命中即过；`is_super_admin()` = permissions 含 `*` 或 `*:*:*` | `nik-web-0.4.2/src/middleware/mod.rs:148-160` |
 | 超管短路 | 登录时若 `role_code == SUPER_ADMIN`，权限集合直接装成 `["*:*:*"]`，**不查授权表** | `system/auth/model.rs:236-245`（`shared/constants.rs:124` 定义常量） |
 | 业务侧超管判定 | **必须以库中角色编码为准**，不读 JWT 里的通配码（注释明写"二者不构成双真源"） | `system/auth/model.rs:241-243`；`system/user/guard.rs:24-31` |
 | 授权上限（批次 A） | ① 角色菜单授权：不能授予自己未持有的 `auth_code`（`ensure_menus_grantable`）；② 用户授角色：三条规则 `evaluate_grant`（不能动超管号 / 不能授超管角色 / 不能自我提权） | `system/role/handler.rs:651-680`；`system/user/guard.rs:98-155,160-240` |
@@ -180,19 +180,19 @@ let sql = "WITH RECURSIVE dept_tree AS ( \
 | POC-6b | 授权前互斥校验 SQL（union 形态） | 6a 命中 1 条／6b（无冲突）0 条／**6c（同次授予两个互斥角色）命中 1 条**——证明必须用 `已持有 ∪ 本次` 形态／6d（过期绑定不算持有）0 条 |
 | POC-7/7b | 脱敏的 SQL 层代价与副作用 | 20 万行 PG 侧 `regexp_replace`：**10.06 ms → 140.25 ms（14×）**；精确匹配 `mobile='139…0001'` 明文命中 **1**、套脱敏后命中 **0**；`NULLS NOT DISTINCT` 唯一索引能拦住重复的全局规则；`CHECK` 正则拦住 `sys_user; DROP TABLE` |
 | POC-8 | scope 解析查库成本 | 冷 1.18 ms / 热 0.54–0.61 ms（`sys_user`→`sys_user_role`→`sys_role` + 递归 CTE） |
-| POC-9 | `alun_utils::Mask` 的坑 | `Mask::mobile("13812345678")` → `138****5678` ✓；`Mask::name("张三丰")` → `张**` ✓；**`Mask::mask_by_type("custom_regex","张三")` → panic**：`byte index 2 is not a char boundary … of 张三`（`alun-utils-0.4.2/src/mask.rs:198`） |
+| POC-9 | `nik_utils::Mask` 的坑 | `Mask::mobile("13812345678")` → `138****5678` ✓；`Mask::name("张三丰")` → `张**` ✓；**`Mask::mask_by_type("custom_regex","张三")` → panic**：`byte index 2 is not a char boundary … of 张三`（`nik-utils-0.4.2/src/mask.rs:198`） |
 
 ### 1.6 框架能力边界（决定"不要重复造"与"不可能做到"）
 
 | 能力 | 有没有 | 证据 | 对本设计的后果 |
 |---|---|---|---|
-| 查询改写 hook / 拦截器 | **没有** | `alun-db-core-0.4.2/src/traits/hook.rs` 只有 insert/update/delete 前后；文档明写 raw SQL 不触发 | 方案 (c) 排除 |
+| 查询改写 hook / 拦截器 | **没有** | `nik-db-core-0.4.2/src/traits/hook.rs` 只有 insert/update/delete 前后；文档明写 raw SQL 不触发 | 方案 (c) 排除 |
 | 同步 hook 阻止写入 | **有**（`before_*` 返回 `Err` 即回滚） | 同上 | 但**不能**用它做互斥校验：trait 是同步的，内部无法 await DB 查询（要 `block_in_place`+`block_on`，有死锁风险）。所以互斥校验走显式调用（§4.2） |
-| `sql!` 宏 + 片段组合 | **有，项目零使用** | `alun-db-macro-0.4.2/src/lib.rs:124-160`；`SqlFragment` trait 在 `alun-db-core-0.4.2/src/query.rs:52` | 作为 (b′) 可选形态，不强制 |
-| 分页（含 count） | 有 | `alun-db-0.4.2/src/db.rs:194-226`：`SELECT COUNT(*) FROM ({sql}) AS _count` 然后原 SQL 追加 LIMIT/OFFSET | count 不剥 ORDER BY（POC-5 实测 2.5×）→ 本批自建 `scope::paginate` |
-| 缓存 | 有 `Cache` trait：`get/set/set_ex/del/incr/keys/delete_pattern` | `alun-cache-0.4.2/src/lib.rs:33-61` | epoch INCR 方案可行（§2.8） |
+| `sql!` 宏 + 片段组合 | **有，项目零使用** | `nik-db-macro-0.4.2/src/lib.rs:124-160`；`SqlFragment` trait 在 `nik-db-core-0.4.2/src/query.rs:52` | 作为 (b′) 可选形态，不强制 |
+| 分页（含 count） | 有 | `nik-db-0.4.2/src/db.rs:194-226`：`SELECT COUNT(*) FROM ({sql}) AS _count` 然后原 SQL 追加 LIMIT/OFFSET | count 不剥 ORDER BY（POC-5 实测 2.5×）→ 本批自建 `scope::paginate` |
+| 缓存 | 有 `Cache` trait：`get/set/set_ex/del/incr/keys/delete_pattern` | `nik-cache-0.4.2/src/lib.rs:33-61` | epoch INCR 方案可行（§2.8） |
 | 响应体捕获/改写 | 有（项目已用） | `middleware/operation_log.rs:223-240` 用 `axum::body::to_bytes` 取回 body 再回填 | 证明「响应层脱敏」技术上可行，但**不采用**（§3.3） |
-| 脱敏工具 | 有 `alun_utils::Mask` + `mask_json_value` | `alun-utils-0.4.2/src/mask.rs:20-46,120-200` | 6 个具体方法可复用；`mask_by_type` 的兜底分支有 panic（POC-9） |
+| 脱敏工具 | 有 `nik_utils::Mask` + `mask_json_value` | `nik-utils-0.4.2/src/mask.rs:20-46,120-200` | 6 个具体方法可复用；`mask_by_type` 的兜底分支有 panic（POC-9） |
 | 启动自检 | 有成熟范式 | `shared/startup_guard.rs`（948 行，`preflight()` 在 `lib.rs:72-78` 调用） | 本批的"防漏启动自检"沿用同一范式（§2.4） |
 
 ### 1.7 红线对照
@@ -202,7 +202,7 @@ let sql = "WITH RECURSIVE dept_tree AS ( \
 | 新代码进 `business/` | 三个模块的实现全在 `backend/src/business/permission/{scope,mask,sod}/` + `business/shared/` |
 | `system/` `support/` 只读 | 只做**11 处最小改动**，逐项在 §5.3 报批（每项 1–15 行），并给出"为什么不动它做不到" |
 | 不设 service 层 | 编排在 `business/permission/*/handler.rs`，数据访问在同目录 `model.rs`；**没有** `service.rs` |
-| 错误三出口 | handler 一律 `ResResult<T>`；model 一律 `DbError`；启动/任务 `alun::Result<T>` |
+| 错误三出口 | handler 一律 `ResResult<T>`；model 一律 `DbError`；启动/任务 `nik::Result<T>` |
 | 禁 unwrap / 拼 SQL 值 | scope 片段**只拼占位符**，值全部走 `Value` 绑定；`table_alias` 参数类型是 `&'static str`（编译期固定），不接受运行时字符串 |
 | 动代码必带单测 | §5.4 给了 34 个单测点，每个都写明"断言什么" |
 
@@ -392,7 +392,7 @@ ORDER BY u.created_at DESC       -- ← 作为独立参数传给 scope::paginate
 | 缓存什么 | `CachedScope { is_super: bool, kind: u8, dept_ids: Vec<Uuid>, self_only: bool }`（即解析后的**可见部门集合**） | 缓存配置（角色的 `data_scope` + `sys_role_dept`）需要在每次命中时重新算递归子树，等于没省；缓存结果则命中即用。**副作用**：部门树一改，所有缓存都可能失效 → 由 epoch 处理 |
 | 键 | `perm:user_scope:{epoch}:{user_id}` | epoch 是 Redis 单键 `perm:user_scope_epoch`（`u64`），部门树变更时 `INCR` |
 | TTL | 300 s（= `CACHE_PRINCIPAL_TTL_SECS`，`shared/constants.rs:375`） | 与既有 `perm:user_perms:/user_roles:/user_menus:` 同 TTL，运维只需记一套语义；300 s 也是"忘记失效"时的最大错误窗口 |
-| 为什么用 epoch 而不是 `delete_pattern` | 部门 `parent_id` 变更 / 删部门会让**所有**用户的子树失效，逐用户清要找 `keys("perm:user_scope:*")`（框架 `keys` 是 SCAN/KEYS 语义，key 多时是阻塞风险，`alun-cache-0.4.2/src/lib.rs:58`）；`INCR` 是 O(1)，旧键靠 TTL 自然回收 | 见表格下方失效矩阵 |
+| 为什么用 epoch 而不是 `delete_pattern` | 部门 `parent_id` 变更 / 删部门会让**所有**用户的子树失效，逐用户清要找 `keys("perm:user_scope:*")`（框架 `keys` 是 SCAN/KEYS 语义，key 多时是阻塞风险，`nik-cache-0.4.2/src/lib.rs:58`）；`INCR` 是 O(1)，旧键靠 TTL 自然回收 | 见表格下方失效矩阵 |
 | 缓存不可用 | **回退查库**（不 fail-closed） | 与既有 `cache_get` 语义一致（`auth/model.rs:62-68`）；数据权限是"过滤"，不是"鉴权"，查库慢但结果正确。**注意**：与 `auth_guard` 的 fail-closed（黑名单查不到就 401）是不同取向，别混 |
 
 **失效矩阵（每一条都要落到实施步里，且必须有单测）**
@@ -484,11 +484,11 @@ CREATE UNIQUE INDEX uk_sys_field_mask_rule
 | 4 | 姓名 | `保留前N`（默认 `1`） | `张三丰` → `张**` | `Mask::name`（**注意**：它按 `chars()` 处理，多字节安全，POC-9 已验证） |
 | 5 | 银行卡 | `保留前4,保留后4` | `6222021234567890` → `6222 **** 7890` | `Mask::bank_card` |
 | 6 | 金额 | `区间宽度`（如 `1000` 表示按千元取整） | `48620.00` → `48000~49000` | 自研（`Mask` 无金额能力；必须用 `Decimal` 计算，**禁止**用 f64——金额精度是批次 A 已立的规矩） |
-| 7 | 自定义正则 | `regex` + `保留组`（如 `^(\w{2}).*$` + `1`） | `AB12345` → `AB*****` | 自研，用 `regex 1.13.1`（已在 `Cargo.lock` 里，由 `alun-utils` 间接引入 → 显式化，零新 crate） |
+| 7 | 自定义正则 | `regex` + `保留组`（如 `^(\w{2}).*$` + `1`） | `AB12345` → `AB*****` | 自研，用 `regex 1.13.1`（已在 `Cargo.lock` 里，由 `nik-utils` 间接引入 → 显式化，零新 crate） |
 
 **统一约束（全部类型都必须满足，写进 `mask.rs` 的单测）**：
 - 输入为空/纯空白 → 原样返回（不产生 `""` → `"****"` 这种噪音）；
-- 输出**永不 panic**：所有切片按 `char_indices()` 边界处理。这一条是被 POC-9 逼出来的（`alun_utils::Mask::mask_by_type` 的兜底分支在 `"张三"` 上 panic，`mask.rs:198`）——所以 **`mask_by_type` 禁止出现在本批代码里**，并加一条 CI grep 断言；
+- 输出**永不 panic**：所有切片按 `char_indices()` 边界处理。这一条是被 POC-9 逼出来的（`nik_utils::Mask::mask_by_type` 的兜底分支在 `"张三"` 上 panic，`mask.rs:198`）——所以 **`mask_by_type` 禁止出现在本批代码里**，并加一条 CI grep 断言；
 - 幂等：`mask(mask(x)) == mask(x)`（避免二次脱敏把掩码也吃掉）；
 - 长度不变性：不满足最小长度的值（如 5 位手机号）原样返回而不是抛错——脏数据不该让列表接口 500。
 
@@ -677,7 +677,7 @@ WHERE m.deleted_at IS NULL
 **校验点 1 的顺序（三层，不可交换）**：
 
 ```
-① 框架 #[alun::permission("system:user:role")]      → 403 无权（框架层）
+① 框架 #[nik::permission("system:user:role")]      → 403 无权（框架层）
 ② guard::ensure_role_grant_allowed(claims, …)      → 403 超管/提权相关（批次 A 已实现）
 ③ sod::ensure_no_mutex(user_id, &role_ids)         → 409 互斥（本批新增）
 ④ 事务：replace_user_roles + 令牌版本自增 + 强制下线（批次 A 已实现）
@@ -740,7 +740,7 @@ WHERE m.deleted_at IS NULL
 
 ### 5.1 权限码清单（三模块 · 12 个业务码 + 3 个菜单载体）
 
-命名沿用 `{模块}:{资源}:{动作}`（`AGENTS.md` 第 7 条），**逐字**与 `#[alun::permission]` 声明、`sys_menu.auth_code` 一致（三处不一致 = 接口 403，这是批次 A 已经踩过的坑，见 `V0045` 头注释）。
+命名沿用 `{模块}:{资源}:{动作}`（`AGENTS.md` 第 7 条），**逐字**与 `#[nik::permission]` 声明、`sys_menu.auth_code` 一致（三处不一致 = 接口 403，这是批次 A 已经踩过的坑，见 `V0045` 头注释）。
 
 | # | 权限码 | HTTP | 语义 | 授予 |
 |---|---|---|---|---|
@@ -759,7 +759,7 @@ WHERE m.deleted_at IS NULL
 
 **权限码设计取舍**：
 
-- `:plain` 没有对应路由（它是"判定位"）。项目的 `#[alun::permission]` 只校验声明了路由的 handler；`plain` 通过在 handler 内 `claims.has_permission(...)` 读取。**为什么不给它挂一个路由**：挂路由就得有个端点，而豁免的语义是"作用于所有读接口"，不是"一个开关接口"。为让它在 `sys_menu` 里可勾选，仍建一个 `menu_type=3` 的按钮节点（与 `V0045` 的 `business:notice:mine` 同例）。
+- `:plain` 没有对应路由（它是"判定位"）。项目的 `#[nik::permission]` 只校验声明了路由的 handler；`plain` 通过在 handler 内 `claims.has_permission(...)` 读取。**为什么不给它挂一个路由**：挂路由就得有个端点，而豁免的语义是"作用于所有读接口"，不是"一个开关接口"。为让它在 `sys_menu` 里可勾选，仍建一个 `menu_type=3` 的按钮节点（与 `V0045` 的 `business:notice:mine` 同例）。
 - 三个模块的写权限**刻意只授超管**：它们是"能改别人能看什么"的元权限（同 `docs/大数据-产品需求PRD.md:1560` 的结论）。`V0065` 只给 `SUPER_ADMIN` 授 15 个节点（3 菜单 + 12 按钮）。
 - **`system:role-mutex:conflict` 例外**：它只读、不改变态，且"授角色"的日常操作者需要它才知道为什么被拒。若只授超管，非超管管理员点保存会拿到 409 但打不开冲突清单（因为清单接口 403）——体验断裂。所以建议在所有**持有 `system:user:role` 的角色**上追加授予（`V0068` 提供该 SQL，但默认不执行，由运维按组织现状决定）。
 
@@ -811,7 +811,7 @@ WHERE m.deleted_at IS NULL
 | `ExportColumn` 加 `table: &'static str` | `business/impexp/definition.rs:620` | 属批次 A 的业务代码；但会**破坏所有 `ExportDefinition` 实现**（当前 1 个 + 未来 N 个）→ 需要在实施步 B6 统一改 |
 | `format_export_rows` 加 `mask` 参数 | `business/impexp/engine.rs:408` | 同上；签名变更强制两个调用点（`handler.rs:780`/`worker.rs:607`）编译失败——这是**有意的**（漏改就编译不过） |
 
-**`Cargo.toml` 是否需要改**：需要，加 `regex = "1"`（1 行）。理由与项目已有 3 个先例完全一致（`tokio-util`、`futures-util`、`redis` 的注释都写"本就在依赖树中，这里只是显式化，不引入新 crate"，`Cargo.toml:66-84`）；`regex 1.13.1` 已在 `Cargo.lock`（`alun-utils` 的依赖）。**这一项不算越线，但要报批**，因为"只声明 alun"是铁律，任何新增行都要过评审。
+**`Cargo.toml` 是否需要改**：需要，加 `regex = "1"`（1 行）。理由与项目已有 3 个先例完全一致（`tokio-util`、`futures-util`、`redis` 的注释都写"本就在依赖树中，这里只是显式化，不引入新 crate"，`Cargo.toml:66-84`）；`regex 1.13.1` 已在 `Cargo.lock`（`nik-utils` 的依赖）。**这一项不算越线，但要报批**，因为"只声明 nik"是铁律，任何新增行都要过评审。
 
 **error_code 新增码表（6100x 段，接在批次 A 的 6003x 之后）**
 
@@ -1111,7 +1111,7 @@ CREATE INDEX IF NOT EXISTS idx_sys_role_mutex_b
 
 ```sql
 -- 批次 B 三模块权限点（3 个菜单 + 12 个按钮）
--- 权限码必须与 backend/src/business/permission/*/handler.rs 的 #[alun::permission] 逐字一致。
+-- 权限码必须与 backend/src/business/permission/*/handler.rs 的 #[nik::permission] 逐字一致。
 -- 授权策略：只授 SUPER_ADMIN（这三项都是「能改别人能看什么」的元权限）。
 -- 幂等：固定 UUID + ON CONFLICT DO NOTHING。
 INSERT INTO sys_menu (id, name, menu_type, auth_code, path, parent_id, component,
@@ -1335,7 +1335,7 @@ ORDER BY u.username;
 | `poc6b_sod_check.sql` | 授权前互斥校验（UNION 形态）四用例 | 见 B.4 |
 | `poc7_mask.sql` / `poc7b_mask.sql` | 规则表约束 + SQL 层脱敏代价与副作用 | 见 B.5 |
 | `poc8_scope_resolve.sql` | scope 解析查库成本 | 0.54–1.18 ms |
-| `maskpoc/`（临时 crate） | 验证 `alun_utils::Mask` 的行为与 panic | 见 B.6 |
+| `maskpoc/`（临时 crate） | 验证 `nik_utils::Mask` 的行为与 panic | 见 B.6 |
 | `gate_batchb.sh` | 闸 2 门禁脚本（实测在真实仓库跑过） | 见附录 C 末尾的基线输出 |
 | `poc_evidence.txt` | 上述脚本的关键输出汇总 | 已生成 |
 
@@ -1428,13 +1428,13 @@ ERROR: violates check constraint "ck_sys_field_mask_ident"
  sum(length(regexp_replace(mobile,…)))               → 140.254 ms     ← 14×
 ```
 
-### B.6 POC-9：`alun_utils::Mask` 实测（临时 crate `maskpoc`，依赖 alun-utils 0.4.2）
+### B.6 POC-9：`nik_utils::Mask` 实测（临时 crate `maskpoc`，依赖 nik-utils 0.4.2）
 
 ```
 mobile=138****5678
 name=张**
 
-thread 'main' panicked at …/alun-utils-0.4.2/src/mask.rs:198:23:
+thread 'main' panicked at …/nik-utils-0.4.2/src/mask.rs:198:23:
 byte index 2 is not a char boundary; it is inside '张' (bytes 0..3) of `张三`
 unknown-type PANICKED
 ```
@@ -1563,12 +1563,12 @@ psql -d batchb_poc3 -f batchB_poc/poc7b_mask.sql
 | 启动钩子（无错误通道 / prod `exit(1)` 先例） | `backend/src/bootstrap.rs:26-53, 189-200` |
 | 启动预检范式 | `backend/src/shared/startup_guard.rs`；调用点 `backend/src/lib.rs:72-78` |
 | 装配链（route_layer / layer_from_fn / scan） | `backend/src/lib.rs:80-101` |
-| Framework：Hook 仅 Model 生命周期，raw SQL 不触发 | `alun-db-core-0.4.2/src/traits/hook.rs:9-10` |
-| Framework：`paginate_with_params` 的 count 包裹 | `alun-db-0.4.2/src/db.rs:194-226` |
-| Framework：`sql!` 宏与 `SqlFragment` 组合 | `alun-db-macro-0.4.2/src/lib.rs:124-160`；`alun-db-core-0.4.2/src/query.rs:52` |
-| Framework：`has_permission` / `is_super_admin`（通配） | `alun-web-0.4.2/src/middleware/mod.rs:148-160` |
-| Framework：`Cache` trait（含 `incr`/`delete_pattern`） | `alun-cache-0.4.2/src/lib.rs:33-61` |
-| Framework：`Mask` 的 6 个方法 + `mask_by_type` 的 panic | `alun-utils-0.4.2/src/mask.rs:120-200`（panic 在 `:198`） |
+| Framework：Hook 仅 Model 生命周期，raw SQL 不触发 | `nik-db-core-0.4.2/src/traits/hook.rs:9-10` |
+| Framework：`paginate_with_params` 的 count 包裹 | `nik-db-0.4.2/src/db.rs:194-226` |
+| Framework：`sql!` 宏与 `SqlFragment` 组合 | `nik-db-macro-0.4.2/src/lib.rs:124-160`；`nik-db-core-0.4.2/src/query.rs:52` |
+| Framework：`has_permission` / `is_super_admin`（通配） | `nik-web-0.4.2/src/middleware/mod.rs:148-160` |
+| Framework：`Cache` trait（含 `incr`/`delete_pattern`） | `nik-cache-0.4.2/src/lib.rs:33-61` |
+| Framework：`Mask` 的 6 个方法 + `mask_by_type` 的 panic | `nik-utils-0.4.2/src/mask.rs:120-200`（panic 在 `:198`） |
 | 权限种子范式（固定 UUID + `ON CONFLICT`） | `backend/migrations/business/V0045__seed_notice_permissions.up.sql` |
 | `sys_export_task.create_by`（异步导出身份来源） | `backend/migrations/business/V0041__create_impexp_task.up.sql:95` |
 | 「能改别人能看什么 = 元权限，必须留痕」的同源论断 | `docs/大数据-产品需求PRD.md:1560` |

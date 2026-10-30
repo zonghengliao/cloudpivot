@@ -2,7 +2,7 @@
  * 菜单徽标接口（批次 E · E16）。
  *
  * 路径与后端 `backend/src/system/badge/handler.rs` 的
- * `#[alun::get("/system/badge/counts")]` 逐字对应 —— 注解里**不带** `/api`，
+ * `#[nik::get("/system/badge/counts")]` 逐字对应 —— 注解里**不带** `/api`，
  * 前端必须写全（漏了会命中 SPA fallback 返回 HTML，报「响应体格式不符合」）。
  *
  * # 四个桶

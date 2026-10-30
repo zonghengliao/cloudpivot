@@ -4,7 +4,7 @@
 > 验证日期：2026-10-28（CST）
 > 验证机：`172.18.10.144`（`/opt/cloudpivot`，rustc 1.99.1 / edition 2024）
 > 验收实例：`127.0.0.1:8099`，库 `cloudpivot_b3v`（专用库，新建后跑满 **43** 个迁移，
-> 含 B1 的 V0060–V0064/V0067 与 B4 的 V0065），Redis db6，`ALUN_CACHE_TYPE=redis`
+> 含 B1 的 V0060–V0064/V0067 与 B4 的 V0065），Redis db6，`NIK_CACHE_TYPE=redis`
 > 门禁：闸① **20 → 19** 处、闸② **21 → 18** 处（下降部分逐条列在 §4，门禁脚本一行未改）
 > 单测：**305 lib passed / 0 failed**（B2 基线 289 + B4 10 + 本卡 6）+ 集成测试 1/7/2 全绿
 
@@ -22,7 +22,7 @@
 | #9 | `backend/src/bootstrap.rs` | +56 | `tokio::join!` 第 5 分支 `preflight_permission_guard()`：prod 自检失败 `exit(1)`，其它 profile 记 error/warn 继续 |
 | #10 | `backend/src/shared/error_code.rs` | +64 | 6100x 段补满 **61005–61012**（61001/61002 由 B2、61003/61004 由 B4 落地，本卡与 B4 的措辞合并保留）+ 码值稳定性单测 |
 | #11 | `backend/src/shared/constants.rs` | +20 | `CACHE_KEY_PREFIX_USER_SCOPE` / `CACHE_KEY_USER_SCOPE_EPOCH` / `CACHE_KEY_PREFIX_USER_MASK`；`business/shared/principal.rs` 改为 `pub use` 转出（键常量集中一处） |
-| 报批尾项 | `backend/Cargo.toml` + `Cargo.lock` | +6 / +1 | 显式声明 `regex = "1"`（1.13.1 本就在依赖树里，`alun-utils` 的依赖；**不引入新 crate**，与 `tokio-util`/`futures-util`/`redis` 三个先例同口径） |
+| 报批尾项 | `backend/Cargo.toml` + `Cargo.lock` | +6 / +1 | 显式声明 `regex = "1"`（1.13.1 本就在依赖树里，`nik-utils` 的依赖；**不引入新 crate**，与 `tokio-util`/`futures-util`/`redis` 三个先例同口径） |
 
 **未动**：`business/` 下任何业务模块（storage/impexp/notice 是 B5）、`sys_field_mask` 相关、
 `sys_role_mutex` 相关、`scripts/check.sh` 门禁脚本、前端。
@@ -61,8 +61,8 @@ su postgres -c "createdb -O cloudpivot cloudpivot_b3v"          # 只需一次
 CARGO_TARGET_DIR=/var/tmp/b3-target cargo build
 setsid nohup scripts/batchb/b3_run.sh > /var/tmp/b3-run.log 2>&1 &
 #   脚本做的事：拷二进制到 /var/tmp/b3-run、按白名单逐 key 读 cloudpivot-test.env、
-#   覆盖 ALUN_DATABASE_NAME=cloudpivot_b3v / ALUN_SERVER_LISTEN=127.0.0.1:8099 /
-#   ALUN_CACHE_TYPE=redis / ALUN_REDIS_URL=redis://127.0.0.1:6379/6
+#   覆盖 NIK_DATABASE_NAME=cloudpivot_b3v / NIK_SERVER_LISTEN=127.0.0.1:8099 /
+#   NIK_CACHE_TYPE=redis / NIK_REDIS_URL=redis://127.0.0.1:6379/6
 
 # ③ 夹具 + 逐条验收（脚本随本卡提交：scripts/batchb/b3_accept.py）
 python3 scripts/batchb/b3_accept.py all        # = seed + verify②③④⑤⑥⑦
@@ -94,7 +94,7 @@ B3-HQ(B3 总部) ├── B3-RD(B3 研发部) ──── B3-RD-BE(B3 后端�
       b3_hq1    → B3-HQ / B3_SELF
 ```
 
-> 口令不落盘：脚本从 `/etc/cloudpivot/cloudpivot-test.env` 的 `ALUN_ADMIN_PASSWORD` 推导
+> 口令不落盘：脚本从 `/etc/cloudpivot/cloudpivot-test.env` 的 `NIK_ADMIN_PASSWORD` 推导
 > （`<初始>-b3admin` / `<初始>-b3user`），避免验收脚本本身成为仓库里的凭据明文。
 
 ---
@@ -344,8 +344,8 @@ B4 的专用接口已按「集合包含」做了更细的一层，两者叠加�
 
 ⑤ **`config-test.toml` 没有 `[cache]` 段 → 默认 `local`**，第一次起验收实例时
 `cache_type=local`，`perm:user_scope:*` 一条都不在 Redis 里，验收⑤的前提直接不成立。
-起实例必须显式 `ALUN_CACHE_TYPE=redis`（`alun-config/src/env.rs` 的映射表只认
-`ALUN_CACHE_TYPE` / `ALUN_REDIS_URL`，`ALUN_DATABASE_PORT` 之类并不在表里）。
+起实例必须显式 `NIK_CACHE_TYPE=redis`（`nik-config/src/env.rs` 的映射表只认
+`NIK_CACHE_TYPE` / `NIK_REDIS_URL`，`NIK_DATABASE_PORT` 之类并不在表里）。
 
 ⑥ **角色写操作会 `force_logout_all_except(["admin"])`**（既有语义）。验收脚本因此每段都重新登录；
 也意味着「验收③改角色名」之后 `b3_mgr` 的旧 token 会 401 —— 不是数据权限问题，别误判。

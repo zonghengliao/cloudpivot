@@ -6,7 +6,7 @@
 | 撰写人 | product-manager |
 | 日期 | 2026-10-27 |
 | 产品 | 云枢（CloudPivot）后台 · ERP 模块 **第 1 批：垂直闭环** |
-| 技术底座 | Rust（Alun 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite |
+| 技术底座 | Rust（Nik 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite |
 | 本批范围 | 主数据（物料/供应商/仓库/会计科目/计量单位）+ 采购订单 + 收货入库 + 即时库存 + 应付 + 凭证 + 总账查询 |
 | **不含范围** | 销售/应收、生产/BOM/工单、报表/结账、付款、发票、批次/序列号、调拨、盘点、多币种结算 |
 | 交付物 | `/root/.hermes/workspace/product-manager/cloudpivot-erp-batch1-prd.md` |
@@ -22,13 +22,13 @@
 
 # 第 0 章 前置事实核查（本 PRD 的落地依据）
 
-> 为避免"凭空设计"，撰写前已对**同技术栈底座工程** `/root/.hermes/workspace/information-security/cailu-src`（Rust + Alun + Vue3 + TDesign，与云枢同栈）做了源码核查，并核对了财政部《增值税会计处理规定》与 TDesign 图标集。以下结论直接决定本文的权限码、菜单、页面结构、会计处理的写法，**开发按此实现，不需要再猜**。
+> 为避免"凭空设计"，撰写前已对**同技术栈底座工程** `/root/.hermes/workspace/information-security/cailu-src`（Rust + Nik + Vue3 + TDesign，与云枢同栈）做了源码核查，并核对了财政部《增值税会计处理规定》与 TDesign 图标集。以下结论直接决定本文的权限码、菜单、页面结构、会计处理的写法，**开发按此实现，不需要再猜**。
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
 | **F1** | 权限码格式 `{模块}:{资源}:{动作}`，存 `sys_menu.auth_code VARCHAR(100)`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值仅 `system` / `support` | `backend/migrations/system/V0004__create_sys_menu.up.sql:5-22` | 新增权限码走 `business:erp:{资源}:{动作}`；`module_code` 填 `business`（20 字符够用） |
 | **F2** | 现有顶级目录只有两个：系统管理（`/system`，sort 10）、支撑功能（`/support`，sort 20） | `backend/migrations/seed/S__menu_data.sql:24,80` | ERP 作为第三个一级目录，`sort_order=40`（30 留给协同办公），见第六章 |
-| **F3** | 后端接口级鉴权用声明式宏 `#[alun::permission(path, method, permission)]` + `#[alun::get("/system/user/page")]`，路由风格 `/system/user/page`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | ERP 接口统一走 `/business/erp/.../page`；每个接口必须挂权限码，第五章逐个列出 |
+| **F3** | 后端接口级鉴权用声明式宏 `#[nik::permission(path, method, permission)]` + `#[nik::get("/system/user/page")]`，路由风格 `/system/user/page`，返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | ERP 接口统一走 `/business/erp/.../page`；每个接口必须挂权限码，第五章逐个列出 |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` 指令 | `frontend/src/views/system/user/index.vue:63` | 过账/作废/冲销等敏感按钮直接用 `v-privilege`，不新造机制 |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`，**不支持 `business:erp:*` 这类前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:63-71` | ①"一组动作都给"必须逐条勾选，不能写通配；②全员可见页面 `auth_code` 留空串 |
 | **F6** | 导航树由 `filterNavMenus` **递归**过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`，目录下无可见子菜单则整目录隐藏 | `frontend/src/stores/user.ts:17-38` | 菜单必须写成种子数据，不能在路由里硬编码；空目录自动消失，不需要额外处理 |
@@ -1495,7 +1495,7 @@ new_avg    = round(new_amount / new_qty, 6)    (new_qty > 0 时)
 
 1. **不渲染**：无权限时按钮不出现在 DOM（`v-privilege`），不是置灰——置灰会让用户反复点。
 2. **二次确认**：过账/作废/冲销/关闭订单 全部弹确认框，说清影响。
-3. **后端硬校验**：接口层 `#[alun::permission]` + 业务校验（状态、期间、库存），前端永远不是唯一防线。
+3. **后端硬校验**：接口层 `#[nik::permission]` + 业务校验（状态、期间、库存），前端永远不是唯一防线。
 
 ### 4.5.3 状态变更后的列表刷新
 
@@ -1716,7 +1716,7 @@ business : erp : {资源} : {动作}
 | 69 | `business:erp:admin:check` | 数据完整性检查页（E1-21） | P0 |
 | 70 | `business:erp:admin:export-all` | 全量导出（预留，本批不给任何角色） | P1 |
 
-> 合计 **70 个**（P0 = 60，P1 = 10；已按表格逐行核对：A 24+5 / B 9+1 / C 13+1 / D 14+3）。给 test-enginner 的一条提醒：**权限码的三处一致性**（`sys_menu.auth_code` ↔ 后端 `#[alun::permission]` ↔ 前端 `v-privilege`）是这类系统最高频的联调 Bug——任一处不一致就表现为"按钮点了 403"。建议后端启动时扫一遍所有 `#[alun::permission]` 声明，与 `sys_menu` 中 `menu_type=3` 的行做差集并打印缺失清单（开发期告警、生产静默）。
+> 合计 **70 个**（P0 = 60，P1 = 10；已按表格逐行核对：A 24+5 / B 9+1 / C 13+1 / D 14+3）。给 test-enginner 的一条提醒：**权限码的三处一致性**（`sys_menu.auth_code` ↔ 后端 `#[nik::permission]` ↔ 前端 `v-privilege`）是这类系统最高频的联调 Bug——任一处不一致就表现为"按钮点了 403"。建议后端启动时扫一遍所有 `#[nik::permission]` 声明，与 `sys_menu` 中 `menu_type=3` 的行做差集并打印缺失清单（开发期告警、生产静默）。
 
 ## 5.3 数据权限（F9 约束下的唯一正确做法）
 
@@ -1821,7 +1821,7 @@ business : erp : {资源} : {动作}
 
 ## 5.7 上线前权限自检清单（8 条，逐条验）
 
-1. 每个后端 ERP 接口都挂了 `#[alun::permission]`（无遗漏，特别是 `/business/erp/context` 这类辅助接口）。
+1. 每个后端 ERP 接口都挂了 `#[nik::permission]`（无遗漏，特别是 `/business/erp/context` 这类辅助接口）。
 2. 每个 `menu_type=3` 的按钮行 `auth_code` 与后端声明**完全一致**。
 3. 每个前端 `v-privilege` 里的码都在 `sys_menu` 存在（拼错就永远不显示按钮，且不报错——这是最难查的一类）。
 4. 所有 ERP 菜单行的 `module_code = 'business'`。

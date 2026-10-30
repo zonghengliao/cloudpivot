@@ -2,7 +2,7 @@
  * 审批流接口（批次 D · D1 定义侧 12 个接口 + D2 实例侧契约）。
  *
  * 路径与后端 `backend/src/business/flow/handler.rs` 的
- * `#[alun::get/post/put/delete("/business/flow/...")]` 逐条对应（注解不含 `/api`，前端写全）。
+ * `#[nik::get/post/put/delete("/business/flow/...")]` 逐条对应（注解不含 `/api`，前端写全）。
  *
  * # 定义侧（D1 已交付，可直接联调）
  *

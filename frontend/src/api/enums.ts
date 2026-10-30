@@ -25,7 +25,7 @@ export type ModuleEnums = Record<string, EnumItem[]>;
 /**
  * 枚举模块 → 接口路径。
  *
- * 与后端 `#[alun::get(".../enums")]` 一一对应；新增枚举接口时在此登记一行。
+ * 与后端 `#[nik::get(".../enums")]` 一一对应；新增枚举接口时在此登记一行。
  * 键名是前端唯一要背的约定（`{system|support|business}/{模块}`），页面组件通过
  * [`useModuleEnums`](../composables/useModuleEnums.ts) 按键取用。
  *

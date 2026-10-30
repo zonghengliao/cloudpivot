@@ -209,10 +209,10 @@ test result: ok. 2 passed;  0 failed   (s3_minio)
 ```
 
 无库环境（`cargo test` 的 CI 形态）仍全绿：6 条真库用例打印
-`SKIP: 未设置 T5_DB_URL / ALUN_DATABASE_*（不连真实数据库）` 后返回。
+`SKIP: 未设置 T5_DB_URL / NIK_DATABASE_*（不连真实数据库）` 后返回。
 
 ```
-SKIP: 未设置 T5_DB_URL / ALUN_DATABASE_*（不连真实数据库）   ×5
+SKIP: 未设置 T5_DB_URL / NIK_DATABASE_*（不连真实数据库）   ×5
 test result: ok. 6 passed; 0 failed
 ```
 

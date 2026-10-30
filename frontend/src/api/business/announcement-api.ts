@@ -1,7 +1,7 @@
 /**
  * 公告接口（批次 C · C2 用户侧 / C3 管理侧）。
  *
- * 路径与后端 `backend/src/business/announcement/handler.rs` 的 `#[alun::get/post/put/delete]`
+ * 路径与后端 `backend/src/business/announcement/handler.rs` 的 `#[nik::get/post/put/delete]`
  * 逐条对应（注解里不带 `/api` 前缀，前端补齐）。
  *
  * # 三条取值口径（照后端 DTO，别自己发明）

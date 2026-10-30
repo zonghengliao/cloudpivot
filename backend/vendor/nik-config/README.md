@@ -1,6 +1,6 @@
 # nik-config
 
-Alun 配置系统：TOML 加载、多环境 Profile、环境变量覆盖、运行时动态配置。
+Nik 配置系统：TOML 加载、多环境 Profile、环境变量覆盖、运行时动态配置。
 
 > 业务侧一般只通过门面拿配置：`nik::cfg()`（静态）、`nik::config()`（可写动态层）、
 > 以及 `nik::App` 自己读的 `config/config.toml`。本 crate 是它们的实现。
@@ -25,26 +25,26 @@ Alun 配置系统：TOML 加载、多环境 Profile、环境变量覆盖、运�
 
 1. `config/config.toml`（基础；文件缺失则用 `AppConfig::default()`）
 2. `config/config-{profile}.toml`（在其上做深合并）
-3. `ALUN_*` 环境变量
+3. `NIK_*` 环境变量
 
 ### Profile 选择
 
-命令行 `profile=prod` > `ALUN_PROFILE` > `ALUN_ENV` > `"dev"`
+命令行 `profile=prod` > `NIK_PROFILE` > `NIK_ENV` > `"dev"`
 
 ### 环境变量
 
-`ALUN_<SECTION>_<FIELD>` 映射到配置路径，例如：
+`NIK_<SECTION>_<FIELD>` 映射到配置路径，例如：
 
 | 变量 | 字段 |
 |------|------|
-| `ALUN_SERVER_LISTEN` | `server.listen` |
-| `ALUN_LOG_LEVEL` / `ALUN_LOG_FORMAT` / `ALUN_LOG_DIR` | `log.*` |
-| `ALUN_DATABASE_HOST` / `_NAME` / `_USER` / `_PASSWORD` / `_SSL_MODE` | `database.*` |
-| `ALUN_REDIS_URL` | `redis.url` |
-| `ALUN_CACHE_TYPE` | `cache.type` |
-| `ALUN_ROUTER_PREFIX` | `router.prefix` |
-| `ALUN_UPLOAD_PATH` / `ALUN_DOWNLOAD_PATH` / `ALUN_TEMPLATE_PATH` | 对应路径字段 |
-| `ALUN_MIDDLEWARE_AUTH_JWT_SECRET` | `middleware.auth.jwt_secret` |
+| `NIK_SERVER_LISTEN` | `server.listen` |
+| `NIK_LOG_LEVEL` / `NIK_LOG_FORMAT` / `NIK_LOG_DIR` | `log.*` |
+| `NIK_DATABASE_HOST` / `_NAME` / `_USER` / `_PASSWORD` / `_SSL_MODE` | `database.*` |
+| `NIK_REDIS_URL` | `redis.url` |
+| `NIK_CACHE_TYPE` | `cache.type` |
+| `NIK_ROUTER_PREFIX` | `router.prefix` |
+| `NIK_UPLOAD_PATH` / `NIK_DOWNLOAD_PATH` / `NIK_TEMPLATE_PATH` | 对应路径字段 |
+| `NIK_MIDDLEWARE_AUTH_JWT_SECRET` | `middleware.auth.jwt_secret` |
 
 空值会被忽略；JWT 密钥还接受别名 `FACAI_JWT_SECRET`（优先级更高）。
 
@@ -56,7 +56,7 @@ cargo run -- print-config     # 打印解析后的当前配置
 cargo run -- profile=prod     # 指定 Profile
 ```
 
-> 这三个参数需要在 `main` 里链 `.parse_cli()` 才生效；`profile=prod` 与 `ALUN_*` 环境变量
+> 这三个参数需要在 `main` 里链 `.parse_cli()` 才生效；`profile=prod` 与 `NIK_*` 环境变量
 > 在启动加载配置时即生效，不依赖 `parse_cli()`。
 
 ## 示例

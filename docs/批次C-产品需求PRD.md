@@ -7,7 +7,7 @@
 | 文档版本 | v1.0（待评审） |
 | 所属批次 | **批次 C（内容管理）** |
 | 编制 | 产品经理（product-manager） |
-| 适用系统 | 云枢后台管理平台（Rust / Alun 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
+| 适用系统 | 云枢后台管理平台（Rust / Nik 0.4.2 + Vue3 + TDesign 1.19 + PostgreSQL 16） |
 | 上游依赖 | 批次 A（对象存储 / 导入导出 / 消息通知）**已上线**；批次 B（数据权限 / 列级脱敏 / 角色互斥）**已上线** |
 | 下游批次 | 批次 D（工作流审批）—— 本批只在第 10 章提一句，不做设计 |
 | 交付形态 | 纯需求文档，不含代码 |
@@ -86,11 +86,11 @@
 
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
-| **F17** | backend 的 `alun` 依赖**已开启 `xss` feature**，Cargo.toml 里的注释写的就是"HTML 净化：社区公告等富文本入库前过滤"；但 `backend/src` 全仓 `grep xss::` **一次都没调用过** | `backend/Cargo.toml:32`；`grep -rn "xss::\|sanitize_html" backend/src` 返回空 | 能力已就位、从未使用。本批是它第一次真正上身——**不需要新增 feature，不需要新增 crate 下载**（F21） |
-| **F18** | `alun_utils::xss` 只暴露 3 个函数：`sanitize_html` / `sanitize_html_strict` / `has_potential_xss`，**没有暴露 `Builder`，无法自定义标签/属性白名单** | `~/.cargo/registry/src/*/alun-utils-0.4.2/src/xss.rs:29-48` | 若产品要求"保留 target=_blank"或"允许 span 样式"，仅靠这 3 个函数做不到，必须**在 backend 直接依赖 ammonia** 并自建 Builder（F21 已证零下载） |
+| **F17** | backend 的 `nik` 依赖**已开启 `xss` feature**，Cargo.toml 里的注释写的就是"HTML 净化：社区公告等富文本入库前过滤"；但 `backend/src` 全仓 `grep xss::` **一次都没调用过** | `backend/Cargo.toml:32`；`grep -rn "xss::\|sanitize_html" backend/src` 返回空 | 能力已就位、从未使用。本批是它第一次真正上身——**不需要新增 feature，不需要新增 crate 下载**（F21） |
+| **F18** | `nik_utils::xss` 只暴露 3 个函数：`sanitize_html` / `sanitize_html_strict` / `has_potential_xss`，**没有暴露 `Builder`，无法自定义标签/属性白名单** | `~/.cargo/registry/src/*/nik-utils-0.4.2/src/xss.rs:29-48` | 若产品要求"保留 target=_blank"或"允许 span 样式"，仅靠这 3 个函数做不到，必须**在 backend 直接依赖 ammonia** 并自建 Builder（F21 已证零下载） |
 | **F19** | **ammonia 4.2 默认白名单实测结果**（本机真跑，输入→输出见附录 C.7）：`<script>`/`<iframe>`/`<svg>`/`<style>` **整块删除**；`onerror` 等事件属性删除；`style` 属性**整条删除**（含 `position:fixed` 全屏覆盖层）；`class` 属性**整条删除**；`href="javascript:"` → 只留 `<a rel="noopener noreferrer">`；`<img src="data:text/html...">` → `src` 被剥只剩 `<img>`；`target="_blank"` **被剥掉**；`table/thead/tr/th/td/pre/code/ul/ol/li/img(https)/h1-h6` 正常保留 | `~/.cargo/registry/src/*/ammonia-4.2.4/src/lib.rs:380-500`（默认 tags / generic_attributes={lang,title} / tag_attributes / style_properties=None / allowed_classes={} / link_rel=noopener noreferrer）+ 本地 `cargo run` 实测输出 | ①XSS 默认策略够严，**可以放心用于公告富文本**；②但 `class`/`style` 被剥意味着**富文本不能保留字体颜色、字号、自定义样式**，这是必须写进界面的产品限制（3.9.3）；③`<code class="language-xx">` 的语言标记会丢 → 帮助文档**不能用富文本存代码块**（4.1 的选型依据之一） |
-| **F20** | `alun` 的 `xss.rs` 文档注释称 `<a>` 支持 `href, title, target`，**实际 ammonia 默认 `a` 只有 `href, hreflang`**（`title` 来自 generic_attributes 所以有，`target` 没有） | `alun-utils-0.4.2/src/xss.rs:24` 对比 `ammonia-4.2.4/src/lib.rs:394-398` 与实测 | 文档与实现不一致，**以实测为准**。公告里的外链会在当前页打开（不是新窗口）——要么接受，要么自建 Builder 加 `target`（附录 B3 待拍板） |
-| **F21** | `ammonia 4.2.0` **已在 `backend/Cargo.lock`**（由 alun-utils 的 xss feature 传递引入） | `backend/Cargo.lock:336-338` | 若需自定义白名单，在 `backend/Cargo.toml` 声明 `ammonia = "4.2"` 是**零下载**（本地 registry 已有 4.2.0/4.2.4）。这是本批唯一"可自选"的技术杠杆 |
+| **F20** | `nik` 的 `xss.rs` 文档注释称 `<a>` 支持 `href, title, target`，**实际 ammonia 默认 `a` 只有 `href, hreflang`**（`title` 来自 generic_attributes 所以有，`target` 没有） | `nik-utils-0.4.2/src/xss.rs:24` 对比 `ammonia-4.2.4/src/lib.rs:394-398` 与实测 | 文档与实现不一致，**以实测为准**。公告里的外链会在当前页打开（不是新窗口）——要么接受，要么自建 Builder 加 `target`（附录 B3 待拍板） |
+| **F21** | `ammonia 4.2.0` **已在 `backend/Cargo.lock`**（由 nik-utils 的 xss feature 传递引入） | `backend/Cargo.lock:336-338` | 若需自定义白名单，在 `backend/Cargo.toml` 声明 `ammonia = "4.2"` 是**零下载**（本地 registry 已有 4.2.0/4.2.4）。这是本批唯一"可自选"的技术杠杆 |
 | **F22** | 前端 `package.json` 依赖只有 axios / dayjs / echarts / pinia / tdesign-icons-vue-next / tdesign-vue-next / vue / vue-i18n / vue-router。**没有任何 Markdown 渲染器，也没有 DOMPurify 之类的净化库** | `frontend/package.json`（dependencies 全量） | 帮助文档的 Markdown 渲染 + 二次净化**必须新增前端依赖**（`markdown-it` + `dompurify`），属交付前提（附录 C.2），需要 pnpm 私服可用 |
 | **F23** | 工程内**没有任何富文本编辑器依赖**；TDesign 1.19 官方组件清单中也没有可直接用的富文本编辑器（本工程只引了 `tdesign-vue-next` 本体） | `frontend/package.json`；`ls frontend/node_modules` 不存在（构建期安装） | 公告富文本编辑需要引入第三方编辑器（建议 `@wangeditor/editor-for-vue@5`，附录 B2）。**编辑器选型不进 P0 的前置阻塞**，可用 `t-textarea` 富文本降级方案先跑通接口 |
 
@@ -99,7 +99,7 @@
 | # | 核查结论 | 证据（路径:行号） | 对本文的影响 |
 |---|---|---|---|
 | **F24** | axios 全局 `timeout: 15000`；分页返回体 `{list, total, page, page_size}` | `frontend/src/api/request.ts:68,138,15-22` | 变更日志导出、帮助文档大文档保存都必须单独放宽 timeout 或走异步导出（3.10、5.7） |
-| **F25** | 分页上限 `MAX_PAGE_SIZE=1000`，默认 `DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/alun-web-0.4.2/src/api.rs:104,107` | `page_size > 1000` 会被静默截到 1000；变更日志默认 20 条/页，导出走独立通道不受此限 |
+| **F25** | 分页上限 `MAX_PAGE_SIZE=1000`，默认 `DEFAULT_PAGE_SIZE=10` | `~/.cargo/registry/src/*/nik-web-0.4.2/src/api.rs:104,107` | `page_size > 1000` 会被静默截到 1000；变更日志默认 20 条/页，导出走独立通道不受此限 |
 | **F26** | 图标存在性实测（`ICON_NAMES` 共 2356 个）：✅ `pin` `notification` `help-circle` `search` `history` `article` `file-pdf` `file-copy` `rollback` `time` `refresh` `edit-1` `add` `delete` `view-list` `browse` `cloud-download` `check-circle` `error-circle` `attach`；❌ **不存在** `announcement` `bulletin` `log` `clipboard` `sort` `ascending` | `frontend/src/components/IconSelect/icons.ts`（去 CRLF 后逐个 `grep -x`） | 菜单与按钮图标只能从 ✅ 里选。公告= `article`、公告中心= `pin`、帮助= `help-circle`、变更日志= `history`（第 7 章） |
 | **F27** | `v-privilege` 指令存在，无权限时 `display:none`（保留 DOM） | `frontend/src/directives/permission/privilege.ts:26-27`；用法见 `frontend/src/views/support/config/index.vue:20,43,102` | 页面内按钮一律用 `v-privilege="['code']"`，不要自己写 `v-if="hasPermission(...)"`（口径不统一会导致有人绕过） |
 | **F28** | 路由 `meta.permission` 做页面级权限 | `frontend/src/router/index.ts:5-13,39-43` | 5 个新路由都要带 `meta.permission`；用户端两个页面带 `business:announcement:view` / `business:help:view` |
@@ -124,7 +124,7 @@
 | **F35** | 底座仓库**完全没有**消息/公告能力：`grep -i notice` 在 backend/frontend/migrations 全仓 0 命中 | `grep -rn "notice" -i backend/src backend/migrations frontend/src` 返回空 | 本批的「公告发布 → 推站内消息」**建立在批次 A 交付物之上**（`sys_notice_message` / `sys_notice_receiver` / `business:notice:*`）。若批次 A 消息中心尚未合并到主干，本批**先做公告本体，站内信联动按 D4 的降级方案排队**（3.8.4） |
 | **F36** | `sys_file` 列：`file_name/original_name/file_key/file_size/file_hash/mime_type/extension/storage_path/category/status/uploaded_by/…/deleted_at`，**没有** `storage_id` | `backend/migrations/support/V0010__create_sys_file.up.sql:2-24` | 公告与帮助文档的**附件只存 `file_id` 关联**，不复制文件元数据；附件下载走批次 A 的文件接口（契约零改动） |
 | **F37** | 错误码分段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑域；日志查询接口权限码统一 `support:log:list` | `backend/src/shared/error_code.rs:26-31`（码段表）、`:45`（`RESOURCE_NOT_FOUND=10002`）；`backend/src/support/log/handler.rs:135-137` | 本批新增业务错误码在 `error_code.rs` 追加 **`5000x` 内容域**段（不复用 4000x，避免与支撑域语义混淆）；**用户看到的文案见 8.8，界面上不出现任何错误码** |
-| **F38** | `Mask::mobile("13812345678") == "138****5678"`（前 3 + `****` + 后 4）；而 `Mask::mask_by_type` 的 `_ =>` 兜底分支按**字节**切片，中文值会 panic | `~/.cargo/registry/src/*/alun-utils-0.4.2/src/mask.rs:209-210`（测试断言）；`mask.rs:196-201`（兜底分支） | 变更日志的字段脱敏必须**逐字段显式指定类型**调 `Mask::mobile/email/name/id_card`，**禁止**走 `mask_by_type` 兜底（会导致中文备注字段 5xx）。列入代码评审强制项（附录 E.4） |
+| **F38** | `Mask::mobile("13812345678") == "138****5678"`（前 3 + `****` + 后 4）；而 `Mask::mask_by_type` 的 `_ =>` 兜底分支按**字节**切片，中文值会 panic | `~/.cargo/registry/src/*/nik-utils-0.4.2/src/mask.rs:209-210`（测试断言）；`mask.rs:196-201`（兜底分支） | 变更日志的字段脱敏必须**逐字段显式指定类型**调 `Mask::mobile/email/name/id_card`，**禁止**走 `mask_by_type` 兜底（会导致中文备注字段 5xx）。列入代码评审强制项（附录 E.4） |
 
 ---
 
@@ -134,7 +134,7 @@
 |---|---|---|---|
 | **D1** | 公告正文用富文本还是 Markdown | **富文本（HTML）**，但样式受限：只保留结构（标题/段落/列表/表格/代码块/引用/图片/链接/粗斜体下划线） | 发公告的人是行政/HR，不是工程师——让他们写 Markdown 等于把发布门槛抬到技术岗。样式受限不是为了省事，而是 F19 实测：ammonia 会剥掉 `style`/`class`，若产品承诺"能改字体颜色"，上线即翻车（3.9.3 把限制写进界面） |
 | **D2** | 帮助文档用什么格式 | **Markdown 原文存储**，前端渲染（`markdown-it` 禁 raw HTML + `DOMPurify` 二次净化）；**后端不存 HTML** | ①代码块要语言标记做高亮，而 ammonia 会剥 `class="language-xx"`（F19），富文本路线天然做不好；②文档要能被人 diff/被后续"开发者写文档"场景复用；③TOC 从渲染后的 h1–h4 生成，Markdown 路线最自然 |
-| **D3** | HTML 净化放在哪一层、用什么白名单 | **入库前在服务端净化**（写接口里做，不是读接口做），用 `alun::xss::sanitize_html`（ammonia 默认白名单）；前端渲染 `content_html` 时**不再二次解析**（直接 `v-html` 输出已净化串），编辑器侧粘贴时另做一次前端净化（双保险） | ①入库即净化 → 库里没有脏数据，导出/搜索/消息摘要都不会二次踩坑；②若只在读接口净化，任何新出口（导出、站内信、开放接口）都会漏；③默认白名单已实测够严（F19），**不自定义**是最省事且最安全的选择 |
+| **D3** | HTML 净化放在哪一层、用什么白名单 | **入库前在服务端净化**（写接口里做，不是读接口做），用 `nik::xss::sanitize_html`（ammonia 默认白名单）；前端渲染 `content_html` 时**不再二次解析**（直接 `v-html` 输出已净化串），编辑器侧粘贴时另做一次前端净化（双保险） | ①入库即净化 → 库里没有脏数据，导出/搜索/消息摘要都不会二次踩坑；②若只在读接口净化，任何新出口（导出、站内信、开放接口）都会漏；③默认白名单已实测够严（F19），**不自定义**是最省事且最安全的选择 |
 | **D4** | 公告发布是否推站内消息 | **推**（P0）。发布成功即写一条 `sys_notice_message`（`business_key='content.announcement'`，`biz_ref_id=公告 id`，`action_url=/notice/detail/{id}`，`action_text='查看公告'`），正文取**公告摘要的纯文本**（≤200 字），不推 HTML | 公告的价值在于"被看到"。只靠顶栏角标，用户不进系统就不知道；站内信是批次 A 已建好的主干道，复用成本最低。正文推纯文本是因为批次 A 的消息正文是纯文本（`white-space: pre-wrap`），推 HTML 会渲不出来 |
 | **D5** | 已读口径 | 一人一行 `sys_announcement_read`；**顶栏角标 = 当前用户"可见但未读"的公告数**（上限显示 99+）；阅读人数 = `count(*)`（不去重读次数）；"阅读明细"（谁读了）P1 | 与批次 A 消息中心"一人一行、各自已读"同构，用户心智一致；阅读人数用聚合而非冗余计数列，避免并发写热点 |
 | **D6** | 公告列表排序 | `置顶(且置顶未过期) DESC → publish_at DESC`；管理端同序但多一列状态 | 置顶是"告知"的最强手段，必须压过时间序；置顶带过期时间（`top_expire_at`）是为了防止"去年的置顶还在第一位" |
@@ -702,14 +702,14 @@
 | 环节 | 动作 |
 |---|---|
 | 前端编辑器 | 粘贴时前端净化（编辑器自带的 `pasteFilter`），**只是体验优化，不承担安全职责** |
-| **后端保存**（`POST/PUT /business/announcement`） | ①取 `content_html` → ②`alun::xss::sanitize_html()` → ③把净化后的串存 `content_html` → ④同时生成 `content_text`（去标签 + 实体反转义 + 折叠空白） |
+| **后端保存**（`POST/PUT /business/announcement`） | ①取 `content_html` → ②`nik::xss::sanitize_html()` → ③把净化后的串存 `content_html` → ④同时生成 `content_text`（去标签 + 实体反转义 + 折叠空白） |
 | 读取 | 原样返回库里的 `content_html`；**前端 `v-html` 直接渲染，不再做任何转换**（不做前端 markdown 渲染、不做 innerHTML 拼接） |
 
 **为什么必须在写接口净化**：只要有一个出口忘了净化，就等于没做。写接口净化后，**库里的数据本身就是安全的**，导出、搜索摘要、站内信正文、未来的开放接口都自动安全。
 
 ### 3.9.2 净化白名单（用默认策略，不自定义 —— 附实测结果）
 
-采用 `alun_utils::xss::sanitize_html`（= ammonia `Builder::default()`）。**实测输入输出**（附录 C.7 有完整输出）：
+采用 `nik_utils::xss::sanitize_html`（= ammonia `Builder::default()`）。**实测输入输出**（附录 C.7 有完整输出）：
 
 | 输入 | 输出 | 结论 |
 |---|---|---|
@@ -3086,7 +3086,7 @@ ALTER TABLE sys_change_log_archive ATTACH PARTITION sys_change_log_2026_10
 | 写失败留痕 | `change_log::record_failure(db, FailureInput)` | 任何业务 handler（**只能在事务 Err 后**） |
 | 发站内信 | 批次 A 的 notice 模块公开函数（`business_key/biz_ref_id/action_url/action_text`） | 公告发布（本批已用）、D 批次的审批待办 |
 | 挂附件 | `sys_file` 的 `file_id` 关联表（本批 `sys_announcement_file` 即是范例） | D 批次的审批附件 |
-| 字段脱敏原语 | `alun_utils::Mask::mobile/email/name/id_card/bank_card`（**禁止 `mask_by_type` 兜底**） | 变更日志、后续任何要打码的模块 |
+| 字段脱敏原语 | `nik_utils::Mask::mobile/email/name/id_card/bank_card`（**禁止 `mask_by_type` 兜底**） | 变更日志、后续任何要打码的模块 |
 
 ## E.4 代码评审强制清单（10 条，逐条打勾才能合）
 
@@ -3100,7 +3100,7 @@ ALTER TABLE sys_change_log_archive ATTACH PARTITION sys_change_log_2026_10
 | 6 | 富文本写入前调用了 `xss::sanitize_html`（或自建 Builder） | `grep -n sanitize_html` |
 | 7 | 没有使用 `Mask::mask_by_type`（F38 的中文 panic） | `grep -n mask_by_type` 必须为 0 |
 | 8 | 变更日志的字段白名单覆盖了所有可改字段，且**不含** password/token/富文本正文 | 对照 5.4.1 表 + 白名单单测 |
-| 9 | 新接口都挂了 `#[alun::permission(...)]` 且权限码与种子一致 | `grep -n "permission ="` + 对照第 6 章 |
+| 9 | 新接口都挂了 `#[nik::permission(...)]` 且权限码与种子一致 | `grep -n "permission ="` + 对照第 6 章 |
 | 10 | 没有硬编码颜色（`#RRGGBB` / `rgb(`） | `grep -nE "#[0-9a-fA-F]{6}\|rgb\("` 在新 vue 文件里必须为 0 |
 
 ---

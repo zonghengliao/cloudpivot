@@ -1188,7 +1188,7 @@ nik migrate status
 在编译期，应用 crate 的 `build.rs` 调用 `nik_db_build::build_snapshot("migrations")`
 解析所有迁移文件，合并 `CREATE TABLE` 与 `ALTER TABLE ... ADD COLUMN` 的增量演进，
 写出一份规范化 DDL 快照（`$OUT_DIR/schema_snapshot.sql`），并注入
-环境变量 `ALUN_DB_SCHEMA_SNAPSHOT` 与该目录的 `cargo:rerun-if-changed`。
+环境变量 `NIK_DB_SCHEMA_SNAPSHOT` 与该目录的 `cargo:rerun-if-changed`。
 
 ```toml
 # Cargo.toml

@@ -11,7 +11,7 @@
 | 文档 | 给谁看 | 解决什么问题 |
 |------|--------|--------------|
 | **本文件（README）** | 所有人 | 文档总入口、5 分钟上手、核心约定速记、AI 入口 |
-| [项目结构与设计亮点.md](./项目结构与设计亮点.md) | 所有人 | 完整目录树、17 张表、Alun 框架设计亮点、部署模型 |
+| [项目结构与设计亮点.md](./项目结构与设计亮点.md) | 所有人 | 完整目录树、17 张表、Nik 框架设计亮点、部署模型 |
 | [后端二开指南.md](./后端二开指南.md) | 后端 / AI | 四件套模板、新增模块 7 步流程、迁移 / 事务 / 错误出口 |
 | [前端二开指南.md](./前端二开指南.md) | 前端 / AI | api 封装、列表页范本、路由注册、主题变量、TDesign 坑 |
 | [配色方案.md](./配色方案.md) | 前端 / AI / 设计 | 6 套色板 × 明暗双模式：色值、色阶推导算法、对比度报告、如何新增第 7 套 |
@@ -49,10 +49,10 @@
 ## 二、5 分钟上手
 
 ### 技术栈速览
-- **后端**：Rust 1.94.1+ / edition 2024，框架 `alun`（门面，底层 axum 0.8），PostgreSQL ≥ 14，Redis（缓存 / 令牌黑名单）。
+- **后端**：Rust 1.94.1+ / edition 2024，框架 `nik`（门面，底层 axum 0.8），PostgreSQL ≥ 14，Redis（缓存 / 令牌黑名单）。
 - **前端**：Vue 3.5 + TS 5.8 + Vite 6 + TDesign Vue Next 1.19 + Pinia 3 + ECharts 5，pnpm 10.5。
 - **端口**：后端 `8023`；前端 dev `5173`（Vite 代理 `/api`、`/health` → `:8023`）。
-- **默认账号**：`admin`（口令无缺省值，必须由 `ALUN_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
+- **默认账号**：`admin`（口令无缺省值，必须由 `NIK_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
 
 ### 一条命令起环境
 ```bash
@@ -77,10 +77,10 @@ cd frontend && pnpm typecheck
 
 1. **后端每模块四件套**：`mod.rs + handler.rs + dto.rs + model.rs`；业务编排在 `handler`，数据访问与领域行为在 `model`，**不设 service 层**。
 2. **二开业务放 `business/` 容器**：后端 `src/business/<模块>/`、前端 `api/business/`、`views/business/<模块>/`，与 `system/`、`support/` 平级，**不侵入框架底座**。
-3. **依赖铁律**：`Cargo.toml` 只声明 `alun`（必要时 `alun-utils`）；**禁止**写 `alun-db` / `alun-db-core` / `alun-web` / `alun-config`。业务代码统一 `use alun::prelude::*`。
-4. **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `alun::Result<T>`；handler 内 `?` 直接传播，不要写多余 `.map_err(ApiError::internal(...))`。
+3. **依赖铁律**：`Cargo.toml` 只声明 `nik`（必要时 `nik-utils`）；**禁止**写 `nik-db` / `nik-db-core` / `nik-web` / `nik-config`。业务代码统一 `use nik::prelude::*`。
+4. **错误出口三名字**：handler `ResResult<T>`、model `DbResult<T>`、启动/插件/任务 `nik::Result<T>`；handler 内 `?` 直接传播，不要写多余 `.map_err(ApiError::internal(...))`。
 5. **迁移号段**：基础版最大 `V0017`；二开业务从 **`V0020`** 起编号（留 `V0018-19` 缓冲），4 位补零，已应用迁移指纹校验不可改。
-6. **权限码三段式** `{模块}:{资源}:{动作}`（如 `system:user:create`），与 `sys_menu.auth_code` 和 `#[alun::permission(...)]` 一一对应；`SUPER_ADMIN` 短路。
+6. **权限码三段式** `{模块}:{资源}:{动作}`（如 `system:user:create`），与 `sys_menu.auth_code` 和 `#[nik::permission(...)]` 一一对应；`SUPER_ADMIN` 短路。
 7. **路由宏路径不含 `/api` 前缀**（由 `[router] prefix` 注入）；`/health` 手动注册免前缀。
 8. **前端 API 路径必须写全 `/api/...`**（漏前缀命中 SPA fallback 返回 HTML → “响应体格式不符合”）。
 9. **TDesign Grid 是 12 列制**：`t-col-xl-2`=一行 6 个、`-xl-3`=一行 4 个；`t-col-xs-24` 不存在（最大 `xs-12`）。
@@ -89,6 +89,6 @@ cd frontend && pnpm typecheck
 
 ## 四、给 AI 的特别说明
 
-- 本项目已为 AI 准备好 `AGENTS.md`、`llms.txt`、`skill/SKILL.md` 与本文档集。**不要跳过它们凭印象生成代码**——尤其是「依赖只写 alun」「四件套结构」「错误出口三名字」「迁移号段 V0020+」「权限码三段式」「前端 /api 前缀」这些铁律。
+- 本项目已为 AI 准备好 `AGENTS.md`、`llms.txt`、`skill/SKILL.md` 与本文档集。**不要跳过它们凭印象生成代码**——尤其是「依赖只写 nik」「四件套结构」「错误出口三名字」「迁移号段 V0020+」「权限码三段式」「前端 /api 前缀」这些铁律。
 - 具体反魔幻清单、二开设计方案骨架见 [AI二开指引.md](./AI二开指引.md)。
 - 范本永远优先照抄：`backend/src/system/user/` 是后端四件套范本；`frontend/src/views/system/user/index.vue` + `frontend/src/api/system/user-api.ts` 是前端列表页范本。

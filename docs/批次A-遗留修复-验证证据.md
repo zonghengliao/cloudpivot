@@ -163,7 +163,7 @@ CANCELLED / 产物过期显示，与后端 requeue 前置状态严格一致）�
 ## 项⑥ SSE 鉴权口径
 
 **修法**：框架补丁 CODE-10 —— `AuthLayer` 支持「头优先、无头时对白名单路径接受 `?token=`」，
-两条来源汇入同一 JWT 校验；白名单来自 `ALUN_AUTH_QUERY_TOKEN_PATHS`（默认空 = 关闭）。
+两条来源汇入同一 JWT 校验；白名单来自 `NIK_AUTH_QUERY_TOKEN_PATHS`（默认空 = 关闭）。
 业务侧 `stream()` 对 `?user_id=` / `?receiver_id=` 一律 400（频道归属只认令牌）。
 文档：`docs/批次A-SSE鉴权口径.md`。
 
@@ -202,14 +202,14 @@ CANCELLED / 产物过期显示，与后端 requeue 前置状态严格一致）�
 
 1. **必须加环境变量**（三套 env，值相同），否则 `?token=` 订阅返回 401（前端会自动退化为 30 秒轮询）：
    ```bash
-   ALUN_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream
+   NIK_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream
    ```
-2. **必须重跑框架补丁并强制重编 alun-web**：
+2. **必须重跑框架补丁并强制重编 nik-web**：
    ```bash
-   bash scripts/patch-alun-web.sh          # 幂等，12 步应全 [ok]/[skip]
-   cd backend && cargo clean -p alun-web && cargo build --release
+   bash scripts/patch-nik-web.sh          # 幂等，12 步应全 [ok]/[skip]
+   cd backend && cargo clean -p nik-web && cargo build --release
    ```
-   `cargo` **不**跟踪 registry 源码 mtime —— 打完补丁不 `clean -p alun-web`，跑的还是旧 rlib（本次实测踩到）。
+   `cargo` **不**跟踪 registry 源码 mtime —— 打完补丁不 `clean -p nik-web`，跑的还是旧 rlib（本次实测踩到）。
 3. 部署启动时会自动应用 `V0051` / `V0052`（新迁移只加列/索引/种子，不改历史行）。
 4. `[upload].max_size_mb` 20 → 128 会同时抬高服务端中转上传上限（`/business/storage/upload`、
    `/business/impexp/import/upload`）。若希望更保守，可只改这一处配置后再验证 50 MB 上传。

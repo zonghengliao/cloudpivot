@@ -88,7 +88,7 @@
  *
  * # 显隐 = 权限码 **且** 角色位（红线：不给 disabled，直接不显示）
  *
- * 接口层是两道门：`#[alun::permission("business:task:status")]`（功能级）+
+ * 接口层是两道门：`#[nik::permission("business:task:status")]`（功能级）+
  * `TaskPeople::role_mask`（行级）。所以：
  *
  * - 没有 `business:task:status` → **一个按钮都不显示**（点必 403）；

@@ -34,7 +34,7 @@
 | `backend/src/business/aiagent/hermes.rs` | `kanban create / show` 的 CLI 封装（`--json` 解析、`ensure_profile_config` 前置、profile/board/幂等键校验） |
 | `backend/src/business/task/{handler,dto,model}.rs` | 4 个接口 + `dispatch-ai` + `stats`；`TaskReader`（人类 / 令牌双身份）；`task_stats` 聚合（走同一条可见性谓词） |
 | `backend/src/lib.rs` | 令牌守卫挂在**最外层**（`layer_from_fn`，早于框架认证层） |
-| `scripts/patch-alun-web.sh` | **CODE-11 / CODE-11b**：框架认证层与权限层的「免认证路径」判定支持模板段，且模板段只匹配 id 形态 |
+| `scripts/patch-nik-web.sh` | **CODE-11 / CODE-11b**：框架认证层与权限层的「免认证路径」判定支持模板段，且模板段只匹配 id 形态 |
 | `backend/src/shared/error_code.rs` | 633xx 子段 8 个码（令牌 / 派活 / 进度） |
 
 关键不变式（后面改这块必须守住）：
@@ -260,7 +260,7 @@ C7 G1–G6              PASS（21 个 record 调用点全部在事务内）
 ### 7.3 生产运行前置（运维必读，写进 `docs/Hermes集成部署记录-144.md`）
 1. **`CLOUDPIVOT_AIAGENT_HERMES_BIN`**：Hermes 升级会换掉 CLI 路径。v0.15.2 是 `…/venv/bin/hermes`，v0.22.5 是 `/root/.hermes/hermes-agent/hermes`。路径错 → 轮询整轮失败（按红线不改任务状态），表象是「AI 跑完了但云枢一直 DOING」。
 2. **AI profile 必须开 `approvals.mode: "off"`**：kanban worker 无人值守，任何「危险命令」都会等审批，60 秒后返回 `BLOCKED: User denied this command`，任务只会烧完迭代预算。同时把 `agent.max_turns` 调到 ≥200（真实任务要跑几十轮工具调用）。
-3. **改框架补丁后必须 `cargo clean -p alun-web --release`**：`scripts/patch-alun-web.sh` 改的是 registry 源码，而 cargo 对 registry 依赖**不按 mtime 重编**（按 crate 校验和），release 会静默继续链旧 rlib。
+3. **改框架补丁后必须 `cargo clean -p nik-web --release`**：`scripts/patch-nik-web.sh` 改的是 registry 源码，而 cargo 对 registry 依赖**不按 mtime 重编**（按 crate 校验和），release 会静默继续链旧 rlib。
 
 ### 7.4 §6.2 第 4/5 条：前端产物与真实可见性（走 nginx :80）
 
@@ -296,7 +296,7 @@ C7 G1–G6              PASS（21 个 record 调用点全部在事务内）
 | # | 现象 | 根因 | 修法 |
 |---|---|---|---|
 | 1 | AI 反复失败、烧完迭代预算 | 派活 body 的 URL 模板写成 `{base}"/api/…"`（多一个引号），curl 把引号当主机名的一部分 | 修正模板 + 加回归断言「主机名后不许紧跟引号」（`dispatch_body_contains_token_and_upload_contract`） |
-| 2 | 令牌一律 401「Token 无效或已过期」 | 框架补丁只改了 registry 源码，release 一直链**旧的 alun-web rlib**（cargo 对 registry 依赖不按 mtime 重编） | `cargo clean -p alun-web --release` 后重编；用 `grep -ac is_ignored_path` 校验符号真进了二进制（写进部署注意事项） |
+| 2 | 令牌一律 401「Token 无效或已过期」 | 框架补丁只改了 registry 源码，release 一直链**旧的 nik-web rlib**（cargo 对 registry 依赖不按 mtime 重编） | `cargo clean -p nik-web --release` 后重编；用 `grep -ac is_ignored_path` 校验符号真进了二进制（写进部署注意事项） |
 | 3 | `/business/task/page`、`/my`、`/gantt`、`/stats` 匿名访问从 401 变成 500 | CODE-11 的模板段匹配「任意单段」⇒ `{id}` 把静态端点也放行了（认证层跳过） | CODE-11b：模板段只匹配 UUID / 纯数字 / 16–64 位不透明串；匿名 `/page` `/stats` 恢复 401 |
 | 4 | 同一 done 每 30 秒重放一次回传（90 秒写出 3 组重复评论 + 通知） | `sync_one` 的 `Done` 分支没有幂等守卫，注释里「任务之后不在扫描集合」是错的（REVIEW 不是终态） | 抽 `status_unchanged()` 并在 `Done` 分支前置判定；单测 `done_relay_is_idempotent_across_polling_cycles`；复测：AI_REPORT 恰好 2 条、通知 1 条 |
 | 5 | 派活失败（profile 缺凭据）时不写评论、不通知、令牌残留 | `ensure_profile_config(...)?` 在失败收尾之前就 return 了 | 把 ②③④ 收进同一个 `Result`，失败统一走「删令牌 + 留痕评论 + 通知分派人 + 任务状态不变」；复测：502/63305 + `TODO|NULL|HUMAN` + 评论 + 通知 + 令牌 0 行 |
@@ -313,7 +313,7 @@ C7 G1–G6              PASS（21 个 record 调用点全部在事务内）
 |---|---|
 | `/root/t5b_verify_migration.sh` | 空库 up→down→up（建临时库 `t5bmig`，跑完删库） |
 | `/root/t5b_deploy.sh` | 重启 + 健康检查 + 迁移版本 + 路由存在性 + 二进制内容 |
-| `/root/t5b_fix_alun_web.sh` | `cargo clean -p alun-web --release` + 重编 + 符号校验 + 重启 |
+| `/root/t5b_fix_alun_web.sh` | `cargo clean -p nik-web --release` + 重编 + 符号校验 + 重启 |
 | `/root/t5b_auth_verify.sh` | 匿名 / 伪造令牌 / 白名单外 五连验证 |
 | `/root/t5b_e2e_setup.py`、`/root/resume_attempt4.py` | 造任务 → 分派 ROBOT → 派活 → 取令牌 → 拉起 Hermes worker |
 | `/root/t5b_e2e_poll.py` | 双侧状态轮询（Hermes card + 云枢任务） |

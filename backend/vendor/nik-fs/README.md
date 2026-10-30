@@ -1,6 +1,6 @@
 # nik-fs
 
-Alun 文件存储抽象：本地文件系统 + 多后端（MinIO / S3）。
+Nik 文件存储抽象：本地文件系统 + 多后端（MinIO / S3）。
 
 > 门面侧 `features = ["fs"]` 即可用；通过 `FsPlugin` 注册后端，再用
 > `nik::nik_fs::registry::BackendRegistry` 管理多个后端。

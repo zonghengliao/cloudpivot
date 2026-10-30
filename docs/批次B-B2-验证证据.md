@@ -42,10 +42,10 @@ B2_REDIS_URL="redis://127.0.0.1:6379/5" \
 
 # ③ 真库（先在一个**专用**库上跑一次迁移建表 + 种子，本卡用 cloudpivot_b2v）
 set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a
-export ALUN_DATABASE_NAME=cloudpivot_b2v ALUN_SERVER_LISTEN=127.0.0.1:8099
-export ALUN_REDIS_URL=redis://127.0.0.1:6379/5
+export NIK_DATABASE_NAME=cloudpivot_b2v NIK_SERVER_LISTEN=127.0.0.1:8099
+export NIK_REDIS_URL=redis://127.0.0.1:6379/5
 timeout 30 ./target/debug/cloudpivot        # 只需看到「数据库迁移完成: 应用 42 个迁移」
-export B2_DB_URL="postgres://cloudpivot:${ALUN_DATABASE_PASSWORD}@127.0.0.1:5432/cloudpivot_b2v"
+export B2_DB_URL="postgres://cloudpivot:${NIK_DATABASE_PASSWORD}@127.0.0.1:5432/cloudpivot_b2v"
 cargo test --test batchB_b2_scope -- --nocapture --test-threads=1
 
 # ④ 门禁（闸①/闸② 口径与 scripts/check.sh 的 batchb_gates 逐字相同；
@@ -159,7 +159,7 @@ WHERE u.deleted_at IS NULL
 
 覆盖：`epoch` 键不存在 → 0；`INCR` 1→2；`SETEX` 写入后 `TTL ∈ (0, 300]`；读回 `CachedScope` 的 `kind/dept_ids/self_only` 与写入一致；epoch 递增后新键必然未命中（旧键靠 TTL 回收）。
 
-> **诚实说明**：本卡无法在测试进程里初始化**全局** Redis 缓存（`alun` 门面只 re-export `Cache`/`LocalCache`，而 `set_cache()` 需要 `SharedCache` 类型，未被转发；`create_cache` 亦未导出）。所以「真 Redis 命中 → 0 次查库」的**端到端**验证留给 B3/B4：它们把 `resolve` 接到 HTTP 路径后，用 `App::start` 初始化缓存即可复验。B2 交付的是「命令语义 + 键/负载/TTL 约定」（本段）+「命中/失效/回退逻辑」（§5.1）+「回退路径在真库上正确」（§5.3）。
+> **诚实说明**：本卡无法在测试进程里初始化**全局** Redis 缓存（`nik` 门面只 re-export `Cache`/`LocalCache`，而 `set_cache()` 需要 `SharedCache` 类型，未被转发；`create_cache` 亦未导出）。所以「真 Redis 命中 → 0 次查库」的**端到端**验证留给 B3/B4：它们把 `resolve` 接到 HTTP 路径后，用 `App::start` 初始化缓存即可复验。B2 交付的是「命令语义 + 键/负载/TTL 约定」（本段）+「命中/失效/回退逻辑」（§5.1）+「回退路径在真库上正确」（§5.3）。
 
 ### 5.3 真库上的回退查库（测试进程**没有**缓存 → 正是生产「Redis 挂了」的分支）
 
@@ -252,7 +252,7 @@ cargo test                            → 289 passed（单元）+ 1（batchB_b2_
 ## 8. 与架构文字的 4 处实现说明（都写在代码注释里，逐条可查）
 
 1. **`= ANY(?)` 的实际形态是 `= ANY(?::text::uuid[])`**（架构 §2.1 表格写的是 `= ANY(?)`）。
-   原因：本栈 PG 驱动**不支持数组参数绑定**——`alun-db-driver-postgres-0.4.2/src/convert.rs`
+   原因：本栈 PG 驱动**不支持数组参数绑定**——`nik-db-driver-postgres-0.4.2/src/convert.rs`
    的 `value_to_pg_param` 对 `Value::Array` 直接返回 `unsupported feature: array binding`。
    实测探针（B2 现场跑过）：
    ```

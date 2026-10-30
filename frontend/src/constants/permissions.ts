@@ -5,7 +5,7 @@
  * # 单一来源
  *
  * 每个常量都必须与以下三处**逐字一致**，任何一处改动都要三处同步：
- * 1. 后端 `#[alun::permission(permission = "...")]` 注解；
+ * 1. 后端 `#[nik::permission(permission = "...")]` 注解；
  * 2. 菜单种子 `sys_menu.auth_code`（`V0046` / `V0047`）；
  * 3. 本文件。
  *
@@ -105,7 +105,7 @@ export const NOTICE_PERMISSIONS = {
  * # 单一来源
  *
  * 与批次 A 同样的纪律：每个常量必须与以下三处**逐字一致**，改一处要三处同步：
- * 1. 后端 `#[alun::permission(permission = "...")]` 注解；
+ * 1. 后端 `#[nik::permission(permission = "...")]` 注解；
  * 2. 菜单种子 `sys_menu.auth_code`（`V0065` + `V0068`）；
  * 3. 本文件。
  *

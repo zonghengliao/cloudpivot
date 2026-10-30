@@ -1,6 +1,6 @@
 # nik-utils
 
-Alun 工具库：字符串处理、日期、脱敏、ID 生成、格式校验、加密、导出导入、HTML 净化、单号。
+Nik 工具库：字符串处理、日期、脱敏、ID 生成、格式校验、加密、导出导入、HTML 净化、单号。
 
 > 门面 `nik` 会把常用部分（`Crypto` / `Mask` / `Sid` / `Valid` / `Export` / `Import` / `xss`）
 > 放进 `nik::prelude::*`，业务项目通常**不需要**直接依赖本 crate。

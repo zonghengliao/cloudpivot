@@ -2,7 +2,7 @@
  * 工作任务接口（批次 C+ · T1 后端 6 个接口）。
  *
  * 路径与后端 `backend/src/business/task/handler.rs` 的
- * `#[alun::get/post/put/delete("/business/task/...")]` 逐条对应（注解不含 `/api`，前端写全）。
+ * `#[nik::get/post/put/delete("/business/task/...")]` 逐条对应（注解不含 `/api`，前端写全）。
  *
  * # 三条取值口径（照后端 `dto.rs`，别自己发明）
  *

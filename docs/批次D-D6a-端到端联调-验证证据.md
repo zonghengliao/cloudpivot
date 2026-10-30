@@ -28,7 +28,7 @@ python3 scripts/verify/flow_e2e.py     # 退出码 0 = 全 PASS
 
 脚本参数与默认值（都能用 `--base/--db/--env-file/--pg-host/--pg-port/--pg-user` 覆盖）：
 默认指向 `127.0.0.1:8029` + `cloudpivot_d2v` + `/etc/cloudpivot/cloudpivot-test.env`，
-环境文件只取两行：`ALUN_DATABASE_PASSWORD`（psql）、`ALUN_ADMIN_PASSWORD`（登录 admin）。
+环境文件只取两行：`NIK_DATABASE_PASSWORD`（psql）、`NIK_ADMIN_PASSWORD`（登录 admin）。
 
 ## 2. 卡面五步逐项对照（真实日志摘录）
 

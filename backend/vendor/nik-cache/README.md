@@ -1,6 +1,6 @@
 # nik-cache
 
-Alun 缓存抽象：本地内存缓存 + Redis，外加一层**命名空间视图**（按业务域 / 租户切 key）。
+Nik 缓存抽象：本地内存缓存 + Redis，外加一层**命名空间视图**（按业务域 / 租户切 key）。
 
 > 业务代码通常不直接依赖本 crate —— 门面侧 `features = ["cache"]` 后，
 > 用 `nik::prelude::*` 里的 `cache()` / `try_cache()` / `set_cache()` 取全局缓存句柄即可。

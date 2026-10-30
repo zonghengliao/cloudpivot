@@ -152,7 +152,7 @@ Q3 决策为「**下一批**（P1）」——`sys_file` 没有 `dept_id`，部�
 ## 4. 真机抽查（profile=test / DB `cloudpivot_test` / 127.0.0.1:8025）
 
 实例：`/root/b5run`（独立 `CARGO_TARGET_DIR=/var/tmp/b5-target`，避免与并行卡抢二进制），
-`ALUN_CACHE_TYPE=redis`（否则 epoch/范围缓存都在进程内，「范围已生效」的前提不成立）。
+`NIK_CACHE_TYPE=redis`（否则 epoch/范围缓存都在进程内，「范围已生效」的前提不成立）。
 启动自检输出：
 
 ```
@@ -315,7 +315,7 @@ cd /opt/cloudpivot && bash scripts/check.sh
 cd /opt/cloudpivot/backend && cargo test
 
 # ③ 真机抽查（只写 cloudpivot_test）
-bash /root/b5run/start.sh            # 起 127.0.0.1:8025，ALUN_CACHE_TYPE=redis
+bash /root/b5run/start.sh            # 起 127.0.0.1:8025，NIK_CACHE_TYPE=redis
 psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_test -f /root/b5run/fixtures.sql
 python3 /root/b5run/verify_b5.py     # 登录 4 个账号 + 3 条验收 + 2 条回归
 ```

@@ -2,7 +2,7 @@
 ## 对象存储扩展 · 导入导出框架 · 消息通知
 
 > **代码基线**：`/root/work/c144`（`backend` = crate `cailu` v0.1.0 / edition 2024 / rustc ≥ 1.94.1，前端 `@cailu/web` v0.1.0 = Vue 3.5.32 + TDesign 1.19.1）
-> **框架**：alun 0.4.2（门面 crate，`use alun::prelude::*`）
+> **框架**：nik 0.4.2（门面 crate，`use nik::prelude::*`）
 > **数据库 / 缓存**：PostgreSQL 18.6、Redis 8.0.5（本机实测版本，见 §1.3）
 > **迁移占用**：`V0040`–`V0049`（V0030–V0039 已被 ERP 批次 1 设计预留，不复用）
 > **文档版本**：v1.0 / 2026-10-28　**状态**：设计定稿，可直接作为实施依据
@@ -18,24 +18,24 @@
 
 | # | 决策点 | 结论 | 一句话理由（含证据） |
 |---|--------|------|---------------------|
-| D1 | 对象存储后端 SDK | **不新增依赖**：复用框架 `alun-fs`（`fs-local` + `fs-minio`，后者内部就是 `aws-sdk-s3 1.149`） | POC-1 实测 `fs`+`fs-local`+`fs-minio` 与 `xlsx`/`sse`/`template`/`xss` 同时开启可编译；项目「只声明 alun」铁律无需破例 |
-| D2 | 多后端抽象 | 业务侧自建 `ObjectStore` trait + `StorageRouter`（键 = `config_code`），**包装**而非替换 `alun-fs` | 框架 `BackendRegistry` 以 `backend_type` 为键（`HashMap<String, _>`），**同类型多桶/多账号无法共存**（读源码 `alun-fs/src/registry.rs:22`）；且框架缺 `presign_upload` |
+| D1 | 对象存储后端 SDK | **不新增依赖**：复用框架 `nik-fs`（`fs-local` + `fs-minio`，后者内部就是 `aws-sdk-s3 1.149`） | POC-1 实测 `fs`+`fs-local`+`fs-minio` 与 `xlsx`/`sse`/`template`/`xss` 同时开启可编译；项目「只声明 nik」铁律无需破例 |
+| D2 | 多后端抽象 | 业务侧自建 `ObjectStore` trait + `StorageRouter`（键 = `config_code`），**包装**而非替换 `nik-fs` | 框架 `BackendRegistry` 以 `backend_type` 为键（`HashMap<String, _>`），**同类型多桶/多账号无法共存**（读源码 `nik-fs/src/registry.rs:22`）；且框架缺 `presign_upload` |
 | D3 | 预签名上传（PUT） | 自研 **SigV4 query signing**（≈150 行，仅用项目已有直接依赖 `sha2`） | 框架 `StorageBackend` 只有 `presign_download_url`（本地返回空串）；POC-5 实测自研签名与 `aws-sdk-s3` 官方预签名**逐字节一致** |
-| D4 | AK/SK 存储 | **独立主密钥**（环境变量 `CLOUDPIVOT_STORAGE_MASTER_KEY`，32 字节）+ `Crypto::aes_encrypt` AES-256-GCM，密文 + 独立 nonce + `key_version` 入列 | 复用 `ALUN_MIDDLEWARE_AUTH_JWT_SECRET` 会让「JWT 轮换 = 全部存储密钥失效」（该密钥有启动守卫强制轮换，见 `src/shared/startup_guard.rs`）；POC-3 实测加解密与错钥拒绝 |
-| D5 | Excel 读写库 | **用框架 `xlsx` feature**（`Export::to_xlsx_*` = rust_xlsxwriter，`Import::from_xlsx_*` = calamine），不直接声明 `calamine`/`rust_xlsxwriter`/`umya` | 选型结论已被框架固化（`alun-utils/src/export.rs`）；POC-2 实测 10 万行×4 列：写 5.24 s / 读 3.00 s / 峰值 RSS 220 MB / 文件 2.3 MB |
+| D4 | AK/SK 存储 | **独立主密钥**（环境变量 `CLOUDPIVOT_STORAGE_MASTER_KEY`，32 字节）+ `Crypto::aes_encrypt` AES-256-GCM，密文 + 独立 nonce + `key_version` 入列 | 复用 `NIK_MIDDLEWARE_AUTH_JWT_SECRET` 会让「JWT 轮换 = 全部存储密钥失效」（该密钥有启动守卫强制轮换，见 `src/shared/startup_guard.rs`）；POC-3 实测加解密与错钥拒绝 |
+| D5 | Excel 读写库 | **用框架 `xlsx` feature**（`Export::to_xlsx_*` = rust_xlsxwriter，`Import::from_xlsx_*` = calamine），不直接声明 `calamine`/`rust_xlsxwriter`/`umya` | 选型结论已被框架固化（`nik-utils/src/export.rs`）；POC-2 实测 10 万行×4 列：写 5.24 s / 读 3.00 s / 峰值 RSS 220 MB / 文件 2.3 MB |
 | D6 | 大文件导入 | 三档：**≤5 000 行同步**；5 000–200 000 行**异步任务 + 分批入库（2 000 行/事务）**；>200 000 行**强制 CSV 流式**（不进内存） | 框架 xlsx 解析是「整本入内存」（`Import::from_xlsx(data: &[u8])` + calamine `Range`），10 万行已 220 MB，20 万行接近 450 MB，必须设闸 |
 | D7 | 错误明细存储 | **JSONB 摘要（前 100 条）+ `sys_import_task_error` 明细表** 双写 | 列表页要「一眼看到错在哪」不能只靠明细表 join；但明细要分页、要导出错误行、要按错误码统计，JSONB 做不了索引统计 |
 | D8 | 通知扇出 | **一条 `INSERT ... SELECT` 落 `sys_notice_receiver`**，配 `UNIQUE(notice_id,user_id)` + `ON CONFLICT DO NOTHING`；部门含下级用**递归 CTE**（与 `system/dept/model.rs::find_dept_subtree_ids` 同款） | POC-6 实测 10 003 接收人扇出 **91.5 ms**；重放幂等由唯一索引兜底 |
 | D9 | 未读数查询 | 部分索引 `(user_id, notice_id) WHERE read_flag=FALSE AND is_deleted=FALSE` | POC-6 实测 `count(*)` 走 **Bitmap Heap Scan，0.55 ms**（1 万接收人表） |
 | D10 | 实时推送 | **上 SSE**（框架 `sse` feature 已内置 `Broadcaster`），**不上 WebSocket**；但按用户拆分 broadcaster | 框架文档明说 SSE「天然复用 AuthLayer」而 WebSocket 不能带 `Authorization` 头；全局 `Broadcaster` 会把 A 用户的待办 id 推给 B 用户（越权泄露），必须 per-user 频道 |
-| D11 | 通知模板渲染 | **自研 `{{var}}` 替换器（≈80 行）+ 变量声明校验**，不用 `alun-template` | `render_template(name, ctx)` 只能渲染「文件系统里的命名模板」（`alun-web/src/resources.rs:212`），而订阅模板存在数据库行里；引入 Jinja 类引擎等于给运维开一个任意表达式入口 |
+| D11 | 通知模板渲染 | **自研 `{{var}}` 替换器（≈80 行）+ 变量声明校验**，不用 `nik-template` | `render_template(name, ctx)` 只能渲染「文件系统里的命名模板」（`nik-web/src/resources.rs:212`），而订阅模板存在数据库行里；引入 Jinja 类引擎等于给运维开一个任意表达式入口 |
 | D12 | 兼容现有 `support/file` | **旧接口一行不改**，新增 `business/storage/*` 并行；旧接口固定走本地后端，新接口按策略路由 | `support/file/handler.rs` 697 行含完整审计/秒传/下载头逻辑，重写=回归风险；组合而非替换，见 §2.7 的兼容矩阵 |
 
 ### 0.2 与任务书假设的三处偏差（必须先对齐）
 
 | 任务书假设 | 代码实况（证据） | 处理 |
 |---|---|---|
-| 「Rust 侧 SDK：`aws-sdk-s3` vs `rust-s3` vs 手写签名」需二选一 | `alun` 的 `fs-minio` feature 内部**已经引入 `aws-sdk-s3 1.149` + `aws-config 1.12`**（`alun-fs-0.4.2/Cargo.toml`），但只暴露 `write/read/delete/exists/presign_download_url` | 选型表照给（§2.2），但结论是「用框架封装 + 自研预签名上传」，不新增 SDK 依赖 |
+| 「Rust 侧 SDK：`aws-sdk-s3` vs `rust-s3` vs 手写签名」需二选一 | `nik` 的 `fs-minio` feature 内部**已经引入 `aws-sdk-s3 1.149` + `aws-config 1.12`**（`nik-fs-0.4.2/Cargo.toml`），但只暴露 `write/read/delete/exists/presign_download_url` | 选型表照给（§2.2），但结论是「用框架封装 + 自研预签名上传」，不新增 SDK 依赖 |
 | 「大文件浏览器直传 avoid 走后端内存」 | 框架 `StorageBackend` 只有下载预签名；上传预签名完全没有 | 自研 SigV4（D3），并用 `aws-sdk-s3` 交叉验证签名（POC-5） |
 | 「模板引擎 vs 简单替换」二选一 | 框架 `template` feature 是**文件模板**（`render_template(name)`），不渲染字符串 | 结论：简单替换 + 严格变量校验（D11），并把 `template` feature 是否开启的决定交给 C 批次（公告正文需要富文本渲染时再评估） |
 
@@ -80,11 +80,11 @@
 
 ### 1.3 POC 实证（6 组，全部真跑，产物见 §8.2 清理说明）
 
-环境事实先行：本机 `rustc` 初始为 **1.94.0**，而 `alun 0.4.2` 声明 `rust-version = 1.94.1`，`cargo` 直接拒绝构建。已 `rustup toolchain install 1.94.1` 后通过。**实施机必须 ≥1.94.1**。
+环境事实先行：本机 `rustc` 初始为 **1.94.0**，而 `nik 0.4.2` 声明 `rust-version = 1.94.1`，`cargo` 直接拒绝构建。已 `rustup toolchain install 1.94.1` 后通过。**实施机必须 ≥1.94.1**。
 
 | 编号 | 验证内容 | 结果（真实输出） |
 |---|---|---|
-| POC-1 | feature 组合 `db postgres cache plugin fs fs-local fs-minio xlsx sse template xss chrono uuid json ipnetwork` | ✅ 编译通过（连带把 `alun-template`、`aws-sdk-s3 1.156` 全树拉通）。**关键坑**：`use alun::alun_fs::...` 需要额外开 `fs` feature（`alun/src/lib.rs:1349` 有 `#[cfg(feature="fs")]`），只开 `fs-local` 会报「could not find alun_fs」 |
+| POC-1 | feature 组合 `db postgres cache plugin fs fs-local fs-minio xlsx sse template xss chrono uuid json ipnetwork` | ✅ 编译通过（连带把 `nik-template`、`aws-sdk-s3 1.156` 全树拉通）。**关键坑**：`use nik::nik_fs::...` 需要额外开 `fs` feature（`nik/src/lib.rs:1349` 有 `#[cfg(feature="fs")]`），只开 `fs-local` 会报「could not find nik_fs」 |
 | POC-2 | Excel 10 万行×4 列读写 | 写出 2 383 KB，**写 5 243 ms，读 3 004 ms，进程峰值 RSS 220 MB**（`/proc/self/status VmHWM`） |
 | POC-3 | `Crypto::aes_encrypt/decrypt`（AES-256-GCM） | ✅ 往返一致；换错密钥解密返回 `None`（GCM 认证生效） |
 | POC-4 | `LocalFs::write_at/read/exists/delete/presign_download_url` | ✅ 全通；**本地后端 `presign_download_url` 返回空串**（设计上必须回落 `/download/{id}` 接口） |
@@ -95,15 +95,15 @@
 
 | 框架能力 | 位置 | 本批怎么用 |
 |---|---|---|
-| `StorageBackend` trait（write/write_at/read/delete/exists/presign_download_url/health_check）+ `LocalFs` + `MinioBackend` + `BackendRegistry` + `BackendConfig` | `alun-fs 0.4.2` | **包装**成业务 `ObjectStore`；`BackendConfig` 就是我们建表字段的镜像 |
-| `Crypto`（sha256/hmac/aes-gcm/random_key/base64url） | `alun-utils::Crypto`（prelude 已导出） | AK/SK 加密、SigV4 的 HMAC 备选、签名回调用 |
-| `Export` / `Import` / `XlsxSheet` | `alun-utils::export`（`xlsx` feature） | 导入导出全部 Excel I/O |
-| `Broadcaster<T>` + `sse_json` | `alun-web::sse`（`sse` feature，prelude 已导出） | 消息中心未读红点实时推送 |
-| `NotificationPlugin`（SMTP/lettre，`is_configured()` 可探测） | `alun-plugin::notification` | 邮件通道「留接口 + 现成实现」，本批只做投递记录不发送 |
-| `AsyncTaskPlugin::submit(future)`（信号量限并发） | `alun-plugin::async_task` | 异步导入/导出任务的进程内执行器 |
-| `SchedulerPlugin::register(name, cron, desc, closure)` | `alun-plugin::scheduler` | 业务模块**自行**注册清理/重试定时任务，不必改 `src/task/mod.rs` |
-| 事务 `db().transaction(|tx| async move { ... })` | `alun-db` | 导入批量入库、扇出、配置保存的事务边界 |
-| 迁移编译期快照（解析 `CREATE TABLE` 与 `ALTER TABLE ADD COLUMN` 演进出最终列集） | `alun-db-build` | 允许对底座表做「加列」的最小改动（本批 `sys_file` 加 2 列） |
+| `StorageBackend` trait（write/write_at/read/delete/exists/presign_download_url/health_check）+ `LocalFs` + `MinioBackend` + `BackendRegistry` + `BackendConfig` | `nik-fs 0.4.2` | **包装**成业务 `ObjectStore`；`BackendConfig` 就是我们建表字段的镜像 |
+| `Crypto`（sha256/hmac/aes-gcm/random_key/base64url） | `nik-utils::Crypto`（prelude 已导出） | AK/SK 加密、SigV4 的 HMAC 备选、签名回调用 |
+| `Export` / `Import` / `XlsxSheet` | `nik-utils::export`（`xlsx` feature） | 导入导出全部 Excel I/O |
+| `Broadcaster<T>` + `sse_json` | `nik-web::sse`（`sse` feature，prelude 已导出） | 消息中心未读红点实时推送 |
+| `NotificationPlugin`（SMTP/lettre，`is_configured()` 可探测） | `nik-plugin::notification` | 邮件通道「留接口 + 现成实现」，本批只做投递记录不发送 |
+| `AsyncTaskPlugin::submit(future)`（信号量限并发） | `nik-plugin::async_task` | 异步导入/导出任务的进程内执行器 |
+| `SchedulerPlugin::register(name, cron, desc, closure)` | `nik-plugin::scheduler` | 业务模块**自行**注册清理/重试定时任务，不必改 `src/task/mod.rs` |
+| 事务 `db().transaction(|tx| async move { ... })` | `nik-db` | 导入批量入库、扇出、配置保存的事务边界 |
+| 迁移编译期快照（解析 `CREATE TABLE` 与 `ALTER TABLE ADD COLUMN` 演进出最终列集） | `nik-db-build` | 允许对底座表做「加列」的最小改动（本批 `sys_file` 加 2 列） |
 
 ### 1.5 红线对照（本设计如何不越线）
 
@@ -111,7 +111,7 @@
 |---|---|
 | 新代码只进 `business/` | 全部新增代码在 `business/{storage,impexp,notice}/`；`src/task/mod.rs`、`support/file/*` **不改**；`shared/error_code.rs` 只**追加**常量（同文件追加，无逻辑改动，需批准） |
 | 不设 service 层 | 四件套 `mod/handler/dto/model`；导入导出引擎是 `business/impexp/{engine,registry,definition}` 这类「能力模块」，业务编排仍在 handler |
-| 错误三出口 | handler `ResResult<T>`、model `DbResult<T>`、启动/任务 `alun::Result<T>`；引擎内部用 `ApiError`/`DbError` 两态，不引入第三套错误类型 |
+| 错误三出口 | handler `ResResult<T>`、model `DbResult<T>`、启动/任务 `nik::Result<T>`；引擎内部用 `ApiError`/`DbError` 两态，不引入第三套错误类型 |
 | 禁 `unwrap` / 拼 SQL | 所有 SQL 常量字符串 + `Value` 绑定参数；`regex` 校验在 CHECK 里，不在代码里拼串 |
 | 动代码必须带单测，`cargo test` 全绿 | §5.4 给出逐模块单测点，含 POC 已验证的「签名一致性」「CHECK 拦截」等高价值用例 |
 
@@ -123,7 +123,7 @@
 
 | 编号 | 问题 | 影响 | 本批处理 |
 |---|---|---|---|
-| S1 | 单后端硬编码：`alun::upload_path()` + `std::fs` | 无法接 OSS/S3/MinIO，无法多桶 | `StorageRouter` + 配置表 |
+| S1 | 单后端硬编码：`nik::upload_path()` + `std::fs` | 无法接 OSS/S3/MinIO，无法多桶 | `StorageRouter` + 配置表 |
 | S2 | 上传策略为编译期常量（31 扩展名） | 业务方（如 ERP 导入模板只允许 xlsx）改不了 | `sys_storage_policy` 按 category 配置 |
 | S3 | 下载 `std::fs::read` 全量进内存 | 500 MB 文件直接打爆进程 | 新接口 `presign`（S3）/ `tokio::fs` 流式（本地） |
 | S4 | 大文件走 multipart 走后端 | 网关/内存双重压力 | 预签名直传（§2.6） |
@@ -133,13 +133,13 @@
 
 ### 2.2 Rust 侧 SDK 选型对比
 
-> 前提：项目铁律「`Cargo.toml` 只声明 `alun` 一个框架 crate」，任何新依赖都必须有不可替代的理由。
+> 前提：项目铁律「`Cargo.toml` 只声明 `nik` 一个框架 crate」，任何新依赖都必须有不可替代的理由。
 
-| 维度 | ① `alun-fs`（框架封装，内部 aws-sdk-s3） | ② 直接声明 `aws-sdk-s3` | ③ `rust-s3` | ④ 全手写（SigV4 + reqwest/hyper） |
+| 维度 | ① `nik-fs`（框架封装，内部 aws-sdk-s3） | ② 直接声明 `aws-sdk-s3` | ③ `rust-s3` | ④ 全手写（SigV4 + reqwest/hyper） |
 |---|---|---|---|---|
 | 新增依赖 | **0**（只开 feature） | 1 个族（`aws-config/aws-sdk-s3` + ~20 个 smithy 子 crate） | 1 个（`rust-s3`，自身依赖 reqwest + tokio） | 0（签名）+ 上传仍需 HTTP 客户端（axum 已带 hyper，但无 multipart/流式封装） |
 | 编译体积/时长 | 已含在 `fs-minio`，**POC-1 实测全量编译可接受** | 与 ① 等价（同一棵树） | 更轻，但引入**第二套** HTTP 客户端栈 | 最轻 |
-| 与框架一致性 | ✅ 与 `BackendConfig`/`StorageBackend` 同构 | ❌ 需自己做适配层，且版本可能与 alun 内部锁定的 1.149 冲突 | ❌ 又一套 SDK 风格 | ✅ |
+| 与框架一致性 | ✅ 与 `BackendConfig`/`StorageBackend` 同构 | ❌ 需自己做适配层，且版本可能与 nik 内部锁定的 1.149 冲突 | ❌ 又一套 SDK 风格 | ✅ |
 | 预签名下载 | ✅ `presign_download_url` | ✅ | ✅ | 需自写 |
 | 预签名上传 | ❌ 没有 | ✅ `put_object().presigned()` | ✅ `presign_put` | 需自写（**本设计采用**） |
 | 流式读写 | ❌ 全是 `&[u8]`/`Vec<u8>` | ✅ `ByteStream` | ✅ | 需自写 |
@@ -147,7 +147,7 @@
 | 维护活跃度 | 与框架同版本节奏（0.4.2 / 2026-03） | AWS 官方，最活跃 | 社区维护，S3 兼容性好 | 自己维护 |
 | 许可 | Apache-2.0 | Apache-2.0 | MIT | — |
 
-**推荐：① `alun-fs` 作为「对象 I/O 底座」+ ④ 的 SigV4 片段补「预签名上传」**。理由：
+**推荐：① `nik-fs` 作为「对象 I/O 底座」+ ④ 的 SigV4 片段补「预签名上传」**。理由：
 1. 上传/下载/删除/存在性/健康检查这类 I/O 已被框架实现且与本项目 `BackendConfig` 字段一一对应（`endpoint/region/access_key/secret_key/use_tls/root_path/is_default`），重写毫无收益；
 2. 框架缺的两件事（**上传预签名**、**流式**）中，预签名是**纯字符串签名计算**，用项目已有的 `sha2` 就能做，且已被 POC-5 与官方 SDK 对拍验证；
 3. 真正需要「同类型多实例」的场景（两个 OSS 桶、生产桶 + 备份桶）用**业务侧 `StorageRouter` 自己按 `config_code` 持有 `Arc<dyn ObjectStore>`** 解决，不去改框架；
@@ -160,8 +160,8 @@
 ### 2.3 trait 抽象与路由
 
 ```rust
-// business/storage/store.rs —— 业务侧的「对象 I/O 契约」，包装 alun_fs
-use alun::prelude::*;
+// business/storage/store.rs —— 业务侧的「对象 I/O 契约」，包装 nik_fs
+use nik::prelude::*;
 
 /// 存储后端统一契约：比框架 trait 多两个能力（上传预签名、流式写）
 #[async_trait::async_trait]
@@ -192,8 +192,8 @@ pub struct PresignedUpload { pub url: String, pub method: &'static str, pub head
 ```
 
 三个实现：
-- `LocalStore`：内嵌 `alun_fs::LocalFs`，`presign_*` 返回 `Unsupported`/`None`；路径 = `upload_path()/base_path/key`。
-- `S3Store`：内嵌 `alun_fs::MinioBackend`（`write_at/read/delete/exists/presign_download_url/health_check` 直接委托），`presign_put` 调 `sigv4::presign_put_url`。
+- `LocalStore`：内嵌 `nik_fs::LocalFs`，`presign_*` 返回 `Unsupported`/`None`；路径 = `upload_path()/base_path/key`。
+- `S3Store`：内嵌 `nik_fs::MinioBackend`（`write_at/read/delete/exists/presign_download_url/health_check` 直接委托），`presign_put` 调 `sigv4::presign_put_url`。
 - `MockStore`（`#[cfg(test)]`）：内存 `BTreeMap`，供 handler 单测不依赖真实 S3。
 
 路由与热更新：
@@ -234,7 +234,7 @@ impl StorageRouter {
 
 | 方案 | 安全 | 运维 | 迁移成本 | 结论 |
 |---|---|---|---|---|
-| A. 复用 `ALUN_MIDDLEWARE_AUTH_JWT_SECRET` | 中（同一把密钥两用，泄露面扩大） | 差：JWT 密钥是**启动守卫强制轮换**的对象（`startup_guard.rs`），轮换即全部存储密文失效 | 低 | ❌ |
+| A. 复用 `NIK_MIDDLEWARE_AUTH_JWT_SECRET` | 中（同一把密钥两用，泄露面扩大） | 差：JWT 密钥是**启动守卫强制轮换**的对象（`startup_guard.rs`），轮换即全部存储密文失效 | 低 | ❌ |
 | B. 明文存库/存配置 | 差 | — | 低 | ❌ 违反任务书硬约束 |
 | C. **独立主密钥（env）+ AES-256-GCM + 行级 nonce + key_version** | 高（GCM 自带完整性认证，改一位即解密失败） | 好：主密钥与 JWT 生命周期解耦；轮换只需新增 `key_version=2` 并逐行重加密 | 低 | ✅ **采用** |
 | D. KMS/HSM（云 KMS 托管） | 最高 | 需云账号 + 网络 + 计费 | 高 | 延后（本批留 `key_version` 与解密抽象，换成 KMS 只改一个函数） |
@@ -289,7 +289,7 @@ impl StorageRouter {
 | 新前端大文件 | `direct/init` + `direct/complete` | S3 预签名 | 本地后端不支持直传 → 策略里 `direct_upload=false` 时接口返回 422 并提示「请用普通上传」 |
 | 老记录在新接口下载 | `GET /business/storage/download/{id}` | 按 `sys_file.storage_code` 路由；**为 NULL 视为本地**（历史数据） | 兼容老数据的关键：NULL = 本地，不需要数据回填 |
 
-**为什么不做「把老接口改成路由到新后端」**：老接口的删除/下载逻辑写死了 `alun::upload_path()`，改它等于改底座 + 影响所有现有调用方回归；而组合方案下**新旧并存、老接口行为冻结**，风险最小。
+**为什么不做「把老接口改成路由到新后端」**：老接口的删除/下载逻辑写死了 `nik::upload_path()`，改它等于改底座 + 影响所有现有调用方回归；而组合方案下**新旧并存、老接口行为冻结**，风险最小。
 
 ### 2.8 文件去重（跨后端）
 
@@ -689,7 +689,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 | 方案 | 表现力 | 安全 | 与「模板存在数据库」契合 | 结论 |
 |---|---|---|---|---|
 | 简单字符串替换（自研 ≈80 行） | 变量替换、日期/数字格式化 | 好（只做值替换，无求值） | ✅ 天然 | ✅ **采用** |
-| `alun-template`（框架 `template` feature） | 循环/条件/继承 | 好 | ❌ `render_template(name, ctx)` 按**名字**从目录取模板（`alun-web/src/resources.rs:212`），DB 行用不了 | ❌ |
+| `nik-template`（框架 `template` feature） | 循环/条件/继承 | 好 | ❌ `render_template(name, ctx)` 按**名字**从目录取模板（`nik-web/src/resources.rs:212`），DB 行用不了 | ❌ |
 | Tera/Jinja 类 | 最全 | 需沙箱，模板里写 `{{ x.__class__ }}` 这类逃逸是真实攻击面 | 可以但重 | ❌（C 批次公告若需循环再评估） |
 
 渲染规则（必须有单测）：
@@ -729,14 +729,14 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 | POST | `/notice/template/{id}/preview` | `business:notice:template:list` | 试渲染（传变量 JSON） |
 | GET | `/notice/channel/config` | `business:notice:channel:config` | 通道配置读取（邮件已配置/未配置、Webhook 地址掩码） |
 
-> 注意：**已读/我的通知这类「人人要用」的接口在底座里也必须声明权限码**（实测 `system/user/handler.rs` 10/10、`support/online/handler.rs` 2/2 全部带 `#[alun::permission]`），因此 `V0046` 必须把 `business:notice:mine` 授予**所有已存在角色**（而不只是 SUPER_ADMIN），否则普通用户点开消息中心就 403。
+> 注意：**已读/我的通知这类「人人要用」的接口在底座里也必须声明权限码**（实测 `system/user/handler.rs` 10/10、`support/online/handler.rs` 2/2 全部带 `#[nik::permission]`），因此 `V0046` 必须把 `business:notice:mine` 授予**所有已存在角色**（而不只是 SUPER_ADMIN），否则普通用户点开消息中心就 403。
 
 ---
 ## 5. 横切设计
 
 ### 5.1 权限码清单（33 个）
 
-命名遵循底座约定 `{模块}:{资源}:{动作}`（`sys_menu.auth_code` 与 `#[alun::permission]` 逐字一致）。三个模块全部落在 `business:` 前两段，与 `business:monitor:server-status` 的既有风格一致。
+命名遵循底座约定 `{模块}:{资源}:{动作}`（`sys_menu.auth_code` 与 `#[nik::permission]` 逐字一致）。三个模块全部落在 `business:` 前两段，与 `business:monitor:server-status` 的既有风格一致。
 
 **对象存储（11）**
 
@@ -791,7 +791,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 
 ### 5.2 迁移文件分配（V0040–V0049）
 
-全部放 `backend/migrations/business/`（与 `src/business/` 对应，符合 `docs/后端二开指南.md` 第九节）。版本号必须全局唯一（框架在**编译期**把所有 `*.sql` 按版本序合并成 schema 快照，`alun-db-build` 语义），现有最大 V0022、ERP 预留 V0030–V0039，故本批从 V0040 起。
+全部放 `backend/migrations/business/`（与 `src/business/` 对应，符合 `docs/后端二开指南.md` 第九节）。版本号必须全局唯一（框架在**编译期**把所有 `*.sql` 按版本序合并成 schema 快照，`nik-db-build` 语义），现有最大 V0022、ERP 预留 V0030–V0039，故本批从 V0040 起。
 
 | 版本 | 名称 | 内容 | 可回滚性 |
 |---|---|---|---|
@@ -806,7 +806,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 | **V0048** | `seed_batch_a_config` | `sys_config` 参数 8 条（导入阈值/导出阈值/扇出上限/预签名 TTL/清理保留天数/通道开关）+ 默认后端 `local-default` 1 行 + 默认上传策略 5 行（attachment/avatar/document/import/template） | ✅ |
 | **V0049** | `seed_batch_a_notice_template` | 默认通知模板 3 条（`NOTICE_IMPORT_DONE` / `NOTICE_EXPORT_DONE` / `NOTICE_WELCOME`）+ 本批次占位说明（V0050+ 归 B 批次） | ✅ |
 
-**注意**：V0048 的「默认后端 `local-default`」写入时 `endpoint/bucket` 为空（走 `ck_sys_storage_config_remote` 的 LOCAL 分支），`base_path=''`；其存储根目录仍取 `alun::upload_path()`，因此**历史文件零迁移**。
+**注意**：V0048 的「默认后端 `local-default`」写入时 `endpoint/bucket` 为空（走 `ck_sys_storage_config_remote` 的 LOCAL 分支），`base_path=''`；其存储根目录仍取 `nik::upload_path()`，因此**历史文件零迁移**。
 
 ### 5.3 前端页面清单
 
@@ -900,7 +900,7 @@ pub fn publish(user_id: Uuid, payload: NoticeEvent);   // 只推给该用户
 
 | # | 类别 | 风险 | 触发条件 | 缓解措施（本批落地） | 残余风险 |
 |---|---|---|---|---|---|
-| R1 | 安全 | **上传 getshell**：伪装成图片的 `.php/.jsp/.sh` 落盘后被容器/反代执行 | 攻击者改扩展名或 MIME | ①扩展名白名单（策略表可配，仍强制下限）；②`X-Content-Type-Options: nosniff`；③下载恒为 `Content-Disposition: attachment`；④本地后端对象目录**不在静态资源根**（`alun::upload_path()` 由后端流式输出，nginx 不直挂）；⑤SVG 单独开关（SVG 可内嵌脚本，默认策略不含 svg） | 无病毒扫描 → B 批次接 ClamAV |
+| R1 | 安全 | **上传 getshell**：伪装成图片的 `.php/.jsp/.sh` 落盘后被容器/反代执行 | 攻击者改扩展名或 MIME | ①扩展名白名单（策略表可配，仍强制下限）；②`X-Content-Type-Options: nosniff`；③下载恒为 `Content-Disposition: attachment`；④本地后端对象目录**不在静态资源根**（`nik::upload_path()` 由后端流式输出，nginx 不直挂）；⑤SVG 单独开关（SVG 可内嵌脚本，默认策略不含 svg） | 无病毒扫描 → B 批次接 ClamAV |
 | R2 | 安全 | **SSRF**：`endpoint` 填内网地址（`http://169.254.169.254/`、Redis、PG）让后端去请求 | 管理员误配或低权账号配存储 | ①配置写权限只给超管（`business:storage:config:*`）；②保存时解析 `endpoint` 主机名并**拒绝私网/回环/链路本地地址**（`10/8`、`172.16/12`、`192.168/16`、`127/8`、`169.254/16`、`::1`、`fc00::/7`）；③「测试连接」也只允许已通过校验的 endpoint | 内网自建 MinIO 需例外白名单（在 `sys_config` 里显式允许的 host 才放开） |
 | R3 | 安全 | **AK 泄露**：接口回显、日志、错误信息带明文 | 前端表单回填、异常堆栈 | ①只写不读（掩码 + `has_secret`）；②错误消息统一「认证失败」，不透传 SDK 原文（SDK 错误含 endpoint/AK 前缀）；③序列化层用 `#[serde(skip_serializing)]` 包一层 `Secret` 类型 | 内存中的明文密钥随进程 dump 泄露（操作系统级） |
 | R4 | 安全 | **预签名链接外泄**：链接被转发后任何人在 TTL 内可下载 | 用户复制链接 | ①TTL 默认 900 s、上限 7 天；②下载接口每次现签，不落库；③敏感分类（策略里 `direct_upload=false` + 仅服务端代理下载） | 无 IP 绑定（S3 SigV4 不支持） |
@@ -1447,7 +1447,7 @@ POC 全部在**工作区之外**的临时目录，不属于交付物，验证完
 
 | POC | 路径 | 内容 | 状态 |
 |---|---|---|---|
-| POC-CRATE | `/tmp/poc-batchA-archive/poc-a/`（已移出工作区） | `Cargo.toml`（alun 全 feature）+ `src/main.rs`（8 个测试）+ `src/sigv4.rs`（预签名实现与 SDK 对拍） | 已跑通 8/8，源码暂存 `/tmp` 随系统临时目录回收，日志见 `batchA_poc_test.log` |
+| POC-CRATE | `/tmp/poc-batchA-archive/poc-a/`（已移出工作区） | `Cargo.toml`（nik 全 feature）+ `src/main.rs`（8 个测试）+ `src/sigv4.rs`（预签名实现与 SDK 对拍） | 已跑通 8/8，源码暂存 `/tmp` 随系统临时目录回收，日志见 `batchA_poc_test.log` |
 | POC-DB | PostgreSQL 库 `batcha_v1`、`batcha_v2` | `batchA_ddl.sql` + `batchA_verify.sql` | 验证完成，**两个库已 DROP**（已核实 `pg_database` 无残留） |
 | 工具链 | `rustup toolchain 1.94.1` | 因为项目 MSRV 1.94.1 > 本机初始 1.94.0 | 保留（实施也需要） |
 

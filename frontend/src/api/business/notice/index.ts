@@ -1,7 +1,7 @@
 /**
  * 消息通知接口（批次 A · A5/A6）。
  *
- * 路径与后端 `backend/src/business/notice/handler.rs` 的 `#[alun::get/post/put/delete]` 逐条对应。
+ * 路径与后端 `backend/src/business/notice/handler.rs` 的 `#[nik::get/post/put/delete]` 逐条对应。
  *
  * # 取值口径
  *

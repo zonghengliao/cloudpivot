@@ -194,8 +194,8 @@ V0063 声明的索引，库内不自洽。这是本卡唯一偏离附录 A 的�
 - 现实规模距 100 万行阈值差 5 个数量级，因此**没有**改成 `CONCURRENTLY` 的必要；反过来，
   `CONCURRENTLY` 有明显代价：① 不可在事务内执行（要把整个文件改成 `-- +no-transaction`，
   失败后留下 `INVALID` 索引且需手工 `DROP`）；② 迁移失败不再整体回滚，可逆性变差。
-- **将来确实超阈值时的切换方法**（框架 `alun-db` 0.4.2 支持 `-- +no-transaction` 指令，
-  见 `alun-db-0.4.2/src/migrate/splitter.rs::parse_directives`）：
+- **将来确实超阈值时的切换方法**（框架 `nik-db` 0.4.2 支持 `-- +no-transaction` 指令，
+  见 `nik-db-0.4.2/src/migrate/splitter.rs::parse_directives`）：
 
   ```sql
   -- +no-transaction

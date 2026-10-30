@@ -1,6 +1,6 @@
 # nik-plugin
 
-Alun 内置插件集：邮件通知、缓存引导、进程内异步任务池、cron 调度、单号、短 ID。
+Nik 内置插件集：邮件通知、缓存引导、进程内异步任务池、cron 调度、单号、短 ID。
 
 > 每个插件类型都在自己的子模块里 —— **crate 根没有再导出**，请用完整路径
 > （如 `nik_plugin::serial_plugin::SerialPlugin`）。它们都实现 `nik_core::Plugin`，

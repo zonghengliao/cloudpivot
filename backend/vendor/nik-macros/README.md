@@ -1,6 +1,6 @@
 # nik-macros
 
-Alun 的过程宏：`#[get]`、`#[post]`、`#[put]`、`#[patch]`、`#[delete]`、`#[controller]`、
+Nik 的过程宏：`#[get]`、`#[post]`、`#[put]`、`#[patch]`、`#[delete]`、`#[controller]`、
 `#[routes]`、`#[plugin]`、`#[permission]`、`#[no_auth]`、`#[layer]`、`#[task_handler]`。
 
 编译期代码生成替代运行期反射：被标注的项收集成**编译期注册表**，由 `App::scan()` /

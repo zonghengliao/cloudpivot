@@ -2,7 +2,7 @@
 
 - 提交：`415d8c7 feat(batchC): C8 种子与配置 —— 变更日志权限 + announcement 存储策略 + 5 个 sys_config + 3 个帮助分类`
 - 基线：`0ffd9a1`（C3 证据提交），`HEAD == origin/main == 415d8c7`
-- 环境：`172.18.10.144`，PG `cloudpivot_test`，隔离实例 `127.0.0.1:18088`（`ALUN_REDIS_URL=.../9`，验收后已 kill）
+- 环境：`172.18.10.144`，PG `cloudpivot_test`，隔离实例 `127.0.0.1:18088`（`NIK_REDIS_URL=.../9`，验收后已 kill）
 - 改动：**只加 4 个迁移文件（507 行），零业务代码改动**
 
 | 文件 | 内容 |
@@ -219,7 +219,7 @@ exit=0
 ## 6. 权限码「三方一致性」比对
 
 口径：`docs/批次C-技术架构.md §5.1` 的 20 码。后端 = `backend/src/business/**` 的
-`#[alun::permission(permission="…")]`；种子 = `sys_menu.auth_code`；前端 =
+`#[nik::permission(permission="…")]`；种子 = `sys_menu.auth_code`；前端 =
 `frontend/src/constants/permissions.ts`。
 
 ```

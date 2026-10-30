@@ -7,7 +7,7 @@
 | 撰写人 | product-manager |
 | 日期 | 2026-10-28 |
 | 产品 | 云枢（CloudPivot）后台 · **批次 A：通用底座** |
-| 技术底座 | Rust（Alun 0.4.2 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite；平台库 PostgreSQL 16；前端配色 **TDesign + 可切换配色（默认「雾蓝流金」）** |
+| 技术底座 | Rust（Nik 0.4.2 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite；平台库 PostgreSQL 16；前端配色 **TDesign + 可切换配色（默认「雾蓝流金」）** |
 | 本批范围 | ① 对象存储扩展（存储后端配置 / 上传策略 / 大文件直传 / 私有文件 / 文件管理增强 / AK·SK 管理）② 导入导出（模板 / 校验 / 入库 / 同步与异步导出）③ 消息通知（消息中心 / 未读角标 / 发送 / 类型 / 模板 / 多通道预留 / 保留） |
 | **不含范围** | B 批次权限增强、C 批次内容管理、D 批次工作流审批 C 档（本批**只提供**通知与导入导出的内部调用契约，不设计其业务流程）；不做视频转码、不做 OCR、不做全文检索、不做 Excel 公式计算、不做跨库数据抽取 |
 | 交付物 | `/root/.hermes/workspace/product-manager/cloudpivot-batchA-prd.md` |
@@ -50,7 +50,7 @@
 
 # 第 0 章 前置事实核查（本 PRD 的落地依据）
 
-> 为避免"凭空设计"，撰写前对**同技术栈底座工程** `/root/.hermes/workspace/information-security/cailu-src`（Rust + Alun + Vue3 + TDesign，与云枢同栈）做了源码核查，并核对了 `alun-fs 0.4.2` 存储抽象与 `tdesign-icons-vue-next@0.4.11` 图标清单。
+> 为避免"凭空设计"，撰写前对**同技术栈底座工程** `/root/.hermes/workspace/information-security/cailu-src`（Rust + Nik + Vue3 + TDesign，与云枢同栈）做了源码核查，并核对了 `nik-fs 0.4.2` 存储抽象与 `tdesign-icons-vue-next@0.4.11` 图标清单。
 > 本批三个模块**全部是"在已有底座上加东西"**，不是从零建，所以"现有代码到底怎么写的"直接决定了接口契约、表结构和能不能做。以下 31 条，开发按此实现，不需要再猜。
 
 ## 0.1 平台与权限事实（F1–F12）
@@ -59,7 +59,7 @@
 |---|---|---|---|
 | **F1** | 权限码存 `sys_menu.auth_code VARCHAR(100)`，格式 `{模块}:{资源}:{动作}`；`menu_type` 1 目录 / 2 菜单 / 3 按钮；`module_code VARCHAR(20)`，现有取值 `system`(22 条) / `support`(24 条) / `app`(1 条) | `backend/migrations/system/V0004__create_sys_menu.up.sql`、`seed/S__menu_data.sql` | 本批权限码统一 `business:storage:*` / `business:impexp:*` / `business:notice:*`，`module_code='business'`（20 字符够，已由 ERP 批次先例验证） |
 | **F2** | 现有顶级目录：系统管理 `/system` sort 10、支撑功能 `/support` sort 20。**已被前序批次占用**：ERP sort 40、BI `/bi` sort 50、MDM `/mdm` sort 60；**30 已预留给协同办公** | `S__menu_data.sql:24,80`；ERP PRD F2、大数据 PRD 6.1 | 本批一级目录取 **sort_order = 70**（下一个空位），不抢 30 |
-| **F3** | 后端接口鉴权用声明式宏 `#[alun::permission(path=…, method=…, permission=…)]` + `#[alun::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，分页返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | 新接口走 `/business/storage/...`、`/business/impexp/...`、`/business/notice/...`，第六章逐个列权限码 |
+| **F3** | 后端接口鉴权用声明式宏 `#[nik::permission(path=…, method=…, permission=…)]` + `#[nik::get("/system/user/page")]`，路由风格 `/{模块}/{资源}/{动作}`，分页返回 `ResResult<PageData<Vec<T>>>` | `backend/src/system/user/handler.rs:43-49` | 新接口走 `/business/storage/...`、`/business/impexp/...`、`/business/notice/...`，第六章逐个列权限码 |
 | **F4** | 前端页面级鉴权用路由 `meta.permission`；按钮级用 `v-privilege="['system:user:create']"` | `frontend/src/views/system/user/index.vue:63`、`directives/permission/privilege.ts` | 删除、群发、导出明文等敏感按钮一律用 `v-privilege`，不新造机制 |
 | **F5** | `hasPermission()` 是**全等匹配**，只额外支持超管通配 `*:*:*`；**不支持 `business:storage:*` 这种前缀通配**；`code` 为空视为放行 | `frontend/src/stores/user.ts:63-71` | ①"整包授权"只能逐条勾选；②全员可见页面 `auth_code` 留空串；③**不要在前端写 `v-privilege="['business:storage:*']"`，它永远返回 false** |
 | **F6** | 导航树由 `filterNavMenus` 递归过滤：剔除 `menu_type=3`（按钮）与 `is_visible=false`；目录下无可见子菜单则**整目录隐藏** | `frontend/src/stores/user.ts:17-38` | 隐藏菜单（消息中心）必须 `is_visible=FALSE`，但它仍参与路由与权限；目录下必须有至少一个可见子菜单，否则整个「通用底座」不显示 |
@@ -85,19 +85,19 @@
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F19** | `alun-fs` 定义统一 trait `StorageBackend`，方法为：`backend_type()` / `write()` / `write_at(relative_path)` / `read()` / `delete()` / `exists()` / `presign_download_url(expiry_secs)` / `health_check()`。**只有"预签名下载"，没有"预签名上传"**；`write()` / `read()` 的入参出参都是 `&[u8]` / `Vec<u8>`（**全量字节，非流式**） | `~/.cargo/registry/.../alun-fs-0.4.2/src/backend.rs` | ①**"连通性测试"直接用 `health_check()`，不用自己 send 探测请求**；②**"私有文件限时下载"用 `presign_download_url()`**，但本地后端默认返回空串（见 F20）；③**"大文件直传"框架没给，必须补一个 `presign_upload` 方法**——这是本批唯一的框架改动点，见 D3 与 3.5 |
-| **F20** | `MinioBackend` 基于 `aws-sdk-s3`，**官方注释写明兼容 MinIO / AWS S3 / 腾讯 COS / 阿里 OSS**；`presign_download_url` 用 `PresigningConfig` 生成 GET 预签名 URL；`force_path_style` 的取值条件是 **`endpoint.contains("minio") \|\| !use_tls`**；本地后端 `presign_download_url` 返回空串 | `alun-fs-0.4.2/src/minio.rs:35-50`（`from_config`）、`:229+`（`presign_download_url`）、`src/backend.rs` 默认实现 | ①**阿里 OSS 与 S3 兼容存储不需要新后端，直接填 MinIO 类型即可**（D2 的依据）；②**坑：如果 MinIO 端点写成 `https://10.0.0.5:9000`（不含 "minio" 且开了 TLS），会走 virtual-hosted 风格而连不上**，页面必须给这条提示（附录 A 文案 E-STG-08）；③本地后端没有预签名 → 私有文件在本地后端上必须走"应用层签名短链"（3.6.2） |
-| **F21** | `BackendRegistry` 以 **`backend_type` 字符串为键**（`register()` 同类型直接覆盖），提供 `with_default()` / `get()` / `health_check_all()`；框架侧只有两个实现：`LocalFs`（type `"local"`）与 `MinioBackend`（type `"minio"`） | `alun-fs-0.4.2/src/registry.rs:37-52`、`local.rs`、`minio.rs` | ①"4 种存储类型"里 **MinIO / S3 兼容 / 阿里 OSS 三者本质是同一个 `minio` 实现**，不能靠 registry 区分；②**业务侧要自己维护"配置行 → 后端实例"的路由表**（按配置 id 索引），不能把多行配置塞进 registry，见 3.2 |
+| **F19** | `nik-fs` 定义统一 trait `StorageBackend`，方法为：`backend_type()` / `write()` / `write_at(relative_path)` / `read()` / `delete()` / `exists()` / `presign_download_url(expiry_secs)` / `health_check()`。**只有"预签名下载"，没有"预签名上传"**；`write()` / `read()` 的入参出参都是 `&[u8]` / `Vec<u8>`（**全量字节，非流式**） | `~/.cargo/registry/.../nik-fs-0.4.2/src/backend.rs` | ①**"连通性测试"直接用 `health_check()`，不用自己 send 探测请求**；②**"私有文件限时下载"用 `presign_download_url()`**，但本地后端默认返回空串（见 F20）；③**"大文件直传"框架没给，必须补一个 `presign_upload` 方法**——这是本批唯一的框架改动点，见 D3 与 3.5 |
+| **F20** | `MinioBackend` 基于 `aws-sdk-s3`，**官方注释写明兼容 MinIO / AWS S3 / 腾讯 COS / 阿里 OSS**；`presign_download_url` 用 `PresigningConfig` 生成 GET 预签名 URL；`force_path_style` 的取值条件是 **`endpoint.contains("minio") \|\| !use_tls`**；本地后端 `presign_download_url` 返回空串 | `nik-fs-0.4.2/src/minio.rs:35-50`（`from_config`）、`:229+`（`presign_download_url`）、`src/backend.rs` 默认实现 | ①**阿里 OSS 与 S3 兼容存储不需要新后端，直接填 MinIO 类型即可**（D2 的依据）；②**坑：如果 MinIO 端点写成 `https://10.0.0.5:9000`（不含 "minio" 且开了 TLS），会走 virtual-hosted 风格而连不上**，页面必须给这条提示（附录 A 文案 E-STG-08）；③本地后端没有预签名 → 私有文件在本地后端上必须走"应用层签名短链"（3.6.2） |
+| **F21** | `BackendRegistry` 以 **`backend_type` 字符串为键**（`register()` 同类型直接覆盖），提供 `with_default()` / `get()` / `health_check_all()`；框架侧只有两个实现：`LocalFs`（type `"local"`）与 `MinioBackend`（type `"minio"`） | `nik-fs-0.4.2/src/registry.rs:37-52`、`local.rs`、`minio.rs` | ①"4 种存储类型"里 **MinIO / S3 兼容 / 阿里 OSS 三者本质是同一个 `minio` 实现**，不能靠 registry 区分；②**业务侧要自己维护"配置行 → 后端实例"的路由表**（按配置 id 索引），不能把多行配置塞进 registry，见 3.2 |
 
 ## 0.4 加密、导入导出、实时推送事实（F22–F26）
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F22** | 平台已有 **AES-256-GCM** 加密能力：`alun_utils::Crypto::aes_encrypt/aes_decrypt`；`sys_config.is_encrypted=true` 时写入前加密、落库格式 `enc:v1:{nonce}:{cipher}`；密钥取自**环境变量 `X_CONFIG_SECRET_KEY`**，未配置时报 `CONFIG_SECRET_MISSING`（40014）并**拒绝明文落库** | `support/config/model.rs:810-880`、`shared/constants.rs:198,201`、`error_code.rs:165` | AK/SK 的"不落明文"**直接复用这套加密与密钥**，不要再引第二套加密库；`X_CONFIG_SECRET_KEY` 未配置时**禁止保存 AK/SK**（报 E-STG-11） |
+| **F22** | 平台已有 **AES-256-GCM** 加密能力：`nik_utils::Crypto::aes_encrypt/aes_decrypt`；`sys_config.is_encrypted=true` 时写入前加密、落库格式 `enc:v1:{nonce}:{cipher}`；密钥取自**环境变量 `X_CONFIG_SECRET_KEY`**，未配置时报 `CONFIG_SECRET_MISSING`（40014）并**拒绝明文落库** | `support/config/model.rs:810-880`、`shared/constants.rs:198,201`、`error_code.rs:165` | AK/SK 的"不落明文"**直接复用这套加密与密钥**，不要再引第二套加密库；`X_CONFIG_SECRET_KEY` 未配置时**禁止保存 AK/SK**（报 E-STG-11） |
 | **F23** | ⚠️ **`sys_config` 的读接口会把加密值解密后明文返回前端**：`ConfigRes::from_model()` 对 `is_encrypted` 的行调用 `decrypt_config_value()` 并放进 `config_value` 字段，分页接口 `page()` 直接用它 | `support/config/dto.rs:62-66`、`support/config/handler.rs:126-130` | **AK/SK 绝不能存进 `sys_config` 走现有读接口**，否则运维打开"参数管理"就能看到明文 AK/SK。必须建独立表 + 独立 DTO，响应里 SK 恒为空串（3.7.3）。这是本批最重要的一条安全约束 |
-| **F24** | 框架内置真 XLSX 读写：开 `xlsx` feature 后才有 `Export::to_xlsx_*`（rust_xlsxwriter 写）/ `Import::from_xlsx_*`（calamine 读，`Import` 本身一直存在）；**不开 feature 时这些 API 根本不存在**（不是静默退化成 CSV）；`XlsxSheet` 支持多 sheet | `alun-0.4.2/src/lib.rs:93,155,1199,1265`、`Cargo.toml:160` | **backend 当前未开 `xlsx` feature**（现有 features 只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss），导入导出必须在 `Cargo.toml` 补 `"xlsx"`，列进交付前提（附录 C.1） |
-| **F25** | 框架有 **SSE** 能力：`Broadcaster` + `sse_json`（单向推送，仅依赖 futures-util），需 `sse` feature；**backend 当前未开** | `alun-0.4.2/src/lib.rs:90,1188-1193`、`Cargo.toml:135` | 未读角标"实时 vs 轮询"的决策（D7）以此为依据：SSE 技术上可行但要开 feature + 运维长连接，P0 先用轮询 |
-| **F26** | 分页常量：`DEFAULT_PAGE_SIZE = 10`、**`MAX_PAGE_SIZE = 1000`**；`utils::normalize_page()` 对 `page_size` 做 `clamp(1, 1000)` | `alun-web-0.4.2/src/api.rs:104,107`、`backend/src/utils/mod.rs:110-116` | **导出不能靠"前端翻页把数据捞全"**：20 万行 ÷ 1000 = 200 次请求，必超时。导出一律在后端一次性查询落文件（4.6） |
+| **F24** | 框架内置真 XLSX 读写：开 `xlsx` feature 后才有 `Export::to_xlsx_*`（rust_xlsxwriter 写）/ `Import::from_xlsx_*`（calamine 读，`Import` 本身一直存在）；**不开 feature 时这些 API 根本不存在**（不是静默退化成 CSV）；`XlsxSheet` 支持多 sheet | `nik-0.4.2/src/lib.rs:93,155,1199,1265`、`Cargo.toml:160` | **backend 当前未开 `xlsx` feature**（现有 features 只有 db/postgres/cache/plugin/fs-local/chrono/uuid/json/ipnetwork/xss），导入导出必须在 `Cargo.toml` 补 `"xlsx"`，列进交付前提（附录 C.1） |
+| **F25** | 框架有 **SSE** 能力：`Broadcaster` + `sse_json`（单向推送，仅依赖 futures-util），需 `sse` feature；**backend 当前未开** | `nik-0.4.2/src/lib.rs:90,1188-1193`、`Cargo.toml:135` | 未读角标"实时 vs 轮询"的决策（D7）以此为依据：SSE 技术上可行但要开 feature + 运维长连接，P0 先用轮询 |
+| **F26** | 分页常量：`DEFAULT_PAGE_SIZE = 10`、**`MAX_PAGE_SIZE = 1000`**；`utils::normalize_page()` 对 `page_size` 做 `clamp(1, 1000)` | `nik-web-0.4.2/src/api.rs:104,107`、`backend/src/utils/mod.rs:110-116` | **导出不能靠"前端翻页把数据捞全"**：20 万行 ÷ 1000 = 200 次请求，必超时。导出一律在后端一次性查询落文件（4.6） |
 
 ## 0.5 前端与部署事实（F27–F31）
 
@@ -123,7 +123,7 @@
 | **D8** | 消息与导出产物保留多久 | **未读消息永久保留**（不清）；**已读消息保留 180 天**后自动清理；**消息正文中引用的导出产物 7 天**（链接失效但记录留）；**导入错误明细文件 30 天**；全部走 `sys_config` 可调，清理任务每日 **03:50** | 未读是"待办"，删了就是丢失工作项，不能清；已读 180 天足够回溯半年内的通知。导出产物是几 MB~几百 MB 的临时文件，7 天够下载，久了纯占存储。03:50 与现有 5 个清理任务（03:00–03:40）错峰（F29） |
 | **D9** | 文件 / 导入任务 / 导出任务要不要按创建人隔离 | **文件不隔离**（默认全公司可见）；**导入任务、导出任务按创建人隔离**（默认只看自己的，有 `impexp:task:view-all` 的看全部）；**私有文件**（`is_private`）下载需 `storage:file:download-private` 且只能拿限时链接 | 文件是共享资产（合同、图纸、物料图片就是要给别人看的），按人隔离会导致"我上传的附件别人打不开"，业务直接卡死。但导入/导出任务里有别人的原始数据与筛选条件，属于工作过程数据，默认隔离更符合直觉。私有文件靠"标记 + 独立权限"控制，不靠"谁上传的" |
 | **D10** | 导出时敏感字段（手机号/身份证/银行卡）怎么处理 | **默认脱敏**（复用 `Mask::mobile/email/id_card/bank_card`，F22 同源工具）；要导明文必须持有独立权限码 `business:impexp:export:sensitive`，且**每次明文导出写一条审计** | 导出文件一旦离开系统就再也管不住，脱敏是最后一道闸。但财务对账、发工资这类场景确实需要明文，所以给独立权限 + 留痕，而不是一刀切禁止 |
-| **D11** | 异步导入导出用什么跑 | **数据库任务表 + 每分钟一次 cron 调度器**（复用 F29 的 `SchedulerPlugin`），**不引 Kafka、不引消息队列** | ①现有 `sys_job` 体系就是 cron，团队熟；②`alun-task`（Kafka）要 CMake + C 工具链编译，重且本批用不上；③导出任务量级是"每天几十个"，DB 轮询完全够。任务表设计见 4.7.1，状态机见 4.7.2 |
+| **D11** | 异步导入导出用什么跑 | **数据库任务表 + 每分钟一次 cron 调度器**（复用 F29 的 `SchedulerPlugin`），**不引 Kafka、不引消息队列** | ①现有 `sys_job` 体系就是 cron，团队熟；②`nik-task`（Kafka）要 CMake + C 工具链编译，重且本批用不上；③导出任务量级是"每天几十个"，DB 轮询完全够。任务表设计见 4.7.1，状态机见 4.7.2 |
 ---
 
 # 一、用户角色与真实场景
@@ -739,7 +739,7 @@ key = {root_prefix}{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}
 
 | 项 | 定法 |
 |---|---|
-| 加密算法 | **AES-256-GCM**，直接用 `alun_utils::Crypto::aes_encrypt/aes_decrypt`（F22） |
+| 加密算法 | **AES-256-GCM**，直接用 `nik_utils::Crypto::aes_encrypt/aes_decrypt`（F22） |
 | 落库格式 | `enc:v1:{nonce_b64}:{cipher_b64}`（与平台 `sys_config` 完全一致，便于统一轮换工具） |
 | 密钥来源 | 环境变量 **`X_CONFIG_SECRET_KEY`**（F22 已定义，不新引环境变量） |
 | 密钥未配置时 | **禁止保存含 AK/SK 的配置**：返回 500 + 「未配置参数加密密钥（环境变量 X_CONFIG_SECRET_KEY），无法加密存储密钥」（附录 A E-STG-11）。**绝不允许"降级为明文存"**——现有 `encrypt_config_value()` 就是这么设计的（注释原文："绝不静默明文落库"） |
@@ -1176,7 +1176,7 @@ key = {root_prefix}{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}
 2. 每次明文导出写一条审计：`{biz_code, row_count, sensitive_fields, file_name}`——**不写具体值**
 3. 明文导出的文件名自动加后缀 `_含敏感字段`，让人一眼知道这份文件不能乱发
 
-> 脱敏工具直接用 `alun_utils::Mask`（F22 同源），**不要自己写正则**——自己写的脱敏是最容易出"188****1234"这种位数不对的低级 bug 的地方。
+> 脱敏工具直接用 `nik_utils::Mask`（F22 同源），**不要自己写正则**——自己写的脱敏是最容易出"188****1234"这种位数不对的低级 bug 的地方。
 
 ### 4.6.5 下载链接有效期（I3-05）
 
@@ -1782,7 +1782,7 @@ key = {root_prefix}{category}/{YYYY}/{MM}/{DD}/{uuid}.{ext}
 | 7 | **删除导出任务** | `impexp:task:delete` | 删掉"我导过什么"的痕迹 |
 | 8 | 改通道配置（SMTP/Webhook 密钥） | `notice:channel:update` | 把通知外带到自己的服务器 |
 
-**并且：前端隐藏 ≠ 安全**。以上 8 个权限码**每一个都必须在后端 `#[alun::permission]` 上声明**（F3），前端 `v-privilege` 只是不让用户白点。
+**并且：前端隐藏 ≠ 安全**。以上 8 个权限码**每一个都必须在后端 `#[nik::permission]` 上声明**（F3），前端 `v-privilege` 只是不让用户白点。
 
 ---
 

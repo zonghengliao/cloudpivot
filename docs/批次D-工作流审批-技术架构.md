@@ -4,7 +4,7 @@
 >
 > | 项 | 值 |
 > |---|---|
-> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / alun 0.4.2 / PostgreSQL 18.6） |
+> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / nik 0.4.2 / PostgreSQL 18.6） |
 > | 代码基线 | `172.18.10.144:/opt/cloudpivot`，分支 `main`，HEAD **`db1e56e`**（`docs(task): T7a 补记合并后复验与生产指纹`） |
 > | 基线事实（**本机实测**） | 迁移最新到 **`V0114`**（`business` 45 / `system` 11 / `support` 11 = 67 条 up 迁移）；`biz_task.approval_instance_id` 已存在且恒为 `NULL`；全库**零触发器**（不允许用触发器维持不变式） |
 > | 迁移号段 | 本批从 **`V0115`** 起，占用 `V0115`–`V0119` |
@@ -2196,7 +2196,7 @@ business:flow:stats:read           统计
 business:flow:cc:manage            抄送规则管理（P1）
 ```
 
-> **中间件闸的选择原则**（照抄 `task/handler.rs` 的血泪经验）：分派、转办这类「行级关系决定权限」的接口，`#[alun::permission]` 只挂**粗粒度**的码（`business:flow:approve`），真正的判定在 handler 里现查（「这条待办是不是我的」）。**不要**给「转办」单独造一个 `business:flow:transfer` 码——否则「拿到审批权但没拿到转办权」这种配置会让人卡死，而真实语义是「能审的人就能转」。
+> **中间件闸的选择原则**（照抄 `task/handler.rs` 的血泪经验）：分派、转办这类「行级关系决定权限」的接口，`#[nik::permission]` 只挂**粗粒度**的码（`business:flow:approve`），真正的判定在 handler 里现查（「这条待办是不是我的」）。**不要**给「转办」单独造一个 `business:flow:transfer` 码——否则「拿到审批权但没拿到转办权」这种配置会让人卡死，而真实语义是「能审的人就能转」。
 
 ### 10.3 错误码 `65xxx`（22 个）
 

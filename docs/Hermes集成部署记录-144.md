@@ -93,7 +93,7 @@ CLOUDPIVOT_AIAGENT_CLONE_FROM=agent-template
      cron_mode: approve
    ```
    不开这一项的字面表现：`BLOCKED: User denied this command. The user has NOT consented…`，然后任务 `blocked`。
-3. **改 `scripts/patch-alun-web.sh` 后必须 `cargo clean -p alun-web --release`**：补丁改的是
+3. **改 `scripts/patch-nik-web.sh` 后必须 `cargo clean -p nik-web --release`**：补丁改的是
    registry 源码，而 cargo 对 registry 依赖按 crate 校验和判定，**不会因为源码 mtime 变化重编** ——
-   否则 release 会静默链着打补丁前的 `alun-web`（T5b 实测：任务令牌被当作坏 JWT，一律 401
+   否则 release 会静默链着打补丁前的 `nik-web`（T5b 实测：任务令牌被当作坏 JWT，一律 401
    「Token 无效或已过期」；`grep -ac is_ignored_path target/release/cloudpivot` 应为 1）。

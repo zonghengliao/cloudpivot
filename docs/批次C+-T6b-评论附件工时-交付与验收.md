@@ -21,7 +21,7 @@ T1 建了 7 张表，只实现了 3 张；本卡把 **`biz_task_comment` / `biz_
 | POST | `/business/task/{id}/worklogs` | `business:task:read` | 登记工时（服务端 `SUM(hours)` 汇总） |
 | DELETE | `/business/task/{id}/worklogs/{wl_id}` | `business:task:read` | 删除工时（本人 / `business:task:worklog`），同事务重算 |
 
-「写」的两个入口（`POST /comment`、`POST /attachment`）沿用 T5b 已建的实现（它们要同时接受 AI 任务令牌，走 `#[alun::no_auth]` 白名单），本卡只补了**跨人删除、列表、下载、工时**四类能力，以及 @ 提及的强制通知。
+「写」的两个入口（`POST /comment`、`POST /attachment`）沿用 T5b 已建的实现（它们要同时接受 AI 任务令牌，走 `#[nik::no_auth]` 白名单），本卡只补了**跨人删除、列表、下载、工时**四类能力，以及 @ 提及的强制通知。
 
 ### 代码落点
 

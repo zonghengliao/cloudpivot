@@ -3,7 +3,7 @@
 > 交付卡：`t_48368bbf`｜执行者：manong｜环境：`172.18.10.144`（ubuntu-svr，Rust 1.99.1，PG 18.6）
 > 基线：`57a6762`（C0+C1 `e6a023d` 之上，C5 的 `57a6762` 已合入 `main`）
 > 验证库：**`cloudpivot_c2v`**（本卡自建，绝不使用 `cloudpivot` / `cloudpivot_dev` / 共享的 `cloudpivot_test`）
-> 验收实例：`profile=test`、`ALUN_DATABASE_NAME=cloudpivot_c2v`、`127.0.0.1:8029`
+> 验收实例：`profile=test`、`NIK_DATABASE_NAME=cloudpivot_c2v`、`127.0.0.1:8029`
 
 ## 0. 交付清单
 

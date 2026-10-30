@@ -4,7 +4,7 @@
 >
 > | 项 | 值 |
 > |---|---|
-> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / alun 0.4.2 / PostgreSQL 18.6） |
+> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / nik 0.4.2 / PostgreSQL 18.6） |
 > | 代码基线 | `172.18.10.144:/opt/cloudpivot`，HEAD **`a234762`**（`feat(frontend): B8 权限增强前端`）；批次 A（存储/导入导出/通知）与批次 B（数据权限/列级脱敏/角色互斥）均已上生产 |
 > | 基线事实 | 30 张表 · 迁移到 **V0068** · `cargo test` 全绿（任务书口径 **362**，B7 证据文档记录 **373**；两处数字不一致，本批按「不回归」处理，实施时以真机 `cargo test` 实测为准）· 门禁闸①/② 0/0 |
 > | 迁移占用 | 已用 `V0001`–`V0052`、`V0060`–`V0068`；**本批从 V0080 起**（V0069–V0079 留空给批次 A/B 线上补丁） |
@@ -41,8 +41,8 @@
 | **D1** | 公告与站内消息的关系 | **公告是「内容」，`sys_notice` 是「投递」；发布公告默认触发一次 notice 扇出，但两者是两套表、两套生命周期** | `sys_notice` 已有 `notice_type='CIRCULAR'`（`business/notice/dto.rs:39-40`）与 `biz_type/biz_id/link_url` 字段（`migrations/migrations/business/V0043__create_notice.up.sql:28-30`），天生适合做「公告的投递副本」；把正文塞进 `sys_notice.content` 会让公告无法承载附件、置顶、有效期、版本 |
 | **D2** | 公告→通知的联动一致性 | **先提交公告事务，再调 `dispatch`，用幂等键 + 补偿任务兜底「已发布但没通知」** | `notice::dispatch` 内部自己开事务（`business/notice/mod.rs:473`、定时分支 `:436`），**无法**与公告事务合并；`uk_sys_notice_idem`（`V0049:27-28`）保证重试幂等，所以「提交后重试」是最小改动且可收敛的方案 |
 | **D3** | 公告「发布范围」是否受数据权限影响 | **不受**。发布范围是**业务受众**（业务语义），数据权限是**数据归属过滤**（安全语义），两者正交 | 若套用 data_scope：一个 `SELF_ONLY` 范围的角色会看不到「全员公告」——语义荒谬。结论文档 §2.3 给出判据表（哪些表该注入、哪些不该） |
-| **D4** | 公告内容形态 | **Markdown 存储 + 服务端渲染 + 双端净化**；不采用「富文本 HTML 直存」 | 实测（POC-3）：alun 现成的净化器（ammonia 4.2.4 默认规则）会把 WYSIWYG 输出的 `style`/`class`/`target`/`data:` 图片全部剥掉——**富文本「所见非所得」**；而 Markdown 渲染出的语义 HTML 几乎原样通过 |
-| **D5** | XSS 防护 | **四道闸**：①写入前渲染即净化（`alun_utils::xss`）②入库再净化一次（幂等）③出参前第三次净化（防御纵深）④前端 `v-html` 只允许经过②③的内容 + CSP + DOMPurify 兜底；**图片禁止 base64 内嵌，必须走 storage** | POC-1/2：默认规则下 `data:image` 的 `src` 被整体删除（图片直接消失），`<script>`/`onclick`/`javascript:`/`<iframe>` 全部清除；净化成本 20 KB **0.635 ms**、64 KB **1.976 ms**（POC-2 实测） |
+| **D4** | 公告内容形态 | **Markdown 存储 + 服务端渲染 + 双端净化**；不采用「富文本 HTML 直存」 | 实测（POC-3）：nik 现成的净化器（ammonia 4.2.4 默认规则）会把 WYSIWYG 输出的 `style`/`class`/`target`/`data:` 图片全部剥掉——**富文本「所见非所得」**；而 Markdown 渲染出的语义 HTML 几乎原样通过 |
+| **D5** | XSS 防护 | **四道闸**：①写入前渲染即净化（`nik_utils::xss`）②入库再净化一次（幂等）③出参前第三次净化（防御纵深）④前端 `v-html` 只允许经过②③的内容 + CSP + DOMPurify 兜底；**图片禁止 base64 内嵌，必须走 storage** | POC-1/2：默认规则下 `data:image` 的 `src` 被整体删除（图片直接消失），`<script>`/`onclick`/`javascript:`/`<iframe>` 全部清除；净化成本 20 KB **0.635 ms**、64 KB **1.976 ms**（POC-2 实测） |
 | **D6** | 公告附件 | **引用 `sys_file`（批次 A 存储），下载走「公告可见性校验 + 服务端流式代理」的新接口，不暴露 `business:storage:download`** | 现有 `business:storage:download` 已授予**所有角色**（`V0046:114-125`），即任何登录用户可凭任意 `file_id` 下载任意文件；公告附件若复用该接口等于把「附件可见性」交给 URL |
 | **D7** | 公告已读/未读 | **要**，但只记「已读」（`sys_announcement_read`），未读 = 可见集合 − 已读集合；**公告未读独立于通知未读**，前端两个角标分开展示，另给聚合接口 | 为全员公告预写 N 行未读回执会让 2000 条公告 × 5000 人 = 1000 万行；实测动态判定：可见列表分页 **0.258 ms**、未读数 **1.515 ms**（POC-12，2000 公告 / 4665 范围行） |
 | **D8** | 帮助文档全文检索 | **不上 `tsvector`**，用 `ILIKE`；仅在文档数 > 5000 时追加 `pg_trgm` GIN 索引（DDL 已备）。**不要**引入 zhparser（本机 PG 18.6 无该扩展） | 实测（POC-6/7）：PG 默认分词把整段中文当一个词——`to_tsvector('simple','系统公告管理') @@ plainto_tsquery('simple','公告')` = **false**；trgm 只对 **≥3 字**有效（3 字 0.238 ms vs 全表 131 ms），**2 字反而更慢**（153 ms > 131 ms）；2000 篇真实规模下 `ILIKE` 全表仅 **4.2–6.1 ms** |
@@ -61,7 +61,7 @@
 | 「`operation_logs` 异步旁路，事务回滚仍会记日志」 | 属实，且比描述更具体：它是 **HTTP 中间件**在 `next.run()` **之后**入队（`middleware/operation_log.rs:133` 响应、`:150` 入队），后台 worker 用**独立连接、autocommit** 落库（`support/log/bus.rs:204-219`）。全仓**只有这一个写入口**（`grep -rn enqueue_operation` → 仅 `operation_log.rs:150`） | §4.1 给出可复现的并发证据；结论与任务书一致，但把「修它」改写为「**它不适合承载 diff**」，因为它天然拿不到业务事务与前后值 |
 | 「修现有 `operation_logs` 改成事务内记录」 | 技术上不可行：中间件运行在 axum 层（`App::layer_from_fn`，`lib.rs:35-37` 装配说明），**没有** `Transaction` 句柄；且它靠「路径→动作」映射猜测业务语义（`:321-433`），拿不到「哪个字段从什么改成什么」 | 方案 (a) 在 §4.2 判为**不可行**并保留为对比行；真正落地的是 (c) 混合 |
 | 「`audit_logs` 是独立的审计链路」 | `record_audit`（`support/log/mod.rs:204-220`）同样走异步总线，**与业务事务无关**；`before_data/after_data` 有列但无字段级配对，且**没有任何按对象反查的接口**（`LogPageQuery` 只有 username/operation/request_path/status_code/时间，`support/log/dto.rs:122-139`） | 本批**不迁移** `audit_logs` 的写入链路（会动 55 个调用点），只在其文档定位里写明「事件级审计，非字段级」；字段级能力由 `sys_change_log` 承担 |
-| 「公告的富文本用前端安全渲染即可」 | 项目**没有任何** Markdown 渲染器、没有 DOMPurify、没有富文本编辑器（`backend/Cargo.toml` 与 `frontend/package.json` 均无命中）；但后端已开 alun 的 `xss` feature（`Cargo.toml` 注释「HTML 净化：社区公告等富文本入库前过滤」）→ 现成 ammonia 4.2.4 | 渲染放服务端（新增 1 个依赖，见 §5.4.1 B-1），净化复用现成的 `alun_utils::xss`；前端**仍加一道** DOMPurify 兜底（新增前端依赖） |
+| 「公告的富文本用前端安全渲染即可」 | 项目**没有任何** Markdown 渲染器、没有 DOMPurify、没有富文本编辑器（`backend/Cargo.toml` 与 `frontend/package.json` 均无命中）；但后端已开 nik 的 `xss` feature（`Cargo.toml` 注释「HTML 净化：社区公告等富文本入库前过滤」）→ 现成 ammonia 4.2.4 | 渲染放服务端（新增 1 个依赖，见 §5.4.1 B-1），净化复用现成的 `nik_utils::xss`；前端**仍加一道** DOMPurify 兜底（新增前端依赖） |
 | 「帮助文档可以考虑 tsvector」 | PG 18.6 实测：默认分词器对中文整段成词，子串检索失效；`pg_available_extensions` 里**没有** `zhparser` / `pg_jieba`（只有 `pg_trgm` / `btree_gin` / `pgcrypto`） | D8：不用 tsvector，给出「何时再升级」的量化触发条件（文档数 > 5000 或 P95 > 50 ms） |
 
 ### 0.3 交付边界（本批**不做**）
@@ -92,7 +92,7 @@ V0064 V0065 V0066 V0067 V0068
 |---|---|---|
 | 模块树 | `system/{auth,dept,menu,role,user}`、`support/{config,dashboard,dict,file,health,ipgeo,job,log,online}`、`business/{impexp,masking,monitor,mutex,notice,permission,shared,storage}` | `find src -maxdepth 2 -type d` |
 | 业务模块容器 | `business/mod.rs:16-23` 逐模块 `pub mod`，并有一段**编译期契约**证明外部可调 `notice::dispatch`（`business/mod.rs:25-63`） | 同文件 |
-| 路由收集 | 宏声明（`#[alun::post("/business/...")]`），`App::scan()` 统一收集，**无需手工注册** | `lib.rs:26-28`、`lib.rs:57` |
+| 路由收集 | 宏声明（`#[nik::post("/business/...")]`），`App::scan()` 统一收集，**无需手工注册** | `lib.rs:26-28`、`lib.rs:57` |
 | 中间件链 | 操作日志中间件在最外层（覆盖 401/403/429/404） | `lib.rs:35-37` |
 | 调度器 | `task/mod.rs` 单例，`register_builtin()` 一次性注册（`task/mod.rs:228-245`），框架对注册表做**启动时快照** | `task/mod.rs:8-9`、`:32-33` |
 | 保留期常量 | `OPERATION_LOG_RETENTION_DAYS = 90` | `shared/constants.rs:276` |
@@ -237,7 +237,7 @@ pub async fn dispatch(draft: NoticeDraft) -> std::result::Result<DispatchResult,
 
 | 项 | 事实 | 证据 |
 |---|---|---|
-| 后端净化器 | **已有**：alun 开 `xss` feature → `alun_utils::xss::{sanitize_html, sanitize_html_strict, has_potential_xss}`，底层 **ammonia 4.2.4** | `backend/Cargo.toml`（feature 注释「社区公告等富文本入库前过滤」）；`alun-utils-0.4.2/src/xss.rs:29-31` |
+| 后端净化器 | **已有**：nik 开 `xss` feature → `nik_utils::xss::{sanitize_html, sanitize_html_strict, has_potential_xss}`，底层 **ammonia 4.2.4** | `backend/Cargo.toml`（feature 注释「社区公告等富文本入库前过滤」）；`nik-utils-0.4.2/src/xss.rs:29-31` |
 | 已被业务使用 | 通知模板 HTML 骨架会先净化再渲染变量 | `business/notice/render.rs:156-159`（注释明确「顺序不能反：先渲染会把已转义的值再交给净化器」） |
 | 默认允许的标签 | 含 `table/thead/tbody/tr/th/td`、`img`、`a`、`h1..h6`、`pre/code`、`ul/ol/li`、`div/span` 等 70+ | `ammonia-4.2.4/src/lib.rs:379-389` |
 | 默认**不**允许 | `style` 属性、`class` 属性、`a` 的 `target`、`data:` URL scheme、`<script>/<style>`（整段连同内容删除） | 同文件 `:390-448`（`tag_attributes` 与 `url_schemes`） |
@@ -305,7 +305,7 @@ fn register_builtin(&self) {
 
 ### 1.9 权限种子与迁移的既有范式（本批照抄）
 
-**权限码三方一致性**（`V0065:11-15` 头注释）：① 后端 `#[alun::permission]` 注解 ② `sys_menu.auth_code` ③ 前端 `frontend/src/constants/permissions.ts` —— 三处**逐字一致**，任一不一致 = 接口 403。
+**权限码三方一致性**（`V0065:11-15` 头注释）：① 后端 `#[nik::permission]` 注解 ② `sys_menu.auth_code` ③ 前端 `frontend/src/constants/permissions.ts` —— 三处**逐字一致**，任一不一致 = 接口 403。
 
 **种子写法**（`V0065:44-76`）：
 - 固定 UUID（如 `20000000-0000-0000-0000-0000000006xx`）+ `ON CONFLICT (id) DO NOTHING` → 幂等；
@@ -869,7 +869,7 @@ b.add_generic_attributes(&["id"]);       // ← 保留 heading 的锚点 id（�
 | 是否需要「按角色可见」？ | ❌ **本批不做**（列为 §8 未决项 3） | ① 无业务需求证据 ② 一旦引入，`sys_help_doc` 就需要范围表 + 可见性判定 + 缓存，复杂度接近公告 ③ 真要做，正确形态是「按**菜单/模块**可见」（文档天然属于某个功能模块），不是按角色 |
 | 未发布文档谁能看？ | 只有持 `system:help:doc:list` 的人（预览接口） | 普通用户 `read` 接口强制 `status='PUBLISHED'` |
 
-**权限码 → 接口映射见 §5.1；所有 `#[alun::permission]` 必须与种子 `auth_code` 逐字一致（`V0065:11-15` 的纪律）。**
+**权限码 → 接口映射见 §5.1；所有 `#[nik::permission]` 必须与种子 `auth_code` 逐字一致（`V0065:11-15` 的纪律）。**
 
 ### 3.5 与公告的关系：分开还是合并？（给结论）
 
@@ -1401,7 +1401,7 @@ if headers.get("x-test-force-rollback").is_some() {
 
 ### 5.1 权限码清单（20 个 + 4 个菜单）
 
-> **三方一致纪律**（`V0065:11-15`）：① 后端 `#[alun::permission(permission="…")]` ② `sys_menu.auth_code` ③ `frontend/src/constants/permissions.ts` —— 三处逐字一致。
+> **三方一致纪律**（`V0065:11-15`）：① 后端 `#[nik::permission(permission="…")]` ② `sys_menu.auth_code` ③ `frontend/src/constants/permissions.ts` —— 三处逐字一致。
 > **新代码只进 `business/`**（项目红线）。因此帮助文档与变更日志的**代码**在 `business/help`、`business/changelog`，而**权限码**按任务书用 `system:help:*`、`system:change-log:*` —— 这与批次 B 的 `business/masking` 用 `system:field-mask:*` 是同一先例，**不是笔误**。
 
 #### 5.1.1 公告（`business:announcement:*`，7 个）
@@ -1532,7 +1532,7 @@ ON CONFLICT (role_id, menu_id) DO NOTHING;
 
 | # | 改动 | 为什么**必须**动 | 不改的后果 | 风险 |
 |---|---|---|---|---|
-| **B-1** | `backend/Cargo.toml`：`alun` 之外新增 `pulldown-cmark = "0.13"`（或 `comrak`） | 仓库**没有任何** Markdown 渲染器（`grep markdown|comrak|pulldown` → 0 命中）；D4 选定「Markdown 源 + 服务端渲染」，渲染器是硬需求 | 只能选「富文本 HTML 直存」→ 实测表现力崩塌（POC-1）+ XSS 面扩大 + 无 TOC/摘要 | 低（纯 Rust、无 C 依赖、无 IO；`edition 2024` 兼容）。**需评审**：新增依赖违反「不引入 alun 之外的新 crate」的既有惯例（既有例外：`calamine`、`futures-util`、`sha2`、`tokio-util` 都已在 `Cargo.toml` 里，都是「必要且不可替代」） |
+| **B-1** | `backend/Cargo.toml`：`nik` 之外新增 `pulldown-cmark = "0.13"`（或 `comrak`） | 仓库**没有任何** Markdown 渲染器（`grep markdown|comrak|pulldown` → 0 命中）；D4 选定「Markdown 源 + 服务端渲染」，渲染器是硬需求 | 只能选「富文本 HTML 直存」→ 实测表现力崩塌（POC-1）+ XSS 面扩大 + 无 TOC/摘要 | 低（纯 Rust、无 C 依赖、无 IO；`edition 2024` 兼容）。**需评审**：新增依赖违反「不引入 nik 之外的新 crate」的既有惯例（既有例外：`calamine`、`futures-util`、`sha2`、`tokio-util` 都已在 `Cargo.toml` 里，都是「必要且不可替代」） |
 | **B-2** | `src/task/mod.rs::register_builtin()`：追加 **5** 个 `register_cron`（`announcement_auto_expire` / `announcement_top_expire` / `announcement_dispatch_retry` / `changelog_partition_maintain` / `help_version_cleanup`） | 调度器对注册表做**启动时一次性快照**，注册点只有 `register_builtin()`（`task/mod.rs:8-9`、`:228-245`）；写进 `bootstrap.rs` 会被随后的 `reload()` 清空（`:32-33` 明写） | 公告永不过期、分区永不预建（下月写入直接失败，POC-9）、版本快照无限膨胀 | 低（纯注册，每行 1 条语句，与既有 8 条同构） |
 | **B-3** | `src/shared/error_code.rs`：追加 62xxx 段 13 个常量 | 项目纪律「错误三出口」要求业务码集中定义（`shared/error_code.rs` 现有 83 个常量，`61001`–`61012` 是批次 B 段）；散落定义会被评审打回 | 无法给出稳定业务码 → 前端只能按 HTTP 状态猜错误 | 极低 |
 | **B-4** | `src/business/mod.rs`：追加 `pub mod announcement; pub mod changelog; pub mod help;` | 业务模块容器的**唯一入口**（`business/mod.rs:16-23`）；不加则模块不参与编译 | 模块不存在 | 极低 |
@@ -2097,7 +2097,7 @@ DELETE 3.3 万行 → 37.885 ms；DROP PARTITION → 1.493 ms
 | storage 上传接口与三条语义 | `src/business/storage/handler.rs:700-830` |
 | storage 上传/下载对**所有角色**开放（既有授权面） | `V0046__seed_storage_permissions.up.sql:113-125` |
 | `StorageFileRes` 17 字段 | `src/business/storage/dto.rs:427-456` |
-| 净化器 = ammonia 4.2.4，默认 tags/attrs/url_schemes | `alun-utils-0.4.2/src/xss.rs:29-31`；`ammonia-4.2.4/src/lib.rs:379-460` |
+| 净化器 = ammonia 4.2.4，默认 tags/attrs/url_schemes | `nik-utils-0.4.2/src/xss.rs:29-31`；`ammonia-4.2.4/src/lib.rs:379-460` |
 | `a[rel]` + `link_rel` 同时设置会 panic | `ammonia-4.2.4/src/lib.rs:1910`，POC-1 |
 | `id` 属于 generic_attributes（默认不含，需显式加白） | `ammonia-4.2.4/src/lib.rs:390` |
 | 通知模板已用「先净化骨架、再渲染变量」 | `business/notice/render.rs:156-159` |

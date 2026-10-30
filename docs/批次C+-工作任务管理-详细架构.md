@@ -4,7 +4,7 @@
 >
 > | 项 | 值 |
 > |---|---|
-> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / alun 0.4.2 / PostgreSQL 18.6） |
+> | 项目 | 云枢通用后台（CloudPivot，Rust 1.94.1 / edition 2024 / nik 0.4.2 / PostgreSQL 18.6） |
 > | 代码基线 | `172.18.10.144:/opt/cloudpivot`，HEAD **`97d1367`**（`feat(preference): 用户偏好体系落库 —— KV 主表 + 字典元数据 + 8 项预置（V0090/V0091）`） |
 > | 基线事实（**本机实测**） | `information_schema` 实测 **43 张表**；迁移最新到 **V0091**；全库 **零触发器**（`pg_dump -s` 里 `CREATE TRIGGER` 计数 = 0） |
 > | 基线事实（任务书口径） | 521 tests 全绿、门禁 B 闸①/② = 0/0、C7 G1–G6 全过。**本文未重跑 `cargo test`**（本机无该仓库的 Rust 构建链），这组数字按任务书采信，不作为本设计的推导依据 |
@@ -222,7 +222,7 @@ pub struct NoticeDraft {
 | 菜单种子范式 | `V0087`（页面 + 按钮 + 全员授权 + 自检 `DO $$`）、`V0085`（管理码只授超管）、`V0089`（目录归拢） | `V0104` 完全照此范式：8 字…8 段 UUID + 三段授权 + DO 自检 |
 | 偏好体系 | `sys_preference_def(pref_key, value_type, default_value, scope, validator)` + `sys_user_preference`（`V0090`），种子 8 项（`V0091`） | 任务板视图偏好 4 项（`task.view_mode/swimlane/default_scope/show_done`） |
 | Markdown 渲染 | `business/shared/content::{render, sanitize_html, Recipe}`（`content.rs:207/284/125`） | 任务正文与评论渲染，禁 base64 图片（走 storage） |
-| 路由声明 | `#[alun::permission(path, method, permission)]` + `#[alun::get/post(...)]` 宏（例：`announcement/handler.rs:93`） | 47 个端点全部照此声明，`App::scan()` 自动收集（`lib.rs` 文档注释） |
+| 路由声明 | `#[nik::permission(path, method, permission)]` + `#[nik::get/post(...)]` 宏（例：`announcement/handler.rs:93`） | 47 个端点全部照此声明，`App::scan()` 自动收集（`lib.rs` 文档注释） |
 
 ### 1.6 三个「基线事实」的实测复核
 
@@ -1363,7 +1363,7 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
 
 > 统一前缀：`/api`（由 `[router].prefix` 注入，宏里只写 `/business/task/...`）。
 > 统一响应：`Res<T>` / `Res::page(list, total, page, size)`（与既有模块一致）。
-> 所有接口都声明 `#[alun::permission(path=…, method=…, permission=…)]`（例见 `announcement/handler.rs:93`），由 `App::scan()` 自动收集。
+> 所有接口都声明 `#[nik::permission(path=…, method=…, permission=…)]`（例见 `announcement/handler.rs:93`），由 `App::scan()` 自动收集。
 
 ### 6.1 端点清单（**78 个**，按域分组；各组标题括号内是该组**表格行数**，实际端点数见本节末的计数表）
 
@@ -1500,7 +1500,7 @@ pub const BIZ_TASK: ResourceSpec = ResourceSpec {
 > | ⑧ 看板列 / 标签 | 9 | 列 5 个 + 标签 4 个 |
 > | ⑨ 项目 | 9 | 6 行，其中成员维护 3 个 |
 > | ⑩ 模板 / 统计 / 导入导出 | 13 | 模板 6 + 统计 4（含 workload）+ 导出 1 + 导入 2 |
-> | **合计** | **78** | 实施时以 `handler.rs` 里 `#[alun::get/post/put/delete/patch]` 宏的条数为准，本表用于评审对齐 |
+> | **合计** | **78** | 实施时以 `handler.rs` 里 `#[nik::get/post/put/delete/patch]` 宏的条数为准，本表用于评审对齐 |
 
 ### 6.2 权限码（21 个，`V0104` 已种）
 
@@ -1914,7 +1914,7 @@ sudo -u postgres psql -d c_task_v2 < verify/poc7_negative.sql
 | 错误码现最大 62024 | `shared/error_code.rs:417` |
 | 枚举下发范式 | `shared/enums.rs:69/93/113/172` |
 | Markdown 渲染/净化 | `business/shared/content.rs:125/207/284` |
-| 权限宏与路由声明范式 | `business/announcement/handler.rs:93`（`#[alun::permission(...)]` + `#[alun::get(...)]`） |
+| 权限宏与路由声明范式 | `business/announcement/handler.rs:93`（`#[nik::permission(...)]` + `#[nik::get(...)]`） |
 | 菜单/权限种子范式（页面+按钮+三段授权+自检） | `V0087`（公告读）/ `V0085`（管理码只授超管）/ `V0089`（目录归拢 + 清缓存） |
 | 偏好体系（KV + 字典） | `V0090__create_sys_user_preference.up.sql` / `V0091__seed_preference_def.up.sql` |
 | 全库零触发器 | 生产 `pg_dump --schema-only` 后 `grep -c "CREATE TRIGGER"` = **0** |

@@ -1,8 +1,8 @@
 # nik-web
 
-Alun 的 Web 层：应用装配、路由、中间件、提取器、统一响应、JWT 认证、全局资源、SSE、可观测。
+Nik 的 Web 层：应用装配、路由、中间件、提取器、统一响应、JWT 认证、全局资源、SSE、可观测。
 
-> 门面 `nik` 会把本 crate 再导出为 `nik::web`（`App` / `AlunRouter` / `JWT` / 中间件等都在
+> 门面 `nik` 会把本 crate 再导出为 `nik::web`（`App` / `NikRouter` / `JWT` / 中间件等都在
 > 其中；`prelude` 不含中间件层，需要时写全路径）。
 
 ## 主要 API
@@ -19,7 +19,7 @@ Alun 的 Web 层：应用装配、路由、中间件、提取器、统一响应�
 - 启动：`start()`（端口取自配置）、`serve(addr)`
 - 扩展点：`permission_defs(v)` / `no_auth_defs(v)` / `routes(f)` / `module(f)`
 
-### 路由 `AlunRouter`
+### 路由 `NikRouter`
 
 `new()`、`add_get` / `add_post` / `add_put` / `add_patch` / `add_delete` / `add_route`、
 `add_*_with_layer`（给单个路由额外挂 layer）、`merge(prefix, sub)`、
@@ -112,7 +112,7 @@ Alun 的 Web 层：应用装配、路由、中间件、提取器、统一响应�
 
 ```rust,ignore
 use nik_macros::get;
-use nik_web::{AlunRouter, App, Res};
+use nik_web::{NikRouter, App, Res};
 
 #[get("/health")]
 async fn health() -> Res<&'static str> {
@@ -121,7 +121,7 @@ async fn health() -> Res<&'static str> {
 
 #[tokio::main]
 async fn main() -> nik_core::Result<()> {
-    let mut api = AlunRouter::new();
+    let mut api = NikRouter::new();
     api.add_get("/ping", || async { "pong" });
 
     App::new()?

@@ -9,7 +9,7 @@
 | 上游 | 总管 manong《10 模块 A→B→C→D 路线图》 |
 | 前序批次 | 批次 A《通用底座：对象存储 + 导入导出 + 消息通知》——**已交付上线**（258 tests，prod 27 表） |
 | 本文范围 | **仅批次 B：数据权限 / 列级脱敏 / 角色互斥**。C（内容管理）、D（工作流审批）只在第 10 章提一句 |
-| 技术底座 | Rust（Alun 0.4.2 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite；PostgreSQL 16；前端配色 **TDesign + 可切换配色（默认「雾蓝流金」`#6F8AB8`）** |
+| 技术底座 | Rust（Nik 0.4.2 框架）+ Vue 3 + TDesign Vue Next 1.19 + Pinia + Vite；PostgreSQL 16；前端配色 **TDesign + 可切换配色（默认「雾蓝流金」`#6F8AB8`）** |
 | 交付物 | `/root/.hermes/workspace/product-manager/cloudpivot-batchB-prd.md` |
 | 同栈底座核查仓库 | `/root/.hermes/workspace/information-security/cailu-src`（本文所有 F 事实均出自该仓库，带路径:行号） |
 
@@ -68,7 +68,7 @@
 | **F4** | `sys_role` **无任何数据范围列**（字段只有 `role_code/role_name/description/status/sort_order/remark` + 审计列） | `backend/migrations/system/V0002__create_sys_role.up.sql:3-18` | 数据范围必须**新增列 + 明细表**（D1），不能"复用 description 存 JSON"这类野路子 |
 | **F5** | `sys_user_role` 有 `expire_time TIMESTAMPTZ`（NULL = 永久），且"当前生效角色"查询与"权限码"查询**都过滤过期**：`(expire_time IS NULL OR expire_time > now())` | `backend/migrations/system/V0003__create_sys_user_role.up.sql:6`、`backend/src/system/auth/model.rs:190-198,250-260` | **互斥校验必须用同一口径**：过期授权不算"持有"（D13）。否则会出现"界面说冲突、权限其实已过期"的假冲突 |
 | **F6** | 角色停用（`sys_role.status=0`）不进入生效角色列表（`filter(|r| r.enabled)`），但 `sys_user_role` 绑定记录仍在 | `backend/src/system/auth/model.rs:181-186` | 互斥判定只算"启用 + 未过期"的角色；停用角色**仍要**在用户详情里显示绑定，但**不参与**冲突拦截（D13） |
-| **F7** | 接口鉴权注解是 `#[alun::permission(path = "...", method = "...", permission = "...")]`，与 handler 同函数；`permission` 为单个权限码字符串 | `backend/src/system/role/handler.rs:41-46,77-80,111-114,146-149,224-227,326-329,404-407,448-451` | 新增三模块接口全部照此风格，**一个接口一个码**，不写通配 |
+| **F7** | 接口鉴权注解是 `#[nik::permission(path = "...", method = "...", permission = "...")]`，与 handler 同函数；`permission` 为单个权限码字符串 | `backend/src/system/role/handler.rs:41-46,77-80,111-114,146-149,224-227,326-329,404-407,448-451` | 新增三模块接口全部照此风格，**一个接口一个码**，不写通配 |
 | **F8** | 业务错误码分段：`1000x` 通用 / `2000x` 认证 / `3000x` 授权 / `4000x` 支撑；现有授权段已用到 `30013 ROLE_INVALID` | `backend/src/shared/error_code.rs:40-121`（`30001 PERMISSION_DENIED` … `30013 ROLE_INVALID`） | 本批新增 **`30014–30026`** 共 13 个码（6.5），不复用、不跳段 |
 | **F9** | 代码注释提到的"业务侧超管判定见 `shared/principal.rs`"，但 **`backend/src/shared/` 下只有 `constants.rs / enums.rs / error_code.rs / mod.rs`，没有 `principal.rs`**（历史注释指向了一个不存在的文件） | `backend/src/shared/`（`ls` 实测）、`backend/src/system/auth/model.rs:234` | 本批**新建** `backend/src/shared/data_scope.rs`（行过滤）与 `backend/src/shared/field_mask.rs`（列打码）两个模块，作为全站唯一入口（D3/D9）。顺手把那条悬空注释改成正确路径 |
 | **F10** | 已有三类主体缓存失效函数：`invalidate_user_principal(user_id)`、`invalidate_users_principal(&[user_id])`、`invalidate_role_holders(role_id)`（按 `sys_user_role` 反查该角色全部持有者后逐个失效） | `backend/src/system/auth/model.rs:91-113,125-152` | **配置变更必须触发失效**：改角色数据范围 → `invalidate_role_holders`；改脱敏规则（规则可能影响全员）→ 按受影响角色集合批量失效；否则用户在缓存过期前会一直用旧结果（缓存 TTL 以现状为准，**不要靠等 TTL 生效**） |
@@ -91,13 +91,13 @@
 
 | # | 核查结论 | 证据 | 对本文的影响 |
 |---|---|---|---|
-| **F20** | 框架自带脱敏工具 `alun_utils::Mask`，且在 prelude 里（可直接 `use alun::prelude::*` 后用 `Mask`）。已实现：`mobile / email / id_card / bank_card / name / user_id / password / address / license_plate / mask_by_type` | `~/.cargo/.../alun-utils-0.4.2/src/lib.rs:22`、`alun-utils-0.4.2/src/mask.rs:125-192`、`alun-0.4.2/src/lib.rs:1197` | 7 种脱敏类型里 **5 种可直接复用框架原语**（手机/身份证/邮箱/姓名/银行卡），本批只需新增 **金额** 与 **自定义正则**（F23/F26） |
-| **F21** | 实测输出格式（**以代码为准，不要抄文档注释**）：`mobile("13812345678")="138****5678"`（前 3 后 4）；`id_card("320112199001011234")="3201****1234"`（前 4 后 4）；`email("alice@mail.com")="a***@mail.com"`（≤2 字符前缀时输出 `*@域名`）；`name("张三丰")="张**"`（保留首字符）；`bank_card("6222021234567890")="6222 **** 7890"`（**中间带空格**，而 `alun-0.4.2/src/lib.rs:1059` 的示例注释写的是 `6222****7890` 无空格——**文档与实现不一致**） | `alun-utils-0.4.2/src/mask.rs:76-122,128-152`、`alun-0.4.2/src/lib.rs:1054-1062` | ①验收文案一律以**实测输出**为准；②银行卡号两条来源不一致，本批统一按实现（带空格），并把"文档注释修正"列进交付前提（附录 C.3）；③短值保护：手机号 <7 位、身份证 <8 位、银行卡 <8 位时**原样返回**（不打码）——这是安全缺口，本批要求"值过短也必须打码"（D8 补充规则） |
-| **F22** | `Mask::mask_by_type()` 的 `_ =>` 兜底分支按**字节**切片：`&value[..value.len().min(2)]` + `&value[value.len()-min(2)..]`，遇到中文（多字节）会**字节边界 panic** | `alun-utils-0.4.2/src/mask.rs:185-198` | **自定义/未识别类型严禁走 `mask_by_type` 的兜底分支**。本批的"自定义正则"必须走自己的实现（F26），且要在产品文档里写成硬约束（4.4） |
-| **F23** | **没有金额脱敏原语**（`Mask` 的 10 个方法里无 amount/money） | `alun-utils-0.4.2/src/mask.rs:125-192` | "金额"类型需业务侧新增 `mask_amount(value, keep_last_digits)`（4.3.6），并明确"金额脱敏不改变数值参与统计"的边界（4.8） |
+| **F20** | 框架自带脱敏工具 `nik_utils::Mask`，且在 prelude 里（可直接 `use nik::prelude::*` 后用 `Mask`）。已实现：`mobile / email / id_card / bank_card / name / user_id / password / address / license_plate / mask_by_type` | `~/.cargo/.../nik-utils-0.4.2/src/lib.rs:22`、`nik-utils-0.4.2/src/mask.rs:125-192`、`nik-0.4.2/src/lib.rs:1197` | 7 种脱敏类型里 **5 种可直接复用框架原语**（手机/身份证/邮箱/姓名/银行卡），本批只需新增 **金额** 与 **自定义正则**（F23/F26） |
+| **F21** | 实测输出格式（**以代码为准，不要抄文档注释**）：`mobile("13812345678")="138****5678"`（前 3 后 4）；`id_card("320112199001011234")="3201****1234"`（前 4 后 4）；`email("alice@mail.com")="a***@mail.com"`（≤2 字符前缀时输出 `*@域名`）；`name("张三丰")="张**"`（保留首字符）；`bank_card("6222021234567890")="6222 **** 7890"`（**中间带空格**，而 `nik-0.4.2/src/lib.rs:1059` 的示例注释写的是 `6222****7890` 无空格——**文档与实现不一致**） | `nik-utils-0.4.2/src/mask.rs:76-122,128-152`、`nik-0.4.2/src/lib.rs:1054-1062` | ①验收文案一律以**实测输出**为准；②银行卡号两条来源不一致，本批统一按实现（带空格），并把"文档注释修正"列进交付前提（附录 C.3）；③短值保护：手机号 <7 位、身份证 <8 位、银行卡 <8 位时**原样返回**（不打码）——这是安全缺口，本批要求"值过短也必须打码"（D8 补充规则） |
+| **F22** | `Mask::mask_by_type()` 的 `_ =>` 兜底分支按**字节**切片：`&value[..value.len().min(2)]` + `&value[value.len()-min(2)..]`，遇到中文（多字节）会**字节边界 panic** | `nik-utils-0.4.2/src/mask.rs:185-198` | **自定义/未识别类型严禁走 `mask_by_type` 的兜底分支**。本批的"自定义正则"必须走自己的实现（F26），且要在产品文档里写成硬约束（4.4） |
+| **F23** | **没有金额脱敏原语**（`Mask` 的 10 个方法里无 amount/money） | `nik-utils-0.4.2/src/mask.rs:125-192` | "金额"类型需业务侧新增 `mask_amount(value, keep_last_digits)`（4.3.6），并明确"金额脱敏不改变数值参与统计"的边界（4.8） |
 | **F24** | 全局操作日志中间件**确实做脱敏**，但方向是"洗审计副本"：按字段名白名单 `SENSITIVE_FIELDS`（password/mobile/id_card/token…）调 `mask_json_value()` 生成日志快照，**响应体字节原样回填给客户端**（`*response.body_mut() = Body::from(bytes)`） | `backend/src/middleware/operation_log.rs:56-68,201-208,230-236,283-286` | ⚠️ **它不能当列级脱敏用**：①只按字段名，不懂"表 + 角色 + 规则"；②只覆盖 JSON 且 ≤ 上限的响应；③改了它会把审计日志一起改坏。所以列级脱敏**必须在 DTO 组装期做**（D9） |
 | **F25** | 审计落库表 `audit_logs`：`operation / target_type / target_id / before_data JSONB / after_data JSONB / detail JSONB / ip / user_agent`；动作码存在字典 `S__dict_data.sql`（已有 `USER_ASSIGN_ROLE`(80)、`ROLE_ASSIGN_MENU`(130) 等） | `backend/migrations/support/V0014__create_audit_logs.up.sql:3-19`、`backend/migrations/seed/S__dict_data.sql:374,429` | 三模块配置变更**全部写审计**（6.4），动作码新增到同一张字典（sort 从 140 起），不改表结构 |
-| **F26** | `regex` crate **已在 `Cargo.lock`（1.13.1，由 `alun-utils` 传递依赖）**，backend 只需在 `Cargo.toml` 显式声明 `regex = "1.13"`，**零下载、无版本冲突** | `alun-utils-0.4.2/Cargo.toml:104-105`、`backend/Cargo.lock`（`name = "regex"` / `version = "1.13.1"`） | "自定义正则"技术上零障碍（仍列进交付前提 C.2，因为要改 `Cargo.toml`） |
+| **F26** | `regex` crate **已在 `Cargo.lock`（1.13.1，由 `nik-utils` 传递依赖）**，backend 只需在 `Cargo.toml` 显式声明 `regex = "1.13"`，**零下载、无版本冲突** | `nik-utils-0.4.2/Cargo.toml:104-105`、`backend/Cargo.lock`（`name = "regex"` / `version = "1.13.1"`） | "自定义正则"技术上零障碍（仍列进交付前提 C.2，因为要改 `Cargo.toml`） |
 
 ## 0.4 前端与菜单事实（F27–F31）
 
@@ -1221,7 +1221,7 @@ SoD（Segregation of Duties）是内控的基石概念：**同一个人不能同
 
 ```
 ① 认证：JWT → 用户 ID（现有）
-② 功能权限：#[alun::permission] 校验 auth_code（现有，F7）
+② 功能权限：#[nik::permission] 校验 auth_code（现有，F7）
 ③ 数据范围：ScopeFilter 注入 WHERE（第 3 章）
 ④ 行数据组装
 ⑤ 列脱敏：field_mask::apply（第 4 章）
@@ -2227,14 +2227,14 @@ P0 要求（打印走浏览器，无新组件）：
 
 | # | 依赖 | 位置 | 说明 |
 |---|---|---|---|
-| 1 | `regex = "1.13"` | `backend/Cargo.toml` | 自定义正则脱敏。**`Cargo.lock` 已有 1.13.1**（`alun-utils` 传递依赖，F26），零下载、无冲突 |
+| 1 | `regex = "1.13"` | `backend/Cargo.toml` | 自定义正则脱敏。**`Cargo.lock` 已有 1.13.1**（`nik-utils` 传递依赖，F26），零下载、无冲突 |
 | 2 | 无新前端依赖 | — | 全部用 TDesign 现有组件（`t-tabs/t-tree/t-drawer/t-select/t-switch/t-alert/t-dialog`） |
 
 ## C.3 框架侧需同步修正的 2 处（不修也能上线，但要登记）
 
 | # | 问题 | 影响 | 建议 |
 |---|---|---|---|
-| 1 | `Mask::bank_card` 的实现（`6222 **** 7890` 带空格）与 `alun-0.4.2/src/lib.rs:1059` 的文档示例（`6222****7890` 无空格）不一致（F21） | 前端若按文档示例写断言会挂；验收文案易争 | 本批**以实现为准**；向上游提 issue 修正文档注释，或统一改为无空格（**若改实现，所有历史断言要同步**——建议只改文档） |
+| 1 | `Mask::bank_card` 的实现（`6222 **** 7890` 带空格）与 `nik-0.4.2/src/lib.rs:1059` 的文档示例（`6222****7890` 无空格）不一致（F21） | 前端若按文档示例写断言会挂；验收文案易争 | 本批**以实现为准**；向上游提 issue 修正文档注释，或统一改为无空格（**若改实现，所有历史断言要同步**——建议只改文档） |
 | 2 | `Mask::mask_by_type` 的兜底分支按**字节**切片，中文会 panic（F22） | 若有人对中文值调 `mask_by_type("unknown", "张三")` → 进程 panic（**5xx 甚至重启**） | 本批**硬约束不使用该兜底分支**（4.3.7）；建议顺手在框架里改成按 `chars()` 切片，作为独立小 PR |
 
 ## C.4 性能指标（验收硬指标）
@@ -2376,7 +2376,7 @@ P0 要求（打印走浏览器，无新组件）：
 1. **统一响应体**：沿用框架 `Res<T>` / `Res::page(...)`（批次 A 同款），不分页的单对象用 `Res::ok`；
 2. **错误**：`ApiError::new(http_code, error_code, 中文消息)`，消息即 6.5 的原文（前端直接展示 `message`，不再二次拼装）；
 3. **`role-mutex/check` 与 `precheck` 的区别**：`check` 输入"用户 + 候选角色集合"（前端勾选时用，高频、必须快 < 100ms、不查库以外的东西）；`precheck` 输入"两个角色"（表单里算冲突用户数，可稍慢）；
-4. **新增接口的 path 全部在 `/system/` 下**，与 `#[alun::permission(path=..., method=..., permission=...)]` 的约定一致（F7）。
+4. **新增接口的 path 全部在 `/system/` 下**，与 `#[nik::permission(path=..., method=..., permission=...)]` 的约定一致（F7）。
 
 ---
 

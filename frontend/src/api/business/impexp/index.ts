@@ -1,7 +1,7 @@
 /**
  * 导入导出接口（批次 A · A3/A4）。
  *
- * 路径与后端 `backend/src/business/impexp/handler.rs` 的 `#[alun::get/post]` 逐条对应；
+ * 路径与后端 `backend/src/business/impexp/handler.rs` 的 `#[nik::get/post]` 逐条对应；
  * 状态机取值见 `validate.rs` / `model.rs`（字符串大写枚举）。
  *
  * # 导入状态机

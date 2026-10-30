@@ -39,11 +39,11 @@
 ### 2.1 B-1 `Cargo.toml`：`pulldown-cmark` 新增 + `ammonia` 显式化
 
 ```toml
-# Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 alun 依赖**）
+# Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 nik 依赖**）
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 # HTML 净化（批次 C · C1，与上一行同批落地）：本 crate 本就在依赖树中
-# （alun 的 `xss` feature → alun-utils → ammonia 4.2.0，见 Cargo.lock），
+# （nik 的 `xss` feature → nik-utils → ammonia 4.2.0，见 Cargo.lock），
 # 这里只是把既有的间接依赖显式化，不引入新 crate、不改版本。
 ammonia = "4.2"
 ```
@@ -53,7 +53,7 @@ ammonia = "4.2"
 - `alun_utils::xss::sanitize_html` 只有「默认规则」，而帮助文档必须
   `Builder::add_generic_attributes(&["id"])` 才能保住 heading 锚点 —— POC-13 实测默认规则把
   `id` **静默剥离**（`<h2>维护时间</h2>`），TOC 跳转全线失效；
-- `alun` 只 `pub use alun_utils::xss;`（`alun-0.4.2/src/lib.rs:1268-1270`），**没有**再导出
+- `nik` 只 `pub use alun_utils::xss;`（`nik-0.4.2/src/lib.rs:1268-1270`），**没有**再导出
   `ammonia` 本身，拿不到 `Builder`；
 - 版本与 `Cargo.lock` 已锁的 4.2.0 合并，依赖树里仍然**只有一份** ammonia：
   `cargo build` 输出只有 `pulldown-cmark` / `pulldown-cmark-escape` 两个新 crate。

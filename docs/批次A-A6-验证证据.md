@@ -21,7 +21,7 @@
 | `backend/src/business/notice/model.rs` | 新增 `online_receivers(notice_id, online_user_ids)`：只查在线用户的接收行（含逐用户 `receiver_id`） |
 | `backend/src/business/notice/dto.rs` | 新增 `StreamStatsRes` / `StreamUserStat` |
 | `backend/src/task/mod.rs` | 注册 `notice_sse_channel_sweep`（cron `0 */5 * * * *`） |
-| `backend/Cargo.toml` | 开启框架 `sse` feature（`alun::sse` 在该 feature 之后才存在）+ 显式化 `futures-util`（**依赖树里已有**，不新增 crate） |
+| `backend/Cargo.toml` | 开启框架 `sse` feature（`nik::sse` 在该 feature 之后才存在）+ 显式化 `futures-util`（**依赖树里已有**，不新增 crate） |
 | `backend/tests/sql/a6/{acceptance.py,run_test_instance.sh,acceptance_run.log}` | 验收脚本 + 起实例脚本 + 原始日志 |
 
 > 红线遵守：未改 `system/`、`support/`；`shared/error_code.rs` **零改动**（复用 `AUTH_TOKEN_INVALID`，因此与 A4 无冲突面）；DB 全程只用 `cloudpivot_test`；未新增迁移。
@@ -239,7 +239,7 @@ test result: ok. 0 passed; 0 failed; 4 ignored; 0 measured; 0 filtered out; fini
 
 ## 5. 踩坑记录（给后续卡片省时间）
 
-1. **`alun` 的 `sse` feature 不开就没有 `alun::sse`**：`Cargo.toml` 的 `alun` features 里加了 `"sse"`（`alun-web/sse`），否则 `unresolved import alum::sse`。
+1. **`nik` 的 `sse` feature 不开就没有 `nik::sse`**：`Cargo.toml` 的 `nik` features 里加了 `"sse"`（`nik-web/sse`），否则 `unresolved import alum::sse`。
 2. **驱动参数类型坑（踩了两轮）**：`?::jsonb` 绑 `Value::Json(String)` 和 `Value::from(String)` 都会报
    `error serializing parameter 1`（驱动按语句描述推断出 jsonb，而 `Value` 是 text）。
    最终写法：`jsonb_array_elements_text((?::text)::jsonb)` + `Value::Text(json)` —— 参数类型钉成 `text` 再由 PG 转 `jsonb`。
