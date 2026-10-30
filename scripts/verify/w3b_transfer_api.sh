@@ -156,6 +156,26 @@ psql_x "INSERT INTO biz_material_serial (id, serial_no, material_id, warehouse_i
         VALUES ('$SERIAL_1', 'W3B-E2E-SN-0001', '$M_SN', '$WH_FROM', 'IN_STOCK'),
                ('$SERIAL_2', 'W3B-E2E-SN-0002', '$M_SN', '$WH_FROM', 'IN_STOCK')
         ON CONFLICT (id) DO NOTHING" >/dev/null
+# W3c 起 IN_TRANSIT → DONE 会做库存双写，所以 e2e 必须先把库账造好：
+#   M_PLAIN 100 件 @5（本脚本用它调 7 件）、M_SN 2 件 @30 + 2 个在库序列号（不变式③要求相等）
+# 序列号与库账每轮都要重置：上一轮 DONE 会把序列号挪到调入仓、并在调入仓建库存行，
+# 若不清掉调入仓的旧行，本轮「qty 与在库序列号件数」会对不上（不变式③直接拒）。
+psql_x "DELETE FROM biz_inventory_txn WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+psql_x "DELETE FROM biz_inventory WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+psql_x "UPDATE biz_material_serial SET warehouse_id = '$WH_FROM', location_id = NULL,
+                                       status = 'IN_STOCK', updated_at = now()
+         WHERE id IN ('$SERIAL_1', '$SERIAL_2')" >/dev/null
+psql_x "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty,
+                                   avg_cost, amount, last_txn_at)
+        VALUES (gen_random_uuid(), '$M_PLAIN', '$WH_FROM', NULL, 100, 0, 5, 500, now()),
+               (gen_random_uuid(), '$M_SN',    '$WH_FROM', NULL,   2, 0, 30,  60, now())
+        ON CONFLICT (material_id, warehouse_id,
+                     COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))
+        DO UPDATE SET qty = EXCLUDED.qty, locked_qty = 0,
+                      avg_cost = EXCLUDED.avg_cost, amount = EXCLUDED.amount,
+                      updated_at = now()" >/dev/null
+assert_eq "2" "$(psql_q "SELECT count(*) FROM biz_inventory WHERE warehouse_id = '$WH_FROM'")" \
+    "夹具库存台账就位（M_PLAIN 100 + M_SN 2）"
 assert_eq "2" "$(psql_q "SELECT count(*) FROM biz_warehouse WHERE id IN ('$WH_FROM','$WH_TO')")" "夹具两个仓就位"
 
 echo "==> 3. 发布 STOCK_TRANSFER 审批流程（走真实接口，不动库）"
