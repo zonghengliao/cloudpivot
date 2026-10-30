@@ -8,8 +8,25 @@
         只会展开/收起，导致这类自带页面的目录**在侧边栏里点不进自己的页面**。
         这里不动展开行为，只在标题上补一次「有页面就跳过去」的导航。
       -->
-      <span class="side-menu-item__title" @click="onTitleClick">{{ item.title }}</span>
-      <!-- 目录徽标 = 子树里出现过的桶去重后相加（任务三视图共用同一个数字，只算一次） -->
+      <span class="side-menu-item__title-wrap">
+        <span class="side-menu-item__title" @click="onTitleClick">{{ item.title }}</span>
+        <!-- 目录徽标 = 子树里出现过的桶去重后相加（任务三视图共用同一个数字，只算一次） -->
+        <t-badge
+          v-if="badge > 0"
+          class="side-menu-item__badge"
+          :count="badge"
+          :max-count="99"
+          size="small"
+        />
+      </span>
+    </template>
+    <side-menu-item v-for="child in children" :key="child.id" :item="child" @navigate="emit('navigate', $event)" />
+  </t-submenu>
+  <t-menu-item v-else :value="menuValue">
+    <template #icon><t-icon :name="icon" /></template>
+    <span class="side-menu-item__title-wrap">
+      <span class="side-menu-item__title">{{ item.title }}</span>
+      <!-- 叶子菜单徽标：值为 0 时不渲染（不显示红点，而不是显示 0） -->
       <t-badge
         v-if="badge > 0"
         class="side-menu-item__badge"
@@ -17,20 +34,7 @@
         :max-count="99"
         size="small"
       />
-    </template>
-    <side-menu-item v-for="child in children" :key="child.id" :item="child" @navigate="emit('navigate', $event)" />
-  </t-submenu>
-  <t-menu-item v-else :value="menuValue">
-    <template #icon><t-icon :name="icon" /></template>
-    <span class="side-menu-item__title">{{ item.title }}</span>
-    <!-- 叶子菜单徽标：值为 0 时不渲染（不显示红点，而不是显示 0） -->
-    <t-badge
-      v-if="badge > 0"
-      class="side-menu-item__badge"
-      :count="badge"
-      :max-count="99"
-      size="small"
-    />
+    </span>
   </t-menu-item>
 </template>
 
@@ -76,14 +80,33 @@ function onTitleClick(): void {
 </script>
 
 <style scoped lang="less">
+// 标题 + 徽标的行容器：文字占满剩余宽度（超长省略），徽标贴右且**不被压缩**
+// —— 解决「红点只显示一半」（原实现里 badge 是 inline 紧跟文字，父宽不够就被裁）
+.side-menu-item__title-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0; // 让子项能收缩（flex 的经典坑）
+  overflow: visible;
+}
+
 .side-menu-item__title {
   // 只让文字区域可点：右侧展开箭头保持「只负责展开」
   display: inline-block;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .side-menu-item__badge {
-  // 只调间距；颜色/圆角全部交给 TDesign（`--td-error-color`），不写死色值
-  margin-left: 6px;
+  // 关键：不许被 flex 压缩，否则圆点会被挤成半个
+  flex: 0 0 auto;
+  // 颜色/圆角全部交给 TDesign（`--td-error-color`），不写死色值
+  margin-left: 0;
   vertical-align: middle;
 }
 </style>
