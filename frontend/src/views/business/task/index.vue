@@ -907,7 +907,11 @@ onMounted(() => {
  * 竖条吃掉 4px 内边距，所以把 padding-left 减 4px —— 父行和普通行的任务号仍然对齐。
  */
 :deep(.task-row--parent > td) {
+  /* 父行底色：品牌色 4% 混白（老大要求「更淡一些」）。
+   * 原来用 --td-brand-color-light（≈10% 品牌色），视觉上偏重、和子行的灰底拉不开层次。
+   * 第一行是老浏览器回退（不支持 color-mix 时仍是品牌浅色，不会掉成透明）。 */
   background-color: var(--td-brand-color-light);
+  background-color: color-mix(in srgb, var(--td-brand-color) 4%, var(--td-bg-color-container));
 }
 
 :deep(.task-row--parent > td:first-child) {
@@ -917,6 +921,7 @@ onMounted(() => {
 
 :deep(.task-row--parent:hover > td) {
   background-color: var(--td-brand-color-light-hover);
+  background-color: color-mix(in srgb, var(--td-brand-color) 8%, var(--td-bg-color-container));
 }
 
 :deep(.task-row--parent .cell-title__text) {
