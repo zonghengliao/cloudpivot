@@ -3,7 +3,7 @@
     <t-aside class="basic-layout__aside" :width="asideWidth">
       <div class="basic-layout__brand" role="button" tabindex="0" @click="goHome" @keydown.enter="goHome">
         <span class="basic-layout__logo"><img src="/logo.png" alt="云枢" /></span>
-        <span v-show="!collapsed" class="basic-layout__brand-name">云枢后台管理</span>
+        <span v-show="!collapsed" class="basic-layout__brand-name">云枢 CloudPivot</span>
       </div>
 
       <t-menu
