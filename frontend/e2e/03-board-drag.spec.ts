@@ -1,5 +1,15 @@
 import { expect, test } from '@playwright/test';
-import { dropPoint, mouseDrag, newApi, openAuthed, toast, RUN, type Api } from './support';
+import {
+  dropPoint,
+  installBoardProbe,
+  mouseDrag,
+  newApi,
+  openAuthed,
+  toast,
+  withDiagnostics,
+  RUN,
+  type Api,
+} from './support';
 
 /**
  * 流程 3：看板拖拽（**最关键的交互**）
@@ -36,7 +46,10 @@ test.describe('流程3 看板拖拽', () => {
     await api.dispose();
   });
 
-  test('五列 / 拖到进行中 / 跳级回弹 + 错误提示', async ({ page }) => {
+  test('五列 / 拖到进行中 / 跳级回弹 + 错误提示', async ({ page }, testInfo) => {
+
+    // 偶发红现场探针：断言失败时自动 attach「两列卡片 / toast 文案 / console / 接口」（见 support.ts）
+    const probe = installBoardProbe(page);
 
     await openAuthed(page, '/task?view=board');
 
@@ -65,15 +78,17 @@ test.describe('流程3 看板拖拽', () => {
 
     // ---------- ② TODO → DOING（合法流转） ----------
     await mouseDrag(page, cardMove, await dropPoint(col('DOING')));
-    await expect(col('DOING').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(1, {
-      timeout: 20_000,
+    await withDiagnostics(probe, testInfo, 'drag-todo-to-doing', async () => {
+      await expect(col('DOING').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(1, {
+        timeout: 20_000,
+      });
+      await expect(col('TODO').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(0);
+      await expect(toast(page, '已移动到「进行中」')).toBeVisible({ timeout: 20_000 });
+      // 计数：TODO -1，DOING +1（后端总数，不是本地临时值 —— 断言前已收到回执）
+      await expect
+        .poll(async () => [await countOf('TODO'), await countOf('DOING')], { timeout: 20_000 })
+        .toEqual([todoBefore - 1, doingBefore + 1]);
     });
-    await expect(col('TODO').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(0);
-    await expect(toast(page, '已移动到「进行中」')).toBeVisible({ timeout: 20_000 });
-    // 计数：TODO -1，DOING +1（后端总数，不是本地临时值 —— 断言前已收到回执）
-    await expect
-      .poll(async () => [await countOf('TODO'), await countOf('DOING')], { timeout: 20_000 })
-      .toEqual([todoBefore - 1, doingBefore + 1]);
 
     // 刷新页面：卡片仍在「进行中」= 状态真的落库了（不是只改了 DOM）
     await page.reload();
@@ -90,14 +105,16 @@ test.describe('流程3 看板拖拽', () => {
     await mouseDrag(page, cardJump, await dropPoint(col('DONE')));
 
     // 错误提示：后端 409 + 63010 的原文（说明为什么不行，而不是「操作失败」）
-    await expect(toast(page, '该状态流转不被允许')).toBeVisible({ timeout: 20_000 });
-    // 回弹：卡片回到 TODO，DONE 列没有它
-    await expect(col('TODO').locator('.board-card').filter({ hasText: titleJump })).toHaveCount(1, {
-      timeout: 20_000,
+    await withDiagnostics(probe, testInfo, 'drag-jump-todo-to-done', async () => {
+      await expect(toast(page, '该状态流转不被允许')).toBeVisible({ timeout: 20_000 });
+      // 回弹：卡片回到 TODO，DONE 列没有它
+      await expect(col('TODO').locator('.board-card').filter({ hasText: titleJump })).toHaveCount(1, {
+        timeout: 20_000,
+      });
+      await expect(col('DONE').locator('.board-card').filter({ hasText: titleJump })).toHaveCount(0);
+      await expect
+        .poll(async () => [await countOf('TODO'), await countOf('DONE')], { timeout: 20_000 })
+        .toEqual([todoBefore2, doneBefore]);
     });
-    await expect(col('DONE').locator('.board-card').filter({ hasText: titleJump })).toHaveCount(0);
-    await expect
-      .poll(async () => [await countOf('TODO'), await countOf('DONE')], { timeout: 20_000 })
-      .toEqual([todoBefore2, doneBefore]);
   });
 });

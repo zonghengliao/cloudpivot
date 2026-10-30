@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 /**
  * E2E 公共支撑：地址 / 账号 / 登录 / 真实后端 API 预置与清理。
@@ -214,4 +214,134 @@ export async function dropPoint(locator: import('@playwright/test').Locator, off
     throw new Error('落点容器不可见，取不到坐标');
   }
   return { x: box.x + box.width / 2, y: box.y + offsetY };
+}
+
+// ======================================================================
+// 看板现场探针（偶发红定位用）
+// ======================================================================
+
+/**
+ * 看板「现场」探针。
+ *
+ * # 解决什么
+ *
+ * 流程3 的拖拽偶发红过一次（后端 200、页面没反映），当时只有 `toHaveCount` 的超时信息，
+ * 没留下「那时页面上到底弹了什么 toast、两列各有哪些卡」。这个探针把三样东西攒下来：
+ * ① 浏览器 console 的 error/warning（Vue 运行时错误也在这里）；
+ * ② 与 `business/task` 相关的接口调用（方法 / 路径 / 状态 / 是否失败）；
+ * ③ 出事那一刻两列的卡片标题与页面上的 toast 文案。
+ *
+ * 用法：用例开头 `const probe = installBoardProbe(page)`，把关键断言塞进
+ * `withDiagnostics(probe, testInfo, '标签', async () => { ... })`；断言失败时它会自动
+ * `testInfo.attach` 一份 JSON（`e2e-report/` 里可下载），控制台也会打一份。
+ */
+export interface BoardProbe {
+  /** console 的 error / warning 记录 */
+  console: Array<{ at: number; type: string; text: string }>;
+  /** `business/task` 相关请求 */
+  net: Array<{ at: number; method: string; path: string; status?: number; failed?: string }>;
+  /** 采样当前 DOM：两列卡片标题 + toast 文案 + 列计数 */
+  snapshot(): Promise<{
+    todo: string[];
+    doing: string[];
+    todoCount: string;
+    doingCount: string;
+    toasts: string[];
+  }>;
+}
+
+/** 装在某个 page 上（页面导航不会丢，监听挂在 page 上） */
+export function installBoardProbe(page: Page): BoardProbe {
+  const started = Date.now();
+  const probe: BoardProbe = {
+    console: [],
+    net: [],
+    async snapshot() {
+      return page.evaluate(() => {
+        const cards = (status: string) =>
+          Array.from(document.querySelectorAll(`.board .col[data-status="${status}"] .board-card`)).map((el) =>
+            (el.querySelector('.board-card__title')?.textContent ?? '').trim(),
+          );
+        const count = (status: string) =>
+          (document.querySelector(`.board .col[data-status="${status}"] .col__count`)?.textContent ?? '').trim();
+        return {
+          todo: cards('TODO'),
+          doing: cards('DOING'),
+          todoCount: count('TODO'),
+          doingCount: count('DOING'),
+          toasts: Array.from(document.querySelectorAll('.t-message')).map((el) =>
+            (el.textContent ?? '').replace(/\s+/g, ' ').trim(),
+          ),
+        };
+      });
+    },
+  };
+  page.on('console', (msg) => {
+    if (msg.type() !== 'error' && msg.type() !== 'warning') return;
+    probe.console.push({ at: Date.now() - started, type: msg.type(), text: msg.text().slice(0, 500) });
+  });
+  page.on('pageerror', (error) => {
+    probe.console.push({ at: Date.now() - started, type: 'pageerror', text: String(error).slice(0, 500) });
+  });
+  page.on('response', (response) => {
+    const url = response.url();
+    if (!url.includes('/api/business/task')) return;
+    probe.net.push({
+      at: Date.now() - started,
+      method: response.request().method(),
+      path: url.replace(BASE_URL, ''),
+      status: response.status(),
+    });
+  });
+  page.on('requestfailed', (request) => {
+    if (!request.url().includes('/api/')) return;
+    probe.net.push({
+      at: Date.now() - started,
+      method: request.method(),
+      path: request.url().replace(BASE_URL, ''),
+      failed: request.failure()?.errorText ?? 'failed',
+    });
+  });
+  return probe;
+}
+
+/**
+ * 跑一段断言，失败时把探针现场落盘 + attach 到报告 + 打一份到控制台，再把原始错误抛出去。
+ *
+ * 落盘位置：`test-results/diag/<label>-<时间戳>.json`（`test-results/` 每次运行会被
+ * Playwright 清空，所以**这次红的现场一定还热着**，直接 `cat` 就能看）。
+ *
+ * 只加「诊断」，不改「判定」：断言逻辑原样执行，失败照旧红。
+ */
+export async function withDiagnostics<T>(
+  probe: BoardProbe,
+  testInfo: import('@playwright/test').TestInfo,
+  label: string,
+  body: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await body();
+  } catch (error) {
+    let dom: Awaited<ReturnType<BoardProbe['snapshot']>> | { error: string };
+    try {
+      dom = await probe.snapshot();
+    } catch (snapshotError) {
+      dom = { error: String(snapshotError) };
+    }
+    const payload = { label, at: new Date().toISOString(), url: testInfo.project.name, dom, console: probe.console, net: probe.net };
+    const json = JSON.stringify(payload, null, 2);
+    // ① 落盘（最可靠：不受 reporter 影响）
+    try {
+      const dir = resolve(process.cwd(), 'test-results/diag');
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(resolve(dir, `${label}-${Date.now()}.json`), json, 'utf8');
+    } catch {
+      // 落盘失败也不该盖掉原来的断言错误
+    }
+    // ② attach 到报告（html reporter 里可直接下载）
+    await testInfo.attach(`diag-${label}.json`, { body: json, contentType: 'application/json' });
+    // ③ 控制台留一份（CI 日志里能直接搜 `[diag:`）
+    console.error(`\n[diag:${label}] ${JSON.stringify(payload)}`);
+    throw error;
+  }
 }
