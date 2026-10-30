@@ -398,6 +398,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '收货入库', permission: 'business:erp:stock-in:list' },
       },
       {
+        // ==================== ERP 应付单（P2-E2） ====================
+        // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
+        // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
+        // backend/migrations/` 0 命中）。所以本页暂时只能按 URL 进（卡面验收路径就是
+        // `/business/erp/payable`），侧边栏要等后端补 V0151 才出现 —— 这是在
+        // P2-E2 完成说明里点明的后端缺口，前端不做假菜单。
+        path: 'business/erp/payable',
+        name: 'BusinessErpPayable',
+        component: () => import('@/views/business/erp/payable/index.vue'),
+        meta: { title: '应付单', permission: 'business:erp:payable:list' },
+      },
+      {
+        // ==================== ERP 凭证查询（P2-E2 / 后端 P2-D1） ====================
+        // `sys_menu` 种子（V0150 …1004）path = `/business/erp/voucher`，component
+        // `business/erp/voucher/index`。**路由手工注册**（没有 views 自动扫描），漏了就 404。
+        path: 'business/erp/voucher',
+        name: 'BusinessErpVoucher',
+        component: () => import('@/views/business/erp/voucher/index.vue'),
+        meta: { title: '凭证查询', permission: 'business:erp:voucher:list' },
+      },
+      {
+        // ==================== ERP 总账 / 科目余额表（P2-E2 / 后端 P2-D1） ====================
+        // `sys_menu` 种子（V0150 …1007）path = `/business/erp/ledger`，component
+        // `business/erp/ledger/index`。两个 Tab（流水 / 余额表）在同一个页面里。
+        path: 'business/erp/ledger',
+        name: 'BusinessErpLedger',
+        component: () => import('@/views/business/erp/ledger/index.vue'),
+        meta: { title: '总账 / 科目余额表', permission: 'business:erp:ledger:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

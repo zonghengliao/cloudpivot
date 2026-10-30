@@ -1531,3 +1531,386 @@ export function updateStockInStatus(
 export function deleteStockIn(id: string): Promise<void> {
   return del<void>(`${BASE}/stock-in/${id}`);
 }
+
+// ==================== 应付单（P2-C1 数据层 / P2-E2 前端） ====================
+
+/**
+ * 应付单状态（`payable.rs` + `ck_biz_payable_status`）：
+ * `OPEN`（未付）→ `PARTIAL_PAID`（部分付款）→ `SETTLED`（已结清），`CANCELLED`（已作废）旁路。
+ */
+export type PayableStatus = 'OPEN' | 'PARTIAL_PAID' | 'SETTLED' | 'CANCELLED';
+
+/**
+ * 应付单行（字段逐字抄 `backend/src/business/erp/payable.rs` 的
+ * `COLUMNS` 常量与 `PayableRow` 结构，列名以 V0148 为准）。
+ *
+ * # ⚠️ 查询接口尚未落地（P2-C1 的缺口，已写到看板评论）
+ *
+ * P2-C1 只交了**数据层**：收货过账时在同一个事务里写 `biz_payable`
+ * （`payable::create_for_stock_in`），但**没有** HTTP 查询接口 ——
+ * 实测 `grep -rn 'erp/payable' backend/src/` **0 命中**，
+ * `backend/migrations/business/V0148__erp_payable.up.sql` 也**没有**种 `business:erp:payable:*` 权限码。
+ *
+ * 本层按架构文档 `docs/ERP-批次1-技术架构.md` 第 1888 行的契约
+ * （`GET /business/erp/payable/page`，权限码 `business:erp:payable:list`）先落地，
+ * 字段名照**库列**（不是文档里的示意），后端补接口即通，前端不用改。
+ *
+ * # 金额为什么是 `number | string`
+ *
+ * 后端金额是 `rust_decimal::Decimal`，serde 默认序列化成**字符串**（`"226.0000"`）；
+ * 直接 `+` 会变成字符串拼接 —— 统一走 `payable-logic.ts::toNumber`。
+ */
+export interface PayableRow {
+  /** 主键 */
+  id: string;
+  /** 应付单号 `AP-yyyyMMdd-000001`（`payable::NO_PREFIX`） */
+  payable_no: string;
+  /** 供应商 id（列表要译名，靠 `fetchSupplierOptions` 本地映射） */
+  supplier_id: string;
+  /** 来源单据类型（`STOCK_IN` …） */
+  source_type: string;
+  /** 来源单据 id */
+  source_id: string;
+  /** 来源单号（收货单号） */
+  source_no: string;
+  /** 发票号（批次 2 回填，本批恒 null） */
+  invoice_no: string | null;
+  /** 发票日期 */
+  invoice_date: string | null;
+  /** 币种 */
+  currency_code: string;
+  /** 应付金额（含税） */
+  amount: number | string;
+  /** 已付金额（本批只读，恒 0） */
+  paid_amount: number | string;
+  /** 未付金额（= amount − paid_amount，库列冗余） */
+  unpaid_amount: number | string;
+  /** 账期天数快照 */
+  credit_days: number;
+  /** 到期日 `YYYY-MM-DD` */
+  due_date: string;
+  /** 所属会计期间 `yyyy-MM` */
+  period_code: string;
+  /** 状态 */
+  status: PayableStatus;
+  /** 结清时间 */
+  settled_at: string | null;
+  /** 关联凭证 id（P2-C1 回写） */
+  voucher_id: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string | null;
+  /** 更新时间 */
+  updated_at: string | null;
+}
+
+/**
+ * 应付单分页（`GET /erp/payable/page`，服务端分页）。
+ *
+ * 入参照架构文档 1888 行：「供应商 / 状态 / 到期日区间 / 单号」。
+ * 空串一律不发（`asParams` 已滤），`payable_no` 后端用 `LIKE %x%` 模糊匹配。
+ */
+export function fetchPayablePage(query: {
+  status?: PayableStatus | '';
+  supplier_id?: string;
+  payable_no?: string;
+  due_date_from?: string;
+  due_date_to?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<PayableRow>> {
+  return get<PageData<PayableRow>>(`${BASE}/payable/page`, asParams(query));
+}
+
+// ==================== 凭证（P2-D1 只读接口） ====================
+
+/** 凭证状态白名单（`voucher_query::STATUSES` + `ck_biz_voucher_status`） */
+export type VoucherStatus = 'POSTED' | 'DRAFT' | 'AUDITED' | 'CANCELLED';
+
+/** 凭证类型（`voucher_query::VOUCHER_TYPES`）：AUTO = 过账自动生成，MANUAL = 手工录 */
+export type VoucherType = 'AUTO' | 'MANUAL';
+
+/**
+ * 凭证（列表行，逐字抄 `voucher_query.rs::VoucherRes`）。
+ *
+ * `status_label` / `voucher_type_label` 后端已给中文，前端本地映射只用于
+ * 单测与颜色（后端标签改了，前端不至于显示空白）。
+ */
+export interface VoucherRow {
+  /** 主键 */
+  id: string;
+  /** 凭证字（默认「记」） */
+  voucher_word: string;
+  /** 凭证号 `PZ-yyyyMMdd-000001` */
+  voucher_no: string;
+  /** 会计期间 `yyyy-MM` */
+  period: string;
+  /** 凭证日期 `YYYY-MM-DD` */
+  voucher_date: string;
+  /** 凭证类型 */
+  voucher_type: VoucherType;
+  /** 凭证类型中文（后端给：自动 / 手工） */
+  voucher_type_label: string;
+  /** 来源单据类型（`STOCK_IN` / `MANUAL` …） */
+  source_type: string;
+  /** 来源单据 id */
+  source_id: string | null;
+  /** 来源单据号 */
+  source_no: string | null;
+  /** 摘要 */
+  summary: string;
+  /** 借方合计 */
+  total_debit: number | string;
+  /** 贷方合计 */
+  total_credit: number | string;
+  /** 分录行数 */
+  entry_count: number;
+  /** 状态 */
+  status: VoucherStatus;
+  /** 状态中文（后端给：已记账 / 草稿 / 已审核 / 已作废） */
+  status_label: string;
+  /** 是否红字凭证（P2-C1：借贷互换 + `is_red=1`） */
+  is_red: boolean;
+  /** 被红冲的原凭证 id */
+  reverse_of: string | null;
+  /** 红冲它的凭证 id */
+  reversed_by: string | null;
+  /** 记账时间 */
+  posted_at: string | null;
+  /** 记账人 */
+  posted_by: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+}
+
+/**
+ * 凭证分录（逐字抄 `voucher_query.rs::VoucherEntryRes`）。
+ *
+ * `account_code` / `account_name` 是**分录行上的快照**（`biz_voucher_entry` 两列 NOT NULL），
+ * 直接展示，不要再去 JOIN 科目表（科目改名后历史凭证仍要显示当时的名字）。
+ */
+export interface VoucherEntryLine {
+  /** 主键 */
+  id: string;
+  /** 行号（详情按它升序） */
+  line_no: number;
+  /** 摘要 */
+  summary: string;
+  /** 科目 id */
+  account_id: string;
+  /** 科目编码（快照） */
+  account_code: string;
+  /** 科目名称（快照） */
+  account_name: string;
+  /** 借方金额 */
+  debit_amount: number | string;
+  /** 贷方金额 */
+  credit_amount: number | string;
+  /** 辅助核算：供应商 */
+  aux_supplier_id: string | null;
+  /** 辅助核算：物料 */
+  aux_material_id: string | null;
+  /** 辅助核算：仓库 */
+  aux_warehouse_id: string | null;
+  /** 辅助核算：部门 */
+  aux_dept_id: string | null;
+  /** 辅助核算：数量 */
+  aux_qty: number | string | null;
+}
+
+/**
+ * 凭证详情（`GET /erp/voucher/{id}`，`VoucherDetailRes`：单头 flatten + 全部分录）。
+ *
+ * `balanced` 恒为 `true` —— 分录合计与单头不等时后端直接 `500 + 66009`，
+ * 根本走不到前端（所以界面上它是「后端结论」，而借贷平衡的**可视化**仍由
+ * `voucher-logic.ts::sumEntries` 在前端重算一遍，两边对不上要能看出来）。
+ */
+export interface VoucherDetail extends VoucherRow {
+  /** 全部分录（`line_no` 升序） */
+  entries: VoucherEntryLine[];
+  /** 分录借方合计 */
+  entry_total_debit: number | string;
+  /** 分录贷方合计 */
+  entry_total_credit: number | string;
+  /** 单头与分录是否一致（后端结论） */
+  balanced: boolean;
+}
+
+/** 凭证分页（`GET /erp/voucher/page`，默认**全部状态**，列表是账务核对入口） */
+export function fetchVoucherPage(query: {
+  period?: string;
+  status?: VoucherStatus | '';
+  voucher_type?: VoucherType | '';
+  source_type?: string;
+  voucher_no?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<VoucherRow>> {
+  return get<PageData<VoucherRow>>(`${BASE}/voucher/page`, asParams(query));
+}
+
+/** 凭证详情（`GET /erp/voucher/{id}`，含全部分录） */
+export function fetchVoucherDetail(id: string): Promise<VoucherDetail> {
+  return get<VoucherDetail>(`${BASE}/voucher/${id}`);
+}
+
+// ==================== 总账 / 科目余额表（P2-D1 只读接口） ====================
+
+/**
+ * 会计科目（逐字抄 `dto.rs::AccountRes`）。
+ *
+ * 总账 Tab1 的「科目」下拉与 Tab2 的译名都读它；`level` / `is_leaf` 决定下拉是否缩进。
+ */
+export interface AccountRow {
+  /** 主键 */
+  id: string;
+  /** 科目编码（`1405` / `2221.01`） */
+  account_code: string;
+  /** 科目名称 */
+  account_name: string;
+  /** 上级科目 */
+  parent_id: string | null;
+  /** 级次 */
+  level: number;
+  /** 类别（`ASSET` / `LIABILITY` …） */
+  account_category: string;
+  /** 余额方向（`DEBIT` / `CREDIT`） */
+  balance_direction: string;
+  /** 是否末级 */
+  is_leaf: boolean;
+  /** 辅助核算维度 */
+  aux_dimensions: string | null;
+  /** 启用状态：1 启用 / 0 停用 */
+  status: number;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 科目下拉候选（一次拉够用；上千条应走远端搜索，那是后续卡的事） */
+export function fetchAccountOptions(limit = 500): Promise<AccountRow[]> {
+  return get<PageData<AccountRow>>(
+    `${BASE}/account/page`,
+    asParams({ status: 1, page: 1, page_size: limit }),
+  ).then((page) => page.list ?? []);
+}
+
+/**
+ * 总账流水行（逐字抄 `ledger.rs::LedgerRowRes`）。
+ *
+ * ⚠️ `running_balance` 是**本页内**的逐行余额（不含期初）：
+ * 第一行 = 本页之前所有行的净额合计 + 本行；要看含期初的余额请用科目余额表的
+ * `opening_*` / `closing_*`。
+ */
+export interface LedgerRow {
+  /** 凭证 id */
+  voucher_id: string;
+  /** 凭证日期 `YYYY-MM-DD` */
+  voucher_date: string;
+  /** 凭证字 */
+  voucher_word: string;
+  /** 凭证号 */
+  voucher_no: string;
+  /** 分录行号 */
+  line_no: number;
+  /** 摘要（分录摘要） */
+  summary: string;
+  /** 科目编码（分录快照） */
+  account_code: string;
+  /** 科目名称（分录快照） */
+  account_name: string;
+  /** 借方发生额 */
+  debit_amount: number | string;
+  /** 贷方发生额 */
+  credit_amount: number | string;
+  /** 逐行余额（净额累加结果） */
+  running_balance: number | string;
+  /** 是否红字凭证 */
+  is_red: boolean;
+}
+
+/**
+ * 科目流水分页（`GET /erp/ledger/page`）。
+ *
+ * `account_id` / `account_code` **必须给一个**（两个都不给 → 400 + 10001）；
+ * 期间既可以是 `yyyy-MM`（起始取月首、结束取月末），也可以是 `yyyy-MM-dd`。
+ */
+export function fetchLedgerPage(query: {
+  account_id?: string;
+  account_code?: string;
+  period_from?: string;
+  period_to?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<LedgerRow>> {
+  return get<PageData<LedgerRow>>(`${BASE}/ledger/page`, asParams(query));
+}
+
+/** 科目余额表的一行（逐字抄 `ledger.rs::TrialBalanceRow`） */
+export interface TrialBalanceRow {
+  /** 科目 id */
+  account_id: string;
+  /** 科目编码 */
+  account_code: string;
+  /** 科目名称 */
+  account_name: string;
+  /** 科目类别 */
+  account_category: string;
+  /** 余额方向 */
+  balance_direction: string;
+  /** 期初借方余额 */
+  opening_debit: number | string;
+  /** 期初贷方余额 */
+  opening_credit: number | string;
+  /** 本期借方发生额 */
+  period_debit: number | string;
+  /** 本期贷方发生额 */
+  period_credit: number | string;
+  /** 期末借方余额 */
+  closing_debit: number | string;
+  /** 期末贷方余额 */
+  closing_credit: number | string;
+}
+
+/**
+ * 科目余额表（`GET /erp/ledger/trial-balance`，`TrialBalanceRes`）。
+ *
+ * 后端已把 Σ借 / Σ贷 算好并在**不平的时候 500**（`66009`），
+ * 所以正常响应里 `balanced` 恒为 `true`；前端仍会把 `rows` 重新加一遍，
+ * 两套数字对不上要能在界面上看出来（防「后端一笔算错、汇总却自洽」）。
+ */
+export interface TrialBalance {
+  /** 会计期间 `yyyy-MM` */
+  period: string;
+  /** 期间起始日 */
+  period_start: string;
+  /** 期间结束日 */
+  period_end: string;
+  /** 明细行（按科目编码升序，**含全部未删除科目**，没发生额的是全 0 行） */
+  rows: TrialBalanceRow[];
+  /** 期初借方合计 */
+  total_opening_debit: number | string;
+  /** 期初贷方合计 */
+  total_opening_credit: number | string;
+  /** 本期借方合计 */
+  total_period_debit: number | string;
+  /** 本期贷方合计 */
+  total_period_credit: number | string;
+  /** 期末借方合计 */
+  total_closing_debit: number | string;
+  /** 期末贷方合计 */
+  total_closing_credit: number | string;
+  /** 借贷是否平衡（后端结论） */
+  balanced: boolean;
+}
+
+/** 科目余额表（`GET /erp/ledger/trial-balance`，`period` 必填 `yyyy-MM`） */
+export function fetchTrialBalance(period: string): Promise<TrialBalance> {
+  return get<TrialBalance>(`${BASE}/ledger/trial-balance`, asParams({ period }));
+}
