@@ -146,6 +146,16 @@
           <t-card v-if="detail.my_task" :bordered="false" class="card action-card">
             <div class="section-title">我的审批</div>
             <t-space direction="vertical" size="small" style="width: 100%">
+              <!-- 审批意见：后端 `approve` 接口本就收 comment（会写进时间线），
+                   之前界面没给输入框 → 同意这条路永远不留意见。补上（可空，不拦截提交）。 -->
+              <t-textarea
+                v-model="approveComment"
+                class="action-comment"
+                :maxlength="500"
+                :autosize="{ minRows: 3, maxRows: 6 }"
+                show-limit
+                placeholder="审批意见（可选，会记入审批时间线）"
+              />
               <t-button theme="primary" block :loading="approving" @click="onApprove">同意</t-button>
               <t-button theme="danger" variant="outline" block @click="openReject">驳回</t-button>
               <t-button variant="outline" block @click="openTransfer">转办</t-button>
@@ -571,6 +581,8 @@ function schedulePoll(): void {
 
 /** 同意中 */
 const approving = ref(false);
+/** 审批意见（同意时随请求提交；空则视为不填） */
+const approveComment = ref('');
 
 /** 同意 */
 async function onApprove(): Promise<void> {
@@ -580,7 +592,9 @@ async function onApprove(): Promise<void> {
   }
   approving.value = true;
   try {
-    const result = await approveFlowTask(taskId);
+    const comment = approveComment.value.trim();
+    const result = await approveFlowTask(taskId, comment ? { comment } : {});
+    approveComment.value = '';
     MessagePlugin.success(result.instance_status === 'APPROVED' ? '已同意，审批单已通过' : '已同意');
     await loadDetail();
   } catch (error) {

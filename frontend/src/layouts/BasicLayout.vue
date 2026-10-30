@@ -15,7 +15,12 @@
         :theme="setting.themeMode === 'dark' ? 'dark' : 'light'"
         @change="onMenuChange"
       >
-        <side-menu-item v-for="item in userStore.navMenus" :key="item.id" :item="item" />
+        <side-menu-item
+          v-for="item in userStore.navMenus"
+          :key="item.id"
+          :item="item"
+          @navigate="goTo"
+        />
       </t-menu>
     </t-aside>
 
