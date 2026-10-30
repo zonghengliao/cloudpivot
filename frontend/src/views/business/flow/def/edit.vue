@@ -169,6 +169,7 @@
         <NodeProps
           :node="selectedNode"
           :edge="selectedEdge"
+          :target-node="selectedEdgeTarget"
           :readonly="readonly"
           @patch-node="onPatchNode"
           @patch-edge="onPatchEdge"
@@ -354,6 +355,18 @@ const issueNodeKeys = computed(() => {
 const selectedNode = computed(() => graph.nodes.find((node) => node.key === selectedKey.value) ?? null);
 /** 选中的连线对象 */
 const selectedEdge = computed(() => graph.edges.find((edge) => edge.key === selectedEdgeKey.value) ?? null);
+
+/**
+ * 选中连线的**目标节点**（P1-B3：规则预览的 THEN 段 / then 目标校验要用）。
+ *
+ * 连线的语义是「WHEN 条件 → 走到这个节点」，审批人配在节点上，
+ * 所以「由谁审批」必须从 `edge.to` 反查节点，不能从连线自己身上找。
+ */
+const selectedEdgeTarget = computed(() => {
+  const edge = selectedEdge.value;
+  if (!edge) return null;
+  return graph.nodes.find((node) => node.key === edge.to) ?? null;
+});
 
 /** 版本下拉选项 */
 const versionOptions = computed(() =>

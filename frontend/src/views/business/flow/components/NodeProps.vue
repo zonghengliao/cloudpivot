@@ -233,12 +233,25 @@
           />
         </t-form-item>
         <t-form-item label="条件表达式">
-          <ConditionTree
-            :model-value="edge.condition ?? null"
-            :readonly="readonly"
-            @update:model-value="onConditionChange"
-          />
-          <p class="node-props__tip">留空表示无条件。表达式是否合法由后端 V11 校验。</p>
+          <div class="node-props__rule" :class="{ 'node-props__rule--error': ruleReport && !ruleReport.ok }">
+            <ConditionTree
+              :model-value="edge.condition ?? null"
+              :readonly="readonly"
+              @update:model-value="onConditionChange"
+            />
+            <!-- 规则预览（P1-B3）：人话翻译 + 三条闸的计数，与红框同一份体检结果 -->
+            <RulePreview
+              :condition="edge.condition ?? null"
+              :targets="thenTargets"
+              :edge="edge"
+              :node="targetNode"
+              :report="ruleReport"
+            />
+          </div>
+          <p class="node-props__tip">
+            留空表示无条件。结构上限（深度 8 / 节点 64 / 规则 32）与字段白名单在编辑期就拦，
+            文案与后端 65016 / 65033 逐字一致。
+          </p>
         </t-form-item>
       </t-form>
 
@@ -273,6 +286,9 @@ import { listRoles, type RoleRes } from '@/api/system/role-api';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ConditionTree from '@/views/business/flow/components/ConditionTree.vue';
+import RulePreview from '@/views/business/flow/components/RulePreview.vue';
+import { thenTargetsFromNode } from '@/views/business/flow/components/rule-preview';
+import { validateRule, type RuleReport } from '@/views/business/flow/components/rule-validation';
 import { nodeTypeLabel } from '@/views/business/flow/graph';
 
 /** 组件入参 */
@@ -282,10 +298,12 @@ const props = withDefaults(
     node?: FlowNode | null;
     /** 选中连线 */
     edge?: FlowEdge | null;
+    /** 连线的**目标节点**（预览 THEN 段 / 校验 then 目标用；`null` = 没给） */
+    targetNode?: FlowNode | null;
     /** 只读（已发布版本） */
     readonly?: boolean;
   }>(),
-  { node: null, edge: null, readonly: false },
+  { node: null, edge: null, targetNode: null, readonly: false },
 );
 
 /** 组件事件 */
@@ -404,6 +422,28 @@ async function loadRoles(): Promise<void> {
 function onConditionChange(value: unknown): void {
   emitPatchEdge({ condition: value });
 }
+
+/**
+ * THEN 段的目标（P1-B3）：连线的目标节点 → `then` 目标数组。
+ *
+ * `undefined` = 拿不到目标节点（不展示 THEN 段），`[]` = 节点没配审批人（立刻红）。
+ */
+const thenTargets = computed(() => thenTargetsFromNode(props.targetNode));
+
+/**
+ * 实时校验结果（P1-B3 三条闸）：与 `RulePreview.vue` 共用同一份，
+ * 这里只拿 `ok` 去给「条件表达式」整块加红框 —— 包括 `ConditionTree` 自己不判的
+ * 「规则 ≤ 32」「then 目标为空」两条。
+ */
+const ruleReport = computed<RuleReport | null>(() => {
+  if (!props.edge) return null;
+  return validateRule({
+    condition: props.edge.condition,
+    targets: thenTargets.value,
+    edge: props.edge,
+    node: props.targetNode,
+  });
+});
 
 watch(
   () => props.node?.assignee_type,
@@ -548,6 +588,18 @@ function onDefaultEdgeChange(value: unknown): void {
     font-size: 12px;
     line-height: 1.5;
     color: var(--td-text-color-placeholder);
+  }
+
+  /* 规则区（条件树 + 预览）：校验不通过时整块加一圈红，含「规则 ≤ 32」「then 目标为空」两条
+     ConditionTree 自己不判的闸（它的红框只管树内部） */
+  &__rule {
+    width: 100%;
+    padding: 2px;
+    border-radius: var(--td-radius-default);
+
+    &--error {
+      box-shadow: 0 0 0 1px var(--td-error-color);
+    }
   }
 
   &__assignees {
