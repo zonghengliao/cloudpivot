@@ -84,6 +84,8 @@ export interface TaskCard {
   child_count: number;
   /** 已完成子任务数（E6a；`status = 'DONE'` 且未软删） */
   child_done_count: number;
+  /** 父任务 id（E6b；`null` = 顶层任务，列表树形表格据此判定层级） */
+  parent_id: string | null;
   /** 所属项目 id（T7c；`null` = 未归入项目） */
   project_id: string | null;
   /** 项目编码（空串 = 无项目 / 项目已删） */

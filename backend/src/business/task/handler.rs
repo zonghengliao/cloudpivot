@@ -2749,6 +2749,7 @@ fn card_res(row: &TaskCardRow) -> TaskCardRes {
         due_date: row.due_date,
         child_count: row.child_count,
         child_done_count: row.child_done_count,
+        parent_id: row.parent_id.map(|id| id.to_string()),
         project_id: row.project_id.map(|id| id.to_string()),
         project_code: row.project_code.clone(),
         project_name: row.project_name.clone(),

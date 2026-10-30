@@ -337,6 +337,8 @@ pub struct TaskCardRow {
     pub child_count: i64,
     /// 已完成的子任务数（E6a：列表 / 详情页「子任务 3/1」用）。
     pub child_done_count: i64,
+    /// 父任务（E6b：列表树形表格据此判定「顶层 / 子行」，`None` = 顶层）。
+    pub parent_id: Option<Uuid>,
     /// 所属项目（T7c：可空，`None` = 未归入任何项目）。
     pub project_id: Option<Uuid>,
     /// 项目编码（空串 = 无项目，或项目已被软删）。
@@ -372,6 +374,7 @@ impl TaskCardRow {
             due_date: row.get_typed("due_date")?,
             child_count: row.get_typed("child_count")?,
             child_done_count: row.get_typed("child_done_count")?,
+            parent_id: row.get_typed("parent_id")?,
             project_id: row.get_typed("project_id")?,
             project_code: row.get_typed("project_code")?,
             project_name: row.get_typed("project_name")?,
@@ -466,7 +469,7 @@ pub struct TaskAttachmentRow {
 
 /// 任务卡列清单（所有列表查询共用，避免两处 select 列不一致导致的 `get_typed` 失败）。
 const CARD_COLUMNS: &str = "\
-    t.id, t.task_no, t.title, t.status, t.priority, t.progress, t.need_review, \
+    t.id, t.parent_id, t.task_no, t.title, t.status, t.priority, t.progress, t.need_review, \
     t.owner_id, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS owner_name, \
     t.dept_id, t.source, t.start_date, t.due_date, t.created_at, t.updated_at, \
     (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL) AS child_count, \
@@ -3774,6 +3777,8 @@ mod tests {
     fn card_columns_expose_child_stats() {
         assert!(CARD_COLUMNS.contains("AS child_count"));
         assert!(CARD_COLUMNS.contains("AS child_done_count"));
+        // E6b：树形表格靠任务卡上的 parent_id 判定层级，缺列 → 列表 / 详情 500
+        assert!(CARD_COLUMNS.contains("t.id, t.parent_id, t.task_no"));
         // 分子口径：未软删 + 终态 DONE（软删子任务不能算进完成数）
         assert!(CARD_COLUMNS.contains("c.deleted_at IS NULL"));
         assert!(CARD_COLUMNS.contains("c.status = 'DONE'"));

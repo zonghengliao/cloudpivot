@@ -68,6 +68,28 @@
               />
             </t-form-item>
           </t-col>
+          <t-col :span="6">
+            <t-form-item label="父任务" name="parent_id">
+              <!-- 只在新建时可选：编辑改父级 = 改结构，容易乱（卡面约定） -->
+              <t-select
+                v-if="!isEdit"
+                v-model="parentProxy"
+                :options="parentOptions"
+                :loading="parentLoading"
+                placeholder="可不选（作为顶层任务）"
+                clearable
+                filterable
+                @change="handleParentChange"
+              />
+              <span v-else class="form-readonly">{{ editParentLabel }}</span>
+              <span v-if="!isEdit && form.parent_id && parentDue" class="form-hint">
+                父任务截止 {{ parentDue }}
+              </span>
+              <span v-if="!isEdit && dueAfterParent" class="form-hint form-hint--warn">
+                晚于父任务截止日，改期时会被 63112 拦下
+              </span>
+            </t-form-item>
+          </t-col>
           <t-col :span="12">
             <t-form-item label="需要验收" name="need_review">
               <t-switch v-model="form.need_review" />
@@ -96,7 +118,14 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import UserSelect from './UserSelect.vue';
 import { ApiError } from '@/api/request';
-import { createTask, getTask, updateTask, type TaskCreateReq, type TaskUpdateReq } from '@/api/business/task-api';
+import {
+  createTask,
+  getTask,
+  pageTasks,
+  updateTask,
+  type TaskCreateReq,
+  type TaskUpdateReq,
+} from '@/api/business/task-api';
 import { pageProjects } from '@/api/business/project-api';
 import { priorityOptions } from '@/constants/status-map';
 
@@ -132,6 +161,8 @@ interface TaskFormModel {
   need_review: boolean;
   /** 所属项目 id（T7c；null = 不归入项目） */
   project_id: string | null;
+  /** 父任务 id（E6b；仅新建可选，null = 顶层任务） */
+  parent_id: string | null;
 }
 
 /** 优先级选项（P0 最高 → P3 最低，文案来自 status-map） */
@@ -166,6 +197,76 @@ async function loadProjectOptions(): Promise<void> {
 
 /** 表单实例 */
 const formRef = ref();
+
+// ==================== 父任务选择（E6b） ====================
+
+/** 父任务下拉选项（一次取 100 条；不排除「已有子任务」的任务，允许三级） */
+const parentOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 父任务下拉加载中 */
+const parentLoading = ref(false);
+/** 父任务 id → 截止日（选中父任务后用于「子任务不得晚于父任务」前端提示） */
+const parentDueMap = ref<Record<string, string | null>>({});
+/** 编辑态回显的父任务编号（详情接口只下发 `parent_task_no`） */
+const editParentNo = ref('');
+
+/**
+ * 拉父任务下拉。
+ *
+ * 用列表接口而不是新接口：父任务候选就是「我能看见的任务」，`GET /task/page` 的可见性
+ * 已经按数据范围 ∪ 参与关系过滤，取前 100 条够用（超出时下拉里搜不到，属已知取舍）。
+ */
+async function loadParentOptions(): Promise<void> {
+  parentLoading.value = true;
+  try {
+    const data = await pageTasks({ page: 1, page_size: 100 });
+    const dues: Record<string, string | null> = {};
+    parentOptions.value = data.list.map((item) => {
+      dues[item.id] = item.due_date;
+      return { label: `${item.task_no} ${item.title}`, value: item.id };
+    });
+    parentDueMap.value = dues;
+  } catch {
+    // 拉不到候选不该挡住建任务：不选父任务即可
+    parentOptions.value = [];
+    parentDueMap.value = {};
+  } finally {
+    parentLoading.value = false;
+  }
+}
+
+/** 父任务双向代理（`t-select` 不吃 null，与所属项目同款转换） */
+const parentProxy = computed<string | undefined>({
+  get: () => form.parent_id ?? undefined,
+  set: (value) => {
+    form.parent_id = typeof value === 'string' && value ? value : null;
+  },
+});
+
+/** 已选父任务的截止日（空串 = 无期限 / 未选） */
+const parentDue = computed(() => (form.parent_id ? parentDueMap.value[form.parent_id] ?? '' : ''));
+
+/** 子任务截止日是否晚于父任务（只提示，不阻断保存，原因见 validateDueDate 注释） */
+const dueAfterParent = computed(() => {
+  if (!form.due_date || !parentDue.value) {
+    return false;
+  }
+  return dayjs(form.due_date).startOf('day').isAfter(dayjs(parentDue.value).startOf('day'));
+});
+
+/** 编辑态只读展示的父任务（优先下拉里的「编号 标题」，退化为详情里的编号） */
+const editParentLabel = computed(() => {
+  if (!form.parent_id) {
+    return '—（顶层任务）';
+  }
+  const hit = parentOptions.value.find((item) => item.value === form.parent_id);
+  return hit ? hit.label : editParentNo.value || '父任务（已不在候选列表）';
+});
+
+/** 选完父任务：父任务截止日变了，截止日的提示要重算（`dueAfterParent` 是 computed，无需额外动作） */
+function handleParentChange(): void {
+  formRef.value?.clearValidate?.('due_date');
+}
+
 /** 保存中 */
 const saving = ref(false);
 /** 详情加载中（编辑回显） */
@@ -182,6 +283,7 @@ function emptyForm(): TaskFormModel {
     estimate_hours: null,
     need_review: false,
     project_id: null,
+    parent_id: null,
   };
 }
 
@@ -226,13 +328,17 @@ const innerVisible = computed({
 /**
  * 截止日期校验：**新建时**不得早于今天（编辑时允许补录历史任务的旧截止日，
  * 否则存量逾期任务一改就报错）。按自然日比较，忽略时分秒。
+ *
+ * 「不得晚于父任务截止日」只做**提示**不阻断：后端的 `63112` 校验挂在
+ * `PATCH /task/{id}/schedule`（改期）上，创建 / 编辑接口并不拦，
+ * 前端若硬拦会挡掉后端本来允许的创建。
  */
 function validateDueDate(value: unknown): boolean | { result: boolean; message: string } {
   if (!value || isEdit.value) {
     return true;
   }
-  const today = dayjs().startOf('day');
-  if (dayjs(String(value)).startOf('day').isBefore(today)) {
+  const target = dayjs(String(value)).startOf('day');
+  if (target.isBefore(dayjs().startOf('day'))) {
     return { result: false, message: '截止日期不能早于今天' };
   }
   return true;
@@ -276,6 +382,9 @@ async function loadDetail(id: string): Promise<void> {
     form.estimate_hours = detail.estimate_hours;
     form.need_review = detail.need_review;
     form.project_id = detail.project_id;
+    // 父任务只读回显（编辑不改父级）
+    form.parent_id = detail.parent_id;
+    editParentNo.value = detail.parent_task_no ?? '';
   } catch (error) {
     const message = error instanceof ApiError ? error.message : '任务详情加载失败';
     MessagePlugin.error(message);
@@ -293,8 +402,11 @@ watch(
       return;
     }
     Object.assign(form, emptyForm());
+    editParentNo.value = '';
     formRef.value?.clearValidate?.();
     void loadProjectOptions();
+    // 编辑态也要拉：父任务是只读展示，「编号 标题」得从候选里取（详情只给 parent_task_no）
+    void loadParentOptions();
     if (props.taskId) {
       void loadDetail(props.taskId);
     }
@@ -349,6 +461,9 @@ async function handleSubmit(): Promise<void> {
       if (form.project_id) {
         payload.project_id = form.project_id;
       }
+      if (form.parent_id) {
+        payload.parent_id = form.parent_id;
+      }
       const saved = await createTask(payload);
       MessagePlugin.success(`任务已创建：${saved.task_no}`);
       emit('saved', saved.id);
@@ -365,6 +480,7 @@ async function handleSubmit(): Promise<void> {
 /** 关闭后重置脏数据，避免下次打开闪现上一次的内容 */
 function handleClosed(): void {
   Object.assign(form, emptyForm());
+  editParentNo.value = '';
   formRef.value?.clearValidate?.();
 }
 </script>
@@ -380,5 +496,15 @@ function handleClosed(): void {
   margin-left: 8px;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+
+  &--warn {
+    color: var(--td-warning-color);
+  }
+}
+
+.form-readonly {
+  display: inline-block;
+  font-size: 13px;
+  color: var(--td-text-color-secondary);
 }
 </style>

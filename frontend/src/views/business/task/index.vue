@@ -106,15 +106,21 @@
         </template>
       </t-alert>
 
-      <t-table
+      <!-- 树形表格要用 t-enhanced-table（`t-table` 是 PrimaryTable，不认 tree） -->
+      <t-enhanced-table
         row-key="id"
         :data="rows"
         :columns="columns"
         :loading="loading"
         :pagination="tablePagination"
+        :tree="treeConfig"
+        :expanded-tree-nodes="expandedKeys"
+        :row-class-name="rowClassName"
         :hover="true"
         stripe
         @page-change="handlePageChange"
+        @expanded-tree-nodes-change="handleExpandedKeysChange"
+        @tree-expand-change="handleTreeExpandChange"
       >
         <template #task_no="{ row }">
           <span class="cell-no">{{ row.task_no }}</span>
@@ -123,12 +129,15 @@
         <template #title="{ row }">
           <div class="cell-title">
             <t-link theme="primary" class="cell-title__text" @click="openDetail(row)">{{ row.title }}</t-link>
+            <span v-if="row.child_count > 0" class="cell-child-stat">
+              （{{ row.child_count }} 子·{{ row.child_done_count }} 完成）
+            </span>
             <t-tag v-if="row.need_review" size="small" variant="outline" theme="default">需验收</t-tag>
           </div>
         </template>
 
         <template #status="{ row }">
-          <StatusBadge domain="task" :status="row.status" />
+          <StatusBadge domain="task" :status="row.status" size="small" />
         </template>
 
         <template #priority="{ row }">
@@ -183,7 +192,7 @@
             </t-button>
           </div>
         </template>
-      </t-table>
+      </t-enhanced-table>
     </t-card>
 
     <!-- 看板视图（交互见 components/TaskBoard.vue：原生 HTML5 拖拽改状态） -->
@@ -240,6 +249,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
+import type { TableRowData, TableTreeExpandChangeContext } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
@@ -251,6 +261,7 @@ import { ApiError } from '@/api/request';
 import {
   deleteTask,
   listMyTasks,
+  listSubtasks,
   pageTasks,
   type MyTaskCounts,
   type TaskCard,
@@ -260,8 +271,41 @@ import { pageProjects } from '@/api/business/project-api';
 import { PERM } from '@/constants/permissions';
 import { priorityOptions, statusOptions } from '@/constants/status-map';
 
-/** 列表行：任务卡 + 「我的任务」分组标签（仅我的任务视图有值） */
-type TaskRow = TaskCard & { bucketLabel?: string };
+/**
+ * 列表行：任务卡 + 树形表格辅助字段。
+ *
+ * `children` 是 TDesign 树形表格认识的字段：
+ * - `true` = 有子任务但**还没取**（箭头照常渲染，内部 toggle 会直接 return，由本页自己懒加载）；
+ * - `TaskRow[]` = 已加载的子行；
+ * - 不存在 = 叶子（无箭头）。
+ *
+ * `_isSub` 标记子行（状态徽标缩小、不加粗），`bucketLabel` 只在我的任务视图有值。
+ */
+type TaskRow = TaskCard & {
+  bucketLabel?: string;
+  _isSub?: boolean;
+  children?: TaskRow[];
+};
+
+/**
+ * 「有子任务但还没取」的占位值。
+ *
+ * TDesign 树形表格的运行时约定：`children === true` 时照常渲染展开箭头，但内部的
+ * `toggleExpandData` 直接 return（不凭空展开）—— 正是懒加载要的语义。
+ * 它的 TS 类型却把 `children` 限成 `TableRowData[]`，所以这里做一次窄化断言，
+ * 并且**只通过 `isLazyChildren` / `setLazyChildren` 读写**，别在别处直接比较。
+ */
+const LAZY_CHILDREN = true as unknown as TaskRow[];
+
+/** 该行是否处于「有子任务但未加载」占位态 */
+function isLazyChildren(row: TaskRow): boolean {
+  return (row.children as unknown) === true;
+}
+
+/** 把行打回占位态（懒加载失败时还原，允许再点一次） */
+function setLazyChildren(row: TaskRow): void {
+  row.children = LAZY_CHILDREN;
+}
 
 /** 状态 / 优先级筛选选项（文案与徽标同源，来自 status-map） */
 const statusOpts = statusOptions('task');
@@ -269,6 +313,18 @@ const priorityOpts = priorityOptions();
 
 /** 表格数据 */
 const rows = ref<TaskRow[]>([]);
+/** 树形表格配置：箭头挂在第 0 列（任务号），缩进 16px */
+const treeConfig = { treeNodeColumnIndex: 0, indent: 16 };
+/** 正在拉子任务的父任务 id（防连点重复请求） */
+const subtaskLoading = new Set<string>();
+/**
+ * 已展开的树节点（受控）。
+ *
+ * 为什么必须自己拿着：子任务懒加载完要重建 `rows` 让表格重算层级（不重建的话
+ * 后插进来的子行 `level` 是 undefined → 不缩进），而重建会走 `resetData`，
+ * 只有受控展开态才能让「刚展开的那一行」在重建后仍然展开。
+ */
+const expandedKeys = ref<Array<string | number>>([]);
 /** 加载中 */
 const loading = ref(false);
 /** 错误文案（非空即渲染错误态 + 重试） */
@@ -367,6 +423,30 @@ function isOverdue(row: TaskCard): boolean {
   return dayjs(row.due_date).startOf('day').isBefore(dayjs().startOf('day'));
 }
 
+/** 把任务卡加工成树形行：有子任务的先给 `children: true` 占位（渲染箭头，等点击才取数） */
+function toTreeRow(card: TaskCard, extra?: Partial<TaskRow>): TaskRow {
+  return { ...card, children: card.child_count > 0 ? LAZY_CHILDREN : undefined, ...extra };
+}
+
+/** 子任务行：标记 `_isSub`（徽标缩小、不加粗），自己若也有子任务同样可再展开（支持三级） */
+function toSubRow(card: TaskCard): TaskRow {
+  return { ...card, _isSub: true, children: card.child_count > 0 ? LAZY_CHILDREN : undefined };
+}
+
+/**
+ * 顶层行筛选：**只把「无父任务」或「父任务不在本页结果集里」的行放顶层**。
+ *
+ * - 子任务即使出现在分页结果里也不上浮（跟随父任务，展开时由 `GET /subtasks` 带出），
+ *   否则同一条子任务会既在顶层、又在父任务下面出现两份；
+ * - 「我的任务」按人筛选时多数父任务不在结果里 → 子任务自然成为顶层（卡面边界要求）。
+ */
+function buildTreeRows(list: TaskCard[]): TaskRow[] {
+  const ids = new Set(list.map((item) => item.id));
+  return list
+    .filter((item) => !item.parent_id || !ids.has(item.parent_id))
+    .map((item) => toTreeRow(item));
+}
+
 /** 「我的任务」五组拍平成一张表（顺序 = 紧急度：逾期 → 今日 → 本周 → 以后 → 无期限） */
 function flattenMyTasks(data: Awaited<ReturnType<typeof listMyTasks>>): TaskRow[] {
   const groups: Array<[string, TaskCard[]]> = [
@@ -376,7 +456,52 @@ function flattenMyTasks(data: Awaited<ReturnType<typeof listMyTasks>>): TaskRow[
     ['以后', data.later],
     ['无期限', data.no_due],
   ];
-  return groups.flatMap(([label, list]) => list.map((item) => ({ ...item, bucketLabel: label })));
+  // 我的任务视图不按父子嵌套（父任务多半不在结果里），有子任务的行仍可展开
+  return groups.flatMap(([label, list]) => list.map((item) => toTreeRow(item, { bucketLabel: label })));
+}
+
+/** 行样式：父任务加粗、子行常规（缩进由 t-table 的 tree 负责） */
+function rowClassName(context: { row: TaskRow }): string {
+  if (context.row._isSub) {
+    return 'task-row--sub';
+  }
+  return context.row.child_count > 0 ? 'task-row--parent' : '';
+}
+
+/**
+ * 展开箭头点击 → 懒加载子任务。
+ *
+ * TDesign 树形表格用 `children === true` 表示「有子节点但还没取」：箭头照常渲染，
+ * 但内部 `toggleExpandData` 遇到 `children === true` 直接 return（不会凭空展开）。
+ * 所以这里自己取数 → 把占位换成真数组 → **重建 rows** 让表格重算层级（`level`/缩进
+ * 只在 `initialTreeDataMap` 里算），受控的 `expandedKeys` 保证重建后这一行仍是展开态。
+ * 已加载（数组）的行折叠 / 再展开全交给表格自己处理，不再发请求。
+ */
+async function handleTreeExpandChange(
+  context: TableTreeExpandChangeContext<TableRowData>,
+): Promise<void> {
+  const row = context.row as TaskRow;
+  if (!row || !isLazyChildren(row) || subtaskLoading.has(row.id)) {
+    return;
+  }
+  subtaskLoading.add(row.id);
+  try {
+    const data = await listSubtasks(row.id);
+    row.children = data.list.map(toSubRow);
+    // 重建数组：触发 resetData → 子行拿到 level=1（不重建则不缩进）
+    rows.value = [...rows.value];
+  } catch (error) {
+    // 还原占位，允许用户再点一次
+    setLazyChildren(row);
+    MessagePlugin.error(error instanceof ApiError ? error.message : '子任务加载失败，请稍后重试');
+  } finally {
+    subtaskLoading.delete(row.id);
+  }
+}
+
+/** 表格受控展开态同步（折叠 / 展开都由表格判定，这里只是镜像到本地 ref） */
+function handleExpandedKeysChange(keys: Array<string | number>): void {
+  expandedKeys.value = keys;
 }
 
 /** 路由（视图切换 / 跳甘特图都用它） */
@@ -475,6 +600,8 @@ function handleBoardLoaded(total: number): void {
 async function loadList(): Promise<void> {
   loading.value = true;
   errorMessage.value = '';
+  // 换数据源 / 翻页一律收起树（旧展开态对应的是旧行的 children 数组）
+  expandedKeys.value = [];
   try {
     if (myMode.value) {
       const data = await listMyTasks();
@@ -498,7 +625,7 @@ async function loadList(): Promise<void> {
       due_from: dueFrom || '',
       due_to: dueTo || '',
     });
-    rows.value = data.list;
+    rows.value = buildTreeRows(data.list);
     pagination.total = data.total;
     scopeTruncated.value = data.member_scope_truncated;
     myTotalCount.value = 0;
@@ -706,6 +833,18 @@ onMounted(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+}
+
+/** 父任务行：标题加粗 + 子任务统计小字（E6b 树形表格） */
+:deep(.task-row--parent .cell-title__text) {
+  font-weight: 500;
+}
+
+.cell-child-stat {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--td-text-color-placeholder);
 }
 
 .cell-progress {

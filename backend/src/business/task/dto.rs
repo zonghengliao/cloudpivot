@@ -291,6 +291,8 @@ pub struct TaskCardRes {
     pub child_count: i64,
     /// 已完成子任务数（E6a：`status = 'DONE'` 且未软删；列表页「3/1」与详情页进度条用）。
     pub child_done_count: i64,
+    /// 父任务 ID（E6b：列表树形表格靠它判定「顶层 / 子行」，`null` = 顶层任务）。
+    pub parent_id: Option<String>,
     /// 所属项目 ID（T7c；`null` = 未归入项目）。
     pub project_id: Option<String>,
     /// 项目编码（空串 = 无项目 / 项目已删）。
