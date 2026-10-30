@@ -30,6 +30,7 @@
 //! | 变更日志分区运维 | `0 20 1 1 * *` | `changelog_partition_maintain` | 批次 C · C0（空实现） |
 //! | 帮助历史版本清理 | `0 40 2 * * *` | `help_version_cleanup` | 批次 C · C4（真实现，见 `business::help::model::register_builtin`） |
 //! | 审批超时扫描 + 催办 | `0 */10 * * * *` | `flow_timeout_scan` | 批次 D · D4c（真实现，见 `business::flow::timeout::register_builtin`） |
+//! | 审批图快照自检 | `0 30 3 * * *` | `flow_graph_selfcheck` | 批次 D · D4d（真实现，见 `business::flow::maintain::register_builtin`） |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
 //! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
@@ -291,6 +292,8 @@ impl Scheduler {
         crate::business::task::hermes_sync::register_builtin(self);
         // 批次 D · D4c：审批超时扫描 + 催办（每 10 分钟，LIMIT 500 分批；默认只提醒，AUTO_APPROVE 需全局闸）
         crate::business::flow::timeout::register_builtin(self);
+        // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
+        crate::business::flow::maintain::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。
