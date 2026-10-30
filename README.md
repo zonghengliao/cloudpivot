@@ -1,6 +1,6 @@
 # 云枢通用后台系统（CloudPivot）
 
-一套基于 **Rust（Alun 框架） + Vue 3 + TDesign** 的通用后台管理系统底座，覆盖登录鉴权、RBAC 权限、组织架构（部门）、数据字典、系统参数、文件管理、多类日志、定时任务、在线用户等管理系统必备能力，不含业务代码，可作为新业务系统的起手模板。
+一套基于 **Rust（NIK 框架） + Vue 3 + TDesign** 的通用后台管理系统底座，覆盖登录鉴权、RBAC 权限、组织架构（部门）、数据字典、系统参数、文件管理、多类日志、定时任务、在线用户等管理系统必备能力，不含业务代码，可作为新业务系统的起手模板。
 
 本仓库对应 `云枢系统` 中的**基础版 `cloudpivot`**（独立项目，可单独开发、构建、部署）。
 
@@ -23,7 +23,7 @@
 ```text
 cloudpivot/
 ├── backend/            # 后端：Rust crate `cloudpivot`（二进制同名）
-│   ├── Cargo.toml      # 只声明 alun 门面 + feature
+│   ├── Cargo.toml      # 只声明 nik 门面 + feature
 │   ├── config/         # config.toml + dev/test/prod profile
 │   ├── migrations/     # 迁移（system/、support/、business/、seed/ 按业务域分目录）
 │   ├── uploads/        # 上传文件落盘
@@ -44,9 +44,9 @@ cloudpivot/
 
 | 端 | 核心 | 说明 |
 |----|------|------|
-| 后端 | Rust 1.94.1+ / edition 2024 | `alun` 门面框架（axum 0.8）|
+| 后端 | Rust 1.94.1+ / edition 2024 | `nik` 门面框架（axum 0.8）|
 | 后端 | PostgreSQL ≥ 14 | 主库（17 张表），`deleted_at` 软删 + 部分唯一索引 |
-| 后端 | alun 内置 | 配置三层覆盖、迁移 runner、缓存抽象（本地/Redis）、JWT 双令牌 |
+| 后端 | nik 内置 | 配置三层覆盖、迁移 runner、缓存抽象（本地/Redis）、JWT 双令牌 |
 | 前端 | Vue 3.5 + TS 5.8 + Vite 6 | TDesign 1.19、Pinia 3、Vue Router 4、axios、ECharts 5 |
 | 包管理 | pnpm 10.5.0 | `packageManager` 已固定，需 Node ≥ 22.13 |
 
@@ -94,7 +94,7 @@ pnpm build                                 # 类型检查 + 生产构建（dist/
 ### 默认账号
 
 - 用户名：`admin`
-- 密码：**无缺省值**。首次启动必须通过 `ALUN_ADMIN_PASSWORD` 注入（未注入时：生产直接拒绝启动；
+- 密码：**无缺省值**。首次启动必须通过 `NIK_ADMIN_PASSWORD` 注入（未注入时：生产直接拒绝启动；
   开发 / 测试生成一次性随机口令打在启动日志里），首次登录被强制要求改密
 - 角色：`SUPER_ADMIN`（跳过全部权限校验）
 
