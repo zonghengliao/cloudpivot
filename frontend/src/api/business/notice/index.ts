@@ -387,13 +387,17 @@ export function fetchChannelConfig(): Promise<ChannelConfigRes> {
  * 构造 SSE 订阅地址。
  *
  * `EventSource` 不能自定义请求头，因此令牌走查询参数；调用方需在后端侧确认
- * `notice/sse` 接受 `?token=`（A6 实现口径），否则降级轮询。
+ * `notice/stream` 接受 `?token=`（需后端 NIK_AUTH_QUERY_TOKEN_PATHS 白名单放行），
+ * 否则降级轮询。
+ *
+ * 2026-10-30 修：原路径写成 `/notice/sse`，后端实际注册的是 `/notice/stream`，
+ * 导致 SSE 连接一直 401、实时推送完全没工作过。
  */
 export function buildNoticeSseUrl(): string {
   const base = import.meta.env.VITE_APP_BASE_API || '';
   const token = localStorage.getItem(TOKEN_KEY) || '';
   const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${base}/api/business/notice/sse${query}`;
+  return `${base}/api/business/notice/stream${query}`;
 }
 
 /** 消息通知模块接口集合 */
