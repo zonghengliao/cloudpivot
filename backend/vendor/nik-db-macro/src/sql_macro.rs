@@ -21,7 +21,7 @@
 //! - **`#` 指令**：静态字面量内解析，字段名 / 操作符 / 变量名 / 整数
 //!   在编译期白名单校验，非法输入直接编译失败
 //!
-//! 所有片段共享同一个 `__alun_sql` / `__alun_params` 构建序列，
+//! 所有片段共享同一个 `__nik_sql` / `__nik_params` 构建序列，
 //! 条件插值的参数 push 发生在 `if` 作用域内，占位符与参数天然对齐。
 
 use proc_macro::TokenStream;
@@ -128,10 +128,10 @@ pub fn expand(input: TokenStream) -> syn::Result<TokenStream2> {
 
     Ok(quote! {
         {
-            let mut __alun_sql = ::std::string::String::new();
-            let mut __alun_params = ::std::vec::Vec::new();
+            let mut __nik_sql = ::std::string::String::new();
+            let mut __nik_params = ::std::vec::Vec::new();
             #( #statements )*
-            ::nik_db_core::query::SqlQuery::new(__alun_sql, __alun_params)
+            ::nik_db_core::query::SqlQuery::new(__nik_sql, __nik_params)
         }
     })
 }
@@ -150,8 +150,8 @@ fn expand_segments(segments: &[Segment]) -> syn::Result<Vec<TokenStream2>> {
             Segment::Interpolation(expr) => {
                 // 插值一律参数化：追加 `?` 并绑定值（IntoValue 额外覆盖 &str）
                 out.push(quote! {
-                    __alun_sql.push('?');
-                    __alun_params.push(
+                    __nik_sql.push('?');
+                    __nik_params.push(
                         ::nik_db_core::query::IntoValue::into_value(#expr)
                     );
                 });
@@ -160,7 +160,7 @@ fn expand_segments(segments: &[Segment]) -> syn::Result<Vec<TokenStream2>> {
                 // 裸表达式仅限 SqlFragment：SQL 文本与参数成对流转移
                 out.push(quote! {
                     ::nik_db_core::query::SqlFragment::push_into(
-                        #expr, &mut __alun_sql, &mut __alun_params
+                        #expr, &mut __nik_sql, &mut __nik_params
                     );
                 });
             }
@@ -186,7 +186,7 @@ fn expand_pieces(
     let mut out = Vec::new();
     for piece in pieces {
         match piece {
-            TemplatePiece::Text(text) => out.push(quote! { __alun_sql.push_str(#text); }),
+            TemplatePiece::Text(text) => out.push(quote! { __nik_sql.push_str(#text); }),
             TemplatePiece::Directive(directive) => {
                 out.push(expand_directive(directive.clone())?);
             }
@@ -230,8 +230,8 @@ fn expand_directive(directive: TemplateDirective) -> syn::Result<TokenStream2> {
                 )
             })?;
             Ok(quote! {
-                __alun_sql.push('?');
-                __alun_params.push(
+                __nik_sql.push('?');
+                __nik_params.push(
                     ::nik_db_core::query::IntoValue::into_value(#ident)
                 );
             })
@@ -243,15 +243,15 @@ fn expand_directive(directive: TemplateDirective) -> syn::Result<TokenStream2> {
                 .collect::<Vec<_>>()
                 .join(", ");
             let text = format!(" ORDER BY {rendered}");
-            Ok(quote! { __alun_sql.push_str(#text); })
+            Ok(quote! { __nik_sql.push_str(#text); })
         }
         TemplateDirective::GroupBy { fields } => {
             let text = format!(" GROUP BY {}", fields.join(", "));
-            Ok(quote! { __alun_sql.push_str(#text); })
+            Ok(quote! { __nik_sql.push_str(#text); })
         }
         TemplateDirective::Limit { n } => {
             let text = format!(" LIMIT {n}");
-            Ok(quote! { __alun_sql.push_str(#text); })
+            Ok(quote! { __nik_sql.push_str(#text); })
         }
     }
 }
@@ -271,8 +271,8 @@ fn condition_stmt(keyword: &str, field: &str, op: &str, param: &str) -> syn::Res
     let text = format!(" {keyword} {field} {op} ?");
     Ok(quote! {
         if let ::core::option::Option::Some(ref v) = #ident {
-            __alun_sql.push_str(#text);
-            __alun_params.push(::nik_db_core::traits::TypeMapper::to_value(v));
+            __nik_sql.push_str(#text);
+            __nik_params.push(::nik_db_core::traits::TypeMapper::to_value(v));
         }
     })
 }

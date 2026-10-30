@@ -79,7 +79,7 @@ const ROUTE_METHODS: &[&str] = &["get", "post", "put", "patch", "delete"];
 ///
 /// 只比较 `path` 的**末段**，因此 `nik::get`、`::nik::get`、`get`
 /// （在 `use nik::get` 之后）三种写法都能识别。
-fn alun_attr_kind(attr: &Attribute) -> Option<String> {
+fn nik_attr_kind(attr: &Attribute) -> Option<String> {
     let last = attr.path().segments.last()?.ident.to_string();
     if ROUTE_METHODS.contains(&last.as_str())
         || last == "permission"
@@ -160,7 +160,7 @@ fn take_routes_from_fn(
     let mut pending_routes: Vec<(String, Attribute)> = Vec::new();
 
     for attr in f.attrs.iter() {
-        if let Some(kind) = alun_attr_kind(attr) {
+        if let Some(kind) = nik_attr_kind(attr) {
             if kind == "permission" {
                 pending_perm.push(attr.clone());
             } else if kind == "no_auth" {
@@ -207,7 +207,7 @@ fn take_routes_from_fn(
     }
 
     // 剥离注解：它们在本宏上下文中仅作声明，不应再展开成 distributed_slice
-    f.attrs.retain(|a| alun_attr_kind(a).is_none());
+    f.attrs.retain(|a| nik_attr_kind(a).is_none());
     Ok(())
 }
 
@@ -262,20 +262,20 @@ pub fn routes_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     quote! { #upper, }
                 };
                 quote! {
-                    __alun_app = ::nik::App::routes(__alun_app, |__r: &mut ::nik::AlunRouter| {
+                    __nik_app = ::nik::App::routes(__nik_app, |__r: &mut ::nik::AlunRouter| {
                         __r.#add(#method_arg #path, #ident, |mr| mr.route_layer(#layer));
                     });
                 }
             }
             None => match method {
-                "get" => quote! { __alun_app = ::nik::App::get(__alun_app, #path, #ident); },
-                "post" => quote! { __alun_app = ::nik::App::post(__alun_app, #path, #ident); },
-                "put" => quote! { __alun_app = ::nik::App::put(__alun_app, #path, #ident); },
-                "patch" => quote! { __alun_app = ::nik::App::patch(__alun_app, #path, #ident); },
-                "delete" => quote! { __alun_app = ::nik::App::delete(__alun_app, #path, #ident); },
+                "get" => quote! { __nik_app = ::nik::App::get(__nik_app, #path, #ident); },
+                "post" => quote! { __nik_app = ::nik::App::post(__nik_app, #path, #ident); },
+                "put" => quote! { __nik_app = ::nik::App::put(__nik_app, #path, #ident); },
+                "patch" => quote! { __nik_app = ::nik::App::patch(__nik_app, #path, #ident); },
+                "delete" => quote! { __nik_app = ::nik::App::delete(__nik_app, #path, #ident); },
                 other => {
                     let upper = other.to_uppercase();
-                    quote! { __alun_app = ::nik::App::route(__alun_app, #upper, #path, #ident); }
+                    quote! { __nik_app = ::nik::App::route(__nik_app, #upper, #path, #ident); }
                 }
             },
         };
@@ -320,22 +320,22 @@ pub fn routes_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let register_fn: syn::Item = match syn::parse2(quote! {
         #[doc = #doc]
         pub fn register(app: ::nik::App) -> ::nik::App {
-            let mut __alun_app = app;
+            let mut __nik_app = app;
             #(#route_calls)*
 
-            let __alun_perms: ::std::vec::Vec<::nik::PermissionDef> =
+            let __nik_perms: ::std::vec::Vec<::nik::PermissionDef> =
                 ::std::vec![#(#perm_items),*];
-            if !__alun_perms.is_empty() {
-                __alun_app = ::nik::App::permission_defs(__alun_app, __alun_perms);
+            if !__nik_perms.is_empty() {
+                __nik_app = ::nik::App::permission_defs(__nik_app, __nik_perms);
             }
 
-            let __alun_na: ::std::vec::Vec<::nik::NoAuthDef> =
+            let __nik_na: ::std::vec::Vec<::nik::NoAuthDef> =
                 ::std::vec![#(#na_items),*];
-            if !__alun_na.is_empty() {
-                __alun_app = ::nik::App::no_auth_defs(__alun_app, __alun_na);
+            if !__nik_na.is_empty() {
+                __nik_app = ::nik::App::no_auth_defs(__nik_app, __nik_na);
             }
 
-            __alun_app
+            __nik_app
         }
     }) {
         Ok(item) => item,

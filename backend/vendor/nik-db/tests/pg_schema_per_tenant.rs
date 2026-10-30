@@ -22,7 +22,7 @@ use nik_db::prelude::*;
 use nik_db_core::stmt::Value;
 
 /// docker-compose.yml 中的默认连接串。
-const DEFAULT_PG_URL: &str = "postgres://nik:nik@localhost:5432/alun_test";
+const DEFAULT_PG_URL: &str = "postgres://nik:nik@localhost:5432/nik_test";
 
 /// 连接探测上限：端口代理指向未就绪容器时不能无限阻塞。
 const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -47,9 +47,9 @@ async fn setup_pg() -> Option<Db> {
     None
 }
 
-/// 单个 schema 名（前缀注解固定为 `alun_sp`）。
+/// 单个 schema 名（前缀注解固定为 `nik_sp`）。
 fn schema_name(tenant_id: i64) -> String {
-    format!("alun_sp{tenant_id}")
+    format!("nik_sp{tenant_id}")
 }
 
 /// 建租户 schema 及其内表（DDL 显式限定 schema，与当前 `search_path` 无关）。
@@ -105,7 +105,7 @@ async fn schema_per_tenant_isolates_rows() {
     // 开启 schema-per-tenant
     set_tenant_enabled(true);
     set_tenant_schema_enabled(true);
-    set_tenant_schema_prefix("alun_sp");
+    set_tenant_schema_prefix("nik_sp");
 
     // 1. 两个租户各写一行：写入落到各自 schema，读回只见自己的行
     let tenant1 = write_and_read(&db, 1, "alice")

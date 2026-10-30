@@ -66,11 +66,32 @@ alun-* 不再参与编译），保留作为补丁内容的可读文档。
 | 项 | 命令 | 结果 |
 |---|---|---|
 | 改名完整性 | `grep -rn 'alun' backend/src/ \| wc -l` | `0` |
+| vendor 目录数 | `ls backend/vendor \| grep -c '^nik'` | **16** |
+| vendor 源码残留 | `grep -rn 'alun' backend/vendor --include='*.rs' --include='*.toml' \| wc -l` | **0** |
+| 依赖树残留 | `cargo tree -p nik \| grep -c alun` / `cargo tree \| grep -c alun` | **0 / 0** |
 | 编译 | `cargo check`（isolated `CARGO_TARGET_DIR=/root/nik-target`） | **0 error**，1m00s |
 | lint | `cargo clippy --all-targets -- -D warnings` | **exit 0** |
 | 格式 | `cargo fmt -- --check` | 干净（改名后 import 顺序变化已 fmt 收口） |
 | 单测 | `cargo test --lib -j 1` | **874 passed / 0 failed** |
 | 基线对照 | 同版本 main（`7c43e7f`，clone 到 `/root/main-base`）跑同一条命令 | **874 passed / 0 failed** → 一条不少 |
+| 闸门链 | `bash scripts/check.sh` | **全绿**：fmt/clippy/check/typecheck + 闸①=0 闸②=0 + C7 G1–G6 + 色彩一致性 |
+| release | `cargo build --release` | 成功（3m35s → 二次 1m49s/1m54s） |
+| 部署 | 备份旧二进制 → 装新 → `systemctl restart cloudpivot` | `/health` 200；日志 `target` 已是 `nik_web::app` / `nik_plugin::scheduler` / `nik_core::plugin` |
+| 真机冒烟 | `python3 /root/c1_smoke.py` | **6/6 PASS**（health / login / auth-me / 权限层 / 任务列表 / 审批待办） |
 
 > 卡面写的是 857。实测基线（main `7c43e7f`）已经是 **874**：857 是更早一次测的，
 > E11（任务模板 / 周期任务 / 燃尽图）等卡又加了用例。判据按「改名前后同数」执行：874 → 874。
+
+## 7. 运营补充后的三遍补扫（16 个 crate 那一条之外）
+
+liuzi 中途补了要求：「不止 8 个，16 个一起改；vendor 里彻底无 alun；依赖树里无 alun」。
+第一遍已经按 16 个做（见 §2），另补了三遍**收口**：
+
+| 遍 | 改了什么 | 影响面 |
+|---|---|---|
+| 第二遍 | vendor 里残余的 `alun_*` 标识符：Prometheus 指标名前缀（`nik-web/src/metrics.rs`、`nik-db/src/metrics.rs`、`nik-cache/src/metrics.rs`）+ bench 函数名 + 测试库名 | 运行时唯一可见的是指标名；本机无 Prometheus/Grafana，无大盘依赖 |
+| 第三遍 | 5 个「从不激活」的可选 crate 名（kafka/task/template/mysql/sqlite 驱动）也改名 `nik-*`（仍 optional + registry，不加 path，因此不需要源码）；迁移咨询锁键 `"alunmigr"` → `"nikmigr\0"`；测试路由 `/api/alun-body-limit-echo`、`alundb_migrate_*` 临时目录、文档示例名 `alun-ledger` | 咨询锁键只影响多实例并发迁移的互斥（单实例部署无影响，已在代码注释里写明） |
+| 第四遍 | 宏生成的内部变量名 `__alun_sql` / `__alun_params` / `__alun_app` → `__nik_*`（`nik-db-macro/src/sql_macro.rs`、`nik-macros/src/routes.rs`）+ `new_alun_db` bench 函数名 | 宏展开内部可见，业务代码看不到 |
+
+只剩 `vendor/README.md` / `FORK-NOTES.md` 两个**说明文档**里还有 `alun`（42 处，讲 fork 来源），
+不参与编译，也过 `--include='*.rs' --include='*.toml'` 那条验收。

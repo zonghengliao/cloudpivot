@@ -3,7 +3,7 @@
 //! 通过 `BackendRegistry` 管理多个 `StorageBackend`，
 //! 根据请求上下文路由到对应后端。
 //!
-//! 参考 alun_task::TaskPlugin 的设计模式。
+//! 参考 nik_task::TaskPlugin 的设计模式。
 
 use std::sync::Arc;
 
@@ -226,7 +226,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_local_create_and_read() {
-        let dir = std::env::temp_dir().join("alun_fs_plugin_test");
+        let dir = std::env::temp_dir().join("nik_fs_plugin_test");
         let _ = fs::create_dir_all(&dir);
 
         let plugin = FsPlugin::new_local(dir.to_str().unwrap());
@@ -243,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_new_local_delete_nonexistent_shouldbe_ok() {
-        let dir = std::env::temp_dir().join("alun_fs_plugin_test2");
+        let dir = std::env::temp_dir().join("nik_fs_plugin_test2");
         let _ = fs::create_dir_all(&dir);
 
         let plugin = FsPlugin::new_local(dir.to_str().unwrap());
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn test_plugin_name() {
-        let dir = std::env::temp_dir().join("alun_fs_plugin_test3");
+        let dir = std::env::temp_dir().join("nik_fs_plugin_test3");
         let _ = fs::create_dir_all(&dir);
         let plugin = FsPlugin::new_local(dir.to_str().unwrap());
         assert_eq!(plugin.name(), "fs");

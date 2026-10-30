@@ -13,7 +13,7 @@
 //! |---|---|
 //! | UUID | `22222222-2222-2222-2222-222222222222` |
 //! | 自增 / 雪花整型 | `1024` |
-//! | 复合作用域键 | `u7:t1`（本仓库 `alun-ledger` 的约定） |
+//! | 复合作用域键 | `u7:t1`（本仓库 `nik-ledger` 的约定） |
 //! | 外部 IdP 主体 | `auth0\|5f3c…`、微信 `openid` |
 //! | 手机号 / 工号 | `13800000000` |
 //!
@@ -226,7 +226,7 @@ mod tests {
         assert_eq!(numeric.user_id.parse::<i64>(), Some(1024));
         assert_eq!(numeric.user_id.parse::<String>().as_deref(), Some("1024"));
 
-        // alun-ledger 式复合键：框架不定义作用域语法，交业务拆解
+        // nik-ledger 式复合键：框架不定义作用域语法，交业务拆解
         let scoped = Principal::from_claims(claims("u7:t1"));
         assert_eq!(scoped.user_id.parse::<i64>(), None);
         let (user, tenant) = scoped.user_id.as_str().split_once(':').expect("u7:t1");

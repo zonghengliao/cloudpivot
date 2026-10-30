@@ -15,8 +15,8 @@ use nik_db_core::stmt::Value;
 use crate::db::Db;
 use crate::tx::Transaction;
 
-/// 咨询锁的 64 位键（`"alunmigr"` 的 ASCII），用于 PostgreSQL 咨询锁。
-const MIGRATION_LOCK_KEY: i64 = 0x616C_756E_6D69_6772;
+/// 咨询锁的 64 位键（`"nikmigr\0"` 的 ASCII），用于 PostgreSQL 咨询锁。
+const MIGRATION_LOCK_KEY: i64 = 0x6E69_6B6D_6967_7200;
 
 /// 咨询锁名，用于 MySQL `GET_LOCK` / `RELEASE_LOCK`。
 const MIGRATION_LOCK_NAME: &str = "nik:schema_migrations";

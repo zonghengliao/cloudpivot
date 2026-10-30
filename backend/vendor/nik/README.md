@@ -52,10 +52,10 @@ mod api {
 | [`nik-log`](https://crates.io/crates/nik-log) | `init(&LogConfig)` —— tracing 引导 |
 | [`nik-db`](https://crates.io/crates/nik-db) | `Db`、`Row`、`Page<T>`、`Model` 派生、`CrudExt` / `PersistExt`、`ModelQuery`、`ChangeSet` |
 | [`nik-cache`](https://crates.io/crates/nik-cache) | `Cache`、`LocalCache`、`RedisCache`、`SharedCache`、`CacheNamespace`、`create_cache` |
-| [`alun-template`](https://crates.io/crates/alun-template) | `TemplateEngine` |
+| [`nik-template`](https://crates.io/crates/nik-template) | `TemplateEngine` |
 | [`nik-plugin`](https://crates.io/crates/nik-plugin) | `serial_plugin`、`notification`、`scheduler`、`cache_plugin`、`async_task`、`sid_plugin` |
-| [`alun-kafka`](https://crates.io/crates/alun-kafka) | `KafkaProducer`、`KafkaConsumer`、`KafkaPlugin` |
-| [`alun-task`](https://crates.io/crates/alun-task) | `TaskHandler`、`TaskStorage`、`TaskProducer`、`TaskWorker`、`RetryScanner`、`TaskPlugin` |
+| [`nik-kafka`](https://crates.io/crates/nik-kafka) | `KafkaProducer`、`KafkaConsumer`、`KafkaPlugin` |
+| [`nik-task`](https://crates.io/crates/nik-task) | `TaskHandler`、`TaskStorage`、`TaskProducer`、`TaskWorker`、`RetryScanner`、`TaskPlugin` |
 | [`nik-fs`](https://crates.io/crates/nik-fs) | `StorageBackend`、`LocalFs`、`FsPlugin`、`FileMeta` |
 | [`nik-macros`](https://crates.io/crates/nik-macros) | 下面这些过程宏 |
 

@@ -174,7 +174,7 @@ async fn legacy_sqlx_rows_are_imported_once_on_sqlite() {
 // ==================== PostgreSQL ====================
 
 #[cfg(feature = "postgres")]
-const DEFAULT_PG_URL: &str = "postgres://nik:nik@localhost:5432/alun_test";
+const DEFAULT_PG_URL: &str = "postgres://nik:nik@localhost:5432/nik_test";
 
 #[cfg(feature = "postgres")]
 async fn pg_url() -> String {
@@ -184,7 +184,7 @@ async fn pg_url() -> String {
 #[cfg(feature = "postgres")]
 #[tokio::test]
 async fn fresh_postgres_database_migrates_without_legacy_table() {
-    let Some(db) = isolated_db(&pg_url().await, "alun_db_probe_fresh").await else {
+    let Some(db) = isolated_db(&pg_url().await, "nik_db_probe_fresh").await else {
         return;
     };
     // 全新库：schema_migrations 与 _sqlx_migrations 都不存在
@@ -216,7 +216,7 @@ async fn fresh_postgres_database_migrates_without_legacy_table() {
 #[cfg(feature = "postgres")]
 #[tokio::test]
 async fn legacy_sqlx_rows_are_imported_on_postgres() {
-    let Some(db) = isolated_db(&pg_url().await, "alun_db_probe_legacy").await else {
+    let Some(db) = isolated_db(&pg_url().await, "nik_db_probe_legacy").await else {
         return;
     };
     let _ = db.execute("DROP TABLE IF EXISTS pg_probe").await;
@@ -269,7 +269,7 @@ async fn legacy_sqlx_rows_are_imported_on_postgres() {
 // ==================== MySQL ====================
 
 #[cfg(feature = "mysql")]
-const DEFAULT_MYSQL_URL: &str = "mysql://nik:nik@localhost:3306/alun_test";
+const DEFAULT_MYSQL_URL: &str = "mysql://nik:nik@localhost:3306/nik_test";
 
 #[cfg(feature = "mysql")]
 async fn mysql_url() -> String {
@@ -279,7 +279,7 @@ async fn mysql_url() -> String {
 #[cfg(feature = "mysql")]
 #[tokio::test]
 async fn fresh_mysql_database_migrates_without_legacy_table() {
-    let Some(db) = isolated_db(&mysql_url().await, "alun_db_probe_fresh").await else {
+    let Some(db) = isolated_db(&mysql_url().await, "nik_db_probe_fresh").await else {
         return;
     };
     let _ = db.execute("DROP TABLE IF EXISTS my_probe").await;
@@ -305,7 +305,7 @@ async fn fresh_mysql_database_migrates_without_legacy_table() {
 #[cfg(feature = "mysql")]
 #[tokio::test]
 async fn legacy_sqlx_rows_are_imported_on_mysql() {
-    let Some(db) = isolated_db(&mysql_url().await, "alun_db_probe_legacy").await else {
+    let Some(db) = isolated_db(&mysql_url().await, "nik_db_probe_legacy").await else {
         return;
     };
     let _ = db.execute("DROP TABLE IF EXISTS my_probe").await;

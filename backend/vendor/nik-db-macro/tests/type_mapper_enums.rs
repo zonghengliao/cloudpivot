@@ -57,7 +57,7 @@ enum NativeState {
     Issued,
 }
 
-/// 枚举列模型：文本 / 整数 / 原生枚举三列（对应 `alun-ledger` 的 `enum_probe`）。
+/// 枚举列模型：文本 / 整数 / 原生枚举三列（对应 `nik-ledger` 的 `enum_probe`）。
 #[derive(Model, Debug, Clone, PartialEq)]
 #[table("enum_probe")]
 struct EnumProbe {

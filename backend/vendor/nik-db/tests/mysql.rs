@@ -24,7 +24,7 @@ use tokio::sync::OnceCell;
 static SCHEMA_READY: OnceCell<()> = OnceCell::const_new();
 
 /// docker-compose.yml 中的默认连接串。
-const DEFAULT_MYSQL_URL: &str = "mysql://nik:nik@localhost:3306/alun_test";
+const DEFAULT_MYSQL_URL: &str = "mysql://nik:nik@localhost:3306/nik_test";
 
 /// 连接探测上限：服务器接受 TCP 却不应答时（端口代理指向未就绪容器）不能无限阻塞，
 /// 否则单个用例会挂住整个 `cargo test`。

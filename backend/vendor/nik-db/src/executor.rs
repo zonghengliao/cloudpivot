@@ -143,9 +143,9 @@ pub(crate) trait RawTransaction: Send {
 }
 
 #[cfg(feature = "sqlite")]
-impl RawExecutor for alun_db_driver_sqlite::SqlitePool {
+impl RawExecutor for nik_db_driver_sqlite::SqlitePool {
     fn dialect(&self) -> &'static dyn Dialect {
-        &alun_db_driver_sqlite::SqliteDialect
+        &nik_db_driver_sqlite::SqliteDialect
     }
 
     fn execute_script(&self, sql: &str) -> Pin<Box<dyn Future<Output = Result<()>> + Send + '_>> {
@@ -291,9 +291,9 @@ impl RawTransaction for nik_db_driver_postgres::PostgresPoolTransaction {
 }
 
 #[cfg(feature = "mysql")]
-impl RawExecutor for alun_db_driver_mysql::MysqlPool {
+impl RawExecutor for nik_db_driver_mysql::MysqlPool {
     fn dialect(&self) -> &'static dyn Dialect {
-        &alun_db_driver_mysql::MysqlDialect
+        &nik_db_driver_mysql::MysqlDialect
     }
 
     // mysql_async 原生异步；Conn 以 &mut self 执行，借出的池化句柄独占连接
@@ -328,7 +328,7 @@ impl RawExecutor for alun_db_driver_mysql::MysqlPool {
 }
 
 #[cfg(feature = "mysql")]
-impl RawTransaction for alun_db_driver_mysql::MysqlPoolTransaction {
+impl RawTransaction for nik_db_driver_mysql::MysqlPoolTransaction {
     fn execute_raw(
         &mut self,
         stmt: Statement,
@@ -359,7 +359,7 @@ impl RawTransaction for alun_db_driver_mysql::MysqlPoolTransaction {
 }
 
 #[cfg(feature = "sqlite")]
-impl RawTransaction for alun_db_driver_sqlite::SqlitePoolTransaction {
+impl RawTransaction for nik_db_driver_sqlite::SqlitePoolTransaction {
     fn execute_raw(
         &mut self,
         stmt: Statement,

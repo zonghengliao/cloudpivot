@@ -7,11 +7,11 @@
 //!
 //! | 指标 | 类型 | 标签 | 含义 |
 //! |---|---|---|---|
-//! | `alun_db_queries_total` | counter | `op` `table` `status` | 语句计数（按成功/失败拆分） |
-//! | `alun_db_query_duration_seconds` | histogram | `op` `table` | 语句耗时（秒） |
-//! | `alun_tenant_scope_missing_total` | counter | `table` `op` | **安全指标**：租户模型在无租户上下文时被访问（fail-closed 拦截次数） |
-//! | `alun_raw_sql_tenant_unbound_total` | counter | `table` | **安全指标**：`Scoped` 下原生 SQL 未通过「占位 + 显式承诺」守卫 |
-//! | `alun_db_raw_sql_total` | counter | `kind` | 受信任原始 SQL 的调用次数（定义在 `nik-db-core`，与 F15 联动） |
+//! | `nik_db_queries_total` | counter | `op` `table` `status` | 语句计数（按成功/失败拆分） |
+//! | `nik_db_query_duration_seconds` | histogram | `op` `table` | 语句耗时（秒） |
+//! | `nik_tenant_scope_missing_total` | counter | `table` `op` | **安全指标**：租户模型在无租户上下文时被访问（fail-closed 拦截次数） |
+//! | `nik_raw_sql_tenant_unbound_total` | counter | `table` | **安全指标**：`Scoped` 下原生 SQL 未通过「占位 + 显式承诺」守卫 |
+//! | `nik_db_raw_sql_total` | counter | `kind` | 受信任原始 SQL 的调用次数（定义在 `nik-db-core`，与 F15 联动） |
 //!
 //! # 为什么安全指标是**一等公民**
 //!
@@ -26,13 +26,13 @@ use std::time::Instant;
 use nik_db_core::error::Result;
 
 /// 语句计数
-pub const DB_QUERIES_TOTAL: &str = "alun_db_queries_total";
+pub const DB_QUERIES_TOTAL: &str = "nik_db_queries_total";
 /// 语句耗时（秒，直方图）
-pub const DB_QUERY_DURATION_SECONDS: &str = "alun_db_query_duration_seconds";
+pub const DB_QUERY_DURATION_SECONDS: &str = "nik_db_query_duration_seconds";
 /// 安全指标：租户模型在无租户上下文时被访问（fail-closed）
-pub const TENANT_SCOPE_MISSING_TOTAL: &str = "alun_tenant_scope_missing_total";
+pub const TENANT_SCOPE_MISSING_TOTAL: &str = "nik_tenant_scope_missing_total";
 /// 安全指标：`Scoped` 上下文下原生 SQL 未通过租户绑定守卫
-pub const RAW_SQL_TENANT_UNBOUND_TOTAL: &str = "alun_raw_sql_tenant_unbound_total";
+pub const RAW_SQL_TENANT_UNBOUND_TOTAL: &str = "nik_raw_sql_tenant_unbound_total";
 
 /// 无表名可用的场景（原生 SQL 通道）使用的占位标签值。
 ///
@@ -44,7 +44,7 @@ pub const TABLE_RAW: &str = "raw";
 /// **幂等**，且由各 `observe_*` 在首次调用时自动触发（见 [`describe_once`]）；
 /// 需要提前注册（比如进程启动即暴露 `/metrics`）时也可显式调用。
 pub fn describe() {
-    // `nik-db-core` 的 `alun_db_raw_sql_total`（F15 逃生舱计数）一并注册
+    // `nik-db-core` 的 `nik_db_raw_sql_total`（F15 逃生舱计数）一并注册
     nik_db_core::metrics::describe();
     metrics::describe_counter!(
         DB_QUERIES_TOTAL,

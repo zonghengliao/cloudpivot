@@ -80,8 +80,8 @@ fn build_default_filter(level: &str, sql_logging: bool) -> EnvFilter {
         "debug,\
          nik={level},nik_web={level},nik_core={level},nik_db={level},\
          nik_config={level},nik_log={level},nik_macros={level},nik_utils={level},\
-         nik_plugin={level},nik_cache={level},alun_task={level},alun_kafka={level},\
-         nik_fs={level},alun_template={level},\
+         nik_plugin={level},nik_cache={level},nik_task={level},nik_kafka={level},\
+         nik_fs={level},nik_template={level},\
          tower_http=warn,hyper=warn,sqlx=warn,tokio_postgres={pg_level},reqwest=warn,rustls=warn,\
          tokio_tungstenite=warn,tungstenite=warn,mio=warn,h2=warn",
         level = level

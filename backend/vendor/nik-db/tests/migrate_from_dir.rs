@@ -17,7 +17,7 @@ static DIR_SEQ: AtomicU32 = AtomicU32::new(0);
 fn temp_migrations_dir(test: &str) -> PathBuf {
     let seq = DIR_SEQ.fetch_add(1, Ordering::Relaxed);
     let dir = std::env::temp_dir().join(format!(
-        "alundb_migrate_{}_{}_{}",
+        "nikdb_migrate_{}_{}_{}",
         test,
         std::process::id(),
         seq

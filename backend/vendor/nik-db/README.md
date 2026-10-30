@@ -100,9 +100,9 @@ nik-db/
 ├── nik-db-sql          # SQL 渲染器、方言
 ├── nik-db-migrate      # 迁移执行器（规划中，尚未单列）  【规划中，尚未建立】
 ├── nik-db-build        # build.rs 辅助库：迁移文件 → schema 快照
-├── alun-db-driver-sqlite
+├── nik-db-driver-sqlite
 ├── nik-db-driver-postgres
-└── alun-db-driver-mysql
+└── nik-db-driver-mysql
 ```
 
 > 迁移执行器（`Migrator`，位于 `nik_db::migrate` 模块）当前内置在 facade `nik-db` 中，
@@ -1554,9 +1554,9 @@ let users = User::query()
 | `nik-db-sql` | SQL 渲染器、方言 | core |
 | `nik-db-migrate` | 迁移执行器（规划中，尚未建立；runner 当前内置在 facade） | sql |
 | `nik-db-build` | build.rs 辅助：迁移文件→schema 快照 | 零依赖（std） |
-| `alun-db-driver-sqlite` | SQLite 驱动 | core, sql, rusqlite |
+| `nik-db-driver-sqlite` | SQLite 驱动 | core, sql, rusqlite |
 | `nik-db-driver-postgres` | PostgreSQL 驱动 | core, sql, tokio-postgres, bytes |
-| `alun-db-driver-mysql` | MySQL 驱动 | core, sql, mysql_async |
+| `nik-db-driver-mysql` | MySQL 驱动 | core, sql, mysql_async |
 
 facade `nik-db` 的默认 feature 为 `["sqlite", "async"]`；`postgres` / `mysql`
 与生态类型（`chrono` / `time` / `jiff` / `rust_decimal` / `bigdecimal` / `uuid` /

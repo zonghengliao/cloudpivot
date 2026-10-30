@@ -10,7 +10,7 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-# NIK fork of the alun 0.4.2 crate — see ../README.md (independent evolution from here)
+# NIK fork of the nik 0.4.2 crate — see ../README.md (independent evolution from here)
 edition = "2024"
 name = "nik-db"
 version = "0.4.2"
@@ -54,13 +54,13 @@ metrics = [
     "dep:metrics",
     "nik-db-core/metrics",
 ]
-mysql = ["dep:alun-db-driver-mysql"]
+mysql = ["dep:nik-db-driver-mysql"]
 postgres = ["dep:nik-db-driver-postgres"]
 rust_decimal = [
     "dep:rust_decimal",
     "nik-db-core/rust_decimal",
 ]
-sqlite = ["dep:alun-db-driver-sqlite"]
+sqlite = ["dep:nik-db-driver-sqlite"]
 sync = []
 time = [
     "dep:time",
@@ -253,7 +253,7 @@ harness = false
 path = "../nik-db-core"
 version = "0.4.0"
 
-[dependencies.alun-db-driver-mysql]
+[dependencies.nik-db-driver-mysql]
 version = "0.4.0"
 optional = true
 
@@ -262,7 +262,7 @@ path = "../nik-db-driver-postgres"
 version = "0.4.0"
 optional = true
 
-[dependencies.alun-db-driver-sqlite]
+[dependencies.nik-db-driver-sqlite]
 version = "0.4.0"
 optional = true
 

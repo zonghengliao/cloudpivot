@@ -56,7 +56,10 @@ alun-plugin     → alun-cache, alun-config, alun-core, alun-utils
 
 **没有 vendored 的**（框架 Cargo.toml 里存在、但本项目 feature 从不打开、registry 里也没有解包）：
 `alun-kafka` / `alun-task` / `alun-template` / `alun-db-driver-mysql` / `alun-db-driver-sqlite`。
-它们**保留原名**、仍是 optional 依赖；本项目的 feature 不选它们，所以既不下载也不编译。
+这 5 个在本 fork 里**也一并改名成 `nik-kafka` / `nik-task` / `nik-template` /
+`nik-db-driver-mysql` / `nik-db-driver-sqlite`**（保持 optional + registry 依赖、不加 path），
+所以 `vendor/` 的 `.rs` / `.toml` 里**一个 `alun` 字样都不剩**。它们永远不会被激活
+（本项目 feature 不选它们），因此不需要源码也不需要 manifest。
 
 ## 三、改了哪些内容
 
@@ -74,6 +77,18 @@ alun-plugin     → alun-cache, alun-config, alun-core, alun-utils
    - `nik-db-macro/src/resolve.rs` 的候选包名表 `alun-db-core` / `alun-db` / `alun` → `nik-*`。
 5. crate 内自带的 tests / benches / examples 同步改名（`autotests = false` 时不参与构建，
    但源码保留、路径一致，将来打开就能用）。
+6. **可观测性与内部名字也一起改干净**（fork 里不留 `alun` 字样）：
+   - Prometheus 指标名前缀 `alun_http_*` / `alun_db_*` / `alun_cache_*` / `alun_raw_sql_*` /
+     `alun_tenant_scope_*` → `nik_*`（`nik-web/src/metrics.rs`、`nik-db/src/metrics.rs`、
+     `nik-cache/src/metrics.rs`）。**注意：本机没有 Prometheus / Grafana 抓这些指标**，
+     所以改名没有大盘影响；将来若接了监控，schema 见 `nik-*/src/metrics.rs` 的模块文档表。
+   - 迁移咨询锁键 `"alunmigr"`（ASCII `0x616C756E6D696772`）→ `"nikmigr\0"`
+     （`nik-db/src/migrate/lock.rs`，只影响多实例并发迁移的互斥键，单实例部署无影响）。
+   - 宏生成的内部变量名 `__alun_sql` / `__alun_params` / `__alun_app` → `__nik_*`
+     （`nik-db-macro/src/sql_macro.rs`、`nik-macros/src/routes.rs`：只在宏展开里出现，
+     业务代码看不到）。
+   - benches / tests 里的零散名字（`new_alun_db`、`alundb_migrate_*` 临时目录、
+     `/api/alun-body-limit-echo` 测试路由、文档里的示例应用名 `alun-ledger`）同样改 nik。
 
 ### 没改、也不该改的
 
@@ -115,7 +130,22 @@ nik-utils = { path = "vendor/nik-utils" }
 （cargo 的 `source replace` 只能整体替换 crates.io，做不到「只替换某几个包」；
 path 依赖正好表达「只有这 16 个走本地源码、其余仍走 registry」，也不会让仓库变成几十 MB。）
 
-## 六、独立演进约定
+## 六、验收口径（可逐条复核）
+
+```bash
+cd backend
+ls vendor | grep -c '^nik'                                              # 16
+grep -rn 'alun' vendor --include='*.rs' --include='*.toml' | wc -l      # 0
+grep -rn 'alun' src | wc -l                                            # 0
+cargo tree -p nik | grep -c alun                                       # 0
+cargo tree | grep -c alun                                              # 0（整棵依赖树）
+cargo test --lib -j 1 | grep 'test result'                             # 874 passed / 0 failed
+```
+
+> `vendor/*.md`（本文件与 `FORK-NOTES.md`）里仍然会出现 `alun` —— 那是 fork 来源说明，
+> 不参与编译；如果把这两个文件也算进去会得到 42 处，属预期。
+
+## 七、独立演进约定
 
 - 上游是 0.4.2，**不会**再 `cargo update` 跟上：升级 = 手工比对上游 diff 后移植。
 - 在这里修框架 bug 就**直接改**，并在 `/tmp/cpx-fork-notes.md`（或后续 docs）留一行

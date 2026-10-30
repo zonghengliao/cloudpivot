@@ -10,7 +10,7 @@
 # See Cargo.toml.orig for the original contents.
 
 [package]
-# NIK fork of the alun 0.4.2 crate — see ../README.md (independent evolution from here)
+# NIK fork of the nik 0.4.2 crate — see ../README.md (independent evolution from here)
 edition = "2024"
 rust-version = "1.94.1"
 name = "nik"
@@ -95,7 +95,7 @@ json = [
     "db",
     "nik-db/json",
 ]
-kafka = ["dep:alun-kafka"]
+kafka = ["dep:nik-kafka"]
 lite = [
     "core",
     "postgres",
@@ -136,15 +136,15 @@ sqlite = [
 ]
 sse = ["nik-web/sse"]
 task = [
-    "dep:alun-task",
-    "alun-task/model",
+    "dep:nik-task",
+    "nik-task/model",
 ]
 task-kafka = [
     "task",
-    "alun-task/kafka",
+    "nik-task/kafka",
 ]
 template = [
-    "dep:alun-template",
+    "dep:nik-template",
     "nik-web/template",
 ]
 time = [
@@ -191,7 +191,7 @@ version = "0.4.2"
 optional = true
 default-features = false
 
-[dependencies.alun-kafka]
+[dependencies.nik-kafka]
 version = "0.4.2"
 optional = true
 
@@ -204,12 +204,12 @@ path = "../nik-plugin"
 version = "0.4.2"
 optional = true
 
-[dependencies.alun-task]
+[dependencies.nik-task]
 version = "0.4.2"
 optional = true
 default-features = false
 
-[dependencies.alun-template]
+[dependencies.nik-template]
 version = "0.4.2"
 optional = true
 

@@ -3,7 +3,7 @@
 //! 按 `backend_type` 管理所有 `StorageBackend` 实例及其配置。
 //! 支持运行时手动注册和编译期自动发现（`inventory` 收集）。
 //!
-//! 参考 alun_task::HandlerRegistry 的设计模式。
+//! 参考 nik_task::HandlerRegistry 的设计模式。
 
 use std::collections::HashMap;
 use std::sync::Arc;

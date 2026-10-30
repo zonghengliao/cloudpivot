@@ -3,7 +3,7 @@
 //! 定义所有存储后端（LocalFs、MinioBackend、S3Backend）必须实现的接口契约。
 //! 框架层通过此 trait 操作文件，不关心具体存储介质。
 //!
-//! 参考 alun_task::TaskHandler 的设计模式：定义契约，业务实现。
+//! 参考 nik_task::TaskHandler 的设计模式：定义契约，业务实现。
 
 use async_trait::async_trait;
 

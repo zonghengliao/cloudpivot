@@ -13,7 +13,7 @@ pub fn plugin_impl(item: TokenStream) -> TokenStream {
 
         impl #name {
             /// 获取插件名称
-            pub fn alun_plugin_name() -> &'static str {
+            pub fn nik_plugin_name() -> &'static str {
                 #name_str
             }
         }

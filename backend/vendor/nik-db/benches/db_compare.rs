@@ -218,7 +218,7 @@ fn lookup_ids(n: usize, count: usize) -> Vec<i64> {
 // ==================== nik-db 侧 ====================
 
 /// 新建一个内存库并建表。
-async fn new_alun_db() -> Db {
+async fn new_nik_db() -> Db {
     let db = Db::connect("sqlite::memory:")
         .await
         .expect("connect sqlite");
@@ -227,14 +227,14 @@ async fn new_alun_db() -> Db {
 }
 
 /// 批量插入（一个事务 + 自动多行 VALUES 分块）。
-async fn alun_insert(db: &Db, rows: &[BenchUser]) {
+async fn nik_insert(db: &Db, rows: &[BenchUser]) {
     db.transaction(|tx| async move { BenchUser::insert_many(rows, &tx).await })
         .await
         .expect("nik bulk insert");
 }
 
 /// 主键点查。
-async fn alun_lookup(db: &Db, ids: &[i64]) {
+async fn nik_lookup(db: &Db, ids: &[i64]) {
     for id in ids {
         BenchUser::find_or_none(db, *id)
             .await
@@ -248,9 +248,9 @@ const SELECT_BY_ID_RENDERED: &str = "SELECT * FROM \"bench_users\" WHERE \"id\" 
 
 /// 主键点查（原始 SQL，文本与 Builder 渲染产物逐字一致）。
 ///
-/// 与 [`alun_lookup`] 的唯一差别是不经 Builder 渲染与 Model 映射，
+/// 与 [`nik_lookup`] 的唯一差别是不经 Builder 渲染与 Model 映射，
 /// 二者差额即这两层的净开销。
-async fn alun_lookup_rendered(db: &Db, ids: &[i64]) {
+async fn nik_lookup_rendered(db: &Db, ids: &[i64]) {
     for id in ids {
         db.find_first_with_params(SELECT_BY_ID_RENDERED, vec![Value::I64(*id)])
             .await
@@ -260,7 +260,7 @@ async fn alun_lookup_rendered(db: &Db, ids: &[i64]) {
 }
 
 /// 分页遍历全表。
-async fn alun_paginate(db: &Db) {
+async fn nik_paginate(db: &Db) {
     let mut page = 1_u64;
     loop {
         let result = db
@@ -275,7 +275,7 @@ async fn alun_paginate(db: &Db) {
 }
 
 /// 全表聚合。
-async fn alun_aggregate(db: &Db) {
+async fn nik_aggregate(db: &Db) {
     let rows = db
         .find_with_params(AGGREGATE, vec![])
         .await
@@ -472,12 +472,12 @@ fn main() {
         let ids = lookup_ids(magnitude, LOOKUPS);
 
         // ---- 批量插入 ----
-        let mut alun_samples = Vec::with_capacity(RUNS);
+        let mut nik_samples = Vec::with_capacity(RUNS);
         let mut rusqlite_samples = Vec::with_capacity(RUNS);
         for _ in 0..RUNS {
-            let db = runtime.block_on(new_alun_db());
-            alun_samples.push(measure(&mut || {
-                runtime.block_on(alun_insert(&db, &rows));
+            let db = runtime.block_on(new_nik_db());
+            nik_samples.push(measure(&mut || {
+                runtime.block_on(nik_insert(&db, &rows));
             }));
 
             let conn = new_rusqlite();
@@ -486,15 +486,15 @@ fn main() {
         Row {
             op: "批量插入",
             magnitude,
-            nik: median(alun_samples),
+            nik: median(nik_samples),
             rusqlite: median(rusqlite_samples),
         }
         .print();
 
         // ---- 其余操作：各自装载一次数据后测量 ----
         let nik_db = runtime.block_on(async {
-            let db = new_alun_db().await;
-            alun_insert(&db, &rows).await;
+            let db = new_nik_db().await;
+            nik_insert(&db, &rows).await;
             db
         });
         let rusqlite_conn = new_rusqlite();
@@ -504,7 +504,7 @@ fn main() {
             op: "主键点查",
             magnitude,
             nik: bench(RUNS, || {
-                runtime.block_on(alun_lookup(&nik_db, &ids));
+                runtime.block_on(nik_lookup(&nik_db, &ids));
             }),
             rusqlite: bench(RUNS, || rusqlite_lookup(&rusqlite_conn, &ids)),
         };
@@ -514,7 +514,7 @@ fn main() {
             op: "分页遍历",
             magnitude,
             nik: bench(RUNS, || {
-                runtime.block_on(alun_paginate(&nik_db));
+                runtime.block_on(nik_paginate(&nik_db));
             }),
             rusqlite: bench(RUNS, || rusqlite_paginate(&rusqlite_conn)),
         };
@@ -524,7 +524,7 @@ fn main() {
             op: "全表聚合",
             magnitude,
             nik: bench(RUNS, || {
-                runtime.block_on(alun_aggregate(&nik_db));
+                runtime.block_on(nik_aggregate(&nik_db));
             }),
             rusqlite: bench(RUNS, || rusqlite_aggregate(&rusqlite_conn)),
         };
@@ -572,15 +572,15 @@ fn main() {
     let rows = make_rows(magnitude);
     let ids = lookup_ids(magnitude, LOOKUPS);
     let probe_db = multi.block_on(async {
-        let db = new_alun_db().await;
-        alun_insert(&db, &rows).await;
+        let db = new_nik_db().await;
+        nik_insert(&db, &rows).await;
         db
     });
     let model_lookup = bench(RUNS, || {
-        multi.block_on(alun_lookup(&probe_db, &ids));
+        multi.block_on(nik_lookup(&probe_db, &ids));
     });
     let rendered_lookup = bench(RUNS, || {
-        multi.block_on(alun_lookup_rendered(&probe_db, &ids));
+        multi.block_on(nik_lookup_rendered(&probe_db, &ids));
     });
     let model = micros(model_lookup.elapsed) / LOOKUPS as f64;
     let rendered = micros(rendered_lookup.elapsed) / LOOKUPS as f64;

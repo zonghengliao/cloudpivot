@@ -11,9 +11,9 @@
 //!
 //! | 指标 | 类型 | 标签 | 含义 |
 //! |---|---|---|---|
-//! | `alun_http_requests_total` | counter | `method` `route` `status` | 请求数（`status` 取类别 `2xx`/`4xx`/`5xx`） |
-//! | `alun_http_request_duration_seconds` | histogram | `method` `route` | 请求耗时（秒） |
-//! | `alun_http_requests_in_flight` | gauge | — | 在途请求数（容量与堆积观测） |
+//! | `nik_http_requests_total` | counter | `method` `route` `status` | 请求数（`status` 取类别 `2xx`/`4xx`/`5xx`） |
+//! | `nik_http_request_duration_seconds` | histogram | `method` `route` | 请求耗时（秒） |
+//! | `nik_http_requests_in_flight` | gauge | — | 在途请求数（容量与堆积观测） |
 //!
 //! # 两个刻意的取舍
 //!
@@ -42,11 +42,11 @@ use tower::{Layer, Service};
 use nik_config::MetricsConfig;
 
 /// 请求计数
-pub const HTTP_REQUESTS_TOTAL: &str = "alun_http_requests_total";
+pub const HTTP_REQUESTS_TOTAL: &str = "nik_http_requests_total";
 /// 请求耗时（秒，直方图）
-pub const HTTP_REQUEST_DURATION_SECONDS: &str = "alun_http_request_duration_seconds";
+pub const HTTP_REQUEST_DURATION_SECONDS: &str = "nik_http_request_duration_seconds";
 /// 在途请求数
-pub const HTTP_REQUESTS_IN_FLIGHT: &str = "alun_http_requests_in_flight";
+pub const HTTP_REQUESTS_IN_FLIGHT: &str = "nik_http_requests_in_flight";
 
 /// `route` 标签的**硬上限**。
 ///
@@ -558,11 +558,11 @@ mod tests {
 
         let rendered = handle.render();
         assert!(
-            rendered.contains("alun_http_requests_total"),
+            rendered.contains("nik_http_requests_total"),
             "应记录请求计数：{rendered}"
         );
         assert!(
-            rendered.contains("alun_http_request_duration_seconds"),
+            rendered.contains("nik_http_request_duration_seconds"),
             "应记录耗时直方图：{rendered}"
         );
         assert!(
@@ -582,7 +582,7 @@ mod tests {
             .render()
             .lines()
             .filter(|l| {
-                l.starts_with("alun_http_requests_total") && l.contains(r#"route="/metrics""#)
+                l.starts_with("nik_http_requests_total") && l.contains(r#"route="/metrics""#)
             })
             .count();
         let app = Router::new()
@@ -601,7 +601,7 @@ mod tests {
             .render()
             .lines()
             .filter(|l| {
-                l.starts_with("alun_http_requests_total") && l.contains(r#"route="/metrics""#)
+                l.starts_with("nik_http_requests_total") && l.contains(r#"route="/metrics""#)
             })
             .count();
         assert_eq!(

@@ -67,7 +67,7 @@ async fn endpoint_is_mounted_and_scrapeable_when_enabled() {
         .expect("read body");
     let text = String::from_utf8(body.to_vec()).expect("utf8");
     assert!(
-        text.contains("alun_http_requests_total"),
+        text.contains("nik_http_requests_total"),
         "埋点应进入导出文本：{text}"
     );
     assert!(
@@ -80,7 +80,7 @@ async fn endpoint_is_mounted_and_scrapeable_when_enabled() {
     );
     // 元数据：指标必须自带说明，否则运维拿到一堆裸序列无从下手
     assert!(
-        text.contains("# HELP alun_http_requests_total"),
+        text.contains("# HELP nik_http_requests_total"),
         "导出文本应带 # HELP 说明行：{text}"
     );
 }

@@ -566,7 +566,7 @@ pub struct PermissionConfig {
     ///
     /// 默认 `false`：配置文件规则不生效。关闭它只跳过 `rules`，
     /// **不会**跳过 `#[permission]` 宏注解规则——宏注解是编译期契约，
-    /// 只要存在注解规则就必然挂载校验层（安全默认，见 alun-ledger D007）。
+    /// 只要存在注解规则就必然挂载校验层（安全默认，见 nik-ledger D007）。
     #[serde(default)]
     pub enabled: bool,
 

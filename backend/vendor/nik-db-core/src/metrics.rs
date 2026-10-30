@@ -1,11 +1,11 @@
 //! F10 · `nik-db-core` 侧指标元数据
 //!
 //! 本 crate 只有一个埋点：受信任原始 SQL 的**调用计数**
-//! （`alun_db_raw_sql_total`，见 [`Expr::raw_trusted`](crate::expr::Expr::raw_trusted)）。
+//! （`nik_db_raw_sql_total`，见 [`Expr::raw_trusted`](crate::expr::Expr::raw_trusted)）。
 //! 这里只负责给它补上单位与说明，让 Prometheus 的 `/metrics` 输出带 `# HELP`。
 
 /// 受信任原始 SQL 的调用计数
-pub const RAW_SQL_TOTAL: &str = "alun_db_raw_sql_total";
+pub const RAW_SQL_TOTAL: &str = "nik_db_raw_sql_total";
 
 /// 注册指标元数据（单位 + 说明）。
 ///

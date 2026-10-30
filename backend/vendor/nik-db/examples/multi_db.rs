@@ -14,8 +14,8 @@
 //! ```
 //!
 //! 连接串可用环境变量覆盖：
-//! - `ALUN_TEST_PG_URL`（默认 postgres://nik:nik@localhost:5432/alun_test）
-//! - `ALUN_TEST_MYSQL_URL`（默认 mysql://nik:nik@localhost:3306/alun_test）
+//! - `ALUN_TEST_PG_URL`（默认 postgres://nik:nik@localhost:5432/nik_test）
+//! - `ALUN_TEST_MYSQL_URL`（默认 mysql://nik:nik@localhost:3306/nik_test）
 
 use nik_db::prelude::*;
 use nik_db_core::stmt::Value;
@@ -363,7 +363,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
 
     // PostgreSQL / MySQL：需 docker compose up -d
     if let Some(pg) = connect_opt(
-        "postgres://nik:nik@localhost:5432/alun_test",
+        "postgres://nik:nik@localhost:5432/nik_test",
         "ALUN_TEST_PG_URL",
     )
     .await
@@ -373,7 +373,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     }
 
     if let Some(my) = connect_opt(
-        "mysql://nik:nik@localhost:3306/alun_test",
+        "mysql://nik:nik@localhost:3306/nik_test",
         "ALUN_TEST_MYSQL_URL",
     )
     .await

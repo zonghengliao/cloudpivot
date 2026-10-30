@@ -1,6 +1,6 @@
 //! 类型定义：后端配置、插件配置、编译期注册条目
 //!
-//! 参考 alun_task::types 的双层配置模型：
+//! 参考 nik_task::types 的双层配置模型：
 //! - `BackendConfig` — 每种 backend_type 一份（类比 TaskConfig）
 //! - `FsPluginConfig` — 全局运行时配置（类比 TaskWorkerConfig）
 //! - `BackendEntry` — 编译期注册条目（类比 TaskHandlerEntry）
@@ -49,7 +49,7 @@ impl Default for BackendConfig {
 /// FsPlugin 的全局运行时配置
 ///
 /// 从 config.toml 的 `[fs]` section 读取。
-/// 参考 alun_task::TaskWorkerConfig — 全局运行时参数。
+/// 参考 nik_task::TaskWorkerConfig — 全局运行时参数。
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct FsPluginConfig {
     /// 默认后端类型
@@ -94,7 +94,7 @@ impl Default for FsPluginConfig {
 ///
 /// 业务项目通过 `inventory::submit!` 声明后端，编译期自动收集。
 ///
-/// 参考 alun_task::TaskHandlerEntry。
+/// 参考 nik_task::TaskHandlerEntry。
 #[derive(Debug, Clone)]
 pub struct BackendEntry {
     /// 后端类型标识（如 "minio", "s3"）

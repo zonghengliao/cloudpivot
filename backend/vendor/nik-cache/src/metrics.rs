@@ -8,8 +8,8 @@
 //!
 //! | 指标 | 类型 | 标签 | 含义 |
 //! |---|---|---|---|
-//! | `alun_cache_operations_total` | counter | `op` `result` | 操作计数；`result` ∈ `hit` / `miss` / `ok` / `error` |
-//! | `alun_cache_operation_duration_seconds` | histogram | `op` | 操作耗时（秒） |
+//! | `nik_cache_operations_total` | counter | `op` `result` | 操作计数；`result` ∈ `hit` / `miss` / `ok` / `error` |
+//! | `nik_cache_operation_duration_seconds` | histogram | `op` | 操作耗时（秒） |
 //!
 //! # 为什么 `hit` / `miss` 只在 `get` 上分
 //!
@@ -22,9 +22,9 @@ use nik_core::Result;
 use std::time::Instant;
 
 /// 操作计数
-pub const CACHE_OPERATIONS_TOTAL: &str = "alun_cache_operations_total";
+pub const CACHE_OPERATIONS_TOTAL: &str = "nik_cache_operations_total";
 /// 操作耗时（秒，直方图）
-pub const CACHE_OPERATION_DURATION_SECONDS: &str = "alun_cache_operation_duration_seconds";
+pub const CACHE_OPERATION_DURATION_SECONDS: &str = "nik_cache_operation_duration_seconds";
 
 /// 注册指标元数据（单位 + 说明），让 Prometheus 的文本输出带上 `# HELP`。
 ///

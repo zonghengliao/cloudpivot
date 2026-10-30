@@ -270,13 +270,13 @@ impl Expr {
         // F10：受信任原始 SQL 的**调用计数**。
         //
         // 它回答运维/安全巡检里最关键的一问："这套系统里到底有没有人绕过了
-        // 列引用与值绑定？用了多少次？"——`alun_db_raw_sql_total` 从 0 变正的
+        // 列引用与值绑定？用了多少次？"——`nik_db_raw_sql_total` 从 0 变正的
         // 那一刻，就是一次值得复盘的信号。与 F15（把 `Expr::Raw` 密封为唯一入口）
         // 联动：入口唯一 ⇒ 计数必然完备。
         #[cfg(feature = "metrics")]
         {
             crate::metrics::describe_once();
-            metrics::counter!("alun_db_raw_sql_total", "kind" => "trusted").increment(1);
+            metrics::counter!("nik_db_raw_sql_total", "kind" => "trusted").increment(1);
         }
 
         Expr::Raw(RawSql {
@@ -298,7 +298,7 @@ impl Expr {
         #[cfg(feature = "metrics")]
         {
             crate::metrics::describe_once();
-            metrics::counter!("alun_db_raw_sql_total", "kind" => "trusted_bound").increment(1);
+            metrics::counter!("nik_db_raw_sql_total", "kind" => "trusted_bound").increment(1);
         }
 
         Expr::Raw(RawSql {

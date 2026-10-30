@@ -102,7 +102,7 @@ Alun 的 Web 层：应用装配、路由、中间件、提取器、统一响应�
 | `config` | 基于配置的应用构造 |
 | `db` | `nik-db`、`resources::{db, try_db, set_db}`、`PageResponseExt`（隐含 `config`） |
 | `cache` | `nik-cache`、`resources::{cache, try_cache, set_cache}`、JWT 黑名单 / 刷新、`NonceLayer`、`IdempotencyLayer` |
-| `template` | `alun-template`、`resources::{render_template, try_template, set_template}` |
+| `template` | `nik-template`、`resources::{render_template, try_template, set_template}` |
 | `sse` | `nik_web::sse::{Broadcaster, sse_json}` |
 | `metrics` | `metrics` 门面（HTTP 自动埋点）；`metrics-prometheus` 额外装 recorder 并挂 `/metrics` |
 

@@ -84,7 +84,7 @@
 //! | 功能 | 启用模块 | 描述 |
 //! |------|---------|------|
 //! | `cache` | `nik_cache` | 缓存抽象（本地内存 / Redis）|
-//! | `template` | `alun_template` | Jinja2 模板引擎（minijinja）|
+//! | `template` | `nik_template` | Jinja2 模板引擎（minijinja）|
 //! | `plugin` | `nik_plugin` | 插件基础设施（定时任务、通知、单号）|
 //! | `fs` | `nik_fs` | 文件存储抽象能力（等价 `fs-local`）|
 //! | `sse` | `nik_web/sse` | 单向实时推送辅助：`Broadcaster` + `sse_json`（仅 `futures-util`，无重量依赖）|
@@ -116,9 +116,9 @@
 //!
 //! | 功能 | 启用模块 | 描述 |
 //! |------|---------|------|
-//! | `kafka` | `alun_kafka` | Kafka 生产者/消费者 |
-//! | `task` | `alun_task`（`model`）| **任务模型**：`#[task_handler]` 收集、存储抽象、类型、重试策略。无 Kafka |
-//! | `task-kafka` | `alun_task`（`kafka`）| 在 `task` 之上再加 Kafka worker 与 `TaskPlugin` |
+//! | `kafka` | `nik_kafka` | Kafka 生产者/消费者 |
+//! | `task` | `nik_task`（`model`）| **任务模型**：`#[task_handler]` 收集、存储抽象、类型、重试策略。无 Kafka |
+//! | `task-kafka` | `nik_task`（`kafka`）| 在 `task` 之上再加 Kafka worker 与 `TaskPlugin` |
 //!
 //! > `kafka` / `task-kafka` 传递依赖 `rdkafka`，**构建需要 CMake + C 工具链**
 //! > （librdkafka 的 `configure` 是 Unix shell 脚本，纯 Windows 工具链下无法构建）。
@@ -1003,11 +1003,11 @@
 //!
 //! 需要 `features = ["task"]`。Kafka 驱动的分布式任务，支持重试和死信队列。
 //!
-//! 该示例依赖非默认 feature（`alun_task` 仅在 `task` 下再导出、宏展开也引用它），
+//! 该示例依赖非默认 feature（`nik_task` 仅在 `task` 下再导出、宏展开也引用它），
 //! 故按文档约定用 `ignore` 只作示意，不参与默认 feature 下的 doctest 编译。
 //!
 //! ```rust,ignore
-//! use nik::alun_task::TaskHandler;
+//! use nik::nik_task::TaskHandler;
 //! use serde_json::{json, Value};
 //!
 //! #[nik::task_handler(task_type = 1, topic = "export", timeout_seconds = 60, max_retries = 3)]
@@ -1233,7 +1233,7 @@ pub mod prelude {
     pub use serde_json::{Value as JsonValue, json};
 
     #[cfg(feature = "template")]
-    pub use alun_template::TemplateEngine;
+    pub use nik_template::TemplateEngine;
 
     #[cfg(feature = "cache")]
     pub use nik_cache::{Cache, CacheStats, LocalCache};
@@ -1341,10 +1341,10 @@ pub use uuid;
 pub use nik_web as web;
 
 #[cfg(feature = "kafka")]
-pub use alun_kafka;
+pub use nik_kafka;
 
 #[cfg(feature = "task")]
-pub use alun_task;
+pub use nik_task;
 
 #[cfg(feature = "fs")]
 pub use nik_fs;

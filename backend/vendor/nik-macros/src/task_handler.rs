@@ -37,10 +37,10 @@ pub fn task_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     let struct_name = &input.ident;
 
     let mut task_type: Option<i16> = None;
-    let mut priority = quote! { ::nik::alun_task::TaskPriority::Normal };
+    let mut priority = quote! { ::nik::nik_task::TaskPriority::Normal };
     let mut timeout_seconds = 300u64;
     let mut max_retries = 3u32;
-    let mut retry_strategy = quote! { ::nik::alun_task::RetryStrategy::Linear };
+    let mut retry_strategy = quote! { ::nik::nik_task::RetryStrategy::Linear };
     let mut retry_delay_seconds = 30u64;
     let mut max_retry_delay_seconds = 300u64;
     let mut topic: Option<String> = None;
@@ -66,10 +66,10 @@ pub fn task_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let lit: Lit = value.parse().unwrap();
                 if let Lit::Str(v) = lit {
                     let p = match v.value().as_str() {
-                        "High" => quote! { ::nik::alun_task::TaskPriority::High },
-                        "Low" => quote! { ::nik::alun_task::TaskPriority::Low },
-                        "Critical" => quote! { ::nik::alun_task::TaskPriority::Critical },
-                        _ => quote! { ::nik::alun_task::TaskPriority::Normal },
+                        "High" => quote! { ::nik::nik_task::TaskPriority::High },
+                        "Low" => quote! { ::nik::nik_task::TaskPriority::Low },
+                        "Critical" => quote! { ::nik::nik_task::TaskPriority::Critical },
+                        _ => quote! { ::nik::nik_task::TaskPriority::Normal },
                     };
                     priority = p;
                 }
@@ -93,9 +93,9 @@ pub fn task_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
                 let lit: Lit = value.parse().unwrap();
                 if let Lit::Str(v) = lit {
                     let s = match v.value().as_str() {
-                        "Fixed" => quote! { ::nik::alun_task::RetryStrategy::Fixed },
-                        "Exponential" => quote! { ::nik::alun_task::RetryStrategy::Exponential },
-                        _ => quote! { ::nik::alun_task::RetryStrategy::Linear },
+                        "Fixed" => quote! { ::nik::nik_task::RetryStrategy::Fixed },
+                        "Exponential" => quote! { ::nik::nik_task::RetryStrategy::Exponential },
+                        _ => quote! { ::nik::nik_task::RetryStrategy::Linear },
                     };
                     retry_strategy = s;
                 }
@@ -162,10 +162,10 @@ pub fn task_handler_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
         #input
 
         ::nik::inventory::submit! {
-            ::nik::alun_task::TaskHandlerEntry {
+            ::nik::nik_task::TaskHandlerEntry {
                 task_type: #task_type_val,
                 handler_fn: || Box::new(#struct_name),
-                config_fn: || ::nik::alun_task::TaskConfig {
+                config_fn: || ::nik::nik_task::TaskConfig {
                     task_type: #task_type_val,
                     priority: #priority,
                     topic: #topic_str.to_string(),

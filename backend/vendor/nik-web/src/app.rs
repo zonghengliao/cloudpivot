@@ -1265,14 +1265,14 @@ impl App {
 
         #[cfg(feature = "template")]
         {
-            match alun_template::TemplateEngine::from_dir(&cfg.template.path) {
+            match nik_template::TemplateEngine::from_dir(&cfg.template.path) {
                 Ok(engine) => {
                     info!("模板引擎就绪 path={}", cfg.template.path);
                     set_template(engine).map_err(|e| nik_core::Error::Config(e.to_string()))?;
                 }
                 Err(e) => {
                     tracing::warn!("模板引擎初始化失败: {}，将使用空引擎", e);
-                    let _ = set_template(alun_template::TemplateEngine::new());
+                    let _ = set_template(nik_template::TemplateEngine::new());
                 }
             }
         }
@@ -2076,7 +2076,7 @@ mod tests {
         async fn send(router: &Router, bytes: usize) -> StatusCode {
             let request = axum::http::Request::builder()
                 .method("POST")
-                .uri("/api/alun-body-limit-echo")
+                .uri("/api/nik-body-limit-echo")
                 .body(Body::from(vec![b'x'; bytes]))
                 .expect("构造请求");
             router
@@ -2091,7 +2091,7 @@ mod tests {
         let limit = cfg.upload.max_request_body_bytes();
         let app = App::with_config(cfg).expect("App::with_config");
         let router = app.build_middleware_chain(
-            Router::new().route("/api/alun-body-limit-echo", axum::routing::post(echo_len)),
+            Router::new().route("/api/nik-body-limit-echo", axum::routing::post(echo_len)),
         );
 
         assert_eq!(

@@ -27,7 +27,7 @@ use nik_config::ConfigManager;
 #[cfg(feature = "db")]
 use nik_db::Db;
 #[cfg(feature = "template")]
-use alun_template::TemplateEngine;
+use nik_template::TemplateEngine;
 
 // 全局资源实例（单例，标准库 OnceLock）
 #[cfg(feature = "db")]

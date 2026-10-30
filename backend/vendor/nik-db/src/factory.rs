@@ -29,7 +29,7 @@ pub(crate) async fn create_driver(config: &DatabaseConfig) -> Result<Arc<dyn Raw
     let executor: Arc<dyn RawExecutor> = match config.db_type.as_str() {
         #[cfg(feature = "sqlite")]
         "sqlite" => {
-            let driver = alun_db_driver_sqlite::SqliteDriver;
+            let driver = nik_db_driver_sqlite::SqliteDriver;
             Arc::new(
                 driver
                     .connect(&config.url, config.pool.clone().into())
@@ -49,7 +49,7 @@ pub(crate) async fn create_driver(config: &DatabaseConfig) -> Result<Arc<dyn Raw
 
         #[cfg(feature = "mysql")]
         "mysql" => {
-            let driver = alun_db_driver_mysql::MysqlDriver;
+            let driver = nik_db_driver_mysql::MysqlDriver;
             Arc::new(
                 driver
                     .connect(&config.url, config.pool.clone().into())

@@ -18,7 +18,7 @@ Alun 的过程宏：`#[get]`、`#[post]`、`#[put]`、`#[patch]`、`#[delete]`�
 | `#[permission(path = …, method = …, permission = …)]` | `async fn` | 注册一条权限规则 |
 | `#[no_auth("/path")]` | `async fn` | 记入免鉴权路径 |
 | `#[layer(L)]` | `async fn` | **路由级 layer**：摘掉该路由的自注册、改生成带 layer 的注册（须写在路由注解**上方**） |
-| `#[plugin]` | `struct` | 标记插件类型，并生成固有的 `alun_plugin_name()` 访问器 |
+| `#[plugin]` | `struct` | 标记插件类型，并生成固有的 `nik_plugin_name()` 访问器 |
 | `#[task_handler(task_type = …, …)]` | `struct` | 注册异步任务处理器 |
 
 ### `#[routes]`（新代码推荐）
@@ -90,7 +90,7 @@ async fn admin_stats() -> Res<&'static str> {
 
 ```rust,ignore
 use nik_macros::task_handler;
-use alun_task::TaskHandler;
+use nik_task::TaskHandler;
 
 #[task_handler(task_type = 1, topic = "export", timeout_seconds = 60)]
 struct ExportHandler;
