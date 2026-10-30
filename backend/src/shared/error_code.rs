@@ -982,11 +982,23 @@ pub const ERP_SERIAL_NOT_REQUIRED: i32 = 66007;
 /// 而是业务规则拒绝」：前端要提示「要重新入库请生成新序列号」，不是「改一下参数」。
 pub const ERP_SERIAL_STATUS_INVALID: i32 = 66008;
 
+/// 账不平（HTTP 500）：**总账 / 科目余额表的一致性闸**（P2-D1）。
+///
+/// 触发场景只有两种，都是「账本被写坏了」而不是「用户填错了」：
+///
+/// 1. `Σ本期借方 ≠ Σ本期贷方`（科目余额表）；
+/// 2. 凭证详情的分录合计 ≠ 单头 `total_debit` / `total_credit`。
+///
+/// 为什么是 500 而不是 4xx：单张凭证有 `CHECK (total_debit = total_credit)`，
+/// 正常路径不可能不平 —— 响了就是数据损坏（手工改库 / 红冲写坏分录），
+/// 必须让监控抓到、让运维按消息里的「Σ借 / Σ贷 / 差额」定位，绝不能静默返回一张错的报表。
+pub const ERP_LEDGER_UNBALANCED: i32 = 66009;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// W1c + W2b 段自检：66xxx 段 8 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
+    /// W1c + W2b + P2-D1 段自检：66xxx 段 9 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
     ///
     /// 与 [`flow_error_codes_are_stable`] 同一口径：码值是前端文案映射的契约，
     /// 后续卡不许改值（要新语义就往下加号）。
@@ -1001,6 +1013,7 @@ mod tests {
             (ERP_FILTER_INVALID, 66006),
             (ERP_SERIAL_NOT_REQUIRED, 66007),
             (ERP_SERIAL_STATUS_INVALID, 66008),
+            (ERP_LEDGER_UNBALANCED, 66009),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
