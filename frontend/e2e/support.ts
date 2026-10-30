@@ -55,14 +55,83 @@ export function readSharedToken(): string {
 
 /**
  * 已带登录态的用例入口：直接进目标页；万一被踢回登录页（令牌过期）再走一次真实表单登录。
+ *
+ * # 两种「不是用例的错」的失败，这里提前翻译成人话
+ *
+ * - **导航返回 404**：多半是前端 dist 正在被替换（发布窗口里 `mv dist dist.old` 与
+ *   `mv dist.new dist` 之间的空窗，nginx 拿不到 `index.html` 就直接 404）。不翻译的话
+ *   症状是 `.basic-layout__aside` 15s 不可见，看不出跟发布有关（2026-10-30 12:54:55 就撞过）。
+ * - **导航返回 429**：生产限流（300 req/60s，按 IP）。不翻译的话症状是用例里某个断言干等超时。
  */
 export async function openAuthed(page: Page, path: string): Promise<void> {
-  await page.goto(path);
+  watchRateLimit(page);
+  assertNavigationOk(await page.goto(path), path);
   if (/\/login/.test(page.url())) {
     await login(page);
-    await page.goto(path);
+    assertNavigationOk(await page.goto(path), path);
   }
   await expect(page.locator('.basic-layout__aside')).toBeVisible();
+}
+
+/**
+ * 导航响应体检：把「发布窗口的 404」「限流 429」「网关 5xx」直接抛成可读错误。
+ *
+ * SPA 深链的响应就是 `index.html`，所以 200 是正常值；非 200 一律先怀疑环境而不是用例。
+ */
+export function assertNavigationOk(
+  response: import('@playwright/test').Response | null,
+  path: string,
+): void {
+  if (!response) {
+    return; // about:blank / data: 之类没有主文档响应的导航
+  }
+  const status = response.status();
+  if (status < 400) {
+    return;
+  }
+  if (status === 404) {
+    throw new Error(
+      `打开 ${path} 返回 404：大概率是前端 dist 正在被替换（发布窗口的空窗期），不是用例问题。` +
+        '等发布结束（可「ls -ld /opt/cloudpivot/frontend/dist」看 mtime 是否稳定）后重跑，见 e2e/README.md「已知前提 → 发布窗口」。',
+    );
+  }
+  if (status === 429) {
+    throw new Error(
+      `打开 ${path} 命中生产限流 429（300 req/60s，按 IP）：冷却 ≥60s 后再单跑，别连跑、别并发、` +
+        `别和别人的跑重叠，见 e2e/README.md「限流与连跑间隔」。`,
+    );
+  }
+  throw new Error(`打开 ${path} 返回 ${status}：后端/网关异常，先看 systemctl status cloudpivot 与 journalctl -u cloudpivot。`);
+}
+
+/** 每个 page 命中的 429（用来给失败原因「加一句解释」） */
+const rateLimitHits = new WeakMap<Page, string[]>();
+
+/**
+ * 装 429 监听（每个 page 只装一次）。
+ *
+ * 命中时不仅记账，还会 `console.warn` 一行 `[e2e] 生产限流 429: <METHOD> <path>`，
+ * **CI 日志里直接能看到**——比「某个 toast 20s 没出现」好定位得多。
+ */
+export function watchRateLimit(page: Page): void {
+  if (rateLimitHits.has(page)) {
+    return;
+  }
+  const hits: string[] = [];
+  rateLimitHits.set(page, hits);
+  page.on('response', (response) => {
+    if (response.status() !== 429) {
+      return;
+    }
+    const where = `${response.request().method()} ${response.url().replace(BASE_URL, '')}`;
+    hits.push(where);
+    console.warn(`[e2e] 生产限流 429: ${where}（300 req/60s 按 IP，冷却 ≥60s 后单跑）`);
+  });
+}
+
+/** 取该 page 命中过的 429（诊断用；空数组 = 没被限流过） */
+export function rateLimitHitsOf(page: Page): string[] {
+  return [...(rateLimitHits.get(page) ?? [])];
 }
 
 /** TDesign 消息条文案（成功 / 失败提示都在这里） */
