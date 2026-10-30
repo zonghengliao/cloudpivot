@@ -180,7 +180,7 @@ pub struct TaskCreateReq {
     pub need_review: Option<bool>,
     /// 负责人（缺省 = 创建人自己；传他人 = 直接分派）。
     pub owner_id: Option<String>,
-    /// 父任务（可空；深度限 2 层）。
+    /// 父任务（可空；父子深度上限 8 层，见 [`crate::business::task::model::MAX_TASK_DEPTH`]）。
     pub parent_id: Option<String>,
     /// 所属项目（可空，P1）。
     pub project_id: Option<String>,
