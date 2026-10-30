@@ -515,6 +515,14 @@ export const TASK_ERROR_CODE = {
   SCHEDULE_SUCCESSOR: 63111,
   /** 400：子任务跑出父任务区间，或父任务把子任务甩出区间（后端点名父子） */
   SCHEDULE_PARENT_RANGE: 63112,
+  /**
+   * 409：任务挂了审批单且实例 `PENDING`，`REVIEW → DONE / DOING` 被门闸拦下
+   * （后端 `TASK_APPROVAL_PENDING`，批次 D·D3a）。
+   *
+   * 前端必须**给跳出任务页的入口**：审批结论只能在审批中心里下，
+   * 在任务详情上反复点按钮只会一直撞同一道门。
+   */
+  APPROVAL_PENDING: 65030,
 } as const;
 
 /**

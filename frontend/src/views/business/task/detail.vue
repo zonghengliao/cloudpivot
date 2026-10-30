@@ -32,16 +32,10 @@
             </t-tag>
           </div>
           <div class="head__actions">
-            <!-- 状态流转按钮：T2（状态机）未就绪，先画出来置灰，接口见 api/business/task-api.ts 末尾 TODO -->
-            <t-tooltip content="状态流转功能即将上线" placement="top">
-              <span class="head__disabled-group">
-                <t-button size="small" variant="outline" disabled>开始处理</t-button>
-                <t-button size="small" variant="outline" disabled>提交验收</t-button>
-                <t-button size="small" variant="outline" disabled>完成</t-button>
-                <t-button size="small" variant="outline" disabled>取消</t-button>
-              </span>
-            </t-tooltip>
-            <t-space size="small">
+            <!-- 状态流转按钮（E5）：按「当前状态 + 我的角色位 + business:task:status」动态渲染；
+                 没有可做的流转 → 整块不出现（不再是「画出来置灰」） -->
+            <StatusActions :task="detail" @changed="handleStatusChanged" />
+            <t-space size="small" class="head__ops">
               <t-button
                 v-privilege="[PERM.taskUpdate]"
                 size="small"
@@ -368,6 +362,7 @@ import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
 import MentionSelect from './components/MentionSelect.vue';
+import StatusActions from './components/StatusActions.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
 import { ApiError } from '@/api/request';
 import {
@@ -411,6 +406,8 @@ const emit = defineEmits<{
   (event: 'edit', id: string): void;
   /** 删除成功 */
   (event: 'deleted', id: string): void;
+  /** 状态流转成功（列表页据此刷新当前视图：列表 / 看板） */
+  (event: 'changed', id: string): void;
 }>();
 
 /** 详情数据 */
@@ -483,6 +480,20 @@ async function loadDetail(): Promise<void> {
     errorMessage.value = error instanceof ApiError ? error.message : '任务详情加载失败，请重试';
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * 状态流转成功（`StatusActions` 的回执）。
+ *
+ * **只重拉详情，不在本地改 `detail`**：后端会联动 `progress` / `done_at` /
+ * `reject_reason` / 父任务进度，本地拼一份「看起来对」的数据迟早跟库不一致。
+ * 同时向上 emit `changed`，让列表页刷新当前视图（列表分页 / 看板五列）。
+ */
+function handleStatusChanged(): void {
+  void loadDetail();
+  if (props.taskId) {
+    emit('changed', props.taskId);
   }
 }
 
@@ -1030,11 +1041,9 @@ function resetCollab(): void {
     margin-top: 12px;
   }
 
-  // 禁用按钮组：t-tooltip 需要一个能接收事件的宿主元素，包一层 span
-  &__disabled-group {
-    display: inline-flex;
-    gap: 8px;
-    flex-wrap: wrap;
+  // 编辑 / 删除：没有状态按钮时也靠右（`space-between` 单子节点会掉到左边）
+  &__ops {
+    margin-left: auto;
   }
 }
 

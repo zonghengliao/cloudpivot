@@ -220,11 +220,12 @@ export const CHANGELOG_PERMISSIONS = {
 } as const;
 
 /**
- * 工作任务权限码（4 个，`business:task:*`）。
+ * 工作任务权限码（5 个，`business:task:*`）。
  *
- * 与后台 `V0103__seed_task_permissions.up.sql` 的 4 个 `auth_code` 逐字一致
- * （第 5 个节点 …0760 是页面本身，auth_code 复用 `read`）；后端注解在
- * `backend/src/business/task/handler.rs`。三处任一处改名都要同步。
+ * 前 4 个与后台 `V0103__seed_task_permissions.up.sql` 的 `auth_code` 逐字一致
+ * （第 5 个节点 …0760 是页面本身，auth_code 复用 `read`）；第 5 个
+ * `business:task:status`（改状态）由 `V0108` 补种（按钮节点 …0765）。
+ * 后端注解在 `backend/src/business/task/handler.rs`。三处任一处改名都要同步。
  */
 export const TASK_PERMISSIONS = {
   /** 查看任务（菜单入口 / 分页 / 详情 / 我的任务） */
@@ -235,6 +236,13 @@ export const TASK_PERMISSIONS = {
   taskUpdate: 'business:task:update',
   /** 删除任务（软删：负责人 / 创建人 / 管理员） */
   taskDelete: 'business:task:delete',
+  /**
+   * 改状态（`PATCH /business/task/{id}/status`，10 条白名单流转）。
+   *
+   * 只是**第一道门**：接口层还要过行级角色（负责人 / 创建人 / 分派人 / 管理员），
+   * 所以详情页的按钮显隐 = 有本码 **且** 角色位命中（见 `StatusActions.vue`）。
+   */
+  taskStatus: 'business:task:status',
 } as const;
 
 /** 项目分组权限码（T7c，4 个；`V0115` 建节点 + `S__task_project_permissions` 授权） */

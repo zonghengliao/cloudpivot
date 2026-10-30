@@ -193,7 +193,13 @@
     <TaskForm v-model:visible="formVisible" :task-id="editingId" @saved="handleSaved" />
 
     <!-- 详情抽屉 -->
-    <TaskDetail v-model:visible="detailVisible" :task-id="viewingId" @edit="handleEditFromDetail" @deleted="handleDeleted" />
+    <TaskDetail
+      v-model:visible="detailVisible"
+      :task-id="viewingId"
+      @edit="handleEditFromDetail"
+      @deleted="handleDeleted"
+      @changed="handleSaved"
+    />
   </div>
 </template>
 
