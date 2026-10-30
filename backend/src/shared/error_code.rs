@@ -530,6 +530,20 @@ pub const TASK_MEMBER_INVALID: i32 = 63019;
 /// 该用户不是本任务的协作人（HTTP 404）。
 pub const TASK_MEMBER_NOT_FOUND: i32 = 63020;
 
+// ── T11 追加（63021）：父任务取消后的子任务守卫 ──────────────────────────
+
+/// 父任务已取消，子任务不能继续推进（HTTP 409）。
+///
+/// # 为什么必须是一等业务码、而不是复用 63010（非法流转）
+///
+/// 63010 的语义是「这个 `from → to` 组合不存在」，提示用户「刷新看看当前状态」；
+/// 本码的语义是「流转本身合法，但**父任务已经作废**」，用户要做的动作是
+/// 「先恢复父任务（或另起一条线）」，两者文案与后续动作都不同。
+///
+/// 触发面：`PATCH /business/task/{id}/status`（子任务自己 → `CANCELLED` 除外，
+/// 那是幂等收敛，见 `task::model::blocks_child_advance`）。
+pub const TASK_PARENT_CANCELLED: i32 = 63021;
+
 // ── T4 追加（631xx 子段）：依赖环检测 / 前置阻塞 / 甘特时间窗 ─────────────
 //
 // 为什么这批码跳到 **631xx** 而不是接着 63021：卡面 t_687d35b1 明确要求
@@ -1116,6 +1130,8 @@ mod tests {
             (TASK_ASSIGN_CONFLICT, 63018),
             (TASK_MEMBER_INVALID, 63019),
             (TASK_MEMBER_NOT_FOUND, 63020),
+            // T11 追加：父任务取消后的子任务守卫
+            (TASK_PARENT_CANCELLED, 63021),
             // T4 追加：依赖环检测 / 前置阻塞 / 依赖不合法 / 依赖不存在 / 甘特时间窗
             (TASK_DEPENDENCY_CYCLE, 63101),
             (TASK_DEPENDENCY_BLOCKED, 63102),
@@ -1144,7 +1160,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63020 + 63101–63105 + 63110–63112 + 63301–63308）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63021 + 63101–63105 + 63110–63112 + 63301–63308）✓",
             codes.len()
         );
     }

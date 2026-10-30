@@ -2258,6 +2258,174 @@ pub async fn cascade_parent_status(
     Ok(results)
 }
 
+// ==================== 父任务取消 → 子任务级联取消（T11） ====================
+//
+// 老大的原始缺陷（2026-10-30，老六流程自检实测）：
+//
+// ```text
+// ① 父任务 P 推到 CANCELLED → 200
+// ② 子任务 C 仍是 DOING        ← 漏洞 1：父已取消，子还在跑
+// ③ 子任务 C 还能推到 REVIEW   ← 漏洞 2：父已取消，子还能推进
+// ```
+//
+// 后果：**用户以为整条线作废了，worker 还在按子任务干活**，列表里出现
+// 「父已取消 / 子进行中」的矛盾状态。本段两条规则：
+//
+// | 规则 | 条件 | 动作 |
+// |------|------|------|
+// | ① | 本任务推到 `CANCELLED` | 同一事务里，全部**非终态**子孙（TODO/DOING/REVIEW）→ `CANCELLED` |
+// | ② | 父任务已是 `CANCELLED` | 子任务的状态流转一律拒绝（`CANCELLED` 自己幂等放行） |
+//
+// 四条红线（本卡验收口径）：
+//
+// 1. **一条 SQL**：级联用 `WITH RECURSIVE … UPDATE … RETURNING` 一次搞定 ——
+//    8 层 × 多个子任务时「每层每行一次 UPDATE」会爆炸（本卡红线 4）；
+// 2. **`DONE` 不回退**：已完成的子任务保持 `DONE`（事实不能被抹掉），但它自己
+//    下面还没结束的子孙照样取消；
+// 3. **`progress` 一个字不动**：公式归 [`recalc_ancestors`]，级联只写 `status`
+//    （与 T10 同一条红线）；
+// 4. **防环上限 = [`MAX_TASK_DEPTH`]**：`parent_id` 被手工改成环（`A→B→A`）时
+//    递归在第 8 层停下，**绝不死循环**（任何接口都造不出环，但脏数据可能在）。
+
+/// 级联取消写进子任务 `cancel_reason` 与变更日志的原因（审计要能一眼看出「不是我点的取消」）。
+pub const CASCADE_CANCEL_REASON: &str = "父任务已取消，级联取消";
+
+/// 一次级联取消的结果（`handler` 用它逐条写变更日志，单测断言用）。
+#[derive(Debug, Clone)]
+pub struct CancelCascade {
+    /// 被取消的任务。
+    pub task_id: Uuid,
+    /// 取消前的状态（只可能是 `TODO` / `DOING` / `REVIEW`）。
+    pub from: TaskStatus,
+}
+
+/// 纯逻辑：父任务已取消时，子任务的流转要不要拦（规则②，**碰不到数据库**）。
+///
+/// # 判定
+///
+/// - 父任务不是 `CANCELLED`（含没有父任务）→ 放行；
+/// - 子任务自己就是去 `CANCELLED` → 放行（**幂等**：父任务已取消时再点一次取消
+///   不该报错，那是收敛而不是推进）；
+/// - 其余一律拒绝（`409 + 63021`）。
+pub fn blocks_child_advance(parent: Option<TaskStatus>, to: TaskStatus) -> bool {
+    to != TaskStatus::Cancelled && parent == Some(TaskStatus::Cancelled)
+}
+
+/// 读「本任务的父任务」当前状态（`None` = 顶层任务 / 父任务不存在或已软删）。
+///
+/// 写路径传业务事务、读路径传 `db()`（同为 `&impl SqlExecutor`）。守卫要防的正是
+/// 「查的时候父任务还没取消、写的时候已经取消了」，所以 handler 在**事务内**会
+/// 用 `&tx` 再查一次（同一份实现，不留第二个真相源）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn parent_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
+    let rows = ex
+        .query_sql(
+            "SELECT p.status FROM biz_task t JOIN biz_task p ON p.id = t.parent_id \
+              WHERE t.id = ?::uuid AND p.deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let raw: String = row.get_typed("status")?;
+    Ok(TaskStatus::parse(&raw))
+}
+
+/// 级联取消的 SQL：**一条** `WITH RECURSIVE … UPDATE … RETURNING`。
+///
+/// # 三处非显然的写法
+///
+/// 1. `RETURNING b.id, v.status` 里的 `v.status` 是 CTE 快照里的**旧状态**：
+///    PG 的 `RETURNING` 只能取新值（`b.status` 已经是 `CANCELLED`），而变更日志
+///    要的正是「从哪个状态被取消的」—— 旧值必须从 `FROM` 那一侧拿；
+/// 2. `tree.depth < MAX_TASK_DEPTH` 既是**层级上限**（第 8 层之后没有合法任务），
+///    也是**防环闸**（脏数据成环时递归停在这里，不是靠运气）；
+/// 3. `status NOT IN ('DONE','CANCELLED')` 落在 `victims` 里（`UPDATE` 的
+///    `WHERE` 只能写目标表列，写 `v.status` 更清楚）：`DONE` 不回退、已取消不重复写。
+fn cascade_cancel_sql() -> String {
+    format!(
+        "WITH RECURSIVE tree(id, depth) AS ( \
+           SELECT t.id, 1::bigint FROM biz_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL \
+           UNION ALL \
+           SELECT c.id, tree.depth + 1 FROM biz_task c JOIN tree ON c.parent_id = tree.id \
+            WHERE c.deleted_at IS NULL AND tree.depth < {cap} \
+         ), victims AS ( \
+           SELECT b.id, b.status FROM biz_task b \
+            WHERE b.id IN (SELECT id FROM tree WHERE depth > 1) \
+              AND b.deleted_at IS NULL \
+              AND b.status NOT IN ('DONE', 'CANCELLED') \
+         ) \
+         UPDATE biz_task b SET status = 'CANCELLED', cancel_reason = ?, \
+                updated_at = now(), update_by = ?::uuid \
+           FROM victims v WHERE b.id = v.id \
+         RETURNING b.id, v.status",
+        cap = MAX_TASK_DEPTH,
+    )
+}
+
+/// 把 `parent_id` 下面**所有层级**的非终态子孙一次性改成 `CANCELLED`（规则①）。
+///
+/// # 行为
+///
+/// - 只改子孙，**不改 `parent_id` 自己**（本任务的状态由 handler 的 `apply_status` 写）；
+/// - `DONE` / `CANCELLED` 的子孙不动（前者是事实、后者已经收敛）；
+/// - 只写 `status` / `cancel_reason` / `updated_at` / `update_by`，**不碰 `progress`**；
+/// - 返回值 = 真正被取消的那些任务及其旧状态（handler 据此逐条写变更日志）。
+///
+/// # 红线：同一事务
+///
+/// `ex` 必须传业务事务（`&impl SqlExecutor`，**不许**在这里调 `db()`）：级联失败
+/// 要和父任务的取消一起回滚 —— 宁可直接拒了这次取消，也不接受「父任务 CANCELLED、
+/// 子任务还在 DOING」这种半截状态（正是本卡要修的漏洞形态）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（由调用方的事务整体回滚）。
+pub async fn cascade_cancel_descendants(
+    ex: &impl SqlExecutor,
+    parent_id: Uuid,
+    operator: Uuid,
+    reason: &str,
+) -> DbResult<Vec<CancelCascade>> {
+    let rows = ex
+        .query_sql(
+            cascade_cancel_sql(),
+            vec![
+                Value::from(&parent_id),
+                Value::Text(reason.to_string()),
+                Value::from(&operator),
+            ],
+        )
+        .await?;
+    let mut out = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let task_id: Uuid = row.get_typed("id")?;
+        let raw: String = row.get_typed("status")?;
+        match TaskStatus::parse(&raw) {
+            Some(from) => out.push(CancelCascade { task_id, from }),
+            // 状态不是 5 态之一（脏数据）：取消已经落库，但这一行没法写「从什么状态来的」，
+            // 打 WARN 让运维看见，不 panic（不能因为一行脏数据把整笔取消回滚）。
+            None => tracing::warn!(
+                task_id = %task_id,
+                status = %raw,
+                "级联取消命中非 5 态状态，变更日志无法记录 from"
+            ),
+        }
+    }
+    tracing::info!(
+        task_id = %parent_id,
+        cancelled = out.len() as i64,
+        reason,
+        "父任务取消：级联取消子任务"
+    );
+    Ok(out)
+}
+
 /// 评论类型：状态变更（时间线箭头）。
 pub const COMMENT_TYPE_STATUS_CHANGE: &str = "STATUS_CHANGE";
 
@@ -6150,5 +6318,527 @@ mod cascade_tests {
         )
         .await
         .expect("删触发器函数失败");
+    }
+
+    // ==================== T11：父任务取消 → 子任务级联取消 ====================
+    //
+    // 复用本模块的夹具（`setup` / `insert_task` / `status_of` / `uuid` / `U_ID`）与
+    // 那一把 `DB_LOCK`：真库用例必须串行，否则互删夹具。
+    mod t11_cancel {
+        use super::*;
+
+        /// 走生产同款写路径的最小子集：**同一事务**里「父任务取消 → 级联取消全部非终态子孙」。
+        ///
+        /// 与 `handler::change_status` 的事务体同序：先 `apply_status` 写父任务，再
+        /// `cascade_cancel_descendants`。两者失败一起回滚（用例⑧验证）。
+        async fn cancel_parent(parent: Uuid, me: Uuid) -> Vec<CancelCascade> {
+            let tx = db().begin().await.expect("开启事务失败");
+            let update = StatusUpdate {
+                to: TaskStatus::Cancelled.code().to_string(),
+                progress: None,
+                done_at: None,
+                reject_reason: None,
+                cancel_reason: Some(CASCADE_CANCEL_REASON.to_string()),
+            };
+            let affected = apply_status(&tx, parent, &update, me)
+                .await
+                .expect("父任务取消失败");
+            assert_eq!(affected, 1, "父任务必须存在");
+            let out = cascade_cancel_descendants(&tx, parent, me, CASCADE_CANCEL_REASON)
+                .await
+                .expect("级联取消失败");
+            tx.commit().await.expect("提交事务失败");
+            out
+        }
+
+        fn ids_of(out: &[CancelCascade]) -> std::collections::BTreeSet<Uuid> {
+            out.iter().map(|cancel| cancel.task_id).collect()
+        }
+
+        async fn progress_of(id: Uuid) -> i16 {
+            let rows = db()
+                .find_with_params(
+                    "SELECT progress FROM biz_task WHERE id = ?::uuid",
+                    vec![Value::from(&id)],
+                )
+                .await
+                .expect("查进度失败");
+            rows.first()
+                .expect("任务应存在")
+                .get_typed("progress")
+                .expect("取 progress")
+        }
+
+        async fn cancel_reason_of(id: Uuid) -> Option<String> {
+            let rows = db()
+                .find_with_params(
+                    "SELECT cancel_reason FROM biz_task WHERE id = ?::uuid",
+                    vec![Value::from(&id)],
+                )
+                .await
+                .expect("查取消原因失败");
+            rows.first()
+                .expect("任务应存在")
+                .get_typed("cancel_reason")
+                .expect("取 cancel_reason")
+        }
+
+        async fn drop_block_trigger() {
+            db().exec_sql(
+                "DROP TRIGGER IF EXISTS t11_block_cancel_trg ON biz_task".to_string(),
+                Vec::new(),
+            )
+            .await
+            .expect("清触发器失败");
+            db().exec_sql(
+                "DROP FUNCTION IF EXISTS t11_block_cancel()".to_string(),
+                Vec::new(),
+            )
+            .await
+            .expect("清触发器函数失败");
+        }
+
+        // ---------- ⑫ 纯逻辑（不连库）：守卫只在「父已取消 + 子要推进」时拦 ----------
+
+        #[test]
+        fn guard_blocks_only_advance_under_cancelled_parent() {
+            // 父已取消 → 推进一律拦
+            assert!(blocks_child_advance(
+                Some(TaskStatus::Cancelled),
+                TaskStatus::Doing
+            ));
+            assert!(blocks_child_advance(
+                Some(TaskStatus::Cancelled),
+                TaskStatus::Review
+            ));
+            assert!(blocks_child_advance(
+                Some(TaskStatus::Cancelled),
+                TaskStatus::Done
+            ));
+            // 子任务自己去 CANCELLED → 放行（幂等收敛，不是推进）
+            assert!(!blocks_child_advance(
+                Some(TaskStatus::Cancelled),
+                TaskStatus::Cancelled
+            ));
+            // 父任务没取消 / 没有父任务 → 放行
+            for parent in [
+                None,
+                Some(TaskStatus::Todo),
+                Some(TaskStatus::Doing),
+                Some(TaskStatus::Review),
+                Some(TaskStatus::Done),
+            ] {
+                assert!(
+                    !blocks_child_advance(parent, TaskStatus::Doing),
+                    "父任务 {parent:?} 不该拦子任务推进"
+                );
+            }
+        }
+
+        // ---------- ① 父取消 → 1 个 DOING 子任务变 CANCELLED ----------
+
+        #[tokio::test]
+        async fn cancel_parent_cancels_doing_child() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(parent, "T11-1-P", None, "DOING", me).await;
+            insert_task(child, "T11-1-C", Some(parent), "DOING", me).await;
+
+            let out = cancel_parent(parent, me).await;
+            assert_eq!(status_of(parent).await, TaskStatus::Cancelled);
+            assert_eq!(
+                status_of(child).await,
+                TaskStatus::Cancelled,
+                "漏洞 1 的修复：父已取消，子任务必须跟着取消（不许还挂在进行中）"
+            );
+            assert_eq!(out.len(), 1);
+            assert_eq!(out[0].task_id, child);
+            assert_eq!(
+                out[0].from,
+                TaskStatus::Doing,
+                "变更日志要能说清从哪个状态取消的"
+            );
+            assert_eq!(
+                cancel_reason_of(child).await.as_deref(),
+                Some(CASCADE_CANCEL_REASON),
+                "子任务的 cancel_reason 要写清是级联取消（不是人点的）"
+            );
+        }
+
+        // ---------- ② 三子任务（TODO / DOING / REVIEW）全部 CANCELLED ----------
+
+        #[tokio::test]
+        async fn cancel_parent_cancels_all_open_children() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let todo = Uuid::now_v7();
+            let doing = Uuid::now_v7();
+            let review = Uuid::now_v7();
+            insert_task(parent, "T11-2-P", None, "DOING", me).await;
+            insert_task(todo, "T11-2-C1", Some(parent), "TODO", me).await;
+            insert_task(doing, "T11-2-C2", Some(parent), "DOING", me).await;
+            insert_task(review, "T11-2-C3", Some(parent), "REVIEW", me).await;
+
+            let out = cancel_parent(parent, me).await;
+            assert_eq!(
+                ids_of(&out),
+                [todo, doing, review].into_iter().collect(),
+                "三个非终态子任务一个都不能漏：{out:?}"
+            );
+            for child in [todo, doing, review] {
+                assert_eq!(status_of(child).await, TaskStatus::Cancelled);
+            }
+        }
+
+        // ---------- ③ DONE 的子任务保持 DONE；它下面没结束的孙任务照样取消 ----------
+
+        #[tokio::test]
+        async fn cancel_parent_keeps_done_child_but_cancels_its_open_descendant() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let done = Uuid::now_v7();
+            let grandchild = Uuid::now_v7();
+            insert_task(parent, "T11-3-P", None, "DOING", me).await;
+            insert_task(done, "T11-3-C", Some(parent), "DONE", me).await;
+            insert_task(grandchild, "T11-3-G", Some(done), "DOING", me).await;
+
+            let out = cancel_parent(parent, me).await;
+            assert_eq!(
+                status_of(done).await,
+                TaskStatus::Done,
+                "已完成的事实不能被抹掉：DONE 不回退成 CANCELLED"
+            );
+            assert_eq!(
+                status_of(grandchild).await,
+                TaskStatus::Cancelled,
+                "DONE 的中间层照样往下递归：未完成的孙任务必须取消"
+            );
+            assert_eq!(
+                ids_of(&out),
+                [grandchild].into_iter().collect(),
+                "DONE 的行不能出现在「本次取消」的名单里（否则会误写变更日志）"
+            );
+        }
+
+        // ---------- ④ 三层：祖父取消 → 子、孙全部 CANCELLED ----------
+
+        #[tokio::test]
+        async fn cancel_grandparent_cancels_three_levels() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let grand = Uuid::now_v7();
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(grand, "T11-4-G", None, "DOING", me).await;
+            insert_task(parent, "T11-4-P", Some(grand), "DOING", me).await;
+            insert_task(child, "T11-4-C", Some(parent), "REVIEW", me).await;
+
+            let out = cancel_parent(grand, me).await;
+            assert_eq!(status_of(grand).await, TaskStatus::Cancelled);
+            assert_eq!(status_of(parent).await, TaskStatus::Cancelled);
+            assert_eq!(status_of(child).await, TaskStatus::Cancelled);
+            assert_eq!(
+                ids_of(&out),
+                [parent, child].into_iter().collect(),
+                "递归要一路到底（一次 CTE，不是只取消直接子任务）"
+            );
+        }
+
+        // ---------- ⑤ 父已取消 → 子任务推 DOING 被拒（规则②） ----------
+
+        #[tokio::test]
+        async fn cancelled_parent_blocks_child_to_doing() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(parent, "T11-5-P", None, "DOING", me).await;
+            insert_task(child, "T11-5-C", Some(parent), "DOING", me).await;
+            cancel_parent(parent, me).await;
+            // 造出「父已取消、子还是 TODO」的脏状态（级联之后不会出现，但历史数据可能有）
+            db().execute_with_params(
+                "UPDATE biz_task SET status = 'TODO' WHERE id = ?::uuid",
+                vec![Value::from(&child)],
+            )
+            .await
+            .expect("回填子任务状态失败");
+
+            let parent_now = parent_status(db(), child).await.expect("查父任务状态失败");
+            assert_eq!(parent_now, Some(TaskStatus::Cancelled));
+            assert!(
+                blocks_child_advance(parent_now, TaskStatus::Doing),
+                "父已取消 → 子任务推 DOING 必须被拦（漏洞 2 的修复）"
+            );
+        }
+
+        // ---------- ⑥ 父已取消 → 子任务推 REVIEW 被拒（规则②） ----------
+
+        #[tokio::test]
+        async fn cancelled_parent_blocks_child_to_review() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(parent, "T11-6-P", None, "DOING", me).await;
+            insert_task(child, "T11-6-C", Some(parent), "DOING", me).await;
+            cancel_parent(parent, me).await;
+            db().execute_with_params(
+                "UPDATE biz_task SET status = 'DOING' WHERE id = ?::uuid",
+                vec![Value::from(&child)],
+            )
+            .await
+            .expect("回填子任务状态失败");
+
+            let parent_now = parent_status(db(), child).await.expect("查父任务状态失败");
+            assert!(blocks_child_advance(parent_now, TaskStatus::Review));
+        }
+
+        // ---------- ⑦ 父已取消 → 子任务自己取消放行（幂等） ----------
+
+        #[tokio::test]
+        async fn cancelled_parent_still_allows_child_cancel() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(parent, "T11-7-P", None, "DOING", me).await;
+            insert_task(child, "T11-7-C", Some(parent), "DOING", me).await;
+            cancel_parent(parent, me).await;
+
+            // 级联之后子任务已是 CANCELLED：再取消一次必须是幂等的空操作
+            let again = cancel_parent(child, me).await;
+            assert!(again.is_empty(), "再取消一次不该产出新的级联：{again:?}");
+            assert_eq!(status_of(child).await, TaskStatus::Cancelled);
+
+            // 守卫本身也必须放行「子任务自己取消」
+            let parent_now = parent_status(db(), child).await.expect("查父任务状态失败");
+            assert!(
+                !blocks_child_advance(parent_now, TaskStatus::Cancelled),
+                "子任务自己被取消是收敛，不是推进 → 不许拦"
+            );
+        }
+
+        // ---------- ⑧ 事务性：级联中途失败 → 父任务也不变（回滚） ----------
+
+        #[tokio::test]
+        async fn cascade_failure_rolls_back_parent_cancel() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let blocked = Uuid::now_v7();
+            let other = Uuid::now_v7();
+            insert_task(parent, "T11-8-P", None, "DOING", me).await;
+            insert_task(blocked, "T11-8-C1", Some(parent), "DOING", me).await;
+            insert_task(other, "T11-8-C2", Some(parent), "TODO", me).await;
+            drop_block_trigger().await;
+
+            // 让「取消这一个子任务」必失败：BEFORE UPDATE 触发器只挂在这一行
+            db().exec_sql(
+                "CREATE OR REPLACE FUNCTION t11_block_cancel() RETURNS trigger AS $$ \
+                     BEGIN \
+                       RAISE EXCEPTION 'T11 单测：禁止级联取消该子任务'; \
+                     END; \
+                     $$ LANGUAGE plpgsql"
+                    .to_string(),
+                Vec::new(),
+            )
+            .await
+            .expect("建触发器函数失败");
+            db().exec_sql(
+                format!(
+                    "CREATE TRIGGER t11_block_cancel_trg BEFORE UPDATE ON biz_task \
+                         FOR EACH ROW WHEN (OLD.id = '{blocked}'::uuid) \
+                         EXECUTE FUNCTION t11_block_cancel()"
+                ),
+                Vec::new(),
+            )
+            .await
+            .expect("建触发器失败");
+
+            let tx = db().begin().await.expect("开启事务失败");
+            let update = StatusUpdate {
+                to: TaskStatus::Cancelled.code().to_string(),
+                progress: None,
+                done_at: None,
+                reject_reason: None,
+                cancel_reason: Some(CASCADE_CANCEL_REASON.to_string()),
+            };
+            apply_status(&tx, parent, &update, me)
+                .await
+                .expect("父任务状态先写成功");
+            let error = cascade_cancel_descendants(&tx, parent, me, CASCADE_CANCEL_REASON)
+                .await
+                .expect_err("被触发器拦住时必须返回错误");
+            println!("级联取消失败（预期）：{error}");
+            tx.rollback().await.expect("回滚事务失败");
+
+            assert_eq!(
+                status_of(parent).await,
+                TaskStatus::Doing,
+                "级联失败 → 父任务的取消也必须回滚（不接受「父 CANCELLED、子 DOING」）"
+            );
+            assert_eq!(status_of(blocked).await, TaskStatus::Doing);
+            assert_eq!(
+                status_of(other).await,
+                TaskStatus::Todo,
+                "同批子任务一起回滚"
+            );
+            drop_block_trigger().await;
+        }
+
+        // ---------- ⑨ 防环：脏数据 A→B→A + 子任务 → 不死循环 ----------
+
+        #[tokio::test]
+        async fn dirty_cycle_terminates() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let a = Uuid::now_v7();
+            let b = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(a, "T11-9-A", None, "DOING", me).await;
+            insert_task(b, "T11-9-B", Some(a), "DOING", me).await;
+            insert_task(child, "T11-9-C", Some(a), "TODO", me).await;
+            // A → B 之后再回填 B → A（`ck_biz_task_parent_not_self` 只拦自指，拦不住环）
+            db().execute_with_params(
+                "UPDATE biz_task SET parent_id = ?::uuid WHERE id = ?::uuid",
+                vec![Value::from(&b), Value::from(&a)],
+            )
+            .await
+            .expect("夹具造环失败");
+
+            // 这条用例能跑完本身就是断言（成环且没有深度上限时它会不返回）
+            let out = cancel_parent(a, me).await;
+            assert_eq!(status_of(a).await, TaskStatus::Cancelled);
+            assert_eq!(status_of(b).await, TaskStatus::Cancelled);
+            assert_eq!(status_of(child).await, TaskStatus::Cancelled);
+            assert_eq!(
+                ids_of(&out),
+                [b, child].into_iter().collect(),
+                "环上的任务只算一次（父任务自己不出现在取消名单里）：{out:?}"
+            );
+        }
+
+        // ---------- ⑩ 变更日志口径：每个被取消的子任务各一条 + 父任务一条汇总评论 ----------
+
+        #[tokio::test]
+        async fn cancelled_children_are_reported_one_by_one() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let c1 = Uuid::now_v7();
+            let c2 = Uuid::now_v7();
+            insert_task(parent, "T11-10-P", None, "DOING", me).await;
+            insert_task(c1, "T11-10-C1", Some(parent), "TODO", me).await;
+            insert_task(c2, "T11-10-C2", Some(parent), "REVIEW", me).await;
+
+            let out = cancel_parent(parent, me).await;
+            // handler 按这个列表**逐条**写 `sys_change_log`（父任务那条由既有逻辑写），
+            // 所以「列表条数 == 被取消的子任务数」就是「父 1 条 + 子 N 条」的证据。
+            // （`sys_change_log` 的端到端断言在 `scripts/verify/t11_cancel_cascade.sh`：
+            //   C7 G1 门禁不许 `business/task/` 里出现该表名，只能走 HTTP 接口验。）
+            assert_eq!(out.len(), 2, "{out:?}");
+            let mut by_id: std::collections::BTreeMap<Uuid, TaskStatus> = Default::default();
+            for cancel in &out {
+                by_id.insert(cancel.task_id, cancel.from);
+            }
+            assert_eq!(by_id.get(&c1), Some(&TaskStatus::Todo));
+            assert_eq!(by_id.get(&c2), Some(&TaskStatus::Review));
+
+            // 父任务时间线上的汇总评论（handler 在事务里补写）
+            insert_comment(
+                db(),
+                parent,
+                me,
+                &format!(
+                    "级联取消：本任务取消后，{} 个未完成的子孙任务已随之取消（{CASCADE_CANCEL_REASON}）",
+                    out.len()
+                ),
+                COMMENT_TYPE_STATUS_CHANGE,
+                me,
+            )
+            .await
+            .expect("写汇总评论失败");
+            let comments = db()
+                .find_with_params(
+                    "SELECT content FROM biz_task_comment WHERE task_id = ?::uuid",
+                    vec![Value::from(&parent)],
+                )
+                .await
+                .expect("查评论失败");
+            let content: String = comments
+                .first()
+                .expect("必须有一条汇总评论")
+                .get_typed("content")
+                .expect("取 content");
+            assert!(
+                content.contains("级联取消") && content.contains('2'),
+                "汇总评论要写清取消了多少个：{content}"
+            );
+        }
+
+        // ---------- ⑪ 不变式：progress 不受级联取消影响 ----------
+
+        #[tokio::test]
+        async fn cancel_keeps_progress_untouched() {
+            let _db = match setup().await {
+                Some(guard) => guard,
+                None => return,
+            };
+            let me = uuid(U_ID);
+            let parent = Uuid::now_v7();
+            let child = Uuid::now_v7();
+            insert_task(parent, "T11-11-P", None, "DOING", me).await;
+            insert_task(child, "T11-11-C", Some(parent), "DOING", me).await;
+            for (id, value) in [(parent, 40_i16), (child, 65)] {
+                db().execute_with_params(
+                    "UPDATE biz_task SET progress = ?::smallint WHERE id = ?::uuid",
+                    vec![Value::I16(value), Value::from(&id)],
+                )
+                .await
+                .expect("改进度失败");
+            }
+
+            cancel_parent(parent, me).await;
+            assert_eq!(
+                progress_of(parent).await,
+                40,
+                "红线：progress 公式不受 CANCELLED 影响，级联只写 status"
+            );
+            assert_eq!(progress_of(child).await, 65);
+        }
     }
 }

@@ -784,6 +784,8 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 若本条是子任务 → 沿 `parent_id` 逐级**级联父任务状态**（T10：首个活动子任务 →
 ///   父任务进 `DOING`；子任务全部到终态 → 父任务进 `REVIEW`，见
 ///   [`model::cascade_parent_status`]）；
+/// - **本条推到 `CANCELLED` → 同一事务里级联取消全部非终态子孙**（T11：父任务取消的
+///   语义就是「这条线不要了」，见 [`model::cascade_cancel_descendants`]）；
 /// - **`DOING → REVIEW` 且配了 `TASK_ACCEPT` 审批流程 → 自动发起审批单并回写
 ///   `approval_instance_id`**（没配流程则什么都不做，保持原两级验收，见
 ///   [`crate::business::flow::task_bridge::prepare_accept`]）。
@@ -796,6 +798,7 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 404 + `63001`：任务不存在 / 不可见；
 /// - 409 + `63010`：非法流转（跳级 / 终态直取 / 同状态）；
 /// - 409 + `65030`：审批单还在跑，`REVIEW` 出边一律不许人工推（等审批结论）；
+/// - 409 + `63021`：**父任务已取消**，子任务不能继续推进（子任务自己 → `CANCELLED` 除外）；
 /// - 409 + `63006`：还有未完成子任务，不能完成；
 /// - 500：数据库异常 / 变更日志未登记 / 审批单发起失败（整笔回滚）。
 #[nik::permission(
@@ -838,6 +841,17 @@ pub async fn change_status(
             format!("库里的任务状态不是 5 态之一：{}", current.card.status),
         )
     })?;
+
+    // ③ 前守卫（T11 规则②）：父任务已取消 → 子任务一律不许推进。
+    //    为什么放在状态机之前：父已取消时前端仍可能把「开始/提交验收」按钮露出来，
+    //    此时回 63021（父任务已取消）比回 63010（非法流转）准确 —— 流转本身是合法的，
+    //    作废的是整条线。守卫只看父任务，`CANCELLED` 自己幂等放行。
+    let parent_status = model::parent_status(db(), task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询父任务状态"))?;
+    if model::blocks_child_advance(parent_status, to) {
+        return Err(parent_cancelled());
+    }
 
     // ③ 审批门闸 + 白名单 + 角色 + 附加条件（D3b：门闸在状态机之前）
     let people = state::TaskPeople {
@@ -982,13 +996,27 @@ pub async fn change_status(
     let operator_name = display_name(&claims);
     let operator_name_tx = operator_name.clone();
     let action_label = transition.label;
-    let (comment_id, affected, recalcs, cascades) = db()
+    let (comment_id, affected, recalcs, cascades, cancels) = db()
         .transaction(|tx| async move {
+            // T11 守卫（**事务内**再判一次）：③ 前那次读与这次写之间，父任务可能被
+            // 并发取消 —— 那种情况下子任务照样不许推进（漏洞 2 的并发变体）。
+            // 错误用哨兵回传，闭包外的 `change_status_tx_error` 把它翻成 409 + 63021。
+            if model::blocks_child_advance(model::parent_status(&tx, task_id).await?, to) {
+                return Err(DbError::InvalidValue(PARENT_CANCELLED_SENTINEL.to_string()));
+            }
             let affected = model::apply_status(&tx, task_id, &update, me).await?;
             if affected == 0 {
                 // 事务里被并发软删：评论与日志都不该落
-                return Ok((Uuid::nil(), 0, Vec::new(), Vec::new()));
+                return Ok((Uuid::nil(), 0, Vec::new(), Vec::new(), Vec::new()));
             }
+            // T11 规则①：本条推到 CANCELLED → 同一事务里级联取消全部非终态子孙
+            // （一条递归 CTE；DONE 不回退；失败 → 整笔回滚，不接受「父取消、子还在跑」）
+            let cancels = if to == TaskStatus::Cancelled {
+                model::cascade_cancel_descendants(&tx, task_id, me, model::CASCADE_CANCEL_REASON)
+                    .await?
+            } else {
+                Vec::new()
+            };
             // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
             if let Some(start) = accept.as_ref() {
                 task_bridge::start_in_tx(&tx, start, task_id).await?;
@@ -1017,6 +1045,46 @@ pub async fn change_status(
             .map_err(|error| {
                 DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
             })?;
+            // T11：每个被级联取消的子孙各记一条变更日志（审计口径：不能只留在父任务
+            // 那条汇总里 —— 事后要能回答「这条子任务是谁、为什么取消的」），
+            // 并在父任务时间线上补一条汇总评论。
+            for cancel in &cancels {
+                let before = serde_json::json!({ "status": cancel.from.code() });
+                let after = serde_json::json!({ "status": TaskStatus::Cancelled.code() });
+                changelog::record(
+                    &tx,
+                    &ChangeCtx::api(Some(me), Some(operator_name_tx.as_str())),
+                    ChangeTarget::of(
+                        "biz_task",
+                        cancel.task_id.to_string(),
+                        Action::Status,
+                        model::CASCADE_CANCEL_REASON,
+                    ),
+                    DiffInput::update(&before, &after),
+                )
+                .await
+                .map_err(|error| {
+                    DbError::InvalidValue(format!(
+                        "变更日志写入失败 [{}] {}",
+                        error.code, error.msg
+                    ))
+                })?;
+            }
+            if !cancels.is_empty() {
+                model::insert_comment(
+                    &tx,
+                    task_id,
+                    me,
+                    &format!(
+                        "级联取消：本任务取消后，{} 个未完成的子孙任务已随之取消（{}）",
+                        cancels.len(),
+                        model::CASCADE_CANCEL_REASON
+                    ),
+                    model::COMMENT_TYPE_STATUS_CHANGE,
+                    me,
+                )
+                .await?;
+            }
             let recalcs = model::recalc_ancestors(&tx, task_id, me).await?;
             // T10：父任务状态随子任务级联（**同事务**：级联失败 → 子任务状态一起回滚，
             // 红线是「宁可这次没改成，也不接受父任务状态错着」）
@@ -1045,10 +1113,10 @@ pub async fn change_status(
                     ))
                 })?;
             }
-            Ok((comment_id, affected, recalcs, cascades))
+            Ok((comment_id, affected, recalcs, cascades, cancels))
         })
         .await
-        .map_err(|error| utils::db_error(error, "变更任务状态"))?;
+        .map_err(change_status_tx_error)?;
     if affected == 0 {
         return Err(not_found());
     }
@@ -1064,6 +1132,15 @@ pub async fn change_status(
             to = cascade.to.code(),
             reason = cascade.reason,
             "父任务状态级联"
+        );
+    }
+    // ⑨c T11：级联取消留痕（每条已在事务里各写一条变更日志，这里补一条可 grep 的汇总行）
+    if !cancels.is_empty() {
+        tracing::info!(
+            task_id = %task_id,
+            cancelled = cancels.len() as i64,
+            reason = model::CASCADE_CANCEL_REASON,
+            "父任务取消：子任务已级联取消"
         );
     }
     // ⑩ 依赖联动（T4）：前置 DONE → 强制通知后继负责人；前置 CANCELLED → 尊重偏好提醒
@@ -2911,6 +2988,33 @@ fn transition_check_error(error: state::TransitionCheckError) -> ApiError {
             ApiError::new(409, error_code::TASK_FLOW_GATE_BLOCKED, gate.message())
         }
         state::TransitionCheckError::Transition(inner) => transition_error(inner),
+    }
+}
+
+/// 父任务已取消 → 子任务不能推进（T11 规则②：`409 + 63021`）。
+///
+/// 文案按「用户下一步该干什么」写：不是「刷新」，而是「先恢复父任务」。
+fn parent_cancelled() -> ApiError {
+    ApiError::new(
+        409,
+        error_code::TASK_PARENT_CANCELLED,
+        "父任务已取消，子任务不能继续推进（如需继续请先恢复父任务）",
+    )
+}
+
+/// 事务内 T11 守卫的哨兵：`DbError` 只有文本通道，业务码靠它回传。
+///
+/// 为什么不用 `ApiError`：事务闭包的返回类型是 `Db<…>`（`ApiError → DbError`
+/// 没有反向 `From`，见 T2 实测），所以守卫在闭包里抛哨兵、在这里翻回 `63021`。
+const PARENT_CANCELLED_SENTINEL: &str = "TASK_PARENT_CANCELLED";
+
+/// 事务错误 → HTTP 错误：T11 守卫的哨兵翻成 `409 + 63021`，其余一律 500。
+fn change_status_tx_error(error: DbError) -> ApiError {
+    let blocked = matches!(&error, DbError::InvalidValue(msg) if msg == PARENT_CANCELLED_SENTINEL);
+    if blocked {
+        parent_cancelled()
+    } else {
+        utils::db_error(error, "变更任务状态")
     }
 }
 
