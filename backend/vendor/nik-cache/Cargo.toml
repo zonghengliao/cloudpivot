@@ -16,7 +16,7 @@ rust-version = "1.94.1"
 name = "nik-cache"
 version = "0.4.2"
 publish = false
-authors = ["nik contributors"]
+authors = ["Laoliu"]
 build = false
 autolib = false
 autobins = false
@@ -24,7 +24,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Nik cache abstraction: local in-memory cache + Redis integration"
-homepage = "https://github.com/wild1024/nik"
+homepage = "https://github.com/zonghengliao/nik"
 documentation = "https://docs.rs/nik-cache"
 readme = "README.md"
 keywords = [
@@ -40,7 +40,7 @@ categories = [
     "web-programming",
 ]
 license = "Apache-2.0"
-repository = "https://github.com/wild1024/nik"
+repository = "https://github.com/zonghengliao/nik"
 
 [features]
 metrics = ["dep:metrics"]

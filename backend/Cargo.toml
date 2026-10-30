@@ -1,10 +1,12 @@
 [package]
 name = "cloudpivot"
-description = "云枢通用后台管理系统 —— 基于 NIK 框架（fork 自 alun 0.4.2，见 backend/vendor/README.md）"
+description = "云枢（CloudPivot）通用后台管理系统 —— Rust + Vue 3 全栈"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.1"
+authors = ["Laoliu"]
 license = "Apache-2.0"
+repository = "https://github.com/zonghengliao/cloudpivot"
 publish = false
 
 # ======================================================================

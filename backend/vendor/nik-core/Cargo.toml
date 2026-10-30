@@ -16,7 +16,7 @@ rust-version = "1.94.1"
 name = "nik-core"
 version = "0.4.2"
 publish = false
-authors = ["nik contributors"]
+authors = ["Laoliu"]
 build = false
 autolib = false
 autobins = false
@@ -24,7 +24,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Nik framework core: app lifecycle, plugin system, unified error (no HTTP / no database concepts)"
-homepage = "https://github.com/wild1024/nik"
+homepage = "https://github.com/zonghengliao/nik"
 documentation = "https://docs.rs/nik-core"
 readme = "README.md"
 keywords = [
@@ -36,7 +36,7 @@ keywords = [
 ]
 categories = ["web-programming"]
 license = "Apache-2.0"
-repository = "https://github.com/wild1024/nik"
+repository = "https://github.com/zonghengliao/nik"
 
 [features]
 default = []

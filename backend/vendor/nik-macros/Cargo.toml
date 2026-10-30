@@ -16,7 +16,7 @@ rust-version = "1.94.1"
 name = "nik-macros"
 version = "0.4.2"
 publish = false
-authors = ["nik contributors"]
+authors = ["Laoliu"]
 build = false
 autolib = false
 autobins = false
@@ -24,7 +24,7 @@ autoexamples = false
 autotests = false
 autobenches = false
 description = "Nik proc macros: #[get], #[post], #[put], #[delete], #[controller], #[plugin], #[task_handler]"
-homepage = "https://github.com/wild1024/nik"
+homepage = "https://github.com/zonghengliao/nik"
 documentation = "https://docs.rs/nik-macros"
 readme = "README.md"
 keywords = [
@@ -39,7 +39,7 @@ categories = [
     "development-tools",
 ]
 license = "Apache-2.0"
-repository = "https://github.com/wild1024/nik"
+repository = "https://github.com/zonghengliao/nik"
 
 [lib]
 name = "nik_macros"
