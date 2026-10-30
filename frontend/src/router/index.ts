@@ -335,6 +335,19 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '审批详情', permission: 'business:flow:instance:read' },
       },
       {
+        // ==================== ERP 主数据（W4a · 仓库 / 库位） ====================
+        // `sys_menu.path`（V0141 种子 …0941）是 `/business/erp/warehouse`，component
+        // `business/erp/warehouse/index`。路由是**手工注册**的（没有 views 自动扫描），
+        // 漏注册 = 点菜单进 404。
+        //
+        // 一个菜单项 = 一个页面：左侧仓库树 + 右侧按仓库过滤的库位列表（同页，不是两个 tab），
+        // 所以只注册这一条；库位菜单（…0942 `/business/erp/location`）留给 W4 的库位独立卡。
+        path: 'business/erp/warehouse',
+        name: 'BusinessErpWarehouse',
+        component: () => import('@/views/business/erp/warehouse/index.vue'),
+        meta: { title: '仓库管理', permission: 'business:erp:warehouse:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),
