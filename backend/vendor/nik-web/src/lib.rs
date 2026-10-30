@@ -39,6 +39,7 @@ pub use middleware::{
     AuthClaims, AuthLayer, ClaimsBuilder, Principal, RequirePermissionLayer, RequireRoleLayer,
     TokenClaims, TokenType, UserId,
 };
+#[allow(deprecated)]
 pub use response::ApiBody;
 pub use router::NikRouter;
 

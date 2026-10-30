@@ -36,6 +36,7 @@ type RawTxBeginFuture<'a> =
 /// [`is_multi_thread_runtime`] 排除；后者无法从公开 API 判定——nik-db 的
 /// future 均为 `Send`，`LocalSet` 只用于 `!Send` 场景，故不在本层的支持范围内。
 /// flavor 判定失败（不在运行时上下文中）同样退回 `spawn_blocking`。
+#[allow(dead_code)]
 async fn run_blocking<F, R>(f: F) -> Result<R>
 where
     F: FnOnce() -> Result<R> + Send + 'static,
@@ -51,6 +52,7 @@ where
 }
 
 /// 当前是否运行在 tokio 多线程运行时上（`block_in_place` 仅在该形态下可用）。
+#[allow(dead_code)]
 fn is_multi_thread_runtime() -> bool {
     tokio::runtime::Handle::try_current()
         .map(|handle| handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread)
