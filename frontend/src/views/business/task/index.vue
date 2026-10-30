@@ -74,6 +74,11 @@
                 <span class="view-switch__label"><t-icon name="calendar" /> 甘特图</span>
               </template>
             </t-tab-panel>
+            <t-tab-panel value="burndown">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="chart-line" /> 燃尽图</span>
+              </template>
+            </t-tab-panel>
           </t-tabs>
           <t-button v-privilege="[PERM.taskCreate]" theme="primary" size="small" @click="openCreate">
             <template #icon><t-icon name="add" /></template>
@@ -196,7 +201,7 @@
     </t-card>
 
     <!-- 看板视图（交互见 components/TaskBoard.vue：原生 HTML5 拖拽改状态） -->
-    <t-card v-else :bordered="false" class="board-view">
+    <t-card v-else-if="view === 'board'" :bordered="false" class="board-view">
       <TaskBoard
         ref="boardRef"
         :keyword="query.keyword"
@@ -208,6 +213,11 @@
         @open="openDetail"
         @loaded="handleBoardLoaded"
       />
+    </t-card>
+
+    <!-- 燃尽图（E11，只读；数据后端算好，前端只画） -->
+    <t-card v-else-if="view === 'burndown'" :bordered="false" class="burndown-view">
+      <TaskBurndown :project-id="query.project_id" />
     </t-card>
 
     <!-- 新建 / 编辑 -->
@@ -255,6 +265,7 @@ import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
 import UserSelect from './components/UserSelect.vue';
 import TaskForm from './components/TaskForm.vue';
+import TaskBurndown from './components/TaskBurndown.vue';
 import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
 import { ApiError } from '@/api/request';
@@ -512,8 +523,9 @@ const router = useRouter();
 // 初始视图优先级：URL query > 路由 meta.defaultView（V0130 菜单目录化）> 列表
 const _metaView = (route.meta as any)?.defaultView as 'list' | 'board' | undefined;
 const _queryView = typeof route.query.view === 'string' ? route.query.view : '';
-const view = ref<'list' | 'board' | 'gantt'>(
+const view = ref<'list' | 'board' | 'gantt' | 'burndown'>(
   _queryView === 'gantt' ? 'gantt'
+    : _queryView === 'burndown' ? 'burndown'
     : _queryView === 'board' ? 'board'
     : _queryView === 'list' ? 'list'
     : _metaView === 'board' ? 'board'
@@ -539,14 +551,17 @@ const boardTotal = ref(0);
 /** 工具条计数文案（列表 / 看板各用各的总数） */
 const countText = computed(() => {
   const scope = myMode.value ? '我的任务' : '全部可见任务';
+  if (view.value === 'burndown') {
+    return `${scope} · 燃尽图`;
+  }
   const total = view.value === 'board' ? boardTotal.value : pagination.total;
   return `${scope} · 共 ${total} 条`;
 });
 
 /** 把视图写回 URL query（列表是默认值 → 删掉参数，URL 保持干净） */
-function syncViewQuery(next: 'list' | 'board'): void {
+function syncViewQuery(next: 'list' | 'board' | 'burndown'): void {
   const current = typeof route.query.view === 'string' ? route.query.view : '';
-  const target = next === 'board' ? 'board' : '';
+  const target = next === 'board' ? 'board' : next === 'burndown' ? 'burndown' : '';
   if (current === target) {
     return;
   }

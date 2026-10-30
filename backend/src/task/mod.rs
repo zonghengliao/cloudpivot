@@ -294,6 +294,8 @@ impl Scheduler {
         crate::business::flow::timeout::register_builtin(self);
         // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
         crate::business::flow::maintain::register_builtin(self);
+        // 批次 E · E11：周期任务生成（每 5 分钟扫一次 biz_task_template.next_run_at）
+        crate::business::task::recurring::register_builtin(self);
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。

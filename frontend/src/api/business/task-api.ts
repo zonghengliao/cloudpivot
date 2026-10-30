@@ -50,7 +50,7 @@ export type TaskStatus = 'TODO' | 'DOING' | 'REVIEW' | 'DONE' | 'CANCELLED';
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
 /** 任务来源 */
-export type TaskSource = 'SELF' | 'ASSIGNED' | 'TRANSFERRED';
+export type TaskSource = 'SELF' | 'ASSIGNED' | 'TRANSFERRED' | 'RECURRING';
 
 /** 任务卡（列表 / 子任务 / 我的任务共用，对应后端 `TaskCardRes`） */
 export interface TaskCard {
@@ -1101,4 +1101,181 @@ export async function downloadAiWorkspaceFile(id: string, name: string): Promise
     { responseType: 'blob' },
   );
   return response.data;
+}
+
+// ==================== E11：任务模板 / 周期任务 / 燃尽图 ====================
+
+/** 模板里的子任务（与后端 `TemplateSubtaskRes` 逐字一致） */
+export interface TaskTemplateSubtask {
+  /** 子任务标题 */
+  title: string;
+  /** 子任务优先级 */
+  priority: TaskPriority;
+}
+
+/** 任务模板（对应后端 `TaskTemplateRes`） */
+export interface TaskTemplate {
+  /** 主键 */
+  id: string;
+  /** 模板名（未软删范围内唯一） */
+  name: string;
+  /** 生成任务的标题 */
+  title: string;
+  /** 生成任务的描述（空串 = 无） */
+  description: string;
+  /** 生成任务的优先级 */
+  priority: TaskPriority;
+  /** 预估工时（小时） */
+  estimate_hours: number | null;
+  /** 生成任务是否需要验收 */
+  need_review: boolean;
+  /** 子任务列表 */
+  subtasks: TaskTemplateSubtask[];
+  /** 生成任务的负责人（空串 = 用模板创建人兜底） */
+  owner_id: string;
+  /** 生成任务归属项目（空串 = 无） */
+  project_id: string;
+  /** cron 表达式（空串 = 无周期） */
+  cron_expr: string;
+  /** 周期开关 */
+  enabled: boolean;
+  /** 下次生成时间（RFC3339，空 = 未排期） */
+  next_run_at: string | null;
+  /** 上次生成时间（RFC3339） */
+  last_run_at: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 模板列表（模板不分页，`total` 恒等于 `list.length`） */
+export interface TaskTemplateList {
+  /** 模板列表 */
+  list: TaskTemplate[];
+  /** 总数 */
+  total: number;
+}
+
+/** 新建 / 编辑模板（`POST /api/business/task/template`、`PUT …/{id}`） */
+export interface TaskTemplateSaveReq {
+  /** 模板名（必填） */
+  name: string;
+  /** 生成任务标题（必填） */
+  title: string;
+  /** 描述（null = 清空） */
+  description?: string | null;
+  /** 优先级 */
+  priority?: string;
+  /** 预估工时（null = 不估） */
+  estimate_hours?: number | null;
+  /** 是否需要验收 */
+  need_review?: boolean;
+  /** 子任务 */
+  subtasks?: TaskTemplateSubtask[];
+  /** 负责人（null = 用创建人） */
+  owner_id?: string | null;
+  /** 项目（null = 不归入） */
+  project_id?: string | null;
+  /** cron（null = 无周期） */
+  cron_expr?: string | null;
+  /** 周期开关 */
+  enabled?: boolean;
+}
+
+/** 按模板建任务（所有字段可缺席 = 用模板值） */
+export interface TaskFromTemplateReq {
+  /** 覆盖标题 */
+  title?: string;
+  /** 覆盖负责人 */
+  owner_id?: string;
+  /** 覆盖项目 */
+  project_id?: string;
+  /** 计划开始日 `YYYY-MM-DD` */
+  start_date?: string;
+  /** 截止日 `YYYY-MM-DD` */
+  due_date?: string;
+}
+
+/** 按模板建任务的回执 */
+export interface TaskFromTemplateResult {
+  /** 新任务 id */
+  id: string;
+  /** 新任务编号 */
+  task_no: string;
+  /** 新任务标题 */
+  title: string;
+  /** 子任务 id 列表 */
+  subtask_ids: string[];
+  /** 来源（`SELF` / `RECURRING`） */
+  source: string;
+}
+
+/** 燃尽图查询 */
+export interface TaskBurndownQuery {
+  /** 项目 id（空 = 不限项目） */
+  project_id?: string;
+  /** 看板维度：all = 全部可见 / my = 只看我参与 */
+  board?: 'all' | 'my';
+  /** 起始日 `YYYY-MM-DD` */
+  start?: string;
+  /** 截止日 `YYYY-MM-DD` */
+  end?: string;
+}
+
+/** 燃尽图数据（三条线 + 概览） */
+export interface TaskBurndown {
+  /** 类目轴 `YYYY-MM-DD` */
+  dates: string[];
+  /** 理想线 */
+  ideal: number[];
+  /** 实际线（每日开始时剩余未完成数） */
+  actual: number[];
+  /** 任务总量 */
+  total: number;
+  /** 已完成量 */
+  completed: number;
+  /** 起始日 */
+  start: string;
+  /** 截止日 */
+  end: string;
+  /** 项目 id（空串 = 不限） */
+  project_id: string;
+  /** 看板维度 */
+  board: string;
+}
+
+/** 模板列表（关键词 / 只看启用周期的） */
+export function listTaskTemplates(
+  query: { keyword?: string; enabled_only?: boolean } = {},
+): Promise<TaskTemplateList> {
+  return get<TaskTemplateList>('/api/business/task/templates', asParams(query));
+}
+
+/** 新建模板 */
+export function createTaskTemplate(data: TaskTemplateSaveReq): Promise<TaskTemplate> {
+  return post<TaskTemplate>('/api/business/task/template', data);
+}
+
+/** 编辑模板 */
+export function updateTaskTemplate(id: string, data: TaskTemplateSaveReq): Promise<TaskTemplate> {
+  return put<TaskTemplate>(`/api/business/task/template/${id}`, data);
+}
+
+/** 软删模板 */
+export function deleteTaskTemplate(id: string): Promise<{ id: string }> {
+  return del<{ id: string }>(`/api/business/task/template/${id}`);
+}
+
+/** 一键建任务（含子任务） */
+export function createTaskFromTemplate(
+  id: string,
+  data: TaskFromTemplateReq = {},
+): Promise<TaskFromTemplateResult> {
+  return post<TaskFromTemplateResult>(`/api/business/task/from-template/${id}`, data);
+}
+
+/** 燃尽图数据（只读） */
+export function getTaskBurndown(query: TaskBurndownQuery = {}): Promise<TaskBurndown> {
+  return get<TaskBurndown>('/api/business/task/burndown', asParams(query));
 }

@@ -711,6 +711,25 @@ pub const PROJECT_MEMBER_NOT_FOUND: i32 = 63406;
 /// **不认「项目负责人」**：项目不是权限边界，负责人身份不能换来对别人任务的写权限。
 pub const PROJECT_TASK_FORBIDDEN: i32 = 63407;
 
+// ── E11 追加（**635xx** 子段）：任务模板 / 周期任务 / 燃尽图 ──────────────────
+//
+// 为什么单开 635xx：630xx（任务数据）/ 631xx（依赖与排期）/ 632xx（AI 主体硬拒）/
+// 633xx（令牌）都不适合装「模板」「燃尽图区间」这两类错误 —— 它们的判定对象是
+// **模板配置**与**只读统计的入参**，不是任务本身的状态。634xx 已被项目分组占用，
+// 所以顺延到 635xx。前端 `error-code.ts` 按码值给文案，改值即文案错位。
+
+/// 任务模板不存在或已软删（HTTP 404）。
+pub const TASK_TEMPLATE_NOT_FOUND: i32 = 63501;
+
+/// 任务模板字段非法（HTTP 400）：模板名 / 标题 / 优先级 / 工时 / 子任务。
+pub const TASK_TEMPLATE_INVALID: i32 = 63502;
+
+/// 周期任务的 cron 表达式非法 / 开启周期却没给 cron（HTTP 400）。
+pub const TASK_TEMPLATE_CRON_INVALID: i32 = 63503;
+
+/// 燃尽图日期区间非法（HTTP 400）：倒置或超过 366 天。
+pub const TASK_BURNDOWN_RANGE_INVALID: i32 = 63504;
+
 // ── 云枢 × Hermes · L1 AI 用户（AI 段）── **64xxx 段** ──────────────────────
 //
 // 为什么单开 64xxx：63xxx 段（任务管理）已自带「固定 9 个码」的自检断言，

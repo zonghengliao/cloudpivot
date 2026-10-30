@@ -250,6 +250,14 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '任务看板', permission: 'business:task:read', defaultView: 'board' },
       },
       {
+        // V0134 种子菜单 …0902「任务模板」：`/task/templates`，组件 business/task/templates。
+        // 权限码沿用 `business:task:read`（模板入口不是权限边界，模板 CRUD 用 create/update/delete 兜）。
+        path: 'task/templates',
+        name: 'TaskTemplates',
+        component: () => import('@/views/business/task/templates.vue'),
+        meta: { title: '任务模板', permission: 'business:task:read' },
+      },
+      {
         // 兼容旧链接 /task（默认列表）
         path: 'task',
         redirect: '/task/list',

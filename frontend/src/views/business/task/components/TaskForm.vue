@@ -10,6 +10,20 @@
   >
     <t-loading :loading="detailLoading" size="small">
       <t-form ref="formRef" :data="form" :rules="rules" label-width="96px" class="task-form">
+        <t-form-item v-if="!isEdit" label="从模板创建">
+          <t-select
+            v-model="templateProxy"
+            :options="templateOptions"
+            :loading="templateLoading"
+            placeholder="不选 = 自己填"
+            clearable
+            filterable
+            @change="handleTemplateChange"
+          />
+          <span v-if="selectedTemplate" class="form-hint">
+            将按模板生成 {{ selectedTemplate.subtasks.length }} 条子任务；优先级 / 描述 / 验收开关取自模板
+          </span>
+        </t-form-item>
         <t-form-item label="标题" name="title">
           <t-input v-model="form.title" placeholder="一句话说清要做什么（200 字以内）" :maxlength="200" autofocus />
         </t-form-item>
@@ -120,10 +134,13 @@ import UserSelect from './UserSelect.vue';
 import { ApiError } from '@/api/request';
 import {
   createTask,
+  createTaskFromTemplate,
   getTask,
+  listTaskTemplates,
   pageTasks,
   updateTask,
   type TaskCreateReq,
+  type TaskTemplate,
   type TaskUpdateReq,
 } from '@/api/business/task-api';
 import { pageProjects } from '@/api/business/project-api';
@@ -163,6 +180,8 @@ interface TaskFormModel {
   project_id: string | null;
   /** 父任务 id（E6b；仅新建可选，null = 顶层任务） */
   parent_id: string | null;
+  /** 模板 id（E11；仅新建可选，null = 不按模板建） */
+  template_id: string | null;
 }
 
 /** 优先级选项（P0 最高 → P3 最低，文案来自 status-map） */
@@ -284,10 +303,66 @@ function emptyForm(): TaskFormModel {
     need_review: false,
     project_id: null,
     parent_id: null,
+    template_id: null,
   };
 }
 
 const form = reactive<TaskFormModel>(emptyForm());
+
+/** 模板下拉选项（E11；新建时懒加载一次） */
+const templateOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 模板列表（保存完整对象：选中后要回填字段与子任务数） */
+const templateList = ref<TaskTemplate[]>([]);
+/** 模板下拉加载中 */
+const templateLoading = ref(false);
+/** 当前选中的模板 */
+const selectedTemplate = computed<TaskTemplate | null>(
+  () => templateList.value.find((item) => item.id === form.template_id) ?? null,
+);
+
+/** `t-select` 不吃 `null` → `null ↔ undefined` 代理 */
+const templateProxy = computed<string | undefined>({
+  get: () => form.template_id ?? undefined,
+  set: (value) => {
+    form.template_id = typeof value === 'string' && value ? value : null;
+  },
+});
+
+/** 拉模板下拉（新建态；模板数量少，一次取 200 条） */
+async function loadTemplates(): Promise<void> {
+  templateLoading.value = true;
+  try {
+    const result = await listTaskTemplates();
+    templateList.value = result.list;
+    templateOptions.value = result.list.map((item) => ({
+      label: item.enabled ? `${item.name}（周期：${item.cron_expr}）` : item.name,
+      value: item.id,
+    }));
+  } catch {
+    templateOptions.value = [];
+  } finally {
+    templateLoading.value = false;
+  }
+}
+
+/** 选中模板 → 回填可见字段（子任务与落库由后端按模板做） */
+function handleTemplateChange(value: unknown): void {
+  if (typeof value !== 'string' || !value) {
+    return;
+  }
+  const hit = templateList.value.find((item) => item.id === value);
+  if (!hit) {
+    return;
+  }
+  form.title = hit.title;
+  form.description = hit.description ?? '';
+  form.priority = hit.priority;
+  form.need_review = hit.need_review;
+  form.estimate_hours = hit.estimate_hours;
+  if (hit.project_id) {
+    form.project_id = hit.project_id;
+  }
+}
 
 /** 是否为编辑态 */
 const isEdit = computed(() => Boolean(props.taskId));
@@ -405,6 +480,7 @@ watch(
     editParentNo.value = '';
     formRef.value?.clearValidate?.();
     void loadProjectOptions();
+    void loadTemplates();
     // 编辑态也要拉：父任务是只读展示，「编号 标题」得从候选里取（详情只给 parent_task_no）
     void loadParentOptions();
     if (props.taskId) {
@@ -440,6 +516,18 @@ async function handleSubmit(): Promise<void> {
       const saved = await updateTask(props.taskId, payload);
       MessagePlugin.success('任务已更新');
       emit('saved', saved.id);
+    } else if (form.template_id) {
+      // E11：按模板建任务（子任务由后端一次落库；标题/负责人/项目/截止日可覆盖）
+      const created = await createTaskFromTemplate(form.template_id, {
+        title: form.title.trim(),
+        ...(form.owner_id ? { owner_id: form.owner_id } : {}),
+        ...(form.project_id ? { project_id: form.project_id } : {}),
+        ...(form.due_date ? { due_date: form.due_date } : {}),
+      });
+      MessagePlugin.success(
+        `已按模板创建：${created.task_no}（含 ${created.subtask_ids.length} 条子任务）`,
+      );
+      emit('saved', created.id);
     } else {
       const payload: TaskCreateReq = {
         title: form.title.trim(),
