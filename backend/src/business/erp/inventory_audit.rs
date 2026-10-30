@@ -61,6 +61,25 @@
 //!    是 0 位小数、`qty` 是 4 位，不显式定标会让**同一个字段**在不同行出现 `"3"` 与
 //!    `"5.0000"` 两种字符串形态（e2e 实测踩到）。
 //!
+//! # 已知的跨卡耦合（V0139 三列唯一键，W3a）
+//!
+//! 本卡按**当前**已提交的 schema（V0137/V0138，`biz_inventory` 的唯一键是
+//! `uk_biz_inv_mat_wh (material_id, warehouse_id)`、每 (物料, 仓库) 一行）落地。
+//! W3a 的 V0139 会把 `biz_inventory` 加 `location_id` 并把唯一键换成
+//! `uk_biz_inv_mat_wh_loc (material_id, warehouse_id, COALESCE(location_id, 零 uuid))`，
+//! 届时本文件有**两处**要跟着改（报账单侧已经提前做成汇总，不受影响）：
+//!
+//! 1. [`fix_sql`] 的 `ON CONFLICT (material_id, warehouse_id) DO UPDATE` →
+//!    `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))`，
+//!    否则 PG 报 42P10（`no unique or exclusion constraint matching the ON CONFLICT specification`），
+//!    与 `serial_model::recompute_quantity` 同一处修法（V0139 文件头 ④ 已写明）；
+//!    另外 `INSERT` 的列清单要补 `location_id`（写 NULL = 整仓汇总桶）。
+//! 2. 只有**报账单侧**已经防御：`book` CTE 用 `SUM(qty) GROUP BY (material_id, warehouse_id)`，
+//!    库位维度出现后仍然是「仓级汇总」，不会因为多行而重复计数。
+//!
+//! 这两点写在代码里而不是只写在卡面：W3a 落地时 `grep -n "ON CONFLICT (material_id, warehouse_id)"`
+//! 就会同时命中 `recompute_quantity` 与本文件。
+//!
 //! # 数据权限（门禁闸①/闸②）
 //!
 //! ```text
@@ -108,11 +127,12 @@ WITH serial_cnt AS ( \
        AND s.status = 'IN_STOCK' AND s.deleted_at IS NULL \
      GROUP BY s.material_id, s.warehouse_id \
 ), book AS ( \
-    SELECT i.material_id, i.warehouse_id, i.qty AS book_qty \
+    SELECT i.material_id, i.warehouse_id, SUM(i.qty)::numeric AS book_qty \
       FROM biz_inventory i \
       JOIN biz_material m ON m.id = i.material_id \
      WHERE m.serial_required IS TRUE AND m.deleted_at IS NULL \
        AND m.material_code LIKE ?::text \
+     GROUP BY i.material_id, i.warehouse_id \
 ), combos AS ( \
     SELECT COALESCE(b.material_id, a.material_id) AS material_id, \
            COALESCE(b.warehouse_id, a.warehouse_id) AS warehouse_id, \
@@ -147,7 +167,12 @@ fn audit_sql() -> String {
 ///   [`super::serial_model::recompute_quantity`] 同一口径，否则成本账两列互相矛盾）；
 /// - 只处理 `warehouse_id IS NOT NULL` 的行（没有仓库维度就写不进 `biz_inventory`，
 ///   这类行在报告里以 `warehouse_id = null` + `unfixable` 计数暴露）；
-/// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）。
+/// - `last_txn_at` 不写：巡检不是一笔业务，不该伪造流水时刻（只动 `updated_at`）；
+/// - **V0139 联动**：下面的 `ON CONFLICT (material_id, warehouse_id)` 依赖当前的
+///   `uk_biz_inv_mat_wh`。W3a 换成三列唯一键后必须同步改成
+///   `ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`
+///   并在 `INSERT` 列清单里补 `location_id`（详见模块头「已知的跨卡耦合」），
+///   否则本语句会以 PG 42P10 失败、`dry_run=false` 直接 500。
 fn fix_sql() -> String {
     format!(
         "{AUDIT_CTE} \
