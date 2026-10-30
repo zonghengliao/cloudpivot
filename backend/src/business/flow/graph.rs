@@ -1412,7 +1412,7 @@ pub enum Condition {
 }
 
 /// 非 `form.*` 的固定字段白名单。
-const FIXED_FIELDS: [&str; 10] = [
+pub const FIXED_FIELDS: [&str; 10] = [
     "initiator.id",
     "initiator.name",
     "initiator.dept_id",

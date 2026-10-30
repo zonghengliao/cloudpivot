@@ -1728,7 +1728,7 @@ impl<'a> Run<'a> {
             .filter(|edge| edge.from == spec.key)
             .collect();
         edges.sort_by_key(|edge| (edge.priority, edge.key.clone()));
-        let context = self.eval_context();
+        let context = self.eval_context().await?;
         for edge in &edges {
             if edge.is_default {
                 continue;
@@ -1769,19 +1769,40 @@ impl<'a> Run<'a> {
     }
 
     /// 条件求值上下文：`form` = `instance.form_data`，`initiator` / `instance` 来自实例行。
-    fn eval_context(&self) -> EvalContext {
+    ///
+    /// **必须覆盖 `graph::field_allowed` 白名单里的每一个字段**，否则条件里引用了
+    /// 缺字段的分支会永远 `EvalError::Missing` → 静默走兜底边（只有 WARN 没有
+    /// ERROR），配置了也不生效。
+    ///
+    /// 白名单（`graph.rs:1422`）：
+    ///   - `form.*`
+    ///   - `initiator.id` / `initiator.name` / `initiator.dept_id`
+    ///   - `instance.biz_type` / `instance.biz_no` / `instance.title`
+    ///   - `task.status` / `task.priority` / `task.estimate_hours` / `task.title`
+    ///
+    /// `task.*` 仅 `TASK_ACCEPT` 场景填（`biz_type = "TASK_ACCEPT"` 且 `biz_id`
+    /// 指向 `biz_task.id`）；其他流程留空 Map —— 条件里用到就是 Missing → 兜底边。
+    async fn eval_context(&self) -> DbResult<EvalContext> {
         let mut form = Map::new();
         if let Json::Object(map) = &self.instance.form_data {
             form = map.clone();
         }
+
+        // ── initiator：白名单三项全覆盖（id / name / dept_id）──
         let mut initiator = Map::new();
         initiator.insert(
             "id".to_string(),
             Json::String(self.instance.initiator_id.to_string()),
         );
+        if let Some(name) = &self.instance.initiator_name {
+            initiator.insert("name".to_string(), Json::String(name.clone()));
+        }
         if let Some(dept) = self.instance.initiator_dept_id {
             initiator.insert("dept_id".to_string(), Json::String(dept.to_string()));
         }
+
+        // ── instance：白名单三项全覆盖（biz_type / biz_no / title）
+        //    id / biz_id 不在白名单，但保留供将来放宽（field_allowed 会先拒）──
         let mut instance = Map::new();
         instance.insert("id".to_string(), Json::String(self.instance.id.to_string()));
         instance.insert(
@@ -1791,12 +1812,56 @@ impl<'a> Run<'a> {
         if let Some(biz_id) = self.instance.biz_id {
             instance.insert("biz_id".to_string(), Json::String(biz_id.to_string()));
         }
-        EvalContext {
+        if let Some(biz_no) = &self.instance.biz_no {
+            instance.insert("biz_no".to_string(), Json::String(biz_no.clone()));
+        }
+        if !self.instance.title.is_empty() {
+            instance.insert(
+                "title".to_string(),
+                Json::String(self.instance.title.clone()),
+            );
+        }
+
+        // ── task：仅 TASK_ACCEPT 场景查 biz_task（白名单四项：status/priority/estimate_hours/title）──
+        let mut task = Map::new();
+        if self.instance.biz_type == "TASK_ACCEPT"
+            && let Some(task_id) = self.instance.biz_id
+        {
+            // estimate_hours 是 numeric(6,1)，::float8 转数字（JSON 里是 number 而非 string）
+            let rows = self
+                .ex
+                .find_with_params(
+                    "SELECT title, status, priority, \
+                                estimate_hours::float8 AS estimate_hours \
+                           FROM biz_task \
+                          WHERE id = ?::uuid AND deleted_at IS NULL",
+                    vec![Value::from(&task_id)],
+                )
+                .await?;
+            if let Some(row) = rows.first() {
+                if let Ok(title) = row.get_typed::<String>("title") {
+                    task.insert("title".to_string(), Json::String(title));
+                }
+                if let Ok(status) = row.get_typed::<String>("status") {
+                    task.insert("status".to_string(), Json::String(status));
+                }
+                if let Ok(priority) = row.get_typed::<String>("priority") {
+                    task.insert("priority".to_string(), Json::String(priority));
+                }
+                if let Ok(Some(hours)) = row.get_typed::<Option<f64>>("estimate_hours")
+                    && let Some(num) = serde_json::Number::from_f64(hours)
+                {
+                    task.insert("estimate_hours".to_string(), Json::Number(num));
+                }
+            }
+        }
+
+        Ok(EvalContext {
             form,
             initiator,
             instance,
-            task: Map::new(),
-        }
+            task,
+        })
     }
 
     /// 实例是否该结束了（没有 ACTIVE / 等待中的节点）。
@@ -2123,6 +2188,103 @@ async fn node_allows_robot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ==================================================================
+    // F1 回归：eval_context 必须填满 graph::FIXED_FIELDS 白名单
+    // ==================================================================
+    //
+    // 背景：修复前 eval_context() 只填了 6/11 个白名单字段（缺
+    // initiator.name / instance.title / instance.biz_no / task.*），
+    // 导致存量条件边里用了这些字段的分支永远 EvalError::Missing
+    // → 静默走兜底边（只有 WARN 无 ERROR），配置了也不生效。
+    //
+    // 两层测试：
+    //   ① 结构层：EvalContext 能 resolve 白名单每个字段
+    //   ② 源码层：eval_context() 函数体真的 insert 了每个字段（防退化）
+
+    /// ① 结构层：EvalContext 能承载白名单所有字段。
+    #[test]
+    fn eval_context_struct_resolves_every_whitelisted_field() {
+        use serde_json::json;
+
+        let mut ctx = EvalContext::default();
+        ctx.form.insert("amount".into(), json!(100));
+        ctx.initiator.insert("id".into(), json!("u1"));
+        ctx.initiator.insert("name".into(), json!("张三"));
+        ctx.initiator.insert("dept_id".into(), json!("d1"));
+        ctx.instance.insert("biz_type".into(), json!("TASK_ACCEPT"));
+        ctx.instance.insert("biz_no".into(), json!("TSK-001"));
+        ctx.instance.insert("title".into(), json!("验收任务"));
+        ctx.task.insert("status".into(), json!("TODO"));
+        ctx.task.insert("priority".into(), json!("P0"));
+        ctx.task.insert("estimate_hours".into(), json!(8.0));
+        ctx.task.insert("title".into(), json!("改个按钮"));
+
+        // graph::FIXED_FIELDS 里的每一项都必须能 resolve
+        for field in graph::FIXED_FIELDS {
+            assert!(
+                ctx.resolve(field).is_ok(),
+                "白名单字段 {field} 必须能从 EvalContext 解析出来（否则条件边静默失效）"
+            );
+        }
+
+        // form.* 走前缀规则，单独验一条
+        assert!(ctx.resolve("form.amount").is_ok());
+    }
+
+    /// ② 源码层：eval_context() 函数体必须 insert 白名单每个字段。
+    ///
+    /// 这条测试看着丑，但它直接锁住了 F1 的根因：`task: Map::new()` 这种
+    /// 「结构存在但从不填充」的写法，结构层测试抓不到，只有源码断言能抓。
+    #[test]
+    fn eval_context_fills_every_root_in_source() {
+        let src = include_str!("engine.rs");
+
+        // 抽出 eval_context 函数体（从签名到下一个成员函数注释之前）
+        let start = src
+            .find("async fn eval_context(&self) -> DbResult<EvalContext>")
+            .expect("eval_context 必须返回 DbResult<EvalContext>（带 ? 的错误传播）");
+        let body_end = src[start..]
+            .find(
+                "
+    /// 实例是否该结束了",
+            )
+            .map(|i| start + i)
+            .unwrap_or(src.len());
+        let body = &src[start..body_end];
+
+        // 白名单里除 form.* 之外的每个 leaf 都必须有对应的 insert
+        let required = [
+            ("initiator", "id"),
+            ("initiator", "name"),
+            ("initiator", "dept_id"),
+            ("instance", "biz_type"),
+            ("instance", "biz_no"),
+            ("instance", "title"),
+            ("task", "title"),
+            ("task", "status"),
+            ("task", "priority"),
+            ("task", "estimate_hours"),
+        ];
+        for (root, leaf) in required {
+            let root_pos = body.find(&format!("{root}.insert(")).unwrap_or_else(|| {
+                panic!("eval_context() 里找不到 {root}.insert( —— 整类字段缺失")
+            });
+            let window = &body[root_pos..std::cmp::min(body.len(), root_pos + 800)];
+            let leaf_pat = format!("\"{leaf}\"");
+            if !window.contains(&leaf_pat) {
+                eprintln!("[F1 失败] 缺 {root}.{leaf}");
+                eprintln!("  查找窗口: {window:?}");
+                panic!("eval_context() 必须填 {root}.{leaf}");
+            }
+        }
+
+        // task 必须真的查库（不是空 Map）
+        assert!(
+            body.contains("TASK_ACCEPT") && body.contains("biz_task"),
+            "task.* 必须在 TASK_ACCEPT 场景下从 biz_task 查（不能留空 Map）"
+        );
+    }
 
     fn tally(a: i64, r: i64, p: i64) -> Tally {
         Tally {
