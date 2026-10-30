@@ -397,8 +397,14 @@ pub struct AttachmentRow {
 }
 
 /// 附件要读的列（唯一来源）。
+///
+/// **`original_name` / `file_name` 必须分开取原始值**：显示名由
+/// [`model::display_file_name`] 在 `from_row` 里算（优先原始名，回退 basename）。
+/// 这里若再写 `COALESCE(f.original_name, f.file_name)`，存储路径
+/// （`2026/10/29/….md`）就会漏进 `file_name` 下发到前端当下载保存名（E12）。
 const ATTACHMENT_COLUMNS: &str = "a.id, a.file_id, \
-     COALESCE(f.original_name, f.file_name, '') AS file_name, \
+     COALESCE(f.original_name, '') AS original_name, \
+     COALESCE(f.file_name, '') AS file_name, \
      COALESCE(f.file_size, 0) AS file_size, \
      COALESCE(f.mime_type, '') AS mime_type, \
      a.source, a.ai_profile, a.create_by, a.created_at, \
@@ -407,10 +413,12 @@ const ATTACHMENT_COLUMNS: &str = "a.id, a.file_id, \
 impl AttachmentRow {
     /// 从查询行构造。
     fn from_row(row: &Row) -> DbResult<Self> {
+        let stored: String = row.get_typed("file_name")?;
+        let original: Option<String> = row.get_typed("original_name")?;
         Ok(Self {
             id: row.get_typed("id")?,
             file_id: row.get_typed("file_id")?,
-            file_name: row.get_typed("file_name")?,
+            file_name: model::display_file_name(original.as_deref(), &stored),
             file_size: row.get_typed("file_size")?,
             mime_type: row.get_typed("mime_type")?,
             source: row.get_typed("source")?,
@@ -1471,5 +1479,19 @@ mod tests {
         assert!(parse_mentions(Some("[]")).is_empty());
         assert!(parse_mentions(Some("not json")).is_empty());
         assert!(parse_mentions(None).is_empty());
+    }
+}
+
+/// E12：附件列清单的结构回归 —— 显示名必须在 Rust 侧算，SQL 不许再「合名」。
+#[cfg(test)]
+mod attachment_columns_tests {
+    use super::ATTACHMENT_COLUMNS;
+
+    #[test]
+    fn attachment_columns_expose_original_and_stored_name() {
+        assert!(ATTACHMENT_COLUMNS.contains("AS original_name"));
+        assert!(ATTACHMENT_COLUMNS.contains("AS file_name"));
+        // 反向断言：不允许把两个名字在 SQL 里合起来（那样存储路径会漏进下载文件名）
+        assert!(!ATTACHMENT_COLUMNS.contains("f.original_name, f.file_name"));
     }
 }

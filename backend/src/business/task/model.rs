@@ -803,7 +803,40 @@ pub async fn list_members(task_id: Uuid) -> DbResult<Vec<TaskMemberRow>> {
     Ok(list)
 }
 
+/// 附件显示名（人可读）：优先 `sys_file.original_name`，否则取 `file_name` 的 basename。
+///
+/// # 为什么不能直接把 `sys_file.file_name` 下发给前端
+///
+/// `sys_file.file_name` 是**存储名**：LOCAL / 对象存储后端下它是带日期的相对路径
+/// （如 `2026/10/29/01a1874d-….md`）。附件列表把它当 `file_name` 下发后，前端会
+/// 拿它当 `<a download>` 的保存名 —— 路径分隔符不该出现在保存名里（Chromium 会把
+/// `/` 替换成 `_`，其它浏览器实现可能直接丢弃这次下载），用户看到的名字也不是
+/// 自己认识的那个。所以显示名统一在这里收口：`original_name` 缺失 / 空串时退回
+/// `file_name` 的 basename（去掉 `2026/10/29/` 这类目录前缀）。
+///
+/// # 参数
+///
+/// - `original`：`sys_file.original_name`（可空、可能是空串）。
+/// - `stored`：`sys_file.file_name`（存储名，可能带 `/` 或 `\`）。
+///
+/// # 返回值
+///
+/// 两侧都空时返回空串（前端有 `|| 'attachment'` 兜底），绝不返回带分隔符的名字。
+pub(crate) fn display_file_name(original: Option<&str>, stored: &str) -> String {
+    if let Some(name) = original.map(str::trim).filter(|name| !name.is_empty()) {
+        return name.to_string();
+    }
+    stored
+        .trim()
+        .rsplit(['/', '\\'])
+        .find(|segment| !segment.is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
+
 /// 附件列表（详情页右栏）。
+///
+/// `file_name` 由 [`display_file_name`] 从「原始名 / 存储名」算出，**不带路径**。
 ///
 /// # 异常情况
 ///
@@ -812,7 +845,8 @@ pub async fn list_attachments(task_id: Uuid) -> DbResult<Vec<TaskAttachmentRow>>
     let rows = db()
         .find_with_params(
             "SELECT a.id, a.file_id, \
-                    COALESCE(f.original_name, f.file_name, '') AS file_name, \
+                    COALESCE(f.original_name, '') AS original_name, \
+                    COALESCE(f.file_name, '') AS file_name, \
                     COALESCE(f.file_size, 0) AS file_size, a.sort_order, \
                     a.source, a.ai_profile \
                FROM biz_task_attachment a LEFT JOIN sys_file f ON f.id = a.file_id \
@@ -823,10 +857,12 @@ pub async fn list_attachments(task_id: Uuid) -> DbResult<Vec<TaskAttachmentRow>>
         .await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
+        let stored: String = row.get_typed("file_name")?;
+        let original: Option<String> = row.get_typed("original_name")?;
         list.push(TaskAttachmentRow {
             id: row.get_typed("id")?,
             file_id: row.get_typed("file_id")?,
-            file_name: row.get_typed("file_name")?,
+            file_name: display_file_name(original.as_deref(), &stored),
             file_size: row.get_typed("file_size")?,
             sort_order: row.get_typed("sort_order")?,
             source: row.get_typed("source")?,
@@ -3786,5 +3822,63 @@ mod tests {
         assert!(CARD_COLUMNS.contains("c.parent_id = t.id"));
         // 反向断言：CANCELLED 不是「完成」，别把取消也算进去
         assert!(!CARD_COLUMNS.contains("CANCELLED"));
+    }
+}
+
+/// E12：附件显示名的纯逻辑回归（不连库，`cargo test` 里必然跑到）。
+#[cfg(test)]
+mod display_file_name_tests {
+    use super::display_file_name;
+
+    /// 正常路径：有 `original_name` 时一律用它（AI 产出的 `recheck.md` 就靠这条）。
+    #[test]
+    fn prefers_original_name() {
+        assert_eq!(
+            display_file_name(Some("recheck.md"), "2026/10/29/01a1874d.md"),
+            "recheck.md"
+        );
+        // 原始名带空白要 trim，不能把空格写进保存名
+        assert_eq!(
+            display_file_name(Some("  report.md "), "2026/10/29/x.md"),
+            "report.md"
+        );
+    }
+
+    /// 边界 1：`original_name` 为 NULL → 退回存储名的 basename（去掉日期目录）。
+    #[test]
+    fn falls_back_to_stored_basename() {
+        assert_eq!(
+            display_file_name(None, "2026/10/29/01a1874d.md"),
+            "01a1874d.md"
+        );
+        // Windows 风格分隔符同样要剥掉（备份 / 迁移数据里出现过）
+        assert_eq!(
+            display_file_name(None, "2026\\10\\29\\01a1874d.md"),
+            "01a1874d.md"
+        );
+        // 没有分隔符 → 原样返回
+        assert_eq!(display_file_name(None, "plain.md"), "plain.md");
+    }
+
+    /// 边界 2：`original_name` 是空串 / 全空白（上传时文件名缺失）→ 仍要 basename，不能下发空名或路径。
+    #[test]
+    fn empty_original_name_is_treated_as_missing() {
+        assert_eq!(display_file_name(Some(""), "2026/10/29/x.md"), "x.md");
+        assert_eq!(display_file_name(Some("   "), "2026/10/29/x.md"), "x.md");
+    }
+
+    /// 边界 3：两侧都空 → 空串（前端 `|| 'attachment'` 兜底），且绝不返回带分隔符的名字。
+    #[test]
+    fn never_returns_a_path() {
+        assert_eq!(display_file_name(None, ""), "");
+        // 尾部带分隔符时不能返回空串（取最后一个非空段）
+        assert_eq!(display_file_name(None, "2026/10/29/"), "29");
+        for case in [
+            display_file_name(None, "2026/10/29/x.md"),
+            display_file_name(Some(""), "2026/10/29/x.md"),
+            display_file_name(Some("y.md"), "2026/10/29/x.md"),
+        ] {
+            assert!(!case.contains('/'), "显示名不许含路径分隔符：{case}");
+        }
     }
 }
