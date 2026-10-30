@@ -428,6 +428,10 @@ async fn settle(
 ///
 /// 引擎把同意 / 驳回意见写在 `biz_flow_task.comment`（待办行），实例行的 `result_comment`
 /// 往往为空。回调要拿「为什么被驳回」当任务打回原因，所以按 `completed_at` 倒序取第一条非空。
+// SCOPE-EXEMPT: 按 `instance_id` 精确取**单条**审批意见（`LIMIT 1`），不是列表查询。
+// 调用链：`on_instance_settled` → 本函数，入参 instance_id 来自回调的 `biz_flow_instance.id`，
+// 而该实例的可见性已由发起侧（`prepare_accept` 校验 `task_id` 归属 + `assert_task_visible`）保证。
+// 这里再套数据范围反而会「因为审批人被调岗而查不到自己经手的驳回意见」，把业务打回原因弄丢。
 async fn latest_verdict_comment(instance_id: Uuid) -> DbResult<Option<String>> {
     let rows = db()
         .find_with_params(
@@ -447,6 +451,10 @@ async fn latest_verdict_comment(instance_id: Uuid) -> DbResult<Option<String>> {
 }
 
 /// 读回调需要的任务列（`REVIEW` 判定 / 进度 / 验收开关 / 当前审批单）。
+// SCOPE-EXEMPT: 按 `task_id` 精确取**单条**任务（主键命中），不是列表查询。
+// 调用链：流程回调 → 本函数，task_id 来自 `instance.biz_id`，该值在发起时由
+// `prepare_accept` 从**已通过可见性校验**的任务行写入。
+// 数据范围在这里没有意义：回调是「系统身份」，它推进的就是这一条任务。
 async fn callback_task_row(task_id: Uuid) -> DbResult<Option<CallbackTaskRow>> {
     let rows = db()
         .find_with_params(
