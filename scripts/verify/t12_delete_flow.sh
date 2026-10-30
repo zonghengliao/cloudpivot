@@ -17,6 +17,19 @@
 #   T12_ENV_FILE     读库连接 / 初始口令的 env 文件，默认 /etc/cloudpivot/cloudpivot-dev.env
 #   T12_DB           断言用的库名，默认 cloudpivot_t12（必须与实例指向同一个库）
 #
+# 复跑前置（隔离实例，全程不碰 8023 prod / 8024 dev）：
+#   su - postgres -c 'createdb -O cloudpivot cloudpivot_t12'
+#   set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a
+#   export NIK_PROFILE=test NIK_DATABASE_NAME=cloudpivot_t12 \
+#          NIK_SERVER_LISTEN=127.0.0.1:18092 NIK_REDIS_URL=redis://127.0.0.1:6379/9
+#   cd backend && cargo build && setsid nohup ./target/debug/cloudpivot \
+#          > /tmp/t12/server.log 2>&1 < /dev/null &
+#   （等日志出现「数据库迁移完成: 应用 N 个迁移」→ curl http://127.0.0.1:18092/health = 200）
+#   单测（同一张库）：
+#   TASK_DB_URL=postgres://cloudpivot:<pwd>@127.0.0.1:5432/cloudpivot_t12 \
+#     cargo test --lib t12_delete_flow_tests -j 1
+#   收尾：按 pid 精确 kill 该实例（别用 pkill -f target/debug/cloudpivot）
+#
 # 断言（①–⑳）：
 #   ① 无令牌 401
 #   ② 建任务 A（need_review=true）→ DOING → REVIEW 生成审批单（PENDING / ended_at 空）
