@@ -32,7 +32,11 @@
         <div v-for="card in cards" :key="card.id" class="task-card" @click="openDetail(card)">
           <div class="task-card__main">
             <div class="task-card__title">
+              <!-- 左上角「待处理」状态徽标：只在待办 Tab 出现（状态），与 NEW（新鲜度）区分 -->
+              <t-tag v-if="activeTab === 'todo'" class="task-card__todo" theme="warning" size="small">待处理</t-tag>
               <span class="task-card__title-text">{{ card.title || '（无标题）' }}</span>
+              <!-- 24 小时内到达 → NEW 角标（仅有待办 Tab 有意义） -->
+              <NewDot v-if="card.isNew" variant="badge" title="24 小时内到达的新待办" />
               <span v-if="card.flowName" class="task-card__flow">{{ card.flowName }}</span>
               <t-tag v-if="card.tag" size="small" variant="light" :theme="card.tagTheme">{{ card.tag }}</t-tag>
             </div>
@@ -155,6 +159,7 @@ import {
   type FlowTaskItem,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import NewDot from '@/components/NewDot.vue';
 import type { StatusDomain } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
@@ -193,6 +198,10 @@ interface CardItem {
   tag?: string;
   /** 小标签主题（有 tag 时必填） */
   tagTheme?: 'default' | 'primary' | 'success' | 'warning' | 'danger';
+  /** 到达时间戳（毫秒；`decorate` 统一算，用于排序） */
+  atMs?: number;
+  /** 是否为「24 小时内到达」的新内容（仅待办 Tab 标记） */
+  isNew?: boolean;
 }
 
 /** 当前 Tab（`t-tab-panel` 的 value） */
@@ -274,6 +283,33 @@ function taskToCard(task: FlowTaskItem): CardItem {
   };
 }
 
+/** 24 小时窗口：`arrived_at` 在窗口内 = 新内容（NEW 角标） */
+const NEW_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** 是否 24 小时内到达（未来时间 / 非法时间一律不算新） */
+function isFresh(at: string): boolean {
+  const time = new Date(at).getTime();
+  if (!Number.isFinite(time)) {
+    return false;
+  }
+  const age = Date.now() - time;
+  return age >= 0 && age <= NEW_WINDOW_MS;
+}
+
+/**
+ * 卡片统一收尾：算到达时间戳 + 新鲜度，并按到达时间倒序（最新的在上）。
+ * 排序放前端做，是因为后端四个接口各自排序口径不同，列表页只需要一个稳定口径。
+ */
+function decorate(items: CardItem[]): CardItem[] {
+  return items
+    .map((item) => ({
+      ...item,
+      atMs: new Date(item.at).getTime() || 0,
+      isNew: activeTab.value === 'todo' && isFresh(item.at),
+    }))
+    .sort((a, b) => (b.atMs ?? 0) - (a.atMs ?? 0));
+}
+
 /** 载入当前 Tab */
 async function loadCurrent(): Promise<void> {
   loading.value = true;
@@ -328,6 +364,7 @@ async function loadCurrent(): Promise<void> {
         tagTheme: 'primary' as const,
       }));
     }
+    cards.value = decorate(cards.value);
   } catch (error) {
     cards.value = [];
     tabError.value = `${error instanceof ApiError ? error.message : '接口异常'}（下面为空态，可点「重试」）`;
@@ -576,6 +613,11 @@ onMounted(() => {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* 「待处理」徽标（warning 浅色 t-tag）不参与收缩，标题先截断 */
+  &__todo {
+    flex: none;
   }
 
   /* 流程名（`flow_name`）：标题旁的中性小 chip；中性色是为跨 22 套配色都能过 AA 对比 */

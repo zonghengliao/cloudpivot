@@ -50,6 +50,8 @@
                 <span class="notice-item__dot" />
                 <span class="notice-item__title">{{ item.title }}</span>
                 <t-tag :theme="levelTheme(item.level)" size="small" variant="light">{{ levelLabel(item.level) }}</t-tag>
+                <!-- 右上角 NEW 圆点：只表达「新鲜度」，与左上角未读红点、左侧竖条各司其职 -->
+                <NewDot v-if="!item.read_flag" class="notice-item__new" title="新消息 NEW" />
               </div>
               <p class="notice-item__content">{{ plainText(item.content) }}</p>
               <div class="notice-item__foot">
@@ -122,6 +124,7 @@ import {
   type MyNoticeRes,
 } from '@/api/business/notice';
 import { formatDateTime } from '@/utils/format';
+import NewDot from '@/components/NewDot.vue';
 import { useNoticeStore } from '@/stores/notice';
 import { useBadgeStore } from '@/stores/badge';
 
@@ -373,13 +376,31 @@ onBeforeUnmount(() => {
   }
 
   .notice-item {
+    position: relative;
     padding: 12px 20px;
     border-bottom: 1px solid var(--td-component-stroke);
+    border-left: 3px solid transparent;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, border-color 0.15s;
 
     &:hover {
       background: var(--td-bg-color-container-hover);
+    }
+
+    /* 未读：左侧 3px 主色竖条（比整行浅底更「扫一眼就能看出」，也不压正文对比度） */
+    &--unread {
+      border-left-color: var(--td-brand-color);
+
+      /* 注意：这里必须写「子类名」而不是 `&__title` ——
+         多个 `&` 在 Less 里会各自展开成完整祖先链（`.notice-message-page .notice-item--unread
+         .notice-message-page .notice-item__title`），选择器永远匹配不到，样式会静默失效。 */
+      .notice-item__dot {
+        background: var(--td-error-color);
+      }
+
+      .notice-item__title {
+        font-weight: 600;
+      }
     }
 
     &--active {
@@ -400,8 +421,9 @@ onBeforeUnmount(() => {
       flex: none;
     }
 
-    &--unread &__dot {
-      background: var(--td-error-color);
+    /* 右上角 NEW 圆点（共用组件）：跟在级别标签后面贴齐右缘 */
+    &__new {
+      margin-left: 2px;
     }
 
     &__title {
@@ -411,10 +433,6 @@ onBeforeUnmount(() => {
       white-space: nowrap;
       font-size: 14px;
       color: var(--td-text-color-primary);
-    }
-
-    &--unread &__title {
-      font-weight: 600;
     }
 
     &__content {

@@ -397,6 +397,11 @@ onMounted(() => {
     background: var(--td-bg-color-container-hover);
   }
 
+  /* 未读行：品牌浅底高亮（红点 + 加粗之外的第三重提示，极轻，不抢正文） */
+  &--unread {
+    background: var(--td-brand-color-1);
+  }
+
   &--active {
     background: var(--app-accent-soft);
   }
@@ -407,11 +412,12 @@ onMounted(() => {
     gap: 6px;
   }
 
+  /* 已读：留占位但不显色（无红点）；未读：8px 语义错误色实心点 */
   &__dot {
-    width: 6px;
-    height: 6px;
+    width: 8px;
+    height: 8px;
     border-radius: 50%;
-    background: var(--td-bg-color-container-hover);
+    background: transparent;
     flex: 0 0 auto;
   }
 
