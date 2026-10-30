@@ -1023,10 +1023,10 @@ pub async fn material_create(
         "INSERT INTO biz_material \
              (id, material_code, material_name, spec, unit_id, material_type, \
               default_warehouse_id, safety_stock, costing_method, inventory_account_id, tax_rate, \
-              status, remark, created_at, updated_at, create_by, update_by) \
+              status, serial_required, remark, created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, ?::uuid, ?, NULLIF(?::text,'')::uuid, \
                      COALESCE(NULLIF(?::text,''),'0')::numeric, ?, NULLIF(?::text,'')::uuid, \
-                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, ?, now(), now(), \
+                     COALESCE(NULLIF(?::text,''),'0')::numeric, ?, ?, ?, now(), now(), \
                      NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
         vec![
             Value::from(&id),
@@ -1041,6 +1041,7 @@ pub async fn material_create(
             uuid_text(inventory_account_id),
             decimal_text(req.tax_rate),
             Value::I16(req.status),
+            Value::from(req.serial_required.unwrap_or(false)),
             Value::from(req.remark.clone()),
             operator_of(&claims),
             operator_of(&claims),
@@ -1130,32 +1131,48 @@ pub async fn material_update(
     };
     let tax_rate = req.tax_rate.unwrap_or(current.tax_rate);
     let status = req.status.unwrap_or(current.status);
+    // 一物一码开关：缺席 = 不改（不是「关掉」），与其余可选字段同口径。
+    let (serial_clause, serial_param) = match req.serial_required {
+        Some(flag) => (
+            " serial_required = ?, ".to_string(),
+            Some(Value::from(flag)),
+        ),
+        None => (String::new(), None),
+    };
     let remark = match req.remark {
         None => current.remark.clone(),
         Some(value) => value,
     };
+    let mut params = vec![
+        Value::from(material_name),
+        Value::from(spec),
+        Value::from(&unit_id),
+        Value::from(material_type),
+        uuid_text(default_warehouse_id),
+        Value::Text(safety_stock.to_string()),
+        Value::from(costing_method),
+        uuid_text(inventory_account_id),
+        Value::Text(tax_rate.to_string()),
+        Value::I16(status),
+        Value::from(remark),
+    ];
+    // 一物一码片段插在 status/remark 之后、updated_at 之前（占位符顺序必须与 vec 一致）
+    if let Some(value) = serial_param {
+        params.push(value);
+    }
+    params.push(operator_of(&claims));
+    params.push(Value::from(&id));
     db().execute_with_params(
-        "UPDATE biz_material SET material_name = ?, spec = ?, unit_id = ?::uuid, \
+        &format!(
+            "UPDATE biz_material SET material_name = ?, spec = ?, unit_id = ?::uuid, \
              material_type = ?, default_warehouse_id = NULLIF(?::text,'')::uuid, \
              safety_stock = NULLIF(?::text,'')::numeric, costing_method = ?, \
              inventory_account_id = NULLIF(?::text,'')::uuid, \
-             tax_rate = NULLIF(?::text,'')::numeric, status = ?, remark = ?, updated_at = now(), \
-             update_by = NULLIF(?::text,'')::uuid WHERE id = ?::uuid AND deleted_at IS NULL",
-        vec![
-            Value::from(material_name),
-            Value::from(spec),
-            Value::from(&unit_id),
-            Value::from(material_type),
-            uuid_text(default_warehouse_id),
-            Value::Text(safety_stock.to_string()),
-            Value::from(costing_method),
-            uuid_text(inventory_account_id),
-            Value::Text(tax_rate.to_string()),
-            Value::I16(status),
-            Value::from(remark),
-            operator_of(&claims),
-            Value::from(&id),
-        ],
+             tax_rate = NULLIF(?::text,'')::numeric, status = ?, remark = ?,{serial_clause} \
+             updated_at = now(), update_by = NULLIF(?::text,'')::uuid \
+             WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        params,
     )
     .await
     .map_err(|error| write_error(error, "编辑物料"))?;
@@ -2913,6 +2930,7 @@ mod tests {
                 inventory_account_id: None,
                 tax_rate: None,
                 status: 1,
+                serial_required: None,
                 remark: None,
             }),
         )
@@ -2937,6 +2955,7 @@ mod tests {
                     inventory_account_id: None,
                     tax_rate: Some(Decimal::new(1300, 4)),
                     status: 1,
+                    serial_required: None,
                     remark: None,
                 }),
             )
@@ -2976,6 +2995,7 @@ mod tests {
                     inventory_account_id: None,
                     tax_rate: None,
                     status: None,
+                    serial_required: None,
                     remark: None,
                 }),
             )

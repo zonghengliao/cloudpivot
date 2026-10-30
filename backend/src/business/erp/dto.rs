@@ -888,7 +888,8 @@ fn default_costing_method() -> String {
 
 /// 新建物料。
 ///
-/// 不含 `serial_required`（该列属 V0138，见 `model.rs` 模块文档第 2 条）。
+/// `serial_required` 是 V0138 加的一物一码开关：**W2b 补口**（W1c 落地时该列还不存在，
+/// 接口没接这一列 → 物料接口无法打开一物一码，序列号功能就无从启用）。
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateMaterialReq {
     /// 物料编码（`VARCHAR(40)`，未删除内唯一）。
@@ -921,6 +922,9 @@ pub struct CreateMaterialReq {
     /// 启用状态（缺省 1）。
     #[serde(default = "default_enabled")]
     pub status: i16,
+    /// 是否强制一物一码（缺省 `false`；V0138 的列）。
+    #[serde(default)]
+    pub serial_required: Option<bool>,
     /// 备注。
     #[serde(default)]
     pub remark: Option<String>,
@@ -979,6 +983,9 @@ pub struct UpdateMaterialReq {
     /// 启用状态。
     #[serde(default)]
     pub status: Option<i16>,
+    /// 一物一码开关（缺席 = 不改；V0138 的列）。
+    #[serde(default)]
+    pub serial_required: Option<bool>,
     /// 备注（`Some(None)` = 清空）。
     #[serde(default, deserialize_with = "double_option")]
     pub remark: Option<Option<String>>,
@@ -1112,6 +1119,8 @@ pub struct MaterialRes {
     pub tax_rate: Decimal,
     /// 启用状态。
     pub status: i16,
+    /// 是否强制一物一码（V0138 的列；前端据此显示「一物一码」标签与生成入口）。
+    pub serial_required: bool,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -1135,6 +1144,7 @@ impl From<&MaterialRow> for MaterialRes {
             inventory_account_id: row.inventory_account_id.map(|id| id.to_string()),
             tax_rate: row.tax_rate,
             status: row.status,
+            serial_required: row.serial_required,
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
@@ -3384,6 +3394,7 @@ mod tests {
             inventory_account_id: None,
             tax_rate: Some(dec("0.13")),
             status: 1,
+            serial_required: None,
             remark: None,
         }
     }

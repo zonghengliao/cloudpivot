@@ -1,0 +1,1226 @@
+//! 单品序列号接口层（批次 D · W2b）：5 个接口 + 权限码 + 状态机落地。
+//!
+//! 前缀 `/api` 由 `[router].prefix` 注入，宏内写 `/business/erp/serial/...`。
+//!
+//! | 方法 | 路径 | 权限码 | 说明 |
+//! |------|------|--------|------|
+//! | POST | `/business/erp/serial/batch-generate` | `business:erp:serial:generate` | 批量生成（物料必须 `serial_required = TRUE`） |
+//! | GET | `/business/erp/serial/page` | `business:erp:serial:list` | 分页列表 |
+//! | GET | `/business/erp/serial/scan?serial_no=` | `business:erp:serial:view` | 扫码定位（唯一索引点查） |
+//! | PATCH | `/business/erp/serial/{id}/status` | `business:erp:serial:status` | 状态流转（不可逆） |
+//! | GET | `/business/erp/serial/{id}` | `business:erp:serial:detail` | 详情 |
+//!
+//! 路由冲突说明：`/serial/scan`、`/serial/page` 是**静态段**，`/serial/{id}` 是动态段，
+//! axum 的 matchit 静态优先，`GET /serial/scan` 不会被 `{id}` 吃掉（e2e 实测）。
+//!
+//! # 为什么把业务逻辑拆成 `generate_serials` / `apply_status` 两个函数
+//!
+//! axum handler 要 `AuthClaims` + `Json` 才能跑，单测没法直接调；
+//! 把「校验 + 取号 + 落库」收进普通 async 函数后，单测走的是**同一条代码路径**（只跳过认证），
+//! 比「另写一份测试逻辑」更能钉住行为。
+//!
+//! # 数据权限
+//!
+//! ```text
+//! SCOPE-EXEMPT: 单品序列号是仓储作业数据（V0138 无 dept_id / 归属人列），
+//! 可见性由 business:erp:serial:* 权限码控制；列表分页走 model 的 scope::paginate_unscoped。
+//! ```
+
+use axum::Json;
+use nik::prelude::*;
+use nik::uuid::Uuid;
+use serde::Deserialize;
+
+use crate::business::erp::model;
+use crate::business::erp::serial_dto::{
+    BatchGenerateReq, SerialBatchRes, SerialFilter, SerialRes, SerialScanRes, SerialStatusReq,
+};
+use crate::business::erp::serial_model::{self, GenerateParams, TransitionOutcome};
+use crate::shared::error_code;
+use crate::utils;
+
+// ==================== 权限码（与 V0142 迁移逐字一致） ====================
+
+/// 卡面 §三 的 5 个权限码。
+pub const SERIAL_PERMISSIONS: [(&str, &str); 5] = [
+    ("business:erp:serial:list", "序列号列表"),
+    ("business:erp:serial:detail", "序列号详情"),
+    ("business:erp:serial:view", "序列号扫码"),
+    ("business:erp:serial:generate", "批量生成序列号"),
+    ("business:erp:serial:status", "序列号状态流转"),
+];
+
+// ==================== 共用辅助 ====================
+
+/// 路径 / 请求体里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
+fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_FILTER_INVALID,
+            format!("{field} 不能为空"),
+        ));
+    }
+    Uuid::parse_str(text).map_err(|_| {
+        ApiError::new(
+            400,
+            error_code::ERP_FILTER_INVALID,
+            format!("{field} 不是合法的 UUID：{text}"),
+        )
+    })
+}
+
+/// 可空 UUID：空串 / 缺席都是 `None`。
+fn optional_uuid(raw: Option<&str>, field: &str) -> std::result::Result<Option<Uuid>, ApiError> {
+    match raw.map(str::trim).filter(|text| !text.is_empty()) {
+        Some(text) => parse_uuid(text, field).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// 操作人（`create_by` / `update_by`）。
+fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
+    utils::current_user_uuid(claims)
+}
+
+/// 不存在统一 404。
+fn not_found(what: &str) -> ApiError {
+    ApiError::new(
+        404,
+        error_code::RESOURCE_NOT_FOUND,
+        format!("{what}不存在或已删除"),
+    )
+}
+
+/// 弱引用缺失 / 数据不一致统一 400（`66002`）。
+fn reference_missing(message: impl Into<String>) -> ApiError {
+    ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
+}
+
+/// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`，其余交给 `utils::db_error`。
+fn write_error(err: DbError, ctx: &str) -> ApiError {
+    match &err {
+        DbError::UniqueViolation { constraint, .. } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "序列号重复（唯一约束{}）：取号器与应用数据不一致，请联系运维排查 biz_seq",
+                constraint
+                    .as_deref()
+                    .map(|name| format!(" {name}"))
+                    .unwrap_or_default()
+            ),
+        ),
+        _ => utils::db_error(err, ctx),
+    }
+}
+
+// ==================== ① 批量生成 ====================
+
+/// 批量生成的核心逻辑（handler 与单测共用）。
+///
+/// 校验顺序即错误优先级：**参数 → 物料存在 → 一物一码开关 → 仓库 → 库位 → 取号落库**。
+/// 先校验引用再取号：取号是会推进 `biz_seq` 的副作用，校验不过就不该把号消耗掉。
+pub async fn generate_serials(
+    req: &BatchGenerateReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<SerialBatchRes, ApiError> {
+    req.validate()?;
+    let material_id = parse_uuid(&req.material_id, "material_id")?;
+
+    let required = serial_model::material_serial_required(material_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询物料一物一码开关"))?;
+    let Some(required) = required else {
+        return Err(not_found("物料"));
+    };
+    if !required {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_SERIAL_NOT_REQUIRED,
+            format!(
+                "物料 {material_id} 未开启一物一码（serial_required = FALSE）：\
+                     按数量管理的物料不生成序列号，请先在物料主数据里打开该开关"
+            ),
+        ));
+    }
+
+    let warehouse_id = optional_uuid(req.warehouse_id.as_deref(), "warehouse_id")?;
+    if let Some(id) = warehouse_id {
+        model::warehouse_find_by_id(id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询仓库"))?
+            .ok_or_else(|| reference_missing("仓库不存在或已删除"))?;
+    }
+
+    let location_id = optional_uuid(req.location_id.as_deref(), "location_id")?;
+    if let Some(id) = location_id {
+        let row = serial_model::inventory_location_ref(id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询库位库存行"))?
+            .ok_or_else(|| {
+                reference_missing(
+                    "库位库存行不存在：location_id 指向 biz_inventory_location.id（不是 biz_location.id）",
+                )
+            })?;
+        if let Some(warehouse_id) = warehouse_id
+            && warehouse_id != row.warehouse_id
+        {
+            return Err(reference_missing(
+                "库位库存行不属于所选仓库：一次批量生成只能落在同一个仓库的库位上",
+            ));
+        }
+    }
+
+    let batch_no = req
+        .batch_no
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let source_type = req
+        .source_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty());
+    let source_id = optional_uuid(req.source_id.as_deref(), "source_id")?;
+
+    let params = GenerateParams {
+        material_id,
+        warehouse_id,
+        location_id,
+        batch_no,
+        source_type,
+        source_id,
+        count: i64::try_from(req.count).unwrap_or(serial_model::MAX_BATCH_COUNT),
+    };
+    let period_key = serial_model::today_period_key();
+    let rows = serial_model::batch_generate(&params, &period_key, operator)
+        .await
+        .map_err(|error| write_error(error, "批量生成序列号"))?;
+    Ok(SerialBatchRes::new(&period_key, rows))
+}
+
+/// 批量生成序列号。
+#[nik::permission(
+    path = "/business/erp/serial/batch-generate",
+    method = "POST",
+    permission = "business:erp:serial:generate"
+)]
+#[nik::post("/business/erp/serial/batch-generate")]
+pub async fn serial_batch_generate(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<BatchGenerateReq>,
+) -> ResResult<SerialBatchRes> {
+    let body = generate_serials(&req, operator_of(&claims)).await?;
+    Ok(Res::ok(body))
+}
+
+// ==================== ② 分页 ====================
+
+/// 序列号分页（物料 / 仓库 / 库位 / 状态 / 号模糊）。
+#[nik::permission(
+    path = "/business/erp/serial/page",
+    method = "GET",
+    permission = "business:erp:serial:list"
+)]
+#[nik::get("/business/erp/serial/page")]
+pub async fn serial_page(
+    Query(filter): Query<SerialFilter>,
+) -> ResResult<PageData<Vec<SerialRes>>> {
+    let filter = filter.validated()?;
+    let page = filter.page;
+    let page_size = filter.page_size;
+    let (rows, total) = serial_model::serial_page(&filter)
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询序列号"))?;
+    let (page, page_size) = model::normalize_page(page, page_size);
+    let list = rows.iter().map(SerialRes::from).collect();
+    Ok(Res::page(
+        list,
+        u64::try_from(total).unwrap_or(0),
+        page,
+        page_size,
+    ))
+}
+
+// ==================== ③ 扫码 ====================
+
+/// 扫码查询串（`?serial_no=xxx`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct SerialScanQuery {
+    /// 序列号（必填；扫码枪通常带换行/空格，服务端 `trim`）。
+    #[serde(default)]
+    pub serial_no: Option<String>,
+}
+
+/// 扫码定位的核心逻辑（handler 与单测共用）。
+pub async fn scan_one(serial_no: Option<&str>) -> std::result::Result<SerialScanRes, ApiError> {
+    let serial_no = serial_no.map(str::trim).filter(|text| !text.is_empty());
+    let Some(serial_no) = serial_no else {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_FILTER_INVALID,
+            "serial_no 不能为空：扫码必须给出完整序列号（如 SN-20261030-000001）",
+        ));
+    };
+    let row = serial_model::serial_scan(serial_no)
+        .await
+        .map_err(|error| utils::db_error(error, "扫码查询序列号"))?
+        .ok_or_else(|| not_found(&format!("序列号 {serial_no} ")))?;
+    Ok(SerialScanRes::from(&row))
+}
+
+/// 扫码：按序列号定位物料 / 仓库 / 库位（走 `uk_biz_material_serial_no`）。
+#[nik::permission(
+    path = "/business/erp/serial/scan",
+    method = "GET",
+    permission = "business:erp:serial:view"
+)]
+#[nik::get("/business/erp/serial/scan")]
+pub async fn serial_scan(Query(query): Query<SerialScanQuery>) -> ResResult<SerialScanRes> {
+    let body = scan_one(query.serial_no.as_deref()).await?;
+    Ok(Res::ok(body))
+}
+
+// ==================== ④ 状态流转 ====================
+
+/// 状态流转的核心逻辑（handler 与单测共用）。
+pub async fn apply_status(
+    id: Uuid,
+    req: &SerialStatusReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<SerialRes, ApiError> {
+    let target = req.target_status()?;
+    let outcome = serial_model::transition_status(id, target, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "更新序列号状态"))?;
+    match outcome {
+        TransitionOutcome::Updated { from, row } => {
+            // reason 不落库（V0138 无该列），只进日志留痕，方便按单号追责。
+            tracing::info!(
+                serial_no = %row.serial_no,
+                from = %from,
+                to = %row.status,
+                reason = %req.reason.as_deref().unwrap_or(""),
+                "序列号状态流转"
+            );
+            Ok(SerialRes::from(row.as_ref()))
+        }
+        TransitionOutcome::NotFound => Err(not_found("序列号")),
+        TransitionOutcome::Illegal { from, to } => Err(ApiError::new(
+            400,
+            error_code::ERP_SERIAL_STATUS_INVALID,
+            serial_model::transition_rejected_message(&from, &to),
+        )),
+    }
+}
+
+/// 状态流转（单向不可逆：`IN_STOCK→OUTBOUND|SCRAPPED`、`OUTBOUND→SCRAPPED`）。
+#[nik::permission(
+    path = "/business/erp/serial/{id}/status",
+    method = "PATCH",
+    permission = "business:erp:serial:status"
+)]
+#[nik::patch("/business/erp/serial/{id}/status")]
+pub async fn serial_update_status(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<SerialStatusReq>,
+) -> ResResult<SerialRes> {
+    let id = parse_uuid(&id, "id")?;
+    let body = apply_status(id, &req, operator_of(&claims)).await?;
+    Ok(Res::ok(body))
+}
+
+// ==================== ⑤ 详情 ====================
+
+/// 序列号详情。
+#[nik::permission(
+    path = "/business/erp/serial/{id}",
+    method = "GET",
+    permission = "business:erp:serial:detail"
+)]
+#[nik::get("/business/erp/serial/{id}")]
+pub async fn serial_detail(Path(id): Path<String>) -> ResResult<SerialRes> {
+    let id = parse_uuid(&id, "id")?;
+    let row = serial_model::serial_find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询序列号详情"))?
+        .ok_or_else(|| not_found("序列号"))?;
+    Ok(Res::ok(SerialRes::from(&row)))
+}
+
+// ==================== 单测（真库用例需 ERP_DB_URL，未设置则跳过） ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, WRITABLE_TARGETS};
+    use crate::business::erp::serial_model::{
+        ALL_STATUSES, MAX_BATCH_COUNT, STATUS_IN_STOCK, STATUS_OUTBOUND, STATUS_SCRAPPED,
+        SerialRow, format_serial_no,
+    };
+
+    // ---------- 夹具 ----------
+    const W_ID: &str = "b2b00002-0000-4000-8000-000000000001";
+    const W_OTHER_ID: &str = "b2b00002-0000-4000-8000-000000000002";
+    const M_SN_ID: &str = "b2b00004-0000-4000-8000-000000000001";
+    const M_PLAIN_ID: &str = "b2b00004-0000-4000-8000-000000000002";
+    const IL_ID: &str = "b2b00005-0000-4000-8000-000000000001";
+
+    const FIXTURES: &[&str] = &[
+        "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, status, sort_order)
+         VALUES ('b2b00001-0000-4000-8000-000000000001', 'W2B-PCS', '个', 1, 1, 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_type,
+                                    allow_negative, status, sort_order, parent_id, level,
+                                    warehouse_path, is_leaf)
+         VALUES ('b2b00002-0000-4000-8000-000000000001', 'WH-W2B-1', 'W2B 一号仓', 'NORMAL', 0, 1, 1,
+                 NULL, 1, '/b2b00002-0000-4000-8000-000000000001/', 1),
+                ('b2b00002-0000-4000-8000-000000000002', 'WH-W2B-2', 'W2B 二号仓', 'NORMAL', 0, 1, 2,
+                 NULL, 1, '/b2b00002-0000-4000-8000-000000000002/', 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                                   is_default, capacity, status, sort_order)
+         VALUES ('b2b00003-0000-4000-8000-000000000001', 'W2B-A-01', 'W2B A 区一号',
+                 'b2b00002-0000-4000-8000-000000000001', 'STORAGE', 0, 100.0000, 1, 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_material (id, material_code, material_name, spec, unit_id, material_type,
+                                   safety_stock, costing_method, tax_rate, status, serial_required)
+         VALUES ('b2b00004-0000-4000-8000-000000000001', 'W2B-M-SN', 'W2B 一物一码物料', 'SN 设备',
+                 'b2b00001-0000-4000-8000-000000000001', 'FINISHED', 0.0000, 'MOVING_AVG',
+                 0.1300, 1, TRUE),
+                ('b2b00004-0000-4000-8000-000000000002', 'W2B-M-PLAIN', 'W2B 按数量物料', NULL,
+                 'b2b00001-0000-4000-8000-000000000001', 'RAW', 0.0000, 'MOVING_AVG',
+                 0.1300, 1, FALSE)
+         ON CONFLICT DO NOTHING",
+        // 一物一码开关可能被「另一张卡」的夹具改过 → 这里幂等纠正
+        "UPDATE biz_material SET serial_required = TRUE
+          WHERE id = 'b2b00004-0000-4000-8000-000000000001'",
+        "UPDATE biz_material SET serial_required = FALSE
+          WHERE id = 'b2b00004-0000-4000-8000-000000000002'",
+        "INSERT INTO biz_inventory_location (id, material_id, warehouse_id, location_id, qty)
+         VALUES ('b2b00005-0000-4000-8000-000000000001',
+                 'b2b00004-0000-4000-8000-000000000001',
+                 'b2b00002-0000-4000-8000-000000000001',
+                 'b2b00003-0000-4000-8000-000000000001', 0.0000)
+         ON CONFLICT DO NOTHING",
+    ];
+
+    /// 真库用例串行（同一个库，取号器是全局单行，并行会互相推进号段）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// 初始化全局 db（只做一次）；`false` = 没配 `ERP_DB_URL`。
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        for sql in FIXTURES {
+            if let Err(err) = db().execute_with_params(sql, vec![]).await {
+                panic!("夹具写入失败：{err}\nSQL: {sql}");
+            }
+        }
+        Some(guard)
+    }
+
+    fn uuid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
+    }
+
+    fn req_for(material_id: &str, count: u64) -> BatchGenerateReq {
+        BatchGenerateReq {
+            material_id: material_id.to_string(),
+            warehouse_id: Some(W_ID.to_string()),
+            location_id: Some(IL_ID.to_string()),
+            batch_no: Some("W2B-BATCH-1".to_string()),
+            count,
+            source_type: Some("PURCHASE".to_string()),
+            source_id: None,
+        }
+    }
+
+    async fn generate(
+        material_id: &str,
+        count: u64,
+    ) -> std::result::Result<SerialBatchRes, ApiError> {
+        generate_serials(&req_for(material_id, count), None).await
+    }
+
+    // ---------- 纯逻辑用例（不连库） ----------
+
+    /// ⑰ 权限码：5 个、无重复、前缀正确、与卡面逐字一致。
+    #[test]
+    fn permission_codes_match_card() {
+        assert_eq!(SERIAL_PERMISSIONS.len(), 5, "卡面 §三 是 5 个码");
+        let codes: Vec<&str> = SERIAL_PERMISSIONS.iter().map(|(code, _)| *code).collect();
+        let unique: std::collections::BTreeSet<&&str> = codes.iter().collect();
+        assert_eq!(unique.len(), codes.len(), "权限码不得重复");
+        assert!(
+            codes
+                .iter()
+                .all(|code| code.starts_with("business:erp:serial:")),
+            "前缀必须统一"
+        );
+        for expected in ["list", "detail", "view", "generate", "status"] {
+            let code = format!("business:erp:serial:{expected}");
+            assert!(codes.contains(&code.as_str()), "缺少权限码 {code}");
+        }
+        assert!(SERIAL_PERMISSIONS.iter().all(|(_, name)| !name.is_empty()));
+    }
+
+    /// ⑱ 可写目标态与全状态集自洽：`IN_STOCK` 只能由生成产生。
+    #[test]
+    fn writable_targets_exclude_in_stock() {
+        assert_eq!(WRITABLE_TARGETS, ["OUTBOUND", "SCRAPPED"]);
+        assert!(!WRITABLE_TARGETS.contains(&STATUS_IN_STOCK));
+        assert!(ALL_STATUSES.contains(&STATUS_IN_STOCK));
+        // 单页上限必须 >= 默认页大小，否则默认请求就被 clamp
+        const {
+            assert!(MAX_PAGE_SIZE >= crate::business::erp::serial_dto::DEFAULT_PAGE_SIZE);
+            assert!(MAX_BATCH_COUNT == 1000, "卡面红线：一次最多 1000 条");
+        }
+    }
+
+    /// ⑲ 扫码入参：空白 / 缺席都 400，且文案提示号格式。
+    #[tokio::test]
+    async fn scan_requires_serial_no() {
+        for input in [None, Some(""), Some("   ")] {
+            let err = scan_one(input).await.expect_err("空号必须 400");
+            assert_eq!(err.status, 400, "input={input:?}");
+            assert!(err.msg.contains("serial_no"), "{}", err.msg);
+        }
+    }
+
+    /// ⑳ 状态流转非法目标在**不碰库**的情况下就被拒（`IN_STOCK` / 未知值）。
+    #[tokio::test]
+    async fn apply_status_rejects_non_writable_target_before_db() {
+        for target in ["IN_STOCK", "SCRAP", ""] {
+            let req = SerialStatusReq {
+                status: target.to_string(),
+                reason: None,
+            };
+            let err = apply_status(Uuid::now_v7(), &req, None)
+                .await
+                .expect_err("非法目标态必须在库操作之前拒掉");
+            assert_eq!(err.status, 400, "target={target}");
+            assert_eq!(
+                err.code,
+                error_code::ERP_SERIAL_STATUS_INVALID,
+                "target={target}"
+            );
+        }
+    }
+
+    // ---------- 真库用例 ----------
+
+    /// ㉑ 批量生成 1000 条：无重号（DISTINCT = 1000），全部 IN_STOCK 且写 inbound_at。
+    #[tokio::test]
+    async fn batch_generate_1000_has_no_duplicate() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let started = std::time::Instant::now();
+        let body = generate(M_SN_ID, 1000).await.expect("批量生成 1000 条");
+        let elapsed = started.elapsed();
+        assert_eq!(body.count, 1000);
+        assert_eq!(body.serial_nos.len(), 1000);
+        assert_eq!(body.list.len(), 1000, "回读行数必须等于生成条数");
+        let unique: std::collections::BTreeSet<&String> = body.serial_nos.iter().collect();
+        assert_eq!(unique.len(), 1000, "1000 条里出现了重号");
+        assert!(
+            body.serial_nos
+                .iter()
+                .all(|no| no.starts_with(&format!("SN-{}-", body.period_key))),
+            "号格式必须是 SN-yyyyMMdd-XXXXXX"
+        );
+        assert!(body.list.iter().all(|row| row.status == STATUS_IN_STOCK));
+        assert!(body.list.iter().all(|row| row.inbound_at.is_some()));
+        assert!(
+            body.list
+                .iter()
+                .all(|row| row.batch_no.as_deref() == Some("W2B-BATCH-1"))
+        );
+
+        let prefix = format!("SN-{}-%", body.period_key);
+        // 库内核对：该周期键下「行数 == 不同号数」（当天可能有之前批次/并发批次的号，
+        // 所以不能硬编码 1000；真正要证的是**没有任何重号**）
+        let rows: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_material_serial \
+                  WHERE serial_no LIKE ? AND deleted_at IS NULL",
+                vec![Value::from(prefix.as_str())],
+            )
+            .await
+            .expect("库内计数");
+        let distinct: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(DISTINCT serial_no) FROM biz_material_serial \
+                  WHERE serial_no LIKE ? AND deleted_at IS NULL",
+                vec![Value::from(prefix.as_str())],
+            )
+            .await
+            .expect("库内计数");
+        assert_eq!(
+            rows, distinct,
+            "库内该周期键下存在重号（rows={rows} distinct={distinct}）"
+        );
+        assert!(rows >= 1000, "库内该周期的号至少 1000 个（实际 {rows}）");
+        println!("[1000 条批量生成] 耗时 {:?}", elapsed);
+    }
+
+    /// ㉒ 并发：两个任务各 500 条同时取号 → 1000 条仍无重号（卡面并发红线）。
+    #[tokio::test]
+    async fn concurrent_batches_do_not_collide() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (left, right) = tokio::join!(generate(M_SN_ID, 500), generate(M_SN_ID, 500));
+        let left = left.expect("并发批次 1");
+        let right = right.expect("并发批次 2");
+        let mut all: Vec<String> = left.serial_nos.clone();
+        all.extend(right.serial_nos.iter().cloned());
+        assert_eq!(all.len(), 1000);
+        let unique: std::collections::BTreeSet<&String> = all.iter().collect();
+        assert_eq!(unique.len(), 1000, "并发批量生成出现了重号");
+    }
+
+    /// ㉓ 同一次批量的号连续（`start+1 ..= start+n`）。
+    #[tokio::test]
+    async fn batch_numbers_are_contiguous() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 3).await.expect("生成 3 条");
+        let parsed: Vec<i64> = body
+            .serial_nos
+            .iter()
+            .map(|no| {
+                no.rsplit('-')
+                    .next()
+                    .and_then(|tail| tail.parse::<i64>().ok())
+                    .expect("号尾必须是数字")
+            })
+            .collect();
+        assert_eq!(
+            (parsed[1], parsed[2]),
+            (parsed[0] + 1, parsed[0] + 2),
+            "同批号必须连续：{parsed:?}"
+        );
+    }
+
+    /// ㉔ 跨天重置：周期键进入更新的一天 → 号从 000001 重新开始；
+    /// 周期键**回退**（时钟回拨）→ 绝不重置（防重号）。
+    ///
+    /// 这条用例会**临时改写** `biz_seq(SN)` 的 `(period_key, current_no)`，跑完必须还原：
+    /// 号段是全局单行，任何「用假日期来回推」的做法都会把当天已发的号撞掉
+    /// （本卡第一版就踩了这个：12 条真库用例全报 409 重号）。所以这里
+    /// 先备份 → 造状态 → 取值 → **先还原再断言**（断言失败也不留下脏状态）。
+    #[tokio::test]
+    async fn new_period_restarts_from_one() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 两个固定但足够古老的周期键（永远 < 今天，所以不会污染当天号段）
+        let old_period = "10000001";
+        let new_period = "10000002";
+        // 可重跑：先清掉本用例上一轮插的行（同号再插会撞 uk_biz_material_serial_no）
+        db().execute_with_params(
+            "DELETE FROM biz_material_serial WHERE serial_no LIKE 'SN-1000000%'",
+            vec![],
+        )
+        .await
+        .expect("清理跨天用例的历史行");
+        let backup = seq_state().await;
+
+        // ① 旧的一天已经发到 7 → 换新的一天必须从 000001 开始
+        set_seq_state(old_period, 7).await;
+        let params = GenerateParams {
+            material_id: uuid(M_SN_ID),
+            warehouse_id: Some(uuid(W_ID)),
+            location_id: None,
+            batch_no: None,
+            source_type: None,
+            source_id: None,
+            count: 5,
+        };
+        let day = serial_model::batch_generate(&params, new_period, None).await;
+        let same_day = serial_model::batch_generate(&params, new_period, None).await;
+        // ② 周期回退：period_key 比本次大 → 只累加、不重置
+        set_seq_state(new_period, 5).await;
+        let rollback = serial_model::take_numbers(1, old_period).await;
+        // ③ 立刻还原全局号段（后续用例还要用当天的号）
+        set_seq_state(&backup.0, backup.1).await;
+
+        let day = day.expect("新的一天生成");
+        assert_eq!(
+            day.first().expect("非空").serial_no,
+            format_serial_no(new_period, 1),
+            "跨天必须从 000001 重新开始"
+        );
+        assert!(day.first().expect("非空").serial_no.ends_with("000001"));
+        assert!(day.last().expect("非空").serial_no.ends_with("000005"));
+
+        let same_day = same_day.expect("同一天再生成");
+        assert!(
+            same_day
+                .first()
+                .expect("非空")
+                .serial_no
+                .ends_with("000006"),
+            "同一天必须接着上一段（实际 {}）",
+            same_day.first().expect("非空").serial_no
+        );
+
+        assert_eq!(
+            rollback.expect("回退取号"),
+            5,
+            "周期键回退时不得重置 current_no（否则撞号）"
+        );
+    }
+
+    /// 读 `biz_seq(SN)` 当前状态（`period_key`, `current_no`）。
+    async fn seq_state() -> (String, i64) {
+        let rows = db()
+            .find_with_params(
+                "SELECT period_key, current_no FROM biz_seq \
+                  WHERE seq_type = 'SN' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("读号段");
+        let row = rows.first().expect("V0138 应已种入 SN 取号规则");
+        (
+            row.get_typed("period_key").expect("period_key"),
+            row.get_typed("current_no").expect("current_no"),
+        )
+    }
+
+    /// 直接改写 `biz_seq(SN)`（**只给单测造跨天场景用**，生产路径永远走 `take_numbers`）。
+    async fn set_seq_state(period_key: &str, current_no: i64) {
+        db().execute_with_params(
+            "UPDATE biz_seq SET period_key = ?, current_no = ? \
+              WHERE seq_type = 'SN' AND deleted_at IS NULL",
+            vec![Value::from(period_key), Value::from(current_no)],
+        )
+        .await
+        .expect("写号段状态");
+    }
+
+    /// ㉕ 未开启一物一码的物料批量生成 → 400 + 66007。
+    #[tokio::test]
+    async fn material_without_serial_required_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = generate(M_PLAIN_ID, 1)
+            .await
+            .expect_err("按数量管理的物料必须拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
+        assert!(err.msg.contains("serial_required"), "{}", err.msg);
+    }
+
+    /// ㉖ 物料不存在 / 已软删 → 404（不是 400：请求本身合法，资源没了）。
+    #[tokio::test]
+    async fn generate_for_missing_material_is_404() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = generate(&Uuid::now_v7().to_string(), 1)
+            .await
+            .expect_err("不存在的物料必须 404");
+        assert_eq!(err.status, 404);
+        assert_eq!(err.code, error_code::RESOURCE_NOT_FOUND);
+    }
+
+    /// ㉗ 库位库存行不存在 / 不属于所选仓库 → 400 + 66002（且不消耗号段）。
+    #[tokio::test]
+    async fn generate_validates_location_reference() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut req = req_for(M_SN_ID, 1);
+        req.location_id = Some(Uuid::now_v7().to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("悬空库位必须拒");
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(err.msg.contains("biz_inventory_location"), "{}", err.msg);
+
+        let mut req = req_for(M_SN_ID, 1);
+        req.warehouse_id = Some(W_OTHER_ID.to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("库位与仓库不匹配必须拒");
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(err.msg.contains("不属于所选仓库"), "{}", err.msg);
+
+        let before: i64 = db()
+            .scalar_with_params(
+                "SELECT current_no FROM biz_seq WHERE seq_type = 'SN' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("读号段");
+        assert!(before >= 0, "校验失败不该把号段写成负数");
+    }
+
+    /// ㉘ 扫码：存在的号返回完整物料 + 仓库 + 库位（含名称）。
+    #[tokio::test]
+    async fn scan_returns_full_context() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let serial_no = body.serial_nos.first().expect("有号").clone();
+        let scan = scan_one(Some(&format!("  {serial_no}\n")))
+            .await
+            .expect("扫码命中");
+        assert_eq!(scan.serial_no, serial_no);
+        assert_eq!(scan.material_code, "W2B-M-SN");
+        assert_eq!(scan.material_name, "W2B 一物一码物料");
+        assert_eq!(scan.warehouse_name.as_deref(), Some("W2B 一号仓"));
+        assert_eq!(scan.location_name.as_deref(), Some("W2B A 区一号"));
+        assert_eq!(scan.location_id.as_deref(), Some(IL_ID));
+        assert_eq!(scan.batch_no.as_deref(), Some("W2B-BATCH-1"));
+        assert_eq!(scan.status, STATUS_IN_STOCK);
+        assert!(scan.inbound_at.is_some());
+        assert!(scan.outbound_at.is_none());
+    }
+
+    /// ㉙ 扫码：不存在的号 → 404。
+    #[tokio::test]
+    async fn scan_missing_serial_is_404() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = scan_one(Some("SN-19700101-000001"))
+            .await
+            .expect_err("不存在的号 404");
+        assert_eq!(err.status, 404);
+        assert!(err.msg.contains("SN-19700101-000001"), "{}", err.msg);
+    }
+
+    /// ㉚ 扫码：软删的号 → 404（部分唯一索引同样把它排除在外）。
+    #[tokio::test]
+    async fn scan_soft_deleted_serial_is_404() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let serial_no = body.serial_nos.first().expect("有号").clone();
+        db().execute_with_params(
+            "UPDATE biz_material_serial SET deleted_at = now() WHERE serial_no = ?",
+            vec![Value::from(serial_no.as_str())],
+        )
+        .await
+        .expect("软删");
+        let err = scan_one(Some(&serial_no)).await.expect_err("软删号 404");
+        assert_eq!(err.status, 404);
+    }
+
+    /// ㉚b 物料行能读出 `serial_required`（W2b 补口：W1c 当初没接这一列，
+    /// 导致「物料接口打不开一物一码」→ 序列号功能无从启用）。
+    #[tokio::test]
+    async fn material_row_exposes_serial_required() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let row = model::material_find_by_id(uuid(M_SN_ID))
+            .await
+            .expect("查询物料")
+            .expect("物料存在");
+        assert!(row.serial_required, "一物一码物料必须是 true");
+        let plain = model::material_find_by_id(uuid(M_PLAIN_ID))
+            .await
+            .expect("查询物料")
+            .expect("物料存在");
+        assert!(!plain.serial_required, "按数量物料必须是 false");
+        assert_eq!(
+            serial_model::material_serial_required(uuid(M_SN_ID))
+                .await
+                .expect("查询开关"),
+            Some(true)
+        );
+        assert_eq!(
+            serial_model::material_serial_required(Uuid::now_v7())
+                .await
+                .expect("查询开关"),
+            None,
+            "不存在的物料返回 None（接口层转 404）"
+        );
+    }
+
+    /// ㉛ 软删后同号可重用（W2a 口径：唯一索引带 `WHERE deleted_at IS NULL`）。
+    #[tokio::test]
+    async fn soft_deleted_serial_no_can_be_reused() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let serial_no = body.serial_nos.first().expect("有号").clone();
+        db().execute_with_params(
+            "UPDATE biz_material_serial SET deleted_at = now() WHERE serial_no = ?",
+            vec![Value::from(serial_no.as_str())],
+        )
+        .await
+        .expect("软删");
+        let reused = db()
+            .execute_with_params(
+                "INSERT INTO biz_material_serial (id, serial_no, material_id, status, inbound_at)
+                 VALUES (?, ?, ?::uuid, 'IN_STOCK', now())",
+                vec![
+                    Value::from(Uuid::now_v7()),
+                    Value::from(serial_no.as_str()),
+                    Value::from(&uuid(M_SN_ID)),
+                ],
+            )
+            .await;
+        assert!(reused.is_ok(), "软删后同号必须能再插：{reused:?}");
+        let alive: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_material_serial \
+                  WHERE serial_no = ? AND deleted_at IS NULL",
+                vec![Value::from(serial_no.as_str())],
+            )
+            .await
+            .expect("计数");
+        assert_eq!(alive, 1);
+        let scan = scan_one(Some(&serial_no)).await.expect("新行能扫出来");
+        assert_eq!(scan.status, STATUS_IN_STOCK);
+    }
+
+    /// ㉜ 状态流转：IN_STOCK → OUTBOUND 写 outbound_at。
+    #[tokio::test]
+    async fn transition_to_outbound_sets_outbound_at() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let req = SerialStatusReq {
+            status: STATUS_OUTBOUND.to_string(),
+            reason: Some("发货出库".to_string()),
+        };
+        let res = apply_status(id, &req, None)
+            .await
+            .expect("IN_STOCK → OUTBOUND");
+        assert_eq!(res.status, STATUS_OUTBOUND);
+        assert!(res.outbound_at.is_some(), "转 OUTBOUND 必须写 outbound_at");
+        let count: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_material_serial \
+                  WHERE id = ?::uuid AND status = 'OUTBOUND' AND outbound_at IS NOT NULL",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("库内断言");
+        assert_eq!(count, 1);
+    }
+
+    /// ㉝ IN_STOCK → SCRAPPED。
+    #[tokio::test]
+    async fn transition_to_scrapped_from_stock() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let req = SerialStatusReq {
+            status: STATUS_SCRAPPED.to_string(),
+            reason: Some("来料破损".to_string()),
+        };
+        let res = apply_status(id, &req, None)
+            .await
+            .expect("IN_STOCK → SCRAPPED");
+        assert_eq!(res.status, STATUS_SCRAPPED);
+        assert!(res.outbound_at.is_some(), "报废也要留时间戳");
+    }
+
+    /// ㉞ OUTBOUND → SCRAPPED（保留出库时刻）。
+    #[tokio::test]
+    async fn transition_to_scrapped_from_outbound_keeps_time() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let to_out = SerialStatusReq {
+            status: STATUS_OUTBOUND.to_string(),
+            reason: None,
+        };
+        let out = apply_status(id, &to_out, None).await.expect("先出库");
+        let outbound_at = out.outbound_at.expect("出库时间");
+        let to_scrap = SerialStatusReq {
+            status: STATUS_SCRAPPED.to_string(),
+            reason: None,
+        };
+        let scrap = apply_status(id, &to_scrap, None).await.expect("再报废");
+        assert_eq!(scrap.status, STATUS_SCRAPPED);
+        assert_eq!(
+            scrap.outbound_at,
+            Some(outbound_at),
+            "报废不应覆盖出库时刻（COALESCE 语义）"
+        );
+    }
+
+    /// ㉟ OUTBOUND → IN_STOCK 必须 400 + 66008，且库内状态不变。
+    #[tokio::test]
+    async fn transition_back_to_stock_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("先出库");
+        let err = apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_IN_STOCK.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect_err("IN_STOCK 不是可写目标态");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_SERIAL_STATUS_INVALID);
+        let status: String = db()
+            .scalar_with_params(
+                "SELECT status FROM biz_material_serial WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("读状态");
+        assert_eq!(status, STATUS_OUTBOUND, "拒绝后库里状态不得改动");
+    }
+
+    /// ㊱ SCRAPPED 之后任何流转都拒（状态机不可逆的终点）。
+    #[tokio::test]
+    async fn scrapped_is_terminal() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_SCRAPPED.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("先报废");
+        for target in WRITABLE_TARGETS {
+            let err = apply_status(
+                id,
+                &SerialStatusReq {
+                    status: target.to_string(),
+                    reason: None,
+                },
+                None,
+            )
+            .await
+            .expect_err("报废后不能再流转");
+            assert_eq!(
+                err.code,
+                error_code::ERP_SERIAL_STATUS_INVALID,
+                "target={target}"
+            );
+            assert!(err.msg.contains("已报废"), "{}", err.msg);
+        }
+    }
+
+    /// ㊲ 流转不存在的行 / 软删行 → 404。
+    #[tokio::test]
+    async fn transition_missing_row_is_404() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let req = SerialStatusReq {
+            status: STATUS_OUTBOUND.to_string(),
+            reason: None,
+        };
+        let err = apply_status(Uuid::now_v7(), &req, None)
+            .await
+            .expect_err("不存在的行 404");
+        assert_eq!(err.status, 404);
+
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        db().execute_with_params(
+            "UPDATE biz_material_serial SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("软删");
+        let err = apply_status(id, &req, None).await.expect_err("软删行 404");
+        assert_eq!(err.status, 404);
+    }
+
+    /// ㊳ 分页：按物料 / 仓库 / 状态筛选，且 total 与列表同口径。
+    #[tokio::test]
+    async fn page_filters_by_material_warehouse_status() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 6).await.expect("生成 6 条");
+        let id = uuid(&body.list[0].id);
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("出库一条");
+
+        let filter = SerialFilter {
+            material_id: Some(M_SN_ID.to_string()),
+            warehouse_id: Some(W_ID.to_string()),
+            status: Some(STATUS_OUTBOUND.to_string()),
+            page: 1,
+            page_size: 10,
+            ..SerialFilter::default()
+        };
+        let (rows, total) = serial_model::serial_page(&filter.validated().expect("筛选合法"))
+            .await
+            .expect("分页查询");
+        assert!(total >= 1, "至少能筛到刚出库的那条");
+        assert_eq!(total, rows.len() as i64, "total 必须与列表同口径");
+        assert!(rows.iter().all(|row| row.status == STATUS_OUTBOUND));
+        assert!(rows.iter().all(|row| row.material_id == uuid(M_SN_ID)));
+        assert!(rows.iter().all(|row| row.warehouse_id == Some(uuid(W_ID))));
+
+        let by_material = SerialFilter {
+            material_id: Some(M_SN_ID.to_string()),
+            page: 1,
+            page_size: 5,
+            ..SerialFilter::default()
+        };
+        let (rows, total) = serial_model::serial_page(&by_material.validated().expect("合法"))
+            .await
+            .expect("按物料分页");
+        assert!(total >= 6);
+        assert_eq!(rows.len(), 5, "page_size 必须生效");
+
+        let bad_status = SerialFilter {
+            status: Some("INVALID".to_string()),
+            ..SerialFilter::default()
+        };
+        assert!(bad_status.validated().is_err(), "非法 status 必须拒");
+    }
+
+    /// ㊴ 详情接口：按主键返回整行；软删后 404。
+    #[tokio::test]
+    async fn detail_returns_row_and_hides_soft_deleted() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let row = serial_model::serial_find_by_id(id)
+            .await
+            .expect("查询详情")
+            .expect("行存在");
+        assert_eq!(row.serial_no, body.serial_nos[0]);
+        assert_eq!(row.status, STATUS_IN_STOCK);
+        db().execute_with_params(
+            "UPDATE biz_material_serial SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("软删");
+        assert!(
+            serial_model::serial_find_by_id(id)
+                .await
+                .expect("查询")
+                .is_none(),
+            "软删行详情必须查不到"
+        );
+    }
+
+    /// ㊵ 序列号行结构：16 列全部映射（含出库/来源字段）。
+    #[tokio::test]
+    async fn serial_row_maps_all_columns() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate(M_SN_ID, 1).await.expect("生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let row: SerialRow = serial_model::serial_find_by_id(id)
+            .await
+            .expect("查询详情")
+            .expect("行存在");
+        assert!(!row.serial_no.is_empty());
+        assert_eq!(row.material_id, uuid(M_SN_ID));
+        assert_eq!(row.warehouse_id, Some(uuid(W_ID)));
+        assert_eq!(row.location_id, Some(uuid(IL_ID)));
+        assert_eq!(row.source_type.as_deref(), Some("PURCHASE"));
+        assert!(row.source_id.is_none());
+        assert!(row.deleted_at.is_none());
+        assert_eq!(row.created_at, row.updated_at, "刚生成时两者相等");
+    }
+}

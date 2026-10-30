@@ -955,11 +955,24 @@ pub const ERP_WAREHOUSE_NOT_LEAF: i32 = 66005;
 /// 忽略等于把「按仓库筛库位」变成「返回全部库位」，是静默错数据。
 pub const ERP_FILTER_INVALID: i32 = 66006;
 
+/// 物料未开启一物一码（HTTP 400）：批量生成序列号要求 `biz_material.serial_required = TRUE`。
+///
+/// 为什么不是 `10001`：前端要给「去物料主数据里打开这个开关」的动作指引，
+/// 与「参数填错了」是两种完全不同的处理方式。
+pub const ERP_SERIAL_NOT_REQUIRED: i32 = 66007;
+
+/// 序列号状态流转非法（HTTP 400）：状态机单向不可逆
+/// （只允许 `IN_STOCK→OUTBOUND` / `IN_STOCK→SCRAPPED` / `OUTBOUND→SCRAPPED`）。
+///
+/// 与 [`ERP_FILTER_INVALID`] 分开是为了钉住「`OUTBOUND→IN_STOCK` 不是参数错误，
+/// 而是业务规则拒绝」：前端要提示「要重新入库请生成新序列号」，不是「改一下参数」。
+pub const ERP_SERIAL_STATUS_INVALID: i32 = 66008;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// W1c 段自检：66xxx 段 6 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
+    /// W1c + W2b 段自检：66xxx 段 8 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
     ///
     /// 与 [`flow_error_codes_are_stable`] 同一口径：码值是前端文案映射的契约，
     /// 后续卡不许改值（要新语义就往下加号）。
@@ -972,6 +985,8 @@ mod tests {
             (ERP_WAREHOUSE_LEVEL_LIMIT, 66004),
             (ERP_WAREHOUSE_NOT_LEAF, 66005),
             (ERP_FILTER_INVALID, 66006),
+            (ERP_SERIAL_NOT_REQUIRED, 66007),
+            (ERP_SERIAL_STATUS_INVALID, 66008),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

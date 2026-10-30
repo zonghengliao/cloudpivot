@@ -32,3 +32,6 @@
 pub mod dto;
 pub mod handler;
 pub mod model;
+pub mod serial_dto;
+pub mod serial_handler;
+pub mod serial_model;

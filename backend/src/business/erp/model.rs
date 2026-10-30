@@ -659,7 +659,8 @@ pub async fn location_page(q: &LocationFilter) -> DbResult<(Vec<LocationRow>, i6
 /// V0137 的 `information_schema` 里没有它。
 pub const MATERIAL_COLUMNS: &str = "id, material_code, material_name, spec, unit_id, \
      material_type, default_warehouse_id, safety_stock, costing_method, inventory_account_id, \
-     tax_rate, status, remark, created_at, updated_at, create_by, update_by, deleted_at";
+     tax_rate, status, serial_required, remark, created_at, updated_at, create_by, update_by, \
+     deleted_at";
 
 /// 「一物一码」列名（V0138 才建）。[`material_page`] 用它做存在性探测。
 pub const SERIAL_COLUMN: &str = "serial_required";
@@ -695,6 +696,8 @@ pub struct MaterialRow {
     pub tax_rate: Decimal,
     /// 启用状态（1 启用 / 0 停用）。
     pub status: i16,
+    /// 是否强制一物一码（V0138 加的列；`TRUE` 时出入库必须逐件登记序列号）。
+    pub serial_required: bool,
     /// 备注。
     pub remark: Option<String>,
     /// 创建时间。
@@ -725,6 +728,7 @@ impl MaterialRow {
             inventory_account_id: row.get_typed("inventory_account_id")?,
             tax_rate: row.get_typed("tax_rate")?,
             status: row.get_typed("status")?,
+            serial_required: row.get_typed("serial_required")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
@@ -816,9 +820,10 @@ pub async fn material_page(q: &MaterialFilter) -> DbResult<(Vec<MaterialRow>, i6
         if !material_has_serial_column().await? {
             return Err(DbError::InvalidValue(SERIAL_COLUMN_MISSING.to_string()));
         }
+        // 列是 **BOOLEAN**（V0138 定稿）：这里必须绑 bool，绑 0/1 会让 PG 报
+        // `operator does not exist: boolean = smallint`（与 V0137 §5.9 那个地雷同源）。
         sql.push_str(" AND serial_required = ?");
-        let flag: i16 = if serial_required { 1 } else { 0 };
-        params.push(TypeMapper::to_value(&flag));
+        params.push(Value::from(serial_required));
     }
     page_of(
         MATERIAL_TARGET,
@@ -2648,6 +2653,16 @@ mod tests {
             )
             .await
             .expect("标记一物一码物料");
+        } else {
+            // V0138 已落地（列是 **BOOLEAN**）：幂等标记同一个物料，
+            // 否则本用例在真实库上会筛出 0 行（W2b 实测：total=0 ≠ 1）
+            db().execute_with_params(
+                "UPDATE biz_material SET serial_required = TRUE \
+                 WHERE id = 'b1b00004-0000-4000-8000-000000000003'",
+                vec![],
+            )
+            .await
+            .expect("标记一物一码物料（BOOLEAN 列）");
         }
 
         let (rows, total) = material_page(&MaterialFilter {
