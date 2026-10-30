@@ -68,10 +68,16 @@ pub const SOURCE_TEMPLATE: &str = "SELF";
 pub const SOURCE_RECURRING: &str = "RECURRING";
 
 /// 模板列清单（`TemplateRow::from_row` 与所有 SELECT 共用）。
+///
+/// `estimate_hours` 是 `NUMERIC(6,1)`：驱动解出来是 `Decimal`，直接 `get_typed::<f64>`
+/// 会报 `type mismatch: expected F64, got Decimal`（实测 500/10004）—— 必须显式
+/// `::float8` 转换（与 `biz_task` 侧 `TaskDetailRow` 的写法同款）。
+/// `subtasks` 是 `jsonb`：驱动解出来是 `Json`，`get_typed::<String>` 会报
+/// `type mismatch: expected Text, got Json` —— 同样要显式 `::text`（实测 500/10004）。
 pub const TEMPLATE_COLUMNS: &str = "\
-    id, name, title, description, priority, estimate_hours, need_review, subtasks, \
-    owner_id, project_id, cron_expr, enabled, next_run_at, last_run_at, \
-    created_at, updated_at, create_by";
+    id, name, title, description, priority, estimate_hours::float8 AS estimate_hours, \
+    need_review, subtasks::text AS subtasks, owner_id, project_id, cron_expr, enabled, \
+    next_run_at, last_run_at, created_at, updated_at, create_by";
 
 // ==================== 请求 / 响应 DTO ====================
 
