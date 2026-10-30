@@ -97,7 +97,7 @@ if want backend; then
     [ -d "$ROOT/backend/target/debug" ] || warn "首次 debug 构建较慢（约 1-2 分钟），看日志：$LOG_DIR/backend.log"
     pushd "$ROOT/backend" >/dev/null
     if [ "$WATCH" = "1" ] && command -v cargo-watch >/dev/null 2>&1; then
-      nohup cargo-watch -w src -w config -w migrations -x run >>"$LOG_DIR/backend.log" 2>&1 </dev/null &
+      nohup cargo-watch -w src -w config -w migrations -w vendor -x run >>"$LOG_DIR/backend.log" 2>&1 </dev/null &
       echo $! >"$PID_DIR/backend.pid"
       ok "cargo-watch 已启动（pid $(cat "$PID_DIR/backend.pid")），改 src/**/*.rs 自动重编译重启"
     else
