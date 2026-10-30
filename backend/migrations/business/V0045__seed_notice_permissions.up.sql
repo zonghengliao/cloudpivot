@@ -2,7 +2,7 @@
 -- V0045：消息通知权限点种子（`business:notice:*` 9 个 + 菜单载体）
 --
 -- 依据：`docs/批次A-技术架构.md` §4.8 API 契约与 §5.1 权限码清单。
--- 权限码必须与 `src/business/notice/handler.rs` 的 `#[alun::permission]` **逐字一致**，
+-- 权限码必须与 `src/business/notice/handler.rs` 的 `#[nik::permission]` **逐字一致**，
 -- 否则接口 403；改这里必须同步改 Rust 声明（反之亦然）。
 --
 -- 授权策略（与 §5.1 的注一致）：

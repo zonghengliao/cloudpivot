@@ -7,7 +7,7 @@
 --
 -- ── 权限码三方一致（本批的硬约束） ──────────────────────────────
 -- 每个 `auth_code` 必须同时满足三处逐字一致，任一不一致 = 接口 403：
---   ① `backend/src/business/permission/**/handler.rs` 的 `#[alun::permission]` 注解
+--   ① `backend/src/business/permission/**/handler.rs` 的 `#[nik::permission]` 注解
 --   ② 本迁移写入的 `sys_menu.auth_code`
 --   ③ 前端权限常量（`frontend/src/constants/permissions.ts`，B8 落地）
 -- 批次 A 的 V0045 头注释记录过同一个坑，这里沿用同样的纪律。

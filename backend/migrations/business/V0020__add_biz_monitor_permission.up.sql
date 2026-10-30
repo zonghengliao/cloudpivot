@@ -3,7 +3,7 @@
 --
 -- 背景：工作台右栏需展示服务器运行状态（CPU/内存/磁盘/DB/Redis），
 --       该信息只对超级管理员开放；接口由
---       src/business/monitor/handler.rs 的 #[alun::permission] 校验，
+--       src/business/monitor/handler.rs 的 #[nik::permission] 校验，
 --       权限码必须与 sys_menu.auth_code 逐字一致。
 --
 -- 权限码：business:monitor:server-status

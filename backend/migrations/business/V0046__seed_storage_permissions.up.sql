@@ -2,7 +2,7 @@
 -- V0046：对象存储权限点种子（`business:storage:*` 11 个 + 菜单载体 + 一级目录）
 --
 -- 依据：`docs/批次A-技术架构.md` §2.9 API 契约 / §5.1 权限码清单 / §5.3 前端页面清单。
--- 权限码与 `backend/src/business/storage/handler.rs` 的 `#[alun::permission]` **逐字一致**，
+-- 权限码与 `backend/src/business/storage/handler.rs` 的 `#[nik::permission]` **逐字一致**，
 -- 也与前端 `frontend/src/constants/permissions.ts` 的 `STORAGE_PERMISSIONS` 一致（三方同源）。
 --
 -- 授权策略（§5.1 注）：

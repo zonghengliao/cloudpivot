@@ -18,7 +18,7 @@
 --     前端角色树与运维心智不用为流程单独记一套 `def:` 前缀。
 -- D2/D3 落地实例侧时**追加**码（`business:flow:instance:read` / `business:flow:approve` …），不改本文件的 5 个。
 --
--- 码 → 接口映射（`business/flow/handler.rs` 的 `#[alun::permission]` 注解逐字使用）：
+-- 码 → 接口映射（`business/flow/handler.rs` 的 `#[nik::permission]` 注解逐字使用）：
 --   read    → GET  /business/flow/def/page、/def/{id}、/def/{id}/versions、/version/{vid}
 --   create  → POST /business/flow/def
 --   update  → PUT  /business/flow/def/{id}、PUT /version/{vid}/graph、POST /version/{vid}/validate、

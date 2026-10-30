@@ -5,7 +5,7 @@
 -- 本迁移只做「数据种子」，不建表、不改列（表结构在 V0040）：
 --   1. sys_storage_config：一行 `local-default`，且**是默认后端**。
 --      endpoint / bucket / 密钥全为空 —— 走 ck_sys_storage_config_remote 的 LOCAL 分支；
---      base_path = ''  ⇒ 存储根 = `alun::upload_path()`，**历史文件零迁移**。
+--      base_path = ''  ⇒ 存储根 = `nik::upload_path()`，**历史文件零迁移**。
 --   2. sys_storage_policy：5 个常用分类（attachment / avatar / document / import / template）。
 --      没建策略的分类不会报错：handler 回落到内置默认策略（50 MB、不限制扩展名、不允许直传）。
 --
