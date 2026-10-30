@@ -109,7 +109,7 @@ import {
   updateWarehouse,
   type Warehouse,
   type WarehouseTreeNode,
-} from '@/api/business/erp/warehouse-api';
+} from '@/api/business/erp';
 import {
   MAX_WAREHOUSE_LEVEL,
   WAREHOUSE_TYPE_OPTIONS,

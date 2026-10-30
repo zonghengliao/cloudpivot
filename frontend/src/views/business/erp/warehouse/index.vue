@@ -76,7 +76,12 @@
             @click="handleNodeClick"
           >
             <template #label="{ node }">
-              <span class="wh-node" :data-code="node.data.warehouse_code" :data-leaf="String(node.data.is_leaf)">
+              <span
+                class="wh-node"
+                :data-code="node.data.warehouse_code"
+                :data-key="nodeKeyOf(node.data)"
+                :data-leaf="String(leafOf(node.data))"
+              >
                 <t-tag size="small" variant="light" :theme="levelTheme(node.data.level)" class="wh-node__level">
                   {{ levelLabel(node.data.level) }}
                 </t-tag>
@@ -91,7 +96,7 @@
                 </t-tag>
                 <span v-if="node.data.status !== 1" class="wh-node__off">已停用</span>
                 <span class="wh-node__tail">
-                  {{ node.data.is_leaf ? '叶子' : `${childCountOf(node.data)} 个子仓` }}
+                  {{ leafOf(node.data) ? '叶子' : `${childCountOf(node.data)} 个子仓` }}
                 </span>
               </span>
             </template>
@@ -222,7 +227,7 @@ import {
   fetchWarehouseTree,
   type Location,
   type WarehouseTreeNode,
-} from '@/api/business/erp/warehouse-api';
+} from '@/api/business/erp';
 import WarehouseFormDialog from './components/WarehouseFormDialog.vue';
 import LocationFormDialog from './components/LocationFormDialog.vue';
 import { WAREHOUSE_PERM } from './permissions';
@@ -238,8 +243,11 @@ import {
   locationCreateGate,
   locationTypeLabel,
   paginateRows,
+  resolveIsLeaf,
+  selectWarehouseId,
   toggleExpandedId,
   treeDepth,
+  warehouseNodeKey,
   warehousePathText,
   warehouseTypeLabel,
 } from './warehouse-tree';
@@ -303,6 +311,16 @@ function childCountOf(node: WarehouseTreeNode): number {
   return node.children?.length ?? 0;
 }
 
+/** 是否叶子（`children` 优先，见 `warehouse-tree.ts:resolveIsLeaf`） */
+function leafOf(node: TreeOptionData): boolean {
+  return resolveIsLeaf(node as unknown as WarehouseTreeNode);
+}
+
+/** 节点 key（兜底空 id / 重复 code，避免 t-tree 把两个节点渲染成一个） */
+function nodeKeyOf(node: TreeOptionData): string {
+  return warehouseNodeKey(node as unknown as WarehouseTreeNode);
+}
+
 /** 加载整棵树 */
 async function loadTree(): Promise<void> {
   treeLoading.value = true;
@@ -331,7 +349,7 @@ function handleExpand(value: Array<string | number>): void {
 /** 点节点 → 右侧按该仓库过滤（`watch(selectedId)` 负责真正拉数据） */
 function handleNodeClick(context: { node: { data: TreeOptionData } }): void {
   const node = context.node.data as unknown as WarehouseTreeNode;
-  selectedId.value = node.id;
+  selectedId.value = selectWarehouseId(node);
 }
 
 /** 搜索时自动展开命中的祖先，否则命中的深层节点看不见 */

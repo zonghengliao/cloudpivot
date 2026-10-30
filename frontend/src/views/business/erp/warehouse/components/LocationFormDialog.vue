@@ -74,7 +74,7 @@ import {
   updateLocation,
   type Location,
   type WarehouseTreeNode,
-} from '@/api/business/erp/warehouse-api';
+} from '@/api/business/erp';
 import {
   LOCATION_TYPE_OPTIONS,
   buildLocationCreatePayload,

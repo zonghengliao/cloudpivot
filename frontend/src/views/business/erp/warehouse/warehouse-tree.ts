@@ -21,7 +21,7 @@ import type {
   Warehouse,
   WarehouseTreeNode,
   WarehouseType,
-} from '@/api/business/erp/warehouse-api';
+} from '@/api/business/erp';
 
 /** 仓库层级上限（后端 66004 的上限） */
 export const MAX_WAREHOUSE_LEVEL = 3;
@@ -133,6 +133,89 @@ export function initialExpandedIds(nodes: WarehouseTreeNode[]): string[] {
  */
 export function toggleExpandedId(expanded: string[], id: string): string[] {
   return expanded.includes(id) ? expanded.filter((item) => item !== id) : [...expanded, id];
+}
+
+/**
+ * 节点唯一 key（`t-tree` 的 `value` 字段就用 `id`；这里是给 `data-*` / `:key` 兜底的）。
+ *
+ * 三档兜底，任何一档都不许返回空串、也不许返回 `undefined`：
+ * 1. `id`（正常路径，后端 UUID）；
+ * 2. `warehouse_path`（物化路径，含 id）；
+ * 3. `warehouse_code` / 空 code → `wh-<序号>`。
+ *
+ * 为什么要兜底：草稿 / 新增未落库 / e2e mock 数据里 `id` 或 `code` 可能是空串，
+ * 直接拿来当 key 会得到 `undefined` 或重复 key，`t-tree` 会把两个节点渲染成一个。
+ */
+export function warehouseNodeKey(
+  node: {
+    id?: string | null;
+    warehouse_code?: string | null;
+    warehouse_path?: string | null;
+  },
+  index = 0,
+): string {
+  const id = (node.id ?? '').trim();
+  if (id) {
+    return `wh:${id}`;
+  }
+  const path = (node.warehouse_path ?? '').trim();
+  if (path) {
+    return `path:${path}`;
+  }
+  const code = (node.warehouse_code ?? '').trim();
+  if (code) {
+    return `code:${code}`;
+  }
+  return `wh:#${index}`;
+}
+
+/**
+ * 整棵树的 key 列表（展平后逐节点生成），**保证互不相同**。
+ *
+ * 重复 key 的成因就两种：id 缺失（都退到空 code）或同一 code 挂了两次（数据脏）。
+ * 这里不抛错也不静默覆盖 —— 给后来者补 `~<序号>` 后缀，第一个保持原样，
+ * 这样「本来正常的节点」key 不变，只有重复的那几个被区分开。
+ */
+export function warehouseTreeKeys(nodes: WarehouseTreeNode[]): string[] {
+  const seen = new Map<string, number>();
+  const out: string[] = [];
+  flattenWarehouses(nodes).forEach(({ node }, index) => {
+    const base = warehouseNodeKey(node, index);
+    const hit = seen.get(base) ?? 0;
+    seen.set(base, hit + 1);
+    out.push(hit === 0 ? base : `${base}~${hit}`);
+  });
+  return out;
+}
+
+/**
+ * 叶子判定（页面展示 + 建库位闸门共用）。
+ *
+ * 口径：**`children` 非空就是非叶子**，否则看后端给的 `is_leaf`。
+ * 为什么以 `children` 优先：`is_leaf` 是派生字段，后端建/删子仓库时才更新那一行，
+ * 若某次事务漏了更新，`children` 才是真的（树接口一次把下级全带回来了）。
+ * 两者都没有的节点（列表接口的行）按 `is_leaf` 走，不再二次猜。
+ */
+export function resolveIsLeaf(
+  node: Pick<Warehouse, 'is_leaf'> & { children?: WarehouseTreeNode[] | null },
+): boolean {
+  if (node.children && node.children.length > 0) {
+    return false;
+  }
+  return node.is_leaf;
+}
+
+/**
+ * 点击节点 → 选中仓库 id。
+ *
+ * 传 `null` / 空 id 时返回 `null`（= 取消选中，右侧回空态），不抛错：
+ * 树在刷新中被点掉（node 变 undefined）是常态，页面不该因此白屏。
+ */
+export function selectWarehouseId(
+  node: { id?: string | null } | null | undefined,
+): string | null {
+  const id = (node?.id ?? '').trim();
+  return id ? id : null;
 }
 
 /** 按 id 找节点（树里任意一层） */
