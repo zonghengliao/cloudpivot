@@ -61,6 +61,7 @@
 pub mod assignee;
 pub mod dto;
 pub mod engine;
+pub mod expression;
 pub mod graph;
 pub mod handler;
 pub mod maintain;
