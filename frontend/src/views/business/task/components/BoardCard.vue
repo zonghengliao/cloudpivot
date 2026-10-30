@@ -8,8 +8,15 @@
     @dragend="handleDragEnd"
     @click="handleClick"
   >
-    <!-- ① 优先级 + 任务号 -->
+    <!-- ① 新任务标记（F2）+ 优先级 + 任务号 -->
     <div class="board-card__head">
+      <NewDot
+        v-if="task.is_new"
+        class="board-card__new"
+        variant="badge"
+        tone="danger"
+        title="新任务：待开始、负责人是我、7 天内创建"
+      />
       <PriorityTag :priority="task.priority" />
       <span class="board-card__no">{{ task.task_no }}</span>
       <t-tag v-if="task.need_review" class="board-card__review" size="small" variant="outline" theme="default">
@@ -66,6 +73,7 @@
 import { computed } from 'vue';
 import dayjs from 'dayjs';
 import PriorityTag from './PriorityTag.vue';
+import NewDot from '@/components/NewDot.vue';
 import type { TaskCard } from '@/api/business/task-api';
 
 const props = defineProps<{
@@ -148,6 +156,12 @@ function handleClick(): void {
     box-shadow 0.2s,
     border-color 0.2s,
     transform 0.2s;
+
+  /* F2：新任务角标（贴卡片左上角内容起点；不做绝对定位是为了不被列的
+     滚动容器裁掉，也不跟右上角的「需验收」抢位） */
+  &__new {
+    flex: none;
+  }
 
   &:hover {
     border-color: var(--td-brand-color);

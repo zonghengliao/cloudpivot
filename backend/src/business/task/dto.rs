@@ -303,6 +303,14 @@ pub struct TaskCardRes {
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 最后更新时间。
     pub updated_at: chrono::DateTime<chrono::Utc>,
+    /// 是否为「新任务」（F2 · A 口径：`TODO` ∧ 负责人是我 ∧ 7 天内创建）。
+    ///
+    /// 与 `GET /system/badge/counts` 的 `task_todo` **同一口径**（同一时间窗常量，
+    /// 单测 `model::tests::new_window_matches_badge` 钉死），前端三视图（列表红点 /
+    /// 看板 NEW 角标 / 甘特圆点）只看这个字段，不在前端重算。
+    ///
+    /// 详情接口（`TaskDetailRes` 扁平复用了本结构）恒为 `false`：卡面要求详情不做「新」标记。
+    pub is_new: bool,
 }
 
 // ==================== 响应：分页 ====================
@@ -1022,6 +1030,8 @@ pub struct GanttTaskRes {
     pub is_milestone: bool,
     /// 是否被未完成前置阻塞（前端画斜纹）。
     pub blocked: bool,
+    /// 是否为「新任务」（F2，A 口径，与列表 `TaskCardRes.is_new` 同一判据）。
+    pub is_new: bool,
     /// 是否逾期（`due_date < 今天` 且未终态）。
     pub overdue: bool,
     /// 条形位置（`null` = 排不进窗口，理论上不会出现：SQL 已按窗口过滤）。

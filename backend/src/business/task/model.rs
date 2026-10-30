@@ -302,6 +302,73 @@ pub fn month_key(today: NaiveDate) -> String {
     today.format("%Y%m").to_string()
 }
 
+// ==================== 「新任务」标记（F2 · A 口径） ====================
+
+/// 「新任务」的时间窗（天）。
+///
+/// # 口径（老大 2026-10-30 选 A：与菜单徽标**同一口径**）
+///
+/// `status = 'TODO'` ∧ `owner_id = 我` ∧ `created_at >= now() - 7 天`。
+///
+/// 必须与 `system::badge::model::TASK_TODO_WINDOW_DAYS`
+/// （`GET /system/badge/counts` 的 `task_todo` 桶）**同值**，否则会出现
+/// 「菜单徽标 ●2、列表里一个 NEW 都没有」——用户只会认为红点是假的。
+///
+/// 为什么不直接复用 badge 的那个常量：`system::badge` 已经单向依赖 `business::*`
+/// （它要复用公告/通知的可见性谓词），反过来让 `business::task` 引用它就成了模块环。
+/// 两个常量由 `tests::new_window_matches_badge` 钉死，任一边改动立刻红。
+pub const NEW_TASK_WINDOW_DAYS: i32 = 7;
+
+/// 是否「新任务」（A 口径）：`TODO` ∧ 负责人是我 ∧ 7 天内创建。
+///
+/// # 为什么不写成 `CARD_COLUMNS` 里的 SQL 派生列（卡面原方案，实测否决）
+///
+/// 1. **参数顺序不可能对上**。`CARD_COLUMNS` 在 5 条查询里共用，而
+///    [`scope::paginate`] 把数据范围片段参数**恒前置**（架构 §2.6 契约）。
+///    选择列表出现在所有 `WHERE` 占位符之前，放一个 `?` 进去，它的文本位置
+///    与任何调用方的参数表都不一致 —— `paginate` 会**静默绑错值**
+///    （这正是 §2.6 明文禁止的形态）。
+/// 2. **不需要**。口径的三个输入（`status` / `owner_id` / `created_at`）本来就
+///    在 [`TaskCardRow`] 里，派生不产生任何新查询、不改 SQL、不改 `EXPLAIN`
+///    （性能不可能退化）。
+///
+/// 口径只在这里定义一份，[`page_visible`]（列表 + 看板）、[`my_tasks`]（只看我的）
+/// 与 [`gantt_tasks`]（甘特）三处调用。
+pub fn is_new_task(
+    status: &str,
+    owner_id: Uuid,
+    created_at: chrono::DateTime<Utc>,
+    viewer: Uuid,
+) -> bool {
+    is_new_task_at(status, owner_id, created_at, viewer, Utc::now())
+}
+
+/// [`is_new_task`] 的可注入时钟版本：单测钉边界时用固定 `now`，避免跨秒抖动。
+pub fn is_new_task_at(
+    status: &str,
+    owner_id: Uuid,
+    created_at: chrono::DateTime<Utc>,
+    viewer: Uuid,
+    now: chrono::DateTime<Utc>,
+) -> bool {
+    status == TaskStatus::Todo.code()
+        && owner_id == viewer
+        && created_at >= now - Duration::days(i64::from(NEW_TASK_WINDOW_DAYS))
+}
+
+/// 给一批任务卡打「新任务」标记（列表 / 看板 / 我的任务共用）。
+///
+/// 时钟只取一次：同一页里的任务不会因为跨越 7 天边界的那一秒而口径不一。
+fn mark_is_new(rows: Vec<TaskCardRow>, viewer: Uuid) -> Vec<TaskCardRow> {
+    let now = Utc::now();
+    rows.into_iter()
+        .map(|mut row| {
+            row.is_new = is_new_task_at(&row.status, row.owner_id, row.created_at, viewer, now);
+            row
+        })
+        .collect()
+}
+
 // ==================== 行结构 ====================
 
 /// 任务卡行（列表 / 子任务 / 我的任务共用）。
@@ -349,6 +416,11 @@ pub struct TaskCardRow {
     pub created_at: chrono::DateTime<Utc>,
     /// 更新时间。
     pub updated_at: chrono::DateTime<Utc>,
+    /// 是否为「新任务」（F2，A 口径：`TODO` ∧ 负责人是我 ∧ 7 天内创建）。
+    ///
+    /// **不是数据库列**：由 [`is_new_task`] 在取数后派生，只有列表 / 看板 /
+    /// 「我的任务」会填它；详情与逾期扫描等路径保持 `false`（卡面要求详情不做「新」标记）。
+    pub is_new: bool,
 }
 
 impl TaskCardRow {
@@ -380,6 +452,7 @@ impl TaskCardRow {
             project_name: row.get_typed("project_name")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
+            is_new: false,
         })
     }
 }
@@ -637,10 +710,12 @@ pub async fn page_visible(
     )
     .await?;
 
-    let rows = list
-        .iter()
-        .map(TaskCardRow::from_row)
-        .collect::<DbResult<Vec<_>>>()?;
+    let rows = mark_is_new(
+        list.iter()
+            .map(TaskCardRow::from_row)
+            .collect::<DbResult<Vec<_>>>()?,
+        principal.user_id(),
+    );
     Ok(VisiblePage {
         list: rows,
         total,
@@ -920,7 +995,12 @@ pub async fn my_tasks(me: Uuid) -> DbResult<Vec<TaskCardRow>> {
         open_states_sql()
     ));
     let rows = db().find_with_params(&sql, vec![Value::from(&me)]).await?;
-    rows.iter().map(TaskCardRow::from_row).collect()
+    let rows = rows
+        .iter()
+        .map(TaskCardRow::from_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    // F2：口径与「全部」列表 / 菜单徽标一致（同一张卡片、同一个 NEW 标记）。
+    Ok(mark_is_new(rows, me))
 }
 
 /// 逾期扫描（未终态 ∧ `due_date < today`）。
@@ -2516,6 +2596,8 @@ pub struct GanttTaskRow {
     pub parent_id: Option<Uuid>,
     /// 是否被未完成前置阻塞（一条 SQL 批量算，避免 N+1）。
     pub blocked: bool,
+    /// 是否为「新任务」（F2，A 口径，与列表 `TaskCardRow.is_new` 同一判据）。
+    pub is_new: bool,
 }
 
 /// 甘特查询的筛选维度（`board_id` 不在内：本版没有看板列，接口层直接 400）。
@@ -2564,7 +2646,7 @@ pub async fn gantt_tasks(
     sql.push_str(
         "SELECT t.id, t.task_no, t.title, t.status, t.priority, t.progress, t.owner_id, \
          COALESCE(NULLIF(u.real_name, ''), u.username, '') AS owner_name, \
-         t.start_date, t.due_date, t.parent_id \
+         t.start_date, t.due_date, t.parent_id, t.created_at \
            FROM biz_task t LEFT JOIN sys_user u ON u.id = t.owner_id \
           WHERE t.deleted_at IS NULL \
             AND (t.start_date IS NOT NULL OR t.due_date IS NOT NULL) \
@@ -2603,20 +2685,27 @@ pub async fn gantt_tasks(
     // 一次算出「被未完成前置阻塞」的集合（避免 N+1）
     let mut ids: Vec<Uuid> = Vec::with_capacity(rows.len());
     let mut tasks = Vec::with_capacity(rows.len());
+    let me = principal.user_id();
+    let now = Utc::now();
     for row in rows {
+        let status: String = row.get_typed("status")?;
+        let owner_id: Uuid = row.get_typed("owner_id")?;
+        let created_at: chrono::DateTime<Utc> = row.get_typed("created_at")?;
+        let is_new = is_new_task_at(&status, owner_id, created_at, me, now);
         let task = GanttTaskRow {
             id: row.get_typed("id")?,
             task_no: row.get_typed("task_no")?,
             title: row.get_typed("title")?,
-            status: row.get_typed("status")?,
+            status,
             priority: row.get_typed("priority")?,
             progress: row.get_typed("progress")?,
-            owner_id: row.get_typed("owner_id")?,
+            owner_id,
             owner_name: row.get_typed("owner_name")?,
             start_date: row.get_typed("start_date")?,
             due_date: row.get_typed("due_date")?,
             parent_id: row.get_typed("parent_id")?,
             blocked: false,
+            is_new,
         };
         ids.push(task.id);
         tasks.push(task);
@@ -3626,6 +3715,51 @@ mod tests {
             Value::Text(text) => assert_eq!(text, "{}"),
             other => panic!("空集合必须是 {{}}，实际 {other:?}"),
         }
+    }
+
+    /// F2：A 口径的四个判别用例 + 7 天边界两侧各 1 秒。
+    #[test]
+    fn is_new_task_matches_a_criteria() {
+        let me = Uuid::parse_str("018f0000-0000-7000-8000-00000000000a").expect("合法 uuid");
+        let other = Uuid::parse_str("018f0000-0000-7000-8000-00000000000b").expect("合法 uuid");
+        let now = Utc::now();
+        let day = Duration::days(1);
+        assert!(
+            is_new_task_at("TODO", me, now - day, me, now),
+            "TODO + 我 + 1 天前 → 新"
+        );
+        assert!(
+            !is_new_task_at("TODO", me, now - Duration::days(8), me, now),
+            "TODO + 我 + 8 天前 → 不是新（出窗口）"
+        );
+        assert!(
+            !is_new_task_at("DOING", me, now - day, me, now),
+            "DOING + 我 → 不是新（口径只认 TODO）"
+        );
+        assert!(
+            !is_new_task_at("TODO", other, now - day, me, now),
+            "TODO + 别人 → 对我不新"
+        );
+        let window = Duration::days(i64::from(NEW_TASK_WINDOW_DAYS));
+        assert!(
+            is_new_task_at("TODO", me, now - window + Duration::seconds(1), me, now),
+            "窗口内 1 秒 → 仍是新"
+        );
+        assert!(
+            !is_new_task_at("TODO", me, now - window - Duration::seconds(1), me, now),
+            "窗口外 1 秒 → 不再新"
+        );
+    }
+
+    /// F2：列表/看板/甘特用的窗口必须与菜单徽标 `task_todo` 的窗口同值，
+    /// 否则 A 口径退化成「徽标 2、列表 0 NEW」。
+    #[test]
+    fn new_window_matches_badge() {
+        assert_eq!(
+            NEW_TASK_WINDOW_DAYS,
+            crate::system::badge::model::TASK_TODO_WINDOW_DAYS,
+            "is_new 与 /system/badge/counts 的 task_todo 必须同窗口"
+        );
     }
 
     #[test]

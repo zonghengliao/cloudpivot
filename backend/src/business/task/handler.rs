@@ -1772,6 +1772,7 @@ pub async fn gantt(
             parent_id: row.parent_id.map(|id| id.to_string()),
             is_milestone: false,
             blocked: row.blocked,
+            is_new: row.is_new,
             overdue: dep::is_overdue(row.due_date, &row.status, today),
             bar: dep::bar_span(row.start_date, row.due_date, &range).map(|span| GanttBarRes {
                 offset_days: span.offset_days,
@@ -2795,6 +2796,7 @@ fn card_res(row: &TaskCardRow) -> TaskCardRes {
         project_name: row.project_name.clone(),
         created_at: row.created_at,
         updated_at: row.updated_at,
+        is_new: row.is_new,
     }
 }
 

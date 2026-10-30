@@ -102,6 +102,14 @@ export interface TaskCard {
   created_at: string;
   /** 最后更新时间 RFC3339 */
   updated_at: string;
+  /**
+   * 是否为「新任务」（F2 · A 口径：`TODO` ∧ 负责人是我 ∧ 7 天内创建）。
+   *
+   * 口径由**后端**算好下发（与菜单徽标 `GET /system/badge/counts` 的 `task_todo`
+   * 同一窗口常量），前端只负责画，**绝不重算**——重算就会出现「徽标 ●2、列表 0 NEW」。
+   * 列表 / 看板 / 甘特 / 我的任务会为 true；详情接口不为真。
+   */
+  is_new: boolean;
 }
 
 /**
@@ -518,6 +526,8 @@ export interface GanttTask {
   blocked: boolean;
   /** 逾期（due_date < 今天且未终态） */
   overdue: boolean;
+  /** 是否为「新任务」（F2，A 口径，与列表 `TaskCard.is_new` 同一判据） */
+  is_new: boolean;
   bar: GanttBar | null;
 }
 

@@ -121,7 +121,20 @@
 
         <template #title="{ row }">
           <div class="cell-title">
-            <t-link theme="primary" class="cell-title__text" @click="openDetail(row)">{{ row.title }}</t-link>
+            <!-- F2：新任务标记（A 口径：TODO ∧ 负责人是我 ∧ 7 天内创建，后端 is_new 下发） -->
+            <NewDot
+              v-if="row.is_new"
+              class="cell-title__new"
+              variant="badge"
+              tone="danger"
+              title="新任务：待开始、负责人是我、7 天内创建"
+            />
+            <t-link
+              theme="primary"
+              class="cell-title__text"
+              :class="{ 'cell-title__text--new': row.is_new }"
+              @click="openDetail(row)"
+            >{{ row.title }}</t-link>
             <span v-if="row.child_count > 0" class="cell-child-stat">
               （{{ row.child_count }} 子·{{ row.child_done_count }} 完成）
             </span>
@@ -256,6 +269,7 @@ import TaskForm from './components/TaskForm.vue';
 import TaskBurndown from './components/TaskBurndown.vue';
 import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
+import NewDot from '@/components/NewDot.vue';
 import { ApiError } from '@/api/request';
 import {
   deleteTask,
@@ -848,8 +862,19 @@ onMounted(() => {
 }
 
 /** 父任务行：标题加粗 + 子任务统计小字（E6b 树形表格） */
-:deep(.task-row--parent .cell-title__text) {
+::deep(.task-row--parent .cell-title__text) {
   font-weight: 500;
+}
+
+/* F2：新任务标题加粗。写成两级选择器并放在父行规则之后——父行本来是 500，
+   同权重下后写的这条才能把新任务顶到 600（不用 !important）。 */
+.cell-title .cell-title__text--new {
+  font-weight: 600;
+}
+
+/* F2：NEW 角标不参与标题的省略号收窄 */
+.cell-title__new {
+  flex: none;
 }
 
 .cell-child-stat {

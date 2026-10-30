@@ -268,6 +268,20 @@
                 >
                   <title>{{ tooltipOf(row.task) }}</title>
                 </rect>
+                <!-- F2：新任务圆点（A 口径：TODO ∧ 负责人是我 ∧ 7 天内创建；
+                     画在条形左端内侧，`data-new` 供 e2e 断言） -->
+                <circle
+                  v-if="row.task.is_new"
+                  :cx="barGeom(row)!.x + 5"
+                  :cy="rowTop(index) + 8 + BAR_H / 2"
+                  r="3"
+                  :fill="cssVar('--td-error-color', '#d54941')"
+                  class="gantt-bar gantt-bar__overlay gantt-bar__new"
+                  :data-new="row.task.task_no"
+                  @click="onBarClick(row.task)"
+                >
+                  <title>新任务：待开始、负责人是我、7 天内创建</title>
+                </circle>
                 <!-- 被阻塞：斜纹覆盖（只覆盖未完成的部分，代表「还不能开始」） -->
                 <rect
                   v-if="row.task.blocked"

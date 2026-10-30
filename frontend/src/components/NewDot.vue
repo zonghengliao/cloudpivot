@@ -7,7 +7,7 @@
   -->
   <span
     class="cp-new"
-    :class="`cp-new--${variant}`"
+    :class="[`cp-new--${variant}`, tone === 'danger' ? 'cp-new--danger' : '']"
     role="img"
     :aria-label="title"
     :title="title"
@@ -22,6 +22,11 @@ withDefaults(
   defineProps<{
     /** 形态：小圆点 / NEW 文字角标 */
     variant?: 'dot' | 'badge';
+    /**
+     * 色调：`brand`（F1 未读用主色）/ `danger`（F2 任务「新任务」用语义红）。
+     * 只用主题 token，22 套配色 × 明暗都跟随（无裸 hex）。
+     */
+    tone?: 'brand' | 'danger';
     /** 角标文案（仅 badge） */
     label?: string;
     /** 无障碍名称 / hover 提示 */
@@ -29,6 +34,7 @@ withDefaults(
   }>(),
   {
     variant: 'dot',
+    tone: 'brand',
     label: 'NEW',
     title: '新内容',
   },
@@ -52,6 +58,16 @@ withDefaults(
     height: 6px;
     border-radius: 50%;
     background: var(--td-brand-color);
+  }
+
+  /* F2：语义红形态（任务「新任务」标记）。文字色用反色 token，深色主题同样达标 */
+  &--dot&--danger .cp-new__dot {
+    background: var(--td-error-color);
+  }
+
+  &--badge&--danger {
+    color: var(--td-text-color-anti);
+    background: var(--td-error-color);
   }
 
   &--badge {
