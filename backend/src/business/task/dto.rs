@@ -1146,6 +1146,54 @@ pub struct TaskStatsRes {
     pub by_exec_mode: Vec<ExecModeStatRes>,
 }
 
+/// 父任务状态巡检的查询参数（T13）。
+///
+/// 为什么 `dry_run` 缺省是 **true**：这是批量修数接口，默认行为必须是「只报不修」——
+/// 手滑点一次就把全库父任务状态改掉是不可接受的。要真修必须显式传 `dry_run=false`。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ParentStatusRepairQuery {
+    /// `true`（缺省）= 只报不修；`false` = 真修。
+    pub dry_run: Option<bool>,
+    /// 最多扫 / 修多少条（缺省 200，越界夹到 `[1, 200]`）。
+    pub limit: Option<i64>,
+}
+
+/// 巡检命中的一条（父任务状态落后于它的子任务）。
+#[derive(Debug, Clone, Serialize)]
+pub struct ParentStatusGapRes {
+    /// 父任务 id。
+    pub id: String,
+    /// 父任务号。
+    pub task_no: String,
+    /// 父任务标题。
+    pub title: String,
+    /// 命中时的状态（`TODO` / `DOING`）。
+    pub status: String,
+    /// 命中时的进度（巡检不动它）。
+    pub progress: i16,
+    /// 未删除子任务数。
+    pub children: i64,
+    /// 应到的状态（`REVIEW`）。
+    pub target: String,
+    /// 修复后回读的实际状态；`dry_run` / 修复失败时为 `null`。
+    pub status_after: Option<String>,
+}
+
+/// 巡检 / 修复的结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct ParentStatusRepairRes {
+    /// 本次是不是只报不修。
+    pub dry_run: bool,
+    /// 命中条数（不一致的父任务数）。
+    pub total: usize,
+    /// 修好的条数（`dry_run` 恒为 0）。
+    pub fixed: usize,
+    /// 修复失败的条数（`dry_run` 恒为 0）。
+    pub failed: usize,
+    /// 逐条明细。
+    pub items: Vec<ParentStatusGapRes>,
+}
+
 /// 权限码：删除他人评论（T6b）。
 ///
 /// 作者本人删自己的评论**不需要**这个码（行级关系优先）；它解决的是

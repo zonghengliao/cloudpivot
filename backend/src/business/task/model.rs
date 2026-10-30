@@ -2258,6 +2258,120 @@ pub async fn cascade_parent_status(
     Ok(results)
 }
 
+// ==================== 父任务状态巡检 / 兜底对账（T13） ====================
+//
+// 为什么已经有 `settle` 里的级联，还要一段巡检：
+//
+// `flow::task_bridge::settle` 跑在**审批事务提交之后**（红线：审批结论已落库，
+// 不许因任务侧失败而回滚），所以它里面的父任务级联只能开**独立事务**，与
+// 「任务状态」不是同一个事务。极端情况（那一刻库故障 / 进程被杀 / 并发冲突）
+// 仍会留下「子任务全终态、父任务还停在 DOING」的不一致 —— 这段巡检把它找出来
+// 并修回去（与「一物一码 4 条不变式」同一思路：实时联动 + 巡检兜底）。
+//
+// 修复**不另写一份判定**：对每条命中的父任务，取它的一个子任务当起点跑
+// [`cascade_parent_status`] —— 走的就是「子任务状态变更后」那条生产路径
+// （含防环、含时间线评论），巡检与实时级联因此不可能判出两个口径。
+
+/// SQL 里认的「终态」字面量（[`TaskStatus::is_terminal`] 的同口径副本）。
+///
+/// 扫描 SQL 只能写字面量，枚举将来若多一个终态而这里没跟上，就会**静默漏扫** ——
+/// 所以单测 `terminal_codes_match_enum` 把两者钉死（扫描 SQL 本身由这里的常量拼出来，
+/// 不重复写第二份字面量）。
+pub const TERMINAL_STATUS_CODES: [&str; 2] = ["DONE", "CANCELLED"];
+
+/// 一次巡检最多扫 / 修的条数（`handler` 侧同样按这个上限夹 `limit` 入参）。
+pub const REPAIR_SCAN_LIMIT: i64 = 200;
+
+/// 巡检命中：父任务的状态落后于它的子任务（子任务全终态，父任务还没到 `REVIEW`）。
+#[derive(Debug, Clone)]
+pub struct ParentStatusGap {
+    /// 父任务 id。
+    pub task_id: Uuid,
+    /// 父任务号（对账展示用）。
+    pub task_no: String,
+    /// 父任务标题。
+    pub title: String,
+    /// 父任务当前状态（只可能是 `TODO` / `DOING`）。
+    pub status: TaskStatus,
+    /// 父任务当前进度（巡检**不动**进度 —— 进度归 [`recalc_ancestors`]）。
+    pub progress: i16,
+    /// 未删除子任务数。
+    pub children: i64,
+    /// 应该到的状态（[`cascade_target`] 规则③：子任务全终态 → `REVIEW`）。
+    pub target: TaskStatus,
+    /// 修复起点：从这里往上跑 [`cascade_parent_status`]，修到的就是本父任务。
+    pub sample_child: Uuid,
+}
+
+/// 归一化巡检条数：缺省 [`REPAIR_SCAN_LIMIT`]，越界夹到 `[1, REPAIR_SCAN_LIMIT]`。
+///
+/// 为什么夹而不是报 400：这是运维兜底接口，`limit=0` / `limit=-1` / 手滑多打几个 0
+/// 都不该让巡检失效 —— 夹到合法区间比拒绝更安全（拒绝等于「这次不一致没人管」）。
+pub fn normalize_repair_limit(limit: Option<i64>) -> i64 {
+    match limit {
+        None => REPAIR_SCAN_LIMIT,
+        Some(raw) => raw.clamp(1, REPAIR_SCAN_LIMIT),
+    }
+}
+
+/// 扫出「子任务全终态、父任务却还没到 `REVIEW`」的父任务（只读，不写任何东西）。
+///
+/// # 判据
+///
+/// - 父任务未删除，且状态是 `TODO` / `DOING`（`REVIEW` 已经是对的、终态不回退，
+///   这两种都不算不一致）；
+/// - 至少有一个未删除子任务，且**全部**子任务处于终态（[`TERMINAL_STATUS_CODES`]）；
+/// - 命中即：「[`cascade_target`] 规则③本该把它推到 `REVIEW`，但它没到」。
+///
+/// # 参数
+///
+/// - `ex`：`&Db` 或业务事务（只读）；
+/// - `limit`：最多返回多少条（调用方用 [`normalize_repair_limit`] 归一化）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。库里状态不是 5 态之一的行（历史脏值）**跳过不猜**。
+pub async fn scan_parent_status_gaps(
+    ex: &impl SqlExecutor,
+    limit: i64,
+) -> DbResult<Vec<ParentStatusGap>> {
+    let terminal = TERMINAL_STATUS_CODES
+        .iter()
+        .map(|code| format!("'{code}'"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let sql = format!(
+        "SELECT p.id AS parent_id, p.task_no, p.title, p.status, p.progress, \
+                count(c.id) AS children, min(c.id::text)::uuid AS sample_child \
+           FROM biz_task p \
+           JOIN biz_task c ON c.parent_id = p.id AND c.deleted_at IS NULL \
+          WHERE p.deleted_at IS NULL AND p.status IN ('TODO', 'DOING') \
+          GROUP BY p.id, p.task_no, p.title, p.status, p.progress \
+         HAVING count(c.id) FILTER (WHERE c.status NOT IN ({terminal})) = 0 \
+          ORDER BY p.created_at, p.id \
+          LIMIT ?::bigint"
+    );
+    let rows = ex.query_sql(sql, vec![Value::I64(limit)]).await?;
+    let mut gaps = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let raw: String = row.get_typed("status")?;
+        let Some(status) = TaskStatus::parse(&raw) else {
+            tracing::warn!(status = %raw, "任务状态不是 5 态之一，巡检跳过该行");
+            continue;
+        };
+        gaps.push(ParentStatusGap {
+            task_id: row.get_typed("parent_id")?,
+            task_no: row.get_typed("task_no")?,
+            title: row.get_typed("title")?,
+            status,
+            progress: row.get_typed("progress")?,
+            children: row.get_typed("children")?,
+            target: TaskStatus::Review,
+            sample_child: row.get_typed("sample_child")?,
+        });
+    }
+    Ok(gaps)
+}
 // ==================== 父任务取消 → 子任务级联取消（T11） ====================
 //
 // 老大的原始缺陷（2026-10-30，老六流程自检实测）：
@@ -6840,5 +6954,345 @@ mod cascade_tests {
             );
             assert_eq!(progress_of(child).await, 65);
         }
+    }
+}
+
+// ==================== 单测：父任务状态巡检 / 兜底对账（T13，真库 `TASK_DB_URL`） ====================
+//
+// 为什么必须真库：巡检的本体是一条带 `HAVING count(…) FILTER (…) = 0` 的聚合查询 +
+// 「从子任务往上跑一遍级联」。纯逻辑单测证明不了「聚合真的只挑出不一致的那几个」
+// 「修完真的都到 REVIEW」「修完再扫真的归零」。
+//
+// 用法：
+// ```bash
+// export TASK_DB_URL='postgres://cloudpivot:***@127.0.0.1:5432/<测试库>'
+// cargo test --lib business::task::model::repair_tests -- --nocapture --test-threads=1
+// ```
+// 缺 `TASK_DB_URL` 时打印 `SKIP` 并直接返回。
+//
+// ⚠️ 巡检是**全库扫描**（运维兜底接口本来就该看全库），而同一个测试库里还住着别的
+// 模块的夹具 —— 所以这里的断言一律先按本夹具的 `T13-` 号码前缀过滤（T8-C 实测教训：
+// 全量套件里「全局计数」会漂数，单跑时绿、全跑时红）。
+#[cfg(test)]
+mod repair_tests {
+    use super::*;
+
+    /// 夹具用户（`biz_task.owner_id / creator_id` 是 NOT NULL + FK `sys_user`）。
+    const U_ID: &str = "7a8a0000-0000-4000-8000-0000000000e1";
+    /// 真库用例**串行**执行。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn uuid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
+    }
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("TASK_DB_URL") else {
+                    println!("SKIP: 未设置 TASK_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: TASK_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn reset(me: Uuid) {
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password) \
+             VALUES (?::uuid, 't13_repair_user', 't13-not-a-real-hash') \
+             ON CONFLICT DO NOTHING",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具用户写入失败");
+        db().execute_with_params(
+            "UPDATE biz_task SET parent_id = NULL WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具清理（断父指针）失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具清理失败");
+    }
+
+    async fn insert_task(
+        id: Uuid,
+        tag: &str,
+        parent: Option<Uuid>,
+        status: &str,
+        progress: i16,
+        me: Uuid,
+    ) {
+        let affected = db()
+            .execute_with_params(
+                "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, parent_id, \
+                                       status, priority, progress, need_review) \
+                 VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, 'P2', ?, false)",
+                vec![
+                    Value::from(&id),
+                    Value::Text(format!("T13-{tag}-{}", &id.simple().to_string()[..8])),
+                    Value::Text(format!("T13 巡检 {tag}")),
+                    Value::from(&me),
+                    Value::from(&me),
+                    Value::from(parent.as_ref()),
+                    Value::Text(status.to_string()),
+                    Value::I16(progress),
+                ],
+            )
+            .await;
+        if let Err(error) = affected {
+            panic!("夹具写入失败（tag={tag}）：{error}");
+        }
+    }
+
+    async fn status_of(id: Uuid) -> TaskStatus {
+        let rows = db()
+            .find_with_params(
+                "SELECT status FROM biz_task WHERE id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查状态失败");
+        let raw: String = rows
+            .first()
+            .expect("任务应存在")
+            .get_typed("status")
+            .expect("取 status");
+        TaskStatus::parse(&raw).expect("状态必须是 5 态之一")
+    }
+
+    /// 只保留本夹具的行（按任务号前缀；巡检是全库扫描，别的模块夹具会混进来）。
+    fn only_fixture(gaps: Vec<ParentStatusGap>) -> Vec<ParentStatusGap> {
+        gaps.into_iter()
+            .filter(|gap| gap.task_no.starts_with("T13-R"))
+            .collect()
+    }
+
+    // ---------- 纯逻辑：SQL 字面量必须与枚举同口径 ----------
+
+    /// `TERMINAL_STATUS_CODES` 是扫描 SQL 里唯一的终态来源 —— 枚举变了这里必须跟着变。
+    #[test]
+    fn terminal_codes_match_enum() {
+        let mut from_enum: Vec<&str> = TaskStatus::ALL
+            .iter()
+            .filter(|status| status.is_terminal())
+            .map(|status| status.code())
+            .collect();
+        from_enum.sort_unstable();
+        let mut from_const = TERMINAL_STATUS_CODES.to_vec();
+        from_const.sort_unstable();
+        assert_eq!(
+            from_enum, from_const,
+            "扫描 SQL 认的终态必须与 TaskStatus::is_terminal 完全一致（否则静默漏扫）"
+        );
+    }
+
+    /// 巡检把 `target` 写死成 `REVIEW` 的前提：规则③在这两种父状态下都判 `REVIEW`。
+    #[test]
+    fn scan_target_matches_cascade_rule_three() {
+        let closed = |status: TaskStatus| ChildSnapshot {
+            status,
+            progress: 100,
+            estimate_hours: None,
+        };
+        for parent in [TaskStatus::Todo, TaskStatus::Doing] {
+            let children = [closed(TaskStatus::Done), closed(TaskStatus::Cancelled)];
+            assert_eq!(
+                cascade_target(parent, &children),
+                Some(TaskStatus::Review),
+                "子任务全终态时 {parent:?} 该被推到 REVIEW —— 巡检的 target 依赖这一条"
+            );
+        }
+        // 反向对照：父任务本来就是 REVIEW / 终态 → 不该被算成不一致
+        let children = [closed(TaskStatus::Done)];
+        assert_eq!(cascade_target(TaskStatus::Review, &children), None);
+        assert_eq!(cascade_target(TaskStatus::Done, &children), None);
+        // 反向对照：还有一个子任务在跑 → 不该被算成不一致
+        assert_eq!(
+            cascade_target(
+                TaskStatus::Doing,
+                &[closed(TaskStatus::Done), closed(TaskStatus::Doing)]
+            ),
+            None
+        );
+    }
+
+    /// `limit` 归一化：缺省 200；0 / 负数 / 超上限都夹进合法区间（巡检不该因参数失效）。
+    #[test]
+    fn repair_limit_is_clamped() {
+        assert_eq!(normalize_repair_limit(None), REPAIR_SCAN_LIMIT);
+        assert_eq!(normalize_repair_limit(Some(0)), 1);
+        assert_eq!(normalize_repair_limit(Some(-5)), 1);
+        assert_eq!(normalize_repair_limit(Some(50)), 50);
+        assert_eq!(
+            normalize_repair_limit(Some(REPAIR_SCAN_LIMIT * 100)),
+            REPAIR_SCAN_LIMIT
+        );
+    }
+
+    // ---------- ⑥ 真库：造 3 个不一致 → 干跑报 3 条 → 实修后都正确 ----------
+
+    #[tokio::test]
+    async fn scan_reports_then_repairs_three_gaps() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let me = uuid(U_ID);
+        reset(me).await;
+
+        // 三个不一致的父任务：子任务全终态，父任务却停在 TODO / DOING
+        let gap_parents = [
+            "7a8a0000-0000-4000-8000-0000000003a1",
+            "7a8a0000-0000-4000-8000-0000000003a2",
+            "7a8a0000-0000-4000-8000-0000000003a3",
+        ];
+        let gap_status = ["DOING", "TODO", "DOING"];
+        for (index, parent) in gap_parents.iter().enumerate() {
+            insert_task(
+                uuid(parent),
+                &format!("R{index}-父"),
+                None,
+                gap_status[index],
+                0,
+                me,
+            )
+            .await;
+            insert_task(
+                uuid(&format!("7a8a0000-0000-4000-8000-0000000003b{index}")),
+                &format!("R{index}-子完成"),
+                Some(uuid(parent)),
+                "DONE",
+                100,
+                me,
+            )
+            .await;
+            insert_task(
+                uuid(&format!("7a8a0000-0000-4000-8000-0000000003c{index}")),
+                &format!("R{index}-子取消"),
+                Some(uuid(parent)),
+                "CANCELLED",
+                0,
+                me,
+            )
+            .await;
+        }
+        // 两个**不该**被报的对照：父任务已经 REVIEW、父任务还有子任务在跑
+        let ok_review = "7a8a0000-0000-4000-8000-0000000003d1";
+        insert_task(uuid(ok_review), "R3-父已REVIEW", None, "REVIEW", 100, me).await;
+        insert_task(
+            uuid("7a8a0000-0000-4000-8000-0000000003e1"),
+            "R3-子完成",
+            Some(uuid(ok_review)),
+            "DONE",
+            100,
+            me,
+        )
+        .await;
+        let ok_running = "7a8a0000-0000-4000-8000-0000000003d2";
+        insert_task(uuid(ok_running), "R4-父有子在跑", None, "DOING", 50, me).await;
+        insert_task(
+            uuid("7a8a0000-0000-4000-8000-0000000003e2"),
+            "R4-子完成",
+            Some(uuid(ok_running)),
+            "DONE",
+            100,
+            me,
+        )
+        .await;
+        insert_task(
+            uuid("7a8a0000-0000-4000-8000-0000000003e3"),
+            "R4-子在跑",
+            Some(uuid(ok_running)),
+            "DOING",
+            30,
+            me,
+        )
+        .await;
+
+        // 干跑：只报不修
+        let gaps = only_fixture(
+            scan_parent_status_gaps(db(), REPAIR_SCAN_LIMIT)
+                .await
+                .expect("巡检查询失败"),
+        );
+        assert_eq!(gaps.len(), 3, "⑥ 干跑必须报出 3 个不一致的父任务");
+        let reported: Vec<Uuid> = gaps.iter().map(|gap| gap.task_id).collect();
+        for index in 0..gap_parents.len() {
+            let parent = uuid(gap_parents[index]);
+            assert!(reported.contains(&parent), "⑥ 漏报 {}", gap_parents[index]);
+            assert_eq!(
+                status_of(parent).await,
+                TaskStatus::parse(gap_status[index]).expect("夹具状态非法"),
+                "⑥ 干跑不许改库"
+            );
+        }
+        assert!(
+            gaps.iter()
+                .all(|gap| gap.target == TaskStatus::Review && gap.children == 2),
+            "⑥ 每条都该给出 target=REVIEW 与子任务数 2"
+        );
+        assert!(
+            !reported.contains(&uuid(ok_review)) && !reported.contains(&uuid(ok_running)),
+            "⑥ 对照行不该被报（父已 REVIEW / 还有子任务在跑）"
+        );
+
+        // 实修：从子任务往上跑生产同款级联（巡检接口就是这么修的）
+        for gap in &gaps {
+            let tx = db().begin().await.expect("开启事务失败");
+            let cascades = cascade_parent_status(&tx, gap.sample_child, me)
+                .await
+                .expect("修复级联失败");
+            tx.commit().await.expect("提交事务失败");
+            assert!(
+                cascades.iter().any(|item| item.task_id == gap.task_id),
+                "⑥ 修复必须真的改到父任务 {}（级联返回值里没有它）",
+                gap.task_id
+            );
+        }
+        for parent in gap_parents {
+            assert_eq!(
+                status_of(uuid(parent)).await,
+                TaskStatus::Review,
+                "⑥ 实修后 {parent} 必须是 REVIEW（落库值）"
+            );
+        }
+
+        // 再扫一次：同前缀的不一致必须归零
+        let after = only_fixture(
+            scan_parent_status_gaps(db(), REPAIR_SCAN_LIMIT)
+                .await
+                .expect("巡检查询失败"),
+        );
+        assert!(after.is_empty(), "⑥ 修完再扫必须为 0，实际 {}", after.len());
+        // 对照行也没被误改
+        assert_eq!(status_of(uuid(ok_review)).await, TaskStatus::Review);
+        assert_eq!(status_of(uuid(ok_running)).await, TaskStatus::Doing);
     }
 }

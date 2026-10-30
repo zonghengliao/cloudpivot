@@ -82,6 +82,16 @@
 //! 决定**能看到哪些任务**。V0103 把 4 个权限码授给了所有角色，所以「谁都进得来」；
 //! 真正的隔离在 [`model::page_visible`] 的可见性谓词里（scope ∪ 参与关系）。
 
+//! ## T13 追加的 1 个（父任务状态巡检 / 兜底对账）
+//!
+//! | 方法 | 路径 | 中间件闸 | 说明 |
+//! |------|------|----------|------|
+//! | GET | `/business/task/admin/repair-parent-status` | `business:task:update` | 扫「子任务全终态、父任务非 `REVIEW`」并修（`dry_run` 缺省只报不修；仅超管） |
+//!
+//! 为什么需要它：审批通过的 `REVIEW → DONE` 由 `flow::task_bridge::settle` 写，
+//! 而 settle 跑在审批事务提交之后 ⇒ 级联只能开独立事务，极端失败会留下
+//! 「子任务全终态、父任务停在 DOING」。本接口是那条链路的巡检兜底。
+
 use axum::Json;
 use axum::extract::{Path, Query};
 use nik::prelude::chrono::Utc;
@@ -4195,6 +4205,142 @@ pub async fn stats(
         end,
         total,
         by_exec_mode,
+    }))
+}
+
+/// 父任务状态巡检 / 兜底对账（T13）。
+///
+/// # 为什么需要这条接口
+///
+/// 审批通过的 `REVIEW → DONE` 走的是 `flow::task_bridge::settle`，它跑在**审批事务
+/// 提交之后**，所以它里面的父任务级联只能开独立事务 ⇒ 极端失败（那一刻库故障 /
+/// 进程被杀 / 并发冲突）会留下「子任务全终态、父任务停在 `DOING`」的不一致
+/// （老六真机验收实测就是这个形态）。本接口把这类不一致扫出来并按**同一条规则**
+/// 修回去（修复起点是子任务，跑的是生产同款 `cascade_parent_status`）。
+///
+/// # 权限
+///
+/// 只给**超级管理员**：这是跨全库的批量修数接口（会改别人负责的任务状态），
+/// 不按单个任务的数据范围做闸。中间件闸用 `business:task:update`（管理员本就持有），
+/// handler 里再判一次 `is_super_admin()`，非超管 → `403 + 63002`。
+///
+/// # 参数
+///
+/// - `dry_run`：缺省 `true`（只报不修）；`false` 才真改；
+/// - `limit`：缺省 / 上限 [`model::REPAIR_SCAN_LIMIT`]（200）。
+///
+/// # 异常情况
+///
+/// - 401：令牌缺用户标识；
+/// - 403 + `63002`：不是超级管理员；
+/// - 500：数据库异常（`dry_run=false` 时单条修复失败**不中断**整批，
+///   失败条数进 `failed`，逐条 `warn` 留痕）。
+#[nik::permission(
+    path = "/business/task/admin/repair-parent-status",
+    method = "GET",
+    permission = "business:task:update"
+)]
+#[nik::get("/business/task/admin/repair-parent-status")]
+pub async fn repair_parent_status(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<dto::ParentStatusRepairQuery>,
+) -> ResResult<dto::ParentStatusRepairRes> {
+    if !claims.is_super_admin() {
+        return Err(ApiError::new(
+            403,
+            error_code::TASK_FORBIDDEN,
+            "父任务状态巡检是批量修数接口，仅超级管理员可执行",
+        ));
+    }
+    let me = current_user(&claims)?;
+    let dry_run = query.dry_run.unwrap_or(true);
+    let limit = model::normalize_repair_limit(query.limit);
+    let gaps = model::scan_parent_status_gaps(db(), limit)
+        .await
+        .map_err(|error| utils::db_error(error, "巡检父任务状态"))?;
+
+    let mut items = Vec::with_capacity(gaps.len());
+    let mut fixed = 0_usize;
+    let mut failed = 0_usize;
+    for gap in &gaps {
+        let mut status_after = None;
+        if !dry_run {
+            // 修复起点用子任务（不是父任务自己）：走的正是「子任务状态变更后」那条
+            // 生产路径，判据 / 防环 / 时间线评论全复用，巡检不可能判出第二个口径。
+            let start = gap.sample_child;
+            let repaired = db()
+                .transaction(move |tx| async move {
+                    let cascades = model::cascade_parent_status(&tx, start, me).await?;
+                    for cascade in &cascades {
+                        let before = serde_json::json!({ "status": cascade.from.code() });
+                        let after = serde_json::json!({ "status": cascade.to.code() });
+                        changelog::record(
+                            &tx,
+                            &ChangeCtx::api(Some(me), None),
+                            ChangeTarget::of(
+                                "biz_task",
+                                cascade.task_id.to_string(),
+                                Action::Status,
+                                cascade.reason,
+                            ),
+                            DiffInput::update(&before, &after),
+                        )
+                        .await
+                        .map_err(|error| {
+                            DbError::InvalidValue(format!(
+                                "变更日志写入失败 [{}] {}",
+                                error.code, error.msg
+                            ))
+                        })?;
+                    }
+                    Ok(cascades)
+                })
+                .await;
+            match repaired {
+                Ok(cascades) => {
+                    if cascades.is_empty() {
+                        // 扫描与修复之间被别人改过（并发）→ 不算修好，也不算失败
+                        tracing::info!(task_id = %gap.task_id, "巡检：该父任务已无级联动作（并发修正）");
+                    } else {
+                        fixed += 1;
+                    }
+                }
+                Err(error) => {
+                    failed += 1;
+                    tracing::warn!(task_id = %gap.task_id, %error, "巡检修复父任务状态失败");
+                }
+            }
+            // 修后状态**回读库里**，不拿返回值猜（对账接口只认落库事实）
+            status_after = require_task(gap.task_id)
+                .await
+                .ok()
+                .map(|task| task.card.status);
+        }
+        items.push(dto::ParentStatusGapRes {
+            id: gap.task_id.to_string(),
+            task_no: gap.task_no.clone(),
+            title: gap.title.clone(),
+            status: gap.status.code().to_string(),
+            progress: gap.progress,
+            children: gap.children,
+            target: gap.target.code().to_string(),
+            status_after,
+        });
+    }
+
+    tracing::info!(
+        dry_run,
+        total = items.len() as i64,
+        fixed = fixed as i64,
+        failed = failed as i64,
+        "父任务状态巡检完成"
+    );
+    Ok(Res::ok(dto::ParentStatusRepairRes {
+        dry_run,
+        total: items.len(),
+        fixed,
+        failed,
+        items,
     }))
 }
 
