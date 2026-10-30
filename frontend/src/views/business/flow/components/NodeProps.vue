@@ -235,7 +235,7 @@
         <t-form-item label="条件表达式">
           <t-textarea
             v-model="conditionText"
-            placeholder='JSON DSL，如 {"all":[{"field":"amount","op":"gte","value":10000}]}'
+            placeholder='JSON DSL，如 {"op":"cmp","field":"form.amount","cmp":"gte","value":10000}（field 需带 form. / initiator. / instance. / task. 前缀）'
             :autosize="{ minRows: 3, maxRows: 8 }"
             @blur="commitCondition"
           />
