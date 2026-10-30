@@ -1,81 +1,94 @@
 <template>
   <div class="gantt-page">
-    <!-- 工具条：时间窗 / 缩放 / 筛选 / 今天（拖拽改期入口在任务条上） -->
-    <t-card :bordered="false" class="toolbar-card">
-      <t-row :gutter="[16, 12]" align="middle">
-        <t-col :span="4">
-          <t-space align="center">
-            <!-- 三视图切换（T7b）：甘特页也要能一眼切回列表 / 看板 -->
-            <t-tabs :model-value="'gantt'" class="view-switch" :space-evenly="false" @change="handleViewChange">
-              <t-tab-panel value="list">
-                <template #label>
-                  <span class="view-switch__label"><t-icon name="view-list" /> 任务列表</span>
-                </template>
-              </t-tab-panel>
-              <t-tab-panel value="board">
-                <template #label>
-                  <span class="view-switch__label"><t-icon name="view-module" /> 任务看板</span>
-                </template>
-              </t-tab-panel>
-              <t-tab-panel value="gantt">
-                <template #label>
-                  <span class="view-switch__label"><t-icon name="view-gantt" /> 甘特图</span>
-                </template>
-              </t-tab-panel>
-              <t-tab-panel value="burndown">
-                <template #label>
-                  <span class="view-switch__label"><t-icon name="chart-line" /> 燃尽图</span>
-                </template>
-              </t-tab-panel>
-            </t-tabs>
-            <t-tag size="small" variant="light-outline" theme="primary">可拖拽改期</t-tag>
-          </t-space>
+    <!-- 查询框：负责人 / 项目 / 时间窗 / 屏幕切换 / 缩放 / 可见范围（与 index.vue 分工一致） -->
+    <t-card :bordered="false" class="filter-card">
+      <t-row :gutter="[16, 12]">
+        <t-col :span="6">
+          <UserSelect v-model="filterAssignee" placeholder="负责人" />
         </t-col>
-        <t-col :span="4">
-          <t-space align="center">
-            <t-button size="small" variant="outline" @click="shiftWindow(-1)">上一屏</t-button>
-            <t-button size="small" variant="outline" data-test="gantt-today" @click="goToday">今天</t-button>
-            <t-button size="small" variant="outline" @click="shiftWindow(1)">下一屏</t-button>
-          </t-space>
+        <t-col :span="6">
+          <t-select
+            v-model="filterProject"
+            :options="projectOptions"
+            :loading="projectLoading"
+            placeholder="所属项目"
+            clearable
+            filterable
+          />
         </t-col>
-        <t-col :span="4">
+        <t-col :span="7">
           <t-date-range-picker
             v-model="windowRange"
-            size="small"
             clearable
             format="YYYY-MM-DD"
             placeholder="时间窗（默认今天起 30 天，上限 180 天）"
           />
         </t-col>
-        <t-col :span="4">
-          <t-space align="center">
-            <t-radio-group v-model="zoom" size="small" variant="default-filled">
-              <t-radio-button value="day">日</t-radio-button>
-              <t-radio-button value="week">周</t-radio-button>
-            </t-radio-group>
-            <t-radio-group v-model="scope" size="small" variant="default-filled">
-              <t-radio-button value="all">全部可见</t-radio-button>
-              <t-radio-button value="my">只看我的</t-radio-button>
-            </t-radio-group>
-            <t-button size="small" variant="outline" :loading="loading" @click="load">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
+        <t-col :span="5">
+          <t-space>
+            <t-button theme="primary" @click="handleFilter">
+              <template #icon><t-icon name="search" /></template>
+              查询
             </t-button>
+            <t-button variant="outline" @click="handleFilterReset">重置</t-button>
           </t-space>
         </t-col>
+        <t-col :span="24">
+          <div v-if="data" class="filter-meta">
+            窗口 {{ data.range.start }} ~ {{ data.range.end }}（{{ data.range.days }} 天）
+            · 任务 {{ data.tasks.length }} 条 · 依赖 {{ data.dependencies.length }} 条
+            <span class="filter-meta__tag">可拖拽改期</span>
+            <span v-if="data.truncated" class="filter-meta__warn">· 超过 500 条已截断，请缩小区间</span>
+            <span v-if="data.member_scope_truncated" class="filter-meta__warn">· 我参与的任务过多，只按数据范围显示</span>
+          </div>
+        </t-col>
       </t-row>
+    </t-card>
+
+    <!-- 工具条：三视图切换 + 主操作（与 index.vue 完全一致） -->
+    <t-card :bordered="false" class="toolbar-card">
+      <div class="toolbar">
+        <t-space align="center">
+          <t-tabs :model-value="'gantt'" class="view-switch" :space-evenly="false" @change="handleViewChange">
+            <t-tab-panel value="list">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="view-list" /> 任务列表</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="board">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="view-module" /> 任务看板</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="gantt">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="view-gantt" /> 甘特图</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="burndown">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="chart-line" /> 燃尽图</span>
+              </template>
+            </t-tab-panel>
+          </t-tabs>
+          <t-button v-privilege="[PERM.taskCreate]" theme="primary" size="small" @click="openCreate">
+            <template #icon><t-icon name="add" /></template>
+            新建任务
+          </t-button>
+          <t-button variant="outline" size="small" :loading="loading" @click="load">
+            <template #icon><t-icon name="refresh" /></template>
+            刷新
+          </t-button>
+        </t-space>
+        <span class="toolbar__count">{{ countText }}</span>
+      </div>
       <div v-if="data" class="toolbar__meta">
         窗口 {{ data.range.start }} ~ {{ data.range.end }}（{{ data.range.days }} 天） · 任务
         {{ data.tasks.length }} 条 · 依赖 {{ data.dependencies.length }} 条
+        <span class="toolbar__tag">可拖拽改期</span>
         <span v-if="data.truncated" class="toolbar__warn">· 任务数超过 500，已截断，请缩小区间</span>
         <span v-if="data.member_scope_truncated" class="toolbar__warn">
           · 我参与的任务过多，本视图只按数据范围显示
-        </span>
-      </div>
-      <div class="toolbar__hint">
-        拖<b>条形中部</b>=整体平移 · 拖<b>左右边缘</b>=改开始 / 截止日 · 松手即保存（失败会回弹并提示冲突对象）
-        <span class="toolbar__hint-extra">
-          · 父任务条形是<b>子任务汇总</b>（两端有汇总括号） · 点 <b>▾ / ▸</b> 折叠子任务
         </span>
       </div>
     </t-card>
@@ -90,6 +103,29 @@
     </t-card>
 
     <t-card v-else :bordered="false" class="body-card">
+      <!-- 图表控制条：紧贴画布（浏览时高频操作，视线不用离开图表） -->
+      <div class="gantt-ctrl">
+        <t-space align="center">
+          <t-button size="small" variant="outline" @click="shiftWindow(-1)">
+            <template #icon><t-icon name="chevron-left" /></template>
+            上一屏
+          </t-button>
+          <t-button size="small" variant="outline" data-test="gantt-today" @click="goToday">今天</t-button>
+          <t-button size="small" variant="outline" @click="shiftWindow(1)">
+            下一屏
+            <template #suffix><t-icon name="chevron-right" /></template>
+          </t-button>
+          <t-divider layout="vertical" />
+          <t-tabs v-model="zoom" class="mini-tabs" :space-evenly="false">
+            <t-tab-panel value="day" label="日" />
+            <t-tab-panel value="week" label="周" />
+          </t-tabs>
+          <t-tabs v-model="scope" class="mini-tabs" :space-evenly="false">
+            <t-tab-panel value="all" label="全部可见" />
+            <t-tab-panel value="my" label="只看我的" />
+          </t-tabs>
+        </t-space>
+      </div>
       <t-loading :loading="loading" size="small">
         <!-- 空态：没有任何可排期任务（都没有 start_date / due_date） -->
         <div v-if="!loading && visibleTasks.length === 0" class="gantt-empty">
@@ -360,6 +396,7 @@
 
     <!-- 点任务条 → T6a 的详情抽屉（同一份组件，不重复实现） -->
     <TaskDetail v-model:visible="detailVisible" :task-id="detailTaskId" @deleted="load" />
+    <TaskForm v-model:visible="formVisible" @saved="handleSaved" />
   </div>
 </template>
 
@@ -415,7 +452,10 @@ import { useRouter } from 'vue-router';
 import dayjs from 'dayjs';
 import { MessagePlugin } from 'tdesign-vue-next';
 import TaskDetail from './detail.vue';
+import UserSelect from './components/UserSelect.vue';
+import TaskForm from './components/TaskForm.vue';
 import { ApiError } from '@/api/request';
+import { pageProjects } from '@/api/business/project-api';
 import {
   fetchGantt,
   scheduleTask,
@@ -424,6 +464,7 @@ import {
   type TaskScheduleReq,
 } from '@/api/business/task-api';
 import { statusMeta } from '@/constants/status-map';
+import { PERM } from '@/constants/permissions';
 
 /** 布局常量（像素）：左侧任务名宽度、行高、表头高度、任务条高度 */
 const LEFT_W = 280;
@@ -483,6 +524,61 @@ const errorMessage = ref('');
 const zoom = ref<'day' | 'week'>('day');
 /** 筛选：全部可见 / 只看我的 */
 const scope = ref<'all' | 'my'>('all');
+/** 负责人筛选（GanttQuery.assignee_id；空 = 不筛） */
+const filterAssignee = ref<string | null>(null);
+/** 项目筛选（GanttQuery.project_id；空 = 不筛） */
+const filterProject = ref<string | undefined>(undefined);
+/** 项目下拉选项 */
+const projectOptions = ref<Array<{ label: string; value: string }>>([]);
+/** 项目下拉加载中 */
+const projectLoading = ref(false);
+/** 新建任务弹窗 */
+const formVisible = ref(false);
+
+/** 工具条计数文案（与 index.vue 同款） */
+const countText = computed(() => {
+  const scopeText = scope.value === 'my' ? '只看我的' : '全部可见任务';
+  if (!data.value) return `${scopeText} · 加载中`;
+  return `${scopeText} · 共 ${data.value.tasks.length} 条`;
+});
+
+/** 新建任务 */
+function openCreate(): void {
+  formVisible.value = true;
+}
+
+/** 新建成功后重拉甘特（新任务可能落在当前时间窗内） */
+function handleSaved(): void {
+  void load();
+}
+
+/** 拉项目下拉（筛选用；失败不影响甘特图） */
+async function loadProjectOptions(): Promise<void> {
+  projectLoading.value = true;
+  try {
+    const data = await pageProjects({ page: 1, page_size: 200 });
+    projectOptions.value = data.list.map((item) => ({
+      label: `${item.code} ${item.name}`,
+      value: item.id,
+    }));
+  } catch {
+    projectOptions.value = [];
+  } finally {
+    projectLoading.value = false;
+  }
+}
+
+/** 点「查询」：用当前筛选条件重新拉数据（不 watch 输入，避免每敲一个字符就查） */
+function handleFilter(): void {
+  void load();
+}
+
+/** 点「重置」：清空筛选 + 重查 */
+function handleFilterReset(): void {
+  filterAssignee.value = null;
+  filterProject.value = undefined;
+  void load();
+}
 /** 显式时间窗（清空 → 后端默认今天起 30 天；与列表页的 date-range 同样用 string[]） */
 const windowRange = ref<string[]>([]);
 /** 折叠的父任务 id */
@@ -1172,6 +1268,8 @@ async function load(): Promise<void> {
       scope: scope.value,
       start: start || undefined,
       end: end || undefined,
+      assignee_id: filterAssignee.value || undefined,
+      project_id: filterProject.value || undefined,
     });
     // 窗口换了之后折叠状态可能指向已经不在数据里的任务，顺手瘦身
     const alive = new Set((data.value?.tasks ?? []).map((task) => task.id));
@@ -1205,6 +1303,7 @@ watch(zoom, () => {
 });
 
 onMounted(() => {
+  void loadProjectOptions();
   void load();
 });
 </script>
@@ -1219,6 +1318,12 @@ onMounted(() => {
 .toolbar-card,
 .body-card {
   border-radius: 8px;
+}
+
+.toolbar-card {
+  :deep(.t-card__body) {
+    padding: 10px 16px;
+  }
 }
 
 .toolbar__title {
@@ -1375,5 +1480,86 @@ onMounted(() => {
 .gantt-today {
   font-size: 11px;
   fill: var(--td-error-color, #d54941);
+}
+
+.view-switch {
+  margin-right: 4px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+
+  &__count {
+    font-size: 13px;
+    color: var(--td-text-color-placeholder);
+    white-space: nowrap;
+  }
+}
+
+.filter-card {
+  :deep(.t-card__body) {
+    padding-bottom: 4px;
+  }
+}
+
+.filter-label {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.toolbar__tag {
+  margin-left: 8px;
+  padding: 1px 6px;
+  font-size: 11px;
+  border-radius: 3px;
+  color: var(--td-brand-color, #51697c);
+  background: var(--td-brand-color-1, #eef2f6);
+}
+
+.filter-meta {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+  line-height: 20px;
+
+  &__tag {
+    margin-left: 8px;
+    padding: 1px 6px;
+    font-size: 11px;
+    border-radius: 3px;
+    color: var(--td-brand-color, #51697c);
+    background: var(--td-brand-color-1, #eef2f6);
+  }
+
+  &__warn {
+    margin-left: 6px;
+    color: var(--td-warning-color, #e37318);
+  }
+}
+
+/* 小号下划线 Tab（与四视图同款样式，但更紧凑） */
+.mini-tabs {
+  :deep(.t-tabs__nav-wrap) {
+    border-bottom: none;
+  }
+
+  :deep(.t-tabs__nav-item) {
+    height: 26px;
+    padding: 0 10px;
+    margin-right: 4px;
+    font-size: 13px;
+    line-height: 26px;
+  }
+
+  :deep(.t-tabs__nav-item.t-is-active) {
+    font-weight: 600;
+  }
+
+  :deep(.t-tabs__nav-item::after) {
+    height: 2px;
+  }
 }
 </style>
