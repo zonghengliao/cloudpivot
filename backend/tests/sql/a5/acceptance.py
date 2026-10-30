@@ -40,7 +40,7 @@ def load_env(path):
 
 
 ENV = load_env(ENV_FILE)
-PG = ["psql", "-h", "127.0.0.1", "-U", ENV["ALUN_DATABASE_USER"], "-d", "cloudpivot_test",
+PG = ["psql", "-h", "127.0.0.1", "-U", ENV["NIK_DATABASE_USER"], "-d", "cloudpivot_test",
       "-v", "ON_ERROR_STOP=1", "-tA"]
 
 
@@ -50,7 +50,7 @@ def sql(query):
         PG + ["-c", query],
         capture_output=True,
         text=True,
-        env={**os.environ, "PGPASSWORD": ENV["ALUN_DATABASE_PASSWORD"]},
+        env={**os.environ, "PGPASSWORD": ENV["NIK_DATABASE_PASSWORD"]},
     )
     out = (proc.stdout or "").strip()
     err = (proc.stderr or "").strip()
@@ -64,7 +64,7 @@ def sql_script(script):
         PG + ["-f", script],
         capture_output=True,
         text=True,
-        env={**os.environ, "PGPASSWORD": ENV["ALUN_DATABASE_PASSWORD"]},
+        env={**os.environ, "PGPASSWORD": ENV["NIK_DATABASE_PASSWORD"]},
     )
     if proc.returncode != 0:
         raise RuntimeError(f"SQL 脚本失败: {script}\n{proc.stderr}")
@@ -487,7 +487,7 @@ def explain_unread():
 
 
 def main():
-    token = login("admin", ENV["ALUN_ADMIN_PASSWORD"])
+    token = login("admin", ENV["NIK_ADMIN_PASSWORD"])
     print("admin 登录成功，token 前缀：", token[:24], "...")
 
     seed()

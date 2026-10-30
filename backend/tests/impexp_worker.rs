@@ -10,8 +10,8 @@
 //!
 //! ```bash
 //! set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
-//! export A4_DB_URL="postgres://${ALUN_DATABASE_USER}:${ALUN_DATABASE_PASSWORD}@\
-//! ${ALUN_DATABASE_HOST}:${ALUN_DATABASE_PORT}/${ALUN_DATABASE_NAME}"
+//! export A4_DB_URL="postgres://${NIK_DATABASE_USER}:${NIK_DATABASE_PASSWORD}@\
+//! ${NIK_DATABASE_HOST}:${NIK_DATABASE_PORT}/${NIK_DATABASE_NAME}"
 //! cargo test --test impexp_worker -- --nocapture --test-threads=1
 //! ```
 //!

@@ -131,8 +131,8 @@ mod tests {
     }
     #[test]
     fn test_password() {
-        let hash = Crypto::hash_password("Alun@2024").unwrap();
-        assert!(Crypto::verify_password("Alun@2024", &hash).unwrap());
+        let hash = Crypto::hash_password("Nik@2024").unwrap();
+        assert!(Crypto::verify_password("Nik@2024", &hash).unwrap());
     }
     #[test]
     fn test_random_key() {

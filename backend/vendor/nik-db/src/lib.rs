@@ -1,6 +1,6 @@
 //! # nik-db
 //!
-//! Alun database: Row 模式 + 事务 RAII + Hook + SQL 模板。
+//! Nik database: Row 模式 + 事务 RAII + Hook + SQL 模板。
 //!
 //! ## 设计理念
 //!

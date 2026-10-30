@@ -916,7 +916,7 @@ fn default_step_strategy() -> String {
 // ──── 默认值函数 ────────────────────────────────────
 
 fn default_app_name() -> String {
-    "Alun".into()
+    "Nik".into()
 }
 fn default_profile() -> String {
     "dev".into()
@@ -1390,7 +1390,7 @@ impl ConfigManager {
         let toml_str =
             toml::to_string_pretty(&cfg).map_err(|e| std::io::Error::other(e.to_string()))?;
 
-        let header = r#"# Alun 默认配置文件
+        let header = r#"# Nik 默认配置文件
 # 修改后保存即可生效（需重启服务）
 #
 # 使用 --gen-config 参数可重新生成此文件到 config/config.toml

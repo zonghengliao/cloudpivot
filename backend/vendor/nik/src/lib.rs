@@ -1,6 +1,6 @@
-//! # Alun —— 快、简、美的 Rust Web 框架
+//! # Nik —— 快、简、美的 Rust Web 框架
 //!
-//! Alun 是一个**配置驱动、插件架构**的 Rust Web 框架，基于 [axum] 0.8 构建。
+//! Nik 是一个**配置驱动、插件架构**的 Rust Web 框架，基于 [axum] 0.8 构建。
 //! 核心理念：**一行启动，零成本抽象，约定优于配置**。
 //!
 //! ## 设计原则
@@ -38,7 +38,7 @@
 //!
 //! #[nik::get("/")]
 //! async fn hello() -> Res<String> {
-//!     Res::ok("Hello, Alun!".into())
+//!     Res::ok("Hello, Nik!".into())
 //! }
 //!
 //! #[tokio::main]
@@ -1201,7 +1201,7 @@ pub mod prelude {
     #[cfg(feature = "cache")]
     pub use nik_web::middleware::{IdempotencyLayer, NonceLayer};
     pub use nik_web::{
-        AlunRouter, App, AuthClaims, ClaimsBuilder, JWT, Principal, TokenClaims, TokenType, UserId,
+        NikRouter, App, AuthClaims, ClaimsBuilder, JWT, Principal, TokenClaims, TokenType, UserId,
         ValidatedJson,
     };
 
@@ -1320,7 +1320,7 @@ pub use nik_config::AppConfig;
 pub use nik_web::PageResponseExt;
 pub use nik_web::ValidateExt;
 pub use nik_web::{
-    AlunRouter, App, AuthClaims, ClaimsBuilder, JWT, NoAuthDef, PermissionDef, RouteEntry,
+    NikRouter, App, AuthClaims, ClaimsBuilder, JWT, NoAuthDef, PermissionDef, RouteEntry,
     TokenClaims, TokenType, UserId, ValidatedJson, WebPlugin, discovered_no_auth,
     discovered_permissions, discovered_routes,
 };

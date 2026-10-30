@@ -1,4 +1,4 @@
-//! Alun web layer: 路由、中间件、提取器、响应、全局资源
+//! Nik web layer: 路由、中间件、提取器、响应、全局资源
 
 /// 统一出口：响应体、API 错误、分页参数、错误码，以及「下层错误 → HTTP 语义」的映射
 pub mod api;
@@ -40,7 +40,7 @@ pub use middleware::{
     TokenClaims, TokenType, UserId,
 };
 pub use response::ApiBody;
-pub use router::AlunRouter;
+pub use router::NikRouter;
 
 #[cfg(feature = "db")]
 pub use crate::page::PageResponseExt;
@@ -73,7 +73,7 @@ pub use crate::resources::{render_template, set_template, try_template};
 /// `inventory` 不依赖自定义段，任何工具链都成立，因此**无需**
 /// `.cargo/config.toml` 里的 `-Wl,--no-gc-sections` 全局兜底。
 #[derive(Debug, Clone, Copy)]
-pub struct RouteEntry(pub fn(&mut AlunRouter));
+pub struct RouteEntry(pub fn(&mut NikRouter));
 
 inventory::collect!(RouteEntry);
 
@@ -105,7 +105,7 @@ pub struct NoAuthDef {
 inventory::collect!(NoAuthDef);
 
 /// 遍历编译期注册的全部路由注册项（由 `#[nik::get]` 等宏提交）。
-pub fn discovered_routes() -> impl Iterator<Item = fn(&mut AlunRouter)> {
+pub fn discovered_routes() -> impl Iterator<Item = fn(&mut NikRouter)> {
     inventory::iter::<RouteEntry>
         .into_iter()
         .map(|entry| entry.0)

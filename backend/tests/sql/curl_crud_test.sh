@@ -11,7 +11,7 @@ bad() { FAIL=$((FAIL+1)); echo "FAIL $1"; }
 
 echo "===== 0. 登录取 token ====="
 LOGIN=$(curl -s -m 10 -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"${ALUN_ADMIN_PASSWORD}\"}")
+  -d "{\"username\":\"admin\",\"password\":\"${NIK_ADMIN_PASSWORD}\"}")
 TOKEN=$(echo "$LOGIN" | jq -r '.data.access_token // empty')
 if [ -n "$TOKEN" ]; then ok "登录成功（token 长度 ${#TOKEN}）"; else bad "登录失败: $LOGIN"; echo "$LOGIN"; exit 1; fi
 AUTH="Authorization: Bearer $TOKEN"
@@ -57,10 +57,10 @@ MASKED=$(echo "$DETAIL" | jq -r '.data.ak_masked')
 
 echo
 echo "===== 5. 数据库中只有密文（SQL 直查证明） ====="
-DBROW=$(psql -h 127.0.0.1 -U "${ALUN_DATABASE_USER}" -d cloudpivot_test -tA -c \
+DBROW=$(psql -h 127.0.0.1 -U "${NIK_DATABASE_USER}" -d cloudpivot_test -tA -c \
   "select config_code||'|'||coalesce(length(ak_cipher)::text,'-'||'')||'|'||coalesce(length(ak_nonce)::text,'-')||'|'||coalesce(length(sk_cipher)::text,'-') from sys_storage_config where config_code='minio-a'")
 echo "库中行（编码|密文长度|nonce长度|SK密文长度）：$DBROW"
-[ -n "$DBROW" ] && echo "明文落库检查：$(psql -h 127.0.0.1 -U "${ALUN_DATABASE_USER}" -d cloudpivot_test -tA -c "select count(*) from sys_storage_config where ak_cipher like '%AKIA_PLAINTEXT%' or sk_cipher like '%PLAINTEXT%'") 条含明文（期望 0）"
+[ -n "$DBROW" ] && echo "明文落库检查：$(psql -h 127.0.0.1 -U "${NIK_DATABASE_USER}" -d cloudpivot_test -tA -c "select count(*) from sys_storage_config where ak_cipher like '%AKIA_PLAINTEXT%' or sk_cipher like '%PLAINTEXT%'") 条含明文（期望 0）"
 
 echo
 echo "===== 6. 编辑（不传密钥 → 密钥保持不变） ====="
@@ -97,7 +97,7 @@ echo
 echo "===== 10. 测试连接：S3 后端（DNS 不可达 → DOWN，且错误已脱敏） ====="
 TEST_S3=$(curl -s -m 30 -X POST "$BASE/business/storage/config/$S3_ID/test" -H "$AUTH")
 echo "$TEST_S3" | jq -c '.data'
-echo "回写后的库中健康状态：$(psql -h 127.0.0.1 -U "${ALUN_DATABASE_USER}" -d cloudpivot_test -tA -c "select health_status||' | '||coalesce(left(last_error,60),'-') from sys_storage_config where config_code='minio-a'")"
+echo "回写后的库中健康状态：$(psql -h 127.0.0.1 -U "${NIK_DATABASE_USER}" -d cloudpivot_test -tA -c "select health_status||' | '||coalesce(left(last_error,60),'-') from sys_storage_config where config_code='minio-a'")"
 if echo "$TEST_S3" | grep -q "AKIA_PLAINTEXT\|SK_PLAINTEXT"; then bad "探测结果泄露凭据"; else ok "探测失败原因不含凭据"; fi
 
 echo
@@ -105,7 +105,7 @@ echo "===== 11. 设为默认（当前默认是 local，先切到 S3 再切回）
 SET_DEF=$(curl -s -m 10 -X POST "$BASE/business/storage/config/$S3_ID/default" -H "$AUTH")
 echo "$SET_DEF" | jq -c '{code, msg}'
 [ "$(echo "$SET_DEF" | jq -r '.code')" = "0" ] && ok "设为默认成功" || bad "设为默认失败: $SET_DEF"
-echo "库中默认后端：$(psql -h 127.0.0.1 -U "${ALUN_DATABASE_USER}" -d cloudpivot_test -tA -c "select config_code from sys_storage_config where is_default and deleted_at is null")"
+echo "库中默认后端：$(psql -h 127.0.0.1 -U "${NIK_DATABASE_USER}" -d cloudpivot_test -tA -c "select config_code from sys_storage_config where is_default and deleted_at is null")"
 SET_DEF2=$(curl -s -m 10 -X POST "$BASE/business/storage/config/$LOCAL_ID/default" -H "$AUTH")
 [ "$(echo "$SET_DEF2" | jq -r '.code')" = "0" ] && ok "切回本地默认成功（唯一默认约束未被破坏）" || bad "切回默认失败: $SET_DEF2"
 

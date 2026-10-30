@@ -88,7 +88,7 @@ fn gen_route_register(
     handler: &proc_macro2::TokenStream,
     route_name: &syn::Ident,
 ) -> proc_macro2::TokenStream {
-    // 已知动词走 `AlunRouter` 的类型化方法（方法过滤精确到该动词）；
+    // 已知动词走 `NikRouter` 的类型化方法（方法过滤精确到该动词）；
     // 未知动词回退到按方法字符串注册。
     let register_call = match method {
         "get" => quote! { router.add_get(#path, #handler) },
@@ -104,7 +104,7 @@ fn gen_route_register(
 
     quote! {
         #[allow(non_snake_case)]
-        fn #route_name(router: &mut ::nik::AlunRouter) {
+        fn #route_name(router: &mut ::nik::NikRouter) {
             #register_call;
         }
         ::nik::inventory::submit! { ::nik::RouteEntry(#route_name) }
@@ -146,7 +146,7 @@ fn gen_route_register_with_layer(
 
     quote! {
         #[allow(non_snake_case)]
-        fn #route_name(router: &mut ::nik::AlunRouter) {
+        fn #route_name(router: &mut ::nik::NikRouter) {
             #register_call;
         }
         ::nik::inventory::submit! { ::nik::RouteEntry(#route_name) }

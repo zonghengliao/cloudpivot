@@ -20,7 +20,7 @@ check() { if [ "$2" = "$3" ]; then PASS=$((PASS + 1)); printf '  PASS  %-48s %s\
   else FAIL=$((FAIL + 1)); printf '  FAIL  %-48s got=%s want=%s\n' "$1" "$2" "$3"; fi; }
 
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$ALUN_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
+  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
 AUTH="Authorization: Bearer $TOKEN"
 echo "== S3（MinIO $MINIO_ENDPOINT / bucket=$MINIO_BUCKET）全链路 =="
 

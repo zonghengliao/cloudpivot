@@ -15,7 +15,7 @@
 //! cargo test --features test-hooks --test batchC_c7_rollback -- --nocapture --test-threads=1
 //! ```
 //!
-//! 缺 `C7_DB_URL` / `ALUN_DATABASE_*` 时打印 `SKIP` 并返回（CI 无库时仍全绿）：
+//! 缺 `C7_DB_URL` / `NIK_DATABASE_*` 时打印 `SKIP` 并返回（CI 无库时仍全绿）：
 //! 这类用例的**结论**必须来自真库，所以宁可在无库环境明确跳过，也不 mock 一个假库自欺。
 
 #![cfg(feature = "test-hooks")]
@@ -34,19 +34,19 @@ async fn connect() -> Option<Db> {
     let url = if let Ok(url) = std::env::var("C7_DB_URL") {
         url
     } else if let (Ok(user), Ok(name)) = (
-        std::env::var("ALUN_DATABASE_USER"),
-        std::env::var("ALUN_DATABASE_NAME"),
+        std::env::var("NIK_DATABASE_USER"),
+        std::env::var("NIK_DATABASE_NAME"),
     ) {
-        let host = std::env::var("ALUN_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let port = std::env::var("ALUN_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
-        let password = std::env::var("ALUN_DATABASE_PASSWORD").unwrap_or_default();
+        let host = std::env::var("NIK_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let port = std::env::var("NIK_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
+        let password = std::env::var("NIK_DATABASE_PASSWORD").unwrap_or_default();
         if password.is_empty() {
             format!("postgres://{user}@{host}:{port}/{name}")
         } else {
             format!("postgres://{user}:{password}@{host}:{port}/{name}")
         }
     } else {
-        println!("SKIP: 未设置 C7_DB_URL / ALUN_DATABASE_*（不连真实数据库）");
+        println!("SKIP: 未设置 C7_DB_URL / NIK_DATABASE_*（不连真实数据库）");
         return None;
     };
     match Db::connect(&url).await {

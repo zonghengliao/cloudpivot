@@ -65,7 +65,7 @@ pub fn merge_env_overrides(cfg: &mut AppConfig) {
             continue;
         }
 
-        // 用前缀实际长度切片（原来硬编码 key[5..] 是按 ALUN_ 5 字符写的，
+        // 用前缀实际长度切片（原来硬编码 key[5..] 是按 NIK_ 5 字符写的，
         // 改成 NIK_ 4 字符后偏移错位，导致 database.password 等全部匹配失败）
         let path = key[ENV_PREFIX.len()..].to_lowercase();
         let parts: Vec<&str> = path.split('_').collect();

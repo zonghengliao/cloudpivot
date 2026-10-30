@@ -24,7 +24,7 @@ use tracing::info;
 use crate::api::{Res, codes};
 use crate::middleware as mw;
 use crate::resources::*;
-use crate::router::AlunRouter;
+use crate::router::NikRouter;
 use nik_config::{AppConfig, ConfigManager};
 use nik_core::{PluginManager, Result};
 
@@ -53,7 +53,7 @@ pub struct AppSettings {
 /// ```
 pub struct App {
     /// 路由注册器（内部 axum router）
-    router: Option<AlunRouter>,
+    router: Option<NikRouter>,
     /// 插件管理器（拓扑排序启动/关闭）
     pub(crate) plugins: PluginManager,
     /// Web 插件视图（同一批插件实例的 [`crate::WebPlugin`] 侧引用）
@@ -154,7 +154,7 @@ impl App {
         let prefix = cfg.router.prefix.clone();
 
         Ok(Self {
-            router: Some(AlunRouter::new()),
+            router: Some(NikRouter::new()),
             plugins: PluginManager::new(),
             web_plugins: Vec::new(),
             settings: AppSettings {
@@ -283,7 +283,7 @@ impl App {
     /// ```
     pub fn group(mut self, prefix: &str, f: impl FnOnce(Self) -> Self) -> Self {
         let sub = f(Self {
-            router: Some(AlunRouter::new()),
+            router: Some(NikRouter::new()),
             plugins: PluginManager::new(),
             web_plugins: Vec::new(),
             settings: AppSettings {
@@ -348,7 +348,7 @@ impl App {
         } else {
             // 前缀非空：先把宏声明的路由收集到独立子路由，再整体 nest 到前缀下
             let prefix = self.prefix.clone();
-            let mut sub = AlunRouter::new();
+            let mut sub = NikRouter::new();
             for register in crate::discovered_routes() {
                 register(&mut sub);
             }
@@ -363,8 +363,8 @@ impl App {
         self
     }
 
-    /// 合并子路由（与 `group` 类似，但接受已构建好的 AlunRouter）
-    pub fn merge(mut self, prefix: &str, sub: AlunRouter) -> Self {
+    /// 合并子路由（与 `group` 类似，但接受已构建好的 NikRouter）
+    pub fn merge(mut self, prefix: &str, sub: NikRouter) -> Self {
         if let Some(ref mut r) = self.router {
             r.merge(prefix, sub);
         }
@@ -600,7 +600,7 @@ impl App {
     ///
     /// 位于**内置链之外**、整站最外层：能看到全部拒绝与真实端到端耗时，但**读不到身份**。
     /// 需要身份请用 [`App::route_layer`] 或提取器；需要只给某个前缀下的一整组路由挂层，
-    /// 用 [`AlunRouter::merge_with_layer`](crate::AlunRouter::merge_with_layer)。
+    /// 用 [`NikRouter::merge_with_layer`](crate::NikRouter::merge_with_layer)。
     pub fn layer<L>(mut self, layer: L) -> Self
     where
         L: tower::Layer<axum::routing::Route> + Clone + Send + Sync + 'static,
@@ -635,9 +635,9 @@ impl App {
     /// 审计 / 访问日志必须用 [`App::layer`]，否则丢掉 401 / 403 / 429 的记录。
     ///
     /// 需要只给某个前缀下的一整组路由挂层时，用
-    /// [`AlunRouter::merge_with_layer`](crate::AlunRouter::merge_with_layer)；
+    /// [`NikRouter::merge_with_layer`](crate::NikRouter::merge_with_layer)；
     /// 只给单条路由挂层用
-    /// [`AlunRouter::add_get_with_layer`](crate::AlunRouter::add_get_with_layer) 等。
+    /// [`NikRouter::add_get_with_layer`](crate::NikRouter::add_get_with_layer) 等。
     ///
     /// # 示例
     ///
@@ -699,12 +699,12 @@ impl App {
     /// 适合在循环 / 条件中动态拼装路由的场景；与 [`App::scan`] 可混用。
     ///
     /// ```ignore
-    /// fn my_routes(r: &mut AlunRouter) {
+    /// fn my_routes(r: &mut NikRouter) {
     ///     r.add_get("/ping", || async { Res::ok("pong") });
     /// }
     /// App::new()?.routes(my_routes).start().await?;
     /// ```
-    pub fn routes(mut self, register: fn(&mut AlunRouter)) -> Self {
+    pub fn routes(mut self, register: fn(&mut NikRouter)) -> Self {
         if let Some(router) = self.router.as_mut() {
             register(router);
         }
@@ -1053,7 +1053,7 @@ impl App {
             .config_mgr
             .as_ref()
             .map(|cm| cm.get().app_name.as_str())
-            .unwrap_or("Alun");
+            .unwrap_or("Nik");
         info!("{} 启动 -> http://{}", app_name, display_addr);
         if let Some(cm) = &self.config_mgr {
             info!(
@@ -1730,7 +1730,7 @@ impl App {
 impl Default for App {
     fn default() -> Self {
         Self {
-            router: Some(AlunRouter::new()),
+            router: Some(NikRouter::new()),
             plugins: PluginManager::new(),
             web_plugins: Vec::new(),
             settings: AppSettings {

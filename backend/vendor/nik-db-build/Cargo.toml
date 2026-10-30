@@ -20,7 +20,7 @@ autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
-description = "Alun DB build.rs helper: parse SQL migration files into a schema snapshot"
+description = "Nik DB build.rs helper: parse SQL migration files into a schema snapshot"
 readme = false
 license = "MIT OR Apache-2.0"
 

@@ -5,7 +5,7 @@
 set -uo pipefail
 
 DB="${1:-cloudpivot_test}"
-PSQL="psql -h 127.0.0.1 -U ${ALUN_DATABASE_USER} -d ${DB} -v ON_ERROR_STOP=0 -tA"
+PSQL="psql -h 127.0.0.1 -U ${NIK_DATABASE_USER} -d ${DB} -v ON_ERROR_STOP=0 -tA"
 PASS=0
 FAIL=0
 

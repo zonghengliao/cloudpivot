@@ -8,12 +8,12 @@ type RouteEntry = Box<dyn FnOnce(Router) -> Router + Send>;
 ///
 /// 所有路由以闭包形式暂存，调用 `into_axum()` 时一次性构建。
 /// 支持合并（`merge`）和嵌套（`nest`）。
-pub struct AlunRouter {
+pub struct NikRouter {
     /// 路由构建闭包列表
     builders: Vec<RouteEntry>,
 }
 
-impl AlunRouter {
+impl NikRouter {
     /// 创建空的路由注册器
     pub fn new() -> Self {
         Self {
@@ -250,7 +250,7 @@ impl AlunRouter {
     ///
     /// 只搬运路由，不对子树挂任何中间件——需要给整个子树加层请用
     /// [`merge_with_layer`](Self::merge_with_layer)。
-    pub fn merge(&mut self, prefix: &str, sub: AlunRouter) {
+    pub fn merge(&mut self, prefix: &str, sub: NikRouter) {
         let prefix = prefix.to_string();
         self.builders
             .push(Box::new(move |r| r.nest(&prefix, sub.into_axum())));
@@ -280,8 +280,8 @@ impl AlunRouter {
     /// ```ignore
     /// use nik::prelude::*;
     ///
-    /// pub fn routes(r: &mut AlunRouter) {
-    ///     let mut admin = AlunRouter::new();
+    /// pub fn routes(r: &mut NikRouter) {
+    ///     let mut admin = NikRouter::new();
     ///     admin.add_get("/users", list_users);
     ///     admin.add_post("/users", create_user);
     ///
@@ -296,7 +296,7 @@ impl AlunRouter {
     pub fn merge_with_layer(
         &mut self,
         prefix: &str,
-        sub: AlunRouter,
+        sub: NikRouter,
         wrap: impl FnOnce(Router) -> Router + Send + 'static,
     ) {
         let prefix = prefix.to_string();
@@ -310,7 +310,7 @@ impl AlunRouter {
     }
 }
 
-impl Default for AlunRouter {
+impl Default for NikRouter {
     fn default() -> Self {
         Self::new()
     }

@@ -282,7 +282,7 @@ fn identifier_detail(
 /// 从驱动错误码与消息中提取「列名 / 约束名」。
 ///
 /// 各驱动暴露的结构化程度不同：PostgreSQL / MySQL / SQLite 都只在消息文本里
-/// 内嵌标识符（`ALUN` 不依赖任何驱动的私有 API），故按错误码逐类解析。
+/// 内嵌标识符（`NIK` 不依赖任何驱动的私有 API），故按错误码逐类解析。
 /// 解析不出的字段保持 `None`，绝不回填驱动原文。
 fn extract_identifiers(code: &str, message: &str) -> (Option<String>, Option<String>) {
     match code {

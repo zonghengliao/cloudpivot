@@ -6,7 +6,7 @@ BASE=http://127.0.0.1:8025/api
 set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
 TARGET=${1:?需要 config_code}
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$ALUN_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
+  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
 AUTH="Authorization: Bearer $TOKEN"
 ID=$(curl -s "$BASE/business/storage/config/page?page=1&page_size=50" -H "$AUTH" \
   | jq -r --arg code "$TARGET" '.data.list[]? | select(.config_code==$code) | .id')

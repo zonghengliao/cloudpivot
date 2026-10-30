@@ -1,4 +1,4 @@
-//! Alun proc macros
+//! Nik proc macros
 //!
 //! 核心价值：用编译时代码生成替代 Java 的反射 + 注解 + classpath 扫描。
 
@@ -65,7 +65,7 @@ pub fn patch(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// async fn admin_stats() -> Res<Value> { ... }
 /// ```
 ///
-/// 编译时收集到 `PERMISSION_ROUTES` 切片，启动时由 `AlunRouter` 统一应用 `RequirePermissionLayer`。
+/// 编译时收集到 `PERMISSION_ROUTES` 切片，启动时由 `NikRouter` 统一应用 `RequirePermissionLayer`。
 #[proc_macro_attribute]
 pub fn permission(attr: TokenStream, item: TokenStream) -> TokenStream {
     route::permission_impl(attr, item)

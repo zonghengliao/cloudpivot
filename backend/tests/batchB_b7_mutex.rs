@@ -17,12 +17,12 @@
 //! # 专用验证库（不要用生产库 / 不要用 cloudpivot_test，避免与并行的卡抢数据）
 //! su postgres -c "createdb -O cloudpivot cloudpivot_b7v"
 //! # 跑一次迁移建表（看到「数据库迁移完成」即可退出）
-//! for k in ALUN_DATABASE_HOST ALUN_DATABASE_PORT ALUN_DATABASE_USER ALUN_DATABASE_PASSWORD \
-//!          ALUN_DATABASE_SSL_MODE ALUN_MIDDLEWARE_AUTH_JWT_SECRET \
-//!          CLOUDPIVOT_STORAGE_MASTER_KEY ALUN_ADMIN_PASSWORD; do
+//! for k in NIK_DATABASE_HOST NIK_DATABASE_PORT NIK_DATABASE_USER NIK_DATABASE_PASSWORD \
+//!          NIK_DATABASE_SSL_MODE NIK_MIDDLEWARE_AUTH_JWT_SECRET \
+//!          CLOUDPIVOT_STORAGE_MASTER_KEY NIK_ADMIN_PASSWORD; do
 //!   v=$(grep -m1 "^$k=" /etc/cloudpivot/cloudpivot-test.env | cut -d= -f2-); export "$k=$v";
 //! done
-//! export ALUN_PROFILE=test ALUN_DATABASE_NAME=cloudpivot_b7v ALUN_SERVER_LISTEN=127.0.0.1:8027
+//! export NIK_PROFILE=test NIK_DATABASE_NAME=cloudpivot_b7v NIK_SERVER_LISTEN=127.0.0.1:8027
 //! timeout 60 ./target/debug/cloudpivot
 //!
 //! export B7_DB_URL="postgres://cloudpivot:<pw>@127.0.0.1:5432/cloudpivot_b7v"

@@ -22,7 +22,7 @@
 //! cargo test --test batchT_t5_ai_rules -- --nocapture --test-threads=1
 //! ```
 //!
-//! 缺 `T5_DB_URL`（且没有 `ALUN_DATABASE_*`）时打印 `SKIP` 并直接返回：
+//! 缺 `T5_DB_URL`（且没有 `NIK_DATABASE_*`）时打印 `SKIP` 并直接返回：
 //! `cargo test` 在无库环境仍然全绿。
 //!
 //! # 夹具与清理
@@ -68,24 +68,24 @@ fn human_id() -> Uuid {
     uuid(U_HUMAN)
 }
 
-/// 连接真实数据库（`T5_DB_URL` 优先，其次拼 `ALUN_DATABASE_*`；都没有就 SKIP）。
+/// 连接真实数据库（`T5_DB_URL` 优先，其次拼 `NIK_DATABASE_*`；都没有就 SKIP）。
 async fn connect() -> Option<Db> {
     let url = if let Ok(url) = std::env::var("T5_DB_URL") {
         url
     } else if let (Ok(user), Ok(name)) = (
-        std::env::var("ALUN_DATABASE_USER"),
-        std::env::var("ALUN_DATABASE_NAME"),
+        std::env::var("NIK_DATABASE_USER"),
+        std::env::var("NIK_DATABASE_NAME"),
     ) {
-        let host = std::env::var("ALUN_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
-        let port = std::env::var("ALUN_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
-        let password = std::env::var("ALUN_DATABASE_PASSWORD").unwrap_or_default();
+        let host = std::env::var("NIK_DATABASE_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+        let port = std::env::var("NIK_DATABASE_PORT").unwrap_or_else(|_| "5432".into());
+        let password = std::env::var("NIK_DATABASE_PASSWORD").unwrap_or_default();
         if password.is_empty() {
             format!("postgres://{user}@{host}:{port}/{name}")
         } else {
             format!("postgres://{user}:{password}@{host}:{port}/{name}")
         }
     } else {
-        println!("SKIP: 未设置 T5_DB_URL / ALUN_DATABASE_*（不连真实数据库）");
+        println!("SKIP: 未设置 T5_DB_URL / NIK_DATABASE_*（不连真实数据库）");
         return None;
     };
     match Db::connect(&url).await {

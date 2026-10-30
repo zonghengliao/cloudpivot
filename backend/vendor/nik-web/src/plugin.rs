@@ -3,7 +3,7 @@
 //! # 为什么放在 `nik-web` 而不是 `nik-core`
 //!
 //! 分层是单向的：`nik-web → nik-core`。`nik-core::Plugin` 因此**不可能**
-//! 提到 [`AlunRouter`] / [`PermissionDef`] 等 Web 类型。把 Web 侧贡献建模为
+//! 提到 [`NikRouter`] / [`PermissionDef`] 等 Web 类型。把 Web 侧贡献建模为
 //! `nik-core::Plugin` 的**子 trait**，是唯一不破坏分层、也不需要类型擦除
 //! （`Box<dyn Any>` + downcast）的做法。
 //!
@@ -22,7 +22,7 @@
 
 use nik_core::Plugin;
 
-use crate::{AlunRouter, NoAuthDef, PermissionDef};
+use crate::{NikRouter, NoAuthDef, PermissionDef};
 
 /// Web 插件：在 [`nik_core::Plugin`] 的生命周期之上，追加 Web 装配贡献
 ///
@@ -33,7 +33,7 @@ use crate::{AlunRouter, NoAuthDef, PermissionDef};
 /// # 示例
 ///
 /// ```ignore
-/// use nik::web::{AlunRouter, NoAuthDef, PermissionDef, WebPlugin};
+/// use nik::web::{NikRouter, NoAuthDef, PermissionDef, WebPlugin};
 ///
 /// struct AdminPlugin;
 ///
@@ -45,7 +45,7 @@ use crate::{AlunRouter, NoAuthDef, PermissionDef};
 /// }
 ///
 /// impl WebPlugin for AdminPlugin {
-///     fn routes(&self, router: &mut AlunRouter) {
+///     fn routes(&self, router: &mut NikRouter) {
 ///         router.add_get("/admin/health", || async { "ok" });
 ///     }
 ///     fn permission_rules(&self) -> Vec<PermissionDef> {
@@ -62,7 +62,7 @@ pub trait WebPlugin: Plugin {
     /// 贡献路由 —— 在 [`App::scan`](crate::App::scan) 阶段与宏收集的路由合并
     ///
     /// 默认空实现（不贡献任何路由）。
-    fn routes(&self, _router: &mut AlunRouter) {}
+    fn routes(&self, _router: &mut NikRouter) {}
 
     /// 贡献权限规则 —— 与 `#[nik::permission]` 宏收集的规则合并
     ///
@@ -172,7 +172,7 @@ mod integration_tests {
     }
 
     impl WebPlugin for DemoPlugin {
-        fn routes(&self, router: &mut AlunRouter) {
+        fn routes(&self, router: &mut NikRouter) {
             router.add_get("/plugin/ping", || async { "pong" });
         }
         fn permission_rules(&self) -> Vec<PermDef> {

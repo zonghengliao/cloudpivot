@@ -32,7 +32,7 @@ set -a
 # shellcheck disable=SC1091
 . /etc/cloudpivot/cloudpivot-test.env
 set +a
-export ALUN_SERVER_LISTEN=127.0.0.1:8026
+export NIK_SERVER_LISTEN=127.0.0.1:8026
 setsid nohup "$BIN" profile=test > "$RUN/server.log" 2>&1 &
 for i in $(seq 1 40); do
     if curl -s -m 2 http://127.0.0.1:8026/health > /tmp/a6_health.json 2>/dev/null; then

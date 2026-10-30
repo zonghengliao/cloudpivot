@@ -5,8 +5,8 @@ CI 或 A2 的回归里。
 
 | 文件 | 用途 | 前置条件 |
 |------|------|----------|
-| `verify_v0040.sh` | V0040 的 15 条约束断言（唯一默认、远端/本地互斥、非法枚举、策略边界、`sys_file` 扩展列） | 目标库已执行过 V0040；`ALUN_DATABASE_USER` / `PGPASSWORD` 已注入 |
-| `curl_crud_test.sh` | 19 条接口断言（配置 CRUD、设默认、删除保护、测试连接、策略修改、掩码与 SSRF） | test profile 实例监听 127.0.0.1:8025，`ALUN_ADMIN_PASSWORD` 已注入 |
+| `verify_v0040.sh` | V0040 的 15 条约束断言（唯一默认、远端/本地互斥、非法枚举、策略边界、`sys_file` 扩展列） | 目标库已执行过 V0040；`NIK_DATABASE_USER` / `PGPASSWORD` 已注入 |
+| `curl_crud_test.sh` | 19 条接口断言（配置 CRUD、设默认、删除保护、测试连接、策略修改、掩码与 SSRF） | test profile 实例监听 127.0.0.1:8025，`NIK_ADMIN_PASSWORD` 已注入 |
 | `gen_sigv4_vectors.py` | 用**官方 SDK**（botocore）生成 SigV4 预签名参考向量，供 `sigv4.rs` 单测逐字节对拍 | `pip install botocore`（1.40+） |
 
 ## 用法
@@ -14,11 +14,11 @@ CI 或 A2 的回归里。
 ```bash
 # 1) 结构断言（在 cloudpivot_test 库上，绝不碰 cailu / cailu_dev / prod）
 set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
-export PGPASSWORD="$ALUN_DATABASE_PASSWORD"
+export PGPASSWORD="$NIK_DATABASE_PASSWORD"
 bash backend/tests/sql/verify_v0040.sh cloudpivot_test
 
 # 2) 接口断言（先按 test profile 起实例）
-(cd backend && ALUN_PROFILE=test ./target/debug/cloudpivot &)   # 或 scripts/dev-up.sh 的 test 变体
+(cd backend && NIK_PROFILE=test ./target/debug/cloudpivot &)   # 或 scripts/dev-up.sh 的 test 变体
 bash backend/tests/sql/curl_crud_test.sh
 
 # 3) 重新生成 SigV4 参考向量（改了签名实现时才需要，生成值粘回 sigv4.rs 单测）

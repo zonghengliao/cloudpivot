@@ -36,9 +36,9 @@ sqlq() {
 
 echo "===== 0. 登录 ====="
 TK=$(curl -s -m 15 -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  --data-binary "$(printf '{"username":"admin","password":"%s"}' "${ALUN_ADMIN_PASSWORD:-}")" \
+  --data-binary "$(printf '{"username":"admin","password":"%s"}' "${NIK_ADMIN_PASSWORD:-}")" \
   | jq -r '.data.access_token // empty')
-[ -n "$TK" ] || { echo "登录失败（ALUN_ADMIN_PASSWORD 未注入？）"; exit 1; }
+[ -n "$TK" ] || { echo "登录失败（NIK_ADMIN_PASSWORD 未注入？）"; exit 1; }
 AUTH="Authorization: Bearer $TK"
 echo "ok"
 

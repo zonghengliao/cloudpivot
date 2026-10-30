@@ -19,8 +19,8 @@
 //! su postgres -c "createdb -O cloudpivot cloudpivot_c5v"
 //! # 2) 跑一次迁移（看到「数据库迁移完成」即可退出）
 //! set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
-//! export ALUN_PROFILE=test ALUN_DATABASE_NAME=cloudpivot_c5v ALUN_SERVER_LISTEN=127.0.0.1:18095
-//! export ALUN_REDIS_URL=redis://127.0.0.1:6379/9
+//! export NIK_PROFILE=test NIK_DATABASE_NAME=cloudpivot_c5v NIK_SERVER_LISTEN=127.0.0.1:18095
+//! export NIK_REDIS_URL=redis://127.0.0.1:6379/9
 //! timeout 90 ./target/debug/cloudpivot
 //! # 3) 跑本文件
 //! export C5_DB_URL="postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_c5v"

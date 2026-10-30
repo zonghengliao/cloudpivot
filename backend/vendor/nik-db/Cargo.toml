@@ -20,7 +20,7 @@ autobins = false
 autoexamples = false
 autotests = false
 autobenches = false
-description = "Alun database: Row 模式 + 事务 RAII + Hook + SQL 模板"
+description = "Nik database: Row 模式 + 事务 RAII + Hook + SQL 模板"
 readme = "README.md"
 license = "MIT OR Apache-2.0"
 

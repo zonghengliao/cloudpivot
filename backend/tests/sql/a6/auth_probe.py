@@ -65,7 +65,7 @@ def api(method, path, body=None, token=None):
 
 def login(username):
     status, body = api("POST", "/system/auth/login",
-                       {"username": username, "password": ENV["ALUN_ADMIN_PASSWORD"]})
+                       {"username": username, "password": ENV["NIK_ADMIN_PASSWORD"]})
     if status != 200 or body.get("code") != 0:
         raise RuntimeError(f"登录失败 {username}: {status} {body}")
     data = body["data"]

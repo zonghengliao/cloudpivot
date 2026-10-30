@@ -12,7 +12,7 @@ check() { if [ "$2" = "$3" ]; then PASS=$((PASS + 1)); printf '  PASS  %-46s %s\
   else FAIL=$((FAIL + 1)); printf '  FAIL  %-46s got=%s want=%s\n' "$1" "$2" "$3"; fi; }
 
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$ALUN_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
+  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
 [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ] && { echo "登录失败"; exit 1; }
 AUTH="Authorization: Bearer $TOKEN"
 echo "== 新接口闭环 /api/business/storage/* =="
@@ -71,7 +71,7 @@ check "  软删后下载 404" \
 check "  重复删除幂等 200" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE "$BASE/business/storage/$FID" -H "$AUTH")" "200"
 check "  记录仍在库（deleted_at 非空）" \
-  "$(set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a; PGPASSWORD="$ALUN_DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$ALUN_DATABASE_USER" -d cloudpivot_test -tAc "select count(*) from sys_file where id='$FID' and deleted_at is not null")" "1"
+  "$(set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a; PGPASSWORD="$NIK_DATABASE_PASSWORD" psql -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d cloudpivot_test -tAc "select count(*) from sys_file where id='$FID' and deleted_at is not null")" "1"
 
 # 7) rebind：把软删记录重新登记为新记录，下载恢复
 REBIND=$(curl -s -w '\n%{http_code}' -X POST "$BASE/business/storage/$FID/rebind" -H "$AUTH" \

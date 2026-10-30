@@ -2,7 +2,7 @@
 set -a
 . /etc/cloudpivot/cloudpivot-test.env
 set +a
-export PGPASSWORD="$ALUN_DATABASE_PASSWORD"
+export PGPASSWORD="$NIK_DATABASE_PASSWORD"
 PSQL="psql -h 127.0.0.1 -U cloudpivot -d cloudpivot_test -tA"
 
 echo "== 1) 迁移记录（V0043/V0044/V0045/V0049）"

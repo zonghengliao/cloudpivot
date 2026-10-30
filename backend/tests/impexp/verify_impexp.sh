@@ -4,8 +4,8 @@
 # 前置：
 #   1. 测试实例已启动在 127.0.0.1:${PORT:-18081}（profile=test，库 cloudpivot_test）：
 #        set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
-#        ALUN_PROFILE=test ALUN_SERVER_LISTEN=127.0.0.1:18081 ./target/debug/cloudpivot &
-#   2. 已注入 ALUN_ADMIN_PASSWORD（登录用）；直接查库时需要 ALUN_DATABASE_*。
+#        NIK_PROFILE=test NIK_SERVER_LISTEN=127.0.0.1:18081 ./target/debug/cloudpivot &
+#   2. 已注入 NIK_ADMIN_PASSWORD（登录用）；直接查库时需要 NIK_DATABASE_*。
 #
 # 用法：
 #   bash verify_impexp.sh              # 验收 1/2 + 确认入库 + 同步导出
@@ -32,9 +32,9 @@ set -a; . /etc/cloudpivot/cloudpivot-test.env 2>/dev/null; set +a
 
 echo "===== 0. 登录 ====="
 TOKEN=$(curl -s -m 15 -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  --data-binary @<(printf '{"username":"admin","password":"%s"}' "${ALUN_ADMIN_PASSWORD:-}") \
+  --data-binary @<(printf '{"username":"admin","password":"%s"}' "${NIK_ADMIN_PASSWORD:-}") \
   | jq -r '.data.access_token // empty')
-[ -n "$TOKEN" ] || { echo "登录失败（ALUN_ADMIN_PASSWORD 未注入？）"; exit 1; }
+[ -n "$TOKEN" ] || { echo "登录失败（NIK_ADMIN_PASSWORD 未注入？）"; exit 1; }
 AUTH="Authorization: Bearer $TOKEN"
 echo "ok"
 

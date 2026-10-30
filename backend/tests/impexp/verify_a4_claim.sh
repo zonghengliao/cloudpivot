@@ -13,8 +13,8 @@ cd /root/a4-build/backend
 set -a
 . /etc/cloudpivot/cloudpivot-test.env
 set +a
-export A4_DB_URL="postgres://${ALUN_DATABASE_USER}:${ALUN_DATABASE_PASSWORD}@${ALUN_DATABASE_HOST}:${ALUN_DATABASE_PORT}/${ALUN_DATABASE_NAME}"
-echo "A4_DB_URL 前缀: ${A4_DB_URL%%:*}://${ALUN_DATABASE_USER}@${ALUN_DATABASE_HOST}:${ALUN_DATABASE_PORT}/${ALUN_DATABASE_NAME}"
+export A4_DB_URL="postgres://${NIK_DATABASE_USER}:${NIK_DATABASE_PASSWORD}@${NIK_DATABASE_HOST}:${NIK_DATABASE_PORT}/${NIK_DATABASE_NAME}"
+echo "A4_DB_URL 前缀: ${A4_DB_URL%%:*}://${NIK_DATABASE_USER}@${NIK_DATABASE_HOST}:${NIK_DATABASE_PORT}/${NIK_DATABASE_NAME}"
 
 echo "===== 1. 编译 worker 集成测试二进制"
 cargo test --test impexp_worker --no-run --jobs 2 2>&1 | tail -3

@@ -54,7 +54,7 @@ def load_env(path):
 
 ENV = load_env(ENV_FILE)
 PG = [
-    "psql", "-h", "127.0.0.1", "-U", ENV["ALUN_DATABASE_USER"], "-d", "cloudpivot_test",
+    "psql", "-h", "127.0.0.1", "-U", ENV["NIK_DATABASE_USER"], "-d", "cloudpivot_test",
     "-v", "ON_ERROR_STOP=1", "-tA", "-X",
 ]
 
@@ -64,7 +64,7 @@ def sql(query):
         PG + ["-c", query],
         capture_output=True,
         text=True,
-        env={**os.environ, "PGPASSWORD": ENV["ALUN_DATABASE_PASSWORD"]},
+        env={**os.environ, "PGPASSWORD": ENV["NIK_DATABASE_PASSWORD"]},
     )
     if proc.returncode != 0:
         raise RuntimeError(f"SQL 失败: {query}\n{proc.stderr}")
@@ -76,7 +76,7 @@ def sql_file(path):
         PG + ["-f", path],
         capture_output=True,
         text=True,
-        env={**os.environ, "PGPASSWORD": ENV["ALUN_DATABASE_PASSWORD"]},
+        env={**os.environ, "PGPASSWORD": ENV["NIK_DATABASE_PASSWORD"]},
     )
     if proc.returncode != 0:
         raise RuntimeError(f"SQL 脚本失败: {path}\n{proc.stderr}")
@@ -253,7 +253,7 @@ COMMIT;
 
 def sse_checks(admin_token):
     banner("② 登录 A / B 并同时建立 SSE 长连接（Authorization 头，走现有 AuthLayer）")
-    password = ENV["ALUN_ADMIN_PASSWORD"]
+    password = ENV["NIK_ADMIN_PASSWORD"]
     token_a = login("a6_a", password)
     token_b = login("a6_b", password)
     print(f"  A 的 token 前缀：{token_a[:20]}…")
@@ -468,11 +468,11 @@ def channel_checks(admin_token, token_a):
 
 
 def main():
-    admin_token = login("admin", ENV["ALUN_ADMIN_PASSWORD"])
+    admin_token = login("admin", ENV["NIK_ADMIN_PASSWORD"])
     print("admin 登录成功，token 前缀：", admin_token[:20], "…")
     seed()
     sse_checks(admin_token)
-    token_a = login("a6_a", ENV["ALUN_ADMIN_PASSWORD"])
+    token_a = login("a6_a", ENV["NIK_ADMIN_PASSWORD"])
     channel_checks(admin_token, token_a)
 
     banner("结论")

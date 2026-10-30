@@ -262,7 +262,7 @@ pub fn routes_impl(_attr: TokenStream, item: TokenStream) -> TokenStream {
                     quote! { #upper, }
                 };
                 quote! {
-                    __nik_app = ::nik::App::routes(__nik_app, |__r: &mut ::nik::AlunRouter| {
+                    __nik_app = ::nik::App::routes(__nik_app, |__r: &mut ::nik::NikRouter| {
                         __r.#add(#method_arg #path, #ident, |mr| mr.route_layer(#layer));
                     });
                 }

@@ -16,7 +16,7 @@ check() { # name actual expected
 }
 
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$ALUN_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
+  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
 if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then echo "登录失败，终止"; exit 1; fi
 AUTH="Authorization: Bearer $TOKEN"
 echo "== 旧接口回归（profile=test / cloudpivot_test） =="

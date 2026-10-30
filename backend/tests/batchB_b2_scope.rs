@@ -19,11 +19,11 @@
 //! ```bash
 //! # 先准备一个专用库（不要用生产库），跑一次迁移（会自动建表 + 种子）：
 //! set -a; . /etc/cloudpivot/cloudpivot-dev.env; set +a
-//! export ALUN_DATABASE_NAME=cloudpivot_b2v ALUN_SERVER_LISTEN=127.0.0.1:8099
+//! export NIK_DATABASE_NAME=cloudpivot_b2v NIK_SERVER_LISTEN=127.0.0.1:8099
 //! timeout 30 ./target/debug/cloudpivot   # 看到「数据库迁移完成: 应用 N 个迁移」即可（自动退出）
 //!
 //! # 再跑本测试（夹具见 tests/sql/batchb/b2_scope_fixture.sql，测试会自己灌入）
-//! export B2_DB_URL="postgres://cloudpivot:${ALUN_DATABASE_PASSWORD}@127.0.0.1:5432/cloudpivot_b2v"
+//! export B2_DB_URL="postgres://cloudpivot:${NIK_DATABASE_PASSWORD}@127.0.0.1:5432/cloudpivot_b2v"
 //! cargo test --test batchB_b2_scope -- --nocapture --test-threads=1
 //! ```
 //!

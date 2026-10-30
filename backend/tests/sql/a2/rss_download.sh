@@ -15,7 +15,7 @@ RUN_DIR=${RUN_DIR:-/root/a2-test-run}
 set -a; . /etc/cloudpivot/cloudpivot-test.env; set +a
 
 TOKEN=$(curl -s -X POST "$BASE/system/auth/login" -H 'Content-Type: application/json' \
-  -d "{\"username\":\"admin\",\"password\":\"$ALUN_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
+  -d "{\"username\":\"admin\",\"password\":\"$NIK_ADMIN_PASSWORD\"}" | jq -r '.data.access_token')
 AUTH="Authorization: Bearer $TOKEN"
 PID=$(pgrep -f 'target/debug/cloudpivot' | head -1)
 [ -z "$PID" ] && { echo "找不到测试后端进程"; exit 1; }
@@ -31,7 +31,7 @@ BIG_SIZE=$(stat -c%s "$BIG")
 
 # 直接插一条记录（模拟历史文件：storage_code=NULL）
 FID=$(python3 -c 'import uuid;print(uuid.uuid4())')
-PGPASSWORD="$ALUN_DATABASE_PASSWORD" psql -q -h 127.0.0.1 -U "$ALUN_DATABASE_USER" -d cloudpivot_test -c "
+PGPASSWORD="$NIK_DATABASE_PASSWORD" psql -q -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d cloudpivot_test -c "
 INSERT INTO sys_file (id, file_name, original_name, file_key, file_size, file_hash, mime_type, extension,
                       storage_path, category, status, created_at, updated_at)
 VALUES ('$FID', 'rss-big.bin', 'rss-big.bin', 'rss-big.bin', $BIG_SIZE, NULL,
@@ -66,7 +66,7 @@ echo "前 5 个采样    : $(head -5 "$SAMPLES" | tr '\n' ' ')"
 echo "后 5 个采样    : $(tail -5 "$SAMPLES" | tr '\n' ' ')"
 
 # 收尾：删记录与文件（不留在测试库里）
-PGPASSWORD="$ALUN_DATABASE_PASSWORD" psql -q -h 127.0.0.1 -U "$ALUN_DATABASE_USER" -d cloudpivot_test \
+PGPASSWORD="$NIK_DATABASE_PASSWORD" psql -q -h 127.0.0.1 -U "$NIK_DATABASE_USER" -d cloudpivot_test \
   -c "DELETE FROM sys_file WHERE id='$FID';" >/dev/null
 rm -f "$BIG"
 
