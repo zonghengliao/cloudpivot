@@ -583,17 +583,42 @@ pub async fn page_notices(
     })
 }
 
-/// 软删通知（接收行 / 投递记录由外键 `ON DELETE CASCADE` 在硬删时清理，这里只标记）。
+/// 软删通知 —— **同一事务**里级联把该通知的所有接收记录标 `is_deleted = TRUE`。
+///
+/// # 为什么必须级联
+///
+/// `sys_notice_receiver` 的外键是 `ON DELETE CASCADE`，但它**只对硬删生效**；
+/// 本函数是软删（只置 `deleted_at`），CASCADE 不会触发。
+/// 若不级联，接收行的 `is_deleted` 仍是 FALSE，而 `count_unread` 的
+/// 部分索引谓词正是 `user_id = ? AND read_flag = FALSE AND is_deleted = FALSE`
+/// —— 已删通知会被算进未读数，导致「未读数 N 条但列表为空」的不一致。
 ///
 /// # 返回值
 ///
 /// 受影响行数（0 表示不存在或已删除）。
 pub async fn soft_delete_notice(id: &uuid::Uuid) -> DbResult<u64> {
-    db().execute_with_params(
-        "UPDATE sys_notice SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
-         WHERE id = ?::uuid AND deleted_at IS NULL",
-        vec![Value::from(*id)],
-    )
+    let notice_id = *id;
+    db().transaction(move |tx| async move {
+        let affected = tx
+            .execute_with_params(
+                "UPDATE sys_notice SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
+                 WHERE id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(notice_id)],
+            )
+            .await?;
+
+        if affected > 0 {
+            // 接收侧：已读与否都标删，口径与「未删通知」严格对齐
+            tx.execute_with_params(
+                "UPDATE sys_notice_receiver SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP \
+                 WHERE notice_id = ?::uuid AND is_deleted = FALSE",
+                vec![Value::from(notice_id)],
+            )
+            .await?;
+        }
+
+        Ok(affected)
+    })
     .await
 }
 

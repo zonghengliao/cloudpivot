@@ -8,16 +8,28 @@
           <t-tag v-if="unreadCount > 0" theme="danger" size="small" variant="light">{{ unreadCount }} 条未读</t-tag>
         </div>
         <t-space>
-          <t-radio-group v-model="readFilter" variant="default-filled" size="small" @change="handleFilterChange">
-            <t-radio-button :value="'unread'">未读</t-radio-button>
-            <t-radio-button :value="'read'">已读</t-radio-button>
-            <t-radio-button :value="'all'">全部</t-radio-button>
-          </t-radio-group>
+          <t-tabs v-model="readFilter" class="view-switch" :space-evenly="false" @change="handleFilterChange">
+            <t-tab-panel value="unread">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="notification" /> 未读</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="read">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="check" /> 已读</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="all">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="list" /> 全部</span>
+              </template>
+            </t-tab-panel>
+          </t-tabs>
           <t-button size="small" variant="outline" :disabled="unreadCount === 0" @click="handleReadAll">
             <template #icon><t-icon name="check" /></template>
             全部已读
           </t-button>
-          <t-button size="small" variant="text" :loading="loading" @click="loadList">
+          <t-button size="small" variant="text" :loading="loading" @click="loadList()">
             <template #icon><t-icon name="refresh" /></template>
           </t-button>
         </t-space>
@@ -186,7 +198,8 @@ function renderContent(item: MyNoticeRes): string {
   return escaped.replace(/\n/g, '<br />');
 }
 
-async function loadList(): Promise<void> {
+async function loadList(opts: { keepActive?: boolean } = {}): Promise<void> {
+  const keepActive = opts.keepActive === true;
   loading.value = true;
   try {
     const data = await pageMyNotices({
@@ -196,8 +209,12 @@ async function loadList(): Promise<void> {
     });
     rows.value = data.list;
     pagination.total = data.total;
-    // 选中项已不在当前页时清空，避免右侧残留
-    if (active.value && !data.list.some((item) => item.receiver_id === active.value?.receiver_id)) {
+    // 选中项已不在当前页时清空，避免右侧残留。
+    // keepActive=true 是「自动标已读触发的 reload」——此时用户正在看那条，
+    // 它从**未读列表**里消失是正确行为，但右侧不该被重置成第一条。
+    if (!keepActive
+        && active.value
+        && !data.list.some((item) => item.receiver_id === active.value?.receiver_id)) {
       active.value = data.list[0] ?? null;
     }
     if (!active.value && data.list.length > 0) {
@@ -247,7 +264,8 @@ async function handleRead(item: MyNoticeRes): Promise<void> {
     noticeStore.setUnreadCount(Math.max(0, noticeStore.unreadCount - 1));
     // 未读筛选下读掉一条就该从列表消失，避免与角标不一致
     if (readFilter.value === 'unread') {
-      await loadList();
+      // 保留选中：用户刚点的那条仍要在右侧显示（左侧列表照常移除）
+      await loadList({ keepActive: true });
     }
   } catch (error) {
     showError(error);
