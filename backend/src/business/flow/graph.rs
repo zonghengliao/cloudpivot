@@ -19,10 +19,11 @@
 //! **遍历本身不设深度上限**（加了上限只会引入「超限就当无环」的假阴性），
 //! 但留了一个迭代次数保险（`nodes.len() * 2 + edges.len() * 2 + 8`）防代码 bug 死循环。
 //!
-//! # 12 条发布校验的落点
+//! # 发布校验清单
 //!
 //! [`FlowGraph::validate`] 按卡面顺序 R1–R12，另外补上架构 §3.7 文档里的 R13（条件节点缺兜底分支）、
-//! R14（节点未配置审批人）、R15（规模上限）—— 卡面的 12 条与文档的 V1–V12 是同一套语义的两种切法，
+//! R14（节点未配置审批人）、R15（规模上限）、R16（`EXPRESSION` 表达式可解析 / 不引用保留词）——
+//! 卡面的 12 条与文档的 V1–V12 是同一套语义的两种切法，
 //! 映射表见 `docs/批次D-D1-验证证据.md` 与每个 `rule` 的文档注释。
 //!
 //! # 环路径必须「点名」
@@ -35,6 +36,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::business::flow::expression;
 use crate::shared::error_code;
 
 // ==================== 规模上限（R15 / 65017） ====================
@@ -185,7 +187,7 @@ impl GatewayMode {
     }
 }
 
-/// 审批人来源（架构 §4.3 的 8 种来源 + ADMIN）。
+/// 审批人来源（架构 §4.3 的 8 种来源 + ADMIN + 批次 D 的 `EXPRESSION`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AssigneeKind {
     /// 指定用户。
@@ -208,6 +210,9 @@ pub enum AssigneeKind {
     FormVar,
     /// 平台管理员。
     Admin,
+    /// 动态表达式（批次 D · EXPRESSION DSL）：规则树存 `biz_flow_node.config.expression`，
+    /// 运行期求值后展开成上面 10 种来源之一（见 `business::flow::expression`）。
+    Expression,
 }
 
 impl AssigneeKind {
@@ -224,6 +229,7 @@ impl AssigneeKind {
             AssigneeKind::TaskAssigner => "TASK_ASSIGNER",
             AssigneeKind::FormVar => "FORM_VAR",
             AssigneeKind::Admin => "ADMIN",
+            AssigneeKind::Expression => "EXPRESSION",
         }
     }
 
@@ -240,11 +246,15 @@ impl AssigneeKind {
             "TASK_ASSIGNER" => Some(AssigneeKind::TaskAssigner),
             "FORM_VAR" => Some(AssigneeKind::FormVar),
             "ADMIN" => Some(AssigneeKind::Admin),
+            "EXPRESSION" => Some(AssigneeKind::Expression),
             _ => None,
         }
     }
 
     /// 是否「可枚举」来源 —— 只有这三种能落 `biz_flow_node_assignee` 行（架构 §6.1 注）。
+    ///
+    /// `EXPRESSION` **不**可枚举：它没有固定的审批人清单，具体目标由规则树在运行期算出
+    /// （否则 R14 会误报「一个审批人都没选」，见 EXPRESSION-DSL 规范 §8.7 第 2 条）。
     pub fn is_enumerable(self) -> bool {
         matches!(
             self,
@@ -735,7 +745,7 @@ impl FlowGraph {
 /// 一条发布校验不通过项。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Issue {
-    /// 规则编号（`R1`–`R15`），与卡面 / 架构 §3.7 的映射见模块文档。
+    /// 规则编号（`R1`–`R16`），与卡面 / 架构 §3.7 的映射见模块文档。
     pub rule: &'static str,
     /// 业务错误码（`crate::shared::error_code::FLOW_*`）。
     pub code: i32,
@@ -1111,6 +1121,67 @@ impl FlowGraph {
             ));
         }
 
+        // ---------- R16（批次 D · EXPRESSION DSL §8.5）：表达式审批人必须可解析 ----------
+        issues.extend(self.expression_issues());
+
+        issues
+    }
+
+    /// R16：`assignee_type = EXPRESSION` 的节点，`config.expression` 必须存在且能解析。
+    ///
+    /// **两个调用方共用**：发布校验（[`FlowGraph::validate`] 的 R16）与保存期
+    /// （`dto::validate_expression_nodes`）—— 保存期拦住 99% 的坏配置，发布期做双保险
+    /// （防旧快照 / 有人直接改库）。两处共用一个实现，文案与判据不可能漂移。
+    ///
+    /// # 判定口径（EXPRESSION-DSL 规范 §3.6 第 8 行 / §5.5 / §8.5）
+    ///
+    /// | 情形 | 码 | 为什么 |
+    /// |---|---|---|
+    /// | `config.expression` 缺失 / 结构非法 / 上限超了 | `65016` | 保存期就该挡住，发布期双保险（防旧快照 / 直接改库） |
+    /// | 表达式引用了 `PREV_APPROVER` | **`65033`** | D-E8：本期不开放这能力，必须在**发布期**拒绝，不能「存进去、跑起来才 501」 |
+    ///
+    /// 为什么必须**发布期**拒绝而不是运行期 501（D-E8 原话）：
+    /// 落 501 意味着「能存进去、跑起来才炸」—— 那正是本期要消灭的形态；发布期拒绝是「第一次保存时就告诉你」。
+    /// 注意保存期（`dto::validate_expression_nodes`）只做结构校验、不专门拒 `PREV_APPROVER`，
+    /// 所以这里是这条红线唯一的拦截点（草稿允许存、发布必须拦）。
+    pub fn expression_issues(&self) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        for node in &self.nodes {
+            if node.assignee_type != Some(AssigneeKind::Expression) {
+                continue;
+            }
+            // ① 保留词先判（65033 比「结构非法」更能说明问题：用户是想要一个本期没有的能力）
+            if let Some(value) = node.config.get("expression")
+                && expression_uses_prev_approver(value)
+            {
+                issues.push(
+                    Issue::new(
+                        "R16",
+                        error_code::FLOW_EXPRESSION_INVALID,
+                        format!(
+                            "节点 {}（{}）的审批人表达式用了「上一节点的审批人」（PREV_APPROVER），本版本未开放（P2），请先改用其它来源",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+                continue;
+            }
+            // ② 结构 / 上限 / 字段白名单 / 规则 id 唯一 —— 与保存期、运行期**同一个**解析器
+            if let Err(reason) = expression::parse_config(&node.config) {
+                issues.push(
+                    Issue::new(
+                        "R16",
+                        error_code::FLOW_CONDITION_INVALID,
+                        format!(
+                            "节点 {}（{}）的审批人表达式不合法：{reason}",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
         issues
     }
 
@@ -1302,6 +1373,51 @@ impl FlowGraph {
         }
         issues
     }
+}
+
+/// 表达式里是否引用了保留词 `PREV_APPROVER`（D-E8：发布期必须拒绝）。
+///
+/// # 为什么按 JSON 扫而不是看解析器的错误文案
+///
+/// `expression::parse_expression` 对保留词与其他结构错误都只返回一个中文 `String`；
+/// 若用「错误文案里有没有这个词」分流，等于让错误文案变成控制流（改一个字就静默退化成 65016）。
+/// 这里直接在原始 JSON 上扫 `then` / `otherwise` 的 `type` 字段：判据只依赖**协议**，与文案无关。
+///
+/// 扫描范围只认 `rules[].then[]` 与 `otherwise[]`（协议里 `type` 只出现在这两处），
+/// 因此 `when` 子树里的同名字段不会被误判。
+pub fn expression_uses_prev_approver(value: &Value) -> bool {
+    fn is_prev(value: &Value) -> bool {
+        value
+            .get("type")
+            .and_then(Value::as_str)
+            .map(|raw| {
+                raw.trim()
+                    .eq_ignore_ascii_case(expression::RESERVED_PREV_APPROVER)
+            })
+            .unwrap_or(false)
+    }
+
+    let targets_hit = |targets: &Value| {
+        targets
+            .as_array()
+            .map(|items| items.iter().any(is_prev))
+            .unwrap_or(false)
+    };
+
+    if value
+        .get("rules")
+        .and_then(Value::as_array)
+        .map(|rules| {
+            rules
+                .iter()
+                .any(|rule| rule.get("then").map(targets_hit).unwrap_or(false))
+        })
+        .unwrap_or(false)
+    {
+        return true;
+    }
+
+    value.get("otherwise").map(targets_hit).unwrap_or(false)
 }
 
 /// 由落行审批人（`assignees`）反推来源类型（E2）。
@@ -2901,5 +3017,190 @@ mod tests {
             .unwrap();
         assert_eq!(again.self_approval, "FORBID");
         assert_eq!(again.max_remind_times, 5);
+    }
+}
+
+// ==================== R16 / EXPRESSION 单测（批次 D · P1-A2） ====================
+
+/// R16（发布期表达式校验）的单测。
+///
+/// 独立模块：既有的 R1–R15 用例一字不动。
+#[cfg(test)]
+mod expression_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// START → 审批（`assignee_type=EXPRESSION`，config 由调用方给）→ END。
+    fn graph_with_expression(config: Value) -> FlowGraph {
+        let start = NodeSpec::new("n_start", "开始", NodeType::Start);
+        let mut approve = NodeSpec::new("n_approve", "财务审批", NodeType::Approval);
+        approve.assignee_type = Some(AssigneeKind::Expression);
+        approve.config = config;
+        FlowGraph {
+            nodes: vec![
+                start,
+                approve,
+                NodeSpec::new("n_end", "结束", NodeType::End),
+            ],
+            edges: vec![
+                EdgeSpec::new("e1", "n_start", "n_approve"),
+                EdgeSpec::new("e2", "n_approve", "n_end"),
+            ],
+        }
+    }
+
+    fn ok_expression() -> Value {
+        json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_big",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 10000},
+                "then": [{"type": "ROLE", "role_codes": ["FINANCE_DIRECTOR"]}]
+            }]
+        })
+    }
+
+    fn r16(issues: &[Issue]) -> Vec<&Issue> {
+        issues.iter().filter(|issue| issue.rule == "R16").collect()
+    }
+
+    #[test]
+    fn assignee_kind_expression_is_parsed_but_not_enumerable() {
+        assert_eq!(
+            AssigneeKind::parse("expression"),
+            Some(AssigneeKind::Expression),
+            "保存时 AssigneeKind::parse(\"EXPRESSION\") 必须认得（否则用户选了表达式就报「非法」）"
+        );
+        assert_eq!(AssigneeKind::Expression.as_str(), "EXPRESSION");
+        assert!(
+            !AssigneeKind::Expression.is_enumerable(),
+            "EXPRESSION 不落 biz_flow_node_assignee 行 ⇒ R14 不许要求「选具体的审批人」"
+        );
+    }
+
+    #[test]
+    fn r16_expression_without_config_is_65016() {
+        let graph = graph_with_expression(json!({}));
+        let issues = graph.expression_issues();
+        let found = r16(&issues);
+        assert_eq!(found.len(), 1, "必须恰好报一条 R16：{issues:#?}");
+        assert_eq!(found[0].code, error_code::FLOW_CONDITION_INVALID);
+        assert_eq!(found[0].code, 65016);
+        assert!(
+            found[0].message.contains("n_approve") && found[0].message.contains("财务审批"),
+            "文案必须点名节点（key + 名称）：{}",
+            found[0].message
+        );
+        // R14 不该同时误报「审批人没选」
+        assert!(
+            !issues.iter().any(|issue| issue.rule == "R14"),
+            "EXPRESSION 不可枚举，R14 不许误报：{issues:#?}"
+        );
+    }
+
+    #[test]
+    fn r16_invalid_expression_structure_is_65016_with_reason() {
+        // 第 2 条规则缺 when ⇒ 解析失败，必须带上具体原因（不是一句「不合法」）
+        let mut expression = ok_expression();
+        expression["rules"].as_array_mut().unwrap().push(json!({
+            "id": "r_broken",
+            "then": [{"type": "INITIATOR"}]
+        }));
+        let graph = graph_with_expression(json!({"expression": expression}));
+        let issues = graph.expression_issues();
+        let found = r16(&issues);
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].code, 65016);
+        assert!(
+            found[0].message.contains("r_broken"),
+            "文案必须定位到具体规则：{}",
+            found[0].message
+        );
+    }
+
+    #[test]
+    fn r16_prev_approver_is_65033_not_65016() {
+        let expression = json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_prev",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 1},
+                "then": [{"type": "PREV_APPROVER"}]
+            }]
+        });
+        let graph = graph_with_expression(json!({"expression": expression}));
+        let issues = graph.expression_issues();
+        let found = r16(&issues);
+        assert_eq!(found.len(), 1);
+        assert_eq!(
+            found[0].code,
+            error_code::FLOW_EXPRESSION_INVALID,
+            "D-E8：PREV_APPROVER 必须在发布期以 65033 拒绝（不是 501、也不是 65016）"
+        );
+        assert_eq!(found[0].code, 65033);
+        assert!(
+            found[0].message.contains("PREV_APPROVER"),
+            "{}",
+            found[0].message
+        );
+    }
+
+    #[test]
+    fn r16_valid_expression_produces_no_issue() {
+        let graph = graph_with_expression(json!({"expression": ok_expression()}));
+        assert!(
+            graph.expression_issues().is_empty(),
+            "合法表达式不许报 R16：{:#?}",
+            graph.expression_issues()
+        );
+        // 整图校验也必须干净（R14 不误报、其它规则不该被 R16 影响）
+        let issues = graph.validate();
+        assert!(
+            issues.is_empty(),
+            "START → EXPRESSION 审批 → END 是合法图，不该有任何校验问题：{issues:#?}"
+        );
+    }
+
+    #[test]
+    fn r16_only_checks_expression_nodes() {
+        // 静态来源的节点即使 config 里塞了坏 expression 也不该被 R16 管
+        let mut graph = graph_with_expression(json!({"expression": json!({"bad": true})}));
+        graph.nodes[1].assignee_type = Some(AssigneeKind::Initiator);
+        assert!(
+            graph.expression_issues().is_empty(),
+            "R16 只对 assignee_type=EXPRESSION 生效"
+        );
+    }
+
+    #[test]
+    fn prev_approver_scan_looks_only_at_then_and_otherwise() {
+        // 正例：then 里出现
+        assert!(expression_uses_prev_approver(&json!({
+            "rules": [{"id": "r1", "then": [{"type": "PREV_APPROVER"}]}]
+        })));
+        // 正例：otherwise 里出现
+        assert!(expression_uses_prev_approver(&json!({
+            "rules": [{"id": "r1", "then": [{"type": "ADMIN"}]}],
+            "otherwise": [{"type": "prev_approver"}]
+        })));
+        // 反例：只在 when 的字段名里出现同名字符串，不是 target
+        assert!(!expression_uses_prev_approver(&json!({
+            "rules": [{
+                "id": "r1",
+                "when": {"op": "cmp", "field": "form.prev_approver", "cmp": "eq", "value": "PREV_APPROVER"},
+                "then": [{"type": "ADMIN"}]
+            }]
+        })));
+        // 反例：普通表达式
+        assert!(!expression_uses_prev_approver(&ok_expression()));
+    }
+
+    #[test]
+    fn validate_reports_r16_through_graph_validate() {
+        // 端点 `/version/{vid}/validate` 与 publish 都只调 `graph.validate()`
+        // ⇒ R16 必须从 validate() 冒出来（不是只挂在单独的 helper 上）
+        let graph = graph_with_expression(json!({}));
+        let issues = graph.validate();
+        assert_eq!(r16(&issues).len(), 1, "{issues:#?}");
     }
 }

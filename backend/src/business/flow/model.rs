@@ -2148,6 +2148,11 @@ pub struct NewTask {
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 转办来源行。
     pub transferred_from: Option<Uuid>,
+    /// 表达式命中的规则 id（`EXPRESSION` 节点专属，D-E5）；静态来源写 `None`。
+    ///
+    /// 不写这一列 = 用户/审计只能看到「他是 ROLE 财务总监」，看不到「为什么命中财务总监」。
+    /// `assignee_source` 仍然写**底层来源**（`ROLE`/`USER`/…），两者是互补而不是替代。
+    pub assignee_rule_id: Option<String>,
 }
 
 /// 插入一条待办行。
@@ -2169,10 +2174,10 @@ pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
              (id, instance_id, instance_node_id, node_key, round, task_kind, assignee_id, \
               assignee_name, assignee_source, assignee_source_ref, status, is_added_sign, \
               is_self_approval, is_auto, comment, attachments, transferred_from, due_at, \
-              remind_count, created_at, completed_at) \
+              remind_count, created_at, completed_at, assignee_rule_id) \
          VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, \
                  '[]'::jsonb, ?::uuid, ?, 0, now(), \
-                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END)",
+                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END, ?)",
         vec![
             Value::from(&new.id),
             Value::from(&new.instance_id),
@@ -2192,6 +2197,7 @@ pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
             opt_uuid(new.transferred_from),
             opt_ts(new.due_at),
             Value::Text(new.status.clone()),
+            opt_text(new.assignee_rule_id.as_deref()),
         ],
     )
     .await?;

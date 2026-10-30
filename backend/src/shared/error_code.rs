@@ -905,6 +905,20 @@ pub const FLOW_TASK_NOT_MINE: i32 = 65028;
 /// 等于把「谁审批」变成没人审批，是坑 3/坑 5 的叠加形态。
 pub const FLOW_EXPRESSION_UNSUPPORTED: i32 = 65032;
 
+/// 审批人表达式不合法（HTTP 400）：**保存期结构校验** + **发布期 R16**
+/// （批次 D · P1-A2，EXPRESSION-DSL 规范 §8.5 / §8.6）。
+///
+/// 与 [`FLOW_EXPRESSION_UNSUPPORTED`]（`501`）的分工要说清，别混：
+///
+/// | 码 | 何时 | 用户看到 |
+/// |---|---|---|
+/// | `65033`（本码） | 用户**刚配完**、正在存草稿 / 发布 | 「第 2 条规则缺少条件」这类**可立即修**的原因 |
+/// | `65032` | 库里的数据比代码新（旧快照 / 被绕过改库 / 未来版本回滚） | 「数据无法识别，请联系管理员」 |
+///
+/// 这条码还有一个专用场景：表达式引用了保留词 `PREV_APPROVER`（能力 B，P2 才开放）。
+/// D-E8 要求它在**发布期**就被拒，而不是落 `501` —— 「能存进去、跑起来才炸」正是本期要消灭的形态。
+pub const FLOW_EXPRESSION_INVALID: i32 = 65033;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1199,6 +1213,7 @@ mod tests {
             (FLOW_ADD_SIGN_INVALID, 65027),
             (FLOW_TASK_NOT_MINE, 65028),
             (FLOW_EXPRESSION_UNSUPPORTED, 65032),
+            (FLOW_EXPRESSION_INVALID, 65033),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1210,15 +1225,15 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            27,
-            "65xxx 段必须是 27 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码）"
+            28,
+            "65xxx 段必须是 28 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65032）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65033）✓",
             codes.len()
         );
     }

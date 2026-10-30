@@ -24,9 +24,13 @@
 //! | `TASK_ASSIGNER` | 关联任务 `assigner_id`（可空 → 空结果） | 自建任务的 `assigner_id` 为空 |
 //! | `FORM_VAR` | `form_data[form_var_key]`（uuid 或 uuid 数组） | 发起人没填 / 填错 |
 //! | `ADMIN` | `role_code = SUPER_ADMIN` 的所有人（`FALLBACK_ADMIN` 兜底用） | 不可能空 |
+//! | `EXPRESSION` | `node.config.expression` 规则树求值 → 展开成上面 10 种来源之一（`expression.rs`） | 无规则命中 / 命中但查出 0 人 |
 //!
-//! `EXPRESSION` 是 **P1**、本卡不实现：库里 CHECK 不含该值，若快照里出现
-//! （例如未来版本先上线）一律 `501 + 65032`，**不静默当空审批人**（那会让单子自动通过）。
+//! `EXPRESSION`（批次 D · P1-A2）走 [`expression`] 的纯求值器：**首条命中即定**，
+//! 命中后把 `then` 的目标翻译成 [`SourcePlan`] 再喂进**同一条** `load_plan` + [`finalize`] 管线
+//! （三层去重 / 自审 / 空审批人 / ROBOT 过滤全部照旧，一行逻辑没改）。
+//! 命中规则的 id 写进 [`Finalized::rule_id`] → `biz_flow_task.assignee_rule_id`（D-E5）；
+//! `assignee_source` 仍写**底层来源**（`ROLE` / `USER` / …），不写 `EXPRESSION`（D-E5 注）。
 //!
 //! # 三层去重（D14，缺一不可）
 //!
@@ -57,7 +61,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
-use crate::business::flow::graph::{AssigneeKind, SnapshotNode};
+use crate::business::flow::expression::{self, ResolveContext, ResolvedTarget};
+use crate::business::flow::graph::{self, AssigneeKind, EvalContext, SnapshotNode};
 use crate::shared::error_code;
 
 // ==================== 策略枚举 ====================
@@ -163,6 +168,11 @@ pub struct Finalized {
     pub fallback_admin: bool,
     /// 业务拒绝（`65019` 自审禁止 / `65018` 无审批人 / `65032` EXPRESSION 未实现）。
     pub error: Option<ApiError>,
+    /// 表达式命中的规则 id（`EXPRESSION` 节点专属，写 `biz_flow_task.assignee_rule_id`，D-E5）。
+    ///
+    /// 静态来源、以及「命中规则但表达式没配 id」之外的一切情形都是 `None`。
+    /// `otherwise` 命中时写 [`expression::OTHERWISE_RULE_ID`]。
+    pub rule_id: Option<String>,
     /// 解析痕迹（写日志 + 详情页提示）。
     pub notes: Vec<String>,
 }
@@ -253,6 +263,10 @@ pub fn plan_of(node: &SnapshotNode) -> SourcePlan {
             SourcePlan::FormVar(node.form_var_key.clone().unwrap_or_default())
         }
         Some(AssigneeKind::Admin) => SourcePlan::Admins,
+        // `EXPRESSION` 不走这里：求值需要 `EvalContext`（`plan_of` 是纯配置翻译，没有上下文），
+        // 由 `resolve()` 的表达式分支单独处理（见 `expression_plans`）。
+        // 这里留 `Unsupported` 是为了「单独调 plan_of」时不静默当空审批人。
+        Some(AssigneeKind::Expression) => SourcePlan::Unsupported("EXPRESSION".to_string()),
         None => SourcePlan::Unsupported(if raw.is_empty() {
             "未配置审批人来源".to_string()
         } else {
@@ -389,6 +403,7 @@ pub fn finalize(
                     auto_pass: true,
                     fallback_admin: false,
                     error: None,
+                    rule_id: None,
                     notes,
                 }
             }
@@ -411,6 +426,7 @@ pub fn finalize(
                     auto_pass: false,
                     fallback_admin: true,
                     error: None,
+                    rule_id: None,
                     notes,
                 }
             }
@@ -423,6 +439,7 @@ pub fn finalize(
         auto_pass: false,
         fallback_admin: false,
         error: None,
+        rule_id: None,
         notes,
     }
 }
@@ -468,89 +485,157 @@ fn opt_text(value: Option<&str>) -> Value {
 
 // ==================== DB 解析 ====================
 
+// ==================== 表达式审批人（批次 D · P1-A2 / EXPRESSION DSL） ====================
+
+/// 表达式求值后的「目标清单」（[`expression_plans`] 的产物）。
+///
+/// 纯内存结构：`RoleCodes` 还要调用方查一次 `sys_role` 的 code→id（§8.3 方案 B）。
+#[derive(Debug, Clone, Default)]
+pub struct ExpressionPlans {
+    /// 命中的规则 id（无命中 → `None`；命中 `otherwise` → `expression::OTHERWISE_RULE_ID`）。
+    pub rule_id: Option<String>,
+    /// 目标翻译结果（顺序 = `then` 的 JSON 数组顺序，决定 `finalize()` 的去重优先级）。
+    pub targets: Vec<ResolvedTarget>,
+    /// 求值痕迹（`命中 r_big` / `规则 r1 求值失败（Missing: …）`）。
+    pub trace: Vec<String>,
+}
+
+/// 节点是否走「动态表达式」来源。
+pub fn is_expression(node: &SnapshotNode) -> bool {
+    node.assignee_type
+        .as_deref()
+        .map(|raw| {
+            AssigneeKind::parse(raw)
+                .map(|kind| kind == AssigneeKind::Expression)
+                .unwrap_or(false)
+        })
+        .unwrap_or(false)
+}
+
+/// 表达式审批人：把节点配置求值成「一组目标」（**纯函数**：不查库、不 `await`）。
+///
+/// # 三条出错语义（EXPRESSION-DSL §3.6 第 8/9 行、§5.5 第 ③ 层、§8.6）
+///
+/// | 情形 | 返回 | 为什么 |
+/// |---|---|---|
+/// | 引用了 `PREV_APPROVER` | `400 + 65033` | 保留词：发布期已拦，这里是「库被直接改过」的最后一道，透传而不是静默 |
+/// | 结构非法 / `config` 里没有 `expression` / `version` 不认识 | `501 + 65032` | S4 失败不静默：绝不退化成「空审批人 → 节点自动通过」 |
+/// | `when` 求值出错（`Missing` / `TypeMismatch`） | **不算错**：按「不成立」继续下一条，记 trace | D-E7 |
+///
+/// # 为什么返回 `Result`（而 `expression::eval_expression` 不返回）
+///
+/// 求值本身确实「没有错误通道」（命中 / 不命中 / 走兜底），但**解析**有：
+/// 一段坏 JSON / 一个保留词，必须让调用方拿到明确的 HTTP 码，而不是「0 个目标 → 自动通过」。
+pub fn expression_plans(
+    config: &Json,
+    eval: &EvalContext,
+    ctx: &ResolveContext,
+) -> std::result::Result<ExpressionPlans, ApiError> {
+    if let Some(value) = config.get("expression")
+        && graph::expression_uses_prev_approver(value)
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::FLOW_EXPRESSION_INVALID,
+            "审批人表达式引用了「上一节点的审批人」（PREV_APPROVER），本版本未开放（P2），请先改用其它来源",
+        ));
+    }
+
+    let parsed = expression::parse_config(config).map_err(|reason| {
+        ApiError::new(
+            501,
+            error_code::FLOW_EXPRESSION_UNSUPPORTED,
+            format!("审批人来源 EXPRESSION 的表达式无法识别（可能是旧版本数据）：{reason}"),
+        )
+    })?;
+
+    let mut trace: Vec<String> = Vec::new();
+    let outcome = expression::eval_expression_with_trace(&parsed, eval, &mut trace);
+    let rule_id = outcome.rule_id().map(str::to_string);
+    let resolved = expression::resolve_targets(outcome.targets(), ctx);
+    trace.extend(resolved.notes.iter().cloned());
+
+    Ok(ExpressionPlans {
+        rule_id,
+        targets: resolved.targets,
+        trace,
+    })
+}
+
+// ==================== DB 解析 ====================
+
 /// 解析一个节点的审批人（**在事务内调用**，`ex` 传 `&tx`）。
 ///
 /// 返回 [`Resolution::finalized`]：调用方照它落 `biz_flow_task` 行；
 /// `error` 非空时调用方应让整单回滚（`FALLBACK_ADMIN` 除外，见下）。
 ///
+/// # 入参 `eval`
+///
+/// `EXPRESSION` 节点的 `when` 子树与**条件边**共用同一个求值上下文（`form` / `initiator` /
+/// `instance` / `task`）。调用方传引擎已构造好的 [`EvalContext`]（`engine::eval_context()`），
+/// 不在这里二次构造：那会与 F1 修好的 11 个白名单字段各写一份，两份迟早漂移。
+///
 /// # 异常情况
 ///
-/// - `65032`（501）：`EXPRESSION` 等 P1 来源，本卡不实现；
+/// - `400 + 65033`：表达式引用了 `PREV_APPROVER`（保留词，见 [`expression_plans`]）；
+/// - `501 + 65032`：快照里 `assignee_type=EXPRESSION` 但表达式缺失 / 结构坏 / `version` 不认识；
 /// - 数据库异常 → [`DbError`]。
 pub async fn resolve(
     ex: &impl SqlExecutor,
     node: &SnapshotNode,
     ctx: &InstanceCtx,
+    eval: &EvalContext,
 ) -> DbResult<Resolution> {
     let mut trace: Vec<String> = Vec::new();
-    let plan = plan_of(node);
-    // 每条分支都恰好赋值一次（Unsupported 分支提前 return）→ 延迟初始化，避免默认值白赋值
-    let candidates: Vec<Candidate>;
+    let mut rule_id: Option<String> = None;
 
-    match &plan {
-        SourcePlan::Users(ids) => {
-            candidates = load_users(ex, ids, AssigneeKind::User).await?;
-            trace.push(format!(
-                "USER 命中 {} 行（配置 {} 个）",
-                candidates.len(),
-                ids.len()
-            ));
+    // ① 先得到「要查哪些来源」：静态来源 = 1 条计划；EXPRESSION = 规则求值后的一组计划
+    //    （多个 target = **并集**，不是会签/或签 —— 会签/或签是节点级 `approval_mode`）。
+    let plans: Vec<SourcePlan> = if is_expression(node) {
+        let resolve_ctx = ResolveContext {
+            initiator_dept_id: ctx.initiator_dept_id,
+        };
+        let plans = match expression_plans(&node.config, eval, &resolve_ctx) {
+            Ok(plans) => plans,
+            Err(error) => {
+                return Ok(Resolution {
+                    finalized: Finalized::failed(
+                        error,
+                        vec![format!("节点 {} 的审批人表达式无法解析", node.key)],
+                    ),
+                    trace,
+                });
+            }
+        };
+        trace.extend(plans.trace);
+        rule_id = plans.rule_id;
+        let mut out: Vec<SourcePlan> = Vec::with_capacity(plans.targets.len());
+        for target in plans.targets {
+            match target {
+                ResolvedTarget::Plan(plan) => out.push(plan),
+                // ROLE 只给了 role_code（跨环境稳定），code→id 的查询在这里做（§8.3 方案 B）
+                ResolvedTarget::RoleCodes(codes) => {
+                    let ids = load_role_ids_by_code(ex, &codes, &mut trace).await?;
+                    out.push(SourcePlan::Roles(ids));
+                }
+            }
         }
-        SourcePlan::Roles(role_ids) => {
-            candidates = load_role_members(ex, role_ids).await?;
-            trace.push(format!(
-                "ROLE 展开 {} 行（角色 {} 个）",
-                candidates.len(),
-                role_ids.len()
-            ));
-        }
-        SourcePlan::Initiator => {
-            candidates = load_users(ex, &[ctx.initiator_id], AssigneeKind::Initiator).await?;
-            trace.push(format!("INITIATOR 命中 {} 行", candidates.len()));
-        }
-        SourcePlan::InitiatorSuperior(levels) => {
-            candidates = load_superior(ex, ctx, *levels, &mut trace).await?;
-        }
-        SourcePlan::DeptLeaders(dept_ids) => {
-            let dept_ids = if dept_ids.is_empty() {
-                ctx.initiator_dept_id.into_iter().collect::<Vec<_>>()
-            } else {
-                dept_ids.clone()
-            };
-            candidates = load_dept_leaders(ex, &dept_ids).await?;
-            trace.push(format!(
-                "DEPT_LEADER 命中 {} 行（部门 {} 个）",
-                candidates.len(),
-                dept_ids.len()
-            ));
-        }
-        SourcePlan::TaskParty(party) => {
-            let ids = task_party_ids(ex, ctx, *party).await?;
-            candidates = load_users(ex, &ids, task_source(*party)).await?;
-            trace.push(format!(
-                "{} 命中 {} 行（biz_type={} / biz_id={}）",
-                task_source(*party).as_str(),
-                candidates.len(),
-                ctx.biz_type,
-                ctx.biz_id.map(|id| id.to_string()).unwrap_or_default()
-            ));
-        }
-        SourcePlan::FormVar(key) => {
-            let ids = form_var_ids(&ctx.form_data, key);
-            candidates = load_users(ex, &ids, AssigneeKind::FormVar).await?;
-            trace.push(format!("FORM_VAR({key}) 命中 {} 行", candidates.len()));
-        }
-        SourcePlan::Admins => {
-            candidates = load_admins(ex).await?;
-            trace.push(format!("ADMIN 命中 {} 行", candidates.len()));
-        }
-        SourcePlan::Unsupported(raw) => {
+        trace.push(format!("EXPRESSION 展开成 {} 个来源计划", out.len()));
+        out
+    } else {
+        vec![plan_of(node)]
+    };
+
+    // ② 逐一查人（三层去重的第 1 层在下一步 `finalize()` 里，逐字未改）
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for plan in &plans {
+        if let SourcePlan::Unsupported(raw) = plan {
             return Ok(Resolution {
                 finalized: Finalized {
                     error: Some(ApiError::new(
                         501,
                         error_code::FLOW_EXPRESSION_UNSUPPORTED,
-                        format!("审批人来源 {raw} 在本期未实现（动态表达式属 P1）"),
+                        format!("审批人来源 {raw} 不支持（未配置 / 取值不认识）"),
                     )),
                     notes: vec![format!("节点 {} 的 assignee_type={raw} 不支持", node.key)],
                     ..Finalized::default()
@@ -558,9 +643,10 @@ pub async fn resolve(
                 trace,
             });
         }
+        candidates.extend(load_plan(ex, plan, ctx, &mut trace).await?);
     }
 
-    // 名字快照：没查到用户（软删）的人不会出现在候选里，这里只对「查到了」的补 trace
+    // ③ 名字快照：没查到用户（软删）的人不会出现在候选里，这里只对「查到了」的补 trace
     trace.push(format!("候选 {} 人（去重前）", candidates.len()));
     let mut finalized = finalize(
         candidates.clone(),
@@ -569,6 +655,7 @@ pub async fn resolve(
         node.allow_robot,
         ctx.initiator_id,
     );
+    finalized.rule_id = rule_id;
     trace.push(format!(
         "去重 + 策略后：待办 {} 行 / SKIPPED 留痕 {} 行 / 自动通过={}",
         finalized.approvers.len(),
@@ -594,6 +681,144 @@ pub async fn resolve(
     }
 
     Ok(Resolution { finalized, trace })
+}
+
+/// 执行一条来源计划（**逐字搬运** D2 的 9 个分支，逻辑零改动）。
+///
+/// 抽出来只为让 `resolve()` 能跑「一组计划」（`EXPRESSION` 的多个 target），
+/// 单来源节点的行为与抽之前**完全一致**：`Unsupported` 由调用方提前拦截。
+async fn load_plan(
+    ex: &impl SqlExecutor,
+    plan: &SourcePlan,
+    ctx: &InstanceCtx,
+    trace: &mut Vec<String>,
+) -> DbResult<Vec<Candidate>> {
+    let candidates = match plan {
+        SourcePlan::Users(ids) => {
+            let candidates = load_users(ex, ids, AssigneeKind::User).await?;
+            trace.push(format!(
+                "USER 命中 {} 行（配置 {} 个）",
+                candidates.len(),
+                ids.len()
+            ));
+            candidates
+        }
+        SourcePlan::Roles(role_ids) => {
+            let candidates = load_role_members(ex, role_ids).await?;
+            trace.push(format!(
+                "ROLE 展开 {} 行（角色 {} 个）",
+                candidates.len(),
+                role_ids.len()
+            ));
+            candidates
+        }
+        SourcePlan::Initiator => {
+            let candidates = load_users(ex, &[ctx.initiator_id], AssigneeKind::Initiator).await?;
+            trace.push(format!("INITIATOR 命中 {} 行", candidates.len()));
+            candidates
+        }
+        SourcePlan::InitiatorSuperior(levels) => load_superior(ex, ctx, *levels, trace).await?,
+        SourcePlan::DeptLeaders(dept_ids) => {
+            let dept_ids = if dept_ids.is_empty() {
+                ctx.initiator_dept_id.into_iter().collect::<Vec<_>>()
+            } else {
+                dept_ids.clone()
+            };
+            let candidates = load_dept_leaders(ex, &dept_ids).await?;
+            trace.push(format!(
+                "DEPT_LEADER 命中 {} 行（部门 {} 个）",
+                candidates.len(),
+                dept_ids.len()
+            ));
+            candidates
+        }
+        SourcePlan::TaskParty(party) => {
+            let ids = task_party_ids(ex, ctx, *party).await?;
+            let candidates = load_users(ex, &ids, task_source(*party)).await?;
+            trace.push(format!(
+                "{} 命中 {} 行（biz_type={} / biz_id={}）",
+                task_source(*party).as_str(),
+                candidates.len(),
+                ctx.biz_type,
+                ctx.biz_id.map(|id| id.to_string()).unwrap_or_default()
+            ));
+            candidates
+        }
+        SourcePlan::FormVar(key) => {
+            let ids = form_var_ids(&ctx.form_data, key);
+            let candidates = load_users(ex, &ids, AssigneeKind::FormVar).await?;
+            trace.push(format!("FORM_VAR({key}) 命中 {} 行", candidates.len()));
+            candidates
+        }
+        SourcePlan::Admins => {
+            let candidates = load_admins(ex).await?;
+            trace.push(format!("ADMIN 命中 {} 行", candidates.len()));
+            candidates
+        }
+        // 调用方在循环里提前 `return`，这里只兜底（不查库、不记 trace）
+        SourcePlan::Unsupported(_) => Vec::new(),
+    };
+    Ok(candidates)
+}
+
+/// 角色编码 → 角色 id（`EXPRESSION` 的 `ROLE` 目标专用，§8.3 方案 B）。
+///
+/// # 两条必须做对的事
+///
+/// 1. **必须带 `deleted_at IS NULL`**：`sys_role.role_code` 的唯一性是**部分唯一索引**
+///    （`WHERE deleted_at IS NULL`），不带这个谓词可能命中已删的同名角色；
+/// 2. **查不到不算错**：code 不存在 = 运维态（角色被删/改名），这一条 target 解析出 0 人 →
+///    走 `empty_assignee` 策略并记 trace，**不是** 501（那是「代码不认识的数据」才有的待遇）。
+async fn load_role_ids_by_code(
+    ex: &impl SqlExecutor,
+    codes: &[String],
+    trace: &mut Vec<String>,
+) -> DbResult<Vec<Uuid>> {
+    if codes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let body = codes.join(",");
+    let rows = ex
+        .query_sql(
+            "SELECT id, role_code FROM sys_role \
+              WHERE role_code = ANY(?::text::text[]) AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::Text(format!("{{{body}}}"))],
+        )
+        .await?;
+
+    let mut found: std::collections::HashMap<String, Uuid> = std::collections::HashMap::new();
+    for row in &rows {
+        let code: String = row.get_typed("role_code")?;
+        let id: Uuid = row.get_typed("id")?;
+        found.insert(code, id);
+    }
+
+    let mut ids: Vec<Uuid> = Vec::with_capacity(codes.len());
+    let mut missing: Vec<&str> = Vec::new();
+    for code in codes {
+        match found.get(code) {
+            Some(id) => {
+                if !ids.contains(id) {
+                    ids.push(*id);
+                }
+            }
+            None => missing.push(code.as_str()),
+        }
+    }
+    trace.push(format!(
+        "ROLE code→id：{} 个编码命中 {} 个角色（请求 {} 个）",
+        codes.len() - missing.len(),
+        ids.len(),
+        codes.len()
+    ));
+    if !missing.is_empty() {
+        trace.push(format!(
+            "角色编码不存在（已被删除或改名）：{} → 该来源解析 0 人",
+            missing.join("、")
+        ));
+    }
+    Ok(ids)
 }
 
 fn task_source(party: TaskParty) -> AssigneeKind {
@@ -886,6 +1111,8 @@ pub fn source_label(source: AssigneeKind) -> &'static str {
         AssigneeKind::TaskAssigner => "任务分派人",
         AssigneeKind::FormVar => "表单变量",
         AssigneeKind::Admin => "平台管理员",
+        // 表达式命中的候选 source 永远是**底层来源**（D-E5），这一支只在防御性展示时用到
+        AssigneeKind::Expression => "表达式",
     }
 }
 
@@ -1262,5 +1489,414 @@ mod tests {
             Value::Text(text) => assert!(text.starts_with('{') && text.contains(',')),
             other => panic!("必须是文本字面量，实际 {other:?}"),
         }
+    }
+}
+
+// ==================== EXPRESSION 单测（批次 D · P1-A2） ====================
+
+/// EXPRESSION 分支的单测（独立模块：不动既有的 8 来源 / 三层去重用例）。
+///
+/// 覆盖卡面「二、单测要求 ①」的 6 条 + 政策矩阵与 trace 断言：
+/// 命中第一条 / 首条即定 / 无命中三策略 / 求值出错 / 命中但 0 人 / 底层来源 / 规则 id。
+#[cfg(test)]
+mod expression_tests {
+    use super::*;
+    use serde_json::json;
+
+    const FINANCE: &str = "FINANCE_DIRECTOR";
+
+    fn uid(n: u128) -> Uuid {
+        Uuid::from_u128(n)
+    }
+
+    /// `form.amount > 10000` → 财务总监；`form.amount >= 0` → 指定用户；`otherwise` → 发起人。
+    fn expression_json() -> Json {
+        json!({
+            "version": 1,
+            "rules": [
+                {
+                    "id": "r_big",
+                    "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 10000},
+                    "then": [{"type": "ROLE", "role_codes": [FINANCE]}]
+                },
+                {
+                    "id": "r_small",
+                    "when": {"op": "cmp", "field": "form.amount", "cmp": "gte", "value": 0},
+                    "then": [{"type": "USER", "user_ids": [uid(9).to_string()]}]
+                }
+            ],
+            "otherwise": [{"type": "INITIATOR"}]
+        })
+    }
+
+    fn config(expression: Json) -> Json {
+        json!({ "expression": expression })
+    }
+
+    fn eval(amount: Option<i64>) -> EvalContext {
+        let mut ctx = EvalContext::default();
+        if let Some(amount) = amount {
+            ctx.form.insert("amount".to_string(), json!(amount));
+        }
+        ctx
+    }
+
+    fn resolve_ctx() -> ResolveContext {
+        ResolveContext {
+            initiator_dept_id: Some(uid(8)),
+        }
+    }
+
+    // ---------- ① 命中第一条规则 → 用该规则的 then 目标 ----------
+
+    #[test]
+    fn expression_hits_first_rule_and_uses_its_then() {
+        let plans = expression_plans(
+            &config(expression_json()),
+            &eval(Some(12000)),
+            &resolve_ctx(),
+        )
+        .expect("合法表达式必须解析成功");
+
+        assert_eq!(
+            plans.rule_id.as_deref(),
+            Some("r_big"),
+            "金额 1.2 万必须命中第一条规则 r_big"
+        );
+        assert_eq!(plans.targets.len(), 1, "r_big 只有一个 target");
+        assert_eq!(
+            plans.targets[0],
+            ResolvedTarget::RoleCodes(vec![FINANCE.to_string()]),
+            "ROLE 必须翻译成 RoleCodes（code→id 的查询在 assignee.rs 里做，§8.3 方案 B）"
+        );
+        assert!(
+            plans
+                .trace
+                .iter()
+                .any(|line| line.contains("命中规则 r_big")),
+            "trace 必须记录命中了哪条规则（排障「为什么是他」），实际 {:#?}",
+            plans.trace
+        );
+    }
+
+    #[test]
+    fn expression_first_hit_wins_and_later_rules_are_not_consulted() {
+        // amount=12000 同时满足 r_big 与 r_small；**首条即定**，不许被后者覆盖。
+        let plans = expression_plans(
+            &config(expression_json()),
+            &eval(Some(12000)),
+            &resolve_ctx(),
+        )
+        .expect("合法表达式必须解析成功");
+        assert_eq!(plans.rule_id.as_deref(), Some("r_big"));
+        assert!(
+            !plans.trace.iter().any(|line| line.contains("r_small")),
+            "r_small 根本不该被求值（短路 + 首条即定），实际 {:#?}",
+            plans.trace
+        );
+    }
+
+    #[test]
+    fn expression_falls_through_to_second_rule_when_first_fails() {
+        let plans = expression_plans(&config(expression_json()), &eval(Some(10)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
+        assert_eq!(
+            plans.rule_id.as_deref(),
+            Some("r_small"),
+            "金额 10 不满足 r_big，必须落到第二条规则"
+        );
+        assert_eq!(
+            plans.targets,
+            vec![ResolvedTarget::Plan(SourcePlan::Users(vec![uid(9)]))]
+        );
+    }
+
+    // ---------- ② 无命中 → 走 empty_assignee（SKIP / ERROR / FALLBACK_ADMIN） ----------
+
+    fn no_match_expression() -> Json {
+        json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_never",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 999999},
+                "then": [{"type": "ROLE", "role_codes": [FINANCE]}]
+            }]
+        })
+    }
+
+    #[test]
+    fn expression_no_match_without_otherwise_yields_no_target() {
+        let plans = expression_plans(
+            &config(no_match_expression()),
+            &eval(Some(1)),
+            &resolve_ctx(),
+        )
+        .expect("合法表达式必须解析成功");
+        assert_eq!(plans.rule_id, None, "没有命中任何规则 → 没有 rule_id");
+        assert!(plans.targets.is_empty(), "没有 otherwise → 0 个目标");
+        assert!(
+            plans
+                .trace
+                .iter()
+                .any(|line| line.contains("无规则命中且无兜底")),
+            "trace 必须写明「无规则命中且无兜底 → 空审批人」，实际 {:#?}",
+            plans.trace
+        );
+    }
+
+    #[test]
+    fn expression_no_match_follows_empty_policy_skip() {
+        // 目标为空 → 候选为空 → finalize 走 empty_assignee=SKIP（自动通过并计数）
+        let finalized = finalize(
+            Vec::new(),
+            SelfPolicy::Skip,
+            EmptyPolicy::Skip,
+            false,
+            uid(1),
+        );
+        assert!(finalized.auto_pass, "SKIP 必须自动通过");
+        assert!(finalized.node_is_skipped(), "没有 error ⇒ 节点跳过");
+        assert_eq!(finalized.rule_id, None);
+    }
+
+    #[test]
+    fn expression_no_match_follows_empty_policy_error() {
+        let finalized = finalize(
+            Vec::new(),
+            SelfPolicy::Skip,
+            EmptyPolicy::Error,
+            false,
+            uid(1),
+        );
+        let error = finalized
+            .error
+            .as_ref()
+            .expect("ERROR 策略必须给出业务拒绝");
+        assert_eq!(error.code, error_code::FLOW_NO_ASSIGNEE);
+        assert_eq!(error.status, 422);
+        assert!(!finalized.node_is_skipped(), "ERROR 不许静默跳过");
+    }
+
+    #[test]
+    fn expression_no_match_follows_empty_policy_fallback_admin() {
+        let finalized = finalize(
+            Vec::new(),
+            SelfPolicy::Skip,
+            EmptyPolicy::FallbackAdmin,
+            false,
+            uid(1),
+        );
+        assert!(finalized.fallback_admin, "FALLBACK_ADMIN 必须标记回退超管");
+        assert!(finalized.error.is_none());
+    }
+
+    // ---------- ③ 求值出错（字段缺失）→ 不算命中 ----------
+
+    #[test]
+    fn expression_eval_error_is_treated_as_not_matched() {
+        let broken = json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_missing",
+                "when": {"op": "cmp", "field": "form.not_filled", "cmp": "gt", "value": 1},
+                "then": [{"type": "ROLE", "role_codes": [FINANCE]}]
+            }],
+            "otherwise": [{"type": "INITIATOR"}]
+        });
+        let plans = expression_plans(&config(broken), &eval(Some(1)), &resolve_ctx())
+            .expect("字段缺失不是解析错，必须照常返回");
+
+        assert_eq!(
+            plans.rule_id.as_deref(),
+            Some(expression::OTHERWISE_RULE_ID),
+            "求值出错 = 该规则不成立，必须继续走下去（落到 otherwise）"
+        );
+        assert_eq!(
+            plans.targets,
+            vec![ResolvedTarget::Plan(SourcePlan::Initiator)]
+        );
+        assert!(
+            plans
+                .trace
+                .iter()
+                .any(|line| line.contains("求值失败") && line.contains("r_missing")),
+            "失败必须留痕（S4 失败不静默），实际 {:#?}",
+            plans.trace
+        );
+    }
+
+    // ---------- ④ 命中但查出 0 人 → 走 empty_assignee，**不顺延**（D-E6） ----------
+
+    #[test]
+    fn expression_hit_but_zero_people_does_not_fall_through() {
+        // amount=12000 命中 r_big（财务总监），但假设该角色 0 成员 → 候选为空。
+        // D-E6：**不顺延到 r_small**，直接走 empty_assignee，并保留 r_big 作为 rule_id。
+        let plans = expression_plans(
+            &config(expression_json()),
+            &eval(Some(12000)),
+            &resolve_ctx(),
+        )
+        .expect("合法表达式必须解析成功");
+        assert_eq!(plans.rule_id.as_deref(), Some("r_big"));
+        assert_eq!(plans.targets.len(), 1, "目标存在（只是查不出人）");
+
+        let finalized = finalize(
+            Vec::new(), // ← 模拟「ROLE 展开 0 行」
+            SelfPolicy::Skip,
+            EmptyPolicy::Skip,
+            false,
+            uid(1),
+        );
+        assert!(finalized.auto_pass, "0 人 → 走 empty_assignee=SKIP");
+        let mut finalized = finalized;
+        finalized.rule_id = plans.rule_id.clone();
+        assert_eq!(
+            finalized.rule_id.as_deref(),
+            Some("r_big"),
+            "命中但 0 人时，rule_id 必须留着（审计要能看出走的是哪条规则）"
+        );
+    }
+
+    // ---------- ⑤ assignee_source 写底层来源，不写 EXPRESSION ----------
+
+    #[test]
+    fn expression_candidates_keep_underlying_source() {
+        // 表达式命中 ROLE → 待办行的 assignee_source 必须是 ROLE（不是 EXPRESSION）
+        let candidates =
+            vec![Candidate::new(uid(2), "财务总监", AssigneeKind::Role).with_ref(Some(uid(7)))];
+        let finalized = finalize(
+            candidates,
+            SelfPolicy::Allow,
+            EmptyPolicy::Skip,
+            false,
+            uid(1),
+        );
+        assert_eq!(finalized.approvers.len(), 1);
+        assert_eq!(
+            finalized.approvers[0].source,
+            AssigneeKind::Role,
+            "assignee_source 必须是底层来源（D-E5 注：source_label / 详情页 / 抄送零改动）"
+        );
+        assert_eq!(finalized.approvers[0].source.as_str(), "ROLE");
+        assert_ne!(
+            finalized.approvers[0].source,
+            AssigneeKind::Expression,
+            "绝不能把 EXPRESSION 写进 assignee_source（库 CHECK 也不认）"
+        );
+    }
+
+    // ---------- ⑥ 表达式缺失 / 保留词 ----------
+
+    #[test]
+    fn expression_missing_config_is_unsupported_501() {
+        let error = expression_plans(
+            &Json::Object(Default::default()),
+            &eval(Some(1)),
+            &resolve_ctx(),
+        )
+        .expect_err("EXPRESSION 节点没有 config.expression 必须报错，不能当空审批人");
+        assert_eq!(error.status, 501);
+        assert_eq!(error.code, error_code::FLOW_EXPRESSION_UNSUPPORTED);
+        assert!(
+            error.msg.contains("expression"),
+            "文案要点名缺什么：{}",
+            error.msg
+        );
+    }
+
+    #[test]
+    fn expression_prev_approver_is_rejected_with_65033() {
+        let reserved = json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_prev",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 1},
+                "then": [{"type": "PREV_APPROVER"}]
+            }]
+        });
+        let error = expression_plans(&config(reserved), &eval(Some(5)), &resolve_ctx())
+            .expect_err("保留词 PREV_APPROVER 必须被拒");
+        assert_eq!(
+            error.status, 400,
+            "运行期透传 400（发布期就该拦，这里只兜底）"
+        );
+        assert_eq!(error.code, error_code::FLOW_EXPRESSION_INVALID);
+        assert!(error.msg.contains("PREV_APPROVER"), "{}", error.msg);
+    }
+
+    #[test]
+    fn expression_invalid_structure_is_501_with_reason() {
+        let bad = json!({"version": 99, "rules": []});
+        let error = expression_plans(&config(bad), &eval(Some(1)), &resolve_ctx())
+            .expect_err("版本不认识必须报错");
+        assert_eq!(error.status, 501);
+        assert_eq!(error.code, error_code::FLOW_EXPRESSION_UNSUPPORTED);
+    }
+
+    // ---------- 目标翻译 / 来源识别 ----------
+
+    #[test]
+    fn expression_targets_translate_to_existing_query_plans() {
+        let expr = json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_mix",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 1},
+                "then": [
+                    {"type": "USER", "user_ids": [uid(9).to_string()]},
+                    {"type": "DEPT_LEADER"},
+                    {"type": "INITIATOR_SUPERIOR", "levels": 2},
+                    {"type": "ADMIN"}
+                ]
+            }]
+        });
+        let plans = expression_plans(&config(expr), &eval(Some(5)), &resolve_ctx())
+            .expect("合法表达式必须解析成功");
+        assert_eq!(
+            plans.targets,
+            vec![
+                ResolvedTarget::Plan(SourcePlan::Users(vec![uid(9)])),
+                // DEPT_LEADER 未指定部门 → 回落发起人部门（§3.5）
+                ResolvedTarget::Plan(SourcePlan::DeptLeaders(vec![uid(8)])),
+                ResolvedTarget::Plan(SourcePlan::InitiatorSuperior(2)),
+                ResolvedTarget::Plan(SourcePlan::Admins),
+            ],
+            "多个 target = 并集，顺序必须保持 JSON 数组顺序（影响 finalize 的去重优先级）"
+        );
+    }
+
+    #[test]
+    fn is_expression_recognizes_case_and_rejects_others() {
+        let mut spec = SnapshotNode {
+            key: "n1".to_string(),
+            name: "审批".to_string(),
+            node_type: "APPROVAL".to_string(),
+            assignee_type: Some(" expression ".to_string()),
+            approval_mode: None,
+            approve_ratio: None,
+            reject_veto: false,
+            join_mode: "AND".to_string(),
+            fork_mode: "AND".to_string(),
+            form_var_key: None,
+            superior_levels: 1,
+            empty_assignee: "SKIP".to_string(),
+            self_approval: "SKIP".to_string(),
+            allow_robot: false,
+            timeout_hours: None,
+            timeout_action: "REMIND".to_string(),
+            remind_before_hours: None,
+            max_remind_times: 3,
+            cc_on_approved: false,
+            x: 0,
+            y: 0,
+            sort_order: 0,
+            config: Json::Object(Default::default()),
+            assignees: Vec::new(),
+        };
+        assert!(is_expression(&spec), "大小写 + 空格必须识别为 EXPRESSION");
+        spec.assignee_type = Some("ROLE".to_string());
+        assert!(!is_expression(&spec));
+        spec.assignee_type = None;
+        assert!(!is_expression(&spec), "没配来源不是表达式");
     }
 }

@@ -23,12 +23,15 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use nik::ApiError;
 use nik::prelude::chrono;
 
+use crate::business::flow::expression;
 use crate::business::flow::graph::{
-    ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue, NodeSpec,
-    NodeType,
+    self, ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue,
+    NodeSpec, NodeType,
 };
+use crate::shared::error_code;
 
 // ==================== 常量 ====================
 
@@ -468,7 +471,7 @@ impl GraphSaveReq {
                 Some(text) if text.trim().is_empty() => None,
                 Some(text) => Some(AssigneeKind::parse(text).ok_or_else(|| {
                     format!(
-                        "节点 {key} 的审批人来源 {text} 非法（只允许 USER/ROLE/INITIATOR/INITIATOR_SUPERIOR/DEPT_LEADER/TASK_OWNER/TASK_CREATOR/TASK_ASSIGNER/FORM_VAR/ADMIN）"
+                        "节点 {key} 的审批人来源 {text} 非法（只允许 USER/ROLE/INITIATOR/INITIATOR_SUPERIOR/DEPT_LEADER/TASK_OWNER/TASK_CREATOR/TASK_ASSIGNER/FORM_VAR/ADMIN/EXPRESSION）"
                     )
                 })?),
             };
@@ -662,6 +665,54 @@ fn parse_gateway(raw: Option<&str>, label: &str, node_key: &str) -> Result<Gatew
         Some(text) => GatewayMode::parse(text)
             .ok_or_else(|| format!("节点 {node_key} 的{label} {text} 非法（只允许 AND/OR）")),
     }
+}
+
+/// 保存期的表达式审批人校验（批次 D · P1-A2 / EXPRESSION DSL §8.5）。
+///
+/// # 为什么保存期就要校验（违反「编辑期不做完整性校验」的惯例）
+///
+/// 惯例的理由是「编辑过程中图必然不完整」（没有 END、没有连边）。这条理由对**图**成立，
+/// 但对**表达式不成立**：一条规则要么完整要么不完整，不存在「中间态」—— 用户在弹窗里点
+/// 「确定」时那条规则就该是合法的。反例同 `RATIO` 会签阈值（保存期就校验），理由一致：
+/// 库侧 `ck_biz_flow_node_expression` 只兜底「有没有」，**结构错必须应用层给中文文案**，
+/// 否则用户拿到的是 500「服务器内部错误」。
+///
+/// # 与发布期 R16 的分工（卡面 / §5.5 第 ①② 层）
+///
+/// | 时机 | 校验 | 码 |
+/// |---|---|---|
+/// | 保存（本函数） | 只做**结构**校验（存在性 / 上限 / 字段白名单 / 规则 id） | `65016` |
+/// | 发布（`FlowGraph::validate` 的 R16） | 同一实现 + **额外拒 `PREV_APPROVER`** | `65016` / `65033` |
+///
+/// 保存期**不**专门拒 `PREV_APPROVER`（让用户先能存草稿）；但保留词连结构解析都过不去，
+/// 所以这条分支显式放行：草稿可以存，**发布期一定用 `65033` 拦住**（D-E8：不许「存进去、跑起来才炸」）。
+///
+/// # 异常情况
+///
+/// 返回 `ApiError`（`400` + `65016`，文案已点名节点与具体原因）。
+pub fn validate_expression_nodes(graph: &FlowGraph) -> Result<(), ApiError> {
+    for node in &graph.nodes {
+        if node.assignee_type != Some(AssigneeKind::Expression) {
+            continue;
+        }
+        // 保留词：草稿放行（P2 开放后这份草稿可以直接用），发布期由 R16 给 65033
+        if let Some(value) = node.config.get("expression")
+            && graph::expression_uses_prev_approver(value)
+        {
+            continue;
+        }
+        if let Err(reason) = expression::parse_config(&node.config) {
+            return Err(ApiError::new(
+                400,
+                error_code::FLOW_CONDITION_INVALID,
+                format!(
+                    "节点 {}（{}）的审批人表达式不合法：{reason}",
+                    node.key, node.name
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// 由落行审批人反推「来源类型」，并挡住「一个节点混用多种来源」。
@@ -1832,5 +1883,159 @@ mod tests {
         let graph = req.into_graph().unwrap();
         assert_eq!(graph.nodes[0].config, json!({}));
         assert!(graph.nodes[0].reject_veto, "缺省一票否决为 true");
+    }
+}
+
+// ==================== 保存期表达式校验单测（批次 D · P1-A2） ====================
+
+/// 保存（`PUT /business/flow/version/{vid}/graph`）的表达式结构校验。
+#[cfg(test)]
+mod expression_tests {
+    use super::*;
+    use crate::shared::error_code;
+    use serde_json::json;
+
+    fn save_req(expression: serde_json::Value) -> GraphSaveReq {
+        let body = json!({
+            "nodes": [
+                {"key": "n_start", "name": "开始", "type": "START"},
+                {
+                    "key": "n_approve",
+                    "name": "财务审批",
+                    "type": "APPROVAL",
+                    "assignee_type": "EXPRESSION",
+                    "config": {"expression": expression}
+                },
+                {"key": "n_end", "name": "结束", "type": "END"}
+            ],
+            "edges": [
+                {"key": "e1", "from": "n_start", "to": "n_approve"},
+                {"key": "e2", "from": "n_approve", "to": "n_end"}
+            ]
+        });
+        serde_json::from_value(body).expect("GraphSaveReq 必须能反序列化")
+    }
+
+    fn ok_expression() -> serde_json::Value {
+        json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_big",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 10000},
+                "then": [{"type": "ROLE", "role_codes": ["FINANCE_DIRECTOR"]}]
+            }]
+        })
+    }
+
+    #[test]
+    fn save_accepts_expression_assignee_type() {
+        let graph = save_req(ok_expression())
+            .into_graph()
+            .expect("EXPRESSION 必须是合法来源");
+        let node = graph.node("n_approve").expect("节点必须存在");
+        assert_eq!(
+            node.assignee_type,
+            Some(AssigneeKind::Expression),
+            "保存期必须接受 EXPRESSION（历史文案只列 10 种，用户会拿到自相矛盾的报错）"
+        );
+        assert!(node.assignees.is_empty(), "EXPRESSION 不落审批人行");
+        assert!(
+            validate_expression_nodes(&graph).is_ok(),
+            "合法表达式必须放行"
+        );
+    }
+
+    #[test]
+    fn save_rejects_expression_without_expression_65016() {
+        let graph = save_req(serde_json::Value::Null)
+            .into_graph()
+            .expect("结构层不该拦（由表达式校验给中文原因）");
+        let error = validate_expression_nodes(&graph).expect_err("没有 expression 必须报错");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::FLOW_CONDITION_INVALID);
+        assert_eq!(error.code, 65016);
+        assert!(
+            error.msg.contains("n_approve") && error.msg.contains("expression"),
+            "文案要点名节点 + 缺什么：{}",
+            error.msg
+        );
+    }
+
+    #[test]
+    fn save_rejects_invalid_expression_json_65016() {
+        // rules 不是数组 ⇒ 结构非法
+        let graph = save_req(json!({"version": 1, "rules": "not-an-array"}))
+            .into_graph()
+            .expect("结构层不该拦");
+        let error = validate_expression_nodes(&graph).expect_err("结构非法必须报错");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, 65016);
+        assert!(
+            error.msg.contains("rules"),
+            "必须带上 §3.4 的结构原因：{}",
+            error.msg
+        );
+    }
+
+    #[test]
+    fn save_rejects_expression_over_limits_65016() {
+        // 17 条规则 > MAX_EXPR_RULES(16)：上限必须在保存期给中文原因，而不是让库 CHECK 变 500
+        let mut rules = Vec::new();
+        for index in 0..17 {
+            rules.push(json!({
+                "id": format!("r_{index}"),
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": index},
+                "then": [{"type": "INITIATOR"}]
+            }));
+        }
+        let graph = save_req(json!({"version": 1, "rules": rules}))
+            .into_graph()
+            .expect("结构层不该拦");
+        let error = validate_expression_nodes(&graph).expect_err("超过 16 条必须报错");
+        assert_eq!(error.code, 65016);
+        assert!(error.msg.contains("16"), "{}", error.msg);
+    }
+
+    #[test]
+    fn save_allows_prev_approver_draft_but_publish_rejects_it() {
+        // 卡面：保存期只做结构校验，**不**专门拒 PREV_APPROVER（让用户先能存草稿）；
+        // 发布期 R16 才用 65033 拒（D-E8：不许「存进去、跑起来才炸」）。
+        let expression = json!({
+            "version": 1,
+            "rules": [{
+                "id": "r_prev",
+                "when": {"op": "cmp", "field": "form.amount", "cmp": "gt", "value": 1},
+                "then": [{"type": "PREV_APPROVER"}]
+            }]
+        });
+        let graph = save_req(expression).into_graph().expect("结构层不该拦");
+        assert!(
+            validate_expression_nodes(&graph).is_ok(),
+            "保留词的草稿必须能存（P2 开放后这份草稿直接可用）"
+        );
+        // 但发布期必须拒，且是 65033 而不是 65016
+        let issues = graph.expression_issues();
+        assert_eq!(issues.len(), 1, "{issues:#?}");
+        assert_eq!(issues[0].code, error_code::FLOW_EXPRESSION_INVALID);
+        assert_eq!(issues[0].code, 65033);
+    }
+
+    #[test]
+    fn save_does_not_require_expression_on_static_nodes() {
+        // 静态来源节点（config 里没有 expression）必须照常放行 —— 校验只对 EXPRESSION 生效
+        let body = json!({
+            "nodes": [
+                {"key": "n_start", "name": "开始", "type": "START"},
+                {"key": "n_approve", "name": "主管审批", "type": "APPROVAL", "assignee_type": "INITIATOR_SUPERIOR"},
+                {"key": "n_end", "name": "结束", "type": "END"}
+            ],
+            "edges": [
+                {"key": "e1", "from": "n_start", "to": "n_approve"},
+                {"key": "e2", "from": "n_approve", "to": "n_end"}
+            ]
+        });
+        let graph: GraphSaveReq = serde_json::from_value(body).unwrap();
+        let graph = graph.into_graph().expect("静态来源必须放行");
+        assert!(validate_expression_nodes(&graph).is_ok());
     }
 }

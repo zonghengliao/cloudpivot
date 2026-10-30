@@ -1085,6 +1085,7 @@ pub async fn transfer(
             comment: None,
             due_at: task.due_at,
             transferred_from: Some(task.id),
+            assignee_rule_id: None,
         },
     )
     .await;
@@ -1242,6 +1243,7 @@ pub async fn add_sign(
                 comment: None,
                 due_at: task.due_at,
                 transferred_from: None,
+                assignee_rule_id: None,
             },
         )
         .await;
@@ -1512,8 +1514,11 @@ impl<'a> Run<'a> {
             }
             NodeType::Cc => {
                 let ctx = self.instance.assignee_ctx();
+                // EXPRESSION 节点的 `when` 与条件边共用同一个求值上下文（含 F1 补齐的 11 个白名单字段）；
+                // 静态来源节点不读它，多算一次只为让两条分支的写法一致（不引入第二份上下文构造器）。
+                let eval = self.eval_context().await?;
                 let Resolution { finalized, trace } =
-                    assignee::resolve(self.ex, &spec, &ctx).await?;
+                    assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
@@ -1559,8 +1564,9 @@ impl<'a> Run<'a> {
             }
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
+                let eval = self.eval_context().await?;
                 let Resolution { finalized, trace } =
-                    assignee::resolve(self.ex, &spec, &ctx).await?;
+                    assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
@@ -1600,6 +1606,7 @@ impl<'a> Run<'a> {
                             ),
                             due_at: None,
                             transferred_from: None,
+                            assignee_rule_id: finalized.rule_id.clone(),
                         },
                     )
                     .await;
@@ -1652,6 +1659,7 @@ impl<'a> Run<'a> {
                             comment: None,
                             due_at: None,
                             transferred_from: None,
+                            assignee_rule_id: finalized.rule_id.clone(),
                         },
                     )
                     .await;
@@ -2023,6 +2031,7 @@ impl<'a> Run<'a> {
                     comment: Some(format!("被驳回，请修改后重新提交：{comment}")),
                     due_at: None,
                     transferred_from: None,
+                    assignee_rule_id: None,
                 },
             )
             .await;

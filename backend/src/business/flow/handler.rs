@@ -748,6 +748,12 @@ pub async fn save_graph(
     }
 
     let graph = req.into_graph().map_err(field_invalid)?;
+    // 保存期：表达式审批人的**结构**校验（400 + `65016`，P1-A2 / EXPRESSION-DSL §8.5）。
+    //
+    // 必须在这里拦：库侧 `ck_biz_flow_node_expression` 只兜底「有没有 expression」，
+    // 结构错交给库的话用户拿到的是 500「服务器内部错误」（没有一句中文原因）。
+    // 发布期还有 R16 做双保险（并额外拒 `PREV_APPROVER` → `65033`，D-E8）。
+    dto::validate_expression_nodes(&graph)?;
     let change_note = req.normalized_change_note();
     let node_count = graph.nodes.len() as i64;
     let edge_count = graph.edges.len() as i64;
