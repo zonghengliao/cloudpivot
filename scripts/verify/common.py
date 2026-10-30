@@ -434,15 +434,16 @@ def sweep(ctx, since_ts, verbose=True):
          "update biz_flow_instance set status='CANCELLED', ended_at=coalesce(ended_at, now()) "
          "where ended_at is null and created_at >= '%s'::timestamptz" % since_ts),
         ("取消遗留待办",
-         "update biz_flow_task set status='CANCELLED' "
+         "update biz_flow_task set status='CANCELLED', completed_at=coalesce(completed_at, now()) "
          "where status='PENDING' and instance_id in (select id from biz_flow_instance "
-         "where ended_at is not null and status='CANCELLED' and created_at >= '%s'::timestamptz)" % since_ts),
+         "where ended_at is not null and status='CANCELLED')"),
         ("清孤儿 AI 任务令牌",
          "delete from biz_task_ai_token t where not exists "
          "(select 1 from biz_task x where x.id=t.task_id and x.deleted_at is null)"),
-        ("软删运行期 TODO 通知",
+        ("软删运行期通知",
          "update sys_notice set deleted_at=now() "
-         "where deleted_at is null and notice_type='TODO' and created_at >= '%s'::timestamptz" % since_ts),
+         "where deleted_at is null and notice_type in ('TODO','SYSTEM','CIRCULAR') "
+         "and created_at >= '%s'::timestamptz" % since_ts),
     ]
     if verbose:
         print("\n【扫尾】清理本次运行窗口内的残留")
