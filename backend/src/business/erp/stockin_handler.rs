@@ -65,6 +65,7 @@ use nik::uuid::Uuid;
 use serde::Serialize;
 
 use crate::business::erp::model;
+use crate::business::erp::payable;
 use crate::business::erp::stockin_dto::{
     CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemRes,
     StockInPageQuery, StockInRes, StockInStatusReq,
@@ -73,6 +74,7 @@ use crate::business::erp::stockin_model::{
     self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED,
     Totals, can_transition, status_label, transition_rejected_message,
 };
+use crate::business::erp::voucher;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -169,6 +171,10 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
                 constraint.as_deref().unwrap_or("<未知>")
             ),
         ),
+        // P2-C1：应付 / 凭证生成失败（科目映射缺失、金额为 0、重复红冲…）都是**业务校验**
+        // 失败，必须 400 + 原文，不能折成 500「服务器内部错误」——否则财务看到的是
+        // 「服务器内部错误」，运维也定位不到是哪个科目没配。
+        DbError::InvalidValue(message) => ApiError::new(400, error_code::PARAM_INVALID, message),
         other => utils::db_error(other, ctx),
     }
 }
@@ -683,25 +689,8 @@ pub async fn change_stock_in_status(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match stockin_model::apply_status(
-        &tx,
-        id,
-        &row.status,
-        STATUS_CANCELLED,
-        reason,
-        operator,
-        now,
-    )
-    .await
-    {
-        Ok(0) => {
-            let _ = tx.rollback().await;
-            Err(conflict(format!(
-                "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
-                row.status
-            )))
-        }
-        Ok(_) => {
+    match cancel_in_tx(&tx, id, &row, reason, operator, now).await {
+        Ok(()) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
@@ -709,9 +698,58 @@ pub async fn change_stock_in_status(
         }
         Err(error) => {
             let _ = tx.rollback().await;
-            Err(write_error(error, "收货入库单状态流转"))
+            Err(error)
         }
     }
+}
+
+/// 作废事务体（P2-C1 补齐）：CAS 改状态 → 红冲凭证 → 应付单作废，**同一个事务**。
+///
+/// ⚠️ 库存**不回退**：卡面 §五 明说本卡只做凭证红冲，库存冲回是后续卡的欠账
+/// （[`stockin_model::apply_status`] 的 `POSTED → CANCELLED` 分支里那条 WARN 仍然保留）。
+async fn cancel_in_tx(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    row: &stockin_model::StockInRow,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let affected =
+        stockin_model::apply_status(ex, id, &row.status, STATUS_CANCELLED, reason, operator, now)
+            .await
+            .map_err(|error| write_error(error, "收货入库单状态流转"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
+            row.status
+        )));
+    }
+
+    if row.status == STATUS_POSTED {
+        // ① 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
+        let red = voucher::reverse_for_stock_in(ex, row, reason, operator, now)
+            .await
+            .map_err(|error| write_error(error, "作废：生成红字凭证"))?;
+        // ② 应付单 → CANCELLED
+        payable::cancel_for_stock_in(ex, id, operator, now)
+            .await
+            .map_err(|error| write_error(error, "作废：应付单作废"))?;
+        match red {
+            Some(red_id) => tracing::info!(
+                stock_in_id = %id,
+                in_no = %row.in_no,
+                red_voucher_id = %red_id,
+                "收货单作废：已生成红字凭证（金额借贷互换 = 原凭证取负），应付单已作废"
+            ),
+            None => tracing::warn!(
+                stock_in_id = %id,
+                in_no = %row.in_no,
+                "收货单作废：没有找到原凭证（历史数据），只作废了应付单"
+            ),
+        }
+    }
+    Ok(())
 }
 
 /// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
@@ -909,6 +947,28 @@ async fn post_in_tx(
             .await
             .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
     }
+
+    // ⑦ 应付单 + 凭证（P2-C1，方案 A：入库即生成；**同一事务**，失败整单回滚）
+    //    金额全部取自单头（header.total_*），不重算（硬红线 5）。
+    //    顺序：先凭证（应付要引用 voucher_id）→ 再应付 → 最后回写收货单两列。
+    let first_material = ordered.first().map(|item| item.material_id);
+    let voucher_id = voucher::create_for_stock_in(ex, &locked, first_material, operator, now)
+        .await
+        .map_err(|error| write_error(error, "过账：生成凭证"))?;
+    let payable_id = payable::create_for_stock_in(ex, &locked, Some(voucher_id), operator, now)
+        .await
+        .map_err(|error| write_error(error, "过账：生成应付单"))?;
+    stockin_model::link_voucher_and_payable(ex, id, voucher_id, payable_id, now)
+        .await
+        .map_err(|error| write_error(error, "过账：回写凭证/应付引用"))?;
+    tracing::info!(
+        stock_in_id = %id,
+        in_no = %locked.in_no,
+        voucher_id = %voucher_id,
+        payable_id = %payable_id,
+        total_with_tax = %locked.total_with_tax,
+        "收货过账：已生成应付单与凭证（借存货 + 借进项税 / 贷应付）"
+    );
     Ok(())
 }
 

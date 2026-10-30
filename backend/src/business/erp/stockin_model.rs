@@ -1386,6 +1386,33 @@ pub async fn material_serial_required(material_id: Uuid) -> DbResult<Option<bool
 //
 // 真库用例在 `stockin_handler::tests`（需要 `ERP_DB_URL`）；这里放**不依赖数据库**的口径与状态机，
 // 保证「没配 ERP_DB_URL 的 CI」也能覆盖成本口径与 3 条合法边。
+/// 回写凭证 / 应付单引用（P2-C1：入库即生成）。
+///
+/// `voucher_id` / `payable_id` 是**弱引用**（V0145 建表时就有这两列、可空、无外键），
+/// 由过账事务在同一 `ex` 里回写（卡面 §三 ⑤）。
+pub async fn link_voucher_and_payable(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    voucher_id: Uuid,
+    payable_id: Uuid,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} \
+                SET voucher_id = ?::uuid, payable_id = ?::uuid, updated_at = ? \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(&voucher_id),
+            Value::from(&payable_id),
+            Value::from(now),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
 #[cfg(test)]
 mod pure_tests {
     use super::*;
