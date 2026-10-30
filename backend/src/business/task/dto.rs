@@ -136,7 +136,15 @@ pub struct TaskPageQuery {
     /// 每页条数（框架上限 `MAX_PAGE_SIZE`）。
     pub page_size: Option<u64>,
     /// 状态过滤（`TODO` / `DOING` / `REVIEW` / `DONE` / `CANCELLED`）。
+    ///
+    /// **单值**写法，保留向后兼容（项目下任务列表等调用方还在用它）；
+    /// 多选请用 [`statuses`](Self::statuses)。
     pub status: Option<String>,
+    /// 状态过滤（多选，逗号分隔，如 `TODO,DOING`）。
+    ///
+    /// 与单值的 `status` 并存：`statuses` 非空时**优先**，`status` 保留向后兼容
+    /// （项目下任务列表等调用方还在用单值）。空字符串 / 不传 = 不筛状态。
+    pub statuses: Option<String>,
     /// 优先级过滤（`P0`–`P3`）。
     pub priority: Option<String>,
     /// 负责人过滤（用户 UUID）。

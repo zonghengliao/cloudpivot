@@ -174,6 +174,27 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
             ))
         })?),
     };
+    // T9-A：状态多选（逗号分隔）。`statuses` 非空时优先于单值 `status`；
+    // 空字符串 / 全是空串 → `None`（等价不传）。
+    let statuses = match query.statuses.as_deref() {
+        None => None,
+        Some(raw) => {
+            let list = raw
+                .split(',')
+                .map(str::trim)
+                .filter(|item| !item.is_empty())
+                .map(|item| {
+                    dto::normalize_status(item).ok_or_else(|| {
+                        param_invalid(format!(
+                            "状态取值非法：{item}（应为 {}）",
+                            dto::STATUSES.join(" / ")
+                        ))
+                    })
+                })
+                .collect::<std::result::Result<Vec<_>, ApiError>>()?;
+            (!list.is_empty()).then_some(list)
+        }
+    };
     let priority = match query.priority.as_deref().map(str::trim) {
         None | Some("") => None,
         Some(raw) => Some(dto::normalize_priority(Some(raw)).ok_or_else(|| {
@@ -200,6 +221,7 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
     }
     Ok(TaskFilter {
         status,
+        statuses,
         priority,
         owner_id,
         project_id,
@@ -4202,6 +4224,66 @@ mod tests {
         let filter = build_filter(&ok).expect("合法筛选");
         assert_eq!(filter.status.as_deref(), Some("DOING"));
         assert_eq!(filter.priority.as_deref(), Some("P1"));
+    }
+
+    #[test]
+    fn filter_normalizes_statuses_list() {
+        let query = TaskPageQuery {
+            statuses: Some(" TODO , doing ,, DONE ".to_string()),
+            ..TaskPageQuery::default()
+        };
+        let filter = build_filter(&query).expect("合法多选");
+        assert_eq!(
+            filter.statuses,
+            Some(vec![
+                "TODO".to_string(),
+                "DOING".to_string(),
+                "DONE".to_string()
+            ]),
+            "逗号分隔 + 去空白 + 大写归一 + 丢空段"
+        );
+    }
+
+    #[test]
+    fn filter_rejects_unknown_status_in_statuses() {
+        let query = TaskPageQuery {
+            statuses: Some("TODO,FOO".to_string()),
+            ..TaskPageQuery::default()
+        };
+        let error = build_filter(&query).expect_err("非法状态必须 400");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(error.msg.contains("FOO"), "报错要指出非法值：{}", error.msg);
+    }
+
+    #[test]
+    fn filter_blank_statuses_means_no_filter() {
+        // 空串 / 只有逗号 → None（等价不传），不是「筛空集合」
+        for raw in ["", "   ", ",", " , , "] {
+            let query = TaskPageQuery {
+                statuses: Some(raw.to_string()),
+                ..TaskPageQuery::default()
+            };
+            let filter = build_filter(&query).expect("空串合法");
+            assert_eq!(filter.statuses, None, "{raw:?} 应归一成 None");
+        }
+    }
+
+    #[test]
+    fn filter_keeps_legacy_status_alongside_statuses() {
+        // 两个都传：两个字段各自保留（优先关系由 build_filters 兑现）
+        let query = TaskPageQuery {
+            status: Some("todo".to_string()),
+            statuses: Some("DONE,DOING".to_string()),
+            ..TaskPageQuery::default()
+        };
+        let filter = build_filter(&query).expect("合法");
+        assert_eq!(filter.status.as_deref(), Some("TODO"), "旧字段仍归一化");
+        assert_eq!(
+            filter.statuses,
+            Some(vec!["DONE".to_string(), "DOING".to_string()]),
+            "多值字段保留顺序"
+        );
     }
 
     #[test]
