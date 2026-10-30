@@ -674,3 +674,273 @@ export function updateSerialStatus(
 export function fetchSerialDetail(id: string): Promise<SerialRow> {
   return get<SerialRow>(`${BASE}/serial/${id}`);
 }
+
+// ==================== 调拨单（W4c / 后端 W3b） ====================
+
+/**
+ * 调拨单状态（与 `V0140__erp_stock_transfer.up.sql` 的 `ck_transfer_status` 逐字一致）。
+ *
+ * 状态机（`ck_biz_transfer_state` 把状态和时间戳绑死，越级流转在库里就写不进去）：
+ *
+ * | 从 \ 到 | `PENDING` | `APPROVED` | `IN_TRANSIT` | `DONE` | `CANCELLED` |
+ * |---|---|---|---|---|---|
+ * | `DRAFT` | ✅ 提交审批 | — | — | — | — |
+ * | `PENDING` | — | ✅ 审批通过 | — | — | — |
+ * | `APPROVED` | — | — | ✅ 发货 | — | — |
+ * | `IN_TRANSIT` | — | — | — | ✅ 收货 | — |
+ * | `DONE` / `CANCELLED` | 终态 | | | | |
+ *
+ * ⚠️ W3b 的 `dto.rs` 落地前，本段类型**以 V0140 的列名 + 本卡契约文字为准**；
+ * 联调时只需要核对字段名，不需要重写页面（页面只 import 这里的类型）。
+ */
+export type TransferStatus =
+  | 'DRAFT'
+  | 'PENDING'
+  | 'APPROVED'
+  | 'IN_TRANSIT'
+  | 'DONE'
+  | 'CANCELLED';
+
+/**
+ * 调拨单主表行（对应 `biz_stock_transfer` 的列；列表与详情共用）。
+ *
+ * 字段名逐条抄 V0140 §1 的列名（**不造 `code` / `name` 这种简称**）：
+ * `transfer_no` / `from_warehouse_id` / `to_warehouse_id` / `transfer_date` / `reason` /
+ * `total_qty` / `total_amount` / `submitted_at` / `approved_at` / `shipped_at` /
+ * `received_at` / `cancelled_at` / `cancel_reason` / `approval_instance_id`。
+ *
+ * # `item_count` 是**列表页必须由后端下发**的派生字段
+ *
+ * 卡面列表要显示「明细数」，而主表没有这一列。两种取法：
+ * ① 后端在 `TransferRes` 里 join 出 `item_count`（本卡按这个写，W3b 加一个
+ *    `LEFT JOIN (SELECT transfer_id, count(*) …)` 即可）；
+ * ② 前端逐行查详情 —— 一页 20 行 = 21 个请求，否决。
+ * 所以字段声明成**可选**：后端没下发时页面显示 `—`，绝不假装有值。
+ */
+export interface TransferRow {
+  /** 主键 */
+  id: string;
+  /** 调拨单号 `TR-yyyyMMdd-000001`（软删后可复用，见 V0140 §1 ⑧） */
+  transfer_no: string;
+  /** 调出仓库 id */
+  from_warehouse_id: string;
+  /** 调入仓库 id（**必须** ≠ `from_warehouse_id`，`ck_transfer_diff_wh` 兜底） */
+  to_warehouse_id: string;
+  /** 在途仓 id（`IN_TRANSIT` / `DONE` 状态必须非空，V0139 种子 `WH-TRANSIT`） */
+  transit_warehouse_id: string | null;
+  /** 状态 */
+  status: TransferStatus;
+  /** 调拨日期（`YYYY-MM-DD`，DATE 列不是时间戳） */
+  transfer_date: string;
+  /** 调拨原因 / 说明（≤255，V0140 取卡面的 `reason` 而非 W0 的 `transfer_reason`） */
+  reason: string | null;
+  /** 申请人 id（弱引用 `sys_user.id`） */
+  applicant_id: string | null;
+  /** 申请人姓名快照（单据留痕，不随改名变） */
+  applicant_name: string | null;
+  /** 审批人 id（弱引用） */
+  approver_id: string | null;
+  /** 审批实例 id（弱引用 `biz_flow_instance.id`，`biz_type='STOCK_TRANSFER'`） */
+  approval_instance_id: string | null;
+  /** 合计数量（明细 `qty` 汇总快照） */
+  total_qty: number | string;
+  /** 合计金额（原价转移的成本快照汇总） */
+  total_amount: number | string;
+  /** 提交审批时间 */
+  submitted_at: string | null;
+  /** 审批通过时间 */
+  approved_at: string | null;
+  /** 发运时间 */
+  shipped_at: string | null;
+  /** 签收时间 */
+  received_at: string | null;
+  /** 取消时间 */
+  cancelled_at: string | null;
+  /** 取消原因（`CANCELLED` 必填非空） */
+  cancel_reason: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 明细数（**后端派生字段**，见类型注释；没有就显示 `—`） */
+  item_count?: number;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 明细的序列号（对应 `biz_stock_transfer_item_serial`，**子表不是 JSONB**）。
+ *
+ * `serial_no` 是后端 join `biz_material_serial` 出来的译名（卡面详情要显示「SN-…」，
+ * 只给 `serial_id` 的话页面得再查一轮；W3b 若只返回 id，页面会退化成短 id + tooltip）。
+ */
+export interface TransferItemSerial {
+  /** 子表主键 */
+  id: string;
+  /** 所属明细行 id */
+  item_id: string;
+  /** 单品序列号 id（`biz_material_serial.id`，硬外键） */
+  serial_id: string;
+  /** 序列号字符串（后端 join 译名；缺失时页面显示短 id） */
+  serial_no?: string;
+}
+
+/**
+ * 调拨明细（对应 `biz_stock_transfer_item`）。
+ *
+ * `qty` 恒正 —— 方向由主表的 `from_warehouse_id` / `to_warehouse_id` 表达（V0140 §2）。
+ * NUMERIC 列在后端 serde 里可能出 JSON number 也可能出字符串，故类型写 `number | string`，
+ * 页面统一走 `toFixedQty()` 归一。
+ */
+export interface TransferItem {
+  /** 主键 */
+  id: string;
+  /** 所属调拨单 */
+  transfer_id: string;
+  /** 行号（1 起） */
+  line_no: number;
+  /** 物料 id */
+  material_id: string;
+  /** 调出库位（`biz_inventory_location.id`，可空 = 未指定） */
+  from_location_id: string | null;
+  /** 调入库位（同上） */
+  to_location_id: string | null;
+  /** 调拨数量（恒 > 0） */
+  qty: number | string;
+  /** 已发运数量（部分发运预留，本批整单发运） */
+  shipped_qty: number | string;
+  /** 已签收数量（本批整单签收） */
+  received_qty: number | string;
+  /** 单位成本快照 */
+  unit_cost: number | string;
+  /** 金额 = qty × unit_cost */
+  amount: number | string;
+  /** 行备注 */
+  remark: string | null;
+  /** 序列号（一物一码物料必填；非一物一码为空数组） */
+  serials: TransferItemSerial[];
+}
+
+/** 调拨单详情（`GET /erp/transfer/{id}`：主表 + 明细 + 每条明细的序列号） */
+export interface TransferDetail extends TransferRow {
+  /** 明细（含每条明细的 `serials`） */
+  items: TransferItem[];
+}
+
+/** 建单 / 改单的一条明细入参（`CreateTransferItemReq`） */
+export interface TransferItemReq {
+  /** 物料 id */
+  material_id: string;
+  /** 数量（恒 > 0；`NUMERIC(18,4)`，允许 4 位小数） */
+  qty: number;
+  /** 调出库位（可空） */
+  from_location_id?: string | null;
+  /** 调入库位（可空） */
+  to_location_id?: string | null;
+  /** 行备注 */
+  remark?: string | null;
+  /**
+   * 序列号 id 列表（一物一码物料**必填且条数 == qty**）。
+   *
+   * 注意 V0140 文件头 ③：序列号子表的唯一键是 `(item_id, serial_id)`，
+   * **同一条货挂在同一张单的两条明细下 DB 拦不住** → 跨明细去重必须由前端先拦、
+   * 后端再拦一次（`collectDuplicateSerialIds()`）。
+   */
+  serial_ids?: string[];
+}
+
+/** 新建调拨单请求体（`POST /erp/transfer`） */
+export interface CreateTransferReq {
+  /** 调出仓 id */
+  from_warehouse_id: string;
+  /** 调入仓 id（≠ `from_warehouse_id`） */
+  to_warehouse_id: string;
+  /** 调拨日期 `YYYY-MM-DD` */
+  transfer_date: string;
+  /** 原因（≤255） */
+  reason?: string | null;
+  /** 备注 */
+  remark?: string | null;
+  /** 明细（至少 1 条） */
+  items: TransferItemReq[];
+}
+
+/**
+ * 改单请求体（`PUT /erp/transfer/{id}`，**仅 DRAFT**）。
+ *
+ * 与建单同形：改单是整单替换明细（子表逐行重写），不是增量合并。
+ */
+export type UpdateTransferReq = CreateTransferReq;
+
+/**
+ * 状态流转请求体（`PATCH /erp/transfer/{id}/status`）。
+ *
+ * - `PENDING`（提交审批）/ `DRAFT`（撤回）/ `IN_TRANSIT`（发货）/ `DONE`（收货）；
+ * - `CANCELLED` 必须带 `cancel_reason`（非空，`ck_biz_transfer_state` 兜底）；
+ * - 发货时 `transit_warehouse_id` 会被写进主表（`IN_TRANSIT` 要求非空）。
+ */
+export interface TransferStatusReq {
+  /** 目标状态 */
+  status: Exclude<TransferStatus, 'APPROVED'>;
+  /** 取消原因（仅 `CANCELLED` 必填） */
+  cancel_reason?: string | null;
+  /** 在途仓 id（仅 `IN_TRANSIT` 用；不传则由后端取种子 `WH-TRANSIT`） */
+  transit_warehouse_id?: string | null;
+}
+
+/**
+ * 调拨单分页（`GET /erp/transfer/page`，服务端分页）。
+ *
+ * 参数照卡面契约：`status` / `from_warehouse_id` / `to_warehouse_id` / `transfer_no`（模糊）。
+ * 空串一律不发（`asParams` 兜住）—— 后端把 `?transfer_no=` 当「等于空串」过滤会查出 0 行。
+ */
+export function fetchTransferPage(query: {
+  status?: TransferStatus | '';
+  from_warehouse_id?: string;
+  to_warehouse_id?: string;
+  transfer_no?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<TransferRow>> {
+  return get<PageData<TransferRow>>(`${BASE}/transfer/page`, asParams(query));
+}
+
+/** 调拨单详情（`GET /erp/transfer/{id}`，含 `items[].serials`） */
+export function fetchTransferDetail(id: string): Promise<TransferDetail> {
+  return get<TransferDetail>(`${BASE}/transfer/${id}`);
+}
+
+/** 建单（`POST /erp/transfer`，权限 `business:erp:transfer:create`） */
+export function createTransfer(payload: CreateTransferReq): Promise<TransferDetail> {
+  return post<TransferDetail>(`${BASE}/transfer`, payload);
+}
+
+/** 改单（`PUT /erp/transfer/{id}`，**仅 DRAFT**，整单替换明细） */
+export function updateTransfer(id: string, payload: UpdateTransferReq): Promise<TransferDetail> {
+  return put<TransferDetail>(`${BASE}/transfer/${id}`, payload);
+}
+
+/**
+ * 状态流转（`PATCH /erp/transfer/{id}/status`）。
+ *
+ * 目标状态 = `PENDING`（提交审批）→ `APPROVED`（审批引擎写，前端**不调**）→
+ * `IN_TRANSIT`（发货）→ `DONE`（收货）；`DRAFT` = 撤回，`CANCELLED` = 取消（需原因）。
+ */
+export function updateTransferStatus(id: string, payload: TransferStatusReq): Promise<TransferRow> {
+  return patch<TransferRow>(`${BASE}/transfer/${id}/status`, payload);
+}
+
+/** 删除（`DELETE /erp/transfer/{id}`，**仅 DRAFT / CANCELLED**，软删） */
+export function deleteTransfer(id: string): Promise<void> {
+  return del<void>(`${BASE}/transfer/${id}`);
+}
+
+/**
+ * 某张调拨单的序列号列表（`GET /erp/transfer/{id}/serials`）。
+ *
+ * 详情接口已经带 `items[].serials`，这个接口留给「只看序列号」的导出 / 打印场景；
+ * 页面主体不依赖它，但契约要落地（W3b 已定）。
+ */
+export function fetchTransferSerials(id: string): Promise<TransferItemSerial[]> {
+  return get<TransferItemSerial[]>(`${BASE}/transfer/${id}/serials`);
+}

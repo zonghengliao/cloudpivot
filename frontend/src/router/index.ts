@@ -366,6 +366,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '序列号管理', permission: 'business:erp:serial:list' },
       },
       {
+        // ==================== ERP 调拨单（W4c） ====================
+        // path 与 V0140 的菜单种子同口径 `/business/erp/transfer`，component
+        // `business/erp/transfer/index`。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 页面永远打不开。菜单种子由后端权限卡补（本卡只碰 frontend）。
+        path: 'business/erp/transfer',
+        name: 'BusinessErpTransfer',
+        component: () => import('@/views/business/erp/transfer/index.vue'),
+        meta: { title: '调拨管理', permission: 'business:erp:transfer:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

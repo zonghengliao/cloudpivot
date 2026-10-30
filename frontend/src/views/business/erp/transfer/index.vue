@@ -1,0 +1,1658 @@
+<template>
+  <div class="transfer-page">
+    <!-- ==================== ① 工具栏 ==================== -->
+    <t-card :bordered="false" class="tool-card">
+      <div class="tool-row">
+        <t-button
+          v-privilege="[PERM.create]"
+          theme="primary"
+          data-testid="btn-transfer-create"
+          @click="openCreateDialog"
+        >
+          <template #icon><t-icon name="add" /></template>
+          新建调拨单
+        </t-button>
+        <t-button variant="outline" data-testid="btn-transfer-refresh" @click="refresh">
+          <template #icon><t-icon name="refresh" /></template>
+          刷新
+        </t-button>
+
+        <span class="tool-row__spacer" />
+
+        <t-select
+          v-model="filter.status"
+          class="tool-row__status"
+          :options="statusFilterOptions"
+          placeholder="全部状态"
+          clearable
+          data-testid="transfer-filter-status"
+          @change="handleSearch"
+        />
+        <t-input
+          v-model="filter.transfer_no"
+          class="tool-row__no"
+          placeholder="调拨单号（模糊）"
+          clearable
+          data-testid="transfer-filter-no"
+          @enter="handleSearch"
+        />
+        <t-button theme="primary" data-testid="btn-transfer-search" @click="handleSearch">查询</t-button>
+        <t-button variant="outline" data-testid="btn-transfer-reset" @click="handleReset">重置</t-button>
+      </div>
+    </t-card>
+
+    <!-- ==================== ② 列表 ==================== -->
+    <t-card :bordered="false" class="list-card">
+      <div class="panel-head">
+        <div class="panel-head__main">
+          <span class="panel-head__title">调拨单</span>
+          <span class="panel-head__meta" data-testid="transfer-meta">共 {{ total }} 条</span>
+        </div>
+        <span class="panel-head__tip">点任意一行看详情与审批进度</span>
+      </div>
+
+      <!-- 接口未就绪（W3b 联调前）：不是红错，是「这条路还没通车」 -->
+      <t-alert v-if="apiMissing" theme="info" class="list-alert" data-testid="transfer-api-missing">
+        <template #message>
+          调拨接口尚未上线（{{ apiMissing }}）：页面结构与交互已就绪，等 W3b 后端合并后即可联调。
+        </template>
+      </t-alert>
+
+      <t-alert v-else-if="loadError" theme="error" :message="loadError" class="list-alert" data-testid="transfer-load-error">
+        <template #operation>
+          <t-button size="small" variant="outline" @click="loadTransfers()">重试</t-button>
+        </template>
+      </t-alert>
+
+      <t-table
+        row-key="id"
+        :data="rows"
+        :columns="columns"
+        :loading="loading"
+        :pagination="pagination"
+        hover
+        data-testid="transfer-table"
+        @row-click="handleRowClick"
+        @page-change="handlePageChange"
+      >
+        <template #transfer_no="{ row }">
+          <span class="mono" :data-testid="`transfer-no-${row.transfer_no}`">{{ row.transfer_no }}</span>
+        </template>
+
+        <template #from_warehouse_id="{ row }">
+          {{ warehouseNameOf(row.from_warehouse_id) }}
+        </template>
+
+        <template #to_warehouse_id="{ row }">
+          {{ warehouseNameOf(row.to_warehouse_id) }}
+        </template>
+
+        <template #status="{ row }">
+          <t-tag
+            size="small"
+            :theme="transferStatusTheme(row.status)"
+            :variant="transferStatusVariant(row.status)"
+            :data-testid="`transfer-status-${row.transfer_no}`"
+          >
+            {{ transferStatusLabel(row.status) }}
+          </t-tag>
+        </template>
+
+        <template #item_count="{ row }">
+          <span class="muted">{{ itemCountText(row) }}</span>
+        </template>
+
+        <template #transfer_date="{ row }">
+          <span class="muted">{{ formatTime(row.transfer_date) }}</span>
+        </template>
+
+        <template #applicant_name="{ row }">
+          {{ dash(row.applicant_name) }}
+        </template>
+
+        <template #op="{ row }">
+          <div class="op-cell" @click.stop>
+            <t-link theme="primary" :data-testid="`btn-view-${row.transfer_no}`" @click="openDetail(row)">
+              查看
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).edit"
+              v-privilege="[PERM.update]"
+              theme="primary"
+              :data-testid="`btn-edit-${row.transfer_no}`"
+              @click="openEditDialog(row)"
+            >
+              编辑
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).submit"
+              v-privilege="[PERM.status]"
+              theme="primary"
+              :data-testid="`btn-submit-${row.transfer_no}`"
+              @click="runAction(row, 'submit')"
+            >
+              提交审批
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).withdraw"
+              v-privilege="[PERM.status]"
+              theme="primary"
+              :data-testid="`btn-withdraw-${row.transfer_no}`"
+              @click="runAction(row, 'withdraw')"
+            >
+              撤回
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).ship"
+              v-privilege="[PERM.status]"
+              theme="primary"
+              :data-testid="`btn-ship-${row.transfer_no}`"
+              @click="openShipDialog(row)"
+            >
+              发货
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).receive"
+              v-privilege="[PERM.status]"
+              theme="primary"
+              :data-testid="`btn-receive-${row.transfer_no}`"
+              @click="runAction(row, 'receive')"
+            >
+              收货
+            </t-link>
+
+            <t-link
+              v-if="actionsOf(row).remove"
+              v-privilege="[PERM.remove]"
+              theme="danger"
+              :data-testid="`btn-remove-${row.transfer_no}`"
+              @click="confirmRemove(row)"
+            >
+              删除
+            </t-link>
+          </div>
+        </template>
+
+        <template #empty>
+          <div class="panel-empty" data-testid="transfer-empty">
+            <t-icon class="panel-empty__icon" name="swap" />
+            <p class="panel-empty__title">{{ filtered ? '没有匹配的调拨单' : '还没有调拨单' }}</p>
+            <p class="panel-empty__desc">
+              {{ filtered ? '换个状态或单号，或点「重置」看全部' : '点左上角「新建调拨单」建第一张：选调出仓 / 调入仓 → 加明细 → 保存草稿' }}
+            </p>
+          </div>
+        </template>
+      </t-table>
+    </t-card>
+
+    <!-- ==================== ③ 详情抽屉 ==================== -->
+    <t-drawer
+      v-model:visible="detailVisible"
+      size="720px"
+      header="调拨单详情"
+      data-testid="transfer-detail-drawer"
+    >
+      <template #footer>
+        <!-- TDesign 的 drawer 默认只靠遮罩关闭，实测 Esc 不回焦不生效 → 给一个明确的关闭按钮 -->
+        <div class="drawer-footer">
+          <t-button variant="outline" data-testid="btn-drawer-close" @click="detailVisible = false">关闭</t-button>
+        </div>
+      </template>
+
+      <div v-if="detailLoading" class="drawer-loading">
+        <t-loading size="small" /> 加载中…
+      </div>
+      <t-alert v-else-if="detailError" theme="error" :message="detailError" />
+
+      <div v-else-if="detail" class="detail">
+        <div class="detail__head">
+          <span class="detail__no mono">{{ detail.transfer_no }}</span>
+          <t-tag :theme="transferStatusTheme(detail.status)" :variant="transferStatusVariant(detail.status)" size="small">
+            {{ transferStatusLabel(detail.status) }}
+          </t-tag>
+        </div>
+
+        <div class="detail__grid">
+          <div class="detail-field"><span class="detail-field__label">调出仓</span><span class="detail-field__value">{{ warehouseNameOf(detail.from_warehouse_id) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">调入仓</span><span class="detail-field__value">{{ warehouseNameOf(detail.to_warehouse_id) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">在途仓</span><span class="detail-field__value">{{ warehouseNameOf(detail.transit_warehouse_id) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">调拨日期</span><span class="detail-field__value">{{ formatTime(detail.transfer_date) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">申请人</span><span class="detail-field__value">{{ dash(detail.applicant_name) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">合计数量</span><span class="detail-field__value">{{ formatQty(detail.total_qty) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">合计金额</span><span class="detail-field__value">{{ formatQty(detail.total_amount) }}</span></div>
+          <div class="detail-field"><span class="detail-field__label">原因</span><span class="detail-field__value">{{ dash(detail.reason) }}</span></div>
+        </div>
+
+        <!-- 状态时间戳：状态机的痕迹（V0140 用 CHECK 把它们和状态绑死） -->
+        <ul class="stamp-list">
+          <li v-for="stamp in stampsOf(detail)" :key="stamp.label" class="stamp">
+            <span class="stamp__label">{{ stamp.label }}</span>
+            <span class="stamp__value">{{ formatTime(stamp.at) }}</span>
+          </li>
+          <li v-if="detail.cancel_reason" class="stamp">
+            <span class="stamp__label">取消原因</span>
+            <span class="stamp__value">{{ detail.cancel_reason }}</span>
+          </li>
+        </ul>
+
+        <div class="section-title">明细（{{ detail.items.length }} 条）</div>
+        <t-table
+          row-key="id"
+          size="small"
+          :data="detail.items"
+          :columns="itemColumns"
+          data-testid="transfer-detail-items"
+        >
+          <template #material_id="{ row }">{{ materialNameOf(row.material_id) }}</template>
+          <template #qty="{ row }">{{ formatQty(row.qty) }}</template>
+          <template #serials="{ row }">
+            <span v-if="(row.serials ?? []).length === 0" class="muted">—</span>
+            <t-tooltip v-else :content="serialSummary(row.serials, 99)">
+              <span class="mono">{{ serialSummary(row.serials) }}</span>
+            </t-tooltip>
+          </template>
+          <template #from_location_id="{ row }">
+            <span class="mono muted">{{ shortId(row.from_location_id) }}</span>
+          </template>
+        </t-table>
+
+        <!-- 审批进度：approval_instance_id 是弱引用，有才查 -->
+        <div class="section-title">审批进度</div>
+        <div v-if="!detail.approval_instance_id" class="approval-empty" data-testid="transfer-approval-none">
+          未提交审批（草稿状态没有审批实例；提交后这里会显示时间线）
+        </div>
+        <div v-else-if="approvalLoading" class="drawer-loading"><t-loading size="small" /> 审批进度加载中…</div>
+        <t-alert v-else-if="approvalError" theme="warning" :message="approvalError" />
+        <ul v-else class="timeline" data-testid="transfer-approval-timeline">
+          <li v-for="(step, index) in approvalSteps" :key="index" class="timeline__item">
+            <span class="timeline__dot" :class="`timeline__dot--${step.tone}`" />
+            <div class="timeline__body">
+              <div class="timeline__head">
+                <span class="timeline__who">{{ step.who }}</span>
+                <span class="timeline__what">{{ step.what }}</span>
+                <t-tag v-if="step.isAuto" size="small" variant="outline">系统代点</t-tag>
+                <t-tag v-if="step.isSelf" size="small" variant="outline" theme="warning">自审</t-tag>
+              </div>
+              <div class="timeline__time">{{ formatTime(step.at) }}</div>
+              <div v-if="step.comment" class="timeline__comment">{{ step.comment }}</div>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </t-drawer>
+
+    <!-- ==================== ④ 新建 / 编辑弹窗 ==================== -->
+    <t-dialog
+      v-model:visible="formVisible"
+      :header="form.id ? '编辑调拨单' : '新建调拨单'"
+      width="860px"
+      :close-on-overlay-click="false"
+      :footer="false"
+      data-testid="transfer-form-dialog"
+    >
+      <t-alert v-if="submitError" theme="error" :message="submitError" class="dlg-alert" />
+
+      <t-form :data="form" label-width="84px">
+        <div class="form-row">
+          <t-form-item
+            label="调出仓"
+            name="from_warehouse_id"
+            class="form-row__col"
+            :status="formErrors.from_warehouse_id ? 'error' : undefined"
+            :tips="formErrors.from_warehouse_id"
+          >
+            <t-select
+              v-model="form.from_warehouse_id"
+              :options="warehouseOptions"
+              placeholder="选择调出仓"
+              filterable
+              data-testid="transfer-from-warehouse"
+            />
+          </t-form-item>
+
+          <t-form-item
+            label="调入仓"
+            name="to_warehouse_id"
+            class="form-row__col"
+            :status="formErrors.to_warehouse_id ? 'error' : undefined"
+            :tips="formErrors.to_warehouse_id"
+          >
+            <t-select
+              v-model="form.to_warehouse_id"
+              :options="toWarehouseOptions"
+              placeholder="选择调入仓（不能与调出仓相同）"
+              filterable
+              data-testid="transfer-to-warehouse"
+            />
+          </t-form-item>
+        </div>
+
+        <div class="form-row">
+          <t-form-item
+            label="调拨日期"
+            name="transfer_date"
+            class="form-row__col"
+            :status="formErrors.transfer_date ? 'error' : undefined"
+            :tips="formErrors.transfer_date"
+          >
+            <t-date-picker
+              v-model="form.transfer_date"
+              value-type="YYYY-MM-DD"
+              placeholder="选择日期"
+              data-testid="transfer-date"
+            />
+          </t-form-item>
+
+          <t-form-item
+            label="原因"
+            name="reason"
+            class="form-row__col"
+            :status="formErrors.reason ? 'error' : undefined"
+            :tips="formErrors.reason"
+          >
+            <t-input v-model="form.reason" :maxlength="255" placeholder="如：分仓补货" data-testid="transfer-reason" />
+          </t-form-item>
+        </div>
+
+        <!-- 明细：物料 / 数量 / 序列号 / 删除 -->
+        <div class="items">
+          <div class="items__head">
+            <span class="items__title">明细</span>
+            <span class="items__hint">一物一码物料必须逐个选序列号（个数 == 数量）</span>
+          </div>
+
+          <div class="items__grid items__grid--head">
+            <span>物料</span>
+            <span>数量</span>
+            <span>序列号</span>
+            <span />
+          </div>
+
+          <div v-for="(item, index) in form.items" :key="item.key" class="items__row" :data-testid="`transfer-item-${index}`">
+            <div class="items__grid">
+              <div class="items__cell">
+                <t-select
+                  v-model="item.material_id"
+                  :options="materialOptions"
+                  placeholder="选择物料"
+                  filterable
+                  :data-testid="`item-material-${index}`"
+                  @change="(value: unknown) => handleMaterialChange(item, value)"
+                />
+                <p v-if="rowErrors[item.key]?.material_id" class="cell-error">{{ rowErrors[item.key]?.material_id }}</p>
+              </div>
+
+              <div class="items__cell">
+                <!-- 小数位只在「一物一码」时锁 0（否则 2 会显示成 2.0000，作业员以为填错了）；
+                     非一物一码不设 `decimal-places`，自由输入由 validateTransferForm 兜 4 位上限 -->
+                <t-input-number
+                  v-model="item.qty"
+                  :min="0"
+                  :max="9999999"
+                  :decimal-places="serialRequiredOf(item.material_id) ? 0 : undefined"
+                  theme="normal"
+                  :data-testid="`item-qty-${index}`"
+                  @change="handleQtyChange(item)"
+                />
+                <p v-if="rowErrors[item.key]?.qty" class="cell-error">{{ rowErrors[item.key]?.qty }}</p>
+              </div>
+
+              <div class="items__cell">
+                <div v-if="serialRequiredOf(item.material_id)" class="serial-cell">
+                  <t-button
+                    size="small"
+                    variant="outline"
+                    :data-testid="`item-serials-${index}`"
+                    @click="openSerialPicker(index)"
+                  >
+                    选择序列号（{{ item.serial_ids.length }}）
+                  </t-button>
+                  <t-tag
+                    v-if="item.serial_ids.length > 0 && item.serial_ids.length === Number(item.qty)"
+                    size="small"
+                    theme="success"
+                    variant="light"
+                  >
+                    数量已对齐
+                  </t-tag>
+                  <t-tag v-else-if="item.serial_ids.length > 0" size="small" theme="warning" variant="light">
+                    {{ item.serial_ids.length }}/{{ item.qty }}
+                  </t-tag>
+                </div>
+                <span v-else class="muted">非一物一码，只填数量</span>
+                <p v-if="rowErrors[item.key]?.serial_ids" class="cell-error">{{ rowErrors[item.key]?.serial_ids }}</p>
+              </div>
+
+              <div class="items__cell items__cell--op">
+                <t-link
+                  theme="danger"
+                  :disabled="form.items.length <= 1"
+                  :data-testid="`item-remove-${index}`"
+                  @click="removeItem(index)"
+                >
+                  删除
+                </t-link>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="formErrors.items" class="cell-error">{{ formErrors.items }}</p>
+
+          <t-button variant="dashed" class="items__add" data-testid="btn-add-item" @click="addItem">
+            <template #icon><t-icon name="add" /></template>
+            添加明细
+          </t-button>
+        </div>
+      </t-form>
+
+      <div class="dlg-footer">
+        <t-button variant="outline" :disabled="formSaving" @click="formVisible = false">取消</t-button>
+        <t-button
+          variant="outline"
+          theme="primary"
+          :loading="formSaving && savingMode === 'draft'"
+          :disabled="formSaving"
+          data-testid="btn-save-draft"
+          @click="submitForm('draft')"
+        >
+          保存草稿
+        </t-button>
+        <t-button
+          theme="primary"
+          :loading="formSaving && savingMode === 'submit'"
+          :disabled="formSaving"
+          data-testid="btn-save-submit"
+          @click="submitForm('submit')"
+        >
+          提交审批
+        </t-button>
+      </div>
+    </t-dialog>
+
+    <!-- ==================== ⑤ 序列号选择弹窗 ==================== -->
+    <t-dialog
+      v-model:visible="serialPickerVisible"
+      header="选择序列号"
+      width="620px"
+      :confirm-btn="{ content: '确定', loading: serialLoading }"
+      data-testid="transfer-serial-dialog"
+      @confirm="confirmSerialPick"
+    >
+      <div class="serial-dialog">
+        <div class="serial-dialog__bar">
+          <span class="serial-dialog__hint">
+            来自「{{ warehouseNameOf(form.from_warehouse_id) }}」的在库序列号，需要
+            {{ serialPickerNeed }} 个，已选 <b>{{ serialPickerSelected.length }}</b> 个
+          </span>
+          <span class="tool-row__spacer" />
+          <t-button size="small" variant="outline" :disabled="serialOptions.length === 0" @click="selectAllSerials">
+            按数量全选
+          </t-button>
+          <t-button size="small" variant="outline" @click="serialPickerSelected = []">清空</t-button>
+        </div>
+
+        <t-alert v-if="!form.from_warehouse_id" theme="warning" message="先选调出仓：序列号按「物料 × 仓库」过滤" />
+        <t-alert v-else-if="serialError" theme="error" :message="serialError" />
+        <div v-else-if="serialOptions.length === 0 && !serialLoading" class="serial-dialog__empty">
+          该物料在「{{ warehouseNameOf(form.from_warehouse_id) }}」没有在库序列号 —— 先去序列号页批量生成
+        </div>
+
+        <t-checkbox-group v-else v-model="serialPickerSelected" class="serial-list">
+          <t-checkbox v-for="serial in serialOptions" :key="serial.id" :value="serial.id" class="serial-list__item">
+            <span class="mono">{{ serial.serial_no }}</span>
+          </t-checkbox>
+        </t-checkbox-group>
+
+        <p v-if="serialTruncated" class="serial-dialog__warn">
+          只列出前 {{ SERIAL_OPTION_LIMIT }} 个在库序列号，数量更大请先在序列号页确认库存
+        </p>
+      </div>
+    </t-dialog>
+
+    <!-- ==================== ⑥ 发货弹窗（不可逆，要选在途仓） ==================== -->
+    <t-dialog
+      v-model:visible="shipVisible"
+      header="发货确认"
+      theme="warning"
+      width="520px"
+      :confirm-btn="{ content: '确认发货', loading: shipping, theme: 'warning' }"
+      data-testid="transfer-ship-dialog"
+      @confirm="confirmShip"
+    >
+      <p class="ship-text">
+        单号 <span class="mono">{{ shipRow?.transfer_no }}</span> 将从「已批准」变为「在途」：货离开调出仓进入在途仓，
+        <b>发货后不可撤回</b>，只能等收货。
+      </p>
+      <t-form label-width="84px">
+        <t-form-item label="在途仓">
+          <t-select
+            v-model="shipTransitWarehouseId"
+            :options="transitWarehouseOptions"
+            placeholder="默认取系统在途仓"
+            clearable
+            filterable
+            data-testid="transfer-transit-warehouse"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
+  </div>
+</template>
+
+<script setup lang="ts">
+import { computed, onMounted, reactive, ref } from 'vue';
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import {
+  createTransfer,
+  deleteTransfer,
+  fetchMaterialPage,
+  fetchSerialPage,
+  fetchTransferDetail,
+  fetchTransferPage,
+  fetchWarehousePage,
+  updateTransfer,
+  updateTransferStatus,
+  type MaterialRow,
+  type SerialRow,
+  type TransferDetail,
+  type TransferRow,
+  type TransferStatus,
+  type Warehouse,
+} from '@/api/business/erp';
+import { ApiError } from '@/api/request';
+import { getFlowInstance } from '@/api/business/flow-api';
+import {
+  SERIAL_OPTION_LIMIT,
+  TRANSFER_ACTION_LABEL,
+  TRANSFER_PAGE_SIZE,
+  TRANSFER_STATUS_FILTER_OPTIONS,
+  addTransferItem,
+  buildApprovalSteps,
+  buildTransferPayload,
+  buildTransferQuery,
+  dash,
+  detailToForm,
+  emptyTransferFilter,
+  emptyTransferForm,
+  formatQty,
+  formatTime,
+  hasTransferFormError,
+  isTransferFiltered,
+  itemCountText,
+  shortId,
+  serialSummary,
+  transferActionHint,
+  transferStatusLabel,
+  transferStatusTheme,
+  transferStatusVariant,
+  availableActions,
+  validateTransferForm,
+  type ApprovalStep,
+  type TransferAction,
+  type TransferFilterState,
+  type TransferFormErrors,
+  type TransferFormState,
+  type TransferItemForm,
+} from './transfer-logic';
+
+/** 本页权限码（与 transfer 后端权限种子同口径；`SUPER_ADMIN` 走 `*:*:*` 短路） */
+const PERM = {
+  /** 列表（页面入口） */
+  list: 'business:erp:transfer:list',
+  /** 新建 */
+  create: 'business:erp:transfer:create',
+  /** 改单 */
+  update: 'business:erp:transfer:update',
+  /** 状态流转 */
+  status: 'business:erp:transfer:status',
+  /** 删除 */
+  remove: 'business:erp:transfer:delete',
+} as const;
+
+/** 表格列（`colKey` 与 `TransferRow` 字段同名，插槽按 colKey 命中） */
+const columns: PrimaryTableCol[] = [
+  { colKey: 'transfer_no', title: '调拨单号', width: 190, fixed: 'left' },
+  { colKey: 'from_warehouse_id', title: '调出仓', width: 150, ellipsis: true },
+  { colKey: 'to_warehouse_id', title: '调入仓', width: 150, ellipsis: true },
+  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'item_count', title: '明细数', width: 88, align: 'right' },
+  { colKey: 'transfer_date', title: '调拨日期', width: 120 },
+  { colKey: 'applicant_name', title: '申请人', width: 110, ellipsis: true },
+  { colKey: 'op', title: '操作', width: 240, fixed: 'right' },
+];
+
+/** 详情抽屉里的明细列 */
+const itemColumns: PrimaryTableCol[] = [
+  { colKey: 'line_no', title: '#', width: 50, align: 'center' },
+  { colKey: 'material_id', title: '物料', minWidth: 170, ellipsis: true },
+  { colKey: 'qty', title: '数量', width: 90, align: 'right' },
+  { colKey: 'serials', title: '序列号', minWidth: 220, ellipsis: true },
+  { colKey: 'from_location_id', title: '调出库位', width: 120 },
+];
+
+/** 状态下拉（`''` = 全部） */
+const statusFilterOptions = TRANSFER_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
+
+// ==================== 列表 / 筛选 ====================
+
+/** 筛选行 */
+const filter = reactive<TransferFilterState>(emptyTransferFilter());
+/** 行数据 */
+const rows = ref<TransferRow[]>([]);
+/** 总条数 */
+const total = ref(0);
+/** 当前页 */
+const current = ref(1);
+/** 每页条数 */
+const pageSize = TRANSFER_PAGE_SIZE;
+/** 加载中 */
+const loading = ref(false);
+/** 加载错误 */
+const loadError = ref('');
+/** 接口未就绪的说明（W3b 合并前：404 不是故障） */
+const apiMissing = ref('');
+/** 物料主数据（译 material_id + 下拉） */
+const materials = ref<MaterialRow[]>([]);
+/** 仓库主数据（译 warehouse_id + 下拉） */
+const warehouses = ref<Warehouse[]>([]);
+
+/** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
+const filtered = computed(() => isTransferFiltered(filter));
+
+/** 物料下拉 */
+const materialOptions = computed(() =>
+  materials.value.map((item) => ({ label: `${item.material_name}（${item.material_code}）`, value: item.id })),
+);
+
+/** 仓库下拉 */
+const warehouseOptions = computed(() =>
+  warehouses.value.map((item) => ({ label: `${item.warehouse_name}（${item.warehouse_code}）`, value: item.id })),
+);
+
+/** 调入仓下拉：剔除已选的调出仓（前端先拦一次，DB 的 CHECK 是最后一道） */
+const toWarehouseOptions = computed(() =>
+  warehouseOptions.value.filter((option) => option.value !== form.from_warehouse_id),
+);
+
+/** 在途仓下拉（默认取 `warehouse_type === 'IN_TRANSIT'` 的种子仓） */
+const transitWarehouseOptions = computed(() =>
+  warehouses.value
+    .filter((item) => item.warehouse_type === 'IN_TRANSIT')
+    .map((item) => ({ label: `${item.warehouse_name}（${item.warehouse_code}）`, value: item.id })),
+);
+
+/** 分页器（服务端分页） */
+const pagination = computed(() => ({
+  current: current.value,
+  pageSize,
+  total: total.value,
+  showJumper: true,
+  showPageSize: false,
+}));
+
+/** 仓库名称（查不到显示短 id，别留白） */
+function warehouseNameOf(warehouseId: string | null | undefined): string {
+  if (!warehouseId) {
+    return '—';
+  }
+  const hit = warehouses.value.find((item) => item.id === warehouseId);
+  return hit ? hit.warehouse_name : shortId(warehouseId);
+}
+
+/** 物料名称 */
+function materialNameOf(materialId: string): string {
+  const hit = materials.value.find((item) => item.id === materialId);
+  return hit ? `${hit.material_name}（${hit.material_code}）` : shortId(materialId);
+}
+
+/** 行的按钮可用性 */
+function actionsOf(row: TransferRow): ReturnType<typeof availableActions> {
+  return availableActions(row.status);
+}
+
+/** 错误 → 文案 */
+function messageOf(error: unknown): string {
+  if (error instanceof ApiError) {
+    return error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * 「这条路还没通车」：404（路由不存在）/ 10002（业务资源不存在）。
+ *
+ * 实测口径（`curl` 打真后端 172.18.10.144）：
+ * - 未注册路由 → HTTP 404 + `{"code":404,"msg":"请求的资源不存在"}`，规整成 `ApiError(404, …)`；
+ * - 业务 404（如按 id 查不到单据）→ `code = 10002`（`shared::error_code` 的通用码）。
+ *
+ * 这两种都不该在列表页弹红错：W3b 合并前它是**预期状态**，合并后是「这条单据没了」。
+ */
+function isNotFound(error: unknown): boolean {
+  if (error instanceof ApiError) {
+    return error.code === 404 || error.code === 10002 || error.message.includes('404');
+  }
+  return false;
+}
+
+/** 拉列表 */
+async function loadTransfers(page: number = current.value): Promise<void> {
+  loading.value = true;
+  loadError.value = '';
+  try {
+    const data = await fetchTransferPage(buildTransferQuery(filter, page, pageSize));
+    rows.value = data.list ?? [];
+    total.value = data.total ?? 0;
+    const rawPage = data.page ?? page;
+    const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
+    current.value = Math.min(Math.max(1, rawPage), maxPage);
+    apiMissing.value = '';
+  } catch (error) {
+    rows.value = [];
+    total.value = 0;
+    if (isNotFound(error)) {
+      // 接口未上线：信息提示 + 空态，不是红错（卡面 §七 的兜底要求）
+      apiMissing.value = 'GET /api/business/erp/transfer/page 返回 404';
+    } else {
+      loadError.value = `调拨单列表加载失败：${messageOf(error)}`;
+    }
+  } finally {
+    loading.value = false;
+  }
+}
+
+/** 查询（回第 1 页） */
+function handleSearch(): void {
+  current.value = 1;
+  void loadTransfers(1);
+}
+
+/** 重置筛选 */
+function handleReset(): void {
+  Object.assign(filter, emptyTransferFilter());
+  current.value = 1;
+  void loadTransfers(1);
+}
+
+/** 刷新（保留筛选与页码） */
+function refresh(): void {
+  void loadTransfers(current.value);
+  void loadMasterData();
+}
+
+/** 切页 */
+function handlePageChange(pageInfo: { current: number }): void {
+  current.value = pageInfo.current;
+  void loadTransfers(pageInfo.current);
+}
+
+/** 主数据（物料 / 仓库）：拉不到不挡列表，只是名称列退化成短 id */
+async function loadMasterData(): Promise<void> {
+  const [materialList, warehouseList] = await Promise.all([
+    fetchMaterialPage({ page: 1, page_size: 200 }).catch(() => ({ list: [] as MaterialRow[] })),
+    fetchWarehousePage({ page: 1, page_size: 200 }).catch(() => ({ list: [] as Warehouse[] })),
+  ]);
+  materials.value = materialList.list ?? [];
+  warehouses.value = warehouseList.list ?? [];
+}
+
+// ==================== 状态流转（按状态显隐 + 不可逆二次确认） ====================
+
+/** 发货弹窗可见 */
+const shipVisible = ref(false);
+/** 发货中的单 */
+const shipRow = ref<TransferRow | null>(null);
+/** 发货选的在途仓 */
+const shipTransitWarehouseId = ref('');
+/** 发货提交中 */
+const shipping = ref(false);
+
+/** 打开发货弹窗（在途仓默认取种子仓，取不到就留给后端） */
+function openShipDialog(row: TransferRow): void {
+  shipRow.value = row;
+  shipTransitWarehouseId.value = transitWarehouseOptions.value[0]?.value ?? '';
+  shipVisible.value = true;
+}
+
+/** 确认发货：`PATCH /status` → `IN_TRANSIT` */
+async function confirmShip(): Promise<void> {
+  const row = shipRow.value;
+  if (!row) {
+    return;
+  }
+  shipping.value = true;
+  try {
+    await updateTransferStatus(row.id, {
+      status: 'IN_TRANSIT',
+      transit_warehouse_id: shipTransitWarehouseId.value || null,
+    });
+    MessagePlugin.success(`${row.transfer_no} 已发货，货在在途仓`);
+    shipVisible.value = false;
+    await loadTransfers(current.value);
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    shipping.value = false;
+  }
+}
+
+/**
+ * 行级动作（提交审批 / 撤回 / 收货）。
+ *
+ * 收货不可逆 → `DialogPlugin.confirm`（danger）；提交审批 / 撤回可回到中间态 → 直接发。
+ * 删除单独走 `confirmRemove`（文案不同：删除是「单据消失」不是「状态变化」）。
+ */
+function runAction(row: TransferRow, action: Exclude<TransferAction, 'edit' | 'remove' | 'ship'>): void {
+  const available = availableActions(row.status);
+  if (!available[action]) {
+    MessagePlugin.warning(transferActionHint(row.status));
+    return;
+  }
+  if (action === 'receive') {
+    const dialog = DialogPlugin.confirm({
+      header: '收货确认',
+      theme: 'warning',
+      body:
+        `单号 ${row.transfer_no} 将从「在途」变为「已完成」：货进调入仓，库存以调入仓为准。`
+        + '收货后单据终态只读、不可撤销，确认继续？',
+      confirmBtn: { content: '确认收货', theme: 'primary' },
+      onConfirm: async () => {
+        dialog.hide();
+        await patchStatus(row, 'DONE', `${row.transfer_no} 已收货完成`);
+      },
+    });
+    return;
+  }
+  const target = action === 'submit' ? 'PENDING' : 'DRAFT';
+  void patchStatus(row, target, `${row.transfer_no} 已${TRANSFER_ACTION_LABEL[action]}`);
+}
+
+/** 打状态流转接口 + 刷新 + 同步抽屉（抽屉开着时不能显示旧状态） */
+async function patchStatus(row: TransferRow, target: TransferStatus, successText: string): Promise<void> {
+  try {
+    await updateTransferStatus(row.id, { status: target as 'PENDING' | 'DRAFT' | 'DONE' });
+    MessagePlugin.success(successText);
+    await loadTransfers(current.value);
+    if (detail.value?.id === row.id) {
+      await openDetail({ ...row, id: row.id });
+    }
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  }
+}
+
+/** 删除（仅 DRAFT / CANCELLED，软删，二次确认） */
+function confirmRemove(row: TransferRow): void {
+  const dialog = DialogPlugin.confirm({
+    header: '删除确认',
+    theme: 'danger',
+    body: `单号 ${row.transfer_no}（${transferStatusLabel(row.status)}）将被删除（软删，可后台恢复）。确认删除？`,
+    confirmBtn: { content: '确认删除', theme: 'danger' },
+    onConfirm: async () => {
+      try {
+        await deleteTransfer(row.id);
+        MessagePlugin.success(`${row.transfer_no} 已删除`);
+        dialog.hide();
+        if (detail.value?.id === row.id) {
+          detailVisible.value = false;
+        }
+        await loadTransfers(current.value);
+      } catch (error) {
+        MessagePlugin.error(messageOf(error));
+      }
+    },
+  });
+}
+
+// ==================== 详情抽屉 ====================
+
+/** 抽屉可见 */
+const detailVisible = ref(false);
+/** 详情数据 */
+const detail = ref<TransferDetail | null>(null);
+/** 详情加载中 */
+const detailLoading = ref(false);
+/** 详情错误 */
+const detailError = ref('');
+/** 审批时间线 */
+const approvalSteps = ref<ApprovalStep[]>([]);
+/** 审批加载中 */
+const approvalLoading = ref(false);
+/** 审批错误 */
+const approvalError = ref('');
+
+/**
+ * 点行 → 抽屉（点了操作列的链接不会走到这里：`.op-cell` 上 `@click.stop`）。
+ *
+ * `t-table` 的回调形参是 `RowEventContext<TableRowData>`（`row` 是宽松索引类型），
+ * 这里收窄成 `TransferRow` —— 列表就是 `GET /transfer/page` 的 `TransferRow[]`。
+ */
+function handleRowClick(context: { row: Record<string, unknown> }): void {
+  void openDetail(context.row as unknown as TransferRow);
+}
+
+/** 打详情 + 审批进度 */
+async function openDetail(row: TransferRow): Promise<void> {
+  detailVisible.value = true;
+  detailLoading.value = true;
+  detailError.value = '';
+  approvalSteps.value = [];
+  approvalError.value = '';
+  try {
+    const data = await fetchTransferDetail(row.id);
+    detail.value = data;
+    if (data.approval_instance_id) {
+      approvalLoading.value = true;
+      try {
+        const instanceDetail = await getFlowInstance(data.approval_instance_id);
+        approvalSteps.value = buildApprovalSteps(instanceDetail);
+      } catch (error) {
+        // 审批实例查不到不影响单据本身：给黄条，不吞掉详情
+        approvalError.value = `审批进度加载失败：${messageOf(error)}`;
+      } finally {
+        approvalLoading.value = false;
+      }
+    }
+  } catch (error) {
+    detail.value = null;
+    detailError.value = isNotFound(error)
+      ? '详情接口尚未上线（等 W3b 联调）'
+      : `详情加载失败：${messageOf(error)}`;
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+/** 状态时间戳（只列有值的，避免一排「—」） */
+function stampsOf(row: TransferRow): Array<{ label: string; at: string | null }> {
+  const all: Array<{ label: string; at: string | null }> = [
+    { label: '提交', at: row.submitted_at },
+    { label: '批准', at: row.approved_at },
+    { label: '发货', at: row.shipped_at },
+    { label: '收货', at: row.received_at },
+    { label: '取消', at: row.cancelled_at },
+  ];
+  return all.filter((item) => Boolean(item.at));
+}
+
+// ==================== 新建 / 编辑弹窗 ====================
+
+/** 弹窗可见 */
+const formVisible = ref(false);
+/** 表单（含被编辑单的 id，空 = 新建） */
+const form = reactive<TransferFormState & { id: string }>({ ...emptyTransferForm(), id: '' });
+/** 字段错误 */
+const formErrors = ref<TransferFormErrors>({});
+/** 提交错误 */
+const submitError = ref('');
+/** 提交中 */
+const formSaving = ref(false);
+/** 提交模式（决定哪个按钮转圈） */
+const savingMode = ref<'draft' | 'submit'>('draft');
+
+/** 行级错误（模板里直接取） */
+const rowErrors = computed(() => formErrors.value.rows ?? {});
+
+/** 打开新建弹窗 */
+function openCreateDialog(): void {
+  Object.assign(form, emptyTransferForm(), { id: '' });
+  formErrors.value = {};
+  submitError.value = '';
+  formVisible.value = true;
+}
+
+/** 打开编辑弹窗（仅 DRAFT；先拉详情填表） */
+async function openEditDialog(row: TransferRow): Promise<void> {
+  if (!availableActions(row.status).edit) {
+    MessagePlugin.warning(transferActionHint(row.status));
+    return;
+  }
+  formErrors.value = {};
+  submitError.value = '';
+  formSaving.value = true;
+  try {
+    const data = await fetchTransferDetail(row.id);
+    const serialRequired: Record<string, boolean> = {};
+    for (const item of data.items ?? []) {
+      const hit = materials.value.find((material) => material.id === item.material_id);
+      serialRequired[item.material_id] = hit?.serial_required ?? false;
+    }
+    Object.assign(form, detailToForm(data, serialRequired), { id: data.id });
+    if (form.items.length === 0) {
+      form.items = [addTransferItem('row-1')];
+    }
+    formVisible.value = true;
+  } catch (error) {
+    MessagePlugin.error(isNotFound(error) ? '详情接口尚未上线（等 W3b 联调）' : messageOf(error));
+  } finally {
+    formSaving.value = false;
+  }
+}
+
+/** 加一行明细（key 用「行数+时间戳」保证唯一，删行再加不会撞） */
+function addItem(): void {
+  form.items.push(addTransferItem(`row-${form.items.length + 1}-${Date.now()}`));
+}
+
+/** 删一行明细（至少留一条） */
+function removeItem(index: number): void {
+  if (form.items.length <= 1) {
+    return;
+  }
+  form.items.splice(index, 1);
+}
+
+/**
+ * 换物料：重置「一物一码」标记并清掉已选序列号（物料变了序列号必然不匹配）。
+ *
+ * `value` 是 `t-select` 的 change 出参 —— **必须用它而不是只读 `item.material_id`**：
+ * 实测 TDesign 的 `change` 可能先于 `v-model` 回写触发（那一刻 `item.material_id` 还是旧值），
+ * 只读 v-model 会把一物一码物料判成「非一物一码」，序列号入口整个不出现。
+ */
+function handleMaterialChange(item: TransferItemForm, value: unknown): void {
+  const materialId = typeof value === 'string' && value ? value : item.material_id;
+  item.material_id = materialId;
+  const hit = materials.value.find((material) => material.id === materialId);
+  item.serial_required = hit?.serial_required ?? false;
+  item.serial_ids = [];
+}
+
+/** 改数量：一物一码物料数量变小时，已选序列号要跟着裁掉（否则「个数 ≠ 数量」提交必被拦） */
+function handleQtyChange(item: TransferItemForm): void {
+  if (!serialRequiredOf(item.material_id)) {
+    return;
+  }
+  const qty = Math.max(0, Math.floor(Number(item.qty ?? 0)));
+  if (item.serial_ids.length > qty) {
+    item.serial_ids = item.serial_ids.slice(0, qty);
+  }
+}
+
+/**
+ * 物料是否一物一码（**从物料主数据现算，不依赖表单行里的缓存字段**）。
+ *
+ * 为什么不只用 `item.serial_required`：TDesign 的 `t-select` 在 `change` 与 `v-model` 回写
+ * 之间没有顺序保证（实测 change 先到，此时 `item.material_id` 还是旧值），缓存字段会漏更新，
+ * 「选择序列号」入口就整个不出现。模板一律走这个函数，`item.serial_required` 只在提交前
+ * 用 `syncSerialRequired()` 刷一遍给校验用。
+ */
+function serialRequiredOf(materialId: string): boolean {
+  if (!materialId) {
+    return false;
+  }
+  return materials.value.find((material) => material.id === materialId)?.serial_required ?? false;
+}
+
+/** 提交前把「一物一码」标记刷成主数据真值（`validateTransferForm` 吃的是表单对象） */
+function syncSerialRequired(): void {
+  for (const item of form.items) {
+    item.serial_required = serialRequiredOf(item.material_id);
+  }
+}
+
+/** 提交表单（`draft` = 只存；`submit` = 存完再提交流转） */
+async function submitForm(mode: 'draft' | 'submit'): Promise<void> {
+  // 先把「一物一码」标记刷成主数据真值，再校验（否则下拉刚选完的那一刻校验会漏）
+  syncSerialRequired();
+  const errors = validateTransferForm(form);
+  formErrors.value = errors;
+  submitError.value = '';
+  if (hasTransferFormError(errors)) {
+    return;
+  }
+  savingMode.value = mode;
+  formSaving.value = true;
+  try {
+    const payload = buildTransferPayload(form);
+    const saved = form.id ? await updateTransfer(form.id, payload) : await createTransfer(payload);
+    if (mode === 'submit') {
+      await updateTransferStatus(saved.id, { status: 'PENDING' });
+      MessagePlugin.success(`${saved.transfer_no} 已提交审批`);
+    } else {
+      MessagePlugin.success(`${saved.transfer_no} 已保存草稿`);
+    }
+    formVisible.value = false;
+    current.value = 1;
+    await loadTransfers(1);
+    if (detailVisible.value && detail.value?.id === saved.id) {
+      await openDetail(saved);
+    }
+  } catch (error) {
+    submitError.value = isNotFound(error)
+      ? '调拨接口尚未上线（等 W3b 联调）：本次提交没有发到后端'
+      : messageOf(error);
+  } finally {
+    formSaving.value = false;
+  }
+}
+
+// ==================== 序列号选择弹窗 ====================
+
+/** 弹窗可见 */
+const serialPickerVisible = ref(false);
+/** 正在给第几条明细选 */
+const serialPickerIndex = ref(-1);
+/** 可选序列号 */
+const serialOptions = ref<SerialRow[]>([]);
+/** 已选 */
+const serialPickerSelected = ref<string[]>([]);
+/** 加载中 */
+const serialLoading = ref(false);
+/** 加载错误 */
+const serialError = ref('');
+/** 是否被截断（≥ 上限） */
+const serialTruncated = ref(false);
+
+/** 这次要选几个 */
+const serialPickerNeed = computed(() => {
+  const item = form.items[serialPickerIndex.value];
+  return item ? Number(item.qty ?? 0) : 0;
+});
+
+/** 打开选择器：按「物料 × 调出仓 × 在库」拉可选序列号 */
+async function openSerialPicker(index: number): Promise<void> {
+  const item = form.items[index];
+  if (!item) {
+    return;
+  }
+  serialPickerIndex.value = index;
+  serialPickerSelected.value = [...item.serial_ids];
+  serialOptions.value = [];
+  serialError.value = '';
+  serialTruncated.value = false;
+  serialPickerVisible.value = true;
+
+  if (!form.from_warehouse_id) {
+    serialError.value = '先选调出仓：序列号按「物料 × 仓库」过滤';
+    return;
+  }
+  if (!item.material_id) {
+    serialError.value = '先选物料';
+    return;
+  }
+  serialLoading.value = true;
+  try {
+    const data = await fetchSerialPage({
+      material_id: item.material_id,
+      warehouse_id: form.from_warehouse_id,
+      status: 'IN_STOCK',
+      page: 1,
+      page_size: SERIAL_OPTION_LIMIT,
+    });
+    serialOptions.value = data.list ?? [];
+    serialTruncated.value = (data.total ?? 0) > serialOptions.value.length;
+  } catch (error) {
+    serialError.value = `序列号加载失败：${messageOf(error)}`;
+  } finally {
+    serialLoading.value = false;
+  }
+}
+
+/** 按住手头数量全选（默认取前 N 个，作业员可再微调） */
+function selectAllSerials(): void {
+  serialPickerSelected.value = serialOptions.value.slice(0, serialPickerNeed.value).map((serial) => serial.id);
+}
+
+/** 确认：回填到当前明细行 */
+function confirmSerialPick(): void {
+  const item = form.items[serialPickerIndex.value];
+  if (!item) {
+    serialPickerVisible.value = false;
+    return;
+  }
+  item.serial_ids = [...serialPickerSelected.value];
+  // 选完立刻复校验：还能顺手清掉旧错误
+  syncSerialRequired();
+  formErrors.value = validateTransferForm(form);
+  serialPickerVisible.value = false;
+}
+
+// ==================== 初始化 ====================
+
+onMounted(async () => {
+  await loadMasterData();
+  await loadTransfers(1);
+});
+</script>
+
+<style scoped lang="less">
+.transfer-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ==================== 工具栏 ==================== */
+
+.tool-card {
+  flex: 0 0 auto;
+}
+
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.tool-row__spacer {
+  flex: 1 1 auto;
+}
+
+.tool-row__status {
+  width: 140px;
+}
+
+.tool-row__no {
+  width: 220px;
+}
+
+/* ==================== 列表 ==================== */
+
+.list-card {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.panel-head__main {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.panel-head__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.panel-head__meta {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-head__tip {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.list-alert {
+  margin-bottom: 10px;
+}
+
+.mono {
+  font-family: var(--td-font-family-mono, ui-monospace, monospace);
+}
+
+.muted {
+  color: var(--td-text-color-placeholder);
+}
+
+.op-cell {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 24px 0;
+}
+
+.panel-empty__icon {
+  font-size: 28px;
+  color: var(--td-text-color-placeholder);
+}
+
+.panel-empty__title {
+  margin: 0;
+  font-size: 14px;
+  color: var(--td-text-color-secondary);
+}
+
+.panel-empty__desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* ==================== 详情抽屉 ==================== */
+
+.drawer-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.drawer-loading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--td-text-color-placeholder);
+}
+
+.detail__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.detail__no {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.detail__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 8px 20px;
+  padding: 12px 14px;
+  border-radius: var(--td-radius-medium);
+  background: var(--td-bg-color-container-hover);
+}
+
+.detail-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.detail-field__label {
+  flex: 0 0 68px;
+  color: var(--td-text-color-placeholder);
+}
+
+.detail-field__value {
+  overflow: hidden;
+  color: var(--td-text-color-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stamp-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 20px;
+  margin: 12px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.stamp {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.stamp__label {
+  color: var(--td-text-color-placeholder);
+}
+
+.stamp__value {
+  color: var(--td-text-color-secondary);
+}
+
+.section-title {
+  margin: 18px 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.approval-empty {
+  padding: 12px 14px;
+  font-size: 13px;
+  color: var(--td-text-color-placeholder);
+  border-radius: var(--td-radius-medium);
+  background: var(--td-bg-color-container-hover);
+}
+
+/* 审批时间线（与审批详情页同构：圆点 + 谁 + 做了什么 + 时间 + 意见） */
+.timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.timeline__item {
+  position: relative;
+  display: flex;
+  gap: 10px;
+  padding-bottom: 14px;
+}
+
+.timeline__item:not(:last-child)::before {
+  position: absolute;
+  top: 14px;
+  bottom: 0;
+  left: 3px;
+  width: 1px;
+  content: '';
+  background: var(--td-component-stroke);
+}
+
+.timeline__dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: var(--td-text-color-placeholder);
+}
+
+.timeline__dot--submit {
+  background: var(--td-brand-color);
+}
+
+.timeline__dot--approve {
+  background: var(--td-success-color);
+}
+
+.timeline__dot--reject {
+  background: var(--td-error-color);
+}
+
+.timeline__dot--end {
+  background: var(--td-text-color-secondary);
+}
+
+.timeline__dot--pending {
+  background: var(--td-warning-color);
+}
+
+.timeline__body {
+  min-width: 0;
+}
+
+.timeline__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.timeline__who {
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.timeline__what {
+  color: var(--td-text-color-secondary);
+}
+
+.timeline__time {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.timeline__comment {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+  word-break: break-all;
+}
+
+/* ==================== 弹窗表单 ==================== */
+
+.form-row {
+  display: flex;
+  gap: 16px;
+}
+
+.form-row__col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.dlg-alert {
+  margin-bottom: 12px;
+}
+
+.items {
+  margin-top: 4px;
+}
+
+.items__head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.items__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.items__hint {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* 列宽固定：物料弹性、数量/序列号/操作定宽，行与表头用同一套 grid 才不跑偏 */
+.items__grid {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) 130px minmax(220px, 260px) 60px;
+  gap: 12px;
+  align-items: start;
+}
+
+.items__grid--head {
+  margin-bottom: 6px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.items__row {
+  padding: 8px 10px;
+  margin-bottom: 8px;
+  border: 1px solid var(--td-component-stroke);
+  border-radius: var(--td-radius-default);
+}
+
+.items__cell {
+  min-width: 0;
+}
+
+.items__cell--op {
+  padding-top: 6px;
+  text-align: right;
+}
+
+.serial-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cell-error {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--td-error-color);
+}
+
+.items__add {
+  width: 100%;
+  margin-top: 4px;
+}
+
+.dlg-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 20px;
+}
+
+/* ==================== 序列号选择 ==================== */
+
+.serial-dialog__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.serial-dialog__hint {
+  font-size: 12px;
+  color: var(--td-text-color-secondary);
+}
+
+.serial-dialog__empty {
+  padding: 20px 0;
+  font-size: 13px;
+  text-align: center;
+  color: var(--td-text-color-placeholder);
+}
+
+.serial-dialog__warn {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--td-warning-color);
+}
+
+.serial-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 1fr));
+  gap: 4px 12px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.serial-list__item {
+  margin: 0;
+}
+
+/* ==================== 发货弹窗 ==================== */
+
+.ship-text {
+  margin: 0 0 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--td-text-color-secondary);
+}
+</style>
