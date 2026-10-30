@@ -376,6 +376,28 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '调拨管理', permission: 'business:erp:transfer:list' },
       },
       {
+        // ==================== ERP 采购订单（P2-E1） ====================
+        // 两条路径都指向同一个页面组件：
+        // - `business/erp/purchase-order`：`sys_menu` 种子（V0141 …0953）的 path，点左侧菜单进这里；
+        // - `business/erp/purchase`：卡面 §七 的验收路径 + git 目录名（`views/business/erp/purchase/`）。
+        // 用 `alias` 而不是两条 route，保证 `name` 唯一、面包屑/高亮不会出现两个同名菜单。
+        path: 'business/erp/purchase-order',
+        alias: ['business/erp/purchase'],
+        name: 'BusinessErpPurchaseOrder',
+        component: () => import('@/views/business/erp/purchase/index.vue'),
+        meta: { title: '采购订单', permission: 'business:erp:purchase-order:list' },
+      },
+      {
+        // ==================== ERP 收货入库（P2-E1） ====================
+        // `sys_menu` 种子（V0147 …0998）path = `/business/erp/stock-in`；
+        // 卡面验收路径是 `/business/erp/stockin`（目录名），两者都通。
+        path: 'business/erp/stock-in',
+        alias: ['business/erp/stockin'],
+        name: 'BusinessErpStockIn',
+        component: () => import('@/views/business/erp/stockin/index.vue'),
+        meta: { title: '收货入库', permission: 'business:erp:stock-in:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

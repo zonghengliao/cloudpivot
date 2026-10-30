@@ -944,3 +944,590 @@ export function deleteTransfer(id: string): Promise<void> {
 export function fetchTransferSerials(id: string): Promise<TransferItemSerial[]> {
   return get<TransferItemSerial[]>(`${BASE}/transfer/${id}/serials`);
 }
+
+// ==================== 供应商（W1c 只读接口；P2-E1 采购 / 收货页的下拉与译名） ====================
+
+/**
+ * 供应商（逐字抄 `dto.rs` `SupplierRes`）。
+ *
+ * # 为什么不叫 `code` / `name`
+ *
+ * 真列名是 `supplier_code` / `supplier_name`（`V0137__erp_master_data_and_warehouse`）。
+ * 采购单 / 收货单只存 `supplier_id`，列表要显示「供应商A」就必须靠这张表译名 ——
+ * 猜成 `name` 的代价是整列空白，编译期抓不到。
+ */
+export interface Supplier {
+  /** 主键 */
+  id: string;
+  /** 编码（未删除内唯一） */
+  supplier_code: string;
+  /** 名称 */
+  supplier_name: string;
+  /** 简称 */
+  short_name: string | null;
+  /** 联系人 */
+  contact_person: string | null;
+  /** 联系电话 */
+  contact_phone: string | null;
+  /** 邮箱 */
+  email: string | null;
+  /** 纳税人识别号 */
+  tax_no: string | null;
+  /** 地址 */
+  address: string | null;
+  /** 账期天数（采购单的 `credit_days` 默认值来源） */
+  credit_days: number;
+  /** 信用额度 */
+  credit_limit: number | string;
+  /** 应付科目 */
+  payable_account_id: string | null;
+  /** 开票抬头 */
+  invoice_title: string | null;
+  /** 开户行 */
+  invoice_bank_name: string | null;
+  /** 银行账号 */
+  invoice_bank_account: string | null;
+  /** 启用状态：1 启用 / 0 停用 */
+  status: number;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 供应商下拉候选（只取启用的，够填满下拉即可）。
+ *
+ * 分页接口 `GET /erp/supplier/page` 的 list 元素就是 `SupplierRes`，这里只翻一页，
+ * 不提供「全量拉取」——主数据上千条时下拉应该走远端搜索，那是后续卡的事。
+ */
+export function fetchSupplierOptions(limit = 200): Promise<Supplier[]> {
+  return get<PageData<Supplier>>(
+    `${BASE}/supplier/page`,
+    asParams({ status: 1, page: 1, page_size: limit }),
+  ).then((page) => page.list ?? []);
+}
+
+// ==================== 采购订单（P2-A2 / P2-E1） ====================
+
+/**
+ * 金额口径（`biz_purchase_order.price_mode` + `ck_biz_po_price_mode`）。
+ *
+ * | 值 | 含义 | 单价列含义 | 公式（`purchase_model::line_amounts`） |
+ * |---|---|---|---|
+ * | `EXCL` | 不含税录入 | `price_excl` | `amount=qty*price` / `tax=amount*rate%` / `with_tax=amount+tax` |
+ * | `INCL` | 含税录入 | `price_incl` | `with_tax=qty*price` / `amount=with_tax/(1+rate%)` / `tax=with_tax-amount`（**减法倒挤**） |
+ *
+ * ⚠️ 口径 B 的税额必须是**减法倒挤**：再乘一次税率会出现 `amount+tax ≠ with_tax` 的分钱差，
+ * 而库里 `ck_biz_po_item_tax` / `ck_biz_si_item_tax` 是**精确恒等**，写不进去。
+ */
+export type PriceMode = 'EXCL' | 'INCL';
+
+/**
+ * 采购订单状态（`purchase_model::STATUS_*` + `ck_biz_po_status`）。
+ *
+ * P2-A2 的 4 条合法边（`LEGAL_EDGES`）：
+ * `DRAFT→SUBMITTED` / `DRAFT→CANCELLED` / `SUBMITTED→CLOSED` / `SUBMITTED→CANCELLED`。
+ *
+ * `APPROVED` / `PARTIAL_RECEIVED` / `RECEIVED` 由审批与收货流程维护（P2-B1 的过账会推进），
+ * **前端不主动发起**，但列表要能显示（`status_label` 后端已给中文）。
+ */
+export type PurchaseOrderStatus =
+  | 'DRAFT'
+  | 'SUBMITTED'
+  | 'APPROVED'
+  | 'PARTIAL_RECEIVED'
+  | 'RECEIVED'
+  | 'CLOSED'
+  | 'CANCELLED';
+
+/**
+ * 采购订单主表行（逐字抄 `dto.rs::PurchaseOrderRes`，列表与详情共用同一形状）。
+ *
+ * 列表接口 `GET /erp/purchase-order/page` 的 list 元素就是它（**不是** `PurchaseOrderCard`：
+ * 那个精简版没有 `price_mode`，页面拿不到口径徽标就没法在列表上标注）。
+ *
+ * NUMERIC 列经 serde 出 JSON 时可能是 number 也可能是字符串，故金额写 `number | string`，
+ * 页面统一走 `toNumber()` / `formatMoney()` 归一。
+ */
+export interface PurchaseOrderRow {
+  /** 主键 */
+  id: string;
+  /** 采购单号 `PO-yyyyMMdd-000001` */
+  order_no: string;
+  /** 供应商 id（弱引用 `biz_supplier.id`） */
+  supplier_id: string;
+  /** 下单日期（DATE，`YYYY-MM-DD`） */
+  order_date: string;
+  /** 期望到货日 */
+  expect_date: string | null;
+  /** 收货仓库 id */
+  warehouse_id: string;
+  /** 状态 */
+  status: PurchaseOrderStatus;
+  /** 币种 */
+  currency_code: string;
+  /** 合计数量 */
+  total_qty: number | string;
+  /** 不含税金额（`total_amount`，**不是** `amount_excl`） */
+  total_amount: number | string;
+  /** 税额（`total_tax`） */
+  total_tax: number | string;
+  /** 价税合计（`total_with_tax`）—— 列表「金额(价税合计)」列读它 */
+  total_with_tax: number | string;
+  /** 账期天数 */
+  credit_days: number;
+  /** 备注 */
+  remark: string | null;
+  /** 金额口径（PRD §3.1.4 的口径徽标读它） */
+  price_mode: PriceMode;
+  /** 提交时间 */
+  submitted_at: string | null;
+  /** 提交人 */
+  submitted_by: string | null;
+  /** 审批时间 */
+  approved_at: string | null;
+  /** 审批人 */
+  approved_by: string | null;
+  /** 关闭时间 */
+  closed_at: string | null;
+  /** 关闭人 */
+  closed_by: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 采购明细（`GET /erp/purchase-order-item/page` 的 list 元素，= `dto.rs::PurchaseOrderItemRes`）。
+ *
+ * ⚠️ 三个金额字段是 `amount` / `tax_amount` / `with_tax_amount`，
+ * **不是**卡面草稿写的 `line_amount` / `line_tax` / `line_total`（那是架构文档的别名）。
+ *
+ * ⚠️ 本接口**只给 `price`（不含税单价）**，没有 `price_incl`。含税口径的用户单价要用
+ * `with_tax_amount / qty` 反算（`purchase-logic.ts::priceOfLineInMode`），
+ * 别改用 `price * (1+rate)` —— 后者在大额/多位小数上会与库里的 `price_incl` 差分钱。
+ */
+export interface PurchaseOrderItemLine {
+  /** 主键 */
+  id: string;
+  /** 所属订单 */
+  order_id: string;
+  /** 行号（1 起） */
+  line_no: number;
+  /** 物料 id */
+  material_id: string;
+  /** 计量单位 id */
+  unit_id: string;
+  /** 数量 */
+  qty: number | string;
+  /** 不含税单价 */
+  price: number | string;
+  /** 税率（0–100，不是 0–1） */
+  tax_rate: number | string;
+  /** 不含税金额 */
+  amount: number | string;
+  /** 税额 */
+  tax_amount: number | string;
+  /** 价税合计 */
+  with_tax_amount: number | string;
+  /** 已收货数量（收货过账回写） */
+  received_qty: number | string;
+  /** 行备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 建单 / 改单返回的明细行（`purchase_dto.rs::PurchaseOrderLineRes`）。
+ *
+ * 与 {@link PurchaseOrderItemLine} 的差别只有两处：本形状**同时给 `price_excl` 与 `price_incl`**，
+ * 且没有 `order_id` / `created_at`；建单成功后直接拿它回填表单即可，不用再查一次明细。
+ */
+export interface PurchaseOrderLine {
+  /** 主键 */
+  id: string;
+  /** 行号 */
+  line_no: number;
+  /** 物料 id */
+  material_id: string;
+  /** 计量单位 id */
+  unit_id: string;
+  /** 数量 */
+  qty: number | string;
+  /** 不含税单价 */
+  price_excl: number | string;
+  /** 含税单价 */
+  price_incl: number | string;
+  /** 税率（0–100） */
+  tax_rate: number | string;
+  /** 不含税金额 */
+  amount: number | string;
+  /** 税额 */
+  tax_amount: number | string;
+  /** 价税合计 */
+  with_tax_amount: number | string;
+  /** 已收货数量 */
+  received_qty: number | string;
+  /** 行备注 */
+  remark: string | null;
+}
+
+/** 建单 / 改单 / 流转的返回（`purchase_dto.rs::PurchaseOrderDetailRes`：单头 + 明细） */
+export interface PurchaseOrderDetail {
+  /** 单头 */
+  order: PurchaseOrderRow;
+  /** 明细 */
+  items: PurchaseOrderLine[];
+}
+
+/**
+ * 建单 / 改单的一条明细入参（`purchase_dto.rs::PurchaseOrderItemReq`）。
+ *
+ * ⚠️ **没有金额字段**：金额一律服务端算（硬红线 2）。前端算的合计数只用于「所见即所得」，
+ * 落库以响应里的 `order.total_*` 为准；两边公式相同（见 {@link PriceMode}），
+ * 不一致只可能是舍入实现差异，页面显示服务端回值。
+ */
+export interface PurchaseOrderItemReq {
+  /** 物料 id */
+  material_id: string;
+  /** 数量（> 0；最多 4 位小数，`ck_biz_po_item_qty`） */
+  qty: number;
+  /** 不含税单价（`EXCL` 口径必填） */
+  price_excl?: number | null;
+  /** 含税单价（`INCL` 口径必填；缺省时后端回退读 `price_excl`） */
+  price_incl?: number | null;
+  /** 税率（0–100） */
+  tax_rate: number;
+  /** 行备注 */
+  remark?: string | null;
+}
+
+/** 建单请求体（`POST /erp/purchase-order`） */
+export interface CreatePurchaseOrderReq {
+  /** 供应商 id（必填） */
+  supplier_id: string;
+  /** 收货仓库 id（必填） */
+  warehouse_id: string;
+  /** 下单日期 `YYYY-MM-DD`（不传 = 服务端取北京今天） */
+  order_date?: string;
+  /** 期望到货日（不得早于 `order_date`） */
+  expect_date?: string | null;
+  /** 金额口径（不传 = `EXCL`） */
+  price_mode?: PriceMode;
+  /** 账期天数（≥ 0） */
+  credit_days?: number;
+  /** 备注（≤ 500 字） */
+  remark?: string | null;
+  /** 明细（至少 1 行，至多 200 行） */
+  items: PurchaseOrderItemReq[];
+}
+
+/** 改单请求体（`PUT /erp/purchase-order/{id}`，**仅 DRAFT**，整单覆盖明细） */
+export type UpdatePurchaseOrderReq = CreatePurchaseOrderReq;
+
+/**
+ * 状态流转请求体（`PATCH /erp/purchase-order/{id}/status`）。
+ *
+ * 只允许 `LEGAL_EDGES` 的 4 条边，其余 409；`CANCELLED` 建议带 `reason`（写进备注/审计）。
+ */
+export interface PurchaseOrderStatusReq {
+  /** 目标状态 */
+  status: 'SUBMITTED' | 'CLOSED' | 'CANCELLED';
+  /** 原因（取消 / 关闭时填） */
+  reason?: string | null;
+}
+
+/** 采购订单分页（`GET /erp/purchase-order/page`，服务端分页） */
+export function fetchPurchaseOrderPage(query: {
+  keyword?: string;
+  status?: PurchaseOrderStatus | '';
+  supplier_id?: string;
+  warehouse_id?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<PurchaseOrderRow>> {
+  return get<PageData<PurchaseOrderRow>>(`${BASE}/purchase-order/page`, asParams(query));
+}
+
+/** 采购订单详情（`GET /erp/purchase-order/{id}`，**只有单头**，明细走 {@link fetchPurchaseOrderItems}） */
+export function fetchPurchaseOrderDetail(id: string): Promise<PurchaseOrderRow> {
+  return get<PurchaseOrderRow>(`${BASE}/purchase-order/${id}`);
+}
+
+/**
+ * 某张采购单的明细（`GET /erp/purchase-order-item/page?order_id=`）。
+ *
+ * 详情接口不返回明细，编辑回填必须走这条路。`page_size` 取 200（后端建单上限 200 行）。
+ */
+export function fetchPurchaseOrderItems(orderId: string): Promise<PurchaseOrderItemLine[]> {
+  return get<PageData<PurchaseOrderItemLine>>(
+    `${BASE}/purchase-order-item/page`,
+    asParams({ order_id: orderId, page: 1, page_size: 200 }),
+  ).then((page) => page.list ?? []);
+}
+
+/** 建单（`POST /erp/purchase-order`，权限 `business:erp:purchase-order:create`） */
+export function createPurchaseOrder(payload: CreatePurchaseOrderReq): Promise<PurchaseOrderDetail> {
+  return post<PurchaseOrderDetail>(`${BASE}/purchase-order`, payload);
+}
+
+/** 改单（`PUT /erp/purchase-order/{id}`，**仅 DRAFT**，整单覆盖明细） */
+export function updatePurchaseOrder(
+  id: string,
+  payload: UpdatePurchaseOrderReq,
+): Promise<PurchaseOrderDetail> {
+  return put<PurchaseOrderDetail>(`${BASE}/purchase-order/${id}`, payload);
+}
+
+/** 状态流转（`PATCH /erp/purchase-order/{id}/status`，4 条合法边，其余 409） */
+export function updatePurchaseOrderStatus(
+  id: string,
+  payload: PurchaseOrderStatusReq,
+): Promise<PurchaseOrderDetail> {
+  return patch<PurchaseOrderDetail>(`${BASE}/purchase-order/${id}/status`, payload);
+}
+
+/** 删除（`DELETE /erp/purchase-order/{id}`，**仅 DRAFT**，软删） */
+export function deletePurchaseOrder(id: string): Promise<void> {
+  return del<void>(`${BASE}/purchase-order/${id}`);
+}
+
+// ==================== 收货入库（P2-B1 / P2-E1） ====================
+
+/** 收货单状态（`stockin_model::STATUS_*`）：`DRAFT→POSTED` / `DRAFT→CANCELLED` / `POSTED→CANCELLED` */
+export type StockInStatus = 'DRAFT' | 'POSTED' | 'CANCELLED';
+
+/**
+ * 收货入库单主表（逐字抄 `stockin_dto.rs::StockInRes`）。
+ *
+ * ⚠️ 列表接口的 list 元素是**扁平**的 `StockInRes`；详情接口 `GET /erp/stock-in/{id}`
+ * 返回的是 {@link StockInDetail}（`header` 包了一层 + `items`）—— 两种形状别搞混。
+ */
+export interface StockInRow {
+  /** 主键 */
+  id: string;
+  /** 收货单号 `IN-yyyyMMdd-000001` */
+  in_no: string;
+  /** 入库类型（`PURCHASE_IN` 等） */
+  in_type: string;
+  /** 来源采购单 id（可空 = 无源直收） */
+  source_order_id: string | null;
+  /** 供应商 id */
+  supplier_id: string | null;
+  /** 收货仓库 id */
+  warehouse_id: string;
+  /** 入库日期 `YYYY-MM-DD` */
+  in_date: string;
+  /** 状态 */
+  status: StockInStatus;
+  /** 状态中文（后端给：草稿 / 已过账 / 已作废） */
+  status_label: string;
+  /** 币种 */
+  currency_code: string;
+  /** 合计数量 */
+  total_qty: number | string;
+  /** 不含税金额 */
+  total_amount: number | string;
+  /** 税额 */
+  total_tax: number | string;
+  /** 价税合计（列表「金额(价税合计)」列读它） */
+  total_with_tax: number | string;
+  /** ★ 发票已随货到达（过账弹窗的必选项；`false` = 暂估，本批不可选） */
+  invoice_received: boolean;
+  /** 应付单 id（过账后生成，P2-C1） */
+  voucher_id: string | null;
+  /** 记账凭证 id（过账后生成，P2-C1） */
+  payable_id: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 过账时间 */
+  posted_at: string | null;
+  /** 过账人 */
+  posted_by: string | null;
+  /** 作废时间 */
+  cancelled_at: string | null;
+  /** 作废人 */
+  cancelled_by: string | null;
+  /** 作废原因 */
+  cancel_reason: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 收货明细（`stockin_dto.rs::StockInItemRes`）。
+ *
+ * ⚠️ 行金额同样是 `amount` / `tax_amount` / `with_tax_amount`；
+ * `price` 是**不含税**单价（入库成本口径，硬红线：成本只用不含税金额）。
+ */
+export interface StockInItemLine {
+  /** 主键 */
+  id: string;
+  /** 行号 */
+  line_no: number;
+  /** 来源采购明细 id */
+  source_item_id: string | null;
+  /** 物料 id */
+  material_id: string;
+  /** 计量单位 id（`NOT NULL`，建单时由后端查物料补） */
+  unit_id: string;
+  /** 数量（> 0） */
+  qty: number | string;
+  /** 不含税单价 */
+  price: number | string;
+  /** 含税单价 */
+  price_incl: number | string;
+  /** 税率（0–100） */
+  tax_rate: number | string;
+  /** 不含税金额 */
+  amount: number | string;
+  /** 税额 */
+  tax_amount: number | string;
+  /** 价税合计 */
+  with_tax_amount: number | string;
+  /** 入库成本单价快照（过账时的移动加权后单价） */
+  cost_price: number | string;
+  /** 库位 id（可空 = 未指定库位） */
+  location_id: string | null;
+  /** 批次号 */
+  lot_no: string | null;
+  /** 行备注 */
+  remark: string | null;
+}
+
+/** 收货单详情（`GET /erp/stock-in/{id}`：**header 包了一层** + items + 序列号件数） */
+export interface StockInDetail {
+  /** 单头 */
+  header: StockInRow;
+  /** 明细 */
+  items: StockInItemLine[];
+  /** 序列号件数 */
+  serial_count: number;
+  /** 口径说明（后端生成，用于页面底部小字） */
+  summary: string;
+}
+
+/**
+ * 建单 / 改单的一条明细（`stockin_dto.rs::StockInItemReq`）。
+ *
+ * - `price_excl` 是**必填口径**：收货入库只认不含税单价（成本基础）；
+ * - `serial_ids`：一物一码物料在**建单期只做条数 / 去重 / 长度校验**，
+ *   真正落号在过账（`serials` 参数）；
+ * - 带 `source_order_id` 时 `purchase_order_item_id` 必填，否则后端无法回写已收数量（400）。
+ */
+export interface StockInItemReq {
+  /** 来源采购明细 id（带 `source_order_id` 时必填） */
+  purchase_order_item_id?: string | null;
+  /** 物料 id */
+  material_id: string;
+  /** 数量（> 0，0 数量 400） */
+  qty: number;
+  /** 不含税单价（≥ 0） */
+  price_excl: number;
+  /** 税率（0–100） */
+  tax_rate: number;
+  /** 库位 id（可空） */
+  location_id?: string | null;
+  /** 序列号（一物一码物料；长度为 0 表示过账时自动取号） */
+  serial_ids?: string[];
+  /** 行备注 */
+  remark?: string | null;
+}
+
+/** 建单请求体（`POST /erp/stock-in`） */
+export interface CreateStockInReq {
+  /** 来源采购单 id（`items` 为空**当且仅当**带它：后端按未收数量自动带出） */
+  source_order_id?: string | null;
+  /** 供应商 id */
+  supplier_id: string;
+  /** 收货仓库 id（带源单时必须与采购单收货仓库一致） */
+  warehouse_id: string;
+  /** 入库日期 `YYYY-MM-DD` */
+  in_date: string;
+  /** 发票已随货到达（默认 `true`） */
+  invoice_received?: boolean;
+  /** 备注 */
+  remark?: string | null;
+  /** 明细 */
+  items: StockInItemReq[];
+}
+
+/** 改单请求体（`PUT /erp/stock-in/{id}`，**仅 DRAFT**，整单覆盖明细） */
+export type UpdateStockInReq = CreateStockInReq;
+
+/** 过账时补序列号（`stockin_dto.rs::StockInLineSerials`） */
+export interface StockInLineSerials {
+  /** 行号（1 起） */
+  line_no: number;
+  /** 该行的序列号字符串 */
+  serial_ids: string[];
+}
+
+/**
+ * 状态流转请求体（`PATCH /erp/stock-in/{id}/status`）。
+ *
+ * - `POSTED`（过账）：同一事务里 锁单头 → CAS → 库存加法 + 流水 → 序列号 → 回写采购已收 → 推进 PO；
+ *   重复过账 `409 + 10003`；
+ * - `CANCELLED`：`POSTED → CANCELLED` **必须带 `reason`**，且**本批不冲回库存**（红冲属 P2-C1）。
+ */
+export interface StockInStatusReq {
+  /** 目标状态 */
+  status: 'POSTED' | 'CANCELLED';
+  /** 作废原因（`POSTED → CANCELLED` 必填） */
+  reason?: string | null;
+  /** 一物一码的序列号（`serials[{line_no, serial_ids}]`；可省 = 系统自动取号） */
+  serials?: StockInLineSerials[];
+}
+
+/** 收货入库分页（`GET /erp/stock-in/page`，服务端分页，list 元素是扁平 `StockInRow`） */
+export function fetchStockInPage(query: {
+  keyword?: string;
+  status?: StockInStatus | '';
+  supplier_id?: string;
+  warehouse_id?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<StockInRow>> {
+  return get<PageData<StockInRow>>(`${BASE}/stock-in/page`, asParams(query));
+}
+
+/** 收货单详情（`GET /erp/stock-in/{id}`，注意 `header` 包了一层） */
+export function fetchStockInDetail(id: string): Promise<StockInDetail> {
+  return get<StockInDetail>(`${BASE}/stock-in/${id}`);
+}
+
+/** 建单（`POST /erp/stock-in`，金额只由服务端算，传了也会被忽略） */
+export function createStockIn(payload: CreateStockInReq): Promise<StockInDetail> {
+  return post<StockInDetail>(`${BASE}/stock-in`, payload);
+}
+
+/** 改单（`PUT /erp/stock-in/{id}`，**仅 DRAFT**，整单覆盖明细） */
+export function updateStockIn(id: string, payload: UpdateStockInReq): Promise<StockInDetail> {
+  return put<StockInDetail>(`${BASE}/stock-in/${id}`, payload);
+}
+
+/** 过账 / 作废（`PATCH /erp/stock-in/{id}/status`） */
+export function updateStockInStatus(
+  id: string,
+  payload: StockInStatusReq,
+): Promise<StockInDetail> {
+  return patch<StockInDetail>(`${BASE}/stock-in/${id}/status`, payload);
+}
+
+/** 删除（`DELETE /erp/stock-in/{id}`，**仅 DRAFT**，软删） */
+export function deleteStockIn(id: string): Promise<void> {
+  return del<void>(`${BASE}/stock-in/${id}`);
+}
