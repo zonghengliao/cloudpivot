@@ -11,6 +11,9 @@
 //! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
 //! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
 //! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 | **P2-A2** |
+//! | [`stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
+//! | [`stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
+//! | [`stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -45,6 +48,9 @@ pub mod purchase_model;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
+pub mod stockin_dto;
+pub mod stockin_handler;
+pub mod stockin_model;
 pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;

@@ -1,0 +1,1920 @@
+//! 收货入库单接口层（批次 D · P2-B1）：建 / 改 / 状态流转（过账）/ 删 / 列表 / 详情。
+//!
+//! 前缀 `/api` 由 `[router].prefix` 注入，宏内写 `/business/erp/stock-in/...`。
+//!
+//! | 方法 | 路径 | 权限码 | 说明 |
+//! |------|------|--------|------|
+//! | POST | `/business/erp/stock-in` | `business:erp:stock-in:create` | 建单（`DRAFT` + `IN-yyyyMMdd-000001`，金额服务端算） |
+//! | PUT | `/business/erp/stock-in/{id}` | `business:erp:stock-in:update` | 改单（**仅 `DRAFT`**） |
+//! | PATCH | `/business/erp/stock-in/{id}/status` | `business:erp:stock-in:status` | `DRAFT→POSTED`（过账，**核心**）/ `→CANCELLED` |
+//! | DELETE | `/business/erp/stock-in/{id}` | `business:erp:stock-in:delete` | 软删（**仅 `DRAFT`**） |
+//! | GET | `/business/erp/stock-in/page` | `business:erp:stock-in:list` | 分页（关键词 / 状态 / 供应商 / 仓库 / 日期区间） |
+//! | GET | `/business/erp/stock-in/{id}` | `business:erp:stock-in:detail` | 详情（单头 + 明细 + 序列号件数） |
+//!
+//! # 为什么业务逻辑拆成普通 async 函数
+//!
+//! axum handler 要 `AuthClaims` + `Json` 才能跑，单测没法直接调；把「校验 + 取号 + 落库 +
+//! 过账」收进 [`create_stock_in`] / [`update_stock_in`] / [`change_stock_in_status`] /
+//! [`delete_stock_in`] 之后，单测走**同一条代码路径**（只跳过认证）。
+//!
+//! # ★ 过账（硬红线 2 / 3 / 4 / 7）
+//!
+//! 一个事务里做完六件事（顺序即代码顺序）：
+//!
+//! ```text
+//! ① 锁单头 SELECT … FOR UPDATE → 状态必须 DRAFT，否则 409（重复过账 = 409，幂等）
+//! ② CAS 写状态 DRAFT → POSTED（posted_at / posted_by）
+//! ③ 明细**按 (material_id, location_id, line_no) 升序**逐行：库存加法 + 写 PURCHASE_IN 流水
+//!    · 加锁用 SELECT … FOR UPDATE（同一物料同一库位并发串行化，before_* 快照不打架）
+//!    · new_amount = old_amount + 不含税金额；new_avg = ROUND(new_amount / new_qty, 6)（SQL 侧算）
+//! ④ 一物一码物料生成 / 落序列号（数量 = 本行 qty）
+//! ⑤ 带来源采购单时回写 received_qty（条件 `received_qty + 本次 ≤ qty`，0 行 = 超收 400）
+//! ⑥ 推送采购单状态 PARTIAL_RECEIVED / RECEIVED
+//! ```
+//!
+//! ⚠️ 成本口径：`biz_inventory.amount` 与流水 `amount` 只加**不含税金额**
+//! （PRD §3.2：进项税价外可抵扣，不进存货成本）。
+//!
+//! # 与卡面的一处入参差异（`serial_ids` 在过账时提交）
+//!
+//! `biz_stock_in_item` **没有存序列号的列**，硬红线 5 又不许改 V0137-V0145。所以：
+//!
+//! * 建单 / 改单的 `items[].serial_ids` 会被**校验**（条数必须 = qty、单行内不重复、≤64 字），
+//!   但**不落库**（卡面 ⑩ 的 400 在建单就生效）；
+//! * 真正落库的序列号在 `PATCH …/status` 的 body 里给：
+//!   `{"status":"POSTED","serials":[{"line_no":1,"serial_ids":["SN-...","SN-..."]}]}`；
+//! * 不给 = 由系统按 `SN-yyyyMMdd-NNNNNN` 取号生成（卡面 ③ 的默认路径）。
+//!
+//! 这条差异写进证据文档与看板：想「建单时贴码、过账时自动用」需要给明细表加一列（属后续迁移）。
+//!
+//! # 数据权限
+//!
+//! ```text
+//! SCOPE-EXEMPT: 收货入库单是 ERP 单据表（V0145 建表，无 dept_id / 归属人列），
+//! 可见性由 business:erp:stock-in:* 权限码控制；分页走 scope::paginate_unscoped（闸①口径）。
+//! SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
+//! ```
+
+use std::collections::HashMap;
+
+use axum::{Extension, Json};
+use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::rust_decimal::Decimal;
+use nik::prelude::*;
+use nik::uuid::Uuid;
+use serde::Serialize;
+
+use crate::business::erp::model;
+use crate::business::erp::stockin_dto::{
+    CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemRes,
+    StockInPageQuery, StockInRes, StockInStatusReq,
+};
+use crate::business::erp::stockin_model::{
+    self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED,
+    Totals, can_transition, status_label, transition_rejected_message,
+};
+use crate::shared::error_code;
+use crate::utils;
+
+// ==================== 共用辅助 ====================
+
+/// 路径 / 请求体里的 UUID：非法 → `400 + 66006`（绝不静默当作「没传」）。
+fn parse_uuid(raw: &str, field: &str) -> std::result::Result<Uuid, ApiError> {
+    let text = raw.trim();
+    if text.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_FILTER_INVALID,
+            format!("{field} 不能为空"),
+        ));
+    }
+    Uuid::parse_str(text).map_err(|_| {
+        ApiError::new(
+            400,
+            error_code::ERP_FILTER_INVALID,
+            format!("{field} 不是合法的 UUID：{text}"),
+        )
+    })
+}
+
+/// 可空 UUID 原文 → `Option<Uuid>`（空 = `None`）。
+fn parse_optional_uuid(
+    raw: Option<&String>,
+    field: &str,
+) -> std::result::Result<Option<Uuid>, ApiError> {
+    match raw.map(|text| text.trim()) {
+        None | Some("") => Ok(None),
+        Some(text) => parse_uuid(text, field).map(Some),
+    }
+}
+
+/// 操作人（`create_by` / `posted_by`）。
+fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
+    utils::current_user_uuid(claims)
+}
+
+/// 不存在统一 404。
+fn not_found(what: &str) -> ApiError {
+    ApiError::new(
+        404,
+        error_code::RESOURCE_NOT_FOUND,
+        format!("{what}不存在或已删除"),
+    )
+}
+
+/// 状态冲突统一 409。
+fn conflict(message: impl Into<String>) -> ApiError {
+    ApiError::new(409, error_code::RESOURCE_CONFLICT, message.into())
+}
+
+/// 弱引用缺失 / 数据不一致统一 400（`66002`）。
+fn reference_missing(message: impl Into<String>) -> ApiError {
+    ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
+}
+
+/// 参数类 400（`10001`）。
+fn bad_request(message: impl Into<String>) -> ApiError {
+    ApiError::new(400, error_code::PARAM_INVALID, message.into())
+}
+
+/// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`、外键 → `400 + 66002`。
+fn write_error(err: DbError, ctx: &str) -> ApiError {
+    match err {
+        DbError::UniqueViolation { constraint, .. } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "收货入库单号或序列号重复（唯一约束{}）：取号器与库里的号段不一致，\
+                 请联系运维排查 biz_seq",
+                constraint
+                    .as_deref()
+                    .map(|name| format!(" {name}"))
+                    .unwrap_or_default()
+            ),
+        ),
+        DbError::CheckViolation { constraint, .. } => ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "数据不满足库约束 {}（三金额必须精确恒等 with_tax_amount = amount + tax_amount；\
+                 数量 > 0；税率 0–100）",
+                constraint.as_deref().unwrap_or("<未知>")
+            ),
+        ),
+        DbError::ForeignKeyViolation { constraint, .. } => ApiError::new(
+            400,
+            error_code::ERP_REFERENCE_MISSING,
+            format!(
+                "引用的数据不存在（外键 {}）",
+                constraint.as_deref().unwrap_or("<未知>")
+            ),
+        ),
+        other => utils::db_error(other, ctx),
+    }
+}
+
+// ==================== 详情组装 ====================
+
+/// 详情：单头 + 明细 + 本单序列号件数。
+pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiError> {
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    let items = stockin_model::items_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单明细"))?;
+    let serial_count = stockin_model::serial_count_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "统计收货入库单序列号"))?;
+    Ok(StockInDetailRes::with_summary(
+        StockInRes::from(&row),
+        items.iter().map(StockInItemRes::from).collect(),
+        serial_count,
+    ))
+}
+
+// ==================== 明细规划（校验 + 查引用） ====================
+
+/// 一行「已解析好、可落库」的明细。
+///
+/// `serial_required` 不在这里存：过账时按物料**重新查一次**（建单到过账之间物料的
+/// 一物一码开关可能被改），建单期只用来拒绝「非一物一码物料却给了 serial_ids」。
+#[derive(Debug, Clone)]
+struct LinePlan {
+    /// 待落库的明细。
+    new: NewStockInLine,
+}
+
+/// 把校验后的 DTO 明细变成可落库的明细：查物料（`unit_id` / `serial_required`）、
+/// 查库位、核对采购明细行的归属与未收数量。
+async fn plan_lines(
+    prepared: &PreparedStockIn,
+    source_order_id: Option<Uuid>,
+    warehouse_id: Uuid,
+) -> std::result::Result<Vec<LinePlan>, ApiError> {
+    let mut plans = Vec::with_capacity(prepared.lines.len());
+    // 同一采购明细行在一张收货单里可能出现多次（同物料不同库位），超收要按「合计」判
+    let mut requested_by_source: HashMap<Uuid, Decimal> = HashMap::new();
+
+    for (index, line) in prepared.lines.iter().enumerate() {
+        let material_id = parse_uuid(
+            &line.material_id_raw,
+            &format!("items[{index}].material_id"),
+        )?;
+        let material = model::material_find_by_id(material_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询物料"))?
+            .ok_or_else(|| {
+                reference_missing(format!(
+                    "items[{index}].material_id 物料不存在或已删除（{material_id}）"
+                ))
+            })?;
+        let serial_required = stockin_model::material_serial_required(material_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询物料一物一码开关"))?
+            .unwrap_or(false);
+        if !serial_required && !line.serial_ids.is_empty() {
+            return Err(ApiError::new(
+                400,
+                error_code::ERP_SERIAL_NOT_REQUIRED,
+                format!(
+                    "items[{index}]（物料 {}）不是一物一码物料（serial_required = false），\
+                     不能给 serial_ids：{} 条号码无处可落",
+                    material.material_code,
+                    line.serial_ids.len()
+                ),
+            ));
+        }
+
+        let location_id = match line.location_id_raw.as_deref() {
+            None => None,
+            Some(raw) => {
+                let location_id = parse_uuid(raw, &format!("items[{index}].location_id"))?;
+                let reference =
+                    crate::business::erp::serial_model::inventory_location_ref(location_id)
+                        .await
+                        .map_err(|error| utils::db_error(error, "查询库位库存行"))?
+                        .ok_or_else(|| {
+                            reference_missing(format!(
+                                "items[{index}].location_id 库位库存行不存在（{location_id}；\
+                             必须是 biz_inventory_location.id，不是库位字典 id）"
+                            ))
+                        })?;
+                if reference.warehouse_id != warehouse_id {
+                    return Err(reference_missing(format!(
+                        "items[{index}].location_id 的库位属于仓库 {}，与收货仓库 {warehouse_id} 不一致",
+                        reference.warehouse_id
+                    )));
+                }
+                Some(location_id)
+            }
+        };
+
+        let source_item_id = parse_optional_uuid(
+            line.source_item_id_raw.as_ref(),
+            &format!("items[{index}].purchase_order_item_id"),
+        )?;
+        if source_item_id.is_some() && source_order_id.is_none() {
+            return Err(bad_request(format!(
+                "items[{index}].purchase_order_item_id 给了，但单头没有 source_order_id：\
+                 来源行必须挂在具体的采购单上"
+            )));
+        }
+        if let Some(item_id) = source_item_id {
+            let (order_of_item, po_item) = po_item_of(item_id).await?;
+            if Some(order_of_item) != source_order_id {
+                return Err(reference_missing(format!(
+                    "items[{index}].purchase_order_item_id（{item_id}）不属于本单的来源采购单"
+                )));
+            }
+            let remaining = stockin_model::remaining_qty(&po_item);
+            let requested = requested_by_source.entry(item_id).or_default();
+            *requested += line.qty;
+            if *requested > remaining {
+                return Err(bad_request(format!(
+                    "items[{index}] 收货数量超过采购单未收数量：该行采购 {} {}、已收 {} {}，\
+                     本单累计要收 {} {}（超出 {}）",
+                    po_item.qty,
+                    "件",
+                    po_item.received_qty,
+                    "件",
+                    *requested,
+                    "件",
+                    *requested - remaining
+                )));
+            }
+        }
+
+        plans.push(LinePlan {
+            new: NewStockInLine {
+                material_id,
+                unit_id: material.unit_id,
+                source_item_id,
+                qty: line.qty,
+                price: line.price_excl,
+                price_incl: line.price_incl,
+                tax_rate: line.tax_rate,
+                amount: line.amount,
+                tax_amount: line.tax_amount,
+                with_tax_amount: line.with_tax_amount,
+                location_id,
+                serial_ids: line.serial_ids.clone(),
+                remark: line.remark.clone(),
+            },
+        });
+    }
+    Ok(plans)
+}
+
+/// 取采购明细行 + 它所属的采购单 id。
+async fn po_item_of(
+    item_id: Uuid,
+) -> std::result::Result<(Uuid, crate::business::erp::model::PurchaseOrderItemRow), ApiError> {
+    let row = model::purchase_order_item_find_by_id(item_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购明细行"))?
+        .ok_or_else(|| reference_missing(format!("采购明细行不存在（{item_id}）")))?;
+    Ok((row.order_id, row))
+}
+
+/// 校验来源采购单：存在、可收货、仓库一致。返回采购单行。
+async fn require_purchase_order(
+    order_id: Uuid,
+    warehouse_id: Uuid,
+) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
+    let order = stockin_model::purchase_order_ref(order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询来源采购单"))?
+        .ok_or_else(|| {
+            reference_missing(format!(
+                "source_order_id 采购单不存在或已删除（{order_id}）"
+            ))
+        })?;
+    if !stockin_model::purchase_receivable(&order.status) {
+        return Err(bad_request(format!(
+            "来源采购单 {} 当前是「{}」（{}），不能收货：只有已提交（SUBMITTED）/ 已审批（APPROVED）/\
+             部分收货（PARTIAL_RECEIVED）的采购单可以收",
+            order.order_no,
+            purchase_status_label(&order.status),
+            order.status
+        )));
+    }
+    if order.warehouse_id != warehouse_id {
+        return Err(bad_request(format!(
+            "收货仓库（{warehouse_id}）与采购单 {} 的收货仓库（{}）不一致",
+            order.order_no, order.warehouse_id
+        )));
+    }
+    Ok(order)
+}
+
+/// 采购单状态中文标签（只用于文案）。
+fn purchase_status_label(status: &str) -> &'static str {
+    match status {
+        "DRAFT" => "草稿",
+        "SUBMITTED" => "已提交",
+        "APPROVED" => "已审批",
+        "PARTIAL_RECEIVED" => "部分收货",
+        "RECEIVED" => "已收货",
+        "CLOSED" => "已关闭",
+        "CANCELLED" => "已取消",
+        _ => "未知状态",
+    }
+}
+
+/// 带 `source_order_id` 且没给明细时，按采购单**未收数量**自动带出一批明细。
+///
+/// 口径：只取 `qty - received_qty > 0` 的行，单价 / 税率沿用采购明细（含税单价也照搬快照），
+/// `source_item_id` 落该采购行 id —— 这样过账能回写 `received_qty`、后续能判超收。
+async fn pull_lines_from_purchase(
+    order_id: Uuid,
+) -> std::result::Result<Vec<crate::business::erp::stockin_dto::StockInItemReq>, ApiError> {
+    let items = model::purchase_order_items(order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购单明细"))?;
+    let mut lines = Vec::new();
+    for item in items {
+        let remaining = stockin_model::remaining_qty(&item);
+        if remaining <= Decimal::ZERO {
+            continue;
+        }
+        lines.push(crate::business::erp::stockin_dto::StockInItemReq {
+            purchase_order_item_id: Some(item.id.to_string()),
+            material_id: Some(item.material_id.to_string()),
+            qty: Some(remaining),
+            price_excl: Some(item.price),
+            tax_rate: Some(item.tax_rate),
+            location_id: None,
+            serial_ids: Vec::new(),
+            remark: Some(format!("由采购单自动带出（未收 {remaining}）")),
+        });
+    }
+    if lines.is_empty() {
+        return Err(bad_request(
+            "来源采购单每一行都已收满，没有可自动带出的未收数量：请手工指定要收的明细",
+        ));
+    }
+    Ok(lines)
+}
+
+/// 采购单明细快照（超收文案用）：`source_item_id → (qty, received_qty)`。
+async fn purchase_item_snapshot(
+    order_id: Option<Uuid>,
+) -> std::result::Result<HashMap<Uuid, (Decimal, Decimal)>, ApiError> {
+    let mut map = HashMap::new();
+    let Some(order_id) = order_id else {
+        return Ok(map);
+    };
+    let items = model::purchase_order_items(order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购单明细"))?;
+    for item in items {
+        map.insert(item.id, (item.qty, item.received_qty));
+    }
+    Ok(map)
+}
+
+// ==================== ① 建单 ====================
+
+/// 建单核心逻辑（handler 与单测共用）。
+///
+/// 顺序：DTO 校验 + 算金额（纯函数）→ 供应商 / 仓库存在 → 来源采购单可收 →
+/// （明细为空时按采购单未收数量带出）→ 逐行物料 / 库位 / 采购行校验 → 一个事务里「取号 + 单头 + 明细」。
+pub async fn create_stock_in(
+    req: &CreateStockInReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<Uuid, ApiError> {
+    let mut request = req.clone();
+    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
+    if request.items.is_empty() {
+        let Some(order_id) = source_order_id else {
+            return Err(bad_request(
+                "items 不能为空：没有来源采购单时至少要有一行明细",
+            ));
+        };
+        request.items = pull_lines_from_purchase(order_id).await?;
+    }
+
+    let prepared = request.prepare(false)?;
+    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
+    let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
+
+    model::supplier_find_by_id(supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商"))?
+        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
+    model::warehouse_find_by_id(warehouse_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货仓库"))?
+        .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
+    if let Some(order_id) = source_order_id {
+        require_purchase_order(order_id, warehouse_id).await?;
+    }
+
+    let plans = plan_lines(&prepared, source_order_id, warehouse_id).await?;
+    let lines: Vec<NewStockInLine> = plans.iter().map(|plan| plan.new.clone()).collect();
+    let totals = Totals::of(&lines);
+    let new = NewStockIn {
+        supplier_id,
+        warehouse_id,
+        source_order_id,
+        in_date: prepared.in_date,
+        invoice_received: prepared.invoice_received,
+        remark: prepared.remark.as_deref(),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启建单事务"))?;
+    match stockin_model::create(&tx, &new, &lines, &totals, operator, now).await {
+        Ok(id) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交建单事务"))?;
+            Ok(id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(write_error(error, "创建收货入库单"))
+        }
+    }
+}
+
+/// 新建收货入库单（`status = DRAFT`，单号 `IN-yyyyMMdd-000001`）。
+#[nik::permission(
+    path = "/business/erp/stock-in",
+    method = "POST",
+    permission = "business:erp:stock-in:create"
+)]
+#[nik::post("/business/erp/stock-in")]
+pub async fn stock_in_create(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Json(req): Json<CreateStockInReq>,
+) -> ResResult<StockInDetailRes> {
+    let id = create_stock_in(&req, operator_of(&claims)).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ② 改单 ====================
+
+/// 改单核心逻辑：**只有 `DRAFT` 能改**（其它状态 → 409），明细整体重建。
+pub async fn update_stock_in(
+    id: Uuid,
+    req: &CreateStockInReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let current = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if current.status != STATUS_DRAFT {
+        return Err(conflict(format!(
+            "收货入库单当前是「{}」（{}），只有草稿（DRAFT）能编辑：已过账的单据已经加过库存，\
+             要改只能作废后重开",
+            status_label(&current.status),
+            current.status
+        )));
+    }
+
+    let mut request = req.clone();
+    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
+    if request.items.is_empty() {
+        let Some(order_id) = source_order_id else {
+            return Err(bad_request(
+                "items 不能为空：没有来源采购单时至少要有一行明细",
+            ));
+        };
+        request.items = pull_lines_from_purchase(order_id).await?;
+    }
+
+    let prepared = request.prepare(false)?;
+    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
+    let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
+    model::supplier_find_by_id(supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商"))?
+        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
+    model::warehouse_find_by_id(warehouse_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货仓库"))?
+        .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
+    if let Some(order_id) = source_order_id {
+        require_purchase_order(order_id, warehouse_id).await?;
+    }
+
+    let plans = plan_lines(&prepared, source_order_id, warehouse_id).await?;
+    let lines: Vec<NewStockInLine> = plans.iter().map(|plan| plan.new.clone()).collect();
+    let totals = Totals::of(&lines);
+    let new = NewStockIn {
+        supplier_id,
+        warehouse_id,
+        source_order_id,
+        in_date: prepared.in_date,
+        invoice_received: prepared.invoice_received,
+        remark: prepared.remark.as_deref(),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启改单事务"))?;
+    match stockin_model::update(&tx, id, &new, &lines, &totals, operator, now).await {
+        Ok(0) => {
+            let _ = tx.rollback().await;
+            Err(conflict(
+                "收货入库单状态在本次编辑期间已被改动（只有草稿能改），请刷新后重试",
+            ))
+        }
+        Ok(_) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交改单事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(write_error(error, "编辑收货入库单"))
+        }
+    }
+}
+
+/// 编辑收货入库单（仅 DRAFT）。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}",
+    method = "PUT",
+    permission = "business:erp:stock-in:update"
+)]
+#[nik::put("/business/erp/stock-in/{id}")]
+pub async fn stock_in_update(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<CreateStockInReq>,
+) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    update_stock_in(id, &req, operator_of(&claims)).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ③ 状态流转（过账 / 作废） ====================
+
+/// 状态流转核心逻辑（handler 与单测共用）。
+///
+/// `POSTED` 走 [`post_stock_in`]（一个事务里做完六件事），`CANCELLED` 只改状态。
+pub async fn change_stock_in_status(
+    id: Uuid,
+    req: &StockInStatusReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let target = req.target_status()?;
+    let reason = req.reason_text();
+    if let Some(text) = reason
+        && text.chars().count() > MAX_REASON_LEN
+    {
+        return Err(bad_request(format!(
+            "reason 超过 {MAX_REASON_LEN} 字（当前 {} 字）",
+            text.chars().count()
+        )));
+    }
+
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if !can_transition(&row.status, target) {
+        if row.status == STATUS_POSTED && target == STATUS_POSTED {
+            return Err(conflict(format!(
+                "收货入库单 {} 已过账（POSTED，时间 {}），不能重复过账：库存只加一次，\
+                 若要重收请先作废后重开",
+                row.in_no,
+                row.posted_at
+                    .map(|at| at.to_rfc3339())
+                    .unwrap_or_else(|| "-".to_string())
+            )));
+        }
+        return Err(conflict(transition_rejected_message(&row.status, target)));
+    }
+
+    if target == STATUS_POSTED {
+        return post_stock_in(id, &row, req, operator).await;
+    }
+
+    // 作废：DRAFT 从未加过库存；POSTED 的库存冲回属 P2-C1 红冲（卡面 §二）
+    if row.status == STATUS_POSTED && reason.is_none() {
+        return Err(bad_request(
+            "已过账的收货单作废必须给出原因（reason）：库存已增加，红冲要能追溯到为什么",
+        ));
+    }
+    if row.status == STATUS_POSTED {
+        tracing::warn!(
+            stock_in_id = %id,
+            in_no = %row.in_no,
+            total_qty = %row.total_qty,
+            total_amount = %row.total_amount,
+            "收货入库单作废：库存**未冲回**（红冲属 P2-C1 凭证/应付），已过账的库存台账需要人工红字调整单冲回"
+        );
+    }
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
+    match stockin_model::apply_status(
+        &tx,
+        id,
+        &row.status,
+        STATUS_CANCELLED,
+        reason,
+        operator,
+        now,
+    )
+    .await
+    {
+        Ok(0) => {
+            let _ = tx.rollback().await;
+            Err(conflict(format!(
+                "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
+                row.status
+            )))
+        }
+        Ok(_) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(write_error(error, "收货入库单状态流转"))
+        }
+    }
+}
+
+/// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
+async fn post_stock_in(
+    id: Uuid,
+    header: &stockin_model::StockInRow,
+    req: &StockInStatusReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let items = stockin_model::items_of(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单明细"))?;
+    if items.is_empty() {
+        return Err(bad_request("收货入库单没有任何明细，无法过账"));
+    }
+
+    // 一物一码开关：事务外查（少占锁）
+    let mut serial_required: HashMap<Uuid, bool> = HashMap::new();
+    for item in &items {
+        let flag = stockin_model::material_serial_required(item.material_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询物料一物一码开关"))?
+            .unwrap_or(false);
+        serial_required.insert(item.material_id, flag);
+    }
+    let provided = request_serials(req, &items)?;
+    let po_snapshot = purchase_item_snapshot(header.source_order_id).await?;
+
+    // PRD §3.2.6：多行按 material_id 升序加锁（再按库位 / 行号，保证全序），避免两个收货单互相死锁
+    let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
+    ordered.sort_by(|a, b| {
+        (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
+    });
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启过账事务"))?;
+    let outcome = post_in_tx(
+        &tx,
+        id,
+        header,
+        &ordered,
+        &serial_required,
+        &provided,
+        &po_snapshot,
+        operator,
+        now,
+    )
+    .await;
+    match outcome {
+        Ok(()) => {
+            // 逐行写失败时由 drop 回滚（不 commit 就等于回滚），但显式 rollback 更清楚
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交过账事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 过账事务体（抽出来便于「失败即回滚」的统一收口）。
+#[allow(clippy::too_many_arguments)]
+async fn post_in_tx(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    header: &stockin_model::StockInRow,
+    ordered: &[&stockin_model::StockInItemRow],
+    serial_required: &HashMap<Uuid, bool>,
+    provided: &HashMap<i32, Vec<String>>,
+    po_snapshot: &HashMap<Uuid, (Decimal, Decimal)>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    // ① 锁单头（并发重复过账在这里串行化）
+    let locked = stockin_model::lock_stock_in(ex, id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if locked.status != STATUS_DRAFT {
+        return Err(conflict(format!(
+            "收货入库单 {} 当前是「{}」（{}），不能过账：库存只加一次",
+            locked.in_no,
+            status_label(&locked.status),
+            locked.status
+        )));
+    }
+
+    // ② CAS 写状态（`WHERE status = 'DRAFT'`）
+    let affected =
+        stockin_model::apply_status(ex, id, STATUS_DRAFT, STATUS_POSTED, None, operator, now)
+            .await
+            .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "收货入库单 {} 已被过账（并发），本次未生效",
+            header.in_no
+        )));
+    }
+
+    // ③ 逐行：库存加法 + 流水（成本口径 = 不含税金额）
+    for item in ordered {
+        let cost = CostBasis::of(item.qty, item.amount);
+        let applied = stockin_model::apply_cost(
+            ex,
+            item.material_id,
+            header.warehouse_id,
+            item.location_id,
+            cost,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "过账：库存加法"))?;
+        stockin_model::write_txn(
+            ex,
+            item.material_id,
+            header.warehouse_id,
+            item.line_no,
+            cost,
+            &applied,
+            id,
+            &header.in_no,
+            operator,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "过账：写库存流水"))?;
+
+        // ④ 一物一码：落 / 生成序列号
+        if serial_required
+            .get(&item.material_id)
+            .copied()
+            .unwrap_or(false)
+        {
+            let serial_ids = provided.get(&item.line_no).cloned().unwrap_or_default();
+            stockin_model::generate_serials(
+                ex,
+                &stockin_model::SerialBatch {
+                    stock_in_id: id,
+                    material_id: item.material_id,
+                    warehouse_id: header.warehouse_id,
+                    location_id: item.location_id,
+                    qty: item.qty,
+                    serial_ids: &serial_ids,
+                    operator,
+                    now,
+                },
+            )
+            .await
+            .map_err(|error| match error {
+                DbError::UniqueViolation { constraint, .. } => ApiError::new(
+                    409,
+                    error_code::ERP_CODE_CONFLICT,
+                    format!(
+                        "序列号重复（唯一约束{}）：这个码已经入过库，不能重复入库",
+                        constraint
+                            .as_deref()
+                            .map(|name| format!(" {name}"))
+                            .unwrap_or_default()
+                    ),
+                ),
+                other => write_error(other, "过账：生成序列号"),
+            })?;
+        }
+
+        // ⑤ 回写采购明细已收数量（条件更新，0 行 = 超收）
+        if let Some(source_item_id) = item.source_item_id {
+            let affected = stockin_model::add_received_qty(ex, source_item_id, item.qty, now)
+                .await
+                .map_err(|error| write_error(error, "过账：回写采购已收数量"))?;
+            if affected == 0 {
+                let (po_qty, received) = po_snapshot
+                    .get(&source_item_id)
+                    .copied()
+                    .unwrap_or_default();
+                return Err(bad_request(format!(
+                    "第 {} 行收货数量超过采购单未收数量：采购 {po_qty}、已收 {received}，\
+                     本次再收 {} → 超出 {}（并发下别的收货单可能刚收走了）",
+                    item.line_no,
+                    item.qty,
+                    received + item.qty - po_qty
+                )));
+            }
+        }
+    }
+
+    // ⑥ 推进采购单状态（PARTIAL_RECEIVED / RECEIVED）
+    if let Some(order_id) = header.source_order_id {
+        stockin_model::sync_purchase_status(ex, order_id, now)
+            .await
+            .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
+    }
+    Ok(())
+}
+
+/// 校验 PATCH body 里的序列号（`line_no → 号码`），并把数量与明细 qty 对齐（卡面 ⑩）。
+fn request_serials(
+    req: &StockInStatusReq,
+    items: &[stockin_model::StockInItemRow],
+) -> std::result::Result<HashMap<i32, Vec<String>>, ApiError> {
+    let mut map: HashMap<i32, Vec<String>> = HashMap::new();
+    if req.serials.is_empty() {
+        return Ok(map);
+    }
+    let by_line: HashMap<i32, &stockin_model::StockInItemRow> =
+        items.iter().map(|item| (item.line_no, item)).collect();
+    for entry in &req.serials {
+        let Some(item) = by_line.get(&entry.line_no) else {
+            return Err(bad_request(format!(
+                "serials 里的 line_no = {} 在本单明细里不存在（本单行号：{}）",
+                entry.line_no,
+                items
+                    .iter()
+                    .map(|it| it.line_no.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )));
+        };
+        let cleaned: Vec<String> = entry
+            .serial_ids
+            .iter()
+            .map(|text| text.trim().to_string())
+            .filter(|text| !text.is_empty())
+            .collect();
+        let count = cleaned.len();
+        let expected: i64 = item.qty.try_into().map_err(|_| {
+            bad_request(format!(
+                "第 {} 行 qty = {} 不是整数：一物一码物料按件入库",
+                item.line_no, item.qty
+            ))
+        })?;
+        if i64::try_from(count).unwrap_or(-1) != expected {
+            return Err(bad_request(format!(
+                "第 {} 行的序列号条数与数量不符：qty = {}（{expected} 件），serial_ids 给了 {count} 条",
+                entry.line_no, item.qty
+            )));
+        }
+        let mut seen = std::collections::HashSet::with_capacity(cleaned.len());
+        if let Some(dup) = cleaned.iter().find(|serial_no| !seen.insert(*serial_no)) {
+            return Err(bad_request(format!(
+                "第 {} 行的序列号重复：`{dup}`",
+                entry.line_no
+            )));
+        }
+        if map.insert(entry.line_no, cleaned).is_some() {
+            return Err(bad_request(format!(
+                "serials 里 line_no = {} 出现了两次",
+                entry.line_no
+            )));
+        }
+    }
+    Ok(map)
+}
+
+/// 收货入库单状态流转（`DRAFT→POSTED` 过账 / `DRAFT→CANCELLED` / `POSTED→CANCELLED`）。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}/status",
+    method = "PATCH",
+    permission = "business:erp:stock-in:status"
+)]
+#[nik::patch("/business/erp/stock-in/{id}/status")]
+pub async fn stock_in_change_status(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<StockInStatusReq>,
+) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    change_stock_in_status(id, &req, operator_of(&claims)).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ④ 删除 ====================
+
+/// 删除核心逻辑：**只有 `DRAFT`** 能删（软删）。
+pub async fn delete_stock_in(
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if row.status != STATUS_DRAFT {
+        return Err(conflict(format!(
+            "收货入库单当前是「{}」（{}），只有草稿（DRAFT）能删：\
+             已过账的单据是库存与成本链的事实，只能作废",
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    let affected = stockin_model::soft_delete(db(), id, operator, Utc::now())
+        .await
+        .map_err(|error| utils::db_error(error, "软删收货入库单"))?;
+    if affected == 0 {
+        return Err(not_found("收货入库单"));
+    }
+    Ok(())
+}
+
+/// 删除收货入库单（软删；仅 DRAFT）。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}",
+    method = "DELETE",
+    permission = "business:erp:stock-in:delete"
+)]
+#[nik::delete("/business/erp/stock-in/{id}")]
+pub async fn stock_in_delete(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<()> {
+    let id = parse_uuid(&id, "id")?;
+    delete_stock_in(id, operator_of(&claims)).await?;
+    Ok(Res::ok(()))
+}
+
+// ==================== ⑤ 列表 / 详情 ====================
+
+/// 收货入库单分页。
+#[nik::permission(
+    path = "/business/erp/stock-in/page",
+    method = "GET",
+    permission = "business:erp:stock-in:list"
+)]
+#[nik::get("/business/erp/stock-in/page")]
+pub async fn stock_in_page(
+    Query(query): Query<StockInPageQuery>,
+) -> ResResult<PageData<Vec<StockInRes>>> {
+    let page = query.page;
+    let page_size = query.page_size;
+    let (rows, total) = stockin_model::stock_in_page(&query.to_filter())
+        .await
+        .map_err(|error| utils::db_error(error, "分页查询收货入库单"))?;
+    let list = rows.iter().map(StockInRes::from).collect();
+    Ok(page_body(list, total, page, page_size))
+}
+
+/// 收货入库单详情。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}",
+    method = "GET",
+    permission = "business:erp:stock-in:detail"
+)]
+#[nik::get("/business/erp/stock-in/{id}")]
+pub async fn stock_in_detail(Path(id): Path<String>) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+/// 分页响应包装（与 `handler::page_body` 同口径；那边的函数是私有的）。
+fn page_body<T: Serialize>(
+    list: Vec<T>,
+    total: i64,
+    page: u64,
+    page_size: u64,
+) -> Res<PageData<Vec<T>>> {
+    let (page, page_size) = model::normalize_page(page, page_size);
+    Res::page(list, u64::try_from(total).unwrap_or(0), page, page_size)
+}
+
+// ==================== 单测 ====================
+//
+// 纯逻辑（金额 / 状态机 / 序列号条数校验）在 `stockin_dto` 与 `stockin_model` 的单测里；
+// 这里放**真库用例**（全链路：建单 → 过账 → 查库存 / 流水 / 序列号 / 采购回写）。
+//
+// 需要真库：`ERP_DB_URL` 指向「已应用 V0145 的隔离库」，缺省则全部 `SKIP`：
+//
+// ```bash
+// su - postgres -c 'createdb -O cloudpivot cloudpivot_p2b1'
+// export ERP_DB_URL='postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_p2b1'
+// cargo test --lib business::erp::stockin
+// ```
+//
+// 夹具固定 UUID（`b2b1…` 段）+ `P2B1-` 前缀；每次 `setup()` 先按供应商清掉上一轮的单、
+// 流水与库存行，所以重复跑不积累（序列号按 `source_id` 删）。
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::business::erp::stockin_dto::{StockInItemReq, StockInLineSerials};
+    use std::str::FromStr;
+
+    const UNIT: &str = "b2b10001-0000-4000-8000-000000000001";
+    const SUPPLIER: &str = "b2b10001-0000-4000-8000-000000000002";
+    const WAREHOUSE: &str = "b2b10001-0000-4000-8000-000000000003";
+    /// 非一物一码物料（螺丝）。
+    const MATERIAL_A: &str = "b2b10001-0000-4000-8000-000000000011";
+    /// 非一物一码物料（垫片）。
+    const MATERIAL_B: &str = "b2b10001-0000-4000-8000-000000000012";
+    /// 一物一码物料（电机）。
+    const MATERIAL_SN: &str = "b2b10001-0000-4000-8000-000000000013";
+
+    const FIXTURES: &[&str] = &[
+        "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
+         VALUES ('b2b10001-0000-4000-8000-000000000001', 'P2B1-PCS', '个', 1, NULL, 1.000000, 1, 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status)
+         VALUES ('b2b10001-0000-4000-8000-000000000002', 'P2B1-SUP', 'P2B1 测试供应商', 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, level, is_leaf, status)
+         VALUES ('b2b10001-0000-4000-8000-000000000003', 'P2B1-WH', 'P2B1 收货仓',
+                 '/b2b10001-0000-4000-8000-000000000003/', 1, 1, 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, serial_required)
+         VALUES ('b2b10001-0000-4000-8000-000000000011', 'P2B1-M1', '螺丝 M6x20',
+                 'b2b10001-0000-4000-8000-000000000001', 1, false),
+                ('b2b10001-0000-4000-8000-000000000012', 'P2B1-M2', '垫片 8mm',
+                 'b2b10001-0000-4000-8000-000000000001', 1, false),
+                ('b2b10001-0000-4000-8000-000000000013', 'P2B1-M3', '伺服电机',
+                 'b2b10001-0000-4000-8000-000000000001', 1, true)
+         ON CONFLICT DO NOTHING",
+    ];
+
+    /// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一 `biz_seq(IN)`）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`。
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                // 每个 `#[tokio::test]` 是独立 runtime，而 `db()` 是进程级全局池：
+                // `max_lifetime = 0` 逼池子每次新建连接，避免借到上一个 runtime 的死连接（W1b 实测）。
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    /// 拿锁 + 连库 + 清上一轮 + 建夹具。
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        // 清上一轮：序列号（按来源）→ 流水 → 库存 → 收货单（明细 CASCADE）→ 采购单
+        let cleanups = [
+            format!(
+                "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
+                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            format!(
+                "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN \
+                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            format!(
+                "DELETE FROM biz_inventory WHERE material_id IN \
+                 ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+                 AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
+            format!("DELETE FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid"),
+            format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid"),
+        ];
+        for sql in cleanups {
+            if let Err(err) = db().execute_with_params(&sql, vec![]).await {
+                panic!("清理上一轮数据失败：{err}\nSQL: {sql}");
+            }
+        }
+        for sql in FIXTURES {
+            if let Err(err) = db().execute_with_params(sql, vec![]).await {
+                panic!("夹具写入失败：{err}\nSQL: {sql}");
+            }
+        }
+        Some(guard)
+    }
+
+    fn dec(text: &str) -> Decimal {
+        Decimal::from_str(text).expect("测试金额字面量非法")
+    }
+
+    /// 一行收货明细的请求态。
+    fn line(material: &str, qty: &str, price: &str, rate: &str) -> StockInItemReq {
+        StockInItemReq {
+            purchase_order_item_id: None,
+            material_id: Some(material.to_string()),
+            qty: Some(dec(qty)),
+            price_excl: Some(dec(price)),
+            tax_rate: Some(dec(rate)),
+            location_id: None,
+            serial_ids: Vec::new(),
+            remark: None,
+        }
+    }
+
+    fn req(lines: Vec<StockInItemReq>) -> CreateStockInReq {
+        CreateStockInReq {
+            source_order_id: None,
+            supplier_id: Some(SUPPLIER.to_string()),
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            in_date: None,
+            invoice_received: None,
+            remark: None,
+            items: lines,
+        }
+    }
+
+    fn post_req() -> StockInStatusReq {
+        StockInStatusReq {
+            status: Some("POSTED".to_string()),
+            reason: None,
+            serials: Vec::new(),
+        }
+    }
+
+    /// 库存三值。
+    async fn inventory_of(material: &str) -> (Decimal, Decimal, Decimal) {
+        let rows = db()
+            .find_with_params(
+                "SELECT qty, amount, avg_cost FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+                vec![
+                    Value::from(&Uuid::parse_str(material).unwrap()),
+                    Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                ],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("查库存失败：{err}"));
+        match rows.first() {
+            None => (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            Some(row) => (
+                row.get_typed("qty").unwrap(),
+                row.get_typed("amount").unwrap(),
+                row.get_typed("avg_cost").unwrap(),
+            ),
+        }
+    }
+
+    /// 建 + 过账一步到位，返回收货单 id。
+    async fn post_new(lines: Vec<StockInItemReq>) -> Uuid {
+        let id = create_stock_in(&req(lines), None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None)
+            .await
+            .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+        id
+    }
+
+    /// ① 首次入库：库存从无到有，qty / amount / avg_cost 正确。
+    #[tokio::test]
+    async fn first_receipt_creates_inventory_row() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO)
+        );
+        let id = post_new(vec![line(MATERIAL_A, "100", "2", "13")]).await;
+
+        let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("100"));
+        assert_eq!(
+            amount,
+            dec("200"),
+            "入库金额必须是不含税 200，不是价税合计 226"
+        );
+        assert_eq!(avg, dec("2.000000"));
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.header.status, STATUS_POSTED);
+        assert!(detail.header.posted_at.is_some(), "过账必须写 posted_at");
+        assert_eq!(detail.header.total_amount, dec("200"));
+        assert_eq!(detail.header.total_tax, dec("26"));
+        assert_eq!(detail.header.total_with_tax, dec("226"));
+        assert!(detail.summary.contains("不含税"), "{}", detail.summary);
+    }
+
+    /// ② 二次入库：移动加权重算（PRD §3.2.5 算例 1：100@2 + 100@3 → 200 / 500 / 2.5）。
+    #[tokio::test]
+    async fn second_receipt_moves_weighted_average() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        post_new(vec![line(MATERIAL_A, "100", "3", "0")]).await;
+        let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("200"));
+        assert_eq!(amount, dec("500"));
+        assert_eq!(avg, dec("2.500000"), "500 / 200 = 2.5（PRD §3.2.5 算例 1）");
+    }
+
+    /// ②b 除不尽的尾差：10@1.11 + 3@3.33 → 13 / 21.09 / 1.622308（PRD §3.2.5 算例 2）。
+    #[tokio::test]
+    async fn rounding_dust_keeps_amount_authoritative() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        post_new(vec![line(MATERIAL_A, "10", "1.11", "0")]).await;
+        post_new(vec![line(MATERIAL_A, "3", "3.33", "0")]).await;
+        let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("13"));
+        assert_eq!(amount, dec("21.09"), "金额是加法得出的权威值，不修尾差");
+        assert_eq!(
+            avg,
+            dec("1.622308"),
+            "21.09 / 13 = 1.62230769… → 6 位四舍五入"
+        );
+    }
+
+    /// ③ 一物一码物料：生成对应数量的序列号，`warehouse_id` 正确（卡面 ③）。
+    #[tokio::test]
+    async fn serial_material_generates_serials_in_receipt_warehouse() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_SN, "5", "40", "13")]).await;
+        assert_eq!(stockin_model::serial_count_of(id).await.unwrap(), 5);
+        let rows = db()
+            .find_with_params(
+                "SELECT serial_no, warehouse_id, status, source_type, source_id \
+                   FROM biz_material_serial WHERE source_id = ?::uuid ORDER BY serial_no",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 5);
+        for row in &rows {
+            let serial_no: String = row.get_typed("serial_no").unwrap();
+            assert!(serial_no.starts_with("SN-"), "{serial_no}");
+            let warehouse: Uuid = row.get_typed("warehouse_id").unwrap();
+            assert_eq!(warehouse.to_string(), WAREHOUSE, "序列号必须落在收货仓");
+            let status: String = row.get_typed("status").unwrap();
+            assert_eq!(status, "IN_STOCK");
+            let source_type: String = row.get_typed("source_type").unwrap();
+            assert_eq!(source_type, "PURCHASE");
+        }
+        // 账面数量与序列号件数一致（不变式①）
+        let (qty, _, _) = inventory_of(MATERIAL_SN).await;
+        assert_eq!(qty, dec("5"));
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.serial_count, 5);
+    }
+
+    /// ④ 非一物一码：不生成序列号。
+    #[tokio::test]
+    async fn non_serial_material_generates_no_serials() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "7", "1.5", "0")]).await;
+        assert_eq!(stockin_model::serial_count_of(id).await.unwrap(), 0);
+        let total: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_material_serial WHERE material_id = ?::uuid",
+                vec![Value::from(&Uuid::parse_str(MATERIAL_A).unwrap())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(total, 0);
+    }
+
+    /// ⑤ 流水：`txn_type=IN`、`biz_type=PURCHASE_IN`、`before_*` 快照正确（第二次入库才有非零快照）。
+    #[tokio::test]
+    async fn txn_snapshot_is_before_and_after() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        let second = post_new(vec![line(MATERIAL_A, "100", "3", "0")]).await;
+
+        let rows = db()
+            .find_with_params(
+                "SELECT txn_type, biz_type, doc_type, doc_no, line_no, qty, unit_cost, amount, \
+                        before_qty, before_amount, before_cost, after_qty, after_amount, after_cost, \
+                        period_code \
+                   FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id = ?::uuid",
+                vec![Value::from(&second)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "一张收货单的一行 = 一条流水");
+        let row = &rows[0];
+        assert_eq!(row.get_typed::<String>("txn_type").unwrap(), "IN");
+        assert_eq!(row.get_typed::<String>("biz_type").unwrap(), "PURCHASE_IN");
+        assert_eq!(row.get_typed::<String>("doc_type").unwrap(), "STOCK_IN");
+        assert_eq!(row.get_typed::<i32>("line_no").unwrap(), 1);
+        assert_eq!(row.get_typed::<Decimal>("qty").unwrap(), dec("100"));
+        assert_eq!(
+            row.get_typed::<Decimal>("unit_cost").unwrap(),
+            dec("3.000000")
+        );
+        assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("300"));
+        assert_eq!(
+            row.get_typed::<Decimal>("before_qty").unwrap(),
+            dec("100"),
+            "第二次入库的 before_qty 必须是第一张单留下的 100"
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("before_amount").unwrap(),
+            dec("200")
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("before_cost").unwrap(),
+            dec("2.000000")
+        );
+        assert_eq!(row.get_typed::<Decimal>("after_qty").unwrap(), dec("200"));
+        assert_eq!(
+            row.get_typed::<Decimal>("after_amount").unwrap(),
+            dec("500")
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("after_cost").unwrap(),
+            dec("2.500000")
+        );
+        let period: String = row.get_typed("period_code").unwrap();
+        assert_eq!(period.len(), 7, "period_code 是 yyyy-MM：{period}");
+        // 第一张单的 before 全是 0
+        let first_rows = db()
+            .find_with_params(
+                "SELECT before_qty, before_amount FROM biz_inventory_txn \
+                  WHERE doc_id = ?::uuid",
+                vec![Value::from(&first)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            first_rows[0].get_typed::<Decimal>("before_qty").unwrap(),
+            dec("0")
+        );
+    }
+
+    /// ⑥ 并发：两个收货单同时收同一物料（两行顺序相反）→ 不丢数、不死锁。
+    ///
+    /// 两行顺序相反是关键：若不按 `material_id` 升序加锁，A 先锁 M1 再锁 M2、B 先锁 M2 再锁 M1
+    /// 就是教科书死锁。这里断言（a）两单都过账成功（无死锁）；（b）库存 = 两单之和（不丢数）。
+    #[tokio::test]
+    async fn concurrent_receipts_do_not_lose_or_deadlock() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = create_stock_in(
+            &req(vec![
+                line(MATERIAL_A, "10", "2", "0"),
+                line(MATERIAL_B, "10", "5", "0"),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+        let b = create_stock_in(
+            &req(vec![
+                line(MATERIAL_B, "20", "5", "0"),
+                line(MATERIAL_A, "20", "2", "0"),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let post_request = post_req();
+        let (ra, rb) = tokio::join!(
+            change_stock_in_status(a, &post_request, None),
+            change_stock_in_status(b, &post_request, None)
+        );
+        ra.unwrap_or_else(|err| panic!("并发过账 A 失败（死锁？）：{} {}", err.code, err.msg));
+        rb.unwrap_or_else(|err| panic!("并发过账 B 失败（死锁？）：{} {}", err.code, err.msg));
+
+        let (qty_a, amount_a, avg_a) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty_a, dec("30"), "10 + 20，一笔都不能丢");
+        assert_eq!(amount_a, dec("60"));
+        assert_eq!(avg_a, dec("2.000000"));
+        let (qty_b, amount_b, _) = inventory_of(MATERIAL_B).await;
+        assert_eq!(qty_b, dec("30"));
+        assert_eq!(amount_b, dec("150"), "10×5 + 20×5");
+        // 两单各一行流水，共 4 条
+        let txns: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_id IN (?::uuid, ?::uuid)",
+                vec![Value::from(&a), Value::from(&b)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(txns, 4);
+    }
+
+    /// ⑦ 过账幂等：重复 POSTED → 409，且库存只加一次。
+    #[tokio::test]
+    async fn repeated_post_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "10", "2", "0")]).await;
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("已过账"), "{}", err.msg);
+        let (qty, _, _) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("10"), "库存只加一次");
+        let txns: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(txns, 1, "流水也只写一条");
+    }
+
+    /// ⑧ DRAFT 改单：能改，明细整单重建、汇总重算。
+    #[tokio::test]
+    async fn update_draft_replaces_lines() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_stock_in(&req(vec![line(MATERIAL_A, "100", "2", "13")]), None)
+            .await
+            .unwrap();
+        update_stock_in(
+            id,
+            &req(vec![
+                line(MATERIAL_A, "10", "2", "13"),
+                line(MATERIAL_B, "5", "3", "6"),
+            ]),
+            None,
+        )
+        .await
+        .unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.items.len(), 2, "旧行必须被替换掉");
+        assert_eq!(detail.items[0].line_no, 1);
+        assert_eq!(detail.items[1].line_no, 2);
+        assert_eq!(detail.header.total_amount, dec("35"), "10×2 + 5×3");
+        assert_eq!(detail.header.total_tax, dec("3.50"), "2.60 + 0.90");
+        assert_eq!(detail.header.total_qty, dec("15"));
+    }
+
+    /// ⑨ POSTED 改单：409。
+    #[tokio::test]
+    async fn update_posted_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "10", "2", "0")]).await;
+        let err = update_stock_in(id, &req(vec![line(MATERIAL_A, "1", "2", "0")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("只有草稿"), "{}", err.msg);
+    }
+
+    /// ⑩ 一物一码数量与 `serial_ids` 条数不符 → 400（建单就拦住）。
+    #[tokio::test]
+    async fn serial_count_mismatch_is_bad_request() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut bad = line(MATERIAL_SN, "3", "40", "13");
+        bad.serial_ids = vec!["SN-A".to_string(), "SN-B".to_string()];
+        let err = create_stock_in(&req(vec![bad]), None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("序列号条数与数量不符"), "{}", err.msg);
+
+        // 数量对得上就放行；自定义码在**过账**时提交（明细表没有存序列号的列）
+        let mut good = line(MATERIAL_SN, "2", "40", "0");
+        good.serial_ids = vec!["SN-P2B1-001".to_string(), "SN-P2B1-002".to_string()];
+        let id = create_stock_in(&req(vec![good]), None).await.unwrap();
+        let mut post = post_req();
+        post.serials = vec![StockInLineSerials {
+            line_no: 1,
+            serial_ids: vec!["SN-P2B1-001".to_string(), "SN-P2B1-002".to_string()],
+        }];
+        change_stock_in_status(id, &post, None).await.unwrap();
+        let rows = db()
+            .find_with_params(
+                "SELECT serial_no FROM biz_material_serial WHERE source_id = ?::uuid ORDER BY serial_no",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        let numbers: Vec<String> = rows
+            .iter()
+            .map(|row| row.get_typed("serial_no").unwrap())
+            .collect();
+        assert_eq!(
+            numbers,
+            vec!["SN-P2B1-001", "SN-P2B1-002"],
+            "过账时提交的码要原样落库（不改写供应商贴的码）"
+        );
+
+        // 过账时条数不符也拦住
+        let mut bad_post = post_req();
+        bad_post.serials = vec![StockInLineSerials {
+            line_no: 1,
+            serial_ids: vec!["ONLY-ONE".to_string()],
+        }];
+        let another = create_stock_in(&req(vec![line(MATERIAL_SN, "2", "40", "0")]), None)
+            .await
+            .unwrap();
+        let err = change_stock_in_status(another, &bad_post, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("序列号条数与数量不符"), "{}", err.msg);
+    }
+
+    /// ⑩b 非一物一码物料给了 `serial_ids` → 400（`66007`），不静默丢。
+    #[tokio::test]
+    async fn serial_ids_on_non_serial_material_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut bad = line(MATERIAL_A, "2", "1", "0");
+        bad.serial_ids = vec!["SN-X".to_string(), "SN-Y".to_string()];
+        let err = create_stock_in(&req(vec![bad]), None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
+    }
+
+    /// ⑪ 收货数量超过采购单未收数量 → 400（带 `source_order_id`）。
+    #[tokio::test]
+    async fn over_receipt_against_purchase_order_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("30", "10").await;
+        // 剩余 20，要收 25 → 建单即 400
+        let mut over = line(MATERIAL_A, "25", "2", "0");
+        over.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![over]);
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("超过采购单未收数量"), "{}", err.msg);
+
+        // 收 20（刚好剩余）→ 成功，采购单变 RECEIVED 且 received_qty = 30
+        let mut ok = line(MATERIAL_A, "20", "2", "0");
+        ok.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![ok]);
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+
+        let row = db()
+            .find_with_params(
+                "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
+                vec![Value::from(&item_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            row[0].get_typed::<Decimal>("received_qty").unwrap(),
+            dec("30"),
+            "过账必须回写采购明细的已收数量"
+        );
+        let status: String = db()
+            .scalar_with_params(
+                "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(status, "RECEIVED", "收满自动推进采购单状态");
+    }
+
+    /// ⑪b 自动带出：只给 `source_order_id`（items 空），按未收数量成单。
+    #[tokio::test]
+    async fn auto_pull_lines_from_purchase_order() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("30", "10").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.items.len(), 1);
+        assert_eq!(detail.items[0].qty, dec("20"), "自动带出的应该是未收的 20");
+        assert_eq!(
+            detail.items[0].source_item_id.as_deref(),
+            Some(item_id.to_string().as_str())
+        );
+
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+        let status: String = db()
+            .scalar_with_params(
+                "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(status, "RECEIVED");
+    }
+
+    /// ⑫ 成本口径：入库成本用不含税金额，不是价税合计（13% 时差 13%）。
+    #[tokio::test]
+    async fn cost_uses_net_amount_not_gross() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "50", "10", "13")]).await;
+        // 不含税 500、税 65、价税合计 565
+        let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("50"));
+        assert_eq!(amount, dec("500"), "存货成本 = 不含税 500（不是 565）");
+        assert_ne!(amount, dec("565"));
+        assert_eq!(avg, dec("10.000000"));
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.items[0].amount, dec("500"));
+        assert_eq!(detail.items[0].tax_amount, dec("65"));
+        assert_eq!(detail.items[0].with_tax_amount, dec("565"));
+        assert_eq!(
+            detail.items[0].cost_price,
+            dec("10.000000"),
+            "cost_price 落不含税单价"
+        );
+        let txn_amount: Decimal = db()
+            .scalar_with_params(
+                "SELECT amount FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(txn_amount, dec("500"), "流水金额也只用不含税");
+    }
+
+    /// ⑬ 作废：DRAFT → CANCELLED 不写库存；POSTED → CANCELLED 需原因且库存不冲回（P2-C1 红冲）。
+    #[tokio::test]
+    async fn cancel_paths() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = create_stock_in(&req(vec![line(MATERIAL_A, "5", "2", "0")]), None)
+            .await
+            .unwrap();
+        change_stock_in_status(
+            draft,
+            &StockInStatusReq {
+                status: Some("CANCELLED".to_string()),
+                reason: Some("供应商没货".to_string()),
+                serials: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            Decimal::ZERO,
+            "草稿作废不该产生库存"
+        );
+        let detail = detail_of(draft).await.unwrap();
+        assert_eq!(detail.header.status, STATUS_CANCELLED);
+        assert!(detail.header.cancelled_at.is_some());
+        assert_eq!(detail.header.cancel_reason.as_deref(), Some("供应商没货"));
+
+        // POSTED → CANCELLED：必须给原因
+        let posted = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let err = change_stock_in_status(
+            posted,
+            &StockInStatusReq {
+                status: Some("CANCELLED".to_string()),
+                reason: None,
+                serials: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        change_stock_in_status(
+            posted,
+            &StockInStatusReq {
+                status: Some("CANCELLED".to_string()),
+                reason: Some("收错仓了".to_string()),
+                serials: Vec::new(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            dec("5"),
+            "本卡 POSTED→CANCELLED 只改状态，库存不冲回（红冲属 P2-C1）"
+        );
+    }
+
+    /// ⑭ 删除：仅 DRAFT 能软删；POSTED 删除 → 409。
+    #[tokio::test]
+    async fn delete_only_draft() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let draft = create_stock_in(&req(vec![line(MATERIAL_A, "5", "2", "0")]), None)
+            .await
+            .unwrap();
+        delete_stock_in(draft, None).await.unwrap();
+        assert!(detail_of(draft).await.is_err(), "软删后详情 404");
+
+        let posted = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let err = delete_stock_in(posted, None).await.unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+    }
+
+    /// ⑮ 列表：按状态 / 供应商筛，分页字段与总数正确。
+    #[tokio::test]
+    async fn page_filters_by_status() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        create_stock_in(&req(vec![line(MATERIAL_B, "5", "2", "0")]), None)
+            .await
+            .unwrap();
+        let filter = stockin_model::StockInFilter {
+            status: Some("POSTED".to_string()),
+            supplier_id: Some(SUPPLIER.to_string()),
+            page: 1,
+            page_size: 50,
+            ..Default::default()
+        };
+        let (rows, total) = stockin_model::stock_in_page(&filter).await.unwrap();
+        assert_eq!(total, 1);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status, STATUS_POSTED);
+        assert!(rows[0].in_no.starts_with("IN-"), "{}", rows[0].in_no);
+        assert_eq!(rows[0].currency_code, "CNY");
+    }
+
+    /// 造一张采购单（`qty` 件的 1 行，已收 `received`）并置为 `SUBMITTED`。
+    async fn seed_purchase_order(qty: &str, received: &str) -> (Uuid, Uuid) {
+        let order_id = Uuid::now_v7();
+        let item_id = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_purchase_order \
+                 (id, order_no, supplier_id, order_date, warehouse_id, status, total_qty, \
+                  total_amount, total_tax, total_with_tax) \
+             VALUES (?::uuid, ?, ?::uuid, CURRENT_DATE, ?::uuid, 'SUBMITTED', \
+                 NULLIF(?::text,'')::numeric, 0, 0, 0)",
+            vec![
+                Value::from(&order_id),
+                Value::Text(format!("B1-{}", &order_id.to_string()[..8])),
+                Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                Value::Text(qty.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+        db().execute_with_params(
+            "INSERT INTO biz_purchase_order_item \
+                 (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate, \
+                  amount, tax_amount, with_tax_amount, received_qty) \
+             VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, 0, 0, NULLIF(?::text,'')::numeric, 0, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric)",
+            vec![
+                Value::from(&item_id),
+                Value::from(&order_id),
+                Value::from(&Uuid::parse_str(MATERIAL_A).unwrap()),
+                Value::from(&Uuid::parse_str(UNIT).unwrap()),
+                Value::Text(qty.to_string()),
+                Value::Text("2".to_string()),
+                Value::Text(qty.to_string()),
+                Value::Text(qty.to_string()),
+                Value::Text(received.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+        (order_id, item_id)
+    }
+}
