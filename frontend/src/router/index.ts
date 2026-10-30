@@ -255,6 +255,12 @@ const routes: RouteRecordRaw[] = [
         redirect: '/task/list',
       },
       {
+        // 兼容通知里的旧链接 `/task/{id}`（V0130 目录化之前的格式）
+        // → 跳到列表页并带上 ?id=，由 index.vue 自动打开详情抽屉
+        path: 'task/:id',
+        redirect: (to) => ({ path: '/task/list', query: { id: to.params.id } }),
+      },
+      {
         // ==================== 批次 C+（工作任务管理 · T4 甘特图） ====================
         // path 与 `sys_menu.path`（V0110 种子 …0770）逐字一致：`/task/gantt`。
         // **只读**页：拖拽改期属 T7，且改期后必须重跑依赖校验（修正 10）。

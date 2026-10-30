@@ -1059,7 +1059,7 @@ async fn notify(
         content.to_string(),
         NoticeTarget::User(targets),
     );
-    draft.link_url = Some(format!("/task/{task_id}"));
+    draft.link_url = Some(format!("/task/list?id={task_id}"));
     draft.biz_type = Some("task".to_string());
     draft.biz_id = Some(task_id.to_string());
     draft.sender_id = Some(operator);

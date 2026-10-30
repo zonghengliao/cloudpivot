@@ -3028,7 +3028,7 @@ async fn dispatch_task_notice(
         content,
         NoticeTarget::User(targets.clone()),
     );
-    draft.link_url = Some(format!("/task/{}", task.card.id));
+    draft.link_url = Some(format!("/task/list?id={}", task.card.id));
     draft.biz_type = Some("task".to_string());
     draft.biz_id = Some(task.card.id.to_string());
     draft.sender_id = Some(operator);

@@ -743,6 +743,12 @@ function handleDeleted(): void {
 }
 
 onMounted(() => {
+  // 通知「查看详情」带 ?id={task_id} → 自动打开详情抽屉（V0130 之后的兼容口径）
+  const queryId = typeof route.query.id === 'string' ? route.query.id : '';
+  if (queryId) {
+    viewingId.value = queryId;
+    detailVisible.value = true;
+  }
   // 从 URL 读项目筛选（项目页「打开任务」带 `?project_id=`，刷新也要保持）
   if (typeof route.query.project_id === 'string' && route.query.project_id) {
     query.project_id = route.query.project_id;

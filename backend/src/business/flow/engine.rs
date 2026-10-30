@@ -1110,7 +1110,7 @@ pub async fn transfer(
             task.assignee_name.clone().unwrap_or_default(),
             reason.map(|text| format!("：{text}")).unwrap_or_default()
         ),
-        format!("/flow/task/{}", new_task_id),
+        format!("/flow/instance/{}", new_task_id),
         task.instance_id,
         true,
     );
