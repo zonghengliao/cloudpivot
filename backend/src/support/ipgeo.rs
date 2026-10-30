@@ -21,7 +21,7 @@ use std::net::IpAddr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -76,7 +76,7 @@ pub(crate) fn set_enabled(value: bool) {
 /// 命中缓存或本地 IP 时返回 `Some`，否则 `None`。
 pub(crate) async fn cached(ip: IpAddr) -> Option<String> {
     let ip_text = ip.to_string();
-    if alun_utils::web::is_private_ip(&ip_text) {
+    if nik_utils::web::is_private_ip(&ip_text) {
         return Some(LOCAL_LOCATION.to_string());
     }
     let store = try_cache()?;
@@ -104,8 +104,8 @@ pub(crate) async fn cached(ip: IpAddr) -> Option<String> {
 /// 解析成功返回 `Some("国家-省份-城市")`（缺省层级自动省略），失败返回 `None`。
 pub(crate) async fn resolve(ip: IpAddr) -> Option<String> {
     let ip_text = ip.to_string();
-    // 复用 alun_utils 的内网判定，避免重复实现网段规则
-    if alun_utils::web::is_private_ip(&ip_text) {
+    // 复用 nik_utils 的内网判定，避免重复实现网段规则
+    if nik_utils::web::is_private_ip(&ip_text) {
         return Some(LOCAL_LOCATION.to_string());
     }
     if !is_enabled() {

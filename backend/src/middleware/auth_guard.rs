@@ -2,19 +2,19 @@
 //!
 //! # 为什么需要它
 //!
-//! 框架认证层（`alun-web` 0.4.2 `middleware/auth.rs`）的黑名单检查是 **fail-open** 的：
+//! 框架认证层（`nik-web` 0.4.2 `middleware/auth.rs`）的黑名单检查是 **fail-open** 的：
 //!
 //! ```ignore
 //! if let Ok(Some(_)) = Cache::get::<Value>(c, &key).await { /* 401 */ }   // Err(_) 直接放行
 //! ```
 //!
 //! 也就是说，缓存读失败时「已登出 / 已被强制下线的令牌」照样能通过。缓存不可用
-//! 期间吊销名单等于不存在（评审 §1.3）。而 `alun-web` 是 crates.io 依赖、仓库里
+//! 期间吊销名单等于不存在（评审 §1.3）。而 `nik-web` 是 crates.io 依赖、仓库里
 //! 没有副本，改不了它——只能在项目侧补一层复检（评审 §3）。
 //!
 //! # 挂载位置（关键）
 //!
-//! 通过 [`alun::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**
+//! 通过 [`nik::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**
 //! （`app.rs` 先应用 `route_layers`、再 `build_middleware_chain`），因此：
 //!
 //! - 认证层已经验签并注入 [`AuthClaims`]，本层直接读声明、不必重复验签；
@@ -32,12 +32,12 @@
 //! 认证路径本来就必须有缓存（吊销状态就在缓存里），缺了就是配置错误，
 //! 此时放行等于「吊销静默失效」，因此按拒绝处理。
 
-use alun::prelude::*;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 
 use crate::shared::constants;
 

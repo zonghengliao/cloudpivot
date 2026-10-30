@@ -30,7 +30,7 @@
 //! 兼容字段不是「另一份真相」：它们由 [`crate::system::preference::model::assemble`] 从 `items`
 //! 派生，改一处必然同改两处。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 

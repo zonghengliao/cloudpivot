@@ -19,8 +19,8 @@
 //! （`WHERE deleted_at IS NULL`），因此「删掉同名 AI 用户后重建同名」不会被唯一约束挡住
 //! —— 与 `sys_user.username` 的口径一致。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// `sys_ai_agent` 一行。
 #[derive(Debug, Clone)]

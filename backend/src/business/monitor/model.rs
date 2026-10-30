@@ -8,12 +8,12 @@
 //! | 内存 | `/proc/meminfo` | `MemTotal` / `MemAvailable`（缺失时退化为 Free+Buffers+Cached） |
 //! | 磁盘 | `df -P -k /` | 不引入 `libc`，解析 POSIX 输出；失败降级为 0 |
 //! | 数据库 | 现有连接 | `current_database()` / `pg_database_size()` / `pg_stat_activity` / `version()` |
-//! | Redis | `INFO` | 使用与 `alun-cache` 同版本的 redis 客户端，连接失败降级为 `down` |
+//! | Redis | `INFO` | 使用与 `nik-cache` 同版本的 redis 客户端，连接失败降级为 `down` |
 //!
 //! 所有采集函数都**不返回错误**：单项失败只把该指标降级为 0 / `down`，接口整体保持 200。
 //! 解析与格式化逻辑拆成纯函数，便于单测覆盖除零、空输入等边界。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use std::time::Duration;
 
@@ -165,7 +165,7 @@ async fn collect_redis() -> RedisRes {
 
 /// 对 Redis 执行 `INFO` 并取回原始文本。
 ///
-/// 使用与 `alun-cache` 相同版本的 redis 客户端（见 `Cargo.toml` 注释）；
+/// 使用与 `nik-cache` 相同版本的 redis 客户端（见 `Cargo.toml` 注释）；
 /// 任何失败都折叠成 `None`，由调用方降级。
 async fn fetch_redis_info(url: &str) -> Option<String> {
     let client = redis::Client::open(url).ok()?;

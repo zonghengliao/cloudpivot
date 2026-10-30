@@ -2,7 +2,7 @@
 //!
 //! # 为什么自己算签名
 //!
-//! 框架的 `alun-fs`（`fs-minio` feature）只提供**下载**预签名，没有上传预签名；而
+//! 框架的 `nik-fs`（`fs-minio` feature）只提供**下载**预签名，没有上传预签名；而
 //! 「浏览器直传大文件」必须由后端签一个 `PUT` URL 出去。签名本身是纯字符串运算
 //! （SHA-256 + HMAC-SHA256），不引入任何新依赖即可完成，因此本文件手写实现，
 //! 与官方实现（`aws-sdk-s3`、Python `botocore`）**逐字节一致**（见文件末尾单测
@@ -25,7 +25,7 @@
 //! 业务侧只关心「拿到 URL + 过期时间」，规范请求 / 待签串由本模块内部持有，
 //! 仅在排查 403 时通过 [`PresignOutcome::canonical_request`] 取出打印。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use sha2::{Digest, Sha256};
 
 /// 签名算法标识（SigV4 固定值）。

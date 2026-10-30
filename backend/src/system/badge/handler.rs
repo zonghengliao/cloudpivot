@@ -21,7 +21,7 @@
 //! （`utils::require_uuid` 校验形态），接口**没有** `{user_id}` 路径参数、
 //! 也**不接受**任何请求体 —— 没有「查别人徽标」的入口。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::system::badge::model::{self, BadgeCounts};
 use crate::utils;
@@ -41,7 +41,7 @@ use crate::utils;
 /// # 日志
 ///
 /// 不写业务日志：前端每 30 秒轮询一次，每次进页面都会打，写日志就是噪声。
-#[alun::get("/system/badge/counts")]
+#[nik::get("/system/badge/counts")]
 pub async fn counts(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<BadgeCounts> {

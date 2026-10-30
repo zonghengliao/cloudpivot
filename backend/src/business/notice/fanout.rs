@@ -24,7 +24,7 @@
 //! 单条通知最多 [`MAX_RECEIVERS`] 个接收人（架构文档 §4.2 兜底条款）：超限返回
 //! `422 + 60027`，提示改用「全员公告」或分批发送，避免长时间持锁。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::error_code;
 

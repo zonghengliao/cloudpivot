@@ -37,8 +37,8 @@
 //! 曾经共用过 7a/7b，结果「先跑走查、再跑 cargo test」时 `seed_org` 撞主键
 //! （走查夹具的用户还引用着那些部门，本文件的清理删不掉），四个用例一起红。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use cloudpivot::business::shared::principal;
 use cloudpivot::business::task::model::{self, MyBucket, TaskFilter, TaskPatch};

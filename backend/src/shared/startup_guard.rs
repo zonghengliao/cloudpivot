@@ -2,7 +2,7 @@
 //!
 //! # 为什么需要
 //!
-//! alun 0.4.2 的配置基线允许「`[middleware.auth] enabled = true` 且 `jwt_secret` 为空」
+//! nik 0.4.2 的配置基线允许「`[middleware.auth] enabled = true` 且 `jwt_secret` 为空」
 //! 这一组合：此时认证中间件照常挂载，但签名密钥退化成**空字符串**，任何人都能自行
 //! 签发 `permissions = ["*:*:*"]` 的令牌绕过登录。dev 的密钥自 P0 修复起只由环境变量
 //! `ALUN_MIDDLEWARE_AUTH_JWT_SECRET`（`/etc/cloudpivot/cloudpivot-dev.env`）注入，一旦有人绕过
@@ -16,7 +16,7 @@
 //! | 插件守卫 [`AuthSecretGuardPlugin`] | `App::start()` 的插件启动阶段 | 框架合并后的**权威配置** `cfg()` | 兜底：任何预检判定不到的情况（新 profile、自定义配置目录）最终都要过这一关 |
 //!
 //! 之所以需要预检：框架没有提供 `App::start()` 之前的配置读取入口（`ConfigManager`
-//! 未在 `alun` 门面中重导出，按项目铁律又不能直接依赖 `alun-config`），而
+//! 未在 `nik` 门面中重导出，按项目铁律又不能直接依赖 `nik-config`），而
 //! `App::start()` 的顺序是「先初始化数据库/缓存 → 再跑启动钩子 → 再启插件」。
 //! 实测裸 `env -u ALUN_MIDDLEWARE_AUTH_JWT_SECRET cargo run` 会先死在
 //! 「数据库连接失败」，把「密钥没注入」这个真正原因完全掩盖——预检就是为消除这个
@@ -49,8 +49,8 @@
 
 use std::fmt;
 
-use alun::prelude::*;
 use async_trait::async_trait;
+use nik::prelude::*;
 
 use crate::business::storage::cipher::{ENV_STORAGE_MASTER_KEY, MASTER_KEY_HEX_LEN, MasterKey};
 
@@ -64,12 +64,12 @@ pub const MIN_JWT_SECRET_LEN: usize = 32;
 /// 配置目录，必须与 `App::new()`（`App::from_config_dir("config")`）保持一致。
 pub const DEFAULT_CONFIG_DIR: &str = "config";
 
-/// 环境变量名：JWT 签名密钥（alun 专用别名，通用 `ALUN_` 前缀覆盖规则同样识别）。
+/// 环境变量名：JWT 签名密钥（nik 专用别名，通用 `ALUN_` 前缀覆盖规则同样识别）。
 pub const ENV_JWT_SECRET: &str = "ALUN_MIDDLEWARE_AUTH_JWT_SECRET";
 
 /// 环境变量名：JWT 密钥的历史别名，优先级低于 [`ENV_JWT_SECRET`]。
 ///
-/// 依据 alun-config 0.4.2 `env::merge_env_overrides`：先处理 `FACAI_JWT_SECRET`，
+/// 依据 nik-config 0.4.2 `env::merge_env_overrides`：先处理 `FACAI_JWT_SECRET`，
 /// 再由通用 `ALUN_` 前缀循环覆盖，因此后者生效。
 pub const ENV_JWT_SECRET_ALIAS: &str = "FACAI_JWT_SECRET";
 
@@ -258,7 +258,7 @@ pub fn evaluate_preflight(
 
 /// 解析生效 profile。
 ///
-/// 与 alun-config 0.4.2 `env::detect_profile` 完全同源：命令行 `profile=xxx` >
+/// 与 nik-config 0.4.2 `env::detect_profile` 完全同源：命令行 `profile=xxx` >
 /// `ALUN_PROFILE` > `ALUN_ENV` > 默认 `dev`。
 pub fn resolve_profile() -> String {
     for arg in std::env::args() {
@@ -274,7 +274,7 @@ pub fn resolve_profile() -> String {
 
 /// 解析环境变量注入的签名密钥。
 ///
-/// 与 alun-config 0.4.2 `env::merge_env_overrides` 同源：[`ENV_JWT_SECRET_ALIAS`] 先赋值，
+/// 与 nik-config 0.4.2 `env::merge_env_overrides` 同源：[`ENV_JWT_SECRET_ALIAS`] 先赋值，
 /// 空值忽略；[`ENV_JWT_SECRET`] 后赋值并覆盖前者。
 pub fn resolve_env_secret() -> Option<String> {
     let mut secret = None;
@@ -363,7 +363,7 @@ pub fn auth_enabled_in_toml(text: &str) -> Option<bool> {
 /// - `Some(bool)`：有效值
 /// - `None`：两份文件都读不到 / 都没有该段（无法判定，预检放行）
 ///
-/// # 合并语义（与 alun-config 0.4.2 `merge_middleware` 一致）
+/// # 合并语义（与 nik-config 0.4.2 `merge_middleware` 一致）
 ///
 /// 框架的覆盖规则是「overlay 的值与**默认值**不同才覆盖」，`auth.enabled` 默认为
 /// `false`，所以 profile 文件里的 `enabled = false` 等于默认值、会被丢弃，最终值只能是
@@ -390,7 +390,7 @@ pub fn auth_enabled_in_files(config_dir: &str, profile: &str) -> Option<bool> {
 
 /// 是否为「只处理配置、不启动服务」的 CLI 模式（`gen-config` / `print-config`）。
 ///
-/// 与 alun-config 0.4.2 `env::parse_args` 同源；这些模式不会绑定端口、不会挂载认证层，
+/// 与 nik-config 0.4.2 `env::parse_args` 同源；这些模式不会绑定端口、不会挂载认证层，
 /// 因此预检必须放行，否则 `cargo run -- print-config` 会被误杀。
 fn is_config_only_mode() -> bool {
     std::env::args().any(|arg| {
@@ -1103,7 +1103,7 @@ enabled = false
     }
 
     /// 合并语义：基础 true + profile 未写 → 仍为 true（profile 无法把 true 关掉，
-    /// 与 alun-config `merge_middleware` 的「与默认值相同则丢弃」一致）。
+    /// 与 nik-config `merge_middleware` 的「与默认值相同则丢弃」一致）。
     #[test]
     fn merge_semantics_or_base_and_profile() {
         // 用仓库里真实的四份配置回归：config.toml 关闭，dev/prod/test 覆盖为开启

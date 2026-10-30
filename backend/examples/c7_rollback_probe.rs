@@ -20,10 +20,10 @@
 //!
 //! 诊断信息一律走 stderr，**stdout 只有一行 marker**——脚本据此断言，避免日志噪声污染门禁输出。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::changelog::test_hooks;
 use cloudpivot::business::changelog::{Action, ChangeCtx, ChangeTarget, DiffInput};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// 组装连接串（见文件头注释的优先级）。
 fn database_url() -> String {

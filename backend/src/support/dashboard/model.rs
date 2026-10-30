@@ -9,7 +9,7 @@
 //! 日期口径统一按 [`REPORT_TIME_ZONE`] 切自然日：数据库所在机器的时区通常不是国内时区，
 //! 直接用 `now()` 会让「今日登录」与用户看到的日期错开 8 小时。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::support::dashboard::dto::{MetricCardRes, TrendLineRes, TrendRes};
 

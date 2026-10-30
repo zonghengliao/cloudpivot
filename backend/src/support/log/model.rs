@@ -11,7 +11,7 @@
 //! `delete_operation_logs_before` 同时被 `task`（定时清理）与 `handler` 复用，
 //! 保留在模型层。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
@@ -34,7 +34,7 @@ use crate::utils;
 ///
 /// # IP 字段
 ///
-/// `ip` 列为 PostgreSQL `INET`。`alun` 已启用 `ipnetwork` feature，框架为
+/// `ip` 列为 PostgreSQL `INET`。`nik` 已启用 `ipnetwork` feature，框架为
 /// `std::net::IpAddr` 实现了 `TypeMapper`（映射到 `Type::Inet`），因此模型侧
 /// 直接以 `Option<std::net::IpAddr>` 承载，无需手工文本转换。
 #[derive(Debug, Clone, Model)]

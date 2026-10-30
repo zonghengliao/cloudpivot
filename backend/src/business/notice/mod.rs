@@ -80,7 +80,7 @@ pub mod sse_hub;
 
 pub use fanout::NoticeTarget;
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::Serialize;
 
 use crate::business::notice::dto::{

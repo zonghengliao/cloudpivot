@@ -7,10 +7,10 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::Json;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::net::SocketAddr;
 
 use crate::business::shared::principal;
@@ -66,8 +66,8 @@ const TOKEN_TYPE: &str = "Bearer";
 /// 失败写 `auth_logs`（`LOGIN/FAIL`）与 `security_logs`（`LOGIN_FAIL`）。
 /// 锁定阈值与解锁时长取自 `sys_config`（缺省回退常量）。日志以非阻塞方式投递，
 /// 不参与登录耗时。
-#[alun::no_auth("/system/auth/login")]
-#[alun::post("/system/auth/login")]
+#[nik::no_auth("/system/auth/login")]
+#[nik::post("/system/auth/login")]
 pub async fn login(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -311,8 +311,8 @@ pub async fn login(
 /// - 401：刷新令牌无效、类型错误或已被撤销；
 /// - 403：账号已被禁用；
 /// - 500：内部错误。
-#[alun::no_auth("/system/auth/refresh")]
-#[alun::post("/system/auth/refresh")]
+#[nik::no_auth("/system/auth/refresh")]
+#[nik::post("/system/auth/refresh")]
 pub async fn refresh(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -541,7 +541,7 @@ pub async fn refresh(
 /// # 日志
 ///
 /// 写入 `auth_logs`（`LOGOUT/SUCCESS`）；写入失败不影响登出结果。
-#[alun::post("/system/auth/logout")]
+#[nik::post("/system/auth/logout")]
 pub async fn logout(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -636,7 +636,7 @@ pub async fn logout(
 ///
 /// - 401：令牌中的用户已不存在；
 /// - 500：内部错误。
-#[alun::get("/system/auth/me")]
+#[nik::get("/system/auth/me")]
 pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<CurrentUserRes> {
     let user_id = utils::require_uuid(&claims.sub, "sub")?;
     let user = SysUserModel::find_or_none(db(), &user_id)
@@ -678,7 +678,7 @@ pub async fn me(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::get("/system/auth/menus")]
+#[nik::get("/system/auth/menus")]
 pub async fn menus(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<Vec<MenuRes>> {
@@ -712,7 +712,7 @@ pub async fn menus(
 /// # 日志
 ///
 /// 成功后写入 `audit_logs`（`PROFILE_UPDATE`）；日志写入失败不影响业务结果。
-#[alun::put("/system/auth/profile")]
+#[nik::put("/system/auth/profile")]
 pub async fn update_profile(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -780,7 +780,7 @@ pub async fn update_profile(
 ///
 /// 成功写 `password_change_logs`（`UPDATE/SELF/SUCCESS`）；原密码错误写
 /// `password_change_logs`（`UPDATE/SELF/FAIL`）；日志写入失败不影响业务结果。
-#[alun::put("/system/auth/password")]
+#[nik::put("/system/auth/password")]
 pub async fn change_password(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -882,7 +882,7 @@ pub async fn change_password(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::get("/system/auth/logs")]
+#[nik::get("/system/auth/logs")]
 pub async fn login_logs(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
@@ -1356,7 +1356,7 @@ async fn register_online_session(
     let ip = utils::client_ip(headers, Some(connect_info));
     let (browser, os_type) = match utils::user_agent(headers) {
         Some(raw) => {
-            let info = alun_utils::parse_user_agent(&raw);
+            let info = nik_utils::parse_user_agent(&raw);
             (Some(info.browser_type), Some(info.os_type))
         }
         None => (None, None),

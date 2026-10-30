@@ -8,7 +8,7 @@
 //! 读取等领域行为集中在**本文件**；仅调用框架快捷方法（`find_or_none` /
 //! `insert` / `update` / `delete` 等）的简单读写由 `handler.rs` 直接执行。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};
@@ -792,7 +792,7 @@ fn config_secret_key() -> Option<Vec<u8>> {
     if raw.is_empty() {
         return None;
     }
-    hex_decode(&alun_utils::Crypto::sha256(raw))
+    hex_decode(&nik_utils::Crypto::sha256(raw))
 }
 
 /// 十六进制字符串解码为字节序列。
@@ -847,7 +847,7 @@ pub(crate) fn encrypt_config_value(plaintext: &str) -> std::result::Result<Strin
             ),
         )
     })?;
-    let (cipher, nonce) = alun_utils::Crypto::aes_encrypt(&key, plaintext)
+    let (cipher, nonce) = nik_utils::Crypto::aes_encrypt(&key, plaintext)
         .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "参数加密失败"))?;
     Ok(format!(
         "{}{}:{}",
@@ -889,7 +889,7 @@ pub(crate) fn decrypt_config_value(stored: &str) -> std::result::Result<String, 
             ),
         )
     })?;
-    alun_utils::Crypto::aes_decrypt(&key, cipher, nonce)
+    nik_utils::Crypto::aes_decrypt(&key, cipher, nonce)
         .ok_or_else(|| ApiError::new(500, error_code::CONFIG_DECRYPT_FAILED, "参数解密失败"))
 }
 

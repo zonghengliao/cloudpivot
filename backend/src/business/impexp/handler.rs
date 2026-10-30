@@ -41,12 +41,12 @@
 
 use std::collections::HashMap;
 
-use alun::prelude::*;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::Multipart;
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 use sha2::{Digest, Sha256};
 use tokio_util::io::ReaderStream;
 
@@ -89,12 +89,12 @@ const SUMMARY_LIMIT: usize = 100;
 /// # 异常情况
 ///
 /// 403：无 `business:impexp:def:list`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/def/list",
     method = "GET",
     permission = "business:impexp:def:list"
 )]
-#[alun::get("/business/impexp/def/list")]
+#[nik::get("/business/impexp/def/list")]
 pub async fn def_list() -> ResResult<Vec<DefinitionBrief>> {
     Ok(Res::ok(global_registry().briefs()))
 }
@@ -114,12 +114,12 @@ pub async fn def_list() -> ResResult<Vec<DefinitionBrief>> {
 /// # 异常情况
 ///
 /// 404 + `60011`：业务编码未注册；500：模板生成失败。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/template",
     method = "GET",
     permission = "business:impexp:import:template"
 )]
-#[alun::get("/business/impexp/import/template")]
+#[nik::get("/business/impexp/import/template")]
 pub async fn import_template(Query(query): Query<TemplateQuery>) -> Response {
     match build_template_response(&query.biz_type) {
         Ok(response) => response,
@@ -159,12 +159,12 @@ fn build_template_response(biz_type: &str) -> std::result::Result<Response, ApiE
 /// - 404 + `60011`：定义未注册；
 /// - 422 + `60012`：超过 `max_rows`；
 /// - 413：超过上传大小上限。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/upload",
     method = "POST",
     permission = "business:impexp:import:upload"
 )]
-#[alun::post("/business/impexp/import/upload")]
+#[nik::post("/business/impexp/import/upload")]
 pub async fn import_upload(
     Query(query): Query<UploadQuery>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -318,12 +318,12 @@ async fn run_precheck(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/page",
     method = "GET",
     permission = "business:impexp:import:list"
 )]
-#[alun::get("/business/impexp/import/page")]
+#[nik::get("/business/impexp/import/page")]
 pub async fn import_page(
     Query(query): Query<ImportPageQuery>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -366,12 +366,12 @@ pub async fn import_page(
 /// # 异常情况
 ///
 /// 404：任务不存在；400：ID 格式非法。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}",
     method = "GET",
     permission = "business:impexp:import:list"
 )]
-#[alun::get("/business/impexp/import/{id}")]
+#[nik::get("/business/impexp/import/{id}")]
 pub async fn import_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -396,12 +396,12 @@ pub async fn import_detail(
 /// # 异常情况
 ///
 /// 404：任务不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/errors",
     method = "GET",
     permission = "business:impexp:import:list"
 )]
-#[alun::get("/business/impexp/import/{id}/errors")]
+#[nik::get("/business/impexp/import/{id}/errors")]
 pub async fn import_errors(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -435,12 +435,12 @@ pub async fn import_errors(
 /// # 异常情况
 ///
 /// 404：任务不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/errors/file",
     method = "GET",
     permission = "business:impexp:import:download"
 )]
-#[alun::get("/business/impexp/import/{id}/errors/file")]
+#[nik::get("/business/impexp/import/{id}/errors/file")]
 pub async fn import_errors_file(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -482,12 +482,12 @@ pub async fn import_errors_file(
 /// # 异常情况
 ///
 /// 404：任务不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/download",
     method = "GET",
     permission = "business:impexp:import:download"
 )]
-#[alun::get("/business/impexp/import/{id}/download")]
+#[nik::get("/business/impexp/import/{id}/download")]
 pub async fn import_download(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -548,12 +548,12 @@ async fn errors_file_response(
 /// - 409 + `60013`：状态不是 `VALIDATED`（状态机非法跃迁）；
 /// - 422 + `60014`：`STRICT` 模式下存在失败行或某批入库失败；
 /// - 404：任务不存在 / 文件已丢失。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/confirm",
     method = "POST",
     permission = "business:impexp:import:confirm"
 )]
-#[alun::post("/business/impexp/import/{id}/confirm")]
+#[nik::post("/business/impexp/import/{id}/confirm")]
 pub async fn import_confirm(
     Path(id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -728,12 +728,12 @@ pub async fn import_confirm(
 /// - 404 + `60011`：定义未注册；
 /// - 409 + `60015`：命中行数超过同步上限（异步导出属 A4）；
 /// - 422：命中 0 行（E-EXP-10）；422 + `61008`：敏感列没有生效规则（fail-closed）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/sync",
     method = "GET",
     permission = "business:impexp:export:create"
 )]
-#[alun::get("/business/impexp/export/sync")]
+#[nik::get("/business/impexp/export/sync")]
 pub async fn export_sync(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<ExportSyncQuery>,
@@ -923,7 +923,7 @@ async fn persist_upload(
     task_id: uuid::Uuid,
     bytes: &[u8],
 ) -> std::result::Result<String, ApiError> {
-    let dir = std::path::Path::new(alun::upload_path()).join("impexp");
+    let dir = std::path::Path::new(nik::upload_path()).join("impexp");
     tokio::fs::create_dir_all(&dir).await.map_err(|error| {
         ApiError::new(
             500,
@@ -1072,12 +1072,12 @@ fn resolve_export_format(raw: Option<&str>, total: i64) -> std::result::Result<S
 /// - 404 + `60011`：定义未注册；
 /// - 422：过滤后 0 行 / 格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export",
     method = "POST",
     permission = "business:impexp:export:create"
 )]
-#[alun::post("/business/impexp/export")]
+#[nik::post("/business/impexp/export")]
 pub async fn export_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<ExportCreateReq>,
@@ -1188,12 +1188,12 @@ pub async fn export_create(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/page",
     method = "GET",
     permission = "business:impexp:export:list"
 )]
-#[alun::get("/business/impexp/export/page")]
+#[nik::get("/business/impexp/export/page")]
 pub async fn export_page(
     Query(query): Query<ExportPageQuery>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -1236,12 +1236,12 @@ pub async fn export_page(
 /// # 异常情况
 ///
 /// 404：任务不存在；400：ID 格式非法。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/{id}",
     method = "GET",
     permission = "business:impexp:export:list"
 )]
-#[alun::get("/business/impexp/export/{id}")]
+#[nik::get("/business/impexp/export/{id}")]
 pub async fn export_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1266,12 +1266,12 @@ pub async fn export_detail(
 /// - **410 + `60016`**：产物已过期（`expire_at` 已过或已被清理任务回收）；
 /// - 409 + `60015`：任务未完成（`PENDING` / `RUNNING` / `FAILED` / `CANCELED`）；
 /// - 404：任务不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/{id}/download",
     method = "GET",
     permission = "business:impexp:export:download"
 )]
-#[alun::get("/business/impexp/export/{id}/download")]
+#[nik::get("/business/impexp/export/{id}/download")]
 pub async fn export_download(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1391,12 +1391,12 @@ async fn export_download_response(
 /// # 异常情况
 ///
 /// 409 + `60021`：当前状态不允许取消（`SUCCESS` / `FAILED` / `EXPIRED` / 终态）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/{id}/cancel",
     method = "POST",
     permission = "business:impexp:export:cancel"
 )]
-#[alun::post("/business/impexp/export/{id}/cancel")]
+#[nik::post("/business/impexp/export/{id}/cancel")]
 pub async fn export_cancel(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1444,12 +1444,12 @@ pub async fn export_cancel(
 /// # 异常情况
 ///
 /// 409 + `60021`：当前状态不允许重试（`PENDING` / `RUNNING` / `SUCCESS`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/{id}/retry",
     method = "POST",
     permission = "business:impexp:export:retry"
 )]
-#[alun::post("/business/impexp/export/{id}/retry")]
+#[nik::post("/business/impexp/export/{id}/retry")]
 pub async fn export_retry(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1492,12 +1492,12 @@ pub async fn export_retry(
 /// # 异常情况
 ///
 /// 409 + `60021`：任务正在执行（`RUNNING`），不允许删除（先取消）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/export/{id}",
     method = "DELETE",
     permission = "business:impexp:export:delete"
 )]
-#[alun::delete("/business/impexp/export/{id}")]
+#[nik::delete("/business/impexp/export/{id}")]
 pub async fn export_delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1540,12 +1540,12 @@ pub async fn export_delete(
 /// # 异常情况
 ///
 /// 409 + `60013`：当前状态不允许取消（`SUCCESS` / `PARTIAL` / `FAILED` / 已取消）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/cancel",
     method = "POST",
     permission = "business:impexp:import:cancel"
 )]
-#[alun::post("/business/impexp/import/{id}/cancel")]
+#[nik::post("/business/impexp/import/{id}/cancel")]
 pub async fn import_cancel(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1590,12 +1590,12 @@ pub async fn import_cancel(
 ///
 /// - 409 + `60013`：当前状态不允许重试（未到失败 / 取消态）；
 /// - 404：原任务的上传文件已被回收，需重新上传。
-#[alun::permission(
+#[nik::permission(
     path = "/business/impexp/import/{id}/retry",
     method = "POST",
     permission = "business:impexp:import:retry"
 )]
-#[alun::post("/business/impexp/import/{id}/retry")]
+#[nik::post("/business/impexp/import/{id}/retry")]
 pub async fn import_retry(
     Path(id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,

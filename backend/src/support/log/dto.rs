@@ -3,7 +3,7 @@
 //! 字段名与前端契约 `frontend/src/api/support/log-api.ts` 严格对齐：列表只下发概要字段，
 //! 详情在概要基础上追加 `detail` / `request_params` / `response_data` 三个扩展字段。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::support::log::model::OperationLogModel;

@@ -2,7 +2,7 @@
 //!
 //! # 挂载位置（关键）
 //!
-//! 通过 [`alun::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**：
+//! 通过 [`nik::prelude::App::route_layer`] 注册，位于**框架内置中间件链之内**：
 //! 认证层已经验签并注入 [`AuthClaims`]，因此本层直接读取声明，不必重复验签；
 //! 同时又能拦下「已通过认证但会话已作废」的请求。
 //!
@@ -28,12 +28,12 @@
 //! 安全性优先于这一次索引查询的成本；若后续压测证明该点查成为瓶颈，
 //! 再接入短 TTL 缓存 + 变更时失效（与 `system::auth::model` 的主体缓存同一套做法）。
 
-use alun::prelude::*;
 use axum::body::Body;
 use axum::extract::Request;
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 
 use crate::shared::constants;
 use crate::system::user::model;

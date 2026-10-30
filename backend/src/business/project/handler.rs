@@ -34,10 +34,10 @@
 //!   但**没有校验目标项目是否存在**；本卡在归入接口里补上（[`assign_task_project`]），
 //!   并在任务详情/列表里下发 `project_name` / `project_code` 供前端展示与跳转。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::{Path, Query};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::project::{dto, model};
 use crate::business::shared::principal::{self, ScopedPrincipal};
@@ -47,7 +47,7 @@ use crate::utils;
 
 // ==================== 权限码（与 sys_menu.auth_code 逐字一致） ====================
 //
-// 注意：中间件闸的权限码写在 `#[alun::permission(permission = "...")]` 注解里（字面量，
+// 注意：中间件闸的权限码写在 `#[nik::permission(permission = "...")]` 注解里（字面量，
 // 不能引用常量），这里只保留**行级判定要用**的三个常量，避免 `dead_code` 告警
 // （clippy `-D warnings` 会把死代码升级成错误）。
 
@@ -78,12 +78,12 @@ const PERM_TASK_UPDATE: &str = "business:task:update";
 ///
 /// - 400 + `10001`：`status` / `owner_id` 取值非法；
 /// - 500：数据库异常 / 数据权限片段形态异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/page",
     method = "GET",
     permission = "business:project:read"
 )]
-#[alun::get("/business/project/page")]
+#[nik::get("/business/project/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::ProjectPageQuery>,
@@ -157,12 +157,12 @@ fn build_filter(
 ///
 /// - 404 + `63401`：项目不存在 / 已删 / 不在可见范围；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}",
     method = "GET",
     permission = "business:project:read"
 )]
-#[alun::get("/business/project/{id}")]
+#[nik::get("/business/project/{id}")]
 pub async fn detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -218,12 +218,12 @@ pub async fn detail(
 /// - 400 + `63402`：编码已被占用；
 /// - 400 + `10001`：`owner_id` 不是合法 UUID；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project",
     method = "POST",
     permission = "business:project:create"
 )]
-#[alun::post("/business/project")]
+#[nik::post("/business/project")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<dto::ProjectCreateReq>,
@@ -285,12 +285,12 @@ pub async fn create(
 /// - 403 + `63404`：无权修改；
 /// - 400 + `63402` / `63403`：编码重复 / 字段非法；
 /// - 400 + `10001`：空 PUT（一个字段都没传）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}",
     method = "PUT",
     permission = "business:project:read"
 )]
-#[alun::put("/business/project/{id}")]
+#[nik::put("/business/project/{id}")]
 pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -393,12 +393,12 @@ pub async fn update(
 /// - 404 + `63401`：项目不存在 / 已删 / 不可见；
 /// - 403 + `63404`：无权删除；
 /// - 500：数据库异常（整个事务回滚，任务不会被解绑）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}",
     method = "DELETE",
     permission = "business:project:read"
 )]
-#[alun::delete("/business/project/{id}")]
+#[nik::delete("/business/project/{id}")]
 pub async fn delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -457,12 +457,12 @@ pub async fn delete(
 ///
 /// - 404 + `63401`：项目不可见（先判项目，再判任务：项目都看不见就不必查任务）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}/tasks",
     method = "GET",
     permission = "business:project:read"
 )]
-#[alun::get("/business/project/{id}/tasks")]
+#[nik::get("/business/project/{id}/tasks")]
 pub async fn tasks(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -512,12 +512,12 @@ pub async fn tasks(
 /// - 403 + `63407`：无权归入 / 移出；
 /// - 400 + `10001`：`project_id` 不是合法 UUID / 字段缺席；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/project",
     method = "PUT",
     permission = "business:task:read"
 )]
-#[alun::put("/business/task/{id}/project")]
+#[nik::put("/business/task/{id}/project")]
 pub async fn assign_task_project(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -577,12 +577,12 @@ pub async fn assign_task_project(
 ///
 /// - 404 + `63401`：项目不可见；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}/members",
     method = "GET",
     permission = "business:project:read"
 )]
-#[alun::get("/business/project/{id}/members")]
+#[nik::get("/business/project/{id}/members")]
 pub async fn members(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -606,12 +606,12 @@ pub async fn members(
 /// - 403 + `63404`：无权维护成员；
 /// - 400 + `63405`：成员不存在 / 已停用 / 角色非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}/members",
     method = "POST",
     permission = "business:project:read"
 )]
-#[alun::post("/business/project/{id}/members")]
+#[nik::post("/business/project/{id}/members")]
 pub async fn add_member(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -670,12 +670,12 @@ pub async fn add_member(
 /// - 403 + `63404`：无权维护成员；
 /// - 404 + `63406`：本来就不是成员；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/project/{id}/members/{user_id}",
     method = "DELETE",
     permission = "business:project:read"
 )]
-#[alun::delete("/business/project/{id}/members/{user_id}")]
+#[nik::delete("/business/project/{id}/members/{user_id}")]
 pub async fn remove_member(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, user_id)): Path<(String, String)>,

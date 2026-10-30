@@ -10,7 +10,7 @@
 //! 3. **附件不给存储细节**：出参里只有 `download_url`（本模块的代理接口），
 //!    **绝不**出现 bucket / object key / 预签名 URL（架构 §2.5.3）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::announcement::model::{

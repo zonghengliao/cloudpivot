@@ -2,7 +2,7 @@
 //!
 //! 字段名与前端契约（`frontend/src/api/support/job-api.ts`）严格对齐，避免联调时出现命名偏差。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

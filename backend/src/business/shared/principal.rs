@@ -33,8 +33,8 @@
 use std::collections::BTreeSet;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use super::scope::ScopeKind;
 use crate::shared::constants;
@@ -213,7 +213,7 @@ impl ScopedPrincipal {
 /// 解析结果（内存形态）：部门 ID 是强类型的 [`Uuid`]。
 ///
 /// 与 [`CachedScope`] 分开的原因是**序列化能力**：本栈的 `uuid::Uuid` 没有开 serde
-/// feature（框架 `alun` 未转发，项目里所有缓存 DTO 都用 `String` 承载 ID——例如
+/// feature（框架 `nik` 未转发，项目里所有缓存 DTO 都用 `String` 承载 ID——例如
 /// `system/dept/dto.rs::DeptNode` 的 `id: String`）。因此缓存形态用 `String`，
 /// 内存形态保持强类型，两者只在缓存边界转换一次。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -561,7 +561,7 @@ impl ScopeSource for PgScopeSource {
 /// # 缓存不可用时
 ///
 /// `available()` 返回 `false`（`try_cache()` 为 `None`：未初始化或初始化失败——
-/// 框架在 Redis 连接失败时只 warn 不中断启动，见 `alun-web::app` 的
+/// 框架在 Redis 连接失败时只 warn 不中断启动，见 `nik-web::app` 的
 /// `缓存初始化失败…将不使用缓存`）。此时 [`resolve_with`] 直接回退查库。
 pub(crate) struct GlobalScopeCache;
 
@@ -1090,7 +1090,7 @@ mod tests {
     ///
     /// 与生产 [`GlobalScopeCache`] 走同一批 Redis 命令（`GET` / `SETEX` / `INCR`）。
     /// 为什么不能直接驱动 `GlobalScopeCache`：`set_cache()` 的参数类型 `SharedCache`
-    /// 没有被 `alun` 门面 re-export（只导出 `Cache` / `LocalCache`），本 crate 无法在
+    /// 没有被 `nik` 门面 re-export（只导出 `Cache` / `LocalCache`），本 crate 无法在
     /// 测试进程里初始化全局缓存——所以真 Redis 的**端到端**由 B3/B4 经 `App::start`
     /// 后的 HTTP 路径验证，这里验证的是命令语义与我们的键/负载/TTL 约定。
     ///

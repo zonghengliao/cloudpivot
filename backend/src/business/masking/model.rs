@@ -30,8 +30,8 @@
 //! 不构成面向用户的列表查询；行级过滤由调用方（`/system/field-mask/effective` 的
 //! `system:field-mask:list` 权限 + 单条 user_id 参数）收口。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::masking::dto::FieldMaskPageQuery;
 use crate::shared::constants;

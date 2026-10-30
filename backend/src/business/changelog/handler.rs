@@ -35,10 +35,10 @@
 
 use std::collections::HashMap;
 
-use alun::prelude::*;
 use axum::extract::{Path, Query};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 use serde_json::Value as Json;
 
 use crate::business::changelog::dto::{
@@ -92,12 +92,12 @@ const EXPORT_HEADERS: [&str; 16] = [
 ///
 /// - 400：时间 / UUID 参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/page",
     method = "GET",
     permission = "system:change-log:list"
 )]
-#[alun::get("/business/changelog/page")]
+#[nik::get("/business/changelog/page")]
 pub async fn page(
     Query(query): Query<ChangeLogPageQuery>,
 ) -> ResResult<PageData<Vec<ChangeLogListItem>>> {
@@ -132,12 +132,12 @@ pub async fn page(
 /// - 400：ID / 时间格式非法；
 /// - 404 + 10002：日志不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/{id}",
     method = "GET",
     permission = "system:change-log:list"
 )]
-#[alun::get("/business/changelog/{id}")]
+#[nik::get("/business/changelog/{id}")]
 pub async fn detail(
     Path(id): Path<String>,
     Query(query): Query<ChangeLogDetailQuery>,
@@ -176,12 +176,12 @@ pub async fn detail(
 ///
 /// - 400：`table` / `target_id` 缺失或时间格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/timeline",
     method = "GET",
     permission = "system:change-log:list"
 )]
-#[alun::get("/business/changelog/timeline")]
+#[nik::get("/business/changelog/timeline")]
 pub async fn timeline(
     Query(query): Query<ChangeLogTimelineQuery>,
 ) -> ResResult<ChangeLogTimelineRes> {
@@ -225,12 +225,12 @@ pub async fn timeline(
 ///
 /// - 400：时间 / UUID 参数格式非法；
 /// - 500：数据库异常或 xlsx 生成失败。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/export",
     method = "GET",
     permission = "system:change-log:export"
 )]
-#[alun::get("/business/changelog/export")]
+#[nik::get("/business/changelog/export")]
 pub async fn export(Query(query): Query<ChangeLogPageQuery>) -> Response {
     match export_response(query).await {
         Ok(response) => response,
@@ -252,12 +252,12 @@ pub async fn export(Query(query): Query<ChangeLogPageQuery>) -> Response {
 ///
 /// - 400：时间 / UUID 参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/stats",
     method = "GET",
     permission = "system:change-log:list"
 )]
-#[alun::get("/business/changelog/stats")]
+#[nik::get("/business/changelog/stats")]
 pub async fn stats(Query(query): Query<ChangeLogStatsQuery>) -> ResResult<ChangeLogStatsRes> {
     let filter = build_stats_filter(&query)?;
     let stats = query::stats(conn::global(), &filter)
@@ -298,12 +298,12 @@ pub async fn stats(Query(query): Query<ChangeLogStatsQuery>) -> ResResult<Change
 ///
 /// 每张登记表的模块归属、白名单字段、大字段列。**不查库**：数据源是编译期常量
 /// [`crate::business::changelog::diff::REGISTRY`]。
-#[alun::permission(
+#[nik::permission(
     path = "/business/changelog/table-registry",
     method = "GET",
     permission = "system:change-log:list"
 )]
-#[alun::get("/business/changelog/table-registry")]
+#[nik::get("/business/changelog/table-registry")]
 pub async fn table_registry() -> ResResult<TableRegistryRes> {
     let tables = query::table_registry()
         .into_iter()

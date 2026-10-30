@@ -33,7 +33,7 @@
 //! ② 删除前用 [`is_managed_partition`] 逐字符校验（前缀 + `YYYY_MM` 数字形态）。
 //! `DROP TABLE` 是唯一不可逆的操作，多一道字符校验不算冗余。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 /// 调度名（与 `sys_job.invoke_target` 同名，前端按它选调用目标）。
 pub const TASK_NAME: &str = "changelog_partition_maintain";

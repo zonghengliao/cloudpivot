@@ -55,13 +55,13 @@
 
 use std::path::{Path as StdPath, PathBuf};
 
-use alun::prelude::chrono::{DateTime, Utc};
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::body::Body;
 use axum::extract::{Path, Query};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use tokio_util::io::ReaderStream;
 
 use crate::business::aiagent::hermes::HermesConfig;
@@ -562,12 +562,12 @@ async fn list_workspace(
 /// # 异常情况
 ///
 /// `404 + 63001` / `400 + 10001` / `400 + 64004` / `500 + 1`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/ai-workspace-files",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/ai-workspace-files")]
+#[nik::get("/business/task/{id}/ai-workspace-files")]
 pub async fn list_ai_workspace_files(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -593,12 +593,12 @@ pub async fn list_ai_workspace_files(
 /// # 异常情况
 ///
 /// 见 [`resolve_readable`]；另外文件在 `metadata` 与 `open` 之间被删 → `404 + 40005`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/ai-workspace-files/{name}/download",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/ai-workspace-files/{name}/download")]
+#[nik::get("/business/task/{id}/ai-workspace-files/{name}/download")]
 pub async fn download_ai_workspace_file(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, name)): Path<(String, String)>,
@@ -610,12 +610,12 @@ pub async fn download_ai_workspace_file(
 }
 
 /// 下载的查询串别名（`…/ai-workspace-files/download?name=x`，同实现）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/ai-workspace-files/download",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/ai-workspace-files/download")]
+#[nik::get("/business/task/{id}/ai-workspace-files/download")]
 pub async fn download_ai_workspace_file_by_query(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -683,12 +683,12 @@ async fn download_inner(
 /// # 异常情况
 ///
 /// 见 [`resolve_readable`]。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/ai-workspace-files/{name}/preview",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/ai-workspace-files/{name}/preview")]
+#[nik::get("/business/task/{id}/ai-workspace-files/{name}/preview")]
 pub async fn preview_ai_workspace_file(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, name)): Path<(String, String)>,
@@ -698,12 +698,12 @@ pub async fn preview_ai_workspace_file(
 }
 
 /// 预览的查询串别名（`…/ai-workspace-files/preview?name=x`，同实现）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/ai-workspace-files/preview",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/ai-workspace-files/preview")]
+#[nik::get("/business/task/{id}/ai-workspace-files/preview")]
 pub async fn preview_ai_workspace_file_by_query(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,

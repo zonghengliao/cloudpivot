@@ -8,7 +8,7 @@
 //!
 //! 单测 `dto_masked_ak_never_leaks_plaintext` 断言序列化结果里不含明文 AK/SK。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

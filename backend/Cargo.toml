@@ -1,6 +1,6 @@
 [package]
 name = "cloudpivot"
-description = "云枢通用后台管理系统 —— 基于 Alun 框架 0.4.2"
+description = "云枢通用后台管理系统 —— 基于 NIK 框架（fork 自 alun 0.4.2，见 backend/vendor/README.md）"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.1"
@@ -28,10 +28,10 @@ test-hooks = []
 
 
 [dependencies]
-# 门面依赖：只声明 alun 一个框架 crate，其余能力通过 feature 选择。
-# 不在 Cargo.toml 里出现 alun-db / alun-db-core / alun-web / alun-config，
-# 它们的能力由 `use alun::prelude::*` 转发（新框架铁律）。
-alun = { version = "0.4.2", features = [
+# 门面依赖：只声明 nik 一个框架 crate，其余能力通过 feature 选择。
+# 不在 Cargo.toml 里出现 nik-db / nik-db-core / nik-web / nik-config，
+# 它们的能力由 `use nik::prelude::*` 转发（新框架铁律）。
+nik = { path = "vendor/nik", features = [
     # 数据库：驱动即能力，写 `postgres` 即可（它隐含 `db`）。
     # `db` 本身**不含任何驱动**，单独列出只是显式表达「需要数据库能力」，可选。
     "db",
@@ -49,20 +49,20 @@ alun = { version = "0.4.2", features = [
     "ipnetwork",
     # HTML 净化：社区公告等富文本入库前过滤
     "xss",
-    # SSE 实时推送（批次 A · A6）：框架 `alun-web::sse` 的 `Broadcaster` / `sse_json`
+    # SSE 实时推送（批次 A · A6）：框架 `nik-web::sse` 的 `Broadcaster` / `sse_json`
     # 在这个 feature 之后才存在（不开就根本没有这两个 API，而不是静默退化）。
     "sse",
-    # 真 XLSX 读写（框架 alun-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
+    # 真 XLSX 读写（框架 nik-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
     # 读走 calamine。不开此 feature 时这些 API 根本不存在（不是静默退化成 CSV）。
     "xlsx",
 ] }
 
 # 工具集：门面 prelude 未转发 UA 解析，而 `auth_logs` 需要写入设备 / 浏览器 / 操作系统，
-# 故按「必要时可声明 alun-utils」的约定直接依赖（与 alun 同源，不会引入第二份实例）。
-alun-utils = { version = "0.4.2" }
+# 故按「必要时可声明 nik-utils」的约定直接依赖（与 nik 同源，不会引入第二份实例）。
+nik-utils = { path = "vendor/nik-utils" }
 
-# Excel 读取：与 alun-utils 的 xlsx feature 锁定同一版本（alun-utils 0.4.2 声明 calamine = "0.36"），
-# 依赖树里只有一份 calamine，不引入 alun 之外的新 crate。
+# Excel 读取：与 nik-utils 的 xlsx feature 锁定同一版本（nik-utils 0.4.2 声明 calamine = "0.36"），
+# 依赖树里只有一份 calamine，不引入 nik 之外的新 crate。
 # 直连原因：框架 Import::from_xlsx 把整表转成 Vec<HashMap> 且不暴露表头——
 # E-IMP-02/03/04/05 四条结构校验必须读表头；逐行 range.rows() 也省掉第二份行集合的内存。
 calamine = "0.36"
@@ -74,7 +74,7 @@ tracing = "0.1"
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# 请求 DTO 校验：Version 与 alun 工作区保持一致（0.21）
+# 请求 DTO 校验：Version 与 nik 工作区保持一致（0.21）
 validator = { version = "0.21", features = ["derive"] }
 
 # 自定义插件需要实现 async trait：框架未把 async_trait 重导出，故在此显式声明
@@ -89,26 +89,26 @@ tokio-util = { version = "0.7", features = ["io"] }
 
 # SSE 流适配（A6）：`futures_util::stream::unfold` 把 `tokio::sync::broadcast::Receiver`
 # 驱动的异步接收转成 `Stream`，供 axum 的 `Sse` 消费；同时用 `unfold` 的 state 持有
-# 订阅守卫，客户端断开时随流 drop 自动退订（框架未公开 `poll_recv`，见 alun-web/src/sse.rs）。
-# 注意：该 crate **本就在依赖树中**（alun-web 的 SSE 模块直接依赖，见 Cargo.lock），
+# 订阅守卫，客户端断开时随流 drop 自动退订（框架未公开 `poll_recv`，见 nik-web/src/sse.rs）。
+# 注意：该 crate **本就在依赖树中**（nik-web 的 SSE 模块直接依赖，见 Cargo.lock），
 # 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
 futures-util = "0.3"
 
 # Redis 客户端（二开说明，已评审）：
 # 工作台的「服务器状态」需要执行 `INFO` 读取运行时长 / 内存 / 命中率等运行时指标，
 # 而框架的缓存门面 `Cache` 只暴露 KV 语义（get/set/del/incr/keys），拿不到 INFO。
-# 版本与 features 与 alun-cache 0.4.2 内部声明的完全一致（redis 1.7 + tokio-comp
+# 版本与 features 与 nik-cache 0.4.2 内部声明的完全一致（redis 1.7 + tokio-comp
 # + connection-manager），**不引入依赖树中不存在的新 crate**，仅把既有的间接依赖
 # 显式化，供 business/monitor 使用。
 redis = { version = "1.7", features = ["tokio-comp", "connection-manager"] }
 
 # 数据权限（批次 B · B3，报批 §5.3「Cargo.toml 加 regex」）：
 # 列级脱敏的自定义正则类型（B6）与范围自检接口的标识符校验需要编译正则；
-# `regex 1.13.1` **本就在依赖树中**（alun-utils 的依赖，见 Cargo.lock），
+# `regex 1.13.1` **本就在依赖树中**（nik-utils 的依赖，见 Cargo.lock），
 # 这里只是把既有的间接依赖显式化，不引入任何新 crate、不改版本。
 regex = "1"
 
-# Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 alun 依赖**）：
+# Markdown 渲染（批次 C · C0，报批 §5.4.1 B-1，本批**唯一新增的非 nik 依赖**）：
 # D4 选定「Markdown 源 + 服务端渲染」，而仓库此前**没有任何**渲染器
 # （`grep -r markdown|comrak|pulldown backend/src` 零命中），渲染器是硬需求。
 # 纯 Rust、无 C 依赖、无 IO，`edition 2024` 兼容；关掉默认 feature 里的 `getopts`
@@ -116,9 +116,9 @@ regex = "1"
 pulldown-cmark = { version = "0.13", default-features = false, features = ["html"] }
 
 # HTML 净化（批次 C · C1，与上一行同批落地，报批 §5.4.1 B-1 的净化的另一半）：
-# 本 crate **本就在依赖树中**（alun 的 `xss` feature → alun-utils → ammonia 4.2.0，
+# 本 crate **本就在依赖树中**（nik 的 `xss` feature → nik-utils → ammonia 4.2.0，
 # 见 Cargo.lock），这里只是把既有的间接依赖显式化，**不引入新 crate、不改版本**。
-# 直连原因：`alun_utils::xss::sanitize_html` 只暴露默认规则，而帮助文档必须用
+# 直连原因：`nik_utils::xss::sanitize_html` 只暴露默认规则，而帮助文档必须用
 # `Builder::add_generic_attributes(&["id"])` 才能保住 heading 锚点——POC-13 实测
 # 默认规则会把 `id` **静默剥离**，导致 TOC 跳转全线失效（架构 §3.2 第 2 条）。
 ammonia = "4.2"

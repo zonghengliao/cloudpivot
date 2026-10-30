@@ -2,7 +2,7 @@
 //!
 //! # 读：为什么直连 `calamine` 而不只用 `Import::from_xlsx`
 //!
-//! 框架封装（`alun_utils::export::Import`）返回 `Vec<HashMap<String,String>>`：
+//! 框架封装（`nik_utils::export::Import`）返回 `Vec<HashMap<String,String>>`：
 //!
 //! 1. **不暴露表头**——「只有表头没有数据行」(E-IMP-02)、「表头缺必需列」(E-IMP-03)、
 //!    「存在模板外的列」(E-IMP-04)、「列顺序与模板不一致」(E-IMP-05) 四条结构校验都必须
@@ -10,7 +10,7 @@
 //! 2. **每行一个 HashMap**——10 万行时在 `Range` 之外再多一份几百 MB 的堆分配，
 //!    与验收 4 的 400 MB 上限冲突。
 //!
-//! 因此读侧直接用 `calamine`（**与 `alun-utils` 的 xlsx feature 同一版本 0.36，依赖树里
+//! 因此读侧直接用 `calamine`（**与 `nik-utils` 的 xlsx feature 同一版本 0.36，依赖树里
 //! 只有一份**）：`worksheet_range` 拿到紧凑的 `Range<Data>`，再用 [`SheetReader::row`]
 //! **逐行**取，全表不产生第二份行集合。写侧仍走框架 `Export::to_xlsx_workbook`。
 //!
@@ -22,8 +22,8 @@
 use std::collections::HashMap;
 use std::io::Cursor;
 
-use alun::prelude::*;
 use calamine::{Data, Reader, Xlsx};
+use nik::prelude::*;
 
 use crate::business::impexp::definition::{DictTranslation, ExportColumn, ImportColumn};
 use crate::business::masking::masker::MaskError;

@@ -70,8 +70,8 @@
 //! - 不注册接口（卡面「接口 0」）：触发点只有调度器，运维要手动跑就调 [`run_once`]。
 //! - 实例编号回收属架构 §1.5 同一文件、但**不在本卡范围**（卡面只要求 graph_hash 自检）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::flow::graph;
 use crate::business::flow::model;

@@ -43,7 +43,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use alun::prelude::*;
+use nik::prelude::*;
 use sha2::{Digest, Sha256};
 
 use crate::business::impexp::definition::{ColumnKind, ExportFilter};
@@ -128,7 +128,7 @@ impl WorkerOptions {
             worker_id: default_worker_id(),
             // 产物目录转成**绝对路径**：任务行里存的 `file_path` 要能被下载接口与清理任务
             // 在任意 cwd 下打开（相对路径要求进程 cwd 永不变化，运维重启换目录就全断）
-            export_dir: absolute_dir(&Path::new(alun::upload_path()).join("impexp").join("export")),
+            export_dir: absolute_dir(&Path::new(nik::upload_path()).join("impexp").join("export")),
             ttl_seconds: env_i64("CLOUDPIVOT_IMPEXP_EXPORT_TTL_SECONDS", DEFAULT_TTL_SECONDS),
             max_attempts: env_i64(
                 "CLOUDPIVOT_IMPEXP_EXPORT_MAX_ATTEMPTS",

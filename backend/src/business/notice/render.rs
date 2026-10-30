@@ -3,7 +3,7 @@
 //! # 为什么自研（架构文档 §4.6 决策 D11）
 //!
 //! 模板正文存在**数据库行**里，而框架的 `render_template(name, ctx)`
-//! （`alun-web/src/resources.rs`）只按**名字**从文件系统取模板，DB 行用不了；
+//! （`nik-web/src/resources.rs`）只按**名字**从文件系统取模板，DB 行用不了；
 //! 引入 Tera / Jinja 类引擎等于给运维开一个「任意表达式求值」入口（`{{ x.__class__ }}`
 //! 这类逃逸是真实攻击面），收益（循环 / 条件）在本批次用不上。因此只做值替换。
 //!
@@ -25,7 +25,7 @@
 
 use std::collections::BTreeSet;
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::notice::dto::{ContentFormat, TemplateVarDecl};
 use crate::shared::error_code;

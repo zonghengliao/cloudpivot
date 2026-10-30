@@ -36,10 +36,10 @@
 //! 全部固定 UUID / 固定 `B7_` 前缀的编码与用户名：开头 DELETE 一次、结尾 DELETE 一次，
 //! 重复跑不会积累垃圾，也不会影响库里其它数据（只删自己插入的行）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::mutex::{checker, guard, model};
 use cloudpivot::shared::error_code;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 // ---------- 夹具标识 ----------
 const ROLE_A: &str = "7b700000-0000-0000-0000-000000000001"; // B7_PURCHASER 采购员

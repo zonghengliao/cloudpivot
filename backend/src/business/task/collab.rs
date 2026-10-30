@@ -25,7 +25,7 @@
 //! | DELETE | `/business/task/{id}/worklogs/{wl_id}` | `business:task:read` | 删除（本人 / `business:task:worklog`） |
 //!
 //! 「写」的两个入口（`POST /comment`、`POST /attachment`）留在 [`super::handler`]：
-//! 它们要同时接受 **AI 任务令牌**（走 `#[alun::no_auth]` 白名单），与这里的
+//! 它们要同时接受 **AI 任务令牌**（走 `#[nik::no_auth]` 白名单），与这里的
 //! 「人用 JWT」是两套身份解析；搬过来只会让 `no_auth` 白名单与令牌守卫的边界变模糊。
 //!
 //! # 四条硬约束（本卡红线，逐条对应卡面）
@@ -55,12 +55,12 @@
 //! 子表只按 `task_id` 收口。再注入一次 scope 会造成「父任务可见、子行被裁掉」
 //! —— 比漏权限更难发现（用户会以为评论/附件丢了），故显式豁免。
 
-use alun::prelude::chrono::{NaiveDate, Utc};
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::{Path, Query};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::chrono::{NaiveDate, Utc};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
@@ -742,12 +742,12 @@ fn forbidden(message: &str) -> ApiError {
 ///
 /// - 404 + `63001`：任务不存在 / 看不见；400 + `10001`：id 不是 UUID；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/comments",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/comments")]
+#[nik::get("/business/task/{id}/comments")]
 pub async fn list_comments(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -806,12 +806,12 @@ pub async fn list_comments(
 ///
 /// - 404 + `63001`：任务看不见 / 评论不存在 / 已删；
 /// - 403 + `63002`：只读类型，或既非作者也无删除权限。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/comments/{comment_id}",
     method = "DELETE",
     permission = "business:task:read"
 )]
-#[alun::delete("/business/task/{id}/comments/{comment_id}")]
+#[nik::delete("/business/task/{id}/comments/{comment_id}")]
 pub async fn delete_comment(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, comment_id)): Path<(String, String)>,
@@ -861,12 +861,12 @@ pub async fn delete_comment(
 /// # 异常情况
 ///
 /// - 404 + `63001`：任务不存在 / 看不见；500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/attachments",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/attachments")]
+#[nik::get("/business/task/{id}/attachments")]
 pub async fn list_attachments(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -918,12 +918,12 @@ pub async fn list_attachments(
 ///
 /// - 404：任务看不见 / 附件不存在 / 已删；
 /// - 403：既不是上传者，也没有 `business:task:attachment:delete`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/attachments/{att_id}",
     method = "DELETE",
     permission = "business:task:read"
 )]
-#[alun::delete("/business/task/{id}/attachments/{att_id}")]
+#[nik::delete("/business/task/{id}/attachments/{att_id}")]
 pub async fn delete_attachment(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, att_id)): Path<(String, String)>,
@@ -992,12 +992,12 @@ pub async fn delete_attachment(
 /// - 404：任务看不见 / 附件不存在 / 文件已软删 / 物理对象丢失（**一律 404**，
 ///   不区分「不存在」与「无权限」，避免把 UUID 变成可枚举资源）；
 /// - 409 / 502：存储后端不可用 / 远端访问失败（透传 storage 的错误）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/attachments/{att_id}/download",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/attachments/{att_id}/download")]
+#[nik::get("/business/task/{id}/attachments/{att_id}/download")]
 pub async fn download_attachment(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, att_id)): Path<(String, String)>,
@@ -1050,12 +1050,12 @@ async fn download_attachment_inner(
 /// # 异常情况
 ///
 /// - 404 + `63001`：任务看不见；500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/worklogs",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/worklogs")]
+#[nik::get("/business/task/{id}/worklogs")]
 pub async fn list_worklogs(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1118,12 +1118,12 @@ pub async fn list_worklogs(
 /// - 400 + `63009`：工时区间 / 日期非法、超过 500 条上限；
 /// - 403 + `63002`：不是负责人 / 协作人，也没有 `business:task:worklog`；
 /// - 404 + `63001`：任务看不见。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/worklogs",
     method = "POST",
     permission = "business:task:read"
 )]
-#[alun::post("/business/task/{id}/worklogs")]
+#[nik::post("/business/task/{id}/worklogs")]
 pub async fn add_worklog(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1204,12 +1204,12 @@ pub async fn add_worklog(
 ///
 /// - 404：任务看不见 / 工时记录不存在；
 /// - 403：既不是本人，也没有 `business:task:worklog`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/worklogs/{wl_id}",
     method = "DELETE",
     permission = "business:task:read"
 )]
-#[alun::delete("/business/task/{id}/worklogs/{wl_id}")]
+#[nik::delete("/business/task/{id}/worklogs/{wl_id}")]
 pub async fn delete_worklog(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, wl_id)): Path<(String, String)>,

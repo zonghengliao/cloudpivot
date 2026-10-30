@@ -34,9 +34,9 @@
 //!
 //! 路由方法在前，公共辅助函数在后（与底座其它 handler 一致）。
 
-use alun::prelude::*;
 use axum::Json;
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 
 use crate::business::notice::dto::{
     ChannelConfigRes, ContentFormat, DeliverySummaryRes, MyNoticeQuery, MyNoticeRes,
@@ -80,12 +80,12 @@ use crate::utils;
 /// - 404：模板不存在或停用；
 /// - 422：渲染失败（缺变量 / 语法 / 超长）、接收人超上限；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice",
     method = "POST",
     permission = "business:notice:send"
 )]
-#[alun::post("/business/notice")]
+#[nik::post("/business/notice")]
 pub async fn send(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     ValidatedJson(req): ValidatedJson<NoticeSendReq>,
@@ -148,12 +148,12 @@ pub async fn send(
 /// - 400：类型 / 级别取值非法；
 /// - 403：无 `business:notice:list`；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/page",
     method = "GET",
     permission = "business:notice:list"
 )]
-#[alun::get("/business/notice/page")]
+#[nik::get("/business/notice/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<NoticePageQuery>,
@@ -196,12 +196,12 @@ pub async fn page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：通知不存在或已删除。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/{id}",
     method = "GET",
     permission = "business:notice:list"
 )]
-#[alun::get("/business/notice/{id}")]
+#[nik::get("/business/notice/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<NoticeDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let notice = model::find_notice(&id)
@@ -239,12 +239,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<NoticeDetailRes> {
 /// - 400：ID 非法；
 /// - 404：通知不存在或已删除；
 /// - 403：无 `business:notice:delete`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/{id}",
     method = "DELETE",
     permission = "business:notice:delete"
 )]
-#[alun::delete("/business/notice/{id}")]
+#[nik::delete("/business/notice/{id}")]
 pub async fn delete(Path(id): Path<String>) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
     let affected = model::soft_delete_notice(&id)
@@ -277,12 +277,12 @@ pub async fn delete(Path(id): Path<String>) -> ResResult<()> {
 ///
 /// - 403：无 `business:notice:mine`（`V0045` 已授予所有角色）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/mine",
     method = "GET",
     permission = "business:notice:mine"
 )]
-#[alun::get("/business/notice/mine")]
+#[nik::get("/business/notice/mine")]
 pub async fn mine(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<MyNoticeQuery>,
@@ -302,12 +302,12 @@ pub async fn mine(
 ///
 /// `{ "unread_count": n }`；查询固定写 `user_id = ? AND read_flag = FALSE AND is_deleted = FALSE`，
 /// 命中部分索引 `idx_sys_notice_receiver_unread`（0.5 ms 级）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/unread-count",
     method = "GET",
     permission = "business:notice:mine"
 )]
-#[alun::get("/business/notice/unread-count")]
+#[nik::get("/business/notice/unread-count")]
 pub async fn unread_count(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<UnreadCountRes> {
@@ -327,12 +327,12 @@ pub async fn unread_count(
 /// # 异常情况
 ///
 /// - 404：接收行不存在 / 不属于本人 / 已删除。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/read/{receiver_id}",
     method = "PUT",
     permission = "business:notice:mine"
 )]
-#[alun::put("/business/notice/read/{receiver_id}")]
+#[nik::put("/business/notice/read/{receiver_id}")]
 pub async fn mark_read(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(receiver_id): Path<String>,
@@ -357,12 +357,12 @@ pub async fn mark_read(
 /// # 返回值
 ///
 /// `{ "affected": n }`（本次置为已读的条数）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/read-all",
     method = "PUT",
     permission = "business:notice:mine"
 )]
-#[alun::put("/business/notice/read-all")]
+#[nik::put("/business/notice/read-all")]
 pub async fn mark_all_read(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<serde_json::Value> {
@@ -378,12 +378,12 @@ pub async fn mark_all_read(
 /// # 异常情况
 ///
 /// - 404：接收行不存在 / 不属于本人 / 已删除。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/mine/{receiver_id}",
     method = "DELETE",
     permission = "business:notice:mine"
 )]
-#[alun::delete("/business/notice/mine/{receiver_id}")]
+#[nik::delete("/business/notice/mine/{receiver_id}")]
 pub async fn delete_mine(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(receiver_id): Path<String>,
@@ -406,12 +406,12 @@ pub async fn delete_mine(
 // ==================== 模板 ====================
 
 /// 模板分页。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/template/page",
     method = "GET",
     permission = "business:notice:template:list"
 )]
-#[alun::get("/business/notice/template/page")]
+#[nik::get("/business/notice/template/page")]
 pub async fn template_page(
     Query(query): Query<TemplatePageQuery>,
 ) -> ResResult<PageData<Vec<TemplateRes>>> {
@@ -439,12 +439,12 @@ pub async fn template_page(
 /// - 400：编码格式非法；
 /// - 409：编码重复；
 /// - 422：模板语法错误 / 占位符未声明 / 试渲染失败。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/template",
     method = "POST",
     permission = "business:notice:template:create"
 )]
-#[alun::post("/business/notice/template")]
+#[nik::post("/business/notice/template")]
 pub async fn template_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     ValidatedJson(req): ValidatedJson<TemplateSaveReq>,
@@ -484,12 +484,12 @@ pub async fn template_create(
 ///
 /// - 404：模板不存在；
 /// - 409：编码与其它模板重复。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/template/{id}",
     method = "PUT",
     permission = "business:notice:template:update"
 )]
-#[alun::put("/business/notice/template/{id}")]
+#[nik::put("/business/notice/template/{id}")]
 pub async fn template_update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -542,12 +542,12 @@ pub async fn template_update(
 }
 
 /// 删除模板（被通知引用时 409，避免历史通知「模板对不上」）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/template/{id}",
     method = "DELETE",
     permission = "business:notice:template:delete"
 )]
-#[alun::delete("/business/notice/template/{id}")]
+#[nik::delete("/business/notice/template/{id}")]
 pub async fn template_delete(Path(id): Path<String>) -> ResResult<()> {
     let id = utils::require_uuid(&id, "id")?;
     let template = model::find_template(&id)
@@ -596,12 +596,12 @@ pub async fn template_delete(Path(id): Path<String>) -> ResResult<()> {
 ///
 /// - 404：模板不存在；
 /// - 422：缺变量 / 语法错误 / 超长。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/template/{id}/preview",
     method = "POST",
     permission = "business:notice:template:list"
 )]
-#[alun::post("/business/notice/template/{id}/preview")]
+#[nik::post("/business/notice/template/{id}/preview")]
 pub async fn template_preview(
     Path(id): Path<String>,
     Json(req): Json<TemplatePreviewReq>,
@@ -638,12 +638,12 @@ pub async fn template_preview(
 // ==================== 通道配置 ====================
 
 /// 通道配置（本批只读：邮件是否已配置、Webhook 地址掩码、短信是否已配置）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/channel/config",
     method = "GET",
     permission = "business:notice:channel:config"
 )]
-#[alun::get("/business/notice/channel/config")]
+#[nik::get("/business/notice/channel/config")]
 pub async fn channel_config() -> ResResult<ChannelConfigRes> {
     let settings = model::channel_settings_best_effort().await;
     Ok(Res::ok(settings.config))
@@ -688,12 +688,12 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
 ///
 /// - 401：凭证缺少有效的用户标识；
 /// - 403：无 `business:notice:mine`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/stream",
     method = "GET",
     permission = "business:notice:mine"
 )]
-#[alun::get("/business/notice/stream")]
+#[nik::get("/business/notice/stream")]
 pub async fn stream(
     Query(query): Query<StreamQuery>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -734,12 +734,12 @@ pub async fn stream(
 /// # 异常情况
 ///
 /// - 403：无 `business:notice:list`。
-#[alun::permission(
+#[nik::permission(
     path = "/business/notice/stream/stats",
     method = "GET",
     permission = "business:notice:list"
 )]
-#[alun::get("/business/notice/stream/stats")]
+#[nik::get("/business/notice/stream/stats")]
 pub async fn stream_stats() -> ResResult<StreamStatsRes> {
     Ok(Res::ok(sse_hub::stats()))
 }

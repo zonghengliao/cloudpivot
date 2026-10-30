@@ -56,7 +56,7 @@
 //!
 //! 分派权的真实口径是「**行级关系**」：创建人 / 当前负责人 / 分派人天然可派。
 //! 这三类身份不是权限码能表达的——若把 `business:task:assign` 写进
-//! `#[alun::permission]`，创建人（他往往没有这个码）会被中间件挡在门外，
+//! `#[nik::permission]`，创建人（他往往没有这个码）会被中间件挡在门外，
 //! 「创建人可以把活派出去」这条最基本的产品语义直接失效。
 //!
 //! 所以：**中间件只做入口闸**（能看任务的人才谈得上分派），真矩阵在 handler 里
@@ -82,11 +82,11 @@
 //! 决定**能看到哪些任务**。V0103 把 4 个权限码授给了所有角色，所以「谁都进得来」；
 //! 真正的隔离在 [`model::page_visible`] 的可见性谓词里（scope ∪ 参与关系）。
 
-use alun::prelude::chrono::Utc;
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::{Path, Query};
+use nik::prelude::chrono::Utc;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::flow::task_bridge;
@@ -134,12 +134,12 @@ use crate::utils;
 /// - 401：令牌缺用户标识；
 /// - 400 + `10001`：`status` / `priority` / `owner_id` 取值非法；
 /// - 500：数据库异常 / 数据权限片段形态异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/page",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/page")]
+#[nik::get("/business/task/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<TaskPageQuery>,
@@ -252,12 +252,12 @@ pub(crate) fn page_res(result: &model::VisiblePage) -> TaskPageRes {
 /// - 400 + `10001`：`owner_id` / `parent_id` 不是合法 UUID；
 /// - 400 + `63009`：负责人不存在或已停用；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task",
     method = "POST",
     permission = "business:task:create"
 )]
-#[alun::post("/business/task")]
+#[nik::post("/business/task")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<TaskCreateReq>,
@@ -389,12 +389,12 @@ pub async fn create(
 /// - 403 + `63002`：不是负责人也不是创建人；
 /// - 400 + `63003` / `63004` / `63005` / `63009`：同创建；
 /// - 400 + `10001`：空 PUT（一个字段都没传）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}",
     method = "PUT",
     permission = "business:task:update"
 )]
-#[alun::put("/business/task/{id}")]
+#[nik::put("/business/task/{id}")]
 pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -518,12 +518,12 @@ pub async fn update(
 /// - 403 + `63002`：既不是负责人 / 创建人，也不是超管；
 /// - 409 + `63006`：仍有未完成子任务；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}",
     method = "DELETE",
     permission = "business:task:delete"
 )]
-#[alun::delete("/business/task/{id}")]
+#[nik::delete("/business/task/{id}")]
 pub async fn delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -587,7 +587,7 @@ pub async fn delete(
 /// 这个端点同时接受两种身份：
 ///
 /// - **人类 JWT**：身份由框架认证层注入 `AuthClaims`；因为路径在
-///   `#[alun::no_auth]` 白名单里，权限层会跳过本路径，所以 `business:task:read`
+///   `#[nik::no_auth]` 白名单里，权限层会跳过本路径，所以 `business:task:read`
 ///   的判定**挪到 handler 里**（[`ensure_task_read_permission`]），可见性照旧走
 ///   [`principal`]；
 /// - **AI 任务令牌**（`Authorization: Bearer cpai_…`）：
@@ -604,8 +604,8 @@ pub async fn delete(
 /// - 404 + `63001`：任务不存在 / 已软删 / 不在可见范围内；
 /// - 400 + `10001`：路径里的 id 不是 UUID；
 /// - 500：数据库异常。
-#[alun::no_auth("/business/task/{id}")]
-#[alun::get("/business/task/{id}")]
+#[nik::no_auth("/business/task/{id}")]
+#[nik::get("/business/task/{id}")]
 pub async fn detail(
     claims: Option<Extension<AuthClaims>>,
     ai_actor: Option<Extension<AiTaskActor>>,
@@ -691,12 +691,12 @@ pub async fn detail(
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/my",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/my")]
+#[nik::get("/business/task/my")]
 pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResult<MyTasksRes> {
     let me = current_user(&claims)?;
     let rows = model::my_tasks(me)
@@ -768,12 +768,12 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 409 + `65030`：审批单还在跑，`REVIEW` 出边一律不许人工推（等审批结论）；
 /// - 409 + `63006`：还有未完成子任务，不能完成；
 /// - 500：数据库异常 / 变更日志未登记 / 审批单发起失败（整笔回滚）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/status",
     method = "PATCH",
     permission = "business:task:status"
 )]
-#[alun::patch("/business/task/{id}/status")]
+#[nik::patch("/business/task/{id}/status")]
 pub async fn change_status(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1050,12 +1050,12 @@ pub async fn change_status(
 /// - 409 + `63012`：有子任务，进度由子任务汇总；
 /// - 409 + `63010`：已取消的任务进度被冻结；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/progress",
     method = "PATCH",
     permission = "business:task:progress"
 )]
-#[alun::patch("/business/task/{id}/progress")]
+#[nik::patch("/business/task/{id}/progress")]
 pub async fn change_progress(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1153,12 +1153,12 @@ pub async fn change_progress(
 /// - 404 + `63001`：父任务不存在 / 不可见；
 /// - 409 + `63006`：父任务已完成 / 已取消（终态不允许再加子任务）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/subtask",
     method = "POST",
     permission = "business:task:subtask"
 )]
-#[alun::post("/business/task/{id}/subtask")]
+#[nik::post("/business/task/{id}/subtask")]
 pub async fn create_subtask(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1283,12 +1283,12 @@ pub async fn create_subtask(
 ///
 /// - 404 + `63001`：父任务不存在 / 不可见；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/subtasks",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/subtasks")]
+#[nik::get("/business/task/{id}/subtasks")]
 pub async fn list_subtasks(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1412,12 +1412,12 @@ async fn dependency_groups(
 ///
 /// - 404 + `63001`：任务不存在 / 不可见（**不暴露「存在但无权」**）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/dependencies",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/dependencies")]
+#[nik::get("/business/task/{id}/dependencies")]
 pub async fn dependencies(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1460,12 +1460,12 @@ pub async fn dependencies(
 /// - 400 + `63101`：依赖成环（消息里带闭合路径）或依赖链超深；
 /// - 403 + `63002`：无权管理依赖；404 + `63001`：任务或前置不存在 / 不可见；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/dependencies",
     method = "POST",
     permission = "business:task:read"
 )]
-#[alun::post("/business/task/{id}/dependencies")]
+#[nik::post("/business/task/{id}/dependencies")]
 pub async fn add_dependency(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1627,12 +1627,12 @@ struct DepWriteOutcome {
 /// - 403 + `63002`：无权管理依赖；404 + `63001`：任务不可见；
 /// - 404 + `63104`：这条依赖不存在（**不静默成功**：否则前端会以为删掉了）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/dependencies/{dep_id}",
     method = "DELETE",
     permission = "business:task:read"
 )]
-#[alun::delete("/business/task/{id}/dependencies/{dep_id}")]
+#[nik::delete("/business/task/{id}/dependencies/{dep_id}")]
 pub async fn remove_dependency(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, dep_id)): Path<(String, String)>,
@@ -1698,12 +1698,12 @@ pub async fn remove_dependency(
 /// - 400 + `10001` / `63004`：uuid / scope 取值非法；400 + `63105`：时间窗非法或超 180 天；
 /// - 400 + `63103`：传了本版不支持的 `board_id`；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/gantt",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/gantt")]
+#[nik::get("/business/task/gantt")]
 pub async fn gantt(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<TaskGanttQuery>,
@@ -1898,7 +1898,7 @@ pub(crate) fn resolve_reader(
 
 /// 人类账号的读权限判定（`business:task:read`）。
 ///
-/// 提成函数是因为详情路径进了 `#[alun::no_auth]` 白名单（AI 令牌要能读），
+/// 提成函数是因为详情路径进了 `#[nik::no_auth]` 白名单（AI 令牌要能读），
 /// 权限层因此不再覆盖它 —— 这条判定必须由 handler 补上，且**只补人类侧**。
 fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
     if claims.has_permission(dto::PERM_TASK_READ) {
@@ -1929,8 +1929,8 @@ fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), 
 ///
 /// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
 /// - 400 + `63004`：正文为空或超 5000 字；`parent_comment_id` 非法。
-#[alun::no_auth("/business/task/{id}/comment")]
-#[alun::post("/business/task/{id}/comment")]
+#[nik::no_auth("/business/task/{id}/comment")]
+#[nik::post("/business/task/{id}/comment")]
 pub async fn add_comment(
     claims: Option<Extension<AuthClaims>>,
     ai_actor: Option<Extension<AiTaskActor>>,
@@ -1986,12 +1986,12 @@ pub async fn add_comment(
 /// - 401：没登录（或令牌失效）；403：没有 `business:task:read`；
 /// - 404 + `63001`：任务不存在 / 看不见；
 /// - 400 + `63004`：正文空 / 超长、上级评论跨任务、`mentions` 非法、伪造类型。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/comments",
     method = "POST",
     permission = "business:task:read"
 )]
-#[alun::post("/business/task/{id}/comments")]
+#[nik::post("/business/task/{id}/comments")]
 pub async fn post_comment(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -2178,8 +2178,8 @@ async fn persist_comment(
 /// - 401：无身份；403：人类无读权限；404：任务不存在 / 看不见；
 /// - 400：没有 `file` 字段 / 扩展名或 MIME 不被策略允许 / **单任务附件已达 50 个**；
 /// - 413：超过策略或服务端上限；500/502：写对象或落库失败。
-#[alun::no_auth("/business/task/{id}/attachment")]
-#[alun::post("/business/task/{id}/attachment")]
+#[nik::no_auth("/business/task/{id}/attachment")]
+#[nik::post("/business/task/{id}/attachment")]
 pub async fn upload_attachment(
     claims: Option<Extension<AuthClaims>>,
     ai_actor: Option<Extension<AiTaskActor>>,
@@ -2317,8 +2317,8 @@ const HUMAN_UPLOAD_CATEGORY: &str = "task";
 /// - 401 + `63304`：走的不是任务令牌（本端点不给人类会话用，人类改进度走
 ///   `PATCH /business/task/{id}/progress`）；
 /// - 400 + `63308`：参数不合法。
-#[alun::no_auth("/business/task/{id}/ai-progress")]
-#[alun::patch("/business/task/{id}/ai-progress")]
+#[nik::no_auth("/business/task/{id}/ai-progress")]
+#[nik::patch("/business/task/{id}/ai-progress")]
 pub async fn ai_progress(
     ai_actor: Option<Extension<AiTaskActor>>,
     Path(id): Path<String>,
@@ -2435,12 +2435,12 @@ pub async fn ai_progress(
 /// # 异常情况
 ///
 /// 见上；其余：404 任务不存在、400 负责人不是 AI 账号 / 缺 profile。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/dispatch-ai",
     method = "POST",
     permission = "business:task:read"
 )]
-#[alun::post("/business/task/{id}/dispatch-ai")]
+#[nik::post("/business/task/{id}/dispatch-ai")]
 pub async fn dispatch_ai(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -3430,12 +3430,12 @@ fn parse_user_ids(raw: &[String]) -> std::result::Result<Vec<Uuid>, ApiError> {
 /// - 404 + `63001`：任务不存在 / 已软删；
 /// - 409 + `63018`：并发转派（负责人已被别人改掉）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/assign",
     method = "PATCH",
     permission = "business:task:read"
 )]
-#[alun::patch("/business/task/{id}/assign")]
+#[nik::patch("/business/task/{id}/assign")]
 pub async fn assign(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -3648,12 +3648,12 @@ pub async fn assign(
 /// - 400 + `63014`：超过 50 人上限；
 /// - 403 + `63002`：无权管理协作人；404 + `63001`：任务不存在 / 已软删；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/members",
     method = "POST",
     permission = "business:task:read"
 )]
-#[alun::post("/business/task/{id}/members")]
+#[nik::post("/business/task/{id}/members")]
 pub async fn add_members(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -3776,12 +3776,12 @@ pub async fn add_members(
 /// - 400 + `10001`：uuid 非法；400 + `63015`：目标是创建人 / 负责人；
 /// - 403 + `63002`：无权管理协作人；404 + `63001` / `63020`：任务 / 协作关系不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/members/{user_id}",
     method = "DELETE",
     permission = "business:task:read"
 )]
-#[alun::delete("/business/task/{id}/members/{user_id}")]
+#[nik::delete("/business/task/{id}/members/{user_id}")]
 pub async fn remove_member(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, user_id)): Path<(String, String)>,
@@ -3862,12 +3862,12 @@ pub async fn remove_member(
 ///
 /// - 400 + `10001`：uuid 非法；404 + `63001`：任务不存在 / 不可见；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/members",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/{id}/members")]
+#[nik::get("/business/task/{id}/members")]
 pub async fn members(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -3925,12 +3925,12 @@ pub async fn members(
 ///
 /// - 400 + `10001`：日期 / uuid / scope 取值非法，或窗口倒置 / 超过 366 天；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/stats",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/stats")]
+#[nik::get("/business/task/stats")]
 pub async fn stats(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::TaskStatsQuery>,

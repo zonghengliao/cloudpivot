@@ -32,8 +32,8 @@
 //! （架构 §4.3 的「先解绑再配置」流程直接断掉）。行级收口靠权限码
 //! `system:role-mutex:{list,conflict}`。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::mutex::guard;
 

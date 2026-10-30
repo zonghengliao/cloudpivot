@@ -18,7 +18,7 @@
 //!
 //! 应用层仍然先校验一遍（返回 400 的中文文案比数据库错误友好），数据库约束是兜底。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

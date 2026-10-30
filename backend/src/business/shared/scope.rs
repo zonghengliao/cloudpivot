@@ -31,7 +31,7 @@
 //!
 //! # 一处与架构文字不同的实现细节（`= ANY(?)` 的绑定形态）
 //!
-//! 本栈的 PG 驱动**不支持数组参数绑定**（`alun-db-driver-postgres` 的
+//! 本栈的 PG 驱动**不支持数组参数绑定**（`nik-db-driver-postgres` 的
 //! `value_to_pg_param` 对 `Value::Array` 直接返回 `UnsupportedFeature { feature:
 //! "array binding" }`），因此 `= ANY(?)` 无法直接绑 `uuid[]`。实际形态是
 //! `= ANY(?::text::uuid[])`：应用层把部门集合编码成 PG 文本数组字面量 `{uuid,uuid}`
@@ -44,8 +44,8 @@
 
 use std::collections::BTreeSet;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::shared::error_code;

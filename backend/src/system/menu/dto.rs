@@ -3,7 +3,7 @@
 //! 同时被 [`crate::system::menu`]（菜单维护）与 [`crate::system::auth`]
 //! （当前用户菜单树）复用，避免两处出现结构不一致的树节点定义。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

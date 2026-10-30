@@ -3,7 +3,7 @@
 //! 供负载均衡、容器编排（就绪/存活探针）与发布验证脚本调用。该接口不鉴权、不查库，
 //! 只反映「HTTP 服务进程是否存活」，避免下游依赖抖动导致探针误判并触发无谓重启。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 /// 健康检查响应体。
 #[derive(serde::Serialize)]
@@ -23,7 +23,7 @@ pub struct HealthRes {
 /// # 装配
 ///
 /// 本接口需要在**全局前缀之外**（根路径 `/health`）暴露，因此不使用
-/// `#[alun::get]` 宏（宏声明的路由会被 `[router] prefix` 嵌套），
+/// `#[nik::get]` 宏（宏声明的路由会被 `[router] prefix` 嵌套），
 /// 改由 [`crate::run`] 通过 `App::get("/health", ...)` 手动注册。
 ///
 /// 免认证由 `config.toml` 的 `[middleware.auth].ignore_paths` 中的 `"!/health"`

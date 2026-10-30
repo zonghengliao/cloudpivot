@@ -32,8 +32,8 @@
 //! `sys_change_log` 是分区表，清理按 `resource_id` 走 `purge_for_object`（业务代码
 //! 不许删审计表，所以用测试专用函数）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use cloudpivot::business::changelog::model::NewChangeLog;
 use cloudpivot::business::changelog::{

@@ -26,12 +26,12 @@
 //! 全部夹具的 `slug` 以 `c4-` 开头、分类 `code` 以 `c4-` 开头；用例开头与结尾各清一次，
 //! 只删自己造的行（不会碰库里其它数据），可重复运行。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::help::model::{
     self, CategoryInput, DocFilter, DocInput, HelpError, SearchFilter,
 };
 use cloudpivot::business::shared::content;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// 夹具前缀（slug / category code）。
 const TAG: &str = "c4-";

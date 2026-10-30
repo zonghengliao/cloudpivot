@@ -14,7 +14,7 @@
 //! `insert` / `update` / `delete` / `delete_by` 等）的简单读写由 `handler.rs`
 //! 直接执行。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

@@ -3,7 +3,7 @@
 //! 会话数据来自缓存（见 [`OnlineSessionModel`]），量级为「当前在线令牌数」，
 //! 因此列表在内存中过滤与分页，避免为一处旁路统计引入数据库表。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::error_code;
 use crate::support::online::dto::{OnlineQuery, OnlineRes};
@@ -23,12 +23,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// - 503：缓存未初始化或枚举失败。
-#[alun::permission(
+#[nik::permission(
     path = "/support/online/page",
     method = "GET",
     permission = "support:online:list"
 )]
-#[alun::get("/support/online/page")]
+#[nik::get("/support/online/page")]
 pub async fn page(Query(query): Query<OnlineQuery>) -> ResResult<PageData<Vec<OnlineRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
 
@@ -77,12 +77,12 @@ pub async fn page(Query(query): Query<OnlineQuery>) -> ResResult<PageData<Vec<On
 ///
 /// - 404：会话不存在或已过期；
 /// - 503：缓存未初始化或写入失败。
-#[alun::permission(
+#[nik::permission(
     path = "/support/online/{token_id}",
     method = "DELETE",
     permission = "support:online:force"
 )]
-#[alun::delete("/support/online/{token_id}")]
+#[nik::delete("/support/online/{token_id}")]
 pub async fn force_logout(Path(token_id): Path<String>) -> ResResult<()> {
     let session = OnlineSessionModel::find(&token_id)
         .await

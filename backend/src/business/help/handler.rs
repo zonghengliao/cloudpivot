@@ -39,10 +39,10 @@
 //! 可以看 `DRAFT` / `OFFLINE`、可以按 `status` 过滤；其他人一律强制
 //! `published_only`（H-09 的两侧断言）。
 
-use alun::prelude::*;
 use axum::Json;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::net::SocketAddr;
 
 use crate::business::changelog::{self, Action, ChangeTarget, DiffInput};
@@ -83,12 +83,12 @@ const READ_DEDUP_TTL_SECS: u64 = 26 * 60 * 60;
 /// - 用户侧：只返回 `status = 1` 的分类，并**剪掉整棵都没有已发布文档的分支**
 ///   （架构 §3.6.1「只返回有已发布文档的分支」）；
 /// - 管理侧（持 `system:help:category:list`）：两个开关都生效，用于分类管理页。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/category/tree",
     method = "GET",
     permission = "system:help:read"
 )]
-#[alun::get("/business/help/category/tree")]
+#[nik::get("/business/help/category/tree")]
 pub async fn category_tree(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<CategoryTreeQuery>,
@@ -117,12 +117,12 @@ pub async fn category_tree(
 }
 
 /// 分类扁平列表（管理侧：含停用、含空分类）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/category/list",
     method = "GET",
     permission = "system:help:category:list"
 )]
-#[alun::get("/business/help/category/list")]
+#[nik::get("/business/help/category/list")]
 pub async fn category_list() -> ResResult<Vec<HelpCategoryNodeRes>> {
     let rows = model::list_categories(false)
         .await
@@ -133,12 +133,12 @@ pub async fn category_list() -> ResResult<Vec<HelpCategoryNodeRes>> {
 }
 
 /// 新建分类（H-01：第 4 层 → 422 + 62010）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/category",
     method = "POST",
     permission = "system:help:category:create"
 )]
-#[alun::post("/business/help/category")]
+#[nik::post("/business/help/category")]
 pub async fn category_create(Json(req): Json<CategorySaveReq>) -> ResResult<HelpCategoryNodeRes> {
     let input = to_category_input(&req)?;
     let row = model::create_category(&input).await.map_err(help_error)?;
@@ -146,12 +146,12 @@ pub async fn category_create(Json(req): Json<CategorySaveReq>) -> ResResult<Help
 }
 
 /// 编辑 / 移动分类（H-01：移动导致超深 → 同样 422 + 62010）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/category/{id}",
     method = "PUT",
     permission = "system:help:category:update"
 )]
-#[alun::put("/business/help/category/{id}")]
+#[nik::put("/business/help/category/{id}")]
 pub async fn category_update(
     Path(id): Path<String>,
     Json(req): Json<CategorySaveReq>,
@@ -165,12 +165,12 @@ pub async fn category_update(
 }
 
 /// 删除分类（H-02：有文档 → 409 + 62011，且分类仍在）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/category/{id}",
     method = "DELETE",
     permission = "system:help:category:delete"
 )]
-#[alun::delete("/business/help/category/{id}")]
+#[nik::delete("/business/help/category/{id}")]
 pub async fn category_delete(Path(id): Path<String>) -> ResResult<()> {
     let category_id = utils::require_uuid(&id, "id")?;
     model::delete_category(&category_id)
@@ -182,12 +182,12 @@ pub async fn category_delete(Path(id): Path<String>) -> ResResult<()> {
 // ==================== 文档：列表 / 详情 ====================
 
 /// 文档列表（用户侧只看已发布；管理侧可按 `status` 过滤）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/page",
     method = "GET",
     permission = "system:help:read"
 )]
-#[alun::get("/business/help/doc/page")]
+#[nik::get("/business/help/doc/page")]
 pub async fn doc_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<DocPageQuery>,
@@ -231,12 +231,12 @@ pub async fn doc_page(
 ///
 /// - 404 + 62015：文档不存在 / 已软删；
 /// - 404 + 62015：文档未发布且当前用户无 `system:help:doc:list`（**不泄露存在性**）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}",
     method = "GET",
     permission = "system:help:read"
 )]
-#[alun::get("/business/help/doc/{id}")]
+#[nik::get("/business/help/doc/{id}")]
 pub async fn doc_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -255,12 +255,12 @@ pub async fn doc_detail(
 // ==================== 文档：写 ====================
 
 /// 新建文档（草稿，`version = 0`，不产生版本快照）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc",
     method = "POST",
     permission = "system:help:doc:create"
 )]
-#[alun::post("/business/help/doc")]
+#[nik::post("/business/help/doc")]
 pub async fn doc_create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -314,12 +314,12 @@ pub async fn doc_create(
 ///
 /// 编辑一条 `PUBLISHED` 文档会退回 `DRAFT` 并清空 `published_at`
 /// （架构 §3.6.2：未复核的内容不该继续对外可见）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}",
     method = "PUT",
     permission = "system:help:doc:update"
 )]
-#[alun::put("/business/help/doc/{id}")]
+#[nik::put("/business/help/doc/{id}")]
 pub async fn doc_update(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -376,12 +376,12 @@ pub async fn doc_update(
 }
 
 /// 软删文档（版本快照随外键 `ON DELETE CASCADE` 保留，软删不触发）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}",
     method = "DELETE",
     permission = "system:help:doc:delete"
 )]
-#[alun::delete("/business/help/doc/{id}")]
+#[nik::delete("/business/help/doc/{id}")]
 pub async fn doc_delete(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -417,12 +417,12 @@ pub async fn doc_delete(
 }
 
 /// 发布文档（H-05：连发 3 次 → 3 条快照，版本 1/2/3）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}/publish",
     method = "POST",
     permission = "system:help:doc:publish"
 )]
-#[alun::post("/business/help/doc/{id}/publish")]
+#[nik::post("/business/help/doc/{id}/publish")]
 pub async fn doc_publish(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -474,12 +474,12 @@ pub async fn doc_publish(
 }
 
 /// 版本列表（新 → 旧）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}/versions",
     method = "GET",
     permission = "system:help:doc:list"
 )]
-#[alun::get("/business/help/doc/{id}/versions")]
+#[nik::get("/business/help/doc/{id}/versions")]
 pub async fn doc_versions(Path(id): Path<String>) -> ResResult<Vec<HelpVersionRes>> {
     let doc = load_doc(&id, true).await?;
     let rows = model::list_versions(&doc.id)
@@ -489,12 +489,12 @@ pub async fn doc_versions(Path(id): Path<String>) -> ResResult<Vec<HelpVersionRe
 }
 
 /// 回滚到指定版本（H-06：内容回到 v1，`version` = 原版本 + 1，历史一行不少）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}/versions/{ver}/rollback",
     method = "POST",
     permission = "system:help:doc:publish"
 )]
-#[alun::post("/business/help/doc/{id}/versions/{ver}/rollback")]
+#[nik::post("/business/help/doc/{id}/versions/{ver}/rollback")]
 pub async fn doc_rollback(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -561,12 +561,12 @@ pub async fn doc_rollback(
 ///
 /// `q` 为空 → 返回空页（**不查库**）：`%%` 会全表命中，而"没关键词"的正确语义是
 /// "没有结果"。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/search",
     method = "GET",
     permission = "system:help:read"
 )]
-#[alun::get("/business/help/search")]
+#[nik::get("/business/help/search")]
 pub async fn search(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<HelpSearchQuery>,
@@ -621,12 +621,12 @@ pub async fn search(
 ///
 /// - 404 + 62015：文档不存在 / 无权限阅读；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/help/doc/{id}/read",
     method = "PUT",
     permission = "system:help:read"
 )]
-#[alun::put("/business/help/doc/{id}/read")]
+#[nik::put("/business/help/doc/{id}/read")]
 pub async fn doc_read(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -759,7 +759,7 @@ fn help_error(error: HelpError) -> ApiError {
 /// 编辑一条草稿需要 `system:help:doc:update`，但**不需要** `doc:list`；若只认
 /// `doc:list`，一个只有编辑权的运营点开文档会拿到 404（自己的草稿"不见了"）。
 /// 框架的 [`TokenClaims::has_any_permission`] 已经包含 `*` / `*:*:*` 通配短路，
-/// 与路由层 `#[alun::permission]` 的判定口径一致。
+/// 与路由层 `#[nik::permission]` 的判定口径一致。
 fn can_manage(claims: &TokenClaims) -> bool {
     claims.has_any_permission(&[
         PERM_DOC_LIST,
@@ -1110,9 +1110,9 @@ mod tests {
 
     /// 超级管理员（`*` 通配）短路权限判断（种子若漏授也仍然可用）。
     ///
-    /// 框架口径（`alun_web::TokenClaims::is_super_admin`）是**通配权限**而不是
+    /// 框架口径（`nik_web::TokenClaims::is_super_admin`）是**通配权限**而不是
     /// 角色码：`permissions` 里含 `*` 或 `*:*:*` 即视为超管，与路由层
-    /// `#[alun::permission]` 的判定完全一致（这也是不自己写角色判断的原因）。
+    /// `#[nik::permission]` 的判定完全一致（这也是不自己写角色判断的原因）。
     #[test]
     fn super_admin_shortcuts_permission() {
         let claims = claims_with(&["*"]);

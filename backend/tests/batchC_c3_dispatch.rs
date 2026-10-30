@@ -33,7 +33,7 @@
 //! 通知表约束 / 数据库抖动，与公告侧代码无关）；「发布接口在扇出失败时确实留在这个状态」
 //! 由真机 HTTP 验收（注入 CHECK 约束）单独证明。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use tokio::sync::OnceCell;
 
 use cloudpivot::business::announcement::maintenance;

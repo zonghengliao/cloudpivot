@@ -15,7 +15,7 @@
 //! 错误明细一次最多 2000 条，用「一个 JSONB 参数 + `jsonb_to_recordset`」一条语句写完
 //! （POC-6 T13c 已实测 1000 条批量写正常），不做逐条 INSERT。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::impexp::definition::RowIssue;
 use crate::business::shared::principal::ScopedPrincipal;
@@ -622,7 +622,7 @@ pub async fn list_task_errors(
 }
 
 /// 行 → [`ImportTask`]。
-fn map_import_task(row: &alun::prelude::Row) -> std::result::Result<ImportTask, DbError> {
+fn map_import_task(row: &nik::prelude::Row) -> std::result::Result<ImportTask, DbError> {
     Ok(ImportTask {
         id: row.get_typed("id")?,
         task_no: row.get_typed("task_no")?,
@@ -649,7 +649,7 @@ fn map_import_task(row: &alun::prelude::Row) -> std::result::Result<ImportTask, 
 }
 
 /// 行 → [`ImportTaskError`]。
-fn map_task_error(row: &alun::prelude::Row) -> std::result::Result<ImportTaskError, DbError> {
+fn map_task_error(row: &nik::prelude::Row) -> std::result::Result<ImportTaskError, DbError> {
     Ok(ImportTaskError {
         id: row.get_typed("id")?,
         row_no: row.get_typed("row_no")?,
@@ -1412,7 +1412,7 @@ pub async fn soft_delete_export_task(id: &uuid::Uuid) -> std::result::Result<u64
 }
 
 /// 行 → [`ExportTask`]。
-fn map_export_task(row: &alun::prelude::Row) -> std::result::Result<ExportTask, DbError> {
+fn map_export_task(row: &nik::prelude::Row) -> std::result::Result<ExportTask, DbError> {
     Ok(ExportTask {
         id: row.get_typed("id")?,
         task_no: row.get_typed("task_no")?,

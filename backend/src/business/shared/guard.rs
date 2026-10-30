@@ -18,8 +18,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use super::principal::{CACHE_KEY_USER_SCOPE_EPOCH, ScopedPrincipal, cache_key, current_epoch};
 use super::scope::{SCOPED_TABLES, ScopeKind};

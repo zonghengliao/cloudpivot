@@ -17,7 +17,7 @@
 //!
 //! 单批失败只记日志、不 panic；任务下一轮会重试（删除是幂等的，重复执行无副作用）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::task::Scheduler;
 

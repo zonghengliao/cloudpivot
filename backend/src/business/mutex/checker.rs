@@ -18,8 +18,8 @@
 //! 容易把 `total` 算成 `sample.len()`）。真正的风险是「规则多到上万条」，那时该做的是
 //! 归档停用规则，而不是把 `total` 近似掉。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::mutex::model::{self, HolderRow, MutexRow, PairHit};
 

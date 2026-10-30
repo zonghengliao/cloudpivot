@@ -17,7 +17,7 @@
 //!
 //! 基础设施的初始化由框架在 `App::start()` 内完成，不要在此重复做。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::constants;
 use crate::system::role::model::SysRoleModel;

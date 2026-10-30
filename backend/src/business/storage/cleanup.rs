@@ -19,7 +19,7 @@
 //! - 后端不支持删除（A1 的 S3 后端）：跳过并计数（A2 交付 S3 服务端删除后自动生效）；
 //! - 单条失败不中断整批，最终汇总一条日志。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::storage::{ensure_router, global_router};
 use crate::task::Scheduler;

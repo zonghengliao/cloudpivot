@@ -17,7 +17,7 @@
 //! `dict:items:{dict_code}` 缓存：启动时预热内置编码（[`warm_dict_cache`]），
 //! 读路径缓存优先并回填，字典类型 / 字典项写操作主动失效对应键。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::scope;
 use crate::shared::constants;

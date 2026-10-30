@@ -6,12 +6,12 @@
 //! 意味着七种类型的正确性与边界（空值 / 过短 / 多字节 / 幂等）可以在**无库**环境下
 //! 逐条断言——这正是本卡验收第一条要求的形态。
 //!
-//! # D7：为什么绝不调用 `alun_utils::Mask::mask_by_type`
+//! # D7：为什么绝不调用 `nik_utils::Mask::mask_by_type`
 //!
 //! `mask_by_type` 的兜底分支是
 //! `format!("{}***{}", &value[..2], &value[len - 2..])`——按**字节**切片。
 //! 输入 `"张三"`（6 字节、2 个字符）时 `&value[..2]` 落在字符中间，**直接 panic**
-//! （`byte index 2 is not a char boundary`，实测于 `alun-utils-0.4.2/src/mask.rs:198`）。
+//! （`byte index 2 is not a char boundary`，实测于 `nik-utils-0.4.2/src/mask.rs:198`）。
 //! 因此本模块**只调用 `Mask` 的具名方法**（`mobile` / `email` / `id_card` / `name` /
 //! `bank_card`），并且对其中仍然按字节切片的 `bank_card` / `email` 外加一层
 //! 「仅当纯 ASCII 时才交给框架」的前置判定。
@@ -28,7 +28,7 @@
 
 use std::sync::LazyLock;
 
-use alun_utils::Mask;
+use nik_utils::Mask;
 use regex::Regex;
 
 use crate::shared::error_code;
@@ -614,7 +614,7 @@ mod tests {
     #[test]
     fn id_card_default_and_short() {
         // 框架 `Mask::id_card` 的口径：保留前 4 后 4，中间固定 4 个星号（实现在
-        // `alun-utils-0.4.2/src/mask.rs`，与架构表里的示例星号个数不同——以代码为准）
+        // `nik-utils-0.4.2/src/mask.rs`，与架构表里的示例星号个数不同——以代码为准）
         assert_eq!(
             masked(MaskType::IdCard, None, "110101199001011234"),
             "1101****1234"

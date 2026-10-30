@@ -59,8 +59,8 @@
 
 use std::collections::VecDeque;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{self, Resolution};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};

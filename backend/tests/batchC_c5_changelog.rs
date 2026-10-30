@@ -35,8 +35,6 @@
 //! 全部夹具用固定前缀 `c5-` 的 `resource_id`，并在用例开头 / 结尾各清一次，
 //! 重复跑不会积累垃圾，也不会碰到库里其它数据（只删自己插入的行）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::changelog::diff;
 use cloudpivot::business::changelog::mask;
 use cloudpivot::business::changelog::model;
@@ -44,6 +42,8 @@ use cloudpivot::business::changelog::{
     self, Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome,
 };
 use cloudpivot::shared::error_code;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde_json::Value as Json;
 use serde_json::json;
 

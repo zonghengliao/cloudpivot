@@ -35,10 +35,10 @@
 //! `board=all` → 「数据范围 ∪ 我参与」；`board=my` → 只算「我参与」的任务
 //! （约等于列表页的「只看我的任务」开关）。**不存在第二条可见性实现**。
 
-use alun::prelude::chrono::{Duration, NaiveDate};
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::extract::Query;
+use nik::prelude::chrono::{Duration, NaiveDate};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::shared::principal::{self, ScopedPrincipal};
@@ -294,12 +294,12 @@ fn resolve_window(
 /// - 400 + `10001`：uuid / 日期 / `board` 取值非法；
 /// - 400 + `63504`：区间倒置或超过 366 天；
 /// - 500：数据库异常（含数据权限片段形态异常）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/burndown",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/burndown")]
+#[nik::get("/business/task/burndown")]
 pub async fn burndown(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<TaskBurndownQuery>,

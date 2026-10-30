@@ -37,10 +37,10 @@
 //! 并把发布级问题放进 `warnings` 返回；`publish` 才跑全量 R1–R15。
 //! 理由：编辑过程中图必然不完整（刚拖一个节点还没连线），保存期做发布校验等于让人没法存草稿。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::{Path, Query};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::flow::graph::{EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
 use crate::business::flow::task_bridge;
@@ -229,12 +229,12 @@ async fn load_version(vid: Uuid) -> std::result::Result<model::VersionRow, ApiEr
 ///
 /// - 400 + `65005`：`status` 取值非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/page",
     method = "GET",
     permission = "business:flow:read"
 )]
-#[alun::get("/business/flow/def/page")]
+#[nik::get("/business/flow/def/page")]
 pub async fn page(Query(query): Query<dto::DefPageQuery>) -> ResResult<dto::DefPageRes> {
     let status = match query.status.as_deref() {
         None => None,
@@ -279,12 +279,12 @@ pub async fn page(Query(query): Query<dto::DefPageQuery>) -> ResResult<dto::DefP
 ///
 /// - 400 + `65005`：id 不是 UUID；
 /// - 404 + `65001`：流程不存在 / 已软删。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}",
     method = "GET",
     permission = "business:flow:read"
 )]
-#[alun::get("/business/flow/def/{id}")]
+#[nik::get("/business/flow/def/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<dto::DefRes> {
     let def_id = parse_uuid_field(&id, "流程 id")?;
     let row = load_def(def_id).await?;
@@ -302,12 +302,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<dto::DefRes> {
 /// - 400 + `65005`：编码 / 名称 / 业务类型非法；
 /// - 409 + `10003`：编码已被占用（未软删唯一）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def",
     method = "POST",
     permission = "business:flow:create"
 )]
-#[alun::post("/business/flow/def")]
+#[nik::post("/business/flow/def")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<dto::DefCreateReq>,
@@ -393,12 +393,12 @@ pub async fn create(
 /// - 400 + `65005`：字段非法 / 一个字段都没传；
 /// - 404 + `65001`：流程不存在；
 /// - 409 + `10003`：把 `is_default` 置真时与同业务类型的其它默认流程冲突（已被自动清理，仍冲突才会报）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}",
     method = "PUT",
     permission = "business:flow:update"
 )]
-#[alun::put("/business/flow/def/{id}")]
+#[nik::put("/business/flow/def/{id}")]
 pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -462,12 +462,12 @@ pub async fn update(
 ///
 /// - 404 + `65001`：流程不存在；
 /// - 409 + `65021`：还有进行中的审批单（D2 落地后生效）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}",
     method = "DELETE",
     permission = "business:flow:delete"
 )]
-#[alun::delete("/business/flow/def/{id}")]
+#[nik::delete("/business/flow/def/{id}")]
 pub async fn remove(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -515,12 +515,12 @@ pub async fn remove(
 /// - 404 + `65001`：流程 / 版本不存在；
 /// - 400 + `65010`–`65017`：12 条校验不通过（文案点名节点 / 边）；
 /// - 409 + `65022`：没有可发布的草稿版本。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}/publish",
     method = "POST",
     permission = "business:flow:publish"
 )]
-#[alun::post("/business/flow/def/{id}/publish")]
+#[nik::post("/business/flow/def/{id}/publish")]
 pub async fn publish(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -620,12 +620,12 @@ pub async fn publish(
 /// # 异常情况
 ///
 /// - 404 + `65001`：流程不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}/offline",
     method = "POST",
     permission = "business:flow:publish"
 )]
-#[alun::post("/business/flow/def/{id}/offline")]
+#[nik::post("/business/flow/def/{id}/offline")]
 pub async fn offline(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -654,12 +654,12 @@ pub async fn offline(
 /// # 异常情况
 ///
 /// - 404 + `65001`：流程不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}/versions",
     method = "GET",
     permission = "business:flow:read"
 )]
-#[alun::get("/business/flow/def/{id}/versions")]
+#[nik::get("/business/flow/def/{id}/versions")]
 pub async fn versions(Path(id): Path<String>) -> ResResult<dto::VersionListRes> {
     let def_id = parse_uuid_field(&id, "流程 id")?;
     load_def(def_id).await?;
@@ -682,12 +682,12 @@ pub async fn versions(Path(id): Path<String>) -> ResResult<dto::VersionListRes> 
 ///
 /// - 400 + `65005`：vid 不是 UUID；
 /// - 404 + `65001`：版本不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/version/{vid}",
     method = "GET",
     permission = "business:flow:read"
 )]
-#[alun::get("/business/flow/version/{vid}")]
+#[nik::get("/business/flow/version/{vid}")]
 pub async fn version_detail(Path(vid): Path<String>) -> ResResult<dto::VersionRes> {
     let version_id = parse_uuid_field(&vid, "版本 id")?;
     let version = load_version(version_id).await?;
@@ -725,12 +725,12 @@ pub async fn version_detail(Path(vid): Path<String>) -> ResResult<dto::VersionRe
 /// - 400 + `65005`：结构非法（key 重复 / from-to 不存在 / 自环 / 重复边 / 枚举非法）；
 /// - 404 + `65001`：版本不存在；
 /// - 409 + `65022`：版本已发布，不能直接编辑。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/version/{vid}/graph",
     method = "PUT",
     permission = "business:flow:update"
 )]
-#[alun::put("/business/flow/version/{vid}/graph")]
+#[nik::put("/business/flow/version/{vid}/graph")]
 pub async fn save_graph(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(vid): Path<String>,
@@ -804,12 +804,12 @@ pub async fn save_graph(
 /// # 异常情况
 ///
 /// - 404 + `65001`：版本不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/version/{vid}/validate",
     method = "POST",
     permission = "business:flow:update"
 )]
-#[alun::post("/business/flow/version/{vid}/validate")]
+#[nik::post("/business/flow/version/{vid}/validate")]
 pub async fn validate(Path(vid): Path<String>) -> ResResult<dto::ValidateRes> {
     let version_id = parse_uuid_field(&vid, "版本 id")?;
     let version = load_version(version_id).await?;
@@ -841,12 +841,12 @@ pub async fn validate(Path(vid): Path<String>) -> ResResult<dto::ValidateRes> {
 /// - 400 + `65005`：`source_version_id` 非法 / 不属于该流程；
 /// - 404 + `65001`：流程 / 版本不存在；
 /// - 409 + `10003`：目标版本号已被占用（并发下另一张卡先建了草稿，重试即可）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/def/{id}/draft",
     method = "POST",
     permission = "business:flow:update"
 )]
-#[alun::post("/business/flow/def/{id}/draft")]
+#[nik::post("/business/flow/def/{id}/draft")]
 pub async fn create_draft(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1124,12 +1124,12 @@ async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
 /// - 400 + `65005`：字段非法 / 流程未发布 / `form_data` 不是对象；
 /// - 404 + `65001`：流程不存在；
 /// - 409 + `10003`：同一业务单据已有在跑的审批单（`uk_biz_flow_instance_biz_active`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/instance",
     method = "POST",
     permission = "business:flow:instance:create"
 )]
-#[alun::post("/business/flow/instance")]
+#[nik::post("/business/flow/instance")]
 pub async fn create_instance(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<dto::InstanceCreateReq>,
@@ -1298,12 +1298,12 @@ pub async fn create_instance(
 ///
 /// - 400 + `65005`：状态 / 业务类型取值非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/instance/page",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/instance/page")]
+#[nik::get("/business/flow/instance/page")]
 pub async fn page_instances(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::InstancePageQuery>,
@@ -1367,12 +1367,12 @@ pub async fn page_instances(
 /// - 400 + `65005`：id 不是 UUID；
 /// - 404 + `65002`：审批单不存在；
 /// - 403 + `65004`：与本单无关。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/instance/{id}",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/instance/{id}")]
+#[nik::get("/business/flow/instance/{id}")]
 pub async fn instance_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1453,12 +1453,12 @@ pub async fn instance_detail(
 /// - 403 + `65004`：不是发起人；
 /// - 409 + `65023`：已有人审批过；
 /// - 409 + `65024`：审批单已结束。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/instance/{id}/withdraw",
     method = "POST",
     permission = "business:flow:instance:withdraw"
 )]
-#[alun::post("/business/flow/instance/{id}/withdraw")]
+#[nik::post("/business/flow/instance/{id}/withdraw")]
 pub async fn withdraw_instance(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1490,12 +1490,12 @@ pub async fn withdraw_instance(
 /// - 403 + `65028`：这条待办不是你的；
 /// - 404 + `65003`：待办不存在；
 /// - 409 + `65024`：审批单已结束。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/{id}/approve",
     method = "POST",
     permission = "business:flow:approve"
 )]
-#[alun::post("/business/flow/task/{id}/approve")]
+#[nik::post("/business/flow/task/{id}/approve")]
 pub async fn approve_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1535,12 +1535,12 @@ pub async fn approve_task(
 /// - 403 + `65004`：选了「退任意节点 / 终止」但不是流程管理员；
 /// - 403 + `65028`：这条待办不是你的；
 /// - 400 + `65025`：退回目标节点不在图上。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/{id}/reject",
     method = "POST",
     permission = "business:flow:approve"
 )]
-#[alun::post("/business/flow/task/{id}/reject")]
+#[nik::post("/business/flow/task/{id}/reject")]
 pub async fn reject_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1580,12 +1580,12 @@ pub async fn reject_task(
 ///
 /// - 400 + `65026`：目标用户不存在 / 已停用 / 是机器人且节点未开 `allow_robot` / 转给自己；
 /// - 403 + `65028`：只能转办自己的待办。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/{id}/transfer",
     method = "POST",
     permission = "business:flow:approve"
 )]
-#[alun::post("/business/flow/task/{id}/transfer")]
+#[nik::post("/business/flow/task/{id}/transfer")]
 pub async fn transfer_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1616,12 +1616,12 @@ pub async fn transfer_task(
 /// - 400 + `65027`：`user_ids` 为空 / 超过 10 个 / 没有一个可用；
 /// - 409 + `65027`：节点不是审批中；
 /// - 403 + `65028`：只能给自己的待办加签。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/{id}/add-sign",
     method = "POST",
     permission = "business:flow:approve"
 )]
-#[alun::post("/business/flow/task/{id}/add-sign")]
+#[nik::post("/business/flow/task/{id}/add-sign")]
 pub async fn add_sign_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1664,12 +1664,12 @@ pub async fn add_sign_task(
 /// # 异常情况
 ///
 /// - 400 + `65005`：`task_ids` 为空 / 超过 50 条 / 动作非法 / 驳回意见不足 5 字。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/batch",
     method = "POST",
     permission = "business:flow:approve"
 )]
-#[alun::post("/business/flow/task/batch")]
+#[nik::post("/business/flow/task/batch")]
 pub async fn batch_task(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<dto::BatchReq>,
@@ -1823,12 +1823,12 @@ fn my_cc_res(row: &model::MyCcRow) -> dto::CcRes {
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/todo",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/task/todo")]
+#[nik::get("/business/flow/task/todo")]
 pub async fn my_todo(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::MyTaskQuery>,
@@ -1860,12 +1860,12 @@ pub async fn my_todo(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/done",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/task/done")]
+#[nik::get("/business/flow/task/done")]
 pub async fn my_done(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::MyTaskQuery>,
@@ -1895,12 +1895,12 @@ pub async fn my_done(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/task/cc",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/task/cc")]
+#[nik::get("/business/flow/task/cc")]
 pub async fn my_cc(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::MyTaskQuery>,
@@ -1929,12 +1929,12 @@ pub async fn my_cc(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/instance/my",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/instance/my")]
+#[nik::get("/business/flow/instance/my")]
 pub async fn my_instances(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<dto::MyTaskQuery>,
@@ -2106,12 +2106,12 @@ fn stats_window(query: &StatsQuery) -> std::result::Result<model::StatsWindow, A
 ///
 /// - 400 + `65005`：时间格式非法 / `start >= end` / 跨度超限；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/stats/overview",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/stats/overview")]
+#[nik::get("/business/flow/stats/overview")]
 pub async fn stats_overview(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<StatsQuery>,
@@ -2144,12 +2144,12 @@ pub async fn stats_overview(
 ///
 /// - 400 + `65005`：时间格式非法 / 范围非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/stats/efficiency",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/stats/efficiency")]
+#[nik::get("/business/flow/stats/efficiency")]
 pub async fn stats_efficiency(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<StatsQuery>,
@@ -2187,12 +2187,12 @@ pub async fn stats_efficiency(
 ///
 /// - 400 + `65005`：时间格式非法 / 范围非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/flow/stats/node-bottleneck",
     method = "GET",
     permission = "business:flow:instance:read"
 )]
-#[alun::get("/business/flow/stats/node-bottleneck")]
+#[nik::get("/business/flow/stats/node-bottleneck")]
 pub async fn stats_node_bottleneck(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<StatsQuery>,

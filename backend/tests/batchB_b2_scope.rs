@@ -11,7 +11,7 @@
 //! 2. `scope::paginate` 的 `= ANY(?::text::uuid[])` 绑定形态在真驱动上真的能绑（`Value::Array`
 //!    在本栈是 `UnsupportedFeature`，所以这条必须实测），并且 count 语句可执行、与数据页一致；
 //! 3. **缓存不可用 → 回退查库**：测试进程内**没有**初始化全局缓存（`set_cache` 的参数类型
-//!    `SharedCache` 未被 `alun` 门面 re-export），所以这里走的正是生产里「Redis 挂了」的
+//!    `SharedCache` 未被 `nik` 门面 re-export），所以这里走的正是生产里「Redis 挂了」的
 //!    那条分支：`cache_stats().cache_unavailable` 递增、`db_loads` 递增、结果仍然正确。
 //!
 //! # 用法
@@ -36,11 +36,11 @@
 
 use std::collections::BTreeSet;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::shared::principal::{self, ScopedPrincipal};
 use cloudpivot::business::shared::scope::{self, ScopeTarget};
 use cloudpivot::business::shared::{guard, scope::ScopeKind};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// 夹具里固定 UUID（与 `tests/sql/batchb/b2_scope_fixture.sql` 一一对应）。
 mod fixture {

@@ -12,7 +12,7 @@
 //! - [`SysUserRoleModel`]：关联表，仅含 `created_at`，采用 **硬删 + 关闭时间戳
 //!   Hook**（`#[model(no_timestamps, hard_delete)]`），重新授权即重建记录。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

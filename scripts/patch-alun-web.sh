@@ -25,6 +25,12 @@
 # 用法：
 #   bash scripts/patch-alun-web.sh            # 打补丁
 #   bash scripts/patch-alun-web.sh --check    # 只检查是否已打，退出码 0=已打齐
+# ---------------------------------------------------------------------------
+# 2026-10-30（C1，分支 feat/nik-fork）起：alun-web 已 vendor 成 backend/vendor/nik-web
+# 并改名为 nik，上面这些补丁（CODE-07/09/09b/10/11/11b）**已内联进 vendored 源码**，
+# 编译产物直接带着它们。registry 里的 alun-* 不再参与构建，因此本脚本对构建**不再生效**，
+# 仅作为「补丁改了什么、为什么」的可读文档保留（--check 反映的只是 registry 副本状态）。
+# ---------------------------------------------------------------------------
 set -euo pipefail
 
 CHECK_ONLY=0

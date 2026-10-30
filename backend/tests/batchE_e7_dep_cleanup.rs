@@ -30,8 +30,8 @@
 //! 固定 UUID（`8a`/`8b` 段，与 T1 的 `7c`/`7e`/`7f`、B7 的 `B7_` 前缀都错开）+ 任务号
 //! `E7T-` 前缀：开头清一次、结尾清一次，只删自己造的行（依赖 → 任务 → 用户 → 部门反序）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use cloudpivot::business::task::model;
 use cloudpivot::shared::startup_guard;

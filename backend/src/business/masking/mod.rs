@@ -24,7 +24,7 @@
 //! 1. **D6：出参前脱敏**。落点是 `impl Maskable for XxxRes` + handler 里一次
 //!    `item.mask(&set)`；**不用** serde 序列化器（拿不到「字段属于哪张表」），
 //!    **不用** SQL 层脱敏（`SELECT *` 无从替换，且过滤/排序会被破坏）。
-//! 2. **D7：绝不调用 `alun_utils::Mask::mask_by_type`**。它在 `"张三"` 上 panic
+//! 2. **D7：绝不调用 `nik_utils::Mask::mask_by_type`**。它在 `"张三"` 上 panic
 //!    （`byte index 2 is not a char boundary`）。只调具名方法，且对仍按字节切片的
 //!    `email` / `bank_card` 加 ASCII 前置判定。
 //! 3. **fail-closed**：脱敏失败 → 明确报错（导出 422 / 页面全掩码），

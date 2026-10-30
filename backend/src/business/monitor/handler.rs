@@ -4,9 +4,9 @@
 //! 前缀由 `config.toml` 的 `[router] prefix` 注入）。
 //!
 //! 权限码 `business:monitor:server-status` 在迁移 `V0020` 中只授予 `SUPER_ADMIN`，
-//! 因此非超管调用会被 `#[alun::permission]` 校验层直接拒绝（403），而不是仅靠前端隐藏。
+//! 因此非超管调用会被 `#[nik::permission]` 校验层直接拒绝（403），而不是仅靠前端隐藏。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::monitor::dto::ServerStatusRes;
 use crate::business::monitor::model;
@@ -21,12 +21,12 @@ use crate::business::monitor::model;
 /// # 异常情况
 ///
 /// - 403：当前用户不具备 `business:monitor:server-status`（非超级管理员）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/monitor/server-status",
     method = "GET",
     permission = "business:monitor:server-status"
 )]
-#[alun::get("/business/monitor/server-status")]
+#[nik::get("/business/monitor/server-status")]
 pub async fn server_status() -> ResResult<ServerStatusRes> {
     Ok(Res::ok(model::collect().await))
 }

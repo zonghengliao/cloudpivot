@@ -47,11 +47,11 @@ pub mod task_token;
 /// 业务错误一律经 `Res::fail` 序列化成 `application/json`，因此 65015 / 10001 之类业务码的
 /// 状态码、`code`、`msg` 一个字都不变。
 pub mod json_rejection {
-    use alun::prelude::*;
     use axum::extract::Request;
     use axum::http::{HeaderValue, StatusCode, header};
     use axum::middleware::Next;
     use axum::response::{IntoResponse, Response};
+    use nik::prelude::*;
 
     use crate::shared::error_code;
 

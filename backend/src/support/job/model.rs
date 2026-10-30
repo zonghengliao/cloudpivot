@@ -8,7 +8,7 @@
 //! 框架快捷方法（`find_or_none` / `insert` / `update` / `delete` 等）的简单读写由
 //! `handler.rs` 直接执行。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::scope;
 use crate::shared::constants::EnableStatus;

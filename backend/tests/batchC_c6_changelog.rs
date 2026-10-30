@@ -36,13 +36,13 @@
 
 use std::time::Instant;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::changelog::query;
 use cloudpivot::business::changelog::{
     self, Action, ChangeCtx, ChangeTarget, DiffInput, partition,
 };
 use cloudpivot::shared::error_code;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde_json::json;
 
 /// 夹具前缀。

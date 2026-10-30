@@ -24,7 +24,7 @@
 
 use std::fmt;
 
-use alun::prelude::Crypto;
+use nik::prelude::Crypto;
 
 /// 主密钥环境变量名。
 pub const ENV_STORAGE_MASTER_KEY: &str = "CLOUDPIVOT_STORAGE_MASTER_KEY";

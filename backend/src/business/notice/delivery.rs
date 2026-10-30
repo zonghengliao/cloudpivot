@@ -25,7 +25,7 @@
 //! 模板通道只在调用方未指定时生效」（二选一）；A6 改成**并集**——模板声明的通道
 //! 不会因为调用方多写一个通道而被丢掉，符合架构文档 §4.6「按 `template.channels` 投递」。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::notice::ChannelState;
 use crate::business::notice::dto::{

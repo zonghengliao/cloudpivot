@@ -7,9 +7,9 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -44,12 +44,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/page",
     method = "GET",
     permission = "system:role:list"
 )]
-#[alun::get("/system/role/page")]
+#[nik::get("/system/role/page")]
 pub async fn page(Query(query): Query<RolePageQuery>) -> ResResult<PageData<Vec<RoleRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let filter = model::RolePageFilter {
@@ -80,12 +80,12 @@ pub async fn page(Query(query): Query<RolePageQuery>) -> ResResult<PageData<Vec<
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/list",
     method = "GET",
     permission = "system:role:list"
 )]
-#[alun::get("/system/role/list")]
+#[nik::get("/system/role/list")]
 pub async fn list() -> ResResult<Vec<RoleRes>> {
     // 启用角色下拉是高频热点查询，优先读缓存
     if let Some(cached) = model::load_cached_enabled_roles().await {
@@ -114,12 +114,12 @@ pub async fn list() -> ResResult<Vec<RoleRes>> {
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}",
     method = "GET",
     permission = "system:role:list"
 )]
-#[alun::get("/system/role/{id}")]
+#[nik::get("/system/role/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<RoleRes> {
     let id = utils::require_uuid(&id, "id")?;
     let role = load_role(&id).await?;
@@ -149,12 +149,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<RoleRes> {
 /// - 400：参数非法；
 /// - 409：角色编码已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role",
     method = "POST",
     permission = "system:role:create"
 )]
-#[alun::post("/system/role")]
+#[nik::post("/system/role")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -251,12 +251,12 @@ pub async fn create(
 /// - 404：角色不存在；
 /// - 409：角色编码已存在，或试图禁用内置超级管理员角色；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}",
     method = "PUT",
     permission = "system:role:update"
 )]
-#[alun::put("/system/role/{id}")]
+#[nik::put("/system/role/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -412,12 +412,12 @@ pub async fn update(
 /// - 404：角色不存在；
 /// - 409：内置角色或角色已分配给用户；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}",
     method = "DELETE",
     permission = "system:role:delete"
 )]
-#[alun::delete("/system/role/{id}")]
+#[nik::delete("/system/role/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -502,12 +502,12 @@ pub async fn delete(
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}/menus",
     method = "GET",
     permission = "system:role:list"
 )]
-#[alun::get("/system/role/{id}/menus")]
+#[nik::get("/system/role/{id}/menus")]
 pub async fn menus(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let id = utils::require_uuid(&id, "id")?;
     load_role(&id).await?;
@@ -546,12 +546,12 @@ pub async fn menus(Path(id): Path<String>) -> ResResult<Vec<String>> {
 /// - 400：ID 或菜单 ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}/menus",
     method = "PUT",
     permission = "system:role:menu"
 )]
-#[alun::put("/system/role/{id}/menus")]
+#[nik::put("/system/role/{id}/menus")]
 pub async fn assign_menus(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -638,12 +638,12 @@ pub async fn assign_menus(
 /// - 400：ID 格式非法；
 /// - 404：角色不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/role/{id}/users",
     method = "GET",
     permission = "system:role:list"
 )]
-#[alun::get("/system/role/{id}/users")]
+#[nik::get("/system/role/{id}/users")]
 pub async fn users(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1024,7 +1024,7 @@ fn role_snapshot(role: &SysRoleModel) -> serde_json::Value {
 mod tests {
     use super::*;
     use crate::business::shared::principal::ScopedPrincipal;
-    use alun::uuid::Uuid;
+    use nik::uuid::Uuid;
 
     fn uid(n: u128) -> Uuid {
         Uuid::from_u128(n)

@@ -11,10 +11,10 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::alun_plugin::scheduler::CronSchedule;
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::nik_plugin::scheduler::CronSchedule;
+use nik::prelude::*;
 
 use std::net::SocketAddr;
 
@@ -42,12 +42,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/page",
     method = "GET",
     permission = "support:job:list"
 )]
-#[alun::get("/support/job/page")]
+#[nik::get("/support/job/page")]
 pub async fn page(Query(query): Query<JobPageQuery>) -> ResResult<PageData<Vec<JobRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
 
@@ -78,12 +78,12 @@ pub async fn page(Query(query): Query<JobPageQuery>) -> ResResult<PageData<Vec<J
 ///
 /// - 400：ID 格式非法；
 /// - 404：任务不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/{id}",
     method = "GET",
     permission = "support:job:list"
 )]
-#[alun::get("/support/job/{id}")]
+#[nik::get("/support/job/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<JobRes> {
     let job = load_job(&id).await?;
     Ok(Res::ok(JobRes::from(&job)))
@@ -112,12 +112,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<JobRes> {
 /// - 422：cron 表达式非法或处理器未注册；
 /// - 409：任务名称已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job",
     method = "POST",
     permission = "support:job:create"
 )]
-#[alun::post("/support/job")]
+#[nik::post("/support/job")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -177,12 +177,12 @@ pub async fn create(
 /// - 422：cron 表达式非法或处理器未注册；
 /// - 409：任务名称与其它任务冲突；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/{id}",
     method = "PUT",
     permission = "support:job:update"
 )]
-#[alun::put("/support/job/{id}")]
+#[nik::put("/support/job/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -252,12 +252,12 @@ pub async fn update(
 /// - 400：ID 格式非法；
 /// - 404：任务不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/{id}",
     method = "DELETE",
     permission = "support:job:delete"
 )]
-#[alun::delete("/support/job/{id}")]
+#[nik::delete("/support/job/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -314,12 +314,12 @@ pub async fn delete(
 /// - 400：ID 或状态非法；
 /// - 404：任务不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/{id}/status",
     method = "PATCH",
     permission = "support:job:update"
 )]
-#[alun::patch("/support/job/{id}/status")]
+#[nik::patch("/support/job/{id}/status")]
 pub async fn change_status(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -391,12 +391,12 @@ pub async fn change_status(
 /// - 404：任务不存在；
 /// - 422：处理器未注册；
 /// - 500：数据库异常或处理器执行失败。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/{id}/trigger",
     method = "POST",
     permission = "support:job:trigger"
 )]
-#[alun::post("/support/job/{id}/trigger")]
+#[nik::post("/support/job/{id}/trigger")]
 pub async fn trigger(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -438,12 +438,12 @@ pub async fn trigger(
 ///
 /// - 400：`job_id` 格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/log/page",
     method = "GET",
     permission = "support:job:list"
 )]
-#[alun::get("/support/job/log/page")]
+#[nik::get("/support/job/log/page")]
 pub async fn log_page(Query(query): Query<JobLogPageQuery>) -> ResResult<PageData<Vec<JobLogRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
 
@@ -485,12 +485,12 @@ pub async fn log_page(Query(query): Query<JobLogPageQuery>) -> ResResult<PageDat
 /// - 400：ID 格式非法；
 /// - 404：日志不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/job/log/{id}",
     method = "GET",
     permission = "support:job:list"
 )]
-#[alun::get("/support/job/log/{id}")]
+#[nik::get("/support/job/log/{id}")]
 pub async fn log_detail(Path(id): Path<String>) -> ResResult<JobLogRes> {
     let id = utils::require_uuid(&id, "id")?;
     let log = SysJobLogModel::find_or_none(db(), &id)

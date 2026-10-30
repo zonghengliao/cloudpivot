@@ -66,9 +66,9 @@
 //! 锚点（`ScopeTarget::new` 是 `pub const`，不需要改 `scope.rs`），
 //! 因此启动自检也不会把 `biz_task` 当成「该注入却没注入」的表。
 
-use alun::prelude::chrono::{Datelike, Duration, NaiveDate, Utc};
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::chrono::{Datelike, Duration, NaiveDate, Utc};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
@@ -1608,7 +1608,7 @@ pub async fn apply_status(
     match update.done_at {
         None => {}
         // 清空与写值分成两条**静态** SQL 片段：`?::timestamptz` 绑 NULL 在驱动层不可靠
-        // （alun-db 的参数编码按类型推断，NULL 会被推断成 text），所以清空直接写 `NULL`。
+        // （nik-db 的参数编码按类型推断，NULL 会被推断成 text），所以清空直接写 `NULL`。
         Some(None) => sets.push("done_at = NULL"),
         Some(Some(stamp)) => {
             sets.push("done_at = ?::timestamptz");

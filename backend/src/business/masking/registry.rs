@@ -34,8 +34,8 @@
 
 use std::collections::BTreeMap;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::masking::masker::{self, MaskError, MaskType};

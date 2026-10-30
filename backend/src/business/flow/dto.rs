@@ -23,7 +23,7 @@
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use alun::prelude::chrono;
+use nik::prelude::chrono;
 
 use crate::business::flow::graph::{
     ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, Issue, NodeSpec,

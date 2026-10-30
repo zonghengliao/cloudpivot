@@ -1,6 +1,6 @@
 //! 在线用户模块的请求与响应 DTO。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::support::online::model::OnlineSession;

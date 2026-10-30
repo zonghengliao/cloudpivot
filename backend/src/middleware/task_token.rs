@@ -18,10 +18,10 @@
 //!
 //! # 与框架认证层的关系（实现细节，评审会问）
 //!
-//! 4 个端点在路由上标了 `#[alun::no_auth("/business/task/{id}/…")]`：
+//! 4 个端点在路由上标了 `#[nik::no_auth("/business/task/{id}/…")]`：
 //!
 //! - **认证层**：忽略列表命中的路径遇到非法/缺失令牌时**继续放行**、遇到合法 JWT
-//!   仍注入 `AuthClaims`（`alun-web` `middleware/auth.rs` 的行为）。因此人类用 JWT
+//!   仍注入 `AuthClaims`（`nik-web` `middleware/auth.rs` 的行为）。因此人类用 JWT
 //!   调同一批端点时，身份照旧由框架注入，本中间件不做任何事（分支见 [`guard`]）；
 //! - **权限层**：同样跳过忽略列表路径（`cloudpivot-patch code-09`），所以这些端点的
 //!   人类侧权限**必须在 handler 里显式判**（`handler::ensure_task_read_permission`），
@@ -47,12 +47,12 @@
 //! | 端点不在白名单 / 方法不符 | `63304` |
 //! | 任务已 `DONE` / `CANCELLED` / 已软删 / `exec_mode <> 'AI'` | `63301`（令牌随任务终结） |
 
-use alun::prelude::*;
 use axum::extract::Request;
 use axum::http::{Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use chrono::{DateTime, Utc};
+use nik::prelude::*;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 

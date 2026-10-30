@@ -14,10 +14,10 @@
 //! # 未做的部分（诚实边界）
 //!
 //! PRD 里的「枚举列写 Excel 下拉数据验证」框架写入器不支持（`rust_xlsxwriter` 的
-//! `data_validation` 未被 `alun-utils` 封装暴露），本卡以「字段说明 sheet 的『可选值』列 +
+//! `data_validation` 未被 `nik-utils` 封装暴露），本卡以「字段说明 sheet 的『可选值』列 +
 //! 导入期枚举校验」替代；下拉验证留待 A7 前端模板或后续版本。
 
-use alun::prelude::ApiError;
+use nik::prelude::ApiError;
 
 use crate::business::impexp::definition::{ImportDefinition, RowIssue};
 use crate::business::impexp::engine::write_workbook;
@@ -185,7 +185,7 @@ pub fn build_error_sheet_rows(
 mod tests {
     use super::*;
     use crate::business::impexp::definition::{ColumnKind, EnumItem, ErrorKind, ImportColumn};
-    use alun::prelude::Import;
+    use nik::prelude::Import;
 
     const STATUS: &[EnumItem] = &[];
 
@@ -240,10 +240,10 @@ mod tests {
         }
         async fn persist(
             &self,
-            _tx: &alun::prelude::Transaction,
+            _tx: &nik::prelude::Transaction,
             _rows: &[crate::business::impexp::definition::RowValues],
             _ctx: &crate::business::impexp::definition::ImportCtx,
-        ) -> std::result::Result<usize, alun::prelude::DbError> {
+        ) -> std::result::Result<usize, nik::prelude::DbError> {
             Ok(0)
         }
     }

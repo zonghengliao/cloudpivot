@@ -7,9 +7,9 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 
 use std::net::SocketAddr;
 
@@ -40,12 +40,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 状态值非法返回 400，数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/type/page",
     method = "GET",
     permission = "support:dict:list"
 )]
-#[alun::get("/support/dict/type/page")]
+#[nik::get("/support/dict/type/page")]
 pub async fn type_page(
     Query(query): Query<DictTypePageQuery>,
 ) -> ResResult<PageData<Vec<DictTypeRes>>> {
@@ -82,12 +82,12 @@ pub async fn type_page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：字典类型不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/type/{id}",
     method = "GET",
     permission = "support:dict:list"
 )]
-#[alun::get("/support/dict/type/{id}")]
+#[nik::get("/support/dict/type/{id}")]
 pub async fn type_detail(Path(id): Path<String>) -> ResResult<DictTypeRes> {
     let id = utils::require_uuid(&id, "id")?;
     let dict_type = SysDictTypeModel::find_or_none(db(), &id)
@@ -120,12 +120,12 @@ pub async fn type_detail(Path(id): Path<String>) -> ResResult<DictTypeRes> {
 /// - 400：参数非法；
 /// - 409：字典编码已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/type",
     method = "POST",
     permission = "support:dict:create"
 )]
-#[alun::post("/support/dict/type")]
+#[nik::post("/support/dict/type")]
 pub async fn type_create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -195,12 +195,12 @@ pub async fn type_create(
 /// - 404：字典类型不存在；
 /// - 409：字典编码与他人重复；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/type/{id}",
     method = "PUT",
     permission = "support:dict:update"
 )]
-#[alun::put("/support/dict/type/{id}")]
+#[nik::put("/support/dict/type/{id}")]
 pub async fn type_update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -289,12 +289,12 @@ pub async fn type_update(
 /// - 404：字典类型不存在；
 /// - 409：字典类型下存在字典项；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/type/{id}",
     method = "DELETE",
     permission = "support:dict:delete"
 )]
-#[alun::delete("/support/dict/type/{id}")]
+#[nik::delete("/support/dict/type/{id}")]
 pub async fn type_delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -366,12 +366,12 @@ pub async fn type_delete(
 ///
 /// - 400：`dict_type_id` 或状态值非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/item/page",
     method = "GET",
     permission = "support:dict:list"
 )]
-#[alun::get("/support/dict/item/page")]
+#[nik::get("/support/dict/item/page")]
 pub async fn item_page(
     Query(query): Query<DictItemPageQuery>,
 ) -> ResResult<PageData<Vec<DictItemRes>>> {
@@ -424,12 +424,12 @@ pub async fn item_page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：字典项不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/item/{id}",
     method = "GET",
     permission = "support:dict:list"
 )]
-#[alun::get("/support/dict/item/{id}")]
+#[nik::get("/support/dict/item/{id}")]
 pub async fn item_detail(Path(id): Path<String>) -> ResResult<DictItemRes> {
     let id = utils::require_uuid(&id, "id")?;
     let dict_item = SysDictItemModel::find_or_none(db(), &id)
@@ -463,12 +463,12 @@ pub async fn item_detail(Path(id): Path<String>) -> ResResult<DictItemRes> {
 /// - 404：所属字典类型不存在；
 /// - 409：同一字典下字典值已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/item",
     method = "POST",
     permission = "support:dict:create"
 )]
-#[alun::post("/support/dict/item")]
+#[nik::post("/support/dict/item")]
 pub async fn item_create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -542,12 +542,12 @@ pub async fn item_create(
 /// - 404：字典项或所属字典类型不存在；
 /// - 409：同一字典下字典值与他人重复；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/item/{id}",
     method = "PUT",
     permission = "support:dict:update"
 )]
-#[alun::put("/support/dict/item/{id}")]
+#[nik::put("/support/dict/item/{id}")]
 pub async fn item_update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -646,12 +646,12 @@ pub async fn item_update(
 /// - 400：ID 格式非法；
 /// - 404：字典项不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/item/{id}",
     method = "DELETE",
     permission = "support:dict:delete"
 )]
-#[alun::delete("/support/dict/item/{id}")]
+#[nik::delete("/support/dict/item/{id}")]
 pub async fn item_delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -715,12 +715,12 @@ pub async fn item_delete(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dict/items/{dict_code}",
     method = "GET",
     permission = "support:dict:list"
 )]
-#[alun::get("/support/dict/items/{dict_code}")]
+#[nik::get("/support/dict/items/{dict_code}")]
 pub async fn items(Path(dict_code): Path<String>) -> ResResult<Vec<DictItemRes>> {
     // 缓存优先：命中即返回，避免高频下拉重复查库
     match model::load_cached_items(&dict_code).await {

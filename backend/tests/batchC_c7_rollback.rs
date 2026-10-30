@@ -20,11 +20,11 @@
 
 #![cfg(feature = "test-hooks")]
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::business::changelog::model;
 use cloudpivot::business::changelog::test_hooks;
 use cloudpivot::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// 夹具前缀：清理时只删自己插入的行（`resource_id LIKE 'c7-%'`）。
 const TAG: &str = "c7-";

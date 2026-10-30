@@ -3,7 +3,7 @@
 //! 约定（与底座一致）：请求 DTO 后缀 `Req` / 查询后缀 `Query`，响应 DTO 后缀 `Res`；
 //! 响应里只暴露前端需要的字段，模型内部字段（如 `file_path`）不外泄。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::impexp::model::{ExportTask, ImportTask, ImportTaskError};

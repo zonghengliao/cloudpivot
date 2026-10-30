@@ -12,7 +12,7 @@
 //! 4. **检索不给 HTML**：`snippet` 是纯文本，高亮用 `matched_terms` 交给前端渲染
 //!    （H-10：片段里不允许出现 `<` / `>`，否则就是新的 XSS 面）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::help::model::{

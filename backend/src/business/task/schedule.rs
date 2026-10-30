@@ -47,11 +47,11 @@
 //! 之后的依赖 / 父子查询都以 `task_id` 收口。再注入一次 scope 会把
 //! 「看不见的前置」过滤掉，导致改期校验**静默漏判**（比越权更难发现）。
 
-use alun::prelude::chrono::{Duration, NaiveDate};
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::Path;
+use nik::prelude::chrono::{Duration, NaiveDate};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput, RecordOutcome};
 use crate::business::shared::principal;
@@ -497,12 +497,12 @@ pub fn check_all(
 /// - 400 + `63004`：请求形态或日期非法（或改期后与原值相同）；
 /// - 400 + `63110` / `63111` / `63112`：依赖 / 父子冲突（**点名冲突对象**）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/{id}/schedule",
     method = "PATCH",
     permission = "business:task:update"
 )]
-#[alun::patch("/business/task/{id}/schedule")]
+#[nik::patch("/business/task/{id}/schedule")]
 pub async fn schedule(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -705,7 +705,7 @@ fn shift_between(from: Option<NaiveDate>, to: Option<NaiveDate>) -> Option<i64> 
 mod tests {
     use super::*;
     use crate::business::task::dto::MAX_SHIFT_DAYS;
-    use alun::prelude::chrono::{TimeZone, Utc};
+    use nik::prelude::chrono::{TimeZone, Utc};
 
     /// 测试固定的「今天」：2026-10-29（与本项目所有验收脚本同一口径）。
     fn day(text: &str) -> NaiveDate {

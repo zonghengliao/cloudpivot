@@ -1,10 +1,10 @@
 //! 项目内纯工具函数。
 //!
 //! 只放**无状态、无副作用**的辅助函数（树形结构组装、UUID 值转换、分页规整、
-//! 客户端 IP 解析等）。通用工具优先使用框架已提供的 `alun_utils`（字符串、日期、
-//! 脱敏、ID、加密、导出等，经 `alun::prelude::*` 直接可用），确实缺失时才在此实现。
+//! 客户端 IP 解析等）。通用工具优先使用框架已提供的 `nik_utils`（字符串、日期、
+//! 脱敏、ID、加密、导出等，经 `nik::prelude::*` 直接可用），确实缺失时才在此实现。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use std::net::{IpAddr, SocketAddr};
 
 use crate::shared::constants;
@@ -133,7 +133,7 @@ pub fn like_pattern(keyword: Option<&str>) -> Option<String> {
 
 /// 从请求头与连接信息解析客户端真实 IP。
 ///
-/// 委托框架 [`alun_utils::extract_client_ip`]，按「可信代理覆写头优先」的顺序解析，
+/// 委托框架 [`nik_utils::extract_client_ip`]，按「可信代理覆写头优先」的顺序解析，
 /// 以适配多层代理拓扑，并规避攻击者伪造 `X-Forwarded-For` 首段绕过 IP 限流：
 ///
 /// 1. `X-Real-IP`：由 nginx 覆写为真实客户端 IP，不可伪造；
@@ -155,7 +155,7 @@ pub fn client_ip(
 ) -> Option<IpAddr> {
     // 未提供连接信息时以未指定地址占位，仅影响「无任何可信头」分支的兜底值
     let fallback = SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0));
-    alun_utils::extract_client_ip(headers, connect_info.unwrap_or(&fallback))
+    nik_utils::extract_client_ip(headers, connect_info.unwrap_or(&fallback))
         .parse::<IpAddr>()
         .ok()
         // 过滤 0.0.0.0 / :: 等未指定地址（框架兜底值与内网保护语义）
@@ -295,7 +295,7 @@ pub fn db_error(e: DbError, ctx: &str) -> ApiError {
     tracing::error!(context = ctx, error = %e, "数据库操作失败");
     // 对外仍是「HTTP 500 + 业务码 10004」，保持本项目错误码体系一致；
     // 真实原因写进 `internal_detail`，交由 `ApiError` 的 `IntoResponse` 统一记日志，
-    // 绝不出现在响应体里（与 alun 0.3 的错误收敛惯例一致）。
+    // 绝不出现在响应体里（与 nik 0.3 的错误收敛惯例一致）。
     ApiError {
         status: 500,
         code: crate::shared::error_code::INTERNAL_ERROR,

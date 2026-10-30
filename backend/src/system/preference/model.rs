@@ -25,8 +25,8 @@
 //! 字典表只有个位数行、查询走主键顺序扫描，单次 < 1 ms；而缓存会引入「改了字典要等
 //! 过期」的运维复杂度。等偏好项真的上百条再谈缓存（届时加 `Cache` + 显式失效即可）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde_json::Value as JsonValue;
 use std::collections::BTreeMap;
 

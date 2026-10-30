@@ -30,7 +30,7 @@
 //!   进程（不会互相干扰，但两边都会扫同一批待补偿行 —— 靠幂等键保证不重复发送）；
 //! - 全局开关 `sys_config.announcement.fanout_enabled=false` 时整轮 `skipped`（止血优先）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {

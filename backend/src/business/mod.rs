@@ -45,7 +45,7 @@ pub mod task;
 fn _example_notice_dispatch_from_external_module() {
     use crate::business::notice::dto::{ContentFormat, NoticeLevel, NoticeType};
     use crate::business::notice::{NoticeDraft, NoticeTarget, dispatch};
-    use alun::uuid::Uuid;
+    use nik::uuid::Uuid;
 
     let instance_id = Uuid::nil();
     let assignee = Uuid::nil();

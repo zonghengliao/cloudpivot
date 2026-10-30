@@ -6,7 +6,7 @@
 //! `sys_user_role` / `sys_menu` / `sys_role_menu` / `sys_config` 均复用各自模块的
 //! 强类型模型，不重复定义表结构。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::constants::{self, EnableStatus};
 use crate::support::config::model::SysConfigModel;
@@ -245,7 +245,7 @@ pub(crate) async fn load_permissions(
     super_admin: bool,
 ) -> std::result::Result<Vec<String>, DbError> {
     if super_admin {
-        // 通配码供**框架的** `#[alun::permission]` 校验层短路使用；业务侧的超管判定
+        // 通配码供**框架的** `#[nik::permission]` 校验层短路使用；业务侧的超管判定
         // （数据权限 / 脱敏 / 菜单）一律以角色编码为准（见 shared/principal.rs），
         // 不读取本通配码，故二者不构成双真值源。
         return Ok(vec!["*:*:*".to_string()]);

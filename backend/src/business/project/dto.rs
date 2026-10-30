@@ -21,7 +21,7 @@
 //! 缺席 = 保持原值，显式 `null` = 清空，有值 = 赋值。这条规则在公告上踩过坑
 //! （漏传 = 清空会把截止日默默抹掉），项目从一开始就用双重 Option。
 
-use alun::prelude::chrono::{self, NaiveDate};
+use nik::prelude::chrono::{self, NaiveDate};
 use serde::{Deserialize, Deserializer, Serialize};
 
 // ==================== 常量 ====================

@@ -25,7 +25,7 @@
 //! 单个公告补偿失败**不影响**同批其它公告：逐条捕获、记 warn、继续下一条；
 //! 任务本身只在数据库层面失败时返回 `Err`（由调度器记 error 日志）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::announcement::dto::truncate_chars;
 use crate::business::announcement::model::{self, PendingDispatchRow};

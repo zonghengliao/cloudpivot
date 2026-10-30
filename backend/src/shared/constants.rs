@@ -14,19 +14,19 @@
 //! 需要物理删除的表用 `#[model(hard_delete)]` 关闭该语义。因此业务代码判断
 //! 「记录是否存在」应以查询结果为准，**不要**再自行比较 `deleted_at`。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 // ==================== 分页 ====================
 
 /// 默认分页大小，沿用框架 `PageQuery` 的默认值。
 ///
 /// 分页请求缺省或非法的 `page_size` 会被框架规整到该值。
-pub const DEFAULT_PAGE_SIZE: u64 = alun::prelude::DEFAULT_PAGE_SIZE;
+pub const DEFAULT_PAGE_SIZE: u64 = nik::prelude::DEFAULT_PAGE_SIZE;
 
 /// 单页最大条数，沿用框架 `PageQuery` 的上限。
 ///
 /// 超出该值的 `page_size` 会被规整到该上限，防止一次拉取过多数据。
-pub const MAX_PAGE_SIZE: u64 = alun::prelude::MAX_PAGE_SIZE;
+pub const MAX_PAGE_SIZE: u64 = nik::prelude::MAX_PAGE_SIZE;
 
 // ==================== 状态列取值 ====================
 
@@ -189,7 +189,7 @@ pub const CACHE_KEY_PREFIX_ONLINE: &str = "online:token:";
 
 /// 令牌黑名单缓存键前缀。
 ///
-/// 必须与框架 [`alun::prelude::JWT::is_blacklisted`] 使用的键格式保持一致
+/// 必须与框架 [`nik::prelude::JWT::is_blacklisted`] 使用的键格式保持一致
 /// （`token:blacklist:{jti}`），否则强制下线写入的黑名单不会被认证层识别。
 pub const CACHE_KEY_PREFIX_TOKEN_BLACKLIST: &str = "token:blacklist:";
 

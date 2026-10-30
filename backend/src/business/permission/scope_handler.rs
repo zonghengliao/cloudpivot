@@ -29,9 +29,9 @@
 //! 反查持有者用 `sys_user_role` 的 `SELECT DISTINCT user_id`，逐个 `DEL`——不用
 //! `delete_pattern`（键里带用户 ID，模式匹配会误删别人的键）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::permission::dto::{
     DeptTreeRes, RoleScopeRes, SelfCheckRes, SetRoleScopeReq, SetRoleScopeRes, UncoveredTablesRes,
@@ -62,12 +62,12 @@ use crate::utils;
 /// - 400 + `10001`：`role_id` 不是合法 UUID；
 /// - 404 + `10002`：角色不存在或已软删；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/permission/scope/role/{role_id}",
     method = "GET",
     permission = "business:permission:scope:read"
 )]
-#[alun::get("/business/permission/scope/role/{role_id}")]
+#[nik::get("/business/permission/scope/role/{role_id}")]
 pub async fn role_scope_detail(Path(role_id): Path<String>) -> ResResult<RoleScopeRes> {
     let role_id = utils::require_uuid(&role_id, "role_id")?;
     let role = require_role(&role_id).await?;
@@ -107,12 +107,12 @@ pub async fn role_scope_detail(Path(role_id): Path<String>) -> ResResult<RoleSco
 /// - 403 + `61002`：新范围超出操作者自身可见范围（消息里点名越界部门名称 + ID）；
 /// - 404 + `10002`：角色不存在；404 + `61004`：集合里有不存在 / 已软删的部门；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/permission/scope/role/{role_id}",
     method = "PUT",
     permission = "business:permission:scope:write"
 )]
-#[alun::put("/business/permission/scope/role/{role_id}")]
+#[nik::put("/business/permission/scope/role/{role_id}")]
 pub async fn role_scope_update(
     Path(role_id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -265,12 +265,12 @@ pub async fn role_scope_update(
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/permission/scope/dept-tree",
     method = "GET",
     permission = "business:permission:scope:read"
 )]
-#[alun::get("/business/permission/scope/dept-tree")]
+#[nik::get("/business/permission/scope/dept-tree")]
 pub async fn dept_tree(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<DeptTreeRes> {
@@ -324,12 +324,12 @@ pub async fn dept_tree(
 ///
 /// - 401 + `20005`：令牌里没有合法用户 ID（会话与库不一致）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/permission/scope/self-check",
     method = "GET",
     permission = "business:permission:scope:self-check"
 )]
-#[alun::get("/business/permission/scope/self-check")]
+#[nik::get("/business/permission/scope/self-check")]
 pub async fn self_check(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<SelfCheckRes> {
@@ -420,12 +420,12 @@ pub async fn self_check(
 /// # 异常情况
 ///
 /// 无（纯内存计算）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/permission/scope/uncovered-tables",
     method = "GET",
     permission = "business:permission:scope:self-check"
 )]
-#[alun::get("/business/permission/scope/uncovered-tables")]
+#[nik::get("/business/permission/scope/uncovered-tables")]
 pub async fn uncovered_tables() -> ResResult<UncoveredTablesRes> {
     let tables = scope_model::table_coverage();
     let pick = |status: &str| -> Vec<String> {

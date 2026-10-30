@@ -2,7 +2,7 @@
 //!
 //! # 与 HTTP 状态码的分工
 //!
-//! 框架 `alun::codes` 定义的是 **HTTP 语义码**（`OK = 0`、`BAD_REQUEST = 400`、
+//! 框架 `nik::codes` 定义的是 **HTTP 语义码**（`OK = 0`、`BAD_REQUEST = 400`、
 //! `UNAUTHORIZED = 401`、`FORBIDDEN = 403`、`NOT_FOUND = 404`、`CONFLICT = 409`、
 //! `UNPROCESSABLE_ENTITY = 422`、`INTERNAL = 500`、`SERVICE_UNAVAILABLE = 503`），
 //! 用于「一个状态码即可表达」的通用场景。
@@ -25,7 +25,7 @@
 //!
 //! # 码段划分
 //!
-//! `0` 表示成功（见 `alun::codes::OK`），不在本模块定义。
+//! `0` 表示成功（见 `nik::codes::OK`），不在本模块定义。
 //!
 //! | 码段 | 含义 |
 //! |------|------|

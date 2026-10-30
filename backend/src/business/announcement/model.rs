@@ -36,7 +36,7 @@
 //! 约束。已读路径一律用 `LEAST(receiver_count, …)` 递增 / 回算 —— 只加不夹会在一
 //! `receiver_count=0` 的公告上（关闭扇出 / 未扇出完）直接把接口打成 500。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::scope;
 use crate::shared::error_code;

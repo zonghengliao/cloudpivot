@@ -3,7 +3,7 @@
 //! 字段名与前端契约 `frontend/src/api/support/file-api.ts` 严格对齐：响应中的 `url` 由后端拼装，
 //! 取值恒为 `/api/support/file/download/{id}`，供前端做下载 / 预览。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::support::file::model::SysFileModel;

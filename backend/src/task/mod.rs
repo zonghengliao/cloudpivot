@@ -3,7 +3,7 @@
 //! 与业务模块分离，避免业务模块反向依赖调度细节。任务体可以调用任意业务模块的
 //! `model.rs` / `handler.rs` 中已公开的函数。
 //!
-//! 调度采用框架内置的 [`alun::prelude::alun_plugin::scheduler::SchedulerPlugin`]（cron 表达式驱动，
+//! 调度采用框架内置的 [`nik::prelude::nik_plugin::scheduler::SchedulerPlugin`]（cron 表达式驱动，
 //! 支持 5 段与 6 段写法）。框架调度器在 `start()` 时对注册表做**一次性快照**，
 //! 启动后再 `register()` 不会生效；因此运行期增删任务必须走
 //! `stop()` → 增删注册 → `start()`，该流程统一由 [`Scheduler::reload`] 完成。
@@ -49,9 +49,9 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Instant;
 
-use alun::prelude::alun_plugin::scheduler::{CronSchedule, SchedulerPlugin};
-use alun::prelude::*;
 use async_trait::async_trait;
+use nik::prelude::nik_plugin::scheduler::{CronSchedule, SchedulerPlugin};
+use nik::prelude::*;
 
 use crate::shared::{constants, error_code};
 use crate::support::job::model::{JobLogStatus, SysJobLogModel, SysJobModel};

@@ -75,8 +75,8 @@ pub mod query;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::shared::error_code;
 

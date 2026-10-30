@@ -36,11 +36,11 @@
 // 按部门 / 负责人裁剪模板会让「张三建的周报模板李四用不了」，而模板本身不含任何任务数据
 // （生成出来的任务走 `biz_task` 的可见性谓词，一处不少）。
 
-use alun::prelude::chrono::{DateTime, NaiveDate, Utc};
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::{Path, Query};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::task::dto;
@@ -823,12 +823,12 @@ pub async fn create_from_template(
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/templates",
     method = "GET",
     permission = "business:task:read"
 )]
-#[alun::get("/business/task/templates")]
+#[nik::get("/business/task/templates")]
 pub async fn list(
     Extension(AuthClaims(_claims)): Extension<AuthClaims>,
     Query(query): Query<TaskTemplateListQuery>,
@@ -855,12 +855,12 @@ pub async fn list(
 ///
 /// - 400 + `63502` / `63503`：字段 / cron 非法，或模板名重复；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/template",
     method = "POST",
     permission = "business:task:create"
 )]
-#[alun::post("/business/task/template")]
+#[nik::post("/business/task/template")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<TaskTemplateSaveReq>,
@@ -904,12 +904,12 @@ pub async fn create(
 /// - 404 + `63501`：模板不存在；
 /// - 400 + `63502` / `63503`：字段 / cron 非法，或模板名与他人重复；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/template/{id}",
     method = "PUT",
     permission = "business:task:update"
 )]
-#[alun::put("/business/task/template/{id}")]
+#[nik::put("/business/task/template/{id}")]
 pub async fn update(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -969,12 +969,12 @@ pub async fn update(
 ///
 /// - 404 + `63501`：模板不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/template/{id}",
     method = "DELETE",
     permission = "business:task:delete"
 )]
-#[alun::delete("/business/task/template/{id}")]
+#[nik::delete("/business/task/template/{id}")]
 pub async fn delete(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1000,12 +1000,12 @@ pub async fn delete(
 /// - 404 + `63501`：模板不存在；
 /// - 400 + `63009`：负责人不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/task/from-template/{id}",
     method = "POST",
     permission = "business:task:create"
 )]
-#[alun::post("/business/task/from-template/{id}")]
+#[nik::post("/business/task/from-template/{id}")]
 pub async fn from_template(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,

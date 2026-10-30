@@ -38,8 +38,8 @@
 //! 审批已经落库、待办已经建好，因为一封站内信写失败就把「同意」回滚掉，
 //! 用户点第二次还会失败第二次。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};

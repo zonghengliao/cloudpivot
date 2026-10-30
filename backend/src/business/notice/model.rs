@@ -19,7 +19,7 @@
 //! `LEAST(receiver_count, read_count + n)` 递增，保证 `ck_sys_notice_counts`
 //! （`read_count <= receiver_count`）永不被破。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

@@ -8,7 +8,7 @@
 //! - 违规清单里的用户带 `display_name`（`real_name` 为空回落 `username`），
 //!   前端不必再判空拼接。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::mutex::model::{HolderRow, MutexRow, PairHit, UserBrief};

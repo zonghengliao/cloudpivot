@@ -45,11 +45,11 @@
 //! [`error_code::AI_AGENT_ROLLBACK_FAILED`]，让运维知道需要人工收尾（这比伪装成功、
 //! 留下一份孤立 profile 安全得多）。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::Path;
 use axum::http::HeaderMap;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::aiagent::dto::{
     AiUserCreateReq, AiUserCredentialRes, AiUserDeleteRes, AiUserRes, AiUserStatusRes,
@@ -104,12 +104,12 @@ use crate::utils;
 /// - 500 + `64014`：profile 级凭据不可用（全局 `.env` 与进程环境都没有 provider key，
 ///   或 `.env` 权限不是 600）——**已回滚，磁盘与库零残留**；
 /// - 500 + `64009`：回滚未完全成功（消息里逐条列出残留项）。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai",
     method = "POST",
     permission = "system:user:create"
 )]
-#[alun::post("/system/user/ai")]
+#[nik::post("/system/user/ai")]
 pub async fn create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<AiUserCreateReq>,
@@ -381,12 +381,12 @@ pub async fn create(
 /// - 404 + `64007`：profile 目录丢失（要求重建后再保存 SOUL.md）；
 /// - 400 + `64010`：职责超长；400 + `64012`：模型覆盖非法；
 /// - 500 + `64005`：Hermes CLI 失败（含 stderr 摘录）。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai/{user_id}",
     method = "PUT",
     permission = "system:user:update"
 )]
-#[alun::put("/system/user/ai/{user_id}")]
+#[nik::put("/system/user/ai/{user_id}")]
 pub async fn update(
     Path(user_id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -467,12 +467,12 @@ pub async fn update(
 /// # 异常情况
 ///
 /// - 404 + `64001`：该用户不是 AI 用户 / 已删除。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai/{user_id}",
     method = "GET",
     permission = "system:user:list"
 )]
-#[alun::get("/system/user/ai/{user_id}")]
+#[nik::get("/system/user/ai/{user_id}")]
 pub async fn detail(Path(user_id): Path<String>) -> ResResult<AiUserRes> {
     let id = utils::require_uuid(&user_id, "user_id")?;
     let hermes = Hermes::from_env();
@@ -500,12 +500,12 @@ pub async fn detail(Path(user_id): Path<String>) -> ResResult<AiUserRes> {
 /// # 异常情况
 ///
 /// - 404 + `64001`：该用户不是 AI 用户 / 已删除。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai/{user_id}/status",
     method = "GET",
     permission = "system:user:list"
 )]
-#[alun::get("/system/user/ai/{user_id}/status")]
+#[nik::get("/system/user/ai/{user_id}/status")]
 pub async fn status(Path(user_id): Path<String>) -> ResResult<AiUserStatusRes> {
     let id = utils::require_uuid(&user_id, "user_id")?;
     let hermes = Hermes::from_env();
@@ -551,12 +551,12 @@ pub async fn status(Path(user_id): Path<String>) -> ResResult<AiUserStatusRes> {
 /// - 404 + `64004`：库里有行但 profile 目录已丢（先重建 profile）；
 /// - 500 + `64014`：全局凭据与进程环境都找不到当前 provider 的 key（**不会**伪造成功）；
 /// - 500 + `64008`：`.env` 读写失败。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai/{user_id}/repair",
     method = "POST",
     permission = "system:user:update"
 )]
-#[alun::post("/system/user/ai/{user_id}/repair")]
+#[nik::post("/system/user/ai/{user_id}/repair")]
 pub async fn repair_credentials(
     Path(user_id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -617,12 +617,12 @@ pub async fn repair_credentials(
 ///
 /// - 404 + `64001`：该用户不是 AI 用户 / 已删除；
 /// - 500 + `64005`：profile 删除失败（库未动，可重试）。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/ai/{user_id}",
     method = "DELETE",
     permission = "system:user:delete"
 )]
-#[alun::delete("/system/user/ai/{user_id}")]
+#[nik::delete("/system/user/ai/{user_id}")]
 pub async fn delete(
     Path(user_id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,

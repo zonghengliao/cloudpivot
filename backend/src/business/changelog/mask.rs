@@ -33,7 +33,7 @@
 //! 一旦谁把 `is_exempt()` 传成 true 就会静默存明文。所以这里只复用**纯函数**
 //! [`crate::business::masking::masker::apply`]（七种类型的算法唯一实现）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde_json::{Value as Json, json};
 use sha2::{Digest, Sha256};
 

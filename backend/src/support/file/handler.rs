@@ -3,15 +3,15 @@
 //! 处理器承担**参数校验、磁盘 I/O、业务编排与响应组装**，并直接调用框架快捷方法
 //! （`find_or_none` / `insert` / `delete` 等）；需要编写 SQL 的查询（分页、按内容
 //! 哈希复用）集中在 [`crate::support::file::model`]。上传 / 下载目录取自框架全局
-//! 访问器 `alun::upload_path()`（`[upload].path`）；上传大小上限取自
+//! 访问器 `nik::upload_path()`（`[upload].path`）；上传大小上限取自
 //! `cfg().upload.max_size_mb`（`[upload].max_size_mb`）。
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::{ConnectInfo, Multipart};
 use axum::http::{HeaderMap, HeaderValue, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 use sha2::{Digest, Sha256};
 
 use std::net::SocketAddr;
@@ -63,12 +63,12 @@ const ALLOWED_UPLOAD_EXTENSIONS: [&str; 31] = [
 /// # 异常情况
 ///
 /// 表单非法返回 400，超限返回 422，写盘 / 入库失败返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/upload",
     method = "POST",
     permission = "support:file:upload"
 )]
-#[alun::post("/support/file/upload")]
+#[nik::post("/support/file/upload")]
 pub async fn upload(
     Query(query): Query<FileUploadQuery>,
     headers: HeaderMap,
@@ -123,12 +123,12 @@ pub async fn upload(
 /// # 异常情况
 ///
 /// 表单非法返回 400，任一文件超限 / 类型不允许返回 422 / 400，写盘 / 入库失败返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/upload/batch",
     method = "POST",
     permission = "support:file:upload"
 )]
-#[alun::post("/support/file/upload/batch")]
+#[nik::post("/support/file/upload/batch")]
 pub async fn upload_batch(
     Query(query): Query<FileUploadQuery>,
     headers: HeaderMap,
@@ -172,12 +172,12 @@ pub async fn upload_batch(
 /// # 异常情况
 ///
 /// `file_hash` 为空返回 400，数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/check-duplicate",
     method = "GET",
     permission = "support:file:upload"
 )]
-#[alun::get("/support/file/check-duplicate")]
+#[nik::get("/support/file/check-duplicate")]
 pub async fn check_duplicate(
     Query(query): Query<FileCheckDuplicateQuery>,
 ) -> ResResult<FileDuplicateRes> {
@@ -211,12 +211,12 @@ pub async fn check_duplicate(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/page",
     method = "GET",
     permission = "support:file:list"
 )]
-#[alun::get("/support/file/page")]
+#[nik::get("/support/file/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<FilePageQuery>,
@@ -256,12 +256,12 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：文件不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/{id}",
     method = "GET",
     permission = "support:file:list"
 )]
-#[alun::get("/support/file/{id}")]
+#[nik::get("/support/file/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<FileRes> {
     let id = utils::require_uuid(&id, "id")?;
     let file = SysFileModel::find_or_none(db(), &id)
@@ -294,12 +294,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<FileRes> {
 /// - 400：ID 格式非法；
 /// - 404：文件不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/{id}",
     method = "DELETE",
     permission = "support:file:delete"
 )]
-#[alun::delete("/support/file/{id}")]
+#[nik::delete("/support/file/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -319,7 +319,7 @@ pub async fn delete(
         .map_err(|e| utils::db_error(e, "删除文件记录"))?;
 
     // 尽力删除磁盘文件，失败仅告警
-    let path = format!("{}/{}", alun::upload_path(), file.file_key);
+    let path = format!("{}/{}", nik::upload_path(), file.file_key);
     if let Err(e) = std::fs::remove_file(&path) {
         tracing::warn!(path = %path, error = %e, "删除磁盘文件失败，仅软删元数据");
     }
@@ -358,12 +358,12 @@ pub async fn delete(
 /// - 400：ID 格式非法；
 /// - 404：文件不存在或磁盘文件已丢失；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/file/download/{id}",
     method = "GET",
     permission = "support:file:list"
 )]
-#[alun::get("/support/file/download/{id}")]
+#[nik::get("/support/file/download/{id}")]
 pub async fn download(Path(id): Path<String>) -> Response {
     match download_response(&id).await {
         Ok(resp) => resp,
@@ -538,7 +538,7 @@ async fn store_file_bytes(
     };
     let file_key = format!("{id}{suffix}");
     let file_name = file_key.clone();
-    let dir = alun::upload_path();
+    let dir = nik::upload_path();
     let path = format!("{dir}/{file_key}");
 
     if let Err(e) = std::fs::create_dir_all(dir) {
@@ -677,7 +677,7 @@ async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiErr
         .map_err(|e| utils::db_error(e, "查询下载文件"))?
         .ok_or_else(|| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件不存在"))?;
 
-    let path = format!("{}/{}", alun::upload_path(), file.file_key);
+    let path = format!("{}/{}", nik::upload_path(), file.file_key);
     let bytes = std::fs::read(&path)
         .map_err(|_| ApiError::new(404, error_code::FILE_NOT_FOUND, "文件已丢失"))?;
 

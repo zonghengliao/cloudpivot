@@ -1,8 +1,8 @@
 //! 对象存储后端契约（`ObjectStore`）与两个实现：本地磁盘、S3 兼容对象存储。
 //!
-//! # 为什么要这层 trait（而不是直接用框架的 `alun-fs`）
+//! # 为什么要这层 trait（而不是直接用框架的 `nik-fs`）
 //!
-//! 框架 `alun-fs`（`fs-local` feature）的 `BackendRegistry` 以 `backend_type` 为键，
+//! 框架 `nik-fs`（`fs-local` feature）的 `BackendRegistry` 以 `backend_type` 为键，
 //! **同一种类型只能挂一个实例**，而本批次要求「两个 MinIO 桶 / 生产桶 + 备份桶」这类
 //! 多实例并存；同时框架没有**上传**预签名（只有下载）。
 //!
@@ -16,7 +16,7 @@
 //!
 //! # 为什么 S3 服务端 I/O 是手写 HTTP 而不是 `aws-sdk-s3`
 //!
-//! 项目铁律「`Cargo.toml` 只声明 `alun` 一个框架 crate」，而框架的 `fs-minio`
+//! 项目铁律「`Cargo.toml` 只声明 `nik` 一个框架 crate」，而框架的 `fs-minio`
 //! 与 `fs-local` **互斥**（同一个 `fs()` 全局单例）——开启 `fs-minio` 会把
 //! `support/file` 的本地后端顶掉，违反「不改底座」红线。因此 A2 直接复用
 //! [`crate::business::storage::sigv4`] 的签名实现 + `tokio` 的 TCP 自己发 HTTP/1.1：
@@ -35,8 +35,8 @@ use std::pin::Pin;
 use std::result::Result;
 use std::task::{Context, Poll};
 
-use alun::prelude::*;
 use async_trait::async_trait;
+use nik::prelude::*;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::net::TcpStream;
 
@@ -315,7 +315,7 @@ pub fn ensure_endpoint_allowed(endpoint: &str, use_tls: bool) -> Result<(), Stor
 
 /// 本地磁盘后端（与历史 `sys_file` 的存储目录兼容）。
 ///
-/// 根目录 = `alun::upload_path()`（即 `[upload].path`，默认 `uploads`）拼接
+/// 根目录 = `nik::upload_path()`（即 `[upload].path`，默认 `uploads`）拼接
 /// `sys_storage_config.base_path`，因此 `base_path=''` 时**历史文件零迁移**。
 #[derive(Debug, Clone)]
 pub struct LocalStore {
@@ -337,7 +337,7 @@ impl LocalStore {
     ///
     /// 本地后端实例。
     pub fn new(code: impl Into<String>, base_path: &str) -> Self {
-        let mut root = PathBuf::from(alun::upload_path());
+        let mut root = PathBuf::from(nik::upload_path());
         let trimmed = base_path.trim().trim_matches('/');
         if !trimmed.is_empty() {
             root.push(trimmed);

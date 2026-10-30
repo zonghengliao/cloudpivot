@@ -41,7 +41,7 @@
 //! `{domain}:{module}:list` 权限码，与列表接口同权限——能看列表的人本就该看到筛选
 //! 下拉与标签配色，无权访问该模块的人也不需要它的枚举。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::Serialize;
 use std::collections::BTreeMap;
 

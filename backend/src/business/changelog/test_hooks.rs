@@ -37,7 +37,7 @@
 //! 测试与探针本来就自己 `Db::connect()`，多传一个参数换来「模块内永不自开第二个事务」这条
 //! 可 grep 的不变量，值得。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::error_code;
 

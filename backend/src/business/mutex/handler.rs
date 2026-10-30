@@ -27,11 +27,11 @@
 //! 删除互斥规则是**放松**约束，不存在「删完才违规」的可能（架构 §4.2 校验点 3 的第 3 行）。
 //! 唯一的反向风险是「删错了」，那是审计与可恢复性的问题（软删 + 审计留痕），不是校验问题。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use std::net::SocketAddr;
 
 use crate::business::mutex::checker;
@@ -62,12 +62,12 @@ use crate::utils;
 ///
 /// - 400 + `10001`：`role_id` 不是合法 UUID / `status` 不是 0、1；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex/page",
     method = "GET",
     permission = "system:role-mutex:list"
 )]
-#[alun::get("/business/mutex/page")]
+#[nik::get("/business/mutex/page")]
 pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec<MutexRes>>> {
     let (page_no, page_size) = utils::normalize_page(query.page, query.page_size);
     let role_id = match utils::trimmed(query.role_id.as_deref()) {
@@ -120,12 +120,12 @@ pub async fn page(Query(query): Query<MutexPageQuery>) -> ResResult<PageData<Vec
 /// - 409 + `61011`：该对的互斥关系已存在（**含反向**，不是 500）；
 /// - 409 + `61010`：已有用户同时持有这两个角色（消息含用户数与示例用户名）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex",
     method = "POST",
     permission = "system:role-mutex:create"
 )]
-#[alun::post("/business/mutex")]
+#[nik::post("/business/mutex")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -217,12 +217,12 @@ pub async fn create(
 /// - 409 + `61011`：恢复启用时该对已有另一条生效规则；
 /// - 409 + `61010`：恢复启用时已有用户双持；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex/{id}",
     method = "PUT",
     permission = "system:role-mutex:create"
 )]
-#[alun::put("/business/mutex/{id}")]
+#[nik::put("/business/mutex/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -322,12 +322,12 @@ pub async fn update(
 /// - 400 + `10001`：ID 格式非法；
 /// - 404 + `10002`：规则不存在或已停用；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex/{id}",
     method = "DELETE",
     permission = "system:role-mutex:delete"
 )]
-#[alun::delete("/business/mutex/{id}")]
+#[nik::delete("/business/mutex/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -393,12 +393,12 @@ pub async fn delete(
 /// - 400 + `10001`：缺 `user_id` 或格式非法；
 /// - 404 + `10002`：用户不存在或已删除；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex/conflict",
     method = "GET",
     permission = "system:role-mutex:conflict"
 )]
-#[alun::get("/business/mutex/conflict")]
+#[nik::get("/business/mutex/conflict")]
 pub async fn conflict(Query(query): Query<MutexConflictQuery>) -> ResResult<MutexConflictRes> {
     let raw = utils::trimmed(query.user_id.as_deref()).ok_or_else(|| {
         ApiError::new(
@@ -436,12 +436,12 @@ pub async fn conflict(Query(query): Query<MutexConflictQuery>) -> ResResult<Mute
 /// # 异常情况
 ///
 /// - 500：数据库异常（扫描是只读接口，不落库）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/mutex/scan",
     method = "POST",
     permission = "system:role-mutex:conflict"
 )]
-#[alun::post("/business/mutex/scan")]
+#[nik::post("/business/mutex/scan")]
 pub async fn scan() -> ResResult<MutexScanRes> {
     let result = checker::scan()
         .await

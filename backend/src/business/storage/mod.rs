@@ -33,7 +33,7 @@ pub mod store;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use alun::prelude::ApiError;
+use nik::prelude::ApiError;
 
 use crate::business::storage::cipher::MasterKey;
 use crate::business::storage::router::StorageRouter;

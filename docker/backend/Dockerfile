@@ -1,8 +1,9 @@
 # 云枢通用后台系统 —— 后端镜像（容器内多阶段编译）
 #
 # 说明：
-#   * 后端通过 crates.io 依赖 Alun 框架发布版（alun 0.4.2），构建时由 cargo 自动拉取，
-#     无需本地框架源码，也不再需要 scripts/deploy.sh 暂存本地框架源码的步骤；
+#   * 后端依赖的是**仓库内 vendored 的 NIK 框架**（backend/vendor/nik*，fork 自 alun 0.4.2
+#     并改名，见 backend/vendor/README.md）：构建上下文里的 backend/vendor 会被 COPY 进去，
+#     cargo 直接按 path 依赖编译，**不再从 crates.io 拉 alun**；
 #   * 编译在容器内完成，产物为 Linux 二进制，与宿主机（macOS/Windows）无关。
 #
 # 构建（构建上下文须为 cloudpivot 项目根，含 backend/）：

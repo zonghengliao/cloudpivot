@@ -44,7 +44,7 @@
 //! 两者正交，都要过，顺序固定：
 //!
 //! ```text
-//! ① 框架 #[alun::permission("system:user:role")]   → 403 无权限码
+//! ① 框架 #[nik::permission("system:user:role")]   → 403 无权限码
 //! ② guard::ensure_role_grant_allowed(...)         → 403 越权（批次 A）
 //! ③ mutex::guard::ensure_no_mutex(...)            → 409 角色互斥（本模块）
 //! ④ 事务：replace_user_roles + 令牌版本自增 + 强制下线

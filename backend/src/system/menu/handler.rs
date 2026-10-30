@@ -6,9 +6,9 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::net::SocketAddr;
 
 use crate::shared::constants::{self, EnableStatus};
@@ -33,12 +33,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 参数非法返回 400，数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/system/menu/tree",
     method = "GET",
     permission = "system:menu:list"
 )]
-#[alun::get("/system/menu/tree")]
+#[nik::get("/system/menu/tree")]
 pub async fn tree(Query(query): Query<MenuQuery>) -> ResResult<Vec<MenuRes>> {
     // 仅「无任何过滤条件」时走缓存：带过滤的结果集不确定，缓存价值低且易漏失效
     let no_filter = query.name.is_none()
@@ -70,12 +70,12 @@ pub async fn tree(Query(query): Query<MenuQuery>) -> ResResult<Vec<MenuRes>> {
 ///
 /// - 400：ID 格式非法；
 /// - 404：菜单不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/system/menu/{id}",
     method = "GET",
     permission = "system:menu:list"
 )]
-#[alun::get("/system/menu/{id}")]
+#[nik::get("/system/menu/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<MenuRes> {
     let id = utils::require_uuid(&id, "id")?;
     let menu = SysMenuModel::find_or_none(db(), &id)
@@ -106,12 +106,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<MenuRes> {
 /// # 异常情况
 ///
 /// 参数非法返回 400，父菜单不存在返回 404，数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/system/menu",
     method = "POST",
     permission = "system:menu:create"
 )]
-#[alun::post("/system/menu")]
+#[nik::post("/system/menu")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -167,12 +167,12 @@ pub async fn create(
 /// - 404：菜单或父菜单不存在；
 /// - 409：把菜单挂到自身之下；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/menu/{id}",
     method = "PUT",
     permission = "system:menu:update"
 )]
-#[alun::put("/system/menu/{id}")]
+#[nik::put("/system/menu/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -263,12 +263,12 @@ pub async fn update(
 /// - 404：菜单不存在；
 /// - 409：存在子菜单；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/menu/{id}",
     method = "DELETE",
     permission = "system:menu:delete"
 )]
-#[alun::delete("/system/menu/{id}")]
+#[nik::delete("/system/menu/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,

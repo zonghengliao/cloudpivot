@@ -204,9 +204,9 @@ pub fn global_registry() -> &'static DefinitionRegistry {
 pub fn ensure_mode_allowed(
     allow_partial: bool,
     mode: ImportMode,
-) -> std::result::Result<ImportMode, alun::prelude::ApiError> {
+) -> std::result::Result<ImportMode, nik::prelude::ApiError> {
     if mode == ImportMode::Partial && !allow_partial {
-        return Err(alun::prelude::ApiError::new(
+        return Err(nik::prelude::ApiError::new(
             400,
             crate::shared::error_code::PARAM_INVALID,
             "该导入未开启「允许部分导入」，请使用 STRICT 模式",

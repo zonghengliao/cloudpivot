@@ -11,7 +11,7 @@
 //!
 //! 与底座约定一致：`*_Res` 里可空文本列下发空串（前端不判 null），可空时间保持 `Option`。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

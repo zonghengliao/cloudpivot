@@ -29,7 +29,7 @@
 
 use std::path::Path;
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::task::Scheduler;
 

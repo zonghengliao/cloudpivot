@@ -37,7 +37,7 @@
 //! 构造点）。调用方统一用 `system::user::model::find_user_type(&id)` 单查一列，
 //! 再交给本模块判定 —— 本模块不碰数据库，保证判定可单测。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::error_code;
 

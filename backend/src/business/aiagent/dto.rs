@@ -9,8 +9,8 @@
 //! - 创建时**要 SOUL.md 与职责**（这是「人格」，人类用户没有）；
 //! - 详情里带 `soul_path` / `workspace_path`，前端「保存前提示」需要真实路径。
 
-use alun::prelude::*;
-// 显式遮蔽 prelude 的 `Result<T>`（错误类型固定为 `alun::Error`）；本模块统一返回 `ApiError`
+use nik::prelude::*;
+// 显式遮蔽 prelude 的 `Result<T>`（错误类型固定为 `nik::Error`）；本模块统一返回 `ApiError`
 use serde::{Deserialize, Serialize};
 use std::result::Result;
 

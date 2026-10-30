@@ -26,8 +26,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use super::dto::{DeptBrief, DeptTreeNode, RoleScopeRes, ScopeSummary, SourceRole, TableCoverage};
 use crate::business::shared::principal::ScopedPrincipal;

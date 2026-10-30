@@ -24,8 +24,8 @@
 //! 不是操作者资格约束；超管双持同样让 SoD 失效。这是与批次 A `delegation cap` 的刻意差异
 //! （cap 对超管短路，互斥不对）。别在后续改动里"顺手"补一行超管短路——那会让整批白做。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::mutex::checker;
 use crate::business::mutex::model::{self, PairHit};

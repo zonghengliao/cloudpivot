@@ -27,8 +27,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
-use alun::prelude::*;
 use async_trait::async_trait;
+use nik::prelude::*;
 
 use crate::business::impexp::definition::{
     ColumnKind, DictTranslation, ErrorKind, FkSpec, ImportCtx, ImportDefinition, RowIssue,
@@ -611,7 +611,7 @@ pub async fn precheck(
 mod tests {
     use super::*;
     use crate::business::impexp::definition::{ColumnKind, EnumItem};
-    use alun::prelude::Export;
+    use nik::prelude::Export;
 
     /// 计数器型外键解析器：不连库，只如实记录被调用次数与收到的取值。
     struct CountingFkResolver {
@@ -730,7 +730,7 @@ mod tests {
         }
         async fn persist(
             &self,
-            _tx: &alun::prelude::Transaction,
+            _tx: &nik::prelude::Transaction,
             _rows: &[RowValues],
             _ctx: &ImportCtx,
         ) -> std::result::Result<usize, DbError> {

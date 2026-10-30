@@ -3,7 +3,7 @@
 //! 字段命名与前端契约 `frontend/src/api/system/role-api.ts` 严格对齐：可空文本列
 //! （`description` / `remark`）映射时统一下发为空串，`created_at` 保留原值下发。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

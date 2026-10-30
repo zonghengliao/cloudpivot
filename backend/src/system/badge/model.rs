@@ -44,8 +44,8 @@
 //! | `flow_todo` | `idx_biz_flow_task_mine (assignee_id, status, created_at DESC)` | 两个前导列即 `assignee_id + status` |
 //! | `task_todo` | `idx_biz_task_owner_status_due (owner_id, status, due_date)` | 前两列 `owner_id + status` 走 Index Cond，`created_at` 在索引项上做 Filter |
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::announcement;
@@ -151,7 +151,7 @@ pub async fn count_task_todo(user_id: Uuid) -> DbResult<i64> {
 /// # 为什么并发
 ///
 /// 四条 SQL 互不依赖，串行是 4 次 round-trip；`tokio::join!` 后总耗时 ≈ 最慢那条。
-/// `alun` 的 `Db` 是 `Arc<dyn RawExecutor>`（连接池），`&self` 方法可以直接并发调用，
+/// `nik` 的 `Db` 是 `Arc<dyn RawExecutor>`（连接池），`&self` 方法可以直接并发调用，
 /// 不需要 clone 连接、也不需要额外事务（读一致性对「徽标」这种弱一致场景没有要求）。
 ///
 /// 公告的受众（角色 / 部门）需要**先**查一次才能构造可见性谓词，所以它在 `join!` 之前。

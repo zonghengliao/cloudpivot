@@ -43,10 +43,10 @@ use std::process::Stdio;
 use std::sync::LazyLock;
 use std::time::Duration;
 
-use alun::prelude::*;
-// 显式遮蔽 prelude 的 `Result<T>`（那是 `alun::Result<T>`，错误类型固定为 `alun::Error`）：
+use nik::prelude::*;
+// 显式遮蔽 prelude 的 `Result<T>`（那是 `nik::Result<T>`，错误类型固定为 `nik::Error`）：
 // 本层对外统一返回 `ApiError`（HTTP 状态 + 业务码 + 对外消息），处理器才能直接 `?` 接住。
-// 显式 `use` 会优先于 `use alun::prelude::*` 的 glob 导入。
+// 显式 `use` 会优先于 `use nik::prelude::*` 的 glob 导入。
 use std::result::Result;
 use tokio::process::Command;
 

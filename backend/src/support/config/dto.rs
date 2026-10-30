@@ -3,7 +3,7 @@
 //! 字段命名与前端契约 `frontend/src/api/support/config-api.ts` 严格对齐：可空列在响应中统一归一为
 //! 非空字符串（`unwrap_or_default()`），时间字段按 ISO 8601 下发。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

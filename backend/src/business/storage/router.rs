@@ -2,7 +2,7 @@
 //!
 //! # 为什么路由在业务侧
 //!
-//! 框架 `alun-fs` 的 `BackendRegistry` 以 `backend_type` 为键，同类型只能一个实例；
+//! 框架 `nik-fs` 的 `BackendRegistry` 以 `backend_type` 为键，同类型只能一个实例；
 //! 本模块以 `config_code` 为键，支持两个 MinIO 桶、生产桶 + 备份桶并存。
 //!
 //! # 选路规则（与架构文档 §2.3 一致）
@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::storage::cipher::{self, MasterKey};
 use crate::business::storage::model::{SysStorageConfigModel, SysStoragePolicyModel};

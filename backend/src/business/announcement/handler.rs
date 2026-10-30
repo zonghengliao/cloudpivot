@@ -40,13 +40,13 @@
 //! 全部 7 个接口统一 `business:announcement:read`。该权限由 `V0087` 授予**所有**未软删角色
 //! （公告栏是人人可见的入口，只授超管等于没发公告）。
 
-use alun::prelude::*;
 use axum::Json;
 use axum::body::Body;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio_util::io::ReaderStream;
@@ -90,12 +90,12 @@ use crate::utils;
 /// - 401：令牌缺用户标识；
 /// - 403：无 `business:announcement:read`（`V0087` 已授予所有角色）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/visible",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/visible")]
+#[nik::get("/business/announcement/visible")]
 pub async fn visible(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<VisibleQuery>,
@@ -109,12 +109,12 @@ pub async fn visible(
 ///
 /// 票面把「兼容分页变体」列为交付项；架构文档的分页惯例是 `.../page` 后缀。
 /// 两者共用 [`page_visible`]，不存在第二套查询逻辑（避免「换个路径少一个条件」）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/visible/page",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/visible/page")]
+#[nik::get("/business/announcement/visible/page")]
 pub async fn visible_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<VisibleQuery>,
@@ -123,12 +123,12 @@ pub async fn visible_page(
 }
 
 /// 我的可见公告分页（架构 §2.8.1 别名：`/business/announcement/mine/page`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/mine/page",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/mine/page")]
+#[nik::get("/business/announcement/mine/page")]
 pub async fn mine_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<VisibleQuery>,
@@ -172,12 +172,12 @@ async fn page_visible(
 ///
 /// 未读 = 可见 ∧ 未过期 ∧ 无已读回执；与 `visible?only_unread=true` 的 `total` **恒等**
 /// （A-10 交叉断言）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/unread-count",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/unread-count")]
+#[nik::get("/business/announcement/unread-count")]
 pub async fn unread_count(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<UnreadCountRes> {
@@ -185,12 +185,12 @@ pub async fn unread_count(
 }
 
 /// 公告未读数（架构 §2.8.1 别名：`/business/announcement/mine/unread-count`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/mine/unread-count",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/mine/unread-count")]
+#[nik::get("/business/announcement/mine/unread-count")]
 pub async fn mine_unread_count(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<UnreadCountRes> {
@@ -217,12 +217,12 @@ async fn count_unread(claims: &TokenClaims) -> ResResult<UnreadCountRes> {
 /// - 404 + 62002：公告不存在 / 已软删；
 /// - 403 + 62005：未发布 / 已下线 / 已过有效期；
 /// - 403 + 62004：发布范围不含当前用户。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/{id}")]
+#[nik::get("/business/announcement/{id}")]
 pub async fn detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -231,12 +231,12 @@ pub async fn detail(
 }
 
 /// 公告详情（架构 §2.8.1 别名：`/business/announcement/mine/{id}`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/mine/{id}",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/mine/{id}")]
+#[nik::get("/business/announcement/mine/{id}")]
 pub async fn mine_detail(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -307,12 +307,12 @@ fn detail_html(row: &AnnouncementDetailRow) -> String {
 /// # 异常情况
 ///
 /// 同 [`detail`]（不可见的公告不允许写已读回执）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/read",
     method = "POST",
     permission = "business:announcement:read"
 )]
-#[alun::post("/business/announcement/{id}/read")]
+#[nik::post("/business/announcement/{id}/read")]
 pub async fn mark_read(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -321,12 +321,12 @@ pub async fn mark_read(
 }
 
 /// 标记单条已读（架构 §2.8.1 别名：`POST /business/announcement/mine/{id}/read`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/mine/{id}/read",
     method = "POST",
     permission = "business:announcement:read"
 )]
-#[alun::post("/business/announcement/mine/{id}/read")]
+#[nik::post("/business/announcement/mine/{id}/read")]
 pub async fn mine_mark_read(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -359,12 +359,12 @@ async fn announcement_read(claims: &TokenClaims, raw_id: &str) -> ResResult<Mark
 /// # 返回值
 ///
 /// `{ affected }`：本次新增的已读回执行数（重复调用为 0）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/read-all",
     method = "PUT",
     permission = "business:announcement:read"
 )]
-#[alun::put("/business/announcement/read-all")]
+#[nik::put("/business/announcement/read-all")]
 pub async fn read_all(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<ReadAllRes> {
@@ -372,12 +372,12 @@ pub async fn read_all(
 }
 
 /// 全部已读（架构 §2.8.1 别名：`PUT /business/announcement/mine/read-all`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/mine/read-all",
     method = "PUT",
     permission = "business:announcement:read"
 )]
-#[alun::put("/business/announcement/mine/read-all")]
+#[nik::put("/business/announcement/mine/read-all")]
 pub async fn mine_read_all(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<ReadAllRes> {
@@ -415,12 +415,12 @@ async fn mark_all_read(claims: &TokenClaims) -> ResResult<ReadAllRes> {
 ///
 /// 预签名 URL 的有效期内**任何人拿到都能下载**（无身份），而公告的可见性会变化
 /// （下线 / 过期 / 改范围）。代理接口每次请求都重新判定，语义正确（架构 §2.5.3 末段）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/attachment/{att_id}",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/{id}/attachment/{att_id}")]
+#[nik::get("/business/announcement/{id}/attachment/{att_id}")]
 pub async fn download_attachment(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, att_id)): Path<(String, String)>,
@@ -438,12 +438,12 @@ pub async fn download_attachment(
 /// 架构文档把路径参数叫 `file_id`，但**语义上是附件绑定行主键**（`sys_announcement_attachment.id`）：
 /// 只有绑定行 id 才能同时满足「属于这条公告」与「不暴露 `sys_file` 的内部 id」。
 /// 两个路径参数在这里按同一口径处理（`{file_id}` 视作 `att_id`）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/attachments/{file_id}/download",
     method = "GET",
     permission = "business:announcement:read"
 )]
-#[alun::get("/business/announcement/{id}/attachments/{file_id}/download")]
+#[nik::get("/business/announcement/{id}/attachments/{file_id}/download")]
 pub async fn download_attachment_alias(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path((id, file_id)): Path<(String, String)>,
@@ -740,12 +740,12 @@ async fn load_audience(user_id: &uuid::Uuid) -> std::result::Result<Audience, Ap
 ///
 /// - 400 + `10001`：状态 / 范围 / 级别取值非法、时间格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/page",
     method = "GET",
     permission = "business:announcement:list"
 )]
-#[alun::get("/business/announcement/page")]
+#[nik::get("/business/announcement/page")]
 pub async fn manage_page(
     Query(query): Query<ManagePageQuery>,
 ) -> ResResult<PageData<Vec<ManageCardRes>>> {
@@ -860,12 +860,12 @@ fn enum_param(
 /// - 400 + `62008`：有效期已过；
 /// - 400 + `60003`~`60006`：存储策略不允许该附件（大小 / 扩展名 / MIME）；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement",
     method = "POST",
     permission = "business:announcement:create"
 )]
-#[alun::post("/business/announcement")]
+#[nik::post("/business/announcement")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -975,12 +975,12 @@ pub async fn create(
 /// - 404 + `62002`：公告不存在 / 已软删；
 /// - 409 + `62009`：公告已发布（必须先下线，见 §2.8.3 校验表）；
 /// - 其余同 [`create`]。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}",
     method = "PUT",
     permission = "business:announcement:update"
 )]
-#[alun::put("/business/announcement/{id}")]
+#[nik::put("/business/announcement/{id}")]
 pub async fn update(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -1094,12 +1094,12 @@ pub async fn update(
 /// `sys_announcement_attachment` 没有 `deleted_at` 列（V0080 DDL 不在本卡可改范围）；
 /// 主体软删后附件行随可见性判定一起失效，`sys_file` 里的文件本体是共享资产不删
 /// （PRD §3.10「删除公告 → 附件关联软删；`sys_file` 里的文件不删」）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}",
     method = "DELETE",
     permission = "business:announcement:delete"
 )]
-#[alun::delete("/business/announcement/{id}")]
+#[nik::delete("/business/announcement/{id}")]
 pub async fn delete(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -1165,12 +1165,12 @@ pub async fn delete(
 /// - 400 + `62008`：有效期已过（重新发布前必须先改有效期）；
 /// - 400 + `62001`：正文为空（历史脏数据）；
 /// - 404 + `62002`：不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/publish",
     method = "POST",
     permission = "business:announcement:publish"
 )]
-#[alun::post("/business/announcement/{id}/publish")]
+#[nik::post("/business/announcement/{id}/publish")]
 pub async fn publish(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -1355,12 +1355,12 @@ pub const FANOUT_SKIPPED: &str = "SKIPPED";
 /// - 400 + `62009`：非已发布状态；
 /// - 400 + `10001`：`reason` 为空 / 超长；
 /// - 404 + `62002`：不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/offline",
     method = "POST",
     permission = "business:announcement:offline"
 )]
-#[alun::post("/business/announcement/{id}/offline")]
+#[nik::post("/business/announcement/{id}/offline")]
 pub async fn offline(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -1459,12 +1459,12 @@ fn require_offline_reason(raw: &str) -> std::result::Result<String, ApiError> {
 ///
 /// 编辑器打开新公告时正文就是空的，预览必须能返回空 HTML（而不是 400），
 /// 只给一条 `warnings` 提示 —— 这与「保存」时的强校验（空正文 → 62001）不冲突。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/preview",
     method = "POST",
     permission = "business:announcement:create"
 )]
-#[alun::post("/business/announcement/preview")]
+#[nik::post("/business/announcement/preview")]
 pub async fn preview(Json(req): Json<AnnouncementPreviewReq>) -> ResResult<AnnouncementPreviewRes> {
     let markdown = req.content_md.trim();
     if markdown.len() > dto::MAX_CONTENT_BYTES {
@@ -1538,12 +1538,12 @@ pub fn preview_warnings(markdown: &str, rendered: &content::Rendered) -> Vec<Str
 /// - 400 + `62001`：附件超 10 个 / 合计超 50MB / 扩展名为可执行类型；
 /// - 400 + `60003`~`60006`：存储策略不允许；
 /// - 409 + `62009`：公告已发布（先下线再改附件）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/attachment",
     method = "POST",
     permission = "business:announcement:update"
 )]
-#[alun::post("/business/announcement/{id}/attachment")]
+#[nik::post("/business/announcement/{id}/attachment")]
 pub async fn bind_attachment(
     Path(id): Path<String>,
     Json(req): Json<AnnouncementAttachmentBindReq>,
@@ -1625,12 +1625,12 @@ pub async fn bind_attachment(
 /// - 404 + `62002`：公告不存在；
 /// - 400 + `10001`：`state` 非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/readers",
     method = "GET",
     permission = "business:announcement:list"
 )]
-#[alun::get("/business/announcement/{id}/readers")]
+#[nik::get("/business/announcement/{id}/readers")]
 pub async fn readers(
     Path(id): Path<String>,
     Query(query): Query<ReadersQuery>,
@@ -1639,12 +1639,12 @@ pub async fn readers(
 }
 
 /// 阅读统计（架构 §2.8.2 的路径名；与 [`readers`] 同源同实现）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/read-stats",
     method = "GET",
     permission = "business:announcement:list"
 )]
-#[alun::get("/business/announcement/{id}/read-stats")]
+#[nik::get("/business/announcement/{id}/read-stats")]
 pub async fn read_stats(
     Path(id): Path<String>,
     Query(query): Query<ReadersQuery>,
@@ -1700,12 +1700,12 @@ impl From<ReaderState> for ReaderStateFilter {
 /// - 404 + `62002`：不存在；
 /// - 400 + `62007`：置顶缺 `top_expire_at` 或时间已过；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/top",
     method = "PUT",
     permission = "business:announcement:update"
 )]
-#[alun::put("/business/announcement/{id}/top")]
+#[nik::put("/business/announcement/{id}/top")]
 pub async fn set_top(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1715,12 +1715,12 @@ pub async fn set_top(
 }
 
 /// 置顶 / 取消置顶（架构 §2.8.2 的动词是 `POST`，同一实现）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/top",
     method = "POST",
     permission = "business:announcement:update"
 )]
-#[alun::post("/business/announcement/{id}/top")]
+#[nik::post("/business/announcement/{id}/top")]
 pub async fn set_top_alias(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
@@ -1773,12 +1773,12 @@ async fn set_top_inner(
 ///
 /// - 404 + `62002`：不存在 / 已软删；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/announcement/{id}/manage",
     method = "GET",
     permission = "business:announcement:list"
 )]
-#[alun::get("/business/announcement/{id}/manage")]
+#[nik::get("/business/announcement/{id}/manage")]
 pub async fn manage_detail(Path(id): Path<String>) -> ResResult<AnnouncementManageDetailRes> {
     let announcement_id = utils::require_uuid(&id, "id")?;
     let row = require_manage(&announcement_id).await?;

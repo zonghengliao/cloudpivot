@@ -2,7 +2,7 @@
 //!
 //! # 为什么需要
 //!
-//! 框架的 `#[alun::permission]` 只回答「操作者有没有这个权限码」，不回答
+//! 框架的 `#[nik::permission]` 只回答「操作者有没有这个权限码」，不回答
 //! 「操作者有没有资格动这个对象 / 授予这个角色」。两者在用户管理里被压成同一级
 //! 权限，于是存在三条提权路径（安全审计 P1）：
 //!
@@ -42,7 +42,7 @@
 //! [`ensure_role_grant_allowed`]：改角色 / 建号传 `role_ids`，
 //! 改密 / 改资料 / 启停 / 删除传空切片 + `Some(target_id)`。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::{constants, error_code};
 use crate::system::user::model::{self, SysUserModel, SysUserRoleModel};

@@ -7,16 +7,16 @@
 //!
 //! # 加密存储说明
 //!
-//! `is_encrypted = true` 时，写入前用 [`alun_utils::Crypto`]（AES-256-GCM）加密
+//! `is_encrypted = true` 时，写入前用 [`nik_utils::Crypto`]（AES-256-GCM）加密
 //! `config_value`，读取 / 列表 / 详情 / 按键取值时统一解密后下发；密钥由环境变量
 //! [`crate::shared::constants::ENV_CONFIG_SECRET_KEY`] 注入，未配置时加密写入返回
 //! 500，绝不静默明文落库。加解密实现集中在 [`crate::support::config::model`]。
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -43,8 +43,8 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::no_auth("/support/config/public")]
-#[alun::get("/support/config/public")]
+#[nik::no_auth("/support/config/public")]
+#[nik::get("/support/config/public")]
 pub async fn public() -> ResResult<HashMap<String, String>> {
     // 公共参数是高频匿名访问点：进程内快照命中时零 IO，且免去一次缓存往返
     if let Some(snapshot) = model::runtime_snapshot() {
@@ -93,12 +93,12 @@ pub async fn public() -> ResResult<HashMap<String, String>> {
 /// # 异常情况
 ///
 /// 状态值非法返回 400，数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/page",
     method = "GET",
     permission = "support:config:list"
 )]
-#[alun::get("/support/config/page")]
+#[nik::get("/support/config/page")]
 pub async fn page(Query(query): Query<ConfigPageQuery>) -> ResResult<PageData<Vec<ConfigRes>>> {
     let (page, page_size) = utils::normalize_page(query.page, query.page_size);
     let status = query.status.map(EnableStatus::from_i16).transpose()?;
@@ -144,12 +144,12 @@ pub async fn page(Query(query): Query<ConfigPageQuery>) -> ResResult<PageData<Ve
 ///
 /// - 400：ID 格式非法；
 /// - 404：系统参数不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/{id}",
     method = "GET",
     permission = "support:config:list"
 )]
-#[alun::get("/support/config/{id}")]
+#[nik::get("/support/config/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<ConfigRes> {
     let id = utils::require_uuid(&id, "id")?;
     let config = SysConfigModel::find_or_none(db(), &id)
@@ -182,12 +182,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<ConfigRes> {
 /// - 400：参数非法；
 /// - 409：配置键已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config",
     method = "POST",
     permission = "support:config:create"
 )]
-#[alun::post("/support/config")]
+#[nik::post("/support/config")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -260,12 +260,12 @@ pub async fn create(
 /// - 404：系统参数不存在；
 /// - 409：配置键与他人重复；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/{id}",
     method = "PUT",
     permission = "support:config:update"
 )]
-#[alun::put("/support/config/{id}")]
+#[nik::put("/support/config/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -358,12 +358,12 @@ pub async fn update(
 /// - 400：ID 格式非法；
 /// - 404：系统参数不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/{id}",
     method = "DELETE",
     permission = "support:config:delete"
 )]
-#[alun::delete("/support/config/{id}")]
+#[nik::delete("/support/config/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -422,12 +422,12 @@ pub async fn delete(
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/value/{config_key}",
     method = "GET",
     permission = "support:config:list"
 )]
-#[alun::get("/support/config/value/{config_key}")]
+#[nik::get("/support/config/value/{config_key}")]
 pub async fn value(Path(config_key): Path<String>) -> ResResult<Option<String>> {
     // 进程内快照命中时零 IO：这是参数读取得最多的入口（前端多处直接取值）
     if let Some(snapshot) = model::runtime_snapshot() {
@@ -465,12 +465,12 @@ pub async fn value(Path(config_key): Path<String>) -> ResResult<Option<String>> 
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/reload",
     method = "POST",
     permission = "support:config:update"
 )]
-#[alun::post("/support/config/reload")]
+#[nik::post("/support/config/reload")]
 pub async fn reload() -> ResResult<Vec<String>> {
     model::reload_runtime_snapshot()
         .await
@@ -496,12 +496,12 @@ pub async fn reload() -> ResResult<Vec<String>> {
 /// # 返回值
 ///
 /// 统一响应体，`data` 为「枚举名 → 枚举项数组」，结构见 [`crate::shared::enums`]。
-#[alun::permission(
+#[nik::permission(
     path = "/support/config/enums",
     method = "GET",
     permission = "support:config:list"
 )]
-#[alun::get("/support/config/enums")]
+#[nik::get("/support/config/enums")]
 pub async fn enums() -> Res<crate::shared::enums::EnumsRes> {
     Res::ok(crate::support::config::model::enums())
 }

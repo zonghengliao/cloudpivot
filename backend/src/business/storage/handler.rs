@@ -27,11 +27,11 @@
 //!
 //! 路由方法在前，公共辅助函数在后（与底座其它 handler 一致）。
 
-use alun::prelude::*;
 use axum::body::Body;
 use axum::extract::{ConnectInfo, Multipart};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use nik::prelude::*;
 use tokio_util::io::ReaderStream;
 
 use std::net::SocketAddr;
@@ -74,12 +74,12 @@ use crate::utils;
 /// - 400：状态值非法；
 /// - 403：无 `business:storage:config:list`；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/page",
     method = "GET",
     permission = "business:storage:config:list"
 )]
-#[alun::get("/business/storage/config/page")]
+#[nik::get("/business/storage/config/page")]
 pub async fn config_page(
     Query(query): Query<StorageConfigPageQuery>,
 ) -> ResResult<PageData<Vec<StorageConfigRes>>> {
@@ -119,12 +119,12 @@ pub async fn config_page(
 ///
 /// - 400：ID 格式非法；
 /// - 404：配置不存在。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/{id}",
     method = "GET",
     permission = "business:storage:config:list"
 )]
-#[alun::get("/business/storage/config/{id}")]
+#[nik::get("/business/storage/config/{id}")]
 pub async fn config_detail(Path(id): Path<String>) -> ResResult<StorageConfigRes> {
     let id = utils::require_uuid(&id, "id")?;
     let config = SysStorageConfigModel::find_or_none(db(), &id)
@@ -153,12 +153,12 @@ pub async fn config_detail(Path(id): Path<String>) -> ResResult<StorageConfigRes
 /// - 400：编码格式非法 / 本地后端带凭据 / 只给了半个凭据 / endpoint 指向内网；
 /// - 409：编码已存在；
 /// - 500：主密钥缺失（无法加密）或数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config",
     method = "POST",
     permission = "business:storage:config:create"
 )]
-#[alun::post("/business/storage/config")]
+#[nik::post("/business/storage/config")]
 pub async fn config_create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -239,12 +239,12 @@ pub async fn config_create(
 /// - 400：试图修改编码 / 后端类型与现有凭据冲突 / endpoint 指向内网；
 /// - 404：配置不存在；
 /// - 500：主密钥缺失或数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/{id}",
     method = "PUT",
     permission = "business:storage:config:update"
 )]
-#[alun::put("/business/storage/config/{id}")]
+#[nik::put("/business/storage/config/{id}")]
 pub async fn config_update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -320,12 +320,12 @@ pub async fn config_update(
 ///
 /// - 404：配置不存在；
 /// - 409：默认后端不可删除 / 仍被文件记录引用。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/{id}",
     method = "DELETE",
     permission = "business:storage:config:delete"
 )]
-#[alun::delete("/business/storage/config/{id}")]
+#[nik::delete("/business/storage/config/{id}")]
 pub async fn config_delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -394,12 +394,12 @@ pub async fn config_delete(
 ///
 /// - 404：配置不存在；
 /// - 409：配置已停用（60002）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/{id}/default",
     method = "POST",
     permission = "business:storage:config:update"
 )]
-#[alun::post("/business/storage/config/{id}/default")]
+#[nik::post("/business/storage/config/{id}/default")]
 pub async fn config_set_default(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -455,12 +455,12 @@ pub async fn config_set_default(
 ///
 /// - 404：配置不存在；
 /// - 500：主密钥缺失（S3 后端无法解密凭据）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/config/{id}/test",
     method = "POST",
     permission = "business:storage:config:test"
 )]
-#[alun::post("/business/storage/config/{id}/test")]
+#[nik::post("/business/storage/config/{id}/test")]
 pub async fn config_test(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -547,12 +547,12 @@ pub async fn config_test(
 ///
 /// - 400：状态值非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/policy/page",
     method = "GET",
     permission = "business:storage:policy:list"
 )]
-#[alun::get("/business/storage/policy/page")]
+#[nik::get("/business/storage/policy/page")]
 pub async fn policy_page(
     Query(query): Query<StoragePolicyPageQuery>,
 ) -> ResResult<PageData<Vec<StoragePolicyRes>>> {
@@ -590,12 +590,12 @@ pub async fn policy_page(
 /// - 400：配置值非法（大小 0 / TTL 越界 / 扩展名带点）；
 /// - 404：策略不存在；
 /// - 422：`storage_code` 指向不存在的后端。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/policy/{id}",
     method = "PUT",
     permission = "business:storage:policy:update"
 )]
-#[alun::put("/business/storage/policy/{id}")]
+#[nik::put("/business/storage/policy/{id}")]
 pub async fn policy_update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -715,12 +715,12 @@ pub const HASH_VERIFY_MAX_BYTES: u64 = 8 * 1024 * 1024;
 /// - 422：超过策略大小上限；
 /// - 409：策略指定的后端不可用；
 /// - 500 / 502：落对象或入库失败（对象失败时回滚：不插行）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/upload",
     method = "POST",
     permission = "business:storage:upload"
 )]
-#[alun::post("/business/storage/upload")]
+#[nik::post("/business/storage/upload")]
 pub async fn upload(
     Query(query): Query<StorageUploadQuery>,
     headers: HeaderMap,
@@ -733,7 +733,7 @@ pub async fn upload(
     // ② 再用 `Content-Length` 做**读流之前**的大小校验；
     // ③ 最后才读 multipart。
     //
-    // 框架的 `DefaultBodyLimit`（由 `[upload].max_size_mb` 推导，见 alun-web
+    // 框架的 `DefaultBodyLimit`（由 `[upload].max_size_mb` 推导，见 nik-web
     // `app.rs`「请求体上限就绪」）会在读取 body 的过程中掐断超限请求，此时
     // `field.bytes()` 只会给出一个笼统的读取错误 —— 若把策略校验放在读完之后，
     // 用户看到的永远是「上传文件内容读取失败 / 10006」而不是「超过分类上限」。
@@ -789,12 +789,12 @@ pub async fn upload(
 /// - 400：策略不允许该扩展名 / MIME；
 /// - 409：目标后端不可用；
 /// - 422：超大小上限、该分类未开直传、或后端是本地磁盘（无法直传）。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/presign",
     method = "POST",
     permission = "business:storage:upload"
 )]
-#[alun::post("/business/storage/presign")]
+#[nik::post("/business/storage/presign")]
 pub async fn presign(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -899,12 +899,12 @@ pub async fn presign(
 /// - 404：对象不存在（直传没真正完成）；
 /// - 422：大小 / 哈希与声明不一致；
 /// - 409：后端不可用。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/complete",
     method = "POST",
     permission = "business:storage:upload"
 )]
-#[alun::post("/business/storage/complete")]
+#[nik::post("/business/storage/complete")]
 pub async fn complete(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -1019,12 +1019,12 @@ pub async fn complete(
 /// # 异常情况
 ///
 /// 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/file/page",
     method = "GET",
     permission = "business:storage:list"
 )]
-#[alun::get("/business/storage/file/page")]
+#[nik::get("/business/storage/file/page")]
 pub async fn file_page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<StorageFilePageQuery>,
@@ -1071,12 +1071,12 @@ pub async fn file_page(
 /// - 404：记录不存在 / 已软删 / 物理对象丢失（**不泄露对象是否存在**）；
 /// - 409：记录所在后端已停用；
 /// - 502：远端后端访问失败。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/download/{file_id}",
     method = "GET",
     permission = "business:storage:download"
 )]
-#[alun::get("/business/storage/download/{file_id}")]
+#[nik::get("/business/storage/download/{file_id}")]
 pub async fn download(Path(file_id): Path<String>) -> Response {
     match download_response(&file_id).await {
         Ok(response) => response,
@@ -1095,12 +1095,12 @@ pub async fn download(Path(file_id): Path<String>) -> Response {
 ///
 /// - 404：记录不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/{file_id}",
     method = "DELETE",
     permission = "business:storage:delete"
 )]
-#[alun::delete("/business/storage/{file_id}")]
+#[nik::delete("/business/storage/{file_id}")]
 pub async fn remove(
     Path(file_id): Path<String>,
     headers: HeaderMap,
@@ -1157,12 +1157,12 @@ pub async fn remove(
 /// - 404：原记录不存在；
 /// - 409：原记录所在后端已停用；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/business/storage/{file_id}/rebind",
     method = "POST",
     permission = "business:storage:upload"
 )]
-#[alun::post("/business/storage/{file_id}/rebind")]
+#[nik::post("/business/storage/{file_id}/rebind")]
 pub async fn rebind(
     Path(file_id): Path<String>,
     headers: HeaderMap,
@@ -1692,7 +1692,7 @@ fn build_object_key(original_name: &str) -> String {
 /// 读取一律以 `file_key` + 后端根为准，`storage_path` 仅供排查。
 fn storage_path_for(backend: &dyn ObjectStore, file_key: &str) -> Option<String> {
     if backend.backend_type() == "LOCAL" {
-        Some(format!("{}/{}", alun::upload_path(), file_key))
+        Some(format!("{}/{}", nik::upload_path(), file_key))
     } else {
         Some(file_key.to_string())
     }
@@ -1856,7 +1856,7 @@ pub(crate) async fn store_server_upload(
 }
 
 /// 服务端上传的单文件上限（字节）：与框架 `DefaultBodyLimit` 同源
-/// （alun-web `app.rs` 用 `[upload].max_size_mb` 推导请求体硬顶）。
+/// （nik-web `app.rs` 用 `[upload].max_size_mb` 推导请求体硬顶）。
 ///
 /// # 返回值
 ///

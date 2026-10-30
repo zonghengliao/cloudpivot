@@ -39,12 +39,12 @@
 use std::net::SocketAddr;
 use std::time::Instant;
 
-use alun::prelude::*;
 use axum::body::{Body, HttpBody};
 use axum::extract::{ConnectInfo, Request};
 use axum::http::{HeaderMap, header};
 use axum::middleware::Next;
 use axum::response::Response;
+use nik::prelude::*;
 
 use crate::shared::constants;
 use crate::support::log::bus;
@@ -282,7 +282,7 @@ fn is_capturable_len(len: Option<u64>) -> bool {
 /// 合法 UTF-8 JSON 返回脱敏后的 [`JsonValue`]；否则返回 `None`。
 fn parse_and_mask(bytes: &[u8]) -> Option<JsonValue> {
     let value: JsonValue = serde_json::from_slice(bytes).ok()?;
-    Some(alun_utils::mask::mask_json_value(value, SENSITIVE_FIELDS))
+    Some(nik_utils::mask::mask_json_value(value, SENSITIVE_FIELDS))
 }
 
 /// 从请求路径中提取操作对象 ID。

@@ -30,7 +30,7 @@
 //! 必须由 [`crate::task::Scheduler::register_builtin`] 注册（框架调度器对注册表做一次性
 //! 快照，写在 `bootstrap.rs` 里会被随后的 `reload()` 清空 —— A1 已踩过）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::notice::model::{ChannelSettings, Executor};
 use crate::business::notice::sse_hub;

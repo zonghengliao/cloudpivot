@@ -22,8 +22,8 @@
 //! `ck_sys_change_log_source` / `ck_sys_change_log_action` 约束。枚举在这里封闭，
 //! 调用方无法拼出 `"HACK"` 这类脏值——数据库 CHECK 是最后一道，编译器是第一道。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 /// 变更来源（`sys_change_log.trace_source`）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

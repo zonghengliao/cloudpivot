@@ -6,9 +6,9 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 
@@ -44,12 +44,12 @@ use crate::utils;
 ///
 /// - 400：分页或部门 ID 参数非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/page",
     method = "GET",
     permission = "system:user:list"
 )]
-#[alun::get("/system/user/page")]
+#[nik::get("/system/user/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<UserPageQuery>,
@@ -148,12 +148,12 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}",
     method = "GET",
     permission = "system:user:list"
 )]
-#[alun::get("/system/user/{id}")]
+#[nik::get("/system/user/{id}")]
 pub async fn detail(
     Path(id): Path<String>,
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
@@ -212,12 +212,12 @@ pub async fn detail(
 /// - 403：无权授予超级管理员角色（权限上限，见 [`guard`]）；
 /// - 409：用户名已存在；
 /// - 500：密码加密或数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user",
     method = "POST",
     permission = "system:user:create"
 )]
-#[alun::post("/system/user")]
+#[nik::post("/system/user")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -343,12 +343,12 @@ pub async fn create(
 /// - 403：无权操作超级管理员账号（权限上限，见 [`guard`]）；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}",
     method = "PUT",
     permission = "system:user:update"
 )]
-#[alun::put("/system/user/{id}")]
+#[nik::put("/system/user/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -491,12 +491,12 @@ pub async fn update(
 /// - 404：用户不存在；
 /// - 409：目标为内置管理员账号；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}",
     method = "DELETE",
     permission = "system:user:delete"
 )]
-#[alun::delete("/system/user/{id}")]
+#[nik::delete("/system/user/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -601,12 +601,12 @@ pub async fn delete(
 ///
 /// 停用用户会强制下线其全部在线令牌（JWT 权限在签发时固化，需主动拉黑），
 /// 避免被停用账号仍可凭旧令牌访问。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}/status",
     method = "PATCH",
     permission = "system:user:status"
 )]
-#[alun::patch("/system/user/{id}/status")]
+#[nik::patch("/system/user/{id}/status")]
 pub async fn change_status(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -712,12 +712,12 @@ pub async fn change_status(
 ///
 /// 写入 `password_change_logs`（`RESET`，操作者为管理员或本人）与 `audit_logs`
 /// （`USER_PASSWORD_RESET`）；写入失败不影响改密结果。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}/password",
     method = "PATCH",
     permission = "system:user:password"
 )]
-#[alun::patch("/system/user/{id}/password")]
+#[nik::patch("/system/user/{id}/password")]
 pub async fn change_password(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -807,12 +807,12 @@ pub async fn change_password(
 /// - 400：ID 格式非法；
 /// - 404：用户不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}/roles",
     method = "GET",
     permission = "system:user:list"
 )]
-#[alun::get("/system/user/{id}/roles")]
+#[nik::get("/system/user/{id}/roles")]
 pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
     let id = utils::require_uuid(&id, "id")?;
     load_user(&id).await?;
@@ -858,12 +858,12 @@ pub async fn roles(Path(id): Path<String>) -> ResResult<Vec<String>> {
 ///
 /// 角色变化直接改变用户权限，成功后强制下线该用户全部在线令牌，令其重新登录
 /// 获取最新权限。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/{id}/roles",
     method = "PUT",
     permission = "system:user:role"
 )]
-#[alun::put("/system/user/{id}/roles")]
+#[nik::put("/system/user/{id}/roles")]
 pub async fn assign_roles(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -950,12 +950,12 @@ pub async fn assign_roles(
 /// - 400：用户 ID 或部门 ID 格式非法、未选择用户；
 /// - 404：目标部门不存在；
 /// - 500：数据库异常（事务回滚）。
-#[alun::permission(
+#[nik::permission(
     path = "/system/user/batch-dept",
     method = "PUT",
     permission = "system:user:update"
 )]
-#[alun::put("/system/user/batch-dept")]
+#[nik::put("/system/user/batch-dept")]
 pub async fn batch_update_dept(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,

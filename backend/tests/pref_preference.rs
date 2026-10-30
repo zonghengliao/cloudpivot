@@ -29,9 +29,9 @@
 //! 固定 UUID + `pref_` 前缀用户名：开头 DELETE 一次、结尾 DELETE 一次，
 //! 只删自己插入的行，重复跑不积累垃圾。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use cloudpivot::system::preference::{dto::UpdatePreferenceReq, model};
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde_json::json;
 use std::collections::BTreeMap;
 

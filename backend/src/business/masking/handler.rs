@@ -25,11 +25,11 @@
 //!
 //! 写成功后一律 `model::invalidate_all()`：规则是全局配置，改一条会影响所有用户。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
 use axum::Json;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use std::net::SocketAddr;
 
 use crate::business::masking::dto::{
@@ -63,12 +63,12 @@ static IDENT_RE: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(||
 /// # 异常情况
 ///
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask/page",
     method = "GET",
     permission = "system:field-mask:list"
 )]
-#[alun::get("/system/field-mask/page")]
+#[nik::get("/system/field-mask/page")]
 pub async fn page(
     Query(query): Query<FieldMaskPageQuery>,
 ) -> ResResult<PageData<Vec<FieldMaskRes>>> {
@@ -105,12 +105,12 @@ pub async fn page(
 /// - 404 + `10002`：角色不存在；404 + `61006`：表或列不存在；
 /// - 409：同 `(表, 列, 角色)` 的规则已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask",
     method = "POST",
     permission = "system:field-mask:create"
 )]
-#[alun::post("/system/field-mask")]
+#[nik::post("/system/field-mask")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -246,12 +246,12 @@ pub async fn create(
 /// - 400 + `10001`：ID 格式非法；400 + `61005`/`422 + 61007`：类型或参数非法；
 /// - 404 + `10002`：规则不存在或已删除；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask/{id}",
     method = "PUT",
     permission = "system:field-mask:update"
 )]
-#[alun::put("/system/field-mask/{id}")]
+#[nik::put("/system/field-mask/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -334,12 +334,12 @@ pub async fn update(
 /// # 异常情况
 ///
 /// - 400 + `10001`：ID 格式非法；404 + `10002`：规则不存在或已删除；500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask/{id}",
     method = "DELETE",
     permission = "system:field-mask:delete"
 )]
-#[alun::delete("/system/field-mask/{id}")]
+#[nik::delete("/system/field-mask/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -399,12 +399,12 @@ pub async fn delete(
 /// # 异常情况
 ///
 /// - 400 + `61005`：类型或参数非法；422 + `61007`：正则非法。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask/preview",
     method = "GET",
     permission = "system:field-mask:list"
 )]
-#[alun::get("/system/field-mask/preview")]
+#[nik::get("/system/field-mask/preview")]
 pub async fn preview(Query(query): Query<MaskPreviewQuery>) -> ResResult<MaskPreviewRes> {
     let ty = MaskType::from_i16(query.mask_type).ok_or_else(|| {
         ApiError::new(
@@ -443,12 +443,12 @@ pub async fn preview(Query(query): Query<MaskPreviewQuery>) -> ResResult<MaskPre
 /// # 异常情况
 ///
 /// - 400 + `10001`：`user_id` 格式非法；404 + `10002`：用户不存在；500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/field-mask/effective",
     method = "GET",
     permission = "system:field-mask:list"
 )]
-#[alun::get("/system/field-mask/effective")]
+#[nik::get("/system/field-mask/effective")]
 pub async fn effective(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<EffectiveMaskQuery>,

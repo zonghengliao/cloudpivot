@@ -4,7 +4,7 @@
 //! （`real_name` / `email` / `mobile` / 部门名 / `remark`）映射时统一下发为空串，
 //! 时间字段保留可空下发（前端自行渲染为 `-`）。
 
-use alun::prelude::*;
+use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 use validator::Validate;
 

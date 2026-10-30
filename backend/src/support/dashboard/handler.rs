@@ -3,7 +3,7 @@
 //! 概览是**只读的旁路读接口**：不写任何表、不加锁，全部走聚合查询；在线用户数来自缓存
 //! （见 [`crate::support::online::model`]），失败只记日志并降级为 0，不影响首页可用。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::constants;
 use crate::support::dashboard::dto::OverviewRes;
@@ -27,12 +27,12 @@ use crate::utils;
 ///
 /// - 500：数据库聚合查询失败；
 /// - 500：读取在线会话（缓存）失败（此时其余指标照常返回，在线数降为 0）。
-#[alun::permission(
+#[nik::permission(
     path = "/support/dashboard/overview",
     method = "GET",
     permission = "support:dashboard:list"
 )]
-#[alun::get("/support/dashboard/overview")]
+#[nik::get("/support/dashboard/overview")]
 pub async fn overview() -> ResResult<OverviewRes> {
     if let Some(store) = try_cache()
         && let Some(cached) =

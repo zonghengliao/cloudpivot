@@ -26,8 +26,8 @@
 //! 走 [`scope::paginate_unscoped`]（显式声明 unscoped），而不是 `scope::paginate`。
 //! 谁想看某部门，就在请求里传 `operator_dept_id`。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
 use crate::business::changelog::diff;

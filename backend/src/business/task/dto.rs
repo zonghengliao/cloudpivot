@@ -5,7 +5,7 @@
 //!
 //! # 命名与格式约定（与批次 A/B/C 一致，前端不为任务管理单独适配）
 //!
-//! - 主键 / 外键一律 `String`（`alun::uuid::Uuid` 没有 serde，序列化不了）；
+//! - 主键 / 外键一律 `String`（`nik::uuid::Uuid` 没有 serde，序列化不了）；
 //! - 日期字段一律 `chrono::NaiveDate`，JSON 形态是 `"2026-10-30"`（`DATE` 列，无时区）；
 //! - 时间戳字段一律 `chrono::DateTime<Utc>`，JSON 形态是 RFC3339（`TIMESTAMPTZ` 列）；
 //! - 枚举一律大写字符串（`TODO` / `P2` / `SELF`），与库里的 CHECK 约束逐字一致 ——
@@ -18,7 +18,7 @@
 //! 这条规则在公告（批次 C）上踩过一次坑：「漏传 = 清空」会把截止日默默抹掉，
 //! 任务列表的逾期分组会当场错乱，所以这里从一开始就用双重 Option。
 
-use alun::prelude::chrono::{self, NaiveDate};
+use nik::prelude::chrono::{self, NaiveDate};
 use serde::{Deserialize, Deserializer, Serialize};
 
 // ==================== 常量与枚举取值 ====================
@@ -78,7 +78,7 @@ pub const MAX_MEMBERS_PER_TASK: i64 = 50;
 ///
 /// **它不走中间件硬校验**，而是 handler 里的「加项」：创建人 / 当前负责人 / 分派人
 /// 这三类**行级关系**天然可派，权限码只解决「管理员 / AI 主管要能跨任务派活」。
-/// 若把它写成 `#[alun::permission(...)]`，创建人（没有这个码）会被中间件挡在门外。
+/// 若把它写成 `#[nik::permission(...)]`，创建人（没有这个码）会被中间件挡在门外。
 /// 读权限码（详情 / 评论 / 附件的人类侧入口闸）。
 ///
 /// T5b 把详情端点纳入「任务令牌白名单」后，权限层不再覆盖该路径，

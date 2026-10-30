@@ -26,9 +26,9 @@
 
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use alun::prelude::*;
 use cloudpivot::business::impexp::model::{self, NewExportTask};
 use cloudpivot::business::impexp::{cleanup, worker};
+use nik::prelude::*;
 
 /// 初始化全局数据库（进程内只初始化一次）。
 ///
@@ -45,8 +45,8 @@ async fn ensure_db() -> bool {
                 return false;
             };
             if try_db().is_none() {
-                // 注意：`alun::prelude::db()` 是 **alun-web 的资源层**（`resources::set_db`），
-                // 与 `alun_db::init()` 的全局不是同一个 OnceLock。集成测试没有 `App::start()`，
+                // 注意：`nik::prelude::db()` 是 **nik-web 的资源层**（`resources::set_db`），
+                // 与 `nik_db::init()` 的全局不是同一个 OnceLock。集成测试没有 `App::start()`，
                 // 因此要自己连一个 `Db` 再 `set_db()` 注册进去，否则会 panic「数据库未初始化」。
                 match Db::connect(&url).await {
                     Ok(connection) => {

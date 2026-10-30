@@ -24,9 +24,9 @@
 //! 本文件里 `FROM biz_project` / `FROM biz_project_member` 的每个查询都经
 //! `scope::paginate` 或 `scope::filter_for`（片段拼进 SQL），因此门禁命中「已接入」。
 
-use alun::prelude::chrono::NaiveDate;
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::chrono::NaiveDate;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

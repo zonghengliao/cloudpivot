@@ -55,7 +55,7 @@
 //! **`TRANSITIONS` 依旧一行没动**：`FlowCallback` 借的是表项里的副作用（进度 / `done_at`），
 //! 不是给自己加了一条流转。
 
-use alun::uuid::Uuid;
+use nik::uuid::Uuid;
 
 // ==================== 状态枚举 ====================
 
@@ -176,7 +176,7 @@ impl Actor {
 /// HTTP handler 一律传 [`ActorKind::User`]，**不许从请求体 / 请求头里读这个值**。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ActorKind {
-    /// 人类（HTTP 请求，走 `#[alun::permission]` 的那条链）。
+    /// 人类（HTTP 请求，走 `#[nik::permission]` 的那条链）。
     User,
     /// 流程引擎回调（审批单落终态后自动推进任务）。
     FlowCallback,

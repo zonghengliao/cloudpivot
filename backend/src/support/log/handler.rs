@@ -6,7 +6,7 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal;
 use crate::shared::constants;
@@ -31,12 +31,12 @@ use crate::utils;
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/page",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/page")]
+#[nik::get("/support/log/page")]
 pub async fn page(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
@@ -78,12 +78,12 @@ pub async fn page(
 /// - 400：ID 格式非法；
 /// - 404：日志不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/{id}",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/{id}")]
+#[nik::get("/support/log/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<LogDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let log = OperationLogModel::find_or_none(db(), &id)
@@ -107,12 +107,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<LogDetailRes> {
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/clean",
     method = "DELETE",
     permission = "support:log:delete"
 )]
-#[alun::delete("/support/log/clean")]
+#[nik::delete("/support/log/clean")]
 pub async fn clean(Query(query): Query<CleanQuery>) -> ResResult<CleanRes> {
     let days = query
         .days
@@ -136,12 +136,12 @@ pub async fn clean(Query(query): Query<CleanQuery>) -> ResResult<CleanRes> {
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/audit/page",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/audit/page")]
+#[nik::get("/support/log/audit/page")]
 pub async fn page_audit(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
@@ -157,12 +157,12 @@ pub async fn page_audit(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/auth/page",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/auth/page")]
+#[nik::get("/support/log/auth/page")]
 pub async fn page_auth(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
@@ -178,12 +178,12 @@ pub async fn page_auth(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/security/page",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/security/page")]
+#[nik::get("/support/log/security/page")]
 pub async fn page_security(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,
@@ -199,12 +199,12 @@ pub async fn page_security(
 ///
 /// - 400：时间参数格式非法；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/support/log/password/page",
     method = "GET",
     permission = "support:log:list"
 )]
-#[alun::get("/support/log/password/page")]
+#[nik::get("/support/log/password/page")]
 pub async fn page_password(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<LogPageQuery>,

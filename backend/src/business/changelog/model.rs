@@ -30,8 +30,8 @@
 //! - 任何「按 id 单查」的 SQL 都必须带 `created_at` 才能分区裁剪，
 //!   所以本文件不提供 `find_by_id(id)`，只提供「按对象」与「按请求」两类查询。
 
-use alun::prelude::*;
-use alun::uuid::Uuid;
+use nik::prelude::*;
+use nik::uuid::Uuid;
 
 use crate::business::changelog::dto::OperatorType;
 

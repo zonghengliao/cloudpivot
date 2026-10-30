@@ -8,7 +8,7 @@
 //! 需要编写 SQL 的查询（秒传查询、分页）集中在**本文件**；仅调用框架快捷方法
 //! （`find_or_none` / `insert` / `delete` 等）的简单读写由 `handler.rs` 直接执行。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;

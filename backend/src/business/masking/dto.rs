@@ -8,7 +8,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::masking::masker::MaskType;
 use crate::business::masking::model::FieldMaskRow;

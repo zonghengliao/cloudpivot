@@ -1,7 +1,7 @@
 //! 菜单与权限点的强类型模型。
 //!
 //! 对应迁移 `V0004__create_sys_menu`。菜单以 `parent_id` 自关联组织为树，
-//! `NULL` 表示根节点；`auth_code` 是权限码的唯一来源，供 `#[alun::permission]`
+//! `NULL` 表示根节点；`auth_code` 是权限码的唯一来源，供 `#[nik::permission]`
 //! 校验使用。
 //!
 //! # 分层
@@ -10,7 +10,7 @@
 //! `count_by` / `insert` / `update` / `delete` 等）的简单读写由 `handler.rs`
 //! 直接执行。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::shared::constants::{self, EnableStatus};
 use crate::utils;

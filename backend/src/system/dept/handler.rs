@@ -6,9 +6,9 @@
 //!
 //! 文件顺序遵循项目约定：**路由方法在前，公共辅助函数在后**。
 
-use alun::prelude::*;
 use axum::extract::ConnectInfo;
 use axum::http::HeaderMap;
+use nik::prelude::*;
 use std::net::SocketAddr;
 
 use crate::business::shared::{guard as scope_guard, principal, scope};
@@ -37,12 +37,12 @@ use crate::utils;
 /// # 异常情况
 ///
 /// 数据库异常返回 500。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept/tree",
     method = "GET",
     permission = "system:dept:list"
 )]
-#[alun::get("/system/dept/tree")]
+#[nik::get("/system/dept/tree")]
 pub async fn tree(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Query(query): Query<DeptTreeQuery>,
@@ -141,12 +141,12 @@ pub async fn tree(
 /// - 400：ID 格式非法；
 /// - 404：部门不存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept/{id}",
     method = "GET",
     permission = "system:dept:list"
 )]
-#[alun::get("/system/dept/{id}")]
+#[nik::get("/system/dept/{id}")]
 pub async fn detail(Path(id): Path<String>) -> ResResult<DeptDetailRes> {
     let id = utils::require_uuid(&id, "id")?;
     let dept = load_dept(&id).await?;
@@ -177,12 +177,12 @@ pub async fn detail(Path(id): Path<String>) -> ResResult<DeptDetailRes> {
 /// - 404：父部门不存在；
 /// - 409：部门编码已存在；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept",
     method = "POST",
     permission = "system:dept:create"
 )]
-#[alun::post("/system/dept")]
+#[nik::post("/system/dept")]
 pub async fn create(
     headers: HeaderMap,
     ConnectInfo(connect_info): ConnectInfo<SocketAddr>,
@@ -274,12 +274,12 @@ pub async fn create(
 /// - 404：部门或父部门不存在；
 /// - 409：部门编码已存在，或试图把部门挂到自身 / 其子部门之下；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept/{id}",
     method = "PUT",
     permission = "system:dept:update"
 )]
-#[alun::put("/system/dept/{id}")]
+#[nik::put("/system/dept/{id}")]
 pub async fn update(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -401,12 +401,12 @@ pub async fn update(
 /// - 404：部门不存在；
 /// - 409：存在子部门（`DEPT_HAS_CHILDREN`）或部门下存在用户；
 /// - 500：数据库异常。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept/{id}",
     method = "DELETE",
     permission = "system:dept:delete"
 )]
-#[alun::delete("/system/dept/{id}")]
+#[nik::delete("/system/dept/{id}")]
 pub async fn delete(
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -495,12 +495,12 @@ pub async fn delete(
 /// - 404：部门或目标部门不存在；
 /// - 409：存在子部门，或目标部门就是被删除部门自身；
 /// - 500：数据库异常（事务整体回滚，不会出现用户已迁移而部门未删的中间态）。
-#[alun::permission(
+#[nik::permission(
     path = "/system/dept/{id}/migrate-delete",
     method = "POST",
     permission = "system:dept:delete"
 )]
-#[alun::post("/system/dept/{id}/migrate-delete")]
+#[nik::post("/system/dept/{id}/migrate-delete")]
 pub async fn migrate_and_delete(
     Path(id): Path<String>,
     headers: HeaderMap,

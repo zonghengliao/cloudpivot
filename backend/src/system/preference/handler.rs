@@ -28,8 +28,8 @@
 //! 无安全语义，写审计会把真正的敏感操作淹掉。运维排查靠 `sys_user_preference.updated_at`
 //! 与 `tracing` 日志（本文件在成功路径上记一条 `info`）。
 
-use alun::prelude::*;
 use axum::Json;
+use nik::prelude::*;
 
 use crate::system::preference::dto::{PreferenceRes, UpdatePreferenceReq};
 use crate::system::preference::model;
@@ -50,7 +50,7 @@ use crate::utils;
 /// # 日志
 ///
 /// 正常读取不写业务日志（每次进设置页都会打一次，写了就是噪声）。
-#[alun::get("/system/auth/preference")]
+#[nik::get("/system/auth/preference")]
 pub async fn get_preference(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
 ) -> ResResult<PreferenceRes> {
@@ -90,7 +90,7 @@ pub async fn get_preference(
 /// - 400 `62022`：值域不符（oneof / range）；
 /// - 500 `62024`：字典自身配置损坏；
 /// - 500 `10004`：数据库异常。
-#[alun::put("/system/auth/preference")]
+#[nik::put("/system/auth/preference")]
 pub async fn update_preference(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<UpdatePreferenceReq>,

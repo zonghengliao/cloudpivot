@@ -25,7 +25,7 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use alun::prelude::*;
+use nik::prelude::*;
 use tokio::sync::{mpsc, oneshot};
 
 use crate::support::log::model::{
@@ -356,7 +356,7 @@ impl Batches {
 async fn build_auth_model(event: AuthEvent) -> AuthLogModel {
     let (device_type, browser_type, os_type) = match event.user_agent.as_deref() {
         Some(raw) => {
-            let info = alun_utils::parse_user_agent(raw);
+            let info = nik_utils::parse_user_agent(raw);
             (
                 Some(info.device_type),
                 Some(info.browser_type),

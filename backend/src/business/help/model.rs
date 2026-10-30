@@ -34,7 +34,7 @@
 //! 未复核的内容不该继续对外可见。副作用是 `published_at` 必须清空
 //! （`ck_sys_help_doc_publish` 是状态与时间的一致性约束），重新发布时重写。
 
-use alun::prelude::*;
+use nik::prelude::*;
 
 use crate::business::shared::content;
 use crate::business::shared::scope;
