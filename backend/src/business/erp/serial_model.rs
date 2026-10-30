@@ -1071,6 +1071,106 @@ pub async fn transition_status_with(
     })
 }
 
+// ==================== 移仓（不变式④，供 W3b 调拨单调用） ====================
+
+/// 调拨 / 出库时，把序列号同步改到目标仓库 / 库位。
+///
+/// `serial_ids` 里**不存在的 id、已软删的 id 一律跳过**（不报错），
+/// 返回值是**实际改动的行数** —— 调用方拿它做「预期 N 条 vs 实际 M 条」的对账
+/// （少改就是数据不一致，W3b 可以据此决定告警还是回滚整单）。
+///
+/// # 只改四列
+///
+/// `warehouse_id` / `location_id` / `updated_at` / `update_by`。
+/// **`status` 不动**（红线④）：移仓不是收发，件还是 `IN_STOCK`；
+/// 因此本函数**也不写库存流水**（`biz_inventory_txn` 只记收发/报废）。
+///
+/// # 调用方必须自己重算账面（重要）
+///
+/// 移仓会让两本仓账同时过期：源仓少 M 件、目标仓多 M 件。
+/// 本函数**故意不重算** —— 「移几件」只有调用方知道要落成几张单据
+/// （一张调拨单可能拆成多行、多次调用）。正确收尾是在**同一事务**里对
+/// 受影响的每个 (物料, 仓库) 调 [`recompute_quantity`]：
+///
+/// ```ignore
+/// let tx = db().begin().await?;
+/// let moved = serial_model::move_serials(&tx, &ids, to_wh, to_loc, operator).await?;
+/// serial_model::recompute_quantity(&tx, material_id, from_wh).await?;  // 源仓
+/// serial_model::recompute_quantity(&tx, material_id, to_wh).await?;    // 目标仓
+/// tx.commit().await?;
+/// ```
+///
+/// 忘了重算就是脏账 —— 由巡检
+/// （[`crate::business::erp::inventory_audit::audit`]）兜住：
+/// `qty != count(IN_STOCK)` 会被报出来，`dry_run=false` 也能修回来。
+///
+/// # 事务
+///
+/// 吃 `&impl SqlExecutor`（`Db` 与 `Transaction` 都实现）：由调用方开事务，
+/// 本函数不 `begin`、不 `commit`，也绝不「事务里再开事务」。
+pub async fn move_serials(
+    ex: &impl SqlExecutor,
+    serial_ids: &[Uuid],
+    to_warehouse_id: Uuid,
+    to_location_id: Option<Uuid>,
+    operator: Uuid,
+) -> DbResult<u64> {
+    if serial_ids.is_empty() {
+        return Ok(0);
+    }
+    let payload = id_payload(serial_ids);
+    // `location_id` 置空时走「SQL 里直接写 NULL」的常量语句：`Value::Null` 绑 uuid 位
+    // 会 `error serializing parameter`（skill §3 实测）。两条语句除该列外完全一致。
+    let (sql, params) = match to_location_id {
+        Some(location_id) => (
+            "UPDATE biz_material_serial \
+                SET warehouse_id = ?::uuid, location_id = ?::uuid, \
+                    updated_at = now(), update_by = ?::uuid \
+              WHERE id IN (SELECT unnest(string_to_array(?::text, E'\\n'))::uuid) \
+                AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::from(&to_warehouse_id),
+                Value::from(&location_id),
+                Value::from(&operator),
+                Value::from(payload.as_str()),
+            ],
+        ),
+        None => (
+            "UPDATE biz_material_serial \
+                SET warehouse_id = ?::uuid, location_id = NULL, \
+                    updated_at = now(), update_by = ?::uuid \
+              WHERE id IN (SELECT unnest(string_to_array(?::text, E'\\n'))::uuid) \
+                AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::from(&to_warehouse_id),
+                Value::from(&operator),
+                Value::from(payload.as_str()),
+            ],
+        ),
+    };
+    // SCOPE-EXEMPT: 序列号是仓储作业数据（V0138 无 dept_id / 归属人列），口径同 erp/model.rs。
+    ex.exec_sql(sql, params).await
+}
+
+/// 序列号 id 的行分隔载荷（每行一个 uuid，`\\n` 分隔）。
+///
+/// 为什么不用 `?::uuid[]` / `?::text[]`：驱动把占位符推断成数组类型后只有 text 编码器，
+/// 实测 `error serializing parameter N`（与 [`pair_payload`] 同一个坑）。
+/// 一个 `text` 参数 + SQL 侧 `string_to_array` 拆是稳的形态；
+/// uuid 数组例外（`?::text::uuid[]` 可行），这里统一走一条载荷，少一套口径。
+fn id_payload(ids: &[Uuid]) -> String {
+    let mut payload = String::with_capacity(ids.len() * 37);
+    for (index, id) in ids.iter().enumerate() {
+        if index > 0 {
+            payload.push('\n');
+        }
+        payload.push_str(&id.to_string());
+    }
+    payload
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

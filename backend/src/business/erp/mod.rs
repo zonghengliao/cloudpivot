@@ -31,6 +31,7 @@
 
 pub mod dto;
 pub mod handler;
+pub mod inventory_audit;
 pub mod model;
 pub mod serial_dto;
 pub mod serial_handler;

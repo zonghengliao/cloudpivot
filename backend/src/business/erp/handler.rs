@@ -76,6 +76,8 @@ use crate::business::erp::dto::{
     SupplierFilter, SupplierRes, UnitFilter, UnitRes, UpdateLocationReq, UpdateMaterialReq,
     UpdateSupplierReq, UpdateUnitReq, UpdateWarehouseReq, WarehouseFilter, WarehouseRes,
 };
+use crate::business::erp::inventory_audit as inv_audit;
+use crate::business::erp::inventory_audit::AuditReport;
 use crate::business::erp::model::{
     self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow,
 };
@@ -1977,6 +1979,53 @@ pub struct MaterialListQuery {
     pub keyword: Option<String>,
     /// 启用位。
     pub status: Option<i16>,
+}
+
+// ==================== 库存巡检（不变式③，W2c-2） ====================
+
+/// 巡检查询串（`?dry_run=true|false`）。
+///
+/// 用 `String` 而不是 `bool` 接收：`?dry_run=1` / `yes` / 空串这些前端常见写法
+/// 交给 [`inv_audit::parse_dry_run`] 统一收口，框架的 `bool` 反序列化只认 `true/false`
+/// （`?dry_run=1` 会直接 422，且报错文案与业务无关）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct InventoryAuditQuery {
+    /// 是否只报不修（**缺省 true**，红线③：防误修）。
+    #[serde(default)]
+    pub dry_run: Option<String>,
+}
+
+/// 库存巡检：`biz_inventory.qty` 是否等于该 (物料, 仓库) 的在库序列号件数（不变式③）。
+///
+/// `dry_run=true`（默认）只报不修；`false` 按序列号重算并修正。
+/// 扫描与修正在**同一事务**里（否则「查到 3 个」与「修了 4 个」可能对不上）；
+/// 扫描是一次 `WITH … SELECT`、修正是一次 `WITH … INSERT … ON CONFLICT`，都不是 N+1。
+#[nik::permission(
+    path = "/business/erp/inventory/audit",
+    method = "GET",
+    permission = "business:erp:inventory:audit"
+)]
+#[nik::get("/business/erp/inventory/audit")]
+pub async fn inventory_audit(Query(query): Query<InventoryAuditQuery>) -> ResResult<AuditReport> {
+    let dry_run = inv_audit::parse_dry_run(query.dry_run.as_deref())
+        .map_err(|msg| ApiError::new(400, error_code::ERP_FILTER_INVALID, msg))?;
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启库存巡检事务"))?;
+    match inv_audit::audit(&tx, dry_run).await {
+        Ok(report) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交库存巡检事务"))?;
+            Ok(Res::ok(report))
+        }
+        Err(error) => {
+            // 回滚失败也只是把原始错误报出去（回滚幂等，重复调用无害）
+            let _ = tx.rollback().await;
+            Err(utils::db_error(error, "库存巡检"))
+        }
+    }
 }
 
 // ==================== 单元测试 ====================
