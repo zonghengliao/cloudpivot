@@ -2285,6 +2285,8 @@ pub struct PurchaseOrderRes {
     pub credit_days: i32,
     /// 备注。
     pub remark: Option<String>,
+    /// 金额口径（`EXCL` 不含税录入 / `INCL` 含税录入）。
+    pub price_mode: String,
     /// 提交时间。
     pub submitted_at: Option<DateTime<Utc>>,
     /// 提交人。
@@ -2320,6 +2322,7 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             total_with_tax: row.total_with_tax,
             credit_days: row.credit_days,
             remark: row.remark.clone(),
+            price_mode: row.price_mode.clone(),
             submitted_at: row.submitted_at,
             submitted_by: row.submitted_by.map(|id| id.to_string()),
             approved_at: row.approved_at,

@@ -1347,8 +1347,9 @@ pub async fn seq_page(q: &SeqFilter) -> DbResult<(Vec<SeqRow>, i64)> {
 /// （`bpchar` 的末尾空格会带进 `String`，比较与展示都会出错）。
 pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date, expect_date, \
      warehouse_id, status, currency_code::text AS currency_code, total_qty, total_amount, \
-     total_tax, total_with_tax, credit_days, remark, submitted_at, submitted_by, approved_at, \
-     approved_by, closed_at, closed_by, created_at, updated_at, create_by, update_by, deleted_at";
+     total_tax, total_with_tax, credit_days, remark, price_mode, submitted_at, submitted_by, \
+     approved_at, approved_by, closed_at, closed_by, created_at, updated_at, create_by, \
+     update_by, deleted_at";
 
 /// 采购订单行。
 #[derive(Debug, Clone)]
@@ -1381,6 +1382,8 @@ pub struct PurchaseOrderRow {
     pub credit_days: i32,
     /// 备注。
     pub remark: Option<String>,
+    /// 金额口径（`EXCL` 不含税录入 / `INCL` 含税录入，V0145 加的列）。
+    pub price_mode: String,
     /// 提交时间。
     pub submitted_at: Option<DateTime<Utc>>,
     /// 提交人。
@@ -1423,6 +1426,7 @@ impl PurchaseOrderRow {
             total_with_tax: row.get_typed("total_with_tax")?,
             credit_days: row.get_typed("credit_days")?,
             remark: row.get_typed("remark")?,
+            price_mode: row.get_typed("price_mode")?,
             submitted_at: row.get_typed("submitted_at")?,
             submitted_by: row.get_typed("submitted_by")?,
             approved_at: row.get_typed("approved_at")?,
@@ -1517,8 +1521,8 @@ pub async fn purchase_order_page(
 
 /// `biz_purchase_order_item` 列清单。
 pub const PURCHASE_ORDER_ITEM_COLUMNS: &str = "id, order_id, line_no, material_id, unit_id, \
-     qty, price, tax_rate, amount, tax_amount, with_tax_amount, received_qty, remark, \
-     created_at, updated_at";
+     qty, price, price_incl, tax_rate, amount, tax_amount, with_tax_amount, received_qty, \
+     remark, created_at, updated_at";
 
 /// 采购明细行。
 ///
@@ -1538,9 +1542,11 @@ pub struct PurchaseOrderItemRow {
     pub unit_id: Uuid,
     /// 数量（`NUMERIC(18,4)`，`> 0`）。
     pub qty: Decimal,
-    /// 单价（`NUMERIC(18,6)`）。
+    /// 不含税单价（`NUMERIC(18,6)`，权威值）。
     pub price: Decimal,
-    /// 税率（`NUMERIC(7,4)`，0–1）。
+    /// 含税单价（`NUMERIC(18,6)`，V0145 加的输入快照：口径 B 时用户键入的就是它）。
+    pub price_incl: Decimal,
+    /// 税率（`NUMERIC(7,4)`，百分数 0–100）。
     pub tax_rate: Decimal,
     /// 不含税金额（`NUMERIC(18,4)`）。
     pub amount: Decimal,
@@ -1569,6 +1575,7 @@ impl PurchaseOrderItemRow {
             unit_id: row.get_typed("unit_id")?,
             qty: row.get_typed("qty")?,
             price: row.get_typed("price")?,
+            price_incl: row.get_typed("price_incl")?,
             tax_rate: row.get_typed("tax_rate")?,
             amount: row.get_typed("amount")?,
             tax_amount: row.get_typed("tax_amount")?,

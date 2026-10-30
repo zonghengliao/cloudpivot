@@ -8,6 +8,9 @@
 //! | [`transfer_model`] | 库存调拨单（6 态状态机 + 取号 + 审批接入）与明细/序列号子表 | **W3b** |
 //! | [`transfer_dto`] | 调拨单出入参契约（建单 / 改单 / 状态流转 / 详情 / 序列号分组） | **W3b** |
 //! | [`transfer_handler`] | 调拨单 7 个接口：CRUD + 状态流转 + 审批发起/回调 | **W3b** |
+//! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
+//! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
+//! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 | **P2-A2** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -36,6 +39,9 @@ pub mod dto;
 pub mod handler;
 pub mod inventory_audit;
 pub mod model;
+pub mod purchase_dto;
+pub mod purchase_handler;
+pub mod purchase_model;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
