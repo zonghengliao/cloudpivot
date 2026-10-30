@@ -103,7 +103,11 @@ def d_xxx(ctx):
 - 有些残留 API 删不掉，由 `common.sweep()` 在**每次运行结束时**按「本次运行开始时间」窗口兜底清理：
   1. 任务/流程联动留下的在跑审批单（任务进 REVIEW 会拉起 `task_accept` 流程，任务删了审批单还挂着）；
   2. 孤儿 AI 任务令牌 `biz_task_ai_token`；
-  3. 运行期产生的 `TODO` 通知。
+  3. 运行期产生的通知（`TODO` / `SYSTEM` / `CIRCULAR`）。
+- 两个库约束必须先知道，否则「取消」会被静默拒绝（`psql` 只往 stderr 报错）：
+  `ck_biz_flow_instance_end`：`(status='PENDING') = (ended_at IS NULL)`；
+  `ck_biz_flow_task_done`：`(status='PENDING') = (completed_at IS NULL)`。
+  → 改终态必须同时写 `ended_at` / `completed_at`。
 - `sweep()` 只动 `created_at >= 本次运行开始` 的行，不碰别人的数据；`DB_ENABLED=0` 时跳过。
 
 ## 两个环境坑
