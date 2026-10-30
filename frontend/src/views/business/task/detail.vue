@@ -157,7 +157,7 @@
           <t-alert v-if="detail.reject_reason" theme="error" :message="`打回原因：${detail.reject_reason}`" />
         </div>
 
-        
+
             <!-- 协作人（T1 详情已下发 members；为空时隐藏） -->
             <div v-if="detail.members.length > 0" class="block">
               <div class="block__title">
