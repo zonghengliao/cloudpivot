@@ -34,3 +34,5 @@ evidence/a7-import-test.xlsx
 /frontend/e2e-report/
 /frontend/playwright-report/
 /frontend/e2e/.auth/
+__pycache__/
+frontend/dist.bak*/
