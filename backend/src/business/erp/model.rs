@@ -1641,7 +1641,7 @@ pub async fn purchase_order_item_page(
 
 /// `biz_inventory` 列清单。
 ///
-/// **成本账**：`(material_id, warehouse_id)` 唯一（`uk_biz_inv_mat_wh`），放数量合计与成本；
+/// **成本账**：`(material_id, warehouse_id, location_id)` 唯一（`uk_biz_inv_mat_wh_loc`，V0139 起为三列 + NULL 折叠），放数量合计与成本；
 /// 库位维度在 [`InventoryLocationRow`]（两级账，见 [`inventory_balance`]）。
 pub const INVENTORY_COLUMNS: &str = "id, material_id, warehouse_id, qty, locked_qty, avg_cost, \
      amount, last_txn_at, created_at, updated_at";
@@ -1692,7 +1692,7 @@ impl InventoryRow {
 /// `biz_inventory` 的分页锚点。
 pub const INVENTORY_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_inventory");
 
-/// 库存列表排序：物料 → 仓库（与唯一索引 `uk_biz_inv_mat_wh` 同序）。
+/// 库存列表排序：物料 → 仓库（与唯一索引 `uk_biz_inv_mat_wh_loc` 前两列同序）。
 pub const INVENTORY_ORDER: &str = "ORDER BY material_id ASC, warehouse_id ASC";
 
 /// 按「物料 × 仓库」取即时库存（两级账的成本侧）。

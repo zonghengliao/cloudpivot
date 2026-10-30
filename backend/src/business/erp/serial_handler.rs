@@ -498,7 +498,7 @@ mod tests {
          VALUES ('b2b0000b-0000-4000-8000-00000000000a',
                  'b2b00004-0000-4000-8000-00000000000b',
                  'b2b00002-0000-4000-8000-00000000000a', 7.0000, 0.0000, 20.000000, 140.0000)
-         ON CONFLICT (material_id, warehouse_id) DO UPDATE
+         ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
             SET qty = 7.0000, avg_cost = 20.000000, amount = 140.0000",
     ];
 

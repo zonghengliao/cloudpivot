@@ -577,12 +577,15 @@ async fn lock_inventory(
 ///
 /// ```sql
 /// INSERT INTO biz_inventory (…) SELECT …, count(*) FROM biz_material_serial WHERE …
-/// ON CONFLICT (material_id, warehouse_id)
+/// ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-…-000000000000'::uuid))
 ///   DO UPDATE SET qty = EXCLUDED.qty, amount = EXCLUDED.qty * avg_cost
 /// ```
 ///
-/// - 用 `INSERT … ON CONFLICT (uk_biz_inv_mat_wh)` 而不是纯 `UPDATE`：一物一码物料
+/// - 用 `INSERT … ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, 全零 uuid))`
+///   —— 即 `uk_biz_inv_mat_wh_loc`（V0139 三列唯一索引）—— 而不是纯 `UPDATE`：一物一码物料
 ///   首次批量生成时 `biz_inventory` 还没有行，纯 `UPDATE` 会「改 0 行」而**静默丢账**；
+///   本函数算的是「该物料该仓的全部在库件数」= **仓级汇总**，因此落进 `location_id IS NULL`
+///   这一桶（V0139 之后 `biz_inventory` 的行粒度是「物料 × 仓库 × 库位」，NULL = 未分配库位汇总桶）；
 /// - `amount = qty * avg_cost`：数量变了金额必须跟着变，否则成本账两列互相矛盾；
 /// - `deleted_at IS NULL` 必须写在子查询里（部分索引可命中性依赖它）；
 /// - 返回重算后的数量（调用方拿它填流水的 `after_qty`，不自己算 ±1 —— 那样是双写）。
@@ -601,7 +604,7 @@ pub async fn recompute_quantity(
                        FROM biz_material_serial \
                       WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
                         AND status = 'IN_STOCK' AND deleted_at IS NULL) AS s \
-             ON CONFLICT (material_id, warehouse_id) DO UPDATE \
+             ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE \
                 SET qty = EXCLUDED.qty, \
                     amount = EXCLUDED.qty * i.avg_cost, \
                     last_txn_at = now(), \
