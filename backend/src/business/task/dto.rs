@@ -289,6 +289,8 @@ pub struct TaskCardRes {
     pub due_date: Option<NaiveDate>,
     /// 子任务数（未软删）。
     pub child_count: i64,
+    /// 已完成子任务数（E6a：`status = 'DONE'` 且未软删；列表页「3/1」与详情页进度条用）。
+    pub child_done_count: i64,
     /// 所属项目 ID（T7c；`null` = 未归入项目）。
     pub project_id: Option<String>,
     /// 项目编码（空串 = 无项目 / 项目已删）。

@@ -220,11 +220,12 @@ export const CHANGELOG_PERMISSIONS = {
 } as const;
 
 /**
- * 工作任务权限码（5 个，`business:task:*`）。
+ * 工作任务权限码（6 个，`business:task:*`）。
  *
  * 前 4 个与后台 `V0103__seed_task_permissions.up.sql` 的 `auth_code` 逐字一致
  * （第 5 个节点 …0760 是页面本身，auth_code 复用 `read`）；第 5 个
- * `business:task:status`（改状态）由 `V0108` 补种（按钮节点 …0765）。
+ * `business:task:status`（改状态）由 `V0108` 补种（按钮节点 …0765）；
+ * 第 6 个 `business:task:subtask`（建子任务）同样由 `V0108` 补种（按钮节点 …0767）。
  * 后端注解在 `backend/src/business/task/handler.rs`。三处任一处改名都要同步。
  */
 export const TASK_PERMISSIONS = {
@@ -243,6 +244,13 @@ export const TASK_PERMISSIONS = {
    * 所以详情页的按钮显隐 = 有本码 **且** 角色位命中（见 `StatusActions.vue`）。
    */
   taskStatus: 'business:task:status',
+  /**
+   * 建子任务（`POST /business/task/{id}/subtask`，E6a）。
+   *
+   * 与 `taskCreate` 是**两个码**（后端注解就是 `business:task:subtask`）：
+   * 只有「能建任务」不许自动等于「能拆子任务」。详情页「+ 新建子任务」用它。
+   */
+  taskSubtask: 'business:task:subtask',
 } as const;
 
 /** 项目分组权限码（T7c，4 个；`V0115` 建节点 + `S__task_project_permissions` 授权） */

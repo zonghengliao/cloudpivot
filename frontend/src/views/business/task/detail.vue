@@ -22,6 +22,10 @@
             <span class="head__no">{{ detail.task_no }}</span>
             <span class="head__title">{{ detail.title }}</span>
           </div>
+          <!-- E6a：从子任务行点进来的，给一条回父任务的路（不关抽屉，避免丢列表滚动位置） -->
+          <div v-if="detail.parent_task_no" class="head__parent">
+            <t-link theme="primary" @click="openParent">← 返回父任务 {{ detail.parent_task_no }}</t-link>
+          </div>
           <div class="head__meta">
             <StatusBadge domain="task" :status="detail.status" />
             <PriorityTag :priority="detail.priority" />
@@ -130,20 +134,46 @@
           <p v-else class="placeholder">暂无描述</p>
         </div>
 
-        <!-- 子任务（T1 已有 children 字段；为空时整块隐藏） -->
-        <div v-if="detail.children.length > 0" class="block">
-          <div class="block__title">
-            子任务
-            <span class="block__count">{{ detail.children.length }}</span>
+        <!-- 子任务（E6a：**常显**，0 个子任务时也能看到入口） -->
+        <div class="block">
+          <div class="block__title block__title--with-action">
+            <span>
+              子任务
+              <span class="block__count">{{ detail.child_count }}</span>
+              <span v-if="detail.child_count > 0" class="block__sub">
+                已完成 {{ detail.child_done_count }} / {{ detail.child_count }}
+              </span>
+            </span>
+            <!-- 权限只认后端注解里的 business:task:subtask（与 business:task:create 是两个码）；
+                 父任务终态时后端会 409，所以这里先置灰避免白点一次 -->
+            <t-button
+              v-privilege="[PERM.taskSubtask]"
+              size="small"
+              theme="primary"
+              variant="outline"
+              :disabled="isTerminal || isSubtask"
+              @click="openSubtaskDialog"
+            >
+              + 新建子任务
+            </t-button>
           </div>
-          <div class="subtask">
-            <div v-for="child in detail.children" :key="child.id" class="subtask__item">
+          <div v-if="detail.children.length > 0" class="subtask">
+            <div
+              v-for="child in detail.children"
+              :key="child.id"
+              class="subtask__item subtask__item--clickable"
+              role="link"
+              tabindex="0"
+              @click="openChild(child.id)"
+              @keydown.enter="openChild(child.id)"
+            >
               <StatusBadge domain="task" :status="child.status" :show-dot="false" />
               <span class="subtask__title">{{ child.title }}</span>
               <span class="subtask__meta">{{ child.owner_name }}</span>
               <span class="subtask__meta">{{ child.progress }}%</span>
             </div>
           </div>
+          <p v-else class="placeholder">暂无子任务</p>
         </div>
 
         <!-- 协作人（T1 详情已下发 members；为空时隐藏） -->
@@ -329,6 +359,47 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <!-- 新建子任务弹窗（E6a：复用 POST /business/task/{id}/subtask，不新增接口） -->
+    <t-dialog
+      v-model:visible="subtaskDialog.visible"
+      header="新建子任务"
+      width="520px"
+      :confirm-btn="{ content: '创建', loading: subtaskDialog.submitting }"
+      @confirm="submitSubtask"
+    >
+      <t-form label-align="top">
+        <t-form-item label="标题（必填）">
+          <t-input v-model="subtaskDialog.title" :maxlength="200" placeholder="拆成一个能独立完成的小任务" />
+        </t-form-item>
+        <t-form-item label="预估工时（小时，可空）">
+          <t-input-number
+            v-model="subtaskEstimateProxy"
+            theme="normal"
+            :min="0"
+            :max="9999"
+            :step="0.5"
+            :decimal-places="1"
+            placeholder="不填 = 未估"
+          />
+        </t-form-item>
+        <t-form-item label="负责人（可空，留空 = 我自己）">
+          <UserSelect v-model="subtaskDialog.ownerId" />
+        </t-form-item>
+        <t-form-item label="优先级（默认继承父任务）">
+          <t-select v-model="subtaskDialog.priority" :options="priorityOpts" />
+        </t-form-item>
+        <t-form-item label="截止日期（可空，留空 = 继承父任务）">
+          <t-date-picker
+            v-model="subtaskDialog.dueDate"
+            clearable
+            format="YYYY-MM-DD"
+            value-type="YYYY-MM-DD"
+            placeholder="留空继承父任务"
+          />
+        </t-form-item>
+      </t-form>
+    </t-dialog>
   </t-drawer>
 </template>
 
@@ -363,10 +434,13 @@ import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
 import MentionSelect from './components/MentionSelect.vue';
 import StatusActions from './components/StatusActions.vue';
+import UserSelect from './components/UserSelect.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import { priorityOptions } from '@/constants/status-map';
 import { ApiError } from '@/api/request';
 import {
   addTaskWorklog,
+  createSubtask,
   deleteTask,
   deleteTaskAttachment,
   deleteTaskComment,
@@ -438,6 +512,40 @@ const isOverdue = computed(() => {
   return dayjs(current.due_date).startOf('day').isBefore(dayjs().startOf('day'));
 });
 
+/** 是否终态（DONE / CANCELLED）：终态任务不能再加子任务（后端 409 + 63006/63012） */
+const isTerminal = computed(() => detail.value?.status === 'DONE' || detail.value?.status === 'CANCELLED');
+
+/** 当前看的是不是子任务（子任务不能再往下拆：后端 `validate_parent` 400） */
+const isSubtask = computed(() => Boolean(detail.value?.parent_id));
+
+/** 优先级下拉（P0 最高 → P3 最低，文案来自 status-map，与新建表单同源） */
+const priorityOpts = priorityOptions();
+
+/** 新建子任务弹窗（E6a） */
+const subtaskDialog = reactive({
+  visible: false,
+  title: '',
+  estimateHours: null as number | null,
+  ownerId: null as string | null,
+  priority: 'P2',
+  /** 截止日：空串 = 不填（`t-date-picker` 的 modelValue 不吃 `null`，见 TaskForm 同款写法） */
+  dueDate: '',
+  submitting: false,
+});
+
+/**
+ * 预估工时的双向代理。
+ *
+ * `t-input-number` 的 modelValue 不接受 `null`，而「不填」用 `null` 表达 ——
+ * 这里做一次 `null ↔ undefined`（清空后回落到 `null`，提交时才是「不传这个字段」）。
+ */
+const subtaskEstimateProxy = computed<number | undefined>({
+  get: () => subtaskDialog.estimateHours ?? undefined,
+  set: (value) => {
+    subtaskDialog.estimateHours = typeof value === 'number' && !Number.isNaN(value) ? value : null;
+  },
+});
+
 /** 来源文案 */
 function sourceLabel(source: string): string {
   const map: Record<string, string> = { SELF: '自建', ASSIGNED: '被分派', TRANSFERRED: '转派' };
@@ -462,15 +570,23 @@ function formatHours(hours: number | null): string {
   return hours === null || hours === undefined ? '未估' : `${hours} 小时`;
 }
 
-/** 拉详情 */
+/**
+ * 当前正在看哪个任务（E6a 前就是 `props.taskId`）。
+ *
+ * 点详情里的子任务行要「就地换一个人看」而不关闭抽屉，所以当前 id 必须可写；
+ * 外部 `taskId` 变了（列表页点了另一行）就跟着变，点「返回父任务」只改本地。
+ */
+const currentId = ref<string | null>(props.taskId ?? null);
+
+/** 拉详情（用 `currentId`，不再直接用 prop：子任务行点击后 prop 没变） */
 async function loadDetail(): Promise<void> {
-  if (!props.taskId) {
+  if (!currentId.value) {
     return;
   }
   loading.value = true;
   errorMessage.value = '';
   try {
-    detail.value = await getTask(props.taskId);
+    detail.value = await getTask(currentId.value);
     // 协作区三份并发拉（详情接口不带评论 / 工时；附件快照也不含下载与来源明细）
     void loadComments(1);
     void loadAttachments();
@@ -483,6 +599,74 @@ async function loadDetail(): Promise<void> {
   }
 }
 
+/** 打开子任务详情（复用同一个抽屉，不关闭再打开 —— 关掉会丢掉列表页滚动位置） */
+function openChild(childId: string): void {
+  if (!childId || childId === currentId.value) {
+    return;
+  }
+  currentId.value = childId;
+  activeTab.value = 'comment';
+  void loadDetail();
+}
+
+/** 从子任务回退到父任务（父 header 上的「← 返回父任务」） */
+function openParent(): void {
+  const parentId = detail.value?.parent_id;
+  if (!parentId) {
+    return;
+  }
+  currentId.value = parentId;
+  activeTab.value = 'comment';
+  void loadDetail();
+}
+
+/** 打开「新建子任务」弹窗：优先级默认继承当前任务（后端缺省也是继承父任务） */
+function openSubtaskDialog(): void {
+  const current = detail.value;
+  if (!current) {
+    return;
+  }
+  subtaskDialog.title = '';
+  subtaskDialog.estimateHours = null;
+  subtaskDialog.ownerId = null;
+  subtaskDialog.priority = current.priority || 'P2';
+  subtaskDialog.dueDate = '';
+  subtaskDialog.submitting = false;
+  subtaskDialog.visible = true;
+}
+
+/** 提交新建子任务：成功 → 关弹窗 + 重拉详情（父任务进度由后端重算） + 通知列表页刷新 */
+async function submitSubtask(): Promise<void> {
+  const parentId = currentId.value;
+  if (!parentId) {
+    return;
+  }
+  const title = subtaskDialog.title.trim();
+  if (!title) {
+    MessagePlugin.warning('请填写子任务标题');
+    return;
+  }
+  subtaskDialog.submitting = true;
+  try {
+    await createSubtask(parentId, {
+      title,
+      // 可空字段「没填就不传」：后端优先级 = 继承父任务、截止日 = 继承父任务、负责人 = 我自己
+      estimate_hours: subtaskDialog.estimateHours,
+      owner_id: subtaskDialog.ownerId,
+      priority: subtaskDialog.priority || undefined,
+      due_date: subtaskDialog.dueDate || null,
+    });
+    subtaskDialog.visible = false;
+    MessagePlugin.success('子任务已创建');
+    await loadDetail();
+    emit('changed', parentId);
+  } catch (error) {
+    MessagePlugin.error(error instanceof ApiError ? error.message : '新建子任务失败，请重试');
+  } finally {
+    subtaskDialog.submitting = false;
+  }
+}
+
 /**
  * 状态流转成功（`StatusActions` 的回执）。
  *
@@ -492,10 +676,18 @@ async function loadDetail(): Promise<void> {
  */
 function handleStatusChanged(): void {
   void loadDetail();
-  if (props.taskId) {
-    emit('changed', props.taskId);
+  if (currentId.value) {
+    emit('changed', currentId.value);
   }
 }
+
+/** 外部 `taskId` 变化 → 同步当前 id（列表页点了另一行 / 抽屉重开） */
+watch(
+  () => props.taskId,
+  (value) => {
+    currentId.value = value ?? null;
+  },
+);
 
 /** 打开抽屉时加载（同一任务重复打开也重新拉，保证看到最新进度） */
 watch(
@@ -538,6 +730,10 @@ function handleClosed(): void {
   detail.value = null;
   errorMessage.value = '';
   resetCollab();
+  // E6a：抽屉里可能已经顺着子任务行「走进去了」，关闭时回到父任务，
+  // 否则下次对同一 taskId 重新打开会继续停在子任务（prop 没变，watch 不触发）。
+  currentId.value = props.taskId ?? null;
+  subtaskDialog.visible = false;
 }
 
 // ======================================================================
@@ -1045,6 +1241,13 @@ function resetCollab(): void {
   &__ops {
     margin-left: auto;
   }
+
+  // E6a：子任务详情里的「← 返回父任务」
+  &__parent {
+    margin-top: -4px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
 }
 
 .block {
@@ -1067,6 +1270,18 @@ function resetCollab(): void {
     color: var(--td-text-color-placeholder);
     background: var(--td-bg-color-container-hover);
     border-radius: 8px;
+  }
+
+  // E6a：标题 + 右侧动作按钮（「子任务」区块的新建入口）
+  &__title--with-action {
+    justify-content: space-between;
+  }
+
+  // 子任务完成度小字（「已完成 1 / 3」），不抢标题的字重
+  &__sub {
+    font-size: 12px;
+    font-weight: 400;
+    color: var(--td-text-color-placeholder);
   }
 }
 
@@ -1162,6 +1377,16 @@ function resetCollab(): void {
     flex-shrink: 0;
     font-size: 12px;
     color: var(--td-text-color-placeholder);
+  }
+
+  // E6a：子任务行可点（打开子任务详情），给 hover 与键盘焦点反馈
+  &__item--clickable {
+    cursor: pointer;
+
+    &:hover,
+    &:focus-visible {
+      background: var(--td-bg-color-container-hover);
+    }
   }
 }
 

@@ -335,6 +335,8 @@ pub struct TaskCardRow {
     pub due_date: Option<NaiveDate>,
     /// 子任务数。
     pub child_count: i64,
+    /// 已完成的子任务数（E6a：列表 / 详情页「子任务 3/1」用）。
+    pub child_done_count: i64,
     /// 所属项目（T7c：可空，`None` = 未归入任何项目）。
     pub project_id: Option<Uuid>,
     /// 项目编码（空串 = 无项目，或项目已被软删）。
@@ -369,6 +371,7 @@ impl TaskCardRow {
             start_date: row.get_typed("start_date")?,
             due_date: row.get_typed("due_date")?,
             child_count: row.get_typed("child_count")?,
+            child_done_count: row.get_typed("child_done_count")?,
             project_id: row.get_typed("project_id")?,
             project_code: row.get_typed("project_code")?,
             project_name: row.get_typed("project_name")?,
@@ -467,6 +470,8 @@ const CARD_COLUMNS: &str = "\
     t.owner_id, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS owner_name, \
     t.dept_id, t.source, t.start_date, t.due_date, t.created_at, t.updated_at, \
     (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL) AS child_count, \
+    (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL \
+        AND c.status = 'DONE') AS child_done_count, \
     t.project_id, COALESCE(pj.project_no, '') AS project_code, \
     COALESCE(pj.project_name, '') AS project_name";
 
@@ -922,6 +927,9 @@ pub async fn find_raw(id: Uuid) -> DbResult<Option<TaskDetailRow>> {
                     t.dept_id, t.source, t.start_date, t.due_date, t.created_at, t.updated_at, \
                     (SELECT count(*) FROM biz_task c \
                       WHERE c.parent_id = t.id AND c.deleted_at IS NULL) AS child_count, \
+                    (SELECT count(*) FROM biz_task c \
+                      WHERE c.parent_id = t.id AND c.deleted_at IS NULL \
+                        AND c.status = 'DONE') AS child_done_count, \
                     t.description, t.creator_id, \
                     COALESCE(NULLIF(cu.real_name, ''), cu.username, '') AS creator_name, \
                     t.assigner_id, \
@@ -3719,5 +3727,22 @@ mod tests {
             ..TaskPatch::default()
         };
         assert!(!patch.is_empty());
+    }
+
+    /// E6a：任务卡列清单必须同时下发「子任务总数」与「已完成数」。
+    ///
+    /// 少任一列 → [`TaskCardRow::from_row`] 运行期 `get_typed` 失败（列表 / 详情直接 500），
+    /// 而现有一批用例都不连库，只有这条能在 `cargo test` 里提前拦住。
+    #[test]
+    fn card_columns_expose_child_stats() {
+        assert!(CARD_COLUMNS.contains("AS child_count"));
+        assert!(CARD_COLUMNS.contains("AS child_done_count"));
+        // 分子口径：未软删 + 终态 DONE（软删子任务不能算进完成数）
+        assert!(CARD_COLUMNS.contains("c.deleted_at IS NULL"));
+        assert!(CARD_COLUMNS.contains("c.status = 'DONE'"));
+        // 子查询必须按 parent_id 等值锚定（走 idx_biz_task_parent），不许退化成全表扫描
+        assert!(CARD_COLUMNS.contains("c.parent_id = t.id"));
+        // 反向断言：CANCELLED 不是「完成」，别把取消也算进去
+        assert!(!CARD_COLUMNS.contains("CANCELLED"));
     }
 }

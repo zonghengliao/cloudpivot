@@ -82,6 +82,8 @@ export interface TaskCard {
   due_date: string | null;
   /** 子任务数 */
   child_count: number;
+  /** 已完成子任务数（E6a；`status = 'DONE'` 且未软删） */
+  child_done_count: number;
   /** 所属项目 id（T7c；`null` = 未归入项目） */
   project_id: string | null;
   /** 项目编码（空串 = 无项目 / 项目已删） */
@@ -338,6 +340,67 @@ export function updateTask(id: string, data: TaskUpdateReq): Promise<TaskSaveRes
 /** 删除任务（`DELETE /business/task/{id}`，软删，权限 `business:task:delete`） */
 export function deleteTask(id: string): Promise<TaskDeleteResult> {
   return del<TaskDeleteResult>(`/api/business/task/${id}`);
+}
+
+// ======================================================================
+// E6a（子任务：新建 + 列表）
+//
+// 路径与后端 `handler.rs` 的注解逐条对应（注解不含 `/api`，这里写全）：
+//   POST /api/business/task/{id}/subtask   权限 `business:task:subtask`
+//   GET  /api/business/task/{id}/subtasks  权限 `business:task:read`
+//
+// 三条口径（照后端 `dto.rs`，别自己发明）：
+//   1. 子任务字段与新建任务一样，**`parent_id` 由 URL 带**，body 里不传（传了也被忽略）；
+//   2. `priority` / `due_date` / `need_review` 缺省 = **继承父任务**（不是继承默认值），
+//      所以前端「想让子任务跟父任务走」就不要传这三个字段；
+//   3. 列表的 `total` / `progress` / `progress_locked` 按**全部**子任务算（聚合口径），
+//      而 `list` 只含**我有权看**的子任务 —— 两者数量可能不等，前端不要用 `list.length` 当 total。
+// ======================================================================
+
+/** 新建子任务（对应后端 `TaskSubtaskCreateReq`；只有 `title` 必填） */
+export interface TaskSubtaskCreateReq {
+  /** 标题（1–200 字符） */
+  title: string;
+  /** 描述 */
+  description?: string | null;
+  /** 优先级（缺省继承父任务） */
+  priority?: string | null;
+  /** 负责人（缺省 = 我自己） */
+  owner_id?: string | null;
+  /** 计划开始日 `YYYY-MM-DD` */
+  start_date?: string | null;
+  /** 截止日（缺省继承父任务） */
+  due_date?: string | null;
+  /** 预估工时（小时） */
+  estimate_hours?: number | null;
+  /** 是否需验收（缺省继承父任务） */
+  need_review?: boolean | null;
+}
+
+/** 子任务列表（对应后端 `TaskSubtaskListRes`） */
+export interface TaskSubtaskList {
+  /** 父任务 id */
+  parent_id: string;
+  /** 父任务当前状态（终态时前端应禁用「新建子任务」） */
+  parent_status: string;
+  /** 父任务进度（= 子任务加权汇总） */
+  progress: number;
+  /** 进度是否由子任务锁定（true = 父任务进度手改会被后端 409 / 63012 拒） */
+  progress_locked: boolean;
+  /** 子任务总数（**全部**，含我看不见的） */
+  total: number;
+  /** 我有权看的子任务卡（形状 = `TaskCard`） */
+  list: TaskCard[];
+}
+
+/** 新建子任务（`POST /business/task/{id}/subtask`，权限 `business:task:subtask`） */
+export function createSubtask(parentId: string, data: TaskSubtaskCreateReq): Promise<TaskSaveResult> {
+  return post<TaskSaveResult>(`/api/business/task/${parentId}/subtask`, data);
+}
+
+/** 子任务列表（`GET /business/task/{id}/subtasks`，权限 `business:task:read`） */
+export function listSubtasks(parentId: string): Promise<TaskSubtaskList> {
+  return get<TaskSubtaskList>(`/api/business/task/${parentId}/subtasks`);
 }
 
 // ======================================================================
