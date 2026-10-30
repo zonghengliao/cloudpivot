@@ -2,47 +2,42 @@
   <div class="gantt-page">
     <!-- 查询框：负责人 / 项目 / 时间窗 / 屏幕切换 / 缩放 / 可见范围（与 index.vue 分工一致） -->
     <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="6">
-          <UserSelect v-model="filterAssignee" placeholder="负责人" />
-        </t-col>
-        <t-col :span="6">
-          <t-select
-            v-model="filterProject"
-            :options="projectOptions"
-            :loading="projectLoading"
-            placeholder="所属项目"
-            clearable
-            filterable
-          />
-        </t-col>
-        <t-col :span="7">
-          <t-date-range-picker
-            v-model="windowRange"
-            clearable
-            format="YYYY-MM-DD"
-            placeholder="时间窗（默认今天起 30 天，上限 180 天）"
-          />
-        </t-col>
-        <t-col :span="5">
-          <t-space>
-            <t-button theme="primary" @click="handleFilter">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleFilterReset">重置</t-button>
-          </t-space>
-        </t-col>
-        <t-col :span="24">
-          <div v-if="data" class="filter-meta">
-            窗口 {{ data.range.start }} ~ {{ data.range.end }}（{{ data.range.days }} 天）
-            · 任务 {{ data.tasks.length }} 条 · 依赖 {{ data.dependencies.length }} 条
-            <span class="filter-meta__tag">可拖拽改期</span>
-            <span v-if="data.truncated" class="filter-meta__warn">· 超过 500 条已截断，请缩小区间</span>
-            <span v-if="data.member_scope_truncated" class="filter-meta__warn">· 我参与的任务过多，只按数据范围显示</span>
-          </div>
-        </t-col>
-      </t-row>
+      <!-- 三行统一样式：①负责人+所属项目 ②时间窗 ③查询+重置（控件等宽） -->
+      <div class="filter-line">
+        <UserSelect v-model="filterAssignee" class="filter-ctl" placeholder="负责人" />
+        <t-select
+          v-model="filterProject"
+          class="filter-ctl"
+          :options="projectOptions"
+          :loading="projectLoading"
+          placeholder="所属项目"
+          clearable
+          filterable
+        />
+      </div>
+      <div class="filter-line">
+        <t-date-range-picker
+          v-model="windowRange"
+          class="filter-ctl"
+          clearable
+          format="YYYY-MM-DD"
+          placeholder="时间窗（默认今天起 30 天，上限 180 天）"
+        />
+      </div>
+      <div class="filter-line filter-line--actions">
+        <t-button theme="primary" @click="handleFilter">
+          <template #icon><t-icon name="search" /></template>
+          查询
+        </t-button>
+        <t-button variant="outline" @click="handleFilterReset">重置</t-button>
+      </div>
+      <div v-if="data" class="filter-meta">
+        窗口 {{ data.range.start }} ~ {{ data.range.end }}（{{ data.range.days }} 天）
+        · 任务 {{ data.tasks.length }} 条 · 依赖 {{ data.dependencies.length }} 条
+        <span class="filter-meta__tag">可拖拽改期</span>
+        <span v-if="data.truncated" class="filter-meta__warn">· 超过 500 条已截断，请缩小区间</span>
+        <span v-if="data.member_scope_truncated" class="filter-meta__warn">· 我参与的任务过多，只按数据范围显示</span>
+      </div>
     </t-card>
 
     <!-- 工具条：三视图切换 + 主操作（与 index.vue 完全一致） -->
@@ -1520,10 +1515,12 @@ onMounted(() => {
 }
 
 .filter-meta {
-  margin-top: 6px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--td-component-stroke, #e7e7e7);
   font-size: 12px;
   color: var(--td-text-color-secondary, #666);
-  line-height: 20px;
+  line-height: 18px;
 
   &__tag {
     margin-left: 8px;
@@ -1561,5 +1558,29 @@ onMounted(() => {
   :deep(.t-tabs__nav-item::after) {
     height: 2px;
   }
+}
+
+
+
+/* 查询框三行布局：每行 flex 横排，控件统一宽度 */
+.filter-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+
+  &:last-of-type {
+    margin-bottom: 0;
+  }
+}
+
+.filter-ctl {
+  width: 240px;
+  flex: 0 0 240px;
+}
+
+/* 第3行（查询/重置）按钮居中 */
+.filter-line--actions {
+  justify-content: center;
 }
 </style>

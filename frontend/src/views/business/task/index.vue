@@ -2,56 +2,42 @@
   <div class="task-page">
     <!-- 筛选区 -->
     <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="4">
-          <t-input v-model="query.keyword" placeholder="任务标题 / 描述关键词" clearable @enter="handleSearch">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.status" placeholder="状态" clearable :options="statusOpts" />
-        </t-col>
-        <t-col :span="2">
-          <t-select v-model="query.priority" placeholder="优先级" clearable :options="priorityOpts" />
-        </t-col>
-        <t-col :span="2">
-          <UserSelect v-model="query.owner_id" placeholder="负责人" :disabled="myMode" />
-        </t-col>
-        <t-col :span="2">
-          <t-select
-            v-model="query.project_id"
-            :options="projectOptions"
-            :loading="projectLoading"
-            placeholder="所属项目"
-            clearable
-            filterable
-            :disabled="myMode"
-          />
-        </t-col>
-        <t-col :span="3">
-          <t-date-range-picker v-model="dueRange" placeholder="截止日期范围" clearable format="YYYY-MM-DD" />
-        </t-col>
-        <t-col :span="3">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-        <t-col :span="12">
-          <t-space size="large" align="center">
-            <label class="my-switch">
-              <t-switch v-model="myMode" size="small" />
-              <span class="my-switch__label">只看我的任务</span>
-            </label>
-            <span v-if="view === 'list'" class="filter-hint">
-              我的任务按「逾期 / 今日 / 本周 / 以后 / 无期限」分组统计（CST 计算），共 {{ myTotal }} 条
-            </span>
-          </t-space>
-        </t-col>
-      </t-row>
+      <!-- 三行统一样式（与甘特图一致）：控件等宽 240px -->
+      <div class="filter-line">
+        <t-input v-model="query.keyword" class="filter-ctl filter-ctl--wide" placeholder="任务标题 / 描述关键词" clearable @enter="handleSearch">
+          <template #prefix-icon><t-icon name="search" /></template>
+        </t-input>
+        <t-select v-model="query.status" class="filter-ctl" placeholder="状态" clearable :options="statusOpts" />
+        <t-select v-model="query.priority" class="filter-ctl" placeholder="优先级" clearable :options="priorityOpts" />
+        <UserSelect v-model="query.owner_id" class="filter-ctl" placeholder="负责人" :disabled="myMode" />
+        <t-select
+          v-model="query.project_id"
+          class="filter-ctl"
+          :options="projectOptions"
+          :loading="projectLoading"
+          placeholder="所属项目"
+          clearable
+          filterable
+          :disabled="myMode"
+        />
+      </div>
+      <div class="filter-line">
+        <t-date-range-picker v-model="dueRange" class="filter-ctl filter-ctl--wide" placeholder="截止日期范围" clearable format="YYYY-MM-DD" />
+      </div>
+      <div class="filter-line filter-line--actions">
+        <t-button theme="primary" @click="handleSearch">
+          <template #icon><t-icon name="search" /></template>
+          查询
+        </t-button>
+        <t-button variant="outline" @click="handleReset">重置</t-button>
+        <label class="my-switch">
+          <t-switch v-model="myMode" size="small" />
+          <span class="my-switch__label">只看我的任务</span>
+        </label>
+        <span v-if="view === 'list'" class="filter-hint">
+          我的任务按「逾期 / 今日 / 本周 / 以后 / 无期限」分组统计（CST 计算），共 {{ myTotal }} 条
+        </span>
+      </div>
     </t-card>
 
     <!-- 工具条：三视图切换 + 主操作（列表 / 看板共用同一份筛选条件） -->
@@ -927,5 +913,33 @@ onMounted(() => {
     font-size: 12px;
     color: var(--td-text-color-placeholder);
   }
+}
+
+/* 查询框三行布局（与甘特图一致） */
+.filter-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+
+  &:last-of-type {
+    margin-bottom: 0;
+  }
+}
+
+.filter-ctl {
+  width: 240px;
+  flex: 0 0 240px;
+}
+
+.filter-ctl--wide {
+  width: 320px;
+  flex: 0 0 320px;
+}
+
+/* 第3行（查询/重置）按钮居中 */
+.filter-line--actions {
+  justify-content: center;
 }
 </style>
