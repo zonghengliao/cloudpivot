@@ -80,8 +80,17 @@ function onTitleClick(): void {
 </script>
 
 <style scoped lang="less">
+// 关键：TDesign 的 .t-menu__content / .t-submenu__title 默认是 fit-content 宽度
+//（Playwright 实测只有 48px），且 overflow: hidden —— 徽标超出就被裁。
+// 必须让它们 flex:1 占满整行，内部的 title-wrap 才有空间做 space-between。
+:deep(.t-menu__content),
+:deep(.t-submenu__title) {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
 // 标题 + 徽标的行容器：文字占满剩余宽度（超长省略），徽标贴右且**不被压缩**
-// —— 解决「红点只显示一半」（原实现里 badge 是 inline 紧跟文字，父宽不够就被裁）
 .side-menu-item__title-wrap {
   display: flex;
   align-items: center;
