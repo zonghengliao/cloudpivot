@@ -58,6 +58,35 @@
 //! 分页仍走 scope::paginate_unscoped（闸①口径），不回落到框架 paginate_with_params。
 //! ```
 //!
+//! # 库存联动（W2c-1 · 不变式 ①②）
+//!
+//! ```text
+//! ① 对 serial_required = TRUE 的物料：biz_inventory.qty == count(serial where status='IN_STOCK')
+//! ② 序列号状态与库存流水（biz_inventory_txn）在同一事务里落库
+//! ```
+//!
+//! **决策：方案 A —— 数量由序列号派生**（不是「双写 + 巡检兜底」）。
+//! 一物一码的核心价值就是单一真相：件数只能有一个来源，双写即使同事务也允许「两边各自算错」，
+//! 巡检只能事后发现、不能阻止脏账。所以每次序列号状态变化后调用 [`recompute_quantity`]
+//! （`UPDATE … SET qty = (SELECT count(*) …)`），流水只做审计、不回写数量。
+//!
+//! **事务边界在接口层**：本文件的写函数一律吃 `&impl SqlExecutor`
+//! （[`nik::prelude::SqlExecutor`]，`Db` 与 `Transaction` 都实现），
+//! 由 [`crate::business::erp::serial_handler::generate_serials`] /
+//! [`crate::business::erp::serial_handler::apply_status`] 开事务并提交；
+//! 模型层**不再自己 `db().begin()`**，也绝不出现「事务里再开事务」。
+//!
+//! 与卡面的三处口径差异（都有 DB 约束兜底，照卡面写会直接失败）：
+//!
+//! 1. 卡面写 `biz_inventory.quantity` —— 真实列名是 **`qty`**（V0137 §1.4）。
+//! 2. 卡面写出库流水 `qty=-1` —— `ck_biz_inv_txn_qty CHECK (qty > 0)` **禁止负数**，
+//!    方向由 `txn_type IN ('IN','OUT')` 表达。故出库/报废流水是 `txn_type='OUT', qty=+1`。
+//! 3. 卡面写「报废流水 type=SCRAP」—— `ck_biz_inv_txn_type` 只认 `IN` / `OUT`，
+//!    报废落成 `txn_type='OUT'` + `biz_type='SERIAL_SCRAP'`（业务类型区分报废与销售出库）。
+//!
+//! 数量重算同时把 `amount` 收成 `qty * avg_cost`（成本账的自洽式），
+//! 否则「数量变了、金额没变」会让移动加权反算对不上。
+//!
 //! # 为什么扫码一定走索引
 //!
 //! [`serial_scan`] 的谓词是 `s.serial_no = ?`，命中 V0138 的部分唯一索引
@@ -66,6 +95,7 @@
 //! 少了这一句 planner 就不能用该索引（会退化成 Seq Scan + Filter）。
 
 use nik::prelude::chrono::{DateTime, Duration, Utc};
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -371,14 +401,15 @@ fn uuid_text(value: Option<Uuid>) -> Value {
 
 /// `biz_seq(seq_type='SN')` 那一行不存在时幂等补一行（V0138 已种，这里只是兜底：
 /// 手工清过序列表 / 老库跳过 V0138 时不会 500）。并发下唯一索引会拦重复 → 视为成功。
-async fn ensure_seq_row() -> DbResult<()> {
+async fn ensure_seq_row(ex: &impl SqlExecutor) -> DbResult<()> {
     // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列，不需要数据范围。
-    db().execute_with_params(
+    ex.exec_sql(
         "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
                               current_no, step, separator, status, remark) \
          SELECT ?, 'SN', '单品序列号', 'SN', 'yyyyMMdd', '', 0, 1, '-', 1, \
                 '一物一码单品序列号：SN-yyyyMMdd-000001，按天（CST）滚动' \
-          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = 'SN' AND deleted_at IS NULL)",
+          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = 'SN' AND deleted_at IS NULL)"
+            .to_string(),
         vec![Value::from(Uuid::now_v7())],
     )
     .await
@@ -405,10 +436,10 @@ async fn ensure_seq_row() -> DbResult<()> {
 /// 回到 A 时会从 000001 重新发号，**与 A 当天已发出去的号整段撞车**
 /// （本卡实测：单测用假周期键把 `period_key` 推来推去，把当天真实的 1000 个号撞了）。
 /// 周期键是 `yyyyMMdd` 定宽，字典序 = 时间序，所以用 `<` / `>` 比较是安全的。
-async fn bump_seq(count: i64, period_key: &str) -> DbResult<Option<i64>> {
+async fn bump_seq(ex: &impl SqlExecutor, count: i64, period_key: &str) -> DbResult<Option<i64>> {
     // SCOPE-EXEMPT: 同上，biz_seq 是全局取号规则字典。
-    let rows = db()
-        .find_with_params(
+    let rows = ex
+        .query_sql(
             "UPDATE biz_seq \
                 SET current_no = CASE WHEN period_key = ? THEN current_no + ? \
                                       WHEN period_key < ? THEN ? \
@@ -416,7 +447,8 @@ async fn bump_seq(count: i64, period_key: &str) -> DbResult<Option<i64>> {
                     period_key = CASE WHEN period_key < ? THEN ? ELSE period_key END, \
                     updated_at = now() \
               WHERE seq_type = 'SN' AND deleted_at IS NULL \
-             RETURNING current_no - ? AS start",
+             RETURNING current_no - ? AS start"
+                .to_string(),
             vec![
                 Value::from(period_key),
                 Value::from(count),
@@ -435,7 +467,9 @@ async fn bump_seq(count: i64, period_key: &str) -> DbResult<Option<i64>> {
 /// 原子取号：占用 `count` 个连号，返回号段起点（本段号 = `start+1 ..= start+count`）。
 ///
 /// 并发安全由 `UPDATE` 的行锁保证；跨天由 `CASE WHEN period_key = ?` 重置保证。
-pub async fn take_numbers(count: i64, period_key: &str) -> DbResult<i64> {
+/// W2c-1 起改为吃 `&impl SqlExecutor`：批量生成整条链路（取号 → 落库 → 流水 → 重算）
+/// 必须落在**同一个事务**里，取号失败/落库失败才能一起回滚（不会白吃一段号）。
+pub async fn take_numbers(ex: &impl SqlExecutor, count: i64, period_key: &str) -> DbResult<i64> {
     if count <= 0 {
         return Err(DbError::InvalidValue(format!(
             "取号条数必须 > 0（收到 {count}）"
@@ -446,39 +480,296 @@ pub async fn take_numbers(count: i64, period_key: &str) -> DbResult<i64> {
             "单次最多取 {MAX_BATCH_COUNT} 个号（收到 {count}）"
         )));
     }
-    if let Some(start) = bump_seq(count, period_key).await? {
+    if let Some(start) = bump_seq(ex, count, period_key).await? {
         return Ok(start);
     }
-    ensure_seq_row().await?;
-    bump_seq(count, period_key).await?.ok_or_else(|| {
+    ensure_seq_row(ex).await?;
+    bump_seq(ex, count, period_key).await?.ok_or_else(|| {
         DbError::InvalidValue(
             "biz_seq 里没有 seq_type='SN' 的取号规则（V0138 应已种入），无法生成序列号".to_string(),
         )
     })
 }
 
+// ==================== 仓储联动：数量由序列号派生（不变式①②） ====================
+
+/// 流水方向：入（`ck_biz_inv_txn_type` 只认这两个值）。
+pub const TXN_TYPE_IN: &str = "IN";
+/// 流水方向：出。
+pub const TXN_TYPE_OUT: &str = "OUT";
+
+/// 业务类型：批量生成（一物一码入库）。
+pub const BIZ_TYPE_SERIAL_IN: &str = "SERIAL_IN";
+/// 业务类型：序列号出库。
+pub const BIZ_TYPE_SERIAL_OUT: &str = "SERIAL_OUT";
+/// 业务类型：在库序列号报废（`txn_type` 仍是 `OUT`，方向由它定）。
+pub const BIZ_TYPE_SERIAL_SCRAP: &str = "SERIAL_SCRAP";
+
+/// 单据类型：单件（一张流水对一条序列号）。
+pub const DOC_TYPE_SERIAL: &str = "MATERIAL_SERIAL";
+/// 单据类型：批量生成（一张流水对 N 条序列号）。
+pub const DOC_TYPE_SERIAL_BATCH: &str = "SERIAL_BATCH";
+
+/// `biz_inventory_txn.remark` 列宽（V0137：`VARCHAR(255)`）。
+///
+/// 模型层**不做截断**：超长由 DB 报错、事务整体回滚（宁可失败也不悄悄丢审计信息）；
+/// 接口层把 `reason` 限在 200 字（[`crate::business::erp::serial_dto::MAX_REASON_LEN`]）。
+pub const TXN_REMARK_MAX: usize = 255;
+
+/// 「某一刻」的会计期间码 `yyyy-MM`（同样用 **CST**：月末 23:30 的流水不该记到上个月）。
+pub fn period_code_of(now: DateTime<Utc>) -> String {
+    (now + Duration::hours(CST_OFFSET_HOURS))
+        .format("%Y-%m")
+        .to_string()
+}
+
+/// 库存快照（流水的前后六列里，变动前的三项）。
+#[derive(Debug, Clone, Copy)]
+pub struct InventorySnapshot {
+    /// 变动前账面数量。
+    pub qty: Decimal,
+    /// 变动前账面金额。
+    pub amount: Decimal,
+    /// 变动前移动加权单价。
+    pub avg_cost: Decimal,
+}
+
+impl InventorySnapshot {
+    /// 全 0（`biz_inventory` 还没有该物料行时的口径）。
+    pub fn zero() -> Self {
+        Self {
+            qty: Decimal::ZERO,
+            amount: Decimal::ZERO,
+            avg_cost: Decimal::ZERO,
+        }
+    }
+}
+
+/// 读 `(物料, 仓库)` 的库存快照并**锁住该行**（`FOR UPDATE`）。
+///
+/// 锁的作用：同一 (物料, 仓库) 的并发收发货串行化，`before_qty` 不会两个人读到同一个旧值
+/// （不锁的话流水的前后快照会互相覆盖，成本链对不上）。`None` = 该物料还没建账。
+async fn lock_inventory(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<Option<InventorySnapshot>> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "SELECT qty, amount, avg_cost FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    row.map(|row| {
+        Ok(InventorySnapshot {
+            qty: row.get_typed("qty")?,
+            amount: row.get_typed("amount")?,
+            avg_cost: row.get_typed("avg_cost")?,
+        })
+    })
+    .transpose()
+}
+
+/// **不变式①**：把 `biz_inventory.qty` 重算成「该 (物料, 仓库) 下 `IN_STOCK` 的序列号件数」。
+///
+/// ```sql
+/// INSERT INTO biz_inventory (…) SELECT …, count(*) FROM biz_material_serial WHERE …
+/// ON CONFLICT (material_id, warehouse_id)
+///   DO UPDATE SET qty = EXCLUDED.qty, amount = EXCLUDED.qty * avg_cost
+/// ```
+///
+/// - 用 `INSERT … ON CONFLICT (uk_biz_inv_mat_wh)` 而不是纯 `UPDATE`：一物一码物料
+///   首次批量生成时 `biz_inventory` 还没有行，纯 `UPDATE` 会「改 0 行」而**静默丢账**；
+/// - `amount = qty * avg_cost`：数量变了金额必须跟着变，否则成本账两列互相矛盾；
+/// - `deleted_at IS NULL` 必须写在子查询里（部分索引可命中性依赖它）；
+/// - 返回重算后的数量（调用方拿它填流水的 `after_qty`，不自己算 ±1 —— 那样是双写）。
+pub async fn recompute_quantity(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<Decimal> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "INSERT INTO biz_inventory AS i \
+                 (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount, last_txn_at) \
+             SELECT ?, ?::uuid, ?::uuid, s.in_stock, 0, 0, 0, now() \
+               FROM (SELECT COUNT(*)::numeric AS in_stock \
+                       FROM biz_material_serial \
+                      WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                        AND status = 'IN_STOCK' AND deleted_at IS NULL) AS s \
+             ON CONFLICT (material_id, warehouse_id) DO UPDATE \
+                SET qty = EXCLUDED.qty, \
+                    amount = EXCLUDED.qty * i.avg_cost, \
+                    last_txn_at = now(), \
+                    updated_at = now() \
+             RETURNING qty"
+                .to_string(),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue(
+                "库存数量重算未返回行（biz_inventory 的 upsert 不应为空）".to_string(),
+            )
+        })?;
+    row.get_typed("qty")
+}
+
+/// 一条库存流水的全部业务入参（写库时展开成 22 列）。
+#[derive(Debug, Clone)]
+pub struct TxnNote<'a> {
+    /// 方向：`IN` / `OUT`。
+    pub txn_type: &'a str,
+    /// 业务类型：`SERIAL_IN` / `SERIAL_OUT` / `SERIAL_SCRAP`。
+    pub biz_type: &'a str,
+    /// 单据类型：`SERIAL_BATCH` / `MATERIAL_SERIAL`。
+    pub doc_type: &'a str,
+    /// 单据主键（批量生成 = 首件 id；单件流转 = 该序列号 id）。
+    pub doc_id: Uuid,
+    /// 单据号（批量生成 = 首号；单件流转 = 序列号本身）。
+    pub doc_no: String,
+    /// 备注（`reason` 或状态文案；超长由 DB 拒、事务回滚）。
+    pub remark: Option<String>,
+    /// 操作人。
+    pub operator: Option<Uuid>,
+    /// 记账时刻（Rust 侧算好再绑，保证流水时间与期间码同源）。
+    pub now: DateTime<Utc>,
+}
+
+/// 写一条库存流水（**只增不改**）。
+///
+/// `qty` 恒为正数（`ck_biz_inv_txn_qty` 禁负数），方向看 `txn_type`。
+/// `before` 是调用方在变动前锁读到的快照；`after` 三项直接读 `biz_inventory`
+/// 的**当前值** —— 即 [`recompute_quantity`] 刚写进去的派生结果。
+/// 这样流水的 `after_qty` 不是「before ± 1」算出来的（那是双写），而是派生值的真实落库值。
+async fn post_serial_txn(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    note: &TxnNote<'_>,
+    qty: i64,
+    before: &InventorySnapshot,
+) -> DbResult<()> {
+    let period_code = period_code_of(note.now);
+    let now = note.now;
+    let operator = note.operator;
+    // SCOPE-EXEMPT: 库存流水是仓储数据，无归属列（口径同 erp/model.rs）。
+    ex.exec_sql(
+        "INSERT INTO biz_inventory_txn \
+             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
+              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+              after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
+         SELECT ?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, 1, \
+                NULLIF(?::text, '')::numeric, i.avg_cost, \
+                NULLIF(?::text, '')::numeric * i.avg_cost, \
+                NULLIF(?::text, '')::numeric, NULLIF(?::text, '')::numeric, i.avg_cost, \
+                i.qty, i.amount, i.avg_cost, \
+                ?, NULLIF(?::text, '')::uuid, NULLIF(?::text, ''), ? \
+           FROM biz_inventory i \
+          WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid"
+            .to_string(),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&material_id),
+            Value::from(&warehouse_id),
+            Value::from(note.txn_type),
+            Value::from(note.biz_type),
+            Value::from(note.doc_type),
+            Value::from(&note.doc_id),
+            Value::from(note.doc_no.as_str()),
+            Value::from(qty.to_string()),
+            Value::from(qty.to_string()),
+            Value::from(before.qty.to_string()),
+            Value::from(before.amount.to_string()),
+            Value::from(period_code.as_str()),
+            uuid_text(operator),
+            Value::from(note.remark.as_deref().unwrap_or("")),
+            Value::from(now),
+            Value::from(&material_id),
+            Value::from(&warehouse_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+/// 库存联动的唯一入口：**锁读快照 → 重算派生数量 → 写流水**（三步同一事务）。
+///
+/// `qty` 是本次变动件数（批量生成 = N，单件出库/报废 = 1），只用于流水与面积校验，
+/// 不参与数量计算 —— 数量永远由 [`recompute_quantity`] 从序列号数出来。
+///
+/// `warehouse_id` 为空时**跳过**库存联动并留 WARN：V0137 的 `biz_inventory.warehouse_id`
+/// 是 NOT NULL，没有仓库维度的序列号（历史行 / 接口层已拦的新请求）记不进任何一本仓账。
+async fn link_inventory(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Option<Uuid>,
+    note: &TxnNote<'_>,
+    qty: i64,
+) -> DbResult<()> {
+    let Some(warehouse_id) = warehouse_id else {
+        tracing::warn!(
+            material_id = %material_id,
+            doc_no = %note.doc_no,
+            "序列号没有仓库归属，跳过库存联动（biz_inventory.warehouse_id 是 NOT NULL）"
+        );
+        return Ok(());
+    };
+    let before = lock_inventory(ex, material_id, warehouse_id)
+        .await?
+        .unwrap_or_else(InventorySnapshot::zero);
+    recompute_quantity(ex, material_id, warehouse_id).await?;
+    post_serial_txn(ex, material_id, warehouse_id, note, qty, &before).await
+}
+
 // ==================== 批量生成 ====================
 
-/// 批量生成序列号：取一段号 + 一条 `INSERT … SELECT` 落库 + 回读整行。
+/// 批量生成序列号：取一段号 + 一条 `INSERT … SELECT` 落库 + 一条 `IN` 流水 + 数量重算。
 ///
 /// 为什么用「一条 INSERT + text 载荷」而不是 1000 条 `INSERT`：1000 个往返实测 1.5–2 s，
 /// 单条语句 < 100 ms。载荷格式见 [`pair_payload`]（数组参数绑不上，见那里的说明）。
+///
 /// 号码先取后插，**插入失败会浪费掉这一小段号**（序列号允许跳号，
 /// 业务上不可接受的是重号）——这条取舍写在证据文档里。
+///
+/// W2c-1：整条链路（取号 → 落库 → 库存联动）由调用方的事务包住，
+/// 任一步失败全回滚；`serial_required` 物料**必须**有 `warehouse_id`
+/// （账面数量按 物料×仓库 派生，没有仓库就没有账面）。
 pub async fn batch_generate(
+    ex: &impl SqlExecutor,
     params: &GenerateParams<'_>,
     period_key: &str,
     operator: Option<Uuid>,
 ) -> DbResult<Vec<SerialRow>> {
-    let start = take_numbers(params.count, period_key).await?;
+    if params.count <= 0 {
+        return Err(DbError::InvalidValue("生成条数必须 > 0".to_string()));
+    }
+    let Some(warehouse_id) = params.warehouse_id else {
+        return Err(DbError::InvalidValue(
+            "一物一码物料批量生成必须指定仓库：账面数量按 物料×仓库 由序列号派生（不变式①）"
+                .to_string(),
+        ));
+    };
+    let start = take_numbers(ex, params.count, period_key).await?;
     let ids: Vec<Uuid> = (0..params.count).map(|_| Uuid::now_v7()).collect();
     let serial_nos: Vec<String> = (1..=params.count)
         .map(|offset| format_serial_no(period_key, start + offset))
         .collect();
+    let doc_id = ids[0];
+    let doc_no = serial_nos[0].clone();
     let pairs: Vec<(Uuid, String)> = ids.iter().copied().zip(serial_nos).collect();
     let payload = pair_payload(&pairs);
 
-    db().execute_with_params(
+    ex.exec_sql(
         "INSERT INTO biz_material_serial \
              (id, serial_no, material_id, warehouse_id, location_id, batch_no, status, inbound_at, \
               source_type, source_id, create_by, update_by) \
@@ -486,7 +777,8 @@ pub async fn batch_generate(
                 NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid, NULLIF(?::text, ''), \
                 'IN_STOCK', now(), NULLIF(?::text, ''), NULLIF(?::text, '')::uuid, \
                 NULLIF(?::text, '')::uuid, NULLIF(?::text, '')::uuid \
-           FROM unnest(string_to_array(?, E'\\n')) AS t(line)",
+           FROM unnest(string_to_array(?, chr(10))) AS t(line)"
+            .to_string(),
         vec![
             Value::from(&params.material_id),
             uuid_text(params.warehouse_id),
@@ -501,12 +793,36 @@ pub async fn batch_generate(
     )
     .await?;
 
-    let rows = db()
-        .find_with_params(
-            &format!(
+    // 不变式②：一次批量生成 = 一条 IN 流水（qty = N），再按序列号重算账面数量。
+    let note = TxnNote {
+        txn_type: TXN_TYPE_IN,
+        biz_type: BIZ_TYPE_SERIAL_IN,
+        doc_type: DOC_TYPE_SERIAL_BATCH,
+        doc_id,
+        doc_no,
+        remark: Some(format!(
+            "批量生成 {} 件（{} 起）",
+            params.count,
+            format_serial_no(period_key, start + 1)
+        )),
+        operator,
+        now: Utc::now(),
+    };
+    link_inventory(
+        ex,
+        params.material_id,
+        Some(warehouse_id),
+        &note,
+        params.count,
+    )
+    .await?;
+
+    let rows = ex
+        .query_sql(
+            format!(
                 "SELECT {SERIAL_COLUMNS} FROM biz_material_serial \
                   WHERE id IN (SELECT split_part(t.line, '|', 1)::uuid \
-                                 FROM unnest(string_to_array(?, E'\\n')) AS t(line)) \
+                                 FROM unnest(string_to_array(?, chr(10))) AS t(line)) \
                     AND deleted_at IS NULL ORDER BY serial_no ASC"
             ),
             vec![Value::Text(pair_payload(&pairs))],
@@ -656,21 +972,39 @@ fn parse_id(value: &str, field: &str) -> DbResult<Uuid> {
 ///   然后各自「合法地」写一次，第二次必然看到第一次的结果并被状态机拒绝；
 /// - 转 `OUTBOUND` / `SCRAPPED` 都写 `outbound_at`（V0138 注释：出库/报废时间），
 ///   用 `COALESCE(outbound_at, now())` 保证「先出库后报废」时保留出库时刻；
-/// - `updated_by` 用操作人，`deleted_at` 不参与（软删行一律当不存在）。
+/// - `updated_by` 用操作人，`deleted_at` 不参与（软删行一律当不存在）；
+/// - **W2c-1 不变式②**：同一事务里追加库存流水 + 按序列号重算账面数量（见 [`link_inventory`]）；
+/// - 吃 `&impl SqlExecutor`：事务由接口层开（[`crate::business::erp::serial_handler::apply_status`]），
+///   本函数不 `begin`、不 `commit`，也不允许在事务里再开事务。
 pub async fn transition_status(
+    ex: &impl SqlExecutor,
     id: Uuid,
     target: &str,
     operator: Option<Uuid>,
+) -> DbResult<TransitionOutcome> {
+    transition_status_with(ex, id, target, operator, None).await
+}
+
+/// 带业务原因的状态流转：`reason` 写进库存流水的 `remark`（W2c-1 起有地方落了）。
+///
+/// `reason` **不截断**：`VARCHAR(255)` 超长会让流水 INSERT 失败、整个事务回滚
+/// （接口层已把它限在 200 字，见 `serial_dto::MAX_REASON_LEN`）；
+/// 这条「宁可整单失败也不悄悄丢审计信息」的取舍，同时是回滚用例的注入点。
+pub async fn transition_status_with(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    target: &str,
+    operator: Option<Uuid>,
+    reason: Option<&str>,
 ) -> DbResult<TransitionOutcome> {
     if !ALL_STATUSES.contains(&target) {
         return Err(DbError::InvalidValue(format!(
             "目标状态只能是 IN_STOCK / OUTBOUND / SCRAPPED（收到 {target}）"
         )));
     }
-    let tx = db().begin().await?;
-    let locked = tx
-        .find_with_params(
-            &format!(
+    let locked = ex
+        .query_sql(
+            format!(
                 "SELECT {SERIAL_COLUMNS} FROM biz_material_serial \
                   WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
             ),
@@ -679,19 +1013,17 @@ pub async fn transition_status(
         .await?;
     let current = locked.first().map(SerialRow::from_row).transpose()?;
     let Some(current) = current else {
-        tx.rollback().await?;
         return Ok(TransitionOutcome::NotFound);
     };
     if !can_transition(&current.status, target) {
-        tx.rollback().await?;
         return Ok(TransitionOutcome::Illegal {
             from: current.status,
             to: target.to_string(),
         });
     }
-    let updated = tx
-        .find_with_params(
-            &format!(
+    let updated = ex
+        .query_sql(
+            format!(
                 "UPDATE biz_material_serial \
                     SET status = ?, outbound_at = COALESCE(outbound_at, now()), \
                         updated_at = now(), update_by = NULLIF(?::text, '')::uuid \
@@ -706,7 +1038,33 @@ pub async fn transition_status(
         .map(SerialRow::from_row)
         .transpose()?
         .ok_or_else(|| DbError::InvalidValue("状态更新未返回行（不应发生）".to_string()))?;
-    tx.commit().await?;
+
+    // 不变式②：在库件的出库/报废都要落一条 OUT 流水 + 重算账面数量。
+    // `OUTBOUND → SCRAPPED` **不涉及库存**：件数在出库那一刻已经减过，再减一次就是重复扣减。
+    let movement = match (current.status.as_str(), target) {
+        (STATUS_IN_STOCK, STATUS_OUTBOUND) => Some((BIZ_TYPE_SERIAL_OUT, "出库")),
+        (STATUS_IN_STOCK, STATUS_SCRAPPED) => Some((BIZ_TYPE_SERIAL_SCRAP, "报废")),
+        _ => None,
+    };
+    if let Some((biz_type, label)) = movement {
+        let remark = reason
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| format!("序列号{label}：{}", row.serial_no));
+        let note = TxnNote {
+            txn_type: TXN_TYPE_OUT,
+            biz_type,
+            doc_type: DOC_TYPE_SERIAL,
+            doc_id: row.id,
+            doc_no: row.serial_no.clone(),
+            remark: Some(remark),
+            operator,
+            now: Utc::now(),
+        };
+        link_inventory(ex, row.material_id, row.warehouse_id, &note, 1).await?;
+    }
+
     Ok(TransitionOutcome::Updated {
         from: current.status,
         row: Box::new(row),

@@ -147,12 +147,19 @@ pub async fn generate_serials(
     }
 
     let warehouse_id = optional_uuid(req.warehouse_id.as_deref(), "warehouse_id")?;
-    if let Some(id) = warehouse_id {
-        model::warehouse_find_by_id(id)
-            .await
-            .map_err(|error| utils::db_error(error, "查询仓库"))?
-            .ok_or_else(|| reference_missing("仓库不存在或已删除"))?;
-    }
+    // 不变式①（W2c-1）：账面数量按 (物料, 仓库) 由序列号派生 —— 没有仓库就没有账面，
+    // 也就无法保证「quantity == count(IN_STOCK)」，所以一物一码物料必须指定仓库。
+    let Some(warehouse_id) = warehouse_id else {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_REFERENCE_MISSING,
+            "一物一码物料批量生成必须指定 warehouse_id：库存数量按 物料×仓库 由序列号派生（不变式①）",
+        ));
+    };
+    model::warehouse_find_by_id(warehouse_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询仓库"))?
+        .ok_or_else(|| reference_missing("仓库不存在或已删除"))?;
 
     let location_id = optional_uuid(req.location_id.as_deref(), "location_id")?;
     if let Some(id) = location_id {
@@ -164,9 +171,7 @@ pub async fn generate_serials(
                     "库位库存行不存在：location_id 指向 biz_inventory_location.id（不是 biz_location.id）",
                 )
             })?;
-        if let Some(warehouse_id) = warehouse_id
-            && warehouse_id != row.warehouse_id
-        {
+        if warehouse_id != row.warehouse_id {
             return Err(reference_missing(
                 "库位库存行不属于所选仓库：一次批量生成只能落在同一个仓库的库位上",
             ));
@@ -187,7 +192,7 @@ pub async fn generate_serials(
 
     let params = GenerateParams {
         material_id,
-        warehouse_id,
+        warehouse_id: Some(warehouse_id),
         location_id,
         batch_no,
         source_type,
@@ -195,9 +200,25 @@ pub async fn generate_serials(
         count: i64::try_from(req.count).unwrap_or(serial_model::MAX_BATCH_COUNT),
     };
     let period_key = serial_model::today_period_key();
-    let rows = serial_model::batch_generate(&params, &period_key, operator)
+    // 事务边界在接口层（W2c-1 · 不变式②）：取号 → 落库 → 流水 → 数量重算 必须原子。
+    // 模型层吃 `&tx`（同一个 `SqlExecutor`），事务里不再开新事务。
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| write_error(error, "批量生成序列号"))?;
+        .map_err(|error| utils::db_error(error, "开启序列号生成事务"))?;
+    let rows = match serial_model::batch_generate(&tx, &params, &period_key, operator).await {
+        Ok(rows) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交序列号生成事务"))?;
+            rows
+        }
+        Err(error) => {
+            // 回滚失败也只能把原始错误报出去（回滚本身是幂等的，重复调用无害）
+            let _ = tx.rollback().await;
+            return Err(write_error(error, "批量生成序列号"));
+        }
+    };
     Ok(SerialBatchRes::new(&period_key, rows))
 }
 
@@ -286,18 +307,40 @@ pub async fn serial_scan(Query(query): Query<SerialScanQuery>) -> ResResult<Seri
 // ==================== ④ 状态流转 ====================
 
 /// 状态流转的核心逻辑（handler 与单测共用）。
+///
+/// W2c-1：事务边界提到这一层 —— 序列号状态、库存流水、账面数量重算必须原子。
+/// 模型层吃 `&tx`，事务里不再开新事务；`reason` 落进流水的 `remark`（V0138 序列号表没有该列）。
 pub async fn apply_status(
     id: Uuid,
     req: &SerialStatusReq,
     operator: Option<Uuid>,
 ) -> std::result::Result<SerialRes, ApiError> {
     let target = req.target_status()?;
-    let outcome = serial_model::transition_status(id, target, operator)
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| utils::db_error(error, "更新序列号状态"))?;
+        .map_err(|error| utils::db_error(error, "开启序列号状态流转事务"))?;
+    let outcome = match serial_model::transition_status_with(
+        &tx,
+        id,
+        target,
+        operator,
+        req.reason.as_deref(),
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "更新序列号状态"));
+        }
+    };
     match outcome {
         TransitionOutcome::Updated { from, row } => {
-            // reason 不落库（V0138 无该列），只进日志留痕，方便按单号追责。
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交序列号状态流转事务"))?;
+            // reason 落流水 remark（V0138 无该列），同时进日志留痕，方便按单号追责。
             tracing::info!(
                 serial_no = %row.serial_no,
                 from = %from,
@@ -307,12 +350,18 @@ pub async fn apply_status(
             );
             Ok(SerialRes::from(row.as_ref()))
         }
-        TransitionOutcome::NotFound => Err(not_found("序列号")),
-        TransitionOutcome::Illegal { from, to } => Err(ApiError::new(
-            400,
-            error_code::ERP_SERIAL_STATUS_INVALID,
-            serial_model::transition_rejected_message(&from, &to),
-        )),
+        TransitionOutcome::NotFound => {
+            let _ = tx.rollback().await;
+            Err(not_found("序列号"))
+        }
+        TransitionOutcome::Illegal { from, to } => {
+            let _ = tx.rollback().await;
+            Err(ApiError::new(
+                400,
+                error_code::ERP_SERIAL_STATUS_INVALID,
+                serial_model::transition_rejected_message(&from, &to),
+            ))
+        }
     }
 }
 
@@ -358,9 +407,12 @@ mod tests {
     use super::*;
     use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, WRITABLE_TARGETS};
     use crate::business::erp::serial_model::{
-        ALL_STATUSES, MAX_BATCH_COUNT, STATUS_IN_STOCK, STATUS_OUTBOUND, STATUS_SCRAPPED,
-        SerialRow, format_serial_no,
+        ALL_STATUSES, BIZ_TYPE_SERIAL_IN, BIZ_TYPE_SERIAL_OUT, BIZ_TYPE_SERIAL_SCRAP,
+        MAX_BATCH_COUNT, STATUS_IN_STOCK, STATUS_OUTBOUND, STATUS_SCRAPPED, SerialRow, TXN_TYPE_IN,
+        TXN_TYPE_OUT, format_serial_no, period_code_of,
     };
+    use nik::prelude::chrono::{DateTime, Utc};
+    use nik::prelude::rust_decimal::Decimal;
 
     // ---------- 夹具 ----------
     const W_ID: &str = "b2b00002-0000-4000-8000-000000000001";
@@ -368,6 +420,12 @@ mod tests {
     const M_SN_ID: &str = "b2b00004-0000-4000-8000-000000000001";
     const M_PLAIN_ID: &str = "b2b00004-0000-4000-8000-000000000002";
     const IL_ID: &str = "b2b00005-0000-4000-8000-000000000001";
+    /// W2c-1 库存联动专用仓库（与 W_ID 分开，账面互不干扰）。
+    const W_LINK_ID: &str = "b2b00002-0000-4000-8000-00000000000a";
+    /// W2c-1 一物一码物料。
+    const M_LINK_ID: &str = "b2b00004-0000-4000-8000-00000000000a";
+    /// W2c-1 按数量管理物料（对照组）。
+    const M_PLAIN_LINK_ID: &str = "b2b00004-0000-4000-8000-00000000000b";
 
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, status, sort_order)
@@ -406,6 +464,42 @@ mod tests {
                  'b2b00002-0000-4000-8000-000000000001',
                  'b2b00003-0000-4000-8000-000000000001', 0.0000)
          ON CONFLICT DO NOTHING",
+        // ---- W2c-1 库存联动夹具：独立物料 + 独立仓库，每轮从零开始（确定性）----
+        "DELETE FROM biz_inventory_txn
+          WHERE material_id IN ('b2b00004-0000-4000-8000-00000000000a',
+                                'b2b00004-0000-4000-8000-00000000000b')",
+        "DELETE FROM biz_material_serial
+          WHERE material_id IN ('b2b00004-0000-4000-8000-00000000000a',
+                                'b2b00004-0000-4000-8000-00000000000b')",
+        "DELETE FROM biz_inventory
+          WHERE material_id IN ('b2b00004-0000-4000-8000-00000000000a',
+                                'b2b00004-0000-4000-8000-00000000000b')",
+        "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_type,
+                                    allow_negative, status, sort_order, parent_id, level,
+                                    warehouse_path, is_leaf)
+         VALUES ('b2b00002-0000-4000-8000-00000000000a', 'WH-W2C1', 'W2C1 联动仓', 'NORMAL', 0, 1, 3,
+                 NULL, 1, '/b2b00002-0000-4000-8000-00000000000a/', 1)
+         ON CONFLICT DO NOTHING",
+        "INSERT INTO biz_material (id, material_code, material_name, spec, unit_id, material_type,
+                                   safety_stock, costing_method, tax_rate, status, serial_required)
+         VALUES ('b2b00004-0000-4000-8000-00000000000a', 'W2C1-M-SN', 'W2C1 一物一码物料', 'SN 设备',
+                 'b2b00001-0000-4000-8000-000000000001', 'FINISHED', 0.0000, 'MOVING_AVG',
+                 0.1300, 1, TRUE),
+                ('b2b00004-0000-4000-8000-00000000000b', 'W2C1-M-PLAIN', 'W2C1 按数量物料', NULL,
+                 'b2b00001-0000-4000-8000-000000000001', 'RAW', 0.0000, 'MOVING_AVG',
+                 0.1300, 1, FALSE)
+         ON CONFLICT DO NOTHING",
+        "UPDATE biz_material SET serial_required = TRUE
+          WHERE id = 'b2b00004-0000-4000-8000-00000000000a'",
+        "UPDATE biz_material SET serial_required = FALSE
+          WHERE id = 'b2b00004-0000-4000-8000-00000000000b'",
+        // 按数量管理的物料：账面 7 件（证明序列号操作不碰它）
+        "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount)
+         VALUES ('b2b0000b-0000-4000-8000-00000000000a',
+                 'b2b00004-0000-4000-8000-00000000000b',
+                 'b2b00002-0000-4000-8000-00000000000a', 7.0000, 0.0000, 20.000000, 140.0000)
+         ON CONFLICT (material_id, warehouse_id) DO UPDATE
+            SET qty = 7.0000, avg_cost = 20.000000, amount = 140.0000",
     ];
 
     /// 真库用例串行（同一个库，取号器是全局单行，并行会互相推进号段）。
@@ -472,6 +566,106 @@ mod tests {
         count: u64,
     ) -> std::result::Result<SerialBatchRes, ApiError> {
         generate_serials(&req_for(material_id, count), None).await
+    }
+
+    // ---------- W2c-1 库存联动辅助 ----------
+
+    /// 指定物料 / 仓库的批量生成请求（W2C1 联动夹具专用）。
+    fn req_for_link(count: u64) -> BatchGenerateReq {
+        BatchGenerateReq {
+            material_id: M_LINK_ID.to_string(),
+            warehouse_id: Some(W_LINK_ID.to_string()),
+            location_id: None,
+            batch_no: Some("W2C1-BATCH".to_string()),
+            count,
+            source_type: Some("PRODUCE".to_string()),
+            source_id: None,
+        }
+    }
+
+    /// 在 W2C1 联动仓里生成 `count` 条一物一码序列号。
+    async fn generate_link(count: u64) -> std::result::Result<SerialBatchRes, ApiError> {
+        generate_serials(&req_for_link(count), None).await
+    }
+
+    /// 不变式①的右端：该 (物料, 仓库) 下 `IN_STOCK` 的序列号件数。
+    async fn in_stock_count(material_id: Uuid, warehouse_id: Uuid) -> i64 {
+        db().scalar_with_params(
+            "SELECT COUNT(*) FROM biz_material_serial \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND status = 'IN_STOCK' AND deleted_at IS NULL",
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await
+        .expect("统计在库序列号")
+    }
+
+    /// 不变式①的左端：`biz_inventory.qty`（`None` = 还没建账）。
+    async fn inventory_qty(material_id: Uuid, warehouse_id: Uuid) -> Option<Decimal> {
+        let rows = db()
+            .find_with_params(
+                "SELECT qty FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+                vec![Value::from(&material_id), Value::from(&warehouse_id)],
+            )
+            .await
+            .expect("读账面数量");
+        rows.first().map(|row| row.get_typed("qty").expect("qty"))
+    }
+
+    /// 某物料的流水条数（`biz_type` 可选过滤）。
+    async fn txn_count(material_id: Uuid, biz_type: Option<&str>) -> i64 {
+        let sql = match biz_type {
+            Some(_) => {
+                "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid AND biz_type = ?"
+            }
+            None => "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid",
+        };
+        let mut params = vec![Value::from(&material_id)];
+        if let Some(biz_type) = biz_type {
+            params.push(Value::from(biz_type));
+        }
+        db().scalar_with_params(sql, params)
+            .await
+            .expect("统计库存流水")
+    }
+
+    /// 最新一条流水的关键列（时间倒序，同秒用 id 兜底）。
+    async fn latest_txn(
+        material_id: Uuid,
+    ) -> (String, String, Decimal, Decimal, Decimal, Option<String>) {
+        let rows = db()
+            .find_with_params(
+                "SELECT txn_type, biz_type, qty, before_qty, after_qty, remark \
+                   FROM biz_inventory_txn WHERE material_id = ?::uuid \
+                  ORDER BY created_at DESC, id DESC LIMIT 1",
+                vec![Value::from(&material_id)],
+            )
+            .await
+            .expect("读最新流水");
+        let row = rows.first().expect("应该有一条流水");
+        (
+            row.get_typed("txn_type").expect("txn_type"),
+            row.get_typed("biz_type").expect("biz_type"),
+            row.get_typed("qty").expect("qty"),
+            row.get_typed("before_qty").expect("before_qty"),
+            row.get_typed("after_qty").expect("after_qty"),
+            row.get_typed("remark").expect("remark"),
+        )
+    }
+
+    /// 断言不变式①（`quantity == count(IN_STOCK)`），失败时把两端口径一起打出来。
+    async fn assert_invariant(material_id: &str, warehouse_id: &str, ctx: &str) {
+        let material = uuid(material_id);
+        let warehouse = uuid(warehouse_id);
+        let counted = in_stock_count(material, warehouse).await;
+        let booked = inventory_qty(material, warehouse).await;
+        // 按数值比较（`NUMERIC(18,4)` 读回来是 4.0000，`count(*)` 是 4，数值相等即通过）
+        assert_eq!(
+            booked,
+            Some(Decimal::from(counted)),
+            "不变式①被破坏（{ctx}）：biz_inventory.qty={booked:?} / count(IN_STOCK)={counted}"
+        );
     }
 
     // ---------- 纯逻辑用例（不连库） ----------
@@ -675,11 +869,11 @@ mod tests {
             source_id: None,
             count: 5,
         };
-        let day = serial_model::batch_generate(&params, new_period, None).await;
-        let same_day = serial_model::batch_generate(&params, new_period, None).await;
+        let day = serial_model::batch_generate(db(), &params, new_period, None).await;
+        let same_day = serial_model::batch_generate(db(), &params, new_period, None).await;
         // ② 周期回退：period_key 比本次大 → 只累加、不重置
         set_seq_state(new_period, 5).await;
-        let rollback = serial_model::take_numbers(1, old_period).await;
+        let rollback = serial_model::take_numbers(db(), 1, old_period).await;
         // ③ 立刻还原全局号段（后续用例还要用当天的号）
         set_seq_state(&backup.0, backup.1).await;
 
@@ -1222,5 +1416,393 @@ mod tests {
         assert!(row.source_id.is_none());
         assert!(row.deleted_at.is_none());
         assert_eq!(row.created_at, row.updated_at, "刚生成时两者相等");
+    }
+
+    // ---------- W2c-1 库存联动用例（不变式 ①②） ----------
+
+    /// ① 批量生成 5 个 → `biz_inventory.qty` 由序列号派生 = 5（首次入库自动建档）。
+    #[tokio::test]
+    async fn batch_generate_derives_inventory_quantity() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        assert!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID))
+                .await
+                .is_none(),
+            "夹具应把账面行清空：首次入库要能走 upsert 建档"
+        );
+        let body = generate_link(5).await.expect("批量生成 5 条");
+        assert_eq!(body.count, 5);
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(5)),
+            "生成 5 件 → 账面数量必须由序列号派生为 5"
+        );
+        assert_eq!(in_stock_count(uuid(M_LINK_ID), uuid(W_LINK_ID)).await, 5);
+        assert_invariant(M_LINK_ID, W_LINK_ID, "批量生成 5 件").await;
+    }
+
+    /// ② 批量生成 5 个 → 只有 1 条 `qty=+5` 的 IN 流水（不是 5 条）。
+    #[tokio::test]
+    async fn batch_generate_writes_single_in_txn() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before = txn_count(uuid(M_LINK_ID), None).await;
+        generate_link(5).await.expect("批量生成 5 条");
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), None).await - before,
+            1,
+            "一次批量生成只写一条 IN 流水"
+        );
+        let (txn_type, biz_type, qty, before_qty, after_qty, remark) =
+            latest_txn(uuid(M_LINK_ID)).await;
+        assert_eq!(txn_type, TXN_TYPE_IN);
+        assert_eq!(biz_type, BIZ_TYPE_SERIAL_IN);
+        assert_eq!(qty, Decimal::from(5), "qty 必须等于生成件数");
+        assert_eq!(before_qty, Decimal::ZERO, "变动前无账面行 → 0");
+        assert_eq!(after_qty, Decimal::from(5));
+        assert!(
+            remark.unwrap_or_default().contains("批量生成 5 件"),
+            "流水备注要写清来源"
+        );
+    }
+
+    /// ③ 1 个序列号转 OUTBOUND → 账面数量 5 → 4（不是手工 -1，而是按序列号重算）。
+    #[tokio::test]
+    async fn outbound_decrements_derived_quantity() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(5).await.expect("批量生成 5 条");
+        let id = uuid(&body.list[0].id);
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("发货出库".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → OUTBOUND");
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(4)),
+            "出库 1 件 → 账面 4"
+        );
+        assert_eq!(in_stock_count(uuid(M_LINK_ID), uuid(W_LINK_ID)).await, 4);
+        assert_invariant(M_LINK_ID, W_LINK_ID, "出库 1 件后").await;
+    }
+
+    /// ④ 转 OUTBOUND → 1 条 OUT 流水（`qty=+1`：`ck_biz_inv_txn_qty` 禁负数，方向看 txn_type）。
+    #[tokio::test]
+    async fn outbound_writes_out_txn_with_reason() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(5).await.expect("批量生成 5 条");
+        let id = uuid(&body.list[0].id);
+        let before = txn_count(uuid(M_LINK_ID), None).await;
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("发货出库".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → OUTBOUND");
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), None).await - before,
+            1,
+            "出库只写一条流水"
+        );
+        let (txn_type, biz_type, qty, before_qty, after_qty, remark) =
+            latest_txn(uuid(M_LINK_ID)).await;
+        assert_eq!(txn_type, TXN_TYPE_OUT);
+        assert_eq!(biz_type, BIZ_TYPE_SERIAL_OUT);
+        assert_eq!(qty, Decimal::from(1), "单件流水 qty 恒为 1（正数）");
+        assert_eq!(before_qty, Decimal::from(5));
+        assert_eq!(after_qty, Decimal::from(4));
+        assert_eq!(
+            remark.as_deref(),
+            Some("发货出库"),
+            "接口层的 reason 现在落流水 remark"
+        );
+    }
+
+    /// ⑤ IN_STOCK 转 SCRAPPED → 数量 -1 + 1 条报废流水（`OUT` + `SERIAL_SCRAP`）。
+    #[tokio::test]
+    async fn scrap_from_stock_decrements_and_writes_scrap_txn() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(3).await.expect("批量生成 3 条");
+        let id = uuid(&body.list[0].id);
+        let before = txn_count(uuid(M_LINK_ID), Some(BIZ_TYPE_SERIAL_SCRAP)).await;
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_SCRAPPED.to_string(),
+                reason: Some("来料破损".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → SCRAPPED");
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), Some(BIZ_TYPE_SERIAL_SCRAP)).await - before,
+            1,
+            "报废必须写一条 SCRAP 业务类型的流水"
+        );
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(2))
+        );
+        let (txn_type, biz_type, qty, _, after_qty, _) = latest_txn(uuid(M_LINK_ID)).await;
+        assert_eq!(txn_type, TXN_TYPE_OUT);
+        assert_eq!(biz_type, BIZ_TYPE_SERIAL_SCRAP);
+        assert_eq!(qty, Decimal::from(1));
+        assert_eq!(after_qty, Decimal::from(2));
+        assert_invariant(M_LINK_ID, W_LINK_ID, "在库报废 1 件后").await;
+    }
+
+    /// ⑥ OUTBOUND 转 SCRAPPED → 数量不变 + 无新流水（出库时已扣过，再扣就是重复扣减）。
+    #[tokio::test]
+    async fn scrap_from_outbound_keeps_quantity_and_writes_no_txn() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(2).await.expect("批量生成 2 条");
+        let id = uuid(&body.list[0].id);
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("先出库");
+        let qty_after_out = inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await;
+        let txn_after_out = txn_count(uuid(M_LINK_ID), None).await;
+        apply_status(
+            id,
+            &SerialStatusReq {
+                status: STATUS_SCRAPPED.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("再报废");
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            qty_after_out,
+            "OUTBOUND → SCRAPPED 不涉及库存"
+        );
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), None).await,
+            txn_after_out,
+            "不许再写一条流水"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "出库后报废").await;
+    }
+
+    /// ⑦ 事务性：流水 INSERT 失败（remark 超 `VARCHAR(255)`）→ 序列号状态也不变。
+    ///
+    /// 走的是**真实生产路径**（`transition_status_with`），只把 reason 换成一个必然写不进去的值：
+    /// 状态 UPDATE 先执行、流水后失败，整单回滚后库里必须还是 `IN_STOCK`。
+    #[tokio::test]
+    async fn txn_failure_rolls_back_serial_status() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(1).await.expect("批量生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let txn_before = txn_count(uuid(M_LINK_ID), None).await;
+        let too_long = "超".repeat(300);
+        let tx = db().begin().await.expect("开启事务");
+        let error =
+            serial_model::transition_status_with(&tx, id, STATUS_OUTBOUND, None, Some(&too_long))
+                .await
+                .expect_err("remark 超过 255 字符，流水必须写失败");
+        println!("预期失败：{error}");
+        tx.rollback().await.expect("回滚");
+
+        let row = serial_model::serial_find_by_id(id)
+            .await
+            .expect("查行")
+            .expect("行存在");
+        assert_eq!(row.status, STATUS_IN_STOCK, "回滚后状态必须还是 IN_STOCK");
+        assert!(row.outbound_at.is_none(), "outbound_at 也不许留下");
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(1)),
+            "账面数量必须回到 1"
+        );
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), None).await,
+            txn_before,
+            "流水一条都不许留"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "回滚之后").await;
+    }
+
+    /// ⑧ 不变式①：一串任意操作之后，每一步 `quantity == count(serial IN_STOCK)`。
+    #[tokio::test]
+    async fn invariant_holds_after_every_operation() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(4).await.expect("批量生成 4 条");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "生成 4 条").await;
+        let out_id = uuid(&body.list[0].id);
+        let scrap_id = uuid(&body.list[1].id);
+        let out_req = SerialStatusReq {
+            status: STATUS_OUTBOUND.to_string(),
+            reason: None,
+        };
+        let scrap_req = SerialStatusReq {
+            status: STATUS_SCRAPPED.to_string(),
+            reason: None,
+        };
+        apply_status(out_id, &out_req, None).await.expect("出库");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "出库 1").await;
+        apply_status(scrap_id, &scrap_req, None)
+            .await
+            .expect("在库报废");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "在库报废 1").await;
+        apply_status(out_id, &scrap_req, None)
+            .await
+            .expect("出库后报废");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "出库后报废").await;
+        generate_link(2).await.expect("再生成 2 条");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "再生成 2").await;
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(4)),
+            "4 - 1(出库) - 1(报废) + 2 = 4"
+        );
+    }
+
+    /// ⑨ 非 `serial_required` 物料 → 完全按数量管理：拒发序列号，账面一个字不动。
+    #[tokio::test]
+    async fn plain_material_keeps_quantity_management() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        assert_eq!(
+            inventory_qty(uuid(M_PLAIN_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(7)),
+            "按数量物料账面 = 夹具的 7 件"
+        );
+        let err = generate_serials(
+            &BatchGenerateReq {
+                material_id: M_PLAIN_LINK_ID.to_string(),
+                warehouse_id: Some(W_LINK_ID.to_string()),
+                location_id: None,
+                batch_no: None,
+                count: 1,
+                source_type: None,
+                source_id: None,
+            },
+            None,
+        )
+        .await
+        .expect_err("按数量物料不许生成序列号");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
+
+        // 同期对一物一码物料做真实出入库，按数量物料的账面必须纹丝不动
+        let body = generate_link(3).await.expect("生成 3 条");
+        apply_status(
+            uuid(&body.list[0].id),
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("出库");
+        assert_eq!(
+            inventory_qty(uuid(M_PLAIN_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::from(7)),
+            "序列号操作不得改按数量物料的账面"
+        );
+        assert_eq!(
+            txn_count(uuid(M_PLAIN_LINK_ID), None).await,
+            0,
+            "按数量物料不产生序列号流水"
+        );
+    }
+
+    /// ⑩ 并发：两个请求同时转 OUTBOUND 同一个号 → 一个成功一个 400，数量只减 1。
+    #[tokio::test]
+    async fn concurrent_outbound_only_decrements_once() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let body = generate_link(1).await.expect("批量生成 1 条");
+        let id = uuid(&body.list[0].id);
+        let txn_before = txn_count(uuid(M_LINK_ID), None).await;
+        let req = SerialStatusReq {
+            status: STATUS_OUTBOUND.to_string(),
+            reason: Some("并发出库".to_string()),
+        };
+        let (left, right) =
+            tokio::join!(apply_status(id, &req, None), apply_status(id, &req, None));
+        let ok = usize::from(left.is_ok()) + usize::from(right.is_ok());
+        assert_eq!(ok, 1, "同一件只能出库一次：{left:?} / {right:?}");
+        let failed = [&left, &right]
+            .into_iter()
+            .filter_map(|result| result.as_ref().err())
+            .collect::<Vec<_>>();
+        assert_eq!(failed.len(), 1, "另一个必须失败");
+        assert_eq!(failed[0].status, 400, "失败方是非法流转 400");
+        assert_eq!(
+            failed[0].code,
+            error_code::ERP_SERIAL_STATUS_INVALID,
+            "失败方业务码"
+        );
+        assert_eq!(
+            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID)).await,
+            Some(Decimal::ZERO),
+            "数量只许减 1（1 → 0）"
+        );
+        assert_eq!(
+            txn_count(uuid(M_LINK_ID), None).await - txn_before,
+            1,
+            "只许有一条 OUT 流水"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "并发出库之后").await;
+    }
+
+    /// ⑪ 期间码 `yyyy-MM` 用 CST：北京时间跨月那一刻才翻月（流水期间不许记错月）。
+    #[test]
+    fn period_code_uses_china_time() {
+        let last = DateTime::parse_from_rfc3339("2026-10-31T15:59:59Z")
+            .expect("合法时间")
+            .with_timezone(&Utc);
+        assert_eq!(period_code_of(last), "2026-10");
+        let first = DateTime::parse_from_rfc3339("2026-10-31T16:00:00Z")
+            .expect("合法时间")
+            .with_timezone(&Utc);
+        assert_eq!(period_code_of(first), "2026-11", "北京时间已进入 11 月");
     }
 }
