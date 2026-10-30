@@ -74,6 +74,12 @@ export function toast(page: Page, text: string | RegExp) {
 export interface Api {
   ctx: APIRequestContext;
   createTask(body: Record<string, unknown>): Promise<{ id: string; task_no: string }>;
+  /** 任务列表里的一行（列表接口只下发 TaskCard 字段，没有 exec_mode） */
+  listTasks(keyword?: string, pageSize?: number): Promise<TaskRow[]>;
+  /** 任务详情（`exec_mode` 只在这里下发：`HUMAN` / `AI`） */
+  getTaskDetail(id: string): Promise<Record<string, unknown>>;
+  /** AI 产出文件数（`GET /business/task/{id}/ai-workspace-files` 的 total） */
+  aiFilesTotal(id: string): Promise<number>;
   deleteTask(id: string): Promise<void>;
   createFlowDef(body: Record<string, unknown>): Promise<{ id: string; version_id: string }>;
   saveFlowGraph(vid: string, nodes: unknown[], edges: unknown[]): Promise<void>;
@@ -84,6 +90,20 @@ export interface Api {
   /** 撤回在跑的实例（清理用：有在跑实例时流程定义删不掉） */
   withdrawInstance(id: string, reason?: string): Promise<void>;
   dispose(): Promise<void>;
+}
+
+/**
+ * 任务列表行（`GET /business/task/page` 的 `TaskCardRes` 子集）。
+ *
+ * 注意**没有** `exec_mode`：列表接口不下发这个字段，要判断 AI / 人工任务必须再拉详情。
+ */
+export interface TaskRow {
+  id: string;
+  task_no: string;
+  title: string;
+  status: string;
+  child_count: number;
+  parent_id: string | null;
 }
 
 /**
@@ -116,6 +136,19 @@ export async function newApi(): Promise<Api> {
   return {
     ctx,
     createTask: (body) => call('post', '/api/business/task', body),
+    listTasks: async (keyword, pageSize = 200) => {
+      const query = new URLSearchParams({ page: '1', page_size: String(pageSize) });
+      if (keyword) {
+        query.set('keyword', keyword);
+      }
+      const data = await call('get', `/api/business/task/page?${query.toString()}`);
+      return (data.list ?? []) as TaskRow[];
+    },
+    getTaskDetail: (id) => call('get', `/api/business/task/${id}`),
+    aiFilesTotal: async (id) => {
+      const data = await call('get', `/api/business/task/${id}/ai-workspace-files`);
+      return Number(data.total ?? data.list?.length ?? 0);
+    },
     deleteTask: async (id) => {
       await call('delete', `/api/business/task/${id}`);
     },
@@ -145,4 +178,40 @@ export async function centerOf(locator: import('@playwright/test').Locator): Pro
     throw new Error('元素不可见，取不到坐标');
   }
   return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
+}
+
+/**
+ * 用**真实鼠标事件**做一次 HTML5 原生拖拽（`draggable` + `dragstart/dragover/drop`）。
+ *
+ * 为什么不用 `locator.dragTo()`：拖拽目标元素是 `draggable` 时，Chromium 会把
+ * mouseMoved 转成 drag 事件；`dragTo` 只做**一次性**位移，浏览器在这一跳里拿不到
+ * 中间轨迹，`drop` 会落回**起点元素**（实测：`dragstart`/`dragover`/`drop` 的
+ * target 全是源卡片自己，列上的 `handleDrop` 因为 `from === to` 直接 return，
+ * 卡片原地不动、也没有任何报错）。分多步移动 + 落点前补两小步，drop 才会落到目标元素上。
+ *
+ * @param from 被拖元素（`draggable` 的那个）
+ * @param to   落点（屏幕坐标；用 `await dropPoint(locator)` 取，别用待拖元素）
+ */
+export async function mouseDrag(
+  page: Page,
+  from: import('@playwright/test').Locator,
+  to: { x: number; y: number },
+): Promise<void> {
+  const start = await centerOf(from);
+  await page.mouse.move(start.x, start.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 25 });
+  await page.waitForTimeout(150);
+  // 手指/鼠标「停稳」后浏览器才会补最后一次 dragover，drop 才认得这个落点
+  await page.mouse.move(to.x + 2, to.y + 2, { steps: 3 });
+  await page.mouse.up();
+}
+
+/** 容器内一个可放下的落点（避开容器顶部的标题栏 / 列头） */
+export async function dropPoint(locator: import('@playwright/test').Locator, offsetY = 80): Promise<{ x: number; y: number }> {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error('落点容器不可见，取不到坐标');
+  }
+  return { x: box.x + box.width / 2, y: box.y + offsetY };
 }

@@ -44,6 +44,11 @@ export default async function globalSetup(): Promise<void> {
             localStorage: [
               { name: 'x_access_token', value: accessToken },
               { name: 'x_refresh_token', value: refreshToken },
+              // E10「新功能引导」：没有这个键时首屏会浮一层 role=dialog 的引导卡，
+              // 它会 intercept pointer events，把所有「首次进入后的第一次点击」挡掉
+              // （流程 4 的「自动布局」就是这么超时的，反向对照已验证：去掉这行立刻复红）。
+              // 测试账号视为「已看过」。
+              { name: 'cp-onboarding-done', value: '1' },
             ],
           },
         ],

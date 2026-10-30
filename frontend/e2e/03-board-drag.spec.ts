@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { newApi, openAuthed, toast, RUN, type Api } from './support';
+import { dropPoint, mouseDrag, newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 3：看板拖拽（**最关键的交互**）
@@ -7,6 +7,10 @@ import { newApi, openAuthed, toast, RUN, type Api } from './support';
  * 1. 切到看板视图 → 断言 5 列（待开始 / 进行中 / 待验收 / 已完成 / 已取消）；
  * 2. 拖 TODO 卡片到 DOING 列 → 断言卡片真的换了列 + 两列计数都变了（后端已落地）；
  * 3. 拖另一张 TODO 卡片直接到 DONE（跳级）→ 断言**回弹**（卡片仍在 TODO）+ 错误提示。
+ *
+ * 拖拽走 `support.mouseDrag`（真实鼠标分步移动）：卡片的 `draggable` 是原生 HTML5 DnD，
+ * `locator.dragTo()` 的一次性位移会让 drop 落回源卡片（列上的 handleDrop 见 from===to 直接 return，
+ * 表现为「卡片不动也不报错」），详见 support.ts 里 mouseDrag 的注释。
  *
  * 数据：两张卡片都用 API 预置在本账号名下（真接口），用例结束 API 删除，不留脏数据。
  */
@@ -60,7 +64,7 @@ test.describe('流程3 看板拖拽', () => {
     await expect(cardMove).toBeVisible({ timeout: 20_000 });
 
     // ---------- ② TODO → DOING（合法流转） ----------
-    await cardMove.dragTo(col('DOING'));
+    await mouseDrag(page, cardMove, await dropPoint(col('DOING')));
     await expect(col('DOING').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(1, {
       timeout: 20_000,
     });
@@ -83,7 +87,7 @@ test.describe('流程3 看板拖拽', () => {
     const cardJump = col('TODO').locator('.board-card').filter({ hasText: titleJump }).first();
     await expect(cardJump).toBeVisible({ timeout: 20_000 });
 
-    await cardJump.dragTo(col('DONE'));
+    await mouseDrag(page, cardJump, await dropPoint(col('DONE')));
 
     // 错误提示：后端 409 + 63010 的原文（说明为什么不行，而不是「操作失败」）
     await expect(toast(page, '该状态流转不被允许')).toBeVisible({ timeout: 20_000 });
