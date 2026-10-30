@@ -154,6 +154,14 @@
             >
               作废
             </t-link>
+            <t-link
+              v-if="actionsOf(row).remove"
+              theme="danger"
+              :data-testid="`btn-remove-${row.in_no}`"
+              @click="confirmRemove(row)"
+            >
+              删除
+            </t-link>
           </div>
         </template>
 
@@ -519,6 +527,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createStockIn,
+  deleteStockIn,
   fetchMaterialPage,
   fetchStockInDetail,
   fetchStockInPage,
@@ -912,8 +921,36 @@ function confirmCancel(row: StockInRow): void {
   });
 }
 
-// ==================== 详情 ====================
+/**
+ * 删除（仅 DRAFT，软删）。
+ *
+ * 与「作废」的区别：作废是**留痕**的状态变化（POSTED 也能作废，会写 cancelled_* 三列）；
+ * 删除是「这张单从列表里消失」，只对草稿开放（后端 403/409 兜底）。
+ */
+function confirmRemove(row: StockInRow): void {
+  if (!actionsOf(row).remove) {
+    MessagePlugin.warning('只有草稿可以删除');
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '删除收货单',
+    theme: 'danger',
+    body: `${row.in_no} 将被软删除（列表不再显示，历史台账不受影响）。确认删除？`,
+    confirmBtn: { content: '确认删除', theme: 'danger' },
+    onConfirm: async () => {
+      dialog.hide();
+      try {
+        await deleteStockIn(row.id);
+        MessagePlugin.success(`${row.in_no} 已删除`);
+        await loadOrders();
+      } catch (error) {
+        MessagePlugin.error(messageOf(error));
+      }
+    },
+  });
+}
 
+// ==================== 详情 ====================
 const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
