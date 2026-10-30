@@ -1,0 +1,112 @@
+
+------------------------------------------------------------------------------
+0. 登录
+------------------------------------------------------------------------------
+[PASS] 0.1 admin 登录
+       口令来源=env
+[PASS] 0.2 实例健康
+
+------------------------------------------------------------------------------
+1. 夹具：FINANCE_DIRECTOR 角色 + 两名账号
+------------------------------------------------------------------------------
+[PASS] 1.x 建角色 FINANCE_DIRECTOR
+       POST /system/role → HTTP 200 code=0 msg=ok
+[PASS] 1.1 FINANCE_DIRECTOR 角色就绪
+       role_id=01a18bcd-ec4a-731e-9da1-b7e45927295e
+[PASS] 1.x 建用户 a2_fin
+       POST /system/user → HTTP 200 code=0 msg=ok
+[PASS] 1.x 建用户 a2_emp
+       POST /system/user → HTTP 200 code=0 msg=ok
+[PASS] 1.2 两个夹具账号就绪
+       fin=01a18bcd-ec70-761f-8b72-31f43c9ed13d emp=01a18bcd-eda3-70a1-9a71-ddf955b299cd
+[PASS] 1.3 admin id 就绪
+       admin_id=01a18bcd-dc6e-7478-8319-617b3e0037ef
+
+------------------------------------------------------------------------------
+2. 保存期校验（dto/handler：结构错 400 + 65016）
+------------------------------------------------------------------------------
+[PASS] 2.x 建流程定义 a2_expr_main
+       POST /business/flow/def → HTTP 200 code=0 msg=ok
+[PASS] 2.1 EXPRESSION 缺 expression → 400 + 65016
+       HTTP 400 code=65016 msg=节点 n_expr（表达式审批）的审批人表达式不合法：审批人来源选择了表达式，但 config 里没有 expression —— 请先配置规则（至少 1 条 when/then）
+[PASS] 2.2 expression 结构非法 → 400 + 65016
+       HTTP 400 code=65016 msg=节点 n_expr（表达式审批）的审批人表达式不合法：表达式的 rules 必须是数组
+[PASS] 2.3 合法 EXPRESSION 图保存成功
+       HTTP 200 code=0 msg=ok
+[PASS] 2.4 库里落了 assignee_type=EXPRESSION + 表达式正文、config 可解析（D-E3：存 config）
+       实际 = EXPRESSION~1~2
+
+------------------------------------------------------------------------------
+3. 发布期校验（R16：PREV_APPROVER → 400 + 65033）
+------------------------------------------------------------------------------
+[PASS] 2.x 建流程定义 a2_expr_bad
+       POST /business/flow/def → HTTP 200 code=0 msg=ok
+[PASS] 3.1 保存期允许存 PREV_APPROVER 草稿（卡面：保存只做结构校验）
+       HTTP 200 code=0 msg=ok
+[PASS] 3.2 发布期拒 PREV_APPROVER → 400 + 65033
+       HTTP 400 code=65033 msg=节点 n_expr（表达式审批）的审批人表达式用了「上一节点的审批人」（PREV_APPROVER），本版本未开放（P2），请先改用其它来源
+[PASS] 3.3 正式流程发布（R16 对合法表达式不报错）
+       POST /business/flow/def/01a18bcd-eeda-7499-b293-64c059c4e72f/publish → HTTP 200 code=0 msg=ok
+[PASS] 3.4 发布返回 graph_hash（64 位）
+       version_no=1
+[PASS] 3.5 快照 schema_version 仍是 1（D-E3：不升版本）
+       schema_version=1
+[PASS] 3.6 快照里带着表达式规则（运行期读快照求值）
+       rules[0].id=r_big
+
+------------------------------------------------------------------------------
+4. 运行期：条件命中 → 审批人正确 → 待办生成
+------------------------------------------------------------------------------
+[PASS] 4.1 大额单发起成功
+       HTTP 200 code=0 msg=ok
+[PASS] 4.2 待办生成且审批人 = 财务总监（角色成员）
+       rows=[['01a18bcd-ec70-761f-8b72-31f43c9ed13d', 'A2 财务总监', 'ROLE', 'r_big', 'PENDING', 'n_expr']]
+[PASS] 4.3 assignee_source 写底层来源 ROLE（不是 EXPRESSION）
+       source=ROLE
+[PASS] 4.4 assignee_rule_id = 命中规则 r_big（D-E5）
+       rule_id=r_big
+[PASS] 4.5 小额单发起成功
+       HTTP 200
+[PASS] 4.6 小额单审批人 = 指定用户（第二条规则命中）
+       rows=[['01a18bcd-eda3-70a1-9a71-ddf955b299cd', 'A2 普通员工', 'USER', 'r_small', 'PENDING', 'n_expr']]
+[PASS] 4.7 小额单 assignee_rule_id = r_small
+       rule_id=r_small
+[PASS] 4.8 小额单 assignee_source = USER
+       source=USER
+[PASS] 4.9 缺字段单发起成功
+       HTTP 200
+[PASS] 4.10 求值失败 ⇒ 不命中 ⇒ 走 otherwise（发起人）
+       rows=[['01a18bcd-dc6e-7478-8319-617b3e0037ef', '超级管理员', 'INITIATOR', 'otherwise', 'PENDING', 'n_expr']]
+[PASS] 4.11 otherwise 的 assignee_rule_id = 'otherwise'
+       rule_id=otherwise
+
+------------------------------------------------------------------------------
+5. 运行期：无命中 → empty_assignee 策略（SKIP 自动通过 / ERROR 卡住）
+------------------------------------------------------------------------------
+[PASS] 2.x 建流程定义 a2_expr_skip
+       POST /business/flow/def → HTTP 200 code=0 msg=ok
+[PASS] 5.1 SKIP 流程保存
+       HTTP 200
+[PASS] 5.2 SKIP 流程发布
+       POST /business/flow/def/01a18bcd-efdc-7284-8e7f-3cc9c721f365/publish → HTTP 200 code=0 msg=ok
+[PASS] 5.3 无命中 + SKIP：0 条待办 + 节点自动通过（不顺延到别的规则）
+       rows=0 auto_passed_nodes=1 instance_status=APPROVED
+[PASS] 5.4 SKIP 后实例自动完成
+       status=APPROVED
+[PASS] 2.x 建流程定义 a2_expr_err
+       POST /business/flow/def → HTTP 200 code=0 msg=ok
+[PASS] 5.5 ERROR 流程保存
+       HTTP 200
+[PASS] 5.6 ERROR 流程发布
+       POST /business/flow/def/01a18bcd-f04a-7464-bf8b-f8030c020fde/publish → HTTP 200 code=0 msg=ok
+[PASS] 5.7 无命中 + ERROR → 422 + 65018（整单回滚，不静默通过）
+       HTTP 422 code=65018 msg=本节点没有一个可用审批人（empty_assignee=ERROR）
+[PASS] 5.8 422 后 0 条待办、未自动通过（实例留 PENDING 等人工处理）
+       实际 = [['0~PENDING~0']]
+
+------------------------------------------------------------------------------
+6. 汇总
+------------------------------------------------------------------------------
+
+PASS=41  FAIL=0
+全部通过 ✓
