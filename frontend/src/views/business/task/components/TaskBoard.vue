@@ -40,7 +40,7 @@
           <header class="col__head">
             <span class="col__dot" :style="{ backgroundColor: statusMeta('task', status).dotVar }" />
             <span class="col__name">{{ statusMeta('task', status).label }}</span>
-            <span class="col__count">{{ column(status).total }}</span>
+            <span class="col__count" :title="colCountTitle(status)">{{ visibleTasks(status).length }}</span>
             <t-button
               v-if="status === 'CANCELLED'"
               class="col__toggle"
@@ -55,7 +55,7 @@
 
           <!-- 折叠态：只留一条窄条，提示可展开 -->
           <div v-if="isCollapsed(status)" class="col__folded" @click="collapsed = false">
-            <span class="col__folded-text">已折叠 {{ column(status).total }} 条</span>
+            <span class="col__folded-text">已折叠 {{ visibleTasks(status).length }} 条</span>
           </div>
 
           <!-- 展开态：卡片 + 空态 + 加载更多 -->
@@ -66,18 +66,78 @@
               </template>
             </t-alert>
 
-            <BoardCard
-              v-for="task in column(status).tasks"
+            <!-- 父卡片 + 内嵌子任务清单（E6c）：子任务不单独成卡 -->
+            <div
+              v-for="task in visibleTasks(status)"
               :key="task.id"
-              :task="task"
-              :pending="pendingIds.has(task.id)"
-              @drag-start="handleCardDragStart"
-              @drag-end="handleCardDragEnd"
-              @open="(item) => emit('open', item)"
-            />
+              class="card-wrap"
+              :class="{ 'card-wrap--has-kids': hasSubtasks(task) }"
+            >
+              <BoardCard
+                :task="task"
+                :pending="pendingIds.has(task.id)"
+                @drag-start="handleCardDragStart"
+                @drag-end="handleCardDragEnd"
+                @open="(item) => emit('open', item)"
+              />
+
+              <div
+                v-if="hasSubtasks(task)"
+                class="subtasks"
+                draggable="false"
+                @click.stop
+                @mousedown.stop
+                @dragstart.prevent.stop
+              >
+                <div class="subtasks__head">
+                  <span class="subtasks__label">子任务</span>
+                  <span class="subtasks__stat">{{ doneCountOf(task) }}/{{ childTotalOf(task) }}</span>
+                </div>
+
+                <div v-if="stOf(task)?.loading" class="subtasks__hint">
+                  <t-loading size="12px" />
+                  <span>加载子任务…</span>
+                </div>
+
+                <button v-else-if="stOf(task)?.error" type="button" class="subtasks__hint subtasks__hint--error" @click.stop="retrySubtasks(task)">
+                  {{ stOf(task)?.error }}，点此重试
+                </button>
+
+                <template v-else>
+                  <ul class="subtasks__list">
+                    <li
+                      v-for="child in shownChildren(task)"
+                      :key="child.id"
+                      class="subtasks__row"
+                      :class="{ 'subtasks__row--done': isDone(child), 'subtasks__row--pending': childPending.has(child.id) }"
+                      :title="`${child.task_no} ${child.title}`"
+                    >
+                      <span
+                        class="subtasks__check"
+                        role="checkbox"
+                        :aria-checked="isDone(child)"
+                        :aria-label="`${isDone(child) ? '已完成' : '标记完成'}：${child.title}`"
+                        tabindex="0"
+                        @click.stop="toggleChildDone(task, child)"
+                        @keydown.enter.stop.prevent="toggleChildDone(task, child)"
+                        @keydown.space.stop.prevent="toggleChildDone(task, child)"
+                      >{{ isDone(child) ? '☑' : '☐' }}</span>
+                      <span class="subtasks__name" @click.stop="emit('open', child)">{{ child.title }}</span>
+                      <span class="subtasks__progress">{{ clampedProgress(child) }}%</span>
+                    </li>
+                  </ul>
+
+                  <button v-if="restCount(task) > 0" type="button" class="subtasks__more" @click.stop="emit('open', task)">
+                    还有 {{ restCount(task) }} 个…
+                  </button>
+
+                  <p v-if="!shownChildren(task).length" class="subtasks__hint">子任务明细无权查看（共 {{ childTotalOf(task) }} 个）</p>
+                </template>
+              </div>
+            </div>
 
             <!-- 空态：淡色虚线框 -->
-            <div v-if="!column(status).tasks.length && !column(status).loading && !column(status).error" class="col__empty">
+            <div v-if="!visibleTasks(status).length && !column(status).loading && !column(status).error" class="col__empty">
               暂无任务
             </div>
 
@@ -133,6 +193,10 @@
 /**
  * 任务看板（T7b）—— 五列 + 原生拖拽改状态 + 乐观回弹 + 打回必填原因。
  *
+ * **E6c**：卡片内嵌子任务清单（`child_count > 0` → 异步 `listSubtasks`，
+ * 最多 5 行 + 「还有 N 个…」，子任务行不参与拖拽、点 `☐` 直接标完成）。
+ * 明细口径见文件后半段「E6c：内嵌子任务清单」注释。
+ *
  * # 数据
  *
  * 后端 `GET /business/task/page` 的 `status` 只收**单值**（`dto::normalize_status`），
@@ -163,6 +227,7 @@ import {
   TASK_ERROR_CODE,
   changeTaskStatus,
   listMyTasks,
+  listSubtasks,
   pageTasks,
   type ParentProgress,
   type TaskCard,
@@ -257,6 +322,229 @@ const reasonTarget = ref<{ task: TaskCard; from: BoardStatus; to: BoardStatus } 
 
 /** 五列总条数 */
 const grandTotal = computed(() => STATUSES.reduce((sum, status) => sum + column(status).total, 0));
+
+// ======================================================================
+// E6c：内嵌子任务清单
+//
+// 设计（老大 2026-10-30 认可）：**子任务不单独成卡**，挂在父卡片下方的一小块清单里。
+//
+// 三条口径：
+// 1. 数据来源：看板接口的 `child_count > 0` → 异步 `listSubtasks(parentId)`；
+//    单个父任务失败不影响卡片本身（卡片照常可拖，清单位置给「重试」）。
+// 2. 最多显示 5 条，其余收成「还有 N 个…」（点它打开父任务详情）。
+// 3. 子任务行**不参与拖拽**（清单是卡片的兄弟节点，且 `draggable=false` +
+//    `dragstart.prevent.stop`）—— 只有父卡片能拖；拖父卡到别的列时，清单跟着卡片走，
+//    视觉上就是「子任务跟随父任务」。
+//
+// 「孤儿子任务」的处理：`TaskCard` 里没有 `parent_id`（E6a 的卡片形状就没给），
+// 所以只能**反推** —— 谁的 id 出现在某个父卡片的子任务清单里，谁就是它的孩子，
+// 从所在列里摘掉（否则同一张卡会在父卡片里和列里各出现一次）。
+// 父任务被筛选掉时子任务的清单拉不到，它依旧作为普通卡片显示（卡面边界允许的那一支）。
+// ======================================================================
+
+/** 单个父任务的子任务清单状态 */
+interface SubtaskState {
+  /** 我有权看的子任务（后端已按可见性过滤） */
+  list: TaskCard[];
+  /** 后端给的总数（**含我看不见的**，不能拿 list.length 当总数） */
+  total: number;
+  /** 拉取中 */
+  loading: boolean;
+  /** 错误文案（非空 → 清单位置给重试按钮） */
+  error: string;
+}
+
+/** 清单里最多显示几条（超出显示「还有 N 个…」） */
+const SUBTASK_MAX_ROWS = 5;
+/** 并发上限：看板最多 5 列 × 50 条，全量并发会打爆浏览器连接数 */
+const SUBTASK_CONCURRENCY = 4;
+
+/** parentId → 子任务清单状态（按需拉取，页面刷新时清空重拉） */
+const subtasks = reactive<Record<string, SubtaskState>>({});
+/** 待拉取的队列与去重表 */
+const subtaskQueue: string[] = [];
+const subtaskQueued = new Set<string>();
+/** 正在拉取的数量（并发闸门） */
+let subtaskRunning = 0;
+/** 正在标完成中的子任务 id（防连点） */
+const childPending = ref<Set<string>>(new Set());
+
+/** 取子任务清单状态（可能还没拉过） */
+function stOf(task: TaskCard): SubtaskState | undefined {
+  return subtasks[task.id];
+}
+
+/** 父任务是否有子任务（有才渲染清单块） */
+function hasSubtasks(task: TaskCard): boolean {
+  return (task.child_count ?? 0) > 0;
+}
+
+/** 子任务总数（后端 total 优先，兜底用卡片的 child_count） */
+function childTotalOf(task: TaskCard): number {
+  return Math.max(task.child_count ?? 0, stOf(task)?.total ?? 0);
+}
+
+/** 已完成子任务数（可见清单里的 + 卡片上的 child_done_count，取大值避免「3/1」） */
+function doneCountOf(task: TaskCard): number {
+  const loaded = stOf(task)?.list.filter(isDone).length ?? 0;
+  return Math.min(childTotalOf(task), Math.max(loaded, task.child_done_count ?? 0));
+}
+
+/** 是否已完成 */
+function isDone(child: TaskCard): boolean {
+  return (child.status ?? '').toUpperCase() === 'DONE';
+}
+
+/** 进度收敛到 0~100 */
+function clampedProgress(child: TaskCard): number {
+  return Math.min(100, Math.max(0, Math.round(child.progress ?? 0)));
+}
+
+/** 清单里显示的若干条（最多 5 条） */
+function shownChildren(task: TaskCard): TaskCard[] {
+  return (stOf(task)?.list ?? []).slice(0, SUBTASK_MAX_ROWS);
+}
+
+/** 还有几个没显示出来（用于「还有 N 个…」；0 = 不显示） */
+function restCount(task: TaskCard): number {
+  const state = stOf(task);
+  if (!state) {
+    return 0;
+  }
+  return Math.max(0, Math.max(state.total, state.list.length) - SUBTASK_MAX_ROWS);
+}
+
+/** 已知的子任务 id（= 已经内嵌进父卡片的那些） */
+const knownChildIds = computed<Set<string>>(() => {
+  const set = new Set<string>();
+  for (const key of Object.keys(subtasks)) {
+    for (const child of subtasks[key].list) {
+      set.add(child.id);
+    }
+  }
+  return set;
+});
+
+/** 该列真正渲染的卡片（把已内嵌的子任务摘掉，避免「一卡两现」） */
+function visibleTasks(status: BoardStatus): TaskCard[] {
+  const nested = knownChildIds.value;
+  return board[status].tasks.filter((task) => !nested.has(task.id));
+}
+
+/** 列头计数气泡的 tooltip：说清「列里显示 N 条」与「其中 M 个子任务已内嵌」 */
+function colCountTitle(status: BoardStatus): string {
+  const nested = board[status].tasks.length - visibleTasks(status).length;
+  if (nested <= 0) {
+    return `${statusMeta('task', status).label}：${board[status].total} 条`;
+  }
+  return `${statusMeta('task', status).label}：${visibleTasks(status).length} 张卡片（另有 ${nested} 个子任务内嵌在父卡片里）`;
+}
+
+/** 对齐当前板上的卡片与子任务清单：清掉已离开的缓存、给新出现的父卡片排队 */
+function syncSubtasks(): void {
+  const alive = new Set<string>();
+  const need: string[] = [];
+  for (const status of STATUSES) {
+    for (const task of board[status].tasks) {
+      alive.add(task.id);
+      if (hasSubtasks(task)) {
+        need.push(task.id);
+      }
+    }
+  }
+  for (const key of Object.keys(subtasks)) {
+    if (!alive.has(key)) {
+      delete subtasks[key];
+    }
+  }
+  for (const id of need) {
+    enqueueSubtasks(id);
+  }
+}
+
+/** 入队（已有缓存 / 已在队列里的不重复拉） */
+function enqueueSubtasks(parentId: string): void {
+  if (subtasks[parentId] || subtaskQueued.has(parentId)) {
+    return;
+  }
+  subtaskQueued.add(parentId);
+  subtaskQueue.push(parentId);
+  void drainSubtasks();
+}
+
+/** 并发闸门：最多 `SUBTASK_CONCURRENCY` 个子任务请求同时在飞 */
+async function drainSubtasks(): Promise<void> {
+  while (subtaskRunning < SUBTASK_CONCURRENCY && subtaskQueue.length > 0) {
+    const parentId = subtaskQueue.shift() as string;
+    subtaskRunning += 1;
+    void fetchSubtasks(parentId).then(() => {
+      subtaskRunning -= 1;
+      subtaskQueued.delete(parentId);
+      void drainSubtasks();
+    });
+  }
+}
+
+/** 拉一个父任务的子任务清单（失败只标记该卡片，不影响整板） */
+async function fetchSubtasks(parentId: string): Promise<void> {
+  const previous = subtasks[parentId];
+  subtasks[parentId] = {
+    list: previous?.list ?? [],
+    total: previous?.total ?? 0,
+    loading: true,
+    error: '',
+  };
+  try {
+    const data = await listSubtasks(parentId);
+    subtasks[parentId] = {
+      list: data.list ?? [],
+      total: data.total ?? 0,
+      loading: false,
+      error: '',
+    };
+  } catch (error) {
+    subtasks[parentId] = { list: [], total: 0, loading: false, error: errorText(error) };
+  }
+}
+
+/** 清单加载失败后重试（先删缓存让 `enqueueSubtasks` 认可这次重试） */
+function retrySubtasks(task: TaskCard): void {
+  delete subtasks[task.id];
+  subtaskQueued.delete(task.id);
+  enqueueSubtasks(task.id);
+}
+
+/**
+ * 点 `☐` 把子任务标完成（`PATCH /api/business/task/{id}/status`）。
+ *
+ * 只发**一次**流转：状态机白名单由后端把关（TODO 直接到 DONE 属于跳级 → 400 + 63010），
+ * 前端不替用户「偷偷走两步」——失败时按业务码给具体文案（见 `transitionErrorText`）。
+ * 成功后用回执校正子任务自身 + 父任务被重算的进度。
+ */
+async function toggleChildDone(parent: TaskCard, child: TaskCard): Promise<void> {
+  if (isDone(child)) {
+    MessagePlugin.info('该子任务已完成；如需重新开工，请打开任务详情做状态流转');
+    return;
+  }
+  if (childPending.value.has(child.id)) {
+    return;
+  }
+  childPending.value = new Set(childPending.value).add(child.id);
+  try {
+    const result = await changeTaskStatus(child.id, 'DONE');
+    child.status = result.status;
+    child.progress = result.progress;
+    parent.child_done_count = doneCountOf(parent);
+    syncParentProgress(result.parent_progress);
+    MessagePlugin.success('子任务已标记完成');
+  } catch (error) {
+    MessagePlugin.error(transitionErrorText(error));
+  } finally {
+    const next = new Set(childPending.value);
+    next.delete(child.id);
+    childPending.value = next;
+  }
+}
 
 /** 建一份干净的五列容器 */
 function createColumns(): Record<BoardStatus, ColumnState> {
@@ -414,6 +702,7 @@ async function loadColumns(): Promise<void> {
   if (failed === STATUSES.length) {
     globalError.value = '看板数据加载失败：请检查后端服务是否可用，然后点「重试」';
   }
+  syncSubtasks();
 }
 
 /**
@@ -456,6 +745,7 @@ async function loadMine(): Promise<void> {
       board[status].total = list.length;
       board[status].page = 1;
     }
+    syncSubtasks();
   } catch (error) {
     globalError.value = errorText(error);
   }
@@ -475,6 +765,7 @@ async function reloadColumn(status: BoardStatus): Promise<void> {
     state.error = errorText(error);
   } finally {
     state.loading = false;
+    syncSubtasks();
     emit('loaded', grandTotal.value);
   }
 }
@@ -502,6 +793,7 @@ async function loadMore(status: BoardStatus): Promise<void> {
     MessagePlugin.error(errorText(error));
   } finally {
     state.loading = false;
+    syncSubtasks();
   }
 }
 
@@ -733,6 +1025,156 @@ onMounted(() => {
     align-items: flex-start;
     overflow-x: auto;
     padding-bottom: 4px;
+  }
+}
+
+// ==================== E6c：卡片 + 内嵌子任务清单 ====================
+// 清单是卡片的**兄弟节点**（不是卡片内部）：这样点子任务不会冒泡到卡片的
+// click / dragstart，天然满足「子任务行点击不触发卡片拖拽」。
+.card-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+// 有子任务时卡片下边框去掉、与清单贴合成一整块（视觉上仍是一张卡）
+.card-wrap--has-kids :deep(.board-card) {
+  border-bottom-color: transparent;
+  border-radius: var(--td-radius-medium) var(--td-radius-medium) 0 0;
+}
+
+.subtasks {
+  padding: 6px 8px 8px;
+  cursor: default;
+  user-select: none;
+  background: var(--td-bg-color-container-hover);
+  border: 1px solid var(--td-component-stroke);
+  border-top: 1px dashed var(--td-component-stroke);
+  border-radius: 0 0 var(--td-radius-medium) var(--td-radius-medium);
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+
+  &__label {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--td-text-color-secondary);
+  }
+
+  &__stat {
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 1px 2px;
+    border-radius: var(--td-radius-small, 3px);
+
+    &:hover {
+      background: var(--td-bg-color-container);
+    }
+  }
+
+  &__check {
+    flex-shrink: 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--td-brand-color);
+    cursor: pointer;
+  }
+
+  &__name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--td-text-color-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    cursor: pointer;
+
+    &:hover {
+      color: var(--td-brand-color);
+      text-decoration: underline;
+    }
+  }
+
+  &__progress {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--td-text-color-placeholder);
+  }
+
+  // 已完成：整体降透明度 + 标题划掉（与父卡「终态降透明」同一套语言）
+  &__row--done {
+    opacity: 0.62;
+
+    .subtasks__name {
+      color: var(--td-text-color-placeholder);
+      text-decoration: line-through;
+    }
+
+    .subtasks__check {
+      color: var(--td-success-color);
+    }
+  }
+
+  &__row--pending {
+    cursor: progress;
+    opacity: 0.55;
+  }
+
+  &__more {
+    display: block;
+    margin-top: 4px;
+    padding: 0;
+    font-size: 11px;
+    color: var(--td-brand-color);
+    background: none;
+    border: 0;
+    cursor: pointer;
+
+    &:hover {
+      text-decoration: underline;
+    }
+  }
+
+  &__hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin: 0;
+    font-size: 11px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__hint--error {
+    padding: 0;
+    text-align: left;
+    background: none;
+    border: 0;
+    cursor: pointer;
+    color: var(--td-error-color);
   }
 }
 

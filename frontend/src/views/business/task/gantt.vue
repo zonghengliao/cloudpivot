@@ -70,6 +70,9 @@
       </div>
       <div class="toolbar__hint">
         拖<b>条形中部</b>=整体平移 · 拖<b>左右边缘</b>=改开始 / 截止日 · 松手即保存（失败会回弹并提示冲突对象）
+        <span class="toolbar__hint-extra">
+          · 父任务条形是<b>子任务汇总</b>（两端有汇总括号） · 点 <b>▾ / ▸</b> 折叠子任务
+        </span>
       </div>
     </t-card>
 
@@ -163,33 +166,45 @@
                 :stroke="cssVar('--td-component-stroke', '#f0f0f0')"
                 stroke-width="1"
               />
-              <!-- 折叠箭头（只有父任务才有孩子） -->
+              <!-- 折叠箭头（只有父任务才有孩子）：点它只控制子任务条形显隐 -->
               <text
                 v-if="row.childCount > 0"
-                :x="8 + row.depth * 12"
+                :x="8 + row.depth * INDENT"
                 :y="rowTop(index) + ROW_H / 2 + 4"
                 class="gantt-toggle"
+                :data-toggle="row.task.task_no"
                 @click="toggle(row.id)"
               >
                 {{ collapsed.has(row.id) ? '▸' : '▾' }}
               </text>
+              <!-- 子任务的树枝（├ / └）：一眼看出层级，不靠纯缩进猜 -->
+              <text
+                v-if="row.depth > 0"
+                :x="12"
+                :y="rowTop(index) + ROW_H / 2 + 4"
+                class="gantt-branch"
+              >
+                {{ isLastChild(index) ? '└' : '├' }}
+              </text>
               <circle
-                :cx="24 + row.depth * 12"
+                :cx="24 + row.depth * INDENT"
                 :cy="rowTop(index) + ROW_H / 2"
                 r="3.5"
                 :fill="statusColor(row.task.status)"
               />
               <text
-                :x="34 + row.depth * 12"
+                :x="34 + row.depth * INDENT"
                 :y="rowTop(index) + ROW_H / 2 + 4"
                 class="gantt-name"
-                :class="{ 'gantt-name--done': row.task.status === 'DONE' }"
+                :class="{ 'gantt-name--done': row.task.status === 'DONE', 'gantt-name--child': row.depth > 0 }"
+                :data-depth="row.depth"
+                :data-task-no="row.task.task_no"
               >
                 {{ clip(row.task.title, 16 - row.depth * 2) }}
               </text>
             </g>
 
-            <!-- ③ 任务条：颜色按状态、内条按进度、逾期描红、被阻塞加斜纹、可拖拽改期 -->
+            <!-- ③ 任务条：父=深（brand-7）/子=浅（brand-5）、内条按进度、逾期描红、被阻塞加斜纹、可拖拽改期 -->
             <g v-for="(row, index) in rows" :key="`bar-${row.id}`">
               <template v-if="barGeom(row)">
                 <rect
@@ -198,17 +213,23 @@
                   :width="barGeom(row)!.width"
                   :height="BAR_H"
                   rx="4"
-                  :fill="statusColor(row.task.status)"
-                  fill-opacity="0.28"
-                  :stroke="row.task.overdue ? cssVar('--td-error-color', '#d54941') : statusColor(row.task.status)"
+                  :fill="barColor(row)"
+                  :fill-opacity="row.depth > 0 ? 0.16 : 0.3"
+                  :stroke="row.task.overdue ? cssVar('--td-error-color', '#d54941') : barColor(row)"
                   :stroke-width="row.task.overdue ? 2 : 1"
+                  :stroke-opacity="row.task.overdue ? 1 : row.depth > 0 ? 0.6 : 1"
                   class="gantt-bar gantt-bar__body"
                   :class="[
                     canDrag(row.task) ? 'gantt-bar__body--draggable' : 'gantt-bar__body--locked',
+                    row.depth > 0 ? 'gantt-bar__body--child' : 'gantt-bar__body--parent',
                     dragState?.id === row.id ? 'gantt-bar--dragging' : '',
                   ]"
                   :style="barTransition(row)"
                   :data-task-no="row.task.task_no"
+                  :data-depth="row.depth"
+                  :data-bar-kind="row.depth > 0 ? 'child' : 'parent'"
+                  :data-parent-id="row.task.parent_id ?? ''"
+                  :data-summary="isSummary(row.task) ? 'true' : 'false'"
                   @pointerdown="onPointerDown($event, row, 'move')"
                   @click="onBarClick(row.task)"
                 >
@@ -228,7 +249,7 @@
                   :style="barTransition(row)"
                   @click="onBarClick(row.task)"
                 />
-                <!-- 进度内条（progress% 宽度） -->
+                <!-- 进度内条（progress% 宽度）：与条形同色系，0.85 不透明避免过淡看不清 -->
                 <rect
                   v-if="row.task.progress > 0"
                   :x="barGeom(row)!.x"
@@ -236,11 +257,33 @@
                   :width="Math.max(2, (barGeom(row)!.width * row.task.progress) / 100)"
                   :height="5"
                   rx="2"
-                  :fill="statusColor(row.task.status)"
+                  :fill="barColor(row)"
+                  :fill-opacity="row.depth > 0 ? 0.7 : 0.95"
                   class="gantt-bar gantt-bar__overlay"
                   :style="barTransition(row)"
                   @click="onBarClick(row.task)"
                 />
+                <!-- 汇总括号：父任务的条形是子任务汇总时，两端加一小段竖线（一眼区分「自身排期」与「汇总」） -->
+                <template v-if="isSummary(row.task)">
+                  <line
+                    :x1="barGeom(row)!.x + 1"
+                    :y1="rowTop(index) + 6"
+                    :x2="barGeom(row)!.x + 1"
+                    :y2="rowTop(index) + 8 + BAR_H + 2"
+                    :stroke="barColor(row)"
+                    stroke-width="2"
+                    class="gantt-bar__overlay"
+                  />
+                  <line
+                    :x1="barGeom(row)!.x + barGeom(row)!.width - 1"
+                    :y1="rowTop(index) + 6"
+                    :x2="barGeom(row)!.x + barGeom(row)!.width - 1"
+                    :y2="rowTop(index) + 8 + BAR_H + 2"
+                    :stroke="barColor(row)"
+                    stroke-width="2"
+                    class="gantt-bar__overlay"
+                  />
+                </template>
                 <!-- 左右边缘把手：只有可拖拽的任务才渲染（不可拖拽的任务不出现假入口） -->
                 <template v-if="canDrag(row.task)">
                   <rect
@@ -318,11 +361,21 @@
 
 <script setup lang="ts">
 /**
- * 甘特图（批次 C+ · T4 只读 → **T7a 拖拽改期**）。
+ * 甘特图（批次 C+ · T4 只读 → **T7a 拖拽改期** → **E6c 父子折叠 + 汇总条**）。
  *
  * 依据：`docs/批次C+-工作任务管理-核心设计.md` §五（甘特图）、
  * `docs/云枢设计修正补丁-20261029.md` **修正 10**（拖拽改期必须重跑依赖校验）、
- * 卡面 t_52ce6d07「二、前端」。
+ * 卡面 t_52ce6d07「二、前端」、卡面 t_2cfbd517「二、甘特图（E6c）」。
+ *
+ * # E6c 父子（本页新增）
+ *
+ * - 层级：父任务 0 缩进、子任务 +16px（`INDENT`），子行前带 `├`/`└` 树枝；
+ * - 折叠：父行前的 `▾`/`▸` 只控制**子任务条形显隐**，折叠后父条仍显示（汇总值）；
+ * - 父条 = 子任务汇总：`min(子 start)` ~ `max(子 due)`，与父自身日期取**并集**
+ *   （父条必须包住孩子；父无自身日期时退化纯子任务汇总，见 `summarySpan`）；
+ * - 颜色：父 `--td-brand-color-7`（深）、子 `--td-brand-color-5`（浅），
+ *   状态仍由行首圆点 + tooltip 表达（不丢信息）；
+ * - 父子之间不画依赖线（后端 `63103` 也拒绝父子互依赖，前端再按 `parent_id` 兜一层）。
  *
  * # 五种拖法 ↔ 三种请求形态
  *
@@ -344,11 +397,14 @@
  * 4. **依赖线实时跟随**：`links` 全部由 `barGeom()` 推导，拖动中几何量变了线自然跟着走；
  *    没有第二套「拖拽专用」坐标。
  *
- * # 几何量归后端算
+ * # 几何量：一套换算，两种输入
  *
- * 「日期 → 天数偏移」由后端给（`task.bar.offset_days / length_days`），前端只做
- * 「天数 × 列宽」的像素换算。拖动中的预演值也走同一套换算（[`geomOfSpan`]），
- * 避免「拖动时一种算法、落库后又一种算法」导致条形跳一下。
+ * 像素换算**只有** [`geomOfSpan`] 一个入口（「日期 × 列宽」，含裁到时间窗内，
+ * 与后端 `dep::bar_span` 同口径）。滚动条的输入有两种：
+ * ① 叶子任务 = 自身 `start_date / due_date`；② 父任务 = `summarySpan` 的并集区间。
+ * 拖动预演、松手写库、回弹都用同一套换算，避免「拖动时一种算法、落库后又一种算法」。
+ * （E6c 起不再直接读 `task.bar.offset_days`：父任务的汇总区间后端不提供，
+ *  为了让父子两类条形走同一条路径，统一由日期算。）
  */
 import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
@@ -370,9 +426,17 @@ const LEFT_W = 280;
 const ROW_H = 34;
 const HEAD_H = 46;
 const BAR_H = 18;
+/** 子任务相对父任务的缩进（E6c：父 0、子 +16px） */
+const INDENT = 16;
 
 /** 缩放：每天多少像素（日 / 周两档） */
 const DAY_WIDTH: Record<'day' | 'week', number> = { day: 30, week: 12 };
+
+/** 日期区间（`YYYY-MM-DD`，含首含尾；只用于几何换算与汇总，不再回写后端） */
+interface DateSpan {
+  start: string;
+  due: string;
+}
 
 /** 拖拽形态：整体平移 / 改开始日 / 改截止日 */
 type DragMode = 'move' | 'start' | 'end';
@@ -495,6 +559,91 @@ const rowIndexById = computed(() => {
   return map;
 });
 
+/**
+ * ==================== E6c：父子汇总（父条 = 子任务汇总） ====================
+ *
+ * 口径（照卡面 E6c §二.3）：
+ * - 起点 = `min(所有子任务 start_date)`、终点 = `max(所有子任务 due_date)`；
+ * - 父任务自己**没有**日期但有子任务时 → 直接用子任务汇总。
+ *
+ * 实现取**并集**：`min(父自身 start, 子任务 min)` ~ `max(父自身 due, 子任务 max)`。
+ * 为什么不是纯子任务 min/max：父条必须能**包住**自己的孩子（否则子条伸出父条，
+ * 看着像数据错了）；当父自身日期落在子任务范围内时，并集 == 子任务汇总，
+ * 与卡面口径逐字一致；父任务无自身日期时并集退化成子任务汇总（卡面第二条边界）。
+ *
+ * 已知边界（后端口径决定，不是前端能补的）：`gantt_tasks` 的 SQL 带
+ * `(t.start_date IS NOT NULL OR t.due_date IS NOT NULL)`，**完全无日期的父任务不下发**，
+ * 那时其子任务会以「根节点」出现。后端一旦把无日期父任务也返回，本逻辑无需改动。
+ */
+
+/** 任务自身日期 → 区间（单边日期按单日处理；无日期 → null） */
+function spanOfDates(start: string | null, due: string | null): DateSpan | null {
+  const from = start ?? due;
+  const to = due ?? start;
+  if (!from || !to) {
+    return null;
+  }
+  return to < from ? { start: from, due: from } : { start: from, due: to };
+}
+
+/** parent_id → 子任务汇总区间（一次遍历，O(n)，不按行重复算） */
+const childSpans = computed<Map<string, DateSpan>>(() => {
+  const out = new Map<string, DateSpan>();
+  for (const task of data.value?.tasks ?? []) {
+    if (!task.parent_id) {
+      continue;
+    }
+    const span = spanOfDates(task.start_date, task.due_date);
+    if (!span) {
+      continue;
+    }
+    const current = out.get(task.parent_id);
+    if (!current) {
+      out.set(task.parent_id, { ...span });
+      continue;
+    }
+    out.set(task.parent_id, {
+      start: span.start < current.start ? span.start : current.start,
+      due: span.due > current.due ? span.due : current.due,
+    });
+  }
+  return out;
+});
+
+/** 父任务自身日期 ∪ 子任务汇总（无子任务 → 自身日期；都无 → null） */
+function summarySpan(task: GanttTask): DateSpan | null {
+  const own = spanOfDates(task.start_date, task.due_date);
+  const kids = childSpans.value.get(task.id);
+  if (!kids) {
+    return own;
+  }
+  if (!own) {
+    return kids;
+  }
+  return {
+    start: own.start < kids.start ? own.start : kids.start,
+    due: own.due > kids.due ? own.due : kids.due,
+  };
+}
+
+/** 该行是否是「汇总条」（有子任务参与汇总）—— 两端会画汇总括号 */
+function isSummary(task: GanttTask): boolean {
+  return childSpans.value.has(task.id);
+}
+
+/** 子任务树枝符号用：本行是否是父任务折叠块的最后一行 */
+function isLastChild(index: number): boolean {
+  const next = rows.value[index + 1];
+  return !next || next.depth === 0;
+}
+
+/** 条形颜色：父 `--td-brand-color-7`（深）/ 子 `--td-brand-color-5`（浅） */
+function barColor(row: GanttRow): string {
+  return row.depth > 0
+    ? cssVar('--td-brand-color-5', '#7ba7f0')
+    : cssVar('--td-brand-color-7', '#0052d9');
+}
+
 /** 「日期区间 + 窗口起点 + 列宽」→ 像素几何（唯一换算入口） */
 function geomOfSpan(
   start: string,
@@ -563,21 +712,21 @@ function computeSpan(
   return { start: start.format('YYYY-MM-DD'), due: due.format('YYYY-MM-DD') };
 }
 
-/** 任务条几何：拖动中的那一行用预演值，其余用后端给的天数 */
+/** 任务条几何：拖动中的那一行用预演值，其余用「自身 ∪ 子任务汇总」的区间 */
 function barGeom(row: GanttRow): { x: number; width: number } | null {
   const preview = previewSpan.value;
   if (preview && dragState.value?.id === row.id) {
     const geom = geomOfSpan(preview.start, preview.due);
     return geom ? { x: geom.x, width: geom.width } : null;
   }
-  const bar = row.task.bar;
-  if (!bar) {
+  const span = summarySpan(row.task);
+  if (!span) {
     return null;
   }
-  return {
-    x: LEFT_W + bar.offset_days * dayWidth.value,
-    width: Math.max(6, bar.length_days * dayWidth.value - 2),
-  };
+  // 与后端口径一致：几何量一律经 `geomOfSpan`（含裁到时间窗内），
+  // 父任务的并集区间同样走这里 —— 不另起一套「父条算法」。
+  const geom = geomOfSpan(span.start, span.due);
+  return geom ? { x: geom.x, width: geom.width } : null;
 }
 
 /** 浮动标签文案：`2026-11-04 ~ 2026-11-08（+3 天）` */
@@ -601,10 +750,26 @@ function barTransition(row: GanttRow): string {
     : 'transition: x 0.28s ease, width 0.28s ease';
 }
 
-/** 依赖线：前置条右端 → 后继条左端（折线，拐点在中缝）；拖动时随 barGeom 跟随 */
+/**
+ * 依赖线：前置条右端 → 后继条左端（折线，拐点在中缝）；拖动时随 barGeom 跟随。
+ *
+ * **父子之间不画依赖线**（E6c §二.5）：父子是拆解关系，不是依赖关系。
+ * 后端 `biz_task_dependency` 里理论上可以存出一条「父 → 子」的边（用户手加的），
+ * 这里按 `parent_id` 关系直接跳过，避免树形上出现一条自上而下的假箭头。
+ */
 const links = computed(() => {
   const out: { from: string; to: string; points: string }[] = [];
+  const parentOf = new Map<string, string>();
+  for (const task of data.value?.tasks ?? []) {
+    if (task.parent_id) {
+      parentOf.set(task.id, task.parent_id);
+    }
+  }
   for (const dep of data.value?.dependencies ?? []) {
+    // 父子关系不是依赖：任一方向都跳过
+    if (parentOf.get(dep.from) === dep.to || parentOf.get(dep.to) === dep.from) {
+      continue;
+    }
     const predIndex = rowIndexById.value.get(dep.from);
     const succIndex = rowIndexById.value.get(dep.to);
     if (predIndex === undefined || succIndex === undefined) {
@@ -675,13 +840,19 @@ function statusColor(status: string): string {
   return cssVar(meta.dotVar.replace(/^var\(/, '').replace(/\)$/, ''), '#0052d9');
 }
 
-/** 条形 tooltip（标题 / 编号 / 日期 / 进度 / 负责人 / 状态） */
+/** 条形 tooltip（标题 / 编号 / 日期 / 进度 / 负责人 / 状态；父任务额外说明汇总口径） */
 function tooltipOf(task: GanttTask): string {
-  const range = `${task.start_date ?? '—'} ~ ${task.due_date ?? '—'}`;
+  const span = summarySpan(task);
+  const own = spanOfDates(task.start_date, task.due_date);
+  const range =
+    span && isSummary(task)
+      ? `汇总 ${span.start} ~ ${span.due}（自身 ${task.start_date ?? '—'} ~ ${task.due_date ?? '—'}）`
+      : `${own?.start ?? '—'} ~ ${own?.due ?? '—'}`;
   const flags = [
     task.overdue ? '已逾期' : '',
     task.blocked ? '被前置阻塞' : '',
     statusMeta('task', task.status).label,
+    isSummary(task) ? '父任务（条形 = 子任务汇总）' : '',
     canDrag(task) ? '可拖拽改期' : '不可拖拽',
   ]
     .filter(Boolean)
@@ -729,6 +900,11 @@ function disabledReason(task: GanttTask): string {
   }
   if (task.status === 'CANCELLED') {
     return '已取消的任务不可拖拽改期';
+  }
+  const kids = childSpans.value.get(task.id);
+  if (kids && !(task.start_date && task.due_date)) {
+    // E6c 边界：父任务自身没有完整起止日 → 条形是子任务汇总，拖它改不了任何东西
+    return `父任务自身没有完整的起止日期（条形是子任务汇总 ${kids.start} ~ ${kids.due}），请在子任务上改期`;
   }
   return '请先设置起止日期（任务需要「计划开始」和「截止日期」都有值才能拖拽改期）';
 }
@@ -1064,6 +1240,10 @@ onMounted(() => {
   color: var(--td-warning-color, #e37318);
 }
 
+.toolbar__hint-extra {
+  color: var(--td-text-color-placeholder, #999);
+}
+
 .gantt-scroll {
   position: relative;
   overflow-x: auto;
@@ -1118,6 +1298,22 @@ onMounted(() => {
   font-size: 11px;
   fill: var(--td-text-color-secondary, #666);
   cursor: pointer;
+
+  &:hover {
+    fill: var(--td-brand-color, #0052d9);
+  }
+}
+
+// 子任务树枝（├ / └）：与父行缩进一起构成「树」的感觉
+.gantt-branch {
+  font-size: 11px;
+  fill: var(--td-component-stroke, #dcdcdc);
+  pointer-events: none;
+}
+
+// 子任务名比父任务名浅一档（层级靠缩进 + 字色一起表达）
+.gantt-name--child {
+  fill: var(--td-text-color-secondary, #666);
 }
 
 .gantt-bar {
