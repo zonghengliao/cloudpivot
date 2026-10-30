@@ -31,32 +31,159 @@ use alun::uuid::Uuid;
 
 use super::dto::{DeptBrief, DeptTreeNode, RoleScopeRes, ScopeSummary, SourceRole, TableCoverage};
 use crate::business::shared::principal::ScopedPrincipal;
-use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind};
+use crate::business::shared::scope::{SCOPED_TABLES, ScopeKind, ScopeTarget};
 use crate::shared::error_code;
 
 // ==================== 运行时门禁清单（§2.4 闸② 的运行时镜像） ====================
 
-/// 已经接入数据权限的登记表（表名，必须与 [`SCOPED_TABLES`] 的表名逐字一致）。
+/// 一张登记表的接入形式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WiringStatus {
+    /// 已接入：分页查询走 `scope::paginate`；不分页的表（`no_paginate`）走 `scope::filter_for`。
+    Wired,
+    /// 显式豁免：查询走 `scope::paginate_unscoped`，且代码里写明 `SCOPE-EXEMPT: <理由>`。
+    Exempted,
+    /// 未接入。`uncovered-tables` 自检的目标是**恒 0 张**。
+    Uncovered,
+}
+
+impl WiringStatus {
+    /// 对外字符串（`uncovered-tables` 响应里的 `status`）。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Wired => "wired",
+            Self::Exempted => "exempted",
+            Self::Uncovered => "uncovered",
+        }
+    }
+}
+
+/// 一张登记表的接入登记项。
 ///
-/// # 这是什么
-///
-/// 架构 §2.4 的闸② 是**构建期** grep 门禁（`FROM <表>` 的文件里必须出现 `scope::`
-/// 或显式 `SCOPE-EXEMPT: <理由>`）。运维没有构建环境，所以这里维护一份**运行时**镜像：
-/// 只登记「其查询已经过 `scope::paginate` / `scope::filter_for`」的表。
+/// 与 [`WIRED_TABLES`] 时代的差别：**不止是「接没接」，还记「以什么形式接的」和「凭什么」**。
+/// 之前只有 `wired: bool` 一档，于是 `paginate_unscoped`（显式豁免）与「部门树不分页」两种
+/// 合法形式被打成「未接入」——11 张表全绿的自检报出 11 张表告警，自检本身变成了噪音。
+#[derive(Debug, Clone, Copy)]
+pub struct TableWiring {
+    /// 表名，必须与 [`SCOPED_TABLES`] 逐字一致。
+    pub table: &'static str,
+    /// 接入形式。
+    pub status: WiringStatus,
+    /// 该表读取路径**不分页**（如部门树）：没有 `{FILTER}` 位置契约，只走 `scope::filter_for`。
+    pub no_paginate: bool,
+    /// 代码锚点（`ScopeTarget` 的常量名）。漂移守卫单测（`d8c_wiring_anchors_exist_in_source`）
+    /// 据此在 `src/` 里 grep 真实用法：登记为 wired 却没人用 → 测试红。
+    pub anchor: &'static str,
+    /// 判定依据 / `SCOPE-EXEMPT` 理由。**恒非空**（`exempted` 必以 `SCOPE-EXEMPT:` 开头）。
+    pub reason: &'static str,
+}
+
+/// 登记表清单的运行时镜像（一张登记表一行，顺序与 [`SCOPED_TABLES`] 一致）。
 ///
 /// # 怎么维护
 ///
-/// 接入一张表 = 改它的查询 + **在本清单里加一行**。漏加不会让接口出错，只会让
-/// `GET /business/permission/scope/uncovered-tables` 把它报成「未接入」（宁严不松：
-/// 自检报告说"没接入"而实际接入了，只会让人多查一次；反过来才是漏网）。
+/// 接入一张表 = 改查询 + **在本清单里加一行**（`status` / `anchor` / `reason` 都要填）。
+/// 漏加会被 `GET /business/permission/scope/uncovered-tables` 报成 `uncovered`
+/// （宁严不松：少报比漏报安全），并且 `d8_coverage_matches_registry` 直接红。
 ///
-/// # 现状（B4 交付时点）
+/// # 三种状态的口径（B7 复核）
 ///
-/// 表查询的接入由 B3（`system/` 侧：`sys_user` / `sys_dept` 等）与 B5（其余登记表）
-/// 完成，本卡只提供配置与自检接口。B3/B5 落地时在这里补行即可，无需改代码逻辑。
-pub const WIRED_TABLES: &[&str] = &[];
+/// - `wired`：列表走 `scope::paginate`（`{FILTER}` 契约）；不分页的（部门树）走
+///   `scope::filter_for` 并置 `no_paginate = true`；
+/// - `exempted`：查询走 `scope::paginate_unscoped` + 一行 `SCOPE-EXEMPT: <理由>`。这是
+///   **写下来的决定**，不是疏漏；`reason` 必须抄代码里那条理由的实质内容；
+/// - `uncovered`：登记了表但没有任何 scope 处理 —— 这类必须为 0。
+pub const TABLE_WIRING: &[TableWiring] = &[
+    // ---- system/ ----
+    TableWiring {
+        table: "sys_user",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SYS_USER",
+        reason: "人员列表走 scope::paginate(SYS_USER)（system/user/model.rs:261）；批量可见性走 scope::filter_for（model.rs:553）",
+    },
+    TableWiring {
+        table: "sys_dept",
+        status: WiringStatus::Wired,
+        no_paginate: true,
+        anchor: "SYS_DEPT",
+        reason: "部门树不分页（无 {FILTER} 契约）：scope::filter_for(SYS_DEPT) 把部门行按范围裁剪（system/dept/model.rs:119）；写点走 guard::bump_epoch 失效",
+    },
+    // ---- business/impexp ----
+    TableWiring {
+        table: "sys_import_task",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SYS_IMPORT_TASK",
+        reason: "导入任务列表走 scope::paginate(SYS_IMPORT_TASK)，归属列 create_by（business/impexp/model.rs:470）",
+    },
+    TableWiring {
+        table: "sys_export_task",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SYS_EXPORT_TASK",
+        reason: "导出任务列表走 scope::paginate(SYS_EXPORT_TASK)，归属列 create_by（business/impexp/model.rs:981）",
+    },
+    // ---- support/ 日志 ----
+    TableWiring {
+        table: "operation_logs",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "OPERATION_LOGS",
+        reason: "操作日志走 scope::paginate(OPERATION_LOGS)，归属列 user_id（support/log/model.rs:352）",
+    },
+    TableWiring {
+        table: "audit_logs",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "AUDIT_LOGS",
+        reason: "审计日志走 scope::paginate(scope_target())，归属列 user_id（support/log/model.rs:479 ← 284-290）",
+    },
+    TableWiring {
+        table: "auth_logs",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "AUTH_LOGS",
+        reason: "登录日志走 scope::paginate(scope_target())，归属列 user_id（support/log/model.rs:479 ← 284-290）",
+    },
+    TableWiring {
+        table: "security_logs",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SECURITY_LOGS",
+        reason: "安全日志走 scope::paginate(scope_target())，归属列 user_id（support/log/model.rs:479 ← 284-290）",
+    },
+    TableWiring {
+        table: "password_change_logs",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "PASSWORD_CHANGE_LOGS",
+        reason: "密码变更日志走 scope::paginate(scope_target())，归属列 user_id（support/log/model.rs:479 ← 284-290）",
+    },
+    // ---- business/notice ----
+    TableWiring {
+        table: "sys_notice",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SYS_NOTICE",
+        reason: "管理视角公告列表走 scope::paginate(SYS_NOTICE)，归属列 sender_id（business/notice/model.rs:563）；「我的通知」是另一张表 sys_notice_receiver（user_id 硬绑定）",
+    },
+    // ---- business/storage ----
+    TableWiring {
+        table: "sys_file",
+        status: WiringStatus::Wired,
+        no_paginate: false,
+        anchor: "SYS_FILE",
+        reason: "文件列表走 scope::paginate(SYS_FILE)，归属列 uploaded_by（business/storage/model.rs:1072）；同文件 221 行的 paginate_unscoped 属于 sys_storage_config，不是本表",
+    },
+];
 
-/// 把 [`SCOPED_TABLES`] 投影成「已接入 / 未接入」清单。
+/// 取某张表的登记项（未登记 → `None`）。
+pub fn wiring_of(table: &str) -> Option<&'static TableWiring> {
+    TABLE_WIRING.iter().find(|item| item.table == table)
+}
+
+/// 把 [`SCOPED_TABLES`] 投影成「已接入 / 显式豁免 / 未接入」清单。
 ///
 /// # 返回值
 ///
@@ -64,25 +191,56 @@ pub const WIRED_TABLES: &[&str] = &[];
 pub fn table_coverage() -> Vec<TableCoverage> {
     SCOPED_TABLES
         .iter()
-        .map(|target| TableCoverage {
-            table: target.table.to_string(),
-            dept_col: target.dept_col.map(str::to_string),
-            owner_col: target.owner_col.map(str::to_string),
-            wired: is_wired(target.table),
+        .map(|target| match wiring_of(target.table) {
+            Some(wiring) => coverage_row(target, wiring.status, wiring.no_paginate, wiring.reason),
+            None => coverage_row(
+                target,
+                WiringStatus::Uncovered,
+                false,
+                "未在 scope_model::TABLE_WIRING 登记（接入一张表 = 改查询 + 登记一行）",
+            ),
         })
         .collect()
 }
 
-/// 某张登记表是否已接入（是否在 [`WIRED_TABLES`] 中声明）。
-pub fn is_wired(table: &str) -> bool {
-    WIRED_TABLES.contains(&table)
+/// 单行投影（抽出来是为了让 `exempted` 分支能被单测直接覆盖）。
+fn coverage_row(
+    target: &ScopeTarget,
+    status: WiringStatus,
+    no_paginate: bool,
+    reason: &str,
+) -> TableCoverage {
+    TableCoverage {
+        table: target.table.to_string(),
+        dept_col: target.dept_col.map(str::to_string),
+        owner_col: target.owner_col.map(str::to_string),
+        // 向后兼容：老字段 `wired` = 「要不要告警」，exempted 也算已处理
+        wired: status != WiringStatus::Uncovered,
+        status: status.as_str().to_string(),
+        no_paginate,
+        reason: reason.to_string(),
+    }
 }
 
-/// 未接入的登记表（按登记顺序）。
+/// 某张登记表是否已处理（`wired` 或 `exempted`；只有 `uncovered` 才是真告警）。
+pub fn is_wired(table: &str) -> bool {
+    wiring_of(table).is_some_and(|wiring| wiring.status != WiringStatus::Uncovered)
+}
+
+/// 未接入的登记表（按登记顺序）。**上线口径：必须为空**。
 pub fn uncovered_tables() -> Vec<String> {
     table_coverage()
         .into_iter()
-        .filter(|item| !item.wired)
+        .filter(|item| item.status == WiringStatus::Uncovered.as_str())
+        .map(|item| item.table)
+        .collect()
+}
+
+/// 显式豁免的登记表（`scope::paginate_unscoped` + `SCOPE-EXEMPT`）。
+pub fn exempted_tables() -> Vec<String> {
+    table_coverage()
+        .into_iter()
+        .filter(|item| item.status == WiringStatus::Exempted.as_str())
         .map(|item| item.table)
         .collect()
 }
@@ -920,7 +1078,7 @@ mod tests {
         println!("[D7] 组树：{} → {:?} ✓", tree[0].dept_name, names);
     }
 
-    /// D8：接入清单与登记表清单同源（不漂移）。
+    /// D8：接入清单与登记表清单同源（不漂移），且 `uncovered` 必须为 0。
     #[test]
     fn d8_coverage_matches_registry() {
         let coverage = table_coverage();
@@ -933,22 +1091,125 @@ mod tests {
             assert_eq!(item.table, target.table);
             assert_eq!(item.dept_col.as_deref(), target.dept_col);
             assert_eq!(item.owner_col.as_deref(), target.owner_col);
-        }
-        // 声明的「已接入」必须是登记表里的表（拼错表名会让自检永久显示未接入）
-        for table in WIRED_TABLES {
             assert!(
-                SCOPED_TABLES.iter().any(|target| target.table == *table),
-                "WIRED_TABLES 里的 {table} 不在 SCOPED_TABLES 登记表中"
+                matches!(item.status.as_str(), "wired" | "exempted" | "uncovered"),
+                "{} 的 status 只能是三种之一，实际 {}",
+                item.table,
+                item.status
+            );
+            assert!(
+                !item.reason.trim().is_empty(),
+                "{} 的 reason 不能为空（每条豁免/接入都必须站得住）",
+                item.table
+            );
+            assert_eq!(
+                item.wired,
+                item.status != "uncovered",
+                "{} 的旧字段 wired 必须与 status 一致",
+                item.table
             );
         }
+        // 登记项与登记表一一对应：漏登记 → uncovered（红）；多登记 → 表名拼错（红）
+        assert_eq!(
+            TABLE_WIRING.len(),
+            SCOPED_TABLES.len(),
+            "TABLE_WIRING 行数必须等于 SCOPED_TABLES 行数"
+        );
+        for wiring in TABLE_WIRING {
+            assert!(
+                SCOPED_TABLES
+                    .iter()
+                    .any(|target| target.table == wiring.table),
+                "TABLE_WIRING 里的 {} 不在 SCOPED_TABLES 登记表中",
+                wiring.table
+            );
+            if wiring.status == WiringStatus::Exempted {
+                assert!(
+                    wiring.reason.starts_with("SCOPE-EXEMPT:"),
+                    "{} 是 exempted，reason 必须以 `SCOPE-EXEMPT:` 开头",
+                    wiring.table
+                );
+            }
+            if wiring.no_paginate {
+                assert!(
+                    wiring.reason.contains("不分页"),
+                    "{} 标了 no_paginate，reason 里要写清为什么不分页",
+                    wiring.table
+                );
+            }
+        }
         let uncovered = uncovered_tables();
-        assert_eq!(uncovered.len(), coverage.len() - WIRED_TABLES.len());
+        assert!(uncovered.is_empty(), "登记表还有未接入的：{uncovered:?}");
+        let exempted = exempted_tables();
         println!(
-            "[D8] 登记 {} 张、已接入 {} 张、未接入 {} 张 ✓",
+            "[D8] 登记 {} 张：wired={} exempted={exempted:?} uncovered={} ✓",
             coverage.len(),
-            WIRED_TABLES.len(),
+            coverage.len() - exempted.len(),
             uncovered.len()
         );
+    }
+
+    /// D8b：`exempted` 分支投影（合成登记项，不依赖真实数据里恰好有豁免表）。
+    #[test]
+    fn d8b_exempted_row_projection() {
+        let target = ScopeTarget::unscoped("synthetic_tbl");
+        let row = coverage_row(
+            &target,
+            WiringStatus::Exempted,
+            false,
+            "SCOPE-EXEMPT: 合成用例",
+        );
+        assert_eq!(row.status, "exempted");
+        assert!(row.wired, "exempted 视为已处理，否则会被误报成 uncovered");
+        assert_eq!(row.reason, "SCOPE-EXEMPT: 合成用例");
+        assert!(row.dept_col.is_none() && row.owner_col.is_none());
+        println!("[D8b] exempted 投影：status=exempted wired=true ✓");
+    }
+
+    /// D8c：漂移守卫 —— 登记为 `wired` 的表，其锚点常量必须在某个**含 scope:: 调用**的源文件里真实出现。
+    #[test]
+    fn d8c_wiring_anchors_exist_in_source() {
+        fn walk(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk(&path, out);
+                } else if path.extension().and_then(|ext| ext.to_str()) == Some("rs") {
+                    out.push(path);
+                }
+            }
+        }
+        let mut files = Vec::new();
+        walk(std::path::Path::new("src"), &mut files);
+        assert!(
+            !files.is_empty(),
+            "找不到 src/ 下的 rs 文件（单测须以 crate 根为 CWD）"
+        );
+        let wired: Vec<&TableWiring> = TABLE_WIRING
+            .iter()
+            .filter(|wiring| wiring.status == WiringStatus::Wired)
+            .collect();
+        for wiring in &wired {
+            let anchor = format!("ScopeTarget::{}", wiring.anchor);
+            let found = files.iter().any(|path| {
+                let Ok(text) = std::fs::read_to_string(path) else {
+                    return false;
+                };
+                text.contains(&anchor)
+                    && (text.contains("scope::paginate(")
+                        || text.contains("scope::filter_for(")
+                        || text.contains("scope::paginate_unscoped("))
+            });
+            assert!(
+                found,
+                "{} 登记为 wired，但 src/ 里没有含 scope:: 调用的文件出现 {anchor}（登记表已与代码漂移）",
+                wiring.table
+            );
+        }
+        println!("[D8c] {} 张 wired 表的锚点在源码中可查 ✓", wired.len());
     }
 
     /// D9：角色范围响应组装（含范围编码 / 标签 / 部门明细）。

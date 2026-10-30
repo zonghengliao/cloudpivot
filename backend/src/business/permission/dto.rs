@@ -223,8 +223,17 @@ pub struct TableCoverage {
     pub dept_col: Option<String>,
     /// 归属列（`None` = 该表没有归属人）。
     pub owner_col: Option<String>,
-    /// 是否已接入（是否在运行时门禁清单 `scope_model::WIRED_TABLES` 中声明）。
+    /// 是否已处理（= `status != "uncovered"`）。保留给老前端与监控脚本（向后兼容）。
     pub wired: bool,
+    /// 接入状态：`wired`（走 `scope::paginate` / 不分页的 `filter_for`）
+    /// / `exempted`（`scope::paginate_unscoped` + `SCOPE-EXEMPT`）
+    /// / `uncovered`（未接入，必须为 0 张）。
+    pub status: String,
+    /// 该表读取路径是否**不分页**（部门树）：`true` 时不存在 `{FILTER}` 位置契约，
+    /// 只有 `scope::filter_for` 注入。
+    pub no_paginate: bool,
+    /// 判定依据 / `SCOPE-EXEMPT` 理由（**恒非空**：每条豁免都必须站得住）。
+    pub reason: String,
 }
 
 /// 未接入登记表清单的响应。
@@ -232,12 +241,16 @@ pub struct TableCoverage {
 pub struct UncoveredTablesRes {
     /// 登记表总数（`shared::scope::SCOPED_TABLES` 的长度）。
     pub registered: usize,
-    /// 已接入数量。
+    /// 已接入数量（`status = "wired"`）。
     pub wired: usize,
-    /// 未接入数量。
+    /// 显式豁免数量（`status = "exempted"`：`scope::paginate_unscoped` + `SCOPE-EXEMPT`）。
+    pub exempted: usize,
+    /// 未接入数量（**上线口径必须为 0**）。
     pub uncovered: usize,
     /// 未接入的表名（**运维排查的第一入口**：这些表上的查询还没有数据权限）。
     pub uncovered_tables: Vec<String>,
-    /// 全量明细（含已接入的）。
+    /// 显式豁免的表名（附理由见 `tables[].reason`）。
+    pub exempted_tables: Vec<String>,
+    /// 全量明细（含已接入 / 已豁免的，每行都带 `status` + `reason`）。
     pub tables: Vec<TableCoverage>,
 }

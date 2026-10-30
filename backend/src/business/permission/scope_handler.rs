@@ -428,17 +428,23 @@ pub async fn self_check(
 #[alun::get("/business/permission/scope/uncovered-tables")]
 pub async fn uncovered_tables() -> ResResult<UncoveredTablesRes> {
     let tables = scope_model::table_coverage();
-    let wired = tables.iter().filter(|item| item.wired).count();
-    let uncovered: Vec<String> = tables
-        .iter()
-        .filter(|item| !item.wired)
-        .map(|item| item.table.clone())
-        .collect();
+    let pick = |status: &str| -> Vec<String> {
+        tables
+            .iter()
+            .filter(|item| item.status == status)
+            .map(|item| item.table.clone())
+            .collect()
+    };
+    let wired = tables.iter().filter(|item| item.status == "wired").count();
+    let exempted = pick("exempted");
+    let uncovered = pick("uncovered");
     Ok(Res::ok(UncoveredTablesRes {
         registered: tables.len(),
         wired,
+        exempted: exempted.len(),
         uncovered: uncovered.len(),
         uncovered_tables: uncovered,
+        exempted_tables: exempted,
         tables,
     }))
 }
