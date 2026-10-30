@@ -591,7 +591,10 @@ watch(view, (next) => {
 watch(
   () => route.query.view,
   (value) => {
-    const next = value === 'board' ? 'board' : 'list';
+    // E11：`burndown` 也是页内视图 —— 漏掉它会把「点了燃尽图 Tab」立刻改回 list
+    // （`syncViewQuery` 写入 ?view=burndown → 本 watcher 把它当成未知值回落 list，
+    //   现象是「点 Tab 没反应」）。
+    const next = value === 'board' ? 'board' : value === 'burndown' ? 'burndown' : 'list';
     if (view.value !== 'gantt' && view.value !== next) {
       view.value = next;
     }
