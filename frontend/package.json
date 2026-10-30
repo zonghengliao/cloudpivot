@@ -16,6 +16,7 @@
     "preview": "vite preview",
     "typecheck": "vue-tsc --noEmit",
     "test:e2e": "playwright test",
+    "test:unit": "node --test \"tests/unit/**/*.test.ts\"",
     "test:e2e:report": "playwright show-report e2e-report",
     "check:palettes": "node scripts/check-palettes.mjs",
     "check": "pnpm check:palettes && pnpm typecheck"

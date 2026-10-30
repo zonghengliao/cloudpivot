@@ -4,3 +4,7 @@
 *.local
 .DS_Store
 *.log
+/e2e/.auth
+/test-results
+# 偶发红定位 / 连跑脚本的产物（脚本见 scripts/）
+/e2e-stress

@@ -222,6 +222,7 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import BoardCard from './BoardCard.vue';
+import { applyStatusReceipt } from './board-receipt';
 import { ApiError } from '@/api/request';
 import {
   TASK_ERROR_CODE,
@@ -229,8 +230,8 @@ import {
   listMyTasks,
   listSubtasks,
   pageTasks,
-  type ParentProgress,
   type TaskCard,
+  type TaskStatusChangeResult,
 } from '@/api/business/task-api';
 import { statusMeta } from '@/constants/status-map';
 
@@ -530,20 +531,31 @@ async function toggleChildDone(parent: TaskCard, child: TaskCard): Promise<void>
     return;
   }
   childPending.value = new Set(childPending.value).add(child.id);
+  let result: TaskStatusChangeResult;
   try {
-    const result = await changeTaskStatus(child.id, 'DONE');
-    child.status = result.status;
-    child.progress = result.progress;
-    parent.child_done_count = doneCountOf(parent);
-    syncParentProgress(result.parent_progress);
-    MessagePlugin.success('子任务已标记完成');
+    result = await changeTaskStatus(child.id, 'DONE');
   } catch (error) {
     MessagePlugin.error(transitionErrorText(error));
+    return;
   } finally {
     const next = new Set(childPending.value);
     next.delete(child.id);
     childPending.value = next;
   }
+
+  // 服务端已确认：回执走同一套兜底（出错只记日志，不当作请求失败）
+  const receipt = applyStatusReceipt({
+    targetTasks: [child],
+    taskId: child.id,
+    receipt: result,
+    fallbackStatus: 'DONE',
+    boardTasks: STATUSES.map((status) => board[status].tasks),
+  });
+  if (receipt.error) {
+    console.error('[task-board] 子任务回执处理失败（已按「服务端成功」处理）', receipt.error);
+  }
+  parent.child_done_count = doneCountOf(parent);
+  MessagePlugin.success('子任务已标记完成');
 }
 
 /** 建一份干净的五列容器 */
@@ -902,7 +914,14 @@ async function submitReason(): Promise<void> {
  * 乐观更新 + 回弹。
  *
  * 先动 UI（挪卡片 + 改两边计数），请求落地后再用回执校正 `progress`
- * （状态联动会抬进度）；失败则用 drop 前的两列快照整体还原。
+ * （状态联动会抬进度）；**只有请求本身失败**才用 drop 前的两列快照整体还原。
+ *
+ * # 两条边界（2026-10-30 12:20 流程3 偶发红后收紧）
+ *
+ * 1. `try/catch/finally` 只罩住 **`changeTaskStatus` 这一次请求**：catch 里才回弹。
+ * 2. 请求一旦拿到 200（`code === 0`），后续「回执处理」（校正状态/进度、同步父任务进度、
+ *    弹成功提示）走 `applyStatusReceipt`，它自带兜底、**不抛**；万一真出了岔子只记日志，
+ *    **绝不回滚** —— 服务端已经落地的状态不允许被前端回退成相反的样子。
  */
 async function moveTask(task: TaskCard, from: BoardStatus, to: BoardStatus, reason?: string): Promise<void> {
   const source = board[from];
@@ -926,19 +945,11 @@ async function moveTask(task: TaskCard, from: BoardStatus, to: BoardStatus, reas
   pendingIds.value = new Set(pendingIds.value).add(task.id);
   emit('loaded', grandTotal.value);
 
+  let result: TaskStatusChangeResult;
   try {
-    const result = await changeTaskStatus(task.id, to, reason);
-    // ② 用回执校正（进度联动 / 状态归一）
-    const landed = target.tasks.find((item) => item.id === task.id);
-    if (landed) {
-      landed.status = result.status;
-      landed.progress = result.progress;
-    }
-    // ③ 父任务进度被重算 → 板上同 id 的卡片同步（可能不在本屏，找不到就算了）
-    syncParentProgress(result.parent_progress);
-    MessagePlugin.success(`已移动到「${statusMeta('task', to).label}」`);
+    result = await changeTaskStatus(task.id, to, reason);
   } catch (error) {
-    // ④ 回弹：两列原样还原
+    // ④ 回弹：请求没落地 → 两列原样还原
     source.tasks = snapshot.sourceTasks;
     source.total = snapshot.sourceTotal;
     target.tasks = snapshot.targetTasks;
@@ -950,23 +961,26 @@ async function moveTask(task: TaskCard, from: BoardStatus, to: BoardStatus, reas
       MessagePlugin.error(transitionErrorText(error));
     }
     emit('loaded', grandTotal.value);
+    return;
   } finally {
     const next = new Set(pendingIds.value);
     next.delete(task.id);
     pendingIds.value = next;
   }
-}
 
-/** 父任务进度重算结果 → 同步到板上已加载的卡片 */
-function syncParentProgress(list: ParentProgress[]): void {
-  for (const progress of list) {
-    for (const status of STATUSES) {
-      const hit = board[status].tasks.find((item) => item.id === progress.id);
-      if (hit) {
-        hit.progress = progress.progress;
-      }
-    }
+  // ② 服务端已确认：用回执校正（进度联动 / 状态归一），出错只记日志、不回滚
+  const receipt = applyStatusReceipt({
+    targetTasks: target.tasks,
+    taskId: task.id,
+    receipt: result,
+    fallbackStatus: to,
+    boardTasks: STATUSES.map((status) => board[status].tasks),
+  });
+  if (receipt.error) {
+    console.error('[task-board] 状态流转回执处理失败（已按「服务端成功」处理，卡片留在目标列）', receipt.error);
   }
+  // ③ 父任务进度被重算 → 板上同 id 的卡片同步（可能不在本屏，找不到就算了）
+  MessagePlugin.success(`已移动到「${statusMeta('task', to).label}」`);
 }
 
 /** 筛选变化 → 重新加载（父页面「查询 / 重置 / 我的任务开关」都会动这些 props） */
