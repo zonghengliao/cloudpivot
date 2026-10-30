@@ -51,6 +51,9 @@ nik = { path = "vendor/nik", features = [
     "ipnetwork",
     # HTML 净化：社区公告等富文本入库前过滤
     "xss",
+    # 定点小数（W1b · ERP 金额）：`NUMERIC(18,4)` 走 rust_decimal::Decimal，
+    # 不用 f64（f64 会在合计/税率上与库里的定点值分叉）。
+    "rust_decimal",
     # SSE 实时推送（批次 A · A6）：框架 `nik-web::sse` 的 `Broadcaster` / `sse_json`
     # 在这个 feature 之后才存在（不开就根本没有这两个 API，而不是静默退化）。
     "sse",
@@ -68,6 +71,10 @@ nik-utils = { path = "vendor/nik-utils" }
 # 直连原因：框架 Import::from_xlsx 把整表转成 Vec<HashMap> 且不暴露表头——
 # E-IMP-02/03/04/05 四条结构校验必须读表头；逐行 range.rows() 也省掉第二份行集合的内存。
 calamine = "0.36"
+
+# 金额 / 数量定点数（W1b · ERP）：版本与 nik-db-core 内部的 rust_decimal 声明一致（1.43），
+# 依赖树里只有一份；直接声明的唯一目的是打开 `serde`（DTO 要序列化 Decimal）。
+rust_decimal = { version = "1.43", features = ["serde"] }
 
 # Web 层：multipart 用于文件上传；中间件钩子需要 axum::Router
 axum = { version = "0.8", features = ["multipart"] }
