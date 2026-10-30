@@ -1,6 +1,7 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import 'tdesign-vue-next/es/style/index.css';
+import TDesignIcons from 'tdesign-icons-vue-next';
 
 import App from '@/App.vue';
 import router from '@/router';
@@ -27,5 +28,10 @@ useSettingStore(pinia).initTheme();
 initPalette();
 
 setupDirectives(app);
+
+// 全局注册 TDesign 全部图标：菜单图标名来自数据库（动态字符串），
+// 静态分析不到 → unplugin 不会按需打包，必须全量注册才能让 <t-icon :name="x"> 生效。
+app.use(TDesignIcons);
+
 app.use(router);
 app.mount('#app');
