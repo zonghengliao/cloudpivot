@@ -428,7 +428,9 @@ const myTotal = computed(() => myTotalCount.value);
 
 /** 列定义 */
 const columns = [
-  { colKey: 'task_no', title: '任务号', width: 132 },
+  // 树形箭头挂在任务号列（老大 2026-10-30），缩进 24px/层最深吃掉 168px，
+  // 所以列宽从 132 加到 170 —— 否则 17 字符的号（TSK-202610-000757）会被截断
+  { colKey: 'task_no', title: '任务号', width: 170 },
   { colKey: 'title', title: '标题', width: 240, ellipsis: true },
   { colKey: 'status', title: '状态', width: 104 },
   { colKey: 'priority', title: '优先级', width: 96 },

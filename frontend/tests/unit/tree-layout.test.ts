@@ -17,7 +17,7 @@ import {
   childProgressText,
   isParentRow,
   rowClassNameOf,
-  titleColumnIndex,
+  treeArrowColumnIndex,
   treeConfigOf,
 } from '../../src/views/business/task/components/tree-layout.ts';
 
@@ -82,25 +82,25 @@ test('子任务分数文案：N/M 与百分比同源夹紧；分母 0 显示 0/0
   assert.equal(childProgressText(undefined, undefined), '0/0');
 });
 
-test('箭头列下标：标题列 = 1（E6b 的 0 是任务号列，这是本卡的核心修复）', () => {
-  assert.equal(titleColumnIndex(COLUMN_KEYS), 1);
-  assert.equal(COLUMN_KEYS[titleColumnIndex(COLUMN_KEYS)], 'title');
+test('箭头列下标：任务号列 = 0（老大 2026-10-30 要求箭头放任务号前面）', () => {
+  assert.equal(treeArrowColumnIndex(COLUMN_KEYS), 0);
+  assert.equal(COLUMN_KEYS[treeArrowColumnIndex(COLUMN_KEYS)], 'task_no');
 });
 
-test('箭头列下标：在任务号前插一列后，箭头仍然跟着标题列走（不写死数字的理由）', () => {
-  const withCreator = ['avatar', ...COLUMN_KEYS];
-  assert.equal(titleColumnIndex(withCreator), 2);
-  assert.equal(withCreator[titleColumnIndex(withCreator)], 'title');
+test('箭头列下标：在任务号前插一列后，箭头仍然跟着任务号列走（不写死数字的理由）', () => {
+  const withAvatar = ['avatar', ...COLUMN_KEYS];
+  assert.equal(treeArrowColumnIndex(withAvatar), 1);
+  assert.equal(withAvatar[treeArrowColumnIndex(withAvatar)], 'task_no');
 });
 
-test('箭头列下标：找不到标题列时兜底 0（不让树形彻底哑掉）', () => {
-  assert.equal(titleColumnIndex(['task_no', 'name']), 0);
-  assert.equal(titleColumnIndex([]), 0);
+test('箭头列下标：找不到任务号列时兜底 0（不让树形彻底哑掉）', () => {
+  assert.equal(treeArrowColumnIndex(['title', 'status']), 0);
+  assert.equal(treeArrowColumnIndex([]), 0);
 });
 
-test('树形配置：treeNodeColumnIndex 对准标题列、缩进 24px', () => {
+test('树形配置：treeNodeColumnIndex 对准任务号列（老大 2026-10-30 改）、缩进 24px', () => {
   const config = treeConfigOf(COLUMN_KEYS);
-  assert.equal(config.treeNodeColumnIndex, 1);
+  assert.equal(config.treeNodeColumnIndex, 0);
   assert.equal(config.indent, TREE_INDENT);
   assert.equal(TREE_INDENT, 24);
 });

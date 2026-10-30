@@ -74,13 +74,18 @@ export function childProgressText(done: number | null | undefined, total: number
 }
 
 /**
- * 树形箭头的列下标：反查 `colKey === 'title'`。
+ * 树形箭头的列下标：反查 `colKey === 'task_no'`。
  *
- * 找不到 title 列（改名 / 传了空数组）时退回 0，保证表格仍然能渲染出箭头，
+ * **2026-10-30 老大改主意**：T8-B 原本把箭头挂在标题列（理由是「用户看标题不看任务号」），
+ * 但实际用起来觉得放任务号前面更顺手 —— 这也是标准树形表格的通行做法（箭头在最左）。
+ * 所以改回任务号列（现在是第 0 列）。
+ *
+ * 仍然不写死数字：反查 colKey，以后列顺序调整不用改这里。
+ * 找不到 task_no 列（改名 / 传了空数组）时退回 0，保证表格仍然能渲染出箭头，
  * 不至于因为一次重构把树形彻底弄哑。
  */
-export function titleColumnIndex(colKeys: ReadonlyArray<string | undefined>): number {
-  const index = colKeys.findIndex((key) => key === 'title');
+export function treeArrowColumnIndex(colKeys: ReadonlyArray<string | undefined>): number {
+  const index = colKeys.findIndex((key) => key === 'task_no');
   return index >= 0 ? index : 0;
 }
 
@@ -89,5 +94,5 @@ export function treeConfigOf(colKeys: ReadonlyArray<string | undefined>): {
   treeNodeColumnIndex: number;
   indent: number;
 } {
-  return { treeNodeColumnIndex: titleColumnIndex(colKeys), indent: TREE_INDENT };
+  return { treeNodeColumnIndex: treeArrowColumnIndex(colKeys), indent: TREE_INDENT };
 }
