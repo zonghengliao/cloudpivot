@@ -135,9 +135,7 @@
               :class="{ 'cell-title__text--new': row.is_new }"
               @click="openDetail(row)"
             >{{ row.title }}</t-link>
-            <span v-if="row.child_count > 0" class="cell-child-stat">
-              （{{ row.child_count }} 子·{{ row.child_done_count }} 完成）
-            </span>
+            <!-- T8-B：子任务数从标题列搬到「进度」列（小进度条 + N/M 分数），标题列只留标题 -->
             <t-tag v-if="row.need_review" size="small" variant="outline" theme="default">需验收</t-tag>
           </div>
         </template>
@@ -151,7 +149,13 @@
         </template>
 
         <template #progress="{ row }">
-          <div class="cell-progress">
+          <!-- T8-B ③：父任务行显示「子任务完成度」（小进度条 + N/M），非父任务显示自己的进度 -->
+          <SubProgressBar
+            v-if="isParentRow(row)"
+            :done="row.child_done_count"
+            :total="row.child_count"
+          />
+          <div v-else class="cell-progress">
             <t-progress :percentage="row.progress" :label="false" theme="line" :stroke-width="6" />
             <span class="cell-progress__text">{{ row.progress }}%</span>
           </div>
@@ -264,12 +268,14 @@ import type { TableRowData, TableTreeExpandChangeContext } from 'tdesign-vue-nex
 import dayjs from 'dayjs';
 import StatusBadge from './components/StatusBadge.vue';
 import PriorityTag from './components/PriorityTag.vue';
+import SubProgressBar from './components/SubProgressBar.vue';
 import UserSelect from './components/UserSelect.vue';
 import TaskForm from './components/TaskForm.vue';
 import TaskBurndown from './components/TaskBurndown.vue';
 import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
 import NewDot from '@/components/NewDot.vue';
+import { isParentRow, rowClassNameOf, treeConfigOf } from './components/tree-layout';
 import { ApiError } from '@/api/request';
 import {
   deleteTask,
@@ -326,8 +332,6 @@ const priorityOpts = priorityOptions();
 
 /** 表格数据 */
 const rows = ref<TaskRow[]>([]);
-/** 树形表格配置：箭头挂在第 0 列（任务号），缩进 16px */
-const treeConfig = { treeNodeColumnIndex: 0, indent: 16 };
 /** 正在拉子任务的父任务 id（防连点重复请求） */
 const subtaskLoading = new Set<string>();
 /**
@@ -395,6 +399,15 @@ const columns = [
   { colKey: 'source', title: '来源', width: 96 },
   { colKey: 'op', title: '操作', width: 150, fixed: 'right' as const },
 ];
+
+/**
+ * 树形表格配置（T8-B ①）：箭头挂在**标题列**（`colKey: 'title'`），缩进 24px。
+ *
+ * E6b 写死 `treeNodeColumnIndex: 0` 把箭头挂在「任务号」列 —— 用户看标题不看任务号，
+ * 展开箭头离标题隔着整列，点起来也别扭。这里按 colKey 反查下标（见 `tree-layout.ts`），
+ * 以后列顺序调整（比如在任务号前插一列）也不用再改这个数字。
+ */
+const treeConfig = treeConfigOf(columns.map((col) => col.colKey as string));
 
 /** 项目下拉选项（T7c 项目筛选；项目数量不大，一次取 200 条足够） */
 const projectOptions = ref<Array<{ label: string; value: string }>>([]);
@@ -473,12 +486,15 @@ function flattenMyTasks(data: Awaited<ReturnType<typeof listMyTasks>>): TaskRow[
   return groups.flatMap(([label, list]) => list.map((item) => toTreeRow(item, { bucketLabel: label })));
 }
 
-/** 行样式：父任务加粗、子行常规（缩进由 t-table 的 tree 负责） */
+/**
+ * 行样式（T8-B ②④）：父任务 `task-row--parent`（4px 主色左竖条 + 浅底 + 加粗）、
+ * 子任务 `task-row--child`（连接线 + 更浅底）、普通行不加类。
+ *
+ * 缩进由 `t-enhanced-table` 的 tree（`indent: 24`）自动算，**不在这里手写 margin-left**；
+ * 判断逻辑抽到 `tree-layout.ts` 里做了单测（父/子/普通三态 + 孙任务优先按子行渲染）。
+ */
 function rowClassName(context: { row: TaskRow }): string {
-  if (context.row._isSub) {
-    return 'task-row--sub';
-  }
-  return context.row.child_count > 0 ? 'task-row--parent' : '';
+  return rowClassNameOf(context.row);
 }
 
 /**
@@ -861,13 +877,83 @@ onMounted(() => {
   }
 }
 
-/** 父任务行：标题加粗 + 子任务统计小字（E6b 树形表格） */
-::deep(.task-row--parent .cell-title__text) {
-  font-weight: 500;
+/* ===================== T8-B：树形层级视觉（只用主题 token，0 裸 hex） ===================== */
+
+/**
+ * 标题列同时是树形列（T8-B ①）—— 必须把树形容器改回 flex 一行排。
+ *
+ * 因为标题列声明了 `ellipsis: true`，TDesign 会给树形容器加 `--inline`（`display: inline`），
+ * 于是「行内箭头 + 块级 .cell-title」被拆成两行：实测箭头与标题垂直差 23px，行也变高。
+ * 非叶子行容器是 `.t-table__tree-col`、叶子行是 `.t-table__tree-leaf-node`（两者都带 `--inline`），
+ * 所以两个都要覆盖。截断不受影响：`.cell-title__text` 自己的 `text-overflow: ellipsis` 才是实际生效的那一层。
+ */
+:deep(.t-table__tree-col),
+:deep(.t-table__tree-leaf-node) {
+  display: flex;
+  align-items: center;
+  min-width: 0;
 }
 
-/* F2：新任务标题加粗。写成两级选择器并放在父行规则之后——父行本来是 500，
-   同权重下后写的这条才能把新任务顶到 600（不用 !important）。 */
+/**
+ * 父任务行：4px 主色左竖条 + 品牌浅底 + 标题加粗。
+ *
+ * 底色打在 `td` 上（不是 `tr`）：TDesign 的 stripe / hover 都是给 `tr` 上色的，
+ * 打在 `tr` 上会被「奇数行浅底」盖住，只有 `td` 才稳。代价是 hover 也被盖住，
+ * 所以下面单独补一条 `:hover > td` 的深一档底色，悬停反馈不丢。
+ * 竖条吃掉 4px 内边距，所以把 padding-left 减 4px —— 父行和普通行的任务号仍然对齐。
+ */
+:deep(.task-row--parent > td) {
+  background-color: var(--td-brand-color-light);
+}
+
+:deep(.task-row--parent > td:first-child) {
+  border-left: 4px solid var(--td-brand-color);
+  padding-left: calc(var(--td-comp-paddingLR-l) - 4px);
+}
+
+:deep(.task-row--parent:hover > td) {
+  background-color: var(--td-brand-color-light-hover);
+}
+
+:deep(.task-row--parent .cell-title__text) {
+  font-weight: 600;
+}
+
+/**
+ * 子任务行：比父行更浅一档的底（灰底 vs 父行的品牌浅底，层级一眼分得出）。
+ * 缩进由 `t-enhanced-table` 的 tree（`indent: 24`）自动算，这里不写 margin-left。
+ */
+:deep(.task-row--child > td) {
+  background-color: var(--td-bg-color-secondarycontainer);
+}
+
+:deep(.task-row--child:hover > td) {
+  background-color: var(--td-bg-color-secondarycontainer-hover);
+}
+
+/**
+ * 子任务连接线（└─）：画在树形箭头 `.t-table__tree-op-icon` 的**前面**。
+ *
+ * 为什么不按卡面写在 `.cell-title::before`：箭头是表格在标题单元格里自己渲染的，
+ * 插在 `.cell-title` 里会跑成「▼└─ 标题」，连接线跑到箭头后面去了。
+ * 挂在图标前面才是「└─▼ 标题」，而且**跟着缩进一起移动**（图标本身带 level*indent 的
+ * padding-left），8 层都不会错位。叶子行（已加载完的子任务）图标是空的，
+ * 这个 ::before 同样生效，只是后面没有箭头。
+ */
+:deep(.task-row--child .t-table__tree-op-icon::before) {
+  content: '';
+  display: block;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  margin-right: var(--td-comp-margin-xxs);
+  border-left: 1px solid var(--td-component-stroke);
+  border-bottom: 1px solid var(--td-component-stroke);
+  border-bottom-left-radius: var(--td-radius-default);
+}
+
+/* F2：新任务标题加粗。写成两级选择器并放在父行规则之后——同权重下后写的这条
+   才压得住父行的 600（新任务若也是父任务，仍要显式声明，避免以后调父行字重时被带走）。 */
 .cell-title .cell-title__text--new {
   font-weight: 600;
 }
@@ -875,13 +961,6 @@ onMounted(() => {
 /* F2：NEW 角标不参与标题的省略号收窄 */
 .cell-title__new {
   flex: none;
-}
-
-.cell-child-stat {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--td-text-color-placeholder);
 }
 
 .cell-progress {
