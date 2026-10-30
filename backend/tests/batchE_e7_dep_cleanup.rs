@@ -200,7 +200,11 @@ async fn soft_delete_purges_dependencies_and_guard_counts_orphans() {
     add_dependency(c, d).await;
     add_dependency(e, f).await;
     assert_eq!(dependency_rows(a, b).await, 1, "前置检查：a→b 应已建立");
-    assert_eq!(total_fixture_dependencies().await, 3, "前置检查：应有 3 条依赖");
+    assert_eq!(
+        total_fixture_dependencies().await,
+        3,
+        "前置检查：应有 3 条依赖"
+    );
 
     // ① 软删**前置** B → a→b 消失，另两条不受影响
     assert_eq!(soft_delete(b).await, 1, "软删 B 应命中 1 行");
@@ -210,11 +214,7 @@ async fn soft_delete_purges_dependencies_and_guard_counts_orphans() {
 
     // ② 软删**后继** C → c→d 消失
     assert_eq!(soft_delete(c).await, 1, "软删 C 应命中 1 行");
-    assert_eq!(
-        dependency_rows(c, d).await,
-        0,
-        "软删后继 C 后 c→d 必须消失"
-    );
+    assert_eq!(dependency_rows(c, d).await, 0, "软删后继 C 后 c→d 必须消失");
     assert_eq!(dependency_rows(e, f).await, 1, "e→f 仍不受影响");
 
     // ③ 软删**与依赖无关**的任务 G → 一条依赖都不动
