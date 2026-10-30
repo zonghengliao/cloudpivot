@@ -16,19 +16,37 @@
       </t-alert>
 
       <template v-else-if="detail">
-        <!-- 头部：编号 + 标题 + 徽标 + 操作 -->
+        <!-- 头部：编号 + 标题 + 状态（同一行）；信息区压成单行紧凑；操作按钮 -->
         <div class="head">
           <div class="head__title-row">
             <span class="head__no">{{ detail.task_no }}</span>
             <span class="head__title">{{ detail.title }}</span>
+            <StatusBadge domain="task" :status="detail.status" />
           </div>
           <!-- E6a：从子任务行点进来的，给一条回父任务的路（不关抽屉，避免丢列表滚动位置） -->
           <div v-if="detail.parent_task_no" class="head__parent">
             <t-link theme="primary" @click="openParent">← 返回父任务 {{ detail.parent_task_no }}</t-link>
           </div>
+          <!-- E9：信息区从「多行 11 项」压成一行（优先级 · 负责人 · 截止 · 进度 · 工时 · 标记），
+               完整字段（创建人 / 部门 / 项目 / 时间…）挪到「详情」Tab，一眼能扫完 -->
           <div class="head__meta">
-            <StatusBadge domain="task" :status="detail.status" />
             <PriorityTag :priority="detail.priority" />
+            <span class="head__chip">
+              <t-icon name="user" class="head__chip-icon" />
+              {{ detail.owner_name || '未指派' }}
+            </span>
+            <span class="head__chip" :class="{ 'head__chip--danger': isOverdue }">
+              <t-icon name="calendar" class="head__chip-icon" />
+              {{ detail.due_date || '无期限' }}
+            </span>
+            <span class="head__chip head__chip--progress">
+              <t-progress :percentage="detail.progress" theme="line" :label="false" class="head__bar" />
+              <span class="head__pct">{{ detail.progress }}%</span>
+            </span>
+            <span class="head__chip">
+              预估 {{ formatHours(detail.estimate_hours) }}
+              <template v-if="detail.actual_hours !== null">· 实际 {{ formatHours(detail.actual_hours) }}</template>
+            </span>
             <t-tag v-if="detail.need_review" size="small" variant="outline" theme="default">需验收</t-tag>
             <t-tag v-if="isOverdue" size="small" variant="light" theme="danger">已逾期</t-tag>
             <t-tag v-if="detail.source !== 'SELF'" size="small" variant="outline" theme="default">
@@ -56,18 +74,30 @@
           </div>
         </div>
 
-        <!-- 进度 -->
-        <div class="block">
-          <div class="block__title">进度</div>
-          <div class="progress-row">
-            <t-progress :percentage="detail.progress" :label="`${detail.progress}%`" theme="line" />
-            <span class="progress-row__hours">
-              预估 {{ formatHours(detail.estimate_hours) }}<template v-if="detail.actual_hours !== null">
-                · 实际 {{ formatHours(detail.actual_hours) }}</template
-              >
-            </span>
-          </div>
-        </div>
+        <!-- ==================== 主 Tab（E9：5 区块 → 4 主 Tab，降低信息密度） ==================== -->
+        <t-tabs v-model="mainTab" class="main-tabs">
+          <!-- ---------- 详情：描述（默认折叠）+ 基本信息 + 协作人 ---------- -->
+          <t-tab-panel value="detail" label="详情">
+            <div class="block">
+              <div class="block__title block__title--with-action">
+                <span>描述</span>
+                <t-button
+                  v-if="descOverflow"
+                  size="small"
+                  variant="text"
+                  theme="primary"
+                  @click="descExpanded = !descExpanded"
+                >
+                  {{ descExpanded ? '收起' : '展开' }}
+                </t-button>
+              </div>
+              <pre
+                v-if="detail.description"
+                class="desc"
+                :class="{ 'desc--collapsed': !descExpanded && descOverflow }"
+              >{{ detail.description }}</pre>
+              <p v-else class="placeholder">暂无描述</p>
+            </div>
 
         <!-- 信息区 -->
         <div class="block">
@@ -127,14 +157,23 @@
           <t-alert v-if="detail.reject_reason" theme="error" :message="`打回原因：${detail.reject_reason}`" />
         </div>
 
-        <!-- 描述 -->
-        <div class="block">
-          <div class="block__title">描述</div>
-          <pre v-if="detail.description" class="desc">{{ detail.description }}</pre>
-          <p v-else class="placeholder">暂无描述</p>
-        </div>
+        
+            <!-- 协作人（T1 详情已下发 members；为空时隐藏） -->
+            <div v-if="detail.members.length > 0" class="block">
+              <div class="block__title">
+                协作人
+                <span class="block__count">{{ detail.members.length }}</span>
+              </div>
+              <t-space size="small" break-line>
+                <t-tag v-for="member in detail.members" :key="member.user_id" size="small" variant="outline">
+                  {{ member.user_name }}
+                </t-tag>
+              </t-space>
+            </div>
+          </t-tab-panel>
 
-        <!-- 子任务（E6a：**常显**，0 个子任务时也能看到入口） -->
+          <!-- ---------- 子任务（E6a：**常显**，0 个子任务时也能看到入口） ---------- -->
+          <t-tab-panel value="subtask" :label="`子任务 ${detail.child_count}`">
         <div class="block">
           <div class="block__title block__title--with-action">
             <span>
@@ -176,25 +215,26 @@
           <p v-else class="placeholder">暂无子任务</p>
         </div>
 
-        <!-- 协作人（T1 详情已下发 members；为空时隐藏） -->
-        <div v-if="detail.members.length > 0" class="block">
-          <div class="block__title">
-            协作人
-            <span class="block__count">{{ detail.members.length }}</span>
-          </div>
-          <t-space size="small" break-line>
-            <t-tag v-for="member in detail.members" :key="member.user_id" size="small" variant="outline">
-              {{ member.user_name }}
-            </t-tag>
-          </t-space>
-        </div>
+          </t-tab-panel>
 
-        <!-- ==================== 协作区（T6b：评论 / 附件 / 工时） ==================== -->
-        <div class="block collab">
-          <div class="block__title">协作</div>
-          <t-tabs v-model="activeTab" @change="handleTabChange">
-            <!-- ---------- 评论 ---------- -->
-            <t-tab-panel value="comment" :label="`评论${comments.total > 0 ? ` ${comments.total}` : ''}`">
+          <!-- ---------- 协作：原「评论 / 附件 / 工时」三 Tab 内嵌成二级分段控件 ----------
+               （Tab 套 Tab 太深，用 t-radio-group 分段最轻；三段内容用 v-show 常驻，
+                 切段不重拉、不丢输入框草稿） -->
+          <t-tab-panel value="collab" :label="`协作 ${collabCount}`">
+          <t-radio-group
+            v-model="collabTab"
+            class="collab__seg"
+            size="small"
+            variant="default-filled"
+            @change="handleTabChange"
+          >
+            <t-radio-button value="comment">评论 {{ comments.total }}</t-radio-button>
+            <t-radio-button value="attachment">附件 {{ attachments.total }}</t-radio-button>
+            <t-radio-button value="worklog">工时 {{ worklogs.total }}</t-radio-button>
+          </t-radio-group>
+
+          <!-- ---------- 评论 ---------- -->
+          <div v-show="collabTab === 'comment'" class="collab__pane">
               <!-- 发表框：@ 提及 = 强制通知（被选中的每个人都会收到） -->
               <div class="composer" @keydown="onComposerKeydown">
                 <t-textarea
@@ -276,10 +316,10 @@
                   加载更多（{{ comments.list.length }}/{{ comments.total }}）
                 </t-button>
               </div>
-            </t-tab-panel>
+          </div>
 
-            <!-- ---------- 附件 ---------- -->
-            <t-tab-panel value="attachment" :label="`附件${attachments.total > 0 ? ` ${attachments.total}` : ''}`">
+          <!-- ---------- 附件 ---------- -->
+          <div v-show="collabTab === 'attachment'" class="collab__pane">
               <div
                 class="attach__drop"
                 :class="{ 'attach__drop--over': dragOver }"
@@ -310,10 +350,10 @@
                 </div>
               </div>
               <p v-else class="placeholder">暂无附件</p>
-            </t-tab-panel>
+          </div>
 
-            <!-- ---------- 工时 ---------- -->
-            <t-tab-panel value="worklog" :label="`工时${worklogs.total > 0 ? ` ${worklogs.total}` : ''}`">
+          <!-- ---------- 工时 ---------- -->
+          <div v-show="collabTab === 'worklog'" class="collab__pane">
               <div class="worklog__summary">
                 <span>明细合计 <strong>{{ worklogs.sum_hours }}</strong> 小时</span>
                 <span>任务实际工时 <strong>{{ worklogs.actual_hours === null ? '—' : worklogs.actual_hours }}</strong></span>
@@ -334,14 +374,16 @@
                 </div>
               </div>
               <p v-else class="placeholder">还没有工时记录（工时只由服务端汇总，前端不填实际工时）</p>
-            </t-tab-panel>
+          </div>
+          </t-tab-panel>
 
-            <!-- ---------- AI 产出文件（E13：AI 写进 workspace 的原始产出，只读） ---------- -->
-            <t-tab-panel v-if="isAiTask" value="ai" label="AI 产出文件">
-              <AiWorkspaceFiles :task-id="currentId ?? ''" />
-            </t-tab-panel>
-          </t-tabs>
-        </div>
+          <!-- ---------- AI 产出（E13：AI 直接写在 workspace 里的原始文件，只读） ----------
+               仅 execMode=AI 出现；`destroy-on-hide=false` 是为了「一进抽屉徽标就有数字」——
+               TDesign 的面板默认在隐藏时销毁，那样徽标要等用户点开这个 Tab 才拿得到总量 -->
+          <t-tab-panel v-if="isAiTask" value="ai" :label="aiTabLabel" :destroy-on-hide="false">
+            <AiWorkspaceFiles :task-id="activeTaskId" @loaded="onAiLoaded" />
+          </t-tab-panel>
+        </t-tabs>
       </template>
     </t-loading>
 
@@ -497,6 +539,31 @@ const loading = ref(false);
 /** 错误文案（非空即渲染错误态 + 重试） */
 const errorMessage = ref('');
 
+/**
+ * 描述展开态（E9：默认折叠，超过 5 行才出现「展开」）。
+ *
+ * 任务描述动辄几十行，展开着会把「详情」Tab 顶到看不见基本信息 ——
+ * 默认只露 5 行，要读全文点一下。
+ */
+const descExpanded = ref(false);
+
+/**
+ * 描述估算行数。
+ *
+ * `pre` 保留显式换行；没有换行的长段落会按容器宽度折行，这里按「每行 ~42 字」
+ * （13px 字号 / 680px 抽屉内宽的经验值）折算，只用来判断要不要显示「展开」。
+ */
+const descLineCount = computed(() => {
+  const text = detail.value?.description ?? '';
+  if (!text) {
+    return 0;
+  }
+  return text.split('\n').reduce((sum, line) => sum + Math.max(1, Math.ceil(line.length / 42)), 0);
+});
+
+/** 超过 5 行 → 折叠 + 给「展开」 */
+const descOverflow = computed(() => descLineCount.value > 5);
+
 /** 抽屉可见性代理 */
 const innerVisible = computed({
   get: () => props.visible,
@@ -587,6 +654,14 @@ function formatHours(hours: number | null): string {
  */
 const currentId = ref<string | null>(props.taskId ?? null);
 
+/**
+ * 当前实际展示的任务 id（E9）。
+ *
+ * 协作三份（评论 / 附件 / 工时）和 AI 产出都按「正在看的那个任务」拉 ——
+ * 早先这里写的是 `props.taskId`，点进子任务后评论还停在父任务上（数字对不上）。
+ */
+const activeTaskId = computed(() => currentId.value ?? props.taskId ?? '');
+
 /** 拉详情（用 `currentId`，不再直接用 prop：子任务行点击后 prop 没变） */
 async function loadDetail(): Promise<void> {
   if (!currentId.value) {
@@ -596,6 +671,13 @@ async function loadDetail(): Promise<void> {
   errorMessage.value = '';
   try {
     detail.value = await getTask(currentId.value);
+    // E9：换任务（含点进子任务）时描述重新折叠、AI 徽标清零重算；
+    // 若当前停在「AI 产出」而新任务不是 AI 任务，回到「详情」（否则会停在一个不存在的 Tab）
+    descExpanded.value = false;
+    aiCount.value = null;
+    if (mainTab.value === 'ai' && !isAiTask.value) {
+      mainTab.value = 'detail';
+    }
     // 协作区三份并发拉（详情接口不带评论 / 工时；附件快照也不含下载与来源明细）
     void loadComments(1);
     void loadAttachments();
@@ -614,7 +696,8 @@ function openChild(childId: string): void {
     return;
   }
   currentId.value = childId;
-  activeTab.value = 'comment';
+  mainTab.value = 'detail';
+  collabTab.value = 'comment';
   void loadDetail();
 }
 
@@ -625,7 +708,8 @@ function openParent(): void {
     return;
   }
   currentId.value = parentId;
-  activeTab.value = 'comment';
+  mainTab.value = 'detail';
+  collabTab.value = 'comment';
   void loadDetail();
 }
 
@@ -753,8 +837,38 @@ function handleClosed(): void {
 // 评论要分页 + 删除、附件要下载 + 删除、工时是详情里根本没有的新数据面。
 // 打开抽屉时并发拉三份，避免切 tab 时才转圈。
 
-/** 当前协作区 tab */
-const activeTab = ref<'comment' | 'attachment' | 'worklog' | 'ai'>('comment');
+/**
+ * 主 Tab（E9：详情 / 子任务 / 协作 / AI 产出）。
+ *
+ * 默认停在「详情」—— 有子任务、没子任务都一样：进来先看任务本身，
+ * 子任务数量在 Tab 徽标上已经能看到，不需要自动跳过去。
+ */
+const mainTab = ref<'detail' | 'subtask' | 'collab' | 'ai'>('detail');
+
+/** 协作 Tab 内的二级分段（原三 Tab 内嵌，避免 Tab 套 Tab 太深） */
+const collabTab = ref<'comment' | 'attachment' | 'worklog'>('comment');
+
+/**
+ * 「协作 N」徽标数量 = 评论 + 附件 + 工时 三类合计。
+ *
+ * 三个数字各自在同名的分段按钮上；主 Tab 只给一个总数（点进去再细看）。
+ */
+const collabCount = computed(() => comments.total + attachments.total + worklogs.total);
+
+/**
+ * 「AI 产出 N」徽标数量。
+ *
+ * 由 `AiWorkspaceFiles` 的 `loaded` 事件回抛（和列表同源，父级不重复请求）；
+ * `null` = 还没拿到 → 徽标不带数字，避免先显示一个假的 0。
+ */
+const aiCount = ref<number | null>(null);
+
+const aiTabLabel = computed(() => (aiCount.value === null ? 'AI 产出' : `AI 产出 ${aiCount.value}`));
+
+/** AI 产出列表回抛总数（子组件 `loaded` 事件） */
+function onAiLoaded(total: number): void {
+  aiCount.value = total;
+}
 
 /** 评论列表状态（分页累加：`加载更多` 只追加） */
 const comments = reactive({
@@ -864,12 +978,12 @@ function disableFutureDate(value: unknown): boolean {
 
 /** 拉评论（`page > 1` 表示加载更多 → 追加） */
 async function loadComments(page = 1): Promise<void> {
-  if (!props.taskId) {
+  if (!activeTaskId.value) {
     return;
   }
   comments.loading = true;
   try {
-    const result = await listTaskComments(props.taskId, { page, page_size: comments.pageSize });
+    const result = await listTaskComments(activeTaskId.value, { page, page_size: comments.pageSize });
     comments.list = page > 1 ? [...comments.list, ...result.list] : result.list;
     comments.total = result.total;
     comments.page = result.page;
@@ -924,7 +1038,7 @@ function toCommentItem(created: TaskCommentCreateResult, content: string): TaskC
  * 红线：**失败不清空输入** —— 只有服务端确认落库后才重置，否则用户白写。
  */
 async function submitComment(): Promise<void> {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   const content = composer.content.trim();
   if (!taskId || !content || composer.submitting) {
     return;
@@ -950,7 +1064,7 @@ async function submitComment(): Promise<void> {
 
 /** 删除评论（二次确认；系统评论没有删除按钮，服务端也会 403） */
 function removeComment(item: TaskCommentItem): void {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   if (!taskId) {
     return;
   }
@@ -974,12 +1088,12 @@ function removeComment(item: TaskCommentItem): void {
 
 /** 拉附件 */
 async function loadAttachments(): Promise<void> {
-  if (!props.taskId) {
+  if (!activeTaskId.value) {
     return;
   }
   attachments.loading = true;
   try {
-    const result = await listTaskAttachments(props.taskId);
+    const result = await listTaskAttachments(activeTaskId.value);
     attachments.list = result.list;
     attachments.total = result.total;
     attachments.max_count = result.max_count;
@@ -1016,7 +1130,7 @@ function onDrop(event: DragEvent): void {
 
 /** 上传单个文件（策略校验 / 50 个上限都在后端） */
 async function uploadOne(file: File): Promise<void> {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   if (!taskId) {
     return;
   }
@@ -1038,7 +1152,7 @@ async function uploadOne(file: File): Promise<void> {
 
 /** 下载附件（带 Bearer 取 Blob 再触发保存；裸链接会 401） */
 async function downloadAttachmentItem(file: TaskAttachmentItem): Promise<void> {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   if (!taskId) {
     return;
   }
@@ -1059,7 +1173,7 @@ async function downloadAttachmentItem(file: TaskAttachmentItem): Promise<void> {
 
 /** 删除附件 */
 function removeAttachment(file: TaskAttachmentItem): void {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   if (!taskId) {
     return;
   }
@@ -1083,12 +1197,12 @@ function removeAttachment(file: TaskAttachmentItem): void {
 
 /** 拉工时 */
 async function loadWorklogs(): Promise<void> {
-  if (!props.taskId) {
+  if (!activeTaskId.value) {
     return;
   }
   worklogs.loading = true;
   try {
-    const result = await listTaskWorklogs(props.taskId);
+    const result = await listTaskWorklogs(activeTaskId.value);
     worklogs.list = result.list;
     worklogs.total = result.total;
     worklogs.sum_hours = result.sum_hours;
@@ -1111,7 +1225,7 @@ function openWorklogDialog(): void {
 
 /** 提交工时（`actual_hours` 只由服务端汇总，回执里带回来直接展示） */
 async function submitWorklog(): Promise<void> {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   const hours = worklogDialog.hours;
   // 日期在 `clearable` 清空后运行时可能是 null（类型声明是 string），按空串处理
   const rawDate: unknown = worklogDialog.workDate;
@@ -1139,7 +1253,7 @@ async function submitWorklog(): Promise<void> {
 
 /** 删除工时 */
 function removeWorklog(row: TaskWorklogItem): void {
-  const taskId = props.taskId;
+  const taskId = activeTaskId.value;
   if (!taskId) {
     return;
   }
@@ -1161,22 +1275,25 @@ function removeWorklog(row: TaskWorklogItem): void {
   });
 }
 
-/** 切 tab 时补拉（打开抽屉时三份已并发拉过，这里只兜底失败后的重试） */
+/** 切协作分段时补拉（打开抽屉时三份已并发拉过，这里只兜底失败后的重试） */
 function handleTabChange(): void {
-  if (activeTab.value === 'comment' && comments.list.length === 0 && comments.total === 0) {
+  if (collabTab.value === 'comment' && comments.list.length === 0 && comments.total === 0) {
     void loadComments(1);
   }
-  if (activeTab.value === 'attachment' && attachments.list.length === 0) {
+  if (collabTab.value === 'attachment' && attachments.list.length === 0) {
     void loadAttachments();
   }
-  if (activeTab.value === 'worklog' && worklogs.list.length === 0) {
+  if (collabTab.value === 'worklog' && worklogs.list.length === 0) {
     void loadWorklogs();
   }
 }
 
 /** 关闭抽屉时清空协作区状态（避免下次打开先闪上一个任务的评论） */
 function resetCollab(): void {
-  activeTab.value = 'comment';
+  mainTab.value = 'detail';
+  collabTab.value = 'comment';
+  aiCount.value = null;
+  descExpanded.value = false;
   comments.list = [];
   comments.total = 0;
   comments.page = 1;
@@ -1232,9 +1349,45 @@ function resetCollab(): void {
   &__meta {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 8px 12px;
     flex-wrap: wrap;
     margin-top: 8px;
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+  }
+
+  // E9：单行紧凑信息块（负责人 / 截止 / 进度 / 工时）
+  &__chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    white-space: nowrap;
+    line-height: 20px;
+
+    &--progress {
+      gap: 6px;
+    }
+
+    // 逾期：只用语义色，不改字号（避免一行里出现跳动）
+    &--danger {
+      color: var(--td-error-color);
+      font-weight: 600;
+    }
+  }
+
+  &__chip-icon {
+    font-size: 14px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  // 头部进度条：固定窄宽，不跟文字抢位置
+  &__bar {
+    width: 72px;
+  }
+
+  &__pct {
+    font-variant-numeric: tabular-nums;
+    color: var(--td-text-color-primary);
   }
 
   &__actions {
@@ -1294,15 +1447,38 @@ function resetCollab(): void {
   }
 }
 
-.progress-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+// ==================== E9：主 Tab ====================
 
-  &__hours {
-    flex-shrink: 0;
-    font-size: 12px;
-    color: var(--td-text-color-secondary);
+// Tab 栏吸顶：详情内容再长，切 Tab 也不用先滚回顶部
+.main-tabs {
+  :deep(.t-tabs__nav) {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    padding-top: 4px;
+    background: var(--td-bg-color-container);
+    // 抽屉头部没有阴影，靠一条分隔线把 Tab 栏与内容分开
+    border-bottom: 1px solid var(--td-component-stroke);
+  }
+
+  :deep(.t-tabs__content) {
+    padding-top: 16px;
+  }
+
+  // 面板里的 .block 自带 20px 上边距，首个区块不需要再多一层
+  :deep(.t-tabs__content > .t-tab-panel > .block:first-child) {
+    margin-top: 0;
+  }
+}
+
+.collab {
+  &__seg {
+    margin-bottom: 12px;
+  }
+
+  &__pane {
+    // 分段控件与内容之间的呼吸（v-show 常驻，三段间距一致）
+    padding-top: 4px;
   }
 }
 
@@ -1338,6 +1514,7 @@ function resetCollab(): void {
 }
 
 .desc {
+  position: relative;
   margin: 0;
   padding: 12px;
   font-family: inherit;
@@ -1348,6 +1525,23 @@ function resetCollab(): void {
   color: var(--td-text-color-primary);
   background: var(--td-bg-color-container-hover);
   border-radius: var(--td-radius-medium);
+
+  // E9：默认只露 5 行（5 × 1.7em），底部一层渐隐提示「还有内容」
+  &--collapsed {
+    max-height: calc(1.7em * 5);
+    overflow: hidden;
+
+    &::after {
+      content: '';
+      position: absolute;
+      right: 0;
+      bottom: 0;
+      left: 0;
+      height: 2em;
+      background: linear-gradient(to bottom, transparent, var(--td-bg-color-container-hover));
+      pointer-events: none;
+    }
+  }
 }
 
 .placeholder {

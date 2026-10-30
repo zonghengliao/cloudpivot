@@ -137,6 +137,16 @@ const props = defineProps<{
   taskId: string;
 }>();
 
+/**
+ * `loaded`：把「文件总数」抛给父级（E9 任务详情主 Tab 的「AI 产出 N」徽标要用）。
+ *
+ * 徽标必须和列表同源（都来自 `GET /ai-workspace-files` 的 `total`），
+ * 否则父级为了一个数字得再拉一次同一个接口，还容易和列表对不上。
+ */
+const emit = defineEmits<{
+  (event: 'loaded', total: number): void;
+}>();
+
 /** 列表状态。 */
 const loading = ref(false);
 const files = reactive<AiWorkspaceFiles>({
@@ -201,6 +211,8 @@ async function load(): Promise<void> {
     files.profile = result.profile;
     files.max_bytes = result.max_bytes;
     files.workspace_exists = result.workspace_exists;
+    // 徽标计数：成功拉到列表才回抛（失败时不改父级，避免把数量刷成 0 骗人）
+    emit('loaded', result.total);
   } catch (error) {
     files.list = [];
     files.total = 0;
