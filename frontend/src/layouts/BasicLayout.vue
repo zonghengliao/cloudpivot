@@ -96,6 +96,7 @@ import OnboardingHint from '@/components/OnboardingHint.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
 import { useNoticeStore } from '@/stores/notice';
+import { useBadgeStore } from '@/stores/badge';
 import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
 
 /** 用户下拉菜单项 */
@@ -222,12 +223,22 @@ async function doLogout(): Promise<void> {
 /** SSE 订阅生命周期：布局挂载即连，卸载即断（全局仅一条连接） */
 const noticeStore = useNoticeStore();
 
+/**
+ * 菜单徽标轮询（E16）：布局挂载即启，卸载即停。
+ *
+ * `startPolling` 内部有「已启动就返回」的闸，所以**路由切换不会重新请求**
+ * （BasicLayout 不随路由重建）；页面隐藏时定时器会被停掉，回到前台补拉一次。
+ */
+const badgeStore = useBadgeStore();
+
 onMounted(() => {
   noticeStore.connect();
+  badgeStore.startPolling();
 });
 
 onBeforeUnmount(() => {
   noticeStore.disconnect();
+  badgeStore.stopPolling();
 });
 </script>
 

@@ -12,6 +12,7 @@
 //! | [`menu`] | 菜单与权限点维护（树形结构） | P2 |
 //! | [`dept`] | 部门机构（树形结构） | P2 |
 //! | [`preference`] | 用户偏好体系（通用 KV + 字典元数据） | 批次 D |
+//! | [`badge`] | 菜单徽标（公告未读 / 通知未读 / 待我审批 / 待我处理） | 批次 E |
 //!
 //! P1 阶段各子模块只交付强类型模型（`model.rs`，后缀 `*Model`）：结构体、字段
 //! 与枚举先落定，接口层（`handler.rs` / `dto.rs`）随 P2 补齐。
@@ -22,6 +23,7 @@
 //! 由框架的权限校验层在处理请求前拦截；权限码明细由 `menu` 模块的表数据驱动。
 
 pub mod auth;
+pub mod badge;
 pub mod dept;
 pub mod menu;
 pub mod preference;

@@ -9,12 +9,28 @@
         这里不动展开行为，只在标题上补一次「有页面就跳过去」的导航。
       -->
       <span class="side-menu-item__title" @click="onTitleClick">{{ item.title }}</span>
+      <!-- 目录徽标 = 子树里出现过的桶去重后相加（任务三视图共用同一个数字，只算一次） -->
+      <t-badge
+        v-if="badge > 0"
+        class="side-menu-item__badge"
+        :count="badge"
+        :max-count="99"
+        size="small"
+      />
     </template>
     <side-menu-item v-for="child in children" :key="child.id" :item="child" @navigate="emit('navigate', $event)" />
   </t-submenu>
   <t-menu-item v-else :value="menuValue">
     <template #icon><t-icon :name="icon" /></template>
-    {{ item.title }}
+    <span class="side-menu-item__title">{{ item.title }}</span>
+    <!-- 叶子菜单徽标：值为 0 时不渲染（不显示红点，而不是显示 0） -->
+    <t-badge
+      v-if="badge > 0"
+      class="side-menu-item__badge"
+      :count="badge"
+      :max-count="99"
+      size="small"
+    />
   </t-menu-item>
 </template>
 
@@ -22,6 +38,7 @@
 import { computed } from 'vue';
 import type { MenuNode } from '@/api/system/auth-api';
 import { normalizeMenuPath } from '@/utils/menu';
+import { useBadgeStore } from '@/stores/badge';
 
 const props = defineProps<{
   /** 菜单节点（可含多级子节点） */
@@ -40,6 +57,16 @@ const icon = computed(() => props.item.icon || (hasChildren.value ? 'folder' : '
 /** 菜单项取值：有路径时用路由路径，否则用 id 占位（目录点击不跳转） */
 const menuValue = computed(() => normalizeMenuPath(props.item.path) || `menu:${props.item.id}`);
 
+/**
+ * 徽标数字（E16）。
+ *
+ * - 叶子菜单：`badgeKeyOfPath(path)` 命中的桶（公告中心 / 消息中心 / 审批中心 / 任务三视图）；
+ * - 目录：子树桶去重相加（公告与消息 5 = 3 + 2；工作任务 2 而不是 6）。
+ * - 未映射的菜单（公告管理 / 消息通知 / 流程定义 / 发起审批 / 项目 / 帮助中心）恒为 0 → 不渲染。
+ */
+const badgeStore = useBadgeStore();
+const badge = computed(() => badgeStore.badgeOfMenu(props.item));
+
 /** 标题点击：只有「真页面菜单」（menu_type=2）且路径非空时才导航，纯分组目录保持原样 */
 function onTitleClick(): void {
   if (props.item.menu_type === 2 && props.item.path) {
@@ -52,5 +79,11 @@ function onTitleClick(): void {
 .side-menu-item__title {
   // 只让文字区域可点：右侧展开箭头保持「只负责展开」
   display: inline-block;
+}
+
+.side-menu-item__badge {
+  // 只调间距；颜色/圆角全部交给 TDesign（`--td-error-color`），不写死色值
+  margin-left: 6px;
+  vertical-align: middle;
 }
 </style>
