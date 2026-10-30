@@ -42,11 +42,21 @@
 //! 可见性由 business:erp:transfer:* 权限码控制；列表分页走 model 的 scope::paginate_unscoped。
 //! ```
 //!
-//! # 不碰库存（W3c 的活）
+//! # 库存双写（W3c）
 //!
-//! 本卡只写单据头状态与明细行，**不动** `biz_inventory` / `biz_inventory_txn` /
-//! `biz_material_serial.status`：`IN_TRANSIT → DONE` 的库存双写是 W3c，
-//! 在这里顺手写会与 W3c 的派生口径（数量由序列号算）打架。
+//! `IN_TRANSIT → DONE` 这一步在**同一个事务**里多做四件事（[`transfer_model::settle_transfer`]）：
+//!
+//! ```text
+//! ① 调出仓 qty -= 数量（条件扣减 AND qty >= ?，防并发超卖）+ 流水 OUT / TRANSFER_OUT
+//! ② 调入仓 qty += 数量（无库存行则建档）+ 流水 IN / TRANSFER_IN
+//! ③ 一物一码物料：序列号 warehouse_id / location_id 跟着走（数量物料一个序列号都不动）
+//! ④ 成本原价转移：unit_cost = 调出仓 avg_cost 快照；调入仓移动加权重算；金额守恒
+//! ```
+//!
+//! 结算失败（库存不足 / 序列号不符 / 不变式不满足）→ **整笔回滚**，调拨单仍是 `IN_TRANSIT`，
+//! 不会出现「状态已 DONE、库存没动」这种对不上的账。状态 CAS（`WHERE status = 'IN_TRANSIT'`）
+//! 先执行，所以同一张单被并发推两次时只有一个事务能走到结算（另一个拿 409），
+//! 单号级别的重复调用也不会二次扣库存（`settle_transfer` 还有一道流水幂等闸）。
 
 use axum::Json;
 use nik::prelude::chrono::{DateTime, Utc};
@@ -58,8 +68,8 @@ use crate::business::erp::transfer_dto::{
     TransferSerialGroupRes, TransferSerialRes, TransferSerialsRes, TransferStatusReq,
 };
 use crate::business::erp::transfer_model::{
-    self, ALL_STATUSES, NewItem, NewTransfer, STATUS_PENDING, TransferQuery, TransferRow,
-    transition_effect, transition_rejected_message,
+    self, ALL_STATUSES, NewItem, NewTransfer, STATUS_PENDING, SettleError, TransferQuery,
+    TransferRow, transition_effect, transition_rejected_message,
 };
 use crate::business::flow::{engine, model as flow_model};
 use crate::shared::error_code;
@@ -153,6 +163,63 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
             ),
         ),
         other => utils::db_error(other, ctx),
+    }
+}
+
+/// 结算失败 → HTTP：库存不足 409、序列号不符 400、不变式不满足 409。
+///
+/// 为什么不复用 [`write_error`]：结算的失败原因里有一半**不是数据库错误**
+/// （库存不足是业务冲突、序列号个数不匹配是参数问题），必须给出能直接照着改的文案，
+/// 而不是笼统的「HTTP 500 服务内部错误」。
+fn settle_error(err: SettleError) -> ApiError {
+    match err {
+        SettleError::Db(inner) => write_error(inner, "调拨结算（库存双写）"),
+        SettleError::Insufficient {
+            material_code,
+            required,
+            available,
+        } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "调出仓库存不足：物料 {material_code} 本次需要 {required}，当前可用 {available}。\
+                 另一张调拨单可能刚扣走同一批库存，请刷新库存后重新提交"
+            ),
+        ),
+        SettleError::SerialMismatch {
+            line_no,
+            qty,
+            serials,
+        } => ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "第 {line_no} 行是一物一码物料：明细数量 {qty} 与建单时的序列号个数 {serials} 不一致，\
+                 请改单重新选择序列号"
+            ),
+        ),
+        SettleError::SerialNotInSource {
+            line_no,
+            expected,
+            moved,
+        } => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!(
+                "第 {line_no} 行的序列号当前不在调出仓或已不在库（应有 {expected} 个，实际只转移了 \
+                 {moved} 个）：请核对序列号是否已被其他单据出库"
+            ),
+        ),
+        SettleError::Invariant(message) => ApiError::new(
+            409,
+            error_code::ERP_CODE_CONFLICT,
+            format!("调拨结算后不变式校验失败：{message}"),
+        ),
+        SettleError::EmptyItems => ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "调拨单没有明细，无法结算".to_string(),
+        ),
     }
 }
 
@@ -544,12 +611,22 @@ struct TransitionContext<'a> {
     transit_warehouse_id: Option<Uuid>,
     operator: Uuid,
     now: DateTime<Utc>,
+    /// 调出仓库（`DONE` 时结算要读它：库存扣减 + 流水挂仓）。
+    from_warehouse_id: Uuid,
+    /// 调入仓库（`DONE` 时结算要读它：库存增加 + 流水挂仓）。
+    to_warehouse_id: Uuid,
     /// 提交审批时要发起的审批单参数（`None` = 没配流程 / 其它目标态）。
     start: Option<engine::StartReq>,
 }
 
 /// 事务内的状态写入（`affected = 0` 表示 CAS 失败，由调用方翻 409）。
-async fn apply_transition(tx: &Transaction, ctx: &TransitionContext<'_>) -> DbResult<u64> {
+///
+/// `IN_TRANSIT → DONE` 时**同事务**再做库存双写（[`transfer_model::settle_transfer`]）：
+/// 结算失败就把整笔（含刚写的 `DONE`）一起回滚，调拨单仍是 `IN_TRANSIT`。
+async fn apply_transition(
+    tx: &Transaction,
+    ctx: &TransitionContext<'_>,
+) -> std::result::Result<u64, SettleError> {
     let mut approval_instance_id = None;
     if let Some(start) = ctx.start.as_ref() {
         let out = engine::start(tx, start).await?;
@@ -591,6 +668,30 @@ async fn apply_transition(tx: &Transaction, ctx: &TransitionContext<'_>) -> DbRe
                 transfer_id = %ctx.id,
                 instances = cancelled.instances,
                 "调拨单撤回，在跑审批单已终止"
+            );
+        }
+    }
+    // 收货完成：库存双写 + 成本原价转移（**同一事务**，失败整笔回滚，状态留在 IN_TRANSIT）
+    if affected > 0 && ctx.effect.status == transfer_model::STATUS_DONE {
+        let outcome = transfer_model::settle_transfer(
+            tx,
+            ctx.id,
+            ctx.transfer_no,
+            ctx.from_warehouse_id,
+            ctx.to_warehouse_id,
+            Some(ctx.operator),
+            ctx.now,
+        )
+        .await?;
+        if outcome.settled {
+            tracing::info!(
+                transfer_id = %ctx.id,
+                transfer_no = %ctx.transfer_no,
+                lines = outcome.lines,
+                qty = %outcome.qty,
+                amount = %outcome.amount,
+                serials = outcome.serials,
+                "调拨单收货完成：库存双写 + 成本原价转移成功"
             );
         }
     }
@@ -704,6 +805,8 @@ pub async fn change_transfer_status(
         transit_warehouse_id,
         operator,
         now,
+        from_warehouse_id: row.from_warehouse_id,
+        to_warehouse_id: row.to_warehouse_id,
         start,
     };
     let tx = db()
@@ -724,9 +827,22 @@ pub async fn change_transfer_status(
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
             Ok(())
         }
-        Err(error) => {
+        Err(SettleError::Db(error)) => {
             let _ = tx.rollback().await;
             Err(write_error(error, "调拨单状态流转"))
+        }
+        Err(other) => {
+            let _ = tx.rollback().await;
+            let api = settle_error(other);
+            tracing::warn!(
+                transfer_id = %id,
+                transfer_no = %row.transfer_no,
+                status = %api.status,
+                code = api.code,
+                msg = %api.msg,
+                "调拨单结算失败，已整笔回滚（状态仍为 IN_TRANSIT）"
+            );
+            Err(api)
         }
     }
 }
@@ -1115,6 +1231,51 @@ mod db_tests {
             "库位库存行",
         )
         .await;
+        // W3c：库存台账夹具 —— 每个用例都重置到同一基线，断言才能算增量
+        //   M_PLAIN 分仓 100 @12.5 / 总仓 10 @8；M_SN 分仓 2 @30（SERIAL_1/2 都在分仓 IN_STOCK）
+        let warehouses = vec![uuid(WH_FROM), uuid(WH_TO)];
+        exec(
+            "DELETE FROM biz_inventory_txn WHERE warehouse_id = ANY(?::text::uuid[])",
+            vec![array_param(&warehouses)],
+            "重置库存流水",
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_inventory WHERE warehouse_id = ANY(?::text::uuid[])",
+            vec![array_param(&warehouses)],
+            "重置库存台账",
+        )
+        .await;
+        exec(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                        avg_cost, amount, last_txn_at) \
+             VALUES (gen_random_uuid(), ?::uuid, ?::uuid, NULL, 100, 0, 12.5, 1250, now()), \
+                    (gen_random_uuid(), ?::uuid, ?::uuid, NULL, 10, 0, 8, 80, now()), \
+                    (gen_random_uuid(), ?::uuid, ?::uuid, NULL, 2, 0, 30, 60, now())",
+            vec![
+                Value::from(&uuid(M_PLAIN)),
+                Value::from(&uuid(WH_FROM)),
+                Value::from(&uuid(M_PLAIN)),
+                Value::from(&uuid(WH_TO)),
+                Value::from(&uuid(M_SN)),
+                Value::from(&uuid(WH_FROM)),
+            ],
+            "库存台账基线",
+        )
+        .await;
+        // 序列号也要回到「分仓 + IN_STOCK」：上一个用例可能把它们调去总仓（ON CONFLICT 不会覆盖）
+        exec(
+            "UPDATE biz_material_serial \
+                SET warehouse_id = ?::uuid, location_id = NULL, status = 'IN_STOCK', \
+                    updated_at = now() \
+              WHERE id = ANY(?::text::uuid[])",
+            vec![
+                Value::from(&uuid(WH_FROM)),
+                array_param(&[uuid(SERIAL_1), uuid(SERIAL_2)]),
+            ],
+            "重置序列号位置",
+        )
+        .await;
         Some(guard)
     }
 
@@ -1493,10 +1654,11 @@ mod db_tests {
         let (_, row) = transfer_in_status(STATUS_DONE).await;
         assert_eq!(row.status, STATUS_DONE);
         assert!(row.received_at.is_some());
-        // 本卡不动库存（W3c 的活）：明细的 shipped_qty / received_qty 仍是 0
+        // W3c 起：DONE 会结算库存，明细的 shipped_qty / received_qty 都要回填成 qty
+        // （库存侧的断言见 w3c_settle_* 系列用例）
         let items = transfer_model::items_of(row.id).await.expect("明细");
-        assert_eq!(items[0].shipped_qty.to_string(), "0.0000");
-        assert_eq!(items[0].received_qty.to_string(), "0.0000");
+        assert_eq!(items[0].shipped_qty, items[0].qty);
+        assert_eq!(items[0].received_qty, items[0].qty);
     }
 
     // ---------- ⑬ 状态机：DONE 是终态（任何目标 409） ----------
@@ -1710,6 +1872,809 @@ mod db_tests {
         assert_eq!(rows[0].transfer_no, no);
     }
 
+    // ==================== W3c：IN_TRANSIT → DONE 的库存双写 + 成本原价转移 ====================
+    //
+    // 夹具基线（[`prepare`] 每个用例都重置）：
+    //
+    // ```text
+    // M_PLAIN（按数量）  分仓 100 件 @ 12.5 = 1250        总仓 10 件 @ 8 = 80
+    // M_SN  （一物一码）分仓 2 件 @ 30 = 60（SERIAL_1/2 都在分仓 IN_STOCK）
+    // ```
+
+    /// 夹具数字（`Decimal` 的 `FromStr` 在测试里读起来比 `Decimal::new(5, 0)` 清楚）。
+    fn dec(text: &str) -> Decimal {
+        Decimal::from_str(text).expect("夹具数字")
+    }
+
+    async fn query(sql: &str, params: Vec<Value>) -> Vec<Row> {
+        db().find_with_params(sql, params)
+            .await
+            .unwrap_or_else(|err| panic!("查询失败：{err}\nSQL: {sql}"))
+    }
+
+    /// 某物料在某仓**整仓汇总桶**的账面数量（行不存在 → `None`）。
+    async fn bucket_qty(material: &str, warehouse: &str) -> Option<Decimal> {
+        let rows = query(
+            "SELECT qty::numeric(18,4) AS qty FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
+        )
+        .await;
+        rows.first()
+            .map(|row| row.get_typed::<Decimal>("qty").expect("qty"))
+    }
+
+    async fn bucket_amount(material: &str, warehouse: &str) -> Option<Decimal> {
+        let rows = query(
+            "SELECT amount::numeric(18,4) AS amount FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
+        )
+        .await;
+        rows.first()
+            .map(|row| row.get_typed::<Decimal>("amount").expect("amount"))
+    }
+
+    async fn bucket_avg_cost(material: &str, warehouse: &str) -> Option<Decimal> {
+        let rows = query(
+            "SELECT avg_cost::numeric(18,6) AS avg_cost FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
+        )
+        .await;
+        rows.first()
+            .map(|row| row.get_typed::<Decimal>("avg_cost").expect("avg_cost"))
+    }
+
+    async fn needed(material: &str, warehouse: &str) -> Decimal {
+        bucket_qty(material, warehouse)
+            .await
+            .unwrap_or_else(|| panic!("{material} @ {warehouse} 的库存行必须存在"))
+    }
+
+    /// 某张单的库存流水（按方向排序，便于逐条断言）。
+    async fn txns_of(transfer_id: Uuid) -> Vec<Row> {
+        query(
+            "SELECT txn_type, biz_type, doc_type, doc_no, line_no, \
+                    qty::numeric(18,4) AS qty, unit_cost::numeric(18,6) AS unit_cost, \
+                    amount::numeric(18,4) AS amount, \
+                    before_qty::numeric(18,4) AS before_qty, after_qty::numeric(18,4) AS after_qty, \
+                    before_amount::numeric(18,4) AS before_amount, \
+                    after_amount::numeric(18,4) AS after_amount, warehouse_id \
+               FROM biz_inventory_txn \
+              WHERE doc_type = 'STOCK_TRANSFER' AND doc_id = ?::uuid \
+              ORDER BY txn_type, line_no",
+            vec![Value::from(&transfer_id)],
+        )
+        .await
+    }
+
+    /// 文本列（`txn_type` / `biz_type` / `doc_no` …）。
+    fn row_text(row: &Row, column: &str) -> String {
+        row.get_typed::<String>(column)
+            .unwrap_or_else(|err| panic!("列 {column} 不是文本：{err}"))
+    }
+
+    /// 数值列取字符串（断言里逐字比对 `"5.0000"` 比 `Decimal` 相等更能钉住标度）。
+    fn txn_text(row: &Row, column: &str) -> String {
+        row.get_typed::<Decimal>(column)
+            .unwrap_or_else(|err| panic!("列 {column} 不是数字：{err}"))
+            .to_string()
+    }
+
+    async fn serial_warehouse(serial_id: &str) -> Option<Uuid> {
+        let rows = query(
+            "SELECT warehouse_id FROM biz_material_serial WHERE id = ?::uuid",
+            vec![Value::from(&uuid(serial_id))],
+        )
+        .await;
+        rows.first()
+            .map(|row| row.get_typed("warehouse_id").expect("warehouse_id"))
+    }
+
+    async fn serial_in_stock_count(material: &str, warehouse: &str) -> i64 {
+        let rows = query(
+            "SELECT COUNT(*) AS cnt FROM biz_material_serial \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND status = 'IN_STOCK' AND deleted_at IS NULL",
+            vec![Value::from(&uuid(material)), Value::from(&uuid(warehouse))],
+        )
+        .await;
+        rows.first()
+            .map(|row| row.get_typed::<i64>("cnt").expect("cnt"))
+            .unwrap_or(0)
+    }
+
+    /// 建单 → PENDING → APPROVED → IN_TRANSIT（结算前的公共前置）。
+    async fn create_and_ship(items: Vec<TransferItemReq>) -> Uuid {
+        let applicant = uuid(U_APPLICANT);
+        let id = create_transfer(&body(items), Some(applicant), Some("w3b_applicant"))
+            .await
+            .expect("建单必须成功");
+        for step in [STATUS_PENDING, STATUS_APPROVED, STATUS_IN_TRANSIT] {
+            change_transfer_status(id, &status_req(step, None), applicant)
+                .await
+                .unwrap_or_else(|err| panic!("推进到 {step} 失败：{}", err.msg));
+        }
+        id
+    }
+
+    /// 收货（= 触发 W3c 的库存双写）。
+    async fn receive(id: Uuid) -> std::result::Result<(), ApiError> {
+        change_transfer_status(id, &status_req(STATUS_DONE, None), uuid(U_APPLICANT)).await
+    }
+
+    async fn receive_ok(id: Uuid) {
+        receive(id)
+            .await
+            .unwrap_or_else(|err| panic!("收货结算必须成功：{} {}", err.code, err.msg));
+    }
+
+    // ---------- W3c ① 数量双写：调出仓 -、调入仓 + ----------
+
+    #[tokio::test]
+    async fn w3c_settle_moves_qty_between_warehouses() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let from_before = needed(M_PLAIN, WH_FROM).await;
+        let to_before = needed(M_PLAIN, WH_TO).await;
+        receive_ok(id).await;
+        assert_eq!(
+            needed(M_PLAIN, WH_FROM).await,
+            from_before - dec("5"),
+            "调出仓必须 -5"
+        );
+        assert_eq!(
+            needed(M_PLAIN, WH_TO).await,
+            to_before + dec("5"),
+            "调入仓必须 +5"
+        );
+        assert_eq!(refresh(id).await.status, STATUS_DONE);
+    }
+
+    // ---------- W3c ② 序列号跟着走 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_moves_serials_to_target_warehouse() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let mut line = item(M_SN, "1");
+        line.serial_ids = vec![SERIAL_1.to_string()];
+        let id = create_and_ship(vec![line]).await;
+        assert_eq!(
+            serial_warehouse(SERIAL_1).await,
+            Some(uuid(WH_FROM)),
+            "结算前序列号在调出仓"
+        );
+        receive_ok(id).await;
+        assert_eq!(
+            serial_warehouse(SERIAL_1).await,
+            Some(uuid(WH_TO)),
+            "结算后序列号必须到调入仓"
+        );
+        assert_eq!(
+            serial_warehouse(SERIAL_2).await,
+            Some(uuid(WH_FROM)),
+            "没上单的序列号不得被顺带挪走"
+        );
+    }
+
+    // ---------- W3c ③ 调出流水：OUT / TRANSFER_OUT ----------
+
+    #[tokio::test]
+    async fn w3c_settle_writes_out_txn_row() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let no = refresh(id).await.transfer_no;
+        receive_ok(id).await;
+        let txns = txns_of(id).await;
+        let out: Vec<&Row> = txns
+            .iter()
+            .filter(|row| row_text(row, "txn_type") == "OUT")
+            .collect();
+        assert_eq!(out.len(), 1, "调出流水必须正好 1 条");
+        let row = out[0];
+        assert_eq!(row_text(row, "biz_type"), "TRANSFER_OUT");
+        assert_eq!(row_text(row, "doc_type"), "STOCK_TRANSFER");
+        assert_eq!(row_text(row, "doc_no"), no, "流水必须挂单号");
+        assert_eq!(
+            row.get_typed::<Uuid>("warehouse_id").expect("仓"),
+            uuid(WH_FROM),
+            "调出流水挂在调出仓"
+        );
+        assert_eq!(txn_text(row, "qty"), "5.0000", "qty 恒正（禁负数）");
+        assert_eq!(
+            txn_text(row, "unit_cost"),
+            "12.500000",
+            "原价 = 调出仓均价快照"
+        );
+        assert_eq!(txn_text(row, "amount"), "62.5000");
+    }
+
+    // ---------- W3c ④ 调入流水：IN / TRANSFER_IN ----------
+
+    #[tokio::test]
+    async fn w3c_settle_writes_in_txn_row() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        receive_ok(id).await;
+        let txns = txns_of(id).await;
+        let r#in: Vec<&Row> = txns
+            .iter()
+            .filter(|row| row_text(row, "txn_type") == "IN")
+            .collect();
+        assert_eq!(r#in.len(), 1, "调入流水必须正好 1 条");
+        let row = r#in[0];
+        assert_eq!(row_text(row, "biz_type"), "TRANSFER_IN");
+        assert_eq!(
+            row.get_typed::<Uuid>("warehouse_id").expect("仓"),
+            uuid(WH_TO),
+            "调入流水挂在调入仓"
+        );
+        assert_eq!(txn_text(row, "qty"), "5.0000");
+    }
+
+    // ---------- W3c ⑤ 成本守恒：调出 amount 减少 == 调入 amount 增加 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_keeps_cost_conserved() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let from_before = bucket_amount(M_PLAIN, WH_FROM).await.expect("调出仓金额");
+        let to_before = bucket_amount(M_PLAIN, WH_TO).await.expect("调入仓金额");
+        receive_ok(id).await;
+        let from_after = bucket_amount(M_PLAIN, WH_FROM).await.expect("调出仓金额");
+        let to_after = bucket_amount(M_PLAIN, WH_TO).await.expect("调入仓金额");
+        let out = from_before - from_after;
+        let r#in = to_after - to_before;
+        assert_eq!(out, dec("62.5"), "调出仓金额减少 = 5 × 12.5");
+        assert_eq!(r#in, out, "金额不能凭空产生或消失");
+
+        // 流水侧同样守恒（两笔流水金额相等）
+        let txns = txns_of(id).await;
+        let out_amt: Decimal = txns
+            .iter()
+            .filter(|row| row_text(row, "txn_type") == "OUT")
+            .map(|row| row.get_typed::<Decimal>("amount").expect("amount"))
+            .sum();
+        let in_amt: Decimal = txns
+            .iter()
+            .filter(|row| row_text(row, "txn_type") == "IN")
+            .map(|row| row.get_typed::<Decimal>("amount").expect("amount"))
+            .sum();
+        assert_eq!(out_amt, in_amt, "流水 OUT 合计 == IN 合计");
+        assert_eq!(out_amt, dec("62.5"));
+    }
+
+    // ---------- W3c ⑥ 调入仓移动加权重算 avg_cost ----------
+
+    #[tokio::test]
+    async fn w3c_settle_recomputes_target_avg_cost() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let old_qty = needed(M_PLAIN, WH_TO).await;
+        let old_amount = bucket_amount(M_PLAIN, WH_TO).await.expect("金额");
+        receive_ok(id).await;
+        let new_qty = needed(M_PLAIN, WH_TO).await;
+        let new_amount = bucket_amount(M_PLAIN, WH_TO).await.expect("金额");
+        let new_cost = bucket_avg_cost(M_PLAIN, WH_TO).await.expect("均价");
+        assert_eq!(new_qty, old_qty + dec("5"));
+        assert_eq!(new_amount, old_amount + dec("62.5"));
+        // 10 件 @8 = 80，再收 5 件 @12.5 = 62.5 → 142.5 / 15 = 9.5
+        assert_eq!(new_cost, dec("9.5"), "新均价 = 新金额 / 新数量");
+        // 调出仓的均价不因出库而改变（移动加权口径）
+        assert_eq!(
+            bucket_avg_cost(M_PLAIN, WH_FROM).await.expect("调出仓均价"),
+            dec("12.5"),
+            "出库不改调出仓均价"
+        );
+    }
+
+    // ---------- W3c ⑦ 调入仓库存行不存在 → INSERT 建档 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_creates_missing_target_row() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // M_SN 在总仓本来没有库存行（夹具只给分仓建了）
+        assert!(
+            bucket_qty(M_SN, WH_TO).await.is_none(),
+            "前置：总仓没有 M_SN 的库存行"
+        );
+        let mut line = item(M_SN, "2");
+        line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
+        let id = create_and_ship(vec![line]).await;
+        receive_ok(id).await;
+        assert_eq!(needed(M_SN, WH_TO).await, dec("2"), "建档后数量 = 调入量");
+        assert_eq!(
+            bucket_avg_cost(M_SN, WH_TO).await.expect("均价"),
+            dec("30"),
+            "建档行的均价 = 原价（不是 0）"
+        );
+        assert_eq!(
+            bucket_amount(M_SN, WH_TO).await.expect("金额"),
+            dec("60"),
+            "建档金额 = 数量 × 原价"
+        );
+    }
+
+    // ---------- W3c ⑧ 串行多明细（3 个物料） ----------
+
+    #[tokio::test]
+    async fn w3c_settle_handles_three_lines_in_one_doc() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // 第三个物料（再插一个按数量的物料 L3）一起走
+        exec(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
+                                      safety_stock, costing_method, tax_rate, status, serial_required) \
+             VALUES ('d3b0000c-0000-4000-8000-000000000003', 'W3C-M-L3', 'W3C 第三物料', \
+                     ?::uuid, 'RAW', 0, 'MOVING_AVG', 0, 1, false) ON CONFLICT DO NOTHING",
+            vec![Value::from(&uuid(UNIT))],
+            "第三物料",
+        )
+        .await;
+        exec(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                        avg_cost, amount) \
+             VALUES (gen_random_uuid(), 'd3b0000c-0000-4000-8000-000000000003', ?::uuid, NULL, \
+                     6, 0, 2, 12) ON CONFLICT DO NOTHING",
+            vec![Value::from(&uuid(WH_FROM))],
+            "第三物料库存",
+        )
+        .await;
+        let mut sn = item(M_SN, "1");
+        sn.serial_ids = vec![SERIAL_1.to_string()];
+        let id = create_and_ship(vec![
+            item(M_PLAIN, "5"),
+            sn,
+            item("d3b0000c-0000-4000-8000-000000000003", "4"),
+        ])
+        .await;
+        receive_ok(id).await;
+
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, dec("95"));
+        assert_eq!(needed(M_SN, WH_FROM).await, dec("1"));
+        assert_eq!(
+            bucket_qty("d3b0000c-0000-4000-8000-000000000003", WH_FROM)
+                .await
+                .expect("第三物料库存行"),
+            dec("2")
+        );
+        assert_eq!(needed(M_PLAIN, WH_TO).await, dec("15"));
+        assert_eq!(needed(M_SN, WH_TO).await, dec("1"));
+        assert_eq!(
+            bucket_qty("d3b0000c-0000-4000-8000-000000000003", WH_TO)
+                .await
+                .expect("第三物料在总仓建档"),
+            dec("4")
+        );
+        // 6 条流水（3 行 × 进出各一条）
+        assert_eq!(txns_of(id).await.len(), 6, "三行必须各写进/出两条流水");
+        let detail = detail_of(id).await.expect("详情");
+        assert!(
+            detail
+                .items
+                .iter()
+                .all(|item| item.received_qty == item.qty),
+            "三行都必须回填 received_qty"
+        );
+    }
+
+    // ---------- W3c ⑨ 并发：两笔各扣 5、库存 8 → 一个成功一个 409 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_concurrent_transfers_only_one_wins() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // 把分仓库存压到 8（两笔各 5 只能成一笔）
+        exec(
+            "UPDATE biz_inventory SET qty = 8, amount = 8 * avg_cost \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+            "压库存到 8",
+        )
+        .await;
+        let a = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let b = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let (ra, rb) = tokio::join!(receive(a), receive(b));
+        let mut statuses = Vec::new();
+        for (id, result) in [(a, ra), (b, rb)] {
+            match result {
+                Ok(()) => statuses.push((id, 200)),
+                Err(err) => statuses.push((id, err.status)),
+            }
+        }
+        statuses.sort_by_key(|(_, status)| *status);
+        assert_eq!(
+            statuses
+                .iter()
+                .map(|(_, status)| *status)
+                .collect::<Vec<_>>(),
+            vec![200, 409],
+            "库存 8、两笔各扣 5：必须一个成功一个 409，实际 {statuses:?}"
+        );
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, dec("3"), "只能扣掉一笔");
+        // 成功那张单是 DONE，失败那张单仍在 IN_TRANSIT（回滚）
+        let done = statuses
+            .iter()
+            .find(|(_, s)| *s == 200)
+            .expect("成功的那张")
+            .0;
+        let lost = statuses
+            .iter()
+            .find(|(_, s)| *s == 409)
+            .expect("失败的那张")
+            .0;
+        assert_eq!(refresh(done).await.status, STATUS_DONE);
+        assert_eq!(refresh(lost).await.status, STATUS_IN_TRANSIT);
+    }
+
+    // ---------- W3c ⑩ 库存不足 → 409 + 状态与库存都不动（回滚验证） ----------
+
+    #[tokio::test]
+    async fn w3c_settle_insufficient_stock_rolls_back_to_in_transit() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        // 发货后库存被别人扣走（模拟并发 / 手工改库）
+        exec(
+            "UPDATE biz_inventory SET qty = 1, amount = 1 * avg_cost \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+            "压库存到 1",
+        )
+        .await;
+        let err = receive(id).await.expect_err("库存 1 调 5 必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("库存不足"), "{}", err.msg);
+        // 状态回滚
+        assert_eq!(
+            refresh(id).await.status,
+            STATUS_IN_TRANSIT,
+            "结算失败后必须仍是 IN_TRANSIT"
+        );
+        // 库存一行都没动、流水一条都没写
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, dec("1"), "调出仓不得被扣");
+        assert_eq!(needed(M_PLAIN, WH_TO).await, dec("10"), "调入仓不得增加");
+        assert!(txns_of(id).await.is_empty(), "失败必须没有流水");
+        let detail = detail_of(id).await.expect("详情");
+        assert_eq!(detail.items[0].received_qty, Decimal::ZERO, "明细不得回填");
+    }
+
+    // ---------- W3c ⑪ 一物一码：qty == COUNT(serial IN_STOCK) ----------
+
+    #[tokio::test]
+    async fn w3c_settle_keeps_serial_invariant() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let mut line = item(M_SN, "2");
+        line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
+        let id = create_and_ship(vec![line]).await;
+        receive_ok(id).await;
+        for warehouse in [WH_FROM, WH_TO] {
+            let book = needed(M_SN, warehouse).await;
+            let serials = serial_in_stock_count(M_SN, warehouse).await;
+            assert_eq!(
+                book,
+                Decimal::from(serials),
+                "不变式③：{warehouse} 的账面数量必须等于在库序列号件数"
+            );
+        }
+        assert_eq!(needed(M_SN, WH_FROM).await, Decimal::ZERO);
+        assert_eq!(needed(M_SN, WH_TO).await, dec("2"));
+    }
+
+    // ---------- W3c ⑫ 按数量管理的物料：不动任何序列号 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_does_not_touch_serials_of_quantity_material() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let before = serial_in_stock_count(M_SN, WH_FROM).await;
+        let id = create_and_ship(vec![item(M_PLAIN, "3")]).await;
+        receive_ok(id).await;
+        assert_eq!(
+            serial_in_stock_count(M_SN, WH_FROM).await,
+            before,
+            "数量物料调拨不得影响任何序列号"
+        );
+        assert_eq!(serial_warehouse(SERIAL_1).await, Some(uuid(WH_FROM)));
+        assert_eq!(serial_warehouse(SERIAL_2).await, Some(uuid(WH_FROM)));
+    }
+
+    // ---------- W3c ⑬ 序列号个数 != 数量 → 400 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_rejects_serial_count_mismatch() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let mut line = item(M_SN, "2");
+        line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
+        let id = create_and_ship(vec![line]).await;
+        // 建单后被改库：只留一条序列号关联（数量 2 vs 序列号 1）
+        exec(
+            "DELETE FROM biz_stock_transfer_item_serial \
+              WHERE id IN (SELECT l.id FROM biz_stock_transfer_item_serial l \
+                             JOIN biz_stock_transfer_item i ON i.id = l.item_id \
+                            WHERE i.transfer_id = ?::uuid \
+                            ORDER BY l.created_at DESC LIMIT 1)",
+            vec![Value::from(&id)],
+            "删一条序列号关联",
+        )
+        .await;
+        let err = receive(id)
+            .await
+            .expect_err("序列号 1 个 vs 数量 2 必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("序列号"), "{}", err.msg);
+        assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+        assert_eq!(
+            needed(M_SN, WH_FROM).await,
+            dec("2"),
+            "校验失败不得先扣库存"
+        );
+    }
+
+    // ---------- W3c ⑭ 幂等：结算两次不重复扣 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_twice_is_idempotent() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        receive_ok(id).await;
+        let row = refresh(id).await;
+        let qty_after = needed(M_PLAIN, WH_FROM).await;
+        let amount_after = bucket_amount(M_PLAIN, WH_FROM).await.expect("金额");
+        // 直接再调一次模型层（模拟运维重放 / 回调重复）
+        let outcome = transfer_model::settle_transfer(
+            db(),
+            row.id,
+            &row.transfer_no,
+            row.from_warehouse_id,
+            row.to_warehouse_id,
+            Some(uuid(U_APPLICANT)),
+            Utc::now(),
+        )
+        .await
+        .expect("重复调用必须安全返回（幂等）而不是报错");
+        assert!(!outcome.settled, "第二次必须是幂等跳过");
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_after, "不重复扣");
+        assert_eq!(
+            bucket_amount(M_PLAIN, WH_FROM).await.expect("金额"),
+            amount_after,
+            "不重复扣金额"
+        );
+        assert_eq!(txns_of(id).await.len(), 2, "流水仍然只有 2 条");
+    }
+
+    // ---------- W3c ⑮ 终态与非法来源：DONE 之后 / 其它状态 → 409 ----------
+
+    #[tokio::test]
+    async fn w3c_done_is_sticky_and_other_states_rejected() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "1")]).await;
+        receive_ok(id).await;
+        let qty_after = needed(M_PLAIN, WH_FROM).await;
+        // DONE → DONE：非法流转（幂等保护在接口层）
+        let err = receive(id).await.expect_err("DONE 之后再调必须 409");
+        assert_eq!(err.status, 409);
+        assert!(err.msg.contains("非法状态流转"), "{}", err.msg);
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_after, "不得二次扣");
+
+        // 取消单不能收货
+        let cancelled = create_transfer(
+            &body(vec![item(M_PLAIN, "1")]),
+            Some(uuid(U_APPLICANT)),
+            None,
+        )
+        .await
+        .expect("建单");
+        change_transfer_status(
+            cancelled,
+            &status_req(STATUS_CANCELLED, Some("不调了")),
+            uuid(U_APPLICANT),
+        )
+        .await
+        .expect("DRAFT 能直接取消");
+        let err = receive(cancelled).await.expect_err("CANCELLED 不能收货");
+        assert_eq!(err.status, 409);
+
+        // 草稿不能跳级收货
+        let draft = create_transfer(
+            &body(vec![item(M_PLAIN, "1")]),
+            Some(uuid(U_APPLICANT)),
+            None,
+        )
+        .await
+        .expect("建单");
+        let err = receive(draft).await.expect_err("DRAFT 不能收货");
+        assert_eq!(err.status, 409);
+    }
+
+    // ---------- W3c ⑯ 序列号已不在调出仓 → 409 且整笔回滚 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_rejects_serial_outside_source() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let mut line = item(M_SN, "2");
+        line.serial_ids = vec![SERIAL_1.to_string(), SERIAL_2.to_string()];
+        let id = create_and_ship(vec![line]).await;
+        // 发货后有人把 SERIAL_2 挪去总仓（另一张单据出库 / 手工改库）
+        exec(
+            "UPDATE biz_material_serial SET warehouse_id = ?::uuid WHERE id = ?::uuid",
+            vec![Value::from(&uuid(WH_TO)), Value::from(&uuid(SERIAL_2))],
+            "挪走序列号",
+        )
+        .await;
+        let err = receive(id).await.expect_err("序列号不全在调出仓必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("序列号"), "{}", err.msg);
+        // 整笔回滚：库存、SERIAL_1 都回到原样
+        assert_eq!(needed(M_SN, WH_FROM).await, dec("2"));
+        assert_eq!(
+            serial_warehouse(SERIAL_1).await,
+            Some(uuid(WH_FROM)),
+            "先转移成功的序列号也必须回滚"
+        );
+        assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+        assert!(txns_of(id).await.is_empty());
+    }
+
+    // ---------- W3c ⑰ 明细回填：shipped/received/unit_cost/amount ----------
+
+    #[tokio::test]
+    async fn w3c_settle_fills_item_shipped_received_and_cost() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let before = transfer_model::items_of(id).await.expect("明细");
+        assert_eq!(
+            before[0].shipped_qty,
+            Decimal::ZERO,
+            "IN_TRANSIT 时还没回填"
+        );
+        receive_ok(id).await;
+        let items = transfer_model::items_of(id).await.expect("明细");
+        assert_eq!(items[0].shipped_qty, dec("5"), "shipped_qty = qty");
+        assert_eq!(items[0].received_qty, dec("5"), "received_qty = qty");
+        assert_eq!(items[0].unit_cost, dec("12.5"), "unit_cost = 原价快照");
+        assert_eq!(items[0].amount, dec("62.5"), "amount = 数量 × 原价");
+        assert_eq!(
+            refresh(id).await.total_amount,
+            dec("62.5"),
+            "单据头金额合计"
+        );
+        // 接口视图（详情）也要能看到已发/已收
+        let detail = detail_of(id).await.expect("详情");
+        assert_eq!(detail.items[0].shipped_qty, dec("5"));
+        assert_eq!(detail.items[0].received_qty, dec("5"));
+    }
+
+    // ---------- W3c ⑱ 库位维度：没有汇总桶的仓按库位行记账 ----------
+
+    #[tokio::test]
+    async fn w3c_settle_uses_location_row_when_no_bucket() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // 把 M_PLAIN 的整仓汇总桶换成两个库位行（模拟纯库位记账的仓）
+        exec(
+            "DELETE FROM biz_inventory WHERE material_id = ?::uuid AND warehouse_id = ANY(?::text::uuid[])",
+            vec![
+                Value::from(&uuid(M_PLAIN)),
+                array_param(&[uuid(WH_FROM), uuid(WH_TO)]),
+            ],
+            "清掉汇总桶",
+        )
+        .await;
+        exec(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                        avg_cost, amount) \
+             VALUES (gen_random_uuid(), ?::uuid, ?::uuid, ?::uuid, 7, 0, 4, 28)",
+            vec![
+                Value::from(&uuid(M_PLAIN)),
+                Value::from(&uuid(WH_FROM)),
+                Value::from(&uuid(LOC_FROM)),
+            ],
+            "库位库存行",
+        )
+        .await;
+        let mut line = item(M_PLAIN, "3");
+        line.from_location_id = Some(LOC_FROM.to_string());
+        line.to_location_id = Some(LOC_TO.to_string());
+        let id = create_and_ship(vec![line]).await;
+        receive_ok(id).await;
+        // 调出：库位行 7 → 4（金额 28 → 16，原价 4）
+        let from_row = query(
+            "SELECT qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount \
+               FROM biz_inventory WHERE location_id = ?::uuid",
+            vec![Value::from(&uuid(LOC_FROM))],
+        )
+        .await;
+        assert_eq!(
+            from_row[0].get_typed::<Decimal>("qty").expect("qty"),
+            dec("4")
+        );
+        assert_eq!(
+            from_row[0].get_typed::<Decimal>("amount").expect("amount"),
+            dec("16")
+        );
+        // 调入：LOC_TO 建档 qty 3 / 均价 4 / 金额 12
+        let to_row = query(
+            "SELECT qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount, \
+                    avg_cost::numeric(18,6) AS avg_cost \
+               FROM biz_inventory WHERE location_id = ?::uuid",
+            vec![Value::from(&uuid(LOC_TO))],
+        )
+        .await;
+        assert_eq!(
+            to_row[0].get_typed::<Decimal>("qty").expect("qty"),
+            dec("3")
+        );
+        assert_eq!(
+            to_row[0].get_typed::<Decimal>("amount").expect("amount"),
+            dec("12")
+        );
+        assert_eq!(
+            to_row[0]
+                .get_typed::<Decimal>("avg_cost")
+                .expect("avg_cost"),
+            dec("4")
+        );
+    }
+
+    // ---------- W3c ⑲ 结算金额与流水金额一致（ROUND 口径） ----------
+
+    #[tokio::test]
+    async fn w3c_settle_amount_rounding_matches_txn() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // 均价改成 3.333333（6 位小数）× 3 件 = 9.999999 → 必须四舍五入成 10.0000 而不是各算一套
+        exec(
+            "UPDATE biz_inventory SET avg_cost = 3.333333, amount = qty * 3.333333 \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![Value::from(&uuid(M_PLAIN)), Value::from(&uuid(WH_FROM))],
+            "改均价",
+        )
+        .await;
+        let id = create_and_ship(vec![item(M_PLAIN, "3")]).await;
+        receive_ok(id).await;
+        let txns = txns_of(id).await;
+        let amounts: Vec<String> = txns.iter().map(|row| txn_text(row, "amount")).collect();
+        assert_eq!(
+            amounts,
+            vec!["10.0000".to_string(), "10.0000".to_string()],
+            "两条流水金额必须逐字相同（同一个 ROUND 结果）"
+        );
+        assert_eq!(refresh(id).await.total_amount, dec("10"));
+    }
     // ---------- ⑳ 权限码：6 条与 V0144 逐字一致（真 403 见 verify 脚本） ----------
 
     #[test]

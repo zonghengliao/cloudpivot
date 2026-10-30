@@ -59,7 +59,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
-use crate::business::erp::serial_model::period_key_of;
+use crate::business::erp::serial_model::{period_code_of, period_key_of};
 use crate::business::shared::scope;
 
 // ==================== 表名 / 列清单 ====================
@@ -1333,6 +1333,885 @@ pub async fn published_transfer_flow() -> DbResult<Option<PublishedFlow>> {
             version_no: row.get_typed("version_no")?,
         })),
     }
+}
+
+// ==================== 结算：IN_TRANSIT → DONE 的库存双写（W3c） ====================
+//
+// 卡面（云枢 TSK-202610-000683）要求的 5 步，全部在**调用方开的同一个事务**里：
+//
+// ```text
+// ① 调出仓：qty -= 数量；流水 OUT / TRANSFER_OUT（qty 恒正，ck_biz_inv_txn_qty 禁负数）
+// ② 调入仓：qty += 数量；库存行不存在 → INSERT 建档；流水 IN / TRANSFER_IN
+// ③ 一物一码物料：biz_material_serial 的 warehouse_id / location_id 跟着走
+// ④ 成本原价转移：unit_cost = 调出仓的 avg_cost 快照（不是当前重新算的均价）
+// ⑤ 不变式断言：调出仓 qty >= 0、一物一码 qty == 在库序列号件数、成本守恒
+// ```
+//
+// # 三个实现口径（与卡面字面的差异，逐条实测后定的）
+//
+// 1. **目标库存行的选择**：卡面写「按 material + warehouse + location」，实测库里
+//    `biz_inventory` 的 `location_id IS NULL` 是**整仓汇总桶**（W2c-1 的
+//    `recompute_quantity` 与 W2c-2 的巡检都只认这一桶）。所以：
+//    有汇总桶 → 只动汇总桶（否则会与库位行并存，`SUM(qty)` 双计、不变式③必假）；
+//    没有汇总桶（纯库位记账的仓）→ 按 item 的 `from_location_id` / `to_location_id` 精确到库位。
+// 2. **并发防超卖**用条件 UPDATE（`AND qty >= $1` + `RETURNING`），不用显式 `FOR UPDATE`：
+//    返回 0 行 = 库存不足，调用方整笔回滚。PG 在拿到行锁后会按新版本重判谓词，
+//    所以两笔同时扣同一行只有一个能成功（实测：库存 8、两笔各扣 5 → 一个 200 一个 409）。
+// 3. **金额**一律由 SQL 侧的 `ROUND(数量 * avg_cost, 4)` 算出来并回读，再原样转给调入仓 ——
+//    Rust 侧 `Decimal` 的舍入是「四舍六入五成双」、PG 的 numeric 是「四舍五入」，
+//    各算一遍会在 .00005 的边界上差 1 分钱，成本守恒断言就会偶发多/少 0.0001。
+
+/// 库存流水的单据类型（`biz_inventory_txn.doc_type`，varchar(24)）。
+pub const DOC_TYPE_TRANSFER: &str = "STOCK_TRANSFER";
+
+/// 调出流水的 `biz_type`（`txn_type = 'OUT'`）。
+pub const BIZ_TYPE_TRANSFER_OUT: &str = "TRANSFER_OUT";
+
+/// 调入流水的 `biz_type`（`txn_type = 'IN'`）。
+pub const BIZ_TYPE_TRANSFER_IN: &str = "TRANSFER_IN";
+
+/// `uk_biz_inv_mat_wh_loc` 里「整仓汇总桶」的占位值（`location_id IS NULL` 等价于全零 UUID）。
+pub const BUCKET_LOCATION_SQL: &str = "'00000000-0000-0000-0000-000000000000'::uuid";
+
+/// 结算失败原因（handler 翻成 400 / 409；不是「500 + 看不出哪里不对」）。
+#[derive(Debug)]
+pub enum SettleError {
+    /// 数据库异常（唯一键 / CHECK / 外键 / 连接）。
+    Db(DbError),
+    /// 调出仓库存不足：条件扣减返回 0 行（并发超卖或账面本来就不够）。
+    Insufficient {
+        /// 物料编码（报错点名人看得懂的东西，不是 UUID）。
+        material_code: String,
+        /// 本次需要调出多少。
+        required: Decimal,
+        /// 该库存行当前可用多少（行不存在 = 0）。
+        available: Decimal,
+    },
+    /// 一物一码物料：明细数量与序列号个数不一致（建单后被改库 / 历史脏单）。
+    SerialMismatch {
+        /// 明细行号。
+        line_no: i32,
+        /// 明细数量。
+        qty: Decimal,
+        /// 该行关联的序列号个数。
+        serials: i64,
+    },
+    /// 序列号当前不在调出仓 / 不是 `IN_STOCK`（被别人先挪走了）。
+    SerialNotInSource {
+        /// 明细行号。
+        line_no: i32,
+        /// 应有几个。
+        expected: i64,
+        /// 实际转移成功几个。
+        moved: u64,
+    },
+    /// 不变式校验失败（数量 != 在库序列号件数 / 成本不守恒 / 出现负库存）。
+    Invariant(String),
+    /// 单据没有明细，没什么可结算的。
+    EmptyItems,
+}
+
+impl From<DbError> for SettleError {
+    fn from(error: DbError) -> Self {
+        Self::Db(error)
+    }
+}
+
+/// 结算的返回类型（`alun`/`nik` 的 `DbResult` 只有一种错误，这里要多一种）。
+pub type SettleResult<T> = std::result::Result<T, SettleError>;
+
+/// 可空 UUID → 参数（`Value::Null` 绑 `?::uuid` 会在驱动侧编码失败，统一走「空串 + NULLIF」）。
+fn uuid_text(value: Option<Uuid>) -> Value {
+    Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+}
+
+/// 一条待结算的明细（连表带出 `serial_required` 与这行的序列号）。
+#[derive(Debug, Clone)]
+pub struct SettleLine {
+    /// 明细主键。
+    pub item_id: Uuid,
+    /// 行号。
+    pub line_no: i32,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 物料编码（报错文案用）。
+    pub material_code: String,
+    /// 调出库位（`None` = 整仓汇总桶）。
+    pub from_location_id: Option<Uuid>,
+    /// 调入库位（`None` = 整仓汇总桶）。
+    pub to_location_id: Option<Uuid>,
+    /// 数量（> 0）。
+    pub qty: Decimal,
+    /// 是否一物一码物料。
+    pub serial_required: bool,
+    /// 建单时选定的序列号。
+    pub serial_ids: Vec<Uuid>,
+}
+
+/// 结算结果。
+#[derive(Debug, Clone)]
+pub struct SettleOutcome {
+    /// `false` = 本单之前已经结算过（流水已在），本次幂等跳过，库存未二次改动。
+    pub settled: bool,
+    /// 结算了几行明细。
+    pub lines: usize,
+    /// 转移数量合计。
+    pub qty: Decimal,
+    /// 转移金额合计（= 调出仓 amount 减少总量 = 调入仓 amount 增加总量）。
+    pub amount: Decimal,
+    /// 跟着走的序列号件数。
+    pub serials: u64,
+}
+
+/// 调出仓扣减的回读快照（流水的前后六列 + 原价转移用的成本）。
+#[derive(Debug, Clone, Copy)]
+struct OutSnapshot {
+    before_qty: Decimal,
+    after_qty: Decimal,
+    unit_cost: Decimal,
+    amount: Decimal,
+    after_amount: Decimal,
+}
+
+/// 调入仓增加的回读快照。
+#[derive(Debug, Clone, Copy)]
+struct InSnapshot {
+    before_qty: Decimal,
+    before_amount: Decimal,
+    before_cost: Decimal,
+    after_qty: Decimal,
+    after_amount: Decimal,
+    after_cost: Decimal,
+}
+
+/// 一条库存流水的全部字段（避免 `too_many_arguments`，也不用 `#[allow]`）。
+struct StockTxn<'a> {
+    transfer_id: Uuid,
+    transfer_no: &'a str,
+    line: &'a SettleLine,
+    warehouse_id: Uuid,
+    txn_type: &'a str,
+    biz_type: &'a str,
+    qty: Decimal,
+    unit_cost: Decimal,
+    amount: Decimal,
+    before_qty: Decimal,
+    before_amount: Decimal,
+    before_cost: Decimal,
+    after_qty: Decimal,
+    after_amount: Decimal,
+    after_cost: Decimal,
+    operator: Option<Uuid>,
+}
+
+/// `IN_TRANSIT → DONE` 的库存双写 + 成本原价转移（**调用方负责事务边界**）。
+///
+/// # 顺序（同事务，任一步失败整笔回滚）
+///
+/// 1. 幂等闸：本单已有 `doc_type='STOCK_TRANSFER'` 的流水 → 直接返回 `settled = false`；
+/// 2. 读明细（含 `serial_required` 与序列号），**先把「序列号个数 == 数量」校验掉**；
+/// 3. 逐行：调出仓条件扣减（`AND qty >= ?`）→ 调入仓加库存（不存在则建档）→ 序列号移仓 → 回填明细；
+/// 4. 回写单据头 `total_amount`；
+/// 5. 不变式断言（负库存 / 一物一码件数 / 成本守恒），不满足即报错回滚。
+///
+/// # 异常情况
+///
+/// 见 [`SettleError`]：库存不足 / 序列号不符 → 由 handler 翻成 409 / 400。
+pub async fn settle_transfer(
+    ex: &impl SqlExecutor,
+    transfer_id: Uuid,
+    transfer_no: &str,
+    from_warehouse_id: Uuid,
+    to_warehouse_id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> SettleResult<SettleOutcome> {
+    // ① 幂等闸：流水只增不改，「本单已有流水」就是「已经结算过」的唯一事实
+    let posted: i64 = ex
+        .scalar_sql(
+            "SELECT COUNT(*) FROM biz_inventory_txn \
+              WHERE doc_type = ? AND doc_id = ?::uuid"
+                .to_string(),
+            vec![Value::from(DOC_TYPE_TRANSFER), Value::from(&transfer_id)],
+        )
+        .await?;
+    if posted > 0 {
+        tracing::info!(
+            transfer_id = %transfer_id,
+            transfer_no = %transfer_no,
+            txn_rows = posted,
+            "调拨单已结算过，跳过库存双写（幂等）"
+        );
+        return Ok(SettleOutcome {
+            settled: false,
+            lines: 0,
+            qty: Decimal::ZERO,
+            amount: Decimal::ZERO,
+            serials: 0,
+        });
+    }
+
+    let lines = load_settle_lines(ex, transfer_id).await?;
+    if lines.is_empty() {
+        return Err(SettleError::EmptyItems);
+    }
+    // ② 先校验再动库存：`ck_biz_transfer_item_qty` 保证 qty > 0，所以一物一码物料
+    //    没有序列号一定是错的（先扣库存再报 400 就是白扣一轮再回滚）
+    for line in &lines {
+        if !line.serial_required {
+            continue;
+        }
+        let serials = i64::try_from(line.serial_ids.len()).unwrap_or(i64::MAX);
+        if serials <= 0 || line.qty != Decimal::from(serials) {
+            return Err(SettleError::SerialMismatch {
+                line_no: line.line_no,
+                qty: line.qty,
+                serials,
+            });
+        }
+    }
+
+    let mut total_qty = Decimal::ZERO;
+    let mut total_amount = Decimal::ZERO;
+    let mut moved_serials = 0_u64;
+
+    for line in &lines {
+        // ③ 调出仓：锁行（或锁唯一键上的那一行）→ 条件扣减 → 回读快照
+        let out_row = resolve_inventory_row(
+            ex,
+            line.material_id,
+            from_warehouse_id,
+            line.from_location_id,
+        )
+        .await?;
+        let Some(out_row) = out_row else {
+            return Err(SettleError::Insufficient {
+                material_code: line.material_code.clone(),
+                required: line.qty,
+                available: Decimal::ZERO,
+            });
+        };
+        let Some(out) = deduct_inventory_row(ex, out_row, line.qty, now).await? else {
+            let available = current_qty(ex, out_row).await?.unwrap_or(Decimal::ZERO);
+            return Err(SettleError::Insufficient {
+                material_code: line.material_code.clone(),
+                required: line.qty,
+                available,
+            });
+        };
+        tracing::debug!(
+            transfer_no = %transfer_no,
+            line_no = line.line_no,
+            qty = %line.qty,
+            unit_cost = %out.unit_cost,
+            amount = %out.amount,
+            "调出仓扣减完成"
+        );
+        post_stock_txn(
+            ex,
+            &StockTxn {
+                transfer_id,
+                transfer_no,
+                line,
+                warehouse_id: from_warehouse_id,
+                txn_type: "OUT",
+                biz_type: BIZ_TYPE_TRANSFER_OUT,
+                qty: line.qty,
+                unit_cost: out.unit_cost,
+                amount: out.amount,
+                before_qty: out.before_qty,
+                before_amount: out.after_amount + out.amount,
+                before_cost: out.unit_cost,
+                after_qty: out.after_qty,
+                after_amount: out.after_amount,
+                after_cost: out.unit_cost,
+                operator,
+            },
+            now,
+        )
+        .await?;
+
+        // ④ 调入仓：加库存（行不存在就建档）+ 移动加权重算 avg_cost
+        let ins = credit_inventory_row(
+            ex,
+            &CreditReq {
+                material_id: line.material_id,
+                warehouse_id: to_warehouse_id,
+                location_id: line.to_location_id,
+                qty: line.qty,
+                unit_cost: out.unit_cost,
+                amount: out.amount,
+            },
+            now,
+        )
+        .await?;
+        post_stock_txn(
+            ex,
+            &StockTxn {
+                transfer_id,
+                transfer_no,
+                line,
+                warehouse_id: to_warehouse_id,
+                txn_type: "IN",
+                biz_type: BIZ_TYPE_TRANSFER_IN,
+                qty: line.qty,
+                unit_cost: out.unit_cost,
+                amount: out.amount,
+                before_qty: ins.before_qty,
+                before_amount: ins.before_amount,
+                before_cost: ins.before_cost,
+                after_qty: ins.after_qty,
+                after_amount: ins.after_amount,
+                after_cost: ins.after_cost,
+                operator,
+            },
+            now,
+        )
+        .await?;
+
+        // ⑤ 序列号跟着走（一物一码物料；按数量管理的物料一个序列号都不动）
+        if line.serial_required {
+            let expected = i64::try_from(line.serial_ids.len()).unwrap_or(i64::MAX);
+            let moved = move_serials(
+                ex,
+                &line.serial_ids,
+                from_warehouse_id,
+                to_warehouse_id,
+                line.to_location_id,
+                operator,
+                now,
+            )
+            .await?;
+            if moved != u64::try_from(expected).unwrap_or(0) {
+                return Err(SettleError::SerialNotInSource {
+                    line_no: line.line_no,
+                    expected,
+                    moved,
+                });
+            }
+            moved_serials += moved;
+        }
+
+        // ⑥ 回填明细：已发 / 已收 + 原价（金额 = 数量 × 原价，成本守恒的另一半证据）
+        ex.exec_sql(
+            format!(
+                "UPDATE {ITEM_TABLE} \
+                    SET shipped_qty = qty, received_qty = qty, \
+                        unit_cost = NULLIF(?::text,'')::numeric, \
+                        amount = NULLIF(?::text,'')::numeric, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid"
+            ),
+            vec![
+                Value::Text(out.unit_cost.to_string()),
+                Value::Text(out.amount.to_string()),
+                Value::from(now),
+                uuid_text(operator),
+                Value::from(&line.item_id),
+            ],
+        )
+        .await?;
+
+        total_qty += line.qty;
+        total_amount += out.amount;
+    }
+
+    // ⑦ 单据头金额合计（`ck_biz_transfer_total` 要求 >= 0；这里按明细实际转移金额重算）
+    ex.exec_sql(
+        format!(
+            "UPDATE {TRANSFER_TABLE} AS t \
+                SET total_amount = COALESCE((SELECT SUM(i.amount) FROM {ITEM_TABLE} i \
+                                              WHERE i.transfer_id = t.id), 0), \
+                    updated_at = ? \
+              WHERE t.id = ?::uuid"
+        ),
+        vec![Value::from(now), Value::from(&transfer_id)],
+    )
+    .await?;
+
+    // ⑧ 不变式断言（同事务末尾）：任何一条不满足都整笔回滚
+    assert_settle_invariants(ex, transfer_id).await?;
+
+    Ok(SettleOutcome {
+        settled: true,
+        lines: lines.len(),
+        qty: total_qty,
+        amount: total_amount,
+        serials: moved_serials,
+    })
+}
+
+/// 读待结算明细（连 `biz_material` 取 `material_code` / `serial_required`，序列号按行分组）。
+async fn load_settle_lines(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbResult<Vec<SettleLine>> {
+    let rows = ex
+        .query_sql(
+            format!(
+                "SELECT i.id, i.line_no, i.material_id, m.material_code, m.serial_required, \
+                        i.from_location_id, i.to_location_id, i.qty::numeric(18,4) AS qty \
+                   FROM {ITEM_TABLE} i \
+                   JOIN biz_material m ON m.id = i.material_id \
+                  WHERE i.transfer_id = ?::uuid \
+                  ORDER BY i.line_no ASC"
+            ),
+            vec![Value::from(&transfer_id)],
+        )
+        .await?;
+    let mut lines = Vec::with_capacity(rows.len());
+    for row in &rows {
+        lines.push(SettleLine {
+            item_id: row.get_typed("id")?,
+            line_no: row.get_typed("line_no")?,
+            material_id: row.get_typed("material_id")?,
+            material_code: row.get_typed("material_code")?,
+            from_location_id: row.get_typed("from_location_id")?,
+            to_location_id: row.get_typed("to_location_id")?,
+            qty: row.get_typed("qty")?,
+            serial_required: row.get_typed("serial_required")?,
+            serial_ids: Vec::new(),
+        });
+    }
+    if lines.is_empty() {
+        return Ok(lines);
+    }
+    // 序列号：一行一条记录，Rust 侧按 item_id 归组（不用数组列，驱动解不了 _text / _uuid）
+    let serial_rows = ex
+        .query_sql(
+            format!(
+                "SELECT l.item_id, l.serial_id \
+                   FROM {ITEM_SERIAL_TABLE} l \
+                   JOIN {ITEM_TABLE} i ON i.id = l.item_id \
+                  WHERE i.transfer_id = ?::uuid \
+                  ORDER BY l.item_id, l.created_at ASC"
+            ),
+            vec![Value::from(&transfer_id)],
+        )
+        .await?;
+    for row in &serial_rows {
+        let item_id: Uuid = row.get_typed("item_id")?;
+        let serial_id: Uuid = row.get_typed("serial_id")?;
+        if let Some(line) = lines.iter_mut().find(|line| line.item_id == item_id) {
+            line.serial_ids.push(serial_id);
+        }
+    }
+    Ok(lines)
+}
+
+/// 选目标库存行：**有整仓汇总桶就只动汇总桶**，没有才按库位精确匹配。
+///
+/// 返回 `None` = 该物料在这个仓还没有任何库存行（调入侧要建档；调出侧 = 库存 0）。
+async fn resolve_inventory_row(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+) -> DbResult<Option<Uuid>> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "SELECT id FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND (location_id IS NULL \
+                     OR location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) \
+              ORDER BY (location_id IS NULL) DESC \
+              LIMIT 1"
+                .to_string(),
+            vec![
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                uuid_text(location_id),
+            ],
+        )
+        .await?;
+    row.map(|row| row.get_typed::<Uuid>("id")).transpose()
+}
+
+/// 该库存行当前账面数量（`None` = 行已不存在）。
+async fn current_qty(ex: &impl SqlExecutor, inventory_id: Uuid) -> DbResult<Option<Decimal>> {
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "SELECT qty::numeric(18,4) AS qty FROM biz_inventory WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&inventory_id)],
+        )
+        .await?;
+    row.map(|row| row.get_typed::<Decimal>("qty")).transpose()
+}
+
+/// 调出仓**条件扣减**（`AND qty >= ?`，卡面红线③）。
+///
+/// 返回 `None` = 0 行受影响 = 库存不足（并发超卖在这里被挡下）。
+///
+/// 金额用 SQL 侧的 `ROUND(数量 * avg_cost, 4)`：既拿到「调出时的均价快照」，
+/// 又保证「调出仓 amount 减少量」与「调入仓 amount 增加量」是**同一个数**
+/// （Rust 侧的 `Decimal` 舍入规则与 PG numeric 不同，各算一遍会在半分位差 1 分）。
+async fn deduct_inventory_row(
+    ex: &impl SqlExecutor,
+    inventory_id: Uuid,
+    qty: Decimal,
+    now: DateTime<Utc>,
+) -> DbResult<Option<OutSnapshot>> {
+    let qty_text = qty.to_string();
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            "UPDATE biz_inventory \
+                SET qty = qty - NULLIF(?::text,'')::numeric, \
+                    amount = amount - ROUND(NULLIF(?::text,'')::numeric * avg_cost, 4), \
+                    last_txn_at = ?, updated_at = ? \
+              WHERE id = ?::uuid AND qty >= NULLIF(?::text,'')::numeric \
+             RETURNING (qty + NULLIF(?::text,'')::numeric)::numeric(18,4) AS before_qty, \
+                       qty::numeric(18,4) AS after_qty, \
+                       avg_cost::numeric(18,6) AS unit_cost, \
+                       ROUND(NULLIF(?::text,'')::numeric * avg_cost, 4)::numeric(18,4) AS out_amount, \
+                       amount::numeric(18,4) AS after_amount"
+                .to_string(),
+            vec![
+                Value::Text(qty_text.clone()),
+                Value::Text(qty_text.clone()),
+                Value::from(now),
+                Value::from(now),
+                Value::from(&inventory_id),
+                Value::Text(qty_text.clone()),
+                Value::Text(qty_text.clone()),
+                Value::Text(qty_text),
+            ],
+        )
+        .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => Ok(Some(OutSnapshot {
+            before_qty: row.get_typed("before_qty")?,
+            after_qty: row.get_typed("after_qty")?,
+            unit_cost: row.get_typed("unit_cost")?,
+            amount: row.get_typed("out_amount")?,
+            after_amount: row.get_typed("after_amount")?,
+        })),
+    }
+}
+
+/// 调入仓加库存的入参（8 个字段里 6 个是数据，收成结构体避免 `too_many_arguments`）。
+#[derive(Debug, Clone, Copy)]
+struct CreditReq {
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+    qty: Decimal,
+    unit_cost: Decimal,
+    amount: Decimal,
+}
+
+/// 调入仓加库存：行存在 → 移动加权重算 `avg_cost`；行不存在 → 建档（`avg_cost` 取原价）。
+async fn credit_inventory_row(
+    ex: &impl SqlExecutor,
+    req: &CreditReq,
+    now: DateTime<Utc>,
+) -> DbResult<InSnapshot> {
+    let CreditReq {
+        material_id,
+        warehouse_id,
+        location_id,
+        qty,
+        unit_cost,
+        amount,
+    } = *req;
+    let qty_text = qty.to_string();
+    let amount_text = amount.to_string();
+    // 先按「汇总桶优先」选行并加锁读快照：移动加权必须基于**本事务锁住的**旧值，
+    // 否则两笔并发调入会各自算出一个 avg_cost，后写的把先写的覆盖掉。
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let existing = ex
+        .query_first_sql(
+            "SELECT id, qty::numeric(18,4) AS qty, amount::numeric(18,4) AS amount, \
+                    avg_cost::numeric(18,6) AS avg_cost \
+               FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND (location_id IS NULL \
+                     OR location_id IS NOT DISTINCT FROM NULLIF(?::text,'')::uuid) \
+              ORDER BY (location_id IS NULL) DESC \
+              LIMIT 1 \
+                FOR UPDATE"
+                .to_string(),
+            vec![
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                uuid_text(location_id),
+            ],
+        )
+        .await?;
+
+    if let Some(row) = existing {
+        let id: Uuid = row.get_typed("id")?;
+        let before_qty: Decimal = row.get_typed("qty")?;
+        let before_amount: Decimal = row.get_typed("amount")?;
+        let before_cost: Decimal = row.get_typed("avg_cost")?;
+        let updated = ex
+            .query_first_sql(
+                "UPDATE biz_inventory \
+                    SET qty = qty + NULLIF(?::text,'')::numeric, \
+                        amount = amount + NULLIF(?::text,'')::numeric, \
+                        avg_cost = CASE WHEN qty + NULLIF(?::text,'')::numeric > 0 \
+                                        THEN (amount + NULLIF(?::text,'')::numeric) \
+                                             / (qty + NULLIF(?::text,'')::numeric) \
+                                        ELSE avg_cost END, \
+                        last_txn_at = ?, updated_at = ? \
+                  WHERE id = ?::uuid \
+                 RETURNING qty::numeric(18,4) AS after_qty, \
+                           amount::numeric(18,4) AS after_amount, \
+                           avg_cost::numeric(18,6) AS after_cost"
+                    .to_string(),
+                vec![
+                    Value::Text(qty_text.clone()),
+                    Value::Text(amount_text.clone()),
+                    Value::Text(qty_text.clone()),
+                    Value::Text(amount_text.clone()),
+                    Value::Text(qty_text.clone()),
+                    Value::from(now),
+                    Value::from(now),
+                    Value::from(&id),
+                ],
+            )
+            .await?
+            .ok_or_else(|| {
+                DbError::InvalidValue(format!(
+                    "调入仓库存行 {id} 在加库存时消失（本事务已 FOR UPDATE 锁住，不应发生）"
+                ))
+            })?;
+        return Ok(InSnapshot {
+            before_qty,
+            before_amount,
+            before_cost,
+            after_qty: updated.get_typed("after_qty")?,
+            after_amount: updated.get_typed("after_amount")?,
+            after_cost: updated.get_typed("after_cost")?,
+        });
+    }
+
+    // 建档：`location_id` 用明细的库位（没有就是整仓汇总桶）
+    // SCOPE-EXEMPT: 库存是仓储数据，无归属列（口径同 erp/model.rs）。
+    let created = ex
+        .query_first_sql(
+            format!(
+                "INSERT INTO biz_inventory AS i \
+                     (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, \
+                      amount, last_txn_at, created_at, updated_at) \
+                 VALUES (?, ?::uuid, ?::uuid, NULLIF(?::text,'')::uuid, \
+                         NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric, \
+                         NULLIF(?::text,'')::numeric, ?, ?, ?) \
+                 ON CONFLICT (material_id, warehouse_id, \
+                              COALESCE(location_id, {BUCKET_LOCATION_SQL})) DO UPDATE \
+                    SET qty = i.qty + EXCLUDED.qty, \
+                        amount = i.amount + EXCLUDED.amount, \
+                        avg_cost = CASE WHEN i.qty + EXCLUDED.qty > 0 \
+                                        THEN (i.amount + EXCLUDED.amount) \
+                                             / (i.qty + EXCLUDED.qty) \
+                                        ELSE i.avg_cost END, \
+                        last_txn_at = EXCLUDED.last_txn_at, \
+                        updated_at = EXCLUDED.updated_at \
+                 RETURNING qty::numeric(18,4) AS after_qty, \
+                           amount::numeric(18,4) AS after_amount, \
+                           avg_cost::numeric(18,6) AS after_cost"
+            ),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                uuid_text(location_id),
+                Value::Text(qty_text.clone()),
+                Value::Text(unit_cost.to_string()),
+                Value::Text(amount_text.clone()),
+                Value::from(now),
+                Value::from(now),
+                Value::from(now),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue("调入仓库存建档未返回行（upsert 不应为空）".to_string())
+        })?;
+    let after_qty: Decimal = created.get_typed("after_qty")?;
+    let after_amount: Decimal = created.get_typed("after_amount")?;
+    let after_cost: Decimal = created.get_typed("after_cost")?;
+    // 建档分支的「变动前」= 本次增量减去后的账面（并发下另一笔刚好插进来的行也按这个口径，
+    // 保证 before + delta == after 恒成立）
+    let before_qty = after_qty - qty;
+    let before_amount = after_amount - amount;
+    let before_cost = if before_qty > Decimal::ZERO {
+        (before_amount / before_qty).round_dp(6)
+    } else {
+        unit_cost
+    };
+    Ok(InSnapshot {
+        before_qty,
+        before_amount,
+        before_cost,
+        after_qty,
+        after_amount,
+        after_cost,
+    })
+}
+
+/// 一物一码物料的序列号移仓（只动 `IN_STOCK` 且在**调出仓**的行，返回实际转移件数）。
+async fn move_serials(
+    ex: &impl SqlExecutor,
+    serial_ids: &[Uuid],
+    from_warehouse_id: Uuid,
+    to_warehouse_id: Uuid,
+    to_location_id: Option<Uuid>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    if serial_ids.is_empty() {
+        return Ok(0);
+    }
+    // 数组参数走 `Value::Text("{a,b}")` + `?::text::uuid[]`（技能 §6.5 实测的唯一可行形态）
+    let payload = Value::Text(format!(
+        "{{{}}}",
+        serial_ids
+            .iter()
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",")
+    ));
+    // SCOPE-EXEMPT: 序列号是仓储数据，无归属列（口径同 erp/model.rs）。
+    ex.exec_sql(
+        "UPDATE biz_material_serial \
+            SET warehouse_id = ?::uuid, location_id = NULLIF(?::text,'')::uuid, \
+                updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ANY(?::text::uuid[]) \
+            AND status = 'IN_STOCK' AND deleted_at IS NULL \
+            AND warehouse_id = ?::uuid"
+            .to_string(),
+        vec![
+            Value::from(&to_warehouse_id),
+            uuid_text(to_location_id),
+            Value::from(now),
+            uuid_text(operator),
+            payload,
+            Value::from(&from_warehouse_id),
+        ],
+    )
+    .await
+}
+
+/// 写一条调拨库存流水（`txn_type` 决定方向，`qty` 恒正 —— `ck_biz_inv_txn_qty` 禁负数）。
+async fn post_stock_txn(
+    ex: &impl SqlExecutor,
+    txn: &StockTxn<'_>,
+    now: DateTime<Utc>,
+) -> DbResult<()> {
+    // SCOPE-EXEMPT: 库存流水是仓储数据，无归属列（口径同 erp/model.rs）。
+    ex.exec_sql(
+        "INSERT INTO biz_inventory_txn \
+             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
+              line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+              after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
+         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, NULL, ?)"
+            .to_string(),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&txn.line.material_id),
+            Value::from(&txn.warehouse_id),
+            Value::from(txn.txn_type),
+            Value::from(txn.biz_type),
+            Value::from(DOC_TYPE_TRANSFER),
+            Value::from(&txn.transfer_id),
+            Value::from(txn.transfer_no),
+            Value::from(txn.line.line_no),
+            Value::Text(txn.qty.to_string()),
+            Value::Text(txn.unit_cost.to_string()),
+            Value::Text(txn.amount.to_string()),
+            Value::Text(txn.before_qty.to_string()),
+            Value::Text(txn.before_amount.to_string()),
+            Value::Text(txn.before_cost.to_string()),
+            Value::Text(txn.after_qty.to_string()),
+            Value::Text(txn.after_amount.to_string()),
+            Value::Text(txn.after_cost.to_string()),
+            Value::from(period_code_of(now).as_str()),
+            uuid_text(txn.operator),
+            Value::from(now),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 不变式断言（**同事务末尾**，任何一条不满足就整笔回滚）：
+///
+/// 1. 本次动过的库存行 `qty >= 0`（条件扣减已保证，这里再断一次防止将来被改成无条件 UPDATE）；
+/// 2. 一物一码物料：「账面数量 == 在库序列号件数」（W2c-1 / W2c-2 的口径：
+///    `COALESCE(汇总桶 qty, SUM(库位行 qty))` vs `COUNT(serial WHERE status='IN_STOCK')`）；
+/// 3. 成本守恒：本单 `SUM(OUT amount) == SUM(IN amount)`。
+async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> SettleResult<()> {
+    // SCOPE-EXEMPT: 库存 / 序列号是仓储数据，无归属列（口径同 erp/model.rs）。
+    let row = ex
+        .query_first_sql(
+            format!(
+                "WITH touched AS ( \
+                     SELECT DISTINCT material_id, warehouse_id FROM biz_inventory_txn \
+                      WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid), \
+                 book AS ( \
+                     SELECT t.material_id, t.warehouse_id, \
+                            COALESCE(MAX(b.qty) FILTER (WHERE b.location_id IS NULL), \
+                                     SUM(b.qty), 0)::numeric(18,4) AS book_qty \
+                       FROM touched t \
+                       LEFT JOIN biz_inventory b \
+                              ON b.material_id = t.material_id \
+                             AND b.warehouse_id = t.warehouse_id \
+                      GROUP BY t.material_id, t.warehouse_id), \
+                 broken AS ( \
+                     SELECT bk.material_id \
+                       FROM book bk \
+                       JOIN biz_material m ON m.id = bk.material_id \
+                      WHERE m.serial_required \
+                        AND bk.book_qty <> (SELECT COUNT(*) FROM biz_material_serial s \
+                                             WHERE s.material_id = bk.material_id \
+                                               AND s.warehouse_id = bk.warehouse_id \
+                                               AND s.status = 'IN_STOCK' \
+                                               AND s.deleted_at IS NULL)), \
+                 money AS ( \
+                     SELECT COALESCE(SUM(amount) FILTER (WHERE txn_type = 'OUT'), 0) \
+                          - COALESCE(SUM(amount) FILTER (WHERE txn_type = 'IN'), 0) AS diff \
+                       FROM biz_inventory_txn \
+                      WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid) \
+                 SELECT (SELECT COUNT(*) FROM broken) AS serial_broken, \
+                        (SELECT COUNT(*) FROM biz_inventory b JOIN touched t \
+                            ON t.material_id = b.material_id \
+                           AND t.warehouse_id = b.warehouse_id \
+                          WHERE b.qty < 0) AS negative_qty, \
+                        (SELECT diff FROM money) AS cost_diff"
+            ),
+            vec![Value::from(&transfer_id), Value::from(&transfer_id)],
+        )
+        .await?
+        .ok_or_else(|| {
+            SettleError::Invariant("不变式查询没有返回行（聚合查询不应为空）".to_string())
+        })?;
+
+    let serial_broken: i64 = row.get_typed("serial_broken")?;
+    let negative_qty: i64 = row.get_typed("negative_qty")?;
+    let cost_diff: Decimal = row.get_typed("cost_diff")?;
+    if negative_qty > 0 {
+        return Err(SettleError::Invariant(format!(
+            "调拨结算后出现负库存（{negative_qty} 个库存行 qty < 0）"
+        )));
+    }
+    if serial_broken > 0 {
+        return Err(SettleError::Invariant(format!(
+            "一物一码物料的账面数量与在库序列号件数不一致（{serial_broken} 个「物料 × 仓库」），\
+             先跑 GET /business/erp/inventory/audit?dry_run=false 修正后再结算"
+        )));
+    }
+    if cost_diff != Decimal::ZERO {
+        return Err(SettleError::Invariant(format!(
+            "成本不守恒：调出合计 - 调入合计 = {cost_diff}（必须为 0）"
+        )));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
