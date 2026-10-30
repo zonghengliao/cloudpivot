@@ -14,8 +14,6 @@
           clearable
           filterable
         />
-      </div>
-      <div class="filter-line">
         <t-date-range-picker
           v-model="windowRange"
           class="filter-ctl"
@@ -1575,12 +1573,12 @@ onMounted(() => {
 }
 
 .filter-ctl {
-  width: 240px;
-  flex: 0 0 240px;
+  width: 320px;
+  flex: 0 0 320px;
 }
 
-/* 第3行（查询/重置）按钮居中 */
+/* 第3行（查询/重置）按钮左对齐 */
 .filter-line--actions {
-  justify-content: center;
+  justify-content: flex-start;
 }
 </style>

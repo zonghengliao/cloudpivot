@@ -30,6 +30,8 @@
           查询
         </t-button>
         <t-button variant="outline" @click="handleReset">重置</t-button>
+      </div>
+      <div class="filter-line filter-line--mine">
         <label class="my-switch">
           <t-switch v-model="myMode" size="small" />
           <span class="my-switch__label">只看我的任务</span>
@@ -929,17 +931,23 @@ onMounted(() => {
 }
 
 .filter-ctl {
+  width: 200px;
+  flex: 0 0 200px;
+}
+
+.filter-ctl--wide {
   width: 240px;
   flex: 0 0 240px;
 }
 
-.filter-ctl--wide {
-  width: 320px;
-  flex: 0 0 320px;
+/* 第3行（查询/重置）按钮左对齐 */
+.filter-line--actions {
+  justify-content: flex-start;
 }
 
-/* 第3行（查询/重置）按钮居中 */
-.filter-line--actions {
-  justify-content: center;
+/* 第4行：只看我的任务 + 提示文字（左对齐） */
+.filter-line--mine {
+  justify-content: flex-start;
+  gap: 12px;
 }
 </style>
