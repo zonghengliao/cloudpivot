@@ -1750,6 +1750,9 @@ pub struct StatusUpdate {
 
 /// 落库一次状态流转（**只碰本行**，副作用由调用方另行处理）。
 ///
+/// `ex` 吃 `&impl SqlExecutor`（与 [`recalc_ancestors`] / [`insert_comment`] 同口径）：
+/// 状态流转与级联都在调用方的事务里，进不进事务由调用方决定，写状态的实现只有一份。
+///
 /// # 返回值
 ///
 /// 受影响行数（0 = 任务不存在 / 已软删）。
@@ -1758,7 +1761,7 @@ pub struct StatusUpdate {
 ///
 /// 数据库异常（含 `ck_biz_task_status` 违约）→ [`DbError`]。
 pub async fn apply_status(
-    ex: &Transaction,
+    ex: &impl SqlExecutor,
     id: Uuid,
     update: &StatusUpdate,
     operator: Uuid,
@@ -2037,6 +2040,220 @@ pub async fn recalc_ancestors(
             mode,
         });
         cursor = parent_of(ex, parent_id).await?;
+    }
+    Ok(results)
+}
+
+// ==================== 父任务状态级联（T10） ====================
+//
+// 老大的原始缺陷（2026-10-30）：「有些子任务已经完成了，但是父任务还是待开始状态」。
+// 修复前 [`recalc_ancestors`] 只重算 `progress`，**状态始终独立**：W2 的 3 个子任务
+// 完成 2 个时父任务还挂在 `TODO`，65% 的进度条和「待开始」自相矛盾。
+//
+// 本段只做**状态**级联；`progress` 仍由 [`recalc_ancestors`] 按原有口径算（红线：不改公式）。
+// 三条规则与任务卡一一对应：
+//
+// | 规则 | 条件 | 动作 |
+// |------|------|------|
+// | ① | 父任务 `TODO` + 至少一个子任务不是 `TODO` | 父任务 → `DOING` |
+// | ② | 子任务**全部**到终态（`DONE` / `CANCELLED`） | 父任务 → `REVIEW`（走人工验收，不自动 DONE） |
+// | ⑨ | 父任务已是终态（`DONE` / `CANCELLED`） | 一律不动（终态不回退） |
+//
+// 为什么 ② 是「进 `REVIEW`」而不是「只打一个可提验收标记」：父任务也是任务，子任务全结束
+// = 交付物齐了，该走验收流程（老大原话「完成的时候也按照工作流程进行提交直到完成」）。
+// `REVIEW → DONE` 仍要人点（见 [`state::TRANSITIONS`]），所以自动进 `REVIEW` 不会把活
+// 悄悄算成完成；而「00% 进度条 + 待开始」这种自相矛盾的状态必须被消灭。
+
+/// 级联原因（规则①）：父任务因首个活动子任务自动进入进行中。
+pub const CASCADE_REASON_FIRST_ACTIVE: &str = "父任务因首个活动子任务自动进入进行中";
+/// 级联原因（规则②）：子任务全部到终态，父任务自动提交验收。
+pub const CASCADE_REASON_ALL_TERMINAL: &str = "子任务已全部结束（完成 / 取消），父任务自动提交验收";
+
+/// 一次父任务状态级联的结果（日志 / 单测断言用）。
+#[derive(Debug, Clone)]
+pub struct StatusCascade {
+    /// 被改状态的任务（父 / 祖父 …）。
+    pub task_id: Uuid,
+    /// 改前。
+    pub from: TaskStatus,
+    /// 改后（只会是 `DOING` 或 `REVIEW`）。
+    pub to: TaskStatus,
+    /// 参与判定的子任务数。
+    pub children: usize,
+    /// 子任务是否已全部到终态。
+    pub all_terminal: bool,
+    /// 触发原因（写进评论与变更日志）。
+    pub reason: &'static str,
+}
+
+/// 纯逻辑：父任务该不该随子任务改状态（规则①②⑨，**碰不到数据库**）。
+///
+/// # 判定顺序（不可换）
+///
+/// 1. 没有子任务 → 不动（手动维护的任务不受级联影响）；
+/// 2. 父任务已是终态 → 不动（**终态不回退**：父任务 DONE 之后子任务被拉回 `DOING`
+///    属于脏数据修整，不该把已完成的任务重新打开）；
+/// 3. 子任务全部到终态 → `REVIEW`；
+/// 4. 父任务 `TODO` 且至少一个子任务不是 `TODO` → `DOING`；
+/// 5. 其余（父任务 `DOING` / `REVIEW`，子任务还没全结束）→ 不动。
+///
+/// # 返回值
+///
+/// - `Some(target)`：需要改，且保证 `target != parent`；
+/// - `None`：不动。
+pub fn cascade_target(parent: TaskStatus, children: &[ChildSnapshot]) -> Option<TaskStatus> {
+    if children.is_empty() || parent.is_terminal() {
+        return None;
+    }
+    let all_terminal = state::open_children(children).is_empty();
+    let target = if all_terminal {
+        TaskStatus::Review
+    } else if parent == TaskStatus::Todo
+        && children
+            .iter()
+            .any(|child| child.status != TaskStatus::Todo)
+    {
+        TaskStatus::Doing
+    } else {
+        return None;
+    };
+    (target != parent).then_some(target)
+}
+
+/// 读一个任务的状态字面量（`None` = 行不存在 / 已软删 / 状态不是 5 态之一）。
+///
+/// 解析不出来时不猜、不 panic：调用方一律视为「这条任务不该被级联」，停止向上爬。
+async fn scalar_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
+    let rows = ex
+        .query_sql(
+            "SELECT status FROM biz_task WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    let raw: String = row.get_typed("status")?;
+    Ok(TaskStatus::parse(&raw))
+}
+
+/// 沿 `parent_id` 向上级联父任务状态（**写路径**：子任务状态流转后调用）。
+///
+/// # 三条红线
+///
+/// 1. **同一事务**：`ex` 必须传业务事务（`&impl SqlExecutor`，**不许**在这里调 `db()`）。
+///    级联失败与子任务状态变更一起回滚 —— 宁可这次状态没改成，也不接受「父任务状态错着」；
+/// 2. **防环**：`visited` 集合 + 爬升上限 [`MAX_TASK_DEPTH`]（8 层）。脏数据成环
+///    （`A.parent = B`、`B.parent = A`，任何接口都造不出来）时停下来并打 WARN；
+/// 3. **不改 progress**：这里只写 `status`。进度归 [`recalc_ancestors`]，两件事分开。
+///
+/// # 行为
+///
+/// 从 `start` 的父任务开始逐级向上，每级按 [`cascade_target`] 判一次：
+///
+/// - 要改 → 写 `status` + 一条 `STATUS_CHANGE` 评论；**变更日志（`sys_change_log`）由
+///   `handler::change_status` 在同一个事务闭包里补写**（C7 G5：`record` 的调用点必须
+///   在 `db().transaction(|tx| ...)` 闭包内，模型层只负责状态与时间线）；
+/// - **不管这级改没改都继续往上爬**：上层判定依赖下层的最新状态 —— 三层链路里
+///   孙任务完成会让子任务进 `REVIEW`，祖父因此从 `TODO` 变 `DOING`（这条是
+///   「孙任务变化 → 子级联 → 父级联」用例的行为依据）。
+///
+/// # 返回值
+///
+/// 真正改了状态的层级（顺序：由近及远）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（由调用方的事务整体回滚）。
+pub async fn cascade_parent_status(
+    ex: &impl SqlExecutor,
+    start: Uuid,
+    operator: Uuid,
+) -> DbResult<Vec<StatusCascade>> {
+    let mut results = Vec::new();
+    // `visited` 从 `start` 起算：`A → B → A` 这种环在第二次回到 `A` 时立刻停
+    let mut visited = std::collections::BTreeSet::new();
+    visited.insert(start);
+    let mut cursor = parent_of(ex, start).await?;
+    while let Some(parent_id) = cursor {
+        if visited.len() >= MAX_TASK_DEPTH {
+            tracing::warn!(
+                task_id = %start,
+                depth = visited.len() as i64,
+                limit = MAX_TASK_DEPTH as i64,
+                "父任务链已达深度上限（疑似成环），停止状态级联"
+            );
+            break;
+        }
+        if !visited.insert(parent_id) {
+            tracing::warn!(
+                task_id = %start,
+                parent_id = %parent_id,
+                "父任务链成环，停止状态级联"
+            );
+            break;
+        }
+        // 下一级游标先算好：这一级不改状态也要继续往上爬
+        let next = parent_of(ex, parent_id).await?;
+        let children = child_rows_with(ex, parent_id).await?;
+        let snapshots: Vec<ChildSnapshot> = children.iter().map(ChildRow::snapshot).collect();
+        let all_terminal = !snapshots.is_empty() && state::open_children(&snapshots).is_empty();
+        if let Some(parent_status) = scalar_status(ex, parent_id).await?
+            && let Some(target) = cascade_target(parent_status, &snapshots)
+        {
+            let reason = if all_terminal {
+                CASCADE_REASON_ALL_TERMINAL
+            } else {
+                CASCADE_REASON_FIRST_ACTIVE
+            };
+            let update = StatusUpdate {
+                to: target.code().to_string(),
+                // 红线：父任务进度由子任务汇总（`recalc_ancestors` 已在本事务里算过），
+                // 级联不许顺手改它。
+                progress: None,
+                // `DOING` / `REVIEW` 没有完成时刻；级联也不会产出终态（规则⑨）。
+                done_at: None,
+                reject_reason: None,
+                cancel_reason: None,
+            };
+            let affected = apply_status(ex, parent_id, &update, operator).await?;
+            if affected == 0 {
+                // 事务里被并发软删：不写评论、不写日志，也不再往上爬
+                break;
+            }
+            insert_comment(
+                ex,
+                parent_id,
+                operator,
+                &format!(
+                    "状态变更：{}（{}）→ {}（{}）（系统自动级联：{reason}）",
+                    parent_status.label(),
+                    parent_status.code(),
+                    target.label(),
+                    target.code()
+                ),
+                COMMENT_TYPE_STATUS_CHANGE,
+                operator,
+            )
+            .await?;
+            tracing::info!(
+                task_id = %parent_id,
+                from = parent_status.code(),
+                to = target.code(),
+                children = snapshots.len() as i64,
+                reason,
+                "父任务状态已级联"
+            );
+            results.push(StatusCascade {
+                task_id: parent_id,
+                from: parent_status,
+                to: target,
+                children: snapshots.len(),
+                all_terminal,
+                reason,
+            });
+        }
+        cursor = next;
     }
     Ok(results)
 }
@@ -5324,5 +5541,614 @@ mod statuses_filter_tests {
         assert_eq!(none.total, 5, "夹具共 5 行（4 顶层 + 1 子）");
         assert_ids(&empty, &[T_TODO, T_DOING, T_DONE, T_CANCEL, T_CHILD]);
         assert_eq!(empty.total, none.total, "空 vec 与不传必须等价");
+    }
+}
+
+// ==================== 单测：父任务状态级联（T10，真库 `TASK_DB_URL`） ====================
+//
+// 为什么必须真库：级联的本体是「沿 `parent_id` 逐级查子任务 + 写 status + 写评论 +
+// 写变更日志」，纯逻辑单测只能证明 `cascade_target` 的判别，证明不了「三层链路真的
+// 一路爬上去」「脏数据成环真的会停」「级联失败真的会连子任务状态一起回滚」。
+//
+// 用法：
+// ```bash
+// export TASK_DB_URL='postgres://cloudpivot:***@127.0.0.1:5432/<测试库>'
+// cargo test --lib business::task::model::cascade_tests -- --nocapture --test-threads=1
+// ```
+// 缺 `TASK_DB_URL` 时打印 `SKIP` 并直接返回（CI 无库时 `cargo test --lib` 仍然全绿）。
+#[cfg(test)]
+mod cascade_tests {
+    use super::*;
+
+    /// 夹具用户（`biz_task.owner_id / creator_id` 是 NOT NULL + FK `sys_user`）。
+    const U_ID: &str = "7a8a0000-0000-4000-8000-0000000000b1";
+    /// 真库用例**串行**执行：共用一个库，并行跑会互删夹具（还会抢 `DB_LOCK` 之外的全局状态）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn uuid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
+    }
+
+    /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `TASK_DB_URL`，用例直接跳过。
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("TASK_DB_URL") else {
+                    println!("SKIP: 未设置 TASK_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                // 每个 `#[tokio::test]` 都是独立 runtime，而 `db()` 是进程级全局池：
+                // 池里的空闲连接绑在创建它的 runtime 上 → 用完即死。见 W1b 的实测。
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: TASK_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    /// 拿锁 + 连库 + 清上一轮夹具（幂等；返回的 guard 必须活到用例结束）。
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        let me = uuid(U_ID);
+        // 上一轮若在「级联失败回滚」用例里挂了，触发器会残留 → 先清
+        db().exec_sql(
+            "DROP TRIGGER IF EXISTS t10_block_review_trg ON biz_task".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("清触发器失败");
+        db().exec_sql(
+            "DROP FUNCTION IF EXISTS t10_block_review()".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("清触发器函数失败");
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password) \
+                 VALUES (?::uuid, 't10_cascade_user', 't10-cascade-not-a-real-hash') \
+                 ON CONFLICT DO NOTHING",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具用户写入失败");
+        // 评论先删（`biz_task_comment.task_id` → `biz_task` 是硬外键）
+        db().execute_with_params(
+            "DELETE FROM biz_task_comment \
+                  WHERE task_id IN (SELECT id FROM biz_task WHERE creator_id = ?::uuid)",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具清理（评论）失败");
+        // 再断开父指针（自引用 FK 不是 deferrable，直接 DELETE 会被拦）
+        db().execute_with_params(
+            "UPDATE biz_task SET parent_id = NULL WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具清理（断父指针）失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具清理失败");
+        Some(guard)
+    }
+
+    /// 写一行夹具任务（`task_no` 唯一索引 ⇒ 每个夹具自己的号）。
+    async fn insert_task(id: Uuid, tag: &str, parent: Option<Uuid>, status: &str, me: Uuid) {
+        let affected = db()
+            .execute_with_params(
+                "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, parent_id, \
+                                       status, priority, progress, need_review) \
+                 VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, ?::uuid, ?, 'P2', 0, false)",
+                vec![
+                    Value::from(&id),
+                    Value::Text(format!("T10-{tag}-{}", &id.simple().to_string()[..8])),
+                    Value::Text(format!("T10 级联 {tag}")),
+                    Value::from(&me),
+                    Value::from(&me),
+                    Value::from(parent.as_ref()),
+                    Value::Text(status.to_string()),
+                ],
+            )
+            .await;
+        if let Err(error) = affected {
+            panic!("夹具写入失败（tag={tag}）：{error}");
+        }
+    }
+
+    /// 走生产同款写路径的最小子集：**同一事务**里「改子任务状态 → 级联父任务状态」。
+    async fn change_child(child: Uuid, to: TaskStatus, me: Uuid) -> Vec<StatusCascade> {
+        let tx = db().begin().await.expect("开启事务失败");
+        let update = StatusUpdate {
+            to: to.code().to_string(),
+            progress: None,
+            done_at: if to == TaskStatus::Done {
+                Some(Some(Utc::now()))
+            } else {
+                None
+            },
+            reject_reason: None,
+            cancel_reason: if to == TaskStatus::Cancelled {
+                Some("T10 单测取消".to_string())
+            } else {
+                None
+            },
+        };
+        let affected = apply_status(&tx, child, &update, me)
+            .await
+            .expect("改子任务状态失败");
+        assert_eq!(affected, 1, "子任务必须存在");
+        let out = cascade_parent_status(&tx, child, me)
+            .await
+            .expect("状态级联失败");
+        tx.commit().await.expect("提交事务失败");
+        out
+    }
+
+    /// 读库里的状态（证明断言看的是**落库值**，不是内存里的返回值）。
+    async fn status_of(id: Uuid) -> TaskStatus {
+        let rows = db()
+            .find_with_params(
+                "SELECT status FROM biz_task WHERE id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查状态失败");
+        let raw: String = rows
+            .first()
+            .expect("任务应存在")
+            .get_typed("status")
+            .expect("取 status");
+        TaskStatus::parse(&raw).expect("状态必须是 5 态之一")
+    }
+
+    // ---------- 纯逻辑（不连库）：规则①②⑨的判别 ----------
+
+    fn snap(status: TaskStatus) -> ChildSnapshot {
+        ChildSnapshot {
+            status,
+            progress: 0,
+            estimate_hours: None,
+        }
+    }
+
+    /// 规则判别（纯逻辑）：①活动子任务 → DOING、②全部终态 → REVIEW、⑨终态不回退。
+    #[test]
+    fn cascade_target_follows_the_three_rules() {
+        // 规则①：父 TODO + 子任务动起来
+        assert_eq!(
+            cascade_target(TaskStatus::Todo, &[snap(TaskStatus::Doing)]),
+            Some(TaskStatus::Doing)
+        );
+        assert_eq!(
+            cascade_target(TaskStatus::Todo, &[snap(TaskStatus::Review)]),
+            Some(TaskStatus::Doing)
+        );
+        // 规则②：全部终态（DONE / CANCELLED 都算）
+        assert_eq!(
+            cascade_target(TaskStatus::Todo, &[snap(TaskStatus::Done)]),
+            Some(TaskStatus::Review),
+            "单子任务完成 = 全部终态 → 进 REVIEW（不是 DOING：100% 的父任务挂在「待开始/进行中」就是老大报的缺陷）"
+        );
+        assert_eq!(
+            cascade_target(
+                TaskStatus::Doing,
+                &[snap(TaskStatus::Done), snap(TaskStatus::Cancelled)]
+            ),
+            Some(TaskStatus::Review),
+            "CANCELLED 也算终态"
+        );
+        // 规则⑨：终态不回退
+        assert_eq!(
+            cascade_target(TaskStatus::Done, &[snap(TaskStatus::Doing)]),
+            None,
+            "父任务已完成，子任务被拉回进行中 → 父任务不动"
+        );
+        assert_eq!(
+            cascade_target(TaskStatus::Cancelled, &[snap(TaskStatus::Doing)]),
+            None
+        );
+        // 目标 == 现状 / 没有子任务 / 子任务全是 TODO / 父任务 REVIEW 但还没全结束
+        assert_eq!(
+            cascade_target(TaskStatus::Review, &[snap(TaskStatus::Done)]),
+            None,
+            "已在 REVIEW，不用重复改"
+        );
+        assert_eq!(cascade_target(TaskStatus::Todo, &[]), None);
+        assert_eq!(
+            cascade_target(
+                TaskStatus::Todo,
+                &[snap(TaskStatus::Todo), snap(TaskStatus::Todo)]
+            ),
+            None,
+            "子任务全在 TODO → 父任务还是待开始"
+        );
+        assert_eq!(
+            cascade_target(
+                TaskStatus::Review,
+                &[snap(TaskStatus::Done), snap(TaskStatus::Doing)]
+            ),
+            None
+        );
+        assert_eq!(
+            cascade_target(TaskStatus::Doing, &[snap(TaskStatus::Doing)]),
+            None
+        );
+    }
+
+    // ---------- ① 单子任务：父 TODO + 子 TODO→DOING → 父 DOING ----------
+
+    #[tokio::test]
+    async fn first_active_child_moves_todo_parent_to_doing() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(parent, "R1-P", None, "TODO", me).await;
+        insert_task(child, "R1-C", Some(parent), "TODO", me).await;
+
+        let out = change_child(child, TaskStatus::Doing, me).await;
+        assert_eq!(
+            status_of(parent).await,
+            TaskStatus::Doing,
+            "规则①：父任务必须自动进进行中"
+        );
+        assert_eq!(out.len(), 1, "只有一层祖先");
+        assert_eq!(out[0].task_id, parent);
+        assert_eq!(out[0].from, TaskStatus::Todo);
+        assert_eq!(out[0].to, TaskStatus::Doing);
+        assert_eq!(out[0].reason, CASCADE_REASON_FIRST_ACTIVE);
+        assert!(!out[0].all_terminal, "子任务还在进行中");
+        // 时间线留痕：父任务上必须有一条「系统自动级联」的 STATUS_CHANGE 评论。
+        // 注：`sys_change_log` 只有 `business/changelog/` 能读（C7 G1 门禁），
+        // 变更日志的端到端断言放在 `scripts/verify/t10_cascade.sh`（走 HTTP 接口）。
+        let comments = db()
+            .find_with_params(
+                "SELECT content FROM biz_task_comment \
+                  WHERE task_id = ?::uuid AND comment_type = 'STATUS_CHANGE'",
+                vec![Value::from(&parent)],
+            )
+            .await
+            .expect("查父任务评论失败");
+        assert_eq!(comments.len(), 1, "级联改状态必须留一条 STATUS_CHANGE 评论");
+        let content: String = comments[0].get_typed("content").expect("取 content");
+        assert!(
+            content.contains("TODO") && content.contains("DOING") && content.contains("自动级联"),
+            "评论要写清 from → to 与触发原因：{content}"
+        );
+    }
+
+    // ---------- ② 单子任务：父 TODO + 子 TODO→DONE → 全部终态 → 父 REVIEW ----------
+    //
+    // 卡面用例②写的是「父变 DOING（不是 REVIEW）」，但它与卡面规则②「所有子任务都到终态
+    // → 父任务进 REVIEW」在「只有 1 个子任务」时直接冲突（1 个子任务完成 = 全部完成）。
+    // 本卡按**规则②**落地：单子任务完成 → 父任务进 REVIEW —— 否则会出现「父任务进度 100%
+    // 却挂在待开始/进行中」，正是老大这次报的缺陷本身。已在看板留言说明。
+
+    #[tokio::test]
+    async fn single_child_done_sends_parent_to_review() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(parent, "R2-P", None, "TODO", me).await;
+        insert_task(child, "R2-C", Some(parent), "TODO", me).await;
+
+        let out = change_child(child, TaskStatus::Done, me).await;
+        assert_eq!(
+            status_of(parent).await,
+            TaskStatus::Review,
+            "唯一子任务完成 = 全部终态 → 父任务进待验收（人工点 DONE 才结项）"
+        );
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].to, TaskStatus::Review);
+        assert_eq!(out[0].reason, CASCADE_REASON_ALL_TERMINAL);
+        assert!(out[0].all_terminal);
+    }
+
+    // ---------- ③ 双子任务：子1 DONE、子2 仍 TODO → 父 DOING（不进 REVIEW） ----------
+
+    #[tokio::test]
+    async fn partially_done_children_keep_parent_in_doing() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let c1 = Uuid::now_v7();
+        let c2 = Uuid::now_v7();
+        insert_task(parent, "R3-P", None, "TODO", me).await;
+        insert_task(c1, "R3-C1", Some(parent), "TODO", me).await;
+        insert_task(c2, "R3-C2", Some(parent), "TODO", me).await;
+
+        let out = change_child(c1, TaskStatus::Done, me).await;
+        assert_eq!(
+            status_of(parent).await,
+            TaskStatus::Doing,
+            "还有子任务没结束 → 不进 REVIEW"
+        );
+        assert_eq!(out[0].to, TaskStatus::Doing);
+        assert_eq!(out[0].reason, CASCADE_REASON_FIRST_ACTIVE);
+        assert!(!out[0].all_terminal);
+        assert_eq!(
+            status_of(c2).await,
+            TaskStatus::Todo,
+            "另一条子任务不该被动"
+        );
+    }
+
+    // ---------- ④ 双子任务全部 DONE → 父进 REVIEW ----------
+
+    #[tokio::test]
+    async fn all_children_done_sends_parent_to_review() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let c1 = Uuid::now_v7();
+        let c2 = Uuid::now_v7();
+        insert_task(parent, "R4-P", None, "TODO", me).await;
+        insert_task(c1, "R4-C1", Some(parent), "TODO", me).await;
+        insert_task(c2, "R4-C2", Some(parent), "TODO", me).await;
+
+        let first = change_child(c1, TaskStatus::Done, me).await;
+        assert_eq!(
+            first[0].to,
+            TaskStatus::Doing,
+            "第一个子任务完成时父任务先进进行中"
+        );
+        let second = change_child(c2, TaskStatus::Done, me).await;
+        assert_eq!(
+            status_of(parent).await,
+            TaskStatus::Review,
+            "两个子任务都完成 → 进待验收"
+        );
+        assert_eq!(second[0].from, TaskStatus::Doing);
+        assert_eq!(second[0].to, TaskStatus::Review);
+    }
+
+    // ---------- ⑤ 三子任务全 DONE → 父进 REVIEW ----------
+
+    #[tokio::test]
+    async fn three_children_all_done_sends_parent_to_review() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let c1 = Uuid::now_v7();
+        let c2 = Uuid::now_v7();
+        let c3 = Uuid::now_v7();
+        insert_task(parent, "R5-P", None, "TODO", me).await;
+        insert_task(c1, "R5-C1", Some(parent), "TODO", me).await;
+        insert_task(c2, "R5-C2", Some(parent), "TODO", me).await;
+        insert_task(c3, "R5-C3", Some(parent), "TODO", me).await;
+
+        for child in [c1, c2] {
+            change_child(child, TaskStatus::Done, me).await;
+            assert_eq!(
+                status_of(parent).await,
+                TaskStatus::Doing,
+                "还有子任务没结束 → 只能在进行中"
+            );
+        }
+        change_child(c3, TaskStatus::Done, me).await;
+        assert_eq!(status_of(parent).await, TaskStatus::Review);
+        assert_eq!(status_of(c3).await, TaskStatus::Done);
+    }
+
+    // ---------- ⑥ 子任务 CANCELLED 也算终态 → 全部终态后父进 REVIEW ----------
+
+    #[tokio::test]
+    async fn cancelled_child_counts_as_terminal() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let c1 = Uuid::now_v7();
+        let c2 = Uuid::now_v7();
+        insert_task(parent, "R6-P", None, "TODO", me).await;
+        insert_task(c1, "R6-C1", Some(parent), "TODO", me).await;
+        insert_task(c2, "R6-C2", Some(parent), "TODO", me).await;
+
+        change_child(c1, TaskStatus::Done, me).await;
+        assert_eq!(status_of(parent).await, TaskStatus::Doing);
+        change_child(c2, TaskStatus::Cancelled, me).await;
+        assert_eq!(
+            status_of(parent).await,
+            TaskStatus::Review,
+            "取消也是终态：DONE + CANCELLED = 全部结束 → 进待验收"
+        );
+    }
+
+    // ---------- ⑦ 三层：孙 → 子 → 父（祖父跟着更新） ----------
+
+    #[tokio::test]
+    async fn three_levels_cascade_upward() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let grand = Uuid::now_v7();
+        let parent = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(grand, "R7-G", None, "TODO", me).await;
+        insert_task(parent, "R7-P", Some(grand), "TODO", me).await;
+        insert_task(child, "R7-C", Some(parent), "TODO", me).await;
+
+        let out = change_child(child, TaskStatus::Done, me).await;
+        assert_eq!(out.len(), 2, "两层祖先都要被评估：{out:?}");
+        // 第一层：子任务全部终态 → 子任务（父）进 REVIEW
+        assert_eq!(out[0].task_id, parent);
+        assert_eq!(out[0].to, TaskStatus::Review);
+        // 第二层：父任务（祖父）的子任务动了 → 从 TODO 进 DOING
+        assert_eq!(out[1].task_id, grand);
+        assert_eq!(out[1].from, TaskStatus::Todo);
+        assert_eq!(out[1].to, TaskStatus::Doing);
+        assert_eq!(status_of(parent).await, TaskStatus::Review);
+        assert_eq!(status_of(grand).await, TaskStatus::Doing);
+    }
+
+    // ---------- ⑧ 防环：手工造脏数据 A.parent=B / B.parent=A → 不死循环 ----------
+
+    #[tokio::test]
+    async fn dirty_cycle_stops_cascade() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let a = Uuid::now_v7();
+        let b = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(a, "R8-A", None, "TODO", me).await;
+        insert_task(b, "R8-B", Some(a), "TODO", me).await;
+        insert_task(child, "R8-C", Some(a), "TODO", me).await;
+        // A → B 之后再回填 B → A（`ck_biz_task_parent_not_self` 只拦自指，拦不住环）
+        db().execute_with_params(
+            "UPDATE biz_task SET parent_id = ?::uuid WHERE id = ?::uuid",
+            vec![Value::from(&b), Value::from(&a)],
+        )
+        .await
+        .expect("夹具造环失败");
+
+        // 这条用例能跑完本身就是断言（成环时它会不返回）
+        let out = change_child(child, TaskStatus::Doing, me).await;
+        assert_eq!(out.len(), 2, "环上两个任务各被评估一次就该停：{out:?}");
+        assert_eq!(status_of(a).await, TaskStatus::Doing);
+        assert_eq!(status_of(b).await, TaskStatus::Doing);
+    }
+
+    // ---------- ⑨ 父任务已 DONE，子任务又被改成 DOING → 父不动（终态不回退） ----------
+
+    #[tokio::test]
+    async fn terminal_parent_never_rolls_back() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(parent, "R9-P", None, "DONE", me).await;
+        insert_task(child, "R9-C", Some(parent), "DONE", me).await;
+
+        let out = change_child(child, TaskStatus::Doing, me).await;
+        assert!(out.is_empty(), "父任务已是终态 → 不做任何级联：{out:?}");
+        assert_eq!(status_of(parent).await, TaskStatus::Done, "终态不回退");
+    }
+
+    // ---------- ⑩ 事务性：级联失败 → 子任务状态也回滚 ----------
+
+    #[tokio::test]
+    async fn cascade_failure_rolls_back_child_change() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let me = uuid(U_ID);
+        let parent = Uuid::now_v7();
+        let child = Uuid::now_v7();
+        insert_task(parent, "R10-P", None, "TODO", me).await;
+        insert_task(child, "R10-C", Some(parent), "TODO", me).await;
+
+        // 让「父任务进 REVIEW」这一步必失败：BEFORE UPDATE 触发器只挂在父任务那一行
+        db().exec_sql(
+            "CREATE OR REPLACE FUNCTION t10_block_review() RETURNS trigger AS $$ \
+                 BEGIN \
+                   IF NEW.status = 'REVIEW' THEN \
+                     RAISE EXCEPTION 'T10 单测：禁止父任务进 REVIEW'; \
+                   END IF; \
+                   RETURN NEW; \
+                 END; \
+                 $$ LANGUAGE plpgsql"
+                .to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("建触发器函数失败");
+        db().exec_sql(
+            format!(
+                "CREATE TRIGGER t10_block_review_trg BEFORE UPDATE ON biz_task \
+                     FOR EACH ROW WHEN (OLD.id = '{parent}'::uuid) \
+                     EXECUTE FUNCTION t10_block_review()"
+            ),
+            Vec::new(),
+        )
+        .await
+        .expect("建触发器失败");
+
+        let tx = db().begin().await.expect("开启事务失败");
+        let update = StatusUpdate {
+            to: TaskStatus::Done.code().to_string(),
+            progress: None,
+            done_at: Some(Some(Utc::now())),
+            reject_reason: None,
+            cancel_reason: None,
+        };
+        apply_status(&tx, child, &update, me)
+            .await
+            .expect("子任务状态先写成功");
+        let error = cascade_parent_status(&tx, child, me)
+            .await
+            .expect_err("父任务进 REVIEW 必须失败");
+        println!("级联失败（预期）：{error}");
+        tx.rollback().await.expect("回滚事务失败");
+
+        assert_eq!(
+            status_of(child).await,
+            TaskStatus::Todo,
+            "级联失败 → 子任务状态必须一起回滚（宁可没改成，也不接受父任务状态错着）"
+        );
+        assert_eq!(status_of(parent).await, TaskStatus::Todo, "父任务保持原状");
+
+        db().exec_sql(
+            "DROP TRIGGER IF EXISTS t10_block_review_trg ON biz_task".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("删触发器失败");
+        db().exec_sql(
+            "DROP FUNCTION IF EXISTS t10_block_review()".to_string(),
+            Vec::new(),
+        )
+        .await
+        .expect("删触发器函数失败");
     }
 }

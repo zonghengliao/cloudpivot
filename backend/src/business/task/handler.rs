@@ -781,6 +781,9 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 /// - 写一条 `comment_type = STATUS_CHANGE` 的评论（含 from/to/reason）；
 /// - 写 `sys_change_log`（`action = STATUS`，白名单字段 diff）；
 /// - 若本条是子任务 → 沿 `parent_id` 逐级重算父任务进度（架构 D4/D5）；
+/// - 若本条是子任务 → 沿 `parent_id` 逐级**级联父任务状态**（T10：首个活动子任务 →
+///   父任务进 `DOING`；子任务全部到终态 → 父任务进 `REVIEW`，见
+///   [`model::cascade_parent_status`]）；
 /// - **`DOING → REVIEW` 且配了 `TASK_ACCEPT` 审批流程 → 自动发起审批单并回写
 ///   `approval_instance_id`**（没配流程则什么都不做，保持原两级验收，见
 ///   [`crate::business::flow::task_bridge::prepare_accept`]）。
@@ -979,12 +982,12 @@ pub async fn change_status(
     let operator_name = display_name(&claims);
     let operator_name_tx = operator_name.clone();
     let action_label = transition.label;
-    let (comment_id, affected, recalcs) = db()
+    let (comment_id, affected, recalcs, cascades) = db()
         .transaction(|tx| async move {
             let affected = model::apply_status(&tx, task_id, &update, me).await?;
             if affected == 0 {
                 // 事务里被并发软删：评论与日志都不该落
-                return Ok((Uuid::nil(), 0, Vec::new()));
+                return Ok((Uuid::nil(), 0, Vec::new(), Vec::new()));
             }
             // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
             if let Some(start) = accept.as_ref() {
@@ -1015,7 +1018,34 @@ pub async fn change_status(
                 DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
             })?;
             let recalcs = model::recalc_ancestors(&tx, task_id, me).await?;
-            Ok((comment_id, affected, recalcs))
+            // T10：父任务状态随子任务级联（**同事务**：级联失败 → 子任务状态一起回滚，
+            // 红线是「宁可这次没改成，也不接受父任务状态错着」）
+            let cascades = model::cascade_parent_status(&tx, task_id, me).await?;
+            // 级联的变更日志也在这个闭包里写：状态改了而日志没写就是审计缺口，
+            // 两者必须同生共死（G5 门禁：`record` 的调用点只能在事务闭包内）。
+            for cascade in &cascades {
+                let before = serde_json::json!({ "status": cascade.from.code() });
+                let after = serde_json::json!({ "status": cascade.to.code() });
+                changelog::record(
+                    &tx,
+                    &ChangeCtx::api(Some(me), Some(operator_name_tx.as_str())),
+                    ChangeTarget::of(
+                        "biz_task",
+                        cascade.task_id.to_string(),
+                        Action::Status,
+                        cascade.reason,
+                    ),
+                    DiffInput::update(&before, &after),
+                )
+                .await
+                .map_err(|error| {
+                    DbError::InvalidValue(format!(
+                        "变更日志写入失败 [{}] {}",
+                        error.code, error.msg
+                    ))
+                })?;
+            }
+            Ok((comment_id, affected, recalcs, cascades))
         })
         .await
         .map_err(|error| utils::db_error(error, "变更任务状态"))?;
@@ -1026,6 +1056,16 @@ pub async fn change_status(
     // ⑨ 通知（事务外：通知失败不该回滚状态）
     notify_status_change(&current, from, to, me, &operator_name, reason.as_deref()).await;
     notify_ready_to_close(&recalcs, me, &operator_name).await;
+    // ⑨b 级联结果留痕（改动已在事务里落库，这里只补一条可 grep 的汇总行）
+    for cascade in &cascades {
+        tracing::info!(
+            task_id = %cascade.task_id,
+            from = cascade.from.code(),
+            to = cascade.to.code(),
+            reason = cascade.reason,
+            "父任务状态级联"
+        );
+    }
     // ⑩ 依赖联动（T4）：前置 DONE → 强制通知后继负责人；前置 CANCELLED → 尊重偏好提醒
     if matches!(to, TaskStatus::Done | TaskStatus::Cancelled) {
         notify_dependents(&current, to, me, &operator_name).await;
