@@ -9,21 +9,25 @@
             <t-tabs :model-value="'gantt'" class="view-switch" :space-evenly="false" @change="handleViewChange">
               <t-tab-panel value="list">
                 <template #label>
-                  <span class="view-switch__label"><t-icon name="list" /> 任务列表</span>
+                  <span class="view-switch__label"><t-icon name="view-list" /> 任务列表</span>
                 </template>
               </t-tab-panel>
               <t-tab-panel value="board">
                 <template #label>
-                  <span class="view-switch__label"><t-icon name="view-board" /> 任务看板</span>
+                  <span class="view-switch__label"><t-icon name="view-module" /> 任务看板</span>
                 </template>
               </t-tab-panel>
               <t-tab-panel value="gantt">
                 <template #label>
-                  <span class="view-switch__label"><t-icon name="calendar" /> 甘特图</span>
+                  <span class="view-switch__label"><t-icon name="view-gantt" /> 甘特图</span>
+                </template>
+              </t-tab-panel>
+              <t-tab-panel value="burndown">
+                <template #label>
+                  <span class="view-switch__label"><t-icon name="chart-line" /> 燃尽图</span>
                 </template>
               </t-tab-panel>
             </t-tabs>
-            <span class="toolbar__title">甘特图</span>
             <t-tag size="small" variant="light-outline" theme="primary">可拖拽改期</t-tag>
           </t-space>
         </t-col>
@@ -1104,6 +1108,10 @@ function handleViewChange(value: unknown): void {
   const next = String(value);
   if (next === 'board') {
     void router.push('/task?view=board');
+    return;
+  }
+  if (next === 'burndown') {
+    void router.push('/task?view=burndown');
     return;
   }
   if (next === 'list') {
