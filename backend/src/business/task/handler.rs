@@ -2163,6 +2163,12 @@ async fn persist_comment(
 /// - 人类上传 → `category='task'`（50 MB，允许办公文档 / 压缩包）；
 /// - AI 上传 → `category='task_ai'`（100 MB，白名单更严、禁可执行扩展名、禁直传）。
 ///
+/// # 命名（E14）
+///
+/// AI 上传的文件名若没带本任务号，**自动加** `<任务号>-` 前缀
+/// （`report.md` → `TSK-202610-000123-report.md`）；人类上传保持原名。
+/// 理由：同一个 AI 处理多个任务时都产出 `report.md`，附件列表里全叫一个名字。
+///
 /// 两者的策略校验 / 秒传 / 落库都走
 /// [`crate::business::storage::handler::store_server_upload`] —— 与存储模块的
 /// 通用上传**逐字节同一套**，AI 因此拿不到比人类更宽的入口。
@@ -2184,10 +2190,13 @@ pub async fn upload_attachment(
     let task_id = parse_uuid_field(&id, "任务")?;
     let reader = resolve_reader(claims, ai_actor)?;
     let me = reader.principal().await?;
-    model::find_detail(&me, task_id)
+    // E14：AI 的产出文件要按任务号命名，所以这里要把任务号留下（人类上传不用）。
+    let task_no = model::find_detail(&me, task_id)
         .await
         .map_err(|error| utils::db_error(error, "查询任务"))?
-        .ok_or_else(not_found)?;
+        .ok_or_else(not_found)?
+        .card
+        .task_no;
 
     // T6b：单任务附件上限 50（卡面 §二 规则 2）。**读流之前**判 ——
     // 否则一个 50 MB 的文件会先被完整读进内存再被拒（白烧一次 IO 与内存）。
@@ -2211,7 +2220,25 @@ pub async fn upload_attachment(
         return Err(storage::handler::server_size_error(server_limit));
     }
 
-    let (file_name, mime_type, bytes) = read_single_upload(&mut multipart).await?;
+    let (raw_name, mime_type, bytes) = read_single_upload(&mut multipart).await?;
+    // E14：AI 产出文件名自动带本任务号前缀（`TSK-202610-000123-report.md`）。
+    //
+    // 只在 AI 侧做：人类附件叫什么叫人自己定，改名反而会破坏人的直觉。
+    // 自动加而不是「只打 WARN」的理由见 [`hermes_sync::name_output_file`]。
+    let file_name = if reader.is_ai() {
+        let prefixed = hermes_sync::name_output_file(&task_no, &raw_name);
+        if prefixed != raw_name {
+            tracing::info!(
+                task_no = %task_no,
+                raw_name = %raw_name,
+                file_name = %prefixed,
+                "AI 产出文件名未带任务号，已自动加前缀"
+            );
+        }
+        prefixed
+    } else {
+        raw_name
+    };
     let category = if reader.is_ai() {
         hermes_sync::AI_UPLOAD_CATEGORY
     } else {
@@ -2226,6 +2253,19 @@ pub async fn upload_attachment(
         Some(operator),
     )
     .await?;
+
+    // E14：秒传按「内容 hash」复用 `sys_file` 记录，同名不同内容不受影响；但同一份字节
+    // 被第二个任务再传时，落到附件列表的仍是**首次上传**那个名字（记录是共用的）。
+    // 只留痕不阻断 —— 改名意味着复制一条 sys_file（多一份存储），不值当。
+    if reader.is_ai() && record.original_name.as_deref() != Some(file_name.as_str()) {
+        tracing::warn!(
+            task_no = %task_no,
+            wanted = %file_name,
+            kept = ?record.original_name,
+            file_id = %record.id,
+            "AI 产出命中内容秒传，沿用首次上传的文件名"
+        );
+    }
 
     let attachment_id = if reader.is_ai() {
         let profile = match &reader {

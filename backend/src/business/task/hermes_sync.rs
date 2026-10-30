@@ -181,6 +181,40 @@ fn single_line(raw: &str) -> String {
         .join(" ")
 }
 
+/// AI 产出文件名加任务号前缀（E14：多个任务共用一个 workspace 时不许互相覆盖）。
+///
+/// # 规则
+///
+/// - 文件名**已经**以本任务号开头（大小写不敏感，且任务号之后紧跟 `-` / `_` / `.` 或结尾）
+///   → 原样返回，不重复加前缀；
+/// - 否则拼成 `<task_no>-<原名>`；
+/// - `task_no` 或 `file_name` 为空 → 原样返回（防呆）。
+///
+/// # 为什么是「自动加前缀」而不是「只打 WARN」
+///
+/// 老大实测的根因是**同一个 AI 顺序处理多个任务时在同一个 workspace 里用同名文件互相覆盖**，
+/// 只打日志不会改变用户看到的文件名。自动加前缀能让云枢附件列表的 `original_name` 天然带任务号
+/// （`TSK-202610-000123-report.md`）；而**落盘**的文件不重名只能在派活 body 里要求
+/// （那是 AI 侧的行为，云枢管道之外），所以两处都要做。
+pub fn name_output_file(task_no: &str, file_name: &str) -> String {
+    let task_no = task_no.trim();
+    let file_name = file_name.trim();
+    if task_no.is_empty() || file_name.is_empty() {
+        return file_name.to_string();
+    }
+    let lower_name = file_name.to_ascii_lowercase();
+    let lower_no = task_no.to_ascii_lowercase();
+    // 仅「前缀 + 分隔符」算已带任务号：`0001234` 不能被当成已带 `000123`。
+    let already_prefixed = lower_name
+        .strip_prefix(&lower_no)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '_', '.']));
+    if already_prefixed {
+        file_name.to_string()
+    } else {
+        format!("{task_no}-{file_name}")
+    }
+}
+
 /// 派活 body 的入参。
 pub struct DispatchBody<'a> {
     /// 云枢任务 id。
@@ -257,6 +291,17 @@ pub fn render_body(input: &DispatchBody<'_>) -> String {
 4. **结构化产出**（强烈建议）：在 run metadata 里给 `new_files`（绝对路径数组）、
    `commit`、`endpoints` 等字段，云枢会把它存成 `ai_result` 供前端渲染「交付清单」；
    `new_files` 里落在本机 workspace 下的文件，云枢会自己读盘再上传（兜底路径）。
+
+### 产出文件命名（必须遵守）
+
+- 文件名前缀用**任务号**：`{task_no}-<简短描述>.<ext>`
+  例：`{task_no}-selfcheck.md`、`{task_no}-diff.patch`
+- **禁止**使用无前缀的通用名（`report.md` / `output.txt` / `result.json`）——
+  同一个 AI 处理多个任务时会在同一个 workspace 里**互相覆盖**，前面任务的产出会被后一个盖掉
+- 一个任务可以产出多个文件，每个都要带 `{task_no}-` 前缀
+- 兜底：上传到云枢时若文件名没带任务号，云枢会**自动补** `{task_no}-` 前缀
+  （附件列表里因此不会重名）；但**落盘**的文件仍要你自己按上面的规范命名，
+  否则「最后一个任务覆盖前面所有任务的产出」这件事云枢救不了
 
 示例（把 `<文件>` 换成你的产出物绝对路径）：
 
@@ -720,9 +765,11 @@ async fn relay_done(
     for raw in &declared {
         match resolve_workspace_file(&workspace_root, raw).await {
             Ok(Some((path, name, bytes, mime))) => {
+                // E14：兜底路径也按任务号命名，云枢附件列表里不会出现一堆 `report.md`。
+                let upload_name = name_output_file(&target.task_no, &name);
                 match storage::handler::store_server_upload(
                     AI_UPLOAD_CATEGORY,
-                    &name,
+                    &upload_name,
                     &mime,
                     &bytes,
                     Some(target.owner_id),
@@ -739,14 +786,15 @@ async fn relay_done(
                         )
                         .await
                         {
-                            warnings
-                                .push(format!("AI 产出「{name}」已上传但绑定附件失败：{error}"));
+                            warnings.push(format!(
+                                "AI 产出「{upload_name}」已上传但绑定附件失败：{error}"
+                            ));
                         } else {
-                            uploaded.push(format!("{name}（{}）", path.display()));
+                            uploaded.push(format!("{upload_name}（{}）", path.display()));
                         }
                     }
                     Err(error) => warnings.push(format!(
-                        "AI 产出「{name}」上传云枢失败：{}（文件：{}）",
+                        "AI 产出「{upload_name}」上传云枢失败：{}（文件：{}）",
                         error.msg,
                         path.display()
                     )),
@@ -1240,6 +1288,62 @@ mod tests {
         assert!(body.contains("agent-report"));
         assert!(body.contains("new_files"));
         assert!(body.contains("授权") || body.contains("Authorization"));
+    }
+
+    /// E14：AI 产出文件名必须带任务号前缀（且不重复加、不同任务不撞名）。
+    #[test]
+    fn output_file_name_carries_task_no() {
+        assert_eq!(
+            name_output_file("TSK-202610-000123", "report.md"),
+            "TSK-202610-000123-report.md"
+        );
+        // 已带前缀（含分隔符）→ 原样保留，不重复加
+        assert_eq!(
+            name_output_file("TSK-202610-000123", "TSK-202610-000123-report.md"),
+            "TSK-202610-000123-report.md"
+        );
+        assert_eq!(
+            name_output_file("TSK-202610-000123", "tsk-202610-000123_d3.patch"),
+            "tsk-202610-000123_d3.patch"
+        );
+        // 号段前缀不算「已带任务号」：0001234 不是 000123
+        assert_eq!(
+            name_output_file("TSK-202610-000123", "TSK-202610-0001234-x.md"),
+            "TSK-202610-000123-TSK-202610-0001234-x.md"
+        );
+        // 空任务号 / 空文件名不炸
+        assert_eq!(name_output_file("", "report.md"), "report.md");
+        assert_eq!(name_output_file("TSK-202610-000123", "  "), "");
+        // 两个任务上传同名产出 → 名字不同（老大实测的「都是一个文件」就是这条挂了）
+        assert_ne!(
+            name_output_file("TSK-202610-000123", "report.md"),
+            name_output_file("TSK-202610-000124", "report.md")
+        );
+    }
+
+    /// body 里必须带「产出文件命名」那段要求（E14）。
+    #[test]
+    fn dispatch_body_declares_output_naming_rule() {
+        let body = render_body(&DispatchBody {
+            task_id: sample_task_id(),
+            task_no: "TSK-202610-000042",
+            title: "生成月度报告",
+            description: None,
+            priority: "P1",
+            due_date: None,
+            estimate_hours: None,
+            token: "cpai_x",
+            base_url: "http://host",
+            profile: "agent-report",
+        });
+        assert!(body.contains("### 产出文件命名（必须遵守）"), "{body}");
+        assert!(
+            body.contains("`TSK-202610-000042-<简短描述>.<ext>`"),
+            "示例必须用本任务号占位：{body}"
+        );
+        assert!(body.contains("`TSK-202610-000042-selfcheck.md`"), "{body}");
+        assert!(body.contains("`report.md`"), "必须点名禁止通用名：{body}");
+        assert!(body.contains("互相覆盖"), "{body}");
     }
 
     /// 标题里的换行必须被压平（否则 Markdown 标题会被截断）。
