@@ -37,8 +37,9 @@
 --
 -- ── 建模要点（W0 的硬结论，别改）──────────────────────────────────────────
 -- ① 仓库树用**物化路径** `warehouse_path`（`/uuid/uuid/`），索引必须同时有
---    `text_pattern_ops` 版本：库 collation 是 zh_CN.UTF-8，默认 btree 在 LIKE 前缀上
---    推不出 `~>=~ / ~<~` 边界，只能整列吐给 heap 再 Filter（20 万行实测 25.3ms vs 1.696ms）。
+--    `text_pattern_ops` 版本：非 C collation（本机实测 en_US.UTF-8；W0 文档写 zh_CN.UTF-8，
+--    两者结论一致）下默认 btree 在 LIKE 前缀上推不出 `~>=~ / ~<~` 边界，只能整列吐给
+--    heap 再 Filter（20 万行实测 15.4ms vs 0.11ms，135×，见验收证据 §5）。
 -- ② 层级上限 3 级（总仓/分仓/库房），DB `CHECK (level BETWEEN 1 AND 3)`。
 -- ③ 库位编码**仓库内唯一**，不是全局唯一。
 -- ④ 库位维度不塞进 `biz_inventory`，另建 `biz_inventory_location`（两级账）。
@@ -495,9 +496,9 @@ CREATE INDEX IF NOT EXISTS idx_biz_warehouse_parent ON biz_warehouse (parent_id)
 -- ⚠ 两个 path 索引不是重复，各有分工（20 万行实测，见 W0 §4.1）：
 --   · idx_biz_warehouse_path（默认 btree）：给 `ORDER BY warehouse_path` 整棵树排序与等值查用
 --   · idx_biz_warehouse_path_pattern（text_pattern_ops）：给 `LIKE '/祖先/%'` 子树查用
--- 为什么必须第二个：库的 collation 是 zh_CN.UTF-8，默认 btree 在 LIKE 前缀上推不出
--- `~>=~ / ~<~` 边界，只能把整列吐给 heap 再 Filter（25.3ms）；换成 text_pattern_ops 后
--- Index Cond 有边界，只取目标行（1.696ms）。
+-- 为什么必须第二个：非 C collation（本机实测 en_US.UTF-8）下默认 btree 在 LIKE 前缀上
+-- 推不出 `~>=~ / ~<~` 边界，只能把整列吐给 heap 再 Filter（20 万行实测 15.4ms）；
+-- 换成 text_pattern_ops 后 Index Cond 有边界，只取目标行（0.11ms，Index Only Scan）。
 -- 底座 sys_dept 只建了默认 btree（`idx_sys_dept_path`）→ 同样的退化，但部门树行数小，
 -- 实测无感知；业务侧这次按正确写法建，不改底座。
 CREATE INDEX IF NOT EXISTS idx_biz_warehouse_path         ON biz_warehouse (warehouse_path);
