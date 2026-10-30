@@ -58,11 +58,23 @@
     <t-card :bordered="false" class="toolbar-card">
       <div class="toolbar">
         <t-space align="center">
-          <t-radio-group v-model="view" variant="default-filled" size="small" class="view-switch">
-            <t-radio-button value="list">列表</t-radio-button>
-            <t-radio-button value="board">看板</t-radio-button>
-            <t-radio-button value="gantt">甘特</t-radio-button>
-          </t-radio-group>
+          <t-tabs v-model="view" class="view-switch" :space-evenly="false">
+            <t-tab-panel value="list">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="list" /> 任务列表</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="board">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="view-board" /> 任务看板</span>
+              </template>
+            </t-tab-panel>
+            <t-tab-panel value="gantt">
+              <template #label>
+                <span class="view-switch__label"><t-icon name="calendar" /> 甘特图</span>
+              </template>
+            </t-tab-panel>
+          </t-tabs>
           <t-button v-privilege="[PERM.taskCreate]" theme="primary" size="small" @click="openCreate">
             <template #icon><t-icon name="add" /></template>
             新建任务
@@ -372,7 +384,28 @@ const route = useRoute();
 const router = useRouter();
 
 /** 当前视图（`gantt` 只是切换开关的过渡值：选中即跳独立路由，本页不渲染甘特） */
-const view = ref<'list' | 'board' | 'gantt'>(route.query.view === 'board' ? 'board' : 'list');
+// 初始视图优先级：URL query > 路由 meta.defaultView（V0130 菜单目录化）> 列表
+const _metaView = (route.meta as any)?.defaultView as 'list' | 'board' | undefined;
+const _queryView = typeof route.query.view === 'string' ? route.query.view : '';
+const view = ref<'list' | 'board' | 'gantt'>(
+  _queryView === 'gantt' ? 'gantt'
+    : _queryView === 'board' ? 'board'
+    : _queryView === 'list' ? 'list'
+    : _metaView === 'board' ? 'board'
+    : 'list',
+);
+
+// V0130 修复：`/task/list` 与 `/task/board` 共用本组件，Vue Router 会复用实例，
+// setup() 不会重跑 ⇒ 只靠初始化时读 meta 会导致「菜单互切无反应」。这里监听路由。
+watch(
+  () => route.meta?.defaultView as 'list' | 'board' | undefined,
+  (v) => {
+    if (v === 'list' || v === 'board') {
+      view.value = v;
+      void refreshCurrent();
+    }
+  },
+);
 /** 看板实例（保存 / 删除后让它重拉） */
 const boardRef = ref<InstanceType<typeof TaskBoard> | null>(null);
 /** 看板总条数（工具条展示） */

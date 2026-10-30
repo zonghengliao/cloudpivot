@@ -6,11 +6,23 @@
         <t-col :span="4">
           <t-space align="center">
             <!-- 三视图切换（T7b）：甘特页也要能一眼切回列表 / 看板 -->
-            <t-radio-group :model-value="'gantt'" variant="default-filled" size="small" @change="handleViewChange">
-              <t-radio-button value="list">列表</t-radio-button>
-              <t-radio-button value="board">看板</t-radio-button>
-              <t-radio-button value="gantt">甘特</t-radio-button>
-            </t-radio-group>
+            <t-tabs :model-value="'gantt'" class="view-switch" :space-evenly="false" @change="handleViewChange">
+              <t-tab-panel value="list">
+                <template #label>
+                  <span class="view-switch__label"><t-icon name="list" /> 任务列表</span>
+                </template>
+              </t-tab-panel>
+              <t-tab-panel value="board">
+                <template #label>
+                  <span class="view-switch__label"><t-icon name="view-board" /> 任务看板</span>
+                </template>
+              </t-tab-panel>
+              <t-tab-panel value="gantt">
+                <template #label>
+                  <span class="view-switch__label"><t-icon name="calendar" /> 甘特图</span>
+                </template>
+              </t-tab-panel>
+            </t-tabs>
             <span class="toolbar__title">甘特图</span>
             <t-tag size="small" variant="light-outline" theme="primary">可拖拽改期</t-tag>
           </t-space>

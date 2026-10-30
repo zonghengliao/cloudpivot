@@ -236,10 +236,23 @@ const routes: RouteRecordRaw[] = [
         // component 字段是 `business/task/index`，对应本文件的
         // `@/views/business/task/index.vue` —— 路由是**手工注册**的（没有 views 自动扫描），
         // 漏注册的表现就是点菜单进 404 / 空白页。
-        path: 'task',
-        name: 'BusinessTask',
+        // 工作任务目录化（V0130）：三个子菜单各自一条路由，共用 index.vue，
+        // 通过 `meta.defaultView` 决定初始视图（列表 / 看板）。
+        path: 'task/list',
+        name: 'BusinessTaskList',
         component: () => import('@/views/business/task/index.vue'),
-        meta: { title: '工作任务', permission: 'business:task:read' },
+        meta: { title: '任务列表', permission: 'business:task:read', defaultView: 'list' },
+      },
+      {
+        path: 'task/board',
+        name: 'BusinessTaskBoard',
+        component: () => import('@/views/business/task/index.vue'),
+        meta: { title: '任务看板', permission: 'business:task:read', defaultView: 'board' },
+      },
+      {
+        // 兼容旧链接 /task（默认列表）
+        path: 'task',
+        redirect: '/task/list',
       },
       {
         // ==================== 批次 C+（工作任务管理 · T4 甘特图） ====================
