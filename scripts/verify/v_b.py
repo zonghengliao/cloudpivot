@@ -114,6 +114,26 @@ def b_mutex(ctx, roles):
         ctx.skip("角色不足 2 个，互斥无法验证")
         return
     r1, r2 = roles[0][0], roles[1][0]
+    # 建两个临时角色（避免现成角色对已有用户同时持有 -> 61010）
+    import time as _t
+    _s = _t.strftime("%H%M%S")
+    tmp_roles = []
+    for _suffix in ("a", "b"):
+        st, rr = ctx.post("/api/system/role", {
+            "role_code": "vrf_mx_%s_%s" % (_suffix, _s),
+            "role_name": "互斥临时角色" + _suffix,
+            "status": 1, "sort_order": 999,
+        })
+        _d = ctx.data(rr)
+        _rid = _d.get("id") if isinstance(_d, dict) else None
+        if _rid:
+            tmp_roles.append(_rid)
+            ctx.on_cleanup("删临时角色 " + _suffix,
+                           lambda x=_rid: ctx.delete("/api/system/role/" + x))
+    if len(tmp_roles) < 2:
+        ctx.chk("建临时角色（互斥测试用）", False, "只建到 %d 个" % len(tmp_roles))
+        return
+    r1, r2 = tmp_roles[0], tmp_roles[1]
     st, resp = ctx.post("/api/business/mutex", {
         "role_a_id": r1, "role_b_id": r2, "reason": "verify 脚本：互斥验证",
     })
