@@ -284,6 +284,7 @@ import type { FlowProgressNode } from '@/views/business/flow/components/FlowProg
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import { useBadgeStore } from '@/stores/badge';
 
 const route = useRoute();
 const router = useRouter();
@@ -296,6 +297,7 @@ const instanceId = computed(() => String(route.params.id ?? ''));
 const detail = ref<FlowInstanceDetail | null>(null);
 /** 加载中 */
 const loading = ref(false);
+const badgeStore = useBadgeStore();
 /** 加载失败提示 */
 const loadError = ref('');
 
@@ -594,6 +596,7 @@ async function onApprove(): Promise<void> {
   try {
     const comment = approveComment.value.trim();
     const result = await approveFlowTask(taskId, comment ? { comment } : {});
+void badgeStore.refresh();
     approveComment.value = '';
     MessagePlugin.success(result.instance_status === 'APPROVED' ? '已同意，审批单已通过' : '已同意');
     await loadDetail();
@@ -640,6 +643,7 @@ async function submitReject(): Promise<void> {
   rejecting.value = true;
   try {
     await rejectFlowTask(taskId, { comment, return_to: rejectForm.value.returnTo });
+void badgeStore.refresh();
     rejectVisible.value = false;
     MessagePlugin.success('已驳回');
     await loadDetail();

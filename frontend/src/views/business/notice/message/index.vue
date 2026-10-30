@@ -123,6 +123,7 @@ import {
 } from '@/api/business/notice';
 import { formatDateTime } from '@/utils/format';
 import { useNoticeStore } from '@/stores/notice';
+import { useBadgeStore } from '@/stores/badge';
 
 /** 阅读状态筛选 */
 type ReadFilter = 'unread' | 'read' | 'all';
@@ -131,6 +132,7 @@ const noticeStore = useNoticeStore();
 
 const rows = ref<MyNoticeRes[]>([]);
 const loading = ref(false);
+const badgeStore = useBadgeStore();
 const readFilter = ref<ReadFilter>('unread');
 const active = ref<MyNoticeRes | null>(null);
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 });
@@ -259,6 +261,7 @@ function openDetail(item: MyNoticeRes): void {
 async function handleRead(item: MyNoticeRes): Promise<void> {
   try {
     await markNoticeRead(item.receiver_id);
+    void badgeStore.refresh();
     item.read_flag = true;
     item.read_at = new Date().toISOString();
     noticeStore.setUnreadCount(Math.max(0, noticeStore.unreadCount - 1));

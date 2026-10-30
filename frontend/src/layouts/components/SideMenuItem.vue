@@ -112,10 +112,36 @@ function onTitleClick(): void {
 }
 
 .side-menu-item__badge {
-  // 关键：不许被 flex 压缩，否则圆点会被挤成半个
   flex: 0 0 auto;
-  // 颜色/圆角全部交给 TDesign（`--td-error-color`），不写死色值
   margin-left: 0;
-  vertical-align: middle;
+  // 与右侧展开箭头留间距（Playwright 实测 badge.right == arrow.left == 198，贴在一起）
+  margin-right: 8px;
+
+  // TDesign 的 badge 默认是「absolute + left:-自身宽度」浮在图标右上角，
+  // 容器宽高恒为 0（Playwright 实测 w=0 h=0）——
+  // 放在菜单标题行里就会被父级 overflow 裁掉一半。
+  // 这里把圆点拉回**正常流**，让它真正占据宽度，才能被 flex 的 space-between 推到右边。
+  position: static;
+  width: auto;
+  height: auto;
+  line-height: 1;
+
+  :deep(.t-badge--circle) {
+    position: static;      // ← 关键：不再 absolute
+    left: auto;
+    top: auto;
+    transform: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 16px;
+    height: 16px;
+    padding: 0 4px;
+    border-radius: 8px;
+    box-sizing: border-box;
+    // 颜色仍交给 TDesign（--td-error-color）
+    font-size: 11px;
+    font-weight: 500;
+  }
 }
 </style>

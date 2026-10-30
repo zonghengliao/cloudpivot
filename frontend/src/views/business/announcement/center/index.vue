@@ -164,9 +164,11 @@ import {
 } from '@/api/business/announcement-api';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { saveBlob } from '@/utils/download';
+import { useBadgeStore } from '@/stores/badge';
 
 const rows = ref<AnnouncementCard[]>([]);
 const loading = ref(false);
+const badgeStore = useBadgeStore();
 const detailLoading = ref(false);
 const onlyUnread = ref(false);
 const unreadCount = ref(0);
@@ -252,6 +254,7 @@ async function loadDetail(id: string): Promise<void> {
 async function handleRead(id: string, reloadList = true): Promise<void> {
   try {
     const res = await markAnnouncementRead(id);
+    void badgeStore.refresh();
     if (detail.value && detail.value.id === id) {
       detail.value.read = true;
       detail.value.read_at = new Date().toISOString();

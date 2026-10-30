@@ -118,6 +118,7 @@ import {
 import { PERM } from '@/constants/permissions';
 import { statusLabel } from '@/constants/status-map';
 import { useUserStore } from '@/stores/user';
+import { useBadgeStore } from '@/stores/badge';
 
 const props = defineProps<{
   /** 当前任务详情（只读；流转后由父组件重新拉） */
@@ -312,6 +313,7 @@ const actions = computed<StatusAction[]>(() => {
 
 /** 正在提交的按钮 key（为空 = 空闲） */
 const pending = reactive({ key: '' });
+const badgeStore = useBadgeStore();
 
 /** 打回弹窗状态 */
 const reject = reactive({
@@ -397,6 +399,7 @@ async function changeStatus(to: TaskStatus, reason: string, key: string): Promis
     MessagePlugin.success(`已流转到「${statusLabel('task', result.status)}」`);
     emit('changed', result);
     return true;
+void badgeStore.refresh();
   } catch (error) {
     if (error instanceof ApiError && error.code === TASK_ERROR_CODE.APPROVAL_PENDING) {
       notifyApprovalPending();
