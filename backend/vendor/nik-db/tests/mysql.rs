@@ -7,7 +7,7 @@
 //! cargo test -p nik-db --features mysql,chrono,uuid,rust_decimal,json --test mysql
 //! ```
 //!
-//! 连接串可通过 `ALUN_TEST_MYSQL_URL` 覆盖；连接失败时打印原因并跳过
+//! 连接串可通过 `NIK_TEST_MYSQL_URL` 覆盖；连接失败时打印原因并跳过
 //! （本地无 docker 环境不红测试）。
 
 #![cfg(feature = "mysql")]
@@ -40,7 +40,7 @@ async fn setup_mysql() -> Option<Db> {
         return None;
     }
     let url =
-        std::env::var("ALUN_TEST_MYSQL_URL").unwrap_or_else(|_| DEFAULT_MYSQL_URL.to_string());
+        std::env::var("NIK_TEST_MYSQL_URL").unwrap_or_else(|_| DEFAULT_MYSQL_URL.to_string());
     let msg = match tokio::time::timeout(PROBE_TIMEOUT, Db::connect(&url)).await {
         Ok(Ok(db)) => return Some(db),
         Ok(Err(e)) => format!("无法连接 {url}：{e}"),

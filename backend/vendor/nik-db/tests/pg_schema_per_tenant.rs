@@ -10,7 +10,7 @@
 //! cargo test -p nik-db --features postgres --test pg_schema_per_tenant
 //! ```
 //!
-//! 连接串可通过 `ALUN_TEST_PG_URL` 覆盖；连接失败时打印原因并跳过。
+//! 连接串可通过 `NIK_TEST_PG_URL` 覆盖；连接失败时打印原因并跳过。
 //! 仅 PostgreSQL 有意义；SQLite / MySQL 无 schema 概念，本测试不覆盖。
 //!
 //! 两个 schema 开关是**进程级全局状态**，故本文件只放一个测试函数，
@@ -36,7 +36,7 @@ async fn setup_pg() -> Option<Db> {
         eprintln!("跳过 PG 测试（{msg}）");
         return None;
     }
-    let url = std::env::var("ALUN_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string());
+    let url = std::env::var("NIK_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string());
     let msg = match tokio::time::timeout(PROBE_TIMEOUT, Db::connect(&url)).await {
         Ok(Ok(db)) => return Some(db),
         Ok(Err(e)) => format!("无法连接 {url}：{e}"),

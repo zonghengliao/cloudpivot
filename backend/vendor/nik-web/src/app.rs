@@ -1559,7 +1559,7 @@ impl App {
                 if cfg.middleware.auth.jwt_secret.trim().chars().count() < 32 {
                     panic!(
                         "FATAL: [middleware.auth] enabled=true 但 jwt_secret 缺失或短于 32 字符，\
-                         拒绝启动（请通过 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入强密钥）"
+                         拒绝启动（请通过 NIK_MIDDLEWARE_AUTH_JWT_SECRET 注入强密钥）"
                     );
                 }
                 let auth_asm_started = std::time::Instant::now();
@@ -1594,7 +1594,7 @@ impl App {
                 let cache = try_cache().cloned();
                 // [cloudpivot-patch code-10] `?token=` 白名单（逗号分隔、含全局前缀）。
                 // 默认空 = 关闭（fail-closed）：只有显式配置了 SSE 端点的环境才接受查询令牌。
-                let query_token_paths: Vec<String> = std::env::var("ALUN_AUTH_QUERY_TOKEN_PATHS")
+                let query_token_paths: Vec<String> = std::env::var("NIK_AUTH_QUERY_TOKEN_PATHS")
                     .unwrap_or_default()
                     .split(',')
                     .map(|item| item.trim().to_string())

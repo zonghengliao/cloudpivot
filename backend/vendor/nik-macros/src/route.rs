@@ -42,7 +42,7 @@ pub fn controller_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
 
             if !http_method.is_empty() && is_async {
                 let full_path = format!("{}{}", base_path.trim_end_matches('/'), method_path);
-                let route_name = format_ident!("__ALUN_CTL_{}", fn_name.to_string().to_uppercase());
+                let route_name = format_ident!("__NIK_CTL_{}", fn_name.to_string().to_uppercase());
                 let handler = quote! { #struct_ty::#fn_name };
                 let register = gen_route_register(&http_method, &full_path, &handler, &route_name);
                 route_registrations.push(register);
@@ -70,7 +70,7 @@ pub fn method_route_impl(http_method: &str, attr: TokenStream, item: TokenStream
     let input = parse_macro_input!(item as ItemFn);
     let fn_name = &input.sig.ident;
 
-    let route_name = format_ident!("__ALUN_FN_{}", fn_name.to_string().to_uppercase());
+    let route_name = format_ident!("__NIK_FN_{}", fn_name.to_string().to_uppercase());
     let handler = quote! { #fn_name };
     let register = gen_route_register(http_method, &path, &handler, &route_name);
 
@@ -212,7 +212,7 @@ pub fn layer_impl(attr: TokenStream, item: TokenStream) -> TokenStream {
     }
 
     let fn_name = &input.sig.ident;
-    let route_name = format_ident!("__ALUN_FN_{}", fn_name.to_string().to_uppercase());
+    let route_name = format_ident!("__NIK_FN_{}", fn_name.to_string().to_uppercase());
     let handler = quote! { #fn_name };
     let register = gen_route_register_with_layer(
         &http_method,

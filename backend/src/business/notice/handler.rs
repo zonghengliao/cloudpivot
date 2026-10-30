@@ -661,7 +661,7 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
 ///
 /// | 约束 | 实现 |
 /// |------|------|
-/// | 仅此端点 | 认证层只对 `ALUN_AUTH_QUERY_TOKEN_PATHS` 白名单里的路径采信查询令牌（默认空 = 关闭） |
+/// | 仅此端点 | 认证层只对 `NIK_AUTH_QUERY_TOKEN_PATHS` 白名单里的路径采信查询令牌（默认空 = 关闭） |
 /// | 与头认证等价 | 走同一条 JWT 校验（签名 / 过期 / 类型 / 黑名单），不是「另一套放行逻辑」 |
 /// | 短期有效 | 只接受 access token（`access_token_expire_secs` 决定寿命），refresh token 过不了类型校验 |
 /// | 日志脱敏 | 认证层只记来源 header/query；`request_log` 只记 path 不记 query；令牌本体从不打印 |

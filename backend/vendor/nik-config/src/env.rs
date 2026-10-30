@@ -11,8 +11,8 @@ pub fn detect_profile() -> String {
         }
     }
 
-    env::var("ALUN_PROFILE")
-        .or_else(|_| env::var("ALUN_ENV"))
+    env::var("NIK_PROFILE")
+        .or_else(|_| env::var("NIK_ENV"))
         .unwrap_or_else(|_| "dev".into())
 }
 
@@ -44,13 +44,13 @@ pub fn parse_args() -> (bool, bool) {
 
 /// 环境变量覆盖配置
 ///
-/// 约定：`ALUN_` 前缀的大写字段路径映射
-///   - `ALUN_SERVER_LISTEN=3000`
-///   - `ALUN_DATABASE_NAME=mydb`
-///   - `ALUN_LOG_LEVEL=debug`
+/// 约定：`NIK_` 前缀的大写字段路径映射
+///   - `NIK_SERVER_LISTEN=3000`
+///   - `NIK_DATABASE_NAME=mydb`
+///   - `NIK_LOG_LEVEL=debug`
 ///
 /// 安全敏感字段支持专用别名：
-///   - `FACAI_JWT_SECRET` / `ALUN_MIDDLEWARE_AUTH_JWT_SECRET`：JWT 签名密钥（生产环境必填）
+///   - `FACAI_JWT_SECRET` / `NIK_MIDDLEWARE_AUTH_JWT_SECRET`：JWT 签名密钥（生产环境必填）
 pub fn merge_env_overrides(cfg: &mut AppConfig) {
     // 专用别名：FACAI_JWT_SECRET 优先覆盖 JWT 密钥（安全修复 P0-5）
     if let Ok(value) = env::var("FACAI_JWT_SECRET")
@@ -60,11 +60,14 @@ pub fn merge_env_overrides(cfg: &mut AppConfig) {
     }
 
     for (key, value) in env::vars() {
-        if !key.starts_with("ALUN_") || value.is_empty() {
+        const ENV_PREFIX: &str = "NIK_";
+        if !key.starts_with(ENV_PREFIX) || value.is_empty() {
             continue;
         }
 
-        let path = key[5..].to_lowercase();
+        // 用前缀实际长度切片（原来硬编码 key[5..] 是按 ALUN_ 5 字符写的，
+        // 改成 NIK_ 4 字符后偏移错位，导致 database.password 等全部匹配失败）
+        let path = key[ENV_PREFIX.len()..].to_lowercase();
         let parts: Vec<&str> = path.split('_').collect();
 
         match parts.as_slice() {

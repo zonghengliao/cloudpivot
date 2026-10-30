@@ -1,7 +1,7 @@
 //! 编译期 schema 校验。
 //!
 //! `#[model(strict)]` 让 derive 在编译期读取一份 DDL schema 文件（显式
-//! `schema = "…"` 或 build.rs 快照 `ALUN_DB_SCHEMA_SNAPSHOT`），校验模型
+//! `schema = "…"` 或 build.rs 快照 `NIK_DB_SCHEMA_SNAPSHOT`），校验模型
 //! 与数据库结构的一致性，包含两层：
 //!
 //! 1. **列名存在性**：模型字段列必须出现在对应 `CREATE TABLE` 中；
@@ -62,7 +62,7 @@ pub fn validate_columns(
 /// 从给定的 schema 文件路径校验模型各列（列名存在性 + 列类型兼容）。
 ///
 /// `path` 为已解析好的绝对或相对路径（如 build.rs 快照的
-/// `ALUN_DB_SCHEMA_SNAPSHOT` 路径）。
+/// `NIK_DB_SCHEMA_SNAPSHOT` 路径）。
 ///
 /// # 参数
 ///

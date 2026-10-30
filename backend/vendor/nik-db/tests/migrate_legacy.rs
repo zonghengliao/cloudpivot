@@ -178,7 +178,7 @@ const DEFAULT_PG_URL: &str = "postgres://nik:nik@localhost:5432/nik_test";
 
 #[cfg(feature = "postgres")]
 async fn pg_url() -> String {
-    std::env::var("ALUN_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string())
+    std::env::var("NIK_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string())
 }
 
 #[cfg(feature = "postgres")]
@@ -273,7 +273,7 @@ const DEFAULT_MYSQL_URL: &str = "mysql://nik:nik@localhost:3306/nik_test";
 
 #[cfg(feature = "mysql")]
 async fn mysql_url() -> String {
-    std::env::var("ALUN_TEST_MYSQL_URL").unwrap_or_else(|_| DEFAULT_MYSQL_URL.to_string())
+    std::env::var("NIK_TEST_MYSQL_URL").unwrap_or_else(|_| DEFAULT_MYSQL_URL.to_string())
 }
 
 #[cfg(feature = "mysql")]

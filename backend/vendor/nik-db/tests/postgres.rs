@@ -7,7 +7,7 @@
 //! cargo test -p nik-db --features postgres,chrono,uuid,rust_decimal,json --test postgres
 //! ```
 //!
-//! 连接串可通过 `ALUN_TEST_PG_URL` 覆盖；连接失败时打印原因并跳过
+//! 连接串可通过 `NIK_TEST_PG_URL` 覆盖；连接失败时打印原因并跳过
 //! （本地无 docker 环境不红测试）。
 
 #![cfg(feature = "postgres")]
@@ -39,7 +39,7 @@ async fn setup_pg() -> Option<Db> {
         eprintln!("跳过 PG 测试（{msg}）");
         return None;
     }
-    let url = std::env::var("ALUN_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string());
+    let url = std::env::var("NIK_TEST_PG_URL").unwrap_or_else(|_| DEFAULT_PG_URL.to_string());
     let msg = match tokio::time::timeout(PROBE_TIMEOUT, Db::connect(&url)).await {
         Ok(Ok(db)) => return Some(db),
         Ok(Err(e)) => format!("无法连接 {url}：{e}"),

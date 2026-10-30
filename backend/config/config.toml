@@ -1,7 +1,7 @@
 # 云枢通用后台管理系统 —— 基础配置（所有 profile 共享）
 #
-# 加载顺序：config/config.toml → config/config-{profile}.toml → ALUN_* 环境变量
-# profile 选取：命令行 `profile=xxx` > ALUN_PROFILE > ALUN_ENV > 默认 dev
+# 加载顺序：config/config.toml → config/config-{profile}.toml → NIK_* 环境变量
+# profile 选取：命令行 `profile=xxx` > NIK_PROFILE > NIK_ENV > 默认 dev
 #
 # 两个必须知道的坑：
 #   1. TOML 写错格式会静默回退到「全默认配置」，改完务必用 `cargo run -- print-config` 核对。
@@ -28,10 +28,10 @@ type = "postgres"
 host = "127.0.0.1"
 port = 5432
 name = "cloudpivot"
-# 账号名（非凭据）：与 docker/docker-compose.yml 的本地开发库一致，可用 ALUN_DATABASE_USER 覆盖
-user = "alun"
-# 库口令一律由 ALUN_DATABASE_PASSWORD 注入，仓库内保持空值（本仓库为 public，禁止写入明文）：
-#   dev/test/prod 见 /etc/cloudpivot/*.env（600）；本地手工起服务前先 export ALUN_DATABASE_PASSWORD=...
+# 账号名（非凭据）：与 docker/docker-compose.yml 的本地开发库一致，可用 NIK_DATABASE_USER 覆盖
+user = "cloudpivot"
+# 库口令一律由 NIK_DATABASE_PASSWORD 注入，仓库内保持空值（本仓库为 public，禁止写入明文）：
+#   dev/test/prod 见 /etc/cloudpivot/*.env（600）；本地手工起服务前先 export NIK_DATABASE_PASSWORD=...
 #   （docker/docker-compose.yml 里的 POSTGRES_PASSWORD 是那套本地 compose 自己的库口令，
 #     两者需保持一致；后端启动不再依赖任何 toml 默认口令）
 password = ""
@@ -78,7 +78,7 @@ exclude_paths = ["!/health"]
 log_duration = true
 
 # 认证中间件：基础配置保持关闭，由各环境 profile 开启（enabled 与 jwt_secret 均为空则整层不挂载）。
-# 生产环境的 jwt_secret 必须由 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 注入。
+# 生产环境的 jwt_secret 必须由 NIK_MIDDLEWARE_AUTH_JWT_SECRET 注入。
 [middleware.auth]
 enabled = false
 jwt_secret = ""
@@ -113,7 +113,7 @@ enabled = false
 requests_per_window = 300
 window_secs = 60
 
-# 权限校验：宏规则（#[alun::permission]）不受此开关影响；此处只控制配置化的路径规则
+# 权限校验：宏规则（#[nik::permission]）不受此开关影响；此处只控制配置化的路径规则
 [middleware.permission]
 enabled = false
 rules = []

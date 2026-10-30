@@ -971,7 +971,7 @@
 //!
 //! # 配置系统
 //!
-//! 配置加载顺序：`config.toml` → `config-{profile}.toml` → `ALUN_*` 环境变量。
+//! 配置加载顺序：`config.toml` → `config-{profile}.toml` → `NIK_*` 环境变量。
 //!
 //! ```rust,no_run
 //! use nik::{cfg, config};
@@ -994,9 +994,9 @@
 //! cargo run -- profile=prod          # 激活 prod 配置
 //!
 //! # 环境变量覆盖
-//! ALUN_SERVER_LISTEN=3000 cargo run
-//! ALUN_DATABASE_HOST=10.0.0.1 cargo run
-//! ALUN_LOG_LEVEL=debug cargo run
+//! NIK_SERVER_LISTEN=3000 cargo run
+//! NIK_DATABASE_HOST=10.0.0.1 cargo run
+//! NIK_LOG_LEVEL=debug cargo run
 //! ```
 //!
 //! # 异步任务系统

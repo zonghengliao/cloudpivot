@@ -25,7 +25,7 @@ use nik_utils::crypto::Crypto;
 ///
 /// # 密码处理
 ///
-/// 当 `password_encrypted` 为真时，使用 `ALUN_SECRET_KEY`（32 字节 hex）
+/// 当 `password_encrypted` 为真时，使用 `NIK_SECRET_KEY`（32 字节 hex）
 /// 解密 `base64(nonce):base64(ciphertext)` 形式的密文密码。
 ///
 /// # 错误
@@ -102,14 +102,14 @@ fn resolve_password(config: &SrcConfig) -> Result<String, String> {
     }
 }
 
-/// 读取 32 字节 AES-GCM 秘钥（`ALUN_SECRET_KEY`，hex 编码）。
+/// 读取 32 字节 AES-GCM 秘钥（`NIK_SECRET_KEY`，hex 编码）。
 fn secret_key() -> Result<Vec<u8>, String> {
     let raw =
-        std::env::var("ALUN_SECRET_KEY").map_err(|_| "缺少环境变量 ALUN_SECRET_KEY".to_string())?;
-    let key = hex::decode(&raw).map_err(|e| format!("ALUN_SECRET_KEY 不是合法 hex: {}", e))?;
+        std::env::var("NIK_SECRET_KEY").map_err(|_| "缺少环境变量 NIK_SECRET_KEY".to_string())?;
+    let key = hex::decode(&raw).map_err(|e| format!("NIK_SECRET_KEY 不是合法 hex: {}", e))?;
     if key.len() != 32 {
         return Err(format!(
-            "ALUN_SECRET_KEY 长度必须为 32 字节，实际 {}",
+            "NIK_SECRET_KEY 长度必须为 32 字节，实际 {}",
             key.len()
         ));
     }

@@ -79,7 +79,7 @@ pub fn derive(ast: DeriveInput) -> syn::Result<TokenStream> {
 
     // 编译期 schema 校验：`#[model(strict)]` 时校验列名存在性与列类型族兼容。
     // 优先用显式 `schema = "..."`（相对 CARGO_MANIFEST_DIR）的文件；
-    // 未显式给出时，回退读取 build.rs 快照（`ALUN_DB_SCHEMA_SNAPSHOT`，
+    // 未显式给出时，回退读取 build.rs 快照（`NIK_DB_SCHEMA_SNAPSHOT`，
     // 由 `nik_db_build::build_snapshot` 输出）——快照由迁移文件合并而来。
     if struct_attrs.strict {
         let expectations: Vec<crate::schema::ColumnExpectation> = fields
@@ -98,11 +98,11 @@ pub fn derive(ast: DeriveInput) -> syn::Result<TokenStream> {
                 schema_path,
             )?;
         } else {
-            let snap_path = std::env::var("ALUN_DB_SCHEMA_SNAPSHOT").map_err(|_| {
+            let snap_path = std::env::var("NIK_DB_SCHEMA_SNAPSHOT").map_err(|_| {
                 syn::Error::new(
                     ast.ident.span(),
                     "`#[model(strict)]` requires `schema = \"...\"` or a build.rs snapshot \
-                     (set env `ALUN_DB_SCHEMA_SNAPSHOT`, e.g. via `nik_db_build::build_snapshot`)",
+                     (set env `NIK_DB_SCHEMA_SNAPSHOT`, e.g. via `nik_db_build::build_snapshot`)",
                 )
             })?;
             let path = std::path::PathBuf::from(snap_path);

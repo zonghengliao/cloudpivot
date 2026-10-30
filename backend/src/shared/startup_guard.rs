@@ -5,7 +5,7 @@
 //! nik 0.4.2 的配置基线允许「`[middleware.auth] enabled = true` 且 `jwt_secret` 为空」
 //! 这一组合：此时认证中间件照常挂载，但签名密钥退化成**空字符串**，任何人都能自行
 //! 签发 `permissions = ["*:*:*"]` 的令牌绕过登录。dev 的密钥自 P0 修复起只由环境变量
-//! `ALUN_MIDDLEWARE_AUTH_JWT_SECRET`（`/etc/cloudpivot/cloudpivot-dev.env`）注入，一旦有人绕过
+//! `NIK_MIDDLEWARE_AUTH_JWT_SECRET`（`/etc/cloudpivot/cloudpivot-dev.env`）注入，一旦有人绕过
 //! `scripts/dev-up.sh` 直接 `cargo run`（不带 env），进程就会落进这个不安全状态。
 //!
 //! # 两层结构（为什么不是一个检查）
@@ -18,7 +18,7 @@
 //! 之所以需要预检：框架没有提供 `App::start()` 之前的配置读取入口（`ConfigManager`
 //! 未在 `nik` 门面中重导出，按项目铁律又不能直接依赖 `nik-config`），而
 //! `App::start()` 的顺序是「先初始化数据库/缓存 → 再跑启动钩子 → 再启插件」。
-//! 实测裸 `env -u ALUN_MIDDLEWARE_AUTH_JWT_SECRET cargo run` 会先死在
+//! 实测裸 `env -u NIK_MIDDLEWARE_AUTH_JWT_SECRET cargo run` 会先死在
 //! 「数据库连接失败」，把「密钥没注入」这个真正原因完全掩盖——预检就是为消除这个
 //! 掩盖而存在。
 //!
@@ -64,13 +64,13 @@ pub const MIN_JWT_SECRET_LEN: usize = 32;
 /// 配置目录，必须与 `App::new()`（`App::from_config_dir("config")`）保持一致。
 pub const DEFAULT_CONFIG_DIR: &str = "config";
 
-/// 环境变量名：JWT 签名密钥（nik 专用别名，通用 `ALUN_` 前缀覆盖规则同样识别）。
-pub const ENV_JWT_SECRET: &str = "ALUN_MIDDLEWARE_AUTH_JWT_SECRET";
+/// 环境变量名：JWT 签名密钥（nik 专用别名，通用 `NIK_` 前缀覆盖规则同样识别）。
+pub const ENV_JWT_SECRET: &str = "NIK_MIDDLEWARE_AUTH_JWT_SECRET";
 
 /// 环境变量名：JWT 密钥的历史别名，优先级低于 [`ENV_JWT_SECRET`]。
 ///
 /// 依据 nik-config 0.4.2 `env::merge_env_overrides`：先处理 `FACAI_JWT_SECRET`，
-/// 再由通用 `ALUN_` 前缀循环覆盖，因此后者生效。
+/// 再由通用 `NIK_` 前缀循环覆盖，因此后者生效。
 pub const ENV_JWT_SECRET_ALIAS: &str = "FACAI_JWT_SECRET";
 
 /// 认证中间件在 TOML 中的段名。
@@ -105,7 +105,7 @@ impl fmt::Display for CacheBackendError {
              危害：令牌黑名单 / 轮换血缘 / 在线会话全部存在缓存里；进程内 LRU 缓存重启即清空、\
              多实例之间不共享，吊销（登出、强制下线、改密）会静默失效——旧 refresh 令牌可继续续期。\n\
              修复：在 config/config-{profile}.toml 里写 [cache] type = \"redis\" 与 [redis] enabled = true，\
-             并用 ALUN_REDIS_URL 指向真实 Redis；不要让基础配置的 [cache] type = \"local\" 兜底生效。",
+             并用 NIK_REDIS_URL 指向真实 Redis；不要让基础配置的 [cache] type = \"local\" 兜底生效。",
             profile = self.profile,
             cache_type = self.cache_type
         )
@@ -259,7 +259,7 @@ pub fn evaluate_preflight(
 /// 解析生效 profile。
 ///
 /// 与 nik-config 0.4.2 `env::detect_profile` 完全同源：命令行 `profile=xxx` >
-/// `ALUN_PROFILE` > `ALUN_ENV` > 默认 `dev`。
+/// `NIK_PROFILE` > `NIK_ENV` > 默认 `dev`。
 pub fn resolve_profile() -> String {
     for arg in std::env::args() {
         if let Some(profile) = arg.strip_prefix("profile=") {
@@ -267,8 +267,8 @@ pub fn resolve_profile() -> String {
         }
     }
 
-    std::env::var("ALUN_PROFILE")
-        .or_else(|_| std::env::var("ALUN_ENV"))
+    std::env::var("NIK_PROFILE")
+        .or_else(|_| std::env::var("NIK_ENV"))
         .unwrap_or_else(|_| "dev".to_string())
 }
 

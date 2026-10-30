@@ -135,7 +135,7 @@ pub const ADMIN_USERNAME: &str = "admin";
 /// `FATAL` 退出（见 [`crate::bootstrap`]），仓库内不再保留任何缺省口令或预置哈希
 /// （安全审计 CODE-06）。开发 / 测试环境缺失时由启动引导生成一次性随机口令并在
 /// 日志中打印一次，且置 `must_change_password = true` 强制首登改密。
-pub const ADMIN_PASSWORD_ENV: &str = "ALUN_ADMIN_PASSWORD";
+pub const ADMIN_PASSWORD_ENV: &str = "NIK_ADMIN_PASSWORD";
 
 // ==================== 会话安全（令牌版本 / 首登改密） ====================
 

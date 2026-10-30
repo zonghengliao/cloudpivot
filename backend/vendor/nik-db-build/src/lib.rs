@@ -23,7 +23,7 @@
 //!   `ALTER TABLE ... ADD COLUMN` 与 `ALTER TABLE ... DROP COLUMN`
 //!   演进出最终表列集；
 //! - 将规范化 DDL 写入 `$OUT_DIR/schema_snapshot.sql`；
-//! - 输出 `cargo:rustc-env=ALUN_DB_SCHEMA_SNAPSHOT` 与
+//! - 输出 `cargo:rustc-env=NIK_DB_SCHEMA_SNAPSHOT` 与
 //!   `cargo:rerun-if-changed`，使派生宏与增量构建均能感知。
 
 use std::collections::BTreeMap;
@@ -106,7 +106,7 @@ fn norm_column(name: &str) -> String {
 /// 删除不存在的列（或对快照中未出现过的表删列）静默忽略：与重复加列的幂等
 /// 语义对称，避免 `DROP COLUMN IF EXISTS` 或未参与快照的方言迁移中断构建。
 ///
-/// - `cargo:rustc-env=ALUN_DB_SCHEMA_SNAPSHOT=<路径>`：供 `#[model(strict)]`
+/// - `cargo:rustc-env=NIK_DB_SCHEMA_SNAPSHOT=<路径>`：供 `#[model(strict)]`
 ///   派生的宏通过 `std::env::var` 读取（宏与 build.rs 同属一个 cargo 目标）。
 /// - `cargo:rerun-if-changed`：目录与每个迁移文件，保证迁移改动触发重建。
 ///
@@ -139,7 +139,7 @@ pub fn build_snapshot(migrations_dir: &str) -> io::Result<()> {
     let out_dir = env_unset("OUT_DIR")?;
     let dest = Path::new(&out_dir).join("schema_snapshot.sql");
     std::fs::write(&dest, rendered.as_bytes())?;
-    println!("cargo:rustc-env=ALUN_DB_SCHEMA_SNAPSHOT={}", dest.display());
+    println!("cargo:rustc-env=NIK_DB_SCHEMA_SNAPSHOT={}", dest.display());
     Ok(())
 }
 

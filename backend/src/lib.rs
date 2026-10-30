@@ -67,7 +67,7 @@ pub mod utils;
 /// 本函数不 panic：所有错误均通过 `Result` 向上传播，禁止 `unwrap` / `expect`。
 pub async fn run() -> Result<()> {
     // 启动预检：必须在 App::new() 之前。App::start() 的顺序是「先连数据库/缓存 →
-    // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 ALUN_MIDDLEWARE_AUTH_JWT_SECRET）
+    // 再挂启动钩子 → 再启插件」，而裸 `cargo run`（没注入 NIK_MIDDLEWARE_AUTH_JWT_SECRET）
     // 会先死在数据库连接失败上，掩盖「密钥未注入」这个真正原因。
     if let Err(violation) = shared::startup_guard::preflight() {
         // 此刻日志订阅者尚未初始化（App::new() 里才装 tracing），

@@ -169,7 +169,7 @@ impl SysConfigModel {
 
 // ==================== 运行时参数快照 ====================
 //
-// 参考 Alun 框架 `ConfigManager` 的**动态配置**思路（进程内 `RwLock<HashMap>` +
+// 参考 Nik 框架 `ConfigManager` 的**动态配置**思路（进程内 `RwLock<HashMap>` +
 // `set_dynamic` / `get_dynamic`）：框架那份快照只承载 `config.toml`，而本项目的
 // 业务参数存在数据库 `sys_config` 里，且会被管理端在运行期修改。因此这里补一层
 // 同构的「运行时快照」，解决三个问题：

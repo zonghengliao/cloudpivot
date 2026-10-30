@@ -323,7 +323,7 @@ pub struct NoticeSendReq {
 /// # 允许什么
 ///
 /// - `token`：浏览器 `EventSource` 无法设置 `Authorization` 头时的**唯一**降级通道；
-///   只有 `ALUN_AUTH_QUERY_TOKEN_PATHS` 白名单里的端点才会被认证层采信（默认空 = 关闭）。
+///   只有 `NIK_AUTH_QUERY_TOKEN_PATHS` 白名单里的端点才会被认证层采信（默认空 = 关闭）。
 ///
 /// # 禁止什么（显式拒绝而不是静默忽略）
 ///

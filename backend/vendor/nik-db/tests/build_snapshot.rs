@@ -2,7 +2,7 @@
 //!
 //! 本测试文件能编译即证明：`#[model(strict)]` 未显式 `schema` 时，能通过
 //! build.rs（`nik_db_build::build_snapshot("tests/migrations")`）产出的
-//! `schema_snapshot.sql`（经环境变量 `ALUN_DB_SCHEMA_SNAPSHOT` 注入）完成
+//! `schema_snapshot.sql`（经环境变量 `NIK_DB_SCHEMA_SNAPSHOT` 注入）完成
 //! 编译期列校验。若迁移文件中的表/列与模型不匹配，将在此处编译失败。
 //!
 //! 迁移目录 `tests/migrations/` 分两个文件：`0001` 创建 `users`，`0002` 以
