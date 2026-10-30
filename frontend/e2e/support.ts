@@ -58,6 +58,8 @@ export interface Api {
   deleteFlowDef(id: string): Promise<void>;
   createInstance(defId: string, title: string): Promise<{ instance_id: string; instance_status: string }>;
   getInstance(id: string): Promise<{ instance: { id: string; status: string } }>;
+  /** 撤回在跑的实例（清理用：有在跑实例时流程定义删不掉） */
+  withdrawInstance(id: string, reason?: string): Promise<void>;
   dispose(): Promise<void>;
 }
 
@@ -99,6 +101,9 @@ export async function newApi(): Promise<Api> {
     },
     createInstance: (defId, title) => call('post', '/api/business/flow/instance', { def_id: defId, title }),
     getInstance: async (id) => call('get', `/api/business/flow/instance/${id}`),
+    withdrawInstance: async (id, reason) => {
+      await call('post', `/api/business/flow/instance/${id}/withdraw`, { reason: reason ?? 'E2E 用例清理' });
+    },
     dispose: () => ctx.dispose(),
   };
 }

@@ -50,7 +50,14 @@ test.describe('流程5 审批待办 → 同意', () => {
   });
 
   test.afterAll(async () => {
-    // 实例没有删除接口，只能靠流程软删把它从列表里带走；实例本身已 APPROVED（终态，不再产生待办）
+    // 清理：先把仍在跑的实例撤回（有在跑实例时流程定义删不掉，会留下脏数据），再删流程
+    if (instanceId) {
+      const inst = await api.getInstance(instanceId).catch(() => null);
+      const running = inst?.instance?.status && ['RUNNING', 'PENDING'].includes(inst.instance.status);
+      if (running) {
+        await api.withdrawInstance(instanceId).catch(() => undefined);
+      }
+    }
     if (defId) {
       await api.deleteFlowDef(defId).catch(() => undefined);
     }
