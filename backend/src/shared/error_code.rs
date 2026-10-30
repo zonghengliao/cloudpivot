@@ -40,6 +40,7 @@
 //! | `632xx` | 批次 C+（AI 执行者硬拒：`63201`–`63204`，T5 子段） |
 //! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64014`） |
 //! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
+//! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -919,9 +920,70 @@ pub const FLOW_EXPRESSION_UNSUPPORTED: i32 = 65032;
 /// D-E8 要求它在**发布期**就被拒，而不是落 `501` —— 「能存进去、跑起来才炸」正是本期要消灭的形态。
 pub const FLOW_EXPRESSION_INVALID: i32 = 65033;
 
+// ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
+//
+// 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
+// 与「校验失败一律 10001」区分开 —— 前端要按码值给不同文案
+// （「编码已存在」要标红到输入框，「上级仓库不存在」要提示去别处建）。
+
+/// 编码重复（HTTP 409）：同一唯一索引范围内的编码已存在
+/// （`unit_code` / `warehouse_code` / `material_code` / `supplier_code` /
+/// 仓库内唯一的 `location_code`）。软删后可复用，这里只拦「未删除行」的重复。
+pub const ERP_CODE_CONFLICT: i32 = 66001;
+
+/// 弱引用不存在（HTTP 400）：上级仓库 / 折算基准单位 / 库位所属仓库 / 计量单位 /
+/// 默认仓库 / 存货科目 / 应付科目 在库里查不到（含已软删）。
+///
+/// 为什么不是 404：404 表达的是「请求的资源（URL 上的 id）不存在」，
+/// 这里缺的是**请求体里引用的另一个资源**，请求本身是合法的。
+pub const ERP_REFERENCE_MISSING: i32 = 66002;
+
+/// 仓库还有下级 / 库位（HTTP 409）：ERP 不做级联删除
+/// （删父留下孤儿物化路径，比报错难救得多）。
+pub const ERP_WAREHOUSE_HAS_CHILDREN: i32 = 66003;
+
+/// 仓库层级超限（HTTP 400）：V0137 §1.2 定死三级（总仓 / 分仓 / 库房），第 4 层拒绝。
+pub const ERP_WAREHOUSE_LEVEL_LIMIT: i32 = 66004;
+
+/// 库位只能挂叶子仓库（HTTP 400）：挂到非叶子仓库上会让「按仓库找库位」出现歧义
+/// （父仓的库位到底属于父还是子）。
+pub const ERP_WAREHOUSE_NOT_LEAF: i32 = 66005;
+
+/// 查询 / 路径参数非法（HTTP 400）：最典型的是 UUID 解析失败。
+///
+/// 与 [`PARAM_INVALID`] 分开是为了钉住「筛选条件里的 UUID 非法**绝不静默忽略**」：
+/// 忽略等于把「按仓库筛库位」变成「返回全部库位」，是静默错数据。
+pub const ERP_FILTER_INVALID: i32 = 66006;
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// W1c 段自检：66xxx 段 6 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
+    ///
+    /// 与 [`flow_error_codes_are_stable`] 同一口径：码值是前端文案映射的契约，
+    /// 后续卡不许改值（要新语义就往下加号）。
+    #[test]
+    fn erp_error_codes_are_stable() {
+        let codes = [
+            (ERP_CODE_CONFLICT, 66001),
+            (ERP_REFERENCE_MISSING, 66002),
+            (ERP_WAREHOUSE_HAS_CHILDREN, 66003),
+            (ERP_WAREHOUSE_LEVEL_LIMIT, 66004),
+            (ERP_WAREHOUSE_NOT_LEAF, 66005),
+            (ERP_FILTER_INVALID, 66006),
+        ];
+        for (actual, expected) in codes {
+            assert_eq!(actual, expected, "66xxx 段码值不得改动");
+        }
+        let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
+        assert_eq!(unique.len(), codes.len(), "66xxx 段不得有重复码值");
+        assert!(
+            codes.iter().all(|(code, _)| (66001..=66999).contains(code)),
+            "66xxx 段必须落在 66001–66999"
+        );
+        println!("[码表] 66xxx 段 {} 个 ERP 码齐全且不重复 ✓", codes.len());
+    }
 
     /// B3 段码位自检：6100x 段 12 个码齐全、码值不重复、与架构 §5.3 码表逐字一致。
     ///

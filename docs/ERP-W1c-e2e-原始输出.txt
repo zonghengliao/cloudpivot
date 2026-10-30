@@ -1,0 +1,112 @@
+== 0) 准备隔离库 cloudpivot_w1c_verify + 隔离实例 :18092
+[PASS] 隔离实例就绪（/health=200）
+       数据库迁移完成: 应用 95 个迁移
+== 1) 登录（admin，首登可能强制改密）
+[PASS] admin 登录（must_change_password=true）
+[PASS] PUT /system/auth/password 首登改密
+[PASS] 首登改密后重新登录
+== 2) 计量单位（3 码制：list / create / update）
+[PASS] POST /business/erp/unit 新建基础单位
+[PASS] GET /business/erp/unit/{id} 详情
+[PASS] GET /business/erp/unit/page 分页
+[PASS] unit/page total=1
+[PASS] PUT /business/erp/unit/{id} 编辑
+[PASS] POST unit 重复编码 → 409+66001
+== 3) 仓库（含 3 层树、层级上限、删除守卫）
+[PASS] POST /business/erp/warehouse 建第 1 层
+[PASS]   物化路径 = /{id}/
+[PASS] POST warehouse 建第 2 层
+[PASS] POST warehouse 建第 3 层
+[PASS] POST warehouse 第 4 层 → 400+66004
+[PASS] GET /business/erp/warehouse/tree 子树
+[PASS]   树结构：根 → 1 子 → 1 孙
+[PASS] GET /business/erp/warehouse/page 分页
+[PASS]   page total=3 page_size=10
+[PASS] GET /business/erp/warehouse/{id} 详情
+[PASS]   非叶子仓库 is_leaf=false
+[PASS] PUT /business/erp/warehouse/{id} 编辑
+[PASS] DELETE warehouse 有下级 → 409+66003
+== 4) 库位（叶子校验 / 默认位互斥 / 按仓库列表）
+[PASS] POST location 挂非叶子仓库 → 400+66005
+[PASS] POST /business/erp/location 主默认库位
+[PASS] POST /business/erp/location 第二个默认库位
+[PASS] GET /business/erp/location/{id} 详情
+[PASS]   旧默认位已被清掉（默认位唯一）
+[PASS] GET /business/erp/location/list?warehouse_id=
+[PASS]   按仓库过滤回 2 个库位
+[PASS] GET /business/erp/location/page 分页
+[PASS] PUT /business/erp/location/{id} 编辑
+[PASS] DELETE /business/erp/location/{id} 软删
+[PASS] GET 已删库位 → 404
+== 5) 物料（引用校验 / 关键词搜索 / 软删）
+[PASS] POST material 单位不存在 → 400+66002
+[PASS] POST /business/erp/material 新建
+[PASS] GET /business/erp/material/list?keyword= 搜索
+[PASS]   关键词命中 1 条
+[PASS] GET /business/erp/material/page 分页
+[PASS] GET /business/erp/material/{id} 详情
+[PASS] PUT /business/erp/material/{id} 编辑（spec 显式 null 清空）
+[PASS] DELETE /business/erp/material/{id} 软删
+[PASS] GET 已删物料 → 404
+== 6) 供应商
+[PASS] POST /business/erp/supplier 新建
+[PASS] GET /business/erp/supplier/{id} 详情
+[PASS] GET /business/erp/supplier/page 分页
+[PASS] PUT /business/erp/supplier/{id} 编辑
+[PASS] DELETE /business/erp/supplier/{id} 软删
+[PASS] GET 已删供应商 → 404
+== 7) 只读台账（8 张：列表 + 详情）
+[PASS] GET /business/erp/account/page
+[PASS] GET /business/erp/period/page
+[PASS] GET /business/erp/seq/page
+[PASS] GET /business/erp/purchase-order/page
+[PASS] GET /business/erp/purchase-order-item/page
+[PASS] GET /business/erp/inventory/page
+[PASS] GET /business/erp/inventory-location/page
+[PASS] GET /business/erp/inventory-txn/page
+[PASS] GET /business/erp/account/{id} 不存在 → 404
+[PASS] GET /business/erp/period/{id} 不存在 → 404
+[PASS] GET /business/erp/seq/{id} 不存在 → 404
+[PASS] GET /business/erp/purchase-order/{id} 不存在 → 404
+[PASS] GET /business/erp/purchase-order-item/{id} 不存在 → 404
+[PASS] GET /business/erp/inventory/{id} 不存在 → 404
+[PASS] GET /business/erp/inventory-location/{id} 不存在 → 404
+[PASS] GET /business/erp/inventory-txn/{id} 不存在 → 404
+== 8) 权限（无码账号 → 403）
+[PASS] POST /system/role 建无权限角色
+[PASS] POST /system/user 建无权限账号
+[PASS] 无权限码打 GET /business/erp/warehouse/page → 403
+[PASS] 无权限码打 POST /business/erp/unit → 403
+       403 响应体：{"code":403,"msg":"无权限访问，需要权限: business:erp:unit:create"}
+== 9) EXPLAIN：20 万级数据下仓库树查询必须命中 text_pattern_ops 索引
+       压测数据：200000 行（biz_warehouse 总计 200005 行）
+       PREPARE
+       Sort  (cost=8.45..8.46 rows=1 width=112) (actual time=0.032..0.032 rows=1.00 loops=1)
+         Sort Key: warehouse_path, sort_order
+         Sort Method: quicksort  Memory: 25kB
+         Buffers: shared hit=10
+         ->  Index Scan using idx_biz_warehouse_path_pattern on biz_warehouse  (cost=0.42..8.44 rows=1 width=112) (actual time=0.018..0.018 rows=1.00 loops=1)
+               Index Cond: (((warehouse_path)::text ~>=~ '/01a18c42-3d11-7378-a9ab-2a1656a6f266/f1000001-0000-4000-8000-000000000001/'::text) AND ((warehouse_path)::text ~<~ '/01a18c42-3d11-7378-a9ab-2a1656a6f266/f1000001-0000-4000-8000-0000000000010'::text))
+               Filter: (deleted_at IS NULL)
+               Index Searches: 1
+               Buffers: shared hit=4
+       Planning:
+         Buffers: shared hit=246
+[PASS] EXPLAIN 命中 idx_biz_warehouse_path_pattern
+[PASS] EXPLAIN 无 Seq Scan on biz_warehouse
+[PASS] 20 万级数据下 GET /business/erp/warehouse/tree 仍 200
+       root_id=单个压测仓，耗时 12ms，返回 1 个节点（自身无下级）
+== 10) 收尾：夹具残留检查
+[PASS] 夹具残留 0 行（unit/warehouse/material/supplier/location）
+[PASS] V0141：32 个 ERP 权限码已落库
+[PASS] V0141：34 个菜单节点已落库（2 目录 + 13 菜单 + 19 按钮）
+       空库首次迁移时超管授权 = 0 个（bootstrap 尚未建出角色，与 V0045/V0128/V0133 同一口径）
+       psql:/opt/cloudpivot/backend/migrations/business/V0141__erp_permissions.up.sql:366: NOTICE:  V0141 完成：32 个 ERP 权限码、2 目录 / 5 主数据菜单 / 8 台账菜单 / 19 按钮，超管已全量授权
+[PASS] V0141 重放（幂等）：exit=0
+[PASS] 超管已授权 34 个 ERP 节点（重放后补齐）
+[PASS] 角色-菜单授权无重复行（重放幂等）
+       保留库 cloudpivot_w1c_verify（实例 pid 2237745，日志 /tmp/w1c_verify_server.log）；W1C_KEEP=0 可跑完即删
+
+==============================================
+ W1c 验收：PASS=78  FAIL=0
+ 全部通过
