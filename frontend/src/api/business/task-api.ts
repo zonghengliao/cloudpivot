@@ -215,6 +215,14 @@ export interface TaskPageQuery {
   due_to?: string;
   /** 关键词（标题 / 描述模糊） */
   keyword?: string;
+  /**
+   * 只返回顶层任务（`parent_id IS NULL`，T8-C）。
+   *
+   * 列表是分页的：父子混排时一棵 3 层的树会被拆到两页，前端无法呈现层级。
+   * **树形列表视图默认传 `true`**，子任务靠展开时 `GET /business/task/{id}/subtasks`
+   * 逐层懒加载；看板 / 甘特 / 燃尽图**不传**（它们不是树形，需要全部任务）。
+   */
+  root_only?: boolean;
 }
 
 /** 新建任务（对应后端 `TaskCreateReq`；只有 `title` 必填） */

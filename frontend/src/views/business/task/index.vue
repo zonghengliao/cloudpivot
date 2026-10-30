@@ -660,6 +660,10 @@ async function loadList(): Promise<void> {
       project_id: query.project_id,
       due_from: dueFrom || '',
       due_to: dueTo || '',
+      // T8-C：列表视图默认只取**顶层任务**（树形 + 分页唯一正确的组合）。
+      // 子任务靠 TDesign 展开箭头逐层懒加载（listSubtasks）；看板 / 甘特 / 燃尽图
+      // 走各自的接口，不传这个参数 —— 它们不是树形，需要全部任务。
+      root_only: true,
     });
     rows.value = buildTreeRows(data.list);
     pagination.total = data.total;

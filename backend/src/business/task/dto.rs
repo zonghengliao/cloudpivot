@@ -151,6 +151,22 @@ pub struct TaskPageQuery {
     pub due_to: Option<NaiveDate>,
     /// 关键词（标题 / 描述模糊，ILIKE）。
     pub keyword: Option<String>,
+    /// 只返回顶层任务（`parent_id IS NULL`，T8-C）。
+    ///
+    /// # 为什么需要
+    ///
+    /// 列表是**分页**的，父子任务混在一起返回时，一棵 3 层的树会被拆到两页
+    /// （父在第 2 页、子在第 1 页），前端无论如何排序都无法呈现层级。前端树形视图
+    /// 默认传 `true`，子任务通过 `GET /business/task/{id}/subtasks` 逐层懒加载 ——
+    /// 每层展开才拉，天然支持 T8-A 的 8 层深度。
+    ///
+    /// # 契约
+    ///
+    /// - 不传 / `false` → 行为与 T8-B 之前**完全一致**（向后兼容，看板 / 甘特 / 燃尽图都不传）；
+    /// - `true` → `list` 与 `total` **同一个 WHERE**（都只算顶层），否则分页器会显示
+    ///   「43 条 / 5 页」而实际只有 28 条顶层，第 6 页空白。
+    #[serde(default)]
+    pub root_only: Option<bool>,
 }
 
 impl TaskPageQuery {

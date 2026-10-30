@@ -121,7 +121,10 @@ use crate::utils;
 /// # 参数
 ///
 /// - `claims`：当前用户（数据范围从库里现解析，不信令牌快照）；
-/// - `query`：状态 / 优先级 / 负责人 / 截止范围 / 关键词 + 分页。
+/// - `query`：状态 / 优先级 / 负责人 / 截止范围 / 关键词 + `root_only` + 分页。
+///
+/// `root_only=true` 时只返回顶层任务（`parent_id IS NULL`），`total` 也按顶层计数；
+/// 前端树形列表用它 + 逐层 `GET /business/task/{id}/subtasks` 懒加载（T8-C）。
 ///
 /// # 返回值
 ///
@@ -203,6 +206,8 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
         due_from: query.due_from,
         due_to: query.due_to,
         keyword: query.normalized_keyword(),
+        // T8-C：树形视图只取顶层（缺省 false → 其余视图行为不变）
+        root_only: query.root_only.unwrap_or(false),
     })
 }
 
