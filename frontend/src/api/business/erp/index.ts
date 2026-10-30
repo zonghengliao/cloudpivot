@@ -37,7 +37,7 @@
  * - 枚举一律大写字面量：`warehouse_type` ∈ `NORMAL|RAW|FINISHED|SCRAP|IN_TRANSIT`。
  */
 
-import { del, get, post, put, type PageData } from '@/api/request';
+import { del, get, patch, post, put, type PageData } from '@/api/request';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
@@ -202,7 +202,14 @@ export function fetchWarehouseTree(rootId?: string): Promise<WarehouseTreeNode[]
   return get<WarehouseTreeNode[]>(`${BASE}/warehouse/tree`, asParams({ root_id: rootId }));
 }
 
-/** 仓库分页（编码 / 名称关键词 + 类型 / 层级 / 上级 / 启用位） */
+/**
+ * 仓库分页（编码 / 名称关键词 + 类型 / 层级 / 上级 / 启用位）。
+ *
+ * ⚠️ W4b-2 修正：这里原来写的是 `PageData<Warehouse[]>`（list 变成二维数组），
+ * 与真接口出参 `{ list: [ {...仓库...} ], total, page, page_size }` 不符 ——
+ * `data.list.map(...)` 在类型上就编不过，运行时倒是能跑（TS 只是标注）。
+ * 序列号页要用它拉仓库下拉，顺手按真出参改正（本函数此前无其它调用点）。
+ */
 export function fetchWarehousePage(query: {
   keyword?: string;
   warehouse_type?: string;
@@ -211,8 +218,8 @@ export function fetchWarehousePage(query: {
   status?: number;
   page?: number;
   page_size?: number;
-}): Promise<PageData<Warehouse[]>> {
-  return get<PageData<Warehouse[]>>(`${BASE}/warehouse/page`, asParams(query));
+}): Promise<PageData<Warehouse>> {
+  return get<PageData<Warehouse>>(`${BASE}/warehouse/page`, asParams(query));
 }
 
 /** 仓库详情 */
@@ -471,4 +478,199 @@ export function fetchUnitOptions(): Promise<UnitRow[]> {
   return get<PageData<UnitRow>>(`${BASE}/unit/page`, asParams({ page: 1, page_size: 200 })).then(
     (page) => page.list,
   );
+}
+
+// ==================== 序列号（W4b-2 / 后端 W2b） ====================
+
+/**
+ * 序列号状态（与 `serial_model::ALL_STATUSES` 逐字一致，`V0138` 的 `ck_biz_material_serial_status` 兜底）。
+ *
+ * 状态机（`serial_model::can_transition`，文档注释里就是这张表）：
+ *
+ * | 从 \ 到 | `OUTBOUND` | `SCRAPPED` |
+ * |---|---|---|
+ * | `IN_STOCK` | ✅ | ✅ |
+ * | `OUTBOUND` | — | ✅ |
+ * | `SCRAPPED` | ❌ | ❌ |
+ *
+ * `IN_STOCK` **不是**可写的目标状态：新增只能走批量生成（`WRITABLE_TARGETS` 只有两个）。
+ */
+export type SerialStatus = 'IN_STOCK' | 'OUTBOUND' | 'SCRAPPED';
+
+/** 来源单据类型（与 `serial_model::SOURCE_TYPES` 逐字一致，写错的类型会让「按来源追溯」查不到东西） */
+export type SerialSourceType = 'PURCHASE' | 'TRANSFER' | 'PRODUCE' | 'RETURN';
+
+/**
+ * 序列号列表 / 详情行（对应后端 `serial_dto::SerialRes`，字段名逐条抄 serde 出参）。
+ *
+ * | 卡面草图 | 真字段 | 说明 |
+ * |---|---|---|
+ * | 物料名 / 仓库名 | —— | **列表行里没有**：只有 `material_id` / `warehouse_id`，名称由页面本地译 |
+ * | 库位 | `location_id` | 指向 `biz_inventory_location.id`（**不是** `biz_location.id`） |
+ * | 入库 | `inbound_at` | 首次入库时间；转 OUTBOUND / SCRAPPED 都写 `outbound_at` |
+ *
+ * 名称只在**扫码**出参 `SerialScanRes` 里有（`material_name` / `warehouse_name` / `location_name`）。
+ */
+export interface SerialRow {
+  /** 主键 */
+  id: string;
+  /** 系统内码 `SN-yyyyMMdd-XXXXXX`（未删除内全局唯一） */
+  serial_no: string;
+  /** 物料 id */
+  material_id: string;
+  /** 当前 / 最后所在仓库 id */
+  warehouse_id: string | null;
+  /** 当前所在库位库存行 id（`biz_inventory_location.id`） */
+  location_id: string | null;
+  /** 批次号 */
+  batch_no: string | null;
+  /** 状态 */
+  status: SerialStatus;
+  /** 首次入库时间（RFC3339） */
+  inbound_at: string | null;
+  /** 出库 / 报废时间（RFC3339） */
+  outbound_at: string | null;
+  /** 来源单据类型 */
+  source_type: SerialSourceType | null;
+  /** 来源单据 id */
+  source_id: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 扫码出参（对应后端 `serial_dto::SerialScanRes`）。
+ *
+ * 比 `SerialRow` 多四个**译名**字段（`material_code` / `material_name` / `warehouse_name` /
+ * `location_name`），少 `source_type` / `source_id` / `created_at` / `updated_at` ——
+ * 卡片上要显示「物料 成品D」「仓库 分仓」就靠它，不要拿 `SerialRow` 自己拼。
+ */
+export interface SerialScanRow {
+  /** 主键 */
+  id: string;
+  /** 序列号 */
+  serial_no: string;
+  /** 物料 id */
+  material_id: string;
+  /** 物料编码 */
+  material_code: string;
+  /** 物料名称 */
+  material_name: string;
+  /** 仓库 id */
+  warehouse_id: string | null;
+  /** 仓库名称 */
+  warehouse_name: string | null;
+  /** 库位库存行 id */
+  location_id: string | null;
+  /** 库位名称 */
+  location_name: string | null;
+  /** 批次号 */
+  batch_no: string | null;
+  /** 状态 */
+  status: SerialStatus;
+  /** 入库时间 */
+  inbound_at: string | null;
+  /** 出库 / 报废时间 */
+  outbound_at: string | null;
+}
+
+/** 批量生成请求体（对应后端 `serial_dto::BatchGenerateReq`） */
+export interface BatchGenerateSerialReq {
+  /** 物料 id（**必须** `serial_required = TRUE`，否则 400） */
+  material_id: string;
+  /**
+   * 仓库 id。
+   *
+   * 后端 W2c-1 的不变式①：一物一码物料的账面数量按「物料×仓库」由序列号派生，
+   * 所以这里**实际必填** —— 不传直接 `400 + 66005`（文案：「必须指定 warehouse_id」）。
+   */
+  warehouse_id: string;
+  /** 库位库存行 id（可空；必须是同仓库的行） */
+  location_id?: string | null;
+  /** 批次号（可空，≤64） */
+  batch_no?: string | null;
+  /** 生成条数（1..=1000，`serial_model::MAX_BATCH_COUNT`） */
+  count: number;
+  /** 来源类型 */
+  source_type?: SerialSourceType | null;
+  /** 来源单据 id（可空） */
+  source_id?: string | null;
+}
+
+/**
+ * 批量生成出参（对应 `SerialBatchRes`）。
+ *
+ * `serial_nos` 给扫码枪 / 贴标机直接用；`list` 是回读的整行（带 `id`，列表才点得动状态流转）。
+ */
+export interface SerialBatchRes {
+  /** 实际生成条数 */
+  count: number;
+  /** 本次号段所属周期键（`yyyyMMdd`，北京时间） */
+  period_key: string;
+  /** 号列表（升序，可直接打印） */
+  serial_nos: string[];
+  /** 回读的整行（与 `serial_nos` 一一对应） */
+  list: SerialRow[];
+}
+
+/**
+ * 序列号分页（`GET /erp/serial/page`，服务端分页）。
+ *
+ * 参数照 `serial_dto::SerialFilter`：`material_id` / `warehouse_id` / `location_id` /
+ * `status` / `serial_no`（模糊）/ `page` / `page_size`。
+ * 空串一律不发（`asParams` 兜住）—— 后端把 `?serial_no=` 当「等于空串」过滤，会查出 0 行。
+ */
+export function fetchSerialPage(query: {
+  material_id?: string;
+  warehouse_id?: string;
+  location_id?: string;
+  status?: SerialStatus | '';
+  serial_no?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<SerialRow>> {
+  return get<PageData<SerialRow>>(`${BASE}/serial/page`, asParams(query));
+}
+
+/**
+ * 扫码定位（`GET /erp/serial/scan?serial_no=`，走 `uk_biz_material_serial_no` 唯一索引点查）。
+ *
+ * 查不到时后端返回 **HTTP 404 + `code = 10002`**（`10002` 是通用「资源不存在」），
+ * 不是 `code = 0` 带空对象 —— 页面要把它译成「未找到该序列号」，不能当成普通报错弹红条。
+ * 号为空则 `400`（`ERP_FILTER_INVALID`）：条码枪漏扫时前端应先自己拦一次。
+ */
+export function scanSerial(serialNo: string): Promise<SerialScanRow> {
+  return get<SerialScanRow>(`${BASE}/serial/scan`, { serial_no: serialNo.trim() });
+}
+
+/**
+ * 批量生成（`POST /erp/serial/batch-generate`，权限 `business:erp:serial:generate`）。
+ *
+ * 前置闸门（后端硬校验，前端只是提前拦）：
+ * - 物料必须 `serial_required = TRUE`，否则 400；
+ * - `warehouse_id` 必填（不变式①）；
+ * - `count` ∈ 1..1000。
+ */
+export function batchGenerateSerials(payload: BatchGenerateSerialReq): Promise<SerialBatchRes> {
+  return post<SerialBatchRes>(`${BASE}/serial/batch-generate`, payload);
+}
+
+/**
+ * 状态流转（`PATCH /erp/serial/{id}/status`，**不可逆**）。
+ *
+ * `status` 只收 `OUTBOUND` / `SCRAPPED`；`reason` 最长 200 字，只进日志与流水备注
+ * （`V0138` 的序列号表没有该列，红线⑤不许改表）。
+ */
+export function updateSerialStatus(
+  id: string,
+  payload: { status: Exclude<SerialStatus, 'IN_STOCK'>; reason?: string | null },
+): Promise<SerialRow> {
+  return patch<SerialRow>(`${BASE}/serial/${id}/status`, payload);
+}
+
+/** 序列号详情（`GET /erp/serial/{id}`） */
+export function fetchSerialDetail(id: string): Promise<SerialRow> {
+  return get<SerialRow>(`${BASE}/serial/${id}`);
 }

@@ -357,6 +357,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '物料管理', permission: 'business:erp:material:list' },
       },
       {
+        // ==================== ERP 序列号（W4b-2） ====================
+        // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
+        // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。
+        path: 'business/erp/serial',
+        name: 'BusinessErpSerial',
+        component: () => import('@/views/business/erp/serial/index.vue'),
+        meta: { title: '序列号管理', permission: 'business:erp:serial:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),
