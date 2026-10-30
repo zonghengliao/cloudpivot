@@ -184,6 +184,45 @@ GET /api/business/task/<uuid>/ai-workspace-files/x.md/download       → HTTP=40
 ===== E13 生产验收：17/17 PASS =====
 ```
 
+### 4.4 部署插曲：release 二进制被并行卡覆盖 → 已抢修（必读）
+
+11:05 本卡部署完成后，**另一张卡在 11:08 用「隔离 clone + 同一个 `target/release`」重编并
+`cp` 覆盖了二进制**（它的工作树里没有本卡代码），表现是：
+
+```
+sha256sum target/release/cloudpivot          → 2b82cbc0…（不是本卡的 4792d36b…）
+grep -ac "文件路径越界" binary                → 0
+GET .../ai-workspace-files                    → 404   ← 本卡三个路由整体消失
+```
+
+`cargo build --release` 此时**秒回 Finished**（指纹认为已是最新，因为源码没变、产物是被外部
+`cp` 覆盖的），所以「重编一次就好」是幻觉。正确处置（已执行并复验）：
+
+```bash
+rm -f target/release/cloudpivot          # 删掉被覆盖的产物
+touch src/lib.rs src/business/task/workspace_files.rs
+cargo build --release -j 2               # → Compiling cloudpivot … 1m41s，重链出正确二进制
+systemctl restart cloudpivot
+```
+
+抢修后复核：
+
+```
+sha256sum target/release/cloudpivot       → 4792d36b3bad745be546b84de4ab0488eab27cdaf46983e40ac8cc9b3e15aa72
+含 E13 文案 / 含路由                        → 1 / 1
+GET ai-workspace-files                     → 401   ← 路由回来（无令牌应是 401，不是 404）
+GET ai-workspace-files/x.md/preview        → 401
+GET ai-workspace-files/x.md/download       → 401
+GET /health                                → 200
+生产验收 17/17 PASS（复跑）
+真机复验：列表 29 个文件 / 预览 h1+4 个 h2 / 下载 blob 5868 bytes，无错误提示
+```
+
+**给后续卡的提醒**：`/opt/cloudpivot/backend/target/release` 是**多卡共享**的部署产物目录，
+用隔离 clone 编译后 `cp` 覆盖会让 cargo 指纹失真（本卡 11:05 与别卡 11:08 各踩一次，
+E14 的 10:53 那次是同一形态）。部署后必须 `grep` 二进制内容 + 打一条新路由确认在位，
+不要只看 `systemctl is-active`。
+
 ## 5. 真机（浏览器，http://172.18.10.144 生产站点）
 
 ### 5.1 AI 任务详情 →「AI 产出文件」tab 有列表
