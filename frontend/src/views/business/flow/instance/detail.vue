@@ -596,7 +596,7 @@ async function onApprove(): Promise<void> {
   try {
     const comment = approveComment.value.trim();
     const result = await approveFlowTask(taskId, comment ? { comment } : {});
-void badgeStore.refresh();
+    void badgeStore.refresh();
     approveComment.value = '';
     MessagePlugin.success(result.instance_status === 'APPROVED' ? '已同意，审批单已通过' : '已同意');
     await loadDetail();
@@ -643,7 +643,7 @@ async function submitReject(): Promise<void> {
   rejecting.value = true;
   try {
     await rejectFlowTask(taskId, { comment, return_to: rejectForm.value.returnTo });
-void badgeStore.refresh();
+    void badgeStore.refresh();
     rejectVisible.value = false;
     MessagePlugin.success('已驳回');
     await loadDetail();

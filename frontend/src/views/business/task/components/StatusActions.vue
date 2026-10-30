@@ -398,8 +398,8 @@ async function changeStatus(to: TaskStatus, reason: string, key: string): Promis
     const result = await changeTaskStatus(props.task.id, to, reason || undefined);
     MessagePlugin.success(`已流转到「${statusLabel('task', result.status)}」`);
     emit('changed', result);
+    void badgeStore.refresh();
     return true;
-void badgeStore.refresh();
   } catch (error) {
     if (error instanceof ApiError && error.code === TASK_ERROR_CODE.APPROVAL_PENDING) {
       notifyApprovalPending();
