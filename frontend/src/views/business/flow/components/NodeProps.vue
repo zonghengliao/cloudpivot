@@ -233,11 +233,10 @@
           />
         </t-form-item>
         <t-form-item label="条件表达式">
-          <t-textarea
-            v-model="conditionText"
-            placeholder='JSON DSL，如 {"op":"cmp","field":"form.amount","cmp":"gte","value":10000}（field 需带 form. / initiator. / instance. / task. 前缀）'
-            :autosize="{ minRows: 3, maxRows: 8 }"
-            @blur="commitCondition"
+          <ConditionTree
+            :model-value="edge.condition ?? null"
+            :readonly="readonly"
+            @update:model-value="onConditionChange"
           />
           <p class="node-props__tip">留空表示无条件。表达式是否合法由后端 V11 校验。</p>
         </t-form-item>
@@ -273,6 +272,7 @@ import type { FlowAssignee, FlowEdge, FlowNode } from '@/api/business/flow-api';
 import { listRoles, type RoleRes } from '@/api/system/role-api';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
+import ConditionTree from '@/views/business/flow/components/ConditionTree.vue';
 import { nodeTypeLabel } from '@/views/business/flow/graph';
 
 /** 组件入参 */
@@ -400,17 +400,10 @@ async function loadRoles(): Promise<void> {
   }
 }
 
-/** 连线条件表达式的本地文本（失焦时才提交，避免边打字边报错） */
-const conditionText = ref('');
-
-watch(
-  () => props.edge?.key,
-  () => {
-    const condition = props.edge?.condition;
-    conditionText.value = condition ? JSON.stringify(condition, null, 2) : '';
-  },
-  { immediate: true },
-);
+/** 条件表达式交给 `ConditionTree.vue`（可视化规则树），这里只做一次「整树 → 一条边命令」的转发 */
+function onConditionChange(value: unknown): void {
+  emitPatchEdge({ condition: value });
+}
 
 watch(
   () => props.node?.assignee_type,
@@ -519,21 +512,6 @@ function toOptionalNumber(value: unknown): number | null {
 function onDefaultEdgeChange(value: unknown): void {
   const isDefault = Boolean(value);
   emitPatchEdge({ is_default: isDefault, label: isDefault ? '其他情况' : (props.edge?.label ?? null) });
-}
-
-/** 提交条件表达式（空串 → null；非法 JSON → toast 提示并保留文本） */
-function commitCondition(): void {
-  const text = conditionText.value.trim();
-  if (!text) {
-    emitPatchEdge({ condition: null });
-    return;
-  }
-  try {
-    const parsed: unknown = JSON.parse(text);
-    emitPatchEdge({ condition: parsed });
-  } catch {
-    // 非法 JSON 不提交：保留用户输入，由后端 V11 提示（这里不强改用户写的东西）
-  }
 }
 </script>
 
