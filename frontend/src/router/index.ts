@@ -348,6 +348,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '仓库管理', permission: 'business:erp:warehouse:list' },
       },
       {
+        // ==================== ERP 主数据（W4b-1 · 物料） ====================
+        // `sys_menu`（V0141 种子 …0943）path = `/business/erp/material`，component
+        // `business/erp/material/index`。**路由手工注册**，漏了 = 点菜单进 404。
+        path: 'business/erp/material',
+        name: 'BusinessErpMaterial',
+        component: () => import('@/views/business/erp/material/index.vue'),
+        meta: { title: '物料管理', permission: 'business:erp:material:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

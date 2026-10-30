@@ -286,3 +286,189 @@ export function updateLocation(id: string, payload: UpdateLocationReq): Promise<
 export function deleteLocation(id: string): Promise<void> {
   return del<void>(`${BASE}/location/${id}`);
 }
+
+// ==================== 物料 ====================
+
+/**
+ * 物料类型（与后端 `dto::MATERIAL_TYPES` 逐字一致，`ck_biz_material_type` 兜底）。
+ *
+ * 卡面草图写的是「分类」（`category_id` / `category_name`）—— 那是**猜的**：
+ * `dto.rs::MaterialRes` 里**没有**这两个字段，`biz_material` 表也没有 `category_id` 列；
+ * 后端只种了 `business:erp:category:*` 权限码，`handler.rs` 里**没有** `/erp/category` 路由
+ * （`grep -n "erp/category" handler.rs` 零命中）。物料真正分的类就是 `material_type` 四值，
+ * 所以页面上的「分类」列 / 下拉 = `material_type`。
+ */
+export type MaterialType = 'RAW' | 'SEMI' | 'FINISHED' | 'SERVICE';
+
+/**
+ * 物料（对应后端 `dto.rs::MaterialRes`，字段名逐条抄自 serde 出参）。
+ *
+ * | 卡面草稿 | 真字段 | 说明 |
+ * |---|---|---|
+ * | `category_id` / `category_name` | —— | 不存在，见 `MaterialType` 注释 |
+ * | `unit_name` | `unit_id` | 出参只有 id；名称由 `/erp/unit/page` 本地映射 |
+ * | `is_active` | `status` | `i16`：1 启用 / 0 停用（**不是**布尔） |
+ * | `external_sn` | —— | 列在表里（V0138）但 `MaterialRes` 没吐，前端拿不到 |
+ *
+ * `safety_stock` / `tax_rate` 是 `Decimal`，serde 出参是**字符串**（`"10.0000"`），
+ * 回写时原样字符串也能被后端 `Decimal` 反序列化。
+ */
+export interface MaterialRow {
+  /** 主键 */
+  id: string;
+  /** 物料编码（未删除内唯一，`VARCHAR(40)`） */
+  material_code: string;
+  /** 物料名称（`VARCHAR(120)`） */
+  material_name: string;
+  /** 规格型号 */
+  spec: string | null;
+  /** 基础计量单位 id */
+  unit_id: string;
+  /** 物料类型（= 页面上的「分类」） */
+  material_type: MaterialType;
+  /** 默认仓库 */
+  default_warehouse_id: string | null;
+  /** 安全库存 */
+  safety_stock: string | number;
+  /** 计价方式 */
+  costing_method: string;
+  /** 存货科目 */
+  inventory_account_id: string | null;
+  /** 税率（0–1） */
+  tax_rate: string | number;
+  /** 启用状态：1 启用 / 0 停用 */
+  status: number;
+  /** ★ 是否一物一码（V0138 的列；W2b 补进接口的开关） */
+  serial_required: boolean;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间（RFC3339） */
+  created_at: string;
+  /** 更新时间（RFC3339） */
+  updated_at: string;
+}
+
+/** 新建物料请求体（对应后端 `CreateMaterialReq`） */
+export interface CreateMaterialReq {
+  /** 编码（未删除内唯一） */
+  material_code: string;
+  /** 名称 */
+  material_name: string;
+  /** 基础单位（必填 UUID） */
+  unit_id: string;
+  /** 类型（缺省 RAW） */
+  material_type?: MaterialType;
+  /** 规格 */
+  spec?: string | null;
+  /** 默认仓库 */
+  default_warehouse_id?: string | null;
+  /** 安全库存（缺省 0） */
+  safety_stock?: string | number | null;
+  /** 计价方式（缺省 MOVING_AVG） */
+  costing_method?: string;
+  /** 存货科目 */
+  inventory_account_id?: string | null;
+  /** 税率（缺省 0） */
+  tax_rate?: string | number | null;
+  /** 启用状态（缺省 1） */
+  status?: number;
+  /** ★ 是否一物一码（缺省 false） */
+  serial_required?: boolean;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/**
+ * 编辑物料请求体（对应后端 `UpdateMaterialReq`）。
+ *
+ * **没有 `material_code`** —— 编码是身份，后端不收。缺席 = 不改，`null` = 清空。
+ */
+export interface UpdateMaterialReq {
+  /** 名称 */
+  material_name?: string;
+  /** 规格（`null` = 清空） */
+  spec?: string | null;
+  /** 基础单位 */
+  unit_id?: string;
+  /** 类型 */
+  material_type?: MaterialType;
+  /** 默认仓库（`null` = 清空） */
+  default_warehouse_id?: string | null;
+  /** 安全库存 */
+  safety_stock?: string | number;
+  /** 计价方式 */
+  costing_method?: string;
+  /** 存货科目（`null` = 清空） */
+  inventory_account_id?: string | null;
+  /** 税率 */
+  tax_rate?: string | number;
+  /** 启用状态 */
+  status?: number;
+  /** ★ 一物一码（缺席 = 不改；页面编辑态置灰，故正常不发） */
+  serial_required?: boolean;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/** 计量单位（对应后端 `UnitRes`；本页只用来把 `unit_id` 译成名字） */
+export interface UnitRow {
+  /** 主键 */
+  id: string;
+  /** 单位编码（PCS / KG / BOX） */
+  unit_code: string;
+  /** 单位名称（个 / 千克 / 箱） */
+  unit_name: string;
+  /** 是否基础单位 */
+  is_base: boolean;
+  /** 启用状态 */
+  status: number;
+}
+
+/**
+ * 物料分页（服务端分页，`GET /erp/material/page`）。
+ *
+ * `serial_required` 是**三态**：`true` / `false` 过滤，`undefined` 不带该参数（= 全部）。
+ * 空串一律不发（`asParams` 兜住）—— 后端把 `?keyword=` 当「等于空串」过滤，会查出 0 行。
+ */
+export function fetchMaterialPage(query: {
+  keyword?: string;
+  material_type?: MaterialType | '';
+  serial_required?: boolean;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<MaterialRow>> {
+  return get<PageData<MaterialRow>>(`${BASE}/material/page`, asParams(query));
+}
+
+/** 物料详情 */
+export function fetchMaterialDetail(id: string): Promise<MaterialRow> {
+  return get<MaterialRow>(`${BASE}/material/${id}`);
+}
+
+/**
+ * 新建物料。
+ *
+ * 后端返回的是整个 `MaterialRes`（不是只有 id），所以这里返回 `MaterialRow` ——
+ * 卡面写 `Promise<{ id: string }>` 是保守估计，`row.id` 就是那个 id。
+ */
+export function createMaterial(payload: CreateMaterialReq): Promise<MaterialRow> {
+  return post<MaterialRow>(`${BASE}/material`, payload);
+}
+
+/** 编辑物料（缺席 = 不改，`null` = 清空） */
+export function updateMaterial(id: string, payload: UpdateMaterialReq): Promise<MaterialRow> {
+  return put<MaterialRow>(`${BASE}/material/${id}`, payload);
+}
+
+/**
+ * 计量单位列表（`GET /erp/unit/page`，取前 200 条够用：种子只有 3 个）。
+ *
+ * 物料出参只给 `unit_id`，列表的「单位」列与弹窗的单位下拉都得靠它译名。
+ * 权限码 `business:erp:unit:list`（V0141 已种）。
+ */
+export function fetchUnitOptions(): Promise<UnitRow[]> {
+  return get<PageData<UnitRow>>(`${BASE}/unit/page`, asParams({ page: 1, page_size: 200 })).then(
+    (page) => page.list,
+  );
+}
