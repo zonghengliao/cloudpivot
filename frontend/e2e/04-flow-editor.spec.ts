@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { centerOf, newApi, openAuthed, toast, RUN, type Api } from './support';
+import { assertNavigationOk, centerOf, newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 4：SVG 流程编辑器（纯自绘画布）
@@ -125,7 +125,7 @@ test.describe('流程4 SVG 流程编辑器', () => {
     await expect(toast(page, '已保存')).toBeVisible({ timeout: 20_000 });
 
     // ---------- ⑥ 重新打开：整图还原 ----------
-    await page.reload();
+    assertNavigationOk(await page.reload(), '流程编辑器整图（reload 还原）');
     await expect(page.locator('.flow-node')).toHaveCount(5, { timeout: 20_000 });
     await expect(page.locator('.flow-edge__hit')).toHaveCount(4);
     // 节点名称与类型都在（不是只还原了坐标）

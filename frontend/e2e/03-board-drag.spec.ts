@@ -4,6 +4,7 @@ import {
   installBoardProbe,
   mouseDrag,
   newApi,
+  assertNavigationOk,
   openAuthed,
   toast,
   withDiagnostics,
@@ -91,7 +92,7 @@ test.describe('流程3 看板拖拽', () => {
     });
 
     // 刷新页面：卡片仍在「进行中」= 状态真的落库了（不是只改了 DOM）
-    await page.reload();
+    assertNavigationOk(await page.reload(), '/task?view=board');
     await expect(col('DOING').locator('.board-card').filter({ hasText: titleMove })).toHaveCount(1, {
       timeout: 20_000,
     });

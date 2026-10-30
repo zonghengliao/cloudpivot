@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { login, openAuthed } from './support';
+import { assertNavigationOk, login, openAuthed } from './support';
 
 /**
  * 侧边栏「工作任务」目录节点。
@@ -59,7 +59,7 @@ test.describe('流程1 登录 → 任务列表', () => {
     await expect(page.getByText(/共 \d+ 条/).first()).toBeVisible();
 
     // 登录态确实存在（刷新后不掉线，说明走的是真 token 而不是内存假态）
-    await page.reload();
+    assertNavigationOk(await page.reload(), '/task/list');
     await expect(page).toHaveURL(/\/task\/list(\?|$)/);
     await expect(page.locator('tbody tr').first()).toBeVisible({ timeout: 20_000 });
   });

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { newApi, openAuthed, toast, RUN, type Api } from './support';
+import { assertNavigationOk, newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 5：审批待办 → 审批（同意）
@@ -98,7 +98,7 @@ test.describe('流程5 审批待办 → 同意', () => {
     expect(inst.instance.status, '实例应已通过').toBe('APPROVED');
 
     // 待办列表里也应该没有它了
-    await page.goto('/flow/task');
+    assertNavigationOk(await page.goto('/flow/task'), '/flow/task');
     await expect(page.locator('.task-card').filter({ hasText: title })).toHaveCount(0, { timeout: 20_000 });
     // 「我发起的」里能找到它且是已通过
     await page.locator('.t-tabs__nav-item', { hasText: '我发起的' }).click();
