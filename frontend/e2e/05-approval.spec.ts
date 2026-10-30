@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login, newApi, toast, RUN, type Api } from './support';
+import { newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 5：审批待办 → 审批（同意）
@@ -65,8 +65,8 @@ test.describe('流程5 审批待办 → 同意', () => {
   });
 
   test('待办卡片 → 详情 → 填意见 → 同意 → 状态变化', async ({ page }) => {
-    await login(page);
-    await page.goto('/flow/task');
+
+    await openAuthed(page, '/flow/task');
     await expect(page.locator('.t-tabs__nav-item', { hasText: '待我审批' })).toBeVisible();
 
     // ---------- ① 待办列表里找到预置的这条 ----------

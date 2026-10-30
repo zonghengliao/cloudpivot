@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login, newApi, toast, RUN, type Api } from './support';
+import { newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 2：建任务 → 编辑 → 删除（**全程点界面**，只有删除失败兜底才用 API 清理）
@@ -27,8 +27,8 @@ test.describe('流程2 建任务 → 编辑 → 删除', () => {
   });
 
   test('新建 → 编辑 → 删除 全链路', async ({ page }) => {
-    await login(page);
-    await page.goto('/task');
+
+    await openAuthed(page, '/task');
     await expect(page.locator('th', { hasText: '任务号' })).toBeVisible();
 
     // ---------- ① 新建 ----------

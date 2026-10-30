@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { login, newApi, toast, RUN, type Api } from './support';
+import { newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 3：看板拖拽（**最关键的交互**）
@@ -33,8 +33,8 @@ test.describe('流程3 看板拖拽', () => {
   });
 
   test('五列 / 拖到进行中 / 跳级回弹 + 错误提示', async ({ page }) => {
-    await login(page);
-    await page.goto('/task?view=board');
+
+    await openAuthed(page, '/task?view=board');
 
     // ---------- ① 五列 ----------
     const cols = page.locator('.board .col');

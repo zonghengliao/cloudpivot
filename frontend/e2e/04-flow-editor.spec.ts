@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { centerOf, login, newApi, toast, RUN, type Api } from './support';
+import { centerOf, newApi, openAuthed, toast, RUN, type Api } from './support';
 
 /**
  * 流程 4：SVG 流程编辑器（纯自绘画布）
@@ -29,8 +29,8 @@ test.describe('流程4 SVG 流程编辑器', () => {
   });
 
   test('拖节点 / 连线 / 保存还原 / 校验 / 发布', async ({ page }) => {
-    await login(page);
-    await page.goto('/flow/def');
+
+    await openAuthed(page, '/flow/def');
 
     // ---------- ① 新建流程（真实弹窗） ----------
     await page.getByRole('button', { name: '新建流程' }).click();

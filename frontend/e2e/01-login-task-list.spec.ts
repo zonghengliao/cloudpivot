@@ -1,6 +1,10 @@
 import { expect, test } from '@playwright/test';
 import { login } from './support';
 
+// 这条用例本身就在测「登录」：必须用干净上下文，不能用 globalSetup 存下的登录态
+// （否则进 /login 会被路由守卫直接弹到工作台，登录表单永远走不到）
+test.use({ storageState: { cookies: [], origins: [] } });
+
 /**
  * 流程 1：登录 → 任务列表
  *

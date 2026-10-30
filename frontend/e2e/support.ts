@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 /**
  * E2E 公共支撑：地址 / 账号 / 登录 / 真实后端 API 预置与清理。
  *
@@ -42,6 +44,27 @@ export async function login(page: Page): Promise<void> {
   throw new Error(`登录失败（已重试 3 次）：${lastError}`);
 }
 
+/** 读 `globalSetup` 存下的共享令牌（读不到返回空串，调用方回退到真登录） */
+export function readSharedToken(): string {
+  try {
+    return readFileSync(resolve(process.cwd(), 'e2e/.auth/token.txt'), 'utf8').trim();
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * 已带登录态的用例入口：直接进目标页；万一被踢回登录页（令牌过期）再走一次真实表单登录。
+ */
+export async function openAuthed(page: Page, path: string): Promise<void> {
+  await page.goto(path);
+  if (/\/login/.test(page.url())) {
+    await login(page);
+    await page.goto(path);
+  }
+  await expect(page.locator('.basic-layout__aside')).toBeVisible();
+}
+
 /** TDesign 消息条文案（成功 / 失败提示都在这里） */
 export function toast(page: Page, text: string | RegExp) {
   return page.locator('.t-message').filter({ hasText: text }).first();
@@ -63,13 +86,20 @@ export interface Api {
   dispose(): Promise<void>;
 }
 
-/** 建一个带登录令牌的 API 客户端 */
+/**
+ * 真实后端 API 客户端。
+ *
+ * 令牌优先复用 `globalSetup` 存下的那份（`.auth/token.txt`）——后端登录接口有
+ * 10 次 / 60 秒 的限流，用例里逐个登录会被 429。只有拿不到令牌时才真登一次。
+ */
 export async function newApi(): Promise<Api> {
   const ctx = await request.newContext({ baseURL: BASE_URL });
-  const res = await ctx.post('/api/system/auth/login', { data: ACCOUNT });
-  expect(res.status(), 'API 登录应返回 200').toBe(200);
-  const body = await res.json();
-  const token: string = body?.data?.access_token;
+  let token = readSharedToken();
+  if (!token) {
+    const res = await ctx.post('/api/system/auth/login', { data: ACCOUNT });
+    expect(res.status(), 'API 登录应返回 200（429 表示触发了登录限流）').toBe(200);
+    token = (await res.json())?.data?.access_token;
+  }
   expect(token, 'API 登录应拿到 access_token').toBeTruthy();
   const headers = { Authorization: `Bearer ${token}` };
 
