@@ -1341,7 +1341,14 @@ mod tests {
             .await
             .expect("分页查询");
         assert!(total >= 1, "至少能筛到刚出库的那条");
-        assert_eq!(total, rows.len() as i64, "total 必须与列表同口径");
+        // 「total 与列表同口径」：未满页时两者相等；满页时列表长度必须等于 page_size。
+        // （不能用 `total == rows.len()` 死判：M_SN 的历史流水会随全量套件反复跑而累积，
+        //   超过一页后该断言会假红 —— W2c-1 复跑时实测 total=19 / rows=10。）
+        if total <= 10 {
+            assert_eq!(total, rows.len() as i64, "未满页时 total 必须与列表同口径");
+        } else {
+            assert_eq!(rows.len(), 10, "满页时列表长度必须等于 page_size");
+        }
         assert!(rows.iter().all(|row| row.status == STATUS_OUTBOUND));
         assert!(rows.iter().all(|row| row.material_id == uuid(M_SN_ID)));
         assert!(rows.iter().all(|row| row.warehouse_id == Some(uuid(W_ID))));
