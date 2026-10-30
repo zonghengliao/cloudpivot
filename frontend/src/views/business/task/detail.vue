@@ -335,6 +335,11 @@
               </div>
               <p v-else class="placeholder">还没有工时记录（工时只由服务端汇总，前端不填实际工时）</p>
             </t-tab-panel>
+
+            <!-- ---------- AI 产出文件（E13：AI 写进 workspace 的原始产出，只读） ---------- -->
+            <t-tab-panel v-if="isAiTask" value="ai" label="AI 产出文件">
+              <AiWorkspaceFiles :task-id="currentId ?? ''" />
+            </t-tab-panel>
           </t-tabs>
         </div>
       </template>
@@ -436,6 +441,7 @@ import MentionSelect from './components/MentionSelect.vue';
 import StatusActions from './components/StatusActions.vue';
 import UserSelect from './components/UserSelect.vue';
 import MarkdownViewer from '@/components/MarkdownViewer.vue';
+import AiWorkspaceFiles from '@/views/business/task/components/AiWorkspaceFiles.vue';
 import { priorityOptions } from '@/constants/status-map';
 import { ApiError } from '@/api/request';
 import {
@@ -513,6 +519,9 @@ const isOverdue = computed(() => {
 });
 
 /** 是否终态（DONE / CANCELLED）：终态任务不能再加子任务（后端 409 + 63006/63012） */
+/** 是否 AI 任务（只有它们才有 Hermes workspace，见 E13） */
+const isAiTask = computed(() => detail.value?.exec_mode === 'AI');
+
 const isTerminal = computed(() => detail.value?.status === 'DONE' || detail.value?.status === 'CANCELLED');
 
 /** 当前看的是不是子任务（子任务不能再往下拆：后端 `validate_parent` 400） */
@@ -745,7 +754,7 @@ function handleClosed(): void {
 // 打开抽屉时并发拉三份，避免切 tab 时才转圈。
 
 /** 当前协作区 tab */
-const activeTab = ref<'comment' | 'attachment' | 'worklog'>('comment');
+const activeTab = ref<'comment' | 'attachment' | 'worklog' | 'ai'>('comment');
 
 /** 评论列表状态（分页累加：`加载更多` 只追加） */
 const comments = reactive({

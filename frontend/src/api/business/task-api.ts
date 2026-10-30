@@ -76,6 +76,12 @@ export interface TaskCard {
   dept_id: string | null;
   /** 来源 */
   source: string;
+  /**
+   * 执行模式 `HUMAN` / `AI`（后端 `TaskCardRes.exec_mode`）。
+   *
+   * E13：只有 `AI` 任务才有 Hermes workspace，详情页据此显示「AI 产出文件」面板。
+   */
+  exec_mode: string;
   /** 计划开始日 `YYYY-MM-DD` */
   start_date: string | null;
   /** 截止日 `YYYY-MM-DD` */
@@ -1006,4 +1012,93 @@ export interface TaskScheduleResult {
  */
 export function scheduleTask(id: string, data: TaskScheduleReq): Promise<TaskScheduleResult> {
   return patch<TaskScheduleResult>(`/api/business/task/${id}/schedule`, data);
+}
+
+// ==================== AI 产出文件（批次 E · E13） ====================
+/**
+ * AI 产出文件（对应后端 `workspace_files::AiWorkspaceFileItemRes`）。
+ *
+ * 来源是 AI 在 `~/.hermes/workspace/<profile>/` 里**直接写下的原始文件**，
+ * 与「附件」（AI 主动上传进 storage 的那一份）是两条不同的来源。
+ */
+export interface AiWorkspaceFileItem {
+  /** 文件名（不含目录） */
+  name: string;
+  /** workspace 内相对路径 `<profile>/<name>`（后端不下发服务器绝对路径） */
+  path: string;
+  /** 字节数 */
+  size: number;
+  /** 修改时间 RFC3339 */
+  mtime: string;
+  /** 是否文本类（可按原文预览） */
+  is_text: boolean;
+  /** 预览类型：`markdown` / `text` / `csv` / `image` / `pdf` */
+  preview_kind: string;
+}
+
+/** AI 产出文件列表（`GET /api/business/task/{id}/ai-workspace-files`） */
+export interface AiWorkspaceFiles {
+  list: AiWorkspaceFileItem[];
+  total: number;
+  /** 该任务的 AI profile */
+  profile: string;
+  /** 单文件上限（字节，后端 10MB） */
+  max_bytes: number;
+  /** workspace 目录是否存在（false → 列表必空） */
+  workspace_exists: boolean;
+}
+
+/**
+ * 预览回执（`GET …/ai-workspace-files/{name}/preview`）。
+ *
+ * `encoding = 'text'` 时 `content` 是原文；`base64` 时是二进制（图片 / PDF）。
+ * `truncated` 只对文本类可能为真（CSV 截前 100 行 / 文本截前 20 万字符）。
+ */
+export interface AiWorkspacePreview {
+  name: string;
+  /** `markdown` / `text` / `csv` / `image` / `pdf` / `binary` */
+  content_type: string;
+  content: string;
+  encoding: 'text' | 'base64';
+  size: number;
+  truncated: boolean;
+  mime_type: string;
+}
+
+/**
+ * AI 产出文件列表。
+ *
+ * # 后端会拒绝的情形（都不该在正常界面里出现，出现即是缺陷）
+ *
+ * - `404 + 63001`：任务不可见 / 不存在（**能看任务才能看文件**）；
+ * - `400 + 10001`：任务是人工任务（`exec_mode = 'HUMAN'`，没有 workspace）；
+ * - `400 + 64004`：AI 执行者没登记 Hermes profile。
+ */
+export function listAiWorkspaceFiles(id: string): Promise<AiWorkspaceFiles> {
+  return get<AiWorkspaceFiles>(`/api/business/task/${id}/ai-workspace-files`);
+}
+
+/**
+ * 预览单个文件（点文件名 → 抽屉）。
+ *
+ * 文件名会先过后端白名单（`^[A-Za-z0-9._-]+$` + 扩展名白名单 + `canonicalize`
+ * 前缀校验），前端**不自己做安全判断**：`encodeURIComponent` 只为拼 URL。
+ */
+export function previewAiWorkspaceFile(id: string, name: string): Promise<AiWorkspacePreview> {
+  return get<AiWorkspacePreview>(
+    `/api/business/task/${id}/ai-workspace-files/${encodeURIComponent(name)}/preview`,
+  );
+}
+
+/**
+ * 下载单个文件（走 Blob，**不能** `<a href>`）。
+ *
+ * 接口要 Bearer 鉴权，裸链接触发的是浏览器导航、不带 `Authorization` → 401。
+ */
+export async function downloadAiWorkspaceFile(id: string, name: string): Promise<Blob> {
+  const response = await service.get<Blob>(
+    `/api/business/task/${id}/ai-workspace-files/${encodeURIComponent(name)}/download`,
+    { responseType: 'blob' },
+  );
+  return response.data;
 }

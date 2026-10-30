@@ -78,3 +78,4 @@ pub mod hermes_sync;
 pub mod model;
 pub mod schedule;
 pub mod state;
+pub mod workspace_files;
