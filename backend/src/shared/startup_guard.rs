@@ -786,11 +786,107 @@ pub async fn check_ai_agent_invariant() -> std::result::Result<(), Error> {
         robot_without_agent: collect(robot_rows),
         agent_without_robot: collect(agent_rows),
     };
+    // E15：安全红线巡检（与不变式判定并列，只 WARN、不影响返回值）。
+    // 放在 violated 判断之前：不变式坏了也要把「哪些 profile 没有红线」一起点出来。
+    warn_missing_safety_block().await;
     if violation.is_violated() {
         return Err(Error::Config(violation.summary()));
     }
     tracing::info!("AI 用户不变式自检通过：ROBOT 账号与 sys_ai_agent 一一对应");
     Ok(())
+}
+
+/// 启动巡检（E15）：每个 `user_type='ROBOT'` 的 Hermes profile，其 `SOUL.md` 必须含
+/// **当前版本**的安全红线区块（[`crate::business::aiagent::safety::SAFETY_BEGIN`]）。
+///
+/// # 为什么只 WARN、不阻启动
+///
+/// 缺失区块不会让任何接口报错、也不会让账号登不上 —— 它的危害是「这个 AI 员工这一轮
+/// 上下文里没有红线」（典型成因：有人手工编辑了 `.99` 上的 `SOUL.md`、或 profile 从
+/// 别处拷过来）。但 `SOUL.md` 在**另一台机器**上（Hermes 在 `172.18.10.99`，本服务通过
+/// ssh 读写），网络抖动 / 免密失效都会让「读不到」变成「启动失败」，代价远大于收益。
+/// 所以：**点名 WARN**，修复走编辑接口（`PUT /system/user/ai/{id}` 会自动补回）。
+///
+/// # 处置口径
+///
+/// | 情况 | 日志 |
+/// |------|------|
+/// | 文件存在但没有当前版本区块 | `WARN` + profile 名（逐个点名） |
+/// | 文件读不到（404 / ssh 失败 / 名字非法） | `WARN` + profile 名 + 原因（**不能**当成「合规」） |
+/// | 全部合规 | `INFO` + 检查了几个 profile |
+/// | 查库失败 | `WARN`（不阻启动） |
+///
+/// # 异常情况
+///
+/// 本函数**不返回错误**：所有异常都被降级成日志，调用方（[`check_ai_agent_invariant`]）
+/// 的语义不受影响。
+async fn warn_missing_safety_block() {
+    use crate::business::aiagent::hermes::Hermes;
+    use crate::business::aiagent::safety;
+
+    // SCOPE-EXEMPT: 启动巡检是全局检查（跨全部 ROBOT 账号），注入数据范围会漏检。
+    let rows = match db()
+        .find_with_params(
+            "SELECT a.hermes_profile FROM sys_ai_agent a \
+             JOIN sys_user u ON u.id = a.user_id \
+             WHERE a.deleted_at IS NULL AND u.deleted_at IS NULL AND u.user_type = 'ROBOT' \
+             ORDER BY a.hermes_profile LIMIT 50",
+            vec![],
+        )
+        .await
+    {
+        Ok(rows) => rows,
+        Err(error) => {
+            tracing::warn!("AI 员工安全红线巡检无法完成（查库失败，继续启动）：{error}");
+            return;
+        }
+    };
+    let profiles: Vec<String> = rows
+        .iter()
+        .filter_map(|row| row.get_typed::<String>("hermes_profile").ok())
+        .collect();
+    if profiles.is_empty() {
+        tracing::info!("AI 员工安全红线巡检：当前没有 ROBOT profile，跳过");
+        return;
+    }
+
+    let hermes = Hermes::from_env();
+    let mut missing: Vec<String> = Vec::new();
+    let mut unreadable: Vec<String> = Vec::new();
+    for profile in &profiles {
+        match hermes.read_soul(profile).await {
+            Ok(soul) => {
+                if !safety::has_safety_block(&soul) {
+                    missing.push(profile.clone());
+                }
+            }
+            Err(error) => unreadable.push(format!("{profile}（{}）", error.msg)),
+        }
+    }
+
+    for profile in &missing {
+        tracing::warn!(
+            profile = %profile,
+            "AI 员工 SOUL.md 缺少安全红线区块（E15）：该员工当前上下文里没有红线；\
+             请通过 PUT /system/user/ai/{{id}} 保存一次以自动补回"
+        );
+    }
+    for detail in &unreadable {
+        tracing::warn!("AI 员工 SOUL.md 读取失败，无法确认安全红线（E15）：{detail}");
+    }
+    if missing.is_empty() && unreadable.is_empty() {
+        tracing::info!(
+            "AI 员工安全红线巡检通过：{} 个 ROBOT profile 均含安全红线区块",
+            profiles.len()
+        );
+    } else {
+        tracing::warn!(
+            "AI 员工安全红线巡检：{} 个 profile 缺区块，{} 个读不到（共 {} 个 ROBOT profile）",
+            missing.len(),
+            unreadable.len(),
+            profiles.len()
+        );
+    }
 }
 
 /// 启动自检：孤儿任务依赖的**数量**（后继或前置已被软删的 `biz_task_dependency` 行）。

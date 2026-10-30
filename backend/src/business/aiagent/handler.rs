@@ -57,6 +57,9 @@ use crate::business::aiagent::dto::{
 };
 use crate::business::aiagent::hermes::Hermes;
 use crate::business::aiagent::model::{self, AiAgentRow, AiUserBrief};
+use crate::business::aiagent::safety;
+use crate::business::changelog::dto::{Action, TraceSource};
+use crate::business::changelog::model as changelog_model;
 use crate::shared::ai_actor;
 use crate::shared::constants::EnableStatus;
 use crate::shared::error_code;
@@ -188,6 +191,9 @@ pub async fn create(
             )
         });
     let workspace_path = hermes.workspace_path(&username);
+    // E15：建号即注入 19 条安全红线（库内副本与磁盘**同源**：`write_soul` 里还会幂等
+    // ensure 一次，但库这一份必须提前带上，否则 GET 回来的正文与磁盘不一致）。
+    let soul_md = safety::ensure_safety_block(&soul_md);
     let mut row = AiAgentRow {
         user_id,
         hermes_profile: username.clone(),
@@ -398,9 +404,24 @@ pub async fn update(
         .await
         .map_err(|e| utils::db_error(e, "查询 AI 用户账号信息"))?;
 
+    let mut safety_restored: Option<SafetyRestoreAudit> = None;
     if let Some(soul_md) = req.soul_md.as_deref() {
-        hermes.write_soul(&row.hermes_profile, soul_md).await?;
-        row.soul_md = soul_md.to_string();
+        // E15：安全红线区块由平台强制维护。判定「用户删掉了区块」= 旧值有**当前版本**
+        // 区块、而本次提交的正文没有 —— 那种情况下要补回并写审计（卡面验收第 3 条）。
+        let had_block = safety::has_safety_block(&row.soul_md);
+        let guarded = safety::ensure_safety_block(soul_md);
+        if had_block && !safety::has_safety_block(soul_md) {
+            safety_restored = Some(SafetyRestoreAudit {
+                user_id: row.user_id,
+                profile: row.hermes_profile.clone(),
+                operator_id: utils::current_user_uuid(&claims),
+                operator_name: claims.username.clone(),
+                submitted_len: soul_md.len(),
+                guarded_len: guarded.len(),
+            });
+        }
+        hermes.write_soul(&row.hermes_profile, &guarded).await?;
+        row.soul_md = guarded;
     }
     if let Some(raw) = req.agent_description.as_deref() {
         let description = normalize_description(Some(raw))?;
@@ -411,9 +432,18 @@ pub async fn update(
         row.model_override = normalize_model(Some(model))?;
     }
 
-    model::update_content(db(), &row)
+    // 落库与审计**同一事务**（changelog 模块的 D11 口径）：审计写不进去就不许「悄悄丢掉」，
+    // 让整次编辑回滚比留一条没有凭证的「区块被恢复」安全。
+    let row = db()
+        .transaction(|tx| async move {
+            model::update_content(&tx, &row).await?;
+            if let Some(audit) = safety_restored {
+                write_safety_restore_audit(&tx, &audit).await?;
+            }
+            Ok(row)
+        })
         .await
-        .map_err(|e| utils::db_error(e, "更新 AI 用户配置"))?;
+        .map_err(|e| utils::db_error(e, "更新 AI 用户配置（含安全红线审计）"))?;
 
     let operator = claims.sub.clone();
     tracing::info!(
@@ -703,6 +733,93 @@ async fn forbid_robot(claims: &TokenClaims) -> std::result::Result<(), ApiError>
         Some(error) => Err(error),
         None => Ok(()),
     }
+}
+
+/// 「安全红线区块被删除后自动恢复」的审计素材（全部 owned，便于搬进事务闭包）。
+///
+/// # 为什么单独一个结构
+///
+/// 事务闭包要求 `move` 且要跨 `await`，直接借 `&AiAgentRow` 搬不进去；
+/// 把「要写进审计的 6 个值」显式摘出来，闭包里就不用再造一份查询。
+struct SafetyRestoreAudit {
+    /// 被改的 AI 用户（= `sys_ai_agent.user_id`，审计的 `resource_id`）。
+    user_id: Uuid,
+    /// Hermes profile 名（进 diff 的 meta，便于运维定位磁盘文件）。
+    profile: String,
+    /// 操作人 ID（谁把区块删掉的）。
+    operator_id: Option<Uuid>,
+    /// 操作人名字（冗余落库：改名后历史仍可读）。
+    operator_name: Option<String>,
+    /// 用户提交的正文长度（**不含**区块）。
+    submitted_len: usize,
+    /// 落盘 / 落库后的长度（**含**区块）。
+    guarded_len: usize,
+}
+
+/// 在**业务事务内**写一行「安全区块被删除后自动恢复」的审计。
+///
+/// # 为什么走 `changelog::model::insert` 而不是 `changelog::record`
+///
+/// `record()` 要求资源在 `diff::REGISTRY` 里登记（未登记 → `500 + 62012`），而
+/// `sys_ai_agent` 本卡不登记（登记会改动批次 C 的模块，超出本卡交付面）。
+/// 因此这里自建一份**最小 diff**：只记长度与「有没有区块」两个事实，
+/// **绝不含 SOUL 正文**（正文可能含用户写的任何东西）。
+///
+/// # 参数
+///
+/// - `ex`：业务事务的执行器（红线：不能传 `db()`，那会开第二个事务）；
+/// - `audit`：上面那份 owned 素材。
+///
+/// # 异常情况
+///
+/// 数据库异常原样上抛 → 业务事务一起回滚（宁可这次编辑失败，也不留「恢复了但没凭证」）。
+async fn write_safety_restore_audit(
+    ex: &impl SqlExecutor,
+    audit: &SafetyRestoreAudit,
+) -> DbResult<()> {
+    // 操作人类型同事务查库判定（不硬编码 HUMAN：将来若放开 AI 改配置，这里不会说谎）
+    let operator_type = changelog_model::operator_type_of(ex, audit.operator_id).await?;
+    let changed_fields = vec!["soul_md".to_string()];
+    let diff = serde_json::json!({
+        "v": 1,
+        "mode": "FULL",
+        "fields": {
+            "soul_md": {
+                "b": { "len": audit.submitted_len, "has_safety_block": false },
+                "a": { "len": audit.guarded_len, "has_safety_block": true }
+            }
+        },
+        "meta": {
+            "note": "安全区块被删除后自动恢复",
+            "profile": audit.profile.clone(),
+            "safety_marker": safety::SAFETY_BEGIN,
+            "safety_block_bytes": safety::SAFETY_BLOCK.len()
+        }
+    })
+    .to_string();
+    let resource_id = audit.user_id.to_string();
+    let row = changelog_model::NewChangeLog {
+        id: Uuid::now_v7(),
+        request_id: None,
+        trace_source: TraceSource::Api.code(),
+        operator_id: audit.operator_id,
+        operator_name: audit.operator_name.as_deref(),
+        operator_type: operator_type.code(),
+        operator_dept_id: None,
+        client_ip: None,
+        module: "system",
+        resource: "sys_ai_agent",
+        resource_id: &resource_id,
+        action: Action::Update.code(),
+        action_label: "恢复 AI 用户安全红线（安全区块被删除后自动恢复）",
+        diff,
+        diff_mode: "FULL",
+        changed_fields: changed_fields.as_slice(),
+        error_code: None,
+        duration_ms: None,
+        created_at: chrono::Utc::now(),
+    };
+    changelog_model::insert(ex, &row).await
 }
 
 /// 补偿（回滚）未成功时的错误包装：保留原始错误语义，把残留项逐条塞进消息。

@@ -765,11 +765,23 @@ impl Hermes {
     /// - 其余 IO：`500 + AI_AGENT_SOUL_IO_FAILED`。
     pub async fn write_soul(&self, name: &str, content: &str) -> Result<(), ApiError> {
         Self::validate_profile_name(name)?;
+        // E15：安全红线区块由平台**强制维护** —— 任何写入路径（建号 / 编辑 / 将来的批量回填）
+        // 落盘前都必须带上它。放在 `write_soul` 而不是放在 handler，是为了让「唯一落盘点」
+        // 自己就保证不变式：绕过 handler 直接调这里也删不掉红线。
+        //
+        // 幂等：已有区块（含旧版本）会被替换成当前版本，不会追加第二份，见
+        // [`crate::business::aiagent::safety::ensure_safety_block`]。
+        let content = crate::business::aiagent::safety::ensure_safety_block(content);
+        let content = content.as_str();
         if content.len() > SOUL_MAX_BYTES {
             return Err(ApiError::new(
                 400,
                 error_code::AI_AGENT_SOUL_INVALID,
-                format!("SOUL.md 超过上限 {} KiB", SOUL_MAX_BYTES / 1024),
+                format!(
+                    "SOUL.md 超过上限 {} KiB（含平台强制注入的安全红线区块 {} 字节）",
+                    SOUL_MAX_BYTES / 1024,
+                    crate::business::aiagent::safety::SAFETY_BLOCK.len()
+                ),
             ));
         }
         let dir = self.profile_dir(name);
@@ -2474,18 +2486,32 @@ mod tests {
             .write_soul("agent-01", "# 第一版\n内容\n")
             .await
             .expect("写 SOUL");
+        // E15：落盘内容 = 用户内容 + 平台强制安全红线区块（区块在末尾，用户内容原样）
+        let first = hermes.read_soul("agent-01").await.expect("读 SOUL");
+        assert!(
+            crate::business::aiagent::safety::has_safety_block(&first),
+            "写 SOUL 必须自动注入安全红线区块"
+        );
         assert_eq!(
-            hermes.read_soul("agent-01").await.expect("读 SOUL"),
-            "# 第一版\n内容\n"
+            crate::business::aiagent::safety::strip_safety_block(&first).trim_end(),
+            "# 第一版\n内容"
         );
 
         hermes
             .write_soul("agent-01", "# 第二版\n换行里有 ' 引号 $ 和 `\n")
             .await
             .expect("覆盖写");
+        let second = hermes.read_soul("agent-01").await.expect("读回");
         assert_eq!(
-            hermes.read_soul("agent-01").await.expect("读回"),
-            "# 第二版\n换行里有 ' 引号 $ 和 `\n"
+            crate::business::aiagent::safety::strip_safety_block(&second).trim_end(),
+            "# 第二版\n换行里有 ' 引号 $ 和 `"
+        );
+        // 反复写也只能有一份区块（不重复追加）
+        assert_eq!(
+            second
+                .matches(crate::business::aiagent::safety::SAFETY_BEGIN)
+                .count(),
+            1
         );
 
         let leftovers: Vec<String> = std::fs::read_dir(root.join("profiles/agent-01"))

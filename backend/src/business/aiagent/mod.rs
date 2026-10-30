@@ -17,6 +17,7 @@
 //! | [`model`] | `sys_ai_agent` 行与 SQL（手写，因为 `model_override` 是 jsonb） |
 //! | [`dto`] | 六个接口的请求 / 响应与字段规整 |
 //! | [`handler`] | 六个接口 + 创建 saga（含补偿回滚） |
+//! | [`safety`] | 19 条安全红线：常量 + 注入 / 检测 / 剥离（纯函数，E15） |
 //!
 //! # 六个接口（`/api` 前缀由 `[router].prefix` 注入）
 //!
@@ -76,10 +77,28 @@
 //!   与写 `SOUL.md`；不碰 `state.db`、不改 `config.yaml`；
 //! - **不动 `sys_user` 的既有流程**：人类用户的建号/编辑/删除一行未改；AI 用户只是在
 //!   `sys_user` 上多一行 `user_type='ROBOT'`（列由 `V0102` 引入）；
-//! - **不写变更日志**：`sys_ai_agent` 未在 `changelog` 的 `REGISTRY` 登记，写入会报 `62012`；
-//!   本卡不改 changelog（批次 C 的模块），需要审计时以 `tracing` 的结构化日志为准。
+//! - **审计只在「安全红线被删」这一条路径上写**（E15）：`sys_ai_agent` 未在 `changelog` 的
+//!   `REGISTRY` 登记，走 `record()` 会报 `62012`；本卡不改 changelog（批次 C 的模块），
+//!   因此**只**在「用户删掉安全区块 → 平台自动补回」时，用 `changelog::model::insert`
+//!   在同一事务里落一行最小 diff（见 [`handler::update`]）。其余写操作仍以 `tracing` 为准。
+//!
+//! # 安全红线（E15 · 老大 2026-10-30）
+//!
+//! 19 条安全红线（禁止未授权 SQL / 禁止删库删数据 / 禁止删文件 …）由平台**强制注入**
+//! `SOUL.md` 末尾，Hermes 每个会话都会自动注入这份文件，于是规则进入 AI 员工的每一轮上下文。
+//!
+//! | 位置 | 保证 |
+//! |------|------|
+//! | [`safety::ensure_safety_block`] | 注入 / 替换（唯一一份，幂等；用户内容永远在前） |
+//! | [`hermes::Hermes::write_soul`] | **唯一落盘点**自己就注入：绕过 handler 也删不掉 |
+//! | [`handler::create`] / [`handler::update`] | 库内副本与磁盘同源；编辑时删掉 → 自动补回 + 审计 |
+//! | [`crate::shared::startup_guard::check_ai_agent_missing_safety_block`] | 启动时逐个 profile 查，缺失 → WARN 点名（不阻启动） |
+//!
+//! 不阻止 AI 员工「自己改自己的 SOUL.md」这件事由 Hermes 侧的权限约束负责（红线第 12 条）；
+//! 云枢这一侧只保证「平台写入的区块永远在」，并提供启动期巡检兜底。
 
 pub mod dto;
 pub mod handler;
 pub mod hermes;
 pub mod model;
+pub mod safety;
