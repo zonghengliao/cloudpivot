@@ -95,6 +95,13 @@ pub async fn run() -> Result<()> {
         // 注册在 session_guard 之后再被套一层，即本层在链内更靠外：先确认吊销状态，
         // 再做令牌版本比对，两者都是 401，顺序不影响语义。
         .route_layer(axum::middleware::from_fn(middleware::auth_guard::guard))
+        // 请求体反序列化失败（axum `Json` extractor 拒绝）的响应体标准化（E2 缺陷 2）：
+        // extractor 拒绝**不进 handler**，默认回 `text/plain` 的 400/415/422，前端/脚本
+        // 解析不到「缺哪个字段」。挂 `route_layer`（链内）：只有匹配到路由、真正走到
+        // 参数提取的请求才会触发，且不会误改写认证层的响应。
+        .route_layer(axum::middleware::from_fn(
+            middleware::json_rejection::normalize,
+        ))
         // 任务级令牌（T5b）必须挂在**最外层**（`layer_from_fn`，位于框架认证层之外）：
         // AI 的令牌不是 JWT，若让它先过认证层，框架会先回 401「Token 无效」——
         // 那样「白名单外的端点也要 403 + 63304」就永远测不到，而且 AI 也无法自助排错。

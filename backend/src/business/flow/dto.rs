@@ -533,6 +533,11 @@ impl GraphSaveReq {
                     deduped.push(assignee);
                 }
             }
+            // `assignee_type`（来源类型）与 `assignees`（具体目标）是同一件事的两半：
+            // 前端只给可达目标时来源类型可以省略，这里按落行目标反推，
+            // 否则 `biz_flow_node.assignee_type` 落 NULL —— 保存成功、发布报 65015、
+            // 运行时 `assignee::plan_of` 还会判「未配置审批人来源」（三处表现各不相同）。
+            let assignee_type = infer_assignee_type(&key, assignee_type, &deduped)?;
 
             let empty_assignee = parse_choice(
                 raw.empty_assignee.as_deref(),
@@ -657,6 +662,58 @@ fn parse_gateway(raw: Option<&str>, label: &str, node_key: &str) -> Result<Gatew
         Some(text) => GatewayMode::parse(text)
             .ok_or_else(|| format!("节点 {node_key} 的{label} {text} 非法（只允许 AND/OR）")),
     }
+}
+
+/// 由落行审批人反推「来源类型」，并挡住「一个节点混用多种来源」。
+///
+/// # 语义（架构 §6.1）
+///
+/// - `assignee_type` = **来源类型**（用户 / 角色 / 部门负责人 / 发起人 / 主管 …）；
+/// - `assignees`     = **具体目标**（落 `biz_flow_node_assignee` 行的 `ref_id`）。
+///
+/// 只有 `USER` / `ROLE` / `DEPT_LEADER` 这三种「可枚举」来源才有具体目标。前端如果只给
+/// 具体目标而省略来源类型，两者语义完全确定 —— 由 `assignees[0].kind` 反推出唯一来源。
+///
+/// # 为什么不省略这层反推
+///
+/// 若 `assignee_type` 落 NULL，会出现三处互相矛盾的表现：保存 200（因为
+/// `FlowGraph::check` 只看内存图、且 `assignees` 合法）、发布 65015（R14 只看
+/// `assignee_type`）、运行时 `assignee::plan_of` 报「未配置审批人来源」→ 派单 0 人。
+///
+/// # 错误
+///
+/// - 混用多种来源（如同时 `USER` 与 `ROLE`）：一个节点的审批人来源只能是**一种**，
+///   返回中文原因（由 handler 拼进 `400 + 65005`）；显式给了 `assignee_type` 时不拦
+///   （历史行为不变，来源以显式声明为准）。
+fn infer_assignee_type(
+    node_key: &str,
+    declared: Option<AssigneeKind>,
+    assignees: &[AssigneeRef],
+) -> Result<Option<AssigneeKind>, String> {
+    let Some(first_ref) = assignees.first() else {
+        return Ok(declared);
+    };
+    let first = AssigneeKind::parse(&first_ref.kind).ok_or_else(|| {
+        format!(
+            "节点 {node_key} 的审批人类型 {} 非法（只允许 USER/ROLE/DEPT_LEADER 落行）",
+            first_ref.kind
+        )
+    })?;
+    if declared.is_some() {
+        return Ok(declared);
+    }
+    if let Some(mixed) = assignees
+        .iter()
+        .map(|assignee| assignee.kind.as_str())
+        .find(|kind| !kind.eq_ignore_ascii_case(first.as_str()))
+    {
+        return Err(format!(
+            "节点 {node_key} 的审批人混用了 {} 与 {} 两种来源，一个节点只能选一种审批人来源（请拆成多个节点）",
+            first.as_str(),
+            mixed
+        ));
+    }
+    Ok(Some(first))
 }
 
 /// 空审批人策略（架构 §4.3.4 X2）。
@@ -1603,6 +1660,99 @@ mod tests {
         assert_eq!(graph.nodes.len(), 2);
         assert_eq!(graph.edges.len(), 1);
         assert_eq!(req.normalized_change_note().unwrap(), "初版");
+    }
+
+    /// E2 缺陷 1 的另一半：只给 `assignees` 时必须**反推**出 `assignee_type`。
+    ///
+    /// 不反推的后果（实测）：`biz_flow_node.assignee_type` 落 NULL → 发布报 65015 →
+    /// 即使放过发布，运行时 `assignee::plan_of` 也会判「未配置审批人来源」。
+    #[test]
+    fn graph_request_infers_assignee_type_from_assignees() {
+        let mut approve = node("n_approve", "APPROVAL");
+        approve.assignee_type = None;
+        approve.assignees = vec![AssigneeReq {
+            kind: "USER".to_string(),
+            ref_id: "6f1d0f3e-0000-4000-8000-000000000001".to_string(),
+            sort_order: None,
+        }];
+        let req = GraphSaveReq {
+            nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
+            edges: vec![
+                edge("e1", "n_start", "n_approve"),
+                edge("e2", "n_approve", "n_end"),
+            ],
+            change_note: None,
+        };
+        let graph = req.into_graph().expect("只给 assignees 必须能保存");
+        let approve = graph
+            .nodes
+            .iter()
+            .find(|node| node.key == "n_approve")
+            .expect("节点必须存在");
+        assert_eq!(
+            approve.assignee_type,
+            Some(AssigneeKind::User),
+            "来源类型必须由落行目标反推"
+        );
+        assert_eq!(approve.assignees.len(), 1);
+    }
+
+    /// E2 反例：显式给了 `assignee_type` 时不反推、也不因 assignees 混用而报错
+    /// （历史行为不变：来源以显式声明为准）。
+    #[test]
+    fn graph_request_keeps_declared_assignee_type() {
+        let mut approve = node("n_approve", "APPROVAL");
+        approve.assignee_type = Some("INITIATOR".to_string());
+        approve.assignees = vec![AssigneeReq {
+            kind: "ROLE".to_string(),
+            ref_id: "role-1".to_string(),
+            sort_order: None,
+        }];
+        let req = GraphSaveReq {
+            nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
+            edges: vec![
+                edge("e1", "n_start", "n_approve"),
+                edge("e2", "n_approve", "n_end"),
+            ],
+            change_note: None,
+        };
+        let graph = req.into_graph().expect("显式来源仍然合法");
+        let approve = graph
+            .nodes
+            .iter()
+            .find(|node| node.key == "n_approve")
+            .expect("节点必须存在");
+        assert_eq!(approve.assignee_type, Some(AssigneeKind::Initiator));
+    }
+
+    /// E2 反例：没给 `assignee_type` 又混用两种来源 → 中文 400，不做「猜一个」。
+    #[test]
+    fn graph_request_rejects_mixed_assignee_kinds() {
+        let mut approve = node("n_approve", "APPROVAL");
+        approve.assignee_type = None;
+        approve.assignees = vec![
+            AssigneeReq {
+                kind: "USER".to_string(),
+                ref_id: "6f1d0f3e-0000-4000-8000-000000000001".to_string(),
+                sort_order: None,
+            },
+            AssigneeReq {
+                kind: "ROLE".to_string(),
+                ref_id: "role-1".to_string(),
+                sort_order: None,
+            },
+        ];
+        let req = GraphSaveReq {
+            nodes: vec![node("n_start", "START"), approve, node("n_end", "END")],
+            edges: vec![
+                edge("e1", "n_start", "n_approve"),
+                edge("e2", "n_approve", "n_end"),
+            ],
+            change_note: None,
+        };
+        let err = req.into_graph().expect_err("混用来源必须拒绝");
+        assert!(err.contains("混用"), "{err}");
+        assert!(err.contains("n_approve"), "{err}");
     }
 
     #[test]

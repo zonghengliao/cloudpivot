@@ -1230,13 +1230,27 @@ impl FlowGraph {
     }
 
     /// R14：审批类节点的审批人配置（架构 §3.7 V9）。
+    ///
+    /// # 判定口径（E2 修正）
+    ///
+    /// 审批人有两个正交字段：来源类型 `assignee_type` 与具体目标 `assignees`。
+    /// 「配了审批人」= **两者任一有内容**：
+    ///
+    /// - 只给 `assignees`（前端画布常见形态）：来源类型由落行目标反推
+    ///   （`dto::GraphSaveReq::into_graph` 已回填；历史行 / 直接写库的行可能是空），
+    ///   这里再反推一次兜底 —— 否则「明明选了 3 个审批人」仍被判 65015；
+    /// - 只给 `assignee_type`（`INITIATOR` / `ADMIN` 等不可枚举来源）：不加附加要求；
+    /// - 两个都不给：65015。
     fn check_assignees(&self) -> Vec<Issue> {
         let mut issues = Vec::new();
         for node in &self.nodes {
             if !node.node_type.needs_assignee() {
                 continue;
             }
-            let Some(kind) = node.assignee_type else {
+            let Some(kind) = node
+                .assignee_type
+                .or_else(|| infer_assignee_kind(&node.assignees))
+            else {
                 issues.push(
                     Issue::new(
                         "R14",
@@ -1288,6 +1302,22 @@ impl FlowGraph {
         }
         issues
     }
+}
+
+/// 由落行审批人（`assignees`）反推来源类型（E2）。
+///
+/// R14 需要「只给具体目标、没给来源类型」也能通过校验。语义上 `assignees` 里每一条的
+/// `kind` 就是它自己的来源类型，一个节点只允许一种来源（`dto::infer_assignee_type` 已挡混用），
+/// 所以取第一条可解析的 `kind` 即为该节点的来源类型。
+///
+/// # 返回值
+///
+/// - `Some(kind)`：至少一条审批人且 `kind` 合法（全是合法可枚举来源）；
+/// - `None`：`assignees` 为空，或 `kind` 一个都解析不出来 → 调用方按「未配置审批人」处理。
+fn infer_assignee_kind(assignees: &[AssigneeRef]) -> Option<AssigneeKind> {
+    assignees
+        .iter()
+        .find_map(|assignee| AssigneeKind::parse(&assignee.kind))
 }
 
 // ==================== 条件 DSL（架构 §3.4 / D5） ====================
@@ -2611,6 +2641,53 @@ mod tests {
         graph.nodes[1].assignee_type = Some(AssigneeKind::Role);
         let issues = graph.validate();
         assert!(rules(&issues).contains(&"R14"), "{issues:?}");
+    }
+
+    /// E2 缺陷 1：只给 `assignees`（不填 `assignee_type`）必须通过 R14。
+    ///
+    /// 实测症状：PUT graph 成功、`biz_flow_node_assignee` 落 1 行，但 PUBLISH 报
+    /// 65015「节点 n1 未配置审批人」——`assignee_type` 落 NULL，而 R14 只看它。
+    #[test]
+    fn r14_accepts_assignees_without_assignee_type() {
+        let mut graph = minimal();
+        graph.nodes[1].assignee_type = None;
+        graph.nodes[1].assignees = vec![AssigneeRef {
+            kind: "USER".to_string(),
+            ref_id: "6f1d0f3e-0000-4000-8000-000000000001".to_string(),
+            sort_order: 0,
+        }];
+        let issues = graph.validate();
+        assert!(
+            !rules(&issues).contains(&"R14"),
+            "只给 assignees 不该报 R14：{issues:?}"
+        );
+    }
+
+    /// E2 反例：两个都不给，仍然必须报 R14 / 65015（不能把校验放宽成恒通过）。
+    #[test]
+    fn r14_still_rejects_when_both_missing() {
+        let mut graph = minimal();
+        graph.nodes[1].assignee_type = None;
+        graph.nodes[1].assignees.clear();
+        let issue = graph
+            .validate()
+            .into_iter()
+            .find(|issue| issue.rule == "R14")
+            .expect("必须仍然报 R14");
+        assert_eq!(issue.code, error_code::FLOW_NODE_ASSIGNEE_MISSING);
+    }
+
+    /// E2 反例：`assignees` 里的 `kind` 全都解析不出来时，不能算「配了审批人」。
+    #[test]
+    fn r14_rejects_unparsable_assignee_kind() {
+        let mut graph = minimal();
+        graph.nodes[1].assignee_type = None;
+        graph.nodes[1].assignees = vec![AssigneeRef {
+            kind: "SOMEONE".to_string(),
+            ref_id: "x".to_string(),
+            sort_order: 0,
+        }];
+        assert!(rules(&graph.validate()).contains(&"R14"));
     }
 
     #[test]
