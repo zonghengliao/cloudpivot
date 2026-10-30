@@ -35,7 +35,8 @@
             <template #icon><t-icon name="add" /></template>
             新增模板
           </t-button>
-          <t-button v-privilege="[PERM.noticeSend]" theme="default" @click="goSend">
+          <!-- E10：发送通知是隐藏菜单（/business/notice/send 不在侧边栏），这里用主色描边按钮把入口顶出来 -->
+          <t-button v-privilege="[PERM.noticeSend]" theme="primary" variant="outline" @click="goSend">
             <template #icon><t-icon name="send" /></template>
             发送通知
           </t-button>

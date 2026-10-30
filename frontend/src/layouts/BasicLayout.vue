@@ -62,12 +62,16 @@
         </t-tooltip>
 
         <t-dropdown :options="userActions" :popup-props="userPopupProps" @click="onUserAction">
-          <button class="basic-layout__user" type="button">
+          <!-- data-onboarding：首次登录引导（OnboardingHint）用这个属性定位头像，别删 -->
+          <button class="basic-layout__user" type="button" data-onboarding="avatar">
             <t-avatar class="basic-layout__avatar" size="medium">{{ avatarText }}</t-avatar>
             <span class="basic-layout__username">{{ userStore.displayName || '未登录' }}</span>
             <t-icon class="basic-layout__caret" name="chevron-down" />
           </button>
         </t-dropdown>
+
+        <!-- 首次登录引导：3 步提示 + 指向头像/铃铛的高亮箭头（localStorage 只弹一次） -->
+        <onboarding-hint />
       </t-header>
 
       <t-content class="basic-layout__content">
@@ -88,6 +92,7 @@ import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
 import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
 import NoticeBell from '@/layouts/components/NoticeBell.vue';
+import OnboardingHint from '@/components/OnboardingHint.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
 import { useNoticeStore } from '@/stores/notice';
@@ -96,7 +101,8 @@ import { normalizeMenuPath, collectLeafPaths } from '@/utils/menu';
 /** 用户下拉菜单项 */
 const userActions: DropdownOption[] = [
   { content: '个人中心', value: 'profile' },
-  { content: '外观设置', value: 'preference' },
+  // E10：外观设置入口藏在这里，用户普遍找不到 → 用 emoji + 「配色/主题」把能力写在脸上
+  { content: '🎨 外观设置（配色/主题）', value: 'preference' },
   { content: '退出登录', value: 'logout' },
 ];
 
