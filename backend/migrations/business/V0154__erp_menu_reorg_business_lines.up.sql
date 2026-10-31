@@ -73,28 +73,7 @@ UPDATE sys_menu SET parent_id = '20000000-0000-0000-0000-000000000e03', sort_ord
 
 COMMIT;
 
--- ═══════ 验证 ═══════
-\echo ''
-\echo '═══ 重组结果 ═══'
-SELECT
-  substring(m.id::text, 25, 8) AS 号,
-  m.name AS 名称,
-  m.menu_type AS 型,
-  m.path AS 路径,
-  m.auth_code AS 鉴权码,
-  m.is_visible AS 可见,
-  coalesce(p.name, '(顶级)') AS 上级
-FROM sys_menu m
-LEFT JOIN sys_menu p ON p.id = m.parent_id
-WHERE m.deleted_at IS NULL
-  AND m.menu_type IN (1, 2)
-  AND (
-    m.name = 'ERP'
-    OR m.parent_id = '20000000-0000-0000-0000-000000000940'
-    OR p.parent_id = '20000000-0000-0000-0000-000000000940'
-  )
-ORDER BY
-  CASE WHEN m.name = 'ERP' THEN 0
-       WHEN m.parent_id = '20000000-0000-0000-0000-000000000940' THEN 1
-       ELSE 2 END,
-  COALESCE(p.sort_order, m.sort_order), m.sort_order;
+-- 说明（V0154 修订）：本迁移末尾原有一段「验证」输出（两条 psql 元命令 + 结果 SELECT）。
+-- 迁移引擎用驱动把整段脚本一次发给 PG（simple query），不认 psql 元命令，导致全新库
+-- 从零迁移时整批失败、日志只有 `query failed: : db error`。该段属人工排查用的交互输出，
+-- 不是迁移逻辑，已整段删除；上面的 SQL 语句一字未改。
