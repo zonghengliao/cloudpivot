@@ -14,6 +14,16 @@
   克隆库的迁移记录在 `schema_migrations`（`versioned|…|V0158…`），与仓库 `backend/migrations/business`
   最大号 `V0158` 对齐。
 - 三个 SQL 全部包在 `BEGIN … ROLLBACK` 里，**不改任何数据**。
+- ⚠️ 仓库在 `/root/` 下（目录 700），`su postgres` **读不到**：`psql -f` 会报
+  `Permission denied`（实测）。先拷到 `/tmp` 再跑：
+
+  ```bash
+  mkdir -p /tmp/pb && cp docs/evidence/20261031-batch-generate-probe/probe_*.sql /tmp/pb/ && chmod 644 /tmp/pb/*.sql
+  su postgres -c "psql -d arch_spec_probe -f /tmp/pb/probe_s2.sql"
+  ```
+
+- 本 README 里贴的输出是 **2026-10-31 从干净库重跑三个脚本得到的原样输出**（不是拼的），
+  与 `docs/技术方案-20261031-批量生成无来源入库.md` §1.4 的数字逐位一致。
 
 ## 1. `probe_s2.sql` —— ADR 字面口径（S2：成本账 + 库位账落库位行）在第一次出库后自己变红
 
