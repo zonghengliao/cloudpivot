@@ -624,10 +624,17 @@ pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Res
             vec![Value::from(user_id)],
         )
         .await?;
-    rows.first()
+    let bumped = rows
+        .first()
         .map(|row| row.get_typed::<i32>("token_version"))
         .transpose()?
-        .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))
+        .ok_or_else(|| {
+            DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败"))
+        })?;
+    // FIX-05：库侧已推进 → 立刻删掉该用户的会话字段缓存（`uv:{user_id}`），
+    // 让下一个请求直接读到新版本号（不等 60 s TTL）。失效失败只降级为本实例直查库。
+    crate::shared::session_cache::invalidate(user_id).await;
+    Ok(bumped)
 }
 
 /// 推进「持有某菜单（经角色授权）」的全部用户的令牌版本号，返回受影响行数。

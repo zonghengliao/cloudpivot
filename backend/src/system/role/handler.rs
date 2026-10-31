@@ -351,6 +351,10 @@ pub async fn update(
     .map_err(|e| utils::db_error(e, "更新角色"))?;
 
     model::invalidate_enabled_roles_cache().await;
+    // FIX-05：角色名 / 状态 / 数据范围变更推进了**全体持有者**的版本号
+    // （事务内 `bump_token_version_of_role_holders_in`），提交后清空会话字段缓存，
+    // 否则旧版本号最多还会被缓存命中 60 s。
+    crate::shared::session_cache::invalidate_all().await;
     // 角色名称 / 状态变更会影响持有者权限快照，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
     if data_scope != existing.data_scope {

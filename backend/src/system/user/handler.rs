@@ -1099,12 +1099,16 @@ async fn revoke_user_tokens(user_id: &uuid::Uuid, context: &'static str) {
 /// - `user_id`：目标用户 ID。
 /// - `context`：调用场景（写入日志便于排查）。
 async fn revoke_online_sessions(user_id: &uuid::Uuid, context: &'static str) {
-    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
+    // FIX-05：用 `detach_user_sessions`（只摘登记、**不写** access 黑名单）而不是
+    // `force_logout_user`。旧令牌已由库侧 `token_version` 判死，写黑名单只会让框架
+    // 认证层抢先回「Token 已登出」，把 `20008「您的权限已变更」` 盖掉。
+    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await
+    {
         tracing::error!(
             error = %e,
             user_id = %user_id,
             context,
-            "清理在线会话失败（令牌版本号 / 软删已在库侧生效）"
+            "摘除在线会话登记失败（令牌版本号 / 软删已在库侧生效）"
         );
     }
 }

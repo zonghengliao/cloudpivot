@@ -326,7 +326,11 @@ pub(crate) async fn replace_role_menus(
         .await?;
         Ok(())
     })
-    .await
+    .await?;
+    // FIX-05：事务已提交（全体持有者的 `token_version` 都 +1）→ 清空会话字段缓存，
+    // 让旧令牌的 `ver` 立刻与库里不符（不必等 60 s TTL）。
+    crate::shared::session_cache::invalidate_all().await;
+    Ok(())
 }
 
 // ==================== 数据范围缓存失效的持有者反查 ====================

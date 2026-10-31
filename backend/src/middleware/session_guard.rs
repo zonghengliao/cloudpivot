@@ -11,9 +11,10 @@
 //!
 //! # 三条判定
 //!
-//! 1. **令牌版本**（安全审计 CODE-05 / CODE-08）：令牌 claim `ver` 必须等于
-//!    `sys_user.token_version`。改密 / 改角色 / 停用 / 删除会使版本号自增，
-//!    该用户已签发（含已登出的 refresh 之外的一切）令牌立即失效 → 401；
+//! 1. **令牌版本**（安全审计 CODE-05 / CODE-08 + BUG-SYS-04 / FIX-05）：令牌 claim `ver`
+//!    必须等于 `sys_user.token_version`。改密 / 改角色 / 停用 / 删除会使版本号自增，
+//!    该用户已签发（含已登出的 refresh 之外的一切）令牌立即失效 → `401 + 20008`
+//!    「您的权限已变更，请重新登录」；
 //!    **菜单 / 角色授权变更同样自增**（`user::model::bump_token_version_of_menu_holders_in`
 //!    / `bump_token_version_of_role_holders_in`），这就是「Redis 不可用时也不失守」
 //!    的库侧兜底（BUG-SYS-03）；
@@ -24,15 +25,14 @@
 //!    `SUPER_ADMIN` 角色，否则 401 —— 接口级 403 只认令牌快照不查库，
 //!    这条是「JWT 密钥泄漏 = 可自签超管」的唯一库侧拦口。
 //!
-//! # 为什么每次请求读库
+//! # 值从哪里读（FIX-05 的性能改造）
 //!
-//! 会话字段用量是「一次主键点查」，换来的是：
+//! 会话字段经 [`crate::shared::session_cache`] 读取：优先 `uv:{user_id}` 缓存（TTL 60 s），
+//! 未命中 / 缓存不可用 / 缓存失效欠账时回查 `sys_user`。**库是唯一真源**：
+//! 所有推进 `token_version` 的写点都在事务提交后删除缓存键，所以「撤销权限 → 旧令牌立刻 401」
+//! 不依赖 TTL；缓存只省掉「正常请求」的那一次主键点查。
 //!
-//! - 多实例部署下无需广播失效；
-//! - 不存在「缓存未失效 → 旧令牌仍可用」的时间窗。
-//!
-//! 安全性优先于这一次索引查询的成本；若后续压测证明该点查成为瓶颈，
-//! 再接入短 TTL 缓存 + 变更时失效（与 `system::auth::model` 的主体缓存同一套做法）。
+//! **本校验没有任何开关**：不存在「关掉校验」的配置项，也不允许加。
 
 use axum::body::Body;
 use axum::extract::Request;
@@ -41,7 +41,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
-use crate::shared::constants;
+use crate::shared::{constants, error_code, session_cache};
 use crate::system::user::model;
 
 /// 会话守卫本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。
@@ -69,8 +69,9 @@ pub async fn guard(request: Request, next: Next) -> Response {
         return unauthorized("令牌主体不合法，请重新登录");
     };
 
-    // 读会话字段：用户已删除 / 不存在 → 401
-    let flags = match model::load_session_flags(&user_id).await {
+    // 读会话字段：用户已删除 / 不存在 → 401。
+    // FIX-05：走 `uv:{user_id}` 短 TTL 缓存（60 s），未命中 / 缓存不可用 → 直接查库。
+    let flags = match session_cache::load_session_flags(&user_id).await {
         Ok(flags) => flags,
         Err(e) => {
             // fail-closed：读不到会话状态时宁可让用户重登，也不放行
@@ -86,14 +87,19 @@ pub async fn guard(request: Request, next: Next) -> Response {
     let ver = claims
         .extra_i64(constants::CLAIM_TOKEN_VERSION)
         .unwrap_or(0);
-    if ver != i64::from(token_version) {
+    if !version_is_current(ver, token_version) {
         tracing::info!(
             user_id = %user_id,
             token_version,
             token_ver = ver,
             "令牌版本已过期，拒绝请求"
         );
-        return unauthorized("登录状态已失效，请重新登录");
+        // 401 + 20008：令牌本身有效，但它承载的权限快照已被撤销
+        // （改密 / 改角色 / 改角色权限 / 改菜单授权 / 停用 / 删除都会推进版本号）
+        return unauthorized_with(
+            error_code::AUTH_PERMISSION_CHANGED,
+            "您的权限已变更，请重新登录",
+        );
     }
 
     // 2) 首登强制改密：仅放行改密 / 登出
@@ -207,16 +213,46 @@ fn is_allowed_while_must_change(path: &str) -> bool {
         })
 }
 
+/// 令牌里的版本号是否等于库里的当前版本号（会话守卫第 1 条判定）。
+///
+/// 抽成独立函数是为了让单测能直接钉死这条判定的两个边界（相等放行 / 不等拒绝），
+/// 而不必 up 一个 HTTP 服务（本仓未声明 `tower` dev-dependency，做不了 `oneshot`）。
+///
+/// # 参数
+///
+/// - `token_ver`：令牌 claim `ver`（缺失时调用方按 `0` 传入）；
+/// - `db_ver`：`sys_user.token_version`。
+///
+/// # 返回值
+///
+/// 相等返回 `true`（会话有效），否则 `false`（权限已变更 → 401）。
+pub(crate) fn version_is_current(token_ver: i64, db_ver: i32) -> bool {
+    token_ver == i64::from(db_ver)
+}
+
 /// 解析 `claims.sub` 为 UUID（主体非 UUID 视为会话无效）。
 fn parse_uuid(raw: &str) -> Option<uuid::Uuid> {
     uuid::Uuid::parse_str(raw.trim()).ok()
 }
 
 /// 构造 401 响应（与框架认证层同样式，客户端可统一处理）。
+///
+/// `code` 字段固定写 `401`（HTTP 语义码）——用于「令牌缺失 / 主体非法 / 账号不存在」
+/// 这类**没有更具体业务语义**的拒绝。
 fn unauthorized(msg: &str) -> Response {
+    unauthorized_with(401, msg)
+}
+
+/// 构造带业务错误码的 401 响应。
+///
+/// # 参数
+///
+/// - `code`：业务错误码（如 [`error_code::AUTH_PERMISSION_CHANGED`]）；
+/// - `msg`：面向用户的提示。
+pub(crate) fn unauthorized_with(code: i32, msg: &str) -> Response {
     build(
         StatusCode::UNAUTHORIZED,
-        serde_json::to_string(&Res::<()>::fail(401, msg))
+        serde_json::to_string(&Res::<()>::fail(code, msg))
             .unwrap_or_else(|_| r#"{"code":401,"msg":"请重新登录"}"#.to_string()),
     )
 }

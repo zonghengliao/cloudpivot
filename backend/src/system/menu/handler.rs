@@ -220,6 +220,10 @@ pub async fn update(
     // 缓存侧的在线会话清理只是**卫生动作**：库侧令牌已作废，这里失败不再回 500 ——
     // 写入已经提交，回 500 会让客户端重试（重复更新 / 重复删除，不幂等），并把管理员
     // 挡在维护之外（BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
+    //
+    // FIX-05：批量推进的是一批用户的版本号，模型层在事务里只拿到行数，
+    // 因此这里整命名空间清空 `uv:*`（低频管理动作，语义最安全）。
+    crate::shared::session_cache::invalidate_all().await;
     crate::support::online::model::revoke_after_permission_change(
         "menu_update",
         &[constants::ADMIN_USERNAME],
@@ -325,6 +329,9 @@ pub async fn delete(
     // 缓存侧的在线会话清理只是卫生动作：库侧令牌已作废（token_version 已推进），
     // 这里失败不回 500 —— 菜单确实删掉了，回 500 会让客户端重试并误判失败
     // （BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
+    //
+    // FIX-05：同 `update`——批量推进版本号后整命名空间清空会话字段缓存。
+    crate::shared::session_cache::invalidate_all().await;
     crate::support::online::model::revoke_after_permission_change(
         "menu_delete",
         &[constants::ADMIN_USERNAME],

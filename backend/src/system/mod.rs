@@ -37,3 +37,7 @@ pub(crate) mod tests_support;
 /// 测试C：越权用例集（O01–O14，源码注解全量扫描 + 与中间件同一判定谓词）。
 #[cfg(test)]
 mod authz_tests;
+
+/// 测试C：会话/令牌版本回归防线（S01–S08，FIX-05 / BUG-SYS-04）。
+#[cfg(test)]
+mod session_tests;

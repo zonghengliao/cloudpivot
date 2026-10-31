@@ -478,8 +478,8 @@ pub async fn refresh(
         );
         return Err(ApiError::new(
             401,
-            error_code::AUTH_TOKEN_REVOKED,
-            "登录状态已失效，请重新登录",
+            error_code::AUTH_PERMISSION_CHANGED,
+            "您的权限已变更，请重新登录",
         ));
     }
 
@@ -841,7 +841,8 @@ pub async fn change_password(
     // `token_version` 自增（认证层逐请求比对、刷新路径也比对），旧 access / refresh
     // 在数据库这一侧已经作废；此时回 500 只会让「密码其实已改成功」的操作看起来失败，
     // 反而诱发无意义的重复改密。失败仍以 `error` 级日志留痕（不静默）。
-    if let Err(e) = crate::support::online::model::force_logout_user(&user_id.to_string()).await {
+    if let Err(e) = crate::support::online::model::detach_user_sessions(&user_id.to_string()).await
+    {
         tracing::error!(
             user_id = %user_id,
             error = %e,

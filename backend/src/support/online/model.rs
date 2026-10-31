@@ -277,6 +277,34 @@ impl OnlineSessionModel {
         blacklist_jti(store, &session.token_id, remaining_ttl(session.expire_at)).await
     }
 
+    /// 只摘除在线登记，**不写** access 令牌黑名单（FIX-05）。
+    ///
+    /// # 何时用这个而不是 [`Self::force_logout`]
+    ///
+    /// 「权限变更 / 停用 / 改密」这类动作已经由库侧 `sys_user.token_version`
+    /// （+ [`crate::middleware::session_guard`] 逐请求比对）确定性作废旧令牌。
+    /// 若这时**还**把 `jti` 写进框架黑名单，框架认证层会**先**返回它自己的
+    /// `401「Token 已登出，请重新登录」`，用户就看不到真正的语义
+    /// `401 + 20008「您的权限已变更，请重新登录」` —— 前端也就无法据此提示
+    /// 「权限变了」并区分「你自己点了登出」。
+    ///
+    /// 显式登出（`/system/auth/logout`）仍然走 [`Self::force_logout`]：
+    /// 那种场景没有版本号变化，靠的就是黑名单。
+    ///
+    /// # 参数
+    ///
+    /// - `session`：待摘除的在线会话。
+    ///
+    /// # 异常情况
+    ///
+    /// 缓存读写失败返回错误（无缓存时视为「本来就没有登记」，返回 `Ok`）。
+    pub(crate) async fn detach(session: &OnlineSession) -> std::result::Result<(), Error> {
+        let Some(store) = try_cache() else {
+            return Ok(());
+        };
+        Cache::del(store, &Self::key(&session.token_id)).await
+    }
+
     /// 生成在线会话缓存键。
     ///
     /// # 参数
@@ -359,12 +387,64 @@ pub(crate) async fn force_logout_user(user_id: &str) -> std::result::Result<usiz
     }
 }
 
-/// 强制下线除指定用户名外的全部在线用户（菜单 / 角色权限全局变更时调用）。
+/// 摘除指定用户的在线登记（**不写** access 黑名单，FIX-05）。
 ///
-/// 菜单、角色菜单授权等变更会影响一批用户，而 JWT 权限在签发时即固化在令牌中，
-/// 无法按权限点批量撤回；因此把受影响的在线令牌（access + refresh）统一拉黑，
-/// 令其重新登录获取新权限。通常排除内置超级管理员（权限短路、不受菜单变更影响），
-/// 避免管理员改完权限后把自己踢下线。
+/// # 何时用这个而不是 [`force_logout_user`]
+///
+/// 「停用 / 改密 / 改角色」这些动作在库侧推进了 `sys_user.token_version`
+/// （[`crate::system::user::model::bump_token_version`]），
+/// [`crate::middleware::session_guard`] 逐请求比对即拒绝旧令牌。此时再把 `jti`
+/// 写进框架黑名单只会让框架认证层抢先回 `「Token 已登出」`，把
+/// `20008「您的权限已变更」` 这条更准确的语义盖掉（见 [`OnlineSessionModel::detach`]）。
+///
+/// 因此本函数只做「在线列表清理」这件卫生动作：删 `online:token:*` 登记，
+/// 并按 refresh 登记表吊销续期能力（refresh 令牌的版本号同样会被校验）。
+///
+/// # 参数
+///
+/// - `user_id`：目标用户 ID（字符串形式，与在线登记的 `user_id` 同型）。
+///
+/// # 返回值
+///
+/// 摘除的登记数量（access + refresh 合计）。
+///
+/// # 异常情况
+///
+/// 枚举 / 删除失败返回 `Err`（调用方按「降级」处理：库侧版本号已推进，安全性不受影响）。
+pub(crate) async fn detach_user_sessions(user_id: &str) -> std::result::Result<usize, Error> {
+    let sessions = OnlineSessionModel::list_all_strict().await?;
+    let refresh_sessions = OnlineSessionModel::list_refresh().await?;
+    let mut detached = 0usize;
+    let mut failure: Option<Error> = None;
+    for session in sessions.iter().filter(|s| s.user_id == user_id) {
+        match OnlineSessionModel::detach(session).await {
+            Ok(()) => detached += 1,
+            Err(e) => {
+                tracing::warn!(user_id, token_id = %session.token_id, error = %e, "摘除在线登记失败");
+                failure = Some(e);
+            }
+        }
+    }
+    for session in refresh_sessions.iter().filter(|s| s.user_id == user_id) {
+        match revoke_refresh(session).await {
+            Ok(()) => detached += 1,
+            Err(e) => {
+                tracing::warn!(user_id, refresh_jti = %session.jti, error = %e, "吊销 refresh 登记失败");
+                failure = Some(e);
+            }
+        }
+    }
+    match failure {
+        Some(e) => Err(e),
+        None => Ok(detached),
+    }
+}
+
+/// 摘除除指定用户名外全部在线会话的登记（**不写** access 黑名单，FIX-05）。
+///
+/// 语义与 [`force_logout_all_except`] 的区别只有一条：不动框架黑名单。
+/// 菜单 / 角色授权变更已在库侧推进了持有者的 `token_version`，旧令牌必然 401，
+/// 这里只负责把在线列表里的陈旧登记清掉（见 [`OnlineSessionModel::detach`]）。
 ///
 /// # 参数
 ///
@@ -372,47 +452,36 @@ pub(crate) async fn force_logout_user(user_id: &str) -> std::result::Result<usiz
 ///
 /// # 返回值
 ///
-/// 实际下线的令牌数量（access + refresh 合计）。
+/// 摘除的登记数量（access + refresh 合计）。
 ///
 /// # 异常情况
 ///
-/// 与 [`force_logout_user`] 相同：枚举失败或任一令牌吊销失败都返回 `Err`。
-pub(crate) async fn force_logout_all_except(
+/// 枚举 / 删除失败返回 `Err`（调用方按「降级」处理）。
+pub(crate) async fn detach_all_except(
     exclude_usernames: &[&str],
 ) -> std::result::Result<usize, Error> {
     let sessions = OnlineSessionModel::list_all_strict().await?;
     let refresh_sessions = OnlineSessionModel::list_refresh().await?;
-
-    // refresh 登记里只有 user_id，需要 user_id → username 才能套用排除规则；
-    // 用 access 会话表里的映射（同一用户在两张表里一致）。
     let username_of = |user_id: &str| -> Option<String> {
         sessions
             .iter()
             .find(|s| s.user_id == user_id)
             .map(|s| s.username.clone())
     };
-
-    let mut kicked = 0usize;
+    let mut detached = 0usize;
     let mut failure: Option<Error> = None;
-
     for session in &sessions {
         if exclude_usernames.contains(&session.username.as_str()) {
             continue;
         }
-        match OnlineSessionModel::force_logout(session).await {
-            Ok(()) => kicked += 1,
+        match OnlineSessionModel::detach(session).await {
+            Ok(()) => detached += 1,
             Err(e) => {
-                tracing::error!(
-                    user_id = %session.user_id,
-                    token_id = %session.token_id,
-                    error = %e,
-                    "强制下线 access 令牌失败"
-                );
+                tracing::warn!(user_id = %session.user_id, token_id = %session.token_id, error = %e, "摘除在线登记失败");
                 failure = Some(e);
             }
         }
     }
-
     for session in &refresh_sessions {
         if let Some(username) = username_of(&session.user_id)
             && exclude_usernames.contains(&username.as_str())
@@ -420,22 +489,16 @@ pub(crate) async fn force_logout_all_except(
             continue;
         }
         match revoke_refresh(session).await {
-            Ok(()) => kicked += 1,
+            Ok(()) => detached += 1,
             Err(e) => {
-                tracing::error!(
-                    user_id = %session.user_id,
-                    refresh_jti = %session.jti,
-                    error = %e,
-                    "吊销 refresh 令牌失败"
-                );
+                tracing::warn!(user_id = %session.user_id, refresh_jti = %session.jti, error = %e, "吊销 refresh 登记失败");
                 failure = Some(e);
             }
         }
     }
-
     match failure {
         Some(e) => Err(e),
-        None => Ok(kicked),
+        None => Ok(detached),
     }
 }
 
@@ -449,8 +512,10 @@ pub(crate) async fn force_logout_all_except(
 /// `bump_token_version_of_role_holders_in`），[`crate::middleware::session_guard`] 逐请求比对，
 /// 旧 access / refresh 令牌在库这一侧必然 401 —— 安全性不依赖本函数。
 ///
-/// 本函数只做「卫生动作」：把在线列表里的会话清掉、并给旧 `jti` 写黑名单（让缓存层
-/// 也能更快拒绝）。因此：
+/// 本函数只做「卫生动作」：把在线列表里的陈旧登记清掉（FIX-05 起**不再**写 access
+/// 令牌黑名单 —— 库侧版本号已是确定性判据，写黑名单反而会让框架认证层抢先回
+/// 「Token 已登出」，盖掉 `20008「您的权限已变更」`；见
+/// [`crate::support::online::model::detach_all_except`]）。因此：
 ///
 /// - 缓存不可用（无 Redis / 抖动）时**不再回 500**：写入已经成功，回 500 只会让客户端
 ///   重试 → 菜单重复删 / 授权重复执行（不幂等），并把管理员挡在维护之外；
@@ -469,9 +534,9 @@ pub(crate) async fn revoke_after_permission_change(
     scene: &'static str,
     exclude_usernames: &[&str],
 ) -> bool {
-    match force_logout_all_except(exclude_usernames).await {
-        Ok(kicked) => {
-            tracing::info!(scene, kicked, "权限变更后已清理在线会话");
+    match detach_all_except(exclude_usernames).await {
+        Ok(detached) => {
+            tracing::info!(scene, detached, "权限变更后已清理在线会话登记");
             true
         }
         Err(error) => {

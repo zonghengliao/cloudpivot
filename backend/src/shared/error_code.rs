@@ -87,6 +87,16 @@ pub const AUTH_TOKEN_REVOKED: i32 = 20006;
 /// 刷新令牌无效或已过期（HTTP 401）。
 pub const AUTH_REFRESH_TOKEN_INVALID: i32 = 20007;
 
+/// 权限已变更，需重新登录（HTTP 401）。
+///
+/// 触发面：`sys_user.token_version` 与令牌 claim `ver` 不一致 —— 改密 / 改角色 /
+/// 改角色权限 / 改菜单授权 / 停用 / 删除账号都会推进版本号
+/// （见 `shared::session_cache` 与 `middleware::session_guard`）。
+///
+/// 与 [`AUTH_TOKEN_INVALID`] 的区别：令牌本身签名有效、也未过期，只是**它承载的
+/// 权限快照已过期**。前端据此文案提示「权限已变更，请重新登录」并直接跳登录页。
+pub const AUTH_PERMISSION_CHANGED: i32 = 20008;
+
 // ==================== 3000x：授权 ====================
 
 /// 无权限访问该资源（HTTP 403）。

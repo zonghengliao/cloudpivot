@@ -9,6 +9,7 @@
 //! | [`constants`] | 通用业务常量（状态枚举值、默认分页、超级管理员标识、字典 / 模块编码） | P1 |
 //! | [`error_code`] | 业务错误码常量（映射到 `Res::fail` / `ApiError`） | P1 |
 //! | [`enums`] | 后端下发枚举的统一词汇层（`EnumItem` / `EnumsRes` / 配色常量） | P1 |
+//! | [`session_cache`] | 会话安全字段（`token_version` / 首登改密）的 60 s 缓存 + 变更即失效（FIX-05） | 批次 G · FIX-05 |
 //! | [`startup_guard`] | 启动守卫：认证已开启而 JWT 签名密钥为空 / 过短时拒绝启动 | P0 安全 |
 
 pub mod ai_actor;
@@ -16,4 +17,5 @@ pub mod cache_gate;
 pub mod constants;
 pub mod enums;
 pub mod error_code;
+pub mod session_cache;
 pub mod startup_guard;
