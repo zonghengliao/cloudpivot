@@ -1342,6 +1342,406 @@ pub async fn write_txn(
     Ok(())
 }
 
+// ==================== ★ 作废：库存反向冲减（P9） ====================
+
+/// 流水方向：出（作废冲销 / `ck_biz_inv_txn_type` 只认 `IN` / `OUT`）。
+pub const TXN_TYPE_OUT: &str = "OUT";
+
+/// 流水业务类型：采购入库**作废冲销**（P9 新增，与 `PURCHASE_IN` 配对）。
+pub const BIZ_TYPE_PURCHASE_IN_CANCEL: &str = "PURCHASE_IN_CANCEL";
+
+/// 库存不足的哨兵前缀（`DbError` 只有字符串，handler 据此回 `409` 而不是 `500`）。
+///
+/// 形态：`INV_SHORTFALL|<明细文案>`，例如
+/// `INV_SHORTFALL|物料 P2B1-M1 库存 3.0000 < 本单 9.0000`。
+pub const SHORTFALL_PREFIX: &str = "INV_SHORTFALL|";
+
+/// 过账流水缺失的哨兵前缀（历史数据缺口：单据 POSTED 但 `biz_inventory_txn` 里没有对应行）。
+///
+/// 遇到它必须**拒绝作废**（没法知道该退多少金额），并提示走数据修复脚本 —— 绝不按现价估算。
+pub const MISSING_TXN_PREFIX: &str = "INV_NO_TXN|";
+
+/// 作废时**一行**要退回的数量与金额。
+///
+/// 数量来自 `biz_stock_in_item`（**不**信单据头的 `total_qty`），金额来自
+/// `biz_inventory_txn` 里这行过账时**实际写入**的 `amount`（**不**用当前 `avg_cost × qty`：
+/// 期间又进过货，均价已变，用现价冲减会污染成本）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CancelLine {
+    /// 明细行号（流水 `line_no`）。
+    pub line_no: i32,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 收货仓库（单据头的 `warehouse_id`，冲销流水要用）。
+    pub warehouse_id: Uuid,
+    /// 库位账行 id（`biz_inventory_location.id`，可空 = 未分配库位桶）。
+    pub location_id: Option<Uuid>,
+    /// 本单这一行的入库数量（`biz_stock_in_item.qty`）。
+    pub qty: Decimal,
+    /// 本行过账时写入的不含税金额（`biz_inventory_txn.amount`）。
+    pub amount: Decimal,
+    /// 本行过账时的入库单价（`amount / qty`，6 位；写冲销流水用）。
+    pub unit_cost: Decimal,
+}
+
+/// 作废单的基本信息（冲销流水要写的 `doc_id` / `doc_no`）。
+#[derive(Debug, Clone, Copy)]
+pub struct CancelDoc<'a> {
+    /// 收货单 id（`biz_inventory_txn.doc_id`）。
+    pub id: Uuid,
+    /// 收货单号（`biz_inventory_txn.doc_no`）。
+    pub in_no: &'a str,
+}
+
+/// 组装作废计划：逐行读「明细数量 + 过账流水的金额」。
+///
+/// * 排序：`material_id, location, line_no` —— **锁顺序**与过账一致（PRD §3.2.6），
+///   两张单并发作废时按同一全序拿锁，不会交叉等待；
+/// * 流水缺失 / 数量对不上 → 直接报错（**绝不静默按现价重算**）：历史缺口只能由
+///   数据修复脚本补流水，代码层面必须让调用方看见问题。
+pub async fn cancel_plan_of(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+    in_no: &str,
+    warehouse_id: Uuid,
+) -> DbResult<Vec<CancelLine>> {
+    let rows = ex
+        .query_sql(
+            "SELECT i.line_no, i.material_id, i.location_id, i.qty, \
+                    coalesce(t.qty, 0) AS txn_qty, coalesce(t.amount, 0) AS txn_amount, \
+                    coalesce(t.cnt, 0) AS txn_cnt \
+               FROM biz_stock_in_item i \
+               LEFT JOIN (SELECT line_no, sum(qty) AS qty, sum(amount) AS amount, count(*) AS cnt \
+                            FROM biz_inventory_txn \
+                           WHERE doc_type = ? AND doc_id = ?::uuid \
+                             AND txn_type = ? AND biz_type = ? \
+                           GROUP BY line_no) t ON t.line_no = i.line_no \
+              WHERE i.stock_in_id = ?::uuid \
+              ORDER BY i.material_id, i.location_id NULLS FIRST, i.line_no"
+                .to_string(),
+            vec![
+                Value::from(DOC_TYPE_STOCK_IN),
+                Value::from(&stock_in_id),
+                Value::from(TXN_TYPE_IN),
+                Value::from(BIZ_TYPE_PURCHASE_IN),
+                Value::from(&stock_in_id),
+            ],
+        )
+        .await?;
+
+    let mut plan = Vec::with_capacity(rows.len());
+    for row in rows {
+        let line_no: i32 = row.get_typed("line_no")?;
+        let material_id: Uuid = row.get_typed("material_id")?;
+        let location_id: Option<Uuid> = row.get_typed("location_id")?;
+        let qty: Decimal = row.get_typed("qty")?;
+        let txn_qty: Decimal = row.get_typed("txn_qty")?;
+        let txn_amount: Decimal = row.get_typed("txn_amount")?;
+        let txn_cnt: i64 = row.get_typed("txn_cnt")?;
+        if txn_cnt == 0 {
+            return Err(DbError::InvalidValue(format!(
+                "{MISSING_TXN_PREFIX}收货单 {in_no} 第 {line_no} 行在 biz_inventory_txn 里找不到\
+                 过账流水（P9 之前的历史数据缺口）：无法确定要退回多少金额，拒绝按现价估算。\
+                 请先用数据修复脚本补流水，或走人工红字调整单"
+            )));
+        }
+        if (txn_qty - qty).abs() > Decimal::new(1, 4) {
+            return Err(DbError::InvalidValue(format!(
+                "收货单 {in_no} 第 {line_no} 行：明细数量 {qty} 与过账流水数量 {txn_qty} 不一致，\
+                 单据已被改过（POSTED 不应可改），拒绝作废"
+            )));
+        }
+        let unit_cost = if txn_qty.is_zero() {
+            Decimal::ZERO
+        } else {
+            (txn_amount / txn_qty).round_dp_with_strategy(6, ROUNDING)
+        };
+        plan.push(CancelLine {
+            line_no,
+            material_id,
+            warehouse_id,
+            location_id,
+            qty,
+            amount: txn_amount,
+            unit_cost,
+        });
+    }
+    Ok(plan)
+}
+
+/// 一条明细的**成本账反向冲减**：`qty -= 本单数量`、`amount -= 过账时的金额`。
+///
+/// # 三条硬口径（卡面 §一 的 ①②③）
+///
+/// 1. `SELECT … FOR UPDATE` 锁库存行（调用方已按 `material_id` 升序排好，锁顺序全局一致）；
+/// 2. **可退性校验**：`qty - 本单数量 >= 0`。已出库导致退不回来 → `DbError::InvalidValue`
+///    带 [`SHORTFALL_PREFIX`]，handler 转 `409`（不是 500，也不是静默少退）；
+/// 3. `qty` 归零 → `amount` 同时归零（避免留下「0 件还有钱」的幽灵金额）。
+///
+/// # 与卡面的一处差异：`avg_cost` 按剩余金额重算（不是原样不动）
+///
+/// 卡面写「移动加权：减量不改单价」。但作废退的是**这一层入库的原额**（`amount` 取自流水），
+/// 而当前均价已被期间内其它入库稀释 ⇒ 「金额减 a、数量减 q、单价不动」三者必然互相矛盾
+/// （`amount ≠ qty × avg_cost`，直接触发不变式 C4）。
+/// 按 `(amount - a) / (qty - q)` 重算单价在数学上恰好等于「把这一层从加权平均里摘掉」：
+/// 冲销**最近一层**入库时它会精确回到冲销前的历史均价（可被单测证明），冲销**中间层**时
+/// 得到剩余各层的加权平均 —— 两者都是移动加权平均法的正解。
+pub async fn reverse_cost(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+    line: &CancelLine,
+    now: DateTime<Utc>,
+) -> DbResult<AppliedInventory> {
+    let locked = lock_inventory(ex, material_id, warehouse_id, location_id).await?;
+    let Some(before) = locked else {
+        return Err(DbError::InvalidValue(format!(
+            "{}物料 {material_id} 在仓库 {warehouse_id} 没有库存行，无法冲减（过账流水存在但库存被删了）",
+            SHORTFALL_PREFIX
+        )));
+    };
+    let after_qty = before.qty - line.qty;
+    if after_qty < Decimal::ZERO {
+        let code: Option<String> = ex
+            .scalar_sql(
+                "SELECT material_code FROM biz_material WHERE id = ?::uuid".to_string(),
+                vec![Value::from(&material_id)],
+            )
+            .await?;
+        return Err(DbError::InvalidValue(format!(
+            "{SHORTFALL_PREFIX}物料 {} 库存 {} < 本单 {}",
+            code.unwrap_or_else(|| material_id.to_string()),
+            before.qty.round_dp(4),
+            line.qty.round_dp(4)
+        )));
+    }
+
+    let qty_text = line.qty.round_dp(4).to_string();
+    let amount_text = line.amount.round_dp(4).to_string();
+    let location_text = Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default());
+    let row = ex
+        .query_first_sql(
+            "UPDATE biz_inventory \
+                SET qty = qty - NULLIF(?::text,'')::numeric, \
+                    amount = CASE WHEN qty - NULLIF(?::text,'')::numeric <= 0 THEN 0 \
+                                  ELSE amount - NULLIF(?::text,'')::numeric END, \
+                    avg_cost = CASE WHEN qty - NULLIF(?::text,'')::numeric <= 0 THEN 0 \
+                                    ELSE ROUND((amount - NULLIF(?::text,'')::numeric) \
+                                               / (qty - NULLIF(?::text,'')::numeric), 6) END, \
+                    last_txn_at = ?, updated_at = ? \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
+                  = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) \
+              RETURNING qty, amount, avg_cost"
+                .to_string(),
+            vec![
+                // 每个 `?` 都占一个独立的位置号（`?` → `$n` 逐次递增），
+                // 所以 qty/amount 出现几次就要传几次（与 apply_cost 同款写法）。
+                Value::Text(qty_text.clone()),    // $1 qty 减法
+                Value::Text(qty_text.clone()),    // $2 CASE 判断数量是否归零
+                Value::Text(amount_text.clone()), // $3 金额减法
+                Value::Text(qty_text.clone()),    // $4 avg_cost 的 CASE 判断
+                Value::Text(amount_text),         // $5 均价分子
+                Value::Text(qty_text),            // $6 均价分母
+                Value::from(now),                 // $7 last_txn_at
+                Value::from(now),                 // $8 updated_at
+                Value::from(&material_id),        // $9
+                Value::from(&warehouse_id),       // $10
+                location_text,                    // $11
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue(
+                "库存反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
+            )
+        })?;
+    let after = InventorySnapshot {
+        qty: row.get_typed("qty")?,
+        amount: row.get_typed("amount")?,
+        avg_cost: row.get_typed("avg_cost")?,
+    };
+    Ok(AppliedInventory { before, after })
+}
+
+/// 一条明细的**库位账反向冲减**（与 [`apply_location_qty`] 的两个分支一一对应）。
+///
+/// P6 让过账同时加库位账，这里必须能退；退不回来（库位账 < 本单数量）同样报
+/// [`SHORTFALL_PREFIX`]，让 handler 回 `409` 而不是把库位账冲成负数。
+pub async fn reverse_location_qty(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+    qty: Decimal,
+    now: DateTime<Utc>,
+) -> DbResult<AppliedLocation> {
+    let qty_text = qty.round_dp(4).to_string();
+
+    // ---------- 分支 A：明细指定了库位库存行 → 按主键退 ----------
+    if let Some(row_id) = location_id {
+        let row = ex
+            .query_first_sql(
+                "SELECT material_id, warehouse_id, qty FROM biz_inventory_location \
+                  WHERE id = ?::uuid FOR UPDATE"
+                    .to_string(),
+                vec![Value::from(&row_id)],
+            )
+            .await?
+            .ok_or_else(|| {
+                DbError::InvalidValue(format!(
+                    "库位账行不存在（location_id = {row_id}）：过账时写过，作废前被删掉了"
+                ))
+            })?;
+        let row_material: Uuid = row.get_typed("material_id")?;
+        let row_warehouse: Uuid = row.get_typed("warehouse_id")?;
+        let before_qty: Decimal = row.get_typed("qty")?;
+        if row_material != material_id || row_warehouse != warehouse_id {
+            return Err(DbError::InvalidValue(format!(
+                "库位账行 {row_id} 属于物料 {row_material} / 仓库 {row_warehouse}，\
+                 与作废的物料 {material_id} / 仓库 {warehouse_id} 不一致"
+            )));
+        }
+        if before_qty - qty < Decimal::ZERO {
+            return Err(DbError::InvalidValue(format!(
+                "{SHORTFALL_PREFIX}库位账 库存 {} < 本单 {}",
+                before_qty.round_dp(4),
+                qty.round_dp(4)
+            )));
+        }
+        let updated = ex
+            .query_first_sql(
+                "UPDATE biz_inventory_location \
+                    SET qty = qty - NULLIF(?::text,'')::numeric, last_txn_at = ?, updated_at = ? \
+                  WHERE id = ?::uuid RETURNING qty"
+                    .to_string(),
+                vec![
+                    Value::Text(qty_text),
+                    Value::from(now),
+                    Value::from(now),
+                    Value::from(&row_id),
+                ],
+            )
+            .await?
+            .ok_or_else(|| {
+                DbError::InvalidValue(
+                    "库位账反向冲减未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
+                )
+            })?;
+        let after_qty: Decimal = updated.get_typed("qty")?;
+        return Ok(AppliedLocation {
+            before_qty,
+            after_qty,
+        });
+    }
+
+    // ---------- 分支 B：未分配库位桶（location_id IS NULL）----------
+    let existing = ex
+        .query_first_sql(
+            "SELECT qty FROM biz_inventory_location \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
+              FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    let Some(row) = existing else {
+        // 历史单（P6 之前过账）从来没写过库位账：库里就是 0，退 0 才对；
+        // 但若本单数量 > 0 而库位账一行都没有，说明账本身不成立 → 报错交给人。
+        return Err(DbError::InvalidValue(format!(
+            "{SHORTFALL_PREFIX}库位账 没有该物料×仓库的未分配库位行（库存 0 < 本单 {}）",
+            qty.round_dp(4)
+        )));
+    };
+    let before_qty: Decimal = row.get_typed("qty")?;
+    if before_qty - qty < Decimal::ZERO {
+        return Err(DbError::InvalidValue(format!(
+            "{SHORTFALL_PREFIX}库位账 库存 {} < 本单 {}",
+            before_qty.round_dp(4),
+            qty.round_dp(4)
+        )));
+    }
+    let updated = ex
+        .query_first_sql(
+            "UPDATE biz_inventory_location \
+                SET qty = qty - NULLIF(?::text,'')::numeric, last_txn_at = ?, updated_at = ? \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
+              RETURNING qty"
+                .to_string(),
+            vec![
+                Value::Text(qty_text),
+                Value::from(now),
+                Value::from(now),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue("库位账反向冲减（未分配桶）未返回行（UPDATE 命中 0 行）".into())
+        })?;
+    let after_qty: Decimal = updated.get_typed("qty")?;
+    Ok(AppliedLocation {
+        before_qty,
+        after_qty,
+    })
+}
+
+/// 写一条**反向流水**：`txn_type='OUT'` + `biz_type='PURCHASE_IN_CANCEL'`。
+///
+/// `before_*` / `after_*` 六个字段全部真填（审计要能从流水复原每一次冲减）。
+#[allow(clippy::too_many_arguments)]
+pub async fn write_cancel_txn(
+    ex: &impl SqlExecutor,
+    doc: &CancelDoc<'_>,
+    line: &CancelLine,
+    applied: &AppliedInventory,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<()> {
+    let period_code = serial_model::period_code_of(now);
+    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        "INSERT INTO biz_inventory_txn \
+             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
+              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+              after_qty, after_amount, after_cost, period_code, operator_id, created_at) \
+         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?)"
+            .to_string(),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&line.material_id),
+            Value::from(&line.warehouse_id),
+            Value::from(TXN_TYPE_OUT),
+            Value::from(BIZ_TYPE_PURCHASE_IN_CANCEL),
+            Value::from(DOC_TYPE_STOCK_IN),
+            Value::from(&doc.id),
+            Value::from(doc.in_no),
+            Value::from(line.line_no),
+            Value::Text(line.qty.round_dp(4).to_string()),
+            Value::Text(line.unit_cost.to_string()),
+            Value::Text(line.amount.round_dp(4).to_string()),
+            Value::Text(applied.before.qty.to_string()),
+            Value::Text(applied.before.amount.to_string()),
+            Value::Text(applied.before.avg_cost.to_string()),
+            Value::Text(applied.after.qty.to_string()),
+            Value::Text(applied.after.amount.to_string()),
+            Value::Text(applied.after.avg_cost.to_string()),
+            Value::from(period_code.as_str()),
+            operator_text,
+            Value::from(now),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
 // ==================== 一物一码：序列号 ====================
 
 /// 落一行序列号（客户给号 / 自动取号共用）。
@@ -1670,5 +2070,17 @@ mod pure_tests {
     fn in_no_format() {
         assert_eq!(format_in_no("20261031", 1), "IN-20261031-000001");
         assert_eq!(format_in_no("20261031", 1234567), "IN-20261031-1234567");
+    }
+
+    /// ⑥ 作废哨兵：两个前缀必须互不包含（handler 靠 `strip_prefix` 分派 409 文案）。
+    #[test]
+    fn cancel_sentinels_are_distinct() {
+        assert_eq!(SHORTFALL_PREFIX, "INV_SHORTFALL|");
+        assert_eq!(MISSING_TXN_PREFIX, "INV_NO_TXN|");
+        assert!(!MISSING_TXN_PREFIX.starts_with(SHORTFALL_PREFIX));
+        assert!(!SHORTFALL_PREFIX.starts_with(MISSING_TXN_PREFIX));
+        assert_eq!(TXN_TYPE_OUT, "OUT");
+        assert_ne!(BIZ_TYPE_PURCHASE_IN_CANCEL, BIZ_TYPE_PURCHASE_IN);
+        assert_eq!(BIZ_TYPE_PURCHASE_IN_CANCEL, "PURCHASE_IN_CANCEL");
     }
 }

@@ -335,6 +335,66 @@ if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
     exit 1
 fi
 
+# ======================================================================
+# 批次 D · ERP 账务不变量（P9「闸③」）
+#
+# 为什么是硬门禁：ERP 的账错了不会抛异常，只会**安静地算错** —— 库存对不上总账、
+# 单子作废了没退库存、过账了没生成凭证。这些只有「不变量体检」能发现，
+# 任何一条 BLOCKER 都说明账已经错了，不许合。
+#
+# 三档开关（`ERP_INVARIANTS_GATE`）：
+#   block（默认）= 有 BLOCKER → exit 1
+#   warn         = 只告警（存量脏数据还没修完时临时用）
+#   off          = 跳过（CI 没有数据库 / 本机没起库时用）
+#
+# 判定口径：脚本退出码（有 BLOCKER 时 exit 1）+ 汇总行里的 `BLOCKER N`。
+# ======================================================================
+erp_invariants_gate() {
+    local mode="${ERP_INVARIANTS_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸③：ERP 不变量（ERP_INVARIANTS_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸③：ERP 不变量（scripts/verify/erp_invariants.py）"
+    if [ -f /etc/cloudpivot/cloudpivot.env ]; then
+        # shellcheck disable=SC1091
+        set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+    else
+        echo "  ! 未找到 /etc/cloudpivot/cloudpivot.env：按环境变量 / 默认值连库"
+    fi
+    if [ -z "${NIK_DATABASE_PASSWORD:-}" ] && [ -z "${PGPASSWORD:-}" ]; then
+        echo "  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过"
+        echo "    （CI 里没有库是正常的；本机要跑就得先 . /etc/cloudpivot/cloudpivot.env）"
+        return 0
+    fi
+
+    local log
+    log="$(mktemp /tmp/erp_inv.XXXXXX.log)"
+    if python3 "$ROOT/scripts/verify/erp_invariants.py" > "$log" 2>&1; then
+        echo "  ✓ 全部不变量成立（$(grep -c '✅' "$log" || true) 条通过）"
+        rm -f "$log"
+        return 0
+    fi
+
+    local blockers
+    blockers="$(grep -oE 'BLOCKER [0-9]+' "$log" | head -1 | grep -oE '[0-9]+' || true)"
+    blockers="${blockers:-?}"
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有 ${blockers} 条 BLOCKER（ERP_INVARIANTS_GATE=warn → 不阻断）"
+        grep '^  · \[' "$log" | head -10 || true
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 有 ${blockers} 条 BLOCKER，账已错，不许合：" >&2
+    grep '^  · \[' "$log" | head -10 >&2 || true
+    echo "    完整报告：$log（修完再跑；存量修复期可 ERP_INVARIANTS_GATE=warn 临时放行）" >&2
+    return 1
+}
+
+if ! erp_invariants_gate; then
+    exit 1
+fi
+
 # 批次B 的 warn 模式提示保留在最后（C7 门禁是硬门禁，没有 warn 开关）
 if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
     echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"

@@ -141,6 +141,37 @@ fn bad_request(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::PARAM_INVALID, message.into())
 }
 
+/// 作废路径的错误收口：库存不足（[`stockin_model::SHORTFALL_PREFIX`]）→ `409 + 文案`。
+///
+/// 「货已部分出库」不是参数错（400）、也不是服务端故障（500），而是**当前状态不允许**
+/// —— 必须先做退货入库冲销，所以是 409。
+fn cancel_write_error(err: DbError, ctx: &str) -> ApiError {
+    let sentinel = match &err {
+        DbError::InvalidValue(message) => message
+            .strip_prefix(stockin_model::SHORTFALL_PREFIX)
+            .map(|detail| (true, detail.to_string()))
+            .or_else(|| {
+                message
+                    .strip_prefix(stockin_model::MISSING_TXN_PREFIX)
+                    .map(|detail| (false, detail.to_string()))
+            }),
+        _ => None,
+    };
+    match sentinel {
+        Some((true, detail)) => ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("该单的货已部分出库（{detail}），不能直接作废；请先做退货入库冲销"),
+        ),
+        Some((false, detail)) => ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("不能作废：{detail}"),
+        ),
+        None => write_error(err, ctx),
+    }
+}
+
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`、外键 → `400 + 66002`。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
     match err {
@@ -663,6 +694,13 @@ pub async fn change_stock_in_status(
                     .unwrap_or_else(|| "-".to_string())
             )));
         }
+        // 幂等（卡面 §一 ⑦）：已作废再作废 → 409，绝不二次退库存
+        if row.status == STATUS_CANCELLED && target == STATUS_CANCELLED {
+            return Err(conflict(format!(
+                "收货入库单 {} 已经是「已作废」（CANCELLED），不能重复作废：库存只退一次",
+                row.in_no
+            )));
+        }
         return Err(conflict(transition_rejected_message(&row.status, target)));
     }
 
@@ -670,20 +708,11 @@ pub async fn change_stock_in_status(
         return post_stock_in(id, &row, req, operator).await;
     }
 
-    // 作废：DRAFT 从未加过库存；POSTED 的库存冲回属 P2-C1 红冲（卡面 §二）
+    // 作废：DRAFT 从未加过库存；POSTED 的库存/库位账/流水在同一事务里反向冲减（P9）
     if row.status == STATUS_POSTED && reason.is_none() {
         return Err(bad_request(
             "已过账的收货单作废必须给出原因（reason）：库存已增加，红冲要能追溯到为什么",
         ));
-    }
-    if row.status == STATUS_POSTED {
-        tracing::warn!(
-            stock_in_id = %id,
-            in_no = %row.in_no,
-            total_qty = %row.total_qty,
-            total_amount = %row.total_amount,
-            "收货入库单作废：库存**未冲回**（红冲属 P2-C1 凭证/应付），已过账的库存台账需要人工红字调整单冲回"
-        );
     }
 
     let now = Utc::now();
@@ -705,10 +734,13 @@ pub async fn change_stock_in_status(
     }
 }
 
-/// 作废事务体（P2-C1 补齐）：CAS 改状态 → 红冲凭证 → 应付单作废，**同一个事务**。
+/// 作废事务体（P9 补齐库存回滚 + P2-C1 的凭证红冲）：
+/// CAS 改状态 → **库存/库位账反向冲减 + 反向流水** → 红冲凭证 → 应付单作废，**同一个事务**。
 ///
-/// ⚠️ 库存**不回退**：卡面 §五 明说本卡只做凭证红冲，库存冲回是后续卡的欠账
-/// （[`stockin_model::apply_status`] 的 `POSTED → CANCELLED` 分支里那条 WARN 仍然保留）。
+/// ⚠️ P9 之前这里只做凭证红冲，库存与流水**没退**（不变式 E4 挂在 2 组数据上）。
+/// 现在按卡面 §一 的 7 步补齐：锁库存 → 校验可退 → 退成本账 → 退库位账 → 写
+/// `OUT / PURCHASE_IN_CANCEL` 流水 → 红字凭证 → 应付作废。任一步失败 → 整单回滚
+/// （handler 的 `tx.rollback()`），库存 / 凭证 / 流水三处同时不变。
 async fn cancel_in_tx(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -729,26 +761,68 @@ async fn cancel_in_tx(
     }
 
     if row.status == STATUS_POSTED {
-        // ① 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
+        // ① 读作废计划：数量取明细、金额取过账流水（不按现价估算）
+        let plan = stockin_model::cancel_plan_of(ex, id, &row.in_no, row.warehouse_id)
+            .await
+            .map_err(|error| cancel_write_error(error, "作废：读取过账流水"))?;
+        let doc = stockin_model::CancelDoc {
+            id,
+            in_no: &row.in_no,
+        };
+        // ② 逐行反向冲减（成本账 → 库位账 → 反向流水）；锁顺序 = 计划的排序（material_id 升序）
+        let mut reversed_qty = Decimal::ZERO;
+        let mut reversed_amount = Decimal::ZERO;
+        for line in &plan {
+            let applied = stockin_model::reverse_cost(
+                ex,
+                line.material_id,
+                row.warehouse_id,
+                line.location_id,
+                line,
+                now,
+            )
+            .await
+            .map_err(|error| cancel_write_error(error, "作废：库存反向冲减"))?;
+            stockin_model::reverse_location_qty(
+                ex,
+                line.material_id,
+                row.warehouse_id,
+                line.location_id,
+                line.qty,
+                now,
+            )
+            .await
+            .map_err(|error| cancel_write_error(error, "作废：库位账反向冲减"))?;
+            stockin_model::write_cancel_txn(ex, &doc, line, &applied, operator, now)
+                .await
+                .map_err(|error| write_error(error, "作废：写反向流水"))?;
+            reversed_qty += line.qty;
+            reversed_amount += line.amount;
+        }
+
+        // ③ 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
         let red = voucher::reverse_for_stock_in(ex, row, reason, operator, now)
             .await
             .map_err(|error| write_error(error, "作废：生成红字凭证"))?;
-        // ② 应付单 → CANCELLED
+        // ④ 应付单 → CANCELLED
         payable::cancel_for_stock_in(ex, id, operator, now)
             .await
             .map_err(|error| write_error(error, "作废：应付单作废"))?;
-        match red {
-            Some(red_id) => tracing::info!(
-                stock_in_id = %id,
-                in_no = %row.in_no,
-                red_voucher_id = %red_id,
-                "收货单作废：已生成红字凭证（金额借贷互换 = 原凭证取负），应付单已作废"
-            ),
-            None => tracing::warn!(
+        tracing::info!(
+            stock_in_id = %id,
+            in_no = %row.in_no,
+            lines = plan.len(),
+            reversed_qty = %reversed_qty,
+            reversed_amount = %reversed_amount,
+            red_voucher_id = %red.map(|v| v.to_string()).unwrap_or_else(|| "(无原凭证)".to_string()),
+            "收货单作废：库存/库位账已反向冲减 + 反向流水已写 + 红字凭证已生成 + 应付单已作废"
+        );
+        if red.is_none() {
+            tracing::warn!(
                 stock_in_id = %id,
                 in_no = %row.in_no,
                 "收货单作废：没有找到原凭证（历史数据），只作废了应付单"
-            ),
+            );
         }
     }
     Ok(())
@@ -1253,41 +1327,62 @@ mod tests {
             .await
     }
 
-    /// 拿锁 + 连库 + 清上一轮 + 建夹具。
-    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-        let guard = DB_LOCK.lock().await;
-        if !ensure_db().await {
-            return None;
-        }
-        // 清上一轮：序列号（按来源）→ 流水 → 库存 → 收货单（明细 CASCADE）→ 采购单
+    /// 清掉本模块造的所有夹具（含 P9 新增的凭证/应付清理）。
+    ///
+    /// 顺序有讲究：序列号 → 流水 → 库存 → 库位账 → 凭证/应付 → 收货单 → 采购单。
+    /// 凭证/应付是**弱引用**（无外键），必须在删收货单之前按 `source_id` 清掉。
+    async fn cleanup_fixtures() {
         let cleanups = [
             format!(
                 "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
-                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!(
                 "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN \
-                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!(
                 "DELETE FROM biz_inventory WHERE material_id IN \
-                 ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
-                 AND warehouse_id = '{WAREHOUSE}'::uuid"
+             ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+             AND warehouse_id = '{WAREHOUSE}'::uuid"
             ),
             // P6：库位账必须排在 biz_inventory 之后删（`fk_biz_inv_location_id` 指本表）
             format!(
                 "DELETE FROM biz_inventory_location WHERE material_id IN \
-                 ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
-                 AND warehouse_id = '{WAREHOUSE}'::uuid"
+             ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+             AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
+            // P9：过账即生成凭证/应付，不清理会让「按 period 全局计数」的其它模块用例漂数
+            format!(
+                "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+             (SELECT id FROM biz_voucher WHERE source_id IN \
+              (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+            ),
+            format!(
+                "DELETE FROM biz_voucher WHERE source_id IN \
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            format!(
+                "DELETE FROM biz_payable WHERE source_id IN \
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!("DELETE FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid"),
             format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid"),
         ];
         for sql in cleanups {
             if let Err(err) = db().execute_with_params(&sql, vec![]).await {
-                panic!("清理上一轮数据失败：{err}\nSQL: {sql}");
+                panic!("清理数据失败：{err}\nSQL: {sql}");
             }
         }
+    }
+
+    /// 拿锁 + 连库 + 清上一轮 + 建夹具。
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        cleanup_fixtures().await;
         for sql in FIXTURES {
             if let Err(err) = db().execute_with_params(sql, vec![]).await {
                 panic!("夹具写入失败：{err}\nSQL: {sql}");
@@ -1874,7 +1969,7 @@ mod tests {
         assert_eq!(txn_amount, dec("500"), "流水金额也只用不含税");
     }
 
-    /// ⑬ 作废：DRAFT → CANCELLED 不写库存；POSTED → CANCELLED 需原因且库存不冲回（P2-C1 红冲）。
+    /// ⑬ 作废：DRAFT → CANCELLED 不写库存；POSTED → CANCELLED 需原因，**库存冲回**（P9 改口径）。
     #[tokio::test]
     async fn cancel_paths() {
         let _db = match setup().await {
@@ -1932,9 +2027,10 @@ mod tests {
         .unwrap();
         assert_eq!(
             inventory_of(MATERIAL_A).await.0,
-            dec("5"),
-            "本卡 POSTED→CANCELLED 只改状态，库存不冲回（红冲属 P2-C1）"
+            dec("0"),
+            "P9：POSTED→CANCELLED 必须把库存退回去（旧口径「只改状态」是 E4 的根因）"
         );
+        assert_eq!(inventory_of(MATERIAL_A).await.1, dec("0"));
     }
 
     /// ⑭ 删除：仅 DRAFT 能软删；POSTED 删除 → 409。
@@ -2443,5 +2539,488 @@ mod tests {
             "必须是可读的业务报文：{}",
             err.msg
         );
+    }
+
+    // ==================== P9：作废回滚库存（卡面 §五，12 条） ====================
+
+    /// 作废请求体。
+    fn cancel_req(reason: Option<&str>) -> StockInStatusReq {
+        StockInStatusReq {
+            status: Some("CANCELLED".to_string()),
+            reason: reason.map(str::to_string),
+            serials: Vec::new(),
+        }
+    }
+
+    /// 作废并断言成功。
+    async fn cancel(id: Uuid, reason: &str) {
+        change_stock_in_status(id, &cancel_req(Some(reason)), None)
+            .await
+            .unwrap_or_else(|err| panic!("作废失败：{} {}", err.code, err.msg));
+    }
+
+    /// 某张单某类流水的条数。
+    async fn txn_count(doc: Uuid, biz_type: &str) -> i64 {
+        db().scalar_with_params(
+            "SELECT COUNT(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid AND biz_type = ?",
+            vec![Value::from(&doc), Value::from(biz_type)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("查流水失败：{err}"))
+    }
+
+    /// 某张单的凭证条数（`is_red` 为空 = 全部）。
+    async fn voucher_count(doc: Uuid, red: Option<i16>) -> i64 {
+        let sql = if red.is_some() {
+            "SELECT COUNT(*) FROM biz_voucher WHERE source_id = ?::uuid AND is_red = 1"
+        } else {
+            "SELECT COUNT(*) FROM biz_voucher WHERE source_id = ?::uuid"
+        };
+        db().scalar_with_params(sql, vec![Value::from(&doc)])
+            .await
+            .unwrap_or_else(|err| panic!("查凭证失败：{err}"))
+    }
+
+    /// ① 作废收货单 → 库存回滚到作废前（成本账三值全归零）。
+    #[tokio::test]
+    async fn cancel_rolls_back_cost_inventory() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("100"), dec("200"), dec("2.000000")),
+            "前置：过账后库存 100 / 200 / 2.0"
+        );
+        cancel(id, "供应商召回").await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            "作废后必须回到作废前（库存行 qty / amount / avg_cost 全归零）"
+        );
+        assert_eq!(detail_of(id).await.unwrap().header.status, STATUS_CANCELLED);
+    }
+
+    /// ② 作废收货单 → 库位账同步回滚（P6 写入的那一本账也要退）。
+    #[tokio::test]
+    async fn cancel_rolls_back_location_ledger() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let row = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
+        let id = post_new(vec![line_at(MATERIAL_A, "40", "2", "0", &row.to_string())]).await;
+        assert_eq!(
+            location_qty_of(&row).await,
+            Some(dec("40")),
+            "前置：过账写了库位账 40"
+        );
+        cancel(id, "库位选错").await;
+        assert_eq!(
+            location_qty_of(&row).await,
+            Some(Decimal::ZERO),
+            "库位账必须同步回滚到 0（否则两账不一致 = 不变式 B1）"
+        );
+    }
+
+    /// ③ 作废 → 生成反向流水 `OUT / PURCHASE_IN_CANCEL`，且 before_/after_ 六字段真填。
+    #[tokio::test]
+    async fn cancel_writes_out_txn() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "60", "2.5", "0")]).await;
+        let in_no = detail_of(id).await.unwrap().header.in_no;
+        cancel(id, "重复下单").await;
+
+        let rows = db()
+            .find_with_params(
+                "SELECT txn_type, biz_type, doc_no, qty, amount, unit_cost, before_qty, after_qty, \
+                        before_amount, after_amount, before_cost, after_cost \
+                   FROM biz_inventory_txn WHERE doc_id = ?::uuid AND txn_type = 'OUT'",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("查反向流水失败：{err}"));
+        assert_eq!(rows.len(), 1, "一张单一行明细 → 一条反向流水");
+        let row = &rows[0];
+        let txn_type: String = row.get_typed("txn_type").unwrap();
+        let biz_type: String = row.get_typed("biz_type").unwrap();
+        let doc_no: String = row.get_typed("doc_no").unwrap();
+        assert_eq!(txn_type, stockin_model::TXN_TYPE_OUT);
+        assert_eq!(biz_type, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL);
+        assert_eq!(doc_no, in_no, "反向流水必须带原收货单号（可追溯）");
+        assert_eq!(row.get_typed::<Decimal>("qty").unwrap(), dec("60"));
+        assert_eq!(row.get_typed::<Decimal>("amount").unwrap(), dec("150"));
+        assert_eq!(row.get_typed::<Decimal>("unit_cost").unwrap(), dec("2.5"));
+        assert_eq!(row.get_typed::<Decimal>("before_qty").unwrap(), dec("60"));
+        assert_eq!(
+            row.get_typed::<Decimal>("after_qty").unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("before_amount").unwrap(),
+            dec("150")
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("after_amount").unwrap(),
+            Decimal::ZERO
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("before_cost").unwrap(),
+            dec("2.500000")
+        );
+        assert_eq!(
+            row.get_typed::<Decimal>("after_cost").unwrap(),
+            Decimal::ZERO
+        );
+    }
+
+    /// ④ 作废 → 红字凭证照旧生成（P2-C1 逻辑不被破坏，双向指针都在）。
+    #[tokio::test]
+    async fn cancel_still_generates_red_voucher() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "10", "2", "0")]).await;
+        let originals = db()
+            .find_with_params(
+                "SELECT id, voucher_no, total_debit, total_credit FROM biz_voucher \
+                  WHERE source_id = ?::uuid AND is_red = 0",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(originals.len(), 1, "前置：过账即生成 1 张有效凭证");
+        let original_id: Uuid = originals[0].get_typed("id").unwrap();
+
+        cancel(id, "退货").await;
+        let reds = db()
+            .find_with_params(
+                "SELECT id, reverse_of, total_debit, total_credit FROM biz_voucher \
+                  WHERE source_id = ?::uuid AND is_red = 1",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(reds.len(), 1, "作废必须生成 1 张红字凭证");
+        let red_id: Uuid = reds[0].get_typed("id").unwrap();
+        assert_eq!(
+            reds[0].get_typed::<Option<Uuid>>("reverse_of").unwrap(),
+            Some(original_id),
+            "红字凭证必须指向原凭证"
+        );
+        assert_eq!(
+            reds[0].get_typed::<Decimal>("total_debit").unwrap(),
+            originals[0].get_typed::<Decimal>("total_debit").unwrap(),
+            "红冲金额 = 原凭证金额（借贷互换，不用负数）"
+        );
+        let reversed_by: Option<Uuid> = db()
+            .scalar_with_params(
+                "SELECT reversed_by FROM biz_voucher WHERE id = ?::uuid",
+                vec![Value::from(&original_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(reversed_by, Some(red_id), "原凭证要打 reversed_by（双向）");
+    }
+
+    /// ⑤ 幂等：已作废再作废 → 409，且库存不会被二次扣成负数。
+    #[tokio::test]
+    async fn cancel_twice_is_409() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        cancel(id, "第一次作废").await;
+        let err = change_stock_in_status(id, &cancel_req(Some("第二次作废")), None)
+            .await
+            .expect_err("重复作废必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("不能重复作废"),
+            "报文要点明幂等语义：{}",
+            err.msg
+        );
+        assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO);
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            1,
+            "反向流水只能有一条"
+        );
+    }
+
+    /// ⑥ 库存不足（货已出库）时作废 → 409 + 文案，不许把库存扣成负数。
+    #[tokio::test]
+    async fn cancel_with_shipped_goods_is_409() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "9", "2", "0")]).await;
+        // 模拟「货已出库部分」：库存只剩 3
+        db().execute_with_params(
+            "UPDATE biz_inventory SET qty = 3, amount = 6, avg_cost = 2 \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![
+                Value::from(&Uuid::parse_str(MATERIAL_A).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let err = change_stock_in_status(id, &cancel_req(Some("作废试试")), None)
+            .await
+            .expect_err("库存不足必须拒绝");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("已部分出库") && err.msg.contains("退货入库冲销"),
+            "文案要说清「为什么不能作废」和「该怎么处理」：{}",
+            err.msg
+        );
+        assert!(err.msg.contains('9'), "文案要点名本单数量：{}", err.msg);
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            dec("3"),
+            "拒绝时库存一个字节都不能动"
+        );
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_POSTED,
+            "拒绝时必须整单回滚（状态仍是 POSTED）"
+        );
+    }
+
+    /// ⑦ 冲减金额用过账流水里的 `amount`，不是「当前均价 × 数量」。
+    ///
+    /// 构造：先 100@2（200），再 100@3（300）→ 200 件 / 500 元 / 均价 2.5。
+    /// 作废**第一张**只能退 200（流水原额），按现价算会退 250，直接污染成本。
+    #[tokio::test]
+    async fn cancel_uses_posted_amount_not_current_avg() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        post_new(vec![line(MATERIAL_A, "100", "3", "0")]).await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("200"), dec("500"), dec("2.500000")),
+            "前置：移动加权后 200 / 500 / 2.5"
+        );
+
+        cancel(first, "第一张收错了").await;
+        let (qty, amount, avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("100"), "退的是第一张的 100 件");
+        assert_eq!(
+            amount,
+            dec("300"),
+            "金额必须减第一张过账流水里的 200（500 - 200 = 300）"
+        );
+        assert_ne!(
+            amount,
+            dec("250"),
+            "按当前均价退 100×2.5=250 是错的：会把第二层的成本摊到第一层上"
+        );
+        assert_eq!(
+            avg,
+            dec("3.000000"),
+            "剩余结存 300/100 = 3.0，正好是第二层的原始单价（摘掉一层 = 还原加权平均）"
+        );
+    }
+
+    /// ⑧ 冲减后数量归零 → 金额也必须归零（不留「0 件还有钱」的幽灵金额）。
+    #[tokio::test]
+    async fn cancel_zero_qty_zeroes_amount() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "7", "3", "0")]).await;
+        assert_eq!(inventory_of(MATERIAL_A).await.1, dec("21"));
+        cancel(id, "整单退回").await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            "数量归零时金额与均价必须同时归零"
+        );
+    }
+
+    /// ⑨ 并发作废两张单（同一物料）→ 不死锁、两单都成功、数量正确。
+    #[tokio::test]
+    async fn concurrent_cancels_do_not_deadlock() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = post_new(vec![line(MATERIAL_A, "30", "2", "0")]).await;
+        let b = post_new(vec![line(MATERIAL_A, "20", "3", "0")]).await;
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("50"));
+
+        let req_a = cancel_req(Some("并发 A"));
+        let req_b = cancel_req(Some("并发 B"));
+        let (ra, rb) = tokio::join!(
+            change_stock_in_status(a, &req_a, None),
+            change_stock_in_status(b, &req_b, None)
+        );
+        ra.unwrap_or_else(|err| panic!("A 作废失败：{} {}", err.code, err.msg));
+        rb.unwrap_or_else(|err| panic!("B 作废失败：{} {}", err.code, err.msg));
+
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            Decimal::ZERO,
+            "两张单都作废 → 库存归零（没有互相踩掉/多扣）"
+        );
+        assert_eq!(
+            txn_count(a, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            1
+        );
+        assert_eq!(
+            txn_count(b, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            1
+        );
+    }
+
+    /// ⑩ 作废失败 → 事务整体回滚：库存 / 流水 / 凭证 / 状态全都不变。
+    #[tokio::test]
+    async fn failed_cancel_rolls_back_everything() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "9", "2", "0")]).await;
+        let vouchers_before = voucher_count(id, None).await;
+        assert_eq!(vouchers_before, 1);
+        // 只留 1 件（模拟货已出库 8 件）
+        db().execute_with_params(
+            "UPDATE biz_inventory SET qty = 1, amount = 2 \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![
+                Value::from(&Uuid::parse_str(MATERIAL_A).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let err = change_stock_in_status(id, &cancel_req(Some("作废")), None)
+            .await
+            .expect_err("必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("1"), "库存不变");
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            0,
+            "不能留下半条反向流水"
+        );
+        assert_eq!(
+            voucher_count(id, None).await,
+            vouchers_before,
+            "不能留下红字凭证"
+        );
+        assert_eq!(voucher_count(id, Some(1)).await, 0, "红字凭证一条都不许有");
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_POSTED,
+            "状态必须回滚成 POSTED"
+        );
+    }
+
+    /// ⑪ 作废后不变量 E4 通过：库存 ≤ 有效入库（POSTED 单明细合计），且流水累计 = 库存。
+    #[tokio::test]
+    async fn cancel_keeps_invariant_e4() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        post_new(vec![line(MATERIAL_A, "50", "4", "0")]).await;
+        cancel(a, "作废其中一张").await;
+
+        let material = Uuid::parse_str(MATERIAL_A).unwrap();
+        let warehouse = Uuid::parse_str(WAREHOUSE).unwrap();
+        // E4：库存 > 有效入库 的组合（本夹具范围内）
+        let over: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM ( \
+                     SELECT v.qty AS inv_qty, coalesce(p.q, 0) AS posted_qty \
+                       FROM (SELECT sum(qty) AS qty FROM biz_inventory \
+                              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid) v \
+                       LEFT JOIN (SELECT sum(i.qty) AS q \
+                                    FROM biz_stock_in s JOIN biz_stock_in_item i ON i.stock_in_id = s.id \
+                                   WHERE s.deleted_at IS NULL AND s.status = 'POSTED' \
+                                     AND s.warehouse_id = ?::uuid AND i.material_id = ?::uuid) p ON TRUE \
+                 ) t WHERE t.inv_qty > t.posted_qty + 0.0001",
+                vec![
+                    Value::from(&material),
+                    Value::from(&warehouse),
+                    Value::from(&warehouse),
+                    Value::from(&material),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(over, 0, "作废后库存不许大于有效入库量（E4）");
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("50"));
+
+        // B4：流水累计 = 当前库存
+        let signed: Decimal = db()
+            .scalar_with_params(
+                "SELECT coalesce(sum(CASE WHEN txn_type = 'IN' THEN qty ELSE -qty END), 0) \
+                   FROM biz_inventory_txn WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+                vec![Value::from(&material), Value::from(&warehouse)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            signed,
+            inventory_of(MATERIAL_A).await.0,
+            "反向流水必须让「流水累计 = 当前库存」重新成立（B4）"
+        );
+    }
+
+    /// ⑫ 流水缺失的历史单：拒绝作废并说明原因（不许按现价估算，不许静默）。
+    #[tokio::test]
+    async fn cancel_refuses_when_posted_txn_missing() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "12", "2", "0")]).await;
+        // 造「单据 POSTED 但过账流水丢了」的历史形态（P9 之前的数据缺口长这样）
+        db().execute_with_params(
+            "DELETE FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap();
+
+        let err = change_stock_in_status(id, &cancel_req(Some("作废")), None)
+            .await
+            .expect_err("流水缺失必须拒绝");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("找不到过账流水"),
+            "报文要说清缺口在哪：{}",
+            err.msg
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            dec("12"),
+            "拒绝时库存不动（不能凭现价估算退多少）"
+        );
+        assert_eq!(detail_of(id).await.unwrap().header.status, STATUS_POSTED);
+
+        // 收尾清理（本模块最后一个用例）：过账即生成凭证，凭证若留在库里，
+        // 按「period 全局计数」断言的模块（voucher_query）会漂数。
+        // 既有用例只在 setup 里清上一轮，最后一条跑完夹具会留在库 —— 这里补一刀。
+        cleanup_fixtures().await;
     }
 }
