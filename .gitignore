@@ -36,3 +36,5 @@ evidence/a7-import-test.xlsx
 /frontend/e2e/.auth/
 __pycache__/
 frontend/dist.bak*/
+# 全量体检产物（scripts/verify/run_all.sh 的日志与汇总）
+/.verify-out/

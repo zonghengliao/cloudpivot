@@ -168,3 +168,44 @@ error/warning（Vue 运行时错误也在里面）、`business/task` 接口流�
 → 03 这条累计跑到 20+ 次，**只在 12:20 复现过一次**；两次「红」都不是 03，而是环境（限流 / 发布窗口），
 现在都被 `openAuthed` 的导航体检和 429 监听翻译成了明确错误。
 
+## 用例编号 ↔ spec 对照（与 `docs/测试用例总表.md` 的对应关系）
+
+总表里标 `✅ 已自动` 的 13 条 E2E 用例，一一对应到下面这些 spec。
+**反过来读也成立**：本目录每个被总表引用的 spec 都能在表里找到编号，没有「跑了但没登记」的用例。
+
+| 用例编号 | spec 文件 | 覆盖的东西 |
+| --- | --- | --- |
+| `TC-AUTH-001` | `01-login-task-list.spec.ts` + `global-setup.ts` | 正确密码登录 → 任务列表；侧栏目录/子菜单导航 |
+| `TC-FLOW-006` | `05-approval.spec.ts` | A2 单人节点批准 · 审批人视角：待办 → 详情 → 同意 → 实例 APPROVED |
+| `TC-FE-026` | `support.ts::openAuthed` | 深链刷新保持登录态（含 404/429/5xx 导航体检） |
+| `TC-FE-027` | `02-task-crud.spec.ts` | 任务新建 → 编辑 → 删除 |
+| `TC-FE-028` | `03-board-drag.spec.ts` | 看板五列 + 拖拽 + 跳级回弹（含 `test-results/diag/*.json` 现场） |
+| `TC-FE-029` | `04-flow-editor.spec.ts` | 流程编辑器：拖节点 / 连线 / 保存还原 / 校验 / 发布 |
+| `TC-FE-030` | `06-task-detail-tabs.spec.ts` | 任务详情 Tab + 徽标 + 协作三段 + AI 产出 Tab |
+| `TC-FE-031` | `07-f2-new-task.spec.ts` | F2 新建与 NEW 标记（三视图） |
+| `TC-FE-032` | `08-t8b-task-tree.spec.ts` | 树形表格折叠 / 缩进 / 父行竖条 |
+| `TC-FE-033` | `09-t8c-root-only.spec.ts` | root_only 与三视图数据量 |
+| `TC-FE-016` | `10-erp-warehouse.spec.ts` | 仓库树：渲染 / 按仓筛选 / 折叠 / 新建 / 叶子门禁 |
+| `TC-FE-017` | `11-erp-location.spec.ts` | 库位页深链直达与仓库筛选 |
+| `TC-FE-018` | `11-erp-master-data.spec.ts` | 单位 / 供应商详情抽屉 |
+
+### 不在本对照表里的文件（别的卡在途，别混进来）
+
+`22-pages-erp-master.spec.ts` 与 `_catalog.ts` / `_pagerunner.ts` / `_pagecheck.ts` / `_probe-dom.ts` /
+`_recon.ts` 属于「测试E · 52 页全量」那张卡（工作区未提交）。它们用 `definePageChecks` 动态生成 `it`，
+**编号登记在测试E那张卡里**，不与本总表的 `TC-FE-*` 混算。
+
+### 统计口径（怎么用 grep 查覆盖）
+
+```bash
+grep -c 'TC-FE-' docs/测试用例总表.md            # 总表里前端交互用例条数
+grep -o 'TC-[A-Z]*-[0-9]*' docs/测试用例总表.md | cut -d- -f2 | sort | uniq -c   # 各模块条数
+grep -n '✅ 已自动' docs/测试用例总表.md          # 已自动化的到底哪几条（含指针）
+python3 scripts/verify/gen_test_cases.py --check # 用例表闸：条数/编号/模糊词/指针真实性/文档漂移
+```
+
+`--check` 会拒收两类脏数据，这两条都是被踩过的坑：
+1. `✅/🟡` 行引用的 `文件::函数` 在仓库里不存在（防「标了已自动，其实没这测试」）；
+2. 落盘文档与生成器输出不一致（防「文档 359 条、生成器 371 条」这种漂移）。
+
+
