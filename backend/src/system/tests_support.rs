@@ -64,6 +64,8 @@ pub(crate) async fn ensure_db() -> bool {
                 println!("SKIP: 未设置 SYS_DB_URL（不连真实数据库）");
                 return false;
             };
+            // 钉住本进程的起点：残留自检据此区分「历史残留」与「本次 run 造的夹具」
+            let _ = suite_start();
             if try_db().is_some() {
                 return true;
             }
@@ -231,13 +233,640 @@ pub(crate) fn assert_err(error: &ApiError, status: u16, code: i32, label: &str) 
     );
 }
 
-/// 清理本次用例造的数据：按 `like` 前缀删（`sys_dept` / `sys_user` / `sys_role` 等）。
+// ==================== 清理：失败必须可见（不许静默吞错） ====================
+//
+// # 为什么不再写 `let _ = db().execute_with_params(...)`
+//
+// 清理 SQL 的错误被吞掉时，表象是「用例全绿、库里一堆夹具」：
+//
+// - 用例在 cleanup 之前 panic（并发 / 中断 / `connection closed`）；
+// - 或者删的次序不满足外键依赖（`sys_role_menu` → `sys_user_role` → 实体表）；
+// - 或者**整批 DELETE 里只要有一行被业务表外键挡住，PostgreSQL 就把整条语句回滚**
+//   —— 一个脏行连累全部夹具。实测：一次 `system::` 只跑一遍就往 `cloudpivot_test`
+//   攒下 33 行软删用户，且永远删不掉。
+//
+// 残留还会被一致性扫描（死权限码 /「注解有但菜单无」）算进基线，让「基线计数」失真。
+//
+// 因此这里的规矩是：清理失败**不 panic**（会掩盖真正的断言结果），但必须打印
+// `WARN[cleanup]` + 原始 SQL + 数据库错误原文；单行删不掉时**只影响那一行**。
+
+/// 执行一条清理 SQL；失败打 `WARN[cleanup]` 并返回 0（**不 panic**）。
+pub(crate) async fn cleanup_sql(label: &str, sql: &str, params: Vec<Value>) -> u64 {
+    match db().execute_with_params(sql, params).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            println!("WARN[cleanup] {label} 失败：{error}\n  SQL: {sql}");
+            0
+        }
+    }
+}
+
+/// 清理本次用例造的数据：按 `like` 前缀物理删（`sys_dept` / `sys_user` / `sys_role` 等）。
 ///
 /// 用前缀而不是「全表删除」：`cloudpivot_test` 是多卡共用的验证库，
 /// 全局 `DELETE` / `COUNT(*)` 都会把别的卡的数据卷进来（卡片硬红线 6）。
-pub(crate) async fn cleanup_table(table: &str, column: &str, prefix: &str) {
+///
+/// 返回受影响行数；失败打 `WARN[cleanup]`（见文件末尾「清理：失败必须可见」）。
+pub(crate) async fn cleanup_table(table: &str, column: &str, prefix: &str) -> u64 {
     let sql = format!("DELETE FROM {table} WHERE {column} LIKE ?");
-    let _ = db()
-        .execute_with_params(&sql, vec![Value::from(format!("{prefix}%"))])
+    cleanup_sql(
+        &format!("cleanup_table({table}.{column} LIKE '{prefix}%')"),
+        &sql,
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await
+}
+
+/// 一次批量清理的结果。
+#[derive(Debug, Default)]
+pub(crate) struct SweepReport {
+    /// 实体（表名 + 前缀），用于日志
+    pub label: String,
+    /// 物理删掉的行数
+    pub deleted: usize,
+    /// 仍被**业务表**外键引用、按设计只能软删的行（业务数据要留引用，不算清理失败）
+    pub kept_by_business: Vec<String>,
+    /// 清理失败（不该发生；自检用例会把它判红）
+    pub failed: Vec<String>,
+}
+
+impl SweepReport {
+    pub(crate) fn is_clean(&self) -> bool {
+        self.failed.is_empty()
+    }
+
+    pub(crate) fn summary(&self) -> String {
+        format!(
+            "{}：硬删 {} 行，业务外键保留 {} 行，清理失败 {} 行",
+            self.label,
+            self.deleted,
+            self.kept_by_business.len(),
+            self.failed.len()
+        )
+    }
+}
+
+/// 从外键报错里认出「被哪张**业务表**钉住」。
+///
+/// 驱动会给出两种措辞，都要认：
+///
+/// 1. PostgreSQL 原始文案：`update or delete on table "sys_user" violates foreign key
+///    constraint "biz_flow_task_assignee_id_fkey" on table "biz_flow_task"` → 返回 `biz_flow_task`；
+/// 2. 框架包装文案：`foreign key violated (constraint \`biz_flow_task_assignee_id_fkey\`)`
+///    → 返回约束名（同样足以定位）。
+///
+/// 业务表（`biz_*`）里的单据是别的卡造的真实业务数据，测试夹具用户被它引用时
+/// **不能硬删**（会破坏引用完整性），只能软删并留一条可见记录；如果钉住的是
+/// 系统表自己的绑定（`sys_user_role` / `sys_user_preference`），那就是我们清理
+/// 没清干净，必须算失败。
+fn business_pin(error: &str) -> Option<String> {
+    if let Some(start) = error.find("on table \"biz_") {
+        let rest = &error[start + "on table \"".len()..];
+        if let Some(end) = rest.find('"') {
+            return Some(rest[..end].to_string());
+        }
+    }
+    // 包装文案：取 `constraint` 之后引号里的名字，且必须是以 `biz_` 开头的约束名
+    let constraint_at = error.find("constraint")?;
+    let rest = &error[constraint_at..];
+    for quote in ['`', '"'] {
+        let Some(open) = rest.find(quote) else {
+            continue;
+        };
+        let after = &rest[open + 1..];
+        let Some(close) = after.find(quote) else {
+            continue;
+        };
+        let name = &after[..close];
+        if name.starts_with("biz_") {
+            return Some(name.to_string());
+        }
+    }
+    None
+}
+
+/// 清一批**实体行**：先按依赖顺序清引用行，再**逐行**物理删实体行。
+///
+/// # 为什么逐行
+///
+/// 整批 `DELETE ... WHERE username LIKE 'tc_u%'` 只要有一行被外键挡住，
+/// PostgreSQL 会整条语句回滚 —— 一个脏行连累全部夹具。逐行删把影响面收敛到那一行，
+/// 并让每一行的失败都能单独打印出来。
+///
+/// `dependents` 是 `(标签, SQL, 占位符个数)`：SQL 里的 `?` 全部绑定同一个
+/// `like` 参数（`sys_role_mutex` 需要两处，所以有 arity）。
+async fn sweep_entity(
+    label: &str,
+    table: &str,
+    column: &str,
+    prefix: &str,
+    dependents: &[(&str, &str, usize)],
+) -> SweepReport {
+    let like = format!("{prefix}%");
+    let mut report = SweepReport {
+        label: format!("{label}({table}.{column} LIKE '{like}')"),
+        ..SweepReport::default()
+    };
+
+    for (dep_label, sql, arity) in dependents {
+        let params = vec![Value::from(like.clone()); *arity];
+        let rows = cleanup_sql(&format!("{}→{dep_label}", report.label), sql, params).await;
+        if rows > 0 {
+            println!(
+                "[cleanup] {} 先清引用行 {dep_label}：{rows} 行",
+                report.label
+            );
+        }
+    }
+
+    let ids_sql = format!("SELECT id::text AS v FROM {table} WHERE {column} LIKE ?");
+    let ids = match db()
+        .find_with_params(&ids_sql, vec![Value::from(like)])
+        .await
+    {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|row| row.get_typed::<Option<String>>("v").unwrap_or(None))
+            .collect::<Vec<_>>(),
+        Err(error) => {
+            report
+                .failed
+                .push(format!("查询待清行失败：{error}｜SQL: {ids_sql}"));
+            println!("WARN[cleanup] {} 查询待清行失败：{error}", report.label);
+            return report;
+        }
+    };
+
+    for id in ids {
+        let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
+        match db()
+            .execute_with_params(&sql, vec![Value::from(id.clone())])
+            .await
+        {
+            Ok(_) => report.deleted += 1,
+            Err(error) => {
+                let text = error.to_string();
+                if let Some(pinned_by) = business_pin(&text) {
+                    // 业务表钉住：软删（保留引用完整性），并留一条可见记录
+                    let soft = format!(
+                        "UPDATE {table} SET deleted_at = now() WHERE id = ?::text::uuid AND deleted_at IS NULL"
+                    );
+                    match db()
+                        .execute_with_params(&soft, vec![Value::from(id.clone())])
+                        .await
+                    {
+                        Ok(_) => {
+                            println!(
+                                "WARN[cleanup] {} 行 {id} 被业务表 {pinned_by} 引用，已软删（硬删会破坏业务引用）",
+                                report.label
+                            );
+                            report.kept_by_business.push(format!("{id}←{pinned_by}"));
+                        }
+                        Err(soft_error) => {
+                            report.failed.push(format!("{id} 软删失败：{soft_error}"));
+                            println!(
+                                "WARN[cleanup] {} 行 {id} 软删也失败：{soft_error}",
+                                report.label
+                            );
+                        }
+                    }
+                    continue;
+                }
+                report.failed.push(format!("{id}: {text}"));
+                println!(
+                    "WARN[cleanup] {} 行 {id} 硬删失败（非业务表外键）：{text}",
+                    report.label
+                );
+            }
+        }
+    }
+
+    println!("[cleanup] {}", report.summary());
+    report
+}
+
+/// 清一批夹具用户（`sys_user.username LIKE '<prefix>%'`）。
+pub(crate) async fn sweep_users(prefix: &str) -> SweepReport {
+    sweep_entity(
+        "夹具用户",
+        "sys_user",
+        "username",
+        prefix,
+        &[
+            (
+                "sys_user_preference",
+                "DELETE FROM sys_user_preference WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)",
+                1,
+            ),
+            (
+                "sys_user_role",
+                "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)",
+                1,
+            ),
+            (
+                "sys_field_mask",
+                "DELETE FROM sys_field_mask WHERE create_by IN (SELECT id FROM sys_user WHERE username LIKE ?)",
+                1,
+            ),
+        ],
+    )
+    .await
+}
+
+/// 清一批夹具角色（`sys_role.role_code LIKE '<prefix>%'`）。
+///
+/// 依赖顺序：`sys_role_menu` / `sys_user_role` / `sys_role_dept` / `sys_field_mask`
+/// / `sys_role_mutex` → `sys_role`。
+pub(crate) async fn sweep_roles(prefix: &str) -> SweepReport {
+    sweep_entity(
+        "夹具角色",
+        "sys_role",
+        "role_code",
+        prefix,
+        &[
+            (
+                "sys_role_menu",
+                "DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
+                1,
+            ),
+            (
+                "sys_user_role",
+                "DELETE FROM sys_user_role WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
+                1,
+            ),
+            (
+                "sys_role_dept",
+                "DELETE FROM sys_role_dept WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
+                1,
+            ),
+            (
+                "sys_field_mask",
+                "DELETE FROM sys_field_mask WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
+                1,
+            ),
+            (
+                "sys_role_mutex",
+                "DELETE FROM sys_role_mutex WHERE role_a_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?) \
+                 OR role_b_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
+                2,
+            ),
+        ],
+    )
+    .await
+}
+
+/// 清一批夹具菜单（`sys_menu.name LIKE '<prefix>%'`）：先 `sys_role_menu`，再删菜单。
+pub(crate) async fn sweep_menus(prefix: &str) -> SweepReport {
+    sweep_entity(
+        "夹具菜单",
+        "sys_menu",
+        "name",
+        prefix,
+        &[(
+            "sys_role_menu",
+            "DELETE FROM sys_role_menu WHERE menu_id IN (SELECT id FROM sys_menu WHERE name LIKE ?)",
+            1,
+        )],
+    )
+    .await
+}
+
+/// 清一批夹具部门（`sys_dept.dept_code LIKE '<prefix>%'`）：先 `sys_role_dept`，再删部门。
+pub(crate) async fn sweep_depts(prefix: &str) -> SweepReport {
+    sweep_entity(
+        "夹具部门",
+        "sys_dept",
+        "dept_code",
+        prefix,
+        &[(
+            "sys_role_dept",
+            "DELETE FROM sys_role_dept WHERE dept_id IN (SELECT id FROM sys_dept WHERE dept_code LIKE ?)",
+            1,
+        )],
+    )
+    .await
+}
+
+// ==================== 残留自检（跑完 system:: 必须为 0） ====================
+
+/// 已知夹具前缀白名单（与卡片一致；大小写敏感，`~` 是 PostgreSQL 正则）。
+///
+/// `N01-` / `N11-` / `D03-` / `U12-` / `R07-` / `A01-` / `M02-` / `tc_` / `testc_`
+pub(crate) const FIXTURE_PREFIX_REGEX: &str = "^([A-Z][0-9][0-9][-_]|tc_|testc_)";
+
+/// 种子号段排除（`10000000-` / `20000000-` / `21000000-` …）。种子/内置行**永不删**。
+pub(crate) const SEED_ID_EXCLUSION: &str = "id::text !~ '^[0-9]{2}000000-'";
+
+/// 本进程「开始跑用例」的时刻（首次连库时钉住，往前留 60 秒缓冲以吸收时钟抖动）。
+///
+/// 自检用例只清理**早于这个时刻**的行：那些一定是上一轮/历史 run 留下的残留，
+/// 不可能是本进程正在用的夹具 —— 即使有人并行跑同一套用例也不会误删。
+pub(crate) fn suite_start() -> chrono::DateTime<chrono::Utc> {
+    use std::sync::OnceLock;
+    static START: OnceLock<chrono::DateTime<chrono::Utc>> = OnceLock::new();
+    *START.get_or_init(|| chrono::Utc::now() - chrono::TimeDelta::seconds(60))
+}
+
+/// 残留明细：表名 → 行数（附 `id`/名称样例，便于人工定位）。
+pub(crate) struct ResidueReport {
+    pub per_table: Vec<(String, i64)>,
+    pub samples: Vec<String>,
+}
+
+impl ResidueReport {
+    pub(crate) fn to_string_lines(&self) -> String {
+        let mut out = String::new();
+        for (table, count) in &self.per_table {
+            out.push_str(&format!("\n  {table}: {count}"));
+        }
+        if !self.samples.is_empty() {
+            out.push_str(&format!("\n  样例: {}", self.samples.join(", ")));
+        }
+        out
+    }
+}
+
+/// 按夹具白名单统计四张实体表的残留行（`created_at < before`，含软删行）。
+pub(crate) async fn count_fixture_residue(before: chrono::DateTime<chrono::Utc>) -> ResidueReport {
+    let mut report = ResidueReport {
+        per_table: Vec::new(),
+        samples: Vec::new(),
+    };
+    for (table, column) in [
+        ("sys_menu", "name"),
+        ("sys_role", "role_code"),
+        ("sys_user", "username"),
+        ("sys_dept", "dept_code"),
+    ] {
+        let count_sql = format!(
+            "SELECT count(*) AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?"
+        );
+        let count = db()
+            .scalar_with_params(
+                &count_sql,
+                vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("统计残留失败：{error}\nSQL: {count_sql}"));
+        report.per_table.push((table.to_string(), count));
+
+        if count > 0 {
+            let sample_sql = format!(
+                "SELECT {column} AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ? ORDER BY {column} LIMIT 5"
+            );
+            if let Ok(rows) = db()
+                .find_with_params(
+                    &sample_sql,
+                    vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
+                )
+                .await
+            {
+                for row in rows {
+                    if let Some(name) = row.get_typed::<Option<String>>("v").unwrap_or(None) {
+                        report.samples.push(format!("{table}.{column}={name}"));
+                    }
+                }
+            }
+        }
+    }
+    report
+}
+
+/// 清掉**早于 `before`** 的夹具残留（按外键依赖顺序：引用行 → 实体行），返回明细。
+///
+/// 这是自检用例的「自愈」半步：历史上因为 panic / `let _ =` 攒下来的行，
+/// 在清理逻辑修好之后能被一次性收干，而不是永远要人工 psql。
+pub(crate) async fn purge_fixture_residue(
+    before: chrono::DateTime<chrono::Utc>,
+) -> Vec<SweepReport> {
+    // 引用行：按依赖顺序先清（不限于本卡前缀 —— 只清指向夹具实体的引用）
+    let dependent_sqls = [
+        (
+            "sys_role_menu",
+            "DELETE FROM sys_role_menu WHERE menu_id IN (SELECT id FROM sys_menu WHERE name ~ ? AND created_at < ?) \
+             OR role_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?)",
+        ),
+        (
+            "sys_user_role",
+            "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username ~ ? AND created_at < ?) \
+             OR role_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?)",
+        ),
+        (
+            "sys_role_dept",
+            "DELETE FROM sys_role_dept WHERE role_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?) \
+             OR dept_id IN (SELECT id FROM sys_dept WHERE dept_code ~ ? AND created_at < ?)",
+        ),
+        (
+            "sys_field_mask",
+            "DELETE FROM sys_field_mask WHERE role_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?) \
+             OR create_by IN (SELECT id FROM sys_user WHERE username ~ ? AND created_at < ?)",
+        ),
+        (
+            "sys_role_mutex",
+            "DELETE FROM sys_role_mutex WHERE role_a_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?) \
+             OR role_b_id IN (SELECT id FROM sys_role WHERE role_code ~ ? AND created_at < ?)",
+        ),
+        (
+            "sys_user_preference",
+            "DELETE FROM sys_user_preference WHERE user_id IN (SELECT id FROM sys_user WHERE username ~ ? AND created_at < ?)",
+        ),
+    ];
+    for (label, sql) in dependent_sqls {
+        // SQL 里的占位符是成对的 `(前缀正则, 时间界)`：`?` #1=regex、#2=before、
+        // #3=regex、#4=before …（成对出现，因为每条子查询都用同一套夹具条件）
+        let arity = sql.matches('?').count();
+        let params = (0..arity)
+            .map(|index| {
+                if index % 2 == 0 {
+                    Value::from(FIXTURE_PREFIX_REGEX)
+                } else {
+                    Value::from(before)
+                }
+            })
+            .collect::<Vec<_>>();
+        cleanup_sql(&format!("purge_fixture_residue→{label}"), sql, params).await;
+    }
+
+    // 实体行：逐行删（一行被挡住不连累其余行）
+    let mut reports = Vec::new();
+    let entity_sql: [(&str, &str, &str); 4] = [
+        ("sys_user", "username", "夹具用户"),
+        ("sys_role", "role_code", "夹具角色"),
+        ("sys_menu", "name", "夹具菜单"),
+        ("sys_dept", "dept_code", "夹具部门"),
+    ];
+    for (table, column, label) in entity_sql {
+        let ids_sql = format!(
+            "SELECT id::text AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?"
+        );
+        let ids = db()
+            .find_with_params(
+                &ids_sql,
+                vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
+            )
+            .await
+            .unwrap_or_else(|error| panic!("查询残留 id 失败：{error}\nSQL: {ids_sql}"));
+        let mut report = SweepReport {
+            label: format!("{label}({table}, created_at < 上一轮起点)"),
+            ..SweepReport::default()
+        };
+        for row in ids {
+            let Some(id) = row.get_typed::<Option<String>>("v").unwrap_or(None) else {
+                continue;
+            };
+            let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
+            match db()
+                .execute_with_params(&sql, vec![Value::from(id.clone())])
+                .await
+            {
+                Ok(_) => report.deleted += 1,
+                Err(error) => {
+                    let text = error.to_string();
+                    if let Some(pinned_by) = business_pin(&text) {
+                        println!(
+                            "WARN[cleanup] {table} 行 {id} 被业务表 {pinned_by} 引用，保留（硬删会破坏业务引用）"
+                        );
+                        report.kept_by_business.push(format!("{id}←{pinned_by}"));
+                    } else {
+                        println!("WARN[cleanup] {table} 行 {id} 硬删失败：{text}");
+                        report.failed.push(format!("{id}: {text}"));
+                    }
+                }
+            }
+        }
+        if report.deleted > 0 || !report.failed.is_empty() {
+            println!("[cleanup] {}", report.summary());
+        }
+        reports.push(report);
+    }
+    reports
+}
+
+// ==================== 自检用例 ====================
+
+#[cfg(test)]
+mod self_check {
+    use super::*;
+
+    /// X00：**跑完 `system::` 之后，`cloudpivot_test` 里不得留下任何用例夹具**。
+    ///
+    /// # 这条用例守的是什么
+    ///
+    /// 夹具残留是「测试全绿但基线计数失真」的元凶：一致性扫描（死权限码 /
+    /// 「注解有但菜单无」）会把残留菜单算进去，`cloudpivot_test` 的任何 COUNT
+    /// 断言都会漂。残留的真实成因有三类，都被本卡收口：
+    ///
+    /// 1. 用例在 cleanup 之前 panic（并发 / 中断 / `connection closed`）——
+    ///    本用例的「自愈」半步会把它们收干；
+    /// 2. 删除次序不满足外键依赖（`sys_role_menu` → `sys_user_role` → 实体表）；
+    /// 3. 清理 SQL 的错误被 `let _ =` 吞掉（本卡改成 `WARN[cleanup]` + SQL + 原文）。
+    ///
+    /// # 判定口径
+    ///
+    /// - **自愈**：清掉 `created_at < 本进程起点`（起点 = 首次连库时刻 - 60s）的残留，
+    ///   这些一定是上一轮/历史 run 留下的，不可能是本进程正在用的夹具；
+    /// - **判定**：`created_at < now - 5s` 的夹具行必须为 0 —— 同一次 run 里更早跑完的
+    ///   用例若泄漏，也会在这里被抓到（前提：`--test-threads=1`，见文件头跑法）；
+    /// - **唯一豁免**：仍被业务表（`biz_*`）引用的夹具用户。硬删会破坏别的卡的业务
+    ///   数据引用完整性，只能软删；它们按行计入 `kept_by_business` 并在断言里**精确对账**
+    ///   （用户残留数必须恰好等于豁免数，多一行都算泄漏）。
+    #[tokio::test]
+    async fn x00_suite_leaves_zero_fixture_residue() {
+        if !ensure_db().await {
+            return;
+        }
+        let start = suite_start();
+
+        // ① 自愈：收干历史残留
+        let healed = purge_fixture_residue(start).await;
+        let mut healed_rows = 0usize;
+        let mut kept_rows = 0usize;
+        let mut failures: Vec<String> = Vec::new();
+        for report in &healed {
+            healed_rows += report.deleted;
+            kept_rows += report.kept_by_business.len();
+            failures.extend(report.failed.iter().cloned());
+        }
+        println!("[X00] 历史残留自愈：硬删 {healed_rows} 行，业务外键保留 {kept_rows} 行");
+        assert!(
+            failures.is_empty(),
+            "历史残留清理失败（清理 SQL 真出错了，不是残留本身）：{failures:#?}"
+        );
+
+        // ② 判定：5 秒以前造的行必须清零
+        let cutoff = chrono::Utc::now() - chrono::TimeDelta::seconds(5);
+        let residue = count_fixture_residue(cutoff).await;
+        println!(
+            "[X00] 残留计数（created_at < now-5s，白名单 {FIXTURE_PREFIX_REGEX}）：{}",
+            residue.to_string_lines()
+        );
+
+        let count_of = |table: &str| -> i64 {
+            residue
+                .per_table
+                .iter()
+                .find(|(name, _)| name == table)
+                .map(|(_, count)| *count)
+                .unwrap_or(0)
+        };
+
+        assert_eq!(
+            count_of("sys_menu"),
+            0,
+            "跑完 system:: 后菜单夹具残留必须为 0（残留会被一致性扫描算进基线）{}",
+            residue.to_string_lines()
+        );
+        assert_eq!(
+            count_of("sys_role"),
+            0,
+            "角色夹具残留必须为 0{}",
+            residue.to_string_lines()
+        );
+        assert_eq!(
+            count_of("sys_dept"),
+            0,
+            "部门夹具残留必须为 0{}",
+            residue.to_string_lines()
+        );
+        assert_eq!(
+            count_of("sys_user") as usize,
+            kept_rows,
+            "用户夹具残留必须只剩「被业务表钉住的 {kept_rows} 行」（精确对账，多一行都是泄漏）{}",
+            residue.to_string_lines()
+        );
+
+        println!(
+            "[X00] 夹具残留自检通过：菜单/角色/部门 0 行，用户 {} 行（全部被业务表引用，按设计保留）✓",
+            kept_rows
+        );
+    }
+
+    /// X01：清理 SQL 失败时**不 panic、也不谎报删成功**，且把失败原样打印出来。
+    ///
+    /// 这是本卡最核心的行为契约：`cleanup_table` / `cleanup_sql` 是「让残留可见」的
+    /// 唯一出口。旧实现用 `let _ = db().execute_with_params(...)` 把 `DbError` 直接
+    /// 丢掉——删失败和删成功在调用点完全无法区分，于是「测试全绿、库里一堆夹具」。
+    ///
+    /// 断言：
+    /// 1. 对不存在的表执行清理 → 返回 0（**不能**说自己删了几行）；
+    /// 2. 不 panic（清理失败不该掩盖真正的断言结果）；
+    /// 3. 断言输出里有 `WARN[cleanup]`（`--nocapture` 时人工可验，这里是契约的机器化版本：
+    ///    函数返回 0 就代表「这次清理确实没成功」）。
+    #[tokio::test]
+    async fn x01_cleanup_failure_is_reported_not_swallowed() {
+        if !ensure_db().await {
+            return;
+        }
+        let deleted = cleanup_sql(
+            "X01 故意失败的清理",
+            "DELETE FROM 这张表不存在 WHERE id = ?",
+            vec![Value::from("x01")],
+        )
         .await;
+        assert_eq!(
+            deleted, 0,
+            "清理 SQL 失败时必须返回 0 行（谎报删成功会让残留永远看不见）"
+        );
+        println!("[X01] 清理失败已按 WARN 暴露（返回 0 行，不 panic）✓");
+    }
 }

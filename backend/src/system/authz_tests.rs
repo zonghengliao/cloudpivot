@@ -499,7 +499,10 @@ async fn o08_token_version_invalidation() {
         "旧令牌的 ver={issued_ver} 与新版本 {ver_after} 不等 → 会话守卫会 401"
     );
     println!("[O08] token_version {ver_before} → {ver_after}，旧令牌 ver={issued_ver} 已作废 ✓");
-    ts::cleanup_table("sys_user", "username", &prefix).await;
+    let users = ts::sweep_users(&prefix).await;
+    if !users.is_clean() {
+        println!("WARN[cleanup] O08 用户清理未完全成功：{:?}", users.failed);
+    }
 }
 
 // ==================== O09 伪造令牌内容不能换来库侧特权 ====================
@@ -584,7 +587,10 @@ async fn o09_forged_claims_do_not_grant_db_side_privileges() {
         "该用户必须被打码（库里有 sys_user.mobile 的全局规则）"
     );
     println!("[O09] 伪造 claims：库侧权限重算为空、非超管、数据范围受限、脱敏生效 ✓");
-    ts::cleanup_table("sys_user", "username", &prefix).await;
+    let users = ts::sweep_users(&prefix).await;
+    if !users.is_clean() {
+        println!("WARN[cleanup] O09 用户清理未完全成功：{:?}", users.failed);
+    }
 }
 
 // ==================== O10 越权操作别人的账号 ====================
@@ -969,19 +975,22 @@ async fn o15_wildcard_claims_must_be_backed_by_db_role() {
         "停用角色不进授权清单（load_role_codes 只取 status = 1）"
     );
 
-    // 收尾
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
-            vec![Value::from(user_id.to_string())],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE role_code LIKE ?",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
-    ts::cleanup_table("sys_user", "username", &prefix).await;
+    // 收尾：先 `sys_user_role`（外键），再用户本体；失败打 WARN 不吞
+    ts::cleanup_sql(
+        &format!("O15→sys_user_role({user_id})"),
+        "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
+        vec![Value::from(user_id.to_string())],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("O15→sys_role({prefix})"),
+        "DELETE FROM sys_role WHERE role_code LIKE ?",
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await;
+    let users = ts::sweep_users(&prefix).await;
+    if !users.is_clean() {
+        println!("WARN[cleanup] O15 用户清理未完全成功：{:?}", users.failed);
+    }
     println!("[O15] 通配声明必须有库里的 SUPER_ADMIN 背书，否则 401 ✓");
 }

@@ -116,15 +116,15 @@ async fn delete_menu(id: &str) {
 }
 
 /// 本次用例的清理（按 `name` 前缀物理删；`sys_menu` 是软删表，这里物理删只为不污染共享库）。
+///
+/// 顺序固定为 `sys_role_menu`（外键）→ `sys_menu`，且两步都走 [`ts::sweep_menus`]
+/// 的统一出口：失败打 `WARN[cleanup]` + SQL + 原文，**不静默吞错**（本卡前身就是
+/// `let _ =` 吞错，导致库里攒下 50+ 行 N0x- 残留）。
 async fn cleanup(prefix: &str) {
-    // 先清授权绑定（外键），再删菜单行
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE menu_id IN (SELECT id FROM sys_menu WHERE name LIKE ?)",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
-    ts::cleanup_table("sys_menu", "name", prefix).await;
+    let report = ts::sweep_menus(prefix).await;
+    if !report.is_clean() {
+        println!("WARN[cleanup] 菜单夹具清理未完全成功：{:?}", report.failed);
+    }
 }
 
 // ==================== N01 菜单树结构 ====================
@@ -470,12 +470,20 @@ async fn n07_delete_cascades_role_menu_binding() {
     .await;
     assert_eq!(soft, 1, "菜单应为软删（deleted_at 置位）");
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE role_code = ?",
-            vec![Value::from(format!("{prefix}_ROLE"))],
-        )
-        .await;
+    // 收尾：先删角色绑定的 `sys_role_menu`，再删角色本身（顺序反了会被外键挡住，
+    // 而错误绝不能再被 `let _ =` 吞掉——见 `ts::cleanup_sql`）
+    ts::cleanup_sql(
+        &format!("N07→sys_role_menu(role={prefix}_ROLE)"),
+        "DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code = ?)",
+        vec![Value::from(format!("{prefix}_ROLE"))],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N07→sys_role({prefix}_ROLE)"),
+        "DELETE FROM sys_role WHERE role_code = ?",
+        vec![Value::from(format!("{prefix}_ROLE"))],
+    )
+    .await;
     println!("[N07] 删菜单级联清理 sys_role_menu ✓");
     cleanup(&prefix).await;
 }
@@ -815,30 +823,32 @@ async fn n11_user_menus_filtered_by_role() {
     );
     println!("[N11] 超管可见全部启用菜单 {all_len} 条 ✓");
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE role_id = ?::text::uuid",
-            vec![Value::from(role_id.to_string())],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
-            vec![Value::from(user_id.to_string())],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user WHERE username = ?",
-            vec![Value::from(format!("{prefix}_user"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE role_code = ?",
-            vec![Value::from(format!("{prefix}_ROLE"))],
-        )
-        .await;
+    // 收尾顺序：sys_role_menu → sys_user_role → sys_user / sys_role（外键依赖，
+    // 顺序错会被挡住；每步失败都打 WARN，不静默吞错）
+    ts::cleanup_sql(
+        &format!("N11→sys_role_menu(role={prefix}_ROLE)"),
+        "DELETE FROM sys_role_menu WHERE role_id = ?::text::uuid",
+        vec![Value::from(role_id.to_string())],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N11→sys_user_role(user={prefix}_user)"),
+        "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
+        vec![Value::from(user_id.to_string())],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N11→sys_user({prefix}_user)"),
+        "DELETE FROM sys_user WHERE username = ?",
+        vec![Value::from(format!("{prefix}_user"))],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N11→sys_role({prefix}_ROLE)"),
+        "DELETE FROM sys_role WHERE role_code = ?",
+        vec![Value::from(format!("{prefix}_ROLE"))],
+    )
+    .await;
     cleanup(&prefix).await;
 }
 
@@ -1049,33 +1059,34 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     // 收尾：物理删夹具。顺序按外键依赖：先 `sys_role_menu`（引用 role + menu），
     // 再 `sys_user_role`（引用 user + role），最后 user / role / menu。
     // 次序错了会被外键挡住，而 `let _ =` 会**静默**吞掉错误、留下脏夹具（实测踩过）。
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE role_id = ?::text::uuid",
-            vec![Value::from(role_id.to_string())],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
-            vec![
-                Value::from(holder.to_string()),
-                Value::from(bystander.to_string()),
-            ],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user WHERE username LIKE ?",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE role_code LIKE ?",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
+    // 现在每一步都走 `ts::cleanup_sql`：失败打 WARN + SQL + 数据库原文。
+    ts::cleanup_sql(
+        &format!("N13→sys_role_menu(role={prefix})"),
+        "DELETE FROM sys_role_menu WHERE role_id = ?::text::uuid",
+        vec![Value::from(role_id.to_string())],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N13→sys_user_role({prefix})"),
+        "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(holder.to_string()),
+            Value::from(bystander.to_string()),
+        ],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N13→sys_user({prefix})"),
+        "DELETE FROM sys_user WHERE username LIKE ?",
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("N13→sys_role({prefix})"),
+        "DELETE FROM sys_role WHERE role_code LIKE ?",
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await;
     println!("[N13] 菜单改/删 → 持有者 token_version +1/+2，无关用户与 admin 不动 ✓");
     cleanup(&prefix).await;
 }

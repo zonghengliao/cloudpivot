@@ -35,49 +35,63 @@ use crate::system::tests_support as ts;
 const PREFIX: &str = "tc_r";
 
 /// 清扫本卡历史残留。
+///
+/// # 为什么不再 `let _ =`
+///
+/// 之前每一步都是 `let _ = db().execute_with_params(...)`：删除失败被静默吞掉，
+/// 结果 `system::` 每跑一遍就往 `cloudpivot_test` 里攒 30+ 行 `tc_r` 夹具（用户软删
+/// 行为主）。现在：
+///
+/// - 依赖行（`sys_role_menu` → `sys_user_role` → `sys_role_mutex` → `sys_role`）
+///   走 [`ts::cleanup_sql`]，失败打 `WARN[cleanup]` + SQL + 数据库原文；
+/// - 实体行走 [`ts::sweep_users`] / [`ts::sweep_roles`]，**逐行**删：
+///   整批 DELETE 只要有一行被业务表外键挡住就会整条回滚，一个脏行连累全部夹具；
+///   逐行删把影响面收敛到那一行，并给自检用例留下可断言的明细。
 async fn sweep() {
-    let _ = db()
-        .execute_with_params(
+    for (label, sql, arity) in [
+        (
+            "sys_role_menu",
             "DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
+            1,
+        ),
+        (
+            "sys_user_role",
             "DELETE FROM sys_user_role WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
+            1,
+        ),
+        (
+            "sys_role_mutex",
             "DELETE FROM sys_role_mutex WHERE role_a_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?) \
              OR role_b_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            vec![
-                Value::from(format!("{PREFIX}%")),
-                Value::from(format!("{PREFIX}%")),
-            ],
+            2,
+        ),
+    ] {
+        ts::cleanup_sql(
+            &format!("role/sweep→{label}(LIKE '{PREFIX}%')"),
+            sql,
+            vec![Value::from(format!("{PREFIX}%")); arity],
         )
         .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE role_code LIKE ?",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user WHERE username LIKE ?",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
-    // 兜底：别的卡（如流程测试）可能把本卡夹具用户当成单据的 assignee，物理删会被外键挡住；
-    // 此时软删即可（不撞唯一索引，也不被任何 `deleted_at IS NULL` 的查询看到）。
-    let _ = db()
-        .execute_with_params(
-            "UPDATE sys_user SET deleted_at = now() WHERE username LIKE ? AND deleted_at IS NULL",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
+    }
+
+    let roles = ts::sweep_roles(PREFIX).await;
+    let users = ts::sweep_users(PREFIX).await;
+    if !roles.is_clean() || !users.is_clean() {
+        println!(
+            "WARN[cleanup] role/sweep 未完全成功：{:?} {:?}",
+            roles.failed, users.failed
+        );
+    }
+
+    // 本卡的菜单夹具也是 `tc_r` 前缀（R01/R02 的授权菜单、R07 的按钮），
+    // 之前只按角色/用户清、漏了菜单——每跑一遍就留 1 行 `tc_r_r07_...-按钮`。
+    let menus = ts::sweep_menus(PREFIX).await;
+    if !menus.is_clean() {
+        println!(
+            "WARN[cleanup] role/sweep 菜单清理未完全成功：{:?}",
+            menus.failed
+        );
+    }
 }
 
 /// 造一个「库里真实持有 SUPER_ADMIN」的操作者声明。
@@ -231,18 +245,17 @@ async fn r01_create_role_and_assign_menus() {
     assert_eq!(menus.len(), 2, "反查应得到 2 条授权");
     assert!(menus.contains(&menu_a) && menus.contains(&menu_b));
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
-            vec![Value::from(menu_a), Value::from(menu_b)],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_menu WHERE name LIKE ?",
-            vec![Value::from(format!("{code}-%"))],
-        )
-        .await;
+    // 收尾：先 `sys_role_menu`（引用 role + menu），再菜单行；失败打 WARN 不吞
+    ts::cleanup_sql(
+        &format!("R01→sys_role_menu({menu_a},{menu_b})"),
+        "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
+        vec![Value::from(menu_a), Value::from(menu_b)],
+    )
+    .await;
+    let menus = ts::sweep_menus(&format!("{code}-")).await;
+    if !menus.is_clean() {
+        println!("WARN[cleanup] R01 菜单清理未完全成功：{:?}", menus.failed);
+    }
     println!("[R01] 建角色 + 授权 2 条菜单，落库与反查一致 ✓");
     cleanup().await;
 }
@@ -316,18 +329,17 @@ async fn r02_role_permission_change_takes_effect_immediately() {
         "被撤销的权限必须立刻消失，实际 {after:?}"
     );
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
-            vec![Value::from(menu_grant), Value::from(menu_revoke)],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_menu WHERE name LIKE ?",
-            vec![Value::from(format!("{code}-%"))],
-        )
-        .await;
+    // 收尾：先 `sys_role_menu`（引用 role + menu），再菜单行；失败打 WARN 不吞
+    ts::cleanup_sql(
+        &format!("R02→sys_role_menu({menu_grant},{menu_revoke})"),
+        "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
+        vec![Value::from(menu_grant), Value::from(menu_revoke)],
+    )
+    .await;
+    let menus = ts::sweep_menus(&format!("{code}-")).await;
+    if !menus.is_clean() {
+        println!("WARN[cleanup] R02 菜单清理未完全成功：{:?}", menus.failed);
+    }
     println!("[R02] 授权变更后权限重算立即反映（{revoke_auth} → {grant_auth}）✓");
     cleanup().await;
 }
@@ -678,28 +690,27 @@ async fn r07_assign_menus_bumps_holders_token_version() {
         "内置管理员保留会话（超管权限走通配短路）"
     );
 
-    // 收尾
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
-            vec![
-                Value::from(holder.to_string()),
-                Value::from(bystander.to_string()),
-            ],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user WHERE username LIKE ?",
-            vec![Value::from(format!("{PREFIX}_r07_%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role_menu WHERE menu_id = ?::text::uuid",
-            vec![Value::from(menu)],
-        )
-        .await;
+    // 收尾：顺序按外键依赖（sys_user_role → sys_user → sys_role_menu），
+    // 每步失败打 WARN 不吞；菜单本身由 sweep()（`tc_r` 前缀）兜底删掉。
+    ts::cleanup_sql(
+        &format!("R07→sys_user_role({holder},{bystander})"),
+        "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(holder.to_string()),
+            Value::from(bystander.to_string()),
+        ],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("R07→sys_role_menu(menu={menu})"),
+        "DELETE FROM sys_role_menu WHERE menu_id = ?::text::uuid",
+        vec![Value::from(menu)],
+    )
+    .await;
+    let users = ts::sweep_users(&format!("{PREFIX}_r07_")).await;
+    if !users.is_clean() {
+        println!("WARN[cleanup] R07 用户清理未完全成功：{:?}", users.failed);
+    }
     println!("[R07] 授权变更 → 持有者 token_version +1，无关用户与 admin 不动 ✓");
     cleanup().await;
 }

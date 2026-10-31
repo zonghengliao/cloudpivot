@@ -68,8 +68,38 @@ async fn create_dept(
 }
 
 /// 用例结束的清理（按本次唯一前缀删；`sys_dept` 是软删表，这里物理删只为不污染共享库）。
+///
+/// 走 [`ts::sweep_depts`]：先清 `sys_role_dept`（外键），再**逐行**删部门 —— 整批
+/// `DELETE ... WHERE dept_code LIKE 'D01-%'` 只要有一行被业务表（`biz_project` /
+/// `biz_task` 的 `dept_id`）引用就会整条回滚，一个脏行连累全部夹具；失败一律打
+/// `WARN[cleanup]`，不静默吞错。
 async fn cleanup(prefix: &str) {
-    ts::cleanup_table("sys_dept", "dept_code", prefix).await;
+    let report = ts::sweep_depts(prefix).await;
+    if !report.is_clean() {
+        println!("WARN[cleanup] 部门夹具清理未完全成功：{:?}", report.failed);
+    }
+}
+
+/// 清本用例造的夹具用户（逐行删 + `WARN[cleanup]`，见 [`ts::sweep_users`]）。
+async fn cleanup_users(prefix: &str) {
+    let report = ts::sweep_users(prefix).await;
+    if !report.is_clean() {
+        println!(
+            "WARN[cleanup] 部门用例的用户夹具清理未完全成功：{:?}",
+            report.failed
+        );
+    }
+}
+
+/// 清本用例造的夹具角色（逐行删 + `WARN[cleanup]`，见 [`ts::sweep_roles`]）。
+async fn cleanup_roles(prefix: &str) {
+    let report = ts::sweep_roles(prefix).await;
+    if !report.is_clean() {
+        println!(
+            "WARN[cleanup] 部门用例的角色夹具清理未完全成功：{:?}",
+            report.failed
+        );
+    }
 }
 
 // ==================== D01 部门树构建 ====================
@@ -449,7 +479,7 @@ async fn d05_delete_dept_with_users_and_migrate_delete() {
         error_code::RESOURCE_CONFLICT
     );
 
-    ts::cleanup_table("sys_user", "username", &prefix).await;
+    cleanup_users(&prefix).await;
     cleanup(&prefix).await;
 }
 
@@ -515,7 +545,7 @@ async fn d06_rename_reflected_in_user_dept_lookup() {
     );
     println!("[D06] 改名 → 归属查询立即返回新名，dept_id 不变 ✓");
 
-    ts::cleanup_table("sys_user", "username", &prefix).await;
+    cleanup_users(&prefix).await;
     cleanup(&prefix).await;
 }
 
@@ -661,8 +691,8 @@ async fn d07_data_scope_isolates_departments() {
         vec![Value::from(format!("{prefix}%"))],
     )
     .await;
-    ts::cleanup_table("sys_user", "username", &prefix).await;
-    ts::cleanup_table("sys_role", "role_code", &prefix).await;
+    cleanup_users(&prefix).await;
+    cleanup_roles(&prefix).await;
     cleanup(&prefix).await;
 }
 

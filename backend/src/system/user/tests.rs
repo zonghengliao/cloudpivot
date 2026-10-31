@@ -109,32 +109,21 @@ async fn create_user(claims: &AuthClaims, username: &str, password: &str) -> Str
 /// 清扫本卡历史残留。
 ///
 /// 先删**外键依赖行**（登录流程会写 `sys_user_preference`、角色绑定在 `sys_user_role`），
-/// 否则物理 DELETE 会被外键挡住——而 `execute_with_params` 的错误被有意忽略（清理不该
-/// 让用例变红），残留就会一直攒下去。删不动时退化为软删（`deleted_at` 置位），
-/// 既不撞唯一索引，也不影响任何按 `deleted_at IS NULL` 的查询。
+/// 再删用户本体；删不动时退化为软删（`deleted_at` 置位），既不撞唯一索引，也不影响任何
+/// 按 `deleted_at IS NULL` 的查询。
+///
+/// # 为什么不再 `let _ =`
+///
+/// 之前整批 `DELETE FROM sys_user WHERE username LIKE 'tc_u%'` 只要碰到**一行**被业务表
+/// 外键引用（例如别的卡把夹具用户挂成了单据的 assignee），PostgreSQL 就把整条语句回滚：
+/// 一个脏行连累全部夹具，随后兜底软删让它们永久堆积（实测一次 `system::` +33 行）。
+/// 现在走 [`ts::sweep_users`]：**逐行**删，只有真正删不掉的那几行才软删，并且打
+/// `WARN[cleanup]`（含被哪张业务表钉住）；其它失败一律视为清理 bug，由自检用例判红。
 async fn sweep() {
-    for sql in [
-        "DELETE FROM sys_user_preference WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)",
-        "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)",
-        "DELETE FROM sys_field_mask WHERE create_by IN (SELECT id FROM sys_user WHERE username LIKE ?)",
-    ] {
-        let _ = db()
-            .execute_with_params(sql, vec![Value::from(format!("{PREFIX}%"))])
-            .await;
+    let report = ts::sweep_users(PREFIX).await;
+    if !report.is_clean() {
+        println!("WARN[cleanup] user/sweep 未完全成功：{:?}", report.failed);
     }
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user WHERE username LIKE ?",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
-    // 兜底：外键仍挡住（例如别的模块留下的引用）时软删，避免用例之间互相看见
-    let _ = db()
-        .execute_with_params(
-            "UPDATE sys_user SET deleted_at = now() WHERE username LIKE ? AND deleted_at IS NULL",
-            vec![Value::from(format!("{PREFIX}%"))],
-        )
-        .await;
 }
 
 /// 清理本次用例。
@@ -481,12 +470,12 @@ async fn u07_delete_user_keeps_business_rows() {
     .await;
     assert_eq!(bindings, 0, "删用户必须清理 sys_user_role 绑定");
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM biz_project WHERE id = ?::text::uuid",
-            vec![Value::from(project_id.to_string())],
-        )
-        .await;
+    ts::cleanup_sql(
+        &format!("U07→biz_project({project_id})"),
+        "DELETE FROM biz_project WHERE id = ?::text::uuid",
+        vec![Value::from(project_id.to_string())],
+    )
+    .await;
     println!("[U07] 软删用户：业务单据与行保留、角色绑定清理 ✓");
     cleanup().await;
 }
@@ -577,15 +566,15 @@ async fn u08_dept_change_updates_data_scope_immediately() {
     );
     println!("[U08] 换部门 A→B：主体数据范围立即跟随 ✓");
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_dept WHERE id IN (?::text::uuid, ?::text::uuid)",
-            vec![
-                Value::from(dept_a.to_string()),
-                Value::from(dept_b.to_string()),
-            ],
-        )
-        .await;
+    ts::cleanup_sql(
+        &format!("U08→sys_dept({dept_a},{dept_b})"),
+        "DELETE FROM sys_dept WHERE id IN (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(dept_a.to_string()),
+            Value::from(dept_b.to_string()),
+        ],
+    )
+    .await;
     cleanup().await;
 }
 
@@ -804,17 +793,17 @@ async fn u12_non_super_cannot_assign_self_role() {
     assert_eq!(bound, 0, "被拒后不得留下任何角色绑定");
     println!("[U12] 非超管自我提权 → 403「{}」，无绑定残留 ✓", error.msg);
 
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
-            vec![Value::from(user_id.to_string())],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_role WHERE id = ?::text::uuid",
-            vec![Value::from(role_id.to_string())],
-        )
-        .await;
+    ts::cleanup_sql(
+        &format!("U12→sys_user_role({user_id})"),
+        "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
+        vec![Value::from(user_id.to_string())],
+    )
+    .await;
+    ts::cleanup_sql(
+        &format!("U12→sys_role({role_id})"),
+        "DELETE FROM sys_role WHERE id = ?::text::uuid",
+        vec![Value::from(role_id.to_string())],
+    )
+    .await;
     cleanup().await;
 }
