@@ -2228,3 +2228,200 @@ export function fetchPeriodPage(query: {
 }): Promise<PageData<AccountPeriodRow>> {
   return get<PageData<AccountPeriodRow>>(`${BASE}/period/page`, asParams(query));
 }
+
+// ==================== 即时库存 / 库位库存 / 库存流水（P4-D 前端） ====================
+
+/**
+ * 即时库存行（`GET /erp/inventory/page`，逐字抄 `dto.rs::InventoryRes`）。
+ *
+ * # 字段口径（硬红线：列名是 `qty`，不是 `quantity`）
+ *
+ * | 卡面草稿 | 真字段 | 说明 |
+ * |---|---|---|
+ * | 数量 | `qty` | 账面数量 `NUMERIC(18,4)`，**含**锁定量 |
+ * | 锁定 | `locked_qty` | 已占用未出库 |
+ * | 可用 | —— | 接口**不给**，前端算 `qty − locked_qty`（见 `inventory-logic.ts`） |
+ * | 均价 | `avg_cost` | 移动加权 `NUMERIC(18,6)` |
+ * | 金额 | `amount` | 账面金额 `NUMERIC(18,4)` |
+ * | 物料 / 仓库 | `material_id` / `warehouse_id` | 出参**只有 id**，名称靠主数据本地映射 |
+ * | 库位 | —— | `biz_inventory.location_id` 有列但 `InventoryRes` **不吐**；库位维度看 Tab2 |
+ *
+ * 唯一键是 `(material_id, warehouse_id, COALESCE(location_id, 全零uuid))`（V0139），
+ * 所以同一「物料 × 仓库」可能出现多行（整仓汇总行 + 各库位行），页面按后端原样展示。
+ */
+export interface InventoryRow {
+  /** 主键 */
+  id: string;
+  /** 物料 id */
+  material_id: string;
+  /** 仓库 id */
+  warehouse_id: string;
+  /** 账面数量（含锁定） */
+  qty: number | string;
+  /** 锁定量 */
+  locked_qty: number | string;
+  /** 移动加权平均成本 */
+  avg_cost: number | string;
+  /** 账面金额 */
+  amount: number | string;
+  /** 最近一次流水时间（RFC3339，可空） */
+  last_txn_at: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 库位库存行（`GET /erp/inventory-location/page`，逐字抄 `dto.rs::InventoryLocationRes`）。
+ *
+ * ⚠️ `location_id` 指向 **`biz_location.id`**（库位主数据），不是 `biz_inventory_location.id`
+ * —— 两者同名反着指：`biz_inventory.location_id` / `biz_material_serial.location_id`
+ * 指库位库存行，本行的 `location_id` 才是真库位。译名走 `fetchLocationPage` 的本地映射。
+ */
+export interface InventoryLocationRow {
+  /** 主键（库位库存行 id） */
+  id: string;
+  /** 物料 id */
+  material_id: string;
+  /** 仓库 id */
+  warehouse_id: string;
+  /** 库位 id（`null` = 该仓库未分配到具体库位的数量） */
+  location_id: string | null;
+  /** 数量 */
+  qty: number | string;
+  /** 锁定量 */
+  locked_qty: number | string;
+  /** 最近一次流水时间 */
+  last_txn_at: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 出入方向（`dto::TXN_TYPES` + `ck_biz_inv_txn_type`，只有两个值） */
+export type InventoryTxnType = 'IN' | 'OUT';
+
+/**
+ * 库存流水行（`GET /erp/inventory-txn/page`，逐字抄 `dto.rs::InventoryTxnRes`）。
+ *
+ * `qty` 恒为正（`ck_biz_inv_txn_qty: qty > 0`），方向由 `txn_type` 表达 ——
+ * 界面上「+200 / −200」是**前端加符号**，不要拿 `qty` 的正负当方向。
+ *
+ * `before_* / after_*` 六列是 W1c 在事务内算好的快照，详情抽屉里用来对账
+ * （`before_qty + 方向数量 = after_qty`）。
+ */
+export interface InventoryTxnRow {
+  /** 主键 */
+  id: string;
+  /** 物料 id */
+  material_id: string;
+  /** 仓库 id */
+  warehouse_id: string;
+  /** 方向（`IN` / `OUT`） */
+  txn_type: InventoryTxnType | string;
+  /** 业务类型（`PURCHASE_IN` / `TRANSFER_IN` / `TRANSFER_OUT` / `SERIAL_IN` / `SERIAL_OUT` …） */
+  biz_type: string;
+  /** 单据类型（`STOCK_IN` / `STOCK_TRANSFER` / `MATERIAL_SERIAL` …） */
+  doc_type: string;
+  /** 单据主键 */
+  doc_id: string;
+  /** 单据号 */
+  doc_no: string;
+  /** 单据行号 */
+  line_no: number;
+  /** 数量（恒正） */
+  qty: number | string;
+  /** 单位成本 */
+  unit_cost: number | string;
+  /** 金额 */
+  amount: number | string;
+  /** 变动前数量 */
+  before_qty: number | string;
+  /** 变动前金额 */
+  before_amount: number | string;
+  /** 变动前均价 */
+  before_cost: number | string;
+  /** 变动后数量 */
+  after_qty: number | string;
+  /** 变动后金额 */
+  after_amount: number | string;
+  /** 变动后均价 */
+  after_cost: number | string;
+  /** 会计期间 `yyyy-MM` */
+  period_code: string;
+  /** 操作人 */
+  operator_id: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 记账时间（流水按它倒序） */
+  created_at: string;
+}
+
+/**
+ * 即时库存分页（`GET /erp/inventory/page`）。
+ *
+ * 后端只认 `material_id` / `warehouse_id` / `only_nonzero` 三个筛选
+ * （`dto.rs::InventoryFilter`，没有 `location_id` 也没有关键词）。
+ * `only_nonzero` 是**服务端**过滤（`AND qty <> 0`），所以「隐藏零库存」开关
+ * 翻页也是准的，不会像前端滤当前页那样把总数算错。
+ */
+export function fetchInventoryPage(query: {
+  material_id?: string;
+  warehouse_id?: string;
+  only_nonzero?: boolean;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<InventoryRow>> {
+  return get<PageData<InventoryRow>>(`${BASE}/inventory/page`, asParams(query));
+}
+
+/** 即时库存详情（`GET /erp/inventory/{id}`） */
+export function fetchInventoryDetail(id: string): Promise<InventoryRow> {
+  return get<InventoryRow>(`${BASE}/inventory/${id}`);
+}
+
+/** 库位库存分页（`GET /erp/inventory-location/page`，筛选：物料 / 仓库 / 库位） */
+export function fetchInventoryLocationPage(query: {
+  material_id?: string;
+  warehouse_id?: string;
+  location_id?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<InventoryLocationRow>> {
+  return get<PageData<InventoryLocationRow>>(`${BASE}/inventory-location/page`, asParams(query));
+}
+
+/** 库位库存详情（`GET /erp/inventory-location/{id}`） */
+export function fetchInventoryLocationDetail(id: string): Promise<InventoryLocationRow> {
+  return get<InventoryLocationRow>(`${BASE}/inventory-location/${id}`);
+}
+
+/**
+ * 库存流水分页（`GET /erp/inventory-txn/page`）。
+ *
+ * 后端支持的筛选（`dto.rs::InventoryTxnFilter`，全部可选）：
+ * `material_id` / `warehouse_id` / `doc_no`（**精确**匹配，不是模糊）/ `doc_type` /
+ * `txn_type`（`IN`/`OUT`，别的值 400）/ `period_code` / `date_from` / `date_to`（按
+ * `created_at` 的 UTC 日界，右开区间）。
+ */
+export function fetchInventoryTxnPage(query: {
+  material_id?: string;
+  warehouse_id?: string;
+  doc_no?: string;
+  doc_type?: string;
+  txn_type?: InventoryTxnType | '';
+  period_code?: string;
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<InventoryTxnRow>> {
+  return get<PageData<InventoryTxnRow>>(`${BASE}/inventory-txn/page`, asParams(query));
+}
+
+/** 库存流水详情（`GET /erp/inventory-txn/{id}`，含 `before_* / after_*` 六列快照） */
+export function fetchInventoryTxnDetail(id: string): Promise<InventoryTxnRow> {
+  return get<InventoryTxnRow>(`${BASE}/inventory-txn/${id}`);
+}

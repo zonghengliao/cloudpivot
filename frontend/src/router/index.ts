@@ -476,6 +476,37 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '会计期间', permission: 'business:erp:period:list' },
       },
       {
+        // ==================== ERP 即时库存 / 库位库存 / 库存流水（P4-D） ====================
+        // `sys_menu`（V0141 种子 …0946 / …0947 / …0948）是**三条**菜单：
+        // `/business/erp/inventory`、`/business/erp/inventory-location`、`/business/erp/inventory-txn`，
+        // 但前端只交**一个**页面（三个 Tab 同页），且路由是**手工注册**的 —— 三条都没注册，
+        // 点哪个菜单都 404（P4-D 要修的就是这个）。
+        //
+        // 三条各注册一条 route（**不用 alias**）：alias 在 vue-router 4 里与本体共用同一条
+        // matched record，从 `/inventory` 点菜单去 `/inventory-location` 会被判定为「同一路由」
+        // 而静默跳过导航（实测：点 Tab 改 URL 无效）—— 三条独立 record 才能让侧边栏菜单、
+        // 地址栏、当前 Tab 三处同步。`meta.tab` 告诉页面进来先激活哪个 Tab。
+        //
+        // 权限码三个 Tab 各一条（V0141 已种），各自挂在自己的 meta 上：
+        // 缺哪个 Tab 的权限，就只在那个 Tab 里报错，不会整页白屏。
+        path: 'business/erp/inventory',
+        name: 'BusinessErpInventory',
+        component: () => import('@/views/business/erp/inventory/index.vue'),
+        meta: { title: '即时库存', permission: 'business:erp:inventory:list', tab: 'stock' },
+      },
+      {
+        path: 'business/erp/inventory-location',
+        name: 'BusinessErpInventoryLocation',
+        component: () => import('@/views/business/erp/inventory/index.vue'),
+        meta: { title: '库位库存', permission: 'business:erp:inventory-location:list', tab: 'location' },
+      },
+      {
+        path: 'business/erp/inventory-txn',
+        name: 'BusinessErpInventoryTxn',
+        component: () => import('@/views/business/erp/inventory/index.vue'),
+        meta: { title: '库存流水', permission: 'business:erp:inventory-txn:list', tab: 'txn' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),
