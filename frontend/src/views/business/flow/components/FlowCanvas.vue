@@ -54,7 +54,10 @@
         <!-- ① 连线 -->
         <g class="flow-canvas__edges">
           <g v-for="item in edgeViews" :key="item.edge.key" class="flow-edge" :class="item.cls" :data-edge-key="item.edge.key">
-            <path class="flow-edge__hit" :d="item.d" @pointerdown.stop="onEdgeDown(item.edge)" />
+            <!-- 命中层：**必须 fill="none"**。SVG path 默认 fill 是黑色，圆角正交 path 的
+                 二次贝塞尔会围出弧形区域 → 未设 fill 时直接在画布上画出一块块黑楔形（P15 回归）。
+                 属性 + 样式两处都写，防某天样式被 scoped 改名后静默失效。 -->
+            <path class="flow-edge__hit" fill="none" :d="item.d" @pointerdown.stop="onEdgeDown(item.edge)" />
             <path
               class="flow-edge__line"
               :d="item.d"
@@ -1608,13 +1611,18 @@ defineExpose({
 // ---------- 连线 ----------
 .flow-edge {
   &__hit {
+    // ★ 少了这一行就是 P15 那个「连线变黑块」：SVG path 默认 fill 是黑色，
+    // 圆角正交 path（M..L..Q..）的贝塞尔会围出弧形填充区域。属性 fill="none" 同义，双保险。
+    fill: none;
     stroke: transparent;
     stroke-width: 14;
     cursor: pointer;
+    // 只吃描边不吃填充：热区靠 14px 透明描边，点哪都命中
     pointer-events: stroke;
   }
 
   &__line {
+    fill: none;
     stroke: var(--td-gray-color-5);
     stroke-width: 1.9;
     stroke-linecap: round;
