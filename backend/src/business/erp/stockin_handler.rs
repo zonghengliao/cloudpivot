@@ -24,9 +24,11 @@
 //! ```text
 //! ① 锁单头 SELECT … FOR UPDATE → 状态必须 DRAFT，否则 409（重复过账 = 409，幂等）
 //! ② CAS 写状态 DRAFT → POSTED（posted_at / posted_by）
-//! ③ 明细**按 (material_id, location_id, line_no) 升序**逐行：库存加法 + 写 PURCHASE_IN 流水
+//! ③ 明细**按 (material_id, location_id, line_no) 升序**逐行：库存加法 + 库位账加法 + 写 PURCHASE_IN 流水
 //!    · 加锁用 SELECT … FOR UPDATE（同一物料同一库位并发串行化，before_* 快照不打架）
 //!    · new_amount = old_amount + 不含税金额；new_avg = ROUND(new_amount / new_qty, 6)（SQL 侧算）
+//!    · P6 补口：同一行还要把 qty 加到 `biz_inventory_location`（成本账 + 库位账两本账同事务，
+//!      见 [`stockin_model::apply_location_qty`]；「有库位」按行 id UPDATE、「无库位」加 NULL 桶）
 //! ④ 一物一码物料生成 / 落序列号（数量 = 本行 qty）
 //! ⑤ 带来源采购单时回写 received_qty（条件 `received_qty + 本次 ≤ qty`，0 行 = 超收 400）
 //! ⑥ 推送采购单状态 PARTIAL_RECEIVED / RECEIVED
@@ -868,6 +870,19 @@ async fn post_in_tx(
         )
         .await
         .map_err(|error| write_error(error, "过账：库存加法"))?;
+        // ③b 库位账（数量账）：与成本账**同一事务**同步加，否则违反不变式③
+        //     （SUM(库位账) = 成本账 qty）。锁顺序：成本账已锁 → 这里只锁库位账一行，
+        //     明细在调用方已按 material_id 升序排好，故两个收货单并发不会交叉等待。
+        stockin_model::apply_location_qty(
+            ex,
+            item.material_id,
+            header.warehouse_id,
+            item.location_id,
+            item.qty,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "过账：库位账加法"))?;
         stockin_model::write_txn(
             ex,
             item.material_id,
@@ -1166,6 +1181,10 @@ mod tests {
     const MATERIAL_B: &str = "b2b10001-0000-4000-8000-000000000012";
     /// 一物一码物料（电机）。
     const MATERIAL_SN: &str = "b2b10001-0000-4000-8000-000000000013";
+    /// 库位字典（`biz_location.id`，P6：库位账行的 `location_id` 列指这个）。
+    const LOC_DICT_A: &str = "b2b10003-0000-4000-8000-000000000001";
+    /// 库位字典（第二个库位）。
+    const LOC_DICT_B: &str = "b2b10003-0000-4000-8000-000000000002";
 
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
@@ -1185,6 +1204,14 @@ mod tests {
                  'b2b10001-0000-4000-8000-000000000001', 1, false),
                 ('b2b10001-0000-4000-8000-000000000013', 'P2B1-M3', '伺服电机',
                  'b2b10001-0000-4000-8000-000000000001', 1, true)
+         ON CONFLICT DO NOTHING",
+        // P6：两个库位字典（库位账行的 location_id 列指它；无外键，弱引用）
+        "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                                   is_default, capacity, status, sort_order)
+         VALUES ('b2b10003-0000-4000-8000-000000000001', 'P2B1-L01', 'P2B1 A 区一号',
+                 'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 1, 1),
+                ('b2b10003-0000-4000-8000-000000000002', 'P2B1-L02', 'P2B1 A 区二号',
+                 'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 1, 2)
          ON CONFLICT DO NOTHING",
     ];
 
@@ -1247,6 +1274,12 @@ mod tests {
                  ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
                  AND warehouse_id = '{WAREHOUSE}'::uuid"
             ),
+            // P6：库位账必须排在 biz_inventory 之后删（`fk_biz_inv_location_id` 指本表）
+            format!(
+                "DELETE FROM biz_inventory_location WHERE material_id IN \
+                 ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+                 AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
             format!("DELETE FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid"),
             format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid"),
         ];
@@ -1278,6 +1311,20 @@ mod tests {
             location_id: None,
             serial_ids: Vec::new(),
             remark: None,
+        }
+    }
+
+    /// 同 [`line`]，但带上库位（`biz_inventory_location.id`，P6）。
+    fn line_at(
+        material: &str,
+        qty: &str,
+        price: &str,
+        rate: &str,
+        location: &str,
+    ) -> StockInItemReq {
+        StockInItemReq {
+            location_id: Some(location.to_string()),
+            ..line(material, qty, price, rate)
         }
     }
 
@@ -1976,5 +2023,425 @@ mod tests {
         .await
         .unwrap();
         (order_id, item_id)
+    }
+
+    // ==================== P6：库位账（biz_inventory_location）====================
+
+    /// 造 / 取一个库位账行（`(物料, 仓库, 库位字典)` 三元组），返回**真实行 id**。
+    ///
+    /// 不写死主键：`uk_biz_inv_loc(material, warehouse, location_id)` 决定唯一性，
+    /// 上一轮留下的行会保留原主键（`DO NOTHING` 就取不到 id，所以用「自更新」形态回读）。
+    async fn seed_location_row(material: &str, location_dict: &str) -> Uuid {
+        let rows = db()
+            .find_with_params(
+                &format!(
+                    "INSERT INTO biz_inventory_location AS il \
+                         (id, material_id, warehouse_id, location_id, qty, locked_qty) \
+                     VALUES (gen_random_uuid(), '{material}'::uuid, '{WAREHOUSE}'::uuid, \
+                             '{location_dict}'::uuid, 0, 0) \
+                     ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE \
+                         SET qty = il.qty \
+                     RETURNING il.id"
+                ),
+                vec![],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("造库位账行失败：{err}"));
+        rows.first()
+            .unwrap_or_else(|| panic!("造库位账行没有返回行"))
+            .get_typed("id")
+            .unwrap_or_else(|err| panic!("取库位账行 id 失败：{err}"))
+    }
+
+    /// 库位账某一行的 `(qty, locked_qty)`（行不存在 → `None`）。
+    async fn location_row_of(id: &Uuid) -> Option<(Decimal, Decimal)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT qty, locked_qty FROM biz_inventory_location WHERE id = ?::uuid",
+                vec![Value::from(id)],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("查库位账行失败：{err}"));
+        rows.first().map(|row| {
+            (
+                row.get_typed("qty").unwrap(),
+                row.get_typed("locked_qty").unwrap(),
+            )
+        })
+    }
+
+    /// 库位账某一行的数量（行不存在 → `None`）。
+    async fn location_qty_of(id: &Uuid) -> Option<Decimal> {
+        location_row_of(id).await.map(|(qty, _)| qty)
+    }
+
+    /// 库位账「未分配库位桶」（`location_id IS NULL`）的数量（行不存在 → `None`）。
+    async fn null_bucket_qty(material: &str) -> Option<Decimal> {
+        let rows = db()
+            .find_with_params(
+                &format!(
+                    "SELECT qty FROM biz_inventory_location \
+                      WHERE material_id = '{material}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid \
+                        AND location_id IS NULL"
+                ),
+                vec![],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("查 NULL 桶失败：{err}"));
+        rows.first().map(|row| row.get_typed("qty").unwrap())
+    }
+
+    /// 库位账：某物料在该仓的**行数**。
+    async fn location_row_count(material: &str) -> i64 {
+        db().scalar_with_params(
+            &format!(
+                "SELECT COALESCE(COUNT(*), 0) FROM biz_inventory_location \
+                  WHERE material_id = '{material}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("统计库位账行数失败：{err}"))
+    }
+
+    /// 库位账：某物料在该仓的 qty **合计**（`SUM`，含 NULL 桶）。
+    async fn location_qty_sum(material: &str) -> Decimal {
+        db().scalar_with_params(
+            &format!(
+                "SELECT COALESCE(SUM(qty), 0) FROM biz_inventory_location \
+                  WHERE material_id = '{material}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("汇总库位账失败：{err}"))
+    }
+
+    /// 成本账：某物料在该仓的 qty **合计**（`SUM`，含 NULL 汇总桶）。
+    ///
+    /// V0139 之后 `biz_inventory` 也是 `(物料, 仓库, 库位)` 三列唯一，所以「该物料该仓的成本账数量」
+    /// 在**同一口径**下就是按库位求和 —— 与库位账的 `SUM(qty)` 可比。
+    async fn cost_qty_sum(material: &str) -> Decimal {
+        db().scalar_with_params(
+            &format!(
+                "SELECT COALESCE(SUM(qty), 0) FROM biz_inventory \
+                  WHERE material_id = '{material}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid"
+            ),
+            vec![],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("汇总成本账失败：{err}"))
+    }
+
+    /// ⑥（P6）收货**不带** `location_id` → 库位账写 `location_id IS NULL` 那一行。
+    #[tokio::test]
+    async fn receipt_without_location_writes_null_bucket() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        assert_eq!(
+            null_bucket_qty(MATERIAL_A).await,
+            None,
+            "开局不能有 NULL 桶行"
+        );
+        post_new(vec![line(MATERIAL_A, "200", "2", "0")]).await;
+
+        assert_eq!(
+            null_bucket_qty(MATERIAL_A).await,
+            Some(dec("200")),
+            "不带库位的收货必须落进 (物料, 仓库, NULL) 桶"
+        );
+        assert_eq!(location_row_count(MATERIAL_A).await, 1, "只该有一行");
+        let rows = db()
+            .find_with_params(
+                &format!(
+                    "SELECT id FROM biz_inventory_location \
+                      WHERE material_id = '{MATERIAL_A}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid"
+                ),
+                vec![],
+            )
+            .await
+            .unwrap();
+        let row_id: Uuid = rows[0].get_typed("id").unwrap();
+        let (_, locked) = location_row_of(&row_id).await.expect("库位账行必须存在");
+        assert_eq!(locked, Decimal::ZERO, "收货不占锁定量，locked_qty 初始 0");
+    }
+
+    /// ⑦（P6）收货**带** `location_id` → 库位账加到那一行（不是新起一行）。
+    #[tokio::test]
+    async fn receipt_with_location_updates_that_row() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let row = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
+        assert_eq!(location_qty_of(&row).await, Some(dec("0")));
+
+        post_new(vec![line_at(MATERIAL_A, "120", "2", "0", &row.to_string())]).await;
+
+        assert_eq!(
+            location_qty_of(&row).await,
+            Some(dec("120")),
+            "库位账必须加在指定的那一行上"
+        );
+        assert_eq!(location_row_count(MATERIAL_A).await, 1, "不能多起一行");
+        assert_eq!(
+            null_bucket_qty(MATERIAL_A).await,
+            None,
+            "有库位时不该动 NULL 桶"
+        );
+        // 成本账同一维度：biz_inventory 的 location_id 也指这一行
+        let cost_loc: Option<Uuid> = db()
+            .find_with_params(
+                &format!(
+                    "SELECT location_id FROM biz_inventory \
+                      WHERE material_id = '{MATERIAL_A}'::uuid AND warehouse_id = '{WAREHOUSE}'::uuid"
+                ),
+                vec![],
+            )
+            .await
+            .unwrap()
+            .first()
+            .and_then(|row| row.get_typed("location_id").unwrap());
+        assert_eq!(cost_loc, Some(row), "成本账与库位账必须指向同一行");
+    }
+
+    /// ⑧（P6）同一物料同一库位多次收货 → **累加**，不新建行（唯一键生效）。
+    #[tokio::test]
+    async fn same_location_receipts_accumulate_one_row() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let row = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
+        post_new(vec![line_at(MATERIAL_A, "70", "2", "0", &row.to_string())]).await;
+        post_new(vec![line_at(MATERIAL_A, "30", "2", "0", &row.to_string())]).await;
+
+        assert_eq!(location_qty_of(&row).await, Some(dec("100")));
+        assert_eq!(
+            location_row_count(MATERIAL_A).await,
+            1,
+            "uk_biz_inv_loc(material, warehouse, location) 生效：只有一行"
+        );
+    }
+
+    /// ⑨（P6）不同库位分别收 → 两行独立（互不串数）。
+    #[tokio::test]
+    async fn different_locations_stay_separate() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
+        let b = seed_location_row(MATERIAL_A, LOC_DICT_B).await;
+        assert_ne!(a, b);
+
+        // 一张单里两行分别进两个库位
+        post_new(vec![
+            line_at(MATERIAL_A, "40", "2", "0", &a.to_string()),
+            line_at(MATERIAL_A, "60", "2", "0", &b.to_string()),
+        ])
+        .await;
+
+        assert_eq!(location_qty_of(&a).await, Some(dec("40")));
+        assert_eq!(location_qty_of(&b).await, Some(dec("60")));
+        assert_eq!(location_row_count(MATERIAL_A).await, 2);
+    }
+
+    /// ⑩（P6）不变式③：`SUM(库位账 qty) = 成本账 qty`（多库位 + 多张单混合）。
+    #[tokio::test]
+    async fn location_sum_equals_cost_book() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = seed_location_row(MATERIAL_A, LOC_DICT_A).await;
+        let b = seed_location_row(MATERIAL_A, LOC_DICT_B).await;
+        post_new(vec![
+            line_at(MATERIAL_A, "120", "2", "0", &a.to_string()),
+            line_at(MATERIAL_A, "80", "3", "0", &b.to_string()),
+        ])
+        .await;
+        post_new(vec![line(MATERIAL_A, "200", "4", "0")]).await; // NULL 桶
+        post_new(vec![line_at(MATERIAL_A, "50", "5", "0", &a.to_string())]).await;
+
+        let loc = location_qty_sum(MATERIAL_A).await;
+        let cost = cost_qty_sum(MATERIAL_A).await;
+        assert_eq!(loc, dec("450"), "120 + 80 + 200 + 50");
+        assert_eq!(
+            loc, cost,
+            "不变式③：SUM(库位账) 必须等于成本账 qty（{loc} vs {cost}）"
+        );
+        // 成本金额仍按移动加权走（120×2 + 80×3 + 200×4 + 50×5 = 1490）
+        let (_, amount, _) = inventory_of(MATERIAL_A).await;
+        // NULL 桶那一行的金额 = 这一桶自己的加法（200×4 = 800）
+        assert_eq!(amount, dec("800"), "NULL 桶的成本账金额");
+    }
+
+    /// ⑪（P6）事务原子性：库位账写入失败 → 成本账**一起回滚**。
+    ///
+    /// 造法：明细的 `location_id` 指向**别的物料**的库位账行。建单只校验「行存在 + 仓库一致」
+    /// （P2-B1 的既有口径），过账时 [`stockin_model::apply_location_qty`] 才会发现物料不一致 →
+    /// 这一步在 `apply_cost` 之后报错，正是「成本账已写、库位账写不进」的那一瞬。
+    #[tokio::test]
+    async fn location_failure_rolls_back_cost_account() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 别的物料的库位账行（同一个仓，所以建单校验能过）
+        let other = seed_location_row(MATERIAL_B, LOC_DICT_A).await;
+        let other_before = location_qty_of(&other).await;
+
+        let id = create_stock_in(
+            &req(vec![line_at(
+                MATERIAL_A,
+                "15",
+                "2",
+                "0",
+                &other.to_string(),
+            )]),
+            None,
+        )
+        .await
+        .expect("建单应通过（只校验库位行存在且同仓）");
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect_err("过账必须被拒：库位账行属于另一个物料");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("不一致"), "{}", err.msg);
+
+        // 成本账、库位账、流水、单据状态 —— 四样都必须回到过账前
+        assert_eq!(
+            cost_qty_sum(MATERIAL_A).await,
+            Decimal::ZERO,
+            "成本账必须一起回滚（不能被先写进去）"
+        );
+        assert_eq!(location_row_count(MATERIAL_A).await, 0);
+        assert_eq!(
+            location_qty_of(&other).await,
+            other_before,
+            "别人的库位账行一个字都不能动"
+        );
+        let txns: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(txns, 0, "流水也不能留下");
+        let status = stockin_model::find_stock_in(id)
+            .await
+            .unwrap()
+            .expect("单据还在")
+            .status;
+        assert_eq!(status, STATUS_DRAFT, "状态必须还是 DRAFT（可重试）");
+    }
+
+    /// ⑫（P6）并发收货同一物料 → 不死锁、不丢数、库位账仍是一行。
+    #[tokio::test]
+    async fn concurrent_receipts_share_one_location_row() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let a = create_stock_in(&req(vec![line(MATERIAL_A, "10", "2", "0")]), None)
+            .await
+            .unwrap();
+        let b = create_stock_in(&req(vec![line(MATERIAL_A, "20", "2", "0")]), None)
+            .await
+            .unwrap();
+        let post_request = post_req();
+        let (ra, rb) = tokio::join!(
+            change_stock_in_status(a, &post_request, None),
+            change_stock_in_status(b, &post_request, None)
+        );
+        ra.unwrap_or_else(|err| panic!("并发过账 A 失败（死锁？）：{} {}", err.code, err.msg));
+        rb.unwrap_or_else(|err| panic!("并发过账 B 失败（死锁？）：{} {}", err.code, err.msg));
+
+        assert_eq!(
+            null_bucket_qty(MATERIAL_A).await,
+            Some(dec("30")),
+            "10 + 20，库位账一笔都不能丢"
+        );
+        assert_eq!(
+            location_row_count(MATERIAL_A).await,
+            1,
+            "并发下 ON CONFLICT 必须把它们并到一行"
+        );
+        assert_eq!(cost_qty_sum(MATERIAL_A).await, dec("30"));
+        assert_eq!(location_qty_sum(MATERIAL_A).await, dec("30"));
+    }
+
+    /// ⑬（P6）已有库位账行时 → **UPDATE** 而非 INSERT 冲突（行数与主键都不变）。
+    #[tokio::test]
+    async fn existing_location_row_is_updated_not_reinserted() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 先手造一行「已有库存」的库位账（模拟历史库位库存 500）
+        let row = seed_location_row(MATERIAL_A, LOC_DICT_B).await;
+        db().execute_with_params(
+            "UPDATE biz_inventory_location SET qty = 500, locked_qty = 5 WHERE id = ?::uuid",
+            vec![Value::from(&row)],
+        )
+        .await
+        .unwrap();
+
+        post_new(vec![line_at(MATERIAL_A, "80", "2", "0", &row.to_string())]).await;
+
+        assert_eq!(
+            location_qty_of(&row).await,
+            Some(dec("580")),
+            "必须在原行上累加（500 + 80）"
+        );
+        let (_, locked) = location_row_of(&row).await.unwrap();
+        assert_eq!(locked, dec("5"), "已有 locked_qty 不能被收货重置");
+        assert_eq!(location_row_count(MATERIAL_A).await, 1);
+        // 主键没被 upsert 换掉
+        let still: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_inventory_location WHERE id = ?::uuid",
+                vec![Value::from(&row)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(still, 1, "行主键不能变（序列号/调拨都硬引用它）");
+    }
+
+    /// ⑭（P6）指针校验：`location_id` 指向**别的物料**的库位账行 → 过账 400 并说明原因。
+    ///
+    /// 与 ⑪ 同一路径的两侧口径（⑪ 证回滚，本条证「拒绝 + 报文」）：400 + 原文，
+    /// 不能折成 500「服务器内部错误」。
+    #[tokio::test]
+    async fn location_row_of_another_material_is_rejected_with_reason() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let other = seed_location_row(MATERIAL_B, LOC_DICT_A).await;
+        let id = create_stock_in(
+            &req(vec![line_at(MATERIAL_A, "5", "1", "0", &other.to_string())]),
+            None,
+        )
+        .await
+        .unwrap();
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect_err("必须拒绝：库位行属于另一个物料");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(
+            err.msg.contains("物料") && err.msg.contains("不一致"),
+            "报文要点名物料不一致：{}",
+            err.msg
+        );
+        assert!(
+            !err.msg.contains("服务器内部错误"),
+            "必须是可读的业务报文：{}",
+            err.msg
+        );
     }
 }
