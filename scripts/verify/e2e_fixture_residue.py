@@ -12,8 +12,11 @@ P10（10:54）与 P11-followup（11:34 复发）两次是同一形态。
   ① 该物料至少有 1 条 `biz_inventory_txn` 满足 `biz_type='SERIAL_IN' AND doc_type='SERIAL_BATCH'`
      （只有 `POST /business/erp/serial/batch-generate` 写这个组合，见 serial_model.rs:802）；
   ② 没有业务来源：`biz_stock_in_item` / `biz_purchase_order_item` 都没有它的行；
-  ③ 该物料存在序列号，且**全部**是 `source_type='PURCHASE' AND source_id IS NULL`
-     （收货过账会回填 `source_id`，所以这条能区分「批量生成」与「真收货」）；
+  ③ 该物料存在序列号，且**没有任何一条带真实来源**：`source_type` 为空 / `'PURCHASE'` 且
+     `source_id IS NULL`（收货过账会回填 `source_id`，所以这条能区分「批量生成」与「真收货」）；
+     ⚠️ 判据不能写成「等于 'PURCHASE'」：batch-generate 在请求不带 `source_type` 时落**空串**
+     （`serial_model.rs` 的 `params.source_type.unwrap_or_default()`），2026-10-31 隔离实例
+     复跑 11:34 走查实测就是空串形态 —— 只认 `'PURCHASE'` 会把整批夹具漏掉（假绿）。
   ④ 库存零价值：该物料所有 `biz_inventory` 行的 `amount` 与 `avg_cost` 都是 0。
 
 用法：
@@ -53,7 +56,8 @@ WITH cand AS (
        AND EXISTS (SELECT 1 FROM biz_material_serial s WHERE s.material_id = m.id)
        AND NOT EXISTS (SELECT 1 FROM biz_material_serial s
                         WHERE s.material_id = m.id
-                          AND (s.source_type IS DISTINCT FROM 'PURCHASE' OR s.source_id IS NOT NULL))
+                          AND ((s.source_type IS NOT NULL AND s.source_type NOT IN ('', 'PURCHASE'))
+                               OR s.source_id IS NOT NULL))
        AND NOT EXISTS (SELECT 1 FROM biz_inventory i
                         WHERE i.material_id = m.id AND (i.amount <> 0 OR i.avg_cost <> 0))
 )

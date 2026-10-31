@@ -1,6 +1,14 @@
 # E2E（Playwright 真实交互测试）
 
-6 条关键流程，**全部打真实后端**（不 mock、不打桩），浏览器里真点、真拖、真连线。
+> **红线（2026-10-31 事故后新增，代码里是硬判据，不是文档约定）**
+> E2E **只允许打在隔离实例**（回环 18000-18999 / 5100-5999）。目标不是隔离实例时，
+> `e2e/target-guard.mjs` 会在 **配置加载期直接抛错**，一条用例都不会跑。
+> 事故：11:34:11 生产 `172.18.10.144` 被写进 10 个零成本序列号夹具，`erp_invariants.py`
+> 的 B1（BLOCKER）+ C3（WARN）当场变红；取证结论见
+> `docs/e2e-prod-fixture-incident-20261031-172.18.10.7.md`。
+> 起隔离实例：`bash scripts/verify/e2e_isolated_instance.sh up`（副本库 + 18089 后端 + 5189 前端）。
+
+6+ 条关键流程，**全部打真实后端**（不 mock、不打桩），浏览器里真点、真拖、真连线。
 
 | 文件 | 流程 | 关键交互 |
 | --- | --- | --- |
@@ -10,6 +18,7 @@
 | `04-flow-editor.spec.ts` | SVG 流程编辑器 | 面板 pointer 拖 3 节点进画布、拖锚点连线、保存、重开整图还原、校验、发布 |
 | `05-approval.spec.ts` | 审批待办 → 同意 | 待办卡片进详情、填审批意见、同意、实例状态 APPROVED |
 | `06-task-detail-tabs.spec.ts` | 任务详情 4 主 Tab（E9） | 真人任务：头部单行 / 3 Tab + 徽标数字（子任务数、协作=评论+附件+工时）/ 描述折叠-展开几何断言 / 协作三段分段 / 子任务新建 / 评论 / 附件上传+下载 / 工时登记 / 状态流转 PATCH 200 / 关抽屉重开 Tab 复位；AI 任务：多出「AI 产出 N」且数字 = 列表条数 |
+| `12-erp-serial-batch-walkthrough.spec.ts` | **11:34 走查复现**（批量生成 → 调拨建单提交 → 待办同意） | 只在隔离实例跑：用例开头自检 BASE_URL 是回环隔离端口，否则 `expect` 直接红 |
 
 ## 跑法
 
@@ -17,14 +26,48 @@
 pnpm add -D @playwright/test        # 已入库，无需重复
 pnpm exec playwright install chromium
 
-pnpm test:e2e                                   # 默认打 http://172.18.10.144
-E2E_BASE_URL=http://127.0.0.1:5199 pnpm test:e2e   # 打本地 vite（BACKEND_ORIGIN 指向真后端）
+# ① 起隔离实例（副本库 cloudpivot_e2e_iso + profile=test 后端 18089 + vite 5189）
+bash ../scripts/verify/e2e_isolated_instance.sh up
+export E2E_BASE_URL=http://127.0.0.1:5189
+
+pnpm test:e2e                                   # 默认就是 http://127.0.0.1:5189（隔离）
+E2E_BASE_URL=http://127.0.0.1:5199 pnpm test:e2e   # 换一个隔离端口（同样必须在隔离段）
 E2E_USERNAME=xxx E2E_PASSWORD=yyy pnpm test:e2e    # 换账号
 
-pnpm test:unit                                     # 纯函数单测（node --test，零依赖，见 tests/unit/）
-bash scripts/run-full-rounds.sh 3 65               # 连跑 3 轮全量，每轮间隔 65s（生产限流要求，见下）
+node e2e/target-guard.mjs --check http://172.18.10.144   # 自证：非 0 = 拒跑（prod）
+node e2e/target-guard.mjs --print-postrun                # 确需打 prod 时的后置检查清单
+
+pnpm test:unit                                     # 纯函数单测（含 target-guard 判据回归网）
+bash scripts/run-full-rounds.sh 3 65               # 连跑 3 轮全量，每轮间隔 65s（限流要求，见下）
 node scripts/stress-board-drag.mjs 12 2000         # 单条 03 压测（偶发红复现用，结果落 e2e-stress/out/）
 ```
+
+### 硬判据：哪些目标算「隔离」
+
+`e2e/target-guard.mjs`（Playwright 与 shell 共用同一套判据，单测在 `tests/unit/target-guard.test.ts`）：
+
+| 目标 | 结论 |
+| --- | --- |
+| `http://127.0.0.1:5189` / `:18089` / `localhost:5199` | ✅ 放行（回环 + 隔离段） |
+| `http://172.18.10.144`（prod）/ `http://172.18.10.7`（事故来源机）/ `http://172.18.10.99` | ❌ 拒跑 |
+| `http://127.0.0.1:5173`（vite dev 默认，代理默认指 8023） | ❌ 拒跑 |
+| `http://127.0.0.1:8023` / `:80` / `:443` / `:3000` / `:8080` | ❌ 拒跑（正式服务端口） |
+| `E2E_ISOLATED_HOSTS=e2e-front:5189`（CI 容器名） | ✅ 显式放行 |
+
+三道闸口，任意一道都能单独拦住：`playwright.config.ts`（加载期）→ `e2e/global-setup.ts`（登录前）
+→ `e2e/support.ts`（API 客户端）。**线上验收确需打 prod** 时必须同时给
+`E2E_ALLOW_PROD=1` 和 `E2E_PROD_REASON='<谁批准/为什么>'`（判据放行 + 留痕 `e2e/.auth/prod-target.flag`），
+跑完**必须**执行：
+
+```bash
+bash ../scripts/e2e-postrun-check.sh      # 检出零成本夹具 → P10 清理 → erp_invariants 32/32
+```
+
+`scripts/e2e-postrun-check.sh` 对 prod 是**只读检出 + 按需清理**（备份 → `P10_GENERIC_APPLY=1 apply.sh`
+→ 复验），非 0 就说明生产线还有残留，不许当「跑完了」。
+
+
+### 通用约束
 
 - `workers: 1`：用例读的是同一份线上数据（看板列计数、待办列表），串行才稳定；
 - 失败留证据：`screenshot: only-on-failure` + `trace: retain-on-failure`，报告在 `e2e-report/`；

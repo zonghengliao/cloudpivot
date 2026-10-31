@@ -143,3 +143,32 @@ python3 scripts/verify/e2e_fixture_residue.py     # 有没有人往库里造夹�
 **e2e 跑完请务必**：① 不要直连 prod（8023）造数；② 跑完调一次
 `e2e_fixture_residue.py`，有残留就按它打印的三条命令清（备份 → `--check` →
 `P10_GENERIC_APPLY=1 apply.sh`）。留痕见 `docs/datafix-20261031-p11-m-w1a-004-recur.md`。
+
+## e2e 隔离实例（E2E 唯一允许的目标）
+
+2026-10-31 11:34 prod 被写进一批零成本序列号夹具（源头取证见
+`docs/e2e-prod-fixture-incident-20261031-172.18.10.7.md`）。仓库侧的收口是
+「硬判据 + 一条命令起隔离 + 跑完必查」，两处落点：
+
+| 脚本 | 作用 | 退出码 |
+|---|---|---|
+| `e2e_isolated_instance.sh` | 起 e2e 隔离实例：prod `pg_dump` → 本机副本库 `cloudpivot_e2e_iso`（独立 owner 角色）+ profile=test 后端 `127.0.0.1:18089`（Redis db 9）+ vite `127.0.0.1:5189`；端口段不合法 / 被占用直接拒绝，起完自证副本库行数、反代探测 | 失败 → 非 0 |
+| `../e2e-postrun-check.sh`（`scripts/`） | **打过 prod 就跑它**：只读检出零成本夹具 → 有残留走 `00_backup.sh` + `P10_GENERIC_APPLY=1 apply.sh` → 复检 → `erp_invariants.py` 必须 32/32 / BLOCKER 0 / **WARN 0**（不变量脚本对 WARN 不退出非 0，本脚本显式解析） | 达标 → 0；仍有残留/不达标 → 1；环境问题 → 2 |
+
+```bash
+# ① 起隔离实例（默认从 prod 复制一份库，只读 dump）
+bash scripts/verify/e2e_isolated_instance.sh up
+#   ✅ 端口判据：后端 18089 / 前端 5189 都在隔离段且空闲
+#   ✅ 副本库就绪：sys_user=… 行 / ✅ 后端就绪 / ✅ 前端就绪
+export E2E_BASE_URL=http://127.0.0.1:5189
+cd frontend && pnpm test:e2e        # target-guard 会在配置加载期拒绝任何非隔离目标
+
+# ② 线上验收确需打 prod 时（E2E_ALLOW_PROD=1 + E2E_PROD_REASON），跑完必须：
+bash scripts/e2e-postrun-check.sh            # 检出 → 清理 → 32/32，exit 0 才算跑完
+bash scripts/e2e-postrun-check.sh --check-only   # 只看不治（巡检 / 告警用）
+```
+
+判据实现是 `frontend/e2e/target-guard.mjs`（单测 `frontend/tests/unit/target-guard.test.ts`），
+回环 + 18000-18999 / 5100-5999 才算隔离；`5173`、`8023`、`80/443`、`172.18.10.144`、
+`172.18.10.7` 一律拒跑。**不要**把它写成「文档约定」——三道闸口（config / global-setup / support）
+都是加载期抛错。

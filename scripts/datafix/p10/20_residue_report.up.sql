@@ -61,11 +61,16 @@ WITH cand AS (
        -- ② 没有任何收货 / 采购明细
        AND NOT EXISTS (SELECT 1 FROM biz_stock_in_item si WHERE si.material_id = m.id)
        AND NOT EXISTS (SELECT 1 FROM biz_purchase_order_item pi WHERE pi.material_id = m.id)
-       -- ③ 序列号齐全且全部是「有 source_type、无 source_id」的批量生成形态
+       -- ③ 序列号齐全，且**没有任何一条带真实来源**（批量生成的号没有来源单）
+       --    判据写成「来源字段为空」而不是「等于 'PURCHASE'」：
+       --    2026-10-31 隔离实例实测，同一接口在不带 source_type 时落的是空串
+       --    （serial_model.rs: `params.source_type.unwrap_or_default()`），而 prod 11:34 那批
+       --    是 'PURCHASE'。只认 'PURCHASE' 会把空串形态的夹具整批漏掉（假绿）。
        AND EXISTS (SELECT 1 FROM biz_material_serial s WHERE s.material_id = m.id)
        AND NOT EXISTS (SELECT 1 FROM biz_material_serial s
                         WHERE s.material_id = m.id
-                          AND (s.source_type IS DISTINCT FROM 'PURCHASE' OR s.source_id IS NOT NULL))
+                          AND ((s.source_type IS NOT NULL AND s.source_type NOT IN ('', 'PURCHASE'))
+                               OR s.source_id IS NOT NULL))
        -- ④ 库存零价值（无账载金额 / 无成本基础）
        AND NOT EXISTS (SELECT 1 FROM biz_inventory i
                         WHERE i.material_id = m.id

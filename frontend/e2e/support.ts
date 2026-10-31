@@ -8,9 +8,12 @@ import { resolve } from 'node:path';
  * API 只用于两件事：① 给交互测试预置数据（如看板要拖的卡片）；② 用例结束后的清理。
  */
 import { expect, request, type APIRequestContext, type Page } from '@playwright/test';
+import { assertIsolatedTarget } from './target-guard.mjs';
 
-/** 被测站点（CI 用 `E2E_BASE_URL` 覆盖） */
-export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://172.18.10.144';
+/** 被测站点（`E2E_BASE_URL` 覆盖；**默认隔离实例** `127.0.0.1:5189`，绝不默认 prod） */
+export const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5189';
+// 硬判据（第三道）：support 里的 API 客户端也走这条，非隔离目标一律拒绝
+assertIsolatedTarget(BASE_URL, { projectRoot: process.cwd(), logger: { log: () => {}, warn: console.warn } });
 /** 测试账号（CI 用 `E2E_USERNAME` / `E2E_PASSWORD` 覆盖） */
 export const ACCOUNT = {
   username: process.env.E2E_USERNAME ?? 'laoliu_test',
