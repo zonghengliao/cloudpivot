@@ -19,11 +19,24 @@
 
         <span class="tool-row__spacer" />
 
+        <!-- 超期在途开关（LNK-F12）：打开 = 只看超期在途，同时锁定状态下拉（后端 400 的矛盾组合） -->
+        <t-tooltip content="只看「已发货但超过阈值天数仍未收货」的单；打开后状态筛选锁定为在途">
+          <t-checkbox
+            v-model="filter.in_transit_overdue"
+            class="tool-row__overdue"
+            data-testid="transfer-filter-overdue"
+            @change="handleOverdueChange"
+          >
+            超期在途
+          </t-checkbox>
+        </t-tooltip>
+
         <t-select
           v-model="filter.status"
           class="tool-row__status"
           :options="statusFilterOptions"
-          placeholder="全部状态"
+          :placeholder="statusFilterLocked ? '在途（已锁定）' : '全部状态'"
+          :disabled="statusFilterLocked"
           clearable
           data-testid="transfer-filter-status"
           @change="handleSearch"
@@ -47,6 +60,18 @@
         <div class="panel-head__main">
           <span class="panel-head__title">调拨单</span>
           <span class="panel-head__meta" data-testid="transfer-meta">共 {{ total }} 条</span>
+          <!-- 页头角标：超期在途总量（summary 接口；点一下直接筛超期） -->
+          <t-tag
+            v-if="overdueHeadText"
+            theme="danger"
+            variant="light"
+            size="small"
+            class="panel-head__overdue"
+            data-testid="transfer-overdue-badge"
+            @click="turnOnOverdueFilter"
+          >
+            {{ overdueHeadText }}
+          </t-tag>
         </div>
         <span class="panel-head__tip">点任意一行看详情与审批进度</span>
       </div>
@@ -88,14 +113,25 @@
         </template>
 
         <template #status="{ row }">
-          <t-tag
-            size="small"
-            :theme="transferStatusTheme(row.status)"
-            :variant="transferStatusVariant(row.status)"
-            :data-testid="`transfer-status-${row.transfer_no}`"
-          >
-            {{ transferStatusLabel(row.status) }}
-          </t-tag>
+          <div class="status-cell">
+            <t-tag
+              size="small"
+              :theme="transferStatusTheme(row.status)"
+              :variant="transferStatusVariant(row.status)"
+              :data-testid="`transfer-status-${row.transfer_no}`"
+            >
+              {{ transferStatusLabel(row.status) }}
+            </t-tag>
+            <!-- 超期在途红标：status=IN_TRANSIT 且后端判定 in_transit_overdue（LNK-F12） -->
+            <t-tooltip v-if="overdueTextOf(row)" :content="overdueTipOf(row)">
+              <span
+                class="overdue-mark"
+                :data-testid="`transfer-overdue-${row.transfer_no}`"
+              >
+                {{ overdueTextOf(row) }}
+              </span>
+            </t-tooltip>
+          </div>
         </template>
 
         <template #item_count="{ row }">
@@ -181,9 +217,13 @@
         <template #empty>
           <div class="panel-empty" data-testid="transfer-empty">
             <t-icon class="panel-empty__icon" name="swap" />
-            <p class="panel-empty__title">{{ filtered ? '没有匹配的调拨单' : '还没有调拨单' }}</p>
+            <p class="panel-empty__title">
+              {{ filter.in_transit_overdue ? '没有超期的在途单' : (filtered ? '没有匹配的调拨单' : '还没有调拨单') }}
+            </p>
             <p class="panel-empty__desc">
-              {{ filtered ? '换个状态或单号，或点「重置」看全部' : '点左上角「新建调拨单」建第一张：选调出仓 / 调入仓 → 加明细 → 保存草稿' }}
+              {{ filter.in_transit_overdue
+                ? '已发货的单都在阈值天数内：发货超过阈值仍未收货才会出现在这里'
+                : (filtered ? '换个状态或单号，或点「重置」看全部' : '点左上角「新建调拨单」建第一张：选调出仓 / 调入仓 → 加明细 → 保存草稿') }}
             </p>
           </div>
         </template>
@@ -215,6 +255,9 @@
           <t-tag :theme="transferStatusTheme(detail.status)" :variant="transferStatusVariant(detail.status)" size="small">
             {{ transferStatusLabel(detail.status) }}
           </t-tag>
+          <t-tooltip v-if="overdueTextOf(detail)" :content="overdueTipOf(detail)">
+            <span class="overdue-mark" data-testid="transfer-detail-overdue">{{ overdueTextOf(detail) }}</span>
+          </t-tooltip>
         </div>
 
         <div class="detail__grid">
@@ -226,6 +269,10 @@
           <div class="detail-field"><span class="detail-field__label">合计数量</span><span class="detail-field__value">{{ formatQty(detail.total_qty) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">合计金额</span><span class="detail-field__value">{{ formatQty(detail.total_amount) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">原因</span><span class="detail-field__value">{{ dash(detail.reason) }}</span></div>
+          <div v-if="overdueTextOf(detail)" class="detail-field">
+            <span class="detail-field__label">超期</span>
+            <span class="detail-field__value overdue-mark--text" data-testid="transfer-detail-overdue-desc">{{ overdueTipOf(detail) }}</span>
+          </div>
         </div>
 
         <!-- 状态时间戳：状态机的痕迹（V0140 用 CHECK 把它们和状态绑死） -->
@@ -580,6 +627,7 @@ import {
   fetchMaterialPage,
   fetchSerialPage,
   fetchTransferDetail,
+  fetchTransferOverdueSummary,
   fetchTransferPage,
   fetchWarehousePage,
   updateTransfer,
@@ -587,6 +635,7 @@ import {
   type MaterialRow,
   type SerialRow,
   type TransferDetail,
+  type TransferOverdueSummary,
   type TransferRow,
   type TransferStatus,
   type Warehouse,
@@ -594,6 +643,7 @@ import {
 import { ApiError } from '@/api/request';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
+  OVERDUE_DEFAULT_THRESHOLD_DAYS,
   SERIAL_OPTION_LIMIT,
   TRANSFER_ACTION_LABEL,
   TRANSFER_PAGE_SIZE,
@@ -609,8 +659,12 @@ import {
   formatQty,
   formatTime,
   hasTransferFormError,
+  isStatusFilterLocked,
   isTransferFiltered,
   itemCountText,
+  overdueBadgeText,
+  overdueBadgeTooltip,
+  overdueSummaryText,
   shortId,
   serialSummary,
   transferActionHint,
@@ -647,7 +701,7 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'transfer_no', title: '调拨单号', width: 190, fixed: 'left' },
   { colKey: 'from_warehouse_id', title: '调出仓', width: 150, ellipsis: true },
   { colKey: 'to_warehouse_id', title: '调入仓', width: 150, ellipsis: true },
-  { colKey: 'status', title: '状态', width: 100 },
+  { colKey: 'status', title: '状态', width: 150 },
   { colKey: 'item_count', title: '明细数', width: 88, align: 'right' },
   { colKey: 'transfer_date', title: '调拨日期', width: 120 },
   { colKey: 'applicant_name', title: '申请人', width: 110, ellipsis: true },
@@ -691,6 +745,28 @@ const warehouses = ref<Warehouse[]>([]);
 
 /** 是否处于筛选态（空态文案分「没数据」「没匹配」） */
 const filtered = computed(() => isTransferFiltered(filter));
+
+/** 状态下拉是否锁定：超期开关打开时锁死（`in_transit_overdue=true` + `status≠IN_TRANSIT` 后端 400） */
+const statusFilterLocked = computed(() => isStatusFilterLocked(filter));
+
+/** 超期在途汇总（页头角标；接口拿不到就是 null，页面照常用） */
+const overdueSummary = ref<TransferOverdueSummary | null>(null);
+
+/** 角标文案（`total = 0` / 接口没通 → 空串，红色角标不挂） */
+const overdueHeadText = computed(() => overdueSummaryText(overdueSummary.value));
+
+/** tooltip 里用的阈值（角标拿不到就按后端缺省 7 天，同口径） */
+const overdueThresholdDays = computed(() => overdueSummary.value?.threshold_days ?? OVERDUE_DEFAULT_THRESHOLD_DAYS);
+
+/** 行内超期红标文案（`''` = 不显示） */
+function overdueTextOf(row: Pick<TransferRow, 'status' | 'in_transit_overdue' | 'overdue_days'>): string {
+  return overdueBadgeText(row);
+}
+
+/** 行内超期红标 hover 文案（告警台账：已于 X 提醒过 N 次） */
+function overdueTipOf(row: TransferRow): string {
+  return overdueBadgeTooltip(row, overdueThresholdDays.value);
+}
 
 /** 物料下拉 */
 const materialOptions = computed(() =>
@@ -779,6 +855,8 @@ async function loadTransfers(page: number = current.value): Promise<void> {
     const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
     current.value = Math.min(Math.max(1, rawPage), maxPage);
     apiMissing.value = '';
+    // 列表每次刷新都顺带刷新角标（收货 / 删单会让超期总量变化，角标不能停在旧值）
+    void loadOverdueSummary();
   } catch (error) {
     rows.value = [];
     total.value = 0;
@@ -797,6 +875,41 @@ async function loadTransfers(page: number = current.value): Promise<void> {
 function handleSearch(): void {
   current.value = 1;
   void loadTransfers(1);
+}
+
+/**
+ * 超期开关切换。
+ *
+ * 打开时必须把状态筛选清空：后端 `in_transit_overdue=true` + `status≠IN_TRANSIT` 直接 400，
+ * 而「超期在途」本身就意味着 `status=IN_TRANSIT`，再叠一个状态筛选既冗余又能造出 400 组合。
+ * （`buildTransferQuery` 里还有第二道保险：开关打开时整键丢掉 `status`。）
+ */
+function handleOverdueChange(): void {
+  if (filter.in_transit_overdue) {
+    filter.status = '';
+  }
+  handleSearch();
+}
+
+/** 点页头角标 → 直接筛「超期在途」（比自己去工具栏找开关少两步） */
+function turnOnOverdueFilter(): void {
+  filter.in_transit_overdue = true;
+  filter.status = '';
+  handleSearch();
+}
+
+/**
+ * 拉超期汇总（页头角标）。
+ *
+ * 失败一律静默（`null` → 不渲染角标）：旧版后端没这条路由、或库里一台超期单都没有，
+ * 都不该在列表页弹红错 —— 角标是锦上添花，不是列表的前置条件。
+ */
+async function loadOverdueSummary(): Promise<void> {
+  try {
+    overdueSummary.value = await fetchTransferOverdueSummary();
+  } catch {
+    overdueSummary.value = null;
+  }
 }
 
 /** 重置筛选 */
@@ -1332,6 +1445,12 @@ onMounted(async () => {
   width: 140px;
 }
 
+/* 超期在途开关：和状态下拉一个视觉分量，别让文案跟输入框粘在一起 */
+.tool-row__overdue {
+  margin-right: -2px;
+  white-space: nowrap;
+}
+
 .tool-row__no {
   width: 220px;
 }
@@ -1371,6 +1490,49 @@ onMounted(async () => {
 .panel-head__tip {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* 超期角标：可点（点一下直接筛超期），hover 给手型 + 稍微提亮 */
+.panel-head__overdue {
+  cursor: pointer;
+  transition: filter 0.15s ease;
+
+  &:hover {
+    filter: brightness(0.96);
+  }
+}
+
+/* 状态列：状态标签 + 超期红标一行排开，换行也不撑高整行 */
+.status-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+/*
+ * 「超期 N 天」红标。
+ *
+ * 颜色只用语义变量（`--td-error-color`），不写裸 hex：本仓 22 套色板 × 明暗
+ * 全靠语义变量驱动，写死一个红会在别的色板里瞎眼（`pnpm check:palettes` 也会红）。
+ * 红底浅色描边 + 等宽数字，比纯红字在深色模式下也读得清。
+ */
+.overdue-mark {
+  flex: 0 0 auto;
+  padding: 0 6px;
+  border: 1px solid var(--td-error-color);
+  border-radius: var(--td-radius-small, 3px);
+  color: var(--td-error-color);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+/* 详情抽屉里同一颗红标当正文用（边框去掉，避免在小字号下显得脏） */
+.overdue-mark--text {
+  color: var(--td-error-color);
 }
 
 .list-alert {

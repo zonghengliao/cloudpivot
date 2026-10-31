@@ -805,6 +805,23 @@ export interface TransferRow {
   created_at: string;
   /** 更新时间 */
   updated_at: string;
+
+  // ---------- 超期在途（LNK-F12 / 迁移 V0171，字段名逐字抄 `TransferRes`） ----------
+
+  /**
+   * 是否「超期在途」：`IN_TRANSIT` 且 `shipped_at` 早于「现在 − 阈值天数」。
+   *
+   * 判定口径唯一真源是后端（`transfer_model::is_in_transit_overdue` + 同一分界点的 SQL），
+   * 前端**不自己算**：阈值走 `sys_config`（默认 7 天，运维可改），前端算必然漂移。
+   * 声明成可选是因为「后端还没上这一版」时列表照常可用（页面一律 `=== true` 判）。
+   */
+  in_transit_overdue?: boolean;
+  /** 已压天数（`floor((now − shipped_at) / 1 天)`，**仅超期行有值**） */
+  overdue_days?: number | null;
+  /** 最近一次超期告警时间（`null` = 扫描任务还没提醒过） */
+  overdue_alerted_at?: string | null;
+  /** 累计告警次数（`> 0` 说明真的推过站内信） */
+  overdue_alert_count?: number;
 }
 
 /**
@@ -931,7 +948,13 @@ export interface TransferStatusReq {
 /**
  * 调拨单分页（`GET /erp/transfer/page`，服务端分页）。
  *
- * 参数照卡面契约：`status` / `from_warehouse_id` / `to_warehouse_id` / `transfer_no`（模糊）。
+ * 参数照卡面契约：`status` / `from_warehouse_id` / `to_warehouse_id` / `transfer_no`（模糊），
+ * 以及 LNK-F12 的 `in_transit_overdue`（`true` = 只看超期在途 / `false` = 排除超期 / 缺省 = 不筛）。
+ *
+ * ⚠️ 矛盾组合后端直接 **400**（不是空列表）：
+ * `in_transit_overdue=true` + `status=!=IN_TRANSIT`、`in_transit_overdue=false` + `status=IN_TRANSIT`。
+ * 页面走 `buildTransferQuery()`，它在超期开关打开时把 `status` 整键丢掉，不会拼出矛盾组合。
+ *
  * 空串一律不发（`asParams` 兜住）—— 后端把 `?transfer_no=` 当「等于空串」过滤会查出 0 行。
  */
 export function fetchTransferPage(query: {
@@ -939,10 +962,34 @@ export function fetchTransferPage(query: {
   from_warehouse_id?: string;
   to_warehouse_id?: string;
   transfer_no?: string;
+  in_transit_overdue?: boolean;
   page?: number;
   page_size?: number;
 }): Promise<PageData<TransferRow>> {
   return get<PageData<TransferRow>>(`${BASE}/transfer/page`, asParams(query));
+}
+
+/**
+ * 超期在途汇总（`GET /erp/transfer/overdue/summary`，LNK-F12 新增）。
+ *
+ * 给页头角标用：「现在有几张超期单、阈值是多少天」。权限码复用列表的
+ * `business:erp:transfer:list`，不需要额外授权。
+ *
+ * 后端对「阈值读不到」的处理是回退 7 天（不是不告警），所以 `threshold_days` 一定有值；
+ * 这里仍写成 number 并让页面按缺省 7 兜底，避免旧版后端（没有这个接口）时角标文案变成 `undefined`。
+ */
+export interface TransferOverdueSummary {
+  /** 超期阈值（天），来自 `sys_config.erp.transfer.in_transit_overdue_days` */
+  threshold_days: number;
+  /** 当前超期在途单总数（含所有页） */
+  total: number;
+  /** 最早一张超期单的发货时间（`null` = 没有超期单） */
+  oldest_shipped_at: string | null;
+}
+
+/** 超期在途汇总（`GET /erp/transfer/overdue/summary`） */
+export function fetchTransferOverdueSummary(): Promise<TransferOverdueSummary> {
+  return get<TransferOverdueSummary>(`${BASE}/transfer/overdue/summary`);
 }
 
 /** 调拨单详情（`GET /erp/transfer/{id}`，含 `items[].serials`） */
