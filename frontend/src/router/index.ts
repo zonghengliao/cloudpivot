@@ -457,6 +457,25 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '总账 / 科目余额表', permission: 'business:erp:ledger:list' },
       },
       {
+        // ==================== ERP 会计科目（P4-C，只读树形） ====================
+        // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
+        // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404（本卡就是来补这个洞的）。
+        path: 'business/erp/account',
+        name: 'BusinessErpAccount',
+        component: () => import('@/views/business/erp/account/index.vue'),
+        meta: { title: '会计科目', permission: 'business:erp:account:list' },
+      },
+      {
+        // ==================== ERP 会计期间（P4-C，只读） ====================
+        // `sys_menu` 种子（V0141 …0947）path = `/business/erp/period`，component
+        // `business/erp/period/index`；同样手工注册，漏了就 404。
+        path: 'business/erp/period',
+        name: 'BusinessErpPeriod',
+        component: () => import('@/views/business/erp/period/index.vue'),
+        meta: { title: '会计期间', permission: 'business:erp:period:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

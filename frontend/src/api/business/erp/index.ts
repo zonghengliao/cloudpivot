@@ -2145,3 +2145,86 @@ export function updateSupplier(id: string, payload: UpdateSupplierReq): Promise<
 export function deleteSupplier(id: string): Promise<void> {
   return del<void>(`${BASE}/supplier/${id}`);
 }
+
+// ==================== 财务基础页：会计科目 / 会计期间（P4-C，只读） ====================
+
+/**
+ * 会计科目类别（逐字抄 `backend/migrations/business/V0141` 的
+ * `ck_biz_account_category` CHECK 约束：5 个字面量，**损益是 `PROFIT_LOSS` 不是 `PROFIT`**）。
+ */
+export type AccountCategory = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'COST' | 'PROFIT_LOSS';
+
+/** 余额方向（`ck_biz_account_direction`：`DEBIT|CREDIT`） */
+export type BalanceDirection = 'DEBIT' | 'CREDIT';
+
+/**
+ * 会计科目分页（`GET /erp/account/page`，服务端分页）。
+ *
+ * 入参逐字抄 `dto.rs::AccountFilter`：`keyword`（编码/名称 LIKE）、`account_category`、
+ * `is_leaf`（`Some(true)` 只看末级）、`parent_id`、`status`（1 启用 / 0 停用）。
+ * 空串一律不发（`asParams` 已滤；后端把 `?keyword=` 当「等于空串」查 0 行）。
+ *
+ * 树形页面一次把整棵树拉下来（`page_size` 给大值）再在前端按 `parent_id` 拼树 ——
+ * 后端没有「树接口」，也不该为 4 条科目造一个。
+ */
+export function fetchAccountPage(query: {
+  keyword?: string;
+  account_category?: AccountCategory | '';
+  is_leaf?: boolean;
+  parent_id?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<AccountRow>> {
+  return get<PageData<AccountRow>>(`${BASE}/account/page`, asParams(query));
+}
+
+/**
+ * 会计期间状态（逐字抄 `ck_biz_period_status`：`NOT_OPENED|OPEN|CLOSED`）。
+ *
+ * 注意：**没有** `未结账` 这种中间态，结账走 `OPEN → CLOSED` 一步；
+ * `NOT_OPENED` 是「尚未开启」，不是「已关闭」。
+ */
+export type PeriodStatus = 'NOT_OPENED' | 'OPEN' | 'CLOSED';
+
+/** 会计期间（逐字抄 `dto.rs::PeriodRes`） */
+export interface AccountPeriodRow {
+  /** 主键 */
+  id: string;
+  /** 年份（如 2026） */
+  period_year: number;
+  /** 月份（1..12） */
+  period_month: number;
+  /** 期间编码 `yyyy-MM`（如 `2026-10`，库列 VARCHAR(7)） */
+  period_code: string;
+  /** 开始日 `YYYY-MM-DD` */
+  start_date: string;
+  /** 结束日 `YYYY-MM-DD` */
+  end_date: string;
+  /** 状态 */
+  status: PeriodStatus;
+  /** 结账时间（`CLOSED` 后才有值） */
+  closed_at: string | null;
+  /** 结账人 */
+  closed_by: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 会计期间分页（`GET /erp/period/page`，服务端分页）。
+ *
+ * 入参逐字抄 `dto.rs::PeriodFilter`：`period_year` + `status`，**没有关键词**（期间编码就是年月）。
+ */
+export function fetchPeriodPage(query: {
+  period_year?: number;
+  status?: PeriodStatus | '';
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<AccountPeriodRow>> {
+  return get<PageData<AccountPeriodRow>>(`${BASE}/period/page`, asParams(query));
+}
