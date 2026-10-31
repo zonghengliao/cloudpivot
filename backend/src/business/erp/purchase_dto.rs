@@ -806,15 +806,23 @@ mod tests {
         assert_eq!(low.status, 400);
     }
 
-    /// ⑭ 状态机：4 条合法边全部放行（卡面 §三）。
+    /// ⑭ 状态机：合法边全部放行（P2-A2 的 4 条 + P10 补齐收货侧 4 条，
+    /// 另登记 `SUBMITTED→*_RECEIVED` 两条既有收货白名单行为，详见
+    /// `shared/state_machine.rs::PURCHASE_ORDER_EDGES` 的注释）。
     #[test]
     fn state_machine_allows_four_edges() {
-        assert_eq!(LEGAL_EDGES.len(), 4);
+        assert_eq!(LEGAL_EDGES.len(), 10);
         for (from, to) in [
             ("DRAFT", "SUBMITTED"),
             ("DRAFT", "CANCELLED"),
+            ("SUBMITTED", "APPROVED"),
             ("SUBMITTED", "CLOSED"),
             ("SUBMITTED", "CANCELLED"),
+            ("SUBMITTED", "PARTIAL_RECEIVED"),
+            ("SUBMITTED", "RECEIVED"),
+            ("APPROVED", "PARTIAL_RECEIVED"),
+            ("APPROVED", "RECEIVED"),
+            ("PARTIAL_RECEIVED", "RECEIVED"),
         ] {
             assert!(can_transition(from, to), "{from} → {to} 必须放行");
         }
@@ -825,11 +833,15 @@ mod tests {
     fn state_machine_rejects_illegal_edges() {
         for (from, to) in [
             ("DRAFT", "CLOSED"),
+            ("DRAFT", "APPROVED"),
+            ("DRAFT", "PARTIAL_RECEIVED"),
             ("DRAFT", "RECEIVED"),
             ("SUBMITTED", "DRAFT"),
             ("CLOSED", "CANCELLED"),
             ("CANCELLED", "SUBMITTED"),
+            ("RECEIVED", "CANCELLED"),
             ("SUBMITTED", "SUBMITTED"),
+            ("PARTIAL_RECEIVED", "PARTIAL_RECEIVED"),
         ] {
             assert!(!can_transition(from, to), "{from} → {to} 必须拒绝");
         }

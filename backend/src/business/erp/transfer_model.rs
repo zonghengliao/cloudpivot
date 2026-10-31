@@ -61,6 +61,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_model::{period_code_of, period_key_of};
 use crate::business::shared::scope;
+use crate::business::shared::state_machine;
 
 // ==================== 表名 / 列清单 ====================
 
@@ -128,15 +129,8 @@ pub const ALL_STATUSES: [&str; 6] = [
     STATUS_CANCELLED,
 ];
 
-/// 允许的 6 条边（卡面 §二 ⑤ 的状态机，逐条对应）。
-pub const LEGAL_EDGES: [(&str, &str); 6] = [
-    (STATUS_DRAFT, STATUS_PENDING),
-    (STATUS_PENDING, STATUS_APPROVED),
-    (STATUS_PENDING, STATUS_CANCELLED),
-    (STATUS_APPROVED, STATUS_IN_TRANSIT),
-    (STATUS_IN_TRANSIT, STATUS_DONE),
-    (STATUS_DRAFT, STATUS_CANCELLED),
-];
+/// 允许的 6 条边（卡面 §二 ⑤ 的状态机，逐条对应；P10 起唯一真相在 `shared/state_machine`）。
+pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::TRANSFER_EDGES;
 
 /// 状态中文名（前端列表 / 报错文案共用）。
 pub fn status_label(status: &str) -> &'static str {

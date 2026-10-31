@@ -71,6 +71,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model;
 use crate::business::erp::stockin_model::StockInRow;
+use crate::business::shared::state_machine;
 
 // ==================== 表名 / 常量 ====================
 
@@ -1112,6 +1113,7 @@ pub async fn post_voucher(
         Some(_) => next_red_voucher_no(ex, now).await?,
         None => next_voucher_no(ex, now).await?,
     };
+    let voucher_no_text = voucher_no.clone();
     let entry_count = i32::try_from(req.lines.len()).unwrap_or(0);
     let is_red = if req.red_of.is_some() {
         IS_RED_YES
@@ -1172,6 +1174,19 @@ pub async fn post_voucher(
     };
 
     write_entries(ex, voucher_id, &req.lines).await?;
+    // P10 铁律 ③：凭证建单留痕（`NULL → POSTED`）。凭证没有原地状态流转（红冲开新单），
+    // 所以这里只留「谁在什么时候记了这张凭证」。
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_VOUCHER,
+        voucher_id,
+        &voucher_no_text,
+        STATUS_POSTED,
+        operator,
+        req.red_of.map(|_| "红字冲销凭证"),
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
     Ok(voucher_id)
 }
 

@@ -47,3 +47,4 @@ pub mod content;
 pub mod guard;
 pub mod principal;
 pub mod scope;
+pub mod state_machine;

@@ -67,6 +67,7 @@ use serde::{Deserialize, Serialize};
 use crate::business::erp::payable::{self, PayableRow};
 use crate::business::erp::payable_query::{self, PayableDetailRes};
 use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -583,6 +584,27 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
     .map_err(|error| utils::db_error(error, "付款记录回写凭证"))?;
 
     // ④ 应付单重算（行锁在手，这里再按 paid_amount 做一次 CAS，兜住「外部绕过锁改库」）
+    //    P10 铁律 ③：OPEN/PARTIAL_PAID → PARTIAL_PAID/SETTLED 也走状态机唯一入口
+    //    （写 biz_status_log，关联付款单号），与付款记录 / 凭证同一事务。
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_PAYABLE,
+        row.id,
+        &row.payable_no,
+        &state_machine::PAYABLE_EDGES,
+        &row.status,
+        status,
+        operator,
+        Some(&format!("付款 {payment_no}")),
+        None,
+    )
+    .await
+    .map_err(|error| {
+        write_error(
+            DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)),
+            "应付单状态变更",
+        )
+    })?;
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
     let settled_at_text = if settled {
         now.to_rfc3339()
@@ -722,6 +744,26 @@ async fn cancel_in_tx(
         Some(old) => format!("{old}\n作废原因：{reason}"),
         None => format!("作废原因：{reason}"),
     };
+    // P10 铁律 ③：OPEN → CANCELLED 走状态机唯一入口（reason 必填由注册表把关）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_PAYABLE,
+        row.id,
+        &row.payable_no,
+        &state_machine::PAYABLE_EDGES,
+        &row.status,
+        payable::STATUS_CANCELLED,
+        operator,
+        Some(reason),
+        None,
+    )
+    .await
+    .map_err(|error| {
+        write_error(
+            DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)),
+            "应付单作废状态变更",
+        )
+    })?;
     let affected = tx
         .exec_sql(
             format!(

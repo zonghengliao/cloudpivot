@@ -54,6 +54,7 @@ use serde::Deserialize;
 
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::erp::voucher_query::{self, VoucherDetailRes};
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -261,6 +262,56 @@ async fn reverse_in_tx(
     )
     .await
     .map_err(|error| write_error(error, "红冲凭证"))
+}
+
+// ==================== ③ 改凭证摘要（P10 入账后只读）====================
+
+/// 改凭证摘要（**入账后只读闸**的凭证侧落点）。
+///
+/// 卡面 §二 ③ 把 `VOUCHER: POSTED` 列入「入账态」：已记账凭证的摘要属于会计档案的
+/// 描述字段，改了它账证虽不差钱，但会与已出的报表 / 归档 PDF 不一致 ——
+/// 统一按「先红冲再重开」处理（**409**，文案点「已入账」）。
+///
+/// 只有 `DRAFT` 状态的凭证允许改摘要；本仓目前没有 DRAFT 凭证的生成路径，
+/// 所以线上等价于「凭证一律不可改」，但接口语义在这里钉死，等草稿凭证上线即自动生效。
+pub async fn update_summary(
+    id: Uuid,
+    summary: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let summary = summary.map(str::trim).filter(|text| !text.is_empty());
+    let Some(summary) = summary else {
+        return Err(bad_request("summary 不能为空：凭证摘要是会计档案的一部分"));
+    };
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启改凭证事务"))?;
+    let row = voucher::find_voucher_locked(&tx, id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定凭证"))?
+        .ok_or_else(not_found)?;
+    // 入账后只读：POSTED → 409（文案点「已入账」）
+    state_machine::ensure_writable(state_machine::ENTITY_VOUCHER, &row.status, &row.voucher_no)?;
+    let now = Utc::now();
+    tx.exec_sql(
+        "UPDATE biz_voucher SET summary = ?, updated_at = ?, \
+            update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND status <> 'POSTED' AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::Text(summary.to_string()),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "改凭证摘要"))?;
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交改凭证事务"))?;
+    Ok(())
 }
 
 // ==================== ② 手工新增凭证 ====================

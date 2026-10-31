@@ -49,6 +49,7 @@ use crate::business::erp::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals,
     can_transition, status_label, transition_rejected_message,
 };
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -157,8 +158,9 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
 /// 一个事务里「取号 + 单头 + 明细」。
 pub async fn create_purchase_order(
     req: &CreatePurchaseOrderReq,
-    operator: Option<Uuid>,
+    operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<Uuid, ApiError> {
+    let op = operator.into();
     let prepared = req.prepare()?;
     let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
@@ -189,7 +191,7 @@ pub async fn create_purchase_order(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启建单事务"))?;
-    match purchase_model::create(&tx, &new, &items, &totals, operator, now).await {
+    match purchase_model::create(&tx, &new, &items, &totals, op, now).await {
         Ok(id) => {
             tx.commit()
                 .await
@@ -246,7 +248,7 @@ pub async fn purchase_order_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreatePurchaseOrderReq>,
 ) -> ResResult<PurchaseOrderDetailRes> {
-    let id = create_purchase_order(&req, operator_of(&claims)).await?;
+    let id = create_purchase_order(&req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -264,6 +266,12 @@ pub async fn update_purchase_order(
         .map_err(|error| utils::db_error(error, "查询采购订单"))?
         .ok_or_else(|| not_found("采购订单"))?;
     if current.status != STATUS_DRAFT {
+        // P10 铁律 ④：入账态（收过货）→ 统一的「已入账」文案
+        state_machine::ensure_writable(
+            state_machine::ENTITY_PURCHASE_ORDER,
+            &current.status,
+            &current.order_no,
+        )?;
         return Err(conflict(format!(
             "采购订单当前是「{}」（{}），只有草稿（DRAFT）能编辑：\
              已提交的单据请先取消，或由收货流程处理",
@@ -347,8 +355,9 @@ pub async fn purchase_order_update(
 pub async fn change_purchase_order_status(
     id: Uuid,
     req: &PurchaseOrderStatusReq,
-    operator: Option<Uuid>,
+    operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
     let target = req.target_status()?;
     let reason = req.reason_text();
     if let Some(text) = reason
@@ -396,7 +405,25 @@ pub async fn change_purchase_order_status(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match purchase_model::apply_status(&tx, id, &row.status, target, reason, operator, now).await {
+    // P10 铁律 ③：先过唯一入口（边表校验 + reason 校验 + 写 biz_status_log），再 CAS
+    if let Err(error) = state_machine::transition(
+        &tx,
+        state_machine::ENTITY_PURCHASE_ORDER,
+        id,
+        &row.order_no,
+        &purchase_model::LEGAL_EDGES,
+        &row.status,
+        target,
+        op.clone(),
+        reason,
+        None,
+    )
+    .await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
+    match purchase_model::apply_status(&tx, id, &row.status, target, reason, op.id, now).await {
         Ok(0) => {
             let _ = tx.rollback().await;
             Err(conflict(format!(
@@ -430,7 +457,7 @@ pub async fn purchase_order_change_status(
     Json(req): Json<PurchaseOrderStatusReq>,
 ) -> ResResult<PurchaseOrderDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    change_purchase_order_status(id, &req, operator_of(&claims)).await?;
+    change_purchase_order_status(id, &req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 

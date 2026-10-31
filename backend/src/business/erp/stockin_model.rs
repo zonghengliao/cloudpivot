@@ -115,6 +115,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::model::{PurchaseOrderItemRow, PurchaseOrderRow, normalize_page};
 use crate::business::erp::serial_model;
 use crate::business::shared::scope;
+use crate::business::shared::state_machine;
 use crate::utils;
 
 /// 金额 / 单价舍入策略：**四舍五入**（与 PG `ROUND(numeric, n)` 同口径）。
@@ -142,11 +143,11 @@ pub const STATUS_POSTED: &str = "POSTED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 本卡负责的合法边（卡面 §二）。
-pub const LEGAL_EDGES: [(&str, &str); 3] = [
-    (STATUS_DRAFT, STATUS_POSTED),
-    (STATUS_DRAFT, STATUS_CANCELLED),
-    (STATUS_POSTED, STATUS_CANCELLED),
-];
+///
+/// P10 起**唯一真相在 [`crate::business::shared::state_machine`]**：这里只是同一份
+/// 常量数组的别名，`state_machine::transition` 还会核对两者一致 ——
+/// 想在调用点偷偷多放一条边会立刻 500，而不是静默绕过状态机。
+pub const LEGAL_EDGES: [(&str, &str); 3] = state_machine::STOCK_IN_EDGES;
 
 /// 流水方向：入（`ck_biz_inv_txn_type` 只认 `IN` / `OUT`）。
 pub const TXN_TYPE_IN: &str = "IN";
@@ -809,18 +810,18 @@ async fn insert_items(
     Ok(ids)
 }
 
-/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细**，调用方负责事务边界。
+/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细 → 建单日志**，调用方负责事务边界。
 pub async fn create(
     ex: &impl SqlExecutor,
     new: &NewStockIn<'_>,
     lines: &[NewStockInLine],
     totals: &Totals,
-    operator: Option<Uuid>,
+    operator: state_machine::Operator,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
     let in_no = next_in_no(ex, now).await?;
     let id = Uuid::now_v7();
-    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    let operator_text = Value::Text(operator.id.map(|v| v.to_string()).unwrap_or_default());
     ex.exec_sql(
         format!(
             "INSERT INTO {TABLE} \
@@ -835,7 +836,7 @@ pub async fn create(
         ),
         vec![
             Value::from(&id),
-            Value::Text(in_no),
+            Value::Text(in_no.clone()),
             Value::Text(
                 new.source_order_id
                     .map(|v| v.to_string())
@@ -858,6 +859,19 @@ pub async fn create(
     )
     .await?;
     insert_items(ex, id, lines).await?;
+    // P10 铁律 ③：建单留痕（`from_status = NULL → DRAFT`），与建单**同一事务**。
+    // 失败即整单回滚：宁可建不出单，也不要「有单没轨迹」。
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_STOCK_IN,
+        id,
+        &in_no,
+        STATUS_DRAFT,
+        operator.clone(),
+        None,
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
     Ok(id)
 }
 
@@ -918,6 +932,33 @@ pub async fn update(
     .await?;
     insert_items(ex, id, lines).await?;
     Ok(affected)
+}
+
+/// 只改备注（**入账后唯一允许改的业务列**，卡面 §二 ③ 白名单）。
+///
+/// `remark` 不进任何账务口径（不参与成本、不进凭证），所以 `POSTED` / `RECEIVED` 之后
+/// 仍可补一句「这单是 XX 客户急件」；改它必须走这个函数，**不能**顺手把金额带过去。
+pub async fn update_remark(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    remark: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET remark = NULLIF(?::text,''), updated_at = ?, \
+                update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::Text(remark.unwrap_or_default().to_string()),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
 }
 
 /// 状态流转（CAS：`WHERE id = ? AND status = from`），返回 `affected`。
@@ -2033,23 +2074,102 @@ pub async fn add_received_qty(
 
 /// 按明细已收情况推进采购单状态（`PARTIAL_RECEIVED` / `RECEIVED`）。
 ///
-/// 只在采购单处于 `SUBMITTED` / `APPROVED` / `PARTIAL_RECEIVED` 时推进；
-/// 已 `RECEIVED` / `CLOSED` / `CANCELLED` / `DRAFT` 的单一律不动（返回 0）。
+/// # P10 改造（铁律 ③：状态机不许绕过）
+///
+/// 改造前这里是一句 `UPDATE … SET status = CASE WHEN NOT EXISTS(未收完) THEN 'RECEIVED'
+/// ELSE 'PARTIAL_RECEIVED' END` —— **完全绕过 `can_transition()`**：采购订单的
+/// 状态机等于名存实亡（卡面 §一 ①）。
+///
+/// 现在拆成三步，全部在收货过账的同一个事务里：
+///
+/// 1. `SELECT … FOR UPDATE` 锁采购单，读「当前状态 + 单号」；
+/// 2. 算目标状态 `target`（还有未收明细 → `PARTIAL_RECEIVED`，否则 `RECEIVED`）；
+/// 3. `target != 当前态` 才调 [`state_machine::transition`]（写 `biz_status_log`，
+///    `biz_ref = ("STOCK_IN", 收货单号)`），再 CAS 改状态。
+///
+/// `PARTIAL_RECEIVED → PARTIAL_RECEIVED`（继续部分收货）**不调 transition**：
+/// 原地不动不是状态变更，否则每次收货都多一条无意义日志（卡面 §三 的 ⚠️）。
+///
+/// 只对「已提交 / 已审批 / 部分收货」推进；`DRAFT` / `CLOSED` / `CANCELLED` /
+/// `RECEIVED` 一律不动（返回 0）。
 pub async fn sync_purchase_status(
     ex: &impl SqlExecutor,
     order_id: Uuid,
+    stock_in_no: &str,
+    operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
+    // ① 锁单 + 读当前状态（`FOR UPDATE` 让并发两张收货单串行推进同一采购单）
+    let header = ex
+        .query_sql(
+            "SELECT order_no, status FROM biz_purchase_order \
+              WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    let Some(row) = header.first() else {
+        return Ok(0);
+    };
+    let order_no: String = row.get_typed("order_no")?;
+    let current: String = row.get_typed("status")?;
+    if !matches!(
+        current.as_str(),
+        "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED"
+    ) {
+        return Ok(0);
+    }
+
+    // ② 收货进度 → 目标状态
+    let pending: i64 = ex
+        .scalar_sql(
+            "SELECT count(*) FROM biz_purchase_order_item \
+              WHERE order_id = ?::uuid AND received_qty < qty"
+                .to_string(),
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    let target = if pending == 0 {
+        "RECEIVED"
+    } else {
+        "PARTIAL_RECEIVED"
+    };
+
+    // ③ 状态没变（继续部分收货）→ 只留收货流水，不写状态日志
+    if target == current {
+        return Ok(0);
+    }
+
+    // ④ 唯一入口：边表校验 + reason 校验 + 写 biz_status_log（关联收货单号）
+    let reason = format!("收货过账 {stock_in_no} 自动推进");
+    state_machine::transition(
+        ex,
+        state_machine::ENTITY_PURCHASE_ORDER,
+        order_id,
+        &order_no,
+        &crate::business::erp::purchase_model::LEGAL_EDGES,
+        &current,
+        target,
+        operator,
+        Some(&reason),
+        Some((state_machine::ENTITY_STOCK_IN, stock_in_no)),
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+
+    // ⑤ CAS 改状态（`WHERE status = 当前态` 防止把别人改过的单覆盖掉）
     ex.exec_sql(
-        "UPDATE biz_purchase_order o \
-            SET status = CASE WHEN NOT EXISTS (SELECT 1 FROM biz_purchase_order_item i \
-                                                WHERE i.order_id = o.id AND i.received_qty < i.qty) \
-                              THEN 'RECEIVED' ELSE 'PARTIAL_RECEIVED' END, \
-                updated_at = ? \
-          WHERE o.id = ?::uuid AND o.deleted_at IS NULL \
-            AND o.status IN ('SUBMITTED', 'APPROVED', 'PARTIAL_RECEIVED')"
+        "UPDATE biz_purchase_order SET status = ?, updated_at = ?, \
+            update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
             .to_string(),
-        vec![Value::from(now), Value::from(&order_id)],
+        vec![
+            Value::Text(target.to_string()),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&order_id),
+            Value::Text(current),
+        ],
     )
     .await
 }
