@@ -74,9 +74,15 @@ pub const STATUSES: [&str; 4] = ["POSTED", "DRAFT", "AUDITED", "CANCELLED"];
 pub const VOUCHER_TYPES: [&str; 2] = ["AUTO", "MANUAL"];
 
 /// `biz_voucher` 列清单。
+///
+/// 末尾两列是**关联凭证号**（P7 起）：红字凭证要知道自己红冲的是哪张（`reverse_of_no`），
+/// 被红冲的原凭证要知道是谁红冲的（`reversed_by_no`）—— 列表 / 详情都要显示
+/// 「红冲 PZ-xxx」/「已红冲 → PZR-xxx」，只给 id 前端还得再打一次详情。
 pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
      source_type, source_id, source_no, summary, total_debit, total_credit, entry_count, status, \
-     is_red, reverse_of, reversed_by, posted_at, posted_by, remark, created_at, updated_at";
+     is_red, reverse_of, reversed_by, posted_at, posted_by, remark, created_at, updated_at, \
+     (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reverse_of) AS reverse_of_no, \
+     (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reversed_by) AS reversed_by_no";
 
 /// `biz_voucher_entry` 列清单（`line_no` 升序即凭证内顺序）。
 pub const ENTRY_COLUMNS: &str = "id, voucher_id, line_no, summary, account_id, account_code, \
@@ -248,6 +254,10 @@ pub struct VoucherRow {
     pub created_at: DateTime<Utc>,
     /// 更新时间。
     pub updated_at: DateTime<Utc>,
+    /// 被红冲的原凭证号（`is_red = 1` 时有值）。
+    pub reverse_of_no: Option<String>,
+    /// 红冲它的红字凭证号（已红冲时有值）。
+    pub reversed_by_no: Option<String>,
 }
 
 impl VoucherRow {
@@ -276,6 +286,8 @@ impl VoucherRow {
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
+            reverse_of_no: row.get_typed("reverse_of_no")?,
+            reversed_by_no: row.get_typed("reversed_by_no")?,
         })
     }
 }
@@ -378,6 +390,10 @@ pub struct VoucherRes {
     pub reverse_of: Option<String>,
     /// 红冲它的凭证。
     pub reversed_by: Option<String>,
+    /// 被红冲的原凭证号（`is_red = true` 时有值，用于显示「红冲 PZ-xxx」）。
+    pub reverse_of_no: Option<String>,
+    /// 红冲它的红字凭证号（已红冲时有值，用于显示「已红冲 → PZR-xxx」）。
+    pub reversed_by_no: Option<String>,
     /// 记账时间。
     pub posted_at: Option<DateTime<Utc>>,
     /// 记账人。
@@ -411,6 +427,8 @@ impl VoucherRes {
             is_red: row.is_red == 1,
             reverse_of: row.reverse_of.map(|id| id.to_string()),
             reversed_by: row.reversed_by.map(|id| id.to_string()),
+            reverse_of_no: row.reverse_of_no.clone(),
+            reversed_by_no: row.reversed_by_no.clone(),
             posted_at: row.posted_at,
             posted_by: row.posted_by.map(|id| id.to_string()),
             remark: row.remark.clone(),
@@ -879,42 +897,54 @@ pub(crate) mod tests {
         Uuid::from_str(raw).expect("夹具 UUID 写错了")
     }
 
+    /// 本次夹具的行数（`voucher_word = 'P2D1'`）：全库口径的 `total` 会随别的模块的凭证漂移，
+    /// 断言一律按本夹具的行数来。
+    fn p2d1_count(rows: &[VoucherRow]) -> usize {
+        rows.iter().filter(|row| row.voucher_word == "P2D1").count()
+    }
+
     /// ① 列表：按 `period` / `status` / `source_type` / `voucher_no` 筛选。
     #[tokio::test]
     async fn p2d1_voucher_page_filters() {
         let Some(_guard) = setup().await else {
             return;
         };
-        // 期间：2026-10 有 4 张（含 DRAFT 与红字）。
+        // 期间：本次夹具在 2026-10 有 4 张（含 DRAFT 与红字）。
+        //
+        // ⚠️ 不能断言 `total == 4`：`voucher_page` 的 `period` 筛选是**全库**口径，
+        // 别的模块（P7 的付款 / 手工凭证、P2-C1 的收货凭证）也会往 2026-10 记账，
+        // 总数会随「今天跑过哪些用例」漂移（T8-C 实测过的同一类问题）。
+        // 正确判据：筛出来的行里，**本夹具**（`voucher_word = 'P2D1'`）必须正好 4 张。
         let filter = VoucherFilter {
             period: Some("2026-10".to_string()),
             page: 1,
-            page_size: 50,
+            page_size: 200,
             ..VoucherFilter::default()
         };
         let (rows, total) = voucher_page(&filter).await.expect("期间筛选");
-        assert_eq!(total, 4, "2026-10 应有 4 张 P2D1 凭证");
+        assert_eq!(p2d1_count(&rows), 4, "2026-10 应有 4 张 P2D1 凭证");
+        assert!(total >= 4, "期间筛选的总数不该小于本夹具的行数");
         assert!(rows.iter().all(|row| row.period == "2026-10"));
         // 只看 POSTED：DRAFT 被筛掉 → 3 张。
         let filter = VoucherFilter {
             period: Some("2026-10".to_string()),
             status: Some("POSTED".to_string()),
             page: 1,
-            page_size: 50,
+            page_size: 200,
             ..VoucherFilter::default()
         };
-        let (rows, total) = voucher_page(&filter).await.expect("状态筛选");
-        assert_eq!(total, 3, "2026-10 的 POSTED 应有 3 张");
+        let (rows, _total) = voucher_page(&filter).await.expect("状态筛选");
+        assert_eq!(p2d1_count(&rows), 3, "2026-10 的 POSTED 应有 3 张");
         assert!(rows.iter().all(|row| row.status == "POSTED"));
-        // 来源类型：本夹具全是 STOCK_IN；换成 MANUAL 应 0 行。
+        // 来源类型：本夹具全是 STOCK_IN；换成 MANUAL 应 0 行（同样只数本夹具的行）。
         let filter = VoucherFilter {
             source_type: Some("MANUAL".to_string()),
             page: 1,
-            page_size: 50,
+            page_size: 200,
             ..VoucherFilter::default()
         };
-        let (_, total) = voucher_page(&filter).await.expect("来源筛选");
-        assert_eq!(total, 0, "没有 MANUAL 来源的 P2D1 凭证");
+        let (rows, _total) = voucher_page(&filter).await.expect("来源筛选");
+        assert_eq!(p2d1_count(&rows), 0, "没有 MANUAL 来源的 P2D1 凭证");
         // 凭证号模糊：P2D1-0002（含红冲它的 0005 之外只应命中 1 张）。
         let filter = VoucherFilter {
             voucher_no: Some("P2D1-0002".to_string()),

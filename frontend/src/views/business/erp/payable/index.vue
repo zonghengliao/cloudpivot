@@ -49,8 +49,8 @@
           <span class="panel-head__title">应付单</span>
           <span class="panel-head__meta" data-testid="payable-meta">共 {{ total }} 条</span>
         </div>
-        <!-- ★ 本批只读：付款是第 2 批，界面上把这件事写明白，省得财务来问「为什么不能付」 -->
-        <span class="panel-head__tip">本批只读：付款 / 核销在批次 2 开放</span>
+        <!-- ★ P7：付款 / 作废已开放（不再是只读页） -->
+        <span class="panel-head__tip">付款可多次登记（部分付款）；只有「未付且一分未付」的单能作废</span>
       </div>
 
       <t-alert
@@ -138,9 +138,27 @@
         </template>
 
         <template #op="{ row }">
-          <t-link theme="primary" :data-testid="`btn-payable-view-${row.payable_no}`" @click="openDetail(row)">
-            查看
-          </t-link>
+          <div class="op-cell">
+            <t-link theme="primary" :data-testid="`btn-payable-view-${row.payable_no}`" @click="openDetail(row)">
+              查看
+            </t-link>
+            <t-link
+              v-if="canPay(row)"
+              theme="primary"
+              :data-testid="`btn-payable-pay-${row.payable_no}`"
+              @click="openPay(row)"
+            >
+              付款
+            </t-link>
+            <t-link
+              v-if="canCancel(row)"
+              theme="danger"
+              :data-testid="`btn-payable-cancel-${row.payable_no}`"
+              @click="openCancel(row)"
+            >
+              作废
+            </t-link>
+          </div>
         </template>
 
         <template #empty>
@@ -237,10 +255,125 @@
             </div>
           </div>
 
-          <p class="drawer-note">本批只读：付款登记 / 核销在批次 2 开放，本页不提供任何写操作。</p>
+          <!-- ★ P7：付款记录时间线（部分付款 → 多条） -->
+          <div class="payments" data-testid="payable-payments">
+            <div class="payments__head">
+              <span class="payments__title">付款记录</span>
+              <span class="payments__meta" data-testid="payable-payments-count">
+                共 {{ detail.payments?.length ?? 0 }} 笔
+              </span>
+            </div>
+            <t-timeline v-if="(detail.payments?.length ?? 0) > 0" class="payments__body">
+              <t-timeline-item
+                v-for="item in detail.payments"
+                :key="item.id"
+                :label="shortDate(item.pay_date)"
+                :data-testid="`payable-payment-${item.payment_no}`"
+              >
+                <div class="payment-row">
+                  <span class="money">{{ formatMoney(item.amount) }}</span>
+                  <span class="mono muted">{{ item.payment_no }}</span>
+                  <span class="muted">{{ item.pay_method || '—' }}</span>
+                  <span v-if="item.voucher_no" class="mono muted">凭证 {{ item.voucher_no }}</span>
+                </div>
+                <div v-if="item.remark" class="payment-row__remark">{{ item.remark }}</div>
+              </t-timeline-item>
+            </t-timeline>
+            <p v-else class="payments__empty" data-testid="payable-payments-empty">
+              还没有付款记录（未付 {{ formatMoney(unpaidOf(detail)) }}）
+            </p>
+          </div>
+
+          <p v-if="canCancel(detail) || canPay(detail)" class="drawer-note">
+            可直接在行上「付款 / 作废」；付款会同时生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证。
+          </p>
         </div>
       </div>
     </t-drawer>
+
+    <!-- ==================== ④ 付款弹窗（可多次，部分付款） ==================== -->
+    <t-dialog
+      v-model:visible="payVisible"
+      header="登记付款"
+      width="520px"
+      :confirm-btn="{ content: '确认付款', loading: paySubmitting, theme: 'primary' }"
+      :close-on-overlay-click="!paySubmitting"
+      data-testid="payable-pay-dialog"
+      @confirm="submitPay"
+    >
+      <div v-if="payTarget" class="dialog-body">
+        <div class="dialog-meta">
+          <span class="mono">{{ payTarget.payable_no }}</span>
+          <span class="muted">未付余额 {{ formatMoney(unpaidOf(payTarget)) }}</span>
+        </div>
+        <t-form label-align="top">
+          <t-form-item label="本次付款金额（元）" required-mark>
+            <t-input-number
+              v-model="payForm.amount"
+              theme="normal"
+              :min="0"
+              :decimal-places="2"
+              :step="0.01"
+              placeholder="默认 = 未付余额"
+              data-testid="payable-pay-amount"
+            />
+            <p class="form-tip">
+              未付余额 {{ formatMoney(unpaidOf(payTarget)) }}；
+              一次性付完即结清（SETTLED），否则转「部分已付」。
+            </p>
+          </t-form-item>
+          <t-form-item label="付款日期">
+            <t-input v-model="payForm.pay_date" placeholder="YYYY-MM-DD（留空 = 今天）" data-testid="payable-pay-date" />
+          </t-form-item>
+          <t-form-item label="付款方式">
+            <t-select
+              v-model="payForm.pay_method"
+              :options="payMethodOptions"
+              clearable
+              placeholder="银行转账 / 支票 / 现金"
+              data-testid="payable-pay-method"
+            />
+          </t-form-item>
+          <t-form-item label="备注">
+            <t-input v-model="payForm.remark" placeholder="选填" data-testid="payable-pay-remark" />
+          </t-form-item>
+        </t-form>
+        <t-alert v-if="payError" theme="error" :message="payError" data-testid="payable-pay-error" />
+      </div>
+    </t-dialog>
+
+    <!-- ==================== ⑤ 作废弹窗（原因必填） ==================== -->
+    <t-dialog
+      v-model:visible="cancelVisible"
+      header="作废应付单"
+      theme="warning"
+      width="480px"
+      :confirm-btn="{ content: '确认作废', loading: cancelSubmitting, theme: 'danger' }"
+      :close-on-overlay-click="!cancelSubmitting"
+      data-testid="payable-cancel-dialog"
+      @confirm="submitCancel"
+    >
+      <div v-if="cancelTarget" class="dialog-body">
+        <div class="dialog-meta">
+          <span class="mono">{{ cancelTarget.payable_no }}</span>
+          <span class="muted">应付 {{ formatMoney(cancelTarget.amount) }}</span>
+        </div>
+        <t-form label-align="top">
+          <t-form-item label="作废原因" required-mark>
+            <t-input
+              v-model="cancelForm.reason"
+              placeholder="例如：重复入库 / 供应商取消订单"
+              data-testid="payable-cancel-reason"
+            />
+          </t-form-item>
+        </t-form>
+        <p class="form-tip">
+          只有「未付（OPEN）且一分钱都没付」的单能作废；已付过款的请走付款冲销。
+          作废会同时红冲这张应付单的进项凭证。
+        </p>
+        <t-alert v-if="cancelError" theme="error" :message="cancelError" data-testid="payable-cancel-error" />
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -267,7 +400,7 @@
  * 接口按架构文档 §1888 的契约上线后，本页**不需要改一行**。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
-import type { PrimaryTableCol } from 'tdesign-vue-next';
+import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import {
   fetchPayablePage,
@@ -275,6 +408,12 @@ import {
   type PayableRow,
   type Supplier,
 } from '@/api/business/erp';
+import {
+  cancelPayable,
+  fetchPayableDetail,
+  payPayable,
+  type PayableDetail,
+} from './payable-write-api';
 import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
@@ -290,7 +429,7 @@ import {
   unpaidOf,
   type PayableFilterState,
 } from './payable-logic';
-import { dash, formatMoney, shortDate, shortId } from '../shared/money';
+import { dash, formatCents, formatMoney, shortDate, shortId, toCents, toNumber } from '../shared/money';
 
 /** 主数据下拉一次拉多少（种子规模下够用；上千条应该走远端搜索） */
 const OPTION_LIMIT = 200;
@@ -428,12 +567,162 @@ function handlePageChange(pageInfo: { current?: number }): void {
 // ==================== 详情 ====================
 
 const detailVisible = ref(false);
-const detail = ref<PayableRow | null>(null);
+const detailLoading = ref(false);
+const detail = ref<PayableDetail | null>(null);
 
-/** 打开详情（列表行已经带全字段，不再多打一次接口 —— 该接口本来也还没上线） */
-function openDetail(row: PayableRow): void {
-  detail.value = row;
+/**
+ * 打开详情：**走接口**（`GET /payable/{id}`）而不是直接复用列表行。
+ *
+ * 列表行没有 `payments`（付款记录时间线），而抽屉要显示「谁在什么时候付了多少」。
+ * 详情接口失败不关抽屉：单头仍可看（用列表行占位）。
+ */
+async function openDetail(row: PayableRow): Promise<void> {
+  detail.value = { ...row, voucher_no: null, payments: [] };
   detailVisible.value = true;
+  detailLoading.value = true;
+  try {
+    detail.value = await fetchPayableDetail(row.id);
+  } catch (error) {
+    void MessagePlugin.error(messageOf(error));
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+// ==================== 付款 / 作废（P7） ====================
+
+/** 可付款：未付 / 部分已付（后端同样按这个口径判 409）。 */
+function canPay(row: PayableRow | null): boolean {
+  if (!row) {
+    return false;
+  }
+  return row.status === 'OPEN' || row.status === 'PARTIAL_PAID';
+}
+
+/** 可作废：未付（OPEN）且一分钱都没付（后端同样按这个口径判 409）。 */
+function canCancel(row: PayableRow | null): boolean {
+  if (!row) {
+    return false;
+  }
+  return row.status === 'OPEN' && toNumber(row.paid_amount) === 0;
+}
+
+const payMethodOptions = [
+  { label: '银行转账', value: '银行转账' },
+  { label: '支票', value: '支票' },
+  { label: '现金', value: '现金' },
+  { label: '承兑汇票', value: '承兑汇票' },
+];
+
+const payVisible = ref(false);
+const paySubmitting = ref(false);
+const payError = ref('');
+const payTarget = ref<PayableRow | null>(null);
+const payForm = reactive({ amount: 0, pay_date: '', pay_method: '', remark: '' });
+
+const cancelVisible = ref(false);
+const cancelSubmitting = ref(false);
+const cancelError = ref('');
+const cancelTarget = ref<PayableRow | null>(null);
+const cancelForm = reactive({ reason: '' });
+
+/** 打开付款弹窗：金额默认 = 未付余额（一次付完即可结清）。 */
+function openPay(row: PayableRow): void {
+  payTarget.value = row;
+  payError.value = '';
+  payForm.amount = toNumber(unpaidOf(row));
+  payForm.pay_date = '';
+  payForm.pay_method = '';
+  payForm.remark = '';
+  payVisible.value = true;
+}
+
+/** 打开作废弹窗。 */
+function openCancel(row: PayableRow): void {
+  cancelTarget.value = row;
+  cancelError.value = '';
+  cancelForm.reason = '';
+  cancelVisible.value = true;
+}
+
+/** 本次付款金额（前端先做一次「> 0 且不超过未付」的礼貌校验，后端仍会兜底）。 */
+function validatePay(): string {
+  const target = payTarget.value;
+  if (!target) {
+    return '未选择应付单';
+  }
+  const cents = toCents(payForm.amount);
+  if (cents <= 0) {
+    return '本次付款金额必须大于 0';
+  }
+  const unpaid = toCents(unpaidOf(target));
+  if (cents > unpaid) {
+    return `本次付款 ${formatCents(cents)} 超过未付余额 ${formatCents(unpaid)}`;
+  }
+  if (payForm.pay_date && !/^\d{4}-\d{2}-\d{2}$/.test(payForm.pay_date.trim())) {
+    return '付款日期必须是 YYYY-MM-DD（或留空 = 今天）';
+  }
+  return '';
+}
+
+/** 提交付款。 */
+async function submitPay(): Promise<void> {
+  const target = payTarget.value;
+  if (!target || paySubmitting.value) {
+    return;
+  }
+  const problem = validatePay();
+  if (problem) {
+    payError.value = problem;
+    return;
+  }
+  paySubmitting.value = true;
+  payError.value = '';
+  try {
+    const updated = await payPayable(target.id, {
+      amount: (toCents(payForm.amount) / 100).toFixed(4),
+      pay_date: payForm.pay_date.trim() || null,
+      pay_method: payForm.pay_method || null,
+      remark: payForm.remark.trim() || null,
+    });
+    payVisible.value = false;
+    void MessagePlugin.success(
+      `付款成功：${updated.payable_no} 当前状态「${payableStatusLabel(updated.status)}」`,
+    );
+    // 列表刷新（未付金额 / 状态都变了），抽屉里也换成最新单头
+    detail.value = updated;
+    void loadPayables();
+  } catch (error) {
+    payError.value = messageOf(error);
+  } finally {
+    paySubmitting.value = false;
+  }
+}
+
+/** 提交作废。 */
+async function submitCancel(): Promise<void> {
+  const target = cancelTarget.value;
+  if (!target || cancelSubmitting.value) {
+    return;
+  }
+  const reason = cancelForm.reason.trim();
+  if (!reason) {
+    cancelError.value = '作废原因必填（会计上作废必须留痕）';
+    return;
+  }
+  cancelSubmitting.value = true;
+  cancelError.value = '';
+  try {
+    const updated = await cancelPayable(target.id, reason);
+    cancelVisible.value = false;
+    void MessagePlugin.success(`已作废：${updated.payable_no}`);
+    detail.value = updated;
+    void loadPayables();
+  } catch (error) {
+    cancelError.value = messageOf(error);
+  } finally {
+    cancelSubmitting.value = false;
+  }
 }
 
 onMounted(() => {
@@ -630,5 +919,85 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 20px;
+}
+
+/* ==================== 操作列 / 付款记录 / 弹窗（P7） ==================== */
+
+.op-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.payments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.payments__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--td-component-stroke);
+}
+
+.payments__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
+
+.payments__meta {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.payments__body {
+  padding-left: 4px;
+}
+
+.payments__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.payment-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.payment-row__remark {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialog-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--td-bg-color-container-hover);
+  font-size: 13px;
+}
+
+.form-tip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-color-placeholder);
 }
 </style>

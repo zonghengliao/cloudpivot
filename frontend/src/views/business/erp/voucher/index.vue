@@ -7,6 +7,10 @@
           <template #icon><t-icon name="refresh" /></template>
           刷新
         </t-button>
+        <t-button theme="primary" data-testid="btn-voucher-create" @click="openCreate">
+          <template #icon><t-icon name="add" /></template>
+          新增凭证
+        </t-button>
 
         <span class="tool-row__spacer" />
 
@@ -89,6 +93,22 @@
             </span>
             <!-- 红字凭证：借贷互换 + is_red=1，金额仍是正数（库 CHECK 禁负数），必须标出来 -->
             <t-tag v-if="row.is_red" size="small" variant="light" theme="danger">红字</t-tag>
+            <!-- ★ P7：红字凭证要说清它冲的是哪张（否则列表里两张同额凭证谁也分不清） -->
+            <span
+              v-if="row.is_red && row.reverse_of_no"
+              class="linked muted"
+              :data-testid="`voucher-reverse-of-${row.voucher_no}`"
+            >
+              红冲 {{ row.reverse_of_no }}
+            </span>
+            <!-- ★ P7：原凭证被红冲过 → 指向红字凭证 -->
+            <span
+              v-if="!row.is_red && row.reversed_by_no"
+              class="linked muted"
+              :data-testid="`voucher-reversed-by-${row.voucher_no}`"
+            >
+              已红冲 → {{ row.reversed_by_no }}
+            </span>
           </div>
         </template>
 
@@ -135,9 +155,19 @@
         </template>
 
         <template #op="{ row }">
-          <t-link theme="primary" :data-testid="`btn-voucher-view-${row.voucher_no}`" @click.stop="openDetail(row)">
-            查看
-          </t-link>
+          <div class="op-cell">
+            <t-link theme="primary" :data-testid="`btn-voucher-view-${row.voucher_no}`" @click.stop="openDetail(row)">
+              查看
+            </t-link>
+            <t-link
+              v-if="canReverse(row)"
+              theme="danger"
+              :data-testid="`btn-voucher-reverse-${row.voucher_no}`"
+              @click.stop="openReverse(row)"
+            >
+              红冲
+            </t-link>
+          </div>
         </template>
 
         <template #empty>
@@ -207,6 +237,24 @@
               <span class="field__label">分录行数</span>
               <span class="field__value">{{ detail.entries.length }} 行</span>
             </div>
+            <!-- ★ P7：红字凭证 / 被红冲的反向指针 -->
+            <div v-if="detail.is_red" class="field">
+              <span class="field__label">红冲的原凭证</span>
+              <span class="field__value mono" data-testid="voucher-detail-reverse-of">
+                {{ dash(detail.reverse_of_no) }}
+              </span>
+            </div>
+            <div v-if="detail.reversed_by_no" class="field">
+              <span class="field__label">已被红冲（红字凭证）</span>
+              <t-link
+                theme="primary"
+                class="mono"
+                data-testid="voucher-detail-reversed-by"
+                @click="openById(detail.reversed_by)"
+              >
+                {{ detail.reversed_by_no }}
+              </t-link>
+            </div>
           </div>
 
           <t-table
@@ -269,6 +317,147 @@
         </t-loading>
       </div>
     </t-drawer>
+
+    <!-- ==================== ④ 红冲弹窗（原因必填） ==================== -->
+    <t-dialog
+      v-model:visible="reverseVisible"
+      header="红冲凭证"
+      theme="warning"
+      width="520px"
+      :confirm-btn="{ content: '确认红冲', loading: reverseSubmitting, theme: 'danger' }"
+      :close-on-overlay-click="!reverseSubmitting"
+      data-testid="voucher-reverse-dialog"
+      @confirm="submitReverse"
+    >
+      <div v-if="reverseTarget" class="dialog-body">
+        <div class="dialog-meta">
+          <span class="mono">{{ reverseTarget.voucher_no }}</span>
+          <span class="muted">
+            借 {{ formatMoney(reverseTarget.total_debit) }} / 贷 {{ formatMoney(reverseTarget.total_credit) }}
+          </span>
+        </div>
+        <t-form label-align="top">
+          <t-form-item label="红冲原因" required-mark>
+            <t-input
+              v-model="reverseForm.reason"
+              placeholder="例如：录错科目 / 重复记账"
+              data-testid="voucher-reverse-reason"
+            />
+          </t-form-item>
+        </t-form>
+        <p class="form-tip">
+          红冲会生成一张「红字凭证」（借贷互换、金额仍为正、独立号段 PZR），
+          原凭证状态保持「已记账」，只记录它被哪张红字凭证冲掉。
+        </p>
+        <t-alert v-if="reverseError" theme="error" :message="reverseError" data-testid="voucher-reverse-error" />
+      </div>
+    </t-dialog>
+
+    <!-- ==================== ⑤ 新增凭证（分录编辑器 + 实时平衡校验） ==================== -->
+    <t-dialog
+      v-model:visible="createVisible"
+      header="新增手工凭证"
+      width="880px"
+      :confirm-btn="{
+        content: '保存并记账',
+        loading: createSubmitting,
+        theme: 'primary',
+        disabled: !createBalanced,
+      }"
+      :close-on-overlay-click="!createSubmitting"
+      data-testid="voucher-create-dialog"
+      @confirm="submitCreate"
+    >
+      <div class="dialog-body">
+        <t-form label-align="top">
+          <div class="form-row">
+            <t-form-item label="凭证日期">
+              <t-input v-model="createForm.voucher_date" placeholder="YYYY-MM-DD（留空 = 今天）" data-testid="voucher-create-date" />
+            </t-form-item>
+            <t-form-item label="摘要" required-mark class="form-row__grow">
+              <t-input v-model="createForm.summary" placeholder="例如：计提本月折旧" data-testid="voucher-create-summary" />
+            </t-form-item>
+          </div>
+        </t-form>
+
+        <t-table
+          class="entry-editor"
+          row-key="key"
+          :data="createForm.entries"
+          :columns="editorColumns"
+          size="small"
+          bordered
+          data-testid="voucher-create-entries"
+        >
+          <template #account_id="{ row }">
+            <t-select
+              v-model="row.account_id"
+              :options="accountOptions"
+              filterable
+              placeholder="选科目（末级）"
+              :data-testid="`voucher-create-account-${row.key}`"
+            />
+          </template>
+          <template #debit="{ row }">
+            <t-input-number
+              v-model="row.debit"
+              theme="normal"
+              :min="0"
+              :decimal-places="2"
+              :step="0.01"
+              placeholder="借方"
+              :data-testid="`voucher-create-debit-${row.key}`"
+              @change="row.credit = 0"
+            />
+          </template>
+          <template #credit="{ row }">
+            <t-input-number
+              v-model="row.credit"
+              theme="normal"
+              :min="0"
+              :decimal-places="2"
+              :step="0.01"
+              placeholder="贷方"
+              :data-testid="`voucher-create-credit-${row.key}`"
+              @change="row.debit = 0"
+            />
+          </template>
+          <template #summary="{ row }">
+            <t-input v-model="row.summary" placeholder="留空继承单头摘要" />
+          </template>
+          <template #op="{ row }">
+            <t-link
+              theme="danger"
+              :disabled="createForm.entries.length <= 2"
+              :data-testid="`voucher-create-remove-${row.key}`"
+              @click="removeEntry(row.key)"
+            >
+              删除
+            </t-link>
+          </template>
+        </t-table>
+
+        <div class="editor-foot">
+          <t-button variant="outline" size="small" data-testid="voucher-create-add-row" @click="addEntry">
+            加一行
+          </t-button>
+          <span class="editor-foot__spacer" />
+          <span class="muted">借方合计</span>
+          <span class="money" data-testid="voucher-create-total-debit">{{ formatCents(createTotals.debitCents) }}</span>
+          <span class="muted">贷方合计</span>
+          <span class="money" data-testid="voucher-create-total-credit">{{ formatCents(createTotals.creditCents) }}</span>
+          <t-tag :theme="createBalanced ? 'success' : 'danger'" size="small" data-testid="voucher-create-balance">
+            {{ createBalanced ? '借贷平衡' : `差额 ${formatCents(createTotals.diffCents)}` }}
+          </t-tag>
+        </div>
+
+        <p class="form-tip">
+          手工凭证保存即记账（status = POSTED，与自动凭证同口径）；期间必须是「已开启」，
+          借贷不平衡时保存按钮不可用（后端同样会 400 并点名差额）。
+        </p>
+        <t-alert v-if="createError" theme="error" :message="createError" data-testid="voucher-create-error" />
+      </div>
+    </t-dialog>
   </div>
 </template>
 
@@ -300,12 +489,20 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import {
+  fetchAccountOptions,
   fetchVoucherDetail,
   fetchVoucherPage,
-  type VoucherDetail,
+  type AccountRow,
   type VoucherEntryLine,
   type VoucherRow,
 } from '@/api/business/erp';
+import {
+  createVoucher,
+  reverseVoucher,
+  type CreateVoucherReq,
+  type VoucherDetailEx,
+  type VoucherRowEx,
+} from './voucher-write-api';
 import {
   VOUCHER_PAGE_SIZE,
   VOUCHER_STATUS_FILTER_OPTIONS,
@@ -353,7 +550,7 @@ const typeFilterOptions = VOUCHER_TYPE_FILTER_OPTIONS.map((item) => ({ ...item }
 // ==================== 列表 ====================
 
 const filter = reactive<VoucherFilterState>(emptyVoucherFilter());
-const rows = ref<VoucherRow[]>([]);
+const rows = ref<VoucherRowEx[]>([]);
 const total = ref(0);
 const current = ref(1);
 const pageSize = VOUCHER_PAGE_SIZE;
@@ -384,7 +581,9 @@ async function loadVouchers(page: number = current.value): Promise<void> {
   loadError.value = '';
   try {
     const data = await fetchVoucherPage(buildVoucherQuery(filter, page, pageSize));
-    rows.value = data.list ?? [];
+    // 后端多给 `reverse_of_no` / `reversed_by_no`（P7），api 层的 VoucherRow 还没声明
+    // （那个文件是全 ERP 共用契约，本卡不动），这里按扩展类型收。
+    rows.value = (data.list ?? []) as VoucherRowEx[];
     total.value = data.total ?? 0;
     const rawPage = data.page ?? page;
     const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
@@ -425,17 +624,25 @@ function handleRowClick(context: { row: unknown }): void {
 
 const detailVisible = ref(false);
 const detailLoading = ref(false);
-const detail = ref<VoucherDetail | null>(null);
+const detail = ref<VoucherDetailEx | null>(null);
 
 /** 空凭证（打开抽屉的占位，避免下一帧读到上一张凭证的合计） */
-function emptyDetail(row: VoucherRow): VoucherDetail {
+function emptyDetail(row: VoucherRow): VoucherDetailEx {
+  const extended = row as VoucherRowEx;
   return {
-    ...row,
+    ...extended,
+    reverse_of_no: extended.reverse_of_no ?? null,
+    reversed_by_no: extended.reversed_by_no ?? null,
     entries: [] as VoucherEntryLine[],
     entry_total_debit: 0,
     entry_total_credit: 0,
     balanced: true,
   };
+}
+
+/** 详情接口：api 层类型还没声明 `reverse_of_no` / `reversed_by_no`（共用契约文件本卡不动），按扩展类型收。 */
+async function loadDetailEx(id: string): Promise<VoucherDetailEx> {
+  return (await fetchVoucherDetail(id)) as VoucherDetailEx;
 }
 
 /**
@@ -449,9 +656,24 @@ async function openDetail(row: VoucherRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   try {
-    detail.value = await fetchVoucherDetail(row.id);
+    detail.value = await loadDetailEx(row.id);
   } catch (error) {
     // 详情失败不关抽屉：单头仍可看，分录位置给出原因
+    void MessagePlugin.error(messageOf(error));
+  } finally {
+    detailLoading.value = false;
+  }
+}
+
+/** 按 id 打开另一张凭证（详情里「已红冲 → PZR-xxx」的跳转）。 */
+async function openById(id: string | null): Promise<void> {
+  if (!id) {
+    return;
+  }
+  detailLoading.value = true;
+  try {
+    detail.value = await loadDetailEx(id);
+  } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
     detailLoading.value = false;
@@ -469,6 +691,195 @@ const balance = computed(() =>
 
 /** 合计行样式类（平 = 绿，不平 = 红） */
 const balanceClass = computed(() => (balance.value.balanced ? 'balance--ok' : 'balance--bad'));
+
+// ==================== 红冲（P7） ====================
+
+/** 可红冲：已记账（POSTED）、不是红字凭证、且没被红冲过。 */
+function canReverse(row: VoucherRowEx | null): boolean {
+  if (!row) {
+    return false;
+  }
+  return row.status === 'POSTED' && !row.is_red && !row.reversed_by_no && !row.reversed_by;
+}
+
+const reverseVisible = ref(false);
+const reverseSubmitting = ref(false);
+const reverseError = ref('');
+const reverseTarget = ref<VoucherRowEx | null>(null);
+const reverseForm = reactive({ reason: '' });
+
+function openReverse(row: VoucherRow): void {
+  reverseTarget.value = row as VoucherRowEx;
+  reverseForm.reason = '';
+  reverseError.value = '';
+  reverseVisible.value = true;
+}
+
+/** 提交红冲：成功后抽屉/列表刷新到红字凭证。 */
+async function submitReverse(): Promise<void> {
+  const target = reverseTarget.value;
+  if (!target || reverseSubmitting.value) {
+    return;
+  }
+  const reason = reverseForm.reason.trim();
+  if (!reason) {
+    reverseError.value = '红冲原因必填';
+    return;
+  }
+  reverseSubmitting.value = true;
+  reverseError.value = '';
+  try {
+    const red = await reverseVoucher(target.id, reason);
+    reverseVisible.value = false;
+    void MessagePlugin.success(`已红冲：生成红字凭证 ${red.voucher_no}`);
+    void loadVouchers();
+    // 直接把抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
+    detail.value = red;
+    detailVisible.value = true;
+  } catch (error) {
+    reverseError.value = messageOf(error);
+  } finally {
+    reverseSubmitting.value = false;
+  }
+}
+
+// ==================== 新增手工凭证（P7） ====================
+
+/** 分录编辑行（`key` 只用于表格 row-key，不进请求体）。 */
+interface EditorRow {
+  key: number;
+  account_id: string;
+  debit: number;
+  credit: number;
+  summary: string;
+}
+
+let editorSeq = 0;
+
+function newEditorRow(): EditorRow {
+  editorSeq += 1;
+  return { key: editorSeq, account_id: '', debit: 0, credit: 0, summary: '' };
+}
+
+const createVisible = ref(false);
+const createSubmitting = ref(false);
+const createError = ref('');
+const createForm = reactive({
+  voucher_date: '',
+  summary: '',
+  entries: [newEditorRow(), newEditorRow()] as EditorRow[],
+});
+
+const accounts = ref<AccountRow[]>([]);
+/** 科目下拉：只给启用中的**末级**科目（非末级记账不合法，后端也会按 id 取快照但语义上不该选）。 */
+const accountOptions = computed(() =>
+  accounts.value
+    .filter((item) => item.status === 1 && item.is_leaf)
+    .map((item) => ({ label: `${item.account_code} ${item.account_name}`, value: item.id })),
+);
+
+const editorColumns: PrimaryTableCol[] = [
+  { colKey: 'account_id', title: '科目', minWidth: 240 },
+  { colKey: 'debit', title: '借方金额', width: 150 },
+  { colKey: 'credit', title: '贷方金额', width: 150 },
+  { colKey: 'summary', title: '分录摘要', minWidth: 180 },
+  { colKey: 'op', title: '操作', width: 80, align: 'center' },
+];
+
+/** 实时合计（整数分，避免浮点误差把「平」算成「不平」）。 */
+const createTotals = computed(() => {
+  let debitCents = 0;
+  let creditCents = 0;
+  for (const row of createForm.entries) {
+    debitCents += toCents(row.debit);
+    creditCents += toCents(row.credit);
+  }
+  return {
+    debitCents,
+    creditCents,
+    diffCents: debitCents - creditCents,
+  };
+});
+
+/** 借贷平衡且非零：不平衡时「保存并记账」按钮禁用（卡面 §二 ③）。 */
+const createBalanced = computed(
+  () => createTotals.value.diffCents === 0 && createTotals.value.debitCents > 0,
+);
+
+async function openCreate(): Promise<void> {
+  createError.value = '';
+  createForm.voucher_date = '';
+  createForm.summary = '';
+  createForm.entries = [newEditorRow(), newEditorRow()];
+  createVisible.value = true;
+  if (accounts.value.length === 0) {
+    accounts.value = await fetchAccountOptions().catch(() => [] as AccountRow[]);
+  }
+}
+
+function addEntry(): void {
+  createForm.entries.push(newEditorRow());
+}
+
+function removeEntry(key: number): void {
+  if (createForm.entries.length <= 2) {
+    return;
+  }
+  createForm.entries = createForm.entries.filter((row) => row.key !== key);
+}
+
+/** 提交手工凭证。 */
+async function submitCreate(): Promise<void> {
+  if (createSubmitting.value) {
+    return;
+  }
+  const summary = createForm.summary.trim();
+  if (!summary) {
+    createError.value = '摘要必填';
+    return;
+  }
+  if (!createBalanced.value) {
+    createError.value = `借贷不平衡（差额 ${formatCents(createTotals.value.diffCents)}），不能保存`;
+    return;
+  }
+  const missing = createForm.entries.findIndex((row) => !row.account_id);
+  if (missing >= 0) {
+    createError.value = `第 ${missing + 1} 行还没选科目`;
+    return;
+  }
+  const dateText = createForm.voucher_date.trim();
+  if (dateText && !/^\d{4}-\d{2}-\d{2}$/.test(dateText)) {
+    createError.value = '凭证日期必须是 YYYY-MM-DD（或留空 = 今天）';
+    return;
+  }
+
+  const body: CreateVoucherReq = {
+    voucher_date: dateText || null,
+    summary,
+    entries: createForm.entries.map((row) => ({
+      account_id: row.account_id,
+      debit: (toCents(row.debit) / 100).toFixed(4),
+      credit: (toCents(row.credit) / 100).toFixed(4),
+      summary: row.summary.trim() || null,
+    })),
+    remark: null,
+  };
+
+  createSubmitting.value = true;
+  createError.value = '';
+  try {
+    const created = await createVoucher(body);
+    createVisible.value = false;
+    void MessagePlugin.success(`已生成凭证 ${created.voucher_no}`);
+    void loadVouchers(1);
+    detail.value = created;
+    detailVisible.value = true;
+  } catch (error) {
+    createError.value = messageOf(error);
+  } finally {
+    createSubmitting.value = false;
+  }
+}
 
 onMounted(() => {
   void loadVouchers(1);
@@ -719,5 +1130,65 @@ onMounted(() => {
 
 .balance-alert {
   margin-top: 12px;
+}
+
+/* ==================== 操作列 / 关联凭证 / 弹窗（P7） ==================== */
+
+.op-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.linked {
+  font-size: 12px;
+}
+
+.dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dialog-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  background: var(--td-bg-color-container-hover);
+  font-size: 13px;
+}
+
+.form-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.form-row__grow {
+  flex: 1 1 auto;
+}
+
+.form-tip {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-color-placeholder);
+}
+
+.entry-editor {
+  margin-top: 4px;
+}
+
+.editor-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 4px 0;
+}
+
+.editor-foot__spacer {
+  flex: 1 1 auto;
 }
 </style>

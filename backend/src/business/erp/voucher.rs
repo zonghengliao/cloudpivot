@@ -89,8 +89,18 @@ pub const SOURCE_STOCK_IN: &str = "STOCK_IN";
 pub const BIZ_TYPE_PURCHASE_IN: &str = "PURCHASE_IN";
 /// 凭证类型：自动生成。
 pub const VOUCHER_TYPE_AUTO: &str = "AUTO";
+/// 凭证类型：手工录入（P7）。
+pub const VOUCHER_TYPE_MANUAL: &str = "MANUAL";
+/// 凭证来源类型：付款登记（P7，`biz_payment`）。
+pub const SOURCE_PAYMENT: &str = "PAYMENT";
+/// 凭证来源类型：手工录入（P7）。
+pub const SOURCE_MANUAL: &str = "MANUAL";
 /// 凭证状态：已记账（自动凭证直接进总账，PRD §3.3.3）。
 pub const STATUS_POSTED: &str = "POSTED";
+/// 会计期间状态：已结账（结账后不允许再红冲 / 记账）。
+pub const PERIOD_CLOSED: &str = "CLOSED";
+/// 会计期间状态：已开启（手工凭证只允许记到 OPEN 期间）。
+pub const PERIOD_OPEN: &str = "OPEN";
 /// 红字标记。
 pub const IS_RED_YES: i16 = 1;
 /// 蓝字标记。
@@ -221,6 +231,28 @@ pub async fn next_voucher_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbRes
     next_doc_no(ex, &VOUCHER_SEQ, now).await
 }
 
+/// 红字凭证号前缀（`PZR-yyyyMMdd-000001`）。
+///
+/// **独立号段**（卡面 §二 ③）：红字凭证不能和蓝字凭证抢同一段 `biz_seq`，
+/// 否则「今天最后一张蓝字凭证」与「今天第一张红字凭证」的号码语义混在一起，
+/// 月末按号段排查「今天记了几张凭证 / 红冲了几张」就说不清。
+pub const RED_NO_PREFIX: &str = "PZR";
+/// 红字号段的 `biz_seq.seq_type`。
+pub const RED_SEQ_TYPE: &str = "PZR";
+
+/// 红字凭证取号规则。
+pub const RED_VOUCHER_SEQ: SeqSpec<'static> = SeqSpec {
+    seq_type: RED_SEQ_TYPE,
+    prefix: RED_NO_PREFIX,
+    seq_name: "红字凭证号",
+    remark: "红字凭证号：PZR-yyyyMMdd-000001，按天（CST）滚动（独立于 PZ 号段）",
+};
+
+/// 取一个红字凭证号。
+pub async fn next_red_voucher_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult<String> {
+    next_doc_no(ex, &RED_VOUCHER_SEQ, now).await
+}
+
 // ==================== 会计期间 ====================
 
 /// 某日期所属会计期间的 `yyyy-MM`。
@@ -243,6 +275,31 @@ pub async fn period_of(ex: &impl SqlExecutor, date: NaiveDate) -> DbResult<Strin
         Some(row) => row.get_typed("period_code"),
         None => Ok(date.format("%Y-%m").to_string()),
     }
+}
+
+/// 某期间的结账状态（`biz_accounting_period.status`）。
+///
+/// 期间不存在 → `None`（仓库里 `period_of` 对未开期间是 fail-open 的，这里同样不拦）。
+pub async fn period_status(ex: &impl SqlExecutor, period_code: &str) -> DbResult<Option<String>> {
+    // SCOPE-EXEMPT: biz_accounting_period 是全局会计期间字典，没有归属列。
+    let row = ex
+        .query_first_sql(
+            "SELECT status FROM biz_accounting_period WHERE period_code = ?".to_string(),
+            vec![Value::Text(period_code.to_string())],
+        )
+        .await?;
+    match row.as_ref() {
+        Some(row) => Ok(Some(row.get_typed("status")?)),
+        None => Ok(None),
+    }
+}
+
+/// 期间是否已结账（红冲 / 记账的最后一道闸）。
+pub async fn is_period_closed(ex: &impl SqlExecutor, period_code: &str) -> DbResult<bool> {
+    Ok(period_status(ex, period_code)
+        .await?
+        .as_deref()
+        .is_some_and(|status| status == PERIOD_CLOSED))
 }
 
 /// 北京时间「今天」（周期键 `yyyyMMdd` → 日期）。
@@ -316,6 +373,29 @@ fn account_of(row: &Row) -> DbResult<AccountRef> {
         code: row.get_typed("account_code")?,
         name: row.get_typed("account_name")?,
     })
+}
+
+/// 按科目编码取启用中的科目（可空）。
+///
+/// 供付款凭证（2202 / 1002）与手工凭证按 `account_id` 回填编码 / 名称快照复用。
+pub async fn account_by_code(ex: &impl SqlExecutor, code: &str) -> DbResult<Option<AccountRef>> {
+    load_account_by_code(ex, code).await
+}
+
+/// 按科目编码取科目，取不到就报**点名科目编码**的明确错误（卡面 §一 ②：科目不存在要报明确错误）。
+pub async fn account_required(
+    ex: &impl SqlExecutor,
+    code: &str,
+    what: &str,
+) -> DbResult<AccountRef> {
+    load_account_by_code(ex, code)
+        .await?
+        .ok_or_else(|| account_missing(what, &format!("科目编码 {code}")))
+}
+
+/// 按科目 id 取启用中的科目（可空），供手工凭证按 `account_id` 取快照。
+pub async fn account_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<AccountRef>> {
+    load_account_by_id(ex, id).await
 }
 
 /// 一条映射规则（三个科目 id 都已解析成 `AccountRef`；税科目可空）。
@@ -782,6 +862,21 @@ pub async fn find_voucher(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Vo
     row.as_ref().map(VoucherRow::from_row).transpose()
 }
 
+/// 按 id 取凭证并**加行锁**（`SELECT ... FOR UPDATE`，红冲用：防同一张凭证被并发红冲两次）。
+pub async fn find_voucher_locked(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<VoucherRow>> {
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT {VOUCHER_COLUMNS} FROM {TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    row.as_ref().map(VoucherRow::from_row).transpose()
+}
+
 /// 按来源单据取真凭证（`is_red = 0`，取最早一张）。
 pub async fn find_voucher_by_source(
     ex: &impl SqlExecutor,
@@ -892,62 +987,23 @@ pub async fn create_auto(
         )));
     }
 
-    let period = period_of(ex, req.voucher_date).await?;
-    let voucher_no = next_voucher_no(ex, now).await?;
-    let entry_count = i32::try_from(lines.len()).unwrap_or(0);
-
-    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
-    let inserted = ex
-        .query_first_sql(
-            format!(
-                "INSERT INTO {TABLE} \
-                    (voucher_word, voucher_no, period, voucher_date, voucher_type, source_type, \
-                     source_id, source_no, summary, total_debit, total_credit, entry_count, \
-                     status, is_red, reverse_of, posted_at, posted_by, created_at, updated_at, \
-                     create_by, update_by) \
-                 VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
-                         NULLIF(?::text,'')::uuid, ?, NULLIF(?::text,'')::uuid, ?, ?, \
-                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
-                 RETURNING id"
-            ),
-            vec![
-                Value::Text(WORD_DEFAULT.to_string()),
-                Value::Text(voucher_no),
-                Value::Text(period),
-                Value::Text(req.voucher_date.to_string()),
-                Value::Text(VOUCHER_TYPE_AUTO.to_string()),
-                Value::Text(req.source_type.to_string()),
-                Value::Text(req.source_id.to_string()),
-                Value::Text(req.source_no.to_string()),
-                Value::Text(req.summary.clone()),
-                Value::Text(debit.to_string()),
-                Value::Text(credit.to_string()),
-                Value::from(entry_count),
-                Value::Text(STATUS_POSTED.to_string()),
-                Value::I16(IS_RED_NO),
-                Value::Text(String::new()),
-                Value::from(now),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::from(now),
-                Value::from(now),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-            ],
-        )
-        .await?;
-    let voucher_id: Uuid = match inserted.as_ref() {
-        Some(row) => row.get_typed("id")?,
-        None => {
-            return Err(DbError::InvalidValue(format!(
-                "凭证写入失败：INSERT 没有返回 id（单据 {}）",
-                req.source_no
-            )));
-        }
-    };
-
-    write_entries(ex, voucher_id, &lines).await?;
-    Ok(voucher_id)
+    post_voucher(
+        ex,
+        &PostVoucher {
+            voucher_type: VOUCHER_TYPE_AUTO,
+            source_type: req.source_type,
+            source_id: Some(req.source_id),
+            source_no: Some(req.source_no),
+            voucher_date: req.voucher_date,
+            summary: req.summary.clone(),
+            lines,
+            remark: None,
+            red_of: None,
+        },
+        operator,
+        now,
+    )
+    .await
 }
 
 /// 批量写分录（单条语句，行号唯一键冲突即失败）。
@@ -996,6 +1052,235 @@ async fn write_entries(
         .await?;
     }
     Ok(())
+}
+
+/// 落一张凭证的全部入参（自动 / 手工 / 红字**共用同一个写入口**）。
+#[derive(Debug, Clone)]
+pub struct PostVoucher<'a> {
+    /// 凭证类型（`AUTO` / `MANUAL`）。
+    pub voucher_type: &'a str,
+    /// 来源单据类型（`STOCK_IN` / `PAYMENT` / `MANUAL`）。
+    pub source_type: &'a str,
+    /// 来源单据 id（手工凭证为 `None`）。
+    pub source_id: Option<Uuid>,
+    /// 来源单号（手工凭证为 `None`）。
+    pub source_no: Option<&'a str>,
+    /// 凭证日期。
+    pub voucher_date: NaiveDate,
+    /// 凭证摘要。
+    pub summary: String,
+    /// 分录（≥ 2 行、借贷必须平衡）。
+    pub lines: Vec<EntryLine>,
+    /// 备注。
+    pub remark: Option<&'a str>,
+    /// `Some(原凭证 id)` → 落红字凭证（`is_red = 1`、`reverse_of = 原凭证`、走 `PZR` 独立号段）。
+    pub red_of: Option<Uuid>,
+}
+
+/// 落一张凭证 + 它的分录（**不 commit**，由调用方的事务收口）。
+///
+/// 三条写路径（收货自动凭证 / 付款凭证 / 手工凭证）与红冲**共用这一个函数**：
+/// 校验（≥ 2 行、借贷平衡）与落库（主表 + 分录 + 取号）只有一份实现，
+/// 不存在「某条路径忘了校验平衡」的可能。
+pub async fn post_voucher(
+    ex: &impl SqlExecutor,
+    req: &PostVoucher<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    if req.lines.len() < 2 {
+        return Err(DbError::InvalidValue(format!(
+            "凭证生成失败：至少要 2 条分录（当前 {} 行），会计上不构成一张凭证",
+            req.lines.len()
+        )));
+    }
+    let (debit, credit) = totals_of(&req.lines);
+    if debit != credit {
+        let diff = debit - credit;
+        return Err(DbError::InvalidValue(format!(
+            "凭证生成失败：借贷不平衡（借 {debit} / 贷 {credit}，差额 {diff}）"
+        )));
+    }
+    if debit <= Decimal::ZERO {
+        return Err(DbError::InvalidValue(
+            "凭证生成失败：借贷合计为 0，金额全为 0 的单据不构成一张凭证".to_string(),
+        ));
+    }
+
+    let period = period_of(ex, req.voucher_date).await?;
+    let voucher_no = match req.red_of {
+        Some(_) => next_red_voucher_no(ex, now).await?,
+        None => next_voucher_no(ex, now).await?,
+    };
+    let entry_count = i32::try_from(req.lines.len()).unwrap_or(0);
+    let is_red = if req.red_of.is_some() {
+        IS_RED_YES
+    } else {
+        IS_RED_NO
+    };
+    let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
+
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    let inserted = ex
+        .query_first_sql(
+            format!(
+                "INSERT INTO {TABLE} \
+                    (voucher_word, voucher_no, period, voucher_date, voucher_type, source_type, \
+                     source_id, source_no, summary, total_debit, total_credit, entry_count, \
+                     status, is_red, reverse_of, posted_at, posted_by, remark, \
+                     created_at, updated_at, create_by, update_by) \
+                 VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, \
+                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
+                         NULLIF(?::text,'')::uuid, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), \
+                         ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
+                 RETURNING id"
+            ),
+            vec![
+                Value::Text(WORD_DEFAULT.to_string()),
+                Value::Text(voucher_no),
+                Value::Text(period),
+                Value::Text(req.voucher_date.to_string()),
+                Value::Text(req.voucher_type.to_string()),
+                Value::Text(req.source_type.to_string()),
+                Value::Text(req.source_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(req.source_no.unwrap_or_default().to_string()),
+                Value::Text(req.summary.clone()),
+                Value::Text(debit.to_string()),
+                Value::Text(credit.to_string()),
+                Value::from(entry_count),
+                Value::Text(STATUS_POSTED.to_string()),
+                Value::I16(is_red),
+                Value::Text(req.red_of.map(|v| v.to_string()).unwrap_or_default()),
+                Value::from(now),
+                Value::Text(operator_text.clone()),
+                Value::Text(req.remark.unwrap_or_default().to_string()),
+                Value::from(now),
+                Value::from(now),
+                Value::Text(operator_text.clone()),
+                Value::Text(operator_text),
+            ],
+        )
+        .await?;
+    let voucher_id: Uuid = match inserted.as_ref() {
+        Some(row) => row.get_typed("id")?,
+        None => {
+            return Err(DbError::InvalidValue(format!(
+                "凭证写入失败：INSERT 没有返回 id（{}）",
+                req.source_no.unwrap_or("手工凭证")
+            )));
+        }
+    };
+
+    write_entries(ex, voucher_id, &req.lines).await?;
+    Ok(voucher_id)
+}
+
+/// 红冲入参。
+#[derive(Debug, Clone, Copy)]
+pub struct ReversalInput<'a> {
+    /// 红冲原因（写进红字凭证分录摘要与备注）。
+    pub reason: Option<&'a str>,
+    /// 红字凭证日期（业务口径：作废 / 更正当天）。
+    pub voucher_date: NaiveDate,
+}
+
+/// 红冲一张**已记账**凭证：生成红字凭证（借贷互换）+ 回写原凭证 `reversed_by`。
+///
+/// # 校验（卡面 §二 ②）
+///
+/// ```text
+/// ① status 必须 POSTED
+/// ② 本身是红字凭证（is_red = 1）的不能再红冲
+/// ③ 已红冲过（reversed_by 非空）的拒绝，文案点名红字凭证号
+/// ④ 所属期间已结账（CLOSED）的拒绝
+/// ```
+///
+/// 原凭证 `status` **保持 `POSTED`**（与 P2-C1 同口径），只打 `reversed_by`。
+pub async fn reverse_posted(
+    ex: &impl SqlExecutor,
+    original: &VoucherRow,
+    input: ReversalInput<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    if original.is_red == IS_RED_YES {
+        return Err(DbError::InvalidValue(format!(
+            "红冲失败：凭证 {} 本身是红字凭证，红字凭证不能再红冲（要更正请直接补一张蓝字凭证）",
+            original.voucher_no
+        )));
+    }
+    if original.status != STATUS_POSTED {
+        return Err(DbError::InvalidValue(format!(
+            "红冲失败：凭证 {} 当前状态是 {}，只有已记账（POSTED）的凭证能红冲",
+            original.voucher_no, original.status
+        )));
+    }
+    if let Some(red_id) = original.reversed_by {
+        let red_no = find_voucher(ex, red_id)
+            .await?
+            .map(|row| row.voucher_no)
+            .unwrap_or_else(|| red_id.to_string());
+        return Err(DbError::InvalidValue(format!(
+            "红冲失败：该凭证 {} 已经红冲（红字凭证 {red_no}），不能重复红冲",
+            original.voucher_no
+        )));
+    }
+    if is_period_closed(ex, &original.period).await? {
+        return Err(DbError::InvalidValue(format!(
+            "红冲失败：凭证 {} 所属期间 {} 已结账，不能再红冲（请先反结账）",
+            original.voucher_no, original.period
+        )));
+    }
+
+    let entries = entries_of(ex, original.id).await?;
+    if entries.is_empty() {
+        return Err(DbError::InvalidValue(format!(
+            "红冲失败：原凭证 {} 没有任何分录",
+            original.voucher_no
+        )));
+    }
+    let lines = reversed_lines(&entries, input.reason);
+    let summary = format!(
+        "红冲凭证 {} 借贷合计 {}",
+        original.voucher_no, original.total_debit
+    );
+
+    let red_id = post_voucher(
+        ex,
+        &PostVoucher {
+            voucher_type: &original.voucher_type,
+            source_type: &original.source_type,
+            source_id: original.source_id,
+            source_no: original.source_no.as_deref(),
+            voucher_date: input.voucher_date,
+            summary,
+            lines,
+            remark: input.reason.map(str::trim).filter(|text| !text.is_empty()),
+            red_of: Some(original.id),
+        },
+        operator,
+        now,
+    )
+    .await?;
+
+    // 原凭证保持 POSTED（卡面 §二 ②），只打反向指针
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET reversed_by = ?::uuid, updated_at = ?, \
+                    update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(&red_id),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&original.id),
+        ],
+    )
+    .await?;
+
+    Ok(red_id)
 }
 
 /// 收货单过账时生成蓝字凭证（卡面 §三 ②③④）。
@@ -1047,115 +1332,23 @@ pub async fn reverse_for_stock_in(
     let Some(original) = find_voucher_by_source(ex, SOURCE_STOCK_IN, header.id).await? else {
         return Ok(None);
     };
-    if original.reversed_by.is_some() {
-        return Err(DbError::InvalidValue(format!(
-            "收货单 {} 的凭证 {} 已经红冲过（红字凭证 {}），不能重复红冲",
-            header.in_no,
-            original.voucher_no,
-            original
-                .reversed_by
-                .map(|v| v.to_string())
-                .unwrap_or_default()
-        )));
-    }
-
-    let original_entries = entries_of(ex, original.id).await?;
-    if original_entries.is_empty() {
-        return Err(DbError::InvalidValue(format!(
-            "红冲失败：原凭证 {} 没有任何分录",
-            original.voucher_no
-        )));
-    }
-    let lines = reversed_lines(&original_entries, reason);
-    let (debit, credit) = totals_of(&lines);
-    if debit != credit {
-        return Err(DbError::InvalidValue(format!(
-            "红冲失败：红字凭证借贷不平衡（借 {debit} / 贷 {credit}），原凭证 {}",
-            original.voucher_no
-        )));
-    }
-
+    // 红字凭证日期：作废当天（CST）。已作废单用 cancelled_at，未作废的兜底「今天」。
     let voucher_date = header
         .cancelled_at
         .map(|at| at.date_naive())
         .unwrap_or_else(|| today_cst(now));
-    let period = period_of(ex, voucher_date).await?;
-    let voucher_no = next_voucher_no(ex, now).await?;
-    let entry_count = i32::try_from(lines.len()).unwrap_or(0);
-    let summary = format!(
-        "红冲采购入库 {} 原凭证 {} 价税合计 {}",
-        header.in_no, original.voucher_no, original.total_debit
-    );
-
-    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
-    let inserted = ex
-        .query_first_sql(
-            format!(
-                "INSERT INTO {TABLE} \
-                    (voucher_word, voucher_no, period, voucher_date, voucher_type, source_type, \
-                     source_id, source_no, summary, total_debit, total_credit, entry_count, \
-                     status, is_red, reverse_of, posted_at, posted_by, created_at, updated_at, \
-                     create_by, update_by, remark) \
-                 VALUES (?, ?, ?, NULLIF(?::text,'')::date, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, ?, ?, \
-                         NULLIF(?::text,'')::uuid, ?, NULLIF(?::text,'')::uuid, ?, ?, \
-                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')) \
-                 RETURNING id"
-            ),
-            vec![
-                Value::Text(WORD_DEFAULT.to_string()),
-                Value::Text(voucher_no),
-                Value::Text(period),
-                Value::Text(voucher_date.to_string()),
-                Value::Text(VOUCHER_TYPE_AUTO.to_string()),
-                Value::Text(SOURCE_STOCK_IN.to_string()),
-                Value::Text(header.id.to_string()),
-                Value::Text(header.in_no.clone()),
-                Value::Text(summary),
-                Value::Text(debit.to_string()),
-                Value::Text(credit.to_string()),
-                Value::from(entry_count),
-                Value::Text(STATUS_POSTED.to_string()),
-                Value::I16(IS_RED_YES),
-                Value::Text(original.id.to_string()),
-                Value::from(now),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::from(now),
-                Value::from(now),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(reason.unwrap_or_default().to_string()),
-            ],
-        )
-        .await?;
-    let red_id: Uuid = match inserted.as_ref() {
-        Some(row) => row.get_typed("id")?,
-        None => {
-            return Err(DbError::InvalidValue(
-                "红字凭证写入失败：INSERT 没有返回 id".to_string(),
-            ));
-        }
-    };
-
-    write_entries(ex, red_id, &lines).await?;
-
-    // 原凭证保持 POSTED（卡面 §五），只打反向指针
-    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
-    ex.exec_sql(
-        format!(
-            "UPDATE {TABLE} SET reversed_by = ?::uuid, updated_at = ?, \
-                    update_by = NULLIF(?::text,'')::uuid \
-              WHERE id = ?::uuid AND deleted_at IS NULL"
-        ),
-        vec![
-            Value::from(&red_id),
-            Value::from(now),
-            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(&original.id),
-        ],
+    // 红冲只保留一份实现（[`reverse_posted`]）；本函数只负责「找到原凭证 + 定日期」。
+    let red_id = reverse_posted(
+        ex,
+        &original,
+        ReversalInput {
+            reason,
+            voucher_date,
+        },
+        operator,
+        now,
     )
     .await?;
-
     Ok(Some(red_id))
 }
 
