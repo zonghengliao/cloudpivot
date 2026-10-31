@@ -141,7 +141,13 @@ system:field-mask:plain                （脱敏豁免：masking/registry.rs 的
 
 ### 3.3 落地
 
-- 迁移 `backend/migrations/business/V0160__remove_dead_permission_codes.{up,down}.sql`
+- 迁移 `backend/migrations/business/V0173__remove_dead_permission_codes.{up,down}.sql`
+  - **号段变更（P13 合并收口）**：本条迁移原为 `V0160`，与 `origin/main` 侧的
+    `V0160__erp_serial_init_accounts`（批量生成「无来源入库」，ADR 文档已定稿 V0160）撞号。
+    框架 `check_identity_conflicts()` 对「同版本不同名」直接拒绝启动
+    （`duplicate migration version 160`），故本条**只改文件名、内容一字未动**
+    （`sha256` 仍是 `c80b4a89…`，已应用此迁移的库靠 `(kind, name)` 命中记录，不会重跑、
+    也不会因指纹不符而中止）。V0171/V0172 已被在途超期、文件属主隔离占用，故顺延到 V0173。
   - up：4 条目录菜单 `auth_code = ''`；5 条按钮菜单先清 `sys_role_menu` 再物理删除
     （`NOT EXISTS(子节点)` 守卫）；末尾 DO 块自检（残留 = 0、目录置空 = 4）；
   - down：原值插回 + 目录码复原（**不重建 `sys_role_menu` 绑定**，见迁移头注释）；
