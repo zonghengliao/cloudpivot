@@ -426,24 +426,57 @@ async fn p07_cancel_paid_payable_is_conflict() {
 
 // ==================== P08：恒等式 ====================
 
+/// 本用例应付单的状态日志轨迹：`(from, to)`，按写入顺序（NULL 记成空串）。
+///
+/// 断言「状态日志只写真实变化」用 —— 分期付款的第二期是 `PARTIAL_PAID → PARTIAL_PAID`，
+/// 它**不该**出现在 `biz_status_log` 里（业务流水 / 凭证照样要有）。
+async fn status_trail(payable_id: Uuid) -> Vec<(String, String)> {
+    let rows = db()
+        .find_with_params(
+            "SELECT from_status, to_status FROM biz_status_log \
+              WHERE entity_type = 'PAYABLE' AND entity_id = ?::uuid \
+              ORDER BY created_at ASC, id ASC",
+            vec![Value::from(&payable_id)],
+        )
+        .await
+        .unwrap_or_else(|error| panic!("查应付状态日志失败：{error}"));
+    rows.iter()
+        .map(|row| {
+            (
+                row.get_typed::<Option<String>>("from_status")
+                    .expect("from_status")
+                    .unwrap_or_default(),
+                row.get_typed::<String>("to_status").expect("to_status"),
+            )
+        })
+        .collect()
+}
+
 /// P08 `paid + unpaid = amount` 恒等（**三次**部分付款，每次之后都成立）。
 ///
-/// # 为什么现在是 `#[ignore]`（真实缺陷，不是跳过）
+/// # 这条用例抓到过真缺陷（LNK-P08，已修）
 ///
-/// 实测：同一张应付单**第二次**部分付款（状态 `PARTIAL_PAID → PARTIAL_PAID`）会被
-/// P10 的状态机入口拒绝：
+/// 修复前：同一张应付单**第二次**部分付款（`PARTIAL_PAID → PARTIAL_PAID`）被 P10 的
+/// 状态机入口以 409 拒掉 ——
 ///
 /// ```text
 /// 10001 [10003] 应付单 AP-20261031-000091 的状态没有变化（PARTIAL_PAID → PARTIAL_PAID）：
 /// 原地流转不是状态变更，不要写状态日志（重复部分收货请只写业务流水）
 /// ```
 ///
-/// 也就是说「分三次付款」这条最普通的业务路径 **第三次付款直接失败**（第二步就炸）。
-/// 单模块用例 `p7_two_partial_payments_accumulate_and_settle` 恰好只付两次，而且两次都
-/// 跨了状态（OPEN→PARTIAL_PAID→SETTLED），所以没抓到 —— 这正是本卡要补的盲区。
+/// 「分三期付款」这条最普通的业务路径第二期就断。根因是 `payable_payment` **无条件**调
+/// `state_machine::transition`；修法是改用 `state_machine::transition_if_changed`
+/// （状态没变 → `Ok(None)`，只写业务流水 + 凭证，不写状态日志），
+/// `transition` 的自环 409 护栏保持不动。
 ///
-/// 缺陷编号 **LNK-P08**（`docs/test-report-linkage.md`），修复卡修好后把 `#[ignore]` 去掉即可转正。
-#[ignore = "缺陷 LNK-P08：应付单第二次同状态部分付款被状态机误拒（10001/10003），待修复卡处理"]
+/// 单模块用例 `p7_two_partial_payments_accumulate_and_settle` 只付两次、且两次都跨了状态
+/// （OPEN→PARTIAL_PAID→SETTLED），所以没抓到 —— 这正是本用例要补的盲区。
+///
+/// 三条断言对应验收标准 2 / 3：
+/// 1. 每次付款后 `paid + unpaid = amount`；
+/// 2. 状态日志只写**真实变化**：建单 `NULL→OPEN` 一条、`OPEN→PARTIAL_PAID`、
+///    `PARTIAL_PAID→SETTLED` 各一条，**不许**出现 `PARTIAL_PAID→PARTIAL_PAID`；
+/// 3. 付完自动 `SETTLED`、未付归零。
 #[tokio::test]
 async fn p08_paid_plus_unpaid_equals_amount() {
     if common::db_or_skip().await.is_none() {
@@ -455,9 +488,16 @@ async fn p08_paid_plus_unpaid_equals_amount() {
     let stock_in = posted_stock_in(&ctx, "4", "2.5", "13").await; // 10 + 13% = 11.30
     let (payable_id, _, amount, paid, unpaid) = payable_snapshot(stock_in).await;
     common::assert_dec(paid + unpaid, amount, "P08：初始 paid + unpaid = amount");
+    // 建单留痕：过账生成应付单本身写一条 `NULL → OPEN`（log_created），此后才是真实流转
+    assert_eq!(
+        status_trail(payable_id).await,
+        vec![(String::new(), "OPEN".to_string())],
+        "P08 前置：过账后只有一条建单轨迹（NULL→OPEN），还没付过款"
+    );
 
     // 每一步都对账一次：这是财务最关心的一条恒等式，任何一步漂移都是坏账
-    for step in ["1", "3.5", "6.8"] {
+    let steps = ["1", "3.5", "6.8"];
+    for (index, step) in steps.iter().enumerate() {
         pay_ok(&ctx, payable_id, step).await;
         let (_, _, amount_now, paid_now, unpaid_now) = payable_snapshot(stock_in).await;
         common::assert_dec(
@@ -469,10 +509,40 @@ async fn p08_paid_plus_unpaid_equals_amount() {
             unpaid_now >= common::dec("0"),
             "P08：未付金额不许为负（实际 {unpaid_now}）"
         );
+        // 状态日志只写真实变化：建单 1 条 + 第 1 期（OPEN→PARTIAL_PAID）1 条；
+        // 第 2 期是原地流转（PARTIAL_PAID→PARTIAL_PAID）→ 不新增；第 3 期 → SETTLED 再 1 条。
+        let trail_now = status_trail(payable_id).await;
+        let expected = if index + 1 == steps.len() { 3 } else { 2 };
+        assert_eq!(
+            trail_now.len(),
+            expected,
+            "P08：付了 {step} 之后状态日志应有 {expected} 条（建单 1 + 真实变化），\
+             实际 {} 条：{trail_now:?}",
+            trail_now.len()
+        );
     }
     // 11.30 - 1 - 3.5 - 6.8 = 0 → 自动 SETTLED
     let (_, status, _, _, unpaid_final) = payable_snapshot(stock_in).await;
     common::assert_dec(unpaid_final, common::dec("0"), "P08：付完未付归零");
     assert_eq!(status, "SETTLED", "P08：付完必须 SETTLED（金额累加没丢分）");
+
+    // 状态轨迹必须恰好是「建单 + 两次真实流转」，一条空日志都不许有
+    let trail = status_trail(payable_id).await;
+    assert_eq!(
+        trail,
+        vec![
+            (String::new(), "OPEN".to_string()),
+            ("OPEN".to_string(), "PARTIAL_PAID".to_string()),
+            ("PARTIAL_PAID".to_string(), "SETTLED".to_string()),
+        ],
+        "P08：状态日志必须只记真实变化（建单 NULL→OPEN、OPEN→PARTIAL_PAID、\
+         PARTIAL_PAID→SETTLED），实际 {trail:?}"
+    );
+    assert!(
+        !trail
+            .iter()
+            .any(|(from, to)| from == "PARTIAL_PAID" && to == "PARTIAL_PAID"),
+        "P08：不许有 PARTIAL_PAID→PARTIAL_PAID 的空日志"
+    );
     ctx.cleanup().await;
 }

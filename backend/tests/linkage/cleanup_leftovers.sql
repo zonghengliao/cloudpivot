@@ -18,9 +18,15 @@ CREATE TEMP TABLE _lnk_task ON COMMIT DROP AS
   SELECT t.id FROM biz_task t JOIN sys_user u ON u.id = t.creator_id
    WHERE u.username LIKE 'LNK-%';
 
+-- 状态日志无外键：按单号前缀 + 任务 / 收货 / 调拨 id 清。
+-- ★ 应付的状态日志 entity_no 是 `AP-…`（业务号段，不是 LNK- 前缀），其 entity_id 指向
+--   biz_payable.id —— 必须在删 biz_payable 之前按 id 一起清，否则每轮 FAILED 都积一批孤儿行。
 DELETE FROM biz_status_log WHERE entity_no LIKE 'LNK-%'
    OR entity_id IN (SELECT id FROM _lnk_so) OR entity_id IN (SELECT id FROM _lnk_tk)
-   OR entity_id IN (SELECT id FROM _lnk_task);
+   OR entity_id IN (SELECT id FROM _lnk_task)
+   OR entity_id IN (SELECT id FROM biz_payable WHERE source_id IN (SELECT id FROM _lnk_so))
+   OR entity_id IN (SELECT id FROM biz_voucher WHERE source_id IN (SELECT id FROM _lnk_so)
+                     OR source_id IN (SELECT id FROM _lnk_tk) OR remark LIKE 'LNK-%');
 DELETE FROM biz_payment WHERE payable_id IN (SELECT id FROM biz_payable WHERE source_id IN (SELECT id FROM _lnk_so));
 DELETE FROM biz_payable WHERE source_id IN (SELECT id FROM _lnk_so);
 DELETE FROM biz_voucher_entry WHERE voucher_id IN (

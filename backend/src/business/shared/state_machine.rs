@@ -22,6 +22,7 @@
 //! | 函数 | 职责 |
 //! |------|------|
 //! | [`transition`] | 唯一状态变更入口：校验 + 写日志 |
+//! | [`transition_if_changed`] | 同上，但**状态没变就跳过**（业务性推进专用，返回 `Ok(None)`） |
 //! | [`log_created`] | 建单留痕（`from_status = NULL`） |
 //! | [`ensure_writable`] | 入账态只读闸（各 `update_*` 入口调用） |
 //!
@@ -40,8 +41,13 @@
 //! # 自环
 //!
 //! `from == to` **不是状态变更**（如 `PARTIAL_RECEIVED → PARTIAL_RECEIVED` 继续部分收货）。
-//! 本模块一律拒绝自环并给出 409：调用方必须先比较状态，相同就跳过 transition，
-//! 只写业务流水 —— 否则每次收货都会多一条无意义的日志。
+//! [`transition`] 一律拒绝自环并给出 409 —— 它只写「真实变化」的日志；
+//! 业务流程里正常的原地推进用 [`transition_if_changed`]（显式声明「允许没变」，
+//! 状态相同则跳过、只留业务流水）。**别在调用点自己 `if from != to { transition() }`**
+//! ——那种写法无法与本模块的注册表核对共存，也没法在代码里一眼看出「这里是故意的」。
+//!
+//! 反面教材（LNK-P08）：`payable_payment` 无条件调 `transition`，于是「分三期付款」的
+//! 第二期 `PARTIAL_PAID → PARTIAL_PAID` 被 409 挡住 —— 正常业务路径直接断。
 
 use std::result::Result;
 
@@ -396,6 +402,25 @@ pub fn rejection_message(entity_type: &str, from: &str, to: &str) -> String {
     )
 }
 
+/// 注册表核对：未知实体 / 边表与注册表不一致 → **500**（配置漂移，不是用户错）。
+fn check_registration(entity_type: &str, edges: &[(&str, &str)]) -> Result<Entity, ApiError> {
+    let entity = Entity::parse(entity_type).ok_or_else(|| unknown_entity(entity_type))?;
+    if edges != entity.edges() {
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!(
+                "{entity_type} 的边表与状态机注册表不一致：{} 传了 {} 条，注册表是 {} 条。\
+                 改边表必须改 shared/state_machine.rs 的注册表（唯一真相），不能在调用点私自放宽",
+                entity_type,
+                edges.len(),
+                entity.edges().len()
+            ),
+        ));
+    }
+    Ok(entity)
+}
+
 /// **唯一状态变更入口**：校验边 → 校验 reason → 写 `biz_status_log`。
 ///
 /// 调用方必须在**已经开着的事务**里调用，并在返回后继续做副作用
@@ -425,20 +450,7 @@ pub async fn transition(
     reason: Option<&str>,
     biz_ref: Option<(&str, &str)>,
 ) -> Result<TransitionOutcome, ApiError> {
-    let entity = Entity::parse(entity_type).ok_or_else(|| unknown_entity(entity_type))?;
-    if edges != entity.edges() {
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            format!(
-                "{entity_type} 的边表与状态机注册表不一致：{} 传了 {} 条，注册表是 {} 条。\
-                 改边表必须改 shared/state_machine.rs 的注册表（唯一真相），不能在调用点私自放宽",
-                entity_type,
-                edges.len(),
-                entity.edges().len()
-            ),
-        ));
-    }
+    let entity = check_registration(entity_type, edges)?;
     let no = entity_no.trim();
     if no.is_empty() {
         return Err(ApiError::new(
@@ -499,6 +511,60 @@ pub async fn transition(
         to: to.to_string(),
         log_id,
     })
+}
+
+/// **「状态真的变了才写日志」的入口**：业务性推进（部分付款 / 继续部分收货）用它。
+///
+/// | `from` vs `to` | 行为 |
+/// |---|---|
+/// | 不同 | 等价于 [`transition`]，写一行 `biz_status_log`，返回 `Ok(Some(outcome))` |
+/// | 相同（原地流转） | **不写日志**，返回 `Ok(None)` —— 这是「没变」而不是「失败」 |
+///
+/// # 为什么不让 [`transition`] 自己放过自环（LNK-P08 的教训）
+///
+/// `from == to` 的 409 是 P10 铁律③的刹车：`transition` 是**五个实体共用的唯一入口**，
+/// 放宽它会让所有「调用点写错了」的回归都变成静默的空日志。
+/// 但「同一状态下的第二次业务动作」是**正常业务**（应付第二期部分付款
+/// `PARTIAL_PAID → PARTIAL_PAID`、采购单继续部分收货），它本来就不该产生状态日志。
+///
+/// 所以「允许原地不动」这件事必须由**调用点显式声明**（用本函数而不是 [`transition`]），
+/// 语义一目了然：`Ok(None)` = 状态没变、只该留业务流水。
+///
+/// 注册表核对（未知实体 / 边表漂移 500）在自环短路**之前**做——
+/// 否则调用点的实体名写错会被自环静默吞掉。
+// 与 [`transition`] 同款签名（同一批入参 + 同一套校验），参数数量由状态机协议决定；
+// 拆结构体会让两个入口的调用点写法不一致，反而更容易写错。
+#[allow(clippy::too_many_arguments)]
+pub async fn transition_if_changed(
+    ex: &impl SqlExecutor,
+    entity_type: &str,
+    entity_id: Uuid,
+    entity_no: &str,
+    edges: &[(&str, &str)],
+    from: &str,
+    to: &str,
+    operator: impl Into<Operator>,
+    reason: Option<&str>,
+    biz_ref: Option<(&str, &str)>,
+) -> Result<Option<TransitionOutcome>, ApiError> {
+    check_registration(entity_type, edges)?;
+    if from == to {
+        return Ok(None);
+    }
+    let outcome = transition(
+        ex,
+        entity_type,
+        entity_id,
+        entity_no,
+        edges,
+        from,
+        to,
+        operator,
+        reason,
+        biz_ref,
+    )
+    .await?;
+    Ok(Some(outcome))
 }
 
 /// 建单留痕（`from_status = NULL` → `to_status`）。
@@ -1042,6 +1108,113 @@ mod tests {
             err.msg
         );
         assert_eq!(count_of(&format!("{PREFIX}H")).await, 0);
+    }
+
+    /// ⑰ 自环护栏**不放宽**：`transition` 收到 `from == to` 仍然 409（LNK-P08 修的是调用点，
+    /// 不是护栏）。这条用例是护栏的回归锁 —— 谁想「顺手放宽 state_machine」会先看到它红。
+    #[tokio::test]
+    async fn self_loop_is_still_rejected_by_transition() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let no = format!("{PREFIX}I");
+        let err = transition(
+            db(),
+            ENTITY_PAYABLE,
+            Uuid::now_v7(),
+            &no,
+            &PAYABLE_EDGES,
+            "PARTIAL_PAID",
+            "PARTIAL_PAID",
+            op(),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("状态没有变化"), "{}", err.msg);
+        assert_eq!(count_of(&no).await, 0, "自环绝不能写日志");
+    }
+
+    /// ⑱ `transition_if_changed` 原地流转 → `Ok(None)` + **零日志**（分期付款第二期）。
+    ///
+    /// 同一位置也要挡住「实体名写错」：注册表核对在自环短路**之前**做，
+    /// 否则调用点把 `PAYABLE` 写成 `PAYABLES` 会被自环静默吞掉。
+    #[tokio::test]
+    async fn transition_if_changed_skips_self_loop() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let no = format!("{PREFIX}J");
+        let outcome = transition_if_changed(
+            db(),
+            ENTITY_PAYABLE,
+            Uuid::now_v7(),
+            &no,
+            &PAYABLE_EDGES,
+            "PARTIAL_PAID",
+            "PARTIAL_PAID",
+            op(),
+            Some("第二期部分付款"),
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(outcome.is_none(), "状态没变必须返回 Ok(None)");
+        assert_eq!(count_of(&no).await, 0, "原地流转不许写状态日志");
+
+        // 实体名写错 → 500，不被自环短路掩盖
+        let err = transition_if_changed(
+            db(),
+            "PAYABLES",
+            Uuid::now_v7(),
+            &no,
+            &PAYABLE_EDGES,
+            "PARTIAL_PAID",
+            "PARTIAL_PAID",
+            op(),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 500, "{}", err.msg);
+        assert!(err.msg.contains("未知的单据类型"), "{}", err.msg);
+    }
+
+    /// ⑲ `transition_if_changed` 真变化 → `Ok(Some(..))`，日志与 `transition` 同款落库。
+    #[tokio::test]
+    async fn transition_if_changed_writes_when_changed() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = Uuid::now_v7();
+        let no = format!("{PREFIX}K");
+        let outcome = transition_if_changed(
+            db(),
+            ENTITY_PAYABLE,
+            id,
+            &no,
+            &PAYABLE_EDGES,
+            "OPEN",
+            "PARTIAL_PAID",
+            op(),
+            Some("首期部分付款"),
+            Some((ENTITY_PAYABLE, "PM-P10SM-000001")),
+        )
+        .await
+        .unwrap()
+        .expect("状态真的变了，必须返回 Some");
+        let trail = trail_of_no(db(), &no).await.unwrap();
+        assert_eq!(trail.len(), 1);
+        assert_eq!(trail[0].id, outcome.log_id);
+        assert_eq!(trail[0].from_status.as_deref(), Some("OPEN"));
+        assert_eq!(trail[0].to_status, "PARTIAL_PAID");
+        assert_eq!(trail[0].biz_ref_no.as_deref(), Some("PM-P10SM-000001"));
     }
 
     /// ⑫ POSTED 凭证改摘要 → 409（入账后只读，凭证侧）。

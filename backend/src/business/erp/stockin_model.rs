@@ -2092,11 +2092,12 @@ pub async fn add_received_qty(
 ///
 /// 1. `SELECT … FOR UPDATE` 锁采购单，读「当前状态 + 单号」；
 /// 2. 算目标状态 `target`（还有未收明细 → `PARTIAL_RECEIVED`，否则 `RECEIVED`）；
-/// 3. `target != 当前态` 才调 [`state_machine::transition`]（写 `biz_status_log`，
-///    `biz_ref = ("STOCK_IN", 收货单号)`），再 CAS 改状态。
+/// 3. 调 [`state_machine::transition_if_changed`]：`target != 当前态` 才写 `biz_status_log`
+///    （`biz_ref = ("STOCK_IN", 收货单号)`），再 CAS 改状态。
 ///
-/// `PARTIAL_RECEIVED → PARTIAL_RECEIVED`（继续部分收货）**不调 transition**：
+/// `PARTIAL_RECEIVED → PARTIAL_RECEIVED`（继续部分收货）**不写状态日志**：
 /// 原地不动不是状态变更，否则每次收货都多一条无意义日志（卡面 §三 的 ⚠️）。
+/// `transition_if_changed` 把「没变」表达成 `Ok(None)`，本函数据此直接返回 0。
 ///
 /// 只对「已提交 / 已审批 / 部分收货」推进；`DRAFT` / `CLOSED` / `CANCELLED` /
 /// `RECEIVED` 一律不动（返回 0）。
@@ -2143,14 +2144,10 @@ pub async fn sync_purchase_status(
         "PARTIAL_RECEIVED"
     };
 
-    // ③ 状态没变（继续部分收货）→ 只留收货流水，不写状态日志
-    if target == current {
-        return Ok(0);
-    }
-
-    // ④ 唯一入口：边表校验 + reason 校验 + 写 biz_status_log（关联收货单号）
+    // ③④ `transition_if_changed`：状态没变（继续部分收货）→ 不写状态日志、返回 Ok(0)，
+    //     只留收货流水；变了 → 边表校验 + reason 校验 + 写 biz_status_log（关联收货单号）。
     let reason = format!("收货过账 {stock_in_no} 自动推进");
-    state_machine::transition(
+    let changed = state_machine::transition_if_changed(
         ex,
         state_machine::ENTITY_PURCHASE_ORDER,
         order_id,
@@ -2164,6 +2161,9 @@ pub async fn sync_purchase_status(
     )
     .await
     .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+    if changed.is_none() {
+        return Ok(0);
+    }
 
     // ⑤ CAS 改状态（`WHERE status = 当前态` 防止把别人改过的单覆盖掉）
     let affected = ex

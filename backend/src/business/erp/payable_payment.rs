@@ -34,6 +34,21 @@
 //! 凭证（同事务，直接 POSTED）：借 2202 应付账款 / 贷 1002 银行存款，各 = 本次付款金额
 //! ```
 //!
+//! # 状态日志：只写**真实变化**（LNK-P08 修的就是这条）
+//!
+//! 分期付款的第二期是 `PARTIAL_PAID → PARTIAL_PAID`（状态没变），第三期才 `→ SETTLED`。
+//! 所以付款路径调的是 [`state_machine::transition_if_changed`] 而不是 `transition`：
+//!
+//! | 第几期 | 状态变化 | `biz_status_log` | 业务流水 / 凭证 |
+//! |---|---|---|---|
+//! | 1 | OPEN → PARTIAL_PAID | 1 条 | 各 1 条 |
+//! | 2 | PARTIAL_PAID → PARTIAL_PAID | **0 条**（原地流转不是状态变更） | 各 1 条 |
+//! | 3 | PARTIAL_PAID → SETTLED | 1 条 | 各 1 条 |
+//!
+//! `state_machine::transition` 的 `from == to` 409 护栏**不放宽**：它是五个实体共用的
+//! 唯一入口，把「原地流转」判成合法会让所有调用点写错都变成静默空日志。
+//! 「允许原地不动」由本模块用 `transition_if_changed` 显式声明。
+//!
 //! # 作废语义（卡面 §一 ②）
 //!
 //! ```text
@@ -584,9 +599,15 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
     .map_err(|error| utils::db_error(error, "付款记录回写凭证"))?;
 
     // ④ 应付单重算（行锁在手，这里再按 paid_amount 做一次 CAS，兜住「外部绕过锁改库」）
-    //    P10 铁律 ③：OPEN/PARTIAL_PAID → PARTIAL_PAID/SETTLED 也走状态机唯一入口
-    //    （写 biz_status_log，关联付款单号），与付款记录 / 凭证同一事务。
-    state_machine::transition(
+    //    P10 铁律 ③：OPEN/PARTIAL_PAID → PARTIAL_PAID/SETTLED 也走状态机唯一入口。
+    //    **状态没变就不写状态日志**（LNK-P08）：第二次部分付款是
+    //    `PARTIAL_PAID → PARTIAL_PAID`，业务照做（付款记录 + 凭证 + 金额回写），
+    //    但「原地流转」不是状态变更 —— 所以调 `transition_if_changed`，
+    //    它在 `from == to` 时返回 `Ok(None)`、不写 `biz_status_log`。
+    //    `transition` 的自环 409 护栏保持不动（那是五个实体共用的唯一入口）。
+    //    返回的 `Option` 这里不用：轨迹以 biz_status_log 为准，日志条数由状态真实变化决定
+    //    （OPEN→PARTIAL_PAID、PARTIAL_PAID→SETTLED 各一条）。
+    let _status_log = state_machine::transition_if_changed(
         tx,
         state_machine::ENTITY_PAYABLE,
         row.id,

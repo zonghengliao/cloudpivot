@@ -395,15 +395,25 @@ impl Ctx {
                 w = self.worker,
                 o = self.outsider
             ),
-            // 状态日志无外键：按任务 id / 单号前缀清
+            // 状态日志无外键：按任务 id / 单号前缀 / **ERP 单据 id** 清。
+            //
+            // ★ 为什么还要按 id：应付 / 收货单的状态日志 `entity_no` 是业务号段
+            //   （`AP-20261031-000123` / `IN-20261031-000045`），不是本用例的 `LNK-…` 前缀，
+            //   只按 `entity_no LIKE 'LNK-%'` 清会漏掉它们 —— P10 起所有状态变更都写日志，
+            //   漏了就每跑一轮在 cloudpivot_test 里积一批孤儿行。日志行本身没有外键，
+            //   所以必须在删 biz_payable / biz_stock_in **之前**按 id 清掉。
             format!(
                 "DELETE FROM biz_status_log WHERE entity_id IN \
                  (SELECT id FROM biz_task WHERE creator_id IN ('{c}'::uuid, '{w}'::uuid, '{o}'::uuid)) \
-                 OR entity_no LIKE '{p}-%'",
+                 OR entity_no LIKE '{p}-%' \
+                 OR entity_id IN (SELECT id FROM biz_stock_in WHERE supplier_id = '{s}'::uuid) \
+                 OR entity_id IN (SELECT id FROM biz_payable WHERE source_id IN {so}) \
+                 OR entity_id IN ({vo})",
                 c = self.creator,
                 w = self.worker,
                 o = self.outsider,
-                p = self.prefix
+                p = self.prefix,
+                s = self.supplier,
             ),
             format!(
                 "UPDATE biz_task SET parent_id = NULL WHERE creator_id IN \
