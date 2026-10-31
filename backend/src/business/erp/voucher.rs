@@ -120,6 +120,20 @@ pub const DEFAULT_INVENTORY_CODE: &str = "1405";
 pub const DEFAULT_PAYABLE_CODE: &str = "2202";
 /// 默认进项税科目编码。
 pub const DEFAULT_TAX_CODE: &str = "2221.01";
+/// 科目编码：待处理财产损溢（无来源入库的贷方、报废损失的借方）。
+///
+/// 由 `V0160__erp_serial_init_accounts` 补种（ADR §6 R2）：全库原有 5 个科目里没有它，
+/// 缺了凭证就写不出来 ⇒ 成本账一加金额，`erp_invariants.py` 的 B2（BLOCKER）必红。
+pub const ACCOUNT_PENDING_GAIN_LOSS: &str = "1901";
+/// 科目编码：主营业务成本（序列号出库结转存货成本的借方）。
+pub const ACCOUNT_MAIN_COST: &str = "6401";
+
+/// 凭证来源类型：序列号批量生成（= 无来源入库 / 期初）。
+pub const SOURCE_SERIAL_BATCH: &str = "SERIAL_BATCH";
+/// 凭证来源类型：序列号出库（与流水 `biz_type` 同名，凭证↔流水可按号对账）。
+pub const SOURCE_SERIAL_OUT: &str = "SERIAL_OUT";
+/// 凭证来源类型：在库序列号报废（同上）。
+pub const SOURCE_SERIAL_SCRAP: &str = "SERIAL_SCRAP";
 
 // ==================== 取号（通用：`{前缀}-yyyyMMdd-NNNNNN`） ====================
 
@@ -1328,6 +1342,208 @@ pub async fn create_for_stock_in(
         now,
     )
     .await
+}
+
+// ==================== 写：序列号侧三种「无来源」库存变动 ====================
+
+/// 序列号的三种库存变动（ADR-20261031 §6 R1，规格 v3 §3.10）。
+///
+/// 三者的共同点是「没有供应商、没有采购单」——借方必须是成本类 / 资产类科目而不是应付，
+/// 所以既不能复用 [`create_auto`]（它按 `biz_voucher_rule` 走采购入库映射），
+/// 也不该在调用点各写一遍分录：本枚举 + [`create_for_serial_movement`] 是**唯一写入口**。
+#[derive(Debug, Clone, Copy)]
+pub enum SerialMovement<'a> {
+    /// 期初 / 其他入库（批量生成）：借 `1405 库存商品` / 贷 `1901 待处理财产损溢`。
+    Inbound {
+        /// 物料。
+        material_id: Uuid,
+        /// 仓库。
+        warehouse_id: Uuid,
+        /// 本次生成件数（只进摘要，金额由调用方按账上差额传入）。
+        count: i64,
+    },
+    /// 出库（序列号发货）：借 `6401 主营业务成本` / 贷 `1405 库存商品`。
+    Outbound {
+        /// 物料。
+        material_id: Uuid,
+        /// 仓库。
+        warehouse_id: Uuid,
+        /// 序列号（进摘要与来源单号）。
+        serial_no: &'a str,
+    },
+    /// 报废：借 `1901 待处理财产损溢` / 贷 `1405 库存商品`。
+    Scrapped {
+        /// 物料。
+        material_id: Uuid,
+        /// 仓库。
+        warehouse_id: Uuid,
+        /// 序列号（进摘要与来源单号）。
+        serial_no: &'a str,
+    },
+}
+
+/// 序列号库存变动 → 凭证（**同事务**；`amount` 为账上真实差额，不在本函数重算）。
+///
+/// # 为什么金额必须由调用方传入
+///
+/// 生成侧 = `apply_cost` 的 `after.amount − before.amount`（该桶的实际增量）；
+/// 出库 / 报废侧 = 仓级 `before.amount − after.amount`。两处都是 `numeric(18,4)`，
+/// 谁都不该在 Rust 里再乘一次 `N × unit_cost` —— 4 位舍入一错，
+/// `erp_invariants.py` 的 B2（容差 `0.0001`）就会报 0.00x 的差。
+///
+/// # 差额 ≤ 0 直接跳过（不是错误）
+///
+/// 改判前生成的历史号是零成本（`qty>0 / avg_cost=0 / amount=0`），它们出库 / 报废时
+/// 差额恰好为 0。`post_voucher` 在 `借贷合计 <= 0` 时会报错（那是对**单据**的护栏），
+/// 所以这里提前 `Ok(None)` 并打 WARN 点名 —— 这是「存量不补账」的过渡口径
+/// （规格 v3 §8.2），财务可以按这条日志判断要不要补账。
+///
+/// # 事务
+///
+/// 吃 `&impl SqlExecutor`（`Db` / `Transaction`），由调用方开事务；本函数不 `begin`
+/// 不 `commit`，也绝不出现「事务里再开事务」。
+pub async fn create_for_serial_movement(
+    ex: &impl SqlExecutor,
+    kind: SerialMovement<'_>,
+    doc_id: Uuid,
+    doc_no: &str,
+    amount: Decimal,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Option<Uuid>> {
+    let amount = amount.round_dp(4);
+    let (material_id, warehouse_id, source_type, summary, debit_side) = match kind {
+        SerialMovement::Inbound {
+            material_id,
+            warehouse_id,
+            count,
+        } => (
+            material_id,
+            warehouse_id,
+            SOURCE_SERIAL_BATCH,
+            format!("期初入库：序列号批量生成 {count} 件"),
+            DebitSide::Inventory,
+        ),
+        SerialMovement::Outbound {
+            material_id,
+            warehouse_id,
+            serial_no,
+        } => (
+            material_id,
+            warehouse_id,
+            SOURCE_SERIAL_OUT,
+            format!("序列号出库结转成本：{serial_no}"),
+            DebitSide::Counterpart(ACCOUNT_MAIN_COST, "主营业务成本"),
+        ),
+        SerialMovement::Scrapped {
+            material_id,
+            warehouse_id,
+            serial_no,
+        } => (
+            material_id,
+            warehouse_id,
+            SOURCE_SERIAL_SCRAP,
+            format!("序列号报废损失：{serial_no}"),
+            DebitSide::Counterpart(ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢"),
+        ),
+    };
+    if amount <= Decimal::ZERO {
+        tracing::warn!(
+            material_id = %material_id,
+            warehouse_id = %warehouse_id,
+            doc_no,
+            amount = %amount,
+            source_type,
+            "序列号变动金额为 0（历史零成本存量，ADR 口径不补账）：跳过凭证生成，只有流水没有分录"
+        );
+        return Ok(None);
+    }
+
+    let inventory = account_required(ex, DEFAULT_INVENTORY_CODE, "库存商品").await?;
+    // 存货行带「物料 + 仓库」辅助核算（账上能按仓按料拆开看）；对方科目只带物料 ——
+    // 1901 / 6401 是全公司口径的过渡 / 损益科目，挂仓库会把报表拆碎。
+    let inventory_aux_warehouse = Some(warehouse_id);
+    let lines = match debit_side {
+        DebitSide::Inventory => {
+            let counterpart =
+                account_required(ex, ACCOUNT_PENDING_GAIN_LOSS, "待处理财产损溢").await?;
+            vec![
+                EntryLine {
+                    line_no: 1,
+                    summary: summary.clone(),
+                    account: inventory,
+                    debit: amount,
+                    credit: Decimal::ZERO,
+                    aux_supplier_id: None,
+                    aux_material_id: Some(material_id),
+                    aux_warehouse_id: inventory_aux_warehouse,
+                },
+                EntryLine {
+                    line_no: 2,
+                    summary: summary.clone(),
+                    account: counterpart,
+                    debit: Decimal::ZERO,
+                    credit: amount,
+                    aux_supplier_id: None,
+                    aux_material_id: Some(material_id),
+                    aux_warehouse_id: None,
+                },
+            ]
+        }
+        DebitSide::Counterpart(code, name) => {
+            let counterpart = account_required(ex, code, name).await?;
+            vec![
+                EntryLine {
+                    line_no: 1,
+                    summary: summary.clone(),
+                    account: counterpart,
+                    debit: amount,
+                    credit: Decimal::ZERO,
+                    aux_supplier_id: None,
+                    aux_material_id: Some(material_id),
+                    aux_warehouse_id: None,
+                },
+                EntryLine {
+                    line_no: 2,
+                    summary: summary.clone(),
+                    account: inventory,
+                    debit: Decimal::ZERO,
+                    credit: amount,
+                    aux_supplier_id: None,
+                    aux_material_id: Some(material_id),
+                    aux_warehouse_id: inventory_aux_warehouse,
+                },
+            ]
+        }
+    };
+
+    let voucher_id = post_voucher(
+        ex,
+        &PostVoucher {
+            voucher_type: VOUCHER_TYPE_AUTO,
+            source_type,
+            source_id: Some(doc_id),
+            source_no: Some(doc_no),
+            voucher_date: today_cst(now),
+            summary,
+            lines,
+            remark: None,
+            red_of: None,
+        },
+        operator,
+        now,
+    )
+    .await?;
+    Ok(Some(voucher_id))
+}
+
+/// 借方落在哪一侧（决定分录两行的科目配对）。
+#[derive(Debug, Clone, Copy)]
+enum DebitSide {
+    /// 借存货、贷对方科目（期初入库）。
+    Inventory,
+    /// 借对方科目、贷存货（出库 / 报废）。
+    Counterpart(&'static str, &'static str),
 }
 
 // ==================== 写：红冲 ====================

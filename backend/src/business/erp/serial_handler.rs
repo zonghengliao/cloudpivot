@@ -128,6 +128,8 @@ pub async fn generate_serials(
 ) -> std::result::Result<SerialBatchRes, ApiError> {
     req.validate()?;
     let material_id = parse_uuid(&req.material_id, "material_id")?;
+    // 成本单价（校验已在 `validate` 里做过一次；这里取同一个舍入后的值，避免两处口径漂移）
+    let unit_cost = req.parse_unit_cost()?;
 
     let required = serial_model::material_serial_required(material_id)
         .await
@@ -198,20 +200,21 @@ pub async fn generate_serials(
         source_type,
         source_id,
         count: i64::try_from(req.count).unwrap_or(serial_model::MAX_BATCH_COUNT),
+        unit_cost,
     };
     let period_key = serial_model::today_period_key();
-    // 事务边界在接口层（W2c-1 · 不变式②）：取号 → 落库 → 流水 → 数量重算 必须原子。
+    // 事务边界在接口层（W2c-1 · 不变式②）：取号 → 落号 → 两本账 → 凭证 → 流水 必须原子。
     // 模型层吃 `&tx`（同一个 `SqlExecutor`），事务里不再开新事务。
     let tx = db()
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启序列号生成事务"))?;
-    let rows = match serial_model::batch_generate(&tx, &params, &period_key, operator).await {
-        Ok(rows) => {
+    let outcome = match serial_model::batch_generate(&tx, &params, &period_key, operator).await {
+        Ok(outcome) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交序列号生成事务"))?;
-            rows
+            outcome
         }
         Err(error) => {
             // 回滚失败也只能把原始错误报出去（回滚本身是幂等的，重复调用无害）
@@ -219,7 +222,17 @@ pub async fn generate_serials(
             return Err(write_error(error, "批量生成序列号"));
         }
     };
-    Ok(SerialBatchRes::new(&period_key, rows))
+    Ok(SerialBatchRes::new(
+        &period_key,
+        outcome.rows,
+        outcome.unit_cost,
+        outcome.amount,
+        (
+            outcome.inventory.qty,
+            outcome.inventory.amount,
+            outcome.inventory.avg_cost,
+        ),
+    ))
 }
 
 /// 批量生成序列号。
@@ -405,7 +418,7 @@ pub async fn serial_detail(Path(id): Path<String>) -> ResResult<SerialRes> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, WRITABLE_TARGETS};
+    use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, OptionalDecimal, WRITABLE_TARGETS};
     use crate::business::erp::serial_model::{
         ALL_STATUSES, BIZ_TYPE_SERIAL_IN, BIZ_TYPE_SERIAL_OUT, BIZ_TYPE_SERIAL_SCRAP,
         MAX_BATCH_COUNT, STATUS_IN_STOCK, STATUS_OUTBOUND, STATUS_SCRAPPED, SerialRow, TXN_TYPE_IN,
@@ -500,6 +513,19 @@ mod tests {
                  'b2b00002-0000-4000-8000-00000000000a', 7.0000, 0.0000, 20.000000, 140.0000)
          ON CONFLICT (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) DO UPDATE
             SET qty = 7.0000, avg_cost = 20.000000, amount = 140.0000",
+        // ---- ADR-20261031 起「批量生成 = 两本账 + 凭证」：每个用例都要从「干净且两本账自洽」的
+        //      状态出发，否则上一个用例留下的序列号 / 成本账 / 库位账会让不变式①的断言漂数。
+        //      顺序：先删号（序列号对库位行有硬外键）→ 再删成本账 → 最后把库位账清零。
+        "DELETE FROM biz_material_serial
+          WHERE material_id IN ('b2b00004-0000-4000-8000-000000000001',
+                                'b2b00004-0000-4000-8000-000000000002')",
+        "DELETE FROM biz_inventory
+          WHERE material_id IN ('b2b00004-0000-4000-8000-000000000001',
+                                'b2b00004-0000-4000-8000-000000000002')",
+        "UPDATE biz_inventory_location SET qty = 0.0000
+          WHERE material_id IN ('b2b00004-0000-4000-8000-000000000001',
+                                'b2b00004-0000-4000-8000-000000000002',
+                                'b2b00004-0000-4000-8000-00000000000a')",
     ];
 
     /// 真库用例串行（同一个库，取号器是全局单行，并行会互相推进号段）。
@@ -556,6 +582,8 @@ mod tests {
             location_id: Some(IL_ID.to_string()),
             batch_no: Some("W2B-BATCH-1".to_string()),
             count,
+            // ADR-20261031：批量生成 = 无来源入库，必须录成本单价（夹具统一 10.000000）
+            unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
             source_type: Some("PURCHASE".to_string()),
             source_id: None,
         }
@@ -578,6 +606,7 @@ mod tests {
             location_id: None,
             batch_no: Some("W2C1-BATCH".to_string()),
             count,
+            unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
             source_type: Some("PRODUCE".to_string()),
             source_id: None,
         }
@@ -601,16 +630,23 @@ mod tests {
     }
 
     /// 不变式①的左端：`biz_inventory.qty`（`None` = 还没建账）。
+    ///
+    /// **按仓级求和**（V0139 之后 `biz_inventory` 的行粒度是「物料×仓库×库位」，
+    /// 同一物料同仓可以有 NULL 汇总桶 + 若干库位桶）。旧版本只取 `rows.first()`，
+    /// 多桶时读到的是「某一行」而不是仓级账面 ⇒ 混桶用例会假红（实测 5 vs 8）。
+    /// 口径与 `erp_invariants.py` 的 B4 / C5 一致：仓级 = `SUM(qty)`。
     async fn inventory_qty(material_id: Uuid, warehouse_id: Uuid) -> Option<Decimal> {
         let rows = db()
             .find_with_params(
-                "SELECT qty FROM biz_inventory \
+                "SELECT COALESCE(SUM(qty), 0)::numeric(18,4)::text AS qty FROM biz_inventory \
                   WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
                 vec![Value::from(&material_id), Value::from(&warehouse_id)],
             )
             .await
             .expect("读账面数量");
-        rows.first().map(|row| row.get_typed("qty").expect("qty"))
+        rows.first()
+            .map(|row| row.get_typed::<String>("qty").expect("qty"))
+            .map(|text| Decimal::from_str_exact(&text).expect("decimal"))
     }
 
     /// 某物料的流水条数（`biz_type` 可选过滤）。
@@ -868,6 +904,7 @@ mod tests {
             source_type: None,
             source_id: None,
             count: 5,
+            unit_cost: Decimal::from(10),
         };
         let day = serial_model::batch_generate(db(), &params, new_period, None).await;
         let same_day = serial_model::batch_generate(db(), &params, new_period, None).await;
@@ -879,22 +916,29 @@ mod tests {
 
         let day = day.expect("新的一天生成");
         assert_eq!(
-            day.first().expect("非空").serial_no,
+            day.rows.first().expect("非空").serial_no,
             format_serial_no(new_period, 1),
             "跨天必须从 000001 重新开始"
         );
-        assert!(day.first().expect("非空").serial_no.ends_with("000001"));
-        assert!(day.last().expect("非空").serial_no.ends_with("000005"));
+        assert!(
+            day.rows
+                .first()
+                .expect("非空")
+                .serial_no
+                .ends_with("000001")
+        );
+        assert!(day.rows.last().expect("非空").serial_no.ends_with("000005"));
 
         let same_day = same_day.expect("同一天再生成");
         assert!(
             same_day
+                .rows
                 .first()
                 .expect("非空")
                 .serial_no
                 .ends_with("000006"),
             "同一天必须接着上一段（实际 {}）",
-            same_day.first().expect("非空").serial_no
+            same_day.rows.first().expect("非空").serial_no
         );
 
         assert_eq!(
@@ -1434,12 +1478,17 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        assert!(
-            inventory_qty(uuid(M_LINK_ID), uuid(W_LINK_ID))
-                .await
-                .is_none(),
-            "夹具应把账面行清空：首次入库要能走 upsert 建档"
-        );
+        // `inventory_qty` 现在是仓级 `SUM`（多桶），没有行时返回 `Some(0)` 而不是 `None`，
+        // 所以「账面行已清空」要按**行数**断言（首次入库必须走 upsert 建档）。
+        let rows: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+                vec![Value::from(&uuid(M_LINK_ID)), Value::from(&uuid(W_LINK_ID))],
+            )
+            .await
+            .expect("读账面行数");
+        assert_eq!(rows, 0, "夹具应把账面行清空：首次入库要能走 upsert 建档");
         let body = generate_link(5).await.expect("批量生成 5 条");
         assert_eq!(body.count, 5);
         assert_eq!(
@@ -1724,6 +1773,7 @@ mod tests {
                 location_id: None,
                 batch_no: None,
                 count: 1,
+                unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
                 source_type: None,
                 source_id: None,
             },
@@ -1811,5 +1861,837 @@ mod tests {
             .expect("合法时间")
             .with_timezone(&Utc);
         assert_eq!(period_code_of(first), "2026-11", "北京时间已进入 11 月");
+    }
+
+    // ==========================================================================
+    // ADR-20261031：批量生成 = 无来源入库（必录成本 + 两本账 + 凭证 + 流水写实值）
+    //
+    // 覆盖规格 v3 §9.2 的 T1–T20（T19「落号条数不符」注入不了，见交付说明）：
+    //   每个用例都是**真库**断言，不允许只断 `is_ok()`。
+    // ==========================================================================
+
+    /// 可空 UUID 的文本参数形态（`Value::Null` 绑 `::uuid` 驱动编不出来）。
+    fn uuid_text_param(value: Option<Uuid>) -> Value {
+        Value::Text(value.map(|id| id.to_string()).unwrap_or_default())
+    }
+
+    /// 成本账某个桶的 `(qty, amount, avg_cost)`，**按库里的标度取文本**（`"5.0000"` 这种
+    /// 逐字比对才能钉住 `numeric(18,4)` / `(18,6)` 的精度，`Decimal ==` 会放过 `2 == 2.0000`）。
+    async fn cost_bucket(
+        material_id: Uuid,
+        warehouse_id: Uuid,
+        bucket: Option<Uuid>,
+    ) -> Option<(String, String, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT qty::text AS qty, amount::text AS amount, avg_cost::text AS avg_cost \
+                   FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                    AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
+                      = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)",
+                vec![
+                    Value::from(&material_id),
+                    Value::from(&warehouse_id),
+                    uuid_text_param(bucket),
+                ],
+            )
+            .await
+            .expect("读成本账桶");
+        rows.first().map(|row| {
+            (
+                row.get_typed("qty").expect("qty"),
+                row.get_typed("amount").expect("amount"),
+                row.get_typed("avg_cost").expect("avg_cost"),
+            )
+        })
+    }
+
+    /// 库位账合计（某个 物料×仓库 的全部库位行求和）。
+    async fn location_total(material_id: Uuid, warehouse_id: Uuid) -> String {
+        db().scalar_with_params(
+            "SELECT COALESCE(SUM(qty), 0)::text FROM biz_inventory_location \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await
+        .expect("读库位账合计")
+    }
+
+    /// 某张凭证的分录（`(account_code, debit, credit)`，按行号）。
+    async fn voucher_lines(source_type: &str, source_id: Uuid) -> Vec<(String, String, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT e.account_code::text AS account_code, e.debit_amount::text AS debit, \
+                        e.credit_amount::text AS credit \
+                   FROM biz_voucher_entry e \
+                   JOIN biz_voucher v ON v.id = e.voucher_id \
+                  WHERE v.source_type = ? AND v.source_id = ?::uuid \
+                  ORDER BY e.line_no",
+                vec![Value::from(source_type), Value::from(&source_id)],
+            )
+            .await
+            .expect("读凭证分录");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed("account_code").expect("code"),
+                    row.get_typed("debit").expect("debit"),
+                    row.get_typed("credit").expect("credit"),
+                )
+            })
+            .collect()
+    }
+
+    /// 某来源单据的蓝字凭证数（红冲不计）。
+    async fn voucher_count(source_type: &str, source_id: Uuid) -> i64 {
+        db().scalar_with_params(
+            "SELECT COUNT(*) FROM biz_voucher \
+              WHERE source_type = ? AND source_id = ?::uuid AND is_red = 0",
+            vec![Value::from(source_type), Value::from(&source_id)],
+        )
+        .await
+        .expect("统计凭证")
+    }
+
+    /// 最新一条**指定业务类型**的流水 `(unit_cost, amount, qty, before_qty, after_qty, remark)`。
+    async fn latest_txn_of(
+        material_id: Uuid,
+        biz_type: &str,
+    ) -> (String, String, String, String, String, Option<String>) {
+        let rows = db()
+            .find_with_params(
+                "SELECT unit_cost::text AS unit_cost, amount::text AS amount, qty::text AS qty, \
+                        before_qty::text AS before_qty, after_qty::text AS after_qty, remark \
+                   FROM biz_inventory_txn WHERE material_id = ?::uuid AND biz_type = ? \
+                  ORDER BY created_at DESC, id DESC LIMIT 1",
+                vec![Value::from(&material_id), Value::from(biz_type)],
+            )
+            .await
+            .expect("读流水");
+        let row = rows.first().expect("应该有一条流水");
+        (
+            row.get_typed("unit_cost").expect("unit_cost"),
+            row.get_typed("amount").expect("amount"),
+            row.get_typed("qty").expect("qty"),
+            row.get_typed("before_qty").expect("before_qty"),
+            row.get_typed("after_qty").expect("after_qty"),
+            row.get_typed("remark").expect("remark"),
+        )
+    }
+
+    /// 判据 B2 的差值：`Σ biz_inventory.amount − Σ(1405 借 − 贷)`（规格 §1.2；BLOCKER）。
+    ///
+    /// 断言用**增量**（`|after − before| ≤ 0.0001`）：库里其它模块的历史数据可能有残差，
+    /// 本卡只保证「自己写进去的凭证配平」。
+    async fn b2_gap() -> Decimal {
+        db().scalar_with_params(
+            "SELECT (SELECT COALESCE(SUM(amount), 0) FROM biz_inventory) \
+                  - (SELECT COALESCE(SUM(debit_amount - credit_amount), 0) FROM biz_voucher_entry \
+                      WHERE account_code = '1405')",
+            vec![],
+        )
+        .await
+        .expect("读 B2 差值")
+    }
+
+    /// 六表 + 凭证总行数的快照（「400 零落库」用它们逐项前后对比）。
+    ///
+    /// 每条 SQL 的占位符个数不同（后两条是**全表**计数，没有 `?`）⇒ 参数必须按条给，
+    /// 不能共用一个 `vec![material_id]`（驱动会报 `Parameters(1, 0)`）。
+    async fn ledger_snapshot(material_id: Uuid) -> Vec<i64> {
+        let mut out = Vec::new();
+        let by_material = [
+            "SELECT COUNT(*) FROM biz_material_serial WHERE material_id = ?::uuid",
+            "SELECT COUNT(*) FROM biz_inventory WHERE material_id = ?::uuid",
+            "SELECT COUNT(*) FROM biz_inventory_location WHERE material_id = ?::uuid",
+            "SELECT COUNT(*) FROM biz_inventory_txn WHERE material_id = ?::uuid",
+        ];
+        for sql in by_material {
+            let n: i64 = db()
+                .scalar_with_params(sql, vec![Value::from(&material_id)])
+                .await
+                .expect("计数");
+            out.push(n);
+        }
+        for sql in [
+            "SELECT COUNT(*) FROM biz_voucher",
+            "SELECT COUNT(*) FROM biz_voucher_entry",
+        ] {
+            let n: i64 = db().scalar_with_params(sql, vec![]).await.expect("计数");
+            out.push(n);
+        }
+        out
+    }
+
+    /// `biz_seq(SN).current_no`（「零落库」还要证明号段没被推进）。
+    async fn seq_current_no() -> i64 {
+        db().scalar_with_params(
+            "SELECT current_no FROM biz_seq WHERE seq_type = 'SN' AND deleted_at IS NULL",
+            vec![],
+        )
+        .await
+        .expect("读号段")
+    }
+
+    /// T1/T2：缺 `unit_cost` ⇒ 400 + 10001 逐字报文，且**六表 + 号段零变化**。
+    ///
+    /// 「零落库」的机制是校验位置：`validate()` 是 `generate_serials` 的第一行，
+    /// 早于物料查询、早于 `db().begin()`、更早于 `take_numbers`。
+    #[tokio::test]
+    async fn t1_missing_unit_cost_rejects_with_zero_writes() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before_counts = ledger_snapshot(uuid(M_LINK_ID)).await;
+        let before_seq = seq_current_no().await;
+        let mut req = req_for_link(3);
+        req.unit_cost = None;
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("缺 unit_cost 必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert_eq!(
+            err.msg,
+            "unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）"
+        );
+        assert_eq!(
+            ledger_snapshot(uuid(M_LINK_ID)).await,
+            before_counts,
+            "400 必须零落库（号/成本账/库位账/流水/凭证/分录一行都不许有）"
+        );
+        assert_eq!(
+            seq_current_no().await,
+            before_seq,
+            "校验失败不得推进 biz_seq"
+        );
+    }
+
+    /// T3：0 / -1.5 / "abc" / 1e11 四种非法单价都 400，且报文逐字（规格 §2.3）。
+    #[tokio::test]
+    async fn t3_invalid_unit_cost_values_reject() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before = ledger_snapshot(uuid(M_LINK_ID)).await;
+        let cases: Vec<(Option<OptionalDecimal>, &str)> = vec![
+            (
+                Some(OptionalDecimal::Num(Decimal::ZERO)),
+                "unit_cost 必须 > 0（收到 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收",
+            ),
+            (
+                Some(OptionalDecimal::Num(
+                    Decimal::from_str_exact("-1.5").expect("decimal"),
+                )),
+                "unit_cost 必须 > 0（收到 -1.5）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收",
+            ),
+            (
+                Some(OptionalDecimal::Raw("abc".to_string())),
+                "unit_cost 不是合法数字：「abc」",
+            ),
+            (
+                Some(OptionalDecimal::Num(Decimal::from(
+                    crate::business::erp::serial_dto::MAX_UNIT_COST,
+                ))),
+                "unit_cost 超出可记账范围（须 < 100000000000）：100000000000",
+            ),
+        ];
+        for (unit_cost, expected) in cases {
+            let mut req = req_for_link(1);
+            req.unit_cost = unit_cost;
+            let err = generate_serials(&req, None)
+                .await
+                .expect_err("非法单价必须 400（且逐字报文）");
+            assert_eq!(err.status, 400, "{expected}");
+            assert_eq!(err.msg, expected);
+        }
+        assert_eq!(
+            ledger_snapshot(uuid(M_LINK_ID)).await,
+            before,
+            "非法单价一律零落库"
+        );
+    }
+
+    /// T4–T7 + T13/T14：一次生成 5 件 @10 ⇒ 成本账 / 库位账 / 流水 / 凭证 / 响应体全对，B2 增量 0。
+    #[tokio::test]
+    async fn t4_to_t7_and_t14_single_generate_writes_两本账_and_voucher() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_LINK_ID);
+        let warehouse = uuid(W_LINK_ID);
+        let b2_before = b2_gap().await;
+        let body = generate_link(5).await.expect("批量生成 5 件 @10");
+
+        // T7 响应体回显
+        assert_eq!(body.unit_cost.to_string(), "10.000000");
+        assert_eq!(body.amount.to_string(), "50.0000");
+        assert_eq!(body.inventory.qty.to_string(), "5.0000");
+        assert_eq!(body.inventory.amount.to_string(), "50.0000");
+        assert_eq!(body.inventory.avg_cost.to_string(), "10.000000");
+
+        // T4 成本账（NULL 汇总桶）+ 库位账
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "5.0000".to_string(),
+                "50.0000".to_string(),
+                "10.000000".to_string()
+            )),
+            "qty=5 / amount=5×10 / avg_cost=单价"
+        );
+        assert_eq!(
+            location_total(material, warehouse).await,
+            "5.0000",
+            "库位账合计 = 5"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "生成 5 件 @10 后").await;
+
+        // T5 流水：形态不变（IN + SERIAL_IN + SERIAL_BATCH），单价/金额写实值
+        let (unit_cost, amount, qty, before_qty, after_qty, remark) =
+            latest_txn_of(material, BIZ_TYPE_SERIAL_IN).await;
+        assert_eq!(unit_cost, "10.000000");
+        assert_eq!(amount, "50.0000", "流水金额是实值，不是 0");
+        assert_eq!(qty, "5.0000");
+        assert_eq!(before_qty, "0.0000");
+        assert_eq!(after_qty, "5.0000");
+        let remark = remark.unwrap_or_default();
+        assert!(remark.contains("批量生成 5 件"), "{remark}");
+        assert!(remark.contains("单价 10.000000"), "{remark}");
+        assert!(remark.contains("金额 50.0000"), "{remark}");
+        assert!(
+            remark.chars().count() <= 255,
+            "remark 必须塞得进 VARCHAR(255)：{remark}"
+        );
+        let shape: (String, String) = {
+            let rows = db()
+                .find_with_params(
+                    "SELECT txn_type::text AS txn_type, doc_type::text AS doc_type \
+                       FROM biz_inventory_txn WHERE material_id = ?::uuid \
+                      ORDER BY created_at DESC, id DESC LIMIT 1",
+                    vec![Value::from(&material)],
+                )
+                .await
+                .expect("读流水形态");
+            let row = rows.first().expect("有流水");
+            (
+                row.get_typed("txn_type").expect("type"),
+                row.get_typed("doc_type").expect("doc"),
+            )
+        };
+        assert_eq!(shape, (TXN_TYPE_IN.to_string(), "SERIAL_BATCH".to_string()));
+
+        // T6 凭证：借 1405 / 贷 1901，来源 = 首号（doc_id）
+        let doc_id = uuid(&body.list[0].id);
+        assert_eq!(voucher_count("SERIAL_BATCH", doc_id).await, 1);
+        let lines = voucher_lines("SERIAL_BATCH", doc_id).await;
+        assert_eq!(
+            lines,
+            vec![
+                (
+                    "1405".to_string(),
+                    "50.0000".to_string(),
+                    "0.0000".to_string()
+                ),
+                (
+                    "1901".to_string(),
+                    "0.0000".to_string(),
+                    "50.0000".to_string()
+                ),
+            ],
+            "期初入库：借 库存商品 / 贷 待处理财产损溢"
+        );
+
+        // T14 B2 增量 = 0
+        let b2_after = b2_gap().await;
+        assert!(
+            (b2_after - b2_before).abs() <= Decimal::from_str_exact("0.0001").expect("tol"),
+            "B2 增量必须为 0（before {b2_before} / after {b2_after}）"
+        );
+    }
+
+    /// T8：二次生成不同单价（10 → 13，中间出一件）⇒ `avg = ROUND((40+65)/9, 6) = 11.666667`
+    /// （规格 §8.3 步骤 1–3）。
+    #[tokio::test]
+    async fn t8_second_generate_uses_moving_weighted_average() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_LINK_ID);
+        let warehouse = uuid(W_LINK_ID);
+        let first = generate_link(5).await.expect("第一次 5 件 @10");
+        // 规格 §8.3 的步骤 2：先出 1 件（5/50/10 → 4/40/10），再第二次入库，
+        // 这样「分母是 9」才成立。少了这一步，二次生成后是 10 件 / 115 / 11.5。
+        apply_status(
+            uuid(&first.list[0].id),
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("T8：中间出库 1 件".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → OUTBOUND");
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "4.0000".to_string(),
+                "40.0000".to_string(),
+                "10.000000".to_string()
+            )),
+            "出库 1 件后：4 / 40 / 10（avg 不动）"
+        );
+        let mut req = req_for_link(5);
+        req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(13)));
+        let body = generate_serials(&req, None).await.expect("第二次 5 件 @13");
+        assert_eq!(body.amount.to_string(), "65.0000", "本次入账 = 5 × 13");
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "9.0000".to_string(),
+                "105.0000".to_string(),
+                "11.666667".to_string()
+            )),
+            "avg = ROUND((40 + 65) / 9, 6) = 11.666667"
+        );
+        assert_eq!(location_total(material, warehouse).await, "9.0000");
+        assert_invariant(M_LINK_ID, W_LINK_ID, "二次生成后").await;
+    }
+
+    /// T9：出库 1 件 ⇒ 成本账 4/40/10、库位账 4、流水 OUT 实值、凭证 借 6401 / 贷 1405。
+    #[tokio::test]
+    async fn t9_outbound_converts_cost_and_voucher() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_LINK_ID);
+        let warehouse = uuid(W_LINK_ID);
+        let body = generate_link(5).await.expect("生成 5 件 @10");
+        let serial_id = uuid(&body.list[0].id);
+        let b2_before = b2_gap().await;
+        apply_status(
+            serial_id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("发货出库".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → OUTBOUND");
+
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "4.0000".to_string(),
+                "40.0000".to_string(),
+                "10.000000".to_string()
+            )),
+            "出库 1 件：4 / 40 / 10"
+        );
+        assert_eq!(
+            location_total(material, warehouse).await,
+            "4.0000",
+            "库位账同步减到 4"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "出库 1 件后").await;
+
+        let (unit_cost, amount, qty, _, _, _) = latest_txn_of(material, BIZ_TYPE_SERIAL_OUT).await;
+        assert_eq!(unit_cost, "10.000000", "出库流水单价 = 该桶 avg_cost");
+        assert_eq!(amount, "10.0000", "出库流水金额 = 账上真实差额");
+        assert_eq!(qty, "1.0000");
+
+        let lines = voucher_lines("SERIAL_OUT", serial_id).await;
+        assert_eq!(
+            lines,
+            vec![
+                (
+                    "6401".to_string(),
+                    "10.0000".to_string(),
+                    "0.0000".to_string()
+                ),
+                (
+                    "1405".to_string(),
+                    "0.0000".to_string(),
+                    "10.0000".to_string()
+                ),
+            ],
+            "出库结转：借 主营业务成本 / 贷 库存商品"
+        );
+        let b2_after = b2_gap().await;
+        assert!(
+            (b2_after - b2_before).abs() <= Decimal::from_str_exact("0.0001").expect("tol"),
+            "出库也要让 B2 增量 = 0（before {b2_before} / after {b2_after}）"
+        );
+    }
+
+    /// T10：报废 1 件（规格 §8.3 步骤 1–4：生成 5@10 → 出 1 → 生成 5@13 → 报废 1）
+    /// ⇒ 8/93.3333；凭证 借 1901 11.6667（差额口径）。
+    #[tokio::test]
+    async fn t10_scrap_converts_cost_by_difference() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_LINK_ID);
+        let warehouse = uuid(W_LINK_ID);
+        let first = generate_link(5).await.expect("5 件 @10");
+        apply_status(
+            uuid(&first.list[0].id),
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("T10：中间出库 1 件".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → OUTBOUND");
+        let mut req = req_for_link(5);
+        req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(13)));
+        let body = generate_serials(&req, None).await.expect("5 件 @13");
+        let serial_id = uuid(&body.list[0].id);
+        apply_status(
+            serial_id,
+            &SerialStatusReq {
+                status: STATUS_SCRAPPED.to_string(),
+                reason: Some("来料破损".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("IN_STOCK → SCRAPPED");
+
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "8.0000".to_string(),
+                "93.3333".to_string(),
+                "11.666667".to_string()
+            )),
+            "报废 1 件：8 / 93.3333（amount = 8 × 11.666667）"
+        );
+        assert_eq!(location_total(material, warehouse).await, "8.0000");
+        let lines = voucher_lines("SERIAL_SCRAP", serial_id).await;
+        assert_eq!(
+            lines,
+            vec![
+                (
+                    "1901".to_string(),
+                    "11.6667".to_string(),
+                    "0.0000".to_string()
+                ),
+                (
+                    "1405".to_string(),
+                    "0.0000".to_string(),
+                    "11.6667".to_string()
+                ),
+            ],
+            "报废损失按差额口径：105.0000 − 93.3333 = 11.6667（不是 1 × 11.666667）"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "报废 1 件后").await;
+    }
+
+    /// T11/T12/T20：混桶（NULL 汇总桶 + 库位桶）生成 → 出库，B1 恒等、流水条数不随桶数翻倍。
+    #[tokio::test]
+    async fn t11_t12_t20_mixed_buckets_keep_b1_and_one_txn_per_movement() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_SN_ID);
+        let warehouse = uuid(W_ID);
+        let bucket = uuid(IL_ID);
+        // 流水是**只增不改**的审计台账，`setup()` 不清历史行 ⇒ 条数断言必须用「增量」，
+        // 不能拿绝对值（重跑同一个库会漂数：第一次 2 条、第二次 4 条…）。
+        let txn_in_before = txn_count(material, Some(BIZ_TYPE_SERIAL_IN)).await;
+        // 桶 1：NULL 汇总桶 5 件 @10
+        let mut req = req_for(M_SN_ID, 5);
+        req.location_id = None;
+        generate_serials(&req, None)
+            .await
+            .expect("NULL 桶 5 件 @10");
+        // 桶 2：库位桶 3 件 @15
+        let mut req = req_for(M_SN_ID, 3);
+        req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(15)));
+        let body = generate_serials(&req, None).await.expect("库位桶 3 件 @15");
+
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "5.0000".to_string(),
+                "50.0000".to_string(),
+                "10.000000".to_string()
+            )),
+            "NULL 桶 5 / 50 / 10"
+        );
+        assert_eq!(
+            cost_bucket(material, warehouse, Some(bucket)).await,
+            Some((
+                "3.0000".to_string(),
+                "45.0000".to_string(),
+                "15.000000".to_string()
+            )),
+            "库位桶 3 / 45 / 15"
+        );
+        assert_eq!(
+            location_total(material, warehouse).await,
+            "8.0000",
+            "库位账 5 + 3 = 8"
+        );
+        assert_invariant(M_SN_ID, W_ID, "混桶生成后（B1 差 0）").await;
+        // T20：两次生成 = 两条流水（不是两条 × 桶数）
+        assert_eq!(
+            txn_count(material, Some(BIZ_TYPE_SERIAL_IN)).await - txn_in_before,
+            2,
+            "每次库存变动恰好一条流水（多桶也不许翻倍，否则 B4 双计）"
+        );
+
+        // T12：从库位桶出库 1 件 → 该桶 2/30，NULL 桶不动
+        let serial_id = uuid(&body.list[0].id);
+        apply_status(
+            serial_id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("从库位桶出库 1 件");
+        assert_eq!(
+            cost_bucket(material, warehouse, Some(bucket)).await,
+            Some((
+                "2.0000".to_string(),
+                "30.0000".to_string(),
+                "15.000000".to_string()
+            )),
+            "库位桶 2 / 30"
+        );
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "5.0000".to_string(),
+                "50.0000".to_string(),
+                "10.000000".to_string()
+            )),
+            "NULL 桶不受影响"
+        );
+        assert_eq!(
+            location_total(material, warehouse).await,
+            "7.0000",
+            "库位账 5 + 2 = 7"
+        );
+        assert_invariant(M_SN_ID, W_ID, "库位桶出库 1 件后").await;
+        let lines = voucher_lines("SERIAL_OUT", serial_id).await;
+        assert_eq!(
+            lines,
+            vec![
+                (
+                    "6401".to_string(),
+                    "15.0000".to_string(),
+                    "0.0000".to_string()
+                ),
+                (
+                    "1405".to_string(),
+                    "0.0000".to_string(),
+                    "15.0000".to_string()
+                ),
+            ],
+            "库位桶出库按该桶单价 15 结转"
+        );
+        // 桶里最后一件事走了也要归零：再出 1 件 → 库位桶 1 → 出完 → 0（B1 仍差 0）
+        let serial_id2 = uuid(&body.list[1].id);
+        apply_status(
+            serial_id2,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("库位桶再出 1 件");
+        let serial_id3 = uuid(&body.list[2].id);
+        apply_status(
+            serial_id3,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: None,
+            },
+            None,
+        )
+        .await
+        .expect("库位桶出空");
+        assert_eq!(
+            cost_bucket(material, warehouse, Some(bucket)).await,
+            Some((
+                "0.0000".to_string(),
+                "0.0000".to_string(),
+                "15.000000".to_string()
+            )),
+            "桶出空后 qty/amount 归零（avg_cost 不动）"
+        );
+        assert_invariant(M_SN_ID, W_ID, "库位桶出空后（B1 差 0）").await;
+    }
+
+    /// T15：缺 `1901` 科目时生成 ⇒ 500，且**零落库**（凭证写不出来就整单回滚）。
+    #[tokio::test]
+    async fn t15_missing_account_rolls_back_whole_batch() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before = ledger_snapshot(uuid(M_LINK_ID)).await;
+        // 「科目不可用」用**停用**而不是物理删：`biz_voucher_entry.account_id` 有外键，
+        // 其它用例已经写过 1901 的分录，物理删会撞 FK（而停用正是运维真实的故障形态：
+        // 科目被停用 / 未启用 ⇒ `account_required` 取不到）。
+        db().execute_with_params(
+            "UPDATE biz_account SET status = 0 WHERE account_code = '1901'",
+            vec![],
+        )
+        .await
+        .expect("临时停用 1901 科目");
+        let err = generate_link(2)
+            .await
+            .expect_err("科目不可用必须报错（不能静默不记账）");
+        // 科目缺失是 DbError::InvalidValue → utils::db_error 收敛成 500 + 10004
+        assert_eq!(err.status, 500, "{}", err.msg);
+        db().execute_with_params(
+            "UPDATE biz_account SET status = 1 WHERE account_code = '1901'",
+            vec![],
+        )
+        .await
+        .expect("还原 1901 科目");
+        assert_eq!(
+            ledger_snapshot(uuid(M_LINK_ID)).await,
+            before,
+            "科目缺失 ⇒ 号 / 两本账 / 流水 / 凭证 全部回滚（号段浪费可接受）"
+        );
+    }
+
+    /// T16：历史零成本存量（qty=2 / avg=0 / amount=0）出库 ⇒ 成功、流水金额 0、**不发凭证**。
+    ///
+    /// 这是「存量不补账」的过渡口径（规格 v3 §8.2）：`post_voucher` 在借贷合计 0 时会报错，
+    /// 所以 `create_for_serial_movement` 必须自己先判「差额 ≤ 0 → 跳过 + WARN」。
+    #[tokio::test]
+    async fn t16_legacy_zero_cost_outbound_skips_voucher() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let material = uuid(M_LINK_ID);
+        let warehouse = uuid(W_LINK_ID);
+        let serial_id = Uuid::now_v7();
+        // 直接造「改判前」的形态：号在库、成本账零价值、库位账有件数
+        db().execute_with_params(
+            "DELETE FROM biz_material_serial WHERE serial_no IN ('SN-LEGACY-T16', 'SN-LEGACY-T16-B')",
+            vec![],
+        )
+        .await
+        .expect("清理旧夹具");
+        db().execute_with_params(
+            "INSERT INTO biz_material_serial \
+                 (id, serial_no, material_id, warehouse_id, location_id, status, inbound_at) \
+             VALUES (?::uuid, 'SN-LEGACY-T16', ?::uuid, ?::uuid, NULL, 'IN_STOCK', now()), \
+                    (?::uuid, 'SN-LEGACY-T16-B', ?::uuid, ?::uuid, NULL, 'IN_STOCK', now())",
+            vec![
+                Value::from(&serial_id),
+                Value::from(&material),
+                Value::from(&warehouse),
+                Value::from(&Uuid::now_v7()),
+                Value::from(&material),
+                Value::from(&warehouse),
+            ],
+        )
+        .await
+        .expect("插入历史号（2 件：出 1 件后账面应剩 1）");
+        db().execute_with_params(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                                        avg_cost, amount) \
+             VALUES (?::uuid, ?::uuid, ?::uuid, NULL, 2.0000, 0, 0, 0) \
+             ON CONFLICT (material_id, warehouse_id, \
+                          COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) \
+             DO UPDATE SET qty = 2.0000, avg_cost = 0, amount = 0",
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material),
+                Value::from(&warehouse),
+            ],
+        )
+        .await
+        .expect("插入零成本成本账");
+        db().execute_with_params(
+            "INSERT INTO biz_inventory_location (id, material_id, warehouse_id, location_id, qty) \
+             VALUES (?::uuid, ?::uuid, ?::uuid, NULL, 2.0000) \
+             ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE SET qty = 2.0000",
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material),
+                Value::from(&warehouse),
+            ],
+        )
+        .await
+        .expect("插入库位账");
+
+        apply_status(
+            serial_id,
+            &SerialStatusReq {
+                status: STATUS_OUTBOUND.to_string(),
+                reason: Some("历史零成本出库".to_string()),
+            },
+            None,
+        )
+        .await
+        .expect("历史零成本库存必须能正常出库（不能因差额 0 报 500）");
+
+        assert_eq!(
+            cost_bucket(material, warehouse, None).await,
+            Some((
+                "1.0000".to_string(),
+                "0.0000".to_string(),
+                "0.000000".to_string()
+            )),
+            "1 件 / 0 元（存量不补账）"
+        );
+        assert_eq!(location_total(material, warehouse).await, "1.0000");
+        let (_, amount, _, _, _, _) = latest_txn_of(material, BIZ_TYPE_SERIAL_OUT).await;
+        assert_eq!(amount, "0.0000", "差额 0 ⇒ 流水金额 0");
+        assert_eq!(
+            voucher_count("SERIAL_OUT", serial_id).await,
+            0,
+            "差额 ≤ 0 ⇒ 不发凭证（否则 post_voucher 的「借贷合计为 0」护栏会把正常出库打成 500）"
+        );
+        assert_invariant(M_LINK_ID, W_LINK_ID, "历史零成本出库后").await;
+    }
+
+    /// T17/T18：既有校验不回归 —— 非一物一码物料 400、缺仓库 400 + 66005。
+    #[tokio::test]
+    async fn t17_t18_existing_validations_do_not_regress() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut req = req_for(M_PLAIN_ID, 1);
+        req.location_id = None;
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("非一物一码物料必须拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_SERIAL_NOT_REQUIRED);
+
+        let mut req = req_for(M_SN_ID, 1);
+        req.warehouse_id = None;
+        req.location_id = None;
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("缺 warehouse_id 必须拒");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(err.msg.contains("warehouse_id"), "{}", err.msg);
     }
 }
