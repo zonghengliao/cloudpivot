@@ -60,6 +60,23 @@ async fn seed_stock(ctx: &Ctx, material: Uuid, warehouse: Uuid, qty: &str, cost:
     )
     .await
     .unwrap_or_else(|error| panic!("{}：建库存基线失败：{error}", ctx.tag));
+    // **库位账也要同数**：结算（`transfer_model::settle_transfer`）在写完之后自检
+    // 「库位账合计 == 成本账 qty」（巡检 B1，BLOCKER），只种成本账的夹具会让
+    // `IN_TRANSIT → DONE` 直接 409 + 66001「库位账与成本账不符」（2026-11 合并实测 F11）。
+    // 汇总桶 = `location_id IS NULL`（与成本账那一行同口径），幂等靠 `uk_biz_inv_loc`。
+    db().execute_with_params(
+        &format!(
+            "INSERT INTO biz_inventory_location \
+                 (id, material_id, warehouse_id, location_id, qty, locked_qty, last_txn_at) \
+             VALUES (gen_random_uuid(), '{}'::uuid, '{}'::uuid, NULL, {qty}, 0, now()) \
+             ON CONFLICT (material_id, warehouse_id, location_id) \
+             DO UPDATE SET qty = EXCLUDED.qty, updated_at = now()",
+            material, warehouse
+        ),
+        vec![],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("{}：建库位账基线失败：{error}", ctx.tag));
 }
 
 /// 建一个在库序列号（`IN_STOCK`，挂在调出仓），返回它的 id。

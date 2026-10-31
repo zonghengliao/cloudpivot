@@ -304,6 +304,24 @@ impl Ctx {
                     Value::from(&self.wh_from),
                 ],
             ),
+            // 会计期间：**当月**必须开着。
+            //
+            // 手工凭证不传 `voucher_date` 时按「今天」归期（`voucher::period_of`），
+            // 而迁移只种了 2026-10。缺当月期间时 V06/V07/V08 会 409+10003
+            // 「会计期间 yyyy-MM 不存在」—— 跨月第一天整套红（2026-11-01 实测 7 条）。
+            // 幂等：`uk_biz_period_code` 冲突就只把状态推回 OPEN。
+            (
+                "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
+                                                    start_date, end_date, status) \
+                 SELECT EXTRACT(YEAR FROM current_date)::smallint, \
+                        EXTRACT(MONTH FROM current_date)::smallint, \
+                        to_char(current_date, 'YYYY-MM'), \
+                        date_trunc('month', current_date)::date, \
+                        (date_trunc('month', current_date) + INTERVAL '1 month - 1 day')::date, \
+                        'OPEN' \
+                 ON CONFLICT (period_code) DO UPDATE SET status = 'OPEN'".to_string(),
+                vec![],
+            ),
         ];
         for (sql, params) in statements {
             if let Err(error) = db().execute_with_params(&sql, params).await {
