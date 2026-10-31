@@ -419,3 +419,16 @@ test linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert ... ign
 ...
 test result: ok. 60 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 312.10s
 ```
+
+卡面那条命令（**默认多线程**，没有 `--test-threads=1`）同样绿：
+
+```text
+$ LINKAGE_DB_URL='postgres://lnkrole:***@127.0.0.1:5432/cloudpivot_test' LINKAGE_REQUIRE_DB=1 \
+  cargo test --test linkage
+
+running 62 tests
+...
+test result: ok. 60 passed; 0 failed; 2 ignored; 0 measured; 0 filtered out; finished in 265.94s
+```
+
+跑完立刻查真库（18 张表按前缀/id 过滤）：**全部 0**，无夹具残留。
