@@ -146,6 +146,17 @@ R=$(api PUT "/api/business/erp/stock-in/$IN_ID" "{\"supplier_id\":\"$SUP\",\"war
 check "改金额 HTTP" "$(code_of "$R")" "409"
 check_contains "文案点「已入账」" "$(body_of "$R")" "单据已入账"
 
+# ---------- ②b 卡面 §五-3 原文：body 只给 total_amount ----------
+# 这一条专门防「未知字段被 serde 静默丢掉 → 200」的假绿（P10 实测踩到过）：
+# `CreateStockInReq` 必须显式收下 total_*，否则改金额的请求会变成「什么都没改」。
+echo "==> ②b PUT {\"total_amount\":999}（只有金额字段）→ 409"
+R=$(api PUT "/api/business/erp/stock-in/$IN_ID" '{"total_amount":999}')
+check "只有 total_amount 的改单 HTTP" "$(code_of "$R")" "409"
+check_contains "文案点「已入账」" "$(body_of "$R")" "单据已入账"
+check_contains "文案点名 total_amount" "$(body_of "$R")" "total_amount"
+AMT0=$(psql_q "SELECT total_amount FROM biz_stock_in WHERE id='$IN_ID'::uuid")
+check_num "库里金额一毫未动" "$AMT0" "10"
+
 # ---------- ③ 白名单：只改 remark → 200 ----------
 echo "==> ③ 只改 remark → 200（白名单）"
 R=$(api PUT "/api/business/erp/stock-in/$IN_ID" "{\"supplier_id\":\"$SUP\",\"warehouse_id\":\"$WH\",\"remark\":\"P10E 只改备注\",\"items\":[{\"material_id\":\"$MAT\",\"qty\":\"5\",\"price_excl\":\"2\",\"tax_rate\":\"0\"}]}")

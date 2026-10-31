@@ -929,7 +929,7 @@ pub async fn create(
     let operator_text = Value::Text(operator.map(|id| id.to_string()).unwrap_or_default());
     let mut params = vec![
         Value::from(&id),
-        Value::Text(transfer_no),
+        Value::Text(transfer_no.clone()),
         Value::from(&new.from_warehouse_id),
         Value::from(&new.to_warehouse_id),
     ];
@@ -964,6 +964,20 @@ pub async fn create(
     )
     .await?;
     insert_items(ex, id, items, operator).await?;
+    // P10 铁律 ③：建单留痕（`from_status = NULL → DRAFT`），与建单同一事务。
+    // 五张单据里调拨单是最后补上的一个 —— 少这一行，详情页的「状态历史」里
+    // 调拨单永远缺第一格（提交那条日志的 from 是 DRAFT，但没人告诉他们 DRAFT 从哪来）。
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_TRANSFER,
+        id,
+        &transfer_no,
+        STATUS_DRAFT,
+        operator,
+        None,
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
     Ok(id)
 }
 

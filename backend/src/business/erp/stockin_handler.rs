@@ -223,7 +223,16 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
         // P2-C1：应付 / 凭证生成失败（科目映射缺失、金额为 0、重复红冲…）都是**业务校验**
         // 失败，必须 400 + 原文，不能折成 500「服务器内部错误」——否则财务看到的是
         // 「服务器内部错误」，运维也定位不到是哪个科目没配。
-        DbError::InvalidValue(message) => ApiError::new(400, error_code::PARAM_INVALID, message),
+        //
+        // P10：采购单被并发推走（`PO_STATUS_RACE|`）属于「当前状态不允许这次操作」→ 409，
+        // 不是参数错（400）；整笔过账已回滚，客户端刷新重试即可。
+        DbError::InvalidValue(message) => {
+            if message.starts_with(stockin_model::PO_RACE_PREFIX) {
+                ApiError::new(409, error_code::RESOURCE_CONFLICT, message)
+            } else {
+                ApiError::new(400, error_code::PARAM_INVALID, message)
+            }
+        }
         other => utils::db_error(other, ctx),
     }
 }
@@ -651,6 +660,47 @@ async fn ensure_remark_only(
     Ok(())
 }
 
+/// 只读派生字段（数量合计 / 不含税金额 / 税额）的守卫。
+///
+/// 这三个数是**服务端由明细派生**的列，请求体里出现它们只有两种合法可能：
+/// 客户端原样回显（值相等）—— 放行；想绕过明细直接改合计 —— 必须拒。
+///
+/// * 入账态（`POSTED`）：值不等 → **409**「单据已入账…」（与改明细同一条文案）；
+/// * 草稿态：值不等 → **400**「由明细派生」—— 草稿本来就该改明细，传合计没有语义。
+///
+/// 为什么必须显式收下这几个字段而不是让 serde 当成未知字段丢掉：
+/// 卡面 §五-3 的验收请求就是 `PUT {"total_amount": 999}`。丢掉未知字段会让它
+/// 变成「什么都没改」→ `update_remark` → **200**，一个「改金额」的请求假绿。
+fn ensure_derived_totals(
+    current: &stockin_model::StockInRow,
+    req: &CreateStockInReq,
+    locked: bool,
+) -> std::result::Result<(), ApiError> {
+    let given = [
+        ("数量合计 total_qty", req.total_qty, current.total_qty),
+        (
+            "不含税金额合计 total_amount",
+            req.total_amount,
+            current.total_amount,
+        ),
+        ("税额合计 total_tax", req.total_tax, current.total_tax),
+    ];
+    for (field, provided, stored) in given {
+        let Some(provided) = provided else { continue };
+        if provided.round_dp(4) == stored.round_dp(4) {
+            continue;
+        }
+        if locked {
+            return Err(locked_change(current, field));
+        }
+        return Err(bad_request(format!(
+            "{field} 由明细派生，不能在改单时直接传：请改明细（数量 / 单价 / 税率），\
+             合计由服务端重算"
+        )));
+    }
+    Ok(())
+}
+
 /// 明细多重集合比对（顺序无关；请求里没给的字段不参与比较）。
 fn items_match(
     stored: &[stockin_model::StockInItemRow],
@@ -723,6 +773,7 @@ pub async fn update_stock_in(
         .ok_or_else(|| not_found("收货入库单"))?;
 
     if state_machine::Entity::StockIn.is_locked(&current.status) {
+        ensure_derived_totals(&current, req, true)?;
         ensure_remark_only(&current, req).await?;
         stockin_model::update_remark(db(), id, req.remark.as_deref(), operator, Utc::now())
             .await
@@ -738,6 +789,9 @@ pub async fn update_stock_in(
             current.status
         )));
     }
+
+    // 草稿态：合计同样不许由客户端指定（明细才是唯一真相源）
+    ensure_derived_totals(&current, req, false)?;
 
     let mut request = req.clone();
     let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
@@ -966,7 +1020,7 @@ async fn cancel_in_tx(
         //    （`deleted_at` 置位、行保留 —— 审计痕迹不丢，同号可被重新贴用）。
         //    放在库存冲减**之前**：一物一码物料的「货已出库」最硬的证据是序列号状态，
         //    先判它才能给出「哪一件已经出库」这种可执行报文，而不是笼统的「库存不足」。
-        let serials_voided = stockin_model::void_serials_of(ex, id, &row.in_no, operator, now)
+        let serials_voided = stockin_model::void_serials_of(ex, id, &row.in_no, operator.id, now)
             .await
             .map_err(|error| cancel_write_error(error, "作废：退回一物一码序列号"))?;
         // ③ 逐行反向冲减（成本账 → 库位账 → 反向流水）；锁顺序 = 计划的排序（material_id 升序）
@@ -1654,6 +1708,9 @@ mod tests {
             invoice_received: None,
             remark: None,
             items: lines,
+            total_qty: None,
+            total_amount: None,
+            total_tax: None,
         }
     }
 
@@ -3531,6 +3588,60 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(amount, dec("15"));
+    }
+
+    /// ⑰ 卡面 §五-3 的验收请求原样跑一遍：`PUT {"total_amount": 999}` → 409。
+    ///
+    /// 这条专门钉住「未知字段被 serde 静默丢掉 → 200」的假绿：
+    /// `CreateStockInReq` 必须显式收下 `total_*`，否则改金额的请求会变成「什么都没改」。
+    #[tokio::test]
+    async fn p10_posted_total_amount_field_alone_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        // 整个 body 只有 total_amount：明细、表头字段一个都不给
+        let payload = CreateStockInReq {
+            total_amount: Some(dec("999")),
+            ..Default::default()
+        };
+        let err = update_stock_in(id, &payload, None).await.unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("单据已入账"), "{}", err.msg);
+        assert!(
+            err.msg.contains("total_amount"),
+            "文案要点名被改的字段：{}",
+            err.msg
+        );
+        // 库里金额一个字节都不能动
+        let stored: Decimal = db()
+            .scalar_with_params(
+                "SELECT total_amount FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(stored, dec("10"));
+    }
+
+    /// ⑱ 草稿态直接传合计 → 400（合计只能由明细派生；不是「已入账」问题）。
+    #[tokio::test]
+    async fn p10_draft_total_amount_direct_is_bad_request() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_stock_in(&req(vec![line(MATERIAL_A, "5", "2", "0")]), None)
+            .await
+            .unwrap();
+        let payload = CreateStockInReq {
+            total_amount: Some(dec("999")),
+            ..Default::default()
+        };
+        let err = update_stock_in(id, &payload, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("由明细派生"), "{}", err.msg);
     }
 
     /// ⑬ 收货过账后采购单变 RECEIVED，`biz_status_log` 一行且 `biz_ref_no` = 收货单号。
