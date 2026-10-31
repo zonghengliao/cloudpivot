@@ -665,6 +665,13 @@ export interface FlowTaskItem {
   assignee_source: string;
   /** 任务状态 `PENDING|APPROVED|REJECTED|SKIPPED|TERMINATED|TRANSFERRED|DELEGATED` */
   status: string;
+  /**
+   * 所属审批实例的状态（P11）。
+   * 与 `status`（待办自身状态）是两个维度：任务取消/删除时两者应当一起终态，
+   * 但历史脏数据里可能出现「待办还 PENDING + 实例已终态」的孤儿组合 ——
+   * 前端据此把这种行挡在待办列表外（或标成「该审批已结束」），不给点不动的按钮。
+   */
+  instance_status: string;
   /** 是否加签 */
   is_added_sign: boolean;
   /** 是否自审 */

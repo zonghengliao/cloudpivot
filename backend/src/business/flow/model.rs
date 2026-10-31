@@ -2912,6 +2912,8 @@ pub struct MyTaskRow {
     pub flow_name: String,
     /// 发起人姓名。
     pub initiator_name: Option<String>,
+    /// 所属审批实例的状态（P11：前端据此把「实例已结束但待办还 PENDING」的脏行挡在门外）。
+    pub instance_status: String,
     /// 当前节点中文名（`biz_flow_instance_node.node_name` 快照）。
     pub node_name: String,
 }
@@ -2974,6 +2976,7 @@ pub async fn page_my_tasks(
     order: MyTaskOrder,
     page: u64,
     page_size: u64,
+    live_only: bool,
 ) -> DbResult<MyTaskPage> {
     let status_list = statuses
         .iter()
@@ -2985,9 +2988,19 @@ pub async fn page_my_tasks(
         .map(|kind| format!("'{kind}'"))
         .collect::<Vec<_>>()
         .join(",");
+    // P11：「我的待办」只认**实例还在跑**的待办。
+    // 后端已经在「任务取消/删除」两条路径上撤审批（`task_bridge::cancel_on_task_cancelled`
+    // / `cancel_on_task_deleted`），这里再按实例状态兜一层：历史脏数据（实例已终态、
+    // 待办还 PENDING）不该出现在审批人的待办里 —— 那是一条点不动的孤儿（老板报的 TSK-149）。
+    // 列表与计数用**同一个**谓词，否则会出现「显示 3 条、total 说 5 条」。
+    let live_sql = if live_only {
+        " AND i.status = 'PENDING'"
+    } else {
+        ""
+    };
     let where_sql = format!(
         " WHERE t.assignee_id = ?::uuid AND t.status IN ({status_list}) \
-           AND t.task_kind IN ({kind_list})"
+           AND t.task_kind IN ({kind_list}){live_sql}"
     );
     let count_sql = format!(
         "SELECT count(*) AS total FROM biz_flow_task t \
@@ -3004,6 +3017,7 @@ pub async fn page_my_tasks(
     let sql = format!(
         "SELECT {TASK_COLUMNS}, i.instance_no AS instance_no, i.title AS title, \
                 i.flow_name AS flow_name, i.initiator_name AS initiator_name, \
+                i.status AS instance_status, \
                 n.node_name AS node_name \
            FROM biz_flow_task t \
            JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL \
@@ -3029,6 +3043,7 @@ pub async fn page_my_tasks(
             title: row.get_typed("title")?,
             flow_name: row.get_typed("flow_name")?,
             initiator_name: row.get_typed("initiator_name")?,
+            instance_status: row.get_typed("instance_status")?,
             node_name: row.get_typed("node_name")?,
         });
     }

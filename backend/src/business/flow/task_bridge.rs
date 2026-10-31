@@ -646,6 +646,66 @@ pub async fn cancel_on_task_deleted(
     Ok(out)
 }
 
+/// 任务被**推 `CANCELLED`**（不是删除）时写进审批单 `result_comment` / 待办 `comment` 的文案。
+///
+/// 与 [`TASK_DELETE_CANCEL_COMMENT`] 分开是为了审计口径：用户看到的是「任务已取消」，
+/// 而不是「任务已删除」——两者在业务上是同一件事的两种入口，但在证据链上是不同的动作。
+pub const TASK_CANCEL_COMMENT: &str = "任务已取消，审批单自动终止";
+
+/// 任务被推 `CANCELLED` 时，撤掉它名下所有在跑的审批单（P11）。
+///
+/// # 为什么必须与状态流转同一事务
+///
+/// 铁律①「正向必配反向」：任务一旦是 `CANCELLED`，它的审批实例和待办就失去了业务依据。
+/// 只改任务不留撤销，审批人的「待我审批」里会挂着一条点不动的孤儿待办
+/// （老板 2026-10-31 报的 TSK-202610-000149 就是这条路径的产物）。
+///
+/// 与 [`cancel_on_task_deleted`] 的关系：删任务和取消任务是同一个语义的两种入口，
+/// 都必须撤审批；区别只是取消任务还能反悔（若产品允许 `CANCELLED → TODO`），
+/// 所以文案写「任务已取消」而不是「任务已删除」。
+///
+/// # 幂等
+///
+/// 底层 [`model::cancel_pending_of_biz`] 只动 `PENDING`：任务已是 `CANCELLED` 再取消一次
+/// 不会报错、也不会把 `APPROVED` / `REJECTED` 的历史待办改成 `CANCELLED`（那是审计事实）。
+///
+/// # 返回值
+///
+/// 三张表各被终止多少行（实例 / 待办 / 节点），供 handler 结构化日志与 e2e 断言。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（调用方事务整笔回滚，任务不会停在 `CANCELLED`）。
+pub async fn cancel_on_task_cancelled(
+    tx: &Transaction,
+    task_id: Uuid,
+    task_no: &str,
+) -> DbResult<model::CancelledOfBiz> {
+    // 单测专用的故障注入（生产二进制里被 cfg 掉）：证明「撤审批失败 → 任务状态一起回滚」。
+    #[cfg(test)]
+    if CANCEL_INJECT_FAIL.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        return Err(DbError::InvalidValue(P11_FAIL_SENTINEL.to_string()));
+    }
+    let out = model::cancel_pending_of_biz(tx, task_id, task_no, TASK_CANCEL_COMMENT).await?;
+    tracing::info!(
+        %task_id,
+        task_no,
+        instances = out.instances,
+        tasks = out.tasks,
+        nodes = out.nodes,
+        "任务已取消，在跑审批单已终止"
+    );
+    Ok(out)
+}
+
+/// 单测故障注入开关（`#[cfg(test)]` 关掉的生产路径见 [`cancel_on_task_cancelled`]）。
+#[cfg(test)]
+pub(crate) static CANCEL_INJECT_FAIL: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+/// 注入失败时回传的哨兵文案（单测用它区分「注入的错」与「真库的错」）。
+#[cfg(test)]
+pub(crate) const P11_FAIL_SENTINEL: &str = "P11-FAIL-INJECTED";
+
 // ==================== 第二类业务单据：库存调拨单（批次 D · W3b） ====================
 
 /// 库存调拨单的业务类型（`biz_flow_def.biz_type`，与
@@ -1263,5 +1323,675 @@ mod flow_cascade_tests {
         assert_eq!(settle_target("PENDING"), None);
         assert_eq!(settle_target("WITHDRAWN"), None);
         assert_eq!(settle_target("CANCELLED"), None);
+    }
+}
+
+// ==================== P11：任务取消 → 审批实例与待办一起撤（单测） ====================
+//
+// 复现的缺陷（老板 2026-10-31 报 TSK-202610-000149）：
+//   任务被推到 `CANCELLED` 时，`change_status` 只级联取消了**子孙任务**，
+//   没有撤它的 `biz_flow_instance` 与 `biz_flow_task`，于是审批人的「待我审批」里
+//   挂着一条点不动的孤儿待办（真库实测 8 条）。
+//
+// 这里的用例**按 handler 的真实编排**走：一个事务里
+//   ① `apply_status(CANCELLED)` → ② `cascade_cancel_descendants` → ③ 逐个 `cancel_on_task_cancelled`
+// 所以①③之间任何一步失败都必须整笔回滚（用例 ⑧ 用 `#[cfg(test)]` 注入证明）。
+//
+// 跑法（需要一个**已迁移到最新**的隔离库；别指 prod）：
+//   su - postgres -c 'createdb -O cloudpivot cloudpivot_p11'
+//   cd backend && TASK_DB_URL='postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_p11' \
+//     cargo test --lib p11_cancel_flow_tests -j 1
+//
+// 缺 `TASK_DB_URL` 时每条用例打印 `SKIP` 并直接返回（CI 无库时 `cargo test --lib` 仍全绿）。
+#[cfg(test)]
+mod p11_cancel_flow_tests {
+    use super::*;
+    use crate::business::flow::model::CancelledOfBiz;
+    use crate::business::task::model as task_model;
+    use crate::business::task::state::TaskStatus;
+
+    /// 夹具操作人 / 审批人（`biz_task.owner_id` / `biz_flow_task.assignee_id` 都是硬 FK）。
+    const U_ID: &str = "7b110000-0000-4000-8000-0000000000c1";
+    /// 父 / 子 / 对照组 / 没有任何审批单的任务。
+    const TASK_PARENT: &str = "7b110000-0000-4000-8000-0000000001a1";
+    const TASK_CHILD: &str = "7b110000-0000-4000-8000-0000000001a2";
+    const TASK_OTHER: &str = "7b110000-0000-4000-8000-0000000001a3";
+    const TASK_PLAIN: &str = "7b110000-0000-4000-8000-0000000001a4";
+    const NO_PARENT: &str = "P11-PARENT";
+    const NO_CHILD: &str = "P11-CHILD";
+    const NO_OTHER: &str = "P11-OTHER";
+    const NO_PLAIN: &str = "P11-PLAIN";
+    /// 流程定义 / 版本（实例的 `def_id` / `version_id` 都是 `ON DELETE RESTRICT`，必须先造）。
+    const DEF_ID: &str = "7b110000-0000-4000-8000-000000000d01";
+    const VER_ID: &str = "7b110000-0000-4000-8000-000000000e01";
+    /// 实例：父任务的在跑单 + 父任务上**已通过**的历史单 + 子任务的在跑单 + 对照组在跑单。
+    const INST_PARENT: &str = "7b110000-0000-4000-8000-000000000f01";
+    const INST_HIST: &str = "7b110000-0000-4000-8000-000000000f02";
+    const INST_CHILD: &str = "7b110000-0000-4000-8000-000000000f03";
+    const INST_OTHER: &str = "7b110000-0000-4000-8000-000000000f04";
+    /// 实例节点（`biz_flow_task.instance_node_id` 是硬 FK）。
+    const NODE_PARENT: &str = "7b110000-0000-4000-8000-000000001001";
+    const NODE_HIST: &str = "7b110000-0000-4000-8000-000000001002";
+    const NODE_CHILD: &str = "7b110000-0000-4000-8000-000000001003";
+    const NODE_OTHER: &str = "7b110000-0000-4000-8000-000000001004";
+    /// 审批待办。
+    const FT_PARENT: &str = "7b110000-0000-4000-8000-000000001101";
+    const FT_HIST: &str = "7b110000-0000-4000-8000-000000001102";
+    const FT_CHILD: &str = "7b110000-0000-4000-8000-000000001103";
+    const FT_OTHER: &str = "7b110000-0000-4000-8000-000000001104";
+    /// `APPROVED` 待办上原有的人工意见（断言「不被改」时逐字相等 —— 审计事实）。
+    const APPROVED_COMMENT: &str = "人工通过，保留审计（P11）";
+
+    /// 真库用例**串行**执行（共用一个库 + 固定 UUID 夹具）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn uuid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
+    }
+
+    /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `TASK_DB_URL`，用例直接跳过。
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("TASK_DB_URL") else {
+                    println!("SKIP: 未设置 TASK_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: TASK_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn exec(sql: &str, params: Vec<Value>, what: &str) {
+        if let Err(error) = db().execute_with_params(sql, params).await {
+            panic!("夹具{what}失败：{error}");
+        }
+    }
+
+    async fn insert_task(id: Uuid, task_no: &str, parent: Option<Uuid>, me: Uuid) {
+        let parent_sql = if parent.is_some() {
+            "?::uuid"
+        } else {
+            "NULL::uuid"
+        };
+        let mut params = vec![
+            Value::from(&id),
+            Value::Text(task_no.to_string()),
+            Value::Text(format!("P11 {task_no}")),
+            Value::from(&me),
+            Value::from(&me),
+        ];
+        if let Some(parent) = parent.as_ref() {
+            params.push(Value::from(parent));
+        }
+        exec(
+            &format!(
+                "INSERT INTO biz_task (id, task_no, title, owner_id, creator_id, \
+                                      status, priority, progress, need_review, parent_id) \
+                 VALUES (?::uuid, ?, ?, ?::uuid, ?::uuid, 'REVIEW', 'P2', 0, true, {parent_sql})"
+            ),
+            params,
+            "任务",
+        )
+        .await;
+    }
+
+    async fn insert_instance(
+        id: Uuid,
+        instance_no: &str,
+        status: &str,
+        biz_id: Uuid,
+        biz_no: &str,
+        me: Uuid,
+    ) {
+        // ck_biz_flow_instance_end：`(status='PENDING') = (ended_at IS NULL)`。
+        let ended_at = if status == "PENDING" { "NULL" } else { "now()" };
+        let result_comment = if status == "APPROVED" {
+            format!("'{APPROVED_COMMENT}'")
+        } else {
+            "NULL".to_string()
+        };
+        exec(
+            &format!(
+                "INSERT INTO biz_flow_instance \
+                     (id, instance_no, def_id, version_id, version_no, flow_code, flow_name, \
+                      biz_type, biz_id, biz_no, title, status, initiator_id, ended_at, result_comment) \
+                 VALUES (?::uuid, ?, ?::uuid, ?::uuid, 1, 'p11_cancel_flow', 'P11 取消撤审批', \
+                         'TASK_ACCEPT', ?::uuid, ?, ?::text, ?, ?::uuid, {ended_at}, {result_comment})"
+            ),
+            vec![
+                Value::from(&id),
+                Value::Text(instance_no.to_string()),
+                Value::from(&uuid(DEF_ID)),
+                Value::from(&uuid(VER_ID)),
+                Value::from(&biz_id),
+                Value::Text(biz_no.to_string()),
+                Value::Text(format!("P11 {instance_no}")),
+                Value::Text(status.to_string()),
+                Value::from(&me),
+            ],
+            "实例",
+        )
+        .await;
+    }
+
+    async fn insert_node(id: Uuid, instance_id: Uuid, status: &str) {
+        let ended_at = if status == "PENDING" || status == "ACTIVE" {
+            "NULL"
+        } else {
+            "now()"
+        };
+        exec(
+            &format!(
+                "INSERT INTO biz_flow_instance_node \
+                     (id, instance_id, node_key, node_name, node_type, status, ended_at) \
+                 VALUES (?::uuid, ?::uuid, 'n_creator', '创建人验收', 'APPROVAL', ?, {ended_at})"
+            ),
+            vec![
+                Value::from(&id),
+                Value::from(&instance_id),
+                Value::Text(status.to_string()),
+            ],
+            "节点",
+        )
+        .await;
+    }
+
+    async fn insert_flow_task(id: Uuid, instance_id: Uuid, node_id: Uuid, status: &str, me: Uuid) {
+        // ck_biz_flow_task_done：`(status='PENDING') = (completed_at IS NULL)`。
+        let completed_at = if status == "PENDING" { "NULL" } else { "now()" };
+        let comment = if status == "PENDING" {
+            "NULL".to_string()
+        } else {
+            format!("'{APPROVED_COMMENT}'")
+        };
+        exec(
+            &format!(
+                "INSERT INTO biz_flow_task \
+                     (id, instance_id, instance_node_id, node_key, assignee_id, assignee_source, \
+                      status, completed_at, comment) \
+                 VALUES (?::uuid, ?::uuid, ?::uuid, 'n_creator', ?::uuid, 'USER', ?, {completed_at}, {comment})"
+            ),
+            vec![
+                Value::from(&id),
+                Value::from(&instance_id),
+                Value::from(&node_id),
+                Value::from(&me),
+                Value::Text(status.to_string()),
+            ],
+            "审批待办",
+        )
+        .await;
+    }
+
+    /// 清掉上一次的夹具（实例 → 版本 → 定义 → 任务；顺序受 FK 约束）。
+    async fn cleanup(me: Uuid) {
+        exec(
+            "DELETE FROM biz_flow_instance WHERE def_id = ?::uuid",
+            vec![Value::from(&uuid(DEF_ID))],
+            "清理实例",
+        )
+        .await;
+        exec(
+            "UPDATE biz_flow_def SET current_version_id = NULL WHERE id = ?::uuid",
+            vec![Value::from(&uuid(DEF_ID))],
+            "清理定义（摘当前版本）",
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_flow_def_version WHERE def_id = ?::uuid",
+            vec![Value::from(&uuid(DEF_ID))],
+            "清理版本",
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_flow_def WHERE id = ?::uuid",
+            vec![Value::from(&uuid(DEF_ID))],
+            "清理定义",
+        )
+        .await;
+        // 自引用 FK 不是 deferrable：先断父指针再删。
+        exec(
+            "UPDATE biz_task SET parent_id = NULL WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+            "清理任务（断父指针）",
+        )
+        .await;
+        exec(
+            "DELETE FROM biz_task WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+            "清理任务",
+        )
+        .await;
+    }
+
+    /// 拿锁 + 连库 + 重建夹具（幂等）：父任务（在跑 + 已通过两张单）、子任务、对照组、无单任务。
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        let me = uuid(U_ID);
+        exec(
+            "INSERT INTO sys_user (id, username, password) \
+             VALUES (?::uuid, 'p11_flow_user', 'p11-not-a-real-hash') ON CONFLICT DO NOTHING",
+            vec![Value::from(&me)],
+            "用户",
+        )
+        .await;
+        cleanup(me).await;
+        insert_task(uuid(TASK_PARENT), NO_PARENT, None, me).await;
+        insert_task(uuid(TASK_CHILD), NO_CHILD, Some(uuid(TASK_PARENT)), me).await;
+        insert_task(uuid(TASK_OTHER), NO_OTHER, None, me).await;
+        insert_task(uuid(TASK_PLAIN), NO_PLAIN, None, me).await;
+        exec(
+            "INSERT INTO biz_flow_def (id, flow_code, flow_name, biz_type, status) \
+             VALUES (?::uuid, 'p11_cancel_flow', 'P11 取消撤审批', 'TASK_ACCEPT', 'DRAFT')",
+            vec![Value::from(&uuid(DEF_ID))],
+            "流程定义",
+        )
+        .await;
+        exec(
+            "INSERT INTO biz_flow_def_version (id, def_id, version_no, version_status) \
+             VALUES (?::uuid, ?::uuid, 1, 'DRAFT')",
+            vec![Value::from(&uuid(VER_ID)), Value::from(&uuid(DEF_ID))],
+            "流程版本",
+        )
+        .await;
+        insert_instance(
+            uuid(INST_PARENT),
+            "P11-INST-P",
+            "PENDING",
+            uuid(TASK_PARENT),
+            NO_PARENT,
+            me,
+        )
+        .await;
+        insert_instance(
+            uuid(INST_HIST),
+            "P11-INST-H",
+            "APPROVED",
+            uuid(TASK_PARENT),
+            NO_PARENT,
+            me,
+        )
+        .await;
+        insert_instance(
+            uuid(INST_CHILD),
+            "P11-INST-C",
+            "PENDING",
+            uuid(TASK_CHILD),
+            NO_CHILD,
+            me,
+        )
+        .await;
+        insert_instance(
+            uuid(INST_OTHER),
+            "P11-INST-O",
+            "PENDING",
+            uuid(TASK_OTHER),
+            NO_OTHER,
+            me,
+        )
+        .await;
+        insert_node(uuid(NODE_PARENT), uuid(INST_PARENT), "ACTIVE").await;
+        insert_node(uuid(NODE_HIST), uuid(INST_HIST), "APPROVED").await;
+        insert_node(uuid(NODE_CHILD), uuid(INST_CHILD), "ACTIVE").await;
+        insert_node(uuid(NODE_OTHER), uuid(INST_OTHER), "ACTIVE").await;
+        insert_flow_task(
+            uuid(FT_PARENT),
+            uuid(INST_PARENT),
+            uuid(NODE_PARENT),
+            "PENDING",
+            me,
+        )
+        .await;
+        insert_flow_task(
+            uuid(FT_HIST),
+            uuid(INST_HIST),
+            uuid(NODE_HIST),
+            "APPROVED",
+            me,
+        )
+        .await;
+        insert_flow_task(
+            uuid(FT_CHILD),
+            uuid(INST_CHILD),
+            uuid(NODE_CHILD),
+            "PENDING",
+            me,
+        )
+        .await;
+        insert_flow_task(
+            uuid(FT_OTHER),
+            uuid(INST_OTHER),
+            uuid(NODE_OTHER),
+            "PENDING",
+            me,
+        )
+        .await;
+        Some(guard)
+    }
+
+    /// 与 `handler::change_status` 同款的取消编排（① 写状态 → ② 级联子孙 → ③ 逐个撤审批）。
+    ///
+    /// 返回 `(三表行数合计, 被级联取消的子孙)`；任一步 `?` 失败 = 调用方回滚整笔。
+    async fn cancel_task_in_tx(
+        tx: &Transaction,
+        task_id: Uuid,
+        task_no: &str,
+        me: Uuid,
+    ) -> DbResult<(CancelledOfBiz, Vec<task_model::CancelCascade>)> {
+        let update = task_model::StatusUpdate {
+            to: TaskStatus::Cancelled.code().to_string(),
+            progress: None,
+            done_at: None,
+            reject_reason: None,
+            cancel_reason: Some(task_model::CASCADE_CANCEL_REASON.to_string()),
+        };
+        let affected = task_model::apply_status(tx, task_id, &update, me).await?;
+        assert_eq!(affected, 1, "夹具任务必须存在");
+        let cancels = task_model::cascade_cancel_descendants(
+            tx,
+            task_id,
+            me,
+            task_model::CASCADE_CANCEL_REASON,
+        )
+        .await?;
+        let mut out = cancel_on_task_cancelled(tx, task_id, task_no).await?;
+        for cancel in &cancels {
+            let sub = cancel_on_task_cancelled(tx, cancel.task_id, &cancel.task_no).await?;
+            out.instances += sub.instances;
+            out.tasks += sub.tasks;
+            out.nodes += sub.nodes;
+        }
+        Ok((out, cancels))
+    }
+
+    /// 提交式封装（正常路径）。
+    async fn cancel_task(
+        task_id: Uuid,
+        task_no: &str,
+        me: Uuid,
+    ) -> (CancelledOfBiz, Vec<task_model::CancelCascade>) {
+        let tx = db().begin().await.expect("开事务失败");
+        let out = cancel_task_in_tx(&tx, task_id, task_no, me)
+            .await
+            .expect("取消任务失败");
+        tx.commit().await.expect("提交事务失败");
+        out
+    }
+
+    async fn task_status(id: Uuid) -> String {
+        let rows = db()
+            .find_with_params(
+                "SELECT status FROM biz_task WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("读任务失败");
+        rows.first()
+            .expect("任务不存在")
+            .get_typed("status")
+            .expect("status")
+    }
+
+    /// 实例三元组：状态 / `ended_at` 是否非空 / `result_comment`。
+    async fn instance_row(id: Uuid) -> (String, bool, Option<String>) {
+        let rows = db()
+            .find_with_params(
+                "SELECT status, (ended_at IS NOT NULL) AS ended, result_comment \
+                   FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("读实例失败");
+        let row = rows.first().expect("实例不存在");
+        (
+            row.get_typed("status").expect("status"),
+            row.get_typed("ended").expect("ended"),
+            row.get_typed("result_comment").expect("result_comment"),
+        )
+    }
+
+    /// 待办三元组：状态 / `completed_at` 是否非空 / `comment`。
+    async fn flow_task_row(id: Uuid) -> (String, bool, Option<String>) {
+        let rows = db()
+            .find_with_params(
+                "SELECT status, (completed_at IS NOT NULL) AS done, comment \
+                   FROM biz_flow_task WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("读待办失败");
+        let row = rows.first().expect("待办不存在");
+        (
+            row.get_typed("status").expect("status"),
+            row.get_typed("done").expect("done"),
+            row.get_typed("comment").expect("comment"),
+        )
+    }
+
+    /// 节点三元组：状态 / `ended_at` 是否非空。
+    async fn node_row(id: Uuid) -> (String, bool) {
+        let rows = db()
+            .find_with_params(
+                "SELECT status, (ended_at IS NOT NULL) AS ended \
+                   FROM biz_flow_instance_node WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("读节点失败");
+        let row = rows.first().expect("节点不存在");
+        (
+            row.get_typed("status").expect("status"),
+            row.get_typed("ended").expect("ended"),
+        )
+    }
+
+    /// ① 任务推 `CANCELLED` → 它的审批实例变 `CANCELLED`（`ended_at` 有值 + 文案是「已取消」）。
+    #[tokio::test]
+    async fn cancel_task_settles_its_instance() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let (out, _) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(
+            out.instances, 2,
+            "父任务 + 被级联取消的子任务各一条在跑实例"
+        );
+        let (status, ended, comment) = instance_row(uuid(INST_PARENT)).await;
+        assert_eq!(status, "CANCELLED");
+        assert!(
+            ended,
+            "实例结束必须同写 ended_at（ck_biz_flow_instance_end）"
+        );
+        assert_eq!(comment.as_deref(), Some(TASK_CANCEL_COMMENT));
+    }
+
+    /// ② 任务推 `CANCELLED` → 它的 `PENDING` 待办变 `CANCELLED`（`completed_at` 有值）。
+    #[tokio::test]
+    async fn cancel_task_settles_its_pending_todo() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        let (status, done, comment) = flow_task_row(uuid(FT_PARENT)).await;
+        assert_eq!(status, "CANCELLED");
+        assert!(
+            done,
+            "待办结束必须同写 completed_at（ck_biz_flow_task_done）"
+        );
+        assert_eq!(comment.as_deref(), Some(TASK_CANCEL_COMMENT));
+    }
+
+    /// ③ 任务推 `CANCELLED` → 实例节点变 `CANCELLED`（`ended_at` 有值）。
+    #[tokio::test]
+    async fn cancel_task_settles_its_node() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let (out, _) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(out.nodes, 2, "父 + 子两个在跑节点各被终止 1 条");
+        let (status, ended) = node_row(uuid(NODE_PARENT)).await;
+        assert_eq!(status, "CANCELLED");
+        assert!(ended, "节点结束必须同写 ended_at");
+    }
+
+    /// ④ 父任务取消 → 级联取消的子任务，各自的审批也被撤。
+    #[tokio::test]
+    async fn parent_cancel_settles_children_approvals() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let (out, cancels) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(cancels.len(), 1, "应有 1 个子任务被级联取消");
+        assert_eq!(cancels[0].task_id, uuid(TASK_CHILD));
+        assert_eq!(
+            cancels[0].task_no, NO_CHILD,
+            "级联结果必须带子任务单号（撤审批要按 biz_no 精确匹配）"
+        );
+        assert_eq!(task_status(uuid(TASK_CHILD)).await, "CANCELLED");
+        assert_eq!(out.instances, 2, "父 + 子各一条在跑实例");
+        assert_eq!(out.tasks, 2, "父 + 子各一条 PENDING 待办");
+        assert_eq!(instance_row(uuid(INST_CHILD)).await.0, "CANCELLED");
+        let (child_todo, child_done, _) = flow_task_row(uuid(FT_CHILD)).await;
+        assert_eq!(child_todo, "CANCELLED");
+        assert!(child_done);
+    }
+
+    /// ⑤ 已经是 `CANCELLED` 的任务再取消一次 → 幂等（0 行改动、不报错）。
+    #[tokio::test]
+    async fn cancel_twice_is_idempotent() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let (first, _) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(first.instances, 2, "父 + 子各一条在跑实例");
+        let (second, cancels) = cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(cancels.len(), 0, "第二次没有可级联的子孙（都已 CANCELLED）");
+        assert_eq!(second, CancelledOfBiz::default(), "第二次取消应 0 行改动");
+        // 文案仍是第一次那条（没有被第二次覆盖）
+        assert_eq!(
+            flow_task_row(uuid(FT_PARENT)).await.2.as_deref(),
+            Some(TASK_CANCEL_COMMENT)
+        );
+    }
+
+    /// ⑥ 撤销只动 `PENDING`：`APPROVED` 的历史待办与实例**一个字都不改**（审计事实）。
+    #[tokio::test]
+    async fn approved_history_is_untouched() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        let (status, done, comment) = flow_task_row(uuid(FT_HIST)).await;
+        assert_eq!(status, "APPROVED", "历史待办不许被改成 CANCELLED");
+        assert!(done, "历史待办的 completed_at 不许被重写");
+        assert_eq!(comment.as_deref(), Some(APPROVED_COMMENT));
+        let (inst_status, _, inst_comment) = instance_row(uuid(INST_HIST)).await;
+        assert_eq!(inst_status, "APPROVED");
+        assert_eq!(inst_comment.as_deref(), Some(APPROVED_COMMENT));
+    }
+
+    /// ⑦ 精确匹配：别的单据的实例与待办不受影响（`biz_id` / `biz_no` 都指向别的任务）。
+    #[tokio::test]
+    async fn other_biz_instances_untouched() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        cancel_task(uuid(TASK_PARENT), NO_PARENT, me).await;
+        assert_eq!(instance_row(uuid(INST_OTHER)).await.0, "PENDING");
+        let (todo, done, comment) = flow_task_row(uuid(FT_OTHER)).await;
+        assert_eq!(todo, "PENDING");
+        assert!(!done);
+        assert!(comment.is_none(), "别人的待办连 comment 都不该被碰");
+        assert_eq!(node_row(uuid(NODE_OTHER)).await.0, "ACTIVE");
+        assert_eq!(task_status(uuid(TASK_OTHER)).await, "REVIEW");
+    }
+
+    /// ⑧ 撤审批失败 → **任务状态也没改**（同一事务回滚）。
+    #[tokio::test]
+    async fn cancel_failure_rolls_back_task_status() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let tx = db().begin().await.expect("开事务失败");
+        // 让第 ③ 步（撤审批）失败：状态已经写进事务了，必须由回滚抹掉。
+        CANCEL_INJECT_FAIL.store(true, std::sync::atomic::Ordering::SeqCst);
+        let result = cancel_task_in_tx(&tx, uuid(TASK_PARENT), NO_PARENT, me).await;
+        let error = result.expect_err("注入失败后应当 Err");
+        assert!(
+            matches!(&error, DbError::InvalidValue(msg) if msg == P11_FAIL_SENTINEL),
+            "应当是注入的那条哨兵错误，实际：{error}"
+        );
+        tx.rollback().await.expect("回滚失败");
+        assert_eq!(
+            task_status(uuid(TASK_PARENT)).await,
+            "REVIEW",
+            "撤审批失败必须整笔回滚：任务不许停在 CANCELLED"
+        );
+        assert_eq!(instance_row(uuid(INST_PARENT)).await.0, "PENDING");
+        assert_eq!(flow_task_row(uuid(FT_PARENT)).await.0, "PENDING");
+        assert_eq!(
+            task_status(uuid(TASK_CHILD)).await,
+            "REVIEW",
+            "级联取消的子孙也要跟着回滚"
+        );
+    }
+
+    /// ⑨ 没有审批单的任务取消 → 三表 0 行，不报错（「没配流程」不是错误）。
+    #[tokio::test]
+    async fn cancel_without_instance_is_noop() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ID);
+        let (out, cancels) = cancel_task(uuid(TASK_PLAIN), NO_PLAIN, me).await;
+        assert!(cancels.is_empty());
+        assert_eq!(out, CancelledOfBiz::default(), "没有审批单 → 0 行改动");
+        assert_eq!(task_status(uuid(TASK_PLAIN)).await, "CANCELLED");
+    }
+
+    /// ⑩ 文案口径：取消与删除是两种动作，`result_comment` 不能混（纯逻辑，不连库）。
+    #[test]
+    fn cancel_and_delete_comments_are_distinct() {
+        assert_ne!(TASK_CANCEL_COMMENT, TASK_DELETE_CANCEL_COMMENT);
+        assert!(
+            TASK_CANCEL_COMMENT.contains("取消"),
+            "取消留痕必须写明「任务已取消」"
+        );
+        assert!(
+            TASK_DELETE_CANCEL_COMMENT.contains("删除"),
+            "删除留痕必须写明「任务已删除」"
+        );
     }
 }

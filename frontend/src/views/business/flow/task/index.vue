@@ -21,6 +21,17 @@
         </template>
       </t-alert>
 
+      <!-- P11 前端防御：实例已结束（实例 CANCELLED/APPROVED/REJECTED/WITHDRAWN）但待办还是
+           PENDING 的孤儿行已被过滤掉 —— 后端已修根因与存量数据，这里挡住「万一还有」的历史脏数据，
+           不让用户看到一个点不动的按钮。 -->
+      <t-alert
+        v-if="hiddenEndedCount > 0"
+        class="task-alert"
+        theme="warning"
+        data-testid="flow-todo-hidden-ended"
+        :message="`已隐藏 ${hiddenEndedCount} 条「审批单已结束」的待办：这些单子已被取消 / 通过 / 驳回，不需要再处理`"
+      />
+
       <div v-if="loading" class="task-state">加载中…</div>
 
       <div v-else-if="cards.length === 0" class="task-empty">
@@ -202,6 +213,8 @@ interface CardItem {
   atMs?: number;
   /** 是否为「24 小时内到达」的新内容（仅待办 Tab 标记） */
   isNew?: boolean;
+  /** 所属审批实例的状态（P11 防御用；后端老版本可能缺这个字段） */
+  instanceStatus?: string;
 }
 
 /** 当前 Tab（`t-tab-panel` 的 value） */
@@ -214,6 +227,26 @@ const loading = ref(false);
 const tabError = ref('');
 /** 正在提交的卡片 id（防重复点击） */
 const actingId = ref('');
+/** P11：本次从待办里过滤掉的「实例已结束」条数（>0 时页面顶部给出解释） */
+const hiddenEndedCount = ref(0);
+
+/**
+ * 审批实例是否已结束（P11 前端防御）。
+ *
+ * 待办自己还是 `PENDING`、但所属实例已经 `CANCELLED` / `APPROVED` / `REJECTED` / `WITHDRAWN`，
+ * 就是一条点不动的孤儿待办（老板 2026-10-31 报的 TSK-202610-000149）。
+ * 后端已在「任务取消 / 删除」两条路径上撤审批，并做了存量数据修复；
+ * 这里再兜一层：历史脏数据万一还有，也不让用户看到。
+ *
+ * 字段缺失（后端老版本）时**不隐藏**：看不出来就别误伤真待办。
+ * 状态按大写比较，后端返回小写也不会漏判。
+ */
+function isInstanceEnded(instanceStatus: string | undefined): boolean {
+  if (!instanceStatus) {
+    return false;
+  }
+  return ['CANCELLED', 'APPROVED', 'REJECTED', 'WITHDRAWN'].includes(instanceStatus.trim().toUpperCase());
+}
 
 /** 空态文案（按 Tab 区分，卡面要求 4 种空态） */
 const emptyText = computed(() => {
@@ -278,6 +311,7 @@ function taskToCard(task: FlowTaskItem): CardItem {
     waitedMs: task.task_kind === 'APPROVAL' ? Math.max(0, Date.now() - new Date(task.arrived_at).getTime()) : undefined,
     status: task.status,
     statusDomain: 'flow-task',
+    instanceStatus: task.instance_status,
     tag: tags[0],
     tagTheme: task.task_kind === 'RESUBMIT' ? 'warning' : 'default',
   };
@@ -315,10 +349,16 @@ async function loadCurrent(): Promise<void> {
   loading.value = true;
   tabError.value = '';
   cards.value = [];
+  hiddenEndedCount.value = 0;
   try {
     if (activeTab.value === 'todo') {
       const data = await listTodoTasks({ page: 1, page_size: 50 });
-      cards.value = (data.list ?? []).map(taskToCard);
+      // P11 防御：实例已结束（已取消/已通过/已驳回/已撤回）的孤儿待办不进列表 ——
+      // 那是一行点了也没用的数据。后端已修根因 + 存量，这里挡历史脏数据。
+      const rows = data.list ?? [];
+      const live = rows.filter((item) => !isInstanceEnded(item.instance_status));
+      hiddenEndedCount.value = rows.length - live.length;
+      cards.value = live.map(taskToCard);
     } else if (activeTab.value === 'done') {
       const data = await listDoneTasks({ page: 1, page_size: 50 });
       cards.value = (data.list ?? []).map(taskToCard);

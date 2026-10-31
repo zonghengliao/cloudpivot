@@ -575,8 +575,82 @@ def group_g():
                and due_date < current_date""")
 
 
+# ══════════════════════════════════════════════════════════════════
+# H. 审批闭环（任务 ↔ 审批实例 ↔ 待办 三者不许脱节）
+# ══════════════════════════════════════════════════════════════════
+def group_h():
+    print("\n" + "=" * 92)
+    print("H. 审批闭环（任务取消/完成 → 审批必须跟着收口）")
+    print("=" * 92)
+
+    # H1：实例已终态，待办不能还挂 PENDING。
+    # 这正是老板报 TSK-202610-000149 的形态：任务取消了、审批单 CANCELLED 了，
+    # 但 biz_flow_task 还是 PENDING，审批人看到一条点不动的孤儿待办。
+    bad = q("""
+        select i.instance_no, coalesce(i.biz_no,'(空)'), coalesce(u.username,'(未知)'), ft.node_key
+        from biz_flow_task ft
+        join biz_flow_instance i on i.id = ft.instance_id
+        left join sys_user u on u.id = ft.assignee_id
+        where ft.status = 'PENDING'
+          and i.status in ('CANCELLED','APPROVED','REJECTED','WITHDRAWN')
+          and i.deleted_at is null
+        order by 1
+    """)
+    check("H1 实例已终态 → 待办必须终态", "审批", "BLOCKER", not bad,
+          f"{len(bad)} 条孤儿待办（实例已结束，待办还 PENDING）" if bad else "无孤儿待办",
+          """select i.instance_no || ' / ' || coalesce(i.biz_no,'(空)') || ' / ' || ft.node_key
+             from biz_flow_task ft join biz_flow_instance i on i.id = ft.instance_id
+             where ft.status='PENDING' and i.status in ('CANCELLED','APPROVED','REJECTED','WITHDRAWN')
+               and i.deleted_at is null""")
+
+    # H2：任务已取消/已完成 → 它名下不许还有 PENDING 的审批实例。
+    # 这是 H1 的上游口径：实例根本没被动过（还 PENDING），但业务对象已经结束了。
+    bad2 = q("""
+        select t.task_no, t.status, i.instance_no
+        from biz_task t
+        join biz_flow_instance i on i.biz_id = t.id and i.deleted_at is null
+        where t.deleted_at is null
+          and t.status in ('CANCELLED','DONE')
+          and i.status = 'PENDING'
+        order by 1
+    """)
+    check("H2 任务已取消/完成 → 审批实例必须终态", "审批", "BLOCKER", not bad2,
+          f"{len(bad2)} 条实例还挂着（任务已结束但审批没人收口）" if bad2 else "全部已收口",
+          """select t.task_no || ' ' || t.status::text || ' / ' || i.instance_no
+             from biz_task t join biz_flow_instance i on i.biz_id = t.id and i.deleted_at is null
+             where t.deleted_at is null and t.status in ('CANCELLED','DONE') and i.status='PENDING'""")
+
+    # H3：待办必须能追溯到业务对象（否则点进去 404）。
+    # 只查 TASK_ACCEPT：其它 biz_type（调拨单等）的业务表不同，各自闭环由 G2 管，
+    # 这里不越过模块边界去猜 biz_type 对应的表名。
+    bad3 = q("""
+        select i.instance_no, coalesce(i.biz_no,'(空)'), coalesce(u.username,'(未知)')
+        from biz_flow_task ft
+        join biz_flow_instance i on i.id = ft.instance_id
+        left join sys_user u on u.id = ft.assignee_id
+        where ft.status = 'PENDING'
+          and i.status = 'PENDING'
+          and i.biz_type = 'TASK_ACCEPT'
+          and i.deleted_at is null
+          and not exists (
+                select 1 from biz_task t
+                 where t.deleted_at is null
+                   and (t.id = i.biz_id or (i.biz_id is null and t.task_no = i.biz_no)))
+        order by 1
+    """)
+    check("H3 待办必能追溯到任务（未软删）", "审批", "WARN", not bad3,
+          f"{len(bad3)} 条孤儿待办（任务已删/不存在，点进去 404）" if bad3 else "全部可追溯",
+          """select i.instance_no || ' / ' || coalesce(i.biz_no,'(空)')
+             from biz_flow_task ft join biz_flow_instance i on i.id = ft.instance_id
+             where ft.status='PENDING' and i.status='PENDING' and i.biz_type='TASK_ACCEPT'
+               and i.deleted_at is null
+               and not exists (select 1 from biz_task t where t.deleted_at is null
+                               and (t.id = i.biz_id or (i.biz_id is null and t.task_no = i.biz_no)))""")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
-          "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g}
+          "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
+          "审批": group_h}
 
 
 def main():
