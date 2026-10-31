@@ -37,13 +37,14 @@ cd /opt/cloudpivot/backend
 export LINKAGE_DB_URL='postgres://lnkrole:***@127.0.0.1:5432/cloudpivot_test'
 export LINKAGE_REQUIRE_DB=1          # 没连上库就失败，而不是静默 SKIP
 
-cargo test --test linkage -- --test-threads=1
+cargo test --test linkage            # 就是卡面那条命令，默认多线程跑也稳定
 ```
 
 - `LINKAGE_DB_URL` 缺省 + 无 `LINKAGE_REQUIRE_DB` 时按仓内既有约定打印 `SKIP` 并返回（无库 CI 仍绿），
   但**验收必须带 `LINKAGE_REQUIRE_DB=1`**，否则「全部跳过」也会显示 ok —— 这正是本套用例要防的假绿。
-- `--test-threads=1` **是必需的**：T17 会临时关掉 `TASK_ACCEPT` 种子流程的 `is_default`（模拟「没配流程」），
-  并发跑时别的 T 用例会读进这个窗口。这一点已写进用例注释。
+- **并发不用你操心**：T17 会临时把 `TASK_ACCEPT` 种子流程置为 `DRAFT`（全局状态），
+  所以每个用例开头都过一道进程级串行闸 `common::serial().await`
+  —— 加 `--test-threads=1` 也行，不加也行，两条命令都已实测全绿。
 
 ---
 
@@ -359,6 +360,7 @@ UNION ALL SELECT 'role',count(*) FROM sys_role WHERE role_code LIKE 'LNK-%'
    该脚本第一版有顺序 bug —— `biz_material_serial` 早于 `biz_stock_transfer_item_serial` 被删，
    整批在第一个外键就回滚（表面"跑完没报错"，实际一行没删）。已修正为「先删关联表」并加了收尾核对查询。
 2. **必须串行跑**（`--test-threads=1`）：T17 会临时改 `TASK_ACCEPT` 的 `is_default`。
+   → **已解决**：每用例开头过 `common::serial()` 进程级互斥闸，两种跑法都实测全绿。
 3. F10「并发不死锁」是在**单个用例内**起并发任务，验证的是行锁顺序；不是多进程压测。
 
 ---

@@ -224,6 +224,8 @@ async fn v01_reverse_creates_mirrored_red_voucher() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V01").await;
     let blue = blue_voucher(&ctx).await;
     let (_, blue_is_red, _, blue_debit, blue_credit) = voucher_head(blue).await;
@@ -280,6 +282,8 @@ async fn v02_reverse_backfills_pointer_and_keeps_posted() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V02").await;
     let blue = blue_voucher(&ctx).await;
     let (status_before, _, pointer_before, _, _) = voucher_head(blue).await;
@@ -321,6 +325,8 @@ async fn v03_double_reverse_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V03").await;
     let blue = blue_voucher(&ctx).await;
     let _red = reverse_voucher(blue, Some("V03 第一次红冲"), Some(ctx.worker))
@@ -351,6 +357,8 @@ async fn v04_reverse_red_voucher_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V04").await;
     let blue = blue_voucher(&ctx).await;
     let red = reverse_voucher(blue, Some("V04 先正常红冲"), Some(ctx.worker))
@@ -385,6 +393,8 @@ async fn v05_unbalanced_manual_voucher_is_bad_request() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V05").await;
     // 借 100 / 贷 60 → 差 40
     let req = manual_req_with(&ctx, "1405", "100", "2202", "60").await;
@@ -415,6 +425,8 @@ async fn v06_balanced_manual_voucher_is_posted() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V06").await;
     let req = manual_req_with(&ctx, "1405", "100", "2202", "100").await;
 
@@ -455,6 +467,8 @@ async fn v07_every_voucher_is_balanced() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V07").await;
     let blue = blue_voucher(&ctx).await;
     let red = reverse_voucher(blue, Some("V07 红冲保持平衡"), Some(ctx.worker))
@@ -502,6 +516,8 @@ async fn v08_each_entry_has_exactly_one_non_zero_side() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("V08").await;
     let blue = blue_voucher(&ctx).await;
     let red = reverse_voucher(blue, Some("V08 红冲"), Some(ctx.worker))

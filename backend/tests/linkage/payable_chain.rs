@@ -159,6 +159,8 @@ async fn p01_full_payment_settles_payable() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P01").await;
     // 10 × 2 = 20 不含税，13% 税 2.60 → 价税合计 22.60
     let stock_in = posted_stock_in(&ctx, "10", "2", "13").await;
@@ -185,6 +187,8 @@ async fn p02_partial_payment_marks_partial_paid() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P02").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await; // 20.00
     let (payable_id, _, amount, _, _) = payable_snapshot(stock_in).await;
@@ -204,6 +208,8 @@ async fn p03_two_partial_payments_accumulate_to_settled() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P03").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await; // 20.00
     let (payable_id, _, amount, _, _) = payable_snapshot(stock_in).await;
@@ -233,6 +239,8 @@ async fn p04_payment_generates_balanced_voucher() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P04").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await; // 20.00
     let (payable_id, _, amount, _, _) = payable_snapshot(stock_in).await;
@@ -311,6 +319,8 @@ async fn p05_over_payment_is_bad_request() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P05").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await; // 20.00
     let (payable_id, _, amount, _, unpaid) = payable_snapshot(stock_in).await;
@@ -348,6 +358,8 @@ async fn p06_pay_settled_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P06").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await;
     let (payable_id, _, amount, _, _) = payable_snapshot(stock_in).await;
@@ -373,6 +385,8 @@ async fn p07_cancel_paid_payable_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P07").await;
     let stock_in = posted_stock_in(&ctx, "10", "2", "0").await;
     let (payable_id, _, _, _, _) = payable_snapshot(stock_in).await;
@@ -435,6 +449,8 @@ async fn p08_paid_plus_unpaid_equals_amount() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("P08").await;
     let stock_in = posted_stock_in(&ctx, "4", "2.5", "13").await; // 10 + 13% = 11.30
     let (payable_id, _, amount, paid, unpaid) = payable_snapshot(stock_in).await;

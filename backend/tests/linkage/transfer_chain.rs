@@ -262,6 +262,8 @@ async fn f01_submit_creates_pending_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F01").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -308,6 +310,8 @@ async fn f02_approval_moves_to_approved() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F02").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -339,6 +343,8 @@ async fn f03_ship_records_transit_warehouse_without_touching_stock() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F03").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -378,6 +384,8 @@ async fn f04_receive_moves_qty_between_warehouses() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F04").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -408,6 +416,8 @@ async fn f05_total_qty_and_cost_conserved_after_done() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F05").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_to, "10", "8").await;
@@ -461,6 +471,8 @@ async fn f06_draft_cancel_leaves_stock_untouched() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F06").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -488,6 +500,8 @@ async fn f07_pending_cancel_terminates_running_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F07").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -542,6 +556,8 @@ async fn f08_manual_approve_while_pending_is_blocked() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F08").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = draft(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -575,6 +591,8 @@ async fn f09_over_issue_is_rejected_at_settlement() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F09").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "3", "12.5").await;
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -620,6 +638,8 @@ async fn f10_concurrent_transfers_do_not_deadlock() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F10").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "10").await;
     let a = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
@@ -662,6 +682,8 @@ async fn f11_serials_follow_the_transfer() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F11").await;
     seed_stock(&ctx, ctx.mat_sn, ctx.wh_from, "1", "30").await;
     let serial = seed_serial(&ctx, &ctx.code("SN-F11")).await;
@@ -719,6 +741,8 @@ async fn f12_in_transit_stuck_shipment_should_alert() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("F12").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
     let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;

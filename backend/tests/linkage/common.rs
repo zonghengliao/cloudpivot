@@ -99,6 +99,22 @@ pub async fn db_or_skip() -> Option<()> {
     if ensure_db().await { Some(()) } else { None }
 }
 
+/// 进程级串行闸 —— 每个用例开头 `let _gate = common::serial().await;`。
+///
+/// # 为什么需要它
+///
+/// 用例本身是互相独立的（各自一套夹具、各自前缀），但 **T17 会临时把 `TASK_ACCEPT`
+/// 的种子流程置为 `DRAFT`**（模拟「没配流程」），这是**全局状态**。如果这时另一个 T 用例
+/// 正好提交验收，它会读到「没配流程」→ 走两级验收 → 用例假红。
+///
+/// 卡面写的验收命令是 `cargo test --test linkage`（libtest 默认多线程），所以不能靠
+/// 「请用 `--test-threads=1`」这种口头约定兜底 —— 直接让所有用例先过这道闸：
+/// 串行跑时零开销（无竞争），并发跑时等价于 `--test-threads=1`，命令怎么写都不会漂。
+pub async fn serial() -> tokio::sync::MutexGuard<'static, ()> {
+    static GATE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    GATE.lock().await
+}
+
 // ==================== 身份 ====================
 
 /// 造一份 `AuthClaims`（HTTP 层同款入参）。

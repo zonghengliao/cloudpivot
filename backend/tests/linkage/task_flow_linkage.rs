@@ -141,6 +141,8 @@ async fn t01_submit_review_starts_instance_and_todo() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T01").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T01").await;
 
@@ -190,6 +192,8 @@ async fn t02_task_cancelled_cancels_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T02").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T02").await;
 
@@ -223,6 +227,8 @@ async fn t03_task_cancelled_cancels_todo_with_timestamp() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T03").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T03").await;
 
@@ -247,6 +253,8 @@ async fn t04_task_cancelled_cancels_instance_node() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T04").await;
     let (task_id, _task_no, instance_id) = submit_to_review(&ctx, "T04").await;
 
@@ -284,6 +292,8 @@ async fn t05_task_done_keeps_instance_approved() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T05").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T05").await;
 
@@ -318,6 +328,8 @@ async fn t06_parent_cancel_cascades_to_child() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T06").await;
     let (parent, _parent_no) = make_task(&ctx, "T06-P", true, None).await;
     let (child, child_no) = make_task(&ctx, "T06-C", true, Some(parent)).await;
@@ -344,6 +356,8 @@ async fn t07_parent_cancel_cancels_child_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T07").await;
     let (parent, _parent_no) = make_task(&ctx, "T07-P", true, None).await;
     let (child, child_no) = make_task(&ctx, "T07-C", true, Some(parent)).await;
@@ -378,6 +392,8 @@ async fn t08_task_soft_delete_cancels_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T08").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T08").await;
 
@@ -423,6 +439,8 @@ async fn t09_approve_after_cancel_keeps_task_cancelled() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T09").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T09").await;
     let stale_todo = pending_todo_of(instance_id).await;
@@ -458,6 +476,8 @@ async fn t10_approve_after_cancel_is_rejected() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T10").await;
     let (task_id, _task_no, instance_id) = submit_to_review(&ctx, "T10").await;
     let stale_todo = pending_todo_of(instance_id).await;
@@ -504,6 +524,8 @@ async fn t11_cancel_is_idempotent() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T11").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T11").await;
 
@@ -562,6 +584,8 @@ async fn t12_approved_todo_survives_later_cancel() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T12").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T12").await;
     approve(ctx.creator, "creator", instance_id)
@@ -588,6 +612,8 @@ async fn t13_submitter_has_no_todo() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T13").await;
     let (_task_id, task_no, instance_id) = submit_to_review(&ctx, "T13").await;
     let instance_no = instance_no_of(instance_id).await;
@@ -606,6 +632,8 @@ async fn t14_approver_sees_todo() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T14").await;
     let (_task_id, task_no, instance_id) = submit_to_review(&ctx, "T14").await;
     let instance_no = instance_no_of(instance_id).await;
@@ -626,6 +654,8 @@ async fn t15_cancelled_task_disappears_from_approver_todo() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T15").await;
     let (task_id, task_no, instance_id) = submit_to_review(&ctx, "T15").await;
     let instance_no = instance_no_of(instance_id).await;
@@ -651,6 +681,8 @@ async fn t16_outsider_sees_nothing() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T16").await;
     let (_task_id, task_no, instance_id) = submit_to_review(&ctx, "T16").await;
     let instance_no = instance_no_of(instance_id).await;
@@ -675,6 +707,8 @@ async fn t17_missing_flow_falls_back_to_two_level_acceptance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T17").await;
     let (task_id, task_no) = make_task(&ctx, "T17", true, None).await;
     change_ok(ctx.worker, "worker", task_id, "DOING").await;
@@ -738,6 +772,8 @@ async fn t18_second_submit_does_not_create_second_instance() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("T18").await;
     let (task_id, task_no, _instance_id) = submit_to_review(&ctx, "T18").await;
 

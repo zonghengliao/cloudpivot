@@ -216,6 +216,8 @@ async fn s01_post_writes_all_six_ledgers() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S01").await;
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
     let id = draft(&ctx, vec![l]).await;
@@ -262,6 +264,8 @@ async fn s02_voucher_is_balanced_with_expected_accounts() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S02").await;
     // 10 × 2 = 20 不含税；13% → 2.60 税；价税合计 22.60
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
@@ -325,6 +329,8 @@ async fn s03_payable_amount_equals_stock_in_total() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S03").await;
     let l = line(&ctx, ctx.mat, "7", "3.5", "13").await;
     let id = posted(&ctx, vec![l]).await;
@@ -344,6 +350,8 @@ async fn s04_post_creates_serials_for_serial_material() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S04").await;
     let codes = vec![ctx.code("SN-1"), ctx.code("SN-2"), ctx.code("SN-3")];
     let mut item = line(&ctx, ctx.mat_sn, "3", "40", "0").await;
@@ -387,6 +395,8 @@ async fn s05_invariant_b1_location_equals_cost() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S05").await;
     // 两行：同一物料、同一库位（库位账必须累加而不是覆盖）
     let first = line(&ctx, ctx.mat, "6", "2", "0").await;
@@ -424,6 +434,8 @@ async fn s06_cancel_rolls_back_inventory() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S06").await;
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
     let id = posted(&ctx, vec![l]).await;
@@ -446,6 +458,8 @@ async fn s07_cancel_rolls_back_location_ledger() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S07").await;
     let l = line(&ctx, ctx.mat, "8", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
@@ -464,6 +478,8 @@ async fn s08_cancel_writes_reverse_txn() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S08").await;
     let l = line(&ctx, ctx.mat, "5", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
@@ -499,6 +515,8 @@ async fn s09_cancel_reverses_voucher() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S09").await;
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
     let id = posted(&ctx, vec![l]).await;
@@ -584,6 +602,8 @@ async fn s10_cancel_cancels_payable() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S10").await;
     let l = line(&ctx, ctx.mat, "10", "2", "13").await;
     let id = posted(&ctx, vec![l]).await;
@@ -614,6 +634,8 @@ async fn s11_cancel_voids_serials() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S11").await;
     let codes = vec![ctx.code("SN-A"), ctx.code("SN-B")];
     let mut item = line(&ctx, ctx.mat_sn, "2", "40", "0").await;
@@ -662,6 +684,8 @@ async fn s12_cancel_returns_all_four_ledgers_to_baseline() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S12").await;
 
     // 基线：建单前的四账（本用例物料 + 本用例仓库，全新，必须全零）
@@ -727,6 +751,8 @@ async fn s13_cancel_without_reason_is_bad_request() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S13").await;
     let l = line(&ctx, ctx.mat, "3", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
@@ -755,6 +781,8 @@ async fn s14_cancel_after_shipping_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S14").await;
     let l = line(&ctx, ctx.mat, "10", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
@@ -792,6 +820,8 @@ async fn s15_double_cancel_is_conflict() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S15").await;
     let l = line(&ctx, ctx.mat, "10", "2", "0").await;
     let id = posted(&ctx, vec![l]).await;
@@ -827,6 +857,8 @@ async fn s16_failed_cancel_rolls_back_everything() {
     if common::db_or_skip().await.is_none() {
         return;
     }
+    // 进程级串行闸（T17 会临时下线全局默认流程，见 common::serial 的说明）
+    let _gate = common::serial().await;
     let ctx = Ctx::new("S16").await;
     let codes = vec![ctx.code("SN-X"), ctx.code("SN-Y")];
     let mut item = line(&ctx, ctx.mat_sn, "2", "40", "0").await;
