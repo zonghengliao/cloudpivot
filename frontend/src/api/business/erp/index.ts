@@ -1923,3 +1923,225 @@ export interface TrialBalance {
 export function fetchTrialBalance(period: string): Promise<TrialBalance> {
   return get<TrialBalance>(`${BASE}/ledger/trial-balance`, asParams({ period }));
 }
+
+// ==================== ERP 主数据 CRUD（P4-A：计量单位 / 供应商） ====================
+
+/**
+ * 计量单位（完整 `UnitRes`，逐字抄 `dto.rs::UnitRes`，实打实 curl 过线上接口核对）。
+ *
+ * # 与 `UnitRow` 的关系
+ *
+ * `UnitRow` 是物料页只要「id + 名字」时的**子集**，字段名逐字一致；
+ * 本页要显示折算率 / 折算基准 / 备注，所以在它上面扩成完整形状，不另起一套字段名
+ * （另起一套 = 同一张表两个类型，早晚漂移）。
+ *
+ * # ⚠️ 后端**没有**「小数位数」字段
+ *
+ * 卡面草稿的表格列写了「小数位数」，但 `biz_unit`（`V0137`）与 `UnitRes` 里都没有这一列：
+ * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark`。
+ * 数量精度是库口径（`NUMERIC(18,4)`），不是单位属性 —— 凭空造一列只会永远显示 `-`。
+ */
+export interface Unit extends UnitRow {
+  /** 折算基准单位（`null` = 基础单位） */
+  base_unit_id: string | null;
+  /** 折算率：1 个本单位 = `rate` 个基准单位（`Decimal` 以字符串下发，如 `"12.000000"`） */
+  rate: number | string;
+  /** 排序值 */
+  sort_order: number;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 新建计量单位（`dto::CreateUnitReq`；`is_base=false` 时 `base_unit_id` 与 `rate` 必填） */
+export interface CreateUnitReq {
+  /** 单位编码（≤20，未删除内唯一） */
+  unit_code: string;
+  /** 单位名称（≤50） */
+  unit_name: string;
+  /** 是否基础单位（后端缺省 true） */
+  is_base?: boolean;
+  /** 折算基准单位（`is_base=true` 时**不能**填，否则 400） */
+  base_unit_id?: string | null;
+  /** 折算率（`is_base=true` 时只能是 1） */
+  rate?: number | string | null;
+  /** 启用状态：1 / 0 */
+  status?: number;
+  /** 排序值 */
+  sort_order?: number;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/**
+ * 编辑计量单位（`dto::UpdateUnitReq`）。
+ *
+ * 缺席 = 不改；`base_unit_id: null` = **清空折算基准 → 变成基础单位**（后端会把 rate 归 1），
+ * 这是 `double_option` 语义，页面只在用户真改了才带。
+ */
+export interface UpdateUnitReq {
+  /** 单位名称 */
+  unit_name?: string;
+  /** 折算基准单位（`null` = 清空 → 基础单位） */
+  base_unit_id?: string | null;
+  /** 折算率 */
+  rate?: number | string;
+  /** 启用状态 */
+  status?: number;
+  /** 排序值 */
+  sort_order?: number;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/**
+ * 计量单位分页（`GET /erp/unit/page`，服务端分页）。
+ *
+ * 权限码 `business:erp:unit:list`；list 元素是完整 `UnitRes`（**不是** `UnitCard`，
+ * 后端 `unit_page` 映射的是 `UnitRes::from`）。
+ */
+export function fetchUnitPage(query: {
+  keyword?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<Unit>> {
+  return get<PageData<Unit>>(`${BASE}/unit/page`, asParams(query));
+}
+
+/** 计量单位详情（`GET /erp/unit/{id}`，也是 `:list` 权限） */
+export function fetchUnitDetail(id: string): Promise<Unit> {
+  return get<Unit>(`${BASE}/unit/${id}`);
+}
+
+/** 新建计量单位（`POST /erp/unit`，权限 `business:erp:unit:create`，回参是整个 `UnitRes`） */
+export function createUnit(payload: CreateUnitReq): Promise<Unit> {
+  return post<Unit>(`${BASE}/unit`, payload);
+}
+
+/** 编辑计量单位（`PUT /erp/unit/{id}`，权限 `business:erp:unit:update`） */
+export function updateUnit(id: string, payload: UpdateUnitReq): Promise<Unit> {
+  return put<Unit>(`${BASE}/unit/${id}`, payload);
+}
+
+/**
+ * 删除计量单位（`DELETE /erp/unit/{id}`，软删，权限同样是 `:update`）。
+ *
+ * 被物料引用时后端返回 **409 + 60005**（「还有 N 个物料在用该单位，不能删除」），
+ * 页面要把 `ApiError.message` 原样弹给用户 —— 别自己编「删除失败」。
+ */
+export function deleteUnit(id: string): Promise<void> {
+  return del<void>(`${BASE}/unit/${id}`);
+}
+
+/** 新建供应商（`dto::CreateSupplierReq`，字段与 `biz_supplier` 列逐字一致） */
+export interface CreateSupplierReq {
+  /** 编码（≤40，未删除内唯一） */
+  supplier_code: string;
+  /** 名称（≤200） */
+  supplier_name: string;
+  /** 简称（≤100） */
+  short_name?: string | null;
+  /** 联系人（≤50） */
+  contact_person?: string | null;
+  /** 联系电话（≤30） */
+  contact_phone?: string | null;
+  /** 邮箱（≤120） */
+  email?: string | null;
+  /** 纳税人识别号（≤50） */
+  tax_no?: string | null;
+  /** 地址（≤255） */
+  address?: string | null;
+  /** 账期天数（≥0，缺省 0） */
+  credit_days?: number;
+  /** 信用额度（≥0，缺省 0） */
+  credit_limit?: number | string | null;
+  /** 应付科目（会计科目 id） */
+  payable_account_id?: string | null;
+  /** 开票抬头（≤200） */
+  invoice_title?: string | null;
+  /** 开户行（≤200） */
+  invoice_bank_name?: string | null;
+  /** 银行账号（≤64） */
+  invoice_bank_account?: string | null;
+  /** 启用状态：1 / 0 */
+  status?: number;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/** 编辑供应商（`dto::UpdateSupplierReq`；缺席 = 不改，`null` = 清空） */
+export interface UpdateSupplierReq {
+  /** 名称 */
+  supplier_name?: string;
+  /** 简称 */
+  short_name?: string | null;
+  /** 联系人 */
+  contact_person?: string | null;
+  /** 联系电话 */
+  contact_phone?: string | null;
+  /** 邮箱 */
+  email?: string | null;
+  /** 纳税人识别号 */
+  tax_no?: string | null;
+  /** 地址 */
+  address?: string | null;
+  /** 账期天数 */
+  credit_days?: number;
+  /** 信用额度 */
+  credit_limit?: number | string;
+  /** 应付科目（`null` = 清空） */
+  payable_account_id?: string | null;
+  /** 开票抬头 */
+  invoice_title?: string | null;
+  /** 开户行 */
+  invoice_bank_name?: string | null;
+  /** 银行账号 */
+  invoice_bank_account?: string | null;
+  /** 启用状态 */
+  status?: number;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/**
+ * 供应商分页（`GET /erp/supplier/page`，服务端分页）。
+ *
+ * 权限码 `business:erp:supplier:list`；list 元素是完整 `SupplierRes`（含 `tax_no` / `email` 等，
+ * 不是只读下拉用的 `SupplierCard` 子集），所以列表页能直接出「税号」列。
+ */
+export function fetchSupplierPage(query: {
+  keyword?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<Supplier>> {
+  return get<PageData<Supplier>>(`${BASE}/supplier/page`, asParams(query));
+}
+
+/** 供应商详情（`GET /erp/supplier/{id}`，也是 `:list` 权限） */
+export function fetchSupplierDetail(id: string): Promise<Supplier> {
+  return get<Supplier>(`${BASE}/supplier/${id}`);
+}
+
+/** 新建供应商（`POST /erp/supplier`，权限 `business:erp:supplier:create`） */
+export function createSupplier(payload: CreateSupplierReq): Promise<Supplier> {
+  return post<Supplier>(`${BASE}/supplier`, payload);
+}
+
+/** 编辑供应商（`PUT /erp/supplier/{id}`，权限 `business:erp:supplier:update`） */
+export function updateSupplier(id: string, payload: UpdateSupplierReq): Promise<Supplier> {
+  return put<Supplier>(`${BASE}/supplier/${id}`, payload);
+}
+
+/**
+ * 删除供应商（`DELETE /erp/supplier/{id}`，软删，权限同样是 `:update`）。
+ *
+ * 被采购单引用时后端返回 **409**，`ApiError.message` 原样弹给用户。
+ */
+export function deleteSupplier(id: string): Promise<void> {
+  return del<void>(`${BASE}/supplier/${id}`);
+}

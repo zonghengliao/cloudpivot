@@ -369,6 +369,23 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '物料管理', permission: 'business:erp:material:list' },
       },
       {
+        // ==================== ERP 主数据（P4-A · 计量单位 / 供应商） ====================
+        // `sys_menu`（V0141 种子 …0944 / …0945）path = `/business/erp/unit` / `/business/erp/supplier`，
+        // component `business/erp/unit/index` / `business/erp/supplier/index` —— 与下面的
+        // 文件路径逐字一致。**路由手工注册**（没有 views 自动扫描），漏注册 = 点菜单进 404
+        // （本卡存在的理由就是修这个 404）。
+        path: 'business/erp/unit',
+        name: 'BusinessErpUnit',
+        component: () => import('@/views/business/erp/unit/index.vue'),
+        meta: { title: '计量单位', permission: 'business:erp:unit:list' },
+      },
+      {
+        path: 'business/erp/supplier',
+        name: 'BusinessErpSupplier',
+        component: () => import('@/views/business/erp/supplier/index.vue'),
+        meta: { title: '供应商', permission: 'business:erp:supplier:list' },
+      },
+      {
         // ==================== ERP 序列号（W4b-2） ====================
         // `sys_menu`（V0142 种子 …0981）path = `/business/erp/serial`，component
         // `business/erp/serial/index`。**路由手工注册**，漏了 = 点菜单进 404。
