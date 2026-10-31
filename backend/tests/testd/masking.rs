@@ -292,6 +292,8 @@ async fn x05_plain_permission_exempt_and_audited() {
         Vec::new(),
     )
     .await;
+    // 留痕「彻底失败」的进程级计数基线（本用例结束时必须没有增长）
+    let failures_before = mask_model::plain_read_audit_failures();
 
     let response = impexp_handler::export_sync(
         c::claims(user, "plain", &["system:field-mask:plain"]),
@@ -317,50 +319,73 @@ async fn x05_plain_permission_exempt_and_audited() {
         "持明版权限却仍未看到明文（豁免失效）：{flat}"
     );
 
-    // 明文访问的留痕是 `tokio::spawn` 异步写的：给它一点时间
-    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    // 明文访问的留痕是 `tokio::spawn` 异步写的：轮询等它落库（最多 5 s）。
+    // 修前这里永远等不到 —— 写入函数把 `field-mask:<uuid>`（47 字符）塞进
+    // `audit_logs.request_id VARCHAR(36)`，每次都 `value too long`，而调用处
+    // 只打一行日志 ⇒ 明文访问静默无痕（BUG-D-13）。
+    let mut after = before;
+    let mut waited = 0u64;
+    while waited < 5_000 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        waited += 100;
+        after = c::count(
+            "SELECT count(*) AS n FROM audit_logs WHERE operation = 'FIELD_MASK_PLAIN_READ'",
+            Vec::new(),
+        )
+        .await;
+        if after > before {
+            break;
+        }
+    }
+    assert!(
+        after > before,
+        "明文导出没有留痕：audit_logs.operation='FIELD_MASK_PLAIN_READ' 计数 {before} → {after}（等了 {waited} ms）"
+    );
 
-    let after = c::count(
+    // 留痕内容要能定位「谁、从哪条路径看的」：detail 是合法 JSON，target_id 是用户 id
+    let detail = c::opt_text(
+        "SELECT detail::text AS v FROM audit_logs WHERE operation = 'FIELD_MASK_PLAIN_READ' \
+         AND user_id = ?::uuid ORDER BY created_at DESC LIMIT 1",
+        vec![Value::from(&user)],
+    )
+    .await
+    .expect("明文留痕行缺 user_id");
+    let parsed: serde_json::Value = serde_json::from_str(&detail).expect("detail 不是合法 JSON");
+    assert_eq!(
+        parsed.get("event").and_then(|v| v.as_str()),
+        Some("FIELD_MASK_PLAIN_READ"),
+        "detail 里缺 event 标识：{detail}"
+    );
+
+    // 写入函数本身也必须能直接调通（区分「没触发」与「写不进去」）
+    let direct = mask_model::insert_plain_read_audit(
+        &user,
+        &serde_json::json!({"event": "FIELD_MASK_PLAIN_READ", "route": "testd"}).to_string(),
+    )
+    .await;
+    assert!(
+        direct.is_ok(),
+        "留痕写入函数在真库上失败（BUG-D-13 回归）：{direct:?}"
+    );
+    let now_count = c::count(
         "SELECT count(*) AS n FROM audit_logs WHERE operation = 'FIELD_MASK_PLAIN_READ'",
         Vec::new(),
     )
     .await;
-    if after == before {
-        // 留痕机制本身能不能写？直接调写入函数验证（区分「没触发」与「写不进去」）
-        let direct = mask_model::insert_plain_read_audit(
-            &user,
-            &serde_json::json!({"event": "FIELD_MASK_PLAIN_READ", "route": "testd"}).to_string(),
-        )
-        .await;
-        match direct {
-            Ok(()) => {
-                let now_count = c::count(
-                    "SELECT count(*) AS n FROM audit_logs WHERE operation = 'FIELD_MASK_PLAIN_READ'",
-                    Vec::new(),
-                )
-                .await;
-                println!(
-                    "[X05] 直接写入审计成功（{before} → {now_count}）；但导出路径未留痕 → 待跟进"
-                );
-                assert!(now_count > before, "审计写入函数返回成功却没有落行");
-            }
-            Err(error) => {
-                // 实测：写入函数本身在真库上失败（`Value::Json` 绑定 `?::jsonb` 报错），
-                // 而 `audit_plain_read` 是 `tokio::spawn` + 只记日志 → **明文访问静默无留痕**。
-                // 报告 BUG-D-13（P2）：审计写入失败必须暴露，不能只打日志。
-                println!("[X05] 审计写入失败（明文访问无留痕）：{error}");
-                assert!(
-                    error.to_string().contains("db error") || !error.to_string().is_empty(),
-                    "审计写入失败的报错不符合预期"
-                );
-            }
-        }
-    } else {
-        assert!(
-            after > before,
-            "明文访问没有留痕（audit_logs 未新增，before={before} after={after}）"
-        );
-    }
+    assert!(
+        now_count > after,
+        "直接写入返回成功却没有落行（before={before} / after={after} / now={now_count}）"
+    );
+    // 没有任何一次留痕写入「彻底失败」（失败会计数并打 error 日志）
+    assert_eq!(
+        mask_model::plain_read_audit_failures(),
+        failures_before,
+        "有留痕写入彻底失败（进程级计数从 {failures_before} 增长）"
+    );
+
+    println!(
+        "[X05] 明文导出留痕：FIELD_MASK_PLAIN_READ {before} → {now_count}（含直接调用 1 条，等待 {waited} ms）"
+    );
 
     ctx.reset().await;
 }

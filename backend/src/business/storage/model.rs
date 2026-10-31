@@ -676,9 +676,22 @@ impl PolicyViolation {
 /// 这里取两者的**并集**作为全局下限 —— 白名单本来就是「各分类更严」的抓手，
 /// 黑名单没有分叉的理由；并另补 `vbs/msi/cmd/com/scr/psm1/wasm/apk` 这几个同类
 /// 可执行 / 安装包扩展名（它们从未出现在任何白名单里，属纯兜底，不放宽任何既有行为）。
+///
+/// # 服务端脚本（BUG-D-09）
+///
+/// 2026-10-31 测试D 在真库上实测：`shell.php` 被 `default_policy("document")` 放行 ——
+/// 该策略的 `allowed_extensions` 为空（语义是「不校验白名单」），而黑名单只挡了
+/// 「客户端能双击运行」的类型，`php/jsp/aspx/cgi` 这一整类「上传到站点即成后门」的
+/// 扩展名完全漏网。服务端脚本的风险不比 exe 低（很多部署会把上传目录挂在
+/// Web 根下），因此按**同级**并入本清单：宁可让运维显式改代码，也不给一次配置事故留口子。
 pub const FORBIDDEN_EXECUTABLE_EXTENSIONS: &[&str] = &[
     "exe", "sh", "bat", "ps1", "so", "dll", "jar", "py", "js", "vbs", "msi", "cmd", "com", "scr",
     "psm1", "wasm", "apk",
+    // 服务端脚本（BUG-D-09）：Web 根目录可达即执行 —— 与本地可执行文件同级的风险。
+    // 旧清单只挡「客户端能双击运行」的类型，漏掉了 php/jsp/aspx 这一整类
+    // 「上传到站点即成后门」的扩展名；而内置 `default_policy` 的白名单为空
+    //（= 不校验白名单），实测 `shell.php` 直接被放行。
+    "php", "php3", "php4", "php5", "phtml", "jsp", "jspx", "aspx", "asp", "cgi", "pl",
 ];
 
 /// 判断扩展名是否命中 [`FORBIDDEN_EXECUTABLE_EXTENSIONS`]（大小写不敏感）。
@@ -955,6 +968,12 @@ pub struct StorageFileModel {
     pub storage_code: Option<String>,
     /// 上传方式：`SERVER` 服务端上传 / `DIRECT` 浏览器直传。
     pub upload_mode: String,
+    /// 是否共享给全体（`V0172` 新增）。
+    ///
+    /// 文件中心下载的属主隔离判据之一（见 [`can_read_file`]）：`TRUE` 表示
+    /// 「组织级公共资产」，任何持 `business:storage:download` 的账号都能取；
+    /// `FALSE`（默认）表示只有 `uploaded_by` 本人能取。
+    pub is_shared: bool,
 }
 
 /// 文件分页过滤条件。
@@ -970,7 +989,78 @@ pub struct StorageFileFilter {
     pub file_hash: Option<String>,
 }
 
+/// 默认「共享给全体」的上传分类（组织级公共资产）。
+///
+/// # 为什么是这两个
+///
+/// - `avatar`：头像要在用户列表 / 详情里展示给所有人看；
+/// - `template`：导入模板由管理员上传、业务人员下载使用，天然跨用户。
+///
+/// 其余分类（`attachment` / `document` / `announcement` / `task` / `task_ai` / `import`）
+/// **一律私有**：它们的跨用户访问由各自的业务入口授权（公告附件走公告可见性、
+/// 任务附件走任务可见性），不靠文件中心这一层放开。
+///
+/// 新上传的文件按分类自动落 `is_shared`（见 `handler::build_file_record`）；
+/// 存量行由迁移 `V0172` 回填。
+pub const SHARED_FILE_CATEGORIES: &[&str] = &["avatar", "template"];
+
+/// 该上传分类是否默认共享（大小写不敏感，空白归一）。
+///
+/// # 参数
+///
+/// - `category`：上传分类（如 `avatar` / `document`）。
+///
+/// # 返回值
+///
+/// 命中 [`SHARED_FILE_CATEGORIES`] 返回 `true`。
+pub fn category_is_shared(category: &str) -> bool {
+    let normalized = category.trim().to_ascii_lowercase();
+    SHARED_FILE_CATEGORIES.contains(&normalized.as_str())
+}
+
+/// 判读某次下载是否允许（BUG-D-08 的属主隔离判据）。
+///
+/// # 判据
+///
+/// 满足任一条即放行：
+///
+/// 1. `file.is_shared = TRUE` —— 组织级公共资产（头像 / 模板）；
+/// 2. `file.uploaded_by = 请求者` —— 本人上传；
+/// 3. `file.uploaded_by IS NULL` —— **无属主的历史 / 系统文件**。上线本判据之前
+///    的存量行没有 `uploaded_by`（`V0010` 建表时该列就可空），把它们一律当私有
+///    会让历史文件全部取不到；而它们的访问仍在 `business:storage:download`
+///    权限码之内，不是匿名可达。
+///
+/// 其余情况一律拒绝（尤其 `uploaded_by` 是别人且未共享）。
+///
+/// # 参数
+///
+/// - `file`：文件记录；
+/// - `viewer`：当前用户（`None` 表示令牌里解析不出用户 —— 一律按拒绝处理，
+///   只有 `/business/storage/download` 之外的**内部可信路径**才绕过本函数）。
+///
+/// # 返回值
+///
+/// 允许下载返回 `true`。
+pub fn can_read_file(file: &StorageFileModel, viewer: Option<uuid::Uuid>) -> bool {
+    if file.is_shared {
+        return true;
+    }
+    match (file.uploaded_by, viewer) {
+        (None, _) => true,
+        (Some(owner), Some(user)) => owner == user,
+        (Some(_), None) => false,
+    }
+}
+
 /// 按 ID 查**未删除**的文件记录。
+///
+/// # 注意（BUG-D-08）
+///
+/// 本函数**只按 id 取行，不做任何授权判定**，它是给「已经过业务层鉴权」的
+/// 内部路径用的（公告附件走公告可见性、任务附件走任务可见性）。
+/// 对外接口 `/business/storage/download/{file_id}` 必须走
+/// `handler::download_for_viewer`（内部用 [`can_read_file`] 收口）。
 ///
 /// # 异常情况
 ///
@@ -1486,5 +1576,104 @@ mod tests {
         );
         assert!(parse_whitelist("").is_empty());
         assert!(parse_whitelist(" , , ").is_empty());
+    }
+
+    /// BUG-D-09：服务端脚本扩展名必须与本地可执行文件同级被硬禁止。
+    #[test]
+    fn forbidden_covers_server_side_scripts() {
+        for ext in [
+            "php", "php3", "php4", "php5", "phtml", "jsp", "jspx", "aspx", "asp", "cgi", "pl",
+        ] {
+            assert!(
+                is_forbidden_extension(ext),
+                "服务端脚本扩展名 {ext} 不在硬禁止清单里（可上传后门）"
+            );
+            // 大小写 / 空白归一
+            assert!(is_forbidden_extension(&format!(" {} ", ext.to_uppercase())));
+        }
+        // 白名单侧同样拦（保存策略时就不许写进去）
+        assert!(validate_policy_fields(50, 900, "pdf,php", "").is_err());
+        // 内置默认策略（白名单为空 = 不校验白名单）也必须拒
+        let loose = default_policy("document");
+        assert!(matches!(
+            check_upload(&loose, "shell.php", 10, None),
+            Err(PolicyViolation::ExtensionForbidden { .. })
+        ));
+        // 正常类型不受影响
+        for ext in ["pdf", "docx", "xlsx", "png", "txt", "csv", "md"] {
+            assert!(!is_forbidden_extension(ext), "{ext} 被误列入黑名单");
+        }
+    }
+
+    /// 构造一条测试文件记录（不落库）。
+    fn sample_file(uploader: Option<uuid::Uuid>, is_shared: bool) -> StorageFileModel {
+        let now = chrono::Utc::now();
+        StorageFileModel {
+            id: uuid::Uuid::now_v7(),
+            file_name: "2026/10/31/x.txt".to_string(),
+            original_name: Some("x.txt".to_string()),
+            file_key: "2026/10/31/x.txt".to_string(),
+            file_size: 10,
+            file_hash: None,
+            mime_type: Some("text/plain".to_string()),
+            extension: Some("txt".to_string()),
+            storage_path: None,
+            category: Some("document".to_string()),
+            status: EnableStatus::enabled,
+            uploaded_by: uploader,
+            created_at: now,
+            updated_at: now,
+            create_by: uploader,
+            update_by: uploader,
+            deleted_at: None,
+            storage_code: None,
+            upload_mode: "SERVER".to_string(),
+            is_shared,
+        }
+    }
+
+    /// BUG-D-08：属主隔离判据 —— 本人放行 / 他人拒绝 / 共享放行 / 无身份拒绝。
+    #[test]
+    fn owner_isolation_decision() {
+        let owner = uuid::Uuid::now_v7();
+        let other = uuid::Uuid::now_v7();
+
+        // 私有文件
+        let private = sample_file(Some(owner), false);
+        assert!(can_read_file(&private, Some(owner)), "本人应可读");
+        assert!(!can_read_file(&private, Some(other)), "他人必须被拒");
+        assert!(!can_read_file(&private, None), "无身份必须被拒");
+
+        // 共享文件：任何已认证用户都能读
+        let shared = sample_file(Some(owner), true);
+        assert!(can_read_file(&shared, Some(other)), "共享文件他人可读");
+        assert!(shared.is_shared);
+
+        // 无属主的历史 / 系统文件：不因属主缺失而不可读（仍在权限码之内）
+        let legacy = sample_file(None, false);
+        assert!(can_read_file(&legacy, Some(other)));
+        assert!(can_read_file(&legacy, None));
+    }
+
+    /// 默认共享分类的口径（大小写 / 空白归一；其余分类不得默认共享）。
+    #[test]
+    fn shared_categories_shape() {
+        assert!(category_is_shared("avatar"));
+        assert!(category_is_shared(" Avatar "));
+        assert!(category_is_shared("template"));
+        for category in [
+            "document",
+            "attachment",
+            "announcement",
+            "task",
+            "task_ai",
+            "import",
+            "",
+        ] {
+            assert!(
+                !category_is_shared(category),
+                "{category:?} 不应默认共享（默认私有才是 fail-closed）"
+            );
+        }
     }
 }

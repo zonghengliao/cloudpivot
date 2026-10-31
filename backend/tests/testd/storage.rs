@@ -7,9 +7,13 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use axum::extract::Path;
+
+use cloudpivot::business::storage::handler as storage_handler;
 use cloudpivot::business::storage::model as storage_model;
 use cloudpivot::business::storage::sigv4;
 use cloudpivot::business::storage::store::{self, LocalStore, ObjectStore};
+use cloudpivot::shared::error_code;
 
 use crate::testd::common::{self as c, Ctx};
 
@@ -159,24 +163,55 @@ async fn f03_dangerous_extension_rejected() {
             "{ext} 未被列入硬禁止黑名单"
         );
     }
-    // 现状（报告 BUG-D-09，P2）：黑名单**没有** php / jsp / aspx / cgi —— 服务端可执行脚本漏网。
-    // 若分类白名单为空（= 不校验扩展名，见 default_policy），这类文件会被直接放行。
+    // 服务端脚本扩展名（BUG-D-09 已修）：Web 根目录可达即执行的类型，必须与 exe 同级被拦。
+    // 旧清单只有客户端可执行类型，php/jsp/aspx/cgi 一整类漏网；这里把「必须全拦」钉死。
     let mut unlisted = Vec::new();
-    for ext in ["php", "jsp", "aspx", "cgi"] {
+    for ext in [
+        "php", "php3", "php4", "php5", "phtml", "jsp", "jspx", "aspx", "asp", "cgi", "pl",
+    ] {
         if !storage_model::is_forbidden_extension(ext) {
             unlisted.push(ext);
         }
     }
+    assert!(
+        unlisted.is_empty(),
+        "服务端脚本扩展名未被硬禁止（可上传后门）：{unlisted:?}"
+    );
+    // 内置默认策略的白名单仍为空（= 不校验白名单，设计取舍：docx/xlsx 的 MIME 太脏）。
+    // 正因为白名单可能为空，黑名单才是**唯一**的全局下限 —— 下面两条是它的正向断言。
     let loose = storage_model::default_policy("document");
     assert!(
         loose.allowed_extensions.is_empty(),
-        "内置默认策略的白名单不应为空（若已收紧请更新报告）"
+        "内置默认策略的白名单已收紧（若是有意为之，请同步更新本用例与报告）"
     );
-    let php_passes = storage_model::check_upload(&loose, "shell.php", 1024, None).is_ok();
-    println!("[F03] 黑名单未收录：{unlisted:?}；默认策略下 shell.php 是否放行：{php_passes}");
+    let shell = storage_model::check_upload(&loose, "shell.php", 1024, None);
     assert!(
-        php_passes,
-        "实现已收紧（php 被拦）：请更新 BUG-D-09 的结论与严重度"
+        matches!(
+            shell,
+            Err(storage_model::PolicyViolation::ExtensionForbidden { ref extension })
+                if extension == "php"
+        ),
+        "默认策略下 shell.php 必须被拒（ExtensionForbidden），实际：{shell:?}"
+    );
+    // 大小写 / 多段扩展名同样拦（Windows 上传常见写法）
+    for name in [
+        "SHELL.PHP",
+        "shell.pHp",
+        "shell.jsp",
+        "shell.aspx",
+        "shell.cgi",
+        "shell.pl",
+    ] {
+        assert!(
+            matches!(
+                storage_model::check_upload(&loose, name, 1024, None),
+                Err(storage_model::PolicyViolation::ExtensionForbidden { .. })
+            ),
+            "{name} 未被拦下"
+        );
+    }
+    println!(
+        "[F03] 服务端脚本已全拦（php/jsp/aspx/cgi 等 11 个扩展名）；默认策略下 shell.php → ExtensionForbidden"
     );
     for ext in ["pdf", "docx", "xlsx", "png", "txt", "csv"] {
         assert!(
@@ -241,9 +276,8 @@ async fn f04_path_traversal_rejected() {
     // 这是安全的设计取舍（不是穿越），因此断言它落在 root 之内。
     let absolute = store::sanitize_key("/etc/passwd").expect("前导斜杠应被规整");
     assert_eq!(absolute, "etc/passwd");
-    assert_eq!(
+    assert!(
         root.join(&absolute).starts_with(&root),
-        true,
         "规整后的键逃出了根目录"
     );
 
@@ -251,12 +285,12 @@ async fn f04_path_traversal_rejected() {
     // 规整后仍落在 root 之内 —— 安全，但与 `/` 语义不一致（报告 BUG-D-10，P3：
     // 跨平台一致性；若将来在 Windows 上部署本地后端，这段必须先收紧）。
     let backslash = store::sanitize_key("..\\..\\windows\\system32\\cmd.exe");
-    match backslash {
-        Ok(key) => assert!(
+    if let Ok(key) = backslash {
+        // 已被拒也是安全，所以这里只断言「规整后仍在根内」
+        assert!(
             root.join(&key).starts_with(&root),
             "反斜杠键逃出了根目录：{key}"
-        ),
-        Err(_) => {} // 已被拒也是安全
+        );
     }
 
     // 合法键只是被规整（去前导 /），不改变语义
@@ -276,49 +310,165 @@ async fn f04_path_traversal_rejected() {
 }
 
 // ============================================================================
-// F05 下载别人的文件（越权）
+// F05 下载属主隔离（BUG-D-08）
 // ============================================================================
 
-/// F05 ★ 下载越权：存储是**全局共享文件中心**，没有属主隔离 —— 这是当前实现的口径。
+/// 往本地后端的物理根落一个对象（根 = `nik::upload_path()`）。
+async fn write_object(root: &std::path::Path, key: &str, body: &[u8]) {
+    let path = root.join(key);
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.expect("建对象目录");
+    }
+    tokio::fs::write(&path, body).await.expect("写对象");
+}
+
+/// F05 ★ 下载属主隔离（BUG-D-08 已修，正向断言）：
 ///
-/// 钉住三件事：
-/// ① `sys_file` 有 `uploaded_by`，但读路径（`find_active_file`）**不按用户收口**；
-/// ② 因此持 `business:storage:download` 的人可以下载任何未删除文件（含别人上传的）；
-/// ③ 若产品要求「私有文件」，这是**安全缺口**（报告 BUG-D-08，P2），需要在读路径加
-///    `uploaded_by ∪ 共享标记` 判定。
+/// | 场景 | 期望 |
+/// |------|------|
+/// | 他人上传的**私有**文件 → 不是上传人 | **403**（`PERMISSION_DENIED`） |
+/// | 本人上传的文件 | **200**，字节一致 |
+/// | `is_shared = TRUE` 的共享文件 | **200**（他人也可下载） |
+/// | 有 `business:storage:download` 但文件不存在 | 404（既有口径不变） |
+///
+/// # 历史
+///
+/// 修前 `find_active_file(id)` 只有 id 入参，**结构上不可能**按用户收口：凡持
+/// `business:storage:download` 的账号能下载任何未删文件（测试D 在真库上实测出来的
+/// BUG-D-08）。修法两层：
+///
+/// 1. `sys_file.is_shared`（迁移 `V0172`）+ `model::can_read_file` 判据；
+/// 2. 对外入口 `handler::download` 改走 `download_for_viewer`（带 403）。
+///
+/// 内部可信路径（公告附件 / 任务附件）仍用 `download_response`：它们的业务可见性
+/// 校验在前一步已经做完，不再叠一层属主判定。
 #[tokio::test]
-async fn f05_download_has_no_owner_isolation() {
+async fn f05_download_owner_isolation() {
     let Some(()) = c::ready().await else { return };
     let ctx = Ctx::new("F05").await;
+    let root = temp_root(&ctx).await;
+    // 本地后端的根 = `nik::upload_path()`（`resolve_file_store` 用 `LocalStore::new`）。
+    // 进程内只能设置一次；本用例把它指到临时目录，避免污染真实上传目录。
+    let _ = nik::set_upload_path(root.to_string_lossy().to_string());
+
     let owner = c::make_user(&ctx, "owner", "HUMAN").await;
     let other = c::make_user(&ctx, "other", "HUMAN").await;
+    let perms: [&str; 1] = ["business:storage:download"];
 
+    // ---------- 私有文件（默认 is_shared = FALSE）----------
     let file_id = make_file(&ctx, owner, "owner-private.txt", 128).await;
+    let key = format!("td/{}/{file_id}.txt", ctx.tag);
+    let payload = format!("{} 私有文件正文（只有上传人可取）", ctx.tag).into_bytes();
+    write_object(&root, &key, &payload).await;
 
-    // 读路径没有「当前用户」入参 —— 结构上就不可能做属主隔离
-    let found = storage_model::find_active_file(&file_id)
+    let record = storage_model::find_active_file(&file_id)
         .await
         .expect("查询文件")
         .expect("文件应存在");
-    assert_eq!(found.uploaded_by, Some(owner), "上传人应记录为 owner");
-
-    // other 与 owner 看到的同一条记录（无 403 概念）
-    let same = storage_model::find_active_file(&file_id)
-        .await
-        .expect("查询文件");
-    assert_eq!(same.map(|row| row.id), Some(file_id), "读路径与请求者无关");
-
-    // 权限码存在：能下载的人由权限码决定，而不是属主
-    let n = c::count(
-        "SELECT count(*) AS n FROM sys_menu WHERE auth_code = 'business:storage:download'",
-        Vec::new(),
-    )
-    .await;
-    assert!(n >= 1, "下载权限码未登记");
-    println!(
-        "[F05] 越权下载风险：读路径无属主隔离（other={other} 也能取到 owner={owner} 的文件 {file_id}）"
+    assert_eq!(record.uploaded_by, Some(owner), "上传人应记录为 owner");
+    assert!(
+        !record.is_shared,
+        "默认分类（document）不应默认共享 —— 默认私有才是 fail-closed"
     );
 
+    // 判据层（纯函数）：本人放行、他人拒绝、无身份拒绝
+    assert!(
+        storage_model::can_read_file(&record, Some(owner)),
+        "上传人本人必须可读"
+    );
+    assert!(
+        !storage_model::can_read_file(&record, Some(other)),
+        "他人不得读取私有文件（BUG-D-08 的核心判据）"
+    );
+    assert!(
+        !storage_model::can_read_file(&record, None),
+        "解析不出用户时一律拒绝（fail-closed）"
+    );
+
+    // ① 他人下载 → 403（修前这里是 200）
+    let denied =
+        storage_handler::download(Path(file_id.to_string()), c::claims(other, "other", &perms))
+            .await;
+    assert_eq!(
+        denied.status(),
+        403,
+        "他人下载私有文件必须 403（BUG-D-08 未修或回归）"
+    );
+    let body = axum::body::to_bytes(denied.into_body(), usize::MAX)
+        .await
+        .expect("读错误体");
+    let text = String::from_utf8_lossy(&body).to_string();
+    assert!(
+        text.contains(&error_code::PERMISSION_DENIED.to_string()),
+        "403 的业务码应为 PERMISSION_DENIED（{}），实际：{text}",
+        error_code::PERMISSION_DENIED
+    );
+
+    // ② 本人下载 → 200，内容逐字节一致
+    let ok =
+        storage_handler::download(Path(file_id.to_string()), c::claims(owner, "owner", &perms))
+            .await;
+    assert_eq!(ok.status(), 200, "本人下载自己的文件必须 200");
+    let streamed = axum::body::to_bytes(ok.into_body(), usize::MAX)
+        .await
+        .expect("读正文");
+    assert_eq!(
+        streamed.to_vec(),
+        payload,
+        "下载内容与写入不一致（说明走的不是同一条出流实现）"
+    );
+
+    // ---------- 共享文件（is_shared = TRUE）----------
+    let shared_id = make_file(&ctx, owner, "shared-avatar.txt", 64).await;
+    let shared_key = format!("td/{}/{shared_id}.txt", ctx.tag);
+    let shared_payload = format!("{} 共享文件正文", ctx.tag).into_bytes();
+    write_object(&root, &shared_key, &shared_payload).await;
+    c::exec_with(
+        "UPDATE sys_file SET is_shared = TRUE WHERE id = ?::uuid",
+        vec![Value::from(&shared_id)],
+    )
+    .await;
+
+    let shared_ok = storage_handler::download(
+        Path(shared_id.to_string()),
+        c::claims(other, "other", &perms),
+    )
+    .await;
+    assert_eq!(
+        shared_ok.status(),
+        200,
+        "共享文件他人必须可下载（共享标记失效）"
+    );
+    let shared_bytes = axum::body::to_bytes(shared_ok.into_body(), usize::MAX)
+        .await
+        .expect("读共享正文");
+    assert_eq!(shared_bytes.to_vec(), shared_payload);
+
+    // ---------- 分类默认共享口径 ----------
+    assert!(
+        storage_model::category_is_shared("avatar")
+            && storage_model::category_is_shared(" Template "),
+        "avatar / template 应默认共享（含空白与大写归一）"
+    );
+    assert!(
+        !storage_model::category_is_shared("document")
+            && !storage_model::category_is_shared("attachment"),
+        "document / attachment 不得默认共享"
+    );
+
+    // ---------- 既有的 404 口径不变 ----------
+    let missing = Uuid::now_v7();
+    let not_found =
+        storage_handler::download(Path(missing.to_string()), c::claims(other, "other", &perms))
+            .await;
+    assert_eq!(not_found.status(), 404, "不存在的文件仍应是 404");
+
+    println!(
+        "[F05] 属主隔离生效：他人下载 {file_id} → 403；本人 → 200（{} 字节）；共享 {shared_id} 他人 → 200",
+        payload.len()
+    );
+
+    let _ = tokio::fs::remove_dir_all(&root).await;
     ctx.reset().await;
 }
 

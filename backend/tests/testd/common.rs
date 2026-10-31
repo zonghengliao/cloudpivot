@@ -320,6 +320,8 @@ impl Ctx {
             format!("DELETE FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"),
             format!("DELETE FROM sys_ai_agent WHERE user_id IN {users}"),
             format!("DELETE FROM sys_user_preference WHERE user_id IN {users}"),
+            // ---- 审计：明文访问留痕（X05）按用户 id 摘；必须在删用户之前 ----
+            format!("DELETE FROM audit_logs WHERE user_id IN {users}"),
             // ---- 文件本体（必须排在所有引用它的行之后）----
             format!("DELETE FROM sys_file WHERE id IN {files}"),
             // ---- 根：用户、角色 ----

@@ -1065,9 +1065,19 @@ pub async fn file_page(
 /// `Content-Disposition` 恒为 `attachment`（防 inline 执行），
 /// `X-Content-Type-Options: nosniff`。
 ///
+/// # 属主隔离（BUG-D-08）
+///
+/// 本接口是**文件中心的对外入口**，除权限码 `business:storage:download` 之外
+/// 还要过一层数据级判据（[`model::can_read_file`]）：
+/// 「`uploaded_by = 当前用户` ∪ `is_shared = TRUE`」，其余一律 403。
+/// 不能只在权限码这一层收口 —— 权限码是「能不能用文件中心」，
+/// 不是「能不能看这一份文件」。内部可信路径（公告附件 / 任务附件）走
+/// [`download_response`]，它们各自的业务可见性校验在前一步已经做完。
+///
 /// # 异常情况
 ///
 /// - 400：ID 格式非法；
+/// - 403：文件存在但属于他人且未共享（`PERMISSION_DENIED`）；
 /// - 404：记录不存在 / 已软删 / 物理对象丢失（**不泄露对象是否存在**）；
 /// - 409：记录所在后端已停用；
 /// - 502：远端后端访问失败。
@@ -1077,8 +1087,11 @@ pub async fn file_page(
     permission = "business:storage:download"
 )]
 #[nik::get("/business/storage/download/{file_id}")]
-pub async fn download(Path(file_id): Path<String>) -> Response {
-    match download_response(&file_id).await {
+pub async fn download(
+    Path(file_id): Path<String>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> Response {
+    match download_for_viewer(&claims, &file_id).await {
         Ok(response) => response,
         Err(error) => error.into_response(),
     }
@@ -1224,6 +1237,9 @@ pub async fn rebind(
         upload_mode: &origin.upload_mode,
         operator,
     });
+    // 重新登记沿用原记录的共享标记：分类能表达「默认共享」，但表达不了
+    // 「这份文件被单独放开过」，丢标记 = 别人的共享文件在 rebind 后突然 403。
+    record.is_shared = record.is_shared || origin.is_shared;
     record
         .insert(db())
         .await
@@ -1761,6 +1777,9 @@ fn build_file_record(input: FileRecordInput<'_>) -> StorageFileModel {
             Some(input.storage_code.to_string())
         },
         upload_mode: input.upload_mode.to_string(),
+        // 属主隔离（V0172 / BUG-D-08）：组织级公共资产（avatar / template）默认共享，
+        // 其余分类默认私有（只有 uploaded_by 本人可下载）。
+        is_shared: model::category_is_shared(input.category),
     }
 }
 
@@ -2071,16 +2090,18 @@ fn content_disposition(original: &str) -> HeaderValue {
     .unwrap_or_else(|_| HeaderValue::from_static("attachment"))
 }
 
-/// 组装下载响应（本地流式 / S3 302）。
+/// 组装下载响应（本地流式 / S3 302）—— **内部可信路径**，不做属主隔离。
 ///
-/// # 为什么是 `pub(crate)`
+/// # 为什么是 `pub(crate)` 且**不收口**
 ///
 /// 任务附件（C+ · T6b）的下载入口 `GET /business/task/{id}/attachments/{att_id}/download`
 /// 必须先校验**任务可见性**，再复用本函数出流 —— 这样「出流」只有一份实现
 /// （`LOCAL` 流式 / `S3` 302 预签名 / Range / nosniff 都在这里），
 /// 任务侧只需要在前面加一道 `att_id ↔ task_id` 的归属校验。
-/// 若任务侧自己写一遍 `stream()`，两处的响应头（`Content-Disposition` / `nosniff`）
-/// 迟早会不一致 —— 而那两个头正是「浏览器不 inline 执行上传物」的防线。
+///
+/// 本函数的前提是**调用方已经做完授权**（任务可见性 / 公告可见性）。对外暴露的
+/// 文件中心入口必须走 [`download_for_viewer`]（它在本函数之前加一道
+/// [`model::can_read_file`]）—— 直接把它挂到公开路由上就等于 BUG-D-08 复现。
 ///
 /// # 参数
 ///
@@ -2092,14 +2113,78 @@ fn content_disposition(original: &str) -> HeaderValue {
 ///
 /// # 异常情况
 ///
-/// 见 [`download`] 的「异常情况」段。
+/// 见 [`download`] 的「异常情况」段（不含 403：授权在调用方）。
 pub(crate) async fn download_response(raw_id: &str) -> std::result::Result<Response, ApiError> {
     let id = utils::require_uuid(raw_id, "file_id")?;
     let record = model::find_active_file(&id)
         .await
         .map_err(|error| utils::db_error(error, "查询下载文件"))?
         .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在或已删除"))?;
+    stream_file_record(record).await
+}
 
+/// 文件中心对外下载（`GET /business/storage/download/{file_id}`）：
+/// 查记录 → **属主隔离判定** → 出流。
+///
+/// # 判据
+///
+/// [`model::can_read_file`]：`uploaded_by = 当前用户` ∪ `is_shared = TRUE`
+/// （另含「无属主的历史 / 系统文件」）。不满足返回 **403**（`PERMISSION_DENIED`），
+/// 而不是 404 —— 本卡（BUG-D-08）的验收口径要求「他人文件 → 403」，
+/// 便于前端与审计区分「没有这份文件」与「有这份文件但不归你」。
+///
+/// # 参数
+///
+/// - `claims`：当前请求的主体（取 `sub` 作为用户 id）；
+/// - `raw_id`：路径里的文件 ID。
+///
+/// # 异常情况
+///
+/// - 400 / 403 / 404 / 409 / 502，见 [`download`]。
+pub async fn download_for_viewer(
+    claims: &TokenClaims,
+    raw_id: &str,
+) -> std::result::Result<Response, ApiError> {
+    let id = utils::require_uuid(raw_id, "file_id")?;
+    let record = model::find_active_file(&id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询下载文件"))?
+        .ok_or_else(|| ApiError::new(404, error_code::RESOURCE_NOT_FOUND, "文件不存在或已删除"))?;
+
+    let viewer = utils::current_user_uuid(claims);
+    if !model::can_read_file(&record, viewer) {
+        tracing::warn!(
+            file_id = %record.id,
+            owner = ?record.uploaded_by,
+            viewer = ?viewer,
+            is_shared = record.is_shared,
+            "下载被拒：文件属于他人且未共享（BUG-D-08 属主隔离）"
+        );
+        return Err(ApiError::new(
+            403,
+            error_code::PERMISSION_DENIED,
+            "无权下载该文件（既非上传人，也不是共享文件）",
+        ));
+    }
+    stream_file_record(record).await
+}
+
+/// 真正出流（唯一实现）：`LOCAL` 流式 / `S3` 302 预签名。
+///
+/// # 参数
+///
+/// - `record`：已通过授权判定的文件记录。
+///
+/// # 返回值
+///
+/// 二进制响应。
+///
+/// # 异常情况
+///
+/// 409：后端已停用；404：物理对象丢失；502：远端访问失败。
+async fn stream_file_record(
+    record: model::StorageFileModel,
+) -> std::result::Result<Response, ApiError> {
     let backend = resolve_file_store(record.storage_code.as_deref()).await?;
     let mime = record
         .mime_type
@@ -2291,6 +2376,8 @@ mod tests {
         assert!(record.storage_code.is_none());
         assert_eq!(record.status.as_i16(), 1);
         assert!(record.deleted_at.is_none());
+        // 属主隔离（V0172）：import 分类默认私有
+        assert!(!record.is_shared, "import 分类不应默认共享");
 
         let res = StorageFileRes::from_model(&record);
         assert_eq!(

@@ -482,15 +482,36 @@ pub async fn is_super_admin(user_id: &Uuid) -> DbResult<bool> {
 ///
 /// 日志总线的 `record_audit` 需要 `&HeaderMap` + `SocketAddr`（落 `request_id` / 真实 IP），
 /// 而脱敏解析发生在列表 handler 中段，那里通常没有这两个提取器。这里写一条**最小可审计**
-/// 记录（`ip` / `user_agent` 为空，`detail` 里如实说明），由调用方 `tokio::spawn` 到后台，
-/// 不阻塞主请求。
+/// 记录（`ip` / `user_agent` 为空，`detail` 里如实说明）。
+///
+/// # 曾经在这里失败过（BUG-D-13，2026-10-31 真库实测）
+///
+/// 报告最初把失败归因为 `Value::Json` 绑不到 `?::jsonb`。真库复现（psql 直接跑同一条
+/// INSERT）证明**真正的原因是 `request_id` 超长**：本函数写的是
+/// `format!("field-mask:{}", Uuid)`（11 + 36 = 47 字符），而 `audit_logs.request_id`
+/// 是 `VARCHAR(36)`（`V0010`/`V0014` 建表时的口径）：
+///
+/// ```text
+/// ERROR:  value too long for type character varying(36)
+/// ```
+///
+/// 于是每一次「持明版权限导出」的留痕都写不进去，而调用处是 `tokio::spawn` + 只记
+/// `tracing` 日志 → 明文访问**静默无痕**。修法：
+///
+/// 1. `request_id` 只放一个 UUID v7（36 字符，与列宽逐字匹配，且天然按时间可排序）——
+///    **这一条是真正的修法**：jsonb 位原本就是对的（`Value::Json` → 驱动 `PgParam::Json`
+///    → `?::jsonb` 在真库上能正常落对象，修前修后都不需要动它）；
+/// 2. 失败**不再静默**：调用方（`registry::audit_plain_read`）会重试并在最后一次失败时
+///    `tracing::error!` + 打点（[`plain_read_audit_failures`]）。
 pub async fn insert_plain_read_audit(user_id: &Uuid, detail: &str) -> DbResult<()> {
+    // request_id：VARCHAR(36) 恰好放一个 uuid；带上业务前缀会超长（BUG-D-13 的根因）。
+    let request_id = Uuid::now_v7().to_string();
     db().execute_with_params(
         "INSERT INTO audit_logs (id, request_id, user_id, username, operation, target_type, \
          target_id, detail, created_at) \
          VALUES (gen_random_uuid(), ?, ?, NULL, ?, ?, ?, ?::jsonb, CURRENT_TIMESTAMP)",
         vec![
-            Value::from(format!("field-mask:{}", uuid::Uuid::now_v7())),
+            Value::from(request_id),
             Value::from(*user_id),
             Value::from("FIELD_MASK_PLAIN_READ"),
             Value::from("field_mask"),
@@ -500,6 +521,28 @@ pub async fn insert_plain_read_audit(user_id: &Uuid, detail: &str) -> DbResult<(
     )
     .await?;
     Ok(())
+}
+
+/// 明文访问留痕「彻底写失败」的累计次数（进程级）。
+///
+/// 为什么要有：`audit_plain_read` 是后台任务，失败只进日志；没有计数器时
+/// 「留痕从某天起全丢」只能靠翻日志发现。运维/自检可以读这个值（> 0 即意味着
+/// 有明文访问没被审计），单测也用它钉住「失败必须可观测」。
+static PLAIN_READ_AUDIT_FAILURES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// 累计失败次数（见 [`PLAIN_READ_AUDIT_FAILURES`]）。
+///
+/// # 返回值
+///
+/// 进程启动以来「重试后仍失败」的留痕写入次数。
+pub fn plain_read_audit_failures() -> u64 {
+    PLAIN_READ_AUDIT_FAILURES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// 记一次「留痕彻底失败」（由 [`crate::business::masking::registry::audit_plain_read`] 调用）。
+pub fn note_plain_read_audit_failure() {
+    PLAIN_READ_AUDIT_FAILURES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
 // ==================== 缓存失效 ====================

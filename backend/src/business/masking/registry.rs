@@ -441,7 +441,9 @@ pub fn single_rule_set(table: &str, column: &str, ty: MaskType, param: Option<&s
 /// （操作类型 + 目标 + 时间 + 用户），`ip` / `user_agent` 留空并如实标注
 /// 「本次留痕来自脱敏解析，无请求头上下文」。
 ///
-/// 写入在后台任务里做，**绝不影响主请求**；失败只记 error。
+/// 写入在后台任务里做，**绝不影响主请求**；但失败**不允许静默**：
+/// 重试 [`AUDIT_WRITE_ATTEMPTS`] 次，最后一次仍失败就 `tracing::error!` + 打点
+/// （[`model::plain_read_audit_failures`]）——BUG-D-13 就是这样静默丢了全部留痕。
 ///
 /// # 参数
 ///
@@ -463,12 +465,42 @@ pub fn audit_plain_read(user_id: Option<Uuid>, route: &str) {
             "event": "FIELD_MASK_PLAIN_READ",
             "route": route,
             "note": "由脱敏解析写入，无请求头上下文（ip / user_agent 为空）"
-        });
-        if let Err(error) = model::insert_plain_read_audit(&user_id, &detail.to_string()).await {
-            tracing::error!(error = %error, %user_id, "写明文档访问审计失败");
+        })
+        .to_string();
+        for attempt in 1..=AUDIT_WRITE_ATTEMPTS {
+            match model::insert_plain_read_audit(&user_id, &detail).await {
+                Ok(()) => return,
+                Err(error) if attempt < AUDIT_WRITE_ATTEMPTS => {
+                    tracing::warn!(
+                        error = %error,
+                        %user_id,
+                        attempt,
+                        "写明文档访问审计失败，准备重试"
+                    );
+                    tokio::time::sleep(AUDIT_RETRY_BACKOFF).await;
+                }
+                Err(error) => {
+                    // 静默丢失就是 BUG-D-13：必须让运维能发现（日志 + 进程级计数）。
+                    model::note_plain_read_audit_failure();
+                    tracing::error!(
+                        error = %error,
+                        %user_id,
+                        attempts = AUDIT_WRITE_ATTEMPTS,
+                        failures_total = model::plain_read_audit_failures(),
+                        "写明文档访问审计彻底失败（明文访问无留痕，需人工排查）"
+                    );
+                    return;
+                }
+            }
         }
     });
 }
+
+/// 留痕写入的最大尝试次数（含首次）。
+pub const AUDIT_WRITE_ATTEMPTS: u32 = 3;
+
+/// 重试间隔（数据库瞬时故障 / 连接池抖动足够恢复）。
+pub const AUDIT_RETRY_BACKOFF: std::time::Duration = std::time::Duration::from_millis(50);
 
 // ==================== 已登记 DTO 的 Maskable 实现 ====================
 

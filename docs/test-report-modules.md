@@ -18,12 +18,22 @@
 
 | # | 严重度 | 发现 | 证据（真实断言/输出） | 用例 |
 |---|---|---|---|---|
-| **BUG-D-08** | **P2 越权（已复现）** | **文件存储没有属主隔离**：`sys_file.uploaded_by` 记了上传人，但读路径 `storage::model::find_active_file` 只有 `id` 入参，**结构上不可能按用户收口**。凡持 `business:storage:download` 的人都能下载别人上传的任何未删文件 | `[F05] 越权下载风险：读路径无属主隔离（other=… 也能取到 owner=… 的文件 …）`；测试用两个不同用户夹具断言同一记录对两者可见 | F05 |
-| **BUG-D-09** | **P2 危险文件类型漏网** | 硬禁止扩展名黑名单只有 `exe/sh/bat/ps1/so/dll/jar/py/js/vbs/msi`，**没有 `php/jsp/aspx/cgi`**；而内置默认分类策略 `allowed_extensions` 为空（= 不校验白名单），于是 `shell.php` 直接放行 | `[F03] 黑名单未收录：["php", "jsp", "aspx", "cgi"]；默认策略下 shell.php 是否放行：true` | F03 |
-| **BUG-D-13** | **P2 审计缺口（明文外泄无留痕）** | 持 `system:field-mask:plain` 的用户导出即明文（设计如此），但「明文访问留痕」写入函数在真库上**直接报错**（`Value::Json` 绑定 `?::jsonb`），而调用处是 `tokio::spawn` + 只打日志 → **明文导出没有审计痕迹** | `[X05] 审计写入失败（明文访问无留痕）：query failed: : db error`；对照：同一函数直接调用同样失败 | X05 |
+| **BUG-D-08** | **P2 越权（已修复 ✅）** | **文件存储没有属主隔离**：`sys_file.uploaded_by` 记了上传人，但读路径 `storage::model::find_active_file` 只有 `id` 入参，**结构上不可能按用户收口**。凡持 `business:storage:download` 的人都能下载别人上传的任何未删文件 | 修前：`[F05] 越权下载风险：读路径无属主隔离（other=… 也能取到 owner=… 的文件 …）`；修后：`[F05] 属主隔离生效：他人下载 → 403；本人 → 200（… 字节）；共享 → 他人 200` | F05 |
+| **BUG-D-09** | **P2 危险文件类型漏网（已修复 ✅）** | 硬禁止扩展名黑名单只有 `exe/sh/bat/ps1/so/dll/jar/py/js/vbs/msi`，**没有 `php/jsp/aspx/cgi`**；而内置默认分类策略 `allowed_extensions` 为空（= 不校验白名单），于是 `shell.php` 直接放行 | 修前：`[F03] 黑名单未收录：["php", "jsp", "aspx", "cgi"]；默认策略下 shell.php 是否放行：true`；修后：`[F03] 服务端脚本已全拦（php/jsp/aspx/cgi 等 11 个扩展名）；默认策略下 shell.php → ExtensionForbidden` | F03 |
+| **BUG-D-13** | **P2 审计缺口（明文外泄无留痕）（已修复 ✅）** | 持 `system:field-mask:plain` 的用户导出即明文（设计如此），但「明文访问留痕」写入函数在真库上**直接报错**，而调用处是 `tokio::spawn` + 只打日志 → **明文导出没有审计痕迹**。**根因更正**：不是 `Value::Json` 绑不到 `?::jsonb`（真库实测 jsonb 位正常），而是 `request_id` 写了 `field-mask:<uuid>`（47 字符）超出 `audit_logs.request_id VARCHAR(36)` → `value too long for type character varying(36)` | 修前：`[X05] 审计写入失败（明文访问无留痕）：query failed: : db error`；修后：`[X05] 明文导出留痕：FIELD_MASK_PLAIN_READ n → n+1（含直接调用 1 条）` | X05 |
 | **BUG-D-14** | **P1 内控缺口** | `business/erp` 下**没有**「制单人不得审核自己单据」的校验（全目录扫描 `制单人不得/不能审核自己/ensure_not_self/SELF_APPROVAL` 零命中）。目前唯一屏障是「角色互斥（SoD）」，一旦角色配置漏配或历史数据双持，同一人即可自审 | `[K08] ERP 侧无 maker≠checker 校验（仅靠角色互斥兜底）` | K08 / X05(mutex) |
 | BUG-D-10 | P3 跨平台一致性 | `sanitize_key` 对前导 `/` 会规整进根目录（安全），但反斜杠形态 `..\..\windows\system32\cmd.exe` 在 Linux 上被当成普通文件名保留；将来若在 Windows 跑本地后端必须先收紧 | F04 断言规整后仍落在 root 内 | F04 |
 | BUG-D-05 | P3 数据一致性 | 公告下线（软删）后，由它扇出的通知**不随之软删**，收件人仍能在「我的消息」里看到并回执 | `[G03] 公告下线后仍可见的通知收件行：1` | G03 |
+
+### 0.1 修复记录（三张 P2 已修，卡 `t_7a9b87f8`）
+
+| # | 修法 | 落点 | 回归 |
+|---|---|---|---|
+| BUG-D-08 | ① `sys_file` 加 `is_shared`（迁移 `V0172`，默认 `FALSE` = 私有，`avatar`/`template` 两类组织级资产回填为共享）；② 判据 `model::can_read_file(file, viewer)` = `is_shared` ∪ `uploaded_by = 当前用户` ∪ `uploaded_by IS NULL`（无属主的历史/系统文件仍在 `business:storage:download` 权限码之内）；③ 对外入口 `GET /business/storage/download/{file_id}` 改走 `handler::download_for_viewer`，越权 **403 + `PERMISSION_DENIED`**（卡面口径；不选 404 是为了让前端/审计能区分「没这份」与「不归你」）。内部可信路径（公告附件 / 任务附件）仍走 `download_response`，它们各自的业务可见性校验在前一步 | `storage/model.rs`、`storage/handler.rs`、`migrations/business/V0172__sys_file_owner_isolation.{up,down}.sql` | F05（他人 403 / 本人 200 / 共享 200 / 不存在仍 404）+ `model::tests::owner_isolation_decision` |
+| BUG-D-09 | 黑名单加 `php/php3/php4/php5/phtml/jsp/jspx/aspx/asp/cgi/pl`（服务端脚本按 exe 同级处理）。黑名单是全局下限、优先于白名单，所以内置默认策略（白名单为空）也拦；保存策略时同样拒（`validate_policy_fields`） | `storage/model.rs::FORBIDDEN_EXECUTABLE_EXTENSIONS` | F03（11 个扩展名必须全拦；`SHELL.PHP` / `shell.pHp` 等大小写变体同样拦）+ `model::tests::forbidden_covers_server_side_scripts` |
+| BUG-D-13 | ① `request_id` 改成一个 UUID v7（36 字符，与 `VARCHAR(36)` 逐字匹配）——**这才是真因**：`detail` 的 `Value::Json` + `?::jsonb` 绑定在真库上本来就正常（修前后都不需要动）；② 失败不再静默：后台任务重试 3 次，最后一次仍失败 `tracing::error!` + 进程级计数 `model::plain_read_audit_failures()` | `masking/model.rs`、`masking/registry.rs` | X05（导出后 `audit_logs.operation='FIELD_MASK_PLAIN_READ'` 计数必须 +1，且 detail 是合法 JSON 对象；直接调用写入函数必须成功；失败计数不得增长） |
+
+口径说明：**文件中心不是「全员共享」**。默认私有（fail-closed），只有 `avatar`（头像要展示给别人）与 `template`（导入模板人人可用）两类组织级资产共享；其余分类的跨用户访问由业务入口（公告可见性 / 任务可见性）授权，不靠文件中心这一层放开。
 
 **已确认不存在以下风险（反向验证通过，不是漏测）：**
 
@@ -82,7 +92,7 @@
 | X02 详情接口 | 无豁免用户看详情，姓名/邮箱/手机三列均为掩码（`张**` / `z***@example.com` / `138****5678`） |
 | X03 导出文件 | 同步导出产物里是掩码值：`[X03] 同步导出掩码值命中：138****5678` |
 | X04 fail-closed | 敏感列无生效规则 → 引擎 `MissingRule` → 422；接口层若 200，则文件里**不允许出现明文手机号/邮箱**（断言两侧都不放行） |
-| X05 明版权限 | 持 `system:field-mask:plain` 导出为明文（设计如此），但留痕写入真库失败 → **BUG-D-13** |
+| X05 明版权限 | 持 `system:field-mask:plain` 导出为明文（设计如此），留痕写入曾因 `request_id` 超长而失败 → **BUG-D-13（已修：计数 +1 且 detail 为合法 JSON）** |
 
 ---
 
@@ -109,9 +119,9 @@
 |---|---|
 | F01 | 本地后端写入 → 读回，字节与 SHA-256 完全一致 |
 | F02 | 超限文件被策略拒（`SizeExceeded { size_bytes: 53477376, max_size_mb: 50 }`），不是「先落盘再报错」 |
-| F03 | 硬禁黑名单拦 `exe/sh/bat/ps1/so/dll/jar/py/js/vbs/msi`；**php/jsp/aspx/cgi 漏网且默认策略放行 shell.php** → **BUG-D-09（P2）** |
+| F03 | 硬禁黑名单拦 `exe/sh/bat/ps1/so/dll/jar/py/js/vbs/msi`；**php/jsp/aspx/cgi 漏网且默认策略放行 shell.php** → **BUG-D-09（P2，已修）**：黑名单补 11 个服务端脚本扩展名，`shell.php` → `ExtensionForbidden` |
 | F04 | `..`、绝对路径、NUL 键全部拒绝；反斜杠形态在 Linux 上被规整进根目录（安全，但跨平台语义不一致 → BUG-D-10 P3） |
-| F05 | 读路径无属主隔离 → **BUG-D-08（P2 越权）** |
+| F05 | 读路径无属主隔离 → **BUG-D-08（P2 越权，已修）**：他人私有文件 **403**、本人 **200**、共享文件 **200**、不存在仍 **404** |
 | F06 | 两套后端关键路径：本地真实读写 + MinIO 风格 SigV4 预签名都能工作 |
 | F07 | 预签名 TTL 被夹到合法区间，过期时间 = 签发时刻 + 实际 TTL |
 | F08 | 删除是**软删**：行保留（`deleted_at` 有值）、读路径不再返回 |
@@ -282,4 +292,4 @@ PGPASSWORD=*** bash /opt/cloudpivot/scripts/verify/testd_http.sh
 
 - 卡面要求的 **≥58 + 8 联动 = ≥66** 全部落地：**67 条真库用例全绿**（含 1 条清理自检），另有 **11 条 HTTP 层断言**全绿。
 - 未改任何业务代码（`git show --stat` 只有 `backend/tests/**`、`scripts/verify/testd_http.sh`、本报告）。
-- **放行判断**：P0 的导入导出「事务边界 / 幂等 / 1 万行 / 篡改拒绝 / 过期 410 / 失败可重试」与脱敏「详情 / 导出 / fail-closed」都成立；但 **BUG-D-08（文件下载无属主隔离）与 BUG-D-09（php 类脚本漏网）必须先修再上线**，BUG-D-14（ERP 自审）与 BUG-D-13（明文导出无留痕）必须在 ERP 批次内跟进。
+- **放行判断**：P0 的导入导出「事务边界 / 幂等 / 1 万行 / 篡改拒绝 / 过期 410 / 失败可重试」与脱敏「详情 / 导出 / fail-closed」都成立；**BUG-D-08（文件下载无属主隔离）与 BUG-D-09（php 类脚本漏网）已于卡 `t_7a9b87f8` 修复并回归全绿**；BUG-D-13（明文导出无留痕）同卡修复（真因是 `request_id` 超长，不是 jsonb 绑定）；BUG-D-14（ERP 自审）仍由 ERP 卡跟进。
