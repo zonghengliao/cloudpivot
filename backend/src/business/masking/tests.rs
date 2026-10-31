@@ -52,7 +52,10 @@ const TARGET_COLUMN: &str = "remark";
 /// 清扫本卡历史残留（按 `tc_m` 前缀；上一次跑到一半 panic 也不会留垃圾）。
 async fn sweep() {
     let _ = db()
-        .execute_with_params("DELETE FROM sys_field_mask WHERE reason LIKE 'tc_m%'", vec![])
+        .execute_with_params(
+            "DELETE FROM sys_field_mask WHERE reason LIKE 'tc_m%'",
+            vec![],
+        )
         .await;
     let _ = db()
         .execute_with_params(
@@ -109,7 +112,10 @@ async fn fixtures(prefix: &str) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
     }
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(holder.to_string()), Value::from(role_id.to_string())],
+        vec![
+            Value::from(holder.to_string()),
+            Value::from(role_id.to_string()),
+        ],
     )
     .await;
     (role_id, holder, plain)
@@ -169,7 +175,13 @@ async fn m01_create_rule_and_reject_duplicate() {
     let (prefix, role_id, _, _) = setup("M01").await;
     let claims = ts::super_claims();
 
-    let id = create_rule(&claims, &role_id.to_string(), MOBILE, &format!("{prefix}-不该给只读员看")).await;
+    let id = create_rule(
+        &claims,
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-不该给只读员看"),
+    )
+    .await;
     let stored = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_field_mask WHERE id = ?::text::uuid AND deleted_at IS NULL",
         vec![Value::from(id.clone())],
@@ -181,7 +193,11 @@ async fn m01_create_rule_and_reject_duplicate() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims),
-        axum::Json(rule_req(&role_id.to_string(), NAME, &format!("{prefix}-重复规则"))),
+        axum::Json(rule_req(
+            &role_id.to_string(),
+            NAME,
+            &format!("{prefix}-重复规则"),
+        )),
     )
     .await
     .expect_err("同 (表,列,角色) 重复配置必须被拒");
@@ -204,10 +220,18 @@ async fn m02_unauthorized_role_gets_masked_value() {
     }
     let (prefix, role_id, holder, plain) = setup("M02").await;
     let claims = ts::super_claims();
-    create_rule(&claims, &role_id.to_string(), MOBILE, &format!("{prefix}-手机号脱敏")).await;
+    create_rule(
+        &claims,
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-手机号脱敏"),
+    )
+    .await;
 
     let raw = "13912345678";
-    let set = registry::load_user_set(&holder).await.expect("加载脱敏规则失败");
+    let set = registry::load_user_set(&holder)
+        .await
+        .expect("加载脱敏规则失败");
     assert!(!set.is_empty(), "持角色用户必须命中 1 条规则");
     let masked = set
         .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
@@ -217,10 +241,15 @@ async fn m02_unauthorized_role_gets_masked_value() {
         !masked.contains(raw),
         "无权限角色的结果里绝不能出现原值，实际 {masked:?}"
     );
-    assert!(masked.contains('*'), "打码结果应包含掩码字符，实际 {masked:?}");
+    assert!(
+        masked.contains('*'),
+        "打码结果应包含掩码字符，实际 {masked:?}"
+    );
 
     // 不持该角色的用户 → 该列没有规则 → 调用方保持原值（不是「被遮」）
-    let other = registry::load_user_set(&plain).await.expect("加载脱敏规则失败");
+    let other = registry::load_user_set(&plain)
+        .await
+        .expect("加载脱敏规则失败");
     assert!(
         other.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "未持有该角色的用户不应命中规则，实际 {:?}",
@@ -240,7 +269,13 @@ async fn m03_exempt_principal_sees_plaintext() {
         return;
     }
     let (prefix, role_id, holder, _) = setup("M03").await;
-    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &format!("{prefix}-手机号脱敏")).await;
+    create_rule(
+        &ts::super_claims(),
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-手机号脱敏"),
+    )
+    .await;
 
     // ① 超管：principal.is_super = true
     let super_principal = crate::business::shared::principal::ScopedPrincipal::for_test(
@@ -311,9 +346,17 @@ async fn m04_export_applies_mask_from_database_rule() {
         return;
     }
     let (prefix, role_id, holder, _) = setup("M04").await;
-    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &format!("{prefix}-导出也要脱敏")).await;
+    create_rule(
+        &ts::super_claims(),
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-导出也要脱敏"),
+    )
+    .await;
 
-    let set = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let set = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     static COLUMNS: &[crate::business::impexp::definition::ExportColumn] = &[
         crate::business::impexp::definition::ExportColumn {
             key: "username",
@@ -388,7 +431,13 @@ async fn m05_list_and_detail_share_same_ruleset() {
         return;
     }
     let (prefix, role_id, holder, _) = setup("M05").await;
-    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &format!("{prefix}-同源校验")).await;
+    create_rule(
+        &ts::super_claims(),
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-同源校验"),
+    )
+    .await;
 
     let principal = crate::business::shared::principal::ScopedPrincipal::for_test(
         holder,
@@ -398,16 +447,24 @@ async fn m05_list_and_detail_share_same_ruleset() {
         Vec::new(),
         false,
     );
-    let request_set = registry::resolve(Some(&principal), None).await.expect("resolve 失败");
-    let selfcheck_set = registry::load_user_set(&holder).await.expect("load_user_set 失败");
+    let request_set = registry::resolve(Some(&principal), None)
+        .await
+        .expect("resolve 失败");
+    let selfcheck_set = registry::load_user_set(&holder)
+        .await
+        .expect("load_user_set 失败");
     assert_eq!(
         request_set.rules().len(),
         selfcheck_set.rules().len(),
         "请求入口（列表/详情）与自检入口的规则条数必须一致"
     );
     let raw = "13912345678";
-    let a = request_set.mask_value(TARGET_TABLE, TARGET_COLUMN, raw).expect("不应失败");
-    let b = selfcheck_set.mask_value(TARGET_TABLE, TARGET_COLUMN, raw).expect("不应失败");
+    let a = request_set
+        .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
+        .expect("不应失败");
+    let b = selfcheck_set
+        .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
+        .expect("不应失败");
     assert_eq!(a, b, "同一用户在两个入口必须得到同一个掩码值");
     assert!(a.is_some(), "该用户应命中规则");
     println!("[M05] resolve() 与 load_user_set() 对同一列给出同一掩码 {a:?} ✓");
@@ -450,7 +507,12 @@ async fn m06_conflict_resolved_by_priority() {
         vec![role.clone(), global.clone()],
     ] {
         let picked = registry::pick_effective(rows);
-        assert_eq!(picked.len(), 1, "同一列只能留下一条规则，实际 {} 条", picked.len());
+        assert_eq!(
+            picked.len(),
+            1,
+            "同一列只能留下一条规则，实际 {} 条",
+            picked.len()
+        );
         assert_eq!(picked[0].mask_type, MOBILE, "角色规则必须优先于全局规则");
     }
 
@@ -484,7 +546,9 @@ async fn m07_config_change_takes_effect_immediately() {
     let claims = ts::super_claims();
 
     // 改前：该列没有规则（目标列刻意避开有全局种子规则的 mobile/email/real_name）
-    let before = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let before = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     assert!(
         before.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "改前不应命中规则，实际 {:?}",
@@ -492,8 +556,16 @@ async fn m07_config_change_takes_effect_immediately() {
     );
 
     // 建规则 → 立刻生效
-    let id = create_rule(&claims, &role_id.to_string(), MOBILE, &format!("{prefix}-第一步")).await;
-    let after_create = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let id = create_rule(
+        &claims,
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-第一步"),
+    )
+    .await;
+    let after_create = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     let hit = after_create
         .hits(TARGET_TABLE, TARGET_COLUMN)
         .expect("新建后必须立刻命中");
@@ -514,11 +586,16 @@ async fn m07_config_change_takes_effect_immediately() {
     )
     .await
     .expect("改规则失败");
-    let after_update = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let after_update = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     let hit = after_update
         .hits(TARGET_TABLE, TARGET_COLUMN)
         .expect("改后必须仍命中");
-    assert_eq!(hit.mask_type, NAME, "改完 mask_type 必须立刻生效（缓存已失效）");
+    assert_eq!(
+        hit.mask_type, NAME,
+        "改完 mask_type 必须立刻生效（缓存已失效）"
+    );
 
     // 删规则 → 立刻失效
     handler::delete(
@@ -529,7 +606,9 @@ async fn m07_config_change_takes_effect_immediately() {
     )
     .await
     .expect("删规则失败");
-    let after_delete = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let after_delete = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     assert!(
         after_delete.hits(TARGET_TABLE, TARGET_COLUMN).is_none(),
         "删完规则必须立刻不再命中，实际 {:?}",
@@ -551,11 +630,21 @@ async fn m08_masking_does_not_mutate_stored_value() {
         return;
     }
     let (prefix, role_id, holder, _) = setup("M08").await;
-    create_rule(&ts::super_claims(), &role_id.to_string(), MOBILE, &format!("{prefix}-不许改库")).await;
+    create_rule(
+        &ts::super_claims(),
+        &role_id.to_string(),
+        MOBILE,
+        &format!("{prefix}-不许改库"),
+    )
+    .await;
 
-    let set = registry::load_user_set(&holder).await.expect("加载规则失败");
+    let set = registry::load_user_set(&holder)
+        .await
+        .expect("加载规则失败");
     let raw = "13912345678";
-    let masked = set.mask_value(TARGET_TABLE, TARGET_COLUMN, raw).expect("不应失败");
+    let masked = set
+        .mask_value(TARGET_TABLE, TARGET_COLUMN, raw)
+        .expect("不应失败");
     assert!(masked.is_some(), "应命中规则");
     assert_ne!(masked.as_deref(), Some(raw), "响应值必须被打码");
 
@@ -585,7 +674,11 @@ async fn m08_masking_does_not_mutate_stored_value() {
 async fn m09_fail_closed_never_leaks_plaintext() {
     // ① 兜底值 = 等长全掩码（按字符数，不是字节数，中文也不会算错）
     assert_eq!(registry::MaskSet::fail_closed("13912345678"), "***********");
-    assert_eq!(registry::MaskSet::fail_closed("张三丰"), "***", "多字节字符按字符数打码");
+    assert_eq!(
+        registry::MaskSet::fail_closed("张三丰"),
+        "***",
+        "多字节字符按字符数打码"
+    );
 
     // ② 规则参数非法 → 返回 Err，不给「原样返回」的机会；错误信息也不许带原值
     let raw = "13912345678";

@@ -76,7 +76,11 @@ async fn a01_cannot_grant_all_scope_from_narrow_operator() {
     let operator = self_only_principal();
     let error = scope_model::ensure_kind_grantable(&operator, ScopeKind::All)
         .expect_err("仅本人范围不得授出「全部数据」");
-    assert_eq!(error.status, 403, "应 403，实际 {}/{}", error.status, error.code);
+    assert_eq!(
+        error.status, 403,
+        "应 403，实际 {}/{}",
+        error.status, error.code
+    );
     assert_eq!(error.code, error_code::DATA_SCOPE_EXCEED_LIMIT);
 
     // 对照：收紧到「仅本人」永远允许
@@ -182,7 +186,12 @@ async fn a04_custom_scope_requires_depts() {
 #[tokio::test]
 async fn a05_non_custom_scope_rejects_dept_set() {
     let dept = uuid::Uuid::now_v7();
-    for kind in [ScopeKind::All, ScopeKind::Dept, ScopeKind::DeptAndChild, ScopeKind::SelfOnly] {
+    for kind in [
+        ScopeKind::All,
+        ScopeKind::Dept,
+        ScopeKind::DeptAndChild,
+        ScopeKind::SelfOnly,
+    ] {
         let error = scope_model::validate_custom_scope(kind, Some(&[dept]))
             .expect_err("非自定义范围带部门集合必须 400");
         assert_eq!(error.status, 400, "{kind:?} 应 400");
@@ -209,8 +218,7 @@ async fn a06_exceeded_dept_ids_pointed_out() {
     let other_2 = uuid::Uuid::now_v7();
     let operator = dept_principal(mine);
 
-    let exceeded =
-        scope_model::exceeded_dept_ids(&operator, &[other_1, mine, other_2, other_1]);
+    let exceeded = scope_model::exceeded_dept_ids(&operator, &[other_1, mine, other_2, other_1]);
     assert_eq!(
         exceeded,
         vec![other_1, other_2],
@@ -225,7 +233,10 @@ async fn a06_exceeded_dept_ids_pointed_out() {
     let rows = vec![dept_row(other_1, None, "B1", 0)];
     let text = scope_model::describe_depts(&exceeded, &rows);
     assert!(text.contains("部门-B1"), "已知部门应显示名称，实际 {text}");
-    assert!(text.contains(&other_2.to_string()), "未知部门应显示 ID，实际 {text}");
+    assert!(
+        text.contains(&other_2.to_string()),
+        "未知部门应显示 ID，实际 {text}"
+    );
     println!("[A06] 越界点名：{text} ✓");
 }
 
@@ -294,7 +305,10 @@ async fn a09_tree_sorted_by_sort_order() {
     assert!(
         children[0].dept_name.ends_with("C1") && children[1].dept_name.ends_with("C2"),
         "同级必须按 sort_order 升序，实际 {:?}",
-        children.iter().map(|c| c.dept_name.clone()).collect::<Vec<_>>()
+        children
+            .iter()
+            .map(|c| c.dept_name.clone())
+            .collect::<Vec<_>>()
     );
     println!("[A09] 同级按 sort_order 升序（C1 在 C2 前）✓");
 }
@@ -402,6 +416,9 @@ async fn a12_core_tables_are_wired() {
     }
     // 部门树不分页（没有 {FILTER} 契约），必须显式声明
     let dept_wiring = scope_model::wiring_of("sys_dept").expect("sys_dept 应已接线");
-    assert!(dept_wiring.no_paginate, "部门树不分页，必须标记 no_paginate");
+    assert!(
+        dept_wiring.no_paginate,
+        "部门树不分页，必须标记 no_paginate"
+    );
     println!("[A12] sys_user / sys_dept 均已接线且锚点完备 ✓");
 }

@@ -48,7 +48,13 @@ fn req(code: &str, name: &str, parent: Option<&str>, sort: i32) -> DeptSaveReq {
 }
 
 /// 用真实 handler 建部门，返回新部门 ID。
-async fn create_dept(claims: &AuthClaims, code: &str, name: &str, parent: Option<&str>, sort: i32) -> String {
+async fn create_dept(
+    claims: &AuthClaims,
+    code: &str,
+    name: &str,
+    parent: Option<&str>,
+    sort: i32,
+) -> String {
     let (_, ci) = (ts::headers(), ts::connect_info());
     let created = handler::create(
         ts::headers(),
@@ -79,17 +85,59 @@ async fn d01_dept_tree_nested_and_sorted() {
     let claims = ts::super_claims();
 
     // 根（sort 2）建在前、根（sort 1）建在后：验证排序来自 sort_order 而不是插入顺序
-    let root_b = create_dept(&claims, &format!("{prefix}-R2"), &format!("{prefix}-根B"), None, 20).await;
-    let root_a = create_dept(&claims, &format!("{prefix}-R1"), &format!("{prefix}-根A"), None, 10).await;
-    let child_2 = create_dept(&claims, &format!("{prefix}-C2"), &format!("{prefix}-子二"), Some(&root_a), 22).await;
-    let child_1 = create_dept(&claims, &format!("{prefix}-C1"), &format!("{prefix}-子一"), Some(&root_a), 21).await;
-    let grand = create_dept(&claims, &format!("{prefix}-G1"), &format!("{prefix}-孙一"), Some(&child_1), 0).await;
+    let root_b = create_dept(
+        &claims,
+        &format!("{prefix}-R2"),
+        &format!("{prefix}-根B"),
+        None,
+        20,
+    )
+    .await;
+    let root_a = create_dept(
+        &claims,
+        &format!("{prefix}-R1"),
+        &format!("{prefix}-根A"),
+        None,
+        10,
+    )
+    .await;
+    let child_2 = create_dept(
+        &claims,
+        &format!("{prefix}-C2"),
+        &format!("{prefix}-子二"),
+        Some(&root_a),
+        22,
+    )
+    .await;
+    let child_1 = create_dept(
+        &claims,
+        &format!("{prefix}-C1"),
+        &format!("{prefix}-子一"),
+        Some(&root_a),
+        21,
+    )
+    .await;
+    let grand = create_dept(
+        &claims,
+        &format!("{prefix}-G1"),
+        &format!("{prefix}-孙一"),
+        Some(&child_1),
+        0,
+    )
+    .await;
 
-    let filter = model::DeptTreeFilter { dept_name: Some(prefix.clone()), status: None };
+    let filter = model::DeptTreeFilter {
+        dept_name: Some(prefix.clone()),
+        status: None,
+    };
     let depts = model::find_dept_list(&filter, &super_principal())
         .await
         .expect("部门列表查询失败");
-    assert_eq!(depts.len(), 5, "本次夹具应恰好 5 条（按前缀过滤，不用全局 COUNT）");
+    assert_eq!(
+        depts.len(),
+        5,
+        "本次夹具应恰好 5 条（按前缀过滤，不用全局 COUNT）"
+    );
 
     let nodes: Vec<DeptNode> = depts.iter().map(DeptNode::from).collect();
     let nodes = crate::utils::build_tree(
@@ -101,7 +149,10 @@ async fn d01_dept_tree_nested_and_sorted() {
     );
 
     assert_eq!(nodes.len(), 2, "应有 2 个根节点");
-    assert_eq!(nodes[0].id, root_a, "根节点按 sort_order 升序：A(10) 在 B(20) 前");
+    assert_eq!(
+        nodes[0].id, root_a,
+        "根节点按 sort_order 升序：A(10) 在 B(20) 前"
+    );
     assert_eq!(nodes[1].id, root_b);
     let root = &nodes[0];
     assert_eq!(root.children.len(), 2, "根 A 下应有 2 个子部门");
@@ -109,7 +160,13 @@ async fn d01_dept_tree_nested_and_sorted() {
     assert_eq!(root.children[1].id, child_2);
     assert_eq!(root.children[0].children.len(), 1, "孙节点挂在子一之下");
     assert_eq!(root.children[0].children[0].id, grand);
-    println!("[D01] 5 节点 3 层树：根序 [{}, {}]，子序 [{}, {}] ✓", nodes[0].dept_name, nodes[1].dept_name, root.children[0].dept_name, root.children[1].dept_name);
+    println!(
+        "[D01] 5 节点 3 层树：根序 [{}, {}]，子序 [{}, {}] ✓",
+        nodes[0].dept_name,
+        nodes[1].dept_name,
+        root.children[0].dept_name,
+        root.children[1].dept_name
+    );
 
     // dept_path 冗余路径：根 = /{id}/，子 = /{父}/{id}/，孙 = /{根}/{子}/{孙}/
     let paths: Vec<(String, Option<String>)> = db()
@@ -134,7 +191,11 @@ async fn d01_dept_tree_nested_and_sorted() {
             .and_then(|(_, path)| path.clone())
             .unwrap_or_default()
     };
-    assert_eq!(path_of("R1"), format!("/{root_a}/"), "根部门 dept_path = /自身/");
+    assert_eq!(
+        path_of("R1"),
+        format!("/{root_a}/"),
+        "根部门 dept_path = /自身/"
+    );
     assert_eq!(
         path_of("C1"),
         format!("/{root_a}/{child_1}/"),
@@ -168,11 +229,21 @@ async fn d02_create_with_missing_parent_returns_404() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims),
-        ValidatedJson(req(&format!("{prefix}-X"), "孤儿部门", Some(&ghost_parent), 0)),
+        ValidatedJson(req(
+            &format!("{prefix}-X"),
+            "孤儿部门",
+            Some(&ghost_parent),
+            0,
+        )),
     )
     .await
     .expect_err("上级不存在必须报错");
-    ts::assert_err(&error, 404, error_code::RESOURCE_NOT_FOUND, "D02 上级部门不存在");
+    ts::assert_err(
+        &error,
+        404,
+        error_code::RESOURCE_NOT_FOUND,
+        "D02 上级部门不存在",
+    );
 
     let leaked = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_dept WHERE dept_code = ?",
@@ -180,7 +251,10 @@ async fn d02_create_with_missing_parent_returns_404() {
     )
     .await;
     assert_eq!(leaked, 0, "失败请求不得留下半截部门记录");
-    println!("[D02] 上级不存在 → 404/{}，且未落库 ✓", error_code::RESOURCE_NOT_FOUND);
+    println!(
+        "[D02] 上级不存在 → 404/{}，且未落库 ✓",
+        error_code::RESOURCE_NOT_FOUND
+    );
     cleanup(&prefix).await;
 }
 
@@ -214,7 +288,10 @@ async fn d03_duplicate_dept_code_returns_409() {
     )
     .await;
     assert_eq!(count, 1, "重复请求不得插入第二条");
-    println!("[D03] 编码重复（含首尾空白）→ 409/{} ✓", error_code::DEPT_CODE_EXISTS);
+    println!(
+        "[D03] 编码重复（含首尾空白）→ 409/{} ✓",
+        error_code::DEPT_CODE_EXISTS
+    );
     cleanup(&prefix).await;
 }
 
@@ -242,8 +319,18 @@ async fn d03b_duplicate_name_same_parent_only() {
     ts::assert_err(&error, 409, error_code::DEPT_NAME_EXISTS, "D03b 同级同名");
 
     // 换个上级 → 同名合法
-    create_dept(&claims, &format!("{prefix}-B1"), "重名部门", Some(&other), 0).await;
-    println!("[D03b] 同级同名 → 409/{}；跨级同名 → 允许 ✓", error_code::DEPT_NAME_EXISTS);
+    create_dept(
+        &claims,
+        &format!("{prefix}-B1"),
+        "重名部门",
+        Some(&other),
+        0,
+    )
+    .await;
+    println!(
+        "[D03b] 同级同名 → 409/{}；跨级同名 → 允许 ✓",
+        error_code::DEPT_NAME_EXISTS
+    );
     cleanup(&prefix).await;
 }
 
@@ -277,7 +364,10 @@ async fn d04_delete_dept_with_children_rejected() {
     )
     .await;
     assert_eq!(alive, 2, "父子两条都必须还在（失败不得软删父部门）");
-    println!("[D04] 有子部门 → 409/{}，父子两条完好 ✓", error_code::DEPT_HAS_CHILDREN);
+    println!(
+        "[D04] 有子部门 → 409/{}，父子两条完好 ✓",
+        error_code::DEPT_HAS_CHILDREN
+    );
     cleanup(&prefix).await;
 }
 
@@ -319,7 +409,12 @@ async fn d05_delete_dept_with_users_and_migrate_delete() {
     )
     .await
     .expect_err("部门下有用户必须拒绝删除");
-    ts::assert_err(&error, 409, error_code::RESOURCE_CONFLICT, "D05 部门下有用户");
+    ts::assert_err(
+        &error,
+        409,
+        error_code::RESOURCE_CONFLICT,
+        "D05 部门下有用户",
+    );
 
     // ② 迁移删除：用户改挂目标部门，部门被删
     handler::migrate_and_delete(
@@ -327,7 +422,9 @@ async fn d05_delete_dept_with_users_and_migrate_delete() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims.clone()),
-        ValidatedJson(DeptMigrateReq { migrate_to_dept_id: Some(target.clone()) }),
+        ValidatedJson(DeptMigrateReq {
+            migrate_to_dept_id: Some(target.clone()),
+        }),
     )
     .await
     .unwrap_or_else(|e| panic!("迁移删除应成功：{}/{} {}", e.status, e.code, e.msg));
@@ -347,7 +444,10 @@ async fn d05_delete_dept_with_users_and_migrate_delete() {
     )
     .await;
     assert_eq!(gone, 0, "迁移后源部门必须已软删");
-    println!("[D05] 普通删除 → 409/{}；migrate-delete 迁移 1 人并删部门 ✓", error_code::RESOURCE_CONFLICT);
+    println!(
+        "[D05] 普通删除 → 409/{}；migrate-delete 迁移 1 人并删部门 ✓",
+        error_code::RESOURCE_CONFLICT
+    );
 
     ts::cleanup_table("sys_user", "username", &prefix).await;
     cleanup(&prefix).await;
@@ -398,13 +498,21 @@ async fn d06_rename_reflected_in_user_dept_lookup() {
         vec![Value::from(user_id)],
     )
     .await;
-    assert_eq!(name.as_deref(), Some("改名后的部门"), "用户归属查询必须返回新部门名");
+    assert_eq!(
+        name.as_deref(),
+        Some("改名后的部门"),
+        "用户归属查询必须返回新部门名"
+    );
     let dept_id_after = ts::scalar_text(
         "SELECT dept_id::text AS v FROM sys_user WHERE id = ?",
         vec![Value::from(user_id)],
     )
     .await;
-    assert_eq!(dept_id_after.as_deref(), Some(dept.as_str()), "改名不得改动用户 dept_id");
+    assert_eq!(
+        dept_id_after.as_deref(),
+        Some(dept.as_str()),
+        "改名不得改动用户 dept_id"
+    );
     println!("[D06] 改名 → 归属查询立即返回新名，dept_id 不变 ✓");
 
     ts::cleanup_table("sys_user", "username", &prefix).await;
@@ -425,9 +533,30 @@ async fn d07_data_scope_isolates_departments() {
     let tag = ts::uniq();
     let prefix = format!("D07-{tag}");
     let claims = ts::super_claims();
-    let dept_a = create_dept(&claims, &format!("{prefix}-A"), &format!("{prefix}-隔离A"), None, 0).await;
-    let dept_a_child = create_dept(&claims, &format!("{prefix}-A1"), &format!("{prefix}-隔离A1"), Some(&dept_a), 0).await;
-    let dept_b = create_dept(&claims, &format!("{prefix}-B"), &format!("{prefix}-隔离B"), None, 0).await;
+    let dept_a = create_dept(
+        &claims,
+        &format!("{prefix}-A"),
+        &format!("{prefix}-隔离A"),
+        None,
+        0,
+    )
+    .await;
+    let dept_a_child = create_dept(
+        &claims,
+        &format!("{prefix}-A1"),
+        &format!("{prefix}-隔离A1"),
+        Some(&dept_a),
+        0,
+    )
+    .await;
+    let dept_b = create_dept(
+        &claims,
+        &format!("{prefix}-B"),
+        &format!("{prefix}-隔离B"),
+        None,
+        0,
+    )
+    .await;
 
     // 角色 1「本部门」data_scope=2；角色 2「本部门及以下」data_scope=3
     let role_own = uuid::Uuid::now_v7();
@@ -471,28 +600,52 @@ async fn d07_data_scope_isolates_departments() {
         .await;
     }
 
-    let filter = model::DeptTreeFilter { dept_name: Some(prefix.clone()), status: None };
+    let filter = model::DeptTreeFilter {
+        dept_name: Some(prefix.clone()),
+        status: None,
+    };
 
     // 本部门范围：只能看到 A
-    let principal_own = principal::resolve(&user_own).await.expect("解析本部门范围失败");
-    assert_eq!(principal_own.kind(), ScopeKind::Dept, "data_scope=2 应解析为「本部门」");
-    let visible_own = model::find_dept_list(&filter, &principal_own).await.expect("部门查询失败");
+    let principal_own = principal::resolve(&user_own)
+        .await
+        .expect("解析本部门范围失败");
+    assert_eq!(
+        principal_own.kind(),
+        ScopeKind::Dept,
+        "data_scope=2 应解析为「本部门」"
+    );
+    let visible_own = model::find_dept_list(&filter, &principal_own)
+        .await
+        .expect("部门查询失败");
     let ids_own: Vec<String> = visible_own.iter().map(|d| d.id.to_string()).collect();
-    assert_eq!(ids_own, vec![dept_a.clone()], "本部门范围：只能看到 A，看不到 B 与 A 的子部门");
+    assert_eq!(
+        ids_own,
+        vec![dept_a.clone()],
+        "本部门范围：只能看到 A，看不到 B 与 A 的子部门"
+    );
 
     // 本部门及以下：能看到 A 与 A1，仍看不到 B
-    let principal_sub = principal::resolve(&user_sub).await.expect("解析子树范围失败");
+    let principal_sub = principal::resolve(&user_sub)
+        .await
+        .expect("解析子树范围失败");
     assert_eq!(principal_sub.kind(), ScopeKind::DeptAndChild);
-    let visible_sub = model::find_dept_list(&filter, &principal_sub).await.expect("部门查询失败");
+    let visible_sub = model::find_dept_list(&filter, &principal_sub)
+        .await
+        .expect("部门查询失败");
     let mut ids_sub: Vec<String> = visible_sub.iter().map(|d| d.id.to_string()).collect();
     ids_sub.sort();
     let mut expect_sub = vec![dept_a.clone(), dept_a_child.clone()];
     expect_sub.sort();
     assert_eq!(ids_sub, expect_sub, "本部门及以下：A 与 A1 可见");
-    assert!(!ids_sub.contains(&dept_b), "★ 数据隔离失效：B 部门被本部门范围看到了");
+    assert!(
+        !ids_sub.contains(&dept_b),
+        "★ 数据隔离失效：B 部门被本部门范围看到了"
+    );
 
     // 子树 ID 递归 CTE（不依赖可能失同步的 dept_path）
-    let subtree = model::find_dept_subtree_ids(&dept_a_uuid).await.expect("子树查询失败");
+    let subtree = model::find_dept_subtree_ids(&dept_a_uuid)
+        .await
+        .expect("子树查询失败");
     let subtree_ids: Vec<String> = {
         let mut v: Vec<String> = subtree.iter().map(|id| id.to_string()).collect();
         v.sort();
@@ -551,12 +704,23 @@ async fn d08_cycle_prevented_no_infinite_recursion() {
     )
     .await
     .expect_err("祖先挂到后代下必须拒绝");
-    ts::assert_err(&error, 409, error_code::RESOURCE_CONFLICT, "D08 祖先挂到后代");
+    ts::assert_err(
+        &error,
+        409,
+        error_code::RESOURCE_CONFLICT,
+        "D08 祖先挂到后代",
+    );
 
     // ③ 库里不得留下环：递归 CTE 必须能跑完且只返回 3 个节点
     let root_uuid = uuid::Uuid::parse_str(&root).expect("uuid");
-    let subtree = model::find_dept_subtree_ids(&root_uuid).await.expect("递归查询失败");
-    assert_eq!(subtree.len(), 3, "环被拒绝后子树应为 3 个节点（无重复、无环）");
+    let subtree = model::find_dept_subtree_ids(&root_uuid)
+        .await
+        .expect("递归查询失败");
+    assert_eq!(
+        subtree.len(),
+        3,
+        "环被拒绝后子树应为 3 个节点（无重复、无环）"
+    );
     let parent_of_root = ts::scalar_text(
         "SELECT parent_id::text AS v FROM sys_dept WHERE id = ?",
         vec![Value::from(root_uuid)],
@@ -615,7 +779,14 @@ async fn d10_disabled_dept_does_not_block_users() {
     let tag = ts::uniq();
     let prefix = format!("D10-{tag}");
     let claims = ts::super_claims();
-    let dept = create_dept(&claims, &format!("{prefix}-D"), &format!("{prefix}-待停用"), None, 0).await;
+    let dept = create_dept(
+        &claims,
+        &format!("{prefix}-D"),
+        &format!("{prefix}-待停用"),
+        None,
+        0,
+    )
+    .await;
 
     handler::update(
         axum::extract::Path(dept.clone()),
@@ -644,11 +815,21 @@ async fn d10_disabled_dept_does_not_block_users() {
     assert_eq!(status, 0, "部门状态必须落库为 0（停用）");
 
     // 部门树的 status 过滤能把停用部门筛出来（说明过滤真的生效）
-    let filter = model::DeptTreeFilter { dept_name: Some(prefix.clone()), status: Some(0) };
-    let disabled = model::find_dept_list(&filter, &super_principal()).await.expect("按状态过滤失败");
+    let filter = model::DeptTreeFilter {
+        dept_name: Some(prefix.clone()),
+        status: Some(0),
+    };
+    let disabled = model::find_dept_list(&filter, &super_principal())
+        .await
+        .expect("按状态过滤失败");
     assert_eq!(disabled.len(), 1, "status=0 过滤应命中停止使用的那个部门");
-    let filter_enabled = model::DeptTreeFilter { dept_name: Some(prefix.clone()), status: Some(1) };
-    let enabled = model::find_dept_list(&filter_enabled, &super_principal()).await.expect("过滤失败");
+    let filter_enabled = model::DeptTreeFilter {
+        dept_name: Some(prefix.clone()),
+        status: Some(1),
+    };
+    let enabled = model::find_dept_list(&filter_enabled, &super_principal())
+        .await
+        .expect("过滤失败");
     assert!(enabled.is_empty(), "status=1 过滤不应命中停用部门");
     println!("[D10] 停用部门：status=0 落库、树过滤生效；用户登录不受部门状态影响（见报告）");
     cleanup(&prefix).await;
@@ -673,7 +854,11 @@ async fn d11_invalid_status_rejected() {
     )
     .await
     .expect_err("非法状态必须拒绝");
-    assert_eq!(error.status, 400, "非法状态应 400，实际 {}/{}", error.status, error.code);
+    assert_eq!(
+        error.status, 400,
+        "非法状态应 400，实际 {}/{}",
+        error.status, error.code
+    );
     assert!(
         EnableStatus::from_optional_i16(Some(7)).is_err(),
         "EnableStatus 只接受 0/1"
