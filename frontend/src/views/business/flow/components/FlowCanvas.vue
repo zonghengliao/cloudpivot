@@ -11,9 +11,16 @@
   >
     <svg class="flow-canvas__svg" width="100%" height="100%">
       <defs>
-        <!-- 20 px 细网格（颜色走主题变量，22 套配色下都可见） -->
-        <pattern id="flow-grid-pattern" width="20" height="20" patternUnits="userSpaceOnUse">
-          <path class="flow-canvas__grid-line" d="M 20 0 L 0 0 0 20" fill="none" />
+        <!-- 点阵背景（18 px 网点）：patternTransform 跟着 view 走 —— 平移 / 缩放时网点跟内容一起动，
+             观感才是「在画布上移动」而不是「内容在静态玻璃后面飘」 -->
+        <pattern
+          id="flow-grid-pattern"
+          width="18"
+          height="18"
+          patternUnits="userSpaceOnUse"
+          :patternTransform="`translate(${view.x},${view.y}) scale(${view.scale})`"
+        >
+          <circle class="flow-canvas__grid-dot" cx="2" cy="2" r="1.15" />
         </pattern>
         <!-- 箭头：orthogonal 折线的终点方向由 marker 自动旋转 -->
         <marker
@@ -57,12 +64,12 @@
             <g v-if="item.label" class="flow-edge__label">
               <rect
                 :x="item.labelX - item.labelWidth / 2 - 4"
-                :y="item.labelY - 9"
+                :y="item.labelY - 11"
                 :width="item.labelWidth + 8"
-                height="18"
-                rx="4"
+                height="15"
+                rx="3"
               />
-              <text :x="item.labelX" :y="item.labelY + 4">{{ item.label }}</text>
+              <text :x="item.labelX" :y="item.labelY">{{ item.label }}</text>
             </g>
           </g>
         </g>
@@ -70,7 +77,8 @@
         <!-- ② 拖拽中的连线（虚线跟随鼠标） -->
         <path v-if="connectDraft" class="flow-canvas__draft" :d="connectDraft" fill="none" />
 
-        <!-- ③ 节点 -->
+        <!-- ③ 节点：卡片本体走 foreignObject（HTML 排版换行 / 省略 / 圆角 / 阴影都比手搓 SVG 稳），
+             锚点与校验角标仍是 SVG（要精确的圆和描边） -->
         <g
           v-for="node in nodeViews"
           :key="node.data.key"
@@ -81,34 +89,22 @@
           :transform="`translate(${node.x},${node.y})`"
           @pointerdown.stop="onNodeDown($event, node.data)"
         >
-          <!-- 形状：胶囊用大圆角矩形，菱形用多边形，会签是「矩形 + 内框」 -->
-          <polygon v-if="node.shape === 'diamond'" class="flow-node__shape" :points="node.diamondPoints" />
-          <rect
-            v-else
-            class="flow-node__shape"
-            :width="node.size.w"
-            :height="node.size.h"
-            :rx="node.shape === 'capsule' ? node.size.h / 2 : 6"
-          />
-          <rect
-            v-if="node.data.type === 'COUNTERSIGN'"
-            class="flow-node__inner"
-            :width="node.size.w - 8"
-            :height="node.size.h - 8"
-            x="4"
-            y="4"
-            rx="4"
-          />
-
-          <text class="flow-node__label" :x="node.size.w / 2" :y="node.size.h / 2 + 5">{{ node.label }}</text>
-          <text
-            v-if="node.subLabel"
-            class="flow-node__sub"
-            :x="node.size.w / 2"
-            :y="node.size.h / 2 + 20"
-          >
-            {{ node.subLabel }}
-          </text>
+          <foreignObject class="flow-node__fo" x="0" y="0" :width="node.size.w" :height="node.size.h">
+            <div xmlns="http://www.w3.org/1999/xhtml" class="flow-node__card">
+              <span class="flow-node__bar" />
+              <span class="flow-node__icon">{{ node.icon }}</span>
+              <span class="flow-node__text">
+                <span class="flow-node__title">{{ node.label }}</span>
+                <span v-if="node.subLabel" class="flow-node__sub">{{ node.subLabel }}</span>
+              </span>
+              <span
+                v-if="node.hasStatus"
+                class="flow-node__status"
+                :class="`flow-node__status--${node.statusTone}`"
+                >{{ node.statusMark }}</span
+              >
+            </div>
+          </foreignObject>
 
           <!-- 入口 / 出口锚点（只读态不显示） -->
           <template v-if="!readonly">
@@ -132,16 +128,61 @@
       </g>
     </svg>
 
-    <!-- 工具栏：缩放 / 适配（只读态隐藏） -->
-    <div v-if="showToolbar" class="flow-canvas__toolbar">
-      <t-button size="small" variant="outline" title="放大" @click="zoomBy(1.25)">
+    <!-- 布局动作（右上角）：自动布局 / 撤销布局（只在刚布局后出现） -->
+    <div v-if="showToolbar && !readonly" class="flow-canvas__layout-actions">
+      <button type="button" class="flow-canvas__action" title="按 dagre 重排所有节点（可撤销）" @click.stop="emit('auto-layout')">
+        <t-icon name="layout" />
+        <span>自动布局</span>
+      </button>
+      <button
+        v-if="canUndoLayout"
+        type="button"
+        class="flow-canvas__action flow-canvas__action--undo"
+        title="把节点坐标还原成布局前的样子"
+        @click.stop="emit('undo-layout')"
+      >
+        <t-icon name="rollback" />
+        <span>撤销布局</span>
+      </button>
+    </div>
+
+    <!-- 缩放控件（右下角）：+ / − / 适应画布 / 百分比（点击回到 100%） -->
+    <div v-if="showToolbar" class="flow-canvas__zoom">
+      <button type="button" class="flow-canvas__zoom-btn" title="放大" data-zoom="in" @click.stop="zoomBy(1.2)">
         <t-icon name="add" />
-      </t-button>
-      <t-button size="small" variant="outline" title="缩小" @click="zoomBy(0.8)">
+      </button>
+      <button type="button" class="flow-canvas__zoom-btn" title="缩小" data-zoom="out" @click.stop="zoomBy(1 / 1.2)">
         <t-icon name="minus" />
-      </t-button>
-      <span class="flow-canvas__scale">{{ Math.round(view.scale * 100) }}%</span>
-      <t-button size="small" variant="outline" title="适应画布" @click="fitView()">适配</t-button>
+      </button>
+      <button type="button" class="flow-canvas__zoom-btn" title="适应画布" data-zoom="fit" @click.stop="fitView()">
+        <t-icon name="fullscreen" />
+      </button>
+      <button type="button" class="flow-canvas__zoom-btn flow-canvas__zoom-btn--scale" :title="`当前 ${zoomPercent}%，点击回到 100%`" data-zoom="reset" @click.stop="zoomTo(1)">
+        {{ zoomPercent }}%
+      </button>
+    </div>
+
+    <!-- 小地图（左下角）：节点色块 + 视野框，点 / 拖都能平移 -->
+    <div
+      v-if="showToolbar && showMinimap && nodeViews.length > 0"
+      ref="miniRef"
+      class="flow-canvas__minimap"
+      data-testid="flow-minimap"
+      @pointerdown.stop="onMiniDown"
+    >
+      <svg class="flow-canvas__minimap-svg" :viewBox="`0 0 ${MINI_W} ${MINI_H}`" :width="MINI_W" :height="MINI_H">
+        <rect
+          v-for="item in miniNodes"
+          :key="item.key"
+          class="flow-canvas__mini-node"
+          :x="item.x"
+          :y="item.y"
+          :width="item.w"
+          :height="item.h"
+          rx="3"
+        />
+        <rect class="flow-canvas__mini-view" :x="miniView.x" :y="miniView.y" :width="miniView.w" :height="miniView.h" rx="2" />
+      </svg>
     </div>
 
     <div v-if="showHint" class="flow-canvas__hint">
@@ -157,7 +198,7 @@
 
 <script setup lang="ts">
 /**
- * 纯 SVG 自绘流程画布（零新增依赖，架构 §11）。
+ * 纯 SVG 自绘流程画布（零渲染引擎依赖，P12 视觉升级版）。
  *
  * # 三层坐标（§11.2）
  *
@@ -171,6 +212,16 @@
  * `canvas = (client - 容器矩形) / scale - translate`。
  * 因为这里**不用 `viewBox`**（平移/缩放全部落在 `<g>` 上），
  * 也就不存在 `viewBox minX ≠ 0` 或 `preserveAspectRatio` 非均匀缩放导致的偏差。
+ *
+ * # P12 视觉升级做了什么（全部不换渲染引擎、不动坐标口径）
+ *
+ * - 背景：20 px 线格 → 18 px 点阵（`patternTransform` 跟随 view，网点跟着内容走）；
+ * - 节点：SVG 矩形/菱形 → `foreignObject` 里的 HTML 卡片（11 px 圆角 / 左侧类型色条 /
+ *   图标底块 / 主副标题单行省略 / 状态点）；锚点与校验角标仍是 SVG；
+ * - 连线：`graph.ts` 的正交折线在渲染层过一遍 {@link roundedEdgePath} 切成圆角，
+ *   走过的边用品牌色、指向进行中节点的边跑 `stroke-dashoffset` 动画；
+ * - 边标签：裸文字 → 白底小圆角标签（宽度按字符估，见 `labelTextWidth`）；
+ * - 新增右下角缩放控件（+ / − / 适应 / 百分比）与左下角小地图（点、拖都能平移）。
  *
  * # 拖拽为什么用 pointer events（§11.3）
  *
@@ -198,6 +249,7 @@ import {
   snapGrid,
   type Point,
 } from '@/views/business/flow/graph';
+import { labelTextWidth, roundedEdgePath } from '@/views/business/flow/components/rounded-path';
 
 /** 组件入参 */
 const props = withDefaults(
@@ -216,6 +268,8 @@ const props = withDefaults(
     issueNodeKeys?: string[];
     /** 是否显示缩放工具栏 */
     showToolbar?: boolean;
+    /** 是否显示左下角小地图 */
+    showMinimap?: boolean;
     /** 是否显示底部操作提示 */
     showHint?: boolean;
     /** 节点运行状态（预览 / 进度叠加：`APPROVED|ACTIVE|REJECTED|SKIPPED|WAITING`） */
@@ -224,6 +278,8 @@ const props = withDefaults(
     takenPairs?: string[];
     /** 挂载后自动适应画布 */
     fitOnMount?: boolean;
+    /** 刚做过自动布局（决定是否显示「撤销布局」） */
+    canUndoLayout?: boolean;
   }>(),
   {
     readonly: false,
@@ -231,10 +287,12 @@ const props = withDefaults(
     selectedEdgeKey: null,
     issueNodeKeys: () => [],
     showToolbar: true,
+    showMinimap: true,
     showHint: true,
     nodeStatus: () => ({}),
     takenPairs: () => [],
     fitOnMount: true,
+    canUndoLayout: false,
   },
 );
 
@@ -256,18 +314,27 @@ const emit = defineEmits<{
   (event: 'redo'): void;
   /** 方向键微调 */
   (event: 'nudge', payload: { key: string; dx: number; dy: number }): void;
+  /** 请求自动布局（父组件负责二次确认、算坐标、压命令栈） */
+  (event: 'auto-layout'): void;
+  /** 撤销上一次自动布局 */
+  (event: 'undo-layout'): void;
 }>();
 
 /** 容器 DOM */
 const wrapRef = ref<HTMLDivElement | null>(null);
 /** 场景 <g>（transform 宿主） */
 const sceneRef = ref<SVGGElement | null>(null);
+/** 小地图 DOM */
+const miniRef = ref<HTMLDivElement | null>(null);
 
 /** 视图变换（平移 + 缩放） */
 const view = ref({ x: 40, y: 40, scale: 1 });
 
+/** 容器尺寸（小地图算视野框要用；ResizeObserver 维护） */
+const viewport = ref({ w: 0, h: 0 });
+
 /** 当前交互态 */
-const interacting = ref<'idle' | 'node' | 'pan' | 'connect'>('idle');
+const interacting = ref<'idle' | 'node' | 'pan' | 'connect' | 'mini'>('idle');
 
 /** 拖拽中的节点偏移（局部状态，不写回 props，避免每帧改父组件数据） */
 const dragKey = ref<string | null>(null);
@@ -292,10 +359,15 @@ const issueSet = computed(() => new Set(props.issueNodeKeys ?? []));
 /** 已走过的边集合 */
 const takenSet = computed(() => new Set(props.takenPairs ?? []));
 
+/** 当前缩放百分比（缩放控件显示） */
+const zoomPercent = computed(() => Math.round(view.value.scale * 100));
+
 /** rAF 句柄（拖拽节流） */
 let rafId = 0;
 /** 待处理的指针位置 */
 let pendingClient: { x: number; y: number } | null = null;
+/** 容器尺寸观察器 */
+let resizeObserver: ResizeObserver | null = null;
 
 /**
  * 屏幕坐标 → 画布坐标。
@@ -326,15 +398,62 @@ interface NodeView {
   size: { w: number; h: number };
   /** 形状 */
   shape: 'capsule' | 'rect' | 'diamond';
-  /** 菱形顶点串 */
-  diamondPoints: string;
-  /** 主文案（超长截断） */
+  /** 左上角图标字（类型语义，见 {@link NODE_GLYPH}） */
+  icon: string;
+  /** 主文案（超长由 CSS 省略号截） */
   label: string;
-  /** 副文案（会签模式 / 未配置审批人提示） */
+  /** 副文案（会签模式 / 未配置审批人 / 运行状态） */
   subLabel: string;
+  /** 状态点内容（空串 = 不画字，但「进行中 / 待处理」照样画点） */
+  statusMark: string;
+  /** 是否有运行状态（有就画状态点；`进行中`/`待处理` 无字但必须有圈） */
+  hasStatus: boolean;
+  /** 状态点配色档 */
+  statusTone: 'approved' | 'active' | 'pending' | 'rejected';
   /** class 列表 */
   cls: Record<string, boolean>;
 }
+
+/** 类型 → 左上角图标字（★ 只影响观感，不参与任何判定） */
+const NODE_GLYPH: Record<string, string> = {
+  START: '▶',
+  APPROVAL: '◉',
+  COUNTERSIGN: '⊕',
+  CONDITION: '◇',
+  PARALLEL: '∥',
+  CC: '↗',
+  END: '■',
+};
+
+/** 运行状态 → 中文（副标题 / 状态点共用） */
+const STATUS_TEXT: Record<string, string> = {
+  APPROVED: '已通过',
+  ACTIVE: '进行中',
+  REJECTED: '已驳回',
+  SKIPPED: '已跳过',
+  WAITING: '待处理',
+  PENDING: '待处理',
+};
+
+/** 运行状态 → 状态点档位（决定底色） */
+const STATUS_TONE: Record<string, NodeView['statusTone']> = {
+  APPROVED: 'approved',
+  ACTIVE: 'active',
+  REJECTED: 'rejected',
+  SKIPPED: 'pending',
+  WAITING: 'pending',
+  PENDING: 'pending',
+};
+
+/** 运行状态 → 状态点内容（进行中 / 待处理留空，靠底色和脉冲环表达） */
+const STATUS_MARK: Record<string, string> = {
+  APPROVED: '✓',
+  ACTIVE: '',
+  REJECTED: '✕',
+  SKIPPED: '',
+  WAITING: '',
+  PENDING: '',
+};
 
 /** 节点视图 */
 const nodeViews = computed<NodeView[]>(() =>
@@ -346,15 +465,29 @@ const nodeViews = computed<NodeView[]>(() =>
     const isCountersign = node.type === 'COUNTERSIGN';
     const missingAssignee =
       (node.type === 'APPROVAL' || node.type === 'COUNTERSIGN' || node.type === 'CC') && !node.assignee_type;
+    // 副标题：业务信息优先（会签模式 / 缺审批人 / 网关类型），其次运行状态
     let subLabel = '';
     if (isCountersign && node.approval_mode) {
-      subLabel = node.approval_mode === 'RATIO' ? `按比例 ${Math.round((node.approve_ratio ?? 0) * 100)}%` : node.approval_mode === 'ANY' ? '或签' : '全部同意';
+      subLabel =
+        node.approval_mode === 'RATIO'
+          ? `按比例 ${Math.round((node.approve_ratio ?? 0) * 100)}%`
+          : node.approval_mode === 'ANY'
+            ? '或签'
+            : '全部同意';
     } else if (missingAssignee) {
       subLabel = '未配置审批人';
     } else if (node.type === 'CONDITION') {
       subLabel = '分支网关';
     } else if (node.type === 'PARALLEL') {
       subLabel = node.fork_mode === 'OR' ? '或分叉' : '并行';
+    } else if (node.type === 'CC') {
+      subLabel = '只读知会';
+    } else if (node.type === 'START' || node.type === 'END') {
+      subLabel = node.type === 'START' ? '入口' : '出口';
+    }
+    const statusText = status ? STATUS_TEXT[status] : '';
+    if (statusText) {
+      subLabel = subLabel ? `${subLabel} · ${statusText}` : statusText;
     }
     return {
       data: node,
@@ -362,12 +495,17 @@ const nodeViews = computed<NodeView[]>(() =>
       y: node.y + offset.y,
       size,
       shape: meta.shape,
-      diamondPoints: `${size.w / 2},0 ${size.w},${size.h / 2} ${size.w / 2},${size.h} 0,${size.h / 2}`,
-      label: truncate(node.name || meta.label, meta.shape === 'diamond' ? 6 : 9),
+      icon: NODE_GLYPH[node.type] ?? NODE_GLYPH.APPROVAL,
+      label: (node.name || meta.label).trim(),
       subLabel,
+      statusMark: status ? (STATUS_MARK[status] ?? '') : '',
+      hasStatus: Boolean(status),
+      statusTone: status ? (STATUS_TONE[status] ?? 'pending') : 'pending',
       cls: {
         'is-selected': props.selectedKey === node.key,
         'has-issue': issueSet.value.has(node.key),
+        // 高度 44 的胶囊（开始 / 结束）放不下图标 + 主副两行，切紧凑排版
+        'is-compact': size.h < 56,
         'is-start': node.type === 'START',
         'is-end': node.type === 'END',
         'is-approval': node.type === 'APPROVAL',
@@ -408,6 +546,7 @@ interface EdgeView {
 /** 连线视图（端点在节点表里找不到时整条跳过，避免脏数据把画布搞崩） */
 const edgeViews = computed<EdgeView[]>(() => {
   const byKey = new Map((props.nodes ?? []).map((node) => [node.key, node]));
+  const statusOf = props.nodeStatus ?? {};
   const out: EdgeView[] = [];
   for (const edge of props.edges ?? []) {
     const fromNode = byKey.get(edge.from);
@@ -419,18 +558,22 @@ const edgeViews = computed<EdgeView[]>(() => {
     const to = inPort(toNode);
     const label = edge.is_default ? '其他情况' : (edge.label ?? '');
     const point = edgeLabelPoint(from, to);
+    const taken = takenSet.value.has(`${edge.from}>${edge.to}`);
     out.push({
       edge,
-      d: edgePath(from, to),
+      // 正交折线 → 圆角折线：只换画法，点序列仍由 graph.ts 算
+      d: roundedEdgePath(edgePath(from, to)),
       label,
       labelX: point.x,
       labelY: point.y,
-      labelWidth: label.length * 12,
-      isTaken: takenSet.value.has(`${edge.from}>${edge.to}`),
+      labelWidth: labelTextWidth(label),
+      isTaken: taken,
       cls: {
         'is-selected': props.selectedEdgeKey === edge.key,
         'is-default': edge.is_default,
-        'is-taken': takenSet.value.has(`${edge.from}>${edge.to}`),
+        'is-taken': taken,
+        // 指向「进行中」节点的边走流动虚线（进度图里一眼看出当前走到哪）
+        'is-flowing': statusOf[edge.to] === 'ACTIVE',
       },
     });
   }
@@ -450,6 +593,126 @@ const connectDraft = computed(() => {
   return `M ${from.x} ${from.y} L ${connectPoint.value.x} ${connectPoint.value.y}`;
 });
 
+// ==================== 小地图 ====================
+
+/** 小地图尺寸（px，与 CSS 一致） */
+const MINI_W = 150;
+/** 小地图高度 */
+const MINI_H = 96;
+/** 小地图内边距 */
+const MINI_PAD = 6;
+/** 小地图里色块的最小可见边长（节点再小也要看得见） */
+const MINI_MIN_SIZE = 4;
+
+/**
+ * 小地图坐标系：把「节点包围盒 ∪ 当前视野框」等比缩进 150×96。
+ *
+ * 为什么要并上视野框：把画布拖到空白区时，若只按节点包围盒归一化，
+ * 视野框会整个跑到小地图外面（看起来像「视野消失了」）。
+ */
+const miniBox = computed(() => {
+  const nodes = props.nodes ?? [];
+  const scale = view.value.scale || 1;
+  const w = viewport.value.w || 1;
+  const h = viewport.value.h || 1;
+  const viewX = -view.value.x / scale;
+  const viewY = -view.value.y / scale;
+  let minX = viewX;
+  let minY = viewY;
+  let maxX = viewX + w / scale;
+  let maxY = viewY + h / scale;
+  for (const node of nodes) {
+    const size = metaOf(node.type).size;
+    minX = Math.min(minX, node.x);
+    minY = Math.min(minY, node.y);
+    maxX = Math.max(maxX, node.x + size.w);
+    maxY = Math.max(maxY, node.y + size.h);
+  }
+  const boxW = Math.max(1, maxX - minX);
+  const boxH = Math.max(1, maxY - minY);
+  const scaleMini = Math.min((MINI_W - MINI_PAD * 2) / boxW, (MINI_H - MINI_PAD * 2) / boxH);
+  const offsetX = MINI_PAD + (MINI_W - MINI_PAD * 2 - boxW * scaleMini) / 2;
+  const offsetY = MINI_PAD + (MINI_H - MINI_PAD * 2 - boxH * scaleMini) / 2;
+  return { minX, minY, scale: scaleMini, offsetX, offsetY, w, h };
+});
+
+/** 小地图里的节点色块 */
+const miniNodes = computed(() => {
+  const box = miniBox.value;
+  return (props.nodes ?? []).map((node) => {
+    const size = metaOf(node.type).size;
+    return {
+      key: node.key,
+      x: (node.x - box.minX) * box.scale + box.offsetX,
+      y: (node.y - box.minY) * box.scale + box.offsetY,
+      w: Math.max(MINI_MIN_SIZE, size.w * box.scale),
+      h: Math.max(MINI_MIN_SIZE, size.h * box.scale),
+    };
+  });
+});
+
+/** 小地图里的视野框 */
+const miniView = computed(() => {
+  const box = miniBox.value;
+  const scale = view.value.scale || 1;
+  const x = (-view.value.x / scale - box.minX) * box.scale + box.offsetX;
+  const y = (-view.value.y / scale - box.minY) * box.scale + box.offsetY;
+  return {
+    x,
+    y,
+    w: Math.max(6, (box.w / scale) * box.scale),
+    h: Math.max(6, (box.h / scale) * box.scale),
+  };
+});
+
+/** 把小地图上的点换算成画布坐标 */
+function miniToCanvas(clientX: number, clientY: number): Point | null {
+  const el = miniRef.value;
+  if (!el) {
+    return null;
+  }
+  const rect = el.getBoundingClientRect();
+  if (rect.width === 0 || rect.height === 0) {
+    return null;
+  }
+  const box = miniBox.value;
+  // DOM 尺寸与 viewBox 可能不等比（CSS 缩过），按比例折回 viewBox 坐标
+  const mx = ((clientX - rect.left) / rect.width) * MINI_W;
+  const my = ((clientY - rect.top) / rect.height) * MINI_H;
+  return {
+    x: (mx - box.offsetX) / box.scale + box.minX,
+    y: (my - box.offsetY) / box.scale + box.minY,
+  };
+}
+
+/** 让小地图上的某个画布点成为视野中心 */
+function centerViewOn(point: Point): void {
+  const scale = view.value.scale;
+  const w = viewport.value.w || wrapRef.value?.getBoundingClientRect().width || 0;
+  const h = viewport.value.h || wrapRef.value?.getBoundingClientRect().height || 0;
+  if (w === 0 || h === 0) {
+    return;
+  }
+  view.value = { ...view.value, x: w / 2 - point.x * scale, y: h / 2 - point.y * scale };
+}
+
+/** 小地图按下：直接跳到该点，之后拖动持续平移 */
+function onMiniDown(event: PointerEvent): void {
+  if (event.button !== 0) {
+    return;
+  }
+  const point = miniToCanvas(event.clientX, event.clientY);
+  if (!point) {
+    return;
+  }
+  event.preventDefault();
+  interacting.value = 'mini';
+  centerViewOn(point);
+  window.addEventListener('pointermove', onWindowMove);
+  window.addEventListener('pointerup', onWindowUp);
+  window.addEventListener('pointercancel', onWindowCancel);
+}
+
 /**
  * 取节点类型元信息。
  *
@@ -458,12 +721,6 @@ const connectDraft = computed(() => {
  */
 function metaOf(type: string): (typeof NODE_META)[string] {
   return NODE_META[type] ?? NODE_META.APPROVAL;
-}
-
-/** 文案截断（SVG 没有 text-overflow，只能自己截） */
-function truncate(text: string, limit: number): string {
-  const value = (text ?? '').trim();
-  return value.length > limit ? `${value.slice(0, limit)}…` : value;
 }
 
 /** 画布空白处按下：平移 + 点空白取消选中 */
@@ -530,6 +787,13 @@ function onEdgeDown(edge: FlowEdge): void {
 
 /** 全局 pointermove：按交互态分发；节点拖拽走 rAF 节流 */
 function onWindowMove(event: PointerEvent): void {
+  if (interacting.value === 'mini') {
+    const point = miniToCanvas(event.clientX, event.clientY);
+    if (point) {
+      centerViewOn(point);
+    }
+    return;
+  }
   if (interacting.value === 'pan') {
     const dx = event.clientX - panOrigin.value.x;
     const dy = event.clientY - panOrigin.value.y;
@@ -603,6 +867,11 @@ function onWindowUp(): void {
     if (target) {
       emit('connect', { from, to: target });
     }
+    return;
+  }
+
+  if (mode === 'mini') {
+    // 小地图平移：不选中、不取消选中
     return;
   }
 
@@ -763,6 +1032,18 @@ function zoomBy(factor: number): void {
   view.value = { scale: next, x: center.x - anchor.x * next, y: center.y - anchor.y * next };
 }
 
+/** 缩放到指定比例（保持画布中心为锚点） */
+function zoomTo(scale: number): void {
+  const rect = wrapRef.value?.getBoundingClientRect();
+  if (!rect) {
+    return;
+  }
+  const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
+  const center = { x: rect.width / 2, y: rect.height / 2 };
+  const anchor = { x: (center.x - view.value.x) / view.value.scale, y: (center.y - view.value.y) / view.value.scale };
+  view.value = { scale: next, x: center.x - anchor.x * next, y: center.y - anchor.y * next };
+}
+
 /** 适应画布：把所有节点装进视口（留 60 px 边距） */
 function fitView(): void {
   const rect = wrapRef.value?.getBoundingClientRect();
@@ -818,6 +1099,19 @@ function resetView(): void {
 
 onMounted(() => {
   window.addEventListener('keyup', onWindowKeyup);
+  const el = wrapRef.value;
+  if (el) {
+    viewport.value = { w: el.clientWidth, h: el.clientHeight };
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver((entries) => {
+        for (const entry of entries) {
+          const box = entry.contentRect;
+          viewport.value = { w: box.width, h: box.height };
+        }
+      });
+      resizeObserver.observe(el);
+    }
+  }
   if (props.fitOnMount) {
     // 等一帧拿到真实容器尺寸（弹窗 / drawer 里挂载时首帧宽高可能是 0）
     requestAnimationFrame(() => fitView());
@@ -829,6 +1123,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('pointermove', onWindowMove);
   window.removeEventListener('pointerup', onWindowUp);
   window.removeEventListener('pointercancel', onWindowCancel);
+  resizeObserver?.disconnect();
+  resizeObserver = null;
   if (rafId) {
     cancelAnimationFrame(rafId);
   }
@@ -845,6 +1141,8 @@ defineExpose({
   resetView,
   /** 相对缩放 */
   zoomBy,
+  /** 缩放到指定比例 */
+  zoomTo,
   /** 当前缩放比例 */
   getScale: () => view.value.scale,
 });
@@ -852,10 +1150,11 @@ defineExpose({
 
 <style scoped lang="less">
 /**
- * 节点语义色全部走主题变量（架构 §11.9 / 红线：不许裸 hex）。
+ * 视觉规范（P12）。颜色一律走主题变量（红线：不许裸 hex）：
  *
- * 每类节点只定义 `--node-stroke` / `--node-fill` 两个局部变量，
- * 形状与文字样式统一在下面写一次 —— 22 套配色 × 明暗下都不会跑色。
+ * - 类型色用 `--node-accent`，由各类节点 class 指到 `--td-brand-color` / 品牌色阶 /
+ *   语义色上，22 套配色自动跟随；需要「同色系但更深 / 更浅」时用 `color-mix` 组合现有变量。
+ * - 投影用 `--td-shadow-1/2`（跟随主色的调色投影），不写死 rgba。
  */
 .flow-canvas {
   position: relative;
@@ -863,16 +1162,32 @@ defineExpose({
   height: 100%;
   overflow: hidden;
   outline: none;
-  background: var(--td-bg-color-container);
+  background: var(--td-bg-color-page);
   border: 1px solid var(--td-component-stroke);
   border-radius: 6px;
   cursor: default;
+
+  // 顶部柔和品牌光晕（画在 SVG 下面：网格 rect 是透明的，光晕透得上来）
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: radial-gradient(
+      ellipse 60% 45% at 50% 0%,
+      color-mix(in srgb, var(--td-brand-color) 10%, transparent),
+      transparent 70%
+    );
+    pointer-events: none;
+  }
 
   &.is-panning {
     cursor: grabbing;
   }
 
   &__svg {
+    position: relative;
+    z-index: 1;
     display: block;
     width: 100%;
     height: 100%;
@@ -880,21 +1195,21 @@ defineExpose({
     user-select: none;
   }
 
+  // 网格 rect 只负责挂 pattern，底色交给容器（这样 ::before 光晕可见）
   &__grid {
-    fill: var(--td-bg-color-secondarycontainer);
+    fill: transparent;
   }
 
-  &__grid-line {
-    stroke: var(--td-component-stroke);
-    stroke-width: 1;
-    stroke-opacity: 0.6;
+  // 点阵：用「占位文字色 × 45%」混合，浅色 / 深色 / 22 套配色下都是一层淡淡的网点
+  &__grid-dot {
+    fill: color-mix(in srgb, var(--td-text-color-placeholder) 45%, transparent);
   }
 
   &__arrow {
     fill: var(--td-text-color-placeholder);
 
     &--taken {
-      fill: var(--td-success-color);
+      fill: var(--td-brand-color);
     }
   }
 
@@ -904,31 +1219,130 @@ defineExpose({
     stroke-dasharray: 6 4;
   }
 
-  &__toolbar {
+  // ---------- 布局动作（右上角） ----------
+  &__layout-actions {
     position: absolute;
+    top: 12px;
     right: 12px;
-    bottom: 44px;
+    z-index: 3;
     display: flex;
     gap: 6px;
-    align-items: center;
-    padding: 6px 8px;
-    background: var(--td-bg-color-container);
-    border: 1px solid var(--td-component-stroke);
-    border-radius: 6px;
-    box-shadow: var(--td-shadow-1);
   }
 
-  &__scale {
-    min-width: 44px;
+  &__action {
+    display: inline-flex;
+    gap: 5px;
+    align-items: center;
+    padding: 6px 10px;
     font-size: 12px;
     color: var(--td-text-color-secondary);
-    text-align: center;
+    cursor: pointer;
+    background: var(--td-bg-color-container);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 9px;
+    box-shadow: var(--td-shadow-1);
+    transition:
+      background 0.16s ease,
+      color 0.16s ease;
+
+    &:hover {
+      color: var(--td-brand-color);
+      background: var(--td-bg-color-container-hover);
+    }
+
+    &--undo {
+      color: var(--td-brand-color);
+    }
+  }
+
+  // ---------- 缩放控件（右下角，竖排） ----------
+  &__zoom {
+    position: absolute;
+    right: 16px;
+    bottom: 16px;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--td-bg-color-container);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 10px;
+    box-shadow: var(--td-shadow-2);
+  }
+
+  &__zoom-btn {
+    display: grid;
+    place-items: center;
+    width: 34px;
+    height: 32px;
+    padding: 0;
+    font-size: 13px;
+    color: var(--td-text-color-secondary);
+    cursor: pointer;
+    background: transparent;
+    border: none;
+    border-bottom: 1px solid var(--td-component-stroke);
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      color: var(--td-brand-color);
+      background: var(--td-bg-color-container-hover);
+    }
+
+    &--scale {
+      font-size: 10.5px;
+      font-variant-numeric: tabular-nums;
+    }
+  }
+
+  // ---------- 小地图（左下角） ----------
+  &__minimap {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    z-index: 3;
+    box-sizing: border-box;
+    width: 150px;
+    height: 96px;
+    overflow: hidden;
+    cursor: pointer;
+    background: var(--td-bg-color-container);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 9px;
+    box-shadow: var(--td-shadow-1);
+    opacity: 0.94;
+    transition: opacity 0.16s ease;
+
+    &:hover {
+      opacity: 1;
+    }
+  }
+
+  &__minimap-svg {
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+
+  &__mini-node {
+    fill: var(--td-gray-color-4);
+  }
+
+  &__mini-view {
+    fill: color-mix(in srgb, var(--td-brand-color) 10%, transparent);
+    stroke: var(--td-brand-color);
+    stroke-width: 1.5;
   }
 
   &__hint {
     position: absolute;
-    bottom: 10px;
-    left: 12px;
+    bottom: 120px;
+    left: 16px;
+    z-index: 2;
+    max-width: calc(100% - 220px);
     font-size: 12px;
     color: var(--td-text-color-placeholder);
     pointer-events: none;
@@ -938,6 +1352,7 @@ defineExpose({
     position: absolute;
     top: 50%;
     left: 50%;
+    z-index: 2;
     display: flex;
     flex-direction: column;
     gap: 8px;
@@ -948,36 +1363,219 @@ defineExpose({
   }
 }
 
+// ---------- 节点卡片 ----------
 .flow-node {
   cursor: grab;
 
-  &__shape {
-    fill: var(--td-bg-color-container);
-    stroke: var(--node-stroke, var(--td-brand-color));
-    stroke-width: 1.5;
-    transition: fill 0.15s ease;
+  &__fo {
+    overflow: visible;
   }
 
-  &__inner {
-    fill: none;
-    stroke: var(--node-stroke, var(--td-brand-color));
-    stroke-width: 1;
-    stroke-opacity: 0.7;
+  &__card {
+    box-sizing: border-box;
+    position: relative;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    width: 100%;
+    height: 100%;
+    padding: 11px 13px;
+    overflow: hidden;
+    background: var(--td-bg-color-container);
+    border: 1px solid var(--td-component-stroke);
+    border-radius: 11px;
+    box-shadow: var(--td-shadow-1);
+    transition:
+      box-shadow 0.18s ease,
+      transform 0.18s ease,
+      border-color 0.18s ease;
+    user-select: none;
   }
 
-  &__label {
+  // 左侧类型色条
+  &__bar {
+    position: absolute;
+    top: 8px;
+    bottom: 8px;
+    left: 0;
+    width: 3.5px;
+    background: var(--node-accent, var(--td-brand-color));
+    border-radius: 3px;
+  }
+
+  // 图标底块（底色 = 类型色）
+  &__icon {
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--td-text-color-anti);
+    background: var(--node-accent, var(--td-brand-color));
+    border-radius: 9px;
+  }
+
+  &__text {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__title {
+    overflow: hidden;
     font-size: 13px;
-    font-weight: 500;
-    fill: var(--td-text-color-primary);
-    text-anchor: middle;
-    pointer-events: none;
+    font-weight: 600;
+    line-height: 1.35;
+    color: var(--td-text-color-primary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__sub {
+    margin-top: 1px;
+    overflow: hidden;
+    font-size: 11.5px;
+    line-height: 1.3;
+    color: var(--td-text-color-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  // 状态点
+  &__status {
+    position: relative;
+    display: grid;
+    flex: none;
+    place-items: center;
+    width: 17px;
+    height: 17px;
     font-size: 10px;
-    fill: var(--td-text-color-secondary);
-    text-anchor: middle;
-    pointer-events: none;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--td-text-color-anti);
+    border-radius: 50%;
+
+    &--approved {
+      background: var(--td-success-color);
+    }
+
+    &--active {
+      background: var(--td-brand-color);
+
+      // 进行中：外面加一圈扩散脉冲
+      &::after {
+        position: absolute;
+        inset: -4px;
+        content: '';
+        border: 1.5px solid var(--td-brand-color);
+        border-radius: 50%;
+        animation: flow-status-pulse 1.6s ease-out infinite;
+      }
+    }
+
+    &--pending {
+      background: var(--td-text-color-placeholder);
+    }
+
+    &--rejected {
+      background: var(--td-error-color);
+    }
+  }
+
+  // 开始 / 结束（高 44）放不下两行，切紧凑排版
+  &.is-compact {
+    .flow-node__card {
+      gap: 7px;
+      padding: 5px 10px;
+    }
+
+    .flow-node__icon {
+      width: 22px;
+      height: 22px;
+      font-size: 12px;
+      border-radius: 7px;
+    }
+
+    .flow-node__sub {
+      display: none;
+    }
+  }
+
+  // ---------- 七种节点的类型色（全部走主题变量 / 色阶组合） ----------
+  &.is-start {
+    --node-accent: var(--td-success-color);
+  }
+
+  &.is-end {
+    --node-accent: var(--td-text-color-disabled);
+  }
+
+  &.is-approval {
+    --node-accent: var(--td-brand-color);
+  }
+
+  // 会签：同色系更深一档（不与审批撞色，也不写死第二种品牌色）
+  &.is-countersign {
+    --node-accent: color-mix(in srgb, var(--td-brand-color) 70%, var(--td-text-color-primary));
+  }
+
+  &.is-condition {
+    --node-accent: var(--td-warning-color);
+  }
+
+  &.is-parallel {
+    --node-accent: color-mix(in srgb, var(--td-brand-color-7) 55%, var(--td-error-color));
+  }
+
+  // 抄送：浅色阶（只读知会，视觉上最轻）
+  &.is-cc {
+    --node-accent: var(--td-brand-color-4);
+  }
+
+  // ---------- 交互态 ----------
+  &:hover .flow-node__card {
+    box-shadow: var(--td-shadow-2);
+    transform: translateY(-2px);
+  }
+
+  &.is-selected .flow-node__card {
+    border-color: var(--node-accent, var(--td-brand-color));
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--node-accent, var(--td-brand-color)) 35%, transparent),
+      var(--td-shadow-2);
+  }
+
+  &.has-issue .flow-node__card {
+    border-color: var(--td-error-color);
+    border-style: dashed;
+  }
+
+  // ---------- 运行态（进度图） ----------
+  &.is-approved .flow-node__card {
+    border-color: var(--td-success-color);
+  }
+
+  &.is-active .flow-node__card {
+    border-color: var(--td-brand-color);
+  }
+
+  &.is-rejected .flow-node__card {
+    border-color: var(--td-error-color);
+  }
+
+  &.is-skipped {
+    opacity: 0.55;
+  }
+
+  // 连线拖到它头上：虚线提示可以落点
+  &.is-connect-target .flow-node__card {
+    border-color: var(--td-success-color);
+    border-style: dashed;
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--td-success-color) 30%, transparent);
   }
 
   &__port {
@@ -1005,87 +1603,9 @@ defineExpose({
       text-anchor: middle;
     }
   }
-
-  // ---------- 七种节点的语义色 ----------
-  &.is-start {
-    --node-stroke: var(--td-success-color);
-  }
-
-  &.is-end {
-    --node-stroke: var(--td-text-color-disabled);
-  }
-
-  &.is-approval {
-    --node-stroke: var(--td-brand-color);
-  }
-
-  &.is-countersign {
-    --node-stroke: var(--app-brand-secondary);
-  }
-
-  &.is-condition {
-    --node-stroke: var(--td-warning-color);
-  }
-
-  &.is-parallel {
-    --node-stroke: color-mix(in srgb, var(--td-brand-color-7) 55%, var(--app-danger));
-  }
-
-  &.is-cc {
-    --node-stroke: var(--td-text-color-placeholder);
-
-    .flow-node__shape {
-      stroke-dasharray: 5 3;
-    }
-  }
-
-  // 浅底色（不支持 color-mix 的浏览器退化成纯容器色，只是少了点层次）
-  &:hover .flow-node__shape,
-  &.is-selected .flow-node__shape {
-    fill: var(--td-bg-color-container);
-    fill: color-mix(in srgb, var(--node-stroke, var(--td-brand-color)) 12%, var(--td-bg-color-container));
-  }
-
-  &.is-selected .flow-node__shape {
-    stroke-width: 2.5;
-  }
-
-  &.has-issue .flow-node__shape {
-    stroke: var(--td-error-color);
-    stroke-dasharray: 6 3;
-    stroke-width: 2.5;
-  }
-
-  // ---------- 运行态（进度图） ----------
-  &.is-approved .flow-node__shape {
-    --node-stroke: var(--td-success-color);
-
-    stroke-width: 2;
-  }
-
-  &.is-active .flow-node__shape {
-    --node-stroke: var(--td-brand-color);
-
-    stroke-width: 2.5;
-    animation: flow-node-pulse 1.6s ease-in-out infinite;
-  }
-
-  &.is-rejected .flow-node__shape {
-    --node-stroke: var(--td-error-color);
-
-    stroke-width: 2;
-  }
-
-  &.is-skipped {
-    opacity: 0.55;
-  }
-
-  &.is-connect-target .flow-node__shape {
-    stroke: var(--td-success-color);
-    stroke-width: 2.5;
-  }
 }
 
+// ---------- 连线 ----------
 .flow-edge {
   &__hit {
     stroke: transparent;
@@ -1095,9 +1615,11 @@ defineExpose({
   }
 
   &__line {
-    stroke: var(--td-text-color-placeholder);
-    stroke-width: 1.5;
-    // 视觉线不吃指针：命中交给下面那条 14px 宽的透明命中路径，
+    stroke: var(--td-gray-color-5);
+    stroke-width: 1.9;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    // 视觉线不吃指针：命中交给上面那条 14px 宽的透明命中路径，
     // 否则点线时事件落在「没有点击处理」的线上，看起来像「点不中」
     pointer-events: none;
   }
@@ -1107,8 +1629,14 @@ defineExpose({
   }
 
   &.is-taken &__line {
-    stroke: var(--td-success-color);
-    stroke-width: 2;
+    stroke: var(--td-brand-color);
+    stroke-width: 2.4;
+  }
+
+  &.is-flowing &__line {
+    stroke: var(--td-brand-color);
+    stroke-dasharray: 7 7;
+    animation: flow-dash 1.1s linear infinite;
   }
 
   &.is-selected &__line {
@@ -1122,24 +1650,46 @@ defineExpose({
     rect {
       fill: var(--td-bg-color-container);
       stroke: var(--td-component-stroke);
+      stroke-width: 1;
+      opacity: 0.96;
     }
 
     text {
-      font-size: 11px;
+      font-size: 10.5px;
       fill: var(--td-text-color-secondary);
       text-anchor: middle;
     }
   }
 }
 
-@keyframes flow-node-pulse {
-  0%,
-  100% {
-    stroke-opacity: 1;
+@keyframes flow-dash {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+
+@keyframes flow-status-pulse {
+  0% {
+    opacity: 0.85;
+    transform: scale(0.85);
   }
 
-  50% {
-    stroke-opacity: 0.45;
+  100% {
+    opacity: 0;
+    transform: scale(1.45);
   }
+}
+</style>
+
+<style lang="less">
+/**
+ * 深色主题微调（**故意不 scoped**）。
+ *
+ * `html[theme-mode='dark']` 写在 scoped 块里会被编译成
+ * `html[theme-mode='dark'][data-v-x] .flow-canvas[data-v-x]` —— 前者永远不匹配，
+ * 规则静默失效；而 `.flow-canvas` 这个类名只有本组件用，非 scoped 也不会外溢。
+ */
+html[theme-mode='dark'] .flow-canvas::before {
+  opacity: 0.5;
 }
 </style>
