@@ -71,6 +71,14 @@ def slug_of(text):
     return s[:40]
 
 
+def load_run_summary():
+    path = os.path.join(ARTIFACTS, 'run-summary.json')
+    if not os.path.exists(path):
+        return None
+    with io.open(path, encoding='utf-8') as fh:
+        return json.load(fh)
+
+
 def is_known(o, ch):
     """该页该检查项是否被标成「已知缺陷」（catalog.json 的 knownBug.checks）"""
     kb = o.get('knownBug') or {}
@@ -189,6 +197,24 @@ def main():
     w('| 已知缺陷留证（SSE 401） | **%d** 页 |' % len(known))
     w('| 渲染 404 结果页的页面 | **%d** |' % len(notfound))
     w('')
+    summary = load_run_summary()
+    if summary:
+        c = summary['counts']
+        w('### 整套跑测结果（`pnpm test:e2e` 全量，含本卡之外的历史用例）')
+        w('')
+        w('| 结果 | 条数 |')
+        w('| --- | --- |')
+        w('| 通过 | **%d** |' % c['passed'])
+        w('| 失败 | **%d** |' % c['failed'])
+        w('| 跳过（历史用例自带 `test.skip`） | **%d** |' % c['skipped'])
+        w('| 用时 | %s |' % (c.get('duration') or '-'))
+        w('')
+        if summary['failures']:
+            w('失败清单（逐条，见第九节归因）：')
+            w('')
+            for f in summary['failures']:
+                w('- `%s`' % f)
+            w('')
     if notfound:
         w('### 404 清单')
         w('')
@@ -375,8 +401,8 @@ def main():
     w('- 每个页面一份现场 JSON（接口流水、按钮清单、点击反应、表单校验、console 错误）：`frontend/e2e-probe/probe/<path>.json`')
     w('- 卡面旧路径采集：`frontend/e2e-probe/legacy-paths.json`（`35-legacy-paths.spec.ts` 落盘）')
     w('- 失败用例的 trace / 截图：`frontend/test-results/`')
-    w('- 复跑命令：`cd frontend && E2E_BASE_URL=http://127.0.0.1:5189 pnpm test:e2e`；'
-      '重算报告：`npx tsx e2e/tools/dump-catalog.ts && python3 e2e/tools/e2e_report.py`')
+    w('- 复跑命令：`cd frontend && E2E_BASE_URL=http://127.0.0.1:5189 pnpm test:e2e --reporter=list | tee /tmp/e2e-list.log`；'
+      '重算报告：`python3 e2e/tools/run_summary.py /tmp/e2e-list.log && npx tsx e2e/tools/dump-catalog.ts && python3 e2e/tools/e2e_report.py`')
     w('')
     w('## 九、历史用例（01–11）在副本库上的状态（非本卡新增，仅登记不隐瞒）')
     w('')

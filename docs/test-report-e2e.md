@@ -21,6 +21,23 @@
 | 已知缺陷留证（SSE 401） | **58** 页 |
 | 渲染 404 结果页的页面 | **0** |
 
+### 整套跑测结果（`pnpm test:e2e` 全量，含本卡之外的历史用例）
+
+| 结果 | 条数 |
+| --- | --- |
+| 通过 | **398** |
+| 失败 | **5** |
+| 跳过（历史用例自带 `test.skip`） | **5** |
+| 用时 | 8.5m |
+
+失败清单（逐条，见第九节归因）：
+
+- `e2e/08-t8b-task-tree.spec.ts:94:3 › T8-B 任务列表树形改造 › 箭头在标题列、父行 4px 竖条 + 浅底 + 加粗、进度列 1/3 小进度条`
+- `e2e/08-t8b-task-tree.spec.ts:132:3 › T8-B 任务列表树形改造 › 逐节点折叠展开：展开出 3 条子任务（连接线 + 缩进 24px），收起后兄弟不受影响`
+- `e2e/09-t8c-root-only.spec.ts:66:3 › T8-C 列表只返回顶层任务（root_only） › 列表第 1 页 = 5 个带真箭头的父任务；展开出 3 个子行；total 28`
+- `e2e/09-t8c-root-only.spec.ts:169:3 › T8-C 列表只返回顶层任务（root_only） › 看板 / 甘特 / 燃尽图不传 root_only，数据量不变（全部 43 条）`
+- `e2e/10-erp-warehouse.spec.ts:118:1 › W4a：仓库树 + 库位页（树渲染 / 按仓筛选 / 折叠 / 新建 / 叶子门禁） › ① 菜单进入「ERP 主数据 → 仓库管理」`
+
 ### 404 清单
 
 **逐页 6 项覆盖的 58 个页面里 0 个 404。** 侧栏「采购明细 / 单号序列」两条曾经的 404 菜单，已由前端提交 `cd8b054` 补齐路由并纳入逐页检查（见 `30-menu-alignment.spec.ts`：菜单叶子 0 异常）。卡面旧路径的情况见下一节。
@@ -131,8 +148,8 @@
 | 页面 | 路径 | 未通过项 | 性质 | 现场 |
 | --- | --- | --- | --- | --- |
 | 记账凭证 | `/business/erp/voucher` | ⑥ | 已知缺陷（`test.fail` 标注） | form={"opened": true, "submitted": true, "validation": [], "writeRequests": [], "closed": true, "dialogButtons": ["加一行", "取消", "保存并记账"], "forceClick": true} |
-| 导出任务 | `/business/impexp/export-task` | ⑥ | 已知缺陷（`test.fail` 标注） | form={"opened": true, "submitted": true, "validation": ["导出任务 EXP20261031-0525 已创建，完成后会收到站内信通知"], "writeRequests": ["POST /api/business/impexp/export"], "closed": true, "dialogButtons": ["取消", "开始导出"]} |
-| 消息模板 | `/business/notice/template` | ⑥ | 已知缺陷（`test.fail` 标注） | form={"opened": true, "submitted": true, "validation": ["template_name: 模板名称长度需为 1-100 个字符; template_code: 模板编码长度需为 2-64 个字符; title_template: 标题模板长度需为 1-255 个字符; content_template: 正文模板不能为空"], "writeRequests": ["POST /api/busi |
+| 导出任务 | `/business/impexp/export-task` | ⑥ | 已知缺陷（`test.fail` 标注） | form={"opened": true, "submitted": true, "validation": ["导出任务 EXP20261031-3491 已创建，完成后会收到站内信通知"], "writeRequests": ["POST /api/business/impexp/export"], "closed": true, "dialogButtons": ["取消", "开始导出"]} |
+| 消息模板 | `/business/notice/template` | ⑥ | 已知缺陷（`test.fail` 标注） | form={"opened": true, "submitted": true, "validation": ["template_code: 模板编码长度需为 2-64 个字符; content_template: 正文模板不能为空; title_template: 标题模板长度需为 1-255 个字符; template_name: 模板名称长度需为 1-100 个字符"], "writeRequests": ["POST /api/busi |
 
 ## 六、专项测试（7 类）
 
@@ -170,7 +187,7 @@
 - 每个页面一份现场 JSON（接口流水、按钮清单、点击反应、表单校验、console 错误）：`frontend/e2e-probe/probe/<path>.json`
 - 卡面旧路径采集：`frontend/e2e-probe/legacy-paths.json`（`35-legacy-paths.spec.ts` 落盘）
 - 失败用例的 trace / 截图：`frontend/test-results/`
-- 复跑命令：`cd frontend && E2E_BASE_URL=http://127.0.0.1:5189 pnpm test:e2e`；重算报告：`npx tsx e2e/tools/dump-catalog.ts && python3 e2e/tools/e2e_report.py`
+- 复跑命令：`cd frontend && E2E_BASE_URL=http://127.0.0.1:5189 pnpm test:e2e --reporter=list | tee /tmp/e2e-list.log`；重算报告：`python3 e2e/tools/run_summary.py /tmp/e2e-list.log && npx tsx e2e/tools/dump-catalog.ts && python3 e2e/tools/e2e_report.py`
 
 ## 九、历史用例（01–11）在副本库上的状态（非本卡新增，仅登记不隐瞒）
 
