@@ -1412,6 +1412,14 @@ pub const MISSING_TXN_PREFIX: &str = "INV_NO_TXN|";
 /// 但退回来的不是本单那几件（按数量放开就会把别批的货冲掉）。
 pub const SERIAL_SHIPPED_PREFIX: &str = "SERIAL_SHIPPED|";
 
+/// 采购单状态被并发改动时的哨兵前缀（P10 铁律 ③：日志与状态必须同生同死）。
+///
+/// `sync_purchase_status` 的顺序是「先写 `biz_status_log`，再 CAS 改状态」。
+/// CAS 落空（`affected = 0`）说明在读状态与写状态之间别人把采购单推走了：
+/// 此时**必须让整笔收货回滚**，否则会留下一条「日志说推进了、单据其实没动」的
+/// 假轨迹 —— 审计证据链一旦能被伪造，就等于没有。
+pub const PO_RACE_PREFIX: &str = "PO_STATUS_RACE|";
+
 /// 作废时**一行**要退回的数量与金额。
 ///
 /// 数量来自 `biz_stock_in_item`（**不**信单据头的 `total_qty`），金额来自
@@ -2158,20 +2166,30 @@ pub async fn sync_purchase_status(
     .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
 
     // ⑤ CAS 改状态（`WHERE status = 当前态` 防止把别人改过的单覆盖掉）
-    ex.exec_sql(
-        "UPDATE biz_purchase_order SET status = ?, updated_at = ?, \
-            update_by = NULLIF(?::text,'')::uuid \
-          WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
-            .to_string(),
-        vec![
-            Value::Text(target.to_string()),
-            Value::from(now),
-            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(&order_id),
-            Value::Text(current),
-        ],
-    )
-    .await
+    let affected = ex
+        .exec_sql(
+            "UPDATE biz_purchase_order SET status = ?, updated_at = ?, \
+                update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(target.to_string()),
+                Value::from(now),
+                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+                Value::from(&order_id),
+                Value::Text(current.clone()),
+            ],
+        )
+        .await?;
+    if affected == 0 {
+        // ④ 已经把日志写进事务了；CAS 落空 = 别人先推走了。**必须报错让整笔回滚**：
+        // 不报错就会留下「日志写了 → 单据没改」的假轨迹（P10 单测 ⑦ 的同款要求）。
+        return Err(DbError::InvalidValue(format!(
+            "{PO_RACE_PREFIX}采购单 {order_no} 的状态在推进期间被并发改动\
+             （期望 {current}），本次过账已整笔回滚，请刷新后重试"
+        )));
+    }
+    Ok(affected)
 }
 
 /// 采购单是否「可收货」（状态白名单）。
@@ -2322,7 +2340,13 @@ mod pure_tests {
         assert_eq!(SHORTFALL_PREFIX, "INV_SHORTFALL|");
         assert_eq!(MISSING_TXN_PREFIX, "INV_NO_TXN|");
         assert_eq!(SERIAL_SHIPPED_PREFIX, "SERIAL_SHIPPED|");
-        let all = [SHORTFALL_PREFIX, MISSING_TXN_PREFIX, SERIAL_SHIPPED_PREFIX];
+        assert_eq!(PO_RACE_PREFIX, "PO_STATUS_RACE|");
+        let all = [
+            SHORTFALL_PREFIX,
+            MISSING_TXN_PREFIX,
+            SERIAL_SHIPPED_PREFIX,
+            PO_RACE_PREFIX,
+        ];
         for (i, a) in all.iter().enumerate() {
             for (j, b) in all.iter().enumerate() {
                 if i != j {

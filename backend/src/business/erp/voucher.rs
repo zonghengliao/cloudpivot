@@ -1523,6 +1523,9 @@ mod tests {
             invoice_received: None,
             remark: None,
             items,
+            total_qty: None,
+            total_amount: None,
+            total_tax: None,
         }
     }
 

@@ -99,6 +99,17 @@ pub struct CreateStockInReq {
     pub remark: Option<String>,
     /// 明细（可为空 **当且仅当** 带 `source_order_id`：此时按采购单未收数量自动带出）。
     pub items: Vec<StockInItemReq>,
+    /// **只读派生字段**：数量合计。服务端由明细算出，客户端**不能**用它改账。
+    ///
+    /// 之所以显式收下而不是当成未知字段丢掉：`serde(default)` 会把
+    /// `{"total_amount": 999}` 静默解析成「什么都没改」，于是一个「改金额」的请求
+    /// 会返回 200（P10 实测：卡面 §五-3 的验收场景当场假绿）。收下来才能
+    /// 在入账态给出 409「单据已入账」，在草稿态给出 400「金额由明细派生」。
+    pub total_qty: Option<Decimal>,
+    /// **只读派生字段**：不含税金额合计（同上）。
+    pub total_amount: Option<Decimal>,
+    /// **只读派生字段**：税额合计（同上）。
+    pub total_tax: Option<Decimal>,
 }
 
 /// 建单明细行。
