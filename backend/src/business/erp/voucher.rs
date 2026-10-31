@@ -1589,6 +1589,7 @@ mod tests {
     use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
     use crate::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
     use crate::business::erp::{payable, stockin_model};
+    use crate::business::flow::engine;
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
 
@@ -1621,6 +1622,10 @@ mod tests {
                                   account_category, balance_direction, is_leaf, status)
          VALUES ('b2c10001-0000-4000-8000-000000000021', 'P2C1.1405', 'P2C1 测试存货科目', NULL, 1,
                  'ASSET', 'DEBIT', 1, 1)
+         ON CONFLICT DO NOTHING",
+        // 作废审批的发起人（P16 起作废走审批，必须有登录用户；**非超管**，避免自审被 FORBID 挡）
+        "INSERT INTO sys_user (id, username, password, real_name)
+         VALUES ('b2c10009-0000-4000-8000-000000000001', 'p2c1_keeper', 'p2c1-not-a-real-hash', 'P2C1 仓管')
          ON CONFLICT DO NOTHING",
     ];
 
@@ -1674,6 +1679,11 @@ mod tests {
             return None;
         }
         let cleanups = [
+            // P16 起作废走审批：先把本夹具的作废审批实例清掉（否则下一轮发起撞「已有在跑的审批单」）
+            format!(
+                "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id IN \
+                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
             format!(
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
                  (SELECT id FROM biz_voucher WHERE source_id IN \
@@ -1774,6 +1784,47 @@ mod tests {
             .await
             .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
         id
+    }
+
+    /// 作废的发起人（**非超管**：审批人来源是 ADMIN，超管发起会撞 `self_approval=FORBID`）。
+    const KEEPER: &str = "b2c10009-0000-4000-8000-000000000001";
+
+    /// 作废 = **发起审批 → 复核通过 → 执行**（P16 之后作废不再一步到位）。
+    ///
+    /// 为什么要这个 helper：直接 `change_stock_in_status(id, &cancel_req(..), None)` 会
+    /// `401 发起作废审批需要登录用户`（V0174 起作废先走审批，必须有发起人）。
+    /// 这里把三步串起来，走的仍是**生产同一条路径**，所以旧断言（红字凭证 / 应付作废）不变。
+    async fn cancel_via_approval(stock_in_id: Uuid, reason: &str) {
+        change_stock_in_status(stock_in_id, &cancel_req(reason), Some(uid(KEEPER)))
+            .await
+            .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));
+        let rows = db()
+            .find_with_params(
+                "SELECT t.id AS task_id, t.assignee_id AS assignee \
+                   FROM biz_flow_task t JOIN biz_flow_instance i ON i.id = t.instance_id \
+                  WHERE i.biz_type = 'STOCK_IN_CANCEL' AND i.biz_id = ?::uuid AND t.status = 'PENDING' \
+                  ORDER BY t.id LIMIT 1",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .expect("查作废待办失败");
+        let row = rows.first().expect("作废审批必须生成待办");
+        let task_id: Uuid = row.get_typed("task_id").unwrap();
+        let approver: Uuid = row.get_typed("assignee").unwrap();
+        let tx = db().begin().await.expect("开审批事务");
+        let out = engine::approve(&tx, task_id, approver, Some("单测：同意作废"))
+            .await
+            .expect("引擎同意失败");
+        tx.commit().await.expect("提交审批事务");
+        crate::business::erp::stockin_bridge::on_cancel_settled(
+            out.instance_id,
+            &out.instance_status,
+        )
+        .await;
+    }
+
+    fn uid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
     }
 
     /// 取凭证（真凭证，非红字）。
@@ -2140,9 +2191,7 @@ mod tests {
         };
         let id = post_new(vec![line_req(MATERIAL_A, "100", "2", "13")]).await;
         let original = voucher_of(id).await;
-        change_stock_in_status(id, &cancel_req("重复入库"), None)
-            .await
-            .unwrap();
+        cancel_via_approval(id, "重复入库").await;
 
         // 红字凭证 = 同一来源、is_red=1 的另一张
         let red = db()
@@ -2229,9 +2278,7 @@ mod tests {
         };
         let id = post_new(vec![line_req(MATERIAL_A, "5", "2", "0")]).await;
         let original = voucher_of(id).await;
-        change_stock_in_status(id, &cancel_req("供应商取消"), None)
-            .await
-            .unwrap();
+        cancel_via_approval(id, "供应商取消").await;
 
         let refreshed = find_voucher(db(), original.id).await.unwrap().unwrap();
         assert_eq!(
@@ -2268,9 +2315,7 @@ mod tests {
         };
         let id = post_new(vec![line_req(MATERIAL_A, "10", "2", "13")]).await;
         assert_eq!(payable_of(id).await.status, payable::STATUS_OPEN);
-        change_stock_in_status(id, &cancel_req("质检不合格退货"), None)
-            .await
-            .unwrap();
+        cancel_via_approval(id, "质检不合格退货").await;
         let row = payable_of(id).await;
         assert_eq!(row.status, payable::STATUS_CANCELLED);
         assert_eq!(row.amount, dec("22.6"), "作废不改金额，只改状态");
