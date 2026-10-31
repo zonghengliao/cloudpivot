@@ -823,6 +823,9 @@ pub async fn my(Extension(AuthClaims(claims)): Extension<AuthClaims>) -> ResResu
 ///   [`model::cascade_parent_status`]）；
 /// - **本条推到 `CANCELLED` → 同一事务里级联取消全部非终态子孙**（T11：父任务取消的
 ///   语义就是「这条线不要了」，见 [`model::cascade_cancel_descendants`]）；
+/// - **本条推到 `CANCELLED` → 同一事务里撤掉本人与全部级联子孙的在跑审批单**
+///   （P11 铁律①「正向必配反向」：实例 `CANCELLED` + 待办 `CANCELLED` + 节点 `CANCELLED`，
+///   见 [`crate::business::flow::task_bridge::cancel_on_task_cancelled`]；撤不掉 → 整笔回滚）；
 /// - **`DOING → REVIEW` 且配了 `TASK_ACCEPT` 审批流程 → 自动发起审批单并回写
 ///   `approval_instance_id`**（没配流程则什么都不做，保持原两级验收，见
 ///   [`crate::business::flow::task_bridge::prepare_accept`]）。
@@ -1033,7 +1036,9 @@ pub async fn change_status(
     let operator_name = display_name(&claims);
     let operator_name_tx = operator_name.clone();
     let action_label = transition.label;
-    let (comment_id, affected, recalcs, cascades, cancels) = db()
+    let task_no = current.card.task_no.clone();
+    let task_no_tx = task_no.clone();
+    let (comment_id, affected, recalcs, cascades, cancels, approvals) = db()
         .transaction(|tx| async move {
             // T11 守卫（**事务内**再判一次）：③ 前那次读与这次写之间，父任务可能被
             // 并发取消 —— 那种情况下子任务照样不许推进（漏洞 2 的并发变体）。
@@ -1044,7 +1049,14 @@ pub async fn change_status(
             let affected = model::apply_status(&tx, task_id, &update, me).await?;
             if affected == 0 {
                 // 事务里被并发软删：评论与日志都不该落
-                return Ok((Uuid::nil(), 0, Vec::new(), Vec::new(), Vec::new()));
+                return Ok((
+                    Uuid::nil(),
+                    0,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    crate::business::flow::model::CancelledOfBiz::default(),
+                ));
             }
             // T11 规则①：本条推到 CANCELLED → 同一事务里级联取消全部非终态子孙
             // （一条递归 CTE；DONE 不回退；失败 → 整笔回滚，不接受「父取消、子还在跑」）
@@ -1054,6 +1066,23 @@ pub async fn change_status(
             } else {
                 Vec::new()
             };
+            // P11 · 铁律①「正向必配反向」：任务取消 → 它的审批实例与待办必须一起撤，
+            // 否则审批人的「待我审批」里挂着一条点不动的孤儿待办（老板报的 TSK-149）。
+            // 必须与状态写入同一事务：撤不掉就整笔回滚，不接受「任务 CANCELLED、待办还 PENDING」。
+            // 级联取消的子孙也是「任务已取消」，各自的审批同样要撤（逐个按自己的 task_no 精确匹配）。
+            let mut approvals = if to == TaskStatus::Cancelled {
+                task_bridge::cancel_on_task_cancelled(&tx, task_id, &task_no_tx).await?
+            } else {
+                crate::business::flow::model::CancelledOfBiz::default()
+            };
+            for cancel in &cancels {
+                let sub =
+                    task_bridge::cancel_on_task_cancelled(&tx, cancel.task_id, &cancel.task_no)
+                        .await?;
+                approvals.instances += sub.instances;
+                approvals.tasks += sub.tasks;
+                approvals.nodes += sub.nodes;
+            }
             // D3b：提交验收即发起审批单（与状态写入同事务：建不出审批单 → 整笔回滚）
             if let Some(start) = accept.as_ref() {
                 task_bridge::start_in_tx(&tx, start, task_id).await?;
@@ -1150,7 +1179,7 @@ pub async fn change_status(
                     ))
                 })?;
             }
-            Ok((comment_id, affected, recalcs, cascades, cancels))
+            Ok((comment_id, affected, recalcs, cascades, cancels, approvals))
         })
         .await
         .map_err(change_status_tx_error)?;
@@ -1178,6 +1207,20 @@ pub async fn change_status(
             cancelled = cancels.len() as i64,
             reason = model::CASCADE_CANCEL_REASON,
             "父任务取消：子任务已级联取消"
+        );
+    }
+    // ⑨d P11：撤销审批的留痕（孤儿待办是「正向没有配套反向」的典型，日志要能一眼查到）
+    if to == TaskStatus::Cancelled
+        && approvals != crate::business::flow::model::CancelledOfBiz::default()
+    {
+        tracing::info!(
+            task_id = %task_id,
+            task_no = %task_no,
+            instances = approvals.instances,
+            flow_tasks = approvals.tasks,
+            nodes = approvals.nodes,
+            comment = task_bridge::TASK_CANCEL_COMMENT,
+            "任务取消：在跑审批实例与待办已一并撤销"
         );
     }
     // ⑩ 依赖联动（T4）：前置 DONE → 强制通知后继负责人；前置 CANCELLED → 尊重偏好提醒

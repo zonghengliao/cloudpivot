@@ -1480,6 +1480,13 @@ pub struct TaskRes {
     pub assignee_source: String,
     /// 状态。
     pub status: String,
+    /// 所属审批实例的状态（P11）。
+    ///
+    /// 与 `status`（待办自身状态）是**两个**维度：任务被取消 / 删除时，正常路径上两者的
+    /// 终态是同一笔事务里一起写的（`task_bridge::cancel_on_task_cancelled`），
+    /// 但历史脏数据里可能出现「待办还 PENDING + 实例已终态」的孤儿组合。
+    /// 前端据此把这种行标成「该审批已结束」，而不是给用户一个点不动的按钮。
+    pub instance_status: String,
     /// 是否加签。
     pub is_added_sign: bool,
     /// 是否自审。

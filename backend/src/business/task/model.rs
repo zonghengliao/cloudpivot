@@ -2409,6 +2409,9 @@ pub const CASCADE_CANCEL_REASON: &str = "父任务已取消，级联取消";
 pub struct CancelCascade {
     /// 被取消的任务。
     pub task_id: Uuid,
+    /// 被取消任务的业务单号（P11：撤审批实例时 `biz_flow_instance.biz_no` 要按它匹配，
+    /// 兜住 `biz_id` 为空的历史实例行；顺带让日志能直接打出单号）。
+    pub task_no: String,
     /// 取消前的状态（只可能是 `TODO` / `DOING` / `REVIEW`）。
     pub from: TaskStatus,
 }
@@ -2469,7 +2472,7 @@ fn cascade_cancel_sql() -> String {
            SELECT c.id, tree.depth + 1 FROM biz_task c JOIN tree ON c.parent_id = tree.id \
             WHERE c.deleted_at IS NULL AND tree.depth < {cap} \
          ), victims AS ( \
-           SELECT b.id, b.status FROM biz_task b \
+           SELECT b.id, b.status, b.task_no FROM biz_task b \
             WHERE b.id IN (SELECT id FROM tree WHERE depth > 1) \
               AND b.deleted_at IS NULL \
               AND b.status NOT IN ('DONE', 'CANCELLED') \
@@ -2477,7 +2480,7 @@ fn cascade_cancel_sql() -> String {
          UPDATE biz_task b SET status = 'CANCELLED', cancel_reason = ?, \
                 updated_at = now(), update_by = ?::uuid \
            FROM victims v WHERE b.id = v.id \
-         RETURNING b.id, v.status",
+         RETURNING b.id, v.status, v.task_no",
         cap = MAX_TASK_DEPTH,
     )
 }
@@ -2519,9 +2522,14 @@ pub async fn cascade_cancel_descendants(
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
         let task_id: Uuid = row.get_typed("id")?;
+        let task_no: String = row.get_typed("task_no")?;
         let raw: String = row.get_typed("status")?;
         match TaskStatus::parse(&raw) {
-            Some(from) => out.push(CancelCascade { task_id, from }),
+            Some(from) => out.push(CancelCascade {
+                task_id,
+                task_no,
+                from,
+            }),
             // 状态不是 5 态之一（脏数据）：取消已经落库，但这一行没法写「从什么状态来的」，
             // 打 WARN 让运维看见，不 panic（不能因为一行脏数据把整笔取消回滚）。
             None => tracing::warn!(

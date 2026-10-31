@@ -1031,6 +1031,8 @@ struct TaskCtx<'a> {
     initiator_name: &'a str,
     /// 当前节点中文名。
     current_node_name: &'a str,
+    /// 所属审批实例的状态（P11：前端防御要用，见 `dto::TaskRes::instance_status`）。
+    instance_status: &'a str,
 }
 
 fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
@@ -1050,6 +1052,7 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
         assignee_name: row.assignee_name.clone().unwrap_or_default(),
         assignee_source: row.assignee_source.clone(),
         status: row.status.clone(),
+        instance_status: ctx.instance_status.to_string(),
         is_added_sign: row.is_added_sign,
         is_self_approval: row.is_self_approval,
         is_auto: row.is_auto,
@@ -1430,6 +1433,7 @@ pub async fn instance_detail(
         flow_name: row.flow_name.as_str(),
         initiator_name: initiator_name.as_str(),
         current_node_name: node_names.get(node_key).copied().unwrap_or(""),
+        instance_status: row.status.as_str(),
     };
 
     Ok(Res::ok(dto::InstanceDetailRes {
@@ -1808,6 +1812,7 @@ fn my_task_res(row: &model::MyTaskRow) -> dto::TaskRes {
             flow_name: &row.flow_name,
             initiator_name: &initiator_name,
             current_node_name: &row.node_name,
+            instance_status: &row.instance_status,
         },
     )
 }
@@ -1823,6 +1828,9 @@ fn my_cc_res(row: &model::MyCcRow) -> dto::CcRes {
             flow_name: &row.flow_name,
             initiator_name: &initiator_name,
             current_node_name: &row.node_name,
+            // 抄送出参（`CcRes`）没有实例状态这一列，也不需要（抄送不是待办，点不动的风险只存在于
+            // 「待我审批」）；`cc_res` 不读这个字段，这里给空串而不是去猜。
+            instance_status: "",
         },
     )
 }
@@ -1852,6 +1860,8 @@ pub async fn my_todo(
         model::MyTaskOrder::Arrived,
         page_no,
         page_size,
+        // P11：待办只认实例还在跑的单子（历史脏数据不进审批人的列表）
+        true,
     )
     .await
     .map_err(|error| utils::db_error(error, "查询我的待办"))?;
@@ -1889,6 +1899,8 @@ pub async fn my_done(
         model::MyTaskOrder::Operated,
         page_no,
         page_size,
+        // 已办是历史记录：实例结束与否都要显示（不受 P11 的「只看在跑」约束）
+        false,
     )
     .await
     .map_err(|error| utils::db_error(error, "查询我的已办"))?;
@@ -2292,6 +2304,7 @@ mod tests {
             title: "报销申请".to_string(),
             flow_name: "财务审批".to_string(),
             initiator_name: Some("王五".to_string()),
+            instance_status: "PENDING".to_string(),
             node_name: "财务会签".to_string(),
         };
         let res = my_task_res(&row);
@@ -2301,6 +2314,8 @@ mod tests {
         assert_eq!(res.instance_no, "FLW-202610-000001");
         assert_eq!(res.title, "报销申请");
         assert_eq!(res.status, "PENDING");
+        // P11：实例状态随行下发，前端才能挡住「实例已结束但待办还 PENDING」的孤儿行。
+        assert_eq!(res.instance_status, "PENDING");
         // 到达时间 = 任务创建时间（待办按它倒序）。
         assert_eq!(res.arrived_at, res.created_at);
     }
@@ -2314,11 +2329,13 @@ mod tests {
             title: "请假".to_string(),
             flow_name: "假勤审批".to_string(),
             initiator_name: None,
+            instance_status: "APPROVED".to_string(),
             node_name: "主管审批".to_string(),
         };
         let res = my_task_res(&row);
         assert_eq!(res.initiator_name, "");
         assert_eq!(res.current_node_name, "主管审批");
+        assert_eq!(res.instance_status, "APPROVED");
         assert!(res.completed_at.is_some(), "已办行必有操作时间");
     }
 
