@@ -32,9 +32,46 @@ async function badges(api: Api): Promise<BadgeCounts> {
   return body.data as BadgeCounts;
 }
 
-/** 侧栏某菜单标题上的徽标数字（没有徽标 = 0） */
+/**
+ * 侧栏某菜单标题上的徽标数字（没有徽标 = 0）。
+ *
+ * 类名口径（2026-10-31 实测，别再按组件名猜）：菜单项是 TDesign 的 `<t-menu-item>` /
+ * `<t-submenu>`，**没有 `.side-menu-item` 这个类**；仓库自写的节点是
+ * `.side-menu-item__title-wrap`（标题 + 徽标的容器）与 `.side-menu-item__badge`（t-badge）。
+ *
+ * 折叠态陷阱：二级菜单在父目录收起时**仍在 DOM 里但不可见**（`offsetParent=null`），
+ * 直接 `toBeVisible()` 会超时。展开必须点父目录 `li.t-submenu` 里的 `.t-menu__content`
+ * （点自写的 `.side-menu-item__title` 会触发导航而不是展开）。
+ */
+async function revealMenuItem(page: import('@playwright/test').Page, title: string) {
+  const item = page.locator('.side-menu-item__title-wrap').filter({ hasText: title }).first();
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (await item.isVisible().catch(() => false)) {
+      return item;
+    }
+    const content = item
+      .locator(
+        // 祖先必须是**目录节点** `li.t-submenu`；叶子节点的 class 是 `t-menu__item t-submenu__item`，
+        // 用 `contains(@class,'t-submenu')` 会把它自己也匹配进来（于是点到的是隐藏的叶子，超时）
+        'xpath=ancestor::li[contains(concat(" ", normalize-space(@class), " "), " t-submenu ")][1]//span[contains(@class,"t-menu__content")]',
+      )
+      .first();
+    if ((await content.count()) === 0) {
+      break;
+    }
+    await content.click({ timeout: 5_000 }).catch(() => undefined);
+    // 展开动画有过渡，点完立刻 isVisible() 会读到中间态，于是下一轮又点一次把菜单收起来
+    // （2026-10-31 实测「点了反而变成 hidden」就是这条）。必须等一次 visible 再判断。
+    const shown = await item.waitFor({ state: 'visible', timeout: 3_000 }).then(() => true).catch(() => false);
+    if (shown) {
+      return item;
+    }
+  }
+  return item;
+}
+
 async function sidebarBadge(page: import('@playwright/test').Page, title: string): Promise<number> {
-  const item = page.locator('.side-menu-item').filter({ hasText: title }).first();
+  const item = await revealMenuItem(page, title);
   await expect(item).toBeVisible();
   const badge = item.locator('.side-menu-item__badge');
   if ((await badge.count()) === 0) {
@@ -53,7 +90,8 @@ test.describe('专项4 徽标联动', () => {
 
     await page.goto('/dashboard');
     await expect(page.locator('.basic-layout__aside')).toBeVisible();
-    // 顶栏铃铛读的是同一个 notice_unread
+    // 顶栏铃铛读的是同一个 notice_unread。
+    // 菜单是「目录 + 叶子」两级：徽标挂在各自标题上（目录的徽标 = 子树里各桶之和）。
     const pairs: Array<[string, number]> = [
       ['公告中心', counts.announcement_unread],
       ['消息中心', counts.notice_unread],
@@ -65,12 +103,39 @@ test.describe('专项4 徽标联动', () => {
       // t-badge 超过 99 渲染 99+，所以比对时按 min(99) 收敛
       expect(shown, `${title} 徽标：接口 ${expected} / 页面 ${shown}`).toBe(Math.min(expected, 99));
     }
+    // 目录聚合：公告与消息 = 公告未读 + 消息未读（两个桶相加）
+    const dirSum = counts.announcement_unread + counts.notice_unread;
+    expect(
+      await sidebarBadge(page, '公告与消息'),
+      `目录「公告与消息」徽标应为两桶之和 ${dirSum}`,
+    ).toBe(Math.min(dirSum, 99));
   });
 
   test('消息已读 → 消息中心徽标 -1', async ({ page }) => {
     const api = await newApi();
-    const before = await badges(api);
-    expect(before.notice_unread, '消息未读数应 > 0（生产里有 80+ 条未读）').toBeGreaterThan(0);
+    // 副本库（生产快照）里这个测试账号的未读数可能是 0 —— 那样「-1」根本无从观测。
+    // 不 skip、不假装：先用管理端发送一条只发给自己的通知把未读数种起来，再验联动。
+    let before = await badges(api);
+    if (before.notice_unread === 0) {
+      const me = await api.ctx.get('/api/system/auth/me');
+      expect(me.status(), '读取当前账号').toBe(200);
+      const myId = (await me.json())?.data?.id;
+      expect(myId, '当前账号 id').toBeTruthy();
+      const seeded = await api.ctx.post('/api/business/notice', {
+        headers: headers(),
+        data: {
+          notice_type: 'SYSTEM',
+          level: 'INFO',
+          title: `[E2E]徽标种子通知-${RUN}`,
+          content: '用于验证「消息已读 → 徽标 -1」的种子通知，跑完即被标记已读。',
+          target_type: 'USER',
+          target_ids: [myId],
+        },
+      });
+      expect(seeded.status(), '种子通知发送状态').toBe(200);
+      before = await badges(api);
+    }
+    expect(before.notice_unread, '消息未读数应 > 0（不足时上面已用种子通知补齐）').toBeGreaterThan(0);
 
     await page.goto('/business/notice/message');
     await expect(page.locator('.basic-layout__aside')).toBeVisible();
@@ -93,7 +158,7 @@ test.describe('专项4 徽标联动', () => {
   test('任务流转 → 工作任务徽标 -1', async ({ page }) => {
     const api = await newApi();
     const before = await badges(api);
-    const task = await api.createTask({ title: `[E2E]徽标任务-${RUN}`, priority: 'MEDIUM' });
+    const task = await api.createTask({ title: `[E2E]徽标任务-${RUN}`, priority: 'P1' });
     try {
       await expect.poll(async () => (await badges(api)).task_todo, { timeout: 15_000 }).toBe(before.task_todo + 1);
 

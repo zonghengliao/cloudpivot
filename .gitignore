@@ -34,6 +34,8 @@ evidence/a7-import-test.xlsx
 /frontend/e2e-report/
 /frontend/playwright-report/
 /frontend/e2e/.auth/
+# 测试E：逐页现场（接口流水 / 按钮 / 截图）与卡面旧路径采集；报告由 e2e/tools/e2e_report.py 生成
+/frontend/e2e-probe/
 __pycache__/
 frontend/dist.bak*/
 # 全量体检产物（scripts/verify/run_all.sh 的日志与汇总）

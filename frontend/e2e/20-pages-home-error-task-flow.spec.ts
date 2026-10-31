@@ -93,6 +93,7 @@ definePageChecks(
     '任务列表',
     '任务看板',
     '甘特图',
+    '燃尽图',
     '任务模板',
     '项目',
     '流程定义',
@@ -100,6 +101,85 @@ definePageChecks(
     '审批中心（待办）',
   ]),
 );
+
+/**
+ * 任务四视图（卡面「/task 列表 / 看板 / 甘特图 / 燃尽图」）。
+ *
+ * 4 个视图里前三个有独立路由，**燃尽图没有独立路由**：它是 `/task?view=burndown`
+ * （`index.vue` 按 `?view=` 切视图）。所以这里补三件光靠逐页 6 项测不到的事：
+ *   1. `/task` 根路径是重定向到 `/task/list`，不是 404；
+ *   2. 四个 Tab 真的能互相切（切完 URL 与视图 DOM 都对得上）；
+ *   3. 燃尽图的三条线自洽（`ideal`/`actual` 长度与 `dates` 一致、`ideal` 首=总量末=0）。
+ */
+test.describe('工作任务: /task 根路由 + 四视图切换 + 燃尽图自洽', () => {
+  test('① /task 根路径重定向到 /task/list，列表真的加载出数据行', async ({ page }) => {
+    const bad: string[] = [];
+    const knownSse: string[] = [];
+    page.on('response', (r) => {
+      if (r.status() >= 400 && r.url().includes('/api/')) {
+        // 已知缺陷：通知 SSE 的 `?token=` 不被后端认证中间件采纳，恒 401（见 34-error-boundary 的留证用例）。
+        // 它不是本页的问题，但不能悄悄忽略 —— 单独记一笔并断言状态确实是 401。
+        if (r.url().includes('/api/business/notice/stream')) {
+          knownSse.push(`${r.status()}`);
+          return;
+        }
+        bad.push(`${r.status()} ${r.url()}`);
+      }
+    });
+    await page.goto('/task');
+    await expect(page).toHaveURL(/\/task\/list$/);
+    await expect(page.locator('.basic-layout__content .t-table')).toBeVisible();
+    const rows = await page.locator('.t-table tbody tr').count();
+    const empty = await page.locator('.t-table__empty, .t-empty').count();
+    expect(rows > 0 || empty > 0, `列表应出数据行或空态（rows=${rows} empty=${empty}）`).toBe(true);
+    expect(bad, `加载期不该有 4xx/5xx 接口：${bad.join(' | ')}`).toEqual([]);
+    expect(knownSse.every((s) => s === '401'), `通知 SSE 应为已知的 401：${knownSse.join(',')}`).toBe(true);
+  });
+
+  test('② 四个 Tab 能互相切：列表→看板→甘特→燃尽，URL 与视图 DOM 都对得上', async ({ page }) => {
+    await page.goto('/task/list');
+    await expect(page.locator('.basic-layout__content .t-table')).toBeVisible();
+
+    // 看板：页内切视图，URL 落 ?view=board（看板由 .board 根节点渲染）
+    await page.locator('.view-switch .t-tabs__nav-item', { hasText: '任务看板' }).click();
+    await expect(page).toHaveURL(/view=board/);
+    await expect(page.locator('.basic-layout__content .board')).toBeVisible();
+
+    // 甘特：独立路由 /task/gantt（根节点类名是 `.gantt-page`，不是 `.gantt`）
+    await page.locator('.view-switch .t-tabs__nav-item', { hasText: '甘特图' }).click();
+    await expect(page).toHaveURL(/\/task\/gantt/);
+    await expect(page.locator('.basic-layout__content .gantt-page')).toBeVisible();
+
+    // 燃尽：回页内视图 /task?view=burndown，图与图例都要出来
+    await page.locator('.view-switch .t-tabs__nav-item', { hasText: '燃尽图' }).click();
+    await expect(page).toHaveURL(/view=burndown/);
+    await expect(page.locator('.burndown__chart')).toBeVisible();
+    await expect(page.locator('.burndown__title')).toContainText('燃尽图');
+  });
+
+  test('③ 燃尽图接口自洽：ideal/actual 与 dates 等长、ideal 首=总量、末=0、actual 首=总量', async ({ page }) => {
+    const wait = page.waitForResponse((r) => r.url().includes('/api/business/task/burndown') && r.status() === 200);
+    await page.goto('/task?view=burndown');
+    const res = await wait;
+    const body = (await res.json())?.data as {
+      dates: string[];
+      ideal: number[];
+      actual: number[];
+      total: number;
+      completed: number;
+    };
+    expect(body.dates.length, 'dates 不应为空').toBeGreaterThan(0);
+    expect(body.ideal.length, 'ideal 与 dates 等长').toBe(body.dates.length);
+    expect(body.actual.length, 'actual 与 dates 等长').toBe(body.dates.length);
+    expect(body.ideal[0], '理想线首日应等于任务总量').toBe(body.total);
+    expect(body.ideal[body.ideal.length - 1], '理想线末日应归零').toBe(0);
+    expect(body.actual[0], '实际线首日应等于任务总量').toBe(body.total);
+    expect(body.actual.every((v) => v >= 0 && v <= body.total), `实际线应落在 [0, total]：${body.actual.join(',')}`).toBe(
+      true,
+    );
+    expect(body.completed, '已完成量不应超过总量').toBeLessThanOrEqual(body.total);
+  });
+});
 
 // 登录后的统一提示组件在不在（顶栏通知铃铛是布局级件，登录页没有）
 test.describe('布局: 登录后的全局件', () => {

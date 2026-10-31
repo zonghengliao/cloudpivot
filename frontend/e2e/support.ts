@@ -182,15 +182,20 @@ export interface TaskRow {
  * 10 次 / 60 秒 的限流，用例里逐个登录会被 429。只有拿不到令牌时才真登一次。
  */
 export async function newApi(): Promise<Api> {
-  const ctx = await request.newContext({ baseURL: BASE_URL });
+  const bare = await request.newContext({ baseURL: BASE_URL });
   let token = readSharedToken();
   if (!token) {
-    const res = await ctx.post('/api/system/auth/login', { data: ACCOUNT });
+    const res = await bare.post('/api/system/auth/login', { data: ACCOUNT });
     expect(res.status(), 'API 登录应返回 200（429 表示触发了登录限流）').toBe(200);
     token = (await res.json())?.data?.access_token;
+    await bare.dispose();
   }
   expect(token, 'API 登录应拿到 access_token').toBeTruthy();
   const headers = { Authorization: `Bearer ${token}` };
+  // 令牌必须挂在**context 级别**：专项用例里有大量 `api.ctx.get(...)` 直接调用
+  // （拉菜单树 / 造账号 / 删夹具），只给 `call()` 传 header 会让这些请求 401
+  // （2026-10-31 实测：30-menu-alignment 报「菜单接口应 200 / Received: 401」就是这个坑）。
+  const ctx = await request.newContext({ baseURL: BASE_URL, extraHTTPHeaders: headers });
 
   /** 统一拆包：非 0 业务码直接抛出后端 msg，失败原因一眼可见 */
   const call = async (method: 'get' | 'post' | 'put' | 'delete', url: string, data?: unknown) => {

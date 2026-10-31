@@ -47,6 +47,11 @@ function auditNetwork(page: import('@playwright/test').Page): NetAudit {
   page.on('response', (response) => {
     const url = response.url();
     const status = response.status();
+    // 通知 SSE 的 401 是**已知产品缺陷**（后端认证中间件只读 Authorization 头，不认 EventSource 的
+    // `?token=`，见 docs/test-report-e2e.md 第四节）：每页都会命中，不能拿它判「这页坏了」。
+    if (url.includes('/api/business/notice/stream')) {
+      return;
+    }
     if (url.includes('/api/') && status >= 400) {
       audit.failures.push(`${status} ${url}`);
     }

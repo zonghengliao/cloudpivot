@@ -132,9 +132,16 @@ test.describe('专项5 错误与边界', () => {
     expect(new Set(seen.map((s) => s.status)), 'SSE 订阅状态码').toEqual(new Set([401]));
 
     // ③ 兜底链路还在：未读数接口 200（所以「角标不更新」不是这条缺陷的直接症状）
-    const unread = await page.request.get('/api/business/notice/unread-count');
-    expect(unread.status(), '未读数兜底接口').toBe(200);
-    const unreadBody = await unread.json();
-    expect(typeof unreadBody?.data?.unread_count, '未读数应是数字').toBe('number');
+    // 注意：`page.request` 不带 localStorage 里的令牌（那是 JS 变量，不是 cookie），
+    // 直接 get 会 401 —— 必须走 support.ts 的 api 客户端（它把 Authorization 挂在 context 上）。
+    const api = await newApi();
+    try {
+      const unread = await api.ctx.get('/api/business/notice/unread-count');
+      expect(unread.status(), '未读数兜底接口').toBe(200);
+      const unreadBody = await unread.json();
+      expect(typeof unreadBody?.data?.unread_count, '未读数应是数字').toBe('number');
+    } finally {
+      await api.dispose();
+    }
   });
 });

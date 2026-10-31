@@ -9,7 +9,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { PAGES } from '../_catalog';
 
-const out = resolve(process.cwd(), 'e2e-report/catalog.json');
+const out = resolve(process.cwd(), 'e2e-probe/catalog.json');
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(
   out,
@@ -23,6 +23,7 @@ writeFileSync(
       readOnly: p.readOnly ?? false,
       formMode: p.formMode ?? 'dialog',
       knownBug: p.knownBug ?? null,
+      menuOnlyBrokenRoute: p.menuOnlyBrokenRoute ?? false,
       note: p.note ?? '',
     })),
     null,

@@ -44,6 +44,15 @@ export interface PageSpec {
    * 套件仍然整体绿，但会以「expected to fail」列在报告里；修好后它会变红提醒摘标注。
    */
   knownBug?: { checks?: Array<'①' | '②' | '③' | '④' | '⑤' | '⑥'>; reason: string };
+  /**
+   * 侧栏菜单里存在、但前端 `router` 里**没有**对应路由（点了进 404）。
+   *
+   * 这类条目留在目录里是为了「菜单盘点不漏项」，但**不参与逐页 6 项检查**
+   * （它只会渲染 404 结果页，6 项里的 ②③④⑤⑥ 天然不成立）。
+   * 谁负责断言它：`30-menu-alignment.spec.ts` 的「已知缺口」一段，
+   * `tools/check-coverage.ts` 会把它们单列成「菜单有 / 路由无」。
+   */
+  menuOnlyBrokenRoute?: true;
   /** 特殊说明（写进报告） */
   note?: string;
 }
@@ -64,6 +73,9 @@ const raw: PageSpec[] = [
   { key: '任务列表', path: '/task/list', kind: 'list', listApi: '/api/business/task/page' },
   { key: '任务看板', path: '/task/board', kind: 'custom', listApi: '/api/business/task/page', note: '看板是五列卡片，不是表格' },
   { key: '甘特图', path: '/task/gantt', kind: 'custom', listApi: '/api/business/task/gantt' },
+  // 燃尽图是第四个视图，入口是 `/task?view=burndown`（`views/business/task/index.vue` 按 query 切视图，
+  // 独立路由 `task/burndown` **不存在**）。卡面写「/task 四视图」时必须把它算进去，否则四视图只测了三个。
+  { key: '燃尽图', path: '/task?view=burndown', kind: 'custom', listApi: '/api/business/task/burndown', note: '第四视图，入口 /task?view=burndown；接口返回 {dates, ideal, actual, total} 概览体，不是分页体' },
   { key: '任务模板', path: '/task/templates', kind: 'list', listApi: '/api/business/task/templates' },
 
   // ===== 项目（1）=====
@@ -93,7 +105,7 @@ const raw: PageSpec[] = [
   { key: '即时库存', path: '/business/erp/inventory', kind: 'list', listApi: '/api/business/erp/inventory/page' },
   { key: '库位库存', path: '/business/erp/inventory-location', kind: 'list', listApi: '/api/business/erp/inventory-location/page' },
   { key: '库存流水', path: '/business/erp/inventory-txn', kind: 'list', listApi: '/api/business/erp/inventory-txn/page' },
-  { key: '库存调拨', path: '/business/erp/transfer', kind: 'list', listApi: '/api/business/erp/transfer/page', knownBug: { checks: ['①', '③'], reason: 'GET /api/business/erp/transfer/page 在 HEAD 代码上稳定 500，页面显示「调拨单列表加载失败：服务器内部错误」（P10/P11 正在改 transfer，需他们确认）' } },
+  { key: '库存调拨', path: '/business/erp/transfer', kind: 'list', listApi: '/api/business/erp/transfer/page' },
   { key: '采购订单', path: '/business/erp/purchase-order', kind: 'list', listApi: '/api/business/erp/purchase-order/page', legacyPath: '/business/erp/purchase' },
   { key: '收货入库', path: '/business/erp/stock-in', kind: 'list', listApi: '/api/business/erp/stock-in/page', legacyPath: '/business/erp/stockin' },
   { key: '应付单', path: '/business/erp/payable', kind: 'list', listApi: '/api/business/erp/payable/page' },
@@ -101,12 +113,16 @@ const raw: PageSpec[] = [
   { key: '总账', path: '/business/erp/ledger', kind: 'list', listApi: '/api/business/erp/account/page', note: '总账是「先选科目再查流水」，进页面只会拉科目下拉（/account/page）；列接口在选科目后才发' },
   { key: '会计科目', path: '/business/erp/account', kind: 'list', listApi: '/api/business/erp/account/page' },
   { key: '会计期间', path: '/business/erp/period', kind: 'list', listApi: '/api/business/erp/period/page' },
-  { key: '采购明细（菜单有、卡面无）', path: '/business/erp/purchase-order-item', kind: 'list', listApi: '/api/business/erp/purchase-order-item/page', note: '侧栏菜单可见，但 router 里没有这条路由 → 预期 404，由专项 1 判红' },
-  { key: '单号序列（菜单有、卡面无）', path: '/business/erp/seq', kind: 'list', listApi: '/api/business/erp/seq/page', note: '侧栏菜单可见，但 router 里没有这条路由 → 预期 404，由专项 1 判红' },
+  // 这两条曾经是「菜单有、router 没路由 → 点菜单进 404」（老板报过的最典型问题），
+  // 2026-10-31 前端提交 cd8b054 补齐了 `business/erp/purchase-order-item` / `business/erp/seq`
+  // 两条路由（`_pagecheck` 的 404 检测也补了 `.result-page` 类名），于是它们回归成正常页面，
+  // 一并纳入逐页 6 项检查 —— 少测一页就等于少测一个刚修好的 404。
+  { key: '采购明细', path: '/business/erp/purchase-order-item', kind: 'list', listApi: '/api/business/erp/purchase-order-item/page' },
+  { key: '单号序列', path: '/business/erp/seq', kind: 'list', listApi: '/api/business/erp/seq/page' },
 
   // ===== 导入导出（3）=====
   { key: '导入任务', path: '/business/impexp/import-task', kind: 'list', listApi: '/api/business/impexp/import/page', formMode: 'navigate', note: '「发起导入」是跳转到 /business/impexp/import 向导页，不是弹窗' },
-  { key: '导出任务', path: '/business/impexp/export-task', kind: 'list', listApi: '/api/business/impexp/export/page' },
+  { key: '导出任务', path: '/business/impexp/export-task', kind: 'list', listApi: '/api/business/impexp/export/page', knownBug: { checks: ['⑥'], reason: '「开始导出」弹窗空提交后仍直接 POST /api/business/impexp/export（前端必填校验缺位，靠后端 422 兜底）并真的建出任务' } },
   { key: '导入向导', path: '/business/impexp/import', kind: 'custom', listApi: '/api/business/impexp/def/list', note: '三步向导（选文件 → 校验 → 入库），没有表格' },
 
   // ===== 文件存储（2）=====

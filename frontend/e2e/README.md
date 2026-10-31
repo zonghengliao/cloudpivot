@@ -31,6 +31,36 @@ node scripts/stress-board-drag.mjs 12 2000         # 单条 03 压测（偶发�
 - CI：`CI=1` 时自动重试 1 次并额外产 JUnit（`e2e-report/junit.xml`）。
 - 03 那条偶发红的现场会自动落到 `test-results/diag/*.json`（见「流程3 偶发红」一节）。
 
+## 52 页全量套件（测试E）怎么跑
+
+`_catalog.ts` 是页面目录（58 页，逐页 6 项），`20~28` 号 spec 按模块把它展开成用例，
+`30~35` 号是专项，`99-coverage-audit` 是收口自检。跑之前先起一套**隔离实例**（别打生产）：
+
+```bash
+# 1) 副本库：从生产快照 restore 出一个独立库（只读生产，写入只进副本）
+su postgres -c "createdb -O e2erole cloudpivot_e2e_iso2"
+su postgres -c "pg_restore -d cloudpivot_e2e_iso2 --no-owner --role=e2erole --jobs=2 /tmp/base.dump"
+
+# 2) 后端指向副本库（其余照常，端口用 18089 避免和本地 dev 撞）
+cd backend && set -a && . /tmp/e2e-iso/backend2.env && set +a && ./target/debug/cloudpivot
+
+# 3) 前端 dev 指到这套后端（BACKEND_ORIGIN 决定 vite 代理目标）
+cd frontend && BACKEND_ORIGIN=http://127.0.0.1:18089 npx vite --port 5189 --strictPort
+
+# 4) 跑 + 出报告
+cd frontend && E2E_BASE_URL=http://127.0.0.1:5189 pnpm test:e2e
+npx tsx e2e/tools/dump-catalog.ts && python3 e2e/tools/e2e_report.py   # → docs/test-report-e2e.md
+```
+
+三个坑（都踩过，别重复）：
+
+1. **现场文件不能放 `e2e-report/`**：那是 html 报告目录，`playwright test` **每次启动都会清空它**，
+   单独跑一条 spec 就把上次全量跑出的 58 份现场全删了。现场统一在 `frontend/e2e-probe/`（见 `e2e/_paths.ts`）。
+2. **登录限流（10 次 / 60 秒 / 账号+IP）在 `profile=dev|test` 下计数永不过期**：一旦 429，
+   必须**重启后端进程**才恢复；整套用例里有 globalSetup + 登录流程 + 多角色共十几次登录，跑前先重启后端。
+3. **别并发跑两套 e2e**：共用 `test-results/` 与 `.auth/state.json`，会互相删临时目录，
+   表现是一堆 `ENOENT … playwright-artifacts-N` 与莫名的 429。
+
 ## 限流与连跑间隔（生产 300 req / 60s）
 
 生产 `backend/config/config-prod.toml` 开着全局限流：
@@ -189,11 +219,14 @@ error/warning（Vue 运行时错误也在里面）、`business/task` 接口流�
 | `TC-FE-017` | `11-erp-location.spec.ts` | 库位页深链直达与仓库筛选 |
 | `TC-FE-018` | `11-erp-master-data.spec.ts` | 单位 / 供应商详情抽屉 |
 
-### 不在本对照表里的文件（别的卡在途，别混进来）
+### 不在本对照表里的文件（测试E 那张卡的全量套件，已合入 main）
 
-`22-pages-erp-master.spec.ts` 与 `_catalog.ts` / `_pagerunner.ts` / `_pagecheck.ts` / `_probe-dom.ts` /
-`_recon.ts` 属于「测试E · 52 页全量」那张卡（工作区未提交）。它们用 `definePageChecks` 动态生成 `it`，
-**编号登记在测试E那张卡里**，不与本总表的 `TC-FE-*` 混算。
+`20~28-pages-*.spec.ts`、`30~35-*.spec.ts`、`99-coverage-audit.spec.ts` 以及
+`_catalog.ts` / `_pagecheck.ts` / `_pagerunner.ts` / `_paths.ts` / `_probe-dom.ts` / `_recon.ts`
+属于「测试E · 52 页全量」那张卡（提交 `dddbab1` 起）。它们用 `definePageChecks` 动态生成 `it`，
+**编号登记在测试E那张卡里**（`docs/test-report-e2e.md`），不与本总表的 `TC-FE-*` 混算。
+`08/09/10` 三条历史用例的期望值写的是「生产当时」的夹具数字（28 顶层 / 43 条 / 菜单「ERP 主数据」），
+在副本库上会因数据量与菜单改名而红，现状登记在 `docs/test-report-e2e.md` 第九节。
 
 ### 统计口径（怎么用 grep 查覆盖）
 

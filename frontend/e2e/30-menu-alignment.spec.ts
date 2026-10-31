@@ -12,11 +12,14 @@ import { BASE_URL, assertNavigationOk, newApi } from './support';
  *
  * 已知缺口（2026-10-31 实测）：
  *   `/business/erp/purchase-order-item`（采购明细）与 `/business/erp/seq`（单号序列）
- *   在侧栏菜单里存在，但 `src/router/index.ts` 里没有对应路由 → 落到 catch-all 的 404 页。
- *   断言的写法是「除这两条之外全绿」，既不掩盖，也不会因为已知 bug 把整套 e2e 打红；
- *   等路由补齐后这条断言会红，提醒把 `KNOWN_BROKEN` 删掉。
+ *   曾在侧栏菜单里存在、但 `src/router/index.ts` 里没有对应路由 → 落到 catch-all 的 404 页。
+ *   **当天已由前端提交 cd8b054 补齐两条路由**，所以白名单现在是空的：
+ *   `KNOWN_BROKEN` 一旦非空就说明又出现了「菜单有、路由无」的回归。
+ *
+ * 404 判定补了 `.result-page`（仓库自写的 403/404/500 页用它，TDesign 的 `.t-result` 是另一套）：
+ * 只按 `.t-result` 判会把「真的 404」漏判成通过 —— 这条 2026-10-31 实测踩过。
  */
-const KNOWN_BROKEN = ['/business/erp/purchase-order-item', '/business/erp/seq'];
+const KNOWN_BROKEN: string[] = [];
 
 interface MenuNode {
   path?: string | null;
@@ -75,7 +78,10 @@ test.describe('专项1 菜单路径 ↔ 路由全量对齐', () => {
         const is404 = await page.evaluate(
           () =>
             /页面不存在/.test(document.title) ||
-            Array.from(document.querySelectorAll('.t-result')).some((el) => /404|不存在/.test(el.textContent ?? '')),
+            // 两套结果页实现：TDesign `.t-result` 与仓库自写 `.result-page`（403/404/500 用它）
+            Array.from(document.querySelectorAll('.t-result, .result-page')).some((el) =>
+              /404|页面不存在/.test(el.textContent ?? ''),
+            ),
         );
         if (is404) {
           bad.push({ path: leaf.path, title: leaf.title, reason: '渲染 404 结果页' });
@@ -98,10 +104,10 @@ test.describe('专项1 菜单路径 ↔ 路由全量对齐', () => {
     const broken = bad.map((b) => b.path).sort();
     expect(checked.length + broken.length, '每个菜单叶子都必须真的访问过').toBe(leaves.length);
 
-    const unexpected = bad.filter((b) => !KNOWN_BROKEN.includes(b.path));
-    expect(unexpected, `菜单打开异常（非已知缺口）：${JSON.stringify(unexpected, null, 1)}`).toEqual([]);
-
-    // 已知缺口：必须**正好**是这两条（多一条 = 新回归，少一条 = 修好了该删白名单）
-    expect(broken, '已知缺口清单（采购明细 / 单号序列）').toEqual([...KNOWN_BROKEN].sort());
+    // 白名单为空：任何一条菜单 404 / 接口报错都是回归。历史缺口（采购明细 / 单号序列）
+    // 已由 cd8b054 补齐路由，写进报告即可，不再需要白名单。
+    expect(KNOWN_BROKEN.length, '白名单应为空（历史缺口已修）').toBe(0);
+    expect(bad, `菜单打开异常：${JSON.stringify(bad, null, 1)}`).toEqual([]);
+    expect(checked.length, '实际打开成功的菜单叶子数').toBe(leaves.length);
   });
 });

@@ -137,7 +137,9 @@ test.describe('专项3 多角色视角', () => {
       const ownPaths = leafPaths(ownMenus);
 
       // ① 侧栏渲染出来的菜单项数量与接口一致（不是"接口给了但侧栏没渲染"）
-      const sidebarItems = await page.locator('.side-menu-item').count();
+      // 类名口径：菜单项是 TDesign 的 t-menu-item/t-submenu，**没有 `.side-menu-item`**；
+      // 仓库自写的标题节点是 `.side-menu-item__title`（每个可见菜单项一个）。
+      const sidebarItems = await page.locator('.side-menu-item__title').count();
       expect(sidebarItems, `${v.key} 侧栏菜单项数量`).toBeGreaterThan(0);
 
       // ② 权限真的收窄了

@@ -16,8 +16,9 @@
  * 报告里的每个 ✅/❌、每条「死按钮」都能指回一份现场文件。
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import type { Page } from '@playwright/test';
+import { PROBE_DIR } from './_paths';
 import { BASE_URL, assertNavigationOk } from './support';
 import type { PageSpec } from './_catalog';
 
@@ -166,9 +167,8 @@ function slug(text: string): string {
 }
 
 function probeDir(): string {
-  const dir = resolve(process.cwd(), 'e2e-report/probe');
-  mkdirSync(dir, { recursive: true });
-  return dir;
+  mkdirSync(PROBE_DIR, { recursive: true });
+  return PROBE_DIR;
 }
 
 /** 把现场写成 JSON（报告生成的唯一输入） */
@@ -232,7 +232,10 @@ export async function observePage(page: Page, spec: PageSpec): Promise<Observati
         .json()
         .then((body) => {
           const data = body?.data;
-          if (data && typeof data === 'object' && !Array.isArray(data) && 'total' in data) {
+          // 「分页体」的判据必须是 **带 list 数组**：`{total, list}` 才算。
+          // 只看 `'total' in data` 会把 `/task/burndown`（`{dates, ideal, actual, total: 84}`
+          // 这种概览体）误判成分页体，于是 ③ 会拿 rows=null 去断言行数 —— 假红（2026-10-31 实测）。
+          if (data && typeof data === 'object' && !Array.isArray(data) && Array.isArray((data as { list?: unknown }).list)) {
             call.shape = 'paged';
             call.total = Number((data as { total: unknown }).total ?? 0);
             const list = (data as { list?: unknown[] }).list;
@@ -345,8 +348,8 @@ export async function observePage(page: Page, spec: PageSpec): Promise<Observati
     };
   });
 
-  const shotRel = `e2e-report/probe/${slug(spec.path.replace(/\//g, '_'))}.png`;
-  await page.screenshot({ path: resolve(process.cwd(), shotRel), fullPage: false }).catch(() => undefined);
+  const shotAbs = resolve(PROBE_DIR, `${slug(spec.path.replace(/\//g, '_'))}.png`);
+  await page.screenshot({ path: shotAbs, fullPage: false }).catch(() => undefined);
 
   return {
     key: spec.key,
@@ -380,7 +383,7 @@ export async function observePage(page: Page, spec: PageSpec): Promise<Observati
       form: { opened: false, submitted: false, validation: [], writeRequests: [], closed: true },
       errors: [],
     },
-    screenshot: shotRel,
+    screenshot: relative(process.cwd(), shotAbs),
     ms: Date.now() - started,
     error,
   };
