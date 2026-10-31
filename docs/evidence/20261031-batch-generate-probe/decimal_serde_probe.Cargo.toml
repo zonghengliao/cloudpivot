@@ -1,0 +1,9 @@
+[package]
+name = "dec_probe"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rust_decimal = { version = "1.43", features = ["serde"] }
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
