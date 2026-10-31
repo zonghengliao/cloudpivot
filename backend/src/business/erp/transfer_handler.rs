@@ -71,7 +71,7 @@ use crate::business::erp::transfer_model::{
     self, ALL_STATUSES, NewItem, NewTransfer, STATUS_PENDING, SettleError, TransferQuery,
     TransferRow, transition_effect, transition_rejected_message,
 };
-use crate::business::flow::{engine, model as flow_model};
+use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
 use crate::shared::error_code;
 use crate::utils;
 
@@ -776,6 +776,34 @@ pub async fn change_transfer_status(
         return Err(conflict(transition_rejected_message(&row.status, target)));
     };
 
+    // ⓘ 审批门闸（P5）：挂着在跑的审批单时，人工不许把单据直推 APPROVED（409 + 65030）。
+    //   判据是纯函数 `flow_gate_blocked`（三条同时成立才拦），实例状态从审批单现查 ——
+    //   单据行的 `approval_instance_id` 是弱引用（无外键），查不到实例就按「不拦」处理
+    //   （与 D3a 的任务门闸同口径：读不到状态时宁可放行，也不要把单据锁死）。
+    let instance_status = flow_task_bridge::instance_status_of(row.approval_instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询调拨单审批单状态"))?;
+    if transfer_model::flow_gate_blocked(
+        &row.status,
+        target,
+        row.approval_instance_id,
+        instance_status.as_deref(),
+    ) {
+        tracing::info!(
+            transfer_id = %row.id,
+            transfer_no = %row.transfer_no,
+            approval_instance_id = ?row.approval_instance_id,
+            instance_status = ?instance_status,
+            operator = %operator,
+            "调拨单审批中，人工直推 APPROVED 被门闸拦截（65030）"
+        );
+        return Err(ApiError::new(
+            409,
+            error_code::TRANSFER_FLOW_GATE_BLOCKED,
+            transfer_model::FLOW_GATE_BLOCKED_MESSAGE,
+        ));
+    }
+
     let mut transit_warehouse_id = None;
     if effect.needs_transit_warehouse {
         transit_warehouse_id = transfer_model::transit_warehouse_id()
@@ -991,6 +1019,35 @@ mod tests {
     }
 }
 
+// ==================== 单测夹具：走审批主线让单据进 APPROVED ====================
+
+/// 让一张调拨单的审批单**真的落终态**（引擎在事务里投票 → 提交 → 回调调拨单）。
+///
+/// P5 起 `PENDING → APPROVED` 有人工门闸（`65030`），夹具不能再靠「人工直推」跨越审批，
+/// 只能走生产路径。两套真库用例（`db_tests` / `w3c_tests`）共用这一个实现，
+/// 免得两边对「怎么样才算审批通过」各写一套。
+#[cfg(test)]
+async fn approve_flow_instance(instance_id: Uuid) {
+    let todos = db()
+        .find_with_params(
+            "SELECT id, assignee_id FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'PENDING'",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("查待办");
+    let todo = todos.first().expect("审批通过前必须有 PENDING 待办");
+    let task_id: Uuid = todo.get_typed("id").expect("todo id");
+    let approver: Uuid = todo.get_typed("assignee_id").expect("assignee");
+    let tx = db().begin().await.expect("开审批事务");
+    let out = engine::approve(&tx, task_id, approver, Some("单测：同意"))
+        .await
+        .expect("引擎同意失败");
+    tx.commit().await.expect("提交审批事务");
+    crate::business::flow::task_bridge::on_transfer_settled(out.instance_id, &out.instance_status)
+        .await;
+}
+
 // ==================== 单测：真库行为（卡面 §五 的 ①–⑰） ====================
 //
 // 为什么必须真库：本卡交付的是「6 态状态机真的能落库」「非 DRAFT 真的 409」
@@ -1018,9 +1075,7 @@ mod db_tests {
         STATUS_APPROVED, STATUS_CANCELLED, STATUS_DONE, STATUS_DRAFT, STATUS_IN_TRANSIT,
         STATUS_PENDING,
     };
-    use crate::business::flow::graph::{
-        AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, NodeSpec, NodeType,
-    };
+    use crate::business::flow::graph::{canonical_json, parse_snapshot};
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
 
@@ -1036,8 +1091,10 @@ mod db_tests {
     const SERIAL_2: &str = "d3b0000e-0000-4000-8000-000000000002";
     const LOC_FROM: &str = "d3b0000f-0000-4000-8000-000000000001";
     const LOC_TO: &str = "d3b0000f-0000-4000-8000-000000000002";
-    const DEF_ID: &str = "d3b0001a-0000-4000-8000-000000000001";
-    const VER_ID: &str = "d3b0001a-0000-4000-8000-000000000002";
+    // P5 起调拨流程是**迁移种的**（V0157），固定 UUID 与迁移里一致：
+    // 单测断言直接按这两个 id 定位（不按 flow_code 模糊匹配，避免同业务类型的其它夹具串味）。
+    const DEF_ID: &str = "20000000-0000-4000-8000-00000000d157";
+    const VER_ID: &str = "20000000-0000-4000-8000-00000000e157";
 
     /// 真库用例**串行**执行（共用一个库，取号器是全局单行，并行会互相推进号段）。
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -1117,18 +1174,8 @@ mod db_tests {
             "清理单据头",
         )
         .await;
-        exec(
-            "DELETE FROM biz_flow_def_version WHERE def_id = ?::uuid",
-            vec![Value::from(&uuid(DEF_ID))],
-            "清理流程版本",
-        )
-        .await;
-        exec(
-            "DELETE FROM biz_flow_def WHERE id = ?::uuid",
-            vec![Value::from(&uuid(DEF_ID))],
-            "清理流程定义",
-        )
-        .await;
+        // 注：**不删流程定义** —— P5 起调拨流程由迁移 V0157 种好（`stock_transfer`），
+        // 测试直接用它（生产同款路径）。夹具只清本卡造的单据与它们的审批单。
     }
 
     /// UUID 数组参数（技能 §6.5：`Value::Text("{a,b}")` 配 `?::text::uuid[]`）。
@@ -1276,55 +1323,65 @@ mod db_tests {
             "重置序列号位置",
         )
         .await;
+        // ⑥ 的状态（调拨流程）也在这里自愈：上一个用例若 panic 没恢复软删，后续用例会串味
+        ensure_seed_flow().await;
         Some(guard)
     }
 
-    /// 插入一条已发布的 `STOCK_TRANSFER` 流程（图用生产同款 `snapshot_json()` 序列化）。
-    async fn publish_transfer_flow() {
-        let mut start = NodeSpec::new("n_start", "开始", NodeType::Start);
-        start.sort_order = 1;
-        let mut approve = NodeSpec::new("n_approve", "仓管审批", NodeType::Approval);
-        approve.assignee_type = Some(AssigneeKind::User);
-        approve.assignees = vec![AssigneeRef {
-            kind: "USER".to_string(),
-            ref_id: U_APPROVER.to_string(),
-            sort_order: 1,
-        }];
-        approve.empty_assignee = "ERROR".to_string();
-        approve.sort_order = 2;
-        let mut end = NodeSpec::new("n_end", "结束", NodeType::End);
-        end.sort_order = 3;
-        let graph = FlowGraph {
-            nodes: vec![start, approve, end],
-            edges: vec![
-                EdgeSpec::new("e1", "n_start", "n_approve"),
-                EdgeSpec::new("e2", "n_approve", "n_end"),
-            ],
-        };
+    /// 断言「迁移 V0157 已经把调拨流程种好」，并返回 `(def_id, version_id)`。
+    ///
+    /// P5 起**不再由夹具造流程**：调拨流程是迁移种子（生产同款路径），被测代码读的就是它。
+    /// 夹具只负责「把可能被别的用例改坏的状态复原」：
+    /// - 上一次 ⑥ 用例把流程软删后若 panic 没来得及恢复 → 这里 `deleted_at = NULL` 自愈；
+    /// - 流程被改成非 PUBLISHED（不该发生，但自愈一次代价极低）→ 复原。
+    ///
+    /// # Panics
+    ///
+    /// 迁移没应用（测试库停在 V0156 之前）→ 直接 panic 并给出可操作的提示。
+    async fn ensure_seed_flow() -> (Uuid, Uuid) {
         exec(
-            "INSERT INTO biz_flow_def (id, flow_code, flow_name, biz_type, status, \
-                                       current_version_id, current_version_no, is_default) \
-             VALUES (?::uuid, 'stock_transfer', '库存调拨审批', 'STOCK_TRANSFER', 'PUBLISHED', ?::uuid, 1, false)",
-            vec![Value::from(&uuid(DEF_ID)), Value::from(&uuid(VER_ID))],
-            "调拨流程定义",
+            "UPDATE biz_flow_def SET status = 'PUBLISHED', is_default = TRUE, deleted_at = NULL, \
+                                    current_version_id = ?::uuid, current_version_no = 1 \
+              WHERE id = ?::uuid",
+            vec![Value::from(&uuid(VER_ID)), Value::from(&uuid(DEF_ID))],
+            "自愈：调拨种子流程状态",
         )
         .await;
-        // ck_biz_flow_def_version_published：PUBLISHED 版本要求 graph_hash / graph_snapshot /
-        // published_at 三者非空（`\d` 实测的约束定义，漏一个就 CheckViolation）
-        exec(
-            "INSERT INTO biz_flow_def_version (id, def_id, version_no, version_status, is_current, \
-                                               graph_snapshot, graph_hash, node_count, edge_count, \
-                                               published_at) \
-             VALUES (?::uuid, ?::uuid, 1, 'PUBLISHED', true, ?::jsonb, ?, 3, 2, now())",
-            vec![
-                Value::from(&uuid(VER_ID)),
-                Value::from(&uuid(DEF_ID)),
-                Value::Json(graph.snapshot_json()),
-                Value::Text(graph.graph_hash()),
-            ],
-            "调拨流程版本",
-        )
-        .await;
+        let rows = db()
+            .find_with_params(
+                "SELECT d.status, d.is_default, d.biz_type, d.current_version_id, v.version_status \
+                   FROM biz_flow_def d JOIN biz_flow_def_version v ON v.id = d.current_version_id \
+                  WHERE d.id = ?::uuid AND d.deleted_at IS NULL",
+                vec![Value::from(&uuid(DEF_ID))],
+            )
+            .await
+            .expect("查询调拨种子流程");
+        let row = rows.first().unwrap_or_else(|| {
+            panic!(
+                "测试库缺少 stock_transfer 流程（V0157 未应用？）：\
+                 先对测试库跑一次 `target/debug/cloudpivot`（迁移自动应用），再重跑本套用例"
+            )
+        });
+        assert_eq!(
+            row.get_typed::<String>("status").expect("status"),
+            "PUBLISHED",
+            "① 种子流程必须是 PUBLISHED"
+        );
+        assert!(
+            row.get_typed::<bool>("is_default").expect("is_default"),
+            "① 种子流程必须是 is_default（提交审批时按 biz_type 取默认流程）"
+        );
+        assert_eq!(
+            row.get_typed::<String>("biz_type").expect("biz_type"),
+            "STOCK_TRANSFER"
+        );
+        assert_eq!(
+            row.get_typed::<String>("version_status")
+                .expect("version_status"),
+            "PUBLISHED",
+            "① 当前版本必须是 PUBLISHED"
+        );
+        (uuid(DEF_ID), uuid(VER_ID))
     }
 
     fn item(material_id: &str, qty: &str) -> TransferItemReq {
@@ -1362,7 +1419,77 @@ mod db_tests {
             .expect("调拨单必须存在")
     }
 
+    /// sha256 小写十六进制（与 `graph::graph_hash` 同口径：对 canonical JSON 取 digest）。
+    fn hex_sha256(text: &str) -> String {
+        use sha2::{Digest, Sha256};
+        let digest = Sha256::digest(text.as_bytes());
+        let mut out = String::with_capacity(64);
+        for byte in digest {
+            out.push_str(&format!("{byte:02x}"));
+        }
+        out
+    }
+
+    /// 某物料在某仓的整仓库存数量（`location_id IS NULL` 的汇总桶），返回库里的 `numeric::text`。
+    async fn inventory_qty(material_id: &str, warehouse_id: &str) -> String {
+        let rows = db()
+            .find_with_params(
+                "SELECT qty::text AS qty FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+                vec![
+                    Value::from(&uuid(material_id)),
+                    Value::from(&uuid(warehouse_id)),
+                ],
+            )
+            .await
+            .expect("查库存数量");
+        rows.first()
+            .expect("库存行必须存在")
+            .get_typed("qty")
+            .expect("取 qty")
+    }
+
+    /// 某物料在某仓的整仓库存金额。
+    async fn inventory_amount(material_id: &str, warehouse_id: &str) -> String {
+        let rows = db()
+            .find_with_params(
+                "SELECT amount::text AS amount FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+                vec![
+                    Value::from(&uuid(material_id)),
+                    Value::from(&uuid(warehouse_id)),
+                ],
+            )
+            .await
+            .expect("查库存金额");
+        rows.first()
+            .expect("库存行必须存在")
+            .get_typed("amount")
+            .expect("取 amount")
+    }
+
+    /// 数值比较（`NUMERIC(18,4)` 经 text 回来是 `95.0000`，逐字比字符串会假红 —— W3c 的教训）。
+    fn assert_dec_eq(actual: String, expected: &str, what: &str) {
+        let left = Decimal::from_str(&actual)
+            .unwrap_or_else(|_| panic!("{what}：实际值不是数字 [{actual}]"));
+        let right = Decimal::from_str(expected)
+            .unwrap_or_else(|_| panic!("{what}：期望值非法 [{expected}]"));
+        assert_eq!(left, right, "{what}：期望 {expected} 实际 {actual}");
+    }
+
+    /// 走**生产同款路径**让审批单落终态：引擎在事务里投票 → 提交 → 回调调拨单。
+    ///
+    /// P5 之前夹具可以「人工直推 APPROVED」把单据推过审批；现在那条路被门闸（65030）拦住了，
+    /// 夹具必须真的去审（也正好把「审批通过 → 调拨单 APPROVED」这条主路径跑在单测里）。
+    /// 实现见文件级 `approve_flow_instance`（两套真库用例共用）。
+    async fn approve_instance(instance_id: Uuid) {
+        super::approve_flow_instance(instance_id).await;
+    }
+
     /// 建一张单并推进到指定状态（测试的公共前置）。
+    ///
+    /// `PENDING → APPROVED` 这一步：**挂了审批单就走审批回调**（门闸 65030 不许人工直推），
+    /// 没挂审批单（降级路径）才人工推。
     async fn transfer_in_status(target: &str) -> (Uuid, TransferRow) {
         let applicant = uuid(U_APPLICANT);
         let id = create_transfer(
@@ -1372,29 +1499,36 @@ mod db_tests {
         )
         .await
         .expect("建单必须成功");
-        for step in [
-            STATUS_PENDING,
-            STATUS_APPROVED,
-            STATUS_IN_TRANSIT,
-            STATUS_DONE,
-        ] {
-            if target == STATUS_DRAFT {
+        if target == STATUS_DRAFT {
+            return (id, refresh(id).await);
+        }
+        change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .unwrap_or_else(|err| panic!("推进到 {STATUS_PENDING} 失败：{}", err.msg));
+        if target == STATUS_PENDING {
+            return (id, refresh(id).await);
+        }
+        // → APPROVED
+        match refresh(id).await.approval_instance_id {
+            Some(instance_id) => approve_instance(instance_id).await,
+            None => {
+                change_transfer_status(id, &status_req(STATUS_APPROVED, None), applicant)
+                    .await
+                    .unwrap_or_else(|err| panic!("降级路径推进到 APPROVED 失败：{}", err.msg));
+            }
+        }
+        for step in [STATUS_IN_TRANSIT, STATUS_DONE] {
+            if target == STATUS_APPROVED {
                 break;
             }
-            let reason = if step == STATUS_CANCELLED {
-                Some("单测取消")
-            } else {
-                None
-            };
-            change_transfer_status(id, &status_req(step, reason), applicant)
+            change_transfer_status(id, &status_req(step, None), applicant)
                 .await
                 .unwrap_or_else(|err| panic!("推进到 {step} 失败：{}", err.msg));
             if step == target {
                 break;
             }
         }
-        let row = refresh(id).await;
-        (id, row)
+        (id, refresh(id).await)
     }
 
     // ---------- ① 建单：DRAFT + 单号格式 ----------
@@ -1581,7 +1715,7 @@ mod db_tests {
         assert_eq!(refresh(id).await.status, STATUS_DRAFT, "状态不得被改动");
     }
 
-    // ---------- ⑨ 状态机：PENDING → APPROVED ----------
+    // ---------- ⑨ 状态机：PENDING → APPROVED（走审批主线） ----------
 
     #[tokio::test]
     async fn pending_to_approved_writes_approved_at() {
@@ -1592,7 +1726,17 @@ mod db_tests {
         assert_eq!(row.status, STATUS_APPROVED);
         assert!(row.submitted_at.is_some());
         assert!(row.approved_at.is_some());
-        assert_eq!(row.approver_id, Some(uuid(U_APPLICANT)));
+        // P5 起这条边只由**审批回调**走：approver_id 记的是点「同意」的那个审批人
+        // （不是申请人自己），人工直推已被门闸 65030 拦住
+        assert!(
+            row.approver_id.is_some(),
+            "审批通过要在 approver_id 记实际审批人（approval_callback 从待办取）"
+        );
+        assert_ne!(
+            row.approver_id,
+            Some(uuid(U_APPLICANT)),
+            "审批人不是申请人本人（自审策略 ALLOW 也要求走审批待办）"
+        );
     }
 
     // ---------- ⑩ 状态机：PENDING → CANCELLED（撤回） ----------
@@ -1720,7 +1864,7 @@ mod db_tests {
         let Some(_guard) = prepare().await else {
             return;
         };
-        publish_transfer_flow().await;
+        ensure_seed_flow().await;
         let (_, row) = transfer_in_status(STATUS_PENDING).await;
         let instance_id = row
             .approval_instance_id
@@ -1742,7 +1886,7 @@ mod db_tests {
         let Some(_guard) = prepare().await else {
             return;
         };
-        publish_transfer_flow().await;
+        ensure_seed_flow().await;
         let applicant = uuid(U_APPLICANT);
 
         // APPROVED → 调拨单 APPROVED
@@ -1778,6 +1922,381 @@ mod db_tests {
         assert!(row.approved_at.is_none());
         assert_eq!(row.reason.as_deref(), Some("不同意，数量再核"));
         assert!(row.approval_instance_id.is_none(), "打回后要能重新提交");
+    }
+
+    // ---------- ⑰-b（P5 ①）迁移种的流程：PUBLISHED + 默认 + 图 hash 自洽 ----------
+    //
+    // 证明的是「种子迁移与引擎的自检口径一致」：`maintain.rs` 每天用
+    // `hash(发布快照)` 与 `hash(节点/边行)` 对账 `graph_hash`，种子若有一处对不上，
+    // 巡检会天天报 drift。这里把快照重新 canonical 化后重算 sha256，与落库的 `graph_hash` 比对。
+
+    #[tokio::test]
+    async fn seed_flow_is_published_with_self_consistent_hash() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let (def_id, version_id) = ensure_seed_flow().await;
+
+        // ① 定义行：存在 / 编码 / 业务类型 / 默认
+        let defs = db()
+            .find_with_params(
+                "SELECT flow_code, biz_type, status, is_default FROM biz_flow_def \
+                  WHERE id = ?::uuid AND deleted_at IS NULL",
+                vec![Value::from(&def_id)],
+            )
+            .await
+            .expect("查流程定义");
+        let def = defs
+            .first()
+            .expect("① 迁移种后 biz_flow_def 必须有 stock_transfer");
+        assert_eq!(
+            def.get_typed::<String>("flow_code").expect("code"),
+            "stock_transfer"
+        );
+        assert_eq!(
+            def.get_typed::<String>("biz_type").expect("biz_type"),
+            "STOCK_TRANSFER"
+        );
+
+        // ① 版本行：PUBLISHED + 快照/hash/发布时间 + 计数
+        let versions = db()
+            .find_with_params(
+                "SELECT version_status, graph_hash, node_count, edge_count, \
+                        graph_snapshot::text AS snapshot_text \
+                   FROM biz_flow_def_version WHERE id = ?::uuid",
+                vec![Value::from(&version_id)],
+            )
+            .await
+            .expect("查流程版本");
+        let version = versions.first().expect("① 迁移种后必须有版本行");
+        assert_eq!(
+            version
+                .get_typed::<String>("version_status")
+                .expect("status"),
+            "PUBLISHED"
+        );
+        assert_eq!(version.get_typed::<i32>("node_count").expect("nodes"), 3);
+        assert_eq!(version.get_typed::<i32>("edge_count").expect("edges"), 2);
+
+        // ① 图内容：快照能被引擎解析，且重算 hash == 落库 hash
+        let text: String = version.get_typed("snapshot_text").expect("snapshot");
+        let snapshot = parse_snapshot(&text).expect("① 快照必须能被 graph::parse_snapshot 解析");
+        let recomputed = hex_sha256(&canonical_json(
+            &serde_json::to_value(&snapshot).expect("快照序列化"),
+        ));
+        assert_eq!(
+            recomputed,
+            version.get_typed::<String>("graph_hash").expect("hash"),
+            "① 快照重算的 sha256 必须等于落库 graph_hash（否则 D4d 每日自检会报 drift）"
+        );
+        let keys: Vec<&str> = snapshot.nodes.iter().map(|n| n.key.as_str()).collect();
+        assert_eq!(
+            keys,
+            vec!["e", "n_approve", "s"],
+            "① 节点按 key 升序（canonical 前提）"
+        );
+        let approver = snapshot
+            .nodes
+            .iter()
+            .find(|node| node.key == "n_approve")
+            .expect("审批节点");
+        assert_eq!(approver.node_type, "APPROVAL");
+        assert_eq!(
+            approver.assignee_type.as_deref(),
+            Some("ADMIN"),
+            "① 审批人来源 = ADMIN（超管），保证任何环境都有人收得到待办"
+        );
+
+        // ① 行侧与快照侧一致（node/edge 行是编辑器读的来源，不一致会让「打开流程图」看到旧图）
+        let node_rows: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_node WHERE version_id = ?::uuid",
+                vec![Value::from(&version_id)],
+            )
+            .await
+            .expect("查节点行数");
+        assert_eq!(node_rows, 3, "① 节点行 3 条（与快照一致）");
+    }
+
+    // ---------- ⑰-c（P5 ③）提交审批后审批人待办里出现该调拨单 ----------
+
+    #[tokio::test]
+    async fn submit_creates_pending_todo_for_super_admin() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        ensure_seed_flow().await;
+        let (id, row) = transfer_in_status(STATUS_PENDING).await;
+        let instance_id = row.approval_instance_id.expect("② 提交审批必须生成实例");
+
+        let todos = db()
+            .find_with_params(
+                "SELECT t.status, t.assignee_id, t.assignee_name, t.assignee_source, t.node_key \
+                   FROM biz_flow_task t WHERE t.instance_id = ?::uuid",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查审批待办");
+        assert_eq!(
+            todos.len(),
+            1,
+            "③ 单节点审批：待办恰好 1 条（不给同一人重复派单）"
+        );
+        let todo = &todos[0];
+        assert_eq!(
+            todo.get_typed::<String>("status").expect("status"),
+            "PENDING"
+        );
+        assert_eq!(
+            todo.get_typed::<String>("node_key").expect("node"),
+            "n_approve"
+        );
+        assert_eq!(
+            todo.get_typed::<String>("assignee_source").expect("source"),
+            "ADMIN",
+            "③ 审批人来源必须是种子节点的 ADMIN（超管展开）"
+        );
+        let assignee: Uuid = todo.get_typed("assignee_id").expect("assignee_id");
+        // 待办必须落在真实存在的超管账号上（否则审批中心里没人看得到）
+        let is_super: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM sys_user u \
+                   JOIN sys_user_role ur ON ur.user_id = u.id \
+                   JOIN sys_role r ON r.id = ur.role_id \
+                  WHERE u.id = ?::uuid AND r.role_code = 'SUPER_ADMIN' AND u.deleted_at IS NULL",
+                vec![Value::from(&assignee)],
+            )
+            .await
+            .expect("查超管角色");
+        assert_eq!(is_super, 1, "③ 待办审批人必须是 SUPER_ADMIN 角色成员");
+
+        // ③ 按调拨单反查也能命中（审批中心「待办」按 biz_type + biz_id 过滤的口径）
+        let hit: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_instance i \
+                   JOIN biz_flow_task t ON t.instance_id = i.id \
+                  WHERE i.biz_type = 'STOCK_TRANSFER' AND i.biz_id = ?::uuid \
+                    AND t.status = 'PENDING'",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("按单据反查待办");
+        assert_eq!(hit, 1, "③ 审批待办里能按调拨单找到这条待办");
+    }
+
+    // ---------- ⑰-d（P5 ⑦）审批中不许人工直推 APPROVED（409 + 65030） ----------
+
+    #[tokio::test]
+    async fn manual_approve_blocked_while_approval_pending() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        ensure_seed_flow().await;
+        let applicant = uuid(U_APPLICANT);
+        let (id, row) = transfer_in_status(STATUS_PENDING).await;
+        let instance_id = row.approval_instance_id.expect("实例 id");
+
+        let err = change_transfer_status(id, &status_req(STATUS_APPROVED, None), applicant)
+            .await
+            .expect_err("⑦ 审批还在跑时，人工直推 APPROVED 必须被拒");
+        assert_eq!(err.status, 409, "⑦ HTTP 409（不是 500/400）");
+        assert_eq!(
+            err.code,
+            error_code::TRANSFER_FLOW_GATE_BLOCKED,
+            "⑦ 业务码 65030"
+        );
+        assert_eq!(err.code, 65030);
+        assert!(
+            err.msg.contains("审批中"),
+            "⑦ 文案要说清「在审批中」：{}",
+            err.msg
+        );
+
+        // 单据与审批单都原地不动
+        assert_eq!(refresh(id).await.status, STATUS_PENDING);
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .expect("查实例")
+            .expect("实例存在");
+        assert_eq!(instance.status, "PENDING", "⑦ 被拦后审批单仍是 PENDING");
+
+        // 撤回仍放行（正规出口），撤回会终止审批单
+        change_transfer_status(id, &status_req(STATUS_CANCELLED, Some("不调了")), applicant)
+            .await
+            .expect("⑦ 门闸只拦 APPROVED，撤回必须放行");
+        assert_eq!(refresh(id).await.status, STATUS_CANCELLED);
+    }
+
+    // ---------- ⑰-e（P5 ⑥）没配流程时：提交成功但无实例，允许人工推 APPROVED ----------
+
+    #[tokio::test]
+    async fn submit_without_flow_degrades_to_manual_approve() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let (def_id, _) = ensure_seed_flow().await;
+        // 模拟「客户没配流程」：软删种子定义（降级路径的唯一判据是「查不到已发布流程」）
+        exec(
+            "UPDATE biz_flow_def SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&def_id)],
+            "软删调拨流程（模拟未配置）",
+        )
+        .await;
+        assert!(
+            transfer_model::published_transfer_flow()
+                .await
+                .expect("查流程")
+                .is_none(),
+            "⑥ 前置：软删后必须查不到已发布流程"
+        );
+
+        let applicant = uuid(U_APPLICANT);
+        let id = create_transfer(&body(vec![item(M_PLAIN, "2")]), Some(applicant), None)
+            .await
+            .expect("建单");
+        change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .expect("⑥ 没配流程时提交审批必须照样成功（降级，不是 500）");
+        let row = refresh(id).await;
+        assert_eq!(row.status, STATUS_PENDING);
+        assert!(
+            row.approval_instance_id.is_none(),
+            "⑥ 降级路径：没有实例可挂，approval_instance_id 必须为空"
+        );
+
+        // 降级路径下人工推 APPROVED 必须放行（否则单据彻底卡死）
+        change_transfer_status(id, &status_req(STATUS_APPROVED, None), applicant)
+            .await
+            .expect("⑥ 没审批单时人工推 APPROVED 必须放行");
+        let row = refresh(id).await;
+        assert_eq!(row.status, STATUS_APPROVED);
+        assert!(row.approved_at.is_some(), "⑥ 人工批准要写 approved_at");
+
+        // 复原（prepare 里也会自愈，这里显式恢复以免影响同批次后续断言）
+        exec(
+            "UPDATE biz_flow_def SET deleted_at = NULL WHERE id = ?::uuid",
+            vec![Value::from(&def_id)],
+            "恢复调拨流程",
+        )
+        .await;
+    }
+
+    // ---------- ⑰-f（P5 ⑨）撤回（PENDING → CANCELLED）终止在跑的审批单 ----------
+
+    #[tokio::test]
+    async fn withdraw_cancels_running_approval_instance() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        ensure_seed_flow().await;
+        let applicant = uuid(U_APPLICANT);
+        let (id, row) = transfer_in_status(STATUS_PENDING).await;
+        let instance_id = row.approval_instance_id.expect("实例 id");
+
+        change_transfer_status(
+            id,
+            &status_req(STATUS_CANCELLED, Some("仓库临时不调了")),
+            applicant,
+        )
+        .await
+        .expect("⑨ 撤回必须成功");
+        let row = refresh(id).await;
+        assert_eq!(row.status, STATUS_CANCELLED);
+        assert!(row.cancelled_at.is_some());
+
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .expect("查实例")
+            .expect("实例存在");
+        assert_eq!(
+            instance.status, "CANCELLED",
+            "⑨ 撤回必须把在跑审批单一起终止（否则 uk_biz_flow_instance_biz_active 会让重新提交永久 409）"
+        );
+        assert!(
+            instance.ended_at.is_some(),
+            "⑨ 终止的实例必须有 ended_at（ck_biz_flow_instance_end）"
+        );
+        // 待办也不能留 PENDING（脏待办会污染审批中心的待办数与统计）
+        let pending: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查待办");
+        assert_eq!(pending, 0, "⑨ 撤回后不许留 PENDING 待办");
+    }
+
+    // ---------- ⑰-g（P5 ⑧ + ⑩）审批通过 → 发货 → 收货：链路通 + W3c 库存双写不变 ----------
+
+    #[tokio::test]
+    async fn approved_transfer_continues_to_done_and_settles_inventory() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        ensure_seed_flow().await;
+        let applicant = uuid(U_APPLICANT);
+        let id = create_transfer(&body(vec![item(M_PLAIN, "5")]), Some(applicant), None)
+            .await
+            .expect("建单");
+        change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .expect("提交审批");
+        let instance_id = refresh(id).await.approval_instance_id.expect("实例 id");
+
+        // 审批通过：走**生产同款路径** —— 引擎在事务里投票落终态 → 再回调调拨单
+        approve_instance(instance_id).await;
+        let row = refresh(id).await;
+        assert_eq!(row.status, STATUS_APPROVED, "⑧ 审批通过 → 调拨单 APPROVED");
+        assert!(row.approved_at.is_some(), "⑧ approved_at 有值");
+
+        // ⑧ 通过后能继续流转：APPROVED → IN_TRANSIT → DONE
+        change_transfer_status(id, &status_req(STATUS_IN_TRANSIT, None), applicant)
+            .await
+            .expect("⑧ 审批通过后必须能发货");
+        assert_eq!(refresh(id).await.status, STATUS_IN_TRANSIT);
+        change_transfer_status(id, &status_req(STATUS_DONE, None), applicant)
+            .await
+            .expect("⑧ 在途必须能收货");
+        let row = refresh(id).await;
+        assert_eq!(row.status, STATUS_DONE);
+        assert!(row.received_at.is_some());
+
+        // ⑩ W3c 的库存双写没被本卡破坏：调出仓 100-5=95、调入仓 10+5=15，两条流水
+        assert_dec_eq(
+            inventory_qty(M_PLAIN, WH_FROM).await,
+            "95",
+            "⑩ 调出仓扣减 5",
+        );
+        assert_dec_eq(inventory_qty(M_PLAIN, WH_TO).await, "15", "⑩ 调入仓增加 5");
+        assert_dec_eq(
+            inventory_amount(M_PLAIN, WH_FROM).await,
+            "1187.5",
+            "⑩ 调出仓金额 1250 - 5×12.5",
+        );
+        assert_dec_eq(
+            inventory_amount(M_PLAIN, WH_TO).await,
+            "142.5",
+            "⑩ 调入仓金额 80 + 5×12.5（成本原价转移）",
+        );
+        let txns = db()
+            .find_with_params(
+                "SELECT txn_type, qty::text AS qty FROM biz_inventory_txn \
+                  WHERE doc_type = 'STOCK_TRANSFER' AND doc_id = ?::uuid ORDER BY txn_type",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查库存流水");
+        assert_eq!(txns.len(), 2, "⑩ 一张调拨单恰好两条流水（OUT + IN）");
+        let kinds: Vec<String> = txns
+            .iter()
+            .map(|row| row.get_typed::<String>("txn_type").expect("txn_type"))
+            .collect();
+        assert_eq!(kinds, vec!["IN".to_string(), "OUT".to_string()]);
+        for txn in &txns {
+            let qty: String = txn.get_typed("qty").expect("qty");
+            assert_eq!(qty, "5.0000", "⑩ 流水数量恒正（ck_biz_inv_txn_qty 禁负数）");
+        }
     }
 
     // ---------- ⑱ 详情 / 序列号分组 ----------
@@ -1985,17 +2504,31 @@ mod db_tests {
             .unwrap_or(0)
     }
 
-    /// 建单 → PENDING → APPROVED → IN_TRANSIT（结算前的公共前置）。
+    /// 建单 → PENDING →（真的走审批）→ APPROVED → IN_TRANSIT（结算前的公共前置）。
     async fn create_and_ship(items: Vec<TransferItemReq>) -> Uuid {
         let applicant = uuid(U_APPLICANT);
         let id = create_transfer(&body(items), Some(applicant), Some("w3b_applicant"))
             .await
             .expect("建单必须成功");
-        for step in [STATUS_PENDING, STATUS_APPROVED, STATUS_IN_TRANSIT] {
-            change_transfer_status(id, &status_req(step, None), applicant)
-                .await
-                .unwrap_or_else(|err| panic!("推进到 {step} 失败：{}", err.msg));
+        change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .unwrap_or_else(|err| panic!("推进到 {STATUS_PENDING} 失败：{}", err.msg));
+        // PENDING → APPROVED 有人工门闸（65030）：挂了审批单就必须走审批主线
+        match transfer_model::find_by_id(id)
+            .await
+            .expect("查调拨单")
+            .and_then(|row| row.approval_instance_id)
+        {
+            Some(instance_id) => super::approve_flow_instance(instance_id).await,
+            None => {
+                change_transfer_status(id, &status_req(STATUS_APPROVED, None), applicant)
+                    .await
+                    .unwrap_or_else(|err| panic!("推进到 {STATUS_APPROVED} 失败：{}", err.msg));
+            }
         }
+        change_transfer_status(id, &status_req(STATUS_IN_TRANSIT, None), applicant)
+            .await
+            .unwrap_or_else(|err| panic!("推进到 {STATUS_IN_TRANSIT} 失败：{}", err.msg));
         id
     }
 

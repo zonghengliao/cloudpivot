@@ -242,6 +242,49 @@ pub fn transition_effect(from: &str, to: &str) -> Option<TransitionEffect> {
     Some(effect)
 }
 
+/// 审批门闸的拦截文案（`409 + 65030`；handler 直接用它当 `ApiError.msg`）。
+pub const FLOW_GATE_BLOCKED_MESSAGE: &str = "调拨单正在审批中，请等待审批结果（到「审批中心」处理该待办）。如需人工放行，请先撤回审批再操作";
+
+/// 人工路径是否被**审批门闸**拦住（`409 + 65030`，纯函数）。
+///
+/// # 判据（三条同时成立才拦）
+///
+/// 1. 本次是 `PENDING → APPROVED`（唯一一条「人工能跳过审批」的边）；
+/// 2. 单据挂着审批实例（`approval_instance_id` 非空）；
+/// 3. 该实例仍是 `PENDING`（审批还没落终态）。
+///
+/// # 为什么需要它
+///
+/// 种了 `stock_transfer` 流程之后，`DRAFT → PENDING` 会自动发起审批单 —— 但只要不拦，
+/// 谁都能再点一次「批准」把单据直接推到 `APPROVED`，审批单仍是 `PENDING`、
+/// 待办永远挂在审批人身上（脏待办 + 单据状态与审批结论不一致）。
+/// 码值与任务侧 D3a 的门闸相同（`65030`），前端按同一个业务码给提示。
+///
+/// # 什么时候**不**拦
+///
+/// - 没配流程（降级路径：`approval_instance_id` 为空）→ 人工推 `APPROVED` 是唯一出路，放行；
+/// - 实例已落终态（`APPROVED` / `REJECTED` / …）→ 单据状态与审批结论不一致，
+///   这时放行人工推是**修数据**，拦住只会让单据卡死；
+/// - `PENDING → CANCELLED`（撤回）→ 必须放行，撤回正是「不想审了」的正规出口
+///   （撤回会终止在跑的审批单，见 `transfer_handler::apply_transition`）。
+pub fn flow_gate_blocked(
+    from: &str,
+    to: &str,
+    approval_instance_id: Option<Uuid>,
+    instance_status: Option<&str>,
+) -> bool {
+    if !(from == STATUS_PENDING && to == STATUS_APPROVED) {
+        return false;
+    }
+    if approval_instance_id.is_none() {
+        return false;
+    }
+    matches!(
+        instance_status.map(str::trim),
+        Some(status) if status.eq_ignore_ascii_case("PENDING")
+    )
+}
+
 /// 一行的时间戳快照（用于**逐字验证** `ck_biz_transfer_state`）。
 #[derive(Debug, Clone, Copy)]
 pub struct StateTimestamps {
@@ -1235,7 +1278,7 @@ pub async fn apply_status(
 ///
 /// | 审批结论 | 调拨单 | 依据 |
 /// |---|---|---|
-/// | `APPROVED` | `PENDING → APPROVED` | 审批通过 = 可发货 |
+/// | `APPROVED` | `PENDING → APPROVED` | 审批通过 = 可发货；`approver_id` 记**实际审批人**（回调方从审批待办里取，`None` 时保留原值） |
 /// | `REJECTED` | `PENDING → DRAFT`（打回） | `submitted_at` / `approved_at` **必须清回 NULL**（`ck_biz_transfer_state`），审批意见写 `reason` |
 ///
 /// 返回受影响行数（0 = 当前不在 `PENDING`，重复回调 / 已被人工撤回 → 静默跳过）。
@@ -1244,6 +1287,7 @@ pub async fn settle_approval(
     id: Uuid,
     approved: bool,
     opinion: Option<&str>,
+    approver: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
     if approved {
@@ -1251,10 +1295,16 @@ pub async fn settle_approval(
             .exec_sql(
                 format!(
                     "UPDATE {TRANSFER_TABLE} \
-                        SET status = 'APPROVED', approved_at = ?, updated_at = ? \
+                        SET status = 'APPROVED', approved_at = ?, updated_at = ?, \
+                            approver_id = COALESCE(NULLIF(?::text,'')::uuid, approver_id) \
                       WHERE id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL"
                 ),
-                vec![Value::from(now), Value::from(now), Value::from(&id)],
+                vec![
+                    Value::from(now),
+                    Value::from(now),
+                    uuid_text(approver),
+                    Value::from(&id),
+                ],
             )
             .await;
     }
@@ -2237,6 +2287,66 @@ mod tests {
             assert!(can_transition(from, to), "{from} → {to} 必须放行");
         }
         assert_eq!(LEGAL_EDGES.len(), 6);
+    }
+
+    /// P5：审批门闸（`65030`）的三条判据 —— 纯逻辑，每条都正反两面钉住。
+    #[test]
+    fn flow_gate_blocks_only_manual_approve_of_running_instance() {
+        let instance = Uuid::now_v7();
+        // ① 审批中 + 人工直推 APPROVED → 拦
+        assert!(
+            flow_gate_blocked(
+                STATUS_PENDING,
+                STATUS_APPROVED,
+                Some(instance),
+                Some("PENDING")
+            ),
+            "审批中的人工批准必须被拦（否则审批单永远挂着脏待办）"
+        );
+        // 前后空白 / 小写也算审批中（库里是 VARCHAR，不保证大小写）
+        assert!(flow_gate_blocked(
+            STATUS_PENDING,
+            STATUS_APPROVED,
+            Some(instance),
+            Some(" pending ")
+        ));
+
+        // ② 没挂审批单（降级路径）→ 放行
+        assert!(!flow_gate_blocked(
+            STATUS_PENDING,
+            STATUS_APPROVED,
+            None,
+            None
+        ));
+        // ③ 审批单已落终态 → 放行（这时放行人工推是修数据，拦住会把单据锁死）
+        for status in ["APPROVED", "REJECTED", "CANCELLED", "WITHDRAWN"] {
+            assert!(
+                !flow_gate_blocked(
+                    STATUS_PENDING,
+                    STATUS_APPROVED,
+                    Some(instance),
+                    Some(status)
+                ),
+                "实例已是 {status} 时不该拦"
+            );
+        }
+        // ④ 撤回（PENDING → CANCELLED）永远放行：这是「不想审了」的正规出口
+        assert!(!flow_gate_blocked(
+            STATUS_PENDING,
+            STATUS_CANCELLED,
+            Some(instance),
+            Some("PENDING")
+        ));
+        // ⑤ 其它边与本闸无关
+        for (from, to) in LEGAL_EDGES {
+            if from == STATUS_PENDING && to == STATUS_APPROVED {
+                continue;
+            }
+            assert!(
+                !flow_gate_blocked(from, to, Some(instance), Some("PENDING")),
+                "{from} → {to} 不该被审批门闸拦"
+            );
+        }
     }
 
     /// ③ 状态机：跳级 / 回退 / 原地 / 终态再流转全部拒绝（卡面 §五 ⑧⑬）。

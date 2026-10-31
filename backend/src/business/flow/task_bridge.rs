@@ -534,6 +534,27 @@ pub async fn cascade_after_flow(start: Uuid, operator: Uuid) -> DbResult<Cascade
     .await
 }
 
+/// 最近一条「已完成待办」的处理人（审批通过时写进 `biz_stock_transfer.approver_id`）。
+///
+/// 多节点流程取 `completed_at` 最新的一票（就是让实例落终态的那个人）。
+/// 查不到（历史数据/被清理）→ `None`，调用方按「保留原值」处理。
+// SCOPE-EXEMPT: 按 `instance_id` 精确取**单条**待办（`LIMIT 1`），不是列表查询。
+// 调用链与 `latest_verdict_comment` 相同：入参来自审批回调的 `biz_flow_instance.id`。
+async fn latest_completed_assignee(instance_id: Uuid) -> DbResult<Option<Uuid>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT t.assignee_id FROM biz_flow_task t \
+              WHERE t.instance_id = ?::uuid AND t.status = 'APPROVED' AND t.assignee_id IS NOT NULL \
+              ORDER BY coalesce(t.completed_at, t.created_at) DESC LIMIT 1",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(row.get_typed("assignee_id")?),
+    }
+}
+
 /// 最近一条「有意见的待办行」的审批意见（驳回原因的回退来源）。
 ///
 /// 引擎把同意 / 驳回意见写在 `biz_flow_task.comment`（待办行），实例行的 `result_comment`
@@ -720,6 +741,9 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
         None => latest_verdict_comment(instance_id).await?,
     };
     let opinion_for_tx = opinion.clone();
+    // 审批人（`approver_id` 落库用）：引擎把「谁点的同意」写在待办行的 `assignee_id`，
+    // 实例行没有这个字段 —— 从最近一条已完成的待办里取（多节点流程取最后一票）。
+    let approver = latest_completed_assignee(instance_id).await?;
     // 时间点在 Rust 侧算好（与日志 / 详情同一个值）
     let now = chrono::Utc::now();
     let affected = db()
@@ -729,6 +753,7 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
                 transfer_id,
                 approved,
                 opinion_for_tx.as_deref(),
+                approver,
                 now,
             )
             .await

@@ -895,6 +895,14 @@ pub const TASK_APPROVAL_PENDING: i32 = 65030;
 /// 定义体：任务侧「审批中」只有一个语义，两处各写一遍 `= 65030` 迟早被人改歪一个。
 pub const TASK_FLOW_GATE_BLOCKED: i32 = TASK_APPROVAL_PENDING;
 
+/// P5 卡面的命名别名：**与 [`TASK_APPROVAL_PENDING`] 同码同义**（`65030`），给**调拨单**用。
+///
+/// 调拨单（`biz_stock_transfer`）提交审批后挂着在跑的审批单时，人工 `PENDING → APPROVED`
+/// 会被门闸拦住（`erp::transfer_model::flow_gate_blocked`），前端按 65030 统一提示
+/// 「正在审批中」。与上面那条一样是别名而不是第二个定义体：65030 是架构 §10.3 码表里的
+/// 既有契约，语义就是「这条单据正在审批中」，不因业务表不同而分裂。
+pub const TRANSFER_FLOW_GATE_BLOCKED: i32 = TASK_APPROVAL_PENDING;
+
 /// 超时自动通过需要流程级开关（`flow_def.allow_auto_approve`，HTTP 422，架构 D10）。
 pub const FLOW_TIMEOUT_CONFIG_INVALID: i32 = 65031;
 
@@ -1327,6 +1335,9 @@ mod tests {
         // D3a：卡面命名的 `TASK_FLOW_GATE_BLOCKED` 必须仍是 65030（别名，不新增码值）
         assert_eq!(TASK_FLOW_GATE_BLOCKED, 65030, "D3a 别名必须仍指向 65030");
         assert_eq!(TASK_FLOW_GATE_BLOCKED, TASK_APPROVAL_PENDING);
+        // P5：调拨单侧的同义别名也必须指向 65030（同样不新增码值，故不进 `codes` 数组）
+        assert_eq!(TRANSFER_FLOW_GATE_BLOCKED, 65030, "P5 别名必须仍指向 65030");
+        assert_eq!(TRANSFER_FLOW_GATE_BLOCKED, TASK_APPROVAL_PENDING);
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
