@@ -47,6 +47,8 @@ to_regclass('biz_status_log') = biz_status_log
 ```text
 disk sha256 = 8a3a2b70abd8705b931698c9683e959075f98f1a9925a0707c2304dc5a877c4d
 proc sha256 = 8a3a2b70abd8705b931698c9683e959075f98f1a9925a0707c2304dc5a877c4d   ( /proc/3080807/exe )
+md5sum disk = 9f60fab27caf86270643a665ebbcb484
+md5sum proc = 9f60fab27caf86270643a665ebbcb484          （与磁盘逐字节一致）
 grep -ac "单据已入账" 新二进制 = 1    （旧二进制 = 0）
 ```
 
@@ -121,6 +123,7 @@ GET /api/business/erp/stock-in/{uuid}                     -> 401
 
 ## 五、已知边界（发布后仍需注意）
 
-1. 共享工作区 `/opt/cloudpivot` 仍停在 `b0bfb8b`（分叉未解决）。本次只把两个 V0159 迁移文件落进它的 `backend/migrations/business/` 并 `git add`（内容 == `1c424ec`），**没有** merge/rebase 任何人的在途改动。下次有人在共享工作区 `git merge --ff-only origin/main` 时，这两个文件不会以「未跟踪文件会被覆盖」挡住合并。
-2. P12 画布视觉与 P11 的前端改动属于 `c49c0bb..main` 的一部分，但**本次只替换后端二进制**，`frontend/dist` 未重建 —— 前端是否同步上线属于 P12 卡的范围。
-3. 本轮不涉及新配置项；`/etc/cloudpivot/cloudpivot.env` 未改动。
+1. 共享工作区 `/opt/cloudpivot` 仍停在 `b0bfb8b`（分叉未解决）。本次只把两个 V0159 迁移文件落进它的 `backend/migrations/business/` 并 `git add`（内容与 main 上的逐字节相同：`V0159__biz_status_log.up.sql` sha256 `3f7c575d…`），**没有** merge/rebase 任何人的在途改动。下次有人在共享工作区 `git merge --ff-only origin/main` 时，这两个文件不会以「未跟踪文件会被覆盖」挡住合并。
+2. main tip 现在是 `ba32c0c`（本文件所在的 docs 提交），`git diff 1c424ec..ba32c0c -- backend` 为空 —— 线上二进制对应的代码树就是 `1c424ec` 的树。
+3. P12 画布视觉与 P11 的前端改动属于 `c49c0bb..main` 的一部分，但**本次只替换后端二进制**，`frontend/dist` 未重建 —— 前端是否同步上线属于 P12 卡的范围。
+4. 本轮不涉及新配置项；`/etc/cloudpivot/cloudpivot.env` 未改动。
