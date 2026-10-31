@@ -11,6 +11,7 @@
 //! | [`enums`] | 后端下发枚举的统一词汇层（`EnumItem` / `EnumsRes` / 配色常量） | P1 |
 //! | [`session_cache`] | 会话安全字段（`token_version` / 首登改密）的 60 s 缓存 + 变更即失效（FIX-05） | 批次 G · FIX-05 |
 //! | [`startup_guard`] | 启动守卫：认证已开启而 JWT 签名密钥为空 / 过短时拒绝启动 | P0 安全 |
+//! | [`token_revocation`] | 令牌吊销的唯一写入口（先库后缓存）与权威判定（只查库，ADR-20261101） | 批次 G · 令牌吊销落库 |
 
 pub mod ai_actor;
 pub mod cache_gate;
@@ -19,3 +20,4 @@ pub mod enums;
 pub mod error_code;
 pub mod session_cache;
 pub mod startup_guard;
+pub mod token_revocation;

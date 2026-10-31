@@ -42,3 +42,12 @@ allow_origins = ["https://admin.example.com"]
 enabled = true
 requests_per_window = 300
 window_secs = 60
+
+# ── 可观测性（ADR-20261101 §5.4）────────────────────────────────────────────
+# /metrics 是框架内置的 Prometheus 导出端点（编译期 feature `metrics-prometheus`）。
+# allow_ips 为空 = **只允许本机回环**（127.0.0.1 / ::1）；需要外部抓取时把抓取端
+# IP 显式列进来（如 allow_ips = ["10.0.0.9"]）——默认不对外暴露运行数据。
+[metrics]
+enabled = true
+path = "/metrics"
+allow_ips = []

@@ -1,16 +1,36 @@
-//! 吊销复检中间件（fail-closed）。
+//! 吊销复检中间件（fail-closed，判据是**库**不是缓存）。
 //!
 //! # 为什么需要它
 //!
-//! 框架认证层（`nik-web` 0.4.2 `middleware/auth.rs`）的黑名单检查是 **fail-open** 的：
+//! 框架认证层（`nik-web` 0.4.2 `middleware/auth.rs:154-158`）的黑名单检查是 **fail-open** 的：
 //!
 //! ```ignore
 //! if let Ok(Some(_)) = Cache::get::<Value>(c, &key).await { /* 401 */ }   // Err(_) 直接放行
 //! ```
 //!
-//! 也就是说，缓存读失败时「已登出 / 已被强制下线的令牌」照样能通过。缓存不可用
-//! 期间吊销名单等于不存在（评审 §1.3）。而 `nik-web` 是 crates.io 依赖、仓库里
-//! 没有副本，改不了它——只能在项目侧补一层复检（评审 §3）。
+//! 也就是说，缓存读失败时「已登出 / 已被强制下线的令牌」照样能通过；`cache` 为 `None`
+//! （Redis 初始化失败）时整段被跳过，吊销名单等于不存在。`nik-web` 是 vendored 依赖，
+//! 改它会把「一个依赖」变成「一份 fork」，因此只能在项目侧补一层复检。
+//!
+//! # 判定位置：PostgreSQL（ADR-20261101）
+//!
+//! 自 ADR-20261101 起，**「哪条令牌被吊销」是库侧事实**（`sys_token_blacklist`），
+//! Redis 退化为读加速器。本层只查库（[`crate::shared::token_revocation::is_revoked`]）：
+//!
+//! | 情形 | 动作 |
+//! |------|------|
+//! | extensions 里没有 `AuthClaims` | 放行（匿名 / no_auth 路径，由认证层与处理器各自负责） |
+//! | 库里有该 `jti` 且未过期 | 401「登录状态已失效」 |
+//! | 库里没有 / 已过期（清理未回收） | 放行 |
+//! | 令牌无 `jti` / 查库失败 | **401**（fail-closed）+ `error` 日志 |
+//!
+//! **正常路径不读缓存**（ADR §3.1）：读缓存会引入「库里有、缓存没有」的判定分裂
+//! ——登出写库成功但写缓存失败时，缓存里那条「未吊销」的信号就是错的。这条取舍是
+//! 决策的核心，别"优化"回去。
+//!
+//! 于是「Redis 不可用」不再是认证路径的故障形态（缓存挂了照常读写），而
+//! 「库不可用」仍是 fail-closed —— 后者本来就已经是每个请求的硬依赖
+//! （`middleware/session_guard` 逐请求点查 `sys_user`）。
 //!
 //! # 挂载位置（关键）
 //!
@@ -20,17 +40,6 @@
 //! - 认证层已经验签并注入 [`AuthClaims`]，本层直接读声明、不必重复验签；
 //! - 权限层（`permission`）在本层**外层**，所以本层只做「复检 / 拒绝」，
 //!   不注入身份、也不做权限判断。
-//!
-//! # 三条判定
-//!
-//! | 情形 | 动作 |
-//! |------|------|
-//! | extensions 里没有 `AuthClaims` | 放行（匿名 / no_auth 路径，由认证层与处理器各自负责） |
-//! | 黑名单命中 | 401 |
-//! | 查询失败 / 缓存缺失 / 令牌无 `jti` | **401**（fail-closed）+ `error` 日志 |
-//!
-//! 认证路径本来就必须有缓存（吊销状态就在缓存里），缺了就是配置错误，
-//! 此时放行等于「吊销静默失效」，因此按拒绝处理。
 
 use axum::body::Body;
 use axum::extract::Request;
@@ -39,9 +48,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use nik::prelude::*;
 
-use crate::shared::constants;
-
-/// 复检令牌 `jti` 是否已被吊销（黑名单命中）。
+/// 复检令牌 `jti` 是否已被吊销（查 `sys_token_blacklist`）。
 ///
 /// # 参数
 ///
@@ -51,8 +58,7 @@ use crate::shared::constants;
 ///
 /// - `Ok(true)`：已被吊销（登出 / 强制下线 / 轮换作废）；
 /// - `Ok(false)`：未被吊销；
-/// - `Err(原因)`：**无法判定**（缓存未初始化 / 查询失败 / 无 `jti`），
-///   调用方必须按「已吊销」处理。
+/// - `Err(原因)`：**无法判定**（无 `jti` / 查库失败），调用方必须按「已吊销」处理。
 ///
 /// # 说明
 ///
@@ -62,15 +68,9 @@ pub(crate) async fn check_revoked(jti: Option<&str>) -> std::result::Result<bool
     let Some(jti) = jti.filter(|v| !v.is_empty()) else {
         return Err("令牌缺少 jti，无法复检吊销状态".to_string());
     };
-    let Some(store) = try_cache() else {
-        return Err("缓存未初始化（认证路径必须有缓存）".to_string());
-    };
-    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_BLACKLIST, jti);
-    match Cache::get::<serde_json::Value>(store, &key).await {
-        Ok(Some(_)) => Ok(true),
-        Ok(None) => Ok(false),
-        Err(e) => Err(format!("黑名单查询失败: {e}")),
-    }
+    crate::shared::token_revocation::is_revoked(jti)
+        .await
+        .map_err(|error| format!("吊销名单查询失败: {error}"))
 }
 
 /// 吊销复检本体（用 `axum::middleware::from_fn` 包一层后交给 `App::route_layer`）。

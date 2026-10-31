@@ -47,7 +47,8 @@ services:
     #   · 淘汰 = 黑名单 / 轮换标记失效 = 已登出、已被强制下线的令牌重新可用（吊销静默失效）；
     #   · 轮换标记丢失还会让「一次性 refresh」退化成可重放。
     # 因此宁可让写在内存满时失败（后端会把失败回传给调用方，返回 5xx），也不允许悄悄淘汰。
-    # 内存水位必须按「不会写满」来设计，阈值见 docs/session-revocation-durability.md：
+    # 内存水位必须按「不会写满」来设计，阈值见 docs/会话吊销的耐久性边界.md（ADR-20261101 之后
+    # 吊销判定已改读 PostgreSQL，Redis 只是加速器；但这四条阈值仍是「写不进」的外部预警）：
     #   used_memory 持续 > 70% 告警，> 85% 严重告警（此时写入开始被拒）。
     command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "noeviction"]
     volumes:

@@ -18,6 +18,7 @@ use crate::middleware::auth_guard;
 use crate::shared::ai_actor;
 use crate::shared::constants::{self, EnableStatus};
 use crate::shared::error_code;
+use crate::shared::token_revocation::{BlacklistKind, BlacklistReason};
 use crate::support::log::dto::LogPageQuery;
 use crate::support::log::model::{JsonLogTable, page_json_logs};
 use crate::support::log::{
@@ -409,7 +410,7 @@ pub async fn refresh(
                 error = %reason,
                 "刷新路径的黑名单复检失败，按 fail-closed 拒绝"
             );
-            return Err(cache_unavailable("校验刷新令牌吊销状态"));
+            return Err(revocation_check_failed("校验刷新令牌吊销状态"));
         }
     }
 
@@ -485,12 +486,19 @@ pub async fn refresh(
 
     // 旧刷新令牌一次性作废：必须在签发新令牌**之前**落地，且写失败即 500——
     // 「没记录作废就发新令牌」等于放过一次复用（CODE-16 B4 顺序第 5 步）。
-    crate::support::online::model::blacklist_token(&old_jti, claims.exp as i64)
-        .await
-        .map_err(|e| {
-            tracing::error!(user_id = %claims.sub, error = %e, "旧刷新令牌写黑名单失败");
-            cache_unavailable("作废旧刷新令牌")
-        })?;
+    // 落库成功即算生效（缓存写失败只 warn），故这里判的是库写入。
+    crate::shared::token_revocation::revoke(
+        &old_jti,
+        Some(claims.sub.as_str()),
+        BlacklistKind::Refresh,
+        BlacklistReason::Rotate,
+        claims.exp as i64,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(user_id = %claims.sub, error = %e, "旧刷新令牌吊销写库失败");
+        revocation_persist_failed("作废旧刷新令牌")
+    })?;
 
     // 刷新路径不采集分段耗时：令牌已存在，慢点只在首次登录需要定位。
     let (token, issued) = issue_token(&user, None, &session).await?;
@@ -550,6 +558,28 @@ pub async fn logout(
 ) -> ResResult<()> {
     let jwt = JWT::from_config();
     jwt.logout(&claims).await;
+    // ADR-20261101 §1.3：框架 `JWT::blacklist` 用 `let _ =` 吞掉写错误
+    // （`vendor/nik-web/src/jwt.rs:219-220`），Redis 写满时登出照回 200 而 access
+    // 令牌并未失效。这里**显式**把 access `jti` 写进库侧吊销表：写不进去就 500，
+    // 登录状态与「用户以为已经登出」保持一致。
+    if let Some(jti) = claims.jti.as_deref().filter(|v| !v.is_empty()) {
+        crate::shared::token_revocation::revoke(
+            jti,
+            Some(claims.sub.as_str()),
+            BlacklistKind::Access,
+            BlacklistReason::Logout,
+            claims.exp as i64,
+        )
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                user_id = %claims.sub,
+                error = %e,
+                "登出时 access 令牌吊销写库失败"
+            );
+            revocation_persist_failed("登记访问令牌吊销")
+        })?;
+    }
     revoke_online_session(&claims).await;
 
     // 同一会话（`sid`）名下的 refresh 令牌一并吊销：客户端不必回传 refresh，
@@ -564,7 +594,7 @@ pub async fn logout(
             error = %e,
             "登出时吊销本次会话的 refresh 令牌失败"
         );
-        return Err(cache_unavailable("吊销本次会话的刷新令牌"));
+        return Err(revocation_persist_failed("吊销本次会话的刷新令牌"));
     }
 
     // 同时吊销请求体带来的 refresh token（兼容只提交旧令牌的客户端）：
@@ -582,8 +612,11 @@ pub async fn logout(
                     && refresh_claims.sub == claims.sub =>
             {
                 if let Some(jti) = refresh_claims.jti.as_deref()
-                    && let Err(e) = crate::support::online::model::blacklist_token(
+                    && let Err(e) = crate::shared::token_revocation::revoke(
                         jti,
+                        Some(refresh_claims.sub.as_str()),
+                        BlacklistKind::Refresh,
+                        BlacklistReason::Logout,
                         refresh_claims.exp as i64,
                     )
                     .await
@@ -591,9 +624,9 @@ pub async fn logout(
                     tracing::error!(
                         user_id = %claims.sub,
                         error = %e,
-                        "登出时拉黑客户端提交的 refresh 令牌失败"
+                        "登出时吊销客户端提交的 refresh 令牌失败"
                     );
-                    return Err(cache_unavailable("吊销刷新令牌"));
+                    return Err(revocation_persist_failed("吊销刷新令牌"));
                 }
             }
             Ok(_) => tracing::warn!(
@@ -1120,15 +1153,43 @@ fn now_secs() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-/// 缓存不可用时的统一 500 错误。
+/// 缓存不可用 / 缓存读写失败时的统一 500 错误。
 ///
-/// 吊销 / 轮换状态都落在缓存里：缓存不可用时**不能**假装成功（那就是 fail-open），
-/// 一律回 500 让客户端重试（评审 §1.3）。
+/// 刷新**一次性保证**（`token:replay` 幂等回放与 `token:rotated` 复用检测）仍然
+/// 只落在缓存里：缓存不可用时**不能**假装成功（那就是 fail-open），一律回 500
+/// 让客户端重试。注意吊销判定**不在此列**——自 ADR-20261101 起吊销以库为准
+/// （见 [`revocation_persist_failed`] / [`revocation_check_failed`]），缓存挂了
+/// 不再影响登出与吊销复检。
 fn cache_unavailable(action: &str) -> ApiError {
     ApiError::new(
         500,
         error_code::INTERNAL_ERROR,
         format!("会话状态暂不可用，无法{action}，请稍后重试"),
+    )
+}
+
+/// 吊销事实**写不进库**时的 500 错误（ADR-20261101：写库失败 = 吊销没生效）。
+///
+/// 与 [`cache_unavailable`] 分开是刻意的：这条意味着「用户以为登出了、实际没有」，
+/// 必须让客户端看到失败并重试（安全动作不许静默降级）。
+fn revocation_persist_failed(action: &str) -> ApiError {
+    ApiError::new(
+        500,
+        error_code::INTERNAL_ERROR,
+        format!("令牌吊销未能生效（{action}），请稍后重试"),
+    )
+}
+
+/// 吊销状态**查不了库**时的 500 错误（刷新接口的 fail-closed 出口）。
+///
+/// 刷新接口是免鉴权路由（框架跳过黑名单检查），由它自己复检；查库失败时按
+/// 「无法判定」拒绝，与中间件 `auth_guard` 的 401 同一语义（这里回 500 是因为
+/// 故障在服务端依赖，而不是令牌本身有问题）。
+fn revocation_check_failed(action: &str) -> ApiError {
+    ApiError::new(
+        500,
+        error_code::INTERNAL_ERROR,
+        format!("令牌吊销状态无法校验（{action}），请稍后重试"),
     )
 }
 
@@ -1146,18 +1207,31 @@ struct RotatedMark {
 /// # 返回值
 ///
 /// - `Ok(Some(_))`：宽限窗口内命中，直接回放同一对令牌；
-/// - `Ok(None)`：未命中；
-/// - `Err(_)`：缓存不可用（500）。
+/// - `Ok(None)`：未命中，**或缓存不可用 / 读失败**（ADR-20261101 §3.3：跳过幂等回放，
+///   让刷新在无 Redis 时照常走完，而不是 500 把用户踢回登录页）；
+/// - `Err(_)`：保留给「调用方语义错误」等非缓存故障（当前不会因缓存产生）。
 async fn load_replay(old_jti: &str) -> std::result::Result<Option<TokenRes>, ApiError> {
     let Some(store) = try_cache() else {
-        return Err(cache_unavailable("校验令牌轮换状态"));
+        tracing::warn!(
+            old_jti,
+            auth_cache_degraded = true,
+            "缓存未初始化，跳过轮换幂等回放（一次性 refresh 退化为统计保证）"
+        );
+        return Ok(None);
     };
     let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
     match Cache::get::<TokenRes>(store, &key).await {
         Ok(pair) => Ok(pair),
         Err(e) => {
-            tracing::error!(error = %e, "读取轮换幂等缓存失败");
-            Err(cache_unavailable("校验令牌轮换状态"))
+            // 缓存活着但读失败 = 与不可用等价：放宽到「跳过」而不是 500，
+            // 代价是这段时间内的重复刷新检测退化为统计保证（ADR §3.3 已接受）。
+            tracing::warn!(
+                old_jti,
+                error = %e,
+                auth_cache_degraded = true,
+                "读取轮换幂等缓存失败，已跳过（一次性 refresh 退化为统计保证）"
+            );
+            Ok(None)
         }
     }
 }
@@ -1167,18 +1241,30 @@ async fn load_replay(old_jti: &str) -> std::result::Result<Option<TokenRes>, Api
 /// # 返回值
 ///
 /// - `Ok(Some(_))`：该 refresh 令牌已被轮换过；
-/// - `Ok(None)`：未轮换过；
-/// - `Err(_)`：缓存不可用（500）。
+/// - `Ok(None)`：未轮换过，**或缓存不可用 / 读失败**（ADR-20261101 §3.3：跳过复用检测，
+///   语义代价 = 「一次性 refresh」在这段窗口退化为统计保证，与
+///   `docs/会话吊销的耐久性边界.md` §4 第 3 条已接受的边界同一句话）；
+/// - `Err(_)`：同 [`load_replay`]。
 async fn load_rotated(old_jti: &str) -> std::result::Result<Option<RotatedMark>, ApiError> {
     let Some(store) = try_cache() else {
-        return Err(cache_unavailable("校验令牌轮换状态"));
+        tracing::warn!(
+            old_jti,
+            auth_cache_degraded = true,
+            "缓存未初始化，跳过轮换复用检测（一次性 refresh 退化为统计保证）"
+        );
+        return Ok(None);
     };
     let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
     match Cache::get::<RotatedMark>(store, &key).await {
         Ok(mark) => Ok(mark),
         Err(e) => {
-            tracing::error!(error = %e, "读取轮换血缘标记失败");
-            Err(cache_unavailable("校验令牌轮换状态"))
+            tracing::warn!(
+                old_jti,
+                error = %e,
+                auth_cache_degraded = true,
+                "读取轮换血缘标记失败，已跳过（一次性 refresh 退化为统计保证）"
+            );
+            Ok(None)
         }
     }
 }
@@ -1228,7 +1314,9 @@ async fn replay_session_alive(pair: &TokenRes) -> std::result::Result<bool, ApiE
 ///
 /// # 异常情况
 ///
-/// 缓存不可用或写入失败返回 500——写不进去就意味着下次复用无法识别。
+/// 缓存活着但写入失败返回 500——写不进去就意味着下次复用无法识别。
+/// 缓存**不可用**（`try_cache() == None`）时跳过并告警：这是 ADR-20261101 §3.3
+/// 的 P1 形态（「一次性 refresh 退化为统计保证」），不能让刷新整体 500。
 async fn persist_rotation(
     old_jti: &str,
     mark: &RotatedMark,
@@ -1236,28 +1324,42 @@ async fn persist_rotation(
     old_exp: usize,
 ) -> std::result::Result<(), ApiError> {
     let Some(store) = try_cache() else {
-        return Err(cache_unavailable("记录令牌轮换"));
+        tracing::warn!(
+            old_jti,
+            auth_cache_degraded = true,
+            "缓存未初始化，跳过轮换血缘标记与幂等缓存写入（一次性 refresh 退化为统计保证）"
+        );
+        return Ok(());
     };
     let rotated_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_ROTATED, old_jti);
     let replay_key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_REPLAY, old_jti);
     let ttl = (old_exp as i64 - now_secs()).max(1) as u64;
-    Cache::set_ex(store, &rotated_key, mark, ttl)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, old_jti, "写轮换血缘标记失败");
-            cache_unavailable("记录令牌轮换")
-        })?;
-    Cache::set_ex(
+    // 写失败只告警：吊销事实已在库里（`revoke` 先落库），复用检测退化为统计保证是
+    // ADR-20261101 §3.3 明确接受的代价；这里回 500 只会让「能登录、刷新一律 500」。
+    if let Err(e) = Cache::set_ex(store, &rotated_key, mark, ttl).await {
+        tracing::warn!(
+            error = %e,
+            old_jti,
+            auth_cache_degraded = true,
+            "写轮换血缘标记失败，已跳过（一次性 refresh 退化为统计保证）"
+        );
+    }
+    if let Err(e) = Cache::set_ex(
         store,
         &replay_key,
         pair,
         constants::TOKEN_ROTATION_REPLAY_GRACE_SECS,
     )
     .await
-    .map_err(|e| {
-        tracing::error!(error = %e, old_jti, "写轮换幂等缓存失败");
-        cache_unavailable("记录令牌轮换")
-    })
+    {
+        tracing::warn!(
+            error = %e,
+            old_jti,
+            auth_cache_degraded = true,
+            "写轮换幂等缓存失败，已跳过（一次性 refresh 退化为统计保证）"
+        );
+    }
+    Ok(())
 }
 
 /// 判定「refresh 令牌复用」并执行处置（CODE-16 B4）。

@@ -60,6 +60,10 @@ nik = { path = "vendor/nik", features = [
     # 真 XLSX 读写（框架 nik-utils/export 的 xlsx 子模块）：写走 Export::to_xlsx_workbook，
     # 读走 calamine。不开此 feature 时这些 API 根本不存在（不是静默退化成 CSV）。
     "xlsx",
+    # Prometheus 导出（ADR-20261101 §5.4）：装 recorder 并把 `/metrics` 挂到主路由。
+    # 运行时开关是 config/*.toml 的 `[metrics] enabled`（默认 false = 端点不存在）。
+    # 只开 `metrics` 而不开本 feature 时，埋点代码依然编译、但没有任何 exporter。
+    "metrics-prometheus",
 ] }
 
 # 工具集：门面 prelude 未转发 UA 解析，而 `auth_logs` 需要写入设备 / 浏览器 / 操作系统，
@@ -75,6 +79,11 @@ calamine = "0.36"
 # 金额 / 数量定点数（W1b · ERP）：版本与 nik-db-core 内部的 rust_decimal 声明一致（1.43），
 # 依赖树里只有一份；直接声明的唯一目的是打开 `serde`（DTO 要序列化 Decimal）。
 rust_decimal = { version = "1.43", features = ["serde"] }
+
+# 可观测性（ADR-20261101 §5.4）：业务侧只发 gauge / counter，全部走 `metrics` 全局
+# 注册表。**版本与 vendor/nik-web 声明的一致（0.24）**，依赖树里只有一份；
+# 未装 recorder 时 `gauge!` / `counter!` 是 no-op，所以这几行零风险。
+metrics = "0.24"
 
 # Web 层：multipart 用于文件上传；中间件钩子需要 axum::Router
 axum = { version = "0.8", features = ["multipart"] }

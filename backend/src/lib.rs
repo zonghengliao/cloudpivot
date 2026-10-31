@@ -81,6 +81,10 @@ pub async fn run() -> Result<()> {
         .parse_cli()
         // 根路径存活探针：手动注册以豁免 `[router] prefix`，保持在 `/health`
         .get("/health", support::health::health)
+        // 依赖探针（readiness，ADR-20261101 §5.4）：同样在根路径、免认证。
+        // `/health` 永远是 liveness（不查库不看缓存），这条才反映 db / cache 健康度，
+        // 任一不健康回 503 —— 两者语义分开，避免下游依赖抖动把容器探针打成重启风暴。
+        .get("/health/deps", support::health::health_deps)
         .on_startup(bootstrap::bootstrap)
         // 启动守卫必须**注册在最前**：插件按注册顺序（无依赖者）依次启动，
         // 密钥不合格时会在其余插件启动之前就中止启动，绝不带着空签名密钥对外提供服务

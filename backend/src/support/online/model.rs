@@ -17,8 +17,14 @@
 //!
 //! # 失败传播
 //!
-//! 吊销是安全动作，**不许静默失败**（评审 §1.3）：枚举 / 拉黑任一步失败都通过
-//! [`Result`] 传给调用方，由处理器决定返回 500 还是可接受降级（判断依据见各调用点注释）。
+//! 吊销是安全动作，**不许静默失败**（评审 §1.3）。自 ADR-20261101 起吊销事实以
+//! PostgreSQL（`sys_token_blacklist`）为准，本文件的吊销动作统一走
+//! [`crate::shared::token_revocation::revoke`]：
+//!
+//! - **写库失败 = 吊销没生效** → `Err` 传给调用方，由处理器回 500；
+//! - **写缓存失败** → 只 `warn` + `auth_cache_degraded=true`，不改返回码（库侧已生效）；
+//! - **枚举在线列表失败**（`online:*` 只能靠缓存）→ 仍是 `Err`，调用方按降级处理
+//!   （ADR §8.3：无 Redis 时在线列表不可用属可接受降级）。
 //!
 //! 数据访问与领域行为集中在本文件，处理器只做业务编排。
 
@@ -26,6 +32,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::shared::constants;
+use crate::shared::token_revocation::{self, BlacklistKind, BlacklistReason};
 
 /// 在线用户会话快照。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -257,10 +264,11 @@ impl OnlineSessionModel {
         Ok(sessions)
     }
 
-    /// 强制下线：移除在线会话并把令牌写入黑名单（立即失效）。
+    /// 强制下线：把令牌写入**库侧**吊销表（权威）并清理在线登记。
     ///
-    /// 黑名单键格式与框架 [`JWT::is_blacklisted`] 保持一致，TTL 取令牌剩余
-    /// 有效期，从而认证层的黑名单检查可立即识别。
+    /// 自 ADR-20261101 起吊销事实落在 `sys_token_blacklist`，缓存（框架
+    /// `token:blacklist:{jti}`）只是读加速器：库写失败即 `Err`（吊销没生效），
+    /// 缓存写失败只 `warn` + `auth_cache_degraded=true`，不影响返回码。
     ///
     /// # 参数
     ///
@@ -268,13 +276,28 @@ impl OnlineSessionModel {
     ///
     /// # 异常情况
     ///
-    /// 缓存未初始化或写入失败时返回错误。
+    /// 库写入失败返回错误（调用方须 500）；在线登记删除失败只告警。
     pub async fn force_logout(session: &OnlineSession) -> std::result::Result<(), Error> {
-        let Some(store) = try_cache() else {
-            return Err(Error::Msg("缓存未初始化，无法强制下线".to_string()));
-        };
-        Cache::del(store, &Self::key(&session.token_id)).await?;
-        blacklist_jti(store, &session.token_id, remaining_ttl(session.expire_at)).await
+        token_revocation::revoke(
+            &session.token_id,
+            Some(session.user_id.as_str()),
+            BlacklistKind::Access,
+            BlacklistReason::ForceLogout,
+            session.expire_at,
+        )
+        .await?;
+        // 在线登记清理是卫生动作：无缓存时本来就没有登记，失败不改变吊销结果
+        if let Some(store) = try_cache()
+            && let Err(e) = Cache::del(store, &Self::key(&session.token_id)).await
+        {
+            tracing::warn!(
+                token_id = %session.token_id,
+                error = %e,
+                auth_cache_degraded = true,
+                "移除在线会话登记失败（库侧吊销已生效）"
+            );
+        }
+        Ok(())
     }
 
     /// 只摘除在线登记，**不写** access 令牌黑名单（FIX-05）。
@@ -563,13 +586,35 @@ pub(crate) async fn revoke_after_permission_change(
 ///
 /// # 返回值
 ///
-/// 实际吊销的 refresh 令牌数量。
+/// 实际吊销的 refresh 令牌数量（缓存不可用时为 0，见下）。
 ///
 /// # 异常情况
 ///
 /// 枚举失败或任一令牌吊销失败返回 `Err`。
+///
+/// # 缓存不可用时（ADR-20261101 §8.3）
+///
+/// 枚举 refresh 登记表**只能靠缓存**（`online:refresh:*`）。缓存不可用时本函数
+/// 直接返回 `Ok(0)` 并打 `auth_cache_degraded=true`：access 令牌的吊销已经落库
+/// （登出主路径），而被吊销会话手里的 refresh 令牌无法被枚举出来。
+/// 代价 = 「一次性 refresh」在这段窗口退化为**统计保证**，与
+/// `docs/会话吊销的耐久性边界.md` §4 第 3 条已接受的边界同一句话——**关掉它换来
+/// 的只是「登出回 500 且什么都没吊销」，更差**。
 pub(crate) async fn revoke_refresh_by_sid(sid: &str) -> std::result::Result<usize, Error> {
-    let sessions = OnlineSessionModel::list_refresh().await?;
+    let sessions = match OnlineSessionModel::list_refresh().await {
+        Ok(sessions) => sessions,
+        Err(error) => {
+            // 缓存不可用 / 读失败：枚举不出来任何 refresh 登记。登出**不该**因此回 500
+            // （access 吊销已经落库，回 500 只会让客户端以为没登出成功而重试）。
+            tracing::warn!(
+                sid,
+                error = %error,
+                auth_cache_degraded = true,
+                "无法枚举本会话的 refresh 令牌（已降级：access 吊销已落库）"
+            );
+            return Ok(0);
+        }
+    };
     let mut revoked = 0usize;
     let mut failure: Option<Error> = None;
     for session in sessions.iter().filter(|s| s.sid == sid) {
@@ -592,55 +637,31 @@ pub(crate) async fn revoke_refresh_by_sid(sid: &str) -> std::result::Result<usiz
     }
 }
 
-/// 吊销单条 refresh 令牌：删登记键 + 写黑名单（TTL 取剩余有效期）。
+/// 吊销单条 refresh 令牌：写库侧吊销表（权威）+ 删登记键（尽力）。
 ///
 /// # 异常情况
 ///
-/// 缓存未初始化、删键失败或写黑名单失败返回 `Err`。
+/// 库写入失败返回 `Err`（吊销没生效）；缓存侧失败只告警。
 async fn revoke_refresh(session: &RefreshSession) -> std::result::Result<(), Error> {
-    let Some(store) = try_cache() else {
-        return Err(Error::Msg(
-            "缓存未初始化，无法吊销 refresh 令牌".to_string(),
-        ));
-    };
-    Cache::del(store, &refresh_key(&session.jti)).await?;
-    blacklist_jti(store, &session.jti, remaining_ttl(session.exp)).await
-}
-
-/// 显式写入令牌黑名单（错误可见）。
-///
-/// 供「登出时拉黑客户端提交的 refresh 令牌」「轮换时作废旧 refresh」直接使用：
-/// 框架的 `JWT::blacklist` 内部吞掉写入错误（`let _ = ...`），吊销路径需要能感知
-/// 失败，因此在这里自己写、把错误传上去（评审 §1.3）。
-///
-/// # 参数
-///
-/// - `jti`：令牌唯一标识。
-/// - `exp`：令牌到期时间（Unix 秒），黑名单 TTL 取其剩余期。
-///
-/// # 异常情况
-///
-/// 缓存未初始化或写入失败返回错误。
-pub(crate) async fn blacklist_token(jti: &str, exp: i64) -> std::result::Result<(), Error> {
-    let Some(store) = try_cache() else {
-        return Err(Error::Msg("缓存未初始化，无法写入令牌黑名单".to_string()));
-    };
-    blacklist_jti(store, jti, remaining_ttl(exp)).await
-}
-
-/// 把令牌 `jti` 写入框架格式的黑名单键（`token:blacklist:{jti}`）。
-async fn blacklist_jti(
-    store: &impl Cache,
-    jti: &str,
-    ttl_secs: u64,
-) -> std::result::Result<(), Error> {
-    let key = format!("{}{}", constants::CACHE_KEY_PREFIX_TOKEN_BLACKLIST, jti);
-    Cache::set_ex(store, &key, &serde_json::json!(true), ttl_secs).await
-}
-
-/// 取「距到期的剩余秒数」（已过期按 1 秒，避免写出永久键）。
-fn remaining_ttl(expire_at: i64) -> u64 {
-    (expire_at - chrono::Utc::now().timestamp()).max(1) as u64
+    token_revocation::revoke(
+        &session.jti,
+        Some(session.user_id.as_str()),
+        BlacklistKind::Refresh,
+        BlacklistReason::ForceLogout,
+        session.exp,
+    )
+    .await?;
+    if let Some(store) = try_cache()
+        && let Err(e) = Cache::del(store, &refresh_key(&session.jti)).await
+    {
+        tracing::warn!(
+            refresh_jti = %session.jti,
+            error = %e,
+            auth_cache_degraded = true,
+            "移除 refresh 登记失败（库侧吊销已生效）"
+        );
+    }
+    Ok(())
 }
 
 /// 生成 refresh 登记缓存键。

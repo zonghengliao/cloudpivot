@@ -20,10 +20,15 @@
 //! - [`handler`]：业务编排（校验、分支、响应组装）与路由声明，不直接写 SQL；
 //! - [`dto`]：请求 / 响应结构。
 //!
+//! | 模块 | 内容 |
+//! |------|------|
+//! | [`cleanup`] | 令牌吊销表（`sys_token_blacklist`）日清任务 03:50（ADR-20261101） |
+//!
 //! 认证过程读写的 `sys_user` / `sys_role` / `sys_user_role` / `sys_menu` /
 //! `sys_role_menu` / `sys_config` 均复用各自主业务模块的强类型模型，
 //! 认证层不再重复定义表结构。
 
+pub mod cleanup;
 pub mod dto;
 pub mod handler;
 pub(crate) mod model;

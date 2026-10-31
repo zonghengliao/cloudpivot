@@ -83,7 +83,7 @@ log_duration = true
 enabled = false
 jwt_secret = ""
 # 默认按「不含 [router] prefix 前缀」书写；`!/health` 表示绝对路径豁免前缀
-ignore_paths = ["!/health", "/system/auth/login", "/system/auth/refresh"]
+ignore_paths = ["!/health", "!/health/deps", "/system/auth/login", "/system/auth/refresh"]
 # 短 TTL（CODE-16 B1）：access 15 分钟、refresh 24 小时**绝对上限**。
 # refresh 的 exp 固定为「登录时刻 + refresh_token_expire_secs」，轮换不滑动，
 # 因此 24h 之后无论刷新多少次都必须重新登录（见 system/auth/handler.rs 的 siat claim）。
