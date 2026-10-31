@@ -53,7 +53,7 @@
 //! 由 [`crate::business::erp::transfer_handler`] 开事务：**建单 = 取号 + 单头 + 明细 + 序列号**、
 //! **提交审批 = 状态写入 + 发起审批单 + 回写 `approval_instance_id`** 必须原子。
 
-use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
+use nik::prelude::chrono::{DateTime, Duration, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -63,6 +63,7 @@ use crate::business::erp::serial_model::{period_code_of, period_key_of};
 use crate::business::erp::stockin_model;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
+use crate::support::config::model::SysConfigModel;
 
 // ==================== 表名 / 列清单 ====================
 
@@ -80,7 +81,7 @@ pub const TRANSFER_COLUMNS: &str = "id, transfer_no, from_warehouse_id, to_wareh
      transit_warehouse_id, status, transfer_date, reason, applicant_id, applicant_name, \
      approver_id, approval_instance_id, total_qty, total_amount, submitted_at, approved_at, \
      shipped_at, received_at, cancelled_at, cancel_reason, remark, created_at, updated_at, \
-     create_by, update_by, deleted_at";
+     create_by, update_by, deleted_at, overdue_alerted_at, overdue_alert_count";
 
 /// 明细则列清单。
 pub const ITEM_COLUMNS: &str = "id, transfer_id, line_no, material_id, from_location_id, \
@@ -104,6 +105,92 @@ pub const NO_PREFIX: &str = "TK";
 
 /// 流水号补零宽度（6 位；超过 6 位不截断，宁可长一位也不撞号）。
 pub const NO_SEQ_WIDTH: usize = 6;
+
+// ==================== 在途超期（LNK-F12 · V0171） ====================
+
+/// 超期阈值参数键（`sys_config`，单位：**天**，按 `shipped_at` 计算）。
+///
+/// 与迁移 `V0171__transfer_in_transit_overdue.up.sql` 种下的行逐字一致。
+pub const CONFIG_OVERDUE_DAYS_KEY: &str = "erp.transfer.in_transit_overdue_days";
+
+/// 超期阈值缺省值（天）。参数缺失 / 停用 / 非数字 / 非正数时一律回退该值。
+pub const DEFAULT_OVERDUE_DAYS: i64 = 7;
+
+/// 重提醒间隔参数键（`sys_config`，单位：**小时**）。
+pub const CONFIG_REALERT_HOURS_KEY: &str = "erp.transfer.in_transit_realert_hours";
+
+/// 重提醒间隔缺省值（小时）：同一张超期单在间隔内不重复告警。
+pub const DEFAULT_REALERT_HOURS: i64 = 24;
+
+/// 一轮扫描最多处理多少张超期单（与 `flow::timeout::SCAN_BATCH` 同量级）。
+pub const OVERDUE_SCAN_BATCH: i64 = 500;
+
+/// 判定「超期在途」：`IN_TRANSIT` 且 `shipped_at` 早于 `now - threshold_days`（纯函数）。
+///
+/// # 为什么时间基准是 `shipped_at`
+///
+/// 压货的起点是「货离开调出仓」（发货），审批快慢与告警无关。用 `created_at`
+/// 会把「审批走了三天」的单子当成压货，用 `approved_at` 同理。
+///
+/// # 边界
+///
+/// 恰好等于阈值（`shipped_at == now - threshold_days`）**不算**超期（严格小于），
+/// 与 SQL 侧 `shipped_at < ?` 逐字一致 —— 纯函数与库查询不能有两套口径。
+pub fn is_in_transit_overdue(
+    status: &str,
+    shipped_at: Option<DateTime<Utc>>,
+    now: DateTime<Utc>,
+    threshold_days: i64,
+) -> bool {
+    if status != STATUS_IN_TRANSIT {
+        return false;
+    }
+    let Some(shipped_at) = shipped_at else {
+        // 库约束 `ck_biz_transfer_state` 保证 IN_TRANSIT 必有 shipped_at；
+        // 这里仍按「无法判定 → 不告警」，绝不因为脏数据把单据误报成压货。
+        return false;
+    };
+    shipped_at < cutoff_of(now, threshold_days)
+}
+
+/// 超期判定的时间分界点（`now - threshold_days` 天）。
+///
+/// 时间点**在 Rust 侧算好**再绑定给 SQL（`?::timestamptz`）：写进 SQL 的
+/// `now() - make_interval(...)` 会让纯函数与库查询的时间基准差几微秒，
+/// 边界用例会出现「函数说超期、SQL 说不超期」。
+pub fn cutoff_of(now: DateTime<Utc>, threshold_days: i64) -> DateTime<Utc> {
+    now - Duration::try_days(threshold_days).unwrap_or_else(Duration::zero)
+}
+
+/// 已压天数（向下取整，最少 0）：`now - shipped_at` 的整天数。
+///
+/// 只用于展示（列表「超期 N 天」）与告警文案，**判定**仍走 [`is_in_transit_overdue`]。
+pub fn overdue_elapsed_days(shipped_at: DateTime<Utc>, now: DateTime<Utc>) -> i64 {
+    let secs = (now - shipped_at).num_seconds().max(0);
+    secs / 86_400
+}
+
+/// 读超期阈值（天）：`sys_config` → 缺省 [`DEFAULT_OVERDUE_DAYS`]。
+///
+/// # 为什么读取失败也回退默认值
+///
+/// 这条参数是「多久算压货」的业务口径，读不到就**不告警**等于功能整体失效；
+/// 回退 7 天最多是「按默认口径告警」，属于可接受的降级（与
+/// `announcement::fanout_enabled` 读失败按「开启」处理同一取舍）。
+pub async fn overdue_threshold_days() -> i64 {
+    SysConfigModel::read_i64(CONFIG_OVERDUE_DAYS_KEY)
+        .await
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_OVERDUE_DAYS)
+}
+
+/// 读重提醒间隔（小时）：`sys_config` → 缺省 [`DEFAULT_REALERT_HOURS`]。
+pub async fn realert_hours() -> i64 {
+    SysConfigModel::read_i64(CONFIG_REALERT_HOURS_KEY)
+        .await
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_REALERT_HOURS)
+}
 
 // ==================== 6 态常量（与 DDL 的 CHECK 逐字一致） ====================
 
@@ -417,6 +504,10 @@ pub struct TransferRow {
     pub update_by: Option<Uuid>,
     /// 软删时间。
     pub deleted_at: Option<DateTime<Utc>>,
+    /// 最近一次「在途超期」告警时间（`NULL` = 从未提醒过；V0171）。
+    pub overdue_alerted_at: Option<DateTime<Utc>>,
+    /// 累计「在途超期」告警次数（V0171；同时是通知幂等键的序号段）。
+    pub overdue_alert_count: i16,
 }
 
 impl TransferRow {
@@ -449,7 +540,23 @@ impl TransferRow {
             create_by: row.get_typed("create_by")?,
             update_by: row.get_typed("update_by")?,
             deleted_at: row.get_typed("deleted_at")?,
+            overdue_alerted_at: row.get_typed("overdue_alerted_at")?,
+            overdue_alert_count: row.get_typed("overdue_alert_count")?,
         })
+    }
+
+    /// 是否「超期在途」（口径见 [`is_in_transit_overdue`]）。
+    pub fn is_overdue(&self, now: DateTime<Utc>, threshold_days: i64) -> bool {
+        is_in_transit_overdue(&self.status, self.shipped_at, now, threshold_days)
+    }
+
+    /// 已压天数（非在途 / 无发货时间 → `None`；用于列表「超期 N 天」）。
+    pub fn elapsed_days(&self, now: DateTime<Utc>) -> Option<i64> {
+        let shipped_at = self.shipped_at?;
+        if self.status != STATUS_IN_TRANSIT {
+            return None;
+        }
+        Some(overdue_elapsed_days(shipped_at, now))
     }
 
     /// 当前行的时间戳快照（喂给 [`state_check_holds`]）。
@@ -634,7 +741,7 @@ pub async fn next_transfer_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbRe
 // ==================== 查询：列表 / 详情 / 明细 / 序列号 ====================
 
 /// 分页查询条件（handler 把 DTO 归一化后传进来）。
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct TransferQuery {
     /// 状态。
     pub status: Option<String>,
@@ -644,10 +751,34 @@ pub struct TransferQuery {
     pub to_warehouse_id: Option<Uuid>,
     /// 单号前缀。
     pub transfer_no: Option<String>,
+    /// 只看「超期在途」（`Some(true)`）/ 排除超期（`Some(false)`）/ 不筛选（`None`）。
+    ///
+    /// 超期口径见 [`is_in_transit_overdue`]：`IN_TRANSIT` 且 `shipped_at < now - overdue_days`。
+    pub in_transit_overdue: Option<bool>,
+    /// 超期阈值（天）。handler 用 [`overdue_threshold_days`] 填充；
+    /// 直接构造查询的调用方（单测 / 报表）可以显式给值，避免「阈值只能从库里读」。
+    pub overdue_days: i64,
     /// 页码。
     pub page: u64,
     /// 每页条数。
     pub page_size: u64,
+}
+
+impl Default for TransferQuery {
+    fn default() -> Self {
+        Self {
+            status: None,
+            from_warehouse_id: None,
+            to_warehouse_id: None,
+            transfer_no: None,
+            in_transit_overdue: None,
+            // 显式给缺省阈值：`derive(Default)` 会让 i64 落成 0，
+            // 于是「忘了填」变成「阈值 0 天 = 刚发货就算超期」，是静默错数据。
+            overdue_days: DEFAULT_OVERDUE_DAYS,
+            page: 1,
+            page_size: crate::business::erp::model::DEFAULT_PAGE_SIZE,
+        }
+    }
 }
 
 /// 分页查询（走 [`scope::paginate_unscoped`]，闸①口径）。
@@ -677,6 +808,21 @@ pub async fn page(query: &TransferQuery) -> DbResult<(Vec<TransferRow>, i64)> {
     {
         sql.push_str(" AND transfer_no LIKE ?");
         params.push(Value::Text(format!("{keyword}%")));
+    }
+    if let Some(overdue) = query.in_transit_overdue {
+        // 时间点在 Rust 侧算好再绑定（与纯函数 `is_in_transit_overdue` 同一分界点）
+        let cutoff = cutoff_of(Utc::now(), query.overdue_days);
+        if overdue {
+            sql.push_str(
+                " AND status = 'IN_TRANSIT' AND shipped_at IS NOT NULL AND shipped_at < ?::timestamptz",
+            );
+        } else {
+            sql.push_str(
+                " AND NOT (status = 'IN_TRANSIT' AND shipped_at IS NOT NULL \
+                  AND shipped_at < ?::timestamptz)",
+            );
+        }
+        params.push(Value::from(cutoff));
     }
 
     let (page, page_size) = normalize_page(query.page, query.page_size);
@@ -2405,6 +2551,161 @@ async fn location_broken_detail(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbR
     Ok(parts.join("；"))
 }
 
+// ==================== 在途超期：扫描 / 告警台账 / 汇总（LNK-F12） ====================
+
+/// 一张待告警的超期在途单（扫描任务的输入，只带通知需要的字段）。
+#[derive(Debug, Clone)]
+pub struct OverdueCandidate {
+    /// 调拨单主键。
+    pub id: Uuid,
+    /// 单号（告警标题与跳转参数）。
+    pub transfer_no: String,
+    /// 申请人（发货方）：告警的第一收件人。
+    pub applicant_id: Option<Uuid>,
+    /// 审批人（可选收件人）。审批人就是「批了这张单的人」，货压着他也该知道。
+    pub approver_id: Option<Uuid>,
+    /// 发货时间（已压天数的起点）。
+    pub shipped_at: DateTime<Utc>,
+    /// 累计告警次数（CAS 的期望值 + 通知幂等键的序号段）。
+    pub overdue_alert_count: i16,
+    /// 调出仓（告警正文里写清「从哪到哪」）。
+    pub from_warehouse_id: Uuid,
+    /// 调入仓。
+    pub to_warehouse_id: Uuid,
+}
+
+/// 扫描「该告警的超期在途单」。
+///
+/// # 判据（与 [`is_in_transit_overdue`] 同一口径）
+///
+/// ```text
+/// status = 'IN_TRANSIT'
+///   AND shipped_at IS NOT NULL
+///   AND shipped_at < now - threshold_days       -- 超期
+///   AND (overdue_alerted_at IS NULL             -- 从没提醒过
+///        OR overdue_alerted_at < now - realert_hours)  -- 或过了重提醒间隔
+/// ORDER BY shipped_at ASC LIMIT ?
+/// ```
+///
+/// 时间点全部在 Rust 侧算好再绑 `?::timestamptz`（W3c 教训：`now() - interval`
+/// 会让 Rust 侧算的「已压天数」与 SQL 侧的分界差几微秒）。
+///
+/// 走 V0171 的部分索引 `idx_biz_transfer_in_transit_shipped`。
+pub async fn scan_overdue_candidates(
+    ex: &impl SqlExecutor,
+    now: DateTime<Utc>,
+    threshold_days: i64,
+    realert_hours: i64,
+    limit: i64,
+) -> DbResult<Vec<OverdueCandidate>> {
+    let cutoff = cutoff_of(now, threshold_days);
+    let realert_before = now - Duration::try_hours(realert_hours).unwrap_or_else(Duration::zero);
+    // SCOPE-EXEMPT: 调拨单是仓储作业单据，三张表都没有 dept_id / 归属人列（口径同文件头）。
+    let rows = ex
+        .query_sql(
+            "SELECT id, transfer_no, applicant_id, approver_id, shipped_at, \
+                    overdue_alert_count, from_warehouse_id, to_warehouse_id \
+               FROM biz_stock_transfer \
+              WHERE deleted_at IS NULL AND status = 'IN_TRANSIT' AND shipped_at IS NOT NULL \
+                AND shipped_at < ?::timestamptz \
+                AND (overdue_alerted_at IS NULL OR overdue_alerted_at < ?::timestamptz) \
+              ORDER BY shipped_at ASC, id ASC LIMIT ?"
+                .to_string(),
+            vec![
+                Value::from(cutoff),
+                Value::from(realert_before),
+                Value::I64(limit),
+            ],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(OverdueCandidate {
+                id: row.get_typed("id")?,
+                transfer_no: row.get_typed("transfer_no")?,
+                applicant_id: row.get_typed("applicant_id")?,
+                approver_id: row.get_typed("approver_id")?,
+                shipped_at: row.get_typed("shipped_at")?,
+                overdue_alert_count: row.get_typed("overdue_alert_count")?,
+                from_warehouse_id: row.get_typed("from_warehouse_id")?,
+                to_warehouse_id: row.get_typed("to_warehouse_id")?,
+            })
+        })
+        .collect()
+}
+
+/// 记一次告警（CAS）：只有 `overdue_alert_count` 仍是读到的旧值时才写。
+///
+/// # 为什么是 CAS 而不是无条件 UPDATE
+///
+/// 多实例 / 多轮并发扫描时，同一张单可能被两个扫描同时捞到。CAS 保证只有一方能把
+/// 台账 +1：另一方看到 `affected = 0` 就放弃（通知侧还有 `uk_sys_notice_idem`
+/// 按「第几次」去重，两层加起来不会出现「一张单两条一模一样的告警」）。
+///
+/// # 返回值
+///
+/// 受影响行数（`1` = 本次真的记上了；`0` = 被别的扫描抢先，跳过）。
+pub async fn mark_overdue_alerted(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    expected_count: i16,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_stock_transfer \
+            SET overdue_alerted_at = ?, overdue_alert_count = overdue_alert_count + 1, \
+                updated_at = ? \
+          WHERE id = ?::uuid AND overdue_alert_count = ? AND status = 'IN_TRANSIT'"
+            .to_string(),
+        vec![
+            Value::from(now),
+            Value::from(now),
+            Value::from(&id),
+            Value::I16(expected_count),
+        ],
+    )
+    .await
+}
+
+/// 超期在途汇总（告警中心 / 看板用）。
+#[derive(Debug, Clone)]
+pub struct OverdueSummary {
+    /// 判定用的阈值（天）—— 前端要写「超过 N 天未收货」。
+    pub threshold_days: i64,
+    /// 超期单数。
+    pub total: i64,
+    /// 最早一张的发货时间（`None` = 没有超期单）。
+    pub oldest_shipped_at: Option<DateTime<Utc>>,
+}
+
+/// 统计超期在途（全库口径，不受分页影响）。
+///
+/// SCOPE-EXEMPT: 同上，调拨单无数据范围列。
+pub async fn overdue_summary(threshold_days: i64, now: DateTime<Utc>) -> DbResult<OverdueSummary> {
+    let cutoff = cutoff_of(now, threshold_days);
+    let row = db()
+        .find_with_params(
+            "SELECT count(*) AS total, min(shipped_at) AS oldest_shipped_at \
+               FROM biz_stock_transfer \
+              WHERE deleted_at IS NULL AND status = 'IN_TRANSIT' AND shipped_at IS NOT NULL \
+                AND shipped_at < ?::timestamptz",
+            vec![Value::from(cutoff)],
+        )
+        .await?;
+    let Some(row) = row.first() else {
+        return Ok(OverdueSummary {
+            threshold_days,
+            total: 0,
+            oldest_shipped_at: None,
+        });
+    };
+    Ok(OverdueSummary {
+        threshold_days,
+        total: row.get_typed("total")?,
+        oldest_shipped_at: row.get_typed("oldest_shipped_at")?,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2597,5 +2898,87 @@ mod tests {
             assert_ne!(status_label(status), "未知状态", "{status} 没有中文名");
         }
         assert_eq!(status_label("WHATEVER"), "未知状态");
+    }
+
+    /// ⑦ LNK-F12：超期在途判定的四条边界（纯函数，与 SQL 同一分界点）。
+    ///
+    /// 这条用例存在的意义：SQL 侧 `shipped_at < cutoff` 与 Rust 侧
+    /// [`is_in_transit_overdue`] 必须**同时**认为「恰好 7 天」不超期 ——
+    /// 两套口径差一微秒就会出现「列表筛不出来、扫描任务却告警」。
+    #[test]
+    fn overdue_boundary_is_strict_and_status_bound() {
+        let now = Utc::now();
+        let threshold = DEFAULT_OVERDUE_DAYS;
+        let cutoff = cutoff_of(now, threshold);
+
+        // ① 恰好等于阈值（`shipped_at == cutoff`）不算超期
+        assert!(
+            !is_in_transit_overdue(STATUS_IN_TRANSIT, Some(cutoff), now, threshold),
+            "恰好 {threshold} 天不算超期（必须是严格小于）"
+        );
+        // ② 早一秒就算超期
+        assert!(
+            is_in_transit_overdue(
+                STATUS_IN_TRANSIT,
+                Some(cutoff - Duration::seconds(1)),
+                now,
+                threshold
+            ),
+            "超过阈值 1 秒即算超期"
+        );
+        // ③ 非 IN_TRANSIT 一律不算（哪怕压了 30 天）
+        for status in [
+            STATUS_DRAFT,
+            STATUS_PENDING,
+            STATUS_APPROVED,
+            STATUS_DONE,
+            STATUS_CANCELLED,
+        ] {
+            assert!(
+                !is_in_transit_overdue(status, Some(now - Duration::days(30)), now, threshold),
+                "{status} 不该被判为超期在途"
+            );
+        }
+        // ④ 在途但没有 shipped_at（脏数据）→ 不告警，不误报
+        assert!(!is_in_transit_overdue(
+            STATUS_IN_TRANSIT,
+            None,
+            now,
+            threshold
+        ));
+    }
+
+    /// ⑧ LNK-F12：已压天数向下取整；未来时间不出现负数。
+    #[test]
+    fn overdue_elapsed_days_floor_and_clamp() {
+        let now = Utc::now();
+        assert_eq!(overdue_elapsed_days(now - Duration::days(30), now), 30);
+        assert_eq!(
+            overdue_elapsed_days(now - Duration::days(30) - Duration::hours(23), now),
+            30,
+            "30 天 23 小时向下取整是 30（不是四舍五入成 31）"
+        );
+        assert_eq!(
+            overdue_elapsed_days(now - Duration::hours(5), now),
+            0,
+            "不足一天算 0 天"
+        );
+        assert_eq!(
+            overdue_elapsed_days(now + Duration::hours(5), now),
+            0,
+            "虚拟时钟回拨（shipped_at 在未来）不能出现负数"
+        );
+    }
+
+    /// ⑨ LNK-F12：查询缺省值不能把阈值落成 0（derive(Default) 的静默坑）。
+    #[test]
+    fn query_defaults_keep_overdue_threshold() {
+        let query = TransferQuery::default();
+        assert_eq!(query.overdue_days, DEFAULT_OVERDUE_DAYS);
+        assert_eq!(query.in_transit_overdue, None);
+        assert_eq!(
+            query.page_size,
+            crate::business::erp::model::DEFAULT_PAGE_SIZE
+        );
     }
 }

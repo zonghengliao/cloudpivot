@@ -90,6 +90,11 @@ pub struct TransferFilter {
     pub to_warehouse_id: Option<String>,
     /// 调拨单号（前缀模糊，扫半截号也能搜到）。
     pub transfer_no: Option<String>,
+    /// 只看「超期在途」（`in_transit_overdue=true`）/ 排除超期（`false`）/ 不筛（缺省）。
+    ///
+    /// 超期口径：`IN_TRANSIT` 且 `shipped_at` 早于「现在 - `erp.transfer.in_transit_overdue_days`」。
+    /// 前端「超期在途」筛选项就是传 `true`。
+    pub in_transit_overdue: Option<bool>,
     /// 页码。
     pub page: u64,
     /// 每页条数。
@@ -103,6 +108,7 @@ impl Default for TransferFilter {
             from_warehouse_id: None,
             to_warehouse_id: None,
             transfer_no: None,
+            in_transit_overdue: None,
             page: 1,
             page_size: DEFAULT_PAGE_SIZE,
         }
@@ -137,6 +143,29 @@ impl TransferFilter {
                 error_code_param(),
                 "transfer_no 最长 32 个字符",
             ));
+        }
+        // 「超期在途」与状态互相矛盾时直接 400：静默返回空列表会被当成「没有超期单」。
+        if let (Some(overdue), Some(status)) =
+            (self.in_transit_overdue, trimmed(self.status.as_deref()))
+        {
+            if overdue && status != crate::business::erp::transfer_model::STATUS_IN_TRANSIT {
+                return Err(ApiError::new(
+                    400,
+                    error_code_param(),
+                    format!(
+                        "in_transit_overdue=true 与 status={status} 矛盾：超期在途只可能出现在 \
+                         IN_TRANSIT 单据上，请去掉 status 或改成 IN_TRANSIT"
+                    ),
+                ));
+            }
+            if !overdue && status == crate::business::erp::transfer_model::STATUS_IN_TRANSIT {
+                return Err(ApiError::new(
+                    400,
+                    error_code_param(),
+                    "in_transit_overdue=false 与 status=IN_TRANSIT 矛盾：\
+                     「排除超期」会把在途单排除掉，二者不能同时用",
+                ));
+            }
         }
         Ok(self)
     }
@@ -418,6 +447,17 @@ pub struct TransferRes {
     pub created_at: DateTime<Utc>,
     /// 更新时间。
     pub updated_at: DateTime<Utc>,
+    /// 是否「超期在途」（`IN_TRANSIT` 且已压超过阈值天数；见 `transfer_model::is_in_transit_overdue`）。
+    ///
+    /// 由 [`TransferRes::with_overdue`] 填充：阈值来自 `sys_config`，组装行时才知道，
+    /// 所以 [`TransferRes::of`] 里恒为 `false`（「未知」按「不超期」呈现，不误报）。
+    pub in_transit_overdue: bool,
+    /// 已压天数（仅 `in_transit_overdue = true` 时有值；列表「超期 N 天」直接用）。
+    pub overdue_days: Option<i64>,
+    /// 最近一次超期告警时间（`None` = 从未提醒过）。
+    pub overdue_alerted_at: Option<DateTime<Utc>>,
+    /// 累计超期告警次数（> 0 说明扫描任务真的提醒过）。
+    pub overdue_alert_count: i16,
 }
 
 impl TransferRes {
@@ -450,8 +490,42 @@ impl TransferRes {
             remark: row.remark.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
+            in_transit_overdue: false,
+            overdue_days: None,
+            overdue_alerted_at: row.overdue_alerted_at,
+            overdue_alert_count: row.overdue_alert_count,
         }
     }
+
+    /// 补齐「是否超期在途 / 已压天数」（阈值与 `now` 由调用方给，保证同一次响应里
+    /// 所有行的判定用同一个时间基准）。
+    ///
+    /// 只对 `IN_TRANSIT` 行计算：其它状态 `in_transit_overdue = false`、`overdue_days = None`。
+    pub fn with_overdue(
+        mut self,
+        row: &TransferRow,
+        now: DateTime<Utc>,
+        threshold_days: i64,
+    ) -> Self {
+        self.in_transit_overdue = row.is_overdue(now, threshold_days);
+        self.overdue_days = if self.in_transit_overdue {
+            row.elapsed_days(now)
+        } else {
+            None
+        };
+        self
+    }
+}
+
+/// 超期在途汇总（`GET /business/erp/transfer/overdue/summary`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TransferOverdueSummaryRes {
+    /// 判定阈值（天）：前端文案「发货超过 N 天未收货」。
+    pub threshold_days: i64,
+    /// 超期单数（全库口径）。
+    pub total: i64,
+    /// 最早一张的发货时间（`None` = 当前没有超期单）。
+    pub oldest_shipped_at: Option<DateTime<Utc>>,
 }
 
 /// 一条明细（含该行的序列号 id 列表）。

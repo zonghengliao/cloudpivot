@@ -292,6 +292,8 @@ impl Scheduler {
         crate::business::task::hermes_sync::register_builtin(self);
         // 批次 D · D4c：审批超时扫描 + 催办（每 10 分钟，LIMIT 500 分批；默认只提醒，AUTO_APPROVE 需全局闸）
         crate::business::flow::timeout::register_builtin(self);
+        // LNK-F12：在途调拨超期扫描 + 告警（每小时第 5 分钟；阈值走 sys_config，默认 7 天）
+        crate::business::erp::transfer_overdue::register_builtin(self);
         // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
         crate::business::flow::maintain::register_builtin(self);
         // 批次 E · E11：周期任务生成（每 5 分钟扫一次 biz_task_template.next_run_at）
