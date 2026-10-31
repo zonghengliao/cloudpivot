@@ -257,7 +257,16 @@ export function fetchLocationList(warehouseId: string, includeDisabled = true): 
   );
 }
 
-/** 库位分页（关键词 / 仓库 / 类型 / 启用位） */
+/**
+ * 库位分页（关键词 / 仓库 / 类型 / 启用位）。
+ *
+ * ⚠️ P4-B 修正：这里原来写的是 `PageData<Location[]>`，而 `PageData<T>` 的 `list` 已经是 `T[]`
+ * —— 于是 `data.list` 的类型变成 `Location[][]`（二维）。之前没人调用过这个函数，`vue-tsc`
+ * 也就没报；库位管理页（`views/business/erp/location`）一用就露馅。
+ * 与 `fetchWarehousePage`（W4b-2 修过同一处）口径对齐：`PageData<Location>`。
+ *
+ * 真出参：`{ list: [ {...LocationRes} ], total, page, page_size }`（`handler.rs::location_page`）。
+ */
 export function fetchLocationPage(query: {
   keyword?: string;
   warehouse_id?: string;
@@ -265,8 +274,8 @@ export function fetchLocationPage(query: {
   status?: number;
   page?: number;
   page_size?: number;
-}): Promise<PageData<Location[]>> {
-  return get<PageData<Location[]>>(`${BASE}/location/page`, asParams(query));
+}): Promise<PageData<Location>> {
+  return get<PageData<Location>>(`${BASE}/location/page`, asParams(query));
 }
 
 /** 库位详情 */

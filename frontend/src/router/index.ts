@@ -341,11 +341,23 @@ const routes: RouteRecordRaw[] = [
         // 漏注册 = 点菜单进 404。
         //
         // 一个菜单项 = 一个页面：左侧仓库树 + 右侧按仓库过滤的库位列表（同页，不是两个 tab），
-        // 所以只注册这一条；库位菜单（…0942 `/business/erp/location`）留给 W4 的库位独立卡。
+        // 所以仓库只注册这一条；库位独立页见下面 `business/erp/location`（P4-B）。
         path: 'business/erp/warehouse',
         name: 'BusinessErpWarehouse',
         component: () => import('@/views/business/erp/warehouse/index.vue'),
         meta: { title: '仓库管理', permission: 'business:erp:warehouse:list' },
+      },
+      {
+        // ==================== ERP 主数据（P4-B · 库位） ====================
+        // 用户报的 404 就是这个：`sys_menu`（V0141 种子 …0942）里有「库位管理」
+        // `/business/erp/location`，component `business/erp/location/index`，
+        // 但前端一直没注册路由（**手工注册，没有 views 自动扫描**）→ 点菜单进 404。
+        // 与仓库页的分工：仓库页管「单仓内」的库位增删改；本页是跨仓库总览
+        //（服务端分页 + 仓库/类型/启用位筛选 + 详情抽屉），两页共用同一个库位弹窗。
+        path: 'business/erp/location',
+        name: 'BusinessErpLocation',
+        component: () => import('@/views/business/erp/location/index.vue'),
+        meta: { title: '库位管理', permission: 'business:erp:location:list' },
       },
       {
         // ==================== ERP 主数据（W4b-1 · 物料） ====================
