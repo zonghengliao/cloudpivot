@@ -26,9 +26,11 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use cloudpivot::business::erp::transfer_dto::{
-    CreateTransferReq, TransferItemReq, TransferStatusReq,
+    CreateTransferReq, TransferItemReq, TransferRes, TransferStatusReq,
 };
 use cloudpivot::business::erp::transfer_handler::{change_transfer_status, create_transfer};
+use cloudpivot::business::erp::transfer_model::{self, TransferQuery};
+use cloudpivot::business::erp::transfer_overdue;
 use cloudpivot::business::flow::dto as flow_dto;
 use cloudpivot::business::flow::handler as flow_handler;
 
@@ -726,16 +728,20 @@ async fn f11_serials_follow_the_transfer() {
     ctx.cleanup().await;
 }
 
-/// F12 在途仓不能长期压货（`IN_TRANSIT` 超时告警）。
+/// F12 在途仓不能长期压货（`IN_TRANSIT` 超期：可查询 + 可告警）。
 ///
-/// # 为什么 ignore（不是「跳过」，是**已知功能缺失**）
+/// # 这条用例守什么（LNK-F12 转正后的口径）
 ///
-/// 实测：`transfer_model` 只在 `IN_TRANSIT` 时回填 `transit_warehouse_id`，
-/// 全仓没有任何「在途超时扫描 / 告警 / 自动提醒」的实现
-/// （`grep -rn "IN_TRANSIT" --include=*.rs | grep -i "timeout\|alert\|超时\|告警"` 零命中，
-/// `sys_job` 也没有对应任务）。这条用例**一旦转正就会红**，所以先按卡面要求留 `#[ignore]`，
-/// 并在 `docs/test-report-linkage.md` 里登记为缺失功能（LNK-F12），等排期实现后转正。
-#[ignore = "功能缺失：IN_TRANSIT 在途超时告警未实现（无扫描任务、无告警表），见 docs/test-report-linkage.md LNK-F12"]
+/// 原用例只断言了一句「`IN_TRANSIT` 且 `shipped_at < now() - 7 天` 的裸 SQL 计数」——
+/// 那种断言在**没有任何超期实现**时也是绿的（实测：带 `--ignored` 单跑 4.85s ok），
+/// 等于没测。转正后必须钉住四件事，缺一件这条用例就会红：
+///
+/// 1. **阈值口径**：来自 `sys_config`（默认 7 天），判定基准是 `shipped_at`；
+/// 2. **可查询**：列表筛选 `in_transit_overdue=true` 能把压了 30 天的单捞出来，
+///    `=false` 与「阈值放到 40 天」两种反向对照都不能捞出来；刚发货的对照单也不许出现；
+/// 3. **可告警**：扫描任务（`transfer_overdue::scan_once`，生产里每小时跑）真的往
+///    `sys_notice` 落了一条告警，收件人是申请人，并回写了告警台账；
+/// 4. **不重复轰炸**：紧接着再扫一次不再新增通知（重提醒间隔 24 小时 + 幂等键 + CAS）。
 #[tokio::test]
 async fn f12_in_transit_stuck_shipment_should_alert() {
     if common::db_or_skip().await.is_none() {
@@ -745,26 +751,234 @@ async fn f12_in_transit_stuck_shipment_should_alert() {
     let _gate = common::serial().await;
     let ctx = Ctx::new("F12").await;
     seed_stock(&ctx, ctx.mat, ctx.wh_from, "100", "12.5").await;
-    let id = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
 
-    // 把发货时间倒推 30 天：一张压了 30 天的在途单，系统应当能查出来 / 告警出来。
+    // 两张在途单：`stuck` 压 30 天（应告警），`fresh` 刚发货（对照，不许被误判）
+    let stuck = in_transit(&ctx, vec![item(ctx.mat, "5")]).await;
+    let fresh = in_transit(&ctx, vec![item(ctx.mat, "3")]).await;
     db().execute_with_params(
         "UPDATE biz_stock_transfer SET shipped_at = now() - interval '30 days' WHERE id = ?::uuid",
-        vec![Value::from(&id)],
+        vec![Value::from(&stuck)],
     )
     .await
     .expect("F12：倒推发货时间失败");
 
-    let stuck = common::scalar_i64(
-        "SELECT count(*) AS v FROM biz_stock_transfer \
-          WHERE id = ?::uuid AND status = 'IN_TRANSIT' \
-            AND shipped_at < now() - interval '7 days'",
-        vec![Value::from(&id)],
+    // ---------- ① 阈值：走 sys_config，默认 7 天 ----------
+    let threshold = transfer_model::overdue_threshold_days().await;
+    assert_eq!(
+        threshold,
+        transfer_model::DEFAULT_OVERDUE_DAYS,
+        "F12：超期阈值必须来自 sys_config 且默认 7 天（实测读到 {threshold}）"
+    );
+    assert_eq!(
+        transfer_model::CONFIG_OVERDUE_DAYS_KEY,
+        "erp.transfer.in_transit_overdue_days",
+        "F12：参数键是与迁移/前端约定的契约，不能改"
+    );
+
+    // ---------- ② 行级判定（生产路径：TransferRes::with_overdue） ----------
+    let now = nik::prelude::chrono::Utc::now();
+    let stuck_row = transfer_model::find_by_id(stuck)
+        .await
+        .expect("F12：查调拨单")
+        .expect("F12：调拨单必须存在");
+    assert_eq!(stuck_row.status, "IN_TRANSIT");
+    assert!(
+        stuck_row.is_overdue(now, threshold),
+        "F12：压了 30 天的在途单必须被判为超期"
+    );
+    let stuck_res =
+        TransferRes::of(&stuck_row, None, None).with_overdue(&stuck_row, now, threshold);
+    assert!(stuck_res.in_transit_overdue, "F12：列表响应要带超期标记");
+    assert_eq!(
+        stuck_res.overdue_days,
+        Some(30),
+        "F12：已压天数要算得出来（30 天 → 30）"
+    );
+
+    // ---------- ③ 可查询：列表筛选 in_transit_overdue=true ----------
+    // 只按本用例的调出仓收口（cloudpivot_test 是并发共享库，不做全局断言）
+    let (overdue_rows, _) = transfer_model::page(&TransferQuery {
+        from_warehouse_id: Some(ctx.wh_from),
+        in_transit_overdue: Some(true),
+        overdue_days: threshold,
+        page_size: 200,
+        ..Default::default()
+    })
+    .await
+    .expect("F12：按超期筛选分页");
+    assert!(
+        overdue_rows.iter().any(|row| row.id == stuck),
+        "F12：超期单必须能被 in_transit_overdue=true 筛出来（这是「压货可见」的入口）"
+    );
+    assert!(
+        !overdue_rows.iter().any(|row| row.id == fresh),
+        "F12：刚发货的单不能被筛成超期（否则告警就是噪音）"
+    );
+
+    // 反向对照一：in_transit_overdue=false 不含超期单
+    let (normal_rows, _) = transfer_model::page(&TransferQuery {
+        from_warehouse_id: Some(ctx.wh_from),
+        in_transit_overdue: Some(false),
+        overdue_days: threshold,
+        page_size: 200,
+        ..Default::default()
+    })
+    .await
+    .expect("F12：排除超期分页");
+    assert!(
+        !normal_rows.iter().any(|row| row.id == stuck),
+        "F12：in_transit_overdue=false 不该返回超期单"
+    );
+    assert!(
+        normal_rows.iter().any(|row| row.id == fresh),
+        "F12：in_transit_overdue=false 应当保留正常在途单"
+    );
+
+    // 反向对照二：阈值放宽到 40 天 → 同一张单不再超期（证明阈值真的参与判定，
+    // 而不是「写死 7 天」或「只要有 shipped_at 就算」）
+    let (loose_rows, _) = transfer_model::page(&TransferQuery {
+        from_warehouse_id: Some(ctx.wh_from),
+        in_transit_overdue: Some(true),
+        overdue_days: 40,
+        page_size: 200,
+        ..Default::default()
+    })
+    .await
+    .expect("F12：放宽阈值分页");
+    assert!(
+        !loose_rows.iter().any(|row| row.id == stuck),
+        "F12：阈值 40 天时压 30 天的单不该算超期（阈值必须生效）"
+    );
+
+    // 汇总接口口径（全库计数，至少包含本用例这张）
+    let summary = transfer_model::overdue_summary(threshold, now)
+        .await
+        .expect("F12：超期汇总");
+    assert!(
+        summary.total >= 1,
+        "F12：超期汇总必须数到本用例这张（实测 total={}）",
+        summary.total
+    );
+    assert_eq!(summary.threshold_days, threshold);
+
+    // ---------- ④ 可告警：扫描任务真的把单推给人 ----------
+    // 台账基线：扫描前从未提醒过
+    assert_eq!(
+        common::scalar_i64(
+            "SELECT overdue_alert_count::int AS v FROM biz_stock_transfer WHERE id = ?::uuid",
+            vec![Value::from(&stuck)],
+        )
+        .await,
+        0,
+        "F12：扫描前告警台账必须是 0"
+    );
+
+    let report = transfer_overdue::scan_once(now)
+        .await
+        .expect("F12：超期扫描任务不能报错");
+    assert!(
+        report.alerted >= 1,
+        "F12：扫描必须至少告警一张单（{}）",
+        report.summary()
+    );
+
+    // 告警落库到 sys_notice（复用既有通知设施，不另造表）
+    let notice_count = common::scalar_i64(
+        "SELECT count(*) AS v FROM sys_notice \
+          WHERE biz_type = ? AND biz_id = ? AND deleted_at IS NULL",
+        vec![
+            Value::Text(transfer_overdue::BIZ_TYPE.to_string()),
+            Value::Text(stuck.to_string()),
+        ],
     )
     .await;
     assert_eq!(
-        stuck, 1,
-        "F12：压了 30 天的在途单查得出来，但系统没有任何告警/扫描入口把它推给人"
+        notice_count,
+        1,
+        "F12：必须落一条超期告警通知（biz_type={}）",
+        transfer_overdue::BIZ_TYPE
     );
+
+    // 收件人是申请人（发货方），且是强制送达（force=true 跳过 notify.inbox 偏好）
+    let receiver = common::scalar_i64(
+        "SELECT count(*) AS v FROM sys_notice_receiver r \
+           JOIN sys_notice n ON n.id = r.notice_id \
+          WHERE n.biz_type = ? AND n.biz_id = ? AND r.user_id = ?::uuid",
+        vec![
+            Value::Text(transfer_overdue::BIZ_TYPE.to_string()),
+            Value::Text(stuck.to_string()),
+            Value::from(&ctx.worker),
+        ],
+    )
+    .await;
+    assert_eq!(
+        receiver, 1,
+        "F12：告警必须推到申请人（发货方）手上，而不是「发出去没人收」"
+    );
+
+    // 台账回写：次数 1 + 时间非空（下一轮才能按间隔跳过）
+    let (alert_count, alerted_at_set) = {
+        let row = db()
+            .find_with_params(
+                "SELECT overdue_alert_count::int AS cnt, \
+                        (overdue_alerted_at IS NOT NULL)::text AS flagged \
+                   FROM biz_stock_transfer WHERE id = ?::uuid",
+                vec![Value::from(&stuck)],
+            )
+            .await
+            .expect("F12：读告警台账");
+        let row = row.first().expect("F12：调拨单必须存在");
+        (
+            row.get_typed::<i32>("cnt").expect("告警次数"),
+            row.get_typed::<String>("flagged").expect("告警时间标记"),
+        )
+    };
+    assert_eq!(alert_count, 1, "F12：告警次数必须回写为 1");
+    assert_eq!(alerted_at_set, "true", "F12：告警时间必须回写");
+
+    // 刚发货的对照单不许被告警（否则「超期」这两个字就没意义了）
+    let fresh_notices = common::scalar_i64(
+        "SELECT count(*) AS v FROM sys_notice WHERE biz_type = ? AND biz_id = ?",
+        vec![
+            Value::Text(transfer_overdue::BIZ_TYPE.to_string()),
+            Value::Text(fresh.to_string()),
+        ],
+    )
+    .await;
+    assert_eq!(fresh_notices, 0, "F12：未超期的在途单不许告警");
+
+    // ---------- ⑤ 不重复轰炸：紧接着再扫一次 ----------
+    let second = transfer_overdue::scan_once(now)
+        .await
+        .expect("F12：第二轮扫描不能报错");
+    assert_eq!(
+        second.alerted,
+        0,
+        "F12：重提醒间隔内不许再次告警（{}）",
+        second.summary()
+    );
+    let notice_after = common::scalar_i64(
+        "SELECT count(*) AS v FROM sys_notice WHERE biz_type = ? AND biz_id = ?",
+        vec![
+            Value::Text(transfer_overdue::BIZ_TYPE.to_string()),
+            Value::Text(stuck.to_string()),
+        ],
+    )
+    .await;
+    assert_eq!(notice_after, 1, "F12：第二轮不许新增通知（幂等）");
+
+    // ---------- 收尾：告警通知属于本轮夹具，清掉 ----------
+    // 只删本模块 biz_type 的行：`transfer_overdue` 是 LNK-F12 新引入的业务类型，
+    // 库里不存在历史数据；再按 biz_id 收口到本用例的调拨单。
+    db().execute_with_params(
+        "DELETE FROM sys_notice WHERE biz_type = ? AND biz_id IN (?, ?)",
+        vec![
+            Value::Text(transfer_overdue::BIZ_TYPE.to_string()),
+            Value::Text(stuck.to_string()),
+            Value::Text(fresh.to_string()),
+        ],
+    )
+    .await
+    .expect("F12：清理告警通知失败");
     ctx.cleanup().await;
 }

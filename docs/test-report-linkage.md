@@ -12,11 +12,11 @@
 | 项目 | 结果 |
 |---|---|
 | 用例总数 | **62**（T01–T18 / S01–S16 / F01–F12 / P01–P08 / V01–V08） |
-| 通过 | **60** |
+| 通过 | **60**（其中 **61** 为本轮现状：F12 已由 `t_ff20409a` 转正，见 §5.2） |
 | 失败 | **0** |
-| 已知问题转 `#[ignore]` | **2**（LNK-P08 真缺陷、LNK-F12 功能缺失） |
+| 已知问题转 `#[ignore]` | **2**（LNK-P08 真缺陷、LNK-F12 功能缺失）→ 现状 **1**（F12 已转正，P08 等 `t_a34c68b6`） |
 | 抓到的**新**缺陷 | **1 个**（LNK-P08：应付第二次部分付款被状态机误拒 → 付款路径第三次分期直接断） |
-| 抓到的功能缺失 | **1 个**（LNK-F12：在途仓无超期告警/扫描） |
+| 抓到的功能缺失 | **1 个**（LNK-F12：在途仓无超期告警/扫描）→ **已实现**（`V0171` + `transfer_overdue_scan`，见 `docs/在途调拨超期告警-LNK-F12.md`） |
 | 卡面口径与实现不一致（非缺陷，需产品定） | **5 处**（T10 / T11 / F03 / F08 / F09） |
 | 老板报的 TSK-202610-000149（任务取消后孤儿待办） | **已被 P11 修复，本套用例 T15 作为回归护栏转绿** |
 | 夹具残留 | 跑绿后 **0**（真库逐表核对，见 §7） |
@@ -79,7 +79,7 @@ cargo test --test linkage            # 就是卡面那条命令，默认多线�
 | 应付 SETTLED | 付款凭证（借 2202 / 贷 1002） | 生成且借贷平衡 | — | ✅ | P04 |
 | 应付 paid/unpaid | amount | `paid + unpaid = amount` 恒等 | — | ⚠️ **P08 红**（见 §5.1） | P08 |
 | 凭证红冲 | `biz_voucher_entry` / `reversed_by` | 镜像分录、指针回写、状态仍 POSTED | `reverse_voucher` | ✅ | V01 / V02 |
-| IN_TRANSIT 长期压货 | 告警 / 扫描任务 | 应能被查出并推给人 | **没有实现** | ❌ | F12（ignore） |
+| IN_TRANSIT 长期压货 | 告警 / 扫描任务 | 应能被查出并推给人 | `transfer_overdue_scan` | ✅ **已实现** | F12（已转正） |
 
 ---
 
@@ -144,7 +144,7 @@ cargo test --test linkage            # 就是卡面那条命令，默认多线�
 | F09 | `f09_over_issue_is_rejected_at_settlement` | 超发在结算处被拒（409），状态留在 IN_TRANSIT（口径见 §6.5） | ok |
 | F10 | `f10_concurrent_transfers_do_not_deadlock` | 同物料并发调拨不死锁 | ok |
 | F11 | `f11_serials_follow_the_transfer` | 一物一码序列号跟着调拨走（明细关联表） | ok |
-| F12 | `f12_in_transit_stuck_shipment_should_alert` | 压 30 天的在途单应可被查出/告警 | **ignored**（LNK-F12） |
+| F12 | `f12_in_transit_stuck_shipment_should_alert` | 压 30 天的在途单可查询 + 可告警（阈值 7 天，见 §5.2） | ok（**已转正**） |
 
 ### 领域 4 · 应付 ↔ 付款（8）
 
@@ -242,24 +242,58 @@ P08：付款 3.5 失败 10001 [10003] 应付单 AP-20261031-000153 的状态没�
 > **评审注意**：修复方向应是「状态没变时**不调** `transition`」，而不是放宽 `state_machine` 的
 > `from == to` 护栏 —— 护栏是 P10 铁律③的唯一入口，放宽会连带影响所有实体。
 
-### 5.2 LNK-F12（**功能缺失 · 中**）在途仓 `IN_TRANSIT` 超期无告警、无扫描
+### 5.2 LNK-F12（**功能缺失 · 中**）在途仓 `IN_TRANSIT` 超期无告警、无扫描 —— ✅ 已修复
 
 | 项 | 内容 |
 |---|---|
-| 用例 | `linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert`（`#[ignore]`） |
+| 用例 | `linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert`（**已去 `#[ignore]`**） |
 | 期望 | 发货后长期未收货的在途单能被查出并推给人（阈值可配，默认 7 天） |
-| 实际 | 全仓没有任何实现 |
+| 改造前 | 全仓没有任何实现 |
 | 严重度 | 中 —— 库存既不在调出仓也不在调入仓，账实差异只能靠人肉发现 |
-| 修复卡 | **t_ff20409a** |
+| 修复卡 | **t_ff20409a**（已交付） |
+| 口径与验收文档 | `docs/在途调拨超期告警-LNK-F12.md` |
 
-已核实的证据（不是"看起来没有"）：
+已核实的证据（改造前，不是"看起来没有"）：
 
 ```bash
 grep -rn "IN_TRANSIT" --include=*.rs src/ | grep -i "timeout|alert|超时|告警"   # 零命中
 grep -rn "transit" src/ migrations/ | grep -i "job|schedule"                    # 零命中
 ```
 
-`transfer_model` 只在发货时回填 `transit_warehouse_id`，没有任何超时判定/扫描任务/告警入口。
+#### 修复后的实现（`t_ff20409a`）
+
+| 能力 | 落点 |
+|---|---|
+| 判定 | `transfer_model::is_in_transit_overdue`（纯函数）+ 列表 SQL，共用 `cutoff_of` 同一分界点 |
+| 阈值 | `sys_config.erp.transfer.in_transit_overdue_days`（缺省 7 天）/ `.in_transit_realert_hours`（缺省 24h） |
+| 查询 | `GET /business/erp/transfer/page?in_transit_overdue=true`；汇总 `GET /business/erp/transfer/overdue/summary` |
+| 告警 | 定时任务 `transfer_overdue_scan`（每小时第 5 分钟）→ `notice::dispatch` 站内 `ALERT/WARN`，收件人 = 申请人 + 审批人 |
+| 防重 | `overdue_alerted_at` 间隔 + 台账 CAS + `sys_notice` 幂等键（带「第几次」） |
+| 迁移 | `V0171__transfer_in_transit_overdue`：两列 + 部分索引 + 两条参数（up/down 幂等，down 有越界检测） |
+
+#### 为什么这条用例被**重写**而不只是「去掉 `#[ignore]`」
+
+原断言只有一句裸 SQL：
+
+```sql
+SELECT count(*) FROM biz_stock_transfer
+ WHERE id = ? AND status = 'IN_TRANSIT' AND shipped_at < now() - interval '7 days'
+```
+
+这**在任何实现都不存在时也是绿的**（实测：改造前带 `--ignored` 单跑
+`test result: ok. 1 passed ... finished in 4.85s`）—— 转正后等于什么都没测。
+重写后的用例断言 4 组事实，缺一组就红：
+
+1. 阈值来自 `sys_config` 且等于 7（参数键逐字比对，防改名）；
+2. `in_transit_overdue=true` 捞得到压 30 天的单；`=false`、阈值放宽到 40 天、刚发货的对照单都捞不到；
+3. `transfer_overdue::scan_once` 真的落了一条 `sys_notice`（`biz_type='transfer_overdue'`），
+   收件人是申请人，`overdue_alert_count` 回写为 1、`overdue_alerted_at` 非空，未超期的对照单无通知；
+4. 紧接着再扫一次 `alerted = 0` 且通知条数不变（间隔 + 幂等 + CAS）。
+
+变异验证（证明断言真的读行为、不是恒真）：把 `scan_overdue_candidates` 临时短路成
+`Ok(Vec::new())`（等价于「扫描任务不存在」的原始缺陷态），用例立刻红在
+`F12：扫描必须至少告警一张单（transfer_overdue_scan: scanned=0 alerted=0 skipped=0 failed=0）`；
+还原后复绿。
 
 ---
 
@@ -392,9 +426,10 @@ cargo fmt -- --check                                                          # 
 | 卡 | 内容 | 承接 |
 |---|---|---|
 | `t_a34c68b6` | 应付第二次部分付款被状态机误拒（LNK-P08） | backend-developer |
-| `t_ff20409a` | 在途仓 `IN_TRANSIT` 超期告警缺失（LNK-F12） | backend-developer |
+| `t_ff20409a` | 在途仓 `IN_TRANSIT` 超期告警缺失（LNK-F12） | backend-developer · **✅ 已交付** |
 
 两张卡修好后，把对应用例的 `#[ignore]` 去掉即转正（注释里已写明原因与卡号）。
+F12 已转正并**重写断言**（原断言是裸 SQL 计数，没有实现也绿，见 §5.2）；P08 待 `t_a34c68b6`。
 
 ---
 
