@@ -294,6 +294,10 @@ impl Scheduler {
         crate::business::flow::timeout::register_builtin(self);
         // LNK-F12：在途调拨超期扫描 + 告警（每小时第 5 分钟；阈值走 sys_config，默认 7 天）
         crate::business::erp::transfer_overdue::register_builtin(self);
+        // P16：收货作废审批的**孤儿实例回收**（每 10 分钟）。
+        // 判据：审批还在跑、单据却已删除或已不是「作废审批中」→ 终止审批单（P11 教训：
+        // 不回收就是审批中心一堆点进去 404 的待办，且下一次发起会被 uk_ 唯一索引永久堵死）。
+        crate::business::erp::stockin_bridge::register_builtin(self);
         // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
         crate::business::flow::maintain::register_builtin(self);
         // 批次 E · E11：周期任务生成（每 5 分钟扫一次 biz_task_template.next_run_at）

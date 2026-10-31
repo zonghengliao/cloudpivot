@@ -1390,8 +1390,13 @@ export function deletePurchaseOrder(id: string): Promise<void> {
 
 // ==================== 收货入库（P2-B1 / P2-E1） ====================
 
-/** 收货单状态（`stockin_model::STATUS_*`）：`DRAFT→POSTED` / `DRAFT→CANCELLED` / `POSTED→CANCELLED` */
-export type StockInStatus = 'DRAFT' | 'POSTED' | 'CANCELLED';
+/**
+ * 收货单状态（`stockin_model::STATUS_*`）。
+ *
+ * P16 起作废是**两步**：`POSTED → PENDING_CANCEL`（发起作废审批）→ 审批通过 → `CANCELLED`；
+ * 驳回 / 撤回则由 `PENDING_CANCEL` 回到 `POSTED`。草稿仍可直接 `DRAFT → CANCELLED`。
+ */
+export type StockInStatus = 'DRAFT' | 'POSTED' | 'PENDING_CANCEL' | 'CANCELLED';
 
 /**
  * 收货入库单主表（逐字抄 `stockin_dto.rs::StockInRes`）。
@@ -1444,8 +1449,12 @@ export interface StockInRow {
   cancelled_at: string | null;
   /** 作废人 */
   cancelled_by: string | null;
-  /** 作废原因 */
+  /** 作废原因（P16：`PENDING_CANCEL` 时是**申请理由**，审批人据此判断） */
   cancel_reason: string | null;
+  /** 作废审批实例 id（P16；只有「作废审批中」非空，详情抽屉据此画审批进度） */
+  approval_instance_id: string | null;
+  /** 创建人（P16：内控口径「复核人 ≠ 制单人」，前端据此提示） */
+  create_by: string | null;
   /** 创建时间 */
   created_at: string;
   /** 更新时间 */
@@ -1612,6 +1621,16 @@ export function updateStockInStatus(
   payload: StockInStatusReq,
 ): Promise<StockInDetail> {
   return patch<StockInDetail>(`${BASE}/stock-in/${id}/status`, payload);
+}
+
+/**
+ * 撤回收货单的作废申请（`POST /erp/stock-in/{id}/cancel-withdraw`，P16）。
+ *
+ * 只有**发起人**能撤（后端校验，其余人 403 + 65004）；单据 `PENDING_CANCEL → POSTED`，
+ * 六本账一动没动。撤回成功后审批中心的待办同时被终止（后端同一事务里做）。
+ */
+export function withdrawStockInCancel(id: string): Promise<StockInDetail> {
+  return post<StockInDetail>(`${BASE}/stock-in/${id}/cancel-withdraw`, {});
 }
 
 /** 删除（`DELETE /erp/stock-in/{id}`，**仅 DRAFT**，软删） */

@@ -141,13 +141,20 @@ pub const STATUS_DRAFT: &str = "DRAFT";
 pub const STATUS_POSTED: &str = "POSTED";
 /// 状态：已作废。
 pub const STATUS_CANCELLED: &str = "CANCELLED";
+/// 状态：作废审批中（P16）。
+///
+/// 只有「发起作废 → 审批中」这一种进入方式：单据**锁定**（不许改数量 / 金额 / 明细），
+/// 六本账一动没动。审批通过才落 `CANCELLED` 并执行回滚；驳回 / 撤回回到 `POSTED`。
+/// 该状态与 `biz_stock_in.approval_instance_id` 由 `ck_biz_si_pending_cancel` 绑死：
+/// 有单必有实例、有实例必有单（杜绝「审批中却没有实例 = 永远等不到回调」的孤儿）。
+pub const STATUS_PENDING_CANCEL: &str = "PENDING_CANCEL";
 
 /// 本卡负责的合法边（卡面 §二）。
 ///
 /// P10 起**唯一真相在 [`crate::business::shared::state_machine`]**：这里只是同一份
 /// 常量数组的别名，`state_machine::transition` 还会核对两者一致 ——
 /// 想在调用点偷偷多放一条边会立刻 500，而不是静默绕过状态机。
-pub const LEGAL_EDGES: [(&str, &str); 3] = state_machine::STOCK_IN_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::STOCK_IN_EDGES;
 
 /// 流水方向：入（`ck_biz_inv_txn_type` 只认 `IN` / `OUT`）。
 pub const TXN_TYPE_IN: &str = "IN";
@@ -192,6 +199,7 @@ pub fn status_label(status: &str) -> &'static str {
     match status {
         STATUS_DRAFT => "草稿",
         STATUS_POSTED => "已过账",
+        STATUS_PENDING_CANCEL => "作废审批中",
         STATUS_CANCELLED => "已作废",
         _ => "未知状态",
     }
@@ -475,8 +483,8 @@ impl Totals {
 pub const HEADER_COLUMNS: &str = "id, in_no, in_type, source_order_id, supplier_id, warehouse_id, \
      in_date, status, currency_code::text AS currency_code, total_qty, total_amount, total_tax, \
      total_with_tax, invoice_received, voucher_id, payable_id, remark, posted_at, posted_by, \
-     cancelled_at, cancelled_by, cancel_reason, created_at, updated_at, create_by, update_by, \
-     deleted_at";
+     cancelled_at, cancelled_by, cancel_reason, approval_instance_id, created_at, updated_at, \
+     create_by, update_by, deleted_at";
 
 /// 收货入库单头行。
 #[derive(Debug, Clone)]
@@ -525,6 +533,10 @@ pub struct StockInRow {
     pub cancelled_by: Option<Uuid>,
     /// 作废原因。
     pub cancel_reason: Option<String>,
+    /// 作废审批实例 id（P16，`biz_flow_instance.id` 弱引用，无外键）。
+    ///
+    /// 只有 `status = PENDING_CANCEL` 时非空（由 `ck_biz_si_pending_cancel` 保证）。
+    pub approval_instance_id: Option<Uuid>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -563,6 +575,7 @@ impl StockInRow {
             cancelled_at: row.get_typed("cancelled_at")?,
             cancelled_by: row.get_typed("cancelled_by")?,
             cancel_reason: row.get_typed("cancel_reason")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             create_by: row.get_typed("create_by")?,
@@ -966,7 +979,13 @@ pub async fn update_remark(
 /// * `DRAFT → POSTED`：写 `posted_at` / `posted_by`。**库存增加不在这里做** ——
 ///   由 [`apply_cost`] / [`post_stock_in`] 在同一事务里完成。
 /// * `DRAFT → CANCELLED`：写 `cancelled_at/by/reason`，不动库存（从未加过）。
-/// * `POSTED → CANCELLED`：只改状态 + 原因；**库存不冲回**（红冲属 P2-C1），打 WARN。
+/// * `POSTED → CANCELLED`：只改状态 + 原因；库存冲回由调用方（`cancel_in_tx`）在同事务做。
+/// * `POSTED → PENDING_CANCEL`（P16）：写状态 + `cancel_reason`（申请理由）+
+///   `approval_instance_id`；**账一动没动**。
+/// * `PENDING_CANCEL → CANCELLED`（P16）：写 `cancelled_at/by`，保留 `cancel_reason`
+///   （红冲凭证摘要用它），并**清空 `approval_instance_id`**（`ck_biz_si_pending_cancel`
+///   要求非审批中状态不得挂实例）。
+/// * `PENDING_CANCEL → POSTED`（P16 驳回 / 撤回）：状态回滚 + 清空实例与申请理由。
 pub async fn apply_status(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -974,6 +993,24 @@ pub async fn apply_status(
     to: &str,
     reason: Option<&str>,
     operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(ex, id, from, to, reason, operator, None, now).await
+}
+
+/// 同 [`apply_status`]，但能**同时**写 `approval_instance_id`（P16 发起作废审批用）。
+///
+/// 拆成两个入口是因为「写不写实例 id」是两件事：普通流转必须保持 `NULL`
+/// （否则 `ck_biz_si_pending_cancel` 当场 23514），只有发起审批那次才带值。
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    approval_instance_id: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
     let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
@@ -984,7 +1021,8 @@ pub async fn apply_status(
                 "UPDATE {TABLE} \
                     SET status = '{STATUS_POSTED}', posted_at = ?, \
                         posted_by = NULLIF(?::text,'')::uuid, updated_at = ?, \
-                        update_by = NULLIF(?::text,'')::uuid \
+                        update_by = NULLIF(?::text,'')::uuid, \
+                        approval_instance_id = NULL, cancel_reason = NULL \
                   WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
             ),
             vec![
@@ -996,11 +1034,38 @@ pub async fn apply_status(
                 Value::Text(from.to_string()),
             ],
         ),
+        STATUS_PENDING_CANCEL => {
+            // 审批中没有实例 id 就等于「永远等不到回调」：库约束和代码两头都挡
+            let Some(instance_id) = approval_instance_id else {
+                return Err(DbError::InvalidValue(
+                    "发起作废审批必须同时写 approval_instance_id（ck_biz_si_pending_cancel）"
+                        .to_string(),
+                ));
+            };
+            (
+                format!(
+                    "UPDATE {TABLE} \
+                        SET status = '{STATUS_PENDING_CANCEL}', cancel_reason = ?::text, \
+                            approval_instance_id = ?::uuid, updated_at = ?, \
+                            update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::Text(reason_text),
+                    Value::from(&instance_id),
+                    Value::from(now),
+                    operator_text,
+                    Value::from(&id),
+                    Value::Text(from.to_string()),
+                ],
+            )
+        }
         STATUS_CANCELLED => (
             format!(
                 "UPDATE {TABLE} \
                     SET status = '{STATUS_CANCELLED}', cancelled_at = ?, \
                         cancelled_by = NULLIF(?::text,'')::uuid, cancel_reason = ?::text, \
+                        approval_instance_id = NULL, \
                         updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
                   WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
             ),
@@ -1016,7 +1081,7 @@ pub async fn apply_status(
         ),
         other => {
             return Err(DbError::InvalidValue(format!(
-                "状态流转的目标 `{other}` 不在 2 个可写目标里（DRAFT 只由建单产生）"
+                "状态流转的目标 `{other}` 不在 3 个可写目标里（DRAFT 只由建单产生）"
             )));
         }
     };
@@ -2251,6 +2316,145 @@ pub async fn link_voucher_and_payable(
     .await
 }
 
+/// 已发布的「收货单作废审批」流程（`flow_code='stock_in_cancel'` 或 `biz_type='STOCK_IN_CANCEL'`）。
+/// `None` = **没配流程**（不是错误）：调用方按卡面 §二 ①「降级」处理 —— 直接作废
+/// （保持 P16 之前的行为）并打一条 `warn`，绝不因为没配流程就把作废功能锁死。
+///
+/// 排序口径与 [`transfer_model::published_transfer_flow`] 完全一致（`biz_type` 精确命中优先 →
+/// `is_default` → 版本号 → 更新时间），这样「客户自己建了同名流程」也能被稳定选中。
+#[derive(Debug, Clone)]
+pub struct PublishedFlow {
+    /// 流程定义 id。
+    pub def_id: Uuid,
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 业务类型（`STOCK_IN_CANCEL`）。
+    pub biz_type: String,
+    /// 当前发布版本 id。
+    pub version_id: Uuid,
+    /// 当前发布版本号。
+    pub version_no: i32,
+}
+
+/// 作废审批的业务类型（`biz_flow_def.biz_type`，与种子迁移 V0174 同口径）。
+pub const CANCEL_BIZ_TYPE: &str = "STOCK_IN_CANCEL";
+/// 作废审批的流程编码（`flow_code`）。
+pub const CANCEL_FLOW_CODE: &str = "stock_in_cancel";
+
+/// 查「已发布的收货单作废流程」。
+pub async fn published_cancel_flow() -> DbResult<Option<PublishedFlow>> {
+    // SCOPE-EXEMPT: 流程定义（biz_flow_def）是全局配置，按 biz_type / flow_code 精确取 1 行，
+    // 不分页、不按部门裁剪（裁剪会导致「看不到自己的单据该走哪个流程」）。
+    let rows = db()
+        .find_with_params(
+            "SELECT d.id AS def_id, d.flow_code, d.flow_name, d.biz_type, \
+                    d.current_version_id AS version_id, d.current_version_no AS version_no \
+               FROM biz_flow_def d \
+              WHERE d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
+                AND d.current_version_id IS NOT NULL \
+                AND (d.biz_type = 'STOCK_IN_CANCEL' OR lower(d.flow_code) = 'stock_in_cancel') \
+              ORDER BY (d.biz_type = 'STOCK_IN_CANCEL') DESC, d.is_default DESC, \
+                       d.current_version_no DESC, d.updated_at DESC \
+              LIMIT 1",
+            vec![],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(PublishedFlow {
+            def_id: row.get_typed("def_id")?,
+            flow_code: row.get_typed("flow_code")?,
+            flow_name: row.get_typed("flow_name")?,
+            biz_type: row.get_typed("biz_type")?,
+            version_id: row.get_typed("version_id")?,
+            version_no: row.get_typed("version_no")?,
+        })),
+    }
+}
+
+/// 作废的**只读可行性预检**（P16）：发起审批之前跑一遍，做不成的单别送去复核。
+///
+/// # 为什么要有它
+///
+/// P16 把「作废」拆成「发起 → 复核 → 执行」。执行（[`reverse_cost`] / [`void_serials_of`]）
+/// 本来就会拒绝「货已出库」的单，但那时审批人已经批了 —— 结论是 APPROVED、账却一分没退，
+/// 单据卡在「作废审批中」，比直接报错更糟。所以判据提前到**发起**这一步：
+/// 用同一套哨兵前缀（[`SHORTFALL_PREFIX`] / [`SERIAL_SHIPPED_PREFIX`]）给出同一份 409 文案，
+/// handler 原样映射，前端看到的话术与 P16 之前完全一致。
+///
+/// 只读：不加锁、不改行（`lock_serials_of` 的 `FOR UPDATE` 在事务外层会自动失效，
+/// 预检本来就允许「判完就被人改了」——真正的护栏仍在执行时的 `reverse_cost` / `void_serials_of`）。
+pub async fn ensure_cancellable(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+    in_no: &str,
+    warehouse_id: Uuid,
+) -> DbResult<()> {
+    // ① 一物一码：本单生成的号码必须全部仍在库
+    let serials = lock_serials_of(ex, stock_in_id).await?;
+    if let Some(blocked) = serials
+        .iter()
+        .find(|serial| serial.status != serial_model::STATUS_IN_STOCK)
+    {
+        return Err(DbError::InvalidValue(format!(
+            "{SERIAL_SHIPPED_PREFIX}收货单 {in_no} 生成的一物一码序列号 {} 已{}（{}），\
+             不能随单作废：那几件已经离开仓库，请先做退货入库冲销",
+            blocked.serial_no,
+            serial_status_label(&blocked.status),
+            blocked.status
+        )));
+    }
+    // ② 成本账数量够不够退（与 [`reverse_cost`] 同一判据、同一字典序）
+    let plan = cancel_plan_of(ex, stock_in_id, in_no, warehouse_id).await?;
+    for line in &plan {
+        let before = inventory_qty_of(ex, line.material_id, warehouse_id, line.location_id).await?;
+        if before < line.qty {
+            let code: Option<String> = ex
+                .scalar_sql(
+                    "SELECT material_code FROM biz_material WHERE id = ?::uuid".to_string(),
+                    vec![Value::from(&line.material_id)],
+                )
+                .await?;
+            return Err(DbError::InvalidValue(format!(
+                "{SHORTFALL_PREFIX}物料 {} 库存 {} < 本单 {}",
+                code.unwrap_or_else(|| line.material_id.to_string()),
+                before.round_dp(4),
+                line.qty.round_dp(4)
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// 读 `(物料, 仓库, 库位)` 的成本账数量（`location_id IS NULL` = 未分配库位汇总桶）。
+///
+/// 与 [`lock_inventory`] 同一个命中口径：`COALESCE(location_id, 零 uuid)`，
+/// 这样走得上 `uk_biz_inv_mat_wh_loc` 的表达式索引。
+async fn inventory_qty_of(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+) -> DbResult<Decimal> {
+    let qty: Option<Decimal> = ex
+        .scalar_sql(
+            "SELECT qty FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
+                    = ?::uuid"
+                .to_string(),
+            vec![
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                Value::from(&location_id.unwrap_or_else(Uuid::nil)),
+            ],
+        )
+        .await?;
+    Ok(qty.unwrap_or(Decimal::ZERO))
+}
+
 #[cfg(test)]
 mod pure_tests {
     use super::*;
@@ -2305,25 +2509,56 @@ mod pure_tests {
         assert_eq!(first, InventorySnapshot::zero());
     }
 
-    /// ④ 状态机：只有 3 条合法边，`POSTED → POSTED` 与 `CANCELLED` 之后的一切都是 409。
+    /// ④ 状态机：6 条合法边（P16 的 3 条作废审批边 + 原有 3 条），
+    /// `POSTED → POSTED` 与 `CANCELLED` 之后的一切都是 409。
     #[test]
-    fn only_three_legal_edges() {
+    fn only_six_legal_edges() {
         assert!(can_transition(STATUS_DRAFT, STATUS_POSTED));
         assert!(can_transition(STATUS_DRAFT, STATUS_CANCELLED));
         assert!(can_transition(STATUS_POSTED, STATUS_CANCELLED));
+        // P16：作废审批三步
+        assert!(can_transition(STATUS_POSTED, STATUS_PENDING_CANCEL));
+        assert!(can_transition(STATUS_PENDING_CANCEL, STATUS_CANCELLED));
+        assert!(can_transition(STATUS_PENDING_CANCEL, STATUS_POSTED));
         assert!(
             !can_transition(STATUS_POSTED, STATUS_POSTED),
             "重复过账非法"
         );
+        // 审批中不能再跳回草稿，也不能直接过账（单据已入过账）
+        assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_DRAFT));
+        assert!(!can_transition(
+            STATUS_PENDING_CANCEL,
+            STATUS_PENDING_CANCEL
+        ));
+        assert!(!can_transition(STATUS_DRAFT, STATUS_PENDING_CANCEL));
         assert!(!can_transition(STATUS_CANCELLED, STATUS_POSTED));
         assert!(!can_transition(STATUS_CANCELLED, STATUS_DRAFT));
+        assert!(!can_transition(STATUS_CANCELLED, STATUS_PENDING_CANCEL));
         assert_eq!(
             next_statuses(STATUS_DRAFT),
             vec![STATUS_POSTED, STATUS_CANCELLED]
         );
+        assert_eq!(
+            next_statuses(STATUS_PENDING_CANCEL),
+            vec![STATUS_CANCELLED, STATUS_POSTED]
+        );
         assert!(next_statuses(STATUS_CANCELLED).is_empty());
         let message = transition_rejected_message(STATUS_DRAFT, "CANCELLED");
         assert!(message.contains("POSTED"), "文案要点名可选去向：{message}");
+    }
+
+    /// ④b 作废审批中单据必须锁定（不许改数量 / 金额 / 明细）。
+    #[test]
+    fn pending_cancel_is_locked() {
+        use crate::business::shared::state_machine::Entity;
+        assert!(Entity::StockIn.is_locked(STATUS_PENDING_CANCEL));
+        assert!(Entity::StockIn.is_locked(STATUS_POSTED));
+        assert!(!Entity::StockIn.is_locked(STATUS_DRAFT));
+        // 两步都要 reason（申请理由 / 记账依据）
+        assert!(Entity::StockIn.needs_reason(STATUS_POSTED, STATUS_PENDING_CANCEL));
+        assert!(Entity::StockIn.needs_reason(STATUS_PENDING_CANCEL, STATUS_CANCELLED));
+        assert!(!Entity::StockIn.needs_reason(STATUS_PENDING_CANCEL, STATUS_POSTED));
+        assert_eq!(status_label(STATUS_PENDING_CANCEL), "作废审批中");
     }
 
     /// ⑤ 单号格式：`IN-yyyyMMdd-000001`（6 位只补零不截断）。

@@ -15,6 +15,7 @@
 //! | [`stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
 //! | [`stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
 //! | [`stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
+//! | [`stockin_bridge`] | 收货单**作废审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
 //! | [`voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
@@ -60,6 +61,7 @@ pub mod purchase_model;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;
+pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;
 pub mod stockin_model;

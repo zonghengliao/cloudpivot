@@ -68,7 +68,7 @@
           <span class="panel-head__title">收货入库</span>
           <span class="panel-head__meta" data-testid="stockin-meta">共 {{ total }} 条</span>
         </div>
-        <span class="panel-head__tip">草稿可编辑 / 过账，过账后只能作废红冲</span>
+        <span class="panel-head__tip">草稿可编辑 / 过账；过账后作废需复核（作废审批中锁定单据，审批通过才回滚六本账）</span>
       </div>
 
       <t-alert
@@ -153,6 +153,14 @@
               @click="confirmCancel(row)"
             >
               作废
+            </t-link>
+            <t-link
+              v-if="actionsOf(row).withdrawCancel"
+              theme="primary"
+              :data-testid="`btn-withdraw-cancel-${row.in_no}`"
+              @click="confirmWithdrawCancel(row)"
+            >
+              撤回作废申请
             </t-link>
             <t-link
               v-if="actionsOf(row).remove"
@@ -500,11 +508,17 @@
           <div class="detail-field"><span class="detail-field__label">过账时间</span><span class="detail-field__value">{{ dash(detail.header.posted_at) }}</span></div>
           <div class="detail-field detail-field--wide"><span class="detail-field__label">备注</span><span class="detail-field__value">{{ dash(detail.header.remark) }}</span></div>
           <div v-if="detail.header.cancel_reason" class="detail-field detail-field--wide">
-            <span class="detail-field__label">作废原因</span><span class="detail-field__value">{{ detail.header.cancel_reason }}</span>
+            <span class="detail-field__label">作废原因 / 申请理由</span><span class="detail-field__value">{{ detail.header.cancel_reason }}</span>
           </div>
         </div>
 
         <p v-if="detail.summary" class="detail__summary">{{ detail.summary }}</p>
+
+        <!-- P16：作废审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行） -->
+        <template v-if="approvalNodes.length > 0">
+          <div class="section-title">作废审批进度</div>
+          <FlowProgress :nodes="approvalNodes" data-testid="stockin-cancel-progress" />
+        </template>
 
         <div class="section-title">明细（{{ detail.items.length }} 条）</div>
         <t-table row-key="id" size="small" :data="detail.items" :columns="detailColumns" data-testid="stockin-detail-items">
@@ -535,6 +549,7 @@ import {
   fetchWarehousePage,
   updateStockIn,
   updateStockInStatus,
+  withdrawStockInCancel,
   type MaterialRow,
   type StockInDetail,
   type StockInRow,
@@ -542,6 +557,10 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { getFlowInstance } from '@/api/business/flow-api';
+import FlowProgress, {
+  type FlowProgressNode,
+} from '@/views/business/flow/components/FlowProgress.vue';
 import {
   AMOUNT_COLUMN_TITLE,
   ESTIMATE_DISABLED_TIP,
@@ -897,22 +916,72 @@ async function confirmPost(): Promise<void> {
   }
 }
 
-/** 作废（POSTED 时不冲回库存，文案里说清楚） */
+/**
+ * 发起作废（P16：已过账的单据走**审批**，不再直接动账）。
+ *
+ * - `DRAFT`：直接作废（从未入账，无需复核）；
+ * - `POSTED`：只发起作废审批 → 状态变「作废审批中」，六本账等复核通过才回滚；
+ * - 文案逐字说明后果（`cancelConfirmMessage`），不让人以为点一下就红冲了。
+ */
 function confirmCancel(row: StockInRow): void {
   if (!actionsOf(row).cancel) {
     MessagePlugin.warning('当前状态不能作废');
     return;
   }
+  const isApproval = row.status === 'POSTED';
   const dialog = DialogPlugin.confirm({
-    header: '作废收货单',
+    header: isApproval ? '发起作废审批' : '作废收货单',
     theme: 'danger',
     body: cancelConfirmMessage(row.status),
-    confirmBtn: { content: '确认作废', theme: 'danger' },
+    confirmBtn: {
+      content: isApproval ? '提交审批' : '确认作废',
+      theme: 'danger',
+    },
     onConfirm: async () => {
       dialog.hide();
       try {
-        await updateStockInStatus(row.id, buildCancelPayload('页面作废'));
-        MessagePlugin.success(`${row.in_no} 已作废`);
+        const updated = await updateStockInStatus(row.id, buildCancelPayload('页面作废'));
+        if (isApproval) {
+          MessagePlugin.success(
+            `${row.in_no} 已提交作废审批（作废审批中）：审批通过后才回滚六本账`,
+          );
+        } else {
+          MessagePlugin.success(`${row.in_no} 已作废`);
+        }
+        // 详情抽屉开着时同步刷新（状态 / 审批实例 id 都变了）
+        if (detailVisible.value && updated?.header?.id === row.id) {
+          detail.value = updated;
+        }
+        await loadOrders();
+      } catch (error) {
+        MessagePlugin.error(messageOf(error));
+      }
+    },
+  });
+}
+
+/**
+ * 撤回作废申请（仅 `PENDING_CANCEL`；后端校验「只有发起人能撤」）。
+ *
+ * 撤回后单据回到「已过账」、审批单落 `WITHDRAWN`、审批中心待办同时消失 —— 账一点没动。
+ */
+function confirmWithdrawCancel(row: StockInRow): void {
+  if (!actionsOf(row).withdrawCancel) {
+    MessagePlugin.warning('只有「作废审批中」的单据能撤回作废申请');
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '撤回作废申请',
+    body: `撤回后 ${row.in_no} 回到「已过账」，库存等六本账不受影响。确认撤回？`,
+    confirmBtn: { content: '确认撤回', theme: 'primary' },
+    onConfirm: async () => {
+      dialog.hide();
+      try {
+        const updated = await withdrawStockInCancel(row.id);
+        MessagePlugin.success(`${row.in_no} 已撤回作废申请（回到已过账）`);
+        if (detailVisible.value && updated?.header?.id === row.id) {
+          detail.value = updated;
+        }
         await loadOrders();
       } catch (error) {
         MessagePlugin.error(messageOf(error));
@@ -955,18 +1024,49 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
 const detail = ref<StockInDetail | null>(null);
+/** 作废审批进度（P16；空 = 没挂审批单 / 拉不到） */
+const approvalNodes = ref<FlowProgressNode[]>([]);
 
 async function openDetail(row: StockInRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detailError.value = '';
   detail.value = null;
+  approvalNodes.value = [];
   try {
     detail.value = await fetchStockInDetail(row.id);
+    await loadApprovalProgress(detail.value?.header?.approval_instance_id ?? null);
   } catch (error) {
     detailError.value = messageOf(error);
   } finally {
     detailLoading.value = false;
+  }
+}
+
+/**
+ * 拉审批进度（P16：只有在「作废审批中」的单据才挂 `approval_instance_id`）。
+ *
+ * 直接复用审批中心的 `getFlowInstance` + `FlowProgress`：
+ * **进度只来自引擎写的节点行**，前端不自己猜「走到第几步」。
+ * 拉不到（权限 / 实例已归档）就退化为不显示，不让详情页整块失败。
+ */
+async function loadApprovalProgress(instanceId: string | null): Promise<void> {
+  if (!instanceId) {
+    approvalNodes.value = [];
+    return;
+  }
+  try {
+    const instance = await getFlowInstance(instanceId);
+    approvalNodes.value = (instance.nodes ?? []).map((node) => ({
+      node_key: node.node_key,
+      name: node.node_name || node.node_key,
+      type: node.node_type,
+      round: node.round,
+      status: node.status,
+      approver_count: node.approver_count ?? 0,
+    }));
+  } catch {
+    approvalNodes.value = [];
   }
 }
 

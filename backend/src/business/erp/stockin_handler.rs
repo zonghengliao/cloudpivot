@@ -68,15 +68,18 @@ use serde::Serialize;
 
 use crate::business::erp::model;
 use crate::business::erp::payable;
+use crate::business::erp::stockin_bridge;
 use crate::business::erp::stockin_dto::{
     CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemReq,
     StockInItemRes, StockInPageQuery, StockInRes, StockInStatusReq,
 };
 use crate::business::erp::stockin_model::{
-    self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED,
-    Totals, can_transition, status_label, transition_rejected_message,
+    self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT,
+    STATUS_PENDING_CANCEL, STATUS_POSTED, Totals, can_transition, status_label,
+    transition_rejected_message,
 };
 use crate::business::erp::voucher;
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -931,6 +934,35 @@ pub async fn change_stock_in_status(
         ));
     }
 
+    // ★ P16：作废审批**中**的单据不能被「状态流转」直接作废（那等于绕过复核）。
+    //   合法边 `PENDING_CANCEL → CANCELLED` 只给**审批回调**用，外部 API 想走必须等结论。
+    if row.status == STATUS_PENDING_CANCEL && target == STATUS_CANCELLED {
+        return Err(conflict(format!(
+            "收货入库单 {} 的作废申请正在审批中（{}）：审批通过会自动作废并回滚六本账；\
+             想取消本次申请请用「撤回」",
+            row.in_no, STATUS_PENDING_CANCEL
+        )));
+    }
+
+    // ★ P16：已过账单据的作废先走**复核**（一次作废同时改六本账，不许一个人说了算）。
+    //   配了已发布的 `stock_in_cancel` 流程 → 只发起审批（POSTED → PENDING_CANCEL，账不动）；
+    //   没配 → 降级为旧行为（直接作废），但要留 warn（卡面 §二 ①「降级」）。
+    if row.status == STATUS_POSTED {
+        match stockin_model::published_cancel_flow()
+            .await
+            .map_err(|error| utils::db_error(error, "查询收货单作废审批流程"))?
+        {
+            Some(flow) => {
+                return submit_cancel_approval(&row, reason.unwrap_or_default(), &op, &flow).await;
+            }
+            None => tracing::warn!(
+                stock_in_id = %row.id,
+                in_no = %row.in_no,
+                "没有配置已发布的 stock_in_cancel 作废审批流程：本次作废**降级**为直接执行（六本账立即回滚），请尽快补配流程"
+            ),
+        }
+    }
+
     let now = Utc::now();
     let tx = db()
         .begin()
@@ -941,6 +973,394 @@ pub async fn change_stock_in_status(
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// **发起作废审批**（P16）：`POSTED → PENDING_CANCEL`，只挂审批单，六本账一动没动。
+///
+/// 一个事务里做完三件事：状态机过闸（边表 + reason + `biz_status_log`）→
+/// `engine::start` 发起审批单 → CAS 回写单据状态与 `approval_instance_id`。
+/// 任一步失败整笔回滚：**不会出现「单据在审批中但审批单没了」**。
+///
+/// # 错误
+///
+/// * `409`：已有在跑的审批单（撞 `uk_biz_flow_instance_biz_active` 之前先拦，报文可执行）；
+/// * `409` + `65019`：内控拦下自审（流程节点 `self_approval=FORBID` 且发起人就是审批人）；
+/// * `409`：CAS 落空（并发重复发起 / 单据已被别处改状态）。
+async fn submit_cancel_approval(
+    row: &stockin_model::StockInRow,
+    reason: &str,
+    operator: &state_machine::Operator,
+    flow: &stockin_model::PublishedFlow,
+) -> std::result::Result<(), ApiError> {
+    // ④ 可行性预检：货已部分出库 / 序列号已出仓的单**不许送审**
+    //    （否则审批人会「批成功但账退不掉」，单据永远卡在作废审批中）
+    stockin_model::ensure_cancellable(db(), row.id, &row.in_no, row.warehouse_id)
+        .await
+        .map_err(|error| cancel_write_error(error, "发起作废审批：可行性预检"))?;
+    let Some(operator_id) = operator.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "发起作废审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    // ③ 重复发起 → 409（先查，别等库层的 uk_biz_flow_instance_biz_active 抛 23505）
+    if flow_model::biz_instance_running(&flow.biz_type, row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        return Err(conflict(format!(
+            "收货入库单 {} 已有在跑的作废审批：请等审批结束，或先「撤回」再重新发起",
+            row.in_no
+        )));
+    }
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 收货单作废", row.in_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.in_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: serde_json::json!({
+            "stock_in_id": row.id.to_string(),
+            "in_no": row.in_no,
+            "cancel_reason": reason,
+            "total_qty": row.total_qty.to_string(),
+            "total_amount": row.total_amount.to_string(),
+            // 内控留痕：审批人 ≠ 制单人（流程节点的 self_approval=FORBID 兜底）
+            "create_by": row.create_by.map(|v| v.to_string()),
+        }),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启作废审批事务"))?;
+    let outcome = submit_cancel_tx(&tx, row, reason, operator, &start, now).await;
+    match outcome {
+        Ok(instance) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交作废审批事务"))?;
+            tracing::info!(
+                stock_in_id = %row.id,
+                in_no = %row.in_no,
+                instance_id = %instance,
+                flow_code = %start.flow_code,
+                "收货单已发起作废审批（状态 PENDING_CANCEL，六本账未动）"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`submit_cancel_approval`] 的事务体（抽出来便于统一收口回滚）。
+///
+/// 收 `&Transaction` 而不是 `&impl SqlExecutor`：`engine::start` 的签名要求真事务
+/// （引擎要靠它在同一个事务里建实例 + 待办 + 节点）。
+async fn submit_cancel_tx(
+    tx: &Transaction,
+    row: &stockin_model::StockInRow,
+    reason: &str,
+    operator: &state_machine::Operator,
+    start: &engine::StartReq,
+    now: DateTime<Utc>,
+) -> std::result::Result<Uuid, ApiError> {
+    // ① 状态机唯一入口：边表校验 + reason 校验 + 写 biz_status_log
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_STOCK_IN,
+        row.id,
+        &row.in_no,
+        &stockin_model::LEGAL_EDGES,
+        STATUS_POSTED,
+        STATUS_PENDING_CANCEL,
+        operator.clone(),
+        Some(reason),
+        None,
+    )
+    .await?;
+    // ② 发起审批单（引擎在同一个事务里建实例 + 待办 + 节点）
+    let out = engine::start(tx, start)
+        .await
+        .map_err(|error| write_error(error, "发起作废审批单"))?;
+    if let Some(rejected) = out.rejected {
+        // 例如 self_approval=FORBID 命中（65019）：内控要求复核人 ≠ 发起人。
+        // 原样把引擎的码与文案交给前端，再补一句「怎么解决」。
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：作废复核人不能是发起人本人。请由他人发起，或让另一个账号具备复核权限后再审）"
+        } else {
+            ""
+        };
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!("{}{hint}", rejected.msg),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // ③ CAS 回写单据：状态 + 申请理由 + 实例 id（三者同一笔 UPDATE，否则撞 ck_biz_si_pending_cancel）
+    let affected = stockin_model::apply_status_with_instance(
+        tx,
+        row.id,
+        STATUS_POSTED,
+        STATUS_PENDING_CANCEL,
+        Some(reason),
+        operator.id,
+        Some(instance_id),
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "收货单进入作废审批中"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "收货入库单 {} 的状态在本次发起期间已被改动（期望 POSTED），请刷新后重试",
+            row.in_no
+        )));
+    }
+    Ok(instance_id)
+}
+
+/// **申请人撤回**在跑的作废审批：`PENDING_CANCEL → POSTED`，审批单落 `WITHDRAWN`。
+///
+/// 与「驳回」的区别只在审批单元数据的来源（谁撤的 / 为什么），单据侧动作完全一样：
+/// 回到已过账，六本账一动没动，且**必须把实例终止**（否则 `uk_biz_flow_instance_biz_active`
+/// 会让下一次发起永久 409 —— 这正是 P11 踩过的坑）。
+pub async fn withdraw_cancel_approval(
+    id: Uuid,
+    operator: impl Into<state_machine::Operator>,
+) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if row.status != STATUS_PENDING_CANCEL {
+        return Err(conflict(format!(
+            "收货入库单 {} 当前是「{}」（{}），只有「作废审批中」的单子可以撤回作废申请",
+            row.in_no,
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    let Some(operator_id) = op.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "撤回作废申请需要登录用户",
+        ));
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启撤回事务"))?;
+    let outcome = withdraw_cancel_tx(&tx, id, &row, operator_id, now).await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交撤回事务"))?;
+            tracing::info!(
+                stock_in_id = %id,
+                in_no = %row.in_no,
+                operator = %operator_id,
+                "收货单作废申请已撤回（单据回到已过账，账未动）"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`withdraw_cancel_approval`] 的事务体。
+///
+/// 顺序：**先撤审批单**（`engine::withdraw` → 实例 `WITHDRAWN`，会校验「只有发起人能撤」），
+/// 再改单据状态。反过来的话，撤审批失败时单据已经回到 POSTED —— 那就是
+/// 「单据说没事、审批中心还挂着待办」的孤儿（卡面 ⑭ 的整笔回滚要求）。
+async fn withdraw_cancel_tx(
+    tx: &Transaction,
+    id: Uuid,
+    row: &stockin_model::StockInRow,
+    operator: Uuid,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    // ① 撤审批单：有在跑的实例走引擎（留 WITHDRAWN 轨迹 + 校验发起人身份）
+    if let Some(instance_id) = row.approval_instance_id {
+        let status = flow_model::find_instance(instance_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询作废审批单状态"))?
+            .map(|instance| instance.status);
+        if status.as_deref().map(str::to_ascii_uppercase).as_deref() == Some("PENDING") {
+            let out = engine::withdraw(tx, instance_id, operator)
+                .await
+                .map_err(|error| write_error(error, "撤回作废审批单"))?;
+            if let Some(rejected) = out.rejected {
+                return Err(rejected);
+            }
+        } else {
+            // 实例已不在跑（可能刚被审批推进）→ 用「按业务终止」兜底，保证不留孤儿
+            stockin_bridge::cancel_approval_of(tx, id, &row.in_no, "申请人撤回作废申请")
+                .await
+                .map_err(|error| write_error(error, "终止作废审批单"))?;
+        }
+    }
+    // ② 单据回到已过账（CAS，清空实例与申请理由）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_STOCK_IN,
+        id,
+        &row.in_no,
+        &stockin_model::LEGAL_EDGES,
+        STATUS_PENDING_CANCEL,
+        STATUS_POSTED,
+        operator,
+        Some("申请人撤回作废申请"),
+        None,
+    )
+    .await?;
+    let affected = stockin_model::apply_status(
+        tx,
+        id,
+        STATUS_PENDING_CANCEL,
+        STATUS_POSTED,
+        None,
+        Some(operator),
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "收货单撤回作废"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "收货入库单 {} 的状态在本次撤回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
+            row.in_no
+        )));
+    }
+    Ok(())
+}
+
+/// 审批**通过**之后执行真作废（由 [`stockin_bridge::on_cancel_settled`] 调用）。
+///
+/// 复用 [`cancel_in_tx`]（P9 的六本账回滚），只把「起始状态」换成 `PENDING_CANCEL`：
+/// 库存 / 库位账 / 流水（取流水里的 amount，不按现价）/ 红字凭证 / 应付作废 / 序列号软删，
+/// 全在调用方开的一个事务里，任一步失败整笔回滚（单据仍是作废审批中）。
+pub async fn cancel_after_approval(
+    id: Uuid,
+    row: &stockin_model::StockInRow,
+    reason: &str,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let op = state_machine::Operator::of(operator);
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启审批作废事务"))?;
+    match cancel_in_tx(&tx, id, row, Some(reason), &op, now).await {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交审批作废事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 审批**未通过**之后把单据打回已过账（驳回 / 撤回 / 终止）。
+///
+/// 账一动没动 —— 这里只有状态 + 清理 `approval_instance_id`。
+pub async fn restore_after_cancel_approval(
+    id: Uuid,
+    row: &stockin_model::StockInRow,
+    verdict: stockin_bridge::Verdict,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let reason = match verdict {
+        stockin_bridge::Verdict::Cancel => "作废审批通过（不应走到打回）",
+        stockin_bridge::Verdict::Restore => "作废审批未通过，单据回到已过账",
+    };
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启作废打回事务"))?;
+    let outcome = async {
+        state_machine::transition(
+            &tx,
+            state_machine::ENTITY_STOCK_IN,
+            id,
+            &row.in_no,
+            &stockin_model::LEGAL_EDGES,
+            STATUS_PENDING_CANCEL,
+            STATUS_POSTED,
+            operator,
+            Some(reason),
+            None,
+        )
+        .await?;
+        let affected = stockin_model::apply_status(
+            &tx,
+            id,
+            STATUS_PENDING_CANCEL,
+            STATUS_POSTED,
+            None,
+            operator,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "收货单作废打回"))?;
+        if affected == 0 {
+            return Err(conflict(format!(
+                "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_CANCEL}），请刷新后重试",
+                row.in_no
+            )));
+        }
+        Ok(())
+    }
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交作废打回事务"))?;
             Ok(())
         }
         Err(error) => {
@@ -1007,7 +1427,9 @@ async fn cancel_in_tx(
         )));
     }
 
-    if row.status == STATUS_POSTED {
+    // 作废的六本账回滚：`POSTED`（无流程降级 / DRAFT 之外的直接作废）与
+    // `PENDING_CANCEL`（审批通过）走**同一段代码** —— 硬红线 5：不许为审批另写一套回滚。
+    if row.status == STATUS_POSTED || row.status == STATUS_PENDING_CANCEL {
         // ① 读作废计划：数量取明细、金额取过账流水（不按现价估算）
         let plan = stockin_model::cancel_plan_of(ex, id, &row.in_no, row.warehouse_id)
             .await
@@ -1407,9 +1829,35 @@ pub async fn stock_in_change_status(
     Ok(Res::ok(detail_of(id).await?))
 }
 
+// ==================== ③b 撤回作废申请（P16） ====================
+
+/// 撤回收货单的作废申请（`PENDING_CANCEL → POSTED`）。
+///
+/// 权限码沿用 `business:erp:stock-in:status`：撤回是「状态流转」的一种，
+/// 且引擎侧还会校验「只有发起人能撤」（其余人 403 + 65004）。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}/cancel-withdraw",
+    method = "POST",
+    permission = "business:erp:stock-in:status"
+)]
+#[nik::post("/business/erp/stock-in/{id}/cancel-withdraw")]
+pub async fn stock_in_cancel_withdraw(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    withdraw_cancel_approval(id, &claims).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
 // ==================== ④ 删除 ====================
 
 /// 删除核心逻辑：**只有 `DRAFT`** 能删（软删）。
+///
+/// ★ P16 反向兜底（P11 的教训）：删除**同一事务**里还要把这张单在跑的作废审批
+/// **一并终止**（`stockin_bridge::cancel_approval_of`）。DRAFT 单据按当前状态机不可能
+/// 挂着审批单，但这条兜底是仓库「删单 ≠ 留孤儿待办」的机器化承诺 —— 哪天放开
+/// 「审批中的单据也能删」，这里不会漏。
 pub async fn delete_stock_in(
     id: Uuid,
     operator: Option<Uuid>,
@@ -1421,18 +1869,43 @@ pub async fn delete_stock_in(
     if row.status != STATUS_DRAFT {
         return Err(conflict(format!(
             "收货入库单当前是「{}」（{}），只有草稿（DRAFT）能删：\
-             已过账的单据是库存与成本链的事实，只能作废",
+             已过账的单据是库存与成本链的事实，只能作废（{STATUS_PENDING_CANCEL} 状态下请先撤回作废申请）",
             status_label(&row.status),
             row.status
         )));
     }
-    let affected = stockin_model::soft_delete(db(), id, operator, Utc::now())
+    let now = Utc::now();
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| utils::db_error(error, "软删收货入库单"))?;
-    if affected == 0 {
-        return Err(not_found("收货入库单"));
+        .map_err(|error| utils::db_error(error, "开启删除事务"))?;
+    let outcome = async {
+        // ① 先撤在跑的审批（幂等：没有就什么都不做）
+        stockin_bridge::cancel_approval_of(&tx, id, &row.in_no, "收货单已删除，作废审批自动终止")
+            .await
+            .map_err(|error| write_error(error, "删除：终止在跑的作废审批"))?;
+        // ② 再软删单据
+        let affected = stockin_model::soft_delete(&tx, id, operator, now)
+            .await
+            .map_err(|error| utils::db_error(error, "软删收货入库单"))?;
+        if affected == 0 {
+            return Err(not_found("收货入库单"));
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交删除事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
 }
 
 /// 删除收货入库单（软删；仅 DRAFT）。
@@ -1557,6 +2030,12 @@ mod tests {
                 ('b2b10003-0000-4000-8000-000000000002', 'P2B1-L02', 'P2B1 A 区二号',
                  'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 1, 2)
          ON CONFLICT DO NOTHING",
+        // P16：作废审批的**发起人**（仓管员，故意不是超管）。
+        // 流程节点 `self_approval=FORBID`（内控：审批人 ≠ 发起人），若发起人本身就是超管，
+        // 引擎会因为他出现在 ADMIN 候选里直接 422 —— 那不是 bug，是「不许自审自批」的硬拦。
+        "INSERT INTO sys_user (id, username, password, real_name)
+         VALUES ('b2b10009-0000-4000-8000-000000000001', 'p16_keeper', 'x', 'P16 仓管员')
+         ON CONFLICT DO NOTHING",
     ];
 
     /// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一 `biz_seq(IN)`）。
@@ -1603,6 +2082,16 @@ mod tests {
     /// 凭证/应付是**弱引用**（无外键），必须在删收货单之前按 `source_id` 清掉。
     async fn cleanup_fixtures() {
         let cleanups = [
+            // P16：某条用例会把种子流程临时下线（降级路径），这里无条件恢复，
+            // 免得一条用例 panic 之后拖垮后面所有用例
+            "UPDATE biz_flow_def SET deleted_at = NULL WHERE flow_code = 'stock_in_cancel'"
+                .to_string(),
+            // P16：作废审批实例（无外键，必须按「本夹具的收货单」清掉，否则下一轮
+            // 「已有在跑的审批单」会把发起直接 409 掉）
+            format!(
+                "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id IN \
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
             // P10：状态日志没有外键，必须在删单据之前按「本夹具的单据 id / 单号」清掉
             format!(
                 "DELETE FROM biz_status_log WHERE entity_id IN \
@@ -2295,17 +2784,8 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
-        change_stock_in_status(
-            posted,
-            &StockInStatusReq {
-                status: Some("CANCELLED".to_string()),
-                reason: Some("收错仓了".to_string()),
-                serials: Vec::new(),
-            },
-            None,
-        )
-        .await
-        .unwrap();
+        // P16：给了原因 → 发起作废审批 → 复核通过 → 才回滚六本账
+        cancel(posted, "收错仓了").await;
         assert_eq!(
             inventory_of(MATERIAL_A).await.0,
             dec("0"),
@@ -2823,6 +3303,12 @@ mod tests {
     }
 
     // ==================== P9：作废回滚库存（卡面 §五，12 条） ====================
+    //
+    // ⚠️ P16 起「作废」是**两步**：`POSTED → PENDING_CANCEL`（发起审批）→ 审批通过 →
+    // `CANCELLED`（执行六本账回滚）。P9 的这 12 条断言（库存 / 库位账 / 流水 / 凭证 /
+    // 序列号全部回滚）**一条都没改**，只是把它们共同的前置「作废」从句柄换成了
+    // [`cancel`]（提交 + 复核通过 + 回调），走的是与生产完全相同的路径。
+    // 这样新增的「复核」既被覆盖，P9 的回归也仍然钉得住。
 
     /// 作废请求体。
     fn cancel_req(reason: Option<&str>) -> StockInStatusReq {
@@ -2833,11 +3319,101 @@ mod tests {
         }
     }
 
-    /// 作废并断言成功。
+    /// 作废并断言成功 = **发起作废审批 + 复核通过 + 六本账回滚**（P16 生产路径）。
     async fn cancel(id: Uuid, reason: &str) {
-        change_stock_in_status(id, &cancel_req(Some(reason)), None)
+        cancel_request(id, reason).await;
+        approve_cancel(id).await;
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_CANCELLED,
+            "复核通过后单据必须真的作废"
+        );
+    }
+
+    /// 只**发起**作废审批（不进审批），返回审批单落库后的库存三值快照。
+    async fn cancel_request(id: Uuid, reason: &str) {
+        change_stock_in_status(id, &cancel_req(Some(reason)), Some(uuid_keeper()))
             .await
-            .unwrap_or_else(|err| panic!("作废失败：{} {}", err.code, err.msg));
+            .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));
+    }
+
+    /// 作废审批的发起人（仓管员；非超管 —— 见 `FIXTURES` 的说明）。
+    fn uuid_keeper() -> Uuid {
+        Uuid::parse_str("b2b10009-0000-4000-8000-000000000001").expect("夹具用户 UUID")
+    }
+
+    /// 取某单审批单里第一条 `PENDING` 待办（含审批人）。
+    async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
+        let instance_id: Option<Uuid> = db()
+            .scalar_with_params(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .expect("查 approval_instance_id");
+        let instance_id = instance_id.expect("作废审批中必须有实例 id（ck_biz_si_pending_cancel）");
+        let rows = db()
+            .find_with_params(
+                "SELECT id, assignee_id FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND status = 'PENDING' \
+                  ORDER BY created_at ASC",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查作废审批待办");
+        let row = rows.first().expect("作废审批必须有 PENDING 待办");
+        (
+            row.get_typed("id").expect("待办 id"),
+            row.get_typed("assignee_id").expect("审批人"),
+        )
+    }
+
+    /// 复核**通过**：引擎投票 → 提交事务 → 回调收货单（生产同款顺序）。
+    async fn approve_cancel(stock_in_id: Uuid) {
+        let (task_id, approver) = pending_task_of(stock_in_id).await;
+        let tx = db().begin().await.expect("开审批事务");
+        let out = engine::approve(&tx, task_id, approver, Some("单测：同意作废"))
+            .await
+            .expect("引擎同意失败");
+        tx.commit().await.expect("提交审批事务");
+        crate::business::erp::stockin_bridge::on_cancel_settled(
+            out.instance_id,
+            &out.instance_status,
+        )
+        .await;
+    }
+
+    /// 复核**驳回**（并终止）：实例落 `REJECTED` → 回执打回已过账。
+    async fn reject_cancel(stock_in_id: Uuid, comment: &str) {
+        let (task_id, approver) = pending_task_of(stock_in_id).await;
+        let tx = db().begin().await.expect("开审批事务");
+        let out = engine::reject(&tx, task_id, approver, comment, engine::ReturnTo::Final)
+            .await
+            .expect("引擎驳回失败");
+        tx.commit().await.expect("提交审批事务");
+        crate::business::erp::stockin_bridge::on_cancel_settled(
+            out.instance_id,
+            &out.instance_status,
+        )
+        .await;
+    }
+
+    /// 某单的实例状态（没有实例 → `None`）。
+    async fn instance_status_of(stock_in_id: Uuid) -> Option<String> {
+        let instance_id: Option<Uuid> = db()
+            .scalar_with_params(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .expect("查 approval_instance_id");
+        let Some(instance_id) = instance_id else {
+            return None;
+        };
+        flow_model::find_instance(instance_id)
+            .await
+            .expect("查审批实例")
+            .map(|row| row.status)
     }
 
     /// 某张单某类流水的条数。
@@ -3147,11 +3723,14 @@ mod tests {
         let req_a = cancel_req(Some("并发 A"));
         let req_b = cancel_req(Some("并发 B"));
         let (ra, rb) = tokio::join!(
-            change_stock_in_status(a, &req_a, None),
-            change_stock_in_status(b, &req_b, None)
+            change_stock_in_status(a, &req_a, Some(uuid_keeper())),
+            change_stock_in_status(b, &req_b, Some(uuid_keeper()))
         );
         ra.unwrap_or_else(|err| panic!("A 作废失败：{} {}", err.code, err.msg));
         rb.unwrap_or_else(|err| panic!("B 作废失败：{} {}", err.code, err.msg));
+        // P16：六本账回滚发生在**复核通过**那一刻 —— 并发通过两张单，验证的是同一件事
+        // （反向冲减按 material_id 升序加锁，两张单不会交叉等待）。
+        tokio::join!(approve_cancel(a), approve_cancel(b));
 
         assert_eq!(
             inventory_of(MATERIAL_A).await.0,
@@ -3745,5 +4324,685 @@ mod tests {
         assert_eq!(trail.len(), 1);
         assert_eq!(trail[0].from_status.as_deref(), Some("SUBMITTED"));
         assert_eq!(trail[0].to_status, "PARTIAL_RECEIVED");
+    }
+
+    // ==================== P16：收货单作废审批（卡面 §二，14 条 + 内控 2 条） ====================
+    //
+    // 全部走**生产同款路径**：`change_stock_in_status`（发起）→ `engine::approve/reject/withdraw`
+    // （复核）→ `stockin_bridge::on_cancel_settled`（回调）。夹具里的「发起人」是仓管员
+    // （非超管），审批人是库里唯一的 SUPER_ADMIN —— 这正是 `self_approval=FORBID`
+    // （内控：审批人 ≠ 发起人）能在真实库里跑起来的前提。
+
+    /// 建 + 过账（`create_by` = 操作人，供内控判据用）。
+    #[allow(dead_code)]
+    async fn post_new_by(lines: Vec<StockInItemReq>, operator: Option<Uuid>) -> Uuid {
+        let id = create_stock_in(&req(lines), operator).await.unwrap();
+        change_stock_in_status(id, &post_req(), operator)
+            .await
+            .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+        id
+    }
+
+    /// ① 发起：`POSTED → PENDING_CANCEL` + 生成审批实例 + 回写 `approval_instance_id`，
+    /// 而**六本账一动没动**。
+    #[tokio::test]
+    async fn p16_submit_moves_to_pending_cancel_with_instance() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "10", "2", "0")]).await;
+        let before = inventory_of(MATERIAL_A).await;
+        assert_eq!(before.0, dec("10"), "前置：过账后库存 10");
+
+        cancel_request(id, "供应商召回").await;
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.header.status, STATUS_PENDING_CANCEL,
+            "发起作废只挂审批单，单据进「作废审批中」"
+        );
+        let instance_id = detail
+            .header
+            .approval_instance_id
+            .clone()
+            .expect("必须回写 approval_instance_id");
+        assert_eq!(
+            detail.header.cancel_reason.as_deref(),
+            Some("供应商召回"),
+            "申请理由要落库（审批人据此判断）"
+        );
+        // 状态日志：POSTED → PENDING_CANCEL
+        let trail = crate::business::shared::state_machine::trail_of_no(db(), &detail.header.in_no)
+            .await
+            .unwrap();
+        assert_eq!(trail.last().unwrap().to_status, STATUS_PENDING_CANCEL);
+        // 六本账一个字节都没动
+        assert_eq!(inventory_of(MATERIAL_A).await, before, "发起审批不许动库存");
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            0,
+            "发起审批不许写反向流水"
+        );
+        assert_eq!(voucher_count(id, Some(1)).await, 0, "发起审批不许红冲");
+        // 审批中心真的有待办（否则等于没人能复核）
+        let todos: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&Uuid::parse_str(&instance_id).unwrap())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(todos, 1, "发起后审批中心必须有 1 条待办");
+    }
+
+    /// ② 未配流程 → 降级：直接作废（保持 P16 之前的旧行为），并WARN。
+    #[tokio::test]
+    async fn p16_no_flow_degrades_to_direct_cancel() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_B, "6", "5", "0")]).await;
+        // 把种子流程临时「下线」（干净恢复由 cleanup_fixtures 保证）
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET deleted_at = now() WHERE flow_code = 'stock_in_cancel'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(
+            stockin_model::published_cancel_flow()
+                .await
+                .unwrap()
+                .is_none(),
+            "流程下线后必须查不到"
+        );
+
+        change_stock_in_status(id, &cancel_req(Some("降级直接作废")), Some(uuid_keeper()))
+            .await
+            .expect("没配流程时作废必须放行（降级），不能把功能锁死");
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.header.status, STATUS_CANCELLED,
+            "降级路径一次到位（旧行为）"
+        );
+        assert!(
+            detail.header.approval_instance_id.is_none(),
+            "降级路径不挂审批单"
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_B).await,
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
+            "降级路径照样要回滚六本账"
+        );
+    }
+
+    /// ③ 重复发起 → 409（已有在跑的实例），且不再生成第二条实例。
+    #[tokio::test]
+    async fn p16_duplicate_submit_is_409() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "4", "2", "0")]).await;
+        cancel_request(id, "第一次发起").await;
+        let err = change_stock_in_status(id, &cancel_req(Some("第二次发起")), Some(uuid_keeper()))
+            .await
+            .expect_err("已有在跑的审批单必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("审批中") || err.msg.contains("已有在跑的作废审批"),
+            "报文要点明原因与出路：{}",
+            err.msg
+        );
+        let instances: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(instances, 1, "不能生成第二条审批实例");
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_PENDING_CANCEL
+        );
+    }
+
+    /// ④ 作废审批中单据**锁定**：改金额 / 改明细 → 409，数据一个字节都不动。
+    #[tokio::test]
+    async fn p16_pending_cancel_is_locked() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "8", "2", "0")]).await;
+        cancel_request(id, "审批中不许改").await;
+
+        // 改明细（数量从 8 改成 99）
+        let mut changed = req(vec![line(MATERIAL_A, "99", "2", "0")]);
+        changed.total_amount = Some(dec("198"));
+        let err = update_stock_in(id, &changed, Some(uuid_keeper()))
+            .await
+            .expect_err("作废审批中改明细必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("不可修改") || err.msg.contains("已入账"),
+            "文案要说清锁定语义：{}",
+            err.msg
+        );
+        // 只改金额合计
+        let mut amount_only = req(vec![line(MATERIAL_A, "8", "2", "0")]);
+        amount_only.total_amount = Some(dec("999"));
+        let err = update_stock_in(id, &amount_only, Some(uuid_keeper()))
+            .await
+            .expect_err("作废审批中改金额必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        // 库里数据没被改（明细 qty 仍是 8、合计仍是 16）
+        let items = stockin_model::items_of(id).await.unwrap();
+        assert_eq!(items[0].qty, dec("8"), "锁定期间明细必须原样");
+        assert_eq!(detail_of(id).await.unwrap().header.total_amount, dec("16"));
+        // 审批中的单子也删不掉（只能先撤回）
+        let err = delete_stock_in(id, Some(uuid_keeper()))
+            .await
+            .expect_err("审批中的单子不能删");
+        assert_eq!(err.status, 409, "{}", err.msg);
+    }
+
+    /// ⑤ 审批通过 → 单据 `CANCELLED`，**六本账全部回滚**（库存 / 库位账 / 流水 / 凭证 / 应付 / 序列号）。
+    #[tokio::test]
+    async fn p16_approval_rolls_back_six_ledgers() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let loc = seed_location_row(MATERIAL_SN, LOC_DICT_A).await;
+        let id = post_new(vec![line_at(
+            MATERIAL_SN,
+            "3",
+            "100",
+            "0",
+            &loc.to_string(),
+        )])
+        .await;
+        assert_eq!(
+            location_qty_of(&loc).await,
+            Some(dec("3")),
+            "前置：库位账 3 件"
+        );
+        assert_eq!(serial_counts_of(id).await.0, 3, "一物一码 3 件在库");
+        assert_eq!(voucher_count(id, None).await, 1, "过账生成 1 张凭证");
+        let payable_status = |sql: String| async move {
+            db().scalar_with_params(&sql, vec![Value::from(&id)])
+                .await
+                .unwrap()
+        };
+        let payable_before: String =
+            payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into())
+                .await;
+        assert_eq!(payable_before, "OPEN");
+
+        cancel_request(id, "整批退回").await;
+        approve_cancel(id).await;
+
+        // ① 单据
+        assert_eq!(detail_of(id).await.unwrap().header.status, STATUS_CANCELLED);
+        // ② 库存（成本账）—— 本单带库位，成本账与库位账两本都要归零
+        let cost_rows = db()
+            .find_with_params(
+                "SELECT qty, amount FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id = ?::uuid",
+                vec![
+                    Value::from(&Uuid::parse_str(MATERIAL_SN).unwrap()),
+                    Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                    Value::from(&loc),
+                ],
+            )
+            .await
+            .unwrap();
+        if let Some(row) = cost_rows.first() {
+            assert_eq!(
+                row.get_typed::<Decimal>("qty").unwrap(),
+                Decimal::ZERO,
+                "成本账数量必须归零"
+            );
+            assert_eq!(
+                row.get_typed::<Decimal>("amount").unwrap(),
+                Decimal::ZERO,
+                "成本账金额必须归零"
+            );
+        }
+        // ③ 库位账
+        assert_eq!(location_qty_of(&loc).await, Some(Decimal::ZERO));
+        // ④ 流水：一条 OUT / PURCHASE_IN_CANCEL
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            1
+        );
+        // ⑤ 凭证：多出一张红字
+        assert_eq!(voucher_count(id, Some(1)).await, 1, "必须生成红字凭证");
+        // ⑥ 应付：作废
+        let payable_after: String =
+            payable_status("SELECT status::text FROM biz_payable WHERE source_id = ?::uuid".into())
+                .await;
+        assert_eq!(payable_after, "CANCELLED", "应付单必须联动作废");
+        // ⑦ 序列号：3 件全部软删（行保留、审计不丢）
+        let (alive, deleted) = serial_counts_of(id).await;
+        assert_eq!((alive, deleted), (0, 3), "序列号必须软删（不是物理删）");
+    }
+
+    /// ⑥ 审批通过 → 库存回滚金额用**过账流水里的 amount**，不是现价（P9 口径）。
+    #[tokio::test]
+    async fn p16_approval_uses_posted_amount_not_current_avg() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = post_new(vec![line(MATERIAL_A, "100", "2", "0")]).await;
+        post_new(vec![line(MATERIAL_A, "100", "3", "0")]).await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("200"), dec("500"), dec("2.500000"))
+        );
+
+        cancel_request(first, "第一张收错了").await;
+        // 审批中：账没动
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("200"), dec("500"), dec("2.500000")),
+            "审批未通过前库存必须原样"
+        );
+        approve_cancel(first).await;
+
+        let (qty, amount, _avg) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("100"));
+        assert_eq!(amount, dec("300"), "退的是流水原额 200（500-200）");
+        assert_ne!(amount, dec("250"), "按现价 2.5×100 是错的");
+    }
+
+    /// ⑦ 审批通过 → 生成红字凭证（借贷互换、原凭证打 reversed_by）。
+    #[tokio::test]
+    async fn p16_approval_generates_red_voucher() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "10", "3", "0")]).await;
+        assert_eq!(voucher_count(id, Some(1)).await, 0);
+        cancel(id, "退货").await;
+        assert_eq!(voucher_count(id, Some(1)).await, 1, "必须有 1 张红字凭证");
+        // 红字凭证借贷平衡：Σ借 = Σ贷
+        let (debit, credit): (Decimal, Decimal) = db()
+            .find_with_params(
+                "SELECT COALESCE(SUM(e.debit_amount),0) AS d, COALESCE(SUM(e.credit_amount),0) AS c \
+                   FROM biz_voucher_entry e JOIN biz_voucher v ON v.id = e.voucher_id \
+                  WHERE v.source_id = ?::uuid AND v.is_red = 1",
+                vec![Value::from(&id)],
+            )
+            .await
+            .map(|rows| {
+                let row = rows.first().expect("红字凭证分录");
+                (
+                    row.get_typed::<Decimal>("d").unwrap(),
+                    row.get_typed::<Decimal>("c").unwrap(),
+                )
+            })
+            .unwrap();
+        assert_eq!(debit, credit, "红字凭证必须借贷平衡");
+    }
+
+    /// ⑧ 审批通过 → 序列号软删（行保留，`deleted_at` 置位）。
+    #[tokio::test]
+    async fn p16_approval_voids_serials() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_SN, "2", "50", "0")]).await;
+        assert_eq!(serial_counts_of(id).await, (2, 0));
+        cancel_request(id, "整批退回").await;
+        assert_eq!(serial_counts_of(id).await, (2, 0), "审批中不许提前动序列号");
+        approve_cancel(id).await;
+        assert_eq!(serial_counts_of(id).await, (0, 2), "审批通过才软删");
+    }
+
+    /// ⑨ 审批驳回 → 单据回到 `POSTED`，**账一点没动**，实例落 `REJECTED`。
+    #[tokio::test]
+    async fn p16_reject_restores_posted() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "12", "2", "0")]).await;
+        let before = inventory_of(MATERIAL_A).await;
+        cancel_request(id, "想作废").await;
+        reject_cancel(id, "不同意，数量再核一遍").await;
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.header.status, STATUS_POSTED, "驳回必须打回已过账");
+        assert!(
+            detail.header.approval_instance_id.is_none(),
+            "打回后实例引用必须清空（否则下次发起撞唯一索引）"
+        );
+        assert_eq!(inventory_of(MATERIAL_A).await, before, "驳回不许动账");
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            0
+        );
+        assert_eq!(voucher_count(id, Some(1)).await, 0);
+        let instance_id: Option<Uuid> = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT id FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        let instance = flow_model::find_instance(instance_id.unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance.status, "REJECTED");
+        assert_eq!(
+            instance_status_of(id).await,
+            None,
+            "打回后单据不该再挂着实例（ck_biz_si_pending_cancel）"
+        );
+    }
+
+    /// ⑩ 申请人撤回 → 实例 `WITHDRAWN`，单据回到 `POSTED`，账不动。
+    #[tokio::test]
+    async fn p16_withdraw_restores_posted() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_B, "5", "4", "0")]).await;
+        let before = inventory_of(MATERIAL_B).await;
+        cancel_request(id, "反悔了").await;
+        let instance_id: Option<Uuid> = db()
+            .scalar_with_params(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        let instance_id = instance_id.expect("审批中必须有实例");
+
+        withdraw_cancel_approval(id, uuid_keeper())
+            .await
+            .expect("发起人撤回必须成功");
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.header.status, STATUS_POSTED);
+        assert!(detail.header.approval_instance_id.is_none());
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance.status, "WITHDRAWN", "撤回要留 WITHDRAWN 轨迹");
+        assert_eq!(inventory_of(MATERIAL_B).await, before, "撤回不许动账");
+        // 待办不能留成 PENDING（否则就是孤儿待办）
+        let pending: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(pending, 0, "撤回后不许留下 PENDING 待办");
+    }
+
+    /// ⑪ 驳回后**可以再次发起**作废（实例已落终态，不撞 uk_ 唯一索引）。
+    #[tokio::test]
+    async fn p16_resubmit_after_reject() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "6", "2", "0")]).await;
+        cancel_request(id, "第一次申请").await;
+        reject_cancel(id, "不同意：先跟供应商确认").await;
+        cancel_request(id, "第二次申请：已确认").await;
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_PENDING_CANCEL,
+            "驳回后必须能再次发起"
+        );
+        approve_cancel(id).await;
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_CANCELLED,
+            "第二次复核通过后必须真作废"
+        );
+    }
+
+    /// ⑫ 反向：收货单被**软删**（数据修复 / 其它路径）→ 审批实例被回收，不留孤儿待办。
+    #[tokio::test]
+    async fn p16_soft_deleted_doc_reconciles_instance() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_B, "3", "2", "0")]).await;
+        cancel_request(id, "要作废").await;
+        let instance_id: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .expect("审批中必须有实例");
+        // 模拟「单据被别的路径软删」：删单 API 只放行 DRAFT，所以这里直接改库（数据修复口径），
+        // 而 `ck_biz_si_pending_cancel` 要求非审批中状态不得挂实例 → 一起清掉引用
+        db().execute_with_params(
+            "UPDATE biz_stock_in SET deleted_at = now(), status = 'CANCELLED', \
+                approval_instance_id = NULL WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap();
+
+        let cancelled = crate::business::erp::stockin_bridge::reconcile_orphan_cancels()
+            .await
+            .expect("孤儿回收必须成功");
+        assert!(cancelled >= 1, "必须回收至少 1 条（实际 {cancelled}）");
+
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance.status, "CANCELLED", "单据没了，审批单必须终止");
+        let pending: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(pending, 0, "P11 教训：不许留孤儿待办");
+    }
+
+    /// ⑬ 反向：审批中单据被**其它路径**改成 `CANCELLED` → 审批实例被回收。
+    #[tokio::test]
+    async fn p16_other_path_cancel_reconciles_instance() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        cancel_request(id, "要作废").await;
+        let instance_id: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .expect("审批中必须有实例");
+        // 模拟「别处把单据改成了已作废」：审批单还挂着 PENDING
+        db().execute_with_params(
+            "UPDATE biz_stock_in SET status = 'CANCELLED', approval_instance_id = NULL, \
+                cancelled_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap();
+
+        crate::business::erp::stockin_bridge::reconcile_orphan_cancels()
+            .await
+            .expect("孤儿回收必须成功");
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance.status, "CANCELLED");
+        // 回收不许「顺手」回滚六本账（那是审批通过才有的动作）
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            dec("5"),
+            "回收只终止审批单，正本库存不动"
+        );
+    }
+
+    /// ⑭ 撤审批失败（非发起人撤回 → 403）→ **整笔回滚**：单据状态与实例都不变。
+    #[tokio::test]
+    async fn p16_withdraw_failure_rolls_back() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "7", "2", "0")]).await;
+        cancel_request(id, "要作废").await;
+        let instance_id: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .expect("审批中必须有实例");
+        // 别人（不是发起人）来撤 → 引擎 403，整笔回滚
+        let outsider = Uuid::parse_str("b2b10009-0000-4000-8000-0000000000ff").unwrap();
+        let err = withdraw_cancel_approval(id, outsider)
+            .await
+            .expect_err("非发起人不能撤回");
+        assert_eq!(err.status, 403, "{}", err.msg);
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.header.status, STATUS_PENDING_CANCEL,
+            "撤回失败时单据状态必须原样（整笔回滚）"
+        );
+        assert_eq!(
+            detail.header.approval_instance_id.as_deref(),
+            Some(instance_id.to_string().as_str()),
+            "实例引用也不能被清空"
+        );
+        let instance = flow_model::find_instance(instance_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance.status, "PENDING", "审批单还在跑");
+    }
+
+    /// ⑮ 内控：作废复核人**不能是制单人**（`self_approval=FORBID` 硬拦在派单）。
+    ///
+    /// 构造：制单人是超管（= 唯一的审批候选人），由仓管员代发起 → 引擎派单时命中
+    /// 「候选人是发起人？不是；但流程节点 FORBID…」—— 这里断言的是**发起人=超管**的场景：
+    /// 超管自己发起作废，候选里就有他自己 → 422 + 65019，单据保持 POSTED，账不动。
+    #[tokio::test]
+    async fn p16_self_approval_is_forbidden() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "3", "2", "0")]).await;
+        // 库里唯一的超管（种子流程的审批候选人）
+        let admin: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT u.id FROM sys_user u \
+                   JOIN sys_user_role ur ON ur.user_id = u.id \
+                   JOIN sys_role r ON r.id = ur.role_id \
+                  WHERE r.role_code = 'SUPER_ADMIN' LIMIT 1",
+                vec![],
+            )
+            .await
+            .unwrap()
+            .expect("库里必须有超管");
+
+        let err = change_stock_in_status(id, &cancel_req(Some("超管自批试试")), Some(admin))
+            .await
+            .expect_err("审批人 = 发起人 必须被内控拦下");
+        assert_eq!(err.status, 422, "{}", err.msg);
+        assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(
+            err.msg.contains("内控") && err.msg.contains("复核人"),
+            "报文要说清内控口径与出路：{}",
+            err.msg
+        );
+        // 整笔回滚：单据仍是已过账、没有审批单、账没动
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.header.status, STATUS_POSTED);
+        assert!(detail.header.approval_instance_id.is_none());
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("3"));
+    }
+
+    /// ⑯ 种子流程自洽：`graph_hash = sha256(canonical_json(快照))`（改了快照不改 hash 就该红），
+    /// 且审批节点确实是「超管 + 禁自审」。
+    #[tokio::test]
+    async fn p16_seed_flow_is_self_consistent() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        use crate::business::flow::graph::{canonical_json, parse_snapshot};
+        let row = db()
+            .find_with_params(
+                "SELECT d.flow_code, d.biz_type, d.status, d.is_default, v.graph_hash, \
+                        v.graph_snapshot, v.node_count, v.edge_count \
+                   FROM biz_flow_def d JOIN biz_flow_def_version v ON v.id = d.current_version_id \
+                  WHERE d.flow_code = 'stock_in_cancel' AND d.deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .unwrap();
+        let row = row.first().expect("V0174 必须种好 stock_in_cancel");
+        assert_eq!(
+            row.get_typed::<String>("biz_type").unwrap(),
+            "STOCK_IN_CANCEL"
+        );
+        assert_eq!(row.get_typed::<String>("status").unwrap(), "PUBLISHED");
+        assert!(row.get_typed::<bool>("is_default").unwrap());
+        let stored: String = row.get_typed("graph_hash").unwrap();
+        let snapshot: serde_json::Value = row.get_typed("graph_snapshot").unwrap();
+        let recomputed = {
+            let json = canonical_json(&snapshot);
+            // 与 graph::FlowGraph::graph_hash 同一算法（sha256 → 小写 hex）
+            use sha2::{Digest, Sha256};
+            let digest = Sha256::digest(json.as_bytes());
+            digest
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect::<String>()
+        };
+        assert_eq!(
+            stored, recomputed,
+            "种子快照与 graph_hash 必须自洽（改了快照不改 hash = 版本漂移）"
+        );
+        assert_eq!(row.get_typed::<i32>("node_count").unwrap(), 3);
+        assert_eq!(row.get_typed::<i32>("edge_count").unwrap(), 2);
+        // 快照能被引擎解析（否则发起就 500）
+        let snapshot_text = canonical_json(&snapshot);
+        let graph = parse_snapshot(&snapshot_text).expect("快照必须可解析");
+        let review = graph
+            .nodes
+            .iter()
+            .find(|node| node.node_type == "APPROVAL")
+            .expect("必须有审批节点");
+        assert_eq!(review.assignee_type.as_deref(), Some("ADMIN"));
+        assert_eq!(review.self_approval, "FORBID", "内控：不许自审自批");
     }
 }

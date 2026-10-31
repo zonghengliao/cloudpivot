@@ -71,10 +71,20 @@ pub const ENTITY_PAYABLE: &str = "PAYABLE";
 pub const ENTITY_VOUCHER: &str = "VOUCHER";
 
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
-pub const STOCK_IN_EDGES: [(&str, &str); 3] = [
+///
+/// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
+/// ```text
+/// POSTED          → PENDING_CANCEL   发起作废审批（只挂审批单，账不动）
+/// PENDING_CANCEL  → CANCELLED        审批通过 → 才执行 P9 的六本账回滚
+/// PENDING_CANCEL  → POSTED           驳回 / 申请人撤回 → 回到已过账，账一点没动
+/// ```
+pub const STOCK_IN_EDGES: [(&str, &str); 6] = [
     ("DRAFT", "POSTED"),
     ("DRAFT", "CANCELLED"),
     ("POSTED", "CANCELLED"),
+    ("POSTED", "PENDING_CANCEL"),
+    ("PENDING_CANCEL", "CANCELLED"),
+    ("PENDING_CANCEL", "POSTED"),
 ];
 
 /// 采购订单合法边（P10 · 卡面 §三 的 8 条 + 收货白名单必需的 2 条）。
@@ -128,7 +138,14 @@ pub const PAYABLE_EDGES: [(&str, &str); 4] = [
 pub const VOUCHER_EDGES: [(&str, &str); 0] = [];
 
 /// 需要 reason 的边（作废已入账单据：红冲必须能追溯到为什么）。
-pub const STOCK_IN_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "CANCELLED")];
+///
+/// P16：作废拆成「发起（POSTED→PENDING_CANCEL）」和「执行（PENDING_CANCEL→CANCELLED）」两步，
+/// 两步都要原因 —— 前者是**申请理由**（审批人据此判断），后者是**记账依据**（红冲凭证的摘要）。
+pub const STOCK_IN_REASON_EDGES: [(&str, &str); 3] = [
+    ("POSTED", "CANCELLED"),
+    ("POSTED", "PENDING_CANCEL"),
+    ("PENDING_CANCEL", "CANCELLED"),
+];
 /// 需要 reason 的边：已提交的采购单作废。
 pub const PURCHASE_ORDER_REASON_EDGES: [(&str, &str); 2] =
     [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
@@ -141,7 +158,10 @@ pub const PAYABLE_REASON_EDGES: [(&str, &str); 1] = [("OPEN", "CANCELLED")];
 pub const VOUCHER_REASON_EDGES: [(&str, &str); 0] = [];
 
 /// 入账态（这些状态下不允许改业务字段，见 [`ensure_writable`]）。
-pub const STOCK_IN_LOCKED: [&str; 1] = ["POSTED"];
+///
+/// `PENDING_CANCEL` 也锁：作废审批中如果还能改数量 / 金额 / 明细，审批人批的就是一份
+/// 已经变过的数据（审批对象与执行对象不是同一张单），复核等于没做。
+pub const STOCK_IN_LOCKED: [&str; 2] = ["POSTED", "PENDING_CANCEL"];
 /// 采购订单入账态：收过货的单据不能再改金额 / 明细。
 pub const PURCHASE_ORDER_LOCKED: [&str; 2] = ["RECEIVED", "PARTIAL_RECEIVED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。

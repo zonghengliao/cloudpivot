@@ -1488,6 +1488,9 @@ pub async fn withdraw_instance(
     if let Some(error) = drain(&mut out).await {
         return Err(error);
     }
+    // P16：从审批中心撤回的也可能是一张「收货单作废」单 → 单据必须回到已过账。
+    // 不做这一步就是 P11 的老坑：审批单 WITHDRAWN 了，单据永远停在「作废审批中」。
+    crate::business::erp::stockin_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1531,6 +1534,9 @@ pub async fn approve_task(
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
+    // P16：也可能是「收货单作废」发起的 —— 通过则执行六本账回滚，驳回则打回已过账
+    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1583,6 +1589,9 @@ pub async fn reject_task(
     task_bridge::on_instance_settled(out.instance_id, &out.instance_status).await;
     // W3b：同一条审批单也可能是「库存调拨单」发起的 —— 与任务回调并列、互不影响
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
+    // P16：收货单作废被驳回 → 单据回到已过账（账一动没动）
+    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
     Ok(Res::ok(action_res(out)))
 }
 

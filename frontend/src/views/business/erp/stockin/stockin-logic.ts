@@ -121,8 +121,10 @@ export interface StockInRowActions {
   edit: boolean;
   /** 过账（仅 `DRAFT`） */
   post: boolean;
-  /** 作废（`DRAFT` / `POSTED`） */
+  /** 作废（`DRAFT` 直接作废 / `POSTED` 发起作废审批） */
   cancel: boolean;
+  /** 撤回作废申请（仅 `PENDING_CANCEL`，且只有发起人能撤——后端兜底校验） */
+  withdrawCancel: boolean;
   /** 删除（仅 `DRAFT`） */
   remove: boolean;
   /** 查看（永远可点） */
@@ -212,6 +214,8 @@ export function stockInStatusLabel(status: StockInStatus | string): string {
       return '草稿';
     case 'POSTED':
       return '已过账';
+    case 'PENDING_CANCEL':
+      return '作废审批中';
     case 'CANCELLED':
       return '已作废';
     default:
@@ -219,15 +223,22 @@ export function stockInStatusLabel(status: StockInStatus | string): string {
   }
 }
 
-/** 状态 → TDesign tag 主题 */
+/**
+ * 状态 → TDesign tag 主题。
+ *
+ * `PENDING_CANCEL` 用 `warning`（橙色）：它既不是「正常」也不是「终态」，
+ * 而是**等人复核**的中间态 —— 用绿色会被误读成没事，用红色会被误读成已作废。
+ */
 export function stockInStatusTheme(
   status: StockInStatus | string,
-): 'default' | 'primary' | 'success' | 'danger' {
+): 'default' | 'primary' | 'success' | 'warning' | 'danger' {
   switch (status) {
     case 'DRAFT':
       return 'default';
     case 'POSTED':
       return 'success';
+    case 'PENDING_CANCEL':
+      return 'warning';
     case 'CANCELLED':
       return 'danger';
     default:
@@ -243,28 +254,33 @@ export const STOCKIN_STATUS_FILTER_OPTIONS: ReadonlyArray<{
   { label: '全部状态', value: '' },
   { label: '草稿', value: 'DRAFT' },
   { label: '已过账', value: 'POSTED' },
+  { label: '作废审批中', value: 'PENDING_CANCEL' },
   { label: '已作废', value: 'CANCELLED' },
 ];
 
 /**
  * 行级按钮显隐（卡面 §四 + 后端 `LEGAL_EDGES`）。
  *
- * | 状态 | 编辑 | 过账 | 作废 | 删除 | 查看 |
- * |---|---|---|---|---|---|
- * | `DRAFT` | ✅ | ✅ | ✅ | ✅ | ✅ |
- * | `POSTED` | — | — | ✅ | — | ✅ |
- * | `CANCELLED` | — | — | — | — | ✅ |
+ * | 状态 | 编辑 | 过账 | 作废 | 撤回作废 | 删除 | 查看 |
+ * |---|---|---|---|---|---|---|
+ * | `DRAFT` | ✅ | ✅ | ✅（直接作废） | — | ✅ | ✅ |
+ * | `POSTED` | — | — | ✅（**发起审批**） | — | — | ✅ |
+ * | `PENDING_CANCEL` | — | — | — | ✅ | — | ✅ |
+ * | `CANCELLED` | — | — | — | — | — | ✅ |
  *
- * ⚠️ `POSTED` 的「作废」**不冲回库存**（P2-B1 只改状态，红冲在 P2-C1），
+ * ⚠️ P16 起 `POSTED` 的「作废」**不立即动账**：它只发起作废审批（单据锁定、状态变
+ * 「作废审批中」），六本账在**复核通过**那一刻才回滚。所以这一行不再有「作废即红冲」的错觉，
  * 提示文案见 {@link cancelConfirmMessage}。
  */
 export function availableStockInActions(status: StockInStatus | string): StockInRowActions {
   const isDraft = status === 'DRAFT';
   const isPosted = status === 'POSTED';
+  const isPendingCancel = status === 'PENDING_CANCEL';
   return {
     edit: isDraft,
     post: isDraft,
     cancel: isDraft || isPosted,
+    withdrawCancel: isPendingCancel,
     remove: isDraft,
     view: true,
   };
@@ -328,11 +344,25 @@ export function postConfirmMessage(inNo: string, totalWithTax: number | string):
   return `收货单 ${inNo} 过账后不可撤销：价税合计 ${formatMoney(totalWithTax)}，将增加库存并生成应付单与记账凭证。`;
 }
 
-/** 作废确认文案（`POSTED` 时提醒不冲回库存） */
+/**
+ * 作废确认文案（P16：已过账的作废是**发起审批**，不是立即红冲）。
+ *
+ * `POSTED` 时说的是真实后果：单据进入「作废审批中」并**锁定**，六本账等复核通过才回滚。
+ * 这句文案必须与后端行为逐字对齐 —— 旧文案「不会自动冲回库存（红冲在下一批开放）」
+ * 早在 P9 就不成立了（P9 起作废会回滚六本账）。
+ */
 export function cancelConfirmMessage(status: StockInStatus | string): string {
-  return status === 'POSTED'
-    ? '作废后本批库存不会自动冲回（红冲在下一批开放），只是把单据标记为已作废。确认作废？'
-    : '作废后草稿将不可再编辑，确认作废？';
+  if (status === 'POSTED') {
+    return (
+      '提交后将进入「作废审批中」：单据在此期间被锁定（不能改数量 / 金额 / 明细），' +
+      '六本账（库存 / 库位账 / 流水 / 凭证 / 应付 / 序列号）在**审批通过**后才回滚；' +
+      '审批驳回或撤回则单据回到已过账，账一点不动。确认发起作废审批？'
+    );
+  }
+  if (status === 'PENDING_CANCEL') {
+    return '该单的作废申请正在审批中：要取消请用「撤回」。';
+  }
+  return '作废后草稿将不可再编辑，确认作废？';
 }
 
 // ==================== 格式化 ====================

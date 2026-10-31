@@ -588,6 +588,10 @@ pub struct StockInRes {
     pub cancelled_by: Option<String>,
     /// 作废原因。
     pub cancel_reason: Option<String>,
+    /// 作废审批实例 id（P16；只有「作废审批中」非空，前端据此显示审批进度时间线）。
+    pub approval_instance_id: Option<String>,
+    /// 创建人（P16 新增：内控要求「作废复核人 ≠ 制单人」，前端据此禁用自审提示）。
+    pub create_by: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -621,6 +625,8 @@ impl From<&StockInRow> for StockInRes {
             cancelled_at: row.cancelled_at,
             cancelled_by: row.cancelled_by.map(|v| v.to_string()),
             cancel_reason: row.cancel_reason.clone(),
+            approval_instance_id: row.approval_instance_id.map(|v| v.to_string()),
+            create_by: row.create_by.map(|v| v.to_string()),
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
