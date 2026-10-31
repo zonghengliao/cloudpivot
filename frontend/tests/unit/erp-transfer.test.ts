@@ -20,6 +20,7 @@ import {
   TRANSFER_PAGE_SIZE,
   TRANSFER_STATUSES,
   TRANSFER_STATUS_META,
+  WITHDRAW_REASON_MAX,
   actionTargetStatus,
   availableActions,
   buildApprovalSteps,
@@ -43,6 +44,7 @@ import {
   transferStatusTheme,
   transferStatusVariant,
   validateTransferForm,
+  withdrawReasonError,
   type TransferFormState,
 } from '@/views/business/erp/transfer/transfer-logic';
 import type { TransferRow } from '@/api/business/erp';
@@ -115,11 +117,14 @@ test('② 可流转判断：每种状态的按钮显隐（照卡面 §四·③�
     assert.deepEqual(on.sort(), [...expected].sort(), `${status} 的按钮集合不对`);
   }
 
-  // 状态机只认四条边（其余一律拒，含原地流转）
+  // 状态机：与后端 transfer_model::LEGAL_EDGES 逐条一致（P8 起「撤回」= PENDING → CANCELLED）
   assert.equal(canTransition('DRAFT', 'PENDING'), true);
-  assert.equal(canTransition('PENDING', 'DRAFT'), true); // 撤回
+  assert.equal(canTransition('PENDING', 'CANCELLED'), true); // 撤回（取消整单）
+  assert.equal(canTransition('DRAFT', 'CANCELLED'), true); // 草稿直接取消
   assert.equal(canTransition('APPROVED', 'IN_TRANSIT'), true);
   assert.equal(canTransition('IN_TRANSIT', 'DONE'), true);
+  // 后端 LEGAL_EDGES 里**没有** PENDING → DRAFT：老实现发 DRAFT 会被 409 拒掉（P8 真机实测）
+  assert.equal(canTransition('PENDING', 'DRAFT'), false);
   assert.equal(canTransition('DRAFT', 'APPROVED'), false); // 跳过审批
   assert.equal(canTransition('DRAFT', 'DRAFT'), false);
   assert.equal(canTransition('DONE', 'CANCELLED'), false); // 终态
@@ -127,15 +132,22 @@ test('② 可流转判断：每种状态的按钮显隐（照卡面 §四·③�
 
   // 动作 → 目标状态 / 是否需要二次确认
   assert.equal(actionTargetStatus('submit'), 'PENDING');
-  assert.equal(actionTargetStatus('withdraw'), 'DRAFT');
+  assert.equal(actionTargetStatus('withdraw'), 'CANCELLED');
   assert.equal(actionTargetStatus('ship'), 'IN_TRANSIT');
   assert.equal(actionTargetStatus('receive'), 'DONE');
   assert.equal(actionTargetStatus('edit'), null); // 走 PUT，不是状态流转
   assert.equal(actionTargetStatus('remove'), null); // 走 DELETE
   assert.equal(needsConfirm('ship'), true); // 不可逆
   assert.equal(needsConfirm('receive'), true); // 不可逆
+  assert.equal(needsConfirm('withdraw'), true); // 取消是终态 + 要填原因
   assert.equal(needsConfirm('submit'), false);
-  assert.equal(needsConfirm('withdraw'), false);
+
+  // 撤回原因校验（后端 cancel_reason() 的口径：空白视为没给 → 400）
+  assert.match(withdrawReasonError(''), /必须填写原因/);
+  assert.match(withdrawReasonError('   '), /必须填写原因/);
+  assert.equal(withdrawReasonError('需求取消'), '');
+  assert.equal(withdrawReasonError('需'.repeat(WITHDRAW_REASON_MAX)), '');
+  assert.match(withdrawReasonError('需'.repeat(WITHDRAW_REASON_MAX + 1)), /最长 255/);
 
   // 灰掉的按钮要有理由（tooltip 不能是空串）
   assert.match(transferActionHint('DONE'), /已完成/);

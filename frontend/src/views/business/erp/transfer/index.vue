@@ -541,6 +541,33 @@
         </t-form-item>
       </t-form>
     </t-dialog>
+
+    <!-- ==================== ⑦ 撤回弹窗（PENDING → CANCELLED；取消原因必填） ==================== -->
+    <t-dialog
+      v-model:visible="withdrawVisible"
+      header="撤回调拨单"
+      theme="warning"
+      width="520px"
+      :confirm-btn="{ content: '确认撤回', loading: withdrawing, theme: 'warning' }"
+      data-testid="transfer-withdraw-dialog"
+      @confirm="confirmWithdraw"
+    >
+      <p class="ship-text">
+        单号 <span class="mono">{{ withdrawRow?.transfer_no }}</span> 将从「审批中」变为「已取消」：
+        后端会把在跑的审批单一并终止，<b>撤回后不可恢复</b>（只能删除，不能再提交）。
+      </p>
+      <t-form label-width="84px">
+        <t-form-item label="撤回原因" required-mark>
+          <t-input
+            v-model="withdrawReason"
+            placeholder="例如：需求取消 / 数量填错"
+            :maxlength="255"
+            data-testid="transfer-withdraw-reason"
+          />
+        </t-form-item>
+      </t-form>
+      <p v-if="withdrawError" class="ship-text" data-testid="transfer-withdraw-error">{{ withdrawError }}</p>
+    </t-dialog>
   </div>
 </template>
 
@@ -592,6 +619,7 @@ import {
   transferStatusVariant,
   availableActions,
   validateTransferForm,
+  withdrawReasonError,
   type ApprovalStep,
   type TransferAction,
   type TransferFilterState,
@@ -843,7 +871,8 @@ async function confirmShip(): Promise<void> {
 /**
  * 行级动作（提交审批 / 撤回 / 收货）。
  *
- * 收货不可逆 → `DialogPlugin.confirm`（danger）；提交审批 / 撤回可回到中间态 → 直接发。
+ * 收货不可逆 → `DialogPlugin.confirm`（danger）；撤回 = 取消整单（终态）→ 自己一个弹窗要原因；
+ * 提交审批是可逆的中间态 → 直接发。
  * 删除单独走 `confirmRemove`（文案不同：删除是「单据消失」不是「状态变化」）。
  */
 function runAction(row: TransferRow, action: Exclude<TransferAction, 'edit' | 'remove' | 'ship'>): void {
@@ -867,8 +896,64 @@ function runAction(row: TransferRow, action: Exclude<TransferAction, 'edit' | 'r
     });
     return;
   }
-  const target = action === 'submit' ? 'PENDING' : 'DRAFT';
-  void patchStatus(row, target, `${row.transfer_no} 已${TRANSFER_ACTION_LABEL[action]}`);
+  if (action === 'withdraw') {
+    openWithdrawDialog(row);
+    return;
+  }
+  void patchStatus(row, 'PENDING', `${row.transfer_no} 已${TRANSFER_ACTION_LABEL.submit}`);
+}
+
+// ==================== 撤回（PENDING → CANCELLED，取消原因必填） ====================
+//
+// 为什么不是「退回草稿」：后端 `transfer_model.rs::LEGAL_EDGES` 里 PENDING 只有两条出边
+// （→APPROVED / →CANCELLED），P8 真机实测撤回按钮发 `DRAFT` 得到 409「非法状态流转」。
+// 撤回的同时后端会终止在跑的审批单，所以这里必须把原因一起给（`ck_biz_transfer_state` 要求非空白）。
+
+/** 撤回弹窗可见 */
+const withdrawVisible = ref(false);
+/** 要撤回的单 */
+const withdrawRow = ref<TransferRow | null>(null);
+/** 撤回原因（必填） */
+const withdrawReason = ref('');
+/** 前端校验/接口错误文案 */
+const withdrawError = ref('');
+/** 撤回提交中 */
+const withdrawing = ref(false);
+
+/** 打开撤回弹窗（每次清空上一次的残留） */
+function openWithdrawDialog(row: TransferRow): void {
+  withdrawRow.value = row;
+  withdrawReason.value = '';
+  withdrawError.value = '';
+  withdrawVisible.value = true;
+}
+
+/** 确认撤回：`PATCH /status` → `CANCELLED` + `reason` */
+async function confirmWithdraw(): Promise<void> {
+  const row = withdrawRow.value;
+  if (!row) {
+    return;
+  }
+  const error = withdrawReasonError(withdrawReason.value);
+  if (error) {
+    withdrawError.value = error;
+    return;
+  }
+  withdrawing.value = true;
+  try {
+    await updateTransferStatus(row.id, { status: 'CANCELLED', reason: withdrawReason.value.trim() });
+    MessagePlugin.success(`${row.transfer_no} 已撤回（单据已取消）`);
+    withdrawVisible.value = false;
+    await loadTransfers(current.value);
+    if (detail.value?.id === row.id) {
+      await openDetail({ ...row, id: row.id });
+    }
+  } catch (e) {
+    withdrawError.value = messageOf(e);
+    MessagePlugin.error(messageOf(e));
+  } finally {
+    withdrawing.value = false;
+  }
 }
 
 /** 打状态流转接口 + 刷新 + 同步抽屉（抽屉开着时不能显示旧状态） */

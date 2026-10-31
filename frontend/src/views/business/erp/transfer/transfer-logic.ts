@@ -10,7 +10,7 @@
  * | 语义 | 真口径 | 出处 |
  * |---|---|---|
  * | 状态六值 | `DRAFT` / `PENDING` / `APPROVED` / `IN_TRANSIT` / `DONE` / `CANCELLED` | `V0140` `ck_transfer_status` |
- * | 状态机 | `DRAFT→PENDING`、`PENDING→DRAFT`（撤回）、`APPROVED→IN_TRANSIT`、`IN_TRANSIT→DONE` | 卡面 §四·③ + `V0140` `ck_biz_transfer_state` |
+ * | 状态机 | `DRAFT→PENDING`、`PENDING→CANCELLED`（撤回）/`PENDING→APPROVED`、`DRAFT→CANCELLED`、`APPROVED→IN_TRANSIT`、`IN_TRANSIT→DONE` | 后端 `transfer_model.rs::LEGAL_EDGES`（P8 实测：撤回发 `DRAFT` 会 409） |
  * | 同仓禁止 | `from_warehouse_id <> to_warehouse_id` | `V0140` `ck_transfer_diff_wh` |
  * | 明细数量 | `qty > 0`（恒正，方向由 from/to 表达） | `V0140` `ck_transfer_item_qty` |
  * | 删除范围 | 仅 `DRAFT` / `CANCELLED` | 卡面契约 `DELETE /erp/transfer/{id}` |
@@ -80,7 +80,7 @@ export interface TransferStatusMeta {
  */
 export const TRANSFER_STATUS_META: Readonly<Record<TransferStatus, TransferStatusMeta>> = {
   DRAFT: { label: '草稿', theme: 'default', variant: 'light', hint: '还没提交，可编辑 / 可删' },
-  PENDING: { label: '审批中', theme: 'warning', variant: 'light', hint: '审批流程在跑，可撤回' },
+  PENDING: { label: '审批中', theme: 'warning', variant: 'light', hint: '审批流程在跑，可撤回（撤回=取消整单，要填原因）' },
   APPROVED: { label: '已批准', theme: 'primary', variant: 'light', hint: '审批通过，等发货' },
   IN_TRANSIT: { label: '在途', theme: 'primary', variant: 'dark', hint: '已发货，货在在途仓' },
   DONE: { label: '已完成', theme: 'success', variant: 'light', hint: '已签收，终态只读' },
@@ -114,11 +114,15 @@ export type TransferAction = 'edit' | 'submit' | 'withdraw' | 'ship' | 'receive'
 /** 某一行的按钮可用性 */
 export type TransferActions = Record<TransferAction, boolean>;
 
-/** 状态流转：`from → to` 是否允许（与 `V0140` 的时间戳约束同口径） */
+/** 状态流转：`from → to` 是否允许（与后端 `transfer_model::LEGAL_EDGES` 逐条对齐） */
 export function canTransition(from: string, to: string): boolean {
   return (
     (from === 'DRAFT' && to === 'PENDING')
-    || (from === 'PENDING' && to === 'DRAFT')
+    // 「撤回」= 取消整单（PENDING → CANCELLED），**不是**退回草稿：
+    // 后端 `transfer_model.rs` 的合法边只有 PENDING→APPROVED / PENDING→CANCELLED，
+    // 发 `DRAFT` 会被 409「非法状态流转」拒掉（P8 实测：撤回按钮点了只报错）。
+    || (from === 'PENDING' && to === 'CANCELLED')
+    || (from === 'DRAFT' && to === 'CANCELLED')
     || (from === 'APPROVED' && to === 'IN_TRANSIT')
     || (from === 'IN_TRANSIT' && to === 'DONE')
   );
@@ -165,14 +169,15 @@ export const TRANSFER_ACTION_LABEL: Readonly<Record<TransferAction, string>> = {
  *
  * `null` 表示这个动作**不是** `PATCH /status` 流转：
  * 「编辑」走 `PUT /transfer/{id}`，「删除」走 `DELETE /transfer/{id}`。
- * 「撤回」的目标是 `DRAFT`；`APPROVED` 由审批引擎写，前端没有入口。
+ * 「撤回」的目标是 `CANCELLED`（= 取消整单，后端那侧同时终止在跑的审批单）；
+ * `APPROVED` 由审批引擎写，前端没有入口。
  */
 export function actionTargetStatus(action: TransferAction): TransferStatus | null {
   switch (action) {
     case 'submit':
       return 'PENDING';
     case 'withdraw':
-      return 'DRAFT';
+      return 'CANCELLED';
     case 'ship':
       return 'IN_TRANSIT';
     case 'receive':
@@ -186,11 +191,32 @@ export function actionTargetStatus(action: TransferAction): TransferStatus | nul
  * 动作是否**不可逆**（要二次确认）。
  *
  * 发货：货一旦进在途仓就必须收货，撤回没有业务路径；
- * 收货：签收即终态（`DONE` 之后 `ck_biz_transfer_state` 不允许再动）。
- * 提交审批 / 撤回 / 删除都能回到一个可见的中间态，所以不弹确认（删除另有确认，见页面）。
+ * 收货：签收即终态（`DONE` 之后 `ck_biz_transfer_state` 不允许再动）；
+ * 撤回：`PENDING → CANCELLED` 是**终态**（CANCELLED 只能删，不能再提交），且会终止在跑的审批单，
+ * 所以也要确认 + 必填取消原因（后端 `ck_biz_transfer_state` 要求 `cancel_reason` 非空白）。
+ * 只有「提交审批」是可逆的中间态，不弹确认。
  */
 export function needsConfirm(action: TransferAction): boolean {
-  return action === 'ship' || action === 'receive';
+  return action === 'ship' || action === 'receive' || action === 'withdraw';
+}
+
+/** 取消原因的最大长度（与后端 `transfer_dto::MAX_REASON_LEN = 255` 同口径） */
+export const WITHDRAW_REASON_MAX = 255;
+
+/**
+ * 撤回（取消）原因校验：`''` = 通过，否则是给用户看的错误文案。
+ *
+ * 逐字对齐后端 `TransferStatusReq::cancel_reason()`：空白视为没给 → 400。
+ */
+export function withdrawReasonError(reason: string): string {
+  const text = reason.trim();
+  if (!text) {
+    return '撤回必须填写原因（取消后不可恢复）';
+  }
+  if (text.length > WITHDRAW_REASON_MAX) {
+    return `原因最长 ${WITHDRAW_REASON_MAX} 个字符`;
+  }
+  return '';
 }
 
 /** 不可点时的原因（tooltip / 灰字说明） */

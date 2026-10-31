@@ -882,17 +882,18 @@ export interface CreateTransferReq {
 export type UpdateTransferReq = CreateTransferReq;
 
 /**
- * 状态流转请求体（`PATCH /erp/transfer/{id}/status`）。
+ * 状态流转请求体（`PATCH /erp/transfer/{id}/status`，字段逐条抄 `transfer_dto::TransferStatusReq`）。
  *
- * - `PENDING`（提交审批）/ `DRAFT`（撤回）/ `IN_TRANSIT`（发货）/ `DONE`（收货）；
- * - `CANCELLED` 必须带 `cancel_reason`（非空，`ck_biz_transfer_state` 兜底）；
+ * - `PENDING`（提交审批）/ `CANCELLED`（撤回=取消整单）/ `IN_TRANSIT`（发货）/ `DONE`（收货）；
+ * - `→ CANCELLED` 必须带 `reason`（**字段名就是 `reason`**，不是 `cancel_reason`；
+ *   后端 `TransferStatusReq` 只有 `reason`，传 `cancel_reason` 会被 serde 丢掉 → 400「必须给 reason」）；
  * - 发货时 `transit_warehouse_id` 会被写进主表（`IN_TRANSIT` 要求非空）。
  */
 export interface TransferStatusReq {
   /** 目标状态 */
   status: Exclude<TransferStatus, 'APPROVED'>;
-  /** 取消原因（仅 `CANCELLED` 必填） */
-  cancel_reason?: string | null;
+  /** 取消原因（仅 `CANCELLED` 必填，最长 255 字，空白视为没给） */
+  reason?: string | null;
   /** 在途仓 id（仅 `IN_TRANSIT` 用；不传则由后端取种子 `WH-TRANSIT`） */
   transit_warehouse_id?: string | null;
 }
