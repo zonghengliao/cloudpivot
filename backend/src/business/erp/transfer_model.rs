@@ -60,6 +60,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::serial_model::{period_code_of, period_key_of};
+use crate::business::erp::stockin_model;
 use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 
@@ -1568,9 +1569,17 @@ struct StockTxn<'a> {
 ///
 /// 1. 幂等闸：本单已有 `doc_type='STOCK_TRANSFER'` 的流水 → 直接返回 `settled = false`；
 /// 2. 读明细（含 `serial_required` 与序列号），**先把「序列号个数 == 数量」校验掉**；
-/// 3. 逐行：调出仓条件扣减（`AND qty >= ?`）→ 调入仓加库存（不存在则建档）→ 序列号移仓 → 回填明细；
+/// 3. 逐行：调出仓条件扣减（`AND qty >= ?`）→ **调出仓库位账 -qty** → 调入仓加库存（不存在则建档）
+///    → **调入仓库位账 +qty** → 序列号移仓 → 回填明细；
 /// 4. 回写单据头 `total_amount`；
-/// 5. 不变式断言（负库存 / 一物一码件数 / 成本守恒），不满足即报错回滚。
+/// 5. 不变式断言（负库存 / 一物一码件数 / 成本守恒 / **库位账合计 == 成本账 qty**），
+///    不满足即报错回滚。
+///
+/// 第 3 步的库位账两笔走 [`stockin_model::apply_location_qty`]（与收货过账同一个原语，
+/// 同一套「有成行按主键、无成行落未分配桶」分支），且**成本账先、库位账后**，
+/// 与收货并发时锁顺序一致（PRD §3.2.6）。缺了这两笔就是本卡修的缺口：
+/// 调拨每结算一次，`SUM(biz_inventory_location.qty) = SUM(biz_inventory.qty)`（巡检 B1，
+/// BLOCKER）就在调出仓/调入仓两侧同时变红。
 ///
 /// # 异常情况
 ///
@@ -1609,10 +1618,19 @@ pub async fn settle_transfer(
         });
     }
 
-    let lines = load_settle_lines(ex, transfer_id).await?;
+    let mut lines = load_settle_lines(ex, transfer_id).await?;
     if lines.is_empty() {
         return Err(SettleError::EmptyItems);
     }
+    // ①b 锁顺序（PRD §3.2.6）：明细按 `material_id` 升序处理（同物料再按行号）。
+    //     `load_settle_lines` 是按 `line_no` 读的，而建单时的物料顺序由用户决定；
+    //     不重排就会与收货过账（`stockin_handler` 按 `material_id` 升序排好）在
+    //     「成本账 → 库位账」两级锁上反向推进，两张单并发动同一组物料会交叉等待。
+    lines.sort_by(|a, b| {
+        a.material_id
+            .cmp(&b.material_id)
+            .then(a.line_no.cmp(&b.line_no))
+    });
     // ② 先校验再动库存：`ck_biz_transfer_item_qty` 保证 qty > 0，所以一物一码物料
     //    没有序列号一定是错的（先扣库存再报 400 就是白扣一轮再回滚）
     for line in &lines {
@@ -1665,6 +1683,29 @@ pub async fn settle_transfer(
             amount = %out.amount,
             "调出仓扣减完成"
         );
+        // ③b 调出仓**库位账**：与成本账同一事务同步减（口径镜像收货过账的 ③→③b：
+        //     成本账先、库位账后；明细已在上面的 ①b 按 `material_id` 升序排好，
+        //     锁顺序就是 PRD §3.2.6 的「material_id 升序 → 成本账 → 库位账」，
+        //     与收货并发不会交叉等待）。
+        //     传负数走 `apply_location_qty` 的加法原语：`Some(行 id)` 按主键 UPDATE，
+        //     `None` 落「未分配库位桶」，与调入侧完全对称。
+        let out_location = stockin_model::apply_location_qty(
+            ex,
+            line.material_id,
+            from_warehouse_id,
+            line.from_location_id,
+            -line.qty,
+            now,
+        )
+        .await?;
+        tracing::debug!(
+            transfer_no = %transfer_no,
+            line_no = line.line_no,
+            qty = %line.qty,
+            location_before = %out_location.before_qty,
+            location_after = %out_location.after_qty,
+            "调出仓库位账扣减完成"
+        );
         post_stock_txn(
             ex,
             &StockTxn {
@@ -1703,6 +1744,25 @@ pub async fn settle_transfer(
             now,
         )
         .await?;
+        // ④b 调入仓**库位账**：+qty（明细指定了库位就加那一行，没有就落「未分配库位桶」）。
+        //     放在成本账之后，与收货过账的锁顺序一致（成本账 → 库位账）。
+        let in_location = stockin_model::apply_location_qty(
+            ex,
+            line.material_id,
+            to_warehouse_id,
+            line.to_location_id,
+            line.qty,
+            now,
+        )
+        .await?;
+        tracing::debug!(
+            transfer_no = %transfer_no,
+            line_no = line.line_no,
+            qty = %line.qty,
+            location_before = %in_location.before_qty,
+            location_after = %in_location.after_qty,
+            "调入仓库位账加计完成"
+        );
         post_stock_txn(
             ex,
             &StockTxn {
@@ -2203,9 +2263,14 @@ async fn post_stock_txn(
 /// 1. 本次动过的库存行 `qty >= 0`（条件扣减已保证，这里再断一次防止将来被改成无条件 UPDATE）；
 /// 2. 一物一码物料：「账面数量 == 在库序列号件数」（W2c-1 / W2c-2 的口径：
 ///    `COALESCE(汇总桶 qty, SUM(库位行 qty))` vs `COUNT(serial WHERE status='IN_STOCK')`）；
-/// 3. 成本守恒：本单 `SUM(OUT amount) == SUM(IN amount)`。
+/// 3. 成本守恒：本单 `SUM(OUT amount) == SUM(IN amount)`；
+/// 4. **两本账相符**（与巡检 B1 同判据，容差 0.0001）：本次调拨涉及的每个
+///    `(material_id, warehouse_id)` 上 `SUM(biz_inventory_location.qty) == SUM(biz_inventory.qty)`。
+///    这一条是本卡补的「当场自检」：历史上调拨/批量生成只写成本账、库位账一行不写，
+///    造成巡检 B1（BLOCKER）在调出仓/调入仓两侧必红；现在任何一次漏账都会在结算当刻
+///    整单回滚并指名道姓地报出来，而不是等下一次巡检。
 async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> SettleResult<()> {
-    // SCOPE-EXEMPT: 库存 / 序列号是仓储数据，无归属列（口径同 erp/model.rs）。
+    // SCOPE-EXEMPT: 库存 / 序列号 / 库位账都是仓储数据，无归属列（口径同 erp/model.rs）。
     let row = ex
         .query_first_sql(
             format!(
@@ -2235,13 +2300,24 @@ async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> S
                      SELECT COALESCE(SUM(amount) FILTER (WHERE txn_type = 'OUT'), 0) \
                           - COALESCE(SUM(amount) FILTER (WHERE txn_type = 'IN'), 0) AS diff \
                        FROM biz_inventory_txn \
-                      WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid) \
+                      WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid), \
+                 two_books AS ( \
+                     SELECT t.material_id, t.warehouse_id, \
+                            COALESCE((SELECT SUM(b.qty) FROM biz_inventory b \
+                                       WHERE b.material_id = t.material_id \
+                                         AND b.warehouse_id = t.warehouse_id), 0)::numeric(18,4) AS cost_qty, \
+                            COALESCE((SELECT SUM(l.qty) FROM biz_inventory_location l \
+                                       WHERE l.material_id = t.material_id \
+                                         AND l.warehouse_id = t.warehouse_id), 0)::numeric(18,4) AS loc_qty \
+                       FROM touched t) \
                  SELECT (SELECT COUNT(*) FROM broken) AS serial_broken, \
                         (SELECT COUNT(*) FROM biz_inventory b JOIN touched t \
                             ON t.material_id = b.material_id \
                            AND t.warehouse_id = b.warehouse_id \
                           WHERE b.qty < 0) AS negative_qty, \
-                        (SELECT diff FROM money) AS cost_diff"
+                        (SELECT diff FROM money) AS cost_diff, \
+                        (SELECT COUNT(*) FROM two_books \
+                          WHERE abs(cost_qty - loc_qty) > 0.0001) AS location_broken"
             ),
             vec![Value::from(&transfer_id), Value::from(&transfer_id)],
         )
@@ -2253,6 +2329,7 @@ async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> S
     let serial_broken: i64 = row.get_typed("serial_broken")?;
     let negative_qty: i64 = row.get_typed("negative_qty")?;
     let cost_diff: Decimal = row.get_typed("cost_diff")?;
+    let location_broken: i64 = row.get_typed("location_broken")?;
     if negative_qty > 0 {
         return Err(SettleError::Invariant(format!(
             "调拨结算后出现负库存（{negative_qty} 个库存行 qty < 0）"
@@ -2269,7 +2346,63 @@ async fn assert_settle_invariants(ex: &impl SqlExecutor, transfer_id: Uuid) -> S
             "成本不守恒：调出合计 - 调入合计 = {cost_diff}（必须为 0）"
         )));
     }
+    if location_broken > 0 {
+        return Err(SettleError::Invariant(format!(
+            "库位账与成本账不符（{location_broken} 个「物料 × 仓库」）：{}。\
+             库位账（biz_inventory_location）必须与成本账（biz_inventory）逐仓相等，\
+             先跑 GET /business/erp/inventory/audit?dry_run=false 修账后再结算",
+            location_broken_detail(ex, transfer_id).await?
+        )));
+    }
     Ok(())
+}
+
+/// 两本账不符的明细文案（**只在断言失败时查**，正常结算不付这次开销）。
+///
+/// 逐条打印 `物料编码 / 仓库名 / 成本账 / 库位账 / 差额`，让运维不用自己拼 SQL 就能定位。
+async fn location_broken_detail(ex: &impl SqlExecutor, transfer_id: Uuid) -> DbResult<String> {
+    // SCOPE-EXEMPT: 库存 / 库位账是仓储数据，无归属列（口径同 erp/model.rs）。
+    let rows = ex
+        .query_sql(
+            format!(
+                "WITH touched AS ( \
+                     SELECT DISTINCT material_id, warehouse_id FROM biz_inventory_txn \
+                      WHERE doc_type = '{DOC_TYPE_TRANSFER}' AND doc_id = ?::uuid), \
+                 two_books AS ( \
+                     SELECT t.material_id, t.warehouse_id, \
+                            COALESCE((SELECT SUM(b.qty) FROM biz_inventory b \
+                                       WHERE b.material_id = t.material_id \
+                                         AND b.warehouse_id = t.warehouse_id), 0)::numeric(18,4) AS cost_qty, \
+                            COALESCE((SELECT SUM(l.qty) FROM biz_inventory_location l \
+                                       WHERE l.material_id = t.material_id \
+                                         AND l.warehouse_id = t.warehouse_id), 0)::numeric(18,4) AS loc_qty \
+                       FROM touched t) \
+                 SELECT m.material_code, \
+                        COALESCE(w.warehouse_name, '?') AS warehouse_name, \
+                        tb.cost_qty::text AS cost_qty, \
+                        tb.loc_qty::text AS loc_qty, \
+                        (tb.cost_qty - tb.loc_qty)::text AS diff \
+                   FROM two_books tb \
+                   JOIN biz_material m ON m.id = tb.material_id \
+                   LEFT JOIN biz_warehouse w ON w.id = tb.warehouse_id \
+                  WHERE abs(tb.cost_qty - tb.loc_qty) > 0.0001 \
+                  ORDER BY m.material_code, warehouse_name"
+            ),
+            vec![Value::from(&transfer_id)],
+        )
+        .await?;
+    let mut parts = Vec::with_capacity(rows.len());
+    for row in &rows {
+        parts.push(format!(
+            "物料 {} / 仓 {} 成本账 {} 库位账 {}（差 {}）",
+            row.get_typed::<String>("material_code")?,
+            row.get_typed::<String>("warehouse_name")?,
+            row.get_typed::<String>("cost_qty")?,
+            row.get_typed::<String>("loc_qty")?,
+            row.get_typed::<String>("diff")?,
+        ));
+    }
+    Ok(parts.join("；"))
 }
 
 #[cfg(test)]
