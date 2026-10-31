@@ -142,6 +142,16 @@
         </span>
       </div>
 
+      <t-alert
+        v-if="batchResultText"
+        theme="success"
+        :message="batchResultText"
+        close
+        class="list-alert"
+        data-testid="batch-result-hint"
+        @close="batchResultText = ''"
+      />
+
       <t-alert v-if="loadError" theme="error" :message="loadError" class="list-alert">
         <template #operation>
           <t-button size="small" variant="outline" @click="loadSerials()">重试</t-button>
@@ -298,6 +308,35 @@
           </template>
         </t-form-item>
 
+        <!-- 成本单价：批量生成 = 无来源入库（期初/其他入库），没有采购单可挂，成本只能操作人录 -->
+        <t-form-item
+          label="成本单价"
+          name="unit_cost"
+          :status="batchErrors.unit_cost ? 'error' : undefined"
+          :tips="batchErrors.unit_cost"
+        >
+          <t-input
+            v-model="batchForm.unit_cost"
+            placeholder="必填，不含税，如 12.34"
+            data-testid="batch-unit-cost"
+          />
+          <template #help>
+            <span class="dlg-help">
+              不含税单价，必填（> 0，最多 6 位小数）：系统按「件数 × 单价」记入库存金额并生成凭证
+            </span>
+          </template>
+        </t-form-item>
+
+        <!-- 金额预览：提交前让操作人核一眼「这次入账多少钱」（4 位小数，与账面 amount 同精度） -->
+        <t-form-item label="入库金额">
+          <div class="dlg-amount">
+            <span class="dlg-amount__value" data-testid="batch-amount-preview">
+              预计入库金额：{{ batchPreviewAmount }} 元
+            </span>
+            <span class="dlg-help">按「数量 × 单价」4 位小数，与账面 amount 一致</span>
+          </div>
+        </t-form-item>
+
         <t-form-item label="来源类型" name="source_type">
           <t-select
             v-model="batchForm.source_type"
@@ -345,11 +384,14 @@ import {
   SOURCE_TYPE_OPTIONS,
   applyScanHighlight,
   availableActions,
+  batchGenerateErrorText,
   buildBatchPayload,
   buildSerialQuery,
   dash,
   emptyBatchForm,
   emptySerialFilter,
+  formatBatchAmount,
+  formatBatchResultText,
   formatTime,
   hasBatchFormError,
   isSerialFiltered,
@@ -656,10 +698,15 @@ const batchVisible = ref(false);
 const batchForm = reactive<BatchGenerateFormState>(emptyBatchForm());
 /** 字段错误 */
 const batchErrors = ref<BatchFormErrors>({});
-/** 提交错误 */
+/** 提交错误（后端 400 的 msg 原样透出，不改写） */
 const batchSubmitError = ref('');
 /** 提交中 */
 const batchSaving = ref(false);
+/** 上一次成功的业务摘要（列表上方常驻一条，刷新/关提示后消失） */
+const batchResultText = ref('');
+
+/** 入库金额预览（`数量 × 单价`，4 位小数；非法输入显示 `—`） */
+const batchPreviewAmount = computed(() => formatBatchAmount(batchForm));
 
 /** 打开弹窗（表单重置，避免上一次的残留） */
 function openBatchDialog(): void {
@@ -669,7 +716,7 @@ function openBatchDialog(): void {
   batchVisible.value = true;
 }
 
-/** 提交：先本地校验，再 POST；成功提示「生成了 N 个序列号」并刷新列表 */
+/** 提交：先本地校验，再 POST；成功提示「生成了 N 个序列号 + 本次入库金额」并刷新列表 */
 async function submitBatch(): Promise<void> {
   const errors = validateBatchForm(batchForm);
   batchErrors.value = errors;
@@ -680,15 +727,15 @@ async function submitBatch(): Promise<void> {
   batchSubmitError.value = '';
   try {
     const result = await batchGenerateSerials(buildBatchPayload(batchForm));
-    const head = result.serial_nos.slice(0, 3).join(' / ');
-    MessagePlugin.success(
-      `生成了 ${result.count} 个序列号（${result.period_key}）：${head}${result.count > 3 ? ' …' : ''}`,
-    );
+    // 摘要里直接用后端回显的字符串（amount/unit_cost/qty），不在前端重算金额
+    batchResultText.value = formatBatchResultText(result);
+    MessagePlugin.success(batchResultText.value);
     batchVisible.value = false;
     current.value = 1;
     await loadSerials(1);
   } catch (error) {
-    batchSubmitError.value = messageOf(error);
+    // 400（code 10001）的 msg 已写清原因（缺单价 / ≤0 / 非数字），直出；只有拿不到 msg 才兜底
+    batchSubmitError.value = batchGenerateErrorText(error);
   } finally {
     batchSaving.value = false;
   }
@@ -949,5 +996,19 @@ onMounted(async () => {
 .dlg-help {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* 入库金额预览：数字比说明文字重一档，扫一眼就能核对（颜色仍走 TDesign 语义变量，不写裸 hex） */
+.dlg-amount {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.dlg-amount__value {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
 }
 </style>
