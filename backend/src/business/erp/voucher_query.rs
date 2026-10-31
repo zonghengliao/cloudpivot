@@ -897,10 +897,59 @@ pub(crate) mod tests {
         Uuid::from_str(raw).expect("夹具 UUID 写错了")
     }
 
+    /// 夹具凭证号前缀（`setup()` 建的 6 张全部用它）。
+    ///
+    /// 断言必须带这个前缀，**不能只按 `period` 计数**：真库用例共用同一个库，
+    /// P2-B1 / P2-C1 的入库过账、P7 的付款 / 手工凭证都会**自动**往 `biz_voucher`
+    /// 写 2026-10 的 `STOCK_IN` 凭证（与夹具同期间、同来源类型），全量套件下只数
+    /// 期间实测漂成 37 ≠ 4（单跑模块时库里只有夹具，所以是绿的）。
+    ///
+    /// `VoucherFilter` 没有 `voucher_word` 字段，且卡面要求不改生产 SQL；`voucher_no`
+    /// 是模糊匹配（`LIKE %x%`，同时比对 `source_no`），正好用前缀把断言锁在夹具上。
+    /// 夹具的 `source_no` 也带同一前缀（`P2D1-SRC-n`），两条路都只命中夹具。
+    ///
+    /// 用 SQL 侧过滤（而不是「取回全库再在内存里挑」）还顺手去掉了一个隐患：
+    /// 期间内凭证超过一页时，夹具可能被分页挤掉，按行内过滤的写法会假红。
+    pub(crate) const FIXTURE_PREFIX: &str = "P2D1-";
+
+    /// 夹具筛选：给定条件 + 「凭证号 / 来源单号带 [`FIXTURE_PREFIX`]」。
+    fn fixture_filter(
+        period: Option<&str>,
+        status: Option<&str>,
+        source_type: Option<&str>,
+    ) -> VoucherFilter {
+        VoucherFilter {
+            period: period.map(str::to_string),
+            status: status.map(str::to_string),
+            voucher_type: None,
+            source_type: source_type.map(str::to_string),
+            voucher_no: Some(FIXTURE_PREFIX.to_string()),
+            page: 1,
+            page_size: 50,
+        }
+    }
+
     /// 本次夹具的行数（`voucher_word = 'P2D1'`）：全库口径的 `total` 会随别的模块的凭证漂移，
     /// 断言一律按本夹具的行数来。
     fn p2d1_count(rows: &[VoucherRow]) -> usize {
         rows.iter().filter(|row| row.voucher_word == "P2D1").count()
+    }
+
+    /// 行级护栏：取回的行必须**全部**是夹具（前缀口径万一失效，宁可红也不假绿）。
+    fn assert_all_fixtures(rows: &[VoucherRow]) {
+        assert!(!rows.is_empty(), "夹具行不该为空");
+        for row in rows {
+            assert_eq!(
+                row.voucher_word, "P2D1",
+                "混进了非夹具凭证（voucher_word={} / voucher_no={}）",
+                row.voucher_word, row.voucher_no
+            );
+            assert!(
+                row.voucher_no.starts_with(FIXTURE_PREFIX),
+                "混进了非夹具凭证（voucher_no={}）",
+                row.voucher_no
+            );
+        }
     }
 
     /// ① 列表：按 `period` / `status` / `source_type` / `voucher_no` 筛选。
@@ -911,40 +960,32 @@ pub(crate) mod tests {
         };
         // 期间：本次夹具在 2026-10 有 4 张（含 DRAFT 与红字）。
         //
-        // ⚠️ 不能断言 `total == 4`：`voucher_page` 的 `period` 筛选是**全库**口径，
-        // 别的模块（P7 的付款 / 手工凭证、P2-C1 的收货凭证）也会往 2026-10 记账，
-        // 总数会随「今天跑过哪些用例」漂移（T8-C 实测过的同一类问题）。
-        // 正确判据：筛出来的行里，**本夹具**（`voucher_word = 'P2D1'`）必须正好 4 张。
-        let filter = VoucherFilter {
-            period: Some("2026-10".to_string()),
-            page: 1,
-            page_size: 200,
-            ..VoucherFilter::default()
-        };
-        let (rows, total) = voucher_page(&filter).await.expect("期间筛选");
-        assert_eq!(p2d1_count(&rows), 4, "2026-10 应有 4 张 P2D1 凭证");
-        assert!(total >= 4, "期间筛选的总数不该小于本夹具的行数");
+        // ⚠️ 不能只按 `period` 断言 `total == 4`：`voucher_page` 的 `period` 筛选是
+        // **全库**口径，别的模块（P2-C1 的收货凭证、P7 的付款 / 手工凭证）也会往
+        // 2026-10 记账，总数会随「今天跑过哪些用例」漂移（实测 37 ≠ 4）。
+        // 所以筛选条件里叠上 [`FIXTURE_PREFIX`]，把 `total` / 行数都锁到本夹具。
+        let (rows, total) = voucher_page(&fixture_filter(Some("2026-10"), None, None))
+            .await
+            .expect("期间筛选");
+        assert_eq!(total, 4, "2026-10 应有 4 张 P2D1 夹具凭证");
+        assert_eq!(rows.len(), 4, "取回行数应等于 total");
+        assert_eq!(p2d1_count(&rows), 4, "行内复核：4 张都是本夹具");
+        assert_all_fixtures(&rows);
         assert!(rows.iter().all(|row| row.period == "2026-10"));
         // 只看 POSTED：DRAFT 被筛掉 → 3 张。
-        let filter = VoucherFilter {
-            period: Some("2026-10".to_string()),
-            status: Some("POSTED".to_string()),
-            page: 1,
-            page_size: 200,
-            ..VoucherFilter::default()
-        };
-        let (rows, _total) = voucher_page(&filter).await.expect("状态筛选");
-        assert_eq!(p2d1_count(&rows), 3, "2026-10 的 POSTED 应有 3 张");
+        let (rows, total) = voucher_page(&fixture_filter(Some("2026-10"), Some("POSTED"), None))
+            .await
+            .expect("状态筛选");
+        assert_eq!(total, 3, "2026-10 的 POSTED 应有 3 张");
+        assert_eq!(p2d1_count(&rows), 3, "行内复核：3 张都是本夹具");
+        assert_all_fixtures(&rows);
         assert!(rows.iter().all(|row| row.status == "POSTED"));
-        // 来源类型：本夹具全是 STOCK_IN；换成 MANUAL 应 0 行（同样只数本夹具的行）。
-        let filter = VoucherFilter {
-            source_type: Some("MANUAL".to_string()),
-            page: 1,
-            page_size: 200,
-            ..VoucherFilter::default()
-        };
-        let (rows, _total) = voucher_page(&filter).await.expect("来源筛选");
-        assert_eq!(p2d1_count(&rows), 0, "没有 MANUAL 来源的 P2D1 凭证");
+        // 来源类型：本夹具全是 STOCK_IN；换成 MANUAL 应 0 行（仍是夹具口径，别数到别人的凭证）。
+        let (rows, total) = voucher_page(&fixture_filter(None, None, Some("MANUAL")))
+            .await
+            .expect("来源筛选");
+        assert_eq!(total, 0, "没有 MANUAL 来源的 P2D1 凭证");
+        assert_eq!(p2d1_count(&rows), 0, "行内复核：一行都不该有");
         // 凭证号模糊：P2D1-0002（含红冲它的 0005 之外只应命中 1 张）。
         let filter = VoucherFilter {
             voucher_no: Some("P2D1-0002".to_string()),
@@ -955,6 +996,7 @@ pub(crate) mod tests {
         let (rows, total) = voucher_page(&filter).await.expect("凭证号筛选");
         assert_eq!(total, 1, "凭证号精确串应只命中 1 张");
         assert_eq!(rows[0].voucher_no, "P2D1-0002");
+        assert_all_fixtures(&rows);
         println!("[P2D1-①] 期间/状态/来源/凭证号筛选 ✓");
     }
 
