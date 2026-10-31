@@ -1090,3 +1090,96 @@ async fn n13_permission_change_invalidates_tokens_in_db() {
     println!("[N13] 菜单改/删 → 持有者 token_version +1/+2，无关用户与 admin 不动 ✓");
     cleanup(&prefix).await;
 }
+
+// ==================== N14 无缓存（无 Redis）时写操作照常成功（FIX-03） ====================
+
+/// 断言当前进程处于「无缓存」形态。
+///
+/// lib 单测不跑 `App::start()`，`try_cache()` 从未注册 → 与「无 Redis 的生产进程」等价
+/// （`invalidate*` / `cache*` 全部退化成 no-op，`revoke_after_permission_change` 的
+/// 缓存侧清理必然失败）。若将来有人真的在某用例里 `set_cache()`，这条断言会立刻把它
+/// 拦下来，而不是让「无 Redis」用例悄悄变成「有缓存」用例。
+fn assert_no_cache() {
+    assert!(
+        try_cache().is_none(),
+        "本用例模拟「无 Redis」：要求进程内没有注册缓存（若已有用例 set_cache，需拆独立进程跑）"
+    );
+}
+
+/// N14（BUG-SYS-03 验收 ①②）：**无 Redis** 时菜单「建 → 改 → 删」全部成功。
+///
+/// 这正是缺陷的原始症状：写库提交后去清缓存失败 → 回 500，而数据其实已经改了。
+/// 现在缓存侧动作只 `warn` + 记欠账，业务返回成功；本用例逐条把三条写路径跑一遍并
+/// 断言库里真的落了（软删 `deleted_at` 非空），同时钉住「读路径回退查库」的行为。
+#[tokio::test]
+async fn n14_writes_succeed_without_cache() {
+    if !ts::ensure_db().await {
+        return;
+    }
+    assert_no_cache();
+    let tag = ts::uniq();
+    let prefix = format!("N14-{tag}");
+    let claims = ts::super_claims();
+
+    // ① 读路径：无缓存 → `load_cached_tree` 返回 None（调用方回退查库），不是错误
+    assert!(
+        model::load_cached_tree().await.is_none(),
+        "无缓存时 load_cached_tree 必须返回 None（交给调用方查库）"
+    );
+    handler::tree(axum::extract::Query(MenuQuery::default()))
+        .await
+        .expect("无缓存时菜单树仍必须可查（缓存只是读优化）");
+
+    // ② 建：写库成功后的缓存回填失败不影响返回
+    let id = create_menu(
+        &claims,
+        &format!("{prefix}-按钮"),
+        3,
+        &format!("{prefix}:btn"),
+        None,
+        0,
+    )
+    .await;
+
+    // ③ 改：缓存失效失败不得转成 500（BUG-SYS-03 的原始 500 点之一）
+    handler::update(
+        Path(id.clone()),
+        ts::headers(),
+        ts::connect_info(),
+        axum::Extension(claims.clone()),
+        ValidatedJson::<MenuUpdateReq>(req(
+            &format!("{prefix}-按钮改"),
+            3,
+            &format!("{prefix}:btn"),
+            None,
+            0,
+        )),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        panic!(
+            "无缓存时更新菜单必须成功（缓存侧只许降级为 warn），实际 {}/{} {}",
+            e.status, e.code, e.msg
+        )
+    });
+
+    // ④ 删：另一处原始 500 点
+    delete_menu(&id).await;
+
+    // ⑤ 库里真的删了（`sys_menu` 是软删表）
+    let alive = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_menu WHERE id = ?::text::uuid AND deleted_at IS NULL",
+        vec![Value::from(id.clone())],
+    )
+    .await;
+    assert_eq!(
+        alive, 0,
+        "删除后该菜单必须已软删（deleted_at 非空），实际存活 {alive} 行"
+    );
+
+    // ⑥ 缓存辅助函数在「无缓存」下安全降级：不 panic、不抛错
+    model::invalidate_tree_cache().await;
+    model::cache_tree(&[]).await;
+    println!("[N14] 无缓存：建/改/删 全部成功，读路径回退查库，缓存辅助函数安全降级 ✓");
+    cleanup(&prefix).await;
+}

@@ -12,6 +12,7 @@
 
 use nik::prelude::*;
 
+use crate::shared::cache_gate::InvalidationGate;
 use crate::shared::constants::{self, EnableStatus};
 use crate::utils;
 
@@ -196,11 +197,34 @@ pub(crate) async fn find_menu_list(
 
 // ==================== 菜单树缓存 ====================
 
+/// 菜单树缓存的失效记账（BUG-SYS-03）。
+///
+/// 失效失败（无 Redis / 抖动）时业务照常成功，但旧树还留在缓存里；`TTL` 是
+/// [`constants::CACHE_HOT_QUERY_TTL_SECS`]（3600 s），不记账就等于「删了还在一小时」。
+/// 记账后：读缓存前先看它，欠账期间跳过缓存直接查库并补失效（见
+/// [`crate::shared::cache_gate`]）。
+static TREE_CACHE_GATE: InvalidationGate = InvalidationGate::new();
+
 /// 读取缓存的全量菜单树。
 ///
 /// 仅缓存「无任何过滤条件」的全量树；命中返回 `Some`，未命中或缓存不可用返回 `None`
 /// （由调用方回退查库并回填）。
+///
+/// 缓存处于「失效欠账」状态（上次 `Cache::del` 失败）时**不返回缓存值**：先补一次
+/// 失效，补成功才继续用缓存，否则本次直接回退查库——保证缓存恢复后的第一次读不会
+/// 拿到已经被删掉的菜单（BUG-SYS-03 验收 ③）。
 pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::menu::dto::MenuRes>> {
+    if !TREE_CACHE_GATE.cache_readable() {
+        invalidate_tree_cache().await;
+        if !TREE_CACHE_GATE.cache_readable() {
+            tracing::warn!(
+                key = constants::CACHE_KEY_MENU_TREE,
+                cache_invalidation_pending = true,
+                "菜单树缓存仍不可信（失效欠账未清），本次跳过缓存直接查库"
+            );
+            return None;
+        }
+    }
     let store = try_cache()?;
     Cache::get(store, constants::CACHE_KEY_MENU_TREE)
         .await
@@ -210,7 +234,8 @@ pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::menu::dto::M
 
 /// 写入全量菜单树缓存。
 ///
-/// 缓存失败只记告警，不影响主流程（缓存仅为读优化）。
+/// 缓存失败只记告警，不影响主流程（缓存仅为读优化）；失败同时记「欠账」，
+/// 让后续读缓存前先补失效，避免把旧值当成新值。
 pub(crate) async fn cache_tree(nodes: &[crate::system::menu::dto::MenuRes]) {
     let Some(store) = try_cache() else {
         return;
@@ -223,16 +248,33 @@ pub(crate) async fn cache_tree(nodes: &[crate::system::menu::dto::MenuRes]) {
     )
     .await
     {
+        TREE_CACHE_GATE.record(false);
         tracing::warn!(error = %e, "写入菜单树缓存失败");
+    } else {
+        TREE_CACHE_GATE.record(true);
     }
 }
 
 /// 失效全量菜单树缓存（菜单写操作后调用）。
+///
+/// 失败只 `warn` 并记欠账，不向上抛错：写库已经提交，回错误会让客户端重试
+/// （重复删除 / 重复授权，都不幂等），正是 BUG-SYS-03 的症状。
 pub(crate) async fn invalidate_tree_cache() {
     let Some(store) = try_cache() else {
+        // 缓存从未可用（无 Redis 的启动降级）：没有旧值可残留，清掉欠账即可
+        TREE_CACHE_GATE.record(true);
         return;
     };
-    if let Err(e) = Cache::del(store, constants::CACHE_KEY_MENU_TREE).await {
-        tracing::warn!(error = %e, "失效菜单树缓存失败");
+    match Cache::del(store, constants::CACHE_KEY_MENU_TREE).await {
+        Ok(()) => TREE_CACHE_GATE.record(true),
+        Err(e) => {
+            TREE_CACHE_GATE.record(false);
+            tracing::warn!(
+                error = %e,
+                key = constants::CACHE_KEY_MENU_TREE,
+                cache_invalidation_pending = true,
+                "失效菜单树缓存失败（业务已提交，不影响本次结果）：下次读缓存前补失效，补不成则跳过缓存"
+            );
+        }
     }
 }

@@ -10,6 +10,8 @@
 
 use nik::prelude::*;
 
+use crate::shared::cache_gate::InvalidationGate;
+
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
 use crate::shared::constants::{self, EnableStatus};
@@ -299,11 +301,25 @@ pub(crate) async fn find_dept_subtree_ids(
 
 // ==================== 部门树缓存 ====================
 
+/// 部门树缓存的失效记账（与菜单树同一套做法，见 [`crate::shared::cache_gate`]）。
+static TREE_CACHE_GATE: InvalidationGate = InvalidationGate::new();
+
 /// 读取缓存的全量部门树。
 ///
 /// 仅缓存「无任何过滤条件」的全量树；命中返回 `Some`，未命中或缓存不可用返回 `None`
-/// （由调用方回退查库并回填）。
+/// （由调用方回退查库并回填）。失效欠账期间跳过缓存（防「删了还在一小时」）。
 pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::dept::dto::DeptNode>> {
+    if !TREE_CACHE_GATE.cache_readable() {
+        invalidate_tree_cache().await;
+        if !TREE_CACHE_GATE.cache_readable() {
+            tracing::warn!(
+                key = constants::CACHE_KEY_DEPT_TREE,
+                cache_invalidation_pending = true,
+                "部门树缓存仍不可信（失效欠账未清），本次跳过缓存直接查库"
+            );
+            return None;
+        }
+    }
     let store = try_cache()?;
     Cache::get(store, constants::CACHE_KEY_DEPT_TREE)
         .await
@@ -313,7 +329,7 @@ pub(crate) async fn load_cached_tree() -> Option<Vec<crate::system::dept::dto::D
 
 /// 写入全量部门树缓存。
 ///
-/// 缓存失败只记告警，不影响主流程（缓存仅为读优化）。
+/// 缓存失败只记告警，不影响主流程（缓存仅为读优化）；失败记欠账，读前补失效。
 pub(crate) async fn cache_tree(nodes: &[crate::system::dept::dto::DeptNode]) {
     let Some(store) = try_cache() else {
         return;
@@ -326,16 +342,31 @@ pub(crate) async fn cache_tree(nodes: &[crate::system::dept::dto::DeptNode]) {
     )
     .await
     {
+        TREE_CACHE_GATE.record(false);
         tracing::warn!(error = %e, "写入部门树缓存失败");
+    } else {
+        TREE_CACHE_GATE.record(true);
     }
 }
 
 /// 失效全量部门树缓存（部门写操作后调用）。
+///
+/// 失败只 `warn` + 记欠账，不向上抛错（写库已提交，回错误会让客户端重试）。
 pub(crate) async fn invalidate_tree_cache() {
     let Some(store) = try_cache() else {
+        TREE_CACHE_GATE.record(true);
         return;
     };
-    if let Err(e) = Cache::del(store, constants::CACHE_KEY_DEPT_TREE).await {
-        tracing::warn!(error = %e, "失效部门树缓存失败");
+    match Cache::del(store, constants::CACHE_KEY_DEPT_TREE).await {
+        Ok(()) => TREE_CACHE_GATE.record(true),
+        Err(e) => {
+            TREE_CACHE_GATE.record(false);
+            tracing::warn!(
+                error = %e,
+                key = constants::CACHE_KEY_DEPT_TREE,
+                cache_invalidation_pending = true,
+                "失效部门树缓存失败（业务已提交）：下次读缓存前补失效，补不成则跳过缓存"
+            );
+        }
     }
 }

@@ -18,6 +18,7 @@ use nik::prelude::*;
 
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
+use crate::shared::cache_gate::InvalidationGate;
 use crate::shared::constants;
 use crate::shared::constants::EnableStatus;
 use crate::system::user::model::SysUserModel;
@@ -368,10 +369,25 @@ pub(crate) async fn find_role_holder_ids(
 
 // ==================== 启用角色下拉缓存 ====================
 
+/// 启用角色下拉缓存的失效记账（与菜单树同一套做法，见 [`crate::shared::cache_gate`]）。
+static ENABLED_ROLES_GATE: InvalidationGate = InvalidationGate::new();
+
 /// 读取缓存的启用角色下拉列表。
 ///
 /// 命中返回 `Some`，未命中或缓存不可用返回 `None`（调用方回退查库并回填）。
+/// 失效欠账期间跳过缓存（防「角色改了还是旧列表」）。
 pub(crate) async fn load_cached_enabled_roles() -> Option<Vec<crate::system::role::dto::RoleRes>> {
+    if !ENABLED_ROLES_GATE.cache_readable() {
+        invalidate_enabled_roles_cache().await;
+        if !ENABLED_ROLES_GATE.cache_readable() {
+            tracing::warn!(
+                key = constants::CACHE_KEY_ROLE_ENABLED,
+                cache_invalidation_pending = true,
+                "启用角色缓存仍不可信（失效欠账未清），本次跳过缓存直接查库"
+            );
+            return None;
+        }
+    }
     let store = try_cache()?;
     Cache::get(store, constants::CACHE_KEY_ROLE_ENABLED)
         .await
@@ -379,7 +395,7 @@ pub(crate) async fn load_cached_enabled_roles() -> Option<Vec<crate::system::rol
         .flatten()
 }
 
-/// 写入启用角色下拉列表缓存；失败只告警，不影响主流程。
+/// 写入启用角色下拉列表缓存；失败只告警并记欠账，不影响主流程。
 pub(crate) async fn cache_enabled_roles(roles: &[crate::system::role::dto::RoleRes]) {
     let Some(store) = try_cache() else {
         return;
@@ -392,16 +408,31 @@ pub(crate) async fn cache_enabled_roles(roles: &[crate::system::role::dto::RoleR
     )
     .await
     {
+        ENABLED_ROLES_GATE.record(false);
         tracing::warn!(error = %e, "写入启用角色缓存失败");
+    } else {
+        ENABLED_ROLES_GATE.record(true);
     }
 }
 
 /// 失效启用角色下拉缓存（角色写操作 / 授权变更后调用）。
+///
+/// 失败只 `warn` + 记欠账，不向上抛错（写库已提交，回错误会让客户端重试）。
 pub(crate) async fn invalidate_enabled_roles_cache() {
     let Some(store) = try_cache() else {
+        ENABLED_ROLES_GATE.record(true);
         return;
     };
-    if let Err(e) = Cache::del(store, constants::CACHE_KEY_ROLE_ENABLED).await {
-        tracing::warn!(error = %e, "失效启用角色缓存失败");
+    match Cache::del(store, constants::CACHE_KEY_ROLE_ENABLED).await {
+        Ok(()) => ENABLED_ROLES_GATE.record(true),
+        Err(e) => {
+            ENABLED_ROLES_GATE.record(false);
+            tracing::warn!(
+                error = %e,
+                key = constants::CACHE_KEY_ROLE_ENABLED,
+                cache_invalidation_pending = true,
+                "失效启用角色缓存失败（业务已提交）：下次读缓存前补失效，补不成则跳过缓存"
+            );
+        }
     }
 }

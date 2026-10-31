@@ -714,3 +714,67 @@ async fn r07_assign_menus_bumps_holders_token_version() {
     println!("[R07] 授权变更 → 持有者 token_version +1，无关用户与 admin 不动 ✓");
     cleanup().await;
 }
+
+// ==================== R08 无缓存（无 Redis）时角色授权照常成功（FIX-03） ====================
+
+/// R08（BUG-SYS-03 验收 ②）：**无 Redis** 时 `assign_menus` 授权与清空都必须成功且落库。
+///
+/// 缺陷症状是「授权其实写进库了，接口却回 500」→ 管理员重试 → 授权重复执行。本用例把
+/// 同一路径连跑两次（授权 → 清空）并逐次断言 `sys_role_menu` 的实际行数，确保缓存侧
+/// 清理失败（无 Redis 时必然失败）不会把已提交的结果翻成错误。
+#[tokio::test]
+async fn r08_assign_menus_succeeds_without_cache() {
+    if !ts::ensure_db().await {
+        return;
+    }
+    sweep().await;
+    assert!(
+        try_cache().is_none(),
+        "本用例模拟「无 Redis」：要求进程内没有注册缓存"
+    );
+    let (_, claims) = super_operator().await;
+    let tag = ts::uniq();
+    let code = format!("{PREFIX}_r08_{tag}");
+    let role_id = create_role(&claims, &code, "测试C R08 角色").await;
+    let menu = create_menu(
+        &claims,
+        &format!("{code}-按钮"),
+        &format!("testc:{tag}:r08"),
+    )
+    .await;
+
+    // ① 首次授权：无缓存 → 缓存侧吊销必然失败，但接口必须成功
+    assign_menus(&claims, &role_id, std::slice::from_ref(&menu)).await;
+    let bound = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_role_menu WHERE role_id = ?::text::uuid",
+        vec![Value::from(role_id.clone())],
+    )
+    .await;
+    assert_eq!(
+        bound, 1,
+        "授权必须落库（无缓存不影响写库），实际 {bound} 行"
+    );
+
+    // ② 再执行一次（清空授权）：证明「重试不幂等」的隐患已消失——两次都成功且结果确定
+    assign_menus(&claims, &role_id, &[]).await;
+    let bound = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_role_menu WHERE role_id = ?::text::uuid",
+        vec![Value::from(role_id.clone())],
+    )
+    .await;
+    assert_eq!(bound, 0, "清空授权必须落库，实际残留 {bound} 行");
+
+    // ③ 读路径：无缓存时角色下拉回退查库
+    assert!(
+        crate::system::role::model::load_cached_enabled_roles()
+            .await
+            .is_none(),
+        "无缓存时 load_cached_enabled_roles 必须返回 None"
+    );
+    handler::list()
+        .await
+        .expect("无缓存时启用角色下拉仍必须可查");
+
+    println!("[R08] 无缓存：授权 / 清空均成功且落库，缓存读路径回退查库 ✓");
+    cleanup().await;
+}
