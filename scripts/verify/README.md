@@ -125,3 +125,21 @@ def d_xxx(ctx):
 ```
 smoke=39  a=17  b=23  c=23  task=55  flow=28   →  PASS=185  FAIL=0  SKIP=0   退出码 0
 ```
+
+## ERP 账务类脚本（不走 verify.py 的分发，单独跑）
+
+| 脚本 | 作用 | 退出码 |
+|---|---|---|
+| `erp_invariants.py` | 32 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
+| `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查 | 有残留 → 1；连库失败 → 2 |
+| `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 32/32 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
+
+```bash
+set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+python3 scripts/verify/erp_invariants.py          # 账是否干净
+python3 scripts/verify/e2e_fixture_residue.py     # 有没有人往库里造夹具（exit 1 = 有）
+```
+
+**e2e 跑完请务必**：① 不要直连 prod（8023）造数；② 跑完调一次
+`e2e_fixture_residue.py`，有残留就按它打印的三条命令清（备份 → `--check` →
+`P10_GENERIC_APPLY=1 apply.sh`）。留痕见 `docs/datafix-20261031-p11-m-w1a-004-recur.md`。
