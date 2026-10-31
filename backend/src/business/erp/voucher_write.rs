@@ -679,6 +679,21 @@ mod tests {
              ON CONFLICT (period_code) DO UPDATE SET status = 'OPEN'",
         )
         .await;
+        // **当月期间也必须开**：`create_manual_voucher` 不给 `voucher_date` 时按「今天」
+        // 归期（`voucher::period_of` 查不到就退化成 `yyyy-MM`），只种死 2026-10 会让
+        // 整个文件在跨月第一天变红（2026-11-01 实测 7 条：10003 会计期间 2026-11 不存在）。
+        exec(
+            "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
+                                                start_date, end_date, status) \
+             SELECT EXTRACT(YEAR FROM current_date)::smallint, \
+                    EXTRACT(MONTH FROM current_date)::smallint, \
+                    to_char(current_date, 'YYYY-MM'), \
+                    date_trunc('month', current_date)::date, \
+                    (date_trunc('month', current_date) + INTERVAL '1 month - 1 day')::date, \
+                    'OPEN' \
+             ON CONFLICT (period_code) DO UPDATE SET status = 'OPEN'",
+        )
+        .await;
         exec("UPDATE biz_account SET status = 1 WHERE account_code IN ('1405', '2202', '1002')")
             .await;
         Some(guard)
@@ -969,12 +984,23 @@ mod tests {
             None => return,
         };
         let original_id = new_posted_voucher().await;
-        exec("UPDATE biz_accounting_period SET status = 'CLOSED' WHERE period_code = '2026-10'")
-            .await;
+        // 关的是**原凭证自己所在**的期间，不写死 '2026-10'：
+        // 夹具凭证按「今天」归期，写死某一月会让本用例在跨月后失去意义（关掉的不是同一期间）。
+        let period = find_voucher(db(), original_id)
+            .await
+            .unwrap()
+            .expect("夹具凭证应存在")
+            .period;
+        exec(&format!(
+            "UPDATE biz_accounting_period SET status = 'CLOSED' WHERE period_code = '{period}'"
+        ))
+        .await;
         let result = reverse_voucher(original_id, Some("结账后红冲"), None).await;
         // 无论成败，先把期间复位，避免污染后续用例
-        exec("UPDATE biz_accounting_period SET status = 'OPEN' WHERE period_code = '2026-10'")
-            .await;
+        exec(&format!(
+            "UPDATE biz_accounting_period SET status = 'OPEN' WHERE period_code = '{period}'"
+        ))
+        .await;
         let err = result.expect_err("已结账期间不能红冲");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结账"), "{}", err.msg);
