@@ -199,24 +199,32 @@ pub async fn update(
     let mut to_save = menu;
     to_save.created_at = existing.created_at;
     to_save.create_by = existing.create_by;
-    to_save
-        .update(db())
-        .await
-        .map_err(|e| utils::db_error(e, "更新菜单"))?;
 
-    // 菜单的权限码 / 状态 / 标题等可能变更，令非超管在线用户令牌失效后重新登录，
-    // 避免旧令牌内固化的权限快照与最新授权不一致。
-    // 失败回 500：菜单即权限来源，旧令牌里的权限码没有任何库侧兜底能撤回（评审 §1.3）。
-    if let Err(e) =
-        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
-    {
-        tracing::error!(error = %e, scene = "menu_update", "菜单变更后吊销在线会话失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "菜单已保存，但会话吊销失败，请重试",
-        ));
-    }
+    // 写库与「库侧令牌失效」放进**同一事务**（BUG-SYS-03）：菜单是权限来源，改了
+    // 权限码 / 状态 / 可见性就必须让非超管的旧令牌立即作废。`token_version` 自增是
+    // 库侧兜底（`middleware::session_guard` 逐请求比对），与 Redis 是否可用无关。
+    let tx_menu = to_save.clone();
+    db().transaction(|tx| async move {
+        tx_menu.update(&tx).await?;
+        crate::system::user::model::bump_token_version_of_menu_holders_in(
+            &tx,
+            tx_menu.id,
+            constants::ADMIN_USERNAME,
+        )
+        .await?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| utils::db_error(e, "更新菜单"))?;
+
+    // 缓存侧的在线会话清理只是**卫生动作**：库侧令牌已作废，这里失败不再回 500 ——
+    // 写入已经提交，回 500 会让客户端重试（重复更新 / 重复删除，不幂等），并把管理员
+    // 挡在维护之外（BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
+    crate::support::online::model::revoke_after_permission_change(
+        "menu_update",
+        &[constants::ADMIN_USERNAME],
+    )
+    .await;
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,
@@ -293,8 +301,16 @@ pub async fn delete(
         ));
     }
 
-    // 事务：先清理角色-菜单授权绑定，再软删菜单，避免 sys_role_menu 残留孤儿绑定
+    // 事务：先把「被授权了这条菜单的用户」的 `token_version` 推进（BUG-SYS-03 的库侧
+    // 兜底：菜单删了，令牌里固化的权限码必须立刻失效，且这一步不依赖 Redis），
+    // 再清理角色-菜单授权绑定，最后软删菜单。顺序不能反 —— 绑定被删除后就反查不到持有者了。
     db().transaction(|tx| async move {
+        crate::system::user::model::bump_token_version_of_menu_holders_in(
+            &tx,
+            id,
+            constants::ADMIN_USERNAME,
+        )
+        .await?;
         tx.execute_with_params(
             "DELETE FROM sys_role_menu WHERE menu_id = ?",
             vec![Value::from(id)],
@@ -306,19 +322,14 @@ pub async fn delete(
     .await
     .map_err(|e| utils::db_error(e, "删除菜单"))?;
 
-    // 菜单是权限来源：删除后令非超管在线用户的旧令牌失效，强制重新登录获取新权限，
-    // 防止仍持有旧权限快照的令牌继续访问。
-    // 失败回 500：权限码已随菜单删除，但令牌里的旧权限快照只能靠黑名单收回（评审 §1.3）。
-    if let Err(e) =
-        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
-    {
-        tracing::error!(error = %e, scene = "menu_delete", "菜单删除后吊销在线会话失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "菜单已删除，但会话吊销失败，请重试",
-        ));
-    }
+    // 缓存侧的在线会话清理只是卫生动作：库侧令牌已作废（token_version 已推进），
+    // 这里失败不回 500 —— 菜单确实删掉了，回 500 会让客户端重试并误判失败
+    // （BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
+    crate::support::online::model::revoke_after_permission_change(
+        "menu_delete",
+        &[constants::ADMIN_USERNAME],
+    )
+    .await;
     model::invalidate_tree_cache().await;
     log::record_audit(
         &headers,

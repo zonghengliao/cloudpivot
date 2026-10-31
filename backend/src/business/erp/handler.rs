@@ -94,8 +94,13 @@ pub const MATERIAL_LIST_LIMIT: u64 = 100;
 
 // ==================== 权限码（与 V0141 迁移逐字一致） ====================
 
-/// 卡面点名的 24 个权限码（5 张主力表 5 码制 + 单位/供应商 3 码制 + 预留的物料分类 3 码）。
-pub const CARD_PERMISSIONS: [(&str, &str); 24] = [
+/// 卡面点名的权限码（5 张主力表 5 码制 + 单位/供应商 3 码制）。
+///
+/// BUG-SYS-05（2026-10-31）：原来的「预留的物料分类 3 码」(`business:erp:category:list/detail/create`)
+/// 已从清单里移除 —— `biz_material_category` 表未建、`/business/erp/category` 路由不存在，
+/// 这两个码在代码里**没有任何校验点**，只会在管理面勾给角色却不生效。等物料分类功能落地时
+/// 再连带补 `#[nik::permission]` 注解、迁移和菜单（同一批加，避免再次出现死码）。
+pub const CARD_PERMISSIONS: [(&str, &str); 21] = [
     ("business:erp:warehouse:list", "仓库列表"),
     ("business:erp:warehouse:detail", "仓库详情"),
     ("business:erp:warehouse:create", "新建仓库"),
@@ -111,18 +116,6 @@ pub const CARD_PERMISSIONS: [(&str, &str); 24] = [
     ("business:erp:material:create", "新建物料"),
     ("business:erp:material:update", "编辑物料"),
     ("business:erp:material:delete", "删除物料"),
-    (
-        "business:erp:category:list",
-        "物料分类列表（表未建，码位预留）",
-    ),
-    (
-        "business:erp:category:detail",
-        "物料分类详情（表未建，码位预留）",
-    ),
-    (
-        "business:erp:category:create",
-        "新建物料分类（表未建，码位预留）",
-    ),
     ("business:erp:unit:list", "计量单位列表 / 详情"),
     ("business:erp:unit:create", "新建计量单位"),
     ("business:erp:unit:update", "编辑 / 删除计量单位"),
@@ -2042,12 +2035,14 @@ mod tests {
 
     // ---------- 纯逻辑用例（无需数据库） ----------
 
-    /// ① 权限码清单：24 卡面码 + 8 只读码 = 32，无重复，前缀统一。
+    /// ① 权限码清单：21 卡面码 + 8 只读码 = 29，无重复，前缀统一。
+    ///
+    /// BUG-SYS-05：物料分类 3 码（表未建、无路由、无注解）已移除，见 `CARD_PERMISSIONS` 文档。
     #[test]
     fn permissions_are_complete_and_unique() {
         let codes = all_permissions();
-        assert_eq!(codes.len(), 32, "24 卡面码 + 8 只读码");
-        assert_eq!(CARD_PERMISSIONS.len(), 24, "卡面写明 24 个码");
+        assert_eq!(codes.len(), 29, "21 卡面码 + 8 只读码");
+        assert_eq!(CARD_PERMISSIONS.len(), 21, "卡面码去掉预留的物料分类 3 码");
         assert_eq!(READONLY_PERMISSIONS.len(), 8, "8 张只读表各 1 个码");
         let unique: std::collections::BTreeSet<_> = codes.iter().collect();
         assert_eq!(unique.len(), codes.len(), "权限码不得重复");

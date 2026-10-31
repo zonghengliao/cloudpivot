@@ -9,11 +9,13 @@
 //! 3. 内置超管角色不能删、也不能被非超管改授权（否则等于公开改超管权限）；
 //! 4. 互斥角色不能双持（职责分离）。
 //!
-//! # 环境说明（已记入测试报告 BUG-SYS-03）
+//! # 环境说明（BUG-SYS-03 已修，2026-10-31）
 //!
-//! 本验证库**没有 Redis**，`assign_menus` 落库后的「强制下线在线用户」会失败 → handler
-//! 按 fail-closed 回 500（`会话吊销失败`），但**授权已经写进库**。用例因此按
-//! 「写入已生效」断言，并把这一返回码差异打印出来（生产有 Redis 时返回 200）。
+//! 本验证库**没有 Redis**。修复前：`assign_menus` 落库后的「缓存侧强制下线」会失败 →
+//! handler fail-closed 回 500（`会话吊销失败`），而授权其实已经写进库 → 语义矛盾、客户端
+//! 重试不幂等。修复后：同一事务内推进持有者的 `sys_user.token_version`（库侧兜底，
+//! `middleware::session_guard` 逐请求比对），缓存侧清理降级为 warn 日志，因此
+//! **无 Redis 也回 200**，用例直接断言成功。
 //!
 //! 跑法：
 //! ```bash
@@ -103,7 +105,10 @@ async fn super_operator() -> (uuid::Uuid, AuthClaims) {
         vec![Value::from(user_id.to_string()), Value::from(role)],
     )
     .await;
-    (user_id, ts::claims(&user_id.to_string(), &username, &["*:*:*"]))
+    (
+        user_id,
+        ts::claims(&user_id.to_string(), &username, &["*:*:*"]),
+    )
 }
 
 /// 角色请求体。
@@ -162,9 +167,14 @@ async fn create_menu(claims: &AuthClaims, name: &str, auth_code: &str) -> String
     created.data.expect("create 必须返回 data").id
 }
 
-/// 授权菜单（容忍「无 Redis → 会话吊销 500」这一环境差异，见文件头）。
-async fn assign_menus(claims: &AuthClaims, role_id: &str, menu_ids: &[String]) -> Option<ApiError> {
-    match handler::assign_menus(
+/// 授权菜单（**必须成功**）。
+///
+/// BUG-SYS-03 修复前：本验证库没有 Redis，`force_logout_all_except` 读不到在线会话表 →
+/// handler fail-closed 回 500（授权却已落库），helper 因此只放行那一种 500。修复后
+/// 「旧令牌失效」下沉到库侧（同事务推进持有者的 `sys_user.token_version`），缓存侧
+/// 清理降级为告警，任何错误都是真缺陷。
+async fn assign_menus(claims: &AuthClaims, role_id: &str, menu_ids: &[String]) {
+    if let Err(error) = handler::assign_menus(
         Path(role_id.to_string()),
         ts::headers(),
         ts::connect_info(),
@@ -175,22 +185,10 @@ async fn assign_menus(claims: &AuthClaims, role_id: &str, menu_ids: &[String]) -
     )
     .await
     {
-        Ok(_) => None,
-        Err(error) => {
-            assert_eq!(
-                error.status, 500,
-                "授权失败的预期只有「会话吊销 500」，实际 {}/{} {}",
-                error.status, error.code, error.msg
-            );
-            assert!(
-                error.msg.contains("会话吊销"),
-                "非预期的授权失败：{}/{} {}",
-                error.status,
-                error.code,
-                error.msg
-            );
-            Some(error)
-        }
+        panic!(
+            "授权菜单不应失败（BUG-SYS-03 已修），实际 {}/{} {}",
+            error.status, error.code, error.msg
+        );
     }
 }
 
@@ -215,10 +213,7 @@ async fn r01_create_role_and_assign_menus() {
 
     let menu_a = create_menu(&claims, &format!("{code}-按钮A"), &format!("testc:{tag}:a")).await;
     let menu_b = create_menu(&claims, &format!("{code}-按钮B"), &format!("testc:{tag}:b")).await;
-    let warn = assign_menus(&claims, &role_id, &[menu_a.clone(), menu_b.clone()]).await;
-    if let Some(e) = &warn {
-        println!("[R01] 无 Redis 环境：授权返回 500「{}」（授权已落库）", e.msg);
-    }
+    assign_menus(&claims, &role_id, &[menu_a.clone(), menu_b.clone()]).await;
 
     let rows = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_role_menu WHERE role_id = ?::text::uuid",
@@ -285,7 +280,10 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(user_id.to_string()), Value::from(role_id.clone())],
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(role_id.clone()),
+        ],
     )
     .await;
 
@@ -295,7 +293,7 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     let menu_revoke = create_menu(&claims, &format!("{code}-撤销"), &revoke_auth).await;
 
     // 先授予「revoke」这条（之后撤掉它）
-    let _ = assign_menus(&claims, &role_id, &[menu_revoke.clone()]).await;
+    assign_menus(&claims, &role_id, std::slice::from_ref(&menu_revoke)).await;
     let before = crate::system::auth::model::load_permissions(&user_id, false)
         .await
         .expect("装载权限失败");
@@ -305,7 +303,7 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     );
 
     // 再换成「grant」
-    let _ = assign_menus(&claims, &role_id, &[menu_grant.clone()]).await;
+    assign_menus(&claims, &role_id, std::slice::from_ref(&menu_grant)).await;
     let after = crate::system::auth::model::load_permissions(&user_id, false)
         .await
         .expect("装载权限失败");
@@ -362,7 +360,10 @@ async fn r03_role_in_use_cannot_be_deleted() {
     .await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(user_id.to_string()), Value::from(role_id.clone())],
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(role_id.clone()),
+        ],
     )
     .await;
 
@@ -500,17 +501,21 @@ async fn r05_mutex_roles_rejected() {
     .await;
 
     // 只有 A 时通过
-    crate::business::mutex::guard::ensure_no_mutex(&user_id, &[
-        uuid::Uuid::parse_str(&role_a).expect("uuid"),
-    ])
+    crate::business::mutex::guard::ensure_no_mutex(
+        &user_id,
+        &[uuid::Uuid::parse_str(&role_a).expect("uuid")],
+    )
     .await
     .expect("单独授予 A 不该冲突");
 
     // 同一次请求里同时授予 A + B → 409
-    let error = crate::business::mutex::guard::ensure_no_mutex(&user_id, &[
-        uuid::Uuid::parse_str(&role_a).expect("uuid"),
-        uuid::Uuid::parse_str(&role_b).expect("uuid"),
-    ])
+    let error = crate::business::mutex::guard::ensure_no_mutex(
+        &user_id,
+        &[
+            uuid::Uuid::parse_str(&role_a).expect("uuid"),
+            uuid::Uuid::parse_str(&role_b).expect("uuid"),
+        ],
+    )
     .await
     .expect_err("同时授予互斥角色必须被拒");
     assert_eq!(
@@ -523,16 +528,23 @@ async fn r05_mutex_roles_rejected() {
     // 「已持有 A，本次再授 B」同样被拒（不能靠分两次请求绕过）
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(user_id.to_string()), Value::from(role_a.clone())],
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(role_a.clone()),
+        ],
     )
     .await;
-    let second = crate::business::mutex::guard::ensure_no_mutex(&user_id, &[
-        uuid::Uuid::parse_str(&role_b).expect("uuid"),
-    ])
+    let second = crate::business::mutex::guard::ensure_no_mutex(
+        &user_id,
+        &[uuid::Uuid::parse_str(&role_b).expect("uuid")],
+    )
     .await
     .expect_err("已持有 A 再授 B 必须被拒");
     assert_eq!(second.code, error_code::ROLE_MUTEX_CONFLICT);
-    println!("[R05] 互斥角色：同次同授 409、分次补授 409（{}）✓", error.msg);
+    println!(
+        "[R05] 互斥角色：同次同授 409、分次补授 409（{}）✓",
+        error.msg
+    );
     cleanup().await;
 }
 
@@ -569,5 +581,125 @@ async fn r06_duplicate_role_code_conflict() {
     .await;
     assert_eq!(count, 1, "失败请求不得插入第二个同编码角色");
     println!("[R06] 角色编码重复 → 409（{}）✓", dup.msg);
+    cleanup().await;
+}
+
+// ==================== R07 授权变更 → 库侧令牌失效（BUG-SYS-03） ====================
+
+/// 读一个用户的 `token_version`。
+async fn token_version_of(user_id: &uuid::Uuid) -> i64 {
+    ts::scalar_i64(
+        "SELECT token_version AS v FROM sys_user WHERE id = ?::text::uuid",
+        vec![Value::from(user_id.to_string())],
+    )
+    .await
+}
+
+/// 建一个用户（真库行）。
+async fn create_user(username: &str) -> uuid::Uuid {
+    let user_id = uuid::Uuid::now_v7();
+    let hash = nik::Crypto::hash_password("Passw0rd@r07").expect("哈希失败");
+    ts::exec(
+        "INSERT INTO sys_user (id, username, password, real_name, status) \
+         VALUES (?::text::uuid, ?, ?, 'R07 用户', 1)",
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(username.to_string()),
+            Value::from(hash),
+        ],
+    )
+    .await;
+    user_id
+}
+
+/// R07（BUG-SYS-03 的回归防线）：`assign_menus` 授权变更必须
+///
+/// 1. 在**无 Redis** 的环境里也回成功 —— 修复前是 500「会话吊销失败」（授权已落库，
+///    语义矛盾、客户端重试不幂等）；
+/// 2. 在同一事务里推进**该角色持有者**的 `sys_user.token_version`（库侧兜底，
+///    `middleware::session_guard` 逐请求比对 → 旧令牌立刻 401）；
+/// 3. 不误伤不持有该角色的用户与内置管理员。
+#[tokio::test]
+async fn r07_assign_menus_bumps_holders_token_version() {
+    if !ts::ensure_db().await {
+        return;
+    }
+    sweep().await;
+    let (_, claims) = super_operator().await;
+    let tag = ts::uniq();
+    let code = format!("{PREFIX}_r07_{tag}");
+    let role_id = create_role(&claims, &code, "测试C R07 角色").await;
+
+    let holder = create_user(&format!("{PREFIX}_r07_holder_{tag}")).await;
+    ts::exec(
+        "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(holder.to_string()),
+            Value::from(role_id.clone()),
+        ],
+    )
+    .await;
+    let bystander = create_user(&format!("{PREFIX}_r07_by_{tag}")).await;
+    let admin_id: uuid::Uuid = ts::scalar_text(
+        "SELECT id::text AS v FROM sys_user WHERE username = ?",
+        vec![Value::from(constants::ADMIN_USERNAME)],
+    )
+    .await
+    .expect("库里必须有内置管理员 admin")
+    .parse()
+    .expect("admin id 应是 UUID");
+
+    let holder_before = token_version_of(&holder).await;
+    let bystander_before = token_version_of(&bystander).await;
+    let admin_before = token_version_of(&admin_id).await;
+
+    let menu = create_menu(
+        &claims,
+        &format!("{code}-按钮"),
+        &format!("testc:{tag}:r07"),
+    )
+    .await;
+    // helper 内部对失败 panic：无 Redis 也必须成功（BUG-SYS-03）
+    assign_menus(&claims, &role_id, std::slice::from_ref(&menu)).await;
+
+    assert_eq!(
+        token_version_of(&holder).await,
+        holder_before + 1,
+        "角色授权变更必须推进该角色持有者的 token_version（旧令牌立刻失效）"
+    );
+    assert_eq!(
+        token_version_of(&bystander).await,
+        bystander_before,
+        "未持有该角色的用户不应被踢下线（精确失效）"
+    );
+    assert_eq!(
+        token_version_of(&admin_id).await,
+        admin_before,
+        "内置管理员保留会话（超管权限走通配短路）"
+    );
+
+    // 收尾
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
+            vec![
+                Value::from(holder.to_string()),
+                Value::from(bystander.to_string()),
+            ],
+        )
+        .await;
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM sys_user WHERE username LIKE ?",
+            vec![Value::from(format!("{PREFIX}_r07_%"))],
+        )
+        .await;
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM sys_role_menu WHERE menu_id = ?::text::uuid",
+            vec![Value::from(menu)],
+        )
+        .await;
+    println!("[R07] 授权变更 → 持有者 token_version +1，无关用户与 admin 不动 ✓");
     cleanup().await;
 }

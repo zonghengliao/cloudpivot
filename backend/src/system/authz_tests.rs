@@ -1,4 +1,4 @@
-//! 测试C · 越权用例集（O01–O14）：权限体系的「反向验证」。
+//! 测试C · 越权用例集（O01–O15）：权限体系的「反向验证」。
 //!
 //! # 为什么不能只测「有权限的人能进」
 //!
@@ -67,16 +67,16 @@ fn backend_root() -> std::path::PathBuf {
 fn scan_routes() -> (Vec<PermRoute>, Vec<PublicRoute>) {
     let mut perms: Vec<PermRoute> = Vec::new();
     let mut publics: Vec<PublicRoute> = Vec::new();
-    collect(std::path::Path::new(&backend_root().join("src")), &mut perms, &mut publics);
+    collect(
+        std::path::Path::new(&backend_root().join("src")),
+        &mut perms,
+        &mut publics,
+    );
     (perms, publics)
 }
 
 /// 递归扫描源码目录。
-fn collect(
-    dir: &std::path::Path,
-    perms: &mut Vec<PermRoute>,
-    publics: &mut Vec<PublicRoute>,
-) {
+fn collect(dir: &std::path::Path, perms: &mut Vec<PermRoute>, publics: &mut Vec<PublicRoute>) {
     let Ok(entry) = std::fs::read_dir(dir) else {
         return;
     };
@@ -94,7 +94,10 @@ fn collect(
         };
         // 扫描器自身与本卡其他测试文件里也写着 `#[nik::permission(...)]` 的示例，
         // 必须排除，否则会把文档/夹具当成真路由。
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or_default();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or_default();
         if name == "authz_tests.rs" || name == "tests.rs" || name == "tests_support.rs" {
             continue;
         }
@@ -217,7 +220,10 @@ async fn o01_readonly_cannot_create_user() {
     let (routes, _) = scan_routes();
     let route = find_route(&routes, "POST", "/system/user");
     assert_forbidden(&readonly_claims(), route, "O01 只读员建用户");
-    println!("[O01] 只读员打 POST /system/user（需 {}）→ 中间件 403 ✓", route.permission);
+    println!(
+        "[O01] 只读员打 POST /system/user（需 {}）→ 中间件 403 ✓",
+        route.permission
+    );
 }
 
 // ==================== O02 只读员删角色 ====================
@@ -233,7 +239,10 @@ async fn o02_readonly_cannot_delete_role() {
         "删除路由不该只要读权限，实际 {}",
         route.permission
     );
-    println!("[O02] 只读员打 DELETE {}（需 {}）→ 403 ✓", route.path, route.permission);
+    println!(
+        "[O02] 只读员打 DELETE {}（需 {}）→ 403 ✓",
+        route.path, route.permission
+    );
 }
 
 // ==================== O03 只读员建收货单 ====================
@@ -253,7 +262,13 @@ async fn o03_readonly_cannot_create_stock_in() {
     for route in candidates {
         assert_forbidden(&readonly_claims(), route, "O03 只读员建 ERP 单据");
     }
-    println!("[O03] 只读员打全部 ERP 写接口 → 403（扫描到 {} 条）✓", routes.iter().filter(|r| r.method == "POST" && r.path.starts_with("/business/erp/")).count());
+    println!(
+        "[O03] 只读员打全部 ERP 写接口 → 403（扫描到 {} 条）✓",
+        routes
+            .iter()
+            .filter(|r| r.method == "POST" && r.path.starts_with("/business/erp/"))
+            .count()
+    );
 }
 
 // ==================== O04 仓管员看财务报表 ====================
@@ -314,27 +329,32 @@ async fn o05_finance_cannot_see_other_dept_rows() {
 
     // 请求里带了 B 部门 → 必须被判为越界（B2 的 ensure_scope_grant_allowed 会据此 403）
     let exceeded = scope_model::exceeded_dept_ids(&finance, &[dept_a, dept_b]);
-    assert_eq!(exceeded, vec![dept_b], "B 部门必须被判为越界，实际 {exceeded:?}");
+    assert_eq!(
+        exceeded,
+        vec![dept_b],
+        "B 部门必须被判为越界，实际 {exceeded:?}"
+    );
     assert!(
         scope_model::exceeded_dept_ids(&finance, &[dept_a]).is_empty(),
         "本部门不该被判越界"
     );
 
     // 树裁剪：不可见父节点下的节点必须「提升为根」，不得因为父不可见而被丢弃、也不得泄露父
-    let rows = vec![
-        crate::business::permission::scope_model::DeptRow {
-            id: dept_a,
-            parent_id: Some(dept_b),
-            dept_code: "A".to_string(),
-            dept_name: "A".to_string(),
-            status: 1,
-            sort_order: 0,
-        },
-    ];
+    let rows = vec![crate::business::permission::scope_model::DeptRow {
+        id: dept_a,
+        parent_id: Some(dept_b),
+        dept_code: "A".to_string(),
+        dept_name: "A".to_string(),
+        status: 1,
+        sort_order: 0,
+    }];
     let visible: std::collections::BTreeSet<uuid::Uuid> = [dept_a].into_iter().collect();
     let cropped = scope_model::crop_to_visible(rows, &visible);
     assert_eq!(cropped.len(), 1, "不可见父节点下的节点不能被丢弃");
-    assert!(cropped[0].parent_id.is_none(), "父不可见时必须提升为根（不能泄露父节点）");
+    assert!(
+        cropped[0].parent_id.is_none(),
+        "父不可见时必须提升为根（不能泄露父节点）"
+    );
     println!("[O05] 跨部门 id 判越界；不可见父节点提升为根而非泄露 ✓");
 }
 
@@ -407,7 +427,10 @@ async fn o07_public_route_whitelist_is_closed() {
             without_perm.push(format!("{} {}", route.method, route.path));
         }
     }
-    assert!(without_perm.is_empty(), "有路由没写权限码：{without_perm:?}");
+    assert!(
+        without_perm.is_empty(),
+        "有路由没写权限码：{without_perm:?}"
+    );
     println!(
         "[O07] 公开接口 {} 条全在白名单内；受保护路由 {} 条全部带权限码 ✓",
         publics.len(),
@@ -443,9 +466,20 @@ async fn o08_token_version_invalidation() {
         .expect("读会话状态失败")
         .expect("用户应存在");
     assert!(!must_change, "新用户不该要求强制改密");
-    let issued = ts::claims(&user_id.to_string(), &format!("{prefix}_u"), &["system:user:list"]);
-    let issued_ver = issued.0.extra_i64(constants::CLAIM_TOKEN_VERSION).unwrap_or(0);
-    assert_eq!(issued_ver, i64::from(ver_before), "令牌版本应取自库里的 token_version");
+    let issued = ts::claims(
+        &user_id.to_string(),
+        &format!("{prefix}_u"),
+        &["system:user:list"],
+    );
+    let issued_ver = issued
+        .0
+        .extra_i64(constants::CLAIM_TOKEN_VERSION)
+        .unwrap_or(0);
+    assert_eq!(
+        issued_ver,
+        i64::from(ver_before),
+        "令牌版本应取自库里的 token_version"
+    );
 
     // 改密（等同管理员重置口令）→ 版本号自增
     crate::system::user::model::bump_token_version(&user_id)
@@ -575,7 +609,11 @@ async fn o10_privilege_cap_blocks_cross_user_escalation() {
         adds_role_operator_lacks: true,
     };
     let error = evaluate_grant(escalation).expect_err("自我提权必须被拒");
-    assert_eq!(error.status, 403, "自我提权应 403，实际 {}/{}", error.status, error.code);
+    assert_eq!(
+        error.status, 403,
+        "自我提权应 403，实际 {}/{}",
+        error.status, error.code
+    );
     assert_eq!(error.code, error_code::PERMISSION_DENIED);
 
     // ② 非超管操作超管账号（改密 / 停用 / 删除）→ 403
@@ -590,7 +628,11 @@ async fn o10_privilege_cap_blocks_cross_user_escalation() {
         adds_role_operator_lacks: false,
     };
     let error = evaluate_grant(touch_admin).expect_err("非超管操作超管必须被拒");
-    assert_eq!(error.status, 403, "操作超管应 403，实际 {}/{}", error.status, error.code);
+    assert_eq!(
+        error.status, 403,
+        "操作超管应 403，实际 {}/{}",
+        error.status, error.code
+    );
 
     // ③ 令牌有效但操作者账号已被删除 → 403（不能拿已删账号的令牌继续操作）
     let ghost_operator = GrantCheckInput {
@@ -611,7 +653,10 @@ async fn o10_privilege_cap_blocks_cross_user_escalation() {
         grants_super_admin_role: true,
         adds_role_operator_lacks: true,
     };
-    assert!(evaluate_grant(super_operator).is_ok(), "超管必须能操作任意账号");
+    assert!(
+        evaluate_grant(super_operator).is_ok(),
+        "超管必须能操作任意账号"
+    );
     println!("[O10] 自我提权 / 操作超管 / 幽灵操作者 → 403；超管放行 ✓");
 }
 
@@ -638,7 +683,8 @@ async fn o11_cross_dept_write_rejected() {
         false,
     );
 
-    let exceeded = scope_model::exceeded_dept_ids(&principal, &[mine, others[0], others[0], others[1]]);
+    let exceeded =
+        scope_model::exceeded_dept_ids(&principal, &[mine, others[0], others[0], others[1]]);
     assert_eq!(
         exceeded,
         vec![others[0], others[1]],
@@ -646,7 +692,11 @@ async fn o11_cross_dept_write_rejected() {
     );
 
     let missing = scope_model::missing_dept_ids(&[mine, others[0]], &[mine]);
-    assert_eq!(missing, vec![others[0]], "库里不存在的部门必须单独报，不能当成越权");
+    assert_eq!(
+        missing,
+        vec![others[0]],
+        "库里不存在的部门必须单独报，不能当成越权"
+    );
 
     // 自定义范围的配置校验：给了越界 id 也要能被上层拒（这里验证「范围形态」本身的拒绝分支）
     let bad = scope_model::validate_custom_scope(ScopeKind::Dept, Some(&[others[0]]))
@@ -666,15 +716,26 @@ async fn o11_cross_dept_write_rejected() {
 #[tokio::test]
 async fn o12_super_admin_passes_every_route() {
     let (routes, _) = scan_routes();
-    assert!(routes.len() > 50, "受保护路由数量异常（{}），扫描逻辑失效", routes.len());
+    assert!(
+        routes.len() > 50,
+        "受保护路由数量异常（{}），扫描逻辑失效",
+        routes.len()
+    );
     let sup = ts::super_claims();
     let mut denied: Vec<String> = Vec::new();
     for route in &routes {
         if !sup.0.has_permission(&route.permission) {
-            denied.push(format!("{} {} → {}", route.method, route.path, route.permission));
+            denied.push(format!(
+                "{} {} → {}",
+                route.method, route.path, route.permission
+            ));
         }
     }
-    assert!(denied.is_empty(), "超管被拒的路由（权限配置有误）：\n{}", denied.join("\n"));
+    assert!(
+        denied.is_empty(),
+        "超管被拒的路由（权限配置有误）：\n{}",
+        denied.join("\n")
+    );
     println!("[O12] 超管通过全部 {} 条受保护路由 ✓", routes.len());
 }
 
@@ -692,7 +753,11 @@ async fn o13_every_write_route_requires_permission() {
         .iter()
         .filter(|r| ["POST", "PUT", "PATCH", "DELETE"].contains(&r.method.as_str()))
         .collect();
-    assert!(write_routes.len() > 20, "写接口数量异常（{}）", write_routes.len());
+    assert!(
+        write_routes.len() > 20,
+        "写接口数量异常（{}）",
+        write_routes.len()
+    );
 
     // 公开写接口只允许白名单（登录 / 刷新）；任务模块的回调按设计公开
     let mut unguarded: Vec<String> = Vec::new();
@@ -741,7 +806,10 @@ async fn o13_every_write_route_requires_permission() {
     if !query_by_post.is_empty() {
         println!("[O13] 例外（POST 但语义是查询，要求读权限）：{query_by_post:?}");
     }
-    println!("[O13] {} 个写接口全部有独立写权限码，无公开写接口 ✓", write_routes.len());
+    println!(
+        "[O13] {} 个写接口全部有独立写权限码，无公开写接口 ✓",
+        write_routes.len()
+    );
 }
 
 // ==================== O14 权限码格式 ====================
@@ -760,12 +828,15 @@ async fn o14_permission_code_format() {
         let ok = segments.len() >= 3
             && segments.iter().all(|seg| {
                 !seg.is_empty()
-                    && seg
-                        .chars()
-                        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+                    && seg.chars().all(|c| {
+                        c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_'
+                    })
             });
         if !ok {
-            bad.push(format!("{} {} → {:?}（{}）", route.method, route.path, code, route.file));
+            bad.push(format!(
+                "{} {} → {:?}（{}）",
+                route.method, route.path, code, route.file
+            ));
         }
     }
     assert!(
@@ -773,5 +844,144 @@ async fn o14_permission_code_format() {
         "权限码格式不合规（应 模块:资源:动作，全小写）：\n{}",
         bad.join("\n")
     );
-    println!("[O14] {} 个权限码格式全部合规（模块:资源:动作，全小写）✓", routes.len());
+    println!(
+        "[O14] {} 个权限码格式全部合规（模块:资源:动作，全小写）✓",
+        routes.len()
+    );
+}
+
+// ==================== O15 通配权限的库侧复核（BUG-SYS-04） ====================
+
+/// O15（BUG-SYS-04 的回归防线）：接口级 403 只认令牌里的权限快照
+/// （`nik-web` 的 `has_permission` = `is_super_admin() || permissions.contains(perm)`，
+/// 不查库），所以「JWT 密钥泄漏 → 自签一个 `*:*:*` 令牌」原本等于拿超管。
+///
+/// 会话守卫补的库侧护栏是 `session_guard::verify_wildcard_claims`：
+/// **只有令牌声明了通配权限才回库**核对账号是否真的持有 `SUPER_ADMIN` 角色。
+/// 本用例直接断言这条判定的三个分支（真库、真角色）：
+///
+/// - 内置管理员（`SUPER_ADMIN`）→ `Backed`；
+/// - 普通用户伪造 `*:*:*` → `RoleMismatch`（中间件据此回 401）；
+/// - 普通权限码令牌 → `NotWildcard`（不额外回库，绝大多数请求走这条）。
+///
+/// # 边界（诚实说明）
+///
+/// 中间件本身的 401 响应体需要 `tower::ServiceExt::oneshot`，而本仓未声明该
+/// dev-dependency（框架铁律不允许随意加），因此这里断言的是**判定函数**，
+/// HTTP 级端到端由 e2e 覆盖（与文件头的口径说明一致）。
+#[tokio::test]
+async fn o15_wildcard_claims_must_be_backed_by_db_role() {
+    if !ts::ensure_db().await {
+        return;
+    }
+    use crate::middleware::session_guard::{WildcardVerdict, verify_wildcard_claims};
+
+    let tag = ts::uniq();
+    let prefix = format!("tc_o15_{tag}");
+
+    // ① 内置管理员：库里的角色确实是 SUPER_ADMIN → 通配声明被背书
+    let admin_id: uuid::Uuid = ts::scalar_text(
+        "SELECT id::text AS v FROM sys_user WHERE username = ?",
+        vec![Value::from(constants::ADMIN_USERNAME)],
+    )
+    .await
+    .expect("库里必须有内置管理员 admin")
+    .parse()
+    .expect("admin id 应是 UUID");
+    let admin_claims = ts::claims(&admin_id.to_string(), constants::ADMIN_USERNAME, &["*:*:*"]);
+    assert_eq!(
+        verify_wildcard_claims(&admin_claims.0, &admin_id)
+            .await
+            .expect("查角色失败"),
+        WildcardVerdict::Backed,
+        "内置管理员的通配声明必须被库里的 SUPER_ADMIN 角色背书"
+    );
+
+    // ② 普通用户伪造通配声明（模拟密钥泄漏后自签）→ 判 RoleMismatch → 中间件回 401
+    let user_id = uuid::Uuid::now_v7();
+    let username = format!("{prefix}_u");
+    ts::exec(
+        "INSERT INTO sys_user (id, username, password, real_name, status) \
+         VALUES (?::text::uuid, ?, 'x', 'O15', 1)",
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(username.clone()),
+        ],
+    )
+    .await;
+    // 给一个普通角色，证明「有角色」不等于「能背书通配权限」
+    let role_id = uuid::Uuid::now_v7();
+    ts::exec(
+        "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
+         VALUES (?::text::uuid, ?, ?, 1, 2)",
+        vec![
+            Value::from(role_id.to_string()),
+            Value::from(format!("{prefix}_ROLE")),
+            Value::from(format!("{prefix}-普通角色")),
+        ],
+    )
+    .await;
+    ts::exec(
+        "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(role_id.to_string()),
+        ],
+    )
+    .await;
+
+    let forged = ts::claims(&user_id.to_string(), &username, &["*:*:*"]);
+    match verify_wildcard_claims(&forged.0, &user_id).await {
+        Ok(WildcardVerdict::RoleMismatch { role_codes }) => {
+            assert!(
+                !role_codes
+                    .iter()
+                    .any(|code| code == constants::SUPER_ADMIN_ROLE_CODE),
+                "RoleMismatch 的角色清单里不该出现 SUPER_ADMIN：{role_codes:?}"
+            );
+        }
+        other => panic!("普通用户伪造 *:*:* 必须被判 RoleMismatch（→401），实际 {other:?}"),
+    }
+
+    // ③ 普通权限码令牌：不进复核分支（没有额外回库成本）
+    let normal = ts::claims(&user_id.to_string(), &username, &["system:user:list"]);
+    assert_eq!(
+        verify_wildcard_claims(&normal.0, &user_id)
+            .await
+            .expect("查角色失败"),
+        WildcardVerdict::NotWildcard,
+        "非通配声明不应触发库侧复核"
+    );
+
+    // ④ 已停用角色不算背书：停用普通用户角色后仍是 RoleMismatch（角色清单为空）
+    ts::exec(
+        "UPDATE sys_role SET status = 0 WHERE id = ?::text::uuid",
+        vec![Value::from(role_id.to_string())],
+    )
+    .await;
+    assert_eq!(
+        verify_wildcard_claims(&forged.0, &user_id)
+            .await
+            .expect("查角色失败"),
+        WildcardVerdict::RoleMismatch {
+            role_codes: Vec::new()
+        },
+        "停用角色不进授权清单（load_role_codes 只取 status = 1）"
+    );
+
+    // 收尾
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
+            vec![Value::from(user_id.to_string())],
+        )
+        .await;
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM sys_role WHERE role_code LIKE ?",
+            vec![Value::from(format!("{prefix}%"))],
+        )
+        .await;
+    ts::cleanup_table("sys_user", "username", &prefix).await;
+    println!("[O15] 通配声明必须有库里的 SUPER_ADMIN 背书，否则 401 ✓");
 }

@@ -439,6 +439,53 @@ pub(crate) async fn force_logout_all_except(
     }
 }
 
+/// 权限变更后的「尽力」会话吊销：库侧失效已完成时，缓存侧失败只告警。
+///
+/// # 为什么这样分级（BUG-SYS-03）
+///
+/// 菜单增删改 / 角色授权变更会改变一批用户的权限快照。调用方已经**在同一事务里**
+/// 推进了相关用户的 `sys_user.token_version`（[`crate::system::user::model::
+/// bump_token_version_of_menu_holders_in`] /
+/// `bump_token_version_of_role_holders_in`），[`crate::middleware::session_guard`] 逐请求比对，
+/// 旧 access / refresh 令牌在库这一侧必然 401 —— 安全性不依赖本函数。
+///
+/// 本函数只做「卫生动作」：把在线列表里的会话清掉、并给旧 `jti` 写黑名单（让缓存层
+/// 也能更快拒绝）。因此：
+///
+/// - 缓存不可用（无 Redis / 抖动）时**不再回 500**：写入已经成功，回 500 只会让客户端
+///   重试 → 菜单重复删 / 授权重复执行（不幂等），并把管理员挡在维护之外；
+/// - 失败以 `warn` 级 + `pending_compensation=true` 留痕（不静默），语义是「在线列表里
+///   会短暂残留一批实际已失效的会话，等缓存恢复或管理员在在线用户页再踢一次即可」。
+///
+/// # 参数
+///
+/// - `scene`：调用场景（日志字段，如 `menu_update` / `role_assign_menu`）。
+/// - `exclude_usernames`：保留在线状态的用户名（内置管理员）。
+///
+/// # 返回值
+///
+/// `true` = 缓存侧清理成功；`false` = 已降级（库侧失效仍生效）。
+pub(crate) async fn revoke_after_permission_change(
+    scene: &'static str,
+    exclude_usernames: &[&str],
+) -> bool {
+    match force_logout_all_except(exclude_usernames).await {
+        Ok(kicked) => {
+            tracing::info!(scene, kicked, "权限变更后已清理在线会话");
+            true
+        }
+        Err(error) => {
+            tracing::warn!(
+                scene,
+                error = %error,
+                pending_compensation = true,
+                "会话缓存清理失败（已降级：库侧 token_version 已推进，旧令牌仍会 401）"
+            );
+            false
+        }
+    }
+}
+
 /// 吊销指定会话（`sid`）名下的全部 refresh 令牌（登出时调用）。
 ///
 /// 登出请求手里只有 access 令牌，但 access 与 refresh 共享同一个 `sid`，

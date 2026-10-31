@@ -9,14 +9,20 @@
 //! > 若改用 `App::layer_from_fn`（链外），请求期读不到 `AuthClaims`（该层在认证层
 //! > 之外），只能自行再验一次签名，且拿不到认证层的 401 语义。
 //!
-//! # 两条判定
+//! # 三条判定
 //!
 //! 1. **令牌版本**（安全审计 CODE-05 / CODE-08）：令牌 claim `ver` 必须等于
 //!    `sys_user.token_version`。改密 / 改角色 / 停用 / 删除会使版本号自增，
 //!    该用户已签发（含已登出的 refresh 之外的一切）令牌立即失效 → 401；
+//!    **菜单 / 角色授权变更同样自增**（`user::model::bump_token_version_of_menu_holders_in`
+//!    / `bump_token_version_of_role_holders_in`），这就是「Redis 不可用时也不失守」
+//!    的库侧兜底（BUG-SYS-03）；
 //! 2. **首登强制改密**（CODE-06）：`sys_user.must_change_password = TRUE` 时，
 //!    仅放行 [`constants::MUST_CHANGE_PASSWORD_ALLOWED_PATHS`]（改密、登出），
-//!    其余接口一律 403，使初始口令无法用于任何业务操作。
+//!    其余接口一律 403，使初始口令无法用于任何业务操作；
+//! 3. **通配权限复核**（BUG-SYS-04）：令牌声明了 `*` / `*:*:*` 时必须真持有
+//!    `SUPER_ADMIN` 角色，否则 401 —— 接口级 403 只认令牌快照不查库，
+//!    这条是「JWT 密钥泄漏 = 可自签超管」的唯一库侧拦口。
 //!
 //! # 为什么每次请求读库
 //!
@@ -100,7 +106,85 @@ pub async fn guard(request: Request, next: Next) -> Response {
         return forbidden("首次登录必须先修改初始密码");
     }
 
+    // 3) 通配权限的库侧复核（BUG-SYS-04）
+    //
+    // 框架的接口级 403 判定（`nik-web` 的 `has_permission`）只认**令牌里的权限快照**：
+    // `is_super_admin() || permissions.contains(perm)`，不查库。于是「JWT 密钥泄漏」
+    // 等于「全部接口失守」——自签一个 `permissions = ["*:*:*"]` 的令牌即可绕过一切
+    // 路由闸（库侧兜底只覆盖超管数据范围 / 脱敏 / 用户角色上限，不覆盖权限码）。
+    //
+    // 这里补一条**廉价**护栏：只有声明了通配权限的令牌才回库核对（超管是极少数请求，
+    // 普通用户多一次点查的收益不足以抵消成本，且他们的权限码本来就来自库里的角色）。
+    // 库里角色不含 `SUPER_ADMIN` → 401（不是 403：这个令牌本身就不该存在）。
+    match verify_wildcard_claims(&claims, &user_id).await {
+        Ok(WildcardVerdict::NotWildcard) | Ok(WildcardVerdict::Backed) => {}
+        Ok(WildcardVerdict::RoleMismatch { role_codes }) => {
+            tracing::warn!(
+                user_id = %user_id,
+                roles = ?role_codes,
+                "令牌声明了通配权限，但账号在库里不是超管角色 → 拒绝请求"
+            );
+            return unauthorized("权限声明与账号角色不符，请重新登录");
+        }
+        Err(e) => {
+            // fail-closed：查不出角色就不放行通配权限
+            tracing::error!(error = %e, user_id = %user_id, "通配权限复核查询失败，拒绝请求");
+            return server_error("权限声明校验失败");
+        }
+    }
+
     next.run(request).await
+}
+
+/// 通配权限复核的判定结果。
+///
+/// 单独成一个枚举，是为了让单测（`system::authz_tests::o15_*`）能直接断言**判定**，
+/// 而不需要 up 一个 HTTP 服务（本仓未声明 `tower` dev-dependency，做不了 `oneshot`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum WildcardVerdict {
+    /// 令牌没有通配权限 —— 无需回库复核（绝大多数请求走这条）。
+    NotWildcard,
+    /// 声明了通配权限，且库里确实持有 `SUPER_ADMIN` 角色 —— 放行。
+    Backed,
+    /// 声明了通配权限，但库里的角色不含 `SUPER_ADMIN` —— 伪造/过期声明，必须 401。
+    RoleMismatch {
+        /// 该账号在库里的角色编码（只用于日志排障）。
+        role_codes: Vec<String>,
+    },
+}
+
+/// 复核「令牌里的通配权限」是否被库里的角色背书（BUG-SYS-04）。
+///
+/// # 为什么只查通配令牌
+///
+/// 精确权限码（`system:menu:update` 等）本来就来自库里的角色 → 菜单授权，且角色授权
+/// 变更会推进 `token_version` 让旧令牌立刻失效（BUG-SYS-03）。真正的缺口是
+/// `is_super_admin()` 这条**短路**分支：它让任意持有 `*` / `*:*:*` 的令牌跳过全部权限码
+/// 判定。JWT 密钥一旦泄漏，攻击者自签一个通配令牌就是「超管」——本函数是唯一的库侧拦口。
+///
+/// # 参数
+///
+/// - `claims`：令牌声明。
+/// - `user_id`：令牌主体（已解析为 UUID）。
+///
+/// # 返回值
+///
+/// [`WildcardVerdict`]；查询失败返回 [`DbError`]（调用方按 fail-closed 处理）。
+pub(crate) async fn verify_wildcard_claims(
+    claims: &TokenClaims,
+    user_id: &uuid::Uuid,
+) -> std::result::Result<WildcardVerdict, DbError> {
+    if !claims.is_super_admin() {
+        return Ok(WildcardVerdict::NotWildcard);
+    }
+    let role_codes = model::load_role_codes(user_id).await?;
+    if role_codes
+        .iter()
+        .any(|code| code == constants::SUPER_ADMIN_ROLE_CODE)
+    {
+        return Ok(WildcardVerdict::Backed);
+    }
+    Ok(WildcardVerdict::RoleMismatch { role_codes })
 }
 
 /// 首登未改密时是否允许访问该路径（含全局路由前缀）。

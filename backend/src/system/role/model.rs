@@ -285,10 +285,15 @@ pub(crate) async fn count_roles_by_code(
 /// 清空与重建处于同一事务，任一步失败整体回滚，不会出现「旧授权已清空而新授权
 /// 未写完」的中间态。
 ///
+/// 同一事务还会推进**该角色持有者**的 `sys_user.token_version`（BUG-SYS-03）：
+/// 授权就是权限来源，旧令牌里固化的权限快照必须立刻作废，而库侧版本号不依赖 Redis
+/// （[`crate::middleware::session_guard`] 逐请求比对）。
+///
 /// # 参数
 ///
 /// - `role_id`：角色 ID。
 /// - `menu_ids`：已校验的菜单 ID 列表；空切片表示清空全部授权。
+/// - `except_username`：保留会话的内置账号（超管走通配短路，不受授权变更影响）。
 ///
 /// # 异常情况
 ///
@@ -296,6 +301,7 @@ pub(crate) async fn count_roles_by_code(
 pub(crate) async fn replace_role_menus(
     role_id: &uuid::Uuid,
     menu_ids: &[uuid::Uuid],
+    except_username: &str,
 ) -> std::result::Result<(), DbError> {
     let now = chrono::Utc::now();
     db().transaction(|tx| async move {
@@ -311,6 +317,12 @@ pub(crate) async fn replace_role_menus(
             };
             binding.insert(&tx).await?;
         }
+        crate::system::user::model::bump_token_version_of_role_holders_in(
+            &tx,
+            *role_id,
+            except_username,
+        )
+        .await?;
         Ok(())
     })
     .await

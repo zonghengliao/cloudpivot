@@ -317,6 +317,10 @@ pub async fn update(
         deleted_at: None,
     };
     // 批次 C · C6：前后快照 + 写库 + 日志同事务
+    //
+    // BUG-SYS-03：同一事务里推进**该角色持有者**的 `token_version`（库侧兜底）。
+    // 角色名 / 状态 / `data_scope` 变更会改变持有者的权限快照，旧令牌必须立即作废；
+    // 这一步与 Redis 是否可用无关，缓存侧吊销因此可以降级为卫生动作。
     let before_snapshot = role_snapshot(&existing);
     let after_snapshot = role_snapshot(&role);
     let tx_role = role.clone();
@@ -335,6 +339,12 @@ pub async fn update(
             DiffInput::update(&before_snapshot, &after_snapshot),
         )
         .await?;
+        crate::system::user::model::bump_token_version_of_role_holders_in(
+            &tx,
+            tx_role.id,
+            constants::ADMIN_USERNAME,
+        )
+        .await?;
         Ok(())
     })
     .await
@@ -349,22 +359,14 @@ pub async fn update(
         // 这些用户仍按旧范围过滤 —— 放宽时是「看不到」，收紧时是**越权可见**。
         invalidate_role_scope_cache(&id).await;
     }
-    // 角色状态 / 名称等变更会影响持有该角色用户的权限快照，令非超管在线用户
-    // 重新登录获取最新角色与权限。
-    //
-    // 吊销失败回 500（评审 §1.3）：角色变更**没有库侧兜底**——权限快照固化在 JWT 里，
-    // 只有缓存里的黑名单能让旧令牌立刻失效。悄悄回 200 会让管理员以为权限已收回，
-    // 而旧令牌在 access TTL 内仍带着旧权限可用。
-    if let Err(e) =
-        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
-    {
-        tracing::error!(error = %e, scene = "role_update", "角色变更后吊销在线会话失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "角色已保存，但会话吊销失败，请重试",
-        ));
-    }
+    // 缓存侧的在线会话清理只是卫生动作：持有者的 `token_version` 已在上面的事务里推进
+    // （库侧失效），这里失败不回 500 —— 角色确实改完了，回 500 会让管理员重试
+    // （BUG-SYS-03）。失败以 warn + pending_compensation 留痕。
+    crate::support::online::model::revoke_after_permission_change(
+        "role_update",
+        &[constants::ADMIN_USERNAME],
+    )
+    .await;
     log::record_audit(
         &headers,
         &connect_info,
@@ -588,25 +590,20 @@ pub async fn assign_menus(
         .collect();
     let after_menu_ids: Vec<String> = menu_ids.iter().map(|v| v.to_string()).collect();
 
-    model::replace_role_menus(&id, &menu_ids)
+    model::replace_role_menus(&id, &menu_ids, constants::ADMIN_USERNAME)
         .await
         .map_err(|e| utils::db_error(e, "保存角色菜单授权"))?;
 
     // 角色菜单授权变更直接改变该角色用户的可访问权限，清理其主体上下文缓存
     crate::system::auth::model::invalidate_role_holders(&id).await;
-    // 角色菜单授权变更直接改变该角色用户的可访问权限，令非超管在线用户令牌失效，
-    // 强制重新登录以获取最新权限，避免旧令牌仍可访问已收回的功能。
-    // 失败回 500：授权已落库但没有库侧兜底能收回令牌内的旧权限（评审 §1.3）。
-    if let Err(e) =
-        crate::support::online::model::force_logout_all_except(&[constants::ADMIN_USERNAME]).await
-    {
-        tracing::error!(error = %e, scene = "role_assign_menu", "角色授权后吊销在线会话失败");
-        return Err(ApiError::new(
-            500,
-            error_code::INTERNAL_ERROR,
-            "授权已保存，但会话吊销失败，请重试",
-        ));
-    }
+    // 缓存侧的在线会话清理只是卫生动作：授权写在上面的事务里，且同一事务已推进
+    // 持有者的 `token_version`（库侧失效，`middleware::session_guard` 逐请求比对）。
+    // 因此缓存不可用不再回 500（BUG-SYS-03），失败以 warn + pending_compensation 留痕。
+    crate::support::online::model::revoke_after_permission_change(
+        "role_assign_menu",
+        &[constants::ADMIN_USERNAME],
+    )
+    .await;
     log::record_audit(
         &headers,
         &connect_info,

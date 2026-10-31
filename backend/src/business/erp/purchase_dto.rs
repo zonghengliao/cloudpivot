@@ -61,9 +61,12 @@ pub const MAX_REMARK_LEN: usize = 500;
 /// 取消原因最大长度。
 pub const MAX_REASON_LEN: usize = 255;
 
-/// 本卡新增的 5 个权限码（列表/详情沿用 V0141 的 `business:erp:purchase-order:list`）。
-pub const PURCHASE_ORDER_PERMISSIONS: [(&str, &str); 5] = [
-    ("business:erp:purchase-order:detail", "采购订单详情"),
+/// 本卡新增的 4 个权限码（列表沿用 V0141 的 `business:erp:purchase-order:list`）。
+///
+/// BUG-SYS-05：原 `business:erp:purchase-order:detail` 已移除 —— 采购订单**没有 GET 详情路由**
+/// （详情随 `GET /business/erp/purchase-order/page` 的行返回），该码在代码里没有任何校验点，
+/// 勾给角色也不会生效。
+pub const PURCHASE_ORDER_PERMISSIONS: [(&str, &str); 4] = [
     ("business:erp:purchase-order:create", "新建采购订单"),
     (
         "business:erp:purchase-order:update",

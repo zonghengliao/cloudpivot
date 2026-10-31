@@ -630,12 +630,135 @@ pub(crate) async fn bump_token_version(user_id: &uuid::Uuid) -> std::result::Res
         .ok_or_else(|| DbError::InvalidValue(format!("用户 {user_id} 不存在，令牌版本号自增失败")))
 }
 
-/// 读取会话安全字段（认证层逐请求比对用）。
+/// 推进「持有某菜单（经角色授权）」的全部用户的令牌版本号，返回受影响行数。
+///
+/// # 为什么（BUG-SYS-03 的库侧兜底）
+///
+/// 菜单即权限来源：菜单的增删改会改变一批用户的权限快照，而权限码在 JWT 签发时
+/// 就固化了。此前唯一的失效手段是缓存里的令牌黑名单（`support::online`），于是
+/// **Redis 不可用时「写入已成功」却只能回 500**（客户端重试 → 菜单重复删 / 授权
+/// 重复执行，不幂等）。本函数把失效下沉到库：`token_version` 自增后
+/// [`crate::middleware::session_guard`] 逐请求比对必然不相等 → 旧 access / refresh
+/// 令牌立即 401，与缓存可用性无关。缓存吊销因此降级为「清理在线列表」的卫生动作。
+///
+/// # 为什么按「该菜单的持有者」而不是全站用户
+///
+/// 只有被授权了这个菜单的用户，其令牌里的权限快照才可能因为这次变更而**收紧**
+/// （菜单被删 / 权限码变化 / 停用）。按持有者精确失效有两个好处：
+///
+/// - 不会为了改一条菜单把全站用户踢下线（可用性）；
+/// - 只写真正相关的行（`sys_user` 是热表，避免每次菜单维护全表 UPDATE）。
+///
+/// 「放宽」方向不需要即时失效：用户下次登录自然拿到新权限，且**没有**越权风险。
+///
+/// # 参数
+///
+/// - `ex`：执行器（**调用方的事务**，保证与业务写入同生共死：要么菜单写成功且
+///   旧令牌作废，要么两者都不生效）；
+/// - `menu_id`：菜单 ID（**必须在该事务删除 `sys_role_menu` 绑定之前调用**）；
+/// - `except_username`：保留会话的内置账号（超管权限短路，不受菜单变更影响）。
+///
+/// # 返回值
+///
+/// 受影响（版本号被推进）的用户行数。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（由调用方所在事务回滚）。
+pub(crate) async fn bump_token_version_of_menu_holders_in(
+    ex: &impl SqlExecutor,
+    menu_id: uuid::Uuid,
+    except_username: &str,
+) -> std::result::Result<u64, DbError> {
+    // SCOPE-EXEMPT: 按菜单授权反查持有者做全局令牌失效，不适用数据范围谓词
+    ex.exec_sql(
+        "UPDATE sys_user SET token_version = token_version + 1, updated_at = now() \
+         WHERE deleted_at IS NULL \
+           AND username <> ? \
+           AND id IN ( \
+               SELECT ur.user_id FROM sys_user_role ur \
+                 JOIN sys_role_menu rm ON rm.role_id = ur.role_id \
+                WHERE rm.menu_id = ?)"
+            .to_string(),
+        vec![Value::from(except_username), Value::from(menu_id)],
+    )
+    .await
+}
+
+/// 推进「持有某角色」的全部用户的令牌版本号，返回受影响行数。
+///
+/// 角色授权（`sys_role_menu`）、角色状态 / 名称变更只影响**该角色的持有者**，
+/// 因此按持有者精确失效，避免为了改一个角色把全站用户踢下线。
+/// 语义与 [`bump_token_version_of_menu_holders_in`] 相同：库侧失效，不依赖缓存。
+///
+/// # 参数
+///
+/// - `ex`：执行器（调用方的事务）；
+/// - `role_id`：角色 ID；
+/// - `except_username`：保留会话的内置账号（与 [`bump_token_version_of_menu_holders_in`] 同一口径：
+///   超管权限走通配短路，不依赖令牌里的角色 / 权限快照）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn bump_token_version_of_role_holders_in(
+    ex: &impl SqlExecutor,
+    role_id: uuid::Uuid,
+    except_username: &str,
+) -> std::result::Result<u64, DbError> {
+    // SCOPE-EXEMPT: 按角色反查持有者做全局失效，不适用数据范围谓词
+    ex.exec_sql(
+        "UPDATE sys_user SET token_version = token_version + 1, updated_at = now() \
+         WHERE deleted_at IS NULL \
+           AND username <> ? \
+           AND id IN (SELECT user_id FROM sys_user_role WHERE role_id = ?)"
+            .to_string(),
+        vec![Value::from(except_username), Value::from(role_id)],
+    )
+    .await
+}
+
+/// 读取用户的角色编码集合（启用中的角色）。
+///
+/// 只给 `middleware::session_guard` 的「通配权限复核」用（BUG-SYS-04）：
+/// 令牌声明了 `*` / `*:*:*` 时回库确认账号是否真的持有
+/// [`constants::SUPER_ADMIN_ROLE_CODE`]，避免密钥泄漏后自签通配权限令牌当超管用。
 ///
 /// # 参数
 ///
 /// - `user_id`：用户 ID。
 ///
+/// # 返回值
+///
+/// 角色编码列表（无角色返回空数组）。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub(crate) async fn load_role_codes(
+    user_id: &uuid::Uuid,
+) -> std::result::Result<Vec<String>, DbError> {
+    // SCOPE-EXEMPT: 只读令牌主体自己的角色（会话守卫），不存在跨用户可见性问题
+    let rows = db()
+        .find_with_params(
+            "SELECT r.role_code \
+               FROM sys_user_role ur \
+               JOIN sys_role r ON r.id = ur.role_id \
+              WHERE ur.user_id = ? AND r.deleted_at IS NULL AND r.status = 1",
+            vec![Value::from(*user_id)],
+        )
+        .await?;
+    Ok(rows
+        .iter()
+        .filter_map(|row| row.get_typed::<String>("role_code").ok())
+        .collect())
+}
+
+/// 读取会话安全字段（认证层逐请求比对用）。
+///
+/// # 参数
+///
+/// - `user_id`：用户 ID。
 /// # 返回值
 ///
 /// `Some((token_version, must_change_password))`；用户不存在（已删除）返回 `None`。
