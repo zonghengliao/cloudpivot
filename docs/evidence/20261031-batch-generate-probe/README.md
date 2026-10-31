@@ -143,3 +143,52 @@ ROLLBACK
    文档 §4.1 / §5.2 就是这条结论。
 3. 脚本全程 `BEGIN … ROLLBACK`，**不改任何数据**（中途 `RAISE EXCEPTION` 时 psql 断开也会自动回滚）。
 
+
+---
+
+## 6. `b1_transfer_gap.sql` —— 调拨结算不写库位账 ⇒ B1（BLOCKER）必红（§11 R3）
+
+**只读脚本**（无 `BEGIN`、无写操作、不 `ROLLBACK` 也不需要），可对任何库直接跑。
+
+```bash
+mkdir -p /tmp/archspec && chmod 755 /tmp/archspec
+cp docs/evidence/20261031-batch-generate-probe/b1_transfer_gap.sql /tmp/archspec/
+chmod 644 /tmp/archspec/b1_transfer_gap.sql
+su postgres -c "psql -X -d cloudpivot_test -f /tmp/archspec/b1_transfer_gap.sql"
+```
+
+本机真跑输出（2026-10-31，`cloudpivot_test`）：
+
+```
+===== ① B1 判据原样（scripts/verify/erp_invariants.py:173-189）=====
+             material_id              |             warehouse_id             | cost_qty | loc_qty |  diff
+--------------------------------------+--------------------------------------+----------+---------+---------
+ d3be0000-0000-4000-8000-000000000011 | d3be0000-0000-4000-8000-000000000001 | 93.0000  | 0       | 93.0000
+ d3be0000-0000-4000-8000-000000000011 | d3be0000-0000-4000-8000-000000000002 | 7.0000   | 0       | 7.0000
+ d3be0000-0000-4000-8000-000000000012 | d3be0000-0000-4000-8000-000000000002 | 2.0000   | 0       | 2.0000
+(3 rows)
+
+===== ② 上述差额行的物料是否只有调拨流水（收货流水=0 才能归因到调拨路径）=====
+ material_code | warehouse_name | 调拨流水 | 非调拨流水
+---------------+----------------+----------+------------
+ W3B-E2E-M1    | W3B e2e 调出仓 |        1 |          0
+ W3B-E2E-M1    | W3B e2e 调入仓 |        1 |          0
+ W3B-E2E-M2    | W3B e2e 调入仓 |        1 |          0
+(3 rows)
+
+===== ③ 库位账行数（为 0 说明该仓压根没有库位账）=====
+ inventory_location_rows
+-------------------------
+                       1
+(1 row)
+```
+
+读法：
+
+- ① 差额行**就是** B1 会报的那几行（判据与 `erp_invariants.py` 逐字同源）；
+- ② 三个差额行的流水**全是调拨**（`非调拨流水 = 0`）⇒ 差额只能来自 `settle_transfer`，
+  与批量生成、收货都无关（该物料没有任何收货流水）；
+- ③ 库位账表**不是空的**（有 1 行，`P2B1-M1` 收货仓 10/10 是相符的）⇒ 不是"整库没启用库位账"的假象。
+
+结论与闭环见规格 §11 R3：调拨侧补 `apply_location_qty` 由卡 `t_270b472e` 单独收口，
+本规格的验收副本库必须 `select count(*) from biz_inventory_txn where doc_type = 'STOCK_TRANSFER'` = 0。
