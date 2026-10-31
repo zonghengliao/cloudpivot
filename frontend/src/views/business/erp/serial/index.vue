@@ -312,6 +312,7 @@
         <t-form-item
           label="成本单价"
           name="unit_cost"
+          required
           :status="batchErrors.unit_cost ? 'error' : undefined"
           :tips="batchErrors.unit_cost"
         >
