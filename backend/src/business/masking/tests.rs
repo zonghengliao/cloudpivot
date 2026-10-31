@@ -25,14 +25,34 @@
 //! # 隔离
 //!
 //! - 所有规则都绑在本次用例新建的角色上（`role_id` 非空），绝不插全局规则；
-//! - 夹具全部带 `TC-M` 前缀，用例开头先按该前缀清扫历史残留（上一次跑到一半 panic
+//! - 夹具全部带 `tc_m` 前缀，用例开头先按该前缀清扫历史残留（上一次跑到一半 panic
 //!   就不会留垃圾），结尾再清一次。
+//!
+//! # 清理口径（2026-10-31 收紧，见卡片 t_6a4e25d3）
+//!
+//! 以前这里（和 `system/*/tests.rs` 同款）是 6 处 `let _ = db().execute_with_params(...)`：
+//!
+//! - 删除失败被**静默吞掉**，表象是「用例全绿、日志干净、库里一堆 `tc_m` 夹具」；
+//! - 而且都是一条**整批** `DELETE ... WHERE ... LIKE 'tc_m%'`：只要有一行被外键挡住
+//!   （实测：`sys_role_mutex.role_a_id/role_b_id` 指向本卡角色时，`DELETE FROM sys_role`
+//!   会因外键整条回滚），这一批全部删不掉，且一行日志都没有。
+//!
+//! 现在改为复用 [`crate::system::tests_support`] 的现成实现：
+//! `cleanup_sql` 失败打 `WARN[cleanup]` + SQL + 数据库原文（不 panic、不谎报 0 行）；
+//! `sweep_users` / `sweep_roles` 按外键依赖顺序先清引用行、再**逐行**删实体行，
+//! 一个脏行只影响它自己，并把明细返回给调用方。
+//!
+//! 清理失败**不许 panic**：用例真正的断言结果不能被清理噪音盖掉；
+//! 但残留必须可被观测——`m10` 那条自检用例专门盯「sweep 能不能收干被外键挡住的夹具」。
 //!
 //! 跑法：
 //! ```bash
 //! SYS_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
-//!   cargo test --lib business::masking::tests -- --nocapture
+//!   cargo test --lib business::masking::tests -- --test-threads=1
 //! ```
+//!
+//! 必须 `--test-threads=1`：`sweep()` 会清掉**全部** `tc_m` 夹具，并行跑会与同前缀的
+//! 兄弟用例互删（本文件所有用例共用同一个前缀族）。
 
 use nik::prelude::*;
 
@@ -48,27 +68,46 @@ const NAME: i16 = 4;
 /// 目标列：`sys_user.remark`（该列**没有**全局种子规则，见文件头）。
 const TARGET_TABLE: &str = "sys_user";
 const TARGET_COLUMN: &str = "remark";
+/// 夹具前缀：`sys_user.username` / `sys_role.role_code` / `sys_field_mask.reason` 共用。
+///
+/// 清理一律按这一串收敛（`cloudpivot_test` 是多卡共用的验证库，禁止全表删）。
+const PREFIX: &str = "tc_m";
 
 /// 清扫本卡历史残留（按 `tc_m` 前缀；上一次跑到一半 panic 也不会留垃圾）。
+///
+/// # 为什么不再 `let _ = db().execute_with_params(...)`
+///
+/// 见文件头「清理口径」：整批 `DELETE` 只要有一行被外键挡住就整条回滚，
+/// 外层再 `let _ =` 把 `DbError` 丢掉 ⇒ 用例全绿、库里一行不少、日志一个字都没有。
+/// 实测（本卡探针，旧代码）：`tc_m` 角色对 + `sys_role_mutex` 互斥行 → 跑完仍是
+/// 2 行角色 / 1 行互斥、9 passed、`grep -c 'WARN\[cleanup\]'` = 0。
+///
+/// 现在：规则行按 `reason` 清；实体行走 `sweep_users` / `sweep_roles`
+/// （依赖顺序 + 逐行删，含 `sys_role_mutex` 这个最容易漏掉的引用），失败打
+/// `WARN[cleanup]` 而不是消失。
 async fn sweep() {
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_field_mask WHERE reason LIKE 'tc_m%'",
-            vec![],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE 'tc_m%')",
-            vec![],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params("DELETE FROM sys_user WHERE username LIKE 'tc_m%'", vec![])
-        .await;
-    let _ = db()
-        .execute_with_params("DELETE FROM sys_role WHERE role_code LIKE 'tc_m%'", vec![])
-        .await;
+    let masks = ts::cleanup_sql(
+        "masking/sweep→sys_field_mask(reason LIKE 'tc_m%')",
+        "DELETE FROM sys_field_mask WHERE reason LIKE ?",
+        vec![Value::from(format!("{PREFIX}%"))],
+    )
+    .await;
+    if masks > 0 {
+        println!("[cleanup] masking/sweep 先清规则行 sys_field_mask：{masks} 行");
+    }
+
+    // 用户 → 先 `sys_user_role` / `sys_user_preference` / `sys_field_mask(create_by)`，再逐行删。
+    let users = ts::sweep_users(PREFIX).await;
+    // 角色 → 先 `sys_role_menu` / `sys_user_role` / `sys_role_dept` / `sys_field_mask` /
+    // `sys_role_mutex`，再逐行删。**`sys_role_mutex` 那条是关键**：漏了它，
+    // `DELETE FROM sys_role WHERE role_code LIKE 'tc_m%'` 会被外键整条回滚。
+    let roles = ts::sweep_roles(PREFIX).await;
+    if !users.is_clean() || !roles.is_clean() {
+        println!(
+            "WARN[cleanup] masking/sweep 未完全成功：users={:?} roles={:?}",
+            users.failed, roles.failed
+        );
+    }
 }
 
 /// 造一个脱敏规则请求体（规则只作用于本次角色）。
@@ -135,21 +174,26 @@ async fn create_rule(claims: &AuthClaims, role_id: &str, mask_type: i16, reason:
 }
 
 /// 清理本次用例造的夹具。
+///
+/// 依赖顺序：规则（`sys_field_mask.role_id` / `create_by` 指向本卡角色与用户）
+/// → 用户（`sys_user_role` / `sys_user_preference` 先清）→ 角色（含 `sys_role_mutex`）。
+/// 失败打 `WARN[cleanup]`（不 panic、不谎报），明细由 `sweep_*` 的 `SweepReport` 带出。
 async fn cleanup(prefix: &str) {
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_field_mask WHERE reason LIKE ?",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
-    let _ = db()
-        .execute_with_params(
-            "DELETE FROM sys_user_role WHERE user_id IN (SELECT id FROM sys_user WHERE username LIKE ?)",
-            vec![Value::from(format!("{prefix}%"))],
-        )
-        .await;
-    ts::cleanup_table("sys_user", "username", prefix).await;
-    ts::cleanup_table("sys_role", "role_code", prefix).await;
+    ts::cleanup_sql(
+        &format!("masking/cleanup→sys_field_mask(reason LIKE '{prefix}%')"),
+        "DELETE FROM sys_field_mask WHERE reason LIKE ?",
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await;
+
+    let users = ts::sweep_users(prefix).await;
+    let roles = ts::sweep_roles(prefix).await;
+    if !users.is_clean() || !roles.is_clean() {
+        println!(
+            "WARN[cleanup] masking/cleanup({prefix}) 未完全成功：users={:?} roles={:?}",
+            users.failed, roles.failed
+        );
+    }
 }
 
 /// 夹具统一入口：清扫 + 造夹具，返回 `(前缀, 角色ID, 持角色用户ID, 普通用户ID)`。
@@ -697,4 +741,156 @@ async fn m09_fail_closed_never_leaks_plaintext() {
         ""
     );
     println!("[M09] fail-closed：全掩码兜底 + 非法参数 Err + 错误信息不含原值 ✓");
+}
+
+// ==================== M10 清理基建自检（回归闸） ====================
+
+/// 按前缀数一行残留（自检用；`table` / `column` 只由本文件内部传入常量）。
+async fn residue(table: &str, column: &str, prefix: &str) -> i64 {
+    ts::scalar_i64(
+        &format!("SELECT count(*) AS v FROM {table} WHERE {column} LIKE ?"),
+        vec![Value::from(format!("{prefix}%"))],
+    )
+    .await
+}
+
+/// M10：`sweep()` 必须把**被外键挡住**的 `tc_m` 夹具也收干，且**只碰自己的前缀**。
+///
+/// # 这条用例守的是什么（本卡的回归闸）
+///
+/// 旧实现是 6 处 `let _ = db().execute_with_params(...)` + 一条整批
+/// `DELETE FROM sys_role WHERE role_code LIKE 'tc_m%'`。只要有一个 `tc_m` 角色被
+/// `sys_role_mutex.role_a_id/role_b_id`（硬外键）钉住，PostgreSQL 会把**整条语句**回滚，
+/// `let _ =` 再把 `DbError` 丢掉 ⇒ 「9 passed、日志 0 条 WARN、库里 2 行角色 + 1 行互斥永远留着」。
+/// 实测就是如此（见文件头与交付说明）。
+///
+/// 本用例先造出那个形态（角色对 + 互斥行 + 持角色用户 + 该角色的脱敏规则），
+/// 再调一次 `sweep()`，要求四类行全部为 0：
+///
+/// - 如果回到「整批 DELETE + 吞错」，这里会立刻红（残留 2 行角色 / 1 行互斥）；
+/// - 如果 `sweep_roles` 的依赖清单漏了 `sys_role_mutex`，同样红。
+///
+/// 反向对照：另一个**非** `tc_m` 前缀的角色必须**活下来**——共用库里禁止全表删。
+///
+/// 注：本用例会调用 `sweep()`，必须与其它用例串行跑（`--test-threads=1`，卡面基线跑法）。
+#[tokio::test]
+async fn m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped() {
+    if !ts::ensure_db().await {
+        return;
+    }
+
+    let role_a = uuid::Uuid::now_v7();
+    let role_b = uuid::Uuid::now_v7();
+    let user_id = uuid::Uuid::now_v7();
+    let keep_id = uuid::Uuid::now_v7();
+
+    // ① 一对 tc_m 前缀角色：互斥行会指向它们（外键 → 整批 DELETE 会回滚）
+    for (id, code) in [
+        (&role_a, format!("{PREFIX}_probe_MAKER_{}", ts::uniq())),
+        (&role_b, format!("{PREFIX}_probe_CHECKER_{}", ts::uniq())),
+    ] {
+        ts::exec(
+            "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
+             VALUES (?::text::uuid, ?, 'tc_m-探针', 1, 1)",
+            vec![Value::from(id.to_string()), Value::from(code)],
+        )
+        .await;
+    }
+    ts::exec(
+        "INSERT INTO sys_role_mutex (id, role_a_id, role_b_id, reason) \
+         VALUES (?::text::uuid, ?::text::uuid, ?::text::uuid, ?)",
+        vec![
+            Value::from(uuid::Uuid::now_v7().to_string()),
+            Value::from(role_a.to_string()),
+            Value::from(role_b.to_string()),
+            Value::from(format!("{PREFIX}-探针互斥")),
+        ],
+    )
+    .await;
+
+    // ② 持该角色的用户（`sys_user_role` 也要被清掉，否则用户行删不掉）
+    ts::exec(
+        "INSERT INTO sys_user (id, username, password, real_name, status) \
+         VALUES (?::text::uuid, ?, 'x', 'tc_m-探针用户', 1)",
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(format!("{PREFIX}_probe_holder_{}", ts::uniq())),
+        ],
+    )
+    .await;
+    ts::exec(
+        "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
+        vec![
+            Value::from(user_id.to_string()),
+            Value::from(role_a.to_string()),
+        ],
+    )
+    .await;
+
+    // ③ 该角色的一条脱敏规则（`sys_field_mask.role_id` 也是硬外键）
+    ts::exec(
+        "INSERT INTO sys_field_mask (id, table_name, column_name, mask_type, role_id, status, reason) \
+         VALUES (?::text::uuid, ?, ?, ?, ?::text::uuid, 1, ?)",
+        vec![
+            Value::from(uuid::Uuid::now_v7().to_string()),
+            Value::from(TARGET_TABLE),
+            Value::from(TARGET_COLUMN),
+            Value::I16(MOBILE),
+            Value::from(role_a.to_string()),
+            Value::from(format!("{PREFIX}-探针规则-{}", ts::uniq())),
+        ],
+    )
+    .await;
+
+    // ④ 反向对照：非本卡前缀的角色，sweep 一行都不许碰
+    ts::exec(
+        "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
+         VALUES (?::text::uuid, 'keepme_probe_ROLE', '别人家的角色（不许删）', 1, 1)",
+        vec![Value::from(keep_id.to_string())],
+    )
+    .await;
+
+    assert!(
+        residue("sys_role", "role_code", PREFIX).await >= 2,
+        "探针角色应已落库"
+    );
+
+    // 跑被测的清扫
+    sweep().await;
+
+    assert_eq!(
+        residue("sys_field_mask", "reason", PREFIX).await,
+        0,
+        "tc_m 规则行必须被清干净"
+    );
+    assert_eq!(
+        residue("sys_user", "username", PREFIX).await,
+        0,
+        "tc_m 用户必须被清干净"
+    );
+    assert_eq!(
+        residue("sys_role", "role_code", PREFIX).await,
+        0,
+        "tc_m 角色必须被清干净（被 sys_role_mutex 钉住时也要能删）"
+    );
+    let mutex_left = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_role_mutex WHERE reason LIKE ?",
+        vec![Value::from(format!("{PREFIX}%"))],
+    )
+    .await;
+    assert_eq!(
+        mutex_left, 0,
+        "tc_m 的互斥行必须被清掉（漏了它，整批删角色会被外键回滚）"
+    );
+
+    // 反向对照：别人的角色一行未少
+    let kept = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_role WHERE id = ?::text::uuid",
+        vec![Value::from(keep_id.to_string())],
+    )
+    .await;
+    assert_eq!(kept, 1, "sweep 只许按 tc_m 前缀清理，不能全表删");
+
+    ts::cleanup_table("sys_role", "role_code", "keepme_probe").await;
+    println!("[M10] 被外键钉住的 tc_m 夹具已被 sweep 收干；非本卡前缀零影响 ✓");
 }
