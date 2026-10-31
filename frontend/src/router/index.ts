@@ -507,6 +507,25 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '库存流水', permission: 'business:erp:inventory-txn:list', tab: 'txn' },
       },
       {
+        // ==================== ERP 采购明细（卡 t_6f023cee / BUG-SYS-01） ====================
+        // `sys_menu` 的 path `/business/erp/purchase-order-item`（menu_type=2、is_visible=true）
+        // 一直可见，但路由与组件都缺 → 点侧栏 404（测试C 的 n08 用例钉住了这条不变量）。
+        // 后端 `GET /business/erp/purchase-order-item/page` + `/{id}` 自 V0141 起就齐全。
+        path: 'business/erp/purchase-order-item',
+        name: 'BusinessErpPurchaseOrderItem',
+        component: () => import('@/views/business/erp/purchase-order-item/index.vue'),
+        meta: { title: '采购明细', permission: 'business:erp:purchase-order-item:list' },
+      },
+      {
+        // ==================== ERP 单号序列（卡 t_6f023cee / BUG-SYS-01） ====================
+        // 同上：`/business/erp/seq` 的菜单可见但没注册路由；后端只有只读的
+        // `/seq/page` 与 `/seq/{id}`（没有写接口），页面因此做成只读台账。
+        path: 'business/erp/seq',
+        name: 'BusinessErpSeq',
+        component: () => import('@/views/business/erp/seq/index.vue'),
+        meta: { title: '单号序列', permission: 'business:erp:seq:list' },
+      },
+      {
         path: 'result/403',
         name: 'Result403',
         component: () => import('@/views/result/403/index.vue'),

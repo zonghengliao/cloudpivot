@@ -43,6 +43,18 @@ pub(crate) fn db_url() -> Option<String> {
 ///
 /// 与 `tests/batchB_b2_scope.rs`（B2 卡）同一套约定：缺库时打印 SKIP 返回，
 /// 用例体直接 `return`，不让 `cargo test` 变红。
+///
+/// # 为什么连接必须建在专用 runtime 里（而不是用例的 runtime）
+///
+/// `#[tokio::test]` 给**每个用例**都建一个独立 runtime，而全局 `db()` 只能初始化
+/// 一次（`OnceCell`）。如果在用例的 runtime 里建连，池里的连接（及其后台任务）就
+/// 绑在那个 runtime 上；用例一结束连接被关闭，后续用例取到这种连接，任何一句 SQL
+/// 都会失败成 `connection closed` —— 在 handler 里就是 `500 / 10004 服务器内部错误`。
+/// 实测：同一份代码连续跑三次，每次都有 1–3 条**随机**用例因此变红（菜单用例），
+/// 与业务逻辑无关，纯属测试基建抖动。
+///
+/// 修法：在一个常驻的专用 thread + runtime 里建连并把它留在那里
+/// （[`connect_in_dedicated_runtime`]），连接生命周期与任何用例的 runtime 解耦。
 pub(crate) async fn ensure_db() -> bool {
     use tokio::sync::OnceCell;
     static READY: OnceCell<bool> = OnceCell::const_new();
@@ -55,7 +67,7 @@ pub(crate) async fn ensure_db() -> bool {
             if try_db().is_some() {
                 return true;
             }
-            match Db::connect(&url).await {
+            match connect_in_dedicated_runtime(&url) {
                 Ok(connection) => {
                     if set_db(connection).is_err() {
                         println!("SKIP: 全局数据库已被别的用例初始化");
@@ -71,6 +83,61 @@ pub(crate) async fn ensure_db() -> bool {
             }
         })
         .await
+}
+
+/// 在**永不退出**的专用 runtime 里建连，返回连接池。
+///
+/// 建连完成后该 runtime 用 `pending()` 常驻：池里的连接与它们的后台任务
+/// （`tokio_postgres` 的 socket driver 是 `tokio::spawn` 出来的）都跑在这条线程上，
+/// 因此任何用例的 runtime 结束都不会把它们带走（原因见 [`ensure_db`]）。
+///
+/// # 为什么要把 `min_connections` 拉满
+///
+/// 驱动的池是**懒建连**的：`min_connections` 只在建池时预热，之后「空闲栈空了 + 还有
+/// 并发额度」就会在**调用方 runtime** 里新建连接 —— 那条连接又会被下一个用例的
+/// runtime 结束带走。默认 `min_connections = 1`，实测仍会随机报
+/// `connection closed`。这里把 `min/max` 都设成 [`DEDICATED_POOL_SIZE`]，
+/// 让所有连接都在专用 runtime 里一次性建好，用例只复用它们。
+///
+/// 建连结果通过 `std::sync::mpsc` 同步取回（只阻塞一次建连，测试代码可接受）。
+fn connect_in_dedicated_runtime(url: &str) -> std::result::Result<Db, String> {
+    /// 专用池容量（用例串行执行，8 条远超实际并发额度）
+    const DEDICATED_POOL_SIZE: u32 = 8;
+
+    let (sender, receiver) = std::sync::mpsc::channel::<std::result::Result<Db, String>>();
+    let url = url.to_string();
+    std::thread::Builder::new()
+        .name("test-db-runtime".to_string())
+        .spawn(move || {
+            let Ok(runtime) = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+            else {
+                let _ = sender.send(Err("无法创建专用数据库 runtime".to_string()));
+                return;
+            };
+            let mut config = DatabaseConfig::from_url(&url);
+            config.pool.min_connections = DEDICATED_POOL_SIZE;
+            config.pool.max_connections = DEDICATED_POOL_SIZE;
+            // 不设空闲回收 / 存活上限：连接一旦被回收，下一次又会在用例 runtime 里重建
+            config.pool.idle_timeout = None;
+            config.pool.max_lifetime = None;
+            match runtime.block_on(Db::connect_with(&url, config)) {
+                Ok(database) => {
+                    let _ = sender.send(Ok(database));
+                    // 常驻：这条 runtime 一退出，池里的连接就又变成「已关闭」
+                    runtime.block_on(std::future::pending::<()>());
+                }
+                Err(error) => {
+                    let _ = sender.send(Err(error.to_string()));
+                }
+            }
+        })
+        .map_err(|error| format!("无法启动专用数据库 runtime 线程：{error}"))?;
+    receiver
+        .recv()
+        .unwrap_or_else(|_| Err("专用数据库 runtime 未返回建连结果".to_string()))
 }
 
 /// 请求头（审计日志的派生字段用；空表即可）。

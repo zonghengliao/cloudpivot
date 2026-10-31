@@ -2426,3 +2426,82 @@ export function fetchInventoryTxnPage(query: {
 export function fetchInventoryTxnDetail(id: string): Promise<InventoryTxnRow> {
   return get<InventoryTxnRow>(`${BASE}/inventory-txn/${id}`);
 }
+
+/**
+ * 采购明细分页（`GET /erp/purchase-order-item/page`，权限
+ * `business:erp:purchase-order-item:list`）。
+ *
+ * 后端筛选（`dto.rs::PurchaseOrderItemFilter`）只有两个**精确**匹配的 id 条件：
+ * `order_id` / `material_id`；没有 keyword / 日期区间，也没有排序参数
+ * （`model::purchase_order_item_page` 固定 `ORDER BY order_id, line_no`）。
+ *
+ * 与 {@link fetchPurchaseOrderItems} 的区别：
+ * - 本函数给的是**跨订单**的分页列表（「采购明细」菜单页要看的全量台账）；
+ * - 后者是「某一张单的明细」的便捷封装（编辑回填用，page_size 固定 200）。
+ */
+export function fetchPurchaseOrderItemPage(query: {
+  order_id?: string;
+  material_id?: string;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<PurchaseOrderItemLine>> {
+  return get<PageData<PurchaseOrderItemLine>>(`${BASE}/purchase-order-item/page`, asParams(query));
+}
+
+/** 采购明细详情（`GET /erp/purchase-order-item/{id}`，与列表元素同构） */
+export function fetchPurchaseOrderItemDetail(id: string): Promise<PurchaseOrderItemLine> {
+  return get<PurchaseOrderItemLine>(`${BASE}/purchase-order-item/${id}`);
+}
+
+/**
+ * 单号序列（`GET /erp/seq/page` 的 list 元素，= `dto.rs::SeqRes`）。
+ *
+ * ⚠️ `biz_seq` 是**取号规则字典**，不是「已经发出的单号」：`period_key` + `current_no`
+ * 是当前周期的计数器状态，`step` 是每次取号的步长。真正拼成单号的模板
+ * （`PO-yyyyMMdd-000001`）由各业务模块自己的 `format_*_no()` 决定（purchase_model /
+ * stockin_model / transfer_model / voucher / payable …），**不由本表驱动** ——
+ * 所以本页不能凭 prefix/separator 反推「下一个单号」的完整字符串，只能展示计数器事实。
+ */
+export interface SeqRow {
+  /** 主键 */
+  id: string;
+  /** 序列类型（未删除内唯一，如 `PO` / `IN` / `SN`） */
+  seq_type: string;
+  /** 序列名称 */
+  seq_name: string;
+  /** 前缀（如 `PO`） */
+  prefix: string;
+  /** 日期段格式：`yyyyMMdd` / `yyyyMM` / `none` */
+  date_pattern: string;
+  /** 当前周期键（`yyyyMMdd` / `yyyyMM` / 空串） */
+  period_key: string;
+  /** 当前序号（`>= 0`） */
+  current_no: number;
+  /** 步长（`> 0`；下次取号的序号 = `current_no + step`） */
+  step: number;
+  /** 分隔符 */
+  separator: string;
+  /** 启用状态：1 启用 / 0 停用 */
+  status: number;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 单号序列分页（`GET /erp/seq/page`，权限 `business:erp:seq:list`；`keyword` 匹配类型/名称） */
+export function fetchSeqPage(query: {
+  keyword?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<SeqRow>> {
+  return get<PageData<SeqRow>>(`${BASE}/seq/page`, asParams(query));
+}
+
+/** 单号序列详情（`GET /erp/seq/{id}`，也是 `:list` 权限） */
+export function fetchSeqDetail(id: string): Promise<SeqRow> {
+  return get<SeqRow>(`${BASE}/seq/${id}`);
+}
