@@ -22,6 +22,7 @@
 //! | [`ledger`] | 总账流水（逐行余额）+ 科目余额表（Σ借 = Σ贷 校验），只读 | **P2-D1** |
 //! | [`payable_query`] | 应付单查询：分页 + 详情（含关联凭证号），只读 | **P2-C2** |
 //! | [`payable_payment`] | 应付付款登记（部分付款累计 → PARTIAL_PAID/SETTLED）+ 应付作废（联动红冲） | **P7** |
+//! | [`payable_bridge`] | 应付**付款审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17** |
 //! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入） | **P7** |
 //!
 //! # 表结构的唯一依据
@@ -53,6 +54,7 @@ pub mod inventory_audit;
 pub mod ledger;
 pub mod model;
 pub mod payable;
+pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;
 pub mod purchase_dto;

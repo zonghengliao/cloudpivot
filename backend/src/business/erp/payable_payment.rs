@@ -80,8 +80,10 @@ use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::payable::{self, PayableRow};
+use crate::business::erp::payable_bridge;
 use crate::business::erp::payable_query::{self, PayableDetailRes};
 use crate::business::erp::voucher::{self, EntryLine, ReversalInput, SeqSpec};
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -106,6 +108,41 @@ pub const PAYMENT_SEQ: SeqSpec<'static> = SeqSpec {
 pub const PAY_DEBIT_CODE: &str = "2202";
 /// 付款凭证贷方科目（银行存款）。
 pub const PAY_CREDIT_CODE: &str = "1002";
+
+// ---------- 付款审批（P17）----------
+
+/// `approval_status`：未配流程 / 历史直付（P7 老行为）。
+pub const APPROVAL_NONE: &str = "NONE";
+/// `approval_status`：审批中（**账一分没动**）。
+pub const APPROVAL_PENDING: &str = "PENDING";
+/// `approval_status`：审批通过且已执行（应付回写 + 付款凭证）。
+pub const APPROVAL_APPROVED: &str = "APPROVED";
+/// `approval_status`：驳回 / 撤回（账一分不动，可重新提交）。
+pub const APPROVAL_REJECTED: &str = "REJECTED";
+/// `approval_status`：因单据作废等外部原因终止（账一分不动）。
+pub const APPROVAL_CANCELLED: &str = "CANCELLED";
+
+/// 付款审批的业务类型（`biz_flow_def.biz_type`，与 V0175 种子同口径）。
+pub const PAY_BIZ_TYPE: &str = "PAYABLE_PAY";
+/// 付款审批的流程编码（`biz_flow_def.flow_code`）。
+pub const PAY_FLOW_CODE: &str = "payable_pay";
+
+/// 提交结果：仍在审批中（HTTP 202）。
+pub const OUTCOME_PENDING: &str = "PENDING_APPROVAL";
+/// 提交结果：未配流程，已直接生效（HTTP 200）。
+pub const OUTCOME_PAID: &str = "PAID";
+
+/// `approval_status` 的中文标签（前端 tag 文案的唯一来源）。
+pub fn approval_status_label(status: &str) -> &str {
+    match status {
+        APPROVAL_PENDING => "审批中",
+        APPROVAL_APPROVED => "已通过",
+        APPROVAL_REJECTED => "已驳回",
+        APPROVAL_CANCELLED => "已终止",
+        APPROVAL_NONE => "已生效",
+        other => other,
+    }
+}
 
 // ==================== 入参 / 出参 ====================
 
@@ -152,11 +189,41 @@ pub struct PaymentRes {
     pub remark: Option<String>,
     /// 登记时间。
     pub created_at: DateTime<Utc>,
+    /// 审批状态（`NONE` / `PENDING` / `APPROVED` / `REJECTED` / `CANCELLED`）。
+    pub approval_status: String,
+    /// 审批状态中文标签（前端 tag 直接用，避免两端各写一份映射）。
+    pub approval_status_label: String,
+    /// 审批实例 id（有流程时才有；详情抽屉据此显示审批进度）。
+    pub approval_instance_id: Option<String>,
+    /// 是否**尚未生效**（`PENDING`）：前端把它当「橙色待审」，金额也不计入已付。
+    pub pending: bool,
+}
+
+/// 提交付款的结果（`POST /payable/{id}/pay` 的出参）。
+///
+/// * `outcome = PENDING_APPROVAL`（HTTP **202**）：已发起审批，**账还没动**；
+/// * `outcome = PAID`（HTTP 200）：没配流程，按 P7 老行为直接生效。
+#[derive(Debug, Clone, Serialize)]
+pub struct PaySubmitRes {
+    /// `PENDING_APPROVAL` / `PAID`。
+    pub outcome: String,
+    /// 给前端直接展示的一句话。
+    pub message: String,
+    /// 本次付款金额。
+    pub amount: Decimal,
+    /// 付款记录 id（审批通过后也用它查进度）。
+    pub payment_id: Option<String>,
+    /// 付款单号（`PM-yyyyMMdd-000001`）。
+    pub payment_no: Option<String>,
+    /// 审批实例 id（未配流程时为 `None`）。
+    pub approval_instance_id: Option<String>,
+    /// 应付单最新详情（含全部付款记录）。
+    pub detail: PayableDetailRes,
 }
 
 /// `biz_payment` 列清单。
 const COLUMNS: &str = "id, payment_no, payable_id, amount, pay_date, pay_method, voucher_id, \
-     remark, created_at";
+     remark, created_at, approval_status, approval_instance_id";
 
 /// 付款记录行。
 #[derive(Debug, Clone)]
@@ -179,6 +246,10 @@ pub struct PaymentRow {
     pub remark: Option<String>,
     /// 登记时间。
     pub created_at: Option<DateTime<Utc>>,
+    /// 审批状态。
+    pub approval_status: String,
+    /// 审批实例。
+    pub approval_instance_id: Option<Uuid>,
 }
 
 impl PaymentRow {
@@ -193,6 +264,8 @@ impl PaymentRow {
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,
+            approval_status: row.get_typed("approval_status")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
         })
     }
 }
@@ -315,6 +388,10 @@ pub async fn payments_res(
             voucher_no,
             remark: row.remark.clone(),
             created_at: row.created_at.unwrap_or_else(Utc::now),
+            approval_status: row.approval_status.clone(),
+            approval_status_label: approval_status_label(&row.approval_status).to_string(),
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+            pending: row.approval_status == APPROVAL_PENDING,
         });
     }
     Ok(list)
@@ -437,8 +514,11 @@ struct PayInput<'a> {
     /// 业务时间（一次事务内同一个值，便于请求级追溯）。
     now: DateTime<Utc>,
 }
-
-/// 付款的事务体（便于单测直接复算）。
+/// 付款的事务体（直付路径：未配流程 / 降级）。便于单测直接复算。
+///
+/// 与审批路径（[`settle_payment_in_tx`]）**共用同一段记账逻辑**：先落付款记录，再走
+/// 「凭证 → 回写 → 应付重算」。两条路径唯一的差别是付款记录落库时的 `approval_status`
+/// （直付 = `NONE`，审批通过 = 把已有的 `PENDING` 翻成 `APPROVED`）。
 async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result<(), ApiError> {
     let PayInput {
         id,
@@ -453,7 +533,48 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
         .await
         .map_err(|error| utils::db_error(error, "锁定应付单"))?
         .ok_or_else(not_found)?;
+    validate_payment_target(&row, amount)?;
 
+    // ① 付款记录（先落记录，凭证要指向它）—— 直付没有审批实例
+    let (payment_id, payment_no) = insert_payment_row(
+        tx,
+        &row,
+        amount,
+        pay_date,
+        pay_method,
+        remark,
+        operator,
+        now,
+        APPROVAL_NONE,
+        None,
+    )
+    .await?;
+
+    // ②③④ 凭证 + 回写 + 应付重算（P7 的唯一实现，审批路径同样调它）
+    settle_payment_in_tx(
+        tx,
+        SettleInput {
+            payable: &row,
+            payment_id,
+            payment_no: &payment_no,
+            amount,
+            pay_date,
+            pay_method,
+            remark,
+            operator,
+            now,
+        },
+    )
+    .await
+}
+
+// ==================== 共用：校验 / 落记录 / 记账 ====================
+
+/// 付款前的两条硬校验（直付与审批两条路径共用，**P7 的口径一行没放松**）。
+///
+/// ① 状态必须是 `OPEN` / `PARTIAL_PAID`（`SETTLED` / `CANCELLED` → 409）；
+/// ② `0 < amount ≤ unpaid_amount`（400，文案点名两个金额）。
+fn validate_payment_target(row: &PayableRow, amount: Decimal) -> std::result::Result<(), ApiError> {
     if !matches!(
         row.status.as_str(),
         payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID
@@ -465,7 +586,6 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
             payable_query::status_label(&row.status)
         )));
     }
-
     let unpaid = row.unpaid_amount.round_dp(4);
     if amount > unpaid {
         return Err(bad_request(format!(
@@ -474,36 +594,37 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
             row.payable_no, row.amount, row.paid_amount
         )));
     }
+    Ok(())
+}
 
-    let paid = (row.paid_amount + amount).round_dp(4);
-    let unpaid_after = payable::unpaid_of(row.amount, paid);
-    if unpaid_after < Decimal::ZERO {
-        return Err(bad_request(format!(
-            "本次付款 {amount} 会导致已付金额 {paid} 超过应付金额 {}（应付单 {}）",
-            row.amount, row.payable_no
-        )));
-    }
-    let settled = unpaid_after == Decimal::ZERO;
-    let status = if settled {
-        payable::STATUS_SETTLED
-    } else {
-        payable::STATUS_PARTIAL_PAID
-    };
-
-    // ① 付款记录（先落记录，凭证要指向它）
+/// 落一条付款记录（返回 `(id, 付款单号)`）。直付与审批发起共用。
+#[allow(clippy::too_many_arguments)]
+async fn insert_payment_row(
+    tx: &Transaction,
+    row: &PayableRow,
+    amount: Decimal,
+    pay_date: NaiveDate,
+    pay_method: Option<&str>,
+    remark: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+    approval_status: &str,
+    approval_instance_id: Option<Uuid>,
+) -> std::result::Result<(Uuid, String), ApiError> {
     let payment_no = voucher::next_doc_no(tx, &PAYMENT_SEQ, now)
         .await
         .map_err(|error| utils::db_error(error, "取付款单号"))?;
+    let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
     // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
     let inserted = tx
         .query_first_sql(
             format!(
                 "INSERT INTO {TABLE} \
                     (payment_no, payable_id, amount, pay_date, pay_method, remark, \
-                     created_at, updated_at, create_by, update_by) \
+                     created_at, updated_at, create_by, update_by, approval_status, approval_instance_id) \
                  VALUES (?, ?::uuid, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::date, \
                          NULLIF(?::text,''), NULLIF(?::text,''), ?, ?, \
-                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid) \
+                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, ?, NULLIF(?::text,'')::uuid) \
                  RETURNING id"
             ),
             vec![
@@ -515,8 +636,14 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
                 Value::Text(remark.unwrap_or_default().to_string()),
                 Value::from(now),
                 Value::from(now),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(operator_text.clone()),
+                Value::Text(operator_text),
+                Value::Text(approval_status.to_string()),
+                Value::Text(
+                    approval_instance_id
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
             ],
         )
         .await
@@ -533,6 +660,70 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
             ));
         }
     };
+    Ok((payment_id, payment_no))
+}
+
+/// 一次记账的全部入参（结构体化，避开 `clippy::too_many_arguments`）。
+struct SettleInput<'a> {
+    /// 已加行锁的应付单。
+    payable: &'a PayableRow,
+    /// 付款记录 id。
+    payment_id: Uuid,
+    /// 付款单号。
+    payment_no: &'a str,
+    /// 本次付款金额。
+    amount: Decimal,
+    /// 付款日期。
+    pay_date: NaiveDate,
+    /// 付款方式。
+    pay_method: Option<&'a str>,
+    /// 备注。
+    remark: Option<&'a str>,
+    /// 操作人。
+    operator: Option<Uuid>,
+    /// 业务时间。
+    now: DateTime<Utc>,
+}
+
+/// **记账的唯一实现**（P7 逻辑原样复用，审批路径不许另写一份）。
+///
+/// 三步：
+/// 1. 付款凭证：借 `2202` 应付账款 / 贷 `1002` 银行存款，各 = 本次付款金额（同事务，直接 POSTED）；
+/// 2. 付款记录回写 `voucher_id`；
+/// 3. 应付单重算：`paid += amount`、`unpaid = amount - paid`、
+///    `status = unpaid == 0 ? SETTLED : PARTIAL_PAID`，走状态机唯一入口
+///    （`transition_if_changed`：`PARTIAL_PAID → PARTIAL_PAID` 不写状态日志）。
+///
+/// 调用前提：调用方已 `SELECT ... FOR UPDATE` 锁住应付单，且 `amount ≤ unpaid`。
+async fn settle_payment_in_tx(
+    tx: &Transaction,
+    input: SettleInput<'_>,
+) -> std::result::Result<(), ApiError> {
+    let SettleInput {
+        payable: row,
+        payment_id,
+        payment_no,
+        amount,
+        pay_date,
+        pay_method: _pay_method,
+        remark,
+        operator,
+        now,
+    } = input;
+    let paid = (row.paid_amount + amount).round_dp(4);
+    let unpaid_after = payable::unpaid_of(row.amount, paid);
+    if unpaid_after < Decimal::ZERO {
+        return Err(bad_request(format!(
+            "本次付款 {amount} 会导致已付金额 {paid} 超过应付金额 {}（应付单 {}）",
+            row.amount, row.payable_no
+        )));
+    }
+    let settled = unpaid_after == Decimal::ZERO;
+    let status = if settled {
+        payable::STATUS_SETTLED
+    } else {
+        payable::STATUS_PARTIAL_PAID
+    };
 
     // ② 付款凭证：借 2202 应付账款 / 贷 1002 银行存款（同事务，直接 POSTED）
     let payable_account =
@@ -543,7 +734,7 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
         voucher::account_required(tx, PAY_CREDIT_CODE, "付款凭证的贷方科目 1002 银行存款")
             .await
             .map_err(|error| write_error(error, "解析付款凭证贷方科目"))?;
-    let summary = format!("付款 {} 应付单 {}", payment_no, row.payable_no);
+    let summary = format!("付款 {payment_no} 应付单 {}", row.payable_no);
     let lines = vec![
         EntryLine {
             line_no: 1,
@@ -572,7 +763,7 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
             voucher_type: voucher::VOUCHER_TYPE_AUTO,
             source_type: voucher::SOURCE_PAYMENT,
             source_id: Some(payment_id),
-            source_no: Some(&payment_no),
+            source_no: Some(payment_no),
             voucher_date: pay_date,
             summary,
             lines,
@@ -604,9 +795,6 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
     //    `PARTIAL_PAID → PARTIAL_PAID`，业务照做（付款记录 + 凭证 + 金额回写），
     //    但「原地流转」不是状态变更 —— 所以调 `transition_if_changed`，
     //    它在 `from == to` 时返回 `Ok(None)`、不写 `biz_status_log`。
-    //    `transition` 的自环 409 护栏保持不动（那是五个实体共用的唯一入口）。
-    //    返回的 `Option` 这里不用：轨迹以 biz_status_log 为准，日志条数由状态真实变化决定
-    //    （OPEN→PARTIAL_PAID、PARTIAL_PAID→SETTLED 各一条）。
     let _status_log = state_machine::transition_if_changed(
         tx,
         state_machine::ENTITY_PAYABLE,
@@ -666,6 +854,551 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
         )));
     }
 
+    Ok(())
+}
+
+// ==================== 写：提交付款（审批前置） ====================
+
+/// 提交一笔付款（**handler 的唯一入口**）：有已发布的付款流程 → 发起审批；没有 → 降级直付。
+///
+/// 卡面 ③：「`POST /payable/{id}/pay` 改成先发起审批，返回 202」。
+/// 降级是**显式**的（`outcome = PAID` + `message` 说明），不是静默改行为。
+pub async fn submit_payment(
+    id: Uuid,
+    req: &PayPayableReq,
+    operator: Option<Uuid>,
+) -> std::result::Result<PaySubmitRes, ApiError> {
+    let amount = req
+        .amount
+        .map(|value| value.round_dp(4))
+        .ok_or_else(|| bad_request("amount 必填：本次付款金额（> 0，且不超过未付余额）"))?;
+    if amount <= Decimal::ZERO {
+        return Err(bad_request(format!(
+            "本次付款金额必须大于 0，收到 {amount}"
+        )));
+    }
+
+    let flow = crate::business::erp::payable_bridge::published_pay_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询已发布的付款流程"))?;
+    let Some(flow) = flow else {
+        // 未配流程 → 保持 P7 老行为（直接付款）。**这不是失败**，只是没启用审批。
+        tracing::warn!(
+            payable_id = %id,
+            "没有配置已发布的 payable_pay 付款审批流程：本次付款**降级**为直接生效（无审批），请尽快补配流程"
+        );
+        let detail = pay_payable(id, req, operator).await?;
+        return Ok(PaySubmitRes {
+            outcome: OUTCOME_PAID.to_string(),
+            message: "未配置付款审批流程，本次付款已直接生效".to_string(),
+            amount,
+            payment_id: detail.payments.last().map(|row| row.id.clone()),
+            payment_no: detail.payments.last().map(|row| row.payment_no.clone()),
+            approval_instance_id: None,
+            detail,
+        });
+    };
+
+    let outcome = submit_for_approval(id, req, amount, operator, &flow).await?;
+    Ok(outcome)
+}
+
+/// 发起付款审批（一个事务里：落 `PENDING` 付款记录 → `engine::start` → 双表回写引用）。
+#[allow(clippy::too_many_arguments)]
+async fn submit_for_approval(
+    id: Uuid,
+    req: &PayPayableReq,
+    amount: Decimal,
+    operator: Option<Uuid>,
+    flow: &crate::business::erp::payable_bridge::PayFlow,
+) -> std::result::Result<PaySubmitRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "发起付款审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let now = Utc::now();
+    let pay_date = req.pay_date.unwrap_or_else(|| voucher::today_cst(now));
+    let pay_method = trimmed(req.pay_method.as_deref());
+    let remark = trimmed(req.remark.as_deref());
+
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启付款审批事务"))?;
+    match submit_for_approval_tx(
+        &tx,
+        id,
+        amount,
+        pay_date,
+        pay_method,
+        remark,
+        operator_id,
+        flow,
+        now,
+    )
+    .await
+    {
+        Ok((payment_id, payment_no, instance_id)) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交付款审批事务"))?;
+            tracing::info!(
+                payable_id = %id,
+                %payment_id,
+                payment_no = %payment_no,
+                %instance_id,
+                amount = %amount,
+                flow_code = %flow.flow_code,
+                "应付单已发起付款审批（账未动，等待审批）"
+            );
+            let detail = payable_query::payable_detail(id).await?;
+            Ok(PaySubmitRes {
+                outcome: OUTCOME_PENDING.to_string(),
+                message: format!(
+                    "已提交审批（付款单 {payment_no}，金额 {amount}），等待审批通过后才会记账"
+                ),
+                amount,
+                payment_id: Some(payment_id.to_string()),
+                payment_no: Some(payment_no),
+                approval_instance_id: Some(instance_id.to_string()),
+                detail,
+            })
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`submit_for_approval`] 的事务体。
+#[allow(clippy::too_many_arguments)]
+async fn submit_for_approval_tx(
+    tx: &Transaction,
+    id: Uuid,
+    amount: Decimal,
+    pay_date: NaiveDate,
+    pay_method: Option<&str>,
+    remark: Option<&str>,
+    operator: Uuid,
+    flow: &crate::business::erp::payable_bridge::PayFlow,
+    now: DateTime<Utc>,
+) -> std::result::Result<(Uuid, String, Uuid), ApiError> {
+    // ① 锁应付单 + 校验（P7 的两条校验一条都不能丢）
+    let row = lock_payable(tx, id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定应付单"))?
+        .ok_or_else(not_found)?;
+    validate_payment_target(&row, amount)?;
+
+    // ② 审批中不能重复付款（先查，别等部分唯一索引 uk_biz_payment_pending 抛 23505）
+    if let Some((payment_no, pending_amount)) = pending_payment_of(tx, id).await? {
+        return Err(conflict(format!(
+            "该应付单已有一笔付款在审批中（{payment_no}，金额 {pending_amount}），请等待审批结果\
+             （驳回或撤回后可重新提交）"
+        )));
+    }
+
+    // ③ 落付款记录（PENDING）：实例 id 先算好，与记录同一条 INSERT（库侧约束 PENDING ⟹ 有实例）
+    let instance_id = Uuid::now_v7();
+    let (payment_id, payment_no) = insert_payment_row(
+        tx,
+        &row,
+        amount,
+        pay_date,
+        pay_method,
+        remark,
+        Some(operator),
+        now,
+        APPROVAL_PENDING,
+        Some(instance_id),
+    )
+    .await?;
+
+    // ④ 发起审批（表单数据冻结：金额分级条件边就是读这里的 form.amount）
+    let Some((initiator_name, initiator_dept_id)) = flow_model::user_profile(operator)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+    else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "发起付款审批失败：当前用户不存在或已停用",
+        ));
+    };
+    let title = format!("{} 付款 {} 元", row.payable_no, amount)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(payment_id),
+        biz_no: Some(payment_no.clone()),
+        title,
+        initiator_id: operator,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: serde_json::json!({
+            "payment_id": payment_id.to_string(),
+            "payment_no": payment_no,
+            "payable_id": row.id.to_string(),
+            "payable_no": row.payable_no,
+            "supplier_id": row.supplier_id.to_string(),
+            // ⚠️ 必须是 **JSON 数字**：条件节点用 `cmp(lt)` 比较，字符串会 TypeMismatch → 静默走兜底边
+            "amount": amount_number(amount),
+            "amount_text": amount.to_string(),
+            "unpaid_amount": amount_number(row.unpaid_amount),
+            "pay_date": pay_date.to_string(),
+            // 内控留痕：审批人 ≠ 制单人（真正的拦截在 payable_bridge::guard_self_approval）
+            "create_by": operator.to_string(),
+        }),
+    };
+    let out = engine::start(tx, &start)
+        .await
+        .map_err(|error| write_error(error, "发起付款审批单"))?;
+    if let Some(rejected) = out.rejected {
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：付款审批人不能是制单人本人。请让另一个账号审批）"
+        } else if rejected.code == error_code::FLOW_NO_ASSIGNEE {
+            "（流程节点没有有效审批人：请在「流程定义 → 应付付款审批」里配置审批人或开启超管兜底）"
+        } else {
+            ""
+        };
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!("{}{hint}", rejected.msg),
+        ));
+    }
+    if out.instance_id != Some(instance_id) {
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            "审批单发起后返回的实例 id 与预生成的不一致（引擎内部错误）",
+        ));
+    }
+    if out.instance_status != "PENDING" {
+        // 自动通过 / 直接被驳回：都不该发生在「至少一个审批节点」的付款流程上
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!(
+                "付款审批单发起后状态是 {}（应为 PENDING）：流程定义可能没有可执行的审批节点",
+                out.instance_status
+            ),
+        ));
+    }
+
+    // ⑤ 双表回写引用：付款记录已带实例 id（③ 一步到位），这里补应付单的弱引用
+    // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
+    tx.exec_sql(
+        format!(
+            "UPDATE {} SET payment_approval_instance_id = ?::uuid, updated_at = ? \
+              WHERE id = ?::uuid AND deleted_at IS NULL",
+            payable::TABLE
+        ),
+        vec![
+            Value::from(&instance_id),
+            Value::from(now),
+            Value::from(&row.id),
+        ],
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "回写应付单的审批实例引用"))?;
+
+    Ok((payment_id, payment_no, instance_id))
+}
+
+/// 取该应付单**在审批中**的付款记录（单号 + 金额）；没有 → `None`。
+async fn pending_payment_of(
+    ex: &impl SqlExecutor,
+    payable_id: Uuid,
+) -> std::result::Result<Option<(String, Decimal)>, ApiError> {
+    // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT payment_no, amount FROM {TABLE} \
+                  WHERE payable_id = ?::uuid AND approval_status = '{APPROVAL_PENDING}' \
+                    AND deleted_at IS NULL \
+                  ORDER BY created_at DESC LIMIT 1"
+            ),
+            vec![Value::from(&payable_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询在审批中的付款"))?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let payment_no: String = row.get_typed("payment_no")?;
+    let amount: Decimal = row.get_typed("amount")?;
+    Ok(Some((payment_no, amount)))
+}
+
+/// `Decimal` → JSON **数字**（条件节点的 `cmp` 只认 `Number`；字符串会 TypeMismatch）。
+///
+/// `rust_decimal` 在本仓没开 `maths` feature（没有 `to_f64`），所以走字符串解析：
+/// 金额是定点数，`"5000.0000" -> 5000.0` 这一步对「比较阈值」足够精确（4 位小数 × 1e15 量级内无精度损失）。
+pub(crate) fn amount_number(amount: Decimal) -> serde_json::Value {
+    let value = amount.to_string().parse::<f64>().unwrap_or_default();
+    serde_json::Number::from_f64(value)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null)
+}
+
+// ==================== 写：审批结论 → 记账 / 放弃 ====================
+
+/// 审批通过后的执行结果（回调据此决定日志与通知）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SettleOutcome {
+    /// 记账完成（应付回写 + 付款凭证）。
+    Paid,
+    /// 付款记录已是终态（重复回调 / 已被别处处理）。
+    AlreadySettled,
+    /// 应付单已作废 → 拒绝执行，付款记录标 `CANCELLED`。
+    Cancelled {
+        /// 拒绝原因（落日志 / 通知用）。
+        reason: String,
+    },
+    /// 执行条件不再成立（如未付余额已被别处变小）→ 付款记录标 `REJECTED`。
+    Rejected {
+        /// 拒绝原因。
+        reason: String,
+    },
+}
+
+/// 执行一笔**已审批通过**的付款（卡面 ⑩⑪⑫⑬⑯）。
+///
+/// 一个事务里：锁付款记录 → 锁应付单 → 复核「应付单没被作废 / 未付余额还够」→
+/// 记账（复用 [`settle_payment_in_tx`]）→ 付款记录翻 `APPROVED` → 清应付单的实例引用。
+pub async fn settle_approved_payment(
+    payment_id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<SettleOutcome, ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启付款执行事务"))?;
+    match settle_approved_in_tx(&tx, payment_id, operator, now).await {
+        Ok(outcome) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交付款执行事务"))?;
+            if matches!(outcome, SettleOutcome::Paid) {
+                tracing::info!(%payment_id, "付款审批通过，付款已记账（应付回写 + 付款凭证）");
+            }
+            Ok(outcome)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`settle_approved_payment`] 的事务体。
+async fn settle_approved_in_tx(
+    tx: &Transaction,
+    payment_id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<SettleOutcome, ApiError> {
+    // ① 锁付款记录（锁序：付款记录 → 应付单，与发起路径一致）
+    let Some(payment) = lock_payment(tx, payment_id).await? else {
+        return Err(ApiError::new(
+            404,
+            error_code::RESOURCE_NOT_FOUND,
+            "付款记录不存在或已删除".to_string(),
+        ));
+    };
+    if payment.approval_status != APPROVAL_PENDING {
+        tracing::info!(
+            %payment_id,
+            status = %payment.approval_status,
+            "付款记录已是终态（重复回调 / 已被别处处理），跳过"
+        );
+        return Ok(SettleOutcome::AlreadySettled);
+    }
+
+    // ② 锁应付单 + 复核「还能不能付款」
+    let Some(row) = lock_payable(tx, payment.payable_id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定应付单"))?
+    else {
+        return Err(not_found());
+    };
+    if row.status == payable::STATUS_CANCELLED {
+        mark_payment_terminal(tx, payment_id, APPROVAL_CANCELLED, now).await?;
+        clear_payable_approval_ref(tx, row.id, now).await?;
+        return Ok(SettleOutcome::Cancelled {
+            reason: format!("应付单 {} 已作废", row.payable_no),
+        });
+    }
+    if !matches!(
+        row.status.as_str(),
+        payable::STATUS_OPEN | payable::STATUS_PARTIAL_PAID
+    ) {
+        let reason = format!(
+            "应付单 {} 当前是「{}」，付款审批通过时已不该再付款",
+            row.payable_no,
+            payable_query::status_label(&row.status)
+        );
+        mark_payment_terminal(tx, payment_id, APPROVAL_REJECTED, now).await?;
+        clear_payable_approval_ref(tx, row.id, now).await?;
+        return Ok(SettleOutcome::Rejected { reason });
+    }
+    let amount = payment.amount.round_dp(4);
+    if amount > row.unpaid_amount.round_dp(4) {
+        let reason = format!(
+            "本次付款 {amount} 超过未付余额 {}（应付单 {}）：审批期间未付余额已变",
+            row.unpaid_amount, row.payable_no
+        );
+        mark_payment_terminal(tx, payment_id, APPROVAL_REJECTED, now).await?;
+        clear_payable_approval_ref(tx, row.id, now).await?;
+        return Ok(SettleOutcome::Rejected { reason });
+    }
+
+    // ③ 真记账（P7 的唯一实现）+ 付款记录翻 APPROVED + 清应付单引用
+    settle_payment_in_tx(
+        tx,
+        SettleInput {
+            payable: &row,
+            payment_id,
+            payment_no: &payment.payment_no,
+            amount,
+            pay_date: payment.pay_date,
+            pay_method: payment.pay_method.as_deref(),
+            remark: payment.remark.as_deref(),
+            operator,
+            now,
+        },
+    )
+    .await?;
+    mark_payment_terminal(tx, payment_id, APPROVAL_APPROVED, now).await?;
+    clear_payable_approval_ref(tx, row.id, now).await?;
+    Ok(SettleOutcome::Paid)
+}
+
+/// 驳回 / 撤回：付款记录标 `REJECTED`，账一分不动，可重新提交。
+///
+/// 返回 `true` = 这次真的翻了状态；`false` = 不是 `PENDING`（重复回调 / 已被别处处理）。
+pub async fn abort_payment(payment_id: Uuid, note: &str) -> std::result::Result<bool, ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启付款驳回事务"))?;
+    let outcome = async {
+        let Some(payment) = lock_payment(&tx, payment_id).await? else {
+            return Ok::<bool, ApiError>(false);
+        };
+        if payment.approval_status != APPROVAL_PENDING {
+            return Ok(false);
+        }
+        mark_payment_terminal(&tx, payment_id, APPROVAL_REJECTED, now).await?;
+        clear_payable_approval_ref(&tx, payment.payable_id, now).await?;
+        Ok(true)
+    }
+    .await;
+    match outcome {
+        Ok(flag) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交付款驳回事务"))?;
+            if flag {
+                tracing::info!(%payment_id, note = note, "付款记录已标 REJECTED（账一分没动，可重新提交）");
+            }
+            Ok(flag)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 锁一条付款记录（`SELECT ... FOR UPDATE`）。
+async fn lock_payment(
+    tx: &Transaction,
+    payment_id: Uuid,
+) -> std::result::Result<Option<PaymentRow>, ApiError> {
+    // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
+    let row = tx
+        .query_first_sql(
+            format!(
+                "SELECT {COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+            ),
+            vec![Value::from(&payment_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "锁定付款记录"))?;
+    row.as_ref()
+        .map(PaymentRow::from_row)
+        .transpose()
+        .map_err(|error| utils::db_error(error, "读取付款记录"))
+}
+
+/// 把付款记录翻到终态（`APPROVED` / `REJECTED` / `CANCELLED`）。
+///
+/// 只翻 `PENDING` 的行（CAS）：并发下第二个回调拿 0 行 → 记 WARN，不覆盖已落的结果。
+async fn mark_payment_terminal(
+    tx: &Transaction,
+    payment_id: Uuid,
+    status: &str,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    // SCOPE-EXEMPT: 付款台账无归属列（见模块文档）。
+    let affected = tx
+        .exec_sql(
+            format!(
+                "UPDATE {TABLE} SET approval_status = ?, updated_at = ? \
+                  WHERE id = ?::uuid AND approval_status = '{APPROVAL_PENDING}'"
+            ),
+            vec![
+                Value::Text(status.to_string()),
+                Value::from(now),
+                Value::from(&payment_id),
+            ],
+        )
+        .await
+        .map_err(|error| write_error(error, "回写付款记录的审批状态"))?;
+    if affected == 0 {
+        tracing::warn!(
+            %payment_id,
+            status = status,
+            "付款记录已被别的路径推进到终态（CAS 落空），本次不覆盖"
+        );
+    }
+    Ok(())
+}
+
+/// 清掉应付单上的「在跑付款审批」弱引用（终态后必须清）。
+async fn clear_payable_approval_ref(
+    tx: &Transaction,
+    payable_id: Uuid,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
+    tx.exec_sql(
+        format!(
+            "UPDATE {} SET payment_approval_instance_id = NULL, updated_at = ? \
+              WHERE id = ?::uuid AND payment_approval_instance_id IS NOT NULL",
+            payable::TABLE
+        ),
+        vec![Value::from(now), Value::from(&payable_id)],
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "清空应付单的审批实例引用"))?;
     Ok(())
 }
 
@@ -731,6 +1464,25 @@ async fn cancel_in_tx(
             payable_query::status_label(&row.status),
             row.paid_amount
         )));
+    }
+
+    // ★ P17 反向（硬红线 9）：付款审批中把应付单作废 → **先撤付款审批**再作废单据。
+    //   PENDING 的付款记录不动账（paid 仍是 0），所以这里不会和下面的「已付款不能作废」冲突；
+    //   但审批实例必须终止 —— 否则它会顶住 uk_biz_payment_pending，让这张单永远付不出钱。
+    let revoked = payable_bridge::cancel_pending_of_payable(
+        tx,
+        row.id,
+        "应付单已作废，付款审批自动终止（账一分没动）",
+    )
+    .await
+    .map_err(|error| utils::db_error(error, "终止在跑的付款审批"))?;
+    if revoked > 0 {
+        tracing::info!(
+            payable_id = %row.id,
+            payable_no = %row.payable_no,
+            revoked,
+            "应付单作废：在跑的付款审批已终止（付款记录标 CANCELLED）"
+        );
     }
 
     // 进项凭证红冲（复用 voucher::reverse_posted；已红冲过的跳过，保证作废幂等）
@@ -822,7 +1574,19 @@ fn trimmed(value: Option<&str>) -> Option<&str> {
 
 // ==================== 接口层 ====================
 
-/// 登记一笔付款（可多次，部分付款累计）。
+/// 提交一笔付款：**有已发布的付款流程就走审批（202）**，没配流程就降级直付（200）。
+///
+/// # 出参
+///
+/// * `outcome = PENDING_APPROVAL` + **HTTP 202**：已发起审批，账还没动（等到审批通过才记账）；
+/// * `outcome = PAID` + HTTP 200：未配置流程，按 P7 老行为直接生效。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：金额缺失 / ≤ 0 / 超过未付余额；
+/// * 404 + `10002`：应付单不存在；
+/// * 409 + `10003`：已结清 / 已作废 / **已有一笔付款在审批中**；
+/// * 422 + `65019` / `65018`：流程侧拒绝（自审被禁 / 节点没有审批人）。
 #[nik::permission(
     path = "/business/erp/payable/{id}/pay",
     method = "POST",
@@ -833,9 +1597,26 @@ pub async fn payable_pay_handler(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<PayPayableReq>,
-) -> ResResult<PayableDetailRes> {
-    let id = parse_uuid(&id, "id")?;
-    Ok(Res::ok(pay_payable(id, &req, operator_of(&claims)).await?))
+) -> axum::response::Response {
+    use axum::response::IntoResponse;
+    let parsed = parse_uuid(&id, "id");
+    let outcome = match parsed {
+        Ok(id) => submit_payment(id, &req, operator_of(&claims)).await,
+        Err(error) => Err(error),
+    };
+    match outcome {
+        Ok(result) => {
+            // 审批中 = 202（「已受理但未生效」），直付生效 = 200（P7 老行为）
+            let status = if result.outcome == OUTCOME_PENDING {
+                axum::http::StatusCode::ACCEPTED
+            } else {
+                axum::http::StatusCode::OK
+            };
+            let message = result.message.clone();
+            (status, Json(Res::ok_with_msg(result, message))).into_response()
+        }
+        Err(error) => error.into_response(),
+    }
 }
 
 /// 作废一张应付单（仅 OPEN 且未付款）。

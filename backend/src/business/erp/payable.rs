@@ -356,6 +356,14 @@ pub async fn cancel_for_stock_in(
         let id: Uuid = row.get_typed("id")?;
         let payable_no: String = row.get_typed("payable_no")?;
         let status: String = row.get_typed("status")?;
+        // ★ P17 反向：收货单作废 → 这张应付单在跑的**付款审批**也必须终止
+        //   （否则付款审批会对着已作废的应付单批下去，只能靠回调兜底拒绝；提前终止更干净）
+        crate::business::erp::payable_bridge::cancel_pending_of_payable(
+            ex,
+            id,
+            "收货单作废联动作废应付单，付款审批自动终止",
+        )
+        .await?;
         state_machine::transition(
             ex,
             state_machine::ENTITY_PAYABLE,

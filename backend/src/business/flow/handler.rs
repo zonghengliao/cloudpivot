@@ -1491,6 +1491,8 @@ pub async fn withdraw_instance(
     // P16：从审批中心撤回的也可能是一张「收货单作废」单 → 单据必须回到已过账。
     // 不做这一步就是 P11 的老坑：审批单 WITHDRAWN 了，单据永远停在「作废审批中」。
     crate::business::erp::stockin_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
+    // P17：也可能是「应付付款」单 → 付款记录标 REJECTED（账一分没动，可重新提交）
+    crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "WITHDRAWN").await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1520,6 +1522,9 @@ pub async fn approve_task(
         None => None,
         Some(Json(req)) => dto::normalize_comment(req.comment.as_deref()).map_err(field_invalid)?,
     };
+    // ★ P17 内控闸（在事务之前）：付款审批的**制单人 / 发起人**不能批自己那一票 → 403。
+    // 判据只认 `biz_payment.create_by`（与实例发起人），与本业务无关的待办零影响。
+    crate::business::erp::payable_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1536,6 +1541,9 @@ pub async fn approve_task(
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：也可能是「收货单作废」发起的 —— 通过则执行六本账回滚，驳回则打回已过账
     crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P17：也可能是「应付付款」发起的 —— 通过才记账（应付回写 + 借 2202 / 贷 1002 凭证）
+    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;
     Ok(Res::ok(action_res(out)))
 }
@@ -1591,6 +1599,9 @@ pub async fn reject_task(
     task_bridge::on_transfer_settled(out.instance_id, &out.instance_status).await;
     // P16：收货单作废被驳回 → 单据回到已过账（账一动没动）
     crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P17：付款审批被驳回 / 驳回终止 → 付款记录标 REJECTED（账一分没动，可重新提交）
+    crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;
     Ok(Res::ok(action_res(out)))
 }

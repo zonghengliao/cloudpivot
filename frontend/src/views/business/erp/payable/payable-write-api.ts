@@ -43,6 +43,17 @@ export interface PayablePayment {
   remark: string | null;
   /** 登记时间 */
   created_at: string;
+  /**
+   * 审批状态（P17）：`NONE` 未配流程/直付生效 | `PENDING` 审批中（**账未动**）|
+   * `APPROVED` 已通过 | `REJECTED` 已驳回 | `CANCELLED` 已终止
+   */
+  approval_status: string;
+  /** 审批状态中文标签（后端给，前端不再自己映射一份） */
+  approval_status_label: string;
+  /** 审批实例 id（有流程时才有；详情抽屉据此显示审批进度） */
+  approval_instance_id: string | null;
+  /** 是否尚未生效（`approval_status === 'PENDING'`） */
+  pending: boolean;
 }
 
 /**
@@ -69,19 +80,43 @@ export interface PayPayableReq {
   remark?: string | null;
 }
 
+/**
+ * 提交付款的结果（`payable_payment.rs::PaySubmitRes`）。
+ *
+ * * `outcome = 'PENDING_APPROVAL'`（HTTP **202**）：已发起审批，**账还没动**；
+ * * `outcome = 'PAID'`（HTTP 200）：没配审批流程，按 P7 老行为直接生效。
+ */
+export interface PaySubmitResult {
+  /** `PENDING_APPROVAL` / `PAID` */
+  outcome: string;
+  /** 可直接提示给用户的一句话（前端不用自己拼） */
+  message: string;
+  /** 本次付款金额 */
+  amount: number | string;
+  /** 付款记录 id */
+  payment_id: string | null;
+  /** 付款单号 */
+  payment_no: string | null;
+  /** 审批实例 id（未配流程时为 null） */
+  approval_instance_id: string | null;
+  /** 应付单最新详情（含全部付款记录） */
+  detail: PayableDetail;
+}
+
 /** 应付详情（含付款记录）。 */
 export function fetchPayableDetail(id: string): Promise<PayableDetail> {
   return get<PayableDetail>(`${BASE}/payable/${id}`);
 }
 
 /**
- * 登记一笔付款（可多次，部分付款累计）。
+ * 提交一笔付款。
  *
- * 后端校验：状态必须 OPEN / PARTIAL_PAID（否则 409）、金额 > 0 且 ≤ 未付余额（否则 400）。
- * 成功后同事务生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证。
+ * P17 起：配了「应付付款审批」流程 → **只发起审批**（流水不记账，202）；
+ * 没配流程 → 降级直付（立即生成「借 2202 / 贷 1002」的凭证，200）。
+ * 前端按返回的 `outcome` 区分提示，不要假设「提交了就付款成功」。
  */
-export function payPayable(id: string, body: PayPayableReq): Promise<PayableDetail> {
-  return post<PayableDetail>(`${BASE}/payable/${id}/pay`, body);
+export function payPayable(id: string, body: PayPayableReq): Promise<PaySubmitResult> {
+  return post<PaySubmitResult>(`${BASE}/payable/${id}/pay`, body);
 }
 
 /**

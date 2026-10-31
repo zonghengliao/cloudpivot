@@ -273,8 +273,27 @@
                 <div class="payment-row">
                   <span class="money">{{ formatMoney(item.amount) }}</span>
                   <span class="mono muted">{{ item.payment_no }}</span>
+                  <!-- P17：审批状态标签（审批中=橙色，与「已生效」在视觉上一眼分开） -->
+                  <t-tag
+                    size="small"
+                    variant="light"
+                    :theme="paymentTagTheme(item.approval_status)"
+                    :data-testid="`payable-payment-status-${item.payment_no}`"
+                  >
+                    {{ item.approval_status_label }}
+                  </t-tag>
                   <span class="muted">{{ item.pay_method || '—' }}</span>
                   <span v-if="item.voucher_no" class="mono muted">凭证 {{ item.voucher_no }}</span>
+                  <!-- 驳回 / 终止的付款记录：可原样重新提交（金额带回来，省得再填） -->
+                  <t-link
+                    v-if="item.approval_status === 'REJECTED' || item.approval_status === 'CANCELLED'"
+                    theme="primary"
+                    hover="color"
+                    :data-testid="`payable-payment-retry-${item.payment_no}`"
+                    @click="openRetry(item)"
+                  >
+                    重新提交
+                  </t-link>
                 </div>
                 <div v-if="item.remark" class="payment-row__remark">{{ item.remark }}</div>
               </t-timeline-item>
@@ -284,8 +303,15 @@
             </p>
           </div>
 
+          <!-- ★ P17：付款审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行） -->
+          <template v-if="approvalNodes.length > 0">
+            <div class="section-title">付款审批进度</div>
+            <FlowProgress :nodes="approvalNodes" data-testid="payable-approval-progress" />
+          </template>
+
           <p v-if="canCancel(detail) || canPay(detail)" class="drawer-note">
-            可直接在行上「付款 / 作废」；付款会同时生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证。
+            可直接在行上「付款 / 作废」。配了「应付付款审批」流程时，付款只是<strong>发起审批</strong>
+            （账不动，审批通过才生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证）；没配流程则立即生效。
           </p>
         </div>
       </div>
@@ -413,7 +439,12 @@ import {
   fetchPayableDetail,
   payPayable,
   type PayableDetail,
+  type PayablePayment,
 } from './payable-write-api';
+import FlowProgress, {
+  type FlowProgressNode,
+} from '@/views/business/flow/components/FlowProgress.vue';
+import { getFlowInstance } from '@/api/business/flow-api';
 import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
@@ -582,10 +613,61 @@ async function openDetail(row: PayableRow): Promise<void> {
   detailLoading.value = true;
   try {
     detail.value = await fetchPayableDetail(row.id);
+    // P17：有审批中的付款 → 顺手把审批进度拉出来（失败不影响详情展示）
+    const pending = detail.value.payments.find((item) => item.approval_instance_id);
+    await loadApprovalProgress(pending?.approval_instance_id ?? null);
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
     detailLoading.value = false;
+  }
+}
+
+// ==================== 付款审批进度（P17） ====================
+
+/** 审批进度节点（`FlowProgress` 的最小形状，只来自后端节点行）。 */
+const approvalNodes = ref<FlowProgressNode[]>([]);
+
+/**
+ * 拉审批进度。
+ *
+ * 直接复用审批中心的 `getFlowInstance` + `FlowProgress`：
+ * **进度只来自引擎写的节点行**，前端不自己猜「走到第几步」。
+ * 拉不到（权限 / 实例已归档）就退化为不显示，不让详情抽屉整块失败。
+ */
+async function loadApprovalProgress(instanceId: string | null): Promise<void> {
+  if (!instanceId) {
+    approvalNodes.value = [];
+    return;
+  }
+  try {
+    const instance = await getFlowInstance(instanceId);
+    approvalNodes.value = (instance.nodes ?? []).map((node) => ({
+      node_key: node.node_key,
+      name: node.node_name || node.node_key,
+      type: node.node_type,
+      round: node.round,
+      status: node.status,
+      approver_count: node.approver_count ?? 0,
+    }));
+  } catch {
+    approvalNodes.value = [];
+  }
+}
+
+/** 付款记录的审批状态配色：审批中=橙色告警，已通过=绿色，驳回=红色，终止=灰。 */
+function paymentTagTheme(status: string): 'warning' | 'success' | 'danger' | 'default' {
+  switch (status) {
+    case 'PENDING':
+      return 'warning';
+    case 'APPROVED':
+      return 'success';
+    case 'REJECTED':
+      return 'danger';
+    case 'CANCELLED':
+      return 'default';
+    default:
+      return 'success';
   }
 }
 
@@ -637,6 +719,22 @@ function openPay(row: PayableRow): void {
   payVisible.value = true;
 }
 
+/**
+ * P17：驳回 / 终止的付款记录「重新提交」——把原金额带回来，重新走一遍审批。
+ *
+ * 只是把付款弹窗打开并预填（**不自动提交**）：审批阈值、未付余额都可能在期间变过，
+ * 让人自己确认一次比后端再报 400 友好。
+ */
+function openRetry(item: PayablePayment): void {
+  if (!detail.value) {
+    return;
+  }
+  openPay(detail.value);
+  payForm.amount = toNumber(item.amount);
+  payForm.pay_method = item.pay_method ?? '';
+  payForm.remark = `重新提交（原付款单 ${item.payment_no}）`;
+}
+
 /** 打开作废弹窗。 */
 function openCancel(row: PayableRow): void {
   cancelTarget.value = row;
@@ -679,18 +777,24 @@ async function submitPay(): Promise<void> {
   paySubmitting.value = true;
   payError.value = '';
   try {
-    const updated = await payPayable(target.id, {
+    const result = await payPayable(target.id, {
       amount: (toCents(payForm.amount) / 100).toFixed(4),
       pay_date: payForm.pay_date.trim() || null,
       pay_method: payForm.pay_method || null,
       remark: payForm.remark.trim() || null,
     });
     payVisible.value = false;
-    void MessagePlugin.success(
-      `付款成功：${updated.payable_no} 当前状态「${payableStatusLabel(updated.status)}」`,
-    );
-    // 列表刷新（未付金额 / 状态都变了），抽屉里也换成最新单头
-    detail.value = updated;
+    // ★ P17：配了审批流程 → 只是「已提交审批」，账还没动，绝不能提示「付款成功」
+    if (result.outcome === 'PENDING_APPROVAL') {
+      void MessagePlugin.info(result.message);
+    } else {
+      void MessagePlugin.success(
+        `${result.message}：${result.detail.payable_no} 当前状态「${payableStatusLabel(result.detail.status)}」`,
+      );
+    }
+    // 列表刷新（未付金额 / 状态可能变了），抽屉里换成最新单头 + 审批进度
+    detail.value = result.detail;
+    await loadApprovalProgress(result.approval_instance_id);
     void loadPayables();
   } catch (error) {
     payError.value = messageOf(error);
