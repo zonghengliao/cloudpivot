@@ -867,13 +867,21 @@ mod tests {
             return None;
         }
         let cleanups = [
-            // 凭证 / 分录（付款凭证 source_no = PM-…；作废时红冲的进项凭证 source_no = P7PAY-…）
-            // ⚠️ 只删**本模块造出来**的行：`voucher_write` 的单测平行跑，它也写 biz_voucher
-            //    （手工凭证），两边用各自的前缀，互不删除对方的夹具。
+            // 凭证 / 分录：**只删本模块自己造的行**
+            //   ① 付款凭证：`source_id` 指向本夹具应付单的付款记录（不能按 `source_no LIKE 'PM-%'`
+            //      全局删 —— 那会把同一个库里真实业务的付款凭证一起删掉，测试库尤其危险）
+            //   ② 作废时红冲出来的那张进项凭证：`source_no = 'P7PAY-…'`
+            // ⚠️ `voucher_write` 的单测平行跑，它也写 biz_voucher（手工凭证），用各自的夹具互不干扰。
             "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
-             (SELECT id FROM biz_voucher WHERE source_no LIKE 'PM-%' OR source_no LIKE 'P7PAY-%')"
+             (SELECT id FROM biz_voucher WHERE source_no LIKE 'P7PAY-%' \
+                OR source_id IN (SELECT id FROM biz_payment \
+                                  WHERE payable_id IN (SELECT id FROM biz_payable \
+                                                        WHERE payable_no LIKE 'AP-P7-%')))"
                 .to_string(),
-            "DELETE FROM biz_voucher WHERE source_no LIKE 'PM-%' OR source_no LIKE 'P7PAY-%'"
+            "DELETE FROM biz_voucher WHERE source_no LIKE 'P7PAY-%' \
+                OR source_id IN (SELECT id FROM biz_payment \
+                                  WHERE payable_id IN (SELECT id FROM biz_payable \
+                                                        WHERE payable_no LIKE 'AP-P7-%'))"
                 .to_string(),
             // 付款记录 → 应付单（外键顺序：先子后父）
             "DELETE FROM biz_payment WHERE payable_id IN \

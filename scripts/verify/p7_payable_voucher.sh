@@ -129,8 +129,17 @@ if [ "$(json_get "$LOGIN_RESP" must_change_password)" = "True" ]; then
 fi
 
 # ---------- 2. 清理本卡上一轮夹具 ----------
-psql_q "delete from biz_voucher_entry where voucher_id in (select id from biz_voucher where source_no like 'PM-%' or source_no like 'P7V-%')" >/dev/null
-psql_q "delete from biz_voucher where source_no like 'PM-%' or source_no like 'P7V-%'" >/dev/null
+# ⚠️ 只删本卡自己造的行（应付单 `AP-P7V-` + 它们的付款记录 + 付款凭证 + `P7V-`/`P7PAY-` 凭证），
+#    绝不按 `source_no LIKE 'PM-%'` 全局删 —— 同一个库里可能有真实业务的付款凭证。
+psql_q "delete from biz_voucher_entry where voucher_id in (
+          select id from biz_voucher
+           where source_no like 'P7V-%' or source_no like 'P7PAY-%'
+              or source_id in (select id from biz_payment
+                                where payable_id in (select id from biz_payable where payable_no like 'AP-P7V-%')))" >/dev/null
+psql_q "delete from biz_voucher
+         where source_no like 'P7V-%' or source_no like 'P7PAY-%'
+            or source_id in (select id from biz_payment
+                              where payable_id in (select id from biz_payable where payable_no like 'AP-P7V-%'))" >/dev/null
 psql_q "delete from biz_payment where payable_id in (select id from biz_payable where payable_no like 'AP-P7V-%')" >/dev/null
 psql_q "delete from biz_payable where payable_no like 'AP-P7V-%'" >/dev/null
 
