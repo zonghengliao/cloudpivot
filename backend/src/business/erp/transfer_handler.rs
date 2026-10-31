@@ -1578,6 +1578,25 @@ mod db_tests {
         assert_eq!(row.total_qty.to_string(), "5.0000");
         assert!(row.submitted_at.is_none(), "DRAFT 不能有 submitted_at");
         assert_eq!(row.applicant_id, Some(uuid(U_APPLICANT)));
+
+        // P10 铁律 ③：建单留痕（`NULL → DRAFT`）—— 五张单据里调拨单最后一个补上，
+        // 少了这一行，详情页「状态历史」的第一格永远是空的。
+        let trail = state_machine::trail_of_no(db(), &row.transfer_no)
+            .await
+            .expect("查调拨单状态轨迹");
+        let seen: Vec<String> = trail
+            .iter()
+            .map(|log| {
+                format!(
+                    "{}→{}",
+                    log.from_status.as_deref().unwrap_or("NULL"),
+                    log.to_status
+                )
+            })
+            .collect();
+        assert_eq!(seen, vec!["NULL→DRAFT".to_string()], "轨迹：{seen:?}");
+        assert_eq!(trail[0].entity_type, state_machine::ENTITY_TRANSFER);
+        assert_eq!(trail[0].operator_id, Some(uuid(U_APPLICANT)));
     }
 
     // ---------- ② 建单：from = to 被 DB CHECK 拒 ----------
