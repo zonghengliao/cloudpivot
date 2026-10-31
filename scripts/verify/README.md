@@ -131,7 +131,7 @@ smoke=39  a=17  b=23  c=23  task=55  flow=28   →  PASS=185  FAIL=0  SKIP=0   �
 | 脚本 | 作用 | 退出码 |
 |---|---|---|
 | `erp_invariants.py` | 32 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
-| `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查 | 有残留 → 1；连库失败 → 2 |
+| `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查。**判据见下面「语义变化」一节，ADR 落地后不再命中普通批量生成** | 有残留 → 1；连库失败 → 2 |
 | `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 32/32 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
 
 ```bash
@@ -143,6 +143,85 @@ python3 scripts/verify/e2e_fixture_residue.py     # 有没有人往库里造夹�
 **e2e 跑完请务必**：① 不要直连 prod（8023）造数；② 跑完调一次
 `e2e_fixture_residue.py`，有残留就按它打印的三条命令清（备份 → `--check` →
 `P10_GENERIC_APPLY=1 apply.sh`）。留痕见 `docs/datafix-20261031-p11-m-w1a-004-recur.md`。
+
+## 语义变化（2026-10-31 ADR 拍板）：批量生成 = 无来源入库 ⇒ 库存不再是「零价值夹具」
+
+**判据没改，改的是它抓到的东西。** ADR
+`docs/adr-20261031-erp-serial-batch-generate-semantics.md` §3（+§6 R1/R2）落地后：
+
+| | 旧行为（2026-10-31 11:34 以前） | ADR 之后（`68b9d02` 起） |
+|---|---|---|
+| 请求 | 无 `unit_cost` | 必录 `unit_cost`（缺/≤0/非数字 ⇒ `400 + 10001`，零落库） |
+| 成本账 | `qty>0 / amount=0 / avg_cost=0` | `amount = N × unit_cost`、`avg_cost` 走移动加权 |
+| 库位账 | **不写** | 同事务写（`apply_location_qty`） |
+| 凭证 | 无 | 生成 借 1405 / 贷 1901；出库 借 6401 / 贷 1405；报废 借 1901 / 贷 1405 |
+| 夹具判据第 ④ 道「库存零价值」 | **命中** → 检出 | **不命中** → 不再算夹具 |
+| `erp_invariants.py` | B1（BLOCKER）+ C3（WARN）+ B2 红 | 32/32，B1/B2/C3 全绿 |
+
+**结论（对处置流程的硬约束）**：
+
+1. 此后「批量生成」写进去的库存是**真实入库**（有成本、有两本账、有凭证）。
+   走查点出来的这类数据**撤销要走红冲 / 盘点**，**不能指望 P10 清** ——
+   `20_residue_report.up.sql` 第 ④ 道「有价值就一律不碰」会（正确地）跳过它。
+2. **第 ④ 道判据不许改**：删有价值库存 = 毁账。要清只能走业务单据。
+3. e2e 收尾不再依赖「跑完 residue 检出 → P10 清」这条路；隔离实例的收尾方式是
+   **换一份新副本库**（`E2E_ISO_FRESH=1`），别在副本库里手工删账。
+
+### 双向自测（证明判据两个方向都有牙）
+
+同一条物料、同一条 `SERIAL_IN/SERIAL_BATCH` 流水，**只差「有没有成本」**：
+
+```bash
+# A. 新形态：隔离实例上真跑 spec 12（批量生成 10 件 @12.34），落到副本库
+set -a; . /tmp/e2e-iso-t995/iso.env; set +a          # NIK_DATABASE_* → 副本库
+python3 scripts/verify/e2e_fixture_residue.py        # → exit 0（不误判）
+python3 scripts/verify/erp_invariants.py             # → 32/32  BLOCKER 0  WARN 0
+
+# B. 旧形态：把同一批数据打回 11:34 的落库形态（零成本 + 不写库位账）
+psql -c "update biz_inventory i set amount=0, avg_cost=0 from biz_material m
+          where m.id=i.material_id and m.material_code='M-W1A-004';
+         delete from biz_inventory_location l using biz_material m
+          where m.id=l.material_id and m.material_code='M-W1A-004';"
+python3 scripts/verify/e2e_fixture_residue.py        # → exit 1（命中 M-W1A-004）
+python3 scripts/verify/erp_invariants.py             # → 29/32  B1+B2 🚨  C3 ⚠️
+```
+
+2026-10-31 实测（副本库 `cloudpivot_e2e_iso_t995` / 演练库 `cloudpivot_t995_residue`）：
+
+```
+# A（新形态，带成本）
+  ✅ 无残留：没有「无单据、零价值、批量生成」的物料 —— B1/C3 不会被这类夹具打红
+  ✅ [账账] B1 库位账合计 = 成本账 qty
+  ✅ [账实] C3 有库存则成本价非零
+  结果：32/32 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+# B（旧形态，零成本 + 无库位账）
+  ❌ 命中 M-W1A-004：库存 1 行 / 数量 10.0000；流水 1 条；存活序列号 10（全部 31 条）
+  🚨 [账账] B1 库位账合计 = 成本账 qty
+  🚨 [账账] B2 库存金额 = 存货科目 1405 余额   — 库存模块 435.0000 / 总账 1405 558.4000 / 差 -123.4000
+  ⚠️ [账实] C3 有库存则成本价非零
+  结果：29/32 通过   🚨 BLOCKER 2   ⚠️ WARN 1
+```
+
+判据本身（四道同时成立才算夹具）见 `e2e_fixture_residue.py` 文件头与
+`scripts/datafix/p10/20_residue_report.up.sql`，**两处必须同改**。
+
+### 已知盲区（2026-10-31 16:17 实测发现，未改判据，登记待评估）
+
+第 ③ 道把「有真实来源」判成 `source_type NOT IN ('', 'PURCHASE')`，于是
+**`source_type='PRODUCE'` 且 `source_id IS NULL`** 的零成本批量生成会被当成「有来源」→ **漏检**：
+
+```
+prod 16:17:24（henry.liao / 172.18.10.7，旧代码）：批量生成 10 件 @0，source_type=PRODUCE
+  e2e_fixture_residue.py  → ✅ 无残留（漏检，假绿）
+  erp_invariants.py       → B1 🚨 BLOCKER + C3 ⚠️（30/32）
+```
+
+`source_id IS NULL` 才是「没有来源单据」的硬判据；`source_type` 非空不代表有来源单。
+本次**没有动判据**（卡面要求判据不改，且改判据要连 `20_residue_report.up.sql` 一起改）——
+但**组合闸门仍然有效**：`e2e-postrun-check.sh` 第 ③ 步的不变量会把这种形态抓住，
+所以「① 干净」不等于「全绿」，两步必须都跑。
+
 
 ## e2e 隔离实例（E2E 唯一允许的目标）
 
@@ -162,6 +241,21 @@ bash scripts/verify/e2e_isolated_instance.sh up
 #   ✅ 副本库就绪：sys_user=… 行 / ✅ 后端就绪 / ✅ 前端就绪
 export E2E_BASE_URL=http://127.0.0.1:5189
 cd frontend && pnpm test:e2e        # target-guard 会在配置加载期拒绝任何非隔离目标
+
+#   18089/5189 被别人占着时用 env 覆盖（脚本仍按隔离段判据自查；别去抢别人的实例）
+#   E2E_ISO_DB=cloudpivot_e2e_iso_t995 E2E_ISO_BACKEND_PORT=18094 E2E_ISO_FRONTEND_PORT=5194 \
+#   E2E_ISO_RUN_DIR=/tmp/e2e-iso-t995 E2E_ISO_FRESH=1 \
+#     bash scripts/verify/e2e_isolated_instance.sh up
+
+#   流程 12（批量生成 → 调拨 → 审批）单跑：ADR 之后批量生成**必录成本单价**，
+#   想连三账不变量一起断，再给 E2E_RUN_INVARIANTS=1 + NIK_DATABASE_*（**必须指副本库**）
+E2E_BASE_URL=http://127.0.0.1:5194 E2E_RUN_INVARIANTS=1 \
+NIK_DATABASE_HOST=127.0.0.1 NIK_DATABASE_NAME=cloudpivot_e2e_iso_t995 \
+NIK_DATABASE_USER=e2erole NIK_DATABASE_PASSWORD=… \
+  npx playwright test e2e/12-erp-serial-batch-walkthrough.spec.ts --reporter=list
+#   ① 断「不填单价被拦」（UI 本地拦 + 后端 400/10001）+ 零落库
+#   ② 断 avg_cost = unit_cost / amount = N × unit_cost / qty = N / 库位账合计 = N / 流水写实成本
+#   ⑤ 跑 erp_invariants.py，断 32/32 / BLOCKER 0 / WARN 0，并单独核 B1 / B2 / C3 三行
 
 # ② 线上验收确需打 prod 时（E2E_ALLOW_PROD=1 + E2E_PROD_REASON），跑完必须：
 bash scripts/e2e-postrun-check.sh            # 检出 → 清理 → 32/32，exit 0 才算跑完

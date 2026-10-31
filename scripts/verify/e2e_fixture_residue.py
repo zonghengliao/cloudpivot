@@ -19,6 +19,15 @@ P10（10:54）与 P11-followup（11:34 复发）两次是同一形态。
      复跑 11:34 走查实测就是空串形态 —— 只认 `'PURCHASE'` 会把整批夹具漏掉（假绿）。
   ④ 库存零价值：该物料所有 `biz_inventory` 行的 `amount` 与 `avg_cost` 都是 0。
 
+ADR-20261031 落地后（批量生成 = 无来源入库，必录成本 + 写两本账）：
+新形态**不再命中** ④ —— 这是对的，有成本就是有账载来源，撤销要走红冲/盘点，别用 P10 清。
+语义说明与双向自测见 `scripts/verify/README.md`「语义变化」一节。
+
+⚠️ 已知盲区（2026-10-31 16:17 prod 实测，判据未改）：第 ③ 道把 `source_type='PRODUCE'`
+且 `source_id IS NULL` 当成「有真实来源」⇒ 这种形态的零成本夹具会被**漏检**。
+真正的硬判据是 `source_id IS NULL`（没有来源单据）；`source_type` 非空不代表有来源单。
+组合闸门仍有效：`e2e-postrun-check.sh` 的第 ③ 步（不变量）会把这种形态抓住。
+
 用法：
     python3 scripts/verify/e2e_fixture_residue.py            # 人看
     python3 scripts/verify/e2e_fixture_residue.py --json     # 机器看（监控 / e2e 后置检查）
