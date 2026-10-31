@@ -38,6 +38,9 @@
 
 use nik::prelude::*;
 
+use crate::business::notice::model::{
+    BIZ_TYPE_ANNOUNCEMENT, BizWithdrawReport, Executor as NoticeExecutor,
+};
 use crate::business::shared::scope;
 use crate::shared::error_code;
 
@@ -1445,6 +1448,56 @@ pub async fn soft_delete(ex: &Transaction, id: &uuid::Uuid, operator: uuid::Uuid
         vec![Value::from(&operator), Value::from(id)],
     )
     .await
+}
+
+/// 删公告一次做完两件事：软删主体 + **同事务**下线关联通知（BUG-D-05 / FIX-04）。
+///
+/// # 为什么合在一个函数里
+///
+/// handler 若自己「先调 [`soft_delete`] 再调 [`notice::model::withdraw_by_biz`]」，
+/// 将来谁在中间插一句 `?` 提前 return，就会留下「公告已删、通知还在」的半截状态。
+/// 把两步绑进同一个函数，调用方只能整段成功或整段回滚。
+///
+/// # 语义
+///
+/// 1. `sys_announcement` 置 `deleted_at`（附件 / 范围明细保留，随主体一起不可见）；
+/// 2. 命中的行数 > 0 时，按 `biz_type='announcement'` + `biz_id=<id>` 把 `sys_notice`
+///    置 `deleted_at`，并给 `sys_notice_receiver` 打用户侧删除标记
+///    （**已读回执 read_flag / read_at 不动、行不删**，审计口径见
+///    [`crate::business::notice::model::withdraw_by_biz`] 的文档）；
+/// 3. 命中行数为 0（并发已删）时**什么都不做** —— 通知下线留给赢下并发的那次调用，
+///    避免把别人刚发布的新版本通知误杀。
+///
+/// # 参数
+///
+/// - `ex`：调用方事务（**必须**，两步的原子性全靠它）；
+/// - `id`：公告主键（调用方已 `ensure_deletable`）；
+/// - `operator`：操作人。
+///
+/// # 返回值
+///
+/// `(软删行数, 通知下线报告)`：行数为 0 时报告恒为空。
+///
+/// # 异常情况
+///
+/// 任一步失败 → [`DbError`]，由调用方事务整体回滚（公告的软删一并撤销）。
+pub async fn soft_delete_with_notice(
+    ex: &Transaction,
+    id: &uuid::Uuid,
+    operator: uuid::Uuid,
+) -> DbResult<(u64, BizWithdrawReport)> {
+    let affected = soft_delete(ex, id, operator).await?;
+    if affected == 0 {
+        return Ok((0, BizWithdrawReport::default()));
+    }
+    let notice_tx = NoticeExecutor::Tx(ex);
+    let report = crate::business::notice::model::withdraw_by_biz(
+        &notice_tx,
+        BIZ_TYPE_ANNOUNCEMENT,
+        &id.to_string(),
+    )
+    .await?;
+    Ok((affected, report))
 }
 
 /// 发布落库：`status='PUBLISHED'`、`version+1`、`publish_at=now()`、`notice_id=NULL`。

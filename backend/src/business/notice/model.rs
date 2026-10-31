@@ -622,6 +622,126 @@ pub async fn soft_delete_notice(id: &uuid::Uuid) -> DbResult<u64> {
     .await
 }
 
+// ==================== 业务对象下线（公告删除的联动） ====================
+
+/// 公告在 `sys_notice.biz_type` 上的取值。
+///
+/// # 为什么抽成常量
+///
+/// 写入侧在 [`crate::business::announcement::maintenance::dispatch_announcement`]，
+/// 下线侧在 [`withdraw_by_biz`]。两处若是各自写字符串字面量，改一个漏一个就会出现
+/// 「公告删了、通知还在」的静默不一致 —— 这个缺陷（BUG-D-05）正是这么来的。
+/// 现在两侧都引用本常量，编译器保证不会漂移。
+pub const BIZ_TYPE_ANNOUNCEMENT: &str = "announcement";
+
+/// 「按业务对象下线通知」的结果（返回给调用方记日志 / 拼审计标签）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct BizWithdrawReport {
+    /// 本次被下线的通知主体行数（`sys_notice.deleted_at` 由空变有值的行）。
+    pub notices: u64,
+    /// 本次被标为用户侧删除的接收行数（`sys_notice_receiver.is_deleted`）。
+    pub receivers: u64,
+}
+
+impl BizWithdrawReport {
+    /// 是否有任何行被改动（无改动说明此前已下线 —— 幂等重放）。
+    pub fn is_empty(&self) -> bool {
+        self.notices == 0 && self.receivers == 0
+    }
+}
+
+/// 按业务对象（`biz_type` + `biz_id`）下线其关联的全部通知。
+///
+/// # 为什么必须「同事务」
+///
+/// 调用方是公告软删（`biz_announcement`/`sys_announcement` 置 `deleted_at`）。若通知
+/// 下线放在另一个事务，两次提交之间会存在「公告看不见、通知还在」的窗口 ——
+/// 用户恰好在这几百毫秒里点开消息中心，就会拿到一条指向 404 的通知。
+/// 因此本函数**不自己开事务**，只接受调用方传来的 [`Executor::Tx`]，由调用方的
+/// 事务边界统一提交 / 回滚。
+///
+/// # 接收行的处理（审计口径）
+///
+/// `sys_notice_receiver` 的行**一条都不删**（`read_flag` / `read_at` / `created_at`
+/// 一字不改），只把 `is_deleted` 置 TRUE —— 这与本模块既有的
+/// [`soft_delete_notice`] 口径完全一致，原因见下：
+///
+/// - **已读回执必须留**：`read_flag` / `read_at` 是「谁在什么时候看过」的审计证据，
+///   公告删除后依然要能回答「这条通知当时被谁读了」；
+/// - **但未读数必须减**：`count_unread` 的部分索引谓词是
+///   `user_id = ? AND read_flag = FALSE AND is_deleted = FALSE`，它**不 JOIN 主体表**。
+///   只改 `sys_notice.deleted_at` 的话徽标数会一直挂着（「0 条列表 + 1 个未读徽标」），
+///   正是 BUG-D-05 验收 ④ 要堵的不一致。
+///
+/// # 边界情况
+///
+/// - 从未扇出过的公告（`notice_id IS NULL`，见 `announcement_dispatch_retry`）：没有通知行，
+///   返回 `{ notices: 0, receivers: 0 }`，不报错；
+/// - 重复调用幂等：`deleted_at IS NULL` 与 `is_deleted = FALSE` 两个谓词保证第二次是 0 行；
+/// - 公告卡片只软删过、之后又「擦除」过（理论上不存在）：同样幂等。
+///
+/// # 参数
+///
+/// - `ex`：执行器，**必须是事务**（见「为什么必须同事务」）；
+/// - `biz_type`：业务类型（公告传 [`BIZ_TYPE_ANNOUNCEMENT`]）；
+/// - `biz_id`：业务主键的字符串形态（公告传 `announcement_id.to_string()`）。
+///
+/// # 返回值
+///
+/// [`BizWithdrawReport`]：本次下线的通知数 / 接收行数。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]（由调用方事务回滚，公告的软删一并撤销）。
+pub async fn withdraw_by_biz(
+    ex: &Executor<'_>,
+    biz_type: &str,
+    biz_id: &str,
+) -> DbResult<BizWithdrawReport> {
+    let params = vec![
+        Value::from(biz_type.to_string()),
+        Value::from(biz_id.to_string()),
+    ];
+
+    // ① 主体：置 deleted_at。谓词 `deleted_at IS NULL` 保证幂等。
+    let notices = ex
+        .exec(
+            "UPDATE sys_notice SET deleted_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP \
+             WHERE biz_type = ? AND biz_id = ? AND deleted_at IS NULL",
+            params.clone(),
+        )
+        .await?;
+
+    // ② 顺带把「已建未发」（PENDING 定时通知）取消掉，与 cleanup 任务
+    //    `cancel_soft_deleted_scheduled` 的口径一致 —— 少了这一步，已删公告的定时通知
+    //    仍会在到点后被 patrol 捞出来扇出（用户会收到一条指向不存在公告的通知）。
+    ex.exec(
+        "UPDATE sys_notice SET dispatch_status = 'CANCELED', updated_at = CURRENT_TIMESTAMP \
+         WHERE biz_type = ? AND biz_id = ? AND dispatch_status = 'PENDING'",
+        params.clone(),
+    )
+    .await?;
+
+    // ③ 接收行：只打用户侧删除标记，已读回执（read_flag / read_at）原样保留。
+    //    条件里的 `n.deleted_at IS NOT NULL` 是为了覆盖**历史遗留**行（本次修复之前
+    //    已被删掉的公告，通知一直没下线）—— 调用方一旦再次删除同 id（不可能，但幂等）
+    //    或做一次性回填时，这批也能被收尾。
+    let receivers = ex
+        .exec(
+            "UPDATE sys_notice_receiver r \
+                SET is_deleted = TRUE, deleted_at = CURRENT_TIMESTAMP \
+               FROM sys_notice n \
+              WHERE n.id = r.notice_id \
+                AND n.biz_type = ? AND n.biz_id = ? \
+                AND n.deleted_at IS NOT NULL \
+                AND r.is_deleted = FALSE",
+            params,
+        )
+        .await?;
+
+    Ok(BizWithdrawReport { notices, receivers })
+}
+
 /// 按接收人统计某条通知的实时口径（总行数 / 已读 / 用户删除）。
 pub async fn receiver_stats(notice_id: &uuid::Uuid) -> DbResult<ReceiverStats> {
     let sql = "SELECT COUNT(*) AS total, \
@@ -1374,6 +1494,30 @@ pub fn enable_status_value(status: EnableStatus) -> i16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 公告业务类型常量：下线侧与扇出侧共用的那个字符串。
+    ///
+    /// # 为什么值得断言
+    ///
+    /// `sys_notice.biz_type` 里已经躺着历史行（值是 `announcement`）。这个常量一旦被
+    /// 改成别的拼法（`ANN` / `announcements`），**新删除的公告认不出老通知**，
+    /// BUG-D-05 会以「只有历史数据不生效」的形态悄悄复发 —— 而且照样能编译通过。
+    #[test]
+    fn announcement_biz_type_is_stable() {
+        assert_eq!(BIZ_TYPE_ANNOUNCEMENT, "announcement");
+        // 与 `announcement::maintenance` 的扇出、V0043 的列宽（VARCHAR(64)）都相容
+        assert!(!BIZ_TYPE_ANNOUNCEMENT.is_empty());
+        assert!(BIZ_TYPE_ANNOUNCEMENT.len() <= 64);
+    }
+
+    /// 下线报告的「空」判定：两个计数都为 0 才算没做事（幂等重放的判据）。
+    #[test]
+    fn withdraw_report_is_empty_only_when_both_zero() {
+        assert!(BizWithdrawReport::default().is_empty());
+        assert!(!BizWithdrawReport { notices: 1, receivers: 0 }.is_empty());
+        assert!(!BizWithdrawReport { notices: 0, receivers: 2 }.is_empty());
+        assert!(!BizWithdrawReport { notices: 1, receivers: 2 }.is_empty());
+    }
 
     /// `target_ids` 列的脏数据必须降级为空列表（详情接口不能因此 500）。
     #[test]

@@ -269,7 +269,7 @@ pub async fn dispatch_announcement(
         content,
         content_format: ContentFormat::Text,
         link_url: Some(format!("/announcement/{}", row.id)),
-        biz_type: Some("announcement".to_string()),
+        biz_type: Some(crate::business::notice::model::BIZ_TYPE_ANNOUNCEMENT.to_string()),
         biz_id: Some(row.id.to_string()),
         template_code: None,
         template_vars: serde_json::Value::Null,

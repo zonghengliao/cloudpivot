@@ -1111,11 +1111,14 @@ pub async fn delete(
     let existing = require_manage(&announcement_id).await?;
     model::ensure_deletable(&existing.status)?;
     // 批次 C · C6：软删与日志同事务；只有真的删到行（affected > 0）才留凭证
+    // FIX-04 / BUG-D-05：通知下线也在**同一个事务**里（`soft_delete_with_notice`），
+    // 失败一起回滚 —— 否则会出现「公告删了、消息中心的通知还挂着 → 点进去 404」。
     let before_snapshot = AnnouncementSnapshot::from_row(&existing).to_json();
     let ctx = changelog::RequestCtx::from_request(&claims, &headers, Some(&connect_info));
-    let affected = db()
+    let (affected, withdraw) = db()
         .transaction(|tx| async move {
-            let affected = model::soft_delete(&tx, &announcement_id, operator).await?;
+            let (affected, withdraw) =
+                model::soft_delete_with_notice(&tx, &announcement_id, operator).await?;
             if affected > 0 {
                 changelog::record_in(
                     &tx,
@@ -1130,14 +1133,20 @@ pub async fn delete(
                 )
                 .await?;
             }
-            Ok(affected)
+            Ok((affected, withdraw))
         })
         .await
         .map_err(|error| utils::db_error(error, "删除公告"))?;
     if affected == 0 {
         return Err(not_found());
     }
-    tracing::info!(announcement_id = %announcement_id, operator = %operator, "公告已软删");
+    tracing::info!(
+        announcement_id = %announcement_id,
+        operator = %operator,
+        notice_offline = withdraw.notices,
+        receiver_offline = withdraw.receivers,
+        "公告已软删，关联通知已一并下线"
+    );
     Ok(Res::ok(()))
 }
 
