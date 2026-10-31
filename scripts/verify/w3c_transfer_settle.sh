@@ -19,17 +19,23 @@
 #   可选：
 #     W3C_BASE=http://127.0.0.1:18087/api   实例地址（默认 18087）
 #     W3C_DB_NAME=cloudpivot_w3c_e2e        库名（默认 cloudpivot_w3c_e2e）
+#     W3C_ADMIN=admin                      登录账号（**必须是持 SUPER_ADMIN 的账号**，否则
+#                                          种子流程 APPROVAL 节点的 ADMIN 展开里没有它、拿不到待办）
 #     W3C_ADMIN_PASSWORD=Nereus792379       admin 口令（dev/test 种子）
 #     W3C_BOOTSTRAP=1                       自建库 + 自起隔离实例（默认 1）
 #     W3C_BIN=/root/w3c-target/debug/cloudpivot   实例二进制（默认值同）
 #     W3C_KEEP_SERVER=1                     跑完不杀实例（默认杀掉自己起的那个）
+#     W3C_KEEP_DATA=1                       收尾保留单据/实例（审批仍会被终止）；默认用完即删
 #
 # 退出码 = 是否有断言失败（0 = 全过）。
 #
-# 审批这一步为什么是「人工推 APPROVED」：W3b 实测「只用快照发布的流程，engine::start
-# 不派生 biz_flow_task 待办行（节点停留 PENDING / approver_count=0）」，所以 e2e 走卡面
-# 允许的降级路径（PENDING → APPROVED 人工推）。审批回调路径（on_transfer_settled）由
-# transfer_handler 的真库单测 approval_callback_moves_transfer 覆盖。
+# 审批这一步走**审批中心真审批**（不是人工直推）：种子流程 `stock_transfer` 的审批节点是
+# `assignee_type=ADMIN`（运行时展开成所有持 SUPER_ADMIN 的用户），所以用超管账号登进去，
+# 从待办里 `POST /business/flow/task/{id}/approve` 审批。**P5 起 `PENDING → APPROVED`
+# 有人工门闸（409 + 65030），直推已经不通**——旧脚本的直推写法会整段红。
+#
+# 收尾（t_15be8cc3）：默认**用完即删** —— 先终止审批实例 / 待办 / 节点，再删单据，
+# 最后核对残留 0。要留数据看页面：`W3C_KEEP_DATA=1`（审批照样会被终止，不会钉住夹具用户）。
 # ============================================================
 set -uo pipefail
 
@@ -49,6 +55,7 @@ WH_FROM="d3ce0000-0000-4000-8000-000000000001"
 WH_TO="d3ce0000-0000-4000-8000-000000000002"
 UNIT="d3ce0000-0000-4000-8000-000000000003"
 M_D="d3ce0000-0000-4000-8000-000000000011"
+M_Q="d3ce0000-0000-4000-8000-000000000012"
 S1="d3ce0000-0000-4000-8000-000000000021"
 S2="d3ce0000-0000-4000-8000-000000000022"
 S3="d3ce0000-0000-4000-8000-000000000023"
@@ -118,6 +125,73 @@ call() {
 
 jqv() { printf '%s' "$REQ_BODY" | jq -r "$1" 2>/dev/null; }
 
+# ---------- 收尾：调拨 e2e「用完即删」（公共函数见 lib/flow_cleanup.sh） ----------
+# shellcheck source=lib/flow_cleanup.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/flow_cleanup.sh"
+# 只收敛本脚本自己的夹具（固定 W3C-E2E 仓），不许全表
+SCOPE="SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO')"
+CLEANED=0
+
+w3c_cleanup_on_exit() {
+    local rc=$?
+    if [ "$CLEANED" = "1" ]; then return "$rc"; fi
+    CLEANED=1
+    echo
+    echo "==> [exit] 收尾（trap EXIT：失败/中断也会走，避免夹具把超管用户钉成待办）"
+    if [ "${W3C_KEEP_DATA:-0}" = "1" ]; then
+        e2e_terminate_transfer_flow "$SCOPE"
+        echo "    W3C_KEEP_DATA=1：单据保留，但审批实例/待办已终止（不会钉住 tc_*_op_ 夹具用户）"
+    else
+        e2e_cleanup_transfer_flow "$SCOPE" || echo "    WARN: 收尾后仍有残留（见上一行计数）"
+    fi
+    e2e_report_pinned_fixtures
+    return "$rc"
+}
+trap w3c_cleanup_on_exit EXIT
+
+# approve_transfer_flow <transfer_id>
+#   走审批中心真审批：按 approval_instance_id 找到登录超管名下的 PENDING 待办 → approve。
+#   审批回调（on_transfer_settled）会把调拨单推到 APPROVED。
+#   ⚠ 种子流程 `stock_transfer` 的审批节点 `approval_mode` 为 NULL → 引擎按 **会签（ALL）**
+#   处理（`engine.rs`：`node.approval_mode.unwrap_or("ALL")`）。所以库里若有 N>1 个超管，
+#   光批一条不会让实例落 APPROVED（其余超管的待办还挂着）。此时按收尾口径先终止该实例
+#   （不再产生悬挂待办），再走「人工推 APPROVED」——并**明确打印**走了降级路径，不假装审批通过。
+approve_transfer_flow() {
+    local tid="$1" iid ftask ist next
+    iid=$(psql_q "SELECT approval_instance_id FROM biz_stock_transfer WHERE id = '$tid'")
+    if [ -z "$iid" ] || [ "$iid" = "null" ]; then
+        bad "单据 $tid 没有 approval_instance_id，无法走审批中心"
+        return 1
+    fi
+    ftask=$(psql_q "SELECT t.id FROM biz_flow_task t JOIN sys_user u ON u.id = t.assignee_id
+                     WHERE t.instance_id = '$iid' AND t.status = 'PENDING'
+                       AND u.username = '$ADMIN_USER'
+                     ORDER BY t.created_at LIMIT 1")
+    if [ -z "$ftask" ] || [ "$ftask" = "null" ]; then
+        bad "审批中心里找不到 $ADMIN_USER 名下的 PENDING 待办（instance=$iid）"
+        return 1
+    fi
+    call POST "/business/flow/task/$ftask/approve" '{"comment":"W3c e2e 审批通过"}'
+    assert_eq "200" "$REQ_CODE" "审批中心同意（待办 $ftask）"
+
+    if [ "$(psql_q "SELECT status FROM biz_stock_transfer WHERE id = '$tid'")" = "APPROVED" ]; then
+        ok "审批回调把调拨单推到 APPROVED（caller=$ADMIN_USER）"
+        return 0
+    fi
+
+    # 降级：会签节点还有别的超管没批 → 先把该单据的审批实例/待办终止，再人工推
+    ist=$(psql_q "SELECT status FROM biz_flow_instance WHERE id = '$iid'")
+    next=$(psql_q "SELECT count(*) FROM biz_flow_task WHERE instance_id = '$iid' AND status = 'PENDING'")
+    printf '     （审批实例仍 %s，剩余 PENDING 待办 %s 条：种子流程节点 approval_mode=NULL → 会签 ALL，\n' "$ist" "$next"
+    printf '       库里超管人数 > 1 时单账号批不完。按收尾口径先终止实例，再人工推 APPROVED）\n'
+    e2e_terminate_transfer_flow "SELECT id FROM biz_stock_transfer WHERE id = '$tid'" >/dev/null
+    call PATCH "/business/erp/transfer/$tid/status" '{"status":"APPROVED"}'
+    assert_eq "200" "$REQ_CODE" "实例终止后人工推 APPROVED（门闸 65030 已解除）"
+    assert_eq "APPROVED" "$(psql_q "SELECT status FROM biz_stock_transfer WHERE id = '$tid'")" \
+        "调拨单状态 = APPROVED（降级路径）"
+}
+
+
 # ---------- 0. 自建库 + 自起隔离实例（迁移随启动自动跑到最新） ----------
 SERVER_PID=""
 if [ "$BOOTSTRAP" = "1" ]; then
@@ -182,20 +256,15 @@ if [ "$BOOTSTRAP" = "1" ]; then
 fi
 
 # ---------- 1. 清理上一轮 e2e 残留（只动 W3C-E2E 固定夹具） ----------
-echo "==> 1. 清理上一轮 e2e 残留"
+echo "==> 1. 清理上一轮 e2e 残留（先撤审批实例/待办，再删单据；只动 W3C-E2E 固定夹具）"
+e2e_cleanup_transfer_flow "$SCOPE" || bad "上一轮 e2e 残留没清干净（见上一行计数）"
 psql_x "DELETE FROM biz_inventory_txn WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item_serial WHERE item_id IN (
-          SELECT i.id FROM biz_stock_transfer_item i JOIN biz_stock_transfer t ON t.id = i.transfer_id
-           WHERE t.from_warehouse_id IN ('$WH_FROM', '$WH_TO'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item WHERE transfer_id IN (
-          SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
 psql_x "DELETE FROM biz_inventory WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
 psql_x "DELETE FROM biz_material_serial WHERE id IN ('$S1','$S2','$S3','$S4','$S5','$S6','$S7')" >/dev/null
 psql_x "DELETE FROM biz_inventory_location WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
-psql_x "DELETE FROM biz_material WHERE id = '$M_D'" >/dev/null
+psql_x "DELETE FROM biz_material WHERE id IN ('$M_D', '$M_Q')" >/dev/null
 psql_x "DELETE FROM biz_warehouse WHERE id IN ('$WH_FROM', '$WH_TO')" >/dev/null
-ok "清掉上一轮夹具（仓 / 物料 / 序列号 / 库存 / 单据）"
+ok "清掉上一轮夹具（审批实例 / 待办 / 单据 / 仓 / 物料 / 序列号 / 库存）"
 
 # ---------- 2. 夹具：仓 / 单位 / 一物一码物料（成品D）/ 2+5 个序列号 / 库存台账 ----------
 echo "==> 2. 造夹具（成品D：一物一码；分仓 5 件 @10，总仓 2 件 @20）"
@@ -282,8 +351,9 @@ assert_eq "DRAFT" "$(jqv '.data.status')" "建单后是 DRAFT"
 echo "==> 5. 状态链 PENDING → APPROVED → IN_TRANSIT → DONE"
 call PATCH "/business/erp/transfer/$TID/status" '{"status":"PENDING"}'
 assert_eq "200" "$REQ_CODE" "提交审批 PENDING"
-call PATCH "/business/erp/transfer/$TID/status" '{"status":"APPROVED"}'
-assert_eq "200" "$REQ_CODE" "审批通过 APPROVED（人工推，见脚本头说明）"
+assert_eq "STOCK_TRANSFER" "$(psql_q "SELECT biz_type FROM biz_flow_instance WHERE id = (SELECT approval_instance_id FROM biz_stock_transfer WHERE id='$TID')")" \
+    "提交后真的发起了 STOCK_TRANSFER 审批实例"
+approve_transfer_flow "$TID"
 call PATCH "/business/erp/transfer/$TID/status" '{"status":"IN_TRANSIT"}'
 assert_eq "200" "$REQ_CODE" "发货 IN_TRANSIT"
 QTY_AT_SHIP=$(psql_q "SELECT qty::numeric(18,4) FROM biz_inventory
@@ -372,9 +442,11 @@ JSON
 call POST /business/erp/transfer "$BODY2"
 assert_eq "200" "$REQ_CODE" "一物一码物料没选序列号 → 建单放行（W3b 不校验个数）"
 TID_SN=$(jqv '.data.id')
-for st in PENDING APPROVED IN_TRANSIT; do
-    call PATCH "/business/erp/transfer/$TID_SN/status" "{\"status\":\"$st\"}"
-done
+call PATCH "/business/erp/transfer/$TID_SN/status" '{"status":"PENDING"}'
+assert_eq "200" "$REQ_CODE" "库存不足用例：提交审批 PENDING"
+approve_transfer_flow "$TID_SN"
+call PATCH "/business/erp/transfer/$TID_SN/status" '{"status":"IN_TRANSIT"}'
+assert_eq "200" "$REQ_CODE" "发货 IN_TRANSIT"
 call PATCH "/business/erp/transfer/$TID_SN/status" '{"status":"DONE"}'
 assert_eq "400" "$REQ_CODE" "一物一码物料序列号个数 0 != 数量 3 → 结算 400"
 assert_contains "$REQ_BODY" "序列号" "400 文案点名序列号"
@@ -384,7 +456,6 @@ assert_eq "0" "$(psql_q "SELECT COUNT(*) FROM biz_inventory_txn WHERE doc_id='$T
     "序列号不符时一条流水都不写"
 
 # 用「按数量物料」验「库存不足 → 409」
-M_Q="d3ce0000-0000-4000-8000-000000000012"
 psql_x "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type,
                                  safety_stock, costing_method, tax_rate, status, serial_required)
         VALUES ('$M_Q', 'W3C-E2E-Q', 'W3C 按数量物料', '$UNIT', 'RAW', 0, 'MOVING_AVG', 0, 1, false)
@@ -404,8 +475,10 @@ call POST /business/erp/transfer "$BODY3"
 assert_eq "200" "$REQ_CODE" "按数量物料建单 9 件（分仓只有 1）"
 TID2=$(jqv '.data.id')
 call PATCH "/business/erp/transfer/$TID2/status" '{"status":"PENDING"}'
-call PATCH "/business/erp/transfer/$TID2/status" '{"status":"APPROVED"}'
+assert_eq "200" "$REQ_CODE" "库存不足用例：提交审批 PENDING"
+approve_transfer_flow "$TID2"
 call PATCH "/business/erp/transfer/$TID2/status" '{"status":"IN_TRANSIT"}'
+assert_eq "200" "$REQ_CODE" "发货 IN_TRANSIT"
 call PATCH "/business/erp/transfer/$TID2/status" '{"status":"DONE"}'
 assert_eq "409" "$REQ_CODE" "库存 1 调 9 → 409"
 assert_contains "$REQ_BODY" "库存不足" "409 文案点名库存不足"
@@ -417,21 +490,29 @@ assert_eq "1.0000" "$Q_STILL" "库存没被扣"
 TXN2=$(psql_q "SELECT COUNT(*) FROM biz_inventory_txn WHERE doc_id='$TID2'")
 assert_eq "0" "$TXN2" "没有流水"
 
-# ---------- 9. 收尾 ----------
-echo "==> 9. 收尾"
+# ---------- 9. 收尾：终止审批 + 删单据（用完即删） ----------
+echo "==> 9. 收尾：先撤审批实例/待办，再删单据，最后核对残留"
+CLEANED=1
+if [ "${W3C_KEEP_DATA:-0}" = "1" ]; then
+    e2e_terminate_transfer_flow "$SCOPE"
+    echo "    W3C_KEEP_DATA=1：单据与实例保留供人工查看，但审批已终止（不会钉住 tc_*_op_ 夹具用户）"
+else
+    e2e_cleanup_transfer_flow "$SCOPE" || bad "收尾删数据没干净（见上一行残留计数）"
+    e2e_assert_scope_clean "$SCOPE" ok bad
+fi
+e2e_report_pinned_fixtures
+
+# 夹具物料/仓/序列号也一并收掉，避免下一轮 step 1 依赖它们「碰巧还在」
+psql_x "DELETE FROM biz_inventory_txn WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+psql_x "DELETE FROM biz_inventory WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+psql_x "DELETE FROM biz_inventory_location WHERE warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+psql_x "DELETE FROM biz_material_serial WHERE id IN ('$S1','$S2','$S3','$S4','$S5','$S6','$S7')" >/dev/null
+psql_x "DELETE FROM biz_material WHERE id IN ('$M_D', '$M_Q')" >/dev/null
+psql_x "DELETE FROM biz_warehouse WHERE id IN ('$WH_FROM', '$WH_TO')" >/dev/null
+
 if [ -n "$SERVER_PID" ] && [ "${W3C_KEEP_SERVER:-0}" != "1" ]; then
     kill "$SERVER_PID" 2>/dev/null && ok "已停掉本脚本起的隔离实例（pid=$SERVER_PID）"
 fi
-cat <<TIP
-
-   清理（如需）：PGPASSWORD=… psql -d $DBN -c "
-     DELETE FROM biz_inventory_txn  WHERE warehouse_id IN ('$WH_FROM','$WH_TO');
-     DELETE FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM','$WH_TO');
-     DELETE FROM biz_inventory        WHERE warehouse_id IN ('$WH_FROM','$WH_TO');
-     DELETE FROM biz_material_serial  WHERE material_id IN ('$M_D','$M_Q');
-     DELETE FROM biz_material        WHERE id IN ('$M_D','$M_Q');
-     DELETE FROM biz_warehouse       WHERE id IN ('$WH_FROM','$WH_TO');"
-TIP
 
 echo "==> 汇总：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1

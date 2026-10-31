@@ -15,7 +15,10 @@
 #
 # 退出码 = 是否有断言失败（0 = 全过）。
 # 脚本自建夹具（仓 / 物料 / 序列号 / 审批流程 / 只读账号），开头清理上一轮遗留，
-# 结尾打印清理 SQL 并核对残留计数（不静默删别人的数据）。
+# **结尾用完即删**：先终止审批实例 / 待办 / 节点（满足 ck_biz_flow_task_done 与
+# ck_biz_flow_instance_end），再删单据/流程定义/只读账号，最后核对残留 0。
+# 只按 W3B-E2E 固定夹具 UUID 收敛，不静默删别人的数据；要留数据看页面：W3B_KEEP_DATA=1
+# （审批照样会被终止，不会把持 SUPER_ADMIN 的夹具用户钉成待办）。
 # ============================================================
 set -uo pipefail
 
@@ -94,16 +97,53 @@ call() {
 
 jqv() { printf '%s' "$REQ_BODY" | jq -r "$1" 2>/dev/null; }
 
-echo "==> 0. 清理上一轮 e2e 残留（只动 W3B-E2E 前缀的夹具）"
-psql_x "DELETE FROM biz_flow_instance WHERE flow_code = '$FLOW_CODE'" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item_serial WHERE item_id IN (
-          SELECT i.id FROM biz_stock_transfer_item i JOIN biz_stock_transfer t ON t.id = i.transfer_id
-           WHERE t.from_warehouse_id IN ('$WH_FROM', '$WH_TO'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item WHERE transfer_id IN (
-          SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO')" >/dev/null
-psql_x "DELETE FROM biz_flow_def_version WHERE def_id IN (SELECT id FROM biz_flow_def WHERE flow_code = '$FLOW_CODE')" >/dev/null
-psql_x "DELETE FROM biz_flow_def WHERE flow_code = '$FLOW_CODE'" >/dev/null
+# ---------- 收尾：调拨 e2e「用完即删」（公共函数见 lib/flow_cleanup.sh） ----------
+# shellcheck source=lib/flow_cleanup.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/flow_cleanup.sh"
+# 只收敛本脚本自己的夹具（固定 W3B-E2E 调出/调入仓），不许全表
+SCOPE="SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO')"
+CLEANED=0
+
+w3b_cleanup_on_exit() {
+    local rc=$?
+    if [ "$CLEANED" = "1" ]; then return "$rc"; fi
+    CLEANED=1
+    echo
+    echo "==> [exit] 收尾（trap EXIT：断言失败/中断也会走，避免审批实例把超管用户钉成待办）"
+    if [ "${W3B_KEEP_DATA:-0}" = "1" ]; then
+        e2e_terminate_transfer_flow "$SCOPE"
+        echo "    W3B_KEEP_DATA=1：单据保留，审批实例/待办已终止"
+    else
+        e2e_cleanup_transfer_flow "$SCOPE" || echo "    WARN: 收尾后仍有残留（见上一行计数）"
+        # 中途断言失败也要把自建的流程定义删掉、把被抢的默认流程还回去
+        w3b_drop_flow_def
+    fi
+    e2e_report_pinned_fixtures
+    return "$rc"
+}
+trap w3b_cleanup_on_exit EXIT
+
+# 删本脚本自建的流程定义（版本 → 定义；实例先删干净才不会被 FK 挡）
+# ⚠ 平台在「新建 is_default=true 流程」时会**把同 biz_type 的旧默认降级**（本次实测：
+#   种子流程 stock_transfer 被降成 is_default=false）。所以删完自己的定义还要**把默认还回去**，
+#   否则共用库上别的 e2e（如 p5）会报「没有已发布默认流程」，单据提交审批直接拿不到实例。
+w3b_drop_flow_def() {
+    psql_x "DELETE FROM biz_flow_def_version WHERE def_id IN (SELECT id FROM biz_flow_def WHERE flow_code = '$FLOW_CODE')" >/dev/null
+    psql_x "DELETE FROM biz_flow_def WHERE flow_code = '$FLOW_CODE'" >/dev/null
+    psql_x "UPDATE biz_flow_def SET is_default = true
+             WHERE id = (SELECT id FROM biz_flow_def
+                          WHERE biz_type = 'STOCK_TRANSFER' AND status = 'PUBLISHED' AND deleted_at IS NULL
+                            AND flow_code <> '$FLOW_CODE'
+                          ORDER BY created_at DESC LIMIT 1)
+               AND NOT EXISTS (SELECT 1 FROM biz_flow_def
+                                WHERE biz_type = 'STOCK_TRANSFER' AND status = 'PUBLISHED'
+                                  AND deleted_at IS NULL AND is_default = true)" >/dev/null
+}
+
+
+echo "==> 0. 清理上一轮 e2e 残留（先撤审批实例/待办，再删单据；只动 W3B-E2E 夹具）"
+e2e_cleanup_transfer_flow "$SCOPE" || bad "上一轮 e2e 残留没清干净（见上一行计数）"
+w3b_drop_flow_def
 
 echo "==> 1. 登录 admin"
 ADMIN_NEW="${W3B_ADMIN_NEW_PASSWORD:-Nereus792379!W3b}"
@@ -263,8 +303,10 @@ if [ -n "$FTASK" ] && [ "$FTASK" != "null" ]; then
     assert_eq "APPROVED" "$(psql_q "SELECT status FROM biz_stock_transfer WHERE id = '$TID'")" "回调把调拨单推到 APPROVED"
 else
     printf '     （审批中心没有派生待办行 → 走卡面允许的「人工推 APPROVED」降级路径）\n'
+    # 门闸 65030：实例还在 PENDING 时人工直推会被拦，先把该单的审批实例/待办终止
+    e2e_terminate_transfer_flow "SELECT id FROM biz_stock_transfer WHERE id = '$TID'" >/dev/null
     call PATCH "/business/erp/transfer/$TID/status" '{"status":"APPROVED"}' ""
-    assert_eq "200" "$REQ_CODE" "人工推 APPROVED（PENDING → APPROVED 合法边）"
+    assert_eq "200" "$REQ_CODE" "人工推 APPROVED（实例已终止，门闸 65030 不拦）"
 fi
 assert_eq "APPROVED" "$(psql_q "SELECT status FROM biz_stock_transfer WHERE id = '$TID'")" "调拨单状态 = APPROVED"
 
@@ -347,14 +389,20 @@ else
     assert_eq "403" "$REQ_CODE" "无码账号看列表 → 403"
 fi
 
-echo "==> 14. 残留核对（清理请手工执行下面的 SQL）"
-printf '    DELETE FROM biz_flow_instance WHERE flow_code = %s;\n' "'$FLOW_CODE'"
-printf '    DELETE FROM biz_stock_transfer WHERE from_warehouse_id IN (%s, %s);\n' "'$WH_FROM'" "'$WH_TO'"
-printf '    DELETE FROM sys_user WHERE username = %s;\n' "'$RO_USER'"
-printf '    当前库内本卡夹具：transfer=%s  instance=%s  flow_def=%s\n' \
-    "$(psql_q "SELECT count(*) FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM','$WH_TO')")" \
-    "$(psql_q "SELECT count(*) FROM biz_flow_instance WHERE flow_code = '$FLOW_CODE'")" \
-    "$(psql_q "SELECT count(*) FROM biz_flow_def WHERE flow_code = '$FLOW_CODE'")"
+echo "==> 14. 收尾：先撤审批实例/待办，再删单据/流程定义/只读账号（用完即删）"
+CLEANED=1
+if [ "${W3B_KEEP_DATA:-0}" = "1" ]; then
+    e2e_terminate_transfer_flow "$SCOPE"
+    echo "    W3B_KEEP_DATA=1：单据与实例保留供人工查看，但审批已终止"
+else
+    e2e_cleanup_transfer_flow "$SCOPE" || bad "收尾删数据没干净（见上一行残留计数）"
+    e2e_assert_scope_clean "$SCOPE" ok bad
+    w3b_drop_flow_def
+    psql_x "DELETE FROM sys_user WHERE username = '$RO_USER'" >/dev/null
+    assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_flow_def WHERE flow_code = '$FLOW_CODE'")" \
+        "本脚本自建的流程定义已删（不留 is_default 抢别的 e2e）"
+fi
+e2e_report_pinned_fixtures
 
 echo
 echo "==> 汇总：PASS=$PASS FAIL=$FAIL"

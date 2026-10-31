@@ -18,9 +18,16 @@
 # 用法：
 #   export P5_BASE=http://127.0.0.1:18098/api
 #   export P5_DB_PASSWORD='<cloudpivot 库口令>'
-#   export P5_DB_NAME=cloudpivot_p5e2e        # 默认 cloudpivot_p5e2e
+#   export P5_DB_NAME=cloudpivot_p5e2e        # 默认 cloudpivot_p5e2e（**必须是隔离库**）
 #   export P5_ADMIN_PASSWORD='<admin 口令>'    # 默认取 P5Admin#2026（本卡隔离库 bootstrap 口令）
 #   bash scripts/verify/p5_transfer_flow.sh
+#
+# 前置（脚本第 0.5 步硬校验，登录之前）：库里持 SUPER_ADMIN 的账号必须**恰好 1 个**。
+#   种子流程审批节点是 `assignee_type=ADMIN`、`approval_mode=NULL`（引擎按会签 ALL），
+#   超管 > 1 时单账号批不完 → 单据卡 PENDING、其余超管的待办永久悬挂（t_15be8cc3 的成因）。
+#
+# 收尾：默认**用完即删**（先终止审批实例/待办/节点，再删单据）。要保留数据看页面：
+#   P5_KEEP_DATA=1（审批照样终止，不会把手持超管的夹具用户钉成待办）。
 #
 # 退出码 = 是否有断言失败（0 = 全过）。夹具按 `P5-E2E-` 前缀自建自清。
 # ============================================================
@@ -105,17 +112,54 @@ call_anon() {
 
 jqv() { printf '%s' "$REQ_BODY" | jq -r "$1" 2>/dev/null; }
 
-echo "==> 0. 清理上一轮 e2e 残留（只动 P5-E2E 夹具）"
-psql_x "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_TRANSFER' AND biz_id IN (
-          SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item_serial WHERE item_id IN (
-          SELECT i.id FROM biz_stock_transfer_item i JOIN biz_stock_transfer t ON t.id = i.transfer_id
-           WHERE t.from_warehouse_id IN ('$WH_FROM'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer_item WHERE transfer_id IN (
-          SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM'))" >/dev/null
-psql_x "DELETE FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM')" >/dev/null
+# ---------- 收尾：调拨 e2e「用完即删」（公共函数见 lib/flow_cleanup.sh） ----------
+# shellcheck source=lib/flow_cleanup.sh
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib/flow_cleanup.sh"
+# 只收敛本脚本自己的夹具（固定 P5-E2E 仓），不许全表
+SCOPE="SELECT id FROM biz_stock_transfer WHERE from_warehouse_id IN ('$WH_FROM', '$WH_TO')"
+CLEANED=0
+
+p5_cleanup_on_exit() {
+    local rc=$?
+    if [ "$CLEANED" = "1" ]; then return "$rc"; fi
+    CLEANED=1
+    echo
+    echo "==> [exit] 收尾（trap EXIT：失败/中断也会走，避免审批实例把超管夹具用户钉成待办）"
+    if [ "${P5_KEEP_DATA:-0}" = "1" ]; then
+        e2e_terminate_transfer_flow "$SCOPE"
+        echo "    P5_KEEP_DATA=1：单据保留，审批实例/待办已终止"
+    else
+        e2e_cleanup_transfer_flow "$SCOPE" || echo "    WARN: 收尾后仍有残留（见上一行计数）"
+    fi
+    e2e_report_pinned_fixtures
+    return "$rc"
+}
+trap p5_cleanup_on_exit EXIT
+
+
+echo "==> 0. 清理上一轮 e2e 残留（先撤审批实例/待办，再删单据；只动 P5-E2E 夹具）"
+e2e_cleanup_transfer_flow "$SCOPE" || bad "上一轮 e2e 残留没清干净（见上一行计数）"
 psql_x "DELETE FROM biz_inventory_txn WHERE warehouse_id IN ('$WH_FROM','$WH_TO')" >/dev/null
 psql_x "DELETE FROM biz_inventory WHERE warehouse_id IN ('$WH_FROM','$WH_TO')" >/dev/null
+
+# ---------- 0.5 前置硬校验：库里持 SUPER_ADMIN 的账号必须恰好 1 个 ----------
+# 种子流程 `stock_transfer` 的审批节点是 `assignee_type=ADMIN`、`approval_mode=NULL`
+# → 引擎按**会签 ALL** 处理（engine.rs：unwrap_or("ALL")），ADMIN 又展开成所有超管。
+# 库里超管 > 1 时单账号批不完 → 单据永远 PENDING、其余超管的待办永久悬挂
+# （t_15be8cc3 的成因：role/user 用例的 operator 夹具必持超管，被调拨 e2e 挂成待办后钉死）。
+# 这条前置放在登录之前，共用库（cloudpivot_test）会当场被拦住，而不是跑一半留残留。
+SA_COUNT=$(psql_q "SELECT count(*) FROM sys_user u
+                     JOIN sys_user_role ur ON ur.user_id = u.id
+                     JOIN sys_role r ON r.id = ur.role_id
+                    WHERE r.role_code = 'SUPER_ADMIN' AND u.deleted_at IS NULL AND u.status = 1")
+if [ "${SA_COUNT:-0}" != "1" ]; then
+    bad "前置不满足：库里持 SUPER_ADMIN 的账号 ${SA_COUNT} 个（本脚本要求恰好 1 个）"
+    echo "    审批节点 ADMIN → 全部超管都挂待办；会签 ALL 时单账号批不完，单据会卡 PENDING 且待办悬挂。"
+    echo "    用隔离库跑（默认 P5_DB_NAME=cloudpivot_p5e2e），或先按 scripts/verify/lib/flow_cleanup.sh"
+    echo "    的收尾口径清掉共用库里的既往 e2e 审批实例后重试。"
+    exit 1
+fi
+ok "前置：库里恰好 1 个超管（ADMIN 节点展开唯一审批人，会签一次批完）"
 
 echo "==> 1. 登录 admin（首登强制改密按需处理）"
 call_anon POST /system/auth/login "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_NEW\"}"
@@ -275,12 +319,18 @@ assert_eq "CANCELLED" "$(psql_q "SELECT status FROM biz_flow_instance WHERE id='
 assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_flow_task WHERE instance_id='$IID2' AND status='PENDING'")" \
     "⑦ 撤回后不留 PENDING 待办"
 
-echo "==> 11. 清理夹具（打印 SQL，可手工复核）"
-echo "    DELETE FROM biz_flow_instance WHERE biz_type='STOCK_TRANSFER' AND biz_id IN (SELECT id FROM biz_stock_transfer WHERE from_warehouse_id='$WH_FROM');"
-echo "    DELETE FROM biz_stock_transfer / biz_stock_transfer_item / biz_stock_transfer_item_serial / biz_inventory / biz_inventory_txn（同上夹具仓）"
-echo "    （本脚本默认**保留**本轮数据便于人工看页面；需要清空请手动执行上面的 SQL）"
+echo "==> 11. 收尾：先撤审批实例/待办，再删单据（用完即删）"
 assert_eq "0" "$(psql_q "SELECT count(*) FROM biz_stock_transfer WHERE from_warehouse_id='$WH_FROM' AND status NOT IN ('DONE','CANCELLED')")" \
     "收尾：本轮造的单据都已到终态（无悬挂单）"
+CLEANED=1
+if [ "${P5_KEEP_DATA:-0}" = "1" ]; then
+    e2e_terminate_transfer_flow "$SCOPE"
+    echo "    P5_KEEP_DATA=1：单据与实例保留供人工查看，但审批已终止（不会钉住超管夹具用户）"
+else
+    e2e_cleanup_transfer_flow "$SCOPE" || bad "收尾删数据没干净（见上一行残留计数）"
+    e2e_assert_scope_clean "$SCOPE" ok bad
+fi
+e2e_report_pinned_fixtures
 
 echo "==> 汇总：PASS=$PASS FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || exit 1
