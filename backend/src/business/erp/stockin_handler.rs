@@ -141,7 +141,17 @@ fn bad_request(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::PARAM_INVALID, message.into())
 }
 
-/// 作废路径的错误收口：库存不足（[`stockin_model::SHORTFALL_PREFIX`]）→ `409 + 文案`。
+/// 作废路径的「状态不允许」哨兵归类（模型层只回 `DbError`，这里映射成 `409` 文案）。
+enum CancelGuard {
+    /// 库存 / 库位账不够退（货已部分出库）→ 文案带「请先做退货入库冲销」。
+    Shipped,
+    /// 其余带哨兵的拒绝（序列号已出库 / 过账流水缺失）→ 文案原样前置「不能作废：」。
+    Detail,
+}
+
+/// 作废路径的错误收口：库存不足（[`stockin_model::SHORTFALL_PREFIX`]）/ 序列号已出库
+/// （[`stockin_model::SERIAL_SHIPPED_PREFIX`]）/ 过账流水缺失（[`stockin_model::MISSING_TXN_PREFIX`]）
+/// → `409 + 文案`。
 ///
 /// 「货已部分出库」不是参数错（400）、也不是服务端故障（500），而是**当前状态不允许**
 /// —— 必须先做退货入库冲销，所以是 409。
@@ -149,21 +159,26 @@ fn cancel_write_error(err: DbError, ctx: &str) -> ApiError {
     let sentinel = match &err {
         DbError::InvalidValue(message) => message
             .strip_prefix(stockin_model::SHORTFALL_PREFIX)
-            .map(|detail| (true, detail.to_string()))
+            .map(|detail| (CancelGuard::Shipped, detail.to_string()))
+            .or_else(|| {
+                message
+                    .strip_prefix(stockin_model::SERIAL_SHIPPED_PREFIX)
+                    .map(|detail| (CancelGuard::Detail, detail.to_string()))
+            })
             .or_else(|| {
                 message
                     .strip_prefix(stockin_model::MISSING_TXN_PREFIX)
-                    .map(|detail| (false, detail.to_string()))
+                    .map(|detail| (CancelGuard::Detail, detail.to_string()))
             }),
         _ => None,
     };
     match sentinel {
-        Some((true, detail)) => ApiError::new(
+        Some((CancelGuard::Shipped, detail)) => ApiError::new(
             409,
             error_code::RESOURCE_CONFLICT,
             format!("该单的货已部分出库（{detail}），不能直接作废；请先做退货入库冲销"),
         ),
-        Some((false, detail)) => ApiError::new(
+        Some((CancelGuard::Detail, detail)) => ApiError::new(
             409,
             error_code::RESOURCE_CONFLICT,
             format!("不能作废：{detail}"),
@@ -734,13 +749,20 @@ pub async fn change_stock_in_status(
     }
 }
 
-/// 作废事务体（P9 补齐库存回滚 + P2-C1 的凭证红冲）：
-/// CAS 改状态 → **库存/库位账反向冲减 + 反向流水** → 红冲凭证 → 应付单作废，**同一个事务**。
+/// 作废事务体（P9 补齐库存回滚 + P2-C1 的凭证红冲 + P10 补序列号退账）：
+/// CAS 改状态 → **退序列号 + 库存/库位账反向冲减 + 反向流水** → 红冲凭证 → 应付单作废，
+/// **同一个事务**。
 ///
 /// ⚠️ P9 之前这里只做凭证红冲，库存与流水**没退**（不变式 E4 挂在 2 组数据上）。
 /// 现在按卡面 §一 的 7 步补齐：锁库存 → 校验可退 → 退成本账 → 退库位账 → 写
 /// `OUT / PURCHASE_IN_CANCEL` 流水 → 红字凭证 → 应付作废。任一步失败 → 整单回滚
 /// （handler 的 `tx.rollback()`），库存 / 凭证 / 流水三处同时不变。
+///
+/// ⚠️ P10 补上第 ② 步「退序列号」：一物一码物料的序列号行挂在
+/// `source_type='PURCHASE' AND source_id = 本单` 上，作废不退会让
+/// `biz_material_serial` 里留下 `IN_STOCK` 的幽灵号，与 `biz_inventory.qty`
+/// （作废后已减）对不上 —— 就是 W2c 口径的账实不符。口径见
+/// [`stockin_model::void_serials_of`]（未出库 → 软删；已出库/报废 → `409`）。
 async fn cancel_in_tx(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -769,7 +791,14 @@ async fn cancel_in_tx(
             id,
             in_no: &row.in_no,
         };
-        // ② 逐行反向冲减（成本账 → 库位账 → 反向流水）；锁顺序 = 计划的排序（material_id 升序）
+        // ② 退序列号（一物一码）：本单生成的号必须全部仍在库，否则 409；在库则软删
+        //    （`deleted_at` 置位、行保留 —— 审计痕迹不丢，同号可被重新贴用）。
+        //    放在库存冲减**之前**：一物一码物料的「货已出库」最硬的证据是序列号状态，
+        //    先判它才能给出「哪一件已经出库」这种可执行报文，而不是笼统的「库存不足」。
+        let serials_voided = stockin_model::void_serials_of(ex, id, &row.in_no, operator, now)
+            .await
+            .map_err(|error| cancel_write_error(error, "作废：退回一物一码序列号"))?;
+        // ③ 逐行反向冲减（成本账 → 库位账 → 反向流水）；锁顺序 = 计划的排序（material_id 升序）
         let mut reversed_qty = Decimal::ZERO;
         let mut reversed_amount = Decimal::ZERO;
         for line in &plan {
@@ -800,11 +829,11 @@ async fn cancel_in_tx(
             reversed_amount += line.amount;
         }
 
-        // ③ 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
+        // ④ 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
         let red = voucher::reverse_for_stock_in(ex, row, reason, operator, now)
             .await
             .map_err(|error| write_error(error, "作废：生成红字凭证"))?;
-        // ④ 应付单 → CANCELLED
+        // ⑤ 应付单 → CANCELLED
         payable::cancel_for_stock_in(ex, id, operator, now)
             .await
             .map_err(|error| write_error(error, "作废：应付单作废"))?;
@@ -814,8 +843,9 @@ async fn cancel_in_tx(
             lines = plan.len(),
             reversed_qty = %reversed_qty,
             reversed_amount = %reversed_amount,
+            serials_voided = serials_voided,
             red_voucher_id = %red.map(|v| v.to_string()).unwrap_or_else(|| "(无原凭证)".to_string()),
-            "收货单作废：库存/库位账已反向冲减 + 反向流水已写 + 红字凭证已生成 + 应付单已作废"
+            "收货单作废：库存/库位账已反向冲减 + 反向流水已写 + 序列号已退回 + 红字凭证已生成 + 应付单已作废"
         );
         if red.is_none() {
             tracing::warn!(
@@ -2983,6 +3013,188 @@ mod tests {
             signed,
             inventory_of(MATERIAL_A).await.0,
             "反向流水必须让「流水累计 = 当前库存」重新成立（B4）"
+        );
+    }
+
+    // ==================== P10：作废退序列号（卡面 §一） ====================
+
+    /// 某张单生成的序列号：`(存活条数, 已软删条数)`。
+    async fn serial_counts_of(doc: Uuid) -> (i64, i64) {
+        let mut out = [0i64; 2];
+        for (slot, cond) in out
+            .iter_mut()
+            .zip(["deleted_at IS NULL", "deleted_at IS NOT NULL"])
+        {
+            let sql = format!(
+                "SELECT count(*) FROM biz_material_serial \
+                  WHERE source_id = ?::uuid AND source_type = 'PURCHASE' AND {cond}"
+            );
+            *slot = db()
+                .scalar_with_params(&sql, vec![Value::from(&doc)])
+                .await
+                .unwrap_or_else(|err| panic!("查序列号失败：{err}"));
+        }
+        (out[0], out[1])
+    }
+
+    /// ① 作废一物一码收货单 → 本单生成的序列号全部退回（软删），库存同步归零。
+    #[tokio::test]
+    async fn cancel_posted_voids_serials_of_the_receipt() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_SN, "3", "40", "0")]).await;
+        assert_eq!(
+            stockin_model::serial_count_of(id).await.unwrap(),
+            3,
+            "前置：过账生成 3 条序列号"
+        );
+        assert_eq!(inventory_of(MATERIAL_SN).await.0, dec("3"));
+
+        cancel(id, "供应商整批退回").await;
+
+        assert_eq!(
+            stockin_model::serial_count_of(id).await.unwrap(),
+            0,
+            "P10：作废后本单的序列号必须全部出账（之前一条都不退，8 条 IN_STOCK 挂在作废单上）"
+        );
+        assert_eq!(
+            serial_counts_of(id).await,
+            (0, 3),
+            "退回 = 软删（行留着做审计），不是物理删"
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_SN).await,
+            (dec("0"), dec("0"), dec("0")),
+            "序列号退账与库存退账是同一步，作废后两账都归零"
+        );
+
+        // 软删不是状态变更：`status` 仍是 IN_STOCK（作废 ≠ 出库/报废，三态约束不含 VOID）
+        let rows = db()
+            .find_with_params(
+                "SELECT status FROM biz_material_serial \
+                  WHERE source_id = ?::uuid AND deleted_at IS NOT NULL",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 3);
+        for row in &rows {
+            assert_eq!(row.get_typed::<String>("status").unwrap(), "IN_STOCK");
+        }
+
+        // 不变式①（W2c 口径）：在库序列号件数 == 库存数量
+        let in_stock: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_material_serial \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                    AND status = 'IN_STOCK' AND deleted_at IS NULL",
+                vec![
+                    Value::from(&Uuid::parse_str(MATERIAL_SN).unwrap()),
+                    Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                ],
+            )
+            .await
+            .unwrap();
+        assert_eq!(in_stock, 0, "作废后在库序列号件数必须归零");
+    }
+
+    /// ② 本单有序列号已出库 → 拒绝作废（409），库存 / 序列号 / 单据状态一个字节都不动。
+    #[tokio::test]
+    async fn cancel_refuses_when_serial_already_shipped() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_SN, "3", "40", "0")]).await;
+        // 模拟「已出库 1 件」：最小号转 OUTBOUND，库存同步 3 → 2（真实出库就是这么走的）
+        db().execute_with_params(
+            "UPDATE biz_material_serial SET status = 'OUTBOUND', outbound_at = now() \
+              WHERE id = (SELECT id FROM biz_material_serial \
+                           WHERE source_id = ?::uuid AND deleted_at IS NULL \
+                           ORDER BY serial_no LIMIT 1)",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap();
+        db().execute_with_params(
+            "UPDATE biz_inventory SET qty = 2, amount = 80, avg_cost = 40 \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL",
+            vec![
+                Value::from(&Uuid::parse_str(MATERIAL_SN).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+            ],
+        )
+        .await
+        .unwrap();
+
+        let err = change_stock_in_status(id, &cancel_req(Some("作废试试")), None)
+            .await
+            .expect_err("本单序列号已出库必须拒绝");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("序列号") && err.msg.contains("已出库"),
+            "文案要点名「是哪一类货走了」：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("SN-"),
+            "文案要带出具体号码（运维才能去查那一件）：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("退货入库冲销"),
+            "文案要给可执行出路：{}",
+            err.msg
+        );
+
+        // 整单回滚：序列号一条都没被软删、库存没有二次扣减、状态仍 POSTED
+        assert_eq!(
+            serial_counts_of(id).await,
+            (3, 0),
+            "拒绝时序列号一条都不许动"
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_SN).await.0,
+            dec("2"),
+            "拒绝时库存不许二次扣减"
+        );
+        assert_eq!(
+            detail_of(id).await.unwrap().header.status,
+            STATUS_POSTED,
+            "拒绝时必须整单回滚"
+        );
+    }
+
+    /// ③ 只退本单的号：同物料另一张收货单的序列号不能被连带作废。
+    #[tokio::test]
+    async fn cancel_voids_only_serials_of_that_receipt() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let first = post_new(vec![line(MATERIAL_SN, "2", "40", "0")]).await;
+        let second = post_new(vec![line(MATERIAL_SN, "1", "40", "0")]).await;
+        assert_eq!(serial_counts_of(first).await, (2, 0));
+        assert_eq!(serial_counts_of(second).await, (1, 0));
+
+        cancel(first, "少收两件").await;
+
+        assert_eq!(
+            serial_counts_of(first).await,
+            (0, 2),
+            "本单的号必须全部退回"
+        );
+        assert_eq!(
+            serial_counts_of(second).await,
+            (1, 0),
+            "别的单的号不能被连带作废（`source_id` 精确到单）"
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_SN).await.0,
+            dec("1"),
+            "库存只退本单那 2 件"
         );
     }
 

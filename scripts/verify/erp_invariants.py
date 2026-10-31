@@ -298,6 +298,60 @@ def group_c():
     check("C4 库存金额 = 数量 × 均价", "账实", "WARN", not bad_amt,
           f"{len(bad_amt)} 行金额与数量×均价不符" if bad_amt else "全部一致")
 
+    # C5 一物一码：在库序列号件数 = 库存数量（W2c 口径 · 不变式①，P10 新增）
+    #
+    # 两层判据：
+    #   ① 每个 (物料, 仓库) 的 `count(serial WHERE status='IN_STOCK')` 必须等于 `biz_inventory.qty`；
+    #   ② 没有仓库的序列号（`warehouse_id IS NULL`）本身就是账实缺口 —— 它进不了任何一本仓账，
+    #      按「(无仓库)」一行单独报出来（`batch-generate` 不带 warehouse 就会造出这种号）。
+    #
+    # 级别 WARN 而不是 BLOCKER：`serial_required` 可以在已有库存的物料上后开（W1c 允许 PUT），
+    # 那会立刻出现「历史按数量的库存 vs 0 条序列号」的过渡态 —— 不是账错，是需要人看一眼。
+    #
+    # ⚠️ 统计**必须**带 `deleted_at IS NULL`：作废/退回的序列号是软删行（P10 作废口径），
+    #    漏掉这个条件会把已作废的号当成在库（P9 交付时就是这样把「3 条存活 + 8 条已软删」
+    #    误读成「8 条 IN_STOCK 与在库 2 对不上」，白开了一张卡）。
+    bad_serial = q("""
+        with serial as (
+            select material_id, warehouse_id, count(*)::numeric as q
+              from biz_material_serial
+             where status = 'IN_STOCK' and deleted_at is null
+             group by 1, 2
+        ), inv as (
+            select material_id, warehouse_id, sum(qty) as q
+              from biz_inventory
+             group by 1, 2
+        )
+        select m.material_code,
+               coalesce(w.warehouse_code, '(无仓库)'),
+               coalesce(s.q,0)::text as 在库号,
+               coalesce(v.q,0)::text as 帐面,
+               (coalesce(s.q,0) - coalesce(v.q,0))::text as 差
+          from serial s
+          full outer join inv v
+            on v.material_id = s.material_id
+           and v.warehouse_id is not distinct from s.warehouse_id
+          join biz_material m on m.id = coalesce(s.material_id, v.material_id)
+          left join biz_warehouse w on w.id = coalesce(s.warehouse_id, v.warehouse_id)
+         where m.serial_required = true
+           and abs(coalesce(s.q,0) - coalesce(v.q,0)) > 0.0001
+    """)
+    check("C5 一物一码：在库序列号件数 = 库存数量", "账实", "WARN", not bad_serial,
+          f"{len(bad_serial)} 组「在库序列号 vs 帐面数量」不符" if bad_serial else "全部相符",
+          """with serial as (select material_id, warehouse_id, count(*)::numeric q
+                              from biz_material_serial
+                             where status='IN_STOCK' and deleted_at is null group by 1,2),
+                  inv as (select material_id, warehouse_id, sum(qty) q from biz_inventory group by 1,2)
+             select m.material_code, coalesce(w.warehouse_code,'(无仓库)'),
+                    coalesce(s.q,0)::text as 在库号, coalesce(v.q,0)::text as 帐面
+               from serial s
+               full outer join inv v on v.material_id=s.material_id
+                                   and v.warehouse_id is not distinct from s.warehouse_id
+               join biz_material m on m.id=coalesce(s.material_id,v.material_id)
+               left join biz_warehouse w on w.id=coalesce(s.warehouse_id,v.warehouse_id)
+              where m.serial_required = true
+                and abs(coalesce(s.q,0)-coalesce(v.q,0)) > 0.0001""")
+
 
 # ══════════════════════════════════════════════════════════════════
 # D. 单据链完整性

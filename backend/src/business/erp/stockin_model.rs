@@ -1361,6 +1361,16 @@ pub const SHORTFALL_PREFIX: &str = "INV_SHORTFALL|";
 /// 遇到它必须**拒绝作废**（没法知道该退多少金额），并提示走数据修复脚本 —— 绝不按现价估算。
 pub const MISSING_TXN_PREFIX: &str = "INV_NO_TXN|";
 
+/// 序列号已流出仓库的哨兵前缀（P10：本单生成的一物一码号码里已有出库 / 报废的件）。
+///
+/// 形态：`SERIAL_SHIPPED|<明细文案>`，例如
+/// `SERIAL_SHIPPED|收货单 IN-… 生成的一物一码序列号 SN-… 已出库（OUTBOUND）…`。
+///
+/// 为什么不与 [`SHORTFALL_PREFIX`] 合并：**判据不同**。一物一码物料的「货已出库」最硬的证据是
+/// 序列号状态，而不是库存数量 —— 同一物料后来又进过别的货时，数量上「够退」，
+/// 但退回来的不是本单那几件（按数量放开就会把别批的货冲掉）。
+pub const SERIAL_SHIPPED_PREFIX: &str = "SERIAL_SHIPPED|";
+
 /// 作废时**一行**要退回的数量与金额。
 ///
 /// 数量来自 `biz_stock_in_item`（**不**信单据头的 `total_qty`），金额来自
@@ -1879,6 +1889,119 @@ pub async fn serial_count_of(stock_in_id: Uuid) -> DbResult<i64> {
     Ok(count)
 }
 
+// ==================== 作废：退序列号（P10） ====================
+
+/// 本单生成的一条序列号（作废前的校验视图：号码 + 状态）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SerialBrief {
+    /// 系统内码（`SN-yyyyMMdd-NNNNNN`）。
+    pub serial_no: String,
+    /// 当前状态（`IN_STOCK` / `OUTBOUND` / `SCRAPPED`）。
+    pub status: String,
+}
+
+/// 序列号状态的中文文案（`409` 报文用）。
+fn serial_status_label(status: &str) -> &'static str {
+    match status {
+        serial_model::STATUS_OUTBOUND => "出库",
+        serial_model::STATUS_SCRAPPED => "报废",
+        _ => "变更",
+    }
+}
+
+/// 锁读本单生成的一物一码序列号（`source_type='PURCHASE' AND source_id = 本单`）。
+///
+/// `FOR UPDATE` 是必须的：作废与「单品出库 / 报废」改的是同一行的 `status`，
+/// 行锁让两边在这行上串行 —— 否则「刚校验完就有人出库」会让后面的软删漏掉已出库的件，
+/// 留下一条「单已作废、号还在库」的幽灵序列号（正是 W2c 口径要防的账实不符）。
+pub async fn lock_serials_of(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+) -> DbResult<Vec<SerialBrief>> {
+    // SCOPE-EXEMPT: 序列号台账是仓储数据，无归属列（口径同 serial_model）。
+    let rows = ex
+        .query_sql(
+            "SELECT serial_no, status FROM biz_material_serial \
+              WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
+              ORDER BY serial_no FOR UPDATE"
+                .to_string(),
+            vec![
+                Value::from(SERIAL_SOURCE_PURCHASE),
+                Value::from(&stock_in_id),
+            ],
+        )
+        .await?;
+    let mut serials = Vec::with_capacity(rows.len());
+    for row in rows {
+        serials.push(SerialBrief {
+            serial_no: row.get_typed("serial_no")?,
+            status: row.get_typed("status")?,
+        });
+    }
+    Ok(serials)
+}
+
+/// **作废时「退序列号」**（P10）：本单生成的号码必须全部仍在库，否则拒绝；全部在库则**软删**。
+/// 返回被软删的行数（0 行 = 该单不是一物一码，正常）。
+///
+/// # 口径（卡面 §一 三选一 → 取 ②+③ 的组合，理由写在这里免得下一张卡重猜）
+///
+/// 1. **不加 `VOID` 第四态**：`ck_biz_material_serial_status` 只认
+///    `IN_STOCK / OUTBOUND / SCRAPPED`（V0138 定稿）。加 `VOID` 要动迁移 + `ALL_STATUSES` +
+///    合法边表 + 前端状态映射 + 序列号分页筛选，只为一个「从未出库的单据作废」付这份代价不值；
+/// 2. **未出库 → 软删该单生成的号**（`deleted_at` 置位、行保留）而不是物理删：
+///    `uk_biz_material_serial_no` 是 `WHERE deleted_at IS NULL` 的部分唯一索引，
+///    软删后同号可被重新贴用（W2a 口径），而「谁的号、哪天作废」的审计痕迹不丢；
+///    物理删会同时丢掉痕迹与外键（`biz_stock_transfer_item_serial.serial_id` 是硬外键）；
+/// 3. **已出库 / 已报废 → 拒绝作废**（[`SERIAL_SHIPPED_PREFIX`]，handler 转 `409`）：
+///    与「货已部分出库」同款语义 —— 件已经离开仓库，只能先做退货入库冲销。
+///
+/// 幂等：重复作废在单据状态 CAS 处就被 `409` 拦住，本函数不会第二次执行；
+/// 即便执行，`deleted_at IS NULL` 的条件也让第二遍命中 0 行。
+pub async fn void_serials_of(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+    in_no: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let serials = lock_serials_of(ex, stock_in_id).await?;
+    if serials.is_empty() {
+        return Ok(0);
+    }
+    if let Some(blocked) = serials
+        .iter()
+        .find(|serial| serial.status != serial_model::STATUS_IN_STOCK)
+    {
+        return Err(DbError::InvalidValue(format!(
+            "{SERIAL_SHIPPED_PREFIX}收货单 {in_no} 生成的一物一码序列号 {} 已{}（{}），\
+             不能随单作废：那几件已经离开仓库，请先做退货入库冲销",
+            blocked.serial_no,
+            serial_status_label(&blocked.status),
+            blocked.status
+        )));
+    }
+    // SCOPE-EXEMPT: 序列号台账是仓储数据，无归属列（口径同 serial_model）。
+    let affected = ex
+        .exec_sql(
+            "UPDATE biz_material_serial \
+                SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+              WHERE source_type = ? AND source_id = ?::uuid AND status = ? \
+                AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::from(now),
+                Value::from(now),
+                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+                Value::from(SERIAL_SOURCE_PURCHASE),
+                Value::from(&stock_in_id),
+                Value::from(serial_model::STATUS_IN_STOCK),
+            ],
+        )
+        .await?;
+    Ok(affected)
+}
+
 // ==================== 采购单回写（已收数量 + 单据状态） ====================
 
 /// 回写采购明细的已收数量（条件更新：`received_qty + 本次 ≤ qty`），返回 `affected`。
@@ -2072,15 +2195,38 @@ mod pure_tests {
         assert_eq!(format_in_no("20261031", 1234567), "IN-20261031-1234567");
     }
 
-    /// ⑥ 作废哨兵：两个前缀必须互不包含（handler 靠 `strip_prefix` 分派 409 文案）。
+    /// ⑥ 作废哨兵：三个前缀必须互不包含（handler 靠 `strip_prefix` 分派 409 文案；
+    /// 一旦谁是谁的前缀，报文就会静默走错分支，把「序列号已出库」说成「库存不足」）。
     #[test]
     fn cancel_sentinels_are_distinct() {
         assert_eq!(SHORTFALL_PREFIX, "INV_SHORTFALL|");
         assert_eq!(MISSING_TXN_PREFIX, "INV_NO_TXN|");
-        assert!(!MISSING_TXN_PREFIX.starts_with(SHORTFALL_PREFIX));
-        assert!(!SHORTFALL_PREFIX.starts_with(MISSING_TXN_PREFIX));
+        assert_eq!(SERIAL_SHIPPED_PREFIX, "SERIAL_SHIPPED|");
+        let all = [SHORTFALL_PREFIX, MISSING_TXN_PREFIX, SERIAL_SHIPPED_PREFIX];
+        for (i, a) in all.iter().enumerate() {
+            for (j, b) in all.iter().enumerate() {
+                if i != j {
+                    assert!(
+                        !a.starts_with(b),
+                        "{a} 不能以 {b} 开头（前缀重叠会让文案串台）"
+                    );
+                    assert!(
+                        !b.starts_with(a),
+                        "{b} 不能以 {a} 开头（前缀重叠会让文案串台）"
+                    );
+                }
+            }
+        }
         assert_eq!(TXN_TYPE_OUT, "OUT");
         assert_ne!(BIZ_TYPE_PURCHASE_IN_CANCEL, BIZ_TYPE_PURCHASE_IN);
         assert_eq!(BIZ_TYPE_PURCHASE_IN_CANCEL, "PURCHASE_IN_CANCEL");
+    }
+
+    /// ⑦ P10：序列号状态文案（`409` 报文里「已出库 / 已报废」两个分支都要有落点）。
+    #[test]
+    fn serial_status_label_covers_all_states() {
+        assert_eq!(serial_status_label(serial_model::STATUS_OUTBOUND), "出库");
+        assert_eq!(serial_status_label(serial_model::STATUS_SCRAPPED), "报废");
+        assert_eq!(serial_status_label(serial_model::STATUS_IN_STOCK), "变更");
     }
 }
