@@ -257,7 +257,16 @@ export function fetchLocationList(warehouseId: string, includeDisabled = true): 
   );
 }
 
-/** 库位分页（关键词 / 仓库 / 类型 / 启用位） */
+/**
+ * 库位分页（关键词 / 仓库 / 类型 / 启用位）。
+ *
+ * ⚠️ P4-B 修正：这里原来写的是 `PageData<Location[]>`，而 `PageData<T>` 的 `list` 已经是 `T[]`
+ * —— 于是 `data.list` 的类型变成 `Location[][]`（二维）。之前没人调用过这个函数，`vue-tsc`
+ * 也就没报；库位管理页（`views/business/erp/location`）一用就露馅。
+ * 与 `fetchWarehousePage`（W4b-2 修过同一处）口径对齐：`PageData<Location>`。
+ *
+ * 真出参：`{ list: [ {...LocationRes} ], total, page, page_size }`（`handler.rs::location_page`）。
+ */
 export function fetchLocationPage(query: {
   keyword?: string;
   warehouse_id?: string;
@@ -265,8 +274,8 @@ export function fetchLocationPage(query: {
   status?: number;
   page?: number;
   page_size?: number;
-}): Promise<PageData<Location[]>> {
-  return get<PageData<Location[]>>(`${BASE}/location/page`, asParams(query));
+}): Promise<PageData<Location>> {
+  return get<PageData<Location>>(`${BASE}/location/page`, asParams(query));
 }
 
 /** 库位详情 */
@@ -1913,4 +1922,309 @@ export interface TrialBalance {
 /** 科目余额表（`GET /erp/ledger/trial-balance`，`period` 必填 `yyyy-MM`） */
 export function fetchTrialBalance(period: string): Promise<TrialBalance> {
   return get<TrialBalance>(`${BASE}/ledger/trial-balance`, asParams({ period }));
+}
+
+// ==================== ERP 主数据 CRUD（P4-A：计量单位 / 供应商） ====================
+
+/**
+ * 计量单位（完整 `UnitRes`，逐字抄 `dto.rs::UnitRes`，实打实 curl 过线上接口核对）。
+ *
+ * # 与 `UnitRow` 的关系
+ *
+ * `UnitRow` 是物料页只要「id + 名字」时的**子集**，字段名逐字一致；
+ * 本页要显示折算率 / 折算基准 / 备注，所以在它上面扩成完整形状，不另起一套字段名
+ * （另起一套 = 同一张表两个类型，早晚漂移）。
+ *
+ * # ⚠️ 后端**没有**「小数位数」字段
+ *
+ * 卡面草稿的表格列写了「小数位数」，但 `biz_unit`（`V0137`）与 `UnitRes` 里都没有这一列：
+ * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark`。
+ * 数量精度是库口径（`NUMERIC(18,4)`），不是单位属性 —— 凭空造一列只会永远显示 `-`。
+ */
+export interface Unit extends UnitRow {
+  /** 折算基准单位（`null` = 基础单位） */
+  base_unit_id: string | null;
+  /** 折算率：1 个本单位 = `rate` 个基准单位（`Decimal` 以字符串下发，如 `"12.000000"`） */
+  rate: number | string;
+  /** 排序值 */
+  sort_order: number;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/** 新建计量单位（`dto::CreateUnitReq`；`is_base=false` 时 `base_unit_id` 与 `rate` 必填） */
+export interface CreateUnitReq {
+  /** 单位编码（≤20，未删除内唯一） */
+  unit_code: string;
+  /** 单位名称（≤50） */
+  unit_name: string;
+  /** 是否基础单位（后端缺省 true） */
+  is_base?: boolean;
+  /** 折算基准单位（`is_base=true` 时**不能**填，否则 400） */
+  base_unit_id?: string | null;
+  /** 折算率（`is_base=true` 时只能是 1） */
+  rate?: number | string | null;
+  /** 启用状态：1 / 0 */
+  status?: number;
+  /** 排序值 */
+  sort_order?: number;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/**
+ * 编辑计量单位（`dto::UpdateUnitReq`）。
+ *
+ * 缺席 = 不改；`base_unit_id: null` = **清空折算基准 → 变成基础单位**（后端会把 rate 归 1），
+ * 这是 `double_option` 语义，页面只在用户真改了才带。
+ */
+export interface UpdateUnitReq {
+  /** 单位名称 */
+  unit_name?: string;
+  /** 折算基准单位（`null` = 清空 → 基础单位） */
+  base_unit_id?: string | null;
+  /** 折算率 */
+  rate?: number | string;
+  /** 启用状态 */
+  status?: number;
+  /** 排序值 */
+  sort_order?: number;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/**
+ * 计量单位分页（`GET /erp/unit/page`，服务端分页）。
+ *
+ * 权限码 `business:erp:unit:list`；list 元素是完整 `UnitRes`（**不是** `UnitCard`，
+ * 后端 `unit_page` 映射的是 `UnitRes::from`）。
+ */
+export function fetchUnitPage(query: {
+  keyword?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<Unit>> {
+  return get<PageData<Unit>>(`${BASE}/unit/page`, asParams(query));
+}
+
+/** 计量单位详情（`GET /erp/unit/{id}`，也是 `:list` 权限） */
+export function fetchUnitDetail(id: string): Promise<Unit> {
+  return get<Unit>(`${BASE}/unit/${id}`);
+}
+
+/** 新建计量单位（`POST /erp/unit`，权限 `business:erp:unit:create`，回参是整个 `UnitRes`） */
+export function createUnit(payload: CreateUnitReq): Promise<Unit> {
+  return post<Unit>(`${BASE}/unit`, payload);
+}
+
+/** 编辑计量单位（`PUT /erp/unit/{id}`，权限 `business:erp:unit:update`） */
+export function updateUnit(id: string, payload: UpdateUnitReq): Promise<Unit> {
+  return put<Unit>(`${BASE}/unit/${id}`, payload);
+}
+
+/**
+ * 删除计量单位（`DELETE /erp/unit/{id}`，软删，权限同样是 `:update`）。
+ *
+ * 被物料引用时后端返回 **409 + 60005**（「还有 N 个物料在用该单位，不能删除」），
+ * 页面要把 `ApiError.message` 原样弹给用户 —— 别自己编「删除失败」。
+ */
+export function deleteUnit(id: string): Promise<void> {
+  return del<void>(`${BASE}/unit/${id}`);
+}
+
+/** 新建供应商（`dto::CreateSupplierReq`，字段与 `biz_supplier` 列逐字一致） */
+export interface CreateSupplierReq {
+  /** 编码（≤40，未删除内唯一） */
+  supplier_code: string;
+  /** 名称（≤200） */
+  supplier_name: string;
+  /** 简称（≤100） */
+  short_name?: string | null;
+  /** 联系人（≤50） */
+  contact_person?: string | null;
+  /** 联系电话（≤30） */
+  contact_phone?: string | null;
+  /** 邮箱（≤120） */
+  email?: string | null;
+  /** 纳税人识别号（≤50） */
+  tax_no?: string | null;
+  /** 地址（≤255） */
+  address?: string | null;
+  /** 账期天数（≥0，缺省 0） */
+  credit_days?: number;
+  /** 信用额度（≥0，缺省 0） */
+  credit_limit?: number | string | null;
+  /** 应付科目（会计科目 id） */
+  payable_account_id?: string | null;
+  /** 开票抬头（≤200） */
+  invoice_title?: string | null;
+  /** 开户行（≤200） */
+  invoice_bank_name?: string | null;
+  /** 银行账号（≤64） */
+  invoice_bank_account?: string | null;
+  /** 启用状态：1 / 0 */
+  status?: number;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/** 编辑供应商（`dto::UpdateSupplierReq`；缺席 = 不改，`null` = 清空） */
+export interface UpdateSupplierReq {
+  /** 名称 */
+  supplier_name?: string;
+  /** 简称 */
+  short_name?: string | null;
+  /** 联系人 */
+  contact_person?: string | null;
+  /** 联系电话 */
+  contact_phone?: string | null;
+  /** 邮箱 */
+  email?: string | null;
+  /** 纳税人识别号 */
+  tax_no?: string | null;
+  /** 地址 */
+  address?: string | null;
+  /** 账期天数 */
+  credit_days?: number;
+  /** 信用额度 */
+  credit_limit?: number | string;
+  /** 应付科目（`null` = 清空） */
+  payable_account_id?: string | null;
+  /** 开票抬头 */
+  invoice_title?: string | null;
+  /** 开户行 */
+  invoice_bank_name?: string | null;
+  /** 银行账号 */
+  invoice_bank_account?: string | null;
+  /** 启用状态 */
+  status?: number;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/**
+ * 供应商分页（`GET /erp/supplier/page`，服务端分页）。
+ *
+ * 权限码 `business:erp:supplier:list`；list 元素是完整 `SupplierRes`（含 `tax_no` / `email` 等，
+ * 不是只读下拉用的 `SupplierCard` 子集），所以列表页能直接出「税号」列。
+ */
+export function fetchSupplierPage(query: {
+  keyword?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<Supplier>> {
+  return get<PageData<Supplier>>(`${BASE}/supplier/page`, asParams(query));
+}
+
+/** 供应商详情（`GET /erp/supplier/{id}`，也是 `:list` 权限） */
+export function fetchSupplierDetail(id: string): Promise<Supplier> {
+  return get<Supplier>(`${BASE}/supplier/${id}`);
+}
+
+/** 新建供应商（`POST /erp/supplier`，权限 `business:erp:supplier:create`） */
+export function createSupplier(payload: CreateSupplierReq): Promise<Supplier> {
+  return post<Supplier>(`${BASE}/supplier`, payload);
+}
+
+/** 编辑供应商（`PUT /erp/supplier/{id}`，权限 `business:erp:supplier:update`） */
+export function updateSupplier(id: string, payload: UpdateSupplierReq): Promise<Supplier> {
+  return put<Supplier>(`${BASE}/supplier/${id}`, payload);
+}
+
+/**
+ * 删除供应商（`DELETE /erp/supplier/{id}`，软删，权限同样是 `:update`）。
+ *
+ * 被采购单引用时后端返回 **409**，`ApiError.message` 原样弹给用户。
+ */
+export function deleteSupplier(id: string): Promise<void> {
+  return del<void>(`${BASE}/supplier/${id}`);
+}
+
+// ==================== 财务基础页：会计科目 / 会计期间（P4-C，只读） ====================
+
+/**
+ * 会计科目类别（逐字抄 `backend/migrations/business/V0141` 的
+ * `ck_biz_account_category` CHECK 约束：5 个字面量，**损益是 `PROFIT_LOSS` 不是 `PROFIT`**）。
+ */
+export type AccountCategory = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'COST' | 'PROFIT_LOSS';
+
+/** 余额方向（`ck_biz_account_direction`：`DEBIT|CREDIT`） */
+export type BalanceDirection = 'DEBIT' | 'CREDIT';
+
+/**
+ * 会计科目分页（`GET /erp/account/page`，服务端分页）。
+ *
+ * 入参逐字抄 `dto.rs::AccountFilter`：`keyword`（编码/名称 LIKE）、`account_category`、
+ * `is_leaf`（`Some(true)` 只看末级）、`parent_id`、`status`（1 启用 / 0 停用）。
+ * 空串一律不发（`asParams` 已滤；后端把 `?keyword=` 当「等于空串」查 0 行）。
+ *
+ * 树形页面一次把整棵树拉下来（`page_size` 给大值）再在前端按 `parent_id` 拼树 ——
+ * 后端没有「树接口」，也不该为 4 条科目造一个。
+ */
+export function fetchAccountPage(query: {
+  keyword?: string;
+  account_category?: AccountCategory | '';
+  is_leaf?: boolean;
+  parent_id?: string;
+  status?: number;
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<AccountRow>> {
+  return get<PageData<AccountRow>>(`${BASE}/account/page`, asParams(query));
+}
+
+/**
+ * 会计期间状态（逐字抄 `ck_biz_period_status`：`NOT_OPENED|OPEN|CLOSED`）。
+ *
+ * 注意：**没有** `未结账` 这种中间态，结账走 `OPEN → CLOSED` 一步；
+ * `NOT_OPENED` 是「尚未开启」，不是「已关闭」。
+ */
+export type PeriodStatus = 'NOT_OPENED' | 'OPEN' | 'CLOSED';
+
+/** 会计期间（逐字抄 `dto.rs::PeriodRes`） */
+export interface AccountPeriodRow {
+  /** 主键 */
+  id: string;
+  /** 年份（如 2026） */
+  period_year: number;
+  /** 月份（1..12） */
+  period_month: number;
+  /** 期间编码 `yyyy-MM`（如 `2026-10`，库列 VARCHAR(7)） */
+  period_code: string;
+  /** 开始日 `YYYY-MM-DD` */
+  start_date: string;
+  /** 结束日 `YYYY-MM-DD` */
+  end_date: string;
+  /** 状态 */
+  status: PeriodStatus;
+  /** 结账时间（`CLOSED` 后才有值） */
+  closed_at: string | null;
+  /** 结账人 */
+  closed_by: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 会计期间分页（`GET /erp/period/page`，服务端分页）。
+ *
+ * 入参逐字抄 `dto.rs::PeriodFilter`：`period_year` + `status`，**没有关键词**（期间编码就是年月）。
+ */
+export function fetchPeriodPage(query: {
+  period_year?: number;
+  status?: PeriodStatus | '';
+  page?: number;
+  page_size?: number;
+}): Promise<PageData<AccountPeriodRow>> {
+  return get<PageData<AccountPeriodRow>>(`${BASE}/period/page`, asParams(query));
 }

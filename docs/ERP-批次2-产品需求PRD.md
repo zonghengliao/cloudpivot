@@ -65,7 +65,7 @@
 | **F22** | 序列号池：`IN_STOCK` 8 件、`OUTBOUND` 2 件、`SCRAPPED` 1 件 —— 出库验收**不要自己造数据**，直接用这 8 件在库的；`biz_inventory_location` 目前 **0 行**（库位库存未启用，出库一律落「整仓汇总行」`location_id IS NULL`） | `select status,count(*) from biz_material_serial group by 1`；`select count(*) from biz_inventory_location` |
 | **F23** | 角色只有 5 个：`SUPER_ADMIN` / `MUTEX_A`(制单员) / `MUTEX_B`(审核员) / `QA_LIMITED` / `QA_VIEWER`。**批次 1 的迁移里写的 `FINANCE`/`ACCOUNTANT`/`ADMIN` 三个角色在本库不存在** → 那些授权语句是**空操作**（0 行），实际只有超管能看到应付 | `select role_code from sys_role where deleted_at is null`；对照 `V0151__erp_payable_permissions.up.sql` 的 `role_code IN (...)` 列表 | 本批菜单种子的授权段**必须**同时写「**真实存在**的角色 + 期望角色（空操作不报错）」，并在附录里点明「上线前要么建角色，要么只给超管」 |
 
-## 0.3 实库与实码事实（F24–F32）—— 本批必须复用、不许重写的部分
+## 0.3 实码事实（F24–F30）—— 本批必须复用、不许重写的部分
 
 | # | 结论 | 证据（文件:行） | 对本批的约束 |
 |---|---|---|---|
@@ -76,8 +76,6 @@
 | **F28** | 一物一码物料的**账面数量是派生值**：`recompute_quantity` 把 `biz_inventory.qty` 直接置为 `COUNT(serial where status='IN_STOCK')`，`amount` 置为 `qty × avg_cost`；序列号状态流转（`IN_STOCK→OUTBOUND`）时会自己写一条 `OUT` 流水（`biz_type='SERIAL_OUT'`、`doc_type='MATERIAL_SERIAL'`） | `backend/src/business/erp/serial_model.rs:592-629`（`recompute_quantity`）、`715-735`（`link_inventory`）、`658-707`（`post_serial_txn`，流水金额 = `qty × avg_cost`） | ⚠️ **本批最大的坑**：一物一码物料**不能再走 `qty = qty − n`**（会被下一次 `recompute_quantity` 覆盖，且会和序列号件数打架）→ 出库必须**按物料类型分流两条扣减路径**（决策 ⑬） |
 | **F29** | 序列号状态机**单向不可逆**：只允许 `IN_STOCK→OUTBOUND`、`IN_STOCK→SCRAPPED`、`OUTBOUND→SCRAPPED`；`OUTBOUND→IN_STOCK` **明确禁止**，并有单测 `assert!(!can_transition("OUTBOUND","IN_STOCK"), "出库不能回库")` | `serial_model.rs:347-375`（`can_transition`）、`serial_model.rs:1243-1265`（单测） | **销售退货若要做，就必须打破这条已上线且有单测的规则** → 这是决策 ⑥「本批不做退货」的决定性理由 |
 | **F30** | 调拨发货的同事务不变式（可直接照抄给销售出库）：①动过的库存行 `qty ≥ 0`；②`serial_required` 物料「账面数量 == 在库序列号件数」；③成本守恒 `SUM(OUT amount) == SUM(IN amount)` | `transfer_model.rs:2129-2200`（`assert_settle_invariants`） | 销售出库的等价不变式：①`qty ≥ 0`（或仓库允许负库存时显式放行）；②一物一码 `qty == COUNT(IN_STOCK)`；③**成本凭证 6401 合计 == Σ 出库流水 amount（按 2 位对齐规则，见 4.5）** |
-| **F31** | **菜单结构（今日刚变过，必须按最新）**：`commit 8fa2d1e「feat(menu): 去掉 ERP 顶级目录，4 个业务目录提到根级」` 之后，**已不存在 ERP 顶级目录 0940**。现在 4 个 ERP 业务目录都挂在**根级**（`parent_id IS NULL`）：`0946 采购管理`(sort=62, auth_code=`erp-purchase`) / `0e01 仓库管理`(66, `erp-warehouse`) / `0e02 财务管理`(72, `erp-finance`) / `0e03 基础数据`(76, `erp-master-data`)。权限码唯一来源是 `sys_menu.auth_code`（**没有 `sys_permission` 表**），共 **61 条** `business:erp:%`，格式 `business:erp:{资源}:{动作}`，动作实测 `list/detail/create/update/delete/status/audit/view/generate/trial-balance`；`sys_menu` id 段 `1000–1010` 已用（1006 空号），1010 = `payable:detail` | `select right(id::text,4),parent_id,menu_type,auth_code,path,sort_order,title from sys_menu`；`select count(*) from sys_menu where auth_code like 'business:erp:%'` → 61；`git log --oneline -2`（`8fa2d1e`） | 本批新增的「销售管理」必须是**根级目录**（`parent_id=NULL`，sort 插在 62 与 66 之间取 64），**不许再挂到 0940 下**（该行已不存在，挂上去会变成孤儿菜单）；id 从 `1011` 起；授权走 `sys_role_menu` |
-| **F32** | 前端页面目录是 `frontend/src/views/business/erp/{ledger,material,payable,purchase,serial,shared,stockin,transfer,voucher,warehouse}`（**小写、无连字符**），api 层在 `frontend/src/api/business/erp/`；`sys_menu.component` 存的就是 `business/erp/{page}/index` 形式 | `ls frontend/src/views/business/erp/` | 本批 6 个新页面按同风格命名：`customer` `saleorder` `stockout` `receivable` `receipt` `report`；`component` 写 `business/erp/saleorder/index`（**不是** `sale-order`）—— 若按 URL 里的连字符命名，前端路由会找不到文件 |
 
 ## 0.4 与批次 1 文档的 7 处已知偏差（**必须按实库/实码执行**）
 
@@ -2001,7 +1999,7 @@ DRAFT ──提交──▶ SUBMITTED ──审批通过──▶ APPROVED
 ## 5.0 视觉与布局约定（沿用批次 1 §4.0，只补 3 条销售侧新增）
 
 批次 1 已定的 4 条（配色莫兰迪四色 → TDesign token、状态标签色统一、列表页骨架、数值显示规范）
-**本批全部沿用，不重新定**。前端页面文件落在 `frontend/src/views/business/erp/`（F32）。
+**本批全部沿用，不重新定**。前面板文件落在 `frontend/src/views/business/erp/`（F31）。
 
 本批**补 3 条**：
 
@@ -2248,7 +2246,7 @@ Tab 5 勾稽表：四条恒等式，全部 ✅ 才绿
 格式：business:erp:{资源}:{动作}
 资源：小写 + 连字符（customer / customer-credit / sale-order / stock-out / receivable / receipt / sale-report）
 动作：list / detail / create / update / delete / status / audit / adjust / freeze / approve / print / export / view
-唯一来源：sys_menu.auth_code（**本仓没有 sys_permission 表**，F31 已核实）
+唯一来源：sys_menu.auth_code（**本仓没有 sys_permission 表**，F17/F19 已核实）
 菜单节点自带 :list 码；按钮节点各占一个码
 ```
 
@@ -2378,19 +2376,18 @@ Tab 5 勾稽表：四条恒等式，全部 ✅ 才绿
 
 # 七、菜单结构
 
-## 7.1 决策：新增 1 个**根级**目录「销售管理」，与现有 4 个 ERP 目录平级
+## 7.1 决策：挂在既有「ERP」目录下，新增 1 个二级分组
 
 ```
-现状（实库，F31 —— 今天刚改过，必须按最新）：
-  根级（parent_id IS NULL）：
-    0946  采购管理   (menu_type=1, sort=62, erp-purchase)   → 采购订单/收货入库/应付账款/供应商/采购明细
-    0e01  仓库管理   (1, sort=66, erp-warehouse)
-    0e02  财务管理   (1, sort=72, erp-finance)
-    0e03  基础数据   (1, sort=76, erp-master-data)
-  ⚠️ 原来的顶级目录「0940 ERP」已在 commit 8fa2d1e 中删除，4 个业务目录被提到根级。
+现状（实库，F19）：
+  20000000-…-000940  ERP            (menu_type=1, 目录, sort=60, icon=app)
+    ├─ 000946  采购管理            (1, sort=10, icon=shopping-cart)  → 采购订单/收货入库/应付账款/供应商/采购明细
+    ├─ 0e01    仓库管理            (1, sort=20, icon=server)
+    ├─ 0e02    财务管理            (1, sort=30, icon=money)
+    └─ 0e03    基础数据            (1, sort=40, icon=folder)
 
-本批新增（也挂在根级，sort 插在采购 62 与仓库 66 之间取 64）：
-  20000000-…-000e04  销售管理   (1, sort=64, icon=shopping, parent_id=NULL)
+本批新增：
+  20000000-…-000e04  销售管理      (1, sort=15, icon=shopping)      ← 插在采购(10)与仓库(20)之间
     ├─ 1011  客户档案   customer:list
     ├─ 1012  销售订单   sale-order:list
     ├─ 1013  销售出库   stock-out:list
@@ -2399,22 +2396,19 @@ Tab 5 勾稽表：四条恒等式，全部 ✅ 才绿
     └─ 1016  销售报表   sale-report:list
 ```
 
-**为什么必须是根级**：`sys_menu` 里已经**没有** `0940` 这一行（F31），把它写成父级会得到一个
-`parent_id` 指向不存在行的孤儿菜单 —— 前端菜单树渲染时会直接丢掉这一支（不报错，更难查）。
-
 **为什么应收/收款放「销售管理」而不是「财务管理」**：
 批次 1 把「应付账款」放在「采购管理」下（id 1009，parent 0946），本批对称 ——
 往来账跟着业务线走，财务在「财务管理」下看凭证与总账。这样销售的日常路径是「一条线走完」，
-不用在多个一级目录间跳。财务的日常路径是「凭证/总账 + 应收/收款」，也能直达（菜单可收藏）。
+不用在两个一级目录间跳。财务的日常路径是「财务 manages 凭证/总账 + 应收/收款」，也能直达（菜单可收藏）。
 
 ## 7.2 完整菜单树（本批新增 7 行：1 目录 + 6 菜单）
 
 | id 后缀 | 标题 | menu_type | auth_code | path | 父级 | component |
 |---|---|---|---|---|---|---|
-| `0e04` | 销售管理 | 1（目录，**根级**） | `erp-sale` | `/business/erp/sale-mgmt` | `NULL` | — |
+| `0e04` | 销售管理 | 1（目录） | `erp-sale` | `/business/erp/sale-mgmt` | `0940` | — |
 | `1011` | 客户档案 | 2 | `business:erp:customer:list` | `/business/erp/customer` | `0e04` | `business/erp/customer/index` |
-| `1012` | 销售订单 | 2 | `business:erp:sale-order:list` | `/business/erp/sale-order` | `0e04` | `business/erp/saleorder/index` |
-| `1013` | 销售出库 | 2 | `business:erp:stock-out:list` | `/business/erp/stock-out` | `0e04` | `business/erp/stockout/index` |
+| `1012` | 销售订单 | 2 | `business:erp:sale-order:list` | `/business/erp/sale-order` | `0e04` | `business/erp/sale-order/index` |
+| `1013` | 销售出库 | 2 | `business:erp:stock-out:list` | `/business/erp/stock-out` | `0e04` | `business/erp/stock-out/index` |
 | `1014` | 应收管理 | 2 | `business:erp:receivable:list` | `/business/erp/receivable` | `0e04` | `business/erp/receivable/index` |
 | `1015` | 收款管理 | 2 | `business:erp:receipt:list` | `/business/erp/receipt` | `0e04` | `business/erp/receipt/index` |
 | `1016` | 销售报表 | 2 | `business:erp:sale-report:list` | `/business/erp/report` | `0e04` | `business/erp/report/index` |
@@ -2429,8 +2423,8 @@ Tab 5 勾稽表：四条恒等式，全部 ✅ 才绿
 INSERT INTO sys_menu (id, name, menu_type, auth_code, path, parent_id, component,
                       sort_order, status, icon, title, is_visible, module_code)
 VALUES ('20000000-0000-0000-0000-000000000e04'::uuid, 'erp-sale', 1, 'erp-sale',
-        '/business/erp/sale-mgmt', NULL,        -- 根级目录（F31：0940 已被 8fa2d1e 删除，不能挂上去）
-        NULL, 64, 1, 'shopping', '销售管理', TRUE, 'business')
+        '/business/erp/sale-mgmt', '20000000-0000-0000-0000-000000000940'::uuid,
+        NULL, 15, 1, 'shopping', '销售管理', TRUE, 'business')
 ON CONFLICT (id) DO NOTHING;
 
 -- ② 菜单节点（auth_code = :list，name 也写 auth_code —— 与 V0151 同口径）
@@ -2443,11 +2437,11 @@ VALUES
   10, 1, 'user', '客户档案', TRUE, 'business'),
  ('20000000-0000-0000-0000-000000001012'::uuid, 'business:erp:sale-order:list', 2,
   'business:erp:sale-order:list', '/business/erp/sale-order',
-  '20000000-0000-0000-0000-000000000e04'::uuid, 'business/erp/saleorder/index',
+  '20000000-0000-0000-0000-000000000e04'::uuid, 'business/erp/sale-order/index',
   20, 1, 'file-add', '销售订单', TRUE, 'business'),
  ('20000000-0000-0000-0000-000000001013'::uuid, 'business:erp:stock-out:list', 2,
   'business:erp:stock-out:list', '/business/erp/stock-out',
-  '20000000-0000-0000-0000-000000000e04'::uuid, 'business/erp/stockout/index',
+  '20000000-0000-0000-0000-000000000e04'::uuid, 'business/erp/stock-out/index',
   30, 1, 'upload', '销售出库', TRUE, 'business'),
  ('20000000-0000-0000-0000-000000001014'::uuid, 'business:erp:receivable:list', 2,
   'business:erp:receivable:list', '/business/erp/receivable',
@@ -2487,14 +2481,14 @@ BEGIN
 END $$;
 ```
 
-> 注意：`sys_menu.name` 对按钮节点写的是 **auth_code 本身**（实码 V0151 的做法，F31 已核实），
+> 注意：`sys_menu.name` 对按钮节点写的是 **auth_code 本身**（实码 V0151 的做法，F19 已核实），
 > 对目录/菜单写的是**中文名**。`title` 才是给人看的中文。写反了前端会显示权限码。
 
 ## 7.4 与既有菜单共存的 3 个注意点
 
 | # | 注意点 | 处理 |
 |---|---|---|
-| 1 | 菜单在最近两个提交里刚改过两次：`V0154`（按业务线重组成 4 个分组）+ `8fa2d1e`（**去掉 ERP 顶级目录，4 个分组提到根级**） | 本批新增的「销售管理」必须**根级 + 沿用同一套命名规范**（`erp-*` 的 auth_code 前缀、目录 `is_visible=TRUE`、`module_code='business'`），且**开工前重新 `select` 一次 `sys_menu` 确认结构没再变** |
+| 1 | V0154 刚做过「ERP 菜单按业务线重组」（把采购/仓库/财务/基础数据 4 个分组建出来） | 本批新增的「销售管理」必须**沿用同一套目录命名与 icon 规范**（`erp-*` 的 auth_code 前缀、目录 `is_visible=TRUE`、`module_code='business'`），否则视觉不一致 |
 | 2 | 菜单 id 段 `1000–1010` 已用（含 1010 = 应付详情）；其中 **1006 是空号**（历史留白，未见对应菜单行） | 本批从 **1011** 起；**1006 也一并不复用**（空号可能被其他分支的迁移预定，复用会撞 `ON CONFLICT` 静默跳过，反而更难查） |
 | 3 | 前端路由是**静态注册**（`component` 字段指定路径），菜单只控制可见性 | 新增 6 个页面必须先有 `.vue` 文件，否则点菜单白屏。开发顺序必须是「先页面后菜单」（9.4） |
 
@@ -2793,7 +2787,7 @@ V0155 `erp_menu_title_icon_fix` 均已应用，F21）；V0152/V0153 是空号，
 | 42 | GET | `/business/erp/report/aging` | 应收账龄表 | `sale-report:list` |
 | 43 | GET | `/business/erp/report/reconcile` | 销售与应收勾稽表 | `sale-report:view` |
 
-> 路由前缀沿用批次 1（`/business/erp/{resource}/...`，实测 `GET /business/erp/payable/page` 同款）。
+> 路由前缀沿用批次 1（`/business/erp/{resource}/...`，F19 实测 `GET /business/erp/payable/page` 同款）。
 > **不新增前缀、不改既有路由**。
 
 ## 9.4 开发顺序（依赖决定的，不能乱）
@@ -3151,10 +3145,10 @@ CHECK（照抄 F7 的 4 条核心）：`unpaid_amount = amount − received_amou
   information_schema.columns / pg_constraint / pg_indexes → 42 张 biz_ 表结构
   biz_account（4 行）/ biz_seq（6 行）/ biz_voucher_rule（1 行）
   schema_migrations（最大 version=155）
-  sys_menu（61 个 business:erp:* 权限码；ERP 4 个业务目录在根级（8fa2d1e 后已无 0940）；id 段 1000–1010 已用）
+  sys_menu（61 个 business:erp:* 权限码，ERP 目录 0940，id 段 1000–1010 已用）
   sys_role（5 个角色）
 
-实码（/opt/cloudpivot @ 8fa2d1e，本 PRD 提交前的最新 main）：
+实码（/opt/cloudpivot @ fe84821）：
   backend/src/business/erp/voucher.rs:80-105, 330-361, 44-51        凭证引擎/规则/红冲
   backend/src/business/erp/payable.rs:220-310                        应付生成（应收镜像）
   backend/src/business/erp/transfer_model.rs:1847-1893, 2129-2200    出库扣减/不变式

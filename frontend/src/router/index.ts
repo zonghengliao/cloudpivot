@@ -341,11 +341,23 @@ const routes: RouteRecordRaw[] = [
         // 漏注册 = 点菜单进 404。
         //
         // 一个菜单项 = 一个页面：左侧仓库树 + 右侧按仓库过滤的库位列表（同页，不是两个 tab），
-        // 所以只注册这一条；库位菜单（…0942 `/business/erp/location`）留给 W4 的库位独立卡。
+        // 所以仓库只注册这一条；库位独立页见下面 `business/erp/location`（P4-B）。
         path: 'business/erp/warehouse',
         name: 'BusinessErpWarehouse',
         component: () => import('@/views/business/erp/warehouse/index.vue'),
         meta: { title: '仓库管理', permission: 'business:erp:warehouse:list' },
+      },
+      {
+        // ==================== ERP 主数据（P4-B · 库位） ====================
+        // 用户报的 404 就是这个：`sys_menu`（V0141 种子 …0942）里有「库位管理」
+        // `/business/erp/location`，component `business/erp/location/index`，
+        // 但前端一直没注册路由（**手工注册，没有 views 自动扫描**）→ 点菜单进 404。
+        // 与仓库页的分工：仓库页管「单仓内」的库位增删改；本页是跨仓库总览
+        //（服务端分页 + 仓库/类型/启用位筛选 + 详情抽屉），两页共用同一个库位弹窗。
+        path: 'business/erp/location',
+        name: 'BusinessErpLocation',
+        component: () => import('@/views/business/erp/location/index.vue'),
+        meta: { title: '库位管理', permission: 'business:erp:location:list' },
       },
       {
         // ==================== ERP 主数据（W4b-1 · 物料） ====================
@@ -355,6 +367,23 @@ const routes: RouteRecordRaw[] = [
         name: 'BusinessErpMaterial',
         component: () => import('@/views/business/erp/material/index.vue'),
         meta: { title: '物料管理', permission: 'business:erp:material:list' },
+      },
+      {
+        // ==================== ERP 主数据（P4-A · 计量单位 / 供应商） ====================
+        // `sys_menu`（V0141 种子 …0944 / …0945）path = `/business/erp/unit` / `/business/erp/supplier`，
+        // component `business/erp/unit/index` / `business/erp/supplier/index` —— 与下面的
+        // 文件路径逐字一致。**路由手工注册**（没有 views 自动扫描），漏注册 = 点菜单进 404
+        // （本卡存在的理由就是修这个 404）。
+        path: 'business/erp/unit',
+        name: 'BusinessErpUnit',
+        component: () => import('@/views/business/erp/unit/index.vue'),
+        meta: { title: '计量单位', permission: 'business:erp:unit:list' },
+      },
+      {
+        path: 'business/erp/supplier',
+        name: 'BusinessErpSupplier',
+        component: () => import('@/views/business/erp/supplier/index.vue'),
+        meta: { title: '供应商', permission: 'business:erp:supplier:list' },
       },
       {
         // ==================== ERP 序列号（W4b-2） ====================
@@ -426,6 +455,25 @@ const routes: RouteRecordRaw[] = [
         name: 'BusinessErpLedger',
         component: () => import('@/views/business/erp/ledger/index.vue'),
         meta: { title: '总账 / 科目余额表', permission: 'business:erp:ledger:list' },
+      },
+      {
+        // ==================== ERP 会计科目（P4-C，只读树形） ====================
+        // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
+        // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404（本卡就是来补这个洞的）。
+        path: 'business/erp/account',
+        name: 'BusinessErpAccount',
+        component: () => import('@/views/business/erp/account/index.vue'),
+        meta: { title: '会计科目', permission: 'business:erp:account:list' },
+      },
+      {
+        // ==================== ERP 会计期间（P4-C，只读） ====================
+        // `sys_menu` 种子（V0141 …0947）path = `/business/erp/period`，component
+        // `business/erp/period/index`；同样手工注册，漏了就 404。
+        path: 'business/erp/period',
+        name: 'BusinessErpPeriod',
+        component: () => import('@/views/business/erp/period/index.vue'),
+        meta: { title: '会计期间', permission: 'business:erp:period:list' },
       },
       {
         path: 'result/403',
