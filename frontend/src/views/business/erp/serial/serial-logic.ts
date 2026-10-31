@@ -17,13 +17,29 @@
  * | 来源类型 | `PURCHASE` / `TRANSFER` / `PRODUCE` / `RETURN` | `serial_model.rs::SOURCE_TYPES` |
  * | 单次上限 | 1000 | `serial_model.rs::MAX_BATCH_COUNT` |
  */
-import type { SerialRow, SerialSourceType, SerialStatus } from '@/api/business/erp';
+import type { SerialBatchRes, SerialRow, SerialSourceType, SerialStatus } from '@/api/business/erp';
 
 /** 默认每页条数（服务端分页；序列号是一物一码，条数比主数据多一个量级） */
 export const SERIAL_PAGE_SIZE = 20;
 
 /** 单次批量生成上限（与 `serial_model::MAX_BATCH_COUNT` 一致，前端提前拦） */
 export const MAX_BATCH_COUNT = 1000;
+
+/**
+ * 成本单价最多 6 位小数（与 `biz_inventory_txn.unit_cost numeric(18,6)` 同精度）。
+ *
+ * 前端只做「位数」校验，**不做舍入**：6 位四舍五入是后端 `stockin_model::unit_price`
+ * （`MidpointAwayFromZero`，`:125`）的事，前端抹一次等于把两个数悄悄改成不同的值。
+ */
+export const MAX_UNIT_COST_DECIMALS = 6;
+
+/**
+ * 参数错误码（`shared::error_code::PARAM_INVALID`）。
+ *
+ * `batch-generate` 的 `unit_cost` 缺失 / `≤0` / 非数字 / 超范围都是 **HTTP 400 + 10001**，
+ * 报文里已经写清「为什么必须填」，所以前端**原样透出**（见 `batchGenerateErrorText`）。
+ */
+export const PARAM_INVALID_CODE = 10001;
 
 /** 状态的三态顺序（下拉 / 勾选条都用它，别处不要重排） */
 export const SERIAL_STATUSES: readonly SerialStatus[] = ['IN_STOCK', 'OUTBOUND', 'SCRAPPED'];
@@ -220,6 +236,14 @@ export interface BatchGenerateFormState {
   warehouse_id: string;
   /** 数量 */
   count: number;
+  /**
+   * 成本单价（**必填**，不含税，> 0，最多 6 位小数）。
+   *
+   * 用**字符串**承载而不是 `number`：`t-input-number` 会把 `12.34` 变成 `12.339999999999999`，
+   * 校验「最多 6 位小数」和金额预览都会被浮点误差带偏；`t-input` + 字符串与后端
+   * `unit_cost`（收字符串、按 6 位解析）一一对应。
+   */
+  unit_cost: string;
   /** 来源类型（`''` = 不填） */
   source_type: SerialSourceType | '';
   /** 批次号（可空，≤64） */
@@ -231,7 +255,7 @@ export type BatchFormErrors = Partial<Record<keyof BatchGenerateFormState, strin
 
 /** 空表单（新建时用） */
 export function emptyBatchForm(): BatchGenerateFormState {
-  return { material_id: '', warehouse_id: '', count: 10, source_type: '', batch_no: '' };
+  return { material_id: '', warehouse_id: '', count: 10, unit_cost: '', source_type: '', batch_no: '' };
 }
 
 /**
@@ -254,10 +278,54 @@ export function validateBatchForm(form: BatchGenerateFormState): BatchFormErrors
   } else if (count > MAX_BATCH_COUNT) {
     errors.count = `单次最多生成 ${MAX_BATCH_COUNT} 个序列号`;
   }
+  // 成本单价：批量生成 = 无来源入库，没有采购单可挂，成本只能由操作人录（ADR ①′）。
+  // 顺序照后端 `BatchGenerateReq::parse_unit_cost`：空 → 非数字 → ≤0 → 位数（后端还有一条 < 1e11，交后端拒）。
+  const unitCostText = form.unit_cost.trim();
+  const unitCost = Number(unitCostText);
+  if (!unitCostText) {
+    errors.unit_cost = '请填写成本单价：批量生成按「期初/其他入库」记账，成本由操作人负责，必须录单价';
+  } else if (!Number.isFinite(unitCost)) {
+    errors.unit_cost = '成本单价必须是数字';
+  } else if (unitCost <= 0) {
+    errors.unit_cost = '成本单价必须大于 0';
+  } else if (!hasAtMostDecimals(unitCostText, MAX_UNIT_COST_DECIMALS)) {
+    errors.unit_cost = `成本单价最多 ${MAX_UNIT_COST_DECIMALS} 位小数`;
+  }
   if (form.batch_no.trim().length > 64) {
     errors.batch_no = '批次号最长 64 个字符';
   }
   return errors;
+}
+
+/**
+ * 小数位是否不超过 `max` 位。
+ *
+ * 只数**文本**的小数点后面几位（`"12.3400000"` → 7 位），不经过 `Number()`：浮点化之后
+ * `12.3400000` 与 `12.34` 是同一个数，位数校验会直接失效。
+ * 没有小数点（`"12"`）或指数写法（`"1e3"`）都算通过 —— 后端 `Decimal::from_str` 自己认。
+ */
+function hasAtMostDecimals(text: string, max: number): boolean {
+  const dot = text.indexOf('.');
+  return dot < 0 || text.length - dot - 1 <= max;
+}
+
+/**
+ * 本次入库金额预览 = `数量 × 单价`，按 **4 位小数**（与 `biz_inventory.amount numeric(18,4)` 一致）。
+ *
+ * 非法输入（数量不是正整数、单价空/非正数）返回 `'—'`：预览区宁可留空也不要显示 `NaN`——
+ * 会计看到 `NaN 元` 会以为系统坏了。
+ */
+export function formatBatchAmount(form: Pick<BatchGenerateFormState, 'count' | 'unit_cost'>): string {
+  const count = Number(form.count);
+  const unitCostText = (form.unit_cost ?? '').trim();
+  const unitCost = Number(unitCostText);
+  if (!Number.isInteger(count) || count < 1) {
+    return '—';
+  }
+  if (!unitCostText || !Number.isFinite(unitCost) || unitCost <= 0) {
+    return '—';
+  }
+  return (count * unitCost).toFixed(4);
 }
 
 /** 表单里有没有错（提交前一眼判空） */
@@ -270,6 +338,7 @@ export function buildBatchPayload(form: BatchGenerateFormState): {
   material_id: string;
   warehouse_id: string;
   count: number;
+  unit_cost: number;
   source_type?: SerialSourceType;
   batch_no?: string;
 } {
@@ -277,12 +346,16 @@ export function buildBatchPayload(form: BatchGenerateFormState): {
     material_id: string;
     warehouse_id: string;
     count: number;
+    unit_cost: number;
     source_type?: SerialSourceType;
     batch_no?: string;
   } = {
     material_id: form.material_id,
     warehouse_id: form.warehouse_id,
     count: Number(form.count),
+    // 必填字段，**不做「空就 0」兜底**：0 会被后端 400（零成本入库拒收），把非法值悄悄变合法才是坑。
+    // 字符串 → number 只是请求体的 JSON 形态，后端 `OptionalDecimal::Num/ Raw` 两种都收。
+    unit_cost: Number(form.unit_cost),
   };
   if (form.source_type) {
     payload.source_type = form.source_type;
@@ -295,6 +368,56 @@ export function buildBatchPayload(form: BatchGenerateFormState): {
 }
 
 // ==================== 展示辅助 ====================
+
+/**
+ * 批量生成失败 → 用户向文案。
+ *
+ * 400（`code = 10001`）的 `msg` 是后端**逐字**给的原因
+ * （「unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）」），
+ * 里面已经写了「为什么必须填」，前端**不改写、不加前缀**（改写了单测就跟规格 §2.3 的报文对不上，
+ * 也会把一个会计能看懂的句子变成一句抽象错误）；
+ * 只有拿不到 msg 的场合（网关 502、空响应体、非业务错误）才回落到兜底文案。
+ *
+ * 用鸭子类型判（`message`），不 `import { ApiError }`：单测直接传 `{ code: 10001, message: '…' }` 就够。
+ */
+export function batchGenerateErrorText(error: unknown, fallback = '批量生成失败，请稍后重试'): string {
+  if (typeof error === 'string') {
+    return error.trim() || fallback;
+  }
+  if (typeof error === 'object' && error !== null) {
+    const message = (error as { message?: unknown }).message;
+    const text = typeof message === 'string' ? message.trim() : '';
+    if (text) {
+      return text;
+    }
+  }
+  return fallback;
+}
+
+/**
+ * 批量生成成功 → 一行摘要（弹窗提示 + 列表上方的成功条共用）。
+ *
+ * 金额 / 数量直接用后端回显的**字符串**拼接，不 `Number()` 再 `toFixed(4)`：
+ * 账上是 4 位小数、均价 6 位，前端重算一遍就可能显示成跟账上不一样的数（B2 的容差只有 0.0001）。
+ * 老后端（响应里没有 `amount` / `unit_cost`）时退化成「刷新后可见」，不显示 `undefined 元`。
+ */
+export function formatBatchResultText(
+  result: Pick<SerialBatchRes, 'count' | 'period_key' | 'serial_nos'> & Partial<SerialBatchRes>,
+): string {
+  const head = result.serial_nos.slice(0, 3).join(' / ');
+  const tail = result.serial_nos.length > 3 ? ' …' : '';
+  const base = `生成了 ${result.count} 个序列号（${result.period_key}）：${head}${tail}`;
+  const amount = (result.amount ?? '').trim();
+  const unitCost = (result.unit_cost ?? '').trim();
+  if (!amount || !unitCost) {
+    return `${base}；本次入库已在服务端入账，刷新列表可见`;
+  }
+  const inventory = result.inventory;
+  const stock = inventory
+    ? `，账面结存 ${inventory.qty} / ${inventory.amount} 元（均价 ${inventory.avg_cost}）`
+    : '';
+  return `${base}；本次入库 ${result.count} 件 × ${unitCost} = ${amount} 元${stock}`;
+}
 
 /**
  * RFC3339 → `YYYY-MM-DD HH:mm`（北京时间）。

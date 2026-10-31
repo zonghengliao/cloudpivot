@@ -15,27 +15,50 @@
 //! 3. `source_type` 白名单取 V0138 列注释的 4 个值（`PURCHASE` / `TRANSFER` /
 //!    `PRODUCE` / `RETURN`），落库前显式校验：写错类型会让「按来源追溯」查不到东西。
 
+use std::str::FromStr;
+
 use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::serial_model::{
     ALL_STATUSES, MAX_BATCH_COUNT, SOURCE_TYPES, SerialRow, SerialScanRow,
 };
+use crate::business::erp::stockin_model;
 
-/// 默认每页条数（与 `erp::dto` 一致）。
-pub const DEFAULT_PAGE_SIZE: u64 = 20;
+/// `unit_cost` 的入参形态：**number 与字符串都收**（前端 `t-input-number` 给 number、
+/// 手写 curl / 导入模板给字符串都能过）。
+///
+/// 为什么不用裸 `Decimal`：裸字段缺省时 axum 直接把缺字段拒成 **422**
+/// （`Failed to deserialize the JSON body … missing field`），前端拿不到「400 + 10001」，
+/// 就没法按业务码出提示。用 `Option<OptionalDecimal>` 自己判，才能把「没传 / 传了非数字 /
+/// 传了 ≤ 0」三种情况分别给出 §2.3 的逐字报文。
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+pub enum OptionalDecimal {
+    /// JSON number（`12.34`）。
+    Num(Decimal),
+    /// JSON 字符串（`"12.34"`），交给 `Decimal::from_str` 判合法性。
+    Raw(String),
+}
 
-/// 每页条数硬上限（序列号是「一物一码」，条数比主数据多一个量级，上限放到 500）。
-pub const MAX_PAGE_SIZE: u64 = 500;
+impl OptionalDecimal {
+    /// 转成 `Decimal`；非数字返回 `Err(原始文本)`（供调用方拼 §2.3 的报文）。
+    pub fn to_decimal(&self) -> std::result::Result<Decimal, String> {
+        match self {
+            Self::Num(value) => Ok(*value),
+            Self::Raw(text) => Decimal::from_str(text.trim()).map_err(|_| text.trim().to_string()),
+        }
+    }
+}
 
-/// `reason` 的最大长度（超出即 400；不落库，只进日志）。
-pub const MAX_REASON_LEN: usize = 200;
-
-/// 可写的目标状态（`IN_STOCK` 不是流转目标：新增一律走批量生成）。
-pub const WRITABLE_TARGETS: [&str; 2] = ["OUTBOUND", "SCRAPPED"];
-
-// ==================== ① 批量生成 ====================
+/// 可记入成本账的单价上限（`numeric(18,6)` 能放下，但再大就是录错了）。
+///
+/// 与规格 v3 §2.2 一致：`unit_cost >= 1e11` 直接 400 —— 一个 6 位小数的
+/// `1e11` 单价乘 1000 件就溢出 `numeric(18,4)` 的整数部分（14 位），
+/// 让它过就等于把溢出错误留给数据库（500 而不是 400）。
+pub const MAX_UNIT_COST: i64 = 100_000_000_000;
 
 /// 批量生成序列号。
 #[derive(Debug, Clone, Deserialize)]
@@ -53,6 +76,14 @@ pub struct BatchGenerateReq {
     pub batch_no: Option<String>,
     /// 生成条数（1..=1000）。
     pub count: u64,
+    /// **成本单价（不含税，必填，> 0，最多 6 位小数）**。
+    ///
+    /// 批量生成自 ADR-20261031 起等于「无来源入库（期初 / 其他入库）」：必须录成本，
+    /// 否则成本账会留下 `qty>0 / avg_cost=0` 的行（巡检 C3），而且不写库位账时
+    /// B1（BLOCKER）必红 —— 这条校验就是那次事故的闸门。**不设默认 0**：
+    /// 缺省 0 等于把缺陷原样保留。
+    #[serde(default)]
+    pub unit_cost: Option<OptionalDecimal>,
     /// 来源单据类型（可空；`PURCHASE` / `TRANSFER` / `PRODUCE` / `RETURN`）。
     #[serde(default)]
     pub source_type: Option<String>,
@@ -60,6 +91,20 @@ pub struct BatchGenerateReq {
     #[serde(default)]
     pub source_id: Option<String>,
 }
+
+/// 默认每页条数（与 `erp::dto` 一致）。
+pub const DEFAULT_PAGE_SIZE: u64 = 20;
+
+/// 每页条数硬上限（序列号是「一物一码」，条数比主数据多一个量级，上限放到 500）。
+pub const MAX_PAGE_SIZE: u64 = 500;
+
+/// `reason` 的最大长度（超出即 400；不落库，只进日志）。
+pub const MAX_REASON_LEN: usize = 200;
+
+/// 可写的目标状态（`IN_STOCK` 不是流转目标：新增一律走批量生成）。
+pub const WRITABLE_TARGETS: [&str; 2] = ["OUTBOUND", "SCRAPPED"];
+
+// ==================== ① 批量生成 ====================
 
 impl BatchGenerateReq {
     /// 校验入参（`400 + 10001` / `400 + 66006`），**不碰数据库**。
@@ -81,6 +126,10 @@ impl BatchGenerateReq {
                 format!("单次最多生成 {MAX_BATCH_COUNT} 条（收到 {}）", self.count),
             ));
         }
+        // 成本单价（ADR-20261031 §3 / 规格 v3 §2.2）：**必填、> 0、< 1e11**。
+        // 位置刻意放在 `count` 之后、`batch_no` 之前：条数与单价的报文都是「怎么录」的引导，
+        // 排在批次号 / 来源类型这些可选字段前面，前端一次就能把两个必填项都提示出来。
+        self.parse_unit_cost()?;
         if let Some(batch_no) = trimmed(self.batch_no.as_deref())
             && batch_no.chars().count() > 64
         {
@@ -104,6 +153,65 @@ impl BatchGenerateReq {
         }
         Ok(())
     }
+
+    /// 解析并校验成本单价（**必填、> 0、6 位小数、< 1e11**），返回 6 位四舍五入后的值。
+    ///
+    /// 四舍五入口径与 `stockin_model::unit_price` 完全一致（`MidpointAwayFromZero`，
+    /// 与 PG `ROUND(numeric,6)` 同源）—— 落库的 `unit_cost` 与「件数 × 单价」算出来的金额
+    /// 必须是同一份舍入结果，否则成本账与流水会差 1 分钱。
+    ///
+    /// # 报文（前端 `serial-logic.ts` 逐字引用，规格 v3 §2.3）
+    ///
+    /// | 场景 | 报文 |
+    /// |---|---|
+    /// | 没传 | `unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）` |
+    /// | 非数字 | `unit_cost 不是合法数字：「abc」` |
+    /// | `≤ 0` | `unit_cost 必须 > 0（收到 0）：零成本入库会在成本账留下 qty>0/avg_cost=0 的行（巡检 C3），系统拒收` |
+    /// | `≥ 1e11` | `unit_cost 超出可记账范围（须 < 100000000000）：100000000000` |
+    ///
+    /// 注意「收到」后面给的是**6 位舍入之后**的值：`0.0000001` 这类录不进
+    /// `numeric(18,6)` 的单价会显示成 `收到 0`，这比让数据库去截断更诚实。
+    pub fn parse_unit_cost(&self) -> std::result::Result<Decimal, ApiError> {
+        let raw = self.unit_cost.as_ref().ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code_param(),
+                "unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）",
+            )
+        })?;
+        let value = raw.to_decimal().map_err(|text| {
+            ApiError::new(
+                400,
+                error_code_param(),
+                format!("unit_cost 不是合法数字：「{text}」"),
+            )
+        })?;
+        let unit_cost = stockin_model::unit_price(value);
+        if unit_cost <= Decimal::ZERO {
+            return Err(ApiError::new(
+                400,
+                error_code_param(),
+                format!(
+                    "unit_cost 必须 > 0（收到 {unit_cost}）：零成本入库会在成本账留下 \
+                     qty>0/avg_cost=0 的行（巡检 C3），系统拒收"
+                ),
+            ));
+        }
+        if unit_cost >= Decimal::from(MAX_UNIT_COST) {
+            return Err(ApiError::new(
+                400,
+                error_code_param(),
+                format!("unit_cost 超出可记账范围（须 < {MAX_UNIT_COST}）：{unit_cost}"),
+            ));
+        }
+        // 定标到 6 位（`round_dp` 只舍入、不补零：`Decimal::from(10)` 会保持 0 位小数）。
+        // 不定标的话响应体给前端的是 `"10"`，与规格 §2.5 的 `"12.340000"` 契约不一致，
+        // 前端「本次入库金额」预览与库里的 `numeric(18,6)` 会对不上。
+        // 注意 `Decimal::rescale` 是**原地**方法（返回 `()`）。
+        let mut unit_cost = unit_cost;
+        unit_cost.rescale(6);
+        Ok(unit_cost)
+    }
 }
 
 /// 批量生成出参。
@@ -117,18 +225,55 @@ pub struct SerialBatchRes {
     pub serial_nos: Vec<String>,
     /// 回读的整行（与 `serial_nos` 一一对应）。
     pub list: Vec<SerialRes>,
+    /// 本次成本单价（不含税，6 位）—— `Decimal` 序列化成**字符串**（`"12.340000"`）。
+    pub unit_cost: Decimal,
+    /// 本次入账金额 = 该成本桶 `amount` 的真实增量（4 位，`"61.7000"`）。
+    ///
+    /// **不是** Rust 里算的 `N × unit_cost`：它取自 `apply_cost` 的
+    /// `RETURNING amount`（`after − before`），与账上、凭证上的是同一个数。
+    pub amount: Decimal,
+    /// 记账后该成本桶的快照（`apply_cost` 的 after）。
+    pub inventory: BatchInventoryRes,
+}
+
+/// 记账后成本桶快照（金额单位与库表一致：qty 4 位 / amount 4 位 / avg_cost 6 位）。
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct BatchInventoryRes {
+    /// 结存数量（`biz_inventory.qty numeric(18,4)` → 字符串）。
+    pub qty: Decimal,
+    /// 结存金额（`biz_inventory.amount numeric(18,4)` → 字符串）。
+    pub amount: Decimal,
+    /// 结存移动加权单价（`biz_inventory.avg_cost numeric(18,6)` → 字符串）。
+    pub avg_cost: Decimal,
 }
 
 impl SerialBatchRes {
-    /// 由数据层的行集合 + 周期键组装。
-    pub fn new(period_key: &str, rows: Vec<SerialRow>) -> Self {
+    /// 由数据层的行集合 + 本次入账口径组装。
+    ///
+    /// 「回显金额」是 ADR 验收判据 5 的要求（提交成功后页面显示的库存数量 / 金额与库一致），
+    /// 也是操作人当场知道「这次入账多少钱」的唯一途径 —— 会计凭据不该让人再点一次查询。
+    pub fn new(
+        period_key: &str,
+        rows: Vec<SerialRow>,
+        unit_cost: Decimal,
+        amount: Decimal,
+        inventory: (Decimal, Decimal, Decimal),
+    ) -> Self {
         let serial_nos = rows.iter().map(|row| row.serial_no.clone()).collect();
         let count = rows.len();
+        let (qty, amount_after, avg_cost) = inventory;
         Self {
             count,
             period_key: period_key.to_string(),
             serial_nos,
             list: rows.iter().map(SerialRes::from).collect(),
+            unit_cost,
+            amount,
+            inventory: BatchInventoryRes {
+                qty,
+                amount: amount_after,
+                avg_cost,
+            },
         }
     }
 }
@@ -401,9 +546,101 @@ mod tests {
             location_id: None,
             batch_no: None,
             count,
+            unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
             source_type: None,
             source_id: None,
         }
+    }
+
+    /// ⑰ 成本单价：**缺 / 非数字 / ≤ 0 / ≥ 1e11 各自 400 + 10001，报文与规格 §2.3 逐字一致**。
+    ///
+    /// 这是 2026-10-31 11:34 prod 事故（零成本入库 → B1 BLOCKER + C3 WARN）的第一道闸门，
+    /// 所以文案要按「前端直接显示」的标准钉死，改动任何一处都会打到前端单测。
+    #[test]
+    fn batch_unit_cost_validation_messages() {
+        let missing = batch_req(1);
+        let mut req = missing;
+        req.unit_cost = None;
+        let err = req.validate().expect_err("缺 unit_cost 必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code_param());
+        assert_eq!(
+            err.msg,
+            "unit_cost 必填：批量生成按「期初/其他入库」记账，必须录成本单价（不含税）"
+        );
+
+        let mut req = batch_req(1);
+        req.unit_cost = Some(OptionalDecimal::Raw("abc".to_string()));
+        let err = req.validate().expect_err("非数字必须 400");
+        assert_eq!(err.code, error_code_param());
+        assert_eq!(err.msg, "unit_cost 不是合法数字：「abc」");
+
+        for (input, shown) in [
+            (Decimal::ZERO, "0"),
+            (Decimal::from_str("-1.5").unwrap(), "-1.5"),
+        ] {
+            let mut req = batch_req(1);
+            req.unit_cost = Some(OptionalDecimal::Num(input));
+            let err = req.validate().expect_err("≤0 必须 400");
+            assert_eq!(err.code, error_code_param());
+            assert_eq!(
+                err.msg,
+                format!(
+                    "unit_cost 必须 > 0（收到 {shown}）：零成本入库会在成本账留下 \
+                     qty>0/avg_cost=0 的行（巡检 C3），系统拒收"
+                )
+            );
+        }
+
+        let mut req = batch_req(1);
+        req.unit_cost = Some(OptionalDecimal::Num(Decimal::from(MAX_UNIT_COST)));
+        let err = req.validate().expect_err("≥1e11 必须 400");
+        assert_eq!(err.code, error_code_param());
+        assert_eq!(
+            err.msg,
+            "unit_cost 超出可记账范围（须 < 100000000000）：100000000000"
+        );
+
+        // 字符串形态（"12.34"）与 number 形态等价，且 6 位四舍五入（与 PG ROUND 同口径）
+        let mut req = batch_req(5);
+        req.unit_cost = Some(OptionalDecimal::Raw("12.3456789".to_string()));
+        assert_eq!(
+            req.parse_unit_cost().expect("合法单价"),
+            Decimal::from_str("12.345679").unwrap(),
+            "6 位四舍五入（MidpointAwayFromZero）"
+        );
+        let mut req = batch_req(5);
+        req.unit_cost = Some(OptionalDecimal::Num(
+            Decimal::from_str("0.0000004").unwrap(),
+        ));
+        assert!(
+            req.parse_unit_cost().is_err(),
+            "6 位下舍成 0 的单价必须拒（否则等于零成本入库）"
+        );
+    }
+
+    /// ⑱ `unit_cost` 同时接受 number 与字符串（`#[serde(untagged)]` 的两种形态）。
+    #[test]
+    fn batch_unit_cost_accepts_number_and_string() {
+        let base = serde_json::json!({
+            "material_id": "b2b00004-0000-4000-8000-000000000001",
+            "count": 2
+        });
+        for raw in [serde_json::json!(12.34), serde_json::json!("12.34")] {
+            let mut body = base.clone();
+            body["unit_cost"] = raw.clone();
+            let req: BatchGenerateReq =
+                serde_json::from_value(body).unwrap_or_else(|e| panic!("{raw} 解析失败：{e}"));
+            assert_eq!(
+                req.parse_unit_cost().expect("合法"),
+                Decimal::from_str("12.34").unwrap()
+            );
+        }
+        let req: BatchGenerateReq = serde_json::from_value(base).expect("缺字段也要能反序列化");
+        assert!(
+            req.unit_cost.is_none(),
+            "缺字段 = None（交给 validate 出 400，而不是 422）"
+        );
     }
 
     /// ⑩ 批量生成条数边界：1 与 1000 放行，0 与 1001 拒绝（文案给出上限）。

@@ -13,8 +13,11 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { request } from '@playwright/test';
+import { assertIsolatedTarget } from './target-guard.mjs';
 
-const BASE_URL = process.env.E2E_BASE_URL ?? 'http://172.18.10.144';
+const BASE_URL = process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5189';
+// 硬判据（第二道）：即使有人绕过 config 直接调 globalSetup，也不许打非隔离目标
+assertIsolatedTarget(BASE_URL, { projectRoot: process.cwd() });
 const ACCOUNT = {
   username: process.env.E2E_USERNAME ?? 'laoliu_test',
   password: process.env.E2E_PASSWORD ?? 'Test@12345',

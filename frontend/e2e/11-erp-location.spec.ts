@@ -8,11 +8,13 @@
  * ④ 仓库筛选生效（下拉选仓库 → 请求带 `warehouse_id`，行集换成该仓库的）
  * ⑤ 截图 1 张
  *
- * # 为什么打 `127.0.0.1:4174` 的本地 dist
+ * # 目标实例（2026-10-31 起不再指 prod）
  *
- * 生产 144 上的 dist 还没带本卡页面（发布是另一张卡的事）。这里把**本次构建的 dist**
- * 跑在本地静态服务上，`/api` 反代到真后端 172.18.10.144 —— 浏览器跑的是本次改动的代码，
- * 接口 / 权限 / 数据全是真生产后端。见 `p4b-verify/serve.mjs`。
+ * 本卡页面当时还没发布到 144 的 dist，所以用例打的是「本地构建的 dist + 真后端」。
+ * 现在真后端一律是**隔离实例**（`scripts/verify/e2e_isolated_instance.sh` 起的
+ * profile=test + 副本库 `cloudpivot_e2e_iso`，回环 18089），由 `BASE_URL`（support.ts）
+ * + `e2e/target-guard.mjs` 硬判据保证；指向 prod 会直接抛错。历史背景见
+ * `docs/e2e-prod-fixture-incident-20261031-172.18.10.7.md`。
  *
  * # 只读用例
  *

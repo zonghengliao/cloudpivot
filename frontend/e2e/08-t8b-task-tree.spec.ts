@@ -8,7 +8,7 @@
  * 建第 3 层会被 400 + 63005 挡住。8 层的逐层展开见 T8-A 上线后补的深度用例。
  */
 import { expect, request, test, type APIRequestContext, type Locator, type Page } from '@playwright/test';
-import { openAuthed, readSharedToken } from './support';
+import { openAuthed, readSharedToken, BASE_URL } from './support';
 
 const RUN = `t8b${Date.now().toString(36)}`;
 const PREFIX = `[T8B-${RUN}]`;
@@ -69,7 +69,8 @@ test.describe('T8-B 任务列表树形改造', () => {
 
   test.beforeAll(async () => {
     api = await request.newContext({
-      baseURL: process.env.E2E_BASE_URL ?? 'http://172.18.10.144',
+      // 不再自带 prod 兜底：BASE_URL 由 support.ts 统一给（默认隔离 127.0.0.1:5189，且已过 target-guard 硬判据）
+      baseURL: BASE_URL,
       extraHTTPHeaders: { Authorization: `Bearer ${readSharedToken()}` },
     });
     const root = await createTask('根任务');

@@ -602,16 +602,40 @@ export interface BatchGenerateSerialReq {
   batch_no?: string | null;
   /** 生成条数（1..=1000，`serial_model::MAX_BATCH_COUNT`） */
   count: number;
+  /**
+   * 成本单价（**必填**，不含税，> 0，最多 6 位小数，且 < 100000000000）。
+   *
+   * 「批量生成」= **无来源入库（期初 / 其他入库）**：没有采购单，成本由操作人负责，
+   * 所以必须录单价；后端按「件数 × 单价」写 `biz_inventory.amount`（4 位小数）与库位账，
+   * 并同事务生成凭证（借 1405 / 贷 1901），见 `docs/adr-20261031-erp-serial-batch-generate-semantics.md`。
+   *
+   * `number` 与字符串都收（后端 `OptionalDecimal` 是 untagged），但**不走 `0` 缺省**：
+   * 缺字段 / `≤ 0` / 非数字一律 `400 + code 10001`（零落库），老客户端会被直接拒。
+   */
+  unit_cost: number | string;
   /** 来源类型 */
   source_type?: SerialSourceType | null;
   /** 来源单据 id（可空） */
   source_id?: string | null;
 }
 
+/** 记账后该桶（物料 × 仓库 × 库位行）的成本账快照（`serial_dto::BatchInventoryRes`） */
+export interface BatchInventoryRes {
+  /** 账面数量（`numeric(18,4)` → 字符串） */
+  qty: string;
+  /** 账面金额（`numeric(18,4)` → 字符串） */
+  amount: string;
+  /** 移动加权均价（`numeric(18,6)` → 字符串） */
+  avg_cost: string;
+}
+
 /**
  * 批量生成出参（对应 `SerialBatchRes`）。
  *
  * `serial_nos` 给扫码枪 / 贴标机直接用；`list` 是回读的整行（带 `id`，列表才点得动状态流转）。
+ *
+ * 后端的 `Decimal` 一律序列化成**字符串**（精度不能交给 JS 的 double），所以这 3 个新增字段
+ * 都声明成 `string`；页面只做展示与对账，不要 `Number()` 之后四舍五入。
  */
 export interface SerialBatchRes {
   /** 实际生成条数 */
@@ -622,6 +646,12 @@ export interface SerialBatchRes {
   serial_nos: string[];
   /** 回读的整行（与 `serial_nos` 一一对应） */
   list: SerialRow[];
+  /** 本次成本单价（不含税，6 位小数） */
+  unit_cost: string;
+  /** 本次入账金额 = 该桶 `biz_inventory.amount` 的实际增量（4 位小数） */
+  amount: string;
+  /** 记账后该桶的成本账快照 */
+  inventory: BatchInventoryRes;
 }
 
 /**
