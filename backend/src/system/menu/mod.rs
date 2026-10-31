@@ -10,3 +10,7 @@
 pub mod dto;
 pub mod handler;
 pub mod model;
+
+/// 测试C：菜单模块用例集（N01–N12，真库 + 真实 handler + 三方一致性扫描）。
+#[cfg(test)]
+mod tests;

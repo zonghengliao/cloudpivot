@@ -22,3 +22,7 @@
 pub mod dto;
 pub mod handler;
 pub mod model;
+
+/// 测试C：部门模块用例集（D01–D11，真库 + 真实 handler）。
+#[cfg(test)]
+mod tests;

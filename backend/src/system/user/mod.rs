@@ -28,3 +28,7 @@ pub mod dto;
 pub mod guard;
 pub mod handler;
 pub mod model;
+
+/// 测试C：用户模块用例集（U01–U12，真库 + 真实 handler + 真实登录流程）。
+#[cfg(test)]
+mod tests;

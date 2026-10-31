@@ -43,3 +43,7 @@ pub mod user_export;
 
 pub use masker::{MaskError, MaskType, apply};
 pub use registry::{MaskRule, MaskSet, MaskSource, Maskable, resolve};
+
+/// 测试C：字段脱敏全链路用例集（M01–M09，真库 + 真实 handler）。
+#[cfg(test)]
+mod tests;

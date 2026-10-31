@@ -29,3 +29,11 @@ pub mod menu;
 pub mod preference;
 pub mod role;
 pub mod user;
+
+/// 测试C 共用夹具（**仅测试编译**，不产生任何生产符号）。
+#[cfg(test)]
+pub(crate) mod tests_support;
+
+/// 测试C：越权用例集（O01–O14，源码注解全量扫描 + 与中间件同一判定谓词）。
+#[cfg(test)]
+mod authz_tests;

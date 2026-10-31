@@ -40,3 +40,7 @@ pub mod scope_handler;
 pub mod scope_model;
 
 pub use scope_model::{table_coverage, uncovered_tables};
+
+/// 测试C：数据范围权限用例集（A01–A12，纯逻辑 + 库内接线自洽性）。
+#[cfg(test)]
+mod tests;
