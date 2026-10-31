@@ -72,6 +72,7 @@ use crate::business::erp::transfer_model::{
     TransferRow, transition_effect, transition_rejected_message,
 };
 use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -627,6 +628,27 @@ async fn apply_transition(
     tx: &Transaction,
     ctx: &TransitionContext<'_>,
 ) -> std::result::Result<u64, SettleError> {
+    // P10 铁律 ③：状态变更先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
+    // 与「写状态 / 结算库存 / 发起审批」同一事务。CAS 落空时上层整笔回滚，日志不留下。
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_TRANSFER,
+        ctx.id,
+        ctx.transfer_no,
+        &transfer_model::LEGAL_EDGES,
+        ctx.from,
+        ctx.effect.status,
+        ctx.operator,
+        ctx.cancel_reason,
+        None,
+    )
+    .await
+    .map_err(|error| {
+        SettleError::Db(DbError::InvalidValue(format!(
+            "[{}] {}",
+            error.code, error.msg
+        )))
+    })?;
     let mut approval_instance_id = None;
     if let Some(start) = ctx.start.as_ref() {
         let out = engine::start(tx, start).await?;

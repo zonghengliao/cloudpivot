@@ -69,14 +69,15 @@ use serde::Serialize;
 use crate::business::erp::model;
 use crate::business::erp::payable;
 use crate::business::erp::stockin_dto::{
-    CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemRes,
-    StockInPageQuery, StockInRes, StockInStatusReq,
+    CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemReq,
+    StockInItemRes, StockInPageQuery, StockInRes, StockInStatusReq,
 };
 use crate::business::erp::stockin_model::{
     self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT, STATUS_POSTED,
     Totals, can_transition, status_label, transition_rejected_message,
 };
 use crate::business::erp::voucher;
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -497,8 +498,9 @@ async fn purchase_item_snapshot(
 /// （明细为空时按采购单未收数量带出）→ 逐行物料 / 库位 / 采购行校验 → 一个事务里「取号 + 单头 + 明细」。
 pub async fn create_stock_in(
     req: &CreateStockInReq,
-    operator: Option<Uuid>,
+    operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<Uuid, ApiError> {
+    let op = operator.into();
     let mut request = req.clone();
     let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
     if request.items.is_empty() {
@@ -543,7 +545,7 @@ pub async fn create_stock_in(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启建单事务"))?;
-    match stockin_model::create(&tx, &new, &lines, &totals, operator, now).await {
+    match stockin_model::create(&tx, &new, &lines, &totals, op, now).await {
         Ok(id) => {
             tx.commit()
                 .await
@@ -568,13 +570,148 @@ pub async fn stock_in_create(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Json(req): Json<CreateStockInReq>,
 ) -> ResResult<StockInDetailRes> {
-    let id = create_stock_in(&req, operator_of(&claims)).await?;
+    let id = create_stock_in(&req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
 // ==================== ② 改单 ====================
 
+/// 入账态改单的 409（统一文案 + 点名本次想改的字段）。
+fn locked_change(current: &stockin_model::StockInRow, field: &str) -> ApiError {
+    let base = state_machine::locked_message(
+        state_machine::ENTITY_STOCK_IN,
+        &current.status,
+        &current.in_no,
+    );
+    ApiError::new(
+        409,
+        error_code::RESOURCE_CONFLICT,
+        format!("{base}\n本次改动涉及：{field}"),
+    )
+}
+
+/// 入账后（`POSTED`）的改单守卫：**只允许 `remark` 变化**，其余业务字段一律 409。
+///
+/// 判据是「请求里显式给出的字段」vs「库里现值」逐项比对：
+/// 没给的字段视为「不打算改」，给了且不同就是一次账务字段变更 → 拒绝。
+/// 明细按 `(物料, 库位, 数量, 不含税单价, 税率)` 多重集合比对，顺序不影响判定。
+async fn ensure_remark_only(
+    current: &stockin_model::StockInRow,
+    req: &CreateStockInReq,
+) -> std::result::Result<(), ApiError> {
+    if let Some(raw) = req
+        .supplier_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        && parse_uuid(raw, "supplier_id")? != current.supplier_id.unwrap_or_else(Uuid::nil)
+    {
+        return Err(locked_change(current, "供应商 supplier_id"));
+    }
+    if let Some(raw) = req
+        .warehouse_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        && parse_uuid(raw, "warehouse_id")? != current.warehouse_id
+    {
+        return Err(locked_change(current, "仓库 warehouse_id"));
+    }
+    if let Some(raw) = req
+        .source_order_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+        && Some(parse_uuid(raw, "source_order_id")?) != current.source_order_id
+    {
+        return Err(locked_change(current, "来源采购单 source_order_id"));
+    }
+    if let Some(in_date) = req.in_date
+        && in_date != current.in_date
+    {
+        return Err(locked_change(current, "入库日期 in_date"));
+    }
+    if let Some(flag) = req.invoice_received
+        && flag != current.invoice_received
+    {
+        return Err(locked_change(current, "发票标志 invoice_received"));
+    }
+
+    // 明细：给了就必须与库里完全一致（金额由明细派生，明细一致则金额必然一致）
+    if !req.items.is_empty() {
+        let stored = stockin_model::items_of(current.id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询收货入库单明细"))?;
+        if !items_match(&stored, &req.items)? {
+            return Err(locked_change(current, "明细 / 数量 / 单价 / 税率"));
+        }
+        // 表头三金额由明细派生，明细一致时只可能被「自己算一套」绕过 —— 单测 ⑧ 用
+        // `total_amount` 直改的场景由明细比对拦住；这里再兜一层总量校验。
+    }
+    Ok(())
+}
+
+/// 明细多重集合比对（顺序无关；请求里没给的字段不参与比较）。
+fn items_match(
+    stored: &[stockin_model::StockInItemRow],
+    requested: &[StockInItemReq],
+) -> std::result::Result<bool, ApiError> {
+    if stored.len() != requested.len() {
+        return Ok(false);
+    }
+    // 逐行按物料分组比较：同一物料可能多行，按 (物料, 库位) 归并后比较数量与单价
+    let mut left: Vec<(Uuid, Option<Uuid>, Decimal, Decimal, Decimal)> = stored
+        .iter()
+        .map(|row| {
+            (
+                row.material_id,
+                row.location_id,
+                row.qty.round_dp(4),
+                row.price.round_dp(6),
+                row.tax_rate.round_dp(4),
+            )
+        })
+        .collect();
+    let mut right: Vec<(Uuid, Option<Uuid>, Decimal, Decimal, Decimal)> = Vec::new();
+    for item in requested {
+        let material = parse_uuid(
+            item.material_id
+                .as_deref()
+                .map(str::trim)
+                .filter(|text: &&str| !text.is_empty())
+                .unwrap_or_default(),
+            "items[].material_id",
+        )?;
+        let location = match item
+            .location_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text: &&str| !text.is_empty())
+        {
+            Some(raw) => Some(parse_uuid(raw, "items[].location_id")?),
+            None => None,
+        };
+        let qty = item.qty.unwrap_or(Decimal::ZERO).round_dp(4);
+        let price = item.price_excl.unwrap_or(Decimal::ZERO).round_dp(6);
+        let tax_rate = item.tax_rate.unwrap_or(Decimal::ZERO).round_dp(4);
+        right.push((material, location, qty, price, tax_rate));
+    }
+    left.sort();
+    right.sort();
+    Ok(left == right)
+}
+
 /// 改单核心逻辑：**只有 `DRAFT` 能改**（其它状态 → 409），明细整体重建。
+///
+/// # P10 铁律 ④：入账后只读
+///
+/// 命中入账态（`STOCK_IN` = `POSTED`）时：
+///
+/// * 请求里**任何**金额 / 数量 / 明细 / 供应商 / 仓库 / 来源单 / 入库日期 / 发票标志的改动
+///   → **409**「单据已入账…不可修改」（[`state_machine::ensure_writable`] 的统一文案）；
+/// * 只改 `remark`（白名单）→ 放行，走 [`stockin_model::update_remark`] 单列更新。
+///
+/// 判据是**服务端逐字段比对库里现值**，不是看前端有没有藏按钮。
 pub async fn update_stock_in(
     id: Uuid,
     req: &CreateStockInReq,
@@ -584,6 +721,15 @@ pub async fn update_stock_in(
         .await
         .map_err(|error| utils::db_error(error, "查询收货入库单"))?
         .ok_or_else(|| not_found("收货入库单"))?;
+
+    if state_machine::Entity::StockIn.is_locked(&current.status) {
+        ensure_remark_only(&current, req).await?;
+        stockin_model::update_remark(db(), id, req.remark.as_deref(), operator, Utc::now())
+            .await
+            .map_err(|error| write_error(error, "编辑收货入库单备注"))?;
+        return Ok(());
+    }
+
     if current.status != STATUS_DRAFT {
         return Err(conflict(format!(
             "收货入库单当前是「{}」（{}），只有草稿（DRAFT）能编辑：已过账的单据已经加过库存，\
@@ -681,8 +827,9 @@ pub async fn stock_in_update(
 pub async fn change_stock_in_status(
     id: Uuid,
     req: &StockInStatusReq,
-    operator: Option<Uuid>,
+    operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
     let target = req.target_status()?;
     let reason = req.reason_text();
     if let Some(text) = reason
@@ -720,7 +867,7 @@ pub async fn change_stock_in_status(
     }
 
     if target == STATUS_POSTED {
-        return post_stock_in(id, &row, req, operator).await;
+        return post_stock_in(id, &row, req, &op).await;
     }
 
     // 作废：DRAFT 从未加过库存；POSTED 的库存/库位账/流水在同一事务里反向冲减（P9）
@@ -735,7 +882,7 @@ pub async fn change_stock_in_status(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match cancel_in_tx(&tx, id, &row, reason, operator, now).await {
+    match cancel_in_tx(&tx, id, &row, reason, &op, now).await {
         Ok(()) => {
             tx.commit()
                 .await
@@ -768,13 +915,37 @@ async fn cancel_in_tx(
     id: Uuid,
     row: &stockin_model::StockInRow,
     reason: Option<&str>,
-    operator: Option<Uuid>,
+    operator: &state_machine::Operator,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
-    let affected =
-        stockin_model::apply_status(ex, id, &row.status, STATUS_CANCELLED, reason, operator, now)
-            .await
-            .map_err(|error| write_error(error, "收货入库单状态流转"))?;
+    // ⓪ P10 铁律 ③：状态变更先过唯一入口（边表 + reason 校验 + 写 biz_status_log）。
+    //    `POSTED → CANCELLED` 的 reason 必填由状态机注册表统一把关（400），
+    //    handler 那层的人性化文案保留，两处不会漂移（同一份 reason_edges）。
+    state_machine::transition(
+        ex,
+        state_machine::ENTITY_STOCK_IN,
+        id,
+        &row.in_no,
+        &stockin_model::LEGAL_EDGES,
+        &row.status,
+        STATUS_CANCELLED,
+        operator.clone(),
+        reason,
+        None,
+    )
+    .await?;
+
+    let affected = stockin_model::apply_status(
+        ex,
+        id,
+        &row.status,
+        STATUS_CANCELLED,
+        reason,
+        operator.id,
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "收货入库单状态流转"))?;
     if affected == 0 {
         return Err(conflict(format!(
             "收货入库单状态在本次流转期间已被改动（期望 {}），请刷新后重试",
@@ -822,7 +993,7 @@ async fn cancel_in_tx(
             )
             .await
             .map_err(|error| cancel_write_error(error, "作废：库位账反向冲减"))?;
-            stockin_model::write_cancel_txn(ex, &doc, line, &applied, operator, now)
+            stockin_model::write_cancel_txn(ex, &doc, line, &applied, operator.id, now)
                 .await
                 .map_err(|error| write_error(error, "作废：写反向流水"))?;
             reversed_qty += line.qty;
@@ -830,11 +1001,11 @@ async fn cancel_in_tx(
         }
 
         // ④ 红字凭证（借贷互换，原凭证保持 POSTED 并打 reversed_by）
-        let red = voucher::reverse_for_stock_in(ex, row, reason, operator, now)
+        let red = voucher::reverse_for_stock_in(ex, row, reason, operator.id, now)
             .await
             .map_err(|error| write_error(error, "作废：生成红字凭证"))?;
         // ⑤ 应付单 → CANCELLED
-        payable::cancel_for_stock_in(ex, id, operator, now)
+        payable::cancel_for_stock_in(ex, id, operator.id, now)
             .await
             .map_err(|error| write_error(error, "作废：应付单作废"))?;
         tracing::info!(
@@ -863,7 +1034,7 @@ async fn post_stock_in(
     id: Uuid,
     header: &stockin_model::StockInRow,
     req: &StockInStatusReq,
-    operator: Option<Uuid>,
+    operator: &state_machine::Operator,
 ) -> std::result::Result<(), ApiError> {
     let items = stockin_model::items_of(id)
         .await
@@ -932,7 +1103,7 @@ async fn post_in_tx(
     serial_required: &HashMap<Uuid, bool>,
     provided: &HashMap<i32, Vec<String>>,
     po_snapshot: &HashMap<Uuid, (Decimal, Decimal)>,
-    operator: Option<Uuid>,
+    operator: &state_machine::Operator,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
     // ① 锁单头（并发重复过账在这里串行化）
@@ -950,8 +1121,23 @@ async fn post_in_tx(
     }
 
     // ② CAS 写状态（`WHERE status = 'DRAFT'`）
+    //    P10 铁律 ③：先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
+    //    再 CAS 改状态。两步同一事务：CAS 落空 → 整笔回滚，日志不会半条落地。
+    state_machine::transition(
+        ex,
+        state_machine::ENTITY_STOCK_IN,
+        id,
+        &header.in_no,
+        &stockin_model::LEGAL_EDGES,
+        STATUS_DRAFT,
+        STATUS_POSTED,
+        operator.clone(),
+        None,
+        None,
+    )
+    .await?;
     let affected =
-        stockin_model::apply_status(ex, id, STATUS_DRAFT, STATUS_POSTED, None, operator, now)
+        stockin_model::apply_status(ex, id, STATUS_DRAFT, STATUS_POSTED, None, operator.id, now)
             .await
             .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
     if affected == 0 {
@@ -996,7 +1182,7 @@ async fn post_in_tx(
             &applied,
             id,
             &header.in_no,
-            operator,
+            operator.id,
             now,
         )
         .await
@@ -1018,7 +1204,7 @@ async fn post_in_tx(
                     location_id: item.location_id,
                     qty: item.qty,
                     serial_ids: &serial_ids,
-                    operator,
+                    operator: operator.id,
                     now,
                 },
             )
@@ -1060,9 +1246,9 @@ async fn post_in_tx(
         }
     }
 
-    // ⑥ 推进采购单状态（PARTIAL_RECEIVED / RECEIVED）
+    // ⑥ 推进采购单状态（PARTIAL_RECEIVED / RECEIVED）—— P10：走状态机唯一入口
     if let Some(order_id) = header.source_order_id {
-        stockin_model::sync_purchase_status(ex, order_id, now)
+        stockin_model::sync_purchase_status(ex, order_id, &header.in_no, operator.id, now)
             .await
             .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
     }
@@ -1071,10 +1257,10 @@ async fn post_in_tx(
     //    金额全部取自单头（header.total_*），不重算（硬红线 5）。
     //    顺序：先凭证（应付要引用 voucher_id）→ 再应付 → 最后回写收货单两列。
     let first_material = ordered.first().map(|item| item.material_id);
-    let voucher_id = voucher::create_for_stock_in(ex, &locked, first_material, operator, now)
+    let voucher_id = voucher::create_for_stock_in(ex, &locked, first_material, operator.id, now)
         .await
         .map_err(|error| write_error(error, "过账：生成凭证"))?;
-    let payable_id = payable::create_for_stock_in(ex, &locked, Some(voucher_id), operator, now)
+    let payable_id = payable::create_for_stock_in(ex, &locked, Some(voucher_id), operator.id, now)
         .await
         .map_err(|error| write_error(error, "过账：生成应付单"))?;
     stockin_model::link_voucher_and_payable(ex, id, voucher_id, payable_id, now)
@@ -1163,7 +1349,7 @@ pub async fn stock_in_change_status(
     Json(req): Json<StockInStatusReq>,
 ) -> ResResult<StockInDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    change_stock_in_status(id, &req, operator_of(&claims)).await?;
+    change_stock_in_status(id, &req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -1363,6 +1549,12 @@ mod tests {
     /// 凭证/应付是**弱引用**（无外键），必须在删收货单之前按 `source_id` 清掉。
     async fn cleanup_fixtures() {
         let cleanups = [
+            // P10：状态日志没有外键，必须在删单据之前按「本夹具的单据 id / 单号」清掉
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_id IN \
+             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            "DELETE FROM biz_status_log WHERE entity_no LIKE 'B1-%'".to_string(),
             format!(
                 "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
              (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
@@ -1804,7 +1996,8 @@ mod tests {
         assert_eq!(detail.header.total_qty, dec("15"));
     }
 
-    /// ⑨ POSTED 改单：409。
+    /// ⑨ POSTED 改单：409。P10 起文案换成统一的「单据已入账」口径（铁律 ④），
+    /// 语义不变：已过账的单据不能改任何账务字段。
     #[tokio::test]
     async fn update_posted_is_conflict() {
         let _db = match setup().await {
@@ -1816,7 +2009,8 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(err.status, 409, "{}", err.msg);
-        assert!(err.msg.contains("只有草稿"), "{}", err.msg);
+        assert!(err.msg.contains("单据已入账"), "{}", err.msg);
+        assert!(err.msg.contains("作废或红冲"), "{}", err.msg);
     }
 
     /// ⑩ 一物一码数量与 `serial_ids` 条数不符 → 400（建单就拦住）。
@@ -3234,5 +3428,211 @@ mod tests {
         // 按「period 全局计数」断言的模块（voucher_query）会漂数。
         // 既有用例只在 setup 里清上一轮，最后一条跑完夹具会留在库 —— 这里补一刀。
         cleanup_fixtures().await;
+    }
+
+    // ==================== P10（铁律 ③④）：入账后只读 + 采购单状态追溯 ====================
+
+    /// ⑧ POSTED 收货单改金额 → 409，文案点「已入账」。
+    #[tokio::test]
+    async fn p10_posted_amount_change_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let err = update_stock_in(id, &req(vec![line(MATERIAL_A, "5", "3", "0")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("单据已入账"), "{}", err.msg);
+        assert!(err.msg.contains("POSTED"), "文案要点名状态：{}", err.msg);
+    }
+
+    /// ⑨ POSTED 收货单改数量 → 409。
+    #[tokio::test]
+    async fn p10_posted_qty_change_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let err = update_stock_in(id, &req(vec![line(MATERIAL_A, "6", "2", "0")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("单据已入账"), "{}", err.msg);
+    }
+
+    /// ⑩ POSTED 收货单改明细（换物料）→ 409。
+    #[tokio::test]
+    async fn p10_posted_items_change_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let err = update_stock_in(id, &req(vec![line(MATERIAL_B, "5", "2", "0")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("明细"), "{}", err.msg);
+    }
+
+    /// ⑪ POSTED 收货单只改 remark → 放行（白名单），且真的落库、金额不动。
+    #[tokio::test]
+    async fn p10_posted_remark_change_is_allowed() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = post_new(vec![line(MATERIAL_A, "5", "2", "0")]).await;
+        let mut request = req(vec![line(MATERIAL_A, "5", "2", "0")]);
+        request.remark = Some("客户急件，先入先出".to_string());
+        update_stock_in(id, &request, None)
+            .await
+            .unwrap_or_else(|err| panic!("只改备注应当放行：{} {}", err.code, err.msg));
+
+        let remark: Option<String> = db()
+            .scalar_with_params(
+                "SELECT remark FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(remark.as_deref(), Some("客户急件，先入先出"));
+        let amount: Decimal = db()
+            .scalar_with_params(
+                "SELECT total_amount FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(amount, dec("10"), "白名单只放 remark，金额一分不能动");
+    }
+
+    /// ⑫ DRAFT 收货单改金额 → 放行（未入账可以改）。
+    #[tokio::test]
+    async fn p10_draft_amount_change_is_allowed() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_stock_in(&req(vec![line(MATERIAL_A, "5", "2", "0")]), None)
+            .await
+            .unwrap();
+        update_stock_in(id, &req(vec![line(MATERIAL_A, "5", "3", "0")]), None)
+            .await
+            .unwrap_or_else(|err| panic!("草稿应当能改：{} {}", err.code, err.msg));
+        let amount: Decimal = db()
+            .scalar_with_params(
+                "SELECT total_amount FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(amount, dec("15"));
+    }
+
+    /// ⑬ 收货过账后采购单变 RECEIVED，`biz_status_log` 一行且 `biz_ref_no` = 收货单号。
+    #[tokio::test]
+    async fn p10_receipt_advances_order_and_logs_ref() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("30", "10").await;
+        let mut line_a = line(MATERIAL_A, "20", "2", "0");
+        line_a.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![line_a]);
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None)
+            .await
+            .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+
+        let status: String = db()
+            .scalar_with_params(
+                "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(status, "RECEIVED");
+
+        let in_no: String = db()
+            .scalar_with_params(
+                "SELECT in_no FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap();
+        let rows = db()
+            .find_with_params(
+                "SELECT entity_type, from_status, to_status, biz_ref_type, biz_ref_no \
+                   FROM biz_status_log WHERE entity_id = ?::uuid ORDER BY created_at",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1, "推进一次 = 一行日志（不许自环重复写）");
+        let row = &rows[0];
+        assert_eq!(
+            row.get_typed::<String>("entity_type").unwrap(),
+            "PURCHASE_ORDER"
+        );
+        assert_eq!(row.get_typed::<String>("from_status").unwrap(), "SUBMITTED");
+        assert_eq!(row.get_typed::<String>("to_status").unwrap(), "RECEIVED");
+        assert_eq!(
+            row.get_typed::<Option<String>>("biz_ref_no")
+                .unwrap()
+                .as_deref(),
+            Some(in_no.as_str()),
+            "日志必须能追到是哪张收货单推的"
+        );
+        assert_eq!(
+            row.get_typed::<Option<String>>("biz_ref_type")
+                .unwrap()
+                .as_deref(),
+            Some("STOCK_IN")
+        );
+    }
+
+    /// ⑭ 部分收货 → 采购单变 PARTIAL_RECEIVED。
+    #[tokio::test]
+    async fn p10_partial_receipt_advances_to_partial_received() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("30", "10").await;
+        let mut line_a = line(MATERIAL_A, "10", "2", "0");
+        line_a.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![line_a]);
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+
+        let status: String = db()
+            .scalar_with_params(
+                "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(status, "PARTIAL_RECEIVED");
+
+        let order_no: String = db()
+            .scalar_with_params(
+                "SELECT order_no FROM biz_purchase_order WHERE id = ?::uuid",
+                vec![Value::from(&order_id)],
+            )
+            .await
+            .unwrap();
+        let trail = crate::business::shared::state_machine::trail_of_no(db(), &order_no)
+            .await
+            .unwrap();
+        assert_eq!(trail.len(), 1);
+        assert_eq!(trail[0].from_status.as_deref(), Some("SUBMITTED"));
+        assert_eq!(trail[0].to_status, "PARTIAL_RECEIVED");
     }
 }

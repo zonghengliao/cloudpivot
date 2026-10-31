@@ -42,6 +42,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::stockin_model::StockInRow;
 use crate::business::erp::voucher::{self, SeqSpec};
+use crate::business::shared::state_machine;
 
 /// 应付单表。
 pub const TABLE: &str = "biz_payable";
@@ -241,7 +242,7 @@ pub async fn insert(
                  RETURNING id"
             ),
             vec![
-                Value::Text(payable_no),
+                Value::Text(payable_no.clone()),
                 Value::from(&new.supplier_id),
                 Value::Text(new.source_type.to_string()),
                 Value::from(&new.source_id),
@@ -264,7 +265,22 @@ pub async fn insert(
         )
         .await?;
     match inserted.as_ref() {
-        Some(row) => row.get_typed("id"),
+        Some(row) => {
+            let id: Uuid = row.get_typed("id")?;
+            // P10 铁律 ③：应付单建单留痕（`NULL → OPEN`），与建单同一事务
+            state_machine::log_created(
+                ex,
+                state_machine::ENTITY_PAYABLE,
+                id,
+                &payable_no,
+                STATUS_OPEN,
+                operator,
+                None,
+            )
+            .await
+            .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+            Ok(id)
+        }
         None => Err(DbError::InvalidValue(format!(
             "应付单写入失败：INSERT 没有返回 id（来源 {}）",
             new.source_no
@@ -323,6 +339,39 @@ pub async fn cancel_for_stock_in(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
+    // P10 铁律 ③：作废联动也必须走状态机唯一入口（写 biz_status_log）。
+    // 先读出待作废的应付单（`OPEN` 之外的理论上不存在，CAS 会兜住），再逐张 transition。
+    // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
+    let pending = ex
+        .query_sql(
+            format!(
+                "SELECT id, payable_no, status FROM {TABLE} \
+                  WHERE source_type = '{SOURCE_STOCK_IN}' AND source_id = ?::uuid \
+                    AND status <> '{STATUS_CANCELLED}' AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&source_id)],
+        )
+        .await?;
+    for row in &pending {
+        let id: Uuid = row.get_typed("id")?;
+        let payable_no: String = row.get_typed("payable_no")?;
+        let status: String = row.get_typed("status")?;
+        state_machine::transition(
+            ex,
+            state_machine::ENTITY_PAYABLE,
+            id,
+            &payable_no,
+            &state_machine::PAYABLE_EDGES,
+            &status,
+            STATUS_CANCELLED,
+            operator,
+            Some("收货单作废联动"),
+            None,
+        )
+        .await
+        .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+    }
+
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
     ex.exec_sql(
         format!(

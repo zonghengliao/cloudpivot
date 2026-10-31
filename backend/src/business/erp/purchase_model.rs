@@ -81,6 +81,7 @@ use crate::business::erp::model::{
     PurchaseOrderItemRow, PurchaseOrderRow, purchase_order_find_by_id, purchase_order_items,
 };
 use crate::business::erp::serial_model::period_key_of;
+use crate::business::shared::state_machine;
 
 // ==================== 表名 / 常量 ====================
 
@@ -109,12 +110,7 @@ pub const STATUS_CLOSED: &str = "CLOSED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 本卡负责的 4 条合法边（卡面 §三）。
-pub const LEGAL_EDGES: [(&str, &str); 4] = [
-    (STATUS_DRAFT, STATUS_SUBMITTED),
-    (STATUS_DRAFT, STATUS_CANCELLED),
-    (STATUS_SUBMITTED, STATUS_CLOSED),
-    (STATUS_SUBMITTED, STATUS_CANCELLED),
-];
+pub const LEGAL_EDGES: [(&str, &str); 10] = state_machine::PURCHASE_ORDER_EDGES;
 
 /// 状态中文标签（错误文案与前端徽标共用）。
 pub fn status_label(status: &str) -> &'static str {
@@ -447,18 +443,18 @@ async fn insert_items(
     Ok(())
 }
 
-/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细**，调用方负责事务边界。
+/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细 → 建单日志**，调用方负责事务边界。
 pub async fn create(
     ex: &impl SqlExecutor,
     new: &NewPurchaseOrder<'_>,
     items: &[NewItem],
     totals: &Totals,
-    operator: Option<Uuid>,
+    operator: state_machine::Operator,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
     let order_no = next_order_no(ex, now).await?;
     let id = Uuid::now_v7();
-    let operator_text = Value::Text(operator.map(|id| id.to_string()).unwrap_or_default());
+    let operator_text = Value::Text(operator.id.map(|id| id.to_string()).unwrap_or_default());
     ex.exec_sql(
         format!(
             "INSERT INTO {ORDER_TABLE} \
@@ -472,7 +468,7 @@ pub async fn create(
         ),
         vec![
             Value::from(&id),
-            Value::Text(order_no),
+            Value::Text(order_no.clone()),
             Value::from(&new.supplier_id),
             Value::Text(new.order_date.to_string()),
             Value::Text(new.expect_date.map(|d| d.to_string()).unwrap_or_default()),
@@ -491,7 +487,19 @@ pub async fn create(
         ],
     )
     .await?;
-    insert_items(ex, id, items, operator).await?;
+    insert_items(ex, id, items, operator.id).await?;
+    // P10 铁律 ③：建单留痕（`from_status = NULL → DRAFT`），与建单同一事务
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_PURCHASE_ORDER,
+        id,
+        &order_no,
+        STATUS_DRAFT,
+        operator,
+        None,
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
     Ok(id)
 }
 
