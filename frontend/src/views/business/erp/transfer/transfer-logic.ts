@@ -28,6 +28,7 @@ import type {
   CreateTransferReq,
   TransferDetail,
   TransferItemReq,
+  TransferOverdueSummary,
   TransferRow,
   TransferStatus,
   TransferItemSerial,
@@ -240,11 +241,25 @@ export interface TransferFilterState {
   to_warehouse_id: string;
   /** 单号（模糊） */
   transfer_no: string;
+  /**
+   * 只看「超期在途」（LNK-F12 开关）：`true` = 请求带 `in_transit_overdue=true`。
+   *
+   * 关掉时**整键缺席**（= 后端「不筛」），不是发 `false`：
+   * `in_transit_overdue=false` 是「排除超期」，与「关掉开关看全部」不是一回事，
+   * 而且它跟 `status=IN_TRANSIT` 是后端 400 的矛盾组合。
+   */
+  in_transit_overdue: boolean;
 }
 
 /** 空筛选（重置用；每次返回新对象，避免共享引用被就地改） */
 export function emptyTransferFilter(): TransferFilterState {
-  return { status: '', from_warehouse_id: '', to_warehouse_id: '', transfer_no: '' };
+  return {
+    status: '',
+    from_warehouse_id: '',
+    to_warehouse_id: '',
+    transfer_no: '',
+    in_transit_overdue: false,
+  };
 }
 
 /**
@@ -252,6 +267,15 @@ export function emptyTransferFilter(): TransferFilterState {
  *
  * 口径：`''` 一律**整键缺席**（不是发空串）。后端把 `?transfer_no=` 当「等于空串」过滤，
  * 发了就查出 0 行 —— 与本仓 API 层 `asParams` 的既有约定一致。
+ *
+ * # 超期开关与状态筛选互斥（后端 400 的不是空列表）
+ *
+ * 后端 `TransferPageQuery::validate()` 对两种组合直接 400：
+ * - `in_transit_overdue=true` + `status≠IN_TRANSIT`；
+ * - `in_transit_overdue=false` + `status=IN_TRANSIT`。
+ *
+ * 所以这里**只有一条分支**：超期开关打开 → 发 `in_transit_overdue=true` 且**丢掉 `status`**
+ * （页面同时把状态下拉置灰并清空，双保险：即便有代码绕过 UI 直接改 filter，也拼不出矛盾组合）。
  */
 export function buildTransferQuery(
   filter: TransferFilterState,
@@ -259,7 +283,9 @@ export function buildTransferQuery(
   pageSize: number = TRANSFER_PAGE_SIZE,
 ): Record<string, unknown> {
   const query: Record<string, unknown> = { page, page_size: pageSize };
-  if (filter.status) {
+  if (filter.in_transit_overdue) {
+    query.in_transit_overdue = true;
+  } else if (filter.status) {
     query.status = filter.status;
   }
   if (filter.from_warehouse_id) {
@@ -282,7 +308,87 @@ export function isTransferFiltered(filter: TransferFilterState): boolean {
     || Boolean(filter.from_warehouse_id)
     || Boolean(filter.to_warehouse_id)
     || Boolean(filter.transfer_no.trim())
+    || filter.in_transit_overdue
   );
+}
+
+/** 超期开关打开时状态下拉必须置灰（否则用户能选出后端 400 的组合） */
+export function isStatusFilterLocked(filter: TransferFilterState): boolean {
+  return filter.in_transit_overdue;
+}
+
+// ==================== 超期在途（LNK-F12） ====================
+
+/** 页头角标文案里的缺省阈值（后端 `sys_config` 读不到时也回退 7，两边同口径） */
+export const OVERDUE_DEFAULT_THRESHOLD_DAYS = 7;
+
+/**
+ * 这一行是否要显示「超期 N 天」红标。
+ *
+ * 两个条件都要：`status === 'IN_TRANSIT'` **且** 后端判定 `in_transit_overdue === true`。
+ * 只看 `overdue_days` 不够 —— 非超期行后端不下发该字段，但历史上可能有脏数据把它带过来。
+ */
+export function isOverdueRow(row: Pick<TransferRow, 'status' | 'in_transit_overdue'>): boolean {
+  return row.status === 'IN_TRANSIT' && row.in_transit_overdue === true;
+}
+
+/**
+ * 行内红标文案：`超期 N 天`；不该显示时返回 `''`（模板 `v-if` 直接吃掉）。
+ *
+ * `overdue_days` 缺失时回退成 `超期`（不带天数）—— 后端理论上只在超期时下发天数，
+ * 但「红标出现但文案是 `超期 undefined 天`」比少一个数字难看得多。
+ */
+export function overdueBadgeText(row: Pick<TransferRow, 'status' | 'in_transit_overdue' | 'overdue_days'>): string {
+  if (!isOverdueRow(row)) {
+    return '';
+  }
+  const days = row.overdue_days;
+  return typeof days === 'number' && Number.isFinite(days) ? `超期 ${days} 天` : '超期';
+}
+
+/**
+ * 红标 hover 文案：告警台账（`overdue_alerted_at` / `overdue_alert_count`）。
+ *
+ * - 提醒过：`已于 2026-10-31 14:11 提醒过 1 次`（时间走本页 `formatTime` 口径，本地时区）；
+ * - 没提醒过：说明阈值与「扫描任务还没跑到它」，别显示一颗时间都没有的空 tooltip。
+ */
+export function overdueBadgeTooltip(
+  row: Pick<TransferRow, 'status' | 'in_transit_overdue' | 'overdue_days' | 'overdue_alerted_at' | 'overdue_alert_count'>,
+  thresholdDays: number = OVERDUE_DEFAULT_THRESHOLD_DAYS,
+): string {
+  if (!isOverdueRow(row)) {
+    return '';
+  }
+  const days = typeof row.overdue_days === 'number' ? row.overdue_days : null;
+  const where = days === null
+    ? `发货已超 ${thresholdDays} 天未收货`
+    : `发货已 ${days} 天未收货（阈值 ${thresholdDays} 天）`;
+  const at = row.overdue_alerted_at;
+  if (!at) {
+    return `${where}；扫描任务还没提醒过这张单`;
+  }
+  const count = typeof row.overdue_alert_count === 'number' && row.overdue_alert_count > 0
+    ? row.overdue_alert_count
+    : 1;
+  return `${where}；已于 ${formatTime(at)} 提醒过 ${count} 次`;
+}
+
+/**
+ * 页头角标文案：`发货超 7 天未收货 · 3 张`。
+ *
+ * `total === 0` 时返回 `''`（不显示角标 —— 「0 张超期」挂个红标只会让人每天多看一眼）。
+ * `threshold_days` 缺失（旧版后端 / 接口还没上）回退 7，文案不出现 `undefined`。
+ */
+export function overdueSummaryText(
+  summary: Pick<TransferOverdueSummary, 'threshold_days' | 'total'> | null | undefined,
+): string {
+  if (!summary || !summary.total || summary.total <= 0) {
+    return '';
+  }
+  const threshold = typeof summary.threshold_days === 'number' && summary.threshold_days > 0
+    ? summary.threshold_days
+    : OVERDUE_DEFAULT_THRESHOLD_DAYS;
+  return `发货超 ${threshold} 天未收货 · ${summary.total} 张`;
 }
 
 // ==================== 建单 / 改单表单 ====================

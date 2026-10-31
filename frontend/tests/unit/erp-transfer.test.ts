@@ -16,6 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  OVERDUE_DEFAULT_THRESHOLD_DAYS,
   SERIAL_OPTION_LIMIT,
   TRANSFER_PAGE_SIZE,
   TRANSFER_STATUSES,
@@ -34,10 +35,15 @@ import {
   formatQty,
   formatTime,
   hasTransferFormError,
+  isOverdueRow,
+  isStatusFilterLocked,
   isTransferFiltered,
   isValidQty,
   itemCountText,
   needsConfirm,
+  overdueBadgeText,
+  overdueBadgeTooltip,
+  overdueSummaryText,
   todayString,
   transferActionHint,
   transferStatusLabel,
@@ -234,7 +240,7 @@ test('④ 查询参数空串不发 / 请求体省略空值 / 明细序列号只�
 
   // 空串一律整键缺席（后端把 ?transfer_no= 当「等于空串」过滤会查出 0 行）
   const filteredQuery = buildTransferQuery(
-    { status: 'DRAFT', from_warehouse_id: 'wh-a', to_warehouse_id: '', transfer_no: '  TR-2026  ' },
+    { status: 'DRAFT', from_warehouse_id: 'wh-a', to_warehouse_id: '', transfer_no: '  TR-2026  ', in_transit_overdue: false },
     2,
   );
   assert.deepEqual(filteredQuery, {
@@ -361,4 +367,80 @@ test('⑤ 审批进度：提交 → 审批人同意 → 完成（时间线三段
   // 空表单的默认日期是今天（YYYY-MM-DD，不是 ISO 时间戳）
   assert.match(emptyTransferForm().transfer_date, /^\d{4}-\d{2}-\d{2}$/);
   assert.equal(todayString(new Date(2026, 9, 30)), '2026-10-30');
+});
+
+// ==================== ⑥ 超期在途（LNK-F12） ====================
+
+/**
+ * 口径来源：后端卡 `t_ff20409a` 的交付说明 + `docs/在途调拨超期告警-LNK-F12.md`。
+ *
+ * 三条硬约束（错了就是线上 400，不是「列表少两行」）：
+ * 1. 开关打开 → 请求带 `in_transit_overdue=true`；
+ * 2. 开关关闭 → 这个键**整键缺席**（`false` 是「排除超期」，不是「关掉开关」）；
+ * 3. 任何情况下都不拼出 `in_transit_overdue=true + status≠IN_TRANSIT`
+ *    或 `in_transit_overdue=false + status=IN_TRANSIT`（后端直接 400）。
+ */
+test('⑥ 超期在途：开关 → 请求参数 / 矛盾组合永不产生 / 红标与角标文案', () => {
+  // 1) 开关打开：发 in_transit_overdue=true，且把 status 丢掉（哪怕 filter 里还留着）
+  const on = buildTransferQuery({ ...emptyTransferFilter(), status: 'DRAFT', in_transit_overdue: true }, 1);
+  assert.equal(on.in_transit_overdue, true);
+  assert.equal('status' in on, false, '开关打开时不能同时发 status（后端 400，不是空列表）');
+  assert.equal(isTransferFiltered({ ...emptyTransferFilter(), in_transit_overdue: true }), true);
+  assert.equal(isStatusFilterLocked({ ...emptyTransferFilter(), in_transit_overdue: true }), true);
+  assert.equal(isStatusFilterLocked(emptyTransferFilter()), false);
+
+  // 2) 开关关闭：整键缺席，不发明 in_transit_overdue=false
+  const off = buildTransferQuery({ ...emptyTransferFilter(), status: 'IN_TRANSIT' }, 1);
+  assert.deepEqual(off, { page: 1, page_size: TRANSFER_PAGE_SIZE, status: 'IN_TRANSIT' });
+  assert.equal('in_transit_overdue' in off, false, '关掉开关 = 后端「不筛」，不是「排除超期」');
+
+  // 3) 穷举 (状态 × 开关)：矛盾组合一条都不许出现
+  for (const status of ['', ...TRANSFER_STATUSES]) {
+    for (const flag of [true, false]) {
+      const query = buildTransferQuery({ ...emptyTransferFilter(), status, in_transit_overdue: flag }, 1);
+      const sent = query.in_transit_overdue;
+      assert.notEqual(sent, false, `不允许发 in_transit_overdue=false（status=${status}）`);
+      if (sent === true) {
+        assert.equal('status' in query, false, `超期筛选不允许叠状态（status=${status}）`);
+      }
+      if (query.status === 'IN_TRANSIT') {
+        assert.equal(sent, undefined, 'status=IN_TRANSIT 时不能带超期参数');
+      }
+    }
+  }
+
+  // 4) 行内红标：status=IN_TRANSIT 且后端判超期才显示
+  const overdueRow = {
+    status: 'IN_TRANSIT',
+    in_transit_overdue: true,
+    overdue_days: 30,
+    overdue_alerted_at: '2026-10-31T06:11:10+00:00',
+    overdue_alert_count: 1,
+  } as TransferRow;
+  assert.equal(isOverdueRow(overdueRow), true);
+  assert.equal(overdueBadgeText(overdueRow), '超期 30 天');
+  assert.match(overdueBadgeTooltip(overdueRow, 7), /已于 .+ 提醒过 1 次/);
+  assert.match(overdueBadgeTooltip(overdueRow, 7), /阈值 7 天/);
+
+  assert.equal(overdueBadgeText({ ...overdueRow, status: 'DONE' } as TransferRow), '', '已签收不挂红标');
+  assert.equal(overdueBadgeText({ ...overdueRow, in_transit_overdue: false } as TransferRow), '', '后端没判超期就不挂');
+  assert.equal(
+    overdueBadgeText({ status: 'IN_TRANSIT', in_transit_overdue: true } as TransferRow),
+    '超期',
+    '缺 overdue_days 时不能显示「超期 undefined 天」',
+  );
+  assert.match(
+    overdueBadgeTooltip({ status: 'IN_TRANSIT', in_transit_overdue: true, overdue_days: 8 } as TransferRow),
+    /还没提醒过/,
+    '没有警台账时 tooltip 说清「还没提醒」，别给一颗空 tooltip',
+  );
+
+  // 5) 页头角标：文案带阈值；0 张不挂红标；旧版后端不给 threshold_days 也不出 undefined
+  assert.equal(overdueSummaryText({ threshold_days: 7, total: 3 }), '发货超 7 天未收货 · 3 张');
+  assert.equal(
+    overdueSummaryText({ threshold_days: 0, total: 2 }),
+    `发货超 ${OVERDUE_DEFAULT_THRESHOLD_DAYS} 天未收货 · 2 张`,
+  );
+  assert.equal(overdueSummaryText({ threshold_days: 7, total: 0 }), '');
+  assert.equal(overdueSummaryText(null), '');
 });
