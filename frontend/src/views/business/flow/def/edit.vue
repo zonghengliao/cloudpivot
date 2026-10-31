@@ -33,10 +33,6 @@
             <template #icon><t-icon name="refresh" /></template>
             重做
           </t-button>
-          <t-button size="small" variant="outline" :disabled="readonly" title="按拓扑序分层排版" @click="doAutoLayout">
-            <template #icon><t-icon name="view-list" /></template>
-            自动布局
-          </t-button>
           <t-button size="small" variant="outline" :disabled="readonly" title="适应画布" @click="canvasRef?.fitView()">适配</t-button>
           <t-button
             v-privilege="[PERM.flowUpdate]"
@@ -135,6 +131,8 @@
           :selected-key="selectedKey"
           :selected-edge-key="selectedEdgeKey"
           :issue-node-keys="issueNodeKeys"
+          :can-undo-layout="layoutSnapshot !== null"
+          :show-minimap="issues.length === 0"
           @select-node="onSelectNode"
           @select-edge="onSelectEdge"
           @move-node="onMoveNode"
@@ -143,6 +141,8 @@
           @undo="undo"
           @redo="redo"
           @nudge="onNudge"
+          @auto-layout="onAutoLayout"
+          @undo-layout="onUndoLayout"
         />
 
         <!-- 校验问题列表（每条可点定位） -->
@@ -233,7 +233,7 @@
  */
 import { computed, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
-import { MessagePlugin } from 'tdesign-vue-next';
+import { MessagePlugin, DialogPlugin } from 'tdesign-vue-next';
 import {
   createFlowDraft,
   getFlowDef,
@@ -258,7 +258,8 @@ import { PERM } from '@/constants/permissions';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import FlowCanvas from '@/views/business/flow/components/FlowCanvas.vue';
 import NodeProps from '@/views/business/flow/components/NodeProps.vue';
-import { FlowHistory, NODE_TYPES, autoLayout, checkEdgeAllowed, makeEdge, makeNode, snapGrid, type FlowCommand, type MutableGraph, applyCommand, revertCommand } from '@/views/business/flow/graph';
+import { FlowHistory, NODE_TYPES, autoLayout, checkEdgeAllowed, makeEdge, makeNode, nodeSize, snapGrid, type FlowCommand, type MutableGraph, applyCommand, revertCommand } from '@/views/business/flow/graph';
+import { computeAutoLayout } from '@/views/business/flow/auto-layout';
 
 /** 路由 */
 const route = useRoute();
@@ -288,6 +289,12 @@ const history = reactive(new FlowHistory());
 /** 选中态 */
 const selectedKey = ref<string | null>(null);
 const selectedEdgeKey = ref<string | null>(null);
+
+/**
+ * 最近一次自动布局前的坐标快照（null = 没布局过 / 已撤销）。
+ * 非 null 时画布右上角出现「撤销布局」按钮。
+ */
+const layoutSnapshot = ref<Array<{ key: string; x: number; y: number }> | null>(null);
 
 /** 校验结果 */
 const issues = ref<FlowIssue[]>([]);
@@ -434,6 +441,7 @@ async function loadVersion(vid: string): Promise<void> {
   graph.nodes = (data.nodes ?? []).map((node) => ({ ...node, assignees: [...(node.assignees ?? [])] }));
   graph.edges = (data.edges ?? []).map((edge) => ({ ...edge }));
   history.clear();
+  layoutSnapshot.value = null;
   issues.value = [];
   saveWarnings.value = [];
   selectedKey.value = null;
@@ -595,25 +603,90 @@ function onDeleteSelected(): void {
   }
 }
 
-/** 自动布局（按拓扑序分层） */
+/**
+ * 自动布局（P12：dagre 树状布局 + 二次确认 + 可撤销）。
+ *
+ * 流程：确认框 → `computeAutoLayout`（纯算法）→ 包成一条 `layout` 命令压栈
+ * → `fitView()` 让全图可见 → 记下布局前的坐标供「撤销布局」用。
+ *
+ * 方向取 `LR`：本画布的锚点是**固定左进右出**，TB（上→下）会让每条边从右侧出来
+ * 再绕回下一个节点的左侧，观感很差。
+ */
+function onAutoLayout(): void {
+  if (readonly.value || graph.nodes.length === 0) {
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '自动布局',
+    body: '这会按层级重排所有节点的位置（布局后可用「撤销布局」还原），是否继续？',
+    confirmBtn: '开始重排',
+    cancelBtn: '取消',
+    onConfirm: () => {
+      dialog.destroy();
+      doAutoLayout();
+    },
+    onCancel: () => dialog.destroy(),
+    onClose: () => dialog.destroy(),
+  });
+}
+
+/** 真正执行布局（只在用户确认后调用；不自动触发） */
 function doAutoLayout(): void {
   if (readonly.value || graph.nodes.length === 0) {
     return;
   }
-  const positions = autoLayout(graph.nodes, graph.edges);
+  const positions = computeAutoLayout(
+    graph.nodes.map((node) => ({ id: node.key, width: nodeSize(node.type).w, height: nodeSize(node.type).h })),
+    graph.edges.map((edge) => ({ source: edge.from, target: edge.to })),
+    'LR',
+  );
   const moves: Array<{ key: string; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+  const snapshot: Array<{ key: string; x: number; y: number }> = [];
   for (const node of graph.nodes) {
+    // 快照覆盖**所有**节点（包括坐标没变的），撤销时才能整图还原
+    snapshot.push({ key: node.key, x: node.x, y: node.y });
     const target = positions.get(node.key);
     if (target && (target.x !== node.x || target.y !== node.y)) {
       moves.push({ key: node.key, from: { x: node.x, y: node.y }, to: target });
     }
   }
   if (moves.length === 0) {
+    layoutSnapshot.value = null;
+    MessagePlugin.info('节点已经很整齐了，无需重排');
+    return;
+  }
+  commit({ kind: 'layout', moves });
+  layoutSnapshot.value = snapshot;
+  requestAnimationFrame(() => canvasRef.value?.fitView());
+  MessagePlugin.success(`已重排 ${moves.length} 个节点`);
+}
+
+/**
+ * 撤销布局：把坐标还原成「布局前」的那一份。
+ *
+ * 不复用 Ctrl+Z 的原因是「撤销」是**最近一条命令**语义，而用户点完布局很可能又拖了一下节点，
+ * 那时 Ctrl+Z 只回退拖拽。这里按快照整图回写，并同样压一条 `layout` 命令（这次撤销本身也能再撤销）。
+ */
+function onUndoLayout(): void {
+  const snapshot = layoutSnapshot.value;
+  if (!snapshot || readonly.value) {
+    return;
+  }
+  const moves: Array<{ key: string; from: { x: number; y: number }; to: { x: number; y: number } }> = [];
+  for (const item of snapshot) {
+    const node = graph.nodes.find((candidate) => candidate.key === item.key);
+    if (node && (node.x !== item.x || node.y !== item.y)) {
+      moves.push({ key: item.key, from: { x: node.x, y: node.y }, to: { x: item.x, y: item.y } });
+    }
+  }
+  layoutSnapshot.value = null;
+  if (moves.length === 0) {
+    MessagePlugin.info('节点位置没有变化');
     return;
   }
   commit({ kind: 'layout', moves });
   requestAnimationFrame(() => canvasRef.value?.fitView());
-  MessagePlugin.success(`已按拓扑序重排 ${moves.length} 个节点`);
+  MessagePlugin.success('已撤销布局');
 }
 
 // ==================== 属性面板事件 ====================

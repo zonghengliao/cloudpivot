@@ -61,13 +61,18 @@ test.describe('流程4 SVG 流程编辑器', () => {
       await expect(page.locator('.flow-node')).toHaveCount(expectCount, { timeout: 10_000 });
     };
 
+    // 先记下默认图的 key，后面用它把「新拖进来的结束」与默认「结束」区分开
+    const initialKeys = await page.$$eval('.flow-node', (els) => els.map((el) => (el as HTMLElement).dataset.nodeKey!));
+
     await dropNode('APPROVAL', 0.35, 0.55, 3);
     await dropNode('CC', 0.6, 0.55, 4);
     await dropNode('END', 0.8, 0.55, 5);
 
-    // 落点可能和默认「开始 / 结束」重叠（叠在一起就点不到锚点）→ 点一次「自动布局」按拓扑序铺开
+    // 落点可能和默认「开始 / 结束」重叠（叠在一起就点不到锚点）→ 点一次「自动布局」按 dagre 分层铺开
+    // （P12：按钮在画布右上角，且会先弹二次确认）
     await page.getByRole('button', { name: '自动布局' }).click();
-    await expect(toast(page, '已按拓扑序重排')).toBeVisible({ timeout: 10_000 });
+    await page.locator('.t-dialog').filter({ hasText: '重排所有节点的位置' }).getByRole('button', { name: '开始重排' }).click();
+    await expect(toast(page, '已重排')).toBeVisible({ timeout: 10_000 });
     await page.waitForTimeout(800);
 
     // 读出画布上的节点 key（真实 DOM 属性 → 后面连线要用）
@@ -85,11 +90,8 @@ test.describe('流程4 SVG 流程编辑器', () => {
     const startKey = nodes.find((n) => n.type === 'START')!.key;
     const approvalKey = nodes.find((n) => n.type === 'APPROVAL')!.key;
     const ccKey = nodes.find((n) => n.type === 'CC')!.key;
-    // 两个「结束」：自动布局按拓扑分层，**最靠下**的那个才是刚拖进来的新结束
-    const endKey = nodes
-      .filter((n) => n.type === 'END')
-      .sort((a, b) => a.y - b.y)
-      .pop()!.key;
+    // 两个「结束」：默认那个在打开编辑器时就有了，用 key 差集挑出新拖进来的那个
+    const endKey = nodes.filter((n) => n.type === 'END' && !initialKeys.includes(n.key)).pop()!.key;
 
     // ---------- ③ 拖锚点连线 ----------
     const connect = async (fromKey: string, toKey: string, expectEdges: number) => {
