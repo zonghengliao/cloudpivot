@@ -83,13 +83,40 @@
             <div class="section-title">审批内容</div>
             <div class="content">
               <p class="content__title">{{ detail.instance.title }}</p>
-              <div v-if="formFields.length > 0" class="content__fields">
-                <div v-for="field in formFields" :key="field.key" class="content__field">
-                  <span class="content__field-key">{{ field.key }}</span>
-                  <span class="content__field-value">{{ field.value }}</span>
+              <div v-if="formFields.length > 0" class="content__fields" data-testid="flow-form-fields">
+                <div
+                  v-for="field in formFields"
+                  :key="field.key"
+                  class="content__field"
+                  :class="{ 'content__field--empty': field.empty }"
+                >
+                  <span class="content__field-key">{{ field.label }}</span>
+                  <span class="content__field-value">{{ field.display }}</span>
                 </div>
               </div>
-              <p v-else class="content__empty">发起时未填写表单内容</p>
+              <!-- 明细：渲染成小表格（不许 JSON 字符串） -->
+              <div v-if="itemTables.length > 0" class="form-items" data-testid="flow-form-items">
+                <div
+                  v-for="table in itemTables"
+                  :key="table.key"
+                  class="form-items__block"
+                  :data-testid="`flow-form-items-${table.key}`"
+                >
+                  <div class="form-items__title">{{ table.label }}（{{ table.rows.length }} 行）</div>
+                  <t-table
+                    :data="table.rows"
+                    :columns="table.columns"
+                    row-key="__rowKey"
+                    size="small"
+                    :bordered="true"
+                    :hover="true"
+                    table-layout="auto"
+                  />
+                </div>
+              </div>
+              <p v-if="formFields.length === 0 && itemTables.length === 0" class="content__empty">
+                发起时未填写表单内容
+              </p>
               <p v-if="detail.instance.result_comment" class="content__comment">
                 结束说明：{{ detail.instance.result_comment }}
               </p>
@@ -280,6 +307,21 @@ import {
 import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import { nodeTypeLabel, topoOrder } from '@/views/business/flow/graph';
+import {
+  buildFormFields,
+  buildFormItemTables,
+  buildItemTable,
+  type FormField,
+  type FormItemTable,
+  type FormNameLookup,
+} from '@/views/business/flow/form-field-labels';
+import {
+  emptyNameMaps,
+  ensureMasterNameMaps,
+  nameLookupOf,
+  type MasterNameMaps,
+} from '@/views/business/flow/use-flow-master-names';
+import { loadBusinessItemRows } from '@/views/business/flow/flow-business-items';
 import type { FlowProgressNode } from '@/views/business/flow/components/FlowProgress.vue';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
@@ -414,33 +456,80 @@ function toProgressNode(row: FlowNodeProgress): FlowProgressNode {
 }
 
 /**
- * 表单字段（读 `detail.instance.form_data`，D4a 起接口下发）。
+ * 审批内容的呈现（P1-FIX：字段名中文 + ID 转名称 + 金额格式 + 明细表格）。
  *
- * 口径照卡面：键名原样展示（不做中文映射 —— 键里是什么就显示什么），
- * 值用 `String(v)`；`null` / `undefined` 显示空；数组 / 对象用 JSON 字符串。
+ * # 口径变更（老板 2026-11-01 报「都是字段名和 ID 号，没法看出具体内容」）
+ *
+ * 旧口径是「键名原样展示 + `String(v)` + 数组/对象 `JSON.stringify`」，现在改成走
+ * `form-field-labels.ts` 的三层呈现：
+ *
+ * | 层 | 做什么 | 兜底 |
+ * |---|---|---|
+ * | 字段名 | `supplier_id` → 「供应商」 | 不认识的键**原样显示键名**（不丢信息） |
+ * | 值 | `supplier_id` 查主数据译名；金额 `¥226.00`；枚举 `EXCL`→「不含税」 | 查不到名称 → `(ID: 01a18def…)`；空值 → `—` |
+ * | 明细 | 对象数组 → `t-table` 小表格（列标题中文、数量带单位） | 明细读不到 → 整个明细区不显示 |
+ *
+ * 译名走 `use-flow-master-names.ts`（一次批量查 5 张表，权限不够静默降级）；
+ * 采购明细走 `flow-business-items.ts`（`form_data` 里**没有** `items`，得读业务单明细）。
  */
-function formatFormValue(value: unknown): string {
-  if (value === null || value === undefined) {
-    return '';
+const masterNames = ref<MasterNameMaps>(emptyNameMaps());
+/** 译名函数（响应式：主数据回来前后的 computed 结果会各自正确） */
+const nameLookup = computed<FormNameLookup>(() => nameLookupOf(masterNames.value));
+
+/** 主数据正在拉（防轮询重复打接口；`ensureMasterNameMaps` 内部本身还有模块级缓存） */
+let namesLoading = false;
+
+/**
+ * 补主数据译名。
+ *
+ * 拉不到（审批岗位没有 ERP 权限是常态）就保持空映射 → 值显示 `(ID: 01a18def…)`，
+ * 页面照常可用。**不重试**：这类失败是权限问题，重试只会白打接口。
+ */
+async function refreshMasterNames(): Promise<void> {
+  if (namesLoading) {
+    return;
   }
-  if (typeof value === 'object') {
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
+  namesLoading = true;
+  try {
+    masterNames.value = await ensureMasterNameMaps();
+  } finally {
+    namesLoading = false;
   }
-  return String(value);
 }
 
-/** 附带的表单字段（无表单 → 空数组，模板显示「发起时未填写表单内容」） */
-const formFields = computed<Array<{ key: string; value: string }>>(() => {
+/** 表单字段（无表单 → 空数组，模板显示「发起时未填写表单内容」） */
+const formFields = computed<FormField[]>(() => {
   const data = detail.value?.instance?.form_data;
-  if (!data || typeof data !== 'object') {
+  return buildFormFields(data, nameLookup.value);
+});
+
+/** 业务明细（采购单明细行；其它流程 / 拉不到 → 空数组） */
+const businessItemRows = ref<Record<string, unknown>[]>([]);
+
+/**
+ * 明细表：`form_data` 自己的对象数组 + 业务单明细，两路合并。
+ *
+ * - `form_data` 有数组字段（自定义流程 / 后续后端补了 `items`）→ 直接用，字段名键映射齐全；
+ * - 采购审批（`PO_APPROVE`）没有 `items` → 用 `loadBusinessItemRows` 读业务单明细，标题统一叫「明细」。
+ */
+const itemTables = computed<FormItemTable[]>(() => {
+  const data = detail.value?.instance?.form_data;
+  const tables = buildFormItemTables(data, nameLookup.value);
+  if (tables.length > 0) {
+    return tables;
+  }
+  const rows = businessItemRows.value;
+  if (rows.length === 0) {
     return [];
   }
-  return Object.entries(data).map(([key, value]) => ({ key, value: formatFormValue(value) }));
+  return [buildItemTable('items', '明细', rows, nameLookup.value)];
 });
+
+/** 拉业务明细（只在「form_data 没有明细数组 + 采购审批」时才有活干；失败静默） */
+async function loadBusinessItems(bizType: string, formData: Record<string, unknown> | undefined, bizId: string): Promise<void> {
+  const rows = await loadBusinessItemRows(bizType, formData, bizId);
+  businessItemRows.value = rows;
+}
 
 /** 时间线条目 */
 interface TimelineItem {
@@ -549,6 +638,9 @@ async function loadDetail(silent = false): Promise<void> {
     const data = await getFlowInstance(instanceId.value);
     detail.value = data;
     loadError.value = '';
+    // 主数据译名与业务明细各自独立异步补：都失败也不影响正文（页面先出 ID、后补名称）
+    void refreshMasterNames();
+    void loadBusinessItems(data.instance.biz_type, data.instance.form_data, data.instance.biz_id);
     if (graphNodes.value.length === 0) {
       // 只在首次（或图还没拉到）时拉图：轮询不必重复拉
       await loadGraph(data.instance.flow_code, data.instance.version_no);
@@ -912,6 +1004,12 @@ onBeforeUnmount(() => {
     font-size: 13px;
   }
 
+  &__field--empty {
+    .content__field-value {
+      color: var(--td-text-color-disabled);
+    }
+  }
+
   &__field-key {
     min-width: 110px;
     color: var(--td-text-color-placeholder);
@@ -920,6 +1018,24 @@ onBeforeUnmount(() => {
   &__field-value {
     color: var(--td-text-color-primary);
     word-break: break-word;
+  }
+}
+
+/* 明细：小表格（数量带单位、金额两位小数；标题带行数） */
+.form-items {
+  padding-top: 10px;
+  margin-top: 10px;
+  border-top: 1px dashed var(--td-component-stroke);
+
+  &__block + &__block {
+    margin-top: 12px;
+  }
+
+  &__title {
+    margin-bottom: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--td-text-color-primary);
   }
 }
 

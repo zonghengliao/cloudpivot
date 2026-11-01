@@ -62,6 +62,11 @@
               <span v-if="card.extra" class="task-card__dot">·</span>
               <span v-if="card.extra">{{ card.extra }}</span>
             </div>
+            <!-- 摘要（P1-FIX）：不是原始字段，是把 form_data 翻成人话的一行
+                 （供应商 / 价税合计 / 数量合计）；拉不到详情就不显示，不编内容 -->
+            <div v-if="summaryOf[card.id]" class="task-card__summary" data-testid="flow-task-summary">
+              {{ summaryOf[card.id] }}
+            </div>
           </div>
           <div class="task-card__side">
             <span class="task-card__time">{{ formatTime(card.at) }}</span>
@@ -161,6 +166,7 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import {
   addSignFlowTask,
   approveFlowTask,
+  getFlowInstance,
   listDoneTasks,
   listMyCc,
   listMyInstances,
@@ -170,6 +176,13 @@ import {
   type FlowTaskItem,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import { formSummary, type FormNameLookup } from '@/views/business/flow/form-field-labels';
+import {
+  emptyNameMaps,
+  ensureMasterNameMaps,
+  nameLookupOf,
+  type MasterNameMaps,
+} from '@/views/business/flow/use-flow-master-names';
 import NewDot from '@/components/NewDot.vue';
 import type { StatusDomain } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
@@ -215,6 +228,14 @@ interface CardItem {
   isNew?: boolean;
   /** 所属审批实例的状态（P11 防御用；后端老版本可能缺这个字段） */
   instanceStatus?: string;
+  /**
+   * 实例的表单快照（`form_data`）。
+   *
+   * - 「我发起的」Tab 直接由 `InstanceRes` 下发，零成本；
+   * - 「待我审批」Tab 的 `TaskRes` **没有** `form_data`，由 {@link fillTodoFormData} 逐单补
+   *   （上限 {@link SUMMARY_FETCH_LIMIT} 单，够看到首屏；后端给 `TaskRes` 补上该字段后才用收这个补丁）。
+   */
+  formData?: Record<string, unknown>;
 }
 
 /** 当前 Tab（`t-tab-panel` 的 value） */
@@ -258,6 +279,55 @@ const emptyText = computed(() => {
   };
   return map[activeTab.value] ?? '暂无数据';
 });
+
+/** 主数据译名（与详情页共用同一份模块级缓存，这里只是「谁来触发第一次」） */
+const masterNames = ref<MasterNameMaps>(emptyNameMaps());
+const nameLookup = computed<FormNameLookup>(() => nameLookupOf(masterNames.value));
+
+/** 补译名（失败 = 权限不足 → 摘要里显示 ID 前 8 位，页面不报错） */
+async function warmMasterNames(): Promise<void> {
+  masterNames.value = await ensureMasterNameMaps();
+}
+
+/**
+ * 摘要（P1-FIX）：把卡片上的 `form_data` 翻成人话，`卡片 id → 一行摘要`。
+ *
+ * 为什么是 computed 而不是「加载时算一次字符串」：译名（`supplier_id` → 名称）是**异步**补的，
+ * 主数据回来之前只能显示 `(ID: 01a18def…)`。算成 computed 后，主数据一到所有卡片的摘要自动刷新，
+ * 不需要重拉列表。
+ */
+const summaryOf = computed<Record<string, string>>(() => {
+  const out: Record<string, string> = {};
+  for (const card of cards.value) {
+    if (card.formData) {
+      out[card.id] = formSummary(card.formData, nameLookup.value);
+    }
+  }
+  return out;
+});
+
+/**
+ * 待办 Tab 补 `form_data`：`TaskRes` 没有这个字段，逐单读详情。
+ *
+ * - **上限 {@link SUMMARY_FETCH_LIMIT} 单**：首屏够看，且不把 50 单列表变成 50 个请求；
+ * - **不 await**：列表先渲染出来，摘要稍后填进去（不然首屏要多等一轮往返）；
+ * - 单条失败（无权限 / 已终止）→ 该卡不显示摘要，不影响别的卡。
+ */
+const SUMMARY_FETCH_LIMIT = 20;
+
+async function fillTodoFormData(items: CardItem[]): Promise<void> {
+  const targets = items.slice(0, SUMMARY_FETCH_LIMIT);
+  await Promise.all(
+    targets.map(async (item) => {
+      try {
+        const data = await getFlowInstance(item.instanceId);
+        item.formData = data.instance.form_data ?? {};
+      } catch {
+        // 拉不到就不显示摘要（详情页点进去仍有内容）
+      }
+    }),
+  );
+}
 
 /** 时间格式化 */
 function formatTime(value: string): string {
@@ -384,6 +454,8 @@ async function loadCurrent(): Promise<void> {
           at: item.started_at,
           status: item.status,
           statusDomain: 'flow-instance',
+          // 「我发起的」的 `InstanceRes` 自带 form_data → 摘要零成本
+          formData: item.form_data ?? {},
         }),
       );
     } else {
@@ -405,6 +477,11 @@ async function loadCurrent(): Promise<void> {
       }));
     }
     cards.value = decorate(cards.value);
+    // 摘要：列表先出（decorate 之后才补 —— decorate 会重建卡片对象，之前补的 form_data 会丢），
+    // 逐单补详情、不 await、上限 20 单；拉不到就不显示摘要行
+    if (activeTab.value === 'todo') {
+      void fillTodoFormData(cards.value);
+    }
   } catch (error) {
     cards.value = [];
     tabError.value = `${error instanceof ApiError ? error.message : '接口异常'}（下面为空态，可点「重试」）`;
@@ -572,6 +649,8 @@ async function submitAddSign(): Promise<void> {
 }
 
 onMounted(() => {
+  // 译名与列表并行拉：摘要要等主数据回来才对（拉不到就显示 ID 前 8 位）
+  void warmMasterNames();
   void loadCurrent();
 });
 </script>
@@ -685,6 +764,16 @@ onMounted(() => {
   &__no {
     font-family: var(--app-font-mono, monospace);
     color: var(--td-text-color-secondary);
+  }
+
+  /* 摘要（P1-FIX）：审批人一眼要看到的那几个业务字段，比 meta 行更亮一档 */
+  &__summary {
+    margin-top: 4px;
+    overflow: hidden;
+    font-size: 12px;
+    color: var(--td-text-color-secondary);
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   &__dot {
