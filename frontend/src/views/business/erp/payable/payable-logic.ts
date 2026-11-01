@@ -29,7 +29,17 @@ export const PAYABLE_PAGE_SIZE = 20;
 /** TDesign tag 主题（本仓只允许这五种 + `light` 变体，这里只用基础五种） */
 export type TagTheme = 'default' | 'primary' | 'success' | 'warning' | 'danger';
 
-/** 状态 → 中文（与 `payable.rs` 的 `STATUS_*` 常量逐字对应） */
+/**
+ * 「作废审批中」状态字面量（P-FLOW-3B）。
+ *
+ * 后端 `payable::STATUS_PENDING_CANCEL`；V0191 把它补进了状态机（
+ * `OPEN → PENDING_CANCEL → CANCELLED / OPEN`）并加了库约束
+ * `ck_biz_payable_pending_cancel`。抽成常量是因为它在 6 处出现
+ * （文案 / 配色 / 筛选 / 两个按钮判据 / 付款闸），散写字面量必然漂移一处。
+ */
+export const PAYABLE_STATUS_PENDING_CANCEL = 'PENDING_CANCEL';
+
+/** 状态 → 中文（与 `payable.rs` 的 `STATUS_*` / `payable_query.rs::status_label` 逐字对应） */
 export function payableStatusLabel(status: PayableStatus | string): string {
   switch (status) {
     case 'OPEN':
@@ -40,12 +50,15 @@ export function payableStatusLabel(status: PayableStatus | string): string {
       return '已结清';
     case 'CANCELLED':
       return '已作废';
+    case PAYABLE_STATUS_PENDING_CANCEL:
+      // P-FLOW-3B：与后端 `payable_query::status_label` 的「作废审批中」逐字一致
+      return '作废审批中';
     default:
       return String(status);
   }
 }
 
-/** 状态 → tag 主题（卡面 §三：橙 / 蓝 / 绿 / 灰） */
+/** 状态 → tag 主题（卡面 §三：橙 / 蓝 / 绿 / 灰；作废审批中用橙 = 「还没定」而不是「已作废」） */
 export function payableStatusTheme(status: PayableStatus | string): TagTheme {
   switch (status) {
     case 'OPEN':
@@ -54,18 +67,26 @@ export function payableStatusTheme(status: PayableStatus | string): TagTheme {
       return 'primary';
     case 'SETTLED':
       return 'success';
+    case PAYABLE_STATUS_PENDING_CANCEL:
+      return 'warning';
     case 'CANCELLED':
     default:
       return 'default';
   }
 }
 
-/** 状态下拉候选（`''` = 全部，排第一；`t-select` 把空串当未选，所以 `''` 只是「整键缺席」） */
+/**
+ * 状态下拉候选（`''` = 全部，排第一；`t-select` 把空串当未选，所以 `''` 只是「整键缺席」）。
+ *
+ * `PENDING_CANCEL` 必须能被筛出来：财务每天要盯「有哪些单卡在作废审批里」，
+ * 后端 `payable_page` 直接按 `p.status = ?` 过滤，没有额外口径。
+ */
 export const PAYABLE_STATUS_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: '' | PayableStatus }> = [
   { label: '全部状态', value: '' },
   { label: '未付', value: 'OPEN' },
   { label: '部分付款', value: 'PARTIAL_PAID' },
   { label: '已结清', value: 'SETTLED' },
+  { label: '作废审批中', value: PAYABLE_STATUS_PENDING_CANCEL },
   { label: '已作废', value: 'CANCELLED' },
 ];
 
@@ -247,12 +268,94 @@ export function payPrefillAmount(info: PayableInfoLike | null | undefined): numb
  *
  * 三个条件同时成立：后端说能付（`can_pay`）、有付款权限、预填金额 > 0。
  * 卡面 L9：已结清 / 已作废的单**不显示**按钮（不是置灰 —— 置灰会让人一直点）。
+ *
+ * # P-FLOW-3B 补的第 4 个条件：`status` 不能是 `PENDING_CANCEL`
+ *
+ * 后端 `payable_payment.rs::payment_capability` **还没拦** `PENDING_CANCEL`
+ * （它的分支只有 CANCELLED / SETTLED / unpaid<=0 / 有审批中的付款），
+ * 于是「作废审批中」的单 `can_pay` 仍是 `true` —— 前端照抄就会在作废审批中显示「发起付款」，
+ * 用户点下去必然被 `validate_payment_target`（只认 OPEN / PARTIAL_PAID）409 打回。
+ * 卡面 §一 ① 明确要求「该状态下付款按钮禁用」，所以这里补一道前端闸，
+ * 并把「后端 can_pay 口径漏了 PENDING_CANCEL」写进子卡让后端修（见
+ * `docs/evidence/20261102-pflow3b-fe/README.md`）。后端补上后这道闸自动变成冗余（不会误伤）。
+ *
+ * `status` 省略时按老口径判（老调用方 / 老用例不用改）。
  */
-export function canStartPay(info: PayableInfoLike | null | undefined, hasPayPermission: boolean): boolean {
+export function canStartPay(
+  info: PayableInfoLike | null | undefined,
+  hasPayPermission: boolean,
+  status?: PayableStatus | string | null,
+): boolean {
   if (!info || !hasPayPermission) {
     return false;
   }
+  if (status === PAYABLE_STATUS_PENDING_CANCEL) {
+    return false;
+  }
   return info.can_pay === true && payPrefillAmount(info) > 0;
+}
+
+// ==================== P-FLOW-3B：作废审批中 / 撤回 ====================
+
+/** 行 / 详情里这三个判据只需要状态与已付金额（列表行与详情结构都满足）。 */
+export interface PayableActionState {
+  /** 状态 */
+  status: PayableStatus | string;
+  /** 已付金额（`numeric` 出来是字符串） */
+  paid_amount: number | string;
+}
+
+/**
+ * 可付款：未付 / 部分已付（后端同样按这个口径判 409）。
+ *
+ * `PENDING_CANCEL` **不在**这里：作废审批中的单不能再付款（卡面 §一 ①「付款按钮禁用」）。
+ * 这不是新增判据 —— 原来的白名单本来就不含它，只是 P-FLOW-3B 之前没有这个状态。
+ */
+export function canPayPayable(row: PayableActionState | null | undefined): boolean {
+  if (!row) {
+    return false;
+  }
+  return row.status === 'OPEN' || row.status === 'PARTIAL_PAID';
+}
+
+/** 可作废：未付（OPEN）且一分钱都没付（后端同样按这个口径判 409）。 */
+export function canCancelPayable(row: PayableActionState | null | undefined): boolean {
+  if (!row) {
+    return false;
+  }
+  return row.status === 'OPEN' && toNumber(row.paid_amount) === 0;
+}
+
+/** 是否「作废审批中」（列表徽标 / 详情提示 / 按钮切换的唯一判据）。 */
+export function isPendingCancel(row: Pick<PayableActionState, 'status'> | null | undefined): boolean {
+  return row?.status === PAYABLE_STATUS_PENDING_CANCEL;
+}
+
+/**
+ * 可撤回作废审批：**状态是 `PENDING_CANCEL`** 且有撤回权限。
+ *
+ * 为什么还判权限：后端撤回走 `POST /payable/{id}/withdraw-cancel`，
+ * 权限码 `business:erp:payable:withdraw-cancel`；V0191 目前只把它授给了 `SUPER_ADMIN`
+ * （老码 `business:erp:payable:cancel` 才是 FINANCE / ACCOUNTANT 都有的），
+ * 没权限的人点了只会 403 —— 与其让人点出错，不如直接不显示撤回入口并说明原因
+ * （`withdrawCancelBlockedReason`）。
+ */
+export function canWithdrawCancel(
+  row: Pick<PayableActionState, 'status'> | null | undefined,
+  hasWithdrawPermission = true,
+): boolean {
+  return isPendingCancel(row) && hasWithdrawPermission;
+}
+
+/** 没有撤回权限时给用户的一句解释（有权限返回空串）。 */
+export function withdrawCancelBlockedReason(
+  row: Pick<PayableActionState, 'status'> | null | undefined,
+  hasWithdrawPermission: boolean,
+): string {
+  if (!isPendingCancel(row) || hasWithdrawPermission) {
+    return '';
+  }
+  return '当前账号没有「撤回作废审批」的权限（business:erp:payable:withdraw-cancel），请联系有权限的发起人或系统管理员';
 }
 
 /**

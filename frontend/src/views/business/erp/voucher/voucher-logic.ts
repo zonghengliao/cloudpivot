@@ -305,3 +305,130 @@ export function rowBalanced(row: Pick<VoucherRow, 'total_debit' | 'total_credit'
 export function voucherTitleOf(row: Pick<VoucherRow, 'voucher_word' | 'voucher_no'>): string {
   return `${row.voucher_word || '记'} ${row.voucher_no}`;
 }
+
+// ==================== P-FLOW-3B：红冲审批中 / 撤回 ====================
+
+/**
+ * 「红冲审批中」徽标文案（卡面 §一 ② 原话）。
+ *
+ * ⚠️ 凭证**没有** `PENDING_REVERSE` 状态（硬红线 3：所有报表 / 账簿取数都写死
+ * `WHERE status = 'POSTED'`，加状态会让已入账凭证从四大报表里消失）。
+ * 「审批中」只是 `biz_voucher.pending_reverse_instance_id` 有值，`status` 仍是 `POSTED`。
+ * 所以徽标必须与状态标签**并列显示**，不能顶替状态。
+ */
+export const VOUCHER_PENDING_REVERSE_LABEL = '红冲审批中';
+
+/** 判断红冲按钮 / 徽标所需的凭证字段（列表行与详情都满足）。 */
+export interface VoucherReverseState {
+  /** 状态（红冲只认 `POSTED`） */
+  status?: string | null;
+  /** 是否红字凭证 */
+  is_red?: boolean | null;
+  /** 被红冲的原凭证 id（红字凭证才有） */
+  reverse_of?: string | null;
+  /** 红冲它的红字凭证 id（被冲过才有） */
+  reversed_by?: string | null;
+  /** 红冲它的红字凭证号（列表给的人话版本） */
+  reversed_by_no?: string | null;
+  /** 红冲审批实例 id（有值 = 红冲审批中） */
+  pending_reverse_instance_id?: string | null;
+}
+
+/**
+ * 是否「红冲审批中」：`pending_reverse_instance_id` 有值。
+ *
+ * 只看这个字段，不看 `status` —— 因为红冲审批中 `status` **仍然是 `POSTED`**
+ * （这是后端设计，不是数据没刷新）。
+ */
+export function isPendingReverse(row: Pick<VoucherReverseState, 'pending_reverse_instance_id'> | null | undefined): boolean {
+  const instanceId = row?.pending_reverse_instance_id;
+  return typeof instanceId === 'string' && instanceId.trim() !== '';
+}
+
+/**
+ * 可红冲：已记账（POSTED）、不是红字凭证、没被红冲过、**不在红冲审批中**。
+ *
+ * 最后一条是 P-FLOW-3B 新增的：审批中的凭证再点红冲，后端 409
+ * 「已在红冲审批中（FLW-…）」，与其让人点了才看见红字，不如直接换成「撤回红冲审批」。
+ */
+export function canReverseVoucher(row: VoucherReverseState | null | undefined): boolean {
+  if (!row) {
+    return false;
+  }
+  if (row.status !== 'POSTED') {
+    return false;
+  }
+  if (row.is_red === true) {
+    return false;
+  }
+  if (row.reversed_by || row.reversed_by_no) {
+    return false;
+  }
+  return !isPendingReverse(row);
+}
+
+/**
+ * 可撤回红冲审批：状态 `POSTED`、非红字、没被红冲过、**确实在审批中**、且有撤回权限。
+ *
+ * 权限码 `business:erp:voucher:withdraw-reverse`（V0191 目前只授 `SUPER_ADMIN`）：
+ * 没权限的人不显示入口，并在详情里说明原因（{@link withdrawReverseBlockedReason}）。
+ */
+export function canWithdrawReverse(
+  row: VoucherReverseState | null | undefined,
+  hasWithdrawPermission = true,
+): boolean {
+  if (!row || !hasWithdrawPermission) {
+    return false;
+  }
+  if (row.status !== 'POSTED' || row.is_red === true || row.reversed_by || row.reversed_by_no) {
+    return false;
+  }
+  return isPendingReverse(row);
+}
+
+/** 没有撤回权限时的一句解释（有权限 / 不在审批中返回空串）。 */
+export function withdrawReverseBlockedReason(
+  row: VoucherReverseState | null | undefined,
+  hasWithdrawPermission: boolean,
+): string {
+  if (!isPendingReverse(row) || hasWithdrawPermission) {
+    return '';
+  }
+  return '当前账号没有「撤回红冲审批」的权限（business:erp:voucher:withdraw-reverse），请联系有权限的发起人或系统管理员';
+}
+
+/** 红冲审批的流程业务类型（后端 `voucher_write::REVERSE_BIZ_TYPE`），兜底查询要用。 */
+export const VOUCHER_REVERSE_BIZ_TYPE = 'VOUCHER_REVERSE';
+
+/**
+ * 从审批实例列表里挑出「红冲审批中」的凭证 → 审批实例对照（**兜底路径**用）。
+ *
+ * 为什么需要：`VoucherRes` 目前没下发 `pending_reverse_instance_id`（见
+ * `voucher-write-api.ts::VoucherFlowState` 的注释），而审批引擎的实例分页是现成的真实数据源
+ * （`biz_flow_instance.biz_id` 就是凭证 id，`id` 就是 pending 该挂的实例 id）。
+ * 页面据此把「库里的 pending」补回行上（补的是**真实例 id**，不是真假值），
+ * 后端补上字段后这条路径自动不再被调用。
+ *
+ * 过滤条件：`biz_type === 'VOUCHER_REVERSE'`、状态（缺省视为 `PENDING`），`biz_id` 非空。
+ */
+export function pendingReverseInstances(
+  instances: ReadonlyArray<{ id?: string | null; biz_type?: string | null; biz_id?: string | null; status?: string | null }>,
+  bizType: string = VOUCHER_REVERSE_BIZ_TYPE,
+): Array<{ voucher_id: string; instance_id: string }> {
+  const out = new Map<string, string>();
+  for (const item of instances) {
+    if ((item.biz_type ?? '') !== bizType) {
+      continue;
+    }
+    const status = (item.status ?? 'PENDING').toUpperCase();
+    if (status !== 'PENDING') {
+      continue;
+    }
+    const bizId = (item.biz_id ?? '').trim();
+    const instanceId = (item.id ?? '').trim();
+    if (bizId && instanceId && !out.has(bizId)) {
+      out.set(bizId, instanceId);
+    }
+  }
+  return [...out.entries()].map(([voucher_id, instance_id]) => ({ voucher_id, instance_id }));
+}

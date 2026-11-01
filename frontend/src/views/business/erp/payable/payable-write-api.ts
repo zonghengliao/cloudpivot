@@ -108,6 +108,24 @@ export function fetchPayableDetail(id: string): Promise<PayableDetail> {
   return get<PayableDetail>(`${BASE}/payable/${id}`);
 }
 
+/**
+ * 提交作废的出参（`payable_payment.rs::CancelSubmitRes`）。
+ *
+ * `#[serde(flatten)] detail` → **单据字段平铺在顶层**（`payable_no` / `status` / …），
+ * 所以这里用 `extends PayableDetail` 表达，而不是 `{ detail: PayableDetail }`。
+ *
+ * - `outcome = 'PENDING_APPROVAL'`（HTTP 202）：已发起审批，单据进 `PENDING_CANCEL`，**账没动**；
+ * - `outcome = 'CANCELLED'`（HTTP 200）：没配流程，按老行为直接作废。
+ */
+export interface CancelSubmitResult extends PayableDetail {
+  /** `PENDING_APPROVAL` / `CANCELLED` */
+  outcome: string;
+  /** 后端给的一句话（前端按 `outcome` 自己出文案，但未知取值时兜底用它） */
+  message: string;
+  /** 审批实例 id（未配流程 / 直接生效时为 null） */
+  approval_instance_id: string | null;
+}
+
 // ==================== D5：应付单 → 发起付款 ====================
 
 /**
@@ -199,11 +217,31 @@ export function payPayable(id: string, body: PayPayableReq): Promise<PaySubmitRe
 }
 
 /**
- * 作废应付单（仅 OPEN 且未付款）。
+ * 提交应付单作废（**P-FLOW-3B 起走审批**，唯一入口）。
  *
- * 后端校验：只有「未付且一分未付」才允许（否则 409）、`reason` 必填（否则 400）。
- * 作废会同时红冲这张应付单的进项凭证。
+ * # 为什么打老 URL `/cancel`，而不是新 URL `/submit-cancel`
+ *
+ * 两个 URL 在 Rust 侧是**同一个函数**（`payable_payment::submit_cancel`），出参同为
+ * `CancelSubmitRes`（`outcome` / `message` / `approval_instance_id` + 单据字段平铺）；
+ * 老 URL 绕不过审批（这正是后端把入口收到一起的理由）。
+ *
+ * 差别只在权限码：新 URL 要 `business:erp:payable:submit-cancel`，而 V0191 只把它授给了
+ * `SUPER_ADMIN`；老 URL 的 `business:erp:payable:cancel` 才是 `ADMIN / FINANCE / ACCOUNTANT`
+ * 都有的（V0158）。前端若贸然换 URL，财务角色点「作废」会直接 403 —— 所以这里沿用老 URL，
+ * 把 `outcome` 分支接上（送审 / 直接作废两条路都能正确提示）。权限矩阵对齐后换 URL 只是一行。
  */
-export function cancelPayable(id: string, reason: string): Promise<PayableDetail> {
-  return post<PayableDetail>(`${BASE}/payable/${id}/cancel`, { reason });
+export function submitCancelPayable(id: string, reason: string): Promise<CancelSubmitResult> {
+  return post<CancelSubmitResult>(`${BASE}/payable/${id}/cancel`, { reason });
+}
+
+/**
+ * 撤回在跑的作废审批（发起人自己撤 → 单据回 `OPEN`，欠款一分没动）。
+ *
+ * 后端：`POST /business/erp/payable/{id}/withdraw-cancel` →
+ * `payable_query::PayableDetailRes`（没有 `outcome`：撤回只有一种结果）。
+ * 非 `PENDING_CANCEL` → 409（文案里带审批单号），没权限 → 403
+ * （权限码 `business:erp:payable:withdraw-cancel`）。
+ */
+export function withdrawCancelPayable(id: string, reason?: string | null): Promise<PayableDetail> {
+  return post<PayableDetail>(`${BASE}/payable/${id}/withdraw-cancel`, reason ? { reason } : {});
 }

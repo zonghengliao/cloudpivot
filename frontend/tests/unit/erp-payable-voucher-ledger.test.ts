@@ -91,10 +91,10 @@ test('① 应付 4 态 → 中文 + 颜色（橙/蓝/绿/灰），未知状态�
   assert.equal(payableStatusLabel('REFUNDED'), 'REFUNDED');
   assert.equal(payableStatusTheme('REFUNDED'), 'default');
 
-  // 筛选下拉 5 项：全部 + 4 态，顺序与卡面一致
+  // 筛选下拉 6 项：全部 + 4 态 + P-FLOW-3B 的「作废审批中」，顺序与卡面一致
   assert.deepEqual(
     PAYABLE_STATUS_FILTER_OPTIONS.map((item) => item.value),
-    ['', 'OPEN', 'PARTIAL_PAID', 'SETTLED', 'CANCELLED'],
+    ['', 'OPEN', 'PARTIAL_PAID', 'SETTLED', 'PENDING_CANCEL', 'CANCELLED'],
   );
 });
 

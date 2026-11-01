@@ -180,6 +180,15 @@
             >
               作废
             </t-link>
+            <!-- ★ P-FLOW-3B：作废审批中 → 「作废」消失，换「撤回作废」（撤回后单据回「未付」） -->
+            <t-link
+              v-if="canWithdrawCancel(row, hasWithdrawPermission)"
+              theme="warning"
+              :data-testid="`btn-payable-withdraw-${row.payable_no}`"
+              @click="openWithdrawCancel(row)"
+            >
+              撤回作废
+            </t-link>
           </div>
         </template>
 
@@ -225,16 +234,45 @@
         </div>
 
         <div class="drawer-body">
+          <!-- ★ P-FLOW-3B：作品审批中（欠款一分没动）→ 一句话说清 + 撤回入口 -->
+          <t-alert
+            v-if="isPendingCancel(detail)"
+            theme="warning"
+            message="作废审批中：欠款一分没动，等财务经理复核"
+            :description="pendingCancelDescription(detail)"
+            data-testid="payable-pending-cancel"
+          >
+            <template #operation>
+              <t-button
+                v-if="canWithdrawCancel(detail, hasWithdrawPermission)"
+                size="small"
+                variant="outline"
+                theme="warning"
+                data-testid="btn-payable-drawer-withdraw"
+                @click="openWithdrawCancel(detail)"
+              >
+                撤回作废审批
+              </t-button>
+            </template>
+          </t-alert>
+
           <!-- ★ D5：发起付款（payInfo.can_pay 由后端 payment-info 接口裁决，前端不推状态） -->
           <div class="drawer-actions" data-testid="payable-drawer-actions">
             <t-button
-              v-if="canStartPay(payInfo?.payable, hasPayPermission)"
+              v-if="canStartPay(payInfo?.payable, hasPayPermission, payInfo?.payable.status ?? detail.status)"
               theme="primary"
               data-testid="btn-payable-drawer-pay"
               @click="openPayFromDetail"
             >
               发起付款（未付 {{ formatMoney(payPrefillAmount(payInfo?.payable)) }}）
             </t-button>
+            <span
+              v-else-if="isPendingCancel(detail)"
+              class="drawer-actions__blocked"
+              data-testid="payable-pay-blocked-pending"
+            >
+              作废审批中不能付款（撤回或驳回后回到「未付」才能付）
+            </span>
             <span
               v-else-if="payInfo && !payInfo.payable.can_pay"
               class="drawer-actions__blocked"
@@ -393,14 +431,16 @@
 
           <!-- ★ P17：付款审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行） -->
           <template v-if="approvalNodes.length > 0">
-            <div class="section-title">付款审批进度</div>
+            <div class="section-title">{{ approvalTitle }}</div>
             <FlowProgress :nodes="approvalNodes" data-testid="payable-approval-progress" />
           </template>
 
-          <p v-if="canCancel(detail) || canStartPay(payInfo?.payable, hasPayPermission)" class="drawer-note">
+          <p v-if="showActionNote" class="drawer-note">
             详情里可直接「发起付款」（金额预填<strong>未付</strong>，不是应付总额）。配了「应付付款审批」流程时，付款只是
             <strong>发起审批</strong>（账不动，审批通过才生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证）；
             没配流程则立即生效。付款记录里的「应付单号 / 凭证」都能点回去。
+            作废同理：配了「应付作废审批」流程时先送审（单据变<strong>作废审批中</strong>、欠款不动），
+            财务经理通过才真正作废并红冲进项凭证。
           </p>
         </div>
       </div>
@@ -457,13 +497,13 @@
       </div>
     </t-dialog>
 
-    <!-- ==================== ⑤ 作废弹窗（原因必填） ==================== -->
+    <!-- ==================== ⑤ 作废弹窗（原因必填 → P-FLOW-3B 起走审批） ==================== -->
     <t-dialog
       v-model:visible="cancelVisible"
-      header="作废应付单"
+      header="提交应付单作废"
       theme="warning"
       width="480px"
-      :confirm-btn="{ content: '确认作废', loading: cancelSubmitting, theme: 'danger' }"
+      :confirm-btn="{ content: '提交作废', loading: cancelSubmitting, theme: 'danger' }"
       :close-on-overlay-click="!cancelSubmitting"
       data-testid="payable-cancel-dialog"
       @confirm="submitCancel"
@@ -484,7 +524,8 @@
         </t-form>
         <p class="form-tip">
           只有「未付（OPEN）且一分钱都没付」的单能作废；已付过款的请走付款冲销。
-          作废会同时红冲这张应付单的进项凭证。
+          配了「应付作废审批」流程时，提交后单据变<strong>作废审批中</strong>（欠款不动、不能再付款），
+          财务经理复核通过才真正作废并红冲这张应付单的进项凭证；没配流程则立即生效。
         </p>
         <t-alert v-if="cancelError" theme="error" :message="cancelError" data-testid="payable-cancel-error" />
       </div>
@@ -523,7 +564,7 @@ import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { listDictItems } from '@/api/support/dict-api';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
@@ -535,10 +576,11 @@ import {
   type Supplier,
 } from '@/api/business/erp';
 import {
-  cancelPayable,
+  submitCancelPayable,
   fetchPayableDetail,
   fetchPayablePaymentInfo,
   payPayable,
+  withdrawCancelPayable,
   type PayableDetail,
   type PayablePayment,
   type PayablePaymentInfo,
@@ -551,9 +593,13 @@ import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
   buildPayableQuery,
+  canCancelPayable as canCancel,
+  canPayPayable as canPay,
   canStartPay,
+  canWithdrawCancel,
   emptyPayableFilter,
   isPayableFiltered,
+  isPendingCancel,
   overdueText,
   paidPercent,
   payableDocPath,
@@ -565,8 +611,10 @@ import {
   supplierNameOf as supplierNameFromMap,
   unpaidOf,
   voucherDocPath,
+  withdrawCancelBlockedReason,
   type PayableFilterState,
 } from './payable-logic';
+import { submitFeedback, withdrawFeedback } from '../shared/approval-flow';
 import { dash, formatCents, formatMoney, shortDate, shortId, toCents, toNumber } from '../shared/money';
 
 /** 主数据下拉一次拉多少（种子规模下够用；上千条应该走远端搜索） */
@@ -588,8 +636,9 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'paid_amount', title: '已付', width: 110, align: 'right' },
   { colKey: 'unpaid_amount', title: '未付', width: 150, align: 'right' },
   { colKey: 'due_date', title: '到期日', width: 130 },
-  { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'op', title: '操作', width: 90, fixed: 'right' },
+  { colKey: 'status', title: '状态', width: 110 },
+  // P-FLOW-3B：作废审批中那行会多一个「撤回作废」入口，操作列要给得下
+  { colKey: 'op', title: '操作', width: 130, fixed: 'right' },
 ];
 
 /** 状态下拉（`''` = 全部） */
@@ -841,12 +890,25 @@ async function openDetail(row: PayableRow): Promise<void> {
 /** 付款权限码（按钮「显不显示」= 后端 `can_pay` **且** 有本码） */
 const PAY_PERMISSION = 'business:erp:payable:pay';
 
+/**
+ * 撤回作废审批的权限码（P-FLOW-3B）。
+ *
+ * ⚠️ 与 `PAY_PERMISSION` 不同，这个码 V0191 只授给了 `SUPER_ADMIN`（老作废码
+ * `business:erp:payable:cancel` 才是 FINANCE / ACCOUNTANT 都有的）。没码的人看到
+ * 「作废审批中」但看不到撤回入口，详情里会说明原因 —— 这里不猜权限，直接查 store。
+ * （已开子卡让后端把 4 个新码按老码的角色矩阵补齐。）
+ */
+const WITHDRAW_CANCEL_PERMISSION = 'business:erp:payable:withdraw-cancel';
+
 const userStore = useUserStore();
 const router = useRouter();
 const route = useRoute();
 
 /** 当前账号能不能发起付款（按钮 v-if 用；不是置灰） */
 const hasPayPermission = computed(() => userStore.hasPermission(PAY_PERMISSION));
+
+/** 当前账号能不能撤回作废审批（决定「撤回作废审批」入口显不显示） */
+const hasWithdrawPermission = computed(() => userStore.hasPermission(WITHDRAW_CANCEL_PERMISSION));
 
 /**
  * 可付信息（`GET /business/erp/payable/{id}/payment-info`）。
@@ -923,13 +985,25 @@ function openPayFromDetail(): void {
 const approvalNodes = ref<FlowProgressNode[]>([]);
 
 /**
+ * 进度区标题。
+ *
+ * P-FLOW-3B 起同一块位置要能显示两种进度：付款审批（P17）与**作废审批**（3B），
+ * 标题必须跟着实例类型走 —— 写着「付款审批进度」却在展示作废节点，比不显示更误导。
+ */
+const approvalTitle = ref('付款审批进度');
+
+/**
  * 拉审批进度。
  *
  * 直接复用审批中心的 `getFlowInstance` + `FlowProgress`：
  * **进度只来自引擎写的节点行**，前端不自己猜「走到第几步」。
  * 拉不到（权限 / 实例已归档）就退化为不显示，不让详情抽屉整块失败。
  */
-async function loadApprovalProgress(instanceId: string | null): Promise<void> {
+async function loadApprovalProgress(
+  instanceId: string | null,
+  title = '付款审批进度',
+): Promise<void> {
+  approvalTitle.value = title;
   if (!instanceId) {
     approvalNodes.value = [];
     return;
@@ -965,23 +1039,14 @@ function paymentTagTheme(status: string): 'warning' | 'success' | 'danger' | 'de
   }
 }
 
-// ==================== 付款 / 作废（P7） ====================
+// ==================== 付款 / 作废（P7 → P-FLOW-3B 走审批） ====================
 
-/** 可付款：未付 / 部分已付（后端同样按这个口径判 409）。 */
-function canPay(row: PayableRow | null): boolean {
-  if (!row) {
-    return false;
-  }
-  return row.status === 'OPEN' || row.status === 'PARTIAL_PAID';
-}
-
-/** 可作废：未付（OPEN）且一分钱都没付（后端同样按这个口径判 409）。 */
-function canCancel(row: PayableRow | null): boolean {
-  if (!row) {
-    return false;
-  }
-  return row.status === 'OPEN' && toNumber(row.paid_amount) === 0;
-}
+/**
+ * 可付款 / 可作废 / 可撤回的判据都在 `payable-logic.ts`（纯函数，单测直接打）。
+ *
+ * 这里只留模板里的两个别名（`canPay` / `canCancel`），避免改一堆 `v-if`：
+ * 作废审批中（`PENDING_CANCEL`）两个都返回 false —— 付款按钮消失、作废按钮换成撤回。
+ */
 
 /**
  * 结算方式下拉（ERP-S1）：标准 7 项来自字典 `pay_method`（迁移 V0187 种下），
@@ -1111,7 +1176,39 @@ async function submitPay(): Promise<void> {
   }
 }
 
-/** 提交作废。 */
+/**
+ * 详情抽屉「作废审批中」那句说明。
+ *
+ * 没撤回权限时把「为什么点不了」讲清楚（V0191 的权限矩阵缺口），而不是只把按钮藏起来；
+ * 有权限时说明点完会发生什么（单据回「未付」，欠款不变）。
+ */
+function pendingCancelDescription(row: PayableRow | PayableDetail | null): string {
+  const blocked = withdrawCancelBlockedReason(row, hasWithdrawPermission.value);
+  if (blocked) {
+    return blocked;
+  }
+  return '审批通过后单据才变「已作废」并红冲进项凭证；撤回则回到「未付」，可以重新发起作废。';
+}
+
+/** 抽屉底部说明要不要显示（能付 / 能作废 / 正在作废审批中都值得看一眼）。 */
+const showActionNote = computed(
+  () =>
+    isPendingCancel(detail.value) ||
+    canCancel(detail.value) ||
+    canStartPay(payInfo.value?.payable, hasPayPermission.value, payInfo.value?.payable.status ?? detail.value?.status),
+);
+
+/**
+ * 提交作废（P-FLOW-3B 起**走审批**）。
+ *
+ * 三种结局，提示必须分开（见 `shared/approval-flow.ts` 的口径表）：
+ *
+ * - `PENDING_APPROVAL` → **info**「已提交审批，等待财务经理复核」，列表刷新后那行是「作废审批中」；
+ * - `CANCELLED` → **success**「已作废：AP-…」（未配流程，降级直做）；
+ * - 其它 → 用后端 `message` 兜底。
+ *
+ * ⚠️ 送审**绝不能**提示「已作废」：欠款一分没动，用户会以为可以重新入库了。
+ */
 async function submitCancel(): Promise<void> {
   const target = cancelTarget.value;
   if (!target || cancelSubmitting.value) {
@@ -1119,23 +1216,79 @@ async function submitCancel(): Promise<void> {
   }
   const reason = cancelForm.reason.trim();
   if (!reason) {
-    cancelError.value = '作废原因必填（会计上作废必须留痕）';
+    cancelError.value = '作废原因必填（会计上作废必须留痕，财务经理据此复核）';
     return;
   }
   cancelSubmitting.value = true;
   cancelError.value = '';
   try {
-    const updated = await cancelPayable(target.id, reason);
+    const result = await submitCancelPayable(target.id, reason);
     cancelVisible.value = false;
-    void MessagePlugin.success(`已作废：${updated.payable_no}`);
-    detail.value = updated;
-    // ★ D5：作废后「发起付款」按钮必须立刻消失（可付信息重拉）
-    await loadPayInfo(updated.id);
+    const feedback = submitFeedback('payable-cancel', result, result.payable_no || target.payable_no);
+    MessagePlugin[feedback.level](feedback.text);
+    // 送审时 detail 是**原单**（状态已变 PENDING_CANCEL），直接作废时是已作废单
+    detail.value = result;
+    // ★ D5：可付信息重拉（未付没变，但 can_pay / 按钮文案要跟着状态走）
+    await loadPayInfo(result.id);
+    // 送审了才有实例 id → 顺手把作废审批进度挂出来
+    await loadApprovalProgress(result.approval_instance_id, '作废审批进度');
     void loadPayables();
   } catch (error) {
     cancelError.value = messageOf(error);
   } finally {
     cancelSubmitting.value = false;
+  }
+}
+
+// ==================== P-FLOW-3B：撤回作废审批 ====================
+
+/** 撤回中（防连点：撤回是不可逆的写操作，双击会拿到 409）。 */
+const withdrawingCancel = ref(false);
+
+/**
+ * 撤回作废审批：二次确认 → 调接口 → 列表 / 抽屉都回到最新状态。
+ *
+ * 撤回只清审批单（`PENDING_CANCEL → OPEN`），**账没动**：
+ * 所以之后「作废」「付款」按钮都回来了，可以重新提交。
+ */
+function openWithdrawCancel(row: PayableRow | PayableDetail): void {
+  if (!canWithdrawCancel(row, hasWithdrawPermission.value) || withdrawingCancel.value) {
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '撤回作废审批',
+    theme: 'warning',
+    body: `${row.payable_no} 的作废审批会被撤回，单据回到「未付」，欠款保持不变。撤回后可以重新发起作废。`,
+    confirmBtn: { content: '撤回审批', theme: 'warning' },
+    cancelBtn: '再想想',
+    onConfirm: async () => {
+      dialog.hide();
+      await doWithdrawCancel(row);
+    },
+  });
+}
+
+/** 真正执行撤回（确认弹窗的回调里调）。 */
+async function doWithdrawCancel(row: PayableRow | PayableDetail): Promise<void> {
+  if (withdrawingCancel.value) {
+    return;
+  }
+  withdrawingCancel.value = true;
+  try {
+    const updated = await withdrawCancelPayable(row.id, '页面撤回');
+    const feedback = withdrawFeedback('payable-cancel', updated.payable_no || row.payable_no, payableStatusLabel(updated.status));
+    MessagePlugin[feedback.level](feedback.text);
+    if (detail.value?.id === updated.id) {
+      detail.value = updated;
+      approvalNodes.value = [];
+      approvalTitle.value = '作废审批进度';
+    }
+    await loadPayInfo(updated.id);
+    void loadPayables();
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    withdrawingCancel.value = false;
   }
 }
 

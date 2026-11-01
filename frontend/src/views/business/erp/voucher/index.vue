@@ -131,6 +131,16 @@
             >
               已红冲 → {{ row.reversed_by_no }}
             </span>
+            <!-- ★ P-FLOW-3B：红冲审批中（凭证仍「已记账」，账一分没动） -->
+            <t-tag
+              v-if="isPendingReverse(row)"
+              size="small"
+              variant="light"
+              theme="warning"
+              :data-testid="`voucher-pending-reverse-${row.voucher_no}`"
+            >
+              {{ VOUCHER_PENDING_REVERSE_LABEL }}
+            </t-tag>
           </div>
         </template>
 
@@ -189,6 +199,15 @@
             >
               红冲
             </t-link>
+            <!-- ★ P-FLOW-3B：红冲审批中 → 「红冲」消失，换「撤回红冲」（撤回后凭证仍是「已记账」） -->
+            <t-link
+              v-if="canWithdrawReverse(row)"
+              theme="warning"
+              :data-testid="`btn-voucher-withdraw-${row.voucher_no}`"
+              @click.stop="openWithdrawReverse(row)"
+            >
+              撤回红冲
+            </t-link>
           </div>
         </template>
 
@@ -222,16 +241,58 @@
               {{ voucherStatusLabel(detail.status) }}
             </t-tag>
             <t-tag v-if="detail.is_red" size="small" variant="light" theme="danger">红字凭证</t-tag>
+            <!-- ★ P-FLOW-3B：红冲审批中（与状态标并列，不顶替「已记账」） -->
+            <t-tag
+              v-if="isPendingReverse(detail)"
+              size="small"
+              variant="light"
+              theme="warning"
+              data-testid="voucher-detail-pending-reverse"
+            >
+              {{ VOUCHER_PENDING_REVERSE_LABEL }}
+            </t-tag>
             <t-tag size="small" variant="outline" theme="default">
               来源：{{ sourceTypeLabel(detail.source_type) }}
             </t-tag>
           </div>
           <div class="drawer-head__side">
+            <t-button
+              v-if="canWithdrawReverse(detail)"
+              size="small"
+              variant="outline"
+              theme="warning"
+              data-testid="btn-voucher-drawer-withdraw"
+              @click="openWithdrawReverse(detail)"
+            >
+              撤回红冲审批
+            </t-button>
             <t-button size="small" variant="outline" data-testid="btn-voucher-drawer-close" @click="detailVisible = false">
               关闭
             </t-button>
           </div>
         </div>
+
+        <!-- ★ P-FLOW-3B：红冲审批中 → 说清「账没动」+ 撤回入口 -->
+        <t-alert
+          v-if="isPendingReverse(detail)"
+          theme="warning"
+          message="红冲审批中：凭证仍是「已记账」，账一分没动"
+          :description="pendingReverseDescription(detail)"
+          data-testid="voucher-pending-reverse-alert"
+        >
+          <template #operation>
+            <t-button
+              v-if="canWithdrawReverse(detail)"
+              size="small"
+              variant="outline"
+              theme="warning"
+              data-testid="btn-voucher-drawer-withdraw-inline"
+              @click="openWithdrawReverse(detail)"
+            >
+              撤回红冲审批
+            </t-button>
+          </template>
+        </t-alert>
 
         <t-loading :loading="detailLoading" size="small">
           <div class="field-grid">
@@ -340,13 +401,13 @@
       </div>
     </t-drawer>
 
-    <!-- ==================== ④ 红冲弹窗（原因必填） ==================== -->
+    <!-- ==================== ④ 红冲弹窗（原因必填 → P-FLOW-3B 起走审批） ==================== -->
     <t-dialog
       v-model:visible="reverseVisible"
-      header="红冲凭证"
+      header="提交凭证红冲"
       theme="warning"
       width="520px"
-      :confirm-btn="{ content: '确认红冲', loading: reverseSubmitting, theme: 'danger' }"
+      :confirm-btn="{ content: '提交红冲', loading: reverseSubmitting, theme: 'danger' }"
       :close-on-overlay-click="!reverseSubmitting"
       data-testid="voucher-reverse-dialog"
       @confirm="submitReverse"
@@ -368,8 +429,9 @@
           </t-form-item>
         </t-form>
         <p class="form-tip">
-          红冲会生成一张「红字凭证」（借贷互换、金额仍为正、独立号段 PZR），
-          原凭证状态保持「已记账」，只记录它被哪张红字凭证冲掉。
+          配了「凭证红冲审批」流程时，提交后只是<strong>送审</strong>（凭证仍是「已记账」、报表照旧），
+          列表会给它打「红冲审批中」；财务经理复核通过才生成红字凭证（借贷互换、金额仍为正、独立号段 PZR），
+          原凭证状态保持「已记账」，只记录它被哪张红字凭证冲掉。没配流程则立即生效。
         </p>
         <t-alert v-if="reverseError" theme="error" :message="reverseError" data-testid="voucher-reverse-error" />
       </div>
@@ -516,7 +578,7 @@ import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/
  */
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
+import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
@@ -530,27 +592,38 @@ import {
 } from '@/api/business/erp';
 import {
   createVoucher,
-  reverseVoucher,
+  submitReverseVoucher,
+  withdrawReverseVoucher,
   type CreateVoucherReq,
   type VoucherDetailEx,
   type VoucherRowEx,
 } from './voucher-write-api';
+import { pageFlowInstances } from '@/api/business/flow-api';
 import {
   VOUCHER_PAGE_SIZE,
+  VOUCHER_PENDING_REVERSE_LABEL,
+  VOUCHER_REVERSE_BIZ_TYPE,
   VOUCHER_STATUS_FILTER_OPTIONS,
   VOUCHER_TYPE_FILTER_OPTIONS,
   balanceCheck,
   balanceIcon,
   balanceText,
   buildVoucherQuery,
+  canReverseVoucher as canReverse,
+  canWithdrawReverse as canWithdrawReverseVoucher,
   emptyVoucherFilter,
+  isPendingReverse,
   isVoucherFiltered,
+  pendingReverseInstances,
   sourceTypeLabel,
   voucherStatusLabel,
   voucherStatusTheme,
   voucherTitleOf,
+  withdrawReverseBlockedReason,
   type VoucherFilterState,
+  type VoucherReverseState,
 } from './voucher-logic';
+import { submitFeedback, withdrawFeedback } from '../shared/approval-flow';
 import { dash, formatCents, formatMoney, shortDate, toCents } from '../shared/money';
 
 /** 表格列（`colKey` 与 `VoucherRow` 字段同名；`source_type` / `entry_count` 不是列字段，走插槽） */
@@ -599,6 +672,29 @@ const total = ref(0);
 
 /** 当前用户（批量动作的权限判定）。 */
 const userStore = useUserStore();
+
+/**
+ * 撤回红冲审批的权限码（P-FLOW-3B；V0191 目前只授给 `SUPER_ADMIN`，见子卡）。
+ * 没码的人看得到「红冲审批中」徽标，但点不到撤回入口，详情里会说明原因。
+ */
+const WITHDRAW_REVERSE_PERMISSION = 'business:erp:voucher:withdraw-reverse';
+
+/** 当前账号能不能撤回红冲审批 */
+const hasWithdrawPermission = computed(() => userStore.hasPermission(WITHDRAW_REVERSE_PERMISSION));
+
+/** 模板用的撤回判据（把权限并进纯函数，`.vue` 里不留第二个判据）。 */
+function canWithdrawReverse(row: VoucherReverseState | null): boolean {
+  return canWithdrawReverseVoucher(row, hasWithdrawPermission.value);
+}
+
+/** 详情抽屉里「红冲审批中」那句说明。 */
+function pendingReverseDescription(row: VoucherReverseState | null): string {
+  const blocked = withdrawReverseBlockedReason(row, hasWithdrawPermission.value);
+  if (blocked) {
+    return blocked;
+  }
+  return '审批通过后才会生成红字凭证（原凭证仍「已记账」，只记录被哪张红字凭证冲掉）；撤回则什么都不会发生，可以重新提交红冲。';
+}
 
 /** 一次「选中全部筛选结果」拉多少主键（后端单页上限 200）。 */
 const BATCH_FETCH_PAGE_SIZE = 200;
@@ -697,6 +793,67 @@ function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/**
+ * 红冲审批中：凭证 id → 审批实例 id（**后端契约未下发字段时的兜底**）。
+ *
+ * `voucher_query.rs::VoucherRes` 目前没带 `pending_reverse_instance_id`（列和 `VoucherRow` 都有，
+ * 只是 DTO 没透出，已开子卡）。字段缺席时用审批引擎的实例分页补：
+ * `biz_type = VOUCHER_REVERSE` + `status = PENDING` 的实例，`biz_id` 就是凭证 id。
+ *
+ * 为什么不是「猜一个标记位」：补回来的是**真实例 id**，所以详情里还能顺带挂审批进度；
+ * 后端补上字段后 `every(row => row.pending_reverse_instance_id !== undefined)` 成立 → 这条路径
+ * 根本不会再发请求（既不多一次 API，也不会双源打架）。
+ */
+const pendingReverseMap = ref<Map<string, string>>(new Map());
+
+/** 把兜底查到的 pending 合回行上（后端已下发字段的行原样不动）。 */
+function injectPendingReverse(list: VoucherRowEx[]): VoucherRowEx[] {
+  if (pendingReverseMap.value.size === 0) {
+    return list;
+  }
+  return list.map((row) => {
+    if (row.pending_reverse_instance_id) {
+      return row;
+    }
+    const instanceId = pendingReverseMap.value.get(row.id);
+    return instanceId ? { ...row, pending_reverse_instance_id: instanceId } : row;
+  });
+}
+
+/**
+ * 兜底：后端没下发 `pending_reverse_instance_id` 时，从审批引擎捞「红冲审批中」的凭证。
+ *
+ * 静默失败（没权限 / 接口异常）—— 兜底层不该让整页报错，最坏结果只是「暂时看不到徽标」，
+ * 点「红冲」会被后端 409 挡住，不会重复送审。
+ */
+async function loadPendingReverseFallback(list: VoucherRowEx[]): Promise<void> {
+  if (list.length === 0) {
+    return;
+  }
+  // 后端已下发字段（哪怕是 null）= 有了权威答案，不再查引擎
+  if (list.every((row) => row.pending_reverse_instance_id !== undefined)) {
+    return;
+  }
+  if (!userStore.hasPermission('business:flow:instance:read')) {
+    return;
+  }
+  try {
+    const data = await pageFlowInstances({
+      status: 'PENDING',
+      biz_type: VOUCHER_REVERSE_BIZ_TYPE,
+      page: 1,
+      page_size: 200,
+    });
+    const map = new Map<string, string>();
+    for (const item of pendingReverseInstances(data.list ?? [])) {
+      map.set(item.voucher_id, item.instance_id);
+    }
+    pendingReverseMap.value = map;
+  } catch {
+    pendingReverseMap.value = new Map();
+  }
+}
+
 /** 拉列表 */
 async function loadVouchers(page: number = current.value): Promise<void> {
   loading.value = true;
@@ -705,7 +862,9 @@ async function loadVouchers(page: number = current.value): Promise<void> {
     const data = await fetchVoucherPage(buildVoucherQuery(filter, page, pageSize));
     // 后端多给 `reverse_of_no` / `reversed_by_no`（P7），api 层的 VoucherRow 还没声明
     // （那个文件是全 ERP 共用契约，本卡不动），这里按扩展类型收。
-    rows.value = (data.list ?? []) as VoucherRowEx[];
+    const list = (data.list ?? []) as VoucherRowEx[];
+    await loadPendingReverseFallback(list);
+    rows.value = injectPendingReverse(list);
     total.value = data.total ?? 0;
     const rawPage = data.page ?? page;
     const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
@@ -780,19 +939,34 @@ async function loadDetailEx(id: string): Promise<VoucherDetailEx> {
  *
  * 先用列表行占位（单头字段列表已全给），再拉详情补 `entries` ——
  * 抽屉立刻能显示凭证号 / 状态 / 来源，不会先白一下。
+ *
+ * ⚠️ P-FLOW-3B：`VoucherRes` 详情**也没下发** `pending_reverse_instance_id`，
+ * 所以拉回详情后要把列表行 / 兜底表里的 pending 合并回去，否则一开抽屉「红冲审批中」就消失。
  */
 async function openDetail(row: VoucherRow): Promise<void> {
   detail.value = emptyDetail(row);
   detailVisible.value = true;
   detailLoading.value = true;
   try {
-    detail.value = await loadDetailEx(row.id);
+    const loaded = await loadDetailEx(row.id);
+    detail.value = mergePendingReverse(loaded, (row as VoucherRowEx).pending_reverse_instance_id);
   } catch (error) {
     // 详情失败不关抽屉：单头仍可看，分录位置给出原因
     void MessagePlugin.error(messageOf(error));
   } finally {
     detailLoading.value = false;
   }
+}
+
+/** 详情合并 pending（详情接口没这个字段时，用列表行 / 兜底表的值补上）。 */
+function mergePendingReverse(detailRow: VoucherDetailEx, fallbackId?: string | null): VoucherDetailEx {
+  const instanceId =
+    detailRow.pending_reverse_instance_id ?? fallbackId ?? pendingReverseMap.value.get(detailRow.id) ?? null;
+  return {
+    ...detailRow,
+    pending_reverse_instance_id: instanceId,
+    reverse_reason: detailRow.reverse_reason ?? null,
+  };
 }
 
 /** 按 id 打开另一张凭证（详情里「已红冲 → PZR-xxx」的跳转）。 */
@@ -802,7 +976,7 @@ async function openById(id: string | null): Promise<void> {
   }
   detailLoading.value = true;
   try {
-    detail.value = await loadDetailEx(id);
+    detail.value = mergePendingReverse(await loadDetailEx(id));
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -822,15 +996,13 @@ const balance = computed(() =>
 /** 合计行样式类（平 = 绿，不平 = 红） */
 const balanceClass = computed(() => (balance.value.balanced ? 'balance--ok' : 'balance--bad'));
 
-// ==================== 红冲（P7） ====================
+// ==================== 红冲（P7 → P-FLOW-3B 走审批） ====================
 
-/** 可红冲：已记账（POSTED）、不是红字凭证、且没被红冲过。 */
-function canReverse(row: VoucherRowEx | null): boolean {
-  if (!row) {
-    return false;
-  }
-  return row.status === 'POSTED' && !row.is_red && !row.reversed_by_no && !row.reversed_by;
-}
+/**
+ * 可红冲 / 可撤回的判据都在 `voucher-logic.ts`（纯函数，单测直接打）:
+ * `canReverse` 已排除「红冲审批中」的凭证（否则点了必 409），
+ * `canWithdrawReverse` 再叠一道权限（撤回入口显不显示）。
+ */
 
 const reverseVisible = ref(false);
 const reverseSubmitting = ref(false);
@@ -838,6 +1010,12 @@ const reverseError = ref('');
 const reverseTarget = ref<VoucherRowEx | null>(null);
 const reverseForm = reactive({ reason: '' });
 
+/**
+ * 打开红冲弹窗。
+ *
+ * P-FLOW-3B 起这个弹窗是**送审**：配了流程时提交只生成审批单（凭证仍是「已记账」），
+ * 所以按钮叫「提交红冲」而不是「确认红冲」（文案见弹窗里的 form-tip）。
+ */
 function openReverse(row: VoucherRow): void {
   reverseTarget.value = row as VoucherRowEx;
   reverseForm.reason = '';
@@ -845,7 +1023,15 @@ function openReverse(row: VoucherRow): void {
   reverseVisible.value = true;
 }
 
-/** 提交红冲：成功后抽屉/列表刷新到红字凭证。 */
+/**
+ * 提交红冲（走审批，三种结局三种提示，口径见 `shared/approval-flow.ts`）。
+ *
+ * - `PENDING_APPROVAL` → info「已提交审批，等待财务经理复核（PZ-…）」+ 列表打「红冲审批中」；
+ * - `REVERSED` → success「已红冲：生成红字凭证 PZR-…」（未配流程，降级直做）；
+ * - 其它 → 后端 `message` 兜底。
+ *
+ * ⚠️ 送审**绝不能**提示「已红冲」：红字凭证还不存在，账一分没动。
+ */
 async function submitReverse(): Promise<void> {
   const target = reverseTarget.value;
   if (!target || reverseSubmitting.value) {
@@ -853,23 +1039,91 @@ async function submitReverse(): Promise<void> {
   }
   const reason = reverseForm.reason.trim();
   if (!reason) {
-    reverseError.value = '红冲原因必填';
+    reverseError.value = '红冲原因必填（红字凭证的分录摘要会带这段文字）';
     return;
   }
   reverseSubmitting.value = true;
   reverseError.value = '';
   try {
-    const red = await reverseVoucher(target.id, reason);
+    const result = await submitReverseVoucher(target.id, reason);
     reverseVisible.value = false;
-    void MessagePlugin.success(`已红冲：生成红字凭证 ${red.voucher_no}`);
+    const feedback = submitFeedback('voucher-reverse', result, result.voucher_no || target.voucher_no, result.voucher_no);
+    MessagePlugin[feedback.level](feedback.text);
+    if (result.outcome === 'PENDING_APPROVAL') {
+      // 送审：实例 id 挂到这张凭证上（列表 / 抽屉立刻显示「红冲审批中」，不用等刷新）
+      const instanceId = result.approval_instance_id ?? null;
+      if (instanceId) {
+        const map = new Map(pendingReverseMap.value);
+        map.set(target.id, instanceId);
+        pendingReverseMap.value = map;
+      }
+      detail.value = mergePendingReverse({ ...result, pending_reverse_instance_id: instanceId }, instanceId);
+      detailVisible.value = true;
+    } else {
+      // 直接红冲：抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
+      detail.value = result;
+      detailVisible.value = true;
+    }
     void loadVouchers();
-    // 直接把抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
-    detail.value = red;
-    detailVisible.value = true;
   } catch (error) {
     reverseError.value = messageOf(error);
   } finally {
     reverseSubmitting.value = false;
+  }
+}
+
+// ==================== P-FLOW-3B：撤回红冲审批 ====================
+
+/** 撤回中（防连点：撤回是不可逆的写操作，双击会拿到 409）。 */
+const withdrawingReverse = ref(false);
+
+/**
+ * 撤回红冲审批：二次确认 → 调接口 → 列表 / 抽屉回到「已记账 + 无 pending」。
+ *
+ * 撤回**什么都不改**（凭证一直是 `POSTED`，红字凭证也从未生成），所以提示里说的是
+ * 「仍是「已记账」」而不是「已恢复」。
+ */
+function openWithdrawReverse(row: VoucherReverseState & { id: string; voucher_no: string }): void {
+  if (!canWithdrawReverse(row) || withdrawingReverse.value) {
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: '撤回红冲审批',
+    theme: 'warning',
+    body: `撤回 ${row.voucher_no} 的红冲审批：审批单作废，凭证仍是「已记账」，不会生成红字凭证。撤回后可以重新提交红冲。`,
+    confirmBtn: { content: '撤回审批', theme: 'warning' },
+    cancelBtn: '再想想',
+    onConfirm: async () => {
+      dialog.hide();
+      await doWithdrawReverse(row);
+    },
+  });
+}
+
+/** 真正执行撤回。 */
+async function doWithdrawReverse(row: { id: string; voucher_no: string }): Promise<void> {
+  if (withdrawingReverse.value) {
+    return;
+  }
+  withdrawingReverse.value = true;
+  try {
+    const updated = await withdrawReverseVoucher(row.id, '页面撤回');
+    const feedback = withdrawFeedback('voucher-reverse', updated.voucher_no || row.voucher_no, voucherStatusLabel(updated.status));
+    MessagePlugin[feedback.level](feedback.text);
+    // 兜底表里那条 pending 已经没了（删掉，否则下次进页面还会误判）
+    if (pendingReverseMap.value.has(row.id)) {
+      const map = new Map(pendingReverseMap.value);
+      map.delete(row.id);
+      pendingReverseMap.value = map;
+    }
+    if (detail.value?.id === updated.id) {
+      detail.value = mergePendingReverse({ ...updated, pending_reverse_instance_id: null });
+    }
+    void loadVouchers();
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    withdrawingReverse.value = false;
   }
 }
 
