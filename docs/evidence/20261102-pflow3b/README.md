@@ -90,15 +90,15 @@ ck_biz_voucher_pending_reverse pending 只许挂在 POSTED 且 is_red=0 且 reve
 
 ## 二、验收结果
 
-### 2.1 本卡真库单测（18 条，`pflow3b_`）
+### 2.1 本卡真库单测（19 条，`pflow3b_`）
 
 ```bash
 ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_3b \
   cargo test --lib pflow3b_ -- --test-threads=1
-# → test result: ok. 18 passed; 0 failed
+# → test result: ok. 19 passed; 0 failed
 ```
 
-对照卡面 14 条（多出 4 条为种子自检 / 反向撤回）：
+对照卡面 14 条（多出 5 条为种子自检 / 反向撤回 / 夹具清场）：
 
 | 卡面 | 用例 | 断言要点 |
 |---|---|---|
@@ -120,6 +120,7 @@ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_3b \
 | ⑭b | `pflow3b_voucher_withdraw_clears_pending` | 撤回 → pending 清空 + 无红字 + 实例 `WITHDRAWN` |
 | ⑮ | `pflow3b_seeded_flows_hash_matches_rows` | **`graph::load_graph` 从行重建后重算 hash = 迁移里写死的值**（两条流都核） |
 | ⑯ | `pflow3b_seed_threshold_is_on_edge` | 1 万阈值真的落在**条件边**上（`form.amount` / `gt` / `10000`） |
+| ⑰ | `pflow3b_zz_teardown_purges_fixtures` | 收尾清场：P3B 科目 / 供应商 / 用户 / 实例 / 待办 5 项残留断言为 0（防污染兄弟模块用例，见 §2.5） |
 
 ### 2.2 真机 e2e（真 HTTP + 真库 + 真种子流程）
 
@@ -145,26 +146,41 @@ NIK_DATABASE_NAME=cloudpivot_p3b_inv python3 scripts/verify/erp_invariants.py
 # → 结果：32/32 通过   🚨 BLOCKER 0   ⚠️ WARN 0
 ```
 
-### 2.4 全量 lib 套件
+### 2.4 全量 lib 套件（干净库，`--test-threads=1`）
 
-| 运行 | 结果 | 说明 |
-|---|---|---|
-| 干净库全量（含本卡 18 条） | 1835 passed / **10 failed** | 10 条全部是 `transfer_handler::db_tests`（**与本卡无关**，见 2.5 归因） |
-| 同一命令 `--skip pflow3b_` | **1848 passed / 0 failed** | 去掉本卡 18 条后全绿 |
-| 本卡 18 条 + 全部 50 条 transfer 用例（同一库连续跑） | 18 ok / **50 ok** | 本卡夹具不污染 transfer |
+```bash
+ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_p3b cargo test --lib -j 2 -- --test-threads=1
+# → test result: ok. 1867 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 640.82s
+```
 
-### 2.5 归因：那 10 条 transfer 失败不是本卡引入的
+1867 = 既有 1848 + 本卡 19。**全绿，含 transfer / stockin / purchase 全部审批类用例。**
 
-1. **单独跑**（干净库）：`cargo test --lib transfer_handler::db_tests` → **50 passed / 0 failed**；
-2. **先跑本卡 18 条再跑同样 50 条**：**50 passed / 0 failed**（本卡夹具不污染）；
-3. 全量运行里的失败形态是「推进到 PENDING 失败：服务器内部错误」+ 夹具清理 SQL 报错，
-   且库里留下 `STOCK_TRANSFER|PENDING` 残留实例 —— 即 `transfer_handler` 用例的
-   **同库二次运行残留**问题（D7 交接里已记录：「同一个库连跑第二遍会红 53 条
-   ……transfer/stockin 审批类用例因残留流程全变 PENDING」）。
-4. `--skip pflow3b_` 的同一份代码全绿，进一步说明与本卡代码/夹具无关。
+### 2.5 过程中查出并修掉的真问题：本卡夹具污染共享主数据
 
-> 建议：把 transfer 真库用例的夹具清理改成「按固定 UUID 前缀 + 先清 `biz_flow_task`/实例引用」
-> 再删主表（与 P3B 用例同款），由 `transfer_handler` 的负责卡处理。
+第一版全量跑出来是 `1835 passed / 10 failed`，10 条全在 `transfer_handler::db_tests`。
+三步归因：
+
+| 对照 | 结果 |
+|---|---|
+| 干净库单独跑 `transfer_handler::db_tests` | 50/50 绿 |
+| 干净库先跑本卡 18 条、再跑这 50 条 | 50/50 绿（**注意：这时还没暴露**） |
+| 同一份代码 `cargo test --lib -- --skip pflow3b_` | 1848/0 全绿 |
+| 干净库先跑本卡、再跑整个 `business::erp::` | 揪到真凶：`cash_flow::tests::r3_real_config_covers_all_accounts` 报 **「分类配置漏科目：P3B.1002 / P3B.2202」** |
+
+**根因**：本卡夹具用 `P3B.1002 / P3B.2202` 两个自建科目 + `P3B-SUP` 供应商，
+但清场只删了单据/实例/用户，**没删科目和供应商**。全量套件是同一个库串行跑，
+本模块排在 `cash_flow` / `transfer_handler` 之前，留下的科目让「按科目全集断言」的用例
+（分类配置覆盖、账簿平衡）连带变红 —— 也是 D7 交接里「同一个库连跑第二遍会红」的同源问题。
+
+**修法**（本卡内已修，提交 `7093acf`）：
+
+1. 清场 SQL 抽出 `purge_fixtures()`，补 `biz_opening_balance → biz_account(P3B.%) → biz_supplier(P3B-SUP)`；
+2. 每个用例开头都调（入口干净）+ 新增 **⑰ `pflow3b_zz_teardown_purges_fixtures`**
+   （名字排在模块最后）收尾清场，并断言 5 类残留全为 0；
+3. 复跑：本卡 19/19 绿、全量 **1867/0** 绿。
+
+> 另有一条与本卡无关的存量问题已单开卡：`transfer_handler` 用例自身「同库二次运行残留
+> + 唯一索引冲突被翻成 500（`服务器内部错误`）」——见子卡「【FIX】transfer 真库用例同库二次运行残留」。
 
 ### 2.6 静态检查
 

@@ -93,13 +93,13 @@ async fn exec(text: &str) {
     }
 }
 
-/// 拿锁 + 连库 + 清上一轮 + 建夹具。
-async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-    let guard = DB_LOCK.lock().await;
-    if !ensure_db().await {
-        return None;
-    }
-    // 清上一轮（顺序受外键约束：通知 → 实例 → 待办 → 凭证/分录 → 应付 → 用户）
+/// 清本卡夹具（顺序受外键约束：通知 → 实例 → 待办 → 凭证/分录 → 应付 → 主数据 → 用户）。
+///
+/// 两处调用：每个用例开头的 `setup()`（保证入口干净），以及模块里**名字排最后**的
+/// `pflow3b_zz_teardown_purges_fixtures` —— 全量套件是同一个库串行跑，
+/// 本模块若把 P3B 科目 / 供应商留在库里，后面按「科目全集」断言的用例会误红
+/// （`cash_flow::tests::r3_real_config_covers_all_accounts`）。
+async fn purge_fixtures() {
     let cleanups = [
         "DELETE FROM sys_notice_receiver WHERE notice_id IN \
            (SELECT id FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
@@ -137,6 +137,13 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
             .to_string(),
         "DELETE FROM biz_voucher WHERE source_no LIKE 'P3B-%'".to_string(),
         "DELETE FROM biz_payable WHERE payable_no LIKE 'AP-3B-%'".to_string(),
+        // 科目 / 供应商也是共享主数据：留着会让「全量套件」里按科目全集的用例误红
+        // （`cash_flow::tests::r3_real_config_covers_all_accounts`：分类配置漏科目）。
+        "DELETE FROM biz_opening_balance WHERE account_id IN \
+           (SELECT id FROM biz_account WHERE account_code LIKE 'P3B.%')"
+            .to_string(),
+        "DELETE FROM biz_account WHERE account_code LIKE 'P3B.%'".to_string(),
+        "DELETE FROM biz_supplier WHERE supplier_code = 'P3B-SUP'".to_string(),
         "DELETE FROM sys_user_role WHERE role_id IN \
            ('20000000-0000-4000-8000-0000000f0005'::uuid, \
             '20000000-0000-4000-8000-0000000f0006'::uuid)"
@@ -149,6 +156,16 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     for sql in cleanups {
         exec(&sql).await;
     }
+}
+
+/// 拿锁 + 连库 + 清上一轮 + 建夹具。
+async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+    let guard = DB_LOCK.lock().await;
+    if !ensure_db().await {
+        return None;
+    }
+    // 清上一轮
+    purge_fixtures().await;
 
     // 供应商 + 两个科目（凭证分录的外键）
     exec(&format!(
@@ -1020,4 +1037,51 @@ async fn pflow3b_seed_threshold_is_on_edge() {
     assert_eq!(row.get_typed::<String>("field").unwrap(), "form.amount");
     assert_eq!(row.get_typed::<String>("cmp").unwrap(), "gt");
     assert_eq!(row.get_typed::<String>("value").unwrap(), "10000");
+}
+
+/// ⑰ **跑在最后**（名字按字母序排在本模块末尾）：把夹具清干净再退场。
+///
+/// 全量套件是同一个库串行跑，本模块留下的 P3B 科目 / 供应商会让
+/// `cash_flow::tests::r3_real_config_covers_all_accounts`（按科目全集校验分类配置）
+/// 之类的用例误红；留下的 PENDING 实例会顶住兄弟模块的 `uk_biz_flow_instance_biz_active`。
+/// 用例改名时务必保持 `pflow3b_zz_` 前缀在最后。
+#[tokio::test]
+async fn pflow3b_zz_teardown_purges_fixtures() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    purge_fixtures().await;
+
+    for (label, sql) in [
+        (
+            "科目",
+            "SELECT count(*) AS n FROM biz_account WHERE account_code LIKE 'P3B.%'",
+        ),
+        (
+            "供应商",
+            "SELECT count(*) AS n FROM biz_supplier WHERE supplier_code = 'P3B-SUP'",
+        ),
+        (
+            "用户",
+            "SELECT count(*) AS n FROM sys_user WHERE username LIKE 'p3b_%'",
+        ),
+        (
+            "本卡实例",
+            "SELECT count(*) AS n FROM biz_flow_instance \
+              WHERE biz_type IN ('PAYABLE_CANCEL','VOUCHER_REVERSE')",
+        ),
+        (
+            "本卡待办",
+            "SELECT count(*) AS n FROM biz_flow_task t JOIN biz_flow_instance i \
+                ON i.id = t.instance_id \
+              WHERE i.biz_type IN ('PAYABLE_CANCEL','VOUCHER_REVERSE')",
+        ),
+    ] {
+        let rows = db()
+            .find_with_params(sql, vec![])
+            .await
+            .unwrap_or_else(|err| panic!("查{label}残留失败：{err}"));
+        let n: i64 = rows[0].get_typed("n").unwrap();
+        assert_eq!(n, 0, "teardown 后仍有{label}残留：{n} 行");
+    }
 }
