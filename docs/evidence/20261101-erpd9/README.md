@@ -238,3 +238,34 @@ select count(*) from sys_menu where auth_code in
   ('business:erp:stock-in:create','business:erp:transfer:create','business:task:create');
 -- 3
 ```
+
+## 九、生产部署（144）与线上核对
+
+部署脚本：`scripts/verify/d9_deploy_144.sh`（144 上执行：ff-only 拉代码 → 编 release → 编 dist → 重启 → 核对）
+
+```
+git log --oneline -1  → b6b6cf7 chore(verify): D9 生产部署脚本…
+binary_md5=8ffa4db851514504b70e82f780df9dd1
+main_pid=3618574 proc_md5=8ffa4db851514504b70e82f780df9dd1 disk_md5=8ffa4db851514504b70e82f780df9dd1
+PROC_EQ_DISK=OK
+数据库迁移完成: 应用 0 个迁移          ← 零迁移（权限码复用）
+health=200 / index=200
+entry_chunk: BasicLayout-BvIBdKu5.js → BasicLayout-I9eVk4Jp.js
+  btn-stockin-copy → 1 / stockin-copy-notice → 1 / btn-transfer-copy → 1
+  transfer-copy-notice → 1 / btn-task-copy → 1 / stockin-drawer-actions → 1
+```
+
+线上只读核对：`scripts/verify/d9_prod_readonly_check.sh`（**不建任何单据**）
+
+```
+== 新路由（无令牌应 401，不是 404）==
+  POST /api/business/erp/stock-in/{id}/copy  → 401 {"code":401,"msg":"未授权访问，请先登录"}
+  POST /api/business/erp/transfer/{id}/copy  → 401
+  POST /api/business/task/{id}/copy          → 401
+== 对照：不存在的路由 → 404 ✓（说明 401 是「路由匹配到了、被认证层拦」，不是兜底）
+== 库侧三处 create 权限码 → 3
+```
+
+判据说明：**没有在生产上真的建复制单**（生产数据不拿来做写测试）。写链路的真机证据全部来自
+隔离实例（§三 50/50，真 HTTP + 真过账），线上只证「路由在、权限码在、前端包是新的」。
+
