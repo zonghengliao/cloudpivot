@@ -175,16 +175,23 @@
           :value="cfg.approve_biz_type ?? undefined"
           :options="approveBizTypeOptions"
           :loading="approveLoading"
-          placeholder="选择要发起的审批流程类型"
+          placeholder="选择要发起的审批流程类型（必填）"
           :disabled="readonly"
+          data-testid="task-approve-biz-type"
           @change="(value: unknown) => patch({ approve_biz_type: String(value ?? '') || null })"
         />
+        <!-- 必填校验：只在没选时红字；选了值只给中性提示，绝不因为「选了 APPROVE」就报警 -->
+        <p v-if="approveIssue" class="task-node-config__issue-text" data-testid="task-approve-biz-type-issue">
+          {{ approveIssue }}
+        </p>
+        <p v-else class="task-node-config__tip" data-testid="task-approve-biz-type-tip">
+          发布时会校验：该业务类型下必须有一条「已发布」且「设为默认」的流程，否则发布会返回 65035 —— 先发布那条审批流再来选。
+        </p>
         <p v-if="approveBizTypeOptions.length === 0 && !approveLoading" class="task-node-config__issue-text">
           暂无可用审批流程（需要一条 `已发布` 且 `is_default=true` 的流程定义）。
         </p>
       </div>
 
-      <t-alert v-if="stageGateText" theme="warning" class="task-node-config__stage" :message="stageGateText" />
       <p v-if="matrixIssue" class="task-node-config__issue-text" data-testid="task-matrix-issue">{{ matrixIssue }}</p>
     </div>
   </t-form-item>
@@ -270,12 +277,12 @@ import {
   TASK_PRIORITY_OPTIONS,
   applyNeedReview,
   applyOnComplete,
+  approveBizTypeIssue,
   approveOptionDisabled,
   checkMatrix,
   dueIssue,
   needReviewLocked,
   needReviewTooltip,
-  stageGateError,
   taskConfigOf,
   taskConfigPatch,
   type OnCancel,
@@ -345,8 +352,8 @@ const reviewTooltip = computed(() => needReviewTooltip(cfg.value));
 /** R18 矩阵问题（正常操作永远 null；脏数据才可能非空） */
 const matrixIssue = computed(() => checkMatrix(cfg.value));
 
-/** 1A 阶段闸（`APPROVE` 会被后端 65035 拒） */
-const stageGateText = computed(() => stageGateError(cfg.value));
+/** `APPROVE` 的必填校验（没选审批流 biz_type 才提示；选了值不报警） */
+const approveIssue = computed(() => approveBizTypeIssue(cfg.value));
 
 /** 期限配置问题 */
 const dueIssueText = computed(() => dueIssue(cfg.value.due));
@@ -658,9 +665,5 @@ watch(
   display: flex;
   flex-direction: column;
   gap: 4px;
-}
-
-.task-node-config__stage {
-  margin-top: 4px;
 }
 </style>

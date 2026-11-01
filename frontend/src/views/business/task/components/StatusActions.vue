@@ -105,6 +105,16 @@
  * `409 + 65030`。这时光提示「失败」没有意义 —— 结论只能在审批中心下，
  * 所以文案里带一个**去审批中心**的链接（有实例侧权限码才给链接，没有就只给文案，
  * 避免把人送到 403 页）。
+ *
+ * # 流程任务的两个新冲突码（P-FLOW-1B，`on_complete=APPROVE` 上线后才有）
+ *
+ * | 码 | 场景 | 前端怎么表现 |
+ * |---|---|---|
+ * | `409 + 65020`（`FLOW_TASK_ALREADY_DONE`） | 并发 / 重复点完成，节点本轮早已通过 | **幂等成功**：黄条「已处理，已刷新」，不弹错误框，照样刷新详情 |
+ * | `409 + 65038`（`FLOW_TASK_STATE_CONFLICT`） | 流程实例已终止 / 撤回，任务却要点完成 | 红条用后端原文（带流程名 + 状态），兜底文案指向「联系流程发起人」 |
+ *
+ * 两个码**不能混**：65020 是「你的活已经算完了」，65038 是「这张流程没了」。
+ * 后端 `task_bridge::on_task_status_changed` 也是按「节点本轮是否已 `APPROVED`」分开判的。
  */
 import { computed, h, reactive } from 'vue';
 import { useRouter } from 'vue-router';
@@ -121,6 +131,7 @@ import { PERM } from '@/constants/permissions';
 import { statusLabel } from '@/constants/status-map';
 import { useUserStore } from '@/stores/user';
 import { useBadgeStore } from '@/stores/badge';
+import { FLOW_TASK_ALREADY_DONE, FLOW_TASK_STATE_CONFLICT } from '@/views/business/flow/components/flow-error-codes';
 import { applyFlowMainButton, flowMainNote, type FlowCompletion } from './flow-actions';
 
 const props = defineProps<{
@@ -136,8 +147,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  /** 流转成功（父组件据此刷新详情 + 列表） */
-  (event: 'changed', result: TaskStatusChangeResult): void;
+  /**
+   * 流转成功（父组件据此刷新详情 + 列表）。
+   *
+   * `result` 可省：`409 + 65020`（已处理）走**幂等成功**路径 —— 这一笔其实早已生效，
+   * 只是没拿到回执，照样要刷新（见 `changeStatus`）。
+   */
+  (event: 'changed', result?: TaskStatusChangeResult): void;
 }>();
 
 const userStore = useUserStore();
@@ -421,6 +437,23 @@ async function changeStatus(to: TaskStatus, reason: string, key: string): Promis
   } catch (error) {
     if (error instanceof ApiError && error.code === TASK_ERROR_CODE.APPROVAL_PENDING) {
       notifyApprovalPending();
+      return false;
+    }
+    // `409 + 65020`（FLOW_TASK_ALREADY_DONE）：并发 / 重复点完成 —— 节点本轮早就通过了，
+    // 这一笔**是成功的**，只是没拿到回执。按幂等成功展示并刷新，别弹红色错误框
+    //（与审批待办里同一码的口径一致）。
+    if (error instanceof ApiError && error.code === FLOW_TASK_ALREADY_DONE) {
+      MessagePlugin.warning('该任务已被处理（可能刚才是并发提交），已为你刷新');
+      emit('changed');
+      void badgeStore.refresh();
+      return true;
+    }
+    // `409 + 65038`（FLOW_TASK_STATE_CONFLICT）：流程实例已终止 / 撤回，任务却要点完成。
+    // 后端 `msg` 已带流程名与状态，直接用它；没有文案时才用本卡的固定说法。
+    if (error instanceof ApiError && error.code === FLOW_TASK_STATE_CONFLICT) {
+      MessagePlugin.error(
+        error.message || '所属流程已结束（CANCELLED / WITHDRAWN），这张任务不能再推进流程；请联系流程发起人重新发起',
+      );
       return false;
     }
     if (error instanceof ApiError && error.code === TASK_ERROR_CODE.REJECT_REASON_REQUIRED) {

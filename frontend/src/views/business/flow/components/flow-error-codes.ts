@@ -285,12 +285,14 @@ export function reasonRulesOver(count: number): string {
 
 /** 节点配置与节点类型不匹配 / `config.task` 形状非法（R17/R18 的一半） */
 export const FLOW_NODE_CONFIG_MISMATCH = 65034;
-/** `need_review` × `on_complete` 矩阵违例（R18；1A 阶段 `APPROVE` 也落这里） */
+/** 流程节点配置非法（R17/R18 矩阵；**不含** `on_complete=APPROVE`，1B 起它合法） */
 export const FLOW_TASK_NODE_INVALID = 65035;
 /** `NOTIFY_NODE` 的模板 / 占位符非法（R19） */
 export const FLOW_NOTIFY_TEMPLATE_INVALID = 65036;
 /** 模板变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT` 流程（R21） */
 export const FLOW_TEMPLATE_VAR_INVALID = 65037;
+/** 流程任务本轮已完成（HTTP 409）：并发 / 重复点完成 → 前端按**幂等成功**展示（P-FLOW-1B） */
+export const FLOW_TASK_ALREADY_DONE = 65020;
 /** 流程任务状态与实例状态冲突（HTTP 409，P-FLOW-1B 用） */
 export const FLOW_TASK_STATE_CONFLICT = 65038;
 /** 预演参数非法：缺变量（`strict=true`）/ 渲染后标题超长 / 模板语法错 */
@@ -333,7 +335,7 @@ export const TASK_NODE_CODE_META: Record<number, TaskNodeCodeMeta> = {
     code: FLOW_TASK_NODE_INVALID,
     name: 'FLOW_TASK_NODE_INVALID',
     title: '「需验收」与「完成方式」冲突',
-    hint: '验收与审批不能同时开（会让用户点两次提交）；本版本也还不支持「完成后审批」',
+    hint: '验收与审批不能同时开（会让用户点两次提交）；「完成后审批」要指定一条「已发布且设为默认」的审批流程，否则发布会返回本码',
     rule: 'R18',
   },
   [FLOW_NOTIFY_TEMPLATE_INVALID]: {
@@ -354,7 +356,7 @@ export const TASK_NODE_CODE_META: Record<number, TaskNodeCodeMeta> = {
     code: FLOW_TASK_STATE_CONFLICT,
     name: 'FLOW_TASK_STATE_CONFLICT',
     title: '任务与流程状态冲突',
-    hint: '这张任务的流程可能已被撤回或终止；刷新页面看最新的流程状态，不要重复提交',
+    hint: '所属流程已结束（CANCELLED / WITHDRAWN），这张任务不能再推进流程；请联系流程发起人重新发起',
     rule: null,
   },
   [FLOW_PREVIEW_INVALID]: {

@@ -1076,7 +1076,8 @@ export interface TaskPreviewRes {
  * # 异常情况
  *
  * - `400 + 65034`：`config` 形状 / 交叉约束非法
- * - `400 + 65035`：`need_review × on_complete` 矩阵违例（1A 阶段 `APPROVE` 也落这里）
+ * - `400 + 65035`：`need_review × on_complete` 矩阵违例（`on_complete=APPROVE` 自 P-FLOW-1B 起合法，
+ *   只有「该 biz_type 下没有已发布默认流程」才会在**发布期**返回这个码）
  * - `400 + 65036`：模板语法错
  * - `400 + 65037`：变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT`
  * - `400 + 65039`：严格模式缺变量 / 渲染后标题超 200 字符

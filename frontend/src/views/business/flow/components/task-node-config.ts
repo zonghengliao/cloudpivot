@@ -17,7 +17,11 @@
  * | `VERIFY` | `true` | ✅ 允许（`VERIFY` 是显式声明） |
  * | `VERIFY` | `false` | ❌ 矛盾：声明要验收却没开验收态（配置静默失效） |
  * | `APPROVE` | `true` | ❌「点两次提交」（发起人验收 + 审批人签字） |
- * | `APPROVE` | `false` | 1A 阶段闸拒绝（引擎分支在 P-FLOW-1B），1B 起 ✅ |
+ * | `APPROVE` | `false` | ✅ 允许：完成即发起审批（`approve_biz_type` 必填） |
+ *
+ * `APPROVE + need_review=false` 从 P-FLOW-1B 起是**合法配置**：任务 `DOING→DONE` 时节点保持
+ * `ACTIVE` 并同事务发起 `approve_biz_type` 指向的审批单，审批通过才推进下游节点。
+ * 1A 的那条「阶段闸」（选 `APPROVE` 就在面板上报 65035 告警）已随引擎分支落地而**删除**。
  *
  * # 三条 UI 纪律（设计 §4.1「关键交互纪律」1，照做别重新设计）
  *
@@ -112,11 +116,11 @@ export const TASK_PRIORITY_OPTIONS = [
   { label: 'P3 低', value: 'P3' },
 ] as const;
 
-/** 完成方式选项（`ORDER` 决定下拉顺序；`APPROVE` 在 1A 会被后端拒，见 {@link stageGateError}） */
+/** 完成方式选项（`ORDER` 决定下拉顺序；`APPROVE` 需指定审批流 `biz_type`，见 {@link approveBizTypeIssue}） */
 export const ON_COMPLETE_OPTIONS: Array<{ label: string; value: OnComplete; hint: string }> = [
   { label: '直接通过', value: 'DIRECT', hint: '负责人点完成，本节点即通过' },
   { label: '需验收', value: 'VERIFY', hint: '负责人点「提交验收」，流程发起人验收后节点通过' },
-  { label: '完成后审批', value: 'APPROVE', hint: '完成即发起一条审批流，审批通过才算本节点完成（P-FLOW-1B 开放）' },
+  { label: '完成后审批', value: 'APPROVE', hint: '完成即发起一条审批流，审批通过才算本节点完成（需指定审批流 biz_type）' },
 ];
 
 /** 打回时选项（默认「留在本节点」= 返工本来就该等） */
@@ -339,10 +343,11 @@ export function approveOptionDisabled(config: TaskConfig): boolean {
 }
 
 /**
- * R18 矩阵检查（与 `node_config.rs::check_matrix` 的前两条逐字同义）。
+ * R18 矩阵检查（与 `node_config.rs::check_matrix` **恰好**两条，逐字同义）。
  *
- * 返回中文原因；合法返回 `null`。**`APPROVE` 的 1A 阶段闸不在这里**
- * （那是版本节奏，不是矩阵违例，见 {@link stageGateError}）。
+ * 返回中文原因；合法返回 `null`。**没有第三条**：`APPROVE + need_review=false` 是合法配置
+ * （P-FLOW-1B 起引擎在任务完成时发起审批），`approve_biz_type` 的必填校验在
+ * {@link approveBizTypeIssue}，不混进矩阵。
  */
 export function checkMatrix(config: TaskConfig): string | null {
   if (config.on_complete === 'VERIFY' && !config.need_review) {
@@ -355,15 +360,24 @@ export function checkMatrix(config: TaskConfig): string | null {
 }
 
 /**
- * P-FLOW-1A 的阶段闸：`on_complete=APPROVE` 会被后端 **65035 拒绝**。
+ * `on_complete=APPROVE` 的必填校验：**`approve_biz_type` 不能为空**。
  *
- * 为什么前端要提前说：这条拒绝**不是用户配错了**，是引擎分支还没上线
- * （`node_config.rs` 的 TODO(P-FLOW-1B)）。不说清的话，用户会以为是自己哪里填错，
- * 而预演返回的红字又只写着「将在 P-FLOW-1B 开放」。
+ * # 为什么只查「空」，不查「这个 biz_type 有没有流程」
+ *
+ * 后端发布期（`handler.rs::approve_biz_type_issues`）的判据是「该 `biz_type` 下存在一条
+ * **已发布且设为默认**的流程」，没有才 `400 + 65035`。这条判据需要查库，
+ * 前端拿不到「某个 biz_type 现在有没有默认流程」的权威答案（候选列表是异步拉的分页快照，
+ * 可能过期），所以前端**只说必填**、并提示发布前先发布那条审批流，
+ * 绝不像 1A 那样武断地宣布「本版本不支持」。
+ *
+ * 返回中文原因；合法（含非 `APPROVE`）返回 `null`。
  */
-export function stageGateError(config: TaskConfig): string | null {
-  if (config.on_complete === 'APPROVE') {
-    return 'P-FLOW-1A 版本尚未开放「完成后审批」：引擎还没有「完成即发起审批流」这条分支，发布会被拒绝（65035）。请先选「直接通过」或「需验收」，或等 P-FLOW-1B。';
+export function approveBizTypeIssue(config: TaskConfig): string | null {
+  if (config.on_complete !== 'APPROVE') {
+    return null;
+  }
+  if (!(config.approve_biz_type ?? '').trim()) {
+    return '「完成后审批」必须指定审批流业务类型（approve_biz_type）：完成时会用它发起审批单，不填发布会返回 65034';
   }
   return null;
 }

@@ -38,7 +38,7 @@ import {
   dueIssue,
   needReviewLocked,
   needReviewTooltip,
-  stageGateError,
+  approveBizTypeIssue,
   taskConfigOf,
   taskConfigPatch,
   type OnComplete,
@@ -54,6 +54,7 @@ import {
   FLOW_NODE_CONFIG_MISMATCH,
   FLOW_NOTIFY_TEMPLATE_INVALID,
   FLOW_PREVIEW_INVALID,
+  FLOW_TASK_ALREADY_DONE,
   FLOW_TASK_NODE_INVALID,
   FLOW_TASK_STATE_CONFLICT,
   FLOW_TEMPLATE_VAR_INVALID,
@@ -219,13 +220,38 @@ test('checkMatrix 自身能判出两条违例（否则上面的穷举是空的�
   assert.equal(checkMatrix({ ...baseConfig(), on_complete: 'DIRECT', need_review: true }), null);
 });
 
-test('1A 阶段闸：APPROVE 给出明确说明（不是让用户以为填错了）', () => {
-  assert.equal(stageGateError(baseConfig()), null);
-  const text = stageGateError({ ...baseConfig(), on_complete: 'APPROVE' });
-  assert.ok(text && text.includes('P-FLOW-1B'));
-  // 下拉里 APPROVE 的文案要标明版本
-  const approve = ON_COMPLETE_OPTIONS.find((item) => item.value === 'APPROVE');
-  assert.ok(approve);
+test('APPROVE 不再是阶段闸：只剩 approve_biz_type 必填校验（P-FLOW-1B 收口）', () => {
+  const approve = { ...baseConfig(), on_complete: 'APPROVE' as OnComplete };
+  // 选了 APPROVE 就报警的那条 1A 文案已删除：配好 biz_type 时**不留任何提示**
+  assert.equal(approveBizTypeIssue({ ...approve, approve_biz_type: 'PURCHASE_ORDER' }), null);
+  // 没配 biz_type 才是必填问题（且只提必填，不提「版本不支持」）
+  const missing = approveBizTypeIssue({ ...approve, approve_biz_type: null });
+  assert.ok(missing && missing.includes('必须指定') && missing.includes('审批流'));
+  assert.equal(approveBizTypeIssue({ ...approve, approve_biz_type: '   ' }) !== null, true);
+  // 非 APPROVE 一律不提示
+  assert.equal(approveBizTypeIssue({ ...baseConfig(), on_complete: 'DIRECT', approve_biz_type: null }), null);
+  assert.equal(approveBizTypeIssue({ ...baseConfig(), on_complete: 'VERIFY', need_review: true }), null);
+  // 下拉 hint 不再写版本号，改成「需指定审批流 biz_type」
+  const option = ON_COMPLETE_OPTIONS.find((item) => item.value === 'APPROVE');
+  assert.equal(option?.value, 'APPROVE');
+  const hint = option?.hint ?? '';
+  assert.ok(!hint.includes('P-FLOW-1B'));
+  assert.match(hint, /biz_type/);
+});
+
+test('源码里不再有 1A 阶段闸的死码（删干净 = 验收 2/3）', () => {
+  const dir = fileURLToPath(new URL('../../src/views/business/flow/components/', import.meta.url));
+  const files = ['task-node-config.ts', 'TaskNodeConfig.vue', 'flow-error-codes.ts', 'TaskPreview.vue'];
+  for (const file of files) {
+    const source = readFileSync(`${dir}${file}`, 'utf8');
+    for (const banned of ['stageGateError', 'stageGateText', 'P-FLOW-1A 版本尚未开放', '发布会被拒绝']) {
+      assert.ok(!source.includes(banned), `${file} 里还残留「${banned}」`);
+    }
+  }
+  // R18 只剩两条（与后端 node_config.rs::check_matrix 恰好对齐）
+  assert.equal(checkMatrix({ ...baseConfig(), on_complete: 'APPROVE', need_review: false }), null);
+  assert.match(checkMatrix({ ...baseConfig(), on_complete: 'APPROVE', need_review: true }) ?? '', /点两次/);
+  assert.match(checkMatrix({ ...baseConfig(), on_complete: 'VERIFY', need_review: false }) ?? '', /VERIFY/);
 });
 
 // ==================== ③ config.task 的反解 / 打包 ====================
@@ -325,11 +351,24 @@ test('65034–65039 码值与 error_code.rs 一致', () => {
     [FLOW_TEMPLATE_VAR_INVALID, 'FLOW_TEMPLATE_VAR_INVALID'],
     [FLOW_TASK_STATE_CONFLICT, 'FLOW_TASK_STATE_CONFLICT'],
     [FLOW_PREVIEW_INVALID, 'FLOW_PREVIEW_INVALID'],
+    // P-FLOW-1B：任务完成撞「本轮已通过」的幂等码
+    [FLOW_TASK_ALREADY_DONE, 'FLOW_TASK_ALREADY_DONE'],
   ];
   for (const [actual, name] of pairs) {
     assert.equal(actual, Number(rustConst(source, name)), `${name} 码值不一致`);
   }
   assert.deepEqual([...TASK_NODE_CODES], [65034, 65035, 65036, 65037, 65038, 65039]);
+  assert.equal(FLOW_TASK_ALREADY_DONE, 65020);
+});
+
+test('65038 的本地兜底文案指向「联系流程发起人」（不是「刷新重试」）', () => {
+  const text = taskNodeErrorText(FLOW_TASK_STATE_CONFLICT, null);
+  assert.equal(text.source, 'local');
+  assert.match(text.text, /流程发起人/);
+  // 65035 的兜底也不再写「本版本不支持」
+  const invalid = taskNodeErrorText(FLOW_TASK_NODE_INVALID, null);
+  assert.ok(!invalid.text.includes('还不支持'));
+  assert.match(invalid.text, /已发布/);
 });
 
 test('taskNodeErrorText：后端原文优先，本地文案兜底（并标明来源）', () => {
