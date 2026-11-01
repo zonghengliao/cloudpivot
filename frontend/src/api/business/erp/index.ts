@@ -37,7 +37,7 @@
  * - 枚举一律大写字面量：`warehouse_type` ∈ `NORMAL|RAW|FINISHED|SCRAP|IN_TRANSIT`。
  */
 
-import { del, get, patch, post, put, type PageData } from '@/api/request';
+import service, { del, get, patch, post, put, type PageData } from '@/api/request';
 
 /** 接口前缀（后端注解不含 `/api`） */
 const BASE = '/api/business/erp';
@@ -2423,6 +2423,13 @@ export function fetchAccountPage(query: {
  */
 export type PeriodStatus = 'NOT_OPENED' | 'OPEN' | 'CLOSED';
 
+/**
+ * 报表侧会出现第 4 个状态：**`DERIVED`**（库里没有期间行、但该月有已记账凭证时，
+ * 后端按自然月推算并在 `check.hints` 里要求尽快开账）。它不是 `biz_accounting_period`
+ * 里存得下的值（库里有 `ck_biz_period_status`），只出现在报表响应里。
+ */
+export type ReportPeriodStatus = PeriodStatus | 'DERIVED';
+
 /** 会计期间（逐字抄 `dto.rs::PeriodRes`） */
 export interface AccountPeriodRow {
   /** 主键 */
@@ -2739,4 +2746,125 @@ export function fetchSeqPage(query: {
 /** 单号序列详情（`GET /erp/seq/{id}`，也是 `:list` 权限） */
 export function fetchSeqDetail(id: string): Promise<SeqRow> {
   return get<SeqRow>(`${BASE}/seq/${id}`);
+}
+
+// ==================== 资产负债表（ERP-R1） ====================
+
+/**
+ * 资产负债表的一行（对应后端 `report::ReportLineRes`）。
+ *
+ * **金额是字符串**：后端 `numeric(20,4)` 走 `rust_decimal`，序列化出来是
+ * `"16500.0000"` 这样的**定点字符串**（不是 float，避免 0.1+0.2 那种误差）。
+ * 显示前用 `formatAmount` 转千分位 2 位，**不要** `Number(x)` 再乘算。
+ */
+export interface ReportLine {
+  /** 报表项编码（`TOTAL_ASSETS` / `MONETARY_FUNDS` …） */
+  item_code: string;
+  /** 报表项名称（中文） */
+  item_name: string;
+  /** 层级：1 大类 / 2 小类 / 3 明细（用于缩进） */
+  level: number;
+  /** 上级编码 */
+  parent_code: string | null;
+  /** 期末金额；`null` = 纯标题行（如「流动资产」） */
+  amount: string | null;
+  /** 上期金额；`null` = 没有上期期间 */
+  previous_amount: string | null;
+  /** 是否减项（累计折旧 / 累计摊销） */
+  is_deduction: boolean;
+  /** 是否小计 / 合计行（公式项，加粗） */
+  is_total: boolean;
+  /** 取数说明（科目模式或公式原文） */
+  detail: string | null;
+  /** 实际命中的科目编码（可审计） */
+  accounts: string[];
+}
+
+/** 有余额但没有匹配任何报表项的科目（`check.unmapped`） */
+export interface UnmappedAccount {
+  account_code: string;
+  account_name: string;
+  account_category: string;
+  amount: string;
+}
+
+/** 分录合计与单头不符的凭证（`check.unbalanced_vouchers`，不平的直接证据） */
+export interface UnbalancedVoucher {
+  voucher_no: string;
+  voucher_date: string;
+  entry_debit: string;
+  entry_credit: string;
+  header_debit: string;
+  header_credit: string;
+}
+
+/** 勾稽校验（对应后端 `report::BalanceCheckRes`） */
+export interface BalanceCheck {
+  /** 资产总计 ≡ 负债+权益总计 */
+  balanced: boolean;
+  assets_total: string;
+  liability_equity_total: string;
+  /** 差额（不做舍入） */
+  diff: string;
+  /** 差额人话（`0.00` / `2000.00` / `0.0001`） */
+  diff_text: string;
+  /** 整句结论（直接显示） */
+  message: string;
+  ledger_debit_total: string;
+  ledger_credit_total: string;
+  unmapped: UnmappedAccount[];
+  unbalanced_vouchers: UnbalancedVoucher[];
+  /** 成因提示（不平 / 有未归类科目时才非空） */
+  hints: string[];
+}
+
+/** 资产负债表（对应后端 `report::BalanceSheetRes`） */
+export interface BalanceSheet {
+  report_code: string;
+  report_name: string;
+  /** 编制单位 */
+  company_name: string;
+  /** 金额单位（元） */
+  unit: string;
+  /** 会计期间 `yyyy-MM` */
+  period: string;
+  /** 期间中文（`2026年10月`） */
+  period_name: string;
+  /** 期间状态：`OPEN` / `CLOSED`；`DERIVED` = 库里没期间行、按自然月推算（要先开账） */
+  period_status: ReportPeriodStatus;
+  period_start: string;
+  period_end: string;
+  /** 编制时间（ISO8601） */
+  generated_at: string;
+  /** 上期期间（`yyyy-MM`；没有则为 null） */
+  previous_period: string | null;
+  assets: ReportLine[];
+  liabilities: ReportLine[];
+  equity: ReportLine[];
+  check: BalanceCheck;
+}
+
+/**
+ * 编制资产负债表（`GET /erp/report/balance-sheet?period=yyyy-MM`）。
+ *
+ * # 异常情况
+ * - 400 + `10001`：`period` 缺失 / 不是 `yyyy-MM`；
+ * - 400 + `66010`：该期间**没在「会计期间」里建立**（报表不替人推导不存在的报告期）；
+ * - 500 + `66011`：`biz_report_item` 配置坏了（公式引用了不存在的报表项）。
+ */
+export function fetchBalanceSheet(period: string): Promise<BalanceSheet> {
+  return get<BalanceSheet>(`${BASE}/report/balance-sheet`, asParams({ period }));
+}
+
+/**
+ * 导出资产负债表 xlsx（`GET /erp/report/balance-sheet/export`）。
+ *
+ * 返回的是**文件字节流**（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'`。
+ */
+export async function exportBalanceSheet(period: string): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/report/balance-sheet/export`, {
+    params: asParams({ period }),
+    responseType: 'blob',
+  });
+  return response.data;
 }

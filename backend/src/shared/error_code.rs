@@ -1037,6 +1037,19 @@ pub const ERP_SERIAL_STATUS_INVALID: i32 = 66008;
 /// 必须让监控抓到、让运维按消息里的「Σ借 / Σ贷 / 差额」定位，绝不能静默返回一张错的报表。
 pub const ERP_LEDGER_UNBALANCED: i32 = 66009;
 
+/// 会计期间不存在（400）：ERP-R1 资产负债表的编制前置条件。
+///
+/// 与余额表的「缺失则按自然月推导」刻意不同：报表是对外交付物，
+/// 给一个没开账的月份出表，等于让人以为那个月真的没发生业务。消息里带开账指引。
+pub const ERP_PERIOD_NOT_FOUND: i32 = 66010;
+
+/// 报表配置错误（500）：`biz_report_item` 的公式引用了不存在的报表项、
+/// 或整张报表一项都没配。
+///
+/// 为什么是 500 而不是 400：这是**配置**坏了，不是用户填错了 —— 让它响、
+/// 让运维按消息里的 item_code 去修配置，绝不能静默出 0（"这个月没发生"和"报表配错"是两件事）。
+pub const ERP_REPORT_CONFIG_INVALID: i32 = 66011;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1057,6 +1070,8 @@ mod tests {
             (ERP_SERIAL_NOT_REQUIRED, 66007),
             (ERP_SERIAL_STATUS_INVALID, 66008),
             (ERP_LEDGER_UNBALANCED, 66009),
+            (ERP_PERIOD_NOT_FOUND, 66010),
+            (ERP_REPORT_CONFIG_INVALID, 66011),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

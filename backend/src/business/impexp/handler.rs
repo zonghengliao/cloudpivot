@@ -967,7 +967,7 @@ fn summary_rows(errors: &[RowIssue]) -> Vec<serde_json::Value> {
 }
 
 /// xlsx 下载响应（RFC 5987 中文文件名）。
-fn xlsx_response(bytes: Vec<u8>, file_name: &str) -> Response {
+pub(crate) fn xlsx_response(bytes: Vec<u8>, file_name: &str) -> Response {
     let mut headers = HeaderMap::new();
     headers.insert(header::CONTENT_TYPE, HeaderValue::from_static(XLSX_MIME));
     headers.insert(

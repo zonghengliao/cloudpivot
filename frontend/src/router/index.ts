@@ -457,6 +457,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '总账 / 科目余额表', permission: 'business:erp:ledger:list' },
       },
       {
+        // ==================== ERP 资产负债表（ERP-R1） ====================
+        // `sys_menu` 种子（V0183 …1015）path = `/business/erp/report/balance-sheet`，
+        // component `business/erp/report/balance-sheet/index`；导出按钮 …1016
+        // 用 `business:erp:report:export`。**路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/balance-sheet',
+        name: 'BusinessErpBalanceSheet',
+        component: () => import('@/views/business/erp/report/balance-sheet/index.vue'),
+        meta: { title: '资产负债表', permission: 'business:erp:report:balance-sheet' },
+      },
+      {
         // ==================== ERP 会计科目（P4-C，只读树形） ====================
         // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
         // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。
