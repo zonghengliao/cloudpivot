@@ -68,6 +68,13 @@
         <t-button theme="primary" data-testid="btn-stockin-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-stockin-reset" @click="handleReset">重置</t-button>
       </div>
+      <!-- O4 列表记忆：恢复筛选必须让用户看得见，并能一键清掉 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="stockin-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- ==================== ② 列表 ==================== -->
@@ -426,6 +433,14 @@
           </span>
         </div>
 
+        <!-- O1 表单记忆提示：带出了上次的供应商 / 仓库就明说，并留「重置」出口 -->
+        <FormMemoryHint
+          v-if="!form.id"
+          :labels="memoryLabels"
+          testid="stockin-form-memory"
+          @reset="handleResetMemory"
+        />
+
         <div class="dlg-footer">
           <t-button variant="outline" data-testid="btn-stockin-cancel" @click="formVisible = false">取消</t-button>
           <t-button
@@ -613,6 +628,11 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import FormMemoryHint from '@/components/FormMemoryHint.vue';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { pickFields, resolveDefaults } from '@/composables/memory-core';
+import { useFormMemory } from '@/composables/useFormMemory';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress, {
   type FlowProgressNode,
@@ -653,6 +673,7 @@ import {
   type StockInFilterState,
   type StockInFormErrors,
   type StockInFormState,
+  type StockInItemForm,
 } from './stockin-logic';
 
 /** 本页权限码（与 V0147 的权限种子逐一对应） */
@@ -707,6 +728,34 @@ const taxRateOptions = [
   { label: '0%（免税）', value: 0 },
 ];
 
+// ==================== 记忆字段（O1） ====================
+
+/**
+ * 表单记忆字段。
+ *
+ * 卡面写的 `in_type` 在本仓的收货单里**不存在**（收货类型由入库单自身语义决定），
+ * 等价的「这一步常选一次就一直是它」的字段是 `invoice_received`（发票是否随货到），
+ * 所以这里记它 —— 而不是硬造一个后端不认的 `in_type`。
+ */
+const MEMORY_FIELDS: readonly (keyof StockInFormState)[] = [
+  'supplier_id',
+  'warehouse_id',
+  'invoice_received',
+];
+
+/** 记忆字段中文名（提示条文案） */
+const MEMORY_LABELS: Record<string, string> = {
+  supplier_id: '供应商',
+  warehouse_id: '仓库',
+  invoice_received: '发票随货选项',
+};
+
+/** 明细行记忆：新行沿用上一次的税率 */
+const LINE_MEMORY_FIELDS: readonly (keyof StockInItemForm)[] = ['tax_rate'];
+
+/** 明细行记忆中文名 */
+const LINE_MEMORY_LABELS: Record<string, string> = { tax_rate: '税率' };
+
 // ==================== 列表 ====================
 
 const filter = reactive<StockInFilterState>(emptyStockInFilter());
@@ -716,6 +765,32 @@ const current = ref(1);
 const pageSize = STOCKIN_PAGE_SIZE;
 const loading = ref(false);
 const loadError = ref('');
+
+/**
+ * 列表记忆（O4）：进页面恢复筛选 + 页码，改了防抖 300ms 写 sessionStorage。
+ * 构造即恢复，早于 `onMounted` 的首次加载。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<StockInFilterState>({
+  listName: 'erp-stockin',
+  filter,
+  page: current,
+  pageSize,
+});
+
+/** 表单记忆（O1）：供应商 / 仓库 / 发票随货，优先级 源单 > 记忆 > 默认 */
+const formMemory = useFormMemory<StockInFormState>('erp-stockin', MEMORY_FIELDS, {
+  labels: MEMORY_LABELS,
+});
+/** 明细行记忆：税率 */
+const lineMemory = useFormMemory<StockInItemForm>('erp-stockin-line', LINE_MEMORY_FIELDS, {
+  labels: LINE_MEMORY_LABELS,
+});
+/** 本次新建带出的记忆字段中文名（空 = 不显示提示条） */
+const memoryLabels = ref<string[]>([]);
 
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
@@ -821,6 +896,14 @@ function handleReset(): void {
   void loadOrders(1);
 }
 
+/** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
+function handleClearListMemory(): void {
+  Object.assign(filter, emptyStockInFilter());
+  current.value = 1;
+  forgetListMemory();
+  void loadOrders(1);
+}
+
 function refresh(): void {
   void loadOrders();
   void loadBasics();
@@ -858,8 +941,25 @@ function resetForm(): void {
   formErrors.value = {};
   submitError.value = '';
 }
+
+/**
+ * 新建：系统默认 → 记忆 → 源单（`source` 给「采购 → 收货」这类带出路径留着）。
+ * 优先级：**源单带出 > 上次记忆 > 系统默认**。
+ */
+function applyCreateDefaults(source: Partial<StockInFormState> = {}): void {
+  const resolved = resolveDefaults<StockInFormState>(
+    emptyStockInForm(),
+    formMemory.recall(),
+    source,
+    MEMORY_FIELDS,
+  );
+  Object.assign(form, pickFields(resolved, MEMORY_FIELDS));
+  memoryLabels.value = formMemory.labelsOf(source);
+}
+
 function openCreateDialog(): void {
   resetForm();
+  applyCreateDefaults();
   formVisible.value = true;
 }
 
@@ -905,6 +1005,8 @@ async function openFromPurchaseOrder(poId: string): Promise<void> {
     Object.assign(form, filled);
     formErrors.value = {};
     submitError.value = '';
+    // 源单带出的字段压过「上次记忆」——提示条只报源单带出的条数
+    memoryLabels.value = [];
     formVisible.value = true;
     MessagePlugin.success(
       `已从采购单 ${pending.order.order_no} 带出 ${lineCount} 行待收明细，请核对数量`,
@@ -915,6 +1017,19 @@ async function openFromPurchaseOrder(poId: string): Promise<void> {
   } finally {
     loading.value = false;
   }
+}
+
+/** 表单记忆 · 「重置」：清记忆 + 记忆字段退回系统默认（不动用户已填的明细和日期） */
+function handleResetMemory(): void {
+  formMemory.forget();
+  memoryLabels.value = [];
+  const fresh = emptyStockInForm();
+  const patch: Record<string, unknown> = {};
+  for (const field of MEMORY_FIELDS) {
+    patch[String(field)] = fresh[field];
+  }
+  Object.assign(form, patch);
+  MessagePlugin.success('已清空表单记忆，下次新建按系统默认');
 }
 
 /** 编辑（拉详情：注意 `header` 包了一层） */
@@ -942,7 +1057,10 @@ function addItem(): void {
     MessagePlugin.warning(`明细最多 ${STOCKIN_MAX_LINES} 行`);
     return;
   }
-  form.items.push(emptyStockInItem(`row-${Date.now()}-${form.items.length + 1}`));
+  const line = emptyStockInItem(`row-${Date.now()}-${form.items.length + 1}`);
+  // 明细行记忆：新行沿用上一次填的税率
+  Object.assign(line, pickFields(lineMemory.recall(), LINE_MEMORY_FIELDS));
+  form.items.push(line);
 }
 
 function removeItem(index: number): void {
@@ -967,6 +1085,10 @@ async function save(): Promise<void> {
     const detail = isEdit ? await updateStockIn(form.id, payload) : await createStockIn(payload);
     MessagePlugin.success(`${detail.header.in_no} 已保存为草稿`);
     formVisible.value = false;
+    // 保存成功才写记忆（用户这次的供应商 / 仓库 / 发票选项就是下次的默认）
+    formMemory.remember(form);
+    lineMemory.remember({ tax_rate: form.items[form.items.length - 1]?.tax_rate ?? 13 });
+    memoryLabels.value = [];
     await loadOrders(isEdit ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
@@ -1189,7 +1311,8 @@ async function loadApprovalProgress(instanceId: string | null): Promise<void> {
 
 onMounted(() => {
   void loadBasics();
-  void loadOrders(1);
+  // 恢复的页码（列表记忆）要在首次加载就生效
+  void loadOrders(current.value);
   void applyRouteQuery();
 });
 

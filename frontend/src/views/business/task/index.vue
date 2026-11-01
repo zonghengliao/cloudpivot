@@ -40,6 +40,13 @@
           我的任务按「逾期 / 今日 / 本周 / 以后 / 无期限」分组统计（CST 计算），共 {{ myTotal }} 条
         </span>
       </div>
+      <!-- O4 列表记忆：四个视图共用这一套筛选，恢复后必须让用户看得见 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="task-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- 工具条：三视图切换 + 主操作（列表 / 看板共用同一份筛选条件） -->
@@ -299,6 +306,8 @@ import TaskBurndown from './components/TaskBurndown.vue';
 import TaskBoard from './components/TaskBoard.vue';
 import TaskDetail from './detail.vue';
 import NewDot from '@/components/NewDot.vue';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { isParentRow, rowClassNameOf, treeConfigOf } from './components/tree-layout';
 import { clearStatusList, hasStatusFilter, statusesParam, toggleStatusIn } from './components/status-filter';
 import { ApiError } from '@/api/request';
@@ -661,6 +670,64 @@ watch(
   },
 );
 
+// ==================== 记忆（O4 列表） ====================
+
+/** 分页器的 page / pageSize 包成可写 computed（分页器是 reactive 对象，记忆层要 Ref） */
+const pageRef = computed({
+  get: () => pagination.current,
+  set: (value: number) => {
+    pagination.current = value;
+  },
+});
+const pageSizeRef = computed({
+  get: () => pagination.pageSize,
+  set: (value: number) => {
+    pagination.pageSize = value;
+  },
+});
+/** 视图包成 `Ref<string>`（记忆层只认字符串） */
+const viewRef = computed({
+  get: () => view.value as string,
+  set: (value: string) => {
+    view.value = value as 'list' | 'board' | 'gantt' | 'burndown';
+  },
+});
+
+/**
+ * 截止日期范围不在 `query` 里（独立 ref）→ 当作「额外记忆字段」交给记忆层：
+ * 键名 `due_range` 与 `query` 里的字段不撞名，恢复时按同名键回写 `dueRange`。
+ */
+const TASK_MEMORY_EXTRA = {
+  due_range: {
+    read: () => dueRange.value ?? [],
+    write: (value: unknown) => {
+      dueRange.value = Array.isArray(value) ? value.map((item) => String(item)).filter(Boolean) : [];
+    },
+  },
+};
+
+/**
+ * 列表记忆（O4）：四个视图共用同一套筛选条件，所以只记一份（关键词 / 状态多选 /
+ * 优先级 / 负责人 / 项目 / 截止日范围 + 页码 + 每页条数）。
+ *
+ * Tab **只恢复 `burndown`**：list / board 各有独立菜单路由，初始视图由
+ * `route.meta.defaultView` 决定；记忆去抢会把 V0130 修过的「点菜单切视图」重新搞坏。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<QueryState>({
+  listName: 'business-task',
+  filter: query,
+  page: pageRef,
+  pageSize: pageSizeRef,
+  tab: viewRef,
+  defaultTab: 'list',
+  allowedTabs: ['burndown'],
+  extra: TASK_MEMORY_EXTRA,
+});
+
 /** 刷新当前视图（列表重拉 / 看板重拉五列） */
 function refreshCurrent(): void {
   if (view.value === 'board') {
@@ -712,6 +779,9 @@ async function loadList(): Promise<void> {
     } as TaskPageQuery & { statuses?: string });
     rows.value = buildTreeRows(data.list);
     pagination.total = data.total;
+    // 恢复的页码可能超出（数据变少 / 筛选变窄）：夹回最后一页，别停在空页上
+    const maxPage = Math.max(1, Math.ceil(pagination.total / pagination.pageSize));
+    pagination.current = Math.min(Math.max(1, pagination.current), maxPage);
     scopeTruncated.value = data.member_scope_truncated;
     myTotalCount.value = 0;
     myCounts.value = null;
@@ -758,6 +828,17 @@ function handleReset(): void {
   myMode.value = false;
   pagination.current = 1;
   void loadList();
+}
+
+/**
+ * 列表记忆 · 「清空筛选」（提示条上的出口）。
+ *
+ * 复用页面自己的重置口径（含「只看我的任务」开关），再删掉 sessionStorage 里的记忆
+ * —— 只清界面不清记忆的话，下次进页面又会恢复回来。
+ */
+function handleClearListMemory(): void {
+  handleReset();
+  forgetListMemory();
 }
 
 /** 翻页 */

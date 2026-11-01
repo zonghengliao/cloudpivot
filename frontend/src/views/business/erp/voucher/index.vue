@@ -51,6 +51,13 @@
         <t-button theme="primary" data-testid="btn-voucher-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-voucher-reset" @click="handleReset">重置</t-button>
       </div>
+      <!-- O4 列表记忆：凭证按「期间 + 类型 + 状态」反复查，恢复后必须让用户看得见 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="voucher-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- ==================== ② 列表 ==================== -->
@@ -488,6 +495,8 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
   fetchAccountOptions,
   fetchVoucherDetail,
@@ -557,6 +566,21 @@ const pageSize = VOUCHER_PAGE_SIZE;
 const loading = ref(false);
 const loadError = ref('');
 
+/**
+ * 列表记忆（O4）：期间 / 状态 / 类型 / 凭证号 + 页码。
+ * 构造即恢复，早于 `onMounted` 的首次加载。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<VoucherFilterState>({
+  listName: 'erp-voucher',
+  filter,
+  page: current,
+  pageSize,
+});
+
 const filtered = computed(() => isVoucherFiltered(filter));
 
 const pagination = computed(() => ({
@@ -603,6 +627,14 @@ function handleSearch(): void {
 
 function handleReset(): void {
   Object.assign(filter, emptyVoucherFilter());
+  void loadVouchers(1);
+}
+
+/** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
+function handleClearListMemory(): void {
+  Object.assign(filter, emptyVoucherFilter());
+  current.value = 1;
+  forgetListMemory();
   void loadVouchers(1);
 }
 
@@ -882,7 +914,8 @@ async function submitCreate(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadVouchers(1);
+  // 列表记忆恢复的页码要在首次加载就生效
+  void loadVouchers(current.value);
 });
 </script>
 

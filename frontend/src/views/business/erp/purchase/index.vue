@@ -49,6 +49,13 @@
         <t-button theme="primary" data-testid="btn-purchase-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-purchase-reset" @click="handleReset">重置</t-button>
       </div>
+      <!-- O4 列表记忆：恢复筛选是静默行为，必须给用户可感知的提示 + 一键清空 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="purchase-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- ==================== ② 列表 ==================== -->
@@ -404,6 +411,14 @@
           </span>
         </div>
 
+        <!-- O1 表单记忆提示：新建时带出了上次的供应商 / 仓库，说一声并留「重置」出口 -->
+        <FormMemoryHint
+          v-if="!form.id"
+          :labels="memoryLabels"
+          testid="purchase-form-memory"
+          @reset="handleResetMemory"
+        />
+
         <div class="dlg-footer">
           <t-button variant="outline" data-testid="btn-purchase-cancel" @click="formVisible = false">取消</t-button>
           <t-button
@@ -551,6 +566,11 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import FormMemoryHint from '@/components/FormMemoryHint.vue';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { pickFields, resolveDefaults } from '@/composables/memory-core';
+import { useFormMemory } from '@/composables/useFormMemory';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
   AMOUNT_COLUMN_TITLE,
   MAX_LINES,
@@ -587,6 +607,7 @@ import {
   type PurchaseFilterState,
   type PurchaseFormErrors,
   type PurchaseFormState,
+  type PurchaseItemForm,
 } from './purchase-logic';
 
 /** 本页权限码（与 V0141 / V0146 的权限种子逐一对应；`SUPER_ADMIN` 走短路） */
@@ -639,6 +660,35 @@ const taxRateOptions = [
   { label: '0%（免税）', value: 0 },
 ];
 
+// ==================== 记忆字段（O1） ====================
+
+/**
+ * 表单记忆字段：**只记「下次新建还想用同一套默认值」的选择**。
+ *
+ * 供应商 / 仓库 / 口径 / 账期是「这一阵子就按这个来」的稳定偏好；
+ * 金额、备注、日期都是一次性的，记了只会让下次新建带出错的数字。
+ */
+const MEMORY_FIELDS: readonly (keyof PurchaseFormState)[] = [
+  'supplier_id',
+  'warehouse_id',
+  'price_mode',
+  'credit_days',
+];
+
+/** 记忆字段的中文名（提示条「已带出上次的供应商、仓库」） */
+const MEMORY_LABELS: Record<string, string> = {
+  supplier_id: '供应商',
+  warehouse_id: '仓库',
+  price_mode: '金额口径',
+  credit_days: '账期',
+};
+
+/** 明细行记忆：新加的一行沿用上一次填的税率（其余照系统默认） */
+const LINE_MEMORY_FIELDS: readonly (keyof PurchaseItemForm)[] = ['tax_rate'];
+
+/** 明细行记忆的中文名 */
+const LINE_MEMORY_LABELS: Record<string, string> = { tax_rate: '税率' };
+
 // ==================== 列表 ====================
 
 /** 筛选行 */
@@ -655,6 +705,38 @@ const pageSize = PURCHASE_PAGE_SIZE;
 const loading = ref(false);
 /** 加载错误 */
 const loadError = ref('');
+
+/**
+ * 列表记忆（O4）。
+ *
+ * 构造即恢复（早于 `onMounted` 的首次加载）：筛选条件与页码直接从 sessionStorage 回填，
+ * 之后改筛选走 300ms 防抖写回；点提示条上的「清空筛选」→ {@link handleClearListMemory}。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<PurchaseFilterState>({
+  listName: 'erp-purchase',
+  filter,
+  page: current,
+  pageSize,
+});
+
+/**
+ * 表单记忆（O1）：记住上次新建时选的供应商 / 仓库 / 口径 / 账期。
+ *
+ * 优先级铁律（与 D4「采购 → 收货」带出共用同一套实现）：**源单带出 > 上次记忆 > 系统默认**。
+ */
+const formMemory = useFormMemory<PurchaseFormState>('erp-purchase', MEMORY_FIELDS, {
+  labels: MEMORY_LABELS,
+});
+/** 明细行记忆：新行的税率沿用上一次（每张单核一遍税率的人有福了） */
+const lineMemory = useFormMemory<PurchaseItemForm>('erp-purchase-line', LINE_MEMORY_FIELDS, {
+  labels: LINE_MEMORY_LABELS,
+});
+/** 本次新建实际「带出」的记忆字段中文名（空 = 提示条不显示） */
+const memoryLabels = ref<string[]>([]);
 
 /** 主数据 */
 const suppliers = ref<Supplier[]>([]);
@@ -768,6 +850,19 @@ function handleReset(): void {
   void loadOrders(1);
 }
 
+/**
+ * 列表记忆 · 「清空筛选」（提示条上的出口）。
+ *
+ * 三件事一起做：条件回全量、页码回 1、**删掉 sessionStorage 里的记忆**
+ * —— 只清界面不清记忆的话，下次进页面又会「恢复」回来，用户会觉得按钮没用。
+ */
+function handleClearListMemory(): void {
+  Object.assign(filter, emptyPurchaseFilter());
+  current.value = 1;
+  forgetListMemory();
+  void loadOrders(1);
+}
+
 /** 刷新（保留筛选与页码） */
 function refresh(): void {
   void loadOrders();
@@ -816,10 +911,46 @@ function resetForm(): void {
   submitError.value = '';
 }
 
+/**
+ * 新建：先铺系统默认，再按「源单 > 记忆 > 默认」盖一遍。
+ *
+ * `source` 给 D4 的「采购 → 收货」这类带出路径留着：源单有值的字段永远赢，
+ * 源单没带到的字段才轮到上次记忆。
+ */
+function applyCreateDefaults(source: Partial<PurchaseFormState> = {}): void {
+  const resolved = resolveDefaults<PurchaseFormState>(
+    emptyPurchaseForm(),
+    formMemory.recall(),
+    source,
+    MEMORY_FIELDS,
+  );
+  // 只写记忆字段：日期 / 明细 / 备注保持刚 reset 的系统默认
+  Object.assign(form, pickFields(resolved, MEMORY_FIELDS));
+  memoryLabels.value = formMemory.labelsOf(source);
+}
+
 /** 新建 */
 function openCreateDialog(): void {
   resetForm();
+  applyCreateDefaults();
   formVisible.value = true;
+}
+
+/**
+ * 表单记忆 · 「重置」：清掉记忆并把记忆字段退回系统默认。
+ *
+ * 只动记忆字段 —— 用户手填的日期和明细行不该被一起清掉。
+ */
+function handleResetMemory(): void {
+  formMemory.forget();
+  memoryLabels.value = [];
+  const fresh = emptyPurchaseForm();
+  const patch: Record<string, unknown> = {};
+  for (const field of MEMORY_FIELDS) {
+    patch[String(field)] = fresh[field];
+  }
+  Object.assign(form, patch);
+  MessagePlugin.success('已清空表单记忆，下次新建按系统默认');
 }
 
 /** 编辑（拉单头 + 明细，按单据口径回填） */
@@ -871,7 +1002,10 @@ function addItem(): void {
     MessagePlugin.warning(`明细最多 ${MAX_LINES} 行`);
     return;
   }
-  form.items.push(emptyPurchaseItem(`row-${Date.now()}-${form.items.length + 1}`));
+  const line = emptyPurchaseItem(`row-${Date.now()}-${form.items.length + 1}`);
+  // 明细行记忆：新行沿用上一次填的税率（其他字段走系统默认）
+  Object.assign(line, pickFields(lineMemory.recall(), LINE_MEMORY_FIELDS));
+  form.items.push(line);
 }
 
 /** 删一行（至少留一行） */
@@ -923,6 +1057,10 @@ async function save(mode: 'draft' | 'submit'): Promise<void> {
     }
 
     formVisible.value = false;
+    // 保存成功才写记忆：用户改了「这次用别的供应商」→ 下次默认就是这个新选择
+    formMemory.remember(form);
+    lineMemory.remember({ tax_rate: form.items[form.items.length - 1]?.tax_rate ?? 13 });
+    memoryLabels.value = [];
     await loadOrders(isEdit ? current.value : 1);
   } catch (error) {
     submitError.value = messageOf(error);
@@ -1116,7 +1254,8 @@ async function confirmRemove(row: PurchaseOrderRow): Promise<void> {
 }
 onMounted(() => {
   void loadBasics();
-  void loadOrders(1);
+  // 用 `current.value` 而不是写死 1：列表记忆恢复的页码要在首次加载就生效
+  void loadOrders(current.value);
   // D4：从收货单详情跳「来源采购单」（`?po_id=`）→ 直开详情
   void applyRouteQuery();
 });

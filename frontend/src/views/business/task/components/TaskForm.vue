@@ -111,6 +111,14 @@
             </t-form-item>
           </t-col>
         </t-row>
+
+        <!-- O1 表单记忆：新建时带出了上次的优先级 / 所属项目就说一声，并留「重置」出口 -->
+        <FormMemoryHint
+          v-if="!isEdit"
+          :labels="memoryLabels"
+          testid="task-form-memory"
+          @reset="handleResetMemory"
+        />
       </t-form>
     </t-loading>
   </t-dialog>
@@ -131,6 +139,9 @@ import { computed, reactive, ref, watch } from 'vue';
 import { MessagePlugin } from 'tdesign-vue-next';
 import dayjs from 'dayjs';
 import UserSelect from './UserSelect.vue';
+import FormMemoryHint from '@/components/FormMemoryHint.vue';
+import { pickFields, resolveDefaults } from '@/composables/memory-core';
+import { useFormMemory } from '@/composables/useFormMemory';
 import { ApiError } from '@/api/request';
 import {
   createTask,
@@ -186,6 +197,27 @@ interface TaskFormModel {
 
 /** 优先级选项（P0 最高 → P3 最低，文案来自 status-map） */
 const priorityOpts = priorityOptions();
+
+// ==================== 表单记忆（O1） ====================
+
+/**
+ * 记忆字段：优先级 / 所属项目。
+ *
+ * 卡面写的 `dept_id` 在本仓任务表单里不存在（任务按「项目 + 负责人」归集，没有部门字段），
+ * 所以只记这两个真正会被反复重选的字段。
+ */
+const MEMORY_FIELDS: readonly (keyof TaskFormModel)[] = ['priority', 'project_id'];
+
+/** 记忆字段中文名（提示条文案） */
+const MEMORY_LABELS: Record<string, string> = { priority: '优先级', project_id: '所属项目' };
+
+/** 表单记忆；优先级铁律：源单带出 > 上次记忆 > 系统默认（本表单没有源单路径） */
+const formMemory = useFormMemory<TaskFormModel>('business-task', MEMORY_FIELDS, {
+  labels: MEMORY_LABELS,
+});
+
+/** 本次新建实际带出的记忆字段中文名（空 = 提示条不显示） */
+const memoryLabels = ref<string[]>([]);
 
 /** 项目下拉选项（打开表单时拉一次；项目数量不大，一次取 200 条足够） */
 const projectOptions = ref<Array<{ label: string; value: string }>>([]);
@@ -479,6 +511,11 @@ watch(
     Object.assign(form, emptyForm());
     editParentNo.value = '';
     formRef.value?.clearValidate?.();
+    memoryLabels.value = [];
+    if (!props.taskId) {
+      // 新建才带记忆：编辑态的值来自详情（优先级上，详情就是「源单」，不能被记忆覆盖）
+      applyMemoryDefaults();
+    }
     void loadProjectOptions();
     void loadTemplates();
     // 编辑态也要拉：父任务是只读展示，「编号 标题」得从候选里取（详情只给 parent_task_no）
@@ -488,6 +525,30 @@ watch(
     }
   },
 );
+
+/**
+ * 新建时铺默认值：系统默认 → 上次记忆（**源单带出 > 上次记忆 > 系统默认**）。
+ *
+ * 本表单没有「源单」路径（模板创建走 `handleTemplateChange`，它在那之后会再盖一次，等价于源单优先）。
+ */
+function applyMemoryDefaults(source: Partial<TaskFormModel> = {}): void {
+  const resolved = resolveDefaults<TaskFormModel>(emptyForm(), formMemory.recall(), source, MEMORY_FIELDS);
+  Object.assign(form, pickFields(resolved, MEMORY_FIELDS));
+  memoryLabels.value = formMemory.labelsOf(source);
+}
+
+/** 表单记忆 · 「重置」：清记忆 + 优先级 / 项目退回系统默认 */
+function handleResetMemory(): void {
+  formMemory.forget();
+  memoryLabels.value = [];
+  const fresh = emptyForm();
+  const patch: Record<string, unknown> = {};
+  for (const field of MEMORY_FIELDS) {
+    patch[String(field)] = fresh[field];
+  }
+  Object.assign(form, patch);
+  MessagePlugin.success('已清空表单记忆，下次新建按系统默认');
+}
 
 /** 提交 */
 async function handleSubmit(): Promise<void> {
@@ -556,6 +617,9 @@ async function handleSubmit(): Promise<void> {
       MessagePlugin.success(`任务已创建：${saved.task_no}`);
       emit('saved', saved.id);
     }
+    // 保存成功才写记忆（下次新建默认沿用这次的优先级 / 所属项目）
+    formMemory.remember(form);
+    memoryLabels.value = [];
     innerVisible.value = false;
   } catch (error) {
     const message = error instanceof ApiError ? error.message : '保存失败，请稍后重试';

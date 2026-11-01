@@ -52,6 +52,13 @@
         <t-button theme="primary" data-testid="btn-transfer-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-transfer-reset" @click="handleReset">重置</t-button>
       </div>
+      <!-- O4 列表记忆：恢复筛选（含「超期在途」开关）必须让用户看得见 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="transfer-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- ==================== ② 列表 ==================== -->
@@ -497,6 +504,14 @@
         </div>
       </t-form>
 
+      <!-- O1 表单记忆提示：带出了上次的调出仓 / 调入仓就明说 -->
+      <FormMemoryHint
+        v-if="!form.id"
+        :labels="memoryLabels"
+        testid="transfer-form-memory"
+        @reset="handleResetMemory"
+      />
+
       <div class="dlg-footer">
         <t-button variant="outline" :disabled="formSaving" @click="formVisible = false">取消</t-button>
         <t-button
@@ -641,6 +656,11 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import FormMemoryHint from '@/components/FormMemoryHint.vue';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { pickFields, resolveDefaults } from '@/composables/memory-core';
+import { useFormMemory } from '@/composables/useFormMemory';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
   OVERDUE_DEFAULT_THRESHOLD_DAYS,
@@ -720,6 +740,23 @@ const itemColumns: PrimaryTableCol[] = [
 /** 状态下拉（`''` = 全部） */
 const statusFilterOptions = TRANSFER_STATUS_FILTER_OPTIONS.map((item) => ({ ...item }));
 
+// ==================== 记忆字段（O1） ====================
+
+/**
+ * 表单记忆字段：调出仓 / 调入仓。
+ *
+ * 「调拨」这类操作在仓库间来来回回就那么几条线（WH01→WH02 天天有），
+ * 每次重选两遍下拉纯浪费；卡面另提的 `unit_id` / `location_id`
+ * 在本仓调拨单明细里不存在（明细只有物料 / 数量 / 序列号），所以不硬造。
+ */
+const MEMORY_FIELDS: readonly (keyof TransferFormState)[] = ['from_warehouse_id', 'to_warehouse_id'];
+
+/** 记忆字段中文名 */
+const MEMORY_LABELS: Record<string, string> = {
+  from_warehouse_id: '调出仓',
+  to_warehouse_id: '调入仓',
+};
+
 // ==================== 列表 / 筛选 ====================
 
 /** 筛选行 */
@@ -738,6 +775,30 @@ const loading = ref(false);
 const loadError = ref('');
 /** 接口未就绪的说明（W3b 合并前：404 不是故障） */
 const apiMissing = ref('');
+
+/**
+ * 列表记忆（O4）：筛选（含「超期在途」开关）+ 页码。
+ *
+ * 构造即恢复：开关状态也一起回来 —— 否则「打开超期在途 → 进详情 → 回来」开关就掉了，
+ * 而列表还记得状态筛选，会出现前后不一致。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<TransferFilterState>({
+  listName: 'erp-transfer',
+  filter,
+  page: current,
+  pageSize,
+});
+
+/** 表单记忆（O1）：调出仓 / 调入仓；优先级 源单 > 记忆 > 默认 */
+const formMemory = useFormMemory<TransferFormState>('erp-transfer', MEMORY_FIELDS, {
+  labels: MEMORY_LABELS,
+});
+/** 本次新建带出的记忆字段中文名（空 = 不显示提示条） */
+const memoryLabels = ref<string[]>([]);
 /** 物料主数据（译 material_id + 下拉） */
 const materials = ref<MaterialRow[]>([]);
 /** 仓库主数据（译 warehouse_id + 下拉） */
@@ -916,6 +977,14 @@ async function loadOverdueSummary(): Promise<void> {
 function handleReset(): void {
   Object.assign(filter, emptyTransferFilter());
   current.value = 1;
+  void loadTransfers(1);
+}
+
+/** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
+function handleClearListMemory(): void {
+  Object.assign(filter, emptyTransferFilter());
+  current.value = 1;
+  forgetListMemory();
   void loadTransfers(1);
 }
 
@@ -1195,12 +1264,42 @@ const savingMode = ref<'draft' | 'submit'>('draft');
 /** 行级错误（模板里直接取） */
 const rowErrors = computed(() => formErrors.value.rows ?? {});
 
+/**
+ * 打开新建弹窗。
+ *
+ * 优先级：**源单带出 > 上次记忆 > 系统默认**（本页暂无源单路径，`source` 参数留给以后）。
+ */
+function applyCreateDefaults(source: Partial<TransferFormState> = {}): void {
+  const resolved = resolveDefaults<TransferFormState>(
+    emptyTransferForm(),
+    formMemory.recall(),
+    source,
+    MEMORY_FIELDS,
+  );
+  Object.assign(form, pickFields(resolved, MEMORY_FIELDS));
+  memoryLabels.value = formMemory.labelsOf(source);
+}
+
 /** 打开新建弹窗 */
 function openCreateDialog(): void {
   Object.assign(form, emptyTransferForm(), { id: '' });
   formErrors.value = {};
   submitError.value = '';
+  applyCreateDefaults();
   formVisible.value = true;
+}
+
+/** 表单记忆 · 「重置」：清记忆 + 调出/调入仓退回系统默认 */
+function handleResetMemory(): void {
+  formMemory.forget();
+  memoryLabels.value = [];
+  const fresh = emptyTransferForm();
+  const patch: Record<string, unknown> = {};
+  for (const field of MEMORY_FIELDS) {
+    patch[String(field)] = fresh[field];
+  }
+  Object.assign(form, patch);
+  MessagePlugin.success('已清空表单记忆，下次新建按系统默认');
 }
 
 /** 打开编辑弹窗（仅 DRAFT；先拉详情填表） */
@@ -1314,6 +1413,9 @@ async function submitForm(mode: 'draft' | 'submit'): Promise<void> {
       MessagePlugin.success(`${saved.transfer_no} 已保存草稿`);
     }
     formVisible.value = false;
+    // 保存成功才写记忆（这条仓库线下次还这么调）
+    formMemory.remember(form);
+    memoryLabels.value = [];
     current.value = 1;
     await loadTransfers(1);
     if (detailVisible.value && detail.value?.id === saved.id) {
@@ -1413,7 +1515,8 @@ function confirmSerialPick(): void {
 
 onMounted(async () => {
   await loadMasterData();
-  await loadTransfers(1);
+  // 列表记忆恢复的页码要在首次加载就生效
+  await loadTransfers(current.value);
 });
 </script>
 

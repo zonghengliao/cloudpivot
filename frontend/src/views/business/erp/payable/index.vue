@@ -40,6 +40,13 @@
         <t-button theme="primary" data-testid="btn-payable-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-payable-reset" @click="handleReset">重置</t-button>
       </div>
+      <!-- O4 列表记忆：应付单经常按「某供应商 + 某到期区间」反复看，恢复时要让用户看得见 -->
+      <ListMemoryBar
+        :restored="listMemoryRestored"
+        :text="listMemoryText"
+        testid="payable-memory"
+        @clear="handleClearListMemory"
+      />
     </t-card>
 
     <!-- ==================== ② 列表 ==================== -->
@@ -428,6 +435,8 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
   fetchPayablePage,
   fetchSupplierOptions,
@@ -490,6 +499,20 @@ const current = ref(1);
 const pageSize = PAYABLE_PAGE_SIZE;
 const loading = ref(false);
 const loadError = ref('');
+/**
+ * 列表记忆（O4）：筛选 + 页码，进页面自动恢复，改动防抖 300ms 写回 sessionStorage。
+ * 构造即恢复，早于 `onMounted` 的首次加载。
+ */
+const {
+  restored: listMemoryRestored,
+  restoredText: listMemoryText,
+  forget: forgetListMemory,
+} = useListFilterMemory<PayableFilterState>({
+  listName: 'erp-payable',
+  filter,
+  page: current,
+  pageSize,
+});
 /** 接口未注册（404）：不报红，改成信息条 + 空态 */
 const apiMissing = ref(false);
 
@@ -582,6 +605,14 @@ function handleSearch(): void {
 /** 重置筛选 */
 function handleReset(): void {
   Object.assign(filter, emptyPayableFilter());
+  void loadPayables(1);
+}
+
+/** 列表记忆 · 「清空筛选」：条件回全量 + 页码回 1 + 删掉 sessionStorage 记忆 */
+function handleClearListMemory(): void {
+  Object.assign(filter, emptyPayableFilter());
+  current.value = 1;
+  forgetListMemory();
   void loadPayables(1);
 }
 
@@ -831,7 +862,8 @@ async function submitCancel(): Promise<void> {
 
 onMounted(() => {
   void loadBasics();
-  void loadPayables(1);
+  // 列表记忆恢复的页码要在首次加载就生效
+  void loadPayables(current.value);
 });
 </script>
 
