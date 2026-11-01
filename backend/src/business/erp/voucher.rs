@@ -1069,6 +1069,24 @@ async fn write_entries(
     Ok(())
 }
 
+/// 覆盖一张凭证的全部分录（期初凭证「覆盖式更新」专用）。
+///
+/// 会计上凭证一经记账不可改，唯一例外是**期初凭证**：同一期间只有一张，重复录入是
+/// 「把这张凭证的分录整组换掉」，凭证号保持不变（卡面 §三 硬红线 2）。
+/// 删除 + 重写放在同一个函数里，避免调用方只做了一半（删了老分录、新分录没写进去）。
+pub async fn replace_entries(
+    ex: &impl SqlExecutor,
+    voucher_id: Uuid,
+    lines: &[EntryLine],
+) -> DbResult<()> {
+    ex.exec_sql(
+        format!("DELETE FROM {ENTRY_TABLE} WHERE voucher_id = ?::uuid"),
+        vec![Value::from(&voucher_id)],
+    )
+    .await?;
+    write_entries(ex, voucher_id, lines).await
+}
+
 /// 落一张凭证的全部入参（自动 / 手工 / 红字**共用同一个写入口**）。
 #[derive(Debug, Clone)]
 pub struct PostVoucher<'a> {

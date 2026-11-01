@@ -898,11 +898,29 @@ pub async fn resolve_period(tx: &Transaction, period: &str) -> DbResult<PeriodIn
 /// 科目余额快照（期初 + 本期，全科目一次查完）。
 ///
 /// 两条子查询都用 `status = 'POSTED' AND deleted_at IS NULL`，与总账 / 余额表同一口径。
+///
+/// # 期初凭证（`voucher_type = 'OPENING'`）怎么算（ERP-R5）
+///
+/// ```text
+/// 「期初」列（net_before）= 期间开始日之前的历史累计
+///                        + 本期间自己的期初凭证（它的凭证日期就是期间第一天）
+/// 「本期」列（net_period）= [期间开始日, 期间结束日] 内的凭证，**排除期初凭证**
+/// 期末 = net_before + net_period  ← 于是「期末 = 期初 + 本期」恒成立
+/// ```
+///
+/// 为什么不能只把期初凭证当普通凭证算进本期：硬红线「期初凭证不计入本期发生额」，
+/// 利润表直接复用本函数取「本期 / 本年累计」，一旦期初混进本期，损益发生额就被污染。
+///
+/// `opening_period` = **报表所属期间**（`yyyy-MM`）。报表与期间不是一一对应时
+/// （利润表的「本年累计」窗口从 1 月 1 日起算）传同一期间，保证期初在两边口径一致：
+/// 利润表的「期末累计 − 年初之前」正好把期初抵消掉，勾稽不会因为期初而假红。
 pub async fn load_accounts(
     tx: &Transaction,
     start: NaiveDate,
     end: NaiveDate,
+    opening_period: Option<&str>,
 ) -> DbResult<Vec<AccountBalance>> {
+    let opening_period = opening_period.unwrap_or_default();
     let sql = format!(
         "SELECT a.id, a.account_code, a.account_name, a.account_category, a.balance_direction, \
                 a.is_leaf, a.level, \
@@ -912,13 +930,16 @@ pub async fn load_accounts(
            LEFT JOIN ( \
                 SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
-                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL AND v.voucher_date < ? \
+                 WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+                   AND (v.voucher_date < ? \
+                        OR (v.voucher_type = 'OPENING' AND v.period = NULLIF(?::text, ''))) \
                  GROUP BY e.account_id \
            ) o ON o.account_id = a.id \
            LEFT JOIN ( \
                 SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
                  WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
+                   AND v.voucher_type <> 'OPENING' \
                    AND v.voucher_date >= ? AND v.voucher_date <= ? \
                  GROUP BY e.account_id \
            ) p ON p.account_id = a.id \
@@ -928,7 +949,12 @@ pub async fn load_accounts(
     let rows = tx
         .find_with_params(
             &sql,
-            vec![Value::from(start), Value::from(start), Value::from(end)],
+            vec![
+                Value::from(start),
+                Value::Text(opening_period.to_string()),
+                Value::from(start),
+                Value::from(end),
+            ],
         )
         .await?;
     let mut out = Vec::with_capacity(rows.len());
@@ -1066,6 +1092,26 @@ pub struct SheetSnapshot {
     pub unbalanced_vouchers: Vec<UnbalancedVoucherRes>,
 }
 
+/// 期初余额的借贷合计（ERP-R5）。不平 → 报表不许出（卡面 ⑫）。
+pub async fn load_opening_totals(tx: &Transaction, period: &str) -> DbResult<(Decimal, Decimal)> {
+    // SCOPE-EXEMPT: 期初台账无归属列（见 opening 模块文档）。
+    let sql = format!(
+        "SELECT COALESCE(SUM(debit_opening), 0)::numeric(20,4) AS debit, \
+                COALESCE(SUM(credit_opening), 0)::numeric(20,4) AS credit \
+           FROM {} WHERE period_code = ?",
+        crate::business::erp::opening::TABLE_BALANCE
+    );
+    let row = tx
+        .find_with_params(&sql, vec![Value::from(period)])
+        .await?
+        .into_iter()
+        .next();
+    match row {
+        Some(row) => Ok((row.get_typed("debit")?, row.get_typed("credit")?)),
+        None => Ok((Decimal::ZERO, Decimal::ZERO)),
+    }
+}
+
 /// 在给定事务（**必须是 REPEATABLE READ 快照**）里算出一整张资产负债表。
 ///
 /// # 异常情况
@@ -1081,7 +1127,20 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSna
         )));
     }
 
-    let accounts = load_accounts(tx, info.start_date, info.end_date).await?;
+    // ERP-R5 卡面 ⑫：期初不平衡 → **不许出表**。
+    // 期初不平衡意味着「这套账从第一天就是歪的」，出表只会把错误包装成结论；
+    // 唯一的例外路径是「保存时被 400 拦下」，所以真到这里说明数据是绕过接口写进来的
+    // （手工改库 / 未完成的迁移），必须让人看见而不是静默出一张差表。
+    let (opening_debit, opening_credit) = load_opening_totals(tx, period).await?;
+    if opening_debit != opening_credit {
+        return Err(DbError::InvalidValue(format!(
+            "期初余额不平衡，不允许出表：借方合计 {opening_debit} / 贷方合计 {opening_credit}，\
+             差额 {}。请先到「期初余额」页把期初调平（借 = 贷）再编制报表",
+            opening_debit - opening_credit
+        )));
+    }
+
+    let accounts = load_accounts(tx, info.start_date, info.end_date, Some(period)).await?;
     let sheet = compute(&items, &accounts).map_err(DbError::InvalidValue)?;
     let (ledger_debit_total, ledger_credit_total) =
         load_ledger_totals(tx, info.start_date, info.end_date).await?;
@@ -1094,8 +1153,13 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<SheetSna
     if let Some(code) = previous_code.as_deref()
         && let Some(previous_info) = load_period(tx, code).await?
     {
-        let previous_accounts =
-            load_accounts(tx, previous_info.start_date, previous_info.end_date).await?;
+        let previous_accounts = load_accounts(
+            tx,
+            previous_info.start_date,
+            previous_info.end_date,
+            Some(&previous_info.period_code),
+        )
+        .await?;
         previous_sheet = Some(compute(&items, &previous_accounts).map_err(DbError::InvalidValue)?);
         previous_period = Some(previous_info.period_code);
     }
@@ -1340,8 +1404,20 @@ async fn snapshot_or_error(period: &str) -> std::result::Result<SheetSnapshot, A
     }
 }
 
-/// 数据层「期间不存在 / 配置错」→ 400 / 500。
+/// 单测用：把「数据层错误消息」翻成 HTTP 错误（与 [`snapshot_or_error`] 同一口径）。
+///
+/// 生产路径上这段映射发生在 `snapshot_or_error` 里；单测要证明「期初不平衡 = 400 + 66012」
+/// 而不是 500，就得能单独调到这条映射，所以把它开成 `cfg(test)` 的入口。
+#[cfg(test)]
+pub fn period_error_for_test(period: &str, message: &str) -> ApiError {
+    period_error(period, message.to_string())
+}
+
+/// 数据层「期间不存在 / 期初不平衡 / 配置错」→ 400 / 400+66012 / 500。
 fn period_error(period: &str, message: String) -> ApiError {
+    if message.contains("期初") && message.contains("不平衡") {
+        return ApiError::new(400, error_code::ERP_OPENING_UNBALANCED, message);
+    }
     if message.contains("不存在") {
         ApiError::new(400, error_code::ERP_PERIOD_NOT_FOUND, message)
     } else {
@@ -2343,6 +2419,7 @@ mod tests {
             &tx,
             NaiveDate::from_ymd_opt(2026, 10, 1).expect("日期"),
             NaiveDate::from_ymd_opt(2026, 10, 31).expect("日期"),
+            None,
         )
         .await
         .expect("读科目");

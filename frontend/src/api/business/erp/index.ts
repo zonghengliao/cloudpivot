@@ -3279,3 +3279,159 @@ export async function exportCashFlow(period: string): Promise<Blob> {
   });
   return response.data;
 }
+
+// ==================== 期初余额（ERP-R5）====================
+//
+// 三个接口（后端 `opening.rs`，注解不含 `/api`，前端写全路径）：
+//
+// | 方法 | 路径 | 权限码 |
+// |------|------|--------|
+// | GET  | `/api/business/erp/opening-balance?period=2026-11` | `business:erp:opening:read` |
+// | POST | `/api/business/erp/opening-balance` | `business:erp:opening:write` |
+// | POST | `/api/business/erp/opening-balance/inventory` | `business:erp:opening:inventory` |
+//
+// # 字段口径（逐字抄 `opening.rs`，不猜）
+//
+// - 金额是 `Decimal`，经 JSON 回来是**字符串或数字**（`"50000.0000"` / `50000`），
+//   所以类型写成 `number | string`，比较一律走 `toMoney()`（见 `opening-logic.ts`）；
+// - `state` 三值：`NONE` 未录 / `ENTERED` 已录 / `LOCKED` 已锁定（期间已结账）；
+// - `period_status` 三值：`OPEN` / `CLOSED` / `NOT_OPENED`（与 `ck_biz_period_status` 一致）；
+// - `balanced` / `difference` 是**服务端算好的合并口径**（科目期初 + 库存期初自动生成的
+//   1405 借方），前端不要自己再拼一遍——两处各算一遍就会有两套真相。
+
+/** 期初状态（`opening.rs::STATE_*`） */
+export type OpeningState = 'NONE' | 'ENTERED' | 'LOCKED';
+
+/** 一条科目期初（`opening.rs::OpeningEntryRes`） */
+export interface OpeningEntry {
+  account_id: string;
+  account_code: string;
+  account_name: string;
+  /** `ASSET` / `LIABILITY` / `EQUITY` / `COST` / `PROFIT_LOSS` */
+  account_category: string;
+  debit: number | string;
+  credit: number | string;
+  remark: string | null;
+}
+
+/** 一条库存期初（`opening.rs::OpeningInventoryRes`） */
+export interface OpeningInventoryLine {
+  material_id: string;
+  material_code: string;
+  material_name: string;
+  warehouse_id: string;
+  warehouse_code: string;
+  warehouse_name: string;
+  qty: number | string;
+  unit_cost: number | string;
+  amount: number | string;
+}
+
+/** 期初凭证（`opening.rs::OpeningVoucherRes`，一个期间最多一张） */
+export interface OpeningVoucher {
+  id: string;
+  /** `PZ-yyyyMM-000001` */
+  voucher_no: string;
+  /** 期间第一天 */
+  voucher_date: string;
+  status: string;
+  total_debit: number | string;
+  total_credit: number | string;
+  entry_count: number;
+}
+
+/** 期初余额总览（`opening.rs::OpeningBalanceRes`，两个保存接口也返回它） */
+export interface OpeningBalance {
+  period: string;
+  period_status: 'OPEN' | 'CLOSED' | 'NOT_OPENED';
+  state: OpeningState;
+  /** = 期间已结账（整页只读） */
+  locked: boolean;
+  entries: OpeningEntry[];
+  /** 科目期初借方合计（不含库存期初） */
+  debit_total: number | string;
+  /** 科目期初贷方合计（不含库存期初） */
+  credit_total: number | string;
+  inventory: OpeningInventoryLine[];
+  /** 库存期初金额合计（= 期初凭证的 1405 借方） */
+  inventory_amount: number | string;
+  /** 库存期初的借方科目（`1405`） */
+  inventory_debit_account: string;
+  /** 库存期初的贷方科目（`3103`） */
+  inventory_credit_account: string;
+  /** 合并口径借方合计（科目 + 库存） */
+  combined_debit_total: number | string;
+  /** 合并口径贷方合计 */
+  combined_credit_total: number | string;
+  balanced: boolean;
+  /** 借 − 贷 */
+  difference: number | string;
+  voucher: OpeningVoucher | null;
+  hints: string[];
+}
+
+/** 保存科目期初的一条入参（`opening.rs::OpeningEntryReq`） */
+export interface OpeningEntryInput {
+  account_code: string;
+  debit?: number | string;
+  credit?: number | string;
+  remark?: string;
+}
+
+/** 保存科目期初（方式 A）：**整体覆盖** —— 没提到的科目视为没有期初 */
+export interface SaveOpeningPayload {
+  period: string;
+  entries: OpeningEntryInput[];
+}
+
+/** 保存库存期初的一条入参（`opening.rs::OpeningInventoryItemReq`） */
+export interface OpeningInventoryInput {
+  material_id: string;
+  warehouse_id: string;
+  qty: number | string;
+  unit_cost?: number | string;
+  remark?: string;
+}
+
+/** 保存库存期初（方式 B 的第一项）：**整体覆盖** */
+export interface SaveOpeningInventoryPayload {
+  period: string;
+  items: OpeningInventoryInput[];
+}
+
+/**
+ * 读期初余额总览（合并两种口径 + 状态 + 期初凭证）。
+ *
+ * 失败口径（后端 `opening.rs`）：
+ * - 400 + `10001`：`period` 缺失 / 不是 `yyyy-MM`；
+ * - 400 + `66010`：该期间**没开账**（先去「会计期间」页开账）；
+ * - 403：没有 `business:erp:opening:read`。
+ */
+export function fetchOpeningBalance(period: string): Promise<OpeningBalance> {
+  return get<OpeningBalance>(`${BASE}/opening-balance`, asParams({ period }));
+}
+
+/**
+ * 保存科目期初（方式 A），同事务生成/覆盖唯一的期初凭证。
+ *
+ * 失败口径：
+ * - 400 + `66012`：**借贷不平衡**，消息里带差额与两边科目（前端直接展示 `msg`）；
+ * - 409 + `10003`：期间**已结账**，期初只读；
+ * - 400 + `10001`：科目不存在 / 非末级 / 借贷同时非零 / 与库存期初重复（1405 / 3103）。
+ */
+export function saveOpeningBalance(payload: SaveOpeningPayload): Promise<OpeningBalance> {
+  return post<OpeningBalance>(`${BASE}/opening-balance`, payload);
+}
+
+/**
+ * 保存库存期初（方式 B），同事务写库存三本账（成本账 / 库位账 / 流水）与期初凭证。
+ *
+ * 失败口径：
+ * - 409 + `10003`：期间已结账；
+ * - 400 + `10001`：物料/仓库不存在、一物一码物料、与手工 1405/3103 期初重复。
+ */
+export function saveOpeningInventory(
+  payload: SaveOpeningInventoryPayload,
+): Promise<OpeningBalance> {
+  return post<OpeningBalance>(`${BASE}/opening-balance/inventory`, payload);
+}

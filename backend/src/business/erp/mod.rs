@@ -28,6 +28,7 @@
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
+//! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -59,6 +60,7 @@ pub mod income_statement;
 pub mod inventory_audit;
 pub mod ledger;
 pub mod model;
+pub mod opening;
 pub mod payable;
 pub mod payable_bridge;
 pub mod payable_payment;

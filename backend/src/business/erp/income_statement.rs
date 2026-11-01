@@ -705,6 +705,15 @@ fn ytd_start_for(period: &str, period_end: NaiveDate) -> NaiveDate {
         .unwrap_or_else(|| NaiveDate::from_ymd_opt(period_end.year(), 1, 1).unwrap_or(period_end))
 }
 
+/// 报表所属期间（`yyyy-MM`）。
+///
+/// [`load_income_accounts`] 的入参是「期间首日」而不是期间编码，这里从首日反推 ——
+/// 期初凭证的识别必须用**报表所属期间**，不能用「本年累计」窗口自己的起算月
+/// （1 月 1 日），否则 11 月的期初在「本年累计」窗口里会既不在期初、也不在本期（凭空消失）。
+fn opening_period_of(period_start: NaiveDate) -> String {
+    period_start.format("%Y-%m").to_string()
+}
+
 /// 科目发生额（本期 + 本年累计 + 期末累计 + 年初之前）。
 ///
 /// 复用 [`report::load_accounts`] 查**两段**窗口，不另写 SQL：
@@ -719,8 +728,12 @@ pub async fn load_income_accounts(
     period_end: NaiveDate,
     ytd_start: NaiveDate,
 ) -> DbResult<Vec<IncomeAccount>> {
-    let period_rows = report::load_accounts(tx, period_start, period_end).await?;
-    let ytd_rows = report::load_accounts(tx, ytd_start, period_end).await?;
+    // ERP-R5：期初口径必须两边一致（见 report::load_accounts 的文档）——
+    // 传报表所属期间，而不是各窗口自己的起算月。
+    let opening_period = opening_period_of(period_start);
+    let period_rows =
+        report::load_accounts(tx, period_start, period_end, Some(&opening_period)).await?;
+    let ytd_rows = report::load_accounts(tx, ytd_start, period_end, Some(&opening_period)).await?;
     let ytd_by_id: HashMap<Uuid, AccountBalance> = ytd_rows
         .into_iter()
         .map(|row| (row.account_id, row))
@@ -1883,6 +1896,7 @@ mod tests {
             &tx,
             NaiveDate::from_ymd_opt(2026, 10, 1).expect("日期"),
             NaiveDate::from_ymd_opt(2026, 10, 31).expect("日期"),
+            None,
         )
         .await
         .expect("读科目");

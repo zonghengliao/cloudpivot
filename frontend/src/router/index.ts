@@ -506,6 +506,15 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '会计期间', permission: 'business:erp:period:list' },
       },
       {
+        // ==================== ERP 期初余额（ERP-R5） ====================
+        // `sys_menu`（V0189 种子 …1022）path = `/business/erp/opening`，component
+        // `business/erp/opening/index`；**路由手工注册**，漏了 = 点菜单进 404。
+        path: 'business/erp/opening',
+        name: 'BusinessErpOpening',
+        component: () => import('@/views/business/erp/opening/index.vue'),
+        meta: { title: '期初余额', permission: 'business:erp:opening:read' },
+      },
+      {
         // ==================== ERP 即时库存 / 库位库存 / 库存流水（P4-D） ====================
         // `sys_menu`（V0141 种子 …0946 / …0947 / …0948）是**三条**菜单：
         // `/business/erp/inventory`、`/business/erp/inventory-location`、`/business/erp/inventory-txn`，

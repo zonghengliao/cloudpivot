@@ -1271,8 +1271,11 @@ pub async fn build_snapshot(tx: &Transaction, period: &str) -> DbResult<CashFlow
     computed.cash_entry_count = cash_entry_count;
 
     // 期初：期间开始日之前 / 本年 1 月 1 日之前
-    let period_accounts = report::load_accounts(tx, info.start_date, info.end_date).await?;
-    let ytd_accounts = report::load_accounts(tx, ytd_start, info.end_date).await?;
+    // ERP-R5：期初凭证算「期初」而不是「本期发生」，两个窗口都按报表所属期间识别它
+    let period_accounts =
+        report::load_accounts(tx, info.start_date, info.end_date, Some(&info.period_code)).await?;
+    let ytd_accounts =
+        report::load_accounts(tx, ytd_start, info.end_date, Some(&info.period_code)).await?;
     let opening_current = opening_cash_balance(&period_accounts);
     let opening_ytd = opening_cash_balance(&ytd_accounts);
     let closing_by_ledger = ledger_cash_balance(&period_accounts);
@@ -2497,6 +2500,7 @@ mod tests {
             &tx,
             NaiveDate::from_ymd_opt(2026, 10, 1).expect("日期"),
             NaiveDate::from_ymd_opt(2026, 10, 31).expect("日期"),
+            None,
         )
         .await
         .expect("读科目");

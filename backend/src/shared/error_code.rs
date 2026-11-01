@@ -1050,6 +1050,12 @@ pub const ERP_PERIOD_NOT_FOUND: i32 = 66010;
 /// 让运维按消息里的 item_code 去修配置，绝不能静默出 0（"这个月没发生"和"报表配错"是两件事）。
 pub const ERP_REPORT_CONFIG_INVALID: i32 = 66011;
 
+/// 期初余额不平衡（400）：ERP-R5「期初借贷合计必须相等，不平衡不许保存、不许出表」。
+///
+/// 与 [`PARAM_INVALID`] 分开是为了让前端能**按码**把「差额多少、哪几行不对」渲染成
+/// 明确提示（卡面 O5），而不是把整段中文扔进一个通用错误框。
+pub const ERP_OPENING_UNBALANCED: i32 = 66012;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1072,6 +1078,7 @@ mod tests {
             (ERP_LEDGER_UNBALANCED, 66009),
             (ERP_PERIOD_NOT_FOUND, 66010),
             (ERP_REPORT_CONFIG_INVALID, 66011),
+            (ERP_OPENING_UNBALANCED, 66012),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
