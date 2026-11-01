@@ -635,6 +635,25 @@ async fn lock_payable(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Payabl
     row.as_ref().map(payable_of_row).transpose()
 }
 
+/// 按 id 取一张应付单（**不加锁**，只读快照）。
+///
+/// 与 [`lock_payable`] 同一套列与映射（`payable::COLUMNS` → [`payable::PayableRow`]），
+/// 差别只是没有 `FOR UPDATE`：入口校验用它，真正写之前再 `lock_payable` 复核一次。
+async fn find_payable_row(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<PayableRow>> {
+    // SCOPE-EXEMPT: 应付台账无归属列（见 payable 模块文档）。
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT {} FROM {} WHERE id = ?::uuid AND deleted_at IS NULL",
+                payable::COLUMNS,
+                payable::TABLE
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    row.as_ref().map(payable_of_row).transpose()
+}
+
 /// 复用 [`payable::PayableRow`] 的字段映射（`from_row` 是私有的，这里按同一列清单重建）。
 fn payable_of_row(row: &Row) -> DbResult<PayableRow> {
     Ok(PayableRow {
@@ -657,6 +676,8 @@ fn payable_of_row(row: &Row) -> DbResult<PayableRow> {
         settled_at: row.get_typed("settled_at")?,
         voucher_id: row.get_typed("voucher_id")?,
         remark: row.get_typed("remark")?,
+        cancel_instance_id: row.get_typed("cancel_instance_id")?,
+        cancel_reason: row.get_typed("cancel_reason")?,
         created_at: row.get_typed("created_at")?,
         updated_at: row.get_typed("updated_at")?,
     })
@@ -1704,6 +1725,12 @@ async fn cancel_in_tx(
             row.payable_no
         )));
     }
+    if row.status == payable::STATUS_PENDING_CANCEL {
+        return Err(conflict(format!(
+            "应付单 {} 正在作废审批中：请等审批结束，或先撤回审批",
+            row.payable_no
+        )));
+    }
     if row.paid_amount > Decimal::ZERO || row.status != payable::STATUS_OPEN {
         return Err(conflict(format!(
             "应付单 {} 当前是「{}」、已付 {}，不能作废：只有「未付且一分钱都没付」（OPEN + 已付 0）的\
@@ -1713,9 +1740,27 @@ async fn cancel_in_tx(
             row.paid_amount
         )));
     }
+    cancel_body_in_tx(tx, &row, reason, operator, now).await
+}
 
+/// 作废的**事务体**（不含入口校验，`from` 取单据当前状态）。
+///
+/// 两条入口共用：
+/// * [`cancel_in_tx`]（起手作废：`OPEN` + 已付 0）；
+/// * [`cancel_after_approval`]（作废审批通过：`PENDING_CANCEL`）。
+///
+/// 差别只有「进来时是什么状态」，之后做的事一字不差：
+/// 终止在跑的付款审批 → 红冲进项凭证 → 状态机 → CAS 回写状态与备注。
+async fn cancel_body_in_tx(
+    tx: &Transaction,
+    row: &PayableRow,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let from_status = row.status.clone();
     // ★ P17 反向（硬红线 9）：付款审批中把应付单作废 → **先撤付款审批**再作废单据。
-    //   PENDING 的付款记录不动账（paid 仍是 0），所以这里不会和下面的「已付款不能作废」冲突；
+    //   PENDING 的付款记录不动账（paid 仍是 0），所以这里不会和「已付款不能作废」冲突；
     //   但审批实例必须终止 —— 否则它会顶住 uk_biz_payment_pending，让这张单永远付不出钱。
     let revoked = payable_bridge::cancel_pending_of_payable(
         tx,
@@ -1765,14 +1810,14 @@ async fn cancel_in_tx(
         Some(old) => format!("{old}\n作废原因：{reason}"),
         None => format!("作废原因：{reason}"),
     };
-    // P10 铁律 ③：OPEN → CANCELLED 走状态机唯一入口（reason 必填由注册表把关）
+    // P10 铁律 ③：走状态机唯一入口（reason 必填由注册表把关）
     state_machine::transition(
         tx,
         state_machine::ENTITY_PAYABLE,
         row.id,
         &row.payable_no,
         &state_machine::PAYABLE_EDGES,
-        &row.status,
+        &from_status,
         payable::STATUS_CANCELLED,
         operator,
         Some(reason),
@@ -1785,15 +1830,16 @@ async fn cancel_in_tx(
             "应付单作废状态变更",
         )
     })?;
+    // `cancel_instance_id` 必须一起摘掉：`ck_biz_payable_pending_cancel` 要求
+    // 「非 PENDING_CANCEL ⟹ 没有实例引用」，不摘就是 23514。
     let affected = tx
         .exec_sql(
             format!(
                 "UPDATE {} \
-                    SET status = ?, remark = ?, updated_at = ?, \
+                    SET status = ?, remark = ?, cancel_instance_id = NULL, updated_at = ?, \
                         update_by = NULLIF(?::text,'')::uuid \
-                  WHERE id = ?::uuid AND deleted_at IS NULL AND status = '{}'",
+                  WHERE id = ?::uuid AND deleted_at IS NULL AND status = ?",
                 payable::TABLE,
-                payable::STATUS_OPEN
             ),
             vec![
                 Value::Text(payable::STATUS_CANCELLED.to_string()),
@@ -1801,6 +1847,7 @@ async fn cancel_in_tx(
                 Value::from(now),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&row.id),
+                Value::Text(from_status),
             ],
         )
         .await
@@ -1813,6 +1860,492 @@ async fn cancel_in_tx(
     }
 
     Ok(())
+}
+
+// ==================== P-FLOW-3B：应付单作废审批 ====================
+
+/// 作废提交的出参（与付款的 [`PaySubmitRes`] 同款：`outcome` 区分「送审」与「已作废」）。
+#[derive(Debug, Clone, Serialize)]
+pub struct CancelSubmitRes {
+    /// `PENDING_APPROVAL`（已送审，欠款还在） / `CANCELLED`（未配流程，直接作废）。
+    pub outcome: String,
+    /// 给用户看的一句话。
+    pub message: String,
+    /// 审批实例 id（未配流程时为 `None`）。
+    pub approval_instance_id: Option<String>,
+    /// 应付单最新详情（flatten：老前端读 `status` / `payable_no` 照样拿得到）。
+    #[serde(flatten)]
+    pub detail: PayableDetailRes,
+}
+
+/// 作废提交的 outcome：已送审（单据进 `PENDING_CANCEL`，欠款一分没动）。
+pub const OUTCOME_CANCEL_PENDING: &str = "PENDING_APPROVAL";
+/// 作废提交的 outcome：未配流程，按老行为**直接作废**。
+pub const OUTCOME_CANCELLED: &str = "CANCELLED";
+
+/// 提交应付单作废（**唯一对外入口**，P-FLOW-3B）。
+///
+/// 配了已发布的 `payable_cancel` 流程 → 先送审（`OPEN → PENDING_CANCEL`，账不动）；
+/// 没配流程 → 按 P-FLOW-3B 之前的行为**直接作废**（并留一条 `warn`，绝不把作废锁死）。
+///
+/// 为什么入口收在这里、而不是让「作废」和「送审」各开一个接口：
+/// 那样审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post` 同一个理由）。
+pub async fn submit_cancel(
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<CancelSubmitRes, ApiError> {
+    let reason = reason.map(str::trim).filter(|text| !text.is_empty());
+    let Some(reason) = reason else {
+        return Err(bad_request(
+            "reason 必填：请写明作废原因（会计上作废必须留痕，财务经理据此复核）",
+        ));
+    };
+    match payable_bridge::published_cancel_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询应付作废审批流程"))?
+    {
+        Some(flow) => submit_cancel_for_approval(id, reason, operator, &flow).await,
+        None => {
+            tracing::warn!(
+                payable_id = %id,
+                "没有配置已发布的 payable_cancel 应付作废审批流程：本次作废**降级**为直接执行（无复核），\
+                 请尽快补配流程"
+            );
+            let detail = cancel_payable(id, Some(reason), operator).await?;
+            Ok(CancelSubmitRes {
+                outcome: OUTCOME_CANCELLED.to_string(),
+                message: "未配置应付作废审批流程，本次作废已直接生效".to_string(),
+                approval_instance_id: None,
+                detail,
+            })
+        }
+    }
+}
+
+/// 发起作废审批（`OPEN → PENDING_CANCEL`，只挂审批单，欠款一分没动）。
+async fn submit_cancel_for_approval(
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    flow: &payable_bridge::PayFlow,
+) -> std::result::Result<CancelSubmitRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交作废审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let row = find_payable_row(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询应付单"))?
+        .ok_or_else(not_found)?;
+    // ① 状态闸：只有 OPEN + 一分钱没付的能送审（与直接作废同一口径，双保险）
+    if row.status == payable::STATUS_PENDING_CANCEL {
+        let instance_no = instance_no_of(row.cancel_instance_id).await?;
+        return Err(conflict(format!(
+            "应付单 {} 已在作废审批中（{instance_no}）：请等审批结束，或先撤回审批",
+            row.payable_no
+        )));
+    }
+    if row.status == payable::STATUS_CANCELLED {
+        return Err(conflict(format!(
+            "应付单 {} 已经作废过了，不能重复提交",
+            row.payable_no
+        )));
+    }
+    if row.paid_amount > Decimal::ZERO || row.status != payable::STATUS_OPEN {
+        return Err(conflict(format!(
+            "应付单 {} 当前是「{}」、已付 {}，不能提交作废审批：只有「未付且一分钱都没付」\
+             （OPEN + 已付 0）的应付单能作废 —— 已部分付款 / 已结清的请走付款冲销，不要作废单据",
+            row.payable_no,
+            payable_query::status_label(&row.status),
+            row.paid_amount
+        )));
+    }
+    // ② 幂等：同一单已有在跑的作废审批 → 409（先查，别等库层
+    //    uk_biz_flow_instance_biz_active）
+    if flow_model::biz_instance_running(payable::CANCEL_BIZ_TYPE, row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = instance_no_of(row.cancel_instance_id).await?;
+        return Err(conflict(format!(
+            "应付单 {} 已在作废审批中（{instance_no}）：请等审批结束，或从审批中心撤回后再提交",
+            row.payable_no
+        )));
+    }
+    let Some((initiator_name, initiator_dept_id)) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+    else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "发起应付作废审批失败：当前用户不存在或已停用",
+        ));
+    };
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 应付单作废", row.payable_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.payable_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: cancel_form_data(&row, reason, operator_id).await,
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启作废审批事务"))?;
+    match submit_cancel_tx(&tx, &row, reason, operator_id, &start, now).await {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交作废审批事务"))?;
+            tracing::info!(
+                payable_id = %row.id,
+                payable_no = %row.payable_no,
+                %instance_id,
+                flow_code = %start.flow_code,
+                "应付单已提交作废审批（状态 PENDING_CANCEL，欠款未动）"
+            );
+            let detail = payable_query::payable_detail(id).await?;
+            Ok(CancelSubmitRes {
+                outcome: OUTCOME_CANCEL_PENDING.to_string(),
+                message: format!(
+                    "已提交作废审批（应付单 {}），等待财务经理复核；审批通过后才会真正作废",
+                    row.payable_no
+                ),
+                approval_instance_id: Some(instance_id.to_string()),
+                detail,
+            })
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`submit_cancel_for_approval`] 的事务体：状态机过闸 → 发起审批单 → CAS 回写。
+///
+/// 三步同一个事务：**不会出现「单据在审批中但审批单没了」**，也不会出现
+/// 「审批单在跑但单据还是 OPEN」（后者会让它被别处再发起一次）。
+async fn submit_cancel_tx(
+    tx: &Transaction,
+    row: &PayableRow,
+    reason: &str,
+    operator: Uuid,
+    start: &engine::StartReq,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    // ① 状态机唯一入口：边表校验 + 写 biz_status_log（reason 必填由注册表把关）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_PAYABLE,
+        row.id,
+        &row.payable_no,
+        &state_machine::PAYABLE_EDGES,
+        payable::STATUS_OPEN,
+        payable::STATUS_PENDING_CANCEL,
+        Some(operator),
+        Some(reason),
+        None,
+    )
+    .await?;
+    // ② 发起审批单（引擎在同一事务里建实例 + 待办 + 节点）
+    let mut out = engine::start(tx, start)
+        .await
+        .map_err(|error| write_error(error, "发起应付作废审批单"))?;
+    if let Some(rejected) = out.rejected.take() {
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!(
+                "{}（内控要求：作废复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
+                rejected.msg
+            ),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // ③ CAS 回写单据：状态 + 实例 id + 原因（三者同一笔 UPDATE，否则撞
+    //    ck_biz_payable_pending_cancel）
+    // SCOPE-EXEMPT: 应付台账无归属列（见 payable 模块文档）。
+    let affected = tx
+        .exec_sql(
+            "UPDATE biz_payable \
+                SET status = ?, cancel_instance_id = ?::uuid, cancel_reason = ?, \
+                    updated_at = ?, update_by = ?::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = ?"
+                .to_string(),
+            vec![
+                Value::Text(payable::STATUS_PENDING_CANCEL.to_string()),
+                Value::from(&instance_id),
+                Value::Text(reason.to_string()),
+                Value::from(now),
+                Value::from(&operator),
+                Value::from(&row.id),
+                Value::Text(payable::STATUS_OPEN.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| write_error(error, "应付单进入作废审批中"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "应付单 {} 的状态在本次提交期间已被改动（期望 OPEN），请刷新后重试",
+            row.payable_no
+        )));
+    }
+    Ok(())
+}
+
+/// 作废审批的**表单变量**（与付款审批同口径：显示名也一起冻结）。
+///
+/// `amount` 必须是 **JSON 数字**（虽然 `payable_cancel` 流程没有金额分级，
+/// 但审批详情页与将来的「大额加签」都读这个键，口径统一）。
+async fn cancel_form_data(row: &PayableRow, reason: &str, operator: Uuid) -> serde_json::Value {
+    let mut form = serde_json::json!({
+        "payable_id": row.id.to_string(),
+        "payable_no": row.payable_no,
+        "supplier_id": row.supplier_id.to_string(),
+        "source_no": row.source_no,
+        "amount": amount_number(row.amount),
+        "amount_text": row.amount.to_string(),
+        "paid_amount": amount_number(row.paid_amount),
+        "unpaid_amount": amount_number(row.unpaid_amount),
+        "due_date": row.due_date.to_string(),
+        "cancel_reason": reason,
+        // 内控留痕：审批人 ≠ 制单人（真正的拦截在 payable_bridge::guard_self_approval）
+        "create_by": operator.to_string(),
+    });
+    // 查不到就不写这个键（前端按 `supplier_id` 兜底），不写空串冒充「查到了」。
+    match form_snapshot::supplier_name(db(), row.supplier_id).await {
+        Ok(Some(name)) => {
+            if let Some(object) = form.as_object_mut() {
+                object.insert("supplier_name".to_string(), serde_json::Value::String(name));
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(payable_id = %row.id, %error, "审批快照：供应商名查询失败，降级");
+        }
+    }
+    form
+}
+
+/// 撤回在跑的作废审批（发起人自己撤，走 `engine::withdraw`，与审批中心撤回同一引擎）。
+///
+/// 撤回后单据回 `OPEN`（回调 `payable_bridge::on_cancel_settled(…, "WITHDRAWN")`）。
+pub async fn withdraw_cancel(
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<PayableDetailRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "撤回应付作废审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let row = find_payable_row(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询应付单"))?
+        .ok_or_else(not_found)?;
+    if row.status != payable::STATUS_PENDING_CANCEL {
+        return Err(conflict(format!(
+            "应付单 {} 当前是「{}」，没有在跑的作废审批可撤回",
+            row.payable_no,
+            payable_query::status_label(&row.status)
+        )));
+    }
+    let Some(instance_id) = row.cancel_instance_id else {
+        return Err(conflict(format!(
+            "应付单 {} 处于作废审批中，但库里的审批实例引用为空（数据异常，请联系运维核查）",
+            row.payable_no
+        )));
+    };
+    let mut out = db()
+        .transaction(|tx| async move { engine::withdraw(&tx, instance_id, operator_id).await })
+        .await
+        .map_err(|error| utils::db_error(error, "撤回作废审批"))?;
+    if let Some(error) = out.rejected.take() {
+        return Err(ApiError::new(error.status, error.code, error.msg));
+    }
+    // 与审批中心撤回同口径：审批结论回调（单据回 OPEN + 摘实例引用）
+    payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
+    tracing::info!(
+        payable_id = %row.id,
+        payable_no = %row.payable_no,
+        %instance_id,
+        reason = reason.unwrap_or("(未填)"),
+        "应付作废审批已撤回（单据回 OPEN，欠款未动）"
+    );
+    payable_query::payable_detail(id).await
+}
+
+/// 作废审批通过后的**执行体**（`payable_bridge::on_cancel_settled` 调）。
+///
+/// 与 [`cancel_in_tx`] 的差别只有入口状态：这里是 `PENDING_CANCEL`（审批已通过），
+/// 里子完全一样（终止在跑的付款审批 → 红冲进项凭证 → 状态机 → 回写）。
+pub async fn cancel_after_approval(
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启作废执行事务"))?;
+    let result = async {
+        let row = lock_payable(&tx, id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定应付单"))?
+            .ok_or_else(not_found)?;
+        if row.status != payable::STATUS_PENDING_CANCEL {
+            return Err(conflict(format!(
+                "应付单 {} 当前是「{}」，不在作废审批中，拒绝执行作废",
+                row.payable_no,
+                payable_query::status_label(&row.status)
+            )));
+        }
+        let reason = row
+            .cancel_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("作废审批通过")
+            .to_string();
+        cancel_body_in_tx(&tx, &row, &reason, operator, now).await
+    }
+    .await;
+    match result {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交作废执行事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 作废审批**驳回 / 撤回**后的回位体：`PENDING_CANCEL → OPEN`（账一分没动）。
+pub async fn restore_after_cancel_rejection(
+    id: Uuid,
+    verdict: payable_bridge::CancelVerdict,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启作废回位事务"))?;
+    let result = async {
+        let row = lock_payable(&tx, id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定应付单"))?
+            .ok_or_else(not_found)?;
+        if row.status != payable::STATUS_PENDING_CANCEL {
+            tracing::debug!(
+                payable_id = %id,
+                status = %row.status,
+                verdict = verdict.as_str(),
+                "应付单不在 PENDING_CANCEL（重复回调 / 已作废），跳过回位"
+            );
+            return Ok(());
+        }
+        state_machine::transition(
+            &tx,
+            state_machine::ENTITY_PAYABLE,
+            row.id,
+            &row.payable_no,
+            &state_machine::PAYABLE_EDGES,
+            payable::STATUS_PENDING_CANCEL,
+            payable::STATUS_OPEN,
+            operator,
+            Some("作废审批未通过，单据回到未付"),
+            None,
+        )
+        .await?;
+        // SCOPE-EXEMPT: 应付台账无归属列（见 payable 模块文档）。
+        let affected = tx
+            .exec_sql(
+                "UPDATE biz_payable \
+                    SET status = ?, cancel_instance_id = NULL, updated_at = ?, \
+                        update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND deleted_at IS NULL AND status = ?"
+                    .to_string(),
+                vec![
+                    Value::Text(payable::STATUS_OPEN.to_string()),
+                    Value::from(now),
+                    Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+                    Value::from(&row.id),
+                    Value::Text(payable::STATUS_PENDING_CANCEL.to_string()),
+                ],
+            )
+            .await
+            .map_err(|error| write_error(error, "应付单回到未付"))?;
+        if affected == 0 {
+            return Err(conflict(format!(
+                "应付单 {} 的状态在本次回位期间被其它操作改动，请刷新后重试",
+                row.payable_no
+            )));
+        }
+        Ok(())
+    }
+    .await;
+    match result {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交作废回位事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 审批单号（用于 409 文案；取不到就退回 id 文本）。
+async fn instance_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
+    let Some(instance_id) = instance_id else {
+        return Ok("审批中".to_string());
+    };
+    let rows = db()
+        .find_with_params(
+            "SELECT instance_no FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单号"))?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get_typed::<String>("instance_no").ok())
+        .unwrap_or_else(|| instance_id.to_string()))
 }
 
 /// 去掉首尾空白；空串归一成 `None`（写库走 `NULLIF(?::text,'')`）。
@@ -1895,6 +2428,13 @@ pub async fn payable_payment_info_handler(Path(id): Path<String>) -> ResResult<P
 }
 
 /// 作废一张应付单（仅 OPEN 且未付款）。
+///
+/// **P-FLOW-3B 起走审批**：配了已发布的 `payable_cancel` 流程 → 单据进 `PENDING_CANCEL`
+/// 等财务经理复核（`outcome = PENDING_APPROVAL`）；没配流程 → 按老行为直接作废
+/// （`outcome = CANCELLED`）。
+///
+/// 为什么老入口也改成送审：否则审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post`
+/// 把 `PATCH /status` 和 `POST /submit-post` 收到同一个函数是同一个理由）。
 #[nik::permission(
     path = "/business/erp/payable/{id}/cancel",
     method = "POST",
@@ -1905,10 +2445,54 @@ pub async fn payable_cancel_handler(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<CancelPayableReq>,
-) -> ResResult<PayableDetailRes> {
+) -> ResResult<CancelSubmitRes> {
     let id = parse_uuid(&id, "id")?;
     Ok(Res::ok(
-        cancel_payable(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_cancel(id, req.reason.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 提交应付单作废审批（P-FLOW-3B 的显式入口，与 `POST /payable/{id}/cancel` 同一函数）。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：`reason` 为空；
+/// * 404 + `10002`：应付单不存在 / 已删除；
+/// * 409 + `10003`：已作废 / 已在作废审批中 / **已付过款（PARTIAL_PAID / SETTLED 不许作废）**；
+/// * 422 + `65019`：流程侧内控拒绝（复核人 = 发起人）。
+#[nik::permission(
+    path = "/business/erp/payable/{id}/submit-cancel",
+    method = "POST",
+    permission = "business:erp:payable:submit-cancel"
+)]
+#[nik::post("/business/erp/payable/{id}/submit-cancel")]
+pub async fn payable_submit_cancel_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<CancelPayableReq>,
+) -> ResResult<CancelSubmitRes> {
+    let id = parse_uuid(&id, "id")?;
+    Ok(Res::ok(
+        submit_cancel(id, req.reason.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 撤回在跑的应付作废审批（发起人自己撤 → 单据回 `OPEN`，欠款一分没动）。
+#[nik::permission(
+    path = "/business/erp/payable/{id}/withdraw-cancel",
+    method = "POST",
+    permission = "business:erp:payable:withdraw-cancel"
+)]
+#[nik::post("/business/erp/payable/{id}/withdraw-cancel")]
+pub async fn payable_withdraw_cancel_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<CancelPayableReq>>,
+) -> ResResult<PayableDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    let reason = body.and_then(|Json(req)| req.reason);
+    Ok(Res::ok(
+        withdraw_cancel(id, reason.as_deref(), operator_of(&claims)).await?,
     ))
 }
 

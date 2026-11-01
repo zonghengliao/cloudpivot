@@ -170,7 +170,39 @@ pub async fn guard_self_approval(
     else {
         return Ok(());
     };
-    if instance.biz_type != BIZ_TYPE {
+    let biz_type = instance.biz_type.trim().to_ascii_uppercase();
+    if biz_type == CANCEL_BIZ_TYPE {
+        // P-FLOW-3B：应付单作废审批 —— 制单人是**应付单**的 `create_by`（不是付款记录）
+        let Some(payable_id) = instance.biz_id else {
+            return Ok(());
+        };
+        let Ok(Some(row)) = crate::business::erp::payable_query::find_payable(payable_id).await
+        else {
+            return Ok(());
+        };
+        let creator = internal_control_creator_of_payable(Some(payable_id))
+            .await
+            .map_err(|error| {
+                ApiError::new(
+                    500,
+                    error_code::INTERNAL_ERROR,
+                    format!("查询应付单制单人失败：{error}"),
+                )
+            })?;
+        if creator == Some(operator) || instance.initiator_id == operator {
+            return Err(ApiError::new(
+                403,
+                error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
+                format!(
+                    "不能审批自己提交的应付作废申请：应付单 {} 由你本人提交（内控要求制单与审批分离），\
+                     请交给其他有审批权限的账号处理",
+                    row.payable_no
+                ),
+            ));
+        }
+        return Ok(());
+    }
+    if biz_type != BIZ_TYPE {
         return Ok(());
     }
     let Some(payment_id) = instance.biz_id else {
@@ -559,6 +591,329 @@ pub async fn on_action_settled(out: &engine::ActionOut) -> Option<Uuid> {
     on_payment_settled(out.instance_id, &out.instance_status).await
 }
 
+// ==================== P-FLOW-3B：应付单作废审批 ====================
+
+/// 作废审批的业务类型（与 V0191 种子 / [`crate::business::erp::payable::CANCEL_BIZ_TYPE`] 同口径）。
+pub const CANCEL_BIZ_TYPE: &str = crate::business::erp::payable::CANCEL_BIZ_TYPE;
+/// 作废审批的流程编码。
+pub const CANCEL_FLOW_CODE: &str = crate::business::erp::payable::CANCEL_FLOW_CODE;
+/// 作废审批孤儿实例回收的定时任务名。
+pub const CANCEL_TASK_NAME: &str = "payable_cancel_reconcile";
+/// 作废审批孤儿实例回收的 cron（与付款回收 7-59/10、收货回收 3-59/10 错开）。
+pub const CANCEL_CRON: &str = "9-59/10 * * * *";
+
+/// 查「已发布的应付单作废审批流程」。
+///
+/// `None` = **没配流程**（不是错误）：调用方按 P-FLOW-3B 之前的「直接作废」降级，
+/// 并打一条 `warn`，绝不因为没配流程就把作废锁死。
+///
+/// 排序口径与 [`published_pay_flow`] / `stockin_model::published_post_flow` 完全一致
+/// （`biz_type` 精确命中优先 → `is_default` → 版本号 → 更新时间）。
+pub async fn published_cancel_flow() -> DbResult<Option<PayFlow>> {
+    // SCOPE-EXEMPT: 流程定义（biz_flow_def）是全局配置，按 biz_type / flow_code 精确取 1 行，
+    // 不分页、不按部门裁剪（裁剪会导致「看不到自己的单据该走哪个流程」）。
+    let rows = db()
+        .find_with_params(
+            "SELECT d.id AS def_id, d.flow_code, d.flow_name, d.biz_type, \
+                    d.current_version_id AS version_id, d.current_version_no AS version_no \
+               FROM biz_flow_def d \
+              WHERE d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
+                AND d.current_version_id IS NOT NULL \
+                AND (d.biz_type = 'PAYABLE_CANCEL' OR lower(d.flow_code) = 'payable_cancel') \
+              ORDER BY (d.biz_type = 'PAYABLE_CANCEL') DESC, d.is_default DESC, \
+                       d.current_version_no DESC, d.updated_at DESC \
+              LIMIT 1",
+            vec![],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(PayFlow {
+            def_id: row.get_typed("def_id")?,
+            flow_code: row.get_typed("flow_code")?,
+            flow_name: row.get_typed("flow_name")?,
+            biz_type: row.get_typed("biz_type")?,
+            version_id: row.get_typed("version_id")?,
+            version_no: row.get_typed("version_no")?,
+        })),
+    }
+}
+
+/// 作废审批结论的业务语义（纯函数，便于单测钉住映射口径）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CancelVerdict {
+    /// 同意 → 真作废（欠款消失、进项凭证红冲）。
+    Cancel,
+    /// 驳回 / 撤回 / 终止 → 回到 `OPEN`，账一分没动。
+    Restore,
+}
+
+impl CancelVerdict {
+    /// 落日志用的短名。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CancelVerdict::Cancel => "CANCEL",
+            CancelVerdict::Restore => "RESTORE",
+        }
+    }
+}
+
+/// 实例状态 → 作废审批的业务语义。`None` = 还在跑 / 不认识（一律不动单据）。
+pub fn cancel_verdict(instance_status: &str) -> Option<CancelVerdict> {
+    match instance_status.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => Some(CancelVerdict::Cancel),
+        // 驳回、发起人撤回、被系统终止 → 都是「作废没成」
+        "REJECTED" | "WITHDRAWN" | "CANCELLED" => Some(CancelVerdict::Restore),
+        _ => None,
+    }
+}
+
+/// 作废审批单落终态 → 执行 / 撤销应付单作废（`FlowCallback` 身份）。
+///
+/// | 实例状态 | 应付单 | 账 |
+/// |---|---|---|
+/// | `APPROVED` | `PENDING_CANCEL → CANCELLED` | **真作废**：进项凭证红冲 + 欠款消失 |
+/// | `REJECTED` / `WITHDRAWN` / `CANCELLED` | `PENDING_CANCEL → OPEN` | 一分没动 |
+/// | 其它（`PENDING` / 空） | 不动 | 不动 |
+///
+/// 返回受影响的应付单 id（没推进 / 不该推进 → `None`）。**不返回错误**：审批已落库，
+/// 业务侧失败只记日志（与 [`on_payment_settled`] 同口径，下一轮 reconcile 会兜）。
+pub async fn on_cancel_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
+    let instance_id = instance_id?;
+    let verdict = cancel_verdict(instance_status)?;
+    match settle_cancel(instance_id, verdict).await {
+        Ok(Some(payable_id)) => {
+            tracing::info!(
+                %instance_id,
+                %payable_id,
+                verdict = verdict.as_str(),
+                "应付作废审批结论已回调应付单"
+            );
+            Some(payable_id)
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(
+                %instance_id,
+                verdict = verdict.as_str(),
+                %error,
+                "应付作废审批结论回调失败（不影响审批单，单据仍是作废审批中）"
+            );
+            None
+        }
+    }
+}
+
+/// [`on_cancel_settled`] 的实现体（可失败，由调用方吞掉错误）。
+async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Option<Uuid>> {
+    // ① 审批单必须是「应付单作废」类的（别的业务类型与本回调无关）
+    let Some(instance) = flow_model::find_instance(instance_id).await? else {
+        tracing::debug!(%instance_id, "审批单不存在，跳过应付作废回调");
+        return Ok(None);
+    };
+    if instance.biz_type != CANCEL_BIZ_TYPE {
+        return Ok(None);
+    }
+    let Some(payable_id) = instance.biz_id else {
+        return Ok(None);
+    };
+    // ② 单据必须仍是「作废审批中」，否则就是不归本回调管的重复回调 / 已被别处推进
+    let Some(row) = crate::business::erp::payable_query::find_payable(payable_id).await? else {
+        tracing::warn!(%payable_id, "应付单不存在或已删除，跳过作废回调");
+        return Ok(None);
+    };
+    if row.status != crate::business::erp::payable::STATUS_PENDING_CANCEL {
+        tracing::debug!(
+            %payable_id,
+            status = %row.status,
+            verdict = verdict.as_str(),
+            "应付单不在 PENDING_CANCEL（重复回调 / 已撤回 / 已作废），跳过"
+        );
+        return Ok(None);
+    }
+    // ③ 审批人（落 `update_by` / 状态日志用）：引擎把「谁点的」写在待办行
+    let approver = latest_completed_assignee(instance_id).await?;
+    let creator = internal_control_creator_of_payable(Some(payable_id)).await?;
+    match verdict {
+        CancelVerdict::Cancel => {
+            // 内控最后一道闸：**复核人不能是制单人**（节点 self_approval 已拦 + 生成待办前
+            // 已排除，这里再核一次：真发生了就**不许动账**，留 WARN 让人看）
+            if let (Some(approver), Some(creator)) = (approver, creator)
+                && approver == creator
+            {
+                tracing::warn!(
+                    %payable_id,
+                    instance_id = %instance_id,
+                    approver = %approver,
+                    "内控拦截：作废复核人就是制单人本人，应付单**未**作废（请核查流程配置）"
+                );
+                return Ok(None);
+            }
+            match crate::business::erp::payable_payment::cancel_after_approval(
+                payable_id, approver,
+            )
+            .await
+            {
+                Ok(()) => Ok(Some(payable_id)),
+                Err(error) => {
+                    tracing::warn!(
+                        %payable_id,
+                        code = error.code,
+                        msg = %error.msg,
+                        "作废审批已通过，但作废执行失败（单据仍是作废审批中，等待人工处置）"
+                    );
+                    Ok(None)
+                }
+            }
+        }
+        CancelVerdict::Restore => {
+            match crate::business::erp::payable_payment::restore_after_cancel_rejection(
+                payable_id, verdict, approver,
+            )
+            .await
+            {
+                Ok(()) => Ok(Some(payable_id)),
+                Err(error) => {
+                    tracing::warn!(
+                        %payable_id,
+                        code = error.code,
+                        msg = %error.msg,
+                        "作废审批未通过，但应付单回位失败（等待 reconcile 兜扫）"
+                    );
+                    Ok(None)
+                }
+            }
+        }
+    }
+}
+
+/// 内控用：这张**应付单**的制单人（`biz_payable.create_by`）。
+///
+/// 与 [`internal_control_creator`]（按 `biz_payment.id` 取付款制单人）并列：
+/// 作废审批的 `biz_id` 是**应付单 id**，两者不能混用（付款记录的 `create_by` 是财务，
+/// 应付单的 `create_by` 是入库过账人，排除错人等于没排除）。
+pub async fn internal_control_creator_of_payable(biz_id: Option<Uuid>) -> DbResult<Option<Uuid>> {
+    let Some(payable_id) = biz_id else {
+        return Ok(None);
+    };
+    // SCOPE-EXEMPT: 内控按主键取 1 行的 create_by，不做数据范围裁剪（裁剪会让
+    // 「看不到这张单的人」反而成为可审批人，与内控目的相反）。
+    let row = db()
+        .query_first_sql(
+            "SELECT create_by FROM biz_payable WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&payable_id)],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let creator: Option<Uuid> = row.get_typed("create_by")?;
+    Ok(creator)
+}
+
+/// 终止某张应付单**在跑的作废审批**（单据被别处作废 / 删除 / 联动路径用，与调用方同一事务）。
+///
+/// 幂等：没有在跑的实例返回 `Ok(0)`。返回终止的实例数。
+///
+/// 同时把 `cancel_instance_id` 摘掉 —— 库侧 `ck_biz_payable_pending_cancel`
+/// 要求「非 PENDING_CANCEL 状态 ⟹ 没有实例引用」，不摘就会 23514。
+pub async fn cancel_approval_of_payable_cancel(
+    ex: &impl SqlExecutor,
+    payable_id: Uuid,
+    payable_no: &str,
+    reason: &str,
+) -> DbResult<u64> {
+    let outcome = flow_model::cancel_pending_of_biz(ex, payable_id, payable_no, reason).await?;
+    ex.exec_sql(
+        "UPDATE biz_payable SET cancel_instance_id = NULL, updated_at = now() \
+          WHERE id = ?::uuid AND status <> 'PENDING_CANCEL' AND cancel_instance_id IS NOT NULL"
+            .to_string(),
+        vec![Value::from(&payable_id)],
+    )
+    .await?;
+    if outcome.instances > 0 {
+        tracing::info!(
+            %payable_id,
+            payable_no = %payable_no,
+            instances = outcome.instances,
+            tasks = outcome.tasks,
+            reason = reason,
+            "应付作废审批已终止（欠款没动）"
+        );
+    }
+    Ok(outcome.instances)
+}
+
+/// 扫描并终止**孤儿作废审批实例**（P11 教训的机器化兜底）。
+///
+/// 判据（三条同时成立才算孤儿）：
+/// 1. 实例 `biz_type = 'PAYABLE_CANCEL'` 且 `status = 'PENDING'`（还在跑）；
+/// 2. 应付单**已软删**，或状态已**不是** `PENDING_CANCEL`；
+/// 3. `biz_id` 可解析（为空说明实例本身没挂业务，交给上游维护）。
+///
+/// 返回终止的实例数。定时任务每 10 分钟跑一次；单测 / 运维脚本也可直接调。
+pub async fn reconcile_orphan_payable_cancels() -> DbResult<u64> {
+    let rows = db()
+        .find_with_params(
+            "SELECT i.id AS instance_id, i.biz_id AS payable_id, i.biz_no AS biz_no, \
+                    p.status AS payable_status, p.deleted_at AS payable_deleted_at \
+               FROM biz_flow_instance i \
+               LEFT JOIN biz_payable p ON p.id = i.biz_id \
+              WHERE i.biz_type = ? AND i.status = 'PENDING' AND i.deleted_at IS NULL \
+                AND i.biz_id IS NOT NULL \
+                AND (p.id IS NULL OR p.deleted_at IS NOT NULL OR p.status <> ?) \
+              ORDER BY i.started_at ASC \
+              LIMIT 200",
+            vec![
+                Value::Text(CANCEL_BIZ_TYPE.to_string()),
+                Value::Text(crate::business::erp::payable::STATUS_PENDING_CANCEL.to_string()),
+            ],
+        )
+        .await?;
+
+    let mut cancelled = 0u64;
+    for row in rows {
+        let instance_id: Uuid = row.get_typed("instance_id")?;
+        let payable_id: Uuid = row.get_typed("payable_id")?;
+        let payable_no: Option<String> = row.get_typed("biz_no")?;
+        let payable_no = payable_no.unwrap_or_else(|| "(无单号)".to_string());
+        let deleted: Option<chrono::DateTime<chrono::Utc>> =
+            row.get_typed("payable_deleted_at").ok().flatten();
+        let reason = if deleted.is_some() {
+            "应付单已删除，作废审批自动终止"
+        } else {
+            "应付单已不处于作废审批中，作废审批自动终止"
+        };
+        match cancel_approval_of_payable_cancel(db(), payable_id, &payable_no, reason).await {
+            Ok(count) if count > 0 => cancelled += count,
+            Ok(_) => tracing::debug!(%instance_id, "孤儿实例判定后被别处处理，跳过"),
+            Err(error) => tracing::warn!(%instance_id, %error, "终止孤儿作废审批失败（下轮重试）"),
+        }
+    }
+    if cancelled > 0 {
+        tracing::info!(cancelled, "孤儿应付作废审批实例回收完成");
+    }
+    Ok(cancelled)
+}
+
+/// 在调度器上注册「应付作废审批孤儿实例回收」（与 [`register_builtin`] 并列）。
+pub fn register_cancel_builtin(scheduler: &crate::task::Scheduler) {
+    scheduler.register_cron(
+        CANCEL_TASK_NAME,
+        CANCEL_CRON,
+        "系统任务：应付作废审批孤儿实例回收",
+        || {
+            tokio::spawn(async move {
+                match reconcile_orphan_payable_cancels().await {
+                    Ok(0) => {}
+                    Ok(count) => tracing::info!(count, "应付作废审批孤儿实例回收完成"),
+                    Err(error) => tracing::error!(%error, "应付作废审批孤儿实例回收失败"),
+                }
+            })
+        },
+    );
+}
+
 // ==================== 单测（P17：≥16 条，真库） ====================
 //
 // 真库用例（需要 `ERP_DB_URL` 指向「已应用 V0175 的隔离库」，缺省则全部 SKIP）：
@@ -845,6 +1200,8 @@ mod tests {
             settled_at: row.get_typed("settled_at").unwrap(),
             voucher_id: row.get_typed("voucher_id").unwrap(),
             remark: row.get_typed("remark").unwrap(),
+            cancel_instance_id: row.get_typed("cancel_instance_id").unwrap(),
+            cancel_reason: row.get_typed("cancel_reason").unwrap(),
             created_at: row.get_typed("created_at").unwrap(),
             updated_at: row.get_typed("updated_at").unwrap(),
         }

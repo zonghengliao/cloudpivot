@@ -46,7 +46,7 @@
 //! ```
 
 use axum::Json;
-use nik::prelude::chrono::{NaiveDate, Utc};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -54,6 +54,7 @@ use serde::Deserialize;
 
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
 use crate::business::erp::voucher_query::{self, VoucherDetailRes};
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -576,7 +577,506 @@ async fn manual_in_tx(
 
 // ==================== 接口层 ====================
 
+// ==================== P-FLOW-3B：凭证红冲审批 ====================
+
+/// 红冲审批的业务类型（与 V0191 种子 / `voucher_bridge::BIZ_TYPE` 同口径）。
+pub const REVERSE_BIZ_TYPE: &str = "VOUCHER_REVERSE";
+/// 红冲审批的流程编码。
+pub const REVERSE_FLOW_CODE: &str = "voucher_reverse";
+
+/// 红冲提交的 outcome：已送审（凭证仍是 `POSTED`，只挂 pending）。
+pub const OUTCOME_REVERSE_PENDING: &str = "PENDING_APPROVAL";
+/// 红冲提交的 outcome：未配流程，按老行为**直接红冲**。
+pub const OUTCOME_REVERSED: &str = "REVERSED";
+
+/// 红冲提交的出参。
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ReverseSubmitRes {
+    /// `PENDING_APPROVAL`（已送审，账未动） / `REVERSED`（未配流程，直接红冲）。
+    pub outcome: String,
+    /// 给用户看的一句话。
+    pub message: String,
+    /// 审批实例 id（未配流程时为 `None`）。
+    pub approval_instance_id: Option<String>,
+    /// 凭证最新详情（送审时是**原凭证**，直接红冲时是**红字凭证**）。
+    #[serde(flatten)]
+    pub detail: VoucherDetailRes,
+}
+
+/// 提交凭证红冲（**唯一对外入口**，P-FLOW-3B）。
+///
+/// 配了已发布的 `voucher_reverse` 流程 → 先送审（**不改状态**，只挂
+/// `pending_reverse_instance_id`；报表口径不变）；没配流程 → 按 P-FLOW-3B 之前的行为
+/// **直接红冲**（并留一条 `warn`，绝不把红冲锁死）。
+///
+/// 为什么入口收在这里、而不是让「红冲」和「送审」各开一个接口：
+/// 那样审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post` 同一个理由）。
+pub async fn submit_reverse(
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<ReverseSubmitRes, ApiError> {
+    let reason = reason.map(str::trim).filter(|text| !text.is_empty());
+    let Some(reason) = reason else {
+        return Err(bad_request(
+            "reason 必填：请写明红冲原因（红字凭证的分录摘要会带这段文字）",
+        ));
+    };
+    match crate::business::erp::voucher_bridge::published_reverse_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询凭证红冲审批流程"))?
+    {
+        Some(flow) => {
+            // 送审前先把「能不能红冲」的账务闸全部走一遍（别把注定失败的单送给审批人）
+            ensure_reversible(id).await?;
+            submit_reverse_for_approval(id, reason, operator, &flow).await
+        }
+        None => {
+            tracing::warn!(
+                voucher_id = %id,
+                "没有配置已发布的 voucher_reverse 凭证红冲审批流程：本次红冲**降级**为直接执行（无复核），\
+                 请尽快补配流程"
+            );
+            let detail = reverse_voucher(id, Some(reason), operator).await?;
+            Ok(ReverseSubmitRes {
+                outcome: OUTCOME_REVERSED.to_string(),
+                message: "未配置凭证红冲审批流程，本次红冲已直接生效".to_string(),
+                approval_instance_id: None,
+                detail,
+            })
+        }
+    }
+}
+
+/// 红冲前的账务闸（与 [`reverse_in_tx`] 逐条一致，只是**不加锁**、不写库）。
+///
+/// 送审时先跑一遍：注定会被拒的单（红字凭证 / 已红冲 / 期间已结账）不该占用财务经理的待办。
+async fn ensure_reversible(id: Uuid) -> std::result::Result<(), ApiError> {
+    let original = voucher::find_voucher(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询凭证"))?
+        .ok_or_else(not_found)?;
+    if original.is_red == voucher::IS_RED_YES {
+        return Err(conflict(format!(
+            "凭证 {} 本身是红字凭证，红字凭证不能再红冲（要更正请直接补一张蓝字凭证）",
+            original.voucher_no
+        )));
+    }
+    if original.status != voucher::STATUS_POSTED {
+        return Err(conflict(format!(
+            "凭证 {} 当前状态是 {}，只有已记账（POSTED）的凭证能红冲",
+            original.voucher_no, original.status
+        )));
+    }
+    if let Some(red_id) = original.reversed_by {
+        let red_no = voucher::find_voucher(db(), red_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询已存在的红字凭证"))?
+            .map(|row| row.voucher_no)
+            .unwrap_or_else(|| red_id.to_string());
+        return Err(conflict(format!(
+            "该凭证 {} 已经红冲（红字凭证 {red_no}），不能重复红冲",
+            original.voucher_no
+        )));
+    }
+    if let Some(pending) = original.pending_reverse_instance_id {
+        let instance_no = instance_no_of(pending).await?;
+        return Err(conflict(format!(
+            "凭证 {} 已在红冲审批中（{instance_no}）：请等审批结束，或先撤回审批",
+            original.voucher_no
+        )));
+    }
+    if voucher::is_period_closed(db(), &original.period)
+        .await
+        .map_err(|error| utils::db_error(error, "查询会计期间状态"))?
+    {
+        return Err(conflict(format!(
+            "凭证 {} 所属期间 {} 已结账，不能再红冲（请先反结账）",
+            original.voucher_no, original.period
+        )));
+    }
+    Ok(())
+}
+
+/// 发起红冲审批（**不改凭证状态**，只挂 `pending_reverse_instance_id`）。
+async fn submit_reverse_for_approval(
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    flow: &crate::business::erp::voucher_bridge::VoucherFlow,
+) -> std::result::Result<ReverseSubmitRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交红冲审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let original = voucher::find_voucher(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询凭证"))?
+        .ok_or_else(not_found)?;
+    // 幂等：同一凭证已有在跑的红冲审批 → 409（先查，别等库层
+    // uk_biz_flow_instance_biz_active）
+    if flow_model::biz_instance_running(REVERSE_BIZ_TYPE, original.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = instance_no_of(
+            original
+                .pending_reverse_instance_id
+                .unwrap_or_else(Uuid::nil),
+        )
+        .await?;
+        return Err(conflict(format!(
+            "凭证 {} 已在红冲审批中（{instance_no}）：请等审批结束，或从审批中心撤回后再提交",
+            original.voucher_no
+        )));
+    }
+    let Some((initiator_name, initiator_dept_id)) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+    else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "发起凭证红冲审批失败：当前用户不存在或已停用",
+        ));
+    };
+    let entries = voucher::entries_of(db(), original.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询凭证分录"))?;
+    if entries.is_empty() {
+        return Err(conflict(format!(
+            "凭证 {} 没有任何分录，不能提交红冲审批",
+            original.voucher_no
+        )));
+    }
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 凭证红冲", original.voucher_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(original.id),
+        biz_no: Some(original.voucher_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: reverse_form_data(&original, reason, &entries, operator_id),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启红冲审批事务"))?;
+    let outcome = submit_reverse_tx(&tx, &original, reason, operator_id, &start, now).await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交红冲审批事务"))?;
+            tracing::info!(
+                voucher_id = %original.id,
+                voucher_no = %original.voucher_no,
+                %instance_id,
+                flow_code = %start.flow_code,
+                "凭证已提交红冲审批（状态仍是 POSTED，只挂 pending）"
+            );
+            let detail = voucher_query::voucher_detail(original.id).await?;
+            Ok(ReverseSubmitRes {
+                outcome: OUTCOME_REVERSE_PENDING.to_string(),
+                message: format!(
+                    "已提交红冲审批（凭证 {}，借贷合计 {}），等待复核；审批通过后才会生成红字凭证",
+                    original.voucher_no, original.total_debit
+                ),
+                approval_instance_id: Some(instance_id.to_string()),
+                detail,
+            })
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// [`submit_reverse_for_approval`] 的事务体：发起审批单 → CAS 回写 pending。
+///
+/// **故意不写状态机**：原凭证 `status` 保持 `POSTED`（卡面硬红线 3），
+/// 「审批中」由 `pending_reverse_instance_id` 表达；审批单本身就是这次的审计留痕
+/// （`biz_flow_instance.biz_id = 凭证 id`）。库侧 `ck_biz_voucher_pending_reverse`
+/// 保证 pending 只可能挂在「已记账且未红冲」的凭证上。
+async fn submit_reverse_tx(
+    tx: &Transaction,
+    original: &voucher::VoucherRow,
+    reason: &str,
+    operator: Uuid,
+    start: &engine::StartReq,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let mut out = engine::start(tx, start)
+        .await
+        .map_err(|error| write_error(error, "发起凭证红冲审批单"))?;
+    if let Some(rejected) = out.rejected.take() {
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!(
+                "{}（内控要求：红冲复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
+                rejected.msg
+            ),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    let affected = tx
+        .exec_sql(
+            "UPDATE biz_voucher \
+                SET pending_reverse_instance_id = ?::uuid, reverse_reason = ?, \
+                    updated_at = ?, update_by = ?::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL AND status = ? \
+                AND reversed_by IS NULL AND pending_reverse_instance_id IS NULL"
+                .to_string(),
+            vec![
+                Value::from(&instance_id),
+                Value::Text(reason.to_string()),
+                Value::from(now),
+                Value::from(&operator),
+                Value::from(&original.id),
+                Value::Text(voucher::STATUS_POSTED.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| write_error(error, "凭证进入红冲审批中"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "凭证 {} 的状态在本次提交期间已被改动（期望 POSTED 且未红冲），请刷新后重试",
+            original.voucher_no
+        )));
+    }
+    Ok(())
+}
+
+/// 红冲审批的**表单变量**（金额分级条件边读的 `form.amount` 就是这里）。
+///
+/// `amount` 取**借贷合计**（红冲一笔 1 万的凭证，冲的就是 1 万）——
+/// 用贷方或借方单边会漏掉「一借多贷」的凭证。
+fn reverse_form_data(
+    original: &voucher::VoucherRow,
+    reason: &str,
+    entries: &[voucher::EntryRow],
+    operator: Uuid,
+) -> serde_json::Value {
+    serde_json::json!({
+        "voucher_id": original.id.to_string(),
+        "voucher_no": original.voucher_no,
+        "period": original.period,
+        "voucher_date": original.voucher_date.to_string(),
+        "summary": original.summary,
+        "amount": amount_number(original.total_debit),
+        "amount_text": original.total_debit.to_string(),
+        "debit_total": amount_number(original.total_debit),
+        "credit_total": amount_number(original.total_credit),
+        "entry_count": entries.len(),
+        "reverse_reason": reason,
+        // 内控留痕：审批人 ≠ 制单人（真正的拦截在 voucher_bridge::guard_self_approval）
+        "create_by": operator.to_string(),
+    })
+}
+
+/// 金额 → JSON 数字（`Decimal` 直接序列化成字符串会让条件节点 `cmp` 的类型比对失败）。
+fn amount_number(value: Decimal) -> serde_json::Value {
+    let as_float = value.to_string().parse::<f64>().unwrap_or(0.0);
+    serde_json::Number::from_f64(as_float)
+        .map(serde_json::Value::Number)
+        .unwrap_or_else(|| serde_json::Value::Number(serde_json::Number::from(0)))
+}
+
+/// 审批单号（用于 409 文案；取不到就退回 id 文本）。
+async fn instance_no_of(instance_id: Uuid) -> std::result::Result<String, ApiError> {
+    if instance_id.is_nil() {
+        return Ok("审批中".to_string());
+    }
+    let rows = db()
+        .find_with_params(
+            "SELECT instance_no FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单号"))?;
+    Ok(rows
+        .first()
+        .and_then(|row| row.get_typed::<String>("instance_no").ok())
+        .unwrap_or_else(|| instance_id.to_string()))
+}
+
+/// 撤回在跑的红冲审批（发起人自己撤 → 只清 pending，凭证一直是 `POSTED`）。
+pub async fn withdraw_reverse(
+    id: Uuid,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+) -> std::result::Result<VoucherDetailRes, ApiError> {
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "撤回凭证红冲审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let original = voucher::find_voucher(db(), id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询凭证"))?
+        .ok_or_else(not_found)?;
+    let Some(instance_id) = original.pending_reverse_instance_id else {
+        return Err(conflict(format!(
+            "凭证 {} 没有在跑的红冲审批可撤回",
+            original.voucher_no
+        )));
+    };
+    let mut out = db()
+        .transaction(|tx| async move { engine::withdraw(&tx, instance_id, operator_id).await })
+        .await
+        .map_err(|error| utils::db_error(error, "撤回红冲审批"))?;
+    if let Some(error) = out.rejected.take() {
+        return Err(ApiError::new(error.status, error.code, error.msg));
+    }
+    // 与审批中心撤回同口径：审批结论回调（只清 pending，账一分没动）
+    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
+    tracing::info!(
+        voucher_id = %original.id,
+        voucher_no = %original.voucher_no,
+        %instance_id,
+        reason = reason.unwrap_or("(未填)"),
+        "凭证红冲审批已撤回（pending 已清，凭证仍是 POSTED）"
+    );
+    voucher_query::voucher_detail(id).await
+}
+
+/// 红冲审批通过后的**执行体**（`voucher_bridge::on_reverse_settled` 调）。
+///
+/// 复用 P7 的 [`voucher::reverse_posted`]（借贷互换 + 独立号段 PZR + 回写 `reversed_by`），
+/// 一行记账逻辑都没重写。
+///
+/// ⚠️ 顺序很关键：**先清 pending，再红冲**。
+/// 库侧 `ck_biz_voucher_pending_reverse` 要求「pending 非空 ⟹ `reversed_by IS NULL`」，
+/// 反过来的话 `reverse_posted` 刚写 `reversed_by` 就会 23514。
+pub async fn reverse_after_approval(
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<Uuid, ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启红冲执行事务"))?;
+    let result = async {
+        let original = voucher::find_voucher_locked(&tx, id)
+            .await
+            .map_err(|error| utils::db_error(error, "锁定凭证"))?
+            .ok_or_else(not_found)?;
+        if original.pending_reverse_instance_id.is_none() {
+            return Err(conflict(format!(
+                "凭证 {} 不在红冲审批中（pending 已清），拒绝执行红冲",
+                original.voucher_no
+            )));
+        }
+        let reason = original
+            .reverse_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or("红冲审批通过")
+            .to_string();
+        // ① 先清 pending（否则下一步写 reversed_by 会撞 ck_biz_voucher_pending_reverse）
+        // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+        tx.exec_sql(
+            "UPDATE biz_voucher SET pending_reverse_instance_id = NULL, updated_at = ? \
+              WHERE id = ?::uuid"
+                .to_string(),
+            vec![Value::from(now), Value::from(&original.id)],
+        )
+        .await
+        .map_err(|error| write_error(error, "清理红冲 pending"))?;
+        // ② 生成红字凭证 + 回写 reversed_by（P7 的实现，一行没重写）
+        let red_id = voucher::reverse_posted(
+            &tx,
+            &original,
+            ReversalInput {
+                reason: Some(&reason),
+                voucher_date: voucher::today_cst(now),
+            },
+            operator,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "红冲凭证"))?;
+        Ok::<Uuid, ApiError>(red_id)
+    }
+    .await;
+    match result {
+        Ok(red_id) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交红冲执行事务"))?;
+            Ok(red_id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 红冲审批**驳回 / 撤回**后的回位体：只清 pending，凭证一直是 `POSTED`（账一分没动）。
+pub async fn restore_after_reverse_rejection(
+    id: Uuid,
+    verdict: crate::business::erp::voucher_bridge::ReverseVerdict,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let now = Utc::now();
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）。
+    db().exec_sql(
+        "UPDATE biz_voucher \
+            SET pending_reverse_instance_id = NULL, updated_at = ?, \
+                update_by = COALESCE(?::uuid, update_by) \
+          WHERE id = ?::uuid AND pending_reverse_instance_id IS NOT NULL"
+            .to_string(),
+        vec![
+            Value::from(now),
+            operator.map(Value::from).unwrap_or(Value::Null),
+            Value::from(&id),
+        ],
+    )
+    .await
+    .map_err(|error| {
+        write_error(
+            error,
+            &format!("凭证 {id} 红冲审批未通过后清 pending（{}）", verdict.as_str()),
+        )
+    })?;
+    Ok(())
+}
+
 /// 红冲一张已记账凭证。
+///
+/// **P-FLOW-3B 起走审批**：配了已发布的 `voucher_reverse` 流程 → 凭证只挂 pending、
+/// `status` 仍 `POSTED`（`outcome = PENDING_APPROVAL`）；没配流程 → 按老行为直接红冲
+/// （`outcome = REVERSED`）。
+///
+/// 为什么老入口也改成送审：否则审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post`
+/// 把 `PATCH /status` 和 `POST /submit-post` 收到同一个函数是同一个理由）。
 #[nik::permission(
     path = "/business/erp/voucher/{id}/reverse",
     method = "POST",
@@ -587,10 +1087,54 @@ pub async fn voucher_reverse_handler(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
     Json(req): Json<ReverseVoucherReq>,
-) -> ResResult<VoucherDetailRes> {
+) -> ResResult<ReverseSubmitRes> {
     let id = parse_uuid(&id, "id")?;
     Ok(Res::ok(
-        reverse_voucher(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_reverse(id, req.reason.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 提交凭证红冲审批（P-FLOW-3B 的显式入口，与 `POST /voucher/{id}/reverse` 同一函数）。
+///
+/// # 异常情况
+///
+/// * 400 + `10001`：`reason` 为空；
+/// * 404 + `10002`：凭证不存在 / 已删除；
+/// * 409 + `10003`：红字凭证 / 非 POSTED / 已红冲 / 已在红冲审批中 / 期间已结账；
+/// * 422 + `65019`：流程侧内控拒绝（复核人 = 发起人）。
+#[nik::permission(
+    path = "/business/erp/voucher/{id}/submit-reverse",
+    method = "POST",
+    permission = "business:erp:voucher:submit-reverse"
+)]
+#[nik::post("/business/erp/voucher/{id}/submit-reverse")]
+pub async fn voucher_submit_reverse_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<ReverseVoucherReq>,
+) -> ResResult<ReverseSubmitRes> {
+    let id = parse_uuid(&id, "id")?;
+    Ok(Res::ok(
+        submit_reverse(id, req.reason.as_deref(), operator_of(&claims)).await?,
+    ))
+}
+
+/// 撤回在跑的红冲审批（发起人自己撤 → 只清 pending，凭证一直是 `POSTED`）。
+#[nik::permission(
+    path = "/business/erp/voucher/{id}/withdraw-reverse",
+    method = "POST",
+    permission = "business:erp:voucher:withdraw-reverse"
+)]
+#[nik::post("/business/erp/voucher/{id}/withdraw-reverse")]
+pub async fn voucher_withdraw_reverse_handler(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<ReverseVoucherReq>>,
+) -> ResResult<VoucherDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    let reason = body.and_then(|Json(req)| req.reason);
+    Ok(Res::ok(
+        withdraw_reverse(id, reason.as_deref(), operator_of(&claims)).await?,
     ))
 }
 

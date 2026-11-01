@@ -1630,6 +1630,10 @@ pub async fn withdraw_instance(
     crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
     // P17：也可能是「应付付款」单 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "WITHDRAWN").await;
+    // P-FLOW-3B：也可能是「应付作废」单 → 单据回 OPEN（欠款一分没动）
+    crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
+    // P-FLOW-3B：也可能是「凭证红冲」单 → 只清 pending（凭证一直是 POSTED，账没动）
+    crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1665,6 +1669,9 @@ pub async fn approve_task(
     // ★ P-FLOW-3A 内控闸：采购订单审批 / 收货过账审批同款（制单人 ≠ 审批人）。
     crate::business::erp::purchase_bridge::guard_self_approval(task_id, operator).await?;
     crate::business::erp::stockin_bridge::guard_self_approval(task_id, operator).await?;
+    // ★ P-FLOW-3B 内控闸：凭证红冲同款（制单人 ≠ 审批人）。
+    //   应付作废走 payable_bridge::guard_self_approval（内部按 biz_type 分流）。
+    crate::business::erp::voucher_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1690,6 +1697,12 @@ pub async fn approve_task(
         .await;
     // P17：也可能是「应付付款」发起的 —— 通过才记账（应付回写 + 借 2202 / 贷 1002 凭证）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P-FLOW-3B：也可能是「应付作废」发起的 —— 通过才真正作废（进项凭证红冲 + 欠款消失）
+    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P-FLOW-3B：也可能是「凭证红冲」发起的 —— 通过才生成红字凭证（原凭证保持 POSTED）
+    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
         .await;
     Ok(Res::ok(action_res(out)))
 }
@@ -1754,6 +1767,12 @@ pub async fn reject_task(
         .await;
     // P17：付款审批被驳回 / 驳回终止 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P-FLOW-3B：应付作废被驳回 → 单据回 OPEN（欠款一分没动，可以再提交）
+    crate::business::erp::payable_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
+        .await;
+    // P-FLOW-3B：凭证红冲被驳回 → 只清 pending（凭证一直是 POSTED，账没动）
+    crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
         .await;
     Ok(Res::ok(action_res(out)))
 }

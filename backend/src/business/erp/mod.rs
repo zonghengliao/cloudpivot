@@ -23,8 +23,9 @@
 //! | [`ledger`] | 总账流水（逐行余额）+ 科目余额表（Σ借 = Σ贷 校验），只读 | **P2-D1** |
 //! | [`payable_query`] | 应付单查询：分页 + 详情（含关联凭证号），只读 | **P2-C2** |
 //! | [`payable_payment`] | 应付付款登记（部分付款累计 → PARTIAL_PAID/SETTLED）+ 应付作废（联动红冲）+ **可付信息**（D5：`GET /payable/{id}/payment-info`，详情抽屉「发起付款」的唯一读数） | **P7 / D5** |
-//! | [`payable_bridge`] | 应付**付款审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17** |
-//! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入） | **P7** |
+//! | [`payable_bridge`] | 应付**付款审批** / **作废审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17 / P-FLOW-3B** |
+//! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入）+ **红冲审批**（P-FLOW-3B） | **P7 / P-FLOW-3B** |
+//! | [`voucher_bridge`] | 凭证**红冲审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P-FLOW-3B** |
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
@@ -87,6 +88,11 @@ pub mod transfer_handler;
 pub mod transfer_model;
 pub mod transfer_overdue;
 pub mod voucher;
+pub mod voucher_bridge;
 pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;
+
+/// P-FLOW-3B 的真库单测（应付作废 + 凭证红冲审批）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod pflow3b_tests;

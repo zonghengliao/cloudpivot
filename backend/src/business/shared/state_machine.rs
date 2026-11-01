@@ -171,15 +171,35 @@ pub const TRANSFER_EDGES: [(&str, &str); 6] = [
     ("DRAFT", "CANCELLED"),
 ];
 
-/// 应付单合法边（P7 的付款累计 + 作废）。
-pub const PAYABLE_EDGES: [(&str, &str); 4] = [
+/// 应付单合法边（P7 的付款累计 + 作废；P-FLOW-3B 加 3 条作废审批边）。
+///
+/// P-FLOW-3B 起多出 3 条**作废审批**边（改账动作必须先复核）：
+/// ```text
+/// OPEN            → PENDING_CANCEL   发起作废审批（只挂审批单，欠款还在）
+/// PENDING_CANCEL  → CANCELLED        审批通过 → 才真正作废（进项凭证红冲 + 欠款消失）
+/// PENDING_CANCEL  → OPEN             驳回 / 撤回 → 回到未付，账一点没动
+/// ```
+///
+/// **故意没有** `PARTIAL_PAID / SETTLED → PENDING_CANCEL`（卡面决策）：
+/// 作废一张已经付过钱的应付单必须同时冲回已付款，那是「付款冲销 + 红冲凭证」的活，
+/// 不是作废单据能表达的。入口处还会再核一次 `paid_amount = 0`（双保险）。
+pub const PAYABLE_EDGES: [(&str, &str); 7] = [
     ("OPEN", "PARTIAL_PAID"),
     ("OPEN", "SETTLED"),
     ("PARTIAL_PAID", "SETTLED"),
     ("OPEN", "CANCELLED"),
+    ("OPEN", "PENDING_CANCEL"),
+    ("PENDING_CANCEL", "CANCELLED"),
+    ("PENDING_CANCEL", "OPEN"),
 ];
 
 /// 凭证没有「状态流转」：一落库就是 `POSTED`，更正靠**红冲开新单**，不原地改状态。
+///
+/// P-FLOW-3B 的「凭证红冲审批」**不新增边**，这是刻意的（卡面硬红线 3）：
+/// 红冲的语义是「生成红字凭证、原凭证保持 POSTED」。若真的把原凭证改成
+/// `PENDING_REVERSE`，四大报表 / 总账 / 余额表的取数（`WHERE v.status = 'POSTED'`）
+/// 会让这张**已入账**的凭证在报表里消失 —— 审批流程不该改变账务的存在性。
+/// 所以「审批中」用 `biz_voucher.pending_reverse_instance_id` 表达，不走状态机。
 pub const VOUCHER_EDGES: [(&str, &str); 0] = [];
 
 /// 会计期间的合法边（ERP-P1）。
@@ -243,7 +263,16 @@ pub const PURCHASE_ORDER_REASON_EDGES: [(&str, &str); 2] =
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
 /// 需要 reason 的边：应付作废（会计上作废必须留痕）。
-pub const PAYABLE_REASON_EDGES: [(&str, &str); 1] = [("OPEN", "CANCELLED")];
+///
+/// P-FLOW-3B：作废拆成「发起（OPEN → PENDING_CANCEL）」与「执行（PENDING_CANCEL → CANCELLED）」
+/// 两步，两步都要原因 —— 前者是**申请理由**（财务经理据此判断该不该批），
+/// 后者是**记账依据**（进项凭证红冲的摘要）。驳回那条边（PENDING_CANCEL → OPEN）不要原因：
+/// 驳回意见由审批待办自己留痕，单据只是回位。
+pub const PAYABLE_REASON_EDGES: [(&str, &str); 3] = [
+    ("OPEN", "CANCELLED"),
+    ("OPEN", "PENDING_CANCEL"),
+    ("PENDING_CANCEL", "CANCELLED"),
+];
 /// 凭证没有流转边，自然也没有 reason 边。
 pub const VOUCHER_REASON_EDGES: [(&str, &str); 0] = [];
 
@@ -260,7 +289,10 @@ pub const PURCHASE_ORDER_LOCKED: [&str; 2] = ["RECEIVED", "PARTIAL_RECEIVED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。
 pub const TRANSFER_LOCKED: [&str; 3] = ["APPROVED", "IN_TRANSIT", "DONE"];
 /// 应付入账态：已结清 / 已作废都锁定（作废的单子当然不能再改）。
-pub const PAYABLE_LOCKED: [&str; 2] = ["SETTLED", "CANCELLED"];
+///
+/// P-FLOW-3B 把 `PENDING_CANCEL` 也加进来：作废审批中如果还能改金额 / 备注，
+/// 财务经理批的就是一份已经变过的数据（审批对象 ≠ 执行对象），复核等于没做。
+pub const PAYABLE_LOCKED: [&str; 3] = ["SETTLED", "CANCELLED", "PENDING_CANCEL"];
 /// 凭证入账态：已记账。
 pub const VOUCHER_LOCKED: [&str; 1] = ["POSTED"];
 

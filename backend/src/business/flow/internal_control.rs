@@ -22,7 +22,8 @@
 //! # 边界（刻意不做的事）
 //!
 //! - **只对「受内控约束的业务」生效**：`PO_APPROVE` / `STOCK_IN_POST` / `STOCK_IN_CANCEL` /
-//!   `PAYABLE_PAY`。其它 `biz_type`（任务验收、调拨……）`governed=false`，行为与改动前逐字一致。
+//!   `PAYABLE_PAY` / `PAYABLE_CANCEL` / `VOUCHER_REVERSE`。其它 `biz_type`（任务验收、调拨……）
+//!   `governed=false`，行为与改动前逐字一致。
 //! - **不删任何待办行**：被排除的人一定有 `SKIPPED` 行留痕（审计要能回答「谁没批、为什么」）。
 //! - **不碰节点配置**：`self_approval` 仍是 `ALLOW`。内控语义是「这一票没人能点 ⇒ 不算一票」，
 //!   与框架的「发起人自审策略」是两件事（后者只有 `SKIP`/`FORBID`，前者还包括**制单人**）。
@@ -115,6 +116,17 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
         true
     } else if biz_type == payable_bridge::BIZ_TYPE {
         let creator = payable_bridge::internal_control_creator(instance.biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
+    } else if biz_type == payable_bridge::CANCEL_BIZ_TYPE {
+        // P-FLOW-3B：应付作废审批的 `biz_id` 是**应付单 id**（不是付款记录 id）
+        let creator = payable_bridge::internal_control_creator_of_payable(instance.biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
+    } else if biz_type == crate::business::erp::voucher_bridge::BIZ_TYPE {
+        // P-FLOW-3B：凭证红冲审批的 `biz_id` 是**凭证 id**
+        let creator =
+            crate::business::erp::voucher_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
     } else {

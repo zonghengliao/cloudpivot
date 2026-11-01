@@ -53,8 +53,19 @@ pub const STATUS_OPEN: &str = "OPEN";
 pub const STATUS_PARTIAL_PAID: &str = "PARTIAL_PAID";
 /// 状态：已结清。
 pub const STATUS_SETTLED: &str = "SETTLED";
-/// 状态：已作废（收货单作废时联动）。
+/// 状态：已作废（收货单作废时联动 / 作废审批通过）。
 pub const STATUS_CANCELLED: &str = "CANCELLED";
+/// 状态：作废审批中（P-FLOW-3B）。
+///
+/// 这个状态下**欠款还在**（`amount / paid_amount / unpaid_amount` 一分没动），
+/// 只是单据被锁住等财务经理复核：通过才转 `CANCELLED`，驳回/撤回回 `OPEN`。
+/// 库侧 `ck_biz_payable_pending_cancel` 保证「在这个状态 ⟺ `cancel_instance_id` 有值」。
+pub const STATUS_PENDING_CANCEL: &str = "PENDING_CANCEL";
+
+/// P-FLOW-3B：作废审批的业务类型（与 V0191 种子 / `payable_bridge` 同口径）。
+pub const CANCEL_BIZ_TYPE: &str = "PAYABLE_CANCEL";
+/// P-FLOW-3B：作废审批的流程编码。
+pub const CANCEL_FLOW_CODE: &str = "payable_cancel";
 
 /// 来源类型：收货入库单。
 pub const SOURCE_STOCK_IN: &str = "STOCK_IN";
@@ -81,6 +92,7 @@ pub async fn next_payable_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbRes
 pub const COLUMNS: &str = "id, payable_no, supplier_id, source_type, source_id, source_no, \
      invoice_no, invoice_date, currency_code::text AS currency_code, amount, paid_amount, \
      unpaid_amount, credit_days, due_date, period_code, status, settled_at, voucher_id, remark, \
+     cancel_instance_id, cancel_reason, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 应付单行。
@@ -124,6 +136,10 @@ pub struct PayableRow {
     pub voucher_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 作废审批实例（P-FLOW-3B）：`PENDING_CANCEL` 时必有值，通过/驳回后清空。
+    pub cancel_instance_id: Option<Uuid>,
+    /// 作废原因（P-FLOW-3B）：提交审批时填写，通过后写进 `remark`。
+    pub cancel_reason: Option<String>,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -152,6 +168,8 @@ impl PayableRow {
             settled_at: row.get_typed("settled_at")?,
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
+            cancel_instance_id: row.get_typed("cancel_instance_id")?,
+            cancel_reason: row.get_typed("cancel_reason")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -364,6 +382,16 @@ pub async fn cancel_for_stock_in(
             "收货单作废联动作废应付单，付款审批自动终止",
         )
         .await?;
+        // ★ P-FLOW-3B 反向（L6 关联物级联）：收货单作废 → 这张应付单在跑的**作废审批**
+        //   也必须终止（否则审批中心留下孤儿待办，且下次发起会撞
+        //   uk_biz_flow_instance_biz_active 永久 409）
+        crate::business::erp::payable_bridge::cancel_approval_of_payable_cancel(
+            ex,
+            id,
+            &payable_no,
+            "收货单作废联动作废应付单，作废审批自动终止",
+        )
+        .await?;
         state_machine::transition(
             ex,
             state_machine::ENTITY_PAYABLE,
@@ -381,10 +409,12 @@ pub async fn cancel_for_stock_in(
     }
 
     // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
+    // `cancel_instance_id` 一起清：`ck_biz_payable_pending_cancel` 要求
+    // 「非 PENDING_CANCEL ⟹ 没有实例引用」，不清就是 23514。
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} \
-                SET status = '{STATUS_CANCELLED}', updated_at = ?, \
+                SET status = '{STATUS_CANCELLED}', cancel_instance_id = NULL, updated_at = ?, \
                     update_by = NULLIF(?::text,'')::uuid \
               WHERE source_type = '{SOURCE_STOCK_IN}' AND source_id = ?::uuid \
                 AND status <> '{STATUS_CANCELLED}' AND deleted_at IS NULL"

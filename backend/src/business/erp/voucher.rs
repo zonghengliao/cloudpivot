@@ -743,6 +743,7 @@ pub fn totals_of(lines: &[EntryLine]) -> (Decimal, Decimal) {
 pub const VOUCHER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, \
      voucher_type, source_type, source_id, source_no, summary, total_debit, total_credit, \
      entry_count, status, is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
+     pending_reverse_instance_id, reverse_reason, \
      created_at, updated_at, create_by, update_by, deleted_at";
 
 /// 凭证行。
@@ -788,6 +789,10 @@ pub struct VoucherRow {
     pub posted_by: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 红冲审批实例（P-FLOW-3B）：有值 = 正在审批红冲（`status` 仍是 `POSTED`，报表口径不变）。
+    pub pending_reverse_instance_id: Option<Uuid>,
+    /// 红冲原因（P-FLOW-3B）：提交审批时填写，通过后成为红字凭证的分录摘要。
+    pub reverse_reason: Option<String>,
     /// 创建时间。
     pub created_at: Option<DateTime<Utc>>,
     /// 更新时间。
@@ -817,6 +822,8 @@ impl VoucherRow {
             posted_at: row.get_typed("posted_at")?,
             posted_by: row.get_typed("posted_by")?,
             remark: row.get_typed("remark")?,
+            pending_reverse_instance_id: row.get_typed("pending_reverse_instance_id")?,
+            reverse_reason: row.get_typed("reverse_reason")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -1622,6 +1629,18 @@ pub async fn reverse_for_stock_in(
     let Some(original) = find_voucher_by_source(ex, SOURCE_STOCK_IN, header.id).await? else {
         return Ok(None);
     };
+    // ★ P-FLOW-3B 反向（L6 关联物级联）：收货单作废要联动红冲这张凭证 →
+    //   先终止它在跑的**红冲审批**（否则审批中心留孤儿待办，pending 也永远挂着：
+    //   入口会一直 409「已在红冲审批中」，且已红冲的凭证再批一次会撞「不能重复红冲」）。
+    //   必须在 reverse_posted 之前做：`cancel_approval_of` 会清 pending，
+    //   而 `ck_biz_voucher_pending_reverse` 要求「pending 非空 ⟹ reversed_by 为空」。
+    crate::business::erp::voucher_bridge::cancel_approval_of(
+        ex,
+        original.id,
+        &original.voucher_no,
+        "收货单作废联动红冲凭证，红冲审批自动终止",
+    )
+    .await?;
     // 红字凭证日期：作废当天（CST）。已作废单用 cancelled_at，未作废的兜底「今天」。
     let voucher_date = header
         .cancelled_at

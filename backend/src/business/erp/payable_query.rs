@@ -71,12 +71,13 @@ pub const SUPPLIER_TABLE: &str = "biz_supplier";
 /// 凭证表（详情取凭证号）。
 pub const VOUCHER_TABLE: &str = "biz_voucher";
 
-/// 状态白名单（与 `ck_biz_payable_status` 逐字一致）。
-pub const STATUSES: [&str; 4] = [
+/// 状态白名单（与 `ck_biz_payable_status` 逐字一致）。P-FLOW-3B 加 `PENDING_CANCEL`。
+pub const STATUSES: [&str; 5] = [
     payable::STATUS_OPEN,
     payable::STATUS_PARTIAL_PAID,
     payable::STATUS_SETTLED,
     payable::STATUS_CANCELLED,
+    payable::STATUS_PENDING_CANCEL,
 ];
 
 /// 列表选择列表：应付列 + 供应商名称（LEFT JOIN，供应商被软删时回落空串）。
@@ -85,6 +86,7 @@ pub const LIST_COLUMNS: &str = "p.id, p.payable_no, p.supplier_id, \
      p.source_type, p.source_id, p.source_no, p.invoice_no, p.invoice_date, \
      p.currency_code::text AS currency_code, p.amount, p.paid_amount, p.unpaid_amount, \
      p.credit_days, p.due_date, p.period_code, p.status, p.settled_at, p.voucher_id, p.remark, \
+     p.cancel_instance_id, p.cancel_reason, \
      p.created_at, p.updated_at";
 
 /// 列表 FROM 子句（别名 `p` / `s` 必须与 [`LIST_COLUMNS`] 一致）。
@@ -394,6 +396,7 @@ pub fn status_label(status: &str) -> &str {
         s if s == payable::STATUS_PARTIAL_PAID => "部分已付",
         s if s == payable::STATUS_SETTLED => "已结清",
         s if s == payable::STATUS_CANCELLED => "已作废",
+        s if s == payable::STATUS_PENDING_CANCEL => "作废审批中",
         other => other,
     }
 }
