@@ -195,7 +195,18 @@ warehouse_name     P1FIX 演示仓库
 | 格式 | `cargo fmt -p cloudpivot -- --check` | 通过 |
 | 静态检查 | `cargo clippy -- -D warnings` | 通过（0 告警） |
 | 编译 | `cargo check` / `cargo check --all-targets` | 通过 |
-| 单测 | `ERP_DB_URL=… cargo test --lib -- --test-threads=1` | **1822 passed / 0 failed**（481s，真库） |
+| 单测 | `ERP_DB_URL=… cargo test --lib -- --test-threads=1` | **1844 passed / 0 failed**（506s，隔离 clone + 干净库） |
+
+> 唯一一次「1 failed」是 `shared::startup_guard::tests::merge_semantics_or_base_and_profile`：
+> 隔离 clone 里缺 `config-dev.toml`（gitignore 的本机文件），把四份 config 拷进去后该模块
+> **23 passed / 0 failed**。也就是说环境补全后是 **1845/1845 全绿**。
+>
+> ⚠️ 踩过的坑：第一次全量是在共享工作区 `/opt/cloudpivot` 里跑的，跑的时候另一个卡正在改
+> `flow/handler.rs`、`erp/mod.rs`、`voucher_write.rs`（+1578 行未提交），编译进去的是半成品；
+> 同一轮里我的真机验收数据（多建了一个 `DEPT_LEADER` 成员 + 一条菜单授权）也让 53 条串行用例假红
+> （`stockin cancel_*` 卡在 `PENDING_CANCEL`）。最终门禁是在 `git clone … /root/p1fix-src`
+> （`868841a`）+ `CARGO_TARGET_DIR=/root/p1fix-target` + **空库重建**的 `cloudpivot_p1fixb` 上跑的。
+
 
 新增单测 7 条：
 
@@ -220,3 +231,29 @@ warehouse_name     P1FIX 演示仓库
   快照查询（真库 SQL），但没有像采购那样跑完整「建单 → 提交审批 → 页面」链路（收货要过账、调拨要有库存、
   付款要有应付单，都是别的卡的领域）；下一次碰到这类单据提交时可以顺手核对。
 - **生产历史实例**的 `form_data` 仍是老格式（无名称/明细）—— 本卡不回溯补数据，前端对老实例的兜底保持不变。
+
+## 10. 生产部署（144）
+
+零迁移，所以只换二进制（`.new` + `mv`，避免 ETXTBSY），重启后 health 轮询 + 回滚兜底：
+
+```
+== 部署前 ==
+disk_bak=/root/p1fix-bak/cloudpivot-20261102012733
+006b7c2d2e1ba6dae3a32c4818fb4ab4  /opt/cloudpivot/backend/target/release/cloudpivot   <- 上一个（D7 批量操作）
+== 换二进制 ==
+ecee62a205c6425e44f30c864c3a9491  /opt/cloudpivot/backend/target/release/cloudpivot
+health=200 after 2s
+== 部署后核对 ==
+main_pid=3685516
+ecee62a205c6425e44f30c864c3a9491  /proc/3685516/exe     <- 进程 == 磁盘
+ecee62a205c6425e44f30c864c3a9491  /opt/cloudpivot/backend/target/release/cloudpivot
+active
+…「数据库迁移完成: 应用 0 个迁移」/「cloudpivot 启动完成, 耗时 58ms」
+protected-route-without-token=401
+```
+
+- 二进制由 `/root/p1fix-build`（144 上的隔离 clone，`868841a` = `dbc99c3` 本卡提交）+
+  `CARGO_TARGET_DIR=/root/p1fix-rel-target cargo build --release` 编出（2m50s）；
+- **没有在生产库写任何测试数据**：生产侧只做「二进制身份 + 存活 + 未授权 401」核对，
+  业务链路（建单 → 提交 → 审批人看页面）的全部证据都来自隔离库 `cloudpivot_p1fixb`（§3–§6）；
+- 生产历史实例的 `form_data` 仍是老格式，前端对老实例的兜底路径不变。
