@@ -115,6 +115,8 @@ def data_of(payload):
 
 def psql(sql):
     env = dict(os.environ)
+    # psql 只认 PGPASSWORD（不认 NIK_DATABASE_PASSWORD）；生产 env 里两者都有值时也能跑
+    env["PGPASSWORD"] = os.environ.get("NIK_DATABASE_PASSWORD", env.get("PGPASSWORD", ""))
     command = [
         "psql",
         "-h", os.environ.get("NIK_DATABASE_HOST", "127.0.0.1"),
@@ -193,6 +195,16 @@ def baseline():
 
 # ──────────────────────────── 主流程 ────────────────────────────
 
+def bs_amounts(period):
+    """资产负债表的 {item_code: 金额}（接口不可用时返回空字典）。"""
+    status, payload = api("GET", f"/api/business/erp/report/balance-sheet?period={period}", token=TOKEN)
+    body = data_of(payload) or {}
+    amounts = {}
+    for line in (body.get("assets") or []) + (body.get("liabilities") or []) + (body.get("equity") or []):
+        amounts[line.get("item_code")] = line.get("amount")
+    return status, amounts
+
+
 def login():
     """登录（自动处理「首次登录必须改密」：改密 → 用新口令重登）。
 
@@ -261,6 +273,10 @@ def main():
     )
     check("① 开 2027-01 期间", status == 200, f"HTTP {status} {msg_of(payload)}")
 
+    # 报表基线（**增量口径**：生产库里本来就有历史数据，绝对值不可断言）
+    bs_status, bs_base = bs_amounts(PERIOD)
+    check("①b 资产负债表基线可取（增量断言的基准）", bs_status == 200, f"HTTP {bs_status}")
+
     # ---------- ② 未录状态 ----------
     status, payload = api("GET", f"/api/business/erp/opening-balance?period={PERIOD}", token=TOKEN)
     body = data_of(payload) or {}
@@ -303,6 +319,17 @@ def main():
         "④ 借贷平衡 → 200 + state=ENTERED + 生成期初凭证",
         status == 200 and body.get("state") == "ENTERED" and bool(voucher.get("voucher_no")),
         f"HTTP {status} state={body.get('state')} voucher={voucher.get('voucher_no')}",
+    )
+
+    # 期初的报表效应按**增量**验（生产库里本来就有数据，绝对值不可断言）
+    status, bs_before = bs_amounts(PERIOD)
+    check(
+        "④c 录期初后资产负债表：货币资金 +50000 / 资产合计 +50000（增量口径）",
+        status == 200
+        and eq_num(num(bs_before.get("MONETARY_FUNDS")) - num(bs_base.get("MONETARY_FUNDS")), 50000)
+        and eq_num(num(bs_before.get("TOTAL_ASSETS")) - num(bs_base.get("TOTAL_ASSETS")), 50000),
+        f"货币资金 {bs_base.get('MONETARY_FUNDS')} → {bs_before.get('MONETARY_FUNDS')}；"
+        f"资产合计 {bs_base.get('TOTAL_ASSETS')} → {bs_before.get('TOTAL_ASSETS')}",
     )
     v_type = one(f"SELECT voucher_type FROM biz_voucher WHERE period = {PERIOD_SQL}")
     v_date = one(f"SELECT voucher_date::text FROM biz_voucher WHERE period = {PERIOD_SQL}")
@@ -405,19 +432,16 @@ def main():
     )
 
     # ---------- ⑨ 资产负债表 ----------
-    status, payload = api("GET", f"/api/business/erp/report/balance-sheet?period={PERIOD}", token=TOKEN)
-    body = data_of(payload) or {}
-    amounts = {}
-    for line in (body.get("assets") or []) + (body.get("liabilities") or []) + (body.get("equity") or []):
-        amounts[line.get("item_code")] = line.get("amount")
+    status, amounts = bs_amounts(PERIOD)
     check(
-        "⑨ 资产负债表：货币资金 50000 / 存货 1000 / 资产合计 51000",
+        "⑨ 资产负债表（增量口径）：货币资金 +50000 / 存货 +1000 / 资产合计 +51000",
         status == 200
-        and eq_num(amounts.get("MONETARY_FUNDS"), 50000)
-        and eq_num(amounts.get("INVENTORY"), 1000)
-        and eq_num(amounts.get("TOTAL_ASSETS"), 51000),
-        f"HTTP {status} 货币资金={amounts.get('MONETARY_FUNDS')} 存货={amounts.get('INVENTORY')} "
-        f"资产合计={amounts.get('TOTAL_ASSETS')}",
+        and eq_num(num(amounts.get("MONETARY_FUNDS")) - num(bs_base.get("MONETARY_FUNDS")), 50000)
+        and eq_num(num(amounts.get("INVENTORY")) - num(bs_base.get("INVENTORY")), 1000)
+        and eq_num(num(amounts.get("TOTAL_ASSETS")) - num(bs_base.get("TOTAL_ASSETS")), 51000),
+        f"HTTP {status} 货币资金 {bs_base.get('MONETARY_FUNDS')}→{amounts.get('MONETARY_FUNDS')} "
+        f"存货 {bs_base.get('INVENTORY')}→{amounts.get('INVENTORY')} "
+        f"资产合计 {bs_base.get('TOTAL_ASSETS')}→{amounts.get('TOTAL_ASSETS')}",
     )
     check(
         "⑨b 勾稽：资产 ≡ 负债+权益（期初不破坏平衡）",
