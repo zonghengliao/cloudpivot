@@ -263,7 +263,7 @@
           <p
             v-if="isPendingCancel(detail) && cancelReasonText(detail)"
             class="drawer-cancel-reason"
-            data-testid="payable-cancel-reason"
+            data-testid="payable-pending-cancel-reason"
           >
             <span class="muted">作废原因：</span>{{ cancelReasonText(detail) }}
           </p>
