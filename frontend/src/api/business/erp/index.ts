@@ -2983,3 +2983,125 @@ export async function exportIncomeStatement(period: string): Promise<Blob> {
   });
   return response.data;
 }
+
+// ==================== 现金流量表（ERP-R3，简化版） ====================
+
+/** 现金流量表的一行（对应后端 `cash_flow::CashLineRes`） */
+export interface CashFlowLine {
+  /** 明细行编码（`OPER_SALES_RECEIPTS` …；`OTHER_*` 是运行时补出来的未分类行） */
+  item_code: string;
+  /** 明细行名称（纸面报表原文） */
+  item_name: string;
+  /** 本期金额 */
+  current: string;
+  /** 本年累计金额 */
+  ytd: string;
+  /** 实际命中的对方科目编码（可审计） */
+  accounts: string[];
+  /** 取数说明（对方科目 pattern 原文） */
+  detail: string | null;
+}
+
+/** 金额对（本期 / 本年累计）—— 后端 `cash_flow::AmountPair` */
+export interface CashFlowAmountPair {
+  current: string;
+  ytd: string;
+}
+
+/** 一个活动分区（经营 / 投资 / 筹资 / 其他） */
+export interface CashFlowSection {
+  /** `OPERATING` / `INVESTING` / `FINANCING` / `OTHER` */
+  activity: string;
+  /** 标题（含「一、」这类前缀，前端不要再拼） */
+  activity_name: string;
+  inflow: CashFlowLine[];
+  inflow_total: CashFlowAmountPair;
+  outflow: CashFlowLine[];
+  outflow_total: CashFlowAmountPair;
+  /** 净额 = 流入小计 − 流出小计 */
+  net: CashFlowAmountPair;
+}
+
+/** 现金流量表勾稽（期末现金余额 ≡ 资产负债表「货币资金」） */
+export interface CashFlowCheck {
+  balanced: boolean;
+  /** 本表算出来的期末现金余额 */
+  closing_balance: string;
+  /** 资产负债表「货币资金」 */
+  balance_sheet_cash: string;
+  /** 差额（不做舍入） */
+  diff: string;
+  /** 差额人话（`0.00` / `-250.00` / `0.0001`） */
+  diff_text: string;
+  /** 整句结论（直接显示） */
+  message: string;
+  /** 总账现金类科目期末余额（第三方视角） */
+  closing_by_ledger: string;
+  /** 本期现金分录笔数 */
+  cash_entry_count: number;
+  /** 未能分类的笔数（已归「其他」） */
+  unclassified_count: number;
+  unclassified_inflow: string;
+  unclassified_outflow: string;
+  unbalanced_vouchers: UnbalancedVoucher[];
+  hints: string[];
+}
+
+/** 现金流量表（对应后端 `cash_flow::CashFlowRes`） */
+export interface CashFlow {
+  report_code: string;
+  report_name: string;
+  company_name: string;
+  unit: string;
+  /** 会计期间 `yyyy-MM` */
+  period: string;
+  period_name: string;
+  /** `OPEN` / `CLOSED`；`DERIVED` = 库里没期间行、按自然月推算（要先开账） */
+  period_status: ReportPeriodStatus;
+  period_start: string;
+  period_end: string;
+  /** 本年累计起算日（1 月 1 日） */
+  ytd_start: string;
+  current_label: string;
+  ytd_label: string;
+  generated_at: string;
+  /** 恒 true：本表是简化版（口径见 simplified_note） */
+  simplified: boolean;
+  /** 简化口径说明（原样展示） */
+  simplified_note: string;
+  operating: CashFlowSection;
+  investing: CashFlowSection;
+  financing: CashFlowSection;
+  /** 其他（未分类，含分录不平差额） */
+  other: CashFlowSection;
+  net_increase: CashFlowAmountPair;
+  opening_balance: CashFlowAmountPair;
+  closing_balance: CashFlowAmountPair;
+  check: CashFlowCheck;
+  warnings: string[];
+}
+
+/**
+ * 编制现金流量表（`GET /erp/report/cash-flow?period=yyyy-MM`）。
+ *
+ * # 异常情况
+ * - 400 + `10001`：`period` 缺失 / 不是 `yyyy-MM`；
+ * - 400 + `66010`：该期间**没在「会计期间」里建立**且该月没有任何已记账凭证；
+ * - 500 + `66011`：分类配置为空 / 坏（`biz_cashflow_item`）。
+ */
+export function fetchCashFlow(period: string): Promise<CashFlow> {
+  return get<CashFlow>(`${BASE}/report/cash-flow`, asParams({ period }));
+}
+
+/**
+ * 导出现金流量表 xlsx（`GET /erp/report/cash-flow/export`）。
+ *
+ * 返回文件字节流（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'`。
+ */
+export async function exportCashFlow(period: string): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/report/cash-flow/export`, {
+    params: asParams({ period }),
+    responseType: 'blob',
+  });
+  return response.data;
+}

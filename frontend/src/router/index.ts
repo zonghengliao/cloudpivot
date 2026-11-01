@@ -477,6 +477,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '利润表', permission: 'business:erp:report:income-statement' },
       },
       {
+        // ==================== ERP 现金流量表（ERP-R3，简化版） ====================
+        // `sys_menu` 种子（V0185 …1018）path = `/business/erp/report/cash-flow`，
+        // component `business/erp/report/cash-flow/index`；导出按钮复用
+        // `business:erp:report:export`。**路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/cash-flow',
+        name: 'BusinessErpCashFlow',
+        component: () => import('@/views/business/erp/report/cash-flow/index.vue'),
+        meta: { title: '现金流量表', permission: 'business:erp:report:cash-flow' },
+      },
+      {
         // ==================== ERP 会计科目（P4-C，只读树形） ====================
         // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
         // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。

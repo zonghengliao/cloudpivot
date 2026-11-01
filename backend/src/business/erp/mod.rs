@@ -27,6 +27,7 @@
 //! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入） | **P7** |
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
+//! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -51,6 +52,7 @@
 //! 分页一律走 `scope::paginate_unscoped` + `ScopeTarget::unscoped`，
 //! 理由见 [`model`] 文件头的 `SCOPE-EXEMPT` 说明。
 
+pub mod cash_flow;
 pub mod dto;
 pub mod handler;
 pub mod income_statement;
