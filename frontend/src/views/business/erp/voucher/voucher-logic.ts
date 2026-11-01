@@ -397,38 +397,11 @@ export function withdrawReverseBlockedReason(
   return '当前账号没有「撤回红冲审批」的权限（business:erp:voucher:withdraw-reverse），请联系有权限的发起人或系统管理员';
 }
 
-/** 红冲审批的流程业务类型（后端 `voucher_write::REVERSE_BIZ_TYPE`），兜底查询要用。 */
-export const VOUCHER_REVERSE_BIZ_TYPE = 'VOUCHER_REVERSE';
-
-/**
- * 从审批实例列表里挑出「红冲审批中」的凭证 → 审批实例对照（**兜底路径**用）。
- *
- * 为什么需要：`VoucherRes` 目前没下发 `pending_reverse_instance_id`（见
- * `voucher-write-api.ts::VoucherFlowState` 的注释），而审批引擎的实例分页是现成的真实数据源
- * （`biz_flow_instance.biz_id` 就是凭证 id，`id` 就是 pending 该挂的实例 id）。
- * 页面据此把「库里的 pending」补回行上（补的是**真实例 id**，不是真假值），
- * 后端补上字段后这条路径自动不再被调用。
- *
- * 过滤条件：`biz_type === 'VOUCHER_REVERSE'`、状态（缺省视为 `PENDING`），`biz_id` 非空。
+/*
+ * P-FLOW-3B 补漏：原先这里还有一层「从 `GET /business/flow/instance/page` 挑出红冲类 PENDING
+ * 实例、再按 `biz_id` 反查凭证」的兜底映射，已**整层删除**。它有两个毛病：
+ * ① 每次列表多打一次实例分页；② 实例分页有**数据可见性过滤**（不是本人发起 / 参与就查不到），
+ * 于是「能看凭证列表但没参与过红冲审批的账号」看不到徽标。
+ * 后端补漏后列表 / 详情 / 红冲回执三处都下发该字段（字段恒在、不审批时为 `null`），
+ * 前端直接读字段即可 —— 红冲的流程业务类型常量也随之成了死代码，一并删掉。
  */
-export function pendingReverseInstances(
-  instances: ReadonlyArray<{ id?: string | null; biz_type?: string | null; biz_id?: string | null; status?: string | null }>,
-  bizType: string = VOUCHER_REVERSE_BIZ_TYPE,
-): Array<{ voucher_id: string; instance_id: string }> {
-  const out = new Map<string, string>();
-  for (const item of instances) {
-    if ((item.biz_type ?? '') !== bizType) {
-      continue;
-    }
-    const status = (item.status ?? 'PENDING').toUpperCase();
-    if (status !== 'PENDING') {
-      continue;
-    }
-    const bizId = (item.biz_id ?? '').trim();
-    const instanceId = (item.id ?? '').trim();
-    if (bizId && instanceId && !out.has(bizId)) {
-      out.set(bizId, instanceId);
-    }
-  }
-  return [...out.entries()].map(([voucher_id, instance_id]) => ({ voucher_id, instance_id }));
-}

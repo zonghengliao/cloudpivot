@@ -598,11 +598,9 @@ import {
   type VoucherDetailEx,
   type VoucherRowEx,
 } from './voucher-write-api';
-import { pageFlowInstances } from '@/api/business/flow-api';
 import {
   VOUCHER_PAGE_SIZE,
   VOUCHER_PENDING_REVERSE_LABEL,
-  VOUCHER_REVERSE_BIZ_TYPE,
   VOUCHER_STATUS_FILTER_OPTIONS,
   VOUCHER_TYPE_FILTER_OPTIONS,
   balanceCheck,
@@ -614,7 +612,6 @@ import {
   emptyVoucherFilter,
   isPendingReverse,
   isVoucherFiltered,
-  pendingReverseInstances,
   sourceTypeLabel,
   voucherStatusLabel,
   voucherStatusTheme,
@@ -794,77 +791,26 @@ function messageOf(error: unknown): string {
 }
 
 /**
- * 红冲审批中：凭证 id → 审批实例 id（**后端契约未下发字段时的兜底**）。
+ * 拉列表。
  *
- * `voucher_query.rs::VoucherRes` 目前没带 `pending_reverse_instance_id`（列和 `VoucherRow` 都有，
- * 只是 DTO 没透出，已开子卡）。字段缺席时用审批引擎的实例分页补：
- * `biz_type = VOUCHER_REVERSE` + `status = PENDING` 的实例，`biz_id` 就是凭证 id。
+ * 「红冲审批中」直接读后端下发的 `pending_reverse_instance_id`（P-FLOW-3B 补漏后
+ * `voucher_query.rs::VoucherRes` 的**列表 / 详情 / 红冲回执三处都下发**，不审批时是
+ * `null`、字段恒在），所以前端不再自己倒查审批实例。
  *
- * 为什么不是「猜一个标记位」：补回来的是**真实例 id**，所以详情里还能顺带挂审批进度；
- * 后端补上字段后 `every(row => row.pending_reverse_instance_id !== undefined)` 成立 → 这条路径
- * 根本不会再发请求（既不多一次 API，也不会双源打架）。
+ * 早期那层「从审批引擎实例分页补 pending」的兜底已整层删除（P-FLOW-3B 补漏）：
+ * 它要多打一次 `GET /business/flow/instance/page`，而且实例分页**有数据可见性过滤**
+ * （不是本人发起 / 参与的就查不到）—— 于是「能看凭证列表但没参与过红冲审批」的账号
+ * 看不到徽标。换成后端字段后，只要能看到凭证列表就能看到徽标，且一次请求都不多发。
  */
-const pendingReverseMap = ref<Map<string, string>>(new Map());
-
-/** 把兜底查到的 pending 合回行上（后端已下发字段的行原样不动）。 */
-function injectPendingReverse(list: VoucherRowEx[]): VoucherRowEx[] {
-  if (pendingReverseMap.value.size === 0) {
-    return list;
-  }
-  return list.map((row) => {
-    if (row.pending_reverse_instance_id) {
-      return row;
-    }
-    const instanceId = pendingReverseMap.value.get(row.id);
-    return instanceId ? { ...row, pending_reverse_instance_id: instanceId } : row;
-  });
-}
-
-/**
- * 兜底：后端没下发 `pending_reverse_instance_id` 时，从审批引擎捞「红冲审批中」的凭证。
- *
- * 静默失败（没权限 / 接口异常）—— 兜底层不该让整页报错，最坏结果只是「暂时看不到徽标」，
- * 点「红冲」会被后端 409 挡住，不会重复送审。
- */
-async function loadPendingReverseFallback(list: VoucherRowEx[]): Promise<void> {
-  if (list.length === 0) {
-    return;
-  }
-  // 后端已下发字段（哪怕是 null）= 有了权威答案，不再查引擎
-  if (list.every((row) => row.pending_reverse_instance_id !== undefined)) {
-    return;
-  }
-  if (!userStore.hasPermission('business:flow:instance:read')) {
-    return;
-  }
-  try {
-    const data = await pageFlowInstances({
-      status: 'PENDING',
-      biz_type: VOUCHER_REVERSE_BIZ_TYPE,
-      page: 1,
-      page_size: 200,
-    });
-    const map = new Map<string, string>();
-    for (const item of pendingReverseInstances(data.list ?? [])) {
-      map.set(item.voucher_id, item.instance_id);
-    }
-    pendingReverseMap.value = map;
-  } catch {
-    pendingReverseMap.value = new Map();
-  }
-}
-
-/** 拉列表 */
 async function loadVouchers(page: number = current.value): Promise<void> {
   loading.value = true;
   loadError.value = '';
   try {
     const data = await fetchVoucherPage(buildVoucherQuery(filter, page, pageSize));
-    // 后端多给 `reverse_of_no` / `reversed_by_no`（P7），api 层的 VoucherRow 还没声明
-    // （那个文件是全 ERP 共用契约，本卡不动），这里按扩展类型收。
-    const list = (data.list ?? []) as VoucherRowEx[];
-    await loadPendingReverseFallback(list);
-    rows.value = injectPendingReverse(list);
+    // 后端多给 `reverse_of_no` / `reversed_by_no`（P7）、`pending_reverse_instance_id` /
+    // `reverse_reason`（P-FLOW-3B）；api 层的 VoucherRow 还没声明（那个文件是全 ERP 共用契约，
+    // 本卡不动），这里按扩展类型收。
+    rows.value = (data.list ?? []) as VoucherRowEx[];
     total.value = data.total ?? 0;
     const rawPage = data.page ?? page;
     const maxPage = Math.max(1, Math.ceil(total.value / pageSize));
@@ -940,8 +886,8 @@ async function loadDetailEx(id: string): Promise<VoucherDetailEx> {
  * 先用列表行占位（单头字段列表已全给），再拉详情补 `entries` ——
  * 抽屉立刻能显示凭证号 / 状态 / 来源，不会先白一下。
  *
- * ⚠️ P-FLOW-3B：`VoucherRes` 详情**也没下发** `pending_reverse_instance_id`，
- * 所以拉回详情后要把列表行 / 兜底表里的 pending 合并回去，否则一开抽屉「红冲审批中」就消失。
+ * ⚠️ P-FLOW-3B：`pending_reverse_instance_id` / `reverse_reason` 详情接口**也恒下发**
+ * （补漏后端已透出），所以拉回详情后直接用它，不再从列表行 / 审批实例分页补。
  */
 async function openDetail(row: VoucherRow): Promise<void> {
   detail.value = emptyDetail(row);
@@ -949,7 +895,7 @@ async function openDetail(row: VoucherRow): Promise<void> {
   detailLoading.value = true;
   try {
     const loaded = await loadDetailEx(row.id);
-    detail.value = mergePendingReverse(loaded, (row as VoucherRowEx).pending_reverse_instance_id);
+    detail.value = normalizePendingReverse(loaded);
   } catch (error) {
     // 详情失败不关抽屉：单头仍可看，分录位置给出原因
     void MessagePlugin.error(messageOf(error));
@@ -958,13 +904,14 @@ async function openDetail(row: VoucherRow): Promise<void> {
   }
 }
 
-/** 详情合并 pending（详情接口没这个字段时，用列表行 / 兜底表的值补上）。 */
-function mergePendingReverse(detailRow: VoucherDetailEx, fallbackId?: string | null): VoucherDetailEx {
-  const instanceId =
-    detailRow.pending_reverse_instance_id ?? fallbackId ?? pendingReverseMap.value.get(detailRow.id) ?? null;
+/**
+ * 详情字段归一：后端**恒定下发** `pending_reverse_instance_id` / `reverse_reason`
+ * （不审批时是 `null`），这里只把 `undefined` 归成 `null`，让模板判据只有一种形态。
+ */
+function normalizePendingReverse(detailRow: VoucherDetailEx): VoucherDetailEx {
   return {
     ...detailRow,
-    pending_reverse_instance_id: instanceId,
+    pending_reverse_instance_id: detailRow.pending_reverse_instance_id ?? null,
     reverse_reason: detailRow.reverse_reason ?? null,
   };
 }
@@ -976,7 +923,7 @@ async function openById(id: string | null): Promise<void> {
   }
   detailLoading.value = true;
   try {
-    detail.value = mergePendingReverse(await loadDetailEx(id));
+    detail.value = normalizePendingReverse(await loadDetailEx(id));
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -1050,14 +997,10 @@ async function submitReverse(): Promise<void> {
     const feedback = submitFeedback('voucher-reverse', result, result.voucher_no || target.voucher_no, result.voucher_no);
     MessagePlugin[feedback.level](feedback.text);
     if (result.outcome === 'PENDING_APPROVAL') {
-      // 送审：实例 id 挂到这张凭证上（列表 / 抽屉立刻显示「红冲审批中」，不用等刷新）
-      const instanceId = result.approval_instance_id ?? null;
-      if (instanceId) {
-        const map = new Map(pendingReverseMap.value);
-        map.set(target.id, instanceId);
-        pendingReverseMap.value = map;
-      }
-      detail.value = mergePendingReverse({ ...result, pending_reverse_instance_id: instanceId }, instanceId);
+      // 送审：`ReverseSubmitRes`（P-FLOW-3B 补漏）**也下发** `pending_reverse_instance_id`，
+      // 抽屉立刻显示「红冲审批中」，不用等列表刷新。
+      const instanceId = result.pending_reverse_instance_id ?? result.approval_instance_id ?? null;
+      detail.value = normalizePendingReverse({ ...result, pending_reverse_instance_id: instanceId });
       detailVisible.value = true;
     } else {
       // 直接红冲：抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
@@ -1110,14 +1053,9 @@ async function doWithdrawReverse(row: { id: string; voucher_no: string }): Promi
     const updated = await withdrawReverseVoucher(row.id, '页面撤回');
     const feedback = withdrawFeedback('voucher-reverse', updated.voucher_no || row.voucher_no, voucherStatusLabel(updated.status));
     MessagePlugin[feedback.level](feedback.text);
-    // 兜底表里那条 pending 已经没了（删掉，否则下次进页面还会误判）
-    if (pendingReverseMap.value.has(row.id)) {
-      const map = new Map(pendingReverseMap.value);
-      map.delete(row.id);
-      pendingReverseMap.value = map;
-    }
+    // 撤回后后端已把 `pending_reverse_instance_id` 置空（响应里就是 null），抽屉直接用它
     if (detail.value?.id === updated.id) {
-      detail.value = mergePendingReverse({ ...updated, pending_reverse_instance_id: null });
+      detail.value = normalizePendingReverse({ ...updated, pending_reverse_instance_id: null });
     }
     void loadVouchers();
   } catch (error) {

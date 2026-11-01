@@ -27,15 +27,13 @@ export interface VoucherFlowState {
   /**
    * 红冲审批实例 id（有值 = 正在审批红冲）。
    *
-   * ⚠️ 后端契约缺口：`voucher_query.rs::VoucherRes`（列表 + 详情）**目前还没下发**这个字段
-   * （`VoucherRow` 与 `biz_voucher` 列都有了，只是 DTO 没带出来）。所以声明成可选：
-   * 后端补上之前它是 `undefined`（不是 `null`），前端据此切到
-   * `pageFlowInstances` 的兜底路径（见 `voucher/index.vue::loadPendingReverseFallback`）。
-   * 补上之后这一层自动失效（字段一出现就以它为准）。
+   * `voucher_query.rs::VoucherRes` 的**列表 / 详情 / 红冲回执三处都下发**
+   * （P-FLOW-3B 补漏），不审批时是 `null` —— **字段恒在**，所以这里声明成必填的
+   * `string | null`：谁把它改回可选，`vue-tsc` 会立刻报「模板可能读到 undefined」。
    */
-  pending_reverse_instance_id?: string | null;
-  /** 红冲原因（提交审批时填的；通过后成为红字凭证的分录摘要）。同上：DTO 暂未下发。 */
-  reverse_reason?: string | null;
+  pending_reverse_instance_id: string | null;
+  /** 红冲原因（提审时填的那段文字；通过后成为红字凭证的分录摘要）。同样是恒在的 `string | null`。 */
+  reverse_reason: string | null;
 }
 
 /** 凭证行 + 关联凭证号 + 红冲审批中标记。 */

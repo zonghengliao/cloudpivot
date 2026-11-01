@@ -234,7 +234,7 @@
         </div>
 
         <div class="drawer-body">
-          <!-- ★ P-FLOW-3B：作品审批中（欠款一分没动）→ 一句话说清 + 撤回入口 -->
+          <!-- ★ P-FLOW-3B：作废审批中（欠款一分没动）→ 一句话说清 + 撤回入口 -->
           <t-alert
             v-if="isPendingCancel(detail)"
             theme="warning"
@@ -255,6 +255,18 @@
               </t-button>
             </template>
           </t-alert>
+
+          <!--
+            ★ P-FLOW-3B 补漏：作废原因直接读 `PayableRes::cancel_reason`（列表 + 详情都下发），
+            不是「送审那一刻」的临时状态 —— 刷新 / 重开抽屉后仍在。
+          -->
+          <p
+            v-if="isPendingCancel(detail) && cancelReasonText(detail)"
+            class="drawer-cancel-reason"
+            data-testid="payable-cancel-reason"
+          >
+            <span class="muted">作废原因：</span>{{ cancelReasonText(detail) }}
+          </p>
 
           <!-- ★ D5：发起付款（payInfo.can_pay 由后端 payment-info 接口裁决，前端不推状态） -->
           <div class="drawer-actions" data-testid="payable-drawer-actions">
@@ -592,11 +604,13 @@ import { getFlowInstance } from '@/api/business/flow-api';
 import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
+  approvalTargetOf,
   buildPayableQuery,
   canCancelPayable as canCancel,
   canPayPayable as canPay,
   canStartPay,
   canWithdrawCancel,
+  cancelReasonText,
   emptyPayableFilter,
   isPayableFiltered,
   isPendingCancel,
@@ -873,9 +887,9 @@ async function openDetail(row: PayableRow): Promise<void> {
   detailLoading.value = true;
   try {
     detail.value = await fetchPayableDetail(row.id);
-    // P17：有审批中的付款 → 顺手把审批进度拉出来（失败不影响详情展示）
-    const pending = detail.value.payments.find((item) => item.approval_instance_id);
-    await loadApprovalProgress(pending?.approval_instance_id ?? null);
+    // P-FLOW-3B：作废审批中用 `cancel_instance_id`（新字段）；否则看有没有审批中的付款
+    // （`approvalTargetOf` 是纯函数，单测直接打；失败不影响详情展示）
+    await refreshApprovalProgress(detail.value);
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -883,6 +897,18 @@ async function openDetail(row: PayableRow): Promise<void> {
   }
   // ★ D5：可付信息（能不能付 / 默认金额 / 超付提示）—— 单独一个只读接口，失败不挡详情
   await loadPayInfo(row.id);
+}
+
+/**
+ * 按单据当前状态选要展示的审批进度（进度只来自引擎写的节点行）。
+ *
+ * 作废审批中 → 「作废审批进度」（实例 id 来自 `PayableRes::cancel_instance_id`，列表 + 详情都下发，
+ * 所以**重新打开抽屉后仍在**）；否则 → 那笔审批中的付款。
+ */
+async function refreshApprovalProgress(row: PayableDetail): Promise<void> {
+  const pendingPay = row.payments?.find((item) => item.approval_instance_id);
+  const target = approvalTargetOf(row, pendingPay?.approval_instance_id);
+  await loadApprovalProgress(target.instanceId, target.title);
 }
 
 // ==================== D5：可付信息（应付单 → 发起付款） ====================
@@ -1230,8 +1256,9 @@ async function submitCancel(): Promise<void> {
     detail.value = result;
     // ★ D5：可付信息重拉（未付没变，但 can_pay / 按钮文案要跟着状态走）
     await loadPayInfo(result.id);
-    // 送审了才有实例 id → 顺手把作废审批进度挂出来
-    await loadApprovalProgress(result.approval_instance_id, '作废审批进度');
+    // 送审的响应是 `PayableDetailRes` 平铺（含 `cancel_instance_id` / `cancel_reason`），
+    // 进度 / 原因都从单据字段读，不依赖「送审那一刻」的临时状态
+    await refreshApprovalProgress(result);
     void loadPayables();
   } catch (error) {
     cancelError.value = messageOf(error);
@@ -1279,9 +1306,9 @@ async function doWithdrawCancel(row: PayableRow | PayableDetail): Promise<void> 
     const feedback = withdrawFeedback('payable-cancel', updated.payable_no || row.payable_no, payableStatusLabel(updated.status));
     MessagePlugin[feedback.level](feedback.text);
     if (detail.value?.id === updated.id) {
+      // 撤回后后端已清掉 `cancel_instance_id` → 进度区跟着回到「付款审批」口径（通常是空）
       detail.value = updated;
-      approvalNodes.value = [];
-      approvalTitle.value = '作废审批进度';
+      await refreshApprovalProgress(updated);
     }
     await loadPayInfo(updated.id);
     void loadPayables();
@@ -1528,6 +1555,15 @@ onMounted(() => {
   font-size: 12px;
   line-height: 20px;
   color: var(--td-text-color-secondary);
+}
+
+/* ★ P-FLOW-3B 补漏：详情抽屉里的「作废原因」（与警告条同色系，不抢主信息） */
+.drawer-cancel-reason {
+  margin: -4px 0 0;
+  font-size: 13px;
+  line-height: 22px;
+  color: var(--td-text-color-primary);
+  word-break: break-all;
 }
 
 /* ==================== 操作列 / 付款记录 / 弹窗（P7） ==================== */

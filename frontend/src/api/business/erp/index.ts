@@ -1882,6 +1882,16 @@ export interface PayableRow {
   voucher_id: string | null;
   /** 备注 */
   remark: string | null;
+  /**
+   * 作废审批实例 id（P-FLOW-3B 补漏后**列表 + 详情都下发**）。
+   *
+   * `PENDING_CANCEL` 时必有值（库侧 `ck_biz_payable_pending_cancel`），撤回 / 审批结束后后端清成
+   * `null`。详情抽屉据此显示「作废审批进度」——在此之前只能在**送审那一刻**用响应里的
+   * `approval_instance_id` 显示，重新打开抽屉进度区就没了。
+   */
+  cancel_instance_id: string | null;
+  /** 作废原因（P-FLOW-3B 补漏后**列表 + 详情都下发**）：送审时填的那段文字，不审批时是 `null`。 */
+  cancel_reason: string | null;
   /** 创建时间 */
   created_at: string | null;
   /** 更新时间 */

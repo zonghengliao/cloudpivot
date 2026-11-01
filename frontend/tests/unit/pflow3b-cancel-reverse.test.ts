@@ -13,7 +13,9 @@
  * | 作废审批中还显示「付款」「作废」 → 点了必被后端 409 | ② ③ |
  * | 红冲审批中还显示「红冲」 → 点了必 409「已在红冲审批中」 | ⑦ |
  * | 徽标文案与后端 `status_label` 漂移 | ① 同时断言前端文案与后端源码字面量 |
- * | 后端补了 `pending_reverse_instance_id` 前端没跟上 → 永远显示不出徽标 | ⑧ 兜底映射（实例分页） |
+ * | 后端补了 `pending_reverse_instance_id` 前端没跟上 → 永远显示不出徽标 | ⑧ 字段必填 + 兜底已删 |
+ * | 有人把「审批实例分页」那层兜底又加回来（多打请求 + 受可见性限制） | ⑧ 源码扫描 |
+ * | 抽屉里作废进度 / 原因只在「送审那一刻」有，重开抽屉就没了 | ⑨ `approvalTargetOf` / `cancelReasonText` |
  *
  * 断言口径直接抄后端（`readFileSync` 读源码比对，后端改一个字这里先红）：
  * - `backend/src/business/erp/payable.rs` → `STATUS_PENDING_CANCEL = "PENDING_CANCEL"`；
@@ -29,10 +31,12 @@ import { readFileSync } from 'node:fs';
 import {
   PAYABLE_STATUS_FILTER_OPTIONS,
   PAYABLE_STATUS_PENDING_CANCEL,
+  approvalTargetOf,
   canCancelPayable,
   canPayPayable,
   canStartPay,
   canWithdrawCancel,
+  cancelReasonText,
   isPendingCancel,
   payableStatusLabel,
   payableStatusTheme,
@@ -40,11 +44,9 @@ import {
 } from '@/views/business/erp/payable/payable-logic';
 import {
   VOUCHER_PENDING_REVERSE_LABEL,
-  VOUCHER_REVERSE_BIZ_TYPE,
   canReverseVoucher,
   canWithdrawReverse,
   isPendingReverse,
-  pendingReverseInstances,
   withdrawReverseBlockedReason,
 } from '@/views/business/erp/voucher/voucher-logic';
 import {
@@ -300,32 +302,87 @@ test('⑦ 没有撤回权限时凭证侧也说清原因', () => {
   assert.equal(withdrawReverseBlockedReason(voucher(), false), '');
 });
 
-// ==================== ⑧ 兜底：后端没下发字段时从审批实例补 ====================
+// ==================== ⑧ 契约收口：兜底已删，字段以 DTO 为准 ====================
 
-test('⑧ 实例分页 → 凭证 id / 实例 id 对照（只认 VOUCHER_REVERSE + PENDING）', () => {
-  assert.equal(VOUCHER_REVERSE_BIZ_TYPE, 'VOUCHER_REVERSE');
-  assert.ok(
-    backendSource('voucher_write.rs').includes('pub const REVERSE_BIZ_TYPE: &str = "VOUCHER_REVERSE";'),
-    '后端红冲审批的 biz_type 改了，兜底查询要跟着改',
-  );
+/** 前端源码（相对 `frontend/src`，本文件在 `frontend/tests/unit`）。 */
+function frontendSource(relative: string): string {
+  return readFileSync(new URL(`../../src/${relative}`, import.meta.url), 'utf8');
+}
 
-  const instances = [
-    { id: 'inst-1', biz_type: 'VOUCHER_REVERSE', biz_id: 'v-1', status: 'PENDING' },
-    { id: 'inst-2', biz_type: 'VOUCHER_REVERSE', biz_id: 'v-2', status: 'APPROVED' },
-    { id: 'inst-3', biz_type: 'PAYABLE_CANCEL', biz_id: 'v-3', status: 'PENDING' },
-    { id: 'inst-4', biz_type: 'VOUCHER_REVERSE', biz_id: '', status: 'PENDING' },
-    { id: 'inst-5', biz_type: 'VOUCHER_REVERSE', biz_id: 'v-1', status: 'PENDING' },
-    { id: 'inst-6', biz_type: 'VOUCHER_REVERSE', biz_id: 'v-6' },
-  ];
-  const pairs = pendingReverseInstances(instances);
-  // 只留 v-1（PENDING，重复的只取第一条）与 v-6（status 缺省按 PENDING）
-  assert.deepEqual(pairs, [
-    { voucher_id: 'v-1', instance_id: 'inst-1' },
-    { voucher_id: 'v-6', instance_id: 'inst-6' },
-  ]);
+test('⑧ 凭证页不再有「审批实例分页」兜底（删干净，grep 无引用）', () => {
+  const page = frontendSource('views/business/erp/voucher/index.vue');
+  assert.ok(!page.includes('loadPendingReverseFallback'), '兜底函数还在（或还有引用）');
+  assert.ok(!page.includes('pageFlowInstances'), '还在调审批实例分页');
+  assert.ok(!page.includes('VOUCHER_REVERSE'), '还在按 VOUCHER_REVERSE 查实例');
+  assert.ok(!page.includes('pendingReverseMap'), '兜底映射表还在');
+  // 徽标判据只剩后端下发的字段
+  assert.ok(page.includes('pending_reverse_instance_id'), '列表 / 详情还要读这个字段');
+
+  const logic = frontendSource('views/business/erp/voucher/voucher-logic.ts');
+  assert.ok(!logic.includes('pendingReverseInstances'), '逻辑层的兜底映射还在');
+  assert.ok(!logic.includes('VOUCHER_REVERSE_BIZ_TYPE'), 'biz_type 常量还在（已无消费者）');
 });
 
-test('⑧ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）', () => {
+test('⑧ 新字段是「恒在的 string | null」：前端必填 + 后端 DTO 真的下发', () => {
+  // 前端：谁把字段改回可选，说明又在给「缺字段」留门
+  const voucherApi = frontendSource('views/business/erp/voucher/voucher-write-api.ts');
+  assert.ok(voucherApi.includes('pending_reverse_instance_id: string | null;'), 'VoucherFlowState 字段声明变了');
+  assert.ok(!voucherApi.includes('pending_reverse_instance_id?:'), 'pending_reverse_instance_id 又变回可选');
+  assert.ok(voucherApi.includes('reverse_reason: string | null;'), 'reverse_reason 字段声明变了');
+  assert.ok(!voucherApi.includes('reverse_reason?:'), 'reverse_reason 又变回可选');
+
+  const erpApi = frontendSource('api/business/erp/index.ts');
+  assert.ok(erpApi.includes('cancel_instance_id: string | null;'), 'PayableRow 没声明 cancel_instance_id');
+  assert.ok(erpApi.includes('cancel_reason: string | null;'), 'PayableRow 没声明 cancel_reason');
+
+  // 后端：VoucherRes / PayableRes 必须真的带上（源码即契约，后端删字段这里先红）
+  const voucherQuery = backendSource('voucher_query.rs');
+  assert.ok(voucherQuery.includes('pub pending_reverse_instance_id: Option<String>'), 'VoucherRes 丢了 pending_reverse_instance_id');
+  assert.ok(voucherQuery.includes('pub reverse_reason: Option<String>'), 'VoucherRes 丢了 reverse_reason');
+  const payableQuery = backendSource('payable_query.rs');
+  assert.ok(payableQuery.includes('pub cancel_instance_id: Option<String>'), 'PayableRes 丢了 cancel_instance_id');
+  assert.ok(payableQuery.includes('pub cancel_reason: Option<String>'), 'PayableRes 丢了 cancel_reason');
+});
+
+// ==================== ⑨ 详情抽屉：作废进度 / 原因读 DTO 字段（重开抽屉仍在） ====================
+
+test('⑨ 抽屉进度按单据状态选：作废审批中 → 作废实例，否则付款实例', () => {
+  // 作废审批中 → 用作废实例 + 对应标题（标题写错会让「显示的是付款审批」这种误导回归）
+  assert.deepEqual(approvalTargetOf({ status: 'PENDING_CANCEL', cancel_instance_id: 'FLW-cancel' }, 'FLW-pay'), {
+    instanceId: 'FLW-cancel',
+    title: '作废审批进度',
+  });
+  // 非作废审批中 → 付款审批（哪怕 cancel_instance_id 还有残留值）
+  assert.deepEqual(approvalTargetOf({ status: 'OPEN', cancel_instance_id: 'FLW-old' }, 'FLW-pay'), {
+    instanceId: 'FLW-pay',
+    title: '付款审批进度',
+  });
+  assert.deepEqual(approvalTargetOf({ status: 'OPEN', cancel_instance_id: null }, null), {
+    instanceId: null,
+    title: '付款审批进度',
+  });
+  // 作废审批中却拿不到实例 id（不该发生）→ 不假装有进度
+  assert.deepEqual(approvalTargetOf({ status: 'PENDING_CANCEL', cancel_instance_id: null }, null), {
+    instanceId: null,
+    title: '付款审批进度',
+  });
+  // 空串不算实例 id（NULL vs '' 的口径别混）
+  assert.deepEqual(approvalTargetOf({ status: 'PENDING_CANCEL', cancel_instance_id: '  ' }, ''), {
+    instanceId: null,
+    title: '付款审批进度',
+  });
+  assert.deepEqual(approvalTargetOf(null, undefined), { instanceId: null, title: '付款审批进度' });
+});
+
+test('⑨ 作废原因：有值原样显示，null / 空白不渲染空行', () => {
+  assert.equal(cancelReasonText({ cancel_reason: '供应商发票开错' }), '供应商发票开错');
+  assert.equal(cancelReasonText({ cancel_reason: '  发票联次缺失  ' }), '发票联次缺失');
+  assert.equal(cancelReasonText({ cancel_reason: null }), '');
+  assert.equal(cancelReasonText({}), '');
+  assert.equal(cancelReasonText(null), '');
+});
+
+test('⑨ outcome 常量与后端逐字一致（送审/直做两条路的判据来源）', () => {
   assert.equal(OUTCOME_PENDING_APPROVAL, 'PENDING_APPROVAL');
   assert.ok(backendSource('payable_payment.rs').includes('pub const OUTCOME_CANCEL_PENDING: &str = "PENDING_APPROVAL";'));
   assert.ok(backendSource('voucher_write.rs').includes('pub const OUTCOME_REVERSE_PENDING: &str = "PENDING_APPROVAL";'));

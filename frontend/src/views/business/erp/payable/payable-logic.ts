@@ -359,6 +359,40 @@ export function withdrawCancelBlockedReason(
 }
 
 /**
+ * 详情抽屉该展示哪一条审批进度。
+ *
+ * P-FLOW-3B 起同一块位置要能显示两种进度：付款审批（P17）与**作废审批**。
+ * 判据来源不同，必须一起决定，否则会出现「抽屉里显示的是付款审批、单据其实卡在作废审批」的误导：
+ *
+ * - 单据在作废审批中（`PENDING_CANCEL`）→ 用 **`cancel_instance_id`**（`PayableRes` 列表 + 详情
+ *   都下发的**新字段**）。补漏之前只能用「送审那一刻」响应里的 `approval_instance_id`，
+ *   重新打开抽屉进度区就消失了；
+ * - 否则 → 用那笔还在审批中的付款实例（付款记录上的 `approval_instance_id`）。
+ *
+ * 抽成纯函数是为了能单测：写错分支不会报错，只会「进度区空着」或「标题与内容不一致」。
+ */
+export function approvalTargetOf(
+  row: { status?: string | null; cancel_instance_id?: string | null } | null | undefined,
+  paymentInstanceId?: string | null,
+): { instanceId: string | null; title: string } {
+  const cancelInstanceId = (row?.cancel_instance_id ?? '').trim();
+  if (row?.status === PAYABLE_STATUS_PENDING_CANCEL && cancelInstanceId) {
+    return { instanceId: cancelInstanceId, title: '作废审批进度' };
+  }
+  return { instanceId: (paymentInstanceId ?? '').trim() || null, title: '付款审批进度' };
+}
+
+/**
+ * 抽屉里的「作废原因」一行（没有原因返回空串 → 模板 `v-if` 不渲染）。
+ *
+ * 原因走 `PayableRes::cancel_reason`（新字段），不是「送审那一刻」的临时状态，
+ * 所以刷新 / 重开抽屉后仍在。
+ */
+export function cancelReasonText(row: { cancel_reason?: string | null } | null | undefined): string {
+  return (row?.cancel_reason ?? '').trim();
+}
+
+/**
  * 来源单据的跳转路径（`STOCK_IN` → 收货单页并打开详情）。
  *
  * 目前只有收货单页支持 `?in_id=`（见 `views/business/erp/stockin/index.vue`）；
