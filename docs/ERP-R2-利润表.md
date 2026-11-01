@@ -4,7 +4,9 @@
 > 代码：`backend/src/business/erp/income_statement.rs`、
 > `backend/migrations/business/V0184__erp_income_statement.{up,down}.sql`、
 > `frontend/src/views/business/erp/report/income-statement/index.vue`、
-> `scripts/verify/erpr2_income_statement.sh`
+> `scripts/verify/erpr2_income_statement.sh`（端到端）、
+> `scripts/verify/erpr2_page_check.mjs`（页面 DOM 断言）、
+> 验收证据：`docs/evidence/20261101-erpr2/`
 > 前置：ERP-R1（`biz_report_item` + 报表查询框架 + 56 个标准科目）
 
 ## 一、一句话
@@ -111,6 +113,11 @@
 | 损益类年初有余额 | 「上年没做年终结转，差额里含这块上年利润」 |
 | 分录借贷不等 / 单头不符 | 「Σ借 X ≠ Σ贷 Y」+ 点名具体凭证号 |
 
+**最后一条与「两侧是否相等」无关**：删掉一条贷方分录时，收入与权益会同时少同一笔，
+`净利润 = 权益变动 = 0` 两条式子照样相等 —— 只靠两侧比较抓不到这种账坏。
+所以只要 `check.unbalanced_vouchers` 非空，无论 `balanced` 与否都会进 `hints` 点名凭证
+（单测 R2-⑮ 钉住）。
+
 ### 4. 未归类损益行（`UNMAPPED_PROFIT_LOSS`）
 
 运行时补出来的一行（**不落库**），插在「四、净利润」之前，金额 = 未归类科目对利润的影响
@@ -193,7 +200,7 @@ GET /business/erp/report/income-statement/export?period=2026-10 # 权限 busines
 
 ## 七、验收
 
-### 1. 单测（`cargo test --lib business::erp::income_statement`，19 条）
+### 1. 单测（`cargo test --lib business::erp::income_statement`，20 条）
 
 | # | 用例 | 钉住什么 |
 |---|------|----------|
@@ -216,6 +223,7 @@ GET /business/erp/report/income-statement/export?period=2026-10 # 权限 busines
 | ⑫ | 公式引用未知项 | 显式报错，不静默 0 |
 | ⑬ | 真库配置一致性 | 12 项 / 公式闭合 / 标准损益科目各匹配一行 |
 | ⑭ | 真库生产期间 | 有账就出表、勾稽平、导出表头正确 |
+| ⑮ | 真库：删一条贷方分录 | 两侧恰好相等（0 = 0）时**仍点名**那张凭证（O5 不许静默） |
 
 ### 2. 端到端（`bash scripts/verify/erpr2_income_statement.sh`，隔离库 + 真 HTTP）
 
@@ -233,12 +241,41 @@ GET /business/erp/report/income-statement/export?period=2026-10 # 权限 busines
 空期间全 0、无发生额月份「本期 0 / 累计不变」、非法期间 400+10001、空月份 400+66010、
 无令牌 401、未归类损益 → 红 + 点名 5111 + diff −250、删掉后回绿、导出 xlsx（PK + 中文文件名）。
 
-### 3. 真机（生产库 172.18.10.144）
+### 3. 页面（Playwright 打隔离实例，不碰生产）
 
-见 §八。生产 2026-10 只有采购/应付类凭证（无损益发生额），因此净利润 0.00、未分配利润变动 0.00 ——
-**勾稽仍是「一致」**（0 = 0，不是"算不出"）。有损益数据的场景由 §七.2 的隔离库脚本证明。
+```bash
+E2E_ISO_SRC=local bash scripts/verify/e2e_isolated_instance.sh up   # prod 副本库 + 后端 18089 + vite 5189
+cd frontend
+node ../scripts/verify/erpr2_page_check.mjs ok      # ⇒ PASS=20  FAIL=0
+node ../scripts/verify/erpr2_page_check.mjs broken  # ⇒ PASS=19  FAIL=0（需先造一笔 投资收益 5111 250）
+```
 
-## 八、回滚
+* 一致态（一笔 收入 1,000）：勾稽条 `is-check--ok`、背景 `rgb(227,249,233)`、净利润 1,000.00 = 未分配利润变动 1,000.00、13 行、合计行加粗、无 JS 报错；
+* 不平态（再加 投资收益 5111 250）：勾稽条 `is-check--bad`、背景 `rgb(255,240,237)`、差额 −250.00、提示点名 5111、`UNMAPPED_PROFIT_LOSS` 行 250.00。
+
+截图与逐条断言见 `docs/evidence/20261101-erpr2/`（vision 配额当日用尽，未人工看图；结论以 DOM 断言为准）。
+
+## 八、真机证据（生产 172.18.10.144）
+
+```text
+部署：git pull → cargo build --release → pnpm build → systemctl restart cloudpivot
+迁移：NOTICE: V0184 自检通过：利润表报表项 12 个（其中科目取数 9 个）、权限节点 1 个
+      NOTICE: V0184：利润表权限码已种，授权新增 1 行（角色数 9）；数据库迁移完成: 应用 1 个迁移
+接口：GET /api/business/erp/report/income-statement?period=2026-10 → code 0
+      13 行 / 本期与累计全 0.00 / balanced true / diff 0.00 / 期末与年初未分配利润 0
+      与资产负债表 UNDISTRIBUTED_PROFIT = 0 一致（两表同口径）
+      GET …?period=2026-11（有账无期间）→ DERIVED，仍勾稽平；2027-06 → 400+66010；2026-13 → 400+10001
+      GET …/export?period=2026-10 → xlsx 6,345 字节（PK 魔数、spreadsheetml）
+合计：24 PASS / 0 FAIL
+```
+
+生产库现有 11 张凭证**全是采购 / 库存 / 应付类**（1405 / 2202 / 2221.01），没有任何损益发生额，
+所以真机净利润 0.00、未分配利润变动 0.00 —— **勾稽仍是「一致」（0 = 0），不是"算不出"**。
+有损益数据的「净利润 = 权益变动」由 §七.2 的隔离库脚本（4,400 = 4,400）与真库单测（218 = 218）钉住。
+
+不变量套件：`python3 scripts/verify/erp_invariants.py` → **31/32，BLOCKER 0，WARN 1**（F2 历史数据，与本卡无关）。
+
+## 九、回滚
 
 ```bash
 psql -f backend/migrations/business/V0184__erp_income_statement.down.sql
@@ -247,7 +284,7 @@ psql -f backend/migrations/business/V0184__erp_income_statement.down.sql
 只删本迁移种下的 12 个报表项 + 权限节点 `…1017` 及其授权；资产负债表配置（V0183）、
 科目、凭证 / 分录 / 期间**一行不动**（利润表是只读报表，本迁移也不写业务表）。
 
-## 九、给下一次改这张报表的人
+## 十、给下一次改这张报表的人
 
 1. **加一行**：往 `biz_report_item` 插一行（`report_code='INCOME_STATEMENT'`、`side='EQUITY'`、
    `sort_order` 落在合适位置、`formula` 只能引用**排在前面**的编码）。不用改代码、不用发版。
