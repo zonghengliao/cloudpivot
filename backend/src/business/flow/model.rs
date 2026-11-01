@@ -3080,6 +3080,8 @@ pub struct MyTaskRow {
     pub instance_status: String,
     /// 当前节点中文名（`biz_flow_instance_node.node_name` 快照）。
     pub node_name: String,
+    /// 表单快照（P1-FIX：待办卡片摘要直接用，前端不必再逐单查实例详情）。
+    pub form_data: Json,
 }
 
 /// 待办 / 已办分页结果。
@@ -3181,7 +3183,7 @@ pub async fn page_my_tasks(
     let sql = format!(
         "SELECT {TASK_COLUMNS}, i.instance_no AS instance_no, i.title AS title, \
                 i.flow_name AS flow_name, i.initiator_name AS initiator_name, \
-                i.status AS instance_status, \
+                i.status AS instance_status, i.form_data::text AS form_data_text, \
                 n.node_name AS node_name \
            FROM biz_flow_task t \
            JOIN biz_flow_instance i ON i.id = t.instance_id AND i.deleted_at IS NULL \
@@ -3201,6 +3203,7 @@ pub async fn page_my_tasks(
         .await?;
     let mut list = Vec::with_capacity(rows.len());
     for row in &rows {
+        let form_text: Option<String> = row.get_typed("form_data_text")?;
         list.push(MyTaskRow {
             task: TaskRow::from_row(row)?,
             instance_no: row.get_typed("instance_no")?,
@@ -3209,6 +3212,10 @@ pub async fn page_my_tasks(
             initiator_name: row.get_typed("initiator_name")?,
             instance_status: row.get_typed("instance_status")?,
             node_name: row.get_typed("node_name")?,
+            // 解析失败给 `{}`（= 无表单）：待办列表不该因为一条坏 jsonb 整页 500。
+            form_data: form_text
+                .and_then(|text| serde_json::from_str(&text).ok())
+                .unwrap_or_else(|| serde_json::json!({})),
         });
     }
     Ok(MyTaskPage {

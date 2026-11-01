@@ -95,6 +95,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::form_snapshot;
 use crate::business::erp::payable::{self, PayableRow};
 use crate::business::erp::payable_bridge;
 use crate::business::erp::payable_query::{self, PayableDetailRes};
@@ -1192,6 +1193,47 @@ async fn submit_for_approval(
     }
 }
 
+/// 付款审批的**表单变量**（P1-FIX：显示名也一起冻结）。
+///
+/// ⚠️ `amount` 必须是 **JSON 数字**：条件节点用 `cmp(lt)` 比较，字符串会 TypeMismatch → 静默走兜底边。
+/// 显示名（`supplier_name`）是给审批人看的：审批岗位角色没有 `business:erp:*` 读权限，
+/// 前端「ID→名称」必然降级成 `(ID: …)`。键名契约见 [`crate::business::erp::form_snapshot`]。
+async fn payment_form_data(
+    row: &PayableRow,
+    payment_id: Uuid,
+    payment_no: &str,
+    amount: Decimal,
+    pay_date: NaiveDate,
+    operator: Uuid,
+) -> serde_json::Value {
+    let mut form = serde_json::json!({
+        "payment_id": payment_id.to_string(),
+        "payment_no": payment_no,
+        "payable_id": row.id.to_string(),
+        "payable_no": row.payable_no,
+        "supplier_id": row.supplier_id.to_string(),
+        "amount": amount_number(amount),
+        "amount_text": amount.to_string(),
+        "unpaid_amount": amount_number(row.unpaid_amount),
+        "pay_date": pay_date.to_string(),
+        // 内控留痕：审批人 ≠ 制单人（真正的拦截在 payable_bridge::guard_self_approval）
+        "create_by": operator.to_string(),
+    });
+    // 查不到就不写这个键（前端按 `supplier_id` 兜底），不写空串冒充「查到了」。
+    match form_snapshot::supplier_name(db(), row.supplier_id).await {
+        Ok(Some(name)) => {
+            if let Some(object) = form.as_object_mut() {
+                object.insert("supplier_name".to_string(), serde_json::Value::String(name));
+            }
+        }
+        Ok(None) => {}
+        Err(error) => {
+            tracing::warn!(payable_id = %row.id, %error, "审批快照：供应商名查询失败，降级");
+        }
+    }
+    form
+}
+
 /// [`submit_for_approval`] 的事务体。
 #[allow(clippy::too_many_arguments)]
 async fn submit_for_approval_tx(
@@ -1265,20 +1307,8 @@ async fn submit_for_approval_tx(
         initiator_id: operator,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: serde_json::json!({
-            "payment_id": payment_id.to_string(),
-            "payment_no": payment_no,
-            "payable_id": row.id.to_string(),
-            "payable_no": row.payable_no,
-            "supplier_id": row.supplier_id.to_string(),
-            // ⚠️ 必须是 **JSON 数字**：条件节点用 `cmp(lt)` 比较，字符串会 TypeMismatch → 静默走兜底边
-            "amount": amount_number(amount),
-            "amount_text": amount.to_string(),
-            "unpaid_amount": amount_number(row.unpaid_amount),
-            "pay_date": pay_date.to_string(),
-            // 内控留痕：审批人 ≠ 制单人（真正的拦截在 payable_bridge::guard_self_approval）
-            "create_by": operator.to_string(),
-        }),
+        form_data: payment_form_data(&row, payment_id, &payment_no, amount, pay_date, operator)
+            .await,
     };
     let out = engine::start(tx, &start)
         .await

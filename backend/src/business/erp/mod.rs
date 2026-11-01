@@ -58,6 +58,7 @@
 pub mod batch;
 pub mod cash_flow;
 pub mod dto;
+pub mod form_snapshot;
 pub mod handler;
 pub mod income_statement;
 pub mod inventory_audit;

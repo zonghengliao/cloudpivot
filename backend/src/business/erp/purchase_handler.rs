@@ -42,6 +42,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::PurchaseOrderRes;
+use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;
 use crate::business::erp::purchase_bridge;
 use crate::business::erp::purchase_dto::{
@@ -740,7 +741,7 @@ async fn submit_po_approval(
         initiator_id: operator_id,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: purchase_form_data(row),
+        form_data: purchase_form_data(row).await,
     };
 
     let now = Utc::now();
@@ -865,7 +866,15 @@ async fn pending_instance_no_of(
 /// 条件边比较走 `as_f64()`，`"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边。
 ///
 /// ⚠️ 返回类型写全 `serde_json::Value`：`use nik::prelude::*` 里的 `Value` 是数据库绑定值。
-fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
+///
+/// # P1-FIX：冻结显示名 + 明细（`supplier_name` / `warehouse_name` / `items`）
+///
+/// 审批岗位角色没有 `business:erp:*` 读权限（四个角色实测 0 条），前端「ID→名称」必然降级成
+/// `(ID: …)`。所以把**人看的中文名**与**明细**一起冻进 `form_data`：审批人零 ERP 权限也能看懂，
+/// 明细也不会因为单据后续变动而和审批时看到的不一致。键名契约见
+/// [`crate::business::erp::form_snapshot`]。查询失败**不阻断提交**（降级为不写那几个键）：
+/// 显示名缺了顶多退化回 `(ID: …)`，不该让审批发不出去。
+async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
     let amount = row.total_with_tax.round_dp(4).to_string();
     let number = amount
         .parse::<f64>()
@@ -873,7 +882,7 @@ fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
         .and_then(serde_json::Number::from_f64)
         .map(serde_json::Value::Number)
         .unwrap_or(serde_json::Value::Null);
-    serde_json::json!({
+    let mut form = serde_json::json!({
         "order_id": row.id.to_string(),
         "order_no": row.order_no,
         "amount": number,
@@ -885,7 +894,45 @@ fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
         "price_mode": row.price_mode,
         // 内控留痕：审批人 ≠ 制单人（`purchase_bridge::guard_self_approval` 兜底）
         "create_by": row.create_by.map(|value| value.to_string()),
-    })
+    });
+    // 显示名 / 明细：查不到就**不写这个键**（前端按 `*_id` 兜底），绝不写空串冒充「查到了」。
+    let (supplier, warehouse, items) = (
+        form_snapshot::supplier_name(db(), row.supplier_id).await,
+        form_snapshot::warehouse_name(db(), row.warehouse_id).await,
+        form_snapshot::purchase_items(db(), row.id).await,
+    );
+    if let Some(object) = form.as_object_mut() {
+        match supplier {
+            Ok(Some(name)) => {
+                object.insert("supplier_name".to_string(), serde_json::Value::String(name));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(order_id = %row.id, %error, "审批快照：供应商名查询失败，降级")
+            }
+        }
+        match warehouse {
+            Ok(Some(name)) => {
+                object.insert(
+                    "warehouse_name".to_string(),
+                    serde_json::Value::String(name),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(order_id = %row.id, %error, "审批快照：仓库名查询失败，降级")
+            }
+        }
+        match items {
+            Ok(items) => {
+                object.insert("items".to_string(), items);
+            }
+            Err(error) => {
+                tracing::warn!(order_id = %row.id, %error, "审批快照：明细查询失败，降级")
+            }
+        }
+    }
+    form
 }
 
 /// 提交采购订单审批（`DRAFT → SUBMITTED`，或未配流程时降级直接提交）。
@@ -1875,5 +1922,122 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(count, 1, "同一单只能有一张审批实例");
+    }
+
+    /// ⑨ **P1-FIX 验收标准 1 + 3**：提交审批后 `form_data` 里冻结了显示名 / 明细，
+    /// 且「我的待办」列表（`TaskRes`）直接带出同一份 `form_data`（前端不必再逐单查实例详情）。
+    ///
+    /// 这条用**真库 + 真审批链**跑：`create_purchase_order` → `submit_approval` → 读
+    /// `biz_flow_instance.form_data` / `model::page_my_tasks`。卡面第 1 条的验收 SQL
+    /// 就是这里的第一步。
+    #[tokio::test]
+    async fn p1fix_po_form_data_freezes_display_names_items_and_task_carries_it() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        // 8000 元 → 部门主管单节点（U_DEPT），便于查「我的待办」。
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let instance = running_instance(id).await;
+
+        // 验收标准 1 的 SQL：直接读库里冻结的那一份。
+        let text: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT form_data::text FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .expect("实例必须存在");
+        let form: serde_json::Value =
+            serde_json::from_str(&text).expect("form_data 必须是合法 JSON");
+
+        // 显示名：审批岗位角色没有 business:erp:* 权限，这两个键是「看不见 ID 也能看懂」的全部依靠。
+        assert_eq!(
+            form["supplier_name"], "P2A2 测试供应商",
+            "供应商中文名必须冻结进 form_data：{form}"
+        );
+        assert_eq!(
+            form["warehouse_name"], "P2A2 测试仓",
+            "收货仓库中文名必须冻结进 form_data：{form}"
+        );
+        // 明细：八个键齐全（前端按存在的键出列，少一个就是少一列）。
+        let items = form["items"].as_array().expect("items 必须是数组");
+        assert_eq!(items.len(), 1, "本单只有一行明细：{form}");
+        for key in form_snapshot::ITEM_KEYS {
+            assert!(
+                items[0].get(key).is_some(),
+                "明细行缺键 `{key}`（前端会少一列）：{form}"
+            );
+        }
+        assert_eq!(items[0]["material_code"], "P2A2-M1");
+        assert_eq!(items[0]["material_name"], "螺丝 M6x20");
+        assert_eq!(items[0]["unit_name"], "个");
+        assert_eq!(items[0]["qty"], "1.0000");
+        assert_eq!(items[0]["amount"], "8000.0000");
+        // 条件边要用的 `amount` 仍然是 **JSON 数字**（写成字符串会让条件边静默走兜底边）。
+        assert_eq!(form["amount"], 8000.0);
+        assert!(form["amount"].is_number(), "amount 必须是数字：{form}");
+
+        // 验收标准 3：待办列表行自带同一份 form_data（`TaskRes.form_data`）。
+        let todo = crate::business::flow::model::page_my_tasks(
+            uid(U_DEPT),
+            crate::business::flow::model::MY_TODO_STATUSES,
+            &crate::business::flow::dto::TASK_KINDS,
+            crate::business::flow::model::MyTaskOrder::Arrived,
+            1,
+            20,
+            true,
+        )
+        .await
+        .expect("查我的待办");
+        let mine = todo
+            .list
+            .iter()
+            .find(|row| row.task.instance_id == instance)
+            .expect("部门主管必须有一条待办");
+        assert_eq!(
+            mine.form_data["supplier_name"], "P2A2 测试供应商",
+            "待办列表必须直接带出 form_data（否则前端又得逐单补详情）"
+        );
+        assert_eq!(
+            mine.form_data["total_with_tax"], "8000.0000",
+            "卡片摘要要用的价税合计也在里面"
+        );
+        assert_eq!(mine.form_data["items"][0]["material_name"], "螺丝 M6x20");
+    }
+
+    /// ⑩ 显示名查不到（供应商被硬删 / id 写错）→ **不写这个键**，其余字段照旧。
+    ///
+    /// 契约：`None` 是「没查到」，不能写空串（前端会显示「供应商：」后面空空的假象），
+    /// 更不能因此让审批发不出去。
+    #[tokio::test]
+    async fn p1fix_po_form_data_omits_unknown_display_names() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "1", "100", "0")]), None)
+            .await
+            .unwrap();
+        let mut row = purchase_model::find_order(id).await.unwrap().unwrap();
+        // 指向一个不存在的供应商 / 仓库（模拟主数据被删）。
+        row.supplier_id = Uuid::nil();
+        row.warehouse_id = Uuid::nil();
+        let form = purchase_form_data(&row).await;
+        assert!(
+            form.get("supplier_name").is_none(),
+            "查不到供应商名就不能写这个键：{form}"
+        );
+        assert!(
+            form.get("warehouse_name").is_none(),
+            "查不到仓库名就不能写这个键：{form}"
+        );
+        // ids / 金额 / 明细照旧（降级只影响「显示名」）。
+        assert_eq!(form["supplier_id"], Uuid::nil().to_string());
+        assert_eq!(form["items"].as_array().map(Vec::len), Some(1));
+        assert_eq!(form["order_no"], row.order_no.as_str());
     }
 }

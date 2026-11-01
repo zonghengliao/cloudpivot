@@ -67,6 +67,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
+use crate::business::erp::form_snapshot;
 use crate::business::erp::model;
 use crate::business::erp::payable;
 use crate::business::erp::stockin_bridge;
@@ -1912,7 +1913,7 @@ async fn submit_post_approval(
         initiator_id: operator_id,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: stock_in_form_data(row),
+        form_data: stock_in_form_data(row).await,
     };
 
     let now = Utc::now();
@@ -2166,13 +2167,19 @@ async fn pending_post_no_of(instance_id: Option<Uuid>) -> std::result::Result<St
     Ok(no)
 }
 
-/// 过账审批的**表单变量**。金额必须写成 JSON **数字**（不是字符串）：
-/// 条件边比较走 `as_f64()`，`"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边（P17 实测）。
+/// 过账审批的**表单变量**。金额必须写成 JSON **数字**（不是字符串）：条件边比较走 `as_f64()`，
+/// `"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边（P17 实测）。
 ///
 /// ⚠️ 返回类型必须写全 `serde_json::Value`：本文件 `use nik::prelude::*` 带进来的
 /// `Value` 是 **数据库绑定值**（`nik_db_core::Value`），两者同名不同物。
-fn stock_in_form_data(row: &stockin_model::StockInRow) -> serde_json::Value {
-    serde_json::json!({
+///
+/// # P1-FIX：冻结显示名 + 明细（`supplier_name` / `warehouse_name` / `items`）
+///
+/// 审批岗位角色没有 `business:erp:*` 读权限（生产实测四个角色 0 条），前端译名必然降级成
+/// `(ID: …)`。显示名与明细在**发起过账审批时**冻结，审批人（仓管 / 财务）零 ERP 权限也能看懂。
+/// 键名契约见 [`crate::business::erp::form_snapshot`]；查询失败降级为不写该键，不阻断提交。
+async fn stock_in_form_data(row: &stockin_model::StockInRow) -> serde_json::Value {
+    let mut form = serde_json::json!({
         "stock_in_id": row.id.to_string(),
         "in_no": row.in_no,
         "amount": decimal_as_number(row.total_with_tax),
@@ -2183,7 +2190,46 @@ fn stock_in_form_data(row: &stockin_model::StockInRow) -> serde_json::Value {
         "supplier_id": row.supplier_id.map(|value| value.to_string()),
         // 内控留痕：审批人 ≠ 制单人（`stockin_bridge::guard_self_approval` 兜底）
         "create_by": row.create_by.map(|value| value.to_string()),
-    })
+    });
+    // 供应商可空（无来源采购单的收货）：可空时**不查也不写**，别写出 `"null"` 这种值。
+    let supplier = match row.supplier_id {
+        Some(id) => form_snapshot::supplier_name(db(), id).await,
+        None => Ok(None),
+    };
+    let warehouse = form_snapshot::warehouse_name(db(), row.warehouse_id).await;
+    let items = form_snapshot::stock_in_items(db(), row.id).await;
+    if let Some(object) = form.as_object_mut() {
+        match supplier {
+            Ok(Some(name)) => {
+                object.insert("supplier_name".to_string(), serde_json::Value::String(name));
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(stock_in_id = %row.id, %error, "审批快照：供应商名查询失败，降级");
+            }
+        }
+        match warehouse {
+            Ok(Some(name)) => {
+                object.insert(
+                    "warehouse_name".to_string(),
+                    serde_json::Value::String(name),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(stock_in_id = %row.id, %error, "审批快照：仓库名查询失败，降级");
+            }
+        }
+        match items {
+            Ok(items) => {
+                object.insert("items".to_string(), items);
+            }
+            Err(error) => {
+                tracing::warn!(stock_in_id = %row.id, %error, "审批快照：明细查询失败，降级");
+            }
+        }
+    }
+    form
 }
 
 /// `Decimal` → `serde_json::Number`（`rust_decimal` 未开 `maths`，没有 `to_f64`）。

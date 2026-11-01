@@ -1496,6 +1496,13 @@ pub struct TaskRes {
     /// 但历史脏数据里可能出现「待办还 PENDING + 实例已终态」的孤儿组合。
     /// 前端据此把这种行标成「该审批已结束」，而不是给用户一个点不动的按钮。
     pub instance_status: String,
+    /// 表单快照（列表卡片摘要用；与 `InstanceRes.form_data` 同一份，`{}` = 无表单）。
+    ///
+    /// P1-FIX 配套：待办卡片以前要靠前端对**每一行**再发一次
+    /// `GET /business/flow/instance/{id}` 才拿得到摘要（还带 20 单上限）。
+    /// 列表 SQL 已经把 `biz_flow_instance` JOIN 进来了，顺手把 `form_data` 一起带出即可，
+    /// 零额外请求、零 N+1。明细列表体积可控：这条 SQL 本来就只取当前页。
+    pub form_data: Value,
     /// 是否加签。
     pub is_added_sign: bool,
     /// 是否自审。

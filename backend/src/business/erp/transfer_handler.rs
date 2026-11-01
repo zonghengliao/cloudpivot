@@ -63,6 +63,7 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::form_snapshot;
 use crate::business::erp::transfer_dto::{
     CreateTransferReq, TransferDetailRes, TransferFilter, TransferItemRes,
     TransferOverdueSummaryRes, TransferRes, TransferSerialGroupRes, TransferSerialRes,
@@ -939,14 +940,61 @@ async fn prepare_start(
         initiator_id: operator,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: serde_json::json!({
-            "transfer_id": row.id.to_string(),
-            "transfer_no": row.transfer_no,
-            "from_warehouse_id": row.from_warehouse_id.to_string(),
-            "to_warehouse_id": row.to_warehouse_id.to_string(),
-            "total_qty": row.total_qty.to_string(),
-        }),
+        form_data: transfer_form_data(row).await,
     }))
+}
+
+/// 调拨审批的**表单变量**（P1-FIX：源 / 目的仓库名与明细一起冻结）。
+///
+/// 审批岗位角色没有 `business:erp:*` 读权限（生产实测四个角色 0 条），前端「ID→名称」必然
+/// 降级成 `(ID: …)`；调拨审批人最需要看的恰恰是「从哪个仓到哪个仓、搬了哪些货」。
+/// 键名契约见 [`crate::business::erp::form_snapshot`]；查询失败降级为不写该键，不阻断提交。
+async fn transfer_form_data(row: &TransferRow) -> serde_json::Value {
+    let mut form = serde_json::json!({
+        "transfer_id": row.id.to_string(),
+        "transfer_no": row.transfer_no,
+        "from_warehouse_id": row.from_warehouse_id.to_string(),
+        "to_warehouse_id": row.to_warehouse_id.to_string(),
+        "total_qty": row.total_qty.to_string(),
+    });
+    let from = form_snapshot::warehouse_name(db(), row.from_warehouse_id).await;
+    let to = form_snapshot::warehouse_name(db(), row.to_warehouse_id).await;
+    let items = form_snapshot::transfer_items(db(), row.id).await;
+    if let Some(object) = form.as_object_mut() {
+        match from {
+            Ok(Some(name)) => {
+                object.insert(
+                    "from_warehouse_name".to_string(),
+                    serde_json::Value::String(name),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(transfer_id = %row.id, %error, "审批快照：调出仓库名查询失败，降级");
+            }
+        }
+        match to {
+            Ok(Some(name)) => {
+                object.insert(
+                    "to_warehouse_name".to_string(),
+                    serde_json::Value::String(name),
+                );
+            }
+            Ok(None) => {}
+            Err(error) => {
+                tracing::warn!(transfer_id = %row.id, %error, "审批快照：调入仓库名查询失败，降级");
+            }
+        }
+        match items {
+            Ok(items) => {
+                object.insert("items".to_string(), items);
+            }
+            Err(error) => {
+                tracing::warn!(transfer_id = %row.id, %error, "审批快照：明细查询失败，降级");
+            }
+        }
+    }
+    form
 }
 
 /// 状态流转核心逻辑（handler 与单测共用）。

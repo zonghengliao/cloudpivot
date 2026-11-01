@@ -1108,6 +1108,8 @@ struct TaskCtx<'a> {
     current_node_name: &'a str,
     /// 所属审批实例的状态（P11：前端防御要用，见 `dto::TaskRes::instance_status`）。
     instance_status: &'a str,
+    /// 表单快照（待办卡片摘要用）。抄送出参（`CcRes`）没有这个字段 → 传 `None`。
+    form_data: Option<&'a Value>,
 }
 
 fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
@@ -1128,6 +1130,12 @@ fn task_res(row: &model::TaskRow, ctx: &TaskCtx<'_>) -> dto::TaskRes {
         assignee_source: row.assignee_source.clone(),
         status: row.status.clone(),
         instance_status: ctx.instance_status.to_string(),
+        // 没有实例行可取（抄送路径不用）→ `{}`（= 无表单），绝不 `null`：
+        // 前端按「对象」判空，`null` 会走进另一条分支。
+        form_data: ctx
+            .form_data
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new())),
         is_added_sign: row.is_added_sign,
         is_self_approval: row.is_self_approval,
         is_auto: row.is_auto,
@@ -1557,6 +1565,8 @@ pub async fn instance_detail(
         initiator_name: initiator_name.as_str(),
         current_node_name: node_names.get(node_key).copied().unwrap_or(""),
         instance_status: row.status.as_str(),
+        // 时间线挂在同一个实例下：详情里已经取了实例行，直接复用，零额外查询。
+        form_data: Some(&row.form_data),
     };
 
     Ok(Res::ok(dto::InstanceDetailRes {
@@ -1975,6 +1985,7 @@ fn my_task_res(row: &model::MyTaskRow) -> dto::TaskRes {
             initiator_name: &initiator_name,
             current_node_name: &row.node_name,
             instance_status: &row.instance_status,
+            form_data: Some(&row.form_data),
         },
     )
 }
@@ -1993,6 +2004,8 @@ fn my_cc_res(row: &model::MyCcRow) -> dto::CcRes {
             // 抄送出参（`CcRes`）没有实例状态这一列，也不需要（抄送不是待办，点不动的风险只存在于
             // 「待我审批」）；`cc_res` 不读这个字段，这里给空串而不是去猜。
             instance_status: "",
+            // 同理：`CcRes` 不下发表单快照（本卡只给待办 / 时间线补 `form_data`）。
+            form_data: None,
         },
     )
 }
@@ -2842,6 +2855,12 @@ mod tests {
             initiator_name: Some("王五".to_string()),
             instance_status: "PENDING".to_string(),
             node_name: "财务会签".to_string(),
+            form_data: serde_json::json!({
+                "order_no": "PO-20261031-000003",
+                "supplier_id": "01a18def-1a2b-7329-a9d3-c6afa9e04220",
+                "supplier_name": "示例供应商（种子）",
+                "amount": 226.0,
+            }),
         };
         let res = my_task_res(&row);
         assert_eq!(res.flow_name, "财务审批");
@@ -2852,6 +2871,9 @@ mod tests {
         assert_eq!(res.status, "PENDING");
         // P11：实例状态随行下发，前端才能挡住「实例已结束但待办还 PENDING」的孤儿行。
         assert_eq!(res.instance_status, "PENDING");
+        // P1-FIX：表单快照随列表一起下发（待办卡片摘要不再逐单查 `/instance/{id}`）。
+        assert_eq!(res.form_data["supplier_name"], "示例供应商（种子）");
+        assert_eq!(res.form_data["amount"], 226.0);
         // 到达时间 = 任务创建时间（待办按它倒序）。
         assert_eq!(res.arrived_at, res.created_at);
     }
@@ -2867,11 +2889,14 @@ mod tests {
             initiator_name: None,
             instance_status: "APPROVED".to_string(),
             node_name: "主管审批".to_string(),
+            // 无表单的实例 → `{}`（不是 `null`）：前端按对象判空。
+            form_data: serde_json::json!({}),
         };
         let res = my_task_res(&row);
         assert_eq!(res.initiator_name, "");
         assert_eq!(res.current_node_name, "主管审批");
         assert_eq!(res.instance_status, "APPROVED");
+        assert_eq!(res.form_data, serde_json::json!({}));
         assert!(res.completed_at.is_some(), "已办行必有操作时间");
     }
 
