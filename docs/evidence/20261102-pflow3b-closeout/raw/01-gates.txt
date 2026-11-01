@@ -1,0 +1,17 @@
+### pnpm typecheck
+> @cloudpivot/web@0.1.0 typecheck /root/.hermes/kanban/boards/dev/workspaces/t_8303617c/cp-src/frontend
+> vue-tsc --noEmit
+
+### pnpm test:unit
+# tests 448
+# pass 448
+# fail 0
+### pnpm check:palettes
+色阶算法断言：330 条，失败 0 条
+色板数据校验：通过
+
+[check-palettes] 全部通过 ✓
+### build
+b8bdac9d8520affabc3f6aecfe9ceb47a7cf7c33f2d669ddee359a0f98e6b56c  dist/index.html
+assets/index-C8Pwg9Wa.js
+259

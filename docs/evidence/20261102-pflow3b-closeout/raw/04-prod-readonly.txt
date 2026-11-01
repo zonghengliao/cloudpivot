@@ -1,0 +1,10 @@
+login admin: http=200 code=0 msg=ok
+使用账号：admin
+令牌已写入 /tmp/prod_tokens.json（不回显）
+voucher/page http=200 total=11 rows=5
+voucher row keys: pending_reverse_instance_id=None reverse_reason=None (has_key=True/True)
+voucher/{id} http=200 has_pending_key=True has_reason_key=True status=POSTED
+payable/page http=200 total=8 rows=5
+payable row keys: cancel_instance_id=None cancel_reason=None (has_key=True/True) status=OPEN
+payable/{id} http=200 has_cancel_key=True has_reason_key=True status=OPEN
+auth/info http=404 code=404

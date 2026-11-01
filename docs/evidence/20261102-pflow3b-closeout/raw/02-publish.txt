@@ -1,0 +1,15 @@
+### 发布前（01:42 的旧包）
+entry: assets/index-DH4mKvbW.js   sha256: add6cbe4e7e8571937852c3f095d2a709668abae8dc41b373829727a6493bd6d
+
+### 发布后（线上回读）
+entry: assets/index-C8Pwg9Wa.js
+sha256: b8bdac9d8520affabc3f6aecfe9ceb47a7cf7c33f2d669ddee359a0f98e6b56c  -
+health: 200
+新 chunk(应付抽屉原因): 200 29678B
+
+### 144 上的备份与源码版本
+/var/tmp/cloudpivot-dist-old-20261102014427
+/var/tmp/cloudpivot-dist-old-20261102035651
+/var/tmp/cloudpivot-dist-old-20261102040019
+35706c3
+2026-11-02 04:00:14.045853023 +0800 frontend/dist/index.html
