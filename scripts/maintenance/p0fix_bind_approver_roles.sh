@@ -133,8 +133,12 @@ if [ -z "$ROLE_CODE" ] || [ -z "$USERS" ]; then
 fi
 
 # 角色必须存在
-ROLE_ID="$(psql_q -At -v role="$ROLE_CODE" -c \
-  "SELECT id FROM sys_role WHERE role_code = :'role' AND deleted_at IS NULL")"
+# ⚠️ psql 18 的 `-c` **不做变量插值**（`:'role'` 会原样发给服务器 → 语法错），
+# 所以带变量的 SQL 一律走 stdin（heredoc 才会插值）。
+ROLE_ID="$(psql_q -At -v role="$ROLE_CODE" <<'SQL'
+SELECT id FROM sys_role WHERE role_code = :'role' AND deleted_at IS NULL
+SQL
+)"
 if [ -z "$ROLE_ID" ]; then
   echo "角色不存在：$ROLE_CODE（先确认 V0182 种子角色在不在）" >&2
   exit 2
@@ -145,12 +149,14 @@ echo "---- ③ 绑定计划：$ROLE_CODE（$ROLE_ID）← $USERS ----"
 IFS=',' read -r -a USER_LIST <<<"$USERS"
 MISSING=0
 for name in "${USER_LIST[@]}"; do
-  row="$(psql_q -At -F'~' -v u="$name" -c "
+  row="$(psql_q -At -F'~' -v u="$name" -v rid="$ROLE_ID" <<'SQL'
     SELECT u.id, u.real_name,
            CASE WHEN EXISTS (SELECT 1 FROM sys_user_role ur WHERE ur.user_id = u.id AND ur.role_id = :'rid')
                 THEN 'ALREADY' ELSE 'TO_BIND' END
       FROM sys_user u
-     WHERE u.username = :'u' AND u.deleted_at IS NULL")"
+     WHERE u.username = :'u' AND u.deleted_at IS NULL
+SQL
+)"
   if [ -z "$row" ]; then
     echo "  ✗ 账号不存在（跳过）：$name"
     continue
@@ -163,11 +169,12 @@ for name in "${USER_LIST[@]}"; do
   if [ "$state" = "TO_BIND" ]; then
     MISSING=$((MISSING + 1))
     if [ "$APPLY" = "1" ]; then
-      psql_q -v uid="$uid" -v rid="$ROLE_ID" -c "
+      psql_q -v uid="$uid" -v rid="$ROLE_ID" <<'SQL' >/dev/null
         INSERT INTO sys_user_role (user_id, role_id)
         SELECT :'uid'::uuid, :'rid'::uuid
          WHERE NOT EXISTS (SELECT 1 FROM sys_user_role
-                            WHERE user_id = :'uid'::uuid AND role_id = :'rid'::uuid)" >/dev/null
+                            WHERE user_id = :'uid'::uuid AND role_id = :'rid'::uuid)
+SQL
     fi
   fi
 done
@@ -180,11 +187,12 @@ fi
 
 echo
 echo "---- ④ 绑定后复核（该角色的成员 + 引用它的审批节点人数）----"
-psql_q -P pager=off -v rid="$ROLE_ID" -c "
+psql_q -P pager=off -v rid="$ROLE_ID" <<'SQL'
   SELECT u.username, u.real_name
     FROM sys_user_role ur JOIN sys_user u ON u.id = ur.user_id AND u.deleted_at IS NULL
-   WHERE ur.role_id = :'rid'::uuid ORDER BY u.username"
-psql_q -At -F' | ' -v rid="$ROLE_ID" -c "
+   WHERE ur.role_id = :'rid'::uuid ORDER BY u.username
+SQL
+psql_q -At -F' | ' -v rid="$ROLE_ID" <<'SQL'
   SELECT '节点 ' || d.flow_code || '.' || n.node_key || ' 可审批人数 = ' ||
          (SELECT count(*) FROM biz_flow_node_assignee a2
             JOIN sys_user_role ur2 ON ur2.role_id = a2.ref_id
@@ -195,6 +203,7 @@ psql_q -At -F' | ' -v rid="$ROLE_ID" -c "
     JOIN biz_flow_def d ON d.id = v.def_id AND d.status = 'PUBLISHED'
    WHERE EXISTS (SELECT 1 FROM biz_flow_node_assignee a
                   WHERE a.node_id = n.id AND a.assignee_type = 'ROLE' AND a.ref_id = :'rid'::uuid)
-   ORDER BY d.flow_code, n.node_key"
+   ORDER BY d.flow_code, n.node_key
+SQL
 echo
 echo "完成。注意：新绑的账号若**不是**超管，还需要业务权限码 business:flow:approve 才能点同意。"
