@@ -173,12 +173,15 @@ async fn find_by_id<T>(
 
 /// `biz_unit` 列清单（[`UnitRow::from_row`] 与所有 SELECT 共用）。
 pub const UNIT_COLUMNS: &str = "id, unit_code, unit_name, is_base, base_unit_id, rate, status, \
-     sort_order, remark, created_at, updated_at, create_by, update_by, deleted_at";
+     sort_order, remark, is_system, precision, created_at, updated_at, create_by, update_by, \
+     deleted_at";
 
 /// 计量单位行。
 ///
 /// `is_base = 1` 表示基础单位（此时 `base_unit_id` 必为 NULL）；
 /// `is_base = 0` 时 `rate` 是「1 个本单位 = `rate` 个基础单位」（`NUMERIC(18,6)`）。
+/// `is_system = true` 是 ERP-S1（V0187）预置的标准值：只能停用，不能删除。
+/// `precision` 是数量小数位数（0–6，V0187 新增列）。
 #[derive(Debug, Clone)]
 pub struct UnitRow {
     /// 主键。
@@ -199,6 +202,10 @@ pub struct UnitRow {
     pub sort_order: i32,
     /// 备注。
     pub remark: Option<String>,
+    /// 是否系统预置（ERP-S1）：预置单位不能删除，只能停用。
+    pub is_system: bool,
+    /// 数量小数位数（0–6）。
+    pub precision: i16,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -228,6 +235,8 @@ impl UnitRow {
             status: row.get_typed("status")?,
             sort_order: row.get_typed("sort_order")?,
             remark: row.get_typed("remark")?,
+            is_system: row.get_typed("is_system")?,
+            precision: row.get_typed("precision")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             create_by: row.get_typed("create_by")?,

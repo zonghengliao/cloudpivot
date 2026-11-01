@@ -4,11 +4,13 @@
  * # 字段口径（硬红线①：以 dto.rs 的 serde 为准）
  *
  * 出参逐字抄 `backend/src/business/erp/dto.rs::UnitRes`，并用真接口 curl 核对过：
- * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark`。
+ * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark
+ *  / is_system / precision`。
  *
- * ⚠️ 卡面草稿的表格列写着「小数位数」——**后端没有这个字段**（`biz_unit` 与 `UnitRes` 都没有）。
- * 这一列不做：凭空造出来只会永远显示 `-`，比少一列更糟。数量精度是库口径
- * （`NUMERIC(18,4)`），不是单位属性，想改得动后端。
+ * ERP-S1（迁移 V0187）给 `biz_unit` 补了两列，本页因此多了两列：
+ * - `is_system`：系统预置（迁移种下的标准值）→ 列表打「系统」标签、**不给删**（只能停用）；
+ * - `precision`：数量小数位数 0–6（个数 0 位、重量 / 长度 / 面积体积 3 位）。
+ * V0187 之前这两列不存在，当时注释写的是「不做小数位列」——历史结论已作废。
  *
  * # 为什么测 `.ts` 不测 `.vue`
  *
@@ -109,6 +111,38 @@ export function unitBaseTheme(isBase: boolean): 'primary' | 'default' {
 }
 
 /**
+ * 来源文案（ERP-S1）：`is_system = true` → 「系统」（迁移预置的标准值）。
+ *
+ * 客户自建 → 「自建」。这两个字是验收项（老大要在一屏里分清「系统给的」和「我建的」）。
+ */
+export function unitSourceLabel(isSystem: boolean | undefined): string {
+  return isSystem ? '系统' : '自建';
+}
+
+/** 来源标签主题：系统预置用 warning（醒目、但不至于像报错），自建用 default 灰 */
+export function unitSourceTheme(isSystem: boolean | undefined): 'warning' | 'default' {
+  return isSystem ? 'warning' : 'default';
+}
+
+/**
+ * 能不能删这个单位（ERP-S1）：系统预置 → **不能删**（后端 409，只能停用）。
+ *
+ * 前端先按这个判断把「删除」入口隐藏，别让用户点了才吃 409。
+ */
+export function canRemoveUnit(row: Pick<Unit, 'is_system'>): boolean {
+  return !row.is_system;
+}
+
+/** 小数位数文案：0 位显示「0（整数）」，其余原样（`null` / 缺失 → `—`，脏数据不假装是 0） */
+export function precisionLabel(precision: number | null | undefined): string {
+  if (precision === null || precision === undefined || !Number.isFinite(Number(precision))) {
+    return '—';
+  }
+  const value = Number(precision);
+  return value === 0 ? '0（整数）' : String(value);
+}
+
+/**
  * 折算率格式化：`"12.000000"` → `"12"`、`"1.500000"` → `"1.5"`、`null` → `"—"`。
  *
  * `Decimal` 后端以**字符串**下发（不走 f64，避免精度漂移），所以这里按字符串裁尾零，
@@ -171,8 +205,10 @@ export function isUnitListEmpty(rows: Pick<Unit, 'id'>[] | null | undefined): bo
 export const UNIT_COLUMNS: PrimaryTableCol[] = [
   { colKey: 'unit_code', title: '单位编码', width: 150, fixed: 'left', ellipsis: true },
   { colKey: 'unit_name', title: '单位名称', minWidth: 160, ellipsis: true },
+  { colKey: 'is_system', title: '来源', width: 90 },
   { colKey: 'is_base', title: '单位类型', width: 120 },
   { colKey: 'rate', title: '折算率', width: 180 },
+  { colKey: 'precision', title: '小数位', width: 100 },
   { colKey: 'sort_order', title: '排序', width: 90 },
   { colKey: 'status', title: '状态', width: 100 },
   { colKey: 'op', title: '操作', width: 170, fixed: 'right' },
@@ -196,6 +232,8 @@ export interface UnitFormState {
   sort_order: number;
   /** 备注 */
   remark: string;
+  /** 数量小数位数（0–6；ERP-S1 V0187） */
+  precision: number;
 }
 
 /** 空表单（新建：默认基础单位，符合后端 `is_base` 缺省 true） */
@@ -209,6 +247,7 @@ export function emptyUnitForm(): UnitFormState {
     status: 1,
     sort_order: 0,
     remark: '',
+    precision: 0,
   };
 }
 
@@ -223,11 +262,14 @@ export function unitFormFromRow(row: Unit): UnitFormState {
     status: row.status === 0 ? 0 : 1,
     sort_order: Number(row.sort_order ?? 0),
     remark: row.remark ?? '',
+    precision: Number(row.precision ?? 0),
   };
 }
 
 /** 表单字段错误（键与表单项 name 同名） */
-export type UnitFieldErrors = Partial<Record<'unit_code' | 'unit_name' | 'base_unit_id' | 'rate', string>>;
+export type UnitFieldErrors = Partial<
+  Record<'unit_code' | 'unit_name' | 'base_unit_id' | 'rate' | 'precision', string>
+>;
 
 /** 是否有字段错误（有就拦住提交） */
 export function hasUnitFieldError(errors: UnitFieldErrors): boolean {
@@ -266,6 +308,10 @@ export function validateUnitForm(form: UnitFormState, isEdit: boolean): UnitFiel
       errors.rate = '折算率必须大于 0（1 个本单位等于几个基准单位）';
     }
   }
+  // 小数位数：与后端 ck_biz_unit_precision 同口径（0–6 的整数）
+  if (!Number.isInteger(form.precision) || form.precision < 0 || form.precision > 6) {
+    errors.precision = '小数位数只能是 0–6 的整数';
+  }
   return errors;
 }
 
@@ -278,6 +324,7 @@ export function buildUnitCreatePayload(form: UnitFormState): CreateUnitReq {
     status: form.status === 0 ? 0 : 1,
     sort_order: Number.isFinite(form.sort_order) ? form.sort_order : 0,
     remark: form.remark.trim() ? form.remark.trim() : null,
+    precision: Number.isInteger(form.precision) ? form.precision : 0,
   };
   if (!form.is_base) {
     payload.base_unit_id = form.base_unit_id;
@@ -321,6 +368,9 @@ export function buildUnitUpdatePayload(form: UnitFormState, original: Unit): Upd
   const originalRemark = original.remark ?? '';
   if (remark !== originalRemark) {
     payload.remark = remark ? remark : null;
+  }
+  if (Number(form.precision) !== Number(original.precision ?? 0)) {
+    payload.precision = Number(form.precision);
   }
   return payload;
 }

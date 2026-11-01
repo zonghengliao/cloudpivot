@@ -224,13 +224,17 @@ test('列表文案：单位译名、分类中文、状态', () => {
   const options = unitOptions(UNITS);
   assert.deepEqual(options[0], { label: '个（PCS）', value: 'u-pcs' });
 
-  assert.equal(materialTypeLabel('RAW'), '原料');
+  assert.equal(materialTypeLabel('RAW'), '原材料');
   assert.equal(materialTypeLabel('SEMI'), '半成品');
-  assert.equal(materialTypeLabel('FINISHED'), '成品');
+  assert.equal(materialTypeLabel('FINISHED'), '产成品');
   assert.equal(materialTypeLabel('SERVICE'), '服务');
+  // ERP-S1（V0187）新增的三类：现在有中文名，不再靠「原样透出」兜底
+  assert.equal(materialTypeLabel('PACKAGING'), '包装物');
+  assert.equal(materialTypeLabel('CONSUMABLE'), '低值易耗品');
+  assert.equal(materialTypeLabel('OFFICE'), '办公用品');
   assert.equal(materialTypeLabel(null), '—');
-  // 后端将来加枚举：原样透出，不吞
-  assert.equal(materialTypeLabel('PACKAGING'), 'PACKAGING');
+  // 后端将来再加枚举：原样透出，不吞
+  assert.equal(materialTypeLabel('UNKNOWN_TYPE'), 'UNKNOWN_TYPE');
 
   assert.equal(materialStatusLabel(1), '启用');
   assert.equal(materialStatusLabel(0), '停用');

@@ -435,6 +435,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import { listDictItems } from '@/api/support/dict-api';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import {
@@ -595,6 +596,19 @@ async function loadPayables(page: number = current.value): Promise<void> {
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
   suppliers.value = await fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]);
+  // 结算方式走字典（ERP-S1 预置 7 项）；拿不到就留兜底常量，弹窗照样能选
+  await listDictItems('pay_method')
+    .then((items) => {
+      const options = items
+        .filter((item) => Number(item.status) !== 0)
+        .map((item) => ({ label: item.item_label, value: item.item_value }));
+      if (options.length > 0) {
+        payMethodOptions.value = options;
+      }
+    })
+    .catch(() => {
+      payMethodOptions.value = [...DEFAULT_PAY_METHODS];
+    });
 }
 
 /** 查询（回第一页） */
@@ -720,12 +734,24 @@ function canCancel(row: PayableRow | null): boolean {
   return row.status === 'OPEN' && toNumber(row.paid_amount) === 0;
 }
 
-const payMethodOptions = [
-  { label: '银行转账', value: '银行转账' },
-  { label: '支票', value: '支票' },
+/**
+ * 结算方式下拉（ERP-S1）：标准 7 项来自字典 `pay_method`（迁移 V0187 种下），
+ * 拉不到字典时用下面这份同内容的兜底常量 —— 弹窗不能因为字典接口抽风就没有选项。
+ *
+ * `item_value` 与 `biz_payment.pay_method` 存的中文原串一致（后端是自由文本列，
+ * 字典刻意没引入 CASH / BANK 这类代码，免得老数据与新数据两套值）。
+ */
+const DEFAULT_PAY_METHODS = [
   { label: '现金', value: '现金' },
+  { label: '银行转账', value: '银行转账' },
   { label: '承兑汇票', value: '承兑汇票' },
+  { label: '支票', value: '支票' },
+  { label: '微信', value: '微信' },
+  { label: '支付宝', value: '支付宝' },
+  { label: '赊账', value: '赊账' },
 ];
+
+const payMethodOptions = ref<{ label: string; value: string }[]>([...DEFAULT_PAY_METHODS]);
 
 const payVisible = ref(false);
 const paySubmitting = ref(false);

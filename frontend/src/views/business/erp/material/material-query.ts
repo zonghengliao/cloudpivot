@@ -40,9 +40,12 @@ export interface MaterialFilterState {
 
 /** 物料类型下拉项（中文文案与 `MATERIAL_TYPES` 顺序一致） */
 export const MATERIAL_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: MaterialType }> = [
-  { label: '原料', value: 'RAW' },
+  { label: '原材料', value: 'RAW' },
   { label: '半成品', value: 'SEMI' },
-  { label: '成品', value: 'FINISHED' },
+  { label: '产成品', value: 'FINISHED' },
+  { label: '包装物', value: 'PACKAGING' },
+  { label: '低值易耗品', value: 'CONSUMABLE' },
+  { label: '办公用品', value: 'OFFICE' },
   { label: '服务', value: 'SERVICE' },
 ];
 

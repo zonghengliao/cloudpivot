@@ -1268,14 +1268,15 @@ pub async fn unit_create(
         None => None,
     };
     let rate = req.rate.unwrap_or(Decimal::ONE);
+    let precision = req.precision.unwrap_or(0);
     let id = Uuid::now_v7();
     db()
         .execute_with_params(
             "INSERT INTO biz_unit \
              (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order, remark, \
-              created_at, updated_at, create_by, update_by) \
-             VALUES (?::uuid, ?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::numeric, ?, ?, ?, now(), now(), \
-                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+              is_system, precision, created_at, updated_at, create_by, update_by) \
+             VALUES (?::uuid, ?, ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::numeric, ?, ?, ?, \
+                     false, ?, now(), now(), NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
             vec![
                 Value::from(&id),
                 Value::from(req.unit_code.trim().to_string()),
@@ -1286,6 +1287,9 @@ pub async fn unit_create(
                 Value::I16(req.status),
                 Value::I32(req.sort_order),
                 Value::from(req.remark.clone()),
+                // precision（0–6）：客户自建单位缺省 0 位小数。
+                // is_system 恒为 false，写成 SQL 里的常量（接口不给这个开关，预置只由迁移种下）。
+                Value::I16(precision),
                 operator_of(&claims),
                 operator_of(&claims),
             ],
@@ -1366,10 +1370,12 @@ pub async fn unit_update(
         None => current.remark.clone(),
         Some(value) => value,
     };
+    let precision = req.precision.unwrap_or(current.precision);
     db()
         .execute_with_params(
             "UPDATE biz_unit SET unit_name = ?, is_base = ?, base_unit_id = NULLIF(?::text,'')::uuid, \
-             rate = NULLIF(?::text,'')::numeric, status = ?, sort_order = ?, remark = ?, updated_at = now(), \
+             rate = NULLIF(?::text,'')::numeric, status = ?, sort_order = ?, remark = ?, precision = ?, \
+             updated_at = now(), \
              update_by = NULLIF(?::text,'')::uuid WHERE id = ?::uuid AND deleted_at IS NULL",
             vec![
                 Value::from(unit_name),
@@ -1379,6 +1385,7 @@ pub async fn unit_update(
                 Value::I16(status),
                 Value::I32(sort_order),
                 Value::from(remark),
+                Value::I16(precision),
                 operator_of(&claims),
                 Value::from(&id),
             ],
@@ -1393,6 +1400,10 @@ pub async fn unit_update(
 }
 
 /// 删除计量单位（软删）。被物料引用 → 409（否则物料的 `unit_id` 会指向已删单位）。
+///
+/// 系统预置单位（`is_system = true`，ERP-S1 V0187 种下的标准值）→ 409：
+/// 预置值可以停用（`status = 0`），不能删除 —— 否则客户不小心删掉「千克」，
+/// 以后想用只能从头再建，且历史单据的单位名称会失去统一口径。
 #[nik::permission(
     path = "/business/erp/unit/{id}",
     method = "DELETE",
@@ -1404,6 +1415,20 @@ pub async fn unit_delete(
     Path(id): Path<String>,
 ) -> ResResult<()> {
     let id = parse_uuid(&id, "id")?;
+    let target = model::unit_find_by_id(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询计量单位"))?
+        .ok_or_else(|| not_found("计量单位"))?;
+    if target.is_system {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!(
+                "「{}」是系统预置单位，不能删除；不用了就把它停用（status = 0）",
+                target.unit_name
+            ),
+        ));
+    }
     let used: i64 = db()
         .scalar_with_params(
             "SELECT COUNT(*) FROM biz_material WHERE unit_id = ?::uuid AND deleted_at IS NULL",
@@ -2394,6 +2419,7 @@ mod tests {
             status: 1,
             sort_order: 0,
             remark: Some("w1c".to_string()),
+            precision: None,
         };
         let created = data(
             unit_create(Extension(AuthClaims(claims())), Json(req))
@@ -2435,6 +2461,7 @@ mod tests {
             status: 1,
             sort_order: 0,
             remark: None,
+            precision: None,
         };
         let created = data(
             unit_create(Extension(AuthClaims(claims())), Json(build()))
@@ -2463,6 +2490,7 @@ mod tests {
             status: 1,
             sort_order: 0,
             remark: None,
+            precision: None,
         };
         let base = data(
             unit_create(Extension(AuthClaims(claims())), Json(base_req))
@@ -2480,6 +2508,7 @@ mod tests {
             status: 1,
             sort_order: 1,
             remark: None,
+            precision: None,
         };
         let created = data(
             unit_create(Extension(AuthClaims(claims())), Json(box_req))
@@ -2499,6 +2528,7 @@ mod tests {
             status: Some(0),
             sort_order: None,
             remark: None,
+            precision: None,
         };
         let updated = data(
             unit_update(
@@ -2532,6 +2562,7 @@ mod tests {
             status: 1,
             sort_order: 0,
             remark: None,
+            precision: None,
         };
         let created = data(
             unit_create(Extension(AuthClaims(claims())), Json(req))
@@ -2567,6 +2598,137 @@ mod tests {
             .await
             .expect("查软删行");
         assert_eq!(remains, 1, "软删是 UPDATE 不是 DELETE");
+
+        hard_delete("biz_unit", id).await;
+    }
+
+    /// ⑮b ERP-S1（V0187）：系统预置单位不能删除，只能停用。
+    ///
+    /// 判据：`is_system = true` → DELETE 接口 409 + 行还在；
+    /// 把 status 改成 0（停用）→ 200 且回读 status = 0（预置值还能停用，不是全锁死）。
+    #[tokio::test]
+    async fn system_unit_cannot_be_deleted_but_can_be_disabled() {
+        let Some(_guard) = setup().await else { return };
+        // 造一个「系统预置」单位：接口不允许建 is_system=true，只能直接写库（模拟迁移种子）
+        let insert = data(
+            unit_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateUnitReq {
+                    unit_code: code("USYS"),
+                    unit_name: "W1C 预置".to_string(),
+                    is_base: true,
+                    base_unit_id: None,
+                    rate: None,
+                    status: 1,
+                    sort_order: 0,
+                    remark: None,
+                    precision: Some(3),
+                }),
+            )
+            .await
+            .expect("新建单位"),
+        );
+        let id = Uuid::parse_str(&insert.id).unwrap();
+        assert!(!insert.is_system, "客户自建单位必须是 is_system = false");
+        assert_eq!(insert.precision, 3, "precision 要落库并回读");
+
+        db().execute_with_params(
+            "UPDATE biz_unit SET is_system = true WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("标记为系统预置");
+
+        let error = unit_delete(Extension(AuthClaims(claims())), Path(id.to_string()))
+            .await
+            .expect_err("系统预置单位不允许删除");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::RESOURCE_CONFLICT);
+        assert!(
+            error.msg.contains("系统预置") && error.msg.contains("停用"),
+            "文案要说清「不能删、只能停用」：{}",
+            error.msg
+        );
+        let still_there = data(unit_detail(Path(id.to_string())).await.expect("行还在"));
+        assert!(still_there.is_system);
+
+        // 停用是允许的收口
+        let disabled = data(
+            unit_update(
+                Extension(AuthClaims(claims())),
+                Path(id.to_string()),
+                Json(UpdateUnitReq {
+                    status: Some(0),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("停用系统预置单位"),
+        );
+        assert_eq!(disabled.status, 0);
+        assert!(disabled.is_system, "停用不改变「系统预置」身份");
+
+        hard_delete("biz_unit", id).await;
+    }
+
+    /// ⑮c ERP-S1（V0187）：`precision` 走接口落库、可改，越界 400（不静默截断）。
+    #[tokio::test]
+    async fn unit_precision_round_trip_and_rejects_overflow() {
+        let Some(_guard) = setup().await else { return };
+        let req = CreateUnitReq {
+            unit_code: code("UPREC"),
+            unit_name: "W1C 精度".to_string(),
+            is_base: true,
+            base_unit_id: None,
+            rate: None,
+            status: 1,
+            sort_order: 0,
+            remark: None,
+            precision: Some(0),
+        };
+        let created = data(
+            unit_create(Extension(AuthClaims(claims())), Json(req))
+                .await
+                .expect("新建单位"),
+        );
+        let id = Uuid::parse_str(&created.id).unwrap();
+        assert_eq!(created.precision, 0);
+
+        let updated = data(
+            unit_update(
+                Extension(AuthClaims(claims())),
+                Path(id.to_string()),
+                Json(UpdateUnitReq {
+                    precision: Some(3),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("改精度"),
+        );
+        assert_eq!(updated.precision, 3);
+        let row = model::unit_find_by_id(id).await.unwrap().unwrap();
+        assert_eq!(row.precision, 3, "precision 必须真的写进 biz_unit 列");
+
+        // 越界在 DTO 校验就被挡下（400），不会走到 SQL 让 CHECK 兜底
+        let error = unit_create(
+            Extension(AuthClaims(claims())),
+            Json(CreateUnitReq {
+                unit_code: code("UBADP"),
+                unit_name: "W1C 越界".to_string(),
+                is_base: true,
+                base_unit_id: None,
+                rate: None,
+                status: 1,
+                sort_order: 0,
+                remark: None,
+                precision: Some(7),
+            }),
+        )
+        .await
+        .expect_err("precision = 7 必须 400");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
 
         hard_delete("biz_unit", id).await;
     }
@@ -2957,6 +3119,7 @@ mod tests {
                     status: 1,
                     sort_order: 0,
                     remark: None,
+                    precision: None,
                 }),
             )
             .await

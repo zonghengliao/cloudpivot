@@ -306,15 +306,25 @@ export function deleteLocation(id: string): Promise<void> {
 // ==================== 物料 ====================
 
 /**
- * 物料类型（与后端 `dto::MATERIAL_TYPES` 逐字一致，`ck_biz_material_type` 兜底）。
+ * 物料类型 / 物料分类（与后端 `dto::MATERIAL_TYPES` 逐字一致，`ck_biz_material_type` 兜底）。
+ *
+ * ERP-S1（V0187）把枚举由 4 值扩到 7 值：新增 `PACKAGING` 包装物 / `CONSUMABLE` 低值易耗品 /
+ * `OFFICE` 办公用品。后端常量与 DB CHECK 同步改过，前端只改这一个联合类型 + 选项表。
  *
  * 卡面草图写的是「分类」（`category_id` / `category_name`）—— 那是**猜的**：
  * `dto.rs::MaterialRes` 里**没有**这两个字段，`biz_material` 表也没有 `category_id` 列；
  * 后端只种了 `business:erp:category:*` 权限码，`handler.rs` 里**没有** `/erp/category` 路由
- * （`grep -n "erp/category" handler.rs` 零命中）。物料真正分的类就是 `material_type` 四值，
+ * （`grep -n "erp/category" handler.rs` 零命中）。物料真正分的类就是 `material_type`，
  * 所以页面上的「分类」列 / 下拉 = `material_type`。
  */
-export type MaterialType = 'RAW' | 'SEMI' | 'FINISHED' | 'SERVICE';
+export type MaterialType =
+  | 'RAW'
+  | 'SEMI'
+  | 'FINISHED'
+  | 'PACKAGING'
+  | 'CONSUMABLE'
+  | 'OFFICE'
+  | 'SERVICE';
 
 /**
  * 物料（对应后端 `dto.rs::MaterialRes`，字段名逐条抄自 serde 出参）。
@@ -438,6 +448,10 @@ export interface UnitRow {
   is_base: boolean;
   /** 启用状态 */
   status: number;
+  /** 是否系统预置（ERP-S1 V0187）：预置值不能删，只能停用 */
+  is_system?: boolean;
+  /** 数量小数位数（0–6，ERP-S1 V0187） */
+  precision?: number;
 }
 
 /**
@@ -2171,12 +2185,11 @@ export function fetchTrialBalance(period: string): Promise<TrialBalance> {
  * 本页要显示折算率 / 折算基准 / 备注，所以在它上面扩成完整形状，不另起一套字段名
  * （另起一套 = 同一张表两个类型，早晚漂移）。
  *
- * # ⚠️ 后端**没有**「小数位数」字段
+ * # 「小数位数」与「系统预置」（ERP-S1 / V0187 补的）
  *
- * 卡面草稿的表格列写了「小数位数」，但 `biz_unit`（`V0137`）与 `UnitRes` 里都没有这一列：
- * `unit_code / unit_name / is_base / base_unit_id / rate / status / sort_order / remark`。
- * 数量精度是库口径（`NUMERIC(18,4)`），不是单位属性 —— 凭空造一列只会永远显示 `-`。
- */
+ * V0187 给 `biz_unit` 加了两列：`precision`（数量小数位数 0–6）与 `is_system`
+ * （系统预置标记）。卡面草稿当初写的「小数位数」这一段历史注释已作废：
+ * 现在后端**确实**有这个字段，列表照字段显示，不许再造假列。 */
 export interface Unit extends UnitRow {
   /** 折算基准单位（`null` = 基础单位） */
   base_unit_id: string | null;
@@ -2186,6 +2199,10 @@ export interface Unit extends UnitRow {
   sort_order: number;
   /** 备注 */
   remark: string | null;
+  /** 是否系统预置（预置值不能删，只能停用） */
+  is_system: boolean;
+  /** 数量小数位数（0–6） */
+  precision: number;
   /** 创建时间 */
   created_at: string;
   /** 更新时间 */
@@ -2210,6 +2227,8 @@ export interface CreateUnitReq {
   sort_order?: number;
   /** 备注 */
   remark?: string | null;
+  /** 数量小数位数（0–6，缺省 0；ERP-S1 V0187） */
+  precision?: number;
 }
 
 /**
@@ -2231,6 +2250,8 @@ export interface UpdateUnitReq {
   sort_order?: number;
   /** 备注（`null` = 清空） */
   remark?: string | null;
+  /** 数量小数位数（0–6；缺席 = 不改；ERP-S1 V0187） */
+  precision?: number;
 }
 
 /**

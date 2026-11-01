@@ -60,8 +60,20 @@ pub const LOCATION_TYPES: [&str; 6] = [
     "QUARANTINE",
     "SCRAP",
 ];
-/// 物料类型（`ck_biz_material_type`）。
-pub const MATERIAL_TYPES: [&str; 4] = ["RAW", "SEMI", "FINISHED", "SERVICE"];
+/// 物料类型 / 物料分类（`ck_biz_material_type`，ERP-S1 V0187 由 4 值扩到 7 值）。
+///
+/// 对应关系：`RAW` 原材料 / `SEMI` 半成品 / `FINISHED` 产成品 / `PACKAGING` 包装物 /
+/// `CONSUMABLE` 低值易耗品 / `OFFICE` 办公用品 / `SERVICE` 服务。
+/// 与前端 `MaterialType` / `MATERIAL_TYPE_OPTIONS` 必须逐字一致（改一边就要改另一边）。
+pub const MATERIAL_TYPES: [&str; 7] = [
+    "RAW",
+    "SEMI",
+    "FINISHED",
+    "PACKAGING",
+    "CONSUMABLE",
+    "OFFICE",
+    "SERVICE",
+];
 /// 计价方式（`ck_biz_material_costing`）。
 pub const COSTING_METHODS: [&str; 3] = ["MOVING_AVG", "FIFO", "STANDARD"];
 /// 科目类别（`ck_biz_account_category`）。
@@ -152,6 +164,16 @@ fn require_positive(value: Decimal, field: &str) -> std::result::Result<(), ApiE
     Ok(())
 }
 
+/// 数量小数位数（0–6，与 V0187 的 `ck_biz_unit_precision` 同口径）。
+fn require_precision(value: i16) -> std::result::Result<(), ApiError> {
+    if (0..=6).contains(&value) {
+        return Ok(());
+    }
+    Err(bad_request(format!(
+        "precision 必须在 0 与 6 之间（当前 {value}：0 = 整数个数，3 = 克 / 毫米级）"
+    )))
+}
+
 /// 税率（`0 <= rate <= 1`）。
 fn require_tax_rate(value: Decimal) -> std::result::Result<(), ApiError> {
     if value < Decimal::ZERO || value > Decimal::ONE {
@@ -203,6 +225,12 @@ pub struct CreateUnitReq {
     /// 备注。
     #[serde(default)]
     pub remark: Option<String>,
+    /// 数量小数位数（0–6，缺省 0）。
+    ///
+    /// 由 ERP-S1（V0187）引入：重量 / 长度 / 面积体积类单位要 3 位，个数 / 包装 / 时间类 0 位。
+    /// 客户自建单位可以在建 / 改时指定；系统预置值见 V0187 种子。
+    #[serde(default)]
+    pub precision: Option<i16>,
 }
 
 impl CreateUnitReq {
@@ -212,6 +240,9 @@ impl CreateUnitReq {
         require_text(&self.unit_name, "unit_name", 50)?;
         require_flag(self.status, "status")?;
         check_optional_text(self.remark.as_deref(), "remark", 2000)?;
+        if let Some(precision) = self.precision {
+            require_precision(precision)?;
+        }
         if self.is_base {
             if self.base_unit_id.is_some() {
                 return Err(bad_request(
@@ -262,6 +293,9 @@ pub struct UpdateUnitReq {
     /// 备注（`Some(None)` = 清空）。
     #[serde(default, deserialize_with = "double_option")]
     pub remark: Option<Option<String>>,
+    /// 数量小数位数（0–6；缺席 = 不改，系统预置单位也允许改这个值）。
+    #[serde(default)]
+    pub precision: Option<i16>,
 }
 
 impl UpdateUnitReq {
@@ -278,6 +312,9 @@ impl UpdateUnitReq {
         }
         if let Some(remark) = self.remark.as_ref().and_then(|value| value.as_deref()) {
             check_optional_text(Some(remark), "remark", 2000)?;
+        }
+        if let Some(precision) = self.precision {
+            require_precision(precision)?;
         }
         Ok(())
     }
@@ -325,6 +362,10 @@ pub struct UnitCard {
     pub status: i16,
     /// 排序值。
     pub sort_order: i32,
+    /// 是否系统预置（前端据此加「系统」标签 + 隐藏删除）。
+    pub is_system: bool,
+    /// 数量小数位数（0–6）。
+    pub precision: i16,
 }
 
 impl From<&UnitRow> for UnitCard {
@@ -337,6 +378,8 @@ impl From<&UnitRow> for UnitCard {
             rate: row.rate,
             status: row.status,
             sort_order: row.sort_order,
+            is_system: row.is_system,
+            precision: row.precision,
         }
     }
 }
@@ -362,6 +405,10 @@ pub struct UnitRes {
     pub sort_order: i32,
     /// 备注。
     pub remark: Option<String>,
+    /// 是否系统预置（ERP-S1）：预置值不能删除，只能停用。
+    pub is_system: bool,
+    /// 数量小数位数（0–6）。
+    pub precision: i16,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -380,6 +427,8 @@ impl From<&UnitRow> for UnitRes {
             status: row.status,
             sort_order: row.sort_order,
             remark: row.remark.clone(),
+            is_system: row.is_system,
+            precision: row.precision,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -3138,6 +3187,7 @@ mod tests {
             status: 1,
             sort_order: 0,
             remark: None,
+            precision: None,
         }
     }
 
@@ -3240,10 +3290,18 @@ mod tests {
     #[test]
     fn validate_rejects_unknown_enum_values() {
         let mut material = material_req();
-        material.material_type = "PACKAGING".to_string();
+        material.material_type = "BOGUS".to_string();
         let err = material.validate().expect_err("未知物料类型必须被拒");
         assert!(err.msg.contains("material_type"), "{}", err.msg);
 
+        // ERP-S1（V0187）：分类由 4 值扩到 7 值，新增的三个必须能过校验
+        for added in ["PACKAGING", "CONSUMABLE", "OFFICE"] {
+            material.material_type = added.to_string();
+            assert!(
+                material.validate().is_ok(),
+                "{added} 是 V0187 新增的物料分类，必须合法"
+            );
+        }
         material.material_type = "RAW".to_string();
         material.costing_method = "LIFO".to_string();
         assert!(material.validate().is_err(), "未知计价方式被拒");
@@ -3437,5 +3495,59 @@ mod tests {
             tax_rate: Some(dec("0.13")),
             remark: None,
         }
+    }
+
+    /// ERP-S1（V0187）：`precision` 只能是 0–6，与 `ck_biz_unit_precision` 同口径。
+    ///
+    /// 0 = 整数个数 / 包装 / 时间；3 = 克 / 毫米 / 毫升级；建与改两条路径都要挡。
+    #[test]
+    fn unit_precision_bounds() {
+        let mut req = unit_req();
+        for ok in [0_i16, 2, 3, 6] {
+            req.precision = Some(ok);
+            assert!(req.validate().is_ok(), "precision = {ok} 应合法");
+        }
+        for bad in [-1_i16, 7, 100] {
+            req.precision = Some(bad);
+            let err = req.validate().expect_err("precision 越界必须被拒");
+            assert_eq!(err.code, error_code::PARAM_INVALID);
+            assert!(err.msg.contains("precision"), "文案要点名字段：{}", err.msg);
+        }
+        req.precision = None;
+        assert!(req.validate().is_ok(), "不传 precision 走列默认值 0");
+
+        // 编辑路径同样受约束（系统预置单位也允许改 precision，但不允许越界）
+        let update = UpdateUnitReq {
+            precision: Some(9),
+            ..Default::default()
+        };
+        assert!(
+            update.validate().is_err(),
+            "编辑时的 precision 越界也要 400"
+        );
+        let update = UpdateUnitReq {
+            precision: Some(3),
+            ..Default::default()
+        };
+        assert!(update.validate().is_ok());
+    }
+
+    /// ERP-S1（V0187）：物料分类是 7 值，且四值原有的四个必须全部保留（不能删值）。
+    #[test]
+    fn material_types_cover_seven_categories() {
+        assert_eq!(MATERIAL_TYPES.len(), 7, "V0187 把分类扩到 7 值");
+        for legacy in ["RAW", "SEMI", "FINISHED", "SERVICE"] {
+            assert!(
+                MATERIAL_TYPES.contains(&legacy),
+                "{legacy} 是 V0137 的老值，不能删（老数据会变非法）"
+            );
+        }
+        for added in ["PACKAGING", "CONSUMABLE", "OFFICE"] {
+            assert!(MATERIAL_TYPES.contains(&added), "{added} 是 V0187 新增值");
+        }
+        let mut seen = MATERIAL_TYPES.to_vec();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), 7, "分类枚举不能有重复值");
     }
 }

@@ -72,6 +72,17 @@
         data-testid="unit-table"
         @page-change="handlePageChange"
       >
+        <template #is_system="{ row }">
+          <t-tag
+            size="small"
+            :theme="unitSourceTheme(row.is_system)"
+            :variant="row.is_system ? 'light' : 'outline'"
+            data-testid="unit-source-tag"
+          >
+            {{ unitSourceLabel(row.is_system) }}
+          </t-tag>
+        </template>
+
         <template #is_base="{ row }">
           <t-tag size="small" :theme="unitBaseTheme(row.is_base)" :variant="row.is_base ? 'light' : 'outline'">
             {{ unitBaseLabel(row.is_base) }}
@@ -80,6 +91,10 @@
 
         <template #rate="{ row }">
           <span class="mono">{{ rateLabel(row, unitBaseNameOf(row, unitDict)) }}</span>
+        </template>
+
+        <template #precision="{ row }">
+          <span class="mono muted" data-testid="unit-precision">{{ precisionLabel(row.precision) }}</span>
         </template>
 
         <template #sort_order="{ row }">
@@ -105,12 +120,16 @@
             </t-link>
             <t-link
               v-privilege="[PERM.update]"
+              v-if="canRemoveUnit(row)"
               theme="danger"
               data-testid="btn-unit-delete"
               @click="confirmRemove(row)"
             >
               删除
             </t-link>
+            <t-tooltip v-else content="系统预置单位不能删除，只能停用（编辑 → 关闭「启用」）" placement="top-right">
+              <span class="muted" data-testid="unit-delete-locked">系统预置</span>
+            </t-tooltip>
           </div>
         </template>
 
@@ -273,6 +292,25 @@
           <t-input-number v-model="form.sort_order" :min="0" :step="1" theme="normal" data-testid="unit-sort" />
         </t-form-item>
 
+        <t-form-item
+          label="小数位数"
+          name="precision"
+          :status="formErrors.precision ? 'error' : undefined"
+          :tips="formErrors.precision"
+        >
+          <div class="dlg-inline">
+            <t-input-number
+              v-model="form.precision"
+              :min="0"
+              :max="6"
+              :step="1"
+              theme="normal"
+              data-testid="unit-precision-input"
+            />
+            <span class="dlg-help">个数 0 位；重量 / 长度 / 面积体积 3 位</span>
+          </div>
+        </t-form-item>
+
         <t-form-item label="启用">
           <t-switch v-model="enabledSwitch" data-testid="unit-status-switch" />
         </t-form-item>
@@ -323,15 +361,19 @@ import {
   buildUnitCreatePayload,
   buildUnitQuery,
   buildUnitUpdatePayload,
+  canRemoveUnit,
   emptyUnitFilter,
   emptyUnitForm,
   hasUnitFieldError,
   isUnitFiltered,
+  precisionLabel,
   rateLabel,
   unitBaseLabel,
   unitBaseNameOf,
   unitBaseTheme,
   unitFormFromRow,
+  unitSourceLabel,
+  unitSourceTheme,
   unitStatusLabel,
   unitStatusTheme,
   validateUnitForm,

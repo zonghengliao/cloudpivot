@@ -9,7 +9,8 @@
  *
  * 断言口径全部照后端抄，并用真接口 curl 核对过：
  * - 计量单位 = `dto.rs::UnitRes`（`unit_code / unit_name / is_base / base_unit_id / rate /
- *   status / sort_order / remark`，**没有** `decimal_places` / `precision`）；
+ *   status / sort_order / remark / is_system / precision`）；
+ *   末尾两列是 ERP-S1（V0187）补的：`is_system` 系统预置、`precision` 数量小数位数；
  * - 供应商 = `dto.rs::SupplierRes`（`supplier_code / supplier_name / ... / credit_days /
  *   credit_limit / payable_account_id / status`）。
  */
@@ -32,6 +33,10 @@ import {
   unitStatusLabel,
   unitStatusTheme,
   validateUnitForm,
+  unitSourceLabel,
+  unitSourceTheme,
+  canRemoveUnit,
+  precisionLabel,
 } from '@/views/business/erp/unit/unit-query';
 import {
   SUPPLIER_COLUMNS,
@@ -62,6 +67,8 @@ function seedUnit(overrides: Partial<Unit> = {}): Unit {
     status: 1,
     sort_order: 1,
     remark: null,
+    is_system: true,
+    precision: 0,
     created_at: '2026-10-30T08:52:10.282882Z',
     updated_at: '2026-10-30T08:52:10.282882Z',
     ...overrides,
@@ -99,16 +106,26 @@ function seedSupplier(overrides: Partial<Supplier> = {}): Supplier {
 test('① 计量单位表格列 = 后端 UnitRes 的真字段（不自造列）', () => {
   const row = seedUnit();
   const colKeys = UNIT_COLUMNS.map((col) => String(col.colKey));
-  assert.deepEqual(colKeys, ['unit_code', 'unit_name', 'is_base', 'rate', 'sort_order', 'status', 'op']);
+  assert.deepEqual(colKeys, [
+    'unit_code',
+    'unit_name',
+    'is_system',
+    'is_base',
+    'rate',
+    'precision',
+    'sort_order',
+    'status',
+    'op',
+  ]);
 
   // 除 `op` 外，每个 colKey 都必须能在真接口出参里找到同名键（拼错就是整列空白）
   for (const key of colKeys.filter((item) => item !== 'op')) {
     assert.ok(key in row, `列 ${key} 在 UnitRes 里不存在`);
   }
 
-  // 卡面草稿写的「小数位数」后端没有这个字段 —— 列里不能出现它（造了也永远显示 `-`）
+  // ERP-S1（V0187）后「小数位数」是真字段了：列里必须有，且不许退回当初的 decimal_places 假名
+  assert.equal(colKeys.includes('precision'), true);
   assert.equal(colKeys.includes('decimal_places'), false);
-  assert.equal(colKeys.includes('precision'), false);
 
   // 折算率列不能裸显示 "12.000000"：格式化后才是人看的
   assert.equal(formatRate('12.000000'), '12');
@@ -224,6 +241,7 @@ test('⑤ 计量单位请求体：基础单位不发 base_unit_id，折算单位
     status: 1,
     sort_order: 0,
     remark: null,
+    precision: 0,
     rate: 1,
   });
   assert.equal('base_unit_id' in base, false);
@@ -324,4 +342,50 @@ test('⑥ 供应商展示：账期 0 = 现结，额度裁尾零', () => {
   assert.equal(formatAmount('0.0000'), '0');
   assert.equal(formatAmount('1500.5000'), '1500.5');
   assert.equal(formatAmount(null), '—');
+});
+
+// ==================== ⑦ ERP-S1：系统预置 / 小数位数 ====================
+
+test('⑦ ERP-S1：系统预置单位打「系统」标签且不给删，客户自建可删', () => {
+  // 来源标签：迁移种下的标准值 → 「系统」；客户自己建 → 「自建」
+  assert.equal(unitSourceLabel(true), '系统');
+  assert.equal(unitSourceLabel(false), '自建');
+  assert.equal(unitSourceLabel(undefined), '自建', '缺字段（老缓存）按自建，不冒充预置');
+  assert.equal(unitSourceTheme(true), 'warning');
+  assert.equal(unitSourceTheme(false), 'default');
+
+  // 删除入口：预置单位隐藏删除（后端也会 409），自建单位可删
+  assert.equal(canRemoveUnit(seedUnit({ is_system: true })), false);
+  assert.equal(canRemoveUnit(seedUnit({ is_system: false })), true);
+
+  // 小数位数文案：0 位说明是整数，缺失显示破折号（不假装 0）
+  assert.equal(precisionLabel(0), '0（整数）');
+  assert.equal(precisionLabel(3), '3');
+  assert.equal(precisionLabel(null), '—');
+  assert.equal(precisionLabel(undefined), '—');
+});
+
+test('⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过的）且校验 0–6', () => {
+  const created = buildUnitCreatePayload({
+    ...emptyUnitForm(),
+    unit_code: 'G',
+    unit_name: '克',
+    precision: 3,
+  });
+  assert.equal(created.precision, 3, '新建要把小数位数发给后端');
+
+  // 越界在前端就被拦（后端还有 ck_biz_unit_precision 兜底）
+  assert.equal(validateUnitForm({ ...emptyUnitForm(), unit_code: 'X', unit_name: 'X', precision: 7 }, false).precision, '小数位数只能是 0–6 的整数');
+  assert.equal(validateUnitForm({ ...emptyUnitForm(), unit_code: 'X', unit_name: 'X', precision: 1.5 }, false).precision, '小数位数只能是 0–6 的整数');
+  assert.deepEqual(validateUnitForm({ ...emptyUnitForm(), unit_code: 'X', unit_name: 'X', precision: 3 }, false), {});
+
+  const original = seedUnit({ is_system: false, precision: 0 });
+  const unchanged = buildUnitUpdatePayload(unitFormFromRow(original), original);
+  assert.equal('precision' in unchanged, false, '没改小数位数就不要发这个字段');
+
+  const changed = buildUnitUpdatePayload(
+    { ...unitFormFromRow(original), precision: 3 },
+    original,
+  );
+  assert.equal(changed.precision, 3);
 });
