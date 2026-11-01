@@ -109,9 +109,18 @@
 
 | 项 | 值 |
 |----|----|
-| 迁移 | `V0190__erp_year_end`（`应用 1 个迁移`，`max(version) = 190`） |
-| 二进制 | md5 见「部署日志」段（进程 == 磁盘 已核） |
-| 前端 | 入口 chunk 变化 + `yearend-*` testid 命中 |
-| 冒烟 | `/health` 200、`business:erp:yearend:*` 三码节点、`ck_biz_voucher_type` 含 `YEAR_END`、`uk_biz_voucher_year_end_period` 存在、生产不变量 32/32 |
+| 代码 | `git merge --ff-only origin/main` → `5d64060`（功能提交 `ab01edf`） |
+| 迁移 | `数据库迁移完成: 应用 1 个迁移`；`V0190 自检通过：期初来源列 + YEAR_END 白名单 + 结转凭证唯一索引 + 三个权限节点`；`V0190：年结三码已种，授权新增 1 行`（生产只有 SUPER_ADMIN 走短路，其余角色由运维按需授） |
+| 二进制 | `md5 c4e906ecb9c2a84f829c8e18af921750`，`PROC_EQ_DISK=OK`，`health=200` |
+| 前端 | 入口 chunk `BasicLayout-UW-4Gcml.js → BasicLayout-DtfibcLr.js`；`btn-yearend-close / btn-yearend-reopen / btn-yearend-refresh / yearend-status-tag / yearend-check- / yearend-voucher / yearend-opening / yearend-close-dialog / yearend-reopen-dialog / yearend-net-profit` 逐个命中 |
+| 结构核对 | `max(version::int)=190`；三码节点 `…1025/1026/1027`；`ck_biz_voucher_type` 含 `YEAR_END`；`uk_biz_voucher_year_end_period` 存在且是**部分唯一索引**；`biz_opening_balance.source NOT NULL DEFAULT 'MANUAL'` |
+| 路由注册 | 未登录打三个接口 → `check=401 / close=401 / reopen=401`（路由已注册且被权限层拦住） |
+| 只读冒烟 | `GET /year-end/check?year=2026` → 200，`can_close=false`，`blockers=['PERIOD_NOT_CLOSED','DOC_UNFINISHED','NEXT_YEAR_NOT_OPENED']`，`periods_closed=0`；`?year=2999` → 400 + `10001`（越界被挡） |
+| 生产不变量 | `python3 scripts/verify/erp_invariants.py` → **32/32 · BLOCKER 0 · WARN 0** |
 
-（生产真机**不做年结动作**：2026 还没走完，年结会写结转凭证并关账 —— 只做只读核对。）
+**生产不做年结动作**（2026 还没走完：`periods_closed=0`）。年结的写路径在隔离实例上用真实
+HTTP 跑完 43 项（含「年结态下不变量 32/32」），生产只做只读核对 —— 在生产提前年结会写结转
+凭证并关账，那是财务的决定，不是验收的手段。
+
+> 冒烟时遇到的一次性障碍：`admin` 在 23:21 被外部 5 次错误口令锁定（`auth.lock_minutes=30`），
+> 等到 23:51 自动解锁后登录成功 —— **没有改库、没有解锁操作**。
