@@ -1408,6 +1408,19 @@ pub async fn balance_sheet_export_handler(
     ))
 }
 
+/// 报表项在纸面上的显示名：减项要带「减：」前缀，但**只加一次**。
+///
+/// V0183 种的 `ACCUM_DEPRECIATION` / `ACCUM_AMORTIZATION` 名字里已经有「减：」，
+/// 再拼一次就成「减：减：累计折旧」（前端首测时真出现了）。所以按名字判断，
+/// 名字自己带了就不再补。
+pub fn display_name(line: &ReportLineRes) -> String {
+    if line.is_deduction && !line.item_name.starts_with("减：") {
+        format!("减：{}", line.item_name)
+    } else {
+        line.item_name.clone()
+    }
+}
+
 /// 把报表拍成「左资产 / 右负债权益」两栏的表格行（与纸面报表同构）。
 ///
 /// 列：`报表项(资产) | 期末余额 | 上期余额 | 报表项(负债和权益) | 期末余额 | 上期余额`。
@@ -1469,12 +1482,7 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
         if let Some(left) = report.assets.get(index) {
             row.insert(
                 "资产".to_string(),
-                format!(
-                    "{}{}{}",
-                    indent(left.level),
-                    if left.is_deduction { "减：" } else { "" },
-                    left.item_name
-                ),
+                format!("{}{}", indent(left.level), display_name(left)),
             );
             row.insert("期末余额".to_string(), amount_text(left.amount));
             row.insert("上期余额".to_string(), amount_text(left.previous_amount));
@@ -1482,16 +1490,7 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
         if let Some(right_line) = right.get(index) {
             row.insert(
                 "负债和所有者权益".to_string(),
-                format!(
-                    "{}{}{}",
-                    indent(right_line.level),
-                    if right_line.is_deduction {
-                        "减："
-                    } else {
-                        ""
-                    },
-                    right_line.item_name
-                ),
+                format!("{}{}", indent(right_line.level), display_name(right_line)),
             );
             row.insert("期末余额".to_string(), amount_text(right_line.amount));
             row.insert(

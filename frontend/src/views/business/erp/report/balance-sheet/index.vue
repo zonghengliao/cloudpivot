@@ -63,7 +63,7 @@
                 <!-- 左：资产 -->
                 <td :class="itemCellClass(row.left)">
                   <span v-if="row.left" :style="indent(row.left.level)">
-                    {{ row.left.is_deduction ? '减：' : '' }}{{ row.left.item_name }}
+                    {{ row.left ? itemLabel(row.left) : '' }}
                   </span>
                 </td>
                 <td class="bs-table__num" :data-testid="row.left ? `bs-amount-${row.left.item_code}` : undefined">
@@ -74,7 +74,7 @@
                 <!-- 右：负债和所有者权益 -->
                 <td :class="itemCellClass(row.right, true)">
                   <span v-if="row.right" :style="indent(row.right.level)">
-                    {{ row.right.is_deduction ? '减：' : '' }}{{ row.right.item_name }}
+                    {{ row.right ? itemLabel(row.right) : '' }}
                   </span>
                 </td>
                 <td class="bs-table__num" :data-testid="row.right ? `bs-amount-${row.right.item_code}` : undefined">
@@ -241,6 +241,19 @@ function indent(level: number): string {
   return `padding-left: ${Math.max(0, level - 1) * 16}px`;
 }
 
+/**
+ * 纸面上的报表项名：减项补「减：」前缀，**只补一次**。
+ *
+ * V0183 种的 `ACCUM_DEPRECIATION` / `ACCUM_AMORTIZATION` 名字里已经带「减：」，
+ * 无条件再拼一次就成「减：减：累计折旧」（首测时真出现了）。
+ */
+function itemLabel(line: ReportLine): string {
+  if (line.is_deduction && !line.item_name.startsWith('减：')) {
+    return `减：${line.item_name}`;
+  }
+  return line.item_name;
+}
+
 function itemCellClass(line: ReportLine | undefined, right = false): string[] {
   const classes = ['bs-table__item'];
   if (right) classes.push('bs-table__item--right');
@@ -285,7 +298,9 @@ async function loadPeriods() {
     if (!period.value && list.length) {
       period.value = list[0].period_code;
       periodHint.value =
-        list.length > 1 ? '' : '只有一个已建立期间；要出别的月份，先去「会计期间」开账';
+        list.length > 1
+          ? ''
+          : '下拉只列已开账期间；某月有凭证却没列出 = 该月还没开账，去「会计期间」开启后即可选';
     }
   } catch (err) {
     periodHint.value = `期间列表加载失败：${(err as Error).message ?? err}`;
