@@ -11,9 +11,10 @@
 
 | 口径 | 结果 |
 |---|---|
-| **验收口径**：同一个干净库连跑两遍全量 `cargo test --lib -- --test-threads=1` | 第一遍 **1874 passed / 0 failed**（553.76s）· 第二遍 **1874 passed / 0 failed**（556.84s） |
+| **验收口径**：同一个干净库连跑两遍全量 `cargo test --lib -- --test-threads=1` | 第一遍 **1879 passed / 0 failed**（538.48s）· 第二遍 **1879 passed / 0 failed**（537.99s）· 脚本判定 `PASS` |
 | 修前、同一个库的第二遍（基线 `0828a76`） | **1817 passed / 53 failed**（502.16s）—— 完整复现 D7 交接里记的「同一库连跑第二遍会红 53 条」 |
 | 失败分布（修前第二遍） | `transfer_handler` 30 · `stockin_handler` 19 · `voucher` 3 · `cash_flow` 1 |
+| 最终代码 | `33c21dd`（rebase 到 origin/main `092bcc2`，含 V0192 迁移；库 `cloudpivot_t06d` 已迁到 136 个迁移） |
 
 三件事全部落地：① transfer 夹具清场按「先审批痕迹后主表」重写并补「最后一条用例没人清」的收尾用例；② 提交审批撞 `uk_biz_flow_instance_biz_active` 现在翻成 **409 + 单号 + 「已有审批中实例」**（不再是「单号重复，请联系运维排查 biz_seq」，也不再可能掉成 500）；③ 顺带揪出并修掉造成「53 条」的**真正凶手**（兄弟模块夹具，见 §三）。
 
@@ -67,15 +68,31 @@ fn is_biz_active_duplicate(error: &DbError) -> bool {
 }
 ```
 
+两个分支都要，原因分开说清楚（`vendor/nik-db-core/src/error.rs:223`、`:294`）：
+
+- **变体分支**：PG 返回 `23505` 时驱动会翻成 `UniqueViolation`，并从消息里解析出约束名（`unique constraint "…"`），
+  这条是**实测走得到**的主路径（真库用例 `submit_twice_is_409_with_transfer_no_not_500` 里断言了真驱动返回的错误能被判据识别）；
+- **文案兜底**：拿不到 `SqlState` 时错误会降级成 `DbError::Query`，变体判据失效 → 旧代码会一路掉到
+  `utils::db_error` → **500「服务器内部错误」**。这条兜底就是给那个形态留的。
+
+旧代码在这条路径上的**行为（按代码复算）**：`write_error` 命中 `UniqueViolation` 分支后返回
+`409 + 66001`，文案是「调拨单号重复（唯一约束 uk_biz_flow_instance_biz_active）…请联系运维排查 biz_seq」
+—— **状态码对、文案把人指到取号器那边去**；一旦错误降级成 `Query` 就是 500。
+现在两种形态都收敛成同一句可执行提示（新真库用例拿真驱动返回的错误验判据，见上）。
+
 接进三处入口：
 
 | 入口 | 改动 |
 |---|---|
 | `prepare_start`（应用层预检 `biz_instance_running`） | 原来「该调拨单已有在跑的审批单」→ 现在带**单号** + 「已有审批中实例」 |
 | `change_transfer_status` 的 `Err(SettleError::Db)` | 先判 uk 冲突 → `409 + 单号`；其余走 `write_error` |
-| `write_error`（通用出口） | 顶部先判 uk → `approval_in_progress(None)`；否则会掉进「调拨单号重复…联系运维排查 biz_seq」（方向完全错的文案），或（驱动降级成 `DbError::Query` 时）掉到 `utils::db_error` 变成 **500「服务器内部错误」** |
+| `write_error`（通用出口） | 顶部先判 uk → `approval_in_progress(None)`；避免掉进上面那段「单号重复」文案或降级成 500 |
 
 文案：`调拨单 TK-… 已有审批中实例（同一单据同时只能有一个在跑的审批单）：请刷新查看审批进度，或在审批中心撤回后再重新提交`（码 `RESOURCE_CONFLICT` / 409）。
+
+真库用例 `submit_twice_is_409_with_transfer_no_not_500` 造的就是**唯一能触发预检的状态**：
+单据停在 `DRAFT` 但已经挂着一张在跑审批单（= 上一轮 panic 没清干净的残留现场）；
+「已 PENDING 再提交」会被状态机先 409 掉（非法边），测不到预检这一步。
 
 ### 2.4 兄弟模块的同类夹具缺陷（「53 条」的真凶）
 
@@ -99,8 +116,10 @@ fn is_biz_active_duplicate(error: &DbError) -> bool {
 | 2 | 干净库，`transfer_handler` 连跑**第二遍** | 基线 | **50/50 绿** —— 说明「transfer 自己的残留」并不是红的原因 |
 | 3 | 库里带上一轮残留，跑**全量第一遍** | 基线 | 1867/0 绿 |
 | 4 | **同一个库跑全量第二遍** | 基线 | **1817 / 53 红**（复现 D7 记的「53 条」） |
-| 5 | 同一个库跑全量第二遍 | 修复后 | **1874 / 0 绿** |
-| 6 | 同一个库跑全量第一遍 | 修复后 | **1874 / 0 绿** |
+| 5 | 同一个库跑全量第一遍 | 修复后（`00a865e`，V0191 库） | **1874 / 0 绿** |
+| 6 | 同一个库跑全量第二遍 | 修复后（`00a865e`，V0191 库） | **1874 / 0 绿** |
+| 7 | 同一个库跑全量第一遍 | 修复后 + rebase（`33c21dd`，V0192 库） | **1879 / 0 绿** |
+| 8 | 同一个库跑全量第二遍 | 修复后 + rebase（`33c21dd`，V0192 库） | **1879 / 0 绿**（脚本 `t06_transfer_twice.sh` 判 PASS） |
 
 **所以卡面「只要第二次进入 transfer 用例就会红」这个判断在基线代码上并不成立**（第 2 行）；
 真正成立的是「同一个库跑第二遍全量会红 53 条」，而红的原因不在 transfer 自己的残留，
@@ -123,29 +142,42 @@ fn is_biz_active_duplicate(error: &DbError) -> bool {
 ### 4.1 验收口径：同一个库连跑两遍全量（脚本）
 
 ```bash
-ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_t06c' \
+ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_t06d' \
   bash scripts/verify/t06_transfer_twice.sh
 ```
 
-<!-- TWICE_OUTPUT -->
-
-等价的两次手工全量（同一个库 `cloudpivot_t06b`，修复后代码）：
+真实输出（`33c21dd`，干净库 `cloudpivot_t06d`，已迁到 136 个迁移 / 含 V0192）：
 
 ```
-第 1 遍  test result: ok. 1874 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 553.76s
-第 2 遍  test result: ok. 1874 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 556.84s
+==> 第 1 遍：cargo test --lib -j 2 -- --test-threads=1
+    test result: ok. 1879 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 538.48s
+==> 第 2 遍：cargo test --lib -j 2 -- --test-threads=1
+    test result: ok. 1879 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 537.99s
+==> PASS：同一个库连跑两遍全量都全绿
 ```
 
-1874 = 基线 1867 + 本卡新增 7 条：
-transfer 纯逻辑 1（`biz_active_conflict_maps_to_409_with_transfer_no`）+
+跑完两遍后直接查库（确认没有边跑边攒残留）：
+
+```
+biz_flow_instance(biz_type='STOCK_TRANSFER') = 0
+biz_status_log(entity_type='TRANSFER')       = 0
+biz_account(W1B% / P2C1% / P2D1%)            = 0
+sys_user(d9_copy_user)                       = 0
+```
+
+1879 = 基线 1867 + 本卡新增 7 条 + origin/main 上前端/后端的 P-FLOW-3B 补漏 5 条（V0192 相关，rebase 带进来）：
+本卡新增的 7 条 = transfer 纯逻辑 1（`biz_active_conflict_maps_to_409_with_transfer_no`）+
 transfer 真库 2（`submit_twice_is_409_with_transfer_no_not_500`、`zz_teardown_purges_fixture_residue`）+
 收尾清场 4（`task::handler` 超管用户、`erp::model` / `erp::voucher_query` / `erp::voucher` 三处科目夹具）。
 
-### 4.2 本卡模块
+### 4.2 本卡模块（同一库连跑两遍）
 
 ```
-cargo test --lib transfer_handler -- --test-threads=1   → 54 passed / 0 failed（同库连跑两遍都绿）
-cargo test --lib zz_teardown       -- --test-threads=1   → 6 passed / 0 failed
+cargo test --lib transfer_handler -- --test-threads=1
+  → 54 passed / 0 failed（108.89s）
+  → 54 passed / 0 failed（108.97s）   ← 第二遍，同一库，仍全绿
+cargo test --lib zz_teardown -- --test-threads=1
+  → 6 passed / 0 failed
 ```
 
 ### 4.3 静态检查
