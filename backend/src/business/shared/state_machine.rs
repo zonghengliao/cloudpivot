@@ -76,6 +76,18 @@ pub const ENTITY_VOUCHER: &str = "VOUCHER";
 /// 必须与单据一样可追溯（卡面 L12 审计）。
 pub const ENTITY_PERIOD: &str = "ACCOUNTING_PERIOD";
 
+/// 实体类型：会计年度（年结，ERP-R4）。
+///
+/// 年结不是「某个月的期间流转变了」，而是**整个年度**的状态：
+/// `NOT_CLOSED`（未结转） ↩ `CLOSED`（已结转）。`entity_no` 存**年度**（`2026`），
+/// `entity_id` 存年结生成的结转凭证 id（空年度没有结转凭证时存随机 id —— 状态本身
+/// 记在日志里，不靠凭证存在与否推断，否则「空年度年结成功」就没状态可查）。
+///
+/// 为什么单独一个实体而不是复用 `ACCOUNTING_PERIOD`：年结的边（`NOT_CLOSED ↔ CLOSED`）
+/// 与期间的边（`NOT_OPENED / OPEN / CLOSED`）语义不同，混在一起会让
+/// `PERIOD_EDGES` 变成两套语义的并集，任何一次期间结账都能「顺便」写成年度已结转。
+pub const ENTITY_YEAR_END: &str = "ACCOUNTING_YEAR";
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -197,6 +209,24 @@ pub const PERIOD_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "OPEN")];
 /// 不走 `ensure_writable`（那是「单据字段不许改」的闸，语义不同）。
 pub const PERIOD_LOCKED: [&str; 0] = [];
 
+/// 年结的合法边（ERP-R4）。
+///
+/// ```text
+/// NOT_CLOSED → CLOSED      年结（五项前置校验全过才允许）
+/// CLOSED     → NOT_CLOSED  反年结（必填原因 ≥ 10 字，且下一年度不能有凭证）
+/// ```
+///
+/// 与期间一样**没有自环**：重复年结 / 重复反年结不是状态变更，入口给 409。
+pub const YEAR_END_EDGES: [(&str, &str); 2] = [("NOT_CLOSED", "CLOSED"), ("CLOSED", "NOT_CLOSED")];
+
+/// 需要 reason 的年结边：反年结（把已结转的年度拆回，必须留原因）。
+/// 年结本身的 `reason` 是可选备注（与期间结账同口径）。
+pub const YEAR_END_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "NOT_CLOSED")];
+
+/// 年结没有「入账态只读」：结转凭证一旦生成就由 [`crate::business::erp::year_end`]
+/// 反年结删掉，不存在「字段不许改」的单据形态。
+pub const YEAR_END_LOCKED: [&str; 0] = [];
+
 /// 需要 reason 的边（作废已入账单据：红冲必须能追溯到为什么）。
 ///
 /// P16：作废拆成「发起（POSTED→PENDING_CANCEL）」和「执行（PENDING_CANCEL→CANCELLED）」两步，
@@ -249,17 +279,20 @@ pub enum Entity {
     Voucher,
     /// 会计期间 `biz_accounting_period`（ERP-P1）。
     Period,
+    /// 会计年度（年结）（ERP-R4）。
+    YearEnd,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 6] = [
+    pub const ALL: [Entity; 7] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
         Entity::Payable,
         Entity::Voucher,
         Entity::Period,
+        Entity::YearEnd,
     ];
 
     /// 落库的 `entity_type`。
@@ -271,6 +304,7 @@ impl Entity {
             Entity::Payable => ENTITY_PAYABLE,
             Entity::Voucher => ENTITY_VOUCHER,
             Entity::Period => ENTITY_PERIOD,
+            Entity::YearEnd => ENTITY_YEAR_END,
         }
     }
 
@@ -288,6 +322,7 @@ impl Entity {
             Entity::Payable => "应付单",
             Entity::Voucher => "凭证",
             Entity::Period => "会计期间",
+            Entity::YearEnd => "会计年度",
         }
     }
 
@@ -300,6 +335,7 @@ impl Entity {
             Entity::Payable => &PAYABLE_EDGES,
             Entity::Voucher => &VOUCHER_EDGES,
             Entity::Period => &PERIOD_EDGES,
+            Entity::YearEnd => &YEAR_END_EDGES,
         }
     }
 
@@ -312,6 +348,7 @@ impl Entity {
             Entity::Payable => &PAYABLE_REASON_EDGES,
             Entity::Voucher => &VOUCHER_REASON_EDGES,
             Entity::Period => &PERIOD_REASON_EDGES,
+            Entity::YearEnd => &YEAR_END_REASON_EDGES,
         }
     }
 
@@ -324,6 +361,7 @@ impl Entity {
             Entity::Payable => &PAYABLE_LOCKED,
             Entity::Voucher => &VOUCHER_LOCKED,
             Entity::Period => &PERIOD_LOCKED,
+            Entity::YearEnd => &YEAR_END_LOCKED,
         }
     }
 

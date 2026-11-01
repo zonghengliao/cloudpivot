@@ -29,6 +29,7 @@
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
 //! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
+//! | [`year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -85,3 +86,4 @@ pub mod transfer_overdue;
 pub mod voucher;
 pub mod voucher_query;
 pub mod voucher_write;
+pub mod year_end;

@@ -125,6 +125,12 @@ pub const BIZ_TYPE_OPENING: &str = "OPENING";
 /// 库存流水的来源单据类型（`biz_inventory_txn.doc_type`）。
 pub const DOC_TYPE_OPENING: &str = "OPENING";
 
+/// 期初来源：手工录入（`biz_opening_balance.source`，V0190）。
+pub const SOURCE_MANUAL: &str = "MANUAL";
+/// 期初来源：由年结自动生成（ERP-R4）。这种行**不许手工覆盖** ——
+/// 覆盖后它与历史累计各算一遍就是双计，只能先反年结。
+pub const SOURCE_YEAR_END: &str = "YEAR_END";
+
 // ==================== 入参 ====================
 
 /// 一条科目期初。
@@ -201,6 +207,9 @@ pub struct OpeningEntryRes {
     pub credit: Decimal,
     /// 备注。
     pub remark: Option<String>,
+    /// 来源（`MANUAL` 手工录入 / `YEAR_END` 由上一年的年结自动生成，V0190）。
+    #[serde(default)]
+    pub source: String,
 }
 
 /// 一条库存期初（出参）。
@@ -402,7 +411,8 @@ async fn load_balance_rows(
         "SELECT b.account_id, b.account_code, \
                 COALESCE(a.account_name, b.account_code) AS account_name, \
                 COALESCE(a.account_category, '') AS account_category, \
-                b.debit_opening, b.credit_opening, b.remark \
+                b.debit_opening, b.credit_opening, b.remark, \
+                COALESCE(b.source, 'MANUAL') AS source \
            FROM {TABLE_BALANCE} b \
            LEFT JOIN biz_account a ON a.id = b.account_id \
           WHERE b.period_code = ? \
@@ -421,6 +431,9 @@ async fn load_balance_rows(
             debit: row.get_typed("debit_opening")?,
             credit: row.get_typed("credit_opening")?,
             remark: row.get_typed("remark").ok(),
+            source: row
+                .get_typed::<String>("source")
+                .unwrap_or_else(|_| SOURCE_MANUAL.to_string()),
         });
     }
     Ok(out)
@@ -569,6 +582,13 @@ pub async fn load_opening_in(
             "库存期初 {inventory_amount} 已自动生成「借 {ACCOUNT_INVENTORY} / 贷 \
              {ACCOUNT_INVENTORY_OFFSET}」；方式 A 里不要再单独录这两个科目的期初（会重复计数）"
         ));
+    }
+    if entries.iter().any(|row| row.source == SOURCE_YEAR_END) {
+        hints.push(
+            "这份期初由上一年的「年结」自动生成（结转凭证已把它带进新年度）：不能手工改，\
+             要调整请先在「年结」页反年结"
+                .to_string(),
+        );
     }
     if locked {
         hints.push(format!(
@@ -796,6 +816,101 @@ async fn regenerate_voucher_in(
     Ok(Some(id))
 }
 
+// ==================== 年结专用写入口（ERP-R4）====================
+//
+// 年结要往「下一年度第一个期间」写期初，但**不能**走 `save_opening_in`：
+// 它会顺手生成一张 `voucher_type='OPENING'` 的期初凭证，而新年度之前的历史
+// （也就是本年的结转凭证）已经在凭证里了 —— 期初凭证会让报表的「期初」列
+// 与「历史累计」各算一遍，存货 / 银行存款全变两倍。
+//
+// 所以年结只写**期初台账**（`biz_opening_balance`，`source='YEAR_END'`）：
+// 它回答「新的一年从多少开始」，报表侧的「期初」仍由历史累计给出（两者相等，
+// 由 `year_end` 的 ⑨ 号单测钉住）。
+
+/// 一条要被写入的期初行（科目 id / 科目编码 / 借 / 贷）。
+pub(crate) type YearEndOpeningRow = (Uuid, String, Decimal, Decimal);
+
+/// 年结写「下年期初」：整组覆盖该期间的科目期初，来源标记为 `YEAR_END`。
+///
+/// 返回写入的行数。**不生成期初凭证**（理由见本节开头）。
+pub(crate) async fn write_year_end_opening_in(
+    tx: &impl SqlExecutor,
+    period_code: &str,
+    rows: &[YearEndOpeningRow],
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<usize, ApiError> {
+    let deleted = clear_opening_in(tx, period_code).await?;
+    if deleted > 0 {
+        tracing::info!(period = %period_code, rows = deleted, "年结覆盖旧期初");
+    }
+    let operator_text = operator.map(|v| v.to_string()).unwrap_or_default();
+    for (account_id, account_code, debit, credit) in rows {
+        tx.exec_sql(
+            format!(
+                "INSERT INTO {TABLE_BALANCE} \
+                    (period_code, account_id, account_code, debit_opening, credit_opening, \
+                     remark, source, created_at, updated_at, create_by, update_by) \
+                 VALUES (?, ?::uuid, ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                         ?, '{}', ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)",
+                SOURCE_YEAR_END
+            ),
+            vec![
+                Value::Text(period_code.to_string()),
+                Value::from(account_id),
+                Value::Text(account_code.clone()),
+                Value::Text(debit.to_string()),
+                Value::Text(credit.to_string()),
+                Value::Text("由上一会计年度年结自动生成".to_string()),
+                Value::from(now),
+                Value::from(now),
+                Value::Text(operator_text.clone()),
+                Value::Text(operator_text.clone()),
+            ],
+        )
+        .await
+        .map_err(|error| write_error(error, "写入下年期初"))?;
+    }
+    Ok(rows.len())
+}
+
+/// 清空某期间的科目期初（反年结用；返回删掉的行数）。
+pub(crate) async fn clear_opening_in(
+    tx: &impl SqlExecutor,
+    period_code: &str,
+) -> std::result::Result<u64, ApiError> {
+    tx.exec_sql(
+        format!("DELETE FROM {TABLE_BALANCE} WHERE period_code = ?"),
+        vec![Value::Text(period_code.to_string())],
+    )
+    .await
+    .map_err(|error| write_error(error, "清空该期间科目期初"))
+}
+
+/// 该期间的科目期初里有没有年结生成的行（有 → 手工保存必须拒绝）。
+async fn guard_not_year_end(
+    ex: &impl SqlExecutor,
+    period_code: &str,
+) -> std::result::Result<(), ApiError> {
+    let count: i64 = ex
+        .scalar_sql(
+            format!(
+                "SELECT COUNT(*) FROM {TABLE_BALANCE} WHERE period_code = ? AND source = '{}'",
+                SOURCE_YEAR_END
+            ),
+            vec![Value::Text(period_code.to_string())],
+        )
+        .await
+        .map_err(|error| write_error(error, "统计年结期初行"))?;
+    if count > 0 {
+        return Err(conflict(format!(
+            "期间 {period_code} 的期初有 {count} 行是上一年的「年结」自动生成的，不能手工覆盖：\
+             它已经与历史累计一致，再写一遍会重复计数。要调整请先在「年结」页反年结"
+        )));
+    }
+    Ok(())
+}
+
 // ==================== 保存：科目期初（方式 A）====================
 
 /// 一条校验过的科目期初（内部用）。
@@ -982,6 +1097,7 @@ pub async fn save_opening_in(
     now: DateTime<Utc>,
 ) -> std::result::Result<OpeningBalanceRes, ApiError> {
     lock_period(tx, period_code).await?;
+    guard_not_year_end(tx, period_code).await?;
 
     let mut seen = std::collections::BTreeMap::new();
     let mut flat: Vec<FlatEntry> = Vec::with_capacity(entries.len());
@@ -1254,6 +1370,8 @@ pub async fn save_inventory_in(
     now: DateTime<Utc>,
 ) -> std::result::Result<OpeningBalanceRes, ApiError> {
     lock_period(tx, period_code).await?;
+    // 库存期初会重算整张期初凭证（含科目侧），所以同样不许碰「年结生成」的期间。
+    guard_not_year_end(tx, period_code).await?;
 
     let mut seen = std::collections::BTreeSet::new();
     let mut flat: Vec<FlatInventory> = Vec::with_capacity(items.len());

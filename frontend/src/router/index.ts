@@ -515,6 +515,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '期初余额', permission: 'business:erp:opening:read' },
       },
       {
+        // ==================== ERP 年度结转（ERP-R4） ====================
+        // `sys_menu`（V0190 种子 …1025）path = `/business/erp/year-end`，component
+        // `business/erp/year-end/index`；**路由手工注册**，漏了 = 点菜单进 404。
+        //
+        // 注意：`component` 里写的是前端文件路径 `year-end`，与后端路由
+        // `/business/erp/year-end/*` 是两套命名空间（前者是文件目录，后者是 API）。
+        path: 'business/erp/year-end',
+        name: 'BusinessErpYearEnd',
+        component: () => import('@/views/business/erp/year-end/index.vue'),
+        meta: { title: '年度结转', permission: 'business:erp:yearend:read' },
+      },
+      {
         // ==================== ERP 即时库存 / 库位库存 / 库存流水（P4-D） ====================
         // `sys_menu`（V0141 种子 …0946 / …0947 / …0948）是**三条**菜单：
         // `/business/erp/inventory`、`/business/erp/inventory-location`、`/business/erp/inventory-txn`，

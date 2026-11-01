@@ -3435,3 +3435,132 @@ export function saveOpeningInventory(
 ): Promise<OpeningBalance> {
   return post<OpeningBalance>(`${BASE}/opening-balance/inventory`, payload);
 }
+
+// ==================== 年度结转（ERP-R4）====================
+//
+// 三个接口（后端 `year_end.rs`，注解不含 `/api`，前端写全路径）：
+//
+// | 方法 | 路径 | 权限码 |
+// |------|------|--------|
+// | GET  | `/api/business/erp/year-end/check?year=2026` | `business:erp:yearend:read` |
+// | POST | `/api/business/erp/year-end/close` | `business:erp:yearend:close` |
+// | POST | `/api/business/erp/year-end/reopen` | `business:erp:yearend:reopen` |
+//
+// # 字段口径（逐字抄 `year_end.rs`，不猜）
+//
+// - `state.status` 两值：`NOT_CLOSED` 未结转 / `CLOSED` 已结转；
+// - `blockers[].type` 六种：`PERIOD_NOT_CLOSED` / `DOC_UNFINISHED` / `UNBALANCED` /
+//   `INVARIANT` / `NEXT_YEAR_NOT_OPENED` / `NEXT_YEAR_OPENING_EXISTS`，
+//   另有 `ALREADY_CLOSED`（已结转时 check 必带）；
+// - 金额是 `Decimal`，经 JSON 回来是**字符串或数字**，比较一律走 `toMoney()`；
+// - `carry_forward_voucher_no` 为 `null` = 空年度跳过结转凭证（不是失败）。
+
+/** 年结阻塞项（`year_end.rs::YearEndBlocker`） */
+export interface YearEndBlocker {
+  type:
+    | 'PERIOD_NOT_CLOSED'
+    | 'DOC_UNFINISHED'
+    | 'UNBALANCED'
+    | 'INVARIANT'
+    | 'NEXT_YEAR_NOT_OPENED'
+    | 'NEXT_YEAR_OPENING_EXISTS'
+    | 'ALREADY_CLOSED'
+    | 'NOT_CLOSED'
+    | string;
+  /** 涉及的期间（仅期间类阻塞项） */
+  periods?: string[];
+  /** 条数（单据 / 不变量项数 / 手工期初行数） */
+  count?: number;
+  /** 差额（仅 UNBALANCED） */
+  diff?: string;
+  message: string;
+  link?: string;
+  samples?: string[];
+}
+
+/** 年度结转状态（`year_end.rs::YearEndState`） */
+export interface YearEndState {
+  year: number;
+  closed: boolean;
+  status: 'CLOSED' | 'NOT_CLOSED' | string;
+  closed_at: string | null;
+  closed_by: string | null;
+  reason: string | null;
+  carry_forward_voucher_id: string | null;
+  carry_forward_voucher_no: string | null;
+  carry_forward_total: number | string;
+  carry_forward_entries: number;
+  net_profit: number | string;
+  periods_closed: number;
+  opening_period: string;
+  opening_balance_created: boolean;
+  opening_rows: number;
+  next_year_periods_ready: boolean;
+  next_year_open_count: number;
+}
+
+/** 前置检查响应 */
+export interface YearEndCheck {
+  year: number;
+  can_close: boolean;
+  blockers: YearEndBlocker[];
+  state: YearEndState;
+}
+
+/** 年结响应 */
+export interface YearEndCloseResult {
+  year: number;
+  carry_forward_voucher_no: string | null;
+  opening_balance_created: boolean;
+  opening_rows: number;
+  periods_closed: number;
+  next_year_periods_ready: boolean;
+  net_profit: number | string;
+  entry_count: number;
+  state: YearEndState;
+}
+
+/** 反年结响应 */
+export interface YearEndReopenResult {
+  year: number;
+  reopened: boolean;
+  reason: string;
+  deleted_voucher_no: string | null;
+  deleted_entries: number;
+  deleted_opening_rows: number;
+  december_reopened: boolean;
+  state: YearEndState;
+}
+
+/**
+ * 读年度结转状态 + 五项前置检查（只读，不落任何东西）。
+ *
+ * 失败口径：400 + `10001`（year 缺失 / 越界）；403（没有 read 权限）。
+ */
+export function fetchYearEndCheck(year: number): Promise<YearEndCheck> {
+  return get<YearEndCheck>(`${BASE}/year-end/check`, asParams({ year }));
+}
+
+/**
+ * 年结：损益结转 + 生成下年期初（同事务）。
+ *
+ * 失败口径：
+ * - 409 + `10003`：五项前置校验未过（消息里**逐条点名**：哪几个月没结账 / 几张单据 /
+ *   差多少钱 / 哪一年没开账），或本年度已结转；
+ * - 403：没有 `business:erp:yearend:close`。
+ */
+export function closeYearEnd(year: number, reason?: string): Promise<YearEndCloseResult> {
+  return post<YearEndCloseResult>(`${BASE}/year-end/close`, { year, reason });
+}
+
+/**
+ * 反年结：删结转凭证 + 删下年期初 + 12 月解封（同事务，**必填原因 ≥ 10 字**）。
+ *
+ * 失败口径：
+ * - 400 + `10001`：原因没填 / 少于 10 字；
+ * - 409 + `10003`：本年度没结转 / 下一年度已经有凭证（消息点名凭证号）；
+ * - 403：没有 `business:erp:yearend:reopen`。
+ */
+export function reopenYearEnd(year: number, reason: string): Promise<YearEndReopenResult> {
+  return post<YearEndReopenResult>(`${BASE}/year-end/reopen`, { year, reason });
+}

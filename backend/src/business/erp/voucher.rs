@@ -92,6 +92,17 @@ pub const BIZ_TYPE_PURCHASE_IN: &str = "PURCHASE_IN";
 pub const VOUCHER_TYPE_AUTO: &str = "AUTO";
 /// 凭证类型：手工录入（P7）。
 pub const VOUCHER_TYPE_MANUAL: &str = "MANUAL";
+/// 凭证类型：年度损益结转（ERP-R4，一个会计年度一张）。
+///
+/// 白名单在库层（`ck_biz_voucher_type`，V0190 扩成 `AUTO|MANUAL|OPENING|YEAR_END`），
+/// 一个期间最多一张（部分唯一索引 `uk_biz_voucher_year_end_period`）。
+///
+/// **它不进「本期发生额」**（`report::load_accounts` 与 `OPENING` 一起被排除）：
+/// 结转分录把 5xxx / 6xxx 结平，若算进损益发生额，年结之后的利润表会把整年的
+/// 收入费用对冲成 0 —— 那不是「这一年的业绩」，是账务的内部搬运。
+pub const VOUCHER_TYPE_YEAR_END: &str = "YEAR_END";
+/// 凭证来源类型：年度损益结转（ERP-R4）。
+pub const SOURCE_TYPE_YEAR_END: &str = "YEAR_END";
 /// 凭证来源类型：付款登记（P7，`biz_payment`）。
 pub const SOURCE_PAYMENT: &str = "PAYMENT";
 /// 凭证来源类型：手工录入（P7）。
@@ -1151,11 +1162,25 @@ pub async fn post_voucher(
         .as_deref()
         .is_some_and(|status| status == PERIOD_CLOSED)
     {
-        return Err(DbError::InvalidValue(format!(
-            "会计期间 {period} 已结账，不能再生成凭证（凭证日期 {}）：\
-             已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）",
-            req.voucher_date
-        )));
+        // 唯一的例外：**年末损益结转凭证**（ERP-R4）。
+        //
+        // 年结的前置条件就是「本年 12 个月全部结账」，所以结转凭证要落的 12 月
+        // 必然是 CLOSED —— 这不是绕闸，是设计决议（卡面 §四 ⚠️ 的第二个选项）：
+        // 结转凭证的 period 允许写入已结账期间，而白名单在库层
+        // （`ck_biz_voucher_type` 只放 AUTO|MANUAL|OPENING|YEAR_END），
+        // 只有 `year_end` 模块会传这个类型。反年结会把这张凭证整张删掉，
+        // 12 月重新解封前账务是一致的。
+        if req.voucher_type != VOUCHER_TYPE_YEAR_END || req.source_type != SOURCE_TYPE_YEAR_END {
+            return Err(DbError::InvalidValue(format!(
+                "会计期间 {period} 已结账，不能再生成凭证（凭证日期 {}）：\
+                 已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）",
+                req.voucher_date
+            )));
+        }
+        tracing::info!(
+            period = %period,
+            "年末损益结转凭证写入已结账期间（YEAR_END 的既定例外）"
+        );
     }
     let voucher_no = match req.red_of {
         Some(_) => next_red_voucher_no(ex, now).await?,

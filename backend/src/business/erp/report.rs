@@ -904,9 +904,23 @@ pub async fn resolve_period(tx: &Transaction, period: &str) -> DbResult<PeriodIn
 /// ```text
 /// 「期初」列（net_before）= 期间开始日之前的历史累计
 ///                        + 本期间自己的期初凭证（它的凭证日期就是期间第一天）
-/// 「本期」列（net_period）= [期间开始日, 期间结束日] 内的凭证，**排除期初凭证**
+/// 「本期」列（net_period）= [期间开始日, 期间结束日] 内的凭证，**排除期初凭证与年末结转凭证**
 /// 期末 = net_before + net_period  ← 于是「期末 = 期初 + 本期」恒成立
 /// ```
+///
+/// # 年末结转凭证（`voucher_type = 'YEAR_END'`，ERP-R4）为什么也不算本期
+///
+/// 结转凭证的作用是把 5xxx / 6xxx 结平、把本年利润搬进 `3104`：它是**账务内部搬运**，
+/// 不是「这一年发生了什么」。若算进本期发生额：
+///
+/// * 利润表（复用本函数取本期 / 本年累计）会把整年的收入费用对冲成 **0**；
+/// * 资产负债表里 `3104` 会凭空多出净利润，而 `@CATEGORY:PROFIT_LOSS` 那部分同时归零 ——
+///   总数不变（所以勾稽不假红），但「未分配利润」的构成被人为搬过一次。
+///
+/// 排除后：`net_before`（不按类型过滤）照样把结转凭证算进历史累计，于是
+/// **2027 年的报表「期初」= 2026 年的期末**（损益类归零、`3104` 带净利润）——
+/// 年结想要的「下年期初」正是这样体现的，不需要额外再生成一张 2027 的期初凭证
+/// （那会让 `net_before` 与历史累计各算一遍 → 双计）。
 ///
 /// 为什么不能只把期初凭证当普通凭证算进本期：硬红线「期初凭证不计入本期发生额」，
 /// 利润表直接复用本函数取「本期 / 本年累计」，一旦期初混进本期，损益发生额就被污染。
@@ -939,7 +953,7 @@ pub async fn load_accounts(
                 SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
                   FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
                  WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL \
-                   AND v.voucher_type <> 'OPENING' \
+                   AND v.voucher_type NOT IN ('OPENING', 'YEAR_END') \
                    AND v.voucher_date >= ? AND v.voucher_date <= ? \
                  GROUP BY e.account_id \
            ) p ON p.account_id = a.id \
