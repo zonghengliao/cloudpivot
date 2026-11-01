@@ -76,6 +76,37 @@ export function isFlowCompleteKey(key: string): boolean {
 }
 
 /**
+ * 流程详情接口 → 主按钮用的完成方式（P-FLOW-1C 补漏，后端 `138d39a`）。
+ *
+ * # 为什么单独成一个函数
+ *
+ * `GET /business/task/{id}/flow` 从 1C 补漏起**恒下发** `on_complete`，值域
+ * `string | null`（没配置该项就是 `null`）。这段「`null` 时按 `need_review` 推断」
+ * 的规则原先内联在 `detail.vue` 的 `computed` 里，`APPROVE` 被抹成 `DIRECT`
+ * 的回归（副文案「完成后需审批」不显示）只能在真机上看出来。
+ * 抽出来之后这条回归有单测兜（`tests/unit/task-flow-approve-note.test.ts`）。
+ *
+ * # 规则
+ *
+ * - `flow = null`（手工任务 / 还没拉到）→ `null`，整块流程 UI 不渲染；
+ * - `on_complete` 有值 → **原样透传**（`APPROVE` 必须透传，否则副文案消失）；
+ * - `on_complete = null`（节点没配完成方式）→ 按 `need_review` 推断：
+ *   `true` → `VERIFY`，否则 `DIRECT`（与真实配置一致，不会显示错按钮）。
+ */
+export function flowCompletionFrom(
+  flow: { on_complete: string | null } | null | undefined,
+  needReview: boolean,
+): FlowCompletion | null {
+  if (!flow) {
+    return null;
+  }
+  return {
+    on_complete: flow.on_complete ?? (needReview ? 'VERIFY' : 'DIRECT'),
+    need_review: needReview,
+  };
+}
+
+/**
  * 把一组流转按钮收敛成「流程任务的按钮组」。
  *
  * # 规则（只动 `DOING` 态）

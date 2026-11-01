@@ -103,14 +103,20 @@ export interface TaskFlowDetail {
   /** 该节点本轮的实例状态（`ACTIVE` = 正在等这张任务完成） */
   node_status: string;
   /**
-   * 节点配置的完成方式 `config.task.on_complete`（设计 §3.4 的出参里有这一项）。
+   * 节点配置的完成方式 `config.task.on_complete`。
    *
-   * **P-FLOW-1A 的实现没带这个字段**（后端 `TaskFlowDetailRes` 只有到 `node_status` 为止，
-   * 已开卡补）。所以声明成可选：拿不到时前端按 `need_review` 降级推断
-   * （`need_review=true` → `VERIFY`，否则 `DIRECT`），**不会显示错按钮**，
-   * 只是 `APPROVE` 的「完成后需审批」副文案暂时显示不出来。
+   * 取值 `'DIRECT' | 'VERIFY' | 'APPROVE'`；**没配置该项时后端回 `null`**
+   * （不是空串、也不是字段缺席 —— 字段恒出现，见 P-FLOW-1C 补漏 `138d39a`）。
+   * 所以类型是必填的 `string | null` 而不是 `string`：把 `null` 吞进类型的可选性里，
+   * 才逼着调用点显式处理「没配」这一支。
+   *
+   * 口径来自**实例冻结的发布快照**（`version.graph_snapshot`），后续改版本不影响历史任务。
    */
-  on_complete?: string | null;
+  on_complete: string | null;
+  /** 打回走向 `config.task.on_reject`：`'BACK_TO_PREV' | 'TERMINATE' | 'STAY'`；没配 → `null` */
+  on_reject: string | null;
+  /** 取消走向 `config.task.on_cancel`：`'TERMINATE' | 'BACK_TO_PREV' | 'STAY'`；没配 → `null` */
+  on_cancel: string | null;
 }
 
 /**

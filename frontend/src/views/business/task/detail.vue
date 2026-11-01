@@ -539,6 +539,7 @@ import {
 import { PERM } from '@/constants/permissions';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { renderMarkdownLite } from '@/utils/markdown-lite';
+import { flowCompletionFrom } from './components/flow-actions';
 
 const props = defineProps<{
   /** 是否可见（v-model） */
@@ -571,18 +572,15 @@ const detail = ref<TaskDetail | null>(null);
  */
 const flow = ref<TaskFlowDetail | null>(null);
 
-/** 传给 `StatusActions` 的完成方式（决定那唯一一个主按钮的文案） */
-const flowCompletion = computed(() => {
-  if (!flow.value) {
-    return null;
-  }
-  const needReview = Boolean(detail.value?.need_review);
-  // `on_complete` 1A 后端还没下发（已开卡补），拿不到就按 need_review 降级推断：
-  // need_review=true → VERIFY，否则 DIRECT。两条推断出的文案与真实配置一致，
-  // 只有 APPROVE 的「完成后需审批」副文案会缺（见 TaskFlowDetail.on_complete 的注释）。
-  const onComplete = flow.value.on_complete ?? (needReview ? 'VERIFY' : 'DIRECT');
-  return { on_complete: onComplete, need_review: needReview };
-});
+/**
+ * 传给 `StatusActions` 的完成方式（决定那唯一一个主按钮的文案 + 副文案）。
+ *
+ * 规则收在 `flow-actions.ts::flowCompletionFrom`（可单测）：`on_complete` 有值就原样透传
+ * （`APPROVE` 必须透传，否则「完成后需审批」副文案消失），`null` 才按 `need_review` 推断。
+ */
+const flowCompletion = computed(() =>
+  flowCompletionFrom(flow.value, Boolean(detail.value?.need_review)),
+);
 /** 加载中 */
 const loading = ref(false);
 /** 错误文案（非空即渲染错误态 + 重试） */
