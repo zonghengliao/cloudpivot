@@ -35,7 +35,7 @@ for p in sys.argv[2].split("."):
 print("true" if node is True else "false" if node is False else (json.dumps(node,ensure_ascii=False) if isinstance(node,(dict,list)) else node))
 ' "$1" "$2"
 }
-num_eq() { awk -v a="$2" -v b="$3" 'BEGIN{exit !(a+0==b+0)}'; }
+num_eq() { awk -v a="$1" -v b="$2" 'BEGIN{exit !(a+0==b+0)}'; }
 expect_num() { if num_eq "$2" "$3"; then ok "$1（$3）"; else bad "$1（期望 $2，实际 $3）"; fi; }
 
 echo "== 库 $NIK_DATABASE_NAME @ 127.0.0.1"
@@ -87,7 +87,7 @@ expect "diff_text" "0.00" "$(jq_get "$CF" "data.check.diff_text")"
 WARN_N=$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])["data"]["warnings"]))' "$CF")
 UNMAP_N=$(jq_get "$CF" "data.check.unclassified_count")
 echo "== warnings（$WARN_N 条）: $(jq_get "$CF" "data.warnings")"
-echo "== 未分类 $(UNMAP_N) 笔（流入 $(jq_get "$CF" "data.check.unclassified_inflow") / 流出 $(jq_get "$CF" "data.check.unclassified_outflow")）"
+echo "== 未分类 ${UNMAP_N} 笔（流入 $(jq_get "$CF" "data.check.unclassified_inflow") / 流出 $(jq_get "$CF" "data.check.unclassified_outflow")）"
 UNMAP_SAID=$(python3 -c '
 import json,sys
 d=json.loads(sys.argv[1])["data"]

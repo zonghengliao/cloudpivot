@@ -1,0 +1,8 @@
+ERP 不变量套件（生产 144，部署 ERP-R3 之后）
+
+    cd /opt/cloudpivot && set -a && . /etc/cloudpivot/cloudpivot.env && set +a
+    python3 scripts/verify/erp_invariants.py
+
+结果：31/32 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+  · [期间] F2 凭证期间必有期间记录  —  2 张凭证的期间无记录（历史数据；R1/R2 交付时同此，本卡无退化）
+  · [审批] H1/H2/H3 全绿

@@ -249,7 +249,28 @@
 
 ---
 
-## 六、回滚
+## 六、部署与运维注意
+
+```bash
+# 144 部署（**不要用 git pull**：main 跟踪的是 github 上游，本地 bare 才是 origin）
+cd /opt/cloudpivot && git fetch origin && git merge --ff-only origin/main
+cd backend && cargo build --release
+cd ../frontend && pnpm build
+systemctl restart cloudpivot && curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8023/health
+```
+
+**迁移里种了菜单的，部署后必须清菜单树缓存**（本卡实测踩到）：
+
+```bash
+redis-cli -n 0 DEL cloudpivot:menu:tree:all
+for k in $(redis-cli -n 0 --scan --pattern "cloudpivot:perm:user_menus:*"); do redis-cli -n 0 DEL "$k" >/dev/null; done
+```
+
+`/system/menu/tree` 的全量树缓存 TTL 是 1 小时（`CACHE_HOT_QUERY_TTL_SECS = 3600`），
+而**重启服务不会清 Redis** —— 不清的话新菜单节点（…1018）在缓存过期前不会出现在菜单树里，
+看起来像"迁移没生效"（库里明明有行、也有授权）。只删缓存，无副作用。
+
+## 七、回滚
 
 ```sql
 -- 先停应用，再执行（会删表与菜单节点）
