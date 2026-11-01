@@ -94,10 +94,13 @@
 ```bash
 # 1) 干净库（134 个迁移）全量后端单测
 cd backend && ERP_DB_URL=postgres://d7role:***@127.0.0.1:5432/cloudpivot_d7v \
-  cargo test --lib -j 2 -- --test-threads=1          → 见下方「结果」
+  cargo test --lib -j 2 -- --test-threads=1
+  → test result: ok. 1824 passed; 0 failed（既有 1801 + 本卡 23；495.04s）
 
 # 2) 前端
 cd frontend && npx vue-tsc --noEmit && npx tsx --test "tests/unit/**/*.test.ts"
+  → typecheck 0 error；# tests 403 / # pass 403 / # fail 0（既有 395 + 本卡 8）
+  → npx vite build 通过（模板编译 + 8 个 *-batch testid 进 dist）
 
 # 3) 不变量（干净库）
 NIK_DATABASE_USER=d7role NIK_DATABASE_NAME=cloudpivot_d7v \
@@ -105,7 +108,10 @@ NIK_DATABASE_USER=d7role NIK_DATABASE_NAME=cloudpivot_d7v \
 
 # 4) 真机 e2e（隔离实例 + 真 HTTP + 真库）
 D7_BASE_URL=http://127.0.0.1:18091 D7_DB_NAME=cloudpivot_d7 \
-  python3 scripts/verify/d7_batch_e2e.py              → 30/30 PASS
+  python3 scripts/verify/d7_batch_e2e.py              → 30 PASS / 0 FAIL
+
+# 5) lint
+cargo fmt -p cloudpivot -- --check && cargo clippy --lib -- -D warnings   → 均绿
 ```
 
 e2e 覆盖的真机链路（卡面 §五）：
@@ -121,7 +127,35 @@ e2e 覆盖的真机链路（卡面 §五）：
 ⑧ 未登录 → 401（路由在鉴权后面，不是 404）
 ```
 
-## 四、已知边界 / 后续
+## 四、生产部署（144）
+
+```bash
+ssh root@172.18.10.144 'bash /tmp/d7_deploy_144.sh'    # = scripts/verify/d7_deploy_144.sh
+ssh root@172.18.10.144 'bash /tmp/d7_prod_smoke.sh'    # = scripts/verify/d7_prod_smoke.sh（只读）
+```
+
+结果（2026-11-02 01:06）：
+
+| 项 | 值 |
+|----|----|
+| 部署 HEAD | `1c8415f`（`git merge --ff-only origin/main`，**零迁移**） |
+| 二进制 md5 | `006b7c2d2e1ba6dae3a32c4818fb4ab4`，`PROC_EQ_DISK=OK` |
+| health | 200 |
+| 前端入口 chunk | `BasicLayout-ClD1jr1k.js` → `BasicLayout-Dnrvy29o.js`；8 个 `*-batch` testid 逐个命中 |
+| 11 条批量路由 | 未登录全部 **401**（路由已注册，不是 404） |
+| 生产不变量 | **32/32 · BLOCKER 0 · WARN 0** |
+
+生产只读冒烟（**不写库**的入参，结果与设计一致）：
+
+```
+1) 收货单批量过账 ids=[]            → 400「ids 不能为空：批量操作至少要勾选一条」
+2) 收货单批量过账 不存在的 id        → 200 + 1 条失败 {code:10002, error:"收货入库单不存在或已删除"}
+3) 批量导出 ids=[] 且无筛选          → 400（不许「全选」变「全表」，且不建任务）
+4) 审批中心批量同意 不存在的待办     → 200 + 1 条失败 {code:65003, error:"待办不存在或已被删除"}
+5) 任务批量改状态 不存在的任务       → 200 + 1 条失败 {code:63001, error:"任务不存在或已删除"}
+```
+
+## 五、已知边界 / 后续
 
 - 卡面第二批「其余 19 个列表页」未接（本卡按卡面只做 8 个核心页）。组件与 API 已通用，接入一页约 30 行。
 - 批量导出目前为 3 类单据（收货 / 应付 / 凭证）注册了导出定义；其余资源若要导出，需按 `erp_doc.rs` 的 `DocSpec` 再加一段 SELECT。
