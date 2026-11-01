@@ -463,8 +463,17 @@ impl GraphSaveReq {
             if !seen.insert(key.clone()) {
                 return Err(format!("节点 key {key} 重复"));
             }
-            let node_type = NodeType::parse(&raw.node_type)
-                .ok_or_else(|| format!("节点 {key} 的类型 {} 非法（只允许 START/APPROVAL/COUNTERSIGN/CONDITION/PARALLEL/CC/END）", raw.node_type))?;
+            let node_type = NodeType::parse(&raw.node_type).ok_or_else(|| {
+                let allowed = NodeType::ALL
+                    .iter()
+                    .map(|kind| kind.as_str())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                format!(
+                    "节点 {key} 的类型 {} 非法（只允许 {allowed}）",
+                    raw.node_type
+                )
+            })?;
             let name = normalize_name(&raw.name)?;
             let assignee_type = match raw.assignee_type.as_deref() {
                 None => None,
@@ -1549,6 +1558,154 @@ pub struct InstanceDetailRes {
     pub my_task: Option<TaskRes>,
     /// 自动通过节点数（与 `instance.auto_passed_nodes` 同值，方便前端直接取）。
     pub auto_passed_nodes: i32,
+}
+
+/// 任务节点预演请求（`POST /business/flow/node/task/preview`，设计 §3.3）。
+///
+/// **不发布、不建实例**：拿一份 `config.task` + 一份模拟变量，看渲染出的任务长什么样。
+/// 前端「节点属性面板」右侧的实时预览就调它（防抖 300ms）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskPreviewReq {
+    /// 完整的 `config.task` 对象（与保存时同一形状）。
+    pub config: Value,
+    /// 可选：算「谁来干」（不给就只回模板结果）。
+    #[serde(default)]
+    pub assignee: Option<PreviewAssigneeReq>,
+    /// 可选：模拟变量（一层嵌套：`{"form":{…},"initiator":{…}}`）。
+    #[serde(default)]
+    pub vars: Option<Value>,
+    /// 可选：决定 `task.*` 是否可用（非 `TASK_ACCEPT` → `task.*` 会被标错）。
+    #[serde(default)]
+    pub biz_type: Option<String>,
+    /// 可选：`{{node.name}}` 的值。
+    #[serde(default)]
+    pub node_name: Option<String>,
+    /// 可选：算 `RELATIVE` 期限的基准时刻（默认 now）。
+    #[serde(default)]
+    pub due_base: Option<chrono::DateTime<chrono::Utc>>,
+    /// 可选：`true` = 与运行期完全一致（缺变量 → 400 + 65039）；默认 `false`（可见占位 + warning）。
+    #[serde(default)]
+    pub strict: Option<bool>,
+}
+
+/// 预演请求里的指派配置（**与 `biz_flow_node` 的列 + `biz_flow_node_assignee` 表同款**，
+/// 决策 D3：不造第二套指派规则，预演也要走 `assignee::resolve`）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct PreviewAssigneeReq {
+    /// 来源类型（`USER` / `ROLE` / `INITIATOR` / `FORM_VAR` / `EXPRESSION` …）。
+    #[serde(default)]
+    pub assignee_type: Option<String>,
+    /// `assignee_type = ROLE` 时的角色编码列表（跨环境稳定）。
+    #[serde(default)]
+    pub role_codes: Vec<String>,
+    /// `assignee_type = USER` 时的用户 id 列表。
+    #[serde(default)]
+    pub user_ids: Vec<String>,
+    /// 主管层数（`INITIATOR_SUPERIOR`）。
+    #[serde(default)]
+    pub superior_levels: Option<i16>,
+    /// `FORM_VAR` 的变量名。
+    #[serde(default)]
+    pub form_var_key: Option<String>,
+    /// 空负责人策略（`SKIP` / `ERROR` / `FALLBACK_ADMIN`）。
+    #[serde(default)]
+    pub empty_assignee: Option<String>,
+    /// 是否允许机器人（默认 false，与列默认值一致）。
+    #[serde(default)]
+    pub allow_robot: Option<bool>,
+}
+
+/// 预演渲染出的任务。
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewTaskRes {
+    /// 渲染后的标题（≤200 字符，超了直接 400）。
+    pub title: String,
+    /// 渲染后的描述（没配 → 空串）。
+    pub description: String,
+    /// 优先级。
+    pub priority: String,
+    /// 截止日（`yyyy-MM-dd`；没配 → `null`）。
+    pub due_date: Option<String>,
+    /// 是否需验收。
+    pub need_review: bool,
+    /// 完成后怎么走。
+    pub on_complete: String,
+}
+
+/// 预演解析出的一个人。
+#[derive(Debug, Clone, Serialize)]
+pub struct PreviewAssigneeRes {
+    /// 用户 id。
+    pub user_id: String,
+    /// 姓名。
+    pub name: String,
+    /// 来源（`ROLE` / `USER` …）。
+    pub source: String,
+    /// 来源角色 / 部门 id。
+    pub source_ref: String,
+    /// 是否机器人。
+    pub is_robot: bool,
+    /// 是否协作人（**第一个是负责人，其余为 `true`**；真实落库时不写这个标记）。
+    pub member: bool,
+}
+
+/// 预演回执（`ok:false` 时同时回 400 + `errors`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskPreviewRes {
+    /// 是否通过（`errors` 非空 → `false`）。
+    pub ok: bool,
+    /// 渲染结果（`ok:false` 时也可能给出部分结果）。
+    pub task: Option<PreviewTaskRes>,
+    /// 解析出的人（第一个是负责人）。
+    pub assignees: Vec<PreviewAssigneeRes>,
+    /// 告警（缺变量的可见占位、上一审批人为空、固定日期已过期…）。
+    pub warnings: Vec<String>,
+    /// 错误（非空 → `ok:false` + 400）。
+    pub errors: Vec<String>,
+    /// 排障痕迹（与 `assignee::Resolution.trace` 同款）。
+    pub trace: Vec<String>,
+}
+
+/// 审批单下的流程任务条目（`GET /business/flow/instance/{id}/tasks`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceTaskRes {
+    /// 任务 id。
+    pub id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 标题（生成时渲染的快照）。
+    pub title: String,
+    /// 状态。
+    pub status: String,
+    /// 优先级。
+    pub priority: String,
+    /// 进度。
+    pub progress: i16,
+    /// 负责人。
+    pub owner_id: String,
+    /// 负责人姓名。
+    pub owner_name: String,
+    /// 是否需验收。
+    pub need_review: bool,
+    /// 截止日。
+    pub due_date: Option<chrono::NaiveDate>,
+    /// 生成它的节点 key。
+    pub flow_node_key: String,
+    /// 生成时的轮次。
+    pub flow_round: i32,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// `GET /business/flow/instance/{id}/tasks` 的回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct InstanceTasksRes {
+    /// 实例 id。
+    pub instance_id: String,
+    /// 本实例生成的任务（按创建时间升序）。
+    pub list: Vec<InstanceTaskRes>,
+    /// 条数。
+    pub total: i64,
 }
 
 /// 审批动作的出参。

@@ -769,7 +769,10 @@ async fn load_plan(
 ///    （`WHERE deleted_at IS NULL`），不带这个谓词可能命中已删的同名角色；
 /// 2. **查不到不算错**：code 不存在 = 运维态（角色被删/改名），这一条 target 解析出 0 人 →
 ///    走 `empty_assignee` 策略并记 trace，**不是** 501（那是「代码不认识的数据」才有的待遇）。
-async fn load_role_ids_by_code(
+///
+/// `pub(crate)`：预演接口（`POST /flow/node/task/preview`）要按 `role_codes` 算「谁来干」，
+/// 与表达式审批人走同一个 code→id 解析，不许各写一份（否则「预演算 3 人、真跑算 0 人」）。
+pub(crate) async fn load_role_ids_by_code(
     ex: &impl SqlExecutor,
     codes: &[String],
     trace: &mut Vec<String>,

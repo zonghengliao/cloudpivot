@@ -3190,6 +3190,96 @@ fn opt_ts(value: Option<chrono::DateTime<chrono::Utc>>) -> Value {
     }
 }
 
+// ==================== 流程生成的任务（P-FLOW-1A） ====================
+
+/// 一张「流程生成的任务」行（`GET /business/flow/instance/{id}/tasks` 的出参来源）。
+#[derive(Debug, Clone)]
+pub struct FlowTaskRow {
+    /// 任务 id。
+    pub id: Uuid,
+    /// 任务编号。
+    pub task_no: String,
+    /// 标题（生成时渲染的快照）。
+    pub title: String,
+    /// 状态。
+    pub status: String,
+    /// 优先级。
+    pub priority: String,
+    /// 进度。
+    pub progress: i16,
+    /// 负责人。
+    pub owner_id: Uuid,
+    /// 负责人姓名（已删用户 → 空串）。
+    pub owner_name: String,
+    /// 是否需验收。
+    pub need_review: bool,
+    /// 截止日。
+    pub due_date: Option<chrono::NaiveDate>,
+    /// 生成它的节点 key。
+    pub flow_node_key: String,
+    /// 生成时的轮次。
+    pub flow_round: i32,
+    /// 创建时间。
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// 某个流程实例下由 `TASK_NODE` 生成的全部任务（**只读 `source='FLOW'` 的行**）。
+///
+/// # 为什么按 `flow_instance_id` 直查而不是走 `parent_id` 树
+///
+/// 流程任务**不写** `biz_task.parent_id`（决策 4：那是「子任务」语义）。三列 + 部分索引
+/// `idx_biz_task_flow_instance` 让「本单生成了哪些活」变成一次索引扫描。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn flow_tasks_of(instance_id: Uuid) -> DbResult<Vec<FlowTaskRow>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT t.id, t.task_no, t.title, t.status, t.priority, t.progress, \
+                    t.owner_id, COALESCE(NULLIF(u.real_name, ''), u.username, '') AS owner_name, \
+                    t.need_review, t.due_date, t.flow_node_key, t.flow_round, t.created_at \
+               FROM biz_task t \
+               LEFT JOIN sys_user u ON u.id = t.owner_id \
+              WHERE t.flow_instance_id = ?::uuid \
+                AND t.source::text = 'FLOW' \
+                AND t.deleted_at IS NULL \
+              ORDER BY t.created_at, t.id",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    rows.iter()
+        .map(|row| {
+            Ok(FlowTaskRow {
+                id: row.get_typed("id")?,
+                task_no: row.get_typed("task_no")?,
+                title: row.get_typed("title")?,
+                status: row.get_typed("status")?,
+                priority: row.get_typed("priority")?,
+                progress: row.get_typed::<i16>("progress").unwrap_or(0),
+                owner_id: row.get_typed("owner_id")?,
+                owner_name: row.get_typed("owner_name").unwrap_or_default(),
+                need_review: row.get_typed("need_review").unwrap_or(false),
+                due_date: row
+                    .get_typed::<Option<chrono::NaiveDate>>("due_date")
+                    .ok()
+                    .flatten(),
+                flow_node_key: row
+                    .get_typed::<Option<String>>("flow_node_key")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                flow_round: row
+                    .get_typed::<Option<i32>>("flow_round")
+                    .ok()
+                    .flatten()
+                    .unwrap_or(1),
+                created_at: row.get_typed("created_at")?,
+            })
+        })
+        .collect()
+}
+
 // ==================== 单元测试 ====================
 
 #[cfg(test)]

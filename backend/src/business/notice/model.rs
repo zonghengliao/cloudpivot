@@ -1514,9 +1514,27 @@ mod tests {
     #[test]
     fn withdraw_report_is_empty_only_when_both_zero() {
         assert!(BizWithdrawReport::default().is_empty());
-        assert!(!BizWithdrawReport { notices: 1, receivers: 0 }.is_empty());
-        assert!(!BizWithdrawReport { notices: 0, receivers: 2 }.is_empty());
-        assert!(!BizWithdrawReport { notices: 1, receivers: 2 }.is_empty());
+        assert!(
+            !BizWithdrawReport {
+                notices: 1,
+                receivers: 0
+            }
+            .is_empty()
+        );
+        assert!(
+            !BizWithdrawReport {
+                notices: 0,
+                receivers: 2
+            }
+            .is_empty()
+        );
+        assert!(
+            !BizWithdrawReport {
+                notices: 1,
+                receivers: 2
+            }
+            .is_empty()
+        );
     }
 
     /// `target_ids` 列的脏数据必须降级为空列表（详情接口不能因此 500）。

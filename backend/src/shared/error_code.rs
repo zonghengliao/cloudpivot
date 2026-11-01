@@ -952,6 +952,31 @@ pub const FLOW_EXPRESSION_UNSUPPORTED: i32 = 65032;
 /// D-E8 要求它在**发布期**就被拒，而不是落 `501` —— 「能存进去、跑起来才炸」正是本期要消灭的形态。
 pub const FLOW_EXPRESSION_INVALID: i32 = 65033;
 
+// ==================== 流程配置化（P-FLOW-1A，设计 §2.7 / §3.8） ====================
+
+/// 节点配置与节点类型不匹配（HTTP 400）：如 `APPROVAL` 上配了 `config.task`、
+/// `TASK_NODE` 缺 `config.task`、`config.task` 形状 / 未知键 / 交叉约束不满足（R18 的一半）。
+pub const FLOW_NODE_CONFIG_MISMATCH: i32 = 65034;
+
+/// `TASK_NODE` 的 `need_review` × `on_complete` 组合非法（HTTP 400，R18）。
+///
+/// 典型两条：`VERIFY + need_review=false`（声明要验收却没开验收态 = 配置静默失效）、
+/// `APPROVE + need_review=true`（发起人验收一次 + 审批人再签一次 = 「点两次提交」）。
+/// 1A 阶段 `on_complete=APPROVE` 本身也落这里（引擎分支在 P-FLOW-1B）。
+pub const FLOW_TASK_NODE_INVALID: i32 = 65035;
+
+/// `NOTIFY_NODE` 的模板不存在 / 占位符非法（HTTP 400，R19）。
+pub const FLOW_NOTIFY_TEMPLATE_INVALID: i32 = 65036;
+
+/// 模板变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT` 流程（HTTP 400，R21）。
+pub const FLOW_TEMPLATE_VAR_INVALID: i32 = 65037;
+
+/// 流程任务状态与实例状态冲突（HTTP 409）：任务完成时实例已终止 / 已撤回等（P-FLOW-1B 用）。
+pub const FLOW_TASK_STATE_CONFLICT: i32 = 65038;
+
+/// 预演（preview）参数非法（HTTP 400）：变量缺失（`strict=true`）/ 渲染结果超长 / 模板语法错。
+pub const FLOW_PREVIEW_INVALID: i32 = 65039;
+
 // ==================== 66xxx：ERP 主数据 / 仓储（批次 D · W1c） ====================
 //
 // 码段说明：64xxx 是云枢 × Hermes，65xxx 是审批流；ERP 接口层（W1c）新开 66xxx，
@@ -1338,6 +1363,12 @@ mod tests {
             (FLOW_TASK_NOT_MINE, 65028),
             (FLOW_EXPRESSION_UNSUPPORTED, 65032),
             (FLOW_EXPRESSION_INVALID, 65033),
+            (FLOW_NODE_CONFIG_MISMATCH, 65034),
+            (FLOW_TASK_NODE_INVALID, 65035),
+            (FLOW_NOTIFY_TEMPLATE_INVALID, 65036),
+            (FLOW_TEMPLATE_VAR_INVALID, 65037),
+            (FLOW_TASK_STATE_CONFLICT, 65038),
+            (FLOW_PREVIEW_INVALID, 65039),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "65xxx 段码值不得改动");
@@ -1352,15 +1383,16 @@ mod tests {
         assert_eq!(unique.len(), codes.len(), "65xxx 段不得有重复码值");
         assert_eq!(
             unique.len(),
-            28,
-            "65xxx 段必须是 28 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033）"
+            34,
+            "65xxx 段必须是 34 个码（架构 §10.3 的 22 个 + D2 追加的 5 个运行侧细分码 + P1-A2 的 65033 \
+             + P-FLOW-1A 的 65034–65039）"
         );
         assert!(
             codes.iter().all(|(code, _)| *code > 64014 && *code < 66000),
             "65xxx 段必须落在 64014 与 66000 之间（不侵占 AI 用户段）"
         );
         println!(
-            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65033）✓",
+            "[码表] 65xxx 段 {} 个码齐全且不重复（65001–65005 / 65010–65028 / 65030–65039）✓",
             codes.len()
         );
     }

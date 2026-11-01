@@ -395,7 +395,7 @@ pub fn normalize_save_req(
         })?,
     };
     if let Some(hours) = req.estimate_hours
-        && (!hours.is_finite() || hours < 0.0 || hours > 9999.0)
+        && (!hours.is_finite() || !(0.0..=9999.0).contains(&hours))
     {
         return Err(template_invalid(format!(
             "预估工时非法：{hours}（应为 0 ~ 9999 小时）"

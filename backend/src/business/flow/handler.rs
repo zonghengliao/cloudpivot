@@ -42,12 +42,16 @@ use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::flow::graph::{EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType};
+use crate::business::flow::graph::{
+    self, AssigneeKind, EdgeSpec, FlowGraph, Issue, NodeSpec, NodeType,
+};
 use crate::business::flow::task_bridge;
-use crate::business::flow::{dto, model};
+use crate::business::flow::{assignee, dto, model, node_config, task_node, template_vars};
+use crate::business::notice::dto::ContentFormat;
+use crate::business::notice::render;
 use crate::shared::error_code;
 use crate::utils;
-use serde_json::Map;
+use serde_json::{Map, Value};
 
 // ==================== 小工具 ====================
 
@@ -1121,6 +1125,28 @@ async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
     out.rejected.take()
 }
 
+/// 「发起时引擎业务拒绝」的哨兵错误文案（P-FLOW-1A）。
+///
+/// # 为什么需要这个哨兵
+///
+/// `engine::start` 把业务失败（如 `65018` 没审批人、`65039` 标题超长）放进
+/// `out.rejected` 后**正常返回**，事务照样提交 —— 结果是「发起失败但留了一张 PENDING
+/// 的空审批单」。对审批单只是难看，对 `TASK_NODE` 是「半截实例 + 半截任务」，
+/// 而设计 §7.1 验收 7 明确要求**整笔回滚：`biz_task` 0 行、`biz_flow_instance` 0 行**。
+///
+/// `ApiError` 既没有 `Clone` 也不能塞进 `DbError`，所以用「哨兵错误 + 槽位」把它带出事务：
+/// 事务内把原始 `ApiError` 挪进 `Arc<Mutex<Option<ApiError>>>`，再抛这个哨兵让事务回滚；
+/// 事务外按哨兵认出这次失败，取出原始业务码原样返回前端（**码值与文案不变**）。
+const START_REJECTED_MARKER: &str = "P-FLOW:start-rejected";
+
+/// 是否「发起被引擎业务拒绝」的哨兵（见 [`START_REJECTED_MARKER`]）。
+fn is_start_rejected(error: &DbError) -> bool {
+    match error {
+        DbError::InvalidValue(text) => text == START_REJECTED_MARKER,
+        other => other.to_string().contains(START_REJECTED_MARKER),
+    }
+}
+
 // ==================== 12. 发起 ====================
 
 /// 发起一张审批单（`POST /business/flow/instance`）。
@@ -1254,6 +1280,11 @@ pub async fn create_instance(
         .unwrap_or_else(|| def.biz_type.clone());
 
     let instance_id = Uuid::now_v7();
+    // 业务拒绝的「带出槽」（见 START_REJECTED_MARKER 的说明）：事务内挪进 ApiError，
+    // 事务外取出来原样返回给前端。
+    let rejected_slot: std::sync::Arc<std::sync::Mutex<Option<ApiError>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let rejected_slot_tx = std::sync::Arc::clone(&rejected_slot);
     let start = engine::StartReq {
         instance_id,
         def_id: def.id,
@@ -1272,10 +1303,25 @@ pub async fn create_instance(
     };
 
     let result = db()
-        .transaction(|tx| async move { engine::start(&tx, &start).await })
+        .transaction(move |tx| async move {
+            let mut out = engine::start(&tx, &start).await?;
+            if let Some(error) = out.rejected.take() {
+                // 业务失败 → 整笔回滚（不留半截实例 / 半截任务）。
+                // 原始业务码经槽位带出事务（`ApiError` 不能 Clone 也不能进 DbError）。
+                if let Ok(mut slot) = rejected_slot_tx.lock() {
+                    *slot = Some(error);
+                }
+                return Err(DbError::InvalidValue(START_REJECTED_MARKER.to_string()));
+            }
+            Ok(out)
+        })
         .await;
     let mut out = match result {
         Ok(out) => out,
+        Err(error) if is_start_rejected(&error) => {
+            let rejected = rejected_slot.lock().ok().and_then(|mut slot| slot.take());
+            return Err(rejected.unwrap_or_else(|| utils::db_error(error, "发起审批")));
+        }
         Err(error) if is_biz_active_duplicate(&error) => {
             return Err(ApiError::new(
                 409,
@@ -2263,6 +2309,380 @@ pub async fn stats_node_bottleneck(
         slowest_node_name: slowest.map(|row| row.node_name.clone()).unwrap_or_default(),
         slowest_avg_dwell_seconds: slowest.map(|row| row.avg_dwell_seconds).unwrap_or(0),
         list,
+    }))
+}
+
+// ==================== 26. 任务节点预演（P-FLOW-1A） ====================
+
+/// 任务节点模板预演（`POST /business/flow/node/task/preview`，设计 §3.3）。
+///
+/// **不发布、不建实例**：拿一份 `config.task` + 一份模拟变量，看渲染出的任务长什么样。
+///
+/// # 权限为什么是 `business:flow:tasknode:read` 而不是设计 §3.3 写的 `business:flow:read`
+///
+/// §3.8 专门为「查看流程任务配置」造了 `business:flow:tasknode:read`，而 1A 只有这一个新接口。
+/// 用 `flow:read` 会让那个码**没有任何接口** —— 直接命中 `system::menu::permission_audit_tests`
+/// 的 N14/N18（菜单里有码、后端零落地 = 管理员勾了永不生效的死码）。
+/// `tasknode:read` 的语义（「能看任务配置就能预演」）与预演接口完全吻合，且当前没有前端调用方
+/// 依赖 `flow:read` 这一路径（页面在 P-FLOW-1C 才建）。详见 `V0181` 迁移头部的取舍说明。
+///
+/// # `strict` 的两种模式（设计 §3.3「缺变量处理」）
+///
+/// | `strict` | 缺变量 | 用途 |
+/// |---|---|---|
+/// | `false`（默认） | 渲染成可见占位 `〔form.amount〕` + `warnings` | 配置期预览（用户还没数据） |
+/// | `true` | 与运行期一致：`400 + 65039` | 「上线前体检」按钮 |
+///
+/// `strict=false` **不是静默**：占位是显式的、warning 是逐条给的。真实落库永远走严格模式。
+///
+/// # 异常情况
+///
+/// - `400 + 65034`：`config` 形状 / 未知键 / 交叉约束非法；
+/// - `400 + 65035`：`need_review × on_complete` 矩阵违例（含 1A 阶段的 APPROVE 闸）；
+/// - `400 + 65036`：模板语法错（占位符未闭合 / 变量名非法 / 超过一层点号）；
+/// - `400 + 65037`：变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT`；
+/// - `400 + 65039`：`strict=true` 缺变量 / 渲染后标题超 200 字符；
+/// - `400 + 65018`：指派人解析出 0 人且 `empty_assignee=ERROR`。
+#[nik::permission(
+    path = "/business/flow/node/task/preview",
+    method = "POST",
+    permission = "business:flow:tasknode:read"
+)]
+#[nik::post("/business/flow/node/task/preview")]
+pub async fn task_preview(Json(req): Json<dto::TaskPreviewReq>) -> ResResult<dto::TaskPreviewRes> {
+    let strict = req.strict.unwrap_or(false);
+
+    // ① 形状 + 交叉约束（65034）
+    let cfg = node_config::parse_task_config(&req.config)?;
+    // ② 矩阵（65035）
+    node_config::check_matrix(&cfg)?;
+
+    // ③ 变量表：请求给的模拟变量 + `{{node.name}}`
+    let mut source = match req.vars.clone() {
+        Some(Value::Object(map)) => Value::Object(map),
+        _ => Value::Object(Map::new()),
+    };
+    if let Some(name) = req.node_name.as_deref() {
+        let node = source.as_object_mut().map(|map| {
+            map.entry("node")
+                .or_insert_with(|| Value::Object(Map::new()))
+        });
+        if let Some(node) = node.and_then(Value::as_object_mut) {
+            node.insert("name".to_string(), Value::String(name.to_string()));
+        }
+    }
+    let mut warnings: Vec<String> = Vec::new();
+    let vars = template_vars::TemplateVars::from_nested(&source, &mut warnings);
+
+    // ④ R21：变量路径白名单（65037）+ 模板语法（65036）
+    let task_accept = req
+        .biz_type
+        .as_deref()
+        .map(|raw| raw.trim().eq_ignore_ascii_case("TASK_ACCEPT"))
+        .unwrap_or(false);
+    for (label, template) in [
+        ("title_template", Some(cfg.title_template.as_str())),
+        ("description_template", cfg.description_template.as_deref()),
+    ] {
+        let Some(template) = template else {
+            continue;
+        };
+        let placeholders = render::collect_placeholders_paths(template)?;
+        for name in placeholders {
+            if !graph::template_field_allowed(&name) {
+                return Err(ApiError::new(
+                    400,
+                    error_code::FLOW_TEMPLATE_VAR_INVALID,
+                    format!(
+                        "{label} 里的 {{{{{name}}}}} 不在白名单（允许 form.* / instance.* / initiator.* / node.* / prev.* / task.*）"
+                    ),
+                ));
+            }
+            if name.starts_with("task.") && !task_accept {
+                return Err(ApiError::new(
+                    400,
+                    error_code::FLOW_TEMPLATE_VAR_INVALID,
+                    format!(
+                        "{label} 用了 {{{{{name}}}}}，但本流程业务类型是 {}（task.* 只在 TASK_ACCEPT 流程里有值）",
+                        req.biz_type.as_deref().unwrap_or("（未知）")
+                    ),
+                ));
+            }
+        }
+    }
+
+    // ⑤ 渲染：严格模式与运行期逐字节一致；非严格模式把缺变量换成可见占位
+    let dotted = if strict {
+        vars.dotted.clone()
+    } else {
+        let templates = [
+            Some(cfg.title_template.as_str()),
+            cfg.description_template.as_deref(),
+        ];
+        let present: Vec<&str> = templates.into_iter().flatten().collect();
+        let (filled, missing) =
+            template_vars::fill_missing_with_placeholders(&vars.dotted, &present);
+        for path in missing {
+            warnings.push(format!(
+                "缺变量 {{{{{path}}}}}：已渲染成可见占位（严格模式下会 400 + 65039）"
+            ));
+        }
+        filled
+    };
+
+    let title = render::render_paths(&cfg.title_template, &dotted, ContentFormat::Text)
+        .map_err(preview_error)?;
+    let title_chars = title.chars().count();
+    if title_chars > node_config::MAX_TITLE_TEMPLATE_CHARS {
+        return Err(ApiError::new(
+            400,
+            error_code::FLOW_PREVIEW_INVALID,
+            format!(
+                "渲染后标题 {title_chars} 字符，超过 {}（biz_task.title 上限）",
+                node_config::MAX_TITLE_TEMPLATE_CHARS
+            ),
+        ));
+    }
+    let description = match cfg.description_template.as_deref() {
+        Some(template) => {
+            render::render_paths(template, &dotted, ContentFormat::Text).map_err(preview_error)?
+        }
+        None => String::new(),
+    };
+
+    // ⑥ 期限（`due_base` 可注入，便于前端「假设今天」）
+    // 预演的「今天」由 `due_base` 注入（前端要能演「假设今天」）；表单取 `vars.form`
+    let form_only = source
+        .get("form")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(Map::new()));
+    let due_date = cfg.due.as_ref().map(|due| {
+        let base = req.due_base.unwrap_or_else(chrono::Utc::now);
+        task_node::compute_due(due, &form_only, base)
+    });
+
+    // ⑦ 指派（可选）：与运行期走**同一个** `assignee::resolve`
+    let mut assignees: Vec<dto::PreviewAssigneeRes> = Vec::new();
+    let mut trace: Vec<String> = Vec::new();
+    if let Some(assignee) = req.assignee.as_ref() {
+        let spec = preview_snapshot_node(assignee).await?;
+        let ctx = assignee::InstanceCtx {
+            instance_id: Uuid::nil(),
+            initiator_id: Uuid::nil(),
+            initiator_dept_id: None,
+            biz_type: req.biz_type.clone().unwrap_or_default(),
+            biz_id: None,
+            form_data: source.clone(),
+        };
+        let eval = preview_eval_context(&source);
+        let assignee::Resolution {
+            finalized,
+            trace: resolved,
+        } = assignee::resolve(db(), &spec, &ctx, &eval)
+            .await
+            .map_err(|error| utils::db_error(error, "预演解析指派人"))?;
+        trace = resolved;
+        if let Some(error) = finalized.error {
+            return Err(error);
+        }
+        for (index, candidate) in finalized.approvers.iter().enumerate() {
+            assignees.push(dto::PreviewAssigneeRes {
+                user_id: candidate.user_id.to_string(),
+                name: candidate.name.clone(),
+                source: candidate.source.as_str().to_string(),
+                source_ref: candidate
+                    .source_ref
+                    .map(|id| id.to_string())
+                    .unwrap_or_default(),
+                is_robot: candidate.is_robot,
+                member: index > 0,
+            });
+        }
+        if assignees.is_empty() {
+            warnings.push(
+                "按当前指派配置解析出 0 个负责人（运行期会按 empty_assignee 策略处理）".to_string(),
+            );
+        }
+    }
+
+    Ok(Res::ok(dto::TaskPreviewRes {
+        ok: true,
+        task: Some(dto::PreviewTaskRes {
+            title,
+            description,
+            priority: cfg.priority.clone(),
+            due_date: due_date.map(|date| date.format("%Y-%m-%d").to_string()),
+            need_review: cfg.need_review,
+            on_complete: cfg.on_complete.as_str().to_string(),
+        }),
+        assignees,
+        warnings,
+        errors: Vec::new(),
+        trace,
+    }))
+}
+
+/// 预演里的渲染错误映射（设计 §3.3 的错误表）。
+///
+/// - 语法错（60024：未闭合 / 变量名非法 / 超过一层点号）→ `65036`；
+/// - 缺变量（60023）→ `65039`（`strict=true` 时才会出现；`strict=false` 已被占位填掉）。
+fn preview_error(error: ApiError) -> ApiError {
+    let code = match error.code {
+        error_code::NOTICE_TEMPLATE_SYNTAX => error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+        _ => error_code::FLOW_PREVIEW_INVALID,
+    };
+    ApiError::new(400, code, error.msg)
+}
+
+/// 把预演请求里的 `assignee` 变成 `SnapshotNode`（与发布快照同构，才能复用 `assignee::resolve`）。
+async fn preview_snapshot_node(
+    req: &dto::PreviewAssigneeReq,
+) -> std::result::Result<crate::business::flow::graph::SnapshotNode, ApiError> {
+    let mut spec = crate::business::flow::graph::SnapshotNode {
+        key: "n_preview".to_string(),
+        name: "预演节点".to_string(),
+        node_type: NodeType::Task.as_str().to_string(),
+        assignee_type: req.assignee_type.clone(),
+        approval_mode: None,
+        approve_ratio: None,
+        reject_veto: true,
+        join_mode: "AND".to_string(),
+        fork_mode: "AND".to_string(),
+        form_var_key: req.form_var_key.clone(),
+        superior_levels: req.superior_levels.unwrap_or(1),
+        empty_assignee: req
+            .empty_assignee
+            .clone()
+            .unwrap_or_else(|| "ERROR".to_string()),
+        // 任务节点没有「自审」这个概念（设计 §2.4）：预演必须与运行期同口径，
+        // 否则会出现「预演 1 人、真跑 0 人」的假绿（运行期 `task_node::spawn` 同样置 ALLOW）。
+        self_approval: "ALLOW".to_string(),
+        allow_robot: req.allow_robot.unwrap_or(false),
+        timeout_hours: None,
+        timeout_action: "REMIND".to_string(),
+        remind_before_hours: None,
+        max_remind_times: 3,
+        cc_on_approved: false,
+        x: 0,
+        y: 0,
+        sort_order: 0,
+        config: Value::Object(Map::new()),
+        assignees: Vec::new(),
+    };
+    // USER：`user_ids` 直接转 UUID
+    for raw in &req.user_ids {
+        let id = parse_uuid_field(raw, "用户 id")?;
+        spec.assignees
+            .push(crate::business::flow::graph::SnapshotAssignee {
+                assignee_type: AssigneeKind::User.as_str().to_string(),
+                ref_id: id.to_string(),
+                sort_order: spec.assignees.len() as i32,
+            });
+    }
+    // ROLE：`role_codes` 走与表达式审批人同一个 code→id 解析
+    if !req.role_codes.is_empty() {
+        let mut notes: Vec<String> = Vec::new();
+        let ids = assignee::load_role_ids_by_code(db(), &req.role_codes, &mut notes)
+            .await
+            .map_err(|error| utils::db_error(error, "解析角色编码"))?;
+        for id in ids {
+            spec.assignees
+                .push(crate::business::flow::graph::SnapshotAssignee {
+                    assignee_type: AssigneeKind::Role.as_str().to_string(),
+                    ref_id: id.to_string(),
+                    sort_order: spec.assignees.len() as i32,
+                });
+        }
+    }
+    Ok(spec)
+}
+
+/// 预演用的求值上下文（`form` / `initiator` / `instance` / `task` 四棵树，与运行期同构）。
+fn preview_eval_context(source: &Value) -> graph::EvalContext {
+    let pick = |root: &str| {
+        source
+            .get(root)
+            .and_then(Value::as_object)
+            .cloned()
+            .unwrap_or_default()
+    };
+    graph::EvalContext {
+        form: pick("form"),
+        initiator: pick("initiator"),
+        instance: pick("instance"),
+        task: pick("task"),
+    }
+}
+
+// ==================== 27. 审批单下的流程任务 ====================
+
+/// 本审批单由 `TASK_NODE` 生成的任务列表（`GET /business/flow/instance/{id}/tasks`，设计 §3.2）。
+///
+/// 可见性口径与 [`instance_detail`] **完全一致**：发起人 / 审批人（含已审）/ 抄送人 / 流程管理员。
+/// 不可见一律 403（不暴露「存在但无权」）。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：id 不是 UUID；
+/// - 404 + `65002`：审批单不存在；
+/// - 403 + `65004`：与本单无关。
+#[nik::permission(
+    path = "/business/flow/instance/{id}/tasks",
+    method = "GET",
+    permission = "business:flow:instance:read"
+)]
+#[nik::get("/business/flow/instance/{id}/tasks")]
+pub async fn instance_tasks(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<dto::InstanceTasksRes> {
+    let me = me_of(&claims)?;
+    let instance_id = parse_uuid_field(&id, "审批单 id")?;
+    let row = model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单"))?
+        .ok_or_else(|| ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "审批单不存在"))?;
+
+    let mine = model::my_instance_ids(me)
+        .await
+        .map_err(|error| utils::db_error(error, "查询我的相关审批单"))?;
+    let allowed = row.initiator_id == me
+        || mine.contains(&row.id)
+        || claims.has_permission("business:flow:admin");
+    if !allowed {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_FORBIDDEN,
+            "你与这张审批单无关，不能查看",
+        ));
+    }
+
+    let rows = model::flow_tasks_of(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单生成的任务"))?;
+    let list: Vec<dto::InstanceTaskRes> = rows
+        .iter()
+        .map(|task| dto::InstanceTaskRes {
+            id: task.id.to_string(),
+            task_no: task.task_no.clone(),
+            title: task.title.clone(),
+            status: task.status.clone(),
+            priority: task.priority.clone(),
+            progress: task.progress,
+            owner_id: task.owner_id.to_string(),
+            owner_name: task.owner_name.clone(),
+            need_review: task.need_review,
+            due_date: task.due_date,
+            flow_node_key: task.flow_node_key.clone(),
+            flow_round: task.flow_round,
+            created_at: task.created_at,
+        })
+        .collect();
+    let total = list.len() as i64;
+    Ok(Res::ok(dto::InstanceTasksRes {
+        instance_id: instance_id.to_string(),
+        list,
+        total,
     }))
 }
 

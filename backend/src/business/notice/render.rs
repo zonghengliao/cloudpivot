@@ -310,6 +310,164 @@ pub fn sample_vars(decls: &[TemplateVarDecl]) -> serde_json::Value {
     serde_json::Value::Object(map)
 }
 
+// ==================== 允许「单层点号」的渲染器（P-FLOW-1A · 决策 D2） ====================
+
+/// 允许「单层点号」的变量名渲染器：`{{form.amount}}` / `{{instance.biz_no}}`。
+///
+/// # 与 [`render`] 的唯一差异
+///
+/// 变量名文法放宽为：`[A-Za-z_][A-Za-z0-9_]{0,63} ( '.' [A-Za-z_][A-Za-z0-9_]{0,63} )?`
+/// —— **最多一个点**。与 `graph::EvalContext::resolve` 的 `split_once('.')` 一致：
+/// 那边 `form.a.b` 会被拆成 `root="form"` / `leaf="a.b"`，leaf 里有点号永远查不到 ⇒ `Missing`。
+/// 既然求值侧只认一层，模板侧也不许多写（写在预演期就报错，比运行期 422 好）。
+///
+/// # 五条规则逐条照抄 [`render`]
+///
+/// 1. 语法 `{{var}}` / `{{ var }}`；不支持表达式 / 函数 / 过滤器
+/// 2. 缺变量 → `422 + 60023`（**不静默替换空串**）
+/// 3. `HTML` 格式时对**变量值**做 HTML 转义
+/// 4. 长度：调用方沿用 [`MAX_TITLE_CHARS`] / [`MAX_CONTENT_BYTES`] 自行校验
+/// 5. 未知占位 → `422 + 60024`
+///
+/// # 为什么是新增函数而不是放宽 [`render`]
+///
+/// `render()` 还被 7 条 `sys_notice_template` 的保存 / 预览路径使用。放宽它 =
+/// 让 `{{a.b}}` 在「通知模板管理」页面从「必拒」变成「可存」，属于对管理员的
+/// **行为变更**（他们今天靠这个 422 发现写错的占位符）。流程节点模板是**新入口**，
+/// 只有它需要点号 —— 旧口径一个字节都不动。
+///
+/// # 为什么这里另写一遍循环而不是复用 `render` 的内核
+///
+/// 卡面红线是「**不动 `render()`**」，所以不能把它的 tokenizer 抽出来改造。
+/// 代价是两处循环，防漂移的手段是 `render_paths_matches_render_on_plain_templates`
+/// （无点号模板上两者输出必须**逐字节相同**，含 HTML 转义与错误码）。
+///
+/// # 异常情况
+///
+/// - 占位符未闭合 / 变量名非法（含**超过一层点号**）→ `422 + 60024`；
+/// - 变量缺失或为 `null` → `422 + 60023`。
+pub fn render_paths(
+    template: &str,
+    vars: &serde_json::Value,
+    format: ContentFormat,
+) -> std::result::Result<String, ApiError> {
+    let empty = serde_json::Map::new();
+    let map = vars.as_object().unwrap_or(&empty);
+
+    let mut out = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        out.push_str(&rest[..start]);
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return Err(syntax_error("占位符缺少收尾的 `}}`"));
+        };
+        let raw_name = &after[..end];
+        let name = raw_name.trim();
+        validate_var_path(name)?;
+
+        let Some(value) = map.get(name) else {
+            return Err(ApiError::new(
+                422,
+                error_code::NOTICE_TEMPLATE_VAR_MISSING,
+                format!("模板变量缺失：{name}"),
+            ));
+        };
+        let Some(text) = scalar_to_text(value) else {
+            return Err(ApiError::new(
+                422,
+                error_code::NOTICE_TEMPLATE_VAR_MISSING,
+                format!("模板变量缺失：{name}（值为 null）"),
+            ));
+        };
+        if format.escape_values() {
+            out.push_str(&escape_html(&text));
+        } else {
+            out.push_str(&text);
+        }
+        rest = &after[end + 2..];
+    }
+    out.push_str(rest);
+    Ok(out)
+}
+
+/// 收集模板里出现的变量路径（去重、按字典序），文法同 [`render_paths`]。
+///
+/// 发布校验（R21）与预演接口（`POST /flow/node/task/preview`）共用这一个扫描器，
+/// 避免「校验认一套、渲染认另一套」。
+///
+/// # 异常情况
+///
+/// 语法非法（未闭合 / 变量名非法 / 超过一层点号）→ `422 + 60024`。
+pub fn collect_placeholders_paths(
+    template: &str,
+) -> std::result::Result<BTreeSet<String>, ApiError> {
+    let mut names = BTreeSet::new();
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return Err(syntax_error("占位符缺少收尾的 `}}`"));
+        };
+        let name = after[..end].trim();
+        validate_var_path(name)?;
+        names.insert(name.to_string());
+        rest = &after[end + 2..];
+    }
+    Ok(names)
+}
+
+/// 校验「单层点号」变量名（`render_paths` / `collect_placeholders_paths` 的唯一文法）。
+///
+/// # 异常情况
+///
+/// 空 / 超 64 字符 / 首字符非字母下划线 / 出现非 `[A-Za-z0-9_]` 字符 / **多于一个点** →
+/// `422 + 60024`。
+pub fn validate_var_path(name: &str) -> std::result::Result<(), ApiError> {
+    let mut parts = name.split('.');
+    let head = parts.next().unwrap_or("");
+    validate_var_segment(head, name)?;
+    match parts.next() {
+        None => Ok(()),
+        Some(leaf) => {
+            validate_var_segment(leaf, name)?;
+            if parts.next().is_some() {
+                return Err(syntax_error(&format!(
+                    "占位符变量名非法：{name}（最多允许一层点号，如 form.amount）"
+                )));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// 单个路径段：`[A-Za-z_][A-Za-z0-9_]*`，长度 ≤ [`MAX_VAR_NAME_LEN`]。
+fn validate_var_segment(segment: &str, full: &str) -> std::result::Result<(), ApiError> {
+    if segment.is_empty() {
+        return Err(syntax_error(&format!(
+            "占位符变量名非法：{full}（点号两侧都不能为空）"
+        )));
+    }
+    if segment.chars().count() > MAX_VAR_NAME_LEN {
+        return Err(syntax_error(&format!(
+            "占位符变量名超过 {MAX_VAR_NAME_LEN} 个字符"
+        )));
+    }
+    let mut chars = segment.chars();
+    let first = chars.next().unwrap_or('_');
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err(syntax_error(&format!(
+            "占位符变量名非法：{full}（每段首字符必须是字母或下划线）"
+        )));
+    }
+    if !chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_') {
+        return Err(syntax_error(&format!(
+            "占位符变量名非法：{full}（只允许字母、数字、下划线与一个点号；不支持表达式 / 过滤器）"
+        )));
+    }
+    Ok(())
+}
+
 // ==================== 内部工具 ====================
 
 /// 校验变量名：`[A-Za-z_][A-Za-z0-9_]{0,63}`。
@@ -556,5 +714,154 @@ mod tests {
         assert!(
             render_notice("{{withSample}}", "{{noSample}}", &vars, ContentFormat::Text).is_ok()
         );
+    }
+}
+
+// ==================== P-FLOW-1A：允许单层点号的渲染器 ====================
+
+#[cfg(test)]
+mod render_paths_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 核心不变量：**无点号模板上，`render_paths` 与 `render` 的输出必须逐字节相同**。
+    ///
+    /// 这条用例是「两处循环」这套实现的防漂移手段（见 `render_paths` 的文档）：
+    /// 任何一个函数偷偷改了转义、缺失处理或长度口径，这里立刻红。
+    #[test]
+    fn render_paths_matches_render_on_plain_templates() {
+        let vars = json!({
+            "name": "张三",
+            "biz_no": "PO202611010001",
+            "amount": 125000,
+            "flag": true,
+            "html": "<script>alert(1)</script>",
+            "obj": {"k": "v"}
+        });
+        let templates = [
+            "你好 {{name}}",
+            "{{name}} / {{ biz_no }} / {{amount}}",
+            "无占位符的纯文本",
+            "{{flag}} 与 {{obj}}",
+            "{{html}}",
+            "开头{{name}}中间{{biz_no}}结尾",
+        ];
+        for template in templates {
+            for format in [
+                ContentFormat::Text,
+                ContentFormat::Html,
+                ContentFormat::Markdown,
+            ] {
+                let expected = render(template, &vars, format).expect("render 应成功");
+                let actual = render_paths(template, &vars, format).expect("render_paths 应成功");
+                assert_eq!(
+                    actual, expected,
+                    "模板 {template} / 格式 {format:?} 必须逐字节相同"
+                );
+            }
+        }
+    }
+
+    /// 缺变量 / 语法错两种失败路径也必须与 `render` 同码同文案。
+    #[test]
+    fn render_paths_error_codes_match_render() {
+        for template in ["{{missing}}", "危险 {{name", "{{ 1bad }}", "{{a.b.c}}"] {
+            let left = render(template, &json!({}), ContentFormat::Text);
+            let right = render_paths(template, &json!({}), ContentFormat::Text);
+            if template == "{{a.b.c}}" {
+                // 这一条是**唯一**允许不一致的：`render` 拒点号、`render_paths` 拒两层点号，
+                // 两边都报 60024，但仍然都拒（这是「最多一层」的唯一实现点）。
+                assert!(left.is_err() && right.is_err(), "{template} 两边都必须拒");
+                assert_eq!(
+                    left.as_ref().map_err(|e| e.code),
+                    right.as_ref().map_err(|e| e.code)
+                );
+                continue;
+            }
+            match (left, right) {
+                (Err(left), Err(right)) => {
+                    assert_eq!(left.code, right.code, "{template} 的错误码必须一致");
+                    assert_eq!(left.status, right.status, "{template} 的 HTTP 码必须一致");
+                    // 文案不要求逐字节相同：`render_paths` 的路径段判定多了一句
+                    // 「每段首字符…」（它要管点号两侧），但**码值与拒绝行为**必须一致
+                    // ——前端按码映射文案，不解析后端 msg。
+                    assert!(
+                        left.msg.contains("模板") && right.msg.contains("模板"),
+                        "{template} 两边都必须是可读的中文原因：{} / {}",
+                        left.msg,
+                        right.msg
+                    );
+                }
+                (Ok(left), Ok(right)) => assert_eq!(left, right),
+                (left, right) => panic!("{template} 两边结果不一致：{left:?} vs {right:?}"),
+            }
+        }
+    }
+
+    /// 点号路径的**正例**：`{{form.amount}}` 这类现在能渲染（`render` 会 422）。
+    #[test]
+    fn render_paths_accepts_one_level_of_dots() {
+        let vars = json!({
+            "form.amount": 125000,
+            "instance.biz_no": "PO202611010001",
+            "node.name": "催货",
+            "form.supplier_name": "华东金属"
+        });
+        let out = render_paths(
+            "{{instance.biz_no}} 催货：{{form.supplier_name}}（{{ form.amount }} 元，节点 {{node.name}}）",
+            &vars,
+            ContentFormat::Text,
+        )
+        .expect("点号模板应渲染成功");
+        assert_eq!(out, "PO202611010001 催货：华东金属（125000 元，节点 催货）");
+        // 对照组：老 render 一定拒（这是「不动 render()」的红线）
+        let old = render("{{form.amount}}", &vars, ContentFormat::Text);
+        assert!(old.is_err(), "render() 必须仍然拒点号");
+        assert_eq!(
+            old.expect_err("必须拒").code,
+            error_code::NOTICE_TEMPLATE_SYNTAX
+        );
+    }
+
+    /// 超过一层点号必须拒（`{{form.a.b}}`）：与 `EvalContext::resolve` 的 `split_once` 对齐。
+    #[test]
+    fn render_paths_rejects_two_levels_of_dots() {
+        let vars = json!({"form.a.b": "x"});
+        for template in ["{{form.a.b}}", "{{a.b.c}}"] {
+            let error =
+                render_paths(template, &vars, ContentFormat::Text).expect_err("两层点号必须拒");
+            assert_eq!(error.code, error_code::NOTICE_TEMPLATE_SYNTAX);
+            assert_eq!(error.status, 422);
+            assert!(
+                error.msg.contains("点号"),
+                "文案要点明「最多一层点号」：{}",
+                error.msg
+            );
+        }
+    }
+
+    /// 点号两侧都不能为空；每段仍要满足标识符文法。
+    #[test]
+    fn render_paths_rejects_malformed_paths() {
+        for template in ["{{form.}}", "{{.amount}}", "{{form.2x}}", "{{form.a-b}}"] {
+            let error = render_paths(template, &json!({}), ContentFormat::Text)
+                .expect_err("{template} 必须拒");
+            assert_eq!(error.code, error_code::NOTICE_TEMPLATE_SYNTAX, "{template}");
+        }
+    }
+
+    /// `collect_placeholders_paths` 与 `render_paths` 认同一套文法（同一 tokenizer）。
+    #[test]
+    fn collect_placeholders_paths_agrees_with_render_paths() {
+        let template = "{{instance.biz_no}} / {{ form.amount }} / {{node.name}}";
+        let names = collect_placeholders_paths(template).expect("语法合法");
+        let collected: Vec<&str> = names.iter().map(String::as_str).collect();
+        assert_eq!(
+            collected,
+            vec!["form.amount", "instance.biz_no", "node.name"],
+            "必须去重并按字典序"
+        );
+        assert!(collect_placeholders_paths("{{form.a.b}}").is_err());
+        assert!(collect_placeholders_paths("{{unclosed").is_err());
     }
 }

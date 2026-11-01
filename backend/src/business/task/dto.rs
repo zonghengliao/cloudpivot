@@ -65,6 +65,22 @@ pub const SOURCE_ASSIGNED: &str = "ASSIGNED";
 /// 来源：被转派（T3：把已有任务改派给别人）。
 pub const SOURCE_TRANSFERRED: &str = "TRANSFERRED";
 
+/// 来源：由流程节点 `TASK_NODE` 生成（P-FLOW-1A，`V0177` 扩的第 5 个值）。
+///
+/// 与 `SOURCE_SELF` / `SOURCE_ASSIGNED` 的区别不是「谁建了它」，而是**它属于一条流程实例**：
+/// `flow_instance_id` / `flow_node_key` / `flow_round` 三列非空，且「同一节点同一轮只有一张」。
+/// 任务完成会回推流程（P-FLOW-1B），这是手工任务没有的行为。
+pub const SOURCE_FLOW: &str = "FLOW";
+
+/// 任务来源的全部取值（`biz_task_source_check` 与筛选参数共用一份口径）。
+pub const SOURCES: [&str; 5] = [
+    SOURCE_SELF,
+    SOURCE_ASSIGNED,
+    SOURCE_TRANSFERRED,
+    "RECURRING",
+    SOURCE_FLOW,
+];
+
 /// 协作人角色（`biz_task_member.role`）：协作人 / 关注者两档中的协作人。
 pub const MEMBER_ROLE_COLLABORATOR: &str = "COLLABORATOR";
 
@@ -153,6 +169,11 @@ pub struct TaskPageQuery {
     ///
     /// 只是**过滤条件**，不改变可见性 —— 可见性恒为 `数据范围 ∪ 参与关系`。
     pub project_id: Option<String>,
+    /// 来源过滤（`SELF` / `ASSIGNED` / `TRANSFERRED` / `RECURRING` / `FLOW`，P-FLOW-1A）。
+    ///
+    /// `source=FLOW` 是「只看流程生成的任务」的唯一入口：与项目过滤一样，它**只是过滤条件**，
+    /// 不改变可见性（可见性恒为 `数据范围 ∪ 参与关系`，见 `model::page_visible`）。
+    pub source: Option<String>,
     /// 截止日下界（含）。
     pub due_from: Option<NaiveDate>,
     /// 截止日上界（含）。
@@ -282,6 +303,70 @@ where
 
 // ==================== 响应：任务卡（列表 / 子任务 / 我的任务共用） ====================
 
+/// 任务卡上的「来源流程」段（P-FLOW-1A）。
+///
+/// 只有 `source = 'FLOW'` 的任务才有值 —— `flow_instance_id` 非空 ⇔ `source='FLOW'`
+/// 是库侧 `ck_biz_task_source_flow` 的双向硬约束，所以「有 flow 段」与「是流程任务」等价。
+/// 更细的流程信息（单号 / 名称 / 状态）走 `GET /business/task/{id}/flow`，列表不为此多 JOIN 一次。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskFlowRef {
+    /// 生成这张任务的流程实例（`biz_flow_instance.id`）。
+    pub instance_id: String,
+    /// 生成它的节点 key（`biz_flow_node.node_key`）。
+    pub node_key: String,
+    /// 生成时的轮次（退回重进同一节点时 `round+1`）。
+    pub round: i32,
+}
+
+/// `GET /business/task/{id}/flow` 的回执（P-FLOW-1A）。
+///
+/// 手工任务（`source != 'FLOW'`）也能 200 调用：`flow` 为 `null`。
+/// **不返回 404** —— 「这张任务没有流程」不是错误，前端据此隐藏卡片即可。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskFlowRes {
+    /// 任务 id。
+    pub task_id: String,
+    /// 任务编号。
+    pub task_no: String,
+    /// 流程来源（非流程任务 → `null`）。
+    pub flow: Option<TaskFlowDetailRes>,
+}
+
+/// 任务所属流程的详情（任务详情页「所属审批单」卡片）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskFlowDetailRes {
+    /// 实例 id（前端跳 `/flow/instance/{id}` 用）。
+    pub instance_id: String,
+    /// 审批单号。
+    pub instance_no: String,
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 业务单号（空串 = 没有关联单号）。
+    pub biz_no: String,
+    /// 实例状态（`PENDING` / `APPROVED` / `REJECTED` / `CANCELLED` / `WITHDRAWN`）。
+    pub instance_status: String,
+    /// 发起人 id。
+    pub initiator_id: String,
+    /// 发起人姓名。
+    pub initiator_name: String,
+    /// 发起时间。
+    pub started_at: chrono::DateTime<chrono::Utc>,
+    /// 结束时间（在跑 → `null`）。
+    pub ended_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 生成这张任务的节点 key。
+    pub node_key: String,
+    /// 节点中文名。
+    pub node_name: String,
+    /// 生成时的轮次。
+    pub round: i32,
+    /// 该节点本轮的实例状态（`ACTIVE` = 正在等这张任务完成）。
+    pub node_status: String,
+}
+
 /// 任务卡（列表、子任务列表、我的任务分组统一用它，避免三套形状）。
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskCardRes {
@@ -323,6 +408,10 @@ pub struct TaskCardRes {
     pub project_code: String,
     /// 项目名称（空串 = 无项目 / 项目已删）。
     pub project_name: String,
+    /// 来源段（P-FLOW-1A）：`source != 'FLOW'` 时为 `null`。
+    ///
+    /// 前端据此在任务卡上标「流程任务」并给出「查看审批单」入口，**不需要**再查一次接口。
+    pub flow: Option<TaskFlowRef>,
     /// 创建时间。
     pub created_at: chrono::DateTime<chrono::Utc>,
     /// 最后更新时间。

@@ -490,7 +490,7 @@ fn format_range(min: Option<String>, max: Option<String>, unit: &str) -> String 
 ///
 /// 合法范围内返回日期；越界（如 0、负数、超大）返回 `None`。
 pub fn excel_serial_to_date(serial: f64) -> Option<NaiveDate> {
-    if !serial.is_finite() || serial < 1.0 || serial > 2_958_465.0 {
+    if !serial.is_finite() || !(1.0..=2_958_465.0).contains(&serial) {
         return None;
     }
     let epoch = NaiveDate::from_ymd_opt(1899, 12, 30)?;

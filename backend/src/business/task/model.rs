@@ -416,6 +416,12 @@ pub struct TaskCardRow {
     pub created_at: chrono::DateTime<Utc>,
     /// 更新时间。
     pub updated_at: chrono::DateTime<Utc>,
+    /// 生成这张任务的流程实例（P-FLOW-1A；非流程任务为 `None`）。
+    pub flow_instance_id: Option<Uuid>,
+    /// 生成它的节点 key（非流程任务为 `None`）。
+    pub flow_node_key: Option<String>,
+    /// 生成时的轮次（非流程任务为 `None`）。
+    pub flow_round: Option<i32>,
     /// 是否为「新任务」（F2，A 口径：`TODO` ∧ 负责人是我 ∧ 7 天内创建）。
     ///
     /// **不是数据库列**：由 [`is_new_task`] 在取数后派生，只有列表 / 看板 /
@@ -452,6 +458,9 @@ impl TaskCardRow {
             project_name: row.get_typed("project_name")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
+            flow_instance_id: row.get_typed("flow_instance_id").ok().flatten(),
+            flow_node_key: row.get_typed("flow_node_key").ok().flatten(),
+            flow_round: row.get_typed("flow_round").ok().flatten(),
             is_new: false,
         })
     }
@@ -549,7 +558,8 @@ const CARD_COLUMNS: &str = "\
     (SELECT count(*) FROM biz_task c WHERE c.parent_id = t.id AND c.deleted_at IS NULL \
         AND c.status = 'DONE') AS child_done_count, \
     t.project_id, COALESCE(pj.project_no, '') AS project_code, \
-    COALESCE(pj.project_name, '') AS project_name";
+    COALESCE(pj.project_name, '') AS project_name, \
+    t.flow_instance_id, t.flow_node_key, t.flow_round";
 
 /// 任务卡 FROM 子句（负责人姓名来自 `sys_user`：SELECT 里没有部门类过滤，
 /// 数据权限片段只锚定 `t`，见 §2.6 规则 1）。
@@ -598,6 +608,11 @@ fn build_filters(filter: &TaskFilter, params: &mut Vec<Value>) -> String {
         // 因此「按项目筛选」永远不会绕过 T1（项目不是权限边界）。
         sql.push_str(" AND t.project_id = ?::uuid");
         params.push(Value::from(&project_id));
+    }
+    if let Some(source) = filter.source.as_deref() {
+        // P-FLOW-1A：`source=FLOW` 只看流程生成的任务。**只做过滤，不做可见性**。
+        sql.push_str(" AND t.source::text = ?");
+        params.push(Value::Text(source.to_string()));
     }
     if let Some(from) = filter.due_from {
         sql.push_str(" AND t.due_date >= ?::date");
@@ -654,6 +669,11 @@ pub struct TaskFilter {
     pub due_to: Option<NaiveDate>,
     /// 关键词。
     pub keyword: Option<String>,
+    /// 来源过滤（P-FLOW-1A：`source=FLOW` 只看流程生成的任务）。
+    ///
+    /// **无绑定参数之外的一切与 `project_id` 同款**：只往 WHERE 追加一个 `t.source::text = ?`，
+    /// 参数按文本顺序 push（`build_filters` 的红线：`?` 的文本顺序 = push 顺序）。
+    pub source: Option<String>,
     /// 只返回顶层任务（`parent_id IS NULL`，T8-C）。
     ///
     /// 由 handler 从 `TaskPageQuery.root_only` 归一化而来（缺省 `false`）。
@@ -1171,6 +1191,108 @@ pub async fn user_exists(user_id: Uuid) -> DbResult<bool> {
     }
 }
 
+// ==================== 流程来源（P-FLOW-1A） ====================
+
+/// 任务 → 流程实例的详情（`GET /business/task/{id}/flow` 的出参来源）。
+#[derive(Debug, Clone)]
+pub struct TaskFlowDetailRow {
+    /// 实例 id。
+    pub instance_id: Uuid,
+    /// 审批单号。
+    pub instance_no: String,
+    /// 流程编码。
+    pub flow_code: String,
+    /// 流程名称。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 业务单号。
+    pub biz_no: Option<String>,
+    /// 实例状态。
+    pub instance_status: String,
+    /// 发起人。
+    pub initiator_id: Uuid,
+    /// 发起人姓名。
+    pub initiator_name: String,
+    /// 发起时间。
+    pub started_at: chrono::DateTime<Utc>,
+    /// 结束时间。
+    pub ended_at: Option<chrono::DateTime<Utc>>,
+    /// 生成它的节点 key。
+    pub node_key: String,
+    /// 节点中文名（快照里的 `node_name`；节点行缺失 → 空串）。
+    pub node_name: String,
+    /// 生成时的轮次。
+    pub round: i32,
+    /// 该节点本轮的实例状态（`ACTIVE` / `APPROVED` …；节点行缺失 → 空串）。
+    pub node_status: String,
+}
+
+/// 查「这张任务来自哪个流程实例的哪个节点」。
+///
+/// # 为什么一次 JOIN 到底
+///
+/// 任务详情页要显示「所属审批单」卡片（单号 / 流程名 / 发起人 / 当前节点 / 状态）。
+/// 分三次查会让用户在三次网络往返之间看到互相矛盾的状态；一次 JOIN 拿的是同一个快照。
+///
+/// # 返回值
+///
+/// 非流程任务（`flow_instance_id IS NULL`）→ `Ok(None)`（**不是错误**：
+/// 手工任务没有流程，前端据此隐藏卡片）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRow>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT i.id AS instance_id, i.instance_no, i.flow_code, i.flow_name, i.biz_type, \
+                    i.biz_no, i.status AS instance_status, i.initiator_id, \
+                    COALESCE(NULLIF(i.initiator_name, ''), '') AS initiator_name, \
+                    i.started_at, i.ended_at, \
+                    t.flow_node_key, t.flow_round, \
+                    COALESCE(n.node_name, '') AS node_name, \
+                    COALESCE(n.status, '') AS node_status \
+               FROM biz_task t \
+               JOIN biz_flow_instance i ON i.id = t.flow_instance_id \
+               LEFT JOIN biz_flow_instance_node n \
+                      ON n.instance_id = i.id \
+                     AND n.node_key = t.flow_node_key \
+                     AND n.round = t.flow_round \
+              WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
+            vec![Value::from(&task_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some(TaskFlowDetailRow {
+        instance_id: row.get_typed("instance_id")?,
+        instance_no: row.get_typed("instance_no")?,
+        flow_code: row.get_typed("flow_code")?,
+        flow_name: row.get_typed("flow_name")?,
+        biz_type: row.get_typed("biz_type")?,
+        biz_no: row.get_typed("biz_no").ok().flatten(),
+        instance_status: row.get_typed("instance_status")?,
+        initiator_id: row.get_typed("initiator_id")?,
+        initiator_name: row.get_typed("initiator_name").unwrap_or_default(),
+        started_at: row.get_typed("started_at")?,
+        ended_at: row.get_typed("ended_at").ok().flatten(),
+        node_key: row
+            .get_typed::<Option<String>>("flow_node_key")
+            .ok()
+            .flatten()
+            .unwrap_or_default(),
+        node_name: row.get_typed("node_name").unwrap_or_default(),
+        round: row
+            .get_typed::<Option<i32>>("flow_round")
+            .ok()
+            .flatten()
+            .unwrap_or(1),
+        node_status: row.get_typed("node_status").unwrap_or_default(),
+    }))
+}
+
 // ==================== 写路径 ====================
 
 /// 新建任务的入参（避免 `clippy::too_many_arguments`，且字段语义集中在一处）。
@@ -1280,7 +1402,10 @@ pub async fn create_task(
 }
 
 /// 生成下一个任务编号（**必须在事务内调用**：依赖 `pg_advisory_xact_lock`）。
-async fn next_task_no(ex: &Transaction, month: &str) -> DbResult<String> {
+///
+/// `pub(crate)`：流程引擎的 `flow::task_node::spawn` 要用同一套取号逻辑
+/// （`uk_biz_task_task_no` 撞库重试也复用同一个口径），不许在流程侧另写一份 MAX+1。
+pub(crate) async fn next_task_no(ex: &Transaction, month: &str) -> DbResult<String> {
     // 咨询锁键：7700000000 + YYYYMM（固定命名空间，避免与其它模块的 advisory lock 撞号）
     let month_number: i64 = month.parse().unwrap_or(0);
     let lock_key = 7_700_000_000_i64 + month_number;

@@ -37,6 +37,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::business::flow::expression;
+use crate::business::flow::node_config;
+use crate::business::notice::render;
 use crate::shared::error_code;
 
 // ==================== 规模上限（R15 / 65017） ====================
@@ -76,6 +78,18 @@ pub enum NodeType {
     Parallel,
     /// 抄送（非阻塞，出度必须 = 1）。
     Cc,
+    /// 任务节点（P-FLOW-1A）：阻塞等任务完成，生成 `biz_task`（出度必须 = 1）。
+    ///
+    /// 与审批类的区别是**生成物不同**：审批类生成 `biz_flow_task`（要你签字），
+    /// 本类型生成 `biz_task`（要你干活，有进度 / 工时 / 验收 / 子任务）。
+    /// 混成一体会让「审批中心」和「工作任务」两个入口都变脏（设计 §1.2 / §9.1）。
+    Task,
+    /// 通知节点（P-FLOW-2）：非阻塞，生成 `sys_notice`（出度必须 = 1）。
+    ///
+    /// 本卡（P-FLOW-1A）只落地枚举值与发布校验，**引擎分支在 P-FLOW-2**；
+    /// 为避免「发布得出去、跑起来静默不生效」，1A 的 R19 直接拒绝 NOTIFY_NODE
+    /// （见 `graph::FlowGraph::validate_with` 的 R19）。
+    Notify,
     /// 结束（≥ 1 个，出度 0）。
     End,
 }
@@ -90,6 +104,8 @@ impl NodeType {
             NodeType::Condition => "CONDITION",
             NodeType::Parallel => "PARALLEL",
             NodeType::Cc => "CC",
+            NodeType::Task => "TASK_NODE",
+            NodeType::Notify => "NOTIFY_NODE",
             NodeType::End => "END",
         }
     }
@@ -103,12 +119,35 @@ impl NodeType {
             "CONDITION" => Some(NodeType::Condition),
             "PARALLEL" => Some(NodeType::Parallel),
             "CC" => Some(NodeType::Cc),
+            "TASK_NODE" => Some(NodeType::Task),
+            "NOTIFY_NODE" => Some(NodeType::Notify),
             "END" => Some(NodeType::End),
             _ => None,
         }
     }
 
+    /// 全部节点类型（入库字符串，顺序与 `as_str` 一致；错误文案拼「只允许 …」用）。
+    pub const ALL: [NodeType; 9] = [
+        NodeType::Start,
+        NodeType::Approval,
+        NodeType::Countersign,
+        NodeType::Condition,
+        NodeType::Parallel,
+        NodeType::Cc,
+        NodeType::Task,
+        NodeType::Notify,
+        NodeType::End,
+    ];
+
     /// 是否「审批类」节点（出度必须 = 1，架构 D7：只有显式网关能分叉）。
+    ///
+    /// # 为什么 `TASK_NODE` / `NOTIFY_NODE` **不在**这里
+    ///
+    /// 它们同样受「出度必须 = 1」约束（设计 §2.7 R17），但**语义不同**：
+    /// `is_approval_class()` 的调用方（R6）文案是「审批节点只能有一条出边」，
+    /// 把任务/通知节点塞进来会让用户看到一句错误的解释。
+    /// 「出度 = 1」这种结构属性统一走 [`NodeType::is_single_exit`]；
+    /// 「是审批语义」才用本方法。两条约束各有各的规则编号（R6 / R17），互不覆盖。
     pub fn is_approval_class(self) -> bool {
         matches!(
             self,
@@ -116,14 +155,29 @@ impl NodeType {
         )
     }
 
+    /// 出度必须 = 1 的节点（审批类 + 任务 + 通知；R6 / R17 的共同判据）。
+    pub fn is_single_exit(self) -> bool {
+        self.is_approval_class() || matches!(self, NodeType::Task | NodeType::Notify)
+    }
+
     /// 是否分支网关（条件 / 并行，出度 ≥ 2）。
     pub fn is_gateway(self) -> bool {
         matches!(self, NodeType::Condition | NodeType::Parallel)
     }
 
-    /// 是否必须配置审批人（R14）。
+    /// 是否必须配置「指派来源」（R14 审批人 / R20 任务负责人）。
+    ///
+    /// # `TASK_NODE` 为什么也算
+    ///
+    /// 派不出人 = 静默丢活（设计 §2.4）：审批节点派不出人只是少一个签字（下游还会审），
+    /// 任务节点派不出人就是「这个活没人干、流程还继续往下」。所以两者都必须有来源，
+    /// 只是与 R14 共用同一段判定、互相**不重复报错**（见 `FlowGraph::check_assignees`：
+    /// 它按节点类型分派规则编号与用词）。
     pub fn needs_assignee(self) -> bool {
-        matches!(self, NodeType::Approval | NodeType::Countersign)
+        matches!(
+            self,
+            NodeType::Approval | NodeType::Countersign | NodeType::Task
+        )
     }
 }
 
@@ -776,11 +830,28 @@ impl Issue {
 // ==================== 12 条发布校验（+ 3 条文档补充） ====================
 
 impl FlowGraph {
-    /// 全部发布校验（R1–R15），返回**所有**不通过项（不是遇到第一个就返回）。
+    /// 全部发布校验（R1–R16），返回**所有**不通过项（不是遇到第一个就返回）。
+    ///
+    /// 这是 [`FlowGraph::validate_with`] 在 `biz_type = None` 时的入口。
     ///
     /// 为什么收集全部：前端编辑器要把所有问题一次性标在图上（架构 §11.6「前端只做提示，
     /// 后端才是权威」），逐条返回会让用户改一次跑一次。
     pub fn validate(&self) -> Vec<Issue> {
+        self.validate_with(None)
+    }
+
+    /// 全部发布校验（R1–R21），`biz_type` 只影响 R21 的 `task.*` 判定。
+    ///
+    /// # `biz_type` 为什么是参数而不是字段
+    ///
+    /// `FlowGraph` 是「节点 + 边」的纯结构，多了 `biz_type` 会污染 `PartialEq` /
+    /// `Default`，还会让所有 `FlowGraph { nodes, edges }` 的构造点（含 60 多条存量单测）
+    /// 一起改动。而 R21 只在这一处需要它，作为入参最省事。
+    ///
+    /// `None` = 不知道业务类型（编辑器「只校验不保存」的旧调用点）：此时**不放行** `task.*`
+    /// —— 宁可在保存期多提一次醒，也不要让 `{{task.title}}` 混进非 `TASK_ACCEPT` 流程、
+    /// 等到运行期才 422（设计 §2.5.1 的原话：「事到临头才报错的配置等于没校验」）。
+    pub fn validate_with(&self, biz_type: Option<&str>) -> Vec<Issue> {
         let mut issues: Vec<Issue> = Vec::new();
 
         // ---------- R1：恰好 1 个 START（架构 V1） ----------
@@ -1124,6 +1195,293 @@ impl FlowGraph {
         // ---------- R16（批次 D · EXPRESSION DSL §8.5）：表达式审批人必须可解析 ----------
         issues.extend(self.expression_issues());
 
+        // ---------- R17（P-FLOW-1A）：TASK_NODE / NOTIFY_NODE 出度必须 = 1 ----------
+        for node in &self.nodes {
+            if !matches!(node.node_type, NodeType::Task | NodeType::Notify) {
+                continue;
+            }
+            let outdegree = out_degree.get(node.key.as_str()).copied().unwrap_or(0);
+            if outdegree != 1 {
+                issues.push(
+                    Issue::new(
+                        "R17",
+                        error_code::FLOW_GRAPH_DEGREE,
+                        format!(
+                            "{}节点 {}（{}）有 {outdegree} 条出边（只能有一条出边：任务完成 / 通知发完之后「往哪走」必须唯一；分支请用条件网关）",
+                            if node.node_type == NodeType::Task {
+                                "任务"
+                            } else {
+                                "通知"
+                            },
+                            node.key,
+                            node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
+
+        // ---------- R18（设计 §2.7 / §2.3）：TASK_NODE 的 config.task ----------
+        // 三件事：① 配置归属（task 只许出现在 TASK_NODE 上）② 形状 + 交叉约束（65034）
+        // ③ need_review × on_complete 矩阵（65035）。
+        for node in &self.nodes {
+            let has_task = node.config.get("task").is_some_and(|v| !v.is_null());
+            if node.node_type != NodeType::Task {
+                // 分区纪律 1：`task` 放在别的类型上是**保存期 400**，不是静默忽略 ——
+                // 静默忽略会让用户以为配上了（设计 §2.1 第 2 条）。
+                if has_task {
+                    issues.push(
+                        Issue::new(
+                            "R18",
+                            error_code::FLOW_NODE_CONFIG_MISMATCH,
+                            format!(
+                                "节点 {}（{}）的类型是 {}，不允许配置任务配置（config.task）；任务配置只能放在 TASK_NODE 上",
+                                node.key,
+                                node.name,
+                                node.node_type.as_str()
+                            ),
+                        )
+                        .with_nodes(vec![node.key.clone()]),
+                    );
+                }
+                continue;
+            }
+            if !has_task {
+                issues.push(
+                    Issue::new(
+                        "R18",
+                        error_code::FLOW_NODE_CONFIG_MISMATCH,
+                        format!(
+                            "任务节点 {}（{}）缺少 config.task（至少要配 title_template 与 on_complete）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+                continue;
+            }
+            if node.config.get("notify").is_some_and(|v| !v.is_null()) {
+                issues.push(
+                    Issue::new(
+                        "R18",
+                        error_code::FLOW_NODE_CONFIG_MISMATCH,
+                        format!(
+                            "任务节点 {}（{}）同时配了 config.notify（一个节点不能既是任务又是通知：阻塞语义自相矛盾）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+            let config = match node_config::parse_task_config(&node.config["task"]) {
+                Ok(config) => config,
+                Err(error) => {
+                    issues.push(
+                        Issue::new(
+                            "R18",
+                            error.code,
+                            format!("节点 {}（{}）：{}", node.key, node.name, error.msg),
+                        )
+                        .with_nodes(vec![node.key.clone()]),
+                    );
+                    continue;
+                }
+            };
+            if let Err(error) = node_config::check_matrix(&config) {
+                issues.push(
+                    Issue::new(
+                        "R18",
+                        error.code,
+                        format!("节点 {}（{}）：{}", node.key, node.name, error.msg),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
+
+        // ---------- R19（设计 §2.7）：NOTIFY_NODE ----------
+        // 1A 只做「拒绝」：引擎没有通知分支（P-FLOW-2 才写）。
+        // 发布得出去、跑起来静默不生效，比发布失败更难排查 —— 与 `on_complete=APPROVE`
+        // 在 1A 被 R18 拒绝是同一个立场（设计 §7.1 末段）。
+        for node in &self.nodes {
+            if node.node_type != NodeType::Notify {
+                continue;
+            }
+            issues.push(
+                Issue::new(
+                    "R19",
+                    error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+                    format!(
+                        "通知节点 {}（{}）暂不可用：通知节点将在 P-FLOW-2 开放。现在发布会让它运行期静默不生效，所以直接拒绝",
+                        node.key, node.name
+                    ),
+                )
+                .with_nodes(vec![node.key.clone()]),
+            );
+        }
+
+        // ---------- R20（设计 §2.4 / §2.7）：TASK_NODE 的指派与超时纪律 ----------
+        // ① 指派来源（缺失 / 可枚举但空 / FORM_VAR 无变量名）走 `check_assignees` 的
+        //    共用判定（规则编号由节点类型决定，不重复报错）。
+        // ② `empty_assignee=SKIP` 对任务节点是**静默丢活**，必须额外确认。
+        // ③ `timeout_action` 只允许 REMIND / ESCALATE（自动通过 / 自动驳回会把「没干」写成「干了」）。
+        for node in &self.nodes {
+            if node.node_type != NodeType::Task {
+                continue;
+            }
+            let config = node_config::parse_task_config(&node.config["task"]).ok();
+            if node.empty_assignee.eq_ignore_ascii_case("SKIP")
+                && !config
+                    .as_ref()
+                    .is_some_and(|cfg| cfg.allow_skip_when_no_assignee)
+            {
+                issues.push(
+                    Issue::new(
+                        "R20",
+                        error_code::FLOW_NO_ASSIGNEE,
+                        format!(
+                            "任务节点 {}（{}）的空负责人策略是「跳过」，那意味着派不出人时这个活直接不干了（静默丢活）。\
+                             要保留请同时打开 config.task.allow_skip_when_no_assignee=true，否则请改成 ERROR 或 FALLBACK_ADMIN",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+            let action = node.timeout_action.trim().to_ascii_uppercase();
+            if !matches!(action.as_str(), "REMIND" | "ESCALATE") {
+                issues.push(
+                    Issue::new(
+                        "R20",
+                        error_code::FLOW_TIMEOUT_CONFIG_INVALID,
+                        format!(
+                            "任务节点 {}（{}）的超时动作是 {action}（只允许 REMIND 提醒 / ESCALATE 升级：活没干完不能因为超时就算干完或被驳回）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
+
+        // ---------- R21（设计 §2.5.1 / §2.7）：模板变量路径白名单 ----------
+        // 发布期静态扫描（不是运行期 422）：占位符写错是最高频的配置错误。
+        issues.extend(self.template_issues(biz_type));
+
+        issues
+    }
+
+    /// R21：`config.task` 里所有模板的变量路径必须在白名单内。
+    ///
+    /// # 三条判据（设计 §2.5.1）
+    ///
+    /// 1. 路径必须 `template_field_allowed()`（`FIXED_FIELDS ∪ TEMPLATE_ONLY_FIELDS ∪ form.*`）
+    ///    → `65037`；
+    /// 2. `task.*` 只在 `biz_type = 'TASK_ACCEPT'` 的流程里可用（`EvalContext.task` 只在那个场景有值）
+    ///    → `65037`；
+    /// 3. `due.mode=FIELD` 的字段必须是 `form.*`（期限只能从表单取）→ `65034`。
+    ///
+    /// 模板语法错（占位符未闭合 / 变量名非法 / 超过一层点号）→ `65036`，与预演接口同码。
+    fn template_issues(&self, biz_type: Option<&str>) -> Vec<Issue> {
+        let mut issues = Vec::new();
+        let task_accept = biz_type
+            .map(|raw| raw.trim().eq_ignore_ascii_case("TASK_ACCEPT"))
+            .unwrap_or(false);
+        for node in &self.nodes {
+            if node.node_type != NodeType::Task {
+                continue;
+            }
+            let Ok(config) = node_config::parse_task_config(&node.config["task"]) else {
+                // 形状已经不合法（R18 已报过一条），这里不重复报「模板变量」问题。
+                continue;
+            };
+            for (label, template) in [
+                ("title_template", Some(config.title_template.as_str())),
+                (
+                    "description_template",
+                    config.description_template.as_deref(),
+                ),
+            ] {
+                let Some(template) = template else {
+                    continue;
+                };
+                let placeholders = match render::collect_placeholders_paths(template) {
+                    Ok(names) => names,
+                    Err(error) => {
+                        // 语法错（未闭合 / 变量名非法 / 超过一层点号）统一抬成 `65036`：
+                        // 60024 是「通知模板管理」那套码，流程发布校验不该混进另一个域
+                        // （设计 §3.3 的预演错误表也把「模板语法错」记在 65036 上）。
+                        issues.push(
+                            Issue::new(
+                                "R21",
+                                error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+                                format!(
+                                    "节点 {}（{}）的 {label} 模板语法错误：{}",
+                                    node.key, node.name, error.msg
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                        continue;
+                    }
+                };
+                for name in placeholders {
+                    if !template_field_allowed(&name) {
+                        issues.push(
+                            Issue::new(
+                                "R21",
+                                error_code::FLOW_TEMPLATE_VAR_INVALID,
+                                format!(
+                                    "节点 {}（{}）的 {label} 用了 {{% raw %}}{{{name}}}{{% endraw %}}，不在白名单内\
+                                     （允许 form.* / instance.* / initiator.* / node.* / prev.* / task.*）",
+                                    node.key, node.name
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                        continue;
+                    }
+                    if name.starts_with("task.") && !task_accept {
+                        issues.push(
+                            Issue::new(
+                                "R21",
+                                error_code::FLOW_TEMPLATE_VAR_INVALID,
+                                format!(
+                                    "节点 {}（{}）的 {label} 用了 {{{{task.*}}}}，但本流程的业务类型是 {}（task.* 只在 TASK_ACCEPT 流程里有值，运行期会渲染成「缺变量」）",
+                                    node.key,
+                                    node.name,
+                                    biz_type.unwrap_or("（未知）")
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                    }
+                }
+            }
+            if let Some(due) = config.due.as_ref()
+                && due.mode == node_config::DueMode::Field
+                && !due
+                    .field
+                    .as_deref()
+                    .map(|field| field.starts_with("form."))
+                    .unwrap_or(false)
+            {
+                issues.push(
+                    Issue::new(
+                        "R21",
+                        error_code::FLOW_NODE_CONFIG_MISMATCH,
+                        format!(
+                            "节点 {}（{}）的期限取自字段 {}，但只有 form.* 字段能用（期限必须来自表单）",
+                            node.key,
+                            node.name,
+                            due.field.as_deref().unwrap_or("（空）")
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+        }
         issues
     }
 
@@ -1318,61 +1676,78 @@ impl FlowGraph {
             if !node.node_type.needs_assignee() {
                 continue;
             }
-            let Some(kind) = node
-                .assignee_type
-                .or_else(|| infer_assignee_kind(&node.assignees))
-            else {
-                issues.push(
-                    Issue::new(
-                        "R14",
-                        error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                        format!(
-                            "节点 {}（{}）未配置审批人（请选择审批人来源：指定用户 / 角色 / 发起人 / 主管 …）",
-                            node.key, node.name
-                        ),
-                    )
-                    .with_nodes(vec![node.key.clone()]),
-                );
-                continue;
+            // 同一个判定、两种用词：审批节点叫「审批人」（R14 / 65015），
+            // 任务节点叫「负责人」（R20 / 65015）。**不重复报错** —— 一个节点只落一条。
+            let (rule, noun) = if node.node_type == NodeType::Task {
+                ("R20", "负责人")
+            } else {
+                ("R14", "审批人")
             };
-            if kind.is_enumerable() && node.assignees.is_empty() {
-                issues.push(
-                    Issue::new(
-                        "R14",
-                        error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                        format!(
-                            "节点 {}（{}）的审批人来源是 {}，但一个审批人都没选",
-                            node.key,
-                            node.name,
-                            kind.as_str()
-                        ),
-                    )
-                    .with_nodes(vec![node.key.clone()]),
-                );
-            }
-            if kind == AssigneeKind::FormVar
-                && node
-                    .form_var_key
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|key| !key.is_empty())
-                    .is_none()
-            {
-                issues.push(
-                    Issue::new(
-                        "R14",
-                        error_code::FLOW_NODE_ASSIGNEE_MISSING,
-                        format!(
-                            "节点 {}（{}）的审批人来源是「表单变量」，但没有填变量名",
-                            node.key, node.name
-                        ),
-                    )
-                    .with_nodes(vec![node.key.clone()]),
-                );
-            }
+            issues.extend(assignee_source_issues(node, rule, noun));
         }
         issues
     }
+}
+
+/// 「这个节点配了指派来源吗」的共用判定（R14 / R20 的唯一实现）。
+///
+/// 抽成自由函数而不是两处各写一遍：审批人与负责人的判据必须逐字相同，
+/// 否则「角色里 0 人」这类边界会在两张卡之间漂移（一个拦、一个不拦）。
+fn assignee_source_issues(node: &NodeSpec, rule: &'static str, noun: &str) -> Vec<Issue> {
+    let mut issues = Vec::new();
+    let Some(kind) = node
+        .assignee_type
+        .or_else(|| infer_assignee_kind(&node.assignees))
+    else {
+        issues.push(
+            Issue::new(
+                rule,
+                error_code::FLOW_NODE_ASSIGNEE_MISSING,
+                format!(
+                    "节点 {}（{}）未配置{noun}（请选择{noun}来源：指定用户 / 角色 / 发起人 / 主管 …）",
+                    node.key, node.name
+                ),
+            )
+            .with_nodes(vec![node.key.clone()]),
+        );
+        return issues;
+    };
+    if kind.is_enumerable() && node.assignees.is_empty() {
+        issues.push(
+            Issue::new(
+                rule,
+                error_code::FLOW_NODE_ASSIGNEE_MISSING,
+                format!(
+                    "节点 {}（{}）的{noun}来源是 {}，但一个{noun}都没选",
+                    node.key,
+                    node.name,
+                    kind.as_str()
+                ),
+            )
+            .with_nodes(vec![node.key.clone()]),
+        );
+    }
+    if kind == AssigneeKind::FormVar
+        && node
+            .form_var_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|key| !key.is_empty())
+            .is_none()
+    {
+        issues.push(
+            Issue::new(
+                rule,
+                error_code::FLOW_NODE_ASSIGNEE_MISSING,
+                format!(
+                    "节点 {}（{}）的{noun}来源是「表单变量」，但没有填变量名",
+                    node.key, node.name
+                ),
+            )
+            .with_nodes(vec![node.key.clone()]),
+        );
+    }
+    issues
 }
 
 /// 表达式里是否引用了保留词 `PREV_APPROVER`（D-E8：发布期必须拒绝）。
@@ -1558,6 +1933,31 @@ pub fn field_allowed(field: &str) -> bool {
     !rest.is_empty()
         && rest.chars().count() <= 64
         && chars.all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+}
+
+/// 只给**模板**用的字段根（设计 §2.5.1 的「两套白名单」）。
+///
+/// # 为什么条件 DSL 不认这 4 个
+///
+/// 条件的求值时机是「我该走哪条边」—— 此时当前节点还没结束（`node.name` 变成自我指涉），
+/// 而 `prev.approver` 在第一个 START 之后根本不存在（`Missing` 在条件求值里按「不成立」
+/// 处理 ⇒ 静默走错分支）。模板的求值时机是「节点已激活、要填一句话」，node / prev 都是确定值。
+///
+/// 一句话：**同一个变量命名空间，不同的可用子集，由求值时机决定**。
+pub const TEMPLATE_ONLY_FIELDS: [&str; 4] = [
+    "node.name",
+    "node.key",
+    "prev.approver_name",
+    "prev.approver_id",
+];
+
+/// 模板变量路径白名单（R21 的判据）：`FIXED_FIELDS(10) ∪ TEMPLATE_ONLY_FIELDS(4) ∪ form.*`。
+///
+/// `task.*` 同属 `FIXED_FIELDS`，但它只在 `biz_type = 'TASK_ACCEPT'` 的流程里有值
+/// （`EvalContext.task` 由 `engine::eval_context` 仅在该场景填充），所以「是否允许 `task.*`」
+/// 由调用方（R21）按流程 `biz_type` 再收一次，本函数只管「路径拼写是否合法」。
+pub fn template_field_allowed(field: &str) -> bool {
+    field_allowed(field) || TEMPLATE_ONLY_FIELDS.contains(&field.trim())
 }
 
 /// 解析并校验条件表达式（架构 §3.4.1 的全部上限：深度 ≤ 8、节点 ≤ 64、args ≤ 16、字面量约束）。
@@ -3202,5 +3602,346 @@ mod expression_tests {
         let graph = graph_with_expression(json!({}));
         let issues = graph.validate();
         assert_eq!(r16(&issues).len(), 1, "{issues:#?}");
+    }
+}
+
+// ==================== P-FLOW-1A：TASK_NODE / NOTIFY_NODE 的发布校验（R17–R21） ====================
+//
+// 每条规则**正例 + 反例**各一条（验收 3）。这些用例全部是纯逻辑（不连库），
+// 因此可以在 `cargo test --lib business::flow` 里跑，不需要 SYS_DB_URL。
+
+#[cfg(test)]
+mod task_node_rule_tests {
+    use super::*;
+    use serde_json::json;
+
+    /// 一个合法的 `config.task`（最小可用形状）。
+    fn task_config() -> Value {
+        json!({
+            "title_template": "{{instance.biz_no}} 催货",
+            "on_complete": "DIRECT",
+            "due": {"mode": "RELATIVE", "amount": 3, "unit": "WORKDAY"}
+        })
+    }
+
+    /// `START → TASK_NODE → END`（R17 正例的骨架）。
+    fn task_graph(config: Value) -> FlowGraph {
+        let mut task = NodeSpec::new("n_task", "催货", NodeType::Task);
+        task.assignee_type = Some(AssigneeKind::Role);
+        task.assignees = vec![AssigneeRef {
+            kind: "ROLE".to_string(),
+            ref_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            sort_order: 1,
+        }];
+        // R20 的反例要 `SKIP`，这里默认给 ERROR（正确配置）
+        task.empty_assignee = "ERROR".to_string();
+        task.timeout_action = "REMIND".to_string();
+        task.config = json!({ "task": config });
+        FlowGraph {
+            nodes: vec![
+                NodeSpec::new("n_start", "开始", NodeType::Start),
+                task,
+                NodeSpec::new("n_end", "结束", NodeType::End),
+            ],
+            edges: vec![
+                EdgeSpec::new("e1", "n_start", "n_task"),
+                EdgeSpec::new("e2", "n_task", "n_end"),
+            ],
+        }
+    }
+
+    fn rules(issues: &[Issue]) -> Vec<&'static str> {
+        issues.iter().map(|issue| issue.rule).collect()
+    }
+
+    /// `NodeType::parse` / `as_str` 往返（验收 3 第一条）。
+    #[test]
+    fn node_type_round_trip_covers_nine_values() {
+        for node_type in NodeType::ALL {
+            assert_eq!(
+                NodeType::parse(node_type.as_str()),
+                Some(node_type),
+                "{} 必须能往返",
+                node_type.as_str()
+            );
+            assert_eq!(
+                NodeType::parse(&node_type.as_str().to_ascii_lowercase()),
+                Some(node_type),
+                "{} 的小写也必须能解析",
+                node_type.as_str()
+            );
+        }
+        assert_eq!(NodeType::parse("TASK_NODE"), Some(NodeType::Task));
+        assert_eq!(NodeType::parse("NOTIFY_NODE"), Some(NodeType::Notify));
+        assert_eq!(
+            NodeType::parse("TASK"),
+            None,
+            "别名不认（库里只存 TASK_NODE）"
+        );
+        // 出度约束的分类：审批类不含任务/通知，但都属「出度必须 = 1」
+        assert!(!NodeType::Task.is_approval_class());
+        assert!(NodeType::Task.is_single_exit());
+        assert!(NodeType::Notify.is_single_exit());
+        // 指派来源：任务节点必须有负责人
+        assert!(NodeType::Task.needs_assignee());
+        assert!(!NodeType::Notify.needs_assignee());
+    }
+
+    /// R17 正例：`TASK_NODE` 出度 = 1 → 不报 R17。
+    #[test]
+    fn r17_task_node_single_exit_passes() {
+        let issues = task_graph(task_config()).validate();
+        assert!(
+            !rules(&issues).contains(&"R17"),
+            "出度为 1 不该报 R17：{issues:#?}"
+        );
+    }
+
+    /// R17 反例：`TASK_NODE` 出度 = 2 → `65012`。
+    #[test]
+    fn r17_task_node_two_exits_rejected() {
+        let mut graph = task_graph(task_config());
+        graph.edges.push(EdgeSpec::new("e3", "n_task", "n_end"));
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R17")
+            .expect("必须报 R17");
+        assert_eq!(hit.code, error_code::FLOW_GRAPH_DEGREE);
+        assert_eq!(hit.nodes, vec!["n_task".to_string()]);
+    }
+
+    /// R18 正例：合法的 `config.task` 通过 R17–R21 全部规则。
+    #[test]
+    fn r18_valid_task_config_passes_all_rules() {
+        let issues = task_graph(task_config()).validate_with(Some("PURCHASE_ORDER"));
+        let task_rules: Vec<&str> = rules(&issues)
+            .into_iter()
+            .filter(|rule| matches!(*rule, "R17" | "R18" | "R19" | "R20" | "R21"))
+            .collect();
+        assert!(task_rules.is_empty(), "合法配置不该报 R17–R21：{issues:#?}");
+    }
+
+    /// R18 反例：`TASK_NODE` 没有 `config.task` → `65034`。
+    #[test]
+    fn r18_task_node_without_config_rejected() {
+        let mut graph = task_graph(task_config());
+        graph.nodes[1].config = json!({});
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R18")
+            .expect("必须报 R18");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("config.task"), "{}", hit.message);
+    }
+
+    /// R18 反例：`config.task` 配在 `APPROVAL` 上 → `65034`（分区纪律，不静默忽略）。
+    #[test]
+    fn r18_task_config_on_approval_rejected() {
+        let mut graph = task_graph(task_config());
+        graph.nodes[1].node_type = NodeType::Approval;
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R18")
+            .expect("必须报 R18");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("TASK_NODE"), "{}", hit.message);
+    }
+
+    /// R18 反例（1A 阶段闸）：`on_complete=APPROVE` → `65035`，文案点名 P-FLOW-1B。
+    #[test]
+    fn r18_approve_stage_gate_rejected_in_1a() {
+        let mut graph = task_graph(json!({
+            "title_template": "t",
+            "on_complete": "APPROVE",
+            "approve_biz_type": "TASK_ACCEPT"
+        }));
+        graph.nodes[1].assignee_type = Some(AssigneeKind::Role);
+        graph.nodes[1].assignees = vec![AssigneeRef {
+            kind: "ROLE".to_string(),
+            ref_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            sort_order: 1,
+        }];
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R18" && issue.code == error_code::FLOW_TASK_NODE_INVALID)
+            .expect("必须报 65035");
+        assert!(hit.message.contains("P-FLOW-1B"), "{}", hit.message);
+    }
+
+    /// R19 反例（1A 阶段闸）：`NOTIFY_NODE` 一律拒绝（引擎分支在 P-FLOW-2）。
+    #[test]
+    fn r19_notify_node_rejected_in_1a() {
+        let mut notify = NodeSpec::new("n_notify", "通知", NodeType::Notify);
+        notify.config = json!({
+            "notify": {"when": "ON_ENTER", "targets": [{"type": "USER"}], "template_code": "FLOW_TODO"}
+        });
+        let graph = FlowGraph {
+            nodes: vec![
+                NodeSpec::new("n_start", "开始", NodeType::Start),
+                notify,
+                NodeSpec::new("n_end", "结束", NodeType::End),
+            ],
+            edges: vec![
+                EdgeSpec::new("e1", "n_start", "n_notify"),
+                EdgeSpec::new("e2", "n_notify", "n_end"),
+            ],
+        };
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R19")
+            .expect("必须报 R19");
+        assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+        assert!(hit.message.contains("P-FLOW-2"), "{}", hit.message);
+    }
+
+    /// R20 反例：`empty_assignee=SKIP` 且没开 `allow_skip_when_no_assignee` → `65018`。
+    #[test]
+    fn r20_skip_requires_explicit_flag() {
+        let mut graph = task_graph(task_config());
+        graph.nodes[1].empty_assignee = "SKIP".to_string();
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R20" && issue.code == error_code::FLOW_NO_ASSIGNEE)
+            .expect("必须报 65018");
+        assert!(
+            hit.message.contains("allow_skip_when_no_assignee"),
+            "{}",
+            hit.message
+        );
+    }
+
+    /// R20 正例：开了 `allow_skip_when_no_assignee=true` 就放行（人确认过两次）。
+    #[test]
+    fn r20_skip_allowed_with_explicit_flag() {
+        let mut graph = task_graph(json!({
+            "title_template": "t",
+            "on_complete": "DIRECT",
+            "allow_skip_when_no_assignee": true
+        }));
+        graph.nodes[1].empty_assignee = "SKIP".to_string();
+        let issues = graph.validate();
+        assert!(
+            !issues
+                .iter()
+                .any(|issue| issue.rule == "R20" && issue.code == error_code::FLOW_NO_ASSIGNEE),
+            "开关打开后不该再报 65018：{issues:#?}"
+        );
+    }
+
+    /// R20 反例：`timeout_action=AUTO_APPROVE` → `65031`（活没干完不能算干完）。
+    #[test]
+    fn r20_timeout_action_restricted() {
+        let mut graph = task_graph(task_config());
+        graph.nodes[1].timeout_action = "AUTO_APPROVE".to_string();
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.code == error_code::FLOW_TIMEOUT_CONFIG_INVALID)
+            .expect("必须报 65031");
+        assert_eq!(hit.rule, "R20");
+        // ESCALATE 是允许的
+        graph.nodes[1].timeout_action = "ESCALATE".to_string();
+        let after = graph.validate();
+        assert!(
+            !after
+                .iter()
+                .any(|issue| issue.code == error_code::FLOW_TIMEOUT_CONFIG_INVALID),
+            "ESCALATE 必须放行：{after:#?}"
+        );
+    }
+
+    /// R20 反例：任务节点没配指派来源 → `65015`（规则编号是 R20，不是 R14）。
+    #[test]
+    fn r20_task_node_requires_assignee_source() {
+        let mut graph = task_graph(task_config());
+        graph.nodes[1].assignee_type = None;
+        graph.nodes[1].assignees.clear();
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.code == error_code::FLOW_NODE_ASSIGNEE_MISSING)
+            .expect("必须报 65015");
+        assert_eq!(hit.rule, "R20", "任务节点缺负责人归 R20，不能记到 R14 名下");
+        assert!(hit.message.contains("负责人"), "{}", hit.message);
+    }
+
+    /// R21 反例 ①：变量路径不在白名单 → `65037`。
+    #[test]
+    fn r21_unknown_variable_path_rejected() {
+        let graph = task_graph(json!({
+            "title_template": "{{order.amount}} 催货",
+            "on_complete": "DIRECT"
+        }));
+        let issues = graph.validate_with(Some("PURCHASE_ORDER"));
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R21")
+            .expect("必须报 R21");
+        assert_eq!(hit.code, error_code::FLOW_TEMPLATE_VAR_INVALID);
+        assert!(hit.message.contains("order.amount"), "{}", hit.message);
+    }
+
+    /// R21 正例 ②：`task.*` 在 `TASK_ACCEPT` 流程里可用；反例：别的流程拒绝。
+    #[test]
+    fn r21_task_vars_only_on_task_accept() {
+        let graph = task_graph(json!({
+            "title_template": "{{task.title}} 验收",
+            "on_complete": "DIRECT"
+        }));
+        let ok = graph.validate_with(Some("TASK_ACCEPT"));
+        assert!(
+            !ok.iter().any(|issue| issue.rule == "R21"),
+            "TASK_ACCEPT 流程里 task.* 必须放行：{ok:#?}"
+        );
+        let bad = graph.validate_with(Some("PURCHASE_ORDER"));
+        let hit = bad
+            .iter()
+            .find(|issue| issue.rule == "R21")
+            .expect("非 TASK_ACCEPT 必须报 R21");
+        assert_eq!(hit.code, error_code::FLOW_TEMPLATE_VAR_INVALID);
+        // `biz_type = None`（编辑器「只校验不保存」的旧调用点）同样不放行
+        let unknown = graph.validate_with(None);
+        assert!(
+            unknown.iter().any(|issue| issue.rule == "R21"),
+            "未知 biz_type 时 task.* 也必须拒绝：{unknown:#?}"
+        );
+    }
+
+    /// R21 反例 ③：`due.mode=FIELD` 的字段不是 `form.*` → `65034`。
+    #[test]
+    fn r21_due_field_must_be_form_path() {
+        let graph = task_graph(json!({
+            "title_template": "t",
+            "on_complete": "DIRECT",
+            "due": {"mode": "FIELD", "field": "instance.title"}
+        }));
+        let issues = graph.validate_with(Some("PURCHASE_ORDER"));
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R21")
+            .expect("必须报 R21");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("form.*"), "{}", hit.message);
+    }
+
+    /// R21 反例 ④：模板超过一层点号 → `65036`（语法错，不是白名单错）。
+    #[test]
+    fn r21_nested_dot_variable_is_syntax_error() {
+        let graph = task_graph(json!({
+            "title_template": "{{form.a.b}} 催货",
+            "on_complete": "DIRECT"
+        }));
+        let issues = graph.validate_with(Some("PURCHASE_ORDER"));
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R21")
+            .expect("必须报 R21");
+        assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
     }
 }

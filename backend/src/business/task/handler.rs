@@ -222,6 +222,20 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
         None | Some("") => None,
         Some(raw) => Some(parse_uuid_field(raw, "项目")?),
     };
+    // P-FLOW-1A：来源筛选（`source=FLOW` 只看流程生成的任务）。非法值 400，不静默忽略。
+    let source = match query.source.as_deref().map(str::trim) {
+        None | Some("") => None,
+        Some(raw) => {
+            let upper = raw.to_ascii_uppercase();
+            if !dto::SOURCES.contains(&upper.as_str()) {
+                return Err(param_invalid(format!(
+                    "来源取值非法：{raw}（应为 {}）",
+                    dto::SOURCES.join(" / ")
+                )));
+            }
+            Some(upper)
+        }
+    };
     if let (Some(from), Some(to)) = (query.due_from, query.due_to)
         && from > to
     {
@@ -235,6 +249,7 @@ fn build_filter(query: &TaskPageQuery) -> std::result::Result<TaskFilter, ApiErr
         priority,
         owner_id,
         project_id,
+        source,
         due_from: query.due_from,
         due_to: query.due_to,
         keyword: query.normalized_keyword(),
@@ -2984,7 +2999,7 @@ fn validate_hours(raw: Option<f64>) -> std::result::Result<Option<f64>, ApiError
     match raw {
         None => Ok(None),
         Some(hours) => {
-            if !hours.is_finite() || hours < 0.0 || hours > 9_999.9 {
+            if !hours.is_finite() || !(0.0..=9_999.9).contains(&hours) {
                 return Err(ApiError::new(
                     400,
                     error_code::TASK_FIELD_INVALID,
@@ -3018,6 +3033,13 @@ fn card_res(row: &TaskCardRow) -> TaskCardRes {
         project_id: row.project_id.map(|id| id.to_string()),
         project_code: row.project_code.clone(),
         project_name: row.project_name.clone(),
+        // P-FLOW-1A：`flow_instance_id` 非空 ⇔ `source='FLOW'`（库侧双向 CHECK 保证），
+        // 所以这里只用三列拼段，不再多看 `source`（少一个可能漂移的判断口径）。
+        flow: row.flow_instance_id.map(|instance_id| dto::TaskFlowRef {
+            instance_id: instance_id.to_string(),
+            node_key: row.flow_node_key.clone().unwrap_or_default(),
+            round: row.flow_round.unwrap_or(1),
+        }),
         created_at: row.created_at,
         updated_at: row.updated_at,
         is_new: row.is_new,
@@ -4150,6 +4172,69 @@ pub async fn members(
 // 那里才解析 `ScopedPrincipal`。
 
 // ==================== 单元测试（纯逻辑） ====================
+
+// ==================== 流程来源（P-FLOW-1A） ====================
+
+/// 任务所属流程（`GET /business/task/{id}/flow`）。
+///
+/// 任务详情页的「所属审批单」卡片用它：单号 / 流程名 / 发起人 / 当前节点 / 实例状态。
+///
+/// # 手工任务也 200
+///
+/// `source != 'FLOW'` 的任务 `flow` 字段为 `null`，**不是 404**：
+/// 「这张任务没有流程」是正常事实（两秒建任务的人不会因此看到一个错误弹窗）。
+///
+/// # 可见性
+///
+/// 与详情接口**同一套**（`数据范围 ∪ 参与关系`）：看不见的任务一律 404，不暴露「存在但无权」。
+///
+/// # 异常情况
+///
+/// - 400 + `10001`：路径里的 id 不是 UUID；
+/// - 404 + `63001`：任务不存在 / 已软删 / 不在可见范围内；
+/// - 500：数据库异常。
+#[nik::permission(
+    path = "/business/task/{id}/flow",
+    method = "GET",
+    permission = "business:task:read"
+)]
+#[nik::get("/business/task/{id}/flow")]
+pub async fn flow_of_task(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<dto::TaskFlowRes> {
+    let task_id = parse_uuid_field(&id, "任务")?;
+    let me = principal::resolve_for_claims(&claims).await?;
+    // 可见性口径与详情接口一致：看不见的任务一律 404（不暴露「存在但无权」）。
+    let row = model::find_detail(&me, task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务详情"))?
+        .ok_or_else(not_found)?;
+    let flow = model::flow_ref_of_task(task_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询任务所属流程"))?;
+    Ok(Res::ok(dto::TaskFlowRes {
+        task_id: task_id.to_string(),
+        task_no: row.card.task_no.clone(),
+        flow: flow.map(|flow| dto::TaskFlowDetailRes {
+            instance_id: flow.instance_id.to_string(),
+            instance_no: flow.instance_no,
+            flow_code: flow.flow_code,
+            flow_name: flow.flow_name,
+            biz_type: flow.biz_type,
+            biz_no: flow.biz_no.unwrap_or_default(),
+            instance_status: flow.instance_status,
+            initiator_id: flow.initiator_id.to_string(),
+            initiator_name: flow.initiator_name,
+            started_at: flow.started_at,
+            ended_at: flow.ended_at,
+            node_key: flow.node_key,
+            node_name: flow.node_name,
+            round: flow.round,
+            node_status: flow.node_status,
+        }),
+    }))
+}
 
 // ==================== 统计（T5b · b4：exec_mode 维度） ====================
 

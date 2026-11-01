@@ -3508,9 +3508,7 @@ mod tests {
             )
             .await
             .expect("查 approval_instance_id");
-        let Some(instance_id) = instance_id else {
-            return None;
-        };
+        let instance_id = instance_id?;
         flow_model::find_instance(instance_id)
             .await
             .expect("查审批实例")

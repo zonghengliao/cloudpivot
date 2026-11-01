@@ -63,6 +63,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{self, Resolution};
+use crate::business::flow::node_config;
+use crate::business::flow::task_node::{self, SpawnOutcome};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use serde_json::Map;
@@ -1562,6 +1564,105 @@ impl<'a> Run<'a> {
                     .await?;
                 Ok(Step::Next(self.out_targets(&spec.key, None, false)))
             }
+            // ★ P-FLOW-1A：任务节点（阻塞等人干完活）
+            //
+            // 与审批节点的唯一区别是**生成物**：这里落的是 `biz_task`（工作任务，有进度 /
+            // 工时 / 验收），不是 `biz_flow_task`（签字待办）。两者混成一体会让「审批中心」
+            // 和「工作任务」两个入口都变脏（设计 §1.2）。
+            NodeType::Task => {
+                // `config.task` 在发布期已被 R18 解析过一遍；这里再解析一次是因为实例可能
+                // 跑在**旧快照**上（发布后改库 / 回滚），不能让坏配置变成「生成一张空标题的单」。
+                let cfg = match node_config::parse_task_config(&spec.config["task"]) {
+                    Ok(cfg) => cfg,
+                    Err(error) => return Ok(Step::Fail(error)),
+                };
+                let ctx = self.instance.assignee_ctx();
+                let eval = self.eval_context().await?;
+                match task_node::spawn(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval)
+                    .await?
+                {
+                    SpawnOutcome::Created {
+                        task_id,
+                        task_no,
+                        owner_id,
+                        members,
+                        ..
+                    } => {
+                        // 节点转 ACTIVE：**阻塞**在这里等任务完成（完成回调在 P-FLOW-1B）。
+                        model::activate_node_row(self.ex, row.id, 1).await?;
+                        tracing::info!(
+                            instance_id = %self.instance.id,
+                            node_key = %spec.key,
+                            round,
+                            task_id = %task_id,
+                            task_no = %task_no,
+                            owner = %owner_id,
+                            members,
+                            "任务节点已激活，等任务完成"
+                        );
+                        // 通知负责人（锁内 collect、提交后 flush，与审批节点同款）
+                        self.effects.notice(
+                            vec![owner_id],
+                            format!("待你处理：{}", self.instance.title),
+                            format!(
+                                "流程 {}（{}）到达节点「{}」，已生成任务 {}，请及时处理。",
+                                self.instance.instance_no,
+                                self.instance.flow_name,
+                                spec.name,
+                                task_no
+                            ),
+                            format!("/task/detail/{}", task_id),
+                            self.instance.id,
+                            true,
+                        );
+                        Ok(Step::Idle)
+                    }
+                    SpawnOutcome::AlreadyExists { task_id } => {
+                        // 幂等：同一节点同一轮已经有任务（重复 step / 并发），节点仍然 ACTIVE。
+                        model::activate_node_row(self.ex, row.id, 1).await?;
+                        tracing::info!(
+                            instance_id = %self.instance.id,
+                            node_key = %spec.key,
+                            round,
+                            task_id = ?task_id,
+                            "任务节点已有任务（幂等），节点保持 ACTIVE"
+                        );
+                        Ok(Step::Idle)
+                    }
+                    SpawnOutcome::Skipped { reason } => {
+                        // `empty_assignee=SKIP` + `allow_skip_when_no_assignee=true`：
+                        // 明确配置过才允许，节点记 SKIPPED 并继续往下。
+                        model::end_node_row(
+                            self.ex,
+                            row.id,
+                            "SKIPPED",
+                            Tally::default(),
+                            None,
+                            true,
+                        )
+                        .await?;
+                        model::sync_auto_passed(self.ex, self.instance.id).await?;
+                        tracing::warn!(
+                            instance_id = %self.instance.id,
+                            node_key = %spec.key,
+                            "{reason}"
+                        );
+                        Ok(Step::Next(self.out_targets(&spec.key, None, false)))
+                    }
+                    SpawnOutcome::Failed(error) => Ok(Step::Fail(error)),
+                }
+            }
+            // ★ 通知节点：1A 只到「发布期拒绝」（R19），引擎分支在 P-FLOW-2。
+            // 留这条臂是为了让**旧快照**（如果有人绕过 R19 发布了）在运行期也**响亮失败**，
+            // 而不是被判成默认的 Approval 分支（那会生成一条没人认识的审批待办）。
+            NodeType::Notify => Ok(Step::Fail(ApiError::new(
+                400,
+                error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+                format!(
+                    "节点 {}（{}）是通知节点，本版本（P-FLOW-1A）的引擎还不支持，通知节点将在 P-FLOW-2 开放",
+                    spec.key, spec.name
+                ),
+            ))),
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
