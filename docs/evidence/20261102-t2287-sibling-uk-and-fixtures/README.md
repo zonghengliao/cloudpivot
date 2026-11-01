@@ -231,8 +231,9 @@ $ cargo clippy --lib --tests -- -D warnings     # 红，但红点全在存量文
 | 夹具清场 / teardown / 验收脚本 | 否（只在测试进程里跑，不进 release 二进制路径） |
 
 按父卡 `t_06c528fc` 的口径（同一类改动「随下次发版生效」），本卡**未部署 144 生产**，也没有重编 release 二进制。
-下次发版时无需迁移、无需开关，`grep -ac "已有审批中实例" target/release/cloudpivot` 应 >0（现有二进制里只有
-transfer 那一处）。
+实测生产二进制（`/opt/cloudpivot/backend/target/release/cloudpivot`，md5 `328376db…`，MainPID 3722036）
+`grep -ac "已有审批中实例"` = **0** —— 连父卡 transfer 那处文案也还没发版，下次发版时这两处会一起进线上。
+下次发版无需迁移、无需开关。
 
 ## 八、复现方式
 
