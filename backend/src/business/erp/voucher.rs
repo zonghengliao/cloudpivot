@@ -2585,4 +2585,29 @@ mod tests {
         assert!(red[0].summary.starts_with("红冲（退货）"));
         assert_eq!(red[1].line_no, 2);
     }
+
+    /// ㉖ 收尾清场：本模块的**科目夹具**（`P2C1.1405`）必须删掉（t_06c528fc）。
+    ///
+    /// 科目没有分类行，留在共享库里会让 `cash_flow` 的「分类配置覆盖全科目」断言
+    /// 在**第二遍**全量时红。`biz_account` 无外键引用，直接删安全。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixture_accounts() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        db().execute_with_params(
+            "DELETE FROM biz_account WHERE account_code LIKE 'P2C1%'",
+            vec![],
+        )
+        .await
+        .expect("清场删夹具科目失败");
+        let left: i64 = db()
+            .scalar_sql(
+                "SELECT count(*) FROM biz_account WHERE account_code LIKE 'P2C1%'".to_string(),
+                vec![],
+            )
+            .await
+            .expect("计数失败");
+        assert_eq!(left, 0, "夹具科目必须删掉（留着会让第二遍全量变红）");
+    }
 }

@@ -131,11 +131,56 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
 }
 
+/// 「同一业务单据同时只能有一个在跑的审批单」的部分唯一索引（V0122）。
+const BIZ_ACTIVE_INDEX: &str = "uk_biz_flow_instance_biz_active";
+
+/// 是不是「已有审批中实例」的唯一索引冲突。
+///
+/// # 为什么不能只按变体判
+///
+/// 正常路径上 PG 的 `23505` 会被驱动方言翻成 [`DbError::UniqueViolation`] 并带上约束名；
+/// 但事务内执行、或驱动拿不到 `SqlState` 时错误会落到 [`DbError::Query`]
+/// （`Display` 形如 `query failed: <sql>: db error: ...`），变体判据就失效了。
+/// 只按变体判的后果是「明明是可解释的冲突，用户却看到 500 服务器内部错误」——
+/// 与 `flow::handler::is_biz_active_duplicate` 同一套判据（变体优先 + 文案兜底）。
+fn is_biz_active_duplicate(error: &DbError) -> bool {
+    match error {
+        DbError::UniqueViolation { constraint, .. } => constraint
+            .as_deref()
+            .map(|name| name.contains(BIZ_ACTIVE_INDEX))
+            .unwrap_or(false),
+        other => other.to_string().contains(BIZ_ACTIVE_INDEX),
+    }
+}
+
+/// 「该调拨单已有审批中实例」→ **409 + 单号**（可执行提示，不是 500）。
+///
+/// `transfer_no` 拿不到时（例如从 [`write_error`] 的通用出口兜底）退化成「该调拨单」。
+fn approval_in_progress(transfer_no: Option<&str>) -> ApiError {
+    let who = match transfer_no {
+        Some(no) => format!("调拨单 {no}"),
+        None => "该调拨单".to_string(),
+    };
+    conflict(format!(
+        "{who} 已有审批中实例（同一单据同时只能有一个在跑的审批单）：\
+         请刷新查看审批进度，或在审批中心撤回后再重新提交"
+    ))
+}
+
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`。
 ///
 /// 判据按**变体**而不是文案：`DbError::UniqueViolation` 的 `Display` 里没有
 /// `duplicate key` 字样（W1c 实测），按文案匹配会把 409 判成 500。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
+    // ⚠️ 顺序要紧：审批实例的唯一索引冲突**先**认出来。
+    // 落到下面的 `UniqueViolation` 分支会被说成「调拨单号重复（唯一约束 uk_biz_flow_instance_biz_active）
+    // …联系运维排查 biz_seq」——用户按提示去查取号器，方向完全错；
+    // 而如果驱动没给约束名（错误退化成 `DbError::Query`），就会一路掉到
+    // `utils::db_error` 变成 500「服务器内部错误」，把可解释的冲突彻底藏起来。
+    if is_biz_active_duplicate(&err) {
+        tracing::warn!(context = ctx, error = %err, "提交审批撞审批实例唯一索引：已有在跑实例，翻 409");
+        return approval_in_progress(None);
+    }
     match err {
         DbError::UniqueViolation { constraint, .. } => ApiError::new(
             409,
@@ -913,9 +958,7 @@ async fn prepare_start(
         .await
         .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
     {
-        return Err(conflict(
-            "该调拨单已有在跑的审批单：请等审批结束，或先撤回再重新提交",
-        ));
+        return Err(approval_in_progress(Some(&row.transfer_no)));
     }
     let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator)
         .await
@@ -1097,7 +1140,18 @@ pub async fn change_transfer_status(
         }
         Err(SettleError::Db(error)) => {
             let _ = tx.rollback().await;
-            Err(write_error(error, "调拨单状态流转"))
+            // 单号在这里才拿得到 → 优先用它拼可执行文案（比 write_error 的通用兜底更好读）
+            if is_biz_active_duplicate(&error) {
+                tracing::warn!(
+                    transfer_id = %id,
+                    transfer_no = %row.transfer_no,
+                    error = %error,
+                    "提交审批撞 uk_biz_flow_instance_biz_active：已有在跑实例，翻 409 + 单号"
+                );
+                Err(approval_in_progress(Some(&row.transfer_no)))
+            } else {
+                Err(write_error(error, "调拨单状态流转"))
+            }
         }
         Err(other) => {
             let _ = tx.rollback().await;
@@ -1257,6 +1311,65 @@ mod tests {
         assert_eq!(TRANSFER_PERMISSIONS_PUB.len(), 6);
         assert_eq!(TRANSFER_PERMISSIONS_PUB, TRANSFER_PERMISSIONS);
     }
+
+    /// 审批实例唯一索引冲突 → **409 + 单号 + 「已有审批中实例」**，绝不能是 500。
+    ///
+    /// 两个分支都要钉住：
+    /// - 驱动给了约束名（`DbError::UniqueViolation`）→ 按变体判；
+    /// - 驱动没给约束名（错误退化成 `DbError::Query`，`Display` 里只剩 PG 原文）→ 文案兜底。
+    ///   这条分支正是卡面「500 服务器内部错误」的来源：只按变体判会把它漏到 `utils::db_error`。
+    #[test]
+    fn biz_active_conflict_maps_to_409_with_transfer_no() {
+        // 每个用例各造一份（`DbError` 不实现 Clone，底层挂着驱动的 Box<dyn Error>）
+        let variant = || DbError::UniqueViolation {
+            column: None,
+            constraint: Some(BIZ_ACTIVE_INDEX.to_string()),
+            source: None,
+        };
+        let by_text = || {
+            DbError::InvalidValue(format!(
+                "db error: ERROR: duplicate key value violates unique constraint \"{BIZ_ACTIVE_INDEX}\""
+            ))
+        };
+        assert!(
+            is_biz_active_duplicate(&variant()),
+            "带约束名的 23505 必须被认出来"
+        );
+        assert!(
+            is_biz_active_duplicate(&by_text()),
+            "文案兜底必须生效（否则真库里就会变成 500）"
+        );
+
+        // 别的唯一索引不能被误判成审批冲突
+        let other = DbError::UniqueViolation {
+            column: None,
+            constraint: Some("uk_biz_stock_transfer_no".to_string()),
+            source: None,
+        };
+        assert!(!is_biz_active_duplicate(&other));
+
+        // 通用出口（write_error / 拿不到单号）也不许再变成 500
+        let generic = write_error(variant(), "调拨单状态流转");
+        assert_eq!(generic.status, 409, "通用出口也必须是 409");
+        assert!(generic.msg.contains("审批中实例"), "{}", generic.msg);
+
+        // 拿得到单号时文案必须带单号（用户要能对上自己那一单）
+        let with_no = write_error(by_text(), "调拨单状态流转");
+        assert_eq!(with_no.status, 409);
+        let api = approval_in_progress(Some("TK-20261102-000007"));
+        assert_eq!(api.status, 409);
+        assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
+        assert!(
+            api.msg.contains("TK-20261102-000007"),
+            "409 文案必须带单号：{}",
+            api.msg
+        );
+        assert!(
+            api.msg.contains("已有审批中实例"),
+            "409 文案必须说清原因：{}",
+            api.msg
+        );
+    }
 }
 
 // ==================== 单测夹具：走审批主线让单据进 APPROVED ====================
@@ -1381,44 +1494,124 @@ mod db_tests {
         }
     }
 
-    /// 清掉本卡造的单据（按夹具仓库精确定位，不扫全库）。
+    /// 本卡造的单据 / 实例的**定位口径**（多处复用，必须逐字一致）。
+    ///
+    /// 三条同时成立才算本卡的：
+    /// 1. `biz_type = 'STOCK_TRANSFER'` —— 全库只有调拨模块会发这类实例；
+    /// 2. `biz_id` 指向本卡夹具仓库上的调拨单（**出发仓 / 目的仓任一边命中**：
+    ///    「在途中转」用例的出发仓是在途仓，只按 `from_warehouse_id` 会漏）；
+    /// 3. 或者「单据行已经不存在」的孤儿实例（上一轮被 panic 打断留下的）——
+    ///    这类既挡 `uk_biz_flow_instance_biz_active`，又没人认得，必须一起收走；
+    ///    加 `def_id` 精确到迁移种的那条调拨流程，避免误伤别的卡的同名 biz_type 夹具。
+    fn fixture_instance_where() -> String {
+        "biz_type = 'STOCK_TRANSFER' AND ( \
+             biz_id IN (SELECT id FROM biz_stock_transfer \
+                         WHERE from_warehouse_id = ANY(?::text::uuid[]) \
+                            OR to_warehouse_id = ANY(?::text::uuid[])) \
+          OR (def_id = ?::uuid AND biz_id IS NOT NULL \
+              AND biz_id NOT IN (SELECT id FROM biz_stock_transfer)))"
+            .to_string()
+    }
+
+    /// 本卡单据的定位口径（`biz_stock_transfer` 上的条件，与实例口径同源）。
+    fn fixture_doc_where() -> &'static str {
+        "from_warehouse_id = ANY(?::text::uuid[]) OR to_warehouse_id = ANY(?::text::uuid[])"
+    }
+
+    /// 清掉本卡造的单据**以及它们挂的全部审批痕迹**（按夹具仓库精确定位，不扫全库）。
+    ///
+    /// # 顺序为什么必须是这样（同库连跑两遍才不红）
+    ///
+    /// 1. `biz_stock_transfer.approval_instance_id` 是**弱引用**（无外键）→ 先置 `NULL`。
+    ///    不置空也能删掉实例，但单据会指着不存在的实例：`flow_task_bridge::instance_status_of`
+    ///    查不到就按「不拦」处理（门闸失效），是排查时最费时间的那类脏数据。
+    /// 2. `biz_flow_instance.prev_instance_id` 是**自引用且没有 ON DELETE**（V0122）→
+    ///    先把「指向本卡实例」的外部引用解开。漏了这一步，整批 DELETE 会被外键拦下并抛
+    ///    `query failed: db error` —— PG 那句报错里既没有约束名也没有表名，
+    ///    就是卡面记的「夹具写入失败（清理审批实例）」真身。
+    /// 3. `biz_flow_task` / `biz_flow_cc` 虽然 `ON DELETE CASCADE`，仍**显式按 instance_id 先删**：
+    ///    把「先子表后主表」写死，将来迁移哪天摘掉 CASCADE 也不会静默留残留。
+    /// 4. `biz_status_log` **没有外键**（日志要比单据活得久，是设计）→ 必须在**删单据行之前**
+    ///    按 `entity_id` 清。反过来的话，单据一删日志就永远对不上，每跑一轮多攒几百行孤儿。
+    /// 5. 最后才删明细 / 单据头；**不删流程定义**（P5 起由 V0157 种好，生产同款路径）。
     async fn cleanup() {
         let warehouses = vec![uuid(WH_FROM), uuid(WH_TO)];
-        // ① 审批实例：按「本卡的流程定义」+「本卡的调拨单」两条口径一起删
-        //    （上一轮跑完留下的实例若只按 biz_id 找不到，会挡住后面的流程版本删除）
+        let docs = array_param(&warehouses);
+        let doc_where = fixture_doc_where();
+        let inst_where = fixture_instance_where();
+
+        // ① 弱引用先断（单据 → 审批实例）
         exec(
-            "DELETE FROM biz_flow_instance \
-              WHERE def_id = ?::uuid \
-                 OR (biz_type = 'STOCK_TRANSFER' AND biz_id IN ( \
-                       SELECT id FROM biz_stock_transfer WHERE from_warehouse_id = ANY(?::text::uuid[])))",
-            vec![Value::from(&uuid(DEF_ID)), array_param(&warehouses)],
+            &format!("UPDATE biz_stock_transfer SET approval_instance_id = NULL WHERE {doc_where}"),
+            vec![docs.clone(), docs.clone()],
+            "解除单据的审批单弱引用",
+        )
+        .await;
+        // ② 自引用外键先解开（实例 prev_instance_id，无级联）
+        exec(
+            &format!(
+                "UPDATE biz_flow_instance SET prev_instance_id = NULL \
+                  WHERE prev_instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+            ),
+            vec![docs.clone(), docs.clone(), Value::from(&uuid(DEF_ID))],
+            "解开实例的上一轮引用",
+        )
+        .await;
+        // ③ 待办 / 抄送：显式先删（别只依赖 CASCADE）
+        for (table, what) in [("biz_flow_task", "清理待办"), ("biz_flow_cc", "清理抄送")] {
+            exec(
+                &format!(
+                    "DELETE FROM {table} WHERE instance_id IN \
+                     (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+                ),
+                vec![docs.clone(), docs.clone(), Value::from(&uuid(DEF_ID))],
+                what,
+            )
+            .await;
+        }
+        // ④ 实例本体
+        exec(
+            &format!("DELETE FROM biz_flow_instance WHERE {inst_where}"),
+            vec![docs.clone(), docs.clone(), Value::from(&uuid(DEF_ID))],
             "清理审批实例",
         )
         .await;
+        // ⑤ 状态日志（无外键 → 必须在删单据之前，按 entity_id 精确清）
+        exec(
+            &format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'TRANSFER' \
+                   AND entity_id IN (SELECT id FROM biz_stock_transfer WHERE {doc_where})"
+            ),
+            vec![docs.clone(), docs.clone()],
+            "清理状态变更日志",
+        )
+        .await;
+        // ⑥ 子表 → 单据头
         exec(
             "DELETE FROM biz_stock_transfer_item_serial WHERE item_id IN ( \
                  SELECT i.id FROM biz_stock_transfer_item i \
                    JOIN biz_stock_transfer t ON t.id = i.transfer_id \
-                  WHERE t.from_warehouse_id = ANY(?::text::uuid[]))",
-            vec![array_param(&warehouses)],
+                  WHERE t.from_warehouse_id = ANY(?::text::uuid[]) \
+                     OR t.to_warehouse_id = ANY(?::text::uuid[]))",
+            vec![docs.clone(), docs.clone()],
             "清理序列号子表",
         )
         .await;
         exec(
-            "DELETE FROM biz_stock_transfer_item WHERE transfer_id IN ( \
-                 SELECT id FROM biz_stock_transfer WHERE from_warehouse_id = ANY(?::text::uuid[]))",
-            vec![array_param(&warehouses)],
+            &format!(
+                "DELETE FROM biz_stock_transfer_item \
+                  WHERE transfer_id IN (SELECT id FROM biz_stock_transfer WHERE {doc_where})"
+            ),
+            vec![docs.clone(), docs.clone()],
             "清理明细",
         )
         .await;
         exec(
-            "DELETE FROM biz_stock_transfer WHERE from_warehouse_id = ANY(?::text::uuid[])",
-            vec![array_param(&warehouses)],
+            &format!("DELETE FROM biz_stock_transfer WHERE {doc_where}"),
+            vec![docs.clone(), docs.clone()],
             "清理单据头",
         )
         .await;
-        // 注：**不删流程定义** —— P5 起调拨流程由迁移 V0157 种好（`stock_transfer`），
-        // 测试直接用它（生产同款路径）。夹具只清本卡造的单据与它们的审批单。
     }
 
     /// UUID 数组参数（技能 §6.5：`Value::Text("{a,b}")` 配 `?::text::uuid[]`）。
@@ -3999,6 +4192,215 @@ mod db_tests {
             err.msg.contains("business:erp:transfer:create"),
             "403 文案要点名权限码：{}",
             err.msg
+        );
+    }
+
+    // ---------- ㉑ 提交审批撞唯一索引 → 409 + 单号（不是 500） ----------
+
+    /// 标量计数（`i64`）—— 收尾清场断言用。
+    async fn count_of(sql: &str, params: Vec<Value>, what: &str) -> i64 {
+        db().scalar_sql(sql.to_string(), params)
+            .await
+            .unwrap_or_else(|err| panic!("计数失败（{what}）：{err}\nSQL: {sql}"))
+    }
+
+    /// 同一单据**已经有审批中实例**时再提交：必须是 `409 + 单号 + 「已有审批中实例」`。
+    ///
+    /// 三条路径都钉住（卡面 §要做的事 2）：
+    /// 1. **应用层预检**（`prepare_start` → `biz_instance_running`）命中 → 409，文案带单号。
+    ///    构造方式就是卡面残留现场：单据还停在 `DRAFT`，但已经挂着一张在跑的审批单
+    ///    （上一轮 panic 没清干净 / 库被别的入口写脏）——**只有这种状态才会走到预检**，
+    ///    「已 PENDING 再提交」会被状态机 409 先拦（非法边），测不到这一步。
+    /// 2. **库层兜底**（并发双击绕过预检，撞 `uk_biz_flow_instance_biz_active`）→
+    ///    真去跑一次 `engine::start`，拿**真驱动**返回的错误验 `is_biz_active_duplicate`。
+    ///    这一步是关键：只按变体判、驱动又把错误降级成 `DbError::Query` 时，
+    ///    旧代码会掉进 `utils::db_error` → `500 服务器内部错误`（卡面排查几十分钟的那个坑）。
+    #[tokio::test]
+    async fn submit_twice_is_409_with_transfer_no_not_500() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let applicant = uuid(U_APPLICANT);
+        let id = create_transfer(
+            &body(vec![item(M_PLAIN, "3")]),
+            Some(applicant),
+            Some("w3b_applicant"),
+        )
+        .await
+        .expect("建单必须成功");
+        let row = refresh(id).await;
+        let start = prepare_start(&row, applicant)
+            .await
+            .expect("准备审批参数")
+            .expect("种子流程是 PUBLISHED，必须返回发起参数");
+        // 手工发起一张实例、**不动单据状态**（= 残留现场：DRAFT 单据 + 在跑实例）
+        let tx = db().begin().await.expect("开事务");
+        let out = engine::start(&tx, &start).await.expect("发起审批单应成功");
+        tx.commit().await.expect("提交事务");
+        let instance_id = out.instance_id.expect("必须有实例 id");
+
+        // ① 应用层预检：单据仍是 DRAFT，提交 → 预检命中 → 409 + 单号
+        let err = change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .expect_err("已有审批中实例，提交必须 409");
+        assert_eq!(err.status, 409, "不能是 500：{}", err.msg);
+        assert!(
+            err.msg.contains(&row.transfer_no),
+            "409 文案必须带单号：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("审批中实例"),
+            "409 文案必须说清「已有审批中实例」：{}",
+            err.msg
+        );
+
+        // ② 库层兜底：绕过预检，直接用同一个 (biz_type, biz_id) 再发一张实例
+        let inst = db()
+            .find_with_params(
+                "SELECT def_id, version_id, version_no, flow_code, flow_name, biz_type \
+                   FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查实例模板");
+        let src = inst.first().expect("实例必须存在");
+        let duplicate = engine::StartReq {
+            instance_id: Uuid::now_v7(),
+            def_id: src.get_typed("def_id").expect("def_id"),
+            version_id: src.get_typed("version_id").expect("version_id"),
+            version_no: src.get_typed("version_no").expect("version_no"),
+            flow_code: src.get_typed("flow_code").expect("flow_code"),
+            flow_name: src.get_typed("flow_name").expect("flow_name"),
+            biz_type: src.get_typed("biz_type").expect("biz_type"),
+            biz_id: Some(id),
+            biz_no: Some(row.transfer_no.clone()),
+            title: format!("{} 库存调拨（并发重复提交）", row.transfer_no),
+            initiator_id: applicant,
+            initiator_name: Some("w3b_applicant".to_string()),
+            initiator_dept_id: None,
+            form_data: serde_json::json!({}),
+        };
+        let tx = db().begin().await.expect("开事务");
+        let conflict_err = engine::start(&tx, &duplicate)
+            .await
+            .expect_err("同 biz_id 的第二张在跑实例必须撞 uk_biz_flow_instance_biz_active");
+        let _ = tx.rollback().await;
+        assert!(
+            is_biz_active_duplicate(&conflict_err),
+            "真驱动返回的 uk 冲突必须能被识别（识别不了就会变成 500）：{conflict_err}"
+        );
+        let api = write_error(conflict_err, "调拨单状态流转");
+        assert_eq!(api.status, 409, "库层兜底也必须是 409：{}", api.msg);
+        assert!(
+            api.msg.contains("审批中实例"),
+            "库层兜底的 409 也要说清原因：{}",
+            api.msg
+        );
+
+        // 实例数没有变成 2（第二条被库层挡住，没落库）
+        let instances = count_of(
+            "SELECT count(*) FROM biz_flow_instance WHERE biz_type = 'STOCK_TRANSFER' AND biz_id = ?::uuid",
+            vec![Value::from(&id)],
+            "本单实例数",
+        )
+        .await;
+        assert_eq!(instances, 1, "在跑实例只能有 1 张");
+    }
+
+    // ---------- ㉒ 收尾清场：同库连跑两遍不留残留（名字 zz_ 排最后 = 模块级 teardown） ----------
+
+    /// 本卡跑完**不许留**「单据 / 实例 / 待办 / 状态日志」四类残留。
+    ///
+    /// 为什么必须有这一条：`cleanup()` 只在**每个用例开头**跑，最后一个用例的产物没人收；
+    /// 同库连跑第二遍时，残留的 `STOCK_TRANSFER|PENDING` 实例会顶住
+    /// `uk_biz_flow_instance_biz_active`（下一次提交永久 409/500），
+    /// `biz_status_log` 则每轮多攒几百行永远对不上的孤儿。
+    /// 名字以 `zz_` 开头 → 排序排在模块最后，等于给这个模块加了 teardown。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixture_residue() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let applicant = uuid(U_APPLICANT);
+        // 造一张**带在跑审批单**的单：正好是卡面残留的那四类
+        let id = create_transfer(
+            &body(vec![item(M_PLAIN, "2")]),
+            Some(applicant),
+            Some("w3b_applicant"),
+        )
+        .await
+        .expect("建单必须成功");
+        change_transfer_status(id, &status_req(STATUS_PENDING, None), applicant)
+            .await
+            .expect("提交审批应成功");
+        let row = refresh(id).await;
+        let instance_id = row.approval_instance_id.expect("必须挂实例");
+        assert!(
+            count_of(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&instance_id)],
+                "清场前待办数",
+            )
+            .await
+                > 0,
+            "清场前必须有待办，否则这条用例证明不了什么"
+        );
+
+        cleanup().await;
+
+        // ① 单据没了
+        assert!(
+            transfer_model::find_by_id(id)
+                .await
+                .expect("查单据")
+                .is_none(),
+            "清场后调拨单必须不存在"
+        );
+        // ② 实例没了
+        assert_eq!(
+            count_of(
+                "SELECT count(*) FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance_id)],
+                "残留实例",
+            )
+            .await,
+            0,
+            "清场后审批实例必须为 0"
+        );
+        // ③ 待办没了
+        assert_eq!(
+            count_of(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid",
+                vec![Value::from(&instance_id)],
+                "残留待办",
+            )
+            .await,
+            0,
+            "清场后待办必须为 0"
+        );
+        // ④ 状态日志没了（无外键 → 必须在删单据之前清，否则永远对不上）
+        assert_eq!(
+            count_of(
+                "SELECT count(*) FROM biz_status_log WHERE entity_type = 'TRANSFER' AND entity_id = ?::uuid",
+                vec![Value::from(&id)],
+                "残留状态日志",
+            )
+            .await,
+            0,
+            "清场后状态日志必须为 0"
+        );
+        // ⑤ 全库不剩「在跑的调拨实例」—— 这就是顶住 uk_biz_flow_instance_biz_active 的那个东西
+        assert_eq!(
+            count_of(
+                "SELECT count(*) FROM biz_flow_instance \
+                  WHERE biz_type = 'STOCK_TRANSFER' AND status = 'PENDING' AND deleted_at IS NULL",
+                vec![],
+                "在跑的调拨实例",
+            )
+            .await,
+            0,
+            "同库连跑第二遍的前提：不许剩 PENDING 的调拨实例"
         );
     }
 }

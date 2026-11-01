@@ -2942,4 +2942,34 @@ mod tests {
         assert_eq!(item_total, 1);
         assert_eq!(items[0].id, uuid(PO_ITEM_ID));
     }
+
+    /// ㉔ 收尾清场：本模块的**科目夹具**必须删掉（t_06c528fc）。
+    ///
+    /// 为什么：`cash_flow::tests::r3_real_config_covers_all_accounts` 按「`biz_account` 全表」
+    /// 断言「每个非现金科目都要有现金流量分类行」。夹具科目（没有分类行）留在共享库里，
+    /// 全量套件**第二次**跑时就会变成「分类配置漏科目：W1B1001 / W1B100101 …」直接红
+    /// （与 P-FLOW-3B 那次 P3B 科目污染同源）。
+    ///
+    /// `biz_account` 没有任何外键引用它（分录按 `account_code` 冗余存一份），删起来是安全的。
+    /// 名字 `zz_` → 排在本模块最后，等于模块级 teardown。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixture_accounts() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        db().execute_with_params(
+            "DELETE FROM biz_account WHERE account_code LIKE 'W1B%'",
+            vec![],
+        )
+        .await
+        .expect("清场删夹具科目失败");
+        let left: i64 = db()
+            .scalar_sql(
+                "SELECT count(*) FROM biz_account WHERE account_code LIKE 'W1B%'".to_string(),
+                vec![],
+            )
+            .await
+            .expect("计数失败");
+        assert_eq!(left, 0, "夹具科目必须删掉（留着会让第二遍全量变红）");
+    }
 }

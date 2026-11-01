@@ -5498,4 +5498,96 @@ mod copy_db_tests {
             1
         );
     }
+
+    /// ㉓ 收尾清场：本模块的**超管夹具用户**必须删干净（t_06c528fc）。
+    ///
+    /// # 为什么这条不是「测试卫生」而是真 bug
+    ///
+    /// 审批节点的 `assignee_source = ADMIN` 会**动态展开成「当前全部超管」**。
+    /// 这个夹具用户（`d9_copy_user`）挂着 `SUPER_ADMIN` 而 `setup()` 从不删他，
+    /// 于是**全量套件在同一个库上跑第二遍**时：
+    /// `approve_flow_instance` 只批了「第一条待办」，实例还剩一条待办 → 停在 `PENDING`
+    /// → transfer / stockin / voucher 的「审批通过即落终态」用例集体变红
+    /// （2026-11-02 实测 **53 条**，与 D7 交接里记的「同一库连跑第二遍红 53 条」完全同源）。
+    ///
+    /// 名字以 `zz_` 开头 → 排序排在本模块最后，等于给模块加了 teardown。
+    #[tokio::test]
+    async fn zz_teardown_purges_super_admin_fixture_user() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ME);
+        // ① 子表先清（评论 / 工时 / 成员都挂在任务或用户上）
+        db().execute_with_params(
+            "DELETE FROM biz_task_comment WHERE user_id = ?::uuid \
+                OR task_id IN (SELECT id FROM biz_task WHERE creator_id = ?::uuid OR owner_id = ?::uuid)",
+            vec![Value::from(&me), Value::from(&me), Value::from(&me)],
+        )
+        .await
+        .expect("清场删评论失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task_worklog WHERE user_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清场删工时失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task_member WHERE user_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清场删任务成员失败");
+        // ② 自引用 FK 先断开，再删任务
+        db().execute_with_params(
+            "UPDATE biz_task SET parent_id = NULL \
+              WHERE parent_id IN (SELECT id FROM biz_task WHERE creator_id = ?::uuid OR owner_id = ?::uuid)",
+            vec![Value::from(&me), Value::from(&me)],
+        )
+        .await
+        .expect("断开父指针失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task WHERE creator_id = ?::uuid OR owner_id = ?::uuid OR assigner_id = ?::uuid",
+            vec![Value::from(&me), Value::from(&me), Value::from(&me)],
+        )
+        .await
+        .expect("清场删任务失败");
+        // ③ 角色关联 → 用户
+        db().execute_with_params(
+            "DELETE FROM sys_user_role WHERE user_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清场删角色关联失败");
+        db().execute_with_params(
+            "DELETE FROM sys_user WHERE id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清场删用户失败");
+
+        // ④ 断言：用户 / 角色关联 / 任务 全为 0
+        assert_eq!(
+            count("SELECT count(*) FROM sys_user WHERE id = ?::uuid", me).await,
+            0,
+            "超管夹具用户必须删掉（留着会让兄弟模块的第二遍全量变红）"
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM sys_user_role WHERE user_id = ?::uuid",
+                me
+            )
+            .await,
+            0,
+            "角色关联必须删掉"
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid",
+                me
+            )
+            .await,
+            0,
+            "夹具任务必须删掉"
+        );
+    }
 }

@@ -1183,4 +1183,30 @@ pub(crate) mod tests {
         assert!(json.get("reverse_reason").is_some());
         assert!(json["reverse_reason"].is_null());
     }
+
+    /// ㉕ 收尾清场：本模块的**科目夹具**（`P2D1A` / `P2D1B`）必须删掉（t_06c528fc）。
+    ///
+    /// `ledger` 与 `voucher_query` 共用这套夹具；科目没有分类行，留在共享库里会让
+    /// `cash_flow::tests::r3_real_config_covers_all_accounts` 在**第二遍**全量时红
+    /// （「分类配置漏科目」）。`biz_account` 无外键引用，直接删安全。
+    #[tokio::test]
+    async fn zz_teardown_purges_fixture_accounts() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        db().execute_with_params(
+            "DELETE FROM biz_account WHERE account_code LIKE 'P2D1%'",
+            vec![],
+        )
+        .await
+        .expect("清场删夹具科目失败");
+        let left: i64 = db()
+            .scalar_sql(
+                "SELECT count(*) FROM biz_account WHERE account_code LIKE 'P2D1%'".to_string(),
+                vec![],
+            )
+            .await
+            .expect("计数失败");
+        assert_eq!(left, 0, "夹具科目必须删掉（留着会让第二遍全量变红）");
+    }
 }
