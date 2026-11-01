@@ -2390,6 +2390,8 @@ mod tests {
 
     /// D5 夹具的应付单号前缀。
     const D5_PREFIX: &str = "AP-D5-";
+    /// D5 付款提交人（普通账号，见 `d5_setup` 的内控说明）。
+    const D5_OPERATOR: &str = "d5d50001-0000-4000-8000-000000000001";
 
     /// 拿锁 + 连库 + 清上一轮 + 备好「付款能用」的环境（供应商 / 期间 / 科目 / 流程）。
     async fn d5_setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
@@ -2450,7 +2452,23 @@ mod tests {
               WHERE flow_code = 'payable_pay'",
         )
         .await;
+        // P0-FIX 内控：`payable_pay` 的审批人来源是 `ADMIN`（= 全部超管），而内控规定
+        // 「制单人不可自审」。夹具库里只有一个超管（admin）——若让 admin 自己提交付款，
+        // 他就是**唯一**审批人、又被内控排除 → 节点按「空审批人」自动通过，
+        // 「配了流程必须走审批」就断言不到了（生产有 4 个超管，不会出现这种形态）。
+        // 所以付款的**提交人**用一张普通账号（财务经办），审批人仍是超管 —— 与生产同形。
+        exec(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES ('{D5_OPERATOR}'::uuid, 'd5.operator', 'x', 'D5 财务经办', 1) \
+             ON CONFLICT DO NOTHING"
+        ))
+        .await;
         Some(guard)
+    }
+
+    /// D5 付款的提交人（普通账号：不是超管 ⇒ 不进 `ADMIN` 审批人列表 ⇒ 不触发内控排除）。
+    fn d5_operator() -> Uuid {
+        Uuid::parse_str(D5_OPERATOR).expect("D5_OPERATOR 不是合法 UUID")
     }
 
     /// 造一张 D5 夹具应付单（`paid` 直接落库，只为构造状态；不走付款路径）。
@@ -2701,10 +2719,11 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let admin = admin_uuid().await;
+        // 提交人用普通账号（内控：超管自己提交会把自己排除掉，见 d5_setup 说明）
+        let operator = d5_operator();
         let id = new_d5_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
 
-        let res = submit_payment(id, &d5_pay_req("226"), Some(admin))
+        let res = submit_payment(id, &d5_pay_req("226"), Some(operator))
             .await
             .unwrap_or_else(|err| panic!("从应付单发起付款失败：{} {}", err.code, err.msg));
         assert_eq!(res.outcome, OUTCOME_PENDING, "P17：配了流程必须走审批");
@@ -2767,10 +2786,9 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let admin = admin_uuid().await;
         let id = new_d5_payable(dec("226"), dec("100"), payable::STATUS_PARTIAL_PAID).await;
 
-        let err = submit_payment(id, &d5_pay_req("126.01"), Some(admin))
+        let err = submit_payment(id, &d5_pay_req("126.01"), Some(d5_operator()))
             .await
             .expect_err("超付必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
@@ -2801,7 +2819,7 @@ mod tests {
         let admin = admin_uuid().await;
         let id = new_d5_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
 
-        let res = submit_payment(id, &d5_pay_req("226"), Some(admin))
+        let res = submit_payment(id, &d5_pay_req("226"), Some(d5_operator()))
             .await
             .expect("审批中不能算失败");
         assert_eq!(res.outcome, OUTCOME_PENDING);
@@ -2845,9 +2863,9 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let admin = admin_uuid().await;
+        let operator = d5_operator();
         let id = new_d5_payable(dec("500"), Decimal::ZERO, payable::STATUS_OPEN).await;
-        let first = submit_payment(id, &d5_pay_req("100"), Some(admin))
+        let first = submit_payment(id, &d5_pay_req("100"), Some(operator))
             .await
             .unwrap();
         let first_no = first.payment_no.clone().expect("审批中必须有付款单号");
@@ -2863,7 +2881,7 @@ mod tests {
         assert_eq!(info.pending_amount, Some(dec("100")));
         assert_eq!(info.overpay_risk, None, "100 <= 未付 500，不该报超付风险");
 
-        let err = submit_payment(id, &d5_pay_req("100"), Some(admin))
+        let err = submit_payment(id, &d5_pay_req("100"), Some(operator))
             .await
             .expect_err("审批中重复提交必须被拒");
         assert_eq!(err.status, 409, "{}", err.msg);
@@ -2880,9 +2898,8 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        let admin = admin_uuid().await;
         let id = new_d5_payable(dec("500"), Decimal::ZERO, payable::STATUS_OPEN).await;
-        submit_payment(id, &d5_pay_req("400"), Some(admin))
+        submit_payment(id, &d5_pay_req("400"), Some(d5_operator()))
             .await
             .unwrap();
 

@@ -1525,6 +1525,28 @@ mod tests {
             .collect()
     }
 
+    /// 某人在本实例上的待办（**不限状态**）：`(task_id, status, comment)`。
+    ///
+    /// P0-FIX 之后「制单人 / 发起人」不再拿 `PENDING`（生成时就被排除成 `SKIPPED`），
+    /// 所以内控用例必须按「人」取行，而不是按 `status = 'PENDING'` 取。
+    async fn task_of(instance_id: Uuid, assignee: Uuid) -> Option<(Uuid, String, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, status, COALESCE(comment,'') AS comment FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND assignee_id = ?::uuid ORDER BY created_at LIMIT 1",
+                vec![Value::from(&instance_id), Value::from(&assignee)],
+            )
+            .await
+            .expect("读待办失败");
+        rows.first().map(|row| {
+            (
+                row.get_typed("id").unwrap(),
+                row.get_typed("status").unwrap(),
+                row.get_typed("comment").unwrap(),
+            )
+        })
+    }
+
     /// 以某人的身份同意一条待办，并按 `flow::handler` 的口径推进业务回调。
     async fn approve_as(task_id: Uuid, operator: &str) -> crate::business::flow::engine::ActionOut {
         let op = uid(operator);
@@ -1757,6 +1779,10 @@ mod tests {
     }
 
     /// ⑦ 制单人自批 → 403 + 65019（内控：制单与审批分离）。
+    ///
+    /// P0-FIX 之后语义是「**生成待办时就排除**」：制单人不再是 `PENDING`，而是留一条
+    /// `SKIPPED` 行（带内控原因）—— 他既看不到待办，也批不了；而他人照常能批。
+    /// 403 兜底仍在（转办 / 加签 / 老数据绕过时会走到它）。
     #[tokio::test]
     async fn pflow3a_po_maker_cannot_approve_own_order() {
         let _db = match setup().await {
@@ -1772,12 +1798,22 @@ mod tests {
         ))
         .await;
         submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
-        let tasks = pending_tasks(running_instance(id).await).await;
-        let mine = tasks
-            .iter()
-            .find(|(_, who)| *who == uid(U_MAKER))
-            .expect("制单人既是部门主管就会拿到这条待办")
-            .0;
+        let instance = running_instance(id).await;
+        let (mine, status, comment) = task_of(instance, uid(U_MAKER))
+            .await
+            .expect("制单人在节点上必须有留痕行（不删待办，只改状态）");
+        assert_eq!(
+            status, "SKIPPED",
+            "P0-FIX：制单人的票在生成时就被内控排除，不进 PENDING"
+        );
+        assert!(comment.contains("内控"), "留痕要写原因：{comment}");
+        assert!(
+            pending_tasks(instance)
+                .await
+                .iter()
+                .all(|(_, who)| *who != uid(U_MAKER)),
+            "制单人不该出现在「待批」清单里（他点不动）"
+        );
 
         let err = purchase_bridge::guard_self_approval(mine, uid(U_MAKER))
             .await

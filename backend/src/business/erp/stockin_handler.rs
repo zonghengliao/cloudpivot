@@ -6355,6 +6355,27 @@ mod tests {
             .collect()
     }
 
+    /// 某人在本实例上的待办（**不限状态**）：`(task_id, status, comment)`。
+    ///
+    /// P0-FIX 之后「制单人 / 发起人」不再拿 `PENDING`（生成时就被排除成 `SKIPPED`）。
+    async fn post_task_of(instance_id: Uuid, assignee: Uuid) -> Option<(Uuid, String, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, status, COALESCE(comment,'') AS comment FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND assignee_id = ?::uuid ORDER BY created_at LIMIT 1",
+                vec![Value::from(&instance_id), Value::from(&assignee)],
+            )
+            .await
+            .expect("读待办失败");
+        rows.first().map(|row| {
+            (
+                row.get_typed("id").unwrap(),
+                row.get_typed("status").unwrap(),
+                row.get_typed("comment").unwrap(),
+            )
+        })
+    }
+
     /// 以某人身份同意一条待办，并按 `flow::handler` 的口径推进业务回调。
     async fn post_approve_as(
         task_id: Uuid,
@@ -6672,6 +6693,9 @@ mod tests {
     }
 
     /// ⑯ 制单人自批 → 403 + 65019。
+    ///
+    /// P0-FIX 之后语义是「**生成待办时就排除**」：制单人（也是仓管主管）拿到的是
+    /// `SKIPPED` 留痕行，不是 `PENDING`；403 兜底仍在（防绕过）。
     #[tokio::test]
     async fn pflow3a_si_maker_cannot_approve_own_post() {
         let _db = match setup().await {
@@ -6689,12 +6713,22 @@ mod tests {
         submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
             .await
             .unwrap();
-        let tasks = post_pending_tasks(running_post_instance(id).await).await;
-        let mine = tasks
-            .iter()
-            .find(|(_, who)| *who == uid_of(U_KEEPER))
-            .expect("仓管主管本人会拿到这条待办")
-            .0;
+        let instance = running_post_instance(id).await;
+        let (mine, status, comment) = post_task_of(instance, uid_of(U_KEEPER))
+            .await
+            .expect("制单人必须留痕（不删待办，只改状态）");
+        assert_eq!(
+            status, "SKIPPED",
+            "P0-FIX：制单人的票在生成时就被内控排除，不进 PENDING"
+        );
+        assert!(comment.contains("内控"), "留痕要写原因：{comment}");
+        assert!(
+            post_pending_tasks(instance)
+                .await
+                .iter()
+                .all(|(_, who)| *who != uid_of(U_KEEPER)),
+            "制单人不该出现在「待批」清单里（他点不动）"
+        );
 
         let err = stockin_bridge::guard_self_approval(mine, uid_of(U_KEEPER))
             .await
