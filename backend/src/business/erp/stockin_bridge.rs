@@ -486,6 +486,21 @@ async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option
     }
 }
 
+/// 内控用：这张收货单的**制单人**（`biz_stock_in.create_by`）。
+///
+/// 供 `flow::internal_control` 在**生成待办前**排除制单人（落 `SKIPPED` 留痕）。
+/// 收货单既是「过账审批（`STOCK_IN_POST`）」也是「作废审批（`STOCK_IN_CANCEL`）」的业务载体，
+/// 两个 `biz_type` 都用这一个函数取制单人。查不到单 → `None`（没人被排除，不锁流程）。
+pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<Uuid>> {
+    let Some(stock_in_id) = biz_id else {
+        return Ok(None);
+    };
+    match stockin_model::find_stock_in(stock_in_id).await? {
+        None => Ok(None),
+        Some(row) => Ok(row.create_by),
+    }
+}
+
 /// 审批入口的内控闸（**事务之前**调）：过账审批的制单人 / 发起人不能批自己那一票 → 403。
 ///
 /// 判据只认 `STOCK_IN_POST` 类的实例，与其它业务的待办零影响。

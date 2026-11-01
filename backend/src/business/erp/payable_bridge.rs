@@ -105,6 +105,28 @@ pub async fn published_pay_flow() -> DbResult<Option<PayFlow>> {
 
 // ==================== 内控：制单人不能批自己的付款 ====================
 
+/// 内控用：这笔付款的**制单人**（`biz_payment.create_by`）。
+///
+/// 供 `flow::internal_control` 在**生成待办前**排除制单人（落 `SKIPPED` 留痕）。
+/// 查不到付款记录 → `None`（没人被排除，不锁流程）。
+pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<Uuid>> {
+    let Some(payment_id) = biz_id else {
+        return Ok(None);
+    };
+    // SCOPE-EXEMPT: 付款台账无归属列（见 payable_payment 模块文档），按主键取 1 行。
+    let row = db()
+        .query_first_sql(
+            "SELECT create_by FROM biz_payment WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&payment_id)],
+        )
+        .await?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+    let creator: Option<Uuid> = row.get_typed("create_by")?;
+    Ok(creator)
+}
+
 /// 审批入口的内控闸（**事务之前**调，越早拒绝越好）。
 ///
 /// # 判据（任一命中即 403）
@@ -877,6 +899,28 @@ mod tests {
             .collect()
     }
 
+    /// 某人在本实例上的待办（**不限状态**）：`(task_id, status, comment)`。
+    ///
+    /// P0-FIX 之后「制单人 / 发起人」不再拿 `PENDING`（生成时就被排除成 `SKIPPED`），
+    /// 内控用例必须按「人」取行。
+    async fn task_of(instance_id: Uuid, assignee: Uuid) -> Option<(Uuid, String, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, status, COALESCE(comment,'') AS comment FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND assignee_id = ?::uuid ORDER BY created_at LIMIT 1",
+                vec![Value::from(&instance_id), Value::from(&assignee)],
+            )
+            .await
+            .expect("查待办失败");
+        rows.first().map(|row| {
+            (
+                row.get_typed("id").unwrap(),
+                row.get_typed("status").unwrap(),
+                row.get_typed("comment").unwrap(),
+            )
+        })
+    }
+
     /// 审批一条待办，并在**事务提交之后**跑业务回调（与 `flow::handler::approve_task` 同序）。
     async fn approve(task_id: Uuid, operator: Uuid) -> String {
         let out = db()
@@ -1438,9 +1482,11 @@ mod tests {
 
     /// ⑰ 制单人点自己那票 → 403「不能审批自己提交的付款申请」，且账不动。
     ///
-    /// 场景：这一单由**超管（也是审批人）**自己提交 —— 他确实拿到了自己的待办
-    /// （节点 `self_approval=ALLOW`：留痕、可追），但**这一票点不动**。
-    /// 这就是内控要的效果：单子能提交，制单人批不了。
+    /// 场景：这一单由**超管（也是审批人）**自己提交。
+    ///
+    /// P0-FIX 之后语义是「**生成待办时就排除**」：他拿到的是一条 `SKIPPED` 留痕行
+    /// （带内控原因），不是 `PENDING` —— 既看不到待办、也批不了；
+    /// `guard_self_approval` 的 403 兜底仍在（转办 / 加签 / 老数据绕过时才会走到它）。
     #[tokio::test]
     async fn p17_creator_cannot_approve_own_payment() {
         let _db = match setup().await {
@@ -1456,12 +1502,24 @@ mod tests {
         let instance_id =
             Uuid::parse_str(outcome.approval_instance_id.as_deref().unwrap()).unwrap();
 
-        let mine = pending_tasks(instance_id)
+        let mine = task_of(instance_id, uid(APPROVER1))
             .await
-            .into_iter()
-            .find(|(_, assignee, _)| *assignee == uid(APPROVER1))
-            .map(|(task, _, _)| task)
-            .expect("超管制单人必须能看到自己那条待办（否则这条内控无从体现）");
+            .map(|(task, status, comment)| {
+                assert_eq!(
+                    status, "SKIPPED",
+                    "P0-FIX：制单人的票在生成时就被内控排除，不进 PENDING"
+                );
+                assert!(comment.contains("内控"), "留痕要写原因：{comment}");
+                task
+            })
+            .expect("超管制单人必须有留痕行（否则审计回答不了「他没批、为什么」）");
+        assert!(
+            pending_tasks(instance_id)
+                .await
+                .iter()
+                .all(|(_, assignee, _)| *assignee != uid(APPROVER1)),
+            "制单人不该出现在「待批」清单里（他点不动）"
+        );
 
         let err = guard_self_approval(mine, uid(APPROVER1))
             .await

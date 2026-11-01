@@ -268,6 +268,33 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
 
 // ==================== 内控：制单人不能批自己的采购单 ====================
 
+/// 内控用：这张采购单的**制单人**（`biz_purchase_order.create_by`）。
+///
+/// 供 `flow::internal_control` 在**生成待办前**把制单人从审批人列表里排除
+/// （落 `SKIPPED` 留痕，而不是让人看到待办再 403）。
+/// 查不到单 / 单没有 `create_by`（历史行 / 外部导入）→ `None`：只是没人被排除，
+/// **不影响**审批能不能发起（内控不能因为取不到数据就把流程锁死）。
+pub async fn internal_control_creator(biz_id: Option<Uuid>) -> DbResult<Option<Uuid>> {
+    let Some(order_id) = biz_id else {
+        return Ok(None);
+    };
+    // SCOPE-EXEMPT: 内控按主键取 1 行的 create_by，不做数据范围裁剪（裁剪会让
+    // 「看不到这张单的人」反而成为可审批人，与内控目的相反）。
+    let rows = db()
+        .find_with_params(
+            "SELECT create_by FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => {
+            let creator: Option<Uuid> = row.get_typed("create_by")?;
+            Ok(creator)
+        }
+    }
+}
+
 /// 审批入口的内控闸（**事务之前**调，越早拒绝越好）。
 ///
 /// # 判据（任一命中即 403）

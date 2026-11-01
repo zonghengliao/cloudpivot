@@ -63,6 +63,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{self, Resolution};
+use crate::business::flow::internal_control;
 use crate::business::flow::node_config;
 use crate::business::flow::notify_node;
 use crate::business::flow::task_node::{self, SpawnOutcome};
@@ -2511,8 +2512,10 @@ impl<'a> Run<'a> {
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;
-                let Resolution { finalized, trace } =
-                    assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
+                let Resolution {
+                    mut finalized,
+                    trace,
+                } = assignee::resolve(self.ex, &spec, &ctx, &eval).await?;
                 if let Some(error) = finalized.error {
                     return Ok(Step::Fail(error));
                 }
@@ -2526,6 +2529,28 @@ impl<'a> Run<'a> {
                     trace = ?trace,
                     "审批人解析完成（冻结成行）"
                 );
+
+                // ★ P0-FIX 内控（制单人 / 发起人不可自审）：**在落待办之前**把人剔出去。
+                //
+                // 只做 403 是不够的：待办照常生成 ⇒ 当事人看得见、点不动；会签节点上
+                // 那一票永远批不出来 ⇒ **流程死锁**（生产实测 PO-20261031-000002）。
+                // 现在改成「解析出来的审批人先过一遍内控」，命中的人落 `SKIPPED` 留痕
+                // （`completed_at` + `comment`），不进 `PENDING`；`Tally.total` 不含
+                // `SKIPPED` ⇒ 剩下的人批完即通过（会签不被阻塞）。
+                //
+                // 与本业务无关的 `biz_type` → `governed=false`，这里一个字节都不动。
+                let control = internal_control::of(&self.instance).await?;
+                let (approvers, control_excluded) =
+                    internal_control::partition(std::mem::take(&mut finalized.approvers), &control);
+                if !control_excluded.is_empty() {
+                    tracing::info!(
+                        instance_id = %self.instance.id,
+                        node_key = %spec.key,
+                        excluded = control_excluded.len(),
+                        kept = approvers.len(),
+                        "内控排除：制单人 / 发起人不生成审批待办（落 SKIPPED 留痕）"
+                    );
+                }
 
                 // 自审 SKIP 的留痕行（**不许静默丢弃**，坑 3）
                 for candidate in &finalized.skipped {
@@ -2563,16 +2588,69 @@ impl<'a> Run<'a> {
                     }
                 }
 
-                if finalized.approvers.is_empty() {
+                // 内控排除的 SKIPPED 留痕行（**不删人、不静默丢弃**：审计要能回答「谁没批、为什么」）
+                for (candidate, reason) in &control_excluded {
+                    let insert = model::insert_task(
+                        self.ex,
+                        &model::NewTask {
+                            id: Uuid::now_v7(),
+                            instance_id: self.instance.id,
+                            instance_node_id: row.id,
+                            node_key: spec.key.clone(),
+                            round,
+                            task_kind: "APPROVAL".to_string(),
+                            assignee_id: candidate.user_id,
+                            assignee_name: Some(candidate.name.clone()),
+                            assignee_source: candidate.source.as_str().to_string(),
+                            assignee_source_ref: candidate.source_ref,
+                            is_added_sign: false,
+                            // 与框架的「发起人自审」区分开：这里的原因是内控（制单人 / 发起人）
+                            is_self_approval: candidate.user_id == self.instance.initiator_id,
+                            is_auto: false,
+                            status: "SKIPPED".to_string(),
+                            comment: Some(reason.clone()),
+                            due_at: None,
+                            transferred_from: None,
+                            assignee_rule_id: finalized.rule_id.clone(),
+                        },
+                    )
+                    .await;
+                    if let Err(error) = insert
+                        && !model::is_pending_duplicate(&error)
+                    {
+                        return Err(error);
+                    }
+                }
+
+                if approvers.is_empty() {
+                    // ① 角色内 0 人 / 自审跳过 → 与改动前同一条路径；
+                    // ② **内控把审批人全部排除** → 走同一条「跳过」路径，但必须留下
+                    //    「配置有问题」的证据：这条流程是**没人签字**就通过的。
+                    if !control_excluded.is_empty() {
+                        tracing::warn!(
+                            instance_id = %self.instance.id,
+                            node_key = %spec.key,
+                            excluded = control_excluded.len(),
+                            "内控排除了本节点的全部审批人，节点将自动通过 —— 审批人配置有问题：该节点的审批岗位不能由制单人 / 发起人担任"
+                        );
+                    }
                     // 空审批人 SKIP：节点跳过 + `auto_passed_nodes + 1`（派生值，见 sync_auto_passed）
                     model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, true)
                         .await?;
                     model::sync_auto_passed(self.ex, self.instance.id).await?;
+                    let detail = if control_excluded.is_empty() {
+                        "没有有效审批人（自审跳过 / 角色内 0 人）".to_string()
+                    } else {
+                        format!(
+                            "没有有效审批人（{} 人因内控被排除：制单人 / 发起人不可自审，请把审批岗位换成其他人）",
+                            control_excluded.len()
+                        )
+                    };
                     self.effects.notice(
                         vec![self.instance.initiator_id],
                         format!("节点自动跳过：{}", spec.name),
                         format!(
-                            "审批单 {} 的节点「{}」没有有效审批人（自审跳过 / 角色内 0 人），已自动跳过。",
+                            "审批单 {} 的节点「{}」{detail}，已自动跳过 —— 请检查审批人配置。",
                             self.instance.instance_no, spec.name
                         ),
                         format!("/flow/instance/{}", self.instance.id),
@@ -2584,7 +2662,7 @@ impl<'a> Run<'a> {
 
                 // 落 PENDING 待办（三层去重第 2 层：23505 当幂等成功，不 500）
                 let mut created: Vec<Uuid> = Vec::new();
-                for candidate in &finalized.approvers {
+                for candidate in &approvers {
                     let insert = model::insert_task(
                         self.ex,
                         &model::NewTask {
