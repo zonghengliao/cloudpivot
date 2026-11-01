@@ -157,11 +157,35 @@ NIK_DATABASE_NAME=cloudpivot_p3bgap_inv python3 scripts/verify/erp_invariants.py
 
 ## 三、生产部署（172.18.10.144）
 
-（见 §四 原始输出）
+| 项 | 结果 |
+|---|---|
+| 代码 | `f06ea40`（`0828a76 → f06ea40` ff-only 合并，与 origin/main 一致） |
+| 迁移 | `数据库迁移完成: 应用 1 个迁移` + `NOTICE: V0192 自检通过：4 个新权限码 × 1 个老码角色 = 4 行`（`migration_max=192`） |
+| 二进制 | `328376db78a11429191b25c2e3eb137d`（`PROC_EQ_DISK=OK`，主进程 md5 == 磁盘 md5；旧包备份 `/root/cloudpivot-release-backup-20261102-034531`） |
+| 二进制含本卡改动 | `grep -ac "正在作废审批中"` = 2、`grep -ac "withdraw-reverse"` = 2（旧文案双向对照见 raw/06） |
+| 健康 | `/health` → 200 |
+| 授权矩阵（prod 实测） | 4 个新码仍只有 `SUPER_ADMIN` 持有（`old_code_holders=2`：老码在 prod 也只授了超管）——见 §1.3 的实测说明 |
+| 路由冒烟 | `payment-info` / `payable/page` / `voucher/page` / `voucher/{id}` 未登录全部 **401**（已注册，不是 404） |
+| 生产不变量 | **32/32 通过 · BLOCKER 0 · WARN 0** |
 
-## 四、原始输出
+回滚：`git revert f06ea40` + 执行 `V0192…down.sql`（只收回 4 个新码的非超管授权，不删菜单/角色），
+再用备份二进制 `/root/cloudpivot-release-backup-20261102-034531` 覆盖并重启。
 
-（见同目录 `raw/` 下的日志与 §五 命令清单）
+> **注意（给前端的收尾依赖）**：本卡只发布后端；前端配套改动（`d28489a` 的徽标 + 撤回按钮）
+> 仍**未发布 dist**。前端重新 `vite build` 并发布后，「红冲审批中」徽标在**列表里**就不再依赖
+> 审批引擎兜底，也不再受 `business:flow:instance:read` 影响。
+
+## 四、原始输出（`raw/`）
+
+| 文件 | 内容 |
+|---|---|
+| `01-fmt-clippy.txt` | `cargo fmt -- --check`（0）+ `cargo clippy --lib -- -D warnings`（0） |
+| `02-gap-e2e.txt` | `pflow3b_gap_e2e.py` 全量输出：**PASS 39 / FAIL 0** |
+| `03-v0192-migration.txt` | V0192 矩阵 20 行 / 幂等 / 自定义角色 / 自检有牙（删一行 → ERROR）/ down 往返 / 收尾 |
+| `04-erp-invariants-clean-db.txt` | 干净库 `erp_invariants.py`：**32/32 通过 · BLOCKER 0 · WARN 0** |
+| `05-full-lib-suite.txt` | 干净库 `cargo test --lib`：**1872 passed / 0 failed**（532.34s） |
+| `05b-full-lib-suite-first-run-failed.txt` | 首轮 `1871 passed / 1 failed`（夹具污染，见 §2.5） |
+| `06-prod-deploy-144.txt` | 144 部署全过程（ff-only / 重编 2m46s / md5 双验 / 迁移 NOTICE / 路由 401 / 32 条不变量） |
 
 ## 五、复跑命令
 

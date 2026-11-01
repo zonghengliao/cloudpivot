@@ -1,0 +1,50 @@
+=== 1) 同步代码（ff-only）===
+From /opt/git/cloudpivot
+   0828a76..f06ea40  main       -> origin/main
+ create mode 100644 frontend/src/views/business/erp/shared/approval-flow.ts
+ create mode 100644 frontend/tests/unit/pflow3b-cancel-reverse.test.ts
+ create mode 100644 scripts/verify/pflow3b_gap_e2e.py
+HEAD: 0828a76804accd760e68095bc5a9cc8ce24e7f07 -> f06ea40be210a4eab967dc2c64542be31a576ed5
+?? frontend/dist_backup_20261101210132/
+?? scripts/check_erp_health.py
+?? scripts/erp-health-daily.sh
+=== 2) release 重编 ===
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `release` profile [optimized] target(s) in 2m 46s
+新二进制 md5=328376db78a11429191b25c2e3eb137d mtime=2026-11-02 03:48:18.237635435 +0800
+=== 3) 二进制内含本卡改动 ===
+grep '正在作废审批中' → 2
+grep 'withdraw-reverse' → 2
+=== 4) 备份 + 替换 + 重启 ===
+已备份 /root/cloudpivot-release-backup-20261102-034531
+=== 5) 双验：进程 == 磁盘 / health ===
+MainPID=3722036 active=active
+proc md5=328376db78a11429191b25c2e3eb137d  disk md5=328376db78a11429191b25c2e3eb137d
+health=200
+=== 6) 迁移日志 ===
+Nov 02 03:48:18 ubuntu-svr cloudpivot[3722036]: {"timestamp":"2026-11-01T19:48:18.735177Z","level":"INFO","fields":{"message":"NOTICE: V0192 自检通过：4 个新权限码 × 1 个老码角色 = 4 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）","log.target":"tokio_postgres::connection","log.module_path":"tokio_postgres::connection","log.file":"/root/.cargo/registry/src/rsproxy.cn-e3de039b2554c837/tokio-postgres-0.7.18/src/connection.rs","log.line":351},"target":"tokio_postgres::connection"}
+Nov 02 03:48:18 ubuntu-svr cloudpivot[3722036]: {"timestamp":"2026-11-01T19:48:18.736735Z","level":"INFO","fields":{"message":"数据库迁移完成: 应用 1 个迁移"},"target":"nik_web::app"}
+=== 7) 结构自检（新码授权矩阵 + 迁移 192）===
+migration_max=192
+               auth_code               |    roles    
+---------------------------------------+-------------
+ business:erp:payable:submit-cancel    | SUPER_ADMIN
+ business:erp:payable:withdraw-cancel  | SUPER_ADMIN
+ business:erp:voucher:submit-reverse   | SUPER_ADMIN
+ business:erp:voucher:withdraw-reverse | SUPER_ADMIN
+(4 rows)
+
+old_code_holders=2
+=== 8) 路由冒烟（未登录应 401 而不是 404）===
+  401  /api/business/erp/payable/00000000-0000-4000-8000-000000000000/payment-info
+  401  /api/business/erp/payable/page
+  401  /api/business/erp/voucher/page
+  401  /api/business/erp/voucher/00000000-0000-4000-8000-000000000000
+=== 9) 生产不变量 32 条 ===
+
+============================================================================================
+结果：32/32 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+============================================================================================
+
+★ 全部不变量成立，账目干净。
+日志：/tmp/p3bgap-deploy-20261102-034531.log
