@@ -749,10 +749,8 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
                 );
                 return Ok(None);
             }
-            match crate::business::erp::payable_payment::cancel_after_approval(
-                payable_id, approver,
-            )
-            .await
+            match crate::business::erp::payable_payment::cancel_after_approval(payable_id, approver)
+                .await
             {
                 Ok(()) => Ok(Some(payable_id)),
                 Err(error) => {

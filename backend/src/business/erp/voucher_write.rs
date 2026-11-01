@@ -1063,7 +1063,10 @@ pub async fn restore_after_reverse_rejection(
     .map_err(|error| {
         write_error(
             error,
-            &format!("凭证 {id} 红冲审批未通过后清 pending（{}）", verdict.as_str()),
+            &format!(
+                "凭证 {id} 红冲审批未通过后清 pending（{}）",
+                verdict.as_str()
+            ),
         )
     })?;
     Ok(())

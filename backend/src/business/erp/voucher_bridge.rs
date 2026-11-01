@@ -435,8 +435,7 @@ pub async fn reconcile_orphan_reverses() -> DbResult<u64> {
         let voucher_no = voucher_no
             .or_else(|| row.get_typed("biz_no").ok().flatten())
             .unwrap_or_else(|| "(无单号)".to_string());
-        let deleted: Option<DateTime<Utc>> =
-            row.get_typed("voucher_deleted_at").ok().flatten();
+        let deleted: Option<DateTime<Utc>> = row.get_typed("voucher_deleted_at").ok().flatten();
         let reason = if deleted.is_some() {
             "凭证已删除，红冲审批自动终止"
         } else {
@@ -504,10 +503,7 @@ mod tests {
     #[test]
     fn verdict_maps_only_final_states() {
         assert_eq!(reverse_verdict("APPROVED"), Some(ReverseVerdict::Reverse));
-        assert_eq!(
-            reverse_verdict(" approved "),
-            Some(ReverseVerdict::Reverse)
-        );
+        assert_eq!(reverse_verdict(" approved "), Some(ReverseVerdict::Reverse));
         for status in ["REJECTED", "WITHDRAWN", "CANCELLED"] {
             assert_eq!(
                 reverse_verdict(status),
