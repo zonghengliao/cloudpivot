@@ -648,6 +648,23 @@ export function buildTransferPayload(form: TransferFormState): CreateTransferReq
 }
 
 /**
+ * D9：复制为新单后的提示语（空串 = 不需要提示）。
+ *
+ * 后端复制时**不复制序列号**（号码属于实物，原单那批已经跟着原单走），
+ * 原单带过号码的话，新单的序列号是空的 —— 不解释一句，用户会以为「复制丢了号码」。
+ */
+export function transferCopyNotice(origin: {
+  transfer_no: string;
+  items?: ReadonlyArray<{ serials?: ReadonlyArray<unknown> }>;
+}): string {
+  const hasSerials = (origin.items ?? []).some((item) => (item.serials ?? []).length > 0);
+  if (!hasSerials) {
+    return '';
+  }
+  return `本单复制自 ${origin.transfer_no}：序列号属于实物、不会复制，请按本次实际货品重新选择序列号后再提交。`;
+}
+
+/**
  * 详情 → 编辑表单（仅 `DRAFT` 可编辑；非草稿页面不给入口，这里不做状态判断）。
  *
  * `key` 用明细 id（稳定、可复现），物料的一物一码标记由 `materialMap` 补

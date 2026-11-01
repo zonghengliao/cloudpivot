@@ -5,6 +5,7 @@
 //! | 方法 | 路径 | 权限码 | 说明 |
 //! |------|------|--------|------|
 //! | POST | `/business/erp/stock-in` | `business:erp:stock-in:create` | 建单（`DRAFT` + `IN-yyyyMMdd-000001`，金额服务端算） |
+//! | POST | `/business/erp/stock-in/{id}/copy` | `business:erp:stock-in:create` | **复制为新草稿**（D9：原单只读，新号 / `DRAFT` / 采购关联清空） |
 //! | PUT | `/business/erp/stock-in/{id}` | `business:erp:stock-in:update` | 改单（**仅 `DRAFT`**） |
 //! | PATCH | `/business/erp/stock-in/{id}/status` | `business:erp:stock-in:status` | `DRAFT→POSTED`（过账，**核心**）/ `→CANCELLED` |
 //! | DELETE | `/business/erp/stock-in/{id}` | `business:erp:stock-in:delete` | 软删（**仅 `DRAFT`**） |
@@ -630,6 +631,157 @@ pub async fn stock_in_create(
 ) -> ResResult<StockInDetailRes> {
     let id = create_stock_in(&req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ①b 复制为新单（D9） ====================
+
+/// 复制接口的权限码 = **建单权限码**（卡面硬红线 5：复制 = 建单，不另种码）。
+///
+/// 单独提成常量是为了让单测能逐字断言「复制守的就是 create 那一个码」，
+/// 也防止将来有人给它顺手换成一个新码（那会让「能建单不能复制」这种裂缝出现）。
+pub const COPY_PERMISSION: &str = "business:erp:stock-in:create";
+
+/// 「复制为新单」的核心逻辑（endpoint 与单测共用，只跳过认证）。
+///
+/// # 语义（卡面 §二）
+///
+/// ```text
+/// 保留：供应商 / 仓库 / 库位 / 明细（物料·数量·单价·税率）/ 发票标记 / 备注
+/// 清空：单号（重新走 biz_seq 取号）、id、created_* / updated_* / *_by、
+///       状态 → DRAFT、审批实例、凭证、应付、过账时间/人、作废时间/人/原因、
+///       来源采购单（见下）与明细行的 source_item_id、明细行的序列号
+/// 改：  入库日期 = 今天（CST）
+/// ```
+///
+/// # ★ 决策：来源采购单**清空**（卡面 §二 的关键决策点，选 B）
+///
+/// 保留 `source_order_id` 看起来更「省事」，但原单**已经占用了那张采购单的待收额度**
+/// （过账时回写了 `received_qty`），复制单再挂同一个采购单，会二次占用同一批待收数量：
+/// 轻则过账时超收被拒（400），重则两张单各收一次、`received_qty` 加两遍，
+/// 待收数量算错且难查。所以新单一律 `source_order_id = NULL`，
+/// 由用户在明细里重新关联（前端复制成功后会提示「请重新关联采购单」）。
+///
+/// # ★ 决策：入库日期取「今天」
+///
+/// 复制是**一次新的入库动作**，不是「补录原单那天」。沿用旧日期有两个坑：
+/// ① 老单日期落在已结账期间 → 过账被期间闸拒（用户看到的是「复制出来的单不能过账」）；
+/// ② 复制单与原单同日期同供应商同金额，月末对账时极易被当成重复入库。
+///
+/// # ★ 决策：明细行 `serial_ids` 不复制
+///
+/// 序列号是**实物一物一码**，原单那批号码已经跟着原单过账落库（`IN_STOCK`）。
+/// 复制单再带同一批号码，要么过账时报「号码已被占用」，要么把同一件货记成两件。
+/// 复制单的序列号按原路径处理：过大账时由系统取号或现场扫码提交。
+///
+/// # 异常情况
+///
+/// - 403：无 `business:erp:stock-in:create`；
+/// - 404：原单不存在 / 已软删；
+/// - 400：原单没有明细（`items 不能为空`）/ 原单缺供应商（库约束要求 `PURCHASE` 必填）；
+/// - 409：取号器与库里的号段不一致（`write_error` 统一口径）；
+/// - 500：数据库异常。
+pub async fn copy_stock_in(id: Uuid, claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
+    // 行级权限闸：路由注解已拦一次，这里再判一次（单测能直接调业务函数证明 403）
+    crate::business::erp::period::ensure_permission(claims, COPY_PERMISSION, "复制收货入库单")?;
+    let op = state_machine::Operator::from(claims);
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启复制事务"))?;
+
+    // ① 读原单 + 明细（FOR SHARE，只读；原单一个字节都不改）
+    let origin = match stockin_model::copy_source(&tx, id).await {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found("收货入库单"));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读取待复制的收货入库单"));
+        }
+    };
+    let (origin, items) = origin;
+    if items.is_empty() {
+        let _ = tx.rollback().await;
+        return Err(bad_request(format!(
+            "收货入库单 {} 没有任何明细，复制出来会是一张空单：请先给原单补明细，\
+             或直接新建一张并填写物料",
+            origin.in_no
+        )));
+    }
+    let Some(supplier_id) = origin.supplier_id else {
+        let _ = tx.rollback().await;
+        return Err(bad_request(format!(
+            "收货入库单 {} 没有供应商（supplier_id 为空），复制出来的采购入库单不合法：\
+             请先给原单补供应商",
+            origin.in_no
+        )));
+    };
+
+    // ② 构造新单：新号 / DRAFT / 关联全清（见文档注释的三条决策）
+    let lines: Vec<NewStockInLine> = items
+        .iter()
+        .map(|item| NewStockInLine {
+            material_id: item.material_id,
+            unit_id: item.unit_id,
+            // 来源采购明细行 = 采购关联的一部分，一起清（否则待收校验会拿旧行去比）
+            source_item_id: None,
+            qty: item.qty,
+            price: item.price,
+            price_incl: item.price_incl,
+            tax_rate: item.tax_rate,
+            amount: item.amount,
+            tax_amount: item.tax_amount,
+            with_tax_amount: item.with_tax_amount,
+            location_id: item.location_id,
+            // 实物序列号不复制（原单那批号码已经过账占用）
+            serial_ids: Vec::new(),
+            remark: item.remark.clone(),
+        })
+        .collect();
+    let totals = Totals::of(&lines);
+    let new = NewStockIn {
+        supplier_id,
+        warehouse_id: origin.warehouse_id,
+        source_order_id: None,
+        in_date: crate::business::erp::stockin_dto::today_cst(),
+        invoice_received: origin.invoice_received,
+        remark: origin.remark.as_deref(),
+    };
+
+    // ③ 插入新单 + 明细（`create` 内部取号 + 写建单日志，与正常建单同一条路径）
+    match stockin_model::create(&tx, &new, &lines, &totals, op, now).await {
+        Ok(new_id) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交复制事务"))?;
+            Ok(new_id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(write_error(error, "复制收货入库单"))
+        }
+    }
+}
+
+/// 复制为新单（`POST /business/erp/stock-in/{id}/copy`，权限 = 建单权限）。
+///
+/// 响应与建单完全一致（新单的详情），前端拿到就能直接打开编辑弹窗。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}/copy",
+    method = "POST",
+    permission = "business:erp:stock-in:create"
+)]
+#[nik::post("/business/erp/stock-in/{id}/copy")]
+pub async fn stock_in_copy(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<StockInDetailRes> {
+    let origin_id = parse_uuid(&id, "收货入库单 id")?;
+    let new_id = copy_stock_in(origin_id, &claims).await?;
+    Ok(Res::ok(detail_of(new_id).await?))
 }
 
 // ==================== ② 改单 ====================
@@ -6563,5 +6715,402 @@ mod tests {
               AND role_id = '{ROLE_WH_MGR}'::uuid"
         ))
         .await;
+    }
+
+    // ==================== D9：复制为新单（收货单） ====================
+    //
+    // 每个用例都断言「原单一个字节都不改」的至少一个切面；`mutation` 这条用例做整行对照。
+
+    /// 复制用的假令牌：`permissions` 决定 `has_permission`（与框架判定同口径）。
+    fn copy_claims(perms: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: "018f4b2c-d9d9-7d9d-8d9d-000000000001".to_string(),
+            username: Some("d9-copier".to_string()),
+            roles: Vec::new(),
+            permissions: perms.iter().map(|p| (*p).to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 只给「建单」一个码的令牌：证明「复制权限 = create 权限」在业务分支里也成立。
+    fn create_only() -> TokenClaims {
+        copy_claims(&[COPY_PERMISSION])
+    }
+
+    /// 原单整行快照（用于「复制不改原单」的整行对照）。
+    ///
+    /// 用 `to_jsonb(t)` 把整行拍成文本：比逐列断言更狠 —— 以后加了新列也自动纳入对照。
+    /// 取出来的是**同一行前后两次**的文本，键序恒定，所以可以逐字比。
+    async fn header_snapshot(id: Uuid) -> String {
+        db().scalar_with_params(
+            "SELECT (to_jsonb(t))::text FROM biz_stock_in t WHERE t.id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("查原单快照失败")
+    }
+
+    /// ① 复制一张已过账收货单：新单号 + `DRAFT` + 明细/金额/入库日期口径一致。
+    #[tokio::test]
+    async fn d9_stockin_copy_creates_draft_with_new_no_and_same_items() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let origin_id = post_new(vec![
+            line(MATERIAL_A, "10", "2", "13"),
+            line(MATERIAL_B, "5", "1.5", "0"),
+        ])
+        .await;
+        let origin = detail_of(origin_id).await.unwrap();
+        assert_eq!(origin.header.status, STATUS_POSTED);
+
+        let new_id = copy_stock_in(origin_id, &create_only())
+            .await
+            .expect("复制应成功");
+        let copied = detail_of(new_id).await.unwrap();
+
+        assert_ne!(copied.header.id, origin.header.id);
+        assert_ne!(copied.header.in_no, origin.header.in_no, "单号必须是新的");
+        assert!(
+            copied.header.in_no.starts_with("IN-"),
+            "{}",
+            copied.header.in_no
+        );
+        assert_eq!(copied.header.status, STATUS_DRAFT, "复制出来的必须是草稿");
+        assert_eq!(copied.header.status_label, "草稿");
+        assert_eq!(copied.header.supplier_id, origin.header.supplier_id);
+        assert_eq!(copied.header.warehouse_id, origin.header.warehouse_id);
+        assert_eq!(copied.header.total_qty, origin.header.total_qty);
+        assert_eq!(copied.header.total_amount, origin.header.total_amount);
+        assert_eq!(copied.header.total_tax, origin.header.total_tax);
+        assert_eq!(copied.header.total_with_tax, origin.header.total_with_tax);
+        assert_eq!(
+            copied.header.invoice_received,
+            origin.header.invoice_received
+        );
+        assert_eq!(copied.items.len(), origin.items.len());
+        for (new_line, old_line) in copied.items.iter().zip(origin.items.iter()) {
+            assert_eq!(new_line.material_id, old_line.material_id);
+            assert_eq!(new_line.qty, old_line.qty);
+            assert_eq!(new_line.price, old_line.price);
+            assert_eq!(new_line.tax_rate, old_line.tax_rate);
+            assert_eq!(new_line.amount, old_line.amount);
+            assert_eq!(new_line.location_id, old_line.location_id);
+        }
+        // 入库日期口径：复制是新的入库动作 → 今天（不沿用原单日期）
+        assert_eq!(
+            copied.header.in_date,
+            crate::business::erp::stockin_dto::today_cst()
+        );
+        // 原单没被动：仍是已过账
+        let origin_after = detail_of(origin_id).await.unwrap();
+        assert_eq!(origin_after.header.status, STATUS_POSTED);
+        assert_eq!(origin_after.header.in_no, origin.header.in_no);
+    }
+
+    /// ② 复制带来源采购单的收货单 → 新单 `purchase_order_id`（`source_order_id`）清空。
+    #[tokio::test]
+    async fn d9_stockin_copy_clears_purchase_order_id() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("30", "0").await;
+        let mut only = line(MATERIAL_A, "10", "2", "0");
+        only.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![only]);
+        request.source_order_id = Some(order_id.to_string());
+        let origin_id = create_stock_in(&request, None).await.unwrap();
+        let origin = detail_of(origin_id).await.unwrap();
+        assert_eq!(
+            origin.header.source_order_id.as_deref(),
+            Some(order_id.to_string().as_str()),
+            "前提：原单确实引用了采购单"
+        );
+
+        let new_id = copy_stock_in(origin_id, &create_only()).await.unwrap();
+        let copied = detail_of(new_id).await.unwrap();
+        assert!(
+            copied.header.source_order_id.is_none(),
+            "卡面决策 B：新单必须清空采购关联（否则待收额度被二次占用），实际 {:?}",
+            copied.header.source_order_id
+        );
+        assert!(copied.header.source_order_no.is_none());
+        assert!(
+            copied
+                .items
+                .iter()
+                .all(|line| line.source_item_id.is_none()),
+            "明细行的 source_item_id 也必须清空"
+        );
+        // 原单的关联原样保留（复制不改原单）
+        let origin_after = detail_of(origin_id).await.unwrap();
+        assert_eq!(
+            origin_after.header.source_order_id,
+            origin.header.source_order_id
+        );
+        assert_eq!(
+            origin_after.items[0].source_item_id,
+            origin.items[0].source_item_id
+        );
+    }
+
+    /// ③ 已过账原单（有凭证 + 应付）复制后：凭证 / 应付 / 审批实例 / 过账时间全部为空。
+    #[tokio::test]
+    async fn d9_stockin_copy_clears_voucher_payable_and_approval_links() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let origin_id = post_new(vec![line(MATERIAL_A, "10", "2", "13")]).await;
+        let origin = detail_of(origin_id).await.unwrap();
+        assert!(
+            origin.header.voucher_id.is_some(),
+            "前提：过账要生成进项凭证"
+        );
+        assert!(origin.header.payable_id.is_some(), "前提：过账要生成应付单");
+
+        let new_id = copy_stock_in(origin_id, &create_only()).await.unwrap();
+        let copied = detail_of(new_id).await.unwrap();
+        assert!(copied.header.voucher_id.is_none(), "凭证关联必须清空");
+        assert!(copied.header.payable_id.is_none(), "应付关联必须清空");
+        assert!(
+            copied.header.approval_instance_id.is_none(),
+            "审批实例必须清空"
+        );
+        assert!(copied.header.posted_at.is_none(), "过账时间必须清空");
+        assert!(copied.header.posted_by.is_none());
+        assert!(copied.header.cancelled_at.is_none());
+        assert!(copied.header.cancel_reason.is_none());
+        assert!(copied.header.created_at >= origin.header.created_at);
+        // 库里再核一遍（详情 DTO 万一漏字段，这条兜住）：用 `IS NULL` 判据，
+        // 免得依赖驱动的时间类型映射
+        let rows = db()
+            .find_with_params(
+                "SELECT status, (voucher_id IS NULL) AS v_null, (payable_id IS NULL) AS p_null, \
+                        (approval_instance_id IS NULL) AS a_null, (posted_at IS NULL) AS posted_null, \
+                        (posted_by IS NULL) AS poster_null, (cancelled_at IS NULL) AS cancel_null \
+                   FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&new_id)],
+            )
+            .await
+            .unwrap();
+        let row = rows.first().expect("新单必须存在");
+        assert_eq!(row.get_typed::<String>("status").unwrap(), STATUS_DRAFT);
+        assert!(
+            row.get_typed::<bool>("v_null").unwrap(),
+            "voucher_id 必须 NULL"
+        );
+        assert!(
+            row.get_typed::<bool>("p_null").unwrap(),
+            "payable_id 必须 NULL"
+        );
+        assert!(
+            row.get_typed::<bool>("a_null").unwrap(),
+            "approval_instance_id 必须 NULL"
+        );
+        assert!(
+            row.get_typed::<bool>("posted_null").unwrap(),
+            "posted_at 必须 NULL"
+        );
+        assert!(row.get_typed::<bool>("poster_null").unwrap());
+        assert!(row.get_typed::<bool>("cancel_null").unwrap());
+    }
+
+    /// ⑥ 原单引用的采购单已被物理删除 → 复制照常成功（采购关联本来就清空）。
+    #[tokio::test]
+    async fn d9_stockin_copy_works_when_source_purchase_order_is_gone() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("10", "0").await;
+        let mut only = line(MATERIAL_A, "10", "2", "0");
+        only.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![only]);
+        request.source_order_id = Some(order_id.to_string());
+        let origin_id = create_stock_in(&request, None).await.unwrap();
+
+        // 采购单物理删除（`source_order_id` 是弱引用，没有外键挡）
+        sql(&format!(
+            "DELETE FROM biz_purchase_order_item WHERE order_id = '{order_id}'::uuid"
+        ))
+        .await;
+        sql(&format!(
+            "DELETE FROM biz_purchase_order WHERE id = '{order_id}'::uuid"
+        ))
+        .await;
+
+        let new_id = copy_stock_in(origin_id, &create_only())
+            .await
+            .expect("采购单没了也要能复制（复制根本不读它）");
+        let copied = detail_of(new_id).await.unwrap();
+        assert!(copied.header.source_order_id.is_none());
+        assert!(copied.header.source_order_no.is_none());
+        assert_eq!(copied.items.len(), 1);
+        assert_eq!(copied.items[0].qty, dec("10"));
+    }
+
+    /// ⑦ 原单没有明细 → 400，且文案点明「没有明细」。
+    #[tokio::test]
+    async fn d9_stockin_copy_without_items_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let origin_id = create_stock_in(&req(vec![line(MATERIAL_A, "3", "2", "0")]), None)
+            .await
+            .unwrap();
+        // 造「空壳单」：把明细删掉（库层没有「至少一行」的约束）
+        sql(&format!(
+            "DELETE FROM biz_stock_in_item WHERE stock_in_id = '{origin_id}'::uuid"
+        ))
+        .await;
+
+        let err = copy_stock_in(origin_id, &create_only())
+            .await
+            .expect_err("没有明细必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::PARAM_INVALID);
+        assert!(err.msg.contains("没有任何明细"), "文案要点名：{}", err.msg);
+        // 一张新单都不许建出来
+        let count: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_stock_in WHERE supplier_id = ?::uuid",
+                vec![Value::from(&Uuid::parse_str(SUPPLIER).unwrap())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(count, 1, "失败时不能留下半张单");
+    }
+
+    /// ⑧ 连点三下 → 三张不同单号的草稿（取号器每次都取新号）。
+    #[tokio::test]
+    async fn d9_stockin_copy_three_times_yields_three_distinct_nos() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let origin_id = post_new(vec![line(MATERIAL_A, "2", "2", "0")]).await;
+        let mut nos = Vec::new();
+        for _ in 0..3 {
+            let new_id = copy_stock_in(origin_id, &create_only()).await.unwrap();
+            let detail = detail_of(new_id).await.unwrap();
+            assert_eq!(detail.header.status, STATUS_DRAFT);
+            nos.push(detail.header.in_no);
+        }
+        nos.sort();
+        nos.dedup();
+        assert_eq!(nos.len(), 3, "三次复制必须三个不同单号：{nos:?}");
+    }
+
+    /// ⑨ 复制不改原单：整行快照 + 明细行 id / 数量前后完全一致。
+    #[tokio::test]
+    async fn d9_stockin_copy_does_not_touch_origin() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let origin_id = post_new(vec![line(MATERIAL_A, "4", "2.5", "13")]).await;
+        let before_header = header_snapshot(origin_id).await;
+        let before_items: Vec<(Uuid, i32, Decimal)> = db()
+            .find_with_params(
+                "SELECT id, line_no, qty FROM biz_stock_in_item WHERE stock_in_id = ?::uuid \
+                  ORDER BY line_no",
+                vec![Value::from(&origin_id)],
+            )
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.get_typed::<Uuid>("id").unwrap(),
+                    row.get_typed::<i32>("line_no").unwrap(),
+                    row.get_typed::<Decimal>("qty").unwrap(),
+                )
+            })
+            .collect();
+        let before_updated: String = db()
+            .scalar_with_params(
+                "SELECT updated_at::text FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&origin_id)],
+            )
+            .await
+            .unwrap();
+
+        copy_stock_in(origin_id, &create_only()).await.unwrap();
+        copy_stock_in(origin_id, &create_only()).await.unwrap();
+
+        assert_eq!(
+            header_snapshot(origin_id).await,
+            before_header,
+            "原单整行必须一个字节都不变（含 updated_at）"
+        );
+        let after_updated: String = db()
+            .scalar_with_params(
+                "SELECT updated_at::text FROM biz_stock_in WHERE id = ?::uuid",
+                vec![Value::from(&origin_id)],
+            )
+            .await
+            .unwrap();
+        assert_eq!(after_updated, before_updated, "原单 updated_at 不许变");
+        let after_items: Vec<(Uuid, i32, Decimal)> = db()
+            .find_with_params(
+                "SELECT id, line_no, qty FROM biz_stock_in_item WHERE stock_in_id = ?::uuid \
+                  ORDER BY line_no",
+                vec![Value::from(&origin_id)],
+            )
+            .await
+            .unwrap()
+            .iter()
+            .map(|row| {
+                (
+                    row.get_typed::<Uuid>("id").unwrap(),
+                    row.get_typed::<i32>("line_no").unwrap(),
+                    row.get_typed::<Decimal>("qty").unwrap(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            after_items, before_items,
+            "原单明细行必须原样（id 都不许变）"
+        );
+    }
+
+    /// ⑩ 权限：只有 `:list` 码 → 403 且文案点名 create；复制守的码与建单逐字相同。
+    #[tokio::test]
+    async fn d9_stockin_copy_requires_create_permission() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        assert_eq!(
+            COPY_PERMISSION, "business:erp:stock-in:create",
+            "硬红线 5：复制权限必须 = 建单权限码"
+        );
+        let origin_id = create_stock_in(&req(vec![line(MATERIAL_A, "1", "2", "0")]), None)
+            .await
+            .unwrap();
+
+        let no_create = copy_claims(&["business:erp:stock-in:list"]);
+        let err = copy_stock_in(origin_id, &no_create)
+            .await
+            .expect_err("没有建单权限必须 403");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert!(
+            err.msg.contains("business:erp:stock-in:create"),
+            "403 文案要点名权限码：{}",
+            err.msg
+        );
+        // 放宽成「有 create」→ 放行（证明差异只在那一个码）
+        let with_create = copy_claims(&["business:erp:stock-in:list", COPY_PERMISSION]);
+        copy_stock_in(origin_id, &with_create)
+            .await
+            .expect("有 create 码就应放行");
     }
 }

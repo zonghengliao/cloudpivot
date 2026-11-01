@@ -508,6 +508,17 @@ export function updateTask(id: string, data: TaskUpdateReq): Promise<TaskSaveRes
   return put<TaskSaveResult>(`/api/business/task/${id}`, data);
 }
 
+/**
+ * 复制为新任务（D9：`POST /business/task/{id}/copy`，权限 = 建单权限 `business:task:create`）。
+ *
+ * 后端语义：标题加「（副本）」、带出描述 / 负责人 / 优先级 / 需验收 / 预估工时 / 项目；
+ * **不复制子任务、评论、协作人、附件**；父任务清空、状态 `TODO`、进度 0、
+ * 截止日按新建口径取「本周五」（照抄旧截止日会得到一张建出来就逾期的任务）。
+ */
+export function copyTask(id: string): Promise<TaskSaveResult> {
+  return post<TaskSaveResult>(`/api/business/task/${id}/copy`, {});
+}
+
 /** 删除任务（`DELETE /business/task/{id}`，软删，权限 `business:task:delete`） */
 export function deleteTask(id: string): Promise<TaskDeleteResult> {
   return del<TaskDeleteResult>(`/api/business/task/${id}`);

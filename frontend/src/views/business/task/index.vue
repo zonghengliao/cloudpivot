@@ -291,6 +291,7 @@
       @edit="handleEditFromDetail"
       @deleted="handleDeleted"
       @changed="handleSaved"
+      @copied="handleCopied"
     />
   </div>
 </template>
@@ -989,6 +990,16 @@ function handleEditFromDetail(id: string): void {
 function openDetail(row: TaskCard): void {
   viewingId.value = row.id;
   detailVisible.value = true;
+}
+
+/**
+ * D9：复制成功 → 抽屉切到新任务（`viewingId` 一变，TaskDetail 的 watch 就会重新拉详情），
+ * 同时刷新当前视图，让副本立刻出现在列表 / 看板里。
+ */
+function handleCopied(id: string): void {
+  viewingId.value = id;
+  detailVisible.value = true;
+  handleSaved();
 }
 
 /** 保存成功：刷新当前视图（看板 / 列表各自的数据源） */

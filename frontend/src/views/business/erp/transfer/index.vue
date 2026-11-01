@@ -247,6 +247,18 @@
       <template #footer>
         <!-- TDesign 的 drawer 默认只靠遮罩关闭，实测 Esc 不回焦不生效 → 给一个明确的关闭按钮 -->
         <div class="drawer-footer">
+          <!-- D9：复制为新单（原单只读，后端建新草稿；权限 = 建单权限） -->
+          <t-button
+            v-privilege="[PERM.create]"
+            theme="primary"
+            variant="outline"
+            :loading="copying"
+            :disabled="copying || !detail"
+            data-testid="btn-transfer-copy"
+            @click="copyCurrent"
+          >
+            复制为新单
+          </t-button>
           <t-button variant="outline" data-testid="btn-drawer-close" @click="detailVisible = false">关闭</t-button>
         </div>
       </template>
@@ -350,6 +362,11 @@
       data-testid="transfer-form-dialog"
     >
       <t-alert v-if="submitError" theme="error" :message="submitError" class="dlg-alert" />
+
+      <!-- D9：复制提示（序列号不复制 —— 实物号码跟着原单走） -->
+      <t-alert v-if="copyNotice" theme="warning" class="dlg-alert" data-testid="transfer-copy-notice">
+        {{ copyNotice }}
+      </t-alert>
 
       <t-form :data="form" label-width="84px">
         <div class="form-row">
@@ -639,6 +656,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import {
   createTransfer,
   deleteTransfer,
+  copyTransfer,
   fetchMaterialPage,
   fetchSerialPage,
   fetchTransferDetail,
@@ -688,6 +706,7 @@ import {
   shortId,
   serialSummary,
   transferActionHint,
+  transferCopyNotice,
   transferStatusLabel,
   transferStatusTheme,
   transferStatusVariant,
@@ -1260,6 +1279,10 @@ const submitError = ref('');
 const formSaving = ref(false);
 /** 提交模式（决定哪个按钮转圈） */
 const savingMode = ref<'draft' | 'submit'>('draft');
+/** D9：复制进行中（按钮 loading + disabled，连点只建一张） */
+const copying = ref(false);
+/** D9：复制提示（序列号不复制；下次打开表单要清掉） */
+const copyNotice = ref('');
 
 /** 行级错误（模板里直接取） */
 const rowErrors = computed(() => formErrors.value.rows ?? {});
@@ -1285,8 +1308,48 @@ function openCreateDialog(): void {
   Object.assign(form, emptyTransferForm(), { id: '' });
   formErrors.value = {};
   submitError.value = '';
+  copyNotice.value = '';
   applyCreateDefaults();
   formVisible.value = true;
+}
+
+/**
+ * D9：复制为新单（详情抽屉底部的「复制为新单」）。
+ *
+ * 语义全在后端（`POST /erp/transfer/{id}/copy`）：新草稿 + 新单号 + 两仓 / 原因 / 备注 /
+ * 明细全带出，状态与审批关联清空，**序列号不复制**（实物号码跟着原单走）。
+ * 前端拿到**新单详情**后填表（`form.id` = 新单 id，所以保存走「改这张草稿」，
+ * 连点不会多建单），并把「序列号要重新选」这件事说清楚。
+ */
+async function copyCurrent(): Promise<void> {
+  const origin = detail.value;
+  if (!origin || copying.value) {
+    return;
+  }
+  copying.value = true;
+  try {
+    const created = await copyTransfer(origin.id);
+    const serialRequired: Record<string, boolean> = {};
+    for (const item of created.items ?? []) {
+      const hit = materials.value.find((material) => material.id === item.material_id);
+      serialRequired[item.material_id] = hit?.serial_required ?? false;
+    }
+    detailVisible.value = false;
+    Object.assign(form, detailToForm(created, serialRequired), { id: created.id });
+    if (form.items.length === 0) {
+      form.items = [addTransferItem('row-1')];
+    }
+    formErrors.value = {};
+    submitError.value = '';
+    copyNotice.value = transferCopyNotice(origin);
+    formVisible.value = true;
+    MessagePlugin.success(`已复制为 ${created.transfer_no}（草稿），请核对后提交`);
+    await loadTransfers(1);
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    copying.value = false;
+  }
 }
 
 /** 表单记忆 · 「重置」：清记忆 + 调出/调入仓退回系统默认 */
@@ -1310,6 +1373,7 @@ async function openEditDialog(row: TransferRow): Promise<void> {
   }
   formErrors.value = {};
   submitError.value = '';
+  copyNotice.value = '';
   formSaving.value = true;
   try {
     const data = await fetchTransferDetail(row.id);

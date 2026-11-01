@@ -734,6 +734,50 @@ pub async fn items_of(id: Uuid) -> DbResult<Vec<StockInItemRow>> {
     rows.iter().map(StockInItemRow::from_row).collect()
 }
 
+/// 复制源（D9）：原单头 + 明细，**只读**（`FOR SHARE`：本事务不会改这两张表的行）。
+///
+/// 与 [`find_stock_in`] / [`items_of`] 的区别是「走调用方的事务 + 显式共享锁」：
+/// 复制要在同一事务里「读原单 → 建新单」，读的时候就用 `FOR SHARE` 告诉 PG
+/// 「我只看」，既不会挡住别人过账，也不会有人在我读一半时把明细删掉（改单是删旧插新）。
+///
+/// # 返回值
+///
+/// - `Ok(Some((单头, 明细)))`：明细按 `line_no` 升序；
+/// - `Ok(None)`：单头不存在或已软删；
+/// - `Err(DbError)`：数据库异常。
+pub async fn copy_source(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Option<(StockInRow, Vec<StockInItemRow>)>> {
+    let header = ex
+        .query_first_sql(
+            format!(
+                "SELECT {HEADER_COLUMNS} FROM {TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL FOR SHARE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let Some(row) = header.as_ref() else {
+        return Ok(None);
+    };
+    let header = StockInRow::from_row(row)?;
+    let items = ex
+        .query_sql(
+            format!(
+                "SELECT {ITEM_COLUMNS} FROM {ITEM_TABLE} \
+                  WHERE stock_in_id = ?::uuid ORDER BY line_no ASC FOR SHARE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let items = items
+        .iter()
+        .map(StockInItemRow::from_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    Ok(Some((header, items)))
+}
+
 /// 分页（关键词 / 状态 / 供应商 / 仓库 / 入库日期区间）。
 pub async fn stock_in_page(q: &StockInFilter) -> DbResult<(Vec<StockInRow>, i64)> {
     let mut sql = format!("SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE deleted_at IS NULL");

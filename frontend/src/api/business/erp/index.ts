@@ -1022,6 +1022,16 @@ export function updateTransfer(id: string, payload: UpdateTransferReq): Promise<
 }
 
 /**
+ * 复制为新单（D9：`POST /erp/transfer/{id}/copy`，权限 = 建单权限）。
+ *
+ * 后端语义：新单号 + `DRAFT`，带出两仓 / 原因 / 备注 / 明细（物料·数量·库位），
+ * 状态时间戳与审批关联全清，**序列号不复制**（实物号码跟着原单走，复制单要重新选）。
+ */
+export function copyTransfer(id: string): Promise<TransferDetail> {
+  return post<TransferDetail>(`${BASE}/transfer/${id}/copy`, {});
+}
+
+/**
  * 状态流转（`PATCH /erp/transfer/{id}/status`）。
  *
  * 目标状态 = `PENDING`（提交审批）→ `APPROVED`（审批引擎写，前端**不调**）→
@@ -1747,6 +1757,17 @@ export function createStockIn(payload: CreateStockInReq): Promise<StockInDetail>
 /** 改单（`PUT /erp/stock-in/{id}`，**仅 DRAFT**，整单覆盖明细） */
 export function updateStockIn(id: string, payload: UpdateStockInReq): Promise<StockInDetail> {
   return put<StockInDetail>(`${BASE}/stock-in/${id}`, payload);
+}
+
+/**
+ * 复制为新单（D9：`POST /erp/stock-in/{id}/copy`，权限 = 建单权限）。
+ *
+ * 后端语义（别在前端重复实现）：新单号 + `DRAFT`，带出供应商 / 仓库 / 库位 / 明细 / 备注，
+ * **采购单关联清空**（防待收额度被二次占用）、入库日期取今天、凭证/应付/审批关联全空。
+ * 返回的是**新单的完整详情**，可直接喂给 `detailToForm` 打开编辑弹窗。
+ */
+export function copyStockIn(id: string): Promise<StockInDetail> {
+  return post<StockInDetail>(`${BASE}/stock-in/${id}/copy`, {});
 }
 
 /** 过账 / 作废（`PATCH /erp/stock-in/{id}/status`） */

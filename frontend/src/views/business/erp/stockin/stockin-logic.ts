@@ -476,6 +476,24 @@ export function emptyStockInForm(): StockInFormState {
 }
 
 /**
+ * D9：复制为新单后的提示语（空串 = 不需要提示）。
+ *
+ * 后端复制时**清空来源采购单**（卡面决策 B：同一批待收数量不能被两张单各占一次），
+ * 原单原本带过采购单的话，用户在新单里会看到「来源采购单」是空的 —— 不解释一句
+ * 就会被当成「复制丢数据」。所以提示语由这个纯函数统一出，页面只负责显示。
+ */
+export function stockinCopyNotice(origin: {
+  in_no: string;
+  source_order_id?: string | null;
+  source_order_no?: string | null;
+}): string {
+  if (!origin.source_order_id && !origin.source_order_no) {
+    return '';
+  }
+  return `本单复制自 ${origin.in_no}：来源采购单已清空（同一批待收数量不能被两张单各占一次），请重新关联采购单后再提交。`;
+}
+
+/**
  * 详情 → 表单（编辑回填）。
  *
  * 明细接口给的是 `price`（不含税单价）与 `price_incl`，这里用 `price` —— 收货口径只有一个。

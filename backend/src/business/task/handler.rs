@@ -9,6 +9,7 @@
 //! |------|------|--------|------|
 //! | GET | `/business/task/page` | `business:task:read` | 任务分页（**可见性过滤** + 6 个筛选维度） |
 //! | POST | `/business/task` | `business:task:create` | 创建（默认值：负责人=自己 / TODO / P2 / 本周五 / 需验收=关） |
+//! | POST | `/business/task/{id}/copy` | `business:task:create` | **复制为新任务**（D9：标题加「（副本）」，不复制子任务/评论） |
 //! | PUT | `/business/task/{id}` | `business:task:update` | 编辑（**仅负责人 / 创建人**） |
 //! | DELETE | `/business/task/{id}` | `business:task:delete` | 软删除（负责人 / 创建人 / 超管） |
 //! | GET | `/business/task/{id}` | `business:task:read` | 详情（子任务 + 协作人 + 附件） |
@@ -418,6 +419,135 @@ pub async fn create(
         due_date: Some(due_date),
         owner_id: owner_id.to_string(),
     }))
+}
+
+// ==================== 创建后：复制为新任务（D9） ====================
+
+/// 复制接口的权限码 = **建单权限码**（卡面硬红线 5）。
+pub const COPY_PERMISSION: &str = "business:task:create";
+
+/// 副本标题的后缀。用全角括号与中文标题同气质；`str::ends_with` 可逐字断言。
+pub const COPY_TITLE_SUFFIX: &str = "（副本）";
+
+/// 副本标题：`原标题（副本）`，超长时**先砍原标题**再拼后缀（后缀不许被截断）。
+///
+/// 标题上限 [`dto::MAX_TITLE_CHARS`]（200 字）；原标题正好 200 字时直接拼会超限，
+/// 而「副本」两字被截掉的标题和原任务无法区分，所以砍的是原标题尾部。
+pub fn copy_title(origin: &str) -> String {
+    let keep = dto::MAX_TITLE_CHARS.saturating_sub(COPY_TITLE_SUFFIX.chars().count());
+    format!(
+        "{}{}",
+        dto::truncate_chars(origin.trim(), keep),
+        COPY_TITLE_SUFFIX
+    )
+}
+
+/// 「复制为新任务」的核心逻辑（endpoint 与单测共用）。
+///
+/// # 语义（卡面 §一 / §五 ⑤）
+///
+/// ```text
+/// 保留：标题（+「（副本）」）/ 描述 / 负责人 / 优先级 / 需验收 / 预估工时 / 所属项目
+/// 不复制：子任务（`parent_id` 指向它的那些）、评论、协作人、附件、工时记录、依赖边
+/// 清空：任务编号（重新走 `TSK-YYYYMM-NNNNNN` 取号）、状态（`TODO`）、进度（0）、
+///       父任务（`parent_id = NULL`）、审批实例、取消/打回原因、完成时间
+/// 改：  计划开始日 = NULL、截止日 = 本周五（同新建默认）
+/// ```
+///
+/// # ★ 决策：`parent_id` 清空
+///
+/// 卡片只说「不复制子任务」，没说父任务。这里取「复制出来的是一张**独立新任务**」：
+/// 原任务是某父任务的第 3 个子任务，复制单再挂同一父任务，会让父任务的进度分母
+/// 悄悄 +1（用户以为自己只是「再来一件同样的事」）。要挂回去，编辑一次即可。
+///
+/// # ★ 决策：日期不复制
+///
+/// 原任务的截止日往往已过去（复制场景多是「上个月那件事再来一遍」），照抄会得到一张
+/// **建出来就逾期**的任务。截止日按新建口径给「本周五」，开始日留空由用户自己定。
+///
+/// # ★ 决策：负责人保留（不是改成自己）
+///
+/// 卡面明写「复制负责人」。若负责人不是当前用户，则当前用户是**分派人**
+/// （`assigner_id = 我`、`source = ASSIGNED`、我自动成为协作人）——与新建任务里
+/// 「替别人建单」同一套口径，不额外造第二条规则。
+///
+/// # 异常情况
+///
+/// - 403：无 `business:task:create`（复制 = 建单）；无 `business:task:read` 或任务不在可见范围 → 404；
+/// - 404：任务不存在 / 已软删 / 看不见；
+/// - 400：标题拼接后仍非法（原标题全空白，理论上被库约束挡在前）；
+/// - 500：数据库异常。
+pub async fn copy_task(id: Uuid, claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
+    ensure_task_create_permission(claims)?;
+    let me = current_user(claims)?;
+    // 可见性照详情页口径：看不见的任务连「复制」都不该知道它存在（404 而非 403）
+    ensure_task_read_permission(claims)?;
+    let scope = principal::resolve_for_claims(claims).await?;
+    let origin = model::find_detail(&scope, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询待复制的任务"))?
+        .ok_or_else(not_found)?;
+
+    let title = copy_title(&origin.card.title);
+    if title.trim() == COPY_TITLE_SUFFIX {
+        return Err(param_invalid("任务标题为空，无法生成副本标题".to_string()));
+    }
+    let owner_id = origin.card.owner_id;
+    let today = model::today_cst();
+    let new = model::NewTask {
+        id: Uuid::now_v7(),
+        title,
+        description: origin.description.clone(),
+        priority: origin.card.priority.clone(),
+        need_review: origin.card.need_review,
+        owner_id,
+        creator_id: me,
+        assigner_id: (owner_id != me).then_some(me),
+        dept_id: origin.card.dept_id,
+        // 副本是独立新任务：不挂父任务（见文档注释）
+        parent_id: None,
+        project_id: origin.card.project_id,
+        start_date: None,
+        due_date: Some(model::default_due_date(today)),
+        estimate_hours: origin.estimate_hours,
+        source: if owner_id == me {
+            dto::SOURCE_SELF.to_string()
+        } else {
+            dto::SOURCE_ASSIGNED.to_string()
+        },
+        add_creator_as_collaborator: owner_id != me,
+    };
+    let month = model::month_key(today);
+    let new_id = new.id;
+    let task_no = db()
+        .transaction(|tx| async move { model::create_task(&tx, &new, me, &month).await })
+        .await
+        .map_err(|error| utils::db_error(error, "复制任务"))?;
+    tracing::info!(
+        origin_task = %id,
+        new_task_id = %new_id,
+        task_no = %task_no,
+        operator = %me,
+        "任务已复制为新任务"
+    );
+    Ok(new_id)
+}
+
+/// 复制为新任务（`POST /business/task/{id}/copy`，权限 = 建单权限）。
+#[nik::permission(
+    path = "/business/task/{id}/copy",
+    method = "POST",
+    permission = "business:task:create"
+)]
+#[nik::post("/business/task/{id}/copy")]
+pub async fn task_copy(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TaskSaveRes> {
+    let origin_id = parse_uuid_field(&id, "任务")?;
+    let new_id = copy_task(origin_id, &claims).await?;
+    let row = require_task(new_id).await?;
+    Ok(Res::ok(save_res(&row)))
 }
 
 // ==================== 编辑 ====================
@@ -2221,6 +2351,21 @@ fn ensure_task_read_permission(claims: &TokenClaims) -> std::result::Result<(), 
         403,
         error_code::TASK_FORBIDDEN,
         "没有任务读取权限（business:task:read）",
+    ))
+}
+
+/// 人类账号的建单权限判定（`business:task:create`）。
+///
+/// 复制 = 建单（D9 硬红线 5），所以复制走这一个码。与 [`ensure_task_read_permission`]
+/// 同样提成函数：路由注解已拦一次，这里再判一次，单测才能直接证明「无码 → 403」。
+fn ensure_task_create_permission(claims: &TokenClaims) -> std::result::Result<(), ApiError> {
+    if claims.has_permission(COPY_PERMISSION) {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        403,
+        error_code::TASK_FORBIDDEN,
+        "没有任务创建权限（business:task:create），不能复制任务",
     ))
 }
 
@@ -5031,5 +5176,326 @@ mod tests {
                 error.msg
             );
         }
+    }
+
+    /// D9：副本标题 = `原标题（副本）`；原标题顶到 200 字上限时**砍原标题**，后缀完整保留。
+    #[test]
+    fn copy_title_appends_suffix_and_keeps_limit() {
+        assert_eq!(copy_title("月度对账"), "月度对账（副本）");
+        // 尾部空白先折掉，不产出「标题 （副本）」这种带空格的怪东西
+        assert_eq!(copy_title("  月度对账  "), "月度对账（副本）");
+
+        let full = "任".repeat(dto::MAX_TITLE_CHARS);
+        let copied = copy_title(&full);
+        assert_eq!(
+            copied.chars().count(),
+            dto::MAX_TITLE_CHARS,
+            "副本标题不能超 200 字（会被 normalize_title 拒）"
+        );
+        assert!(
+            copied.ends_with(COPY_TITLE_SUFFIX),
+            "后缀必须完整：{copied}"
+        );
+        assert!(normalize_title(&copied).is_ok(), "拼出来的标题必须仍然合法");
+    }
+}
+
+// ==================== D9：复制为新任务（真库） ====================
+//
+// 走**生产同款路径**：`copy_task` → `model::create_task`（取号 + 落库），断言
+// 「标题带（副本）/ 负责人·优先级·工时一致 / 子任务与评论不复制 / 原任务一个字节不变」。
+//
+// ```bash
+// export ERP_DB_URL='postgres://alun:…@127.0.0.1:5432/cloudpivot_d9'
+// cargo test --lib business::task::handler::copy_db_tests -- --test-threads=1
+// ```
+// 缺 `ERP_DB_URL` / `TASK_DB_URL` 时打印 `SKIP` 并直接返回。
+#[cfg(test)]
+mod copy_db_tests {
+    use super::*;
+    use crate::business::task::model::{self, NewTask};
+
+    /// 夹具用户（复制人 = 创建人也 = 超管，范围 = 全部）。
+    const U_ME: &str = "d9c00001-0000-4000-8000-000000000001";
+
+    /// 真库用例串行（共用全局 `db()` 与任务取号器）。
+    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+    fn uuid(text: &str) -> Uuid {
+        Uuid::parse_str(text).expect("夹具 UUID 非法")
+    }
+
+    async fn ensure_db() -> bool {
+        use tokio::sync::OnceCell;
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL"))
+                else {
+                    println!("SKIP: 未设置 ERP_DB_URL / TASK_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => match set_db(connection) {
+                        Ok(()) => true,
+                        Err(err) => {
+                            println!("SKIP: set_db 失败（{err}）");
+                            false
+                        }
+                    },
+                    Err(err) => {
+                        println!("SKIP: 数据库连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        let me = uuid(U_ME);
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password, real_name) \
+             VALUES (?::uuid, 'd9_copy_user', 'x', 'D9 复制人') ON CONFLICT DO NOTHING",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("夹具用户写入失败");
+        // 超管角色 → `principal::resolve` 判 super（范围 = 全部），否则 find_detail 会把任务挡成 404
+        db().execute_with_params(
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             SELECT ?::uuid, r.id FROM sys_role r WHERE r.role_code = ? \
+             ON CONFLICT DO NOTHING",
+            vec![
+                Value::from(&me),
+                Value::Text(crate::shared::constants::SUPER_ADMIN_ROLE_CODE.to_string()),
+            ],
+        )
+        .await
+        .expect("夹具角色绑定失败");
+        // 清上一轮：评论 → 断父指针 → 任务（自引用 FK 非 deferrable，必须先断开）
+        db().execute_with_params(
+            "DELETE FROM biz_task_comment WHERE task_id IN \
+             (SELECT id FROM biz_task WHERE creator_id = ?::uuid)",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清理评论失败");
+        db().execute_with_params(
+            "UPDATE biz_task SET parent_id = NULL WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清理父指针失败");
+        db().execute_with_params(
+            "DELETE FROM biz_task WHERE creator_id = ?::uuid",
+            vec![Value::from(&me)],
+        )
+        .await
+        .expect("清理任务失败");
+        Some(guard)
+    }
+
+    fn claims_with(perms: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: U_ME.to_string(),
+            username: Some("d9_copy_user".to_string()),
+            roles: Vec::new(),
+            permissions: perms.iter().map(|p| (*p).to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 建一张任务（走 `model::create_task`，与生产同一条落库路径），返回 `(id, task_no)`。
+    async fn seed_task(
+        title: &str,
+        parent: Option<Uuid>,
+        priority: &str,
+        estimate: Option<f64>,
+        need_review: bool,
+    ) -> (Uuid, String) {
+        let me = uuid(U_ME);
+        let id = Uuid::now_v7();
+        let new = NewTask {
+            id,
+            title: title.to_string(),
+            description: Some("D9 复制用例的描述".to_string()),
+            priority: priority.to_string(),
+            need_review,
+            owner_id: me,
+            creator_id: me,
+            assigner_id: None,
+            dept_id: None,
+            parent_id: parent,
+            project_id: None,
+            start_date: None,
+            due_date: None,
+            estimate_hours: estimate,
+            source: "SELF".to_string(),
+            add_creator_as_collaborator: false,
+        };
+        let month = model::month_key(model::today_cst());
+        let task_no = db()
+            .transaction(|tx| async move { model::create_task(&tx, &new, me, &month).await })
+            .await
+            .expect("夹具任务建不出来");
+        (id, task_no)
+    }
+
+    async fn count(sql: &str, id: Uuid) -> i64 {
+        db().scalar_with_params(sql, vec![Value::from(&id)])
+            .await
+            .expect("计数失败")
+    }
+
+    /// ⑤ 复制任务：标题带「（副本）」、负责人/优先级/工时一致，子任务与评论不复制。
+    #[tokio::test]
+    async fn d9_task_copy_keeps_fields_but_not_children() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let me = uuid(U_ME);
+        let (origin_id, origin_no) = seed_task("D9 月度对账", None, "P1", Some(3.5), true).await;
+        // 子任务 + 评论：复制时必须一个都不带
+        let (_child_id, _child_no) =
+            seed_task("D9 月度对账-子任务", Some(origin_id), "P2", None, false).await;
+        db().execute_with_params(
+            "INSERT INTO biz_task_comment \
+                 (id, task_id, user_id, content, mentions, parent_comment_id, comment_type, \
+                  created_at, updated_at, create_by, update_by) \
+             VALUES (gen_random_uuid(), ?::uuid, ?::uuid, 'D9 源任务的评论', '[]'::jsonb, NULL, \
+                     'PLAIN', now(), now(), ?::uuid, ?::uuid)",
+            vec![
+                Value::from(&origin_id),
+                Value::from(&me),
+                Value::from(&me),
+                Value::from(&me),
+            ],
+        )
+        .await
+        .expect("夹具评论写入失败");
+
+        let before = model::find_raw(origin_id)
+            .await
+            .unwrap()
+            .expect("原任务必须存在");
+
+        let new_id = copy_task(origin_id, &claims_with(&["*:*:*"]))
+            .await
+            .expect("复制任务应成功");
+        let copied = model::find_raw(new_id)
+            .await
+            .unwrap()
+            .expect("副本必须存在");
+
+        assert_ne!(copied.card.id, before.card.id);
+        assert_ne!(copied.card.task_no, origin_no, "任务编号必须是新的");
+        assert!(
+            copied.card.task_no.starts_with("TSK-"),
+            "{}",
+            copied.card.task_no
+        );
+        assert_eq!(
+            copied.card.title,
+            format!("{}{}", before.card.title, COPY_TITLE_SUFFIX),
+            "卡面 ⑤：标题要带（副本）"
+        );
+        assert_eq!(copied.description, before.description, "描述要带出");
+        assert_eq!(copied.card.priority, "P1", "优先级要带出");
+        assert_eq!(copied.card.owner_id, me, "负责人要带出");
+        assert_eq!(
+            copied.estimate_hours,
+            Some(3.5),
+            "预估工时（NUMERIC(6,1)）要带出"
+        );
+        assert!(copied.card.need_review, "需验收标记要带出");
+        assert_eq!(copied.card.status, dto::STATUS_TODO, "副本从 TODO 开始");
+        assert_eq!(copied.card.progress, 0, "进度归零");
+        assert!(copied.card.parent_id.is_none(), "副本是独立新任务");
+        assert!(copied.done_at.is_none());
+        assert!(copied.approval_instance_id.is_none());
+        // 子任务 / 评论一个都没复制
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid",
+                new_id
+            )
+            .await,
+            0,
+            "子任务不许复制"
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM biz_task_comment WHERE task_id = ?::uuid",
+                new_id
+            )
+            .await,
+            0,
+            "评论不许复制"
+        );
+        // 原任务一个字都不改（标题 / 状态 / 编号 / updated_at）
+        let after = model::find_raw(origin_id)
+            .await
+            .unwrap()
+            .expect("原任务还在");
+        assert_eq!(after.card.title, before.card.title);
+        assert_eq!(after.card.status, before.card.status);
+        assert_eq!(after.card.task_no, before.card.task_no);
+        assert_eq!(
+            after.card.updated_at, before.card.updated_at,
+            "原任务 updated_at 不许变"
+        );
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM biz_task WHERE parent_id = ?::uuid",
+                origin_id
+            )
+            .await,
+            1,
+            "原任务的子任务还在"
+        );
+    }
+
+    /// ⑤b 权限：没有 `business:task:create` → 403（复制 = 建单）；权限码与建单同一个。
+    #[tokio::test]
+    async fn d9_task_copy_requires_create_permission() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        assert_eq!(COPY_PERMISSION, "business:task:create");
+        let (origin_id, _) = seed_task("D9 权限用例", None, "P2", None, false).await;
+
+        let err = copy_task(origin_id, &claims_with(&[dto::PERM_TASK_READ]))
+            .await
+            .expect_err("没有建单权限必须 403");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert!(
+            err.msg.contains("business:task:create"),
+            "403 文案要点名权限码：{}",
+            err.msg
+        );
+        // 一个副本都不许建出来（仍只有原任务 + 它自己）
+        assert_eq!(
+            count(
+                "SELECT count(*) FROM biz_task WHERE creator_id = ?::uuid",
+                uuid(U_ME)
+            )
+            .await,
+            1
+        );
     }
 }

@@ -235,6 +235,11 @@
         </template>
       </t-alert>
 
+      <!-- D9：复制带出的采购关联提示（后端决策 B：复制清空采购单，防待收额度二次占用） -->
+      <t-alert v-if="copyNotice" theme="warning" class="dlg-alert" data-testid="stockin-copy-notice">
+        {{ copyNotice }}
+      </t-alert>
+
       <t-alert theme="info" class="dlg-alert" data-testid="stockin-cost-note">
         <template #message>
           入库成本只按<strong>不含税单价</strong>入账（移动加权），价税合计由系统按税率计算；过账时才写库存。
@@ -600,6 +605,24 @@
           <template #with_tax_amount="{ row }">{{ formatMoney(row.with_tax_amount) }}</template>
           <template #cost_price="{ row }">{{ formatMoney(row.cost_price) }}</template>
         </t-table>
+
+        <!-- D9：复制为新单（原单只读，后端建新草稿；权限 = 建单权限） -->
+        <div class="detail__actions" data-testid="stockin-drawer-actions">
+          <t-button
+            v-privilege="[PERM.create]"
+            theme="primary"
+            variant="outline"
+            :loading="copying"
+            :disabled="copying"
+            data-testid="btn-stockin-copy"
+            @click="copyCurrent"
+          >
+            复制为新单
+          </t-button>
+          <span class="detail__actions-hint">
+            复制会新建一张<strong>草稿</strong>：明细全带出，单号重新取，采购单关联清空
+          </span>
+        </div>
       </div>
     </t-drawer>
   </div>
@@ -610,6 +633,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
+  copyStockIn,
   createStockIn,
   deleteStockIn,
   fetchMaterialPage,
@@ -669,6 +693,7 @@ import {
   shortDate,
   shortId,
   stockInStatusLabel,
+  stockinCopyNotice,
   stockInStatusTheme,
   validateStockInForm,
   type StockInFilterState,
@@ -941,6 +966,8 @@ function resetForm(): void {
   Object.assign(form, emptyStockInForm());
   formErrors.value = {};
   submitError.value = '';
+  // D9：复制提示只属于「刚复制出来的那张单」，任何一次重置都要清掉
+  copyNotice.value = '';
 }
 
 /**
@@ -1050,6 +1077,42 @@ async function openEditDialog(row: StockInRow): Promise<void> {
     MessagePlugin.error(messageOf(error));
   } finally {
     loading.value = false;
+  }
+}
+
+/**
+ * D9：复制为新单（详情抽屉底部的「复制为新单」）。
+ *
+ * 语义全在后端（`POST /erp/stock-in/{id}/copy`）：新草稿 + 新单号 + 明细全带出 +
+ * **采购单关联清空** + 入库日期取今天 + 凭证/应付/审批关联清空。前端只做三件事：
+ *
+ * 1. 调接口拿**新单详情**（响应与建单一致），把表单填成新单（`form.id = 新单 id`，
+ *    所以后面点保存走的是「改这张草稿」而不是又建一张 —— 连点也不会多出单子）；
+ * 2. 原单带过采购单时提示「请重新关联采购单」（后端已清空，这是设计而非丢失）；
+ * 3. 刷新列表，让新草稿立刻出现在列表里。
+ */
+async function copyCurrent(): Promise<void> {
+  const origin = detail.value?.header ?? null;
+  if (!origin || copying.value) {
+    return;
+  }
+  copying.value = true;
+  try {
+    const created = await copyStockIn(origin.id);
+    detailVisible.value = false;
+    resetForm();
+    Object.assign(form, detailToForm(created.header, created.items));
+    memoryLabels.value = [];
+    copyNotice.value = stockinCopyNotice(origin);
+    formErrors.value = {};
+    submitError.value = '';
+    formVisible.value = true;
+    MessagePlugin.success(`已复制为 ${created.header.in_no}（草稿），请核对后提交`);
+    await loadOrders(1);
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    copying.value = false;
   }
 }
 
@@ -1267,6 +1330,10 @@ const detailError = ref('');
 const detail = ref<StockInDetail | null>(null);
 /** 作废审批进度（P16；空 = 没挂审批单 / 拉不到） */
 const approvalNodes = ref<FlowProgressNode[]>([]);
+/** D9：复制进行中（按钮同时 loading + disabled —— 连点只建一张） */
+const copying = ref(false);
+/** D9：复制提示（来源采购单被清空时显示在表单顶部；下次打开表单要清掉） */
+const copyNotice = ref('');
 
 async function openDetail(row: StockInRow): Promise<void> {
   await loadDetail(row.id);
@@ -1743,6 +1810,22 @@ async function applyRouteQuery(): Promise<void> {
 
 .detail__summary {
   margin: 10px 0 0;
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+/* D9：复制为新单（抽屉底部动作条） */
+.detail__actions {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--td-component-stroke);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.detail__actions-hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
 }

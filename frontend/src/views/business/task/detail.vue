@@ -70,6 +70,18 @@
               <t-button v-privilege="[PERM.taskDelete]" size="small" theme="danger" variant="outline" @click="confirmRemove">
                 删除
               </t-button>
+              <!-- D9：复制为新任务（权限 = 建单权限；标题加「（副本）」，不复制子任务 / 评论） -->
+              <t-button
+                v-privilege="[PERM.taskCreate]"
+                size="small"
+                variant="outline"
+                :loading="copying"
+                :disabled="copying"
+                data-testid="btn-task-copy"
+                @click="copyCurrent"
+              >
+                复制为新单
+              </t-button>
             </t-space>
           </div>
         </div>
@@ -533,6 +545,7 @@ import {
   listTaskWorklogs,
   postTaskComment,
   uploadTaskAttachment,
+  copyTask,
   type TaskAttachmentItem,
   type TaskCommentCreateResult,
   type TaskCommentItem,
@@ -565,10 +578,14 @@ const emit = defineEmits<{
   (event: 'deleted', id: string): void;
   /** 状态流转成功（列表页据此刷新当前视图：列表 / 看板） */
   (event: 'changed', id: string): void;
+  /** D9：复制成功（父级据此把抽屉切到新任务 + 刷新列表） */
+  (event: 'copied', id: string): void;
 }>();
 
 /** 详情数据 */
 const detail = ref<TaskDetail | null>(null);
+/** D9：复制为新任务进行中（按钮 loading + disabled，连点只建一张） */
+const copying = ref(false);
 /**
  * 这张任务的流程上下文（P-FLOW-1C）。
  *
@@ -887,6 +904,32 @@ watch(
   },
   { immediate: true },
 );
+
+/**
+ * D9：复制为新任务。
+ *
+ * 语义在后端（`POST /business/task/{id}/copy`）：标题加「（副本）」、带出描述 / 负责人 /
+ * 优先级 / 需验收 / 预估工时 / 项目，**不复制子任务、评论、协作人、附件**，父任务清空、
+ * 状态从 `TODO` 开始、截止日按新建口径取本周五。
+ *
+ * 复制成功后父级把抽屉切到新任务（`copied` 事件），用户当场就能核对 / 编辑这张副本。
+ */
+async function copyCurrent(): Promise<void> {
+  const current = detail.value;
+  if (!current || copying.value) {
+    return;
+  }
+  copying.value = true;
+  try {
+    const created = await copyTask(current.id);
+    MessagePlugin.success(`已复制为 ${created.task_no}「${current.title}（副本）」，请核对后提交`);
+    emit('copied', created.id);
+  } catch (error) {
+    MessagePlugin.error(error instanceof ApiError ? error.message : '复制失败，请稍后重试');
+  } finally {
+    copying.value = false;
+  }
+}
 
 /** 删除确认 */
 function confirmRemove(): void {

@@ -914,6 +914,57 @@ pub async fn items_of(transfer_id: Uuid) -> DbResult<Vec<TransferItemRow>> {
     rows.iter().map(TransferItemRow::from_row).collect()
 }
 
+/// 复制源（D9）：原单头 + 明细，**只读**（`FOR SHARE`）。
+///
+/// 复制 = 「读原单 → 建新单」在**同一事务**里完成，所以不能走 [`find_by_id`] /
+/// [`items_of`]（它们用全局 `db()`，在另一个连接上，看不到本事务的锁）。
+/// `FOR SHARE` 的语义正是这里要的：我看，但不改；别人可以继续过账 / 结算。
+///
+/// # 返回值
+///
+/// - `Ok(Some((单头, 明细)))`：明细按 `line_no` 升序；
+/// - `Ok(None)`：单头不存在或已软删；
+/// - `Err(DbError)`：数据库异常。
+pub async fn copy_source(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Option<(TransferRow, Vec<TransferItemRow>)>> {
+    let header = ex
+        .query_first_sql(
+            format!(
+                "SELECT {TRANSFER_COLUMNS} FROM {TRANSFER_TABLE} \
+                  WHERE id = ?::uuid AND deleted_at IS NULL FOR SHARE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let Some(row) = header.as_ref() else {
+        return Ok(None);
+    };
+    let header = TransferRow::from_row(row)?;
+    let items = ex
+        .query_sql(
+            format!(
+                "SELECT i.id, i.transfer_id, i.line_no, i.material_id, i.from_location_id, \
+                        i.to_location_id, i.qty, i.shipped_qty, i.received_qty, i.unit_cost, \
+                        i.amount, i.remark, i.created_at, i.updated_at, i.create_by, i.update_by, \
+                        m.material_code, m.material_name \
+                   FROM {ITEM_TABLE} i \
+                   LEFT JOIN biz_material m ON m.id = i.material_id \
+                  WHERE i.transfer_id = ?::uuid \
+                  ORDER BY i.line_no ASC, i.id ASC \
+                  FOR SHARE OF i"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let items = items
+        .iter()
+        .map(TransferItemRow::from_row)
+        .collect::<DbResult<Vec<_>>>()?;
+    Ok(Some((header, items)))
+}
+
 /// 序列号子表（连表带出号文本；按行号 + 号升序）。
 pub async fn serials_of(transfer_id: Uuid) -> DbResult<Vec<TransferSerialRow>> {
     let sql = format!(

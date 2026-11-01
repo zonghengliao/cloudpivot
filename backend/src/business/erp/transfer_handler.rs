@@ -546,6 +546,137 @@ pub async fn transfer_create(
     Ok(Res::ok(detail_of(id).await?))
 }
 
+// ==================== ③b 复制为新单（D9） ====================
+
+/// 复制接口的权限码 = **建单权限码**（卡面硬红线 5）。
+pub const COPY_PERMISSION: &str = "business:erp:transfer:create";
+
+/// 「复制为新单」的核心逻辑（endpoint 与单测共用）。
+///
+/// # 语义（卡面 §二）
+///
+/// ```text
+/// 保留：调出仓 / 调入仓 / 明细（物料·数量·库位）/ 原因 / 备注
+/// 清空：单号（重新走 biz_seq 取号）、id、created_* / updated_* / *_by、状态 → DRAFT、
+///       审批实例 / 审批人 / 提交·通过·发货·收货时间 / 作废时间与原因、
+///       明细行的已发·已收数量与单位成本/金额快照、明细行的序列号
+/// 重算：申请人 = 当前操作人（这次是他在建单，不是原申请人）
+/// 改：  调拨日期 = 今天（`transfer_date` 传 `None` → SQL 侧 `CURRENT_DATE`）
+/// ```
+///
+/// # ★ 决策：序列号**不复制**
+///
+/// `biz_stock_transfer_item_serial` 记的是「这批实物号码跟着本单走」。
+/// 原单的号码可能已在调入仓（`IN_STOCK`）或已报废，复制单再挂同一批号码：
+/// ① 建单时的有效性校验只认「在调出仓 + 在库」，原单已结算的直接 400；
+/// ② 即便侥幸通过，两张单会把同一批号码各调一次，库存与序列号必然对不上。
+/// 所以复制单的序列号留空，由用户在提交前按实际货品重新选（一物一码物料届时必须选）。
+///
+/// # ★ 决策：调拨日期取「今天」
+///
+/// 同收货单：复制是新的调拨动作，沿用旧日期会在「按日期查列表 / 按期间统计」时
+/// 与原单撞在一起，看不出哪张是后补的。
+///
+/// # 异常情况
+///
+/// - 403：无 `business:erp:transfer:create`；
+/// - 404：原单不存在 / 已软删；
+/// - 400：原单没有明细；
+/// - 500：数据库异常。
+pub async fn copy_transfer(id: Uuid, claims: &TokenClaims) -> std::result::Result<Uuid, ApiError> {
+    crate::business::erp::period::ensure_permission(claims, COPY_PERMISSION, "复制调拨单")?;
+    let operator = operator_of(claims);
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启复制事务"))?;
+
+    // ① 读原单 + 明细（FOR SHARE，只读）
+    let origin = match transfer_model::copy_source(&tx, id).await {
+        Ok(Some(pair)) => pair,
+        Ok(None) => {
+            let _ = tx.rollback().await;
+            return Err(not_found("调拨单"));
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "读取待复制的调拨单"));
+        }
+    };
+    let (origin, items) = origin;
+    if items.is_empty() {
+        let _ = tx.rollback().await;
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "调拨单 {} 没有任何明细，复制出来会是一张空单：请先给原单补明细，\
+                 或直接新建一张并填写物料",
+                origin.transfer_no
+            ),
+        ));
+    }
+
+    // ② 构造新单：新号 / DRAFT / 时间戳与序列号全清
+    let lines: Vec<NewItem> = items
+        .iter()
+        .map(|item| NewItem {
+            material_id: item.material_id,
+            from_location_id: item.from_location_id,
+            to_location_id: item.to_location_id,
+            qty: item.qty,
+            // 实物序列号不复制（见文档注释）
+            serial_ids: Vec::new(),
+        })
+        .collect();
+    let total_qty = lines
+        .iter()
+        .fold(nik::prelude::rust_decimal::Decimal::ZERO, |acc, line| {
+            acc + line.qty
+        });
+    let new = NewTransfer {
+        from_warehouse_id: origin.from_warehouse_id,
+        to_warehouse_id: origin.to_warehouse_id,
+        // `None` → SQL 侧 `CURRENT_DATE`（今天）
+        transfer_date: None,
+        reason: origin.reason.as_deref(),
+        remark: origin.remark.as_deref(),
+        applicant_id: operator,
+        applicant_name: claims.username.as_deref(),
+    };
+
+    // ③ 插入新单 + 明细（`create` 内取号 + 写建单日志）
+    match transfer_model::create(&tx, &new, &lines, total_qty, operator, now).await {
+        Ok(new_id) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交复制事务"))?;
+            Ok(new_id)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(write_error(error, "复制调拨单"))
+        }
+    }
+}
+
+/// 复制为新单（`POST /business/erp/transfer/{id}/copy`，权限 = 建单权限）。
+#[nik::permission(
+    path = "/business/erp/transfer/{id}/copy",
+    method = "POST",
+    permission = "business:erp:transfer:create"
+)]
+#[nik::post("/business/erp/transfer/{id}/copy")]
+pub async fn transfer_copy(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<TransferDetailRes> {
+    let origin_id = parse_uuid(&id, "调拨单 id")?;
+    let new_id = copy_transfer(origin_id, &claims).await?;
+    Ok(Res::ok(detail_of(new_id).await?))
+}
+
 // ==================== ④ 改单 ====================
 
 /// 改单核心逻辑：**只有 `DRAFT` 能改**（其它状态 → 409），明细整体重建。
@@ -3702,5 +3833,124 @@ mod db_tests {
         for (code, _) in TRANSFER_PERMISSIONS {
             assert!(code.starts_with("business:erp:transfer:"), "{code}");
         }
+    }
+
+    // ---------- D9：复制为新单 ----------
+
+    /// 复制用的假令牌（`permissions` 决定 `has_permission`）。
+    fn copy_claims(perms: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: U_APPLICANT.to_string(),
+            username: Some("w3b_applicant".to_string()),
+            roles: Vec::new(),
+            permissions: perms.iter().map(|p| (*p).to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    /// ④ 复制一张调拨单：单头（两仓 / 原因）+ 明细一致，状态 DRAFT、新单号、序列号不复制。
+    #[tokio::test]
+    async fn d9_transfer_copy_keeps_header_and_items_but_resets_state() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        // 原单先走到「已提交审批」再复制（复制的价值就是「这张单再来一遍」）
+        let mut request = body(vec![item(M_PLAIN, "7"), item(M_SN, "1")]);
+        request.remark = Some("D9 复制源单备注".to_string());
+        let origin_id = create_transfer(&request, Some(uuid(U_APPLICANT)), Some("申请人"))
+            .await
+            .expect("建单应成功");
+        change_transfer_status(origin_id, &status_req("PENDING", None), uuid(U_APPLICANT))
+            .await
+            .expect("提交审批应成功");
+        let origin = refresh(origin_id).await;
+        assert_eq!(origin.status, STATUS_PENDING);
+
+        let new_id = copy_transfer(origin_id, &copy_claims(&[COPY_PERMISSION]))
+            .await
+            .expect("复制应成功");
+        let copied = refresh(new_id).await;
+        assert_ne!(copied.id, origin.id);
+        assert_ne!(copied.transfer_no, origin.transfer_no, "单号必须是新的");
+        assert!(
+            copied.transfer_no.starts_with("TK-"),
+            "{}",
+            copied.transfer_no
+        );
+        assert_eq!(copied.status, STATUS_DRAFT, "复制出来的必须是草稿");
+        assert_eq!(copied.from_warehouse_id, origin.from_warehouse_id);
+        assert_eq!(copied.to_warehouse_id, origin.to_warehouse_id);
+        assert_eq!(copied.reason, origin.reason, "原因要带出");
+        assert_eq!(copied.remark, origin.remark, "备注要带出");
+        assert_eq!(copied.total_qty, origin.total_qty, "数量合计要一致");
+        // 状态带出的时间戳 / 审批关联全清（`ck_biz_transfer_state` 要求 DRAFT 全 NULL）
+        assert!(copied.approval_instance_id.is_none());
+        assert!(copied.submitted_at.is_none());
+        assert!(copied.approved_at.is_none());
+        assert!(copied.shipped_at.is_none());
+        assert!(copied.received_at.is_none());
+        assert!(copied.cancelled_at.is_none());
+        assert!(copied.cancel_reason.is_none());
+        assert!(copied.approver_id.is_none());
+        assert!(copied.transit_warehouse_id.is_none());
+
+        // 明细逐行一致（物料 / 数量 / 库位）
+        let origin_items = transfer_model::items_of(origin_id).await.unwrap();
+        let copied_items = transfer_model::items_of(new_id).await.unwrap();
+        assert_eq!(copied_items.len(), origin_items.len());
+        for (new_line, old_line) in copied_items.iter().zip(origin_items.iter()) {
+            assert_eq!(new_line.material_id, old_line.material_id);
+            assert_eq!(new_line.qty, old_line.qty);
+            assert_eq!(new_line.from_location_id, old_line.from_location_id);
+            assert_eq!(new_line.to_location_id, old_line.to_location_id);
+            assert_eq!(new_line.shipped_qty, Decimal::ZERO, "已发数量必须归零");
+            assert_eq!(new_line.received_qty, Decimal::ZERO, "已收数量必须归零");
+        }
+        // 序列号不复制（原单没带号码，这条保证「复制也不凭空造」）
+        assert!(
+            transfer_model::serials_of(new_id).await.unwrap().is_empty(),
+            "复制不复制序列号"
+        );
+        // 原单不变：还是 PENDING，审批实例还在
+        let origin_after = refresh(origin_id).await;
+        assert_eq!(origin_after.status, STATUS_PENDING);
+        assert_eq!(origin_after.transfer_no, origin.transfer_no);
+        assert_eq!(
+            origin_after.approval_instance_id,
+            origin.approval_instance_id
+        );
+        assert_eq!(
+            origin_after.updated_at, origin.updated_at,
+            "原单 updated_at 不许变"
+        );
+    }
+
+    /// ④b 复制不带建单权限 → 403；权限码必须与建单同一个。
+    #[tokio::test]
+    async fn d9_transfer_copy_requires_create_permission() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        assert_eq!(COPY_PERMISSION, "business:erp:transfer:create");
+        let origin_id = create_transfer(
+            &body(vec![item(M_PLAIN, "1")]),
+            Some(uuid(U_APPLICANT)),
+            None,
+        )
+        .await
+        .expect("建单应成功");
+        let err = copy_transfer(origin_id, &copy_claims(&["business:erp:transfer:list"]))
+            .await
+            .expect_err("没有建单权限必须 403");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert!(
+            err.msg.contains("business:erp:transfer:create"),
+            "403 文案要点名权限码：{}",
+            err.msg
+        );
     }
 }
