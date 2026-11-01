@@ -253,6 +253,8 @@ import {
   type Point,
 } from '@/views/business/flow/graph';
 import { labelTextWidth, roundedEdgePath } from '@/views/business/flow/components/rounded-path';
+import { needsAssigneeOf } from '@/views/business/flow/components/flow-node-caps';
+import { ON_COMPLETE_LABELS, type OnComplete } from '@/views/business/flow/components/task-node-config';
 
 /** 组件入参 */
 const props = withDefaults(
@@ -426,12 +428,16 @@ const NODE_GLYPH: Record<string, string> = {
   PARALLEL: '∥',
   CC: '↗',
   END: '■',
+  // P-FLOW-1C：任务用对勾（要做完的活）、通知用信封（发出去的消息）
+  TASK_NODE: '☑',
+  NOTIFY_NODE: '✉',
 };
 
 /** 运行状态 → 中文（副标题 / 状态点共用） */
 const STATUS_TEXT: Record<string, string> = {
   APPROVED: '已通过',
-  ACTIVE: '进行中',
+  // 术语锁定（决策 4）：节点 ACTIVE 显示「处理中」，不是「审批中」—— 节点可能是任务节点
+  ACTIVE: '处理中',
   REJECTED: '已驳回',
   SKIPPED: '已跳过',
   WAITING: '待处理',
@@ -466,8 +472,7 @@ const nodeViews = computed<NodeView[]>(() =>
     const offset = dragKey.value === node.key ? dragOffset.value : { x: 0, y: 0 };
     const status = props.nodeStatus?.[node.key];
     const isCountersign = node.type === 'COUNTERSIGN';
-    const missingAssignee =
-      (node.type === 'APPROVAL' || node.type === 'COUNTERSIGN' || node.type === 'CC') && !node.assignee_type;
+    const missingAssignee = needsAssigneeOf(node.type) && !node.assignee_type;
     // 副标题：业务信息优先（会签模式 / 缺审批人 / 网关类型），其次运行状态
     let subLabel = '';
     if (isCountersign && node.approval_mode) {
@@ -478,7 +483,12 @@ const nodeViews = computed<NodeView[]>(() =>
             ? '或签'
             : '全部同意';
     } else if (missingAssignee) {
-      subLabel = '未配置审批人';
+      subLabel = node.type === 'TASK_NODE' ? '未配置负责人' : '未配置审批人';
+    } else if (node.type === 'TASK_NODE') {
+      // 任务节点：把「完成后怎么走」直接画在卡片上（与属性面板同一份文案）
+      subLabel = ON_COMPLETE_LABELS[(node.config as { task?: { on_complete?: string } })?.task?.on_complete as OnComplete] ?? '生成任务';
+    } else if (node.type === 'NOTIFY_NODE') {
+      subLabel = '发通知（P-FLOW-2B）';
     } else if (node.type === 'CONDITION') {
       subLabel = '分支网关';
     } else if (node.type === 'PARALLEL') {
@@ -516,6 +526,8 @@ const nodeViews = computed<NodeView[]>(() =>
         'is-condition': node.type === 'CONDITION',
         'is-parallel': node.type === 'PARALLEL',
         'is-cc': node.type === 'CC',
+        'is-task': node.type === 'TASK_NODE',
+        'is-notify': node.type === 'NOTIFY_NODE',
         'is-active': status === 'ACTIVE',
         'is-approved': status === 'APPROVED',
         'is-rejected': status === 'REJECTED',
@@ -1537,6 +1549,17 @@ defineExpose({
   // 抄送：浅色阶（只读知会，视觉上最轻）
   &.is-cc {
     --node-accent: var(--td-brand-color-4);
+  }
+
+  // 任务（P-FLOW-1C）：用品类最醒目的「需要人干活」色阶 —— 与审批同族但更深，
+  // 因为任务与审批在画布上经常相邻，撞色会让人以为它们是同一类节点
+  &.is-task {
+    --node-accent: color-mix(in srgb, var(--td-brand-color) 62%, var(--td-success-color));
+  }
+
+  // 通知：虚线感的最轻一档（不阻塞等人）
+  &.is-notify {
+    --node-accent: color-mix(in srgb, var(--td-warning-color) 55%, var(--td-text-color-placeholder));
   }
 
   // ---------- 交互态 ----------

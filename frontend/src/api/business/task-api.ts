@@ -49,8 +49,84 @@ export type TaskStatus = 'TODO' | 'DOING' | 'REVIEW' | 'DONE' | 'CANCELLED';
 /** 任务优先级 */
 export type TaskPriority = 'P0' | 'P1' | 'P2' | 'P3';
 
-/** 任务来源 */
-export type TaskSource = 'SELF' | 'ASSIGNED' | 'TRANSFERRED' | 'RECURRING';
+/** 任务来源（`dto::SOURCES`；`FLOW` = 流程节点生成的任务，P-FLOW-1A 新增） */
+export type TaskSource = 'SELF' | 'ASSIGNED' | 'TRANSFERRED' | 'RECURRING' | 'FLOW';
+
+/**
+ * 任务卡上的「来源流程」段（后端 `TaskFlowRef`）。
+ *
+ * **只有 `source = 'FLOW'` 的任务才有值**（库侧 `ck_biz_task_source_flow` 是双向硬约束，
+ * 所以「有 flow 段」与「是流程任务」等价）。
+ *
+ * 列表**不为此多 JOIN**：这里只有实例 id / 节点 key / 轮次，**没有流程名和节点名**。
+ * 列表 hover 要显示名字时按需调 {@link getTaskFlow}（一卡一次，带缓存）。
+ */
+export interface TaskFlowRef {
+  /** 生成这条任务的流程实例 id */
+  instance_id: string;
+  /** 生成它的节点 key */
+  node_key: string;
+  /** 生成时的轮次（退回重进同一节点时 +1） */
+  round: number;
+}
+
+/** 任务所属流程的详情（后端 `TaskFlowDetailRes`；任务详情页顶部条用） */
+export interface TaskFlowDetail {
+  /** 实例 id（跳 `/flow/instance/{id}` 用） */
+  instance_id: string;
+  /** 审批单号 */
+  instance_no: string;
+  /** 流程编码 */
+  flow_code: string;
+  /** 流程名称 */
+  flow_name: string;
+  /** 业务类型 */
+  biz_type: string;
+  /** 业务单号（空串 = 没有关联单号） */
+  biz_no: string;
+  /** 实例状态 `PENDING|APPROVED|REJECTED|CANCELLED|WITHDRAWN` */
+  instance_status: string;
+  /** 发起人 id */
+  initiator_id: string;
+  /** 发起人姓名 */
+  initiator_name: string;
+  /** 发起时间 */
+  started_at: string;
+  /** 结束时间（在跑 → null） */
+  ended_at: string | null;
+  /** 生成这张任务的节点 key */
+  node_key: string;
+  /** 节点中文名 */
+  node_name: string;
+  /** 生成时的轮次 */
+  round: number;
+  /** 该节点本轮的实例状态（`ACTIVE` = 正在等这张任务完成） */
+  node_status: string;
+  /**
+   * 节点配置的完成方式 `config.task.on_complete`（设计 §3.4 的出参里有这一项）。
+   *
+   * **P-FLOW-1A 的实现没带这个字段**（后端 `TaskFlowDetailRes` 只有到 `node_status` 为止，
+   * 已开卡补）。所以声明成可选：拿不到时前端按 `need_review` 降级推断
+   * （`need_review=true` → `VERIFY`，否则 `DIRECT`），**不会显示错按钮**，
+   * 只是 `APPROVE` 的「完成后需审批」副文案暂时显示不出来。
+   */
+  on_complete?: string | null;
+}
+
+/**
+ * `GET /business/task/{id}/flow` 的回执（后端 `TaskFlowRes`）。
+ *
+ * **非流程任务也 200**，只是 `flow = null` —— 「这张任务没有流程」不是错误，
+ * 前端据此**整条不渲染**（不是显示「暂无」）。
+ */
+export interface TaskFlowRes {
+  /** 任务 id */
+  task_id: string;
+  /** 任务编号 */
+  task_no: string;
+  /** 流程来源（非流程任务 → null） */
+  flow: TaskFlowDetail | null;
+}
 
 /** 任务卡（列表 / 子任务 / 我的任务共用，对应后端 `TaskCardRes`） */
 export interface TaskCard {
@@ -98,6 +174,13 @@ export interface TaskCard {
   project_code: string;
   /** 项目名称（空串 = 无项目 / 项目已删） */
   project_name: string;
+  /**
+   * 来源流程（P-FLOW-1A）：`source !== 'FLOW'` 时为 `null`。
+   *
+   * 有它 → 列表标题前加「流程」徽标 + 详情页顶部流程上下文条；
+   * 只有实例 id / 节点 key / 轮次，**名字要按需再查**（见 {@link getTaskFlow}）。
+   */
+  flow?: TaskFlowRef | null;
   /** 创建时间 RFC3339 */
   created_at: string;
   /** 最后更新时间 RFC3339 */
@@ -223,6 +306,13 @@ export interface TaskPageQuery {
    * 逐层懒加载；看板 / 甘特 / 燃尽图**不传**（它们不是树形，需要全部任务）。
    */
   root_only?: boolean;
+  /**
+   * 来源过滤（P-FLOW-1A）。
+   *
+   * `source=FLOW` 是「只看流程生成的任务」的唯一入口；与项目过滤一样，它**只是过滤条件**，
+   * 不改变可见性（可见性恒为「数据范围 ∪ 参与关系」）。
+   */
+  source?: string;
 }
 
 /** 新建任务（对应后端 `TaskCreateReq`；只有 `title` 必填） */
@@ -349,6 +439,18 @@ export function listMyTasks(): Promise<MyTasks> {
 /** 任务详情（`GET /business/task/{id}`） */
 export function getTask(id: string): Promise<TaskDetail> {
   return get<TaskDetail>(`/api/business/task/${id}`);
+}
+
+/**
+ * 任务所属流程上下文（`GET /business/task/{id}/flow`，P-FLOW-1A）。
+ *
+ * **非流程任务也 200**：`flow` 为 `null`，不是 404 —— 「这张任务没有流程」不是错误。
+ * 调用方据此**整条不渲染**（不是显示「暂无」），所以这里不做任何兜底文案。
+ *
+ * 列表 hover 与详情页顶部条共用它：同一张任务只查一次（调用方自己缓存）。
+ */
+export function getTaskFlow(id: string): Promise<TaskFlowRes> {
+  return get<TaskFlowRes>(`/api/business/task/${id}/flow`);
 }
 
 /** 新建任务（`POST /business/task`，权限 `business:task:create`） */

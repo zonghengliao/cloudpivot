@@ -265,3 +265,125 @@ export function reasonTargetsOver(whereDesc: string, count: number): string {
 export function reasonRulesOver(count: number): string {
   return fill(RUST_TEMPLATES.reasonRulesOver, CONSTS, [count]);
 }
+
+// ==================== P-FLOW-1C：TASK_NODE / NOTIFY_NODE 段（65034–65039） ====================
+//
+// 为什么这一段的形状与上面不同（**不是偷懒，是口径差异**）：
+//
+// 65016 / 65033 那两条是「一条边 / 一个节点的审批人表达式」这种**单一成因**的码，
+// 后端只有一两个 `format!` 外壳，逐字搬模板 + `fill` 才划算。
+//
+// 65034–65039 每一条背后都是**几十个分支**（`node_config.rs` 里 `config_invalid()` 有 30+ 处调用、
+// R21 有 4 种文案），把 30 条模板搬过来只会得到一份永远对不齐的副本。
+// 所以这里的做法是：
+//
+// 1. **码值必须逐字对齐**（`TASK_NODE_CODES`，单测读 `error_code.rs` 断言）；
+// 2. UI 优先显示**后端返回的原文**（`ApiError.message`），本地文案只在「没有后端文案」时兜底
+//    （例如前端预检拦下的违规、或网络失败）；
+// 3. 本地文案写的是**规则名 + 用户该怎么办**，不冒充后端 `msg`（{@link taskNodeErrorText} 里
+//    `source` 字段把这件事标出来，避免以后有人以为它是逐字副本）。
+
+/** 节点配置与节点类型不匹配 / `config.task` 形状非法（R17/R18 的一半） */
+export const FLOW_NODE_CONFIG_MISMATCH = 65034;
+/** `need_review` × `on_complete` 矩阵违例（R18；1A 阶段 `APPROVE` 也落这里） */
+export const FLOW_TASK_NODE_INVALID = 65035;
+/** `NOTIFY_NODE` 的模板 / 占位符非法（R19） */
+export const FLOW_NOTIFY_TEMPLATE_INVALID = 65036;
+/** 模板变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT` 流程（R21） */
+export const FLOW_TEMPLATE_VAR_INVALID = 65037;
+/** 流程任务状态与实例状态冲突（HTTP 409，P-FLOW-1B 用） */
+export const FLOW_TASK_STATE_CONFLICT = 65038;
+/** 预演参数非法：缺变量（`strict=true`）/ 渲染后标题超长 / 模板语法错 */
+export const FLOW_PREVIEW_INVALID = 65039;
+
+/** 本卡对齐的六个码（单测断言顺序与码值）。 */
+export const TASK_NODE_CODES = [
+  FLOW_NODE_CONFIG_MISMATCH,
+  FLOW_TASK_NODE_INVALID,
+  FLOW_NOTIFY_TEMPLATE_INVALID,
+  FLOW_TEMPLATE_VAR_INVALID,
+  FLOW_TASK_STATE_CONFLICT,
+  FLOW_PREVIEW_INVALID,
+] as const;
+
+/** 一条码的本地文案（**兜底**用：有后端文案时永远显示后端原文） */
+export interface TaskNodeCodeMeta {
+  /** 码值 */
+  code: number;
+  /** 后端常量名（排障时按这个名字 grep `error_code.rs`） */
+  name: string;
+  /** 一句话标题 */
+  title: string;
+  /** 用户该怎么办 */
+  hint: string;
+  /** 关联的发布校验规则号（`null` = 不在发布校验里，只在运行期 / 预演出现） */
+  rule: string | null;
+}
+
+/** 码 → 本地文案表 */
+export const TASK_NODE_CODE_META: Record<number, TaskNodeCodeMeta> = {
+  [FLOW_NODE_CONFIG_MISMATCH]: {
+    code: FLOW_NODE_CONFIG_MISMATCH,
+    name: 'FLOW_NODE_CONFIG_MISMATCH',
+    title: '任务配置不完整或格式不对',
+    hint: '检查标题模板是否为空、期限是否缺数量 / 日期 / 字段、完成方式与审批业务类型是否配套',
+    rule: 'R17 / R18',
+  },
+  [FLOW_TASK_NODE_INVALID]: {
+    code: FLOW_TASK_NODE_INVALID,
+    name: 'FLOW_TASK_NODE_INVALID',
+    title: '「需验收」与「完成方式」冲突',
+    hint: '验收与审批不能同时开（会让用户点两次提交）；本版本也还不支持「完成后审批」',
+    rule: 'R18',
+  },
+  [FLOW_NOTIFY_TEMPLATE_INVALID]: {
+    code: FLOW_NOTIFY_TEMPLATE_INVALID,
+    name: 'FLOW_NOTIFY_TEMPLATE_INVALID',
+    title: '通知模板语法错误',
+    hint: '占位符要写成 {{变量路径}} 且必须闭合；变量名只允许字母 / 数字 / 下划线与一个点号',
+    rule: 'R19',
+  },
+  [FLOW_TEMPLATE_VAR_INVALID]: {
+    code: FLOW_TEMPLATE_VAR_INVALID,
+    name: 'FLOW_TEMPLATE_VAR_INVALID',
+    title: '模板变量不在白名单内',
+    hint: '只允许 form.* / instance.* / initiator.* / node.* / prev.* / task.*（task.* 仅任务验收流程）',
+    rule: 'R21',
+  },
+  [FLOW_TASK_STATE_CONFLICT]: {
+    code: FLOW_TASK_STATE_CONFLICT,
+    name: 'FLOW_TASK_STATE_CONFLICT',
+    title: '任务与流程状态冲突',
+    hint: '这张任务的流程可能已被撤回或终止；刷新页面看最新的流程状态，不要重复提交',
+    rule: null,
+  },
+  [FLOW_PREVIEW_INVALID]: {
+    code: FLOW_PREVIEW_INVALID,
+    name: 'FLOW_PREVIEW_INVALID',
+    title: '预演失败',
+    hint: '严格模式下缺变量会直接报错；先补上变量用的表单字段，或关掉严格模式看可见占位',
+    rule: null,
+  },
+};
+
+/**
+ * 文案取用：**后端原文优先，本地兜底**（`source` 标明来源，避免把它当逐字副本）。
+ *
+ * # 参数
+ * - `code`：`ApiError.code`（可能为 `null` / 0 = 网络层失败）
+ * - `backendMessage`：后端 `msg`（拿得到就一定用它）
+ */
+export function taskNodeErrorText(
+  code: number | null | undefined,
+  backendMessage?: string | null,
+): { text: string; source: 'backend' | 'local' | 'unknown'; meta: TaskNodeCodeMeta | null } {
+  const message = (backendMessage ?? '').trim();
+  const meta = typeof code === 'number' ? (TASK_NODE_CODE_META[code] ?? null) : null;
+  if (message) {
+    return { text: message, source: 'backend', meta };
+  }
+  if (meta) {
+    return { text: `${meta.title}：${meta.hint}（${meta.code}）`, source: 'local', meta };
+  }
+  return { text: '未知错误，请稍后重试或查看后端日志', source: 'unknown', meta: null };
+}

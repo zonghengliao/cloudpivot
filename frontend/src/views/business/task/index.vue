@@ -20,6 +20,15 @@
           filterable
           :disabled="myMode"
         />
+        <!-- P-FLOW-1C：「来源」筛选。`FLOW` = 流程节点生成的任务（P-FLOW-1A 扩的 source 值） -->
+        <t-select
+          v-model="query.source"
+          class="filter-ctl"
+          :options="sourceOpts"
+          :disabled="myMode"
+          placeholder="来源"
+          data-testid="task-source-filter"
+        />
       </div>
       <div class="filter-line">
         <t-date-range-picker v-model="dueRange" class="filter-ctl filter-ctl--wide" placeholder="截止日期范围" clearable format="YYYY-MM-DD" />
@@ -160,6 +169,22 @@
               tone="danger"
               title="新任务：待开始、负责人是我、7 天内创建"
             />
+            <!-- P-FLOW-1C：「流程」徽标。hover 才去查流程名 / 节点名（列表 DTO 不为此多 JOIN） -->
+            <t-tooltip v-if="isFlowRow(row)" placement="top" :show-arrow="true">
+              <template #content>
+                <div class="flow-tip" data-testid="task-flow-tip">{{ flowTipText(row) }}</div>
+              </template>
+              <t-tag
+                size="small"
+                theme="primary"
+                variant="light"
+                class="cell-title__flow"
+                data-testid="task-flow-badge"
+                @mouseenter="prefetchFlow(row)"
+              >
+                流程
+              </t-tag>
+            </t-tooltip>
             <t-link
               theme="primary"
               class="cell-title__text"
@@ -313,11 +338,13 @@ import { clearStatusList, hasStatusFilter, statusesParam, toggleStatusIn } from 
 import { ApiError } from '@/api/request';
 import {
   deleteTask,
+  getTaskFlow,
   listMyTasks,
   listSubtasks,
   pageTasks,
   type MyTaskCounts,
   type TaskCard,
+  type TaskFlowDetail,
   type TaskPageQuery,
 } from '@/api/business/task-api';
 import { pageProjects } from '@/api/business/project-api';
@@ -364,6 +391,27 @@ function setLazyChildren(row: TaskRow): void {
 const statusOpts = statusOptions('task');
 const priorityOpts = priorityOptions();
 
+/**
+ * 「来源」筛选选项（P-FLOW-1C）。
+ *
+ * 用哨兵值 `'all'` 而不是空串：TDesign 的 `t-select` 把空串当「未选」，
+ * 选中「全部」后显示的是 placeholder（本仓踩过，见 `cloudpivot-frontend-verify` 的笔记）。
+ * `buildSourceParam()` 负责把 `'all'` 变成「整键缺席」。
+ */
+const sourceOpts = [
+  { label: '全部来源', value: 'all' },
+  { label: '流程', value: 'FLOW' },
+  { label: '自建', value: 'SELF' },
+  { label: '被分派', value: 'ASSIGNED' },
+  { label: '转派', value: 'TRANSFERRED' },
+  { label: '周期', value: 'RECURRING' },
+];
+
+/** 来源过滤参数：`'all'` → 不带这个键（`asParams` 会丢掉空串） */
+function buildSourceParam(): string {
+  return query.source === 'all' ? '' : query.source;
+}
+
 /** 表格数据 */
 const rows = ref<TaskRow[]>([]);
 /** 正在拉子任务的父任务 id（防连点重复请求） */
@@ -391,6 +439,8 @@ const scopeTruncated = ref(false);
  */
 type QueryState = Required<Pick<TaskPageQuery, 'keyword' | 'priority' | 'owner_id' | 'project_id'>> & {
   statuses: string[];
+  /** 来源过滤（`'all'` = 不筛；`'FLOW'` = 只看流程生成的任务） */
+  source: string;
 };
 const query = reactive<QueryState>({
   keyword: '',
@@ -399,6 +449,7 @@ const query = reactive<QueryState>({
   owner_id: '',
   // 项目筛选：初值留空，`onMounted` 里从 URL query 读（项目页「查看项目下任务」会带过来）
   project_id: '',
+  source: 'all',
 });
 /** 截止日期范围（`[from, to]`，`YYYY-MM-DD`） */
 const dueRange = ref<string[]>([]);
@@ -426,6 +477,7 @@ const hasFilter = computed(() =>
       query.priority ||
       query.owner_id ||
       query.project_id ||
+      (query.source && query.source !== 'all') ||
       dueRange.value?.length,
   ),
 );
@@ -488,8 +540,65 @@ function openProject(row: TaskCard): void {
 
 /** 来源文案 */
 function sourceLabel(source: string): string {
-  const map: Record<string, string> = { SELF: '自建', ASSIGNED: '被分派', TRANSFERRED: '转派' };
+  const map: Record<string, string> = {
+    SELF: '自建',
+    ASSIGNED: '被分派',
+    TRANSFERRED: '转派',
+    RECURRING: '周期',
+    // P-FLOW-1A 新增：流程节点生成的任务（`source='FLOW'` ⇔ `flow_instance_id` 非空）
+    FLOW: '流程',
+  };
   return map[source] ?? source;
+}
+
+// ==================== 流程徽标（P-FLOW-1C） ====================
+
+/** 该行是否流程生成的任务（后端 `flow` 段非空 ⇔ `source='FLOW'`） */
+function isFlowRow(row: TaskCard): boolean {
+  return Boolean(row.flow) || row.source === 'FLOW';
+}
+
+/**
+ * 已查到的流程上下文（按任务 id 缓存）。
+ *
+ * 列表 DTO 只给 `instance_id / node_key / round`（**不为此多 JOIN**），
+ * 所以「流程名 · 节点名」要在 hover 时按需查 `GET /business/task/{id}/flow`。
+ * 缓存键是任务 id：同一行反复 hover 只打一次。
+ */
+const flowInfo = ref<Record<string, TaskFlowDetail | null>>({});
+/** 正在查的任务 id（防连点重复请求） */
+const flowLoading = new Set<string>();
+
+/** hover 时预取流程上下文（失败就标记 null，不再重试） */
+function prefetchFlow(row: TaskCard): void {
+  const id = row.id;
+  if (id in flowInfo.value || flowLoading.has(id)) {
+    return;
+  }
+  flowLoading.add(id);
+  void getTaskFlow(id)
+    .then((response) => {
+      flowInfo.value = { ...flowInfo.value, [id]: response.flow ?? null };
+    })
+    .catch(() => {
+      flowInfo.value = { ...flowInfo.value, [id]: null };
+    })
+    .finally(() => {
+      flowLoading.delete(id);
+    });
+}
+
+/** 徽标 hover 的正文：查到了给「流程名 › 节点名（第 N 轮）」，没查到先给节点 key */
+function flowTipText(row: TaskCard): string {
+  const flow = flowInfo.value[row.id];
+  if (flow) {
+    return `${flow.flow_name} › ${flow.node_name}（第 ${flow.round} 轮）`;
+  }
+  const node = row.flow?.node_key ?? '';
+  const round = row.flow?.round ?? 1;
+  return flowLoading.has(row.id)
+    ? `流程任务 · ${node}（第 ${round} 轮）· 正在加载流程名…`
+    : `流程任务 · ${node}（第 ${round} 轮）`;
 }
 
 /** 是否逾期：有截止日、早于今天、且未完成/未取消（今天按本地 CST 计算） */
@@ -772,6 +881,8 @@ async function loadList(): Promise<void> {
       project_id: query.project_id,
       due_from: dueFrom || '',
       due_to: dueTo || '',
+      // P-FLOW-1C：来源过滤（`'all'` → 空串 → `asParams` 整键丢掉，后端即不筛）
+      source: buildSourceParam(),
       // T8-C：列表视图默认只取**顶层任务**（树形 + 分页唯一正确的组合）。
       // 子任务靠 TDesign 展开箭头逐层懒加载（listSubtasks）；看板 / 甘特 / 燃尽图
       // 走各自的接口，不传这个参数 —— 它们不是树形，需要全部任务。
@@ -824,6 +935,7 @@ function handleReset(): void {
   query.priority = '';
   query.owner_id = '';
   query.project_id = '';
+  query.source = 'all';
   dueRange.value = [];
   myMode.value = false;
   pagination.current = 1;
@@ -1048,6 +1160,12 @@ onMounted(() => {
   gap: 6px;
   min-width: 0;
 
+  /* P-FLOW-1C：「流程」徽标。`flex: none` 保证被长标题挤的时候不缩成一条线 */
+  &__flow {
+    flex: none;
+    cursor: default;
+  }
+
   &__text {
     min-width: 0;
     overflow: hidden;
@@ -1237,5 +1355,20 @@ onMounted(() => {
 .filter-line--mine {
   justify-content: flex-start;
   gap: 12px;
+}
+</style>
+
+<style lang="less">
+/*
+ * 「流程」徽标的 tooltip 正文（P-FLOW-1C）。
+ *
+ * t-tooltip 的弹层 teleport 到 body，本组件的 `scoped` 属性选择器命中不了它，
+ * 所以这一条**故意不 scoped**（同类情况见本仓 `flow/` 的属性面板弹层）。
+ */
+.flow-tip {
+  max-width: 260px;
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-all;
 }
 </style>

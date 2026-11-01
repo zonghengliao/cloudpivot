@@ -20,6 +20,8 @@
     >
       {{ action.label }}
     </t-button>
+    <!-- 流程任务：主按钮下方说明「点完还要等什么」（on_complete=APPROVE 才有） -->
+    <span v-if="flowNote" class="status-actions__note" data-testid="task-flow-note">{{ flowNote }}</span>
   </div>
 
   <!-- 打回原因弹窗：空或 <5 字 → 确定按钮 disabled（红线） -->
@@ -119,10 +121,18 @@ import { PERM } from '@/constants/permissions';
 import { statusLabel } from '@/constants/status-map';
 import { useUserStore } from '@/stores/user';
 import { useBadgeStore } from '@/stores/badge';
+import { applyFlowMainButton, flowMainNote, type FlowCompletion } from './flow-actions';
 
 const props = defineProps<{
   /** 当前任务详情（只读；流转后由父组件重新拉） */
   task: TaskDetail;
+  /**
+   * 流程上下文（P-FLOW-1C）：这张任务由哪个流程节点生成。
+   *
+   * `null` = 不是流程任务（普通任务的行为一个字不变）。
+   * 有值时 DOING 态只留**一个**主按钮，文案由 `on_complete` 决定（见 `flow-actions.ts`）。
+   */
+  flow?: FlowCompletion | null;
 }>();
 
 const emit = defineEmits<{
@@ -295,12 +305,16 @@ const currentStatus = computed<TaskStatus>(
   () => (props.task.status || 'TODO').toUpperCase() as TaskStatus,
 );
 
-/** 现在能点的按钮（三重过滤：白名单 → 角色位 → need_review） */
+/** 现在能点的按钮（三重过滤：白名单 → 角色位 → need_review）
+ *
+ * 流程任务再过一道 {@link applyFlowMainButton}：DOING 态只留一个主按钮，
+ * 文案由节点的 `on_complete` 决定（普通任务的行为一个字不变）。
+ */
 const actions = computed<StatusAction[]>(() => {
   if (!canChangeStatus.value || roleMask.value === 0) {
     return [];
   }
-  return RULES.filter((rule) => {
+  const list = RULES.filter((rule) => {
     if (rule.from !== currentStatus.value) {
       return false;
     }
@@ -309,7 +323,11 @@ const actions = computed<StatusAction[]>(() => {
     }
     return (roleMask.value & rule.actors) !== 0;
   }).map((rule) => ({ key: rule.key, label: rule.label, to: rule.to, theme: rule.theme }));
+  return applyFlowMainButton(list, props.flow ?? null);
 });
+
+/** 流程任务主按钮下方的副文案（`on_complete=APPROVE` → 「完成后需审批」） */
+const flowNote = computed(() => (props.flow ? flowMainNote(props.flow) : null));
 
 /** 正在提交的按钮 key（为空 = 空闲） */
 const pending = reactive({ key: '' });
@@ -479,6 +497,13 @@ function transitionErrorText(error: unknown): string {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+
+  /* 流程任务主按钮的副文案（「完成后需审批」）：跟在按钮后面，不占一整行 */
+  &__note {
+    font-size: 12px;
+    line-height: 1.4;
+    color: var(--td-text-color-placeholder);
+  }
 }
 
 .reject {

@@ -7,6 +7,25 @@
         <t-tag size="small" variant="outline">{{ node.key }}</t-tag>
       </div>
 
+      <!-- ===== 通知节点只读占位（P-FLOW-2B 才有表单）=====
+           R19 在 1A 直接拒绝 `NOTIFY_NODE`（引擎分支在 P-FLOW-2），所以这里既不建表单，
+           也不假装能配：只说明「现在配不了、发布会被拒」+ 变量引用模式的只读提示。 -->
+      <div v-if="isNotifyNode(node.type)" class="node-props__notify" data-testid="flow-notify-placeholder">
+        <div class="node-props__notify-title">
+          <t-icon name="notification" />
+          通知节点（表单在 P-FLOW-2B）
+        </div>
+        <p class="node-props__tip">
+          本版本还没有「通知节点」的配置表单：触发时机、收件人、模板都需要
+          <code>config.notify</code>，而引擎侧分支在 P-FLOW-2。当前发布校验（R19）会拒绝含通知节点的流程，
+          所以这里只保留占位，不做半套编辑。
+        </p>
+        <p class="node-props__tip">
+          引用通知模板时不出现变量选择器（模板里的变量名没有点号，走旧 <code>render</code>）：
+        </p>
+        <TemplateVarPicker mode="template-ref" :readonly="true" />
+      </div>
+
       <t-form :label-width="76" label-align="top" class="node-props__form" :disabled="readonly">
         <t-form-item label="名称">
           <t-input
@@ -17,9 +36,21 @@
           />
         </t-form-item>
 
-        <!-- 审批人（审批 / 会签 / 抄送） -->
+        <!-- ===== 任务配置（仅 TASK_NODE，P-FLOW-1C）=====
+             放在「基础信息」之后、「负责人」之前：先配「这一步要干什么活」，再配「谁来干」。
+             组件的根是片段，`t-form-item` 直接落在这个 `<t-form>` 里（共用 label-width 与 disabled）。 -->
+        <TaskNodeConfig
+          v-if="isTaskNode(node.type)"
+          :node="node"
+          :biz-type="bizType"
+          :form-fields="formFields"
+          :readonly="readonly"
+          @patch="emitPatch"
+        />
+
+        <!-- 审批人（审批 / 会签 / 抄送 / 任务负责人） -->
         <template v-if="needsAssignee">
-          <t-form-item label="审批人来源">
+          <t-form-item :label="assigneeSourceLabel">
             <t-select
               :value="node.assignee_type ?? undefined"
               :options="assigneeKindOptions"
@@ -98,9 +129,14 @@
               :options="emptyAssigneeOptions"
               @change="(value: unknown) => emitPatch({ empty_assignee: String(value ?? 'SKIP') })"
             />
+            <p v-if="isTaskNode(node.type)" class="node-props__tip">
+              任务节点上这是「解析不出负责人时怎么办」：默认应选「报错」——
+              选「跳过」等于这一步的活没人做且没有记录。
+            </p>
           </t-form-item>
 
-          <t-form-item label="自审策略">
+          <!-- 自审策略只对审批成立；任务节点上配了也不读（设计 §2.4），所以直接不显示 -->
+          <t-form-item v-if="!isTaskNode(node.type)" label="自审策略">
             <t-select
               :value="node.self_approval"
               :options="selfApprovalOptions"
@@ -191,7 +227,7 @@
           <t-switch :value="node.allow_robot" @change="(value: unknown) => emitPatch({ allow_robot: Boolean(value) })" />
         </t-form-item>
 
-        <t-form-item v-if="supportsAssignee" label="通过后抄送">
+        <t-form-item v-if="supportsAssignee && !isTaskNode(node.type)" label="通过后抄送">
           <t-switch :value="node.cc_on_approved" @change="(value: unknown) => emitPatch({ cc_on_approved: Boolean(value) })" />
         </t-form-item>
       </t-form>
@@ -287,6 +323,15 @@ import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ConditionTree from '@/views/business/flow/components/ConditionTree.vue';
 import RulePreview from '@/views/business/flow/components/RulePreview.vue';
+import TaskNodeConfig from '@/views/business/flow/components/TaskNodeConfig.vue';
+import TemplateVarPicker from '@/views/business/flow/components/TemplateVarPicker.vue';
+import {
+  assigneeKindOptionsOf,
+  capabilitiesOf,
+  isNotifyNode,
+  isTaskNode,
+  timeoutActionOptionsOf,
+} from '@/views/business/flow/components/flow-node-caps';
 import { thenTargetsFromNode } from '@/views/business/flow/components/rule-preview';
 import { validateRule, type RuleReport } from '@/views/business/flow/components/rule-validation';
 import { nodeTypeLabel } from '@/views/business/flow/graph';
@@ -302,8 +347,12 @@ const props = withDefaults(
     targetNode?: FlowNode | null;
     /** 只读（已发布版本） */
     readonly?: boolean;
+    /** 本流程业务类型（P-FLOW-1C：`task.*` 变量与指派来源灰化都要它） */
+    bizType?: string | null;
+    /** 表单字段候选（来自历史实例 `form_data`，可能为空 = 只允许手输） */
+    formFields?: string[];
   }>(),
-  { node: null, edge: null, targetNode: null, readonly: false },
+  { node: null, edge: null, targetNode: null, readonly: false, bizType: null, formFields: () => [] },
 );
 
 /** 组件事件 */
@@ -314,19 +363,20 @@ const emit = defineEmits<{
   (event: 'patch-edge', payload: { key: string; patch: Partial<FlowEdge> }): void;
 }>();
 
-/** 审批人来源选项（顺序：最常用在上） */
-const assigneeKindOptions = [
-  { label: '发起人主管', value: 'INITIATOR_SUPERIOR' },
-  { label: '发起人本人', value: 'INITIATOR' },
-  { label: '指定人', value: 'USER' },
-  { label: '指定角色', value: 'ROLE' },
-  { label: '部门负责人', value: 'DEPT_LEADER' },
-  { label: '任务负责人', value: 'TASK_OWNER' },
-  { label: '任务创建人', value: 'TASK_CREATOR' },
-  { label: '任务分派人', value: 'TASK_ASSIGNER' },
-  { label: '表单字段里的人', value: 'FORM_VAR' },
-  { label: '管理员', value: 'ADMIN' },
-];
+/**
+ * 能力表（**唯一的类型分支来源**，P-FLOW-1C）。
+ *
+ * 原来这里有 4 个 `supportsXxx` computed 各自写 `type === 'APPROVAL' || …`，
+ * 最长的那个是三段 `||`。加 `TASK_NODE` / `NOTIFY_NODE` 就会变成第 5、6 处 ——
+ * 现在统一读 `flow-node-caps.ts` 的表（纯数据，可单测）。
+ */
+const caps = computed(() => capabilitiesOf(props.node?.type));
+
+/** 审批人来源选项（`TASK_NODE` 上灰掉三个「任务来源」，因为它们依赖 TASK_ACCEPT） */
+const assigneeKindOptions = computed(() => assigneeKindOptionsOf(props.node?.type, props.bizType));
+
+/** 超时动作选项（`TASK_NODE` 上灰掉「自动通过 / 自动驳回」：活没干完不能算干完） */
+const timeoutActionOptions = computed(() => timeoutActionOptionsOf(props.node?.type));
 
 /** 可落行的审批人类型 */
 const rowKindOptions = [
@@ -362,34 +412,23 @@ const gatewayOptions = [
   { label: 'OR（任一）', value: 'OR' },
 ];
 
-/** 超时动作 */
-const timeoutActionOptions = [
-  { label: '仅提醒', value: 'REMIND' },
-  { label: '自动通过', value: 'AUTO_APPROVE' },
-  { label: '自动驳回', value: 'AUTO_REJECT' },
-  { label: '升级给上级', value: 'ESCALATE' },
-];
-
-/** 是否审批类节点（需要审批人） */
-const needsAssignee = computed(() => {
-  const type = props.node?.type;
-  return type === 'APPROVAL' || type === 'COUNTERSIGN' || type === 'CC';
-});
+/** 是否审批类节点（需要审批人）—— 全部来自能力表，不再逐个 `type === … || …` */
+const needsAssignee = computed(() => caps.value.canHaveAssignee);
 
 /** 是否支持会签配置 */
-const supportsCountersign = computed(() => {
-  const type = props.node?.type;
-  return type === 'APPROVAL' || type === 'COUNTERSIGN';
-});
+const supportsCountersign = computed(() => props.node?.type === 'APPROVAL' || props.node?.type === 'COUNTERSIGN');
 
 /** 是否支持网关配置 */
 const supportsGateway = computed(() => props.node?.type === 'PARALLEL' || props.node?.type === 'CONDITION');
 
 /** 是否支持超时配置 */
-const supportsTimeout = computed(() => props.node?.type === 'APPROVAL' || props.node?.type === 'COUNTERSIGN');
+const supportsTimeout = computed(() => caps.value.canHaveTimeout);
 
 /** 「允许机器人 / 通过后抄送」只对审批类有意义 */
-const supportsAssignee = computed(() => props.node?.type === 'APPROVAL' || props.node?.type === 'COUNTERSIGN');
+const supportsAssignee = computed(() => caps.value.canHaveAssignee);
+
+/** 「审批人来源」标签：任务节点上是「负责人来源」（术语锁定，决策 4） */
+const assigneeSourceLabel = computed(() => (isTaskNode(props.node?.type) ? '负责人来源' : '审批人来源'));
 
 /** 是否可枚举审批人（三种可落行的来源） */
 const supportsAssigneeRows = computed(() =>
@@ -629,6 +668,27 @@ function onDefaultEdgeChange(value: unknown): void {
     margin-top: 12px;
     font-size: 12px;
     color: var(--td-warning-color);
+  }
+
+  /* 通知节点的只读占位（P-FLOW-2B 才有表单） */
+  &__notify {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 10px 12px;
+    margin: 0 0 12px;
+    background: var(--td-bg-color-container-hover);
+    border: 1px dashed var(--td-component-stroke);
+    border-radius: var(--td-radius-default);
+  }
+
+  &__notify-title {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--td-text-color-primary);
   }
 
   &__empty {

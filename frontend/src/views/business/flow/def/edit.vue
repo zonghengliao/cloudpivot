@@ -171,6 +171,8 @@
           :edge="selectedEdge"
           :target-node="selectedEdgeTarget"
           :readonly="readonly"
+          :biz-type="defDetail?.biz_type ?? null"
+          :form-fields="formFields"
           @patch-node="onPatchNode"
           @patch-edge="onPatchEdge"
         />
@@ -239,6 +241,7 @@ import {
   getFlowDef,
   getFlowVersion,
   listFlowVersions,
+  pageFlowInstances,
   publishFlowDef,
   saveFlowGraph,
   validateFlowVersion,
@@ -399,11 +402,44 @@ function versionStatusLabel(status: string): string {
 
 // ==================== 加载 ====================
 
+/**
+ * `form.*` 变量候选（P-FLOW-1C）。
+ *
+ * # 为什么从「历史实例的 form_data」推，而不是查一个 `form-fields` 接口
+ *
+ * 后端没有 `form-fields`（1A 全仓 grep 零命中），`biz_flow_def` 上也没存表单 schema。
+ * 按卡面「宁可少列，不可伪造候选」：这里读**最近 20 个本流程实例**的 `form_data` 顶层键，
+ * 一个实例都没有时就是空数组 —— 面板上只剩「手输」，绝不凭空造字段名。
+ */
+const formFields = ref<string[]>([]);
+
+/** 拉历史实例的 `form_data` 键（失败静默：只是少几个候选，不影响编辑） */
+async function loadFormFields(): Promise<void> {
+  const code = defDetail.value?.flow_code;
+  if (!code) {
+    return;
+  }
+  try {
+    const page = await pageFlowInstances({ flow_code: code, page_size: 20 });
+    const keys = new Set<string>();
+    for (const item of page.list ?? []) {
+      const data = (item.form_data ?? {}) as Record<string, unknown>;
+      for (const key of Object.keys(data)) {
+        keys.add(key);
+      }
+    }
+    formFields.value = Array.from(keys).sort();
+  } catch {
+    formFields.value = [];
+  }
+}
+
 /** 载入流程定义 + 版本列表，并选中合适的版本 */
 async function bootstrap(): Promise<void> {
   loading.value = true;
   try {
     defDetail.value = await getFlowDef(defId.value);
+    void loadFormFields();
     const list = await listFlowVersions(defId.value);
     versions.value = list.list ?? [];
     const queryVid = typeof route.query.vid === 'string' ? route.query.vid : '';
@@ -1229,6 +1265,16 @@ onMounted(() => {
 
   &--cc {
     --palette-stroke: var(--td-text-color-placeholder);
+  }
+
+  // P-FLOW-1C：任务节点与画布上的 `is-task` 同色系（同一套变量，避免两处漂移）；
+  // 类名带下划线（`type.toLowerCase()` 得来），别写成 `--task-node`
+  &--task_node {
+    --palette-stroke: color-mix(in srgb, var(--td-brand-color) 62%, var(--td-success-color));
+  }
+
+  &--notify_node {
+    --palette-stroke: color-mix(in srgb, var(--td-warning-color) 55%, var(--td-text-color-placeholder));
   }
 
   &__text {

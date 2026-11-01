@@ -61,7 +61,9 @@ export type FlowNodeType =
   | 'CONDITION'
   | 'PARALLEL'
   | 'CC'
-  | 'END';
+  | 'END'
+  | 'TASK_NODE'
+  | 'NOTIFY_NODE';
 
 /** 审批人来源（与后端 `graph::AssigneeKind` 逐字一致） */
 export type FlowAssigneeKind =
@@ -963,4 +965,123 @@ export function batchFlowTasks(body: {
     '/api/business/flow/task/batch',
     body,
   );
+}
+
+// ==================== 任务节点预演（P-FLOW-1A 接口 / P-FLOW-1C 前端接入） ====================
+
+/**
+ * 预演请求里的指派配置（后端 `PreviewAssigneeReq`）。
+ *
+ * 形状与 `biz_flow_node` 的列 + `biz_flow_node_assignee` 表同款（决策 D3：
+ * 不造第二套指派规则，预演走**同一个** `assignee::resolve`）。
+ * 本卡只填得起 `assignee_type` / `role_codes` / `user_ids` / `empty_assignee` / `allow_robot`
+ * 这几项（面板上能编辑的那几个），其余留空 = 用后端缺省。
+ */
+export interface TaskPreviewAssigneeReq {
+  /** 来源类型（`USER` / `ROLE` / `INITIATOR` …） */
+  assignee_type?: string | null;
+  /** `ROLE` 的角色编码 */
+  role_codes?: string[];
+  /** `USER` 的用户 id */
+  user_ids?: string[];
+  /** 主管层数 */
+  superior_levels?: number | null;
+  /** `FORM_VAR` 的变量名 */
+  form_var_key?: string | null;
+  /** 空负责人策略 */
+  empty_assignee?: string | null;
+  /** 是否允许机器人 */
+  allow_robot?: boolean | null;
+}
+
+/**
+ * 预演请求（后端 `TaskPreviewReq`）。
+ *
+ * `strict` 的两种模式：`false`（默认）缺变量渲染成可见占位 `〔form.x〕` + warnings；
+ * `true` 与运行期一致，缺变量直接 `400 + 65039`。
+ */
+export interface TaskPreviewReq {
+  /** 完整 `config.task`（与保存时同一形状） */
+  config: Record<string, unknown>;
+  /** 指派配置（不给就只回模板结果） */
+  assignee?: TaskPreviewAssigneeReq | null;
+  /** 模拟变量（一层嵌套：`{form:{…}, instance:{…}}`） */
+  vars?: Record<string, unknown> | null;
+  /** 决定 `task.*` 是否可用 */
+  biz_type?: string | null;
+  /** `{{node.name}}` 的值 */
+  node_name?: string | null;
+  /** 算相对期限的基准时刻（默认 now） */
+  due_base?: string | null;
+  /** 严格模式 */
+  strict?: boolean | null;
+}
+
+/** 预演渲染出的任务（后端 `PreviewTaskRes`） */
+export interface PreviewTaskRes {
+  /** 渲染后的标题 */
+  title: string;
+  /** 渲染后的描述 */
+  description: string;
+  /** 优先级 */
+  priority: string;
+  /** 截止日 `yyyy-MM-dd`（没配 → null） */
+  due_date: string | null;
+  /** 是否需验收 */
+  need_review: boolean;
+  /** 完成后怎么走 */
+  on_complete: string;
+}
+
+/** 预演解析出的人（后端 `PreviewAssigneeRes`；第一个是负责人，其余 `member=true`） */
+export interface PreviewAssigneeRes {
+  /** 用户 id */
+  user_id: string;
+  /** 姓名 */
+  name: string;
+  /** 来源 */
+  source: string;
+  /** 来源角色 / 部门 id */
+  source_ref: string;
+  /** 是否机器人 */
+  is_robot: boolean;
+  /** 是否协作人 */
+  member: boolean;
+}
+
+/** 预演回执（后端 `TaskPreviewRes`；**400 时前端拿到的是 ApiError，不是这个结构**） */
+export interface TaskPreviewRes {
+  /** 是否通过 */
+  ok: boolean;
+  /** 渲染结果（失败时也可能有部分结果） */
+  task: PreviewTaskRes | null;
+  /** 解析出的人 */
+  assignees: PreviewAssigneeRes[];
+  /** 告警（缺变量的可见占位等；**绝不含「已自动填充默认值」这类假安慰**） */
+  warnings: string[];
+  /** 错误 */
+  errors: string[];
+  /** 排障痕迹 */
+  trace: string[];
+}
+
+/**
+ * 任务节点模板预演（`POST /business/flow/node/task/preview`，设计 §3.3）。
+ *
+ * **不发布、不建实例**：拿一份 `config.task` + 一份模拟变量，看渲染出的任务长什么样。
+ * 属性面板底部的实时预览调它（防抖 300ms）。
+ *
+ * 权限是 `business:flow:tasknode:read`（后端 1A 的取舍，不是设计 §3.3 写的 `flow:read`）。
+ *
+ * # 异常情况
+ *
+ * - `400 + 65034`：`config` 形状 / 交叉约束非法
+ * - `400 + 65035`：`need_review × on_complete` 矩阵违例（1A 阶段 `APPROVE` 也落这里）
+ * - `400 + 65036`：模板语法错
+ * - `400 + 65037`：变量路径不在白名单 / `task.*` 用在非 `TASK_ACCEPT`
+ * - `400 + 65039`：严格模式缺变量 / 渲染后标题超 200 字符
+ * - `400 + 65018`：指派人解析出 0 人且 `empty_assignee=ERROR`
+ */
+export function previewTaskNode(body: TaskPreviewReq): Promise<TaskPreviewRes> {
+  return post<TaskPreviewRes>('/api/business/flow/node/task/preview', body);
 }

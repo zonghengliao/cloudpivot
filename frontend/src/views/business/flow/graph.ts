@@ -21,6 +21,7 @@
  * `<style>` 里用 `--td-*` / `--app-*` 变量表达。
  */
 import type { FlowEdge, FlowNode, FlowNodeType } from '@/api/business/flow-api';
+import { DEFAULT_TASK_CONFIG } from '@/views/business/flow/components/task-node-config';
 
 /** 画布坐标点 */
 export interface Point {
@@ -73,14 +74,22 @@ export interface NodeTypeMeta {
   hint: string;
 }
 
-/** 七种节点（顺序 = 左侧面板顺序；与后端 `graph::NodeType` 逐字对应） */
+/** 七种节点（顺序 = 左侧面板顺序；与后端 `graph::NodeType` 逐字对应）
+ *
+ * P-FLOW-1C 追加 `TASK_NODE`（生成工作任务）与 `NOTIFY_NODE`（发通知）。
+ * 两者在 P-FLOW-1A 的发布校验里分别是：`TASK_NODE` 需要 `config.task`（R17/R18），
+ * `NOTIFY_NODE` **直接拒绝**（R19，引擎分支在 P-FLOW-2）—— 能拖进画布不等于能发布，
+ * 属性面板里对此有明确说明。
+ */
 export const NODE_TYPES: NodeTypeMeta[] = [
   { type: 'START', label: '开始', shape: 'capsule', defaultName: '开始', size: { w: 96, h: 44 }, hint: '流程唯一入口（有且仅有一个）' },
+  { type: 'TASK_NODE', label: '任务', shape: 'rect', defaultName: '任务', size: { w: 150, h: 64 }, hint: '节点激活即生成一条工作任务' },
   { type: 'APPROVAL', label: '审批', shape: 'rect', defaultName: '审批', size: { w: 150, h: 64 }, hint: '单人会签点，出度必须为 1' },
   { type: 'COUNTERSIGN', label: '会签', shape: 'rect', defaultName: '会签', size: { w: 150, h: 64 }, hint: '多人会签（全部 / 按比例 / 一票否决）' },
   { type: 'CONDITION', label: '条件', shape: 'diamond', defaultName: '条件判断', size: { w: 132, h: 84 }, hint: '分支网关，出边需一条兜底' },
   { type: 'PARALLEL', label: '并行', shape: 'diamond', defaultName: '并行网关', size: { w: 132, h: 84 }, hint: '并行分叉 / 汇聚' },
   { type: 'CC', label: '抄送', shape: 'rect', defaultName: '抄送', size: { w: 140, h: 60 }, hint: '只读知会，不出审批任务' },
+  { type: 'NOTIFY_NODE', label: '通知', shape: 'rect', defaultName: '通知', size: { w: 140, h: 60 }, hint: '发通知（表单在 P-FLOW-2B）' },
   { type: 'END', label: '结束', shape: 'capsule', defaultName: '结束', size: { w: 96, h: 44 }, hint: '流程出口（至少一个）' },
 ];
 
@@ -103,9 +112,18 @@ export function nodeTypeLabel(type: string): string {
 /** 审批类节点（出度必须 = 1；架构 §3.2 硬约束 1） */
 export const APPROVAL_TYPES: string[] = ['APPROVAL', 'COUNTERSIGN', 'CC'];
 
+/**
+ * 需要配「审批人 / 负责人」的类型（P-FLOW-1C 追加 `TASK_NODE` / `NOTIFY_NODE`）。
+ *
+ * 与 `flow-node-caps.ts::CAPS[*].canHaveAssignee` 同口径，但这里不能 import 它 ——
+ * `graph.ts` 是**不含组件层**的纯几何/命令栈模块（`FlowCanvas.vue` 反过来依赖它），
+ * 互相 import 会成环。两处的一致性由单测钉住（`tests/unit/flow-task-node.test.ts`）。
+ */
+export const ASSIGNEE_TYPES: string[] = [...APPROVAL_TYPES, 'TASK_NODE', 'NOTIFY_NODE'];
+
 /** 需要配置审批人的类型 */
 export function needsAssignee(type: string): boolean {
-  return APPROVAL_TYPES.includes(type);
+  return ASSIGNEE_TYPES.includes(type);
 }
 
 /** 网格吸附 */
@@ -208,6 +226,7 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
   // 落点按「拖到哪就以哪为中心」摆放，再吸附网格
   const x = snapGrid(at.x - (type === 'START' || type === 'END' ? meta.size.w : meta.size.w / 2));
   const y = snapGrid(at.y - meta.size.h / 2);
+  const isTask = type === 'TASK_NODE';
   return {
     key,
     name: name ?? meta.defaultName,
@@ -221,7 +240,8 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
     approval_mode: type === 'COUNTERSIGN' ? 'ALL' : null,
     approve_ratio: null,
     reject_veto: true,
-    empty_assignee: 'SKIP',
+    // 任务节点默认「解析不出负责人就报错」（SKIP 等于这一步的活静默没人做，设计 §2.4）
+    empty_assignee: isTask ? 'ERROR' : 'SKIP',
     self_approval: 'SKIP',
     allow_robot: false,
     join_mode: type === 'CONDITION' || type === 'PARALLEL' ? 'AND' : 'AND',
@@ -231,7 +251,11 @@ export function makeNode(type: FlowNodeType, at: Point, used: Iterable<string>, 
     remind_before_hours: null,
     max_remind_times: 0,
     cc_on_approved: false,
-    config: {},
+    // 任务节点自带一份 `config.task` 初值：后端 R17 要求 TASK_NODE 必须有它，
+    // 拖进来就是空的会让「发布」直接 65034，用户在面板里补全即可（预演会先攒红字）
+    config: isTask
+      ? { task: { ...DEFAULT_TASK_CONFIG, title_template: `{{instance.biz_no}} ${name ?? meta.defaultName}` } }
+      : {},
     assignees: [],
   };
 }

@@ -56,7 +56,7 @@
           <div class="head__actions">
             <!-- 状态流转按钮（E5）：按「当前状态 + 我的角色位 + business:task:status」动态渲染；
                  没有可做的流转 → 整块不出现（不再是「画出来置灰」） -->
-            <StatusActions :task="detail" @changed="handleStatusChanged" />
+            <StatusActions :task="detail" :flow="flowCompletion" @changed="handleStatusChanged" />
             <t-space size="small" class="head__ops">
               <t-button
                 v-privilege="[PERM.taskUpdate]"
@@ -71,6 +71,33 @@
                 删除
               </t-button>
             </t-space>
+          </div>
+        </div>
+
+        <!-- ==================== 流程上下文条（P-FLOW-1C） ====================
+             只有流程生成的任务才有这一条；**非流程任务整条不渲染**（不是显示「暂无」）。
+             两套进度**并排**显示（节点：处理中 / 任务：待开始…），不折成一条 ——
+             它们是两件事，折起来必然有人问「到底完成没有」。 -->
+        <div v-if="flow" class="flow-bar" data-testid="task-flow-bar">
+          <div class="flow-bar__main">
+            <t-icon name="flow" class="flow-bar__icon" />
+            <t-link theme="primary" class="flow-bar__name" @click="openFlow">{{ flow.flow_name }}</t-link>
+            <span class="flow-bar__sep">›</span>
+            <span class="flow-bar__node">{{ flow.node_name }}</span>
+            <t-tag size="small" variant="outline">第 {{ flow.round }} 轮</t-tag>
+            <t-tag v-if="flow.biz_no" size="small" variant="light" theme="primary">单据 {{ flow.biz_no }}</t-tag>
+          </div>
+          <div class="flow-bar__progress">
+            <span class="flow-bar__label">节点</span>
+            <StatusBadge domain="flow-node" :status="flow.node_status" size="small" />
+            <span class="flow-bar__label">任务</span>
+            <StatusBadge domain="task" :status="detail.status" size="small" />
+            <span class="flow-bar__label">实例</span>
+            <StatusBadge domain="flow-instance" :status="flow.instance_status" size="small" />
+            <t-button size="small" variant="outline" class="flow-bar__link" @click="openFlow">
+              查看流程
+              <template #suffix><t-icon name="chevron-right" /></template>
+            </t-button>
           </div>
         </div>
 
@@ -495,6 +522,7 @@ import {
   deleteTaskWorklog,
   downloadTaskAttachment,
   getTask,
+  getTaskFlow,
   listTaskAttachments,
   listTaskComments,
   listTaskWorklogs,
@@ -505,6 +533,7 @@ import {
   type TaskCommentItem,
   type TaskCommentType,
   type TaskDetail,
+  type TaskFlowDetail,
   type TaskWorklogItem,
 } from '@/api/business/task-api';
 import { PERM } from '@/constants/permissions';
@@ -534,6 +563,26 @@ const emit = defineEmits<{
 
 /** 详情数据 */
 const detail = ref<TaskDetail | null>(null);
+/**
+ * 这张任务的流程上下文（P-FLOW-1C）。
+ *
+ * `null` = 不是流程任务 / 还没拉到 —— 两种情况都**整条不渲染**，
+ * 因为「非流程任务」不显示流程条是卡面明确要求的（不是显示「暂无」）。
+ */
+const flow = ref<TaskFlowDetail | null>(null);
+
+/** 传给 `StatusActions` 的完成方式（决定那唯一一个主按钮的文案） */
+const flowCompletion = computed(() => {
+  if (!flow.value) {
+    return null;
+  }
+  const needReview = Boolean(detail.value?.need_review);
+  // `on_complete` 1A 后端还没下发（已开卡补），拿不到就按 need_review 降级推断：
+  // need_review=true → VERIFY，否则 DIRECT。两条推断出的文案与真实配置一致，
+  // 只有 APPROVE 的「完成后需审批」副文案会缺（见 TaskFlowDetail.on_complete 的注释）。
+  const onComplete = flow.value.on_complete ?? (needReview ? 'VERIFY' : 'DIRECT');
+  return { on_complete: onComplete, need_review: needReview };
+});
 /** 加载中 */
 const loading = ref(false);
 /** 错误文案（非空即渲染错误态 + 重试） */
@@ -669,6 +718,8 @@ async function loadDetail(): Promise<void> {
   }
   loading.value = true;
   errorMessage.value = '';
+  // 换任务时先清流程上下文：否则新任务会在旧流程条渲染出来之前闪一下上一张的流程名
+  flow.value = null;
   try {
     detail.value = await getTask(currentId.value);
     // E9：换任务（含点进子任务）时描述重新折叠、AI 徽标清零重算；
@@ -678,16 +729,48 @@ async function loadDetail(): Promise<void> {
     if (mainTab.value === 'ai' && !isAiTask.value) {
       mainTab.value = 'detail';
     }
+    // P-FLOW-1C：流程上下文条（非流程任务回 flow=null，条目不渲染）
+    void loadFlow(detail.value.id);
     // 协作区三份并发拉（详情接口不带评论 / 工时；附件快照也不含下载与来源明细）
     void loadComments(1);
     void loadAttachments();
     void loadWorklogs();
   } catch (error) {
     detail.value = null;
+    flow.value = null;
     errorMessage.value = error instanceof ApiError ? error.message : '任务详情加载失败，请重试';
   } finally {
     loading.value = false;
   }
+}
+
+/**
+ * 拉「这张任务属于哪个流程节点」（`GET /business/task/{id}/flow`，P-FLOW-1C）。
+ *
+ * **非流程任务也 200**（`flow: null`），所以这里不写错误分支：
+ * 失败就当没有流程（详情页其余部分照常可用），不弹红条 ——
+ * 「流程条没出来」不该盖住一张能正常处理的任务。
+ */
+async function loadFlow(taskId: string): Promise<void> {
+  try {
+    const response = await getTaskFlow(taskId);
+    if (currentId.value !== taskId) {
+      return;
+    }
+    flow.value = response.flow ?? null;
+  } catch {
+    flow.value = null;
+  }
+}
+
+/** 跳到流程实例详情（同一路由 `/flow/instance/:id`，见 router） */
+function openFlow(): void {
+  const instanceId = flow.value?.instance_id;
+  if (!instanceId) {
+    return;
+  }
+  innerVisible.value = false;
+  void router.push(`/flow/instance/${instanceId}`);
 }
 
 /** 打开子任务详情（复用同一个抽屉，不关闭再打开 —— 关掉会丢掉列表页滚动位置） */
@@ -1318,6 +1401,61 @@ function resetCollab(): void {
 
   &__alert {
     margin-bottom: 12px;
+  }
+}
+
+/* 流程上下文条（P-FLOW-1C）：只有流程生成的任务才有这一条 */
+.flow-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  margin: 12px 0 0;
+  background: var(--td-brand-color-1);
+  border-left: 3px solid var(--td-brand-color);
+  border-radius: var(--td-radius-default);
+
+  &__main {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    font-size: 13px;
+  }
+
+  &__icon {
+    color: var(--td-brand-color);
+  }
+
+  &__name {
+    font-weight: 600;
+  }
+
+  &__sep {
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__node {
+    color: var(--td-text-color-primary);
+  }
+
+  &__progress {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+  }
+
+  &__label {
+    font-size: 12px;
+    color: var(--td-text-color-placeholder);
+  }
+
+  &__link {
+    margin-left: 4px;
   }
 }
 

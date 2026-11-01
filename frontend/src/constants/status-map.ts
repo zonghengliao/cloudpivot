@@ -123,7 +123,9 @@ const FLOW_INSTANCE_STATUS_MAP: Record<string, StatusMeta> = {
 /** 节点实例状态 */
 const FLOW_NODE_STATUS_MAP: Record<string, StatusMeta> = {
   PENDING: { label: '未到达', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
-  ACTIVE: { label: '审批中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  // 术语锁定（P-FLOW-1C 决策 4）：节点 ACTIVE 是「处理中」不是「审批中」——
+  // 这个节点可能是 TASK_NODE（在等一张任务干完），说「审批中」会让干活的人以为要找谁签字
+  ACTIVE: { label: '处理中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
   APPROVED: { label: '已通过', theme: 'success', dotVar: 'var(--td-success-color)' },
   REJECTED: { label: '已驳回', theme: 'danger', dotVar: 'var(--td-error-color)' },
   SKIPPED: { label: '已跳过', theme: 'default', dotVar: 'var(--td-text-color-disabled)' },
