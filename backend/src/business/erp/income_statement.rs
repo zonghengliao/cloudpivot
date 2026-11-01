@@ -639,22 +639,26 @@ pub fn build_check(
                  （差 {ledger_gap}）—— 最可能是某张凭证的分录行被删/被改"
             ));
         }
-        if !unbalanced_vouchers.is_empty() {
-            let nos: Vec<&str> = unbalanced_vouchers
-                .iter()
-                .take(5)
-                .map(|row| row.voucher_no.as_str())
-                .collect();
-            hints.push(format!(
-                "分录合计与单头不符的凭证：{}（共 {} 张，逐张核对分录行）",
-                nos.join("、"),
-                unbalanced_vouchers.len()
-            ));
-        }
         hints.push(
             "检查利润表映射（biz_report_item）：一行漏映射、或两行重复映射同一科目，都会让净利润与权益变动对不上"
                 .to_string(),
         );
+    }
+
+    // 分录合计 ≠ 单头是**账本身坏了**的直接证据，与「两侧是否相等」无关：
+    // 删掉一条贷方分录时，收入与权益会同时少同一笔，两条式子照样相等 ——
+    // 那种情况下报表必须照样点出这张凭证，否则就是静默吞错（O5）。
+    if !unbalanced_vouchers.is_empty() {
+        let nos: Vec<&str> = unbalanced_vouchers
+            .iter()
+            .take(5)
+            .map(|row| row.voucher_no.as_str())
+            .collect();
+        hints.push(format!(
+            "分录合计与单头不符的凭证：{}（共 {} 张，逐张核对分录行）—— 账本身先要修好，本表的两侧比较才有意义",
+            nos.join("、"),
+            unbalanced_vouchers.len()
+        ));
     }
 
     let message = if balanced {
@@ -1570,6 +1574,48 @@ mod tests {
         let error = compute(&items, &accounts).expect_err("必须报错");
         assert!(error.contains("NOPE"), "错误里要点名缺的项：{error}");
         println!("[R2-⑫] 公式引用未知项 → 显式报错 ✓");
+    }
+
+    /// ⑮ 真库：分录被删但两侧「照样相等」时，**仍要点名那张凭证**（不许静默吞错）。
+    ///
+    /// 删掉贷方（5001）分录时，收入与权益同时少同一笔，`净利润 = 权益变动 = 0` ——
+    /// 两条式子仍然相等。这种情况只有「分录合计 ≠ 单头」能暴露，必须照样进 hints。
+    #[tokio::test]
+    async fn r2_real_deleted_entry_is_still_reported() {
+        let Some(_guard) = setup_fixture().await else {
+            return;
+        };
+        post_voucher("0301", "2026-10-15", "2026-10", "1002", "5001", 1_000).await;
+        let sql = format!(
+            "DELETE FROM biz_voucher_entry WHERE voucher_id = ( \
+                SELECT id FROM biz_voucher WHERE voucher_no = '0301' AND voucher_word = '{FIXTURE_WORD}') \
+               AND credit_amount > 0"
+        );
+        db().execute_with_params(&sql, vec![])
+            .await
+            .expect("删分录");
+        let snapshot = run("2026-10").await;
+        let check = snapshot.check();
+        cleanup().await;
+
+        assert_eq!(
+            check.net_profit_ytd, check.equity_change,
+            "删掉贷方分录后两侧确实同时为 0（这正是危险之处）"
+        );
+        assert!(
+            check
+                .unbalanced_vouchers
+                .iter()
+                .any(|row| row.voucher_no == "0301"),
+            "必须识别出分录不平的凭证：{:?}",
+            check.unbalanced_vouchers
+        );
+        assert!(
+            check.hints.iter().any(|hint| hint.contains("0301")),
+            "即使两侧相等，也必须点名这张凭证：{:?}",
+            check.hints
+        );
+        println!("[R2-⑮] 分录被删但两侧相等 → 仍点名 0301 ✓");
     }
 
     // ---------- 真库用例（ERP_DB_URL） ----------
