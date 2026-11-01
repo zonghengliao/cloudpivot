@@ -69,6 +69,12 @@ pub const ENTITY_TRANSFER: &str = "TRANSFER";
 pub const ENTITY_PAYABLE: &str = "PAYABLE";
 /// 实体类型：凭证。
 pub const ENTITY_VOUCHER: &str = "VOUCHER";
+/// 实体类型：会计期间（`biz_accounting_period`）。
+///
+/// ERP-P1 起期间的开账 / 结账 / 反结账也写 `biz_status_log`：
+/// 封账是**影响整月账务**的动作，谁封的、什么时候封的、为什么反结，
+/// 必须与单据一样可追溯（卡面 L12 审计）。
+pub const ENTITY_PERIOD: &str = "ACCOUNTING_PERIOD";
 
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
@@ -164,6 +170,33 @@ pub const PAYABLE_EDGES: [(&str, &str); 4] = [
 /// 凭证没有「状态流转」：一落库就是 `POSTED`，更正靠**红冲开新单**，不原地改状态。
 pub const VOUCHER_EDGES: [(&str, &str); 0] = [];
 
+/// 会计期间的合法边（ERP-P1）。
+///
+/// ```text
+/// NOT_OPENED → OPEN    开账（期间行已存在但还没启用）
+/// OPEN       → CLOSED  结账（四项前置校验全过才允许）
+/// CLOSED     → OPEN    反结账（必填原因，且后续期间不能有已结账的）
+/// ```
+///
+/// **没有** `CLOSED → CLOSED` / `OPEN → OPEN`：重复结账 / 重复开账不是状态变更，
+/// 由调用方在入口给出 409 文案（「已开账」/「已结账」），不走状态机。
+pub const PERIOD_EDGES: [(&str, &str); 3] = [
+    ("NOT_OPENED", "OPEN"),
+    ("OPEN", "CLOSED"),
+    ("CLOSED", "OPEN"),
+];
+
+/// 需要 reason 的期间边：只有反结账（撤销已封账的月份，必须留原因）。
+///
+/// 结账的 `reason` 是**可选**备注（卡面 §一 ②），不进本清单 ——
+/// 进了就会被 `transition` 挡成 400「必须给原因」，与卡面冲突。
+pub const PERIOD_REASON_EDGES: [(&str, &str); 1] = [("CLOSED", "OPEN")];
+
+/// 期间没有「入账态只读」的概念：`CLOSED` 的只读性由
+/// [`crate::business::erp::period::ensure_period_writable`] 在记账入口拦截（400），
+/// 不走 `ensure_writable`（那是「单据字段不许改」的闸，语义不同）。
+pub const PERIOD_LOCKED: [&str; 0] = [];
+
 /// 需要 reason 的边（作废已入账单据：红冲必须能追溯到为什么）。
 ///
 /// P16：作废拆成「发起（POSTED→PENDING_CANCEL）」和「执行（PENDING_CANCEL→CANCELLED）」两步，
@@ -214,16 +247,19 @@ pub enum Entity {
     Payable,
     /// 凭证 `biz_voucher`。
     Voucher,
+    /// 会计期间 `biz_accounting_period`（ERP-P1）。
+    Period,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 5] = [
+    pub const ALL: [Entity; 6] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
         Entity::Payable,
         Entity::Voucher,
+        Entity::Period,
     ];
 
     /// 落库的 `entity_type`。
@@ -234,6 +270,7 @@ impl Entity {
             Entity::Transfer => ENTITY_TRANSFER,
             Entity::Payable => ENTITY_PAYABLE,
             Entity::Voucher => ENTITY_VOUCHER,
+            Entity::Period => ENTITY_PERIOD,
         }
     }
 
@@ -250,6 +287,7 @@ impl Entity {
             Entity::Transfer => "库存调拨单",
             Entity::Payable => "应付单",
             Entity::Voucher => "凭证",
+            Entity::Period => "会计期间",
         }
     }
 
@@ -261,6 +299,7 @@ impl Entity {
             Entity::Transfer => &TRANSFER_EDGES,
             Entity::Payable => &PAYABLE_EDGES,
             Entity::Voucher => &VOUCHER_EDGES,
+            Entity::Period => &PERIOD_EDGES,
         }
     }
 
@@ -272,6 +311,7 @@ impl Entity {
             Entity::Transfer => &TRANSFER_REASON_EDGES,
             Entity::Payable => &PAYABLE_REASON_EDGES,
             Entity::Voucher => &VOUCHER_REASON_EDGES,
+            Entity::Period => &PERIOD_REASON_EDGES,
         }
     }
 
@@ -283,6 +323,7 @@ impl Entity {
             Entity::Transfer => &TRANSFER_LOCKED,
             Entity::Payable => &PAYABLE_LOCKED,
             Entity::Voucher => &VOUCHER_LOCKED,
+            Entity::Period => &PERIOD_LOCKED,
         }
     }
 

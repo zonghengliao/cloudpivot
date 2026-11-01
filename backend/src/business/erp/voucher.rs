@@ -1123,6 +1123,22 @@ pub async fn post_voucher(
     }
 
     let period = period_of(ex, req.voucher_date).await?;
+    // ERP-P1（卡面 §一 ②「结账后」）：已结账的期间**只读**。
+    // 闸放在这里而不是各业务入口，是因为自动凭证（收货 / 应付 / 付款）与手工凭证
+    // 都走 `post_voucher` —— 在唯一收口拦一次，就没有「某条路径忘了查期间」的可能。
+    // 语义是 400（参数/状态不允许这次操作），由各调用点的 write_error 翻成
+    // 400 + 原文；红冲的 409 前置闸在 `reverse_posted` 里，比这里更早生效。
+    if period_status(ex, &period)
+        .await?
+        .as_deref()
+        .is_some_and(|status| status == PERIOD_CLOSED)
+    {
+        return Err(DbError::InvalidValue(format!(
+            "会计期间 {period} 已结账，不能再生成凭证（凭证日期 {}）：\
+             已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）",
+            req.voucher_date
+        )));
+    }
     let voucher_no = match req.red_of {
         Some(_) => next_red_voucher_no(ex, now).await?,
         None => next_voucher_no(ex, now).await?,

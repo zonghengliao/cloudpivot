@@ -63,6 +63,7 @@ pub mod payable;
 pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;
+pub mod period;
 pub mod purchase_bridge;
 pub mod purchase_dto;
 pub mod purchase_handler;

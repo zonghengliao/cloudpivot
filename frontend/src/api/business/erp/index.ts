@@ -2493,6 +2493,130 @@ export function fetchPeriodPage(query: {
   return get<PageData<AccountPeriodRow>>(`${BASE}/period/page`, asParams(query));
 }
 
+// ==================== 会计期间：开账 / 结账 / 反结账（ERP-P1） ====================
+//
+// 三个权限码（`business:erp:period:{open,close,reopen}`）与页面常量放在
+// `views/business/erp/period/period-logic.ts`（纯逻辑、可被 `tsx --test` 单测），
+// 这里不重复一份 —— 两个地方各写一遍，早晚会漂。
+
+/** 开账入参（逐字抄 `period.rs::OpenPeriodReq`） */
+export interface OpenPeriodPayload {
+  /** 会计年度（2000–2999） */
+  period_year: number;
+  /** 会计月份（1–12） */
+  period_month: number;
+  /** 备注（可选，落 `biz_accounting_period.remark`） */
+  remark?: string;
+}
+
+/** 批量开账入参（逐字抄 `period.rs::BatchOpenReq`；`from` / `to` 均 `YYYY-MM`，含两端） */
+export interface BatchOpenPeriodPayload {
+  /** 起始期间，如 `2026-11` */
+  from: string;
+  /** 结束期间，如 `2027-12` */
+  to: string;
+  /** 备注（可选） */
+  remark?: string;
+}
+
+/** 批量开账结果（逐字抄 `period.rs::BatchOpenRes`） */
+export interface BatchOpenPeriodResult {
+  /** 本次新建的期间 */
+  created: AccountPeriodRow[];
+  /** 已存在而跳过的期间编码（幂等：重复批量开账不会 409） */
+  skipped: string[];
+  /** 新建条数 */
+  created_count: number;
+  /** 跳过条数 */
+  skipped_count: number;
+}
+
+/**
+ * 结账阻塞项（逐字抄 `period.rs::Blocker`）。
+ *
+ * `type` 决定前端图标与跳转：
+ * - `DRAFT_VOUCHER`：有草稿凭证（`link` 指向凭证列表，带 `status=DRAFT`）
+ * - `DOC_UNFINISHED`：有未完成单据（采购单 / 收货单 / 调拨单）
+ * - `UNBALANCED`：借贷不平（`diff` 是差额，定点字符串）
+ * - `INVARIANT`：不变量未通过（账实 / 账账不符）
+ * - `PERIOD_STATUS`：期间自身状态不允许（已结账 / 未开账）
+ */
+export interface PeriodCloseBlocker {
+  type: 'DRAFT_VOUCHER' | 'DOC_UNFINISHED' | 'UNBALANCED' | 'INVARIANT' | 'PERIOD_STATUS';
+  /** 条数（凭证数 / 单据数 / 不变量条数） */
+  count?: number;
+  /** 差额（仅 `UNBALANCED`） */
+  diff?: string;
+  /** 给人看的一句话（后端已点名张数 / 差额） */
+  message: string;
+  /** 去处理的页面 */
+  link?: string;
+  /** 定位线索（凭证号 / 单号，最多 3 个） */
+  samples?: string[];
+}
+
+/** 结账预检响应（逐字抄 `period.rs::CloseCheckRes`） */
+export interface PeriodCloseCheck {
+  /** 能不能结账（= `blockers` 为空） */
+  can_close: boolean;
+  /** 期间本身 */
+  period: AccountPeriodRow;
+  /** 阻塞项（空 = 可以结账） */
+  blockers: PeriodCloseBlocker[];
+}
+
+/**
+ * 开账（单月）。
+ *
+ * `POST /erp/period`，权限 `business:erp:period:open`。
+ * 已存在且状态为 `OPEN` / `CLOSED` → 409（文案点名期间）。
+ */
+export function openPeriod(payload: OpenPeriodPayload): Promise<AccountPeriodRow> {
+  return post<AccountPeriodRow>(`${BASE}/period`, payload);
+}
+
+/**
+ * 批量开账（`from` ~ `to` 逐月，幂等：已存在的跳过而不是 409）。
+ *
+ * `POST /erp/period/batch-open`，权限 `business:erp:period:open`。
+ * 一次最多 120 个月（后端护栏），超了 400。
+ */
+export function batchOpenPeriods(payload: BatchOpenPeriodPayload): Promise<BatchOpenPeriodResult> {
+  return post<BatchOpenPeriodResult>(`${BASE}/period/batch-open`, payload);
+}
+
+/**
+ * 结账预检（只读）。
+ *
+ * `GET /erp/period/{id}/close-check`，权限 `business:erp:period:close`。
+ * 结账弹窗先调它，把「3 张草稿凭证 / 借贷差 0.01 元」摆出来，**再**让人点确认。
+ */
+export function fetchPeriodCloseCheck(id: string): Promise<PeriodCloseCheck> {
+  return get<PeriodCloseCheck>(`${BASE}/period/${encodeURIComponent(id)}/close-check`);
+}
+
+/**
+ * 结账。
+ *
+ * `POST /erp/period/{id}/close`，权限 `business:erp:period:close`。
+ * 四项前置校验任一不过 → 409（文案点名张数 / 差额），期间状态不变。
+ */
+export function closePeriod(id: string, reason?: string): Promise<AccountPeriodRow> {
+  return post<AccountPeriodRow>(`${BASE}/period/${encodeURIComponent(id)}/close`, {
+    reason: reason ?? null,
+  });
+}
+
+/**
+ * 反结账（`CLOSED → OPEN`）。
+ *
+ * `POST /erp/period/{id}/reopen`，权限 `business:erp:period:reopen`。
+ * `reason` **必填且 ≥ 10 字**（后端硬校验，前端也先拦一次，少一次无用的往返）。
+ */
+export function reopenPeriod(id: string, reason: string): Promise<AccountPeriodRow> {
+  return post<AccountPeriodRow>(`${BASE}/period/${encodeURIComponent(id)}/reopen`, { reason });
+}
+
 // ==================== 即时库存 / 库位库存 / 库存流水（P4-D 前端） ====================
 
 /**
