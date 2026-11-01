@@ -19,6 +19,10 @@
 删除后的判据：`rows.every(r => r.pending_reverse_instance_id !== undefined)` 这个「兜底开关」本身也一并消失 —— 现在只有一条数据源（后端字段），
 不再存在「双源打架」。**只要能看到凭证列表就能看到徽标**，不再受 `business:flow:instance:read` 的数据可见性限制。
 
+> grep 口径：`loadPendingReverseFallback` / `pendingReverseInstances` / `VOUCHER_REVERSE_BIZ_TYPE` 在 `frontend/src` 与
+> `frontend/src/views/**` 里 **0 命中**；唯一出现处是 `tests/unit/pflow3b-cancel-reverse.test.ts` 的**反向断言**
+> （`assert.ok(!page.includes('loadPendingReverseFallback'))` 等），那是钉住「不许有人再加回来」，不是引用。
+
 ## 二、门禁（本地，`cp-src/frontend`，见 `raw/01-gates.txt`）
 
 ```text
