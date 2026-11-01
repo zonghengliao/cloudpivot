@@ -22,8 +22,8 @@ REPO=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 mkdir -p "$RUN"
 say() { printf '%s\n' "$*"; }
 
-# 0) 停掉旧的
-pkill -f "target/debug/cloudpivot" 2>/dev/null
+# 0) 停掉旧的（**按端口杀**：`pkill -f target/debug/cloudpivot` 会误杀同机别人的 demo 实例）
+fuser -k "$BPORT/tcp" 2>/dev/null
 pkill -9 -f "port $FPORT" 2>/dev/null
 sleep 1
 
