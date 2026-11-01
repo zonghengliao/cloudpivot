@@ -289,6 +289,16 @@
             data-testid="period-close-reason"
           />
         </div>
+        <!-- 全库巡检告警：只提示、不拦结账（后端 blockers / warnings 分开的理由见 period.rs） -->
+        <div v-if="(closeDialog.check?.warnings ?? []).length > 0" class="check-warnings" data-testid="period-close-warnings">
+          <p class="check-warnings__title">另有 {{ closeDialog.check?.warnings?.length }} 项全库巡检提醒（不拦结账）：</p>
+          <ul class="blocker-list">
+            <li v-for="(warning, index) in closeDialog.check?.warnings ?? []" :key="`w-${index}`">
+              {{ warning.message }}
+              <a v-if="warning.link" class="blocker-link" :href="warning.link" target="_blank" rel="noopener">去看看</a>
+            </li>
+          </ul>
+        </div>
         <p class="form-hint">
           结账后本期间只读：不能再生成凭证、单据不能过账、红冲也会被拒。如需再动账，只能「反结账」（要填原因）。
         </p>
@@ -1002,5 +1012,19 @@ onMounted(() => {
 
 .close-reason-row {
   margin-top: 14px;
+}
+
+.check-warnings {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  background-color: var(--td-bg-color-container-hover);
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.check-warnings__title {
+  margin: 0;
+  font-weight: 500;
 }
 </style>

@@ -32,7 +32,13 @@ import urllib.request
 
 BASE = os.environ.get("ERP_E2E_BASE", "http://127.0.0.1:8023")
 ADMIN_USER = os.environ.get("ERP_E2E_ADMIN", "admin")
-ADMIN_PASS = os.environ.get("ERP_E2E_PASSWORD", "Admin@123456")
+# 生产口令只从环境取（`set -a; . /etc/cloudpivot/cloudpivot.env; set +a`），不写进仓库
+ADMIN_PASS = (
+    os.environ.get("NIK_ADMIN_PASSWORD")
+    or os.environ.get("ALUN_ADMIN_PASSWORD")
+    or os.environ.get("ERP_E2E_PASSWORD")
+    or ""
+)
 
 # 本脚本独占的期间（生产原本没有这些期间）
 PERIOD_MAIN = "2027-01"
@@ -155,6 +161,10 @@ def main():
     print("ERP-P1 会计期间 开账 / 结账 / 反结账 —— 生产真机验收")
     print("=" * 88)
 
+    if not ADMIN_PASS:
+        print("缺管理员口令：先 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a`（脚本只认 NIK_ADMIN_PASSWORD）")
+        sys.exit(2)
+
     before = baseline()
     print(f"基线期间行：{before}")
     cleanup()  # 上一轮残留先清（幂等）
@@ -217,6 +227,13 @@ def main():
     status, payload = api("GET", "/api/business/erp/period/page?period_year=2027&page_size=50", token=TOKEN)
     codes = [row.get("period_code") for row in (data_of(payload) or {}).get("list", [])]
     check("① 期间列表出现 2027-01", status == 200 and PERIOD_MAIN in codes, f"HTTP {status} / 列表 {codes}")
+
+    # 开账必须留一条 NULL→OPEN 的状态日志（审计：谁在什么时候开的账）
+    created_trail = psql(
+        "SELECT coalesce(from_status, 'NULL') || '>' || to_status FROM biz_status_log "
+        f"WHERE entity_type = 'ACCOUNTING_PERIOD' AND entity_no = '{PERIOD_MAIN}' ORDER BY created_at, id"
+    )
+    check("① 开账写一条 NULL>OPEN 状态日志", created_trail == ["NULL>OPEN"], f"轨迹 {created_trail}")
 
     # ── ② 在 11 月（这里是 2027-01）建一张凭证 → 能建 ────────
     status, payload = post_voucher()
@@ -320,8 +337,8 @@ def main():
         f"HTTP {status} / {msg_of(payload) if status != 200 else json.dumps(reopened, ensure_ascii=False)[:160]}",
     )
     trail = psql(
-        "SELECT from_status || '>' || to_status FROM biz_status_log "
-        f"WHERE entity_type = 'ACCOUNTING_PERIOD' AND entity_no = '{PERIOD_MAIN}' ORDER BY created_at"
+        "SELECT coalesce(from_status, 'NULL') || '>' || to_status FROM biz_status_log "
+        f"WHERE entity_type = 'ACCOUNTING_PERIOD' AND entity_no = '{PERIOD_MAIN}' ORDER BY created_at, id"
     )
     check(
         "⑥ 状态日志三条（NULL>OPEN / OPEN>CLOSED / CLOSED>OPEN）",

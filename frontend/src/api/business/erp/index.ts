@@ -2563,6 +2563,14 @@ export interface PeriodCloseCheck {
   period: AccountPeriodRow;
   /** 阻塞项（空 = 可以结账） */
   blockers: PeriodCloseBlocker[];
+  /**
+   * 全库巡检告警（B4 库存流水累计 ≠ 当前库存 / C1 C2 负库存）。
+   *
+   * **不拦结账**：这些是「整本账」的时点状态，任何一处库存漂移都会封死所有期间的
+   * 结账，所以后端把它们与 `blockers` 分开（见 `period.rs::global_health_warnings`）。
+   * 前端只做灰字提示，让人封账时心里有数。
+   */
+  warnings?: PeriodCloseBlocker[];
 }
 
 /**

@@ -502,6 +502,16 @@ async fn manual_in_tx(
         .as_deref()
     {
         Some(voucher::PERIOD_OPEN) => {}
+        // ERP-P1（卡面 §一 ②）：已结账期间记账是 **400**「期间已结账」。
+        // 与 `voucher::post_voucher` 里那道闸文案一致 —— 这里提前一步拦，
+        // 是为了在「还没开始拼分录」时就给出同一个 400，而不是让调用方看到
+        // 一条「状态是 CLOSED，只能记到已开启期间」的 409（语义偏成「参数冲突」）。
+        Some(voucher::PERIOD_CLOSED) => {
+            return Err(bad_request(format!(
+                "会计期间 {period} 已结账，不能再生成凭证（凭证日期 {voucher_date}）：\
+                 已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）"
+            )));
+        }
         Some(other) => {
             return Err(conflict(format!(
                 "会计期间 {period} 当前是 {other}，手工凭证只能记到「已开启（OPEN）」的期间：\

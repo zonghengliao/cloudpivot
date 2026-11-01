@@ -21,14 +21,20 @@
 //! | POST | `/business/erp/period/{id}/close` | `business:erp:period:close` | 结账 |
 //! | POST | `/business/erp/period/{id}/reopen` | `business:erp:period:reopen` | 反结账（必填原因 ≥ 10 字） |
 //!
-//! # 结账的四项前置校验（缺一不可，卡面硬红线 2）
+//! # 结账的四项前置校验（卡面硬红线 2）
 //!
 //! ```text
-//! ① 期间内没有 DRAFT 状态的凭证          → 409「还有 N 张草稿凭证未过账」
-//! ② 期间内单据全部终态                   → 409「还有 N 张单据未完成（采购单 5 / 收货单 2 …）」
-//! ③ 试算平衡（分录 Σ借 = Σ贷）            → 409「借贷不平，差 X 元」
-//! ④ 期间内不变量全绿（erp_invariants A/B/C）→ 409「不变量未通过：A1 有 2 张凭证分录取和不平 …」
+//! ① 期间内没有 DRAFT 状态的凭证            → 409「还有 N 张草稿凭证未过账」
+//! ② 期间内单据全部终态                    → 409「还有 N 张单据未完成（采购单 5 / 收货单 2 …）」
+//! ③ 试算平衡（分录 Σ借 = Σ贷）             → 409「借贷不平，差 X 元」
+//! ④ 期间内不变量（erp_invariants A 组）     → 409「不变量未通过：A1 有 2 张凭证分录取和不平 …」
 //! ```
+//!
+//! **全库口径的账实 / 账账巡检（B4 流水累计、C1/C2 负库存）不拦结账**，
+//! 只在 `close-check` 的 `warnings` 里提示 —— 理由是它们不按期间切，
+//! 任何一处库存漂移都会封死**所有**期间的结账（含过账事务进行中的瞬时中间态），
+//! 详见 [`global_health_warnings`] 的推导。整本账的巡检仍由
+//! `scripts/verify/erp_invariants.py` 每天跑，C1/C2 在那里是 BLOCKER 级。
 //!
 //! ## 为什么试算平衡要拿**分录**求和，不看单头
 //!
@@ -236,6 +242,12 @@ pub struct CloseCheckRes {
     pub period: PeriodRes,
     /// 阻塞项（空 = 可以结账）。
     pub blockers: Vec<Blocker>,
+    /// 全库巡检告警（B4 / C1 / C2）：**不拦结账**，前端灰字提示。
+    ///
+    /// 与 `blockers` 分开的理由写在 [`global_health_warnings`]：这些是「整本账」的
+    /// 时点状态，混进阻断项会让任何一处库存漂移封死所有期间的结账。
+    #[serde(default)]
+    pub warnings: Vec<Blocker>,
 }
 
 /// 批量开账响应。
@@ -977,14 +989,19 @@ async fn trial_balance(ex: &impl SqlExecutor, code: &str) -> Result<(Decimal, De
     ))
 }
 
-/// 期间内不变量（erp_invariants 的 A 组逐张 + B/C 组的账实口径）。
+/// 期间内不变量：**A 组**（逐张凭证的分录自洽），按 `period` 切。
 ///
-/// 只挑「会污染这个月的账」的几条，且**只读**：
+/// 只放「属于这个月、这个月该修」的两条：
 /// * A1 每张凭证 Σ分录借 = Σ分录贷
 /// * A2 凭证头金额 = 分录取和
-/// * C1 无负库存 / C2 无负库位库存（账实）
-/// * B4 流水累计 = 当前库存（账账）
-async fn invariant_failures(ex: &impl SqlExecutor, code: &str) -> Result<Vec<String>, ApiError> {
+///
+/// 这两条一旦红，说明期间的账本身就是坏的，封账等于把坏账锁死 —— 必须拦。
+/// 全库口径的**账实 / 账账**检查（erp_invariants 的 B4 流水累计、C1/C2 负库存）
+/// 不在这里拦，理由见 [`global_health_warnings`]。
+async fn period_invariant_failures(
+    ex: &impl SqlExecutor,
+    code: &str,
+) -> Result<Vec<String>, ApiError> {
     let mut failures = Vec::new();
 
     let rows = ex
@@ -1039,8 +1056,34 @@ async fn invariant_failures(ex: &impl SqlExecutor, code: &str) -> Result<Vec<Str
         ));
     }
 
-    // C1 / C2：负库存（账实相符）。库存是时点数，不按期间切 ——
-    // 「这个月封账时账上还有负库存」就是不能封，跟负库存是哪个月产生的无关。
+    // C1 / C2 与 B4 属**全库**口径，见 [`global_health_warnings`]：它们是「账实 / 账账」
+    // 巡检项，不是「这个月」的账务问题，所以只作为提示上报，不拦封账。
+
+    Ok(failures)
+}
+
+/// 全库账实 / 账账巡检（erp_invariants 的 B4 + C1/C2）——**只提示，不拦结账**。
+///
+/// # 为什么降级为提示（设计判断，不是偷懒）
+///
+/// 这三条是**全库时点数**，不按期间切：
+/// * B4 库存流水累计（IN 加 / OUT 减）= 当前库存
+/// * C1 无负库存 / C2 无负库位库存
+///
+/// 让它们拦结账会带来两个坏后果：
+/// 1. **任何一处库存漂移都会封死所有期间的结账** —— 2027 年的一笔错误调拨
+///    能让 2018 年的账永远结不了，财务只能找运维改库；
+/// 2. 这些漂移**不一定是错**：单据过账事务进行中、批量导入中途，都会短暂出现
+///    「流水已写、库存未写」的中间态（本仓的单测就大量制造这种瞬间状态）。
+///    用瞬时态去否决一个会计动作，是把断言当门禁。
+///
+/// 所以分工是：**结账闸管「这个月的账对不对」**（A1/A2 + 试算平衡 + 草稿凭证 + 单据终态），
+/// **账实巡检管「整本账对不对」**（`scripts/verify/erp_invariants.py`，每天跑，
+/// C1/C2 在那里是 BLOCKER 级）。close-check 仍然把它们的结论带出来（`warnings`），
+/// 让人在封账那一刻看得见「库里现在有 5 组账实不符」，但决定权不交给他。
+async fn global_health_warnings(ex: &impl SqlExecutor) -> Result<Vec<Blocker>, ApiError> {
+    let mut warnings = Vec::new();
+
     let negative: i64 = ex
         .scalar_sql(
             "SELECT (SELECT COUNT(*) FROM biz_inventory WHERE qty < 0) \
@@ -1049,12 +1092,18 @@ async fn invariant_failures(ex: &impl SqlExecutor, code: &str) -> Result<Vec<Str
             vec![],
         )
         .await
-        .map_err(|error| db_error(error, "不变量 C1/C2"))?;
+        .map_err(|error| db_error(error, "巡检 C1/C2"))?;
     if negative > 0 {
-        failures.push(format!("C1/C2 有 {negative} 行负库存（账实不符）"));
+        warnings.push(Blocker::with_count(
+            BLOCKER_INVARIANT,
+            negative,
+            format!(
+                "巡检提示：库里有 {negative} 行负库存（账实不符，见库存巡检页），不影响本次结账"
+            ),
+            Some("/business/erp/inventory?audit=1".to_string()),
+        ));
     }
 
-    // B4：库存流水累计（IN 加 / OUT 减）= 当前库存。
     let drift: i64 = ex
         .scalar_sql(
             "SELECT COUNT(*) FROM (\
@@ -1070,21 +1119,42 @@ async fn invariant_failures(ex: &impl SqlExecutor, code: &str) -> Result<Vec<Str
             vec![],
         )
         .await
-        .map_err(|error| db_error(error, "不变量 B4"))?;
+        .map_err(|error| db_error(error, "巡检 B4"))?;
     if drift > 0 {
-        failures.push(format!(
-            "B4 有 {drift} 组「流水累计 ≠ 当前库存」（账账不符）"
+        warnings.push(Blocker::with_count(
+            BLOCKER_INVARIANT,
+            drift,
+            format!("巡检提示：{drift} 组「库存流水累计 ≠ 当前库存」（账账不符），不影响本次结账"),
+            Some("/business/erp/inventory?audit=1".to_string()),
         ));
     }
 
-    Ok(failures)
+    Ok(warnings)
+}
+
+/// 一次预检的完整结论：**拦人的**阻塞项 + **只提示**的巡检告警。
+#[derive(Debug, Clone, Default)]
+pub struct CheckOutcome {
+    /// 必须清掉才能结账的问题。
+    pub blockers: Vec<Blocker>,
+    /// 全库巡检告警（不拦结账，前端灰字提示）。
+    pub warnings: Vec<Blocker>,
+}
+
+impl CheckOutcome {
+    /// 能否结账（只看 blockers）。
+    pub fn can_close(&self) -> bool {
+        self.blockers.is_empty()
+    }
 }
 
 /// 四项前置校验（结账与预检**共用同一份实现**，不许两处口径分裂）。
+///
+/// 返回 [`CheckOutcome`]：`blockers` 拦人，`warnings` 只提示（全库巡检口径）。
 async fn collect_blockers(
     ex: &impl SqlExecutor,
     row: &PeriodRow,
-) -> Result<Vec<Blocker>, ApiError> {
+) -> Result<CheckOutcome, ApiError> {
     let mut blockers = Vec::new();
 
     // ⓪ 期间自身状态
@@ -1131,13 +1201,14 @@ async fn collect_blockers(
         blockers.push(blocker);
     }
 
-    // ④ 不变量
-    let failures = invariant_failures(ex, &row.period_code).await?;
+    // ④ 不变量（期间内 A 组拦人；全库 B/C 只提示）
+    let failures = period_invariant_failures(ex, &row.period_code).await?;
     if let Some(blocker) = invariant_blocker(failures) {
         blockers.push(blocker);
     }
+    let warnings = global_health_warnings(ex).await?;
 
-    Ok(blockers)
+    Ok(CheckOutcome { blockers, warnings })
 }
 
 /// 把阻塞项拼成 409（文案点名每一项，前端 toast 直接可读）。
@@ -1165,11 +1236,12 @@ pub async fn close_check(id: Uuid) -> Result<CloseCheckRes, ApiError> {
         .map_err(|error| db_error(error, "查询会计期间"))?;
     let row = rows.into_iter().next().ok_or_else(not_found)?;
     let row = PeriodRow::from_row(&row).map_err(|error| db_error(error, "解析会计期间"))?;
-    let blockers = collect_blockers(db(), &row).await?;
+    let outcome = collect_blockers(db(), &row).await?;
     Ok(CloseCheckRes {
-        can_close: blockers.is_empty(),
+        can_close: outcome.can_close(),
         period: PeriodRes::from(&row),
-        blockers,
+        blockers: outcome.blockers,
+        warnings: outcome.warnings,
     })
 }
 
@@ -1199,9 +1271,21 @@ pub async fn close_period(
     }
 
     // 四项前置校验：**在同一个事务、同一把行锁里**跑完再改状态
-    let blockers = collect_blockers(&tx, &row).await?;
-    if !blockers.is_empty() {
-        return Err(conflict(rejection_message(&row.period_code, &blockers)));
+    let outcome = collect_blockers(&tx, &row).await?;
+    if let Some(warning) = outcome.warnings.first() {
+        // 全库巡检告警只记日志，不拦封账（口径见 `global_health_warnings`）
+        tracing::warn!(
+            period = %row.period_code,
+            warnings = outcome.warnings.len(),
+            first = %warning.message,
+            "结账时存在全库巡检告警（不拦截）"
+        );
+    }
+    if !outcome.blockers.is_empty() {
+        return Err(conflict(rejection_message(
+            &row.period_code,
+            &outcome.blockers,
+        )));
     }
 
     state_machine::transition(
@@ -1494,7 +1578,7 @@ fn parse_period_id(raw: &str) -> Result<Uuid, ApiError> {
     Uuid::parse_str(text).map_err(|_| bad_request(format!("id 不是合法的 UUID：{text}")))
 }
 
-// ==================== 单测（真库，14 条）====================
+// ==================== 单测（真库，15 条）====================
 //
 // 需要真库：`ERP_DB_URL` 指向「已应用 V0137–V0188 的隔离库」；缺省则全部 SKIP：
 //
@@ -1910,6 +1994,17 @@ mod tests {
         let check = close_check(id).await.expect("预检");
         assert!(check.can_close, "空期间应可结账：{:?}", check.blockers);
         assert!(check.blockers.is_empty(), "{:?}", check.blockers);
+        // 全库巡检告警（B4 流水累计 / C1/C2 负库存）**只提示、不拦结账**：
+        // 它们是「整本账」的时点状态（别的用例跑一半时库里就有漂移），
+        // 混进阻断项会让任何一处库存漂移封死所有期间的结账（见模块文档 §四项前置校验）。
+        assert!(
+            check
+                .warnings
+                .iter()
+                .all(|item| item.kind == BLOCKER_INVARIANT),
+            "warnings 里只该有巡检类提示：{:?}",
+            check.warnings
+        );
 
         let closed = close_period(id, Some("2031 年 5 月结账"), operator())
             .await
@@ -2229,6 +2324,69 @@ mod tests {
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("2031-10"), "要点名后续期间：{}", err.msg);
         assert_eq!(status_of("2031-09").await.as_deref(), Some(STATUS_CLOSED));
+    }
+
+    /// ⑮ 手工凭证接口（`voucher_write::create_manual_voucher`）在已结账期间 → **400**。
+    ///
+    /// ⑨ 证明的是 `post_voucher`（唯一落库收口）会挡；这条证明**手工凭证入口**
+    /// 在拼分录之前就给同一个 400 —— 生产真机验收第一轮正是在这里发现它返回了 409
+    /// （「手工凭证只能记到已开启期间」），与卡面要求的 400「期间已结账」不一致。
+    #[tokio::test]
+    async fn p1_manual_voucher_on_closed_period_is_bad_request() {
+        use crate::business::erp::voucher_write::{
+            CreateVoucherReq, ManualEntryReq, create_manual_voucher,
+        };
+
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let opened = open_period(2031, 9, None, operator())
+            .await
+            .expect("开账应成功");
+        close_period(uuid_of(&opened.id), None, operator())
+            .await
+            .expect("结账应成功");
+
+        let rows = db()
+            .find_with_params(
+                "SELECT id FROM biz_account WHERE account_code IN ('1001', '3001') \
+                  AND deleted_at IS NULL ORDER BY account_code",
+                vec![],
+            )
+            .await
+            .expect("查科目");
+        assert_eq!(rows.len(), 2, "隔离库应已种 1001 / 3001 两个科目");
+        let ids: Vec<String> = rows
+            .iter()
+            .map(|row| row.get_typed::<Uuid>("id").expect("id").to_string())
+            .collect();
+
+        let req = CreateVoucherReq {
+            voucher_date: Some(NaiveDate::from_ymd_opt(2031, 9, 10).expect("日期")),
+            summary: Some("P1E2E 结账后手工凭证".to_string()),
+            entries: Some(vec![
+                ManualEntryReq {
+                    account_id: Some(ids[0].clone()),
+                    debit: Some(dec("10")),
+                    credit: None,
+                    summary: None,
+                },
+                ManualEntryReq {
+                    account_id: Some(ids[1].clone()),
+                    debit: None,
+                    credit: Some(dec("10")),
+                    summary: None,
+                },
+            ]),
+            remark: None,
+        };
+        let err = create_manual_voucher(&req, Some(uid()))
+            .await
+            .expect_err("已结账期间不能记手工凭证");
+        assert_eq!(err.status, 400, "{} / {}", err.code, err.msg);
+        assert!(err.msg.contains("已结账"), "{}", err.msg);
+        assert!(err.msg.contains("2031-09"), "文案要点名期间：{}", err.msg);
+        assert_eq!(voucher_count("2031-09").await, 0, "凭证一行都不该落库");
     }
 
     // ---------- 纯逻辑（不连库） ----------
