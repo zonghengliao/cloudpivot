@@ -149,12 +149,21 @@ pub const STATUS_CANCELLED: &str = "CANCELLED";
 /// 有单必有实例、有实例必有单（杜绝「审批中却没有实例 = 永远等不到回调」的孤儿）。
 pub const STATUS_PENDING_CANCEL: &str = "PENDING_CANCEL";
 
+/// 状态：过账审批中（P-FLOW-3A）。
+///
+/// 进入方式只有「提交过账审批」：单据**锁定**（不许改数量 / 金额 / 明细），
+/// 库存 / 库位账 / 流水 / 凭证 / 应付 / 序列号**一分没动**。
+/// 审批通过才落 `POSTED` 并执行 [`crate::business::erp::stockin_handler`] 的 `post_in_tx`；
+/// 驳回 / 撤回打回 `DRAFT`。状态与 `approval_instance_id` 由
+/// `ck_biz_si_pending_approval` 绑死（有单必有实例，杜绝孤儿审批）。
+pub const STATUS_PENDING_POST: &str = "PENDING_POST";
+
 /// 本卡负责的合法边（卡面 §二）。
 ///
 /// P10 起**唯一真相在 [`crate::business::shared::state_machine`]**：这里只是同一份
 /// 常量数组的别名，`state_machine::transition` 还会核对两者一致 ——
 /// 想在调用点偷偷多放一条边会立刻 500，而不是静默绕过状态机。
-pub const LEGAL_EDGES: [(&str, &str); 6] = state_machine::STOCK_IN_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 10] = state_machine::STOCK_IN_EDGES;
 
 /// 流水方向：入（`ck_biz_inv_txn_type` 只认 `IN` / `OUT`）。
 pub const TXN_TYPE_IN: &str = "IN";
@@ -200,6 +209,7 @@ pub fn status_label(status: &str) -> &'static str {
         STATUS_DRAFT => "草稿",
         STATUS_POSTED => "已过账",
         STATUS_PENDING_CANCEL => "作废审批中",
+        STATUS_PENDING_POST => "过账审批中",
         STATUS_CANCELLED => "已作废",
         _ => "未知状态",
     }
@@ -1160,6 +1170,45 @@ pub async fn apply_status_with_instance(
                 ],
             )
         }
+        // P-FLOW-3A：提交过账审批（`DRAFT → PENDING_POST`）。只挂审批单，账一分没动。
+        STATUS_PENDING_POST => {
+            let Some(instance_id) = approval_instance_id else {
+                return Err(DbError::InvalidValue(
+                    "提交过账审批必须同时写 approval_instance_id（ck_biz_si_pending_approval）"
+                        .to_string(),
+                ));
+            };
+            (
+                format!(
+                    "UPDATE {TABLE} \
+                        SET status = '{STATUS_PENDING_POST}', approval_instance_id = ?::uuid, \
+                            updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::from(&instance_id),
+                    Value::from(now),
+                    operator_text,
+                    Value::from(&id),
+                    Value::Text(from.to_string()),
+                ],
+            )
+        }
+        // P-FLOW-3A：过账审批驳回 / 撤回（`PENDING_POST → DRAFT`）。清实例，账一分没动。
+        STATUS_DRAFT => (
+            format!(
+                "UPDATE {TABLE} \
+                    SET status = '{STATUS_DRAFT}', approval_instance_id = NULL, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
         STATUS_CANCELLED => (
             format!(
                 "UPDATE {TABLE} \
@@ -1188,7 +1237,11 @@ pub async fn apply_status_with_instance(
     ex.exec_sql(sql, params).await
 }
 
-/// 软删（**仅 DRAFT 由调用方保证**），返回 `affected`。
+/// 软删（**仅 DRAFT / PENDING_POST 由调用方保证**），返回 `affected`。
+///
+/// P-FLOW-3A：`PENDING_POST`（过账审批中）也允许删 —— 前提是调用方**先**终止在跑的
+/// 审批单（[`crate::business::erp::stockin_bridge::cancel_approval_of`]，同一事务），
+/// 否则删掉的单据会留下孤儿审批（P11 的教训）。删的同时清空 `approval_instance_id`。
 pub async fn soft_delete(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -1198,8 +1251,9 @@ pub async fn soft_delete(
     ex.exec_sql(
         format!(
             "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, \
-                    update_by = NULLIF(?::text,'')::uuid \
-              WHERE id = ?::uuid AND status = '{STATUS_DRAFT}' AND deleted_at IS NULL"
+                    update_by = NULLIF(?::text,'')::uuid, approval_instance_id = NULL \
+              WHERE id = ?::uuid AND status IN ('{STATUS_DRAFT}', '{STATUS_PENDING_POST}') \
+                AND deleted_at IS NULL"
         ),
         vec![
             Value::from(now),
@@ -2461,6 +2515,27 @@ pub const CANCEL_FLOW_CODE: &str = "stock_in_cancel";
 
 /// 查「已发布的收货单作废流程」。
 pub async fn published_cancel_flow() -> DbResult<Option<PublishedFlow>> {
+    published_flow_of(CANCEL_BIZ_TYPE, CANCEL_FLOW_CODE).await
+}
+
+/// 过账审批的业务类型（`biz_flow_def.biz_type`，与种子迁移 V0182 同口径）。
+pub const POST_BIZ_TYPE: &str = "STOCK_IN_POST";
+/// 过账审批的流程编码（`flow_code`）。
+pub const POST_FLOW_CODE: &str = "stock_in_post";
+
+/// 查「已发布的收货单过账流程」（P-FLOW-3A）。
+///
+/// `None` = **没配流程**（不是错误）：调用方按「降级」处理 —— 直接过账
+/// （保持 P-FLOW-3A 之前的行为）并打一条 `warn`，绝不因为没配流程就把过账锁死。
+pub async fn published_post_flow() -> DbResult<Option<PublishedFlow>> {
+    published_flow_of(POST_BIZ_TYPE, POST_FLOW_CODE).await
+}
+
+/// 按 `(biz_type, flow_code)` 取唯一的已发布流程。
+///
+/// 排序口径（作废 / 过账 / 调拨三处一致）：`biz_type` 精确命中优先 → `is_default` →
+/// 版本号 → 更新时间，这样「客户自己建了同名流程」也能被稳定选中。
+async fn published_flow_of(biz_type: &str, flow_code: &str) -> DbResult<Option<PublishedFlow>> {
     // SCOPE-EXEMPT: 流程定义（biz_flow_def）是全局配置，按 biz_type / flow_code 精确取 1 行，
     // 不分页、不按部门裁剪（裁剪会导致「看不到自己的单据该走哪个流程」）。
     let rows = db()
@@ -2470,11 +2545,15 @@ pub async fn published_cancel_flow() -> DbResult<Option<PublishedFlow>> {
                FROM biz_flow_def d \
               WHERE d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
                 AND d.current_version_id IS NOT NULL \
-                AND (d.biz_type = 'STOCK_IN_CANCEL' OR lower(d.flow_code) = 'stock_in_cancel') \
-              ORDER BY (d.biz_type = 'STOCK_IN_CANCEL') DESC, d.is_default DESC, \
+                AND (d.biz_type = ? OR lower(d.flow_code) = ?) \
+              ORDER BY (d.biz_type = ?) DESC, d.is_default DESC, \
                        d.current_version_no DESC, d.updated_at DESC \
               LIMIT 1",
-            vec![],
+            vec![
+                Value::Text(biz_type.to_string()),
+                Value::Text(flow_code.to_string()),
+                Value::Text(biz_type.to_string()),
+            ],
         )
         .await?;
     match rows.first() {
@@ -2636,23 +2715,32 @@ mod pure_tests {
         assert!(can_transition(STATUS_POSTED, STATUS_PENDING_CANCEL));
         assert!(can_transition(STATUS_PENDING_CANCEL, STATUS_CANCELLED));
         assert!(can_transition(STATUS_PENDING_CANCEL, STATUS_POSTED));
+        // P-FLOW-3A：过账审批四步（提交 → 通过 / 驳回 / 审批中作废）
+        assert!(can_transition(STATUS_DRAFT, STATUS_PENDING_POST));
+        assert!(can_transition(STATUS_PENDING_POST, STATUS_POSTED));
+        assert!(can_transition(STATUS_PENDING_POST, STATUS_DRAFT));
+        assert!(can_transition(STATUS_PENDING_POST, STATUS_CANCELLED));
+        assert_eq!(LEGAL_EDGES.len(), 10, "边表总数钉死，防止悄悄多放/少放");
         assert!(
             !can_transition(STATUS_POSTED, STATUS_POSTED),
             "重复过账非法"
         );
-        // 审批中不能再跳回草稿，也不能直接过账（单据已入过账）
+        // 作废审批中不能再跳回草稿，也不能回到「过账审批中」
         assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_DRAFT));
+        assert!(!can_transition(STATUS_PENDING_CANCEL, STATUS_PENDING_POST));
         assert!(!can_transition(
             STATUS_PENDING_CANCEL,
             STATUS_PENDING_CANCEL
         ));
-        assert!(!can_transition(STATUS_DRAFT, STATUS_PENDING_CANCEL));
         assert!(!can_transition(STATUS_CANCELLED, STATUS_POSTED));
         assert!(!can_transition(STATUS_CANCELLED, STATUS_DRAFT));
         assert!(!can_transition(STATUS_CANCELLED, STATUS_PENDING_CANCEL));
+        assert!(!can_transition(STATUS_CANCELLED, STATUS_PENDING_POST));
+        // 已过账的单据不许「回到过账审批中」（那是绕过审批的回头路）
+        assert!(!can_transition(STATUS_POSTED, STATUS_PENDING_POST));
         assert_eq!(
             next_statuses(STATUS_DRAFT),
-            vec![STATUS_POSTED, STATUS_CANCELLED]
+            vec![STATUS_POSTED, STATUS_CANCELLED, STATUS_PENDING_POST]
         );
         assert_eq!(
             next_statuses(STATUS_PENDING_CANCEL),

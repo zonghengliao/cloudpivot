@@ -1182,6 +1182,10 @@ export interface PurchaseOrderRow {
   closed_at: string | null;
   /** 关闭人 */
   closed_by: string | null;
+  /** 审批实例 id（P-FLOW-3A；null = 没走审批 / 已驳回打回） */
+  approval_instance_id: string | null;
+  /** 审批实例单号 `FLW-…`（列表显示「审批中（FLW-xxx）」用，后端批量回填） */
+  approval_instance_no: string | null;
   /** 创建时间 */
   created_at: string;
   /** 更新时间 */
@@ -1375,12 +1379,25 @@ export function updatePurchaseOrder(
   return put<PurchaseOrderDetail>(`${BASE}/purchase-order/${id}`, payload);
 }
 
-/** 状态流转（`PATCH /erp/purchase-order/{id}/status`，4 条合法边，其余 409） */
+/** 状态流转（`PATCH /erp/purchase-order/{id}/status`，其余 409） */
 export function updatePurchaseOrderStatus(
   id: string,
   payload: PurchaseOrderStatusReq,
 ): Promise<PurchaseOrderDetail> {
   return patch<PurchaseOrderDetail>(`${BASE}/purchase-order/${id}/status`, payload);
+}
+
+/**
+ * 提交采购订单审批（`POST /erp/purchase-order/{id}/submit-approval`，P-FLOW-3A）。
+ *
+ * 后端按已发布的 `po_approve` 流程发起审批（金额三档：< 1 万部门主管 / 1–10 万采购经理 /
+ * ≥ 10 万采购经理+总经理会签），单据 `DRAFT → SUBMITTED`（列表显示「审批中」）。
+ * 没配流程时后端**降级**为直接提交（并留 warn），前端无感。
+ *
+ * 错误：409 已在审批中（报文带 `FLW-xxx`）/ 不是草稿；400 无明细或金额为 0。
+ */
+export function submitPurchaseOrderApproval(id: string): Promise<PurchaseOrderDetail> {
+  return post<PurchaseOrderDetail>(`${BASE}/purchase-order/${id}/submit-approval`, {});
 }
 
 /** 删除（`DELETE /erp/purchase-order/{id}`，**仅 DRAFT**，软删） */
@@ -1479,7 +1496,7 @@ export function fetchPurchaseOrderPendingItems(id: string): Promise<PendingRecei
  * P16 起作废是**两步**：`POSTED → PENDING_CANCEL`（发起作废审批）→ 审批通过 → `CANCELLED`；
  * 驳回 / 撤回则由 `PENDING_CANCEL` 回到 `POSTED`。草稿仍可直接 `DRAFT → CANCELLED`。
  */
-export type StockInStatus = 'DRAFT' | 'POSTED' | 'PENDING_CANCEL' | 'CANCELLED';
+export type StockInStatus = 'DRAFT' | 'POSTED' | 'PENDING_POST' | 'PENDING_CANCEL' | 'CANCELLED';
 
 /**
  * 收货入库单主表（逐字抄 `stockin_dto.rs::StockInRes`）。
@@ -1724,6 +1741,25 @@ export function updateStockInStatus(
   payload: StockInStatusReq,
 ): Promise<StockInDetail> {
   return patch<StockInDetail>(`${BASE}/stock-in/${id}/status`, payload);
+}
+
+/**
+ * 提交收货过账（`POST /erp/stock-in/{id}/submit-post`，P-FLOW-3A）。
+ *
+ * 配了已发布的 `stock_in_post` 流程时：`DRAFT → PENDING_POST`，走审批
+ * （含税 < 1000 免审直接过账 + 知会仓管主管；≥ 1000 仓管主管审批），审批通过才真正过账。
+ * 没配流程时后端降级为直接过账（与 P-FLOW-3A 之前一致）。
+ *
+ * 与 `PATCH /status` 走**同一个后端入口**：换 URL 绕不过审批。
+ */
+export function submitStockInPost(
+  id: string,
+  payload: Partial<StockInStatusReq> = {},
+): Promise<StockInDetail> {
+  return post<StockInDetail>(`${BASE}/stock-in/${id}/submit-post`, {
+    status: 'POSTED',
+    ...payload,
+  });
 }
 
 /**

@@ -43,6 +43,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::stockin_handler;
 use crate::business::erp::stockin_model::{self, STATUS_PENDING_CANCEL};
 use crate::business::flow::{engine, model as flow_model};
+use crate::shared::error_code;
 
 /// 作废审批的业务类型（与 V0174 种子 / `stockin_model::published_cancel_flow` 同口径）。
 pub const BIZ_TYPE: &str = stockin_model::CANCEL_BIZ_TYPE;
@@ -336,6 +337,205 @@ pub fn register_builtin(scheduler: &crate::task::Scheduler) {
 /// 这层薄封装只是让调用点更短；逻辑仍在 [`on_cancel_settled`]。
 pub async fn on_action_settled(out: &engine::ActionOut) -> Option<Uuid> {
     on_cancel_settled(out.instance_id, &out.instance_status).await
+}
+
+// ==================== P-FLOW-3A：过账审批（先审后过账） ====================
+
+/// 过账审批的业务类型（与 V0182 种子 / `stockin_model::published_post_flow` 同口径）。
+pub const POST_BIZ_TYPE: &str = stockin_model::POST_BIZ_TYPE;
+
+/// 过账审批结论文的业务语义（纯函数，便于单测钉住映射口径）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PostVerdict {
+    /// 同意 → 执行过账（六本账一起动）。
+    Execute,
+    /// 不同意 / 撤回 / 终止 → 打回草稿，账一分没动。
+    BackToDraft,
+}
+
+impl PostVerdict {
+    /// 落日志用的短名。
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            PostVerdict::Execute => "EXECUTE",
+            PostVerdict::BackToDraft => "BACK_TO_DRAFT",
+        }
+    }
+}
+
+/// 实例状态 → 过账审批的业务语义。`None` = 还在跑 / 不认识（一律不动单据）。
+pub fn post_verdict(instance_status: &str) -> Option<PostVerdict> {
+    match instance_status.trim().to_ascii_uppercase().as_str() {
+        "APPROVED" => Some(PostVerdict::Execute),
+        "REJECTED" | "WITHDRAWN" | "CANCELLED" => Some(PostVerdict::BackToDraft),
+        _ => None,
+    }
+}
+
+/// 过账审批单落终态 → 执行过账 / 打回草稿（`FlowCallback` 身份）。
+///
+/// | 实例状态 | 收货单 | 六本账 |
+/// |---|---|---|
+/// | `APPROVED` | `PENDING_POST → POSTED` | **全部动作**（复用 `post_in_tx`，一行没重写） |
+/// | `REJECTED` / `WITHDRAWN` / `CANCELLED` | `PENDING_POST → DRAFT` | 一动没动 |
+/// | 其它（`PENDING` / 空） | 不动 | 不动 |
+///
+/// 返回受影响的收货单 id（没推进 / 不该推进 → `None`）。**不返回错误**：审批已落库，
+/// 业务侧失败只记日志（与 [`on_cancel_settled`] 同口径，下一轮 `reconcile_orphan_cancels` 会兜）。
+pub async fn on_post_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
+    let instance_id = instance_id?;
+    let verdict = post_verdict(instance_status)?;
+    match settle_post(instance_id, verdict).await {
+        Ok(Some(stock_in_id)) => {
+            tracing::info!(
+                %instance_id,
+                %stock_in_id,
+                verdict = verdict.as_str(),
+                "过账审批结论已回调收货单"
+            );
+            Some(stock_in_id)
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(
+                %instance_id,
+                verdict = verdict.as_str(),
+                %error,
+                "过账审批结论回调收货单失败（不影响审批单，单据仍是过账审批中）"
+            );
+            None
+        }
+    }
+}
+
+/// [`on_post_settled`] 的实现体（可失败，由调用方吞掉错误）。
+async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option<Uuid>> {
+    let Some(instance) = flow_model::find_instance(instance_id).await? else {
+        tracing::debug!(%instance_id, "审批单不存在，跳过过账审批回调");
+        return Ok(None);
+    };
+    if instance.biz_type != POST_BIZ_TYPE {
+        return Ok(None);
+    }
+    let Some(stock_in_id) = instance.biz_id else {
+        return Ok(None);
+    };
+    let Some(row) = stockin_model::find_stock_in(stock_in_id).await? else {
+        tracing::warn!(%stock_in_id, "收货单不存在或已删除，跳过过账审批回调");
+        return Ok(None);
+    };
+    if row.status != stockin_model::STATUS_PENDING_POST {
+        tracing::debug!(
+            %stock_in_id,
+            status = %row.status,
+            verdict = verdict.as_str(),
+            "收货单不在 PENDING_POST（重复回调 / 已撤回 / 已作废），跳过"
+        );
+        return Ok(None);
+    }
+    let approver = latest_completed_assignee(instance_id).await?;
+    match verdict {
+        PostVerdict::Execute => {
+            // 内控最后一道闸：**审批人不能是制单人**（节点 self_approval 已拦，这里再核一次）
+            if let (Some(approver), Some(creator)) = (approver, row.create_by)
+                && approver == creator
+            {
+                tracing::warn!(
+                    %stock_in_id,
+                    instance_id = %instance_id,
+                    "内控拦截：过账审批人就是制单人本人，六本账**未**动（请核查流程配置）"
+                );
+                return Ok(None);
+            }
+            match stockin_handler::post_after_approval(stock_in_id, approver.or(row.create_by))
+                .await
+            {
+                Ok(()) => Ok(Some(stock_in_id)),
+                Err(error) => {
+                    tracing::warn!(
+                        %stock_in_id,
+                        code = error.code,
+                        msg = %error.msg,
+                        "过账审批已通过，但过账失败（单据仍是过账审批中，等待人工处置）"
+                    );
+                    Ok(None)
+                }
+            }
+        }
+        PostVerdict::BackToDraft => {
+            match stockin_handler::restore_after_post_rejection(
+                stock_in_id,
+                &row,
+                "过账审批未通过，单据打回草稿",
+                approver,
+            )
+            .await
+            {
+                Ok(()) => Ok(Some(stock_in_id)),
+                Err(error) => {
+                    tracing::warn!(
+                        %stock_in_id,
+                        code = error.code,
+                        msg = %error.msg,
+                        "过账审批未通过，但收货单打回草稿失败"
+                    );
+                    Ok(None)
+                }
+            }
+        }
+    }
+}
+
+/// 审批入口的内控闸（**事务之前**调）：过账审批的制单人 / 发起人不能批自己那一票 → 403。
+///
+/// 判据只认 `STOCK_IN_POST` 类的实例，与其它业务的待办零影响。
+pub async fn guard_self_approval(
+    task_id: Uuid,
+    operator: Uuid,
+) -> std::result::Result<(), ApiError> {
+    let Some(task) = flow_model::find_task(task_id).await.map_err(|error| {
+        ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("查询待办失败：{error}"),
+        )
+    })?
+    else {
+        return Ok(());
+    };
+    let Some(instance) = flow_model::find_instance(task.instance_id)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("查询审批单失败：{error}"),
+            )
+        })?
+    else {
+        return Ok(());
+    };
+    if instance.biz_type != POST_BIZ_TYPE {
+        return Ok(());
+    }
+    let Some(stock_in_id) = instance.biz_id else {
+        return Ok(());
+    };
+    let Ok(Some(row)) = stockin_model::find_stock_in(stock_in_id).await else {
+        return Ok(());
+    };
+    if row.create_by == Some(operator) || instance.initiator_id == operator {
+        return Err(ApiError::new(
+            403,
+            error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
+            format!(
+                "不能审批自己提交的过账申请：收货单 {} 由你本人提交（内控要求制单与审批分离），\
+                 请交给其他有审批权限的账号处理",
+                row.in_no
+            ),
+        ));
+    }
+    Ok(())
 }
 
 // ==================== 单测：纯逻辑（不连库） ====================

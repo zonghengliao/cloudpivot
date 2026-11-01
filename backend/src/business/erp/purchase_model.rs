@@ -104,13 +104,15 @@ pub const PRICE_MODES: [&str; 2] = [PRICE_MODE_EXCL, PRICE_MODE_INCL];
 pub const STATUS_DRAFT: &str = "DRAFT";
 /// 状态：已提交。
 pub const STATUS_SUBMITTED: &str = "SUBMITTED";
+/// 状态：审批通过（P-FLOW-3A）。此后才允许收货（`purchase_receivable` 同时收 SUBMITTED / APPROVED）。
+pub const STATUS_APPROVED: &str = "APPROVED";
 /// 状态：已关闭。
 pub const STATUS_CLOSED: &str = "CLOSED";
 /// 状态：已取消。
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
-/// 本卡负责的 4 条合法边（卡面 §三）。
-pub const LEGAL_EDGES: [(&str, &str); 11] = state_machine::PURCHASE_ORDER_EDGES;
+/// 合法边表（唯一真相在 `shared/state_machine`，P-FLOW-3A 扩到 13 条）。
+pub const LEGAL_EDGES: [(&str, &str); 13] = state_machine::PURCHASE_ORDER_EDGES;
 
 /// 状态中文标签（错误文案与前端徽标共用）。
 pub fn status_label(status: &str) -> &'static str {
@@ -562,7 +564,7 @@ pub async fn update(
 
 /// 状态流转（CAS：`WHERE id = ? AND status = from`），返回 `affected`。
 ///
-/// 目标态只接受 `SUBMITTED` / `CLOSED` / `CANCELLED`：
+/// 目标态接受 `SUBMITTED` / `APPROVED` / `DRAFT` / `CLOSED` / `CANCELLED`：
 /// 表里没有 `cancelled_at` / `cancel_reason` 列，作废落 `closed_at` / `closed_by`，
 /// 原因追加到 `remark`（`concat_ws(' | ', remark, '取消原因：xxx')`，不覆盖原备注）。
 pub async fn apply_status(
@@ -574,6 +576,24 @@ pub async fn apply_status(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
+    apply_status_with_instance(ex, id, from, to, reason, operator, None, now).await
+}
+
+/// 同 [`apply_status`]，但能**同时**写 `approval_instance_id`（P-FLOW-3A 发起审批用）。
+///
+/// 拆两个入口的理由与收货单同款：「写不写实例 id」是两件事 —— 普通流转必须保持
+/// `NULL`（不然驳回打回草稿之后还挂着旧实例，下一次提交的判断会被污染）。
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    approval_instance_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
     let operator_text = Value::Text(operator.map(|id| id.to_string()).unwrap_or_default());
     let reason_text = reason.unwrap_or_default().to_string();
     let (sql, params) = match to {
@@ -581,12 +601,57 @@ pub async fn apply_status(
             format!(
                 "UPDATE {ORDER_TABLE} \
                     SET status = 'SUBMITTED', submitted_at = ?, submitted_by = NULLIF(?::text,'')::uuid, \
+                        approval_instance_id = NULLIF(?::text,'')::uuid, \
                         updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
                   WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
             ),
             vec![
                 Value::from(now),
                 operator_text.clone(),
+                Value::Text(
+                    approval_instance_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
+        // P-FLOW-3A：审批通过（`SUBMITTED → APPROVED`）。单据状态由**审批结论**决定，
+        // 不是人工点的；`approval_instance_id` 保留作审计（详情显示「审批通过 FLW-xxx」）。
+        STATUS_APPROVED => (
+            format!(
+                "UPDATE {ORDER_TABLE} \
+                    SET status = 'APPROVED', approved_at = ?, approved_by = NULLIF(?::text,'')::uuid, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                operator_text.clone(),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
+        // P-FLOW-3A：审批驳回 → 打回草稿（清实例与提交痕迹，改完可重新提交）
+        STATUS_DRAFT => (
+            format!(
+                "UPDATE {ORDER_TABLE} \
+                    SET status = 'DRAFT', approval_instance_id = NULL, \
+                        submitted_at = NULL, submitted_by = NULL, \
+                        remark = CASE WHEN ? = '' THEN remark \
+                                      ELSE concat_ws(' | ', NULLIF(remark, ''), '审批驳回：' || ?) \
+                                 END, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::Text(reason_text.clone()),
+                Value::Text(reason_text),
                 Value::from(now),
                 operator_text,
                 Value::from(&id),
@@ -639,7 +704,10 @@ pub async fn apply_status(
     ex.exec_sql(sql, params).await
 }
 
-/// 软删（**仅 DRAFT 由调用方保证**），返回 `affected`。
+/// 软删（**DRAFT / SUBMITTED 由调用方保证**），返回 `affected`。
+///
+/// P-FLOW-3A：`SUBMITTED` 也允许删 —— 前提是调用方**先**在同一个事务里终止在跑的审批单
+/// （`purchase_bridge::cancel_approval_of`）。否则删掉的单据会留下孤儿待办（P11 教训）。
 pub async fn soft_delete(
     ex: &impl SqlExecutor,
     id: Uuid,
@@ -648,8 +716,10 @@ pub async fn soft_delete(
 ) -> DbResult<u64> {
     ex.exec_sql(
         format!(
-            "UPDATE {ORDER_TABLE} SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
-              WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
+            "UPDATE {ORDER_TABLE} SET deleted_at = ?, updated_at = ?, \
+                    update_by = NULLIF(?::text,'')::uuid, approval_instance_id = NULL \
+              WHERE id = ?::uuid AND status IN ('{STATUS_DRAFT}', '{STATUS_SUBMITTED}') \
+                AND deleted_at IS NULL"
         ),
         vec![
             Value::from(now),

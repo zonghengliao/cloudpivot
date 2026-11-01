@@ -174,7 +174,7 @@
               :data-testid="`btn-post-${row.in_no}`"
               @click="openPostDialog(row)"
             >
-              过账
+              提交过账
             </t-link>
             <t-link
               v-if="actionsOf(row).cancel"
@@ -618,6 +618,7 @@ import {
   fetchStockInPage,
   fetchSupplierOptions,
   fetchWarehousePage,
+  submitStockInPost,
   updateStockIn,
   updateStockInStatus,
   withdrawStockInCancel,
@@ -1129,7 +1130,7 @@ function handleInvoiceChoice(value: 'RECEIVED' | 'ESTIMATE', disabled: boolean):
   invoiceChoice.value = value;
 }
 
-/** 确认过账（不可撤销，成功后刷列表） */
+/** 确认过账（P-FLOW-3A：走「提交过账」入口 —— 配了审批流就先送审，免审/无流程则直接过账） */
 async function confirmPost(): Promise<void> {
   const target = postTarget.value;
   if (!target) {
@@ -1137,8 +1138,14 @@ async function confirmPost(): Promise<void> {
   }
   posting.value = true;
   try {
-    await updateStockInStatus(target.id, buildPostPayload());
-    MessagePlugin.success(`${target.in_no} 已过账，库存与流水已写入`);
+    const detail = await submitStockInPost(target.id, buildPostPayload());
+    // 后端把「免审直过」和「审批中」都回在同一个接口里 —— 按返回的真实状态说话，
+    // 不要一口咬定「已过账」（否则用户以为库存已经动了，其实还在等审批）。
+    if (detail.header.status === 'PENDING_POST') {
+      MessagePlugin.success(`${target.in_no} 已提交过账审批：审批通过后才写库存与凭证`);
+    } else {
+      MessagePlugin.success(`${target.in_no} 已过账，库存与流水已写入`);
+    }
     postVisible.value = false;
     postTarget.value = null;
     await loadOrders();

@@ -1348,8 +1348,8 @@ pub async fn seq_page(q: &SeqFilter) -> DbResult<(Vec<SeqRow>, i64)> {
 pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date, expect_date, \
      warehouse_id, status, currency_code::text AS currency_code, total_qty, total_amount, \
      total_tax, total_with_tax, credit_days, remark, price_mode, submitted_at, submitted_by, \
-     approved_at, approved_by, closed_at, closed_by, created_at, updated_at, create_by, \
-     update_by, deleted_at";
+     approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
+     create_by, update_by, deleted_at";
 
 /// 采购订单行。
 #[derive(Debug, Clone)]
@@ -1396,6 +1396,11 @@ pub struct PurchaseOrderRow {
     pub closed_at: Option<DateTime<Utc>>,
     /// 关闭人。
     pub closed_by: Option<Uuid>,
+    /// 提交审批的实例 id（P-FLOW-3A；`None` = 未走审批 / 已驳回打回）。
+    ///
+    /// 与 `status` 的关系由代码维护（没有库侧 CHECK，因为 `APPROVED` 之后还要留着做审计）：
+    /// `SUBMITTED`（审批中）必有值；驳回回 `DRAFT` 时清空；通过后保留（详情显示「审批通过 FLW-xxx」）。
+    pub approval_instance_id: Option<Uuid>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -1433,6 +1438,7 @@ impl PurchaseOrderRow {
             approved_by: row.get_typed("approved_by")?,
             closed_at: row.get_typed("closed_at")?,
             closed_by: row.get_typed("closed_by")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             create_by: row.get_typed("create_by")?,

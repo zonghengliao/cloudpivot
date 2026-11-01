@@ -78,13 +78,25 @@ pub const ENTITY_VOUCHER: &str = "VOUCHER";
 /// PENDING_CANCEL  → CANCELLED        审批通过 → 才执行 P9 的六本账回滚
 /// PENDING_CANCEL  → POSTED           驳回 / 申请人撤回 → 回到已过账，账一点没动
 /// ```
-pub const STOCK_IN_EDGES: [(&str, &str); 6] = [
+///
+/// P-FLOW-3A 起再多 4 条**过账审批**边（入库链：先审后过账）：
+/// ```text
+/// DRAFT          → PENDING_POST   提交过账审批（只挂审批单，库存一分没加）
+/// PENDING_POST   → POSTED         审批通过 → 才执行 post_in_tx（六本账一起动）
+/// PENDING_POST   → DRAFT          驳回 / 撤回 → 打回草稿，账一点没动
+/// PENDING_POST   → CANCELLED      审批中作废（撤审批单 + 单据作废，从未入过账所以不冲账）
+/// ```
+pub const STOCK_IN_EDGES: [(&str, &str); 10] = [
     ("DRAFT", "POSTED"),
     ("DRAFT", "CANCELLED"),
     ("POSTED", "CANCELLED"),
     ("POSTED", "PENDING_CANCEL"),
     ("PENDING_CANCEL", "CANCELLED"),
     ("PENDING_CANCEL", "POSTED"),
+    ("DRAFT", "PENDING_POST"),
+    ("PENDING_POST", "POSTED"),
+    ("PENDING_POST", "DRAFT"),
+    ("PENDING_POST", "CANCELLED"),
 ];
 
 /// 采购订单合法边（P10 · 卡面 §三 的 8 条 + 收货白名单必需的 2 条）。
@@ -113,7 +125,7 @@ pub const STOCK_IN_EDGES: [(&str, &str); 6] = [
 ///
 /// 所以补这条回退边：**只在收货单作废的回退路径上使用**（`sync_purchase_status`
 /// 的 `reason` 写明是哪张收货单作废触发的）。正向的 `DRAFT → RECEIVED` 依旧非法。
-pub const PURCHASE_ORDER_EDGES: [(&str, &str); 11] = [
+pub const PURCHASE_ORDER_EDGES: [(&str, &str); 13] = [
     ("DRAFT", "SUBMITTED"),
     ("DRAFT", "CANCELLED"),
     ("SUBMITTED", "APPROVED"),
@@ -121,8 +133,12 @@ pub const PURCHASE_ORDER_EDGES: [(&str, &str); 11] = [
     ("SUBMITTED", "CANCELLED"),
     ("SUBMITTED", "PARTIAL_RECEIVED"),
     ("SUBMITTED", "RECEIVED"),
+    // P-FLOW-3A：审批驳回 → 打回草稿（改完可重新提交，`DRAFT → SUBMITTED` 已在上方）
+    ("SUBMITTED", "DRAFT"),
     ("APPROVED", "PARTIAL_RECEIVED"),
     ("APPROVED", "RECEIVED"),
+    // P-FLOW-3A：审批通过后取消（`PURCHASE_ORDER_REASON_EDGES` 早就登记了这条，缺边=真流转 409）
+    ("APPROVED", "CANCELLED"),
     ("PARTIAL_RECEIVED", "RECEIVED"),
     ("RECEIVED", "PARTIAL_RECEIVED"),
 ];
@@ -172,7 +188,10 @@ pub const VOUCHER_REASON_EDGES: [(&str, &str); 0] = [];
 ///
 /// `PENDING_CANCEL` 也锁：作废审批中如果还能改数量 / 金额 / 明细，审批人批的就是一份
 /// 已经变过的数据（审批对象与执行对象不是同一张单），复核等于没做。
-pub const STOCK_IN_LOCKED: [&str; 2] = ["POSTED", "PENDING_CANCEL"];
+///
+/// `PENDING_POST`（P-FLOW-3A）同理且更严格：过账审批批的是「这一版的数量与金额」，
+/// 批完立刻按单据落库存 / 凭证 / 应付，中途改一行就是「审 A 记 B」。
+pub const STOCK_IN_LOCKED: [&str; 3] = ["POSTED", "PENDING_CANCEL", "PENDING_POST"];
 /// 采购订单入账态：收过货的单据不能再改金额 / 明细。
 pub const PURCHASE_ORDER_LOCKED: [&str; 2] = ["RECEIVED", "PARTIAL_RECEIVED"];
 /// 调拨单入账态：审批通过即锁定（在途 / 完成都不可改）。

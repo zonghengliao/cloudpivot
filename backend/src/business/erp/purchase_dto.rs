@@ -953,7 +953,7 @@ mod tests {
     /// 详见 `shared/state_machine.rs::PURCHASE_ORDER_EDGES` 的注释）。
     #[test]
     fn state_machine_allows_four_edges() {
-        assert_eq!(LEGAL_EDGES.len(), 11);
+        assert_eq!(LEGAL_EDGES.len(), 13);
         for (from, to) in [
             ("DRAFT", "SUBMITTED"),
             ("DRAFT", "CANCELLED"),
@@ -967,6 +967,9 @@ mod tests {
             ("PARTIAL_RECEIVED", "RECEIVED"),
             // D4：收货单作废后「已收货 → 部分收货」的回退边
             ("RECEIVED", "PARTIAL_RECEIVED"),
+            // P-FLOW-3A：审批驳回打回草稿 / 审批通过后取消
+            ("SUBMITTED", "DRAFT"),
+            ("APPROVED", "CANCELLED"),
         ] {
             assert!(can_transition(from, to), "{from} → {to} 必须放行");
         }
@@ -980,7 +983,9 @@ mod tests {
             ("DRAFT", "APPROVED"),
             ("DRAFT", "PARTIAL_RECEIVED"),
             ("DRAFT", "RECEIVED"),
-            ("SUBMITTED", "DRAFT"),
+            // ⚠️ P-FLOW-3A 起 `SUBMITTED → DRAFT` **是合法的**（审批驳回打回草稿），
+            //    这条从「非法边清单」里移出，改由 ⑯ 正向钉住；已审批的单据仍不许被打回草稿。
+            ("APPROVED", "DRAFT"),
             ("CLOSED", "CANCELLED"),
             ("CANCELLED", "SUBMITTED"),
             ("RECEIVED", "CANCELLED"),
@@ -991,7 +996,7 @@ mod tests {
         }
         assert!(
             !TRANSITION_TARGETS.contains(&"DRAFT"),
-            "目标态里不能出现 DRAFT"
+            "目标态里不能出现 DRAFT（打回草稿只能由审批回调做，外部接口不许指定）"
         );
     }
 

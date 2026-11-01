@@ -1775,7 +1775,9 @@ pub async fn purchase_order_page(
     let (rows, total) = model::purchase_order_page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "分页查询采购订单"))?;
-    let list = rows.iter().map(PurchaseOrderRes::from).collect();
+    let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
+    // P-FLOW-3A：列表要显示「审批中（FLW-xxx）」，实例单号批量回填一次
+    crate::business::erp::purchase_handler::fill_approval_no(&mut list).await;
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -1792,7 +1794,9 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单详情"))?
         .ok_or_else(|| not_found("采购订单"))?;
-    Ok(Res::ok(PurchaseOrderRes::from(&row)))
+    let mut res = PurchaseOrderRes::from(&row);
+    crate::business::erp::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
+    Ok(Res::ok(res))
 }
 
 /// 采购明细分页。

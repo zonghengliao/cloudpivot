@@ -115,6 +115,10 @@
           <t-tag size="small" :theme="purchaseStatusTheme(row.status)" :data-testid="`purchase-status-${row.order_no}`">
             {{ purchaseStatusLabel(row.status) }}
           </t-tag>
+          <!-- P-FLOW-3A：审批中点名审批单号（O5：报文/界面都要能直接照着找） -->
+          <span v-if="row.status === 'SUBMITTED' && row.approval_instance_no" class="approval-no">
+            {{ row.approval_instance_no }}
+          </span>
         </template>
 
         <template #op="{ row }">
@@ -134,7 +138,7 @@
               :data-testid="`btn-submit-${row.order_no}`"
               @click="confirmSubmit(row)"
             >
-              提交
+              提交审批
             </t-link>
             <t-link
               v-if="actionsOf(row).close"
@@ -463,6 +467,16 @@
           <t-tag size="small" variant="outline" :theme="priceModeTheme(detail.price_mode)" data-testid="purchase-detail-mode">
             {{ priceModeLabel(detail.price_mode) }}
           </t-tag>
+          <!-- P-FLOW-3A：审批进度（审批中点名单号，点开去审批单详情看时间线） -->
+          <t-link
+            v-if="detail.approval_instance_id"
+            theme="primary"
+            data-testid="purchase-detail-approval"
+            @click="openApprovalInstance(detail.approval_instance_id)"
+          >
+            {{ detail.status === 'SUBMITTED' ? '审批中' : '审批单' }}
+            {{ detail.approval_instance_no ?? detail.approval_instance_id }}
+          </t-link>
           <!-- D4/F1：一键生成收货单（条件 = 状态可收 且 还有待收行，口径全部来自后端） -->
           <span class="detail__spacer" />
           <t-button
@@ -555,6 +569,7 @@ import {
   fetchPurchaseOrderPendingItems,
   fetchSupplierOptions,
   fetchWarehousePage,
+  submitPurchaseOrderApproval,
   updatePurchaseOrder,
   updatePurchaseOrderStatus,
   type MaterialRow,
@@ -1046,11 +1061,12 @@ async function save(mode: 'draft' | 'submit'): Promise<void> {
 
     if (mode === 'submit') {
       try {
-        await updatePurchaseOrderStatus(orderId, buildStatusPayload('SUBMITTED'));
-        MessagePlugin.success(`${orderNo} 已提交`);
+        // P-FLOW-3A：提交 = 发起审批（不是直接改状态）。后端按 po_approve 流程分流。
+        await submitPurchaseOrderApproval(orderId);
+        MessagePlugin.success(`${orderNo} 已提交审批`);
       } catch (error) {
         // 单子已经保存成功，只有提交失败 —— 不能假装整体失败
-        MessagePlugin.warning(`${orderNo} 已保存为草稿，但提交失败：${messageOf(error)}`);
+        MessagePlugin.warning(`${orderNo} 已保存为草稿，但提交审批失败：${messageOf(error)}`);
       }
     } else {
       MessagePlugin.success(`${orderNo} 已保存为草稿`);
@@ -1083,13 +1099,28 @@ async function patchStatus(row: PurchaseOrderRow, status: 'SUBMITTED' | 'CLOSED'
   }
 }
 
-/** 提交（DRAFT → SUBMITTED，可直接发） */
+/** 提交审批（DRAFT → SUBMITTED，发起 po_approve 审批流；高危动作要二次确认，O8） */
 function confirmSubmit(row: PurchaseOrderRow): void {
   if (!actionsOf(row).submit) {
     MessagePlugin.warning('当前状态不能提交');
     return;
   }
-  void patchStatus(row, 'SUBMITTED');
+  const dialog = DialogPlugin.confirm({
+    header: '提交审批',
+    theme: 'info',
+    body: `${row.order_no}（含税 ${formatMoney(row.total_with_tax)}）将提交审批：按金额自动分流到部门主管 / 采购经理 / 采购经理+总经理会签。提交后单据锁定，等审批结论。确认提交？`,
+    confirmBtn: { content: '确认提交', theme: 'primary' },
+    onConfirm: async () => {
+      dialog.hide();
+      try {
+        await submitPurchaseOrderApproval(row.id);
+        MessagePlugin.success(`${row.order_no} 已提交审批`);
+        await loadOrders();
+      } catch (error) {
+        MessagePlugin.error(messageOf(error));
+      }
+    },
+  });
 }
 
 /** 关闭（SUBMITTED → CLOSED，需确认：关闭后不可再收货） */
@@ -1125,7 +1156,17 @@ function confirmCancel(row: PurchaseOrderRow): void {
 }
 
 // ==================== 详情 ====================
-
+/**
+ * 打开审批单详情（P-FLOW-3A）：审批进度时间线在流程实例页，单据页只给入口。
+ *
+ * 传 **实例 id**（不是单号）：路由是 `/flow/instance/:id`，用单号拼会 404。
+ */
+function openApprovalInstance(instanceId: string | null): void {
+  if (!instanceId) {
+    return;
+  }
+  void router.push({ path: `/flow/instance/${instanceId}` });
+}
 /** 抽屉可见 */
 const detailVisible = ref(false);
 /** 详情加载中 */

@@ -75,8 +75,8 @@ use crate::business::erp::stockin_dto::{
 };
 use crate::business::erp::stockin_model::{
     self, CostBasis, NewStockIn, NewStockInLine, STATUS_CANCELLED, STATUS_DRAFT,
-    STATUS_PENDING_CANCEL, STATUS_POSTED, Totals, can_transition, status_label,
-    transition_rejected_message,
+    STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, Totals, can_transition,
+    status_label, transition_rejected_message,
 };
 use crate::business::erp::voucher;
 use crate::business::flow::{engine, model as flow_model};
@@ -982,6 +982,17 @@ pub async fn change_stock_in_status(
         ));
     }
 
+    // ★ P-FLOW-3A：过账审批**中**的单据不能被「状态流转」直接过账
+    //   （那等于绕过审批）。合法边 `PENDING_POST → POSTED` 只给审批回调用。
+    if row.status == STATUS_PENDING_POST && target == STATUS_POSTED {
+        let instance_no = pending_post_no_of(row.approval_instance_id).await?;
+        return Err(conflict(format!(
+            "收货入库单 {} 已在过账审批中（{}）：审批通过会自动过账（库存/凭证/应付一起动）；\
+             想取消本次提交请用「撤回」",
+            row.in_no, instance_no
+        )));
+    }
+
     // ★ P16：作废审批**中**的单据不能被「状态流转」直接作废（那等于绕过复核）。
     //   合法边 `PENDING_CANCEL → CANCELLED` 只给**审批回调**用，外部 API 想走必须等结论。
     if row.status == STATUS_PENDING_CANCEL && target == STATUS_CANCELLED {
@@ -1440,6 +1451,14 @@ async fn cancel_in_tx(
     operator: &state_machine::Operator,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
+    // ⓪b P-FLOW-3A：过账审批中作废 → **先终止在跑的审批单**（同一事务）。
+    //     不终止就是 P11 的老坑：单据作废了，审批中心还挂着一条待办，点进去 404；
+    //     更糟的是 `uk_biz_flow_instance_biz_active` 会让这张单以后再也发不起审批。
+    if row.status == STATUS_PENDING_POST {
+        stockin_bridge::cancel_approval_of(ex, id, &row.in_no, "收货单在过账审批中作废")
+            .await
+            .map_err(|error| write_error(error, "作废：终止在跑的过账审批"))?;
+    }
     // ⓪ P10 铁律 ③：状态变更先过唯一入口（边表 + reason 校验 + 写 biz_status_log）。
     //    `POSTED → CANCELLED` 的 reason 必填由状态机注册表统一把关（400），
     //    handler 那层的人性化文案保留，两处不会漂移（同一份 reason_edges）。
@@ -1579,20 +1598,30 @@ async fn cancel_in_tx(
     Ok(())
 }
 
-/// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
-async fn post_stock_in(
+/// 过账所需的**输入快照**（明细 / 一物一码开关 / 序列号请求 / 采购未收快照）。
+///
+/// `req = None` 表示**审批回调路径**（[`post_after_approval`]）：审批单不携带序列号，
+/// 一物一码走 [`stockin_model::generate_serials`] 的「入参为空 → 自动取号」分支
+/// （与直接过账「操作员不填序列号」走的是同一条路，不另写一套）。
+async fn posting_inputs(
     id: Uuid,
-    header: &stockin_model::StockInRow,
-    req: &StockInStatusReq,
-    operator: &state_machine::Operator,
-) -> std::result::Result<(), ApiError> {
+    source_order_id: Option<Uuid>,
+    req: Option<&StockInStatusReq>,
+) -> std::result::Result<
+    (
+        Vec<stockin_model::StockInItemRow>,
+        HashMap<Uuid, bool>,
+        HashMap<i32, Vec<String>>,
+        HashMap<Uuid, (Decimal, Decimal)>,
+    ),
+    ApiError,
+> {
     let items = stockin_model::items_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货入库单明细"))?;
     if items.is_empty() {
         return Err(bad_request("收货入库单没有任何明细，无法过账"));
     }
-
     // 一物一码开关：事务外查（少占锁）
     let mut serial_required: HashMap<Uuid, bool> = HashMap::new();
     for item in &items {
@@ -1602,8 +1631,429 @@ async fn post_stock_in(
             .unwrap_or(false);
         serial_required.insert(item.material_id, flag);
     }
-    let provided = request_serials(req, &items)?;
-    let po_snapshot = purchase_item_snapshot(header.source_order_id).await?;
+    let provided = match req {
+        Some(req) => request_serials(req, &items)?,
+        None => HashMap::new(),
+    };
+    let po_snapshot = purchase_item_snapshot(source_order_id).await?;
+    Ok((items, serial_required, provided, po_snapshot))
+}
+
+/// 走「过账」的**唯一对外入口**（P-FLOW-3A）：配了已发布的 `stock_in_post` 流程就先送审，
+/// 没配就按 P-FLOW-3A 之前的行为直接过账（并留一条 `warn`，绝不把过账锁死）。
+///
+/// 为什么入口收在这里、而不是散在路由里：`PATCH /status`（下游老前端）与
+/// `POST /submit-post`（本卡新按钮）**必须同一条路** —— 否则审批可以被换一个 URL 绕过。
+pub async fn submit_post(
+    id: Uuid,
+    req: &StockInStatusReq,
+    operator: impl Into<state_machine::Operator>,
+) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    let target = req.target_status()?;
+    if target != STATUS_POSTED {
+        return change_stock_in_status(id, req, op).await;
+    }
+    match stockin_model::published_post_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货单过账审批流程"))?
+    {
+        Some(flow) => submit_post_approval(&row, &op, &flow, req).await,
+        None => {
+            tracing::warn!(
+                stock_in_id = %row.id,
+                in_no = %row.in_no,
+                "没有配置已发布的 stock_in_post 过账审批流程：本次过账**降级**为直接执行，请尽快补配流程"
+            );
+            change_stock_in_status(id, req, op).await
+        }
+    }
+}
+
+/// **发起过账审批**（P-FLOW-3A）：`DRAFT → PENDING_POST`，只挂审批单，六本账一动没动。
+///
+/// 一个事务里做完三件事：状态机过闸（边表 + `biz_status_log`）→ `engine::start` 发起审批单 →
+/// CAS 回写单据状态与 `approval_instance_id`。任一步失败整笔回滚：
+/// **不会出现「单据在审批中但审批单没了」**。
+async fn submit_post_approval(
+    row: &stockin_model::StockInRow,
+    operator: &state_machine::Operator,
+    flow: &stockin_model::PublishedFlow,
+    req: &StockInStatusReq,
+) -> std::result::Result<(), ApiError> {
+    // ① 单据必须还是草稿（审批中 / 已过账 / 已作废都不能再提交）
+    if row.status != STATUS_DRAFT {
+        if row.status == STATUS_PENDING_POST {
+            let instance_no = pending_post_no_of(row.approval_instance_id).await?;
+            return Err(conflict(format!(
+                "收货入库单 {} 已在过账审批中（{}）：请等审批结束，或从审批中心撤回后再提交",
+                row.in_no, instance_no
+            )));
+        }
+        return Err(conflict(format!(
+            "收货入库单 {} 当前是「{}」（{}），只有草稿（DRAFT）可以提交过账审批",
+            row.in_no,
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    // ② 明细 / 金额闸：空单、零金额不许送审（审批人批了也过不了账）
+    let items = stockin_model::items_of(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单明细"))?;
+    if items.is_empty() {
+        return Err(bad_request(format!(
+            "收货入库单 {} 没有任何明细，不能提交过账审批",
+            row.in_no
+        )));
+    }
+    if row.total_with_tax <= Decimal::ZERO {
+        return Err(bad_request(format!(
+            "收货入库单 {} 的含税金额为 {}，不能提交过账审批（金额必须 > 0）",
+            row.in_no, row.total_with_tax
+        )));
+    }
+    // 序列号在提交时就校验一遍（数量与号码必须对齐），失败别送去给审批人批
+    let _ = request_serials(req, &items)?;
+    let Some(operator_id) = operator.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交过账审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    // ③ 幂等：同一单已有在跑的过账审批 → 409（先查，别等库层 uk_biz_flow_instance_biz_active）
+    if flow_model::biz_instance_running(stockin_model::POST_BIZ_TYPE, row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = pending_post_no_of(row.approval_instance_id).await?;
+        return Err(conflict(format!(
+            "收货入库单 {} 已在过账审批中（{}）：请等审批结束，或从审批中心撤回后再提交",
+            row.in_no, instance_no
+        )));
+    }
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 收货过账", row.in_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.in_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: stock_in_form_data(row),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启过账审批事务"))?;
+    let outcome = submit_post_tx(&tx, row, operator, &start, now).await;
+    let mut out = match outcome {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let instance = out.instance_id.unwrap_or_default();
+    let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交过账审批事务"))?;
+    // 锁外副作用：小额免审分支的 NOTIFY_NODE 知会消息就在这批草稿里，必须在提交之后发
+    flush_effects(&mut out).await;
+    tracing::info!(
+        stock_in_id = %row.id,
+        in_no = %row.in_no,
+        instance_id = %instance,
+        flow_code = %start.flow_code,
+        "收货单已提交过账审批（状态 PENDING_POST，六本账未动）"
+    );
+    // 「小额免审」分支会在同一个事务里走完（NOTIFY 节点不阻塞）→ 提交后**立即执行过账**，
+    // 否则单据会停在 PENDING_POST 且没有任何人会来推进它（没有待办）。
+    if auto_finished {
+        return post_after_approval(row.id, Some(operator_id)).await;
+    }
+    Ok(())
+}
+
+/// [`submit_post_approval`] 的事务体：返回引擎动作结果（调用方提交后负责发锁外副作用）。
+async fn submit_post_tx(
+    tx: &Transaction,
+    row: &stockin_model::StockInRow,
+    operator: &state_machine::Operator,
+    start: &engine::StartReq,
+    now: DateTime<Utc>,
+) -> std::result::Result<engine::ActionOut, ApiError> {
+    // ① 状态机唯一入口：边表校验 + 写 biz_status_log
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_STOCK_IN,
+        row.id,
+        &row.in_no,
+        &stockin_model::LEGAL_EDGES,
+        STATUS_DRAFT,
+        STATUS_PENDING_POST,
+        operator.clone(),
+        Some("提交过账审批"),
+        None,
+    )
+    .await?;
+    // ② 发起审批单（引擎在同一个事务里建实例 + 待办 + 节点）
+    let mut out = engine::start(tx, start)
+        .await
+        .map_err(|error| write_error(error, "发起过账审批单"))?;
+    if let Some(rejected) = out.rejected.take() {
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!(
+                "{}（内控要求：过账复核人不能是发起人本人。请由他人提交，或让另一个账号具备复核权限后再审）",
+                rejected.msg
+            ),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // ③ CAS 回写单据：状态 + 实例 id（两者同一笔 UPDATE，否则撞 ck_biz_si_pending_approval）
+    let affected = stockin_model::apply_status_with_instance(
+        tx,
+        row.id,
+        STATUS_DRAFT,
+        STATUS_PENDING_POST,
+        None,
+        operator.id,
+        Some(instance_id),
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "收货单进入过账审批中"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "收货入库单 {} 的状态在本次提交期间已被改动（期望 DRAFT），请刷新后重试",
+            row.in_no
+        )));
+    }
+    Ok(out)
+}
+
+/// 事务提交后发送锁外副作用（审批通知 / 通知节点的知会消息）。
+///
+/// 与 `flow::handler::drain` 同口径：投递失败只 WARN，**不影响已经落库的业务**
+/// （流程已推进是事实，邮件/站内信没发出去是运维问题，不该让单据回滚）。
+async fn flush_effects(out: &mut engine::ActionOut) {
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+}
+
+/// 审批**通过**之后执行过账（由 [`stockin_bridge::on_post_settled`] / 提交后的「免审」分支调用）。
+///
+/// 复用 [`post_in_tx`]（六本账唯一实现），只把起始状态换成 `PENDING_POST`：
+/// 库存 / 库位账 / 流水 / 序列号 / 采购已收数量 / 凭证 / 应付全在同一个事务里，
+/// 任一步失败整笔回滚（单据仍是过账审批中，等人工或下一轮重试）。
+pub async fn post_after_approval(
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let row = stockin_model::find_stock_in(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货入库单"))?
+        .ok_or_else(|| not_found("收货入库单"))?;
+    if row.status != STATUS_PENDING_POST {
+        return Err(conflict(format!(
+            "收货入库单 {} 当前是「{}」（{}），不是过账审批中：不能执行过账",
+            row.in_no,
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    let (items, serial_required, provided, po_snapshot) =
+        posting_inputs(id, row.source_order_id, None).await?;
+    let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
+    ordered.sort_by(|a, b| {
+        (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
+    });
+    let op = state_machine::Operator::of(operator.or(row.create_by));
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启审批过账事务"))?;
+    let outcome = post_in_tx(
+        &tx,
+        id,
+        &row,
+        &ordered,
+        &serial_required,
+        &provided,
+        &po_snapshot,
+        &op,
+        STATUS_PENDING_POST,
+        now,
+    )
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交审批过账事务"))?;
+            tracing::info!(
+                stock_in_id = %id,
+                in_no = %row.in_no,
+                "过账审批通过：库存/库位账/流水/序列号/凭证/应付已在一个事务里落库"
+            );
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 审批**未通过**之后把单据打回草稿（驳回 / 撤回 / 终止）。
+///
+/// 账一动不动 —— 这里只有状态 + 清理 `approval_instance_id`。
+pub async fn restore_after_post_rejection(
+    id: Uuid,
+    row: &stockin_model::StockInRow,
+    reason: &str,
+    operator: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启过账打回事务"))?;
+    let outcome = async {
+        state_machine::transition(
+            &tx,
+            state_machine::ENTITY_STOCK_IN,
+            id,
+            &row.in_no,
+            &stockin_model::LEGAL_EDGES,
+            STATUS_PENDING_POST,
+            STATUS_DRAFT,
+            operator,
+            Some(reason),
+            None,
+        )
+        .await?;
+        let affected = stockin_model::apply_status(
+            &tx,
+            id,
+            STATUS_PENDING_POST,
+            STATUS_DRAFT,
+            None,
+            operator,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "收货单过账审批打回草稿"))?;
+        if affected == 0 {
+            return Err(conflict(format!(
+                "收货入库单 {} 的状态在本次打回期间已被改动（期望 {STATUS_PENDING_POST}），请刷新后重试",
+                row.in_no
+            )));
+        }
+        Ok::<(), ApiError>(())
+    }
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交过账打回事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+/// 在跑实例的单号（拼 409 文案用；查不到就给 `-`）。
+async fn pending_post_no_of(instance_id: Option<Uuid>) -> std::result::Result<String, ApiError> {
+    let Some(instance_id) = instance_id else {
+        return Ok("-".to_string());
+    };
+    let no = flow_model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询过账审批单"))?
+        .map(|instance| instance.instance_no)
+        .unwrap_or_else(|| "-".to_string());
+    Ok(no)
+}
+
+/// 过账审批的**表单变量**。金额必须写成 JSON **数字**（不是字符串）：
+/// 条件边比较走 `as_f64()`，`"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边（P17 实测）。
+///
+/// ⚠️ 返回类型必须写全 `serde_json::Value`：本文件 `use nik::prelude::*` 带进来的
+/// `Value` 是 **数据库绑定值**（`nik_db_core::Value`），两者同名不同物。
+fn stock_in_form_data(row: &stockin_model::StockInRow) -> serde_json::Value {
+    serde_json::json!({
+        "stock_in_id": row.id.to_string(),
+        "in_no": row.in_no,
+        "amount": decimal_as_number(row.total_with_tax),
+        "total_with_tax": row.total_with_tax.to_string(),
+        "total_amount": row.total_amount.to_string(),
+        "total_qty": row.total_qty.to_string(),
+        "warehouse_id": row.warehouse_id.to_string(),
+        "supplier_id": row.supplier_id.map(|value| value.to_string()),
+        // 内控留痕：审批人 ≠ 制单人（`stockin_bridge::guard_self_approval` 兜底）
+        "create_by": row.create_by.map(|value| value.to_string()),
+    })
+}
+
+/// `Decimal` → `serde_json::Number`（`rust_decimal` 未开 `maths`，没有 `to_f64`）。
+fn decimal_as_number(value: Decimal) -> serde_json::Value {
+    let text = value.round_dp(4).to_string();
+    match text.parse::<f64>() {
+        Ok(float) => serde_json::Number::from_f64(float)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Err(_) => serde_json::Value::Null,
+    }
+}
+
+/// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
+async fn post_stock_in(
+    id: Uuid,
+    header: &stockin_model::StockInRow,
+    req: &StockInStatusReq,
+    operator: &state_machine::Operator,
+) -> std::result::Result<(), ApiError> {
+    let (items, serial_required, provided, po_snapshot) =
+        posting_inputs(id, header.source_order_id, Some(req)).await?;
 
     // PRD §3.2.6：多行按 material_id 升序加锁（再按库位 / 行号，保证全序），避免两个收货单互相死锁
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
@@ -1625,6 +2075,7 @@ async fn post_stock_in(
         &provided,
         &po_snapshot,
         operator,
+        STATUS_DRAFT,
         now,
     )
     .await;
@@ -1644,6 +2095,14 @@ async fn post_stock_in(
 }
 
 /// 过账事务体（抽出来便于「失败即回滚」的统一收口）。
+///
+/// `from_status` 是**唯一**与入口相关的差别（P-FLOW-3A 加的）：
+/// * `DRAFT` —— 直接过账（未配过账流程 / 内部调用 / 老用例）；
+/// * `PENDING_POST` —— 过账审批通过后执行（[`post_after_approval`]）。
+///
+/// 其余六本账动作（库存 / 库位账 / 流水 / 序列号 / 采购已收 / 凭证 + 应付）
+/// **一行都没重写**：审批通过只换了入口状态，"审 A 记 B" 的风险由
+/// `STOCK_IN_LOCKED`（PENDING_POST 锁单据）兜住。
 #[allow(clippy::too_many_arguments)]
 async fn post_in_tx(
     ex: &impl SqlExecutor,
@@ -1654,6 +2113,7 @@ async fn post_in_tx(
     provided: &HashMap<i32, Vec<String>>,
     po_snapshot: &HashMap<Uuid, (Decimal, Decimal)>,
     operator: &state_machine::Operator,
+    from_status: &str,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
     // ① 锁单头（并发重复过账在这里串行化）
@@ -1661,7 +2121,7 @@ async fn post_in_tx(
         .await
         .map_err(|error| utils::db_error(error, "锁定收货入库单"))?
         .ok_or_else(|| not_found("收货入库单"))?;
-    if locked.status != STATUS_DRAFT {
+    if locked.status != from_status {
         return Err(conflict(format!(
             "收货入库单 {} 当前是「{}」（{}），不能过账：库存只加一次",
             locked.in_no,
@@ -1670,7 +2130,7 @@ async fn post_in_tx(
         )));
     }
 
-    // ② CAS 写状态（`WHERE status = 'DRAFT'`）
+    // ② CAS 写状态（`WHERE status = from_status`）
     //    P10 铁律 ③：先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
     //    再 CAS 改状态。两步同一事务：CAS 落空 → 整笔回滚，日志不会半条落地。
     state_machine::transition(
@@ -1679,7 +2139,7 @@ async fn post_in_tx(
         id,
         &header.in_no,
         &stockin_model::LEGAL_EDGES,
-        STATUS_DRAFT,
+        from_status,
         STATUS_POSTED,
         operator.clone(),
         None,
@@ -1687,7 +2147,7 @@ async fn post_in_tx(
     )
     .await?;
     let affected =
-        stockin_model::apply_status(ex, id, STATUS_DRAFT, STATUS_POSTED, None, operator.id, now)
+        stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, None, operator.id, now)
             .await
             .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
     if affected == 0 {
@@ -1906,7 +2366,34 @@ pub async fn stock_in_change_status(
     Json(req): Json<StockInStatusReq>,
 ) -> ResResult<StockInDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    change_stock_in_status(id, &req, &claims).await?;
+    submit_post(id, &req, &claims).await?;
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ③c 提交过账审批（P-FLOW-3A） ====================
+
+/// 提交收货单过账（`DRAFT → PENDING_POST`，或未配流程时降级直接过账）。
+///
+/// 与 `PATCH /status` 走**同一个函数**（[`submit_post`]）：
+/// 只要配了已发布的 `stock_in_post` 流程，两条路都必须先送审 —— 不存在换 URL 绕过审批。
+#[nik::permission(
+    path = "/business/erp/stock-in/{id}/submit-post",
+    method = "POST",
+    permission = "business:erp:stock-in:submit-post-approval"
+)]
+#[nik::post("/business/erp/stock-in/{id}/submit-post")]
+pub async fn stock_in_submit_post(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    body: Option<Json<StockInStatusReq>>,
+) -> ResResult<StockInDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    let mut req = body.map(|Json(item)| item).unwrap_or_default();
+    // `/submit-post` 的语义就是「提交过账」：body 可省，缺省目标态即 POSTED
+    if req.status.is_none() {
+        req.status = Some(STATUS_POSTED.to_string());
+    }
+    submit_post(id, &req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -1947,9 +2434,11 @@ pub async fn delete_stock_in(
         .await
         .map_err(|error| utils::db_error(error, "查询收货入库单"))?
         .ok_or_else(|| not_found("收货入库单"))?;
-    if row.status != STATUS_DRAFT {
+    // P-FLOW-3A：`PENDING_POST`（过账审批中）也允许删 —— 审批单会被同一事务终止，
+    // 不留孤儿待办（P11 教训）。除这两种状态外，单据是库存/成本链的事实，只能作废。
+    if row.status != STATUS_DRAFT && row.status != STATUS_PENDING_POST {
         return Err(conflict(format!(
-            "收货入库单当前是「{}」（{}），只有草稿（DRAFT）能删：\
+            "收货入库单当前是「{}」（{}），只有草稿（DRAFT）或过账审批中（{STATUS_PENDING_POST}）能删：\
              已过账的单据是库存与成本链的事实，只能作废（{STATUS_PENDING_CANCEL} 状态下请先撤回作废申请）",
             status_label(&row.status),
             row.status
@@ -1961,10 +2450,10 @@ pub async fn delete_stock_in(
         .await
         .map_err(|error| utils::db_error(error, "开启删除事务"))?;
     let outcome = async {
-        // ① 先撤在跑的审批（幂等：没有就什么都不做）
-        stockin_bridge::cancel_approval_of(&tx, id, &row.in_no, "收货单已删除，作废审批自动终止")
+        // ① 先撤在跑的审批（作废审批 / 过账审批都按 biz_id 找；幂等：没有就什么都不做）
+        stockin_bridge::cancel_approval_of(&tx, id, &row.in_no, "收货单已删除，审批自动终止")
             .await
-            .map_err(|error| write_error(error, "删除：终止在跑的作废审批"))?;
+            .map_err(|error| write_error(error, "删除：终止在跑的审批"))?;
         // ② 再软删单据
         let affected = stockin_model::soft_delete(&tx, id, operator, now)
             .await
@@ -4792,7 +5281,7 @@ mod tests {
         );
         assert_eq!(voucher_count(id, Some(1)).await, 0);
         let instance_id: Option<Uuid> = db()
-            .scalar_with_params::<Option<Uuid>>(
+            .scalar_with_params(
                 "SELECT id FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id = ?::uuid",
                 vec![Value::from(&id)],
             )
@@ -5606,5 +6095,473 @@ mod tests {
             row.received_qty, ledger,
             "冗余列（写路径闸）与已过账聚合（读路径）必须一致"
         );
+    }
+
+    // ==================== P-FLOW-3A：收货过账审批（8 条） ====================
+    //
+    // 跑的是**真种子**（V0182 的 `stock_in_post`：5 节点 5 边，含 NOTIFY_NODE 小额免审分支），
+    // 不是另造测试图 —— 所以这些用例同时验证「种子能发起 / 免审能直接过 / 阈值落在条件边上」。
+
+    /// 仓管主管角色（V0182 种子里的固定 UUID）。
+    const ROLE_WH_MGR: &str = "20000000-0000-4000-8000-0000000f0004";
+    /// 仓管主管账号。
+    const U_WH_MGR: &str = "b2b1000a-0000-4000-8000-000000000002";
+    /// 制单人（P16 夹具里的仓管员，本卡用来验证「自己提自己批」被拦）。
+    const U_KEEPER: &str = "b2b10009-0000-4000-8000-000000000001";
+
+    fn uid_of(raw: &str) -> Uuid {
+        Uuid::parse_str(raw).expect("夹具 UUID 非法")
+    }
+
+    async fn sql(text: &str) {
+        if let Err(err) = db().execute_with_params(text, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {text}");
+        }
+    }
+
+    /// 过账审批夹具：仓管主管账号 + 角色绑定 + 清掉本卡夹具的审批实例 / 通知。
+    async fn setup_post_approval() {
+        // 仓管主管角色是共享资源：只留本卡夹具的人（否则「派给谁」不可判定）
+        sql(&format!(
+            "DELETE FROM sys_user_role WHERE role_id = '{ROLE_WH_MGR}'::uuid \
+                AND user_id <> '{U_WH_MGR}'::uuid"
+        ))
+        .await;
+        sql(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES ('{U_WH_MGR}'::uuid, 'p3a_wh_mgr', 'x', 'p3a 仓管主管', 1) \
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await;
+        sql(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             VALUES ('{U_WH_MGR}'::uuid, '{ROLE_WH_MGR}'::uuid) ON CONFLICT DO NOTHING"
+        ))
+        .await;
+        for sql_text in [
+            // 通知接收人是硬外键 → 必须先删接收人再删通知（顺序反了会 FK 违约）。
+            // ⚠️ `sys_notice.biz_id` 是 **varchar**（V0043），必须 `id::text` 才能和它比。
+            format!(
+                "DELETE FROM sys_notice_receiver WHERE notice_id IN \
+                   (SELECT id FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
+                     (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
+                        AND biz_id IN \
+                       (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)))"
+            ),
+            format!(
+                "DELETE FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
+                   (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
+                      AND biz_id IN \
+                     (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+            ),
+            format!(
+                "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' AND biz_id IN \
+                   (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+        ] {
+            sql(&sql_text).await;
+        }
+    }
+
+    /// 造一张含税金额 = `amount` 的收货单（单行、税率 0）。
+    async fn stock_in_with_amount(amount: &str, maker: Option<&str>) -> Uuid {
+        create_stock_in(
+            &req(vec![line(MATERIAL_A, "1", amount, "0")]),
+            maker.map(uid_of),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造收货单失败：{} {}", err.code, err.msg))
+    }
+
+    async fn running_post_instance(stock_in_id: Uuid) -> Uuid {
+        db().scalar_with_params::<Option<Uuid>>(
+            "SELECT id FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
+              AND biz_id = ?::uuid AND status = 'PENDING' LIMIT 1",
+            vec![Value::from(&stock_in_id)],
+        )
+        .await
+        .unwrap()
+        .expect("应当有在跑的过账审批实例")
+    }
+
+    async fn post_pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, assignee_id FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND status = 'PENDING' ORDER BY assignee_id, id",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("读待办失败");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed("id").unwrap(),
+                    row.get_typed("assignee_id").unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    /// 以某人身份同意一条待办，并按 `flow::handler` 的口径推进业务回调。
+    async fn post_approve_as(
+        task_id: Uuid,
+        operator: &str,
+    ) -> crate::business::flow::engine::ActionOut {
+        let op = uid_of(operator);
+        let out = db()
+            .transaction(|tx| async move {
+                crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await
+            })
+            .await
+            .unwrap_or_else(|err| panic!("同意失败：{err}"));
+        stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
+        out
+    }
+
+    async fn stock_in_status(id: Uuid) -> String {
+        stockin_model::find_stock_in(id)
+            .await
+            .unwrap()
+            .expect("收货单不存在")
+            .status
+    }
+
+    /// ⑨ 提交过账 → PENDING_POST + 实例 + 六本账一分没动。
+    #[tokio::test]
+    async fn pflow3a_si_submit_post_pending_without_ledger() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap_or_else(|err| panic!("提交过账失败：{} {}", err.code, err.msg));
+
+        assert_eq!(stock_in_status(id).await, "PENDING_POST");
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert!(row.approval_instance_id.is_some(), "必须回写审批实例");
+        let instance = running_post_instance(id).await;
+        let tasks = post_pending_tasks(instance).await;
+        assert_eq!(tasks.len(), 1, "5000 元走仓管主管审批");
+        assert_eq!(tasks[0].1, uid_of(U_WH_MGR));
+        // 六本账一分没动
+        assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "库存未加");
+        let txns: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(txns, 0, "未过账不许写流水");
+        let vouchers: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(vouchers, 0, "未过账不许出凭证");
+    }
+
+    /// ⑩ 500 元（< 1000）→ 免审直接过账 + 通知仓管主管（NOTIFY_NODE）。
+    #[tokio::test]
+    async fn pflow3a_si_small_amount_auto_posts_and_notifies() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("500", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap_or_else(|err| panic!("提交过账失败：{} {}", err.code, err.msg));
+
+        // 免审：同一请求里就走完了过账
+        assert_eq!(stock_in_status(id).await, "POSTED", "小额免审必须直接过账");
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("1"), "库存已加");
+        // 实例已结束（NOTIFY 节点不阻塞）
+        let instance: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT id FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
+                  AND biz_id = ?::uuid ORDER BY started_at DESC LIMIT 1",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .expect("实例应当存在");
+        let status: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "APPROVED", "免审分支实例应自动走完");
+        // 知会通知（sys_notice.biz_type = FLOW_NOTIFY，收件人 = 仓管主管）
+        let notices: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM sys_notice WHERE biz_id = ? AND biz_type = 'FLOW_NOTIFY'",
+                vec![Value::Text(instance.to_string())],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(notices, 1, "免审必须发一条知会通知");
+        let receivers: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM sys_notice_receiver r JOIN sys_notice n ON n.id = r.notice_id \
+                  WHERE n.biz_id = ? AND n.biz_type = 'FLOW_NOTIFY'",
+                vec![Value::Text(instance.to_string())],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(receivers, 1, "通知要扇出给仓管主管（1 人）");
+    }
+
+    /// ⑪ 5000 元 → 走仓管主管审批（待办派给角色成员）。
+    #[tokio::test]
+    async fn pflow3a_si_5000_needs_manager_approval() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        let instance = running_post_instance(id).await;
+        let tasks = post_pending_tasks(instance).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0].1, uid_of(U_WH_MGR), "5000 元派给仓管主管");
+        assert_eq!(stock_in_status(id).await, "PENDING_POST");
+    }
+
+    /// ⑫ 审批通过 → POSTED + 六本账全动（库存 / 流水 / 凭证 / 应付 / 库位账）。
+    #[tokio::test]
+    async fn pflow3a_si_approve_posts_all_books() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        let tasks = post_pending_tasks(running_post_instance(id).await).await;
+        post_approve_as(tasks[0].0, U_WH_MGR).await;
+
+        assert_eq!(stock_in_status(id).await, "POSTED");
+        let (qty, amount, _) = inventory_of(MATERIAL_A).await;
+        assert_eq!(qty, dec("1"), "库存数量");
+        assert_eq!(amount, dec("5000"), "库存成本（不含税）");
+        let txns: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(txns, 1, "库存流水 1 条");
+        let vouchers: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(vouchers, 1, "过账即出凭证");
+        let payables: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_payable WHERE source_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(payables, 1, "过账即生成应付单");
+        let loc_qty: Decimal = db()
+            .scalar_with_params::<Option<Decimal>>(
+                "SELECT COALESCE(SUM(qty), 0) FROM biz_inventory_location WHERE material_id = ?::uuid",
+                vec![Value::from(&uid_of(MATERIAL_A))],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loc_qty, dec("1"), "库位账与成本账相等");
+    }
+
+    /// ⑬ 审批驳回 → 回 DRAFT + 账一分没动；打回后还能重新提交。
+    #[tokio::test]
+    async fn pflow3a_si_reject_back_to_draft_without_ledger() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        let tasks = post_pending_tasks(running_post_instance(id).await).await;
+        let op = uid_of(U_WH_MGR);
+        let out = db()
+            .transaction(|tx| async move {
+                crate::business::flow::engine::reject(
+                    &tx,
+                    tasks[0].0,
+                    op,
+                    "数量与送货单不符，退回核对",
+                    crate::business::flow::engine::ReturnTo::Final,
+                )
+                .await
+            })
+            .await
+            .unwrap();
+        stockin_bridge::on_post_settled(out.instance_id, &out.instance_status).await;
+
+        assert_eq!(stock_in_status(id).await, "DRAFT", "驳回必须打回草稿");
+        assert_eq!(inventory_of(MATERIAL_A).await.0, Decimal::ZERO, "账没动");
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert!(row.approval_instance_id.is_none(), "打回要清空审批实例");
+        // 打回后能重新提交
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .expect("打回后必须能重新提交过账审批");
+        assert_eq!(stock_in_status(id).await, "PENDING_POST");
+    }
+
+    /// ⑭ PENDING_POST 状态改金额 / 数量 → 409（锁单据）。
+    #[tokio::test]
+    async fn pflow3a_si_pending_post_is_locked() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        assert_eq!(stock_in_status(id).await, "PENDING_POST");
+
+        let err = update_stock_in(id, &req(vec![line(MATERIAL_A, "9", "5000", "0")]), None)
+            .await
+            .expect_err("审批中的单据不许改金额 / 明细");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("PENDING_POST") || err.msg.contains("不可修改"),
+            "{}",
+            err.msg
+        );
+        // 状态流转也不能「直接过账」绕过审批
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect_err("审批中不许直接过账");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(err.msg.contains("过账审批中"), "{}", err.msg);
+        // 单据没被改动
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert_eq!(row.total_with_tax, dec("5000"));
+        assert_eq!(row.status, "PENDING_POST");
+    }
+
+    /// ⑮ 审批中删除收货单 → 同一事务撤审批（不留孤儿待办，P11）。
+    #[tokio::test]
+    async fn pflow3a_si_delete_cancels_pending_approval() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        let id = stock_in_with_amount("5000", None).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        let instance = running_post_instance(id).await;
+
+        delete_stock_in(id, None)
+            .await
+            .unwrap_or_else(|err| panic!("删除失败：{} {}", err.code, err.msg));
+
+        let status: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "CANCELLED", "删单必须终止审批实例");
+        let pending: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(pending, 0, "不许留孤儿待办");
+        assert!(
+            stockin_model::find_stock_in(id).await.unwrap().is_none(),
+            "单据已软删"
+        );
+    }
+
+    /// ⑯ 制单人自批 → 403 + 65019。
+    #[tokio::test]
+    async fn pflow3a_si_maker_cannot_approve_own_post() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_post_approval().await;
+        // 制单人 = 仓管主管本人（自己提自己批）
+        sql(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             VALUES ('{U_KEEPER}'::uuid, '{ROLE_WH_MGR}'::uuid) ON CONFLICT DO NOTHING"
+        ))
+        .await;
+        let id = stock_in_with_amount("5000", Some(U_KEEPER)).await;
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+            .await
+            .unwrap();
+        let tasks = post_pending_tasks(running_post_instance(id).await).await;
+        let mine = tasks
+            .iter()
+            .find(|(_, who)| *who == uid_of(U_KEEPER))
+            .expect("仓管主管本人会拿到这条待办")
+            .0;
+
+        let err = stockin_bridge::guard_self_approval(mine, uid_of(U_KEEPER))
+            .await
+            .expect_err("自批必须被拦");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(
+            err.msg.contains("不能审批自己提交的过账申请"),
+            "{}",
+            err.msg
+        );
+        // 他人可正常审批
+        stockin_bridge::guard_self_approval(mine, uid_of(U_WH_MGR))
+            .await
+            .expect("他人可以正常审批");
+        sql(&format!(
+            "DELETE FROM sys_user_role WHERE user_id = '{U_KEEPER}'::uuid \
+              AND role_id = '{ROLE_WH_MGR}'::uuid"
+        ))
+        .await;
     }
 }

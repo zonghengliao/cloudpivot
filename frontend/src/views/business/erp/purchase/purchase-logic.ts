@@ -359,13 +359,13 @@ export function todayString(now: Date = new Date()): string {
 
 // ==================== 状态 ====================
 
-/** 状态 → 中文（与 `purchase_model::status_label` 同文案） */
+/** 状态 → 中文（与 `purchase_model::status_label` 同文案；`SUBMITTED` 在本卡语义是「审批中」） */
 export function purchaseStatusLabel(status: PurchaseOrderStatus | string): string {
   switch (status) {
     case 'DRAFT':
       return '草稿';
     case 'SUBMITTED':
-      return '已提交';
+      return '审批中';
     case 'APPROVED':
       return '已审批';
     case 'PARTIAL_RECEIVED':
@@ -409,7 +409,7 @@ export function purchaseStatusTheme(
 export const PURCHASE_STATUS_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: '' | PurchaseOrderStatus }> = [
   { label: '全部状态', value: '' },
   { label: '草稿', value: 'DRAFT' },
-  { label: '已提交', value: 'SUBMITTED' },
+  { label: '审批中', value: 'SUBMITTED' },
   { label: '已审批', value: 'APPROVED' },
   { label: '部分收货', value: 'PARTIAL_RECEIVED' },
   { label: '已收货', value: 'RECEIVED' },

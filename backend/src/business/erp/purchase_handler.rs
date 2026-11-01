@@ -36,11 +36,14 @@
 //! `received_qty` 建单恒 0，`PARTIAL_RECEIVED` / `RECEIVED` 两个状态也不由本卡写入（P2-B1）。
 
 use axum::Json;
-use nik::prelude::chrono::Utc;
+use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::dto::PurchaseOrderRes;
+use crate::business::erp::model::PurchaseOrderRow;
+use crate::business::erp::purchase_bridge;
 use crate::business::erp::purchase_dto::{
     CreatePurchaseOrderReq, PendingItemRes, PendingOrderRes, PendingReceiveRes, PendingStockInRes,
     PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq, ensure_submittable_lines,
@@ -50,6 +53,7 @@ use crate::business::erp::purchase_model::{
     can_transition, status_label, transition_rejected_message,
 };
 use crate::business::erp::stockin_model;
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -145,10 +149,56 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     let items = purchase_model::items_of(id)
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单明细"))?;
+    let mut order = PurchaseOrderRes::from(&row);
+    fill_approval_no(std::slice::from_mut(&mut order)).await;
     Ok(PurchaseOrderDetailRes {
-        order: PurchaseOrderRes::from(&row),
+        order,
         items: items.iter().map(PurchaseOrderLineRes::from).collect(),
     })
+}
+
+/// 回填审批单号（`approval_instance_no`）：一次查完整页的实例号，逐行按 id 对上。
+///
+/// 为什么要它：列表 / 详情要显示「审批中（FLW-xxx）」（O5 的可执行报文口径），
+/// 而 `PurchaseOrderRes::from(&Row)` 只拿得到实例 **id**。批量查一次而不是逐行查 ——
+/// 一页 20 行逐行查就是 20 次往返。
+pub async fn fill_approval_no(rows: &mut [PurchaseOrderRes]) {
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(|row| row.approval_instance_id.as_deref())
+        .filter_map(|raw| Uuid::parse_str(raw).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let found = db()
+        .find_with_params(
+            "SELECT id, instance_no FROM biz_flow_instance \
+              WHERE id = ANY(?::text::uuid[])",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await
+        .unwrap_or_default();
+    let map: std::collections::HashMap<String, String> = found
+        .iter()
+        .filter_map(|row| {
+            let id: Uuid = row.get_typed("id").ok()?;
+            let no: String = row.get_typed("instance_no").ok()?;
+            Some((id.to_string(), no))
+        })
+        .collect();
+    for row in rows.iter_mut() {
+        if let Some(id) = row.approval_instance_id.as_deref()
+            && let Some(no) = map.get(id)
+        {
+            row.approval_instance_no = Some(no.clone());
+        }
+    }
 }
 
 // ==================== ① 建单 ====================
@@ -500,6 +550,13 @@ pub async fn change_purchase_order_status(
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
     // P10 铁律 ③：先过唯一入口（边表校验 + reason 校验 + 写 biz_status_log），再 CAS
+    // P-FLOW-3A 反向兜底：审批中作废 → **同一事务先终止在跑的审批单**（P11：不留孤儿待办，
+    // 否则 `uk_biz_flow_instance_biz_active` 会让这张单以后再也发不起审批）
+    if row.status == STATUS_SUBMITTED {
+        purchase_bridge::cancel_approval_of(&tx, id, &row.order_no, "采购单已作废，审批自动终止")
+            .await
+            .map_err(|error| write_error(error, "作废：终止在跑的审批"))?;
+    }
     if let Err(error) = state_machine::transition(
         &tx,
         state_machine::ENTITY_PURCHASE_ORDER,
@@ -551,13 +608,308 @@ pub async fn purchase_order_change_status(
     Json(req): Json<PurchaseOrderStatusReq>,
 ) -> ResResult<PurchaseOrderDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    change_purchase_order_status(id, &req, &claims).await?;
+    // P-FLOW-3A：`SUBMITTED` 这个目标态走**审批入口**（有流程就先送审），
+    // 其余（CLOSED / CANCELLED）仍是普通状态流转。
+    if req.target_status()? == STATUS_SUBMITTED {
+        submit_approval(id, &claims).await?;
+    } else {
+        change_purchase_order_status(id, &req, &claims).await?;
+    }
+    Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ③b 提交审批（P-FLOW-3A） ====================
+
+/// 提交采购订单审批的**唯一入口**：配了已发布的 `po_approve` 流程就先送审（`DRAFT → SUBMITTED`
+/// + 审批单），没配就按 P-FLOW-3A 之前的行为直接提交（并留一条 `warn`）。
+///
+/// 为什么入口收在这里：`PATCH /status`（老前端）与 `POST /submit-approval`（本卡新按钮）
+/// **必须同一条路** —— 否则审批可以被换一个 URL 绕过。
+pub async fn submit_approval(
+    id: Uuid,
+    operator: impl Into<state_machine::Operator>,
+) -> std::result::Result<(), ApiError> {
+    let op = operator.into();
+    let row = purchase_model::find_order(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购订单"))?
+        .ok_or_else(|| not_found("采购订单"))?;
+    // 已提交（审批中）→ 409 且带审批单号（O5：报文要能直接照着去找）
+    if row.status == STATUS_SUBMITTED {
+        let instance_no = pending_instance_no_of(row.approval_instance_id).await?;
+        return Err(conflict(format!(
+            "采购单 {} 已在审批中（{}）：请等审批结束，或从审批中心撤回后再提交",
+            row.order_no, instance_no
+        )));
+    }
+    match purchase_bridge::published_po_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购订单审批流程"))?
+    {
+        Some(flow) => submit_po_approval(&row, &op, &flow).await,
+        None => {
+            tracing::warn!(
+                order_id = %row.id,
+                order_no = %row.order_no,
+                "没有配置已发布的 po_approve 采购审批流程：本次提交**降级**为直接提交（无审批），请尽快补配流程"
+            );
+            let req = PurchaseOrderStatusReq {
+                status: Some(STATUS_SUBMITTED.to_string()),
+                reason: None,
+            };
+            change_purchase_order_status(id, &req, op).await
+        }
+    }
+}
+
+/// **发起采购订单审批**：`DRAFT → SUBMITTED`，同一事务里状态机过闸 + 发起审批 + 回写实例。
+async fn submit_po_approval(
+    row: &PurchaseOrderRow,
+    operator: &state_machine::Operator,
+    flow: &purchase_bridge::PoFlow,
+) -> std::result::Result<(), ApiError> {
+    // ① 只有草稿能提交审批
+    if row.status != STATUS_DRAFT {
+        return Err(conflict(format!(
+            "采购订单 {} 当前是「{}」（{}），只有草稿（DRAFT）可以提交审批",
+            row.order_no,
+            status_label(&row.status),
+            row.status
+        )));
+    }
+    // ② 明细 / 金额闸（与直接提交同一套守卫：0 数量、0 金额不许送审）
+    let lines = purchase_model::items_of(row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购订单明细"))?;
+    if lines.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("采购订单 {} 没有任何明细，不能提交审批", row.order_no),
+        ));
+    }
+    ensure_submittable_lines(&lines)?;
+    if row.total_with_tax <= Decimal::ZERO {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "采购订单 {} 的含税金额为 {}，不能提交审批（金额必须 > 0）",
+                row.order_no, row.total_with_tax
+            ),
+        ));
+    }
+    let Some(operator_id) = operator.id else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    // ③ 幂等：同一单已有在跑的审批 → 409
+    if flow_model::biz_instance_running(purchase_bridge::BIZ_TYPE, row.id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        let instance_no = pending_instance_no_of(row.approval_instance_id).await?;
+        return Err(conflict(format!(
+            "采购单 {} 已在审批中（{}）：请等审批结束，或从审批中心撤回后再提交",
+            row.order_no, instance_no
+        )));
+    }
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 采购订单审批", row.order_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(row.id),
+        biz_no: Some(row.order_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: purchase_form_data(row),
+    };
+
+    let now = Utc::now();
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
+    let outcome = submit_po_tx(&tx, row, operator, &start, now).await;
+    let mut out = match outcome {
+        Ok(out) => out,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(error);
+        }
+    };
+    let instance = out.instance_id.unwrap_or_default();
+    let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+    tx.commit()
+        .await
+        .map_err(|error| utils::db_error(error, "提交采购审批事务"))?;
+    // 锁外副作用（审批通知 / 客户自配的通知节点）必须在提交之后发，失败只 WARN
+    let effects = out.effects.take();
+    if !effects.is_empty() {
+        engine::flush_effects(effects).await;
+    }
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
+    }
+    tracing::info!(
+        order_id = %row.id,
+        order_no = %row.order_no,
+        instance_id = %instance,
+        flow_code = %start.flow_code,
+        "采购订单已提交审批（状态 SUBMITTED）"
+    );
+    // 流程里没有任何审批节点（全被跳过）→ 实例在同一个事务里就走完了，
+    // 提交后立刻执行「审批通过」的回调，否则单据会停在 SUBMITTED 且没有待办能推进它。
+    if auto_finished {
+        purchase_bridge::on_po_settled(Some(instance), "APPROVED").await;
+    }
+    Ok(())
+}
+
+/// [`submit_po_approval`] 的事务体：返回引擎动作结果（调用方提交后负责发锁外副作用）。
+async fn submit_po_tx(
+    tx: &Transaction,
+    row: &PurchaseOrderRow,
+    operator: &state_machine::Operator,
+    start: &engine::StartReq,
+    now: DateTime<Utc>,
+) -> std::result::Result<engine::ActionOut, ApiError> {
+    // ① 状态机唯一入口（边表 + 写 biz_status_log）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_PURCHASE_ORDER,
+        row.id,
+        &row.order_no,
+        &purchase_model::LEGAL_EDGES,
+        STATUS_DRAFT,
+        STATUS_SUBMITTED,
+        operator.clone(),
+        Some("提交审批"),
+        None,
+    )
+    .await?;
+    // ② 发起审批单（引擎在同一事务里建实例 + 待办 + 节点）
+    let mut out = engine::start(tx, start)
+        .await
+        .map_err(|error| write_error(error, "发起采购审批单"))?;
+    if let Some(rejected) = out.rejected.take() {
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!(
+                "{}（内控要求：审批人不能是发起人本人。请由他人提交，或让另一个账号具备审批权限后再审）",
+                rejected.msg
+            ),
+        ));
+    }
+    let instance_id = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // ③ CAS 回写单据：状态 + 提交痕迹 + 实例 id
+    let affected = purchase_model::apply_status_with_instance(
+        tx,
+        row.id,
+        STATUS_DRAFT,
+        STATUS_SUBMITTED,
+        None,
+        operator.id,
+        Some(instance_id),
+        now,
+    )
+    .await
+    .map_err(|error| write_error(error, "采购单进入已提交"))?;
+    if affected == 0 {
+        return Err(conflict(format!(
+            "采购订单 {} 的状态在本次提交期间已被改动（期望 DRAFT），请刷新后重试",
+            row.order_no
+        )));
+    }
+    Ok(out)
+}
+
+/// 在跑实例的单号（拼 409 文案用；查不到就给 `-`）。
+async fn pending_instance_no_of(
+    instance_id: Option<Uuid>,
+) -> std::result::Result<String, ApiError> {
+    let Some(instance_id) = instance_id else {
+        return Ok("-".to_string());
+    };
+    let no = flow_model::find_instance(instance_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询审批单"))?
+        .map(|instance| instance.instance_no)
+        .unwrap_or_else(|| "-".to_string());
+    Ok(no)
+}
+
+/// 采购审批的**表单变量**。金额必须写成 JSON **数字**（不是字符串）：
+/// 条件边比较走 `as_f64()`，`"5000.0000"` 会 TypeMismatch → 引擎按「条件不成立」静默走兜底边。
+///
+/// ⚠️ 返回类型写全 `serde_json::Value`：`use nik::prelude::*` 里的 `Value` 是数据库绑定值。
+fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
+    let amount = row.total_with_tax.round_dp(4).to_string();
+    let number = amount
+        .parse::<f64>()
+        .ok()
+        .and_then(serde_json::Number::from_f64)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null);
+    serde_json::json!({
+        "order_id": row.id.to_string(),
+        "order_no": row.order_no,
+        "amount": number,
+        "total_with_tax": row.total_with_tax.to_string(),
+        "total_amount": row.total_amount.to_string(),
+        "total_qty": row.total_qty.to_string(),
+        "supplier_id": row.supplier_id.to_string(),
+        "warehouse_id": row.warehouse_id.to_string(),
+        "price_mode": row.price_mode,
+        // 内控留痕：审批人 ≠ 制单人（`purchase_bridge::guard_self_approval` 兜底）
+        "create_by": row.create_by.map(|value| value.to_string()),
+    })
+}
+
+/// 提交采购订单审批（`DRAFT → SUBMITTED`，或未配流程时降级直接提交）。
+#[nik::permission(
+    path = "/business/erp/purchase-order/{id}/submit-approval",
+    method = "POST",
+    permission = "business:erp:purchase-order:submit-approval"
+)]
+#[nik::post("/business/erp/purchase-order/{id}/submit-approval")]
+pub async fn purchase_order_submit_approval(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<PurchaseOrderDetailRes> {
+    let id = parse_uuid(&id, "id")?;
+    submit_approval(id, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
 // ==================== ④ 删除 ====================
 
-/// 删除核心逻辑：**只有 `DRAFT`** 能删（软删）。
+/// 删除核心逻辑：**DRAFT 可删**；**审批中（`SUBMITTED` 且确有在跑审批）也可删**
+/// —— 后者会连同审批单一起终止（P11：不许留孤儿待办）。
+///
+/// 其余状态（已审批 / 部分收货 / 已收货 / 已关闭 / 已取消）是审批与收货的事实，只能作废。
 pub async fn delete_purchase_order(
     id: Uuid,
     operator: Option<Uuid>,
@@ -566,21 +918,49 @@ pub async fn delete_purchase_order(
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单"))?
         .ok_or_else(|| not_found("采购订单"))?;
-    if row.status != STATUS_DRAFT {
+    let approving = row.status == STATUS_SUBMITTED
+        && flow_model::biz_instance_running(purchase_bridge::BIZ_TYPE, id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询在跑审批单"))?;
+    if row.status != STATUS_DRAFT && !approving {
         return Err(conflict(format!(
-            "采购订单当前是「{}」（{}），只有草稿（DRAFT）能删：\
-             已提交 / 已关闭 / 已取消的单据是审批与收货的事实，只能作废（状态流转）",
+            "采购订单当前是「{}」（{}），只有草稿（DRAFT）或审批中（SUBMITTED + 在跑审批）能删：\
+             已提交 / 已审批 / 已收货 / 已关闭 / 已取消的单据是审批与收货的事实，只能作废（状态流转）",
             status_label(&row.status),
             row.status
         )));
     }
-    let affected = purchase_model::soft_delete(db(), id, operator, Utc::now())
+    let now = Utc::now();
+    let tx = db()
+        .begin()
         .await
-        .map_err(|error| utils::db_error(error, "软删采购订单"))?;
-    if affected == 0 {
-        return Err(not_found("采购订单"));
+        .map_err(|error| utils::db_error(error, "开启删除事务"))?;
+    let outcome = async {
+        // 先撤在跑的审批（幂等：没有就什么都不做），再软删
+        purchase_bridge::cancel_approval_of(&tx, id, &row.order_no, "采购单已删除，审批自动终止")
+            .await
+            .map_err(|error| write_error(error, "删除：终止在跑的审批"))?;
+        let affected = purchase_model::soft_delete(&tx, id, operator, now)
+            .await
+            .map_err(|error| utils::db_error(error, "软删采购订单"))?;
+        if affected == 0 {
+            return Err(not_found("采购订单"));
+        }
+        Ok(())
     }
-    Ok(())
+    .await;
+    match outcome {
+        Ok(()) => {
+            tx.commit()
+                .await
+                .map_err(|error| utils::db_error(error, "提交删除事务"))?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
 }
 
 /// 删除采购订单（软删；仅 DRAFT）。
@@ -1027,5 +1407,437 @@ mod tests {
         let err = create_purchase_order(&request, None).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+    }
+
+    // ==================== P-FLOW-3A：采购订单审批（8 条） ====================
+    //
+    // 这一批跑的是**真种子**（V0182 的 `po_approve`：7 节点 8 边，三个审批节点全是 ROLE），
+    // 所以它同时验证「种子能发起、能派给角色、能按金额分流」——不是另造一张测试图。
+
+    /// 角色夹具（V0182 种子里的固定 UUID）。
+    const ROLE_DEPT_LEADER: &str = "20000000-0000-4000-8000-0000000f0001";
+    /// 采购经理。
+    const ROLE_PM: &str = "20000000-0000-4000-8000-0000000f0002";
+    /// 总经理。
+    const ROLE_GM: &str = "20000000-0000-4000-8000-0000000f0003";
+    /// 制单人（无审批角色）。
+    const U_MAKER: &str = "d2a2000a-0000-4000-8000-000000000001";
+    /// 部门主管（DEPT_LEADER 成员）。
+    const U_DEPT: &str = "d2a2000a-0000-4000-8000-000000000002";
+    /// 采购经理（PURCHASE_MANAGER 成员）。
+    const U_PM: &str = "d2a2000a-0000-4000-8000-000000000003";
+    /// 总经理（GENERAL_MANAGER 成员）。
+    const U_GM: &str = "d2a2000a-0000-4000-8000-000000000004";
+
+    fn uid(raw: &str) -> Uuid {
+        Uuid::parse_str(raw).expect("夹具 UUID 非法")
+    }
+
+    async fn sql(text: &str) {
+        if let Err(err) = db().execute_with_params(text, vec![]).await {
+            panic!("SQL 失败：{err}\nSQL: {text}");
+        }
+    }
+
+    /// 审批夹具：四个账号 + 角色绑定 + 清掉本卡造过的审批实例。
+    ///
+    /// 四个种子角色是**共享资源**：别的用例 / 运维给他们绑过的人会让「这条待办派给谁」
+    /// 不可判定，所以这里**只留本卡夹具的人**（按 id 白名单删绑定），并在模块末尾说明。
+    async fn setup_approval() {
+        sql(&format!(
+            "DELETE FROM sys_user_role WHERE role_id IN \
+                ('{ROLE_DEPT_LEADER}'::uuid, '{ROLE_PM}'::uuid, '{ROLE_GM}'::uuid) \
+                AND user_id NOT IN ('{U_DEPT}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
+        ))
+        .await;
+        for (id, name) in [
+            (U_MAKER, "p3a 制单人"),
+            (U_DEPT, "p3a 部门主管"),
+            (U_PM, "p3a 采购经理"),
+            (U_GM, "p3a 总经理"),
+        ] {
+            sql(&format!(
+                "INSERT INTO sys_user (id, username, password, real_name, status) \
+                 VALUES ('{id}'::uuid, 'p3a_{id_tail}', 'x', '{name}', 1) \
+                 ON CONFLICT (id) DO NOTHING",
+                id_tail = &id[id.len() - 4..]
+            ))
+            .await;
+        }
+        for (user, role) in [(U_DEPT, ROLE_DEPT_LEADER), (U_PM, ROLE_PM), (U_GM, ROLE_GM)] {
+            sql(&format!(
+                "INSERT INTO sys_user_role (user_id, role_id) VALUES ('{user}'::uuid, '{role}'::uuid) \
+                 ON CONFLICT DO NOTHING"
+            ))
+            .await;
+        }
+        // 本卡夹具的单：先把在跑实例清掉（`biz_flow_*` 子表随实例 CASCADE）
+        sql(&format!(
+            "DELETE FROM biz_flow_instance WHERE biz_type = 'PO_APPROVE' AND biz_id IN \
+                (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid)"
+        ))
+        .await;
+        sql(&format!(
+            "DELETE FROM biz_status_log WHERE entity_id IN \
+                (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid)"
+        ))
+        .await;
+    }
+
+    /// 造一张含税金额 = `amount` 的采购单（单行、税率 0，所以含税 = 不含税）。
+    async fn order_with_amount(amount: &str) -> Uuid {
+        let request = req("EXCL", &[(MATERIAL_A, "1", amount, "0")]);
+        create_purchase_order(&request, Some(uid(U_MAKER)))
+            .await
+            .unwrap_or_else(|err| panic!("造单失败：{} {}", err.code, err.msg))
+    }
+
+    /// 该单在跑的实例 id（没有 → panic）。
+    async fn running_instance(order_id: Uuid) -> Uuid {
+        db().scalar_with_params::<Option<Uuid>>(
+            "SELECT id FROM biz_flow_instance WHERE biz_type = 'PO_APPROVE' \
+              AND biz_id = ?::uuid AND status = 'PENDING' LIMIT 1",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .unwrap()
+        .expect("应当有在跑的审批实例")
+    }
+
+    /// 该实例的待办（PENDING），按 assignee 升序。
+    async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT id, assignee_id FROM biz_flow_task \
+                  WHERE instance_id = ?::uuid AND status = 'PENDING' \
+                  ORDER BY assignee_id, id",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("读待办失败");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed("id").unwrap(),
+                    row.get_typed("assignee_id").unwrap(),
+                )
+            })
+            .collect()
+    }
+
+    /// 以某人的身份同意一条待办，并按 `flow::handler` 的口径推进业务回调。
+    async fn approve_as(task_id: Uuid, operator: &str) -> crate::business::flow::engine::ActionOut {
+        let op = uid(operator);
+        let out = db()
+            .transaction(|tx| async move {
+                crate::business::flow::engine::approve(&tx, task_id, op, Some("同意")).await
+            })
+            .await
+            .unwrap_or_else(|err| panic!("同意失败：{err}"));
+        purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
+        out
+    }
+
+    /// 以某人的身份驳回（驳回并终止）。
+    async fn reject_as(
+        task_id: Uuid,
+        operator: &str,
+        comment: &str,
+    ) -> crate::business::flow::engine::ActionOut {
+        let op = uid(operator);
+        let out = db()
+            .transaction(|tx| async move {
+                crate::business::flow::engine::reject(
+                    &tx,
+                    task_id,
+                    op,
+                    comment,
+                    crate::business::flow::engine::ReturnTo::Final,
+                )
+                .await
+            })
+            .await
+            .unwrap_or_else(|err| panic!("驳回失败：{err}"));
+        purchase_bridge::on_po_settled(out.instance_id, &out.instance_status).await;
+        out
+    }
+
+    /// ① 提交审批 → 生成实例 + 状态 SUBMITTED + 回写 approval_instance_id + 写状态日志。
+    #[tokio::test]
+    async fn pflow3a_po_submit_creates_instance_and_submits() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER)))
+            .await
+            .unwrap_or_else(|err| panic!("提交审批失败：{} {}", err.code, err.msg));
+
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, STATUS_SUBMITTED);
+        let instance = row.approval_instance_id.expect("必须回写审批实例 id");
+        let status: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(status, "PENDING", "实例必须还在跑（等待审批）");
+        let biz_no: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT biz_no FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(biz_no, row.order_no, "实例的 biz_no 必须是订单号");
+        // 状态日志：建单 1 条 + 提交 1 条
+        let logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log WHERE entity_id = ?::uuid \
+                  AND entity_type = 'PURCHASE_ORDER'",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(logs, 2, "建单 + 提交审批各一条状态日志");
+    }
+
+    /// ② 8000 元（< 1 万）→ 派给「部门主管」。
+    #[tokio::test]
+    async fn pflow3a_po_8000_goes_to_dept_leader() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let tasks = pending_tasks(running_instance(id).await).await;
+        assert_eq!(
+            tasks.len(),
+            1,
+            "第一档只有一个审批人，实际待办 {}",
+            tasks.len()
+        );
+        assert_eq!(
+            tasks[0].1,
+            uid(U_DEPT),
+            "8000 元必须派给 DEPT_LEADER（部门主管）"
+        );
+    }
+
+    /// ③ 50000 元（1–10 万）→ 派给「采购经理」。
+    #[tokio::test]
+    async fn pflow3a_po_50000_goes_to_purchase_manager() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("50000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let tasks = pending_tasks(running_instance(id).await).await;
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].1,
+            uid(U_PM),
+            "50000 元必须派给 PURCHASE_MANAGER（采购经理）"
+        );
+    }
+
+    /// ④ 500000 元（≥ 10 万）→ 采购经理 + 总经理**会签**，只批一人不通过。
+    #[tokio::test]
+    async fn pflow3a_po_500000_needs_both_countersigners() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("500000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let instance = running_instance(id).await;
+        let tasks = pending_tasks(instance).await;
+        assert_eq!(tasks.len(), 2, "会签节点必须同时生成 2 条待办");
+        let assignees: Vec<Uuid> = tasks.iter().map(|(_, who)| *who).collect();
+        assert!(assignees.contains(&uid(U_PM)), "{}", U_PM);
+        assert!(assignees.contains(&uid(U_GM)), "{}", U_GM);
+
+        // 只批采购经理那一票 → 单据仍是 SUBMITTED（会签没走完）
+        let pm_task = tasks.iter().find(|(_, who)| *who == uid(U_PM)).unwrap().0;
+        let out = approve_as(pm_task, U_PM).await;
+        assert_eq!(out.instance_status, "PENDING", "会签没走完不能结束");
+        assert_eq!(
+            purchase_model::find_order(id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            STATUS_SUBMITTED,
+            "只批一票不能变 APPROVED"
+        );
+
+        // 总经理那一票再批 → 实例结束，单据 APPROVED
+        let gm_task = tasks.iter().find(|(_, who)| *who == uid(U_GM)).unwrap().0;
+        let out = approve_as(gm_task, U_GM).await;
+        assert_eq!(out.instance_status, "APPROVED");
+        assert_eq!(
+            purchase_model::find_order(id)
+                .await
+                .unwrap()
+                .unwrap()
+                .status,
+            "APPROVED",
+            "两人都批才 APPROVED"
+        );
+    }
+
+    /// ⑤ 审批通过 → 单据 APPROVED（此后可收货）。
+    #[tokio::test]
+    async fn pflow3a_po_approve_marks_order_approved() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let tasks = pending_tasks(running_instance(id).await).await;
+        approve_as(tasks[0].0, U_DEPT).await;
+
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, "APPROVED");
+        assert!(row.approved_at.is_some(), "审批通过必须写 approved_at");
+        assert_eq!(row.approved_by, Some(uid(U_DEPT)), "审批人要落库");
+        assert!(
+            row.approval_instance_id.is_some(),
+            "审批通过后保留实例 id 作审计（详情显示「审批通过 FLW-xxx」）"
+        );
+        // 采购买单进入可收货态
+        assert!(stockin_model::purchase_receivable(&row.status));
+    }
+
+    /// ⑥ 审批驳回 → 回 DRAFT + 审批意见写进 remark。
+    #[tokio::test]
+    async fn pflow3a_po_reject_back_to_draft_with_comment() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let tasks = pending_tasks(running_instance(id).await).await;
+        reject_as(tasks[0].0, U_DEPT, "预算不够，下季度再买").await;
+
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(
+            row.status, "DRAFT",
+            "驳回必须打回草稿（不是关闭、不是取消）"
+        );
+        let remark = row.remark.unwrap_or_default();
+        assert!(
+            remark.contains("预算不够"),
+            "审批意见必须写进 remark，实际：{remark}"
+        );
+        assert!(
+            row.approval_instance_id.is_none(),
+            "打回草稿必须清空审批实例（否则下次提交的判断被污染）"
+        );
+        // 打回后还能重新提交（边表 DRAFT → SUBMITTED 仍合法）
+        submit_approval(id, Some(uid(U_MAKER)))
+            .await
+            .expect("打回后必须能重新提交审批");
+    }
+
+    /// ⑦ 制单人自批 → 403 + 65019（内控：制单与审批分离）。
+    #[tokio::test]
+    async fn pflow3a_po_maker_cannot_approve_own_order() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        // 让制单人**同时**是部门主管：内控要拦的就是这种「自己提自己批」
+        sql(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             VALUES ('{U_MAKER}'::uuid, '{ROLE_DEPT_LEADER}'::uuid) ON CONFLICT DO NOTHING"
+        ))
+        .await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let tasks = pending_tasks(running_instance(id).await).await;
+        let mine = tasks
+            .iter()
+            .find(|(_, who)| *who == uid(U_MAKER))
+            .expect("制单人既是部门主管就会拿到这条待办")
+            .0;
+
+        let err = purchase_bridge::guard_self_approval(mine, uid(U_MAKER))
+            .await
+            .expect_err("自批必须被拦");
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
+        assert!(
+            err.msg.contains("不能审批自己提交的采购订单"),
+            "{}",
+            err.msg
+        );
+        // 换成别的部门主管就能批（闸只拦本人）
+        purchase_bridge::guard_self_approval(mine, uid(U_DEPT))
+            .await
+            .expect("他人可以正常审批");
+        sql(&format!(
+            "DELETE FROM sys_user_role WHERE user_id = '{U_MAKER}'::uuid \
+              AND role_id = '{ROLE_DEPT_LEADER}'::uuid"
+        ))
+        .await;
+    }
+
+    /// ⑧ 重复提交审批 → 409（报文带审批单号，O5）。
+    #[tokio::test]
+    async fn pflow3a_po_duplicate_submit_is_conflict() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        let instance = running_instance(id).await;
+        let instance_no: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT instance_no FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+
+        let err = submit_approval(id, Some(uid(U_MAKER)))
+            .await
+            .expect_err("重复提交必须 409");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains(&instance_no),
+            "报文要点名审批单号：{}",
+            err.msg
+        );
+        // 不能因此多出一张审批单
+        let count: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_flow_instance WHERE biz_type = 'PO_APPROVE' AND biz_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(count, 1, "同一单只能有一张审批实例");
     }
 }

@@ -11,11 +11,12 @@
 //! | [`transfer_overdue`] | 在途超期扫描与告警（每小时；阈值走 `sys_config`，默认 7 天） | **LNK-F12** |
 //! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
 //! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
-//! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 | **P2-A2** |
+//! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 + **提交审批**（3A） | **P2-A2 / P-FLOW-3A** |
 //! | [`stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
 //! | [`stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
 //! | [`stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
-//! | [`stockin_bridge`] | 收货单**作废审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16** |
+//! | [`stockin_bridge`] | 收货单**作废审批** / **过账审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16 / P-FLOW-3A** |
+//! | [`purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
 //! | [`voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
@@ -57,6 +58,7 @@ pub mod payable;
 pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;
+pub mod purchase_bridge;
 pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;

@@ -244,6 +244,8 @@ export function stockInStatusLabel(status: StockInStatus | string): string {
       return '草稿';
     case 'POSTED':
       return '已过账';
+    case 'PENDING_POST':
+      return '过账审批中';
     case 'PENDING_CANCEL':
       return '作废审批中';
     case 'CANCELLED':
@@ -267,6 +269,9 @@ export function stockInStatusTheme(
       return 'default';
     case 'POSTED':
       return 'success';
+    case 'PENDING_POST':
+      // 过账审批中：和作废审批中同一个语义（没走完、账还没动），用 warning
+      return 'warning';
     case 'PENDING_CANCEL':
       return 'warning';
     case 'CANCELLED':
@@ -284,6 +289,7 @@ export const STOCKIN_STATUS_FILTER_OPTIONS: ReadonlyArray<{
   { label: '全部状态', value: '' },
   { label: '草稿', value: 'DRAFT' },
   { label: '已过账', value: 'POSTED' },
+  { label: '过账审批中', value: 'PENDING_POST' },
   { label: '作废审批中', value: 'PENDING_CANCEL' },
   { label: '已作废', value: 'CANCELLED' },
 ];
@@ -295,6 +301,7 @@ export const STOCKIN_STATUS_FILTER_OPTIONS: ReadonlyArray<{
  * |---|---|---|---|---|---|---|
  * | `DRAFT` | ✅ | ✅ | ✅（直接作废） | — | ✅ | ✅ |
  * | `POSTED` | — | — | ✅（**发起审批**） | — | — | ✅ |
+ * | `PENDING_POST` | — | — | — | — | — | ✅ |
  * | `PENDING_CANCEL` | — | — | — | ✅ | — | ✅ |
  * | `CANCELLED` | — | — | — | — | — | ✅ |
  *

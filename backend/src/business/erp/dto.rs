@@ -2299,6 +2299,12 @@ pub struct PurchaseOrderRes {
     pub closed_at: Option<DateTime<Utc>>,
     /// 关闭人。
     pub closed_by: Option<String>,
+    /// 审批实例 id（P-FLOW-3A；`None` = 没走审批 / 已驳回打回）。前端用它跳到审批单详情看进度。
+    pub approval_instance_id: Option<String>,
+    /// 审批实例单号（`FLW-…`，与 `approval_instance_id` 同源；列表直接展示「审批中（FLW-xxx）」）。
+    ///
+    /// 由 handler 回填（DTO 的 `From<&Row>` 只拿到单据行，查不到实例单号）。
+    pub approval_instance_no: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -2329,6 +2335,8 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             approved_by: row.approved_by.map(|id| id.to_string()),
             closed_at: row.closed_at,
             closed_by: row.closed_by.map(|id| id.to_string()),
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+            approval_instance_no: None,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
