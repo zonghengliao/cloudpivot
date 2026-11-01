@@ -210,6 +210,42 @@
         </div>
 
         <div class="drawer-body">
+          <!-- ★ D5：发起付款（payInfo.can_pay 由后端 payment-info 接口裁决，前端不推状态） -->
+          <div class="drawer-actions" data-testid="payable-drawer-actions">
+            <t-button
+              v-if="canStartPay(payInfo?.payable, hasPayPermission)"
+              theme="primary"
+              data-testid="btn-payable-drawer-pay"
+              @click="openPayFromDetail"
+            >
+              发起付款（未付 {{ formatMoney(payPrefillAmount(payInfo?.payable)) }}）
+            </t-button>
+            <span
+              v-else-if="payInfo && !payInfo.payable.can_pay"
+              class="drawer-actions__blocked"
+              data-testid="payable-pay-blocked"
+            >
+              {{ payInfo.payable.blocked_reason }}
+            </span>
+            <span v-else-if="payInfo && !hasPayPermission" class="drawer-actions__blocked" data-testid="payable-pay-noperm">
+              当前账号没有付款权限（business:erp:payable:pay）
+            </span>
+          </div>
+          <!-- ★ D5 反向：审批中那笔现在看已经超付（审批期间被别的付款付掉了） -->
+          <t-alert
+            v-if="payInfo?.payable.overpay_risk"
+            theme="warning"
+            :message="payInfo.payable.overpay_risk"
+            data-testid="payable-overpay-risk"
+          />
+          <!-- 可付信息接口失败：只降级「发起付款」区，详情照常看 -->
+          <t-alert
+            v-if="payInfoError"
+            theme="error"
+            :message="`取可付信息失败（付款仍可在列表行操作）：${payInfoError}`"
+            data-testid="payable-payinfo-error"
+          />
+
           <div class="field-grid">
             <div class="field">
               <span class="field__label">供应商</span>
@@ -217,19 +253,31 @@
             </div>
             <div class="field">
               <span class="field__label">来源单号</span>
-              <span class="field__value mono">{{ dash(detail.source_no) }}</span>
+              <span class="field__value mono">
+                <t-link
+                  v-if="sourcePath"
+                  theme="primary"
+                  :data-testid="`payable-source-${detail.payable_no}`"
+                  @click="openSourceDoc"
+                >
+                  {{ dash(detail.source_no) }}
+                </t-link>
+                <template v-else>{{ dash(detail.source_no) }}</template>
+              </span>
             </div>
             <div class="field">
               <span class="field__label">应付金额（含税）</span>
-              <span class="field__value money">{{ formatMoney(detail.amount) }}</span>
+              <span class="field__value money" data-testid="payable-detail-amount">{{ formatMoney(detail.amount) }}</span>
             </div>
             <div class="field">
               <span class="field__label">已付金额</span>
-              <span class="field__value money">{{ formatMoney(detail.paid_amount) }}</span>
+              <span class="field__value money" data-testid="payable-detail-paid">{{ formatMoney(detail.paid_amount) }}</span>
             </div>
             <div class="field">
               <span class="field__label">未付金额</span>
-              <span class="field__value money">{{ formatMoney(unpaidOf(detail)) }}</span>
+              <span class="field__value money" data-testid="payable-detail-unpaid">{{
+                formatMoney(unpaidOf(detail))
+              }}</span>
             </div>
             <div class="field">
               <span class="field__label">账期（天）</span>
@@ -290,7 +338,25 @@
                     {{ item.approval_status_label }}
                   </t-tag>
                   <span class="muted">{{ item.pay_method || '—' }}</span>
-                  <span v-if="item.voucher_no" class="mono muted">凭证 {{ item.voucher_no }}</span>
+                  <!-- ★ D5 F3：付款记录挂回应付单号 + 付款凭证，都能点回去 -->
+                  <t-link
+                    v-if="payableLink"
+                    theme="primary"
+                    hover="color"
+                    :data-testid="`payable-payment-payable-${item.payment_no}`"
+                    @click="openPayableDoc"
+                  >
+                    应付单 {{ detail.payable_no }}
+                  </t-link>
+                  <t-link
+                    v-if="item.voucher_no"
+                    theme="primary"
+                    hover="color"
+                    :data-testid="`payable-payment-voucher-${item.payment_no}`"
+                    @click="openVoucherDoc(item.voucher_no)"
+                  >
+                    凭证 {{ item.voucher_no }}
+                  </t-link>
                   <!-- 驳回 / 终止的付款记录：可原样重新提交（金额带回来，省得再填） -->
                   <t-link
                     v-if="item.approval_status === 'REJECTED' || item.approval_status === 'CANCELLED'"
@@ -316,9 +382,10 @@
             <FlowProgress :nodes="approvalNodes" data-testid="payable-approval-progress" />
           </template>
 
-          <p v-if="canCancel(detail) || canPay(detail)" class="drawer-note">
-            可直接在行上「付款 / 作废」。配了「应付付款审批」流程时，付款只是<strong>发起审批</strong>
-            （账不动，审批通过才生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证）；没配流程则立即生效。
+          <p v-if="canCancel(detail) || canStartPay(payInfo?.payable, hasPayPermission)" class="drawer-note">
+            详情里可直接「发起付款」（金额预填<strong>未付</strong>，不是应付总额）。配了「应付付款审批」流程时，付款只是
+            <strong>发起审批</strong>（账不动，审批通过才生成「借 2202 应付账款 / 贷 1002 银行存款」的凭证）；
+            没配流程则立即生效。付款记录里的「应付单号 / 凭证」都能点回去。
           </p>
         </div>
       </div>
@@ -433,11 +500,13 @@
  * 接口按架构文档 §1888 的契约上线后，本页**不需要改一行**。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import { listDictItems } from '@/api/support/dict-api';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
+import { useUserStore } from '@/stores/user';
 import {
   fetchPayablePage,
   fetchSupplierOptions,
@@ -447,9 +516,11 @@ import {
 import {
   cancelPayable,
   fetchPayableDetail,
+  fetchPayablePaymentInfo,
   payPayable,
   type PayableDetail,
   type PayablePayment,
+  type PayablePaymentInfo,
 } from './payable-write-api';
 import FlowProgress, {
   type FlowProgressNode,
@@ -459,15 +530,20 @@ import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
   buildPayableQuery,
+  canStartPay,
   emptyPayableFilter,
   isPayableFiltered,
   overdueText,
   paidPercent,
+  payableDocPath,
   payableStatusLabel,
   payableStatusTheme,
+  payPrefillAmount,
+  sourceDocPath,
   sourceText,
   supplierNameOf as supplierNameFromMap,
   unpaidOf,
+  voucherDocPath,
   type PayableFilterState,
 } from './payable-logic';
 import { dash, formatCents, formatMoney, shortDate, shortId, toCents, toNumber } from '../shared/money';
@@ -666,6 +742,89 @@ async function openDetail(row: PayableRow): Promise<void> {
   } finally {
     detailLoading.value = false;
   }
+  // ★ D5：可付信息（能不能付 / 默认金额 / 超付提示）—— 单独一个只读接口，失败不挡详情
+  await loadPayInfo(row.id);
+}
+
+// ==================== D5：可付信息（应付单 → 发起付款） ====================
+
+/** 付款权限码（按钮「显不显示」= 后端 `can_pay` **且** 有本码） */
+const PAY_PERMISSION = 'business:erp:payable:pay';
+
+const userStore = useUserStore();
+const router = useRouter();
+const route = useRoute();
+
+/** 当前账号能不能发起付款（按钮 v-if 用；不是置灰） */
+const hasPayPermission = computed(() => userStore.hasPermission(PAY_PERMISSION));
+
+/**
+ * 可付信息（`GET /business/erp/payable/{id}/payment-info`）。
+ *
+ * 卡片 F2/O1 的**唯一数据源**：`default_amount` 是后端算好的「未付金额」，
+ * `can_pay` / `blocked_reason` 是后端裁决 —— 前端不再按状态自己推一遍（两套口径必然漂移）。
+ */
+const payInfo = ref<PayablePaymentInfo | null>(null);
+/** 可付信息拉取失败的原因（只影响「发起付款」区，详情照常展示） */
+const payInfoError = ref('');
+
+/** 拉可付信息（幂等：每次打开详情 / 付款后刷新都调它） */
+async function loadPayInfo(id: string): Promise<void> {
+  payInfoError.value = '';
+  try {
+    payInfo.value = await fetchPayablePaymentInfo(id);
+  } catch (error) {
+    payInfo.value = null;
+    payInfoError.value = messageOf(error);
+  }
+}
+
+/** 来源单据跳转路径（`STOCK_IN` → 收货单详情；其它来源没有页面就返回 null） */
+const sourcePath = computed(() => {
+  const row = detail.value;
+  return row ? sourceDocPath(row.source_type, row.source_id) : null;
+});
+
+/** 付款记录上的「应付单号」点回路径（深链 `?payable_no=`） */
+const payableLink = computed(() => payableDocPath(detail.value?.payable_no ?? null));
+
+/** 打开来源单据（收货单） */
+function openSourceDoc(): void {
+  if (sourcePath.value) {
+    void router.push(sourcePath.value);
+  }
+}
+
+/** 打开付款凭证（凭证页支持 `?voucher_no=` 预填筛选） */
+function openVoucherDoc(voucherNo: string | null | undefined): void {
+  const path = voucherDocPath(voucherNo);
+  if (path) {
+    void router.push(path);
+  }
+}
+
+/** 点回应付单（付款记录的来源追溯） */
+function openPayableDoc(): void {
+  if (payableLink.value) {
+    void router.push(payableLink.value);
+  }
+}
+
+/**
+ * 抽屉里「发起付款」：**金额预填后端给的未付金额**（F2 / O1），不是应付总额。
+ *
+ * 后端 `can_pay = false` 时按钮根本不显示，所以这里不再判状态；
+ * 万一 `payment-info` 拉失败（`payInfo = null`），退回列表行的未付金额，用户仍能付。
+ */
+function openPayFromDetail(): void {
+  if (!detail.value) {
+    return;
+  }
+  openPay(detail.value);
+  const prefill = payPrefillAmount(payInfo.value?.payable);
+  if (prefill > 0) {
+    payForm.amount = prefill;
+  }
 }
 
 // ==================== 付款审批进度（P17） ====================
@@ -852,6 +1011,8 @@ async function submitPay(): Promise<void> {
     // 列表刷新（未付金额 / 状态可能变了），抽屉里换成最新单头 + 审批进度
     detail.value = result.detail;
     await loadApprovalProgress(result.approval_instance_id);
+    // ★ D5：可付信息跟着刷新（未付变了 → 按钮文案 / 能否再付都要重算）
+    await loadPayInfo(target.id);
     void loadPayables();
   } catch (error) {
     payError.value = messageOf(error);
@@ -878,6 +1039,8 @@ async function submitCancel(): Promise<void> {
     cancelVisible.value = false;
     void MessagePlugin.success(`已作废：${updated.payable_no}`);
     detail.value = updated;
+    // ★ D5：作废后「发起付款」按钮必须立刻消失（可付信息重拉）
+    await loadPayInfo(updated.id);
     void loadPayables();
   } catch (error) {
     cancelError.value = messageOf(error);
@@ -886,10 +1049,34 @@ async function submitCancel(): Promise<void> {
   }
 }
 
+/**
+ * 深链：`/business/erp/payable?payable_no=AP-…`（D5 F3：付款记录 / 凭证页点「应付单号」回来）。
+ *
+ * 用 `payable_no` 而不是 id：外部（凭证摘要、别人发的链接）手上通常只有单号。
+ * 打开后把 query 清掉（`router.replace`），免得刷新页面又弹一次抽屉。
+ */
+async function openByQuery(): Promise<void> {
+  const no = typeof route.query.payable_no === 'string' ? route.query.payable_no.trim() : '';
+  if (!no) {
+    return;
+  }
+  filter.payable_no = no;
+  await loadPayables(1);
+  const row = rows.value.find((item) => item.payable_no === no);
+  if (row) {
+    await openDetail(row);
+  } else {
+    void MessagePlugin.warning(`没找到应付单 ${no}（可能已删除或无权限）`);
+  }
+  const rest = { ...route.query };
+  delete rest.payable_no;
+  void router.replace({ path: route.path, query: rest });
+}
+
 onMounted(() => {
   void loadBasics();
   // 列表记忆恢复的页码要在首次加载就生效
-  void loadPayables(current.value);
+  void loadPayables(current.value).then(() => openByQuery());
 });
 </script>
 
@@ -1081,6 +1268,23 @@ onMounted(() => {
   color: var(--td-text-color-secondary);
   font-size: 12px;
   line-height: 20px;
+}
+
+/* ==================== D5：发起付款（详情抽屉顶部） ==================== */
+
+/* 按钮与「不能付的原因」同一行：能付就是主按钮，不能付就是一句说明（不置灰） */
+.drawer-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding-bottom: 4px;
+}
+
+.drawer-actions__blocked {
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--td-text-color-secondary);
 }
 
 /* ==================== 操作列 / 付款记录 / 弹窗（P7） ==================== */

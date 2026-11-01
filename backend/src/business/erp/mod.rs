@@ -22,7 +22,7 @@
 //! | [`voucher_query`] | 凭证查询：分页 + 详情（含全部分录），只读 | **P2-D1** |
 //! | [`ledger`] | 总账流水（逐行余额）+ 科目余额表（Σ借 = Σ贷 校验），只读 | **P2-D1** |
 //! | [`payable_query`] | 应付单查询：分页 + 详情（含关联凭证号），只读 | **P2-C2** |
-//! | [`payable_payment`] | 应付付款登记（部分付款累计 → PARTIAL_PAID/SETTLED）+ 应付作废（联动红冲） | **P7** |
+//! | [`payable_payment`] | 应付付款登记（部分付款累计 → PARTIAL_PAID/SETTLED）+ 应付作废（联动红冲）+ **可付信息**（D5：`GET /payable/{id}/payment-info`，详情抽屉「发起付款」的唯一读数） | **P7 / D5** |
 //! | [`payable_bridge`] | 应付**付款审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17** |
 //! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入） | **P7** |
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |

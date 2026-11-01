@@ -108,6 +108,85 @@ export function fetchPayableDetail(id: string): Promise<PayableDetail> {
   return get<PayableDetail>(`${BASE}/payable/${id}`);
 }
 
+// ==================== D5：应付单 → 发起付款 ====================
+
+/**
+ * 可付信息的单头（`payable_payment.rs::PaymentInfoPayable`）。
+ *
+ * 金额一律 `number | string`（后端 `numeric(18,4)` 出来是 JSON 字符串），
+ * 前端统一走 `shared/money.ts` 的 `toNumber` / `toCents`，**不要**直接 `+`。
+ */
+export interface PayablePaymentInfoHead {
+  /** 应付单 id */
+  id: string;
+  /** 应付单号 `AP-yyyyMMdd-000001` */
+  payable_no: string;
+  /** 供应商 id */
+  supplier_id: string;
+  /** 供应商名称（主数据被删时是空串） */
+  supplier_name: string;
+  /** 来源单据类型（`STOCK_IN` …） */
+  source_type: string;
+  /** 来源单据 id（「点来源单号跳收货单」用） */
+  source_id: string;
+  /** 来源单号 */
+  source_no: string;
+  /** 币种 */
+  currency_code: string;
+  /** 应付金额（含税） */
+  amount: number | string;
+  /** 已付金额 */
+  paid_amount: number | string;
+  /** 未付金额 */
+  unpaid_amount: number | string;
+  /** 状态 */
+  status: string;
+  /** 状态中文标签 */
+  status_label: string;
+  /** 到期日 `YYYY-MM-DD` */
+  due_date: string;
+  /** 是否逾期 */
+  overdue: boolean;
+  /** 会计期间 `yyyy-MM` */
+  period_code: string;
+  /** 能不能发起付款（**唯一判据**：不要在前端自己按状态再推一遍） */
+  can_pay: boolean;
+  /** 不能付款的原因（`can_pay = true` 时是 null） */
+  blocked_reason: string | null;
+  /**
+   * **默认付款金额 = 未付金额**（不是应付总额）。
+   *
+   * 后端算好给前端直接用（F2 / O1）；`can_pay = false` 时它是 0。
+   */
+  default_amount: number | string;
+  /** 审批中的付款单号 */
+  pending_payment_no: string | null;
+  /** 审批中的付款金额 */
+  pending_amount: number | string | null;
+  /** 「审批中那笔现在看已经超付」的提示（没风险是 null） */
+  overpay_risk: string | null;
+}
+
+/** 可付信息（`GET /business/erp/payable/{id}/payment-info` → `PaymentInfoRes`）。 */
+export interface PayablePaymentInfo {
+  /** 单头 + 付款能力 */
+  payable: PayablePaymentInfoHead;
+  /** 已登记的全部付款记录（`pay_date` 升序） */
+  payments: PayablePayment[];
+}
+
+/**
+ * 查应付单可付信息（D5）。
+ *
+ * 详情抽屉点「发起付款」前拉一次：拿 `can_pay` / `blocked_reason` 决定按钮显不显示、
+ * 拿 `default_amount`（= 未付）预填金额、拿 `payments` 显示已付记录。
+ *
+ * ⚠️ 这是**只读**接口：真正付款仍走 {@link payPayable}（P17：有已发布流程就发起审批）。
+ */
+export function fetchPayablePaymentInfo(id: string): Promise<PayablePaymentInfo> {
+  return get<PayablePaymentInfo>(`${BASE}/payable/${id}/payment-info`);
+}
+
 /**
  * 提交一笔付款。
  *

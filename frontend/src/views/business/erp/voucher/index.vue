@@ -493,6 +493,7 @@
  * 用浮点比 `226.00000000000003 === 226` 会假报「不平」。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
@@ -557,6 +558,9 @@ const statusFilterOptions = VOUCHER_STATUS_FILTER_OPTIONS.map((item) => ({ ...it
 const typeFilterOptions = VOUCHER_TYPE_FILTER_OPTIONS.map((item) => ({ ...item }));
 
 // ==================== 列表 ====================
+
+const router = useRouter();
+const route = useRoute();
 
 const filter = reactive<VoucherFilterState>(emptyVoucherFilter());
 const rows = ref<VoucherRowEx[]>([]);
@@ -913,9 +917,27 @@ async function submitCreate(): Promise<void> {
   }
 }
 
+/**
+ * 深链：`/business/erp/voucher?voucher_no=PZ-…`（D5 F3：应付单付款记录里的「凭证 PZ-xxx」点过来）。
+ *
+ * 只预填「凭证号」这一个筛选项（后端 `LIKE %x%`，付款凭证号的唯一前缀已经足够定位），
+ * 打开后把 query 清掉，免得刷新页面又把筛选项改回去。
+ */
+async function openByQuery(): Promise<void> {
+  const no = typeof route.query.voucher_no === 'string' ? route.query.voucher_no.trim() : '';
+  if (!no) {
+    return;
+  }
+  filter.voucher_no = no;
+  await loadVouchers(1);
+  const rest = { ...route.query };
+  delete rest.voucher_no;
+  void router.replace({ path: route.path, query: rest });
+}
+
 onMounted(() => {
   // 列表记忆恢复的页码要在首次加载就生效
-  void loadVouchers(current.value);
+  void loadVouchers(current.value).then(() => openByQuery());
 });
 </script>
 

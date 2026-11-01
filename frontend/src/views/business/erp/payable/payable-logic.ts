@@ -204,3 +204,81 @@ export function supplierNameOf(
   }
   return supplierNameMap.get(supplierId) ?? shortId(supplierId);
 }
+
+// ==================== D5：应付单 → 发起付款 ====================
+
+/** 可付信息里本文件用得到的字段（避免把整个 api 类型塞进纯逻辑） */
+export interface PayableInfoLike {
+  /** 后端给的「能不能付」结论 */
+  can_pay: boolean;
+  /** 不能付的原因 */
+  blocked_reason: string | null;
+  /** 默认付款金额（= 未付） */
+  default_amount: number | string;
+  /** 未付金额 */
+  unpaid_amount: number | string;
+  /** 应付总额 */
+  amount: number | string;
+}
+
+/**
+ * 付款弹窗的**预填金额**（F2 / O1：带未付，不带总额）。
+ *
+ * 直接取后端 `default_amount`，**不在前端重算**：
+ * ① 未付金额的口径只有库列说了算（`ck_biz_payable_unpaid` 恒等）；
+ * ② 后端在不能付款时把 `default_amount` 归 0，前端不需要再判一次状态。
+ *
+ * 兜底：老版本后端没有 `default_amount`（灰度期）时退回 `unpaid_amount`，
+ * 再不行按 `amount`（至少不会填出 NaN）。
+ */
+export function payPrefillAmount(info: PayableInfoLike | null | undefined): number {
+  if (!info) {
+    return 0;
+  }
+  const fallback = toNumber(info.unpaid_amount ?? info.amount);
+  const amount = info.default_amount === null || info.default_amount === undefined
+    ? fallback
+    : toNumber(info.default_amount);
+  return Number.isFinite(amount) && amount > 0 ? amount : 0;
+}
+
+/**
+ * 详情抽屉「发起付款」按钮是否显示。
+ *
+ * 三个条件同时成立：后端说能付（`can_pay`）、有付款权限、预填金额 > 0。
+ * 卡面 L9：已结清 / 已作废的单**不显示**按钮（不是置灰 —— 置灰会让人一直点）。
+ */
+export function canStartPay(info: PayableInfoLike | null | undefined, hasPayPermission: boolean): boolean {
+  if (!info || !hasPayPermission) {
+    return false;
+  }
+  return info.can_pay === true && payPrefillAmount(info) > 0;
+}
+
+/**
+ * 来源单据的跳转路径（`STOCK_IN` → 收货单页并打开详情）。
+ *
+ * 目前只有收货单页支持 `?in_id=`（见 `views/business/erp/stockin/index.vue`）；
+ * 其它来源类型返回 `null`，前端渲染成纯文本（不给假链接）。
+ */
+export function sourceDocPath(sourceType: string | null | undefined, sourceId: string | null | undefined): string | null {
+  if (!sourceId) {
+    return null;
+  }
+  if (sourceType === 'STOCK_IN') {
+    return `/business/erp/stock-in?in_id=${encodeURIComponent(sourceId)}`;
+  }
+  return null;
+}
+
+/** 付款凭证的跳转路径（凭证页支持 `?voucher_no=` 预填筛选）；空号返回 `null`。 */
+export function voucherDocPath(voucherNo: string | null | undefined): string | null {
+  const no = (voucherNo ?? '').trim();
+  return no ? `/business/erp/voucher?voucher_no=${encodeURIComponent(no)}` : null;
+}
+
+/** 应付单的跳转路径（付款记录上的「应付单号」点回；应付页支持 `?payable_no=` 深链）。 */
+export function payableDocPath(payableNo: string | null | undefined): string | null {
+  const no = (payableNo ?? '').trim();
+  return no ? `/business/erp/payable?payable_no=${encodeURIComponent(no)}` : null;
+}
