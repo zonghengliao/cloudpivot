@@ -172,7 +172,7 @@ ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_p3b cargo test --lib -j
 本模块排在 `cash_flow` / `transfer_handler` 之前，留下的科目让「按科目全集断言」的用例
 （分类配置覆盖、账簿平衡）连带变红 —— 也是 D7 交接里「同一个库连跑第二遍会红」的同源问题。
 
-**修法**（本卡内已修，提交 `7093acf`）：
+**修法**（本卡内已修，提交 `fix(test): P-FLOW-3B 夹具清场补科目/供应商`）：
 
 1. 清场 SQL 抽出 `purge_fixtures()`，补 `biz_opening_balance → biz_account(P3B.%) → biz_supplier(P3B-SUP)`；
 2. 每个用例开头都调（入口干净）+ 新增 **⑰ `pflow3b_zz_teardown_purges_fixtures`**
