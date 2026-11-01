@@ -114,7 +114,15 @@
                   />
                 </div>
               </div>
-              <p v-if="formFields.length === 0 && itemTables.length === 0" class="content__empty">
+              <!-- 老实例（本卡之前提交的）没有 items 快照：显示 `—`，绝不渲染空表格 -->
+              <p
+                v-if="itemsLegacyHint"
+                class="content__items-empty"
+                data-testid="flow-form-items-empty"
+              >
+                明细：{{ EMPTY_PLACEHOLDER }}（该审批单未冻结明细）
+              </p>
+              <p v-if="formFields.length === 0 && itemTables.length === 0 && !itemsLegacyHint" class="content__empty">
                 发起时未填写表单内容
               </p>
               <p v-if="detail.instance.result_comment" class="content__comment">
@@ -308,9 +316,9 @@ import { ApiError } from '@/api/request';
 import { useUserStore } from '@/stores/user';
 import { nodeTypeLabel, topoOrder } from '@/views/business/flow/graph';
 import {
+  EMPTY_PLACEHOLDER,
   buildFormFields,
   buildFormItemTables,
-  buildItemTable,
   type FormField,
   type FormItemTable,
   type FormNameLookup,
@@ -321,7 +329,7 @@ import {
   nameLookupOf,
   type MasterNameMaps,
 } from '@/views/business/flow/use-flow-master-names';
-import { loadBusinessItemRows } from '@/views/business/flow/flow-business-items';
+import { readItemSnapshot } from '@/views/business/flow/flow-business-items';
 import type { FlowProgressNode } from '@/views/business/flow/components/FlowProgress.vue';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import UserSelect from '@/views/business/task/components/UserSelect.vue';
@@ -469,8 +477,8 @@ function toProgressNode(row: FlowNodeProgress): FlowProgressNode {
  * | 值 | `supplier_id` 查主数据译名；金额 `¥226.00`；枚举 `EXCL`→「不含税」 | 查不到名称 → `(ID: 01a18def…)`；空值 → `—` |
  * | 明细 | 对象数组 → `t-table` 小表格（列标题中文、数量带单位） | 明细读不到 → 整个明细区不显示 |
  *
- * 译名走 `use-flow-master-names.ts`（一次批量查 5 张表，权限不够静默降级）；
- * 采购明细走 `flow-business-items.ts`（`form_data` 里**没有** `items`，得读业务单明细）。
+ * 译名走 `use-flow-master-names.ts`（一次批量查 5 张表，权限不够静默降级 —— 只对**老实例**有用）；
+ * 明细读 `form_data.items`（后端 `dbc99c3` 起的审批快照），不再请求业务单接口。
  */
 const masterNames = ref<MasterNameMaps>(emptyNameMaps());
 /** 译名函数（响应式：主数据回来前后的 computed 结果会各自正确） */
@@ -503,33 +511,36 @@ const formFields = computed<FormField[]>(() => {
   return buildFormFields(data, nameLookup.value);
 });
 
-/** 业务明细（采购单明细行；其它流程 / 拉不到 → 空数组） */
-const businessItemRows = ref<Record<string, unknown>[]>([]);
-
 /**
- * 明细表：`form_data` 自己的对象数组 + 业务单明细，两路合并。
+ * 明细快照（`form_data.items`，后端 `dbc99c3` 起冻结的审批快照）。
  *
- * - `form_data` 有数组字段（自定义流程 / 后续后端补了 `items`）→ 直接用，字段名键映射齐全；
- * - 采购审批（`PO_APPROVE`）没有 `items` → 用 `loadBusinessItemRows` 读业务单明细，标题统一叫「明细」。
+ * 明细**只读 `form_data`**，不再调 `GET /business/erp/purchase-order-item/page`
+ * —— 审批岗位没有 `business:erp:*`，那个接口对他们 403，而且读的是「当前值」不是审批时的值。
  */
-const itemTables = computed<FormItemTable[]>(() => {
-  const data = detail.value?.instance?.form_data;
-  const tables = buildFormItemTables(data, nameLookup.value);
-  if (tables.length > 0) {
-    return tables;
-  }
-  const rows = businessItemRows.value;
-  if (rows.length === 0) {
-    return [];
-  }
-  return [buildItemTable('items', '明细', rows, nameLookup.value)];
+const itemSnapshot = computed(() => {
+  const instance = detail.value?.instance;
+  return readItemSnapshot(instance?.biz_type ?? '', instance?.form_data);
 });
 
-/** 拉业务明细（只在「form_data 没有明细数组 + 采购审批」时才有活干；失败静默） */
-async function loadBusinessItems(bizType: string, formData: Record<string, unknown> | undefined, bizId: string): Promise<void> {
-  const rows = await loadBusinessItemRows(bizType, formData, bizId);
-  businessItemRows.value = rows;
-}
+/**
+ * 明细表：`form_data` 自己的对象数组（新实例就是 `items` 那 8 键快照）。
+ *
+ * 老实例（本卡之前提交的）没有 `items` → 这里拿到空数组，由 {@link itemsLegacyHint}
+ * 显示一行 `—`，绝不渲染空表格，也不影响上面的字段区。
+ */
+const itemTables = computed<FormItemTable[]>(() =>
+  buildFormItemTables(detail.value?.instance?.form_data, nameLookup.value),
+);
+
+/**
+ * 老实例的明细提示（「本该有明细，但快照里没有」）。
+ *
+ * 只在「有明细的业务类型 + 快照里确实没有 items」时为真；`items: []` 算「明确无明细」，
+ * 自定义流程也不提示。
+ */
+const itemsLegacyHint = computed(
+  () => itemSnapshot.value.legacy && itemTables.value.length === 0,
+);
 
 /** 时间线条目 */
 interface TimelineItem {
@@ -638,9 +649,9 @@ async function loadDetail(silent = false): Promise<void> {
     const data = await getFlowInstance(instanceId.value);
     detail.value = data;
     loadError.value = '';
-    // 主数据译名与业务明细各自独立异步补：都失败也不影响正文（页面先出 ID、后补名称）
+    // 明细直接来自 `form_data.items`（审批快照），不在这里发请求。
+    // 只有「译名」还需要异步补（老实例没冻结 `*_name` 时才用得上，权限不足静默降级）
     void refreshMasterNames();
-    void loadBusinessItems(data.instance.biz_type, data.instance.form_data, data.instance.biz_id);
     if (graphNodes.value.length === 0) {
       // 只在首次（或图还没拉到）时拉图：轮询不必重复拉
       await loadGraph(data.instance.flow_code, data.instance.version_no);
@@ -987,6 +998,15 @@ onBeforeUnmount(() => {
     margin: 0;
     font-size: 13px;
     color: var(--td-text-color-placeholder);
+  }
+
+  /* 老审批单没有明细快照：给一行 `—` 说明，不渲染空表格 */
+  &__items-empty {
+    margin: 0;
+    padding-top: 10px;
+    font-size: 13px;
+    color: var(--td-text-color-placeholder);
+    border-top: 1px dashed var(--td-component-stroke);
   }
 
   &__fields {

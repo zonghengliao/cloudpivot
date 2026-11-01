@@ -93,7 +93,8 @@
               <span v-if="card.extra">{{ card.extra }}</span>
             </div>
             <!-- 摘要（P1-FIX）：不是原始字段，是把 form_data 翻成人话的一行
-                 （供应商 / 价税合计 / 数量合计）；拉不到详情就不显示，不编内容 -->
+                 （供应商 / 收货仓库 / 价税合计）；数据随列表下发（TaskRes.form_data），
+                 没有表单（`{}`）就不显示摘要行，不编内容 -->
             <div v-if="summaryOf[card.id]" class="task-card__summary" data-testid="flow-task-summary">
               {{ summaryOf[card.id] }}
             </div>
@@ -196,7 +197,6 @@ import { MessagePlugin } from 'tdesign-vue-next';
 import {
   addSignFlowTask,
   approveFlowTask,
-  getFlowInstance,
   listDoneTasks,
   listMyCc,
   listMyInstances,
@@ -272,9 +272,13 @@ interface CardItem {
   /**
    * 实例的表单快照（`form_data`）。
    *
-   * - 「我发起的」Tab 直接由 `InstanceRes` 下发，零成本；
-   * - 「待我审批」Tab 的 `TaskRes` **没有** `form_data`，由 {@link fillTodoFormData} 逐单补
-   *   （上限 {@link SUMMARY_FETCH_LIMIT} 单，够看到首屏；后端给 `TaskRes` 补上该字段后才用收这个补丁）。
+   * 四个 Tab 都**零额外请求**拿到它（P1-FIX 收口后）：
+   * - 待办 / 已办：`TaskRes.form_data`（后端 `dbc99c3` 起列表 SQL 直接 JOIN 带出，`{}` = 无表单）；
+   * - 我发起的：`InstanceRes.form_data` 本来就下发；
+   * - 抄送：`CcRes` 不下发 → `undefined`（不显示摘要行，也不为它发请求）。
+   *
+   * 上一版这里是 `fillTodoFormData` 逐单补 `GET /business/flow/instance/{id}`
+   * （上限 20 单、一次打开审批中心狂发 20 个请求）——已删除，见 {@link taskToCard}。
    */
   formData?: Record<string, unknown>;
 }
@@ -402,9 +406,14 @@ async function warmMasterNames(): Promise<void> {
 /**
  * 摘要（P1-FIX）：把卡片上的 `form_data` 翻成人话，`卡片 id → 一行摘要`。
  *
+ * 数据来源（全部零额外请求）：
+ * - 待办 / 已办：`TaskRes.form_data`（后端 `dbc99c3` 起列表 SQL JOIN 带出；旧实现 `fillTodoFormData`
+ *   会为首屏前 20 单各发一次 `GET /business/flow/instance/{id}`，一次打开审批中心 20 个请求，已删）；
+ * - 我发起的：`InstanceRes.form_data`；抄送：没有（不显示摘要行）。
+ *
  * 为什么是 computed 而不是「加载时算一次字符串」：译名（`supplier_id` → 名称）是**异步**补的，
- * 主数据回来之前只能显示 `(ID: 01a18def…)`。算成 computed 后，主数据一到所有卡片的摘要自动刷新，
- * 不需要重拉列表。
+ * 主数据回来之前只能显示 `(ID: 01a18def…)`；有 `*_name` 快照的新实例则一上来就是中文名。
+ * 算成 computed 后，主数据一到所有卡片的摘要自动刷新，不需要重拉列表。
  */
 const summaryOf = computed<Record<string, string>>(() => {
   const out: Record<string, string> = {};
@@ -415,29 +424,6 @@ const summaryOf = computed<Record<string, string>>(() => {
   }
   return out;
 });
-
-/**
- * 待办 Tab 补 `form_data`：`TaskRes` 没有这个字段，逐单读详情。
- *
- * - **上限 {@link SUMMARY_FETCH_LIMIT} 单**：首屏够看，且不把 50 单列表变成 50 个请求；
- * - **不 await**：列表先渲染出来，摘要稍后填进去（不然首屏要多等一轮往返）；
- * - 单条失败（无权限 / 已终止）→ 该卡不显示摘要，不影响别的卡。
- */
-const SUMMARY_FETCH_LIMIT = 20;
-
-async function fillTodoFormData(items: CardItem[]): Promise<void> {
-  const targets = items.slice(0, SUMMARY_FETCH_LIMIT);
-  await Promise.all(
-    targets.map(async (item) => {
-      try {
-        const data = await getFlowInstance(item.instanceId);
-        item.formData = data.instance.form_data ?? {};
-      } catch {
-        // 拉不到就不显示摘要（详情页点进去仍有内容）
-      }
-    }),
-  );
-}
 
 /** 时间格式化 */
 function formatTime(value: string): string {
@@ -492,6 +478,8 @@ function taskToCard(task: FlowTaskItem): CardItem {
     status: task.status,
     statusDomain: 'flow-task',
     instanceStatus: task.instance_status,
+    // 摘要数据随列表一起下发（`TaskRes.form_data`，`{}` = 无表单）；不再逐单查详情
+    formData: task.form_data,
     tag: tags[0],
     tagTheme: task.task_kind === 'RESUBMIT' ? 'warning' : 'default',
   };
@@ -587,11 +575,8 @@ async function loadCurrent(): Promise<void> {
       }));
     }
     cards.value = decorate(cards.value);
-    // 摘要：列表先出（decorate 之后才补 —— decorate 会重建卡片对象，之前补的 form_data 会丢），
-    // 逐单补详情、不 await、上限 20 单；拉不到就不显示摘要行
-    if (activeTab.value === 'todo') {
-      void fillTodoFormData(cards.value);
-    }
+    // 摘要所需数据全在列表响应里（`TaskRes.form_data` / `InstanceRes.form_data`），
+    // 这里不再发任何补详情请求；`summaryOf` 是 computed，主数据译名一到自动重算
   } catch (error) {
     cards.value = [];
     tabError.value = `${error instanceof ApiError ? error.message : '接口异常'}（下面为空态，可点「重试」）`;

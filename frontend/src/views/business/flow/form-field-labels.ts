@@ -31,14 +31,27 @@
  *   "warehouse_id": "d1370001-…", "total_with_tax": "226.0000" }
  * ```
  *
- * 两个和卡面设计不一致的事实，都在这里按**真实数据**处理：
+ * 三个和卡面设计不一致的事实，都在这里按**真实数据**处理：
  *
  * 1. **金额是「数字字符串」**（`"226.0000"`），只有 `amount` 是 JSON 数字
  *    （`purchase_handler::purchase_form_data` 刻意这么写：条件边比较要 `as_f64()`）。
  *    所以格式化必须能吃字符串，不能只判 `typeof === 'number'`。
- * 2. **`form_data` 里没有 `items`**（也没有 `supplier_name` / `order_date`）。
- *    明细得另外走业务单接口（`flow-business-items.ts`），译名得走主数据
- *    （`use-flow-master-names.ts`）—— 这里只负责「拿到数据之后怎么显示」。
+ * 2. **老实例（P1-FIX 后端上线前提交的）`form_data` 里没有 `items` / `*_name`**。
+ *    明细得另外走业务单接口（`flow-business-items.ts` 现在只在**没有快照**时给出「降级」标记），
+ *    译名得走主数据（`use-flow-master-names.ts`）—— 这里只负责「拿到数据之后怎么显示」。
+ * 3. **新实例（backend `dbc99c3` 起）有冻结的显示名与明细**（真库实测 PO-20261102-000028）：
+ *
+ * ```json
+ * { "order_no": "PO-20261102-000028", "supplier_id": "01a19810-…",
+ *   "supplier_name": "P1FIX 演示供应商", "warehouse_id": "01a19810-…",
+ *   "warehouse_name": "P1FIX 演示仓库", "total_with_tax": "9040.0000",
+ *   "items": [{ "line_no": 1, "material_code": "P1FIX-M-1", "material_name": "P1FIX 演示物料",
+ *               "unit_name": "箱", "qty": "100.0000", "price": "80.000000",
+ *               "amount": "8000.0000", "tax_rate": "13.0000" }] }
+ * ```
+ *
+ *    此时 `supplier_id` / `warehouse_id` 是**重复信息**（名字已在场），见
+ *    {@link NAME_OVER_ID_KEY}；`items` 是 8 键快照，见 {@link ITEM_COLUMN_ORDER}。
  */
 
 /** 空值占位（`null` / `undefined` / 空串统一显示它，绝不显示空白） */
@@ -54,7 +67,10 @@ export const FORM_FIELD_LABELS: Record<string, string> = {
   order_no: '采购单号',
   order_id: '采购单',
   supplier_id: '供应商',
+  /** 后端 `dbc99c3` 起冻结的显示名（与 `supplier_id` 同源；在场时 id 让位，见 {@link NAME_OVER_ID_KEY}） */
+  supplier_name: '供应商',
   warehouse_id: '收货仓库',
+  warehouse_name: '收货仓库',
   order_date: '下单日期',
   expect_date: '期望到货',
   credit_days: '账期(天)',
@@ -76,7 +92,9 @@ export const FORM_FIELD_LABELS: Record<string, string> = {
   transfer_no: '调拨单号',
   transfer_id: '调拨单',
   from_warehouse_id: '调出仓库',
+  from_warehouse_name: '调出仓库',
   to_warehouse_id: '调入仓库',
+  to_warehouse_name: '调入仓库',
 
   // ===== 付款（`payable_payment`）=====
   payment_no: '付款单号',
@@ -89,7 +107,7 @@ export const FORM_FIELD_LABELS: Record<string, string> = {
   pay_date: '付款日期',
   pay_method: '付款方式',
 
-  // ===== 明细行（业务单接口下发的行字段）=====
+  // ===== 明细行（业务单接口 / `form_data.items` 快照下发的行字段）=====
   items: '明细',
   line_no: '行号',
   material_id: '物料',
@@ -97,6 +115,8 @@ export const FORM_FIELD_LABELS: Record<string, string> = {
   material_name: '物料名称',
   spec: '规格',
   unit_id: '单位',
+  /** 快照明细（`ITEM_KEYS`）里只有名称没有 id，单独一列「单位」 */
+  unit_name: '单位',
   qty: '数量',
   price: '单价',
   price_excl: '不含税单价',
@@ -274,6 +294,21 @@ const INTERNAL_REF_NO_KEY: Record<string, string> = {
 };
 
 /**
+ * 审计字段（谁建的 / 谁改的）：**译名拿不到时整行不显示**。
+ *
+ * 这两个键的值是用户 id，页面上没有任何可读信息；而「发起人」已经在详情页头部
+ * 显示了姓名（实例的 `initiator_name`）。审批人没有 `system:user:list` 权限时译名必然 403，
+ * 于是页面上只剩一行「制单人 (ID: 01a1982f…)」—— 正是老板说的「一串 ID 号」。
+ *
+ * 规则：**名字查到了照常显示**（有权限的人什么都不丢），查不到就别摆这行 ID
+ * （不是丢信息：那个名字本来就不在这份 `form_data` 里）。判据只看「显示值是不是 ID 兜底串」。
+ */
+const AUDIT_OWNER_KEYS = new Set(['create_by', 'update_by']);
+
+/** ID 兜底串的前缀（与 {@link formatIdValue} 一致，改动要同步） */
+const ID_FALLBACK_PREFIX = '(ID: ';
+
+/**
  * 「同一件事说两遍」的字段 → 它**已有的等价字段**。
  *
  * 采购 `form_data` 里 `amount` 是给条件节点算边用的数字（= `total_with_tax`），
@@ -283,6 +318,27 @@ const INTERNAL_REF_NO_KEY: Record<string, string> = {
 const DUPLICATE_KEYS: Record<string, string> = {
   amount: 'total_with_tax',
   amount_text: 'amount',
+};
+
+/**
+ * 技术引用键（`*_id`）→ 后端**冻结的显示名**（`*_name`）。
+ *
+ * P1-FIX 后端（`dbc99c3` 起）把中文名一起冻进了 `form_data`，于是同一份数据里会同时出现
+ * `supplier_id` 与 `supplier_name`。两个都显示时，审批人先看到的是
+ *
+ * ```text
+ * 供应商        (ID: 01a19810…)     <- 噪声（还是没有权限查主数据时的兜底串）
+ * 供应商        P1FIX 演示供应商
+ * ```
+ *
+ * 所以仿 {@link INTERNAL_REF_NO_KEY} 的规则：**同名 `_name` 在场且非空 → 藏掉 `_id`**
+ * （藏的是重复信息，名字还在；`*_name` 不在场的老实例仍走 `(ID: 前8位…)` 兜底，什么都不丢）。
+ */
+const NAME_OVER_ID_KEY: Record<string, string> = {
+  supplier_id: 'supplier_name',
+  warehouse_id: 'warehouse_name',
+  from_warehouse_id: 'from_warehouse_name',
+  to_warehouse_id: 'to_warehouse_name',
 };
 
 /**
@@ -296,7 +352,12 @@ const FIELD_ORDER = [
   'transfer_no',
   'payment_no',
   'payable_no',
+  // 名称键排在对应 `_id` 前面：老实例（无 `_name`）id 在场时顺序不变，新实例名字顶在原位
+  'supplier_name',
   'supplier_id',
+  'from_warehouse_name',
+  'to_warehouse_name',
+  'warehouse_name',
   'from_warehouse_id',
   'to_warehouse_id',
   'warehouse_id',
@@ -399,7 +460,7 @@ export function formatIdValue(id: string, lookup?: FormNameLookup, key = ''): st
   if (name) {
     return name;
   }
-  return `(ID: ${text.slice(0, 8)}…)`;
+  return `${ID_FALLBACK_PREFIX}${text.slice(0, 8)}…)`;
 }
 
 /** 对象数组 = 明细（元素都是普通对象；`[{...}]` 才算，`[1,2]` 算普通数组） */
@@ -565,7 +626,12 @@ export function buildFormFields(
   }
   return collectEntries(formData)
     .filter((entry) => !isItemRows(entry.value))
-    .filter((entry) => !isHiddenRef(entry.key, formData) && !isDuplicateKey(entry.key, formData))
+    .filter(
+      (entry) =>
+        !isHiddenRef(entry.key, formData) &&
+        !isDuplicateKey(entry.key, formData) &&
+        !isRedundantId(entry.key, formData),
+    )
     .map((entry, index) => ({ entry, index }))
     .sort((left, right) => orderRank(left) - orderRank(right) || left.index - right.index)
     .map(({ entry }) => {
@@ -578,17 +644,21 @@ export function buildFormFields(
           display === EMPTY_PLACEHOLDER ||
           (Array.isArray(entry.value) && entry.value.length === 0),
       };
-    });
+    })
+    // 制单人 / 修改人查不到姓名时不留一行裸 ID（名字在头部「发起人」里，见 AUDIT_OWNER_KEYS）
+    .filter(
+      (field) =>
+        !(AUDIT_OWNER_KEYS.has(leafKey(field.key)) && field.display.startsWith(ID_FALLBACK_PREFIX)),
+    );
 }
 
 /** 技术引用键是否该藏（前提：同一条 `form_data` 里有它的单号） */
 function isHiddenRef(key: string, formData: Record<string, unknown>): boolean {
-  const noKey = INTERNAL_REF_NO_KEY[key];
+  const noKey = INTERNAL_REF_NO_KEY[leafKey(key)];
   if (!noKey) {
     return false;
   }
-  const noValue = formData[noKey];
-  return typeof noValue === 'string' && noValue.trim() !== '';
+  return isNonEmptyValue(resolveSiblingValue(formData, key, noKey));
 }
 
 /** 重复字段是否该藏（前提：同一条 `form_data` 里有它的等价字段且非空） */
@@ -597,8 +667,64 @@ function isDuplicateKey(key: string, formData: Record<string, unknown>): boolean
   if (!twin) {
     return false;
   }
-  const twinValue = formData[twin];
-  return twinValue !== null && twinValue !== undefined && String(twinValue).trim() !== '';
+  return isNonEmptyValue(resolveSiblingValue(formData, key, twin));
+}
+
+/**
+ * 技术 id 是否该藏（前提：同一条 `form_data` 里有它的**显示名**且非空）。
+ *
+ * 只看叶子键（`form.supplier_id` 也能对上），并在**同一个父级**里找名字；
+ * 顶层再兜一次（脏数据把名字放在外面也不至于又冒出 `(ID: …)`）。
+ */
+function isRedundantId(key: string, formData: Record<string, unknown>): boolean {
+  const nameKey = NAME_OVER_ID_KEY[leafKey(key)];
+  if (!nameKey) {
+    return false;
+  }
+  return isNonEmptyValue(resolveSiblingValue(formData, key, nameKey));
+}
+
+/** 按点号路径的**同一父级**取兄弟键的值（`form.supplier_id` → `form.supplier_name`），顶层兜底 */
+function resolveSiblingValue(
+  formData: Record<string, unknown>,
+  key: string,
+  siblingLeaf: string,
+): unknown {
+  const index = key.lastIndexOf('.');
+  if (index >= 0) {
+    const sibling = valueAtPath(formData, `${key.slice(0, index + 1)}${siblingLeaf}`);
+    if (sibling !== undefined) {
+      return sibling;
+    }
+  }
+  return valueAtPath(formData, siblingLeaf);
+}
+
+/** 按点号路径取值（`form.supplier_name`；任一段缺失 → `undefined`，不会抛） */
+function valueAtPath(formData: Record<string, unknown>, path: string): unknown {
+  let current: unknown = formData;
+  for (const segment of path.split('.')) {
+    if (current === null || typeof current !== 'object' || Array.isArray(current)) {
+      return undefined;
+    }
+    const record = current as Record<string, unknown>;
+    if (!(segment in record)) {
+      return undefined;
+    }
+    current = record[segment];
+  }
+  return current;
+}
+
+/** 值是否「非空」（用于「名字在场才让 id 让位」这类判定；`0` / `false` 算有值） */
+function isNonEmptyValue(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0;
+  }
+  return String(value).trim() !== '';
 }
 
 /** 排序权重（不在 {@link FIELD_ORDER} 里的排最后，保持原始顺序） */
@@ -616,6 +742,8 @@ const ITEM_COLUMN_ORDER = [
   'spec',
   'qty',
   'unit_id',
+  // `form_data.items` 快照只有名称没有 id（后端 `ITEM_KEYS`）→ 紧跟数量给一列「单位」
+  'unit_name',
   'price',
   'price_excl',
   'price_incl',
@@ -708,9 +836,18 @@ export function buildFormItemTables(
     );
 }
 
-/** 摘要字段的优先顺序（采购 / 收货 / 调拨 / 付款 四类单都能取到东西） */
+/**
+ * 摘要字段的优先顺序（采购 / 收货 / 调拨 / 付款 四类单都能取到东西）。
+ *
+ * 名称键排在对应 `_id` **前面**：新实例（后端 `dbc99c3` 起 `form_data` 有 `*_name`）直接显示中文名，
+ * 老实例没有 `*_name` 时 `_id` 顶上（走主数据译名 / `(ID: 前8位…)` 兜底）——两条路都不断。
+ */
 const SUMMARY_PRIORITY = [
+  'supplier_name',
   'supplier_id',
+  'from_warehouse_name',
+  'to_warehouse_name',
+  'warehouse_name',
   'from_warehouse_id',
   'to_warehouse_id',
   'warehouse_id',
@@ -746,6 +883,11 @@ export function formSummary(
       break;
     }
     if (!(key in formData)) {
+      continue;
+    }
+    // 名字在场时 `_id` 不重复进摘要（与字段区的让位规则同源）
+    const nameKey = NAME_OVER_ID_KEY[key];
+    if (nameKey && isNonEmptyValue(formData[nameKey])) {
       continue;
     }
     const display = formatFieldValue(key, formData[key], lookup);

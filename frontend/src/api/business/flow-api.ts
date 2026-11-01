@@ -676,6 +676,16 @@ export interface FlowTaskItem {
   instance_status: string;
   /** 是否加签 */
   is_added_sign: boolean;
+  /**
+   * **表单快照**（`biz_flow_instance.form_data`，与 `InstanceRes.form_data` 同一份）。
+   *
+   * P1-FIX 后端（`dbc99c3` 起）：`page_my_tasks` 的 SQL 直接 JOIN 带出，列表一次请求
+   * 就把卡片摘要 / 明细需要的字段拿齐了，前端不用再逐单 `GET /business/flow/instance/{id}`。
+   * `{}` = 无表单；后端**绝不回 `null`**（`handler::task_res` 用 `unwrap_or_default` 兜底）。
+   *
+   * 老后端（未升级）不会有这个字段 → 运行时可能是 `undefined`，调用方按可选处理。
+   */
+  form_data: Record<string, unknown>;
   /** 是否自审 */
   is_self_approval: boolean;
   /** 是否系统代点 */

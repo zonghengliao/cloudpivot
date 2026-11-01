@@ -38,6 +38,7 @@ import {
   type FormField,
   type FormNameLookup,
 } from '../../src/views/business/flow/form-field-labels.ts';
+import { readItemSnapshot } from '../../src/views/business/flow/flow-business-items.ts';
 
 /** 生产库实测的采购审批 `form_data`（`biz_flow_instance` 2026-11-01，PO-20261031-000003） */
 const PURCHASE_FORM = {
@@ -53,6 +54,39 @@ const PURCHASE_FORM = {
   total_with_tax: '226.0000',
 };
 
+/**
+ * 真库实测的**新**采购审批 `form_data`（P1-FIX 后端 `dbc99c3` 起，PO-20261102-000028）。
+ *
+ * 与 {@link PURCHASE_FORM} 的差别就是后端多冻结了 `supplier_name` / `warehouse_name` / `items`：
+ * 这三样让「没有 `business:erp:*` 权限的审批人」也能看懂单据。
+ */
+const PURCHASE_FORM_SNAPSHOT = {
+  amount: 9040.0,
+  create_by: '01a19806-ddd6-75ed-b76d-37cd61f1da94',
+  items: [
+    {
+      amount: '8000.0000',
+      line_no: 1,
+      material_code: 'P1FIX-M-1',
+      material_name: 'P1FIX 演示物料',
+      price: '80.000000',
+      qty: '100.0000',
+      tax_rate: '13.0000',
+      unit_name: '箱',
+    },
+  ],
+  order_id: '01a19811-fa7e-7247-9c49-758431a2f7a1',
+  order_no: 'PO-20261102-000028',
+  price_mode: 'EXCL',
+  supplier_id: '01a19810-71f7-74d8-beeb-63664a067c8f',
+  supplier_name: 'P1FIX 演示供应商',
+  total_amount: '8000.0000',
+  total_qty: '100.0000',
+  total_with_tax: '9040.0000',
+  warehouse_id: '01a19810-726a-77e6-a0d1-fd5a8305edbe',
+  warehouse_name: 'P1FIX 演示仓库',
+};
+
 /** 假的译名函数：只认这张表（模拟「主数据查到了」） */
 const lookupKnown: FormNameLookup = (key, id) => {
   const table: Record<string, string> = {
@@ -60,6 +94,9 @@ const lookupKnown: FormNameLookup = (key, id) => {
     'warehouse_id:d1370001-0000-4000-8000-000000000002': '分仓（种子）',
     'material_id:m-1': '测试物料',
     'unit_id:u-1': '件',
+    // 用户表：给了名字 → 制单人照常显示；不给（审批人 403 的真实情况）→ 整行不显示
+    'create_by:01a18bc8-bd0c-7792-9118-90fccc9ef0a2': '管理员',
+    'create_by:01a19806-ddd6-75ed-b76d-37cd61f1da94': '管理员',
   };
   return table[`${key}:${id}`];
 };
@@ -334,4 +371,191 @@ test('附加：空数组 → 「—」；字符串数组 → 「、」拼接；�
   );
   assert.equal(single.rows[0].c0, '测试物料');
   assert.equal(single.rows[0].c1, '1');
+});
+
+// ==================== ⑰ 新实例：*_name → 中文标签 + *_id 让位 ====================
+
+test('⑰ 新实例（form_data 有 *_name）：5 个名称键有中文标签，且 *_id 让位 —— 页面上不再有 (ID: …) 行', () => {
+  // ① 标签表本身（后端 form_snapshot 的键名 = 契约）
+  assert.equal(fieldLabel('supplier_name'), '供应商');
+  assert.equal(fieldLabel('warehouse_name'), '收货仓库');
+  assert.equal(fieldLabel('from_warehouse_name'), '调出仓库');
+  assert.equal(fieldLabel('to_warehouse_name'), '调入仓库');
+  assert.equal(fieldLabel('unit_name'), '单位');
+
+  // ② 字段列表：**故意不传 lookup**（审批人查不到主数据是常态），名字照样是中文
+  const fields = buildFormFields(PURCHASE_FORM_SNAPSHOT);
+  assert.deepEqual(
+    fields.map((field) => field.label),
+    // 制单人不在列表里：没有 lookup（审批人 403 的真实情况）→ 不留一行 (ID: …)
+    ['采购单号', '供应商', '收货仓库', '金额口径', '价款', '价税合计', '数量合计'],
+  );
+  const keys = fields.map((field) => field.key);
+  assert.ok(!keys.includes('supplier_id'), `supplier_id 应让位（实际：${keys.join(',')}）`);
+  assert.ok(!keys.includes('warehouse_id'), `warehouse_id 应让位（实际：${keys.join(',')}）`);
+  assert.equal(fieldOf(fields, 'supplier_name').display, 'P1FIX 演示供应商');
+  assert.equal(fieldOf(fields, 'warehouse_name').display, 'P1FIX 演示仓库');
+  // 卡面验收的「页面上不再出现 (ID: …) 行」：整块字段区都不许有兜底串
+  for (const field of fields) {
+    assert.ok(
+      !field.display.includes('(ID:'),
+      `字段 ${field.key} 不该是 ID（实际：${field.display}）`,
+    );
+  }
+  assert.equal(fieldOf(fields, 'supplier_name').display, 'P1FIX 演示供应商');
+  // 「供应商」只出现一次（id 让位后不重复）
+  assert.equal(fields.filter((field) => field.label === '供应商').length, 1);
+});
+
+test('⑰b 调拨：调出 / 调入仓库只显示中文名（from_/to_warehouse_id 让位）', () => {
+  const fields = buildFormFields({
+    transfer_id: '01a19811-0000-7000-8000-000000000001',
+    transfer_no: 'TR-20261102-000001',
+    from_warehouse_id: '01a19811-0000-7000-8000-0000000000a1',
+    to_warehouse_id: '01a19811-0000-7000-8000-0000000000b2',
+    from_warehouse_name: '一号原料仓',
+    to_warehouse_name: '二号成品仓',
+    total_qty: '20.0000',
+  });
+  assert.deepEqual(
+    fields.map((field) => [field.label, field.display]),
+    [
+      ['调拨单号', 'TR-20261102-000001'],
+      ['调出仓库', '一号原料仓'],
+      ['调入仓库', '二号成品仓'],
+      ['数量合计', '20'],
+    ],
+  );
+});
+
+test('⑰c 制单人：译名拿不到 → 整行不显示（不留裸 ID）；拿到了 → 照常显示姓名', () => {
+  // 审批人真实处境：没有 system:user:list → 查不到姓名
+  const hidden = buildFormFields(PURCHASE_FORM_SNAPSHOT);
+  assert.ok(!hidden.some((field) => field.key === 'create_by'));
+
+  // 有权限的人：译名照常显示，什么都不丢
+  const shown = buildFormFields(PURCHASE_FORM_SNAPSHOT, lookupKnown);
+  assert.equal(fieldOf(shown, 'create_by').label, '制单人');
+  assert.equal(fieldOf(shown, 'create_by').display, '管理员');
+
+  // 硬红线 3 不变：**别的**未知 uuid 字段仍然兜底显示前 8 位（不许藏信息）
+  assert.equal(
+    formatFieldValue('some_ref', '01a18def-1a2b-7329-a9d3-c6afa9e04220'),
+    '(ID: 01a18def…)',
+  );
+});
+
+// ==================== ⑱ 藏 id 的前提：名字必须非空 ====================
+
+test('⑱ 名字为空 / 缺键 / 空串 → *_id 照常显示（不许把信息藏没）', () => {
+  const idOnly = buildFormFields({ supplier_id: '01a19810-71f7-74d8-beeb-63664a067c8f' });
+  assert.deepEqual(
+    idOnly.map((field) => [field.key, field.label, field.display]),
+    [['supplier_id', '供应商', '(ID: 01a19810…)']],
+  );
+
+  const blankName = buildFormFields({
+    supplier_id: '01a19810-71f7-74d8-beeb-63664a067c8f',
+    supplier_name: '   ',
+  });
+  assert.ok(blankName.some((field) => field.key === 'supplier_id'));
+
+  const nullName = buildFormFields({
+    warehouse_id: '01a19810-726a-77e6-a0d1-fd5a8305edbe',
+    warehouse_name: null,
+  });
+  assert.ok(nullName.some((field) => field.key === 'warehouse_id'));
+
+  // 嵌套形状（`form.supplier_id`）也认同一父级的名字
+  const nested = buildFormFields({
+    form: { supplier_id: '01a19810-71f7-74d8-beeb-63664a067c8f', supplier_name: '嵌套供应商' },
+  });
+  assert.deepEqual(
+    nested.map((field) => [field.key, field.label, field.display]),
+    [['form.supplier_name', '供应商', '嵌套供应商']],
+  );
+});
+
+// ==================== ⑲ 摘要白名单（名称键） ====================
+
+test('⑲ 待办卡片摘要：新实例显示中文名（不是 (ID: …)）；老实例口径不变', () => {
+  const summary = formSummary(PURCHASE_FORM_SNAPSHOT);
+  // 卡面验收要的两段都在，且没有任何 (ID: …)
+  assert.ok(summary.includes('供应商：P1FIX 演示供应商'), summary);
+  assert.ok(summary.includes('价税合计：¥9,040.00'), summary);
+  assert.ok(!summary.includes('(ID:'), summary);
+  assert.equal(summary, '供应商：P1FIX 演示供应商 · 收货仓库：P1FIX 演示仓库 · 价税合计：¥9,040.00');
+
+  // 调拨：调出 → 调入（名称键在对应 _id 前）
+  assert.equal(
+    formSummary({ from_warehouse_name: '一号原料仓', to_warehouse_name: '二号成品仓' }),
+    '调出仓库：一号原料仓 · 调入仓库：二号成品仓',
+  );
+
+  // 老实例（无 *_name）：仍走 id 兜底（⑭ 已钉住带译名的形状，这里钉「不空白、不崩」）
+  assert.equal(
+    formSummary(PURCHASE_FORM),
+    '供应商：(ID: d1370005…) · 收货仓库：(ID: d1370001…) · 价税合计：¥226.00',
+  );
+});
+
+// ==================== ⑳ 明细读 form_data.items 快照 ====================
+
+test('⑳ 快照明细（8 键）→ 表头全中文（含「单位」），数值仍是 100 / ¥80.00 / 13', () => {
+  const tables = buildFormItemTables(PURCHASE_FORM_SNAPSHOT);
+  assert.equal(tables.length, 1);
+  const table = tables[0];
+  assert.equal(table.key, 'items');
+  assert.equal(table.label, '明细');
+  assert.equal(table.rows.length, 1);
+  assert.deepEqual(
+    table.columns.map((column) => column.title),
+    ['行号', '物料编码', '物料名称', '数量', '单位', '单价', '税率(%)', '金额'],
+  );
+  assert.deepEqual(Object.values(table.rows[0]).filter((value) => value !== 'r0'), [
+    '1',
+    'P1FIX-M-1',
+    'P1FIX 演示物料',
+    '100',
+    '箱',
+    '¥80.00',
+    '13',
+    '¥8,000.00',
+  ]);
+  // 明细不进「普通字段」列表（不会出现「明细 1 行」那一行）
+  const fields = buildFormFields(PURCHASE_FORM_SNAPSHOT);
+  assert.ok(!fields.some((field) => field.key === 'items'));
+});
+
+test('⑳b items 为空数组 → 不渲染表格（按「无明细」处理，不报错）', () => {
+  assert.deepEqual(buildFormItemTables({ ...PURCHASE_FORM_SNAPSHOT, items: [] }), []);
+  assert.deepEqual(buildFormItemTables({ order_no: 'PO-1' }), []);
+  assert.deepEqual(buildFormItemTables(null), []);
+});
+
+// ==================== ㉑ 老实例降级：readItemSnapshot ====================
+
+test('㉑ readItemSnapshot：老实例（无 items）→ legacy，空数组 / 自定义流程 → 不报 legacy', () => {
+  // 老实例：有明细的业务类型，但快照里没有 items
+  const legacy = readItemSnapshot('PO_APPROVE', { order_no: 'PO-20261031-000003' });
+  assert.deepEqual(legacy.rows, []);
+  assert.equal(legacy.legacy, true);
+  assert.equal(readItemSnapshot('STOCK_IN_POST', {}).legacy, true);
+  assert.equal(readItemSnapshot('STOCK_TRANSFER', undefined).legacy, true);
+
+  // 新实例：行原样给出（顺序 = 后端 line_no 升序，前端不重排）
+  const fresh = readItemSnapshot('PO_APPROVE', PURCHASE_FORM_SNAPSHOT);
+  assert.equal(fresh.legacy, false);
+  assert.equal(fresh.rows.length, 1);
+  assert.equal(fresh.rows[0].material_name, 'P1FIX 演示物料');
+
+  // items 明确为空数组 → 「无明细」，不谎报老实例
+  const empty = readItemSnapshot('PO_APPROVE', { items: [] });
+  assert.deepEqual(empty, { rows: [], legacy: false });
+
+  // 没有 items 的自定义流程 → 不提示（它本来就没明细可言）
+  assert.deepEqual(readItemSnapshot('CUSTOM_FLOW', { foo: 'bar' }), { rows: [], legacy: false });
+
+  // 脏数据（非空数组但不是对象行）→ 按老实例降级，页面显示 —
+  assert.deepEqual(readItemSnapshot('PO_APPROVE', { items: [1, 2] }), { rows: [], legacy: true });
 });
