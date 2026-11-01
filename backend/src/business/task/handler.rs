@@ -4324,6 +4324,9 @@ pub async fn flow_of_task(
             node_name: flow.node_name,
             round: flow.round,
             node_status: flow.node_status,
+            on_complete: flow.on_complete,
+            on_reject: flow.on_reject,
+            on_cancel: flow.on_cancel,
         }),
     }))
 }

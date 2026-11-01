@@ -70,6 +70,7 @@ use nik::prelude::chrono::{Datelike, Duration, NaiveDate, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::flow::node_config;
 use crate::business::shared::principal::ScopedPrincipal;
 use crate::business::shared::scope;
 use crate::business::task::dep;
@@ -1226,6 +1227,37 @@ pub struct TaskFlowDetailRow {
     pub round: i32,
     /// 该节点本轮的实例状态（`ACTIVE` / `APPROVED` …；节点行缺失 → 空串）。
     pub node_status: String,
+    /// 该节点 `config.task.on_complete`（快照值；没有 `config.task` → `None`）。
+    pub on_complete: Option<String>,
+    /// 该节点 `config.task.on_reject`（同上）。
+    pub on_reject: Option<String>,
+    /// 该节点 `config.task.on_cancel`（同上）。
+    pub on_cancel: Option<String>,
+}
+
+/// 从快照里的 `config.task` 取一个「流程走向」枚举字段（P-FLOW-1C 补漏）。
+///
+/// # 为什么要过一遍 `parse` 再 `as_str`
+///
+/// 快照里的 `config` 是**发布时的原始 JSON**（编辑器原样输出，大小写不做承诺），
+/// 而接口对外承诺大写枚举字面量。直接回原文会让前端拿到 `verify` 这种值、走进错误分支；
+/// 解析不出来（脏数据 / 将来新增的取值）一律 `None` —— 前端按 `need_review` 推断兜底，
+/// 比给它一个自己不认识、也无从判断的字符串安全。
+///
+/// # 参数
+///
+/// - `task`：快照节点的 `config.task`（`None` = 该节点没有任务配置，如审批节点）；
+/// - `key`：`on_complete` / `on_reject` / `on_cancel`；
+/// - `parse` / `as_str`：对应枚举的解析与规范化（**复用 `node_config` 的唯一真源**，
+///   不在这里另写一份大小写映射）。
+fn switch_field<T>(
+    task: Option<&serde_json::Value>,
+    key: &str,
+    parse: fn(&str) -> Option<T>,
+    as_str: fn(T) -> &'static str,
+) -> Option<String> {
+    let raw = task?.get(key)?.as_str()?;
+    parse(raw).map(|value| as_str(value).to_string())
 }
 
 /// 查「这张任务来自哪个流程实例的哪个节点」。
@@ -1234,6 +1266,18 @@ pub struct TaskFlowDetailRow {
 ///
 /// 任务详情页要显示「所属审批单」卡片（单号 / 流程名 / 发起人 / 当前节点 / 状态）。
 /// 分三次查会让用户在三次网络往返之间看到互相矛盾的状态；一次 JOIN 拿的是同一个快照。
+///
+/// # 三个「流程走向」为什么从 `version.graph_snapshot` 取（P-FLOW-1C 补漏）
+///
+/// `on_complete` / `on_reject` / `on_cancel` 是**任务节点自己的配置**，与 `node_name` /
+/// `node_type` 同一个道理：历史任务只有「实例生成当时」的口径才有意义 —— 定义行
+/// （`biz_flow_node.config`）会跟着版本保存被改，拿它会让三个月前的任务突然显示
+/// 「完成后需审批」。`biz_flow_instance.version_id` 是实例冻结的版本，所以在这里取
+/// `graph_snapshot.nodes[].config.task`。
+///
+/// 取值的规范化交给 [`switch_field`]：只认 `DIRECT`/`VERIFY`/`APPROVE` 这些枚举字面量，
+/// 其它一律 `None`（前端按 `need_review` 推断兜底）。`config.task` 不存在的节点
+/// （审批节点、START/END）天然给 `None`，不会是空串。
 ///
 /// # 返回值
 ///
@@ -1252,9 +1296,15 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
                     i.started_at, i.ended_at, \
                     t.flow_node_key, t.flow_round, \
                     COALESCE(n.node_name, '') AS node_name, \
-                    COALESCE(n.status, '') AS node_status \
+                    COALESCE(n.status, '') AS node_status, \
+                    (SELECT node -> 'config' -> 'task' \
+                       FROM jsonb_array_elements(\
+                            COALESCE(v.graph_snapshot -> 'nodes', '[]'::jsonb)) AS node \
+                      WHERE node ->> 'key' = t.flow_node_key \
+                      LIMIT 1)::text AS task_config_text \
                FROM biz_task t \
                JOIN biz_flow_instance i ON i.id = t.flow_instance_id \
+               LEFT JOIN biz_flow_def_version v ON v.id = i.version_id \
                LEFT JOIN biz_flow_instance_node n \
                       ON n.instance_id = i.id \
                      AND n.node_key = t.flow_node_key \
@@ -1266,6 +1316,13 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
     let Some(row) = rows.first() else {
         return Ok(None);
     };
+    // 用 `::text` + `serde_json` 而不是把 jsonb 直接读成 `Value`：出参只关心三个字符串，
+    // 而 jsonb → 驱动的解码是一条独立路径（NULL / 类型推断各有各的坑），文本解析最简单。
+    let task_config: Option<serde_json::Value> = row
+        .get_typed::<Option<String>>("task_config_text")
+        .ok()
+        .flatten()
+        .and_then(|text| serde_json::from_str(&text).ok());
     Ok(Some(TaskFlowDetailRow {
         instance_id: row.get_typed("instance_id")?,
         instance_no: row.get_typed("instance_no")?,
@@ -1290,6 +1347,24 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
             .flatten()
             .unwrap_or(1),
         node_status: row.get_typed("node_status").unwrap_or_default(),
+        on_complete: switch_field(
+            task_config.as_ref(),
+            "on_complete",
+            node_config::OnComplete::parse,
+            node_config::OnComplete::as_str,
+        ),
+        on_reject: switch_field(
+            task_config.as_ref(),
+            "on_reject",
+            node_config::OnReject::parse,
+            node_config::OnReject::as_str,
+        ),
+        on_cancel: switch_field(
+            task_config.as_ref(),
+            "on_cancel",
+            node_config::OnCancel::parse,
+            node_config::OnCancel::as_str,
+        ),
     }))
 }
 

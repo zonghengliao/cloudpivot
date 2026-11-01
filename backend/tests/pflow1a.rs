@@ -999,3 +999,170 @@ async fn preview_covers_five_cases() {
     assert_eq!(error.status, 400);
     println!("[⑧] 预演 5 个 case 的错误码与设计 §3.3 表逐条一致");
 }
+
+// ==================== ⑩ `GET /task/{id}/flow` 带任务走向（P-FLOW-1C 补漏） ====================
+
+/// 取某实例生成的流程任务 id（一个任务节点只生成 1 行）。
+async fn task_of_instance(instance_id: Uuid) -> Uuid {
+    let rows = db()
+        .find_with_params(
+            "SELECT id FROM biz_task WHERE flow_instance_id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("查生成的流程任务");
+    assert_eq!(rows.len(), 1, "一个任务节点只应生成 1 张任务");
+    rows[0].get_typed("id").expect("task id")
+}
+
+/// 起一张实例 → 打 `/business/task/{id}/flow` → 回三个「流程走向」字段。
+async fn flow_detail_of(
+    f: &Fixture,
+    tag: &str,
+    task_config: serde_json::Value,
+) -> task_dto::TaskFlowDetailRes {
+    let graph = task_flow_graph(AssigneeKind::Initiator, None, task_config);
+    let (def_id, _, _) = create_and_publish(f, tag, graph).await;
+    let instance_id = start_instance(
+        f,
+        def_id,
+        &format!("PFLOW {tag} 走向"),
+        serde_json::json!({}),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
+    let task_id = task_of_instance(instance_id).await;
+    let res = task_handler::flow_of_task(
+        claims(f.operator, "op", &["business:task:read"]),
+        Path(task_id.to_string()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
+    res.data
+        .expect("flow 回执")
+        .flow
+        .expect("流程任务必须有 flow 段")
+}
+
+/// `on_complete=VERIFY`（+ `need_review=true`）：接口必须回 `VERIFY`，不是 `DIRECT`。
+///
+/// 这条是 P-FLOW-1C 前端降级的**回归钉子**：旧实现完全不带这三个字段，前端只能按
+/// `need_review` 推断成 `VERIFY`；而 `APPROVE` 会被推断成 `DIRECT`（副文案缺失）。
+#[tokio::test]
+async fn flow_detail_carries_on_complete_verify() {
+    if ready().await.is_none() {
+        return;
+    }
+    let f = Fixture::new("ONCV", &Uuid::now_v7().simple().to_string()[24..32]).await;
+    let flow = flow_detail_of(
+        &f,
+        "oncv",
+        serde_json::json!({
+            "title_template": "验收任务",
+            "need_review": true,
+            "on_complete": "VERIFY",
+            "on_reject": "STAY",
+            "on_cancel": "BACK_TO_PREV"
+        }),
+    )
+    .await;
+    assert_eq!(
+        flow.on_complete.as_deref(),
+        Some("VERIFY"),
+        "on_complete 必须回快照里的 VERIFY"
+    );
+    assert_eq!(
+        flow.on_reject.as_deref(),
+        Some("STAY"),
+        "on_reject 必须回 STAY"
+    );
+    assert_eq!(
+        flow.on_cancel.as_deref(),
+        Some("BACK_TO_PREV"),
+        "on_cancel 必须回 BACK_TO_PREV"
+    );
+    assert_eq!(flow.node_key, "n_task");
+    assert_eq!(flow.node_name, "催货", "节点名仍取快照");
+    assert_eq!(flow.node_status, "ACTIVE", "任务未完成 → 节点 ACTIVE");
+    println!(
+        "[⑩] VERIFY：on_complete={:?} on_reject={:?} on_cancel={:?}",
+        flow.on_complete, flow.on_reject, flow.on_cancel
+    );
+
+    f.cleanup().await;
+}
+
+/// 反例 `on_complete=DIRECT`：同样三个字段都要有值（不能因为「默认值」就省掉）。
+#[tokio::test]
+async fn flow_detail_carries_on_complete_direct() {
+    if ready().await.is_none() {
+        return;
+    }
+    let f = Fixture::new("ONCD", &Uuid::now_v7().simple().to_string()[24..32]).await;
+    let flow = flow_detail_of(
+        &f,
+        "oncd",
+        serde_json::json!({
+            "title_template": "直接完成任务",
+            "on_complete": "DIRECT",
+            "on_reject": "BACK_TO_PREV",
+            "on_cancel": "TERMINATE"
+        }),
+    )
+    .await;
+    assert_eq!(flow.on_complete.as_deref(), Some("DIRECT"));
+    assert_eq!(flow.on_reject.as_deref(), Some("BACK_TO_PREV"));
+    assert_eq!(flow.on_cancel.as_deref(), Some("TERMINATE"));
+    println!(
+        "[⑩] DIRECT：on_complete={:?} on_reject={:?} on_cancel={:?}",
+        flow.on_complete, flow.on_reject, flow.on_cancel
+    );
+
+    f.cleanup().await;
+}
+
+/// 非流程任务（人类自建）→ `flow` 为 `None`（三个字段自然不出现，**不是空串兜底**）。
+#[tokio::test]
+async fn flow_detail_is_null_for_manual_task() {
+    if ready().await.is_none() {
+        return;
+    }
+    let f = Fixture::new("ONCM", &Uuid::now_v7().simple().to_string()[24..32]).await;
+    let create = task_dto::TaskCreateReq {
+        title: "PFLOW 自建任务（无流程）".to_string(),
+        description: None,
+        priority: Some("P2".to_string()),
+        owner_id: Some(f.operator.to_string()),
+        project_id: None,
+        parent_id: None,
+        start_date: None,
+        due_date: None,
+        estimate_hours: None,
+        need_review: None,
+    };
+    let res = task_handler::create(
+        claims(f.operator, "op", &["business:task:create"]),
+        Json(create),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("建任务失败：{} {}", error.code, error.msg));
+    let task_id = res.data.expect("建任务回执").id;
+    let flow_res = task_handler::flow_of_task(
+        claims(f.operator, "op", &["business:task:read"]),
+        Path(task_id.clone()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
+    assert!(
+        flow_res.data.expect("flow 回执").flow.is_none(),
+        "手工任务的 flow 必须是 null（前端据此隐藏卡片）"
+    );
+    let _ = db()
+        .execute_with_params(
+            "DELETE FROM biz_task WHERE id = ?::uuid",
+            vec![Value::Text(task_id)],
+        )
+        .await;
+    println!("[⑩] 非流程任务 → flow = null");
+    f.cleanup().await;
+}

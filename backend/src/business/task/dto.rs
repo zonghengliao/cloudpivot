@@ -365,6 +365,16 @@ pub struct TaskFlowDetailRes {
     pub round: i32,
     /// 该节点本轮的实例状态（`ACTIVE` = 正在等这张任务完成）。
     pub node_status: String,
+    /// 任务完成后流程怎么走（`config.task.on_complete`：`DIRECT` / `VERIFY` / `APPROVE`）。
+    ///
+    /// 取自**实例生成当时的发布快照**（不是定义行），后续改版本不会让历史任务「换说法」。
+    /// `null` = 该节点的 `config.task` 里没有这一项（非 `TASK_NODE` 生成的流程任务、
+    /// 或快照被人工改坏）—— 前端按 `need_review` 推断，**不会**收到空串。
+    pub on_complete: Option<String>,
+    /// 任务被打回时流程怎么走（`config.task.on_reject`：`BACK_TO_PREV` / `TERMINATE` / `STAY`）。
+    pub on_reject: Option<String>,
+    /// 任务被取消时流程怎么走（`config.task.on_cancel`：`TERMINATE` / `BACK_TO_PREV` / `STAY`）。
+    pub on_cancel: Option<String>,
 }
 
 /// 任务卡（列表、子任务列表、我的任务分组统一用它，避免三套形状）。
