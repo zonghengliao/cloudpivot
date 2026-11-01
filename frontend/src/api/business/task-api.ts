@@ -70,6 +70,37 @@ export interface TaskFlowRef {
   round: number;
 }
 
+/**
+ * 这张任务**当前在等谁审批**（后端 `TaskFlowApproval`，P-FLOW-1B 收尾 `e14f4e6`）。
+ *
+ * # 为什么需要它
+ *
+ * `on_complete=APPROVE` 的节点：任务点完「完成」就进 `DONE`，可节点还卡在 `ACTIVE`
+ * 等审批结论。1B 之前前端拿 `node_status=ACTIVE + task.status=DONE` 去猜「是不是在等审批」——
+ * 那是猜的，用户在 UI 上看不出「到底在等谁」。后端现在把事实下发（`flow.approval`），
+ * 前端只渲染、不推断。
+ *
+ * # 取值口径（照后端 `dto.rs`，别自己发明）
+ *
+ * - `flow.approval` **字段恒出现**，类型 `TaskFlowApproval | null`；
+ * - `null` = 这张任务没挂审批单（DIRECT / VERIFY 节点完成、指针为空）；
+ * - `status` ∈ `PENDING | APPROVED | REJECTED | CANCELLED | WITHDRAWN`；
+ * - `pending_approvers` **仅 `status=PENDING` 时非空**（终态恒 `[]`，后端已清空），
+ *   姓名按到达顺序、同名已去重；
+ * - 不变式：`task.status=DONE` ∧ `approval.status=PENDING` 只可能是「节点审批在等结论」
+ *   （验收审批落终态之后任务才进 DONE），所以详情页按这一条判断不会误判。
+ */
+export interface TaskFlowApproval {
+  /** 审批实例 id */
+  instance_id: string;
+  /** 审批单号（`FLW-YYYYMMDD-XXXXXXXX`） */
+  instance_no: string;
+  /** 审批实例状态 `PENDING|APPROVED|REJECTED|CANCELLED|WITHDRAWN` */
+  status: string;
+  /** 待办审批人姓名（仅 `status=PENDING` 时非空；终态恒 `[]`） */
+  pending_approvers: string[];
+}
+
 /** 任务所属流程的详情（后端 `TaskFlowDetailRes`；任务详情页顶部条用） */
 export interface TaskFlowDetail {
   /** 实例 id（跳 `/flow/instance/{id}` 用） */
@@ -117,6 +148,14 @@ export interface TaskFlowDetail {
   on_reject: string | null;
   /** 取消走向 `config.task.on_cancel`：`'TERMINATE' | 'BACK_TO_PREV' | 'STAY'`；没配 → `null` */
   on_cancel: string | null;
+  /**
+   * 这张任务在等谁审批（`null` = 没挂审批单）。
+   *
+   * **必填 nullable**：字段恒出现（P-FLOW-1B 收尾 `e14f4e6`），把 `null` 收进类型里
+   * 才逼着渲染处显式处理「没有审批单」这一支 —— 写成可选会让「忘了处理」
+   * 静默变成「不显示」。渲染判据见 `flow-actions.ts::flowApprovalSuffix`。
+   */
+  approval: TaskFlowApproval | null;
 }
 
 /**

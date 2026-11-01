@@ -92,6 +92,11 @@
             <StatusBadge domain="flow-node" :status="flow.node_status" size="small" />
             <span class="flow-bar__label">任务</span>
             <StatusBadge domain="task" :status="detail.status" size="small" />
+            <span
+              v-if="approvalSuffix"
+              class="flow-bar__approval"
+              data-testid="task-flow-approval"
+            >{{ approvalSuffix }}</span>
             <span class="flow-bar__label">实例</span>
             <StatusBadge domain="flow-instance" :status="flow.instance_status" size="small" />
             <t-button size="small" variant="outline" class="flow-bar__link" @click="openFlow">
@@ -539,7 +544,7 @@ import {
 import { PERM } from '@/constants/permissions';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { renderMarkdownLite } from '@/utils/markdown-lite';
-import { flowCompletionFrom } from './components/flow-actions';
+import { flowApprovalSuffix, flowCompletionFrom } from './components/flow-actions';
 
 const props = defineProps<{
   /** 是否可见（v-model） */
@@ -581,6 +586,15 @@ const flow = ref<TaskFlowDetail | null>(null);
 const flowCompletion = computed(() =>
   flowCompletionFrom(flow.value, Boolean(detail.value?.need_review)),
 );
+
+/**
+ * 「任务」栏 `已完成` 徽标后面的审批后缀（设计 §4.5 Q4 第 3 条）。
+ *
+ * `task.status=DONE` 且 `flow.approval.status=PENDING` 且待办人非空 → `✓ 审批中（王五）`；
+ * 其它情况一律 `null`（不追加），**不拿 `node_status` 猜**。
+ * 判据收在 `flow-actions.ts::flowApprovalSuffix`（可单测）。
+ */
+const approvalSuffix = computed(() => flowApprovalSuffix(detail.value?.status, flow.value?.approval));
 /** 加载中 */
 const loading = ref(false);
 /** 错误文案（非空即渲染错误态 + 重试） */
@@ -1450,6 +1464,15 @@ function resetCollab(): void {
   &__label {
     font-size: 12px;
     color: var(--td-text-color-placeholder);
+  }
+
+  /* 「已完成 ✓ 审批中（王五）」的审批后缀：紧贴任务徽标，用警示色表示「还在等」 */
+  &__approval {
+    margin-left: -4px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--td-warning-color);
+    white-space: nowrap;
   }
 
   &__link {

@@ -56,6 +56,7 @@ const APPROVE_SAMPLE: TaskFlowDetail = {
   on_complete: 'APPROVE',
   on_reject: 'TERMINATE',
   on_cancel: null,
+  approval: null,
 };
 
 /** `DOING` 态的两个完成类按钮（`applyFlowMainButton` 要收敛的对象） */
