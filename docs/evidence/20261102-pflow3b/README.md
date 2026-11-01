@@ -201,9 +201,9 @@ bash /tmp/p3b_deploy_144.sh
 
 | 项 | 结果 |
 |---|---|
-| 代码 | `5d9e278`（ff-only 合并，与 origin/main 一致） |
+| 代码 | 首发 `5d9e278`；补齐测试/证据后复发 `7559286`（ff-only 合并，与 origin/main 一致） |
 | 迁移 | `数据库迁移完成: 应用 1 个迁移` + `NOTICE: V0191 自检通过：应付作废 + 凭证红冲两条标准流程已就绪` |
-| 二进制 | `029aa2d20bac836dbecfdc54f10d4bc8`（`PROC_EQ_DISK=OK`，主进程 md5 == 磁盘 md5） |
+| 二进制 | 首发 `029aa2d20bac836dbecfdc54f10d4bc8`；补齐测试/证据后复发 `2075b13c4ca28ee90594df7c423929f3`（`PROC_EQ_DISK=OK`，主进程 md5 == 磁盘 md5） |
 | 健康 | `/health` → 200 |
 | 结构自检 | 迁移 191=1 · 应付新增列 2 · 凭证新增列 2 · 两个 pending 约束各 1 · 角色 `FINANCE_MANAGER,FINANCE_DIRECTOR` · 两条流 `PAYABLE_CANCEL/VOUCHER_REVERSE` 均 PUBLISHED · 节点数 `payable_cancel:3 / voucher_reverse:5` · 4 个权限码 |
 | 路由冒烟 | 4 条新路由未登录全部 **401**（已注册，不是 404） |
