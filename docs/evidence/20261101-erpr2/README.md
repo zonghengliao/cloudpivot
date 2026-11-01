@@ -122,6 +122,8 @@ bash /tmp/r2_prod_verify.sh    # ⇒ PASS=24  FAIL=0
 2026-11（有 2 张凭证但没开账）→ period_status DERIVED，仍勾稽平
 空月份 2027-06 → 400 + 66010；2026-13 → 400 + 10001
 导出 xlsx 6,345 字节（PK 魔数、spreadsheetml）
+菜单树 GET /api/system/menu/tree → code 0，含「利润表」节点（侧边栏点得出来）
+前端 dist：assets/index-*.js 内含 income-statement 页面 chunk 与「利润表」字样
 ```
 
 > 「净利润 = 未分配利润变动」这条在**有损益数据**的情形下由 §3 的隔离库脚本
