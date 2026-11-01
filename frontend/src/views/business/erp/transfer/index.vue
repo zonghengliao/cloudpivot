@@ -96,6 +96,19 @@
         </template>
       </t-alert>
 
+      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
+      <BatchActionBar
+        :selected="selectedRows"
+        :actions="BATCH_ACTIONS"
+        :filtered-total="total"
+        :runner="runBatchAction"
+        :can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+        testid="transfer-batch"
+        @update:selected="onSelectedRows"
+        @done="handleBatchDone"
+      />
+
       <t-table
         row-key="id"
         :data="rows"
@@ -103,7 +116,9 @@
         :loading="loading"
         :pagination="pagination"
         hover
+        :selected-row-keys="selectedIds"
         data-testid="transfer-table"
+        @select-change="onSelectChange"
         @row-click="handleRowClick"
         @page-change="handlePageChange"
       >
@@ -651,6 +666,13 @@
 </template>
 
 <script setup lang="ts">
+import {
+  transferBatchStatus,
+} from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
@@ -737,6 +759,13 @@ const PERM = {
 
 /** 表格列（`colKey` 与 `TransferRow` 字段同名，插槽按 colKey 命中） */
 const columns: PrimaryTableCol[] = [
+  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 50,
+    disabled: (options: { row: unknown }) => !isSelectable(options.row as TransferRow),
+  },
   { colKey: 'transfer_no', title: '调拨单号', width: 190, fixed: 'left' },
   { colKey: 'from_warehouse_id', title: '调出仓', width: 150, ellipsis: true },
   { colKey: 'to_warehouse_id', title: '调入仓', width: 150, ellipsis: true },
@@ -784,6 +813,86 @@ const filter = reactive<TransferFilterState>(emptyTransferFilter());
 const rows = ref<TransferRow[]>([]);
 /** 总条数 */
 const total = ref(0);
+
+// ==================== 批量操作（D7） ====================
+
+/** 当前用户（批量动作的权限判定）。 */
+const userStore = useUserStore();
+
+/** 一次「选中全部筛选结果」拉多少主键（后端单页上限 200）。 */
+const BATCH_FETCH_PAGE_SIZE = 200;
+
+/**
+ * 批量动作声明。
+ *
+ * `allowedStatus` 与后端状态机**逐字一致**：不符合的行由组件禁用按钮并说明原因，
+ * 高危动作（作废 / 删除）走二次确认 + 必填原因。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  {
+    key: 'submit',
+    label: '批量提交审批',
+    theme: 'primary',
+    allowedStatus: ['DRAFT'],
+    targetStatus: 'PENDING',
+  },
+  {
+    key: 'cancel',
+    label: '批量作废',
+    theme: 'danger',
+    allowedStatus: ['DRAFT', 'PENDING'],
+    targetStatus: 'CANCELLED',
+    needConfirm: true,
+    requireReason: true,
+  },
+];
+
+/** 动作 → 权限码（与单条按钮同一套码；没有码的按钮禁用并说明）。 */
+const BATCH_PERMISSIONS: Record<string, string> = {
+  submit: 'business:erp:transfer:status',
+  cancel: 'business:erp:transfer:status',
+};
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
+  useBatchSelection(BATCH_ACTIONS, rows);
+
+/** 当前用户能不能点这个批量动作。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  const code = BATCH_PERMISSIONS[action.key];
+  return !code || userStore.hasPermission(code);
+}
+
+/**
+ * 执行器：组件按 20 条一批回调这里（一批一个请求）。
+ *
+ * 后端逐条独立事务：一批里某条失败不影响同批其它条，失败原因逐条回传。
+ */
+async function runBatchAction(
+  action: BatchActionSpec,
+  ids: string[],
+  payload: { reason?: string },
+): Promise<BatchResult | BatchExportTask> {
+  return transferBatchStatus({ ids, status: action.targetStatus, reason: payload.reason });
+}
+
+/** 「选中全部 N 条筛选结果」：按当前筛选把全部主键拉回来（最多 1 万条）。 */
+async function fetchAllRowIds(): Promise<BatchRow[]> {
+  const acc: BatchRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const data = await fetchTransferPage(buildTransferQuery(filter, page, BATCH_FETCH_PAGE_SIZE));
+    const list = data.list ?? [];
+    acc.push(...list.map((row) => ({ id: row.id, status: row.status })));
+    if (list.length === 0 || acc.length >= (data.total ?? 0)) {
+      break;
+    }
+  }
+  return acc;
+}
+
+/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
+function handleBatchDone(): void {
+  void loadTransfers(1);
+}
 /** 当前页 */
 const current = ref(1);
 /** 每页条数 */

@@ -699,6 +699,19 @@ pub fn filter_from_params(raw: Option<&str>) -> ExportFilter {
             .get("status")
             .and_then(|item| item.as_i64())
             .map(|item| item as i16),
+        // D7：批量导出只导勾中的行。非法 / 缺失 / 空数组都按「不按主键收窄」处理
+        // （快照是任务创建时自己写的，宁可多导也不要让任务卡在失败重试里）。
+        ids: value
+            .get("ids")
+            .and_then(|item| item.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|item| item.as_str())
+                    .filter_map(|text| uuid::Uuid::parse_str(text.trim()).ok())
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default(),
     }
 }
 

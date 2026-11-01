@@ -70,6 +70,7 @@
 //!    `bar.offset_days` / `length_days`），前端**不绑拖拽**。拖拽改期属 T7，
 //!    且必须重跑依赖校验（修正 10：改期后前置不得晚于后继开始）。
 
+pub mod batch;
 pub mod burndown;
 pub mod collab;
 pub mod dep;

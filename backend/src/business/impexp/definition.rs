@@ -806,6 +806,11 @@ pub struct ExportFilter {
     pub keyword: Option<String>,
     /// 状态过滤（1 启用 / 0 停用；`None` 表示不过滤）。
     pub status: Option<i16>,
+    /// 只导这些主键（D7 批量导出；空 = 不按主键收窄）。
+    ///
+    /// 只有声明了 `ids` 语义的定义（见 `builtin::erp_doc`）会在 SQL 里消费它；
+    /// 老定义（`system.dict_item` / `system.user`）保持原行为，不会被这个字段影响。
+    pub ids: Vec<uuid::Uuid>,
 }
 
 /// 导出定义：与导入对称。

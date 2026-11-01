@@ -59,6 +59,7 @@
 //! - **不碰 `shared/scope.rs`**：流程定义是全局配置，走权限码而不是数据范围（见 `model.rs` 的 SCOPE-EXEMPT）。
 
 pub mod assignee;
+pub mod batch;
 pub mod dto;
 pub mod engine;
 pub mod expression;

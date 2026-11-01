@@ -11,6 +11,7 @@
 //! 新增业务定义只需在本模块加一个文件 + 在 [`register`] 里挂一行。
 
 pub mod dict_item;
+pub mod erp_doc;
 
 use crate::business::impexp::registry::DefinitionRegistry;
 
@@ -29,5 +30,9 @@ pub const DICT_ITEM_BIZ_TYPE: &str = "system.dict_item";
 pub fn register(registry: &mut DefinitionRegistry) -> std::result::Result<(), String> {
     registry.register_import(std::sync::Arc::new(dict_item::DictItemImport))?;
     registry.register_export(std::sync::Arc::new(dict_item::DictItemExport))?;
+    // D7：ERP 单据三个导出定义（批量导出的落点）。只注册导出：这些单据不走 Excel 导入。
+    for definition in erp_doc::definitions() {
+        registry.register_export(std::sync::Arc::new(definition))?;
+    }
     Ok(())
 }

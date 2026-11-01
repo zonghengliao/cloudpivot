@@ -42,6 +42,7 @@
 //! params.extend(filter.params().iter().cloned());
 //! ```
 
+pub mod batch;
 pub mod conn;
 pub mod content;
 pub mod guard;

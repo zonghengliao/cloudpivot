@@ -1,0 +1,133 @@
+/**
+ * 批量操作接口契约（D7）。
+ *
+ * 八个核心列表页共用这一份：**路径写全 `/api/...`**（漏前缀会命中 SPA fallback 返回 HTML，
+ * 报「响应体格式不符合」—— 本仓库最常见的一类假故障）。
+ *
+ * # 统一响应
+ *
+ * ```json
+ * {
+ *   "succeeded": [{ "id": "...", "no": "IN-2026..." }],
+ *   "failed":    [{ "id": "...", "no": "IN-2026...", "code": 10003, "error": "状态已是已过账" }],
+ *   "total": 10, "success_count": 8, "fail_count": 2
+ * }
+ * ```
+ *
+ * 批量接口**不会**因为某条失败而整批 4xx/5xx：只有「请求本身不合法」（空 ids、超上限、
+ * 非法 UUID、缺权限）才是非 2xx。所以前端拿到 2xx 就把 `failed` 逐条展示给用户。
+ *
+ * # 导出类
+ *
+ * `batch-export` 返回的是**异步导出任务回执**（不是行数据）：提示用户去「导入导出」页下载。
+ */
+
+import { post } from '@/api/request';
+import type { BatchExportTask, BatchResult } from '@/utils/batch-action';
+
+/** 批量状态流转入参（单据类共享）。 */
+export interface BatchStatusPayload {
+  /** 勾选的主键。 */
+  ids: string[];
+  /** 目标状态（各资源白名单由后端判）。 */
+  status?: string;
+  /** 原因（高危动作必填）。 */
+  reason?: string;
+}
+
+/** 批量导出入参。 */
+export interface BatchExportPayload {
+  /** 勾选的主键；空 = 按 `keyword` / `status` 导当前筛选结果。 */
+  ids: string[];
+  /** 关键词（与列表页同一口径）。 */
+  keyword?: string;
+  /** 状态过滤码（整型；ERP 单据不传）。 */
+  status?: number;
+}
+
+/** 批量审批入参。 */
+export interface BatchApprovePayload {
+  /** 勾选的待办 id。 */
+  ids: string[];
+  /** `APPROVE` / `REJECT`。 */
+  decision: 'APPROVE' | 'REJECT';
+  /** 审批意见（驳回必填 ≥ 5 字）。 */
+  comment?: string;
+  /** 驳回退回目标（`PREV` 默认）。 */
+  return_to?: string;
+}
+
+/** 批量改状态入参。 */
+export interface BatchTaskStatusPayload {
+  /** 勾选的任务 id。 */
+  ids: string[];
+  /** 目标状态。 */
+  status: string;
+  /** 原因（打回必填）。 */
+  reason?: string;
+}
+
+/** 批量指派入参。 */
+export interface BatchTaskAssignPayload {
+  /** 勾选的任务 id。 */
+  ids: string[];
+  /** 新负责人。 */
+  owner_id: string;
+  /** 转派原因。 */
+  reason?: string;
+}
+
+/** 收货入库单：批量过账 / 作废。 */
+export function stockInBatchStatus(payload: BatchStatusPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/erp/stock-in/batch-status', payload);
+}
+
+/** 收货入库单：批量删除。 */
+export function stockInBatchDelete(ids: string[]): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/erp/stock-in/batch-delete', { ids });
+}
+
+/** 收货入库单：批量导出（异步任务）。 */
+export function stockInBatchExport(payload: BatchExportPayload): Promise<BatchExportTask> {
+  return post<BatchExportTask>('/api/business/erp/stock-in/batch-export', payload);
+}
+
+/** 采购订单：批量状态流转（`SUBMITTED` 走审批入口）。 */
+export function purchaseOrderBatchStatus(payload: BatchStatusPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/erp/purchase-order/batch-status', payload);
+}
+
+/** 调拨单：批量状态流转。 */
+export function transferBatchStatus(payload: BatchStatusPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/erp/transfer/batch-status', payload);
+}
+
+/** 序列号：批量状态流转（出库 / 报废）。 */
+export function serialBatchStatus(payload: BatchStatusPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/erp/serial/batch-status', payload);
+}
+
+/** 应付单：批量导出（异步任务）。 */
+export function payableBatchExport(payload: BatchExportPayload): Promise<BatchExportTask> {
+  return post<BatchExportTask>('/api/business/erp/payable/batch-export', payload);
+}
+
+/** 凭证：批量导出（异步任务）。 */
+export function voucherBatchExport(payload: BatchExportPayload): Promise<BatchExportTask> {
+  return post<BatchExportTask>('/api/business/erp/voucher/batch-export', payload);
+}
+
+/** 审批中心：批量同意 / 驳回。 */
+export function flowTaskBatchApprove(payload: BatchApprovePayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/flow/task/batch-approve', payload);
+}
+
+/** 任务：批量改状态。 */
+export function taskBatchStatus(payload: BatchTaskStatusPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/task/batch-status', payload);
+}
+
+/** 任务：批量指派。 */
+export function taskBatchAssign(payload: BatchTaskAssignPayload): Promise<BatchResult> {
+  return post<BatchResult>('/api/business/task/batch-assign', payload);
+}

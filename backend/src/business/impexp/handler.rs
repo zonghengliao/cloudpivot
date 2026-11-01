@@ -759,6 +759,7 @@ async fn export_sync_response(
     let filter = ExportFilter {
         keyword: utils::trimmed(query.keyword.as_deref()).map(str::to_string),
         status: query.status,
+        ..Default::default()
     };
     // 批次 B · B6：数据范围 + 脱敏规则都必须来自**发起人**。令牌里没有用户标识时
     // 直接拒绝导出——无法判定脱敏规则就等于无法保证不出明文（fail-closed）。
@@ -1092,6 +1093,7 @@ pub async fn export_create(
     let filter = ExportFilter {
         keyword: utils::trimmed(req.keyword.as_deref()).map(str::to_string),
         status: req.status,
+        ..Default::default()
     };
     // 批次 B · B6：建任务时的「命中行数」也必须按**发起人的数据范围**统计（复用上面
     // B5 解析好的 `principal`），否则会出现「列表只看得到 5 个人、导出任务却报 5000 行、

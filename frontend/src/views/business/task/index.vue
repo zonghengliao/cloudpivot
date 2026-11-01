@@ -139,6 +139,19 @@
         </template>
       </t-alert>
 
+      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
+      <BatchActionBar
+        :selected="selectedRows"
+        :actions="BATCH_ACTIONS"
+        :filtered-total="pagination.total"
+        :runner="runBatchAction"
+        :can="canBatchAction"
+        :owner-options="batchOwnerOptions"
+        testid="task-batch"
+        @update:selected="onSelectedRows"
+        @done="handleBatchDone"
+      />
+
       <!-- 树形表格要用 t-enhanced-table（`t-table` 是 PrimaryTable，不认 tree） -->
       <t-enhanced-table
         row-key="id"
@@ -154,6 +167,9 @@
         @page-change="handlePageChange"
         @expanded-tree-nodes-change="handleExpandedKeysChange"
         @tree-expand-change="handleTreeExpandChange"
+        :selected-row-keys="selectedIds"
+        @select-change="onSelectChange"
+        @select-all="onSelectChange"
       >
         <template #task_no="{ row }">
           <span class="cell-no">{{ row.task_no }}</span>
@@ -297,6 +313,12 @@
 </template>
 
 <script setup lang="ts">
+import { taskBatchAssign, taskBatchStatus } from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
+import { pageUsers } from '@/api/system/user-api';
 /**
  * 工作任务 · 列表页（菜单 `/task` → `business/task/index`，入口码 `business:task:read`）。
  *
@@ -415,6 +437,95 @@ function buildSourceParam(): string {
 
 /** 表格数据 */
 const rows = ref<TaskRow[]>([]);
+
+// ==================== 批量操作（D7） ====================
+
+/**
+ * 批量动作：改状态 / 指派。
+ *
+ * - 改状态：`DONE`（完成）与 `CANCELLED`（取消）是最常用的两个批次动作；
+ *   后端逐条判「你是否有权推这个状态」（负责人 / 创建人 / 管理员），失败原因逐条回传。
+ * - 指派：必须选新负责人（组件里是必填下拉），后端逐条判分派权限。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  { key: 'done', label: '批量完成', theme: 'primary', targetStatus: 'DONE' },
+  { key: 'doing', label: '批量开始', theme: 'default', targetStatus: 'DOING' },
+  {
+    key: 'cancel',
+    label: '批量取消',
+    theme: 'danger',
+    targetStatus: 'CANCELLED',
+    needConfirm: true,
+    requireReason: true,
+  },
+  { key: 'assign', label: '批量指派', theme: 'success', requireOwner: true, needConfirm: true },
+];
+
+/** 动作 → 权限码（与单条按钮同一套）。 */
+const BATCH_PERMISSIONS: Record<string, string> = {
+  done: 'business:task:status',
+  doing: 'business:task:status',
+  cancel: 'business:task:status',
+  assign: 'business:task:assign',
+};
+
+/** 当前用户（批量动作的权限判定）。 */
+const userStore = useUserStore();
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
+  useBatchSelection(BATCH_ACTIONS, rows as unknown as import('vue').Ref<BatchRow[]>);
+
+/** 批量指派的可选负责人（一次拉 200 个活跃用户，够用；再多请用筛选）。 */
+const batchOwnerOptions = ref<Array<{ label: string; value: string }>>([]);
+
+async function loadBatchOwners(): Promise<void> {
+  if (batchOwnerOptions.value.length > 0) {
+    return;
+  }
+  try {
+    const data = await pageUsers({ page: 1, page_size: 200 });
+    batchOwnerOptions.value = (data.list ?? []).map((user) => ({
+      label: `${user.real_name || user.username}（${user.username}）`,
+      value: user.id,
+    }));
+  } catch {
+    // 拉不到负责人不影响其它批量动作：指派按钮会因为下拉为空而拦在「必须选择新负责人」
+    batchOwnerOptions.value = [];
+  }
+}
+
+/** 当前用户能不能点这个批量动作。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  const code = BATCH_PERMISSIONS[action.key];
+  return !code || userStore.hasPermission(code);
+}
+/** 执行器：一批一个请求（后端逐条独立事务）。 */
+async function runBatchAction(
+  action: BatchActionSpec,
+  ids: string[],
+  payload: { reason?: string; ownerId?: string },
+): Promise<BatchResult | BatchExportTask> {
+  if (action.key === 'assign') {
+    return taskBatchAssign({ ids, owner_id: payload.ownerId ?? '', reason: payload.reason });
+  }
+  return taskBatchStatus({
+    ids,
+    status: action.targetStatus ?? 'DONE',
+    reason: payload.reason,
+  });
+}
+
+/** 批量跑完：刷新列表（勾选已由组件清空）。 */
+function handleBatchDone(): void {
+  void loadList();
+}
+
+// 勾选之后再把负责人下拉预热（避免进页面就打一次 200 人的用户查询）
+watch(selectedRows, (selected) => {
+  if (selected.length > 0) {
+    void loadBatchOwners();
+  }
+});
 /** 正在拉子任务的父任务 id（防连点重复请求） */
 const subtaskLoading = new Set<string>();
 /**
@@ -490,6 +601,13 @@ const myTotal = computed(() => myTotalCount.value);
 
 /** 列定义 */
 const columns = [
+  // D7：勾选列（树形表格也支持 selected-row-keys；父行与其子行可分别勾选）
+  {
+    colKey: 'row-select',
+    type: 'multiple' as const,
+    width: 50,
+    disabled: (options: { row: unknown }) => !isSelectable(options.row as TaskRow),
+  },
   // 树形箭头挂在任务号列（老大 2026-10-30），缩进 24px/层最深吃掉 168px，
   // 所以列宽从 132 加到 170 —— 否则 17 字符的号（TSK-202610-000757）会被截断
   { colKey: 'task_no', title: '任务号', width: 170 },

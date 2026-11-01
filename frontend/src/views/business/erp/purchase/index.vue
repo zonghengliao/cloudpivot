@@ -80,6 +80,19 @@
         </template>
       </t-alert>
 
+      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
+      <BatchActionBar
+        :selected="selectedRows"
+        :actions="BATCH_ACTIONS"
+        :filtered-total="total"
+        :runner="runBatchAction"
+        :can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+        testid="purchase-batch"
+        @update:selected="onSelectedRows"
+        @done="handleBatchDone"
+      />
+
       <t-table
         row-key="id"
         :data="rows"
@@ -87,7 +100,9 @@
         :loading="loading"
         :pagination="pagination"
         hover
+        :selected-row-keys="selectedIds"
         data-testid="purchase-table"
+        @select-change="onSelectChange"
         @page-change="handlePageChange"
       >
         <template #order_no="{ row }">
@@ -556,6 +571,13 @@
 </template>
 
 <script setup lang="ts">
+import {
+  purchaseOrderBatchStatus,
+} from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
@@ -639,6 +661,13 @@ const OPTION_LIMIT = 200;
 
 /** 表格列（`colKey` 与 `PurchaseOrderRow` 字段同名，插槽按 colKey 命中） */
 const columns: PrimaryTableCol[] = [
+  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 50,
+    disabled: (options: { row: unknown }) => !isSelectable(options.row as PurchaseOrderRow),
+  },
   { colKey: 'order_no', title: '采购单号', width: 250 },
   { colKey: 'supplier_id', title: '供应商', minWidth: 160, ellipsis: true },
   { colKey: 'order_date', title: '日期', width: 100 },
@@ -712,6 +741,90 @@ const filter = reactive<PurchaseFilterState>(emptyPurchaseFilter());
 const rows = ref<PurchaseOrderRow[]>([]);
 /** 总条数 */
 const total = ref(0);
+
+// ==================== 批量操作（D7） ====================
+
+/** 当前用户（批量动作的权限判定）。 */
+const userStore = useUserStore();
+
+/** 一次「选中全部筛选结果」拉多少主键（后端单页上限 200）。 */
+const BATCH_FETCH_PAGE_SIZE = 200;
+
+/**
+ * 批量动作声明。
+ *
+ * `allowedStatus` 与后端状态机**逐字一致**：不符合的行由组件禁用按钮并说明原因，
+ * 高危动作（作废 / 删除）走二次确认 + 必填原因。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  {
+    key: 'submit',
+    label: '批量提交审批',
+    theme: 'primary',
+    allowedStatus: ['DRAFT'],
+    targetStatus: 'SUBMITTED',
+  },
+  {
+    key: 'cancel',
+    label: '批量取消',
+    theme: 'danger',
+    allowedStatus: ['DRAFT', 'SUBMITTED'],
+    targetStatus: 'CANCELLED',
+    needConfirm: true,
+    requireReason: true,
+  },
+];
+
+/** 动作 → 权限码（与单条按钮同一套码；没有码的按钮禁用并说明）。 */
+const BATCH_PERMISSIONS: Record<string, string> = {
+  submit: 'business:erp:purchase-order:submit-approval',
+  cancel: 'business:erp:purchase-order:status',
+};
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
+  useBatchSelection(BATCH_ACTIONS, rows);
+
+/** 当前用户能不能点这个批量动作。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  const code = BATCH_PERMISSIONS[action.key];
+  return !code || userStore.hasPermission(code);
+}
+
+/**
+ * 执行器：组件按 20 条一批回调这里（一批一个请求）。
+ *
+ * 后端逐条独立事务：一批里某条失败不影响同批其它条，失败原因逐条回传。
+ */
+async function runBatchAction(
+  action: BatchActionSpec,
+  ids: string[],
+  payload: { reason?: string },
+): Promise<BatchResult | BatchExportTask> {
+  return purchaseOrderBatchStatus({
+    ids,
+    status: action.targetStatus,
+    reason: payload.reason,
+  });
+}
+
+/** 「选中全部 N 条筛选结果」：按当前筛选把全部主键拉回来（最多 1 万条）。 */
+async function fetchAllRowIds(): Promise<BatchRow[]> {
+  const acc: BatchRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const data = await fetchPurchaseOrderPage(buildPurchaseQuery(filter, page, BATCH_FETCH_PAGE_SIZE));
+    const list = data.list ?? [];
+    acc.push(...list.map((row) => ({ id: row.id, status: row.status })));
+    if (list.length === 0 || acc.length >= (data.total ?? 0)) {
+      break;
+    }
+  }
+  return acc;
+}
+
+/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
+function handleBatchDone(): void {
+  void loadOrders(1);
+}
 /** 当前页 */
 const current = ref(1);
 /** 每页条数 */

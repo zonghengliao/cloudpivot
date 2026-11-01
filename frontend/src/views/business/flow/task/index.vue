@@ -13,6 +13,16 @@
           <template #icon><t-icon name="refresh" /></template>
           刷新
         </t-button>
+        <!-- D7：待办 Tab 支持勾选批量审批（一次同意 / 驳回多条） -->
+        <t-checkbox
+          v-if="activeTab === 'todo' && cards.length > 0"
+          :checked="allSelected"
+          :indeterminate="selectedIds.length > 0 && !allSelected"
+          data-testid="flow-batch-select-all"
+          @change="toggleAll"
+        >
+          全选本页（{{ cards.length }} 条）
+        </t-checkbox>
       </div>
 
       <t-alert v-if="tabError" class="task-alert" theme="error" :message="tabError">
@@ -32,6 +42,19 @@
         :message="`已隐藏 ${hiddenEndedCount} 条「审批单已结束」的待办：这些单子已被取消 / 通过 / 驳回，不需要再处理`"
       />
 
+      <!-- D7：批量审批工具栏（勾选 → 进度 → 逐条结果） -->
+      <BatchActionBar
+        v-if="activeTab === 'todo'"
+        :selected="selectedRows"
+        :actions="BATCH_ACTIONS"
+        :filtered-total="cards.length"
+        :runner="runBatchAction"
+        :can="canBatchAction"
+        testid="flow-batch"
+        @update:selected="onSelectedRows"
+        @done="handleBatchDone"
+      />
+
       <div v-if="loading" class="task-state">加载中…</div>
 
       <div v-else-if="cards.length === 0" class="task-empty">
@@ -42,6 +65,13 @@
       <div v-else class="task-list">
         <div v-for="card in cards" :key="card.id" class="task-card" @click="openDetail(card)">
           <div class="task-card__main">
+            <div v-if="activeTab === 'todo'" class="task-card__select" @click.stop>
+              <t-checkbox
+                :checked="selectedIds.includes(card.id)"
+                :data-testid="`flow-batch-pick-${card.id}`"
+                @change="toggleCard(card.id)"
+              />
+            </div>
             <div class="task-card__title">
               <!-- 左上角「待处理」状态徽标：只在待办 Tab 出现（状态），与 NEW（新鲜度）区分 -->
               <t-tag v-if="activeTab === 'todo'" class="task-card__todo" theme="warning" size="small">待处理</t-tag>
@@ -176,6 +206,17 @@ import {
   type FlowTaskItem,
 } from '@/api/business/flow-api';
 import { ApiError } from '@/api/request';
+import { flowTaskBatchApprove } from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import { selectableIds } from '@/utils/batch-action';
+import type {
+  BatchActionSpec,
+  BatchExportTask,
+  BatchResult,
+  BatchRow,
+} from '@/utils/batch-action';
 import { formSummary, type FormNameLookup } from '@/views/business/flow/form-field-labels';
 import {
   emptyNameMaps,
@@ -248,6 +289,75 @@ const loading = ref(false);
 const tabError = ref('');
 /** 正在提交的卡片 id（防重复点击） */
 const actingId = ref('');
+
+// ==================== 批量审批（D7） ====================
+
+/**
+ * 批量动作：同意 / 驳回。
+ *
+ * 只有「待我审批」Tab 才有意义；驳回必须写意见（后端 ≥ 5 字，前端先拦一道更好的提示）。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  { key: 'approve', label: '批量同意', theme: 'primary' },
+  {
+    key: 'reject',
+    label: '批量驳回',
+    theme: 'danger',
+    needConfirm: true,
+    requireReason: true,
+    minReasonChars: 5,
+  },
+];
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows } = useBatchSelection(
+  BATCH_ACTIONS,
+  cards,
+);
+
+const userStore = useUserStore();
+
+/** 本页是否全选（全选框的勾选态）。 */
+const allSelected = computed(
+  () => cards.value.length > 0 && selectedIds.value.length >= cards.value.length,
+);
+
+/** 单条卡片勾选 / 取消。 */
+function toggleCard(id: string): void {
+  const next = selectedIds.value.includes(id)
+    ? selectedIds.value.filter((item) => item !== id)
+    : [...selectedIds.value, id];
+  onSelectChange(next);
+}
+
+/** 全选本页 / 清空。 */
+function toggleAll(context: { checked?: boolean } | boolean): void {
+  const checked = typeof context === 'boolean' ? context : Boolean(context?.checked);
+  onSelectChange(checked ? selectableIds(BATCH_ACTIONS, cards.value) : []);
+}
+
+/** 批量审批权限（与单条「同意」按钮同一套码）。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  void action;
+  return userStore.hasPermission('business:flow:approve');
+}
+
+/** 执行器：一批一个请求（后端逐条独立事务，失败逐条回传）。 */
+async function runBatchAction(
+  action: BatchActionSpec,
+  ids: string[],
+  payload: { reason?: string },
+): Promise<BatchResult | BatchExportTask> {
+  return flowTaskBatchApprove({
+    ids,
+    decision: action.key === 'reject' ? 'REJECT' : 'APPROVE',
+    comment: payload.reason,
+  });
+}
+
+/** 批量跑完：刷新待办 + 清空勾选（组件已清）。 */
+function handleBatchDone(): void {
+  void loadCurrent();
+}
 /** P11：本次从待办里过滤掉的「实例已结束」条数（>0 时页面顶部给出解释） */
 const hiddenEndedCount = ref(0);
 

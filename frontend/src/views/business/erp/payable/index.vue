@@ -86,6 +86,19 @@
         </template>
       </t-alert>
 
+      <!-- D7：批量操作工具栏（勾选 → 进度 → 逐条结果） -->
+      <BatchActionBar
+        :selected="selectedRows"
+        :actions="BATCH_ACTIONS"
+        :filtered-total="total"
+        :runner="runBatchAction"
+        :can="canBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+        testid="payable-batch"
+        @update:selected="onSelectedRows"
+        @done="handleBatchDone"
+      />
+
       <t-table
         row-key="id"
         :data="rows"
@@ -93,7 +106,9 @@
         :loading="loading"
         :pagination="pagination"
         hover
+        :selected-row-keys="selectedIds"
         data-testid="payable-table"
+        @select-change="onSelectChange"
         @page-change="handlePageChange"
       >
         <template #payable_no="{ row }">
@@ -478,6 +493,13 @@
 </template>
 
 <script setup lang="ts">
+import {
+  payableBatchExport,
+} from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 /**
  * 应付单页（P2-E2）——**只读**列表 + 详情抽屉。
  *
@@ -506,7 +528,6 @@ import { ApiError } from '@/api/request';
 import { listDictItems } from '@/api/support/dict-api';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
-import { useUserStore } from '@/stores/user';
 import {
   fetchPayablePage,
   fetchSupplierOptions,
@@ -553,6 +574,13 @@ const OPTION_LIMIT = 200;
 
 /** 表格列（`colKey` 与 `PayableRow` 字段同名，插槽按 colKey 命中） */
 const columns: PrimaryTableCol[] = [
+  // D7：勾选列（没有任何可用批量动作的行，复选框直接禁用）
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 50,
+    disabled: (options: { row: unknown }) => !isSelectable(options.row as PayableRow),
+  },
   { colKey: 'payable_no', title: '应付单号', width: 220 },
   { colKey: 'supplier_id', title: '供应商', minWidth: 150, ellipsis: true },
   { colKey: 'source', title: '来源', width: 200, ellipsis: true },
@@ -572,6 +600,68 @@ const statusFilterOptions = PAYABLE_STATUS_FILTER_OPTIONS.map((item) => ({ ...it
 const filter = reactive<PayableFilterState>(emptyPayableFilter());
 const rows = ref<PayableRow[]>([]);
 const total = ref(0);
+
+// ==================== 批量操作（D7） ====================
+
+/** 一次「选中全部筛选结果」拉多少主键（后端单页上限 200）。 */
+const BATCH_FETCH_PAGE_SIZE = 200;
+
+/**
+ * 批量动作声明。
+ *
+ * `allowedStatus` 与后端状态机**逐字一致**：不符合的行由组件禁用按钮并说明原因，
+ * 高危动作（作废 / 删除）走二次确认 + 必填原因。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  { key: 'export', label: '批量导出', theme: 'default', exportKind: true },
+];
+
+/** 动作 → 权限码（与单条按钮同一套码；没有码的按钮禁用并说明）。 */
+const BATCH_PERMISSIONS: Record<string, string> = {
+  export: 'business:impexp:export:create',
+};
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
+  useBatchSelection(BATCH_ACTIONS, rows);
+
+/** 当前用户能不能点这个批量动作。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  const code = BATCH_PERMISSIONS[action.key];
+  return !code || userStore.hasPermission(code);
+}
+
+/**
+ * 执行器：组件按 20 条一批回调这里（一批一个请求）。
+ *
+ * 后端逐条独立事务：一批里某条失败不影响同批其它条，失败原因逐条回传。
+ */
+async function runBatchAction(
+  _action: BatchActionSpec,
+  ids: string[],
+  _payload: { reason?: string },
+): Promise<BatchResult | BatchExportTask> {
+  // 应付单没有「关键词」字段（列表按单号 / 供应商 / 到期日筛），导出沿用单号筛选口径
+  return payableBatchExport({ ids, keyword: filter.payable_no || undefined });
+}
+
+/** 「选中全部 N 条筛选结果」：按当前筛选把全部主键拉回来（最多 1 万条）。 */
+async function fetchAllRowIds(): Promise<BatchRow[]> {
+  const acc: BatchRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const data = await fetchPayablePage(buildPayableQuery(filter, page, BATCH_FETCH_PAGE_SIZE));
+    const list = data.list ?? [];
+    acc.push(...list.map((row) => ({ id: row.id, status: row.status })));
+    if (list.length === 0 || acc.length >= (data.total ?? 0)) {
+      break;
+    }
+  }
+  return acc;
+}
+
+/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
+function handleBatchDone(): void {
+  void loadPayables(1);
+}
 const current = ref(1);
 const pageSize = PAYABLE_PAGE_SIZE;
 const loading = ref(false);

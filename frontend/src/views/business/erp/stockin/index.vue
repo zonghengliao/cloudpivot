@@ -77,6 +77,19 @@
       />
     </t-card>
 
+    <!-- ==================== ② 批量操作（D7） ==================== -->
+    <BatchActionBar
+      :selected="selectedRows"
+      :actions="BATCH_ACTIONS"
+      :filtered-total="total"
+      :runner="runBatchAction"
+      :fetch-all-ids="fetchAllRowIds"
+      :can="canBatchAction"
+      testid="stockin-batch"
+      @update:selected="onSelectedRows"
+      @done="handleBatchDone"
+    />
+
     <!-- ==================== ② 列表 ==================== -->
     <t-card :bordered="false" class="list-card">
       <div class="panel-head">
@@ -105,8 +118,10 @@
         :columns="columns"
         :loading="loading"
         :pagination="pagination"
+        :selected-row-keys="selectedIds"
         hover
         data-testid="stockin-table"
+        @select-change="onSelectChange"
         @page-change="handlePageChange"
       >
         <template #in_no="{ row }">
@@ -653,8 +668,22 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import {
+  stockInBatchDelete,
+  stockInBatchExport,
+  stockInBatchStatus,
+} from '@/api/business/batch';
+import BatchActionBar from '@/components/BatchActionBar.vue';
 import FormMemoryHint from '@/components/FormMemoryHint.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
+import { useBatchSelection } from '@/composables/useBatchSelection';
+import { useUserStore } from '@/stores/user';
+import type {
+  BatchActionSpec,
+  BatchExportTask,
+  BatchResult,
+  BatchRow,
+} from '@/utils/batch-action';
 import { pickFields, resolveDefaults } from '@/composables/memory-core';
 import { useFormMemory } from '@/composables/useFormMemory';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
@@ -711,11 +740,21 @@ const PERM = {
   remove: 'business:erp:stock-in:delete',
 } as const;
 
+/** 当前用户（批量动作的权限判定用它，与单条按钮同一套码）。 */
+const userStore = useUserStore();
+
 /** 主数据下拉一次拉多少 */
 const OPTION_LIMIT = 200;
 
 /** 表格列（卡面 §四：in_no / 供应商 / 仓库 / 入库日期 / 数量 / 金额 / 状态 / 操作） */
 const columns: PrimaryTableCol[] = [
+  // D7：勾选列。「没有任何可用批量动作」的行复选框直接禁用（已过账不能过账，但仍可作废）
+  {
+    colKey: 'row-select',
+    type: 'multiple',
+    width: 50,
+    disabled: (options: { row: unknown }) => !isSelectable(options.row as StockInRow),
+  },
   { colKey: 'in_no', title: '收货单号', width: 210 },
   // D4/F3：来源采购单（列上直接给单号，不用点进详情才知道这批货是给哪张单收的）
   { colKey: 'source_order_no', title: '来源采购单', width: 190, ellipsis: true },
@@ -791,6 +830,101 @@ const current = ref(1);
 const pageSize = STOCKIN_PAGE_SIZE;
 const loading = ref(false);
 const loadError = ref('');
+
+// ==================== 批量操作（D7） ====================
+
+/** 一次「选中全部筛选结果」拉多少主键（后端单页上限 200）。 */
+const BATCH_FETCH_PAGE_SIZE = 200;
+
+/**
+ * 批量动作声明。
+ *
+ * `allowedStatus` 与后端状态机**逐字一致**：过账只认 `DRAFT`，作废认 `DRAFT` / `POSTED`，
+ * 删除只认草稿与过账审批中（`PENDING_POST`）。状态不符合的按钮由组件自动禁用并说明原因。
+ */
+const BATCH_ACTIONS: BatchActionSpec[] = [
+  {
+    key: 'post',
+    label: '批量过账',
+    theme: 'primary',
+    allowedStatus: ['DRAFT'],
+    targetStatus: 'POSTED',
+  },
+  {
+    key: 'cancel',
+    label: '批量作废',
+    theme: 'danger',
+    allowedStatus: ['DRAFT', 'POSTED'],
+    targetStatus: 'CANCELLED',
+    needConfirm: true,
+    requireReason: true,
+  },
+  {
+    key: 'delete',
+    label: '批量删除',
+    theme: 'danger',
+    allowedStatus: ['DRAFT', 'PENDING_POST'],
+    needConfirm: true,
+  },
+  { key: 'export', label: '批量导出', theme: 'default', exportKind: true },
+];
+
+/** 动作 → 权限码（没有码的按钮禁用 + tooltip 说明，与单条按钮同一套码）。 */
+const BATCH_PERMISSIONS: Record<string, string> = {
+  post: PERM.status,
+  cancel: PERM.status,
+  delete: PERM.remove,
+  // 批量导出 = 建异步导出任务（写操作）：后端的路由码是 impexp 的 create 码，
+  // 导出的数据范围仍受「列表可见性」约束（后端函数内再判 stock-in:list）
+  export: 'business:impexp:export:create',
+};
+
+const { selectedIds, selectedRows, onSelectChange, onSelectedRows, isSelectable } =
+  useBatchSelection(BATCH_ACTIONS, rows);
+
+/** 当前用户能不能点这个批量动作。 */
+function canBatchAction(action: BatchActionSpec): boolean {
+  const code = BATCH_PERMISSIONS[action.key];
+  return !code || userStore.hasPermission(code);
+}
+
+/**
+ * 执行器：组件按 20 条一批回调这里（一批一个请求）。
+ *
+ * 后端**逐条独立事务**，所以一批里某条失败不影响同批其它条，失败原因逐条回传。
+ */
+async function runBatchAction(
+  action: BatchActionSpec,
+  ids: string[],
+  payload: { reason?: string },
+): Promise<BatchResult | BatchExportTask> {
+  if (action.key === 'export') {
+    return stockInBatchExport({ ids, keyword: filter.keyword || undefined });
+  }
+  if (action.key === 'delete') {
+    return stockInBatchDelete(ids);
+  }
+  return stockInBatchStatus({ ids, status: action.targetStatus, reason: payload.reason });
+}
+
+/** 「选中全部 N 条筛选结果」：按当前筛选把全部主键拉回来（最多 1 万条，够点一次活）。 */
+async function fetchAllRowIds(): Promise<BatchRow[]> {
+  const acc: BatchRow[] = [];
+  for (let page = 1; page <= 50; page += 1) {
+    const data = await fetchStockInPage(buildStockInQuery(filter, page, BATCH_FETCH_PAGE_SIZE));
+    const list = data.list ?? [];
+    acc.push(...list.map((row) => ({ id: row.id, status: row.status })));
+    if (list.length === 0 || acc.length >= (data.total ?? 0)) {
+      break;
+    }
+  }
+  return acc;
+}
+
+/** 批量跑完：回到第一页刷新（勾选已由组件清空，避免误点第二次）。 */
+function handleBatchDone(): void {
+  void loadOrders(1);
+}
 
 /**
  * 列表记忆（O4）：进页面恢复筛选 + 页码，改了防抖 300ms 写 sessionStorage。

@@ -38,6 +38,7 @@
 //! ①**不产生第二份行集合**（逐行 `Range::rows()`，行处理完即释放，不建 `Vec<RowValues>`）；
 //! ②外键取值**聚合去重**后才发 SQL；③错误明细有上限（2000 条）且有界。
 
+pub mod batch_export;
 pub mod builtin;
 pub mod cleanup;
 pub mod definition;
