@@ -7,25 +7,6 @@
         <t-tag size="small" variant="outline">{{ node.key }}</t-tag>
       </div>
 
-      <!-- ===== 通知节点只读占位（P-FLOW-2B 才有表单）=====
-           R19 在 1A 直接拒绝 `NOTIFY_NODE`（引擎分支在 P-FLOW-2），所以这里既不建表单，
-           也不假装能配：只说明「现在配不了、发布会被拒」+ 变量引用模式的只读提示。 -->
-      <div v-if="isNotifyNode(node.type)" class="node-props__notify" data-testid="flow-notify-placeholder">
-        <div class="node-props__notify-title">
-          <t-icon name="notification" />
-          通知节点（表单在 P-FLOW-2B）
-        </div>
-        <p class="node-props__tip">
-          本版本还没有「通知节点」的配置表单：触发时机、收件人、模板都需要
-          <code>config.notify</code>，而引擎侧分支在 P-FLOW-2。当前发布校验（R19）会拒绝含通知节点的流程，
-          所以这里只保留占位，不做半套编辑。
-        </p>
-        <p class="node-props__tip">
-          引用通知模板时不出现变量选择器（模板里的变量名没有点号，走旧 <code>render</code>）：
-        </p>
-        <TemplateVarPicker mode="template-ref" :readonly="true" />
-      </div>
-
       <t-form :label-width="76" label-align="top" class="node-props__form" :disabled="readonly">
         <t-form-item label="名称">
           <t-input
@@ -35,6 +16,18 @@
             @change="(value: unknown) => emitPatch({ name: String(value ?? '') })"
           />
         </t-form-item>
+
+        <!-- ===== 通知配置（仅 NOTIFY_NODE，P-FLOW-2）=====
+             紧跟在「名称」之后：这个节点的主体就是「发给谁 + 发什么」，
+             触发时机也在里面，先配它再配超时（ON_TIMEOUT 依赖超时小时）。 -->
+        <NotifyNodeConfig
+          v-if="isNotifyNode(node.type)"
+          :node="node"
+          :biz-type="bizType"
+          :form-fields="formFields"
+          :readonly="readonly"
+          @patch="emitPatch"
+        />
 
         <!-- ===== 任务配置（仅 TASK_NODE，P-FLOW-1C）=====
              放在「基础信息」之后、「负责人」之前：先配「这一步要干什么活」，再配「谁来干」。
@@ -323,8 +316,8 @@ import UserSelect from '@/views/business/task/components/UserSelect.vue';
 import DeptTreeSelect from '@/components/DeptTreeSelect.vue';
 import ConditionTree from '@/views/business/flow/components/ConditionTree.vue';
 import RulePreview from '@/views/business/flow/components/RulePreview.vue';
+import NotifyNodeConfig from '@/views/business/flow/components/NotifyNodeConfig.vue';
 import TaskNodeConfig from '@/views/business/flow/components/TaskNodeConfig.vue';
-import TemplateVarPicker from '@/views/business/flow/components/TemplateVarPicker.vue';
 import {
   assigneeKindOptionsOf,
   capabilitiesOf,
@@ -670,7 +663,7 @@ function onDefaultEdgeChange(value: unknown): void {
     color: var(--td-warning-color);
   }
 
-  /* 通知节点的只读占位（P-FLOW-2B 才有表单） */
+  /* 通知节点的只读占位（P-FLOW-2 起有正式表单，这两个类名仅为兼容旧样式保留） */
   &__notify {
     display: flex;
     flex-direction: column;

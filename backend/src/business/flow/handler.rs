@@ -620,6 +620,12 @@ pub async fn publish(
     // P-FLOW-1B：APPROVE 的 `approve_biz_type` 必须存在（发布期就必须拦住 ——
     // 否则配置能发布出去，运行期任务完成时才 500）。
     issues.extend(approve_biz_type_issues(&graph).await?);
+    // P-FLOW-2：通知节点引用的 `template_code` 必须存在且启用（同上，纯函数拿不到 DB）。
+    issues.extend(
+        crate::business::flow::notify_node::template_issues(&graph)
+            .await
+            .map_err(|error| utils::db_error(error, "校验通知模板"))?,
+    );
     if !issues.is_empty() {
         return Err(validation_error(&issues));
     }
@@ -1186,6 +1192,12 @@ async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
     let effects = out.effects.take();
     if !effects.is_empty() {
         engine::flush_effects(effects).await;
+    }
+    // P-FLOW-2：通知节点的完整草稿（模板 / 变量 / 幂等键）。投递失败只 WARN，
+    // 不影响已经提交的业务 —— 见 `engine::flush_drafts` 的头注释。
+    let drafts = out.effects.take_drafts();
+    if !drafts.is_empty() {
+        engine::flush_drafts(drafts).await;
     }
     out.rejected.take()
 }

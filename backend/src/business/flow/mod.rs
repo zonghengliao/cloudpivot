@@ -68,6 +68,7 @@ pub mod maintain;
 pub mod model;
 pub mod node_config;
 pub mod notify;
+pub mod notify_node;
 pub mod task_bridge;
 pub mod task_node;
 pub mod template_vars;

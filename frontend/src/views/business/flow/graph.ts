@@ -77,9 +77,9 @@ export interface NodeTypeMeta {
 /** 七种节点（顺序 = 左侧面板顺序；与后端 `graph::NodeType` 逐字对应）
  *
  * P-FLOW-1C 追加 `TASK_NODE`（生成工作任务）与 `NOTIFY_NODE`（发通知）。
- * 两者在 P-FLOW-1A 的发布校验里分别是：`TASK_NODE` 需要 `config.task`（R17/R18），
- * `NOTIFY_NODE` **直接拒绝**（R19，引擎分支在 P-FLOW-2）—— 能拖进画布不等于能发布，
- * 属性面板里对此有明确说明。
+ * 两者在发布校验里分别是：`TASK_NODE` 需要 `config.task`（R17/R18），
+ * `NOTIFY_NODE` 需要 `config.notify`（R17 出度 = 1、R19 配置完整性）。
+ * P-FLOW-2 已补上通知节点的引擎分支，属性面板里有完整的配置表单（`NotifyNodeConfig.vue`）。
  */
 export const NODE_TYPES: NodeTypeMeta[] = [
   { type: 'START', label: '开始', shape: 'capsule', defaultName: '开始', size: { w: 96, h: 44 }, hint: '流程唯一入口（有且仅有一个）' },
@@ -89,7 +89,7 @@ export const NODE_TYPES: NodeTypeMeta[] = [
   { type: 'CONDITION', label: '条件', shape: 'diamond', defaultName: '条件判断', size: { w: 132, h: 84 }, hint: '分支网关，出边需一条兜底' },
   { type: 'PARALLEL', label: '并行', shape: 'diamond', defaultName: '并行网关', size: { w: 132, h: 84 }, hint: '并行分叉 / 汇聚' },
   { type: 'CC', label: '抄送', shape: 'rect', defaultName: '抄送', size: { w: 140, h: 60 }, hint: '只读知会，不出审批任务' },
-  { type: 'NOTIFY_NODE', label: '通知', shape: 'rect', defaultName: '通知', size: { w: 140, h: 60 }, hint: '发通知（表单在 P-FLOW-2B）' },
+  { type: 'NOTIFY_NODE', label: '通知', shape: 'rect', defaultName: '通知', size: { w: 140, h: 60 }, hint: '发通知（发完即通过，不阻塞流程）' },
   { type: 'END', label: '结束', shape: 'capsule', defaultName: '结束', size: { w: 96, h: 44 }, hint: '流程出口（至少一个）' },
 ];
 

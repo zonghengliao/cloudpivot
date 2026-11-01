@@ -86,9 +86,10 @@ pub enum NodeType {
     Task,
     /// 通知节点（P-FLOW-2）：非阻塞，生成 `sys_notice`（出度必须 = 1）。
     ///
-    /// 本卡（P-FLOW-1A）只落地枚举值与发布校验，**引擎分支在 P-FLOW-2**；
-    /// 为避免「发布得出去、跑起来静默不生效」，1A 的 R19 直接拒绝 NOTIFY_NODE
-    /// （见 `graph::FlowGraph::validate_with` 的 R19）。
+    /// 引擎分支见 `engine::step` 的 `NodeType::Notify` 臂：进入即解析收件人 + 渲染模板 +
+    /// 产生一条 `NoticeDraft` 副作用，然后节点立即 `APPROVED` 驱动下游；
+    /// `when=ON_TIMEOUT` 时节点保持 `ACTIVE`，由 `engine::fire_notify_node` 在超时后放行。
+    /// 发布校验见 `FlowGraph::validate_with` 的 R19。
     Notify,
     /// 结束（≥ 1 个，出度 0）。
     End,
@@ -1300,25 +1301,115 @@ impl FlowGraph {
             }
         }
 
-        // ---------- R19（设计 §2.7）：NOTIFY_NODE ----------
-        // 1A 只做「拒绝」：引擎没有通知分支（P-FLOW-2 才写）。
-        // 发布得出去、跑起来静默不生效，比发布失败更难排查 —— 与 `on_complete=APPROVE`
-        // 在 1A 被 R18 拒绝是同一个立场（设计 §7.1 末段）。
+        // ---------- R19（设计 §2.7 · P-FLOW-2 放开）：NOTIFY_NODE 的配置完整性 ----------
+        //
+        // 1A 时这条规则是**阶段闸**（直接拒绝 NOTIFY_NODE，因为引擎没有分支）。
+        // P-FLOW-2 补上了引擎分支与 `engine::fire_notify_node`，闸门换成**真正的配置校验**：
+        //
+        // ① `config.notify` 必须存在且形状合法（`node_config::parse_notify_config`，`65034` / `65036`）；
+        // ② `when=ON_TIMEOUT` 必须配 `timeout_hours`（否则这个节点永远等不到「超时」这个时刻
+        //    —— 正是「发布得出去、跑起来静默不生效」）；
+        // ③ 内联模板的占位符必须①语法正确②在白名单内（与 R21 同一套 `template_field_allowed`）；
+        // ④ **不**限制「NOTIFY_NODE 不能是第一个节点」：`START → NOTIFY(通知发起人) → APPROVAL`
+        //    是最常见的用法（P-FLOW-2 验收用例 ① 就是这张图）。卡面把这条留成「按设计定」，
+        //    设计的硬约束里没有它，所以不放这条限制。
+        //
+        // 出度 = 1 由 R17 管（同一条属性不两处报错）；模板存在性（DB 查 `sys_notice_template`）
+        // 在发布 handler 里由 `notify_node::template_issues` 补（纯函数拿不到 DB）。
         for node in &self.nodes {
             if node.node_type != NodeType::Notify {
                 continue;
             }
-            issues.push(
-                Issue::new(
-                    "R19",
-                    error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
-                    format!(
-                        "通知节点 {}（{}）暂不可用：通知节点将在 P-FLOW-2 开放。现在发布会让它运行期静默不生效，所以直接拒绝",
-                        node.key, node.name
-                    ),
-                )
-                .with_nodes(vec![node.key.clone()]),
-            );
+            let Some(raw) = node.config.get("notify") else {
+                issues.push(
+                    Issue::new(
+                        "R19",
+                        error_code::FLOW_NODE_CONFIG_MISMATCH,
+                        format!(
+                            "通知节点 {}（{}）缺少 config.notify（至少要配 when / targets 与模板二选一）",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+                continue;
+            };
+            let config = match node_config::parse_notify_config(raw) {
+                Ok(config) => config,
+                Err(error) => {
+                    issues.push(
+                        Issue::new(
+                            "R19",
+                            error.code,
+                            format!("节点 {}（{}）：{}", node.key, node.name, error.msg),
+                        )
+                        .with_nodes(vec![node.key.clone()]),
+                    );
+                    continue;
+                }
+            };
+
+            // ② ON_TIMEOUT 必须有停留时长
+            if config.when.is_deferred() && node.timeout_hours.is_none_or(|hours| hours <= 0) {
+                issues.push(
+                    Issue::new(
+                        "R19",
+                        error_code::FLOW_TIMEOUT_CONFIG_INVALID,
+                        format!(
+                            "通知节点 {}（{}）的时机是「超时后发送」，必须同时配置超时小时（timeout_hours > 0），\
+                             否则这个节点永远等不到发送时刻",
+                            node.key, node.name
+                        ),
+                    )
+                    .with_nodes(vec![node.key.clone()]),
+                );
+            }
+
+            // ③ 内联模板占位符：语法 + 白名单
+            for (label, template) in [
+                ("inline.title", config.template.templates().first().copied()),
+                (
+                    "inline.content",
+                    config.template.templates().get(1).copied(),
+                ),
+            ] {
+                let Some(template) = template else {
+                    continue;
+                };
+                let placeholders = match render::collect_placeholders_paths(template) {
+                    Ok(names) => names,
+                    Err(error) => {
+                        issues.push(
+                            Issue::new(
+                                "R19",
+                                error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+                                format!(
+                                    "通知节点 {}（{}）的 {label} 模板语法错误：{}",
+                                    node.key, node.name, error.msg
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                        continue;
+                    }
+                };
+                for name in placeholders {
+                    if !template_field_allowed(&name) {
+                        issues.push(
+                            Issue::new(
+                                "R19",
+                                error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
+                                format!(
+                                    "通知节点 {}（{}）的 {label} 用了 {{{{{name}}}}}，不在白名单内\
+                                     （允许 form.* / instance.* / initiator.* / node.* / prev.*）",
+                                    node.key, node.name
+                                ),
+                            )
+                            .with_nodes(vec![node.key.clone()]),
+                        );
+                    }
+                }
+            }
         }
 
         // ---------- R20（设计 §2.4 / §2.7）：TASK_NODE 的指派与超时纪律 ----------
@@ -3803,14 +3894,20 @@ mod task_node_rule_tests {
         );
     }
 
-    /// R19 反例（1A 阶段闸）：`NOTIFY_NODE` 一律拒绝（引擎分支在 P-FLOW-2）。
-    #[test]
-    fn r19_notify_node_rejected_in_1a() {
+    /// 一个合法的 `config.notify`（最小可用形状：通知发起人 + 内联模板）。
+    fn notify_config() -> Value {
+        json!({
+            "when": "ON_ENTER",
+            "targets": [{"type": "INITIATOR"}],
+            "inline": {"title": "{{instance.title}} 已到「{{node.name}}」", "content": "单号 {{instance.biz_no}}"}
+        })
+    }
+
+    /// `START → NOTIFY_NODE → END`（**通知节点直接跟在 START 后面**：这是验收用例 ① 的图）。
+    fn notify_graph(config: Value) -> FlowGraph {
         let mut notify = NodeSpec::new("n_notify", "通知", NodeType::Notify);
-        notify.config = json!({
-            "notify": {"when": "ON_ENTER", "targets": [{"type": "USER"}], "template_code": "FLOW_TODO"}
-        });
-        let graph = FlowGraph {
+        notify.config = json!({ "notify": config });
+        FlowGraph {
             nodes: vec![
                 NodeSpec::new("n_start", "开始", NodeType::Start),
                 notify,
@@ -3820,14 +3917,173 @@ mod task_node_rule_tests {
                 EdgeSpec::new("e1", "n_start", "n_notify"),
                 EdgeSpec::new("e2", "n_notify", "n_end"),
             ],
-        };
+        }
+    }
+
+    /// R17 反例（NOTIFY）：通知节点出度 = 2 → `65012`（发布校验拒绝）。
+    #[test]
+    fn r17_notify_node_two_exits_rejected() {
+        let mut graph = notify_graph(notify_config());
+        graph.edges.push(EdgeSpec::new("e3", "n_notify", "n_end"));
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R17")
+            .expect("必须报 R17");
+        assert_eq!(hit.code, error_code::FLOW_GRAPH_DEGREE);
+        assert_eq!(hit.nodes, vec!["n_notify".to_string()]);
+        assert!(hit.message.contains("通知节点"), "{}", hit.message);
+    }
+
+    /// R18 反例（互斥）：`NOTIFY_NODE` 上配了 `config.task` → `400 + 65034`。
+    ///
+    /// 库侧还有 `ck_biz_flow_node_config_partition` 兜底，但那条抛出来是 500；
+    /// 发布校验必须先在应用层给一句中文。
+    #[test]
+    fn r18_task_config_on_notify_rejected() {
+        let mut graph = notify_graph(notify_config());
+        graph.nodes[1].config = json!({
+            "notify": notify_config(),
+            "task": {"title_template": "t", "on_complete": "DIRECT"}
+        });
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R18")
+            .expect("必须报 R18");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("任务配置"), "{}", hit.message);
+    }
+
+    /// R19 正例（P-FLOW-2 放开）：合法的 `config.notify` **不再**被拒。
+    ///
+    /// 1A 时这条位置上是「R19 一律拒绝」的阶段闸用例；P-FLOW-2 把闸换成真正的配置校验，
+    /// 所以这条用例现在证明的是「闸门已拆除，且合法配置一条 R19 都不报」。
+    #[test]
+    fn r19_notify_node_accepted_after_pflow2() {
+        let issues = notify_graph(notify_config()).validate();
+        let r19: Vec<&Issue> = issues.iter().filter(|issue| issue.rule == "R19").collect();
+        assert!(r19.is_empty(), "合法通知配置不该报 R19：{r19:#?}");
+        // 顺带钉住「NOTIFY 可以直接跟在 START 后面」这条设计决定
+        assert!(
+            !issues
+                .iter()
+                .any(|issue| issue.rule == "R1" || issue.rule == "R2"),
+            "START → NOTIFY → END 必须是合法结构：{issues:#?}"
+        );
+    }
+
+    /// R19 反例：没有 `config.notify` → `65034`。
+    #[test]
+    fn r19_notify_without_config_rejected() {
+        let mut graph = notify_graph(notify_config());
+        graph.nodes[1].config = json!({});
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R19")
+            .expect("必须报 R19");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("config.notify"), "{}", hit.message);
+    }
+
+    /// R19 反例：内联模板用了白名单外的变量 → `65036`。
+    #[test]
+    fn r19_notify_inline_unknown_variable_rejected() {
+        let mut graph = notify_graph(notify_config());
+        graph.nodes[1].config = json!({
+            "notify": {
+                "when": "ON_ENTER",
+                "targets": [{"type": "INITIATOR"}],
+                "inline": {"title": "{{secret.password}}", "content": "x"}
+            }
+        });
         let issues = graph.validate();
         let hit = issues
             .iter()
             .find(|issue| issue.rule == "R19")
             .expect("必须报 R19");
         assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
-        assert!(hit.message.contains("P-FLOW-2"), "{}", hit.message);
+        assert!(
+            hit.message.contains("secret.password"),
+            "文案要点名错变量：{}",
+            hit.message
+        );
+    }
+
+    /// R19 反例：内联模板语法错（占位符未闭合）→ `65036`（**不是**运行期才 422）。
+    #[test]
+    fn r19_notify_inline_syntax_error_rejected() {
+        let mut graph = notify_graph(notify_config());
+        graph.nodes[1].config = json!({
+            "notify": {
+                "when": "ON_ENTER",
+                "targets": [{"type": "INITIATOR"}],
+                "inline": {"title": "{{instance.title", "content": "x"}
+            }
+        });
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| issue.rule == "R19")
+            .expect("必须报 R19");
+        assert_eq!(hit.code, error_code::FLOW_NOTIFY_TEMPLATE_INVALID);
+        assert!(hit.message.contains("模板语法错误"), "{}", hit.message);
+    }
+
+    /// R19 反例：`when=ON_TIMEOUT` 但没配 `timeout_hours` → `65031`（永远等不到发送时刻）。
+    #[test]
+    fn r19_notify_on_timeout_requires_timeout_hours() {
+        let mut graph = notify_graph(json!({
+            "when": "ON_TIMEOUT",
+            "targets": [{"type": "INITIATOR"}],
+            "template_code": "FLOW_TODO"
+        }));
+        graph.nodes[1].timeout_hours = None;
+        let issues = graph.validate();
+        let hit = issues
+            .iter()
+            .find(|issue| {
+                issue.rule == "R19" && issue.code == error_code::FLOW_TIMEOUT_CONFIG_INVALID
+            })
+            .expect("ON_TIMEOUT 缺 timeout_hours 必须报 65031");
+        assert!(hit.message.contains("timeout_hours"), "{}", hit.message);
+        // 配上就放行
+        graph.nodes[1].timeout_hours = Some(4);
+        let issues = graph.validate();
+        assert!(
+            !issues.iter().any(|issue| issue.rule == "R19"),
+            "配上 timeout_hours 后不该再报 R19：{issues:#?}"
+        );
+    }
+
+    /// R19 反例：`targets` 空 / 超 5 项 → `65034`（与 V0178 的 `BETWEEN 1 AND 5` 同口径）。
+    #[test]
+    fn r19_notify_targets_count_bounds() {
+        let mut empty = notify_graph(notify_config());
+        empty.nodes[1].config = json!({
+            "notify": {"when": "ON_ENTER", "targets": [], "template_code": "FLOW_TODO"}
+        });
+        let hit = empty
+            .validate()
+            .into_iter()
+            .find(|issue| issue.rule == "R19")
+            .expect("空的 targets 必须报 R19");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("至少"), "{}", hit.message);
+
+        let six: Vec<Value> = (0..6).map(|_| json!({"type": "INITIATOR"})).collect();
+        let mut too_many = notify_graph(notify_config());
+        too_many.nodes[1].config = json!({
+            "notify": {"when": "ON_ENTER", "targets": six, "template_code": "FLOW_TODO"}
+        });
+        let hit = too_many
+            .validate()
+            .into_iter()
+            .find(|issue| issue.rule == "R19")
+            .expect("6 个 targets 必须报 R19");
+        assert_eq!(hit.code, error_code::FLOW_NODE_CONFIG_MISMATCH);
+        assert!(hit.message.contains("超过上限"), "{}", hit.message);
     }
 
     /// R20 反例：`empty_assignee=SKIP` 且没开 `allow_skip_when_no_assignee` → `65018`。

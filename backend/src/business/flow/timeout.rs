@@ -253,6 +253,8 @@ pub struct TimeoutReport {
     pub skipped: usize,
     /// 失败多少条（不影响其它条目）。
     pub failed: usize,
+    /// P-FLOW-2：本轮放行了多少个到点的通知节点（`ON_TIMEOUT`）。
+    pub notify_fired: usize,
 }
 
 impl TimeoutReport {
@@ -260,14 +262,15 @@ impl TimeoutReport {
     pub fn summary(&self) -> String {
         format!(
             "{TASK_FLOW_TIMEOUT}: batches={} scanned={} reminded={} auto_approved={} \
-             auto_rejected={} skipped={} failed={}",
+             auto_rejected={} skipped={} failed={} notify_fired={}",
             self.batches,
             self.scanned,
             self.reminded,
             self.auto_approved,
             self.auto_rejected,
             self.skipped,
-            self.failed
+            self.failed,
+            self.notify_fired
         )
     }
 }
@@ -281,7 +284,7 @@ pub fn register_builtin(scheduler: &Scheduler) {
     scheduler.register_cron(
         TASK_FLOW_TIMEOUT,
         CRON_FLOW_TIMEOUT,
-        "系统任务：审批超时催办 / 自动处理",
+        "系统任务：审批超时催办 / 自动处理 / 通知节点定时发送",
         || {
             tokio::spawn(async move {
                 match run_once().await {
@@ -337,6 +340,14 @@ pub async fn run_once() -> std::result::Result<TimeoutReport, String> {
         if !full_batch {
             break;
         }
+    }
+
+    // P-FLOW-2：同一轮顺带处理「到点的通知节点」（`config.notify.when = ON_TIMEOUT`）。
+    // 放在催办循环之后：催办的目标是**待人处理的待办**，通知节点是**到点要发的事件**，
+    // 两类数据不重叠，谁先谁后只影响日志可读性。
+    match crate::business::flow::notify_node::run_due_once().await {
+        Ok(fired) => report.notify_fired = fired,
+        Err(error) => tracing::warn!(error = %error, "通知节点（ON_TIMEOUT）扫描失败"),
     }
     Ok(report)
 }
@@ -725,6 +736,7 @@ mod tests {
             auto_rejected: 2,
             skipped: 1,
             failed: 0,
+            notify_fired: 2,
         };
         let summary = report.summary();
         for expected in [
@@ -735,6 +747,7 @@ mod tests {
             "auto_rejected=2",
             "skipped=1",
             "failed=0",
+            "notify_fired=2",
         ] {
             assert!(summary.contains(expected), "摘要缺 {expected}：{summary}");
         }

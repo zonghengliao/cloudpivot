@@ -64,6 +64,7 @@ use nik::uuid::Uuid;
 
 use crate::business::flow::assignee::{self, Resolution};
 use crate::business::flow::node_config;
+use crate::business::flow::notify_node;
 use crate::business::flow::task_node::{self, SpawnOutcome};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
@@ -229,8 +230,14 @@ pub struct Notice {
 /// 锁内收集的副作用集合。
 #[derive(Debug, Clone, Default)]
 pub struct Effects {
-    /// 待发通知。
+    /// 待发通知（纯文本：审批待办 / 抄送 / 结果 —— 既有形态）。
     pub notices: Vec<Notice>,
+    /// 待发通知（**完整草稿**：P-FLOW-2 的通知节点，带模板 / 变量 / 幂等键 / 通道）。
+    ///
+    /// 为什么不能塞进 `notices`：`Notice` 只有标题正文四个字符串，装不下
+    /// `template_code` / `template_vars` / `channel_mask` / `idempotency_key` / `force`，
+    /// 而通知节点恰恰靠这几样（模板可改不用发版、重试不重发）。
+    pub drafts: Vec<NoticeDraft>,
 }
 
 impl Effects {
@@ -260,9 +267,26 @@ impl Effects {
         });
     }
 
+    /// 收集一条**完整草稿**（通知节点用：模板 / 变量 / 幂等键都由调用方填好）。
+    ///
+    /// 收件人已在 `notify_node::build` 里去重（`BTreeSet<Uuid>`），这里不再动它。
+    pub fn draft(&mut self, draft: NoticeDraft) {
+        self.drafts.push(draft);
+    }
+
+    /// 是否完全为空（`drain` 提前返回用）。
+    pub fn is_empty(&self) -> bool {
+        self.notices.is_empty() && self.drafts.is_empty()
+    }
+
     /// 取出全部通知（handler 提交后逐条发送）。
     pub fn take(&mut self) -> Vec<Notice> {
         std::mem::take(&mut self.notices)
+    }
+
+    /// 取出全部完整草稿（handler 提交后逐条投递）。
+    pub fn take_drafts(&mut self) -> Vec<NoticeDraft> {
+        std::mem::take(&mut self.drafts)
     }
 }
 
@@ -307,6 +331,54 @@ pub async fn flush_effects(effects: Vec<Notice>) -> usize {
             }
             Err(error) => {
                 tracing::warn!(error = %error, "审批流通知发送失败（不影响业务）");
+            }
+        }
+    }
+    sent
+}
+
+/// 发送通知节点收集到的**完整草稿**（**必须在事务提交之后调用**）。
+///
+/// # 与 [`flush_effects`] 的分工
+///
+/// [`flush_effects`] 发的是「审批待办 / 抄送 / 结果」这类**纯文本**通知（标题正文在锁内拼好）；
+/// 本函数发的是 `NOTIFY_NODE` 的草稿：模板编码 / 模板变量 / 通道 / 幂等键 / force 全在锁内定好，
+/// 这里只负责「交给 `notice::dispatch`」。
+///
+/// # 失败语义（P-FLOW-2 的红线）
+///
+/// **投递失败只记 WARN，绝不向上抛。**
+/// 通知是「尽力而为」的副作用：模板被停用、DB 抖动、邮件网关挂了 —— 这些都不该让
+/// 一个已经提交的审批动作失败。渲染失败（配置错误）早在事务内就已经 400 拦掉
+/// （见 `notify_node::render_or_fail`），所以到这里还能失败的只剩**运行时**原因。
+///
+/// # 返回值
+///
+/// 实际投递成功的条数（失败 / 命中等幂等键未成功的都不算）。
+pub async fn flush_drafts(drafts: Vec<NoticeDraft>) -> usize {
+    let mut sent = 0usize;
+    for draft in drafts {
+        let instance = draft.biz_id.clone().unwrap_or_default();
+        let key = draft.idempotency_key.clone().unwrap_or_default();
+        match notice::dispatch(draft).await {
+            Ok(result) => {
+                sent += 1;
+                tracing::info!(
+                    notice_id = %result.notice_id,
+                    receivers = result.receiver_count,
+                    duplicated = result.duplicated,
+                    instance = %instance,
+                    idempotency_key = %key,
+                    "通知节点已发送"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    instance = %instance,
+                    idempotency_key = %key,
+                    "通知节点的通知发送失败（流程继续：通知是尽力而为，不阻塞审批）"
+                );
             }
         }
     }
@@ -1187,6 +1259,212 @@ pub async fn complete_task_node(
         next_nodes = ?out.next_nodes,
         "任务节点已完成，流程已驱动下游"
     );
+    Ok(out)
+}
+
+/// 通知节点「超时时刻到了」→ 发送通知并放行（**事务内**，`ex` 传 `&tx`）。
+///
+/// # 为什么需要这个入口
+///
+/// `config.notify.when = ON_TIMEOUT` 的节点在进入时**不发通知**、保持 `ACTIVE`，
+/// 等 `biz_flow_node.timeout_hours` 小时后由定时任务（`timeout::run_once`）把它捞出来，
+/// 调本函数：渲染 + 产生 `NoticeDraft`（提交后由 `flush_drafts` 投递）→ 节点 `APPROVED`
+/// → 驱动下游。没有这个入口，`ON_TIMEOUT` 就是一个「永远不发」的静默失效节点
+/// —— 正是 R19 在发布期要拦的那种配置。
+///
+/// # 幂等与并发
+///
+/// ① 节点已不是 `ACTIVE` → `409 + 65020`，不改任何行（重复扫描 / 人工先放了都算命中幂等）；
+/// ② 实例已不在 `PENDING` → `409 + 65038`（流程被终止 / 撤回，超时通知不该再发 —— L4 的反向口径）；
+/// ③ 通知的幂等键是 `FLOW:NOTIFY:TIMEOUT:<实例>:<节点>:<轮次>`，即便两次都走到投递，
+///    `uk_sys_notice_idem` 也只会落一条。
+///
+/// # 异常情况
+///
+/// - 数据库异常 / 快照缺失 → [`DbError`]（调用方整笔回滚）；
+/// - 业务拒绝（节点已处理 / 实例已结束 / 模板渲染失败）→ `ActionOut::rejected`。
+pub async fn fire_notify_node(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+) -> DbResult<ActionOut> {
+    let Some(instance) = model::lock_instance(ex, instance_id).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance_id),
+            ApiError::new(
+                404,
+                error_code::FLOW_INSTANCE_NOT_FOUND,
+                "通知节点所属的流程实例不存在",
+            ),
+        ));
+    };
+    if !instance.is_pending() {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!(
+                    "流程实例 {} 已结束（{}），超时通知不再发送",
+                    instance.instance_no, instance.status
+                ),
+            ),
+        ));
+    }
+    let Some(node) = model::find_node(ex, instance.id, node_key, round).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!("流程实例里没有节点 {node_key} 第 {round} 轮的运行时行"),
+            ),
+        ));
+    };
+    if node.status != "ACTIVE" {
+        // 已经处理过（并发扫描 / 人工推进）→ 按幂等展示，不报冲突
+        return Ok(ActionOut {
+            instance_id: Some(instance.id),
+            instance_status: instance.status.clone(),
+            node_status: Some(node.status.clone()),
+            done: true,
+            idempotent: true,
+            ..ActionOut::default()
+        });
+    }
+
+    let snapshot = load_snapshot(ex, instance.version_id).await?;
+    let Some(spec) = snapshot
+        .nodes
+        .iter()
+        .find(|item| item.key == node_key)
+        .cloned()
+    else {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                500,
+                error_code::FLOW_GRAPH_STRUCTURE,
+                format!("流程快照里没有节点 {node_key}"),
+            ),
+        ));
+    };
+
+    let cfg = match node_config::parse_notify_config(&spec.config["notify"]) {
+        Ok(cfg) => cfg,
+        Err(error) => return Ok(ActionOut::deny(Some(instance.id), error)),
+    };
+    let ctx = instance.assignee_ctx();
+    // 求值上下文（条件 / 表达式 / 模板共用**同一份**白名单，见 `Run::eval_context`）：
+    // 本函数不在 `Run` 的生命周期里，临时建一个 `Run` 借它的方法，**不复制第二份**。
+    let eval = Run::new(ex, instance.clone(), snapshot.clone())
+        .eval_context()
+        .await?;
+    match notify_node::build(ex, &instance, &spec, round, &cfg, &ctx, &eval).await? {
+        notify_node::NotifyOutcome::Ready {
+            draft,
+            recipients,
+            trace,
+        } => {
+            tracing::info!(
+                instance_id = %instance.id,
+                node_key,
+                round,
+                recipients,
+                trace = ?trace,
+                "通知节点（ON_TIMEOUT）已组装通知（提交后投递）"
+            );
+            let mut effects = Effects::default();
+            effects.draft(*draft);
+            finish_notify_node(ex, instance, &spec, node, round, effects).await
+        }
+        notify_node::NotifyOutcome::Nobody { trace, policy } => {
+            if policy == node_config::SkipIfEmpty::Warn {
+                tracing::warn!(
+                    instance_id = %instance.id,
+                    node_key,
+                    round,
+                    trace = ?trace,
+                    "通知节点（ON_TIMEOUT）没有解析出任何收件人（流程继续）"
+                );
+            }
+            finish_notify_node(ex, instance, &spec, node, round, Effects::default()).await
+        }
+        notify_node::NotifyOutcome::Failed(error) => Ok(ActionOut::deny(Some(instance.id), error)),
+    }
+}
+
+/// `fire_notify_node` 的收尾：节点 `APPROVED` → 驱动下游 → 实例 CAS。
+async fn finish_notify_node(
+    ex: &Transaction,
+    instance: model::InstanceRow,
+    spec: &graph::SnapshotNode,
+    node: model::NodeRow,
+    round: i32,
+    effects: Effects,
+) -> DbResult<ActionOut> {
+    model::end_node_row(ex, node.id, "APPROVED", Tally::default(), None, true).await?;
+    let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
+
+    let mut run = Run::new(
+        ex,
+        instance.clone(),
+        load_snapshot(ex, instance.version_id).await?,
+    );
+    run.round = round;
+    run.effects = effects;
+    let targets = run.out_targets(&spec.key, None, false);
+    let failure = run.drive(targets).await?;
+    let status_after = run
+        .final_status
+        .clone()
+        .unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id)
+        .await?
+        .max(instance.round_total);
+    let updated = model::bump_instance(
+        ex,
+        instance.id,
+        instance.revision,
+        Some(&status_after),
+        None,
+        round_total,
+    )
+    .await?;
+    if updated == 0 {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_INSTANCE_NOT_PENDING,
+                "流程实例正在被其他操作推进（revision CAS 冲突），请刷新后重试",
+            ),
+        ));
+    }
+
+    let mut out = ActionOut {
+        instance_id: Some(instance.id),
+        instance_status: status_after.clone(),
+        node_status: Some("APPROVED".to_string()),
+        done: true,
+        next_nodes: run.next_nodes.clone(),
+        auto_passed_nodes: auto_passed,
+        effects: run.effects,
+        ..ActionOut::default()
+    };
+    if let Some(error) = failure {
+        out.rejected = Some(error);
+    }
+    if status_after != "PENDING" {
+        model::cancel_flow_tasks(
+            ex,
+            instance.id,
+            &instance.instance_no,
+            &format!("流程已结束（{}）", instance.instance_no),
+        )
+        .await?;
+    }
     Ok(out)
 }
 
@@ -2128,17 +2406,108 @@ impl<'a> Run<'a> {
                     SpawnOutcome::Failed(error) => Ok(Step::Fail(error)),
                 }
             }
-            // ★ 通知节点：1A 只到「发布期拒绝」（R19），引擎分支在 P-FLOW-2。
-            // 留这条臂是为了让**旧快照**（如果有人绕过 R19 发布了）在运行期也**响亮失败**，
-            // 而不是被判成默认的 Approval 分支（那会生成一条没人认识的审批待办）。
-            NodeType::Notify => Ok(Step::Fail(ApiError::new(
-                400,
-                error_code::FLOW_NOTIFY_TEMPLATE_INVALID,
-                format!(
-                    "节点 {}（{}）是通知节点，本版本（P-FLOW-1A）的引擎还不支持，通知节点将在 P-FLOW-2 开放",
-                    spec.key, spec.name
-                ),
-            ))),
+            // ★ P-FLOW-2：通知节点（非阻塞，生成 sys_notice）
+            //
+            // 生命周期（设计 §2.6）：
+            //   ON_ENTER  → 渲染 + 产生 effect → 节点 APPROVED → 驱动下游
+            //   ON_LEAVE  → 节点 APPROVED → 渲染 + 产生 effect → 驱动下游
+            //   ON_TIMEOUT→ 节点保持 ACTIVE（不产生 effect），`engine::fire_notify_node` 在
+            //               `timeout_hours` 后发送并放行（由 `timeout::run_once` 驱动）
+            //
+            // ★ 两条硬边界（本卡红线 ③）：
+            //   · **渲染失败 = 配置错误 → 400 整笔回滚**（`Step::Fail`）；
+            //   · **投递失败 = 运行时故障 → 只 WARN 流程继续** —— 投递发生在事务提交后
+            //     （`flush_drafts`），本分支根本拿不到它的结果，结构上就不可能阻塞流程。
+            NodeType::Notify => {
+                // `config.notify` 在发布期已被 R19 校验过；这里再解析一次是因为实例可能
+                // 跑在**旧快照**上（发布后改库 / 回滚），不能让坏配置静默变成「什么都不发」。
+                let cfg = match node_config::parse_notify_config(&spec.config["notify"]) {
+                    Ok(cfg) => cfg,
+                    Err(error) => return Ok(Step::Fail(error)),
+                };
+                if cfg.when.is_deferred() && spec.timeout_hours.is_none_or(|hours| hours <= 0) {
+                    return Ok(Step::Fail(node_config::notify_template_invalid(format!(
+                        "通知节点 {}（{}）配置为「超时后发送」但没有超时小时（timeout_hours），\
+                         这个节点永远等不到发送时刻",
+                        spec.key, spec.name
+                    ))));
+                }
+                if cfg.when.is_deferred() {
+                    // ON_TIMEOUT：停在 ACTIVE 等定时扫描。本轮的幂等键由
+                    // `fire_notify_node` 生成（同一节点同一轮只会走一次，因为节点一旦
+                    // APPROVED，扫描就捞不到它了）。
+                    model::activate_node_row(self.ex, row.id, 0).await?;
+                    tracing::info!(
+                        instance_id = %self.instance.id,
+                        node_key = %spec.key,
+                        round,
+                        timeout_hours = ?spec.timeout_hours,
+                        "通知节点（ON_TIMEOUT）进入等待，超时后由定时扫描发送"
+                    );
+                    return Ok(Step::Idle);
+                }
+
+                // ON_ENTER / ON_LEAVE：唯一的差别是「通知相对节点通过的先后」。
+                // 投递时刻相同（都在提交后），所以这里只是顺序不同，语义见 notify_node 头注释。
+                let enter_first = cfg.when == node_config::NotifyWhen::OnEnter;
+                if !enter_first {
+                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true)
+                        .await?;
+                    model::sync_auto_passed(self.ex, self.instance.id).await?;
+                }
+
+                let ctx = self.instance.assignee_ctx();
+                let eval = self.eval_context().await?;
+                let outcome =
+                    notify_node::build(self.ex, &self.instance, &spec, round, &cfg, &ctx, &eval)
+                        .await?;
+                match outcome {
+                    notify_node::NotifyOutcome::Ready {
+                        draft,
+                        recipients,
+                        trace,
+                    } => {
+                        self.effects.draft(*draft);
+                        tracing::info!(
+                            instance_id = %self.instance.id,
+                            node_key = %spec.key,
+                            round,
+                            when = cfg.when.as_str(),
+                            recipients,
+                            trace = ?trace,
+                            "通知节点已组装通知（提交后投递）"
+                        );
+                    }
+                    notify_node::NotifyOutcome::Nobody { trace, policy } => {
+                        // 没人可发 ≠ 流程失败：按 `skip_if_empty` 决定「静默」还是「打日志」。
+                        // 两种情况都继续往下走（通知本来就是尽力而为）。
+                        if policy == node_config::SkipIfEmpty::Warn {
+                            tracing::warn!(
+                                instance_id = %self.instance.id,
+                                node_key = %spec.key,
+                                round,
+                                trace = ?trace,
+                                "通知节点没有解析出任何收件人（流程继续）"
+                            );
+                        } else {
+                            tracing::info!(
+                                instance_id = %self.instance.id,
+                                node_key = %spec.key,
+                                round,
+                                "通知节点没有收件人（skip_if_empty=PASS，静默通过）"
+                            );
+                        }
+                    }
+                    notify_node::NotifyOutcome::Failed(error) => return Ok(Step::Fail(error)),
+                }
+
+                if enter_first {
+                    model::end_node_row(self.ex, row.id, "APPROVED", Tally::default(), None, true)
+                        .await?;
+                    model::sync_auto_passed(self.ex, self.instance.id).await?;
+                }
+                Ok(Step::Next(self.out_targets(&spec.key, None, false)))
+            }
             NodeType::Approval | NodeType::Countersign => {
                 let ctx = self.instance.assignee_ctx();
                 let eval = self.eval_context().await?;

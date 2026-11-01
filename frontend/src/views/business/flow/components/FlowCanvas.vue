@@ -488,7 +488,7 @@ const nodeViews = computed<NodeView[]>(() =>
       // 任务节点：把「完成后怎么走」直接画在卡片上（与属性面板同一份文案）
       subLabel = ON_COMPLETE_LABELS[(node.config as { task?: { on_complete?: string } })?.task?.on_complete as OnComplete] ?? '生成任务';
     } else if (node.type === 'NOTIFY_NODE') {
-      subLabel = '发通知（P-FLOW-2B）';
+      subLabel = '发通知（发完即通过）';
     } else if (node.type === 'CONDITION') {
       subLabel = '分支网关';
     } else if (node.type === 'PARALLEL') {
