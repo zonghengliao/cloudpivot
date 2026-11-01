@@ -78,9 +78,15 @@ pub const VOUCHER_TYPES: [&str; 2] = ["AUTO", "MANUAL"];
 /// 末尾两列是**关联凭证号**（P7 起）：红字凭证要知道自己红冲的是哪张（`reverse_of_no`），
 /// 被红冲的原凭证要知道是谁红冲的（`reversed_by_no`）—— 列表 / 详情都要显示
 /// 「红冲 PZ-xxx」/「已红冲 → PZR-xxx」，只给 id 前端还得再打一次详情。
+///
+/// `pending_reverse_instance_id` / `reverse_reason`（P-FLOW-3B 补漏）也必须在这里查出来：
+/// 列表行不带这两个字段时，前端只能再打一次 `flow/instance/page?biz_type=VOUCHER_REVERSE`
+/// 才能画出「红冲审批中」徽标 —— 多一次往返，而且**没有 `business:flow:instance:read` 的账号
+/// 压根看不到徽标**（数据可见性会过滤掉那些实例行），是可见性缺陷而不是性能问题。
 pub const HEADER_COLUMNS: &str = "id, voucher_word, voucher_no, period, voucher_date, voucher_type, \
      source_type, source_id, source_no, summary, total_debit, total_credit, entry_count, status, \
-     is_red, reverse_of, reversed_by, posted_at, posted_by, remark, created_at, updated_at, \
+     is_red, reverse_of, reversed_by, posted_at, posted_by, remark, \
+     pending_reverse_instance_id, reverse_reason, created_at, updated_at, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reverse_of) AS reverse_of_no, \
      (SELECT r.voucher_no FROM biz_voucher r WHERE r.id = biz_voucher.reversed_by) AS reversed_by_no";
 
@@ -250,6 +256,10 @@ pub struct VoucherRow {
     pub posted_by: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 红冲审批实例 id（P-FLOW-3B）：有值 = 正在审批红冲（`status` 仍是 `POSTED`）。
+    pub pending_reverse_instance_id: Option<Uuid>,
+    /// 红冲原因（P-FLOW-3B）。
+    pub reverse_reason: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -284,6 +294,8 @@ impl VoucherRow {
             posted_at: row.get_typed("posted_at")?,
             posted_by: row.get_typed("posted_by")?,
             remark: row.get_typed("remark")?,
+            pending_reverse_instance_id: row.get_typed("pending_reverse_instance_id")?,
+            reverse_reason: row.get_typed("reverse_reason")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             reverse_of_no: row.get_typed("reverse_of_no")?,
@@ -400,6 +412,14 @@ pub struct VoucherRes {
     pub posted_by: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 红冲审批实例 id（P-FLOW-3B）：**有值 = 正在审批红冲**（`status` 仍是 `POSTED`）。
+    ///
+    /// 前端据此画「红冲审批中」徽标并把「红冲」按钮换成「撤回红冲审批」，
+    /// 判据是「字段存在且为 `null`」而不是「整个字段缺席」—— 所以列表 / 详情 /
+    /// `ReverseSubmitRes` 三处都必须透出（后两者靠 `#[serde(flatten)]` 自动带上）。
+    pub pending_reverse_instance_id: Option<String>,
+    /// 红冲原因（P-FLOW-3B）：送审时填的那段文字，审批通过后成为红字凭证的分录摘要。
+    pub reverse_reason: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
 }
@@ -432,6 +452,8 @@ impl VoucherRes {
             posted_at: row.posted_at,
             posted_by: row.posted_by.map(|id| id.to_string()),
             remark: row.remark.clone(),
+            pending_reverse_instance_id: row.pending_reverse_instance_id.map(|id| id.to_string()),
+            reverse_reason: row.reverse_reason.clone(),
             created_at: row.created_at,
         }
     }
@@ -1074,5 +1096,91 @@ pub(crate) mod tests {
         assert!(filter.status.is_none() && filter.period.is_none());
         assert!(is_month_key("2026-10") && !is_month_key("2026-1"));
         println!("[P2D1-④] 入参校验（状态/类型/期间）✓");
+    }
+
+    // ---------- P-FLOW-3B 补漏：VoucherRes 透出红冲审批字段 ----------
+
+    /// 造一行「已记账 + 正在审批红冲」的查询行（纯内存，不碰库）。
+    fn reverse_pending_row(pending: Option<Uuid>, reason: Option<&str>) -> VoucherRow {
+        VoucherRow {
+            id: Uuid::now_v7(),
+            voucher_word: "记".to_string(),
+            voucher_no: "PZ-20261102-000018".to_string(),
+            period: "2026-11".to_string(),
+            voucher_date: NaiveDate::from_ymd_opt(2026, 11, 2).expect("固定日期"),
+            voucher_type: "AUTO".to_string(),
+            source_type: "STOCK_IN".to_string(),
+            source_id: None,
+            source_no: None,
+            summary: "P-FLOW-3B 补漏用例".to_string(),
+            total_debit: Decimal::from(800),
+            total_credit: Decimal::from(800),
+            entry_count: 2,
+            status: "POSTED".to_string(),
+            is_red: 0,
+            reverse_of: None,
+            reversed_by: None,
+            posted_at: Some(Utc::now()),
+            posted_by: None,
+            remark: None,
+            pending_reverse_instance_id: pending,
+            reverse_reason: reason.map(str::to_string),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            reverse_of_no: None,
+            reversed_by_no: None,
+        }
+    }
+
+    /// ① `pending_reverse_instance_id` 必须从行透出成字符串（前端据此画「红冲审批中」徽标）。
+    #[test]
+    fn pflow3b_res_carries_pending_reverse_instance_id() {
+        let instance = Uuid::now_v7();
+        let res = VoucherRes::from_row(&reverse_pending_row(Some(instance), Some("凭证金额录错")));
+        assert_eq!(
+            res.pending_reverse_instance_id.as_deref(),
+            Some(instance.to_string().as_str()),
+            "审批实例 id 必须原样透出（缺了前端只能再打一次 flow/instance/page）"
+        );
+        // 契约判据是「字段存在」：serde 把 None 序列化成 null，前端 `!== undefined` 恒为真
+        let json = serde_json::to_value(&res).expect("序列化");
+        assert_eq!(
+            json.get("pending_reverse_instance_id")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            Some(instance.to_string())
+        );
+
+        // 不在审批中：字段仍然存在（值 null），否则前端会误判成「后端没这列」而走兜底
+        let plain = VoucherRes::from_row(&reverse_pending_row(None, None));
+        assert!(plain.pending_reverse_instance_id.is_none());
+        let json = serde_json::to_value(&plain).expect("序列化");
+        assert!(
+            json.get("pending_reverse_instance_id").is_some(),
+            "字段必须始终在响应里（null 也要有），缺席会让前端兜底逻辑继续发请求"
+        );
+        assert!(json["pending_reverse_instance_id"].is_null());
+    }
+
+    /// ① `reverse_reason` 必须从行透出（前端在「红冲审批中」徽标的 tooltip 里显示原因）。
+    #[test]
+    fn pflow3b_res_carries_reverse_reason() {
+        let res = VoucherRes::from_row(&reverse_pending_row(
+            Some(Uuid::now_v7()),
+            Some("凭证金额录错"),
+        ));
+        assert_eq!(res.reverse_reason.as_deref(), Some("凭证金额录错"));
+        let json = serde_json::to_value(&res).expect("序列化");
+        assert_eq!(
+            json.get("reverse_reason").and_then(|v| v.as_str()),
+            Some("凭证金额录错")
+        );
+
+        // 没有原因（未送审 / 老数据）时字段仍在，值为 null
+        let plain = VoucherRes::from_row(&reverse_pending_row(None, None));
+        assert!(plain.reverse_reason.is_none());
+        let json = serde_json::to_value(&plain).expect("序列化");
+        assert!(json.get("reverse_reason").is_some());
+        assert!(json["reverse_reason"].is_null());
     }
 }

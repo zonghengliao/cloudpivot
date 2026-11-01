@@ -1,0 +1,56 @@
+########## 0) 前置：把 V0158 授权矩阵的 5 个角色与老码补齐（模拟已有库）##########
+  5 角色在场数 = 5
+  老码授权行数（2 码 × 5 角色 = 10）= 10
+  新码授权行数（V0191 形态：只有超管 4 行）= 4
+
+########## 1) 重放 V0192：补齐 4 码 × 5 角色 = 20 行 ##########
+  psql:/root/p3bgap-src/backend/migrations/business/V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql:193: NOTICE:  V0192 自检通过：4 个新权限码 × 5 个老码角色 = 20 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）
+  新码总行数（应 20）= 20
+  逐角色矩阵（应 5 行 × 4）：
+  role_code  | new_codes 
+-------------+-----------
+ ACCOUNTANT  |         4
+ ADMIN       |         4
+ FINANCE     |         4
+ SUPER_ADMIN |         4
+ TEST_UADMIN |         4
+(5 rows)
+
+
+########## 2) 幂等：再跑一次应 INSERT 0 0、仍 20 行 ##########
+  psql:/root/p3bgap-src/backend/migrations/business/V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql:193: NOTICE:  V0192 自检通过：4 个新权限码 × 5 个老码角色 = 20 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）
+  新码总行数（应 20）= 20
+
+########## 3) 数据驱动：只持有老码的自定义角色自动补 4 个新码 ##########
+INSERT 0 1
+INSERT 0 1
+  补前该角色新码数（应 0）= 0
+  psql:/root/p3bgap-src/backend/migrations/business/V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql:193: NOTICE:  V0192 自检通过：4 个新权限码 × 5 个老码角色 = 20 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）
+  补后该角色新码数（应 4）= 4
+  新码总行数（应 24）= 24
+
+########## 4) 自检有牙：删掉 FINANCE 的一行 → 只跑自检块必须 EXCEPTION ##########
+DELETE 1
+  删后总行数 = 23
+  psql:/tmp/p3bgap_v192_check_only.sql:111: ERROR:  V0192 自检失败：角色 FINANCE 只有 3/4 个新权限码
+
+########## 5) 恢复 + down 往返 ##########
+  重放后总行数（应 24）= 24
+  psql:/root/p3bgap-src/backend/migrations/business/V0192__pflow3b_grant_new_codes_by_old_matrix.down.sql:41: NOTICE:  V0192 down 完成：4 个新权限码只剩 SUPER_ADMIN 持有
+  down 后总行数（应 4，只剩超管）= 4
+  role_code  | count 
+-------------+-------
+ SUPER_ADMIN |     4
+(1 row)
+
+  —— down → up 往返 ——
+  psql:/root/p3bgap-src/backend/migrations/business/V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql:193: NOTICE:  V0192 自检通过：4 个新权限码 × 5 个老码角色 = 20 行（已按老码矩阵补齐 应付作废/凭证红冲 的撤回能力）
+  再 up 后总行数（应 24）= 24
+
+########## 6) 收尾：删夹具角色与老码夹具授权，回到干净形态 ##########
+  新码总行数（应 4，只剩超管）= 4
+  老码授权残留（应 0）= 2
+  夹具角色残留（应 0）= 0
+DELETE 2
+0
+4

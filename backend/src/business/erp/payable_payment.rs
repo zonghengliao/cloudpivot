@@ -423,16 +423,24 @@ pub async fn payments_res(
 /// | # | 条件 | `can_pay` | `blocked_reason` |
 /// |---|---|---|---|
 /// | ① | `status = CANCELLED` | `false` | 已作废 |
-/// | ② | `status = SETTLED` | `false` | 已结清（卡面 L9：结清的单不显示按钮）|
-/// | ③ | `unpaid_amount <= 0` | `false` | 未付金额为 0（理论上被 ①② 覆盖，兜「状态没跟上金额」的脏数据）|
-/// | ④ | 有一笔 `PENDING` 付款 | `false` | 该笔在审批中（`submit_payment` 同样 409）|
-/// | ⑤ | 其余（`OPEN` / `PARTIAL_PAID`） | `true` | `None` |
+/// | ② | `status = PENDING_CANCEL` | `false` | 正在作废审批中（带审批单号），请等审批结束或先撤回 |
+/// | ③ | `status = SETTLED` | `false` | 已结清（卡面 L9：结清的单不显示按钮）|
+/// | ④ | `unpaid_amount <= 0` | `false` | 未付金额为 0（理论上被 ①②③ 覆盖，兜「状态没跟上金额」的脏数据）|
+/// | ⑤ | 有一笔 `PENDING` 付款 | `false` | 该笔在审批中（`submit_payment` 同样 409）|
+/// | ⑥ | 其余（`OPEN` / `PARTIAL_PAID`） | `true` | `None` |
 ///
-/// ④ 是**体验**护栏而不是新的业务规则：后端 `submit_for_approval_tx` 对「已有审批中的付款」
+/// ② 是 P-FLOW-3B 补漏：作废审批中的单**账上还没作废**（`unpaid_amount` 仍是原值），
+/// 所以「按金额判可付」的消费方（报表 / 批量 / 将来的移动端）会得到「能付」的错误结论，
+/// 真点下去被 `validate_payment_target` 409。闸门放在这里，所有消费方自动一致。
+/// 审批单号由调用方查好传进来（`cancel_instance_no`，纯函数不碰库）；
+/// 不是 `PENDING_CANCEL` 的单传 `None` 即可。
+///
+/// ⑤ 是**体验**护栏而不是新的业务规则：后端 `submit_for_approval_tx` 对「已有审批中的付款」
 /// 返回 409（`uk_biz_payment_pending` 的软闸），不在这里挡住的话用户填完金额才被拒一次。
 pub fn payment_capability(
     row: &payable_query::PayableRow,
     pending: Option<(&str, Decimal)>,
+    cancel_instance_no: Option<&str>,
 ) -> (bool, Option<String>) {
     let unpaid = row.unpaid_amount.round_dp(4);
     if row.status == payable::STATUS_CANCELLED {
@@ -440,6 +448,16 @@ pub fn payment_capability(
             false,
             Some(format!(
                 "应付单 {} 已作废（CANCELLED），不能再付款",
+                row.payable_no
+            )),
+        );
+    }
+    if row.status == payable::STATUS_PENDING_CANCEL {
+        let instance = cancel_instance_no.unwrap_or("审批中的作废单");
+        return (
+            false,
+            Some(format!(
+                "应付单 {} 正在作废审批中（{instance}），请等审批结束或先撤回",
                 row.payable_no
             )),
         );
@@ -548,13 +566,16 @@ pub struct PaymentInfoPayable {
 }
 
 impl PaymentInfoPayable {
-    /// 由行 + 审批中的那笔构造（`today` 由调用方给，纯函数便于单测）。
+    /// 由行 + 审批中的那笔构造（`today` / `cancel_instance_no` 由调用方给，纯函数便于单测）。
+    ///
+    /// `cancel_instance_no`：本单是 `PENDING_CANCEL` 时传审批单号（`FLW-…`），否则 `None`。
     fn from_row(
         row: &payable_query::PayableRow,
         pending: Option<(&str, Decimal)>,
         today: NaiveDate,
+        cancel_instance_no: Option<&str>,
     ) -> Self {
-        let (can_pay, blocked_reason) = payment_capability(row, pending);
+        let (can_pay, blocked_reason) = payment_capability(row, pending, cancel_instance_no);
         let unpaid = row.unpaid_amount.round_dp(4);
         Self {
             id: row.id.to_string(),
@@ -609,9 +630,20 @@ pub async fn payment_info(id: Uuid) -> std::result::Result<PaymentInfoRes, ApiEr
     let pending_ref = pending
         .as_ref()
         .map(|(payment_no, amount)| (payment_no.as_str(), *amount));
+    // 作废审批中的单才去查审批单号（多一次 DB 往返只为一句更准的文案，其它状态不付这个成本）
+    let cancel_instance_no = if row.status == payable::STATUS_PENDING_CANCEL {
+        Some(instance_no_of(row.cancel_instance_id).await?)
+    } else {
+        None
+    };
     let payments = payments_res(db(), id).await?;
     Ok(PaymentInfoRes {
-        payable: PaymentInfoPayable::from_row(&row, pending_ref, voucher::today_cst(Utc::now())),
+        payable: PaymentInfoPayable::from_row(
+            &row,
+            pending_ref,
+            voucher::today_cst(Utc::now()),
+            cancel_instance_no.as_deref(),
+        ),
         payments,
     })
 }
@@ -3167,6 +3199,8 @@ mod tests {
             settled_at: None,
             voucher_id: None,
             remark: None,
+            cancel_instance_id: None,
+            cancel_reason: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -3178,27 +3212,94 @@ mod tests {
     #[test]
     fn d5_capability_table_without_db() {
         let open = fake_row(payable::STATUS_OPEN, dec("226"), Decimal::ZERO);
-        assert_eq!(payment_capability(&open, None), (true, None));
+        assert_eq!(payment_capability(&open, None, None), (true, None));
 
         let partial = fake_row(payable::STATUS_PARTIAL_PAID, dec("226"), dec("100"));
-        assert_eq!(payment_capability(&partial, None), (true, None));
+        assert_eq!(payment_capability(&partial, None, None), (true, None));
 
-        let (can_pay, reason) = payment_capability(&open, Some(("PM-20261029-000001", dec("30"))));
+        let (can_pay, reason) =
+            payment_capability(&open, Some(("PM-20261029-000001", dec("30"))), None);
         assert!(!can_pay, "审批中不能再发起第二笔");
         assert!(
             reason.unwrap_or_default().contains("审批中"),
-            "④ 的文案要点明「审批中」"
+            "⑤ 的文案要点明「审批中」"
         );
 
         let settled = fake_row(payable::STATUS_SETTLED, dec("226"), dec("226"));
-        let (can_pay, reason) = payment_capability(&settled, None);
+        let (can_pay, reason) = payment_capability(&settled, None, None);
         assert!(!can_pay);
         assert!(reason.unwrap_or_default().contains("已结清"));
 
         let cancelled = fake_row(payable::STATUS_CANCELLED, dec("226"), Decimal::ZERO);
-        let (can_pay, reason) = payment_capability(&cancelled, None);
+        let (can_pay, reason) = payment_capability(&cancelled, None, None);
         assert!(!can_pay);
         assert!(reason.unwrap_or_default().contains("已作废"));
+    }
+
+    /// ⓪② `PENDING_CANCEL`（作废审批中）**不能付款**，且 `blocked_reason` 必须带审批单号。
+    ///
+    /// 这条是 P-FLOW-3B 的补漏用例：补之前 `PENDING_CANCEL` 会落到最后的 `(true, None)`，
+    /// `GET /payable/{id}/payment-info` 对作废审批中的单给 `can_pay: true` + 未付金额，
+    /// 其它消费方（报表 / 批量 / 移动端）没有前端那道闸，真点下去被 409。
+    #[test]
+    fn pflow3b_pending_cancel_blocks_payment_with_instance_no() {
+        // 作废审批中的单：账上还没作废，未付金额仍是原值 —— 正是「按金额判可付」会判错的那类
+        let row = fake_row(payable::STATUS_PENDING_CANCEL, dec("800"), Decimal::ZERO);
+        assert!(row.unpaid_amount > Decimal::ZERO, "前置：未付金额不为 0");
+
+        let (can_pay, reason) = payment_capability(&row, None, Some("FLW-20261102-000001"));
+        assert!(!can_pay, "作废审批中一律不能付款");
+        let reason = reason.unwrap_or_default();
+        assert!(
+            reason.contains("正在作废审批中"),
+            "文案要点明作废审批中：{reason}"
+        );
+        assert!(
+            reason.contains("FLW-20261102-000001"),
+            "文案必须带审批单号（否则用户不知道去哪撤回）：{reason}"
+        );
+        assert!(
+            reason.contains(&row.payable_no),
+            "文案必须带应付单号：{reason}"
+        );
+        assert!(
+            reason.contains("撤回"),
+            "文案要给出出路（撤回后的再次付款）：{reason}"
+        );
+
+        // 拿不到审批单号时文案仍要成立，不能 panic、也不能漏成「可付」
+        let (can_pay, reason) = payment_capability(&row, None, None);
+        assert!(!can_pay);
+        assert!(
+            reason.unwrap_or_default().contains("正在作废审批中"),
+            "缺单号时也要拦住"
+        );
+
+        // 与「已有付款在审批中」同时成立时，作废审批的文案优先（② 在 ⑤ 之前）
+        let (can_pay, reason) =
+            payment_capability(&row, Some(("PM-20261102-000002", dec("10"))), Some("FLW-X"));
+        assert!(!can_pay);
+        assert!(reason.unwrap_or_default().contains("正在作废审批中"));
+    }
+
+    /// ⓪② 作废审批中的单 `default_amount` 必须是 `0`（不能给未付金额，否则前端预填就能付）。
+    #[test]
+    fn pflow3b_pending_cancel_default_amount_is_zero() {
+        let row = fake_row(payable::STATUS_PENDING_CANCEL, dec("800"), Decimal::ZERO);
+        let today = NaiveDate::from_ymd_opt(2026, 11, 2).expect("固定日期");
+        let info = PaymentInfoPayable::from_row(&row, None, today, Some("FLW-20261102-000001"));
+        assert!(!info.can_pay);
+        assert_eq!(info.default_amount, Decimal::ZERO);
+        assert_eq!(
+            info.unpaid_amount,
+            dec("800"),
+            "未付金额照实下发，只拦「可付」"
+        );
+        assert!(
+            info.blocked_reason
+                .unwrap_or_default()
+                .contains("FLW-20261102-000001")
+        );
     }
 
     /// ⓪ `default_amount` 取**未付**（卡面 F2 / O1），不是应付总额。
@@ -3206,7 +3307,7 @@ mod tests {
     fn d5_default_amount_is_unpaid_not_total() {
         let row = fake_row(payable::STATUS_PARTIAL_PAID, dec("500"), dec("200"));
         let today = NaiveDate::from_ymd_opt(2026, 11, 1).expect("固定日期");
-        let info = PaymentInfoPayable::from_row(&row, None, today);
+        let info = PaymentInfoPayable::from_row(&row, None, today, None);
         assert_eq!(info.amount, dec("500"));
         assert_eq!(info.unpaid_amount, dec("300"));
         assert_eq!(

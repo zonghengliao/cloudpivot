@@ -251,6 +251,10 @@ pub struct PayableRow {
     pub voucher_id: Option<Uuid>,
     /// 备注。
     pub remark: Option<String>,
+    /// 作废审批实例 id（P-FLOW-3B）：`PENDING_CANCEL` 时必有值（库侧 `ck_biz_payable_pending_cancel`）。
+    pub cancel_instance_id: Option<Uuid>,
+    /// 作废原因（P-FLOW-3B）：送审时填的那段文字。
+    pub cancel_reason: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -281,6 +285,8 @@ impl PayableRow {
             settled_at: row.get_typed("settled_at")?,
             voucher_id: row.get_typed("voucher_id")?,
             remark: row.get_typed("remark")?,
+            cancel_instance_id: row.get_typed("cancel_instance_id")?,
+            cancel_reason: row.get_typed("cancel_reason")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
         })
@@ -336,6 +342,13 @@ pub struct PayableRes {
     pub voucher_id: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 作废审批实例 id（P-FLOW-3B）：`PENDING_CANCEL` 时有值，撤回 / 审批结束后清空。
+    ///
+    /// 前端用它显示「作废审批进度」并允许撤回 —— 没有它时只能在**送审那一刻**用响应里的
+    /// `approval_instance_id` 显示，重新打开详情抽屉后进度区就消失了。
+    pub cancel_instance_id: Option<String>,
+    /// 作废原因（P-FLOW-3B）：送审时填的那段文字（审批通过后同时写进 `remark`）。
+    pub cancel_reason: Option<String>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -368,6 +381,8 @@ impl PayableRes {
             settled_at: row.settled_at,
             voucher_id: row.voucher_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
+            cancel_instance_id: row.cancel_instance_id.map(|id| id.to_string()),
+            cancel_reason: row.cancel_reason.clone(),
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -1029,5 +1044,69 @@ pub(crate) mod tests {
         assert_eq!(status_label("CANCELLED"), "已作废");
         assert_eq!(status_label("WEIRD"), "WEIRD");
         println!("[P2C2-⑥] 入参校验 + 状态标签 ✓");
+    }
+
+    // ---------- P-FLOW-3B 补漏：PayableRes 透出作废审批字段 ----------
+
+    /// ④ `PayableRes::from_row` 必须透出 `cancel_instance_id` / `cancel_reason`
+    /// （纯内存：前端重开详情抽屉后靠它显示「作废审批进度 + 原因」，不再依赖送审那一刻的响应）。
+    #[test]
+    fn pflow3b_res_carries_cancel_instance_and_reason() {
+        let instance = Uuid::now_v7();
+        let row = PayableRow {
+            id: Uuid::now_v7(),
+            payable_no: "AP-P3BGAP-000001".to_string(),
+            supplier_id: Uuid::now_v7(),
+            supplier_name: "P3B 补漏供应商".to_string(),
+            source_type: "STOCK_IN".to_string(),
+            source_id: Uuid::now_v7(),
+            source_no: "IN-P3BGAP-000001".to_string(),
+            invoice_no: None,
+            invoice_date: None,
+            currency_code: "CNY".to_string(),
+            amount: Decimal::from(800),
+            paid_amount: Decimal::ZERO,
+            unpaid_amount: Decimal::from(800),
+            credit_days: 30,
+            due_date: NaiveDate::from_ymd_opt(2026, 12, 2).expect("固定日期"),
+            period_code: "2026-11".to_string(),
+            status: payable::STATUS_PENDING_CANCEL.to_string(),
+            settled_at: None,
+            voucher_id: None,
+            remark: None,
+            cancel_instance_id: Some(instance),
+            cancel_reason: Some("供应商发票开错".to_string()),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+        let today = NaiveDate::from_ymd_opt(2026, 11, 2).expect("固定日期");
+        let res = PayableRes::from_row(&row, today);
+        assert_eq!(
+            res.cancel_instance_id.as_deref(),
+            Some(instance.to_string().as_str())
+        );
+        assert_eq!(res.cancel_reason.as_deref(), Some("供应商发票开错"));
+
+        // JSON 契约：两个键必须在（值为 null 也要在），前端按可选字段接
+        let json = serde_json::to_value(&res).expect("序列化");
+        assert_eq!(
+            json.get("cancel_instance_id").and_then(|v| v.as_str()),
+            Some(instance.to_string().as_str())
+        );
+        assert_eq!(
+            json.get("cancel_reason").and_then(|v| v.as_str()),
+            Some("供应商发票开错")
+        );
+
+        // 未在审批中的单：字段存在且为 null（不是缺席）
+        let mut plain = row.clone();
+        plain.status = payable::STATUS_OPEN.to_string();
+        plain.cancel_instance_id = None;
+        plain.cancel_reason = None;
+        let json = serde_json::to_value(PayableRes::from_row(&plain, today)).expect("序列化");
+        assert!(json.get("cancel_instance_id").is_some());
+        assert!(json["cancel_instance_id"].is_null());
+        assert!(json.get("cancel_reason").is_some());
+        assert!(json["cancel_reason"].is_null());
     }
 }

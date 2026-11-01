@@ -1,0 +1,45 @@
+== P-FLOW-3B 补漏真机验收 @ http://127.0.0.1:18097（库 cloudpivot_p3bgap）==
+夹具应付单：AP-20261102-000128（c0406dfc-4d71-4448-b7bb-1bd4fbe3fad9）
+[PASS] ③ 对照：OPEN 应付单 can_pay=true（闸不是恒 false）
+[PASS] ③ 对照：OPEN 应付单 blocked_reason 为 null
+[PASS] ③ 对照：OPEN 应付单 default_amount = 未付金额
+[PASS] 提交作废审批 200
+[PASS] 提交作废 outcome=PENDING_APPROVAL（账未动）
+作废审批实例：FLW-20261101-E45CE8F2（01a198a4-fbba-71c8-9480-6222ff41bb08）
+[PASS] ④ 应付详情 200
+[PASS] ④ 详情含 cancel_instance_id 键（字段必须存在，null 也算）
+[PASS] ④ 详情 cancel_instance_id == 库里的审批实例
+[PASS] ④ 详情 cancel_reason == 送审时填的原因
+[PASS] ④ 详情 status=PENDING_CANCEL
+[PASS] ④ 列表能查到该应付单
+[PASS] ④ 列表行 cancel_instance_id 一致（重开抽屉后靠它显示进度）
+[PASS] ④ 列表行 cancel_reason 一致
+[PASS] ③ 作废审批中 can_pay=false（补漏前这里是 true）
+[PASS] ③ blocked_reason 点明「正在作废审批中」
+[PASS] ③ blocked_reason 带审批单号（用户据此去撤回）
+[PASS] ③ blocked_reason 带应付单号
+[PASS] ③ 作废审批中 default_amount=0（不再预填未付金额）
+[PASS] ③ 未付金额照实下发（只拦「可付」，账上还没作废）
+[PASS] 撤回作废审批 200
+[PASS] 撤回后 can_pay 回到 true
+[PASS] 撤回后 cancel_instance_id 为 null（键仍在）
+[PASS] ① 凭证送审 200
+[PASS] ① 送审 outcome=PENDING_APPROVAL
+[PASS] ① `ReverseSubmitRes`（flatten 单头）带 pending_reverse_instance_id
+[PASS] ① `ReverseSubmitRes` 带 reverse_reason
+[PASS] ① 凭证详情 200
+[PASS] ① 详情含 pending_reverse_instance_id 键
+[PASS] ① 详情 pending_reverse_instance_id == 库值（前端据此打「红冲审批中」）
+[PASS] ① 详情 reverse_reason == 送审原因
+[PASS] ① 送审后 status 仍是 POSTED（报表口径不变）
+[PASS] ① 凭证列表能查到该凭证
+[PASS] ① 列表行 pending_reverse_instance_id（前端兜底请求自动失效的判据）
+[PASS] ① 列表行 reverse_reason
+[PASS] ① 列表行 status 仍 POSTED
+[PASS] 撤回红冲审批 200
+[PASS] ① 撤回后 pending_reverse_instance_id 为 null（键仍在）
+[PASS] ① 撤回后未生成红字（reversed_by 仍为空）
+[PASS] 夹具清场：凭证/应付/实例/科目残留全为 0
+
+== 汇总：PASS 39 / FAIL 0（共 39 条）==
+EXIT=0
