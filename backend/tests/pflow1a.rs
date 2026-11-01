@@ -258,8 +258,20 @@ fn task_flow_graph(
     }
 }
 
-/// 建流程 + 存图 + 发布，返回 `(def_id, version_id)`。
+/// 建流程 + 存图 + 发布，返回 `(def_id, version_id, graph_hash)`。
 async fn create_and_publish(f: &Fixture, tag: &str, graph: FlowGraph) -> (Uuid, Uuid, String) {
+    create_and_publish_as(f, tag, graph, "PFLOW_TEST", false).await
+}
+
+/// 同 [`create_and_publish`]，但可指定 `biz_type` 与 `is_default`
+/// （「节点审批」要有**已发布且默认**的目标流程，见 `task_bridge::start_task_node_approval` 的 ②）。
+async fn create_and_publish_as(
+    f: &Fixture,
+    tag: &str,
+    graph: FlowGraph,
+    biz_type: &str,
+    is_default: bool,
+) -> (Uuid, Uuid, String) {
     let flow_code = format!(
         "pflow_{}_{}",
         tag.to_ascii_lowercase(),
@@ -268,10 +280,10 @@ async fn create_and_publish(f: &Fixture, tag: &str, graph: FlowGraph) -> (Uuid, 
     let create = flow_dto::DefCreateReq {
         flow_code: flow_code.clone(),
         flow_name: format!("PFLOW {tag} 任务流程"),
-        biz_type: "PFLOW_TEST".to_string(),
+        biz_type: biz_type.to_string(),
         category: None,
         description: None,
-        is_default: Some(false),
+        is_default: Some(is_default),
         allow_auto_approve: Some(false),
     };
     let res = flow_handler::create(claims(f.operator, "op", &[]), Json(create))
@@ -1164,5 +1176,293 @@ async fn flow_detail_is_null_for_manual_task() {
         )
         .await;
     println!("[⑩] 非流程任务 → flow = null");
+    f.cleanup().await;
+}
+
+// ==================== ⑪ `GET /task/{id}/flow` 带审批进度（P-FLOW-1B 收尾） ====================
+
+/// 打一次 `/business/task/{id}/flow`（只关心 `flow` 段）。
+async fn flow_of(f: &Fixture, task_id: Uuid) -> task_dto::TaskFlowDetailRes {
+    let res = task_handler::flow_of_task(
+        claims(f.operator, "op", &["business:task:read"]),
+        Path(task_id.to_string()),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("GET /task/{{id}}/flow 失败：{} {}", error.code, error.msg));
+    res.data
+        .expect("flow 回执")
+        .flow
+        .expect("流程任务必须有 flow 段")
+}
+
+/// 推一次任务状态（走真实 `change_status`，含 1B 的流程回调）。
+async fn push_task_status(f: &Fixture, task_id: Uuid, to: &str) {
+    task_handler::change_status(
+        claims(
+            f.operator,
+            "op",
+            &["business:task:read", "business:task:update"],
+        ),
+        Path(task_id.to_string()),
+        Json(task_dto::TaskStatusChangeReq {
+            to: to.to_string(),
+            reason: None,
+        }),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("推任务状态到 {to} 失败：{} {}", error.code, error.msg));
+}
+
+/// 读任务当前状态（库里的事实，不信回执）。
+async fn task_status_of(task_id: Uuid) -> String {
+    let rows = db()
+        .find_with_params(
+            "SELECT status FROM biz_task WHERE id = ?::uuid",
+            vec![Value::from(&task_id)],
+        )
+        .await
+        .expect("查任务状态");
+    rows.first()
+        .expect("任务必须存在")
+        .get_typed("status")
+        .expect("status")
+}
+
+/// 取某审批实例下唯一一条 `PENDING` 待办（`(id, 审批人姓名)`）。
+async fn pending_flow_task_of(instance_id: Uuid) -> (Uuid, String) {
+    let rows = db()
+        .find_with_params(
+            "SELECT id, COALESCE(NULLIF(assignee_name, ''), '') AS assignee_name \
+               FROM biz_flow_task \
+              WHERE instance_id = ?::uuid AND status = 'PENDING' \
+              ORDER BY created_at, id",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("查审批待办");
+    assert_eq!(rows.len(), 1, "单审批人节点应恰好 1 条待办");
+    (
+        rows[0].get_typed("id").expect("待办 id"),
+        rows[0].get_typed("assignee_name").expect("审批人姓名"),
+    )
+}
+
+/// 读审批实例状态（库里的事实）。
+async fn approval_instance_status(instance_id: Uuid) -> String {
+    let rows = db()
+        .find_with_params(
+            "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+            vec![Value::from(&instance_id)],
+        )
+        .await
+        .expect("查审批实例");
+    rows.first()
+        .expect("审批实例必须存在")
+        .get_typed("status")
+        .expect("status")
+}
+
+/// 一份 `START → 审批（指定用户）→ END` 的图（「节点审批」的目标流程）。
+fn approval_graph(approver: Uuid, node_name: &str) -> FlowGraph {
+    let mut appr = NodeSpec::new("n_appr", node_name, NodeType::Approval);
+    appr.assignee_type = Some(AssigneeKind::User);
+    appr.assignees = vec![AssigneeRef {
+        kind: "USER".to_string(),
+        ref_id: approver.to_string(),
+        sort_order: 1,
+    }];
+    appr.empty_assignee = "ERROR".to_string();
+    appr.timeout_action = "REMIND".to_string();
+    FlowGraph {
+        nodes: vec![
+            NodeSpec::new("n_start", "开始", NodeType::Start),
+            appr,
+            NodeSpec::new("n_end", "结束", NodeType::End),
+        ],
+        edges: vec![
+            EdgeSpec::new("e1", "n_start", "n_appr"),
+            EdgeSpec::new("e2", "n_appr", "n_end"),
+        ],
+    }
+}
+
+/// `on_complete=APPROVE`：任务完成 → `approval.status=PENDING` 且待办人非空；
+/// 审批通过 → `status=APPROVED` 且待办人为空。
+///
+/// 这条钉的是设计 §4.5 Q4「UI 三条硬要求」第 3 条：任务页要能写「已完成 ✓ 审批中（王五）」，
+/// 而「等谁」必须是后端给的事实（`biz_task.approval_instance_id` + `PENDING` 待办），
+/// 前端**不许**再按 `node_status=ACTIVE + task.status=DONE` 猜。
+#[tokio::test]
+async fn flow_detail_carries_approval_progress() {
+    if ready().await.is_none() {
+        return;
+    }
+    let suffix = Uuid::now_v7().simple().to_string()[24..32].to_string();
+    let f = Fixture::new("APRV", &suffix).await;
+    // 目标审批流程的 biz_type 每个用例独立（`is_default=true` 是「默认流程」的唯一判据，
+    // 共用 PFLOW_TEST 会与同套其它用例互相顶掉默认位）。
+    // 格式受 R18 约束：`^[A-Z][A-Z0-9_]*$`（小写十六进制会被 65034 挡下）
+    let biz_type = format!("PFLOW_APPR_{}", suffix.to_ascii_uppercase());
+
+    // ① 先发布「审批流程」并设为默认（R18 要求 approve_biz_type 有已发布的默认流程）
+    let (appr_def, _, _) = create_and_publish_as(
+        &f,
+        "aprv_a",
+        approval_graph(f.colleague, "主管审批"),
+        &biz_type,
+        true,
+    )
+    .await;
+    assert_ne!(appr_def, Uuid::nil());
+
+    // ② 任务流程：任务节点的 on_complete=APPROVE
+    let graph = task_flow_graph(
+        AssigneeKind::Initiator,
+        None,
+        serde_json::json!({
+            "title_template": "{{instance.biz_no}} 催货",
+            "on_complete": "APPROVE",
+            "approve_biz_type": biz_type,
+            "on_reject": "BACK_TO_PREV",
+            "on_cancel": "TERMINATE"
+        }),
+    );
+    let (def_id, _, _) = create_and_publish(&f, "aprv", graph).await;
+    let instance_id = start_instance(&f, def_id, "PFLOW 审批进度", serde_json::json!({}))
+        .await
+        .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
+    let task_id = task_of_instance(instance_id).await;
+
+    // ③ 完成之前没挂审批单 → approval 必须是 null（不是 {}，也不是空串）
+    let before = flow_of(&f, task_id).await;
+    assert!(
+        before.approval.is_none(),
+        "未发起审批前 approval 必须为 null，实际：{:?}",
+        before.approval.map(|a| a.status)
+    );
+    assert_eq!(before.node_status, "ACTIVE");
+
+    // ④ 任务完成（TODO → DOING → DONE）：节点保持 ACTIVE，同事务发起审批单
+    push_task_status(&f, task_id, "DOING").await;
+    push_task_status(&f, task_id, "DONE").await;
+    assert_eq!(task_status_of(task_id).await, "DONE", "任务应已完成");
+
+    let after = flow_of(&f, task_id).await;
+    assert_eq!(
+        after.node_status, "ACTIVE",
+        "on_complete=APPROVE：任务完成时节点必须仍在跑（等审批）"
+    );
+    assert_eq!(after.on_complete.as_deref(), Some("APPROVE"));
+    let approval = after
+        .approval
+        .clone()
+        .expect("on_complete=APPROVE 且已发起审批 → approval 不能为 null");
+    assert_eq!(approval.status, "PENDING", "审批未结论 → PENDING");
+    assert_eq!(
+        approval.pending_approvers,
+        vec!["APRV 同事".to_string()],
+        "pending_approvers 必须是待办人姓名（含中文），实际：{:?}",
+        approval.pending_approvers
+    );
+    assert!(!approval.instance_no.is_empty(), "必须回审批单号");
+    assert!(
+        Uuid::parse_str(&approval.instance_id).is_ok(),
+        "instance_id 必须是合法 uuid：{}",
+        approval.instance_id
+    );
+
+    // ⑤ 审批通过 → APPROVED 且待办清空
+    let (flow_task_id, assignee_name) =
+        pending_flow_task_of(Uuid::parse_str(&approval.instance_id).expect("approval instance id"))
+            .await;
+    assert_eq!(assignee_name, "APRV 同事");
+    flow_handler::approve_task(
+        claims(f.colleague, "cb", &[]),
+        Path(flow_task_id.to_string()),
+        Some(Json(flow_dto::ApproveReq {
+            comment: Some("同意".to_string()),
+        })),
+    )
+    .await
+    .unwrap_or_else(|error| panic!("审批同意失败：{} {}", error.code, error.msg));
+
+    let settled = flow_of(&f, task_id).await;
+    let approval = settled
+        .approval
+        .clone()
+        .expect("审批结束后 approval 仍在（状态要能看）");
+    assert_eq!(approval.status, "APPROVED", "审批通过后实例应 APPROVED");
+    assert!(
+        approval.pending_approvers.is_empty(),
+        "终态不得再有待办人，实际：{:?}",
+        approval.pending_approvers
+    );
+    assert_eq!(
+        settled.approval.map(|a| a.instance_id),
+        Some(approval.instance_id.clone()),
+        "同一个任务指向同一张审批单"
+    );
+    assert_eq!(
+        approval_instance_status(
+            Uuid::parse_str(&approval.instance_id).expect("approval instance id")
+        )
+        .await,
+        "APPROVED",
+        "库里的事实：审批实例已 APPROVED"
+    );
+    println!(
+        "[⑪] APPROVE：PENDING → 待办人{:?}；通过后 → APPROVED + 待办[]",
+        after.approval.map(|a| a.pending_approvers)
+    );
+
+    f.cleanup().await;
+}
+
+/// `on_complete=DIRECT`：任务完成后节点直接推进，`approval` 恒为 `null`。
+///
+/// 反例的意义：DIRECT 节点**永远**不写 `approval_instance_id`，所以前端拿到的
+/// `approval` 是 `null` 而不是「空对象 / 空数组」，渲染分支不会误触发。
+#[tokio::test]
+async fn flow_detail_approval_is_null_for_direct_node() {
+    if ready().await.is_none() {
+        return;
+    }
+    let f = Fixture::new("APRD", &Uuid::now_v7().simple().to_string()[24..32]).await;
+    let graph = task_flow_graph(
+        AssigneeKind::Initiator,
+        None,
+        serde_json::json!({
+            "title_template": "直接完成任务",
+            "on_complete": "DIRECT",
+            "on_reject": "BACK_TO_PREV",
+            "on_cancel": "TERMINATE"
+        }),
+    );
+    let (def_id, _, _) = create_and_publish(&f, "aprd", graph).await;
+    let instance_id = start_instance(&f, def_id, "PFLOW DIRECT 审批进度", serde_json::json!({}))
+        .await
+        .unwrap_or_else(|error| panic!("发起失败：{} {}", error.code, error.msg));
+    let task_id = task_of_instance(instance_id).await;
+
+    push_task_status(&f, task_id, "DOING").await;
+    push_task_status(&f, task_id, "DONE").await;
+    assert_eq!(task_status_of(task_id).await, "DONE");
+
+    let flow = flow_of(&f, task_id).await;
+    assert_eq!(flow.on_complete.as_deref(), Some("DIRECT"));
+    assert!(
+        flow.approval.is_none(),
+        "DIRECT 节点不该有审批进度，实际：{:?}",
+        flow.approval.map(|a| a.status)
+    );
+    assert_eq!(
+        flow.node_status, "APPROVED",
+        "DIRECT 完成后节点应直接推进（不再 ACTIVE）"
+    );
+    println!(
+        "[⑪] DIRECT：approval = null，node_status = {}",
+        flow.node_status
+    );
+
     f.cleanup().await;
 }

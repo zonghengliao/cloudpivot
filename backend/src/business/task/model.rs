@@ -1233,6 +1233,43 @@ pub struct TaskFlowDetailRow {
     pub on_reject: Option<String>,
     /// 该节点 `config.task.on_cancel`（同上）。
     pub on_cancel: Option<String>,
+    /// 本任务当前挂着的审批单（`biz_task.approval_instance_id` → `biz_flow_instance`
+    /// + 其 `PENDING` 待办人；没有 → `None`）。
+    pub approval: Option<TaskFlowApprovalRow>,
+}
+
+/// 「这张任务在等谁审批」的行结构（P-FLOW-1B 收尾）。
+#[derive(Debug, Clone)]
+pub struct TaskFlowApprovalRow {
+    /// 审批实例 id。
+    pub instance_id: Uuid,
+    /// 审批单号。
+    pub instance_no: String,
+    /// 实例状态。
+    pub status: String,
+    /// 待办人姓名（按到达顺序，同名去重；非 `PENDING` → 空）。
+    pub pending_approvers: Vec<String>,
+}
+
+/// 把 SQL 里 `string_agg` 拼好的待办人姓名串拆成数组（保持顺序、去重、丢空段）。
+///
+/// # 为什么走「文本 + 拆分」而不是 `array_agg`
+///
+/// 驱动解不了 `text[]` 列（`unsupported column type _text`），所以聚合结果一律
+/// `::text` 出来自己拆。分隔符用换行：姓名里不会出现换行（`VARCHAR(50)` 的人名），
+/// 而逗号可能出现（「王五, 财务」这类备注式姓名）。
+fn split_approvers(raw: Option<String>) -> Vec<String> {
+    let Some(text) = raw else {
+        return Vec::new();
+    };
+    let mut names: Vec<String> = Vec::new();
+    for part in text.split('\n') {
+        let name = part.trim();
+        if !name.is_empty() && !names.iter().any(|kept| kept == name) {
+            names.push(name.to_string());
+        }
+    }
+    names
 }
 
 /// 从快照里的 `config.task` 取一个「流程走向」枚举字段（P-FLOW-1C 补漏）。
@@ -1284,6 +1321,19 @@ fn switch_field<T>(
 /// 非流程任务（`flow_instance_id IS NULL`）→ `Ok(None)`（**不是错误**：
 /// 手工任务没有流程，前端据此隐藏卡片）。
 ///
+/// # 「审批进度」从哪来（P-FLOW-1B 收尾）
+///
+/// 卡片建议写的是「节点本轮的 `approval_instance_id`（`biz_flow_instance_node` 行）」，
+/// 但**那张表没有这一列** —— P-FLOW-1B 写入并复用的一直是 `biz_task.approval_instance_id`
+/// （`task_bridge::start_task_node_approval` / `prepare_accept` 都 `UPDATE biz_task`）。
+/// 所以这里顺着任务行的指针查：`LEFT JOIN biz_flow_instance ai` 取单号与状态，再用
+/// 相关子查询聚合 `biz_flow_task` 里 `status='PENDING'` 的待办人姓名。
+///
+/// 好处是这个口径**同时覆盖两条审批路径**（验收审批 `TASK_ACCEPT` 与节点审批
+/// `approve_biz_type`），且 `None` 的判据是「指针为空 / 实例行不存在」—— 不靠
+/// `node_status` 推断。唯一需要记住的不变式：验收审批落终态之后任务才 `DONE`，
+/// 所以「`task.status=DONE` 且 `approval.status=PENDING`」只可能是节点审批在等结论。
+///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
@@ -1301,7 +1351,17 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
                        FROM jsonb_array_elements(\
                             COALESCE(v.graph_snapshot -> 'nodes', '[]'::jsonb)) AS node \
                       WHERE node ->> 'key' = t.flow_node_key \
-                      LIMIT 1)::text AS task_config_text \
+                      LIMIT 1)::text AS task_config_text, \
+                    ai.id AS approval_instance_id, \
+                    ai.instance_no AS approval_instance_no, \
+                    ai.status AS approval_status, \
+                    (SELECT string_agg(COALESCE(NULLIF(x.assignee_name, ''), \
+                                               NULLIF(u.real_name, ''), u.username), \
+                                       E'\\n' ORDER BY x.created_at, x.id) \
+                       FROM biz_flow_task x \
+                       LEFT JOIN sys_user u ON u.id = x.assignee_id \
+                      WHERE x.instance_id = t.approval_instance_id \
+                        AND x.status = 'PENDING') AS pending_approver_text \
                FROM biz_task t \
                JOIN biz_flow_instance i ON i.id = t.flow_instance_id \
                LEFT JOIN biz_flow_def_version v ON v.id = i.version_id \
@@ -1309,6 +1369,9 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
                       ON n.instance_id = i.id \
                      AND n.node_key = t.flow_node_key \
                      AND n.round = t.flow_round \
+               LEFT JOIN biz_flow_instance ai \
+                      ON ai.id = t.approval_instance_id \
+                     AND ai.deleted_at IS NULL \
               WHERE t.id = ?::uuid AND t.deleted_at IS NULL",
             vec![Value::from(&task_id)],
         )
@@ -1323,6 +1386,40 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
         .ok()
         .flatten()
         .and_then(|text| serde_json::from_str(&text).ok());
+    // 审批进度（P-FLOW-1B 收尾）：只认指针 + 实例行，不做推断。
+    // 指针为空 / 指向的实例已不在（`LEFT JOIN` 没命中）→ `None`。
+    let approval = match row
+        .get_typed::<Option<Uuid>>("approval_instance_id")
+        .ok()
+        .flatten()
+        .zip(
+            row.get_typed::<Option<String>>("approval_status")
+                .ok()
+                .flatten(),
+        ) {
+        Some((instance_id, status)) => {
+            let mut pending_approvers = split_approvers(
+                row.get_typed::<Option<String>>("pending_approver_text")
+                    .ok()
+                    .flatten(),
+            );
+            if status != "PENDING" {
+                // 终态实例上残留的 PENDING 待办（脏数据 / 终止竞态）不得冒充「等审批」
+                pending_approvers.clear();
+            }
+            Some(TaskFlowApprovalRow {
+                instance_id,
+                instance_no: row
+                    .get_typed::<Option<String>>("approval_instance_no")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
+                status,
+                pending_approvers,
+            })
+        }
+        None => None,
+    };
     Ok(Some(TaskFlowDetailRow {
         instance_id: row.get_typed("instance_id")?,
         instance_no: row.get_typed("instance_no")?,
@@ -1365,6 +1462,7 @@ pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRo
             node_config::OnCancel::parse,
             node_config::OnCancel::as_str,
         ),
+        approval,
     }))
 }
 

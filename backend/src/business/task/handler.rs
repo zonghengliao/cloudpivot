@@ -4327,6 +4327,12 @@ pub async fn flow_of_task(
             on_complete: flow.on_complete,
             on_reject: flow.on_reject,
             on_cancel: flow.on_cancel,
+            approval: flow.approval.map(|approval| dto::TaskFlowApprovalRes {
+                instance_id: approval.instance_id.to_string(),
+                instance_no: approval.instance_no,
+                status: approval.status,
+                pending_approvers: approval.pending_approvers,
+            }),
         }),
     }))
 }

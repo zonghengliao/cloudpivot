@@ -332,6 +332,34 @@ pub struct TaskFlowRes {
     pub flow: Option<TaskFlowDetailRes>,
 }
 
+/// 任务当前的「审批进度」（P-FLOW-1B 收尾 · 设计 §4.5 Q4 第 3 条）。
+///
+/// # 它回答的问题
+///
+/// 「这张任务 **现在** 在等谁审批？」——`on_complete=APPROVE` 的节点，任务
+/// `DOING → DONE` 时节点保持 `ACTIVE` 并同事务发起审批单；此时前端只看到
+/// 「任务已完成 + 节点还在跑」，**没有这个结构就只能靠猜**。
+///
+/// # 数据来源
+///
+/// 只认 `biz_task.approval_instance_id`（P-FLOW-1B 写入的指针，验收审批与节点审批
+/// 共用一列）+ 该实例下的 `PENDING` 待办，不做任何推断：
+/// 指针为空 / 指向的实例不存在 → 整个 `approval` 为 `null`。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskFlowApprovalRes {
+    /// 审批实例 id（前端跳 `/flow/instance/{id}` 用）。
+    pub instance_id: String,
+    /// 审批单号。
+    pub instance_no: String,
+    /// 实例状态（`PENDING` / `APPROVED` / `REJECTED` / `CANCELLED` / `WITHDRAWN`）。
+    pub status: String,
+    /// 待办人姓名（`status = PENDING` 时的待办人；其它状态恒为 `[]`）。
+    ///
+    /// 会签时是多人，按待办到达顺序；同名只保留一次（会签节点不允许同一人占两个槽位，
+    /// 但同一实例的并行节点可能让同一个人有多条待办，直接拼接会出现「王五、王五」）。
+    pub pending_approvers: Vec<String>,
+}
+
 /// 任务所属流程的详情（任务详情页「所属审批单」卡片）。
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskFlowDetailRes {
@@ -375,6 +403,17 @@ pub struct TaskFlowDetailRes {
     pub on_reject: Option<String>,
     /// 任务被取消时流程怎么走（`config.task.on_cancel`：`TERMINATE` / `BACK_TO_PREV` / `STAY`）。
     pub on_cancel: Option<String>,
+    /// 本任务当前挂着的审批单进度（P-FLOW-1B 收尾）。
+    ///
+    /// - `null` = 这张任务没挂审批单（`biz_task.approval_instance_id IS NULL`，例如
+    ///   `on_complete=DIRECT` 的节点生成的任务），或指针指向的实例已不存在；
+    /// - `Some(status = "PENDING")` + 非空 `pending_approvers` = **正在等这些人审批**
+    ///   （`on_complete=APPROVE` 的节点，任务已完成但节点还 `ACTIVE`）；
+    /// - 终态（`APPROVED` / `REJECTED` / `CANCELLED` / `WITHDRAWN`）时 `pending_approvers` 为空数组。
+    ///
+    /// 前端只在 `task.status = DONE` 且 `approval.status = PENDING` 时把「任务」那栏渲染成
+    /// 「已完成 ✓ 审批中（王五）」——**不要**再用 `node_status` 猜。
+    pub approval: Option<TaskFlowApprovalRes>,
 }
 
 /// 任务卡（列表、子任务列表、我的任务分组统一用它，避免三套形状）。
