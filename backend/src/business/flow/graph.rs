@@ -3750,11 +3750,38 @@ mod task_node_rule_tests {
         assert!(hit.message.contains("TASK_NODE"), "{}", hit.message);
     }
 
-    /// R18 反例（1A 阶段闸）：`on_complete=APPROVE` → `65035`，文案点名 P-FLOW-1B。
+    /// R18 正例（P-FLOW-1B）：`on_complete=APPROVE` + `need_review=false` **必须通过**。
+    ///
+    /// 1A 这里是一条「阶段闸」反例（拒绝并点名 P-FLOW-1B）。1B 把引擎分支做出来了
+    /// （任务 `DOING→DONE` → 节点保持 ACTIVE + 同事务发起 `approve_biz_type` 审批单），
+    /// 闸随之删除 —— 这条用例就是那个删除动作的回归证据。
     #[test]
-    fn r18_approve_stage_gate_rejected_in_1a() {
+    fn r18_approve_without_review_passes_in_1b() {
         let mut graph = task_graph(json!({
             "title_template": "t",
+            "on_complete": "APPROVE",
+            "approve_biz_type": "TASK_ACCEPT"
+        }));
+        graph.nodes[1].assignee_type = Some(AssigneeKind::Role);
+        graph.nodes[1].assignees = vec![AssigneeRef {
+            kind: "ROLE".to_string(),
+            ref_id: "11111111-1111-1111-1111-111111111111".to_string(),
+            sort_order: 1,
+        }];
+        let issues = graph.validate();
+        assert!(
+            !issues.iter().any(|issue| issue.rule == "R18"),
+            "APPROVE × need_review=false 不该再有 R18 问题：{:?}",
+            issues.iter().map(|i| &i.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// R18 反例（保留）：`on_complete=APPROVE` + `need_review=true` → `65035`（点两次）。
+    #[test]
+    fn r18_approve_with_review_still_rejected() {
+        let mut graph = task_graph(json!({
+            "title_template": "t",
+            "need_review": true,
             "on_complete": "APPROVE",
             "approve_biz_type": "TASK_ACCEPT"
         }));
@@ -3768,8 +3795,12 @@ mod task_node_rule_tests {
         let hit = issues
             .iter()
             .find(|issue| issue.rule == "R18" && issue.code == error_code::FLOW_TASK_NODE_INVALID)
-            .expect("必须报 65035");
-        assert!(hit.message.contains("P-FLOW-1B"), "{}", hit.message);
+            .expect("APPROVE × need_review=true 必须报 65035");
+        assert!(
+            hit.message.contains("点两次") || hit.message.contains("need_review"),
+            "{}",
+            hit.message
+        );
     }
 
     /// R19 反例（1A 阶段闸）：`NOTIFY_NODE` 一律拒绝（引擎分支在 P-FLOW-2）。

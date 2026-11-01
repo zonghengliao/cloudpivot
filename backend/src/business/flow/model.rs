@@ -35,6 +35,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde_json::Value as Json;
 
+use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::flow::graph::{
     ApprovalMode, AssigneeKind, AssigneeRef, EdgeSpec, FlowGraph, GatewayMode, NodeSpec, NodeType,
 };
@@ -335,9 +336,20 @@ pub async fn flow_code_taken(code: &str, exclude: Option<Uuid>) -> DbResult<bool
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn find_version(id: Uuid) -> DbResult<Option<VersionRow>> {
+    find_version_in(db(), id).await
+}
+
+/// [`find_version`] 的「任意执行器」版本（P-FLOW-1B，用于事务内发起审批单时取版本号）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_version_in(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<VersionRow>> {
     let sql = format!("SELECT {VERSION_COLUMNS}{VERSION_FROM} WHERE v.id = ?::uuid");
-    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
-    rows.first().map(VersionRow::from_row).transpose()
+    ex.query_first_sql(sql, vec![Value::from(&id)])
+        .await?
+        .map(|row| VersionRow::from_row(&row))
+        .transpose()
 }
 
 /// 某流程的全部版本（版本号倒序）。
@@ -578,20 +590,28 @@ pub async fn load_graph(version_id: Uuid) -> DbResult<FlowGraph> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn load_snapshot(version_id: Uuid) -> DbResult<Option<String>> {
-    let rows = db()
-        .find_with_params(
+    load_snapshot_in(db(), version_id).await
+}
+
+/// [`load_snapshot`] 的「任意执行器」版本（P-FLOW-1B：事务内读快照判断 `on_complete` / `on_reject`）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn load_snapshot_in(ex: &impl SqlExecutor, version_id: Uuid) -> DbResult<Option<String>> {
+    let Some(row) = ex
+        .query_first_sql(
             "SELECT graph_snapshot::text AS snapshot_text \
-               FROM biz_flow_def_version WHERE id = ?::uuid",
+               FROM biz_flow_def_version WHERE id = ?::uuid"
+                .to_string(),
             vec![Value::from(&version_id)],
         )
-        .await?;
-    match rows.first() {
-        None => Ok(None),
-        Some(row) => {
-            let text: Option<String> = row.get_typed("snapshot_text")?;
-            Ok(text.filter(|value| !value.trim().is_empty()))
-        }
-    }
+        .await?
+    else {
+        return Ok(None);
+    };
+    let text: Option<String> = row.get_typed("snapshot_text")?;
+    Ok(text.filter(|value| !value.trim().is_empty()))
 }
 
 /// 统计版本下的行数（验收 8：`SELECT count(*)` 与 `node_count/edge_count` 一致）。
@@ -1202,6 +1222,24 @@ pub async fn find_def_by_code(code: &str) -> DbResult<Option<DefRow>> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn default_def_of_biz_type(biz_type: &str) -> DbResult<Option<DefRow>> {
+    default_def_of_biz_type_in(db(), biz_type).await
+}
+
+/// [`default_def_of_biz_type`] 的「任意执行器」版本（P-FLOW-1B）。
+///
+/// # 为什么需要它
+///
+/// `on_complete=APPROVE` 的发起发生在 `change_status` 的**事务内**（任务状态与审批单必须
+/// 同生共死）。在事务闭包里调 `default_def_of_biz_type()` 会走 `db()` 的另一条连接 ——
+/// 同一行在两边读写就是自锁风险。这里把执行器变成入参，`&Transaction` 与 `&Db` 都能传。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn default_def_of_biz_type_in(
+    ex: &impl SqlExecutor,
+    biz_type: &str,
+) -> DbResult<Option<DefRow>> {
     let sql = format!(
         "SELECT {DEF_COLUMNS}{DEF_FROM} \
           WHERE d.biz_type = ? AND d.deleted_at IS NULL AND d.status = 'PUBLISHED' \
@@ -1209,10 +1247,10 @@ pub async fn default_def_of_biz_type(biz_type: &str) -> DbResult<Option<DefRow>>
           ORDER BY d.is_default DESC, d.current_version_no DESC, d.updated_at DESC \
           LIMIT 1"
     );
-    let rows = db()
-        .find_with_params(&sql, vec![Value::Text(biz_type.to_string())])
-        .await?;
-    rows.first().map(DefRow::from_row).transpose()
+    ex.query_first_sql(sql, vec![Value::Text(biz_type.to_string())])
+        .await?
+        .map(|row| DefRow::from_row(&row))
+        .transpose()
 }
 
 // ---------- 运行侧批注：run-time runtime block (D2) ----------
@@ -1801,17 +1839,27 @@ pub async fn sync_auto_passed(ex: &Transaction, instance_id: Uuid) -> DbResult<i
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn biz_instance_running(biz_type: &str, biz_id: Uuid) -> DbResult<bool> {
-    let rows = db()
-        .find_with_params(
+    biz_instance_running_in(db(), biz_type, biz_id).await
+}
+
+/// [`biz_instance_running`] 的「任意执行器」版本（P-FLOW-1B：事务内发起前查重）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn biz_instance_running_in(
+    ex: &impl SqlExecutor,
+    biz_type: &str,
+    biz_id: Uuid,
+) -> DbResult<bool> {
+    let total: i64 = ex
+        .scalar_sql(
             "SELECT count(*) AS total FROM biz_flow_instance \
-              WHERE biz_type = ? AND biz_id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL",
+              WHERE biz_type = ? AND biz_id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL"
+                .to_string(),
             vec![Value::Text(biz_type.to_string()), Value::from(&biz_id)],
         )
         .await?;
-    let total: i64 = match rows.first() {
-        Some(row) => row.get_typed("total")?,
-        None => 0,
-    };
     Ok(total > 0)
 }
 
@@ -2429,6 +2477,122 @@ pub async fn cancel_pending_of_biz(
         tasks,
         nodes,
     })
+}
+
+// ==================== 实例终态 → 未完成任务批量取消（P-FLOW-1B） ====================
+
+/// 被「流程实例走到终态」连带取消的一张流程任务（变更日志与 e2e 断言用）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CancelledFlowTask {
+    /// 任务 id。
+    pub task_id: Uuid,
+    /// 任务编号。
+    pub task_no: String,
+    /// 取消**之前**的状态（`TODO` / `DOING` / `REVIEW`）—— 变更日志的 `from` 必须是旧值。
+    pub from: String,
+}
+
+/// 流程侧「系统身份」写变更日志时用的操作人名字（卡面指定文案）。
+pub const FLOW_CANCEL_OPERATOR_NAME: &str = "流程终止（系统）";
+
+/// 实例走到终态时，把它名下**没干完**的任务批量置 `CANCELLED`（设计 §4.5 Q2 的第 ④ 个耦合点）。
+///
+/// # 为什么只动 `TODO / DOING / REVIEW`（**不许动 `DONE`**）
+///
+/// `task::state::TRANSITIONS` 的 10 条边里**没有 `DONE → CANCELLED`**。已完成的活是业务事实，
+/// 行政终止（撤回 / 管理员终止 / 驳回终止）不能把它改写成"取消" —— 那会让完成率统计凭空下降。
+/// 这条不是偷懒，是状态机本身的约束（设计 §7.2 硬结论 1）。
+///
+/// # 为什么走批量 `UPDATE` 而不是 `state::check_transition`
+///
+/// 三条 cancel 边的 `actors` 只有 `OWNER|CREATOR|ASSIGNER|ADMIN`，`callback_transition`
+/// 也只开 `REVIEW → DONE|DOING`。若走 `ActorKind::FlowCallback`，每条都会被 `63010` 挡住，
+/// 整笔终止事务回滚 —— 症状是「流程终止不了，因为有一张任务取消不掉」（设计 §7.2 硬结论 2/3）。
+/// 所以这里与 [`cancel_pending_of_biz`] 同款：一条 `UPDATE … WHERE status IN (…)`，
+/// 变更日志在同一事务里逐条补，`operator_name = [`FLOW_CANCEL_OPERATOR_NAME`]`。
+///
+/// # 为什么先 `SELECT` 再 `UPDATE`
+///
+/// PG 的 `RETURNING` 只给**新值**（`status` 已经是 `CANCELLED`），而变更日志的 diff 必须有
+/// `from`。两条语句都在调用方的事务里，中间不会被别人插队（`biz_task` 行锁由 `UPDATE` 持有）。
+///
+/// # 异常情况
+///
+/// 数据库异常 / 变更日志写不进去 → [`DbError`]（调用方整笔回滚：宁可这次终止不了，
+/// 也不接受「实例已终止、任务还挂着」）。
+// SCOPE-EXEMPT: 按 `flow_instance_id` 精确取**某一张流程实例**名下的任务（入参来自引擎内部的
+// SCOPE-EXEMPT: `biz_flow_instance.id`），是系统身份的级联写，不是面向用户的列表查询。
+pub async fn cancel_flow_tasks(
+    ex: &Transaction,
+    instance_id: Uuid,
+    instance_no: &str,
+    comment: &str,
+) -> DbResult<Vec<CancelledFlowTask>> {
+    // ① 先取旧状态（`RETURNING` 拿不到 from）
+    let rows = ex
+        .find_with_params(
+            "SELECT t.id, t.task_no, t.status FROM biz_task t \
+              WHERE t.flow_instance_id = ?::uuid AND t.deleted_at IS NULL \
+                AND t.status IN ('TODO','DOING','REVIEW') \
+              ORDER BY t.task_no",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    let victims: Vec<CancelledFlowTask> = rows
+        .iter()
+        .map(|row| {
+            Ok(CancelledFlowTask {
+                task_id: row.get_typed("id")?,
+                task_no: row.get_typed("task_no")?,
+                from: row.get_typed("status")?,
+            })
+        })
+        .collect::<DbResult<Vec<_>>>()?;
+    if victims.is_empty() {
+        return Ok(victims);
+    }
+
+    // ② 一条语句批量翻状态（与 `cancel_pending_of_biz` 同款；`DONE` 不在过滤条件里）
+    ex.execute_with_params(
+        "UPDATE biz_task SET status = 'CANCELLED', cancel_reason = ?, updated_at = now() \
+          WHERE flow_instance_id = ?::uuid AND deleted_at IS NULL \
+            AND status IN ('TODO','DOING','REVIEW')",
+        vec![Value::Text(comment.to_string()), Value::from(&instance_id)],
+    )
+    .await?;
+
+    // ③ 同事务逐条写变更日志（审计口径：每条任务都要能回答「谁、为什么取消的」）
+    for victim in &victims {
+        let before = serde_json::json!({ "status": victim.from });
+        let after = serde_json::json!({
+            "status": "CANCELLED",
+            "cancel_reason": comment,
+        });
+        changelog::record(
+            ex,
+            &ChangeCtx::api(None, Some(FLOW_CANCEL_OPERATOR_NAME)),
+            ChangeTarget::of(
+                "biz_task",
+                victim.task_id.to_string(),
+                Action::Status,
+                &format!("流程 {} 已终止，未完成任务被系统取消", instance_no),
+            ),
+            DiffInput::update(&before, &after),
+        )
+        .await
+        .map_err(|error| {
+            DbError::InvalidValue(format!("变更日志写入失败 [{}] {}", error.code, error.msg))
+        })?;
+    }
+
+    tracing::info!(
+        %instance_id,
+        instance_no,
+        cancelled = victims.len() as i64,
+        comment,
+        "流程实例已终止：未完成任务已批量取消"
+    );
+    Ok(victims)
 }
 
 /// 现算票数（**唯一的票数来源**，`COUNT(*) FILTER`，架构 D15 第 3 层）。
@@ -3161,17 +3325,30 @@ pub async fn user_brief(id: Uuid) -> DbResult<Option<UserBrief>> {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn user_profile(id: Uuid) -> DbResult<Option<(String, Option<Uuid>)>> {
-    let rows = db()
-        .find_with_params(
+    user_profile_in(db(), id).await
+}
+
+/// [`user_profile`] 的「任意执行器」版本（P-FLOW-1B：事务内发起审批单时取发起人快照）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn user_profile_in(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Option<(String, Option<Uuid>)>> {
+    let Some(row) = ex
+        .query_first_sql(
             "SELECT COALESCE(NULLIF(u.real_name, ''), u.username, '') AS name, u.dept_id \
-               FROM sys_user u WHERE u.id = ?::uuid AND u.deleted_at IS NULL",
+               FROM sys_user u WHERE u.id = ?::uuid AND u.deleted_at IS NULL"
+                .to_string(),
             vec![Value::from(&id)],
         )
-        .await?;
-    match rows.first() {
-        None => Ok(None),
-        Some(row) => Ok(Some((row.get_typed("name")?, row.get_typed("dept_id")?))),
-    }
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some((row.get_typed("name")?, row.get_typed("dept_id")?)))
 }
 
 // ---------- 参数小工具 ----------

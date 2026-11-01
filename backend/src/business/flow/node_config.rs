@@ -30,7 +30,10 @@
 //! # 1A 与 1B 的分界
 //!
 //! `on_complete=APPROVE` 在 1A 的 R18 里**直接拒绝**（引擎没有那条分支）。这不是降级：
-//! 静默把 APPROVE 当 DIRECT 跑 = 用户以为配了审批、实际没审 = 内控事故。1B 放开。
+//! 静默把 APPROVE 当 DIRECT 跑 = 用户以为配了审批、实际没审 = 内控事故。
+//! **P-FLOW-1B 已放开**：任务 `DOING→DONE` 时节点保持 `ACTIVE`，同事务发起
+//! `approve_biz_type` 审批单（`task_bridge::on_task_status_changed`），审批通过才推进下游。
+//! 唯一保留的 APPROVE 约束是 `APPROVE + need_review=true` 仍然拒绝（R18 的「点两次」）。
 
 use serde_json::{Map, Value};
 use std::collections::BTreeMap;
@@ -81,7 +84,8 @@ pub enum OnComplete {
     Direct,
     /// 任务进 `REVIEW`，由 creator（= 流程发起人）验收后通过。
     Verify,
-    /// 完成后自动发起一个审批流（**1B 才落地**；1A 的 R18 直接拒绝）。
+    /// 完成后自动发起一个审批流（**P-FLOW-1B 落地**：任务 `DOING→DONE` 时节点保持 `ACTIVE`，
+    /// 同事务发起 `approve_biz_type` 审批单，审批通过才推进下游）。
     Approve,
 }
 
@@ -487,7 +491,7 @@ pub fn parse_task_config(value: &Value) -> std::result::Result<TaskNodeConfig, A
 /// | `VERIFY` | `true` | ✅ 允许（= 上一行，`VERIFY` 是显式声明） |
 /// | `VERIFY` | `false` | ❌ 矛盾：声明要验收却没开验收态（配置静默失效） |
 /// | `APPROVE` | `true` | ❌「点两次提交」（验收一次 + 审批再签一次） |
-/// | `APPROVE` | `false` | 1A ❌（引擎分支在 P-FLOW-1B）；1B 起 ✅ |
+/// | `APPROVE` | `false` | ✅（P-FLOW-1B 起；任务 `DOING→DONE` 时同事务发起审批单） |
 ///
 /// # 异常情况
 ///
@@ -500,13 +504,9 @@ pub fn check_matrix(cfg: &TaskNodeConfig) -> std::result::Result<(), ApiError> {
         (OnComplete::Approve, true) => Err(matrix_invalid(
             "on_complete=APPROVE 与 need_review=true 不能同时开启（会让用户点两次：发起人验收 + 审批人签字）",
         )),
-        // 1A 阶段闸：APPROVE 的引擎分支（自动发起审批流）在 P-FLOW-1B。
-        // 这里**必须拒绝**而不是按 DIRECT 跑 —— 静默降级 = 用户以为配了审批、实际没审。
-        // TODO(P-FLOW-1B)：删除本分支并放开 APPROVE。
-        (OnComplete::Approve, false) => Err(matrix_invalid(
-            "on_complete=APPROVE 将在 P-FLOW-1B 开放（本版本的引擎还没有「完成即发起审批」这条分支）。\
-             现在按 DIRECT 跑会让配置静默失效，所以直接拒绝，请先选 DIRECT 或 VERIFY",
-        )),
+        // `APPROVE + need_review=false` 从 P-FLOW-1B 起**放行**：任务 `DOING→DONE` 时
+        // 节点保持 `ACTIVE` 并同事务发起 `approve_biz_type` 审批单，审批通过才推进下游。
+        // 1A 的那条阶段闸（直接拒绝）已随引擎分支落地而删除。
         _ => Ok(()),
     }
 }
@@ -921,7 +921,7 @@ mod tests {
             check_matrix(&cfg).unwrap_err().code,
             error_code::FLOW_TASK_NODE_INVALID
         );
-        // APPROVE × true 拒绝（点两次），× false 在 1A 也拒绝（P-FLOW-1B 才放开）
+        // APPROVE × true 拒绝（点两次）；× false 从 P-FLOW-1B 起**允许**（引擎分支已落地）
         cfg.on_complete = OnComplete::Approve;
         cfg.need_review = true;
         assert_eq!(
@@ -929,12 +929,9 @@ mod tests {
             error_code::FLOW_TASK_NODE_INVALID
         );
         cfg.need_review = false;
-        let error = check_matrix(&cfg).unwrap_err();
-        assert_eq!(error.code, error_code::FLOW_TASK_NODE_INVALID);
         assert!(
-            error.msg.contains("P-FLOW-1B"),
-            "1A 的阶段闸文案要指明后续卡：{}",
-            error.msg
+            check_matrix(&cfg).is_ok(),
+            "P-FLOW-1B 起 APPROVE × need_review=false 必须放行（引擎已有「完成即发起审批」分支）"
         );
     }
 

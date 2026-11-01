@@ -827,6 +827,24 @@ async fn vote(
         return Ok(out);
     }
     out.instance_status = status_after;
+    // P-FLOW-1B 耦合点 ④：审批侧把实例推到终态（`APPROVED` / `REJECTED`）→
+    // 该实例名下没干完的流程任务一起取消（`DONE` 的任务不动，见 `cancel_flow_tasks` 的注释）。
+    // 走进这里的是「流程里混着审批节点」的场景：例如审批节点 B 被驳回终止，而并行支线上
+    // 还挂着任务节点的活 —— 那些任务不能继续躺在别人的待办里。
+    // 失败 → 整笔回滚（「实例已终止、任务还挂着」是用户能看见的脏状态）。
+    if out.instance_status != "PENDING" {
+        let comment = format!("流程已终止（{}）", instance.instance_no);
+        let cancelled =
+            model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, &comment).await?;
+        if !cancelled.is_empty() {
+            tracing::info!(
+                instance_id = %instance.id,
+                instance_status = %out.instance_status,
+                cancelled_biz_tasks = cancelled.len() as i64,
+                "流程实例已到终态：未完成的流程任务一并取消"
+            );
+        }
+    }
     Ok(out)
 }
 
@@ -958,9 +976,467 @@ pub async fn withdraw(ex: &Transaction, instance_id: Uuid, operator: Uuid) -> Db
         cancelled_nodes,
         "审批单已撤回"
     );
+    // P-FLOW-1B 耦合点 ④：实例走到终态（`WITHDRAWN`）→ 它名下没干完的流程任务一起取消。
+    // 与撤回同一事务：撤不掉就整笔回滚（不接受「实例已撤回、任务还挂在别人的待办里」）。
+    let flow_tasks = model::cancel_flow_tasks(
+        ex,
+        instance.id,
+        &instance.instance_no,
+        &format!("流程已撤回（{}）", instance.instance_no),
+    )
+    .await?;
+    if !flow_tasks.is_empty() {
+        tracing::info!(
+            instance_id = %instance.id,
+            tasks = flow_tasks.len() as i64,
+            "审批单已撤回：未完成的流程任务一并取消"
+        );
+    }
     Ok(ActionOut {
         instance_id: Some(instance.id),
         instance_status: "WITHDRAWN".to_string(),
+        done: true,
+        effects,
+        ..ActionOut::default()
+    })
+}
+
+// ==================== 任务节点（TASK_NODE）的三条流程侧动作（P-FLOW-1B） ====================
+//
+// 这三个函数是 **`flow` 侧唯一「由任务状态驱动」的写入口**，只由 `flow::task_bridge` 调用。
+// HTTP 层没有它们的路由 —— 任务状态只能通过 `PATCH /business/task/{id}/status` 改，
+// 那条路径上的人一定是 `ActorKind::User`（红线）。
+//
+// 三者与 `vote()` 的关系：`vote` 是「审批待办投票 → 节点结束」，这里是「工作任务完成/打回/取消
+// → 节点结束」。共同点（锁序、`end_node_row`、`drive`、`bump_instance` 的 CAS、失败整单回滚）
+// 全部复用，差别只在**谁触发**与**节点上没有票**。
+
+/// 任务节点「通过」：节点 `ACTIVE → APPROVED` + 驱动下游（设计 §4.5 Q2 耦合点 ①）。
+///
+/// # 返回值
+///
+/// [`ActionOut`]：`next_nodes` 是本次驱动到的下游节点；`instance_status` 是动作后的实例状态
+/// （可能是 `APPROVED` —— 说明这是最后一个节点）。
+///
+/// # 幂等与并发
+///
+/// - 节点已不是 `ACTIVE` → `rejected = Some(409 + 65020)`，`idempotent = true`，
+///   **不改任何行**（并发点两次完成时，第二个请求走这条）；
+/// - 实例已不是 `PENDING` → `rejected = Some(409 + 65038)`，同样不改任何行。
+///
+/// 两种「不改」都必须靠**锁住的实例行 + 现读的节点态**判定：本函数的第一条语句是
+/// `lock_instance(FOR UPDATE)`，所以两个并发事务在这里串行，第二个看到的是第一个已提交的
+/// `APPROVED`。
+///
+/// # 异常情况
+///
+/// 数据库异常 / 快照缺失 → [`DbError`]（调用方整笔回滚，任务状态一起回退）。
+pub async fn complete_task_node(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+    operator: Uuid,
+) -> DbResult<ActionOut> {
+    let Some(instance) = model::lock_instance(ex, instance_id).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance_id),
+            ApiError::new(
+                404,
+                error_code::FLOW_INSTANCE_NOT_FOUND,
+                "任务所属的流程实例不存在",
+            ),
+        ));
+    };
+    if !instance.is_pending() {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!(
+                    "流程实例 {} 已结束（{}），不能再推进流程",
+                    instance.instance_no, instance.status
+                ),
+            ),
+        ));
+    }
+    let Some(node) = model::find_node(ex, instance.id, node_key, round).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!("流程实例里没有节点 {node_key} 第 {round} 轮的运行时行"),
+            ),
+        ));
+    };
+    if node.status != "ACTIVE" {
+        return Ok(ActionOut {
+            instance_id: Some(instance.id),
+            instance_status: instance.status.clone(),
+            node_status: Some(node.status.clone()),
+            done: true,
+            idempotent: true,
+            rejected: Some(ApiError::new(
+                409,
+                error_code::FLOW_TASK_ALREADY_DONE,
+                format!(
+                    "节点「{}」第 {} 轮已经处理过（{}），不能重复完成",
+                    node.node_name, round, node.status
+                ),
+            )),
+            ..ActionOut::default()
+        });
+    }
+
+    // 节点通过：任务节点上没有「票」的概念，计数按 1 人 1 票写死
+    // （`biz_flow_instance_node.approver_count` 在 spawn 时已置 1，见 `activate_node_row(…, 1)`）
+    model::end_node_row(
+        ex,
+        node.id,
+        "APPROVED",
+        model::Tally {
+            approved: 1,
+            rejected: 0,
+            pending: 0,
+            total: 1,
+        },
+        None,
+        false,
+    )
+    .await?;
+
+    let mut run = Run::new(
+        ex,
+        instance.clone(),
+        load_snapshot(ex, instance.version_id).await?,
+    );
+    run.round = round;
+    let targets = run.out_targets(node_key, None, false);
+    let failure = run.drive(targets).await?;
+    let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
+    let status_after = run
+        .final_status
+        .clone()
+        .unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id)
+        .await?
+        .max(instance.round_total);
+    let updated = model::bump_instance(
+        ex,
+        instance.id,
+        instance.revision,
+        Some(&status_after),
+        None,
+        round_total,
+    )
+    .await?;
+    if updated == 0 {
+        // 我们持有实例行锁，理论上不可能 0 行；真出现说明有人绕过了锁序
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_INSTANCE_NOT_PENDING,
+                "流程实例正在被其他操作推进（revision CAS 冲突），请刷新后重试",
+            ),
+        ));
+    }
+
+    // 耦合点 ④：这次「通过」把实例走完了（最后一个节点）→ 其余未完成任务一起取消。
+    // 正常情况下没有未完成任务可取消（实例能结束 = 没有 in-flight 节点），
+    // 但要覆盖「并行分支上有人提前取消过任务」这类脏数据。
+    if status_after != "PENDING" {
+        model::cancel_flow_tasks(
+            ex,
+            instance.id,
+            &instance.instance_no,
+            &format!(
+                "流程已{}（{}）",
+                if status_after == "APPROVED" {
+                    "通过"
+                } else {
+                    "结束"
+                },
+                instance.instance_no
+            ),
+        )
+        .await?;
+    }
+
+    let mut out = ActionOut {
+        instance_id: Some(instance.id),
+        instance_status: status_after,
+        node_status: Some("APPROVED".to_string()),
+        done: true,
+        next_nodes: run.next_nodes.clone(),
+        auto_passed_nodes: auto_passed,
+        effects: run.effects,
+        ..ActionOut::default()
+    };
+    if let Some(error) = failure {
+        out.rejected = Some(error);
+    }
+    tracing::info!(
+        instance_id = %instance.id,
+        node_key,
+        round,
+        operator = %operator,
+        instance_status = %out.instance_status,
+        next_nodes = ?out.next_nodes,
+        "任务节点已完成，流程已驱动下游"
+    );
+    Ok(out)
+}
+
+/// 任务节点「退回上一节点」（`on_reject=BACK_TO_PREV` / `on_cancel=BACK_TO_PREV`）。
+///
+/// 复用引擎既有的 [`Run::apply_return`]（`ReturnTo::Prev`）：当前节点 `REJECTED`、掐断其余
+/// 在跑节点与待办、上一节点按 `round + 1` 重新激活。**不造第二套退回逻辑** ——
+/// 「上一节点」在多入边汇聚点上是多值的，那份算法只此一处。
+///
+/// # 幂等与并发
+///
+/// 节点已不是 `ACTIVE` → `409 + 65020`，不改任何行。
+///
+/// # 异常情况
+///
+/// 数据库异常 / 快照缺失 → [`DbError`]（调用方整笔回滚）。
+pub async fn return_task_node(
+    ex: &Transaction,
+    instance_id: Uuid,
+    node_key: &str,
+    round: i32,
+    operator: Uuid,
+    comment: &str,
+) -> DbResult<ActionOut> {
+    let Some(instance) = model::lock_instance(ex, instance_id).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance_id),
+            ApiError::new(
+                404,
+                error_code::FLOW_INSTANCE_NOT_FOUND,
+                "任务所属的流程实例不存在",
+            ),
+        ));
+    };
+    if !instance.is_pending() {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!(
+                    "流程实例 {} 已结束（{}），不能再退回",
+                    instance.instance_no, instance.status
+                ),
+            ),
+        ));
+    }
+    let Some(node) = model::find_node(ex, instance.id, node_key, round).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!("流程实例里没有节点 {node_key} 第 {round} 轮的运行时行"),
+            ),
+        ));
+    };
+    if node.status != "ACTIVE" {
+        return Ok(ActionOut {
+            instance_id: Some(instance.id),
+            instance_status: instance.status.clone(),
+            node_status: Some(node.status.clone()),
+            done: true,
+            idempotent: true,
+            rejected: Some(ApiError::new(
+                409,
+                error_code::FLOW_TASK_ALREADY_DONE,
+                format!(
+                    "节点「{}」第 {} 轮已经处理过（{}），不能重复退回",
+                    node.node_name, round, node.status
+                ),
+            )),
+            ..ActionOut::default()
+        });
+    }
+
+    model::end_node_row(
+        ex,
+        node.id,
+        "REJECTED",
+        model::Tally {
+            approved: 0,
+            rejected: 1,
+            pending: 0,
+            total: 1,
+        },
+        None,
+        false,
+    )
+    .await?;
+
+    let mut run = Run::new(
+        ex,
+        instance.clone(),
+        load_snapshot(ex, instance.version_id).await?,
+    );
+    run.round = round;
+    let failure = run.apply_return(&node, &ReturnTo::Prev, comment).await?;
+    let auto_passed = model::sync_auto_passed(ex, instance.id).await?;
+    let status_after = run
+        .final_status
+        .clone()
+        .unwrap_or_else(|| "PENDING".to_string());
+    let round_total = model::max_round(ex, instance.id)
+        .await?
+        .max(instance.round_total);
+    let updated = model::bump_instance(
+        ex,
+        instance.id,
+        instance.revision,
+        Some(&status_after),
+        None,
+        round_total,
+    )
+    .await?;
+    if updated == 0 {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_INSTANCE_NOT_PENDING,
+                "流程实例正在被其他操作推进（revision CAS 冲突），请刷新后重试",
+            ),
+        ));
+    }
+    if status_after != "PENDING" {
+        model::cancel_flow_tasks(
+            ex,
+            instance.id,
+            &instance.instance_no,
+            &format!("流程已终止（{}）", instance.instance_no),
+        )
+        .await?;
+    }
+
+    let mut out = ActionOut {
+        instance_id: Some(instance.id),
+        instance_status: status_after,
+        node_status: Some("REJECTED".to_string()),
+        done: true,
+        next_nodes: run.next_nodes.clone(),
+        auto_passed_nodes: auto_passed,
+        effects: run.effects,
+        ..ActionOut::default()
+    };
+    if let Some(error) = failure {
+        out.rejected = Some(error);
+    }
+    tracing::info!(
+        instance_id = %instance.id,
+        node_key,
+        round,
+        operator = %operator,
+        next_nodes = ?out.next_nodes,
+        comment,
+        "任务节点已退回上一节点（轮次 +1）"
+    );
+    Ok(out)
+}
+
+/// 终止实例（`on_reject=TERMINATE` → `REJECTED`；`on_cancel=TERMINATE` → `CANCELLED`）。
+///
+/// # 与 `cancel_pending_of_biz` 的区别
+///
+/// 那个是「业务单据没了 → 顺带把审批单撤掉」，入参是业务单据；这里是「流程自己决定终止」，
+/// 入参是实例，并且要**连带取消该实例名下没干完的流程任务**（耦合点 ④）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（调用方整笔回滚）。
+pub async fn terminate_instance(
+    ex: &Transaction,
+    instance_id: Uuid,
+    status: &str,
+    comment: &str,
+) -> DbResult<ActionOut> {
+    // 只允许两个终态：`REJECTED`（驳回终止）/ `CANCELLED`（行政终止）。
+    // 传别的值直接 `InvalidValue` —— 这个函数不该成为「任意改实例状态」的入口。
+    if !matches!(status, "REJECTED" | "CANCELLED") {
+        return Err(DbError::InvalidValue(format!(
+            "terminate_instance 只接受 REJECTED / CANCELLED，收到 {status}"
+        )));
+    }
+    let Some(instance) = model::lock_instance(ex, instance_id).await? else {
+        return Ok(ActionOut::deny(
+            Some(instance_id),
+            ApiError::new(404, error_code::FLOW_INSTANCE_NOT_FOUND, "流程实例不存在"),
+        ));
+    };
+    if !instance.is_pending() {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_INSTANCE_NOT_PENDING,
+                format!("流程实例已结束（{}），不能终止", instance.status),
+            ),
+        ));
+    }
+
+    // 顺序与 `withdraw` 同款：先待办、再节点、最后主表（主表一翻，子表就不该再动）
+    let pending_tasks = model::cancel_pending_of_instance(ex, instance.id, comment).await?;
+    let cancelled_nodes = model::cancel_active_nodes(ex, instance.id, None).await?;
+    let updated = model::bump_instance(
+        ex,
+        instance.id,
+        instance.revision,
+        Some(status),
+        Some(comment),
+        instance.round_total,
+    )
+    .await?;
+    if updated == 0 {
+        return Ok(ActionOut::deny(
+            Some(instance.id),
+            ApiError::new(
+                409,
+                error_code::FLOW_INSTANCE_NOT_PENDING,
+                "流程实例正在被其他操作推进（revision CAS 冲突），请刷新后重试",
+            ),
+        ));
+    }
+    let flow_tasks =
+        model::cancel_flow_tasks(ex, instance.id, &instance.instance_no, comment).await?;
+
+    let mut effects = Effects::default();
+    effects.notice(
+        vec![instance.initiator_id],
+        format!("流程已终止：{}", instance.title),
+        format!(
+            "流程实例 {}（{}）已终止（{}）：{}",
+            instance.instance_no, instance.flow_name, status, comment
+        ),
+        format!("/flow/instance/{}", instance.id),
+        instance.id,
+        true,
+    );
+
+    tracing::info!(
+        instance_id = %instance.id,
+        status,
+        pending_flow_tasks = pending_tasks,
+        cancelled_nodes,
+        cancelled_biz_tasks = flow_tasks.len() as i64,
+        comment,
+        "流程实例已按任务节点的 on_reject / on_cancel 策略终止"
+    );
+    Ok(ActionOut {
+        instance_id: Some(instance.id),
+        instance_status: status.to_string(),
         done: true,
         effects,
         ..ActionOut::default()

@@ -35,12 +35,25 @@ use nik::uuid::Uuid;
 
 use crate::business::changelog::{self, Action, ChangeCtx, ChangeTarget, DiffInput};
 use crate::business::erp::transfer_model as erp_transfer;
+use crate::business::flow::graph;
+use crate::business::flow::node_config::{self, OnCancel, OnComplete, OnReject, TaskNodeConfig};
+use crate::business::flow::task_node;
 use crate::business::flow::{engine, model};
 use crate::business::task::model as task_model;
 use crate::business::task::state::{self, ActorKind, TaskStatus};
+use crate::shared::error_code;
 
 /// 任务验收类流程的业务类型（`biz_flow_def.biz_type`，`flow::dto::normalize_biz_type` 归一化后全大写）。
 pub const TASK_ACCEPT_BIZ_TYPE: &str = "TASK_ACCEPT";
+
+/// 流程生成的任务 `source` 值（`flow::task_node::FLOW_SOURCE` 的再导出）。
+///
+/// # 为什么要再导出
+///
+/// `task` 模块对 `flow` 只认 `task_bridge` 这一个口（`task/handler.rs` 已经
+/// `use crate::business::flow::task_bridge`）。让它直接 `use flow::task_node`
+/// 等于在模块边界上又开一条线，下一次重构就分叉了。
+pub use crate::business::flow::task_node::FLOW_SOURCE;
 
 /// 审批单进入「已通过」时任务该去的地方。
 const INSTANCE_APPROVED: &str = "APPROVED";
@@ -242,25 +255,33 @@ struct CallbackTaskRow {
 /// `callback_transition` 返回 `IllegalPair` → 记一条 `debug` 后返回 `None`，不报错。
 pub async fn on_instance_settled(instance_id: Option<Uuid>, instance_status: &str) -> Option<Uuid> {
     let instance_id = instance_id?;
-    let target = settle_target(instance_status)?;
-
-    match settle(instance_id, target).await {
-        Ok(task_id) => {
-            if let Some(task_id) = task_id {
-                tracing::info!(
-                    %instance_id,
-                    %task_id,
-                    to = target.code(),
-                    "审批结论已回调任务状态"
-                );
+    let task_id = match settle_target(instance_status) {
+        None => None,
+        Some(target) => match settle(instance_id, target).await {
+            Ok(task_id) => {
+                if let Some(task_id) = task_id {
+                    tracing::info!(
+                        %instance_id,
+                        %task_id,
+                        to = target.code(),
+                        "审批结论已回调任务状态"
+                    );
+                }
+                task_id
             }
-            task_id
-        }
-        Err(error) => {
-            tracing::warn!(%instance_id, %error, "审批结论回调任务失败（不影响审批单）");
-            None
-        }
-    }
+            Err(error) => {
+                tracing::warn!(%instance_id, %error, "审批结论回调任务失败（不影响审批单）");
+                None
+            }
+        },
+    };
+
+    // ★ P-FLOW-1B：审批单落终态后**推进流程节点**（`on_complete=APPROVE` 与「验收通过」两条路
+    //   共用这一处）。必须排在 `settle` 之后：`REVIEW → DONE` 刚落库，节点才知道该通过。
+    //   与 `settle` 同口径——失败只 `warn`，不回滚审批结论。
+    on_task_approval_settled(Some(instance_id), instance_status).await;
+
+    task_id
 }
 
 /// [`on_instance_settled`] 的实现体（可失败，由调用方吞掉错误）。
@@ -705,6 +726,736 @@ pub(crate) static CANCEL_INJECT_FAIL: std::sync::atomic::AtomicBool =
 /// 注入失败时回传的哨兵文案（单测用它区分「注入的错」与「真库的错」）。
 #[cfg(test)]
 pub(crate) const P11_FAIL_SENTINEL: &str = "P11-FAIL-INJECTED";
+
+// ==================== 写：任务状态变更 → 流程节点（P-FLOW-1B） ====================
+//
+// 本节落地设计 §3.4 / §4.5 Q2 的**四个耦合点**（有且只有这四个）：
+//
+// | # | 触发 | 任务侧 | 流程侧 | 谁写 |
+// |---|---|---|---|---|
+// | ① | 任务进入 `DONE` | `DONE` | 节点 `ACTIVE→APPROVED` + 驱动下游 | [`on_task_status_changed`] |
+// | ② | 任务 `REVIEW→DOING`（打回） | `DOING` | 按 `on_reject` | 同上 |
+// | ③ | 任务进入 `CANCELLED` | `CANCELLED` | 按 `on_cancel` | 同上 |
+// | ④ | 实例进入终态 | 未完成任务 → `CANCELLED` | — | `flow::model::cancel_flow_tasks` |
+//
+// **红线（卡面）**：`ActorKind::FlowCallback` 只在本文件出现。HTTP handler 一律
+// `ActorKind::User`；而本节的所有写入都**不经过** `task::state::check_transition` 的反向
+// （任务 → 流程）—— 任务侧的状态已经由 handler 用 `ActorKind::User` 判过了，这里只动流程。
+
+/// 任务状态变更回调的四种结果（设计 §3.4）。
+///
+/// # 为什么没有第五种「Nothing」
+///
+/// 设计只给了 4 个值，而映射表里「其它 → 不动」的行需要一种「什么都没发生但也不报错」的表达。
+/// 这里用 [`FlowTaskOutcome::Ignored`] 承担它：语义是「本次变更不推进流程」，
+/// `instance_status` 说明当时实例是什么状态（`"PENDING"` 就是「流程在跑，但这次不该动」）。
+#[derive(Debug)]
+pub enum FlowTaskOutcome {
+    /// 不是流程任务（绝大多数请求走这里 —— 普通任务的 `change_status` 逐字节不变）。
+    NotFlowTask,
+    /// 流程侧已被本次变更推进：节点通过并驱动下游 / 退回上一节点 / 按 `on_cancel` 终止实例。
+    ///
+    /// `next_nodes` 是本次驱动到的下游节点（终止 / 挂起等审批的场景为空）。
+    Advanced {
+        /// 本次激活的下游节点 key。
+        next_nodes: Vec<String>,
+    },
+    /// 本次变更**不推进**流程（映射表里「不动」的行；或实例已离开 `PENDING` 且无事可做）。
+    Ignored {
+        /// 当时实例的状态（读不到实例时为 `"MISSING"`）。
+        instance_status: String,
+    },
+    /// 业务冲突：任务要求推进流程，但流程侧已经不允许 → 调用方**整笔回滚**并返回这个错误。
+    ///
+    /// 与 `Ignored` 的分界（设计 §7.2 验收 5 的取舍）：**任务已完成/已打回是用户该知道的事**，
+    /// 静默成功会让前端显示「完成」而流程没动。所以这里选 `Conflict` 而不是 `Ignored`。
+    Conflict(ApiError),
+}
+
+/// 一次任务状态变更的上下文（由 `task::handler::change_status` 在事务里构造）。
+#[derive(Debug, Clone, Copy)]
+pub struct TaskStatusChanged<'a> {
+    /// 任务 id。
+    pub task_id: Uuid,
+    /// 生成它的流程实例（`biz_task.flow_instance_id`；非流程任务为 `None`）。
+    pub instance_id: Option<Uuid>,
+    /// 生成它的节点 key（`biz_task.flow_node_key`）。
+    pub node_key: Option<&'a str>,
+    /// 生成时的轮次（`biz_task.flow_round`）。
+    pub round: Option<i32>,
+    /// 变更前状态。
+    pub from: TaskStatus,
+    /// 变更后状态。
+    pub to: TaskStatus,
+    /// 操作人（写进流程侧日志 / 审批单发起人）。
+    pub operator: Uuid,
+    /// 操作人姓名（日志用）。
+    pub operator_name: &'a str,
+    /// 打回 / 取消原因（`REVIEW→DOING` 与 `→CANCELLED` 必填，见任务状态机）。
+    pub reason: Option<&'a str>,
+}
+
+/// 任务状态变更在流程侧的**动作**（纯枚举，便于把映射表写成可断言的形式）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NodeAction {
+    /// 不动（映射表里「其它 / 等验收 / 重开」的行）。
+    Nothing,
+    /// 节点 `ACTIVE → APPROVED` 并驱动下游。
+    Approve,
+    /// `on_complete=APPROVE`：节点保持 `ACTIVE`，同事务发起审批单（`biz_type = approve_biz_type`）。
+    StartApproval,
+    /// 退回上一节点（`round + 1`，复用引擎 `apply_return`）。
+    ReturnToPrev,
+    /// 终止实例（`REJECTED` = 驳回终止；`CANCELLED` = 行政终止）。
+    Terminate(&'static str),
+}
+
+/// 任务 `from→to` × 节点配置 → 流程动作（**纯函数**，设计 §3.4 的映射表逐行落地）。
+///
+/// | 任务 `from → to` | 节点动作 |
+/// |---|---|
+/// | `DOING → DONE`（`on_complete != APPROVE`） | `Approve` |
+/// | `DOING → DONE`（`on_complete = APPROVE`） | `StartApproval`（节点仍 `ACTIVE`，等审批） |
+/// | `REVIEW → DONE`（验收通过） | `Approve`（审批已在验收环节发生过，不再发起第二次） |
+/// | `DOING → REVIEW` | `Nothing`（节点保持 `ACTIVE`，等验收） |
+/// | `REVIEW → DOING`（打回） | 按 `on_reject` |
+/// | `DONE → DOING`（重开） | `Nothing`（任务重开不改流程） |
+/// | 任意 → `CANCELLED` | 按 `on_cancel` |
+/// | 其它 | `Nothing`（保守） |
+///
+/// # 为什么 `REVIEW → DONE` 不看 `on_complete`
+///
+/// R18 禁止 `APPROVE + need_review=true`，所以「有 `REVIEW` 态」的节点必然不是 `APPROVE`；
+/// 即便如此也不复用 `StartApproval` 分支 —— 万一是旧快照 / 绕过校验的数据，
+/// 走 `Approve` 至少不会发起第二张审批单。
+pub fn node_action_of(from: TaskStatus, to: TaskStatus, cfg: &TaskNodeConfig) -> NodeAction {
+    match (from, to) {
+        (TaskStatus::Doing, TaskStatus::Done) => match cfg.on_complete {
+            OnComplete::Approve => NodeAction::StartApproval,
+            OnComplete::Direct | OnComplete::Verify => NodeAction::Approve,
+        },
+        (TaskStatus::Review, TaskStatus::Done) => NodeAction::Approve,
+        (TaskStatus::Review, TaskStatus::Doing) => match cfg.on_reject {
+            OnReject::Stay => NodeAction::Nothing,
+            OnReject::BackToPrev => NodeAction::ReturnToPrev,
+            OnReject::Terminate => NodeAction::Terminate("REJECTED"),
+        },
+        // 取消：**只认** `TODO / DOING / REVIEW` 三个来源态。
+        //
+        // 设计文档写「任意 → CANCELLED」，但状态机的 10 条边里明确**没有**
+        // `DONE → CANCELLED`（`state.rs` 实测，设计 §7.2 硬结论 1）。这里按可达集收窄：
+        // 万一上层传进 `DONE → CANCELLED`（绕过状态机的脏调用），也不许把**已经干完的活**
+        // 变成"流程被取消" —— 那等于用一条非法边把完成率改小。
+        (TaskStatus::Todo | TaskStatus::Doing | TaskStatus::Review, TaskStatus::Cancelled) => {
+            match cfg.on_cancel {
+                OnCancel::Stay => NodeAction::Nothing,
+                OnCancel::BackToPrev => NodeAction::ReturnToPrev,
+                OnCancel::Terminate => NodeAction::Terminate("CANCELLED"),
+            }
+        }
+        // `DOING→REVIEW`（等验收）/ `DONE→DOING`（重开）/ `TODO→DOING`（开始）/
+        // `CANCELLED→TODO`（复活）/ 同状态 / 不可达组合：流程都不该动
+        // （设计 §3.4「其它 → 不动」）
+        _ => NodeAction::Nothing,
+    }
+}
+
+/// 流程任务行上回调需要的列（一次查询取全）。
+#[derive(Debug, Clone)]
+struct FlowBridgeTaskRow {
+    task_no: String,
+    title: String,
+    source: String,
+    flow_instance_id: Option<Uuid>,
+    flow_node_key: Option<String>,
+    flow_round: Option<i32>,
+    approval_instance_id: Option<Uuid>,
+}
+
+// SCOPE-EXEMPT: 按 `task_id` 精确取**单条**任务（主键命中），不是列表查询。
+// 调用链：`change_status` 事务内（task_id 来自路径参数，已过 `find_detail` 可见性校验）
+// 与审批回调（task_id 来自 `instance.biz_id`，发起时已校验归属）。
+async fn flow_bridge_row(
+    ex: &impl SqlExecutor,
+    task_id: Uuid,
+) -> DbResult<Option<FlowBridgeTaskRow>> {
+    let Some(row) = ex
+        .query_first_sql(
+            "SELECT t.task_no, t.title, t.source, t.flow_instance_id, \
+                    t.flow_node_key, t.flow_round, t.approval_instance_id \
+               FROM biz_task t WHERE t.id = ?::uuid AND t.deleted_at IS NULL"
+                .to_string(),
+            vec![Value::from(&task_id)],
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    Ok(Some(FlowBridgeTaskRow {
+        task_no: row.get_typed("task_no")?,
+        title: row.get_typed("title")?,
+        source: row.get_typed("source")?,
+        flow_instance_id: row.get_typed("flow_instance_id")?,
+        flow_node_key: row.get_typed("flow_node_key")?,
+        flow_round: row.get_typed("flow_round")?,
+        approval_instance_id: row.get_typed("approval_instance_id")?,
+    }))
+}
+
+/// `on_reject` 等节点策略从「实例绑定的发布快照」里读（**运行时唯一依据**）。
+///
+/// # 为什么读快照而不是读定义行
+///
+/// 实例跑在 `instance.version_id` 那一版上（架构 D2）。发布之后定义被改、被回滚都不该影响
+/// 在跑的实例 —— 与 `engine::load_snapshot` 同口径。
+///
+/// # 返回值
+///
+/// `Ok(None)` = 快照里没有这个节点（→ 调用方按「不动」处理）；
+/// `Err` = 快照缺失 / JSON 解析失败（→ **响亮失败**，不静默降级成 DIRECT）。
+async fn task_node_config_of(
+    ex: &impl SqlExecutor,
+    instance: &model::InstanceRow,
+    node_key: &str,
+) -> DbResult<Option<TaskNodeConfig>> {
+    let Some(raw) = model::load_snapshot_in(ex, instance.version_id).await? else {
+        tracing::warn!(
+            instance_id = %instance.id,
+            version_id = %instance.version_id,
+            "流程实例绑定的版本没有发布快照，任务状态回调无法判定节点策略"
+        );
+        return Ok(None);
+    };
+    let snapshot = graph::parse_snapshot(&raw).map_err(|error| {
+        DbError::InvalidValue(format!(
+            "流程实例 {} 的发布快照无法解析：{error}",
+            instance.instance_no
+        ))
+    })?;
+    let Some(spec) = snapshot.nodes.iter().find(|node| node.key == node_key) else {
+        return Ok(None);
+    };
+    node_config::parse_task_config(&spec.config["task"])
+        .map(Some)
+        .map_err(|error| {
+            // 发布期 R18 已经校验过一遍；这里失败说明快照被绕过改过库。
+            // **不许静默当成 DIRECT**（那就成了「配置写错了但看起来跑得动」）。
+            DbError::InvalidValue(format!(
+                "流程实例 {} 的节点 {node_key} 任务配置非法：{}",
+                instance.instance_no, error.msg
+            ))
+        })
+}
+
+/// 任务状态变更 → 流程节点推进（**必须在 `change_status` 的事务内调用**）。
+///
+/// # 参数
+///
+/// - `tx`：任务状态写入所在的事务（同生共死：流程推不动 → 任务状态一起回滚）；
+/// - `ev`：任务侧的身份与 `from/to`（见 [`TaskStatusChanged`]）。
+///
+/// # 返回值
+///
+/// [`FlowTaskOutcome`]。**本函数不返回 `Conflict` 的 `Err`**：冲突以
+/// `FlowTaskOutcome::Conflict(ApiError)` 返回，由 handler 把它变成「哨兵 + 回滚」
+/// （`ApiError` 既不能进 `DbError` 也不能 `Clone`）。
+///
+/// # 异常情况
+///
+/// - 快照缺失 / 配置非法 → [`DbError::InvalidValue`]（整笔回滚，**不静默跳过**）；
+/// - 数据库异常 → [`DbError`]。
+pub async fn on_task_status_changed(
+    tx: &Transaction,
+    ev: TaskStatusChanged<'_>,
+) -> DbResult<FlowTaskOutcome> {
+    // ① 三列缺任何一个都当「不是流程任务」：`source='FLOW'` 却缺列说明数据损坏，
+    //    这时推进流程比不动更危险（不知道该推哪个节点）。
+    let (Some(instance_id), Some(node_key), Some(round)) = (ev.instance_id, ev.node_key, ev.round)
+    else {
+        tracing::warn!(
+            task_id = %ev.task_id,
+            "任务标记为流程任务但 flow_instance_id / node_key / round 有缺失，跳过流程回调"
+        );
+        return Ok(FlowTaskOutcome::NotFlowTask);
+    };
+
+    // ② 实例行（**锁**：与引擎同一条锁序，保证并发点两次完成时串行判定）
+    let Some(instance) = model::lock_instance(tx, instance_id).await? else {
+        tracing::warn!(task_id = %ev.task_id, %instance_id, "任务所属的流程实例不存在，跳过流程回调");
+        return Ok(FlowTaskOutcome::Ignored {
+            instance_status: "MISSING".to_string(),
+        });
+    };
+
+    // ③ 节点配置（决定 on_complete / on_reject / on_cancel）
+    let Some(cfg) = task_node_config_of(tx, &instance, node_key).await? else {
+        tracing::warn!(
+            task_id = %ev.task_id,
+            %instance_id,
+            node_key,
+            "发布快照里没有该任务节点，跳过流程回调"
+        );
+        return Ok(FlowTaskOutcome::Ignored {
+            instance_status: instance.status.clone(),
+        });
+    };
+
+    // ④ 映射表（纯函数）
+    let action = node_action_of(ev.from, ev.to, &cfg);
+    if action == NodeAction::Nothing {
+        return Ok(FlowTaskOutcome::Ignored {
+            instance_status: instance.status.clone(),
+        });
+    }
+
+    // ⑤ 节点现状（只用于**选错误码**，真正的写仍由引擎在锁内判定）
+    let node = model::find_node(tx, instance_id, node_key, round).await?;
+
+    // ⑥ 需要实例还在跑的三种动作：「完成 → 通过/发起审批」必须 PENDING；
+    //    「退回 / 终止」在实例已结束时**无事可做**（任务侧照常，不报错）。
+    //
+    //    实例不是 PENDING 时有两种不同的诊断，**不能都报 65038**：
+    //
+    //    | 节点现状 | 含义 | 码 |
+    //    |---|---|---|
+    //    | 本轮已 `APPROVED` | 刚才是同一个人 / 并发点的第二次完成 | `65020`（「已处理」）|
+    //    | 其它（`CANCELLED` / `SKIPPED` / 无行） | 流程被终止 / 撤回，任务却要往前推 | `65038`（真冲突）|
+    //
+    //    只按「实例是否 PENDING」判会让并发重复完成也报 65038，前端就分不清
+    //    「你的活已经算完了」和「这张流程没了，去找发起人」。
+    let needs_pending = matches!(action, NodeAction::Approve | NodeAction::StartApproval);
+    if !instance.is_pending() {
+        if needs_pending {
+            let node_approved = matches!(
+                node.as_ref().map(|row| row.status.as_str()),
+                Some("APPROVED")
+            );
+            if node_approved {
+                return Ok(FlowTaskOutcome::Conflict(ApiError::new(
+                    409,
+                    error_code::FLOW_TASK_ALREADY_DONE,
+                    format!(
+                        "流程节点「{node_key}」第 {round} 轮已经完成过，本次重复提交不再推进流程"
+                    ),
+                )));
+            }
+            return Ok(FlowTaskOutcome::Conflict(ApiError::new(
+                409,
+                error_code::FLOW_TASK_STATE_CONFLICT,
+                format!(
+                    "流程「{}」已结束（{}），任务不能再推进流程；请联系流程发起人重新发起",
+                    instance.flow_name, instance.status
+                ),
+            )));
+        }
+        tracing::info!(
+            task_id = %ev.task_id,
+            %instance_id,
+            instance_status = %instance.status,
+            "流程实例已结束，本次任务变更不再改动流程"
+        );
+        return Ok(FlowTaskOutcome::Ignored {
+            instance_status: instance.status.clone(),
+        });
+    }
+
+    // ⑥ 执行
+    match action {
+        NodeAction::Nothing => Ok(FlowTaskOutcome::Ignored {
+            instance_status: instance.status.clone(),
+        }),
+        NodeAction::Approve => {
+            let out =
+                engine::complete_task_node(tx, instance_id, node_key, round, ev.operator).await?;
+            finish_outcome(out, ev, node_key)
+        }
+        NodeAction::StartApproval => {
+            let started = start_task_node_approval(tx, &ev, &cfg, node_key, round).await?;
+            tracing::info!(
+                task_id = %ev.task_id,
+                %instance_id,
+                node_key,
+                approval_instance_id = ?started,
+                biz_type = cfg.approve_biz_type.as_deref().unwrap_or(""),
+                "任务完成（on_complete=APPROVE）：节点保持 ACTIVE，已发起审批单"
+            );
+            Ok(FlowTaskOutcome::Advanced {
+                next_nodes: Vec::new(),
+            })
+        }
+        NodeAction::ReturnToPrev => {
+            let comment = ev.reason.unwrap_or("任务被打回，流程退回上一节点");
+            let out =
+                engine::return_task_node(tx, instance_id, node_key, round, ev.operator, comment)
+                    .await?;
+            match out.rejected {
+                // 节点已经不是 ACTIVE（别人先动过）：流程不能后退，但任务打回本身是合法的
+                // → 记 warn 后按 Ignored 处理，不把用户的「打回」变成 500/409。
+                Some(error) => {
+                    tracing::warn!(
+                        task_id = %ev.task_id,
+                        %instance_id,
+                        code = error.code,
+                        message = %error.msg,
+                        "任务打回时流程节点已不可退回（保持不动）"
+                    );
+                    Ok(FlowTaskOutcome::Ignored {
+                        instance_status: instance.status.clone(),
+                    })
+                }
+                None => Ok(FlowTaskOutcome::Advanced {
+                    next_nodes: out.next_nodes,
+                }),
+            }
+        }
+        NodeAction::Terminate(status) => {
+            let comment = ev.reason.unwrap_or("任务被取消，流程按 on_cancel 策略终止");
+            let out = engine::terminate_instance(tx, instance_id, status, comment).await?;
+            match out.rejected {
+                Some(error) => {
+                    tracing::warn!(
+                        task_id = %ev.task_id,
+                        %instance_id,
+                        code = error.code,
+                        message = %error.msg,
+                        "任务取消时流程实例已不可终止（保持不动）"
+                    );
+                    Ok(FlowTaskOutcome::Ignored {
+                        instance_status: instance.status.clone(),
+                    })
+                }
+                None => Ok(FlowTaskOutcome::Advanced {
+                    next_nodes: Vec::new(),
+                }),
+            }
+        }
+    }
+}
+
+/// `engine::complete_task_node` 的 `ActionOut` → [`FlowTaskOutcome`]。
+///
+/// 引擎的「业务拒绝」在这里一律升级成 `Conflict`（任务已完成 / 实例已结束都是用户该知道的），
+/// 引擎的「下游驱动失败」也一样 —— 那说明流程图本身有问题，静默成功会把问题埋掉。
+fn finish_outcome(
+    mut out: engine::ActionOut,
+    ev: TaskStatusChanged<'_>,
+    node_key: &str,
+) -> DbResult<FlowTaskOutcome> {
+    match out.rejected.take() {
+        Some(error) => {
+            tracing::warn!(
+                task_id = %ev.task_id,
+                node_key,
+                code = error.code,
+                message = %error.msg,
+                "任务完成未能推进流程节点"
+            );
+            Ok(FlowTaskOutcome::Conflict(error))
+        }
+        None => {
+            tracing::info!(
+                task_id = %ev.task_id,
+                node_key,
+                instance_status = %out.instance_status,
+                next_nodes = ?out.next_nodes,
+                "任务完成已推进流程节点"
+            );
+            Ok(FlowTaskOutcome::Advanced {
+                next_nodes: out.next_nodes,
+            })
+        }
+    }
+}
+
+/// `on_complete=APPROVE`：**事务内**发起审批单并回写 `biz_task.approval_instance_id`。
+///
+/// 与 `TASK_ACCEPT` 那条（[`prepare_accept`] + [`start_in_tx`]）的区别只有两点：
+///
+/// | | `TASK_ACCEPT`（验收） | `APPROVE`（本次） |
+/// |---|---|---|
+/// | 发起时机 | `DOING → REVIEW` | `DOING → DONE` |
+/// | `biz_type` | 固定 `TASK_ACCEPT` | `config.task.approve_biz_type`（可配） |
+///
+/// 回写列、发起引擎、后续回调路径（`approval_instance_id` + [`on_instance_settled`]）完全复用。
+///
+/// # 幂等
+///
+/// 同一任务已有在跑的审批单 → `Ok(None)`（重复点完成不撞 `uk_biz_flow_instance_biz_active`）。
+///
+/// # 异常情况
+///
+/// - `approve_biz_type` 没有已发布的默认流程 / 版本行缺失 / 发起被拒 →
+///   [`DbError::InvalidValue`]（**整笔回滚**：任务不许停在「已完成但没发起审批」）；
+/// - 数据库异常 → [`DbError`]。
+async fn start_task_node_approval(
+    tx: &Transaction,
+    ev: &TaskStatusChanged<'_>,
+    cfg: &TaskNodeConfig,
+    node_key: &str,
+    round: i32,
+) -> DbResult<Option<Uuid>> {
+    let Some(biz_type) = cfg
+        .approve_biz_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    else {
+        return Err(DbError::InvalidValue(
+            "on_complete=APPROVE 的节点缺少 approve_biz_type（发布期 R18 应拦住）".to_string(),
+        ));
+    };
+    // ① 幂等：已有在跑的审批单就不重复发起
+    if model::biz_instance_running_in(tx, biz_type, ev.task_id).await? {
+        tracing::info!(
+            task_id = %ev.task_id,
+            biz_type,
+            "该任务已有在跑的审批单，本次完成不再重复发起"
+        );
+        return Ok(None);
+    }
+    // ② 流程定义（必须已发布且是默认）
+    let Some(def) = model::default_def_of_biz_type_in(tx, biz_type).await? else {
+        return Err(DbError::InvalidValue(format!(
+            "on_complete=APPROVE 指定的审批流 {biz_type} 没有已发布的流程（请先发布并设为默认）"
+        )));
+    };
+    let Some(version_id) = def.current_version_id else {
+        return Err(DbError::InvalidValue(format!(
+            "审批流 {biz_type} 没有当前发布版本"
+        )));
+    };
+    let Some(version) = model::find_version_in(tx, version_id).await? else {
+        return Err(DbError::InvalidValue(format!(
+            "审批流 {biz_type} 的发布版本行不存在"
+        )));
+    };
+    // ③ 任务行（标题 / 单号写进审批单，审批中心里能对上）
+    let Some(row) = flow_bridge_row(tx, ev.task_id).await? else {
+        return Err(DbError::InvalidValue(format!(
+            "任务 {} 不存在或已删除，无法发起审批",
+            ev.task_id
+        )));
+    };
+    let (initiator_name, initiator_dept_id) = model::user_profile_in(tx, ev.operator)
+        .await?
+        .unwrap_or((String::new(), None));
+    let title = format!("{} {}", row.task_no, row.title)
+        .trim()
+        .chars()
+        .take(200)
+        .collect::<String>();
+
+    let instance_id = Uuid::now_v7();
+    let req = engine::StartReq {
+        instance_id,
+        def_id: def.id,
+        version_id,
+        version_no: version.version_no,
+        flow_code: def.flow_code.clone(),
+        flow_name: def.flow_name.clone(),
+        biz_type: def.biz_type.clone(),
+        biz_id: Some(ev.task_id),
+        biz_no: Some(row.task_no.clone()),
+        title,
+        initiator_id: ev.operator,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        // 条件节点的表达式作用域：与 TASK_ACCEPT 那条同口径（任务摘要，不外泄正文）
+        form_data: serde_json::json!({
+            "task_id": ev.task_id.to_string(),
+            "task_no": row.task_no,
+            "title": row.title,
+            "flow_instance_id": ev.instance_id.map(|id| id.to_string()),
+            "flow_node_key": node_key,
+            "flow_round": round,
+        }),
+    };
+    let out = engine::start(tx, &req).await?;
+    if let Some(error) = out.rejected.as_ref() {
+        // 发起被拒（派不出审批人 / 图上配置错）：整笔回滚，业务码原样返回
+        return Err(DbError::InvalidValue(format!(
+            "发起审批失败：{}",
+            error.msg
+        )));
+    }
+    let instance_id = out.instance_id.unwrap_or(instance_id);
+    // ④ 回写任务行（门闸与回调都认这一列）
+    tx.exec_sql(
+        "UPDATE biz_task SET approval_instance_id = ?::uuid, updated_at = now() \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![Value::from(&instance_id), Value::from(&ev.task_id)],
+    )
+    .await?;
+    tracing::info!(
+        task_id = %ev.task_id,
+        %instance_id,
+        biz_type = %def.biz_type,
+        initiator = %ev.operator,
+        operator_name = ev.operator_name,
+        node_key,
+        round,
+        "任务完成（on_complete=APPROVE）已自动发起审批单"
+    );
+    Ok(Some(instance_id))
+}
+
+/// 审批单落终态后，**推进流程节点**（`on_complete=APPROVE` 与「验收通过」两条路共用）。
+///
+/// # 为什么不能只靠 [`settle`]
+///
+/// [`settle`] 只做「`REVIEW → DONE|DOING`」（`callback_transition` 的口径）。但流程节点
+/// 还要往前推，而那是 `flow` 侧的事：
+///
+/// | 审批单 | 任务此时 | 节点该做什么 |
+/// |---|---|---|
+/// | `TASK_ACCEPT` 通过（`need_review=true`） | `REVIEW → DONE`（settle 刚做完） | `ACTIVE → APPROVED` + 驱动下游 |
+/// | `APPROVE` 模式通过 | 已经是 `DONE`（完成时就 DONE 了） | `ACTIVE → APPROVED` + 驱动下游 |
+/// | 驳回 | `REVIEW → DOING`（settle 做）或仍 `DONE` | 按 `on_reject` |
+///
+/// 三种情况都只认一件事：**任务行上 `approval_instance_id` 指向这张审批单**，且它是一张
+/// `source='FLOW'` 的流程任务。
+///
+/// # 时序与失败口径
+///
+/// 跑在审批事务**提交之后**（与 [`cascade_after_flow`] 同款）：开独立事务，失败只记 `warn`。
+/// 审批结论已经落库，不能因为它回滚；流程节点没推上去由「任务详情页的流程条」暴露出来，
+/// 重新点一次完成 / 重新验收即可恢复。
+///
+/// # 返回值
+///
+/// 一段可直接进日志的说明（`None` = 与流程节点无关）。
+pub async fn on_task_approval_settled(
+    approval_instance_id: Option<Uuid>,
+    instance_status: &str,
+) -> Option<String> {
+    let approval_instance_id = approval_instance_id?;
+    match settle_flow_node(approval_instance_id, instance_status).await {
+        Ok(Some(note)) => {
+            tracing::info!(
+                %approval_instance_id,
+                instance_status,
+                note,
+                "审批结论已回调流程节点"
+            );
+            Some(note)
+        }
+        Ok(None) => None,
+        Err(error) => {
+            tracing::warn!(
+                %approval_instance_id,
+                instance_status,
+                %error,
+                "审批结论回调流程节点失败（不影响审批单；任务详情页仍显示节点未通过）"
+            );
+            None
+        }
+    }
+}
+
+/// [`on_task_approval_settled`] 的实现体（可失败，由调用方吞掉错误）。
+async fn settle_flow_node(
+    approval_instance_id: Uuid,
+    instance_status: &str,
+) -> DbResult<Option<String>> {
+    // ① 审批单 → 业务 id（= 任务 id），且必须是流程任务 + 这张单就是它挂的那张
+    let Some(approval) = model::find_instance(approval_instance_id).await? else {
+        return Ok(None);
+    };
+    let Some(task_id) = approval.biz_id else {
+        return Ok(None);
+    };
+    let Some(row) = flow_bridge_row(db(), task_id).await? else {
+        return Ok(None);
+    };
+    if row.source != task_node::FLOW_SOURCE {
+        return Ok(None);
+    }
+    if row.approval_instance_id != Some(approval_instance_id) {
+        // 历史行 / 别的审批单：不动（`approval_instance_id` 是指针，不是猜测）
+        return Ok(None);
+    }
+    let (Some(flow_instance_id), Some(node_key), Some(round)) = (
+        row.flow_instance_id,
+        row.flow_node_key.as_deref(),
+        row.flow_round,
+    ) else {
+        return Ok(None);
+    };
+
+    // ② 落点：通过 → 节点通过；驳回 → 按 on_reject
+    let (action, comment) = match instance_status.trim().to_ascii_uppercase().as_str() {
+        INSTANCE_APPROVED => (NodeAction::Approve, "审批通过".to_string()),
+        INSTANCE_REJECTED => {
+            let reason = latest_verdict_comment(approval_instance_id)
+                .await?
+                .unwrap_or_else(|| "审批驳回".to_string());
+            // `on_reject` 要从**流程实例**的快照里读（不是这张审批单的），
+            // 因为策略属于「那个任务节点的配置」，审批单只提供结论。
+            let Some(flow_instance) = model::find_instance(flow_instance_id).await? else {
+                return Ok(None);
+            };
+            let Some(cfg) = task_node_config_of(db(), &flow_instance, node_key).await? else {
+                return Ok(None);
+            };
+            match cfg.on_reject {
+                OnReject::BackToPrev => (NodeAction::ReturnToPrev, reason),
+                OnReject::Terminate => (NodeAction::Terminate("REJECTED"), reason),
+                // `STAY`：节点保持 ACTIVE，等任务改完再走（「返工」本来就该等）
+                OnReject::Stay => {
+                    return Ok(Some("驳回：按 on_reject=STAY 保持节点不动".to_string()));
+                }
+            }
+        }
+        _ => return Ok(None),
+    };
+
+    // ③ 独立事务执行（审批已提交，这里失败不回滚审批）
+    let note = db()
+        .transaction(|tx| async move {
+            let out = match action {
+                NodeAction::Approve => {
+                    engine::complete_task_node(
+                        &tx,
+                        flow_instance_id,
+                        node_key,
+                        round,
+                        approval.initiator_id,
+                    )
+                    .await?
+                }
+                NodeAction::ReturnToPrev => {
+                    engine::return_task_node(
+                        &tx,
+                        flow_instance_id,
+                        node_key,
+                        round,
+                        approval.initiator_id,
+                        &comment,
+                    )
+                    .await?
+                }
+                NodeAction::Terminate(status) => {
+                    engine::terminate_instance(&tx, flow_instance_id, status, &comment).await?
+                }
+                NodeAction::Nothing | NodeAction::StartApproval => {
+                    return Ok(None);
+                }
+            };
+            if let Some(error) = out.rejected.as_ref() {
+                return Err(DbError::InvalidValue(format!(
+                    "流程节点推进被拒 [{}] {}",
+                    error.code, error.msg
+                )));
+            }
+            Ok(Some(format!(
+                "节点 {node_key} 第 {round} 轮已按审批结论处理（实例 {}）",
+                out.instance_status
+            )))
+        })
+        .await?;
+    Ok(note)
+}
 
 // ==================== 第二类业务单据：库存调拨单（批次 D · W3b） ====================
 
@@ -1323,6 +2074,254 @@ mod flow_cascade_tests {
         assert_eq!(settle_target("PENDING"), None);
         assert_eq!(settle_target("WITHDRAWN"), None);
         assert_eq!(settle_target("CANCELLED"), None);
+    }
+}
+
+// ==================== P-FLOW-1B：映射表（纯逻辑单测） ====================
+//
+// 设计 §3.4 的映射表有 7 行 + 一条兜底。这里逐行钉死 —— 表错了，整条回调链就错了，
+// 而它**完全是纯函数**（`node_action_of`），没有理由不在单测里全量覆盖。
+//
+// `FlowTaskOutcome` 的 4 个分支在 `tests/pflow1b.rs` 里用真库各跑一遍（`NotFlowTask` /
+// `Advanced` / `Ignored` / `Conflict`）；这里只钉住枚举本身不会退化（4 个变体齐全）。
+#[cfg(test)]
+mod pflow1b_mapping_tests {
+    use super::*;
+    use crate::business::flow::node_config::{OnCancel, OnComplete, OnReject, TaskNodeConfig};
+
+    /// 造一份只改「三个策略」的节点配置（其余走默认）。
+    fn cfg(on_complete: OnComplete, on_reject: OnReject, on_cancel: OnCancel) -> TaskNodeConfig {
+        TaskNodeConfig {
+            title_template: "t".to_string(),
+            on_complete,
+            on_reject,
+            on_cancel,
+            ..TaskNodeConfig::default()
+        }
+    }
+
+    /// 表格第 1 行：`DOING→DONE` + `on_complete != APPROVE` → 节点通过。
+    #[test]
+    fn doing_to_done_direct_approves_node() {
+        for on_complete in [OnComplete::Direct, OnComplete::Verify] {
+            let cfg = cfg(on_complete, OnReject::Stay, OnCancel::Terminate);
+            assert_eq!(
+                node_action_of(TaskStatus::Doing, TaskStatus::Done, &cfg),
+                NodeAction::Approve,
+                "{on_complete:?} 走完就是通过"
+            );
+        }
+    }
+
+    /// 表格第 2 行：`DOING→DONE` + `on_complete = APPROVE` → 发起审批（节点仍 ACTIVE）。
+    #[test]
+    fn doing_to_done_approve_starts_approval() {
+        let cfg = cfg(OnComplete::Approve, OnReject::Stay, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Doing, TaskStatus::Done, &cfg),
+            NodeAction::StartApproval
+        );
+    }
+
+    /// 表格第 3 行：`REVIEW→DONE`（验收通过）→ 节点通过。
+    ///
+    /// 即使配置是 `APPROVE`（R18 本该拒绝的组合）也只走「通过」，**不再发起第二张审批单**
+    /// —— 旧快照 / 绕过校验的数据不能变成「点两次」。
+    #[test]
+    fn review_to_done_approves_node_without_second_approval() {
+        for on_complete in [OnComplete::Direct, OnComplete::Verify, OnComplete::Approve] {
+            let cfg = cfg(on_complete, OnReject::Stay, OnCancel::Terminate);
+            assert_eq!(
+                node_action_of(TaskStatus::Review, TaskStatus::Done, &cfg),
+                NodeAction::Approve,
+                "{on_complete:?} 在验收通过时都只推节点，不再发起审批"
+            );
+        }
+    }
+
+    /// 表格第 4 行：`DOING→REVIEW` → **不动**（节点保持 ACTIVE 等验收）。
+    #[test]
+    fn doing_to_review_keeps_node_active() {
+        let cfg = cfg(OnComplete::Verify, OnReject::Stay, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Doing, TaskStatus::Review, &cfg),
+            NodeAction::Nothing
+        );
+    }
+
+    /// 表格第 5 行 · `on_reject=STAY`（默认策略之一）：打回不动流程。
+    #[test]
+    fn reject_stay_keeps_node_active() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Review, TaskStatus::Doing, &cfg),
+            NodeAction::Nothing
+        );
+    }
+
+    /// 表格第 5 行 · `on_reject=BACK_TO_PREV`：退回上一节点。
+    #[test]
+    fn reject_back_to_prev_returns_flow() {
+        let cfg = cfg(
+            OnComplete::Direct,
+            OnReject::BackToPrev,
+            OnCancel::Terminate,
+        );
+        assert_eq!(
+            node_action_of(TaskStatus::Review, TaskStatus::Doing, &cfg),
+            NodeAction::ReturnToPrev
+        );
+    }
+
+    /// 表格第 5 行 · `on_reject=TERMINATE`：实例 `REJECTED`。
+    #[test]
+    fn reject_terminate_ends_instance() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Terminate, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Review, TaskStatus::Doing, &cfg),
+            NodeAction::Terminate("REJECTED")
+        );
+    }
+
+    /// 表格第 6 行：`DONE→DOING`（重开）→ **不动**（任务重开不改流程）。
+    #[test]
+    fn reopen_done_to_doing_keeps_flow() {
+        for on_reject in [OnReject::Stay, OnReject::BackToPrev, OnReject::Terminate] {
+            let cfg = cfg(OnComplete::Direct, on_reject, OnCancel::Terminate);
+            assert_eq!(
+                node_action_of(TaskStatus::Done, TaskStatus::Doing, &cfg),
+                NodeAction::Nothing,
+                "重开任务不该退回流程（节点已 APPROVED 是既成事实）"
+            );
+        }
+    }
+
+    /// 表格第 7 行 · `on_cancel=TERMINATE`（默认）：实例 `CANCELLED`。
+    #[test]
+    fn cancel_terminate_ends_instance() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Terminate);
+        for from in [TaskStatus::Todo, TaskStatus::Doing, TaskStatus::Review] {
+            assert_eq!(
+                node_action_of(from, TaskStatus::Cancelled, &cfg),
+                NodeAction::Terminate("CANCELLED"),
+                "{from:?} → CANCELLED 都要走 on_cancel"
+            );
+        }
+    }
+
+    /// 表格第 7 行 · `on_cancel=STAY`：不动（任务取消了但流程继续）。
+    #[test]
+    fn cancel_stay_keeps_flow() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Stay);
+        for from in [TaskStatus::Todo, TaskStatus::Doing, TaskStatus::Review] {
+            assert_eq!(
+                node_action_of(from, TaskStatus::Cancelled, &cfg),
+                NodeAction::Nothing
+            );
+        }
+    }
+
+    /// 表格第 7 行 · `on_cancel=BACK_TO_PREV`：退回上一节点。
+    #[test]
+    fn cancel_back_to_prev_returns_flow() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::BackToPrev);
+        assert_eq!(
+            node_action_of(TaskStatus::Doing, TaskStatus::Cancelled, &cfg),
+            NodeAction::ReturnToPrev
+        );
+    }
+
+    /// 兜底行：`TODO→DOING`（开始干活）不推进流程。
+    #[test]
+    fn todo_to_doing_does_not_touch_flow() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Todo, TaskStatus::Doing, &cfg),
+            NodeAction::Nothing,
+            "「开始」只是任务侧的事，流程完全不知道（设计 §4.5 Q2 的 ASCII 图）"
+        );
+    }
+
+    /// 兜底行：`CANCELLED→TODO`（复活）不推进流程。
+    #[test]
+    fn revive_cancelled_to_todo_does_not_touch_flow() {
+        let cfg = cfg(OnComplete::Direct, OnReject::Stay, OnCancel::Terminate);
+        assert_eq!(
+            node_action_of(TaskStatus::Cancelled, TaskStatus::Todo, &cfg),
+            NodeAction::Nothing
+        );
+    }
+
+    /// 全组合扫一遍：只有映射表点名的 6 类 `(from,to)` 会产生动作，其余一律 `Nothing`。
+    ///
+    /// 这条是「映射表没有被顺手扩大」的护栏 —— 将来有人想给 `TODO→DOING` 加个副作用，
+    /// 必须先改这张表并说明理由。
+    #[test]
+    fn only_tabulated_transitions_act_on_flow() {
+        use TaskStatus::{Cancelled, Doing, Done, Review, Todo};
+        let all = [Todo, Doing, Review, Done, Cancelled];
+        let cfg = cfg(
+            OnComplete::Approve,
+            OnReject::Terminate,
+            OnCancel::Terminate,
+        );
+        let mut acting = Vec::new();
+        for from in all {
+            for to in all {
+                if node_action_of(from, to, &cfg) != NodeAction::Nothing {
+                    acting.push((from.code(), to.code()));
+                }
+            }
+        }
+        acting.sort_unstable();
+        assert_eq!(
+            acting,
+            vec![
+                ("DOING", "CANCELLED"),
+                ("DOING", "DONE"),
+                ("REVIEW", "CANCELLED"),
+                ("REVIEW", "DOING"),
+                ("REVIEW", "DONE"),
+                ("TODO", "CANCELLED"),
+            ],
+            "映射表只该有这 6 类（`on_complete=APPROVE` + `on_reject=TERMINATE` + `on_cancel=TERMINATE` 下）"
+        );
+    }
+
+    /// `FlowTaskOutcome` 的 4 个变体齐全，且 `Conflict` 原样携带 `ApiError`。
+    #[test]
+    fn flow_task_outcome_has_four_variants() {
+        let not_flow = FlowTaskOutcome::NotFlowTask;
+        let advanced = FlowTaskOutcome::Advanced {
+            next_nodes: vec!["n_end".to_string()],
+        };
+        let ignored = FlowTaskOutcome::Ignored {
+            instance_status: "CANCELLED".to_string(),
+        };
+        let conflict = FlowTaskOutcome::Conflict(ApiError::new(
+            409,
+            crate::shared::error_code::FLOW_TASK_STATE_CONFLICT,
+            "流程已结束",
+        ));
+        assert!(matches!(not_flow, FlowTaskOutcome::NotFlowTask));
+        assert!(matches!(
+            advanced,
+            FlowTaskOutcome::Advanced { ref next_nodes } if next_nodes == &["n_end".to_string()]
+        ));
+        assert!(matches!(
+            ignored,
+            FlowTaskOutcome::Ignored { ref instance_status } if instance_status == "CANCELLED"
+        ));
+        match conflict {
+            FlowTaskOutcome::Conflict(error) => {
+                assert_eq!(error.status, 409);
+                assert_eq!(
+                    error.code,
+                    crate::shared::error_code::FLOW_TASK_STATE_CONFLICT
+                );
+            }
+            other => panic!("必须是 Conflict：{other:?}"),
+        }
     }
 }
 

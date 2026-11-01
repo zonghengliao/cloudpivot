@@ -1053,7 +1053,21 @@ pub async fn change_status(
     let action_label = transition.label;
     let task_no = current.card.task_no.clone();
     let task_no_tx = task_no.clone();
-    let (comment_id, affected, recalcs, cascades, cancels, approvals) = db()
+    // ⑧a P-FLOW-1B：流程任务的标识（在事务外取好，闭包里只用拥有所有权的副本 ——
+    //     `current` 在事务之后还要用（⑨ 通知），不能被 move 进闭包）。
+    // `source != 'FLOW'` 时下面这条分支整个不进：
+    // **普通任务的 `change_status` 一次查询都不多、逐字节不变**（验收 7）。
+    let is_flow_task = current.card.source == task_bridge::FLOW_SOURCE;
+    let flow_instance_id = current.card.flow_instance_id;
+    let flow_node_key = current.card.flow_node_key.clone();
+    let flow_node_key_tx = flow_node_key.clone();
+    let flow_round = current.card.flow_round;
+    let reason_tx = reason.clone();
+    // `ApiError` 既不能进 `DbError` 也不能 `Clone`：冲突用「哨兵 + 槽位」带出事务
+    let flow_conflict: std::sync::Arc<std::sync::Mutex<Option<ApiError>>> =
+        std::sync::Arc::new(std::sync::Mutex::new(None));
+    let flow_conflict_tx = flow_conflict.clone();
+    let (comment_id, affected, recalcs, cascades, cancels, approvals, flow_outcome) = db()
         .transaction(|tx| async move {
             // T11 守卫（**事务内**再判一次）：③ 前那次读与这次写之间，父任务可能被
             // 并发取消 —— 那种情况下子任务照样不许推进（漏洞 2 的并发变体）。
@@ -1071,8 +1085,37 @@ pub async fn change_status(
                     Vec::new(),
                     Vec::new(),
                     crate::business::flow::model::CancelledOfBiz::default(),
+                    task_bridge::FlowTaskOutcome::NotFlowTask,
                 ));
             }
+            // ⑧a P-FLOW-1B（设计 §3.4 的唯一扩展点）：任务状态已落库 → 流程侧同事务跟上。
+            //     `source != 'FLOW'` 时返回 `NotFlowTask`，**一次查询都不发**。
+            //     冲突（任务已完成但流程已终止 / 并发重复完成）→ 整笔回滚：
+            //     `ApiError` 带不出事务，用「哨兵 + 槽位」交给闭包外的 `change_status_tx_error`。
+            let flow_outcome = if is_flow_task {
+                let outcome = task_bridge::on_task_status_changed(
+                    &tx,
+                    task_bridge::TaskStatusChanged {
+                        task_id,
+                        instance_id: flow_instance_id,
+                        node_key: flow_node_key_tx.as_deref(),
+                        round: flow_round,
+                        from,
+                        to,
+                        operator: me,
+                        operator_name: &operator_name_tx,
+                        reason: reason_tx.as_deref(),
+                    },
+                )
+                .await?;
+                if let task_bridge::FlowTaskOutcome::Conflict(error) = outcome {
+                    *flow_conflict_tx.lock().unwrap() = Some(error);
+                    return Err(DbError::InvalidValue(FLOW_CONFLICT_SENTINEL.to_string()));
+                }
+                outcome
+            } else {
+                task_bridge::FlowTaskOutcome::NotFlowTask
+            };
             // T11 规则①：本条推到 CANCELLED → 同一事务里级联取消全部非终态子孙
             // （一条递归 CTE；DONE 不回退；失败 → 整笔回滚，不接受「父取消、子还在跑」）
             let cancels = if to == TaskStatus::Cancelled {
@@ -1194,10 +1237,18 @@ pub async fn change_status(
                     ))
                 })?;
             }
-            Ok((comment_id, affected, recalcs, cascades, cancels, approvals))
+            Ok((
+                comment_id,
+                affected,
+                recalcs,
+                cascades,
+                cancels,
+                approvals,
+                flow_outcome,
+            ))
         })
         .await
-        .map_err(change_status_tx_error)?;
+        .map_err(|error| change_status_tx_error(error, &flow_conflict))?;
     if affected == 0 {
         return Err(not_found());
     }
@@ -1237,6 +1288,28 @@ pub async fn change_status(
             comment = task_bridge::TASK_CANCEL_COMMENT,
             "任务取消：在跑审批实例与待办已一并撤销"
         );
+    }
+    // ⑨e P-FLOW-1B：流程侧推进结果留痕（推进已在事务里落库，这里只补可 grep 的汇总行）。
+    //     `Ignored` 一律是 debug（普通任务、等验收、重开这些高频路径不该刷 info 日志）。
+    match &flow_outcome {
+        task_bridge::FlowTaskOutcome::Advanced { next_nodes } => tracing::info!(
+            task_id = %task_id,
+            from = from.code(),
+            to = to.code(),
+            node_key = flow_node_key.as_deref().unwrap_or(""),
+            next_nodes = ?next_nodes,
+            "任务状态变更已推进流程节点"
+        ),
+        task_bridge::FlowTaskOutcome::Ignored { instance_status } => tracing::debug!(
+            task_id = %task_id,
+            from = from.code(),
+            to = to.code(),
+            instance_status,
+            "任务状态变更未推进流程（映射表判定「不动」）"
+        ),
+        task_bridge::FlowTaskOutcome::NotFlowTask => {}
+        // 冲突一定会整笔回滚并走 `return Err`，到这里说明事务已成功 —— 不可达，留防御
+        task_bridge::FlowTaskOutcome::Conflict(_) => {}
     }
     // ⑩ 依赖联动（T4）：前置 DONE → 强制通知后继负责人；前置 CANCELLED → 尊重偏好提醒
     if matches!(to, TaskStatus::Done | TaskStatus::Cancelled) {
@@ -3110,14 +3183,33 @@ fn parent_cancelled() -> ApiError {
 /// 没有反向 `From`，见 T2 实测），所以守卫在闭包里抛哨兵、在这里翻回 `63021`。
 const PARENT_CANCELLED_SENTINEL: &str = "TASK_PARENT_CANCELLED";
 
-/// 事务错误 → HTTP 错误：T11 守卫的哨兵翻成 `409 + 63021`，其余一律 500。
-fn change_status_tx_error(error: DbError) -> ApiError {
+/// 事务内的「流程冲突」哨兵（P-FLOW-1B）。
+///
+/// # 为什么不直接把 `ApiError` 塞进 `DbError`
+///
+/// `DbError → ApiError` 是有损的（`utils::db_error` 会把业务码折成 500 文案），而
+/// `FlowTaskOutcome::Conflict` 里的 `65038` / `65020` 必须原样到前端。`ApiError` 又不实现
+/// `Clone`、不能进 `DbError` —— 与 1A「发起失败整笔回滚」同款：**哨兵 + `Arc<Mutex>` 槽位**。
+const FLOW_CONFLICT_SENTINEL: &str = "TASK_FLOW_CONFLICT";
+
+/// 事务错误 → HTTP 错误：T11 守卫的哨兵翻成 `409 + 63021`，流程冲突翻成原样的业务码，
+/// 其余一律 500。
+fn change_status_tx_error(
+    error: DbError,
+    flow_conflict: &std::sync::Mutex<Option<ApiError>>,
+) -> ApiError {
     let blocked = matches!(&error, DbError::InvalidValue(msg) if msg == PARENT_CANCELLED_SENTINEL);
     if blocked {
-        parent_cancelled()
-    } else {
-        utils::db_error(error, "变更任务状态")
+        return parent_cancelled();
     }
+    let is_flow_conflict =
+        matches!(&error, DbError::InvalidValue(msg) if msg == FLOW_CONFLICT_SENTINEL);
+    if is_flow_conflict
+        && let Some(error) = flow_conflict.lock().ok().and_then(|mut slot| slot.take())
+    {
+        return error;
+    }
+    utils::db_error(error, "变更任务状态")
 }
 
 /// 状态机判定失败 → HTTP 错误（**三档**，不许统一成 500）。

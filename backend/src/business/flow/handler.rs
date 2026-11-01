@@ -77,6 +77,65 @@ fn field_invalid(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::FLOW_FIELD_INVALID, message)
 }
 
+/// P-FLOW-1B · `on_complete=APPROVE` 的 `approve_biz_type` 存在性校验（**发布 / 校验共用**）。
+///
+/// # 为什么不在 `graph::validate_with` 里
+///
+/// `FlowGraph::validate_with` 是**纯函数**：没有数据库句柄，60+ 条存量单测都靠这一点。
+/// 「这个 `biz_type` 有没有已发布的默认流程」只能查库，所以放在 handler 这一层。
+///
+/// # 判据（与运行期同口径）
+///
+/// 调 `model::default_def_of_biz_type`：`deleted_at IS NULL`、`status = 'PUBLISHED'`、
+/// `current_version_id IS NOT NULL`，按 `is_default` 优先取第一条。运行期
+/// `task_bridge::start_task_node_approval` 用的是同一个函数；两处口径必须一样，
+/// 否则会出现「发布时通过、跑起来 500」。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`ApiError`]（500）。
+async fn approve_biz_type_issues(graph: &FlowGraph) -> std::result::Result<Vec<Issue>, ApiError> {
+    let mut issues = Vec::new();
+    for node in &graph.nodes {
+        if node.node_type != NodeType::Task {
+            continue;
+        }
+        // 形状问题（缺键 / 非法值）由 R18 的 `parse_task_config` 报，这里只管「存不存在」
+        if node.config["task"]["on_complete"].as_str()
+            != Some(node_config::OnComplete::Approve.as_str())
+        {
+            continue;
+        }
+        let Some(biz_type) = node.config["task"]["approve_biz_type"]
+            .as_str()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+        if model::default_def_of_biz_type(biz_type)
+            .await
+            .map_err(|error| utils::db_error(error, "查询审批流定义"))?
+            .is_some()
+        {
+            continue;
+        }
+        issues.push(
+            Issue::new(
+                "R18",
+                error_code::FLOW_TASK_NODE_INVALID,
+                format!(
+                    "任务节点 {}（{}）的 on_complete=APPROVE 指定了审批流 {biz_type}，\
+                     但该业务类型下没有已发布的默认流程；请先发布一个 {biz_type} 流程并设为默认",
+                    node.key, node.name
+                ),
+            )
+            .with_nodes(vec![node.key.clone()]),
+        );
+    }
+    Ok(issues)
+}
+
 /// 校验不通过汇总成 `ApiError`：**错误码取第一条**（前端按码值映射文案），
 /// 消息汇总前 5 条，多了给「共 N 条」（全部条目写日志）。
 fn validation_error(issues: &[Issue]) -> ApiError {
@@ -557,7 +616,10 @@ pub async fn publish(
         ));
     }
 
-    let issues = graph.validate();
+    let mut issues = graph.validate();
+    // P-FLOW-1B：APPROVE 的 `approve_biz_type` 必须存在（发布期就必须拦住 ——
+    // 否则配置能发布出去，运行期任务完成时才 500）。
+    issues.extend(approve_biz_type_issues(&graph).await?);
     if !issues.is_empty() {
         return Err(validation_error(&issues));
     }
@@ -826,7 +888,10 @@ pub async fn validate(Path(vid): Path<String>) -> ResResult<dto::ValidateRes> {
     let graph = model::load_graph(version_id)
         .await
         .map_err(|error| utils::db_error(error, "读取流程整图"))?;
-    let issues = graph.validate();
+    let mut issues = graph.validate();
+    // P-FLOW-1B：`on_complete=APPROVE` 的 `approve_biz_type` 必须指向已发布的默认流程。
+    // 纯函数的 `validate_with` 查不了库，这条放在这里（发布 / 只校验两个入口共用）。
+    issues.extend(approve_biz_type_issues(&graph).await?);
     Ok(Res::ok(dto::ValidateRes {
         version_id: version_id.to_string(),
         version_no: version.version_no,
