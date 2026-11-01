@@ -87,6 +87,12 @@ fn bad_request(message: impl Into<String>) -> ApiError {
 pub struct CreateStockInReq {
     /// 来源采购单（可空；有值时每行必须带 `purchase_order_item_id`）。
     pub source_order_id: Option<String>,
+    /// 来源采购单 id（**卡面 D4 的字段名**；与 [`Self::source_order_id`] 是同一个东西）。
+    ///
+    /// 为什么留两个名字：库里列叫 `source_order_id`（V0145 建表），而「采购订单 → 收货单」
+    /// 的调用方按业务语义叫它 `purchase_order_id`。两个都给时**必须相等**，
+    /// 不等直接 400（静默挑一个会让「带错单」这种事故无声无息）。
+    pub purchase_order_id: Option<String>,
     /// 供应商（必填：`in_type='PURCHASE'` 时库约束要求）。
     pub supplier_id: Option<String>,
     /// 收货仓库（必填，列 `NOT NULL`）。
@@ -198,6 +204,8 @@ pub struct StockInPageQuery {
     pub supplier_id: Option<String>,
     /// 收货仓库。
     pub warehouse_id: Option<String>,
+    /// 来源采购单号（模糊匹配，卡面 O3：收货单列表「按采购单号」筛选）。
+    pub purchase_order_no: Option<String>,
     /// 入库日期起（含）。
     pub date_from: Option<NaiveDate>,
     /// 入库日期止（含）。
@@ -216,6 +224,12 @@ impl StockInPageQuery {
             status: self.status.clone(),
             supplier_id: self.supplier_id.clone(),
             warehouse_id: self.warehouse_id.clone(),
+            purchase_order_no: self
+                .purchase_order_no
+                .as_deref()
+                .map(str::trim)
+                .filter(|text| !text.is_empty())
+                .map(str::to_string),
             date_from: self.date_from,
             date_to: self.date_to,
             page: self.page,
@@ -550,6 +564,11 @@ pub struct StockInRes {
     pub in_type: String,
     /// 来源采购单。
     pub source_order_id: Option<String>,
+    /// 来源采购单**单号**（`PO-yyyyMMdd-000001`；无来源 / 采购单已删 = `None`）。
+    ///
+    /// 列表与详情都要显示「来源采购单」，前端不该为了一个单号再发 N 次请求：
+    /// 列表走一次 `IN (...)` 批量补齐（`stockin_model::order_nos_of`），详情单查一次。
+    pub source_order_no: Option<String>,
     /// 供应商。
     pub supplier_id: Option<String>,
     /// 收货仓库。
@@ -605,6 +624,7 @@ impl From<&StockInRow> for StockInRes {
             in_no: row.in_no.clone(),
             in_type: row.in_type.clone(),
             source_order_id: row.source_order_id.map(|v| v.to_string()),
+            source_order_no: None,
             supplier_id: row.supplier_id.map(|v| v.to_string()),
             warehouse_id: row.warehouse_id.to_string(),
             in_date: row.in_date,
@@ -704,16 +724,22 @@ pub struct StockInDetailRes {
     pub serial_count: i64,
     /// 汇总口径说明（前端展示「金额为不含税」用）。
     pub summary: String,
+    /// 来源采购单 id（= `header.source_order_id`，卡面 F3 的字段名，前端少拐一道弯）。
+    pub purchase_order_id: Option<String>,
+    /// 来源采购单号（前端直接显示「来源采购单：PO-xxx」并可点回采购单）。
+    pub purchase_order_no: Option<String>,
 }
 
 impl StockInDetailRes {
     /// 用占位汇总文案构造（handler 统一走这个，避免各接口文案漂移）。
     pub fn with_summary(header: StockInRes, items: Vec<StockInItemRes>, serial_count: i64) -> Self {
         Self {
-            header,
             items,
             serial_count,
             summary: STOCK_IN_SUMMARY_PLACEHOLDER.to_string(),
+            purchase_order_id: header.source_order_id.clone(),
+            purchase_order_no: header.source_order_no.clone(),
+            header,
         }
     }
 }

@@ -521,6 +521,145 @@ impl From<&PurchaseOrderItemRow> for PurchaseOrderLineRes {
     }
 }
 
+// ==================== 待收明细（D4：采购订单 → 一键生成收货单） ====================
+
+/// 「查采购单待收明细」的响应：`GET /business/erp/purchase-order/{id}/pending-items`。
+///
+/// 前端收货页拿这一份就能把整张草稿填好：单头默认值（供应商 / 仓库）+ 只差待收数量的明细
+/// + 已经生成过的收货单（反查链路）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingReceiveRes {
+    /// 采购单单头摘要（含供应商 / 仓库名称，前端不用再查一次）。
+    pub order: PendingOrderRes,
+    /// 明细（行号升序，**全部行**都返回，`pending_qty = 0` 的也在：前端据此显示"已收满"）。
+    pub items: Vec<PendingItemRes>,
+    /// 这张采购单生成过的收货单（未软删，新单在前）—— 详情页「已生成收货单」用。
+    pub stock_ins: Vec<PendingStockInRes>,
+    /// 汇总：还有几行没收完 / 一共待收多少（= 按钮显示条件与提示文案）。
+    pub pending_line_count: usize,
+    /// 是否还能再收（`status` 可收 **且** 至少一行 `pending_qty > 0`）。
+    pub can_receive: bool,
+    /// 不能收时的原因（能收 = `None`）；前端直接展示，不自己拼文案。
+    pub blocked_reason: Option<String>,
+}
+
+/// 采购单单头摘要（待收明细接口的 `order`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingOrderRes {
+    /// 主键。
+    pub id: String,
+    /// 单号。
+    pub order_no: String,
+    /// 状态（`DRAFT` / `SUBMITTED` / `APPROVED` / `PARTIAL_RECEIVED` / `RECEIVED` / `CLOSED` / `CANCELLED`）。
+    pub status: String,
+    /// 状态中文标签。
+    pub status_label: String,
+    /// 供应商。
+    pub supplier_id: String,
+    /// 供应商名称（供应商被删 → 空串，不给 `null`：前端表单要的是可回填的值）。
+    pub supplier_name: String,
+    /// 收货仓库。
+    pub warehouse_id: String,
+    /// 仓库名称。
+    pub warehouse_name: String,
+    /// 合计数量。
+    pub total_qty: Decimal,
+    /// 下单日期。
+    pub order_date: NaiveDate,
+    /// 备注。
+    pub remark: Option<String>,
+}
+
+/// 待收明细行（收货页要带出的字段，一个不少）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingItemRes {
+    /// 采购明细行 id（建收货单时落 `purchase_order_item_id` / `source_item_id`）。
+    pub item_id: String,
+    /// 行号（1 起）。
+    pub line_no: i32,
+    /// 物料。
+    pub material_id: String,
+    /// 物料编码（提示文案「物料 M-W1A-001 …」读它）。
+    pub material_code: String,
+    /// 物料名称。
+    pub material_name: String,
+    /// 计量单位。
+    pub unit_id: String,
+    /// 单位名称。
+    pub unit_name: String,
+    /// 订单数量。
+    pub ordered_qty: Decimal,
+    /// 已收数量（**只算已过账的收货单**，草稿 / 作废都不算）。
+    pub received_qty: Decimal,
+    /// 待收数量 = `ordered_qty - received_qty`（负数按 0）。
+    pub pending_qty: Decimal,
+    /// 不含税单价（收货明细的 `price_excl` 默认值）。
+    pub price_excl: Decimal,
+    /// 含税单价快照。
+    pub price_incl: Decimal,
+    /// 税率（百分数 0–100）。
+    pub tax_rate: Decimal,
+    /// 成本价（采购明细没有独立成本列，取 `price_excl`）。
+    pub cost_price: Decimal,
+}
+
+/// 已生成收货单（采购单详情反查用）。
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingStockInRes {
+    /// 收货单 id（前端跳详情用）。
+    pub id: String,
+    /// 收货单号。
+    pub in_no: String,
+    /// 状态。
+    pub status: String,
+    /// 状态中文标签。
+    pub status_label: String,
+    /// 入库日期。
+    pub in_date: NaiveDate,
+    /// 合计数量。
+    pub total_qty: Decimal,
+    /// 是否已过账（草稿不计入已收数量，前端据此区分）。
+    pub posted: bool,
+}
+
+impl PendingItemRes {
+    /// 由数据层行构造。
+    pub fn from_line(line: &crate::business::erp::purchase_model::PendingReceiveLine) -> Self {
+        Self {
+            item_id: line.item_id.to_string(),
+            line_no: line.line_no,
+            material_id: line.material_id.to_string(),
+            material_code: line.material_code.clone(),
+            material_name: line.material_name.clone(),
+            unit_id: line.unit_id.to_string(),
+            unit_name: line.unit_name.clone(),
+            ordered_qty: line.ordered_qty,
+            received_qty: line.received_qty,
+            pending_qty: line.pending_qty(),
+            price_excl: line.price_excl,
+            price_incl: line.price_incl,
+            tax_rate: line.tax_rate,
+            cost_price: line.cost_price(),
+        }
+    }
+}
+
+impl PendingStockInRes {
+    /// 由数据层行构造（状态标签与收货单模块同口径）。
+    pub fn from_brief(brief: &crate::business::erp::purchase_model::StockInBrief) -> Self {
+        Self {
+            id: brief.id.to_string(),
+            in_no: brief.in_no.clone(),
+            status: brief.status.clone(),
+            status_label: crate::business::erp::stockin_model::status_label(&brief.status)
+                .to_string(),
+            in_date: brief.in_date,
+            total_qty: brief.total_qty,
+            posted: brief.status == crate::business::erp::stockin_model::STATUS_POSTED,
+        }
+    }
+}
+
 // ==================== 小工具 ====================
 
 /// 必填文本（去空白；空 → 400）。
@@ -810,11 +949,11 @@ mod tests {
     }
 
     /// ⑭ 状态机：合法边全部放行（P2-A2 的 4 条 + P10 补齐收货侧 4 条，
-    /// 另登记 `SUBMITTED→*_RECEIVED` 两条既有收货白名单行为，详见
-    /// `shared/state_machine.rs::PURCHASE_ORDER_EDGES` 的注释）。
+    /// 另登记 `SUBMITTED→*_RECEIVED` 两条既有收货白名单行为 + D4 的收货作废回退边，
+    /// 详见 `shared/state_machine.rs::PURCHASE_ORDER_EDGES` 的注释）。
     #[test]
     fn state_machine_allows_four_edges() {
-        assert_eq!(LEGAL_EDGES.len(), 10);
+        assert_eq!(LEGAL_EDGES.len(), 11);
         for (from, to) in [
             ("DRAFT", "SUBMITTED"),
             ("DRAFT", "CANCELLED"),
@@ -826,6 +965,8 @@ mod tests {
             ("APPROVED", "PARTIAL_RECEIVED"),
             ("APPROVED", "RECEIVED"),
             ("PARTIAL_RECEIVED", "RECEIVED"),
+            // D4：收货单作废后「已收货 → 部分收货」的回退边
+            ("RECEIVED", "PARTIAL_RECEIVED"),
         ] {
             assert!(can_transition(from, to), "{from} → {to} 必须放行");
         }

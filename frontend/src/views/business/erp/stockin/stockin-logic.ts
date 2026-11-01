@@ -72,6 +72,20 @@ export interface StockInLineAmounts {
 export interface StockInItemForm {
   /** 行内稳定 key */
   key: string;
+  /**
+   * 来源采购明细行 id（D4）。
+   *
+   * 带了它，后端才能把本次收货量回写到**那一行**的 `received_qty`（按行匹配，不按物料），
+   * 也才能在过账时判「超收」。从采购单带出时自动填；手工建单时为空。
+   */
+  purchase_order_item_id?: string;
+  /**
+   * 来源采购行的待收快照（D4 提示用：`订单 100 / 已收 30 / 待收 70`）。
+   *
+   * 只用于**展示与前端预校验**，不是权威口径 —— 权威口径在后端（保存时按库里的
+   * POSTED 聚合再算一遍，超了 400）。
+   */
+  pending?: StockInItemPending;
   /** 物料 id */
   material_id: string;
   /** 数量（> 0） */
@@ -82,10 +96,24 @@ export interface StockInItemForm {
   tax_rate: number;
 }
 
+/** 一行「待收」快照（来自 `GET /purchase-order/{id}/pending-items`） */
+export interface StockInItemPending {
+  /** 订单数量 */
+  ordered_qty: number;
+  /** 已收数量（只算已过账的收货单） */
+  received_qty: number;
+  /** 待收数量 = 订单 − 已收（本单最多能收这么多） */
+  pending_qty: number;
+}
+
 /** 表单状态 */
 export interface StockInFormState {
   /** 单据 id（有值 = 编辑） */
   id: string;
+  /** 来源采购单 id（D4；空串 = 无源直收） */
+  purchase_order_id: string;
+  /** 来源采购单号（只用于界面显示，不落库 —— 后端从 id 反查） */
+  purchase_order_no: string;
   /** 供应商 id */
   supplier_id: string;
   /** 收货仓库 id */
@@ -111,6 +139,8 @@ export interface StockInFilterState {
   supplier_id: string;
   /** 仓库 id */
   warehouse_id: string;
+  /** 来源采购单号（模糊；卡面 O3） */
+  purchase_order_no: string;
   /** 单号 / 备注关键词 */
   keyword: string;
 }
@@ -415,18 +445,20 @@ export function todayString(now: Date = new Date()): string {
 
 /** 空筛选 */
 export function emptyStockInFilter(): StockInFilterState {
-  return { status: '', supplier_id: '', warehouse_id: '', keyword: '' };
+  return { status: '', supplier_id: '', warehouse_id: '', purchase_order_no: '', keyword: '' };
 }
 
 /** 单行空明细（税率默认 13%，与采购单同口径） */
 export function emptyStockInItem(key: string): StockInItemForm {
-  return { key, material_id: '', qty: 1, price_excl: 0, tax_rate: 13 };
+  return { key, purchase_order_item_id: '', material_id: '', qty: 1, price_excl: 0, tax_rate: 13 };
 }
 
 /** 空表单（`invoice_received` 默认 `true`） */
 export function emptyStockInForm(): StockInFormState {
   return {
     id: '',
+    purchase_order_id: '',
+    purchase_order_no: '',
     supplier_id: '',
     warehouse_id: '',
     in_date: todayString(),
@@ -447,6 +479,8 @@ export function detailToForm(
 ): StockInFormState {
   return {
     id: header.id,
+    purchase_order_id: header.source_order_id ?? '',
+    purchase_order_no: header.source_order_no ?? '',
     supplier_id: header.supplier_id ?? '',
     warehouse_id: header.warehouse_id ?? '',
     in_date: header.in_date ?? todayString(),
@@ -457,12 +491,79 @@ export function detailToForm(
         ? [emptyStockInItem('row-1')]
         : items.map((line, index) => ({
             key: `row-${index + 1}`,
+            purchase_order_item_id: line.source_item_id ?? '',
             material_id: line.material_id,
             qty: toNumber(line.qty),
             price_excl: round6(toNumber(line.price)),
             tax_rate: toNumber(line.tax_rate),
           })),
   };
+}
+
+/**
+ * 采购单待收明细 → 收货单草稿表单（D4 的「一键带出」）。
+ *
+ * 口径（卡面 F1 / F2 / O1）：
+ * - 供应商 / 仓库 / 备注 / 来源单号**全部从源单带**，不让用户重填；
+ * - 只带 `pending_qty > 0` 的行（已收满的行带出来只会让人误收），
+ *   数量默认 = `pending_qty`（用户可以改小 = 部分收货，也可以删行）；
+ * - 每行记 `purchase_order_item_id` + 待收快照，界面据此显示「订单 / 已收 / 待收」上限。
+ *
+ * @returns `form`（可直接 `Object.assign` 到页面表单）+ `lineCount`（带出几行，用于提示文案）
+ */
+export function formFromPending(
+  pending: PendingReceiveResLike,
+): { form: StockInFormState; lineCount: number } {
+  const lines = pending.items.filter((item) => toNumber(item.pending_qty) > 0);
+  const items: StockInItemForm[] = lines.map((item, index) => ({
+    key: `po-${item.item_id}-${index + 1}`,
+    purchase_order_item_id: item.item_id,
+    material_id: item.material_id,
+    // 默认数量 = 待收数量（本单最多能收这么多）；用户可以改小
+    qty: toNumber(item.pending_qty),
+    price_excl: round6(toNumber(item.price_excl)),
+    tax_rate: toNumber(item.tax_rate),
+    pending: {
+      ordered_qty: toNumber(item.ordered_qty),
+      received_qty: toNumber(item.received_qty),
+      pending_qty: toNumber(item.pending_qty),
+    },
+  }));
+
+  return {
+    form: {
+      id: '',
+      purchase_order_id: pending.order.id,
+      purchase_order_no: pending.order.order_no,
+      supplier_id: pending.order.supplier_id,
+      warehouse_id: pending.order.warehouse_id,
+      in_date: todayString(),
+      invoice_received: true,
+      remark: '',
+      // 一行待收都没有时留一个空行（后端会拦，但界面不该是零行鬼样子）
+      items: items.length > 0 ? items : [emptyStockInItem('row-1')],
+    },
+    lineCount: items.length,
+  };
+}
+
+/** `formFromPending` 只依赖这几个字段（用最小形状，便于单测直接构造） */
+export interface PendingReceiveResLike {
+  order: {
+    id: string;
+    order_no: string;
+    supplier_id: string;
+    warehouse_id: string;
+  };
+  items: ReadonlyArray<{
+    item_id: string;
+    material_id: string;
+    ordered_qty: number | string;
+    received_qty: number | string;
+    pending_qty: number | string;
+    price_excl: number | string;
+    tax_rate: number | string;
+  }>;
 }
 
 /** 表单校验（与后端 `stockin_dto` 同规则：qty > 0、price_excl ≥ 0、税率 0–100） */
@@ -499,6 +600,11 @@ export function validateStockInForm(form: StockInFormState): StockInFormErrors {
       errors[`${prefix}.qty`] = `第 ${index + 1} 行数量必须大于 0`;
     } else if (roundTo(qty, 4) !== qty) {
       errors[`${prefix}.qty`] = `第 ${index + 1} 行数量最多 4 位小数`;
+    } else if (item.pending && qty > item.pending.pending_qty) {
+      // D4 防超收：前端先拦一次（后端还会按库里的 POSTED 聚合再判一次，超了 400）
+      errors[`${prefix}.qty`] =
+        `第 ${index + 1} 行本次最多可收 ${formatQty(item.pending.pending_qty)}` +
+        `（订单 ${formatQty(item.pending.ordered_qty)} / 已收 ${formatQty(item.pending.received_qty)}）`;
     }
     if (toNumber(item.price_excl) < 0) {
       errors[`${prefix}.price_excl`] = `第 ${index + 1} 行单价不能为负`;
@@ -528,6 +634,8 @@ export function isStockInFormValid(form: StockInFormState): boolean {
  */
 export function buildStockInPayload(form: StockInFormState): CreateStockInReq {
   const items: StockInItemReq[] = form.items.map((item) => ({
+    // D4：来源行 id 必须原样带回（后端按行回写已收数量、判超收）
+    purchase_order_item_id: item.purchase_order_item_id || null,
     material_id: item.material_id,
     qty: toNumber(item.qty),
     price_excl: round6(toNumber(item.price_excl)),
@@ -535,6 +643,8 @@ export function buildStockInPayload(form: StockInFormState): CreateStockInReq {
   }));
 
   return {
+    // 带来源采购单时用业务别名 `purchase_order_id`（与 `source_order_id` 同义，只能给一个）
+    purchase_order_id: form.purchase_order_id || null,
     supplier_id: form.supplier_id,
     warehouse_id: form.warehouse_id,
     in_date: form.in_date,
@@ -579,12 +689,23 @@ export function buildStockInQuery(
   if (keyword) {
     query.keyword = keyword;
   }
+  // D4/O3：来源采购单号（后端模糊匹配）
+  const orderNo = filter.purchase_order_no.trim();
+  if (orderNo) {
+    query.purchase_order_no = orderNo;
+  }
   return query;
 }
 
 /** 是否处于筛选态 */
 export function isStockInFiltered(filter: StockInFilterState): boolean {
-  return Boolean(filter.status || filter.supplier_id || filter.warehouse_id || filter.keyword.trim());
+  return Boolean(
+    filter.status ||
+      filter.supplier_id ||
+      filter.warehouse_id ||
+      filter.purchase_order_no.trim() ||
+      filter.keyword.trim(),
+  );
 }
 
 /** 过账按钮是否可用（无明细的草稿不该过账 —— 后端也会拦） */

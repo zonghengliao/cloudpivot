@@ -73,6 +73,7 @@ fn line_no_loc(material: Uuid, qty: &str, price: &str, rate: &str) -> StockInIte
 fn req(ctx: &Ctx, items: Vec<StockInItemReq>) -> CreateStockInReq {
     CreateStockInReq {
         source_order_id: None,
+        purchase_order_id: None,
         supplier_id: Some(ctx.supplier.to_string()),
         warehouse_id: Some(ctx.wh_from.to_string()),
         in_date: None,

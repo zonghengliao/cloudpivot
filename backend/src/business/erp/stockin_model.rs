@@ -671,6 +671,8 @@ pub struct StockInFilter {
     pub supplier_id: Option<String>,
     /// 仓库。
     pub warehouse_id: Option<String>,
+    /// 来源采购单号（模糊匹配：`biz_stock_in.source_order_id → biz_purchase_order.order_no`）。
+    pub purchase_order_no: Option<String>,
     /// 入库日期起。
     pub date_from: Option<NaiveDate>,
     /// 入库日期止。
@@ -743,6 +745,15 @@ pub async fn stock_in_page(q: &StockInFilter) -> DbResult<(Vec<StockInRow>, i64)
         sql.push_str(" AND warehouse_id = ?::uuid");
         params.push(Value::from(parse_id(warehouse_id)?));
     }
+    if let Some(pattern) = utils::like_pattern(q.purchase_order_no.as_deref()) {
+        // 子查询而不是 JOIN：`paginate_unscoped` 会对 `sql` 原样包一层 count(*)，
+        // JOIN 在同一采购单有多张收货单时会让 count 虚高（分页页码错乱）。
+        sql.push_str(
+            " AND source_order_id IN (SELECT id FROM biz_purchase_order \
+               WHERE order_no LIKE ? AND deleted_at IS NULL)",
+        );
+        params.push(Value::from(pattern));
+    }
     if let Some(date_from) = q.date_from {
         sql.push_str(" AND in_date >= ?");
         params.push(Value::from(date_from));
@@ -767,6 +778,95 @@ pub async fn stock_in_page(q: &StockInFilter) -> DbResult<(Vec<StockInRow>, i64)
 fn parse_id(value: &str) -> DbResult<Uuid> {
     Uuid::parse_str(value.trim())
         .map_err(|err| DbError::InvalidValue(format!("非法 UUID `{value}`：{err}")))
+}
+
+/// 单查来源采购单号（详情页用；采购单被软删 / 不存在 → `None`）。
+pub async fn order_no_of(order_id: Uuid) -> DbResult<Option<String>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT order_no FROM biz_purchase_order WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(row.get_typed("order_no")?)),
+    }
+}
+
+/// 批量取采购单号：`source_order_id → order_no`（列表补 `source_order_no` 用，**一次**查询）。
+///
+/// 列表一页 20 条，逐条查会是 20 次往返；这里一次 `IN (...)` 拿完。
+/// 采购单被软删的不返回 → 前端拿到 `null`，列表显示「—」（历史单据的单号不该因为
+/// 采购单被删就一起消失，所以这里**不**把 deleted_at 条件套到调用方的行上）。
+pub async fn order_nos_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    let mut map = std::collections::HashMap::new();
+    if ids.is_empty() {
+        return Ok(map);
+    }
+    let placeholders = vec!["?::uuid"; ids.len()].join(", ");
+    let sql = format!(
+        "SELECT id, order_no FROM biz_purchase_order WHERE id IN ({placeholders}) \
+           AND deleted_at IS NULL"
+    );
+    let params: Vec<Value> = ids.iter().map(Value::from).collect();
+    let rows = db().find_with_params(&sql, params).await?;
+    for row in rows.iter() {
+        let id: Uuid = row.get_typed("id")?;
+        let no: String = row.get_typed("order_no")?;
+        map.insert(id, no);
+    }
+    Ok(map)
+}
+
+/// 取一张收货单里带来源采购明细行的 `(source_item_id, qty)`（作废回退已收数量用）。
+///
+/// 只返回 `source_item_id IS NOT NULL` 的行：手工收货（无来源采购单）/ 采购单之外的入库
+/// 不该动 `biz_purchase_order_item`。
+pub async fn source_lines_of(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+) -> DbResult<Vec<(Uuid, Decimal)>> {
+    let rows = ex
+        .query_sql(
+            "SELECT source_item_id, qty FROM biz_stock_in_item \
+              WHERE stock_in_id = ?::uuid AND source_item_id IS NOT NULL \
+              ORDER BY line_no ASC"
+                .to_string(),
+            vec![Value::from(&stock_in_id)],
+        )
+        .await?;
+    let mut lines = Vec::with_capacity(rows.len());
+    for row in rows.iter() {
+        lines.push((row.get_typed("source_item_id")?, row.get_typed("qty")?));
+    }
+    Ok(lines)
+}
+
+/// 作废已过账收货单时**回退**采购明细的已收数量（`received_qty − qty`，不低于 0）。
+///
+/// 与 [`add_received_qty`] 严格对称：过账加、作废减。没有这一步，
+/// 「作废收货单」只回滚了库存六本账，采购明细的 `received_qty` 还是满的 ——
+/// 采购单会显示"已收完"并挡住老板重新收货（D4 要解决的核心场景）。
+pub async fn revert_received_qty(
+    ex: &impl SqlExecutor,
+    source_item_id: Uuid,
+    qty: Decimal,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_purchase_order_item \
+            SET received_qty = GREATEST(received_qty - NULLIF(?::text,'')::numeric, 0), \
+                updated_at = ? \
+          WHERE id = ?::uuid"
+            .to_string(),
+        vec![
+            Value::Text(qty.round_dp(4).to_string()),
+            Value::from(now),
+            Value::from(&source_item_id),
+        ],
+    )
+    .await
 }
 
 // ==================== 写：建单 / 改单 / 状态 / 删 ====================
@@ -2166,10 +2266,20 @@ pub async fn add_received_qty(
 ///
 /// 只对「已提交 / 已审批 / 部分收货」推进；`DRAFT` / `CLOSED` / `CANCELLED` /
 /// `RECEIVED` 一律不动（返回 0）。
+///
+/// # D4：`RECEIVED` 只在**回退**方向动
+///
+/// 收货单作废会先把 `received_qty` 退回去（[`revert_received_qty`]），再调本函数重算：
+/// 此时采购单可能还是 `RECEIVED`，必须能退到 `PARTIAL_RECEIVED`（边表第 11 条），
+/// 否则「已收货却没有已收数量」的单既不能收也不能改。正向收货撞不到这条路径
+/// （`RECEIVED` 不在 [`purchase_receivable`] 白名单里）。
+///
+/// `action` 只进状态日志的 reason 文案（`收货过账` / `收货作废`），不影响判定。
 pub async fn sync_purchase_status(
     ex: &impl SqlExecutor,
     order_id: Uuid,
     stock_in_no: &str,
+    action: &str,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<u64> {
@@ -2187,9 +2297,12 @@ pub async fn sync_purchase_status(
     };
     let order_no: String = row.get_typed("order_no")?;
     let current: String = row.get_typed("status")?;
+    // `RECEIVED` 也在白名单里：**只对「收货单作废回退」这一条路径有意义**
+    // （D4）。正向收货在 `require_purchase_order` 就被拦住了（`RECEIVED` 不可收），
+    // 所以走到这里的 `RECEIVED` 只可能是作废触发的 `RECEIVED → PARTIAL_RECEIVED` 回退。
     if !matches!(
         current.as_str(),
-        "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED"
+        "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED" | "RECEIVED"
     ) {
         return Ok(0);
     }
@@ -2211,7 +2324,7 @@ pub async fn sync_purchase_status(
 
     // ③④ `transition_if_changed`：状态没变（继续部分收货）→ 不写状态日志、返回 Ok(0)，
     //     只留收货流水；变了 → 边表校验 + reason 校验 + 写 biz_status_log（关联收货单号）。
-    let reason = format!("收货过账 {stock_in_no} 自动推进");
+    let reason = format!("{action} {stock_in_no} 自动推进");
     let changed = state_machine::transition_if_changed(
         ex,
         state_machine::ENTITY_PURCHASE_ORDER,
@@ -2258,11 +2371,14 @@ pub async fn sync_purchase_status(
 }
 
 /// 采购单是否「可收货」（状态白名单）。
+///
+/// **D4 起不含 `RECEIVED`**：卡面 ⑦「采购单已 RECEIVED → 400（已收完）」。
+/// 旧白名单把 `RECEIVED` 也算可收（当时靠 `pull_lines_from_purchase` 的
+/// 「每行都收满 → 400」兜底），结果是**已收满的单还能建出一张 0 行/无意义的收货单**，
+/// 或者收出超收后再被 `add_received_qty` 的条件更新拦下 —— 报错点太靠后、文案也不对。
+/// 现在前置拦：`RECEIVED` 直接判不可收货，文案说清「已收完」。
 pub fn purchase_receivable(status: &str) -> bool {
-    matches!(
-        status,
-        "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED" | "RECEIVED"
-    )
+    matches!(status, "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED")
 }
 
 /// 采购单的一条明细的「未收数量」文本（`qty - received_qty`，负数按 0）。

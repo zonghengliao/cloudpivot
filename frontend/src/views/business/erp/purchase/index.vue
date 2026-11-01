@@ -448,6 +448,23 @@
           <t-tag size="small" variant="outline" :theme="priceModeTheme(detail.price_mode)" data-testid="purchase-detail-mode">
             {{ priceModeLabel(detail.price_mode) }}
           </t-tag>
+          <!-- D4/F1：一键生成收货单（条件 = 状态可收 且 还有待收行，口径全部来自后端） -->
+          <span class="detail__spacer" />
+          <t-button
+            v-if="pending?.can_receive"
+            size="small"
+            theme="primary"
+            data-testid="btn-purchase-gen-stockin"
+            @click="goCreateStockIn"
+          >
+            <template #icon><t-icon name="add" /></template>
+            生成收货单
+          </t-button>
+          <t-tooltip v-else-if="pending && !pending.can_receive" :content="pending.blocked_reason ?? ''">
+            <t-button size="small" variant="outline" disabled data-testid="btn-purchase-gen-stockin-disabled">
+              生成收货单
+            </t-button>
+          </t-tooltip>
         </div>
 
         <div class="detail__grid">
@@ -464,6 +481,29 @@
           <div class="detail-field detail-field--wide"><span class="detail-field__label">备注</span><span class="detail-field__value">{{ dash(detail.remark) }}</span></div>
         </div>
 
+        <!-- D4/F6：收货进度（已收 X / 订单 Y）+ 已生成的收货单可反查 -->
+        <div v-if="pending" class="section-title" data-testid="purchase-receive-progress">
+          收货进度：已收 {{ formatQty(pendingTotal.received) }} / 订单 {{ formatQty(pendingTotal.ordered) }}
+          <span class="muted">（待收 {{ formatQty(pendingTotal.pending) }}，{{ pending.pending_line_count }} 行未收完）</span>
+        </div>
+        <div v-if="pending && pending.stock_ins.length > 0" class="po-stockins" data-testid="purchase-generated-stockins">
+          <span class="po-stockins__label">已生成收货单：</span>
+          <t-link
+            v-for="stockIn in pending.stock_ins"
+            :key="stockIn.id"
+            theme="primary"
+            class="po-stockins__item mono"
+            :data-testid="`purchase-stockin-link-${stockIn.in_no}`"
+            @click="goStockIn(stockIn.id)"
+          >
+            {{ stockIn.in_no }}
+            <span class="muted">（{{ stockIn.status_label }}{{ stockIn.posted ? '' : '·未过账' }}）</span>
+          </t-link>
+        </div>
+        <p v-else-if="pending && pending.blocked_reason" class="muted po-blocked" data-testid="purchase-receive-blocked">
+          {{ pending.blocked_reason }}
+        </p>
+
         <div class="section-title">明细（{{ detailItems.length }} 条）</div>
         <t-table row-key="id" size="small" :data="detailItems" :columns="detailColumns" data-testid="purchase-detail-items">
           <template #material_id="{ row }">{{ materialNameOf(row.material_id) }}</template>
@@ -474,6 +514,12 @@
           <template #tax_amount="{ row }">{{ formatMoney(row.tax_amount) }}</template>
           <template #with_tax_amount="{ row }">{{ formatMoney(row.with_tax_amount) }}</template>
           <template #received_qty="{ row }">{{ formatQty(row.received_qty) }}</template>
+          <!-- D4/F2：待收 = 订单 − 已收（只算已过账收货单），0 显示「已收满」 -->
+          <template #pending_qty="{ row }">
+            <span :data-testid="`purchase-pending-${row.line_no}`">
+              {{ formatQty(pendingQtyOf(row.id)) }}
+            </span>
+          </template>
         </t-table>
       </div>
     </t-drawer>
@@ -482,6 +528,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createPurchaseOrder,
@@ -490,11 +537,13 @@ import {
   fetchPurchaseOrderDetail,
   fetchPurchaseOrderItems,
   fetchPurchaseOrderPage,
+  fetchPurchaseOrderPendingItems,
   fetchSupplierOptions,
   fetchWarehousePage,
   updatePurchaseOrder,
   updatePurchaseOrderStatus,
   type MaterialRow,
+  type PendingReceiveRes,
   type PriceMode,
   type PurchaseOrderItemLine,
   type PurchaseOrderRow,
@@ -533,6 +582,7 @@ import {
   shortId,
   switchConfirmMessage,
   switchPriceMode,
+  toNumber,
   validatePurchaseForm,
   type PurchaseFilterState,
   type PurchaseFormErrors,
@@ -573,6 +623,8 @@ const detailColumns: PrimaryTableCol[] = [
   { colKey: 'tax_amount', title: '税额', width: 90, align: 'right' },
   { colKey: 'with_tax_amount', title: AMOUNT_COLUMN_TITLE, width: 130, align: 'right' },
   { colKey: 'received_qty', title: '已收货', width: 90, align: 'right' },
+  // D4/F2：待收 = 订单 − 已收（后端按 POSTED 聚合算，前端只渲染）
+  { colKey: 'pending_qty', title: '待收', width: 80, align: 'right' },
 ];
 
 /** 状态下拉（`''` = 全部） */
@@ -949,23 +1001,98 @@ const detailItems = ref<PurchaseOrderItemLine[]>([]);
 
 /** 打开详情抽屉 */
 async function openDetail(row: PurchaseOrderRow): Promise<void> {
+  await loadDetail(row.id);
+}
+
+// ==================== D4：采购单 → 一键生成收货单 ====================
+
+const router = useRouter();
+const route = useRoute();
+
+/** 收货入库页路径（`business/erp/stock-in`，别名 `stockin`） */
+const STOCK_IN_PATH = '/business/erp/stock-in';
+
+/** 待收明细（「生成收货单」按钮 / 收货进度 / 已生成收货单都读它；加载失败 = `null`，详情不整块失败） */
+const pending = ref<PendingReceiveRes | null>(null);
+
+/** 待收汇总（已收 X / 订单 Y / 待收 Z） */
+const pendingTotal = computed(() => {
+  const total = { ordered: 0, received: 0, pending: 0 };
+  for (const item of pending.value?.items ?? []) {
+    total.ordered += toNumber(item.ordered_qty);
+    total.received += toNumber(item.received_qty);
+    total.pending += toNumber(item.pending_qty);
+  }
+  return total;
+});
+
+/** 采购明细行 → 待收数量（拿不到就显示 0，不让表格出现 `NaN`） */
+function pendingQtyOf(itemId: string): number {
+  const line = pending.value?.items.find((item) => item.item_id === itemId);
+  return toNumber(line?.pending_qty);
+}
+
+/** 按 id 开详情抽屉（路由带 `po_id` 跳过来时用） */
+async function loadDetail(id: string): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detailError.value = '';
   detail.value = null;
   detailItems.value = [];
+  pending.value = null;
   try {
     const [order, items] = await Promise.all([
-      fetchPurchaseOrderDetail(row.id),
-      fetchPurchaseOrderItems(row.id),
+      fetchPurchaseOrderDetail(id),
+      fetchPurchaseOrderItems(id),
     ]);
     detail.value = order;
     detailItems.value = items;
   } catch (error) {
     detailError.value = messageOf(error);
+    return;
   } finally {
     detailLoading.value = false;
   }
+  // 待收明细单独兜底：拉不到（权限 / 网络）只影响「生成收货单」按钮，详情照常看
+  try {
+    pending.value = await fetchPurchaseOrderPendingItems(id);
+  } catch {
+    pending.value = null;
+  }
+}
+
+/**
+ * 「生成收货单」：跳到收货页并带上采购单 id（收货页自动带出待收明细）。
+ *
+ * 生成的**只是草稿**（硬红线 7）：过账必须回收货页由用户确认。
+ */
+async function goCreateStockIn(): Promise<void> {
+  const order = detail.value;
+  if (!order || !pending.value?.can_receive) {
+    MessagePlugin.warning(pending.value?.blocked_reason ?? '这张采购单没有可收的待收明细');
+    return;
+  }
+  detailVisible.value = false;
+  await router.push({ path: STOCK_IN_PATH, query: { from: 'po', po_id: order.id } });
+}
+
+/** 「已生成收货单 IN-xxx」点击 → 跳收货页并直开该单详情（F8 双向可跳） */
+function goStockIn(stockInId: string): void {
+  void router.push({ path: STOCK_IN_PATH, query: { in_id: stockInId } });
+}
+
+/**
+ * 路由参数：从收货单详情点「来源采购单」跳进来（`?po_id=`）→ 直接开这张采购单的详情抽屉。
+ *
+ * 消费后立刻 `replace` 掉，刷新不会重复弹。
+ */
+async function applyRouteQuery(): Promise<void> {
+  const poId = typeof route.query.po_id === 'string' ? route.query.po_id : '';
+  if (!poId) {
+    return;
+  }
+  await router.replace({ path: route.path, query: {} });
+  await loadDetail(poId);
 }
 
 /** 删除（DRAFT 软删） */
@@ -990,6 +1117,8 @@ async function confirmRemove(row: PurchaseOrderRow): Promise<void> {
 onMounted(() => {
   void loadBasics();
   void loadOrders(1);
+  // D4：从收货单详情跳「来源采购单」（`?po_id=`）→ 直开详情
+  void applyRouteQuery();
 });
 </script>
 
@@ -1322,9 +1451,40 @@ onMounted(() => {
   color: var(--td-text-color-primary);
 }
 
+/* D4/F1：「生成收货单」按钮推到详情头右端 */
+.detail__spacer {
+  flex: 1 1 auto;
+}
+
+/* D4/F6：已生成收货单链（采购单 → 收货单） */
+.po-stockins {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+
+.po-stockins__label {
+  color: var(--td-text-color-secondary);
+}
+
+.po-stockins__item {
+  font-size: 12px;
+}
+
+/* D4：不能收货的原因（已收满 / 状态不可收） */
+.po-blocked {
+  margin: 4px 0 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .detail__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+
   gap: 8px 20px;
   padding: 12px 16px;
   border-radius: 4px;

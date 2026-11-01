@@ -1743,6 +1743,7 @@ mod tests {
     fn req(items: Vec<StockInItemReq>) -> CreateStockInReq {
         CreateStockInReq {
             source_order_id: None,
+            purchase_order_id: None,
             supplier_id: Some(SUPPLIER.to_string()),
             warehouse_id: Some(WAREHOUSE.to_string()),
             in_date: None,

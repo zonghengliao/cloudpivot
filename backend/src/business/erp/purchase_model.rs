@@ -110,7 +110,7 @@ pub const STATUS_CLOSED: &str = "CLOSED";
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 本卡负责的 4 条合法边（卡面 §三）。
-pub const LEGAL_EDGES: [(&str, &str); 10] = state_machine::PURCHASE_ORDER_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 11] = state_machine::PURCHASE_ORDER_EDGES;
 
 /// 状态中文标签（错误文案与前端徽标共用）。
 pub fn status_label(status: &str) -> &'static str {
@@ -718,4 +718,165 @@ pub async fn material_ref(id: Uuid) -> DbResult<Option<MaterialRef>> {
             unit_id: row.get_typed("unit_id")?,
         })),
     }
+}
+
+// ==================== ⑫ 待收明细（D4：采购订单 → 一键生成收货单） ====================
+
+/// 「已过账收货量」聚合表达式（按**明细行**匹配，不按物料）。
+///
+/// 口径（卡面硬红线 4 / 5，一个条件都不能少）：
+///
+/// - `s.status = 'POSTED'`：**只算已过账**。草稿（`DRAFT`）还没进仓库，作废
+///   （`CANCELLED` / `PENDING_CANCEL`）已经把账回滚了 —— 两者都不算「已收」；
+/// - `s.deleted_at IS NULL`：软删的单不算；
+/// - `si.source_item_id = i.id`：按采购**明细行**匹配。按 `material_id` 匹配是错的：
+///   同一张采购单里同一物料可以有多行（不同单价 / 不同交期），按物料会被"合并吃掉"；
+/// - `s.source_order_id = i.order_id`：兜住「明细行被挪到别的单」这类脏数据。
+///
+/// 调用方须给 `biz_purchase_order_item` 起别名 `i`（表达式里写死了 `i.order_id` / `i.id`）。
+pub const POSTED_RECEIVED_SQL: &str = "COALESCE((\
+     SELECT SUM(si.qty) FROM biz_stock_in s \
+     JOIN biz_stock_in_item si ON si.stock_in_id = s.id \
+     WHERE s.source_order_id = i.order_id \
+       AND si.source_item_id = i.id \
+       AND s.status = 'POSTED' \
+       AND s.deleted_at IS NULL), 0)";
+
+/// 采购单的一条「待收明细」（收货页带出用）。
+#[derive(Debug, Clone)]
+pub struct PendingReceiveLine {
+    /// 采购明细行 id（落收货明细的 `source_item_id`）。
+    pub item_id: Uuid,
+    /// 行号（1 起）。
+    pub line_no: i32,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 物料编码（物料被删也给出空串，不 500）。
+    pub material_code: String,
+    /// 物料名称。
+    pub material_name: String,
+    /// 计量单位。
+    pub unit_id: Uuid,
+    /// 单位名称。
+    pub unit_name: String,
+    /// 订单数量。
+    pub ordered_qty: Decimal,
+    /// 已收数量（**只算已过账收货单**，见 [`POSTED_RECEIVED_SQL`]）。
+    pub received_qty: Decimal,
+    /// 采购明细列上的冗余「已收数量」（过账时累加、作废时回退）。
+    ///
+    /// 与 [`Self::received_qty`] 口径相同、来源不同：本字段是**写路径的并发闸**
+    /// （`received_qty + 本次 <= qty` 的条件更新），独立重算一次是为了让两者
+    /// 互相印证 —— 不等就说明有人绕过收货单改过账（单测 `pending_matches_ledger` 钉死这一点）。
+    pub ledger_received_qty: Decimal,
+    /// 不含税单价。
+    pub price_excl: Decimal,
+    /// 含税单价快照。
+    pub price_incl: Decimal,
+    /// 税率（百分数 0–100）。
+    pub tax_rate: Decimal,
+}
+
+impl PendingReceiveLine {
+    /// 待收数量 = 订单数量 − 已收数量（负数按 0：脏数据不许让前端显示负数）。
+    pub fn pending_qty(&self) -> Decimal {
+        let pending = self.ordered_qty - self.received_qty;
+        if pending < Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            pending
+        }
+    }
+
+    /// 这一行是否还收得动（`pending_qty > 0`）。
+    pub fn has_pending(&self) -> bool {
+        self.pending_qty() > Decimal::ZERO
+    }
+
+    /// 收货成本价：采购明细没有单独的成本列，一律用不含税单价（卡面 §① 的 `cost_price`）。
+    pub fn cost_price(&self) -> Decimal {
+        self.price_excl
+    }
+
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            item_id: row.get_typed("item_id")?,
+            line_no: row.get_typed("line_no")?,
+            material_id: row.get_typed("material_id")?,
+            material_code: row.get_typed("material_code")?,
+            material_name: row.get_typed("material_name")?,
+            unit_id: row.get_typed("unit_id")?,
+            unit_name: row.get_typed("unit_name")?,
+            ordered_qty: row.get_typed("ordered_qty")?,
+            received_qty: row.get_typed("received_qty")?,
+            ledger_received_qty: row.get_typed("ledger_received_qty")?,
+            price_excl: row.get_typed("price")?,
+            price_incl: row.get_typed("price_incl")?,
+            tax_rate: row.get_typed("tax_rate")?,
+        })
+    }
+}
+
+/// 取某张采购单的全部明细行 + 各自「已收 / 待收」（行号升序）。
+///
+/// 一次查询拿到整单：收货页一次带出几十行，不做 N+1。
+pub async fn pending_receive_lines(order_id: Uuid) -> DbResult<Vec<PendingReceiveLine>> {
+    let sql = format!(
+        "SELECT i.id AS item_id, i.line_no, i.material_id, \
+                COALESCE(m.material_code, '') AS material_code, \
+                COALESCE(m.material_name, '') AS material_name, \
+                i.unit_id, COALESCE(u.unit_name, '') AS unit_name, \
+                i.qty AS ordered_qty, i.received_qty AS ledger_received_qty, \
+                {POSTED_RECEIVED_SQL} AS received_qty, \
+                i.price, i.price_incl, i.tax_rate \
+           FROM biz_purchase_order_item i \
+           LEFT JOIN biz_material m ON m.id = i.material_id \
+           LEFT JOIN biz_unit u ON u.id = i.unit_id \
+          WHERE i.order_id = ?::uuid \
+          ORDER BY i.line_no ASC"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(&order_id)])
+        .await?;
+    rows.iter().map(PendingReceiveLine::from_row).collect()
+}
+
+/// 采购单上已生成的收货单（详情页「来源 → 下游」反查，卡面 F3 / ⑤）。
+#[derive(Debug, Clone)]
+pub struct StockInBrief {
+    /// 收货单 id。
+    pub id: Uuid,
+    /// 收货单号 `IN-yyyyMMdd-000001`。
+    pub in_no: String,
+    /// 状态（`DRAFT` / `POSTED` / `PENDING_CANCEL` / `CANCELLED`）。
+    pub status: String,
+    /// 入库日期。
+    pub in_date: NaiveDate,
+    /// 合计数量。
+    pub total_qty: Decimal,
+}
+
+impl StockInBrief {
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            in_no: row.get_typed("in_no")?,
+            status: row.get_typed("status")?,
+            in_date: row.get_typed("in_date")?,
+            total_qty: row.get_typed("total_qty")?,
+        })
+    }
+}
+
+/// 取某张采购单生成过的收货单（未软删，新单在前）。
+pub async fn stock_ins_of_order(order_id: Uuid) -> DbResult<Vec<StockInBrief>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT id, in_no, status, in_date, total_qty FROM biz_stock_in \
+              WHERE source_order_id = ?::uuid AND deleted_at IS NULL \
+              ORDER BY in_date DESC, in_no DESC",
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    rows.iter().map(StockInBrief::from_row).collect()
 }

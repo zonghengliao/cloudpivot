@@ -145,6 +145,14 @@ fn bad_request(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::PARAM_INVALID, message.into())
 }
 
+/// 数量文案：去掉尾部的 0（`70.0000` → `70`，`1.5000` → `1.5`）。
+///
+/// 库列是 `NUMERIC(18,4)`，直接 `{}` 打印会变成「70.0000 件」——
+/// 给老板看的错误文案不该带这种噪声。
+fn trim_qty(value: Decimal) -> String {
+    value.round_dp(4).normalize().to_string()
+}
+
 /// 作废路径的「状态不允许」哨兵归类（模型层只回 `DbError`，这里映射成 `409` 文案）。
 enum CancelGuard {
     /// 库存 / 库位账不够退（货已部分出库）→ 文案带「请先做退货入库冲销」。
@@ -254,8 +262,15 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
     let serial_count = stockin_model::serial_count_of(id)
         .await
         .map_err(|error| utils::db_error(error, "统计收货入库单序列号"))?;
+    // 来源采购单号（F3）：详情页要显示「来源采购单：PO-xxx」并可点回采购单。
+    let mut header = StockInRes::from(&row);
+    if let Some(order_id) = row.source_order_id {
+        header.source_order_no = stockin_model::order_no_of(order_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询来源采购单号"))?;
+    }
     Ok(StockInDetailRes::with_summary(
-        StockInRes::from(&row),
+        header,
         items.iter().map(StockInItemRes::from).collect(),
         serial_count,
     ))
@@ -359,16 +374,17 @@ async fn plan_lines(
             let requested = requested_by_source.entry(item_id).or_default();
             *requested += line.qty;
             if *requested > remaining {
+                // 文案口径（卡面 O5 / 硬红线 6）：一句话说清「本次多少 / 待收多少 / 已收多少 / 订单多少」，
+                // 让用户改数量时不用再翻采购单。
                 return Err(bad_request(format!(
-                    "items[{index}] 收货数量超过采购单未收数量：该行采购 {} {}、已收 {} {}，\
-                     本单累计要收 {} {}（超出 {}）",
-                    po_item.qty,
-                    "件",
-                    po_item.received_qty,
-                    "件",
-                    *requested,
-                    "件",
-                    *requested - remaining
+                    "物料 {} 本次收 {} 件，但采购单只剩 {} 件未收（已收 {} / 订单 {}）：\
+                     请把这一行改到 {} 件以内，或先核对已过账的收货单",
+                    material.material_code,
+                    trim_qty(*requested),
+                    trim_qty(remaining),
+                    trim_qty(po_item.received_qty),
+                    trim_qty(po_item.qty),
+                    trim_qty(remaining)
                 )));
             }
         }
@@ -504,6 +520,34 @@ async fn purchase_item_snapshot(
 
 // ==================== ① 建单 ====================
 
+/// 把 `purchase_order_id`（卡面 D4 的字段名）归一成 `source_order_id`（库里列名）。
+///
+/// 两个都给且**不相等** → 400：静默挑一个会让「带错单」这类事故无声无息。
+/// 归一后写回 `request.source_order_id`，后面的代码只认一个字段（不留双真相）。
+fn resolve_purchase_order(
+    request: &mut CreateStockInReq,
+) -> std::result::Result<Option<String>, ApiError> {
+    let pick = |raw: Option<&str>| {
+        raw.map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+    };
+    let column = pick(request.source_order_id.as_deref());
+    let alias = pick(request.purchase_order_id.as_deref());
+    match (column, alias) {
+        (Some(left), Some(right)) if left != right => Err(bad_request(format!(
+            "source_order_id（{left}）与 purchase_order_id（{right}）不一致：\
+             两者是同一个字段（来源采购单），只能给一个或给相同的值"
+        ))),
+        (Some(left), _) => Ok(Some(left)),
+        (None, Some(right)) => {
+            request.source_order_id = Some(right.clone());
+            Ok(Some(right))
+        }
+        (None, None) => Ok(None),
+    }
+}
+
 /// 建单核心逻辑（handler 与单测共用）。
 ///
 /// 顺序：DTO 校验 + 算金额（纯函数）→ 供应商 / 仓库存在 → 来源采购单可收 →
@@ -514,7 +558,9 @@ pub async fn create_stock_in(
 ) -> std::result::Result<Uuid, ApiError> {
     let op = operator.into();
     let mut request = req.clone();
-    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
+    resolve_purchase_order(&mut request)?;
+    let source_order_id =
+        parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
             return Err(bad_request(
@@ -797,7 +843,9 @@ pub async fn update_stock_in(
     ensure_derived_totals(&current, req, false)?;
 
     let mut request = req.clone();
-    let source_order_id = parse_optional_uuid(request.source_order_id.as_ref(), "source_order_id")?;
+    resolve_purchase_order(&mut request)?;
+    let source_order_id =
+        parse_optional_uuid(request.source_order_id.as_ref(), "purchase_order_id")?;
     if request.items.is_empty() {
         let Some(order_id) = source_order_id else {
             return Err(bad_request(
@@ -1484,6 +1532,32 @@ async fn cancel_in_tx(
         payable::cancel_for_stock_in(ex, id, operator.id, now)
             .await
             .map_err(|error| write_error(error, "作废：应付单作废"))?;
+        // ⑥ 回退采购单的已收数量 + 重算采购单状态（D4）
+        //
+        // 没有这一步：作废只回滚了库存六本账，`biz_purchase_order_item.received_qty`
+        // 还是满的 —— 采购单显示"已收完"、`RECEIVED` 又不在收货白名单里，
+        // 老板再也收不进这批货（正是 D4 要解决的场景）。
+        // 顺序：先退数量再重算状态（重算读的是退完之后的数）。
+        if let Some(order_id) = row.source_order_id {
+            let source_lines = stockin_model::source_lines_of(ex, id)
+                .await
+                .map_err(|error| utils::db_error(error, "作废：查询来源采购明细"))?;
+            for (source_item_id, qty) in source_lines {
+                stockin_model::revert_received_qty(ex, source_item_id, qty, now)
+                    .await
+                    .map_err(|error| write_error(error, "作废：回退采购单已收数量"))?;
+            }
+            stockin_model::sync_purchase_status(
+                ex,
+                order_id,
+                &row.in_no,
+                "收货作废",
+                operator.id,
+                now,
+            )
+            .await
+            .map_err(|error| write_error(error, "作废：回退采购单状态"))?;
+        }
         tracing::info!(
             stock_in_id = %id,
             in_no = %row.in_no,
@@ -1724,9 +1798,16 @@ async fn post_in_tx(
 
     // ⑥ 推进采购单状态（PARTIAL_RECEIVED / RECEIVED）—— P10：走状态机唯一入口
     if let Some(order_id) = header.source_order_id {
-        stockin_model::sync_purchase_status(ex, order_id, &header.in_no, operator.id, now)
-            .await
-            .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
+        stockin_model::sync_purchase_status(
+            ex,
+            order_id,
+            &header.in_no,
+            "收货过账",
+            operator.id,
+            now,
+        )
+        .await
+        .map_err(|error| write_error(error, "过账：推进采购单状态"))?;
     }
 
     // ⑦ 应付单 + 凭证（P2-C1，方案 A：入库即生成；**同一事务**，失败整单回滚）
@@ -1941,7 +2022,20 @@ pub async fn stock_in_page(
     let (rows, total) = stockin_model::stock_in_page(&query.to_filter())
         .await
         .map_err(|error| utils::db_error(error, "分页查询收货入库单"))?;
-    let list = rows.iter().map(StockInRes::from).collect();
+    let mut list: Vec<StockInRes> = rows.iter().map(StockInRes::from).collect();
+    // 来源采购单号：一次 `IN (...)` 批量补齐（列表要显示「来源采购单 PO-xxx」，
+    // 逐条查 = 一页 20 次往返）。
+    let order_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.source_order_id).collect();
+    if !order_ids.is_empty() {
+        let nos = stockin_model::order_nos_of(&order_ids)
+            .await
+            .map_err(|error| utils::db_error(error, "查询来源采购单号"))?;
+        for (header, row) in list.iter_mut().zip(rows.iter()) {
+            if let Some(order_id) = row.source_order_id {
+                header.source_order_no = nos.get(&order_id).cloned();
+            }
+        }
+    }
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -2191,6 +2285,7 @@ mod tests {
     fn req(lines: Vec<StockInItemReq>) -> CreateStockInReq {
         CreateStockInReq {
             source_order_id: None,
+            purchase_order_id: None,
             supplier_id: Some(SUPPLIER.to_string()),
             warehouse_id: Some(WAREHOUSE.to_string()),
             in_date: None,
@@ -2644,7 +2739,11 @@ mod tests {
         request.source_order_id = Some(order_id.to_string());
         let err = create_stock_in(&request, None).await.unwrap_err();
         assert_eq!(err.status, 400, "{}", err.msg);
-        assert!(err.msg.contains("超过采购单未收数量"), "{}", err.msg);
+        // D4 文案口径：一句话说清「本次 / 待收 / 已收 / 订单」四个数
+        assert!(err.msg.contains("本次收 25 件"), "{}", err.msg);
+        assert!(err.msg.contains("只剩 20 件未收"), "{}", err.msg);
+        assert!(err.msg.contains("已收 10"), "{}", err.msg);
+        assert!(err.msg.contains("订单 30"), "{}", err.msg);
 
         // 收 20（刚好剩余）→ 成功，采购单变 RECEIVED 且 received_qty = 30
         let mut ok = line(MATERIAL_A, "20", "2", "0");
@@ -2850,7 +2949,9 @@ mod tests {
                  NULLIF(?::text,'')::numeric, 0, 0, 0)",
             vec![
                 Value::from(&order_id),
-                Value::Text(format!("B1-{}", &order_id.to_string()[..8])),
+                // 单号尾段必须取 uuid 的**随机段**：`Uuid::now_v7` 字符串前 8 位是毫秒时间戳的
+                // 高 32 位，同一个 ~65 秒窗口内所有用例会撞成同一个单号（`uk_biz_po_no` 直接炸）。
+                Value::Text(format!("B1-{}", &order_id.simple().to_string()[24..32])),
                 Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
                 Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
                 Value::Text(qty.to_string()),
@@ -5004,5 +5105,508 @@ mod tests {
             .expect("必须有审批节点");
         assert_eq!(review.assignee_type.as_deref(), Some("ADMIN"));
         assert_eq!(review.self_approval, "FORBID", "内控：不许自审自批");
+    }
+
+    // ==================== D4：采购订单 → 一键生成收货单 ====================
+
+    /// 造一张采购单（1 行，物料 A），返回 `(order_id, item_id)`。
+    ///
+    /// `received` **只写明细的冗余列**；要造「真的收过货」请用
+    /// [`d4_seed_po_with_posted`]（D4 起已收数量有两个独立来源，测试必须让它们一致）。
+    async fn d4_seed_po(qty: &str, received: &str) -> (Uuid, Uuid) {
+        seed_purchase_order(qty, received).await
+    }
+
+    /// 插一张「已过账」的收货单（只写单头 + 一行明细，用于喂 pending 聚合）。
+    ///
+    /// 不生成凭证 / 库存流水 —— 这些用例只验「待收数量」口径，**不能**跑不变量套件
+    /// （D1 要求已过账单必有凭证），所以单测库与 e2e 库分开。
+    async fn d4_insert_posted(order_id: Uuid, item_id: Uuid, qty: &str) {
+        let id = Uuid::now_v7();
+        // 同上：单号取 uuid 随机段，别用时间戳段（同窗口多张单会撞 `uk_biz_si_no`）
+        let in_no = format!("B1-IN-{}", &id.simple().to_string()[24..32]);
+        db().execute_with_params(
+            "INSERT INTO biz_stock_in \
+                 (id, in_no, in_type, source_order_id, supplier_id, warehouse_id, in_date, status, total_qty) \
+             VALUES (?::uuid, ?, 'PURCHASE', ?::uuid, ?::uuid, ?::uuid, CURRENT_DATE, 'POSTED', \
+                 NULLIF(?::text,'')::numeric)",
+            vec![
+                Value::from(&id),
+                Value::Text(in_no),
+                Value::from(&order_id),
+                Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                Value::Text(qty.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+        db().execute_with_params(
+            "INSERT INTO biz_stock_in_item \
+                 (id, stock_in_id, line_no, source_item_id, material_id, unit_id, qty) \
+             VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric)",
+            vec![
+                Value::from(&Uuid::now_v7()),
+                Value::from(&id),
+                Value::from(&item_id),
+                Value::from(&Uuid::parse_str(MATERIAL_A).unwrap()),
+                Value::from(&Uuid::parse_str(UNIT).unwrap()),
+                Value::Text(qty.to_string()),
+            ],
+        )
+        .await
+        .unwrap();
+    }
+
+    /// 造采购单 + 真账：`received > 0` 时补一张 POSTED 收货单（明细列与聚合口径一致）。
+    async fn d4_seed_po_with_posted(qty: &str, received: &str) -> (Uuid, Uuid) {
+        let (order_id, item_id) = d4_seed_po(qty, received).await;
+        if dec(received) > Decimal::ZERO {
+            d4_insert_posted(order_id, item_id, received).await;
+        }
+        (order_id, item_id)
+    }
+
+    /// 改采购单状态（造 DRAFT / RECEIVED / CANCELLED 这些非默认态）。
+    async fn d4_set_po_status(order_id: Uuid, status: &str) {
+        db().execute_with_params(
+            "UPDATE biz_purchase_order SET status = ? WHERE id = ?::uuid",
+            vec![Value::Text(status.to_string()), Value::from(&order_id)],
+        )
+        .await
+        .unwrap();
+    }
+
+    /// 读采购单状态。
+    async fn d4_po_status(order_id: Uuid) -> String {
+        db().scalar_with_params(
+            "SELECT status FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .unwrap()
+    }
+
+    /// 读采购明细的 `received_qty`（冗余列）。
+    async fn d4_ledger_received(item_id: Uuid) -> Decimal {
+        db().scalar_with_params(
+            "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
+            vec![Value::from(&item_id)],
+        )
+        .await
+        .unwrap()
+    }
+
+    /// ① 全新采购单（没收过）→ `pending_qty = ordered_qty`，且可以收货。
+    #[tokio::test]
+    async fn d4_pending_fresh_order_equals_ordered() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po("100", "0").await;
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items.len(), 1);
+        assert_eq!(pending.items[0].ordered_qty, dec("100"));
+        assert_eq!(pending.items[0].received_qty, dec("0"));
+        assert_eq!(
+            pending.items[0].pending_qty,
+            dec("100"),
+            "没收过 → 待收 = 订单"
+        );
+        assert_eq!(pending.items[0].material_code, "P2B1-M1", "带出物料编码");
+        assert_eq!(pending.order.supplier_id, SUPPLIER, "带出供应商（O1）");
+        assert_eq!(pending.order.warehouse_id, WAREHOUSE, "带出仓库（O1）");
+        assert_eq!(pending.order.supplier_name, "P2B1 测试供应商");
+        assert!(pending.can_receive);
+        assert_eq!(pending.pending_line_count, 1);
+        assert!(pending.blocked_reason.is_none());
+    }
+
+    /// ② 部分收货后 → `pending_qty = ordered − received`（只算已过账）。
+    #[tokio::test]
+    async fn d4_pending_after_partial_receipt() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po_with_posted("100", "30").await;
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].received_qty, dec("30"));
+        assert_eq!(pending.items[0].pending_qty, dec("70"), "待收 = 100 − 30");
+        assert!(pending.can_receive);
+    }
+
+    /// ③ 全部收完 → 所有行 `pending_qty = 0`，`can_receive = false` + 明确原因。
+    #[tokio::test]
+    async fn d4_pending_all_received_is_zero() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po_with_posted("100", "100").await;
+        d4_set_po_status(order_id, "RECEIVED").await;
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].pending_qty, Decimal::ZERO);
+        assert_eq!(pending.pending_line_count, 0);
+        assert!(!pending.can_receive, "收满后前端不该显示「生成收货单」按钮");
+        let reason = pending.blocked_reason.expect("必须给出不能收的原因");
+        assert!(reason.contains("已收满"), "{reason}");
+    }
+
+    /// ④ 多张收货单累加 → `received_qty` 是总和。
+    #[tokio::test]
+    async fn d4_pending_sums_multiple_receipts() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("100", "50").await;
+        // 明细列写 50，真账拆成两张 POSTED（30 + 20）
+        d4_insert_posted(order_id, item_id, "30").await;
+        d4_insert_posted(order_id, item_id, "20").await;
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].received_qty, dec("50"), "两张单要累加");
+        assert_eq!(pending.items[0].pending_qty, dec("50"));
+        assert_eq!(pending.stock_ins.len(), 2, "已生成收货单要能反查");
+        assert!(pending.stock_ins.iter().all(|item| item.posted));
+    }
+
+    /// ⑤ 草稿收货单**不算**已收（硬红线 4：只有 POSTED 计数）。
+    #[tokio::test]
+    async fn d4_pending_ignores_draft_stock_in() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po("100", "0").await;
+        // 只给 source_order_id → 自动带出 100 行；**不过账**，停在 DRAFT
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let draft = create_stock_in(&request, None).await.unwrap();
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].received_qty, dec("0"), "草稿不算已收");
+        assert_eq!(pending.items[0].pending_qty, dec("100"));
+        assert_eq!(pending.stock_ins.len(), 1);
+        assert!(!pending.stock_ins[0].posted, "草稿要标成未过账");
+        // 过账后才算
+        change_stock_in_status(draft, &post_req(), None)
+            .await
+            .unwrap();
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].received_qty, dec("100"), "过账后才计入");
+        assert_eq!(pending.items[0].pending_qty, Decimal::ZERO);
+    }
+
+    /// ⑥ 超收 → 400，文案点明「本次 80 > 待收 70（已收 30 / 订单 100）」（O5 / 硬红线 6）。
+    #[tokio::test]
+    async fn d4_over_receipt_message_is_exact() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po_with_posted("100", "30").await;
+        let mut over = line(MATERIAL_A, "80", "2", "0");
+        over.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![over]);
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("物料 P2B1-M1"), "要点名物料：{}", err.msg);
+        assert!(err.msg.contains("本次收 80 件"), "{}", err.msg);
+        assert!(err.msg.contains("只剩 70 件未收"), "{}", err.msg);
+        assert!(err.msg.contains("已收 30"), "{}", err.msg);
+        assert!(err.msg.contains("订单 100"), "{}", err.msg);
+    }
+
+    /// ⑦ 采购单是 DRAFT → 400（草稿不能收货）。
+    #[tokio::test]
+    async fn d4_draft_order_cannot_receive() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po("10", "0").await;
+        d4_set_po_status(order_id, "DRAFT").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("DRAFT"), "{}", err.msg);
+        assert!(err.msg.contains("不能收货"), "{}", err.msg);
+        // 待收接口同样给出 false + 原因
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert!(!pending.can_receive);
+        assert!(
+            pending
+                .blocked_reason
+                .unwrap_or_default()
+                .contains("不能收货"),
+            "待收接口也要说清为什么不能收"
+        );
+    }
+
+    /// ⑧ 采购单已 RECEIVED → 400（已收完，D4 把 RECEIVED 移出收货白名单）。
+    #[tokio::test]
+    async fn d4_received_order_cannot_receive() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po_with_posted("100", "100").await;
+        d4_set_po_status(order_id, "RECEIVED").await;
+        let mut again = line(MATERIAL_A, "1", "2", "0");
+        again.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![again]);
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("RECEIVED"), "{}", err.msg);
+        assert!(err.msg.contains("不能收货"), "{}", err.msg);
+    }
+
+    /// ⑨ 采购单已 CANCELLED → 400。
+    #[tokio::test]
+    async fn d4_cancelled_order_cannot_receive() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po("10", "0").await;
+        d4_set_po_status(order_id, "CANCELLED").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("CANCELLED"), "{}", err.msg);
+    }
+
+    /// ⑩ 明细的 `source_item_id` 不属于该采购单 → 400（不许跨单收货）。
+    #[tokio::test]
+    async fn d4_foreign_source_item_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_a, _) = d4_seed_po("10", "0").await;
+        let (_order_b, item_b) = d4_seed_po("10", "0").await;
+        let mut foreign = line(MATERIAL_A, "5", "2", "0");
+        foreign.purchase_order_item_id = Some(item_b.to_string());
+        let mut request = req(vec![foreign]);
+        request.source_order_id = Some(order_a.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(
+            err.msg.contains("不属于本单的来源采购单"),
+            "跨单明细必须点名拒绝：{}",
+            err.msg
+        );
+    }
+
+    /// ⑪ 生成收货单并过账（部分）→ 采购单变 PARTIAL_RECEIVED。
+    #[tokio::test]
+    async fn d4_post_advances_to_partial_received() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("100", "0").await;
+        let mut partial = line(MATERIAL_A, "30", "2", "0");
+        partial.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![partial]);
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        // 生成的是草稿：过账前采购单状态不许变（硬红线 7「不许自动过账」）
+        assert_eq!(d4_po_status(order_id).await, "SUBMITTED", "建单不许改状态");
+        assert_eq!(d4_ledger_received(item_id).await, dec("0"), "草稿不动已收");
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+        assert_eq!(d4_po_status(order_id).await, "PARTIAL_RECEIVED");
+        assert_eq!(d4_ledger_received(item_id).await, dec("30"));
+    }
+
+    /// ⑫ 收完全部 → 采购单变 RECEIVED。
+    #[tokio::test]
+    async fn d4_post_all_advances_to_received() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, _) = d4_seed_po("40", "0").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+        assert_eq!(d4_po_status(order_id).await, "RECEIVED");
+    }
+
+    /// ⑬ 删除草稿收货单 → 采购单状态与已收数量都不变（草稿从不计入）。
+    #[tokio::test]
+    async fn d4_delete_draft_does_not_change_order() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("100", "0").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        delete_stock_in(id, None).await.unwrap();
+        assert_eq!(
+            d4_po_status(order_id).await,
+            "SUBMITTED",
+            "删草稿不该动采购单"
+        );
+        assert_eq!(d4_ledger_received(item_id).await, dec("0"));
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(
+            pending.items[0].pending_qty,
+            dec("100"),
+            "删草稿后待收回到满额"
+        );
+        assert!(pending.stock_ins.is_empty(), "软删的收货单不该出现在反查里");
+    }
+
+    /// ⑭ 作废已过账收货单 → 已收数量回退、采购单从 RECEIVED 退回 PARTIAL_RECEIVED，
+    /// 并且**能再收一次**（D4 的核心：收错了还能重来）。
+    #[tokio::test]
+    async fn d4_cancel_posted_restores_pending() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("100", "0").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        change_stock_in_status(id, &post_req(), None).await.unwrap();
+        assert_eq!(d4_po_status(order_id).await, "RECEIVED");
+        assert_eq!(d4_ledger_received(item_id).await, dec("100"));
+
+        cancel(id, "收错了要退").await;
+        assert_eq!(
+            d4_ledger_received(item_id).await,
+            dec("0"),
+            "作废必须把已收数量退回去"
+        );
+        assert_eq!(
+            d4_po_status(order_id).await,
+            "PARTIAL_RECEIVED",
+            "已收货单作废后采购单退回部分收货（否则再也收不进来）"
+        );
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items[0].received_qty, dec("0"), "作废的单不算已收");
+        assert_eq!(pending.items[0].pending_qty, dec("100"));
+        assert!(pending.can_receive, "作废后必须能重新收货");
+
+        // 真的能再收：再建一张并过账
+        let mut again = req(Vec::new());
+        again.source_order_id = Some(order_id.to_string());
+        let second = create_stock_in(&again, None).await.unwrap();
+        change_stock_in_status(second, &post_req(), None)
+            .await
+            .unwrap();
+        assert_eq!(d4_po_status(order_id).await, "RECEIVED");
+    }
+
+    /// ⑮ `purchase_order_id`（卡面字段名）与 `source_order_id`（库列名）等价。
+    #[tokio::test]
+    async fn d4_purchase_order_id_alias_links_source() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("20", "0").await;
+        let mut request = req(Vec::new());
+        request.purchase_order_id = Some(order_id.to_string());
+        let id = create_stock_in(&request, None).await.unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.header.source_order_id.as_deref(),
+            Some(order_id.to_string().as_str()),
+            "别名要落到 source_order_id 列"
+        );
+        assert_eq!(
+            detail.purchase_order_id.as_deref(),
+            Some(order_id.to_string().as_str()),
+            "详情响应要给 purchase_order_id（卡面 ①）"
+        );
+        assert!(
+            detail.purchase_order_no.is_some(),
+            "详情响应要给 purchase_order_no（卡面 F3）"
+        );
+        assert_eq!(
+            detail.items[0].source_item_id.as_deref(),
+            Some(item_id.to_string().as_str())
+        );
+    }
+
+    /// ⑯ 两个字段都给且不一致 → 400（不静默挑一个）。
+    #[tokio::test]
+    async fn d4_conflicting_alias_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_a, _) = d4_seed_po("20", "0").await;
+        let (order_b, _) = d4_seed_po("20", "0").await;
+        let mut request = req(Vec::new());
+        request.source_order_id = Some(order_a.to_string());
+        request.purchase_order_id = Some(order_b.to_string());
+        let err = create_stock_in(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("不一致"), "{}", err.msg);
+    }
+
+    /// ⑰ 两条「已收」口径必须永远相等（冗余列 vs POSTED 聚合）。
+    ///
+    /// 这是 D4 的口径锁：以后谁改一侧忘了另一侧，这条先红。
+    #[tokio::test]
+    async fn d4_pending_matches_ledger_column() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = d4_seed_po("100", "0").await;
+        // 两张**部分**收货单：30 → 过账，20 → 过账
+        for qty in ["30", "20"] {
+            let mut request = req(vec![{
+                let mut line = line(MATERIAL_A, qty, "2", "0");
+                line.purchase_order_item_id = Some(item_id.to_string());
+                line
+            }]);
+            request.source_order_id = Some(order_id.to_string());
+            let id = create_stock_in(&request, None).await.unwrap();
+            change_stock_in_status(id, &post_req(), None).await.unwrap();
+        }
+        let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
+            .await
+            .unwrap();
+        assert_eq!(pending.items.len(), 1);
+        let row = &pending.items[0];
+        assert_eq!(row.received_qty, dec("50"), "两张单要累加");
+        assert_eq!(row.pending_qty, dec("50"));
+        let ledger: Decimal = d4_ledger_received(item_id).await;
+        assert_eq!(
+            row.received_qty, ledger,
+            "冗余列（写路径闸）与已过账聚合（读路径）必须一致"
+        );
     }
 }

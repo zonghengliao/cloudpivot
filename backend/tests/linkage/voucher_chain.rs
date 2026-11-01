@@ -50,6 +50,7 @@ async fn blue_voucher(ctx: &Ctx) -> Uuid {
     let loc = ctx.loc_row(ctx.mat).await;
     let req = CreateStockInReq {
         source_order_id: None,
+        purchase_order_id: None,
         supplier_id: Some(ctx.supplier.to_string()),
         warehouse_id: Some(ctx.wh_from.to_string()),
         in_date: None,

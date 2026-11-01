@@ -42,13 +42,14 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::purchase_dto::{
-    CreatePurchaseOrderReq, PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq,
-    ensure_submittable_lines,
+    CreatePurchaseOrderReq, PendingItemRes, PendingOrderRes, PendingReceiveRes, PendingStockInRes,
+    PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq, ensure_submittable_lines,
 };
 use crate::business::erp::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals,
     can_transition, status_label, transition_rejected_message,
 };
+use crate::business::erp::stockin_model;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -250,6 +251,99 @@ pub async fn purchase_order_create(
 ) -> ResResult<PurchaseOrderDetailRes> {
     let id = create_purchase_order(&req, &claims).await?;
     Ok(Res::ok(detail_of(id).await?))
+}
+
+// ==================== ⑥ 待收明细（D4：一键生成收货单的数据源） ====================
+
+/// 「查采购单待收明细」的核心逻辑（handler 与单测共用）。
+///
+/// 口径（卡面 F2 + 硬红线 4 / 5）：
+///
+/// - `received_qty` **只算已过账（`POSTED`）的收货单**，草稿 / 作废 / 软删一律不算
+///   （聚合表达式见 [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]）；
+/// - 按**采购明细行**（`si.source_item_id`）匹配，不按 `material_id`；
+/// - `pending_qty = ordered_qty - received_qty`（负数按 0）；
+/// - `can_receive` 同时要求「状态可收」与「还有待收行」：`RECEIVED` / `CLOSED` /
+///   `CANCELLED` / `DRAFT` 都给 `false` + 明确原因，前端不用自己拼文案。
+pub async fn pending_items_of(id: Uuid) -> std::result::Result<PendingReceiveRes, ApiError> {
+    let row = purchase_model::find_order(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购订单"))?
+        .ok_or_else(|| not_found("采购订单"))?;
+    let lines = purchase_model::pending_receive_lines(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购单待收明细"))?;
+    let briefs = purchase_model::stock_ins_of_order(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询采购单已生成的收货单"))?;
+
+    // 名称查不到（供应商 / 仓库被软删）一律给空串：前端是把它回填进下拉框的，
+    // 给 null 会让「带出默认值」这一步静默失败。
+    let supplier_name = purchase_model::supplier_ref(row.supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商"))?
+        .unwrap_or_default();
+    let warehouse_name = purchase_model::warehouse_ref(row.warehouse_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询收货仓库"))?
+        .unwrap_or_default();
+
+    let pending_line_count = lines.iter().filter(|line| line.has_pending()).count();
+    let receivable = stockin_model::purchase_receivable(&row.status);
+    let can_receive = receivable && pending_line_count > 0;
+    let blocked_reason = if can_receive {
+        None
+    } else if pending_line_count > 0 {
+        // 状态不可收（DRAFT / RECEIVED / CLOSED / CANCELLED）且还有待收行：原因在状态上
+        Some(format!(
+            "采购单 {} 当前是「{}」（{}），不能收货：只有已提交（SUBMITTED）/ 已审批（APPROVED）/\n部分收货（PARTIAL_RECEIVED）的采购单可以收",
+            row.order_no,
+            status_label(&row.status),
+            row.status
+        ))
+    } else {
+        // 一行都不剩：原因在数量上（文案要带「已收满」+ 当前状态，两个问题都答）
+        Some(format!(
+            "采购单 {} 已收满：{} 行全部收完，没有可收的待收数量（当前状态「{}」/ {}）",
+            row.order_no,
+            lines.len(),
+            status_label(&row.status),
+            row.status
+        ))
+    };
+
+    Ok(PendingReceiveRes {
+        order: PendingOrderRes {
+            id: row.id.to_string(),
+            order_no: row.order_no.clone(),
+            status: row.status.clone(),
+            status_label: status_label(&row.status).to_string(),
+            supplier_id: row.supplier_id.to_string(),
+            supplier_name,
+            warehouse_id: row.warehouse_id.to_string(),
+            warehouse_name,
+            total_qty: row.total_qty,
+            order_date: row.order_date,
+            remark: row.remark.clone(),
+        },
+        items: lines.iter().map(PendingItemRes::from_line).collect(),
+        stock_ins: briefs.iter().map(PendingStockInRes::from_brief).collect(),
+        pending_line_count,
+        can_receive,
+        blocked_reason,
+    })
+}
+
+/// 查采购单待收明细（收货页「一键带出」的数据源）。
+#[nik::permission(
+    path = "/business/erp/purchase-order/{id}/pending-items",
+    method = "GET",
+    permission = "business:erp:purchase-order:list"
+)]
+#[nik::get("/business/erp/purchase-order/{id}/pending-items")]
+pub async fn purchase_order_pending_items(Path(id): Path<String>) -> ResResult<PendingReceiveRes> {
+    let id = parse_uuid(&id, "id")?;
+    Ok(Res::ok(pending_items_of(id).await?))
 }
 
 // ==================== ② 改单 ====================

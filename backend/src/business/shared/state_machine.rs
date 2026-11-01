@@ -103,7 +103,17 @@ pub const STOCK_IN_EDGES: [(&str, &str); 6] = [
 /// —— 那不是「收紧」而是把功能打断（P9/P2-B1 的收货链路当场不可用）。
 /// 所以这两条边是**把既有生产行为登记进状态机**，不是为过测试放宽；`DRAFT → RECEIVED`
 /// 依旧非法（单测 ⑯ 钉死）。
-pub const PURCHASE_ORDER_EDGES: [(&str, &str); 10] = [
+///
+/// # D4 追加的第 11 条（`RECEIVED → PARTIAL_RECEIVED`）
+///
+/// 收货单可以作废（`POSTED → CANCELLED`，P9/P16 的既有能力）。作废之后：
+/// 库存 / 成本六本账回滚、采购明细的 `received_qty` 回退 —— 此时采购单如果还是
+/// `RECEIVED`，就变成「已收货却没有一分已收数量」，而且 `RECEIVED` 不在收货白名单里，
+/// **老板再也收不进这批货**（D4 要解决的正是"收不了货"）。
+///
+/// 所以补这条回退边：**只在收货单作废的回退路径上使用**（`sync_purchase_status`
+/// 的 `reason` 写明是哪张收货单作废触发的）。正向的 `DRAFT → RECEIVED` 依旧非法。
+pub const PURCHASE_ORDER_EDGES: [(&str, &str); 11] = [
     ("DRAFT", "SUBMITTED"),
     ("DRAFT", "CANCELLED"),
     ("SUBMITTED", "APPROVED"),
@@ -114,6 +124,7 @@ pub const PURCHASE_ORDER_EDGES: [(&str, &str); 10] = [
     ("APPROVED", "PARTIAL_RECEIVED"),
     ("APPROVED", "RECEIVED"),
     ("PARTIAL_RECEIVED", "RECEIVED"),
+    ("RECEIVED", "PARTIAL_RECEIVED"),
 ];
 
 /// 库存调拨单合法边（与 `transfer_model::LEGAL_EDGES` 同源，P5 的 6 条）。

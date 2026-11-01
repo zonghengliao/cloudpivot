@@ -1388,6 +1388,89 @@ export function deletePurchaseOrder(id: string): Promise<void> {
   return del<void>(`${BASE}/purchase-order/${id}`);
 }
 
+// ==================== 采购单待收明细（D4：一键生成收货单） ====================
+
+/**
+ * 采购单单头摘要（`purchase_dto.rs::PendingOrderRes`）。
+ *
+ * 供应商 / 仓库**名称**由后端一并给出：收货页要把它回填进下拉框，名称给了就不用再查一次。
+ */
+export interface PendingReceiveOrder {
+  id: string;
+  order_no: string;
+  status: string;
+  status_label: string;
+  supplier_id: string;
+  supplier_name: string;
+  warehouse_id: string;
+  warehouse_name: string;
+  total_qty: number | string;
+  order_date: string;
+  remark: string | null;
+}
+
+/**
+ * 待收明细行（`purchase_dto.rs::PendingItemRes`）。
+ *
+ * 数量口径（卡面 F2 / 硬红线 4）：
+ * - `received_qty` **只算已过账（POSTED）的收货单**，草稿 / 作废都不算；
+ * - `pending_qty = ordered_qty - received_qty`（负数按 0）。
+ *
+ * 前端带出时用 `pending_qty` 当默认数量，并在行上显示「订单 / 已收 / 待收」让用户看得见上限。
+ */
+export interface PendingReceiveItem {
+  /** 采购明细行 id（建收货单时落 `purchase_order_item_id`） */
+  item_id: string;
+  line_no: number;
+  material_id: string;
+  material_code: string;
+  material_name: string;
+  unit_id: string;
+  unit_name: string;
+  ordered_qty: number | string;
+  received_qty: number | string;
+  pending_qty: number | string;
+  price_excl: number | string;
+  price_incl: number | string;
+  tax_rate: number | string;
+  cost_price: number | string;
+}
+
+/** 已生成收货单（采购单详情反查用；`posted` = 已过账，草稿不计入已收数量） */
+export interface PendingReceiveStockIn {
+  id: string;
+  in_no: string;
+  status: string;
+  status_label: string;
+  in_date: string;
+  total_qty: number | string;
+  posted: boolean;
+}
+
+/** 待收明细响应（`GET /erp/purchase-order/{id}/pending-items`） */
+export interface PendingReceiveRes {
+  order: PendingReceiveOrder;
+  /** **全部行**都返回（`pending_qty = 0` 的也在，前端据此显示「已收满」） */
+  items: PendingReceiveItem[];
+  /** 这张采购单生成过的收货单（未软删，新单在前） */
+  stock_ins: PendingReceiveStockIn[];
+  /** 还有几行没收完 */
+  pending_line_count: number;
+  /** 是否还能再收（状态可收 **且** 至少一行 `pending_qty > 0`）——「生成收货单」按钮的显示条件 */
+  can_receive: boolean;
+  /** 不能收的原因（后端拼好，前端直接展示） */
+  blocked_reason: string | null;
+}
+
+/**
+ * 查采购单待收明细（`GET /erp/purchase-order/{id}/pending-items`，权限同采购单查看）。
+ *
+ * 采购单详情页据此决定「生成收货单」按钮显不显示；收货页据此一键带出单头 + 明细。
+ */
+export function fetchPurchaseOrderPendingItems(id: string): Promise<PendingReceiveRes> {
+  return get<PendingReceiveRes>(`${BASE}/purchase-order/${id}/pending-items`);
+}
+
 // ==================== 收货入库（P2-B1 / P2-E1） ====================
 
 /**
@@ -1413,6 +1496,13 @@ export interface StockInRow {
   in_type: string;
   /** 来源采购单 id（可空 = 无源直收） */
   source_order_id: string | null;
+  /**
+   * 来源采购单**单号**（`PO-yyyyMMdd-000001`；无来源 / 采购单已删 = `null`）。
+   *
+   * 后端列表接口批量补齐（`stockin_handler::stock_in_page` 走一次 `IN (...)`），
+   * 前端不该为了一列单号再发 N 次请求。列上「来源采购单」直接渲染它。
+   */
+  source_order_no: string | null;
   /** 供应商 id */
   supplier_id: string | null;
   /** 收货仓库 id */
@@ -1512,6 +1602,10 @@ export interface StockInDetail {
   serial_count: number;
   /** 口径说明（后端生成，用于页面底部小字） */
   summary: string;
+  /** 来源采购单 id（= `header.source_order_id`，卡面 D4/F3 的字段名） */
+  purchase_order_id: string | null;
+  /** 来源采购单号（详情页「来源采购单：PO-xxx」+ 可点回采购单） */
+  purchase_order_no: string | null;
 }
 
 /**
@@ -1545,6 +1639,13 @@ export interface StockInItemReq {
 export interface CreateStockInReq {
   /** 来源采购单 id（`items` 为空**当且仅当**带它：后端按未收数量自动带出） */
   source_order_id?: string | null;
+  /**
+   * 来源采购单 id 的**业务别名**（卡面 D4 的字段名，与 `source_order_id` 是同一列）。
+   *
+   * 两个都给时后端要求它们相等（不等 400），本页只给这一个 —— 「采购订单 → 生成收货单」
+   * 这条链路读起来更顺。带它时每行必须带 `purchase_order_item_id`，否则后端无法回写已收数量。
+   */
+  purchase_order_id?: string | null;
   /** 供应商 id */
   supplier_id: string;
   /** 收货仓库 id（带源单时必须与采购单收货仓库一致） */
@@ -1592,6 +1693,8 @@ export function fetchStockInPage(query: {
   status?: StockInStatus | '';
   supplier_id?: string;
   warehouse_id?: string;
+  /** 来源采购单号（模糊匹配；卡面 O3「收货单列表按采购单号筛选」） */
+  purchase_order_no?: string;
   date_from?: string;
   date_to?: string;
   page?: number;

@@ -56,6 +56,15 @@
           data-testid="stockin-filter-no"
           @enter="handleSearch"
         />
+        <!-- D4/O3：按来源采购单号筛（从采购单跳过来的人最常用这一条） -->
+        <t-input
+          v-model="filter.purchase_order_no"
+          class="tool-row__po"
+          placeholder="来源采购单号（模糊）"
+          clearable
+          data-testid="stockin-filter-po-no"
+          @enter="handleSearch"
+        />
         <t-button theme="primary" data-testid="btn-stockin-search" @click="handleSearch">查询</t-button>
         <t-button variant="outline" data-testid="btn-stockin-reset" @click="handleReset">重置</t-button>
       </div>
@@ -95,6 +104,20 @@
       >
         <template #in_no="{ row }">
           <span class="mono" :data-testid="`stockin-no-${row.in_no}`">{{ row.in_no }}</span>
+        </template>
+
+        <!-- D4/F3：来源采购单号可点，跳回采购单详情（没有来源就是「—」） -->
+        <template #source_order_no="{ row }">
+          <t-link
+            v-if="row.source_order_no"
+            theme="primary"
+            class="mono"
+            :data-testid="`stockin-po-link-${row.in_no}`"
+            @click="goPurchaseOrder(row)"
+          >
+            {{ row.source_order_no }}
+          </t-link>
+          <span v-else class="muted">—</span>
         </template>
 
         <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
@@ -195,6 +218,15 @@
       data-testid="stockin-form-dialog"
     >
       <t-alert v-if="submitError" theme="error" :message="submitError" class="dlg-alert" />
+
+      <!-- D4/F1：从采购单带出时把「源单 + 条数 + 草稿不自动过账」说清楚 -->
+      <t-alert v-if="form.purchase_order_id" theme="info" class="dlg-alert" data-testid="stockin-source-po">
+        <template #message>
+          已从采购单 <strong class="mono">{{ form.purchase_order_no || form.purchase_order_id }}</strong>
+          带出 <strong>{{ form.items.length }}</strong> 行待收明细：数量默认 = <strong>待收数量</strong>，
+          可以改小（部分收货）或删掉这次不收的行。保存后是<strong>草稿</strong>，核对无误再点「过账」。
+        </template>
+      </t-alert>
 
       <t-alert theme="info" class="dlg-alert" data-testid="stockin-cost-note">
         <template #message>
@@ -311,10 +343,16 @@
                 <t-input-number
                   v-model="item.qty"
                   :min="0"
-                  :max="9999999"
+                  :max="item.pending ? item.pending.pending_qty : 9999999"
                   theme="normal"
                   :data-testid="`stockin-item-qty-${index}`"
                 />
+                <!-- D4/F2：把上限摆在数量下面（订单 / 已收 / 待收），改数量时不用翻采购单 -->
+                <p v-if="item.pending" class="cell-hint" :data-testid="`stockin-item-pending-${index}`">
+                  订单 {{ formatQty(item.pending.ordered_qty) }} /
+                  已收 {{ formatQty(item.pending.received_qty) }} /
+                  待收 <strong>{{ formatQty(item.pending.pending_qty) }}</strong>
+                </p>
                 <p v-if="rowErrors(index).qty" class="cell-error">{{ rowErrors(index).qty }}</p>
               </div>
 
@@ -500,6 +538,22 @@
           <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.header.warehouse_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">入库日期</span><span class="detail-field__value">{{ detail.header.in_date }}</span></div>
           <div class="detail-field"><span class="detail-field__label">入库类型</span><span class="detail-field__value">{{ detail.header.in_type }}</span></div>
+          <!-- D4/F3：来源采购单可点，跳回采购单详情 -->
+          <div class="detail-field">
+            <span class="detail-field__label">来源采购单</span>
+            <span class="detail-field__value">
+              <t-link
+                v-if="detail.purchase_order_no || detail.purchase_order_id"
+                theme="primary"
+                class="mono"
+                data-testid="stockin-detail-po-link"
+                @click="goPurchaseOrderById(detail.purchase_order_id, detail.purchase_order_no)"
+              >
+                {{ detail.purchase_order_no || shortId(detail.purchase_order_id) }}
+              </t-link>
+              <span v-else class="muted">—（无源直收）</span>
+            </span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">合计数量</span><span class="detail-field__value">{{ formatQty(detail.header.total_qty) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">序列号件数</span><span class="detail-field__value">{{ detail.serial_count }}</span></div>
           <div class="detail-field"><span class="detail-field__label">价款</span><span class="detail-field__value">{{ formatMoney(detail.header.total_amount) }}</span></div>
@@ -538,11 +592,13 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createStockIn,
   deleteStockIn,
   fetchMaterialPage,
+  fetchPurchaseOrderPendingItems,
   fetchStockInDetail,
   fetchStockInPage,
   fetchSupplierOptions,
@@ -586,6 +642,7 @@ import {
   emptyStockInItem,
   formatMoney,
   formatQty,
+  formFromPending,
   isStockInFiltered,
   lineAmountsOfItem,
   shortDate,
@@ -613,6 +670,8 @@ const OPTION_LIMIT = 200;
 /** 表格列（卡面 §四：in_no / 供应商 / 仓库 / 入库日期 / 数量 / 金额 / 状态 / 操作） */
 const columns: PrimaryTableCol[] = [
   { colKey: 'in_no', title: '收货单号', width: 210 },
+  // D4/F3：来源采购单（列上直接给单号，不用点进详情才知道这批货是给哪张单收的）
+  { colKey: 'source_order_no', title: '来源采购单', width: 190, ellipsis: true },
   { colKey: 'supplier_id', title: '供应商', minWidth: 150, ellipsis: true },
   { colKey: 'warehouse_id', title: '仓库', width: 140, ellipsis: true },
   { colKey: 'in_date', title: '入库日期', width: 100 },
@@ -799,10 +858,63 @@ function resetForm(): void {
   formErrors.value = {};
   submitError.value = '';
 }
-
 function openCreateDialog(): void {
   resetForm();
   formVisible.value = true;
+}
+
+// ==================== D4：采购订单 → 一键生成收货单 ====================
+
+const router = useRouter();
+const route = useRoute();
+
+/** 采购订单页的路由路径（`business/erp/purchase-order`，别名 `purchase`） */
+const PURCHASE_PATH = '/business/erp/purchase-order';
+
+/** 列表 / 详情里的「来源采购单号」点击 → 跳回采购单（带 `po_id` 让对端直开详情） */
+function goPurchaseOrderById(id: string | null | undefined, no: string | null | undefined): void {
+  if (!id) {
+    return;
+  }
+  void router.push({ path: PURCHASE_PATH, query: { po_id: id, ...(no ? { po_no: no } : {}) } });
+}
+
+/** 列表行的「来源采购单」点击 */
+function goPurchaseOrder(row: StockInRow): void {
+  goPurchaseOrderById(row.source_order_id, row.source_order_no);
+}
+
+/**
+ * 从采购单带出草稿（卡面 F1 / F2 / O1）。
+ *
+ * 流程：查待收明细 → 单头（供应商 / 仓库 / 来源单号）从源单填 → 明细只带 `pending_qty > 0` 的行、
+ * 数量默认 = 待收数量 → **仍是草稿**（硬红线 7：不自动过账）。
+ */
+async function openFromPurchaseOrder(poId: string): Promise<void> {
+  resetForm();
+  loading.value = true;
+  try {
+    const pending = await fetchPurchaseOrderPendingItems(poId);
+    const { form: filled, lineCount } = formFromPending(pending);
+    if (lineCount === 0) {
+      // 一行都不剩：不打开空草稿，直接把后端给的原因说出来
+      MessagePlugin.warning(pending.blocked_reason ?? `采购单 ${pending.order.order_no} 没有可收的待收明细`);
+      openCreateDialog();
+      return;
+    }
+    Object.assign(form, filled);
+    formErrors.value = {};
+    submitError.value = '';
+    formVisible.value = true;
+    MessagePlugin.success(
+      `已从采购单 ${pending.order.order_no} 带出 ${lineCount} 行待收明细，请核对数量`,
+    );
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+    openCreateDialog();
+  } finally {
+    loading.value = false;
+  }
 }
 
 /** 编辑（拉详情：注意 `header` 包了一层） */
@@ -1028,13 +1140,18 @@ const detail = ref<StockInDetail | null>(null);
 const approvalNodes = ref<FlowProgressNode[]>([]);
 
 async function openDetail(row: StockInRow): Promise<void> {
+  await loadDetail(row.id);
+}
+
+/** 按 id 开详情抽屉（路由带 `in_id` 跳过来时用，手里没有整行） */
+async function loadDetail(id: string): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detailError.value = '';
   detail.value = null;
   approvalNodes.value = [];
   try {
-    detail.value = await fetchStockInDetail(row.id);
+    detail.value = await fetchStockInDetail(id);
     await loadApprovalProgress(detail.value?.header?.approval_instance_id ?? null);
   } catch (error) {
     detailError.value = messageOf(error);
@@ -1073,7 +1190,34 @@ async function loadApprovalProgress(instanceId: string | null): Promise<void> {
 onMounted(() => {
   void loadBasics();
   void loadOrders(1);
+  void applyRouteQuery();
 });
+
+/**
+ * 路由参数（D4 跨模块跳转）。
+ *
+ * - `?from=po&po_id=<id>`：从采购单详情点「生成收货单」跳进来 → 自动带出草稿；
+ * - `?in_id=<id>`：从采购单详情点「已生成收货单 IN-xxx」跳进来 → 直接开详情抽屉。
+ *
+ * 参数消费后立刻 `replace` 掉：刷新页面不该重复弹一次带出 / 详情
+ * （用户手动刷新往往就是想看干净的列表）。
+ */
+async function applyRouteQuery(): Promise<void> {
+  const from = typeof route.query.from === 'string' ? route.query.from : '';
+  const poId = typeof route.query.po_id === 'string' ? route.query.po_id : '';
+  const inId = typeof route.query.in_id === 'string' ? route.query.in_id : '';
+  if (!poId && !inId) {
+    return;
+  }
+  await router.replace({ path: route.path, query: {} });
+  if (from === 'po' && poId) {
+    await openFromPurchaseOrder(poId);
+    return;
+  }
+  if (inId) {
+    await loadDetail(inId);
+  }
+}
 </script>
 
 <style scoped lang="less">
@@ -1111,6 +1255,11 @@ onMounted(() => {
 
 .tool-row__no {
   width: 210px;
+}
+
+/* D4/O3：来源采购单号筛选框 */
+.tool-row__po {
+  width: 190px;
 }
 
 /* ==================== 列表 ==================== */
@@ -1302,9 +1451,18 @@ onMounted(() => {
   color: var(--td-error-color);
 }
 
+/* D4/F2：数量下方的待收上限提示（订单 / 已收 / 待收） */
+.cell-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-color-placeholder);
+}
+
 .totals {
   display: flex;
   align-items: baseline;
+
   justify-content: flex-end;
   gap: 20px;
   flex-wrap: wrap;
