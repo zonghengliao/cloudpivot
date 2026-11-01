@@ -1,0 +1,29 @@
+== FLOWCLEAN 目标库：cloudpivot_flowclean_drill @ 127.0.0.1:5432（rollback）==
+---- 现状快照（16:19:34）----
+存活流程定义            = 6
+待清理 6 个（存活）     = 0
+保留 6 个（PUBLISHED）  = 6
+实例总数 / 孤儿实例     = 145 / 53
+待办总数 / 孤儿待办     = 141 / 0
+flow 家族行数 def/ver/node/edge/asg/inst/inode/task = 138/141/488/350/21/145/408/141
+==> 20_delete_test_flows.down.sql（按快照原样恢复；幂等）
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_def 写回 6 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_def_version 写回 12 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_node 写回 55 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_node_assignee 写回 6 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_edge 写回 47 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_instance 写回 5 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_instance_node 写回 15 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_task 写回 7 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_flow_cc 写回 0 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: biz_task 的 flow 三元组 / source 回填 1 行
+psql:/tmp/flowclean/20_delete_test_flows.down.sql:140: NOTICE:  FLOWCLEAN/20 down: 回滚完成，写回 154 行（6 个流程已全部复原）
+---- 现状快照（16:19:34）----
+存活流程定义            = 12
+待清理 6 个（存活）     = 6
+保留 6 个（PUBLISHED）  = 6
+实例总数 / 孤儿实例     = 150 / 53
+待办总数 / 孤儿待办     = 148 / 0
+flow 家族行数 def/ver/node/edge/asg/inst/inode/task = 144/153/543/397/27/150/423/148
+== 回滚完成：6 个流程已复原（阶段一/二之前的状态）==
+== 完成（rollback）==

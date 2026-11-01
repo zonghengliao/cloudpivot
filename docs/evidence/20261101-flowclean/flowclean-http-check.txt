@@ -1,0 +1,10 @@
+登录 = 200 code = 0
+GET /api/business/flow/def/page = 200 code = 0
+total = 6  items = 6
+  stock_in_post          PUBLISHED  default=True v1  收货过账审批（标准·金额分级）
+  po_approve             PUBLISHED  default=True v1  采购订单审批（标准·金额分级）
+  payable_pay            PUBLISHED  default=True v1  应付付款审批
+  stock_in_cancel        PUBLISHED  default=True v1  收货单作废审批
+  stock_transfer         PUBLISHED  default=True v1  库存调拨审批
+  task_accept            PUBLISHED  default=True v1  任务验收
+PASS 存活流程 == 6 个业务流: ['payable_pay', 'po_approve', 'stock_in_cancel', 'stock_in_post', 'stock_transfer', 'task_accept']

@@ -1,0 +1,61 @@
+== FLOWCLEAN 目标库：cloudpivot @ 127.0.0.1:5432（apply）==
+---- 现状快照（16:20:09）----
+存活流程定义            = 6
+待清理 6 个（存活）     = 0
+保留 6 个（PUBLISHED）  = 6
+实例总数 / 孤儿实例     = 145 / 53
+待办总数 / 孤儿待办     = 141 / 0
+flow 家族行数 def/ver/node/edge/asg/inst/inode/task = 138/141/488/350/21/145/408/141
+==> 使用指定备份：/root/datafix-backup-flowclean-20261101-161944
+==> 10_precheck.sql（硬闸：6 待删 / 6 保留 / 无计划外流程）
+psql:/tmp/flowclean/10_precheck.sql:37: NOTICE:  relation "datafix_flowclean_snapshot" already exists, skipping
+psql:/tmp/flowclean/10_precheck.sql:48: NOTICE:  relation "datafix_flowclean_guard" already exists, skipping
+psql:/tmp/flowclean/10_precheck.sql:169: NOTICE:  FLOWCLEAN/10: 6 个待清理流程已不存在 —— 幂等放行（本步不改任何数据）
+psql:/tmp/flowclean/10_precheck.sql:169: NOTICE:  FLOWCLEAN/10: 前置校验通过（待清理 0 条 / 保留 6 条），基线 14 项已就位
+               item               |               val                
+----------------------------------+----------------------------------
+ def_md5:payable_pay              | a534f6a0c8a796d070b7f2343b33596c
+ def_md5:po_approve               | 31197f7bf563da027c24bc0abcb28daa
+ def_md5:stock_in_cancel          | 0c7f944b49b6e501dc6037ca587c3ad9
+ def_md5:stock_in_post            | 2f5684d80b07d506c6f6908af25d5bed
+ def_md5:stock_transfer           | b8413a2f40704b7c93949b8c5ee58eac
+ def_md5:task_accept              | 4dc3b749638c6dafffad08322d3aa235
+ edges_md5                        | 36d16c09b45c27d99911782fc5a55c99
+ instances_md5                    | 89a8c6a6dd272411960106227f22e9e3
+ keep_defs                        | 6
+ nodes_md5                        | 792fdf3410d0ddefbccbbe9b51f09b96
+ preexisting_orphan_instances     | 53
+ preexisting_orphan_pending_tasks | 0
+ tasks_md5                        | 56ebd04c9523764536d5693dc27a329b
+ versions_md5                     | aeb3a2358e5c7408154f6944e1550e64
+(14 rows)
+
+==> 20_delete_test_flows.up.sql（快照 + 删除；幂等）
+psql:/tmp/flowclean/20_delete_test_flows.up.sql:316: NOTICE:  FLOWCLEAN/20: 6 个流程已清理完毕 —— 幂等跳过（本步 0 行受影响）
+---- 现状快照（16:20:09）----
+存活流程定义            = 6
+待清理 6 个（存活）     = 0
+保留 6 个（PUBLISHED）  = 6
+实例总数 / 孤儿实例     = 145 / 53
+待办总数 / 孤儿待办     = 141 / 0
+flow 家族行数 def/ver/node/edge/asg/inst/inode/task = 138/141/488/350/21/145/408/141
+---- 30_verify.sql 自检 ----
+Output format is unaligned.
+Field separator is "|".
+PASS|alive_flow_def=6|实际 6 条存活流程定义
+PASS|keepers_published_default|匹配 6 条（期望 6）
+PASS|no_unexpected_alive_def|无计划外流程
+PASS|deleted_flows_zero_residue|合计 0 行残留 [biz_flow_cc=0 biz_flow_def=0 biz_flow_def_version=0 biz_flow_edge=0 biz_flow_instance=0 biz_flow_instance_node=0 biz_flow_node=0 biz_flow_node_assignee=0 biz_flow_task=0 biz_task_flow_ref=0]
+PASS|keepers_def_md5|payable_pay=a534f6a0 po_approve=31197f7b stock_in_cancel=0c7f944b stock_in_post=2f5684d8 stock_transfer=b8413a2f task_accept=4dc3b749
+PASS|keepers_versions_md5|基线 aeb3a235
+PASS|keepers_nodes_md5|基线 792fdf34
+PASS|keepers_edges_md5|基线 36d16c09
+PASS|keepers_instances_md5|基线 89a8c6a6
+PASS|keepers_tasks_md5|基线 56ebd04c
+PASS|orphan_pending_tasks=0|实际 0 条
+PASS|no_new_orphan_instances|现在 53 条 / 删除前基线 53 条（不变或减少才算过）
+PASS|rollback_snapshot_rows|154 行快照（up 删除前实测口径 154 行）
+INFO|alive_flow_defs|payable_pay:PUBLISHED:default=true  po_approve:PUBLISHED:default=true  stock_in_cancel:PUBLISHED:default=true  stock_in_post:PUBLISHED:default=true  stock_transfer:PUBLISHED:default=true  task_accept:PUBLISHED:default=true
+Output format is aligned.
+✓ 自检全绿（FAIL=0）
+== 完成（apply）==

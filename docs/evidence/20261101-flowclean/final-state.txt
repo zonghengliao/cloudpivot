@@ -1,0 +1,20 @@
+== 存活流程（期望 6）==
+6
+payable_pay|PUBLISHED|default=true|v1|应付付款审批
+po_approve|PUBLISHED|default=true|v1|采购订单审批（标准·金额分级）
+stock_in_cancel|PUBLISHED|default=true|v1|收货单作废审批
+stock_in_post|PUBLISHED|default=true|v1|收货过账审批（标准·金额分级）
+stock_transfer|PUBLISHED|default=true|v1|库存调拨审批
+task_accept|PUBLISHED|default=true|v1|任务验收
+== 孤儿实例（基线 53）/ 孤儿待办（期望 0）==
+53
+0
+== 6 个已删流程的残留（def+inst 按 flow_code，其余按快照 id 反查）==
+0
+== flow 家族总行数 def/ver/node/edge/asg/inst/inode/task/cc ==
+138/141/488/350/21/145/408/141/0
+== 快照表 / 基线表 ==
+snapshot=154
+guard=14
+== 被解引用的那条测试任务 ==
+TSK-202611-000001|验收任务-ACC-141831|status=DONE|source=SELF|flow_instance_id=NULL|flow_node_key=NULL|flow_round=NULL

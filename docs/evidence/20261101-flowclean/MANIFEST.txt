@@ -1,0 +1,45 @@
+FLOWCLEAN backup manifest
+captured_at : 2026-11-01 16:19:45 +0800
+database    : cloudpivot on 127.0.0.1:5432 (user=cloudpivot)
+migrations  : 182
+delete_codes: acc_tasknode_141800,acc_tn_141831,d5_281866,d5_282996,e2e_cs_084913,p12_canvas_demo
+keep_codes  : task_accept,stock_transfer,stock_in_cancel,payable_pay,po_approve,stock_in_post
+
+== 全表行数 / 文件 md5 ==
+biz_flow_def               rows=144      md5=31d6d383b3529359034380c7a993d7b4
+biz_flow_def_version       rows=153      md5=5353742099eeba5cb761a73a5e05eab9
+biz_flow_node              rows=543      md5=4a0de40e779539b9cadf1fcce413edfc
+biz_flow_node_assignee     rows=27       md5=7e3522edf443449d4fa8de5e5e354839
+biz_flow_edge              rows=397      md5=62d0410b80a8f35d6d5506830f1a1446
+biz_flow_instance          rows=150      md5=62fa14eea337eacaa0ca50b3789d4b14
+biz_flow_instance_node     rows=423      md5=31c2325498ec7c938ed32155156d0312
+biz_flow_task              rows=148      md5=635016004bed8d5df940773475a87ff7
+biz_flow_cc                rows=0        md5=5678229e1a35ae875669225bb48ff469
+
+== 目标范围（6 个待删流程）行数 ==
+biz_flow_cc.csv                          lines=0
+biz_flow_def.csv                         lines=6
+biz_flow_def_version.csv                 lines=12
+biz_flow_edge.csv                        lines=47
+biz_flow_instance.csv                    lines=5
+biz_flow_instance_node.csv               lines=15
+biz_flow_node_assignee.csv               lines=6
+biz_flow_node.csv                        lines=55
+biz_flow_task.csv                        lines=7
+biz_task_ref.csv                         lines=1
+
+== 保留范围（6 个业务流）行数 ==
+biz_flow_cc.csv                          lines=0
+biz_flow_def.csv                         lines=6
+biz_flow_def_version.csv                 lines=6
+biz_flow_edge.csv                        lines=27
+biz_flow_instance.csv                    lines=92
+biz_flow_instance_node.csv               lines=264
+biz_flow_node_assignee.csv               lines=5
+biz_flow_node.csv                        lines=28
+biz_flow_task.csv                        lines=96
+
+== 全库基线（verify 对账用）==
+alive_flow_defs=12
+orphan_alive_instances=53
+orphan_pending_tasks=0
