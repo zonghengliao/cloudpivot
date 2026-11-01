@@ -308,8 +308,34 @@ fn not_found() -> ApiError {
     )
 }
 
+/// 提交审批撞 `uk_biz_flow_instance_biz_active` → `409 + 本单号`（不是「单号重复、去查 biz_seq」）。
+///
+/// 判据与文案收在 [`flow_model::is_biz_active_duplicate`] / [`flow_model::approval_in_progress`]，
+/// 与调拨单等兄弟模块同一份实现。只在**拿得到单号的入口**（发起付款审批 / 发起应付作废审批）用它；
+/// 其余出口走 [`write_error`] 的兜底分支（文案退化成「该付款单」/「该应付单」）。
+fn submit_conflict(err: DbError, ctx: &str, label: &str, doc_no: &str) -> ApiError {
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(
+            context = ctx,
+            doc_no,
+            error = %err,
+            "提交审批撞审批实例唯一索引：已有在跑实例，翻 409 + 单号"
+        );
+        return flow_model::approval_in_progress(label, Some(doc_no));
+    }
+    write_error(err, ctx)
+}
+
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
+    // ⚠️ 顺序要紧：审批实例的唯一索引冲突**先**认出来。
+    // 落到下面的 `UniqueViolation` 分支会被说成「单号重复（唯一约束
+    // uk_biz_flow_instance_biz_active）…联系运维排查 biz_seq」—— 用户按提示去查取号器，
+    // 方向完全错（真正原因是这张单已经有一个在跑的审批单）。
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(context = ctx, error = %err, "撞审批实例唯一索引：已有在跑实例，翻 409");
+        return flow_model::approval_in_progress("应付单", None);
+    }
     match err {
         DbError::UniqueViolation { constraint, .. } => ApiError::new(
             409,
@@ -1365,7 +1391,7 @@ async fn submit_for_approval_tx(
     };
     let out = engine::start(tx, &start)
         .await
-        .map_err(|error| write_error(error, "发起付款审批单"))?;
+        .map_err(|error| submit_conflict(error, "发起付款审批单", "付款单", &payment_no))?;
     if let Some(rejected) = out.rejected {
         let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
             "（内控要求：付款审批人不能是制单人本人。请让另一个账号审批）"
@@ -2104,7 +2130,7 @@ async fn submit_cancel_tx(
     // ② 发起审批单（引擎在同一事务里建实例 + 待办 + 节点）
     let mut out = engine::start(tx, start)
         .await
-        .map_err(|error| write_error(error, "发起应付作废审批单"))?;
+        .map_err(|error| submit_conflict(error, "发起应付作废审批单", "应付单", &row.payable_no))?;
     if let Some(rejected) = out.rejected.take() {
         return Err(ApiError::new(
             rejected.status,
@@ -2545,6 +2571,72 @@ mod tests {
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
+
+    // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
+
+    /// 撞 `uk_biz_flow_instance_biz_active` → **409 + 本单号 + 「已有审批中实例」**。
+    ///
+    /// 付款审批与应付作废审批各用自家单据名词；两条分支（带约束名 / 只剩 PG 原文）都钉住。
+    #[test]
+    fn biz_active_conflict_maps_to_409_with_own_doc_no() {
+        let variant = || DbError::UniqueViolation {
+            column: None,
+            constraint: Some(flow_model::BIZ_ACTIVE_INDEX.to_string()),
+            source: None,
+        };
+        let by_text = || {
+            DbError::InvalidValue(format!(
+                "db error: ERROR: duplicate key value violates unique constraint \"{}\"",
+                flow_model::BIZ_ACTIVE_INDEX
+            ))
+        };
+        // 别的唯一索引不能被误判成审批冲突
+        let other = DbError::UniqueViolation {
+            column: None,
+            constraint: Some("uk_biz_payment_no".to_string()),
+            source: None,
+        };
+        assert!(!flow_model::is_biz_active_duplicate(&other));
+
+        for (label, no) in [
+            ("付款单", "PM-20261102-000123"),
+            ("应付单", "AP-20261102-000123"),
+        ] {
+            for err in [variant(), by_text()] {
+                let api = submit_conflict(err, "发起审批单", label, no);
+                assert_eq!(api.status, 409, "{}", api.msg);
+                assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
+                assert!(api.msg.contains(no), "{}", api.msg);
+                assert!(api.msg.contains(label), "{}", api.msg);
+                assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
+                assert!(
+                    !api.msg.contains("biz_seq"),
+                    "不能把用户指到取号器：{}",
+                    api.msg
+                );
+                assert!(!api.msg.contains("单号重复"), "{}", api.msg);
+            }
+        }
+
+        // 拿不到单号的通用出口（write_error）也必须 409 + 可执行文案
+        let generic = write_error(variant(), "应付单状态流转");
+        assert_eq!(generic.status, 409);
+        assert_eq!(generic.code, error_code::RESOURCE_CONFLICT);
+        assert!(generic.msg.contains("该应付单"), "{}", generic.msg);
+        assert!(!generic.msg.contains("biz_seq"), "{}", generic.msg);
+
+        // 真的号段冲突不能被新分支吞掉：仍然 409 + 取号器提示
+        let genuine = write_error(
+            DbError::UniqueViolation {
+                column: None,
+                constraint: Some("uk_biz_payment_no".to_string()),
+                source: None,
+            },
+            "登记付款记录",
+        );
+        assert_eq!(genuine.status, 409);
+        assert!(genuine.msg.contains("biz_seq"), "{}", genuine.msg);
+    }
 
     /// 夹具供应商。
     const SUPPLIER: &str = "e7e70001-0000-4000-8000-000000000001";

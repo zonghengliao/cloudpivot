@@ -131,40 +131,23 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
 }
 
-/// 「同一业务单据同时只能有一个在跑的审批单」的部分唯一索引（V0122）。
-const BIZ_ACTIVE_INDEX: &str = "uk_biz_flow_instance_biz_active";
-
 /// 是不是「已有审批中实例」的唯一索引冲突。
 ///
-/// # 为什么不能只按变体判
-///
+/// **判据只有一份实现**：[`flow_model::is_biz_active_duplicate`]（变体优先 + 文案兜底）。
 /// 正常路径上 PG 的 `23505` 会被驱动方言翻成 [`DbError::UniqueViolation`] 并带上约束名；
 /// 但事务内执行、或驱动拿不到 `SqlState` 时错误会落到 [`DbError::Query`]
 /// （`Display` 形如 `query failed: <sql>: db error: ...`），变体判据就失效了。
-/// 只按变体判的后果是「明明是可解释的冲突，用户却看到 500 服务器内部错误」——
-/// 与 `flow::handler::is_biz_active_duplicate` 同一套判据（变体优先 + 文案兜底）。
+/// 只按变体判的后果是「明明是可解释的冲突，用户却看到 500 服务器内部错误」。
 fn is_biz_active_duplicate(error: &DbError) -> bool {
-    match error {
-        DbError::UniqueViolation { constraint, .. } => constraint
-            .as_deref()
-            .map(|name| name.contains(BIZ_ACTIVE_INDEX))
-            .unwrap_or(false),
-        other => other.to_string().contains(BIZ_ACTIVE_INDEX),
-    }
+    flow_model::is_biz_active_duplicate(error)
 }
 
 /// 「该调拨单已有审批中实例」→ **409 + 单号**（可执行提示，不是 500）。
 ///
+/// 文案与状态码收在 [`flow_model::approval_in_progress`]（兄弟模块共用同一份）；
 /// `transfer_no` 拿不到时（例如从 [`write_error`] 的通用出口兜底）退化成「该调拨单」。
 fn approval_in_progress(transfer_no: Option<&str>) -> ApiError {
-    let who = match transfer_no {
-        Some(no) => format!("调拨单 {no}"),
-        None => "该调拨单".to_string(),
-    };
-    conflict(format!(
-        "{who} 已有审批中实例（同一单据同时只能有一个在跑的审批单）：\
-         请刷新查看审批进度，或在审批中心撤回后再重新提交"
-    ))
+    flow_model::approval_in_progress("调拨单", transfer_no)
 }
 
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`。
@@ -1323,12 +1306,13 @@ mod tests {
         // 每个用例各造一份（`DbError` 不实现 Clone，底层挂着驱动的 Box<dyn Error>）
         let variant = || DbError::UniqueViolation {
             column: None,
-            constraint: Some(BIZ_ACTIVE_INDEX.to_string()),
+            constraint: Some(flow_model::BIZ_ACTIVE_INDEX.to_string()),
             source: None,
         };
         let by_text = || {
             DbError::InvalidValue(format!(
-                "db error: ERROR: duplicate key value violates unique constraint \"{BIZ_ACTIVE_INDEX}\""
+                "db error: ERROR: duplicate key value violates unique constraint \"{}\"",
+                flow_model::BIZ_ACTIVE_INDEX
             ))
         };
         assert!(

@@ -115,8 +115,34 @@ fn not_found() -> ApiError {
     )
 }
 
+/// 提交审批撞 `uk_biz_flow_instance_biz_active` → `409 + 本单号`（不是「单号重复、去查 biz_seq」）。
+///
+/// 判据与文案收在 [`flow_model::is_biz_active_duplicate`] / [`flow_model::approval_in_progress`]，
+/// 与调拨单等兄弟模块同一份实现。只在**拿得到单号的入口**（发起凭证红冲审批）用它；
+/// 其余出口走 [`write_error`] 的兜底分支（文案退化成「该凭证」）。
+fn submit_conflict(err: DbError, ctx: &str, voucher_no: &str) -> ApiError {
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(
+            context = ctx,
+            voucher_no,
+            error = %err,
+            "提交审批撞审批实例唯一索引：已有在跑实例，翻 409 + 单号"
+        );
+        return flow_model::approval_in_progress("凭证", Some(voucher_no));
+    }
+    write_error(err, ctx)
+}
+
 /// 写路径的数据库错误收口。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
+    // ⚠️ 顺序要紧：审批实例的唯一索引冲突**先**认出来。
+    // 落到下面的 `UniqueViolation` 分支会被说成「凭证号重复（唯一约束
+    // uk_biz_flow_instance_biz_active）…联系运维排查 biz_seq」—— 用户按提示去查取号器，
+    // 方向完全错（真正原因是这张凭证已经有一个在跑的红冲审批单）。
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(context = ctx, error = %err, "撞审批实例唯一索引：已有在跑实例，翻 409");
+        return flow_model::approval_in_progress("凭证", None);
+    }
     match err {
         DbError::UniqueViolation { constraint, .. } => ApiError::new(
             409,
@@ -826,7 +852,7 @@ async fn submit_reverse_tx(
 ) -> std::result::Result<(), ApiError> {
     let mut out = engine::start(tx, start)
         .await
-        .map_err(|error| write_error(error, "发起凭证红冲审批单"))?;
+        .map_err(|error| submit_conflict(error, "发起凭证红冲审批单", &original.voucher_no))?;
     if let Some(rejected) = out.rejected.take() {
         return Err(ApiError::new(
             rejected.status,
@@ -1172,6 +1198,67 @@ pub async fn voucher_create_handler(
 mod tests {
     use super::*;
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
+
+    // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
+
+    /// 撞 `uk_biz_flow_instance_biz_active` → **409 + 本凭证号 + 「已有审批中实例」**。
+    ///
+    /// 两条分支都钉住：驱动给了约束名（`UniqueViolation`）与退化形态（`DbError::InvalidValue`，
+    /// 文案里只剩 PG 原文）—— 后者正是真库里掉到「联系运维排查 biz_seq」的那条路。
+    #[test]
+    fn biz_active_conflict_maps_to_409_with_voucher_no() {
+        let variant = || DbError::UniqueViolation {
+            column: None,
+            constraint: Some(flow_model::BIZ_ACTIVE_INDEX.to_string()),
+            source: None,
+        };
+        let by_text = || {
+            DbError::InvalidValue(format!(
+                "db error: ERROR: duplicate key value violates unique constraint \"{}\"",
+                flow_model::BIZ_ACTIVE_INDEX
+            ))
+        };
+        // 别的唯一索引不能被误判成审批冲突
+        let other = DbError::UniqueViolation {
+            column: None,
+            constraint: Some("uk_biz_voucher_no".to_string()),
+            source: None,
+        };
+        assert!(!flow_model::is_biz_active_duplicate(&other));
+
+        for err in [variant(), by_text()] {
+            let api = submit_conflict(err, "发起凭证红冲审批单", "PZ-20261102-000123");
+            assert_eq!(api.status, 409, "{}", api.msg);
+            assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
+            assert!(api.msg.contains("PZ-20261102-000123"), "{}", api.msg);
+            assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
+            assert!(
+                !api.msg.contains("biz_seq"),
+                "不能把用户指到取号器：{}",
+                api.msg
+            );
+            assert!(!api.msg.contains("单号重复"), "{}", api.msg);
+        }
+
+        // 拿不到单号的通用出口（write_error）也必须 409 + 可执行文案
+        let generic = write_error(variant(), "凭证状态流转");
+        assert_eq!(generic.status, 409);
+        assert_eq!(generic.code, error_code::RESOURCE_CONFLICT);
+        assert!(generic.msg.contains("该凭证"), "{}", generic.msg);
+        assert!(!generic.msg.contains("biz_seq"), "{}", generic.msg);
+
+        // 真的号段冲突不能被新分支吞掉：仍然 409 + 取号器提示
+        let genuine = write_error(
+            DbError::UniqueViolation {
+                column: None,
+                constraint: Some("uk_biz_voucher_no".to_string()),
+                source: None,
+            },
+            "生成手工凭证",
+        );
+        assert_eq!(genuine.status, 409);
+        assert!(genuine.msg.contains("biz_seq"), "{}", genuine.msg);
+    }
 
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 

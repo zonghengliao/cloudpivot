@@ -104,8 +104,37 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
     ApiError::new(400, error_code::ERP_REFERENCE_MISSING, message.into())
 }
 
+/// 单据名词（409 文案里用）。
+const PO_LABEL: &str = "采购订单";
+
+/// 提交审批撞 `uk_biz_flow_instance_biz_active` → `409 + 本单号`（不是「单号重复、去查 biz_seq」）。
+///
+/// 判据与文案收在 [`flow_model::is_biz_active_duplicate`] / [`flow_model::approval_in_progress`]，
+/// 与调拨单等兄弟模块同一份实现。只在**拿得到单号的入口**（发起采购审批）用它；
+/// 其余出口走 [`write_error`] 的兜底分支（文案退化成「该采购订单」）。
+fn submit_conflict(err: DbError, ctx: &str, order_no: &str) -> ApiError {
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(
+            context = ctx,
+            order_no,
+            error = %err,
+            "提交审批撞审批实例唯一索引：已有在跑实例，翻 409 + 单号"
+        );
+        return flow_model::approval_in_progress(PO_LABEL, Some(order_no));
+    }
+    write_error(err, ctx)
+}
+
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`、CHECK 违反 → `400`。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
+    // ⚠️ 顺序要紧：审批实例的唯一索引冲突**先**认出来。
+    // 落到下面的 `UniqueViolation` 分支会被说成「采购订单号重复（唯一约束
+    // uk_biz_flow_instance_biz_active）…联系运维排查 biz_seq」—— 用户按提示去查取号器，
+    // 方向完全错（真正原因是这张单已经有一个在跑的审批单）。
+    if flow_model::is_biz_active_duplicate(&err) {
+        tracing::warn!(context = ctx, error = %err, "撞审批实例唯一索引：已有在跑实例，翻 409");
+        return flow_model::approval_in_progress(PO_LABEL, None);
+    }
     match err {
         DbError::UniqueViolation { constraint, .. } => ApiError::new(
             409,
@@ -811,7 +840,7 @@ async fn submit_po_tx(
     // ② 发起审批单（引擎在同一事务里建实例 + 待办 + 节点）
     let mut out = engine::start(tx, start)
         .await
-        .map_err(|error| write_error(error, "发起采购审批单"))?;
+        .map_err(|error| submit_conflict(error, "发起采购审批单", &row.order_no))?;
     if let Some(rejected) = out.rejected.take() {
         return Err(ApiError::new(
             rejected.status,
@@ -1048,6 +1077,67 @@ mod tests {
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
 
+    // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
+
+    /// 撞 `uk_biz_flow_instance_biz_active` → **409 + 本单号 + 「已有审批中实例」**。
+    ///
+    /// 两条分支都钉住：驱动给了约束名（`UniqueViolation`）与退化形态（`DbError::InvalidValue`，
+    /// 文案里只剩 PG 原文）—— 后者正是真库里掉到「联系运维排查 biz_seq」的那条路。
+    #[test]
+    fn biz_active_conflict_maps_to_409_with_order_no() {
+        let variant = || DbError::UniqueViolation {
+            column: None,
+            constraint: Some(flow_model::BIZ_ACTIVE_INDEX.to_string()),
+            source: None,
+        };
+        let by_text = || {
+            DbError::InvalidValue(format!(
+                "db error: ERROR: duplicate key value violates unique constraint \"{}\"",
+                flow_model::BIZ_ACTIVE_INDEX
+            ))
+        };
+        // 别的唯一索引不能被误判成审批冲突
+        let other = DbError::UniqueViolation {
+            column: None,
+            constraint: Some("uk_biz_purchase_order_no".to_string()),
+            source: None,
+        };
+        assert!(!flow_model::is_biz_active_duplicate(&other));
+
+        for err in [variant(), by_text()] {
+            let api = submit_conflict(err, "发起采购审批单", "PO-20261102-000123");
+            assert_eq!(api.status, 409, "{}", api.msg);
+            assert_eq!(api.code, error_code::RESOURCE_CONFLICT);
+            assert!(api.msg.contains("PO-20261102-000123"), "{}", api.msg);
+            assert!(api.msg.contains("已有审批中实例"), "{}", api.msg);
+            assert!(
+                !api.msg.contains("biz_seq"),
+                "不能把用户指到取号器：{}",
+                api.msg
+            );
+            assert!(!api.msg.contains("单号重复"), "{}", api.msg);
+        }
+
+        // 拿不到单号的通用出口（write_error）也必须 409 + 可执行文案
+        let generic = write_error(variant(), "采购订单状态流转");
+        assert_eq!(generic.status, 409);
+        assert_eq!(generic.code, error_code::RESOURCE_CONFLICT);
+        assert!(generic.msg.contains("该采购订单"), "{}", generic.msg);
+        assert!(!generic.msg.contains("biz_seq"), "{}", generic.msg);
+
+        // 真的号段冲突不能被新分支吞掉：仍然 409 + 取号器提示
+        let genuine = write_error(
+            DbError::UniqueViolation {
+                column: None,
+                constraint: Some("uk_biz_purchase_order_no".to_string()),
+                source: None,
+            },
+            "创建采购订单",
+        );
+        assert_eq!(genuine.status, 409);
+        assert!(genuine.msg.contains("biz_seq"), "{}", genuine.msg);
+    }
+
     const SUPPLIER: &str = "d2a20001-0000-4000-8000-000000000001";
     const WAREHOUSE: &str = "d2a20001-0000-4000-8000-000000000002";
     const MATERIAL_A: &str = "d2a20001-0000-4000-8000-000000000011";
@@ -1110,17 +1200,93 @@ mod tests {
             .await
     }
 
+    /// 本夹具的 `PO_APPROVE` 实例定位口径（三处复用，必须逐字一致）。
+    ///
+    /// 三条任一成立即算本夹具的：
+    /// 1. `biz_id` 指向本夹具供应商的采购单；
+    /// 2. `biz_id` 为空，或指向**已经不存在的采购单** —— 上一轮 `setup()` 删单时留下的孤儿，
+    ///    正是「每跑一轮全量就多 7 条 `PO_APPROVE | PENDING`」的真身（实例 `biz_id` 是弱引用，
+    ///    删单据带不走它）；
+    /// 3. 都没有也算（`biz_id IS NULL`），清掉没有归属的残行。
+    ///
+    /// 不按 `biz_no LIKE 'PO-%'` 扫：号段前缀是生产口径（技能 §6.40 的教训），
+    /// 而「孤儿 + 本夹具供应商的单据」这个外键链已经足够精确。
+    fn po_instance_where() -> String {
+        format!(
+            "biz_type = 'PO_APPROVE' AND ( \
+                 biz_id IS NULL \
+              OR biz_id NOT IN (SELECT id FROM biz_purchase_order) \
+              OR biz_id IN (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid))"
+        )
+    }
+
+    /// 清掉本夹具的审批痕迹（**删单据之前**跑）：实例 / 待办 / 抄送 / 状态日志。
+    ///
+    /// # 顺序为什么必须是这样
+    ///
+    /// 1. `biz_purchase_order.approval_instance_id` 是弱引用 → 先置 NULL（否则单据指着不存在的实例，
+    ///    `instance_status_of` 查不到就按「不拦」处理，门闸静默失效）；
+    /// 2. `biz_flow_instance.prev_instance_id` 是**自引用且没有 ON DELETE**（V0122）→ 先解开，
+    ///    漏了这一步整批 DELETE 会被外键拦下并抛 `query failed: db error`（PG 原文里没有约束名）；
+    /// 3. `biz_flow_task` / `biz_flow_cc` 虽然 ON DELETE CASCADE，仍显式先删（把顺序写死）；
+    /// 4. `biz_flow_instance` 本体（**含孤儿**，见 [`po_instance_where`]）；
+    /// 5. `biz_status_log` **没有外键**，必须在删单据行之前按 `entity_id` 清，否则每轮多攒几十行
+    ///    永远对不上的孤儿。
+    async fn purge_approval_traces() {
+        let inst_where = po_instance_where();
+        let statements = [
+            format!(
+                "UPDATE biz_purchase_order SET approval_instance_id = NULL \
+                  WHERE supplier_id = '{SUPPLIER}'::uuid"
+            ),
+            format!(
+                "UPDATE biz_flow_instance SET prev_instance_id = NULL \
+                  WHERE prev_instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+            ),
+            format!(
+                "DELETE FROM biz_flow_task \
+                  WHERE instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+            ),
+            format!(
+                "DELETE FROM biz_flow_cc \
+                  WHERE instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+            ),
+            format!("DELETE FROM biz_flow_instance WHERE {inst_where}"),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'PURCHASE_ORDER' AND ( \
+                     entity_id IN (SELECT id FROM biz_purchase_order \
+                                    WHERE supplier_id = '{SUPPLIER}'::uuid) \
+                  OR entity_id NOT IN (SELECT id FROM biz_purchase_order))"
+            ),
+        ];
+        for sql in statements {
+            if let Err(err) = db().execute_with_params(&sql, vec![]).await {
+                panic!("清理采购审批痕迹失败：{err}\nSQL: {sql}");
+            }
+        }
+    }
+
+    /// 清掉本夹具的**全部**痕迹 + 单据（每个用例开头与模块级收尾共用）。
+    ///
+    /// 顺序不可交换：先解弱引用 / 自引用外键、删实例与状态日志，最后才删单据本体
+    /// （详见 [`Self::purge_approval_traces`]）。
+    async fn purge_fixture_docs() {
+        purge_approval_traces().await;
+        let sql = format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
+        if let Err(err) = db().execute_with_params(&sql, vec![]).await {
+            panic!("清理上一轮采购订单失败：{err}");
+        }
+    }
+
     /// 拿锁 + 连库 + 清上一轮 + 建夹具。`None` = 没配 `ERP_DB_URL`。
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = DB_LOCK.lock().await;
         if !ensure_db().await {
             return None;
         }
-        // 先清上一轮的订单（明细随主单 CASCADE）
-        let sql = format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
-        if let Err(err) = db().execute_with_params(&sql, vec![]).await {
-            panic!("清理上一轮采购订单失败：{err}");
-        }
+        // 先清审批痕迹（实例是弱引用，删单据带不走 → 不先清就会积累孤儿 PENDING），
+        // 再清上一轮的订单（明细随主单 CASCADE）。
+        purge_fixture_docs().await;
         for sql in FIXTURES {
             if let Err(err) = db().execute_with_params(sql, vec![]).await {
                 panic!("夹具写入失败：{err}\nSQL: {sql}");
@@ -1518,17 +1684,9 @@ mod tests {
             ))
             .await;
         }
-        // 本卡夹具的单：先把在跑实例清掉（`biz_flow_*` 子表随实例 CASCADE）
-        sql(&format!(
-            "DELETE FROM biz_flow_instance WHERE biz_type = 'PO_APPROVE' AND biz_id IN \
-                (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid)"
-        ))
-        .await;
-        sql(&format!(
-            "DELETE FROM biz_status_log WHERE entity_id IN \
-                (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid)"
-        ))
-        .await;
+        // 本卡夹具的单：先清审批痕迹（**含上一轮删单留下的孤儿实例**，见
+        // `po_instance_where` 的第 2 条），再清订单本体 —— 顺序反了就会每轮攒一批孤儿 PENDING。
+        purge_fixture_docs().await;
     }
 
     /// 造一张含税金额 = `amount` 的采购单（单行、税率 0，所以含税 = 不含税）。
@@ -2039,5 +2197,89 @@ mod tests {
         assert_eq!(form["supplier_id"], Uuid::nil().to_string());
         assert_eq!(form["items"].as_array().map(Vec::len), Some(1));
         assert_eq!(form["order_no"], row.order_no.as_str());
+    }
+
+    // ---------- ⑬ 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 本模块跑完**不许留**「PO_APPROVE 实例 / 待办 / 状态日志 / 夹具订单」四类残留。
+    ///
+    /// 为什么必须有这一条：`setup()` / `setup_approval()` 只在**每个用例开头**跑，
+    /// 模块最后一个用例的产物没人收；同一库连跑第二遍时，遗留的
+    /// `PO_APPROVE | PENDING` 会顶住 `uk_biz_flow_instance_biz_active`（下一次提交永久 409），
+    /// `biz_status_log` 则每轮多攒几十行永远对不上的孤儿。libtest 按名字排序，`zz_` 必然最后。
+    ///
+    /// 顺带钉住「孤儿也算本夹具的」这条口径：本用例造的单被清场删掉后，实例
+    /// （`biz_id` 是弱引用）必须**跟着一起**被 `purge_fixture_docs` 收走 ——
+    /// 这正是「每跑一轮多 7 条 PENDING」的结构性缺口。
+    #[tokio::test]
+    async fn zz_teardown_purges_po_approval_residue() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER)))
+            .await
+            .expect("提交审批应成功");
+        let instance_id = running_instance(id).await;
+        assert!(
+            !pending_tasks(instance_id).await.is_empty(),
+            "清场前必须有待办，否则这条用例证明不了什么"
+        );
+
+        purge_fixture_docs().await;
+
+        // ① 单据没了
+        assert!(
+            purchase_model::find_order(id)
+                .await
+                .expect("查单据")
+                .is_none(),
+            "清场后采购订单必须不存在"
+        );
+        // ② 实例没了（**孤儿也认**：单据已删，实例仍必须被收走）
+        for (label, sql) in [
+            (
+                "残留实例",
+                "SELECT count(*) FROM biz_flow_instance WHERE id = ?::uuid".to_string(),
+            ),
+            (
+                "残留待办",
+                "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid".to_string(),
+            ),
+        ] {
+            let n: i64 = db()
+                .scalar_with_params::<Option<i64>>(&sql, vec![Value::from(&instance_id)])
+                .await
+                .expect("查残留")
+                .unwrap_or(0);
+            assert_eq!(n, 0, "清场后{label}必须为 0");
+        }
+        // ③ 状态日志没了（无外键 → 必须在删单据之前清）
+        let logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'PURCHASE_ORDER' AND entity_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0);
+        assert_eq!(logs, 0, "清场后状态日志必须为 0");
+        // ④ 全库不剩「在跑的采购审批实例」—— 顶住唯一索引的就是它
+        let running: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_flow_instance \
+                  WHERE biz_type = 'PO_APPROVE' AND status = 'PENDING' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("查在跑实例")
+            .unwrap_or(0);
+        assert_eq!(
+            running, 0,
+            "模块收尾后不许剩 PENDING 的采购审批实例（同库连跑第二遍的前提）"
+        );
     }
 }

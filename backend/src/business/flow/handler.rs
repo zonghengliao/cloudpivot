@@ -1182,19 +1182,6 @@ fn action_res(out: engine::ActionOut) -> dto::ActionRes {
     }
 }
 
-/// `uk_biz_flow_instance_biz_active` 冲突 = 同一业务单据已有在跑实例（并发双击的库级兜底）。
-fn is_biz_active_duplicate(error: &DbError) -> bool {
-    match error {
-        DbError::UniqueViolation { constraint, .. } => constraint
-            .as_deref()
-            .map(|name| name.contains("uk_biz_flow_instance_biz_active"))
-            .unwrap_or(false),
-        other => other
-            .to_string()
-            .contains("uk_biz_flow_instance_biz_active"),
-    }
-}
-
 /// 事务跑完把锁内收集的副作用发出去（**锁外发送**，§4.5.1 第 ④ 条）。
 async fn drain(out: &mut engine::ActionOut) -> Option<ApiError> {
     let effects = out.effects.take();
@@ -1407,7 +1394,8 @@ pub async fn create_instance(
             let rejected = rejected_slot.lock().ok().and_then(|mut slot| slot.take());
             return Err(rejected.unwrap_or_else(|| utils::db_error(error, "发起审批")));
         }
-        Err(error) if is_biz_active_duplicate(&error) => {
+        // 判据只有一份实现（`flow::model`）：变体优先 + 文案兜底。
+        Err(error) if model::is_biz_active_duplicate(&error) => {
             return Err(ApiError::new(
                 409,
                 error_code::RESOURCE_CONFLICT,
