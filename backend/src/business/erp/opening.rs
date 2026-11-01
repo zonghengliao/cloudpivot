@@ -756,9 +756,10 @@ async fn regenerate_voucher_in(
                 Value::Text(credit.to_string()),
                 Value::from(entry_count),
                 Value::Text(source_no),
-                Value::Text(format!(
+                Value::Text(
                     "期初余额结转（覆盖式更新：同一期间只有一张期初凭证，凭证号保持不变）"
-                )),
+                        .to_string(),
+                ),
                 Value::from(now),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
                 Value::from(&id),
@@ -1345,19 +1346,18 @@ pub async fn save_inventory_in(
         let txn_qty = delta_qty.abs().round_dp(4);
         let txn_amount = delta_amount.abs().round_dp(4);
         tx.exec_sql(
-            format!(
-                "INSERT INTO biz_inventory_txn \
-                    (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
-                     line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-                     after_qty, after_amount, after_cost, period_code, operator_id, remark, \
-                     created_at) \
-                 VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, 1, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
-            ),
+            "INSERT INTO biz_inventory_txn \
+                (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
+                 line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+                 after_qty, after_amount, after_cost, period_code, operator_id, remark, \
+                 created_at) \
+             VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, 1, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
+                .to_string(),
             vec![
                 Value::from(Uuid::now_v7()),
                 Value::from(&row.material_id),
@@ -1408,18 +1408,17 @@ pub async fn save_inventory_in(
             .await
             .map_err(|error| write_error(error, "库存期初退回库位账"))?;
         tx.exec_sql(
-            format!(
-                "INSERT INTO biz_inventory_txn \
-                    (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
-                     line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-                     after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
-                 VALUES (?, ?::uuid, ?::uuid, 'OUT', ?, ?, ?::uuid, ?, 1, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                         NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
-            ),
+            "INSERT INTO biz_inventory_txn \
+                (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
+                 line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+                 after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
+             VALUES (?, ?::uuid, ?::uuid, 'OUT', ?, ?, ?::uuid, ?, 1, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
+                .to_string(),
             vec![
                 Value::from(Uuid::now_v7()),
                 Value::from(material_id),
@@ -2146,6 +2145,19 @@ mod tests {
         open_month(7).await;
         // 期初：借 1002 货币资金 1000 / 贷 5001 主营业务收入 1000
         // （损益类录期初不合理，但正是这条用例要证明的口径边界）
+        // 基线：5001 的「期末累计」在录期初之前是多少（别的模块的用例也可能动过 5001）
+        let base_cum = {
+            let tx = db().begin().await.expect("开启基线事务");
+            let rows = income_statement::build_snapshot(&tx, "2034-07")
+                .await
+                .expect("基线利润表");
+            let _ = tx.rollback().await;
+            rows.accounts
+                .iter()
+                .find(|row| row.account_code == "5001")
+                .map(|row| row.net_cum)
+                .unwrap_or_default()
+        };
         save_opening(
             Some("2034-07"),
             &[entry("1002", "1000", "0"), entry("5001", "0", "1000")],
@@ -2180,9 +2192,9 @@ mod tests {
             .expect("5001 在科目表里");
         assert_eq!(account.net_period, Decimal::ZERO, "本期发生额 = 0");
         assert_eq!(
-            account.net_cum,
+            account.net_cum - base_cum,
             dec("-1000"),
-            "期末累计含期初（贷方 1000 → 净额 -1000）"
+            "期末累计含期初（贷方 1000 → 净额 -1000，增量口径）"
         );
     }
 
@@ -2448,6 +2460,38 @@ mod tests {
             return;
         };
         open_month(11).await;
+
+        // ★ 基线（增量口径）：云枢里 1002 的历史发生额不止本卡的夹具（别的模块的用例
+        //   也在 2026-xx 记过银行存款），所以「期初 = 50000」这种绝对值断言会随库污染假红。
+        //   这里先量一次「录期初之前」的余额，断言只比**增量**。
+        let (base_before, base_monetary) = {
+            let tx = db().begin().await.expect("开启基线事务");
+            let rows = report::load_accounts(
+                &tx,
+                NaiveDate::from_ymd_opt(2034, 11, 1).expect("日期"),
+                NaiveDate::from_ymd_opt(2034, 11, 30).expect("日期"),
+                Some("2034-11"),
+            )
+            .await
+            .expect("读基线科目余额");
+            let snapshot = report::build_snapshot(&tx, "2034-11")
+                .await
+                .expect("基线资产负债表应能算出");
+            let _ = tx.rollback().await;
+            let before = rows
+                .iter()
+                .find(|row| row.account_code == "1002")
+                .map(|row| row.net_before)
+                .unwrap_or_default();
+            let monetary = snapshot
+                .sheet
+                .amounts
+                .get("MONETARY_FUNDS")
+                .copied()
+                .unwrap_or_default();
+            (before, monetary)
+        };
+
         save_opening(
             Some("2034-11"),
             &[entry("1002", "50000", "0"), entry("3001", "0", "50000")],
@@ -2523,9 +2567,13 @@ mod tests {
             .iter()
             .find(|row| row.account_code == "1002")
             .expect("1002 在科目表里");
-        assert_eq!(row.net_before, dec("50000"), "期初 = 期初凭证（不算本期）");
+        assert_eq!(
+            row.net_before - base_before,
+            dec("50000"),
+            "期初增量 = 期初凭证（不算本期）"
+        );
         assert_eq!(row.net_period, dec("2500"), "本期 = 期间内的普通凭证");
-        assert_eq!(row.net(), dec("52500"), "期末 = 期初 + 本期");
+        assert_eq!(row.net() - base_before, dec("52500"), "期末 = 期初 + 本期");
 
         let monetary = snapshot
             .sheet
@@ -2533,7 +2581,11 @@ mod tests {
             .get("MONETARY_FUNDS")
             .copied()
             .unwrap_or_default();
-        assert_eq!(monetary, dec("52500"), "报表的货币资金 = 期初 + 本期");
+        assert_eq!(
+            monetary - base_monetary,
+            dec("52500"),
+            "报表的货币资金增量 = 期初 + 本期"
+        );
         assert_eq!(
             snapshot.sheet.assets_total(),
             snapshot.sheet.liability_equity_total(),
