@@ -121,6 +121,9 @@ ERP_E2E_BASE=http://127.0.0.1:8023 python3 scripts/verify/r5_opening_e2e.py
 [PASS] ⑬ 收尾基线核对 — before=['2026-10:OPEN','2026-11:OPEN'] after=['2026-10:OPEN','2026-11:OPEN']
 ```
 
+> 该脚本在 **144 生产**上连跑两轮（首轮修完 `PGPASSWORD` 与增量口径后 26/26，重部署后复跑 26/26），
+> 期间表与期初行都回到基线（`opening_balance_rows=0`、`opening_vouchers=0`）。
+
 > **⑨ 为什么用「增量」而不是绝对值**：生产库里本来就有 835 元的库存（3 行 `biz_inventory`），
 > 「存货 = 1000」这种绝对值断言在非空库上必假红（第一版就这么红了一次）。
 > 增量口径 `存货 835 → 1835（+1000）` 才是这条断言真正想证明的东西。
@@ -163,10 +166,10 @@ cd frontend && ERP_PAGE_ADMIN_PASSWORD=… node ../scripts/verify/r5_opening_pag
 
 | 项 | 值 |
 |----|-----|
-| 提交 | `ef7ae72` |
-| 迁移 | `V0189__erp_opening_balance`（`数据库迁移完成: 应用 1 个迁移`，`max(version)=189`） |
+| 提交 | `ef7ae72`（功能）→ `0f431e6`（单测改增量口径）→ `904d3bf`（证据）→ `1266078`（e2e 脚本修复）；最终 `1266078` |
+| 迁移 | `V0189__erp_opening_balance`（`数据库迁移完成: 应用 1 个迁移`，`max(version)=189`；第二次部署 `应用 0 个迁移`） |
 | 启动公告 | `NOTICE: V0189 自检通过：ck_biz_voucher_type 拦住了白名单外的类型` / `NOTICE: V0189：期初三码已种，授权新增 2 行` / `NOTICE: V0189 自检通过：期初两表 + 期初凭证唯一索引 + 三个权限节点` |
-| 二进制 | `355e2c21d7447ad072ae049ed7f97d5b`，`PROC_EQ_DISK=OK`（`/proc/<MainPID>/exe` == 磁盘） |
+| 二进制 | 最终 `b159efe169ccb3da8cd3e54b64d5ee3a`（首轮 `355e2c21d7447ad072ae049ed7f97d5b`，重编只因 `format!` → `to_string()` 的 clippy 修复），`PROC_EQ_DISK=OK`（`/proc/<MainPID>/exe` == 磁盘） |
 | health | 200 |
 | 前端 dist | 入口 chunk 已换新；10 个新 `data-testid` 逐个 grep 命中（`btn-opening-refresh` / `opening-period-select` / `opening-state-tag` / `opening-tabs` / `btn-opening-save` / `btn-opening-save-inventory` / `opening-balance-state` / `opening-voucher-info` / `opening-readonly-alert` / `btn-opening-add-row`） |
 | 库侧核对 | `sys_menu` 3 个期初节点（…1022/1023/1024）／`ck_biz_voucher_type` 含 `OPENING`／`uk_biz_voucher_opening_period` 已建／期初两表 0 行（尚未录） |
