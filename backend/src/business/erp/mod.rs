@@ -26,6 +26,7 @@
 //! | [`payable_bridge`] | 应付**付款审批**的业务回调 + 内控闸（制单人不能批自己）+ 反向兜底 | **P17** |
 //! | [`voucher_write`] | 凭证红冲（复用 `voucher::reverse_posted`）+ 手工新增凭证（分录手工录入） | **P7** |
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
+//! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -52,6 +53,7 @@
 
 pub mod dto;
 pub mod handler;
+pub mod income_statement;
 pub mod inventory_audit;
 pub mod ledger;
 pub mod model;

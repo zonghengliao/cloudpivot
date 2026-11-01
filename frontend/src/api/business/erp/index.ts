@@ -2868,3 +2868,118 @@ export async function exportBalanceSheet(period: string): Promise<Blob> {
   });
   return response.data;
 }
+
+// ==================== 利润表（ERP-R2） ====================
+
+/**
+ * 利润表行（对应后端 `income_statement::IncomeLineRes`）。
+ *
+ * 两列金额都是**字符串**（`numeric(20,4)` → `rust_decimal` → JSON 字符串），
+ * 前端只做千分位格式化，**不做任何加减**：合计、小计、净利润全部由后端算好。
+ */
+export interface IncomeLine {
+  /** 报表项编码（`REVENUE` / `NET_PROFIT` …；`UNMAPPED_PROFIT_LOSS` 是运行时补出来的未归类行） */
+  item_code: string;
+  /** 报表项名称（`减：营业成本` 这种前缀已经在名字里，前端**不要**再拼） */
+  item_name: string;
+  /** 层级：1 大类 / 2 明细（用于缩进） */
+  level: number;
+  /** 上级编码 */
+  parent_code: string | null;
+  /** 本期金额 */
+  current: string;
+  /** 本年累计金额 */
+  ytd: string;
+  /** 是否合计 / 小计行（营业利润 / 利润总额 / 净利润，加粗） */
+  is_total: boolean;
+  /** 取数说明（科目模式或公式原文） */
+  detail: string | null;
+  /** 实际命中的科目编码（可审计） */
+  accounts: string[];
+}
+
+/** 有发生额但没有任何利润表行匹配的损益类科目（`check.unmapped`） */
+export interface UnmappedProfitLoss {
+  account_code: string;
+  account_name: string;
+  /** 本期发生额（正常方向） */
+  current: string;
+  /** 本年累计发生额（正常方向） */
+  ytd: string;
+  /** 对本期利润的影响（收入为正、费用为负） */
+  effect_current: string;
+  /** 对累计利润的影响 */
+  effect_ytd: string;
+}
+
+/** 利润表勾稽（净利润本年累计 ≡ 资产负债表「未分配利润」本年变动） */
+export interface IncomeCheck {
+  balanced: boolean;
+  /** 净利润（本年累计） */
+  net_profit_ytd: string;
+  /** 资产负债表「未分配利润」本年变动 */
+  equity_change: string;
+  /** 差额（不做舍入） */
+  diff: string;
+  /** 差额人话（`0.00` / `-400.00` / `0.0001`） */
+  diff_text: string;
+  /** 整句结论（直接显示） */
+  message: string;
+  undistributed_profit_end: string;
+  undistributed_profit_year_start: string;
+  unmapped_profit_loss_ytd: string;
+  unmapped: UnmappedProfitLoss[];
+  ledger_debit_total: string;
+  ledger_credit_total: string;
+  unbalanced_vouchers: UnbalancedVoucher[];
+  hints: string[];
+}
+
+/** 利润表（对应后端 `income_statement::IncomeStatementRes`） */
+export interface IncomeStatement {
+  report_code: string;
+  report_name: string;
+  company_name: string;
+  unit: string;
+  /** 会计期间 `yyyy-MM` */
+  period: string;
+  period_name: string;
+  /** `OPEN` / `CLOSED`；`DERIVED` = 库里没期间行、按自然月推算（要先开账） */
+  period_status: ReportPeriodStatus;
+  period_start: string;
+  period_end: string;
+  /** 本年累计起算日（1 月 1 日） */
+  ytd_start: string;
+  /** 本期列名（后端给，前端不写死） */
+  current_label: string;
+  /** 本年累计列名 */
+  ytd_label: string;
+  generated_at: string;
+  items: IncomeLine[];
+  check: IncomeCheck;
+}
+
+/**
+ * 编制利润表（`GET /erp/report/income-statement?period=yyyy-MM`）。
+ *
+ * # 异常情况
+ * - 400 + `10001`：`period` 缺失 / 不是 `yyyy-MM`；
+ * - 400 + `66010`：该期间**没在「会计期间」里建立**且该月没有任何已记账凭证；
+ * - 500 + `66011`：`biz_report_item` 配置坏了（公式引用了不存在的报表项）。
+ */
+export function fetchIncomeStatement(period: string): Promise<IncomeStatement> {
+  return get<IncomeStatement>(`${BASE}/report/income-statement`, asParams({ period }));
+}
+
+/**
+ * 导出利润表 xlsx（`GET /erp/report/income-statement/export`）。
+ *
+ * 返回文件字节流（不走 `Res<T>` 统一响应体），必须 `responseType: 'blob'`。
+ */
+export async function exportIncomeStatement(period: string): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/report/income-statement/export`, {
+    params: asParams({ period }),
+    responseType: 'blob',
+  });
+  return response.data;
+}

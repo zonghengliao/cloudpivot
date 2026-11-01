@@ -442,21 +442,25 @@ pub fn period_name_of(period: &str) -> String {
 ///
 /// 语法见模块文档：编码清单 / 编码+下级 / 前缀（`*` 或 `%`）/ `@CATEGORY:类别`，逗号分隔取并集。
 pub fn match_pattern(pattern: &str, account: &AccountBalance) -> bool {
+    match_account(pattern, &account.account_code, &account.account_category)
+}
+
+/// 同上，但只吃「科目编码 + 类别」——供不带 [`AccountBalance`] 的报表复用
+/// （利润表按发生额取数，行结构不同，但**匹配语法必须只有一份**）。
+pub fn match_account(pattern: &str, account_code: &str, account_category: &str) -> bool {
     pattern.split(',').any(|raw| {
         let token = raw.trim();
         if token.is_empty() {
             return false;
         }
         if let Some(category) = token.strip_prefix("@CATEGORY:") {
-            return account
-                .account_category
-                .eq_ignore_ascii_case(category.trim());
+            return account_category.eq_ignore_ascii_case(category.trim());
         }
         if let Some(prefix) = token.strip_suffix('*').or_else(|| token.strip_suffix('%')) {
-            return !prefix.is_empty() && account.account_code.starts_with(prefix);
+            return !prefix.is_empty() && account_code.starts_with(prefix);
         }
         // 编码本身 或 其下级（`2221` 命中 `2221` / `2221.01`）
-        account.account_code == token || account.account_code.starts_with(&format!("{token}."))
+        account_code == token || account_code.starts_with(&format!("{token}."))
     })
 }
 
@@ -946,6 +950,14 @@ pub async fn load_accounts(
 
 /// 报表项配置。
 pub async fn load_items(tx: &Transaction) -> DbResult<Vec<ReportItemDef>> {
+    load_items_of(tx, REPORT_CODE).await
+}
+
+/// 任意报表的报表项配置（`report_code` 由调用方给）。
+///
+/// 利润表（ERP-R2）复用同一张 `biz_report_item` 与同一套匹配 / 求值逻辑，
+/// 只有 `report_code` 不同 —— 所以这里按编码取，而不是各写一条 SQL。
+pub async fn load_items_of(tx: &Transaction, report_code: &str) -> DbResult<Vec<ReportItemDef>> {
     let sql = format!(
         "SELECT item_code, item_name, item_level, parent_code, side, account_pattern, formula, \
                 is_deduction, sort_order \
@@ -953,7 +965,7 @@ pub async fn load_items(tx: &Transaction) -> DbResult<Vec<ReportItemDef>> {
           ORDER BY sort_order, item_code"
     );
     let rows = tx
-        .find_with_params(&sql, vec![Value::from(REPORT_CODE)])
+        .find_with_params(&sql, vec![Value::from(report_code)])
         .await?;
     let mut out = Vec::with_capacity(rows.len());
     for row in &rows {
@@ -1421,6 +1433,31 @@ pub fn display_name(line: &ReportLineRes) -> String {
     }
 }
 
+/// 报表金额的人话格式：千分位 + 2 位小数；`None`（标题行 / 无数据）给空串。
+///
+/// 先 `round_dp(2)` 再 `{:.2}` 定点打印：`{:.2}` 直接格式化 `Decimal` 是**截断**
+/// （12.3456 → 12.34），导出件少一分钱是事故。利润表导出复用同一个函数，
+/// 两张报表的金额写法必须一模一样。
+pub fn money_text(value: Option<Decimal>) -> String {
+    match value {
+        Some(value) => {
+            let text = format!("{:.2}", value.round_dp(2));
+            let (integer, fraction) = text.split_once('.').unwrap_or((text.as_str(), "00"));
+            let negative = integer.starts_with('-');
+            let digits: String = integer.chars().filter(|c| c.is_ascii_digit()).collect();
+            let grouped = digits
+                .as_bytes()
+                .rchunks(3)
+                .rev()
+                .map(|chunk| String::from_utf8_lossy(chunk).to_string())
+                .collect::<Vec<_>>()
+                .join(",");
+            format!("{}{grouped}.{fraction}", if negative { "-" } else { "" })
+        }
+        None => String::new(),
+    }
+}
+
 /// 把报表拍成「左资产 / 右负债权益」两栏的表格行（与纸面报表同构）。
 ///
 /// 列：`报表项(资产) | 期末余额 | 上期余额 | 报表项(负债和权益) | 期末余额 | 上期余额`。
@@ -1457,25 +1494,6 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
     rows.push(info);
 
     let indent = |level: i16| "    ".repeat(usize::try_from(level.saturating_sub(1)).unwrap_or(0));
-    let amount_text = |value: Option<Decimal>| match value {
-        Some(value) => {
-            // 千分位 + 2 位小数（与页面显示一致）。先 `round_dp` 再打：
-            // `{:.2}` 直接格式化 Decimal 是截断（12.3456 → 12.34）
-            let text = format!("{:.2}", value.round_dp(2));
-            let (integer, fraction) = text.split_once('.').unwrap_or((text.as_str(), "00"));
-            let negative = integer.starts_with('-');
-            let digits: String = integer.chars().filter(|c| c.is_ascii_digit()).collect();
-            let grouped = digits
-                .as_bytes()
-                .rchunks(3)
-                .rev()
-                .map(|chunk| String::from_utf8_lossy(chunk).to_string())
-                .collect::<Vec<_>>()
-                .join(",");
-            format!("{}{grouped}.{fraction}", if negative { "-" } else { "" })
-        }
-        None => String::new(),
-    };
 
     for index in 0..report.assets.len().max(right.len()) {
         let mut row: HashMap<String, String> = HashMap::new();
@@ -1484,18 +1502,18 @@ pub fn export_table(report: &BalanceSheetRes) -> (Vec<&'static str>, Vec<HashMap
                 "资产".to_string(),
                 format!("{}{}", indent(left.level), display_name(left)),
             );
-            row.insert("期末余额".to_string(), amount_text(left.amount));
-            row.insert("上期余额".to_string(), amount_text(left.previous_amount));
+            row.insert("期末余额".to_string(), money_text(left.amount));
+            row.insert("上期余额".to_string(), money_text(left.previous_amount));
         }
         if let Some(right_line) = right.get(index) {
             row.insert(
                 "负债和所有者权益".to_string(),
                 format!("{}{}", indent(right_line.level), display_name(right_line)),
             );
-            row.insert("期末余额".to_string(), amount_text(right_line.amount));
+            row.insert("期末余额".to_string(), money_text(right_line.amount));
             row.insert(
                 "上期余额".to_string(),
-                amount_text(right_line.previous_amount),
+                money_text(right_line.previous_amount),
             );
         }
         rows.push(row);

@@ -467,6 +467,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '资产负债表', permission: 'business:erp:report:balance-sheet' },
       },
       {
+        // ==================== ERP 利润表（ERP-R2） ====================
+        // `sys_menu` 种子（V0184 …1017）path = `/business/erp/report/income-statement`，
+        // component `business/erp/report/income-statement/index`；导出按钮复用
+        // `business:erp:report:export`。**路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/income-statement',
+        name: 'BusinessErpIncomeStatement',
+        component: () => import('@/views/business/erp/report/income-statement/index.vue'),
+        meta: { title: '利润表', permission: 'business:erp:report:income-statement' },
+      },
+      {
         // ==================== ERP 会计科目（P4-C，只读树形） ====================
         // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
         // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。
