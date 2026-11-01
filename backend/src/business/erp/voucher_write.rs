@@ -1197,6 +1197,7 @@ pub async fn voucher_create_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::fixture_hygiene;
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
 
     // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
@@ -1304,18 +1305,38 @@ mod tests {
         text.parse::<Decimal>().expect("测试金额字面量非法")
     }
 
+    /// 清掉本模块夹具的**全部凭证痕迹**（状态日志 → 分录 → 凭证）。
+    ///
+    /// 两处调用：每个用例开头的 `setup()`，以及模块里名字排最后的
+    /// `zz_teardown_purges_voucher_status_logs`（libtest 按名排序，`zz_` 必然收尾）。
+    ///
+    /// ⚠️ 状态日志必须**在删凭证之前**按 id 清：`biz_status_log` 没有外键，凭证一删就
+    /// 再也查不到那些日志的 `entity_id`（本卡实测：漏了这一步每跑一遍多 9 条孤儿）。
+    async fn cleanup_fixtures() {
+        // 本模块夹具的凭证定位口径（手工凭证 + P7V 摘要），三条清场语句共用
+        const P7V_WHERE: &str = "voucher_type = 'MANUAL' OR summary LIKE 'P7V-%'";
+        for sql in [
+            // 状态日志（无外键）：必须在删凭证之前按 id 清，否则每轮留一批孤儿（`fixture_hygiene`）
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' \
+                  AND entity_id IN (SELECT id FROM biz_voucher WHERE {P7V_WHERE})"
+            ),
+            format!(
+                "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                 (SELECT id FROM biz_voucher WHERE {P7V_WHERE})"
+            ),
+            format!("DELETE FROM biz_voucher WHERE {P7V_WHERE}"),
+        ] {
+            exec(&sql).await;
+        }
+    }
+
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = DB_LOCK.lock().await;
         if !ensure_db().await {
             return None;
         }
-        for sql in [
-            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
-             (SELECT id FROM biz_voucher WHERE voucher_type = 'MANUAL' OR summary LIKE 'P7V-%')",
-            "DELETE FROM biz_voucher WHERE voucher_type = 'MANUAL' OR summary LIKE 'P7V-%'",
-        ] {
-            exec(sql).await;
-        }
+        cleanup_fixtures().await;
         exec(
             "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
                                                 start_date, end_date, status) \
@@ -1648,5 +1669,65 @@ mod tests {
         let err = result.expect_err("已结账期间不能红冲");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结账"), "{}", err.msg);
+    }
+
+    // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 本模块跑完**不许留** `VOUCHER` 状态日志（含孤儿行）。
+    ///
+    /// `setup()` 只在每个用例开头跑，模块最后一个用例的产物没人收；而 `biz_status_log`
+    /// 没有外键 ⇒ 清场里漏掉「删凭证前先删日志」，每跑一遍全量就多 9 条孤儿（本卡实测）。
+    /// libtest 按名字排序，`zz_` 必然最后跑，是这一块的兜底收口。
+    #[tokio::test]
+    async fn zz_teardown_purges_voucher_status_logs() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // ① 自造一张会写状态日志的凭证（手工凭证走真实 `post_voucher` 收口）
+        let id = new_posted_voucher().await;
+        let logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查清场前日志")
+            .unwrap_or(0);
+        assert!(
+            logs > 0,
+            "凭证落地必须写 VOUCHER 状态日志，否则这条用例证明不了什么"
+        );
+
+        // ② 走模块真实的清场
+        cleanup_fixtures().await;
+
+        // ③ 凭证与日志按 id 全为 0
+        assert!(
+            find_voucher(db(), id).await.expect("查凭证").is_none(),
+            "清场后手工凭证必须不存在"
+        );
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查清场后日志")
+            .unwrap_or(0);
+        assert_eq!(
+            left, 0,
+            "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）"
+        );
+
+        // ④ 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }

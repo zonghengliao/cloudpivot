@@ -22,7 +22,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::voucher_write;
-use crate::business::erp::{payable, payable_bridge, payable_payment, voucher, voucher_bridge};
+use crate::business::erp::{
+    fixture_hygiene, payable, payable_bridge, payable_payment, voucher, voucher_bridge,
+};
 use crate::business::flow::engine;
 
 /// 财务经理角色（V0191 种子里的固定 UUID）。
@@ -126,17 +128,25 @@ async fn purge_fixtures() {
         "DELETE FROM biz_flow_instance \
           WHERE initiator_id IN (SELECT id FROM sys_user WHERE username LIKE 'p3b_%')"
             .to_string(),
-        "DELETE FROM biz_status_log WHERE entity_id IN \
-           (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-3B-%')"
+        // ⚠️ 本模块的应付单是走**真实入口** `payable::insert` 造的 ⇒ `payable_no` 落的是
+        // **生产号段** `AP-YYYYMMDD-000123`，**不是** `AP-3B-*`（`AP-3B-` 是历史写法）。
+        // 按 `payable_no LIKE 'AP-3B-%'` 清 ⇒ 一张也删不掉，每跑一遍全量就多 8 张应付单
+        // +18 条 `PAYABLE` 状态日志（`t_7f47221c` 实测：两遍 18 → 36 行）。
+        // 可靠判据是**本模块自己写的 `source_no`**（`payable_with()` 传 `'P3B-IN'`）。
+        "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
+           (SELECT id FROM biz_payable WHERE source_no LIKE 'P3B-%' \
+              OR payable_no LIKE 'AP-3B-%')"
             .to_string(),
-        "DELETE FROM biz_status_log WHERE entity_id IN \
+        "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
            (SELECT id FROM biz_voucher WHERE source_no LIKE 'P3B-%')"
             .to_string(),
         "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
            (SELECT id FROM biz_voucher WHERE source_no LIKE 'P3B-%')"
             .to_string(),
         "DELETE FROM biz_voucher WHERE source_no LIKE 'P3B-%'".to_string(),
-        "DELETE FROM biz_payable WHERE payable_no LIKE 'AP-3B-%'".to_string(),
+        "DELETE FROM biz_payable WHERE source_no LIKE 'P3B-%' \
+           OR payable_no LIKE 'AP-3B-%'"
+            .to_string(),
         // 科目 / 供应商也是共享主数据：留着会让「全量套件」里按科目全集的用例误红
         // （`cash_flow::tests::r3_real_config_covers_all_accounts`：分类配置漏科目）。
         "DELETE FROM biz_opening_balance WHERE account_id IN \
@@ -1084,4 +1094,10 @@ async fn pflow3b_zz_teardown_purges_fixtures() {
         let n: i64 = rows[0].get_typed("n").unwrap();
         assert_eq!(n, 0, "teardown 后仍有{label}残留：{n} 行");
     }
+
+    // 状态日志没有外键：本卡夹具删掉后，`PAYABLE` / `VOUCHER` 的日志一条孤儿都不许剩
+    // （`t_7f47221c`：整库口径，六类实体一起扫，历史孤儿也在这里被收干）
+    fixture_hygiene::purge_orphans(fixture_hygiene::ALL_TYPES).await;
+    let orphans = fixture_hygiene::orphans(fixture_hygiene::ALL_TYPES).await;
+    assert_eq!(orphans, 0, "收尾后仍有孤儿状态日志：{orphans} 行");
 }

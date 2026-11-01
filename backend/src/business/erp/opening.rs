@@ -1720,6 +1720,7 @@ pub async fn opening_inventory_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::fixture_hygiene;
     use crate::business::erp::income_statement;
     use crate::business::erp::report;
     use crate::business::shared::state_machine;
@@ -1815,6 +1816,11 @@ mod tests {
         )
         .await;
         // 分录随凭证 CASCADE
+        // 凭证的状态日志（无外键）：必须在删凭证之前按 id 清，否则每轮留一批孤儿（`fixture_hygiene`）
+        sql("DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' \
+             AND entity_id IN (SELECT id FROM biz_voucher \
+                                WHERE period LIKE '2034-%' OR period LIKE '2035-%')")
+        .await;
         sql("DELETE FROM biz_voucher WHERE period LIKE '2034-%' OR period LIKE '2035-%'").await;
         sql(
             "DELETE FROM biz_opening_balance WHERE period_code LIKE '2034-%' \
@@ -2749,5 +2755,70 @@ mod tests {
         let error = report::period_error_for_test("2034-12", "期初余额不平衡，不允许出表");
         assert_eq!(error.status, 400);
         assert_eq!(error.code, error_code::ERP_OPENING_UNBALANCED);
+    }
+
+    // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 本模块跑完**不许留**期初凭证的 `VOUCHER` 状态日志（含孤儿行）。
+    ///
+    /// 期初凭证走真实 `voucher::post_voucher`（会写一条 `VOUCHER` 日志），而 `cleanup()`
+    /// 以前只删凭证本体 ⇒ 每跑一遍全量多 11 条孤儿（本卡实测）。`zz_` 排在本模块最后。
+    #[tokio::test]
+    async fn zz_teardown_purges_opening_voucher_status_logs() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        open_month(1).await;
+        save_opening(
+            Some("2034-01"),
+            &[entry("1002", "50000", "0"), entry("3001", "0", "50000")],
+            Some(uid()),
+        )
+        .await
+        .expect("平衡的期初应当保存成功");
+        let voucher_id: Option<Uuid> = db()
+            .query_first_sql(
+                "SELECT id FROM biz_voucher WHERE period = '2034-01' LIMIT 1".to_string(),
+                vec![],
+            )
+            .await
+            .expect("查期初凭证")
+            .map(|row| row.get_typed("id").expect("读凭证 id"));
+        let voucher_id = voucher_id.expect("期初保存必须生成凭证");
+        let logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0);
+        assert!(logs > 0, "期初凭证落地必须写 VOUCHER 状态日志");
+
+        // 走模块真实的清场
+        cleanup().await;
+
+        let left: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查清场后日志")
+            .unwrap_or(0);
+        assert_eq!(
+            left, 0,
+            "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）"
+        );
+
+        // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }

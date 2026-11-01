@@ -93,6 +93,9 @@ pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;
 
+/// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
+#[cfg(test)]
+pub(crate) mod fixture_hygiene;
 /// P-FLOW-3B 的真库单测（应付作废 + 凭证红冲审批）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod pflow3b_tests;

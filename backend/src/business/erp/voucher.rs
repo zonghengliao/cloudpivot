@@ -1666,7 +1666,7 @@ mod tests {
     use super::*;
     use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
     use crate::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
-    use crate::business::erp::{payable, stockin_model};
+    use crate::business::erp::{fixture_hygiene, payable, stockin_model};
     use crate::business::flow::engine;
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
@@ -1750,16 +1750,35 @@ mod tests {
         }
     }
 
-    /// 拿锁 + 连库 + 清上一轮 + 建夹具 + 复位科目映射规则。
-    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-        let guard = DB_LOCK.lock().await;
-        if !ensure_db().await {
-            return None;
-        }
+    /// 清掉本模块夹具的**全部痕迹**（状态日志 → 凭证分录 → 凭证 → 应付 → 流水 → 库存 → 收货单），
+    /// 并复位上一轮改过的映射规则 / 科目状态。
+    ///
+    /// 两处调用：每个用例开头的 `setup()`，以及模块里名字排最后的
+    /// `zz_teardown_purges_finance_status_logs`（libtest 按名排序，`zz_` 必然收尾）。
+    ///
+    /// ⚠️ 状态日志必须**在删单据之前**按 id 清：`biz_status_log` 没有外键（`fixture_hygiene`）。
+    /// 本模块的收货过账会同时产生 `STOCK_IN` / `PAYABLE` / `VOUCHER` 三类日志，
+    /// 漏一类就是每跑一遍全量多 20 行孤儿（本卡实测）。
+    async fn cleanup_fixtures() {
         let cleanups = [
             // P16 起作废走审批：先把本夹具的作废审批实例清掉（否则下一轮发起撞「已有在跑的审批单」）
             format!(
                 "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id IN \
+                 (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            // 状态日志（无外键）：必须在删单据之前按 id 清，否则每轮留一批孤儿（`fixture_hygiene`）
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+                 (SELECT id FROM biz_voucher WHERE source_id IN \
+                   (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid) \
+                   OR source_no LIKE 'BROKEN-%' OR voucher_no LIKE '__P2C1%')"
+            ),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
+                 (SELECT id FROM biz_payable WHERE supplier_id = '{SUPPLIER}'::uuid)"
+            ),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND entity_id IN \
                  (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!(
@@ -1795,6 +1814,15 @@ mod tests {
         for sql in cleanups {
             exec(&sql).await;
         }
+    }
+
+    /// 拿锁 + 连库 + 清上一轮 + 建夹具 + 复位科目映射规则。
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        cleanup_fixtures().await;
         for sql in FIXTURES {
             exec(sql).await;
         }
@@ -2609,5 +2637,61 @@ mod tests {
             .await
             .expect("计数失败");
         assert_eq!(left, 0, "夹具科目必须删掉（留着会让第二遍全量变红）");
+    }
+
+    /// ㉗ 收尾清场：本模块的**状态日志**（`STOCK_IN` / `PAYABLE` / `VOUCHER`）必须按 id 收干。
+    ///
+    /// 收货过账会同时写三类日志，而 `biz_status_log` 没有外键：清场里漏掉「删单据前先删
+    /// 日志」这 20 行就成孤儿，永远收不回来（本卡实测 `voucher::tests` 每遍 +20 PAYABLE
+    /// +20 VOUCHER）。`zz_` 排在本模块最后，是这一块的收口。
+    #[tokio::test]
+    async fn zz_teardown_purges_finance_status_logs() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let stock_in_id = post_new(vec![line_req(MATERIAL_A, "2", "100", "13")]).await;
+        let payable = payable_of(stock_in_id).await;
+        let voucher = voucher_of(stock_in_id).await;
+
+        let count_logs = |entity_type: &'static str, target: Uuid| async move {
+            db().scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = ? AND entity_id = ?::uuid",
+                vec![Value::from(entity_type), Value::from(&target)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0)
+        };
+        let targets = [
+            ("STOCK_IN", stock_in_id),
+            ("PAYABLE", payable.id),
+            ("VOUCHER", voucher.id),
+        ];
+        for (label, target) in targets {
+            assert!(
+                count_logs(label, target).await > 0,
+                "清场前必须有 {label} 状态日志，否则这条用例证明不了什么"
+            );
+        }
+
+        // 走模块真实的清场
+        cleanup_fixtures().await;
+
+        for (label, target) in targets {
+            assert_eq!(
+                count_logs(label, target).await,
+                0,
+                "清场后 {label} 状态日志必须为 0（日志无外键，必须按 id 先删）"
+            );
+        }
+
+        // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }

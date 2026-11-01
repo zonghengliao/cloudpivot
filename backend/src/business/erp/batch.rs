@@ -407,6 +407,7 @@ pub async fn voucher_batch_export(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::fixture_hygiene;
     use crate::business::erp::stockin_model::{
         self, NewStockIn, NewStockInLine, STATUS_CANCELLED, Totals,
     };
@@ -512,6 +513,17 @@ mod tests {
                 "DELETE FROM biz_inventory WHERE material_id = '{MATERIAL}'::uuid \
                  AND warehouse_id = '{WAREHOUSE}'::uuid"
             ),
+            // 状态日志（无外键）：必须在删凭证 / 应付单之前按 id 清（`fixture_hygiene`）
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+                 (SELECT id FROM biz_voucher WHERE source_id IN \
+                  (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+            ),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
+                 (SELECT id FROM biz_payable WHERE source_type = 'STOCK_IN' AND source_id IN \
+                  (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+            ),
             format!(
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
                  (SELECT id FROM biz_voucher WHERE source_id IN \
@@ -526,7 +538,7 @@ mod tests {
                  (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!(
-                "DELETE FROM biz_status_log WHERE entity_id IN \
+                "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND entity_id IN \
                  (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
             format!("DELETE FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid"),
@@ -919,5 +931,93 @@ mod tests {
         .expect_err("既没勾选也没筛选，不许导出全表");
         assert_eq!(error.status, 400);
         assert!(error.msg.contains("筛选条件"), "报文：{}", error.msg);
+    }
+
+    // ---------- ⑨ 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 批量过账会生成**应付单 + 凭证**，它们各自写一条 `biz_status_log`；本模块的清场
+    /// 以前只删 `STOCK_IN` 的日志，凭证 / 应付的日志就变成孤儿，每跑一遍全量多攒
+    /// 10 + 10 行（本卡实测）。这条收尾用例把「删单据前先按 id 删日志」钉死：
+    /// 自造一张会过账的单（真实 `batch_stock_in_status`）→ 走真实的 `cleanup()`
+    /// → 断言三类日志按 id 全为 0 → 兜底扫孤儿断言为 0。
+    #[tokio::test]
+    async fn zz_teardown_purges_finance_status_logs() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let id = make_draft().await;
+        let req = BatchStatusReq {
+            ids: vec![id.to_string()],
+            status: Some("POSTED".to_string()),
+            reason: None,
+        };
+        let outcome = batch_stock_in_status(&full_claims(), &req)
+            .await
+            .expect("批量过账应成功");
+        assert_eq!(outcome.success_count, 1, "{:?}", outcome.failed);
+
+        // 过账产生的应付单 / 凭证 id（清场后单据就查不到了，必须先取出来）
+        let payable_id: Option<Uuid> = db()
+            .query_first_sql(
+                "SELECT id FROM biz_payable \
+                  WHERE source_type = 'STOCK_IN' AND source_id = ?::uuid LIMIT 1"
+                    .to_string(),
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查应付单")
+            .map(|row| row.get_typed("id").expect("读应付 id"));
+        let voucher_id: Option<Uuid> = db()
+            .query_first_sql(
+                "SELECT id FROM biz_voucher WHERE source_id = ?::uuid LIMIT 1".to_string(),
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查凭证")
+            .map(|row| row.get_typed("id").expect("读凭证 id"));
+        let payable_id = payable_id.expect("过账必须生成应付单");
+        let voucher_id = voucher_id.expect("过账必须生成凭证");
+
+        let count_logs = |entity_type: &'static str, target: Uuid| async move {
+            db().scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = ? AND entity_id = ?::uuid",
+                vec![Value::from(entity_type), Value::from(&target)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0)
+        };
+        for (label, entity_type, target) in [
+            ("PAYABLE", "PAYABLE", payable_id),
+            ("VOUCHER", "VOUCHER", voucher_id),
+        ] {
+            assert!(
+                count_logs(entity_type, target).await > 0,
+                "清场前必须有 {label} 状态日志，否则这条用例证明不了什么"
+            );
+        }
+
+        // 走模块真实的清场
+        cleanup().await;
+
+        for (label, entity_type, target) in [
+            ("PAYABLE", "PAYABLE", payable_id),
+            ("VOUCHER", "VOUCHER", voucher_id),
+        ] {
+            assert_eq!(
+                count_logs(entity_type, target).await,
+                0,
+                "清场后 {label} 状态日志必须为 0（日志无外键，必须按 id 先删）"
+            );
+        }
+
+        // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }

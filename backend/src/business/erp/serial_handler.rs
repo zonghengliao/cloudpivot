@@ -418,6 +418,7 @@ pub async fn serial_detail(Path(id): Path<String>) -> ResResult<SerialRes> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::fixture_hygiene;
     use crate::business::erp::serial_dto::{MAX_PAGE_SIZE, OptionalDecimal, WRITABLE_TARGETS};
     use crate::business::erp::serial_model::{
         ALL_STATUSES, BIZ_TYPE_SERIAL_IN, BIZ_TYPE_SERIAL_OUT, BIZ_TYPE_SERIAL_SCRAP,
@@ -558,11 +559,38 @@ mod tests {
             .await
     }
 
+    /// 清掉本模块造的**凭证**（序列号变动会发凭证：ADR-20261031「批量生成 = 两本账 + 凭证」）。
+    ///
+    /// 为什么必须单独收：这些凭证是本模块的真实业务路径造出来的（`SERIAL_BATCH` /
+    /// `SERIAL_OUT` / `SERIAL_SCRAP` 三种来源），但夹具只清序列号 / 成本账 / 库位账，
+    /// 从来没清凭证 ⇒ `biz_voucher` 与 `biz_status_log` 的 `VOUCHER` 行每跑一遍全量
+    /// 就线性增长（实测 +58 行/遍，`t_7f47221c` 的验收对象之一）。
+    ///
+    /// 顺序：状态日志（`biz_status_log` 无外键 → 凭证一删就再也查不到 id）→ 分录 → 凭证。
+    async fn purge_serial_vouchers() {
+        for sql in [
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+              (SELECT id FROM biz_voucher \
+                WHERE source_type IN ('SERIAL_BATCH', 'SERIAL_OUT', 'SERIAL_SCRAP'))",
+            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+              (SELECT id FROM biz_voucher \
+                WHERE source_type IN ('SERIAL_BATCH', 'SERIAL_OUT', 'SERIAL_SCRAP'))",
+            "DELETE FROM biz_voucher \
+              WHERE source_type IN ('SERIAL_BATCH', 'SERIAL_OUT', 'SERIAL_SCRAP')",
+        ] {
+            if let Err(err) = db().execute_with_params(sql, vec![]).await {
+                panic!("清理序列号凭证失败：{err}\nSQL: {sql}");
+            }
+        }
+    }
+
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = DB_LOCK.lock().await;
         if !ensure_db().await {
             return None;
         }
+        // 先清上一轮的凭证（依赖序列号 / 物料行仍在，故必须在 FIXTURES 的删除之前）
+        purge_serial_vouchers().await;
         for sql in FIXTURES {
             if let Err(err) = db().execute_with_params(sql, vec![]).await {
                 panic!("夹具写入失败：{err}\nSQL: {sql}");
@@ -2693,5 +2721,88 @@ mod tests {
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
         assert!(err.msg.contains("warehouse_id"), "{}", err.msg);
+    }
+
+    // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 本模块跑完**不许留**序列号变动产生的 `VOUCHER` 凭证与状态日志。
+    ///
+    /// 批量生成 / 出库 / 报废都会发凭证（ADR-20261031「两本账 + 凭证」），而夹具以前
+    /// 只清序列号与两本账 ⇒ `biz_voucher` 与 `biz_status_log` 每跑一遍全量就 +58 行
+    /// （本卡实测，线性和增长）。`zz_` 排在本模块最后，是这一块的收口。
+    #[tokio::test]
+    async fn zz_teardown_purges_serial_vouchers() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // ① 自造一批会发凭证的序列号（真实 `generate_serials` 路径）
+        generate(M_SN_ID, 2).await.expect("批量生成应成功");
+        let voucher_id: Option<Uuid> = db()
+            .query_first_sql(
+                "SELECT id FROM biz_voucher WHERE source_type = 'SERIAL_BATCH' \
+                  ORDER BY created_at DESC, id DESC LIMIT 1"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查序列号凭证")
+            .map(|row| row.get_typed("id").expect("读凭证 id"));
+        let voucher_id = voucher_id.expect("批量生成必须发一张凭证（否则这条用例证明不了什么）");
+        let logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0);
+        assert!(logs > 0, "凭证落地必须写 VOUCHER 状态日志");
+
+        // ② 走模块真实的清场
+        purge_serial_vouchers().await;
+
+        // ③ 凭证与其日志都收干
+        let left_voucher: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_voucher WHERE id = ?::uuid",
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查凭证")
+            .unwrap_or(0);
+        assert_eq!(left_voucher, 0, "清场后序列号凭证必须不存在");
+        let left_logs: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid",
+                vec![Value::from(&voucher_id)],
+            )
+            .await
+            .expect("查状态日志")
+            .unwrap_or(0);
+        assert_eq!(
+            left_logs, 0,
+            "清场后 VOUCHER 状态日志必须为 0（日志无外键，必须按 id 先删）"
+        );
+        let serial_vouchers: i64 = db()
+            .scalar_sql(
+                "SELECT count(*) FROM biz_voucher \
+                  WHERE source_type IN ('SERIAL_BATCH', 'SERIAL_OUT', 'SERIAL_SCRAP')"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查序列号凭证总数");
+        assert_eq!(serial_vouchers, 0, "本模块不许留任何序列号凭证");
+
+        // ④ 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }

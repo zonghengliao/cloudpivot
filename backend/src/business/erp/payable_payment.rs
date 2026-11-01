@@ -2568,6 +2568,7 @@ pub async fn payable_withdraw_cancel_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::fixture_hygiene;
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
@@ -2687,29 +2688,39 @@ mod tests {
         Decimal::from_str(text).expect("测试金额字面量非法")
     }
 
-    /// 拿锁 + 连库 + 清上一轮 + 建夹具。
-    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
-        let guard = DB_LOCK.lock().await;
-        if !ensure_db().await {
-            return None;
-        }
+    /// 清掉本模块 P7 夹具的**全部痕迹**（状态日志 → 凭证分录 → 凭证 → 付款 → 应付单）。
+    ///
+    /// 两处调用：每个用例开头的 `setup()`，以及模块里名字排最后的
+    /// `zz_teardown_purges_finance_status_logs`（libtest 按名排序，`zz_` 必然收尾）。
+    ///
+    /// ⚠️ 状态日志必须**在删单据之前**按 id 清：`biz_status_log` 没有外键，单据一删就
+    /// 再也查不到那些日志的 `entity_id`，只能按号段前缀去猜 —— 而号段是生产在用的，
+    /// 猜错就误删真数据，留下就是孤儿（见 `erp::fixture_hygiene` 模块文档）。
+    async fn cleanup_fixtures() {
+        // P7 夹具的外键链（凭证 / 付款 → 应付单），下面三条清场语句共用一份口径
+        const P7_VOUCHER_WHERE: &str = "source_no LIKE 'P7PAY-%' \
+             OR source_id IN (SELECT id FROM biz_payment \
+                               WHERE payable_id IN (SELECT id FROM biz_payable \
+                                                     WHERE payable_no LIKE 'AP-P7-%'))";
         let cleanups = [
+            // 状态日志（无外键）：必须在删凭证 / 应付单之前按 id 清
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' \
+                  AND entity_id IN (SELECT id FROM biz_voucher WHERE {P7_VOUCHER_WHERE})"
+            ),
+            "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' \
+                  AND entity_id IN (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P7-%')"
+                .to_string(),
             // 凭证 / 分录：**只删本模块自己造的行**
             //   ① 付款凭证：`source_id` 指向本夹具应付单的付款记录（不能按 `source_no LIKE 'PM-%'`
             //      全局删 —— 那会把同一个库里真实业务的付款凭证一起删掉，测试库尤其危险）
             //   ② 作废时红冲出来的那张进项凭证：`source_no = 'P7PAY-…'`
             // ⚠️ `voucher_write` 的单测平行跑，它也写 biz_voucher（手工凭证），用各自的夹具互不干扰。
-            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
-             (SELECT id FROM biz_voucher WHERE source_no LIKE 'P7PAY-%' \
-                OR source_id IN (SELECT id FROM biz_payment \
-                                  WHERE payable_id IN (SELECT id FROM biz_payable \
-                                                        WHERE payable_no LIKE 'AP-P7-%')))"
-                .to_string(),
-            "DELETE FROM biz_voucher WHERE source_no LIKE 'P7PAY-%' \
-                OR source_id IN (SELECT id FROM biz_payment \
-                                  WHERE payable_id IN (SELECT id FROM biz_payable \
-                                                        WHERE payable_no LIKE 'AP-P7-%'))"
-                .to_string(),
+            format!(
+                "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                 (SELECT id FROM biz_voucher WHERE {P7_VOUCHER_WHERE})"
+            ),
+            format!("DELETE FROM biz_voucher WHERE {P7_VOUCHER_WHERE}"),
             // 付款记录 → 应付单（外键顺序：先子后父）
             "DELETE FROM biz_payment WHERE payable_id IN \
              (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P7-%')"
@@ -2719,6 +2730,14 @@ mod tests {
         for sql in cleanups {
             exec(&sql).await;
         }
+    }
+
+    async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        cleanup_fixtures().await;
         exec(&format!(
             "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status, credit_days) \
              VALUES ('{SUPPLIER}'::uuid, 'P7-SUP', 'P7 付款测试供应商', 1, 30) \
@@ -3149,6 +3168,11 @@ mod tests {
              (SELECT id FROM biz_payment WHERE payable_id IN \
               (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-D5-%'))"
                 .to_string(),
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+             (SELECT id FROM biz_voucher WHERE source_id IN \
+              (SELECT id FROM biz_payment WHERE payable_id IN \
+               (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-D5-%')))"
+                .to_string(),
             "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
              (SELECT id FROM biz_voucher WHERE source_id IN \
               (SELECT id FROM biz_payment WHERE payable_id IN \
@@ -3158,7 +3182,7 @@ mod tests {
              (SELECT id FROM biz_payment WHERE payable_id IN \
               (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-D5-%'))"
                 .to_string(),
-            "DELETE FROM biz_status_log WHERE entity_id IN \
+            "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
              (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-D5-%')"
                 .to_string(),
             "DELETE FROM biz_payment WHERE payable_id IN \
@@ -3742,5 +3766,112 @@ mod tests {
             .expect_err("不存在的应付单必须 404");
         assert_eq!(err.status, 404, "{}", err.msg);
         assert_eq!(err.code, error_code::RESOURCE_NOT_FOUND);
+    }
+
+    // ---------- ⑫ 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+
+    /// 本模块跑完**不许留** `PAYABLE` / `VOUCHER` 状态日志，也不许留孤儿行。
+    ///
+    /// 为什么必须有这一条：`setup()` / `d5_setup()` 只在**每个用例开头**跑，模块最后一个
+    /// 用例的产物没人收；`biz_status_log` 又没有外键 ⇒ 清场里只要漏掉「删单据前先删日志」，
+    /// 每跑一遍全量就往库里攒一批永远对不上的孤儿（本卡实测 +8 PAYABLE / +10 VOUCHER 每遍）。
+    /// libtest 按名字排序，`zz_` 必然最后跑，所以它是本模块的**兜底收口**。
+    ///
+    /// 用例形态（与 `t_2287c331` 的 `zz_teardown_*` 同一范式）：
+    /// 自造一张**会写状态日志**的单（应付单走真实付款 → PAYABLE 流转 + 付款凭证 VOUCHER）
+    /// → 走模块**真实**的清场函数 → 断言「单据 / 状态日志」按 id 为 0 → 兜底扫孤儿断言为 0。
+    #[tokio::test]
+    async fn zz_teardown_purges_finance_status_logs() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // ① 自造一张会写状态日志的单：应付单 + 真实付款
+        let id = new_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
+        pay_payable(id, &pay_req("226"), None)
+            .await
+            .unwrap_or_else(|err| panic!("全额付款失败：{} {}", err.code, err.msg));
+        let voucher_id: Option<Uuid> = db()
+            .query_first_sql(
+                "SELECT id FROM biz_voucher WHERE source_id IN \
+                  (SELECT id FROM biz_payment WHERE payable_id = ?::uuid) LIMIT 1"
+                    .to_string(),
+                vec![Value::from(&id)],
+            )
+            .await
+            .expect("查付款凭证")
+            .map(|row| row.get_typed("id").expect("读凭证 id"));
+        let voucher_id = voucher_id.expect("付款必须生成一张凭证（否则这条用例证明不了什么）");
+
+        // 清场前确实有日志（否则断言 0 是空跑）
+        for (label, sql, target) in [
+            (
+                "PAYABLE",
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'PAYABLE' AND entity_id = ?::uuid"
+                    .to_string(),
+                id,
+            ),
+            (
+                "VOUCHER",
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid"
+                    .to_string(),
+                voucher_id,
+            ),
+        ] {
+            let n: i64 = db()
+                .scalar_with_params::<Option<i64>>(&sql, vec![Value::from(&target)])
+                .await
+                .expect("查清场前日志")
+                .unwrap_or(0);
+            assert!(
+                n > 0,
+                "清场前必须有 {label} 状态日志，否则这条用例证明不了什么"
+            );
+        }
+
+        // ② 走模块真实的清场
+        cleanup_fixtures().await;
+
+        // ③ 单据与日志按 id 全为 0
+        assert!(
+            payable_query::find_payable(id)
+                .await
+                .expect("查单据")
+                .is_none(),
+            "清场后应付单必须不存在"
+        );
+        for (label, sql, target) in [
+            (
+                "PAYABLE 状态日志",
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'PAYABLE' AND entity_id = ?::uuid"
+                    .to_string(),
+                id,
+            ),
+            (
+                "VOUCHER 状态日志",
+                "SELECT count(*) FROM biz_status_log \
+                  WHERE entity_type = 'VOUCHER' AND entity_id = ?::uuid"
+                    .to_string(),
+                voucher_id,
+            ),
+        ] {
+            let n: i64 = db()
+                .scalar_with_params::<Option<i64>>(&sql, vec![Value::from(&target)])
+                .await
+                .expect("查清场后日志")
+                .unwrap_or(0);
+            assert_eq!(n, 0, "清场后{label}必须为 0（日志无外键，必须按 id 先删）");
+        }
+
+        // ④ 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
+        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        assert_eq!(
+            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
+            0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+        );
     }
 }
