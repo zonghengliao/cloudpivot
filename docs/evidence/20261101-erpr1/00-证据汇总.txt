@@ -1,0 +1,50 @@
+==================== ERP-R1 资产负债表 · 证据汇总 ====================
+时间：2026-11-01 17:45:09 CST
+提交：49fc160 fix(erp): 资产负债表两处显示缺陷（减：重复 / 金额显示舍入）
+远端：49fc160003478231eed645da6a7b7e6e09d310f4
+
+===== ① cargo test --lib（全新库 cloudpivot_r1v2，串行）=====
+test result: ok. 1685 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 517.30s
+EXIT=0
+
+===== ② 本卡 15 条单测（--nocapture 输出）=====
+（单测明细见 cargo test 输出；15 passed）
+
+===== ③ 端到端 scripts/verify/erpr1_balance_sheet.sh =====
+==========================================
+  PASS=70  FAIL=0
+  隔离库 cloudpivot_erpr1v 保留（复核：psql -d cloudpivot_erpr1v）；删除：su - postgres -c "dropdb cloudpivot_erpr1v"
+==========================================
+PASS 数：70  FAIL 数：0
+
+===== ④ 生产（144:8023，真机 HTTP）=====
+（下面这段来自 /tmp/prod_144_probe.py 在 144 上的输出）
+== 登录成功：laoliu_test
+== 2026-10 code= 0 ok
+   period=2026-10 status=OPEN 编制单位=云枢 单位=元
+   资产总计=435.0000  负债+权益=435.0000  diff=0.00  balanced=True
+   结论：平衡：资产 435.0000 = 负债和所有者权益 435.0000
+   Σ借=692.1700 Σ贷=692.1700
+   hints: []
+   assets 非零行：[('INVENTORY', '435.0000'), ('CURRENT_ASSETS_TOTAL', '435.0000'), ('TOTAL_ASSETS', '435.0000')]
+   liabilities 非零行：[('ACCOUNTS_PAYABLE', '491.5500'), ('TAXES_PAYABLE', '-56.5500'), ('CURRENT_LIABILITIES_TOTAL', '435.0000'), ('TOTAL_LIABILITIES', '435.0000')]
+   equity 非零行：[('TOTAL_LIABILITIES_AND_EQUITY', '435.0000')]
+== 2026-11 code= 0
+   status=DERIVED 资产=835.0000 负债+权益=835.0000 balanced=True 上期=2026-10
+   hints: ['会计期间 2026-11 未在「会计期间」里建立，本表按自然月（2026-11-01 ~ 2026-11-30）推算编制；请尽快开账，否则月结 / 期间锁定 / 审计口径都对不上']
+== 2027-06（空月份）code= 66010 会计期间 2027-06 不存在（biz_accounting_period 无记录），且该月没有任何已记账凭证：报表不替空月份编造报告期，请先在「会计期间」里开启该期间
+== 2026-13（非法）code= 10001 period 必须是 yyyy-MM（月份 01–12），收到「2026-13」
+== 导出 6756 字节，魔数='PK'
+   content-type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet
+   content-disposition: attachment; filename="______2026-10_20261101174510.xlsx"; filename*=UTF-8''%E8%B5%84%E4%BA%A7%E8%B4%9F%E5%80%BA%E8%A1%A8_2026-10_20261101174510.xlsx
+== /system/menu/tree 含「资产负债表」：True
+
+===== ⑤ erp_invariants（生产库）=====
+  ✅ [审批] H3 待办必能追溯到任务（未软删）
+
+============================================================================================
+结果：31/32 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+============================================================================================
+
+⚠️ 需要人看：
+  · [期间] F2 凭证期间必有期间记录  —  2 张凭证的期间无记录

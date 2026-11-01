@@ -1,0 +1,84 @@
+== 二进制 /opt/cloudpivot/backend/target/debug/cloudpivot（2026-11-01 17:27:53.055871787 +0800）
+== 隔离库 cloudpivot_erpr1v 就绪（owner=alun）
+== 实例端口 18096（日志 /tmp/erpr1_verify_server.log）
+[2m2026-11-01T09:28:03.011599Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+ count 
+-------
+     5
+(1 row)
+
+[PASS] 夹具写入（4 期间 / 5 凭证 / 10 分录）
+[PASS] admin 登录成功（令牌 461 字节）
+[PASS] 报表项 41 个（V0183 种子）（41）
+[PASS] 科目 ≥ 56 个（实际 56）
+[PASS] 权限节点 2 个（:balance-sheet / :export）（2）
+[PASS] 资产负债表菜单是可见菜单（menu_type=2 + 组件已配）（1）
+[PASS] 空库首启：授权留空（与 V0141–V0150 同口径；SUPER_ADMIN 通配短路可用，角色建好后重放 V0183 即补齐）
+[PASS] 累计折旧是减项（t）
+[PASS] 2026-10 报表 HTTP code（0）
+[PASS] period（2026-10）
+[PASS] period_name（2026年10月）
+[PASS] period_status（OPEN）
+[PASS] 编制单位非空（1）
+[PASS] 编制时间非空（1）
+[PASS] 上期对比（2026-09 已建）（2026-09）
+[PASS] 货币资金 = 9,500（10,000 − 500）（9500.0000）
+[PASS] 存货 = 2,000（2000.0000）
+[PASS] 固定资产原价 = 6,000（6000.0000）
+[PASS] 累计折旧 = 1,000（贷方余额，正数显示）（1000.0000）
+[PASS] 累计折旧标记 is_deduction（true）
+[PASS] 固定资产净值 = 5,000（原价 − 折旧）（5000.0000）
+[PASS] 流动资产合计 = 11,500（11500.0000）
+[PASS] 非流动资产合计 = 5,000（5000.0000）
+[PASS] 资产总计 = 16,500（16500.0000）
+[PASS] 应付账款 = 8,000（8000.0000）
+[PASS] 流动负债合计 = 8,000（8000.0000）
+[PASS] 负债合计 = 8,000（8000.0000）
+[PASS] 实收资本 = 10,000（10000.0000）
+[PASS] 未分配利润 = −1,500（本期费用 1,500）（-1500.0000）
+[PASS] 所有者权益合计 = 8,500（8500.0000）
+[PASS] 负债和所有者权益总计 = 16,500（16500.0000）
+[PASS] 勾稽 balanced（true）
+[PASS] 勾稽 assets_total（16500.0000）
+[PASS] 勾稽 liability_equity_total（16500.0000）
+[PASS] 勾稽 diff（0）
+[PASS] 勾稽 diff_text（0.00）
+[PASS] 勾稽结论是「平衡」：平衡：资产 16500.0000 = 负债和所有者权益 16500.0000
+[PASS] 无未归类科目（[]）
+[PASS] 无分录不平凭证（[]）
+[PASS] 平的时候不吐提示（映射完整）（[]）
+[PASS] 空期间 2026-07 code（0）
+[PASS] 空期间 资产总计 = 0（0）
+[PASS] 空期间 负债+权益 = 0（0）
+[PASS] 空期间 仍平衡（true）
+[PASS] 空期间 无上期（<null>）
+[PASS] 无发生额期间 2026-11 资产总计 = 16,500（期初结转）（16500.0000）
+[PASS] 无发生额期间 仍平衡（true）
+[PASS] 上期对比（2026-10 期末）资产总计（16500.0000）
+[PASS] 非法期间（2026-13）→ 400（400）
+[PASS] 非法期间 业务码 = 10001（10001）
+[PASS] 空月份 + 没开账（2026-12）→ 400（400）
+[PASS] 空月份 + 没开账 业务码 = 66010（66010）
+[PASS] 空月份 + 没开账 消息说清原因
+[PASS] 有账无期间（2026-08）仍能出表（0）
+[PASS] 有账无期间 状态 = DERIVED（DERIVED）
+[PASS] 有账无期间 仍平衡（true）
+[PASS] 有账无期间 提示里要求尽快开账
+[PASS] 无令牌 → 401
+[PASS] 导出 Content-Type = xlsx（application/vnd.openxmlformats-officedocument.spreadsheetml.sheet）
+[PASS] 导出文件是合法 xlsx（PK 魔数，6898 字节）
+[PASS] 导出带 Content-Disposition: attachment
+[PASS] 删分录后 仍返回 200（报表要能出，但要报不平）（0）
+[PASS] 删分录后 balanced = false（false）
+[PASS] 删分录后 diff = 2,000（资产多 2,000）（2000.0000）
+[PASS] 删分录后 diff_text = 2000.00（2000.00）
+[PASS] 结论是「不平 + 差额」：不平：资产 16900.0000 ≠ 负债和所有者权益 14900.0000，差 2000.00 元（差额不做舍入）
+[PASS] 点名了被删分录的凭证 0003（0003）
+[PASS] 提示里点名了 0003
+[PASS] 分录借贷合计差 = 2,000（2000.0000）
+[PASS] 恢复分录后 balanced = true（true）
+
+==========================================
+  PASS=70  FAIL=0
+  隔离库 cloudpivot_erpr1v 保留（复核：psql -d cloudpivot_erpr1v）；删除：su - postgres -c "dropdb cloudpivot_erpr1v"
+==========================================
