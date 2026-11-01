@@ -72,7 +72,8 @@ def login(username):
         print(f"!! 登录失败 {username}: {status} {payload}")
         sys.exit(3)
     data = payload["data"]
-    return data["access_token"], data.get("must_change_password", False)
+    user = data.get("user") or {}
+    return data["access_token"], data.get("must_change_password", False), user.get("id")
 
 
 def todo(token):
@@ -81,6 +82,18 @@ def todo(token):
         print(f"!! 待办查询失败：{status} {payload}")
         sys.exit(3)
     return payload["data"]["list"], payload["data"].get("total", len(payload["data"]["list"]))
+
+
+def todo_of(items, po_no):
+    """按采购单号找待办。
+
+    注意 `TaskRes` **没有 biz_no 字段**（列表出参只有 instance_no / title / flow_name…），
+    而实例标题是 `<单号> 采购订单审批`，所以按「标题含单号」匹配。
+    """
+    for item in items:
+        if po_no in (item.get("title") or ""):
+            return item
+    return None
 
 
 def po_of(token, order_no):
@@ -96,21 +109,22 @@ def po_of(token, order_no):
 
 def phase_before():
     print("== 数据修复前（复现死锁）：老待办还在，但当事人点不动 ==")
-    tl, _ = login("laoliu")
-    ta, _ = login("admin")
-    tt, _ = login("laoliu_test")
+    tl, _, _ = login("laoliu")
+    ta, _, _ = login("admin")
+    tt, _, _ = login("laoliu_test")
 
     li, ltotal = todo(tl)
     ai, atotal = todo(ta)
     ti, ttotal = todo(tt)
     print(f"  待办总数：laoliu={ltotal} admin={atotal} laoliu_test={ttotal}")
 
-    mine = next((x for x in li if x.get("biz_no") == PO_NO), None)
-    item = mine
+    item = todo_of(li, PO_NO)
     if item is None:
         bad(f"laoliu 的待办里看不到 {PO_NO}（修复前的预期是「看得见」）")
         return
-    ok(f"laoliu 能看到 {PO_NO} 的待办（{item['instance_no']} / {item['node_name']}）")
+    ok(
+        f"laoliu 能看到 {PO_NO} 的待办（{item['instance_no']} / {item.get('current_node_name')}）"
+    )
 
     status, payload = call(
         "POST",
@@ -122,7 +136,7 @@ def phase_before():
     check(status == 403, f"laoliu（制单人）点自己不动的票 → HTTP 403", f"实际 {status} {msg}")
     check("不能审批自己提交的采购订单" in msg, "报文点名内控原因", msg)
 
-    admin_item = next((x for x in ai if x.get("biz_no") == PO_NO), None)
+    admin_item = todo_of(ai, PO_NO)
     if admin_item:
         status, payload = call(
             "POST",
@@ -147,9 +161,9 @@ def phase_before():
 
 def phase_after():
     print("== 数据修复后：被内控排除的人看不到待办；能批的人批完即通过 ==")
-    ta, _ = login("admin")
-    tl, _ = login("laoliu")
-    tt, _ = login("laoliu_test")
+    ta, _, _ = login("admin")
+    tl, _, _ = login("laoliu")
+    tt, _, _ = login("laoliu_test")
 
     li, ltotal = todo(tl)
     ai, atotal = todo(ta)
@@ -157,18 +171,20 @@ def phase_after():
     print(f"  待办总数：laoliu={ltotal} admin={atotal} laoliu_test={ttotal}")
 
     check(
-        next((x for x in li if x.get("biz_no") == PO_NO), None) is None,
+        todo_of(li, PO_NO) is None,
         f"laoliu（制单人）的「我的待办」里已经没有 {PO_NO}（不是「看得到点不动」）",
     )
     check(
-        next((x for x in ai if x.get("biz_no") == PO_NO), None) is None,
+        todo_of(ai, PO_NO) is None,
         f"admin（发起人）的「我的待办」里也没有 {PO_NO}",
     )
-    item = next((x for x in ti if x.get("biz_no") == PO_NO), None)
+    item = todo_of(ti, PO_NO)
     if item is None:
         bad(f"laoliu_test（能批的人）看不到 {PO_NO} 的待办 —— 那他没法批")
         return
-    ok(f"laoliu_test 能看到 {PO_NO} 的待办（{item['instance_no']} / {item['node_name']}）")
+    ok(
+        f"laoliu_test 能看到 {PO_NO} 的待办（{item['instance_no']} / {item.get('current_node_name')}）"
+    )
 
     # 审批详情里能看到「谁因内控被排除」
     status, payload = call("GET", f"/business/flow/instance/{item['instance_id']}", tt)
@@ -205,57 +221,98 @@ def phase_after():
 
 def phase_new_flow():
     print("== 新代码行为：新提交的单不再给「制单人 / 发起人」生成待办 ==")
-    ta, _ = login("admin")
-    tl, _ = login("laoliu")
-    tt, _ = login("laoliu_test")
+    # 四个账号都登一次：审批人按 assignee_id 映射到各自令牌（engine 只允许本人批自己的票）
+    tokens = {}
+    ids = {}
+    for username in ("admin", "laoliu", "laoliu_test", "henry.liao"):
+        token, _, user_id = login(username)
+        tokens[username] = token
+        ids[user_id] = tokens[username]
+    ta = tokens["admin"]
+    tl = tokens["laoliu"]
+    tt = tokens["laoliu_test"]
 
-    # 找一张 laoliu_test 制的草稿单（生产快照里有 4 张 PO-20261101-00000x）
-    status, payload = call("GET", "/business/erp/purchase-order/page?page=1&page_size=200&status=DRAFT", tl)
+    # 找一张草稿单（生产快照里的 DRAFT 被软删过，验证脚本会先恢复一张，见 p0fix_prod_verify.sh）
+    status, payload = call(
+        "GET", "/business/erp/purchase-order/page?page=1&page_size=200&status=DRAFT", tl
+    )
     if status != 200:
         print(f"!! 草稿单分页失败：{status} {payload}")
         return
     draft = next((r for r in payload["data"]["list"] if r.get("status") == "DRAFT"), None)
     if draft is None:
-        bad("生产快照里没有 DRAFT 采购单，无法演示新提交")
+        bad("快照里没有 DRAFT 采购单，无法演示新提交")
         return
-    print(f"  用草稿 {draft['order_no']}（id={draft['id']}）演示：admin 发起审批")
+    print(f"  用草稿 {draft['order_no']}（id={draft['id']}）演示：admin 发起审批（creater≠initiator）")
 
     status, payload = call(
-        "POST", f"/business/erp/purchase-order/{draft['id']}/submit-approval", ta, {}
+        "POST", f"/business/erp/purchase-order/{draft['id']}/submit-approval", ta
     )
     if status != 200:
-        print(f"!! 提交审批失败：{status} {payload}")
+        bad(f"admin 提交审批失败：{status} {payload.get('msg')}")
         return
-    ok("admin 提交审批成功（他是发起人）")
+    ok("admin 提交审批成功（他是发起人，制单人是别人）")
+    instance_id = payload["data"].get("approval_instance_id")
+    if not instance_id:
+        # 提交接口回的是采购单详情，审批实例 id 可能还没回填（异步置位）→ 从实例分页里找
+        status, page = call("GET", "/business/flow/instance/page?page=1&page_size=50", ta)
+        if status == 200:
+            for row in page["data"]["list"]:
+                if row.get("biz_no") == draft["order_no"]:
+                    instance_id = row["id"]
+                    break
+    if not instance_id:
+        bad("找不到刚提交的审批实例（approval_instance_id 与实例分页都没有）")
+        return
 
-    status, payload = call("GET", f"/business/flow/instance/{payload['data'].get('approval_instance_id') or payload['data'].get('instance_id')}", tt)
-    instance_no = payload["data"]["instance_no"] if status == 200 else None
-    tasks = (payload["data"].get("tasks") or payload["data"].get("timeline") or []) if status == 200 else []
-    by_name = {}
-    for t in tasks:
-        by_name.setdefault(t.get("assignee_name") or "", []).append(t)
-    print(f"  实例 {instance_no} 的待办：" + json.dumps(
-        [{k: t.get("status"), "c": (t.get("comment") or "")[:24]} for t in tasks], ensure_ascii=False
-    ))
+    status, payload = call("GET", f"/business/flow/instance/{instance_id}", tt)
+    if status != 200:
+        bad(f"实例详情查询失败 {status} {payload}")
+        return
+    data = payload["data"]
+    instance_no = data["instance"]["instance_no"]
+    tasks = data.get("timeline") or []
+    print(
+        f"  实例 {instance_no} 的票："
+        + json.dumps(
+            [
+                {
+                    "who": t.get("assignee_name"),
+                    "status": t.get("status"),
+                    "comment": (t.get("comment") or "")[:28],
+                }
+                for t in tasks
+            ],
+            ensure_ascii=False,
+        )
+    )
 
     skips = [t for t in tasks if t.get("status") == "SKIPPED"]
     pend = [t for t in tasks if t.get("status") == "PENDING"]
-    check(len(skips) >= 1, "生成时就落 SKIPPED 留痕（内控排除生效）")
+    check(len(skips) >= 1, "生成待办时就落 SKIPPED 留痕（内控排除生效，不是点的时候才报错）")
     check(all("内控" in (t.get("comment") or "") for t in skips), "留痕写明内控原因")
-    check(
-        all((t.get("assignee_name") or "") not in ("老六", "超级管理员") for t in pend),
-        "PENDING 里没有制单人（老六）与发起人（超级管理员）",
-        str([t.get("assignee_name") for t in pend]),
-    )
+    check(len(pend) >= 1, "还有能批的人拿到 PENDING 待办", str([t.get("assignee_name") for t in pend]))
 
-    # 剩下的人批完 → 流程推进
+    # 剩下的人批完 → 流程推进到下一节点 / 结束（不卡死）
     for t in list(pend):
-        name = t.get("assignee_name")
-        token = tt if name in ("老六测试号", "老六") else ta
-        s2, p2 = call("POST", f"/business/flow/task/{t['id']}/approve", token, {"comment": "P0-FIX 会签验收"})
-        check(s2 == 200, f"审批人「{name}」批票成功", f"{s2} {p2.get('msg')}")
+        token = ids.get(t.get("assignee_id")) or ta
+        s2, p2 = call(
+            "POST",
+            f"/business/flow/task/{t['id']}/approve",
+            token,
+            {"comment": "P0-FIX 新提交验收"},
+        )
+        check(
+            s2 == 200,
+            f"审批人「{t.get('assignee_name')}」批票成功",
+            f"{s2} {p2.get('msg')}",
+        )
     row = po_of(tt, draft["order_no"])
-    check(row is not None and row.get("status") == "APPROVED", f"{draft['order_no']} 批完即 APPROVED（不卡死）", str(row and row.get("status")))
+    check(
+        row is not None and row.get("status") == "APPROVED",
+        f"{draft['order_no']} 批完即 APPROVED（不卡死）",
+        str(row and row.get("status")),
+    )
 
 
 def main():

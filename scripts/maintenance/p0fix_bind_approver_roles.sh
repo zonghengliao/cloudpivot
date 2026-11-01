@@ -194,7 +194,7 @@ psql_q -P pager=off -v rid="$ROLE_ID" <<'SQL'
 SQL
 psql_q -At -F' | ' -v rid="$ROLE_ID" <<'SQL'
   SELECT '节点 ' || d.flow_code || '.' || n.node_key || ' 可审批人数 = ' ||
-         (SELECT count(*) FROM biz_flow_node_assignee a2
+         (SELECT count(DISTINCT u2.id) FROM biz_flow_node_assignee a2
             JOIN sys_user_role ur2 ON ur2.role_id = a2.ref_id
             JOIN sys_user u2 ON u2.id = ur2.user_id AND u2.deleted_at IS NULL
            WHERE a2.node_id = n.id AND a2.assignee_type = 'ROLE')
