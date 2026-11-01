@@ -109,7 +109,7 @@ bash scripts/datafix/flowclean/apply.sh --rollback
 ## 七、演练 → 生产（原始输出）
 
 演练库 `cloudpivot_flowclean_drill`（prod 的 `pg_dump` 副本）上跑完整四步，全绿后才动生产。
-日志：`docs/evidence/20261101-flowclean/flowclean-drill-*.log`。
+日志：`docs/evidence/20261101-flowclean/flowclean-drill-*.log.txt`。
 
 ### ① 第一遍 apply（drill）
 
@@ -138,7 +138,7 @@ task 7 / cc 0 / biz_task 三元组 1 —— 写回 154 行
 
 ### ④ 回滚后再 apply：仍全绿（证明可重复施加）
 
-### ⑤ 生产 apply（16:19:48，`flowclean-prod-apply.log`）
+### ⑤ 生产 apply（16:19:48，`flowclean-prod-apply.log.txt`）
 
 ```
 == 现状快照 ==
@@ -166,7 +166,7 @@ PASS|rollback_snapshot_rows|154 行快照
 flow 家族行数 = 138/141/488/350/21/145/408/141
 ```
 
-### ⑥ 生产第二遍（幂等，`flowclean-prod-apply2.log`）
+### ⑥ 生产第二遍（幂等，`flowclean-prod-apply2.log.txt`）
 
 ```
 NOTICE: FLOWCLEAN/20: 6 个流程已清理完毕 —— 幂等跳过（本步 0 行受影响）
