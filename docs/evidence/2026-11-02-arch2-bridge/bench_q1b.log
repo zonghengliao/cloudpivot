@@ -1,0 +1,97 @@
+Pager usage is off.
+===== F. 现状（无 JOIN）深翻页 OFFSET 2000：与 D 对比看 JOIN 在深翻页里到底占多少 =====
+                                                                           QUERY PLAN                                                                           
+----------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=435.41..439.18 rows=20 width=68) (actual time=7.215..7.218 rows=20.00 loops=1)
+   ->  Incremental Sort  (cost=59.03..18878.12 rows=100000 width=68) (actual time=1.951..7.164 rows=2020.00 loops=1)
+         Sort Key: order_date DESC, order_no DESC
+         Presorted Key: order_date
+         Full-sort Groups: 7  Sort Methods: top-N heapsort, quicksort  Average Memory: 33kB  Peak Memory: 33kB
+         Pre-sorted Groups: 7  Sort Methods: top-N heapsort, quicksort  Average Memory: 69kB  Peak Memory: 69kB
+         ->  Index Scan using idx_biz_po_date on biz_purchase_order  (cost=0.29..13431.71 rows=100000 width=68) (actual time=0.011..2.105 rows=2332.00 loops=1)
+               Filter: (deleted_at IS NULL)
+               Index Searches: 1
+ Planning Time: 0.322 ms
+ Execution Time: 7.235 ms
+(11 rows)
+
+
+===== G. 方案A：全量导出（无 LIMIT）10 万行 + JOIN 合同 + 供应商 =====
+                                                                 QUERY PLAN                                                                 
+--------------------------------------------------------------------------------------------------------------------------------------------
+ Hash Left Join  (cost=163.07..4547.12 rows=100000 width=79) (actual time=0.794..41.403 rows=100000.00 loops=1)
+   Hash Cond: (c.party_b_id = s.id)
+   ->  Hash Left Join  (cost=88.00..4209.00 rows=100000 width=75) (actual time=0.400..29.908 rows=100000.00 loops=1)
+         Hash Cond: (o.contract_id = c.id)
+         ->  Seq Scan on biz_purchase_order o  (cost=0.00..3858.00 rows=100000 width=59) (actual time=0.010..17.578 rows=100000.00 loops=1)
+               Filter: (deleted_at IS NULL)
+         ->  Hash  (cost=63.00..63.00 rows=2000 width=48) (actual time=0.388..0.389 rows=2000.00 loops=1)
+               Buckets: 2048  Batches: 1  Memory Usage: 173kB
+               ->  Seq Scan on biz_contract c  (cost=0.00..63.00 rows=2000 width=48) (actual time=0.003..0.212 rows=2000.00 loops=1)
+                     Filter: (deleted_at IS NULL)
+   ->  Hash  (cost=50.03..50.03 rows=2003 width=36) (actual time=0.393..0.393 rows=2003.00 loops=1)
+         Buckets: 2048  Batches: 1  Memory Usage: 150kB
+         ->  Seq Scan on biz_supplier s  (cost=0.00..50.03 rows=2003 width=36) (actual time=0.002..0.223 rows=2003.00 loops=1)
+               Filter: (deleted_at IS NULL)
+ Planning Time: 0.425 ms
+ Execution Time: 44.229 ms
+(16 rows)
+
+
+===== H. 方案B：全量导出（无 LIMIT）10 万行，同表快照 =====
+                                                           QUERY PLAN                                                           
+--------------------------------------------------------------------------------------------------------------------------------
+ Seq Scan on biz_purchase_order o  (cost=0.00..3858.00 rows=100000 width=79) (actual time=0.007..15.248 rows=100000.00 loops=1)
+   Filter: (deleted_at IS NULL)
+ Planning Time: 0.079 ms
+ Execution Time: 18.086 ms
+(4 rows)
+
+
+===== I. 方案A：按供应商名模糊筛（列表筛选框，必须 JOIN 才能按名称过滤） =====
+                                                                         QUERY PLAN                                                                         
+------------------------------------------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.29..67.14 rows=20 width=38) (actual time=0.050..0.076 rows=20.00 loops=1)
+   ->  Nested Loop  (cost=0.29..150.70 rows=45 width=38) (actual time=0.049..0.074 rows=20.00 loops=1)
+         ->  Nested Loop  (cost=0.00..143.04 rows=1 width=16) (actual time=0.032..0.032 rows=1.00 loops=1)
+               Join Filter: (s.id = c.party_b_id)
+               Rows Removed by Join Filter: 75
+               ->  Seq Scan on biz_supplier s  (cost=0.00..55.04 rows=1 width=16) (actual time=0.017..0.017 rows=1.00 loops=1)
+                     Filter: ((deleted_at IS NULL) AND ((supplier_name)::text ~~ '%基准供应商 77%'::text))
+                     Rows Removed by Filter: 79
+               ->  Seq Scan on biz_contract c  (cost=0.00..63.00 rows=2000 width=32) (actual time=0.003..0.011 rows=76.00 loops=1)
+                     Filter: (deleted_at IS NULL)
+         ->  Index Scan using idx_biz_po_contract on biz_purchase_order o  (cost=0.29..7.16 rows=50 width=54) (actual time=0.008..0.031 rows=20.00 loops=1)
+               Index Cond: (contract_id = c.id)
+               Filter: (deleted_at IS NULL)
+               Index Searches: 1
+ Planning Time: 0.255 ms
+ Execution Time: 0.103 ms
+(16 rows)
+
+
+===== J. 方案B：按供应商名模糊筛（同表列，无需 JOIN） =====
+                                                         QUERY PLAN                                                          
+-----------------------------------------------------------------------------------------------------------------------------
+ Limit  (cost=0.00..4108.00 rows=10 width=38) (actual time=0.017..0.473 rows=20.00 loops=1)
+   ->  Seq Scan on biz_purchase_order o  (cost=0.00..4108.00 rows=10 width=38) (actual time=0.017..0.472 rows=20.00 loops=1)
+         Filter: ((deleted_at IS NULL) AND ((supplier_name_snapshot)::text ~~ '%基准供应商 77%'::text))
+         Rows Removed by Filter: 2756
+ Planning Time: 0.030 ms
+ Execution Time: 0.477 ms
+(6 rows)
+
+                                                                   QUERY PLAN                                                                    
+-------------------------------------------------------------------------------------------------------------------------------------------------
+ Aggregate  (cost=8.16..8.17 rows=1 width=8) (actual time=0.003..0.004 rows=1.00 loops=1)
+   Buffers: shared hit=1
+   ->  Index Only Scan using idx_biz_si_no_source on biz_stock_in  (cost=0.14..8.16 rows=1 width=0) (actual time=0.001..0.001 rows=0.00 loops=1)
+         Heap Fetches: 0
+         Index Searches: 1
+         Buffers: shared hit=1
+ Planning:
+   Buffers: shared hit=239 read=9
+ Planning Time: 0.476 ms
+ Execution Time: 0.040 ms
+(10 rows)
+

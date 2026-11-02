@@ -1,0 +1,101 @@
+
+===== 0. 重建临时库 arch2_bridge_poc（角色 pflow3a） =====
+DROP DATABASE
+CREATE DATABASE
+
+===== 1. 前置真实状态：V0137（主数据+仓储 13 表）+ V0145（采购金额口径+收货两表） =====
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:478: NOTICE:  constraint "ck_biz_warehouse_level" of relation "biz_warehouse" does not exist, skipping
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:482: NOTICE:  constraint "ck_biz_warehouse_no_self" of relation "biz_warehouse" does not exist, skipping
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:487: NOTICE:  constraint "ck_biz_warehouse_root" of relation "biz_warehouse" does not exist, skipping
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:491: NOTICE:  constraint "ck_biz_warehouse_leaf" of relation "biz_warehouse" does not exist, skipping
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:703: NOTICE:  V0137 种子：serial_required 列尚未创建（属 V0138），跳过一物一码标记
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:867: NOTICE:  V0137 种子核对：计量单位 3 / 3
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:867: NOTICE:  V0137 种子核对：仓库 2 / 2（WH01 总仓 → WH02 分仓）
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:867: NOTICE:  V0137 种子核对：库位 4 / 4
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:867: NOTICE:  V0137 种子核对：物料 5 / 5
+  psql:/opt/cloudpivot/backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:867: NOTICE:  V0137 自检通过：13 表 / 树形 4 列 / 7 个关键索引（含 text_pattern_ops）/ 5 条反例拦截 / 2 条正例入库 / 自检数据已清场
+  psql:/opt/cloudpivot/backend/migrations/business/V0145__purchase_order_amounts_and_stock_in.up.sql:364: NOTICE:  V0145 就绪：采购订单补 price_mode / 明细补 price_incl + 税率区间，收货两表 2 张 / 10 索引 / 11 约束
+前置 biz_ 表数=15
+
+===== 2. 造「V0194 之前」的存量基线：3 张历史采购单 + 2 张入库单（1 有源 / 1 无源） =====
+INSERT 0 3
+INSERT 0 2
+存量基线：采购单 3 张 / 入库单 2 张（其中无来源 1 张）
+
+===== 3. 应用 V0194（up 第 1 遍）：存量行必须自动落 SPOT =====
+  ALTER TABLE
+  ALTER TABLE
+  ALTER TABLE
+  ALTER TABLE
+  CREATE INDEX
+  CREATE INDEX
+  psql:/opt/cloudpivot/docs/evidence/2026-11-02-arch2-bridge/V0194__erp_po_contract_bridge.up.sql:286: NOTICE:  V0194 自检通过：4 列 / 3 约束 / 2 部分索引 / 5 条反例拦截 / 2 条正例入库
+  psql:/opt/cloudpivot/docs/evidence/2026-11-02-arch2-bridge/V0194__erp_po_contract_bridge.up.sql:313: NOTICE:  V0194 存量口径：采购单 3 张（SPOT 3 / CONTRACT 0）；入库单 2 张（无来源 1 / 非采购 0）
+
+===== 4. 幂等重放（up 第 2 遍，必须同样通过） =====
+  exit=0
+  psql:/opt/cloudpivot/docs/evidence/2026-11-02-arch2-bridge/V0194__erp_po_contract_bridge.up.sql:286: NOTICE:  V0194 自检通过：4 列 / 3 约束 / 2 部分索引 / 5 条反例拦截 / 2 条正例入库
+  psql:/opt/cloudpivot/docs/evidence/2026-11-02-arch2-bridge/V0194__erp_po_contract_bridge.up.sql:313: NOTICE:  V0194 存量口径：采购单 3 张（SPOT 3 / CONTRACT 0）；入库单 2 张（无来源 1 / 非采购 0）
+
+===== 5. 结构核对（列 / 约束 / 索引） =====
+      column_name       |     data_type     | is_nullable |      column_default       
+------------------------+-------------------+-------------+---------------------------
+ contract_id            | uuid              | YES         | 
+ contract_no_snapshot   | character varying | YES         | 
+ purchase_type          | character varying | NO          | 'SPOT'::character varying
+ supplier_name_snapshot | character varying | YES         | 
+(4 rows)
+
+         conname          |                                               pg_get_constraintdef                                                
+--------------------------+-------------------------------------------------------------------------------------------------------------------
+ ck_biz_po_contract_pair  | CHECK (                                                                                                          +
+                          | CASE purchase_type                                                                                               +
+                          |     WHEN 'CONTRACT'::text THEN ((contract_id IS NOT NULL) AND (contract_no_snapshot IS NOT NULL))                +
+                          |     WHEN 'SPOT'::text THEN ((contract_id IS NULL) AND (contract_no_snapshot IS NULL))                            +
+                          |     ELSE false                                                                                                   +
+                          | END)
+ ck_biz_po_purchase_type  | CHECK (((purchase_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'SPOT'::character varying])::text[])))
+ ck_biz_si_supplier_scope | CHECK (                                                                                                          +
+                          | CASE                                                                                                             +
+                          |     WHEN ((in_type)::text = 'PURCHASE'::text) THEN true                                                          +
+                          |     ELSE (supplier_id IS NULL)                                                                                   +
+                          | END)
+(3 rows)
+
+
+===== 6. 存量行落位核对（历史单必须全部 SPOT，且四列自洽） =====
+purchase_type 分布: SPOT=3
+违反双向钉死的行数=0
+存量 supplier_name_snapshot 为 NULL 的行数=3
+
+===== 7. 回滚（down 档 A）：结构回落、业务数据一行不少 =====
+  DROP INDEX
+  DROP INDEX
+  psql:/opt/cloudpivot/docs/evidence/2026-11-02-arch2-bridge/V0194__erp_po_contract_bridge.down.sql:71: NOTICE:  V0194 回滚完成（档 A）：约束与索引已删，四列保留（无损），业务数据一行未动
+回滚后：四列仍在=4 / 本卡约束=0 / 本卡索引=0
+回滚后：采购单=3 张 / 入库单=2 张
+
+===== 8. 回滚后再上线（up 第二轮），证明可逆可反复 =====
+  再上线 exit=0
+再上线后：约束=3
+
+===== 9. 巡检 SQL 真库演练（4 类问题各造 1 条，必须全部命中） =====
+(1 row)
+
+--- 巡检输出 ---
+         check_name        |  kind  |   doc_no    |                doc_id                |            snapshot_value            |             truth_value              |          truth_source          
+  -------------------------+--------+-------------+--------------------------------------+--------------------------------------+--------------------------------------+--------------------------------
+   STOCK_IN_SUPPLIER_DRIFT | DEFECT | IN-PATROL-2 | c0000000-0000-4000-8000-0000000000e2 | c0000000-0000-4000-8000-000000000002 | c0000000-0000-4000-8000-000000000001 | biz_purchase_order.supplier_id
+          check_name        |  kind  |   doc_no    |                doc_id                |            snapshot_value            | truth_value |      truth_source      
+  --------------------------+--------+-------------+--------------------------------------+--------------------------------------+-------------+------------------------
+   STOCK_IN_DANGLING_SOURCE | DEFECT | IN-PATROL-3 | c0000000-0000-4000-8000-0000000000e3 | c0000000-0000-4000-8000-00000000dead |             | biz_purchase_order(id)
+     kind   |          check_name           |   doc_no    |                doc_id                |            snapshot_value            |             truth_value              |      truth_source       |    order_created_at    |  contract_updated_at   
+  ----------+-------------------------------+-------------+--------------------------------------+--------------------------------------+--------------------------------------+-------------------------+------------------------+------------------------
+   DEFECT   | PURCHASE_ORDER_SUPPLIER_DRIFT | PO-PATROL-C | c0000000-0000-4000-8000-0000000000c1 | c0000000-0000-4000-8000-000000000002 | c0000000-0000-4000-8000-000000000001 | biz_contract.party_b_id | 2026-11-02 09:00:00+08 | 2026-11-01 00:00:00+08
+   SNAPSHOT | PURCHASE_ORDER_SUPPLIER_DRIFT | PO-PATROL-B | c0000000-0000-4000-8000-0000000000b1 | c0000000-0000-4000-8000-000000000002 | c0000000-0000-4000-8000-000000000001 | biz_contract.party_b_id | 2026-10-06 09:00:00+08 | 2026-11-01 00:00:00+08
+              check_name            |  kind  |   doc_no    |                doc_id                |            snapshot_value            | truth_value |   truth_source   
+  ----------------------------------+--------+-------------+--------------------------------------+--------------------------------------+-------------+------------------
+   PURCHASE_ORDER_DANGLING_CONTRACT | DEFECT | PO-PATROL-D | c0000000-0000-4000-8000-0000000000d1 | c0000000-0000-4000-8000-00000000dead |             | biz_contract(id)
+   po_total | po_contract | po_spot | si_total | si_no_source | si_non_purchase | si_purchase_no_source 
+  ----------+-------------+---------+----------+--------------+-----------------+-----------------------
+          7 |           4 |       3 |        6 |            2 |               0 |                     2
