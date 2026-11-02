@@ -39,6 +39,8 @@ async fn posted_stock_in(ctx: &Ctx, qty: &str, price: &str, rate: &str) -> Uuid 
     let req = CreateStockInReq {
         source_order_id: None,
         purchase_order_id: None,
+        // A4（V0199）起：PURCHASE 且无来源采购单 = 无源单据，必须显式声明（remark 已给）
+        is_sourceless: Some(true),
         supplier_id: Some(ctx.supplier.to_string()),
         warehouse_id: Some(ctx.wh_from.to_string()),
         in_date: None,
