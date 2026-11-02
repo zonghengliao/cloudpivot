@@ -56,6 +56,7 @@ use crate::business::erp::purchase_model::{
     can_transition, status_label, transition_rejected_message,
 };
 use crate::business::erp::stockin_model;
+use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -557,6 +558,9 @@ async fn prepare_items(
                     "items[{index}].material_id 物料不存在或已删除（{material_id}）"
                 ))
             })?;
+        // ★ DC-09 单位止血（方案 B）：明细的 `unit_id` 由物料带出，物料挂折算单位（如「箱」）
+        //   时本单会把「5 箱」记成「5 个」——库存三本账只用 `qty`，`rate` 无人消费。
+        unit_guard::ensure_base_unit(material_id, index, line.qty).await?;
         items.push(NewItem {
             material_id,
             unit_id: material.unit_id,
@@ -1442,6 +1446,8 @@ mod tests {
     const WAREHOUSE: &str = "d2a20001-0000-4000-8000-000000000002";
     const MATERIAL_A: &str = "d2a20001-0000-4000-8000-000000000011";
     const MATERIAL_B: &str = "d2a20001-0000-4000-8000-000000000012";
+    /// DC-09 夹具：挂在折算单位上的物料 —— 本版本**不能**在单据里使用。
+    const MATERIAL_BOX: &str = "d2a20001-0000-4000-8000-000000000013";
 
     /// A3 合同夹具①：ACTIVE 采购合同，乙方 = 上面的 `SUPPLIER`，额度 10 万。
     const CONTRACT_ACTIVE: &str = "d2a20001-0000-4000-8000-0000000000c1";
@@ -1457,6 +1463,11 @@ mod tests {
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
          VALUES ('d2a20001-0000-4000-8000-000000000003', 'P2A2-PCS', '个', 1, NULL, 1.000000, 1, 1)
          ON CONFLICT (id) DO NOTHING",
+        // DC-09 夹具：折算单位「箱」（is_base = 0，1 箱 = 12 个）。单据里用它会 400。
+        "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
+         VALUES ('d2a20001-0000-4000-8000-000000000004', 'P2A2-BOX', '箱', 0,
+                 'd2a20001-0000-4000-8000-000000000003', 12.000000, 1, 2)
+         ON CONFLICT (id) DO NOTHING",
         "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status)
          VALUES ('d2a20001-0000-4000-8000-000000000001', 'P2A2-SUP', 'P2A2 测试供应商', 1)
          ON CONFLICT (id) DO NOTHING",
@@ -1469,6 +1480,12 @@ mod tests {
                  'd2a20001-0000-4000-8000-000000000003', 1),
                 ('d2a20001-0000-4000-8000-000000000012', 'P2A2-M2', '垫片 8mm',
                  'd2a20001-0000-4000-8000-000000000003', 1)
+         ON CONFLICT (id) DO NOTHING",
+        // DC-09 夹具：物料挂在折算单位「箱」上 —— 建单必须被拒（手工插入，模拟主数据里
+        // 已经配成折算单位的存量物料；主数据接口本卡不动）。
+        "INSERT INTO biz_material (id, material_code, material_name, unit_id, status)
+         VALUES ('d2a20001-0000-4000-8000-000000000013', 'P2A2-M3-BOX', '整箱螺丝（折算单位）',
+                 'd2a20001-0000-4000-8000-000000000004', 1)
          ON CONFLICT (id) DO NOTHING",
         // A3：合同（`biz_contract` 无外键指向供应商；status 与日期必须满足
         //     ck_biz_contract_signed_dates —— SIGNED/ACTIVE/COMPLETED 三个日期都要有）
@@ -1777,6 +1794,76 @@ mod tests {
         assert_eq!(detail.order.total_tax, dec("3.50"));
         assert_eq!(detail.order.total_with_tax, dec("38.50"));
         assert_eq!(detail.order.total_qty, dec("15"));
+    }
+
+    /// DC-09（P0 单位止血 · 采购单侧）：物料挂折算单位「箱」（1 箱 = 12 个）→ 400 + 折算建议，
+    /// **一行都不落库**；改单走同一条路径（`prepare_items` 建/改共用）。
+    ///
+    /// 判据不只是「报错」：还要证明它没留下任何明细行 —— 否则文案对了、脏单却进了库，
+    /// 「rate 配了不生效」的账照样会被结出来。
+    #[tokio::test]
+    async fn non_base_unit_line_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 5 箱 = 60 个
+        let error = create_purchase_order(&req("EXCL", &[(MATERIAL_BOX, "5", "2", "13")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains(
+                "单位「箱」不是基本单位：本版本不支持多单位换算，\
+                 请按基本单位录入（1 箱 = 12 个 → 录 60）"
+            ),
+            "{}",
+            error.msg
+        );
+        // 文案要点出「哪一行、哪个物料」：一单多行时用户得知道改哪一行
+        assert!(error.msg.contains("items[0]"), "{}", error.msg);
+        assert!(error.msg.contains("P2A2-M3-BOX"), "{}", error.msg);
+
+        let rows = db()
+            .find_with_params(
+                "SELECT COUNT(*) AS cnt FROM biz_purchase_order_item WHERE material_id = ?::uuid",
+                vec![Value::from(&uid(MATERIAL_BOX))],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.first().map(|row| row.get_typed::<i64>("cnt").unwrap()),
+            Some(0),
+            "被拒的单据不许留下明细行"
+        );
+
+        // 基本单位 + 折算单位混填：整单拒，不许「先把前一行落进去」
+        let mixed = create_purchase_order(
+            &req(
+                "EXCL",
+                &[(MATERIAL_A, "1", "2", "13"), (MATERIAL_BOX, "1", "2", "13")],
+            ),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(mixed.code, error_code::ERP_UNIT_NOT_BASE, "{}", mixed.msg);
+        assert!(mixed.msg.contains("items[1]"), "{}", mixed.msg);
+        assert!(mixed.msg.contains("→ 录 12）"), "{}", mixed.msg);
+
+        // 草稿单改成折算单位 → 同样 400，且原明细原样保留（改单是整单覆盖）
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "1", "2", "13")]), None)
+            .await
+            .unwrap();
+        let edit = update_purchase_order(id, &req("EXCL", &[(MATERIAL_BOX, "1", "2", "13")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(edit.status, 400, "{}", edit.msg);
+        assert_eq!(edit.code, error_code::ERP_UNIT_NOT_BASE, "{}", edit.msg);
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.items.len(), 1, "改单被拒后原明细必须原样保留");
+        assert_eq!(detail.items[0].material_id, MATERIAL_A);
     }
 
     /// ⑤ 改单：SUBMITTED 不能改 → 409（卡面 ⑬）。

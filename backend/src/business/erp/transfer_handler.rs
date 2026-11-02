@@ -74,6 +74,7 @@ use crate::business::erp::transfer_model::{
     self, ALL_STATUSES, NewItem, NewTransfer, STATUS_PENDING, SettleError, TransferQuery,
     TransferRow, transition_effect, transition_rejected_message,
 };
+use crate::business::erp::unit_guard;
 use crate::business::flow::{engine, model as flow_model, task_bridge as flow_task_bridge};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -275,6 +276,9 @@ async fn prepare_items(
             .await
             .map_err(|error| utils::db_error(error, "查询物料"))?
             .ok_or_else(|| reference_missing(format!("items[{index}].material_id 物料不存在")))?;
+        // ★ DC-09 单位止血（方案 B）：调拨明细不存 `unit_id`，数量直接进两本账 ——
+        //   物料挂折算单位时「5 箱」会被当成 5 个搬走，直接拒单。
+        unit_guard::ensure_base_unit(material_id, index, item.qty).await?;
 
         let from_location_id = optional_uuid(
             item.from_location_id.as_deref(),
@@ -1437,6 +1441,14 @@ mod db_tests {
     const WH_FROM: &str = "d3b0000b-0000-4000-8000-000000000001";
     const WH_TO: &str = "d3b0000b-0000-4000-8000-000000000002";
     const UNIT: &str = "d3b0000d-0000-4000-8000-000000000001";
+    /// DC-09 夹具：折算单位「箱」（1 箱 = 12 个，基准 = `W3B-PCS`）。
+    const U_BOX: &str = "d3b0000d-0000-4000-8000-000000000002";
+    /// DC-09 夹具：挂在折算单位上的物料 —— 本版本**不能**在调拨单里使用。
+    ///
+    /// UUID 特意避开 `…0003`：`w3c_settle_handles_three_lines_in_one_doc` 自己会插
+    /// 「W3C-M-L3 第三物料」到那个号上（`ON CONFLICT DO NOTHING`），撞号会让它的物料
+    /// 变成这只折算单位物料、把那条用例带红（第一版实测就撞了）。
+    const M_BOX: &str = "d3b0000c-0000-4000-8000-0000000000bb";
     const M_PLAIN: &str = "d3b0000c-0000-4000-8000-000000000001";
     const M_SN: &str = "d3b0000c-0000-4000-8000-000000000002";
     const SERIAL_1: &str = "d3b0000e-0000-4000-8000-000000000001";
@@ -1653,6 +1665,15 @@ mod db_tests {
             "计量单位",
         )
         .await;
+        // DC-09 夹具：折算单位「箱」（is_base = 0，1 箱 = 12 个）+ 挂在它上面的物料。
+        // 调拨单里用它必须 400 —— 明细不存 unit_id，数量直接进两本账。
+        exec(
+            "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order) \
+             VALUES (?::uuid, 'W3B-BOX', '箱', 0, ?::uuid, 12, 1, 2) ON CONFLICT DO NOTHING",
+            vec![Value::from(&uuid(U_BOX)), Value::from(&uuid(UNIT))],
+            "折算单位",
+        )
+        .await;
         // 注意：V0137 的 `allow_negative` / `is_leaf` 是 SMALLINT（0/1），不是 BOOLEAN
         // （`\\d` 实测；`serial_required` 反而是 BOOLEAN —— 同一批迁移里两种风格并存）
         exec(
@@ -1679,6 +1700,15 @@ mod db_tests {
                 Value::from(&uuid(UNIT)),
             ],
             "物料",
+        )
+        .await;
+        exec(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
+                                       safety_stock, costing_method, tax_rate, status, serial_required) \
+             VALUES (?::uuid, 'W3B-M-BOX', 'W3B 整箱物料', ?::uuid, 'RAW', 0, 'MOVING_AVG', 0, 1, false) \
+             ON CONFLICT DO NOTHING",
+            vec![Value::from(&uuid(M_BOX)), Value::from(&uuid(U_BOX))],
+            "折算单位物料",
         )
         .await;
         exec(
@@ -1884,6 +1914,54 @@ mod db_tests {
             status: status.to_string(),
             reason: reason.map(str::to_string),
         }
+    }
+
+    /// DC-09（P0 单位止血 · 调拨单侧）：物料挂折算单位「箱」（1 箱 = 12 个）→ 400 + 折算建议，
+    /// **单头与明细都不落库**（调拨是「发货 / 收货」两次动账的源头，漏一行就是两本账各错一次）。
+    #[tokio::test]
+    async fn non_base_unit_item_is_rejected() {
+        let _db = match prepare().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let error = create_transfer(&body(vec![item(M_BOX, "1")]), Some(uuid(U_APPLICANT)), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains(
+                "单位「箱」不是基本单位：本版本不支持多单位换算，\
+                 请按基本单位录入（1 箱 = 12 个 → 录 12）"
+            ),
+            "{}",
+            error.msg
+        );
+        assert!(error.msg.contains("items[0]"), "{}", error.msg);
+        assert!(error.msg.contains("W3B-M-BOX"), "{}", error.msg);
+
+        // 单头都不许留下：`prepare_items` 在事务外跑，任何一行不过就整张单不落库
+        let heads = query(
+            "SELECT COUNT(*) AS cnt FROM biz_stock_transfer WHERE from_warehouse_id = ?::uuid",
+            vec![Value::from(&uuid(WH_FROM))],
+        )
+        .await;
+        assert_eq!(
+            heads
+                .first()
+                .map(|row| row.get_typed::<i64>("cnt").unwrap()),
+            Some(0),
+            "被拒的调拨单不许留下单头"
+        );
+
+        // 对照组：基本单位物料照常建单（同一夹具、同一请求形状）
+        create_transfer(
+            &body(vec![item(M_PLAIN, "1")]),
+            Some(uuid(U_APPLICANT)),
+            None,
+        )
+        .await
+        .unwrap();
     }
 
     async fn refresh(id: Uuid) -> TransferRow {

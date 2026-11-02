@@ -111,6 +111,21 @@ export function unitBaseTheme(isBase: boolean): 'primary' | 'default' {
 }
 
 /**
+ * 折算单位「本版本能不能用」的灰字（ARCH-3 DC-09 单位止血）。
+ *
+ * 后端已把单据侧闸门收紧：明细的单位必须是 `biz_unit.is_base = 1`，否则 400。
+ * 但主数据页上「折算单位」依旧是**合法**的一行（`rate` 是给人看的参考值），
+ * 所以不能删、也不能置灰禁用整行 —— 只在行内加一句灰字，让配单位的人当场知道
+ * 「这个单位本版本进不了单据」，而不是等仓管建单被拒了才回头问。
+ */
+export const UNIT_DOC_USAGE_HINT = '仅主数据参考，本版本不能在单据中使用';
+
+/** 折算单位返回灰字、基础单位返回空串（模板里 `v-if` 直接用） */
+export function unitDocUsageHint(isBase: boolean): string {
+  return isBase ? '' : UNIT_DOC_USAGE_HINT;
+}
+
+/**
  * 来源文案（ERP-S1）：`is_system = true` → 「系统」（迁移预置的标准值）。
  *
  * 客户自建 → 「自建」。这两个字是验收项（老大要在一屏里分清「系统给的」和「我建的」）。

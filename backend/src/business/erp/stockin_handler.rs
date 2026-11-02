@@ -81,6 +81,7 @@ use crate::business::erp::stockin_model::{
     STATUS_PENDING_CANCEL, STATUS_PENDING_POST, STATUS_POSTED, Totals, can_transition,
     status_label, transition_rejected_message,
 };
+use crate::business::erp::unit_guard;
 use crate::business::erp::voucher;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -359,6 +360,9 @@ async fn plan_lines(
                     "items[{index}].material_id 物料不存在或已删除（{material_id}）"
                 ))
             })?;
+        // ★ DC-09 单位止血（方案 B）：明细 `unit_id` 由物料带出；物料挂折算单位（「箱」）时
+        //   过账会把「5 箱」按 5 个加库存 —— 本版本不乘 rate，直接拒单。
+        unit_guard::ensure_base_unit(material_id, index, line.qty).await?;
         let serial_required = stockin_model::material_serial_required(material_id)
             .await
             .map_err(|error| utils::db_error(error, "查询物料一物一码开关"))?
@@ -3145,6 +3149,8 @@ mod tests {
     const MATERIAL_B: &str = "b2b10001-0000-4000-8000-000000000012";
     /// 一物一码物料（电机）。
     const MATERIAL_SN: &str = "b2b10001-0000-4000-8000-000000000013";
+    /// DC-09 夹具：挂在折算单位上的物料 —— 本版本**不能**在收货单里使用。
+    const MATERIAL_BOX: &str = "b2b10001-0000-4000-8000-000000000015";
     /// 库位字典（`biz_location.id`，P6：库位账行的 `location_id` 列指这个）。
     const LOC_DICT_A: &str = "b2b10003-0000-4000-8000-000000000001";
     /// 库位字典（第二个库位）。
@@ -3158,6 +3164,11 @@ mod tests {
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
          VALUES ('b2b10001-0000-4000-8000-000000000001', 'P2B1-PCS', '个', 1, NULL, 1.000000, 1, 1)
+         ON CONFLICT DO NOTHING",
+        // DC-09 夹具：折算单位「箱」（is_base = 0，1 箱 = 12 个）。收货单里用它会 400。
+        "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
+         VALUES ('b2b10001-0000-4000-8000-000000000004', 'P2B1-BOX', '箱', 0,
+                 'b2b10001-0000-4000-8000-000000000001', 12.000000, 1, 2)
          ON CONFLICT DO NOTHING",
         "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status)
          VALUES ('b2b10001-0000-4000-8000-000000000002', 'P2B1-SUP', 'P2B1 测试供应商', 1)
@@ -3177,6 +3188,12 @@ mod tests {
                  'b2b10001-0000-4000-8000-000000000001', 1, false),
                 ('b2b10001-0000-4000-8000-000000000013', 'P2B1-M3', '伺服电机',
                  'b2b10001-0000-4000-8000-000000000001', 1, true)
+         ON CONFLICT DO NOTHING",
+        // DC-09 夹具：物料挂在折算单位「箱」上 —— 收货单必须被拒（手工插入，模拟主数据里
+        // 已经配成折算单位的存量物料；主数据接口本卡不动）。
+        "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, serial_required)
+         VALUES ('b2b10001-0000-4000-8000-000000000015', 'P2B1-M4-BOX', '整箱垫片（折算单位）',
+                 'b2b10001-0000-4000-8000-000000000004', 1, false)
          ON CONFLICT DO NOTHING",
         // P6：两个库位字典（库位账行的 location_id 列指它；无外键，弱引用）
         "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
@@ -3468,6 +3485,67 @@ mod tests {
             .await
             .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
         id
+    }
+
+    /// DC-09（P0 单位止血 · 收货单侧）：物料挂折算单位「箱」（1 箱 = 12 个）→ 400 + 折算建议，
+    /// 单头与明细**一行都不落库**（过账更是无从发生）。
+    ///
+    /// 收货单是库存三本账的唯一入口：这里漏掉一行，账上就是「箱数当个数」。
+    #[tokio::test]
+    async fn non_base_unit_line_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 2 箱 = 24 个
+        let error = create_stock_in(&req(vec![line(MATERIAL_BOX, "2", "2", "13")]), None)
+            .await
+            .unwrap_err();
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains(
+                "单位「箱」不是基本单位：本版本不支持多单位换算，\
+                 请按基本单位录入（1 箱 = 12 个 → 录 24）"
+            ),
+            "{}",
+            error.msg
+        );
+        assert!(error.msg.contains("items[0]"), "{}", error.msg);
+        assert!(error.msg.contains("P2B1-M4-BOX"), "{}", error.msg);
+
+        let rows = db()
+            .find_with_params(
+                "SELECT COUNT(*) AS cnt FROM biz_stock_in_item WHERE material_id = ?::uuid",
+                vec![Value::from(
+                    &Uuid::parse_str(MATERIAL_BOX).expect("夹具 UUID"),
+                )],
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.first().map(|row| row.get_typed::<i64>("cnt").unwrap()),
+            Some(0),
+            "被拒的收货单不许留下明细行"
+        );
+
+        // 混填（基本单位 + 折算单位）整单拒：前一行也不能先落库
+        let mixed = create_stock_in(
+            &req(vec![
+                line(MATERIAL_A, "1", "2", "13"),
+                line(MATERIAL_BOX, "1", "2", "13"),
+            ]),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(mixed.code, error_code::ERP_UNIT_NOT_BASE, "{}", mixed.msg);
+        assert!(mixed.msg.contains("items[1]"), "{}", mixed.msg);
+
+        // 基本单位路径不受影响（同一夹具、同一请求形状）
+        create_stock_in(&req(vec![line(MATERIAL_A, "1", "2", "13")]), None)
+            .await
+            .unwrap();
     }
 
     /// ① 首次入库：库存从无到有，qty / amount / avg_cost 正确。

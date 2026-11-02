@@ -84,9 +84,18 @@
         </template>
 
         <template #is_base="{ row }">
-          <t-tag size="small" :theme="unitBaseTheme(row.is_base)" :variant="row.is_base ? 'light' : 'outline'">
-            {{ unitBaseLabel(row.is_base) }}
-          </t-tag>
+          <div class="base-cell">
+            <t-tag size="small" :theme="unitBaseTheme(row.is_base)" :variant="row.is_base ? 'light' : 'outline'">
+              {{ unitBaseLabel(row.is_base) }}
+            </t-tag>
+            <span
+              v-if="unitDocUsageHint(row.is_base)"
+              class="base-cell__hint"
+              data-testid="unit-non-base-hint"
+            >
+              {{ unitDocUsageHint(row.is_base) }}
+            </span>
+          </div>
         </template>
 
         <template #rate="{ row }">
@@ -371,6 +380,7 @@ import {
   unitBaseLabel,
   unitBaseNameOf,
   unitBaseTheme,
+  unitDocUsageHint,
   unitFormFromRow,
   unitSourceLabel,
   unitSourceTheme,
@@ -734,6 +744,20 @@ onMounted(async () => {
 /* 禁用的按钮外面包一层 span，否则 t-tooltip 在 disabled 元素上不触发 */
 .gate-wrap {
   display: inline-flex;
+}
+
+/* 基础单位列：标签 + 折算单位的灰字（DC-09 单位止血） */
+.base-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+
+.base-cell__hint {
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-color-placeholder);
 }
 
 .mono {

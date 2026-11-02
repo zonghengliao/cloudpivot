@@ -1201,6 +1201,16 @@ pub const ERP_SI_SUPPLIER_MISMATCH: i32 = 66028;
 /// ③ 想在有源单上改供应商 / 来源单（那一步走 409 `RESOURCE_CONFLICT`，不在这里）。
 pub const ERP_SI_SOURCELESS_CONFLICT: i32 = 66029;
 
+/// 单据明细用的单位不是**基本单位**（HTTP 400）。
+///
+/// ARCH-3 DC-09 / R-P0-4 的止血闸：`biz_unit` 支持配折算单位（`is_base = 0` + `rate`），
+/// 但单据链路与库存三本账都只用 `qty`，不乘 `rate` —— 按箱下单会静默把 5 箱记成 5 个。
+/// 本版本不支持多单位换算，单据明细的单位必须是基本单位，否则拒单并给出折算建议。
+///
+/// 单独给码而不是复用 [`ERP_FILTER_INVALID`]：前端要把这句话翻成「按基本单位录入」的引导
+/// （并高亮物料行），与「筛选参数不合法」是两件事。
+pub const ERP_UNIT_NOT_BASE: i32 = 66030;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1244,6 +1254,8 @@ mod tests {
             (ERP_SI_SOURCE_REQUIRED, 66027),
             (ERP_SI_SUPPLIER_MISMATCH, 66028),
             (ERP_SI_SOURCELESS_CONFLICT, 66029),
+            // 单据单位止血（ARCH-3 DC-09，66030）
+            (ERP_UNIT_NOT_BASE, 66030),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

@@ -157,6 +157,12 @@
             placeholder="选基础单位"
             data-testid="mat-unit"
           />
+          <template #help>
+            <span class="dlg-help" data-testid="mat-unit-help">
+              只能选基础单位（个 / 千克…）：本版本不支持多单位换算，折算单位（箱 / 打）不能作为物料单位，
+              否则该物料的采购 / 收货 / 调拨单据都会被拒
+            </span>
+          </template>
         </t-form-item>
 
         <t-form-item label="规格" name="spec">

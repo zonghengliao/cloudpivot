@@ -29,6 +29,10 @@ import {
   isUnitListEmpty,
   rateLabel,
   unitBaseNameOf,
+  unitBaseLabel,
+  unitBaseTheme,
+  UNIT_DOC_USAGE_HINT,
+  unitDocUsageHint,
   unitFormFromRow,
   unitStatusLabel,
   unitStatusTheme,
@@ -388,4 +392,16 @@ test('⑦ ERP-S1：小数位数进请求体（新建带上、编辑只发改过�
     original,
   );
   assert.equal(changed.precision, 3);
+});
+
+// ==================== ⑧ DC-09 单位止血：折算单位行加灰字 ====================
+
+test('⑧ DC-09：折算单位返回灰字、基础单位不显示', () => {
+  // 文案逐字锁死（与卡面一致：「仅主数据参考，本版本不能在单据中使用」）
+  assert.equal(UNIT_DOC_USAGE_HINT, '仅主数据参考，本版本不能在单据中使用');
+  assert.equal(unitDocUsageHint(false), UNIT_DOC_USAGE_HINT, '折算单位（is_base = false）必须有灰字');
+  assert.equal(unitDocUsageHint(true), '', '基础单位不显示灰字（正常能用的行不该被提示）');
+  // 灰字不能替代 tag：折算单位仍然要能分清「折算单位 / 基础单位」
+  assert.equal(unitBaseLabel(false), '折算单位');
+  assert.equal(unitBaseLabel(true), '基础单位');
 });

@@ -35,6 +35,7 @@
 //! | [`contract_model`] | 合同数据层（**A1 基座 + A2 CRUD**）：乙方引用解析（无外键靠应用层校验）、状态常量 / 边表、取号、分页、建改删 | **A1 / A2** |
 //! | [`contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
 //! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
+//! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -94,6 +95,7 @@ pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;
 pub mod transfer_overdue;
+pub mod unit_guard;
 pub mod voucher;
 pub mod voucher_bridge;
 pub mod voucher_query;
