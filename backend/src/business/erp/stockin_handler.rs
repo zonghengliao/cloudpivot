@@ -2003,6 +2003,37 @@ async fn cancel_in_tx(
     // 作废的六本账回滚：`POSTED`（无流程降级 / DRAFT 之外的直接作废）与
     // `PENDING_CANCEL`（审批通过）走**同一段代码** —— 硬红线 5：不许为审批另写一套回滚。
     if row.status == STATUS_POSTED || row.status == STATUS_PENDING_CANCEL {
+        // ⓪ 加锁顺序统一（P2 · 40P01）：**先锁采购单头，再碰库存行**。
+        //
+        // 过账路径是「收货单头 → 采购单头(FOR UPDATE) → 库存行」（`post_in_tx` ①b → ③），
+        // 作废路径原本是「收货单头 → 库存行 → 采购单头」—— 采购单头要等到最后
+        // [`stockin_model::sync_purchase_status`] 才锁。两条路同时处理**同一物料 + 同一仓库**
+        // 就构成环：过账持采购单行等库存行、作废持库存行等采购单行，PG 在 `deadlock_timeout`
+        // 内判 `40P01` 并中止其中一笔（整笔回滚、可重试，不会留半笔账），但用户看到的是
+        // `500 服务器内部错误`。
+        //
+        // 提前锁不会削弱任何互斥力：`sync_purchase_status` 稍后再锁同一行时是**同一事务的
+        // 重入**（不再等待），「并发取消采购单 / 另一张收货单过账」照样要等本事务结束。
+        // 代价只是持锁时间从「作废尾部」变成「作废全程」—— 毫秒级。
+        //
+        // 证据：单测 `lockorder_concurrent_post_and_cancel_no_deadlock`（20 轮确定性交错：
+        // 改前 PG 判死锁 20 次、改后 0 次），见 `docs/evidence/20261103-p2-收货过账作废加锁顺序.md`。
+        if let Some(order_id) = row.source_order_id {
+            let locked = stockin_model::lock_purchase_order(ex, order_id)
+                .await
+                .map_err(|error| write_error(error, "作废：锁定来源采购单"))?;
+            if locked.is_none() {
+                // 采购单已被软删（历史数据）：维持原口径 —— 后面 `sync_purchase_status`
+                // 同样会「查不到单 → 返回 0」，不额外新增失败分支。
+                tracing::warn!(
+                    stock_in_id = %id,
+                    in_no = %row.in_no,
+                    %order_id,
+                    "收货单作废：来源采购单不存在或已删除，跳过采购单头加锁（已收数量回退仍照常执行）"
+                );
+            }
+        }
+
         // ① 读作废计划：数量取明细、金额取过账流水（不按现价估算）
         let plan = stockin_model::cancel_plan_of(ex, id, &row.in_no, row.warehouse_id)
             .await
@@ -4562,6 +4593,237 @@ mod tests {
             .expect_err("已收满的采购单不许再建收货单");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(err.msg.contains("不能收货"), "{}", err.msg);
+    }
+
+    // ==================== P2：过账 / 作废 的加锁顺序（40P01） ====================
+
+    /// 本库 `pg_stat_database.deadlocks` 累计值 —— **PG 侧权威计数**。
+    ///
+    /// 不用「谁返回了什么错」来数：作废侧走审批回调（`on_cancel_settled`），
+    /// 业务失败的出口是 `Ok(None)`（只留 warn 日志），错误在那条路上被**有意吞掉**了；
+    /// 而 PG 的计数器与「哪一笔被中止」无关，两边都算得到。
+    async fn deadlocks_detected() -> i64 {
+        db().scalar_with_params::<Option<i64>>(
+            "SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()",
+            vec![],
+        )
+        .await
+        .expect("读 pg_stat_database.deadlocks 失败")
+        .expect("pg_stat_database.deadlocks 不该是 NULL")
+    }
+
+    /// 一眼看清「有没有人在等锁」：返回**别的后端**当前等待中（`granted = false`）的锁数。
+    ///
+    /// 为什么只数「在等」：`FOR UPDATE` 在没有争用时**不会**在 `pg_locks` 里留 `locktype='tuple'`
+    /// 行（实测只有关系级的 `RowShareLock`），所以「谁持有」不可靠；但「谁在等」一定有行。
+    ///
+    /// 为什么**不按表名过滤**：等一把被 `UPDATE` 占住的行锁时，PG 记的是
+    /// `locktype='transactionid'`（`relation` 为空），按 `relname` 过滤会漏 —— 第一版就漏了。
+    async fn waiting_locks() -> i64 {
+        db().scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM pg_locks WHERE NOT granted AND pid <> pg_backend_pid()",
+            vec![],
+        )
+        .await
+        .expect("查 pg_locks 失败")
+        .unwrap_or(0)
+    }
+
+    /// 轮询直到「等待中的锁数 ≥ `want`」，返回耗时；超时返回 `None`。
+    ///
+    /// 按**墙钟**算超时：一次轮询本身就要几十毫秒（这套池子 `max_lifetime = 0`，每次查询新建
+    /// 连接），按次数算会把 5s 拖成几分钟。不靠 `sleep` 对齐时序也是同一个原因
+    /// （实测 `sleep(1ms)` 会被连接握手拖到 37ms 才醒）。
+    async fn wait_waiters(max_ms: u64, want: i64) -> Option<std::time::Duration> {
+        let budget = std::time::Duration::from_millis(max_ms);
+        let started = std::time::Instant::now();
+        while started.elapsed() < budget {
+            if waiting_locks().await >= want {
+                return Some(started.elapsed());
+            }
+        }
+        None
+    }
+
+    /// **P2 并发用例（40P01）**：A 过账 / B 作废，**同一物料 + 同一仓库 + 同一张采购单**，各 20 轮。
+    ///
+    /// # 为什么必须「同一张采购单」
+    ///
+    /// 环由两条路径的**相反加锁顺序**构成：
+    ///
+    /// ```text
+    /// 过账：收货单头 → 采购单头(FOR UPDATE) → 库存行
+    /// 作废：收货单头 → 库存行             → 采购单头(FOR UPDATE)
+    /// ```
+    ///
+    /// 两张单若挂在**不同**采购单上，B 等的采购单行 A 并不持有，构不成环（只是普通等待）。
+    /// 所以本轮让 victim（作废）与 poster（过账）都来自同一张 PO。
+    ///
+    /// # 判据
+    ///
+    /// 1. `pg_stat_database.deadlocks` 的**增量必须为 0**（改动前实测 20/20 轮各 1 次，见证据文档）；
+    /// 2. **每一轮**都断言账实一致：被中止的那一笔必须**整笔回滚**，
+    ///    库存数量 / 采购已收 = 「按单据状态应有的量」，绝不允许半笔账。
+    ///
+    /// # 时序（用库里的行锁做**确定性**交错，不靠 sleep）
+    ///
+    /// 自然并发下这个窗口太窄：`tokio::spawn` + 递增延迟跑 20 轮，**一次都没撞上**（实测 0/20）。
+    /// 所以用例自己占住那把**两个事务都要抢的库存行**当红绿灯，把环的**必要顺序**钉死：
+    ///
+    /// 1. 测试事务 `inv_hold` 先 `FOR UPDATE` 锁住**库存行**（物料 A × 仓库 × 未分配库位）；
+    /// 2. 起 B（作废）→ 轮询 `pg_locks` 直到 `biz_inventory` 上出现**等待中的锁**
+    ///    ⇒ B 已经走到 `reverse_cost`、卡在库存行上（B 在它前面该拿的锁都拿到了）；
+    /// 3. 起 A（过账）→ 等 `biz_inventory` 上的等待数变成 **2**（改前 A 也排在库存行）
+    ///    或 `biz_purchase_order` 上出现等待（改后 A 直接卡在采购单行，而采购单行在 B 手里）；
+    /// 4. 提交 `inv_hold` 松手：改前 B 排在前、先拿到库存行，一路走到 `sync_purchase_status`
+    ///    要采购单行（A 持着），而 A 还在等库存行（B 持着）⇒ 环闭合，PG 1s 后判死锁；
+    ///    改后 B 早在第 3 条 SQL 就锁了采购单头，A 只能排在那把锁上 ⇒ 无环。
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        const ROUNDS: usize = 20;
+        let material = Uuid::parse_str(MATERIAL_A).unwrap();
+        let warehouse = Uuid::parse_str(WAREHOUSE).unwrap();
+        let before = deadlocks_detected().await;
+        let mut both_ok = 0usize;
+        let mut post_failed = 0usize;
+        let mut cancel_failed = 0usize;
+        for round in 0..ROUNDS {
+            // 每轮独立单据：采购 200 → 先过账 60（作废对象）+ 再建 40（过账对象，仍是 DRAFT）
+            let (order_id, item_id) = seed_purchase_order("200", "0").await;
+            let victim = sourced_doc(order_id, item_id, "60").await;
+            let poster = sourced_doc(order_id, item_id, "40").await;
+            // 库存是**连续余额**（同一物料同一仓库被所有轮次共用）：断言用「本轮增量」
+            let qty_before = inventory_of(MATERIAL_A).await.0;
+            change_stock_in_status(victim, &post_req(), None)
+                .await
+                .unwrap_or_else(|err| {
+                    panic!("第 {round} 轮：victim 过账失败 {} {}", err.code, err.msg)
+                });
+            // 只发起作废审批（POSTED → PENDING_CANCEL，账一动没动、也不加任何业务锁）
+            cancel_request(victim, "并发用例：同物料同仓库并发作废").await;
+
+            // ① 红绿灯：占住**库存行**（过账的 `apply_cost` 与作废的 `reverse_cost` 抢的就是它）
+            let inv_hold = db().begin().await.expect("开红绿灯事务");
+            let held_rows = inv_hold
+                .query_sql(
+                    "SELECT id FROM biz_inventory \
+                      WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
+                      FOR UPDATE"
+                        .to_string(),
+                    vec![Value::from(&material), Value::from(&warehouse)],
+                )
+                .await
+                .expect("红绿灯：锁库存行失败");
+            assert!(
+                !held_rows.is_empty(),
+                "第 {round} 轮：库存行不存在（victim 刚过账过，必须先有这一行）"
+            );
+
+            // ② B（作废）起手。直接调 `cancel_after_approval` —— 就是审批回调
+            //    `on_cancel_settled` 内部调的那个函数（`stockin_bridge.rs:178`），一个事务、
+            //    一字不差。这里不走 `engine::approve` 的编排：那几笔查询与业务行锁无关。
+            let cancel_task = tokio::spawn(async move {
+                let row = match stockin_model::find_stock_in(victim).await {
+                    Ok(Some(row)) => row,
+                    other => panic!("作废任务查单失败：{other:?}"),
+                };
+                cancel_after_approval(
+                    victim,
+                    &row,
+                    "并发用例：同物料同仓库并发作废",
+                    Some(uuid_keeper()),
+                )
+                .await
+            });
+            let waited_b = wait_waiters(8_000, 1).await;
+
+            // ③ A（过账）入场；等它也落到锁上（改前：库存行排队；改后：采购单行排队）
+            let post_task =
+                tokio::spawn(
+                    async move { change_stock_in_status(poster, &post_req(), None).await },
+                );
+            let waited_a = wait_waiters(8_000, 2).await;
+
+            // ④ 松手：改前的环在这里闭合，改后 B 直接跑完
+            inv_hold.commit().await.expect("提交红绿灯事务");
+            let post_outcome = post_task.await.expect("过账任务 panic");
+            let cancel_outcome = cancel_task.await.expect("作废任务 panic");
+            if let Err(ref err) = post_outcome {
+                println!("第 {round} 轮 过账失败：{} {}", err.status, err.msg);
+            }
+            if let Err(ref err) = cancel_outcome {
+                println!("第 {round} 轮 作废失败：{} {}", err.status, err.msg);
+            }
+            assert!(
+                waited_b.is_some() && waited_a.is_some(),
+                "第 {round} 轮：交错没形成（B 卡库存行 {waited_b:?} / A 入场 {waited_a:?}）—— \
+                 本用例的结论不可信；post_ok={} cancel_ok={}",
+                post_outcome.is_ok(),
+                cancel_outcome.is_ok()
+            );
+
+            let victim_status = stock_in_status(victim).await;
+            let poster_status = stock_in_status(poster).await;
+            if post_outcome.is_ok() {
+                assert_eq!(
+                    poster_status, STATUS_POSTED,
+                    "第 {round} 轮：过账返回 Ok 但单据不是 POSTED"
+                );
+            }
+            // 账实一致（本轮增量）：victim 过账 +60、可能作废 −60；poster 过账 +40（若成功）
+            let expected_delta = dec("60")
+                + dec(if poster_status == STATUS_POSTED {
+                    "40"
+                } else {
+                    "0"
+                })
+                - dec(if victim_status == STATUS_CANCELLED {
+                    "60"
+                } else {
+                    "0"
+                });
+            assert_eq!(
+                inventory_of(MATERIAL_A).await.0 - qty_before,
+                expected_delta,
+                "第 {round} 轮：库存增量与单据状态对不上（victim={victim_status} / poster={poster_status}）\
+                 —— 被中止的一笔必须整笔回滚"
+            );
+            // 采购已收：每轮都是**新采购行**（从 0 起），可以断言绝对值
+            let expected = dec(if poster_status == STATUS_POSTED {
+                "40"
+            } else {
+                "0"
+            }) + dec(if victim_status == STATUS_CANCELLED {
+                "0"
+            } else {
+                "60"
+            });
+            assert_eq!(
+                d4_ledger_received(item_id).await,
+                expected,
+                "第 {round} 轮：采购已收数量与单据状态对不上（victim={victim_status} / poster={poster_status}）"
+            );
+
+            match (post_outcome.is_ok(), victim_status.as_str()) {
+                (true, STATUS_CANCELLED) => both_ok += 1,
+                (false, _) => post_failed += 1,
+                (true, _) => cancel_failed += 1,
+            }
+        }
+        let deadlocks = deadlocks_detected().await - before;
+        println!(
+            "lockorder 并发用例：{ROUNDS} 轮（两边都成功 {both_ok} / 过账被中止 {post_failed} / \
+             作废被中止 {cancel_failed}），PG 检出死锁 = {deadlocks}"
+        );
+        assert_eq!(
+            deadlocks, 0,
+            "过账与作废同时处理同一物料同一仓库时不许出现 40P01（PG 检出 {deadlocks} 次）：\
+             两条路径必须按「收货单头 → 采购单头 → 库存行」的同一全序加锁"
+        );
     }
 
     /// ⑪b 自动带出：只给 `source_order_id`（items 空），按未收数量成单。
