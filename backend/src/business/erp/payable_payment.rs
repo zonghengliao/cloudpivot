@@ -95,6 +95,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::payable::{self, PayableRow};
 use crate::business::erp::payable_bridge;
@@ -164,7 +165,7 @@ pub fn approval_status_label(status: &str) -> &str {
 // ==================== 入参 / 出参 ====================
 
 /// 登记付款入参。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct PayPayableReq {
     /// 本次付款金额（> 0，且不超过未付余额）。
     pub amount: Option<Decimal>,
@@ -174,13 +175,19 @@ pub struct PayPayableReq {
     pub pay_method: Option<String>,
     /// 备注。
     pub remark: Option<String>,
+    /// 「显式跳过审批」片段（ARCH-3 DC-01）：`skip_approval` + `skip_reason`。
+    #[serde(flatten, default)]
+    pub approval: approval_gate::SkipApprovalReq,
 }
 
 /// 作废应付单入参。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct CancelPayableReq {
     /// 作废原因（必填）。
     pub reason: Option<String>,
+    /// 「显式跳过审批」片段（ARCH-3 DC-01）：`skip_approval` + `skip_reason`。
+    #[serde(flatten, default)]
+    pub approval: approval_gate::SkipApprovalReq,
 }
 
 /// 一条付款记录（详情抽屉的时间线用）。
@@ -746,10 +753,26 @@ fn payable_of_row(row: &Row) -> DbResult<PayableRow> {
 /// 登记一笔付款（handler 与单测共用）。
 ///
 /// 校验 → 锁 → 重算 → 付款记录 → 付款凭证 → 回写应付，**全部同一个事务**。
+///
+/// 与 [`pay_payable_with_reason`] 等价，只是不带「跳过审批」的说明
+/// （状态日志的 reason 就是 `付款 PM-xxx`）。
 pub async fn pay_payable(
     id: Uuid,
     req: &PayPayableReq,
     operator: Option<Uuid>,
+) -> std::result::Result<PayableDetailRes, ApiError> {
+    pay_payable_with_reason(id, req, operator, None).await
+}
+
+/// 同上，额外接受「跳过审批」的说明（ARCH-3 DC-01）。
+///
+/// `skip_reason` 非空时并进 `biz_status_log.reason`（`付款 PM-xxx｜跳过审批（未配置 payable_pay 流程）：…`），
+/// 审计据此看出这次付款**没有经过复核**。审批路径（`settle_payment_in_tx`）永远传 `None`。
+pub async fn pay_payable_with_reason(
+    id: Uuid,
+    req: &PayPayableReq,
+    operator: Option<Uuid>,
+    skip_reason: Option<&str>,
 ) -> std::result::Result<PayableDetailRes, ApiError> {
     let amount = req
         .amount
@@ -778,6 +801,7 @@ pub async fn pay_payable(
         remark,
         operator,
         now,
+        reason: skip_reason,
     };
     let result = pay_in_tx(&tx, input).await;
     match result {
@@ -811,6 +835,10 @@ struct PayInput<'a> {
     operator: Option<Uuid>,
     /// 业务时间（一次事务内同一个值，便于请求级追溯）。
     now: DateTime<Utc>,
+    /// 「跳过审批」的理由（ARCH-3 DC-01）：非空时并进应付状态日志的 `reason`。
+    ///
+    /// 直付路径只有在「没配 `payable_pay` 流程 + 持 skip-approval + 理由 ≥10 字」时才非空。
+    reason: Option<&'a str>,
 }
 /// 付款的事务体（直付路径：未配流程 / 降级）。便于单测直接复算。
 ///
@@ -826,6 +854,7 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
         remark,
         operator,
         now,
+        reason,
     } = input;
     let row = lock_payable(tx, id)
         .await
@@ -861,6 +890,7 @@ async fn pay_in_tx(tx: &Transaction, input: PayInput<'_>) -> std::result::Result
             remark,
             operator,
             now,
+            reason,
         },
     )
     .await
@@ -981,6 +1011,8 @@ struct SettleInput<'a> {
     operator: Option<Uuid>,
     /// 业务时间。
     now: DateTime<Utc>,
+    /// 「跳过审批」的理由（ARCH-3 DC-01）：非空时并进状态日志（`付款 PM-xxx｜跳过审批（…）`）。
+    reason: Option<&'a str>,
 }
 
 /// **记账的唯一实现**（P7 逻辑原样复用，审批路径不许另写一份）。
@@ -1007,6 +1039,7 @@ async fn settle_payment_in_tx(
         remark,
         operator,
         now,
+        reason,
     } = input;
     let paid = (row.paid_amount + amount).round_dp(4);
     let unpaid_after = payable::unpaid_of(row.amount, paid);
@@ -1093,6 +1126,11 @@ async fn settle_payment_in_tx(
     //    `PARTIAL_PAID → PARTIAL_PAID`，业务照做（付款记录 + 凭证 + 金额回写），
     //    但「原地流转」不是状态变更 —— 所以调 `transition_if_changed`，
     //    它在 `from == to` 时返回 `Ok(None)`、不写 `biz_status_log`。
+    //    ARCH-3 DC-01：`reason` 只在「显式跳过审批的直付」时非空，与付款单号合并进日志。
+    let status_reason = match reason {
+        Some(extra) => format!("付款 {payment_no}｜{extra}"),
+        None => format!("付款 {payment_no}"),
+    };
     let _status_log = state_machine::transition_if_changed(
         tx,
         state_machine::ENTITY_PAYABLE,
@@ -1102,7 +1140,7 @@ async fn settle_payment_in_tx(
         &row.status,
         status,
         operator,
-        Some(&format!("付款 {payment_no}")),
+        Some(&status_reason),
         None,
     )
     .await
@@ -1157,14 +1195,18 @@ async fn settle_payment_in_tx(
 
 // ==================== 写：提交付款（审批前置） ====================
 
-/// 提交一笔付款（**handler 的唯一入口**）：有已发布的付款流程 → 发起审批；没有 → 降级直付。
+/// 提交一笔付款（**handler 的唯一入口**，ARCH-3 DC-01）：
+/// 有已发布的 `payable_pay` 流程 → 发起审批（202）；
+/// **没配流程 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）** ——
+/// 只有持 `business:erp:skip-approval` 且写明理由（≥10 字）的账号才能显式跳过直付，
+/// 理由写进 `biz_status_log`（`付款 PM-xxx｜跳过审批（…）`）。
 ///
 /// 卡面 ③：「`POST /payable/{id}/pay` 改成先发起审批，返回 202」。
-/// 降级是**显式**的（`outcome = PAID` + `message` 说明），不是静默改行为。
 pub async fn submit_payment(
     id: Uuid,
     req: &PayPayableReq,
     operator: Option<Uuid>,
+    gate: &approval_gate::ApprovalGate<'_>,
 ) -> std::result::Result<PaySubmitRes, ApiError> {
     let amount = req
         .amount
@@ -1180,15 +1222,22 @@ pub async fn submit_payment(
         .await
         .map_err(|error| utils::db_error(error, "查询已发布的付款流程"))?;
     let Some(flow) = flow else {
-        // 未配流程 → 保持 P7 老行为（直接付款）。**这不是失败**，只是没启用审批。
+        // ARCH-3 DC-01：**不再静默降级直付**。默认 409（点名 payable_pay）；
+        // 只有「持 business:erp:skip-approval + 理由 ≥10 字」才能显式跳过。
+        let skip_reason = approval_gate::authorize_missing_flow(
+            payable_bridge::BIZ_TYPE,
+            payable_bridge::FLOW_CODE,
+            gate,
+        )?;
         tracing::warn!(
             payable_id = %id,
-            "没有配置已发布的 payable_pay 付款审批流程：本次付款**降级**为直接生效（无审批），请尽快补配流程"
+            %skip_reason,
+            "应付付款：没有已发布的 payable_pay 流程，按「显式跳过审批」直付（理由已写 biz_status_log）"
         );
-        let detail = pay_payable(id, req, operator).await?;
+        let detail = pay_payable_with_reason(id, req, operator, Some(&skip_reason)).await?;
         return Ok(PaySubmitRes {
             outcome: OUTCOME_PAID.to_string(),
-            message: "未配置付款审批流程，本次付款已直接生效".to_string(),
+            message: "未配置付款审批流程，本次付款已按「显式跳过审批」直接生效".to_string(),
             amount,
             payment_id: detail.payments.last().map(|row| row.id.clone()),
             payment_no: detail.payments.last().map(|row| row.payment_no.clone()),
@@ -1197,6 +1246,7 @@ pub async fn submit_payment(
         });
     };
 
+    approval_gate::ensure_not_skipped(payable_bridge::FLOW_CODE, gate)?;
     let outcome = submit_for_approval(id, req, amount, operator, &flow).await?;
     Ok(outcome)
 }
@@ -1608,6 +1658,7 @@ async fn settle_approved_in_tx(
             remark: payment.remark.as_deref(),
             operator,
             now,
+            reason: None,
         },
     )
     .await?;
@@ -1941,10 +1992,12 @@ pub const OUTCOME_CANCEL_PENDING: &str = "PENDING_APPROVAL";
 /// 作废提交的 outcome：未配流程，按老行为**直接作废**。
 pub const OUTCOME_CANCELLED: &str = "CANCELLED";
 
-/// 提交应付单作废（**唯一对外入口**，P-FLOW-3B）。
+/// 提交应付单作废（**唯一对外入口**，P-FLOW-3B + ARCH-3 DC-01）。
 ///
 /// 配了已发布的 `payable_cancel` 流程 → 先送审（`OPEN → PENDING_CANCEL`，账不动）；
-/// 没配流程 → 按 P-FLOW-3B 之前的行为**直接作废**（并留一条 `warn`，绝不把作废锁死）。
+/// **没配流程 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）** ——
+/// 只有持 `business:erp:skip-approval` 且写明理由（≥10 字）的账号才能显式跳过，
+/// 跳过理由与作废理由合并写进 `biz_status_log`。
 ///
 /// 为什么入口收在这里、而不是让「作废」和「送审」各开一个接口：
 /// 那样审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post` 同一个理由）。
@@ -1952,6 +2005,7 @@ pub async fn submit_cancel(
     id: Uuid,
     reason: Option<&str>,
     operator: Option<Uuid>,
+    gate: &approval_gate::ApprovalGate<'_>,
 ) -> std::result::Result<CancelSubmitRes, ApiError> {
     let reason = reason.map(str::trim).filter(|text| !text.is_empty());
     let Some(reason) = reason else {
@@ -1963,17 +2017,27 @@ pub async fn submit_cancel(
         .await
         .map_err(|error| utils::db_error(error, "查询应付作废审批流程"))?
     {
-        Some(flow) => submit_cancel_for_approval(id, reason, operator, &flow).await,
+        Some(flow) => {
+            approval_gate::ensure_not_skipped(payable::CANCEL_FLOW_CODE, gate)?;
+            submit_cancel_for_approval(id, reason, operator, &flow).await
+        }
         None => {
+            // ARCH-3 DC-01：**不再静默直接作废**（作废会联动红冲凭证）。
+            let skip_reason = approval_gate::authorize_missing_flow(
+                payable::CANCEL_BIZ_TYPE,
+                payable::CANCEL_FLOW_CODE,
+                gate,
+            )?;
             tracing::warn!(
                 payable_id = %id,
-                "没有配置已发布的 payable_cancel 应付作废审批流程：本次作废**降级**为直接执行（无复核），\
-                 请尽快补配流程"
+                %skip_reason,
+                "应付作废：没有已发布的 payable_cancel 流程，按「显式跳过审批」直接作废"
             );
-            let detail = cancel_payable(id, Some(reason), operator).await?;
+            let merged = approval_gate::merge_reason(Some(reason), &skip_reason);
+            let detail = cancel_payable(id, Some(&merged), operator).await?;
             Ok(CancelSubmitRes {
                 outcome: OUTCOME_CANCELLED.to_string(),
-                message: "未配置应付作废审批流程，本次作废已直接生效".to_string(),
+                message: "未配置应付作废审批流程，本次作废已按「显式跳过审批」直接生效".to_string(),
                 approval_instance_id: None,
                 detail,
             })
@@ -2440,7 +2504,10 @@ pub async fn payable_pay_handler(
     use axum::response::IntoResponse;
     let parsed = parse_uuid(&id, "id");
     let outcome = match parsed {
-        Ok(id) => submit_payment(id, &req, operator_of(&claims)).await,
+        Ok(id) => {
+            let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+            submit_payment(id, &req, operator_of(&claims), &gate).await
+        }
         Err(error) => Err(error),
     };
     match outcome {
@@ -2505,8 +2572,9 @@ pub async fn payable_cancel_handler(
     Json(req): Json<CancelPayableReq>,
 ) -> ResResult<CancelSubmitRes> {
     let id = parse_uuid(&id, "id")?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
     Ok(Res::ok(
-        submit_cancel(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_cancel(id, req.reason.as_deref(), operator_of(&claims), &gate).await?,
     ))
 }
 
@@ -2530,8 +2598,9 @@ pub async fn payable_submit_cancel_handler(
     Json(req): Json<CancelPayableReq>,
 ) -> ResResult<CancelSubmitRes> {
     let id = parse_uuid(&id, "id")?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
     Ok(Res::ok(
-        submit_cancel(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_cancel(id, req.reason.as_deref(), operator_of(&claims), &gate).await?,
     ))
 }
 
@@ -2572,6 +2641,11 @@ mod tests {
     use crate::business::erp::voucher::{self, entries_of, find_voucher};
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
+
+    /// ARCH-3 DC-01：系统路径的审批前置上下文（不请求跳过、无权限声明）。
+    fn none_gate() -> approval_gate::ApprovalGate<'static> {
+        approval_gate::ApprovalGate::none()
+    }
 
     // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
 
@@ -2798,6 +2872,7 @@ mod tests {
             pay_date: None,
             pay_method: Some("银行转账".to_string()),
             remark: Some("P7 单测".to_string()),
+            ..Default::default()
         }
     }
 
@@ -3288,6 +3363,7 @@ mod tests {
             pay_date: Some(NaiveDate::from_ymd_opt(2026, 10, 29).expect("固定日期")),
             pay_method: Some("银行转账".to_string()),
             remark: Some("D5 单测：从应付单发起付款".to_string()),
+            ..Default::default()
         }
     }
 
@@ -3554,7 +3630,7 @@ mod tests {
         let operator = d5_operator();
         let id = new_d5_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
 
-        let res = submit_payment(id, &d5_pay_req("226"), Some(operator))
+        let res = submit_payment(id, &d5_pay_req("226"), Some(operator), &none_gate())
             .await
             .unwrap_or_else(|err| panic!("从应付单发起付款失败：{} {}", err.code, err.msg));
         assert_eq!(res.outcome, OUTCOME_PENDING, "P17：配了流程必须走审批");
@@ -3619,7 +3695,7 @@ mod tests {
         };
         let id = new_d5_payable(dec("226"), dec("100"), payable::STATUS_PARTIAL_PAID).await;
 
-        let err = submit_payment(id, &d5_pay_req("126.01"), Some(d5_operator()))
+        let err = submit_payment(id, &d5_pay_req("126.01"), Some(d5_operator()), &none_gate())
             .await
             .expect_err("超付必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
@@ -3650,7 +3726,7 @@ mod tests {
         let admin = admin_uuid().await;
         let id = new_d5_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
 
-        let res = submit_payment(id, &d5_pay_req("226"), Some(d5_operator()))
+        let res = submit_payment(id, &d5_pay_req("226"), Some(d5_operator()), &none_gate())
             .await
             .expect("审批中不能算失败");
         assert_eq!(res.outcome, OUTCOME_PENDING);
@@ -3696,7 +3772,7 @@ mod tests {
         };
         let operator = d5_operator();
         let id = new_d5_payable(dec("500"), Decimal::ZERO, payable::STATUS_OPEN).await;
-        let first = submit_payment(id, &d5_pay_req("100"), Some(operator))
+        let first = submit_payment(id, &d5_pay_req("100"), Some(operator), &none_gate())
             .await
             .unwrap();
         let first_no = first.payment_no.clone().expect("审批中必须有付款单号");
@@ -3712,7 +3788,7 @@ mod tests {
         assert_eq!(info.pending_amount, Some(dec("100")));
         assert_eq!(info.overpay_risk, None, "100 <= 未付 500，不该报超付风险");
 
-        let err = submit_payment(id, &d5_pay_req("100"), Some(operator))
+        let err = submit_payment(id, &d5_pay_req("100"), Some(operator), &none_gate())
             .await
             .expect_err("审批中重复提交必须被拒");
         assert_eq!(err.status, 409, "{}", err.msg);
@@ -3730,7 +3806,7 @@ mod tests {
             None => return,
         };
         let id = new_d5_payable(dec("500"), Decimal::ZERO, payable::STATUS_OPEN).await;
-        submit_payment(id, &d5_pay_req("400"), Some(d5_operator()))
+        submit_payment(id, &d5_pay_req("400"), Some(d5_operator()), &none_gate())
             .await
             .unwrap();
 

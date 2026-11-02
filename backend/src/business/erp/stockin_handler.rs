@@ -70,6 +70,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model;
 use crate::business::erp::payable;
@@ -1381,7 +1382,10 @@ pub async fn stock_in_update(
 
 // ==================== ③ 状态流转（过账 / 作废） ====================
 
-/// 状态流转核心逻辑（handler 与单测共用）。
+/// 状态流转核心逻辑（handler 与单测共用的**系统路径**）。
+///
+/// 与 [`change_stock_in_status_with`] 完全等价，只是**没有跳过审批的能力**
+/// （`ApprovalGate::none()`）—— 单测 / 内部走查用它，「没配 `stock_in_cancel` 流程」时一律 409。
 ///
 /// `POSTED` 走 [`post_stock_in`]（一个事务里做完六件事），`CANCELLED` 只改状态。
 pub async fn change_stock_in_status(
@@ -1389,10 +1393,29 @@ pub async fn change_stock_in_status(
     req: &StockInStatusReq,
     operator: impl Into<state_machine::Operator>,
 ) -> std::result::Result<(), ApiError> {
+    let gate = approval_gate::ApprovalGate::none();
+    change_stock_in_status_with(id, req, operator, &gate).await
+}
+
+/// 状态流转核心逻辑（**HTTP 入口**）：额外接受「显式跳过审批」的上下文（ARCH-3 DC-01）。
+///
+/// # 与改造前的差别（作废分支）
+///
+/// 已过账单据的作废：配了已发布的 `stock_in_cancel` → 只发起审批（`POSTED → PENDING_CANCEL`）；
+/// **没配 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`**（改造前是静默直接作废、六本账立刻回滚）。
+/// 只有持 `business:erp:skip-approval` 且写明理由（≥10 字）的账号才能显式跳过，
+/// 跳过理由与作废理由合并写进 `biz_status_log.reason`。
+pub async fn change_stock_in_status_with(
+    id: Uuid,
+    req: &StockInStatusReq,
+    operator: impl Into<state_machine::Operator>,
+    gate: &approval_gate::ApprovalGate<'_>,
+) -> std::result::Result<(), ApiError> {
     let op = operator.into();
     let target = req.target_status()?;
-    let reason = req.reason_text();
-    if let Some(text) = reason
+    // 作废分支可能把「跳过审批的理由」合进来（`reason` 因此要是可变的 owned 字符串）
+    let mut reason: Option<String> = req.reason_text().map(str::to_string);
+    if let Some(text) = reason.as_deref()
         && text.chars().count() > MAX_REASON_LEN
     {
         return Err(bad_request(format!(
@@ -1438,7 +1461,7 @@ pub async fn change_stock_in_status(
             &format!("收货入库单 {}", row.in_no),
         )
         .await?;
-        return post_stock_in(id, &row, req, &op).await;
+        return post_stock_in(id, &row, req, &op, reason.as_deref()).await;
     }
 
     // 作废：DRAFT 从未加过库存；POSTED 的库存/库位账/流水在同一事务里反向冲减（P9）
@@ -1469,22 +1492,39 @@ pub async fn change_stock_in_status(
         )));
     }
 
-    // ★ P16：已过账单据的作废先走**复核**（一次作废同时改六本账，不许一个人说了算）。
+    // ★ P16 + ARCH-3 DC-01：已过账单据的作废先走**复核**（一次作废同时改六本账，不许一个人说了算）。
     //   配了已发布的 `stock_in_cancel` 流程 → 只发起审批（POSTED → PENDING_CANCEL，账不动）；
-    //   没配 → 降级为旧行为（直接作废），但要留 warn（卡面 §二 ①「降级」）。
+    //   **没配 → 409（默认拒绝）**；只有「持 business:erp:skip-approval + 理由 ≥10 字」
+    //   才能显式跳过（理由与作废理由合并进 `biz_status_log`）。
     if row.status == STATUS_POSTED {
         match stockin_model::published_cancel_flow()
             .await
             .map_err(|error| utils::db_error(error, "查询收货单作废审批流程"))?
         {
             Some(flow) => {
-                return submit_cancel_approval(&row, reason.unwrap_or_default(), &op, &flow).await;
+                approval_gate::ensure_not_skipped(stockin_model::CANCEL_FLOW_CODE, gate)?;
+                return submit_cancel_approval(
+                    &row,
+                    reason.as_deref().unwrap_or_default(),
+                    &op,
+                    &flow,
+                )
+                .await;
             }
-            None => tracing::warn!(
-                stock_in_id = %row.id,
-                in_no = %row.in_no,
-                "没有配置已发布的 stock_in_cancel 作废审批流程：本次作废**降级**为直接执行（六本账立即回滚），请尽快补配流程"
-            ),
+            None => {
+                let skip_reason = approval_gate::authorize_missing_flow(
+                    stockin_model::CANCEL_BIZ_TYPE,
+                    stockin_model::CANCEL_FLOW_CODE,
+                    gate,
+                )?;
+                tracing::warn!(
+                    stock_in_id = %row.id,
+                    in_no = %row.in_no,
+                    %skip_reason,
+                    "收货单作废：没有已发布的 stock_in_cancel 流程，按「显式跳过审批」放行（六本账立即回滚）"
+                );
+                reason = Some(approval_gate::merge_reason(reason.as_deref(), &skip_reason));
+            }
         }
     }
 
@@ -1493,7 +1533,7 @@ pub async fn change_stock_in_status(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启状态流转事务"))?;
-    match cancel_in_tx(&tx, id, &row, reason, &op, now).await {
+    match cancel_in_tx(&tx, id, &row, reason.as_deref(), &op, now).await {
         Ok(()) => {
             tx.commit()
                 .await
@@ -2105,8 +2145,10 @@ async fn posting_inputs(
     Ok((items, serial_required, provided, po_snapshot))
 }
 
-/// 走「过账」的**唯一对外入口**（P-FLOW-3A）：配了已发布的 `stock_in_post` 流程就先送审，
-/// 没配就按 P-FLOW-3A 之前的行为直接过账（并留一条 `warn`，绝不把过账锁死）。
+/// 走「过账」的**唯一对外入口**（P-FLOW-3A + ARCH-3 DC-01）：配了已发布的 `stock_in_post`
+/// 流程就先送审；**没配流程 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）**，
+/// 只有持 `business:erp:skip-approval` 且写明理由（≥10 字）的账号才能显式跳过
+/// （理由写进 `biz_status_log`）。
 ///
 /// 为什么入口收在这里、而不是散在路由里：`PATCH /status`（下游老前端）与
 /// `POST /submit-post`（本卡新按钮）**必须同一条路** —— 否则审批可以被换一个 URL 绕过。
@@ -2114,6 +2156,7 @@ pub async fn submit_post(
     id: Uuid,
     req: &StockInStatusReq,
     operator: impl Into<state_machine::Operator>,
+    gate: &approval_gate::ApprovalGate<'_>,
 ) -> std::result::Result<(), ApiError> {
     let op = operator.into();
     let row = stockin_model::find_stock_in(id)
@@ -2122,20 +2165,33 @@ pub async fn submit_post(
         .ok_or_else(|| not_found("收货入库单"))?;
     let target = req.target_status()?;
     if target != STATUS_POSTED {
-        return change_stock_in_status(id, req, op).await;
+        return change_stock_in_status_with(id, req, op, gate).await;
     }
     match stockin_model::published_post_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询收货单过账审批流程"))?
     {
-        Some(flow) => submit_post_approval(&row, &op, &flow, req).await,
+        Some(flow) => {
+            approval_gate::ensure_not_skipped(stockin_model::POST_FLOW_CODE, gate)?;
+            submit_post_approval(&row, &op, &flow, req).await
+        }
         None => {
+            // ARCH-3 DC-01：**不再静默降级**。默认 409（点名 stock_in_post）；
+            // 跳过审批时把理由合进 `req.reason`，由 `post_in_tx` 的状态机入口写进 biz_status_log。
+            let skip_reason = approval_gate::authorize_missing_flow(
+                stockin_model::POST_BIZ_TYPE,
+                stockin_model::POST_FLOW_CODE,
+                gate,
+            )?;
             tracing::warn!(
                 stock_in_id = %row.id,
                 in_no = %row.in_no,
-                "没有配置已发布的 stock_in_post 过账审批流程：本次过账**降级**为直接执行，请尽快补配流程"
+                %skip_reason,
+                "收货单过账：没有已发布的 stock_in_post 流程，按「显式跳过审批」放行（六本账立即变）"
             );
-            change_stock_in_status(id, req, op).await
+            let mut next = req.clone();
+            next.reason = Some(approval_gate::merge_reason(req.reason_text(), &skip_reason));
+            change_stock_in_status_with(id, &next, op, gate).await
         }
     }
 }
@@ -2432,6 +2488,7 @@ pub async fn post_after_approval(
         &po_snapshot,
         &op,
         STATUS_PENDING_POST,
+        None,
         now,
     )
     .await;
@@ -2700,6 +2757,7 @@ async fn post_stock_in(
     header: &stockin_model::StockInRow,
     req: &StockInStatusReq,
     operator: &state_machine::Operator,
+    reason: Option<&str>,
 ) -> std::result::Result<(), ApiError> {
     // ★ A4：过账前复校「单据头供应商 = 来源采购单供应商」。
     //   建单期的校验挡不住绕过接口的 UPDATE，而应付/凭证直接取单据头 `supplier_id`。
@@ -2728,6 +2786,7 @@ async fn post_stock_in(
         &po_snapshot,
         operator,
         STATUS_DRAFT,
+        reason,
         now,
     )
     .await;
@@ -2766,6 +2825,7 @@ async fn post_in_tx(
     po_snapshot: &HashMap<Uuid, (Decimal, Decimal)>,
     operator: &state_machine::Operator,
     from_status: &str,
+    reason: Option<&str>,
     now: DateTime<Utc>,
 ) -> std::result::Result<(), ApiError> {
     // ① 锁单头（并发重复过账在这里串行化）
@@ -2790,6 +2850,8 @@ async fn post_in_tx(
     // ② CAS 写状态（`WHERE status = from_status`）
     //    P10 铁律 ③：先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
     //    再 CAS 改状态。两步同一事务：CAS 落空 → 整笔回滚，日志不会半条落地。
+    //    ARCH-3 DC-01：`reason` 只在「显式跳过审批的直过路径」非空（写进 biz_status_log，
+    //    审计据此看出这次过账没走复核）；审批回调用 `None`（审批单本身就是留痕）。
     state_machine::transition(
         ex,
         state_machine::ENTITY_STOCK_IN,
@@ -2799,12 +2861,12 @@ async fn post_in_tx(
         from_status,
         STATUS_POSTED,
         operator.clone(),
-        None,
+        reason,
         None,
     )
     .await?;
     let affected =
-        stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, None, operator.id, now)
+        stockin_model::apply_status(ex, id, from_status, STATUS_POSTED, reason, operator.id, now)
             .await
             .map_err(|error| write_error(error, "收货入库单过账改状态"))?;
     if affected == 0 {
@@ -3023,7 +3085,8 @@ pub async fn stock_in_change_status(
     Json(req): Json<StockInStatusReq>,
 ) -> ResResult<StockInDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    submit_post(id, &req, &claims).await?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+    submit_post(id, &req, &claims, &gate).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -3050,7 +3113,8 @@ pub async fn stock_in_submit_post(
     if req.status.is_none() {
         req.status = Some(STATUS_POSTED.to_string());
     }
-    submit_post(id, &req, &claims).await?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+    submit_post(id, &req, &claims, &gate).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -3241,6 +3305,14 @@ mod tests {
     use super::*;
     use crate::business::erp::stockin_dto::{StockInItemReq, StockInLineSerials};
     use std::str::FromStr;
+
+    /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
+    ///
+    /// 用它调 [`submit_post`] 等于「一个普通内部调用」：没配 `stock_in_post` /
+    /// `stock_in_cancel` 流程时**一律 409**（新的默认行为，不再是旧的静默降级）。
+    fn none_gate() -> approval_gate::ApprovalGate<'static> {
+        approval_gate::ApprovalGate::none()
+    }
 
     // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
 
@@ -3615,6 +3687,7 @@ mod tests {
             status: Some("POSTED".to_string()),
             reason: None,
             serials: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -4448,6 +4521,7 @@ mod tests {
                 status: Some("CANCELLED".to_string()),
                 reason: Some("供应商没货".to_string()),
                 serials: Vec::new(),
+                ..Default::default()
             },
             None,
         )
@@ -4471,6 +4545,7 @@ mod tests {
                 status: Some("CANCELLED".to_string()),
                 reason: None,
                 serials: Vec::new(),
+                ..Default::default()
             },
             None,
         )
@@ -5011,6 +5086,7 @@ mod tests {
             status: Some("CANCELLED".to_string()),
             reason: reason.map(str::to_string),
             serials: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -6089,14 +6165,18 @@ mod tests {
         assert_eq!(todos, 1, "发起后审批中心必须有 1 条待办");
     }
 
-    /// ② 未配流程 → 降级：直接作废（保持 P16 之前的旧行为），并WARN。
+    /// **DC-01 ③**：没配 `stock_in_cancel` 流程 → **409 + 66033**（改造前是静默直接作废、六本账立刻回滚）。
+    ///
+    /// 这是 P16 那条「② 未配流程 → 降级：直接作废」用例的**反向改写**：
+    /// 断言的是「必须拒绝」，并且拒绝后**六本账一个字节都没动**、单据仍是 POSTED。
     #[tokio::test]
-    async fn p16_no_flow_degrades_to_direct_cancel() {
+    async fn dc01_cancel_without_published_flow_is_409() {
         let _db = match setup().await {
             Some(guard) => guard,
             None => return,
         };
         let id = post_new(vec![line(MATERIAL_B, "6", "5", "0")]).await;
+        let before = inventory_of(MATERIAL_B).await;
         // 把种子流程临时「下线」（干净恢复由 cleanup_fixtures 保证）
         db().execute_with_params(
             "UPDATE biz_flow_def SET deleted_at = now() WHERE flow_code = 'stock_in_cancel'",
@@ -6112,23 +6192,42 @@ mod tests {
             "流程下线后必须查不到"
         );
 
-        change_stock_in_status(id, &cancel_req(Some("降级直接作废")), Some(uuid_keeper()))
-            .await
-            .expect("没配流程时作废必须放行（降级），不能把功能锁死");
+        let error =
+            change_stock_in_status(id, &cancel_req(Some("这次没配流程")), Some(uuid_keeper()))
+                .await
+                .expect_err("没配流程必须 409，不能静默直接作废");
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+            "必须用 DC-01 的新码 66033：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("stock_in_cancel"),
+            "报文必须点名缺哪个 flow_code：{}",
+            error.msg
+        );
 
+        // 六本账 / 单据状态一动不动（改造前这里会被直接作废并回滚库存）
         let detail = detail_of(id).await.unwrap();
         assert_eq!(
-            detail.header.status, STATUS_CANCELLED,
-            "降级路径一次到位（旧行为）"
+            detail.header.status, STATUS_POSTED,
+            "被拒后单据必须仍是已过账"
         );
         assert!(
             detail.header.approval_instance_id.is_none(),
-            "降级路径不挂审批单"
+            "被拒后不许挂审批单"
         );
         assert_eq!(
             inventory_of(MATERIAL_B).await,
-            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO),
-            "降级路径照样要回滚六本账"
+            before,
+            "被拒后库存一个字节都不能动"
+        );
+        assert_eq!(
+            txn_count(id, stockin_model::BIZ_TYPE_PURCHASE_IN_CANCEL).await,
+            0,
+            "被拒后不许写反向流水"
         );
     }
 
@@ -7362,7 +7461,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap_or_else(|err| panic!("提交过账失败：{} {}", err.code, err.msg));
 
@@ -7395,6 +7494,85 @@ mod tests {
         assert_eq!(vouchers, 0, "未过账不许出凭证");
     }
 
+    /// **DC-01 ②**：没配 `stock_in_post` 流程 → **409 + 66033**（改造前是静默直接过账、
+    /// 三本账 + 凭证 + 应付一起动）。被拒后六本账一分不动、单据仍是 DRAFT。
+    #[tokio::test]
+    async fn dc01_post_without_published_flow_is_409() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = stock_in_with_amount("5000", None).await;
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET deleted_at = now() WHERE flow_code = 'stock_in_post'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(
+            stockin_model::published_post_flow()
+                .await
+                .unwrap()
+                .is_none(),
+            "流程下线后必须查不到"
+        );
+        let error = submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
+            .await
+            .expect_err("没配流程必须 409，不能静默直接过账");
+        // 恢复流程（`now()` 软删的那一行，用 `cleanup_fixtures` 的同一口径）
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET deleted_at = NULL WHERE flow_code = 'stock_in_post'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(
+            stockin_model::published_post_flow()
+                .await
+                .unwrap()
+                .is_some(),
+            "夹具自检：流程必须已还原"
+        );
+
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+            "必须用 DC-01 的新码 66033：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("stock_in_post"),
+            "报文必须点名缺哪个 flow_code：{}",
+            error.msg
+        );
+        // 单据 / 未记账痕迹
+        assert_eq!(stock_in_status(id).await, STATUS_DRAFT, "被拒后仍应是草稿");
+        assert_eq!(
+            inventory_of(MATERIAL_A).await.0,
+            Decimal::ZERO,
+            "被拒后库存不许动"
+        );
+        let txns: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(txns, 0, "被拒后不许写库存流水");
+        let vouchers: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",
+                vec![Value::from(&id)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(vouchers, 0, "被拒后不许出凭证");
+    }
+
     /// ⑩ 500 元（< 1000）→ 免审直接过账 + 通知仓管主管（NOTIFY_NODE）。
     #[tokio::test]
     async fn pflow3a_si_small_amount_auto_posts_and_notifies() {
@@ -7404,7 +7582,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("500", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap_or_else(|err| panic!("提交过账失败：{} {}", err.code, err.msg));
 
@@ -7461,7 +7639,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         let instance = running_post_instance(id).await;
@@ -7480,7 +7658,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         let tasks = post_pending_tasks(running_post_instance(id).await).await;
@@ -7537,7 +7715,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         let tasks = post_pending_tasks(running_post_instance(id).await).await;
@@ -7562,7 +7740,7 @@ mod tests {
         let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
         assert!(row.approval_instance_id.is_none(), "打回要清空审批实例");
         // 打回后能重新提交
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .expect("打回后必须能重新提交过账审批");
         assert_eq!(stock_in_status(id).await, "PENDING_POST");
@@ -7577,7 +7755,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         assert_eq!(stock_in_status(id).await, "PENDING_POST");
@@ -7612,7 +7790,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         let instance = running_post_instance(id).await;
@@ -7663,7 +7841,7 @@ mod tests {
         ))
         .await;
         let id = stock_in_with_amount("5000", Some(U_KEEPER)).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .unwrap();
         let instance = running_post_instance(id).await;
@@ -8731,7 +8909,7 @@ mod tests {
         };
         setup_post_approval().await;
         let id = stock_in_with_amount("5000", None).await;
-        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)))
+        submit_post(id, &post_req(), Some(uid_of(U_KEEPER)), &none_gate())
             .await
             .expect("提交过账审批应成功");
         let instance_id = running_post_instance(id).await;

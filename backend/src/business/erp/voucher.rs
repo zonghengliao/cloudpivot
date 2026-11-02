@@ -1256,6 +1256,20 @@ pub async fn post_voucher(
     write_entries(ex, voucher_id, &req.lines).await?;
     // P10 铁律 ③：凭证建单留痕（`NULL → POSTED`）。凭证没有原地状态流转（红冲开新单），
     // 所以这里只留「谁在什么时候记了这张凭证」。
+    //
+    // ARCH-3 DC-01：红字凭证的日志 reason 带上**红冲原因**（`红字冲销凭证｜<原因>`）——
+    // 红冲没有状态流转可写，"为什么这次红冲没走复核"（显式跳过审批）就靠这段文字留痕；
+    // 蓝字凭证仍为 `None`（建单不是业务动作，reason 无意义）。
+    let log_reason = match req.red_of {
+        None => None,
+        Some(_) => {
+            let own = req.remark.map(str::trim).filter(|text| !text.is_empty());
+            Some(match own {
+                Some(text) => format!("红字冲销凭证｜{text}"),
+                None => "红字冲销凭证".to_string(),
+            })
+        }
+    };
     state_machine::log_created(
         ex,
         state_machine::ENTITY_VOUCHER,
@@ -1263,7 +1277,7 @@ pub async fn post_voucher(
         &voucher_no_text,
         STATUS_POSTED,
         operator,
-        req.red_of.map(|_| "红字冲销凭证"),
+        log_reason.as_deref(),
     )
     .await
     .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
@@ -1869,6 +1883,7 @@ mod tests {
             status: Some("POSTED".to_string()),
             reason: None,
             serials: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -1877,6 +1892,7 @@ mod tests {
             status: Some("CANCELLED".to_string()),
             reason: Some(reason.to_string()),
             serials: Vec::new(),
+            ..Default::default()
         }
     }
 

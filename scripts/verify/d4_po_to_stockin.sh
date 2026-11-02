@@ -154,7 +154,13 @@ psql_x "INSERT INTO biz_material (id, material_code, material_name, unit_id, sta
         VALUES ('$MATERIAL_A', 'D4-E2E-MA', '物料 A', '$UNIT'::uuid, 1, false) ON CONFLICT DO NOTHING" >/dev/null
 psql_x "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, serial_required)
         VALUES ('$MATERIAL_B', 'D4-E2E-MB', '物料 B', '$UNIT'::uuid, 1, false) ON CONFLICT DO NOTHING" >/dev/null
-ok '主数据就绪'
+# ★ ARCH-3 DC-01（t_4130a770）：本脚本验的是**单据链**（采购单 → 收货单 → 过账 → 待收额度），
+#   不覆盖审批流。DC-01 之后「没配流程 = 409」，而「配了流程 = 送审」都会挡住这条链，
+#   所以这里把两个流程显式**下线**，并让请求走「显式跳过审批」这条唯一合法的免审通道
+#   （理由 ≥10 字，会写进 biz_status_log）。断言口径一行没改；收尾无条件恢复 PUBLISHED。
+SKIP_JSON='{"skip_approval":true,"skip_reason":"D4 单据链回归：本用例不覆盖审批流，显式免审"}'
+psql_x "UPDATE biz_flow_def SET status = 'DRAFT' WHERE flow_code IN ('po_approve','stock_in_post')" >/dev/null
+ok '主数据就绪（审批流程临时下线，过账/提交走显式跳过）'
 
 echo '==> 2. ① 建采购订单：物料 A × 100、物料 B × 50 → 提交'
 BODY=$(cat <<JSON
@@ -173,7 +179,7 @@ if [ -z "$PO_ID" ] || [ "$PO_ID" = "null" ]; then
     PO_NO=$(psql_q "SELECT order_no FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")
 fi
 ok "采购单已建：$PO_NO（$PO_ID）"
-call PATCH "/business/erp/purchase-order/$PO_ID/status" '{"status":"SUBMITTED"}'
+call PATCH "/business/erp/purchase-order/$PO_ID/status" "{\"status\":\"SUBMITTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
 assert_eq 200 "$REQ_CODE" '提交采购单'
 
 echo '==> 3. ② 待收明细（没收过 → 待收 = 订单）'
@@ -209,7 +215,7 @@ assert_eq "$ITEM_A" "$(jqv '.data.items[0].source_item_id')" '行 1 落 source_i
 assert_eq SUBMITTED "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")" '建草稿不改采购单状态'
 
 echo '==> 5. ④ 过账 → 库存 A +30、采购单变 PARTIAL_RECEIVED'
-call PATCH "/business/erp/stock-in/$IN_ID/status" '{"status":"POSTED"}'
+call PATCH "/business/erp/stock-in/$IN_ID/status" "{\"status\":\"POSTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
 assert_eq 200 "$REQ_CODE" '过账'
 assert_eq POSTED "$(jqv '.data.header.status')" '单据变 POSTED'
 assert_num 30 "$(psql_q "SELECT qty FROM biz_inventory WHERE material_id = '$MATERIAL_A'::uuid
@@ -255,7 +261,7 @@ call POST '/business/erp/stock-in' \
       \"items\":[{\"purchase_order_item_id\":\"$ITEM_A\",\"material_id\":\"$MATERIAL_A\",\"qty\":\"70\",\"price_excl\":\"10\",\"tax_rate\":\"13\"}]}"
 assert_eq 200 "$REQ_CODE" '建第二张收货单（只收 A 的剩余 70）'
 IN2_ID=$(jqv '.data.header.id')
-call PATCH "/business/erp/stock-in/$IN2_ID/status" '{"status":"POSTED"}'
+call PATCH "/business/erp/stock-in/$IN2_ID/status" "{\"status\":\"POSTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
 assert_eq 200 "$REQ_CODE" '第二张过账'
 assert_eq RECEIVED "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")" '采购单变 RECEIVED'
 call GET "/business/erp/purchase-order/$PO_ID/pending-items"
@@ -264,6 +270,8 @@ assert_eq 0 "$(jqv '.data.pending_line_count')" '0 行未收完'
 assert_contains "$(jqv '.data.blocked_reason')" '已收满' '给出「已收满」原因'
 
 echo '==> 10. 清理 + 残留核对'
+# ★ DC-01：恢复本脚本临时下线的两个审批流程（幂等，重跑多少次都回到 PUBLISHED）
+psql_x "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code IN ('po_approve','stock_in_post')" >/dev/null
 psql_x "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN
           (SELECT id FROM biz_stock_in WHERE supplier_id = '$SUPPLIER'::uuid)" >/dev/null
 psql_x "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN

@@ -52,7 +52,9 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Deserialize;
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, ReversalInput};
+use crate::business::erp::voucher_bridge;
 use crate::business::erp::voucher_query::{self, VoucherDetailRes};
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
@@ -88,10 +90,13 @@ pub struct CreateVoucherReq {
 }
 
 /// 红冲入参。
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Default, Deserialize)]
 pub struct ReverseVoucherReq {
     /// 红冲原因（必填）。
     pub reason: Option<String>,
+    /// 「显式跳过审批」片段（ARCH-3 DC-01）：`skip_approval` + `skip_reason`。
+    #[serde(flatten, default)]
+    pub approval: crate::business::erp::approval_gate::SkipApprovalReq,
 }
 
 // ==================== 错误收口 ====================
@@ -629,11 +634,14 @@ pub struct ReverseSubmitRes {
     pub detail: VoucherDetailRes,
 }
 
-/// 提交凭证红冲（**唯一对外入口**，P-FLOW-3B）。
+/// 提交凭证红冲（**唯一对外入口**，P-FLOW-3B + ARCH-3 DC-01）。
 ///
 /// 配了已发布的 `voucher_reverse` 流程 → 先送审（**不改状态**，只挂
-/// `pending_reverse_instance_id`；报表口径不变）；没配流程 → 按 P-FLOW-3B 之前的行为
-/// **直接红冲**（并留一条 `warn`，绝不把红冲锁死）。
+/// `pending_reverse_instance_id`；报表口径不变）；**没配流程 → 409 +
+/// `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）** —— 只有持 `business:erp:skip-approval`
+/// 且写明理由（≥10 字）的账号才能显式跳过，跳过理由与红冲原因合并后：
+/// ① 进红字凭证的分录摘要 / 备注；② 进红字凭证的 `biz_status_log` 建单留痕
+/// （`红字冲销凭证｜跳过审批（未配置 voucher_reverse 流程）：…`）。
 ///
 /// 为什么入口收在这里、而不是让「红冲」和「送审」各开一个接口：
 /// 那样审批可以被换一个 URL 绕过（与 `stockin_handler::submit_post` 同一个理由）。
@@ -641,6 +649,7 @@ pub async fn submit_reverse(
     id: Uuid,
     reason: Option<&str>,
     operator: Option<Uuid>,
+    gate: &approval_gate::ApprovalGate<'_>,
 ) -> std::result::Result<ReverseSubmitRes, ApiError> {
     let reason = reason.map(str::trim).filter(|text| !text.is_empty());
     let Some(reason) = reason else {
@@ -653,20 +662,28 @@ pub async fn submit_reverse(
         .map_err(|error| utils::db_error(error, "查询凭证红冲审批流程"))?
     {
         Some(flow) => {
+            approval_gate::ensure_not_skipped(voucher_bridge::FLOW_CODE, gate)?;
             // 送审前先把「能不能红冲」的账务闸全部走一遍（别把注定失败的单送给审批人）
             ensure_reversible(id).await?;
             submit_reverse_for_approval(id, reason, operator, &flow).await
         }
         None => {
+            // ARCH-3 DC-01：**不再静默直接红冲**。
+            let skip_reason = approval_gate::authorize_missing_flow(
+                voucher_bridge::BIZ_TYPE,
+                voucher_bridge::FLOW_CODE,
+                gate,
+            )?;
             tracing::warn!(
                 voucher_id = %id,
-                "没有配置已发布的 voucher_reverse 凭证红冲审批流程：本次红冲**降级**为直接执行（无复核），\
-                 请尽快补配流程"
+                %skip_reason,
+                "凭证红冲：没有已发布的 voucher_reverse 流程，按「显式跳过审批」直接红冲"
             );
-            let detail = reverse_voucher(id, Some(reason), operator).await?;
+            let merged = approval_gate::merge_reason(Some(reason), &skip_reason);
+            let detail = reverse_voucher(id, Some(&merged), operator).await?;
             Ok(ReverseSubmitRes {
                 outcome: OUTCOME_REVERSED.to_string(),
-                message: "未配置凭证红冲审批流程，本次红冲已直接生效".to_string(),
+                message: "未配置凭证红冲审批流程，本次红冲已按「显式跳过审批」直接生效".to_string(),
                 approval_instance_id: None,
                 detail,
             })
@@ -1118,8 +1135,9 @@ pub async fn voucher_reverse_handler(
     Json(req): Json<ReverseVoucherReq>,
 ) -> ResResult<ReverseSubmitRes> {
     let id = parse_uuid(&id, "id")?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
     Ok(Res::ok(
-        submit_reverse(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_reverse(id, req.reason.as_deref(), operator_of(&claims), &gate).await?,
     ))
 }
 
@@ -1143,8 +1161,9 @@ pub async fn voucher_submit_reverse_handler(
     Json(req): Json<ReverseVoucherReq>,
 ) -> ResResult<ReverseSubmitRes> {
     let id = parse_uuid(&id, "id")?;
+    let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
     Ok(Res::ok(
-        submit_reverse(id, req.reason.as_deref(), operator_of(&claims)).await?,
+        submit_reverse(id, req.reason.as_deref(), operator_of(&claims), &gate).await?,
     ))
 }
 

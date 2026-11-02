@@ -41,6 +41,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
@@ -945,7 +946,8 @@ pub async fn purchase_order_change_status(
     // P-FLOW-3A：`SUBMITTED` 这个目标态走**审批入口**（有流程就先送审），
     // 其余（CLOSED / CANCELLED）仍是普通状态流转。
     if req.target_status()? == STATUS_SUBMITTED {
-        submit_approval(id, &claims).await?;
+        let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+        submit_approval(id, &claims, &gate).await?;
     } else {
         change_purchase_order_status(id, &req, &claims).await?;
     }
@@ -954,14 +956,18 @@ pub async fn purchase_order_change_status(
 
 // ==================== ③b 提交审批（P-FLOW-3A） ====================
 
-/// 提交采购订单审批的**唯一入口**：配了已发布的 `po_approve` 流程就先送审（`DRAFT → SUBMITTED`
-/// + 审批单），没配就按 P-FLOW-3A 之前的行为直接提交（并留一条 `warn`）。
+/// 提交采购订单审批的**唯一入口**（P-FLOW-3A + ARCH-3 DC-01）：配了已发布的
+/// `po_approve` 流程就先送审（`DRAFT → SUBMITTED` + 审批单）；
+/// **没配流程 → 409 + `APPROVAL_FLOW_NOT_CONFIGURED`（默认拒绝）**，
+/// 只有持有 `business:erp:skip-approval` 并写明理由（≥10 字）的账号才能显式跳过，
+/// 理由会作为本次状态流转的 `reason` 落进 `biz_status_log`。
 ///
 /// 为什么入口收在这里：`PATCH /status`（老前端）与 `POST /submit-approval`（本卡新按钮）
 /// **必须同一条路** —— 否则审批可以被换一个 URL 绕过。
 pub async fn submit_approval(
     id: Uuid,
     operator: impl Into<state_machine::Operator>,
+    gate: &approval_gate::ApprovalGate<'_>,
 ) -> std::result::Result<(), ApiError> {
     let op = operator.into();
     let row = purchase_model::find_order(id)
@@ -980,16 +986,30 @@ pub async fn submit_approval(
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单审批流程"))?
     {
-        Some(flow) => submit_po_approval(&row, &op, &flow).await,
+        Some(flow) => {
+            // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
+            approval_gate::ensure_not_skipped(purchase_bridge::FLOW_CODE, gate)?;
+            submit_po_approval(&row, &op, &flow).await
+        }
         None => {
+            // ARCH-3 DC-01：**不再静默降级**。默认 409（点名 po_approve）；
+            // 只有「持 business:erp:skip-approval + 理由 ≥10 字」才放行，
+            // 理由随状态流转写进 `biz_status_log`（审计据此追溯为什么这次没有复核）。
+            let skip_reason = approval_gate::authorize_missing_flow(
+                purchase_bridge::BIZ_TYPE,
+                purchase_bridge::FLOW_CODE,
+                gate,
+            )?;
             tracing::warn!(
                 order_id = %row.id,
                 order_no = %row.order_no,
-                "没有配置已发布的 po_approve 采购审批流程：本次提交**降级**为直接提交（无审批），请尽快补配流程"
+                %skip_reason,
+                "采购单提交：没有已发布的 po_approve 流程，按「显式跳过审批」放行（理由已写 biz_status_log）"
             );
             let req = PurchaseOrderStatusReq {
                 status: Some(STATUS_SUBMITTED.to_string()),
-                reason: None,
+                reason: Some(skip_reason),
+                ..Default::default()
             };
             change_purchase_order_status(id, &req, op).await
         }
@@ -1268,7 +1288,10 @@ async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
     form
 }
 
-/// 提交采购订单审批（`DRAFT → SUBMITTED`，或未配流程时降级直接提交）。
+/// 提交采购订单审批（`DRAFT → SUBMITTED`；没配流程时**默认 409**，见 [`submit_approval`]）。
+///
+/// 请求体可省；要显式跳过审批时传 `{"skip_approval": true, "skip_reason": "<≥10 字>"}`
+/// （需要权限码 `business:erp:skip-approval`）。
 #[nik::permission(
     path = "/business/erp/purchase-order/{id}/submit-approval",
     method = "POST",
@@ -1278,9 +1301,12 @@ async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
 pub async fn purchase_order_submit_approval(
     Extension(AuthClaims(claims)): Extension<AuthClaims>,
     Path(id): Path<String>,
+    body: Option<Json<approval_gate::SkipApprovalReq>>,
 ) -> ResResult<PurchaseOrderDetailRes> {
     let id = parse_uuid(&id, "id")?;
-    submit_approval(id, &claims).await?;
+    let skip = body.map(|Json(item)| item).unwrap_or_default();
+    let gate = approval_gate::ApprovalGate::new(&skip, &claims);
+    submit_approval(id, &claims, &gate).await?;
     Ok(Res::ok(detail_of(id).await?))
 }
 
@@ -1380,6 +1406,77 @@ mod tests {
     use crate::business::erp::purchase_dto::PurchaseOrderItemReq;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
+
+    /// ARCH-3 DC-01：系统路径的审批前置上下文 —— 不请求跳过、也没有权限声明。
+    ///
+    /// 用它调 [`submit_approval`] 等于「一个普通内部调用」：没配 `po_approve` 流程时
+    /// **一律 409**（这正是新的默认行为，不再是旧的静默降级）。
+    fn none_gate() -> approval_gate::ApprovalGate<'static> {
+        approval_gate::ApprovalGate::none()
+    }
+
+    // ---------- ARCH-3 DC-01：审批流未配置 → 409（不再是静默降级） ----------
+
+    /// **DC-01 ①**：没配 `po_approve` 流程、也没请求跳过 → **409 + 66033**。
+    ///
+    /// 改造前这里会把草稿直接推成 `SUBMITTED`（无审批单，只留一条 `warn`）；
+    /// 现在必须 409，报文点名 `po_approve` 并给出两条出路（发布流程 / 授予 skip-approval），
+    /// 且单据**一动不动**（仍 `DRAFT`、没有审批实例）。
+    #[tokio::test]
+    async fn dc01_submit_without_published_flow_is_409() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "5", "100", "13")]), None)
+            .await
+            .expect("建单");
+        // 临时下线种子流程（模拟「客户还没配审批」）
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        let outcome = submit_approval(id, Some(uid(U_MAKER)), &none_gate()).await;
+        // 先还原再断言：断言 panic 也不会把流程留在 DISABLED 状态里
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        assert!(
+            purchase_bridge::published_po_flow()
+                .await
+                .unwrap()
+                .is_some(),
+            "夹具自检：流程必须已还原成 PUBLISHED"
+        );
+
+        let error = outcome.expect_err("没配流程必须 409，不能静默直接提交");
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+            "必须用 DC-01 的新码 66033：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("po_approve"),
+            "报文必须点名缺哪个 flow_code：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("business:erp:skip-approval"),
+            "报文要给出「显式跳过审批」这条出路：{}",
+            error.msg
+        );
+        // 单据一动不动
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, STATUS_DRAFT, "被拒后单据必须仍是草稿");
+        assert!(row.approval_instance_id.is_none(), "被拒后不许有审批实例");
+    }
 
     // ---------- 审批实例唯一索引冲突：409 + 自家单号（不是「单号重复、去查 biz_seq」） ----------
 
@@ -1687,6 +1784,7 @@ mod tests {
         PurchaseOrderStatusReq {
             status: Some(status.to_string()),
             reason: reason.map(str::to_string),
+            ..Default::default()
         }
     }
 
@@ -2228,7 +2326,7 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)))
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
             .await
             .unwrap_or_else(|err| panic!("提交审批失败：{} {}", err.code, err.msg));
 
@@ -2275,7 +2373,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         assert_eq!(
             tasks.len(),
@@ -2299,7 +2399,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("50000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         assert_eq!(tasks.len(), 1);
         assert_eq!(
@@ -2318,7 +2420,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("500000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let instance = running_instance(id).await;
         let tasks = pending_tasks(instance).await;
         assert_eq!(tasks.len(), 2, "会签节点必须同时生成 2 条待办");
@@ -2364,7 +2468,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         approve_as(tasks[0].0, U_DEPT).await;
 
@@ -2389,7 +2495,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let tasks = pending_tasks(running_instance(id).await).await;
         reject_as(tasks[0].0, U_DEPT, "预算不够，下季度再买").await;
 
@@ -2408,7 +2516,7 @@ mod tests {
             "打回草稿必须清空审批实例（否则下次提交的判断被污染）"
         );
         // 打回后还能重新提交（边表 DRAFT → SUBMITTED 仍合法）
-        submit_approval(id, Some(uid(U_MAKER)))
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
             .await
             .expect("打回后必须能重新提交审批");
     }
@@ -2432,7 +2540,9 @@ mod tests {
              VALUES ('{U_MAKER}'::uuid, '{ROLE_DEPT_LEADER}'::uuid) ON CONFLICT DO NOTHING"
         ))
         .await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let instance = running_instance(id).await;
         let (mine, status, comment) = task_of(instance, uid(U_MAKER))
             .await
@@ -2480,7 +2590,9 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let instance = running_instance(id).await;
         let instance_no: String = db()
             .scalar_with_params::<Option<String>>(
@@ -2491,7 +2603,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let err = submit_approval(id, Some(uid(U_MAKER)))
+        let err = submit_approval(id, Some(uid(U_MAKER)), &none_gate())
             .await
             .expect_err("重复提交必须 409");
         assert_eq!(err.status, 409, "{}", err.msg);
@@ -2527,7 +2639,9 @@ mod tests {
         setup_approval().await;
         // 8000 元 → 部门主管单节点（U_DEPT），便于查「我的待办」。
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER))).await.unwrap();
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap();
         let instance = running_instance(id).await;
 
         // 验收标准 1 的 SQL：直接读库里冻结的那一份。
@@ -2649,7 +2763,7 @@ mod tests {
         };
         setup_approval().await;
         let id = order_with_amount("8000").await;
-        submit_approval(id, Some(uid(U_MAKER)))
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
             .await
             .expect("提交审批应成功");
         let instance_id = running_instance(id).await;

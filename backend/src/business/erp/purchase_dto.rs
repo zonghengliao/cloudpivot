@@ -43,6 +43,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::model::PurchaseOrderItemRow;
 use crate::business::erp::purchase_model::{
@@ -157,6 +158,12 @@ pub struct PurchaseOrderStatusReq {
     pub status: Option<String>,
     /// 原因（`SUBMITTED → CANCELLED` 必填）。
     pub reason: Option<String>,
+    /// 「显式跳过审批」片段（ARCH-3 DC-01）：`skip_approval` + `skip_reason`。
+    ///
+    /// 平铺进请求体（`flatten`），所以老客户端不传时行为完全不变；
+    /// 语义见 [`crate::business::erp::approval_gate`]。
+    #[serde(flatten, default)]
+    pub approval: SkipApprovalReq,
 }
 
 impl PurchaseOrderStatusReq {
@@ -1098,6 +1105,7 @@ mod tests {
         let mut req = PurchaseOrderStatusReq {
             status: None,
             reason: None,
+            ..Default::default()
         };
         assert_eq!(req.target_status().unwrap_err().status, 400);
         req.status = Some("DRAFT".to_string());

@@ -939,10 +939,11 @@ pub fn register_cancel_builtin(scheduler: &crate::task::Scheduler) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::business::erp::approval_gate;
     use crate::business::erp::fixture_hygiene;
     use crate::business::erp::payable::{self as payable_mod, PayableRow};
     use crate::business::erp::payable_payment::{
-        self as payment, APPROVAL_APPROVED, APPROVAL_CANCELLED, APPROVAL_NONE, APPROVAL_PENDING,
+        self as payment, APPROVAL_APPROVED, APPROVAL_CANCELLED, APPROVAL_PENDING,
         APPROVAL_REJECTED, OUTCOME_PAID, OUTCOME_PENDING, PayPayableReq,
     };
     use crate::business::erp::payable_query;
@@ -952,6 +953,31 @@ mod tests {
     use nik::prelude::chrono::Utc;
     use nik::prelude::rust_decimal::Decimal;
     use std::str::FromStr;
+
+    /// ARCH-3 DC-01：系统路径的审批前置上下文（不请求跳过、无权限声明）。
+    ///
+    /// 本模块的用例都在「种子流程已发布」的前提下跑（走审批）；把流程停掉的用例
+    /// 现在拿到的是 **409 + 66033**（新的默认拒绝行为）。
+    fn none_gate() -> crate::business::erp::approval_gate::ApprovalGate<'static> {
+        crate::business::erp::approval_gate::ApprovalGate::none()
+    }
+
+    /// ARCH-3 DC-01：一个**持有** `business:erp:skip-approval` 的 claims（显式跳过审批要用）。
+    ///
+    /// 真实环境里这个码由管理员授予；这里直接造 claims，等价于「授权已生效」。
+    fn skip_claims() -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: uid(CREATOR).to_string(),
+            username: Some("p17_skip_case".to_string()),
+            roles: Vec::new(),
+            permissions: vec![crate::business::erp::approval_gate::PERM_SKIP_APPROVAL.to_string()],
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
 
     /// 夹具供应商（合法 UUID）。
     const SUPPLIER_ID: &str = "e7e70001-0000-4000-8000-00000000f170";
@@ -1192,6 +1218,7 @@ mod tests {
             pay_date: None,
             pay_method: Some("银行转账".to_string()),
             remark: Some("P17 单测".to_string()),
+            ..Default::default()
         }
     }
 
@@ -1346,9 +1373,14 @@ mod tests {
 
     /// 提交付款（制单人 = CREATOR），返回 `(付款 id, 实例 id, 出参)`。
     async fn submit(payable_id: Uuid, amount: &str) -> (Uuid, Option<Uuid>, payment::PaySubmitRes) {
-        let outcome = payment::submit_payment(payable_id, &pay_req(amount), Some(uid(CREATOR)))
-            .await
-            .unwrap_or_else(|err| panic!("提交付款失败：{} {}", err.code, err.msg));
+        let outcome = payment::submit_payment(
+            payable_id,
+            &pay_req(amount),
+            Some(uid(CREATOR)),
+            &none_gate(),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("提交付款失败：{} {}", err.code, err.msg));
         let payment_id =
             Uuid::parse_str(outcome.payment_id.as_deref().expect("付款 id 缺失")).unwrap();
         let instance_id = outcome
@@ -1399,11 +1431,14 @@ mod tests {
         );
     }
 
-    // ---------- ② 未配流程 → 降级直付 ----------
+    // ---------- ② 未配流程 → 409（ARCH-3 DC-01：不再降级直付） ----------
 
-    /// ② 没有已发布的付款流程 → **降级**为直接付款（保持 P7 老行为），不报错。
+    /// **DC-01 ④**：没有已发布的 `payable_pay` 流程 → **409 + 66033**。
+    ///
+    /// 改造前这里会**降级直付**（付款记录 + 凭证 + 应付结清一起落地，只留一条 `warn`）。
+    /// 现在必须拒绝，且**一分钱都不许动**（应付仍 OPEN、没有付款记录、没有凭证）。
     #[tokio::test]
-    async fn p17_without_flow_falls_back_to_direct_payment() {
+    async fn dc01_pay_without_published_flow_is_409() {
         let _db = match setup().await {
             Some(guard) => guard,
             None => return,
@@ -1411,22 +1446,42 @@ mod tests {
         let payable_id = new_payable(dec("5000")).await;
         // 临时关掉流程（模拟「客户还没配审批」）
         exec("UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'payable_pay'").await;
-        let result =
-            payment::submit_payment(payable_id, &pay_req("5000"), Some(uid(CREATOR))).await;
+        let result = payment::submit_payment(
+            payable_id,
+            &pay_req("5000"),
+            Some(uid(CREATOR)),
+            &none_gate(),
+        )
+        .await;
         // 先还原再断言（panic 也不会把流程留在 DISABLED 状态里）
         exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'payable_pay'").await;
 
-        let outcome = result.unwrap_or_else(|err| panic!("降级直付失败：{} {}", err.code, err.msg));
-        assert_eq!(outcome.outcome, OUTCOME_PAID);
-        assert!(outcome.approval_instance_id.is_none(), "降级不该有审批单");
+        let error = result.expect_err("没配流程必须 409，不能静默降级直付");
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+            "必须用 DC-01 的新码 66033：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("payable_pay"),
+            "报文必须点名缺哪个 flow_code：{}",
+            error.msg
+        );
+        // 一分钱都没动
         let payable = payable_row(payable_id).await;
-        assert_eq!(payable.paid_amount, dec("5000"));
-        assert_eq!(payable.status, payable_mod::STATUS_SETTLED);
-
-        let payment_id = Uuid::parse_str(outcome.payment_id.as_deref().unwrap()).unwrap();
-        let row = payment_row(payment_id).await;
-        assert_eq!(row.approval_status, APPROVAL_NONE, "降级直付没有审批");
-        assert!(row.voucher_id.is_some(), "直付必须立刻出凭证");
+        assert_eq!(payable.paid_amount, dec("0"), "被拒后不许记已付");
+        assert_eq!(payable.status, payable_mod::STATUS_OPEN, "被拒后仍是 OPEN");
+        let payments: i64 = db()
+            .scalar_with_params::<Option<i64>>(
+                "SELECT count(*) FROM biz_payment WHERE payable_id = ?::uuid",
+                vec![Value::from(&payable_id)],
+            )
+            .await
+            .expect("查付款记录")
+            .unwrap_or(0);
+        assert_eq!(payments, 0, "被拒后不许落付款记录（更不许出凭证）");
     }
 
     // ---------- ③ 重复提交 → 409 ----------
@@ -1442,9 +1497,14 @@ mod tests {
         let (payment_id, _, _) = submit(payable_id, "1000").await;
         let payment_no = payment_row(payment_id).await.payment_no;
 
-        let err = payment::submit_payment(payable_id, &pay_req("1000"), Some(uid(APPROVER1)))
-            .await
-            .expect_err("审批中再提交必须被拒");
+        let err = payment::submit_payment(
+            payable_id,
+            &pay_req("1000"),
+            Some(uid(APPROVER1)),
+            &none_gate(),
+        )
+        .await
+        .expect_err("审批中再提交必须被拒");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(
             err.msg.contains("在审批中")
@@ -1474,9 +1534,14 @@ mod tests {
             None => return,
         };
         let payable_id = new_payable(dec("5000")).await;
-        let err = payment::submit_payment(payable_id, &pay_req("5000.01"), Some(uid(CREATOR)))
-            .await
-            .expect_err("超过未付余额必须被拒");
+        let err = payment::submit_payment(
+            payable_id,
+            &pay_req("5000.01"),
+            Some(uid(CREATOR)),
+            &none_gate(),
+        )
+        .await
+        .expect_err("超过未付余额必须被拒");
         assert_eq!(err.status, 400, "{}", err.msg);
         assert!(
             err.msg.contains("超过未付余额 5000"),
@@ -1520,9 +1585,10 @@ mod tests {
               WHERE id = '{payable_id}'::uuid"
         ))
         .await;
-        let err = payment::submit_payment(payable_id, &pay_req("1"), Some(uid(CREATOR)))
-            .await
-            .expect_err("已结清不能再付款");
+        let err =
+            payment::submit_payment(payable_id, &pay_req("1"), Some(uid(CREATOR)), &none_gate())
+                .await
+                .expect_err("已结清不能再付款");
         assert_eq!(err.status, 409, "{}", err.msg);
         assert!(err.msg.contains("已结清"), "{}", err.msg);
     }
@@ -1879,9 +1945,14 @@ mod tests {
         };
         let payable_id = new_payable(dec("5000")).await;
         // 由超管 APPROVER1 自己提交（他就是制单人，也在审批人里）
-        let outcome = payment::submit_payment(payable_id, &pay_req("5000"), Some(uid(APPROVER1)))
-            .await
-            .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
+        let outcome = payment::submit_payment(
+            payable_id,
+            &pay_req("5000"),
+            Some(uid(APPROVER1)),
+            &none_gate(),
+        )
+        .await
+        .unwrap_or_else(|err| panic!("提交失败：{} {}", err.code, err.msg));
         let payment_id = Uuid::parse_str(outcome.payment_id.as_deref().unwrap()).unwrap();
         let instance_id =
             Uuid::parse_str(outcome.approval_instance_id.as_deref().unwrap()).unwrap();
@@ -2096,13 +2167,42 @@ mod tests {
             Some(guard) => guard,
             None => return,
         };
-        // ① 自造一张会写状态日志的单：临时关流程 → 降级直付（真实付款路径，出凭证）
+        // ① 自造一张会写状态日志的单：临时关流程 + **显式跳过审批**（ARCH-3 DC-01 的真实直付路径）
         let payable_id = new_payable(dec("5000")).await;
         exec("UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'payable_pay'").await;
-        let result =
-            payment::submit_payment(payable_id, &pay_req("5000"), Some(uid(CREATOR))).await;
+        let claims = skip_claims();
+        let mut req = pay_req("5000");
+        req.approval = approval_gate::SkipApprovalReq {
+            skip_approval: true,
+            skip_reason: Some("月底关账，供应商已现场验收".to_string()),
+        };
+        let gate = approval_gate::ApprovalGate::new(&req.approval, &claims);
+        let result = payment::submit_payment(payable_id, &req, Some(uid(CREATOR)), &gate).await;
         exec("UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'payable_pay'").await;
-        result.unwrap_or_else(|err| panic!("降级直付失败：{} {}", err.code, err.msg));
+        let outcome =
+            result.unwrap_or_else(|err| panic!("显式跳过审批的直付失败：{} {}", err.code, err.msg));
+        assert_eq!(
+            outcome.outcome, OUTCOME_PAID,
+            "显式跳过审批后必须直接生效（这就是「暂不审批」的合法出路）"
+        );
+        // 跳过审批的理由必须落进 biz_status_log（审计要能看出「这次没有复核、为什么」）
+        let reasons: Vec<String> = db()
+            .find_with_params(
+                "SELECT reason FROM biz_status_log \
+                  WHERE entity_type = 'PAYABLE' AND entity_id = ?::uuid AND reason IS NOT NULL",
+                vec![Value::from(&payable_id)],
+            )
+            .await
+            .expect("查应付状态日志")
+            .iter()
+            .map(|row| row.get_typed::<String>("reason").unwrap_or_default())
+            .collect();
+        assert!(
+            reasons
+                .iter()
+                .any(|text| text.contains("跳过审批") && text.contains("payable_pay")),
+            "跳过审批的理由必须写进 biz_status_log（实际：{reasons:?}）"
+        );
 
         let voucher_id: Option<Uuid> = db()
             .query_first_sql(

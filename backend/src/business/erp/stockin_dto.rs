@@ -38,6 +38,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::business::erp::approval_gate::SkipApprovalReq;
 use crate::business::erp::stockin_model::{
     STOCK_IN_SUMMARY_PLACEHOLDER, StockInFilter, StockInItemRow, StockInRow, Totals, money,
     unit_price,
@@ -169,6 +170,9 @@ pub struct StockInStatusReq {
     /// 空 = 由系统按 `SN-yyyyMMdd-NNNNNN` 取号生成（卡面 ③ 的默认路径）。
     /// 明细表中没有存序列号的列（红线 5 不许改 V0137-V0145），所以自定义码只能在过账时提交。
     pub serials: Vec<StockInLineSerials>,
+    /// 「显式跳过审批」片段（ARCH-3 DC-01）：`skip_approval` + `skip_reason`。
+    #[serde(flatten, default)]
+    pub approval: SkipApprovalReq,
 }
 
 /// 一行的单品序列号（过账入参）。

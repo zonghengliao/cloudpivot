@@ -36,6 +36,7 @@
 //! | [`contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
 //! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
 //! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
+//! | [`approval_gate`] | 审批流未配置改「默认拒绝」（DC-01）：6 个入口 409 + 新码、显式跳过（`business:erp:skip-approval` + 理由 ≥10 字）、8 个流程配置自检端点 | **ARCH-3 P0** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -60,6 +61,7 @@
 //! 分页一律走 `scope::paginate_unscoped` + `ScopeTarget::unscoped`，
 //! 理由见 [`model`] 文件头的 `SCOPE-EXEMPT` 说明。
 
+pub mod approval_gate;
 pub mod batch;
 pub mod cash_flow;
 pub mod contract_dto;

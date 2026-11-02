@@ -38,6 +38,7 @@ use crate::utils;
 use axum::{Extension, Json};
 use nik::prelude::*;
 
+use crate::business::erp::approval_gate;
 use crate::business::erp::purchase_dto::PurchaseOrderStatusReq;
 use crate::business::erp::purchase_handler::{change_purchase_order_status, submit_approval};
 use crate::business::erp::purchase_model::STATUS_SUBMITTED;
@@ -117,6 +118,7 @@ pub async fn batch_stock_in_status(
         status: req.status.clone(),
         reason: req.reason.clone(),
         serials: Vec::new(),
+        ..Default::default()
     };
     // 目标态整体校验：非法值一次性 400，不要让 200 条各报一遍
     inner.target_status()?;
@@ -157,6 +159,7 @@ pub async fn batch_purchase_status(
     let inner = PurchaseOrderStatusReq {
         status: req.status.clone(),
         reason: req.reason.clone(),
+        ..Default::default()
     };
     // 目标态决定要哪个权限码：「提交审批」与「作废/关闭」是两个按钮、两个码
     let target = inner.target_status()?;
@@ -170,12 +173,18 @@ pub async fn batch_purchase_status(
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单号"))?;
     let claims = claims.clone();
+    // ARCH-3 DC-01：批量入口**不支持**跳过审批（`skip_approval` 不在批量请求体里）——
+    // 批量勾选「提交审批」时逐条按默认拒绝走，没配流程的每条都回 409 + 66033，
+    // 由批量报告逐条说明。要跳过请对单张单据用单条接口显式传 skip_approval。
+    let skip = approval_gate::SkipApprovalReq::default();
     Ok(batch::run(&ids, &labels, |id| {
         let inner = inner.clone();
         let claims = claims.clone();
+        let skip = skip.clone();
         async move {
             if inner.target_status()? == STATUS_SUBMITTED {
-                submit_approval(id, &claims).await
+                let gate = approval_gate::ApprovalGate::new(&skip, &claims);
+                submit_approval(id, &claims, &gate).await
             } else {
                 change_purchase_order_status(id, &inner, &claims).await
             }
