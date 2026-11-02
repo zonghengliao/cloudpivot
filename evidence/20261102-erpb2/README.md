@@ -101,7 +101,18 @@ TTL 60 秒兜底「别的实例 / 直改库」；管理端改参数会 `after_wr
 | ⑥ | 软删 `post` 参数 → 回退代码默认 `false` → 制单人仍能过账 | PASS |
 | ⑦ | 参数值写成 `yes` → 回退默认 → 仍能过账，且服务端日志出现 `ERP 内控开关取值非法` | PASS |
 
-### 4.2 页面（F6 状态可见）`scripts/verify/b2_config_page_check.mjs` → **PASS=12 FAIL=0**
+### 4.2 审批侧接线 `scripts/verify/b2_approve_switch_e2e.py` → **PASS=12 FAIL=0**
+
+单测只钉住「开关值 → 判定」，钉不住「判定有没有接到审批链路上」。这个脚本在真机上验接线
+（种子里 `po_approve` 的审批人回退「全部超管」，制单人必然在名单里）：
+
+```
+approve = true（默认）  制单人待办落 SKIPPED（comment 写明「内控…职责分离」），待办列表里没有可批的
+approve = false         制单人待办落 PENDING → 自己批 200 → 该票 APPROVED，审批单继续正常流转
+再打开                 立刻又落 SKIPPED（改完即生效）
+```
+
+### 4.3 页面（F6 状态可见）`scripts/verify/b2_config_page_check.mjs` → **PASS=12 FAIL=0**
 
 支撑功能 / 参数配置页实测 DOM：
 
@@ -123,7 +134,7 @@ TTL 60 秒兜底「别的实例 / 直改库」；管理端改参数会 `after_wr
 > 而 seed 在全部 V* 迁移**之后**才跑 —— 空库首启时「只插字典项」会命中 0 行，
 > 自检把启动直接打挂（实测 `INSERT 0 0` + `V0196 自检失败`）。现在 up 侧先确保字典类型存在。
 
-### 4.3 全量单测 + 不变量
+### 4.4 全量单测 + 不变量
 
 ```
 ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/erpb2_e2e cargo test --lib -- --test-threads=1
@@ -131,7 +142,7 @@ ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/erpb2_e2e cargo test --lib -- --t
 
 # 干净库（迁移 + bootstrap，未跑任何夹具）基线
 python3 scripts/verify/erp_invariants.py → 32/32 通过  BLOCKER 0  WARN 0
-# 跑完 e2e 后再量（证明这条链路不留残留）
+# 跑完 e2e（过账链路 + 审批链路）后再量（证明这两条链路不留残留）
 python3 scripts/verify/erp_invariants.py → 32/32 通过  BLOCKER 0  WARN 0
 ```
 
@@ -143,6 +154,7 @@ bash scripts/verify/b2_dbsetup.sh keep
 
 # 2) 接口链路
 B2_LOG=/root/tmp/b2_server.log python3 scripts/verify/b2_separation_e2e.py
+python3 scripts/verify/b2_approve_switch_e2e.py
 
 # 3) 页面（另开一个终端起前端，代理指向 18097）
 cd frontend && BACKEND_ORIGIN=http://127.0.0.1:18097 pnpm dev
