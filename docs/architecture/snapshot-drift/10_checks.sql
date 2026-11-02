@@ -1,5 +1,5 @@
 -- ============================================================
--- 10_checks.sql —— 巡检项定义（13 条 + 1 条护栏自检）
+-- 10_checks.sql —— 巡检项定义（DI-01…DI-16，其中 DI-14 是护栏自检）
 --
 -- 每个巡检项 = 一个只读视图 di.c_diNN，输出统一 11 列：
 --   issue_code / entity_type / entity_id / entity_no / field_name
@@ -339,5 +339,39 @@ SELECT 'DI-15'::text AS issue_code, 'PURCHASE_ORDER'::text AS entity_type,
    AND o.purchase_type = 'CONTRACT'
    AND o.status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_RECEIVED','RECEIVED')
    AND c.status IN ('TERMINATED','COMPLETED');
+
+-- ============================================================
+-- DI-16 已过账收货单的来源采购单已不可收（ARCH-3 DC-03 / R-P0-3）
+--   含义：收货单已过账（库存三本账 + 应付 + 进项凭证都已生成），但它引用的采购单
+--   已经不处于「可收」状态（`SUBMITTED` / `APPROVED` / `PARTIAL_RECEIVED` / `RECEIVED`）——
+--   典型成因是「采购单在建单与过账之间被取消/关闭」，正是 DC-03 那个断点留下的存量。
+--   分级：已过账 ⇒ 库存与应付没有上游依据 ⇒ DEFECT / ERROR（P0）；
+--        来源单被软删或悬空同属 DEFECT / ERROR（与 DI-07 / DI-08 同口径，只是限定了已过账）。
+--   注：`RECEIVED` 也算可收（收满后的正常终态；作废回退也正是从它出发）。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di16 AS
+SELECT 'DI-16'::text AS issue_code,
+       'STOCK_IN'::text AS entity_type,
+       s.id AS entity_id,
+       s.in_no::text AS entity_no,
+       'source_order_id'::text AS field_name,
+       ((coalesce(p.status, '(悬空)')) ||
+        CASE WHEN p.id IS NOT NULL AND p.deleted_at IS NOT NULL THEN '(已软删)' ELSE '' END)::text AS snapshot_value,
+       'SUBMITTED|APPROVED|PARTIAL_RECEIVED|RECEIVED'::text AS truth_value,
+       'biz_purchase_order.status'::text AS truth_source,
+       'DEFECT'::text AS drift_kind,
+       'ERROR'::text AS severity,
+       1 AS affected_count
+  FROM biz_stock_in s
+  LEFT JOIN biz_purchase_order p ON p.id = s.source_order_id
+ WHERE s.deleted_at IS NULL
+   AND s.status = 'POSTED'
+   AND s.source_order_id IS NOT NULL
+   AND (p.id IS NULL
+        OR p.deleted_at IS NOT NULL
+        OR p.status NOT IN ('SUBMITTED','APPROVED','PARTIAL_RECEIVED','RECEIVED'));
+
+COMMENT ON VIEW di.c_di16 IS
+  'DI-16 已过账收货单的来源采购单已不可收（含软删/悬空）：DEFECT/ERROR —— 库存、应付、进项凭证没有上游依据（ARCH-3 DC-03）';
 
 COMMIT;

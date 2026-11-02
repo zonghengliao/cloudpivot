@@ -26,7 +26,8 @@ SELECT * FROM (VALUES
   ('DI-12','采购单供应商主档悬空/已删',     'P0/P1',     'PURCHASE_ORDER', false, 'biz_supplier.deleted_at'),
   ('DI-13','同一合同下快照互斥',            'P1',        'CONTRACT',       true,  'biz_contract.party_b_id'),
   ('DI-14','结构护栏缺失（巡检自身可信度）','P0',        'SYSTEM',         false, 'pg_constraint'),
-  ('DI-15','合同已终止但仍有在途采购单',    'P0/P1',     'PURCHASE_ORDER', true,  'biz_contract.status')
+  ('DI-15','合同已终止但仍有在途采购单',    'P0/P1',     'PURCHASE_ORDER', true,  'biz_contract.status'),
+  ('DI-16','已过账收货单的来源采购单已不可收','P0',        'STOCK_IN',       false, 'biz_purchase_order.status')
 ) AS t(issue_code, check_name, priority_rule, entity_type, needs_contract, truth_source);
 
 COMMENT ON VIEW di.v_check_registry IS
@@ -43,7 +44,7 @@ COMMENT ON VIEW di.v_check_state IS
   '本轮各巡检项的执行状态：SKIPPED 的项既不写入结果，也不参与收敛（否则 schema 未就绪会误清历史缺陷）';
 
 -- ============================================================
--- ② 本轮全量缺陷集（14 条巡检项的并集；合同类在未就绪阶段天然 0 行）
+-- ② 本轮全量缺陷集（16 条巡检项的并集；合同类在未就绪阶段天然 0 行）
 -- ============================================================
 CREATE OR REPLACE VIEW di.v_drift_now AS
 SELECT * FROM di.c_di01 WHERE (SELECT contract_checks_ready FROM di.di_capability)
@@ -60,7 +61,8 @@ UNION ALL SELECT * FROM di.c_di11
 UNION ALL SELECT * FROM di.c_di12
 UNION ALL SELECT * FROM di.c_di13 WHERE (SELECT contract_checks_ready FROM di.di_capability)
 UNION ALL SELECT * FROM di.c_di14
-UNION ALL SELECT * FROM di.c_di15 WHERE (SELECT contract_checks_ready FROM di.di_capability);
+UNION ALL SELECT * FROM di.c_di15 WHERE (SELECT contract_checks_ready FROM di.di_capability)
+UNION ALL SELECT * FROM di.c_di16;
 
 COMMENT ON VIEW di.v_drift_now IS
   '本轮全量未决缺陷（只读）：运维可直接 select * 复核；定时任务用它一条语句落库';

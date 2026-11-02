@@ -223,6 +223,102 @@ pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrder
     crate::business::erp::model::purchase_order_find_by_id(order_id).await
 }
 
+// ==================== 过账闸：来源采购单状态 + 待收额度（DC-03） ====================
+
+/// 过账闸用：锁采购单头（`FOR UPDATE`）并返回 `(order_no, status)`；不存在 / 已软删 → `None`。
+///
+/// # 为什么是 `FOR UPDATE` 而不是 `FOR SHARE`
+///
+/// 两种锁都能挡住「取消采购单」的普通 `UPDATE status`。选 `FOR UPDATE` 是为了让
+/// **两张收货单收同一张采购单**也互斥：`FOR SHARE` 彼此相容，两个过账事务会同时通过
+/// 待收额度复核，最后只能靠 `add_received_qty` 的条件更新兜底（报 400 而不是带待收量的 409）。
+///
+/// ⚠️ 已知取舍（锁顺序）：过账路径是「收货单头 → 采购单 → 库存行」，
+/// 而作废路径（`stockin_cancel`）是「收货单头 → 库存行 → 采购单」。两条路径同时处理
+/// 同一物料同一仓库时会构成环，PG 会在 `deadlock_timeout` 内检测并中止其中一个事务
+/// （40P01），被中止的那笔整笔回滚、可重试。概率极低（要求同一物料同一仓库并发），
+/// 且**不会**留下半笔账；要彻底消除需要统一两边的加锁顺序（属专项，不属本卡范围）。
+///
+/// DC-03 要求「过账时再复核来源采购单状态」。只读不锁的话，
+/// 「读到 SUBMITTED → 库存加完 → 采购单被取消」这条时序仍然成立
+/// （取消采购单只写状态，不回头看有没有在途收货单）。拿到 `FOR UPDATE` 后：
+///
+/// - 并发「取消 / 关闭采购单」必须等本次过账事务提交或回滚 ⇒ 复核到的状态在提交前有效；
+/// - 两张收货单收同一张采购单也会在这里串行化 ⇒ 待收额度复核
+///   （[`order_item_balances`]）成为**权威判据**，[`add_received_qty`] 的条件更新退化成兜底。
+pub async fn lock_purchase_order(
+    ex: &impl SqlExecutor,
+    order_id: Uuid,
+) -> DbResult<Option<(String, String)>> {
+    let rows = ex
+        .query_sql(
+            "SELECT order_no, status FROM biz_purchase_order \
+              WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    let Some(row) = rows.first() else {
+        return Ok(None);
+    };
+    Ok(Some((row.get_typed("order_no")?, row.get_typed("status")?)))
+}
+
+/// 采购单某一明细行的「订单量 / 已过账收货量」。
+#[derive(Debug, Clone, Copy)]
+pub struct OrderItemBalance {
+    /// 采购明细行 id。
+    pub item_id: Uuid,
+    /// 行号（1 起，文案用）。
+    pub line_no: i32,
+    /// 采购行数量。
+    pub order_qty: Decimal,
+    /// 已过账收货量（只算 `POSTED` 且未软删的收货单）。
+    pub posted_received: Decimal,
+}
+
+impl OrderItemBalance {
+    /// 可用待收量 = 订单量 − 已过账收货量（脏数据不许给出负数）。
+    pub fn available(&self) -> Decimal {
+        let pending = self.order_qty - self.posted_received;
+        if pending < Decimal::ZERO {
+            Decimal::ZERO
+        } else {
+            pending
+        }
+    }
+}
+
+/// 过账闸用：某张采购单每行「订单量 / 已过账收货量」。
+///
+/// 已收口径**复用** [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]
+/// （与「待收明细」页 `pending_receive_lines` 同一个聚合表达式），不写第二套：
+/// 一旦分叉，就会出现「页面说还能收 40、过账放行 60」这类最难查的账实不符。
+pub async fn order_item_balances(
+    ex: &impl SqlExecutor,
+    order_id: Uuid,
+) -> DbResult<Vec<OrderItemBalance>> {
+    let sql = format!(
+        "SELECT i.id AS item_id, i.line_no, i.qty AS order_qty, \
+                {} AS posted_received \
+           FROM biz_purchase_order_item i \
+          WHERE i.order_id = ?::uuid \
+          ORDER BY i.line_no ASC",
+        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+    );
+    let rows = ex.query_sql(sql, vec![Value::from(&order_id)]).await?;
+    rows.iter()
+        .map(|row| {
+            Ok(OrderItemBalance {
+                item_id: row.get_typed("item_id")?,
+                line_no: row.get_typed("line_no")?,
+                order_qty: row.get_typed("order_qty")?,
+                posted_received: row.get_typed("posted_received")?,
+            })
+        })
+        .collect()
+}
+
 /// 物料引用（判 `serial_required` 与带出 `unit_id`）。
 pub async fn material_serial_required(material_id: Uuid) -> DbResult<Option<bool>> {
     serial_model::material_serial_required(material_id).await

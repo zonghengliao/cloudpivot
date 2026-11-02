@@ -404,6 +404,34 @@ def group_d():
     check("D5 收货单号唯一", "单据链", "BLOCKER", not dup,
           f"{len(dup)} 个重号" if dup else "全部唯一")
 
+    # D6 已过账收货单的来源采购单状态必须「可收」（DC-03 / R-P0-3）
+    #    口径：过账闸允许的四个状态；已过账收货单的来源单落在 DRAFT / CLOSED / CANCELLED
+    #    （或来源单被软删 / 悬空）⇒ 这批入库是「来源单已被取消，货还是进来了」
+    #    ⇒ 库存、应付、进项凭证全部没有上游依据，BLOCKER。
+    bad_po_status = q("""
+        select s.in_no, coalesce(p.order_no, '(悬空)'),
+               case when p.id is null then '(缺失)'
+                    when p.deleted_at is not null then '(已软删)'
+                    else p.status end
+        from biz_stock_in s
+        left join biz_purchase_order p on p.id = s.source_order_id
+        where s.deleted_at is null
+          and s.status = 'POSTED'
+          and s.source_order_id is not null
+          and (p.id is null
+               or p.deleted_at is not null
+               or p.status not in ('SUBMITTED','APPROVED','PARTIAL_RECEIVED','RECEIVED'))
+        order by s.in_no
+    """)
+    check("D6 已过账收货单的来源采购单必须可收", "单据链", "BLOCKER", not bad_po_status,
+          f"{len(bad_po_status)} 张已过账收货单的来源采购单已不可收"
+          if bad_po_status else "全部可收或为无源单",
+          """select s.in_no, s.status, o.order_no, o.status, o.deleted_at
+             from biz_stock_in s join biz_purchase_order o on o.id = s.source_order_id
+             where s.deleted_at is null and s.status='POSTED'
+               and (o.deleted_at is not null
+                    or o.status not in ('SUBMITTED','APPROVED','PARTIAL_RECEIVED','RECEIVED'))""")
+
 
 # ══════════════════════════════════════════════════════════════════
 # E. 状态一致性 —— 作废/红冲的连锁反应

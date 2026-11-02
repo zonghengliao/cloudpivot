@@ -24,6 +24,9 @@
 //!
 //! ```text
 //! ① 锁单头 SELECT … FOR UPDATE → 状态必须 DRAFT，否则 409（重复过账 = 409，幂等）
+//! ①b DC-03：带来源采购单时**再过一遍**来源单闸 —— 锁采购单头（FOR UPDATE）→ 状态复核
+//!    （同一 `purchase_order_fault` 判据，出口 409 + 66031）→ 本次过账数量 ≤ 可用待收量
+//!    （口径 = `POSTED_RECEIVED_SQL`，出口 409 + 66032）。在扣减库存之前，失败整笔回滚。
 //! ② CAS 写状态 DRAFT → POSTED（posted_at / posted_by）
 //! ③ 明细**按 (material_id, location_id, line_no) 升序**逐行：库存加法 + 库位账加法 + 写 PURCHASE_IN 流水
 //!    · 加锁用 SELECT … FOR UPDATE（同一物料同一库位并发串行化，before_* 快照不打架）
@@ -472,35 +475,101 @@ async fn po_item_of(
     Ok((row.order_id, row))
 }
 
-/// 校验来源采购单：存在、可收货、仓库一致。返回采购单行。
-async fn require_purchase_order(
-    order_id: Uuid,
+/// 来源采购单**不可收**的两种情形（[`purchase_order_fault`] 的唯一产出）。
+///
+/// DC-03：建单期与过账期必须同一判据，只是**出口码**不同（400 / 409），
+/// 所以判据抽成纯函数，两个入口各自翻译文案，不去复制判断逻辑。
+enum PurchaseOrderFault {
+    /// 状态不在可收白名单（`purchase_receivable`）：`DRAFT` / `RECEIVED` / `CLOSED` / `CANCELLED`。
+    NotReceivable,
+    /// 收货仓库与采购单的收货仓库不一致。
+    WarehouseMismatch,
+}
+
+/// 来源采购单的可收判据（**唯一实现**）：`None` = 可收。
+fn purchase_order_fault(
+    order: &model::PurchaseOrderRow,
     warehouse_id: Uuid,
+) -> Option<PurchaseOrderFault> {
+    if !stockin_model::purchase_receivable(&order.status) {
+        return Some(PurchaseOrderFault::NotReceivable);
+    }
+    if order.warehouse_id != warehouse_id {
+        return Some(PurchaseOrderFault::WarehouseMismatch);
+    }
+    None
+}
+
+/// 取来源采购单（不存在 / 已删除 → `400 + 66002`）。
+async fn fetch_purchase_order(
+    order_id: Uuid,
 ) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
-    let order = stockin_model::purchase_order_ref(order_id)
+    stockin_model::purchase_order_ref(order_id)
         .await
         .map_err(|error| utils::db_error(error, "查询来源采购单"))?
         .ok_or_else(|| {
             reference_missing(format!(
                 "source_order_id 采购单不存在或已删除（{order_id}）"
             ))
-        })?;
-    if !stockin_model::purchase_receivable(&order.status) {
-        return Err(bad_request(format!(
+        })
+}
+
+/// 校验来源采购单：存在、可收货、仓库一致。返回采购单行（**建单 / 改单**入口，出口 400）。
+async fn require_purchase_order(
+    order_id: Uuid,
+    warehouse_id: Uuid,
+) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
+    let order = fetch_purchase_order(order_id).await?;
+    match purchase_order_fault(&order, warehouse_id) {
+        None => Ok(order),
+        Some(PurchaseOrderFault::NotReceivable) => Err(bad_request(format!(
             "来源采购单 {} 当前是「{}」（{}），不能收货：只有已提交（SUBMITTED）/ 已审批（APPROVED）/\
              部分收货（PARTIAL_RECEIVED）的采购单可以收",
             order.order_no,
             purchase_status_label(&order.status),
             order.status
-        )));
-    }
-    if order.warehouse_id != warehouse_id {
-        return Err(bad_request(format!(
+        ))),
+        Some(PurchaseOrderFault::WarehouseMismatch) => Err(bad_request(format!(
             "收货仓库（{warehouse_id}）与采购单 {} 的收货仓库（{}）不一致",
             order.order_no, order.warehouse_id
-        )));
+        ))),
     }
-    Ok(order)
+}
+
+/// 过账期复核来源采购单（**DC-03 ①**）：判据与 [`require_purchase_order`] **同一份**
+/// （都走 [`purchase_order_fault`]），但出口是 `409`。
+///
+/// 为什么不是 400：建单那一刻采购单是可收的，过账时不可收了 ⇒ 事实在「建单 → 过账」
+/// 期间被别人改过（采购单被取消 / 关闭 / 已收满）。这是**现状与单据前提冲突**
+/// （409），不是入参格式错（400）。报文点名采购单号 + 当前状态 + 状态码，
+/// 并说清「本单未过账、三本账与应付凭证都没动」。
+async fn require_purchase_order_at_post(
+    order_id: Uuid,
+    warehouse_id: Uuid,
+) -> std::result::Result<model::PurchaseOrderRow, ApiError> {
+    let order = fetch_purchase_order(order_id).await?;
+    match purchase_order_fault(&order, warehouse_id) {
+        None => Ok(order),
+        Some(PurchaseOrderFault::NotReceivable) => Err(ApiError::new(
+            409,
+            error_code::ERP_SI_PO_NOT_RECEIVABLE,
+            format!(
+                "来源采购单 {} 当前是「{}」（{}），不能过账入库：它在「建单」与「过账」之间被取消 / 关闭了。\
+                 只有已提交（SUBMITTED）/ 已审批（APPROVED）/ 部分收货（PARTIAL_RECEIVED）的采购单能收。\
+                 本单未过账：库存三本账、应付单、进项凭证一条都没有生成。\
+                 请核对采购单现状 —— 本单仍是草稿（DRAFT）的改单或作废后重开，\
+                 处于过账审批中（PENDING_POST）的先撤回再处理",
+                order.order_no,
+                purchase_status_label(&order.status),
+                order.status
+            ),
+        )),
+        Some(PurchaseOrderFault::WarehouseMismatch) => Err(conflict(format!(
+            "采购单 {} 的收货仓库（{}）与本次收货仓库（{warehouse_id}）不一致，不能过账：\
+             本单未过账（库存三本账 / 应付 / 凭证都没动），请核对后重开",
+            order.order_no, order.warehouse_id
+        ))),
+    }
 }
 
 /// 采购单状态中文标签（只用于文案）。
@@ -2536,6 +2605,95 @@ fn decimal_as_number(value: Decimal) -> serde_json::Value {
     }
 }
 
+/// 过账前复核来源采购单（**DC-03**）：状态 + 待收额度，在**扣减库存之前**、同一事务内。
+///
+/// # 为什么必须在这里再来一次
+///
+/// 建单期的 [`require_purchase_order`] 只保证「建单那一刻可收」。审计 DC-03 实测：
+/// 采购单在「建单 → 过账」之间被取消 / 关闭，或另一张收货单把它收满，
+/// 过账照样跑完 —— 三本账 + 应付 + 进项凭证全部生成，采购单状态还被 `sync_purchase_status`
+/// 静默跳过（不可收的状态不在它的白名单里）。
+///
+/// # 三条闸（顺序即代码顺序）
+///
+/// 1. [`stockin_model::lock_purchase_order`]：`FOR UPDATE` 锁采购单头，
+///    并发「取消采购单」「另一张收货单过账」都要等本事务结束 ⇒ 下面两条判据在提交前有效；
+/// 2. [`require_purchase_order_at_post`]：状态复核（与建单同一判据，出口 409）；
+/// 3. 本次过账数量 ≤ 可用待收量：待收口径复用
+///    [`stockin_model::order_item_balances`]（= `POSTED_RECEIVED_SQL`），
+///    挡住「两张收货单双开、各按未收额度建单、先后都过账」这种重复入库。
+async fn guard_purchase_before_post(
+    ex: &impl SqlExecutor,
+    header: &stockin_model::StockInRow,
+    ordered: &[&stockin_model::StockInItemRow],
+) -> std::result::Result<(), ApiError> {
+    let Some(order_id) = header.source_order_id else {
+        // 无源单据（期初 / 复制 / 其他）：没有采购单可复核
+        return Ok(());
+    };
+    // ① 锁采购单头（同时确认它还在）
+    let locked = stockin_model::lock_purchase_order(ex, order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "过账：锁定来源采购单"))?;
+    let Some((order_no, _)) = locked else {
+        return Err(conflict(format!(
+            "来源采购单不存在或已删除（{order_id}）：已绑定采购单的入库单不允许带着悬空来源过账，\
+             本单未过账"
+        )));
+    };
+    // ② 状态复核（同一判据，出口 409）
+    require_purchase_order_at_post(order_id, header.warehouse_id).await?;
+    // ③ 待收额度复核：本单**按采购明细行聚合**后的数量 ≤ 可用待收量
+    //    （同一采购行可能被本单拆成多行收，聚合后再比才对得上口径）
+    let mut wanted: Vec<(Uuid, Decimal, i32)> = Vec::new();
+    for item in ordered {
+        let Some(source_item_id) = item.source_item_id else {
+            continue;
+        };
+        match wanted
+            .iter_mut()
+            .find(|(item_id, _, _)| *item_id == source_item_id)
+        {
+            Some(slot) => slot.1 += item.qty,
+            None => wanted.push((source_item_id, item.qty, item.line_no)),
+        }
+    }
+    if wanted.is_empty() {
+        return Ok(());
+    }
+    let balances = stockin_model::order_item_balances(ex, order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "过账：查询采购单待收数量"))?;
+    for (source_item_id, qty, line_no) in wanted {
+        let Some(balance) = balances.iter().find(|row| row.item_id == source_item_id) else {
+            return Err(conflict(format!(
+                "第 {line_no} 行引用的采购明细（{source_item_id}）已不属于采购单 {order_no}：\
+                 该采购行被删除或挪到了别的采购单。本单未过账，请重新从采购单带出明细"
+            )));
+        };
+        let available = balance.available();
+        if qty > available {
+            return Err(ApiError::new(
+                409,
+                error_code::ERP_SI_OVER_RECEIVE,
+                format!(
+                    "第 {line_no} 行本次过账 {} 件，但来源采购单 {order_no} 第 {} 行只剩 {} 件待收\
+                     （订单 {}、已过账收货 {}）：另一张收货单可能刚过账收走了。\
+                     本单未过账（库存三本账 / 应付 / 凭证都没动），请把这一行改到 {} 件以内，\
+                     或先核对已过账的收货单",
+                    trim_qty(qty),
+                    balance.line_no,
+                    trim_qty(available),
+                    trim_qty(balance.order_qty),
+                    trim_qty(balance.posted_received),
+                    trim_qty(available)
+                ),
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
 async fn post_stock_in(
     id: Uuid,
@@ -2623,6 +2781,11 @@ async fn post_in_tx(
             locked.status
         )));
     }
+
+    // ①b DC-03：过账复核来源采购单（状态 + 待收额度）。
+    //    必须在 ② 改状态与 ③ 扣减库存**之前**：否则「采购单已取消」也会把三本账、
+    //    应付与进项凭证写出去。锁在事务内，失败整笔回滚（不留半条状态日志）。
+    guard_purchase_before_post(ex, &locked, ordered).await?;
 
     // ② CAS 写状态（`WHERE status = from_status`）
     //    P10 铁律 ③：先过唯一入口（边表 + reason 校验 + 写 biz_status_log），
@@ -3983,6 +4146,227 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(status, "RECEIVED", "收满自动推进采购单状态");
+    }
+
+    // ==================== DC-03：过账复核来源采购单（ARCH-3 R-P0-3 / §5） ====================
+
+    /// 建一张**带来源采购单**的收货单草稿（一行，收 `qty`，单价 2 / 税率 13%）。
+    async fn sourced_doc(order_id: Uuid, item_id: Uuid, qty: &str) -> Uuid {
+        let mut only = line(MATERIAL_A, qty, "2", "13");
+        only.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![only]);
+        request.source_order_id = Some(order_id.to_string());
+        create_stock_in(&request, None)
+            .await
+            .unwrap_or_else(|err| panic!("建单失败：{} {}", err.code, err.msg))
+    }
+
+    /// 采购单号（报文断言用）。
+    async fn po_no_of(order_id: Uuid) -> String {
+        db().scalar_with_params(
+            "SELECT order_no FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .unwrap()
+    }
+
+    /// 过账会动的五处痕迹：库存成本账 / 库位账 / 流水 / 凭证 / 应付。
+    ///
+    /// 顺序固定为 `[inv, loc, txn, voucher, payable]`；被拒的单**每一处都必须不变**。
+    async fn posting_footprint(stock_in_id: Uuid) -> Vec<i64> {
+        let material = Uuid::parse_str(MATERIAL_A).unwrap();
+        let warehouse = Uuid::parse_str(WAREHOUSE).unwrap();
+        let inv: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_inventory \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND qty <> 0",
+                vec![Value::from(&material), Value::from(&warehouse)],
+            )
+            .await
+            .unwrap();
+        let loc: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_inventory_location \
+                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND qty <> 0",
+                vec![Value::from(&material), Value::from(&warehouse)],
+            )
+            .await
+            .unwrap();
+        let txn: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id = ?::uuid",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .unwrap();
+        let voucher: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_voucher WHERE source_id = ?::uuid",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .unwrap();
+        let payable: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_payable WHERE source_id = ?::uuid",
+                vec![Value::from(&stock_in_id)],
+            )
+            .await
+            .unwrap();
+        vec![inv, loc, txn, voucher, payable]
+    }
+
+    /// DC-03 单测 A：采购单在「建单」与「过账」之间被取消 → 过账 **409 + 66031**，
+    /// 报文点名采购单号与当前状态，且三本账 / 凭证 / 应付 **0 变化**。
+    #[tokio::test]
+    async fn dc03_posting_rejected_when_source_order_cancelled() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("100", "0").await;
+        let order_no = po_no_of(order_id).await;
+        let id = sourced_doc(order_id, item_id, "100").await;
+        assert_eq!(
+            posting_footprint(id).await,
+            vec![0, 0, 0, 0, 0],
+            "前提：只建单不动任何账"
+        );
+
+        // 采购单被取消（模拟另一个人在采购页点了「取消」，与建单不在同一时刻）
+        d4_set_po_status(order_id, "CANCELLED").await;
+
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect_err("采购单已取消，过账必须被拦");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(
+            err.code,
+            error_code::ERP_SI_PO_NOT_RECEIVABLE,
+            "{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains(&order_no),
+            "报文必须点名采购单号：{}",
+            err.msg
+        );
+        assert!(
+            err.msg.contains("已取消") && err.msg.contains("CANCELLED"),
+            "报文必须带当前状态：{}",
+            err.msg
+        );
+        assert!(err.msg.contains("本单未过账"), "{}", err.msg);
+
+        assert_eq!(
+            posting_footprint(id).await,
+            vec![0, 0, 0, 0, 0],
+            "被拒后三本账 / 凭证 / 应付都不许留痕迹"
+        );
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (Decimal::ZERO, Decimal::ZERO, Decimal::ZERO)
+        );
+        assert_eq!(stock_in_status(id).await, STATUS_DRAFT, "单据必须留在草稿");
+        assert_eq!(
+            d4_ledger_received(item_id).await,
+            Decimal::ZERO,
+            "采购明细的已收数量不许动"
+        );
+        assert_eq!(
+            d4_po_status(order_id).await,
+            "CANCELLED",
+            "采购单状态不许被悄悄推成 PARTIAL_RECEIVED"
+        );
+    }
+
+    /// DC-03 单测 B：两张收货单**双开**（采购 100，两张各收 60）→ 先过账的成功，
+    /// 后过账的 **409 + 66032**，报文给出「只剩 40 件待收」。
+    ///
+    /// ⚠️ 卡面写的是「建 A（60）→ 建 B（60，采购只剩 40）→ 过账 B」：A 过账后
+    /// 采购端只剩 40，B 按 60 建单会被 D4 的建单闸当场 400，**B 根本建不出来**。
+    /// 真实可达的双开是「先建两张、各自都按未收 100 通过、再先后过账」——本用例就钉这条。
+    #[tokio::test]
+    async fn dc03_second_open_receipt_is_rejected_with_available_qty() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("100", "0").await;
+        let order_no = po_no_of(order_id).await;
+        let a = sourced_doc(order_id, item_id, "60").await;
+        let b = sourced_doc(order_id, item_id, "60").await;
+
+        change_stock_in_status(a, &post_req(), None)
+            .await
+            .unwrap_or_else(|err| panic!("A 过账失败：{} {}", err.code, err.msg));
+        assert_eq!(d4_ledger_received(item_id).await, dec("60"));
+        let before_b = posting_footprint(b).await;
+        assert_eq!(
+            before_b,
+            vec![1, 1, 0, 0, 0],
+            "前提：A 已过账（成本账 / 库位账各 1 行），B 还没有任何痕迹"
+        );
+
+        let err = change_stock_in_status(b, &post_req(), None)
+            .await
+            .expect_err("采购单只剩 40，B 收 60 必须被拦");
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_OVER_RECEIVE, "{}", err.msg);
+        assert!(err.msg.contains(&order_no), "{}", err.msg);
+        assert!(
+            err.msg.contains("只剩 40 件待收"),
+            "报文必须给出可用待收量：{}",
+            err.msg
+        );
+        assert!(err.msg.contains("订单 100"), "{}", err.msg);
+        assert!(err.msg.contains("已过账收货 60"), "{}", err.msg);
+
+        assert_eq!(
+            posting_footprint(b).await,
+            before_b,
+            "被拒的 B 不许留下任何账"
+        );
+        assert_eq!(stock_in_status(b).await, STATUS_DRAFT);
+        assert_eq!(
+            d4_ledger_received(item_id).await,
+            dec("60"),
+            "采购已收只算 A 的 60"
+        );
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("60"));
+    }
+
+    /// DC-03 单测 C：正常路径不受影响 —— 采购 100 / 收 100/100 → 过账成功，采购单 RECEIVED。
+    ///
+    /// 同时钉住「两道闸不打架」：收满之后再建一张就会被**建单闸**（400，不可收）挡住，
+    /// 而不是落到过账闸上。
+    #[tokio::test]
+    async fn dc03_full_receipt_still_posts() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = seed_purchase_order("100", "0").await;
+        let id = sourced_doc(order_id, item_id, "100").await;
+        change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect("正常收满 100/100 必须放行");
+        assert_eq!(stock_in_status(id).await, STATUS_POSTED);
+        assert_eq!(d4_ledger_received(item_id).await, dec("100"));
+        assert_eq!(d4_po_status(order_id).await, "RECEIVED");
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("100"));
+
+        // 采购单已 RECEIVED ⇒ 建单闸（400）先拦，不靠过账闸兜
+        let mut another = line(MATERIAL_A, "1", "2", "13");
+        another.purchase_order_item_id = Some(item_id.to_string());
+        let mut request = req(vec![another]);
+        request.source_order_id = Some(order_id.to_string());
+        let err = create_stock_in(&request, None)
+            .await
+            .expect_err("已收满的采购单不许再建收货单");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("不能收货"), "{}", err.msg);
     }
 
     /// ⑪b 自动带出：只给 `source_order_id`（items 空），按未收数量成单。
