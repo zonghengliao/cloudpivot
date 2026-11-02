@@ -81,6 +81,7 @@ use crate::business::erp::inventory_audit::AuditReport;
 use crate::business::erp::model::{
     self, InventoryLocationRow, InventoryRow, InventoryTxnRow, WarehouseRow,
 };
+use crate::business::erp::unit_guard;
 use crate::shared::error_code;
 use crate::utils;
 
@@ -977,10 +978,14 @@ pub async fn material_create(
 ) -> ResResult<MaterialRes> {
     req.validate()?;
     let unit_id = parse_uuid(&req.unit_id, "unit_id")?;
-    model::unit_find_by_id(unit_id)
+    let unit = model::unit_find_by_id(unit_id)
         .await
         .map_err(|error| utils::db_error(error, "查询计量单位"))?
         .ok_or_else(|| reference_missing("计量单位不存在或已删除"))?;
+    // ★ DC-09 补口（缺口 2）：物料只能挂**基本单位**。
+    //   挂在折算单位（箱/打）上的物料，它的任何单据都会被建单期的单位止血闸 400 拒 ——
+    //   用户只会看到「这个物料的单建不了」，根因却在主数据。所以在这里就堵住。
+    unit_guard::ensure_material_unit_is_base(unit.is_base, &unit.unit_name)?;
     let default_warehouse_id = match req
         .default_warehouse_id
         .as_deref()
@@ -1083,16 +1088,17 @@ pub async fn material_update(
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        Some(raw) => {
-            let unit_id = parse_uuid(raw, "unit_id")?;
-            model::unit_find_by_id(unit_id)
-                .await
-                .map_err(|error| utils::db_error(error, "查询计量单位"))?
-                .ok_or_else(|| reference_missing("计量单位不存在或已删除"))?;
-            unit_id
-        }
+        Some(raw) => parse_uuid(raw, "unit_id")?,
         None => current.unit_id,
     };
+    // ★ DC-09 补口（缺口 2）：按**解析后的有效单位**判（这次没改单位也要判）。
+    //   存量已挂在折算单位上的物料因此不能再保存 —— 生产实测 0 行，命中先出清单给业务，
+    //   不自动改数据；本版本单据不支持多单位换算，折算单位只能用于显示。
+    let unit = model::unit_find_by_id(unit_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询计量单位"))?
+        .ok_or_else(|| reference_missing("计量单位不存在或已删除"))?;
+    unit_guard::ensure_material_unit_is_base(unit.is_base, &unit.unit_name)?;
     let material_type = req
         .material_type
         .unwrap_or_else(|| current.material_type.clone());
@@ -3234,6 +3240,209 @@ mod tests {
 
         hard_delete("biz_material", material_id).await;
         hard_delete("biz_unit", unit_id).await;
+    }
+
+    /// ★ 本卡补口（DC-09 缺口 2）：物料主数据的计量单位必须是**基本单位**。
+    ///
+    /// 折算单位（箱/打）挂在物料上 = 这个物料的**任何单据**都会被建单期的单位止血闸 400 拒，
+    /// 用户只会看到「这个物料的单建不了」，根因却藏在主数据里。建 / 改两条路都要拦。
+    ///
+    /// 顺带钉住存量语义：已挂在折算单位上的物料**不改单位也不能保存**（要先把单位改回基本单位）。
+    /// 这是有意为之（生产实测 0 行，命中先出清单给业务），不是 bug。
+    #[tokio::test]
+    async fn material_unit_must_be_base() {
+        let Some(_guard) = setup().await else { return };
+        // 基本单位「个」+ 折算单位「箱」（1 箱 = 12 个）
+        let base = data(
+            unit_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateUnitReq {
+                    unit_code: code("UBASE"),
+                    unit_name: "W1C 个".to_string(),
+                    is_base: true,
+                    base_unit_id: None,
+                    rate: None,
+                    status: 1,
+                    sort_order: 0,
+                    remark: None,
+                    precision: None,
+                }),
+            )
+            .await
+            .expect("建基本单位"),
+        );
+        let base_id = Uuid::parse_str(&base.id).unwrap();
+        let boxed = data(
+            unit_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateUnitReq {
+                    unit_code: code("UBOX"),
+                    unit_name: "W1C 箱".to_string(),
+                    is_base: false,
+                    base_unit_id: Some(base_id.to_string()),
+                    rate: Some(Decimal::from(12)),
+                    status: 1,
+                    sort_order: 0,
+                    remark: None,
+                    precision: None,
+                }),
+            )
+            .await
+            .expect("建折算单位"),
+        );
+        let box_id = Uuid::parse_str(&boxed.id).unwrap();
+
+        // ---------- ① Create：挂在折算单位上 → 400 + 66030 + 文案，一行都不落库 ----------
+        let rejected_code = code("MBADU");
+        let error = material_create(
+            Extension(AuthClaims(claims())),
+            Json(CreateMaterialReq {
+                material_code: rejected_code.clone(),
+                material_name: "W1C 箱装物料".to_string(),
+                spec: None,
+                unit_id: box_id.to_string(),
+                material_type: "RAW".to_string(),
+                default_warehouse_id: None,
+                safety_stock: None,
+                costing_method: "MOVING_AVG".to_string(),
+                inventory_account_id: None,
+                tax_rate: None,
+                status: 1,
+                serial_required: None,
+                remark: None,
+            }),
+        )
+        .await
+        .expect_err("折算单位不许建物料");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains(
+                "物料的计量单位必须是基本单位：折算单位（箱/打）只能用于显示，\
+                 本版本单据不支持多单位换算（当前「W1C 箱」）"
+            ),
+            "{}",
+            error.msg
+        );
+        let landed: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_material WHERE material_code = ?",
+                vec![Value::from(rejected_code.clone())],
+            )
+            .await
+            .unwrap();
+        assert_eq!(landed, 0, "被拒的物料不许落库");
+
+        // ---------- ② 正常基本单位 → 200 ----------
+        let created = data(
+            material_create(
+                Extension(AuthClaims(claims())),
+                Json(CreateMaterialReq {
+                    material_code: code("MOK"),
+                    material_name: "W1C 六角螺栓".to_string(),
+                    spec: Some("M8x20".to_string()),
+                    unit_id: base_id.to_string(),
+                    material_type: "RAW".to_string(),
+                    default_warehouse_id: None,
+                    safety_stock: None,
+                    costing_method: "MOVING_AVG".to_string(),
+                    inventory_account_id: None,
+                    tax_rate: None,
+                    status: 1,
+                    serial_required: None,
+                    remark: None,
+                }),
+            )
+            .await
+            .expect("基本单位能建物料"),
+        );
+        let material_id = Uuid::parse_str(&created.id).unwrap();
+        assert_eq!(created.unit_id, base_id.to_string());
+
+        // ---------- ③ Update：把单位改成折算单位 → 400，库里单位没被改 ----------
+        let error = material_update(
+            Extension(AuthClaims(claims())),
+            Path(material_id.to_string()),
+            Json(UpdateMaterialReq {
+                unit_id: Some(box_id.to_string()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect_err("折算单位不许改成物料单位");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error
+                .msg
+                .contains("本版本单据不支持多单位换算（当前「W1C 箱」）"),
+            "{}",
+            error.msg
+        );
+        let row = model::material_find_by_id(material_id)
+            .await
+            .unwrap()
+            .expect("物料必须还在");
+        assert_eq!(row.unit_id, base_id, "被拒的编辑不许改单位");
+
+        // 不改单位的正常编辑 → 200
+        let updated = data(
+            material_update(
+                Extension(AuthClaims(claims())),
+                Path(material_id.to_string()),
+                Json(UpdateMaterialReq {
+                    material_name: Some("W1C 六角螺栓（改名）".to_string()),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("基本单位的物料能保存"),
+        );
+        assert_eq!(updated.material_name, "W1C 六角螺栓（改名）");
+
+        // ---------- ④ 存量已挂折算单位的物料：不改单位也不能保存，改回基本单位就能存 ----------
+        let legacy_id = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, serial_required) \
+             VALUES (?::uuid, ?, 'W1C 存量箱装物料', ?::uuid, 1, false)",
+            vec![
+                Value::from(&legacy_id),
+                Value::from(code("MLEGACY")),
+                Value::from(&box_id),
+            ],
+        )
+        .await
+        .expect("插存量折算单位物料（模拟升级前的物料）");
+        let error = material_update(
+            Extension(AuthClaims(claims())),
+            Path(legacy_id.to_string()),
+            Json(UpdateMaterialReq {
+                remark: Some(Some("只改备注".to_string())),
+                ..Default::default()
+            }),
+        )
+        .await
+        .expect_err("存量折算单位物料不能保存");
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        let fixed = data(
+            material_update(
+                Extension(AuthClaims(claims())),
+                Path(legacy_id.to_string()),
+                Json(UpdateMaterialReq {
+                    unit_id: Some(base_id.to_string()),
+                    remark: Some(Some("先把单位改回基本单位".to_string())),
+                    ..Default::default()
+                }),
+            )
+            .await
+            .expect("改回基本单位就能保存"),
+        );
+        assert_eq!(fixed.unit_id, base_id.to_string());
+
+        hard_delete("biz_material", material_id).await;
+        hard_delete("biz_material", legacy_id).await;
+        hard_delete("biz_unit", box_id).await;
+        hard_delete("biz_unit", base_id).await;
     }
 
     /// ㉓ 供应商：建 → 详情 → 编辑 → 软删。

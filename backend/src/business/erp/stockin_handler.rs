@@ -2469,6 +2469,8 @@ pub async fn post_after_approval(
     .await?;
     let (items, serial_required, provided, po_snapshot) =
         posting_inputs(id, row.source_order_id, None).await?;
+    // ★ DC-09 补口：审批通过这条过账入口同样按明细快照的 unit_id 复检（与直接过账同一把尺子）
+    guard_posting_units(&items).await?;
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
     ordered.sort_by(|a, b| {
         (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
@@ -2751,6 +2753,35 @@ async fn guard_purchase_before_post(
     Ok(())
 }
 
+/// ★ DC-09 补口（缺口 1）：过账**前**按**明细快照的 `unit_id`** 逐行复检单位。
+///
+/// 建单 / 改单期的 `unit_guard::ensure_base_unit` 判的是「物料现在的单位」，
+/// 挡不住两类单：**升级前建的折算单位草稿**、**绕过接口 `UPDATE biz_stock_in_item.unit_id`**。
+/// 而 `post_in_tx` 只认明细快照的 `unit_id`，`qty` 直接进三本账 —— 漏一次就是「5 箱记成 5 个」。
+///
+/// 位置：`posting_inputs` 之后、`db().begin()` **之前**（六本账一动没动就被拦下），
+/// 与 A4 的 [`guard_posting_supplier`] 同一范式；两条过账入口（直接过账 / 审批通过）
+/// 都调它，不会只堵一条。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`ApiError`]（`500`）；非基本单位 → `400 + ERP_UNIT_NOT_BASE`。
+async fn guard_posting_units(
+    items: &[stockin_model::StockInItemRow],
+) -> std::result::Result<(), ApiError> {
+    for (index, item) in items.iter().enumerate() {
+        unit_guard::ensure_unit_row_is_base(
+            db(),
+            item.unit_id,
+            Some(item.material_id),
+            index,
+            item.qty,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 /// **过账**（本卡核心）：一个事务里改状态 + 加库存 + 写流水 + 生成序列号 + 回写采购单。
 async fn post_stock_in(
     id: Uuid,
@@ -2764,6 +2795,8 @@ async fn post_stock_in(
     guard_posting_supplier(header).await?;
     let (items, serial_required, provided, po_snapshot) =
         posting_inputs(id, header.source_order_id, Some(req)).await?;
+    // ★ DC-09 补口：过账期按明细快照的 unit_id 复检（建单期校验挡不住 UPDATE / 存量草稿）
+    guard_posting_units(&items).await?;
 
     // PRD §3.2.6：多行按 material_id 升序加锁（再按库位 / 行号，保证全序），避免两个收货单互相死锁
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
@@ -3386,6 +3419,8 @@ mod tests {
     const MATERIAL_SN: &str = "b2b10001-0000-4000-8000-000000000013";
     /// DC-09 夹具：挂在折算单位上的物料 —— 本版本**不能**在收货单里使用。
     const MATERIAL_BOX: &str = "b2b10001-0000-4000-8000-000000000015";
+    /// DC-09 夹具：折算单位「箱」（`is_base = 0`，1 箱 = 12 个）。
+    const UNIT_BOX: &str = "b2b10001-0000-4000-8000-000000000004";
     /// 库位字典（`biz_location.id`，P6：库位账行的 `location_id` 列指这个）。
     const LOC_DICT_A: &str = "b2b10003-0000-4000-8000-000000000001";
     /// 库位字典（第二个库位）。
@@ -3782,6 +3817,93 @@ mod tests {
         create_stock_in(&req(vec![line(MATERIAL_A, "1", "2", "13")]), None)
             .await
             .unwrap();
+    }
+
+    /// ★ 本卡补口（DC-09 缺口 1 · 收货侧）：**过账**期按**明细快照的 `unit_id`** 复检单位。
+    ///
+    /// 造法：先用基本单位建一张草稿（正常路径），再**绕过接口**把明细的 `unit_id` 改成折算单位
+    /// （`UPDATE biz_stock_in_item`）—— 这就是「升级前建的折算单位草稿 / 被 UPDATE 过的单」
+    /// 在库里的样子：物料本身没问题（建单期校验早跑完了），过账只认明细快照。
+    ///
+    /// 断言四件事：`400 + 66030`、文案带折算建议、**三本账 / 凭证 / 应付 0 变化**、单据仍是草稿。
+    /// 最后把单位改回去，同一张单正常过账 —— 证明这道闸只拦该拦的。
+    #[tokio::test]
+    async fn posting_rejects_non_base_unit_snapshot() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_stock_in(&req(vec![line(MATERIAL_A, "2", "2", "13")]), None)
+            .await
+            .expect("建单");
+        assert_eq!(
+            posting_footprint(id).await,
+            vec![0, 0, 0, 0, 0],
+            "前提：只建单不动任何账"
+        );
+
+        // 绕过接口改明细单位：2 个 → 2 箱（= 24 个）
+        db().execute_with_params(
+            "UPDATE biz_stock_in_item SET unit_id = ?::uuid WHERE stock_in_id = ?::uuid",
+            vec![
+                Value::from(&Uuid::parse_str(UNIT_BOX).expect("夹具 UUID")),
+                Value::from(&id),
+            ],
+        )
+        .await
+        .expect("改明细单位");
+
+        let error = change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect_err("明细单位是折算单位，不许过账");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains(
+                "单位「箱」不是基本单位：本版本不支持多单位换算，\
+                 请按基本单位录入（1 箱 = 12 个 → 录 24）"
+            ),
+            "{}",
+            error.msg
+        );
+        assert!(error.msg.contains("items[0]"), "{}", error.msg);
+        assert!(
+            error.msg.contains("P2B1-M1"),
+            "物料编码要点出来（用户在收货单里照着找行）：{}",
+            error.msg
+        );
+
+        // 三本账 / 凭证 / 应付 0 变化；单据仍是草稿（没被推成 POSTED）
+        assert_eq!(
+            posting_footprint(id).await,
+            vec![0, 0, 0, 0, 0],
+            "被拒的过账不许动任何一本账"
+        );
+        assert_eq!(
+            detail_of(id).await.expect("回读").header.status,
+            STATUS_DRAFT,
+            "被拒的过账不能改单据状态"
+        );
+
+        // 明细单位改回基本单位 → 同一张单正常过账（正常路径回归绿）
+        db().execute_with_params(
+            "UPDATE biz_stock_in_item SET unit_id = ?::uuid WHERE stock_in_id = ?::uuid",
+            vec![
+                Value::from(&Uuid::parse_str(UNIT).expect("夹具 UUID")),
+                Value::from(&id),
+            ],
+        )
+        .await
+        .expect("复位明细单位");
+        change_stock_in_status(id, &post_req(), None)
+            .await
+            .expect("基本单位必须能过账");
+        assert_eq!(
+            posting_footprint(id).await,
+            vec![1, 1, 1, 1, 1],
+            "正常过账要动成本账 / 库位账 / 流水 / 凭证 / 应付"
+        );
+        assert_eq!(inventory_of(MATERIAL_A).await.0, dec("2"));
     }
 
     /// ① 首次入库：库存从无到有，qty / amount / avg_cost 正确。

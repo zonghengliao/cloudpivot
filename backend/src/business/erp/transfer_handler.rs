@@ -253,6 +253,8 @@ fn settle_error(err: SettleError) -> ApiError {
             error_code::PARAM_INVALID,
             "调拨单没有明细，无法结算".to_string(),
         ),
+        // DC-09 补口：单位止血闸已经组好 400 + ERP_UNIT_NOT_BASE 与折算建议，原样透出
+        SettleError::UnitGuard(inner) => inner,
     }
 }
 
@@ -1711,6 +1713,17 @@ mod db_tests {
             "折算单位物料",
         )
         .await;
+        // DC-09 补口（本卡）的用例会临时把 `M_PLAIN` 改成折算单位（模拟「绕过接口改物料 /
+        // 升级前建的存量单」），这里每轮无条件复位 —— 用例中途 panic 也不会把后面的用例带红。
+        exec(
+            "UPDATE biz_material SET unit_id = ?::uuid WHERE id = ANY(?::text::uuid[])",
+            vec![
+                Value::from(&uuid(UNIT)),
+                array_param(&[uuid(M_PLAIN), uuid(M_SN)]),
+            ],
+            "复位物料单位",
+        )
+        .await;
         exec(
             "INSERT INTO biz_material_serial (id, serial_no, material_id, warehouse_id, status) \
              VALUES (?::uuid, 'W3B-SN-0001', ?::uuid, ?::uuid, 'IN_STOCK'), \
@@ -1962,6 +1975,75 @@ mod db_tests {
         )
         .await
         .unwrap();
+    }
+
+    /// ★ 本卡补口（DC-09 缺口 1 · 调拨侧）：**结算**期复检单位。
+    ///
+    /// 造法（与收货侧同一形态）：先用基本单位把单建到 `IN_TRANSIT`，再**绕过接口**把物料
+    /// 改成折算单位「箱」—— 这正是「升级前建的折算单位草稿 / 主数据被改」在库里的样子：
+    /// 建单期的 `prepare_items` 早跑完了。结算必须 `400 + 66030`，
+    /// 且单据留在 `IN_TRANSIT`、两本账（成本账 + 库位账）与流水**一分不动**。
+    #[tokio::test]
+    async fn settle_rejects_non_base_unit_material() {
+        let Some(_guard) = prepare().await else {
+            return;
+        };
+        let id = create_and_ship(vec![item(M_PLAIN, "5")]).await;
+        let qty_before = needed(M_PLAIN, WH_FROM).await;
+        let amount_before = bucket_amount(M_PLAIN, WH_FROM).await;
+        let to_qty_before = needed(M_PLAIN, WH_TO).await;
+
+        // 绕过接口：物料的计量单位改成折算单位「箱」（1 箱 = 12 个）
+        exec(
+            "UPDATE biz_material SET unit_id = ?::uuid WHERE id = ?::uuid",
+            vec![Value::from(&uuid(U_BOX)), Value::from(&uuid(M_PLAIN))],
+            "改物料单位（模拟绕过接口 / 升级前的存量配置）",
+        )
+        .await;
+
+        let error = receive(id).await.expect_err("折算单位不许结算");
+        assert_eq!(error.status, 400, "{}", error.msg);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE, "{}", error.msg);
+        assert!(
+            error.msg.contains("单位「箱」不是基本单位"),
+            "{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("本版本不支持多单位换算"),
+            "{}",
+            error.msg
+        );
+        // 5 件折算成 5 箱 × 12 = 60（建议值按本行数量算，不是拼死的 12）
+        assert!(error.msg.contains("1 箱 = 12 个 → 录 60"), "{}", error.msg);
+        assert!(error.msg.contains("W3B-M-PLAIN"), "{}", error.msg);
+        assert!(error.msg.contains("items[0]"), "{}", error.msg);
+
+        // 结算失败 = 整笔回滚：单据留在 IN_TRANSIT，两本账 + 流水一字未动
+        assert_eq!(
+            refresh(id).await.status,
+            STATUS_IN_TRANSIT,
+            "被拒的结算不能把单据推到 DONE"
+        );
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_before, "调出仓不许扣");
+        assert_eq!(
+            bucket_amount(M_PLAIN, WH_FROM).await,
+            amount_before,
+            "调出仓金额不许动"
+        );
+        assert_eq!(needed(M_PLAIN, WH_TO).await, to_qty_before, "调入仓不许加");
+        assert!(txns_of(id).await.is_empty(), "被拒的结算不许写流水");
+
+        // 把单位改回基本单位 → 同一张单正常结算（正常路径回归绿）
+        exec(
+            "UPDATE biz_material SET unit_id = ?::uuid WHERE id = ?::uuid",
+            vec![Value::from(&uuid(UNIT)), Value::from(&uuid(M_PLAIN))],
+            "复位物料单位",
+        )
+        .await;
+        receive_ok(id).await;
+        assert_eq!(needed(M_PLAIN, WH_FROM).await, qty_before - dec("5"));
+        assert_eq!(txns_of(id).await.len(), 2, "正常结算仍是两条流水");
     }
 
     async fn refresh(id: Uuid) -> TransferRow {

@@ -13,6 +13,7 @@ use nik::uuid::Uuid;
 
 use crate::business::erp::serial_model::period_code_of;
 use crate::business::erp::stockin_model;
+use crate::business::erp::unit_guard;
 
 use super::transfer_base::*;
 
@@ -64,6 +65,10 @@ pub enum SettleError {
     Invariant(String),
     /// 单据没有明细，没什么可结算的。
     EmptyItems,
+    /// 明细单位不是基本单位（DC-09 补口 · 缺口 1）：结算会把 `qty` 直接写进两本账，
+    /// 折算单位（箱/打）的单必须在这里拦下。载荷是 `unit_guard` 已经组好的 `ApiError`
+    /// （`400 + ERP_UNIT_NOT_BASE` + 折算建议），handler 原样透出，文案只此一份。
+    UnitGuard(ApiError),
 }
 
 impl From<DbError> for SettleError {
@@ -217,6 +222,18 @@ pub async fn settle_transfer(
     let mut lines = load_settle_lines(ex, transfer_id).await?;
     if lines.is_empty() {
         return Err(SettleError::EmptyItems);
+    }
+    // ①a 单位复检（DC-09 补口 · 缺口 1）：结算会把 `qty` 直接写进两本账。
+    //     调拨明细**不存 `unit_id`**（`biz_stock_transfer_item` 没有这一列），
+    //     所以判据落在「物料当前的计量单位」上 —— 与建单期 `prepare_items` 同一判据、
+    //     同一文案（`unit_guard::ensure_base_unit_in`），只是执行时机挪到了写账前：
+    //     升级前建的折算单位草稿 / 绕过接口把物料改成折算单位的单据，在这里拦下，
+    //     整笔事务回滚（单据仍停在 `IN_TRANSIT`，两本账 0 变化）。
+    //     位置在 `lines` 排序之前：`index` 此时就是明细的行序（与 `items[i]` 对齐）。
+    for (index, line) in lines.iter().enumerate() {
+        unit_guard::ensure_base_unit_in(ex, line.material_id, index, line.qty)
+            .await
+            .map_err(SettleError::UnitGuard)?;
     }
     // ①b 锁顺序（PRD §3.2.6）：明细按 `material_id` 升序处理（同物料再按行号）。
     //     `load_settle_lines` 是按 `line_no` 读的，而建单时的物料顺序由用户决定；

@@ -23,9 +23,21 @@
 //! # 边界（刻意不做的事）
 //!
 //! - **不改任何数据**：本模块只读 + 报错，存量非基本单位的明细行由业务确认后再修（见卡面 §4）；
-//! - **不碰主数据**：`biz_material.unit_id` 允许指向折算单位这一点本模块不管（改了会牵连
-//!   `biz_material` 的既有语义，属另一张卡）；
-//! - **不改变合法路径的任何行为**：`is_base = 1` 直接 `Ok(())`，一次多余的库读而已。
+//! - **不改变合法路径的任何行为**：`is_base = 1` 直接 `Ok(())`，一次多余的库读而已；
+//! - 完整换算（方案 A）不做：本模块只保证「折算单位进不了账」。
+//!
+//! # 三道闸（DC-09 + 本卡补口）
+//!
+//! ```text
+//! ① 建单 / 改单期   ensure_base_unit（判「物料现在的单位」）  采购 / 收货 / 调拨
+//! ② 过账 / 结算期   ensure_unit_row_is_base（判「明细快照的 unit_id」）
+//!                   · stockin_handler::post_stock_in / post_after_approval
+//!                   · transfer_settle::settle_transfer（调拨明细无 unit_id ⇒ 用 ensure_base_unit_in）
+//! ③ 物料主数据      ensure_material_unit_is_base（unit_id 只能指向基本单位）
+//! ```
+//!
+//! ① 挡不住「绕过接口 UPDATE 明细 / 物料」与「升级前建的草稿」，所以写账的两个入口要按
+//! **快照**再判一次；③ 则是把「建出来的物料任何单据都 400」这种死路堵在源头。
 //!
 //! # 单元（unit）与「未删除」
 //!
@@ -88,12 +100,97 @@ impl MaterialUnitRef {
 ///
 /// 数据库异常 → [`DbError`]。
 pub async fn material_unit_ref(material_id: Uuid) -> DbResult<Option<MaterialUnitRef>> {
-    let rows = db()
-        .find_with_params(MATERIAL_UNIT_SQL, vec![Value::from(&material_id)])
+    material_unit_ref_in(db(), material_id).await
+}
+
+/// 同 [`material_unit_ref`]，但**吃调用方的执行器**（事务内复检用：与写账同一连接）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn material_unit_ref_in(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+) -> DbResult<Option<MaterialUnitRef>> {
+    let rows = ex
+        .query_sql(
+            MATERIAL_UNIT_SQL.to_string(),
+            vec![Value::from(&material_id)],
+        )
         .await?;
     match rows.first() {
         None => Ok(None),
         Some(row) => Ok(Some(MaterialUnitRef::from_row(row)?)),
+    }
+}
+
+/// 取「一个单位行 +（可选）物料的编码」。
+///
+/// 第一条 `?` 是**物料**（空串 = 不关心物料编码），第二条是单位。
+/// 物料用 `LEFT JOIN` + `NULLIF(?::text,'')::uuid`：不传物料时 `m.id = NULL` 恒假，
+/// 结果仍是「单位行一行」，只是 `material_code` 为 NULL —— 不会把整行 join 掉。
+const UNIT_LINE_SQL: &str = "\
+SELECT u.unit_name, u.is_base, u.rate, b.unit_name AS base_unit_name, m.material_code \
+  FROM biz_unit u \
+  LEFT JOIN biz_unit b ON b.id = u.base_unit_id \
+  LEFT JOIN biz_material m ON m.id = NULLIF(?::text, '')::uuid AND m.deleted_at IS NULL \
+ WHERE u.id = ?::uuid";
+
+/// **单据明细自带单位**时的单位快照（`unit_id` 来自明细行，不是物料）。
+///
+/// 与 [`MaterialUnitRef`] 的区别只有一处：`material_code` 可空 ——
+/// 明细只带了 `unit_id` 时也能判「是不是基本单位」，只是报错文案里点不出物料编码。
+#[derive(Debug, Clone)]
+pub struct UnitLineRef {
+    /// 物料编码（`None` = 该单位不是从物料上取的 / 物料已删除）。
+    pub material_code: Option<String>,
+    /// 单位名称；`None` = 单位行已不存在（数据损坏）。
+    pub unit_name: Option<String>,
+    /// 是否基本单位；`None` 同上。
+    pub is_base: Option<i16>,
+    /// 折算率（`is_base = 0` 时才有意义）。
+    pub rate: Option<Decimal>,
+    /// 折算基准单位名称（`is_base = 0` 时才有意义）。
+    pub base_unit_name: Option<String>,
+}
+
+impl UnitLineRef {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            material_code: row.get_typed("material_code")?,
+            unit_name: row.get_typed("unit_name")?,
+            is_base: row.get_typed("is_base")?,
+            rate: row.get_typed("rate")?,
+            base_unit_name: row.get_typed("base_unit_name")?,
+        })
+    }
+}
+
+/// 按**单位主键**取单位行（可选带出物料编码）；单位不存在 → `Ok(None)`。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn unit_line_ref(
+    ex: &impl SqlExecutor,
+    unit_id: Uuid,
+    material_id: Option<Uuid>,
+) -> DbResult<Option<UnitLineRef>> {
+    let material = material_id.map(|id| id.to_string()).unwrap_or_default();
+    let rows = ex
+        .query_sql(
+            UNIT_LINE_SQL.to_string(),
+            vec![Value::Text(material), Value::from(&unit_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(UnitLineRef::from_row(row)?)),
     }
 }
 
@@ -105,7 +202,18 @@ pub fn trim_decimal(value: Decimal) -> String {
     if text == "-0" { "0".to_string() } else { text }
 }
 
-/// 非基本单位的统一报错文案（三处单据共用，任何一个字改动都算契约变更）。
+/// 报错文案里的「主体」：有物料编码就点名物料，否则只说「明细」。
+///
+/// 结算 / 过账期复检按的是**明细快照的单位**，某些调用点（如调拨明细）拿不到物料编码，
+/// 文案也只能退化成「明细」——不编一个假编码出来。
+fn line_subject(material_code: Option<&str>) -> String {
+    match material_code {
+        Some(code) => format!("物料 {code}"),
+        None => "明细".to_string(),
+    }
+}
+
+/// 非基本单位的统一报错文案（**唯一实现**，所有入口共用）。
 ///
 /// 形如：
 /// `items[0] 物料 W1B-M-003：单位「箱」不是基本单位：本版本不支持多单位换算，
@@ -113,6 +221,25 @@ pub fn trim_decimal(value: Decimal) -> String {
 ///
 /// 末段的「录 N」是**按本行数量算好的建议值**（`qty × rate`，4 位四舍五入），
 /// 用户照抄就能过，不用自己拿计算器乘。
+fn not_base_line_message(
+    line_no: usize,
+    material_code: Option<&str>,
+    unit_name: &str,
+    rate: Decimal,
+    base_unit_name: &str,
+    qty: Decimal,
+) -> String {
+    let suggested = trim_decimal((qty * rate).round_dp(4));
+    let subject = line_subject(material_code);
+    format!(
+        "items[{line_no}] {subject}：单位「{unit_name}」不是基本单位：\
+         本版本不支持多单位换算，请按基本单位录入\
+         （1 {unit_name} = {} {base_unit_name} → 录 {suggested}）",
+        trim_decimal(rate)
+    )
+}
+
+/// 同 [`not_base_line_message`]，物料编码必有（建单期三个入口都查过物料）。
 fn not_base_message(
     line_no: usize,
     material_code: &str,
@@ -121,12 +248,25 @@ fn not_base_message(
     base_unit_name: &str,
     qty: Decimal,
 ) -> String {
-    let suggested = trim_decimal((qty * rate).round_dp(4));
+    not_base_line_message(
+        line_no,
+        Some(material_code),
+        unit_name,
+        rate,
+        base_unit_name,
+        qty,
+    )
+}
+
+/// 「单位行查不到」的统一报错文案（数据损坏，要人看，不是用户操作问题）。
+fn unit_missing_message(line_no: usize, material_code: Option<&str>) -> String {
+    let subject = match material_code {
+        Some(code) => format!("物料 {code}："),
+        None => String::new(),
+    };
     format!(
-        "items[{line_no}] 物料 {material_code}：单位「{unit_name}」不是基本单位：\
-         本版本不支持多单位换算，请按基本单位录入\
-         （1 {unit_name} = {} {base_unit_name} → 录 {suggested}）",
-        trim_decimal(rate)
+        "items[{line_no}] {subject}单位在 biz_unit 里查不到（明细的 unit_id 指向的行已不存在）：\
+         请先在「物料」主数据里重选计量单位"
     )
 }
 
@@ -152,7 +292,21 @@ pub async fn ensure_base_unit(
     line_no: usize,
     qty: Decimal,
 ) -> std::result::Result<(), ApiError> {
-    let Some(reference) = material_unit_ref(material_id).await? else {
+    ensure_base_unit_in(db(), material_id, line_no, qty).await
+}
+
+/// 同 [`ensure_base_unit`]，但**吃调用方的执行器**（结算在事务内 ⇒ 与写账同一连接）。
+///
+/// # 异常情况
+///
+/// 同 [`ensure_base_unit`]。
+pub async fn ensure_base_unit_in(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    line_no: usize,
+    qty: Decimal,
+) -> std::result::Result<(), ApiError> {
+    let Some(reference) = material_unit_ref_in(ex, material_id).await? else {
         // 物料查不到：三个调用点都在本守卫之前校验过存在性，走到这里只能是并发删除，
         // 交给调用方原来的文案去说，不在这里抢答。
         return Ok(());
@@ -183,6 +337,113 @@ pub async fn ensure_base_unit(
             reference.rate.unwrap_or(Decimal::ONE),
             base_unit_name,
             qty,
+        ),
+    ))
+}
+
+/// **写账入口的复检闸**：按**明细自带的 `unit_id`** 判「这一行是不是基本单位」。
+///
+/// 与 [`ensure_base_unit`] 的分工（缺一不可）：
+///
+/// ```text
+/// 建单 / 改单期  ensure_base_unit        —— 判「物料现在的单位」
+/// 过账 / 结算期  ensure_unit_row_is_base —— 判「明细里落下来的那个单位」
+/// ```
+///
+/// 为什么写账期必须判明细而不是物料：
+///
+/// 1. 单据明细把 `unit_id` **快照**下来了（`biz_stock_in_item.unit_id` 是 `NOT NULL`），
+///    过账只认快照；绕过接口 `UPDATE` 明细的单位（或升级前建的折算单位草稿）在建单期
+///    校验之后才出现，物料侧再怎么看都看不出问题；
+/// 2. 反过来，物料建单后被改成基本单位也不代表这行的 `qty` 是按基本单位录的。
+///
+/// # 入参
+///
+/// - `ex`：执行器（事务内传 `&tx`，事务外传 `db()`）；
+/// - `unit_id`：**明细行的** `unit_id`（不是物料当前的 `unit_id`）；
+/// - `material_id`：明细行的物料（只用于把编码写进文案；`None` = 不点名物料）；
+/// - `line_no`：明细行下标（0 起，与 `items[i]` 对齐）；
+/// - `qty`：本行数量（只用于算折算建议）。
+///
+/// # 返回
+///
+/// - `Ok(())`：基本单位；
+/// - `Err(400 + ERP_UNIT_NOT_BASE)`：明细单位是折算单位（文案带折算建议）；
+/// - `Err(400 + ERP_REFERENCE_MISSING)`：`unit_id` 指向的单位行已不存在（数据损坏）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`ApiError`]（`500`）。
+pub async fn ensure_unit_row_is_base(
+    ex: &impl SqlExecutor,
+    unit_id: Uuid,
+    material_id: Option<Uuid>,
+    line_no: usize,
+    qty: Decimal,
+) -> std::result::Result<(), ApiError> {
+    let Some(reference) = unit_line_ref(ex, unit_id, material_id).await? else {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_REFERENCE_MISSING,
+            unit_missing_message(line_no, None),
+        ));
+    };
+    if let Some(unit_name) = reference.unit_name.as_deref()
+        && reference.is_base != Some(1)
+    {
+        let base_unit_name = reference.base_unit_name.as_deref().unwrap_or("基本单位");
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_UNIT_NOT_BASE,
+            not_base_line_message(
+                line_no,
+                reference.material_code.as_deref(),
+                unit_name,
+                reference.rate.unwrap_or(Decimal::ONE),
+                base_unit_name,
+                qty,
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// **物料主数据的单位闸**：`biz_material.unit_id` 只能指向基本单位。
+///
+/// # 为什么主数据也要拦
+///
+/// 单据链路的判据是「物料的基础单位必须是基本单位」（[`ensure_base_unit`]）。
+/// 物料一旦挂在折算单位（`is_base = 0`）上，**它的任何单据都会被 400 拒**——
+/// 用户看到的只是「这个物料的单建不了」，完全不知道根因在主数据。
+/// 所以在建 / 改物料时就把这条路堵掉（本卡：DC-09 缺口 2）。
+///
+/// # 存量
+///
+/// 已经挂在折算单位上的历史物料会因此**不能再保存**（要先把单位改回基本单位）。
+/// 生产实测 0 行，命中就出清单给业务确认，**不自动改数据**。
+///
+/// # 入参
+///
+/// - `is_base`：单位行的 `is_base`（`1` = 基本单位）；
+/// - `unit_name`：单位名称（写进文案，用户一眼知道是哪个单位）。
+///
+/// # 返回
+///
+/// - `Ok(())`：基本单位；
+/// - `Err(400 + ERP_UNIT_NOT_BASE)`：折算单位。
+pub fn ensure_material_unit_is_base(
+    is_base: i16,
+    unit_name: &str,
+) -> std::result::Result<(), ApiError> {
+    if is_base == 1 {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        400,
+        error_code::ERP_UNIT_NOT_BASE,
+        format!(
+            "物料的计量单位必须是基本单位：折算单位（箱/打）只能用于显示，\
+             本版本单据不支持多单位换算（当前「{unit_name}」）"
         ),
     ))
 }
@@ -235,5 +496,63 @@ mod tests {
         assert_eq!(trim_decimal(dec("0.500000")), "0.5");
         assert_eq!(trim_decimal(dec("1.2500")), "1.25");
         assert_eq!(trim_decimal(dec("-0.000000")), "0");
+    }
+
+    /// ④ 明细自带单位（拿不到物料编码）时，文案退化成「明细」而不是编一个假编码。
+    ///
+    /// 过账 / 结算期复检走的就是这条：`biz_stock_in_item.unit_id` 说得清「哪个单位」，
+    /// 物料编码只是附加信息。
+    #[test]
+    fn not_base_line_message_without_material_code_says_line() {
+        let text = not_base_line_message(1, None, "箱", dec("12"), "个", dec("2"));
+        assert_eq!(
+            text,
+            "items[1] 明细：单位「箱」不是基本单位：本版本不支持多单位换算，\
+             请按基本单位录入（1 箱 = 12 个 → 录 24）"
+        );
+
+        // 带物料编码时与建单期口径**逐字一致**（同一个实现）
+        let with_code =
+            not_base_line_message(1, Some("W1B-M-003"), "箱", dec("12"), "个", dec("2"));
+        assert_eq!(
+            with_code,
+            not_base_message(1, "W1B-M-003", "箱", dec("12"), "个", dec("2"))
+        );
+        assert!(with_code.starts_with("items[1] 物料 W1B-M-003：单位「箱」"));
+    }
+
+    /// ⑤ 物料主数据闸：折算单位 400 + 66030，文案点名当前单位；基本单位直接放行。
+    #[test]
+    fn material_unit_must_be_base() {
+        assert!(ensure_material_unit_is_base(1, "个").is_ok());
+
+        let error = ensure_material_unit_is_base(0, "箱").expect_err("折算单位必须被拒");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE);
+        assert_eq!(
+            error.msg,
+            "物料的计量单位必须是基本单位：折算单位（箱/打）只能用于显示，\
+             本版本单据不支持多单位换算（当前「箱」）"
+        );
+        // 换一个折算单位名，只有「当前」那处跟着变（不是拼死的「箱」）
+        let other = ensure_material_unit_is_base(0, "打").expect_err("折算单位必须被拒");
+        assert!(other.msg.ends_with("（当前「打」）"), "{}", other.msg);
+    }
+
+    /// ⑥ 单位行查不到（数据损坏）的文案：点名 biz_unit 与「重选计量单位」，别让用户以为是自己填错。
+    #[test]
+    fn unit_missing_message_points_at_master_data() {
+        let with_code = unit_missing_message(2, Some("W1B-M-003"));
+        assert!(
+            with_code.starts_with("items[2] 物料 W1B-M-003：单位在 biz_unit 里查不到"),
+            "{with_code}"
+        );
+        assert!(with_code.contains("重选计量单位"), "{with_code}");
+
+        let plain = unit_missing_message(0, None);
+        assert!(
+            plain.starts_with("items[0] 单位在 biz_unit 里查不到"),
+            "{plain}"
+        );
     }
 }
