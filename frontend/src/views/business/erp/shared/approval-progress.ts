@@ -81,6 +81,33 @@ export function mapApprovalTasks(
 }
 
 /**
+ * 已经在手的实例详情 → `ApprovalProgress`（不额外发请求）。
+ *
+ * 调拨单详情要同时用**实例级字段**（提交人 / 提交时间 / 单号 —— `FlowProgress`
+ * 只画节点，这些不在 `nodes[]` 里）与节点 + 审批人明细，若走
+ * `loadApprovalProgress(id, getFlowInstance)` 再自己拉一遍就是两次请求；
+ * 这个同步映射让「拉一次实例、两处都用」。
+ * `null` → 空结果（与 `loadApprovalProgress` 的降级一致）。
+ */
+export function approvalProgressOf(
+  instance:
+    | {
+        nodes?: readonly FlowNodeProgress[] | null;
+        timeline?: readonly FlowTaskItem[] | null;
+      }
+    | null
+    | undefined,
+): ApprovalProgress {
+  if (!instance) {
+    return { ...EMPTY_APPROVAL_PROGRESS };
+  }
+  return {
+    nodes: mapApprovalNodes(instance.nodes),
+    tasks: mapApprovalTasks(instance.timeline),
+  };
+}
+
+/**
  * 拉审批进度。**永不抛异常**：
  * - 没有实例 id → 直接空结果（不发请求）；
  * - 请求失败（权限 / 实例已归档 / 网络）→ 空结果，页面降级成单号链接。
@@ -99,11 +126,7 @@ export async function loadApprovalProgress(
     return { ...EMPTY_APPROVAL_PROGRESS };
   }
   try {
-    const instance = await fetchInstance(instanceId);
-    return {
-      nodes: mapApprovalNodes(instance.nodes),
-      tasks: mapApprovalTasks(instance.timeline),
-    };
+    return approvalProgressOf(await fetchInstance(instanceId));
   } catch {
     return { ...EMPTY_APPROVAL_PROGRESS };
   }

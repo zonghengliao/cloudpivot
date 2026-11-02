@@ -397,6 +397,21 @@
             class="balance-alert"
             data-testid="voucher-balance-mismatch"
           />
+
+          <!--
+            ★ C2：审批进度（凭证只在「红冲审批中」时挂实例 `pending_reverse_instance_id`）。
+            与采购 / 收货 / 应付 / 调拨同一个 `FlowProgress` + 同一个装载器：
+            节点进度 + 审批人明细（谁 / 什么时间 / 意见或跳过说明）都来自
+            `GET /business/flow/instance/{id}`，前端不自己推「走到第几步」。
+          -->
+          <template v-if="hasApprovalProgress(reverseProgress)">
+            <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
+            <FlowProgress
+              :nodes="reverseProgress.nodes"
+              :tasks="reverseProgress.tasks"
+              data-testid="voucher-approval-progress"
+            />
+          </template>
         </t-loading>
       </div>
     </t-drawer>
@@ -622,6 +637,15 @@ import {
 } from './voucher-logic';
 import { submitFeedback, withdrawFeedback } from '../shared/approval-flow';
 import { dash, formatCents, formatMoney, shortDate, toCents } from '../shared/money';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import { getFlowInstance } from '@/api/business/flow-api';
+import {
+  APPROVAL_PROGRESS_TITLE,
+  EMPTY_APPROVAL_PROGRESS,
+  hasApprovalProgress,
+  loadApprovalProgress,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
 
 /** 表格列（`colKey` 与 `VoucherRow` 字段同名；`source_type` / `entry_count` 不是列字段，走插槽） */
 const columns: PrimaryTableCol[] = [
@@ -861,6 +885,25 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detail = ref<VoucherDetailEx | null>(null);
 
+/**
+ * 审批进度（C2）。
+ *
+ * 凭证只在「红冲审批中」时挂 `pending_reverse_instance_id`（P-FLOW-3B 起 `VoucherRes`
+ * 的列表 / 详情 / 红冲回执三处都下发），所以这里只有一张单能画：红冲审批。
+ * 装载器与采购 / 收货 / 应付 / 调拨同一个（`shared/approval-progress`），
+ * `tasks` 就是同一接口的 `timeline[]`（谁 / 时间 / 意见 / 跳过说明）。
+ * 拉不到（权限 / 实例已归档）→ 空结果，只少这一块，不影响凭证本身。
+ */
+const reverseProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+
+/** 按凭证当前的红冲实例 id 重拉进度（没有实例 id → 直接清空，一次请求都不发）。 */
+async function loadReverseProgress(row: VoucherDetailEx | null): Promise<void> {
+  reverseProgress.value = await loadApprovalProgress(
+    row?.pending_reverse_instance_id ?? null,
+    getFlowInstance,
+  );
+}
+
 /** 空凭证（打开抽屉的占位，避免下一帧读到上一张凭证的合计） */
 function emptyDetail(row: VoucherRow): VoucherDetailEx {
   const extended = row as VoucherRowEx;
@@ -893,9 +936,12 @@ async function openDetail(row: VoucherRow): Promise<void> {
   detail.value = emptyDetail(row);
   detailVisible.value = true;
   detailLoading.value = true;
+  // 先清进度：上一张凭证的红冲审批节点不能漏到这一张上
+  reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
   try {
     const loaded = await loadDetailEx(row.id);
     detail.value = normalizePendingReverse(loaded);
+    await loadReverseProgress(detail.value);
   } catch (error) {
     // 详情失败不关抽屉：单头仍可看，分录位置给出原因
     void MessagePlugin.error(messageOf(error));
@@ -924,6 +970,7 @@ async function openById(id: string | null): Promise<void> {
   detailLoading.value = true;
   try {
     detail.value = normalizePendingReverse(await loadDetailEx(id));
+    await loadReverseProgress(detail.value);
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -1002,10 +1049,13 @@ async function submitReverse(): Promise<void> {
       const instanceId = result.pending_reverse_instance_id ?? result.approval_instance_id ?? null;
       detail.value = normalizePendingReverse({ ...result, pending_reverse_instance_id: instanceId });
       detailVisible.value = true;
+      // C2：送审那一刻就把审批进度拉出来（看到「谁是第一个审批人 / 现在停在哪个节点」）
+      await loadReverseProgress(detail.value);
     } else {
       // 直接红冲：抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
       detail.value = result;
       detailVisible.value = true;
+      reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
     void loadVouchers();
   } catch (error) {
@@ -1056,6 +1106,8 @@ async function doWithdrawReverse(row: { id: string; voucher_no: string }): Promi
     // 撤回后后端已把 `pending_reverse_instance_id` 置空（响应里就是 null），抽屉直接用它
     if (detail.value?.id === updated.id) {
       detail.value = normalizePendingReverse({ ...updated, pending_reverse_instance_id: null });
+      // C2：审批单没了 → 进度区跟着消失（不留上一张审批单的节点）
+      reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
     void loadVouchers();
   } catch (error) {
@@ -1232,6 +1284,17 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/*
+ * 区块标题（C2 新增「审批进度」用）。
+ * 与采购 / 收货 / 应付 / 调拨同一组值（16px 上边距 + 13px 600），四个单据看起来一样。
+ */
+.section-title {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
 }
 
 /* ==================== 工具栏 ==================== */

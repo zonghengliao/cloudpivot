@@ -703,10 +703,18 @@
 
         <p v-if="detail.summary" class="detail__summary">{{ detail.summary }}</p>
 
-        <!-- P16：作废审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行） -->
-        <template v-if="approvalNodes.length > 0">
+        <!--
+          P16：作废审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行）。
+          C2：与采购 / 应付 / 凭证 / 调拨统一口径 —— 节点进度 + 审批人明细（谁 / 时间 / 意见 / 跳过说明）
+          都来自同一个 `GET /business/flow/instance/{id}`，`tasks` 就是它的 `timeline[]`。
+        -->
+        <template v-if="hasApprovalProgress(approvalProgress)">
           <div class="section-title">作废审批进度</div>
-          <FlowProgress :nodes="approvalNodes" data-testid="stockin-cancel-progress" />
+          <FlowProgress
+            :nodes="approvalProgress.nodes"
+            :tasks="approvalProgress.tasks"
+            data-testid="stockin-cancel-progress"
+          />
         </template>
 
         <div class="section-title">明细（{{ detail.items.length }} 条）</div>
@@ -790,9 +798,13 @@ import { pickFields, resolveDefaults } from '@/composables/memory-core';
 import { useFormMemory } from '@/composables/useFormMemory';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
-import FlowProgress, {
-  type FlowProgressNode,
-} from '@/views/business/flow/components/FlowProgress.vue';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import {
+  EMPTY_APPROVAL_PROGRESS,
+  hasApprovalProgress,
+  loadApprovalProgress,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
 import {
   AMOUNT_COLUMN_TITLE,
   ESTIMATE_DISABLED_TIP,
@@ -1642,8 +1654,8 @@ const detailVisible = ref(false);
 const detailLoading = ref(false);
 const detailError = ref('');
 const detail = ref<StockInDetail | null>(null);
-/** 作废审批进度（P16；空 = 没挂审批单 / 拉不到） */
-const approvalNodes = ref<FlowProgressNode[]>([]);
+/** 作废审批进度（P16；空 = 没挂审批单 / 拉不到）。C2 起连审批人明细（tasks）一起带 */
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 /** D9：复制进行中（按钮同时 loading + disabled —— 连点只建一张） */
 const copying = ref(false);
 /** D9：复制提示（来源采购单被清空时显示在表单顶部；下次打开表单要清掉） */
@@ -1659,41 +1671,20 @@ async function loadDetail(id: string): Promise<void> {
   detailLoading.value = true;
   detailError.value = '';
   detail.value = null;
-  approvalNodes.value = [];
+  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
   try {
-    detail.value = await fetchStockInDetail(id);
-    await loadApprovalProgress(detail.value?.header?.approval_instance_id ?? null);
+    const loaded = await fetchStockInDetail(id);
+    detail.value = loaded;
+    // P16 → C2：只有在「作废审批中」的单据才挂 `approval_instance_id`；
+    // 装载走 `shared/approval-progress`（与采购 / 应付 / 凭证 / 调拨同一个函数）。
+    approvalProgress.value = await loadApprovalProgress(
+      loaded?.header?.approval_instance_id ?? null,
+      getFlowInstance,
+    );
   } catch (error) {
     detailError.value = messageOf(error);
   } finally {
     detailLoading.value = false;
-  }
-}
-
-/**
- * 拉审批进度（P16：只有在「作废审批中」的单据才挂 `approval_instance_id`）。
- *
- * 直接复用审批中心的 `getFlowInstance` + `FlowProgress`：
- * **进度只来自引擎写的节点行**，前端不自己猜「走到第几步」。
- * 拉不到（权限 / 实例已归档）就退化为不显示，不让详情页整块失败。
- */
-async function loadApprovalProgress(instanceId: string | null): Promise<void> {
-  if (!instanceId) {
-    approvalNodes.value = [];
-    return;
-  }
-  try {
-    const instance = await getFlowInstance(instanceId);
-    approvalNodes.value = (instance.nodes ?? []).map((node) => ({
-      node_key: node.node_key,
-      name: node.node_name || node.node_key,
-      type: node.node_type,
-      round: node.round,
-      status: node.status,
-      approver_count: node.approver_count ?? 0,
-    }));
-  } catch {
-    approvalNodes.value = [];
   }
 }
 

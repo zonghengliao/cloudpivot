@@ -441,10 +441,18 @@
             </p>
           </div>
 
-          <!-- ★ P17：付款审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行） -->
-          <template v-if="approvalNodes.length > 0">
+          <!--
+            ★ P17：付款审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行）。
+            C2：`tasks` 也传（同一接口的 `timeline[]`）—— 付款 / 作废审批都能看到
+            谁审的、什么时间、意见或跳过说明，与采购 / 收货 / 凭证 / 调拨统一。
+          -->
+          <template v-if="hasApprovalProgress(approvalProgress)">
             <div class="section-title">{{ approvalTitle }}</div>
-            <FlowProgress :nodes="approvalNodes" data-testid="payable-approval-progress" />
+            <FlowProgress
+              :nodes="approvalProgress.nodes"
+              :tasks="approvalProgress.tasks"
+              data-testid="payable-approval-progress"
+            />
           </template>
 
           <p v-if="showActionNote" class="drawer-note">
@@ -597,10 +605,14 @@ import {
   type PayablePayment,
   type PayablePaymentInfo,
 } from './payable-write-api';
-import FlowProgress, {
-  type FlowProgressNode,
-} from '@/views/business/flow/components/FlowProgress.vue';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import { getFlowInstance } from '@/api/business/flow-api';
+import {
+  EMPTY_APPROVAL_PROGRESS,
+  hasApprovalProgress,
+  loadApprovalProgress,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
 import {
   PAYABLE_PAGE_SIZE,
   PAYABLE_STATUS_FILTER_OPTIONS,
@@ -908,7 +920,7 @@ async function openDetail(row: PayableRow): Promise<void> {
 async function refreshApprovalProgress(row: PayableDetail): Promise<void> {
   const pendingPay = row.payments?.find((item) => item.approval_instance_id);
   const target = approvalTargetOf(row, pendingPay?.approval_instance_id);
-  await loadApprovalProgress(target.instanceId, target.title);
+  await loadApprovalProgressOf(target.instanceId, target.title);
 }
 
 // ==================== D5：可付信息（应付单 → 发起付款） ====================
@@ -1007,8 +1019,8 @@ function openPayFromDetail(): void {
 
 // ==================== 付款审批进度（P17） ====================
 
-/** 审批进度节点（`FlowProgress` 的最小形状，只来自后端节点行）。 */
-const approvalNodes = ref<FlowProgressNode[]>([]);
+/** 审批进度（`FlowProgress` 的最小形状，只来自后端节点行）+ 审批人明细（C2 起同传 `tasks`）。 */
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
 /**
  * 进度区标题。
@@ -1021,32 +1033,17 @@ const approvalTitle = ref('付款审批进度');
 /**
  * 拉审批进度。
  *
- * 直接复用审批中心的 `getFlowInstance` + `FlowProgress`：
- * **进度只来自引擎写的节点行**，前端不自己猜「走到第几步」。
+ * 直接复用审批中心的 `getFlowInstance` + 共享装载器 `shared/approval-progress`
+ * （与采购 / 收货 / 凭证 / 调拨同一份代码）：**进度只来自引擎写的节点行**，
+ * 前端不自己猜「走到第几步」；`tasks` 是同一接口的 `timeline[]`（谁 / 时间 / 意见）。
  * 拉不到（权限 / 实例已归档）就退化为不显示，不让详情抽屉整块失败。
  */
-async function loadApprovalProgress(
+async function loadApprovalProgressOf(
   instanceId: string | null,
   title = '付款审批进度',
 ): Promise<void> {
   approvalTitle.value = title;
-  if (!instanceId) {
-    approvalNodes.value = [];
-    return;
-  }
-  try {
-    const instance = await getFlowInstance(instanceId);
-    approvalNodes.value = (instance.nodes ?? []).map((node) => ({
-      node_key: node.node_key,
-      name: node.node_name || node.node_key,
-      type: node.node_type,
-      round: node.round,
-      status: node.status,
-      approver_count: node.approver_count ?? 0,
-    }));
-  } catch {
-    approvalNodes.value = [];
-  }
+  approvalProgress.value = await loadApprovalProgress(instanceId, getFlowInstance);
 }
 
 /** 付款记录的审批状态配色：审批中=橙色告警，已通过=绿色，驳回=红色，终止=灰。 */
@@ -1191,7 +1188,7 @@ async function submitPay(): Promise<void> {
     }
     // 列表刷新（未付金额 / 状态可能变了），抽屉里换成最新单头 + 审批进度
     detail.value = result.detail;
-    await loadApprovalProgress(result.approval_instance_id);
+    await loadApprovalProgressOf(result.approval_instance_id);
     // ★ D5：可付信息跟着刷新（未付变了 → 按钮文案 / 能否再付都要重算）
     await loadPayInfo(target.id);
     void loadPayables();
@@ -1351,6 +1348,18 @@ onMounted(() => {
 </script>
 
 <style scoped lang="less">
+
+/*
+ * 区块标题（「付款审批进度」「付款记录」这类）。
+ * C2 补：本页原来只有 class 没有样式，标题挤在上一个块的末行 ——
+ * 与采购 / 收货 / 凭证 / 调拨的 `section-title` 取同一组值（16px 上边距 + 13px 600）。
+ */
+.section-title {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--td-text-color-primary);
+}
 .payable-page {
   display: flex;
   flex-direction: column;

@@ -342,28 +342,31 @@
           </template>
         </t-table>
 
-        <!-- 审批进度：approval_instance_id 是弱引用，有才查 -->
+        <!--
+          审批进度（C2：换掉本页自绘时间线，改用全站 `FlowProgress`）。
+          `approval_instance_id` 是弱引用，有才查；节点 + 审批人明细（谁 / 时间 / 意见 /
+          跳过说明）都来自同一个 `GET /business/flow/instance/{id}`，与采购 / 收货 /
+          应付 / 凭证长得一模一样。
+          ⚠ 自绘时间线原来还有两条**实例级**信息（提交人 + 提交时间），`FlowProgress`
+          只画节点、不含它们，所以单独一行文字补回来（`buildApprovalSteps` 第一步，
+          文案与老时间线一致）；「完成 / 驳回」这类终态由 END 节点的状态文案覆盖。
+        -->
         <div class="section-title">审批进度</div>
         <div v-if="!detail.approval_instance_id" class="approval-empty" data-testid="transfer-approval-none">
-          未提交审批（草稿状态没有审批实例；提交后这里会显示时间线）
+          未提交审批（草稿状态没有审批实例；提交后这里会显示审批进度）
         </div>
         <div v-else-if="approvalLoading" class="drawer-loading"><t-loading size="small" /> 审批进度加载中…</div>
         <t-alert v-else-if="approvalError" theme="warning" :message="approvalError" />
-        <ul v-else class="timeline" data-testid="transfer-approval-timeline">
-          <li v-for="(step, index) in approvalSteps" :key="index" class="timeline__item">
-            <span class="timeline__dot" :class="`timeline__dot--${step.tone}`" />
-            <div class="timeline__body">
-              <div class="timeline__head">
-                <span class="timeline__who">{{ step.who }}</span>
-                <span class="timeline__what">{{ step.what }}</span>
-                <t-tag v-if="step.isAuto" size="small" variant="outline">系统代点</t-tag>
-                <t-tag v-if="step.isSelf" size="small" variant="outline" theme="warning">自审</t-tag>
-              </div>
-              <div class="timeline__time">{{ formatTime(step.at) }}</div>
-              <div v-if="step.comment" class="timeline__comment">{{ step.comment }}</div>
-            </div>
-          </li>
-        </ul>
+        <template v-else>
+          <div v-if="approvalSubmitText" class="approval-submit" data-testid="transfer-approval-submit">
+            {{ approvalSubmitText }}
+          </div>
+          <FlowProgress
+            :nodes="approvalProgress.nodes"
+            :tasks="approvalProgress.tasks"
+            data-testid="transfer-approval-progress"
+          />
+        </template>
       </div>
     </t-drawer>
 
@@ -701,7 +704,13 @@ import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { pickFields, resolveDefaults } from '@/composables/memory-core';
 import { useFormMemory } from '@/composables/useFormMemory';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
-import { getFlowInstance } from '@/api/business/flow-api';
+import { getFlowInstance, type FlowInstance } from '@/api/business/flow-api';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import {
+  EMPTY_APPROVAL_PROGRESS,
+  approvalProgressOf,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
 import {
   OVERDUE_DEFAULT_THRESHOLD_DAYS,
   SERIAL_OPTION_LIMIT,
@@ -735,7 +744,6 @@ import {
   availableActions,
   validateTransferForm,
   withdrawReasonError,
-  type ApprovalStep,
   type TransferAction,
   type TransferFilterState,
   type TransferFormErrors,
@@ -1313,12 +1321,29 @@ const detail = ref<TransferDetail | null>(null);
 const detailLoading = ref(false);
 /** 详情错误 */
 const detailError = ref('');
-/** 审批时间线 */
-const approvalSteps = ref<ApprovalStep[]>([]);
+/** 审批进度（节点 + 审批人明细；与其它单据同一份装载器） */
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+/** 实例级信息（提交人 / 提交时间 / 单号 —— `FlowProgress` 只画节点，这些不在里面） */
+const approvalInstance = ref<FlowInstance | null>(null);
 /** 审批加载中 */
 const approvalLoading = ref(false);
 /** 审批错误 */
 const approvalError = ref('');
+
+/**
+ * 提交那一行（`提交人 X · 2026-11-01 14:00:00 · FLW-…`）。
+ *
+ * 换组件前本页自绘时间线的第一行就是「谁 · 提交 · 时间」，`FlowProgress` 不含实例级字段，
+ * 这一行补回来（口径直接取 `buildApprovalSteps` 的第一步，文案与审批详情页一致）。
+ */
+const approvalSubmitText = computed(() => {
+  const instance = approvalInstance.value;
+  if (!instance) {
+    return '';
+  }
+  const [submit] = buildApprovalSteps({ instance, timeline: [] });
+  return `提交人 ${submit.who} · ${formatTime(submit.at)} · ${instance.instance_no}`;
+});
 
 /**
  * 点行 → 抽屉（点了操作列的链接不会走到这里：`.op-cell` 上 `@click.stop`）。
@@ -1335,23 +1360,13 @@ async function openDetail(row: TransferRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   detailError.value = '';
-  approvalSteps.value = [];
+  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+  approvalInstance.value = null;
   approvalError.value = '';
   try {
     const data = await fetchTransferDetail(row.id);
     detail.value = data;
-    if (data.approval_instance_id) {
-      approvalLoading.value = true;
-      try {
-        const instanceDetail = await getFlowInstance(data.approval_instance_id);
-        approvalSteps.value = buildApprovalSteps(instanceDetail);
-      } catch (error) {
-        // 审批实例查不到不影响单据本身：给黄条，不吞掉详情
-        approvalError.value = `审批进度加载失败：${messageOf(error)}`;
-      } finally {
-        approvalLoading.value = false;
-      }
-    }
+    await loadTransferApproval(data.approval_instance_id);
   } catch (error) {
     detail.value = null;
     detailError.value = isNotFound(error)
@@ -1359,6 +1374,34 @@ async function openDetail(row: TransferRow): Promise<void> {
       : `详情加载失败：${messageOf(error)}`;
   } finally {
     detailLoading.value = false;
+  }
+}
+
+/**
+ * 拉审批进度（`approval_instance_id` 是弱引用；没有就什么都不发）。
+ *
+ * 实例详情**只拉一次**：节点 + 审批人明细交给共享的 `approvalProgressOf`
+ * （与采购 / 收货 / 应付 / 凭证同一份映射），实例级字段（提交人 / 单号）另存。
+ * 拉不到不影响单据本身：给黄条 + 空进度，不把详情整块吞掉。
+ */
+async function loadTransferApproval(instanceId: string | null): Promise<void> {
+  if (!instanceId) {
+    approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+    approvalInstance.value = null;
+    return;
+  }
+  approvalLoading.value = true;
+  approvalError.value = '';
+  try {
+    const instanceDetail = await getFlowInstance(instanceId);
+    approvalInstance.value = instanceDetail.instance;
+    approvalProgress.value = approvalProgressOf(instanceDetail);
+  } catch (error) {
+    approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+    approvalInstance.value = null;
+    approvalError.value = `审批进度加载失败：${messageOf(error)}`;
+  } finally {
+    approvalLoading.value = false;
   }
 }
 
@@ -1951,90 +1994,14 @@ onMounted(async () => {
   background: var(--td-bg-color-container-hover);
 }
 
-/* 审批时间线（与审批详情页同构：圆点 + 谁 + 做了什么 + 时间 + 意见） */
-.timeline {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.timeline__item {
-  position: relative;
-  display: flex;
-  gap: 10px;
-  padding-bottom: 14px;
-}
-
-.timeline__item:not(:last-child)::before {
-  position: absolute;
-  top: 14px;
-  bottom: 0;
-  left: 3px;
-  width: 1px;
-  content: '';
-  background: var(--td-component-stroke);
-}
-
-.timeline__dot {
-  flex: 0 0 auto;
-  width: 7px;
-  height: 7px;
-  margin-top: 6px;
-  border-radius: 50%;
-  background: var(--td-text-color-placeholder);
-}
-
-.timeline__dot--submit {
-  background: var(--td-brand-color);
-}
-
-.timeline__dot--approve {
-  background: var(--td-success-color);
-}
-
-.timeline__dot--reject {
-  background: var(--td-error-color);
-}
-
-.timeline__dot--end {
-  background: var(--td-text-color-secondary);
-}
-
-.timeline__dot--pending {
-  background: var(--td-warning-color);
-}
-
-.timeline__body {
-  min-width: 0;
-}
-
-.timeline__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.timeline__who {
-  font-weight: 600;
-  color: var(--td-text-color-primary);
-}
-
-.timeline__what {
-  color: var(--td-text-color-secondary);
-}
-
-.timeline__time {
-  margin-top: 2px;
+/*
+ * 审批进度（C2）：自绘时间线已换成全站 `FlowProgress`，这里只留一行实例级说明
+ * （提交人 / 提交时间 / 单号 —— 进度条只画节点，不含这些）。
+ */
+.approval-submit {
+  margin: 0 0 6px 4px;
   font-size: 12px;
   color: var(--td-text-color-placeholder);
-}
-
-.timeline__comment {
-  margin-top: 4px;
-  font-size: 12px;
-  color: var(--td-text-color-secondary);
-  word-break: break-all;
 }
 
 /* ==================== 弹窗表单 ==================== */
