@@ -3517,6 +3517,24 @@ async fn dispatch_task_notice(
     operator: Uuid,
     operator_name: &str,
 ) -> Vec<Uuid> {
+    match task_notice_draft(task, notice, operator, operator_name) {
+        Some(draft) => send_task_notice_draft(draft).await,
+        None => Vec::new(),
+    }
+}
+
+/// 组装任务站内信草稿（**不发**）。
+///
+/// 抽出来的唯一原因是「跨单据联动白名单」（D2 · 阶段 4）：配置驱动的通知要与
+/// 这条既有通知**逐字段对比**（影子模式）才能证明接管后行为一致。
+/// 文案、收件人、链接、分级仍然只有这一处计算 —— 配置不写覆盖键时逐字沿用它，
+/// 所以不存在「两套文案」的双真相。
+fn task_notice_draft(
+    task: &TaskDetailRow,
+    notice: TaskNotice<'_>,
+    operator: Uuid,
+    operator_name: &str,
+) -> Option<NoticeDraft> {
     let TaskNotice {
         recipients,
         force,
@@ -3531,14 +3549,14 @@ async fn dispatch_task_notice(
     targets.sort();
     targets.dedup();
     if targets.is_empty() {
-        return Vec::new();
+        return None;
     }
     let mut draft = NoticeDraft::text(
         NoticeType::Todo,
         NoticeLevel::Info,
         title,
         content,
-        NoticeTarget::User(targets.clone()),
+        NoticeTarget::User(targets),
     );
     draft.link_url = Some(format!("/task/list?id={}", task.card.id));
     draft.biz_type = Some("task".to_string());
@@ -3549,6 +3567,16 @@ async fn dispatch_task_notice(
     // `notice::dispatch` → `fanout::respecting_preference`（本卡把 T2 里那份
     // Rust 侧逐个 `inbox_enabled` 的判断删掉了：两份实现迟早不一致）。
     draft.force = force;
+    Some(draft)
+}
+
+/// 投递一份已组装的任务站内信，返回实际投递目标（失败 → 空）。
+async fn send_task_notice_draft(draft: NoticeDraft) -> Vec<Uuid> {
+    let targets = match &draft.target {
+        NoticeTarget::User(users) => users.clone(),
+        _ => Vec::new(),
+    };
+    let force = draft.force;
     match notice::dispatch(draft).await {
         Ok(result) => {
             tracing::info!(
@@ -3566,13 +3594,26 @@ async fn dispatch_task_notice(
     }
 }
 
-/// 状态流转通知（修正 8 分级表，逐行实现）。
+/// 状态流转通知（修正 8 分级表，逐行实现；**D2 起可被配置接管**）。
 ///
 /// | 事件 | 接收人 | 强制 |
 /// |---|---|---|
 /// | 被打回（`REVIEW → DOING`） | 负责人 | ✅ |
 /// | 待你验收（`→ REVIEW`） | 创建人 + 分派人 | ✅ |
 /// | 其它状态变更（他人操作） | 负责人 + 创建人 | ❌ 尊重 `notify.inbox` |
+///
+/// # 与跨单据联动白名单的关系（D2 · 阶段 4 · 第 2 步）
+///
+/// 通知的**内容**（收件人 / 分级 / 文案）仍由上面这张表算；配置能改的只是
+/// 「由谁发、发不发、覆盖哪些字段」：
+///
+/// 1. 先用本函数算好的草稿问一句 `flow::linkage::engine::status_notice`；
+/// 2. 没有 `SEND_NOTICE` 规则 → 原样照旧发（**行为逐字不变**）；
+/// 3. 规则 `mode = SHADOW` → 打一条「影子对比」日志，仍由这里发（用户看不到任何变化）；
+/// 4. 规则 `mode = TAKEOVER` → 引擎发了，这里**不发**（否则用户会收到两条一样的）。
+///
+/// 任何一步校验不过（参数非法 / 收件人都不存在），引擎一律退回「旧逻辑发」——
+/// 通知漏发是事故，配置写错不能让它变成事故。
 async fn notify_status_change(
     task: &TaskDetailRow,
     from: TaskStatus,
@@ -3621,7 +3662,7 @@ async fn notify_status_change(
             ),
         ),
     };
-    dispatch_task_notice(
+    let Some(draft) = task_notice_draft(
         task,
         TaskNotice {
             recipients,
@@ -3632,8 +3673,38 @@ async fn notify_status_change(
         },
         operator,
         operator_name,
+    ) else {
+        return;
+    };
+    // 跨单据联动白名单（D2 · 阶段 4 · 第 2 步）：有 SEND_NOTICE 配置时决定「谁发」
+    // （影子对比 / 接管），没配置时恒返回 Legacy —— 行为与 D2 之前逐字相同。
+    let ctx = crate::business::flow::linkage::engine::LinkageContext::new(
+        crate::business::flow::linkage::spec::TRIGGER_TASK,
+        to.code(),
+        task.card.id,
+        &task.card.task_no,
+        Some(operator),
     )
-    .await;
+    .with_people(
+        Some(task.card.owner_id),
+        Some(task.creator_id),
+        task.assigner_id,
+    )
+    .with_notice(draft.clone());
+    match crate::business::flow::linkage::engine::status_notice(&ctx).await {
+        crate::business::flow::linkage::NoticeRoute::Legacy { .. } => {
+            send_task_notice_draft(draft).await;
+        }
+        crate::business::flow::linkage::NoticeRoute::Configured { rule_id, .. } => {
+            tracing::info!(
+                task_id = %task.card.id,
+                task_no = %task.card.task_no,
+                status = to.code(),
+                rule_id = %rule_id,
+                "任务状态通知已由联动配置接管（旧逻辑本次不发）"
+            );
+        }
+    }
 }
 
 /// 父任务「子任务全部完成」通知（尊重偏好，修正 8）。

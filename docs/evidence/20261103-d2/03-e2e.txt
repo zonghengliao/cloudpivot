@@ -1,0 +1,31 @@
+== D2 跨单据联动白名单 · 真机验收 ==
+[PASS] A1 表 biz_flow_linkage_rule 已建  —— pg_tables=1
+[PASS] A2 迁移已应用到 V0205  —— max(version)=205
+[PASS] A3 约束存在：ck_flow_linkage_action_code  —— ck_flow_linkage_action_code,ck_flow_linkage_name,ck_flow_linkage_no_sql_key,ck_flow_linkage_params_object,ck_flow_linkage_seq
+[PASS] A3 约束存在：ck_flow_linkage_no_sql_key  —— ck_flow_linkage_action_code,ck_flow_linkage_name,ck_flow_linkage_no_sql_key,ck_flow_linkage_params_object,ck_flow_linkage_seq
+[PASS] A3 约束存在：ck_flow_linkage_params_object  —— ck_flow_linkage_action_code,ck_flow_linkage_name,ck_flow_linkage_no_sql_key,ck_flow_linkage_params_object,ck_flow_linkage_seq
+[PASS] A4 初始 0 条规则（空表 = 行为不变）  —— rules=0
+[PASS] A5 admin 登录成功
+[PASS] A6 造出「非操作人」的负责人（任务通知会剔除操作人自己）  —— 01a19e1f-44d4-7782-9b4e-7f889eb6c795
+[PASS] B1 无规则时仍发 1 条旧逻辑通知  —— rows=1
+[PASS] B2 标题 = 任务状态变更（旧逻辑文案）  —— 任务状态变更
+[PASS] B3 biz_type = task  —— task
+[PASS] C1 规则已写入（能存）
+[PASS] C2 规则能读回来  —— TASK/DOING/SEND_NOTICE/{"mode": "SHADOW"}
+[PASS] C3 影子模式仍只有 1 条通知（不双发）  —— rows=1
+[PASS] C4 日志出现「联动影子对比」
+[PASS] C5 影子对比结果一致（matched=true）  —— 2026-11-02T21:34:59.662316Z  INFO cloudpivot::business::flow::linkage::engine: 联动影子对比：配置算出的通知 vs 触发点旧逻辑 rule_id=63154bb6-56bd-4b35-8bf0-60d1e8342cbb mode="SHADOW" trigger_entity="TASK" trigger_status="DOING" doc_id=01a19e2f-de3f-75ac-b902-dd24b34d3dcc doc_no="TSK-202611-000018" matched=true diffs=[]
+[PASS] D1 接管后恰好 1 条通知（旧逻辑没有双发）  —— rows=1
+[PASS] D2 日志写明「配置发出」
+[PASS] D3 日志写明旧逻辑本次不发
+[PASS] D4 接管通知标题与旧逻辑一致  —— 任务状态变更
+[PASS] D5 接管通知正文与旧逻辑同一套模板  —— 任务「D2E2E-接管-配置发」（TSK-202611-000019）由 admin 从「待开始」改为「进行中」
+[PASS] D6 biz_type 一致
+[PASS] D7 接收人数一致  —— 1
+[PASS] E1 配置非法时仍发 1 条通知（退回旧逻辑，不丢）  —— rows=1
+[PASS] E2 退回旧逻辑后文案不变  —— 任务状态变更
+[PASS] E3 运行阶段打了 ERROR 日志（含「参数非法」）
+[PASS] E4 非法配置没有被执行（没有接管日志）
+[PASS] F1 删除规则后回到 0 行  —— rules=0
+
+==> 汇总：PASS=28 FAIL=0

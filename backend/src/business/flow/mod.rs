@@ -66,6 +66,7 @@ pub mod expression;
 pub mod graph;
 pub mod handler;
 pub mod internal_control;
+pub mod linkage;
 pub mod maintain;
 pub mod model;
 pub mod node_config;

@@ -1,0 +1,15 @@
+== D2 白名单三层防护 · 数据库层取证（库 cloudpivot_d2）==
+
+[PASS] ① 未知动作码被 ck_flow_linkage_action_code 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_action_code"
+[PASS] ② 参数键 `sql` 被 ck_flow_linkage_no_sql_key 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_no_sql_key"
+[PASS] ② 参数键 `statement` 被 ck_flow_linkage_no_sql_key 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_no_sql_key"
+[PASS] ② 参数键 `query` 被 ck_flow_linkage_no_sql_key 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_no_sql_key"
+[PASS] ② 参数键 `script` 被 ck_flow_linkage_no_sql_key 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_no_sql_key"
+[PASS] ② 参数键 `exec` 被 ck_flow_linkage_no_sql_key 拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_no_sql_key"
+[PASS] ③ 参数不是 JSON 对象被拒绝  —— ERROR:  new row for relation "biz_flow_linkage_rule" violates check constraint "ck_flow_linkage_params_object"
+[PASS] ④ 合法行能写入  —— D2EV-ok
+[PASS] ⑤ 同一触发点 + 同一动作重复写入被 uk_flow_linkage_rule 拒绝  —— ERROR:  duplicate key value violates unique constraint "uk_flow_linkage_rule"
+[PASS] ⑥ 写入的规则能查回来（能存能查）  —— SEND_NOTICE/SHADOW/seq=7
+[PASS] ⑦ 收尾：夹具已清空  —— 0
+
+==> 汇总：PASS=11 FAIL=0

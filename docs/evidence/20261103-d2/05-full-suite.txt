@@ -1,0 +1,16 @@
+== 全量后端单测（干净库 cloudpivot_d2inv，--test-threads=1，scripts/verify/d2_full_suite.sh）
+
+running 2055 tests
+test result: ok. 2055 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 796.73s
+CARGO_EXIT=0
+
+== 失败用例清单（应为空）
+0
+
+== 日志尾部
+test system::user::tests::u11_builtin_admin_cannot_be_disabled ... ok
+test system::user::tests::u12_non_super_cannot_assign_self_role ... ok
+
+test result: ok. 2055 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 796.73s
+
+CARGO_EXIT=0

@@ -1,0 +1,13 @@
+== D2 迁移 V0205 down/up 往返（库 cloudpivot_d2）==
+[PASS] ① 有存活规则时 down 中止（安全阀）  —— V0205 down 中止：还有 1 条存活的联动规则。down 会连表一起删（配置无法回滚），请先备份并软删（UPDATE biz_flow_linkage_rule SET deleted_at = now()）后再执行
+[PASS] ①b 表仍在  —— 1
+[PASS] ② 软删后 down 通过  —— 1 条 NOTICE
+[PASS] ②b 表已删除  —— 0
+[PASS] ③ up 重放通过  —— V0205 完成：biz_flow_linkage_rule 建表 + 白名单 CHECK + 禁 SQL 键 CHECK + 触发点索引，初始 0 行（引擎不接管任何联动）
+[PASS] ③b 列数 13  —— 13
+[PASS] ③c 约束 7（5 CHECK + 1 UNIQUE + 1 PK；NOT NULL 在 PG18 里也算 pg_constraint，不计入）  —— 7
+[PASS] ③d 索引 2（业务索引）  —— 2
+[PASS] ③e 表为空（空表 = 行为不变）  —— 0
+[PASS] ④ 重启「应用 0 个迁移」（指纹校验通过）  —— [2m2026-11-02T21:35:05.176261Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+==> 汇总：PASS=10 FAIL=0

@@ -1,0 +1,13 @@
+== 闸② 全库基线（仅供参考：存量未接入文件，非本卡范围）==
+  全库未接入 file×table 计数：27
+
+== 闸② 本卡文件（任一 FAIL 即退出码 1）==
+  business/flow/linkage.rs                                   无登记表查询
+  business/flow/linkage/actions.rs                            sys_user(有豁免)
+  business/flow/linkage/engine.rs                            无登记表查询
+  business/flow/linkage/model.rs                             无登记表查询
+  business/flow/linkage/spec.rs                              无登记表查询
+  business/flow/linkage/tests.rs                              sys_user(有豁免) sys_notice(有豁免)
+  business/flow/mod.rs                                       无登记表查询
+  business/task/handler.rs                                    sys_user(有豁免) biz_task(有豁免) biz_task_comment(有豁免) biz_task_worklog(有豁免) biz_task_member(有豁免)
+==> 闸② PASS（本卡文件全部合规）
