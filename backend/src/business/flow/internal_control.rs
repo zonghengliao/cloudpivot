@@ -104,6 +104,14 @@ fn push_exclusion(exclusions: &mut Vec<Exclusion>, user_id: Option<Uuid>, reason
 /// 「制单人」由业务桥查（各单据的 `create_by`），「发起人」直接取实例字段。
 /// 与本业务无关的 `biz_type` → `governed=false`（零影响）。
 pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
+    // ERP-B2：审批侧的排除同样受「制单与审批分离」开关管辖（默认开 = 改动前行为）。
+    // 关掉它 = 小团队允许本人自审：既不排除（不落 SKIPPED），403 闸也同时放行 ——
+    // 两处读同一个开关，不存在「待办被 SKIP 了但闸说可以批」的自相矛盾状态。
+    if !crate::business::erp::separation::enabled(crate::business::erp::separation::Duty::Approve)
+        .await
+    {
+        return Ok(Control::default());
+    }
     let mut exclusions: Vec<Exclusion> = Vec::new();
     let biz_type = instance.biz_type.trim().to_ascii_uppercase();
     let governed = if biz_type == purchase_bridge::BIZ_TYPE {

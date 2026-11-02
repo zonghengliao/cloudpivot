@@ -70,6 +70,7 @@ use serde::Serialize;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model;
 use crate::business::erp::payable;
+use crate::business::erp::separation;
 use crate::business::erp::stockin_bridge;
 use crate::business::erp::stockin_dto::{
     CreateStockInReq, MAX_REASON_LEN, PreparedStockIn, StockInDetailRes, StockInItemReq,
@@ -1154,6 +1155,17 @@ pub async fn change_stock_in_status(
     }
 
     if target == STATUS_POSTED {
+        // ★ ERP-B2：制单 ≠ 过账（可配开关，默认关闭）。
+        //   这里是「没有配过账审批流程」时的降级直过路径；配了流程的另一条路
+        //   （免审直过 / 审批通过回调）在 [`post_after_approval`] 里再闸一次，
+        //   两条路都不会漏 —— 真正动账的是那一个函数。
+        separation::guard(
+            separation::Duty::Post,
+            row.create_by,
+            op.id,
+            &format!("收货入库单 {}", row.in_no),
+        )
+        .await?;
         return post_stock_in(id, &row, req, &op).await;
     }
 
@@ -1975,7 +1987,37 @@ async fn submit_post_approval(
     // 「小额免审」分支会在同一个事务里走完（NOTIFY 节点不阻塞）→ 提交后**立即执行过账**，
     // 否则单据会停在 PENDING_POST 且没有任何人会来推进它（没有待办）。
     if auto_finished {
-        return post_after_approval(row.id, Some(operator_id)).await;
+        match post_after_approval(row.id, Some(operator_id)).await {
+            Ok(()) => return Ok(()),
+            // ★ ERP-B2：免审直过被「制单 ≠ 过账」拦下 —— 单据已经在 PENDING_POST，
+            //   而流程没有留下任何待办（免审），必须当场打回 DRAFT，否则就是一张死单。
+            //   打回后由**别人**来提交即可过账（换人这条路正是内控想要的）。
+            Err(error) if error.code == error_code::ERP_SEPARATION_OF_DUTIES => {
+                if let Err(restore_error) = restore_after_post_rejection(
+                    row.id,
+                    row,
+                    "制单与过账分离：免审过账被内控拦截，已打回草稿等待他人过账",
+                    Some(operator_id),
+                )
+                .await
+                {
+                    tracing::error!(
+                        stock_in_id = %row.id,
+                        in_no = %row.in_no,
+                        error = %restore_error.msg,
+                        "免审过账被内控拦截后打回草稿失败：单据可能停在 PENDING_POST"
+                    );
+                    return Err(restore_error);
+                }
+                tracing::warn!(
+                    stock_in_id = %row.id,
+                    in_no = %row.in_no,
+                    "免审过账被「制单与过账分离」拦截，单据已打回 DRAFT（需他人提交过账）"
+                );
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        }
     }
     Ok(())
 }
@@ -2077,13 +2119,30 @@ pub async fn post_after_approval(
             row.status
         )));
     }
+    // ★ ERP-B2：制单 ≠ 过账（可配开关，默认关闭）。
+    //
+    // 这里是**真正动六本账**的地方，两条路都汇到它：
+    // ① 免审直过（[`submit_post_approval`] 的 `auto_finished` 分支，`operator` = 提交人本人）
+    //    —— 种子流程 `stock_in_post` 对「< 1000 元」的单据只发知会不排审批，
+    //    过账人就是制单人本人，这是「收货单制单人 = 过账人 8 条」的真正来源；
+    // ② 审批通过回调（`stockin_bridge`，`operator` = 审批人）—— 通常天然分流。
+    //
+    // 放在 `post_in_tx` 之前：六本账一动没动就被拦下，调用方（bridge / 免审分支）
+    // 负责把单据打回草稿，不会留下「停在审批中却没有任何待办」的死单。
+    let op = state_machine::Operator::of(operator.or(row.create_by));
+    separation::guard(
+        separation::Duty::Post,
+        row.create_by,
+        op.id,
+        &format!("收货入库单 {}", row.in_no),
+    )
+    .await?;
     let (items, serial_required, provided, po_snapshot) =
         posting_inputs(id, row.source_order_id, None).await?;
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
     ordered.sort_by(|a, b| {
         (a.material_id, a.location_id, a.line_no).cmp(&(b.material_id, b.location_id, b.line_no))
     });
-    let op = state_machine::Operator::of(operator.or(row.create_by));
     let now = Utc::now();
     let tx = db()
         .begin()

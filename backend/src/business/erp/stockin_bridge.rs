@@ -40,6 +40,7 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::separation;
 use crate::business::erp::stockin_handler;
 use crate::business::erp::stockin_model::{self, STATUS_PENDING_CANCEL};
 use crate::business::flow::{engine, model as flow_model};
@@ -533,6 +534,10 @@ pub async fn guard_self_approval(
     if instance.biz_type != POST_BIZ_TYPE {
         return Ok(());
     }
+    // ERP-B2：「制单与审批分离」开关（默认开 = 改动前的内控闸）
+    if !separation::enabled(separation::Duty::Approve).await {
+        return Ok(());
+    }
     let Some(stock_in_id) = instance.biz_id else {
         return Ok(());
     };
@@ -545,8 +550,9 @@ pub async fn guard_self_approval(
             error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
             format!(
                 "不能审批自己提交的过账申请：收货单 {} 由你本人提交（内控要求制单与审批分离），\
-                 请交给其他有审批权限的账号处理",
-                row.in_no
+                 请交给其他有审批权限的账号处理{}",
+                row.in_no,
+                separation::approval_hint(separation::Duty::Approve)
             ),
         ));
     }

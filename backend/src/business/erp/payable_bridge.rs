@@ -39,6 +39,7 @@
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::separation;
 use crate::business::flow::{engine, model as flow_model};
 use crate::shared::error_code;
 
@@ -172,6 +173,10 @@ pub async fn guard_self_approval(
     };
     let biz_type = instance.biz_type.trim().to_ascii_uppercase();
     if biz_type == CANCEL_BIZ_TYPE {
+        // ERP-B2：作废审批走「制单与审批分离」（默认开 = 改动前行为）
+        if !separation::enabled(separation::Duty::Approve).await {
+            return Ok(());
+        }
         // P-FLOW-3B：应付单作废审批 —— 制单人是**应付单**的 `create_by`（不是付款记录）
         let Some(payable_id) = instance.biz_id else {
             return Ok(());
@@ -195,14 +200,19 @@ pub async fn guard_self_approval(
                 error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
                 format!(
                     "不能审批自己提交的应付作废申请：应付单 {} 由你本人提交（内控要求制单与审批分离），\
-                     请交给其他有审批权限的账号处理",
-                    row.payable_no
+                     请交给其他有审批权限的账号处理{}",
+                    row.payable_no,
+                    separation::approval_hint(separation::Duty::Approve)
                 ),
             ));
         }
         return Ok(());
     }
     if biz_type != BIZ_TYPE {
+        return Ok(());
+    }
+    // ERP-B2：「制单与付款分离」开关（默认开 = P17 改动前的行为）
+    if !separation::enabled(separation::Duty::Pay).await {
         return Ok(());
     }
     let Some(payment_id) = instance.biz_id else {
@@ -217,7 +227,8 @@ pub async fn guard_self_approval(
             error_code::FLOW_SELF_APPROVAL_FORBIDDEN,
             format!(
                 "不能审批自己提交的付款申请：付款单 {payment_no} 由你本人提交（内控要求制单与审批分离），\
-                 请交给其他有审批权限的账号处理"
+                 请交给其他有审批权限的账号处理{}",
+                separation::approval_hint(separation::Duty::Pay)
             ),
         ));
     }

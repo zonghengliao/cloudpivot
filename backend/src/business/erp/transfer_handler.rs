@@ -64,6 +64,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::form_snapshot;
+use crate::business::erp::separation;
 use crate::business::erp::transfer_dto::{
     CreateTransferReq, TransferDetailRes, TransferFilter, TransferItemRes,
     TransferOverdueSummaryRes, TransferRes, TransferSerialGroupRes, TransferSerialRes,
@@ -1071,6 +1072,19 @@ pub async fn change_transfer_status(
     }
 
     let mut transit_warehouse_id = None;
+    // ★ ERP-B2：制单 ≠ 过账（可配开关，默认关闭）——调拨的「发货 / 收货」就是动库存那两步，
+    //   与收货单过账同一口径：制单人不能自己把货发出去、也不能自己确认收到。
+    if effect.status == transfer_model::STATUS_IN_TRANSIT
+        || effect.status == transfer_model::STATUS_DONE
+    {
+        separation::guard(
+            separation::Duty::Post,
+            row.create_by,
+            Some(operator),
+            &format!("调拨单 {}", row.transfer_no),
+        )
+        .await?;
+    }
     if effect.needs_transit_warehouse {
         transit_warehouse_id = transfer_model::transit_warehouse_id()
             .await

@@ -76,6 +76,7 @@ pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;
 pub mod report;
+pub mod separation;
 pub mod serial_dto;
 pub mod serial_handler;
 pub mod serial_model;

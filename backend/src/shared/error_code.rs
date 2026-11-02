@@ -40,7 +40,7 @@
 //! | `632xx` | 批次 C+（AI 执行者硬拒：`63201`–`63204`，T5 子段） |
 //! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64014`） |
 //! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
-//! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`） |
+//! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`；后续 ERP 卡续用 `66007`–`66013`） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -1056,11 +1056,19 @@ pub const ERP_REPORT_CONFIG_INVALID: i32 = 66011;
 /// 明确提示（卡面 O5），而不是把整段中文扔进一个通用错误框。
 pub const ERP_OPENING_UNBALANCED: i32 = 66012;
 
+/// 违反职责分离（HTTP 409）：ERP 内控开关（`erp.separation_of_duties.*`）打开时，
+/// 单据制单人不能自己审批 / 过账 / 付款。
+///
+/// 为什么是 409 而不是 403：403 是「你这个账号没有这个权限」，而这里账号**有**权限，
+/// 只是这一次「人不对」（换个人立刻就能做）—— 前端要按「换人 / 关开关」提示，
+/// 而不是「去找管理员要权限」。文案里同时给出开关键名与放行办法（O5）。
+pub const ERP_SEPARATION_OF_DUTIES: i32 = 66013;
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// W1c + W2b + P2-D1 段自检：66xxx 段 9 个码齐全、不重复、不与 65xxx / 64xxx 撞车。
+    /// W1c + W2b + P2-D1 段自检：66xxx 段码齐全、不重复、不与 65xxx / 64xxx 撞车。
     ///
     /// 与 [`flow_error_codes_are_stable`] 同一口径：码值是前端文案映射的契约，
     /// 后续卡不许改值（要新语义就往下加号）。
@@ -1079,6 +1087,7 @@ mod tests {
             (ERP_PERIOD_NOT_FOUND, 66010),
             (ERP_REPORT_CONFIG_INVALID, 66011),
             (ERP_OPENING_UNBALANCED, 66012),
+            (ERP_SEPARATION_OF_DUTIES, 66013),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
