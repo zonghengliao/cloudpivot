@@ -1,0 +1,48 @@
+===== C1 提交与推送记录 =====
+
+$ git log --oneline -1
+979fba1 fix(flow): C1 审批通过校验单据状态（目标已不可改 → 不落状态 + WARN + 实例留痕）
+
+$ git show --stat --oneline HEAD | head -20
+979fba1 fix(flow): C1 审批通过校验单据状态（目标已不可改 → 不落状态 + WARN + 实例留痕）
+ backend/src/business/erp/payable_bridge.rs         |  28 +-
+ backend/src/business/erp/pflow3b_tests.rs          |  67 +++
+ backend/src/business/erp/purchase_bridge.rs        |  27 +-
+ backend/src/business/erp/stockin_bridge.rs         |  46 +-
+ backend/src/business/flow/mod.rs                   |   1 +
+ backend/src/business/flow/model.rs                 |  76 ++++
+ backend/src/business/flow/settle_guard.rs          | 503 +++++++++++++++++++++
+ backend/src/business/flow/task_bridge.rs           | 223 ++++++++-
+ docs/evidence/20261103-c1/01-unit-tests.txt        |  23 +
+ docs/evidence/20261103-c1/02-e2e.txt               |  23 +
+ docs/evidence/20261103-c1/03-invariants.txt        |  78 ++++
+ docs/evidence/20261103-c1/04-full-suite.txt        |  22 +
+ ...\225\346\215\256\347\212\266\346\200\201-C1.md" | 128 ++++++
+ scripts/verify/c1_settle_guard_e2e.py              | 249 ++++++++++
+ 14 files changed, 1459 insertions(+), 35 deletions(-)
+
+$ git ls-remote origin refs/heads/main
+979fba1e15db793561b470cd41359b8168195904	refs/heads/main
+
+===== 门禁 =====
+$ cargo fmt -p cloudpivot -- --check
+无差异（exit 0）
+
+$ cargo clippy --lib -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.20s
+
+===== 本卡新增/改动文件 =====
+M	backend/src/business/erp/payable_bridge.rs
+M	backend/src/business/erp/pflow3b_tests.rs
+M	backend/src/business/erp/purchase_bridge.rs
+M	backend/src/business/erp/stockin_bridge.rs
+M	backend/src/business/flow/mod.rs
+M	backend/src/business/flow/model.rs
+A	backend/src/business/flow/settle_guard.rs
+M	backend/src/business/flow/task_bridge.rs
+A	docs/evidence/20261103-c1/01-unit-tests.txt
+A	docs/evidence/20261103-c1/02-e2e.txt
+A	docs/evidence/20261103-c1/03-invariants.txt
+A	docs/evidence/20261103-c1/04-full-suite.txt
+A	"docs/\345\256\241\346\211\271\351\200\232\350\277\207\346\240\241\351\252\214\345\215\225\346\215\256\347\212\266\346\200\201-C1.md"
+A	scripts/verify/c1_settle_guard_e2e.py
