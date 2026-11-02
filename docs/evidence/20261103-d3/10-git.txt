@@ -1,0 +1,36 @@
+== git show --stat HEAD（功能提交）==
+3e0ef9d feat(flow): D3 联动动作接管 GENERATE_VOUCHER（抽 voucher::create_by_rule + SHADOW 真跑真回滚 + TAKEOVER）
+ backend/src/business/erp/stockin_handler.rs        |  44 +-
+ backend/src/business/erp/stockin_query.rs          |  56 +++
+ backend/src/business/erp/voucher.rs                | 389 +++++++++++++--
+ backend/src/business/flow/linkage/actions.rs       | 220 ++++++++-
+ backend/src/business/flow/linkage/engine.rs        | 307 ++++++++++++
+ backend/src/business/flow/linkage/spec.rs          |  26 +-
+ backend/src/business/flow/linkage/tests.rs         | 471 +++++++++++++++++-
+ docs/evidence/20261103-d3/00-README.md             |  31 ++
+ docs/evidence/20261103-d3/01-unit-tests.txt        |  42 ++
+ docs/evidence/20261103-d3/02-e2e.txt               |  58 +++
+ docs/evidence/20261103-d3/03-invariants-e2e-db.txt |  21 +
+ .../20261103-d3/04-invariants-clean-db.txt         |  21 +
+ docs/evidence/20261103-d3/05-full-suite.txt        |   6 +
+ .../evidence/20261103-d3/06-stockin-regression.txt |  80 +++
+ .../evidence/20261103-d3/07-voucher-regression.txt |  52 ++
+ docs/evidence/20261103-d3/08-fmt-clippy.txt        |   7 +
+ docs/evidence/20261103-d3/09-scope-gate.txt        |  12 +
+ ...\250\344\275\234\346\216\245\347\256\241-D3.md" | 289 +++++++++++
+ scripts/verify/d3_dbsetup.sh                       |  23 +
+ scripts/verify/d3_full_suite.sh                    |  20 +
+ scripts/verify/d3_generate_voucher_e2e.py          | 550 +++++++++++++++++++++
+ scripts/verify/d3_instance.sh                      |  76 +++
+ scripts/verify/d3_invariants.sh                    |  18 +
+ scripts/verify/d3_scope_gate.sh                    |  72 +++
+ scripts/verify/d3_unit_tests.sh                    |  21 +
+ 25 files changed, 2850 insertions(+), 62 deletions(-)
+
+== 推送状态 ==
+local HEAD      = 3e0ef9d
+origin/main     = 3e0ef9d
+分支             = p3b
+
+== 无 schema 变更（迁移文件零改动）==
+  （空 = 本卡不改迁移；spec 的 mode 只是 action_params 里的一个键）
