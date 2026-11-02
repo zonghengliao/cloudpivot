@@ -4671,13 +4671,17 @@ mod tests {
     /// 所以用例自己占住那把**两个事务都要抢的库存行**当红绿灯，把环的**必要顺序**钉死：
     ///
     /// 1. 测试事务 `inv_hold` 先 `FOR UPDATE` 锁住**库存行**（物料 A × 仓库 × 未分配库位）；
-    /// 2. 起 B（作废）→ 轮询 `pg_locks` 直到 `biz_inventory` 上出现**等待中的锁**
+    /// 2. 起 B（作废）→ 轮询 `pg_locks` 直到出现**等待中的锁**（别的后端 `granted = false`）
     ///    ⇒ B 已经走到 `reverse_cost`、卡在库存行上（B 在它前面该拿的锁都拿到了）；
-    /// 3. 起 A（过账）→ 等 `biz_inventory` 上的等待数变成 **2**（改前 A 也排在库存行）
-    ///    或 `biz_purchase_order` 上出现等待（改后 A 直接卡在采购单行，而采购单行在 B 手里）；
+    /// 3. 起 A（过账）→ 等等待数变成 **2** ⇒ A 也入场并落到锁上
+    ///    （改前它也排在库存行；改后它排的是 B 持有的采购单行）；
     /// 4. 提交 `inv_hold` 松手：改前 B 排在前、先拿到库存行，一路走到 `sync_purchase_status`
     ///    要采购单行（A 持着），而 A 还在等库存行（B 持着）⇒ 环闭合，PG 1s 后判死锁；
     ///    改后 B 早在第 3 条 SQL 就锁了采购单头，A 只能排在那把锁上 ⇒ 无环。
+    ///
+    /// ⚠️ 探针**不能按表名过滤**：等一把被 `UPDATE` 占住的行锁时，PG 记的是
+    /// `locktype='transactionid'`（`relation` 为空）；而 `FOR UPDATE` 没有争用时又**不会**留
+    /// tuple 行 ⇒ 只有「谁在等」这个信号可靠，见 [`waiting_locks`]。
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn lockorder_concurrent_post_and_cancel_no_deadlock() {
         let _db = match setup().await {
