@@ -1,0 +1,10 @@
+===== 迁移应用（隔离库 cloudpivot_d1 / cloudpivot_d1e2e）=====
+NOTICE: V0204 完成：biz_flow_state_edge 建表 + 唯一约束 + 存活行索引，初始 0 行（全部使用 BASE_EDGES）
+数据库迁移完成: 应用 148 个迁移
+
+===== schema_migrations 里 V0203 / V0204 =====
+203|erp_stock_out|executed|migrations/business/V0203__erp_stock_out.up.sql
+204|flow_state_edge|executed|migrations/business/V0204__flow_state_edge.up.sql
+
+===== 总数（max_version|migrations）=====
+204|148

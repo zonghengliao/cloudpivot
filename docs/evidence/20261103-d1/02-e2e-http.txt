@@ -1,0 +1,14 @@
+[INFO] 登录成功，BASE=http://127.0.0.1:18096，DB=cloudpivot_d1e2e
+[INFO] 夹具：D1-E2E-BASE=07357621-91ec-4b0d-9a5f-cb3a79dc99ae / D1-E2E-CFG=9dd00999-1f38-4641-8e13-a5aad1b2d29e / D1-E2E-FAILSAFE=b588b270-0605-47f4-9b6f-58c5d69bfbe9（均 SUBMITTED）
+[PASS] ① 无配置时 SUBMITTED→CLOSED 走真机接口成功（HTTP 200）
+[PASS] ① 单据状态真的变成 CLOSED
+[INFO] 已写入配置：PURCHASE_ORDER|SUBMITTED|CLOSED|f
+[INFO] ② 409 原文：{"code": 10003, "msg": "采购订单 D1-E2E-CFG 的流转「SUBMITTED → CLOSED」已被状态机配置禁用（biz_flow_state_edge）：这条边在代码里合法，但管理员把它关掉了。当前允许的去向是 「APPROVED」 / 「CANCELLED」 / 「PARTIAL_RECEIVED」 / 「RECEIVED」 / 「DRAFT」"}
+[PASS] ② 禁用后同一接口被拒（HTTP 409，期望 409）
+[PASS] ② 报文点名「已被状态机配置禁用」（不是含糊的非法流转）
+[PASS] ② 被拒后单据状态没有被改（409 不写库）
+[PASS] ③ 配置表不存在时接口仍成功（退化 BASE_EDGES，HTTP 200）
+[PASS] ③ 单据状态正常推进（系统不崩）
+[PASS] ③ 实例日志留下 WARN「读取 biz_flow_state_edge 失败」（降级可追溯）
+[PASS] ④ 软删配置后行为恢复（HTTP 200）
+[PASS] ④ 单据状态正常变成 CLOSED

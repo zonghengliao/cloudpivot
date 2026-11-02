@@ -1,0 +1,50 @@
+===== ① 迁移版本（V0204 = flow_state_edge）=====
+204|148
+ERROR:  column "description" does not exist
+LINE 1: select version, description from schema_migrations where ver...
+                        ^
+
+===== ② biz_flow_state_edge 结构 =====
+id|uuid|NO|gen_random_uuid()
+entity|character varying|NO|
+from_status|character varying|NO|
+to_status|character varying|NO|
+enabled|boolean|NO|true
+requires_reason|boolean|NO|false
+label|character varying|YES|
+auth_code|character varying|YES|
+created_at|timestamp with time zone|NO|now()
+updated_at|timestamp with time zone|NO|now()
+create_by|uuid|YES|
+update_by|uuid|YES|
+deleted_at|timestamp with time zone|YES|
+
+===== ③ 约束 / 索引 =====
+biz_flow_state_edge_created_at_not_null|NOT NULL created_at
+biz_flow_state_edge_enabled_not_null|NOT NULL enabled
+biz_flow_state_edge_entity_not_null|NOT NULL entity
+biz_flow_state_edge_from_status_not_null|NOT NULL from_status
+biz_flow_state_edge_id_not_null|NOT NULL id
+biz_flow_state_edge_pkey|PRIMARY KEY (id)
+biz_flow_state_edge_requires_reason_not_null|NOT NULL requires_reason
+biz_flow_state_edge_to_status_not_null|NOT NULL to_status
+biz_flow_state_edge_updated_at_not_null|NOT NULL updated_at
+uk_flow_state_edge|UNIQUE (entity, from_status, to_status)
+CREATE UNIQUE INDEX biz_flow_state_edge_pkey ON public.biz_flow_state_edge USING btree (id)
+CREATE INDEX idx_flow_state_edge_entity ON public.biz_flow_state_edge USING btree (entity) WHERE (deleted_at IS NULL)
+CREATE UNIQUE INDEX uk_flow_state_edge ON public.biz_flow_state_edge USING btree (entity, from_status, to_status)
+
+===== ④ 空表 = 行为与改动前一致（存活 0 行）=====
+0
+
+===== ⑤ 配置一条 disabled（真机 e2e 里的那一条）=====
+INSERT 0 1
+PURCHASE_ORDER|SUBMITTED|CLOSED|f|f|(BASE)|(无)
+
+===== ⑥ 生效判据（合并后这条边应当不在有效边里）=====
+（由真机 e2e 的 ② 断言：PATCH /purchase-order/{id}/status status=CLOSED → 409「已被状态机配置禁用」）
+
+===== ⑦ 清理（软删配置 → 回到 BASE_EDGES）=====
+UPDATE 1
+0
+1

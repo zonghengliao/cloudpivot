@@ -167,18 +167,14 @@ pub async fn party_b_ref_for_new(party_b_type: &str, id: Uuid) -> DbResult<Optio
 // 入参 / 出参形状在 `contract_dto`。**这里不写 `UPDATE … SET status`**：
 // 状态推进的唯一入口是 `state_machine::transition`（见文首 [`STATUSES`] 的说明）。
 
-/// 合同的合法边（**与 `state_machine::CONTRACT_EDGES` 逐字一致**）。
+/// 合同的合法边（**指向 `state_machine::CONTRACT_EDGES`，不再单独维护一份字面量**）。
 ///
-/// 为什么要在这里再写一份：`transition()` 会拿调用方传的边表与注册表**核对**，
-/// 不一致直接 500（防「偷偷多放一条边」）。这份常量的作用就是让漂移**编译期可见**
-/// （单测 `legal_edges_match_state_machine` 与注册表逐条比对）。
-pub const LEGAL_EDGES: [(&str, &str); 5] = [
-    ("DRAFT", "SIGNED"),
-    ("SIGNED", "ACTIVE"),
-    ("SIGNED", "TERMINATED"),
-    ("ACTIVE", "COMPLETED"),
-    ("ACTIVE", "TERMINATED"),
-];
+/// `transition()` 会拿调用方传的边表与注册表**核对**，不一致直接 500（防「偷偷多放一条边」）。
+/// 【D1 状态机边配置化】之前这里刻意抄了一份字面量「让漂移编译期可见」；现在
+/// `state_machine::BASE_EDGES` 成了唯一真相（并新增 `base_edges_match_registry` 单测
+/// 钉死 BASE 与注册表逐条同序），再抄一份只会制造**第三个**需要同步的地方，
+/// 所以改成别名：想多放一条边必须改 `shared/state_machine.rs`，别的路径做不到。
+pub const LEGAL_EDGES: [(&str, &str); 5] = state_machine::CONTRACT_EDGES;
 
 /// 「日期三件套必填」的状态集合（与 DDL 的 `ck_biz_contract_signed_dates` 逐字一致）。
 ///

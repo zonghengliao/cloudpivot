@@ -49,7 +49,10 @@
 //! 反面教材（LNK-P08）：`payable_payment` 无条件调 `transition`，于是「分三期付款」的
 //! 第二期 `PARTIAL_PAID → PARTIAL_PAID` 被 409 挡住 —— 正常业务路径直接断。
 
+use std::collections::HashMap;
 use std::result::Result;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
@@ -383,6 +386,192 @@ pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] =
 /// **handler 不得直接调 `ensure_writable`** —— 否则连「终止原因写 remark」都会被自己挡住。
 pub const CONTRACT_LOCKED: [&str; 4] = ["SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
 
+// ==================== 第 1 层：BASE_EDGES（硬约束白名单） ====================
+//
+// 【D1 流程配置化 · 阶段 3】
+//
+// 边表分三层，**真相永远在代码里**：
+//
+// ```text
+// 第 1 层（本段）BASE_EDGES   —— 每个实体能走的边 + 每条边能不能被配置禁用
+// 第 2 层（表）biz_flow_state_edge —— 只能从第 1 层挑子集，且只能加严
+// 第 3 层（运行时）effective_edges —— 两层合并；读失败一律退化回第 1 层
+// ```
+//
+// 为什么「可选边」这么少：配置的合法用途是**加严**（要求走审批、要求填原因、
+// 追加权限码）和**关掉捷径**（例如「采购单不收货就能直接关闭」）。把主链、审批落地、
+// 撤销回位、红冲这些边禁掉不是加严而是**停摆**（单据卡死 / 审批回调 500 / 账不可纠正），
+// 所以它们标 `mandatory`：配置禁用会被**忽略**并打 WARN，边照旧可用。
+//
+// 可选边的判据（写死在这里，评审可逐条核）：
+// 这条边被关掉之后，同一 `from` 状态**还有别的路能走**，且关掉它等于要求走更严的那条路
+// （必须经过审批 / 必须走作废审批而不是草稿作废）。运行时另有一道护栏：
+// 合并后任何一个 `from` 状态**没有出边**就整份配置作废（退回 BASE_EDGES）。
+
+/// 一条边的元信息。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EdgeMeta {
+    /// 配置层能不能禁用它（`true` = 永远启用；配置禁用会被忽略并打 WARN）。
+    pub mandatory: bool,
+    /// 默认显示文案（配置层可以用 `biz_flow_state_edge.label` 覆盖）。
+    pub default_label: &'static str,
+    /// 走这条边是否必须给原因（**配置层只能加，不能减**）。
+    pub requires_reason: bool,
+}
+
+/// BASE_EDGES 的一条：`(from, to) + EdgeMeta`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BaseEdge {
+    /// 变更前状态。
+    pub from: &'static str,
+    /// 变更后状态。
+    pub to: &'static str,
+    /// 元信息。
+    pub meta: EdgeMeta,
+}
+
+impl BaseEdge {
+    /// 硬约束边：配置不许禁用（主链 / 审批落地 / 撤销回位 / 红冲）。
+    pub const fn mandatory(
+        from: &'static str,
+        to: &'static str,
+        default_label: &'static str,
+        requires_reason: bool,
+    ) -> Self {
+        Self {
+            from,
+            to,
+            meta: EdgeMeta {
+                mandatory: true,
+                default_label,
+                requires_reason,
+            },
+        }
+    }
+
+    /// 可选边（捷径 / 旁路）：配置可以禁用；禁用 = 必须走更严的那条路。
+    pub const fn optional(
+        from: &'static str,
+        to: &'static str,
+        default_label: &'static str,
+        requires_reason: bool,
+    ) -> Self {
+        Self {
+            from,
+            to,
+            meta: EdgeMeta {
+                mandatory: false,
+                default_label,
+                requires_reason,
+            },
+        }
+    }
+
+    /// `(from, to)` 比较键。
+    pub const fn key(&self) -> (&'static str, &'static str) {
+        (self.from, self.to)
+    }
+}
+
+/// 收货入库单的 BASE_EDGES（与 [`STOCK_IN_EDGES`] 逐条对应，顺序一致）。
+///
+/// 可选边只有两条「捷径」：`DRAFT → POSTED`（跳过过账审批）、
+/// `PENDING_POST → CANCELLED`（审批中直接作废，本该先打回草稿）。
+pub const STOCK_IN_BASE: [BaseEdge; 10] = [
+    BaseEdge::optional("DRAFT", "POSTED", "直接过账", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("POSTED", "CANCELLED", "作废红冲", true),
+    BaseEdge::mandatory("POSTED", "PENDING_CANCEL", "发起作废审批", true),
+    BaseEdge::mandatory("PENDING_CANCEL", "CANCELLED", "审批通过作废", true),
+    BaseEdge::mandatory("PENDING_CANCEL", "POSTED", "驳回回已过账", false),
+    BaseEdge::mandatory("DRAFT", "PENDING_POST", "提交过账审批", false),
+    BaseEdge::mandatory("PENDING_POST", "POSTED", "审批通过过账", false),
+    BaseEdge::mandatory("PENDING_POST", "DRAFT", "打回草稿", false),
+    BaseEdge::optional("PENDING_POST", "CANCELLED", "审批中作废", false),
+];
+
+/// 采购订单的 BASE_EDGES（与 [`PURCHASE_ORDER_EDGES`] 逐条对应，顺序一致）。
+///
+/// 可选边只有 `SUBMITTED → CLOSED`（**不收货直接关闭**，卡面点名的那个例子：
+/// 「客户不想让采购单能直接关闭」）。
+pub const PURCHASE_ORDER_BASE: [BaseEdge; 13] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
+    BaseEdge::optional("SUBMITTED", "CLOSED", "直接关闭", false),
+    BaseEdge::mandatory("SUBMITTED", "CANCELLED", "作废", true),
+    BaseEdge::mandatory("SUBMITTED", "PARTIAL_RECEIVED", "部分收货", false),
+    BaseEdge::mandatory("SUBMITTED", "RECEIVED", "收货完成", false),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "审批驳回打回", false),
+    BaseEdge::mandatory("APPROVED", "PARTIAL_RECEIVED", "部分收货", false),
+    BaseEdge::mandatory("APPROVED", "RECEIVED", "收货完成", false),
+    BaseEdge::mandatory("APPROVED", "CANCELLED", "作废", true),
+    BaseEdge::mandatory("PARTIAL_RECEIVED", "RECEIVED", "收货完成", false),
+    BaseEdge::mandatory("RECEIVED", "PARTIAL_RECEIVED", "收货单作废回退", false),
+];
+
+/// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。
+///
+/// 调拨六条边全是主链 / 撤销，**没有可选边**（没有捷径可关）。
+pub const TRANSFER_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "PENDING", "提交审批", false),
+    BaseEdge::mandatory("PENDING", "APPROVED", "审批通过", false),
+    BaseEdge::mandatory("PENDING", "CANCELLED", "审批中取消", true),
+    BaseEdge::mandatory("APPROVED", "IN_TRANSIT", "发货在途", false),
+    BaseEdge::mandatory("IN_TRANSIT", "DONE", "收货完成", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", true),
+];
+
+/// 应付单的 BASE_EDGES（与 [`PAYABLE_EDGES`] 逐条对应，顺序一致）。
+///
+/// 付款与作废都是账务动作，**没有可选边**。
+pub const PAYABLE_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("OPEN", "PARTIAL_PAID", "部分付款", false),
+    BaseEdge::mandatory("OPEN", "SETTLED", "一次性付清", false),
+    BaseEdge::mandatory("PARTIAL_PAID", "SETTLED", "付清尾款", false),
+    BaseEdge::mandatory("OPEN", "CANCELLED", "作废", true),
+    BaseEdge::mandatory("OPEN", "PENDING_CANCEL", "发起作废审批", true),
+    BaseEdge::mandatory("PENDING_CANCEL", "CANCELLED", "审批通过作废", true),
+    BaseEdge::mandatory("PENDING_CANCEL", "OPEN", "驳回回未付", false),
+];
+
+/// 凭证没有流转边（红冲 = 生成红字凭证，原凭证保持 `POSTED`，见 [`VOUCHER_EDGES`]）。
+pub const VOUCHER_BASE: [BaseEdge; 0] = [];
+
+/// 会计期间的 BASE_EDGES（与 [`PERIOD_EDGES`] 逐条对应，顺序一致）。
+pub const PERIOD_BASE: [BaseEdge; 3] = [
+    BaseEdge::mandatory("NOT_OPENED", "OPEN", "开账", false),
+    BaseEdge::mandatory("OPEN", "CLOSED", "结账", false),
+    BaseEdge::mandatory("CLOSED", "OPEN", "反结账", true),
+];
+
+/// 年结的 BASE_EDGES（与 [`YEAR_END_EDGES`] 逐条对应，顺序一致）。
+pub const YEAR_END_BASE: [BaseEdge; 2] = [
+    BaseEdge::mandatory("NOT_CLOSED", "CLOSED", "年结", false),
+    BaseEdge::mandatory("CLOSED", "NOT_CLOSED", "反年结", true),
+];
+
+/// 合同的 BASE_EDGES（与 [`CONTRACT_EDGES`] 逐条对应，顺序一致）。
+pub const CONTRACT_BASE: [BaseEdge; 5] = [
+    BaseEdge::mandatory("DRAFT", "SIGNED", "签订", false),
+    BaseEdge::mandatory("SIGNED", "ACTIVE", "生效", false),
+    BaseEdge::mandatory("SIGNED", "TERMINATED", "已签未生效终止", true),
+    BaseEdge::mandatory("ACTIVE", "COMPLETED", "履约完成", false),
+    BaseEdge::mandatory("ACTIVE", "TERMINATED", "中途终止", true),
+];
+
+/// 出库单的 BASE_EDGES（与 [`STOCK_OUT_EDGES`] 逐条对应，顺序一致）。
+///
+/// 可选边只有 `DRAFT → POSTED`（跳过过账审批直接过账）。
+pub const STOCK_OUT_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "PENDING_POST", "提交待过账", false),
+    BaseEdge::mandatory("PENDING_POST", "POSTED", "过账", false),
+    BaseEdge::mandatory("PENDING_POST", "DRAFT", "撤回", false),
+    BaseEdge::optional("DRAFT", "POSTED", "直接过账", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("POSTED", "CANCELLED", "已过账作废", true),
+];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -470,6 +659,31 @@ impl Entity {
         }
     }
 
+    /// 硬约束白名单（第 1 层）：`(from, to) + mandatory / default_label / requires_reason`。
+    ///
+    /// 与 [`Entity::edges`] **逐条对应**（顺序也一致），单测 `base_edges_match_registry`
+    /// 钉死这件事——两张表不能漂移。
+    pub const fn base_edges(self) -> &'static [BaseEdge] {
+        match self {
+            Entity::StockIn => &STOCK_IN_BASE,
+            Entity::PurchaseOrder => &PURCHASE_ORDER_BASE,
+            Entity::Transfer => &TRANSFER_BASE,
+            Entity::Payable => &PAYABLE_BASE,
+            Entity::Voucher => &VOUCHER_BASE,
+            Entity::Period => &PERIOD_BASE,
+            Entity::YearEnd => &YEAR_END_BASE,
+            Entity::Contract => &CONTRACT_BASE,
+            Entity::StockOut => &STOCK_OUT_BASE,
+        }
+    }
+
+    /// 按 `(from, to)` 找 BASE 边（找不到 = 这条边在代码里就不存在）。
+    pub fn base_edge(self, from: &str, to: &str) -> Option<&'static BaseEdge> {
+        self.base_edges()
+            .iter()
+            .find(|edge| edge.from == from && edge.to == to)
+    }
+
     /// 需要 reason 的边。
     pub const fn reason_edges(self) -> &'static [(&'static str, &'static str)] {
         match self {
@@ -527,7 +741,880 @@ impl Entity {
     }
 }
 
+// ==================== 第 2 / 3 层：配置表与运行时合并 ====================
+//
+// 【D1 流程配置化 · 阶段 3】
+//
+// ```text
+// 第 2 层  biz_flow_state_edge（V0204）—— 只能从 BASE_EDGES 挑子集，且只能加严
+// 第 3 层  effective_edges()         —— 运行时合并；读失败 / 表不存在 / 数据脏 → 退化 BASE_EDGES
+// ```
+//
+// # 允许的配置动作（写入口 `upsert_edge_config` 逐条校验）
+//
+// | 动作 | 怎么表达 | 校验 |
+// |------|----------|------|
+// | 禁用一条**可选**边 | `enabled = false` | BASE 边必须是 `mandatory = false`，否则 400 |
+// | 给某条边加「必填原因」 | `requires_reason = true` | 只能加不能减（BASE 要求原因的边关不掉） |
+// | 改显示文案 | `label = "报批"` | ≤ 64 字，空 = 用 BASE 的 default_label |
+// | 追加权限码 | `auth_code = "erp:stock-in:post"` | ≤ 64 字，只能加 |
+//
+// # 禁止的配置动作（代码里硬拒，不靠自觉）
+//
+// - 添加 BASE_EDGES 里没有的边 → 400（真相在代码里，配置只是挑子集）
+// - 禁用 `mandatory = true` 的边 → 400；万一有人绕过 API 直接写库，加载时**忽略 + WARN**
+// - 改边的方向 / 任意跳任意 → 400（`(from,to)` 必须在 BASE 里，方向自然钉死）
+//
+// # 留痕
+//
+// 每次写入（含删除）都往 `biz_status_log` 追加一行（`entity_type = FLOW_EDGE_CFG`，
+// 只增不改）：谁、什么时候、把哪条边从什么改成什么（改前 / 改后快照都进 `reason`）。
+// 写操作要求 **SUPER_ADMIN + 显式二次确认**（`confirm = true`），
+// 「改流程规则」不能是个手滑就能点的动作。
+//
+// # 为什么没有进程内缓存
+//
+// 每次流转都读一次配置（一张只按 entity 索引的小表，几十行）。好处是**没有生效时延**、
+// 也没有「缓存里是旧配置」的中间态：删掉配置下一笔流转立刻回到 BASE_EDGES 行为。
+// 读到脏数据 / 读失败只有一种结果——退回 BASE_EDGES 并打 WARN（60 秒内同一条只打一次，
+// 避免把日志刷爆）。
+
+/// 配置留痕用的 `biz_status_log.entity_type`（它不是单据，单独一个类型名）。
+pub const ENTITY_EDGE_CONFIG: &str = "FLOW_EDGE_CFG";
+
+/// 合并后的一条有效边。
+///
+/// **只可能来自 BASE_EDGES**（配置不能创造新边），`label` / `requires_reason` / `auth_code`
+/// 可能被配置加严；`mandatory` 直接沿用 BASE 的标记。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Edge {
+    /// 变更前状态。
+    pub from: &'static str,
+    /// 变更后状态。
+    pub to: &'static str,
+    /// 是否硬约束边（配置禁用无效）。
+    pub mandatory: bool,
+    /// 显示文案（配置可覆盖，默认来自 BASE 的 `default_label`）。
+    pub label: String,
+    /// 走这条边是否必须给原因（BASE 要求 or 配置要求，取「或」）。
+    pub requires_reason: bool,
+    /// 追加的权限码要求（空 = 不追加）。
+    pub auth_code: Option<String>,
+}
+
+impl Edge {
+    /// BASE 边 → 有效边（没有任何配置时的形态）。
+    fn from_base(base: &BaseEdge) -> Self {
+        Self {
+            from: base.from,
+            to: base.to,
+            mandatory: base.meta.mandatory,
+            label: base.meta.default_label.to_string(),
+            requires_reason: base.meta.requires_reason,
+            auth_code: None,
+        }
+    }
+}
+
+/// `biz_flow_state_edge` 的一行（**存活行**，`deleted_at IS NULL`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EdgeConfigRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 实体类型（落库原文，可能写错——写错的会在合并时被忽略并 WARN）。
+    pub entity: String,
+    /// 变更前状态。
+    pub from_status: String,
+    /// 变更后状态。
+    pub to_status: String,
+    /// 是否启用（false = 禁用这条可选边）。
+    pub enabled: bool,
+    /// 是否要求原因。
+    pub requires_reason: bool,
+    /// 显示文案（空 = 用 BASE 的 default_label）。
+    pub label: Option<String>,
+    /// 追加的权限码。
+    pub auth_code: Option<String>,
+}
+
+impl EdgeConfigRow {
+    /// 行 → 结构体。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            entity: row.get_typed("entity")?,
+            from_status: row.get_typed("from_status")?,
+            to_status: row.get_typed("to_status")?,
+            enabled: row.get_typed("enabled")?,
+            requires_reason: row.get_typed("requires_reason")?,
+            label: row.get_typed::<Option<String>>("label")?,
+            auth_code: row.get_typed::<Option<String>>("auth_code")?,
+        })
+    }
+}
+
+/// 合并结果：有效边 + 本次发现的配置问题（WARN 文案，测试直接断言它）。
+#[derive(Debug, Clone, Default)]
+pub struct EdgeResolution {
+    /// 有效边（顺序与 BASE_EDGES 一致）。
+    pub edges: Vec<Edge>,
+    /// 配置问题（脏数据 / 违规禁用 / 读失败）。非空即代表「这份配置没被完整采纳」。
+    pub warnings: Vec<String>,
+}
+
+impl EdgeResolution {
+    /// 这条边当前可用吗。
+    pub fn allows(&self, from: &str, to: &str) -> bool {
+        self.get(from, to).is_some()
+    }
+
+    /// 取一条有效边。
+    pub fn get(&self, from: &str, to: &str) -> Option<&Edge> {
+        self.edges
+            .iter()
+            .find(|edge| edge.from == from && edge.to == to)
+    }
+
+    /// 某状态当前能去的下一个状态（配置禁用过的不会出现在这里）。
+    pub fn next_statuses(&self, from: &str) -> Vec<&'static str> {
+        self.edges
+            .iter()
+            .filter(|edge| edge.from == from)
+            .map(|edge| edge.to)
+            .collect()
+    }
+}
+
+/// 纯 BASE 边表（没有任何配置 / 配置整体作废时的形态）。
+fn base_only(entity: Entity) -> Vec<Edge> {
+    entity.base_edges().iter().map(Edge::from_base).collect()
+}
+
+/// **纯函数**：`BASE_EDGES ⊕ 配置行 → 有效边`（不做 IO，单测逐条覆盖合并规则）。
+///
+/// 规则（与卡面 §3 一一对应）：
+/// 1. 配置行 `entity` 不在注册表里 → 整组忽略 + WARN（**配置脏要退化，不能让系统崩**）。
+/// 2. BASE 边 + 同 `(from,to)` 且 `enabled = true` → 采用配置的 label / requires_reason / auth_code。
+/// 3. BASE 边 + 同 `(from,to)` 且 `enabled = false`：
+///    - `mandatory = false` → **这条边从有效边里去掉**（合法禁用）；
+///    - `mandatory = true`  → 忽略禁用 + WARN（硬约束白名单不可删）。
+/// 4. 配置里有、BASE 里没有的 `(from,to)` → 忽略 + WARN（配置不能创造新边）。
+/// 5. 合并后任何一个 `from` 状态**没有任何出边** → 整份配置作废、退回 BASE_EDGES + WARN
+///    （只许加严，不许把单据卡死）。
+pub fn resolve_edges(entity: Entity, rows: &[EdgeConfigRow]) -> EdgeResolution {
+    let mut warnings: Vec<String> = Vec::new();
+
+    // ① entity 写错的行：先报出来（它是「配置脏」最典型的样子）
+    let mut unknown_entities: Vec<&str> = Vec::new();
+    for row in rows {
+        let raw = row.entity.trim();
+        if Entity::parse(raw).is_none() && !unknown_entities.contains(&raw) {
+            unknown_entities.push(raw);
+        }
+    }
+    for raw in unknown_entities {
+        let pairs: Vec<String> = rows
+            .iter()
+            .filter(|row| row.entity.trim() == raw)
+            .map(|row| format!("{}→{}", row.from_status.trim(), row.to_status.trim()))
+            .collect();
+        warnings.push(format!(
+            "配置脏：entity「{raw}」不在状态机注册表里（{} 条：{}），整组忽略（已退化到 BASE_EDGES）",
+            pairs.len(),
+            pairs.join(" / ")
+        ));
+    }
+
+    // ② 本实体的配置按 (from,to) 建索引（唯一约束本该拦住重复，兜底取第一行）
+    let mut by_key: HashMap<(&str, &str), &EdgeConfigRow> = HashMap::new();
+    for row in rows {
+        if Entity::parse(row.entity.trim()) != Some(entity) {
+            continue;
+        }
+        let key = (row.from_status.trim(), row.to_status.trim());
+        if by_key.insert(key, row).is_some() {
+            warnings.push(format!(
+                "配置脏：{} 的 {}→{} 有多行配置（唯一约束本该拦住），只采用第一行",
+                entity.as_str(),
+                key.0,
+                key.1
+            ));
+        }
+    }
+
+    // ③ 逐条 BASE 边合并
+    let mut edges: Vec<Edge> = Vec::with_capacity(entity.base_edges().len());
+    for base in entity.base_edges() {
+        let Some(row) = by_key.get(&base.key()) else {
+            edges.push(Edge::from_base(base));
+            continue;
+        };
+        if !row.enabled {
+            if base.meta.mandatory {
+                warnings.push(format!(
+                    "配置试图禁用 mandatory 边 {}→{}（硬约束白名单：主链 / 审批落地 / 撤销回位 / 红冲），\
+                     已忽略：该边仍然可用",
+                    base.from, base.to
+                ));
+            } else {
+                // 合法禁用：这条边不出现在有效边里
+                continue;
+            }
+        }
+        let label = row
+            .label
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| base.meta.default_label.to_string());
+        let auth_code = row
+            .auth_code
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        edges.push(Edge {
+            from: base.from,
+            to: base.to,
+            mandatory: base.meta.mandatory,
+            label,
+            // 只能加严：BASE 要求原因的边，配置写成 false 也照样要求
+            requires_reason: base.meta.requires_reason || row.requires_reason,
+            auth_code,
+        });
+    }
+
+    // ④ 配置里有、BASE 里没有的边：忽略 + WARN
+    for key in by_key.keys() {
+        if entity.base_edge(key.0, key.1).is_none() {
+            warnings.push(format!(
+                "配置脏：{} 的 {}→{} 不在 BASE_EDGES 里（配置不能创造新边，也不能改方向），已忽略",
+                entity.as_str(),
+                key.0,
+                key.1
+            ));
+        }
+    }
+
+    // ⑤ 停摆护栏：任何一个 from 状态都不能没有出口
+    for base in entity.base_edges() {
+        if !edges.iter().any(|edge| edge.from == base.from) {
+            warnings.push(format!(
+                "配置会让状态 {} 失去所有出口（单据会永久卡死：只许加严，不许停摆）\
+                 → 整份配置作废，退回 BASE_EDGES",
+                base.from
+            ));
+            return EdgeResolution {
+                edges: base_only(entity),
+                warnings,
+            };
+        }
+    }
+
+    EdgeResolution { edges, warnings }
+}
+
+/// 读**全部**存活配置行（不按实体过滤：要能发现 `entity` 写错这类脏行）。
+///
+/// # 为什么包在 SAVEPOINT 里（真机踩到的坑）
+///
+/// 这一步是 fail-safe 的读：表不存在 / 列不匹配 / 权限不足都要**退化**而不是抛错。
+/// 但 `transition()` 的正常调用方都开着事务（`Transaction`），而 PG 里**一条语句报错
+/// 会把整个事务置为 aborted**（后续语句一律 `current transaction is aborted`）——
+/// 于是「读配置失败」会让紧接着的 `insert_log` 500：本该降级的路径反而把业务写死。
+/// 真机验收（把配置表改名）实测到的就是 `写状态变更日志失败 … query failed`。
+///
+/// 所以：在事务里（`post_commit_queue().is_some()`）先 `SAVEPOINT`，读完按结果
+/// `RELEASE` 或 `ROLLBACK TO`；自动提交模式（`Db`）没有事务可污染，直接读。
+pub async fn load_edge_config_rows(ex: &impl SqlExecutor) -> DbResult<Vec<EdgeConfigRow>> {
+    const SAVEPOINT: &str = "d1_edge_config_read";
+    let in_tx = ex.post_commit_queue().is_some();
+    if in_tx {
+        ex.exec_sql(format!("SAVEPOINT {SAVEPOINT}"), vec![])
+            .await?;
+    }
+    let result = ex
+        .query_sql(
+            "SELECT id, entity, from_status, to_status, enabled, requires_reason, label, auth_code \
+               FROM biz_flow_state_edge WHERE deleted_at IS NULL \
+              ORDER BY entity ASC, from_status ASC, to_status ASC"
+                .to_string(),
+            vec![],
+        )
+        .await;
+    if in_tx {
+        // 收尾语句本身失败不该盖掉主结果（此时事务状态由上层决定）
+        let tail = match &result {
+            Ok(_) => format!("RELEASE SAVEPOINT {SAVEPOINT}"),
+            Err(_) => format!("ROLLBACK TO SAVEPOINT {SAVEPOINT}"),
+        };
+        let _ = ex.exec_sql(tail, vec![]).await;
+    }
+    let rows = result?;
+    rows.iter().map(EdgeConfigRow::from_row).collect()
+}
+
+/// 运行时合并（**fail-safe**）：读配置失败 / 表不存在 / 数据脏 → 退回 BASE_EDGES + WARN。
+///
+/// 这个函数**永远不会返回 Err**：状态机是业务主链路，配置读不到只能降级，不能让单据流转崩。
+pub async fn edge_resolution(ex: &impl SqlExecutor, entity: Entity) -> EdgeResolution {
+    match load_edge_config_rows(ex).await {
+        Ok(rows) => resolve_edges(entity, &rows),
+        Err(error) => EdgeResolution {
+            edges: base_only(entity),
+            warnings: vec![format!(
+                "读取 biz_flow_state_edge 失败（{error}）：已退化到 BASE_EDGES（状态机照旧可用，配置本次不生效）"
+            )],
+        },
+    }
+}
+
+/// 有效边（业务代码唯一该用的形态）：`BASE_EDGES ∩ 配置`，读失败退化到 BASE_EDGES。
+pub async fn effective_edges(ex: &impl SqlExecutor, entity: Entity) -> Vec<Edge> {
+    let resolution = edge_resolution(ex, entity).await;
+    log_edge_warnings(entity, &resolution.warnings);
+    resolution.edges
+}
+
+/// 配置告警落日志（**60 秒内同一条只打一次**：流转是高频路径，别把日志刷爆）。
+fn log_edge_warnings(entity: Entity, warnings: &[String]) {
+    for warning in warnings {
+        warn_edge_throttled(entity.as_str(), warning);
+    }
+}
+
+fn warn_edge_throttled(scope: &str, detail: &str) {
+    static SEEN: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    let seen = SEEN.get_or_init(|| Mutex::new(HashMap::new()));
+    let key = format!("{scope}|{detail}");
+    let now = Instant::now();
+    // 锁中毒不能影响业务：拿 `into_inner` 继续用（这里只是日志节流表）
+    let mut guard = seen.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(last) = guard.get(&key)
+        && now.duration_since(*last) < Duration::from_secs(60)
+    {
+        return;
+    }
+    if guard.len() > 512 {
+        guard.clear();
+    }
+    guard.insert(key, now);
+    tracing::warn!(
+        context = "state_machine.edge_config",
+        entity = scope,
+        detail = detail,
+        "状态机边配置告警（同一条 60 秒内只打一次）"
+    );
+}
+
+/// 改配置的入参。
+///
+/// `confirm` 是**二次确认**：改状态机配置 = 改流程规则，必须显式传 `true`
+/// （UI 上就是那个「我确认要改流程规则」的勾选框），否则 400。
+#[derive(Debug, Clone)]
+pub struct EdgeConfigPatch {
+    /// 实体类型（`STOCK_IN` / `PURCHASE_ORDER` / …）。
+    pub entity: String,
+    /// 变更前状态。
+    pub from_status: String,
+    /// 变更后状态。
+    pub to_status: String,
+    /// 是否启用（false = 禁用这条可选边）。
+    pub enabled: bool,
+    /// 是否要求原因（只能加不能减）。
+    pub requires_reason: bool,
+    /// 显示文案（空 = 用 BASE 的 default_label）。
+    pub label: Option<String>,
+    /// 追加的权限码。
+    pub auth_code: Option<String>,
+    /// 二次确认（必须 true）。
+    pub confirm: bool,
+}
+
+impl EdgeConfigPatch {
+    /// 「启用这条边 + 不改加严项」的最简形态。
+    pub fn allow(entity: &str, from_status: &str, to_status: &str) -> Self {
+        Self {
+            entity: entity.to_string(),
+            from_status: from_status.to_string(),
+            to_status: to_status.to_string(),
+            enabled: true,
+            requires_reason: false,
+            label: None,
+            auth_code: None,
+            confirm: true,
+        }
+    }
+}
+
+/// 超管判定（与系统约定一致：`SUPER_ADMIN` 角色 或 通配权限）。
+fn is_super_admin(claims: &TokenClaims) -> bool {
+    claims.is_super_admin()
+        || claims
+            .roles
+            .iter()
+            .any(|role| role == crate::shared::constants::SUPER_ADMIN_ROLE_CODE)
+}
+
+/// 改配置的门：**只有超管**，且要二次确认。
+fn ensure_config_admin(claims: &TokenClaims, action: &str) -> Result<(), ApiError> {
+    if is_super_admin(claims) {
+        Ok(())
+    } else {
+        Err(ApiError::new(
+            403,
+            error_code::PERMISSION_DENIED,
+            format!(
+                "{action}状态机配置需要超级管理员（SUPER_ADMIN）：状态机的边就是流程规则，\
+                 能改它的人等于能放宽全公司的审批路径，只能由超管在「系统管理」里操作，\
+                 不能自助开启"
+            ),
+        ))
+    }
+}
+
+/// 校验 + 规整一个可空文本配置项（空白视作未配置，超长 400）。
+fn normalize_config_text(
+    raw: Option<&String>,
+    field: &str,
+    max: usize,
+) -> Result<Option<String>, ApiError> {
+    let Some(text) = raw
+        .map(|value| value.trim())
+        .filter(|value| !value.is_empty())
+    else {
+        return Ok(None);
+    };
+    if text.chars().count() > max {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("{field} 最长 {max} 个字符（当前 {}）", text.chars().count()),
+        ));
+    }
+    Ok(Some(text.to_string()))
+}
+
+/// 取一行配置（改前快照用）。
+async fn fetch_edge_config(
+    ex: &impl SqlExecutor,
+    entity: &str,
+    from: &str,
+    to: &str,
+) -> DbResult<Option<EdgeConfigRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, entity, from_status, to_status, enabled, requires_reason, label, auth_code \
+               FROM biz_flow_state_edge \
+              WHERE entity = ? AND from_status = ? AND to_status = ? AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(entity.to_string()),
+                Value::Text(from.to_string()),
+                Value::Text(to.to_string()),
+            ],
+        )
+        .await?;
+    rows.first().map(EdgeConfigRow::from_row).transpose()
+}
+
+/// 改配置的一行快照描述（写进审计 `reason`，人能一眼看出改了啥）。
+fn describe_config(row: Option<&EdgeConfigRow>) -> String {
+    match row {
+        None => "无配置（使用 BASE_EDGES）".to_string(),
+        Some(row) => format!(
+            "enabled={} requires_reason={} label={} auth_code={}",
+            row.enabled,
+            row.requires_reason,
+            row.label.as_deref().unwrap_or("(BASE)"),
+            row.auth_code.as_deref().unwrap_or("(无)")
+        ),
+    }
+}
+
+/// 写一行配置审计（`biz_status_log`，只增不改）。
+#[allow(clippy::too_many_arguments)]
+async fn write_config_audit(
+    ex: &impl SqlExecutor,
+    claims: &TokenClaims,
+    entity: Entity,
+    from: &str,
+    to: &str,
+    entity_id: Uuid,
+    from_state: &str,
+    to_state: &str,
+    before: Option<&EdgeConfigRow>,
+    after: Option<&EdgeConfigRow>,
+) -> Result<(), ApiError> {
+    let entity_no = format!("{} {from}>{to}", entity.as_str());
+    let reason = format!(
+        "改前 {{{}}} → 改后 {{{}}}",
+        describe_config(before),
+        describe_config(after)
+    );
+    insert_log(
+        ex,
+        ENTITY_EDGE_CONFIG,
+        entity_id,
+        &entity_no,
+        Some(from_state),
+        to_state,
+        &Operator::from(claims),
+        Some(&reason),
+        None,
+    )
+    .await
+    .map(|_| ())
+}
+
+/// **改状态机配置的唯一入口**：超管 + 二次确认 + 只能加严 + 写审计。
+///
+/// # 错误
+///
+/// - 非超管 → **403**
+/// - `confirm != true` / 未知实体 / BASE 里没有这条边 / 禁用 mandatory 边 /
+///   试图把「代码要求原因」的边放宽 → **400**
+pub async fn upsert_edge_config(
+    ex: &impl SqlExecutor,
+    claims: &TokenClaims,
+    patch: &EdgeConfigPatch,
+) -> Result<EdgeConfigRow, ApiError> {
+    ensure_config_admin(claims, "修改")?;
+    if !patch.confirm {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            "改状态机配置需要二次确认（confirm = true）：这条边就是流程规则，\
+             改它等于改全公司的审批路径"
+                .to_string(),
+        ));
+    }
+    let entity = Entity::parse(patch.entity.trim()).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "未知的单据类型「{}」：状态机只认 {}",
+                patch.entity.trim(),
+                Entity::ALL
+                    .iter()
+                    .map(|item| item.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ),
+        )
+    })?;
+    let from = patch.from_status.trim();
+    let to = patch.to_status.trim();
+    let base = entity.base_edge(from, to).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "{} 的 {from}→{to} 不在 BASE_EDGES 里：状态机配置只能从代码里的合法边挑子集，\
+                 不能创造新边、也不能改方向（允许的边：{}）",
+                entity.as_str(),
+                entity
+                    .base_edges()
+                    .iter()
+                    .map(|edge| format!("{}→{}", edge.from, edge.to))
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ),
+        )
+    })?;
+    if !patch.enabled && base.meta.mandatory {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "{} 的 {from}→{to} 是硬约束边（mandatory，默认文案「{}」），不能禁用：\
+                 禁掉它会把单据卡死（审批回调 500 / 账不可纠正）。可禁用的是 optional 边（捷径边）",
+                entity.as_str(),
+                base.meta.default_label
+            ),
+        ));
+    }
+    if base.meta.requires_reason && !patch.requires_reason {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "{} 的 {from}→{to} 在代码里就要求填原因，配置不能把它放宽（只许加严）",
+                entity.as_str()
+            ),
+        ));
+    }
+    let label = normalize_config_text(patch.label.as_ref(), "label", 64)?;
+    let auth_code = normalize_config_text(patch.auth_code.as_ref(), "auth_code", 64)?;
+
+    let before = fetch_edge_config(ex, entity.as_str(), from, to)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("读状态机配置失败（改配置前必须留改前快照）：{error}"),
+            )
+        })?;
+
+    let id: Uuid = ex
+        .query_first_sql(
+            "INSERT INTO biz_flow_state_edge \
+                 (id, entity, from_status, to_status, enabled, requires_reason, label, auth_code, \
+                  created_at, updated_at, create_by, update_by, deleted_at) \
+             VALUES (?, ?, ?, ?, ?, ?, NULLIF(?::text,''), NULLIF(?::text,''), ?, ?, \
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, NULL) \
+             ON CONFLICT (entity, from_status, to_status) DO UPDATE \
+                SET enabled = EXCLUDED.enabled, \
+                    requires_reason = EXCLUDED.requires_reason, \
+                    label = EXCLUDED.label, \
+                    auth_code = EXCLUDED.auth_code, \
+                    updated_at = EXCLUDED.updated_at, \
+                    update_by = EXCLUDED.update_by, \
+                    deleted_at = NULL \
+             RETURNING id"
+                .to_string(),
+            vec![
+                Value::from(&Uuid::now_v7()),
+                Value::Text(entity.as_str().to_string()),
+                Value::Text(from.to_string()),
+                Value::Text(to.to_string()),
+                Value::Bool(patch.enabled),
+                Value::Bool(patch.requires_reason),
+                Value::Text(label.clone().unwrap_or_default()),
+                Value::Text(auth_code.clone().unwrap_or_default()),
+                Value::from(Utc::now()),
+                Value::from(Utc::now()),
+                Value::Text(
+                    crate::utils::current_user_uuid(claims)
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::Text(
+                    crate::utils::current_user_uuid(claims)
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+            ],
+        )
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!(
+                    "写状态机配置失败（{} {from}→{to}）：{error}",
+                    entity.as_str()
+                ),
+            )
+        })?
+        .ok_or_else(|| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                "写状态机配置没有返回主键（upsert 异常）".to_string(),
+            )
+        })?
+        .get_typed("id")
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("读状态机配置主键失败：{error}"),
+            )
+        })?;
+
+    let after = EdgeConfigRow {
+        id,
+        entity: entity.as_str().to_string(),
+        from_status: from.to_string(),
+        to_status: to.to_string(),
+        enabled: patch.enabled,
+        requires_reason: patch.requires_reason,
+        label,
+        auth_code,
+    };
+    write_config_audit(
+        ex,
+        claims,
+        entity,
+        from,
+        to,
+        id,
+        if before.as_ref().is_some_and(|row| !row.enabled) {
+            "DISABLED"
+        } else if before.is_some() {
+            "ENABLED"
+        } else {
+            "ABSENT"
+        },
+        if patch.enabled { "ENABLED" } else { "DISABLED" },
+        before.as_ref(),
+        Some(&after),
+    )
+    .await?;
+    Ok(after)
+}
+
+/// 删掉一条配置（软删，语义是「回到 BASE_EDGES 行为」）：超管 + 二次确认 + 写审计。
+///
+/// 返回 `true` = 确实删掉了一行；`false` = 本来就没有配置（**不是错误**，
+/// 重复删除是幂等的，审计也不会记一条空动作）。
+pub async fn delete_edge_config(
+    ex: &impl SqlExecutor,
+    claims: &TokenClaims,
+    entity_raw: &str,
+    from_status: &str,
+    to_status: &str,
+) -> Result<bool, ApiError> {
+    ensure_config_admin(claims, "删除")?;
+    let entity = Entity::parse(entity_raw.trim()).ok_or_else(|| {
+        ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!("未知的单据类型「{}」", entity_raw.trim()),
+        )
+    })?;
+    let from = from_status.trim();
+    let to = to_status.trim();
+    if entity.base_edge(from, to).is_none() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "{} 的 {from}→{to} 不在 BASE_EDGES 里：它本来就不是一条合法边，没有配置可删",
+                entity.as_str()
+            ),
+        ));
+    }
+    let before = fetch_edge_config(ex, entity.as_str(), from, to)
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!("读状态机配置失败（删除前必须留改前快照）：{error}"),
+            )
+        })?;
+    let Some(before) = before else {
+        return Ok(false);
+    };
+    let affected = ex
+        .exec_sql(
+            "UPDATE biz_flow_state_edge \
+                SET deleted_at = now(), updated_at = now(), \
+                    update_by = NULLIF(?::text,'')::uuid \
+              WHERE entity = ? AND from_status = ? AND to_status = ? AND deleted_at IS NULL"
+                .to_string(),
+            vec![
+                Value::Text(
+                    crate::utils::current_user_uuid(claims)
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::Text(entity.as_str().to_string()),
+                Value::Text(from.to_string()),
+                Value::Text(to.to_string()),
+            ],
+        )
+        .await
+        .map_err(|error| {
+            ApiError::new(
+                500,
+                error_code::INTERNAL_ERROR,
+                format!(
+                    "删除状态机配置失败（{} {from}→{to}）：{error}",
+                    entity.as_str()
+                ),
+            )
+        })?;
+    if affected == 0 {
+        return Ok(false);
+    }
+    write_config_audit(
+        ex,
+        claims,
+        entity,
+        from,
+        to,
+        before.id,
+        if before.enabled {
+            "ENABLED"
+        } else {
+            "DISABLED"
+        },
+        "DELETED",
+        Some(&before),
+        None,
+    )
+    .await?;
+    Ok(true)
+}
+
+/// 列出现有配置（管理端 / 排障用；`entity = None` 表示全量）。
+pub async fn list_edge_config(
+    ex: &impl SqlExecutor,
+    entity: Option<Entity>,
+) -> DbResult<Vec<EdgeConfigRow>> {
+    let rows = ex
+        .query_sql(
+            "SELECT id, entity, from_status, to_status, enabled, requires_reason, label, auth_code \
+               FROM biz_flow_state_edge \
+              WHERE deleted_at IS NULL AND (?::text = '' OR entity = ?) \
+              ORDER BY entity ASC, from_status ASC, to_status ASC"
+                .to_string(),
+            vec![
+                Value::Text(entity.map(|item| item.as_str()).unwrap_or_default().to_string()),
+                Value::Text(entity.map(|item| item.as_str()).unwrap_or_default().to_string()),
+            ],
+        )
+        .await?;
+    rows.iter().map(EdgeConfigRow::from_row).collect()
+}
+
 // ==================== 操作人与返回 ====================
+
+/// 令牌声明里的权限快照（**只有 HTTP 入口有**；内部 / 后台路径没有）。
+///
+/// 它只服务一件事：`biz_flow_state_edge.auth_code` 配了权限码时，
+/// 判断「当前操作人有没有这个码」。`None` 表示调用方不是令牌持有者
+/// （审批回调 / 定时任务 / 内部编排），此时**不拦**、只打 WARN ——
+/// 拦下来会让审批回调 500（那是停摆，不是加严）。
+#[derive(Debug, Clone, Default)]
+pub struct AuthSnapshot {
+    /// 角色码（`SUPER_ADMIN` 短路一切）。
+    pub roles: Vec<String>,
+    /// 权限码（`*` / `*:*:*` 视作通配）。
+    pub permissions: Vec<String>,
+}
+
+impl AuthSnapshot {
+    /// 从令牌声明取快照。
+    pub fn from_claims(claims: &TokenClaims) -> Self {
+        Self {
+            roles: claims.roles.clone(),
+            permissions: claims.permissions.clone(),
+        }
+    }
+
+    /// 超管（`SUPER_ADMIN` 角色 或 通配权限码）。
+    pub fn is_super_admin(&self) -> bool {
+        self.roles
+            .iter()
+            .any(|role| role == crate::shared::constants::SUPER_ADMIN_ROLE_CODE)
+            || self
+                .permissions
+                .iter()
+                .any(|code| code == "*" || code == "*:*:*")
+    }
+
+    /// 持有某个权限码（超管短路）。
+    pub fn has_permission(&self, code: &str) -> bool {
+        self.is_super_admin() || self.permissions.iter().any(|held| held == code)
+    }
+}
 
 /// 操作人（`operator` 入参的统一形态）。
 ///
@@ -540,12 +1627,18 @@ pub struct Operator {
     pub id: Option<Uuid>,
     /// 用户名（落 `operator_name`：日志的可读性靠它，权威关联仍靠 id）。
     pub name: Option<String>,
+    /// 令牌里的权限快照（`&TokenClaims` 传入时自动带上；内部路径为 `None`）。
+    pub auth: Option<AuthSnapshot>,
 }
 
 impl Operator {
     /// 只有 id（model / 事务体路径）。
     pub fn of(id: Option<Uuid>) -> Self {
-        Self { id, name: None }
+        Self {
+            id,
+            name: None,
+            auth: None,
+        }
     }
 
     /// id + 用户名。
@@ -559,6 +1652,7 @@ impl Operator {
             } else {
                 Some(name.to_string())
             },
+            auth: None,
         }
     }
 }
@@ -577,10 +1671,15 @@ impl From<Uuid> for Operator {
 
 impl From<&TokenClaims> for Operator {
     fn from(claims: &TokenClaims) -> Self {
-        Operator::named(
-            crate::utils::current_user_uuid(claims),
-            claims.username.clone().unwrap_or_default(),
-        )
+        Operator {
+            id: crate::utils::current_user_uuid(claims),
+            name: claims
+                .username
+                .clone()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty()),
+            auth: Some(AuthSnapshot::from_claims(claims)),
+        }
     }
 }
 
@@ -648,7 +1747,11 @@ pub fn rejection_message(entity_type: &str, from: &str, to: &str) -> String {
     let Some(entity) = Entity::parse(entity_type) else {
         return format!("单据类型 {entity_type} 未在状态机注册，不能流转到 {to}");
     };
-    let allowed = entity.next_statuses(from);
+    rejection_message_for(entity, from, to, &entity.next_statuses(from))
+}
+
+/// 同上，但「可选去向」由调用方给（配置禁用后要按**有效边**报，不能报已禁用的边）。
+fn rejection_message_for(entity: Entity, from: &str, to: &str, allowed: &[&'static str]) -> String {
     if allowed.is_empty() {
         return format!(
             "{}当前是「{from}」，没有可流转的下一个状态：它已是终态，或该状态由其它流程维护",
@@ -664,6 +1767,42 @@ pub fn rejection_message(entity_type: &str, from: &str, to: &str) -> String {
             .collect::<Vec<_>>()
             .join(" / ")
     )
+}
+
+/// 权限码闸：`biz_flow_state_edge.auth_code` 非空时，操作人必须持有该码。
+///
+/// - 超管（`SUPER_ADMIN` 角色 / 通配权限）短路放行；
+/// - 令牌入口（HTTP）没有该码 → **403**；
+/// - 内部路径（审批回调 / 定时任务，没有令牌快照）→ 放行 + WARN
+///   （拦下来会让审批回调 500，那是停摆，不是加严）。
+fn check_edge_auth(entity: Entity, edge: &Edge, operator: &Operator) -> Result<(), ApiError> {
+    let Some(code) = edge.auth_code.as_deref() else {
+        return Ok(());
+    };
+    match operator.auth.as_ref() {
+        Some(auth) if auth.has_permission(code) => Ok(()),
+        Some(_) => Err(ApiError::new(
+            403,
+            error_code::PERMISSION_DENIED,
+            format!(
+                "{}的「{}→{}」需要权限码 `{code}`（当前账号未持有）：\
+                 这条边被管理员收紧过，只有持有该权限的人能走",
+                entity.label(),
+                edge.from,
+                edge.to
+            ),
+        )),
+        None => {
+            warn_edge_throttled(
+                entity.as_str(),
+                &format!(
+                    "{}→{} 配了权限码 `{code}`，但本次调用没有令牌（内部路径），未校验权限码",
+                    edge.from, edge.to
+                ),
+            );
+            Ok(())
+        }
+    }
 }
 
 /// 注册表核对：未知实体 / 边表与注册表不一致 → **500**（配置漂移，不是用户错）。
@@ -735,16 +1874,39 @@ pub async fn transition(
             ),
         ));
     }
-    if !entity.can_transition(from, to) {
-        return Err(ApiError::new(
-            409,
-            error_code::RESOURCE_CONFLICT,
-            rejection_message(entity_type, from, to),
-        ));
-    }
+
+    // 【D1】第 3 层：有效边 = BASE_EDGES ∩ 配置（读配置失败 / 数据脏 → 自动退化 BASE_EDGES + WARN）。
+    // 边表核对（`check_registration`）用的是**代码里的注册表**，所以「谁私自多放一条边」
+    // 依然当场 500；配置层只能在这里**再收窄**，永远不能放宽。
+    let operator = operator.into();
+    let resolution = edge_resolution(ex, entity).await;
+    log_edge_warnings(entity, &resolution.warnings);
+    let Some(edge) = resolution.get(from, to) else {
+        let message = if entity.can_transition(from, to) {
+            format!(
+                "{} {} 的流转「{from} → {to}」已被状态机配置禁用（biz_flow_state_edge）：\
+                 这条边在代码里合法，但管理员把它关掉了。当前允许的去向是 {}",
+                entity.label(),
+                no,
+                match resolution.next_statuses(from).is_empty() {
+                    true => "（无）".to_string(),
+                    false => resolution
+                        .next_statuses(from)
+                        .iter()
+                        .map(|status| format!("「{status}」"))
+                        .collect::<Vec<_>>()
+                        .join(" / "),
+                }
+            )
+        } else {
+            rejection_message_for(entity, from, to, &resolution.next_statuses(from))
+        };
+        return Err(ApiError::new(409, error_code::RESOURCE_CONFLICT, message));
+    };
 
     let reason = reason.map(str::trim).filter(|text| !text.is_empty());
-    if entity.needs_reason(from, to) && reason.is_none() {
+    // 必填原因 = BASE 要求 or 配置要求（合并时取的「或」，只能加不能减）
+    if edge.requires_reason && reason.is_none() {
         return Err(ApiError::new(
             400,
             error_code::PARAM_INVALID,
@@ -757,7 +1919,9 @@ pub async fn transition(
         ));
     }
 
-    let operator = operator.into();
+    // 配置层追加的权限码要求（令牌入口；内部路径放行 + WARN）
+    check_edge_auth(entity, edge, &operator)?;
+
     let log_id = insert_log(
         ex,
         entity_type,
@@ -1523,6 +2687,688 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+    // ==================== 【D1】第 1 层：BASE_EDGES ====================
+
+    /// ❶ 纯重构不变量：BASE_EDGES 与 `edges()` **逐条同序**，`requires_reason` 与
+    /// `reason_edges()` 完全一致，无自环、无重复、文案非空。
+    ///
+    /// 这条是「抽 BASE_EDGES 时行为一丝不变」的机器化证明：两张表漂移立刻红。
+    #[test]
+    fn base_edges_match_registry() {
+        for entity in Entity::ALL {
+            let base = entity.base_edges();
+            let edges = entity.edges();
+            assert_eq!(
+                base.len(),
+                edges.len(),
+                "{:?} 的 BASE_EDGES 条数与 edges() 不一致",
+                entity
+            );
+            for (index, (pair, base_edge)) in edges.iter().zip(base.iter()).enumerate() {
+                assert_eq!(
+                    (base_edge.from, base_edge.to),
+                    *pair,
+                    "{:?} 第 {index} 条边不一致（BASE 与注册表必须逐条同序）",
+                    entity
+                );
+                assert_ne!(base_edge.from, base_edge.to, "自环不是状态变更：{pair:?}");
+                assert!(
+                    !base_edge.meta.default_label.trim().is_empty(),
+                    "{pair:?} 缺默认文案（配置层的「恢复默认」要靠它）"
+                );
+                let reason_expected = entity
+                    .reason_edges()
+                    .iter()
+                    .any(|(from, to)| *from == base_edge.from && *to == base_edge.to);
+                assert_eq!(
+                    base_edge.meta.requires_reason, reason_expected,
+                    "{pair:?} 的 requires_reason 与 reason_edges() 不一致"
+                );
+            }
+            // 无重复 (from,to)
+            for (index, first) in base.iter().enumerate() {
+                for second in base.iter().skip(index + 1) {
+                    assert_ne!(
+                        (first.from, first.to),
+                        (second.from, second.to),
+                        "{:?} 有重复边 {first:?}",
+                        entity
+                    );
+                }
+            }
+        }
+    }
+
+    /// ❷ 可选边白名单钉死：**只有这 4 条**能被配置禁用，多一条都要先改这张断言。
+    #[test]
+    fn optional_edges_are_exactly_the_documented_four() {
+        let mut optional: Vec<(&str, &str, &str)> = Vec::new();
+        for entity in Entity::ALL {
+            for edge in entity.base_edges() {
+                if !edge.meta.mandatory {
+                    optional.push((entity.as_str(), edge.from, edge.to));
+                }
+            }
+        }
+        optional.sort_unstable();
+        assert_eq!(
+            optional,
+            vec![
+                ("PURCHASE_ORDER", "SUBMITTED", "CLOSED"),
+                ("STOCK_IN", "DRAFT", "POSTED"),
+                ("STOCK_IN", "PENDING_POST", "CANCELLED"),
+                ("STOCK_OUT", "DRAFT", "POSTED"),
+            ],
+            "可选边（可被配置禁用）必须与文档一致：多一条 = 偷偷放宽了配置面"
+        );
+    }
+
+    // ==================== 【D1】第 2/3 层：合并规则（纯函数） ====================
+
+    fn d1_row(entity: &str, from: &str, to: &str, enabled: bool) -> EdgeConfigRow {
+        EdgeConfigRow {
+            id: Uuid::now_v7(),
+            entity: entity.to_string(),
+            from_status: from.to_string(),
+            to_status: to.to_string(),
+            enabled,
+            requires_reason: false,
+            label: None,
+            auth_code: None,
+        }
+    }
+
+    /// ❸ 禁用一条 optional 边 → 该边从有效边里消失，且不报 WARN（这是合法配置）。
+    #[test]
+    fn disabled_optional_edge_disappears() {
+        let rows = [d1_row(ENTITY_STOCK_IN, "DRAFT", "POSTED", false)];
+        let resolution = resolve_edges(Entity::StockIn, &rows);
+        assert!(
+            !resolution.allows("DRAFT", "POSTED"),
+            "禁用的可选边不能出现在有效边里"
+        );
+        assert!(
+            resolution.allows("DRAFT", "PENDING_POST"),
+            "同状态的其他边不受影响"
+        );
+        assert_eq!(
+            resolution.edges.len(),
+            STOCK_IN_BASE.len() - 1,
+            "只少了这一条"
+        );
+        assert!(
+            resolution.warnings.is_empty(),
+            "合法禁用不该有 WARN：{:?}",
+            resolution.warnings
+        );
+    }
+
+    /// ❹ 禁用 mandatory 边 → **无效**（边仍可用）+ WARN。
+    #[test]
+    fn disabling_mandatory_edge_is_ignored_with_warning() {
+        let rows = [d1_row(ENTITY_STOCK_IN, "POSTED", "CANCELLED", false)];
+        let resolution = resolve_edges(Entity::StockIn, &rows);
+        assert!(
+            resolution.allows("POSTED", "CANCELLED"),
+            "硬约束边（红冲）不许被配置删掉"
+        );
+        assert!(
+            resolution
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("mandatory")),
+            "必须留下 WARN 说明配置被忽略：{:?}",
+            resolution.warnings
+        );
+    }
+
+    /// ❺ 配置添加 BASE 里没有的边 → 被忽略 + WARN（不许「任意跳任意」）。
+    #[test]
+    fn invented_edge_is_ignored_with_warning() {
+        let rows = [
+            d1_row(ENTITY_STOCK_IN, "DRAFT", "PENDING_CANCEL", true),
+            d1_row(ENTITY_STOCK_IN, "CANCELLED", "POSTED", true),
+        ];
+        let resolution = resolve_edges(Entity::StockIn, &rows);
+        assert!(!resolution.allows("DRAFT", "PENDING_CANCEL"));
+        assert!(
+            !resolution.allows("CANCELLED", "POSTED"),
+            "不能改方向 / 不能从终态复活"
+        );
+        assert_eq!(
+            resolution.warnings.len(),
+            2,
+            "两条脏边各一条 WARN：{:?}",
+            resolution.warnings
+        );
+        assert!(
+            resolution
+                .warnings
+                .iter()
+                .all(|warning| warning.contains("不在 BASE_EDGES"))
+        );
+    }
+
+    /// ❻ 配置数据脏（entity 写错）→ 整组忽略 + WARN，该实体退回 BASE_EDGES。
+    #[test]
+    fn dirty_entity_is_ignored_with_warning() {
+        let rows = [d1_row("purchase_order", "SUBMITTED", "CLOSED", false)];
+        let resolution = resolve_edges(Entity::PurchaseOrder, &rows);
+        assert!(
+            resolution.allows("SUBMITTED", "CLOSED"),
+            "entity 写错的行不该生效（否则一半配置生效一半不生效，谁也不敢动）"
+        );
+        assert!(
+            resolution
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("不在状态机注册表里")),
+            "{:?}",
+            resolution.warnings
+        );
+    }
+
+    /// ❼ label / requires_reason / auth_code 三项加严会被合并进有效边。
+    #[test]
+    fn label_reason_and_auth_code_are_merged() {
+        let mut row = d1_row(ENTITY_STOCK_IN, "DRAFT", "PENDING_POST", true);
+        row.label = Some("报批".to_string());
+        row.requires_reason = true;
+        row.auth_code = Some("erp:stock-in:submit".to_string());
+        let resolution = resolve_edges(Entity::StockIn, &[row]);
+        let edge = resolution.get("DRAFT", "PENDING_POST").expect("边应存在");
+        assert_eq!(edge.label, "报批", "显示文案要能改");
+        assert!(edge.requires_reason, "配置可以加「必填原因」");
+        assert_eq!(edge.auth_code.as_deref(), Some("erp:stock-in:submit"));
+        // 其它边不受影响
+        assert_eq!(
+            resolution.get("DRAFT", "CANCELLED").unwrap().label,
+            "草稿作废"
+        );
+    }
+
+    /// ❽ 只许加严：配置把「代码要求原因」的边写成 `requires_reason = false` 也照样要求。
+    #[test]
+    fn requires_reason_cannot_be_weakened() {
+        let mut row = d1_row(ENTITY_STOCK_IN, "POSTED", "CANCELLED", true);
+        row.requires_reason = false;
+        let resolution = resolve_edges(Entity::StockIn, &[row]);
+        assert!(
+            resolution
+                .get("POSTED", "CANCELLED")
+                .unwrap()
+                .requires_reason,
+            "红冲必须给原因，配置关不掉"
+        );
+    }
+
+    // ==================== 【D1】配置写入：权限 / 边界 / 留痕（真库） ====================
+
+    /// 超管声明（改配置必须有）。
+    fn d1_super_claims() -> TokenClaims {
+        d1_claims(&["*:*:*"], &["SUPER_ADMIN"])
+    }
+
+    /// 普通用户声明。
+    fn d1_claims(permissions: &[&str], roles: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: "00000000-0000-4000-8000-0000000000a1".to_string(),
+            username: Some("d1_tester".to_string()),
+            roles: roles.iter().map(|value| value.to_string()).collect(),
+            permissions: permissions.iter().map(|value| value.to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: HashMap::new(),
+        }
+    }
+
+    /// 起一个**可回滚**的事务：配置与流转都写在里面，测试结束 rollback → 库里零残留。
+    ///
+    /// 为什么不用 `setup()` 的前缀清理：配置行按真实 entity 存（`STOCK_IN` 之类），
+    /// 没有可用的夹具前缀；事务回滚是唯一不会误删别人配置的做法。
+    async fn d1_tx() -> Option<(tokio::sync::MutexGuard<'static, ()>, Transaction)> {
+        let guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return None;
+        }
+        match db().begin().await {
+            Ok(tx) => Some((guard, tx)),
+            Err(error) => {
+                println!("SKIP: 开事务失败（{error}）");
+                None
+            }
+        }
+    }
+
+    fn d1_patch(entity: &str, from: &str, to: &str) -> EdgeConfigPatch {
+        EdgeConfigPatch::allow(entity, from, to)
+    }
+
+    async fn d1_audit_count(tx: &Transaction, entity_no_like: &str) -> i64 {
+        tx.scalar_sql::<i64>(
+            "SELECT count(*) FROM biz_status_log \
+              WHERE entity_type = ? AND entity_no LIKE ?"
+                .to_string(),
+            vec![
+                Value::Text(ENTITY_EDGE_CONFIG.to_string()),
+                Value::Text(entity_no_like.to_string()),
+            ],
+        )
+        .await
+        .unwrap_or(0)
+    }
+
+    /// ❾ 改配置的门：非超管 403、没二次确认 400、BASE 里没有的边 400、
+    /// 禁用 mandatory 边 400、把必填原因放宽 400。**一条都不许过**。
+    #[tokio::test]
+    async fn config_write_rejects_every_forbidden_action() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+
+        // ① 非超管
+        let err = upsert_edge_config(
+            &tx,
+            &d1_claims(&["erp:stock-in:update"], &["USER"]),
+            &d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED"),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert!(err.msg.contains("SUPER_ADMIN"), "{}", err.msg);
+
+        // ② 没二次确认
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
+        patch.confirm = false;
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("二次确认"), "{}", err.msg);
+
+        // ③ BASE 里没有的边（不能创造新边）
+        let err = upsert_edge_config(
+            &tx,
+            &d1_super_claims(),
+            &d1_patch(ENTITY_STOCK_IN, "DRAFT", "PENDING_CANCEL"),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("不在 BASE_EDGES"), "{}", err.msg);
+
+        // ④ 禁用 mandatory 边
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "POSTED", "CANCELLED");
+        patch.enabled = false;
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("硬约束边"), "{}", err.msg);
+
+        // ⑤ 把「代码要求原因」的边放宽
+        let patch = d1_patch(ENTITY_STOCK_IN, "POSTED", "CANCELLED");
+        let err = upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("放宽"), "{}", err.msg);
+
+        let _ = tx.rollback().await;
+    }
+
+    /// ❿ 写配置成功 → 落一行 + `biz_status_log` 有改前/改后快照（留痕）。
+    #[tokio::test]
+    async fn config_write_persists_and_leaves_audit() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let row = upsert_edge_config(
+            &tx,
+            &d1_super_claims(),
+            &d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED"),
+        )
+        .await
+        .expect("超管 + confirm 应写入成功");
+        assert!(row.enabled);
+
+        let listed = list_edge_config(&tx, Some(Entity::StockIn))
+            .await
+            .expect("读配置");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].from_status, "DRAFT");
+        assert_eq!(listed[0].to_status, "POSTED");
+
+        let audits = d1_audit_count(&tx, "STOCK_IN DRAFT>POSTED").await;
+        assert_eq!(audits, 1, "改配置必须留痕（biz_status_log）");
+        let reason: String = tx
+            .scalar_sql::<String>(
+                "SELECT reason FROM biz_status_log \
+                  WHERE entity_type = ? AND entity_no = ? ORDER BY created_at DESC LIMIT 1"
+                    .to_string(),
+                vec![
+                    Value::Text(ENTITY_EDGE_CONFIG.to_string()),
+                    Value::Text("STOCK_IN DRAFT>POSTED".to_string()),
+                ],
+            )
+            .await
+            .expect("读审计");
+        assert!(reason.contains("改前"), "审计要写改前：{reason}");
+        assert!(reason.contains("改后"), "审计要写改后：{reason}");
+        assert!(reason.contains("enabled=true"), "{reason}");
+        // `--nocapture` 时把审计原文打出来（交付证据里直接贴这一行）
+        println!("[D1 证据] biz_status_log(entity_type=FLOW_EDGE_CFG) reason = {reason}");
+        println!(
+            "[D1 证据] biz_flow_state_edge 行 = entity:{} {}>{} enabled={} requires_reason={} label={:?} auth_code={:?}",
+            listed[0].entity,
+            listed[0].from_status,
+            listed[0].to_status,
+            listed[0].enabled,
+            listed[0].requires_reason,
+            listed[0].label,
+            listed[0].auth_code
+        );
+
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓫ 禁用 optional 边后，**真走这条边** → 409「已被状态机配置禁用」；删配置后恢复。
+    #[tokio::test]
+    async fn disabled_edge_is_rejected_then_restored_after_delete() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let no = format!("{PREFIX}D1A");
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
+        patch.enabled = false;
+        upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .expect("禁用可选边应成功");
+
+        let err = transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            op(),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert!(
+            err.msg.contains("已被状态机配置禁用"),
+            "文案要说清是配置禁的，不是代码里没有：{}",
+            err.msg
+        );
+
+        // 删配置 → 回到 BASE 行为
+        assert!(
+            delete_edge_config(&tx, &d1_super_claims(), ENTITY_STOCK_IN, "DRAFT", "POSTED")
+                .await
+                .expect("删配置")
+        );
+        transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            op(),
+            None,
+            None,
+        )
+        .await
+        .expect("删掉配置后这条边必须恢复可用");
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓬ 有人绕过 API 直接写库禁用 mandatory 边 → 运行时忽略 + WARN，边照旧可用。
+    #[tokio::test]
+    async fn raw_sql_mandatory_disable_is_ignored_at_runtime() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        tx.exec_sql(
+            "INSERT INTO biz_flow_state_edge (entity, from_status, to_status, enabled) \
+             VALUES (?, 'POSTED', 'CANCELLED', false)"
+                .to_string(),
+            vec![Value::Text(ENTITY_STOCK_IN.to_string())],
+        )
+        .await
+        .expect("绕过 API 直接写脏配置");
+
+        let resolution = edge_resolution(&tx, Entity::StockIn).await;
+        assert!(
+            resolution.allows("POSTED", "CANCELLED"),
+            "脏配置禁用 mandatory 边必须被忽略"
+        );
+        assert!(
+            resolution
+                .warnings
+                .iter()
+                .any(|warning| warning.contains("mandatory")),
+            "{:?}",
+            resolution.warnings
+        );
+        // 真流转也照旧能走
+        transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &format!("{PREFIX}D1B"),
+            &STOCK_IN_EDGES,
+            "POSTED",
+            "CANCELLED",
+            op(),
+            Some("客户退货"),
+            None,
+        )
+        .await
+        .expect("红冲不该被脏配置挡住");
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓭ 配置加 `requires_reason` → 走这条边必须给原因（400），给了就放行。
+    #[tokio::test]
+    async fn config_requires_reason_on_edge() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
+        patch.requires_reason = true;
+        upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .expect("加必填原因应成功");
+
+        let no = format!("{PREFIX}D1C");
+        let err = transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            op(),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(err.msg.contains("reason"), "{}", err.msg);
+
+        transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            op(),
+            Some("补录历史入库"),
+            None,
+        )
+        .await
+        .expect("给了原因应放行");
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓮ 配置加 `auth_code` → 无权限的人走该边 403；有权限的人放行。
+    #[tokio::test]
+    async fn config_auth_code_gates_operator() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "POSTED");
+        patch.auth_code = Some("erp:stock-in:post".to_string());
+        upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .expect("加权限码应成功");
+
+        let no = format!("{PREFIX}D1D");
+        let err = transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            &d1_claims(&["erp:stock-in:update"], &["USER"]),
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 403, "{}", err.msg);
+        assert!(err.msg.contains("erp:stock-in:post"), "{}", err.msg);
+
+        transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            &d1_claims(&["erp:stock-in:post"], &["USER"]),
+            None,
+            None,
+        )
+        .await
+        .expect("持有权限码应放行");
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓯ DB 表不存在（迁移没跑 / 表被误删）→ 退化 BASE_EDGES + WARN，系统不崩。
+    ///
+    /// 做法：事务里把表改名（DDL 在 PG 里也是事务性的），读一次 + **真跑一次流转**，再回滚。
+    ///
+    /// 真跑流转这一句是必须的：真机验收实测，读配置失败会把**整个事务置为 aborted**
+    /// （PG 语义），紧接着的 `insert_log` 直接 `query failed` —— 降级读把业务写死了。
+    /// 修复是 `load_edge_config_rows` 里套 `SAVEPOINT`；这条用例就是那次事故的回归。
+    #[tokio::test]
+    async fn missing_table_degrades_to_base_edges() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        tx.exec_sql(
+            "ALTER TABLE biz_flow_state_edge RENAME TO biz_flow_state_edge_d1_gone".to_string(),
+            vec![],
+        )
+        .await
+        .expect("事务内改名（这个 DDL 可回滚）");
+
+        let resolution = edge_resolution(&tx, Entity::StockIn).await;
+        let rendered = format!("{:?}", resolution.warnings);
+        let no = format!("{PREFIX}D1GONE");
+        let written = transition(
+            &tx,
+            ENTITY_STOCK_IN,
+            Uuid::now_v7(),
+            &no,
+            &STOCK_IN_EDGES,
+            "DRAFT",
+            "POSTED",
+            op(),
+            None,
+            None,
+        )
+        .await;
+        let trail = trail_of_no(&tx, &no)
+            .await
+            .map(|rows| rows.len())
+            .unwrap_or(0);
+        let _ = tx.rollback().await;
+
+        assert_eq!(
+            resolution.edges.len(),
+            STOCK_IN_BASE.len(),
+            "表不存在时必须完整退回 BASE_EDGES"
+        );
+        assert!(resolution.allows("DRAFT", "POSTED"));
+        assert!(
+            rendered.contains("读取 biz_flow_state_edge 失败"),
+            "必须留 WARN 说明退化了：{rendered}"
+        );
+        assert!(
+            written.is_ok(),
+            "表不存在时流转也必须成功（fail-safe）：{:?}",
+            written.err().map(|error| error.msg)
+        );
+        assert_eq!(trail, 1, "降级路径也要留下状态日志（事务没被 aborted）");
+    }
+
+    /// ⓰ 配置改 label → 显示文案变了（真库走一遍 upsert + 合并）。
+    #[tokio::test]
+    async fn config_label_changes_display_text() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        let mut patch = d1_patch(ENTITY_STOCK_IN, "DRAFT", "PENDING_POST");
+        patch.label = Some("报批".to_string());
+        upsert_edge_config(&tx, &d1_super_claims(), &patch)
+            .await
+            .expect("改文案应成功");
+
+        let resolution = edge_resolution(&tx, Entity::StockIn).await;
+        assert_eq!(
+            resolution.get("DRAFT", "PENDING_POST").unwrap().label,
+            "报批"
+        );
+        let _ = tx.rollback().await;
+    }
+
+    /// ⓱ 重复删除幂等：没有配置时删除返回 `false`，且不留审计噪音。
+    #[tokio::test]
+    async fn delete_without_config_is_idempotent() {
+        let Some((_guard, tx)) = d1_tx().await else {
+            return;
+        };
+        assert!(
+            !delete_edge_config(&tx, &d1_super_claims(), ENTITY_STOCK_IN, "DRAFT", "POSTED")
+                .await
+                .expect("删一个不存在的配置不该报错")
+        );
+        assert_eq!(d1_audit_count(&tx, "STOCK_IN DRAFT>POSTED").await, 0);
+        // 非合法边直接 400（连「删」都不允许出现凭空边）
+        let err = delete_edge_config(&tx, &d1_super_claims(), ENTITY_STOCK_IN, "DRAFT", "DONE")
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        let _ = tx.rollback().await;
     }
 }
 

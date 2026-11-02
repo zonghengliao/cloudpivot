@@ -1,0 +1,39 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 31.06s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 29 tests
+test business::shared::state_machine::tests::base_edges_match_registry ... ok
+test business::shared::state_machine::tests::config_auth_code_gates_operator ... ok
+test business::shared::state_machine::tests::config_label_changes_display_text ... ok
+test business::shared::state_machine::tests::config_requires_reason_on_edge ... ok
+test business::shared::state_machine::tests::config_write_persists_and_leaves_audit ... [D1 证据] biz_status_log(entity_type=FLOW_EDGE_CFG) reason = 改前 {无配置（使用 BASE_EDGES）} → 改后 {enabled=true requires_reason=false label=(BASE) auth_code=(无)}
+[D1 证据] biz_flow_state_edge 行 = entity:STOCK_IN DRAFT>POSTED enabled=true requires_reason=false label=None auth_code=None
+ok
+test business::shared::state_machine::tests::config_write_rejects_every_forbidden_action ... ok
+test business::shared::state_machine::tests::delete_without_config_is_idempotent ... ok
+test business::shared::state_machine::tests::dirty_entity_is_ignored_with_warning ... ok
+test business::shared::state_machine::tests::disabled_edge_is_rejected_then_restored_after_delete ... ok
+test business::shared::state_machine::tests::disabled_optional_edge_disappears ... ok
+test business::shared::state_machine::tests::disabling_mandatory_edge_is_ignored_with_warning ... ok
+test business::shared::state_machine::tests::illegal_edge_is_conflict_and_names_targets ... ok
+test business::shared::state_machine::tests::invented_edge_is_ignored_with_warning ... ok
+test business::shared::state_machine::tests::label_reason_and_auth_code_are_merged ... ok
+test business::shared::state_machine::tests::legal_edge_writes_complete_log_row ... ok
+test business::shared::state_machine::tests::log_rolls_back_with_transaction ... ok
+test business::shared::state_machine::tests::missing_table_degrades_to_base_edges ... ok
+test business::shared::state_machine::tests::optional_edges_are_exactly_the_documented_four ... ok
+test business::shared::state_machine::tests::posted_voucher_summary_change_is_conflict ... ok
+test business::shared::state_machine::tests::purchase_order_draft_to_received_is_conflict ... ok
+test business::shared::state_machine::tests::raw_sql_mandatory_disable_is_ignored_at_runtime ... ok
+test business::shared::state_machine::tests::reason_required_edge_without_reason_is_bad_request ... ok
+test business::shared::state_machine::tests::requires_reason_cannot_be_weakened ... ok
+test business::shared::state_machine::tests::self_loop_is_still_rejected_by_transition ... ok
+test business::shared::state_machine::tests::trail_by_entity_no_is_complete ... ok
+test business::shared::state_machine::tests::transition_if_changed_skips_self_loop ... ok
+test business::shared::state_machine::tests::transition_if_changed_writes_when_changed ... ok
+test business::shared::state_machine::tests::two_transitions_write_two_ordered_rows ... ok
+test business::shared::state_machine::tests::unknown_entity_type_is_rejected ... ok
+
+test result: ok. 29 passed; 0 failed; 0 ignored; 0 measured; 1998 filtered out; finished in 2.78s
+

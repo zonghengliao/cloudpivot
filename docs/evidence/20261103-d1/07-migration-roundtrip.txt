@@ -1,0 +1,18 @@
+===== down（V0204 回滚）=====
+DO
+DROP TABLE
+psql:backend/migrations/business/V0204__flow_state_edge.down.sql:48: NOTICE:  V0204 down 完成：biz_flow_state_edge 与索引全部撤销，零残留（biz_status_log 审计保留）
+DO
+
+===== down 后：表在不在 ====="
+0
+===== up（重新应用）=====
+CREATE TABLE
+COMMENT
+CREATE INDEX
+psql:backend/migrations/business/V0204__flow_state_edge.up.sql:124: NOTICE:  V0204 完成：biz_flow_state_edge 建表 + 唯一约束 + 存活行索引，初始 0 行（全部使用 BASE_EDGES）
+DO
+
+===== up 后：结构与行数 ====="
+13
+0

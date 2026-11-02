@@ -1,0 +1,4 @@
+===== 改动前基线：cargo test --lib -- --list（本卡开工前）=====
+
+2010 tests, 0 benchmarks
+EXIT=0

@@ -1,0 +1,17 @@
+===== cargo fmt -p cloudpivot -- --check =====
+OK: 无格式差异
+
+===== cargo clippy --lib -- -D warnings =====
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.64s
+
+===== cargo clippy --lib --tests -- -D warnings（既有红点，非本卡引入）=====
+      2 src/business/erp/stockout_tests.rs
+      8 src/business/flow/internal_control.rs
+      6 tests/testd/impexp.rs
+      3 tests/testd/linkage.rs
+      3 tests/testd/mutex_help_ai.rs
+      6 tests/testd/project_log.rs
+
+===== 这些文件本卡有没有动过（git status 为空 = 未动）=====
+(空 = 未动，红点是 main 上既有的)
