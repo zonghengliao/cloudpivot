@@ -1,0 +1,52 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 41 tests
+test business::erp::voucher::tests::account_mapping_uses_voucher_rule ... ok
+test business::erp::voucher::tests::amount_basis_inventory_excludes_tax_payable_includes_tax ... ok
+test business::erp::voucher::tests::cancel_creates_red_voucher_with_negative_net_effect ... ok
+test business::erp::voucher::tests::cancel_marks_payable_cancelled ... ok
+test business::erp::voucher::tests::db_rejects_entry_with_both_sides ... ok
+test business::erp::voucher::tests::db_rejects_unbalanced_voucher ... ok
+test business::erp::voucher::tests::material_account_is_used_when_rule_missing ... ok
+test business::erp::voucher::tests::missing_rule_falls_back_to_default_accounts ... ok
+test business::erp::voucher::tests::post_creates_open_payable_with_with_tax_amount ... ok
+test business::erp::voucher::tests::post_creates_posted_auto_voucher ... ok
+test business::erp::voucher::tests::post_creates_three_entries_debit_inventory_debit_tax_credit_payable ... ok
+test business::erp::voucher::tests::post_writes_back_voucher_and_payable_ids ... ok
+test business::erp::voucher::tests::red_voucher_links_back_to_original ... ok
+test business::erp::voucher::tests::reversed_lines_swap_sides_and_keep_amounts ... ok
+test business::erp::voucher::tests::voucher_failure_rolls_back_inventory ... ok
+test business::erp::voucher::tests::voucher_no_format_is_pz_prefix_with_six_digits ... ok
+test business::erp::voucher::tests::voucher_period_follows_stock_in_date ... ok
+test business::erp::voucher::tests::voucher_totals_are_balanced ... ok
+test business::erp::voucher::tests::zero_tax_receipt_has_two_entries ... ok
+test business::erp::voucher::tests::zz_teardown_purges_finance_status_logs ... ok
+test business::erp::voucher::tests::zz_teardown_purges_fixture_accounts ... ok
+test business::erp::voucher_bridge::tests::biz_type_and_flow_code_match_seed ... ok
+test business::erp::voucher_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::voucher_bridge::tests::voucher_status_is_never_pending_reverse ... ok
+test business::erp::voucher_query::tests::p2d1_query_validation ... [P2D1-④] 入参校验（状态/类型/期间）✓
+ok
+test business::erp::voucher_query::tests::p2d1_red_voucher_detail_flags ... [P2D1-③] 红字凭证 is_red / reverse_of / 借贷互换 ✓
+ok
+test business::erp::voucher_query::tests::p2d1_voucher_detail_matches_totals ... [P2D1-②] 详情分录 + 借贷合计一致 + 404 ✓
+ok
+test business::erp::voucher_query::tests::p2d1_voucher_page_filters ... [P2D1-①] 期间/状态/来源/凭证号筛选 ✓
+ok
+test business::erp::voucher_query::tests::pflow3b_res_carries_pending_reverse_instance_id ... ok
+test business::erp::voucher_query::tests::pflow3b_res_carries_reverse_reason ... ok
+test business::erp::voucher_query::tests::zz_teardown_purges_fixture_accounts ... ok
+test business::erp::voucher_write::tests::biz_active_conflict_maps_to_409_with_voucher_no ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_balanced_is_posted ... ok
+test business::erp::voucher_write::tests::p7_manual_voucher_unbalanced_is_rejected ... ok
+test business::erp::voucher_write::tests::p7_reverse_closed_period_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_creates_red_voucher ... ok
+test business::erp::voucher_write::tests::p7_reverse_red_voucher_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_requires_reason ... ok
+test business::erp::voucher_write::tests::p7_reverse_twice_is_conflict ... ok
+test business::erp::voucher_write::tests::p7_reverse_writes_back_reversed_by_and_keeps_posted ... ok
+test business::erp::voucher_write::tests::zz_teardown_purges_voucher_status_logs ... ok
+
+test result: ok. 41 passed; 0 failed; 0 ignored; 0 measured; 2021 filtered out; finished in 39.86s
+

@@ -450,6 +450,39 @@ async fn load_rule(ex: &impl SqlExecutor, biz_type: &str) -> DbResult<Option<Res
             vec![Value::Text(biz_type.to_string())],
         )
         .await?;
+    resolve_rule(ex, row).await
+}
+
+/// 按 `rule_code`（= 配置里的「凭证模板」）取启用的映射规则。
+///
+/// 【D3】联动动作 `GENERATE_VOUCHER` 的 `template_code` 参数走这条：
+/// 与 `biz_type` 同表同栏位，只是换一个查询键 —— **不新增第二套映射表**。
+async fn load_rule_by_code(
+    ex: &impl SqlExecutor,
+    rule_code: &str,
+) -> DbResult<Option<ResolvedRule>> {
+    // SCOPE-EXEMPT: 同上。
+    let row = ex
+        .query_first_sql(
+            "SELECT debit_account_id, credit_account_id, tax_account_id \
+               FROM biz_voucher_rule \
+              WHERE rule_code = ? AND is_active = 1 AND deleted_at IS NULL \
+              ORDER BY created_at ASC LIMIT 1"
+                .to_string(),
+            vec![Value::Text(rule_code.to_string())],
+        )
+        .await?;
+    resolve_rule(ex, row).await
+}
+
+/// 把一行 `biz_voucher_rule` 解析成三个科目（`None` = 规则不存在）。
+///
+/// `load_rule`（按 biz_type）与 `load_rule_by_code`（按模板码）共用本函数：
+/// 「规则 → 科目」的解析口径只能有一处，否则模板路径与默认路径的科目会分叉。
+async fn resolve_rule(
+    ex: &impl SqlExecutor,
+    row: Option<nik::prelude::Row>,
+) -> DbResult<Option<ResolvedRule>> {
     let Some(row) = row else {
         return Ok(None);
     };
@@ -537,7 +570,19 @@ pub async fn resolve_accounts(
     supplier_id: Option<Uuid>,
 ) -> DbResult<AccountSet> {
     let rule = load_rule(ex, biz_type).await?;
+    resolve_accounts_with(ex, rule, material_id, supplier_id).await
+}
 
+/// 科目解析的**唯一实现**（规则已取好，只做「规则 → 物料 → 默认」三层退化）。
+///
+/// `rule = None` 表示没有可用映射规则（按 `biz_type` 或模板码都没取到）——
+/// 这时候走物料 / 供应商 / 默认科目退化，与拆分前逐字一致。
+async fn resolve_accounts_with(
+    ex: &impl SqlExecutor,
+    rule: Option<ResolvedRule>,
+    material_id: Option<Uuid>,
+    supplier_id: Option<Uuid>,
+) -> DbResult<AccountSet> {
     let inventory = match rule.as_ref().and_then(|r| r.debit.clone()) {
         Some(account) => account,
         None => {
@@ -955,23 +1000,37 @@ pub async fn entries_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<Vec
 
 // ==================== 写：生成凭证 ====================
 
-/// 生成凭证的全部入参（`too_many_arguments` 的结构体化）。
-#[derive(Debug, Clone)]
-pub struct AutoVoucher<'a> {
-    /// 来源单据类型（`STOCK_IN`）。
-    pub source_type: &'a str,
+/// 一张业务单据生成凭证所需的**全部上下文**（取数结果，不含算法）。
+///
+/// # 【D3】为什么要有这个结构（「先抽公共函数，再接管」的那一步）
+///
+/// 「取数」在凭证链路上必须只有一份口径：金额只从单头拿（**不重算**）、
+/// 摘要只由「单号 + 价税合计」拼、存货辅助核算取首个物料、凭证日期取单据业务日期。
+/// 收货过账（`stockin_handler::post_in_tx` ⑦）与联动动作 `GENERATE_VOUCHER`
+/// 如果各写一遍取数，同一张单会按「哪条路径先跑」生成两张不一样的凭证 —— 那就是双真相。
+///
+/// 所以取数只有 [`VoucherBizCtx::of_stock_in`] 一处：
+/// - 过账路径用它把**内存里已经加锁的单头**转成上下文（不再查库）；
+/// - 配置路径用 `stockin_model::voucher_biz_ctx` 从库里取单头，再走**同一个**函数。
+///
+/// 取号 / 借贷平衡 / 落库仍然全部在 [`create_by_rule`] → [`post_voucher`]，
+/// 本结构只承载数据。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VoucherBizCtx {
+    /// 来源单据类型（`STOCK_IN` / `PAYMENT` / …）。
+    pub source_type: String,
     /// 来源单据 id。
     pub source_id: Uuid,
     /// 来源单号。
-    pub source_no: &'a str,
-    /// 凭证日期（= 单据业务日期）。
+    pub source_no: String,
+    /// 凭证日期（默认 = 单据业务日期；配置可用 `account_date` 覆盖）。
     pub voucher_date: NaiveDate,
     /// 三个金额（取自单头）。
     pub amounts: VoucherAmounts,
     /// 凭证摘要（整单级）。
     pub summary: String,
     /// 映射规则用的业务类型（`PURCHASE_IN`）。
-    pub biz_type: &'a str,
+    pub biz_type: String,
     /// 存货科目退化用的物料。
     pub material_id: Option<Uuid>,
     /// 应付科目退化用的供应商。
@@ -980,20 +1039,85 @@ pub struct AutoVoucher<'a> {
     pub warehouse_id: Option<Uuid>,
 }
 
-/// 落一张凭证 + 它的分录（**不 commit**，由调用方的事务收口）。
+impl VoucherBizCtx {
+    /// **取数的唯一实现**：收货单单头 → 凭证上下文。
+    ///
+    /// 与 `create_for_stock_in` 拆分前逐字相同（金额 `round_dp(4)`、摘要格式、
+    /// `biz_type = PURCHASE_IN`、辅助核算取首个物料 / 供应商 / 仓库）。
+    pub fn of_stock_in(header: &StockInRow, first_material: Option<Uuid>) -> Self {
+        Self {
+            source_type: SOURCE_STOCK_IN.to_string(),
+            source_id: header.id,
+            source_no: header.in_no.clone(),
+            voucher_date: header.in_date,
+            amounts: VoucherAmounts::of_stock_in(header),
+            summary: format!(
+                "采购入库 {} 价税合计 {}",
+                header.in_no, header.total_with_tax
+            ),
+            biz_type: BIZ_TYPE_PURCHASE_IN.to_string(),
+            material_id: first_material,
+            supplier_id: header.supplier_id,
+            warehouse_id: Some(header.warehouse_id),
+        }
+    }
+
+    /// 换一个记账日期（配置参数 `account_date` 的覆盖口径：只动日期，不动金额与摘要）。
+    pub fn with_voucher_date(&self, date: NaiveDate) -> Self {
+        let mut ctx = self.clone();
+        ctx.voucher_date = date;
+        ctx
+    }
+}
+
+/// 模板（`biz_voucher_rule.rule_code`）是否启用：联动动作的第 3 层校验用。
 ///
-/// 步骤：解析科目 → 定期间 → 取号 → 造分录 → 校验平衡 → 写主表 → 写分录。
-/// 返回凭证 id。
-pub async fn create_auto(
+/// 停用的模板 = 「target 不存在」→ 调用方跳过该动作（不是失败，更不能凭它生成凭证）。
+pub async fn template_active(ex: &impl SqlExecutor, rule_code: &str) -> DbResult<bool> {
+    Ok(load_rule_by_code(ex, rule_code).await?.is_some())
+}
+
+/// **按模板 / 上下文驱动的唯一凭证生成实现**（取数 → 取号 → 平衡校验 → 落库）。
+///
+/// # 参数
+///
+/// - `template_code`：`Some` = 用 `biz_voucher_rule.rule_code` 指定映射模板（配置的
+///   `template_code` 参数）；`None` = 按上下文里的 `biz_type` 取默认模板 ——
+///   与拆分前 `create_auto` 的行为**逐字相同**。
+/// - `ctx`：取数结果（[`VoucherBizCtx`]）。
+///
+/// # 事务
+///
+/// 吃 `&impl SqlExecutor`（`Db` / `Transaction`），**不 begin / 不 commit**；
+/// 调用方（过账事务 / 联动引擎的 `InTx` 动作）负责收口。
+///
+/// # 谁在调用
+///
+/// - [`create_for_stock_in`]（薄封装，收货过账 ⑦ 的旧路径）；
+/// - `linkage::actions::generate_voucher`（配置路径，第 3 步接管）。
+///
+/// 两条路走同一个函数 ⇒ 凭证张数、编号、借贷行、金额不可能分叉。
+pub async fn create_by_rule(
     ex: &impl SqlExecutor,
-    req: &AutoVoucher<'_>,
+    template_code: Option<&str>,
+    ctx: &VoucherBizCtx,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
-    let accounts = resolve_accounts(ex, req.biz_type, req.material_id, req.supplier_id).await?;
+    let rule = match template_code {
+        Some(code) => Some(load_rule_by_code(ex, code).await?.ok_or_else(|| {
+            DbError::InvalidValue(format!(
+                "凭证生成失败：模板 {code} 未启用（biz_voucher_rule 里没有这条存活规则），\
+                 单据 {} 无法生成凭证",
+                ctx.source_no
+            ))
+        })?),
+        None => load_rule(ex, &ctx.biz_type).await?,
+    };
+    let accounts = resolve_accounts_with(ex, rule, ctx.material_id, ctx.supplier_id).await?;
 
     // 税率 > 0 但系统里没有进项税科目 → 拦住（不许静默漏记进项税）
-    if req.amounts.tax > Decimal::ZERO && accounts.tax.is_none() {
+    if ctx.amounts.tax > Decimal::ZERO && accounts.tax.is_none() {
         return Err(account_missing(
             format!("进项税科目 {}", DEFAULT_TAX_CODE).as_str(),
             "本次入库有税额，但系统里没有可用的进项税科目",
@@ -1002,26 +1126,26 @@ pub async fn create_auto(
 
     let lines = purchase_in_lines(
         &accounts,
-        req.amounts,
-        &req.summary,
+        ctx.amounts,
+        &ctx.summary,
         LineContext {
-            warehouse_id: req.warehouse_id,
-            material_id: req.material_id,
-            supplier_id: req.supplier_id,
+            warehouse_id: ctx.warehouse_id,
+            material_id: ctx.material_id,
+            supplier_id: ctx.supplier_id,
         },
     );
     let (debit, credit) = totals_of(&lines);
     if lines.len() < 2 {
         return Err(DbError::InvalidValue(format!(
             "凭证生成失败：单据 {} 的金额全为 0（分录只有 {} 行），会计上不构成一张凭证",
-            req.source_no,
+            ctx.source_no,
             lines.len()
         )));
     }
     if debit != credit {
         return Err(DbError::InvalidValue(format!(
             "凭证生成失败：借贷不平衡（借 {debit} / 贷 {credit}），单据 {}",
-            req.source_no
+            ctx.source_no
         )));
     }
 
@@ -1029,11 +1153,11 @@ pub async fn create_auto(
         ex,
         &PostVoucher {
             voucher_type: VOUCHER_TYPE_AUTO,
-            source_type: req.source_type,
-            source_id: Some(req.source_id),
-            source_no: Some(req.source_no),
-            voucher_date: req.voucher_date,
-            summary: req.summary.clone(),
+            source_type: &ctx.source_type,
+            source_id: Some(ctx.source_id),
+            source_no: Some(&ctx.source_no),
+            voucher_date: ctx.voucher_date,
+            summary: ctx.summary.clone(),
             lines,
             remark: None,
             red_of: None,
@@ -1042,6 +1166,183 @@ pub async fn create_auto(
         now,
     )
     .await
+}
+
+// ==================== 并行对比：凭证快照 ====================
+
+/// 一行分录的快照（对比用，只留「应该相同」的字段）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VoucherLineSnapshot {
+    /// 行号。
+    pub line_no: i32,
+    /// 摘要。
+    pub summary: String,
+    /// 科目编码（名称可能因主数据改名而变，编码才是账的口径）。
+    pub account_code: String,
+    /// 借方。
+    pub debit: Decimal,
+    /// 贷方。
+    pub credit: Decimal,
+    /// 辅助核算：供应商。
+    pub aux_supplier_id: Option<Uuid>,
+    /// 辅助核算：物料。
+    pub aux_material_id: Option<Uuid>,
+    /// 辅助核算：仓库。
+    pub aux_warehouse_id: Option<Uuid>,
+}
+
+/// 一张凭证的逐字段快照 —— 「旧路径发的凭证」与「配置发的凭证」的对比物。
+///
+/// 【D3】SHADOW 阶段的判据就是它：[`compare_snapshots`] 返回空 = 逐字段一致。
+/// 字段选择口径：凡是会在报表 / 下钻 / 审计里被看到的东西都进快照
+/// （字号、期间、来源、借贷合计、行数、逐行科目与金额、辅助核算），
+/// 只有 id 类主键与时间戳不比（换个事务就必然不同）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VoucherSnapshot {
+    /// 同一来源单据下的凭证张数（正常应为 1；红冲后为 2）。
+    pub voucher_count: i64,
+    /// 凭证字。
+    pub voucher_word: String,
+    /// 凭证号。
+    pub voucher_no: String,
+    /// 凭证类型（`AUTO`）。
+    pub voucher_type: String,
+    /// 来源单据类型。
+    pub source_type: String,
+    /// 来源单据 id。
+    pub source_id: Option<Uuid>,
+    /// 来源单号。
+    pub source_no: Option<String>,
+    /// 会计期间。
+    pub period: String,
+    /// 凭证日期。
+    pub voucher_date: NaiveDate,
+    /// 摘要。
+    pub summary: String,
+    /// 借方合计。
+    pub total_debit: Decimal,
+    /// 贷方合计。
+    pub total_credit: Decimal,
+    /// 分录行数。
+    pub entry_count: i32,
+    /// 是否红字。
+    pub is_red: i16,
+    /// 逐行分录。
+    pub lines: Vec<VoucherLineSnapshot>,
+}
+
+/// 取一张凭证的快照（读主表 + 分录 + 同一来源的凭证张数）。
+pub async fn snapshot_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<VoucherSnapshot> {
+    let Some(row) = find_voucher(ex, voucher_id).await? else {
+        return Err(DbError::InvalidValue(format!(
+            "凭证快照失败：凭证 {voucher_id} 不存在"
+        )));
+    };
+    let voucher_count = match (row.source_type.as_str(), row.source_id) {
+        (source_type, Some(source_id)) => {
+            // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档）；这里只数同一来源单据的凭证张数。
+            ex.scalar_sql(
+                format!(
+                    "SELECT count(*) FROM {TABLE} \
+                      WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::Text(source_type.to_string()),
+                    Value::from(&source_id),
+                ],
+            )
+            .await?
+        }
+        _ => 1,
+    };
+    let lines = entries_of(ex, voucher_id)
+        .await?
+        .into_iter()
+        .map(|entry| VoucherLineSnapshot {
+            line_no: entry.line_no,
+            summary: entry.summary,
+            account_code: entry.account.code,
+            debit: entry.debit,
+            credit: entry.credit,
+            aux_supplier_id: entry.aux_supplier_id,
+            aux_material_id: entry.aux_material_id,
+            aux_warehouse_id: entry.aux_warehouse_id,
+        })
+        .collect();
+    Ok(VoucherSnapshot {
+        voucher_count,
+        voucher_word: row.voucher_word,
+        voucher_no: row.voucher_no,
+        voucher_type: row.voucher_type,
+        source_type: row.source_type,
+        source_id: row.source_id,
+        source_no: row.source_no,
+        period: row.period,
+        voucher_date: row.voucher_date,
+        summary: row.summary,
+        total_debit: row.total_debit,
+        total_credit: row.total_credit,
+        entry_count: row.entry_count,
+        is_red: row.is_red,
+        lines,
+    })
+}
+
+/// 逐字段对比两张凭证快照，返回**不一致的字段名**（空 = 逐字段一致）。
+///
+/// 这是 SHADOW 阶段「并行跑一段、对比一致再切换」的判据：日志里 `matched` / `diffs`
+/// 是可 grep 的事实，不是口头保证。
+pub fn compare_snapshots(
+    configured: &VoucherSnapshot,
+    legacy: &VoucherSnapshot,
+) -> Vec<&'static str> {
+    let mut diffs: Vec<&'static str> = Vec::new();
+    if configured.voucher_count != legacy.voucher_count {
+        diffs.push("voucher_count");
+    }
+    if configured.voucher_word != legacy.voucher_word {
+        diffs.push("voucher_word");
+    }
+    if configured.voucher_no != legacy.voucher_no {
+        diffs.push("voucher_no");
+    }
+    if configured.voucher_type != legacy.voucher_type {
+        diffs.push("voucher_type");
+    }
+    if configured.source_type != legacy.source_type {
+        diffs.push("source_type");
+    }
+    if configured.source_id != legacy.source_id {
+        diffs.push("source_id");
+    }
+    if configured.source_no != legacy.source_no {
+        diffs.push("source_no");
+    }
+    if configured.period != legacy.period {
+        diffs.push("period");
+    }
+    if configured.voucher_date != legacy.voucher_date {
+        diffs.push("voucher_date");
+    }
+    if configured.summary != legacy.summary {
+        diffs.push("summary");
+    }
+    if configured.total_debit != legacy.total_debit {
+        diffs.push("total_debit");
+    }
+    if configured.total_credit != legacy.total_credit {
+        diffs.push("total_credit");
+    }
+    if configured.entry_count != legacy.entry_count {
+        diffs.push("entry_count");
+    }
+    if configured.is_red != legacy.is_red {
+        diffs.push("is_red");
+    }
+    if configured.lines != legacy.lines {
+        diffs.push("lines");
+    }
+    diffs
 }
 
 /// 批量写分录（单条语句，行号唯一键冲突即失败）。
@@ -1398,6 +1699,16 @@ pub async fn reverse_posted(
 }
 
 /// 收货单过账时生成蓝字凭证（卡面 §三 ②③④）。
+///
+/// # 【D3】薄封装
+///
+/// 「取数 → 取号 → 借贷平衡 → 落库」已经全部在 [`create_by_rule`]；
+/// 本函数只做一件事：把**内存里已经加锁的收货单头**转成 [`VoucherBizCtx`]
+/// （走 [`VoucherBizCtx::of_stock_in`]，与配置路径同一份取数），然后调它。
+///
+/// 留在原地的原因是「调用点语义」：过账路径手上有锁好的单头，不该为此再查一次库；
+/// 而配置路径（联动动作）手上只有单据 id，走 `stockin_model::voucher_biz_ctx` 取数。
+/// 两条路上的**算法只有一份**。
 pub async fn create_for_stock_in(
     ex: &impl SqlExecutor,
     header: &StockInRow,
@@ -1405,28 +1716,8 @@ pub async fn create_for_stock_in(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
-    let summary = format!(
-        "采购入库 {} 价税合计 {}",
-        header.in_no, header.total_with_tax
-    );
-    create_auto(
-        ex,
-        &AutoVoucher {
-            source_type: SOURCE_STOCK_IN,
-            source_id: header.id,
-            source_no: &header.in_no,
-            voucher_date: header.in_date,
-            amounts: VoucherAmounts::of_stock_in(header),
-            summary,
-            biz_type: BIZ_TYPE_PURCHASE_IN,
-            material_id: first_material,
-            supplier_id: header.supplier_id,
-            warehouse_id: Some(header.warehouse_id),
-        },
-        operator,
-        now,
-    )
-    .await
+    let ctx = VoucherBizCtx::of_stock_in(header, first_material);
+    create_by_rule(ex, None, &ctx, operator, now).await
 }
 
 // ==================== 写：序列号侧三种「无来源」库存变动 ====================

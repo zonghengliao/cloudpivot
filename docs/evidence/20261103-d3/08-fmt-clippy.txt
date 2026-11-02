@@ -1,0 +1,7 @@
+== rustfmt +1.94.1 --edition 2024 --check（本卡 7 个文件）==
+（无输出 = 无差异）
+
+== touch + cargo clippy --lib -- -D warnings（强制重跑，不吃缓存）==
+clippy exit=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 14.25s

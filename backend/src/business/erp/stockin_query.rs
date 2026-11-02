@@ -51,6 +51,62 @@ pub async fn items_of(id: Uuid) -> DbResult<Vec<StockInItemRow>> {
     rows.iter().map(StockInItemRow::from_row).collect()
 }
 
+/// 在**调用方执行器**上按主键取单头（不加锁；联动动作取数用）。
+///
+/// 与 [`find_stock_in`] 的区别只是「走传入的连接/事务」——过账事务里的联动动作
+/// 必须看见同一事务内刚写完的单头状态，不能用连接池里的另一条连接。
+pub async fn header_on(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockInRow>> {
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT {HEADER_COLUMNS} FROM {TABLE} WHERE id = ?::uuid AND deleted_at IS NULL"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    row.as_ref().map(StockInRow::from_row).transpose()
+}
+
+/// 首个物料 —— **口径与过账严格一致**。
+///
+/// `stockin_handler` 过账时把明细按 `(material_id, location_id, line_no)` 升序排再取第一条
+/// 作为「存货科目退化用的物料」（`ordered.first()`）。凭证的存货分录只带这一个物料，
+/// 所以配置路径必须用同一个排序取同一条，否则辅助核算维度会与旧路径差一个物料。
+pub async fn first_material_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT material_id FROM {ITEM_TABLE} WHERE stock_in_id = ?::uuid \
+                 ORDER BY material_id ASC, location_id ASC, line_no ASC LIMIT 1"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match row.as_ref().map(|row| row.get_typed::<Uuid>("material_id")) {
+        Some(Ok(material_id)) => Ok(Some(material_id)),
+        Some(Err(err)) => Err(err),
+        None => Ok(None),
+    }
+}
+
+/// 收货单的**凭证上下文**（联动动作 `GENERATE_VOUCHER` 的唯一取数入口）。
+///
+/// 取数公式只有一份（[`crate::business::erp::voucher::VoucherBizCtx::of_stock_in`]）：
+/// 本函数只负责「按 id 取单头 + 取首个物料」，然后交给它。
+/// 单据不存在 → `Ok(None)`（调用方跳过动作，不当失败）。
+pub async fn voucher_biz_ctx(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Option<crate::business::erp::voucher::VoucherBizCtx>> {
+    let Some(header) = header_on(ex, id).await? else {
+        return Ok(None);
+    };
+    let first_material = first_material_of(ex, id).await?;
+    Ok(Some(
+        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(&header, first_material),
+    ))
+}
+
 /// 复制源（D9）：原单头 + 明细，**只读**（`FOR SHARE`：本事务不会改这两张表的行）。
 ///
 /// 与 [`find_stock_in`] / [`items_of`] 的区别是「走调用方的事务 + 显式共享锁」：

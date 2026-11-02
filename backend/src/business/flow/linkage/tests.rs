@@ -26,9 +26,11 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use nik::prelude::chrono::Utc;
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::{stockin_model, voucher};
 use crate::business::notice::dto::{NoticeLevel, NoticeType};
 use crate::business::notice::{NoticeDraft, NoticeTarget};
 use crate::business::shared::state_machine;
@@ -82,8 +84,12 @@ fn whitelist_has_eight_or_more_actions() {
     }
     assert_eq!(
         spec::implemented_codes(),
-        vec![spec::ACTION_UPDATE_RECEIVED_QTY, spec::ACTION_SEND_NOTICE],
-        "本卡只接管这两个动作（其余留占位，第 3 步另开卡）"
+        vec![
+            spec::ACTION_GENERATE_VOUCHER,
+            spec::ACTION_UPDATE_RECEIVED_QTY,
+            spec::ACTION_SEND_NOTICE
+        ],
+        "已接管的动作：D2 的 UPDATE_RECEIVED_QTY / SEND_NOTICE + D3 的 GENERATE_VOUCHER（其余留占位）"
     );
 }
 
@@ -468,6 +474,20 @@ async fn cleanup() {
             fixture_doc_c()
         ),
         "DELETE FROM biz_status_log WHERE entity_type = 'FLOW_LINKAGE_CFG'".to_string(),
+        // D3：收货单夹具 + 它可能留下的凭证 / 状态日志 / 专用期间
+        format!(
+            "DELETE FROM biz_stock_in WHERE id IN ('{}', '{}', '{}')",
+            fixture_si_ok(),
+            fixture_si_ok2(),
+            fixture_si_zero()
+        ),
+        format!(
+            "DELETE FROM biz_voucher WHERE source_id IN ('{}', '{}', '{}')",
+            fixture_si_ok(),
+            fixture_si_ok2(),
+            fixture_si_zero()
+        ),
+        "DELETE FROM biz_accounting_period WHERE period_code = '2031-03'".to_string(),
     ];
     for sql in statements {
         db().execute_with_params(&sql, vec![])
@@ -679,7 +699,7 @@ async fn upsert_rejects_params_with_sql_key() {
 async fn upsert_rejects_not_implemented_action() {
     let Some(_guard) = setup().await else { return };
     let tx = db().begin().await.expect("开事务");
-    for code in ["GENERATE_VOUCHER", "WRITE_INVENTORY", "LOCK_DOCUMENT"] {
+    for code in ["REVERSE_VOUCHER", "WRITE_INVENTORY", "LOCK_DOCUMENT"] {
         let action = spec::spec_of(code).expect("动作必须在白名单里");
         let mut params = serde_json::Map::new();
         for param in action.params.iter().filter(|p| p.required) {
@@ -1307,4 +1327,449 @@ async fn notice_rows(biz_id: Uuid) -> i64 {
     )
     .await
     .unwrap_or_else(|error| panic!("查通知行数失败：{error}"))
+}
+
+// ==================== 【D3】GENERATE_VOUCHER 接管 ====================
+
+/// 收货单夹具 1（正常金额：不含税 100 + 税 13 = 价税合计 113）。
+fn fixture_si_ok() -> Uuid {
+    uuid_of("00101")
+}
+/// 收货单夹具 2（第二张正常单，用于「接管后不再走旧逻辑」的对照）。
+fn fixture_si_ok2() -> Uuid {
+    uuid_of("00102")
+}
+/// 收货单夹具 3（金额全 0：单据不完整，凭证不该生成）。
+fn fixture_si_zero() -> Uuid {
+    uuid_of("00103")
+}
+
+/// 造一张收货单 + 一行明细（**只写凭证取数用得到的列**）。
+///
+/// 物料 / 单位 / 仓库 / 供应商用固定假 uuid：`biz_stock_in` 与 `biz_stock_in_item`
+/// 上没有主数据外键（实测 `pg_constraint` 只有 item → header 一条），
+/// 而科目解析会按 `biz_voucher_rule(PURCHASE_IN)` 拿到 1405 / 2202，不需要物料档案。
+async fn seed_stock_in(id: Uuid, seq: u32, date: &str, amount: &str, tax: &str) {
+    let with_tax = format!(
+        "{}",
+        amount.parse::<f64>().unwrap_or(0.0) + tax.parse::<f64>().unwrap_or(0.0)
+    );
+    db().execute_with_params(
+        "INSERT INTO biz_stock_in \
+            (id, in_no, in_type, source_order_id, supplier_id, warehouse_id, in_date, status, \
+             total_qty, total_amount, total_tax, total_with_tax, is_sourceless) \
+         VALUES (?::uuid, ?, 'PURCHASE', NULL, ?::uuid, ?::uuid, ?::text::date, 'POSTED', \
+                 1, ?::text::numeric, ?::text::numeric, ?::text::numeric, true) \
+         ON CONFLICT (id) DO UPDATE SET in_date = EXCLUDED.in_date, \
+             total_amount = EXCLUDED.total_amount, total_tax = EXCLUDED.total_tax, \
+             total_with_tax = EXCLUDED.total_with_tax",
+        vec![
+            Value::from(&id),
+            Value::Text(format!("{PREFIX}SI-{seq}")),
+            Value::from(&uuid_of("00007")),
+            Value::from(&fixture_warehouse()),
+            Value::Text(date.to_string()),
+            Value::Text(amount.to_string()),
+            Value::Text(tax.to_string()),
+            Value::Text(with_tax.clone()),
+        ],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("造收货单失败：{error}"));
+    db().execute_with_params(
+        "INSERT INTO biz_stock_in_item \
+            (id, stock_in_id, line_no, material_id, unit_id, qty, price, amount, tax_amount, with_tax_amount) \
+         VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, 1, ?::text::numeric, ?::text::numeric, \
+                 ?::text::numeric, ?::text::numeric) \
+         ON CONFLICT (id) DO NOTHING",
+        vec![
+            Value::from(&uuid_of(&format!("0010{}", 4 + seq))),
+            Value::from(&id),
+            Value::from(&fixture_material()),
+            Value::from(&fixture_unit()),
+            Value::Text(amount.to_string()),
+            Value::Text(amount.to_string()),
+            Value::Text(tax.to_string()),
+            Value::Text(with_tax),
+        ],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("造收货明细失败：{error}"));
+}
+
+/// 内存里造一条 `GENERATE_VOUCHER` 规则（直接调 `prepare_voucher` 用，不落库）。
+fn voucher_rule(params: serde_json::Value) -> model::LinkageRuleRow {
+    model::LinkageRuleRow {
+        id: Uuid::now_v7(),
+        name: format!("{PREFIX}d3-ins"),
+        trigger_entity: state_machine::ENTITY_STOCK_IN.to_string(),
+        trigger_status: "POSTED".to_string(),
+        action_code: spec::ACTION_GENERATE_VOUCHER.to_string(),
+        action_params: params,
+        enabled: true,
+        seq: 10,
+        created_at: Utc::now(),
+        updated_at: Utc::now(),
+    }
+}
+
+/// 直接插一条 `GENERATE_VOUCHER` 规则（第 2 层已过；这里是测试夹具）。
+async fn seed_voucher_rule(name: &str, params: serde_json::Value) {
+    db().execute_with_params(
+        "INSERT INTO biz_flow_linkage_rule \
+            (id, name, trigger_entity, trigger_status, action_code, action_params, enabled, seq) \
+         VALUES (?::uuid, ?, 'STOCK_IN', 'POSTED', 'GENERATE_VOUCHER', ?::text::jsonb, true, 10) \
+         ON CONFLICT (trigger_entity, trigger_status, action_code) DO UPDATE \
+            SET action_params = EXCLUDED.action_params, name = EXCLUDED.name, enabled = true",
+        vec![
+            Value::from(&Uuid::now_v7()),
+            Value::Text(format!("{PREFIX}{name}")),
+            Value::Text(params.to_string()),
+        ],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("插凭证规则失败：{error}"));
+}
+
+/// 收货过账的联动上下文（与 `post_in_tx` 里构造的逐字一致）。
+fn stock_in_ctx(id: Uuid, in_no: &str) -> LinkageContext<'static> {
+    let in_no: &'static str = Box::leak(in_no.to_string().into_boxed_str());
+    LinkageContext::new(state_machine::ENTITY_STOCK_IN, "POSTED", id, in_no, None)
+}
+
+/// 某来源单据的凭证张数。
+async fn vouchers_of(doc_id: Uuid) -> i64 {
+    db().scalar_sql(
+        "SELECT count(*) FROM biz_voucher WHERE source_type = 'STOCK_IN' \
+          AND source_id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![Value::from(&doc_id)],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("查凭证张数失败：{error}"))
+}
+
+/// ① 参数非法 → 400（配置写入）：缺 `biz_type` / `mode` 不在枚举 / 未声明的键。
+#[tokio::test]
+async fn voucher_action_params_are_validated_on_write() {
+    let Some(_guard) = setup().await else { return };
+    let tx = db().begin().await.expect("开事务");
+    let cases: Vec<(&str, serde_json::Value, &str)> = vec![
+        (
+            "缺必填 biz_type",
+            serde_json::json!({ "mode": "TAKEOVER" }),
+            "biz_type",
+        ),
+        (
+            "mode 不在枚举",
+            serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "TAKEOVER_XXX" }),
+            "mode",
+        ),
+        (
+            "未声明的键",
+            serde_json::json!({ "biz_type": "PURCHASE_IN", "bogus": 1 }),
+            "bogus",
+        ),
+        (
+            "SQL 键",
+            serde_json::json!({ "biz_type": "PURCHASE_IN", "sql": "select 1" }),
+            "SQL",
+        ),
+    ];
+    for (label, params, expect) in cases {
+        let error = model::upsert_rule(
+            &tx,
+            &super_claims(),
+            &patch("d3-voucher-bad", spec::ACTION_GENERATE_VOUCHER, params),
+        )
+        .await
+        .err()
+        .unwrap_or_else(|| panic!("{label}：非法配置必须被拒"));
+        assert_eq!(error.status, 400, "{label} 实际：{error:?}");
+        assert!(
+            error.msg.contains(expect),
+            "{label} 的文案应点名 `{expect}`，实际：{}",
+            error.msg
+        );
+    }
+    // 合法配置能写进去（已接管，不再是「尚未接管」）
+    model::upsert_rule(
+        &tx,
+        &super_claims(),
+        &patch(
+            "d3-voucher-ok",
+            spec::ACTION_GENERATE_VOUCHER,
+            serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "SHADOW" }),
+        ),
+    )
+    .await
+    .expect("已接管的动作必须能写配置");
+    tx.rollback().await.expect("回滚");
+}
+
+/// ② 运行时 target 不存在 → 跳过（ERROR 日志 + 不写任何凭证）。
+#[tokio::test]
+async fn voucher_action_skips_missing_target() {
+    let Some(_guard) = setup().await else { return };
+    let tx = db().begin().await.expect("开事务");
+    let rule = voucher_rule(serde_json::json!({
+        "biz_type": "PURCHASE_IN",
+        "mode": "TAKEOVER",
+    }));
+    // 单据不存在
+    let ctx = stock_in_ctx(Uuid::now_v7(), "D2L-SI-MISSING");
+    let error = actions::prepare_voucher(&tx, &rule, &ctx)
+        .await
+        .expect_err("单据不存在必须跳过");
+    assert!(
+        matches!(&error, ActionError::Skipped(reason) if reason.contains("不存在")),
+        "实际：{error:?}"
+    );
+    tx.rollback().await.expect("回滚");
+}
+
+/// ③ 凭证模板停用 / 模板码不存在 → 跳过（不是失败，凭证由旧逻辑照发）。
+#[tokio::test]
+async fn voucher_action_skips_inactive_template() {
+    let Some(_guard) = setup().await else { return };
+    let tx = db().begin().await.expect("开事务");
+    let rule = voucher_rule(serde_json::json!({
+        "biz_type": "PURCHASE_IN",
+        "template_code": "NO_SUCH_TEMPLATE",
+        "mode": "TAKEOVER",
+    }));
+    let ctx = stock_in_ctx(fixture_si_ok(), "D2L-SI-1");
+    let error = actions::prepare_voucher(&tx, &rule, &ctx)
+        .await
+        .expect_err("模板停用必须跳过");
+    assert!(
+        matches!(&error, ActionError::Skipped(reason) if reason.contains("未启用")),
+        "实际：{error:?}"
+    );
+    tx.rollback().await.expect("回滚");
+}
+
+/// ④ 金额全 0 的单据（单据不完整）→ 跳过，不去凑一张 2 行的假凭证。
+#[tokio::test]
+async fn voucher_action_skips_zero_amount_doc() {
+    let Some(_guard) = setup().await else { return };
+    seed_stock_in(fixture_si_zero(), 3, "2026-11-10", "0", "0").await;
+    let tx = db().begin().await.expect("开事务");
+    let rule = voucher_rule(serde_json::json!({
+        "biz_type": "PURCHASE_IN",
+        "mode": "TAKEOVER",
+    }));
+    let ctx = stock_in_ctx(fixture_si_zero(), "D2L-SI-3");
+    let error = actions::prepare_voucher(&tx, &rule, &ctx)
+        .await
+        .expect_err("金额全 0 必须跳过");
+    assert!(
+        matches!(&error, ActionError::Skipped(reason) if reason.contains("金额全为 0")),
+        "实际：{error:?}"
+    );
+    tx.rollback().await.expect("回滚");
+}
+
+/// ⑤ **新旧两路生成的凭证逐字段一致**（抽公共函数后的核心回归）。
+///
+/// 两条路都在各自的事务里跑完、取快照、回滚 —— 谁都不留数据，
+/// 所以连凭证号都必须一样（`biz_seq` 的 bump 也被回滚了）。
+#[tokio::test]
+async fn voucher_new_path_matches_legacy_field_by_field() {
+    let Some(_guard) = setup().await else { return };
+    seed_stock_in(fixture_si_ok(), 1, "2026-11-10", "100", "13").await;
+    let header = stockin_model::header_on(db(), fixture_si_ok())
+        .await
+        .expect("取单头")
+        .expect("单头必须存在");
+    let first_material = stockin_model::first_material_of(db(), fixture_si_ok())
+        .await
+        .expect("取首个物料");
+
+    // ---- 路 1：旧路径 ----
+    let tx = db().begin().await.expect("开事务（旧路）");
+    let legacy_id = voucher::create_for_stock_in(&tx, &header, first_material, None, Utc::now())
+        .await
+        .expect("旧路生成凭证");
+    let legacy = voucher::snapshot_of(&tx, legacy_id)
+        .await
+        .expect("旧路凭证快照");
+    tx.rollback().await.expect("回滚旧路");
+
+    // ---- 路 2：配置路径（TAKEOVER）----
+    seed_voucher_rule(
+        "d3-voucher-takeover",
+        serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "TAKEOVER" }),
+    )
+    .await;
+    let ctx = stock_in_ctx(fixture_si_ok(), "D2L-SI-1");
+    let tx2 = db().begin().await.expect("开事务（配置路）");
+    let route = engine::stockin_voucher(&tx2, &ctx)
+        .await
+        .expect("配置路不该失败");
+    let configured_id = match route {
+        engine::VoucherRoute::Configured { voucher_id, .. } => voucher_id,
+        other => panic!("TAKEOVER 必须由配置落账，实际：{other:?}"),
+    };
+    let configured = voucher::snapshot_of(&tx2, configured_id)
+        .await
+        .expect("配置路凭证快照");
+    tx2.rollback().await.expect("回滚配置路");
+
+    let diffs = voucher::compare_snapshots(&configured, &legacy);
+    assert!(
+        diffs.is_empty(),
+        "新旧两路凭证必须逐字段一致，差异：{diffs:?}"
+    );
+    // 8 项以上硬断言（卡面要求，别只靠 compare 的空数组）
+    assert_eq!(configured.voucher_count, 1, "凭证张数");
+    assert_eq!(configured.voucher_word, legacy.voucher_word, "凭证字");
+    assert_eq!(configured.voucher_no, legacy.voucher_no, "凭证号");
+    assert_eq!(configured.total_debit, legacy.total_debit, "借方合计");
+    assert_eq!(configured.total_credit, legacy.total_credit, "贷方合计");
+    assert_eq!(configured.entry_count, legacy.entry_count, "分录行数");
+    assert_eq!(configured.period, legacy.period, "会计期间");
+    assert_eq!(configured.source_type, legacy.source_type, "关联单据类型");
+    assert_eq!(configured.source_id, legacy.source_id, "关联单据 id");
+    assert_eq!(configured.summary, legacy.summary, "摘要");
+    assert_eq!(configured.lines.len(), legacy.lines.len(), "分录逐行");
+    assert_eq!(
+        configured
+            .lines
+            .iter()
+            .map(|l| l.account_code.clone())
+            .collect::<Vec<_>>(),
+        legacy
+            .lines
+            .iter()
+            .map(|l| l.account_code.clone())
+            .collect::<Vec<_>>(),
+        "逐行科目编码"
+    );
+    assert!(
+        configured.total_debit > Decimal::ZERO,
+        "夹具金额必须非 0（否则这条用例证明不了什么）"
+    );
+}
+
+/// ⑥ SHADOW：配置路径真跑一遍但**回滚**，库里不多出凭证；对比一致才允许接管。
+#[tokio::test]
+async fn voucher_shadow_rolls_back_and_compares() {
+    let Some(_guard) = setup().await else { return };
+    seed_stock_in(fixture_si_ok2(), 2, "2026-11-11", "200", "26").await;
+    seed_voucher_rule(
+        "d3-voucher-shadow",
+        serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "SHADOW" }),
+    )
+    .await;
+    let header = stockin_model::header_on(db(), fixture_si_ok2())
+        .await
+        .expect("取单头")
+        .expect("单头必须存在");
+    let ctx = stock_in_ctx(fixture_si_ok2(), "D2L-SI-2");
+
+    let tx = db().begin().await.expect("开事务");
+    let route = engine::stockin_voucher(&tx, &ctx)
+        .await
+        .expect("影子不该失败");
+    let shadow = match route {
+        engine::VoucherRoute::Legacy {
+            shadow: Some(shadow),
+            ..
+        } => shadow,
+        other => panic!("SHADOW 必须退回旧逻辑并带影子快照，实际：{other:?}"),
+    };
+    assert!(
+        vouchers_of(fixture_si_ok2()).await == 0,
+        "影子阶段库里不能有凭证（试算已回滚）"
+    );
+    assert!(
+        shadow.snapshot.lines.len() >= 2,
+        "影子凭证至少 2 行分录，实际 {}",
+        shadow.snapshot.lines.len()
+    );
+    assert_eq!(
+        shadow.snapshot.source_id,
+        Some(fixture_si_ok2()),
+        "影子的关联单据必须是这张收货单"
+    );
+
+    // 旧路径落账 → 事后逐字段对比
+    let first_material = stockin_model::first_material_of(db(), fixture_si_ok2())
+        .await
+        .expect("取首个物料");
+    let legacy_id = voucher::create_for_stock_in(&tx, &header, first_material, None, Utc::now())
+        .await
+        .expect("旧路生成凭证");
+    let compare = engine::finish_stockin_voucher_shadow(&tx, &ctx, &shadow, legacy_id).await;
+    assert!(
+        compare.matched,
+        "影子与旧路径必须一致，差异：{:?}",
+        compare.diffs
+    );
+    assert!(compare.diffs.is_empty());
+    tx.rollback().await.expect("回滚");
+}
+
+/// ⑦ 关键动作失败（期间已结账）→ 整笔回滚，不留半张凭证。
+#[tokio::test]
+async fn voucher_action_fails_and_rolls_back_when_period_closed() {
+    let Some(_guard) = setup().await else { return };
+    // 专用期间（2031-03）钉成 CLOSED，避免影响别的用例
+    db().execute_with_params(
+        "INSERT INTO biz_accounting_period \
+            (period_year, period_month, period_code, start_date, end_date, status) \
+         VALUES (2031, 3, '2031-03', '2031-03-01', '2031-03-31', 'CLOSED') \
+         ON CONFLICT (period_code) DO UPDATE SET status = 'CLOSED'",
+        vec![],
+    )
+    .await
+    .expect("造已结账期间");
+    seed_stock_in(fixture_si_ok(), 1, "2031-03-15", "100", "13").await;
+    seed_voucher_rule(
+        "d3-voucher-closed",
+        serde_json::json!({ "biz_type": "PURCHASE_IN", "mode": "TAKEOVER" }),
+    )
+    .await;
+    let ctx = stock_in_ctx(fixture_si_ok(), "D2L-SI-1");
+
+    let tx = db().begin().await.expect("开事务");
+    // 先写一条「过账前的状态」当哨兵：回滚必须把它一起带走
+    tx.execute_with_params(
+        "INSERT INTO biz_status_log (id, entity_type, entity_id, entity_no, from_status, to_status, created_at) \
+         VALUES (?::uuid, 'STOCK_IN', ?::uuid, 'D2L-SI-1', 'DRAFT', 'POSTED', NOW())",
+        vec![Value::from(&Uuid::now_v7()), Value::from(&fixture_si_ok())],
+    )
+    .await
+    .expect("写过账状态日志");
+    let error = engine::stockin_voucher(&tx, &ctx)
+        .await
+        .expect_err("期间已结账必须是关键动作失败");
+    assert!(
+        error.msg.contains("已结账"),
+        "错误文案要点名期间已结账，实际：{}",
+        error.msg
+    );
+    tx.rollback().await.expect("整笔回滚");
+
+    assert_eq!(
+        vouchers_of(fixture_si_ok()).await,
+        0,
+        "关键动作失败后不许留下半张凭证"
+    );
+    let logs: i64 = db()
+        .scalar_sql(
+            "SELECT count(*) FROM biz_status_log WHERE entity_id = ?::uuid".to_string(),
+            vec![Value::from(&fixture_si_ok())],
+        )
+        .await
+        .expect("查状态日志");
+    assert_eq!(logs, 0, "整笔回滚必须把过账状态日志也带走（不留半条）");
+    // 清掉专用期间
+    db().execute_with_params(
+        "DELETE FROM biz_accounting_period WHERE period_code = '2031-03'",
+        vec![],
+    )
+    .await
+    .expect("清期间");
 }

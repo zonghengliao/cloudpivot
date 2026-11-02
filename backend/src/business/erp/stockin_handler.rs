@@ -87,6 +87,7 @@ use crate::business::erp::stockin_model::{
 };
 use crate::business::erp::unit_guard;
 use crate::business::erp::voucher;
+use crate::business::flow::linkage;
 use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -3056,10 +3057,47 @@ async fn post_in_tx(
     // ⑦ 应付单 + 凭证（P2-C1，方案 A：入库即生成；**同一事务**，失败整单回滚）
     //    金额全部取自单头（header.total_*），不重算（硬红线 5）。
     //    顺序：先凭证（应付要引用 voucher_id）→ 再应付 → 最后回写收货单两列。
+    //
+    //    【D3】凭证这一步现在由**联动配置路由**（`linkage::engine::stockin_voucher`）：
+    //      · 没有 GENERATE_VOUCHER 规则 → 老路 `voucher::create_for_stock_in`（逐字不变）；
+    //      · mode=SHADOW → 配置路径在 SAVEPOINT 里试算并回滚，老路照旧落账，事后逐字段对比；
+    //      · mode=TAKEOVER → 配置路径落账，老路**不再生成**（否则一张单两张凭证）；
+    //      · 配置写脏 / 模板停用 / 单据不全 → 退回老路（凭证不能因为配置写错而漏记）；
+    //      · 关键动作失败（借贷不平 / 期间已结账）→ 引擎返回 Err → 整笔过账回滚。
+    //    两条路走的是**同一个** `voucher::create_by_rule`，取数与取号只有一份实现。
     let first_material = ordered.first().map(|item| item.material_id);
-    let voucher_id = voucher::create_for_stock_in(ex, &locked, first_material, operator.id, now)
-        .await
-        .map_err(|error| write_error(error, "过账：生成凭证"))?;
+    let voucher_ctx = linkage::engine::LinkageContext::new(
+        state_machine::ENTITY_STOCK_IN,
+        STATUS_POSTED,
+        id,
+        &locked.in_no,
+        operator.id,
+    );
+    let voucher_id = match linkage::engine::stockin_voucher(ex, &voucher_ctx).await {
+        Ok(linkage::engine::VoucherRoute::Configured { voucher_id, .. }) => voucher_id,
+        Ok(linkage::engine::VoucherRoute::Legacy { reason, shadow }) => {
+            let legacy_id =
+                voucher::create_for_stock_in(ex, &locked, first_material, operator.id, now)
+                    .await
+                    .map_err(|error| write_error(error, "过账：生成凭证"))?;
+            if let Some(shadow) = shadow {
+                linkage::engine::finish_stockin_voucher_shadow(
+                    ex,
+                    &voucher_ctx,
+                    &shadow,
+                    legacy_id,
+                )
+                .await;
+            } else {
+                tracing::debug!(reason = %reason, "收货过账：凭证仍走旧逻辑（联动未接管）");
+            }
+            legacy_id
+        }
+        Err(error) => {
+            // 关键动作失败：`post_in_tx` 的调用方会 rollback，整笔状态变更一起回退
+            return Err(error);
+        }
+    };
     let payable_id = payable::create_for_stock_in(ex, &locked, Some(voucher_id), operator.id, now)
         .await
         .map_err(|error| write_error(error, "过账：生成应付单"))?;

@@ -51,6 +51,7 @@ use nik::prelude::chrono::{DateTime, Utc};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::voucher::{self, VoucherSnapshot};
 use crate::business::notice::NoticeDraft;
 use crate::shared::error_code;
 
@@ -486,4 +487,310 @@ pub async fn status_notice(ctx: &LinkageContext<'_>) -> NoticeRoute {
     NoticeRoute::Legacy {
         compare: last_compare,
     }
+}
+
+// ==================== 第 3 步：GENERATE_VOUCHER 的接管入口 ====================
+
+/// SHADOW 阶段的影子凭证。
+///
+/// 配置路径在 `SAVEPOINT` 里**真跑一遍**（取号 / 会记账 / 写分录全都走一遍），
+/// 取到逐字段快照后 `ROLLBACK TO SAVEPOINT` —— 所以库里不会多出第二张凭证，
+/// 而「配置路径会生成什么」是跑出来的事实，不是照旧逻辑推算的猜测。
+#[derive(Debug, Clone)]
+pub struct ShadowVoucher {
+    /// 产生这个影子的规则。
+    pub rule_id: Uuid,
+    /// 影子凭证的逐字段快照（不含 id / 时间戳）。
+    pub snapshot: VoucherSnapshot,
+}
+
+/// 凭证该由谁生成。
+#[derive(Debug, Clone)]
+pub enum VoucherRoute {
+    /// 沿用触发点的旧逻辑（`shadow` 非空 = SHADOW 阶段，事后要逐字段对比）。
+    Legacy {
+        /// 为什么退回旧逻辑（日志用）。
+        reason: String,
+        /// 影子快照（`None` = 压根没有可执行的 `GENERATE_VOUCHER` 规则）。
+        ///
+        /// 用 `Box` 是为了不让「一个 15 字段的凭证快照」把整个枚举撑大
+        /// （clippy `large_enum_variant`：每次 `Configured` 也要按最大变体占内存）。
+        shadow: Option<Box<ShadowVoucher>>,
+    },
+    /// 配置接管：凭证已经由配置路径落下，旧逻辑**不要再生成**。
+    Configured {
+        /// 生效的规则。
+        rule_id: Uuid,
+        /// 落下的凭证。
+        voucher_id: Uuid,
+    },
+}
+
+/// 收货过账 ⑦ 的凭证路由（第 3 步的接管点）。
+///
+/// # 语义（与 `status_notice` 同一套打法）
+///
+/// 1. 没有 `GENERATE_VOUCHER` 规则 → [`VoucherRoute::Legacy`]（`shadow = None`，
+///    调用方照旧走 `voucher::create_for_stock_in`，行为逐字不变）；
+/// 2. 规则参数非法 / 模板停用 / 单据不存在 / 金额全 0 → 打 ERROR 并
+///    [`VoucherRoute::Legacy`]（**凭证不能因为配置写错而漏记**）；
+/// 3. `mode = SHADOW`（默认）→ 影子试算 + 回滚 + [`VoucherRoute::Legacy`]（带快照）；
+/// 4. `mode = TAKEOVER` → 由配置落账，返回 [`VoucherRoute::Configured`]；
+/// 5. 生成失败（取号失败 / 借贷不平 / 期间已结账）→ **`Err`**：
+///    关键动作失败 → 调用方整笔回滚（不留半张凭证）。
+///
+/// # 为什么第 5 条不像通知那样「失败就退回旧逻辑」
+///
+/// 凭证是账：期间已结账时旧逻辑同样会失败，退回去只是把同一个错误换个地方报；
+/// 而「配置说要用这张单生成凭证，结果没生成还让过账成功」= 库存动了账没动，
+/// 那是不变式 BLOCKER。所以这里是唯一一处**接管后失败必须回滚**的动作
+/// （与 `spec.severity = Critical` 一致），卡面也点名要这条。
+pub async fn stockin_voucher(
+    ex: &impl SqlExecutor,
+    ctx: &LinkageContext<'_>,
+) -> Result<VoucherRoute, ApiError> {
+    let rules = model::rules_for(ex, ctx.entity, ctx.status).await;
+    let candidates: Vec<LinkageRuleRow> = rules
+        .into_iter()
+        .filter(|rule| rule.action_code == spec::ACTION_GENERATE_VOUCHER && rule.enabled)
+        .collect();
+    if candidates.is_empty() {
+        return Ok(VoucherRoute::Legacy {
+            reason: "没有 GENERATE_VOUCHER 规则".to_string(),
+            shadow: None,
+        });
+    }
+
+    let mut last_reason = "没有可执行的 GENERATE_VOUCHER 规则".to_string();
+    for rule in candidates {
+        let Some(action) = rule.spec() else {
+            last_reason = format!("动作码 {} 不在白名单里", rule.action_code);
+            tracing::error!(rule_id = %rule.id, reason = last_reason, "联动凭证规则校验不过：跳过该规则（凭证仍走旧逻辑）");
+            continue;
+        };
+        if !action.implemented {
+            last_reason = format!("动作 {} 尚未接管", rule.action_code);
+            tracing::error!(rule_id = %rule.id, reason = last_reason, "联动凭证规则尚未接管：跳过该规则（凭证仍走旧逻辑）");
+            continue;
+        }
+        // 第 3 层：参数复校（配置可能被绕过 API 改动）
+        if let Err(reason) = spec::validate_params(action, &rule.action_params) {
+            last_reason = reason.clone();
+            tracing::error!(
+                rule_id = %rule.id,
+                trigger_entity = ctx.entity,
+                trigger_status = ctx.status,
+                doc_id = %ctx.doc_id,
+                doc_no = ctx.doc_no,
+                reason = reason,
+                "联动 GENERATE_VOUCHER 参数非法：跳过该规则（凭证仍走旧逻辑，不会漏记）"
+            );
+            continue;
+        }
+        let (setting, biz_ctx) = match actions::prepare_voucher(ex, &rule, ctx).await {
+            Ok(prepared) => prepared,
+            Err(error) => {
+                last_reason = error.reason().to_string();
+                tracing::error!(
+                    rule_id = %rule.id,
+                    trigger_entity = ctx.entity,
+                    trigger_status = ctx.status,
+                    doc_id = %ctx.doc_id,
+                    doc_no = ctx.doc_no,
+                    reason = error.reason(),
+                    "联动 GENERATE_VOUCHER 校验不过：跳过该规则（凭证仍走旧逻辑，不会漏记）"
+                );
+                continue;
+            }
+        };
+
+        if setting.mode == actions::VoucherMode::Takeover {
+            let voucher_id = match actions::commit_voucher(ex, &setting, &biz_ctx, ctx).await {
+                Ok(voucher_id) => voucher_id,
+                Err(error) => {
+                    // 关键动作失败 → Err → 调用方整笔回滚（见函数文档第 5 条）
+                    tracing::error!(
+                        rule_id = %rule.id,
+                        trigger_entity = ctx.entity,
+                        trigger_status = ctx.status,
+                        doc_id = %ctx.doc_id,
+                        doc_no = %ctx.doc_no,
+                        reason = error.reason(),
+                        "联动接管凭证失败：关键动作失败，本次过账整笔回滚"
+                    );
+                    return Err(ApiError::new(
+                        500,
+                        error_code::INTERNAL_ERROR,
+                        format!(
+                            "联动动作 GENERATE_VOUCHER（{}）失败：{}。这是关键动作，\
+                             本次过账已整笔回滚（不会留下半张凭证）",
+                            rule.name,
+                            error.reason()
+                        ),
+                    ));
+                }
+            };
+            if let Ok(snapshot) = voucher::snapshot_of(ex, voucher_id).await {
+                tracing::info!(
+                    rule_id = %rule.id,
+                    voucher_no = %snapshot.voucher_no,
+                    period = %snapshot.period,
+                    total_debit = %snapshot.total_debit,
+                    total_credit = %snapshot.total_credit,
+                    entry_count = snapshot.entry_count,
+                    entry_codes = ?snapshot.lines.iter().map(|line| line.account_code.as_str()).collect::<Vec<_>>(),
+                    "联动已接管凭证：配置生成（旧逻辑本次不再生成）"
+                );
+            }
+            tracing::info!(
+                rule_id = %rule.id,
+                trigger_entity = ctx.entity,
+                trigger_status = ctx.status,
+                doc_id = %ctx.doc_id,
+                doc_no = %ctx.doc_no,
+                voucher_id = %voucher_id,
+                "收货过账的凭证已由联动配置接管（旧路径本次不生成）"
+            );
+            return Ok(VoucherRoute::Configured {
+                rule_id: rule.id,
+                voucher_id,
+            });
+        }
+
+        // ---- SHADOW：试算 → 快照 → 回滚 ----
+        if ex.post_commit_queue().is_none() {
+            // 没有事务时跑影子 = 直接落一张真凭证。宁可退回旧逻辑。
+            last_reason =
+                "影子对比必须在调用方事务里跑（否则会落下一张真凭证），本次不做影子".to_string();
+            tracing::error!(rule_id = %rule.id, reason = last_reason, "联动 GENERATE_VOUCHER 影子跳过");
+            continue;
+        }
+        const SHADOW_SAVEPOINT: &str = "d3_voucher_shadow";
+        ex.exec_sql(format!("SAVEPOINT {SHADOW_SAVEPOINT}"), vec![])
+            .await
+            .map_err(|error| {
+                ApiError::new(
+                    500,
+                    error_code::INTERNAL_ERROR,
+                    format!("开启凭证影子预览的 SAVEPOINT 失败：{error}"),
+                )
+            })?;
+        let attempt = actions::commit_voucher(ex, &setting, &biz_ctx, ctx).await;
+        let snapshot = match &attempt {
+            Ok(voucher_id) => voucher::snapshot_of(ex, *voucher_id).await.map(Some),
+            Err(_) => Ok(None),
+        };
+        // 收尾：无论结果如何都要回到 SAVEPOINT 之前（**这是影子不落库的唯一保证**）
+        let _ = ex
+            .exec_sql(format!("ROLLBACK TO SAVEPOINT {SHADOW_SAVEPOINT}"), vec![])
+            .await;
+        let _ = ex
+            .exec_sql(format!("RELEASE SAVEPOINT {SHADOW_SAVEPOINT}"), vec![])
+            .await;
+
+        return match attempt {
+            Ok(_) => match snapshot {
+                Ok(Some(snapshot)) => {
+                    tracing::info!(
+                        rule_id = %rule.id,
+                        mode = "SHADOW",
+                        trigger_entity = ctx.entity,
+                        trigger_status = ctx.status,
+                        doc_id = %ctx.doc_id,
+                        doc_no = ctx.doc_no,
+                        voucher_no = %snapshot.voucher_no,
+                        period = %snapshot.period,
+                        total_debit = %snapshot.total_debit,
+                        total_credit = %snapshot.total_credit,
+                        entry_count = snapshot.entry_count,
+                        "联动凭证影子试算完成（已回滚，库里不会多出这张凭证；生成权仍在旧逻辑）"
+                    );
+                    Ok(VoucherRoute::Legacy {
+                        reason: "影子模式（mode=SHADOW）：配置试算成功并回滚，凭证仍由旧逻辑生成"
+                            .to_string(),
+                        shadow: Some(Box::new(ShadowVoucher {
+                            rule_id: rule.id,
+                            snapshot,
+                        })),
+                    })
+                }
+                Ok(None) | Err(_) => {
+                    tracing::error!(
+                        rule_id = %rule.id,
+                        "联动凭证影子试算成功但读不回快照：本次不做逐字段对比（凭证仍走旧逻辑）"
+                    );
+                    Ok(VoucherRoute::Legacy {
+                        reason: "影子试算成功但快照读取失败".to_string(),
+                        shadow: None,
+                    })
+                }
+            },
+            Err(error) => {
+                // 影子失败**不影响业务**：这是「照镜子」，不是「真的记一笔」。
+                tracing::error!(
+                    rule_id = %rule.id,
+                    trigger_entity = ctx.entity,
+                    doc_id = %ctx.doc_id,
+                    doc_no = ctx.doc_no,
+                    reason = error.reason(),
+                    "联动凭证影子试算失败（已回滚，业务不受影响；凭证仍走旧逻辑）"
+                );
+                Ok(VoucherRoute::Legacy {
+                    reason: format!("影子试算失败：{}", error.reason()),
+                    shadow: None,
+                })
+            }
+        };
+    }
+
+    Ok(VoucherRoute::Legacy {
+        reason: last_reason,
+        shadow: None,
+    })
+}
+
+/// SHADOW 事后对比：旧逻辑刚落完凭证，把它与影子快照逐字段比一遍并打日志。
+///
+/// 返回 `ShadowCompare`（`matched = true` 就是卡面要的「并行跑一段、对比一致」证据）。
+/// 本函数**永不失败**：对比是观测，不能影响已经落定的事务。
+pub async fn finish_stockin_voucher_shadow(
+    ex: &impl SqlExecutor,
+    ctx: &LinkageContext<'_>,
+    shadow: &ShadowVoucher,
+    legacy_voucher_id: Uuid,
+) -> ShadowCompare {
+    let legacy = match voucher::snapshot_of(ex, legacy_voucher_id).await {
+        Ok(snapshot) => snapshot,
+        Err(error) => {
+            tracing::error!(
+                rule_id = %shadow.rule_id,
+                voucher_id = %legacy_voucher_id,
+                reason = %error,
+                "联动凭证影子对比：读不回旧路径的凭证快照，本次对比作废"
+            );
+            return ShadowCompare {
+                matched: false,
+                diffs: vec!["legacy_snapshot_unavailable"],
+            };
+        }
+    };
+    let diffs = voucher::compare_snapshots(&shadow.snapshot, &legacy);
+    let compare = ShadowCompare {
+        matched: diffs.is_empty(),
+        diffs: diffs.clone(),
+    };
+    tracing::info!(
+        rule_id = %shadow.rule_id,
+        trigger_entity = ctx.entity,
+        trigger_status = ctx.status,
+        doc_id = %ctx.doc_id,
+        doc_no = ctx.doc_no,
+        configured_voucher_no = %shadow.snapshot.voucher_no,
+        legacy_voucher_no = %legacy.voucher_no,
+        matched = compare.matched,
+        diffs = ?compare.diffs,
+        field_count = 15,
+        "联动凭证影子对比：配置算出的凭证 vs 旧路径的凭证（逐字段）"
+    );
+    compare
 }

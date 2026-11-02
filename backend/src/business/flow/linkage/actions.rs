@@ -8,8 +8,9 @@
 //! |------|----------------|
 //! | [`SEND_NOTICE`](spec::ACTION_SEND_NOTICE) | `business::notice::dispatch`（渲染/扇出/偏好/幂等/投递记录） |
 //! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::stockin_purchase::add_received_qty`（条件更新，0 行 = 超收） |
+//! | [`GENERATE_VOUCHER`](spec::ACTION_GENERATE_VOUCHER) | `erp::voucher::create_by_rule`（D3 抽出的唯一实现：取数 + 取号 + 借贷平衡 + 落库） |
 //!
-//! 其余 9 个动作在本卡是**占位**：参数契约已定、`spec.reuse` 指向要复用的既有函数，
+//! 其余 8 个动作仍是**占位**：参数契约已定、`spec.reuse` 指向要复用的既有函数，
 //! 执行时返回 [`ActionError::Skipped`]（打 ERROR 日志 + 跳过），并且在配置写入阶段就被拒。
 //!
 //! 为什么不在这里「先把算法写一份」：同一个业务动作两套实现 = 双真相。
@@ -28,10 +29,15 @@
 
 use std::result::Result;
 
+use nik::prelude::chrono::NaiveDate;
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::stockin_model;
+use crate::business::erp::voucher::{self, VoucherBizCtx};
 use crate::business::notice::{self, NoticeDraft, NoticeTarget};
+use crate::business::shared::state_machine;
 
 use super::engine::LinkageContext;
 use super::model::LinkageRuleRow;
@@ -384,6 +390,212 @@ pub async fn update_received_qty(
     Ok(format!("采购明细 {source_item_id} 累计收货量 +{qty}"))
 }
 
+// ==================== GENERATE_VOUCHER ====================
+
+/// 凭证动作的上线模式（与 `SEND_NOTICE` 的 `mode` 同义，但独立成类型：
+/// 通知的「接管」与凭证的「接管」不该被同一个枚举绑死，将来一个加值另一个不必跟着改）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VoucherMode {
+    /// 影子模式（默认）：配置路径**试算一遍并回滚**，与旧路径的凭证逐字段对比，凭证仍由旧逻辑落。
+    Shadow,
+    /// 接管模式：由配置生成凭证，旧路径本次不生成。
+    Takeover,
+}
+
+/// `GENERATE_VOUCHER` 的参数解析结果（第 2 层已在写配置时校验过，这里只做取值）。
+#[derive(Debug, Clone)]
+pub struct VoucherSetting {
+    /// 上线模式。
+    pub mode: VoucherMode,
+    /// 映射模板（`biz_voucher_rule.rule_code`；空 = 按 `biz_type` 取默认模板）。
+    pub template_code: Option<String>,
+    /// 业务类型（必填）。
+    pub biz_type: String,
+    /// 记账日期覆盖（空 = 取单据业务日期）。
+    pub account_date: Option<String>,
+}
+
+impl VoucherSetting {
+    /// 从 `action_params` 取值。
+    pub fn from_params(params: &serde_json::Value) -> Result<Self, String> {
+        let text = |key: &str| -> Result<Option<String>, String> {
+            match params.get(key) {
+                None | Some(serde_json::Value::Null) => Ok(None),
+                Some(serde_json::Value::String(value)) => {
+                    let trimmed = value.trim();
+                    if trimmed.is_empty() {
+                        Ok(None)
+                    } else {
+                        Ok(Some(trimmed.to_string()))
+                    }
+                }
+                Some(_) => Err(format!("参数 `{key}` 必须是字符串")),
+            }
+        };
+        let mode = match text("mode")?.as_deref() {
+            None | Some("SHADOW") => VoucherMode::Shadow,
+            Some("TAKEOVER") => VoucherMode::Takeover,
+            Some(other) => {
+                return Err(format!(
+                    "参数 `mode` 只允许 SHADOW / TAKEOVER（当前 {other}）"
+                ));
+            }
+        };
+        let Some(biz_type) = text("biz_type")? else {
+            return Err("参数 `biz_type` 必填（空 = 不知道该用哪套科目映射）".to_string());
+        };
+        Ok(Self {
+            mode,
+            template_code: text("template_code")?,
+            biz_type,
+            account_date: text("account_date")?,
+        })
+    }
+
+    /// 记账日期（`None` = 沿用单据日期）；格式非法返回错误文案。
+    pub fn voucher_date(&self) -> Result<Option<NaiveDate>, String> {
+        let Some(text) = self.account_date.as_deref() else {
+            return Ok(None);
+        };
+        NaiveDate::parse_from_str(text, "%Y-%m-%d")
+            .map(Some)
+            .map_err(|_| format!("参数 `account_date` 必须是 yyyy-MM-dd（当前 {text}）"))
+    }
+}
+
+/// 一次凭证动作的执行产物（引擎的日志与 SHADOW 对比都用它）。
+#[derive(Debug, Clone)]
+pub struct VoucherOutcome {
+    /// 落下的凭证 id。
+    pub voucher_id: Uuid,
+    /// 生效的配置（模式 / 模板 / 记账日期覆盖）。
+    pub setting: VoucherSetting,
+    /// 取数结果（取号前的上下文：金额 / 摘要 / 关联单据）。
+    pub biz_ctx: VoucherBizCtx,
+}
+
+/// 第 3 层校验 + 取数（**不写库**）。
+///
+/// 顺序很重要：先看参数（便宜），再看模板（一次查询），最后取单据（一次查询 + 一次查询）。
+/// 「target 不存在」的三类都在这里被拦成 [`ActionError::Skipped`]：
+///
+/// 1. `GENERATE_VOUCHER` 目前只接管收货入库（`STOCK_IN`）的凭证 —— 别的实体没有
+///    「取数」定义（付款 / 出库各有各的金额口径），硬套会生成错的账；
+/// 2. 模板停用 / 模板码不存在（`biz_voucher_rule` 里没有存活规则）；
+/// 3. 单据不存在 / 金额全 0（会计上不构成凭证）。
+///
+/// 取数走 `stockin_model::voucher_biz_ctx` → `VoucherBizCtx::of_stock_in`，
+/// 与收货过账**同一个函数**，不在这里另算金额或摘要。
+pub async fn prepare_voucher(
+    ex: &impl SqlExecutor,
+    rule: &LinkageRuleRow,
+    ctx: &LinkageContext<'_>,
+) -> Result<(VoucherSetting, VoucherBizCtx), ActionError> {
+    let setting = VoucherSetting::from_params(&rule.action_params)
+        .map_err(|reason| ActionError::Skipped(format!("GENERATE_VOUCHER 参数非法：{reason}")))?;
+    if ctx.entity != state_machine::ENTITY_STOCK_IN {
+        return Err(ActionError::Skipped(format!(
+            "GENERATE_VOUCHER 目前只接管收货入库（STOCK_IN）的凭证，\
+             触发实体 {} 还没有对应的取数口径（付款 / 出库的金额来源不同），跳过",
+            ctx.entity
+        )));
+    }
+    let account_date = setting
+        .voucher_date()
+        .map_err(|reason| ActionError::Skipped(format!("GENERATE_VOUCHER {reason}")))?;
+    if let Some(code) = setting.template_code.as_deref() {
+        let active = voucher::template_active(ex, code)
+            .await
+            .map_err(|error| ActionError::Failed(format!("校验凭证模板 {code} 失败：{error}")))?;
+        if !active {
+            return Err(ActionError::Skipped(format!(
+                "GENERATE_VOUCHER：凭证模板 {code} 未启用（biz_voucher_rule 里没有这条存活规则），\
+                 跳过（target 不在）"
+            )));
+        }
+    }
+    let Some(biz_ctx) = stockin_model::voucher_biz_ctx(ex, ctx.doc_id)
+        .await
+        .map_err(|error| {
+            ActionError::Failed(format!("取收货单 {} 的凭证上下文失败：{error}", ctx.doc_id))
+        })?
+    else {
+        return Err(ActionError::Skipped(format!(
+            "GENERATE_VOUCHER：单据 {}（{}）不存在或已删除，跳过（target 不在）",
+            ctx.doc_id, ctx.doc_no
+        )));
+    };
+    // 单据不完整：金额全 0 → 分录凑不出 2 行 → 会计上不构成凭证。这不是「失败」，
+    // 是「这张单本来就不该有凭证」，所以跳过（旧逻辑同样会因为 len<2 报错，但那是
+    // 过账路径的护栏；配置路径上把它当 target 不在，避免因一张 0 元单回滚整笔过账）。
+    if biz_ctx.amounts.total() <= Decimal::ZERO && biz_ctx.amounts.amount <= Decimal::ZERO {
+        return Err(ActionError::Skipped(format!(
+            "GENERATE_VOUCHER：单据 {} 金额全为 0（不含税 {} / 税 {} / 价税合计 {}），\
+             会计上不构成一张凭证，跳过",
+            biz_ctx.source_no,
+            biz_ctx.amounts.amount,
+            biz_ctx.amounts.tax,
+            biz_ctx.amounts.with_tax
+        )));
+    }
+    let biz_ctx = match account_date {
+        Some(date) => biz_ctx.with_voucher_date(date),
+        None => biz_ctx,
+    };
+    Ok((setting, biz_ctx))
+}
+
+/// 生成一张凭证（`Phase::InTx`，**关键**动作）。
+///
+/// # 铁律：不新写任何取号 / 平衡算法
+///
+/// 整个函数体只有「校验取数 + 一句 [`voucher::create_by_rule`]」—— 取数、取号、≥2 行、
+/// 借贷平衡、期间已结账、写主表 + 分录全在那一份实现里（收货过账的旧路径也是它）。
+///
+/// # 失败语义（第 3 步的验收点）
+///
+/// - 校验 / target 不在 → [`ActionError::Skipped`]（引擎打 ERROR + 调用方退回旧逻辑）；
+/// - 取号失败 / 借贷不平 / 期间已结账 → [`ActionError::Failed`] → 关键动作 →
+///   调用方**整笔回滚**（不会留下半张凭证，也不会留下「库存加了但没凭证」）。
+pub async fn generate_voucher(
+    ex: &impl SqlExecutor,
+    rule: &LinkageRuleRow,
+    ctx: &LinkageContext<'_>,
+) -> Result<VoucherOutcome, ActionError> {
+    let (setting, biz_ctx) = prepare_voucher(ex, rule, ctx).await?;
+    let voucher_id = commit_voucher(ex, &setting, &biz_ctx, ctx).await?;
+    Ok(VoucherOutcome {
+        voucher_id,
+        setting,
+        biz_ctx,
+    })
+}
+
+/// 真正落账的那一步（取数已在 [`prepare_voucher`] 完成）。
+///
+/// 引擎的 SHADOW 分支会在 `SAVEPOINT` 里单独调它：跑一遍 → 取快照 → 回滚，
+/// 这样「配置路径会生成什么」是**真跑出来的**，而不是照旧逻辑推算的。
+pub async fn commit_voucher(
+    ex: &impl SqlExecutor,
+    setting: &VoucherSetting,
+    biz_ctx: &VoucherBizCtx,
+    ctx: &LinkageContext<'_>,
+) -> Result<Uuid, ActionError> {
+    voucher::create_by_rule(
+        ex,
+        setting.template_code.as_deref(),
+        biz_ctx,
+        ctx.operator,
+        ctx.now,
+    )
+    .await
+    .map_err(|error| {
+        ActionError::Failed(format!(
+            "GENERATE_VOUCHER 生成凭证失败（关键动作，整笔回滚）：{error}"
+        ))
+    })
+}
+
 // ==================== 统一入口 ====================
 
 /// 执行一个**事务内**动作（`Phase::InTx`）。
@@ -397,6 +609,12 @@ pub async fn run_in_tx(
 ) -> Result<String, ActionError> {
     match rule.action_code.as_str() {
         spec::ACTION_UPDATE_RECEIVED_QTY => update_received_qty(ex, rule, ctx).await,
+        spec::ACTION_GENERATE_VOUCHER => generate_voucher(ex, rule, ctx).await.map(|outcome| {
+            format!(
+                "凭证 {} 已生成（{}）",
+                outcome.voucher_id, outcome.biz_ctx.summary
+            )
+        }),
         other => Err(ActionError::Skipped(not_taken_over(other))),
     }
 }

@@ -37,13 +37,15 @@
 //! PG 不支持嵌套事务，`SAVEPOINT` 只能局部回滚且会把「关键动作失败 → 整笔回滚」的语义
 //! 变成「只有这一段回滚」，与卡面要求相反。所以「谁拥有事务」必须由**调用方**决定。
 //!
-//! # 实现的现状（本卡：第 1 步 + 第 2 步）
+//! # 实现的现状（第 1 步 + 第 2 步 + 【D3】第 3 步）
 //!
 //! [`ActionSpec::implemented`] 区分「已接管」与「占位」：
 //!
-//! - **已实现（2 个）**：`SEND_NOTICE`（第 2 步接管任务状态通知）、
-//!   `UPDATE_RECEIVED_QTY`（复用既有 `add_received_qty`，作为关键动作事务语义的活样本）；
-//! - **占位（9 个）**：入参契约已定、[`ActionSpec::reuse`] 写清了第 3 步要复用的既有函数；
+//! - **已实现（3 个）**：`SEND_NOTICE`（第 2 步接管任务状态通知）、
+//!   `UPDATE_RECEIVED_QTY`（复用既有 `add_received_qty`，作为关键动作事务语义的活样本）、
+//!   `GENERATE_VOUCHER`（**D3 第 3 步**：复用 `voucher::create_by_rule`，
+//!   与收货过账的旧路径是同一个函数、同一份取数与取号）；
+//! - **占位（8 个）**：入参契约已定、[`ActionSpec::reuse`] 写清了后续要复用的既有函数；
 //!   在接管之前**不允许配置**（写入口直接 `400`），万一有人绕过 API 直接写库，
 //!   运行时会打 ERROR + 跳过该动作，绝不半执行。
 //!
@@ -229,6 +231,9 @@ pub const ACTION_SEND_NOTICE: &str = "SEND_NOTICE";
 /// 累计收货量的动作码（已实现的关键动作，用来证明「关键动作失败 → 回滚」）。
 pub const ACTION_UPDATE_RECEIVED_QTY: &str = "UPDATE_RECEIVED_QTY";
 
+/// 生成凭证的动作码（【D3】第 3 步接管：复用 `voucher::create_by_rule`）。
+pub const ACTION_GENERATE_VOUCHER: &str = "GENERATE_VOUCHER";
+
 // ==================== 禁用键（SQL 禁令） ====================
 
 /// **禁配 SQL** 的键黑名单（第 1 层 CHECK 与第 2 层校验共用同一份清单）。
@@ -393,7 +398,8 @@ pub const ACTIONS: &[ActionSpec] = &[
         label: "生成凭证",
         phase: Phase::InTx,
         severity: Severity::Critical,
-        implemented: false,
+        // ★ 已实现（D3 第 3 步）：复用 voucher::create_by_rule（取数 + 取号 + 借贷平衡唯一实现）
+        implemented: true,
         params: &[
             ParamSpec {
                 key: "template_code",
@@ -413,8 +419,16 @@ pub const ACTIONS: &[ActionSpec] = &[
                 required: false,
                 note: "记账日期 yyyy-MM-dd（空 = 取单据日期）",
             },
+            ParamSpec {
+                key: "mode",
+                kind: ParamKind::Enum(&["SHADOW", "TAKEOVER"]),
+                required: false,
+                note: "上线模式（空 = SHADOW：只做逐字段对比，凭证仍由旧逻辑发）",
+            },
         ],
-        reuse: "erp/voucher.rs::create_for_stock_in + voucher_write::post_voucher（取号 PZ-/PZR-、≥2 行、借贷平衡只有一份实现）——**第 3 步才接管**",
+        reuse: "erp/voucher.rs::create_by_rule（D3 抽出的唯一实现：取数 VoucherBizCtx::of_stock_in → \
+                科目解析 → 取号 PZ- → ≥2 行 + 借贷平衡 → voucher::post_voucher；\
+                与 create_for_stock_in 同一函数，不另写任何算法）",
     },
     ActionSpec {
         code: "REVERSE_VOUCHER",

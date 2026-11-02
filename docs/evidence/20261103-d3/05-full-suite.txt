@@ -1,0 +1,6 @@
+== 全量后端单测（干净库 cloudpivot_d3inv，--test-threads=1）==
+test result: ok. 2062 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 803.08s
+CARGO_EXIT=0
+
+基线 2055（D2 交付时的全量结果）+ 本卡 7 条新的 GENERATE_VOUCHER 用例 = 2062
+完整日志：/root/d3-full-test.log
