@@ -1,0 +1,21 @@
+import { chromium } from '@playwright/test';
+const BASE = 'http://127.0.0.1:5215';
+const browser = await chromium.launch({ args: ['--no-sandbox'] });
+const context = await browser.newContext({ viewport: { width: 1400, height: 900 } });
+await context.addInitScript(() => window.localStorage.setItem('cp-onboarding-done', '1'));
+const page = await context.newPage();
+const bad = [];
+page.on('response', (r) => {
+  if (r.status() >= 400) bad.push(`${r.status()} ${r.request().method()} ${r.url().split('?')[0]}`);
+});
+await page.goto(`${BASE}/login`, { waitUntil: 'networkidle' });
+await page.getByPlaceholder('请输入用户名').fill('admin');
+await page.getByPlaceholder('请输入密码').fill('A5@Verify2026');
+await page.locator('button[type="submit"]').click();
+await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 20000 });
+await page.waitForTimeout(4000);
+console.log('DASHBOARD bad responses:', JSON.stringify(bad));
+await page.goto(`${BASE}/business/erp/supplier`, { waitUntil: 'networkidle' });
+await page.waitForTimeout(3000);
+console.log('SUPPLIER page bad responses:', JSON.stringify(bad));
+await browser.close();

@@ -1,0 +1,153 @@
+{
+  "checks": [
+    {
+      "name": "13a 登录成功（离开 /login）",
+      "ok": true,
+      "detail": "http://127.0.0.1:5215/dashboard"
+    },
+    {
+      "name": "13b 合同管理列表打开（非 404 页）",
+      "ok": true,
+      "detail": "title=合同管理 - 云枢 CloudPivot"
+    },
+    {
+      "name": "13c 筛选区渲染",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "13d 空库时给空态提示（不空白）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "14a 新建合同接口 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "14b 合同号自动生成（HT-yyyyMMdd-000001）",
+      "ok": true,
+      "detail": "HT-20261102-000021"
+    },
+    {
+      "name": "14c 保存后列表能看到这张合同",
+      "ok": true,
+      "detail": "HT-20261102-000021"
+    },
+    {
+      "name": "14d 金额列千分位 + ¥ 前缀",
+      "ok": true,
+      "detail": "¥888,888.88"
+    },
+    {
+      "name": "15a 登记签订接口 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "15b 生效接口 200",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "15c 状态徽标显示「已生效」",
+      "ok": true,
+      "detail": "已生效"
+    },
+    {
+      "name": "15d 徽标配色为 success（绿）",
+      "ok": true,
+      "detail": "t-tag t-tag--success t-tag--light t-size-s status-badge"
+    },
+    {
+      "name": "18 已生效单不显示删除按钮",
+      "ok": true,
+      "detail": "count=0"
+    },
+    {
+      "name": "11b 已生效单不显示编辑按钮",
+      "ok": true,
+      "detail": "count=0"
+    },
+    {
+      "name": "16a 终止接口 200",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "16b 状态变为「已终止」且徽标橙色（warning）",
+      "ok": true,
+      "detail": "已终止"
+    },
+    {
+      "name": "20a 详情抽屉打开且字段铺开",
+      "ok": true,
+      "detail": "A5 真机验收合同-648177"
+    },
+    {
+      "name": "20b 详情金额同样千分位 + ¥",
+      "ok": true,
+      "detail": "¥888,888.88"
+    },
+    {
+      "name": "20c 关联采购单区块有内容（列表或空态说明）",
+      "ok": true,
+      "detail": "空态说明"
+    },
+    {
+      "name": "7b 终态在详情里也没有流转按钮",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "17a 草稿单显示删除入口",
+      "ok": true,
+      "detail": "HT-20261102-000022"
+    },
+    {
+      "name": "17b 删除接口 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "17c 删除后列表不再有这张合同",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "17d 刷新后依然不在（软删生效）",
+      "ok": true,
+      "detail": "HT-20261102-000022"
+    },
+    {
+      "name": "19a 无页面级 JS 异常",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "19b 无 console.error（除全局 SSE 401）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "19c 合同页自身请求无 4xx/5xx（除全局 SSE 401）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "19d 剩余 4xx 只有全局 SSE 401（既有缺陷，见 evidence/sse-401-global.txt）",
+      "ok": true,
+      "detail": "SSE 401 × 2"
+    }
+  ],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "pageErrors": [],
+  "badResponses": [
+    "401 GET http://127.0.0.1:5215/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI4YmQxN2RhMy1lZDgzLTQxODQtODMxZC02OGQzMGM2NTRjZmMiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYxOTU1MCwiaWF0IjoxNzkzNjE4NjUwLCJzaWF0IjoxNzkzNjE4NjUwLCJzaWQiOiI1NDE0ZDMzNi1hMzc1LTQzMjEtYmYwOC01OGE0NmUwZTlkNDQiLCJ2ZXIiOjF9.94nUhf4wrZTL62dqW2WjxZ_PP1t7mJfmGuig0DhnIsg",
+    "401 GET http://127.0.0.1:5215/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI4YmQxN2RhMy1lZDgzLTQxODQtODMxZC02OGQzMGM2NTRjZmMiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYxOTU1MCwiaWF0IjoxNzkzNjE4NjUwLCJzaWF0IjoxNzkzNjE4NjUwLCJzaWQiOiI1NDE0ZDMzNi1hMzc1LTQzMjEtYmYwOC01OGE0NmUwZTlkNDQiLCJ2ZXIiOjF9.94nUhf4wrZTL62dqW2WjxZ_PP1t7mJfmGuig0DhnIsg"
+  ]
+}

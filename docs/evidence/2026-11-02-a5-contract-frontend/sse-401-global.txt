@@ -1,0 +1,2 @@
+DASHBOARD bad responses: ["401 GET http://127.0.0.1:5215/api/business/notice/stream"]
+SUPPLIER page bad responses: ["401 GET http://127.0.0.1:5215/api/business/notice/stream","401 GET http://127.0.0.1:5215/api/business/notice/stream"]
