@@ -447,6 +447,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '收货入库', permission: 'business:erp:stock-in:list' },
       },
       {
+        // ==================== ERP 出库单（DC-13，领用 / 报废 / 盘亏） ====================
+        // `sys_menu` 种子（V0203 …1105）path = `/business/erp/stock-out`、component
+        // `business/erp/stock-out/index`，权限码 `business:erp:stock-out:list`。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点左侧菜单进 404 页。
+        // 目录名是 `stock-out`（带连字符），与菜单 path 同口径；不另设 alias，
+        // 免得出现第二条同名菜单高亮（P4-D 那个 `alias` 静默跳过导航的坑）。
+        path: 'business/erp/stock-out',
+        name: 'BusinessErpStockOut',
+        component: () => import('@/views/business/erp/stock-out/index.vue'),
+        meta: { title: '出库单', permission: 'business:erp:stock-out:list' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
