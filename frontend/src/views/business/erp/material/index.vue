@@ -163,6 +163,20 @@
           <t-input v-model="form.spec" :maxlength="200" placeholder="选填，如 整机" data-testid="mat-spec" />
         </t-form-item>
 
+        <!-- 成本法：本版本只有移动加权（V0201 收敛）。下拉只有一项且置灰 —— 不给「选了不生效」的机会 -->
+        <t-form-item label="成本法" name="costing_method">
+          <div class="dlg-inline">
+            <t-select
+              v-model="form.costing_method"
+              class="costing-select"
+              :options="costingOptions"
+              :disabled="true"
+              data-testid="mat-costing"
+            />
+            <span class="dlg-help" data-testid="mat-costing-help">{{ COSTING_METHOD_HINT }}</span>
+          </div>
+        </t-form-item>
+
         <t-form-item label="一物一码">
           <div class="dlg-inline">
             <!-- 编辑态置灰：一物一码语义一旦创建就定死，随便翻会让历史序列号与新规则打架 -->
@@ -200,6 +214,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import {
+  COSTING_METHOD_HINT,
   MATERIAL_PAGE_SIZE,
   MATERIAL_TYPE_OPTIONS,
   SERIAL_FILTER_OPTIONS,
@@ -207,6 +222,7 @@ import {
   buildMaterialQuery,
   buildMaterialUpdatePayload,
   clampPage,
+  costingMethodOptions,
   emptyMaterialFilter,
   emptyMaterialForm,
   hasFieldError,
@@ -287,6 +303,13 @@ const pagination = computed(() => ({
 
 /** 单位下拉项 */
 const unitSelectOptions = computed(() => unitOptions(units.value).map((item) => ({ ...item })));
+
+/**
+ * 成本法下拉项（本版本只有一项；老数据里的 FIFO / STANDARD 会作为禁用项显示）。
+ *
+ * 依赖 `form.costing_method`（编辑时来自行上的值），所以是 computed 而不是常量数组。
+ */
+const costingOptions = computed(() => costingMethodOptions(form.costing_method).map((item) => ({ ...item })));
 
 /** 错误文案（后端 4xx 的 msg 比「请求失败」有用得多） */
 function messageOf(error: unknown): string {
@@ -519,6 +542,16 @@ onMounted(async () => {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+
+/* 成本法：单值下拉，宽度对齐其它表单项；旁边跟灰字说明 */
+.costing-select {
+  width: 220px;
+}
+
+.costing-select :deep(.t-is-disabled),
+.costing-select.t-is-disabled {
+  color: var(--td-text-color-secondary);
 }
 
 .dlg-help {

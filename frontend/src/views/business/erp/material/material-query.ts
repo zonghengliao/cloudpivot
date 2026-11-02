@@ -56,6 +56,57 @@ export const SERIAL_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: Serial
   { label: '否', value: 'false' },
 ];
 
+/**
+ * 成本法（计价方式）下拉项 —— **只有一项**。
+ *
+ * 收敛依据：`backend/src/business/erp/dto.rs::COSTING_METHODS`（V0201 起 = `["MOVING_AVG"]`）。
+ * 后端 `stockin_write.rs` / `transfer_settle.rs` / `serial_model.rs` 全文不读 `costing_method`，
+ * 成本一律按 `avg_cost`（移动加权）算 —— FIFO / STANDARD 从来没有实现，以前选了只是
+ * **静默按移动加权算**。所以这里把下拉砍成一项 + 灰字说明，不再让用户以为自己能选。
+ *
+ * 放开的时机：后端放开 `COSTING_METHODS` 与 `ck_biz_material_costing` 时，这份常量同步加项。
+ */
+export const COSTING_METHOD_OPTIONS: ReadonlyArray<{ label: string; value: string }> = [
+  { label: '移动加权平均（MOVING_AVG）', value: 'MOVING_AVG' },
+];
+
+/** 成本法灰字说明（与后端 400 文案同口径，改一边就要改另一边） */
+export const COSTING_METHOD_HINT =
+  '本版本仅支持移动加权平均（MOVING_AVG）；FIFO / 标准成本（STANDARD）需要批次成本层，属路线图能力，暂不可选。';
+
+/**
+ * 成本法下拉项（含历史值的兜底展示）。
+ *
+ * 主数据里若还留着收敛前的 `FIFO` / `STANDARD`（老数据 / 别的环境），下拉不能只显示空白
+ * —— 那样用户看不出这行到底是什么，会以为丢了数据。这里把它作为**禁用的**历史项插到最前，
+ * 文案点明「本版本不支持」（后端已被本次收敛回填为 MOVING_AVG，能选到这种值的只剩没跑
+ * V0201 的环境）。
+ *
+ * @param current 当前表单 / 行上的取值
+ */
+export function costingMethodOptions(current: string | null | undefined): ReadonlyArray<{
+  label: string;
+  value: string;
+  disabled?: boolean;
+}> {
+  const options: { label: string; value: string; disabled?: boolean }[] = COSTING_METHOD_OPTIONS.map(
+    (item) => ({ ...item }),
+  );
+  const value = (current ?? '').trim();
+  if (value && !options.some((item) => item.value === value)) {
+    options.unshift({ label: `${value}（历史值，本版本不支持）`, value, disabled: true });
+  }
+  return options;
+}
+
+/** 成本法中文名（下拉标签；未知值原样透出，不吞数据） */
+export function costingMethodLabel(value: string | null | undefined): string {
+  if (!value) {
+    return '—';
+  }
+  return COSTING_METHOD_OPTIONS.find((item) => item.value === value)?.label ?? value;
+}
+
 /** 类型 → 中文（未知值原样回显，不吞数据） */
 const MATERIAL_TYPE_LABELS: Record<string, string> = MATERIAL_TYPE_OPTIONS.reduce<Record<string, string>>(
   (acc, item) => {
@@ -206,6 +257,8 @@ export interface MaterialFormState {
   unit_id: string;
   /** 规格 */
   spec: string;
+  /** 成本法（本版本锁定 MOVING_AVG；字段留在表单里是为了回填 + 提交时显式带上） */
+  costing_method: string;
   /** ★ 是否一物一码 */
   serial_required: boolean;
   /** 1 启用 / 0 停用（模板里用开关桥接） */
@@ -225,6 +278,7 @@ export function emptyMaterialForm(defaultType: MaterialType = 'RAW'): MaterialFo
     material_type: defaultType,
     unit_id: '',
     spec: '',
+    costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,
     remark: '',
@@ -239,6 +293,7 @@ export function materialFormFromRow(row: MaterialRow): MaterialFormState {
     material_type: row.material_type,
     unit_id: row.unit_id,
     spec: row.spec ?? '',
+    costing_method: row.costing_method ?? 'MOVING_AVG',
     serial_required: isSerialRequired(row.serial_required),
     status: row.status,
     remark: row.remark ?? '',
@@ -296,6 +351,8 @@ export function buildMaterialCreatePayload(form: MaterialFormState): CreateMater
     material_type: form.material_type,
     unit_id: form.unit_id,
     spec: nullableText(form.spec),
+    // 成本法显式带上：本版本只有 MOVING_AVG（V0201 收敛），不靠后端缺省蒙对
+    costing_method: form.costing_method || 'MOVING_AVG',
     serial_required: form.serial_required === true,
     status: form.status === 1 ? 1 : 0,
     remark: nullableText(form.remark),
@@ -309,6 +366,8 @@ export function buildMaterialCreatePayload(form: MaterialFormState): CreateMater
  * 1. **不带 `material_code`** —— 后端 `UpdateMaterialReq` 里没有这个字段（编码是身份）；
  * 2. **不带 `serial_required`** —— 页面编辑态把它置灰（一物一码语义一旦创建就不能随便翻），
  *    所以它永远等于原值，发了也只是噪音。真值不同才发（防御将来放开置灰）。
+ * 3. **不带 `costing_method`** —— 同理：本版本只有 MOVING_AVG（V0201 收敛），下拉锁定，
+ *    值永远等于原值；真发一个不是 MOVING_AVG 的历史值只会换来后端 400。
  */
 export function buildMaterialUpdatePayload(form: MaterialFormState, row: MaterialRow): UpdateMaterialReq {
   const payload: UpdateMaterialReq = {

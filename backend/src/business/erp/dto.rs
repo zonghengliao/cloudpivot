@@ -74,8 +74,17 @@ pub const MATERIAL_TYPES: [&str; 7] = [
     "OFFICE",
     "SERVICE",
 ];
-/// 计价方式（`ck_biz_material_costing`）。
-pub const COSTING_METHODS: [&str; 3] = ["MOVING_AVG", "FIFO", "STANDARD"];
+/// 计价方式（`ck_biz_material_costing`，V0201 收紧）。
+///
+/// **本版本只有移动加权平均**：`stockin_write.rs` / `transfer_settle.rs` /
+/// `serial_model.rs` 全文不读 `costing_method`，成本一律 upsert `avg_cost`
+/// （移动加权）。曾经放开的 `FIFO` / `STANDARD` 从来没有实现，选了也只是
+/// 静默按移动加权算 —— 值域收敛后「选了不会算错」这一点由 DTO 校验 + DB CHECK
+/// 双重保证（DB 侧见 `V0201__erp_material_costing_moving_avg_only`）。
+///
+/// `FIFO` / `STANDARD` 属路线图能力：需要「批次成本层」（`biz_material_batch`
+/// + 出库按批次核销）才成立，落地时同时放开本常量和 `ck_biz_material_costing`。
+pub const COSTING_METHODS: [&str; 1] = ["MOVING_AVG"];
 /// 科目类别（`ck_biz_account_category`）。
 pub const ACCOUNT_CATEGORIES: [&str; 5] = ["ASSET", "LIABILITY", "EQUITY", "COST", "PROFIT_LOSS"];
 /// 余额方向（`ck_biz_account_direction`）。
@@ -137,6 +146,21 @@ fn require_one_of(value: &str, allowed: &[&str], field: &str) -> std::result::Re
     Err(bad_request(format!(
         "{field} 必须是 {} 之一（当前 `{value}`）",
         allowed.join(" / ")
+    )))
+}
+
+/// 计价方式校验（`400 + 10001`）。
+///
+/// 不用 `require_one_of` 是因为本版本的拒绝文案必须说清楚「为什么 FIFO 选不了」：
+/// 用户曾经能选 FIFO / STANDARD，收敛后提交旧值会 400，只回「必须是 MOVING_AVG 之一」
+/// 会让人以为是漏配。这里统一给一条带路线图说明的文案（前端灰字同款口径）。
+fn require_costing_method(value: &str) -> std::result::Result<(), ApiError> {
+    if COSTING_METHODS.contains(&value) {
+        return Ok(());
+    }
+    Err(bad_request(format!(
+        "costing_method 本版本仅支持移动加权平均（MOVING_AVG）；FIFO / 标准成本（STANDARD）\
+         需要批次成本层，属路线图能力，暂不可选（当前 `{value}`）"
     )))
 }
 
@@ -986,7 +1010,7 @@ impl CreateMaterialReq {
         require_text(&self.material_name, "material_name", 120)?;
         require_text(&self.unit_id, "unit_id", 36)?;
         require_one_of(&self.material_type, &MATERIAL_TYPES, "material_type")?;
-        require_one_of(&self.costing_method, &COSTING_METHODS, "costing_method")?;
+        require_costing_method(&self.costing_method)?;
         require_flag(self.status, "status")?;
         check_optional_text(self.spec.as_deref(), "spec", 200)?;
         if let Some(safety_stock) = self.safety_stock {
@@ -1050,7 +1074,7 @@ impl UpdateMaterialReq {
             require_one_of(material_type, &MATERIAL_TYPES, "material_type")?;
         }
         if let Some(costing_method) = self.costing_method.as_deref() {
-            require_one_of(costing_method, &COSTING_METHODS, "costing_method")?;
+            require_costing_method(costing_method)?;
         }
         if let Some(status) = self.status {
             require_flag(status, "status")?;
@@ -3348,11 +3372,53 @@ mod tests {
         material.costing_method = "LIFO".to_string();
         assert!(material.validate().is_err(), "未知计价方式被拒");
 
-        material.costing_method = "FIFO".to_string();
+        material.costing_method = "MOVING_AVG".to_string();
         material.tax_rate = Some(dec("1.13"));
         assert!(material.validate().is_err(), "税率 > 1 被拒");
         material.tax_rate = Some(dec("0.13"));
         assert!(material.validate().is_ok());
+    }
+
+    /// 成本法收敛（V0201 / ARCH-3 DC-10）：只有移动加权可选。
+    ///
+    /// 收敛前 `FIFO` / `STANDARD` 能过校验但 **没有任何消费方**（成本一律按移动加权算），
+    /// 属于「选了静默算错」。这条用例把「拒绝 + 说得清为什么」钉死：
+    /// 文案必须同时含「仅支持移动加权平均（MOVING_AVG）」与「路线图」，不能只回
+    /// 一句 `必须是 MOVING_AVG 之一`。
+    #[test]
+    fn validate_costing_method_only_moving_avg() {
+        assert_eq!(COSTING_METHODS, ["MOVING_AVG"], "值域已收敛为单一取值");
+
+        let mut material = material_req();
+        assert!(material.validate().is_ok(), "MOVING_AVG 必须能过");
+
+        for retired in ["FIFO", "STANDARD"] {
+            material.costing_method = retired.to_string();
+            let err = material
+                .validate()
+                .expect_err("本版本只有移动加权，{retired} 必须被拒");
+            assert_eq!(err.status, 400, "成本法不合规是参数错误（400）");
+            assert_eq!(err.code, error_code::PARAM_INVALID, "业务码 10001");
+            assert!(
+                err.msg.contains("本版本仅支持移动加权平均（MOVING_AVG）"),
+                "文案必须点名唯一可选值，实际：{}",
+                err.msg
+            );
+            assert!(
+                err.msg.contains(retired) && err.msg.contains("路线图"),
+                "文案要说明 {retired} 在路线图里而不是漏配，实际：{}",
+                err.msg
+            );
+        }
+
+        // 编辑接口同口径（`costing_method` 缺席 = 不改，显式给旧值 = 400）
+        let mut update = UpdateMaterialReq::default();
+        assert!(update.validate().is_ok(), "缺席不校验");
+        update.costing_method = Some("MOVING_AVG".to_string());
+        assert!(update.validate().is_ok(), "显式 MOVING_AVG 合法");
+        update.costing_method = Some("FIFO".to_string());
+        let err = update.validate().expect_err("编辑提交 FIFO 同样被拒");
+        assert!(err.msg.contains("本版本仅支持移动加权平均（MOVING_AVG）"));
     }
 
     /// 期间：月份越界 / 起止倒置 / 期间编码推导。

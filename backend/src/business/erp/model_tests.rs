@@ -97,7 +97,7 @@ const FIXTURES: &[&str] = &[
             ('b1b00004-0000-4000-8000-000000000002', 'W1B-M-002', 'W1B 半成品', NULL,
              'b1b00001-0000-4000-8000-000000000001', 'SEMI', NULL, 0.0000, 'MOVING_AVG', 0.1300, 1),
             ('b1b00004-0000-4000-8000-000000000003', 'W1B-M-003', 'W1B 成品', NULL,
-             'b1b00001-0000-4000-8000-000000000002', 'FINISHED', NULL, 0.0000, 'FIFO', 0.1300, 1)
+             'b1b00001-0000-4000-8000-000000000002', 'FINISHED', NULL, 0.0000, 'MOVING_AVG', 0.1300, 1)
      ON CONFLICT DO NOTHING",
     // 供应商（信用额度 = 12345.6789，钉 NUMERIC(18,4)）
     "INSERT INTO biz_supplier (id, supplier_code, supplier_name, short_name, contact_person,

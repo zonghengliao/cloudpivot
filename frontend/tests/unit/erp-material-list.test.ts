@@ -17,11 +17,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { MaterialRow, UnitRow } from '@/api/business/erp';
 import {
+  COSTING_METHOD_HINT,
+  COSTING_METHOD_OPTIONS,
   MATERIAL_PAGE_SIZE,
   buildMaterialCreatePayload,
   buildMaterialQuery,
   buildMaterialUpdatePayload,
   clampPage,
+  costingMethodLabel,
+  costingMethodOptions,
   emptyMaterialFilter,
   emptyMaterialForm,
   hasFieldError,
@@ -169,8 +173,8 @@ test('编辑请求体：无 material_code；serial_required 未改则缺席', ()
   assert.equal(flipped.serial_required, false);
 });
 
-// ⑤ 新建请求体：编码必填、serial_required 显式带上、空规格 → null
-test('新建请求体：serial_required 显式带上（不靠后端缺省）+ 空规格为 null', () => {
+// ⑤ 新建请求体：编码必填、serial_required 显式带上、成本法显式带上、空规格 → null
+test('新建请求体：serial_required / costing_method 显式带上（不靠后端缺省）+ 空规格为 null', () => {
   const form = { ...emptyMaterialForm('FINISHED'), material_code: 'M-W1A-006', material_name: '成品F', unit_id: 'u-pcs' };
 
   const plain = buildMaterialCreatePayload(form);
@@ -180,6 +184,7 @@ test('新建请求体：serial_required 显式带上（不靠后端缺省）+ �
     material_type: 'FINISHED',
     unit_id: 'u-pcs',
     spec: null,
+    costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,
     remark: null,
@@ -187,6 +192,46 @@ test('新建请求体：serial_required 显式带上（不靠后端缺省）+ �
 
   const serial = buildMaterialCreatePayload({ ...form, serial_required: true });
   assert.equal(serial.serial_required, true);
+
+  // 表单里成本法被人为写成空串时兜底 MOVING_AVG（不许把空值发给后端）
+  assert.equal(buildMaterialCreatePayload({ ...form, costing_method: '' }).costing_method, 'MOVING_AVG');
+});
+
+// ⑤ 附：成本法收敛（V0201 / ARCH-3 DC-10）—— 下拉只有一项 + 历史值兜底 + 编辑不发
+test('成本法：下拉只有 MOVING_AVG；历史值作为禁用项兜底；编辑请求体不带 costing_method', () => {
+  assert.deepEqual(COSTING_METHOD_OPTIONS, [{ label: '移动加权平均（MOVING_AVG）', value: 'MOVING_AVG' }]);
+  assert.match(COSTING_METHOD_HINT, /本版本仅支持移动加权平均（MOVING_AVG）/);
+  assert.match(COSTING_METHOD_HINT, /路线图/);
+
+  // 正常值：只有一项，且可点（disabled 不为 true）
+  const normal = costingMethodOptions('MOVING_AVG');
+  assert.equal(normal.length, 1);
+  assert.equal(normal[0].value, 'MOVING_AVG');
+  assert.notEqual(normal[0].disabled, true);
+
+  // 老数据 FIFO：下拉必须能显示出「这行原本是 FIFO」，且不许改选
+  const legacy = costingMethodOptions('FIFO');
+  assert.equal(legacy.length, 2);
+  assert.equal(legacy[0].value, 'FIFO');
+  assert.equal(legacy[0].disabled, true);
+  assert.match(legacy[0].label, /历史值，本版本不支持/);
+  assert.equal(legacy[1].value, 'MOVING_AVG');
+
+  // 空值 / null：不给兜底项（避免出现空白选项）
+  assert.equal(costingMethodOptions('').length, 1);
+  assert.equal(costingMethodOptions(null).length, 1);
+
+  assert.equal(costingMethodLabel('MOVING_AVG'), '移动加权平均（MOVING_AVG）');
+  assert.equal(costingMethodLabel('FIFO'), 'FIFO', '未知值原样透出，不吞数据');
+  assert.equal(costingMethodLabel(null), '—');
+
+  // 表单回填 + 编辑请求体：成本法锁定，不随编辑重发（发了历史值只会换 400）
+  const row = seedRow({ costing_method: 'FIFO' });
+  const form = materialFormFromRow(row);
+  assert.equal(form.costing_method, 'FIFO', '回填保留行上的原值，用户看得见');
+  const payload = buildMaterialUpdatePayload(form, row);
+  assert.equal('costing_method' in payload, false, '写死字段不许重发');
+  assert.equal(emptyMaterialForm().costing_method, 'MOVING_AVG', '新建缺省 = 唯一可选值');
 });
 
 // ⑤ 附：校验（编码 ≤40 / 名称 ≤120 / 单位必填；编辑不校验编码）
