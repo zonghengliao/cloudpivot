@@ -206,9 +206,9 @@ SQL 多重集抓「顺手改了 WHERE 或列清单」。
 
 | 文件 | 拆分前 | 拆分后 facade | 部件（行数） | 目标 <1500 |
 |---|---|---|---|---|
-| `erp/model.rs` | 2975 | **80** | `model_base` 104 / `model_master` 1202 / `model_order` 329 / `model_inventory` 452 / `model_tests` 908 | ✅ |
-| `erp/stockin_model.rs` | 2859 | **124** | `stockin_base` 598 / `stockin_query` 316 / `stockin_write` 767 / `stockin_cancel` 670 / `stockin_purchase` 234 / `stockin_validate` 98 / `stockin_tests` 182 | ✅ |
-| `erp/transfer_model.rs` | 3035 | **70** | `transfer_base` 641 / `transfer_query` 345 / `transfer_write` 532 / `transfer_settle` 1016 / `transfer_scan` 254 / `transfer_tests` 295 | ✅ |
+| `erp/model.rs` | 2975 | **80** | `model_base` 104 / `model_master` 1202 / `model_order` 329 / `model_inventory` 452 / `model_tests` 906 | ✅ |
+| `erp/stockin_model.rs` | 2859 | **124** | `stockin_base` 598 / `stockin_query` 316 / `stockin_write` 767 / `stockin_cancel` 670 / `stockin_purchase` 234 / `stockin_validate` 98 / `stockin_tests` 175 | ✅ |
+| `erp/transfer_model.rs` | 3035 | **70** | `transfer_base` 641 / `transfer_query` 345 / `transfer_write` 532 / `transfer_settle` 1016 / `transfer_scan` 254 / `transfer_tests` 286 | ✅ |
 
 > 拆分前行数是 `git show HEAD:<file> | wc -l` 的实测值（2975 / 2859 / 3035）。
 > 卡面写的 2727 / 2930 / 2984 与实测略有差异（卡面是评审时在工作树上量的，
