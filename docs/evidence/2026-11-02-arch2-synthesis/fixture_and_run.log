@@ -1,0 +1,56 @@
+=== 逐条巡检命中（期望：DI-01 / DI-06 / DI-13 / DI-15 > 0，其余 0）
+   c   | count 
+-------+-------
+ DI-01 |     1
+ DI-02 |     0
+ DI-03 |     0
+ DI-04 |     0
+ DI-05 |     0
+ DI-06 |     1
+ DI-07 |     0
+ DI-08 |     0
+ DI-09 |     0
+ DI-10 |     0
+ DI-11 |     0
+ DI-12 |     0
+ DI-13 |     1
+ DI-14 |     0
+ DI-15 |     2
+(15 rows)
+
+=== DI-01 明细（三态判定）
+ issue_code | entity_type | entity_no | field_name |            snapshot_value            |             truth_value              | drift_kind | severity | affected_count 
+------------+-------------+-----------+------------+--------------------------------------+--------------------------------------+------------+----------+----------------
+ DI-01      | CONTRACT    | FIXCT-1   | party_b_id | 22222222-2222-2222-2222-222222222222 | 11111111-1111-1111-1111-111111111111 | DEFECT     | ERROR    |              1
+(1 row)
+
+=== DI-06 明细
+ issue_code | entity_type | entity_no |            snapshot_value            |             truth_value              | drift_kind | severity 
+------------+-------------+-----------+--------------------------------------+--------------------------------------+------------+----------
+ DI-06      | STOCK_IN    | FIXSI-1   | 11111111-1111-1111-1111-111111111111 | 22222222-2222-2222-2222-222222222222 | DEFECT     | WARN
+(1 row)
+
+=== DI-13 明细
+ issue_code | entity_type | entity_no |                              snapshot_value                               |             truth_value              | affected_count 
+------------+-------------+-----------+---------------------------------------------------------------------------+--------------------------------------+----------------
+ DI-13      | CONTRACT    | FIXCT-1   | 11111111-1111-1111-1111-111111111111,22222222-2222-2222-2222-222222222222 | 11111111-1111-1111-1111-111111111111 |              2
+(1 row)
+
+=== DI-15 明细
+ issue_code | entity_no |                 snapshot_value                  | severity 
+------------+-----------+-------------------------------------------------+----------
+ DI-15      | FIXPO-1   | CONTRACT_STATUS=TERMINATED / PO_STATUS=APPROVED | ERROR
+ DI-15      | FIXPO-2   | CONTRACT_STATUS=TERMINATED / PO_STATUS=DRAFT    | WARN
+(2 rows)
+
+=== 落库幂等演练（同一批缺陷连落两轮，第二轮 open 行数不变）
+ drift_rows | distinct_ids 
+------------+--------------
+          1 |            1
+(1 row)
+
+ issue_type |  biz_table   | biz_no  | priority | status | drift_kind | affected_count 
+------------+--------------+---------+----------+--------+------------+----------------
+ DI-01      | biz_contract | FIXCT-1 | P0       | OPEN   | DEFECT     |              1
+(1 row)
+

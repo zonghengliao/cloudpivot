@@ -1,0 +1,18 @@
+=== 反例 1：合同 amount = 0（期望 23514 ck_biz_contract_amount）
+psql:constraint_negative_tests.sql:9: NOTICE:  BLOCKED [23514] new row for relation "biz_contract" violates check constraint "ck_biz_contract_amount"
+=== 反例 2：SALES 合同却挂 SUPPLIER（期望 23514 ck_biz_contract_type_party_pair）
+psql:constraint_negative_tests.sql:17: NOTICE:  BLOCKED [23514] new row for relation "biz_contract" violates check constraint "ck_biz_contract_type_party_pair"
+=== 反例 3：status=SIGNED 但三个日期全空（期望 23514 ck_biz_contract_signed_dates）
+psql:constraint_negative_tests.sql:25: NOTICE:  BLOCKED [23514] new row for relation "biz_contract" violates check constraint "ck_biz_contract_signed_dates"
+=== 反例 4：活跃行合同号重号（期望 23505 uk_biz_contract_no）
+psql:constraint_negative_tests.sql:33: NOTICE:  BLOCKED [23505] duplicate key value violates unique constraint "uk_biz_contract_no"
+=== 反例 5：CONTRACT 采购单缺 contract_id（期望 23514 ck_biz_po_contract_pair）
+psql:constraint_negative_tests.sql:43: NOTICE:  BLOCKED [23514] new row for relation "biz_purchase_order" violates check constraint "ck_biz_po_contract_pair"
+=== 反例 6：SPOT 采购单带 contract_id（期望 23514 ck_biz_po_contract_pair）
+psql:constraint_negative_tests.sql:53: NOTICE:  BLOCKED [23514] new row for relation "biz_purchase_order" violates check constraint "ck_biz_po_contract_pair"
+=== 反例 7：非采购入库带供应商（期望 23514 ck_biz_si_supplier_scope）
+psql:constraint_negative_tests.sql:63: NOTICE:  BLOCKED [23514] new row for relation "biz_stock_in" violates check constraint "ck_biz_si_supplier_scope"
+=== 反例 8：漂移表 issue_code 非 DI-NN 形状（期望 23514 ck_biz_drift_code）
+psql:constraint_negative_tests.sql:71: NOTICE:  BLOCKED [23514] new row for relation "biz_snapshot_drift" violates check constraint "ck_biz_drift_code"
+=== 正例：同一 (issue_code,entity,field) 未解决行只能有一条（期望 23505）
+psql:constraint_negative_tests.sql:79: NOTICE:  BLOCKED [23505] 重复的未解决漂移被唯一键挡住

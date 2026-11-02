@@ -1,0 +1,27 @@
+=== A) 巡检 15 条逐条执行（收敛后的 V0193..V0197 全就位，空数据）
+DI-01: rows=0
+DI-02: rows=0
+DI-03: rows=0
+DI-04: rows=0
+DI-05: rows=0
+DI-06: rows=0
+DI-07: rows=0
+DI-08: rows=0
+DI-09: rows=0
+DI-10: rows=0
+DI-11: rows=0
+DI-12: rows=0
+DI-13: rows=0
+DI-14: rows=0
+DI-15: rows=0
+
+=== B) capability（合同类巡检是否就绪）
+ has_contract_table | has_po_contract_id | has_po_purchase_type | has_party_change_ledger | contract_checks_ready 
+--------------------+--------------------+----------------------+-------------------------+-----------------------
+ t                  | t                  | t                    | t                       | t
+(1 row)
+
+=== C) 本轮状态（CHECKED/SKIPPED）
+ERROR:  relation "di.v_check_state" does not exist
+LINE 1: select * from di.v_check_state order by 1
+                      ^

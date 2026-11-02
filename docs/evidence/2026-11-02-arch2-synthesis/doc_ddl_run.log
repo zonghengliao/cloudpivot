@@ -1,0 +1,40 @@
+=== 文档正文 DDL 抽取与应用（arch2_doc_poc，由 cloudpivot_t06d 的 V0192 全量 schema 重建，空数据）
+抽取来源：docs/architecture/合同与勾稽关系设计.md §5.1.2 / §5.2 / §5.3 / §5.4 / §5.5
+
+抽到的段落与代码块数： {'5.1.2': 1, '5.2': 1, '5.3': 1, '5.4': 1, '5.5': 1}
+写出 /tmp/doc_extracted.sql，行数： 201
+  CREATE TABLE: 3
+  CREATE UNIQUE INDEX: 2
+  CREATE INDEX: 9
+  ALTER TABLE: 7
+  CREATE OR REPLACE VIEW: 2
+  INSERT INTO biz_seq: 1
+
+=== 首次应用（期望 exit=0）
+apply_exit=0
+
+=== 安装巡检兼容层与 15 条定义
+00_install_compat.sql: ok
+10_checks.sql: ok
+
+=== 15 条巡检逐条（文档 DDL 库）
+DI-01: rows=0
+DI-02: rows=0
+DI-03: rows=0
+DI-04: rows=0
+DI-05: rows=0
+DI-06: rows=0
+DI-07: rows=0
+DI-08: rows=0
+DI-09: rows=0
+DI-10: rows=0
+DI-11: rows=0
+DI-12: rows=0
+DI-13: rows=0
+DI-14: rows=0
+DI-15: rows=0
+
+=== 字段审计（文档 DDL 库）
+
+引用总数=53  缺失=0
+结论：巡检 SQL 引用的每个字段都能在收敛后的 schema（V0193..V0197）里找到，无未定义列。

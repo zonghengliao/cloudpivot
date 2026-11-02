@@ -1,0 +1,257 @@
+=== 0) 库与版本
+       db        |                                                                  pg                                                                   
+-----------------+---------------------------------------------------------------------------------------------------------------------------------------
+ cloudpivot_t06d | PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) on aarch64-unknown-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit
+(1 row)
+
+=== 1) 列清单（PO / SI / INV / PAYABLE / SUPPLIER）
+     table_name     | cols 
+--------------------+------
+ biz_inventory      |   11
+ biz_payable        |   27
+ biz_purchase_order |   27
+ biz_stock_in       |   28
+ biz_supplier       |   22
+(5 rows)
+
+=== 1b) biz_purchase_order 列
+ n  |     column_name      |        data_type         | is_nullable |            dflt            
+----+----------------------+--------------------------+-------------+----------------------------
+  1 | id                   | uuid                     | NO          | gen_random_uuid()
+  2 | order_no             | character varying        | NO          | 
+  3 | supplier_id          | uuid                     | NO          | 
+  4 | order_date           | date                     | NO          | 
+  5 | expect_date          | date                     | YES         | 
+  6 | warehouse_id         | uuid                     | NO          | 
+  7 | status               | character varying        | NO          | 'DRAFT'::character varying
+  8 | currency_code        | character                | NO          | 'CNY'::bpchar
+  9 | total_qty            | numeric                  | NO          | 0
+ 10 | total_amount         | numeric                  | NO          | 0
+ 11 | total_tax            | numeric                  | NO          | 0
+ 12 | total_with_tax       | numeric                  | NO          | 0
+ 13 | credit_days          | integer                  | NO          | 0
+ 14 | remark               | text                     | YES         | 
+ 15 | submitted_at         | timestamp with time zone | YES         | 
+ 16 | submitted_by         | uuid                     | YES         | 
+ 17 | approved_at          | timestamp with time zone | YES         | 
+ 18 | approved_by          | uuid                     | YES         | 
+ 19 | closed_at            | timestamp with time zone | YES         | 
+ 20 | closed_by            | uuid                     | YES         | 
+ 21 | created_at           | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 22 | updated_at           | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 23 | create_by            | uuid                     | YES         | 
+ 24 | update_by            | uuid                     | YES         | 
+ 25 | deleted_at           | timestamp with time zone | YES         | 
+ 26 | price_mode           | character varying        | NO          | 'EXCL'::character varying
+ 27 | approval_instance_id | uuid                     | YES         | 
+(27 rows)
+
+=== 1c) biz_stock_in 列
+ n  |     column_name      |        data_type         | is_nullable |             dflt              
+----+----------------------+--------------------------+-------------+-------------------------------
+  1 | id                   | uuid                     | NO          | gen_random_uuid()
+  2 | in_no                | character varying        | NO          | 
+  3 | in_type              | character varying        | NO          | 'PURCHASE'::character varying
+  4 | source_order_id      | uuid                     | YES         | 
+  5 | supplier_id          | uuid                     | YES         | 
+  6 | warehouse_id         | uuid                     | NO          | 
+  7 | in_date              | date                     | NO          | 
+  8 | status               | character varying        | NO          | 'DRAFT'::character varying
+  9 | currency_code        | character                | NO          | 'CNY'::bpchar
+ 10 | total_qty            | numeric                  | NO          | 0
+ 11 | total_amount         | numeric                  | NO          | 0
+ 12 | total_tax            | numeric                  | NO          | 0
+ 13 | total_with_tax       | numeric                  | NO          | 0
+ 14 | invoice_received     | boolean                  | NO          | true
+ 15 | voucher_id           | uuid                     | YES         | 
+ 16 | payable_id           | uuid                     | YES         | 
+ 17 | remark               | text                     | YES         | 
+ 18 | posted_at            | timestamp with time zone | YES         | 
+ 19 | posted_by            | uuid                     | YES         | 
+ 20 | cancelled_at         | timestamp with time zone | YES         | 
+ 21 | cancelled_by         | uuid                     | YES         | 
+ 22 | cancel_reason        | character varying        | YES         | 
+ 23 | created_at           | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 24 | updated_at           | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 25 | create_by            | uuid                     | YES         | 
+ 26 | update_by            | uuid                     | YES         | 
+ 27 | deleted_at           | timestamp with time zone | YES         | 
+ 28 | approval_instance_id | uuid                     | YES         | 
+(28 rows)
+
+=== 1d) biz_inventory 列
+ n  | column_name  |        data_type         | is_nullable |       dflt        
+----+--------------+--------------------------+-------------+-------------------
+  1 | id           | uuid                     | NO          | gen_random_uuid()
+  2 | material_id  | uuid                     | NO          | 
+  3 | warehouse_id | uuid                     | NO          | 
+  4 | qty          | numeric                  | NO          | 0
+  5 | locked_qty   | numeric                  | NO          | 0
+  6 | avg_cost     | numeric                  | NO          | 0
+  7 | amount       | numeric                  | NO          | 0
+  8 | last_txn_at  | timestamp with time zone | YES         | 
+  9 | created_at   | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 10 | updated_at   | timestamp with time zone | NO          | CURRENT_TIMESTAMP
+ 11 | location_id  | uuid                     | YES         | 
+(11 rows)
+
+=== 2) CHECK 约束（四表全量）
+        tbl         |            conname            |                                                                                                                                                                            def                                                                                                                                                                            
+--------------------+-------------------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_inventory      | ck_biz_inv_locked             | CHECK ((locked_qty >= (0)::numeric))
+ biz_payable        | ck_biz_payable_amount         | CHECK ((amount >= (0)::numeric))
+ biz_payable        | ck_biz_payable_credit         | CHECK ((credit_days >= 0))
+ biz_payable        | ck_biz_payable_paid           | CHECK (((paid_amount >= (0)::numeric) AND (paid_amount <= amount)))
+ biz_payable        | ck_biz_payable_pending_cancel | CHECK (((deleted_at IS NOT NULL) OR (((status)::text = 'PENDING_CANCEL'::text) AND (cancel_instance_id IS NOT NULL)) OR (((status)::text <> 'PENDING_CANCEL'::text) AND (cancel_instance_id IS NULL))))
+ biz_payable        | ck_biz_payable_settled        | CHECK ((((status)::text <> 'SETTLED'::text) OR (unpaid_amount = (0)::numeric)))
+ biz_payable        | ck_biz_payable_status         | CHECK (((status)::text = ANY ((ARRAY['OPEN'::character varying, 'PARTIAL_PAID'::character varying, 'SETTLED'::character varying, 'CANCELLED'::character varying, 'PENDING_CANCEL'::character varying])::text[])))
+ biz_payable        | ck_biz_payable_unpaid         | CHECK ((unpaid_amount = (amount - paid_amount)))
+ biz_purchase_order | ck_biz_po_amount              | CHECK (((total_amount >= (0)::numeric) AND (total_tax >= (0)::numeric) AND (total_with_tax >= (0)::numeric)))
+ biz_purchase_order | ck_biz_po_credit              | CHECK ((credit_days >= 0))
+ biz_purchase_order | ck_biz_po_price_mode          | CHECK (((price_mode)::text = ANY ((ARRAY['EXCL'::character varying, 'INCL'::character varying])::text[])))
+ biz_purchase_order | ck_biz_po_qty                 | CHECK ((total_qty >= (0)::numeric))
+ biz_purchase_order | ck_biz_po_status              | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'SUBMITTED'::character varying, 'APPROVED'::character varying, 'PARTIAL_RECEIVED'::character varying, 'RECEIVED'::character varying, 'CLOSED'::character varying, 'CANCELLED'::character varying])::text[])))
+ biz_purchase_order | ck_biz_po_tax_sum             | CHECK ((total_with_tax = (total_amount + total_tax)))
+ biz_stock_in       | ck_biz_si_pending_cancel      | CHECK (((deleted_at IS NOT NULL) OR (((status)::text = ANY ((ARRAY['PENDING_CANCEL'::character varying, 'PENDING_POST'::character varying])::text[])) AND (approval_instance_id IS NOT NULL)) OR (((status)::text <> ALL ((ARRAY['PENDING_CANCEL'::character varying, 'PENDING_POST'::character varying])::text[])) AND (approval_instance_id IS NULL))))
+ biz_stock_in       | ck_biz_si_qty                 | CHECK (((total_qty >= (0)::numeric) AND (total_amount >= (0)::numeric) AND (total_tax >= (0)::numeric) AND (total_with_tax >= (0)::numeric)))
+ biz_stock_in       | ck_biz_si_status              | CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'POSTED'::character varying, 'PENDING_CANCEL'::character varying, 'PENDING_POST'::character varying, 'CANCELLED'::character varying])::text[])))
+ biz_stock_in       | ck_biz_si_supplier            | CHECK ((((in_type)::text <> 'PURCHASE'::text) OR (supplier_id IS NOT NULL)))
+ biz_stock_in       | ck_biz_si_tax                 | CHECK ((total_with_tax = (total_amount + total_tax)))
+ biz_stock_in       | ck_biz_si_type                | CHECK (((in_type)::text = ANY ((ARRAY['PURCHASE'::character varying, 'RETURN'::character varying, 'OTHER'::character varying])::text[])))
+ biz_supplier       | ck_biz_supplier_credit_days   | CHECK ((credit_days >= 0))
+ biz_supplier       | ck_biz_supplier_credit_limit  | CHECK ((credit_limit >= (0)::numeric))
+(22 rows)
+
+=== 3) 索引
+     tablename      |            indexname             |                                                                                    indexdef                                                                                    
+--------------------+----------------------------------+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ biz_inventory      | biz_inventory_pkey               | CREATE UNIQUE INDEX biz_inventory_pkey ON public.biz_inventory USING btree (id)
+ biz_inventory      | idx_biz_inv_location             | CREATE INDEX idx_biz_inv_location ON public.biz_inventory USING btree (warehouse_id, location_id)
+ biz_inventory      | idx_biz_inv_material             | CREATE INDEX idx_biz_inv_material ON public.biz_inventory USING btree (material_id)
+ biz_inventory      | idx_biz_inv_warehouse            | CREATE INDEX idx_biz_inv_warehouse ON public.biz_inventory USING btree (warehouse_id)
+ biz_inventory      | uk_biz_inv_mat_wh_loc            | CREATE UNIQUE INDEX uk_biz_inv_mat_wh_loc ON public.biz_inventory USING btree (material_id, warehouse_id, COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))
+ biz_payable        | biz_payable_pkey                 | CREATE UNIQUE INDEX biz_payable_pkey ON public.biz_payable USING btree (id)
+ biz_payable        | idx_biz_payable_cancel_instance  | CREATE INDEX idx_biz_payable_cancel_instance ON public.biz_payable USING btree (cancel_instance_id) WHERE (cancel_instance_id IS NOT NULL)
+ biz_payable        | idx_biz_payable_due              | CREATE INDEX idx_biz_payable_due ON public.biz_payable USING btree (due_date, status)
+ biz_payable        | idx_biz_payable_payment_approval | CREATE INDEX idx_biz_payable_payment_approval ON public.biz_payable USING btree (payment_approval_instance_id) WHERE (payment_approval_instance_id IS NOT NULL)
+ biz_payable        | idx_biz_payable_period           | CREATE INDEX idx_biz_payable_period ON public.biz_payable USING btree (period_code)
+ biz_payable        | idx_biz_payable_supplier         | CREATE INDEX idx_biz_payable_supplier ON public.biz_payable USING btree (supplier_id, status)
+ biz_payable        | idx_biz_payable_voucher          | CREATE INDEX idx_biz_payable_voucher ON public.biz_payable USING btree (voucher_id)
+ biz_payable        | uk_biz_payable_no                | CREATE UNIQUE INDEX uk_biz_payable_no ON public.biz_payable USING btree (payable_no) WHERE (deleted_at IS NULL)
+ biz_payable        | uk_biz_payable_source            | CREATE UNIQUE INDEX uk_biz_payable_source ON public.biz_payable USING btree (source_type, source_id) WHERE (deleted_at IS NULL)
+ biz_purchase_order | biz_purchase_order_pkey          | CREATE UNIQUE INDEX biz_purchase_order_pkey ON public.biz_purchase_order USING btree (id)
+ biz_purchase_order | idx_biz_po_approval              | CREATE INDEX idx_biz_po_approval ON public.biz_purchase_order USING btree (approval_instance_id) WHERE (approval_instance_id IS NOT NULL)
+ biz_purchase_order | idx_biz_po_date                  | CREATE INDEX idx_biz_po_date ON public.biz_purchase_order USING btree (order_date DESC)
+ biz_purchase_order | idx_biz_po_status                | CREATE INDEX idx_biz_po_status ON public.biz_purchase_order USING btree (status)
+ biz_purchase_order | idx_biz_po_supplier              | CREATE INDEX idx_biz_po_supplier ON public.biz_purchase_order USING btree (supplier_id, order_date DESC)
+ biz_purchase_order | idx_biz_po_warehouse             | CREATE INDEX idx_biz_po_warehouse ON public.biz_purchase_order USING btree (warehouse_id)
+ biz_purchase_order | uk_biz_po_no                     | CREATE UNIQUE INDEX uk_biz_po_no ON public.biz_purchase_order USING btree (order_no) WHERE (deleted_at IS NULL)
+ biz_stock_in       | biz_stock_in_pkey                | CREATE UNIQUE INDEX biz_stock_in_pkey ON public.biz_stock_in USING btree (id)
+ biz_stock_in       | idx_biz_si_approval              | CREATE INDEX idx_biz_si_approval ON public.biz_stock_in USING btree (approval_instance_id) WHERE (approval_instance_id IS NOT NULL)
+ biz_stock_in       | idx_biz_si_date                  | CREATE INDEX idx_biz_si_date ON public.biz_stock_in USING btree (in_date DESC)
+ biz_stock_in       | idx_biz_si_source                | CREATE INDEX idx_biz_si_source ON public.biz_stock_in USING btree (source_order_id)
+ biz_stock_in       | idx_biz_si_status                | CREATE INDEX idx_biz_si_status ON public.biz_stock_in USING btree (status)
+ biz_stock_in       | idx_biz_si_supplier              | CREATE INDEX idx_biz_si_supplier ON public.biz_stock_in USING btree (supplier_id, in_date DESC)
+ biz_stock_in       | idx_biz_si_voucher               | CREATE INDEX idx_biz_si_voucher ON public.biz_stock_in USING btree (voucher_id)
+ biz_stock_in       | idx_biz_si_warehouse             | CREATE INDEX idx_biz_si_warehouse ON public.biz_stock_in USING btree (warehouse_id, in_date DESC)
+ biz_stock_in       | uk_biz_si_no                     | CREATE UNIQUE INDEX uk_biz_si_no ON public.biz_stock_in USING btree (in_no) WHERE (deleted_at IS NULL)
+ biz_supplier       | biz_supplier_pkey                | CREATE UNIQUE INDEX biz_supplier_pkey ON public.biz_supplier USING btree (id)
+ biz_supplier       | idx_biz_supplier_name            | CREATE INDEX idx_biz_supplier_name ON public.biz_supplier USING btree (supplier_name)
+ biz_supplier       | idx_biz_supplier_status          | CREATE INDEX idx_biz_supplier_status ON public.biz_supplier USING btree (status)
+ biz_supplier       | uk_biz_supplier_code             | CREATE UNIQUE INDEX uk_biz_supplier_code ON public.biz_supplier USING btree (supplier_code) WHERE (deleted_at IS NULL)
+(34 rows)
+
+=== 4) 外键计数（单据链）
+      tbl      | fks 
+---------------+-----
+ biz_inventory |   1
+(1 row)
+
+=== 5) 关键列存在性探针（巡检/DDL 引用的列）
+         t          |           c            | ok 
+--------------------+------------------------+----
+ biz_inventory_txn  | biz_type               | t
+ biz_inventory_txn  | doc_id                 | t
+ biz_inventory_txn  | doc_no                 | t
+ biz_inventory_txn  | doc_type               | t
+ biz_payable        | deleted_at             | t
+ biz_payable        | id                     | t
+ biz_payable        | payable_no             | t
+ biz_payable        | source_id              | t
+ biz_payable        | source_type            | t
+ biz_payable        | status                 | t
+ biz_payable        | supplier_id            | t
+ biz_payable        | updated_at             | t
+ biz_purchase_order | contract_id            | f
+ biz_purchase_order | contract_no_snapshot   | f
+ biz_purchase_order | created_at             | t
+ biz_purchase_order | deleted_at             | t
+ biz_purchase_order | id                     | t
+ biz_purchase_order | order_date             | t
+ biz_purchase_order | order_no               | t
+ biz_purchase_order | purchase_type          | f
+ biz_purchase_order | status                 | t
+ biz_purchase_order | supplier_id            | t
+ biz_purchase_order | supplier_name_snapshot | f
+ biz_purchase_order | total_amount           | t
+ biz_purchase_order | total_with_tax         | t
+ biz_purchase_order | updated_at             | t
+ biz_seq            | current_no             | t
+ biz_seq            | date_pattern           | t
+ biz_seq            | deleted_at             | t
+ biz_seq            | period_key             | t
+ biz_seq            | prefix                 | t
+ biz_seq            | remark                 | t
+ biz_seq            | separator              | t
+ biz_seq            | seq_type               | t
+ biz_seq            | status                 | t
+ biz_seq            | step                   | t
+ biz_stock_in       | contract_id            | f
+ biz_stock_in       | created_at             | t
+ biz_stock_in       | deleted_at             | t
+ biz_stock_in       | id                     | t
+ biz_stock_in       | in_no                  | t
+ biz_stock_in       | in_type                | t
+ biz_stock_in       | source_kind            | f
+ biz_stock_in       | source_order_id        | t
+ biz_stock_in       | status                 | t
+ biz_stock_in       | supplier_id            | t
+ biz_stock_in       | updated_at             | t
+ biz_stock_in       | warehouse_id           | t
+ biz_supplier       | deleted_at             | t
+ biz_supplier       | id                     | t
+ biz_supplier       | status                 | t
+ biz_supplier       | supplier_name          | t
+ biz_supplier       | supplier_no            | f
+ biz_supplier       | updated_at             | t
+(54 rows)
+
+=== 6) 触发器数
+ triggers 
+----------
+        0
+(1 row)
+
+=== 7) 存量行数
+         t          | count 
+--------------------+-------
+ biz_purchase_order |     4
+ biz_stock_in       |     2
+ biz_inventory      |    10
+ biz_payable        |    24
+ biz_supplier       |    11
+(5 rows)
+
+=== 8) biz_stock_in in_type / status 实际取值分布
+ in_type  | status | count 
+----------+--------+-------
+ PURCHASE | DRAFT  |     1
+ PURCHASE | POSTED |     1
+(2 rows)
+
+=== 9) 入库单供应商 vs 其采购单（F1 存量漂移，实测）
+ rows_total | with_source | mismatch 
+------------+-------------+----------
+          2 |           0 |        0
+(1 row)
+
