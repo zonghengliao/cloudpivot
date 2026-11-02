@@ -88,6 +88,12 @@ pub const ENTITY_PERIOD: &str = "ACCOUNTING_PERIOD";
 /// `PERIOD_EDGES` 变成两套语义的并集，任何一次期间结账都能「顺便」写成年度已结转。
 pub const ENTITY_YEAR_END: &str = "ACCOUNTING_YEAR";
 
+/// 实体类型：合同（`biz_contract`，A1 合同表基座）。
+///
+/// 落库值取 `"CONTRACT"`（ARCH-2 附录 B #3 逐字规定；`biz_status_log.entity_type` 是
+/// `VARCHAR(32)` 且无 CHECK 白名单，新实体登记后 `transition()` 即可用）。
+pub const ENTITY_CONTRACT: &str = "CONTRACT";
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -296,6 +302,48 @@ pub const PAYABLE_LOCKED: [&str; 3] = ["SETTLED", "CANCELLED", "PENDING_CANCEL"]
 /// 凭证入账态：已记账。
 pub const VOUCHER_LOCKED: [&str; 1] = ["POSTED"];
 
+// ==================== 合同（ARCH-2 · A1 基座） ====================
+
+/// 合同的合法边（ARCH-2 §4.1，5 条，唯一真相）。
+///
+/// ```text
+/// DRAFT   → SIGNED      登记签订（三个日期必填，V-08 同步生效；乙方存在 V-11）
+/// SIGNED  → ACTIVE      生效（到达 start_date 或手工确认）
+/// SIGNED  → TERMINATED  已签未生效即终止（**必须给原因**，DEC-05）
+/// ACTIVE  → COMPLETED   履约完成
+/// ACTIVE  → TERMINATED  中途终止（**必须给原因**）
+/// ```
+///
+/// ⚠️ 与实现卡正文的差异：卡面写「DRAFT → ACTIVE / CANCELLED、ACTIVE → … / CANCELLED」，
+/// 但 ARCH-2（以及建表 CHECK 的 5 值白名单）**没有 `CANCELLED` 态** —— 草稿作废走
+/// **软删除**（§4.2：草稿从未对外生效，「终止」是对已签合同的动作，两者混用会让
+/// 「终止率」统计失真）。卡面本身写了「按文档实际写的来」，故以文档的 5 条边为准。
+///
+/// 15 条禁止边 + 5 条自环见 §4.2，单测逐条覆盖（`contract_*` 测试组）。
+pub const CONTRACT_EDGES: [(&str, &str); 5] = [
+    ("DRAFT", "SIGNED"),
+    ("SIGNED", "ACTIVE"),
+    ("SIGNED", "TERMINATED"),
+    ("ACTIVE", "COMPLETED"),
+    ("ACTIVE", "TERMINATED"),
+];
+
+/// 需要 reason 的合同边：两条终止边（§4.1 E3 / E5）。
+///
+/// 终止原因同时写 `biz_status_log.reason` 与 `biz_contract.remark`（V-18），
+/// 不新增列（§2.1「为什么没有这些列」）。
+pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] =
+    [("SIGNED", "TERMINATED"), ("ACTIVE", "TERMINATED")];
+
+/// 合同的「非草稿」状态集合：`SIGNED` 之后关键字段冻结（§5.3）。
+///
+/// ⚠️ **用法必须收窄**（ARCH-2 §4.1 末段）：其它实体的 locked 是「入账态，整单只读」，
+/// 合同则是「已签后只冻结关键字段，备注 / 负责人 / 部门 / 名称仍可改」。
+/// 因此 `locked_statuses()` **只用于**前端置灰与 `is_locked` 判断；
+/// 写库校验必须走 §5.3 的字段白名单（A2 的 `contract_handler::update` 读旧行比对），
+/// **handler 不得直接调 `ensure_writable`** —— 否则连「终止原因写 remark」都会被自己挡住。
+pub const CONTRACT_LOCKED: [&str; 4] = ["SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -313,11 +361,13 @@ pub enum Entity {
     Period,
     /// 会计年度（年结）（ERP-R4）。
     YearEnd,
+    /// 合同 `biz_contract`（A1 合同表基座，ARCH-2）。
+    Contract,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 7] = [
+    pub const ALL: [Entity; 8] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -325,6 +375,7 @@ impl Entity {
         Entity::Voucher,
         Entity::Period,
         Entity::YearEnd,
+        Entity::Contract,
     ];
 
     /// 落库的 `entity_type`。
@@ -337,6 +388,7 @@ impl Entity {
             Entity::Voucher => ENTITY_VOUCHER,
             Entity::Period => ENTITY_PERIOD,
             Entity::YearEnd => ENTITY_YEAR_END,
+            Entity::Contract => ENTITY_CONTRACT,
         }
     }
 
@@ -355,6 +407,7 @@ impl Entity {
             Entity::Voucher => "凭证",
             Entity::Period => "会计期间",
             Entity::YearEnd => "会计年度",
+            Entity::Contract => "合同",
         }
     }
 
@@ -368,6 +421,7 @@ impl Entity {
             Entity::Voucher => &VOUCHER_EDGES,
             Entity::Period => &PERIOD_EDGES,
             Entity::YearEnd => &YEAR_END_EDGES,
+            Entity::Contract => &CONTRACT_EDGES,
         }
     }
 
@@ -381,6 +435,7 @@ impl Entity {
             Entity::Voucher => &VOUCHER_REASON_EDGES,
             Entity::Period => &PERIOD_REASON_EDGES,
             Entity::YearEnd => &YEAR_END_REASON_EDGES,
+            Entity::Contract => &CONTRACT_REASON_EDGES,
         }
     }
 
@@ -394,6 +449,7 @@ impl Entity {
             Entity::Voucher => &VOUCHER_LOCKED,
             Entity::Period => &PERIOD_LOCKED,
             Entity::YearEnd => &YEAR_END_LOCKED,
+            Entity::Contract => &CONTRACT_LOCKED,
         }
     }
 
@@ -1420,5 +1476,266 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+}
+
+// ==================== 合同状态机（A1 · ARCH-2 §4） ====================
+//
+// 这一组**不连库**（纯注册表 / 边表断言），因此不受 `ERP_DB_URL` 开关影响 ——
+// 合同状态机的全部合法边与非法边都必须**每次 cargo test 都真跑**。
+// 上一组 `mod tests` 里的 `transition()` 用例才是真库用例（写 `biz_status_log`）。
+#[cfg(test)]
+mod contract_tests {
+    use super::*;
+
+    /// 合同的 5 个状态（ARCH-2 §2.2 的 `ck_biz_contract_status` 白名单，逐字一致）。
+    const CONTRACT_STATUSES: [&str; 5] = ["DRAFT", "SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
+
+    /// §4.1 的 5 条合法边（照抄文档表格，用来与注册表对拍）。
+    const EXPECTED_EDGES: [(&str, &str); 5] = [
+        ("DRAFT", "SIGNED"),
+        ("SIGNED", "ACTIVE"),
+        ("SIGNED", "TERMINATED"),
+        ("ACTIVE", "COMPLETED"),
+        ("ACTIVE", "TERMINATED"),
+    ];
+
+    /// §4.2 的 15 条禁止边（逐条列举，实现卡直接照抄成单测）。
+    const FORBIDDEN_EDGES: [(&str, &str); 15] = [
+        ("DRAFT", "ACTIVE"),
+        ("DRAFT", "COMPLETED"),
+        ("DRAFT", "TERMINATED"),
+        ("SIGNED", "DRAFT"),
+        ("SIGNED", "COMPLETED"),
+        ("ACTIVE", "DRAFT"),
+        ("ACTIVE", "SIGNED"),
+        ("COMPLETED", "DRAFT"),
+        ("COMPLETED", "SIGNED"),
+        ("COMPLETED", "ACTIVE"),
+        ("COMPLETED", "TERMINATED"),
+        ("TERMINATED", "DRAFT"),
+        ("TERMINATED", "SIGNED"),
+        ("TERMINATED", "ACTIVE"),
+        ("TERMINATED", "COMPLETED"),
+    ];
+
+    /// ⑦ 七处注册全部生效：变体 / ALL / as_str / label / edges / reason_edges / locked_statuses。
+    #[test]
+    fn contract_registered_in_all_seven_places() {
+        // ① enum 变体存在 + ② ALL 收录
+        assert!(
+            Entity::ALL.contains(&Entity::Contract),
+            "Entity::ALL 必须包含 Contract（漏登记 = transition 直接 500）"
+        );
+        assert_eq!(Entity::ALL.len(), 8, "注册表从 7 个实体扩到 8 个");
+
+        // ③ as_str
+        assert_eq!(Entity::Contract.as_str(), "CONTRACT");
+        assert_eq!(ENTITY_CONTRACT, "CONTRACT");
+
+        // ④ label
+        assert_eq!(Entity::Contract.label(), "合同");
+
+        // ⑥ 字符串 → 实体（未知必须 None，不许静默兜底）
+        assert_eq!(Entity::parse("CONTRACT"), Some(Entity::Contract));
+        assert_eq!(Entity::parse("CONTRACT "), None, "带空格不匹配，必须报错");
+        assert_eq!(Entity::parse("contract"), None, "大小写敏感，落库值是大写");
+
+        // ⑤⑥⑦ 三张表都不空且与常量同源
+        assert_eq!(Entity::Contract.edges(), &CONTRACT_EDGES[..]);
+        assert_eq!(Entity::Contract.reason_edges(), &CONTRACT_REASON_EDGES[..]);
+        assert_eq!(Entity::Contract.locked_statuses(), &CONTRACT_LOCKED[..]);
+
+        // 注册表不变式：as_str 全局唯一（撞串会让 parse 静默认错实体）
+        let mut seen = std::collections::BTreeSet::new();
+        for entity in Entity::ALL {
+            assert!(
+                seen.insert(entity.as_str()),
+                "实体类型串重复：{}",
+                entity.as_str()
+            );
+        }
+        let mut labels = std::collections::BTreeSet::new();
+        for entity in Entity::ALL {
+            assert!(
+                labels.insert(entity.label()),
+                "中文名重复：{}",
+                entity.label()
+            );
+        }
+    }
+
+    /// ⑤ 每条合法边都被接受，且 `next_statuses` 恰好给出去向。
+    #[test]
+    fn contract_legal_edges_all_pass() {
+        assert_eq!(
+            Entity::Contract.edges().len(),
+            5,
+            "ARCH-2 §4.1 明写 5 条合法边"
+        );
+        for (from, to) in EXPECTED_EDGES {
+            assert!(
+                Entity::Contract.can_transition(from, to),
+                "合法边 {from} → {to} 被拒了"
+            );
+            assert!(
+                Entity::Contract.next_statuses(from).contains(&to),
+                "{from} 的可选去向里应有 {to}"
+            );
+        }
+        // 逐条给出旁证：每个 from 的去向集合与文档表格一致
+        assert_eq!(Entity::Contract.next_statuses("DRAFT"), vec!["SIGNED"]);
+        assert_eq!(
+            Entity::Contract.next_statuses("SIGNED"),
+            vec!["ACTIVE", "TERMINATED"]
+        );
+        assert_eq!(
+            Entity::Contract.next_statuses("ACTIVE"),
+            vec!["COMPLETED", "TERMINATED"]
+        );
+    }
+
+    /// ⑥ 每条非法边都被拒（§4.2 的 15 条逐条断言）。
+    #[test]
+    fn contract_forbidden_edges_all_rejected() {
+        for (from, to) in FORBIDDEN_EDGES {
+            assert!(
+                !Entity::Contract.can_transition(from, to),
+                "非法边 {from} → {to} 竟然被放行（ARCH-2 §4.2 明令禁止）"
+            );
+        }
+        // 15 条禁止边 + 5 条合法边 = 25 种组合里的 20 个非边，一个不漏
+        let mut rejected = 0;
+        for from in CONTRACT_STATUSES {
+            for to in CONTRACT_STATUSES {
+                if EXPECTED_EDGES.contains(&(from, to)) {
+                    continue;
+                }
+                assert!(
+                    !Entity::Contract.can_transition(from, to),
+                    "{from} → {to} 不在边表里，必须被拒"
+                );
+                rejected += 1;
+            }
+        }
+        assert_eq!(
+            rejected, 20,
+            "5 状态两两组合 25 种，去掉 5 条边应剩 20 种被拒"
+        );
+    }
+
+    /// 自环（`X → X`，5 条）一律拒绝（§4.2 末段）。
+    #[test]
+    fn contract_self_loops_all_rejected() {
+        for status in CONTRACT_STATUSES {
+            assert!(
+                !Entity::Contract.can_transition(status, status),
+                "自环 {status} → {status} 必须拒绝（transition 只写真实变化）"
+            );
+        }
+    }
+
+    /// 两个终态没有出边；`DRAFT` 没有入边。
+    #[test]
+    fn contract_terminal_states_have_no_outgoing_edges() {
+        for terminal in ["COMPLETED", "TERMINATED"] {
+            assert!(
+                Entity::Contract.next_statuses(terminal).is_empty(),
+                "{terminal} 是终态，不该有出边"
+            );
+        }
+        for from in CONTRACT_STATUSES {
+            if from == "COMPLETED" || from == "TERMINATED" {
+                assert!(Entity::Contract.next_statuses(from).is_empty());
+            }
+        }
+        let has_incoming =
+            |target: &str| Entity::Contract.edges().iter().any(|(_, to)| *to == target);
+        assert!(!has_incoming("DRAFT"), "DRAFT 是起始态，不该有入边");
+        assert!(has_incoming("SIGNED"));
+        assert!(has_incoming("ACTIVE"));
+        assert!(has_incoming("COMPLETED"));
+        assert!(has_incoming("TERMINATED"));
+    }
+
+    /// ⑥ 必须填原因的两条边 = 两条终止边（§4.1「是否必须给 reason」列）。
+    #[test]
+    fn contract_reason_edges_are_the_two_terminations() {
+        assert_eq!(Entity::Contract.reason_edges().len(), 2);
+        assert!(Entity::Contract.needs_reason("SIGNED", "TERMINATED"));
+        assert!(Entity::Contract.needs_reason("ACTIVE", "TERMINATED"));
+        for (from, to) in [
+            ("DRAFT", "SIGNED"),
+            ("SIGNED", "ACTIVE"),
+            ("ACTIVE", "COMPLETED"),
+        ] {
+            assert!(
+                !Entity::Contract.needs_reason(from, to),
+                "{from} → {to} 不该强制填原因"
+            );
+        }
+        // reason_edges 必须是 edges 的子集（登记了不存在的边 = 永远触发不了）
+        for (from, to) in Entity::Contract.reason_edges() {
+            assert!(
+                Entity::Contract.can_transition(from, to),
+                "reason 边 {from} → {to} 不在合法边表里"
+            );
+        }
+    }
+
+    /// ⑦ locked：`SIGNED` 之后冻结，`DRAFT` 可自由改（§5.3）。
+    #[test]
+    fn contract_locked_statuses_start_after_draft() {
+        assert_eq!(Entity::Contract.locked_statuses(), &CONTRACT_LOCKED[..]);
+        assert!(!Entity::Contract.is_locked("DRAFT"), "草稿可改");
+        for status in ["SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"] {
+            assert!(Entity::Contract.is_locked(status), "{status} 应判为已冻结");
+        }
+        // locked 只能取状态白名单里的值（写错值等于永不生效）
+        for status in Entity::Contract.locked_statuses() {
+            assert!(
+                CONTRACT_STATUSES.contains(status),
+                "locked 里的 {status} 不是合同状态"
+            );
+        }
+    }
+
+    /// 非法流转的文案：点名「合同」+ 给出允许去向（前端直接展示）。
+    #[test]
+    fn contract_rejection_message_names_entity_and_targets() {
+        let msg = rejection_message("CONTRACT", "DRAFT", "ACTIVE");
+        assert!(msg.contains("合同"), "文案要带单据中文名：{msg}");
+        assert!(msg.contains("DRAFT"), "文案要带当前态：{msg}");
+        assert!(msg.contains("ACTIVE"), "文案要带被拒的目标态：{msg}");
+        assert!(msg.contains("SIGNED"), "文案要给出合法去向：{msg}");
+        assert_eq!(
+            error_code::ERP_CONTRACT_STATUS_ILLEGAL,
+            66015,
+            "A2 的 409 用这个码（66013 已被 ERP-B2 占用）"
+        );
+    }
+
+    /// 卡面与文档的口径分歧**钉死在这里**：合同表没有 `CANCELLED` 态。
+    ///
+    /// 实现卡正文写「DRAFT → ACTIVE / CANCELLED」，但 ARCH-2 §2.2 的
+    /// `ck_biz_contract_status` 白名单是 5 个状态、§4.2 明确「草稿作废走软删除」。
+    /// 这条断言的作用是：谁想加 `CANCELLED` 边，必须先改这张测试 + 改 DDL，
+    /// 不能只改注册表（否则 DB 的 CHECK 会在写入时 500）。
+    #[test]
+    fn contract_has_no_cancelled_status() {
+        assert!(
+            !CONTRACT_STATUSES.contains(&"CANCELLED"),
+            "合同表没有 CANCELLED 态（草稿作废走软删除，§4.2）"
+        );
+        for status in CONTRACT_STATUSES {
+            assert!(
+                !Entity::Contract.can_transition(status, "CANCELLED"),
+                "→ CANCELLED 的边不该存在"
+            );
+            assert!(
+                !Entity::Contract.can_transition("CANCELLED", status),
+                "CANCELLED → 的边不该存在"
+            );
+        }
     }
 }

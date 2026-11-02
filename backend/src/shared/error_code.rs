@@ -40,7 +40,7 @@
 //! | `632xx` | 批次 C+（AI 执行者硬拒：`63201`–`63204`，T5 子段） |
 //! | `64xxx` | 云枢 × Hermes（AI 用户 / profile / SOUL.md：`64001`–`64014`） |
 //! | `65xxx` | 批次 D（业务审批流：定义侧 12 + 运行侧 10，`65001`–`65005` / `65010`–`65024` / `65030`–`65031`） |
-//! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`；后续 ERP 卡续用 `66007`–`66013`） |
+//! | `66xxx` | 批次 D（ERP 主数据接口层 W1c：`66001`–`66006`；后续 ERP 卡续用 `66007`–`66021`，其中 `66014`–`66021` 为合同域） |
 //!
 //! > 错误码统一在此定义并在处理器中引用，禁止散落魔法数字。
 
@@ -1064,6 +1064,85 @@ pub const ERP_OPENING_UNBALANCED: i32 = 66012;
 /// 而不是「去找管理员要权限」。文案里同时给出开关键名与放行办法（O5）。
 pub const ERP_SEPARATION_OF_DUTIES: i32 = 66013;
 
+// ---------- 合同域（A1 合同表基座；ARCH-2 §3.2 的 8 个场景） ----------
+//
+// ⚠️ 号段说明：ARCH-2 §3.2 与 F14 写的是「66013–66020」（当时实测 66013+ 为空），
+// 但 66013 已被 ERP-B2 的 [`ERP_SEPARATION_OF_DUTIES`] 占用（职责分离内控闸）。
+// 按「只加常量、不改既有码」的红线，合同 8 个码**顺延到 66014–66021**，
+// 语义与文档 8 条逐字对应（文档名 → 本文件常量名映射如下）。
+//
+// ```text
+// 文档名                       本文件常量                         HTTP   场景（ARCH-2 §3.2 / §5.1）
+// CONTRACT_NOT_USABLE      → ERP_CONTRACT_NOT_USABLE           409   V-22 合同不可用于建单（已删/状态不对/过期）
+// CONTRACT_STATUS_ILLEGAL  → ERP_CONTRACT_STATUS_ILLEGAL       409   V-17 状态机拒绝该流转（含自环）
+// CONTRACT_FIELD_LOCKED    → ERP_CONTRACT_FIELD_LOCKED         409   V-19 已签订，乙方/金额/期限不可改
+// CONTRACT_NO_DUPLICATED   → ERP_CONTRACT_NO_DUPLICATED        409   V-20 合同号重复（23505 转译）
+// CONTRACT_IN_USE          → ERP_CONTRACT_IN_USE               409   V-21 已被未关闭采购单引用，不可删
+// CONTRACT_AMOUNT_EXCEEDED → ERP_CONTRACT_AMOUNT_EXCEEDED      409   V-23 累计下单额超出合同金额
+// CONTRACT_CUSTOMER_UNSUPPORTED → ERP_CONTRACT_CUSTOMER_UNSUPPORTED 400 V-12/§3.2.3 客户主数据未上线
+// CONTRACT_PARTY_INVALID   → ERP_CONTRACT_PARTY_INVALID        400   V-11/V-15 乙方不存在或已停用
+// ```
+//
+// 实现卡（A1）正文按「中文场景」列了 8 条（合同不存在 / 状态不允许 / 金额非法 / 日期区间非法 /
+// 乙方不存在 / 已被采购单引用不可删 / 合同号重复 / 类型不匹配），与文档 8 条**并非同一组**。
+// 以文档为准（卡面原话「按文档的 8 个场景命名」），差异与去向：
+//
+//   · 「合同不存在」→ [`ERP_CONTRACT_NOT_USABLE`]（同一闸口，文案不同：不存在/已删除/状态不对）
+//   · 「金额非法」「日期区间非法」「类型不匹配」→ 纯入参校验，走 [`PARAM_INVALID`]（10001）：
+//     这三类在 ARCH-2 §3.1 是 `CHECK` 兜底的**最后一道网**（V-04/V-05/V-03），
+//     正常路径必须被 A2 的 handler 先挡下并给 400 明确话术，不新增业务码。
+
+/// 合同不可用于建单（HTTP 409）：ARCH-2 §5.1 的 V-22 五步判定 —— 合同已软删 /
+/// 状态不是 `SIGNED`、`ACTIVE` / `order_date` 不在 `[start_date, end_date]`。
+///
+/// 为什么是 409 而不是 400：请求本身合法，是**合同这个业务对象当前不允许**新承诺
+/// （终止/过期/未生效），前端要提示「换合同 / 先续签」而不是「改参数」。
+pub const ERP_CONTRACT_NOT_USABLE: i32 = 66014;
+
+/// 合同状态不允许该流转（HTTP 409）：ARCH-2 §4 的边表判定（含自环）。
+///
+/// 与框架的通用 409 分开，是为了让前端能定位到「合同状态机」并给出
+/// 「允许的去向是 …」的提示（`state_machine::rejection_message` 已经这么措辞）。
+pub const ERP_CONTRACT_STATUS_ILLEGAL: i32 = 66015;
+
+/// 合同已签订，关键字段不可修改（HTTP 409）：ARCH-2 §5.3 的冻结矩阵。
+///
+/// `DRAFT` 之外 `party_b_* / contract_type / amount / currency_code / 三个日期` 冻结，
+/// 改则拒绝；`remark / owner_id / dept_id / contract_name` 仍可改（终止原因就写 `remark`）。
+pub const ERP_CONTRACT_FIELD_LOCKED: i32 = 66016;
+
+/// 合同号重复（HTTP 409）：ARCH-2 V-20，把唯一索引 `uk_biz_contract_no` 的
+/// SQLSTATE `23505` 转成业务码，**不把 SQLSTATE 透给前端**。
+///
+/// 注意唯一性只对 `deleted_at IS NULL` 的行生效（§2.3）：软删后可复用同号，
+/// 所以本码只会在「活跃行重号」时出现。
+pub const ERP_CONTRACT_NO_DUPLICATED: i32 = 66017;
+
+/// 合同已被下游单据引用，不能删除（HTTP 409）：ARCH-2 V-21。
+///
+/// 判据：存在 `biz_purchase_order.contract_id = ?` 且
+/// `status NOT IN ('CANCELLED','CLOSED')` 且未软删的行。文案带未关闭张数。
+pub const ERP_CONTRACT_IN_USE: i32 = 66018;
+
+/// 累计下单金额将超出合同金额（HTTP 409）：ARCH-2 V-23。
+///
+/// `Σ PO.total_with_tax(未取消) + 本单 > contract.amount`。
+/// ⚠️ 并发坑：先查后写不是原子的，必须在**同一事务**里先
+/// `SELECT id FROM biz_contract WHERE id=? FOR UPDATE`，否则两个并发请求会双双放行。
+pub const ERP_CONTRACT_AMOUNT_EXCEEDED: i32 = 66019;
+
+/// 客户类合同暂未开放（HTTP 400）：ARCH-2 §3.2.3 的**临时降级**。
+///
+/// `party_b_type = 'CUSTOMER'` 一律硬拒，不查任何表 —— 客户主数据（`biz_customer`）
+/// 属批次 2。表结构（枚举 / 配对 CHECK / 索引）已按两分支建好，批次 2 只删这一行闸口。
+pub const ERP_CONTRACT_CUSTOMER_UNSUPPORTED: i32 = 66020;
+
+/// 乙方不存在或已停用（HTTP 400）：ARCH-2 V-11 / V-15。
+///
+/// 乙方没有外键可依赖（DEC-02），存在性靠应用层写入校验 + 每日巡检兜底；
+/// 新建时额外要求供应商 `status = 1`（停用供应商不得新签），修改其它字段不重验。
+pub const ERP_CONTRACT_PARTY_INVALID: i32 = 66021;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1088,6 +1167,15 @@ mod tests {
             (ERP_REPORT_CONFIG_INVALID, 66011),
             (ERP_OPENING_UNBALANCED, 66012),
             (ERP_SEPARATION_OF_DUTIES, 66013),
+            // A1 合同域（ARCH-2 §3.2 的 8 个场景；66013 被 ERP-B2 占用后顺延到 66014–66021）
+            (ERP_CONTRACT_NOT_USABLE, 66014),
+            (ERP_CONTRACT_STATUS_ILLEGAL, 66015),
+            (ERP_CONTRACT_FIELD_LOCKED, 66016),
+            (ERP_CONTRACT_NO_DUPLICATED, 66017),
+            (ERP_CONTRACT_IN_USE, 66018),
+            (ERP_CONTRACT_AMOUNT_EXCEEDED, 66019),
+            (ERP_CONTRACT_CUSTOMER_UNSUPPORTED, 66020),
+            (ERP_CONTRACT_PARTY_INVALID, 66021),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");
