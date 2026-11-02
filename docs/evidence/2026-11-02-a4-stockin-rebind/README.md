@@ -140,7 +140,26 @@ IN-20261031-000015 CANCELLED P10发布抽验-1件-验完作废
 ★ 全部不变量成立，账目干净。
 ```
 
-## 7. 与卡面 / 设计的口径差异（全部是「变宽不变窄」或「不改既有行为」）
+## 7. 回归（本机 `cloudpivot_test`）
+
+```bash
+cargo fmt -p cloudpivot -- --check          # 通过
+cargo clippy -- -D warnings                  # 通过（lib + bins，零警告）
+cargo build --bin cloudpivot                 # 通过
+cargo test --lib -- --test-threads=1         # 1976 passed / 0 failed / 0 ignored（726.26s）
+```
+
+基线 1963（A3 交付时）→ **+13 条 A4 用例 = 1976**，无 skip / 无 ignore。
+
+> **串行跑的原因（诚实记录）**：并行跑时 `cash_flow::tests::r3_real_config_covers_all_accounts`
+> 会偶发失败，报「分类配置漏科目 P2D1A / P2D1B」。这两个科目是 `voucher_query.rs` 的 P2-D1 夹具
+> 在**并行窗口内**临时建出来的（`DELETE FROM biz_account WHERE account_code LIKE 'P2D1%'` 就是它的清理），
+> 而该用例断言「`biz_account` 里每个科目都要有现金流分类行」—— 两个模块用各自的 `DB_LOCK`，跨模块不互斥。
+> 与 A4 无关（A4 不碰 `biz_account` / 现金流），单独跑该用例与单跑 `cash_flow` 模块都是绿；
+> 清掉上一轮残留的 P2D1 科目后串行全量 **1976/1976 全绿**。
+> 这是既有的「共享测试库 + 跨模块并行」问题，留给测试基座卡收敛，不在本卡改别人的用例。
+
+## 8. 与卡面 / 设计的口径差异（全部是「变宽不变窄」或「不改既有行为」）
 
 | # | 卡面/设计 | 实际 | 理由 |
 |---|---|---|---|
