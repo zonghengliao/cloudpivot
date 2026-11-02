@@ -56,3 +56,13 @@
 [PASS] G8 收货单的 voucher_id 仍为空
 [PASS] H1 删规则后表回到 0 行（配置可删可复活）  —— rules=0
 ==> 汇总：PASS=56 FAIL=0
+
+================ 附录：原始日志（已剥 ANSI，来自 /root/d3-e2e-server.log）================
+说明：影子试算与影子对比是同一次过账里的两行；configured_voucher_no == legacy_voucher_no
+     证明「配置算出的凭证」与「旧路径发的凭证」在**同一个号段位置、15 个字段上完全一致**。
+
+2026-11-02T22:12:10.466470Z  INFO cloudpivot::business::flow::linkage::engine: 联动凭证影子试算完成（已回滚，库里不会多出这张凭证；生成权仍在旧逻辑） rule_id=b1a2212e-3c4d-4521-ab5d-5f290d554812 mode="SHADOW" trigger_entity="STOCK_IN" trigger_status="POSTED" doc_id=01a19e51-e83d-778e-a044-18ac7014dcf5 doc_no="IN-20261103-000029" voucher_no=PZ-20261103-000022 period=2026-11 total_debit=113.0000 total_credit=113.0000 entry_count=3
+2026-11-02T22:12:10.469738Z  INFO cloudpivot::business::flow::linkage::engine: 联动凭证影子对比：配置算出的凭证 vs 旧路径的凭证（逐字段） rule_id=b1a2212e-3c4d-4521-ab5d-5f290d554812 trigger_entity="STOCK_IN" trigger_status="POSTED" doc_id=01a19e51-e83d-778e-a044-18ac7014dcf5 doc_no="IN-20261103-000029" configured_voucher_no=PZ-20261103-000022 legacy_voucher_no=PZ-20261103-000022 matched=true diffs=[] field_count=15
+2026-11-02T22:12:11.137445Z  INFO cloudpivot::business::flow::linkage::engine: 联动已接管凭证：配置生成（旧逻辑本次不再生成） rule_id=b1a2212e-3c4d-4521-ab5d-5f290d554812 voucher_no=PZ-20261103-000023 period=2026-11 total_debit=113.0000 total_credit=113.0000 entry_count=3 entry_codes=["1405", "2221.01", "2202"]
+2026-11-02T22:12:11.137469Z  INFO cloudpivot::business::flow::linkage::engine: 收货过账的凭证已由联动配置接管（旧路径本次不生成） rule_id=b1a2212e-3c4d-4521-ab5d-5f290d554812 trigger_entity="STOCK_IN" trigger_status="POSTED" doc_id=01a19e51-eadf-7264-a487-02c80f120f17 doc_no=IN-20261103-000030 voucher_id=a5ed304b-8d8e-4684-bc39-f0d010151319
+2026-11-02T22:12:13.229173Z ERROR cloudpivot::business::flow::linkage::engine: 联动接管凭证失败：关键动作失败，本次过账整笔回滚 rule_id=90aa0050-02e7-485c-bf89-8c5972d2d87d trigger_entity="STOCK_IN" trigger_status="POSTED" doc_id=01a19e51-f30f-77c9-a99e-3855453b3db6 doc_no=IN-20261103-000034 reason="GENERATE_VOUCHER 生成凭证失败（关键动作，整笔回滚）：invalid value: 会计期间 2031-03 已结账，不能再生成凭证（凭证日期 2031-03-15）：已封账的月份只读，请在下一个未结账的期间做调整（或先反结账）"
