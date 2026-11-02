@@ -133,12 +133,37 @@ smoke=39  a=17  b=23  c=23  task=55  flow=28   →  PASS=185  FAIL=0  SKIP=0   �
 | `erp_invariants.py` | 32 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
 | `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查。**判据见下面「语义变化」一节，ADR 落地后不再命中普通批量生成** | 有残留 → 1；连库失败 → 2 |
 | `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 32/32 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
+| `snapshot_audit.py` | **快照一致性巡检（16 项 `di.c_di01..c_di16`，只报不修）**：把 `docs/architecture/快照一致性巡检与告警设计.md` §2.4 的巡检项落地。合同链 / 实物链 / 资金链 / 主档 / 护栏五组；`--json` / `--group` / `--dry-run` / `--install-views`。只读事务（`BEGIN READ ONLY` + 会话级 `default_transaction_read_only=on`），**没有一行 DML**；发现漂移只写日志+JSON，绝不回写业务数据（AP-8） | 有 BLOCKER → 1；环境/用法错 → 2；上一轮在跑 → 3 |
 
 ```bash
 set -a; . /etc/cloudpivot/cloudpivot.env; set +a
 python3 scripts/verify/erp_invariants.py          # 账是否干净
 python3 scripts/verify/e2e_fixture_residue.py     # 有没有人往库里造夹具（exit 1 = 有）
 ```
+
+### 快照一致性巡检（B1）怎么跑
+
+```bash
+# 0) 首次（或 di 视图被 drop 后）：幂等装巡检视图（只建 di schema 的视图，回滚 DROP SCHEMA di CASCADE）
+python3 scripts/verify/snapshot_audit.py --install-views
+
+# 1) 人看：五组一节，每条一行 ✓/⚠/✗，末尾 BLOCKER x / WARN y / INFO z
+python3 scripts/verify/snapshot_audit.py
+
+# 2) 机看：stdout 纯 JSON（人看格式转 stderr），可 --out 落文件
+python3 scripts/verify/snapshot_audit.py --json --out /var/log/cloudpivot/snapshot-audit.latest.json
+
+# 3) 只跑一组 / 只跑一条 / 只看计划
+python3 scripts/verify/snapshot_audit.py --group 资金链
+python3 scripts/verify/snapshot_audit.py --group DI-06
+python3 scripts/verify/snapshot_audit.py --dry-run
+
+# 4) cron 档（每日 02:00，已在 crontab 里；可手工触发一次验证通路）
+bash scripts/cron/snapshot_audit.sh
+```
+
+判读铁律（设计文档 §3.5）：**`⊘ 跳过` 不是通过** —— 合同 schema 未就位时 DI-01…05/13/15
+记 SKIPPED，因为「0 行」既可能是干净，也可能是根本没查。看到跳过就说明这组没人看着。
 
 **e2e 跑完请务必**：① 不要直连 prod（8023）造数；② 跑完调一次
 `e2e_fixture_residue.py`，有残留就按它打印的三条命令清（备份 → `--check` →
