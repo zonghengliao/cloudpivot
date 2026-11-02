@@ -1143,6 +1143,40 @@ pub const ERP_CONTRACT_CUSTOMER_UNSUPPORTED: i32 = 66020;
 /// 新建时额外要求供应商 `status = 1`（停用供应商不得新签），修改其它字段不重验。
 pub const ERP_CONTRACT_PARTY_INVALID: i32 = 66021;
 
+// ---------- A3 采购单 ↔ 合同勾稽（采购单侧的业务码，接在合同域 66021 之后） ----------
+//
+// 为什么采购单侧要有自己的码，而不是全走 `PARAM_INVALID`(10001)：
+//   `purchase_type` 与 `contract_id` 的四种组合错误，前端要给出**不同的**引导
+//   （去选合同 / 去掉合同 / 换合同 / 这单不能改类型），文案映射在
+//   `frontend/src/api/error-code.ts`，混成一个码就只能靠匹配中文串。
+//   码值只增不改（本段自检见下方 `erp_error_codes_are_stable`）。
+
+/// 已建单不允许改 `purchase_type`（HTTP 400）：CONTRACT→SPOT 会**洗掉**合同关联，
+/// 让「这张单挂过哪张合同」永久不可考。真要改必须先取消关联（本批次不提供）。
+pub const ERP_PO_TYPE_LOCKED: i32 = 66022;
+
+/// `purchase_type = CONTRACT` 却没给 `contract_id`（HTTP 400）。
+///
+/// DB 侧同样拦（`ck_biz_po_contract_pair`），但那是 500 形态的 `CheckViolation`；
+/// handler 必须先在应用层挡下，给出「去选一张采购合同」的可执行文案。
+pub const ERP_PO_CONTRACT_REQUIRED: i32 = 66023;
+
+/// `purchase_type = SPOT` 却给了 `contract_id`（HTTP 400）。
+///
+/// 不静默忽略：请求自相矛盾时静默丢弃字段，会让调用方以为合同挂上了（审计灾难）。
+pub const ERP_PO_CONTRACT_UNEXPECTED: i32 = 66024;
+
+/// 客户端传的 `supplier_id` 与合同乙方不一致（HTTP 400）：设计 §6.2 的「唯一取值点」——
+/// CONTRACT 单的供应商**从合同 `party_b_id` 派生**，手填值只允许与之一致（幂等），
+/// 不一致必须报错，不能悄悄按合同方覆盖。
+pub const ERP_PO_SUPPLIER_MISMATCH: i32 = 66025;
+
+/// `purchase_type` 取值不在 `CONTRACT` / `SPOT` 里（HTTP 400）。
+///
+/// 与 `PARAM_INVALID` 分开的理由：契约类型是**业务枚举**，前端要提示「合同采购 / 零星采购」
+/// 两个可选项，而不是「参数非法」这种没有出路的文案。
+pub const ERP_PO_TYPE_INVALID: i32 = 66026;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1176,6 +1210,12 @@ mod tests {
             (ERP_CONTRACT_AMOUNT_EXCEEDED, 66019),
             (ERP_CONTRACT_CUSTOMER_UNSUPPORTED, 66020),
             (ERP_CONTRACT_PARTY_INVALID, 66021),
+            // A3 采购单 ↔ 合同勾稽（66022–66026）
+            (ERP_PO_TYPE_LOCKED, 66022),
+            (ERP_PO_CONTRACT_REQUIRED, 66023),
+            (ERP_PO_CONTRACT_UNEXPECTED, 66024),
+            (ERP_PO_SUPPLIER_MISMATCH, 66025),
+            (ERP_PO_TYPE_INVALID, 66026),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

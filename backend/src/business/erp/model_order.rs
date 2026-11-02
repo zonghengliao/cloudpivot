@@ -25,7 +25,8 @@ pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date,
      warehouse_id, status, currency_code::text AS currency_code, total_qty, total_amount, \
      total_tax, total_with_tax, credit_days, remark, price_mode, submitted_at, submitted_by, \
      approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
-     create_by, update_by, deleted_at";
+     create_by, update_by, deleted_at, \
+     purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot";
 
 /// 采购订单行。
 #[derive(Debug, Clone)]
@@ -87,6 +88,14 @@ pub struct PurchaseOrderRow {
     pub update_by: Option<Uuid>,
     /// 软删时间（`None` = 未删除）。
     pub deleted_at: Option<DateTime<Utc>>,
+    /// 采购类型（`CONTRACT` 合同采购 / `SPOT` 零星采购，V0198；存量全是 `SPOT`）。
+    pub purchase_type: String,
+    /// 合同（弱引用 `biz_contract.id`；`SPOT` 必为 `None`）。
+    pub contract_id: Option<Uuid>,
+    /// 合同号快照（建单时刻；列表/打印只读这一列，不 JOIN 合同表）。
+    pub contract_no_snapshot: Option<String>,
+    /// 供应商名称快照（业务发生那一刻；**快照不是冗余**，合同换乙方不回写）。
+    pub supplier_name_snapshot: Option<String>,
 }
 
 impl PurchaseOrderRow {
@@ -120,6 +129,10 @@ impl PurchaseOrderRow {
             create_by: row.get_typed("create_by")?,
             update_by: row.get_typed("update_by")?,
             deleted_at: row.get_typed("deleted_at")?,
+            purchase_type: row.get_typed("purchase_type")?,
+            contract_id: row.get_typed("contract_id")?,
+            contract_no_snapshot: row.get_typed("contract_no_snapshot")?,
+            supplier_name_snapshot: row.get_typed("supplier_name_snapshot")?,
         })
     }
 }
@@ -170,6 +183,15 @@ pub async fn purchase_order_page(
     if let Some(status) = q.status.as_deref() {
         sql.push_str(" AND status = ?");
         params.push(Value::from(status));
+    }
+    if let Some(purchase_type) = q.purchase_type.as_deref() {
+        sql.push_str(" AND purchase_type = ?");
+        params.push(Value::from(purchase_type));
+    }
+    if let Some(contract_id) = q.contract_id.as_deref() {
+        // 走部分索引 `idx_biz_po_contract(contract_id, order_date DESC)`（V0198）
+        sql.push_str(" AND contract_id = ?");
+        params.push(Value::from(parse_id(contract_id)?));
     }
     if let Some(supplier_id) = q.supplier_id.as_deref() {
         sql.push_str(" AND supplier_id = ?");

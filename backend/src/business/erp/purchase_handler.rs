@@ -36,18 +36,20 @@
 //! `received_qty` 建单恒 0，`PARTIAL_RECEIVED` / `RECEIVED` 两个状态也不由本卡写入（P2-B1）。
 
 use axum::Json;
-use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;
 use crate::business::erp::purchase_bridge;
 use crate::business::erp::purchase_dto::{
-    CreatePurchaseOrderReq, PendingItemRes, PendingOrderRes, PendingReceiveRes, PendingStockInRes,
-    PurchaseOrderDetailRes, PurchaseOrderLineRes, PurchaseOrderStatusReq, ensure_submittable_lines,
+    CreatePurchaseOrderReq, PURCHASE_TYPE_CONTRACT, PendingItemRes, PendingOrderRes,
+    PendingReceiveRes, PendingStockInRes, PreparedOrder, PurchaseOrderDetailRes,
+    PurchaseOrderLineRes, PurchaseOrderStatusReq, ensure_submittable_lines,
 };
 use crate::business::erp::purchase_model::{
     self, NewItem, NewPurchaseOrder, STATUS_CANCELLED, STATUS_DRAFT, STATUS_SUBMITTED, Totals,
@@ -168,6 +170,244 @@ fn write_error(err: DbError, ctx: &str) -> ApiError {
     }
 }
 
+// ==================== A3：合同解析 / 额度现算 ====================
+
+/// 解析后的合同（**采购单供应商的唯一取值点**，设计 §6.2-①）。
+#[derive(Debug, Clone)]
+struct OrderContract {
+    /// 合同主键（落 `contract_id`，弱引用）。
+    id: Uuid,
+    /// 合同号（落 `contract_no_snapshot`）。
+    contract_no: String,
+    /// 乙方 = 供应商（落 `supplier_id`）。
+    party_b_id: Uuid,
+    /// 乙方名称（落 `supplier_name_snapshot`；主档现值优先，主档软删则回落到签约快照）。
+    supplier_name: String,
+}
+
+/// 单头解析结果：供应商 / 合同 / 名称快照三件套。
+struct ResolvedHead {
+    /// 实际落库的供应商（`CONTRACT` = 合同乙方；`SPOT` = 用户选的）。
+    supplier_id: Uuid,
+    /// 合同（`SPOT` 为 `None`）。
+    contract: Option<OrderContract>,
+    /// 供应商名称快照。
+    supplier_name_snapshot: Option<String>,
+}
+
+/// 校验并解析合同（V-22 五步：存在 / 未软删 → 采购类 → 状态可用 → 下单日在有效期内）。
+///
+/// 状态口径跟 `contract_model::USABLE_FOR_ORDER`（**`SIGNED` / `ACTIVE`**）走，
+/// 不是卡面写的「只认 ACTIVE」：
+/// - ARCH-2 §5.1 V-22 与设计 §6.2/§7.3 都是「已签署（SIGNED）/ 生效（ACTIVE）」；
+/// - A2 的详情接口已按同一常量下发 `usable_for_order`，两处若不一致，
+///   前端会看到「可用 = true」却下不了单。
+async fn resolve_contract(
+    raw: &str,
+    order_date: NaiveDate,
+) -> std::result::Result<OrderContract, ApiError> {
+    let id = parse_uuid(raw, "contract_id")?;
+    let contract = contract_model::contract_find(id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询合同"))?
+        .ok_or_else(|| reference_missing(format!("contract_id 合同不存在或已删除（{id}）")))?;
+    if contract.contract_type != "PURCHASE" {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 的类型是 {}，不能用于采购下单（只接受 PURCHASE）",
+                contract.contract_no, contract.contract_type
+            ),
+        ));
+    }
+    if !contract_model::USABLE_FOR_ORDER.contains(&contract.status.as_str()) {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 当前是「{}」（{}），只有已签署（SIGNED）/ 生效（ACTIVE）的合同可以下单",
+                contract.contract_no,
+                contract_model::status_label(&contract.status),
+                contract.status
+            ),
+        ));
+    }
+    if let Some(start) = contract.start_date
+        && order_date < start
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "下单日期 {order_date} 早于合同 {} 的生效日 {start}",
+                contract.contract_no
+            ),
+        ));
+    }
+    if let Some(end) = contract.end_date
+        && order_date > end
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "下单日期 {order_date} 已超出合同 {} 的到期日 {end}（请续签或改用新合同）",
+                contract.contract_no
+            ),
+        ));
+    }
+    Ok(OrderContract {
+        id: contract.id,
+        contract_no: contract.contract_no,
+        party_b_id: contract.party_b_id,
+        supplier_name: contract
+            .party_b_current_name
+            .unwrap_or(contract.party_b_name),
+    })
+}
+
+/// 把 DTO 的四种组合（类型 × 合同 × 供应商）解析成可落库的单头。
+///
+/// - `CONTRACT`：合同必须是有效采购合同；供应商**从合同乙方派生**，客户端传了就必须相等
+///   （相等视为幂等，不等 → `400 + 66025`，不静默覆盖）；
+/// - `SPOT`：供应商必须存在且未软删（名称顺手作为快照），合同必须为空（DTO 已拦）。
+async fn resolve_head(prepared: &PreparedOrder) -> std::result::Result<ResolvedHead, ApiError> {
+    if prepared.purchase_type == PURCHASE_TYPE_CONTRACT {
+        let raw = prepared.contract_id_raw.as_deref().ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::ERP_PO_CONTRACT_REQUIRED,
+                "purchase_type = CONTRACT 必须给 contract_id",
+            )
+        })?;
+        let contract = resolve_contract(raw, prepared.order_date).await?;
+        if let Some(given_raw) = prepared.supplier_id_raw.as_deref() {
+            let given = parse_uuid(given_raw, "supplier_id")?;
+            if given != contract.party_b_id {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_PO_SUPPLIER_MISMATCH,
+                    format!(
+                        "采购单的供应商从合同乙方带出：合同 {} 的乙方是 {}，本单填的是 {}。\
+                         请留空自动带出，或改选属于该乙方的合同",
+                        contract.contract_no, contract.party_b_id, given
+                    ),
+                ));
+            }
+        }
+        Ok(ResolvedHead {
+            supplier_id: contract.party_b_id,
+            supplier_name_snapshot: Some(contract.supplier_name.clone()),
+            contract: Some(contract),
+        })
+    } else {
+        let raw = prepared.supplier_id_raw.as_deref().ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                "supplier_id 必填（SPOT 零星采购必须手选供应商）",
+            )
+        })?;
+        let supplier_id = parse_uuid(raw, "supplier_id")?;
+        let name = purchase_model::supplier_ref(supplier_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询供应商"))?
+            .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
+        Ok(ResolvedHead {
+            supplier_id,
+            contract: None,
+            supplier_name_snapshot: Some(name),
+        })
+    }
+}
+
+/// 合同额度守卫（V-23）：**现算**「其它未取消采购单 + 本单」是否超出合同金额。
+///
+/// 为什么必须在事务里先 `FOR UPDATE` 锁合同：两个并发下单各自都看到「还剩额度」，
+/// 加起来就超了（ARCH-2 V-23 的并发坑）。锁顺序 = 合同行 → 采购单写入，
+/// 与 A2 的改合同流程同序，不会互相死锁。
+///
+/// 不做「已下单额」缓存列（V-21/R1：缓存必漂移），每次 `SUM(total_with_tax)` 现算。
+async fn guard_contract_amount(
+    ex: &impl SqlExecutor,
+    contract: &OrderContract,
+    this_total: Decimal,
+    exclude: Option<Uuid>,
+) -> std::result::Result<(), ApiError> {
+    let locked = contract_model::contract_lock_full(ex, contract.id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定合同"))?;
+    let Some(locked) = locked else {
+        return Err(reference_missing(format!(
+            "合同 {} 在本次下单期间已被删除",
+            contract.contract_no
+        )));
+    };
+    // 锁内再校一次状态：从读到写之间合同可能被终止
+    if !contract_model::USABLE_FOR_ORDER.contains(&locked.status.as_str()) {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_CONTRACT_NOT_USABLE,
+            format!(
+                "合同 {} 当前是「{}」（{}），只有已签署（SIGNED）/ 生效（ACTIVE）的合同可以下单",
+                locked.contract_no,
+                contract_model::status_label(&locked.status),
+                locked.status
+            ),
+        ));
+    }
+    let used = purchase_model::committed_amount(ex, locked.id, exclude)
+        .await
+        .map_err(|error| utils::db_error(error, "统计合同已下单额"))?;
+    let after = used + this_total;
+    if after > locked.amount {
+        return Err(ApiError::new(
+            409,
+            error_code::ERP_CONTRACT_AMOUNT_EXCEEDED,
+            format!(
+                "合同 {} 额度不足：合同金额 {}，已下单 {}（不含作废单），本单 {}，\
+                 下单后累计 {} 将超出合同额 {}",
+                locked.contract_no,
+                locked.amount,
+                used,
+                this_total,
+                after,
+                locked.amount - used
+            ),
+        ));
+    }
+    Ok(())
+}
+
+/// 列表 / 详情的供应商名称兜底：**快照优先**，存量行（快照 `NULL`）用主档现值补。
+///
+/// 为什么不 JOIN：列表必须走快照列（R3-a / AP-6：合同换乙方后历史单显示「当时是谁」）；
+/// 存量行没有快照是历史事实（V0198 不回填），显示上补一个现值即可，且不进筛选条件。
+pub async fn fill_supplier_names(rows: &mut [PurchaseOrderRes]) {
+    let missing: Vec<Uuid> = rows
+        .iter()
+        .filter(|row| row.supplier_name.is_none())
+        .filter_map(|row| Uuid::parse_str(&row.supplier_id).ok())
+        .collect();
+    if missing.is_empty() {
+        return;
+    }
+    let map = purchase_model::supplier_names_of(&missing)
+        .await
+        .unwrap_or_default();
+    for row in rows.iter_mut() {
+        if row.supplier_name.is_some() {
+            continue;
+        }
+        if let Ok(id) = Uuid::parse_str(&row.supplier_id)
+            && let Some(name) = map.get(&id)
+        {
+            row.supplier_name = Some(name.clone());
+        }
+    }
+}
+
 // ==================== 详情组装 ====================
 
 /// 详情：单头（含三金额 + 口径）+ 明细（行号升序）。
@@ -181,6 +421,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
         .map_err(|error| utils::db_error(error, "查询采购订单明细"))?;
     let mut order = PurchaseOrderRes::from(&row);
     fill_approval_no(std::slice::from_mut(&mut order)).await;
+    fill_supplier_names(std::slice::from_mut(&mut order)).await;
     Ok(PurchaseOrderDetailRes {
         order,
         items: items.iter().map(PurchaseOrderLineRes::from).collect(),
@@ -243,23 +484,28 @@ pub async fn create_purchase_order(
 ) -> std::result::Result<Uuid, ApiError> {
     let op = operator.into();
     let prepared = req.prepare()?;
-    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
 
-    purchase_model::supplier_ref(supplier_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询供应商"))?
-        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
     purchase_model::warehouse_ref(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
 
+    // 供应商 / 合同 / 名称快照一次解析（CONTRACT 的供应商从这里派生，**不接受手填覆盖**）
+    let head = resolve_head(&prepared).await?;
+
     let items = prepare_items(&prepared).await?;
     let totals = Totals::of(&items);
     let new = NewPurchaseOrder {
-        supplier_id,
+        supplier_id: head.supplier_id,
         warehouse_id,
+        purchase_type: &prepared.purchase_type,
+        contract_id: head.contract.as_ref().map(|contract| contract.id),
+        contract_no_snapshot: head
+            .contract
+            .as_ref()
+            .map(|contract| contract.contract_no.as_str()),
+        supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
         price_mode: &prepared.price_mode,
@@ -272,6 +518,13 @@ pub async fn create_purchase_order(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启建单事务"))?;
+    // 合同额度守卫在**事务内**：先锁合同行再算累计额（V-23 的并发坑）
+    if let Some(contract) = head.contract.as_ref()
+        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, None).await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
     match purchase_model::create(&tx, &new, &items, &totals, op, now).await {
         Ok(id) => {
             tx.commit()
@@ -434,7 +687,8 @@ pub async fn update_purchase_order(
     req: &CreatePurchaseOrderReq,
     operator: Option<Uuid>,
 ) -> std::result::Result<(), ApiError> {
-    let prepared = req.prepare()?;
+    // ⚠️ 这里**不能**先跑 `req.prepare()`：省缺 `purchase_type` 的 CONTRACT 单会被当成
+    // SPOT，从而被「SPOT 不能带 contract_id」误拒。必须是「先取当前类型 → 归一化 → 再校验」。
     let current = purchase_model::find_order(id)
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单"))?
@@ -454,22 +708,61 @@ pub async fn update_purchase_order(
         )));
     }
 
-    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
+    // ---------- A3：采购类型不可改（改类型会把合同关联洗掉） ----------
+    // 请求是整单覆盖，`purchase_type` 省缺视为「沿用当前类型」；
+    // 显式给了且与库里不一致 → 400。真要换类型必须先取消合同关联（本批次不提供）。
+    if req
+        .purchase_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_uppercase)
+        .is_some_and(|requested| requested != current.purchase_type)
+    {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_PO_TYPE_LOCKED,
+            format!(
+                "采购单 {} 的采购类型是「{}」，建单后不允许改成「{}」：\
+                 改类型会洗掉合同关联（合同采购 → 零星采购），历史就查不到这张单挂过哪张合同了。\
+                 确需变更请作废本单后重开",
+                current.order_no,
+                current.purchase_type,
+                req.purchase_type.as_deref().unwrap_or_default().trim()
+            ),
+        ));
+    }
+    // 省缺 `purchase_type` → 用当前类型（否则 CONTRACT 单改备注会被默认成 SPOT）
+    let mut req = req.clone();
+    if req
+        .purchase_type
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(str::is_empty)
+    {
+        req.purchase_type = Some(current.purchase_type.clone());
+    }
+    let prepared = req.prepare()?;
+
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
-    purchase_model::supplier_ref(supplier_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询供应商"))?
-        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
     purchase_model::warehouse_ref(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
+    let head = resolve_head(&prepared).await?;
 
     let items = prepare_items(&prepared).await?;
     let totals = Totals::of(&items);
     let new = NewPurchaseOrder {
-        supplier_id,
+        supplier_id: head.supplier_id,
         warehouse_id,
+        purchase_type: &prepared.purchase_type,
+        contract_id: head.contract.as_ref().map(|contract| contract.id),
+        contract_no_snapshot: head
+            .contract
+            .as_ref()
+            .map(|contract| contract.contract_no.as_str()),
+        supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
         price_mode: &prepared.price_mode,
@@ -482,6 +775,13 @@ pub async fn update_purchase_order(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启改单事务"))?;
+    // 合同额度守卫：排除本单（`exclude = Some(id)`），否则自己会被算两遍
+    if let Some(contract) = head.contract.as_ref()
+        && let Err(error) = guard_contract_amount(&tx, contract, totals.with_tax, Some(id)).await
+    {
+        let _ = tx.rollback().await;
+        return Err(error);
+    }
     match purchase_model::update(&tx, id, &new, &items, &totals, operator, now).await {
         Ok(0) => {
             let _ = tx.rollback().await;
@@ -1143,6 +1443,16 @@ mod tests {
     const MATERIAL_A: &str = "d2a20001-0000-4000-8000-000000000011";
     const MATERIAL_B: &str = "d2a20001-0000-4000-8000-000000000012";
 
+    /// A3 合同夹具①：ACTIVE 采购合同，乙方 = 上面的 `SUPPLIER`，额度 10 万。
+    const CONTRACT_ACTIVE: &str = "d2a20001-0000-4000-8000-0000000000c1";
+    /// A3 合同夹具②：DRAFT（草稿合同不能下单，内控）。
+    const CONTRACT_DRAFT: &str = "d2a20001-0000-4000-8000-0000000000c2";
+    /// A3 合同夹具③：ACTIVE 但额度只有 1 元（额度守卫用例）。
+    const CONTRACT_TINY: &str = "d2a20001-0000-4000-8000-0000000000c3";
+    /// 夹具合同号（断言快照用；唯一索引 `uk_biz_contract_no` 要求活跃行不重号）。
+    const CONTRACT_ACTIVE_NO: &str = "P2A3-HT-ACTIVE";
+    const CONTRACT_TINY_NO: &str = "P2A3-HT-TINY";
+
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
          VALUES ('d2a20001-0000-4000-8000-000000000003', 'P2A2-PCS', '个', 1, NULL, 1.000000, 1, 1)
@@ -1159,6 +1469,30 @@ mod tests {
                  'd2a20001-0000-4000-8000-000000000003', 1),
                 ('d2a20001-0000-4000-8000-000000000012', 'P2A2-M2', '垫片 8mm',
                  'd2a20001-0000-4000-8000-000000000003', 1)
+         ON CONFLICT (id) DO NOTHING",
+        // A3：合同（`biz_contract` 无外键指向供应商；status 与日期必须满足
+        //     ck_biz_contract_signed_dates —— SIGNED/ACTIVE/COMPLETED 三个日期都要有）
+        "INSERT INTO biz_contract (id, contract_no, contract_name, contract_type, party_b_type,
+                                   party_b_id, party_b_name, amount, currency_code,
+                                   sign_date, start_date, end_date, status)
+         VALUES ('d2a20001-0000-4000-8000-0000000000c1', 'P2A3-HT-ACTIVE', 'P2A3 采购合同（生效）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 100000.0000, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE')
+         ON CONFLICT (id) DO NOTHING",
+        "INSERT INTO biz_contract (id, contract_no, contract_name, contract_type, party_b_type,
+                                   party_b_id, party_b_name, amount, currency_code, status)
+         VALUES ('d2a20001-0000-4000-8000-0000000000c2', 'P2A3-HT-DRAFT', 'P2A3 采购合同（草稿）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 5000.0000, 'CNY', 'DRAFT')
+         ON CONFLICT (id) DO NOTHING",
+        "INSERT INTO biz_contract (id, contract_no, contract_name, contract_type, party_b_type,
+                                   party_b_id, party_b_name, amount, currency_code,
+                                   sign_date, start_date, end_date, status)
+         VALUES ('d2a20001-0000-4000-8000-0000000000c3', 'P2A3-HT-TINY', 'P2A3 采购合同（1 元额度）',
+                 'PURCHASE', 'SUPPLIER', 'd2a20001-0000-4000-8000-000000000001',
+                 'P2A2 测试供应商', 1.0000, 'CNY',
+                 DATE '2026-01-01', DATE '2026-01-01', DATE '2027-12-31', 'ACTIVE')
          ON CONFLICT (id) DO NOTHING",
     ];
 
@@ -1275,6 +1609,15 @@ mod tests {
         let sql = format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
         if let Err(err) = db().execute_with_params(&sql, vec![]).await {
             panic!("清理上一轮采购订单失败：{err}");
+        }
+        // A3：合同夹具也一起清（必须先删采购单再删合同 —— 合同是**弱引用**，
+        // 库里没有外键拦着，顺序靠这里写死，免得留下「PO 指着已删合同」的残行）
+        let sql = format!(
+            "DELETE FROM biz_contract WHERE id IN ('{CONTRACT_ACTIVE}'::uuid, \
+             '{CONTRACT_DRAFT}'::uuid, '{CONTRACT_TINY}'::uuid)"
+        );
+        if let Err(err) = db().execute_with_params(&sql, vec![]).await {
+            panic!("清理上一轮合同夹具失败：{err}");
         }
     }
 
@@ -2281,5 +2624,383 @@ mod tests {
             running, 0,
             "模块收尾后不许剩 PENDING 的采购审批实例（同库连跑第二遍的前提）"
         );
+    }
+    // ==================== A3：采购单绑定合同（CONTRACT / SPOT 双类型） ====================
+    //
+    // 口径锚点：设计 §6.2-① 的四条写入链路 + ARCH-2 §5.1 V-22（合同可用状态）/V-23（额度现算）。
+    // 每个真库用例开头 `setup()`：清上一轮 → 建夹具（供应商 / 仓 / 物料 / 三张合同）。
+
+    use crate::business::erp::dto::{PurchaseOrderFilter, PurchaseOrderRes};
+    use nik::prelude::chrono::NaiveDate;
+    use nik::uuid::Uuid;
+
+    /// 组一张合同采购单（`CONTRACT` 类型）：金额 = 10 × 2 × 1.13 = 22.60。
+    fn contract_req(contract_id: &str, supplier: Option<&str>) -> CreatePurchaseOrderReq {
+        CreatePurchaseOrderReq {
+            supplier_id: supplier.map(str::to_string),
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            purchase_type: Some("CONTRACT".to_string()),
+            contract_id: Some(contract_id.to_string()),
+            price_mode: Some("EXCL".to_string()),
+            items: vec![PurchaseOrderItemReq {
+                material_id: Some(MATERIAL_A.to_string()),
+                qty: Some(dec("10")),
+                price_excl: Some(dec("2")),
+                tax_rate: Some(dec("13")),
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+
+    /// ⑧ CONTRACT + 有效合同：成功，供应商**从合同乙方派生**，两个快照都写对。
+    #[tokio::test]
+    async fn contract_order_derives_supplier_and_writes_snapshots() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 故意不传 supplier_id：CONTRACT 允许省略（唯一取值点是合同乙方）
+        let id = create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.purchase_type, "CONTRACT");
+        assert_eq!(detail.order.supplier_id, SUPPLIER, "供应商必须 = 合同乙方");
+        assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_ACTIVE));
+        assert_eq!(
+            detail.order.contract_no.as_deref(),
+            Some(CONTRACT_ACTIVE_NO)
+        );
+        assert_eq!(
+            detail.order.contract_no_snapshot.as_deref(),
+            Some(CONTRACT_ACTIVE_NO),
+            "落库的是合同号**快照**，不是运行时 JOIN 出来的"
+        );
+        assert_eq!(
+            detail.order.supplier_name_snapshot.as_deref(),
+            Some("P2A2 测试供应商")
+        );
+        assert_eq!(
+            detail.order.supplier_name.as_deref(),
+            Some("P2A2 测试供应商")
+        );
+    }
+
+    /// ⑨ CONTRACT 但 contract_id 为空 → 400（业务码 66023，不是 500）。
+    #[test]
+    fn contract_order_without_contract_id_is_rejected() {
+        let mut request = contract_req(CONTRACT_ACTIVE, None);
+        request.contract_id = None;
+        let err = request.prepare().unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_PO_CONTRACT_REQUIRED);
+        assert!(err.msg.contains("contract_id"), "{}", err.msg);
+    }
+
+    /// ⑩ CONTRACT 但合同不存在（幽灵 UUID）→ 400 + 66002（弱引用缺失，不是 500）。
+    #[tokio::test]
+    async fn contract_order_with_unknown_contract_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let ghost = "d2a20001-0000-4000-8000-0000000000ff";
+        let err = create_purchase_order(&contract_req(ghost, None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(err.msg.contains("合同不存在"), "{}", err.msg);
+    }
+
+    /// ⑪ CONTRACT 挂 DRAFT 合同 → 400（内控：草稿合同不能下单）。
+    #[tokio::test]
+    async fn contract_order_on_draft_contract_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = create_purchase_order(&contract_req(CONTRACT_DRAFT, None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
+        assert!(
+            err.msg.contains("草稿"),
+            "文案要说清是状态问题：{}",
+            err.msg
+        );
+    }
+
+    /// ⑫ CONTRACT 但传入的 supplier_id ≠ 合同乙方 → 400 + 66025（不静默按合同方覆盖）。
+    #[tokio::test]
+    async fn contract_order_with_mismatched_supplier_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let other = "d2a20001-0000-4000-8000-0000000000ee";
+        let err = create_purchase_order(&contract_req(CONTRACT_ACTIVE, Some(other)), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_PO_SUPPLIER_MISMATCH);
+        assert!(err.msg.contains("从合同乙方带出"), "{}", err.msg);
+    }
+
+    /// ⑬ CONTRACT 且 supplier_id 与合同乙方**一致** → 幂等通过（前端回显整单时不会被误拒）。
+    #[tokio::test]
+    async fn contract_order_accepts_matching_supplier() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&contract_req(CONTRACT_ACTIVE, Some(SUPPLIER)), None)
+            .await
+            .unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.supplier_id, SUPPLIER);
+    }
+
+    /// ⑭ SPOT 却传了 contract_id → 400 + 66024（不一致必须报错，不能静默丢弃字段）。
+    #[test]
+    fn spot_order_with_contract_id_is_rejected() {
+        let mut request = req("EXCL", &[(MATERIAL_A, "1", "2", "13")]);
+        request.purchase_type = Some("SPOT".to_string());
+        request.contract_id = Some(CONTRACT_ACTIVE.to_string());
+        let err = request.prepare().unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_PO_CONTRACT_UNEXPECTED);
+        assert!(err.msg.contains("SPOT"), "{}", err.msg);
+    }
+
+    /// ⑮ SPOT 正常建单（不传 purchase_type = 默认 SPOT）→ 快照为 NULL，供应商名称照写。
+    #[tokio::test]
+    async fn spot_order_keeps_contract_snapshot_null() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "5", "2", "13")]), None)
+            .await
+            .unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.order.purchase_type, "SPOT",
+            "缺省必须是 SPOT（与列默认值一致）"
+        );
+        assert!(detail.order.contract_id.is_none());
+        assert_eq!(
+            detail.order.contract_no_snapshot, None,
+            "SPOT 的合同号快照必须为 NULL"
+        );
+        assert_eq!(
+            detail.order.supplier_name_snapshot.as_deref(),
+            Some("P2A2 测试供应商")
+        );
+    }
+
+    /// ⑯ 改单想改 purchase_type → 400 + 66022（CONTRACT → SPOT 会洗掉合同关联）。
+    #[tokio::test]
+    async fn update_cannot_change_purchase_type() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let mut change = contract_req(CONTRACT_ACTIVE, None);
+        change.purchase_type = Some("SPOT".to_string());
+        change.contract_id = None;
+        change.supplier_id = Some(SUPPLIER.to_string());
+        let err = update_purchase_order(id, &change, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_PO_TYPE_LOCKED);
+        assert!(err.msg.contains("不允许改"), "{}", err.msg);
+        // 库里必须还是 CONTRACT（没有被偷偷改掉）
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.purchase_type, "CONTRACT");
+    }
+
+    /// ⑰ 改单**省缺** purchase_type → 沿用当前类型（CONTRACT 单不会被默认成 SPOT）。
+    #[tokio::test]
+    async fn update_without_type_keeps_contract_type() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let mut change = contract_req(CONTRACT_ACTIVE, None);
+        change.purchase_type = None;
+        change.remark = Some("改备注".to_string());
+        update_purchase_order(id, &change, None).await.unwrap();
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.purchase_type, "CONTRACT");
+        assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_ACTIVE));
+        assert_eq!(detail.order.remark.as_deref(), Some("改备注"));
+    }
+
+    /// ⑱ 列表页下发合同快照列，且按 contract_id 筛选命中（走 idx_biz_po_contract）。
+    #[tokio::test]
+    async fn page_exposes_contract_snapshot_columns() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let filter = PurchaseOrderFilter {
+            contract_id: Some(CONTRACT_ACTIVE.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        };
+        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter)
+            .await
+            .unwrap();
+        assert_eq!(total, 1, "按合同筛选必须只命中这一张");
+        let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
+        fill_supplier_names(&mut list).await;
+        assert_eq!(list[0].purchase_type, "CONTRACT");
+        assert_eq!(list[0].contract_no.as_deref(), Some(CONTRACT_ACTIVE_NO));
+        assert_eq!(
+            list[0].supplier_name.as_deref(),
+            Some("P2A2 测试供应商"),
+            "列表用快照列显示供应商名，不 JOIN 合同表"
+        );
+    }
+
+    /// ⑲ 存量 SPOT 单（A3 之前建的，两个快照列都是 NULL）查询不受影响：
+    ///    `purchase_type` 落到默认值 `SPOT`，供应商名称由 handler 用主档现值兜底。
+    #[tokio::test]
+    async fn legacy_spot_order_still_readable() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // 模拟 V0198 之前的历史行：完全不写 purchase_type / 两个快照列
+        let legacy = Uuid::now_v7();
+        let sql = format!(
+            "INSERT INTO biz_purchase_order \
+                (id, order_no, supplier_id, order_date, warehouse_id, status, price_mode, \
+                 total_qty, total_amount, total_tax, total_with_tax) \
+             VALUES ('{legacy}'::uuid, 'A3-LEGACY-1', '{SUPPLIER}'::uuid, current_date, \
+                 '{WAREHOUSE}'::uuid, 'DRAFT', 'EXCL', 1, 2, 0.26, 2.26)"
+        );
+        db().execute_with_params(&sql, vec![])
+            .await
+            .expect("写存量行");
+        let detail = detail_of(legacy).await.unwrap();
+        assert_eq!(
+            detail.order.purchase_type, "SPOT",
+            "存量单必须落默认值 SPOT"
+        );
+        assert!(detail.order.contract_id.is_none());
+        assert_eq!(
+            detail.order.supplier_name_snapshot, None,
+            "存量行没有名称快照（不回填）"
+        );
+        assert_eq!(
+            detail.order.supplier_name.as_deref(),
+            Some("P2A2 测试供应商"),
+            "显示层用主档现值兜底，不能显示空白"
+        );
+    }
+
+    /// ⑳ 合同额度守卫（V-23 现算）：合同只有 1 元，本单 22.60 → 409 + 66019。
+    #[tokio::test]
+    async fn contract_amount_limit_is_enforced() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = create_purchase_order(&contract_req(CONTRACT_TINY, None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 409, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_AMOUNT_EXCEEDED);
+        assert!(err.msg.contains(CONTRACT_TINY_NO), "{}", err.msg);
+        // 没有落库（事务回滚）
+        let filter = PurchaseOrderFilter {
+            contract_id: Some(CONTRACT_TINY.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        };
+        let (_, total) = crate::business::erp::model::purchase_order_page(&filter)
+            .await
+            .unwrap();
+        assert_eq!(total, 0, "超限的单必须整体回滚，不留半张");
+    }
+
+    /// ㉑ 额度是**累计现算**：第一张成功后，`committed_amount` 必须等于这张的含税金额。
+    #[tokio::test]
+    async fn committed_amount_sums_previous_orders() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let used =
+            purchase_model::committed_amount(db(), Uuid::parse_str(CONTRACT_ACTIVE).unwrap(), None)
+                .await
+                .unwrap();
+        assert_eq!(
+            used,
+            dec("22.60"),
+            "已下单额必须现算（SUM 未取消单），不是缓存列"
+        );
+        // 第二张同样能建（累计 45.20 远小于 10 万）
+        let second = create_purchase_order(&contract_req(CONTRACT_ACTIVE, None), None)
+            .await
+            .unwrap();
+        let detail = detail_of(second).await.unwrap();
+        assert_eq!(detail.order.contract_id.as_deref(), Some(CONTRACT_ACTIVE));
+    }
+
+    /// ㉒ 下单日期超出合同有效期 → 400 + 66014（V-22 第四步）。
+    #[tokio::test]
+    async fn contract_order_outside_validity_is_rejected() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let mut request = contract_req(CONTRACT_ACTIVE, None);
+        request.order_date = Some(NaiveDate::from_ymd_opt(2028, 1, 5).unwrap());
+        let err = create_purchase_order(&request, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_CONTRACT_NOT_USABLE);
+        assert!(err.msg.contains("到期日"), "{}", err.msg);
+    }
+
+    /// ㉓ 非法 purchase_type → 400 + 66026（不是静默当 SPOT）。
+    #[test]
+    fn invalid_purchase_type_is_rejected() {
+        let mut request = req("EXCL", &[(MATERIAL_A, "1", "2", "13")]);
+        request.purchase_type = Some(" contrCAT ".to_string());
+        let err = request.prepare().unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_PO_TYPE_INVALID);
+        assert!(
+            err.msg.contains("CONTRACT"),
+            "文案要给出可选项：{}",
+            err.msg
+        );
+    }
+
+    /// ㉔ 类型大小写 / 空格归一化：`"  contract  "` 等价于 `CONTRACT`。
+    #[test]
+    fn purchase_type_is_normalized() {
+        let mut request = contract_req(CONTRACT_ACTIVE, None);
+        request.purchase_type = Some("  contract  ".to_string());
+        let prepared = request.prepare().unwrap();
+        assert_eq!(prepared.purchase_type, "CONTRACT");
     }
 }

@@ -61,6 +61,20 @@ pub const MAX_REMARK_LEN: usize = 500;
 /// 取消原因最大长度。
 pub const MAX_REASON_LEN: usize = 255;
 
+// ==================== 采购类型（A3：采购单挂合同） ====================
+
+/// 合同采购：供应商从合同乙方**派生**，`contract_id` 必填。
+pub const PURCHASE_TYPE_CONTRACT: &str = "CONTRACT";
+
+/// 零星采购：没有合同，供应商由用户选（列 `NOT NULL`）。
+pub const PURCHASE_TYPE_SPOT: &str = "SPOT";
+
+/// 允许的采购类型（与库约束 `ck_biz_po_purchase_type` 逐字一致）。
+pub const PURCHASE_TYPES: [&str; 2] = [PURCHASE_TYPE_CONTRACT, PURCHASE_TYPE_SPOT];
+
+/// 缺省采购类型：与列默认值 `'SPOT'` 一致（存量单全是它）。
+pub const DEFAULT_PURCHASE_TYPE: &str = PURCHASE_TYPE_SPOT;
+
 /// 本卡新增的 4 个权限码（列表沿用 V0141 的 `business:erp:purchase-order:list`）。
 ///
 /// BUG-SYS-05：原 `business:erp:purchase-order:detail` 已移除 —— 采购订单**没有 GET 详情路由**
@@ -93,10 +107,14 @@ pub fn today_cst() -> NaiveDate {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct CreatePurchaseOrderReq {
-    /// 供应商（必填）。
+    /// 供应商（`SPOT` 必填；`CONTRACT` 可省 —— 从合同乙方派生，给了必须与之一致）。
     pub supplier_id: Option<String>,
     /// 收货仓库（必填，列 `NOT NULL`）。
     pub warehouse_id: Option<String>,
+    /// 采购类型（`CONTRACT` / `SPOT`，缺省 `SPOT`；大小写与首尾空格自动归一化）。
+    pub purchase_type: Option<String>,
+    /// 合同（`CONTRACT` 必填 / `SPOT` 必须为空）。
+    pub contract_id: Option<String>,
     /// 下单日期（缺省 = 今天，北京时间）。
     pub order_date: Option<NaiveDate>,
     /// 期望到货日。
@@ -192,10 +210,14 @@ pub struct PreparedLine {
 /// 校验通过、金额已算好的整单（金额全部服务端算，硬红线 2）。
 #[derive(Debug, Clone)]
 pub struct PreparedOrder {
-    /// 供应商 id 原文。
-    pub supplier_id_raw: String,
+    /// 供应商 id 原文（`SPOT` 必有；`CONTRACT` 可省）。
+    pub supplier_id_raw: Option<String>,
     /// 仓库 id 原文。
     pub warehouse_id_raw: String,
+    /// 采购类型（已归一化：大写、去首尾空格）。
+    pub purchase_type: String,
+    /// 合同 id 原文（`CONTRACT` 必有 / `SPOT` 必为 `None`）。
+    pub contract_id_raw: Option<String>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 期望到货日。
@@ -246,8 +268,64 @@ impl CreatePurchaseOrderReq {
             )));
         }
 
-        let supplier_id_raw = require_text(self.supplier_id.as_deref(), "supplier_id")?;
+        let supplier_id_raw = self
+            .supplier_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
         let warehouse_id_raw = require_text(self.warehouse_id.as_deref(), "warehouse_id")?;
+
+        // ---------- 采购类型与合同的配对（A3） ----------
+        let purchase_type = self
+            .purchase_type
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .unwrap_or(DEFAULT_PURCHASE_TYPE)
+            .to_uppercase();
+        if !PURCHASE_TYPES.contains(&purchase_type.as_str()) {
+            return Err(ApiError::new(
+                400,
+                error_code::ERP_PO_TYPE_INVALID,
+                format!(
+                    "purchase_type = `{purchase_type}` 不合法：只允许 {}（CONTRACT 合同采购 / SPOT 零星采购）",
+                    PURCHASE_TYPES.join(" / ")
+                ),
+            ));
+        }
+        let contract_id_raw = self
+            .contract_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        match (purchase_type.as_str(), contract_id_raw.as_deref()) {
+            (PURCHASE_TYPE_CONTRACT, None) => {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_PO_CONTRACT_REQUIRED,
+                    "purchase_type = CONTRACT 必须给 contract_id：合同采购的供应商从合同乙方带出，\
+                     没有合同就没有供应商",
+                ));
+            }
+            (PURCHASE_TYPE_SPOT, Some(_)) => {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_PO_CONTRACT_UNEXPECTED,
+                    "purchase_type = SPOT 不能给 contract_id：零星采购没有合同。\
+                     要挂合同请把 purchase_type 改成 CONTRACT",
+                ));
+            }
+            _ => {}
+        }
+        // SPOT 必须手选供应商；CONTRACT 允许省略（handler 从合同乙方派生）
+        if purchase_type == PURCHASE_TYPE_SPOT && supplier_id_raw.is_none() {
+            return Err(bad_request(
+                "supplier_id 必填（SPOT 零星采购必须手选供应商；CONTRACT 合同采购可省略，\
+                 由合同乙方带出）",
+            ));
+        }
 
         let order_date = self.order_date.unwrap_or_else(today_cst);
         if let Some(expect_date) = self.expect_date
@@ -310,6 +388,8 @@ impl CreatePurchaseOrderReq {
         Ok(PreparedOrder {
             supplier_id_raw,
             warehouse_id_raw,
+            purchase_type,
+            contract_id_raw,
             order_date,
             expect_date: self.expect_date,
             price_mode,

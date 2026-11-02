@@ -248,10 +248,18 @@ pub fn sum_lines(lines: &[LineAmounts]) -> (Decimal, Decimal, Decimal) {
 /// 建单 / 改单的单头字段（`None` = 落 NULL）。
 #[derive(Debug, Clone)]
 pub struct NewPurchaseOrder<'a> {
-    /// 供应商。
+    /// 供应商（`CONTRACT` 由合同乙方派生，`SPOT` 用户选择）。
     pub supplier_id: Uuid,
     /// 收货仓库（列 `NOT NULL`）。
     pub warehouse_id: Uuid,
+    /// 采购类型（`CONTRACT` / `SPOT`，V0198）。
+    pub purchase_type: &'a str,
+    /// 合同（弱引用；`SPOT` 必为 `None`）。
+    pub contract_id: Option<Uuid>,
+    /// 合同号快照（`CONTRACT` 必填，`SPOT` 必为 `None`）。
+    pub contract_no_snapshot: Option<&'a str>,
+    /// 供应商名称快照（业务发生那一刻；拿不到主档名时可为 `None`）。
+    pub supplier_name_snapshot: Option<&'a str>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 期望到货日。
@@ -462,11 +470,13 @@ pub async fn create(
             "INSERT INTO {ORDER_TABLE} \
                 (id, order_no, supplier_id, order_date, expect_date, warehouse_id, status, \
                  price_mode, total_qty, total_amount, total_tax, total_with_tax, credit_days, \
-                 remark, created_at, updated_at, create_by, update_by) \
+                 remark, created_at, updated_at, create_by, update_by, \
+                 purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot) \
              VALUES (?, ?, ?::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, \
                  ?::uuid, 'DRAFT', ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
-                 ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+                 ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
+                 ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''))"
         ),
         vec![
             Value::from(&id),
@@ -486,6 +496,14 @@ pub async fn create(
             Value::from(now),
             operator_text.clone(),
             operator_text,
+            Value::Text(new.purchase_type.to_string()),
+            Value::Text(
+                new.contract_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
+            Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
+            Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
         ],
     )
     .await?;
@@ -528,7 +546,10 @@ pub async fn update(
                         total_amount = NULLIF(?::text,'')::numeric, \
                         total_tax = NULLIF(?::text,'')::numeric, \
                         total_with_tax = NULLIF(?::text,'')::numeric, credit_days = ?, \
-                        remark = NULLIF(?::text,''), updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                        remark = NULLIF(?::text,''), updated_at = ?, update_by = NULLIF(?::text,'')::uuid, \
+                        purchase_type = ?, contract_id = NULLIF(?::text,'')::uuid, \
+                        contract_no_snapshot = NULLIF(?::text,''), \
+                        supplier_name_snapshot = NULLIF(?::text,'') \
                   WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
             ),
             vec![
@@ -545,6 +566,14 @@ pub async fn update(
                 Value::Text(new.remark.unwrap_or_default().to_string()),
                 Value::from(now),
                 operator_text.clone(),
+                Value::Text(new.purchase_type.to_string()),
+                Value::Text(
+                    new.contract_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
+                Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
                 Value::from(&id),
             ],
         )
@@ -769,6 +798,74 @@ pub async fn warehouse_ref(id: Uuid) -> DbResult<Option<String>> {
         None => Ok(None),
         Some(row) => Ok(Some(row.get_typed("warehouse_name")?)),
     }
+}
+
+/// 供应商名称（批量夹具回填用：一次查多行，`None` = 主档已删 / 不存在）。
+///
+/// 与 [`supplier_ref`] 的区别只是「一条 SQL 查一批」——列表页 20 行逐行查就是 20 次往返
+/// （与 `fill_approval_no` 同一套理由）。返回 `id → 名称` 映射。
+pub async fn supplier_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    // SCOPE-EXEMPT: biz_supplier 是全局主数据（无 dept_id / 归属人列），按主键批量解析名称。
+    let rows = db()
+        .find_with_params(
+            "SELECT id, supplier_name FROM biz_supplier \
+              WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in rows.iter() {
+        let id: Uuid = row.get_typed("id")?;
+        let name: String = row.get_typed("supplier_name")?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
+// ==================== A3：合同额度现算（**不做缓存列**） ====================
+
+/// 某张合同**已下单**的含税累计额（V-21/V-23：单一数据源，必须现算）。
+///
+/// 口径（与 ARCH-2 V-23 逐字一致）：
+/// - 只算 `contract_id = ?` 且 `status <> 'CANCELLED'` 且未软删的采购单；
+/// - `exclude` 用于**改单**：把自己这一张排除掉，否则「改单时自己算两遍」会误报超限；
+/// - 返回 `NUMERIC(18,4)` 的精确值（`Decimal`），不做浮点转换。
+///
+/// ⚠ 调用方必须在**事务内**先 `SELECT … FOR UPDATE` 锁住合同行（见
+/// `contract_model::contract_lock_full`），否则两个并发请求会双双放行（V-23 的并发坑）。
+pub async fn committed_amount(
+    ex: &impl SqlExecutor,
+    contract_id: Uuid,
+    exclude: Option<Uuid>,
+) -> DbResult<Decimal> {
+    let mut sql = "SELECT COALESCE(SUM(total_with_tax), 0)::text AS total \
+               FROM biz_purchase_order \
+              WHERE contract_id = ?::uuid AND status <> 'CANCELLED' AND deleted_at IS NULL"
+        .to_string();
+    let mut params = vec![Value::from(&contract_id)];
+    if let Some(exclude_id) = exclude {
+        // 改单时把自己排除掉（否则自己会被算两遍）。条件按需拼接，**不用**
+        // `NULLIF(?::text,'')` 那类写法 —— 空串参数在驱动里会被当成 NULL 序列化，实测报
+        // `error serializing parameter 2`（A3 踩坑）。
+        sql.push_str(" AND id <> ?::uuid");
+        params.push(Value::from(&exclude_id));
+    }
+    let row = ex.query_first_sql(sql, params).await?;
+    let total: Option<String> = match row {
+        None => None,
+        Some(row) => Some(row.get_typed("total")?),
+    };
+    Ok(total
+        .and_then(|text| text.parse::<Decimal>().ok())
+        .unwrap_or(Decimal::ZERO))
 }
 
 /// 物料是否存在（返回编码 / 名称 / 基础单位）。

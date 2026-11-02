@@ -1803,6 +1803,8 @@ pub async fn purchase_order_page(
     let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
     // P-FLOW-3A：列表要显示「审批中（FLW-xxx）」，实例单号批量回填一次
     crate::business::erp::purchase_handler::fill_approval_no(&mut list).await;
+    // A3：供应商名称快照优先（存量行没快照 → 主档现值兜底），**不 JOIN 合同表**
+    crate::business::erp::purchase_handler::fill_supplier_names(&mut list).await;
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -1821,6 +1823,8 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
         .ok_or_else(|| not_found("采购订单"))?;
     let mut res = PurchaseOrderRes::from(&row);
     crate::business::erp::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
+    crate::business::erp::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res))
+        .await;
     Ok(Res::ok(res))
 }
 

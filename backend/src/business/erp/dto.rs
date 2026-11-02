@@ -2215,6 +2215,10 @@ pub struct PurchaseOrderFilter {
     pub keyword: Option<String>,
     /// 状态。
     pub status: Option<String>,
+    /// 采购类型（`CONTRACT` / `SPOT`，A3）。
+    pub purchase_type: Option<String>,
+    /// 合同（走部分索引 `idx_biz_po_contract`，A3）。
+    pub contract_id: Option<String>,
     /// 供应商。
     pub supplier_id: Option<String>,
     /// 收货仓库。
@@ -2234,6 +2238,8 @@ impl Default for PurchaseOrderFilter {
         Self {
             keyword: None,
             status: None,
+            purchase_type: None,
+            contract_id: None,
             supplier_id: None,
             warehouse_id: None,
             date_from: None,
@@ -2249,6 +2255,23 @@ impl PurchaseOrderFilter {
     pub fn validate(&self) -> std::result::Result<(), ApiError> {
         if let Some(status) = self.status.as_deref() {
             require_one_of(status, &PURCHASE_ORDER_STATUSES, "status")?;
+        }
+        if let Some(purchase_type) = self.purchase_type.as_deref() {
+            require_one_of(
+                purchase_type,
+                &crate::business::erp::purchase_dto::PURCHASE_TYPES,
+                "purchase_type",
+            )?;
+        }
+        if let Some(contract_id) = self.contract_id.as_deref() {
+            // 早失败：非法 UUID 不该走到 SQL（列表筛参同一口径 → 400 + 66006）
+            nik::uuid::Uuid::parse_str(contract_id.trim()).map_err(|_| {
+                ApiError::new(
+                    400,
+                    error_code::ERP_FILTER_INVALID,
+                    format!("contract_id 不是合法的 UUID：{contract_id}"),
+                )
+            })?;
         }
         if let (Some(from), Some(to)) = (self.date_from, self.date_to)
             && from > to
@@ -2336,6 +2359,18 @@ pub struct PurchaseOrderRes {
     pub remark: Option<String>,
     /// 金额口径（`EXCL` 不含税录入 / `INCL` 含税录入）。
     pub price_mode: String,
+    /// 采购类型（`CONTRACT` 合同采购 / `SPOT` 零星采购，A3/V0198；存量单全为 `SPOT`）。
+    pub purchase_type: String,
+    /// 合同（弱引用 `biz_contract.id`，前端用它跳合同详情；`SPOT` 单为 `null`）。
+    pub contract_id: Option<String>,
+    /// 合同号（**快照**，列表/打印直接显示；`SPOT` 单为 `null`）。
+    pub contract_no: Option<String>,
+    /// 合同号快照列原文（与 `contract_no` 同源；保留原列名便于对账与前端强校验）。
+    pub contract_no_snapshot: Option<String>,
+    /// 供应商名称（显示用：优先快照，存量行由 handler 用主档现值兜底）。
+    pub supplier_name: Option<String>,
+    /// 供应商名称快照列原文（存量行为 `null`，那时名称不可知）。
+    pub supplier_name_snapshot: Option<String>,
     /// 提交时间。
     pub submitted_at: Option<DateTime<Utc>>,
     /// 提交人。
@@ -2378,6 +2413,13 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             credit_days: row.credit_days,
             remark: row.remark.clone(),
             price_mode: row.price_mode.clone(),
+            purchase_type: row.purchase_type.clone(),
+            contract_id: row.contract_id.map(|id| id.to_string()),
+            contract_no: row.contract_no_snapshot.clone(),
+            contract_no_snapshot: row.contract_no_snapshot.clone(),
+            // 快照优先；存量行（`NULL`）由 `purchase_handler::fill_supplier_names` 用主档现值兜底
+            supplier_name: row.supplier_name_snapshot.clone(),
+            supplier_name_snapshot: row.supplier_name_snapshot.clone(),
             submitted_at: row.submitted_at,
             submitted_by: row.submitted_by.map(|id| id.to_string()),
             approved_at: row.approved_at,
