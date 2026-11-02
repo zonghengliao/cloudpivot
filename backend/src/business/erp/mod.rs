@@ -32,8 +32,9 @@
 //! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
 //! | [`year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
 //! | [`batch`] | **批量操作（D7）**：勾选 → 逐条独立事务 → 逐条报告（过账 / 作废 / 删除 / 提交审批 / 导出） | **D7** |
-//! | [`contract_model`] | 合同数据层（**A1 基座**）：乙方引用解析（`party_b_ref`，无外键靠应用层校验）、状态常量 | **A1** |
-//! | [`contract_handler`] | 合同接口层**装配位**（A1）：5 个权限码常量 + A2 的路由清单，handler 由 A2 落地 | **A1** |
+//! | [`contract_model`] | 合同数据层（**A1 基座 + A2 CRUD**）：乙方引用解析（无外键靠应用层校验）、状态常量 / 边表、取号、分页、建改删 | **A1 / A2** |
+//! | [`contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
+//! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -60,6 +61,7 @@
 
 pub mod batch;
 pub mod cash_flow;
+pub mod contract_dto;
 pub mod contract_handler;
 pub mod contract_model;
 pub mod dto;

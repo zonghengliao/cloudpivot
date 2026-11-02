@@ -31,8 +31,14 @@
 //! （查 `biz_customer(id, deleted_at IS NULL, status = 1)` 返回 `customer_name`）。
 //! 若客户表的列名不同（如 `customer_status`），映射**只能写在本函数内**，不外溢。
 
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
+use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
+
+use crate::business::erp::contract_dto::ContractQuery;
+use crate::business::shared::scope;
+use crate::business::shared::state_machine;
 
 /// 合同表名（A2 复用，避免各处硬编码）。
 pub const CONTRACT_TABLE: &str = "biz_contract";
@@ -153,6 +159,676 @@ pub async fn party_b_ref_for_new(party_b_type: &str, id: Uuid) -> DbResult<Optio
         None => Ok(None),
         Some(row) => Ok(Some(row.get_typed("supplier_name")?)),
     }
+}
+
+// ==================== A2：行结构 / 查询 / 写入 ====================
+//
+// 分工：本段只有 SQL 与行映射；校验、错误码、事务边界在 `contract_handler`，
+// 入参 / 出参形状在 `contract_dto`。**这里不写 `UPDATE … SET status`**：
+// 状态推进的唯一入口是 `state_machine::transition`（见文首 [`STATUSES`] 的说明）。
+
+/// 合同的合法边（**与 `state_machine::CONTRACT_EDGES` 逐字一致**）。
+///
+/// 为什么要在这里再写一份：`transition()` 会拿调用方传的边表与注册表**核对**，
+/// 不一致直接 500（防「偷偷多放一条边」）。这份常量的作用就是让漂移**编译期可见**
+/// （单测 `legal_edges_match_state_machine` 与注册表逐条比对）。
+pub const LEGAL_EDGES: [(&str, &str); 5] = [
+    ("DRAFT", "SIGNED"),
+    ("SIGNED", "ACTIVE"),
+    ("SIGNED", "TERMINATED"),
+    ("ACTIVE", "COMPLETED"),
+    ("ACTIVE", "TERMINATED"),
+];
+
+/// 「日期三件套必填」的状态集合（与 DDL 的 `ck_biz_contract_signed_dates` 逐字一致）。
+///
+/// 新建允许不填日期（草稿可以先建后补），但**流转到这三个状态之前**必须补齐，
+/// 否则 DB 的 CHECK 会以 500 的形式炸在状态流转接口上。
+pub const FULL_DATES_STATUSES: [&str; 3] = [STATUS_SIGNED, STATUS_ACTIVE, STATUS_COMPLETED];
+
+/// 状态中文名（前端列表直接显示；未知值给「未知状态」而不是 panic）。
+pub fn status_label(status: &str) -> &'static str {
+    match status {
+        STATUS_DRAFT => "草稿",
+        STATUS_SIGNED => "已签订",
+        STATUS_ACTIVE => "已生效",
+        STATUS_COMPLETED => "已完成",
+        STATUS_TERMINATED => "已终止",
+        _ => "未知状态",
+    }
+}
+
+/// 该状态是否要求签订 / 生效 / 到期三个日期齐全（DDL 口径）。
+pub fn requires_full_dates(status: &str) -> bool {
+    FULL_DATES_STATUSES.contains(&status)
+}
+
+/// 单号前缀（`V0195` 种的 `biz_seq(seq_type='CT')` 是 `prefix='HT'`）。
+pub const NO_PREFIX: &str = "HT";
+
+/// `biz_seq.seq_type`（迁移里种的 CT 行）。
+pub const SEQ_TYPE: &str = "CT";
+
+/// 流水号补零宽度（超过 6 位不截断，宁可长一位也不撞号）。
+pub const NO_SEQ_WIDTH: usize = 6;
+
+/// 乙方现值（主档名）在行里的别名：`LEFT JOIN biz_supplier` 带出，不做数据源。
+pub const PARTY_B_CURRENT_ALIAS: &str = "party_b_current_name";
+
+/// `biz_contract` 的列清单（**带别名 `c`**，供需要 `FOR UPDATE` 的单表查询用）。
+pub const CONTRACT_BASE_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c.contract_type, \
+     c.party_a_id, c.party_a_name, c.party_b_type, c.party_b_id, c.party_b_name, c.amount, \
+     c.currency_code, c.sign_date, c.start_date, c.end_date, c.status, c.owner_id, c.dept_id, \
+     c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at";
+
+/// 列表 / 详情用的列清单 = 基础列 + 关联带出的乙方现值。
+pub const CONTRACT_LIST_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c.contract_type, \
+     c.party_a_id, c.party_a_name, c.party_b_type, c.party_b_id, c.party_b_name, c.amount, \
+     c.currency_code, c.sign_date, c.start_date, c.end_date, c.status, c.owner_id, c.dept_id, \
+     c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at, \
+     s.supplier_name AS party_b_current_name";
+
+/// 乙方现值关联（**LEFT JOIN**：主档软删 / 不存在也要能查出合同 —— 历史合同不能因为
+/// 供应商被删就查不到，那是审计事故；现值给 `null`，快照列照旧可读）。
+pub const CONTRACT_JOIN: &str = "FROM biz_contract c \
+     LEFT JOIN biz_supplier s ON s.id = c.party_b_id";
+
+/// `biz_contract` 的分页锚点。
+///
+/// 与 erp 容器其它 13 张表同一口径：显式 `unscoped`（`biz_contract` 有 `dept_id` 列但目前
+/// **没有**登记进 `SCOPED_TABLES` —— 数据权限属专业版；此处按容器既有约定声明，改动需单独裁决）。
+pub const CONTRACT_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(CONTRACT_TABLE);
+
+/// 默认排序：`created_at DESC`（卡面），`id DESC` 做稳定次序（同毫秒建的单不会抖动）。
+pub const CONTRACT_ORDER: &str = "ORDER BY c.created_at DESC, c.id DESC";
+
+/// 合同行（含关联带出的乙方现值）。
+#[derive(Debug, Clone)]
+pub struct ContractRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 合同号。
+    pub contract_no: String,
+    /// 合同名称（DDL 列名）。
+    pub contract_name: String,
+    /// 合同类型。
+    pub contract_type: String,
+    /// 甲方 id。
+    pub party_a_id: Option<Uuid>,
+    /// 甲方名称快照。
+    pub party_a_name: Option<String>,
+    /// 乙方类型。
+    pub party_b_type: String,
+    /// 乙方 id（弱引用）。
+    pub party_b_id: Uuid,
+    /// 乙方名称快照（签约时）。
+    pub party_b_name: String,
+    /// 乙方名称现值（关联 `biz_supplier`；主档已删 / 不存在为 `None`）。
+    pub party_b_current_name: Option<String>,
+    /// 金额。
+    pub amount: Decimal,
+    /// 币种。
+    pub currency_code: String,
+    /// 签订日期。
+    pub sign_date: Option<NaiveDate>,
+    /// 生效日。
+    pub start_date: Option<NaiveDate>,
+    /// 到期日。
+    pub end_date: Option<NaiveDate>,
+    /// 状态。
+    pub status: String,
+    /// 负责人。
+    pub owner_id: Option<Uuid>,
+    /// 归属部门。
+    pub dept_id: Option<Uuid>,
+    /// 备注。
+    pub remark: Option<String>,
+    /// 创建时间。
+    pub created_at: DateTime<Utc>,
+    /// 更新时间。
+    pub updated_at: DateTime<Utc>,
+    /// 创建人。
+    pub create_by: Option<Uuid>,
+    /// 最后修改人。
+    pub update_by: Option<Uuid>,
+    /// 软删时间。
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl ContractRow {
+    /// 由查询行构造（列缺失 / 类型不符 → [`DbError`]）。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            contract_no: row.get_typed("contract_no")?,
+            contract_name: row.get_typed("contract_name")?,
+            contract_type: row.get_typed("contract_type")?,
+            party_a_id: row.get_typed("party_a_id")?,
+            party_a_name: row.get_typed("party_a_name")?,
+            party_b_type: row.get_typed("party_b_type")?,
+            party_b_id: row.get_typed("party_b_id")?,
+            party_b_name: row.get_typed("party_b_name")?,
+            party_b_current_name: row.get_typed(PARTY_B_CURRENT_ALIAS)?,
+            amount: row.get_typed("amount")?,
+            currency_code: row.get_typed("currency_code")?,
+            sign_date: row.get_typed("sign_date")?,
+            start_date: row.get_typed("start_date")?,
+            end_date: row.get_typed("end_date")?,
+            status: row.get_typed("status")?,
+            owner_id: row.get_typed("owner_id")?,
+            dept_id: row.get_typed("dept_id")?,
+            remark: row.get_typed("remark")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+            create_by: row.get_typed("create_by")?,
+            update_by: row.get_typed("update_by")?,
+            deleted_at: row.get_typed("deleted_at")?,
+        })
+    }
+}
+
+/// 新建合同的写入结构（handler 校验 / 解析完之后的形态）。
+#[derive(Debug, Clone)]
+pub struct NewContract {
+    /// 合同名称。
+    pub contract_name: String,
+    /// 合同类型。
+    pub contract_type: String,
+    /// 甲方 id。
+    pub party_a_id: Option<Uuid>,
+    /// 甲方名称快照。
+    pub party_a_name: Option<String>,
+    /// 乙方类型。
+    pub party_b_type: String,
+    /// 乙方 id。
+    pub party_b_id: Uuid,
+    /// 乙方名称快照（服务端从主档读，**不接受客户端自填**）。
+    pub party_b_name: String,
+    /// 金额（> 0）。
+    pub amount: Decimal,
+    /// 币种。
+    pub currency_code: String,
+    /// 签订日期。
+    pub sign_date: Option<NaiveDate>,
+    /// 生效日。
+    pub start_date: Option<NaiveDate>,
+    /// 到期日。
+    pub end_date: Option<NaiveDate>,
+    /// 备注。
+    pub remark: Option<String>,
+    /// 负责人。
+    pub owner_id: Option<Uuid>,
+    /// 归属部门。
+    pub dept_id: Option<Uuid>,
+    /// 操作人（写 `create_by` / `update_by`）。
+    pub operator: Option<Uuid>,
+}
+
+/// 修改合同的写入结构（**合并后的最终值**，整列覆盖写）。
+///
+/// 为什么给最终值而不是 patch 集合：日期顺序、签订早于生效、金额 > 0 这些规则
+/// 必须对**合并后的结果**判定（只改 end_date 也可能把区间改反），
+/// 一次算出最终值再整写，规则只判一遍。
+#[derive(Debug, Clone)]
+pub struct ContractMut {
+    /// 合同名称。
+    pub contract_name: String,
+    /// 乙方 id。
+    pub party_b_id: Uuid,
+    /// 乙方名称快照。
+    pub party_b_name: String,
+    /// 金额。
+    pub amount: Decimal,
+    /// 签订日期。
+    pub sign_date: Option<NaiveDate>,
+    /// 生效日。
+    pub start_date: Option<NaiveDate>,
+    /// 到期日。
+    pub end_date: Option<NaiveDate>,
+    /// 备注。
+    pub remark: Option<String>,
+}
+
+/// 只含主键 / 单号 / 状态的最小投影（状态流转入口用）。
+#[derive(Debug, Clone)]
+pub struct ContractStateRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 合同号（状态日志的 `entity_no`）。
+    pub contract_no: String,
+    /// 当前状态。
+    pub status: String,
+    /// 签订日期。
+    pub sign_date: Option<NaiveDate>,
+    /// 生效日。
+    pub start_date: Option<NaiveDate>,
+    /// 到期日。
+    pub end_date: Option<NaiveDate>,
+}
+
+/// 分页查询（软删行不返回）。
+///
+/// # 索引
+///
+/// `contract_no` / `name` / `keyword` 走 `LIKE`（合同量级远小于单据，不做 `text_pattern_ops`
+/// 的额外索引，`idx_biz_contract_status` / `idx_biz_contract_party_b` / `idx_biz_contract_end`
+/// 覆盖等值筛选与到期日区间）。
+///
+/// # 单号「前缀匹配优先」
+///
+/// 输入只由 `[A-Za-z0-9_-]` 组成时才把 `CASE WHEN contract_no LIKE '<前缀>%' THEN 0 ELSE 1 END`
+/// 拼进 ORDER BY（合同号列本身的 `ck_biz_contract_no_charset` 保证了库里值的字符集，
+/// 因此不需要转义，也不可能被注入）；含其它字符（`%` / 引号）时**不加**前缀加权，
+/// 退回纯 `created_at DESC` —— 宁可排序朴素，也不把用户输入拼进 SQL。
+pub async fn contract_page(q: &ContractQuery) -> DbResult<(Vec<ContractRow>, i64)> {
+    let mut sql =
+        format!("SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.deleted_at IS NULL");
+    let mut params: Vec<Value> = Vec::new();
+
+    if let Some(contract_no) = q.contract_no.as_deref() {
+        sql.push_str(" AND c.contract_no LIKE ?");
+        params.push(Value::from(format!("%{}%", contract_no.trim())));
+    }
+    if let Some(name) = q.name.as_deref() {
+        sql.push_str(" AND c.contract_name LIKE ?");
+        params.push(Value::from(format!("%{}%", name.trim())));
+    }
+    if let Some(contract_type) = q.contract_type.as_deref() {
+        sql.push_str(" AND c.contract_type = ?");
+        params.push(Value::from(contract_type.trim()));
+    }
+    if let Some(status) = q.status.as_deref() {
+        sql.push_str(" AND c.status = ?");
+        params.push(Value::from(status.trim()));
+    }
+    if let Some(party_b_id) = q.party_b_id {
+        sql.push_str(" AND c.party_b_id = ?");
+        params.push(Value::from(party_b_id));
+    }
+    if let Some(from) = q.sign_from {
+        sql.push_str(" AND c.sign_date >= ?::date");
+        params.push(Value::from(from));
+    }
+    if let Some(to) = q.sign_to {
+        sql.push_str(" AND c.sign_date <= ?::date");
+        params.push(Value::from(to));
+    }
+    if let Some(from) = q.expire_from {
+        sql.push_str(" AND c.end_date >= ?::date");
+        params.push(Value::from(from));
+    }
+    if let Some(to) = q.expire_to {
+        sql.push_str(" AND c.end_date <= ?::date");
+        params.push(Value::from(to));
+    }
+    if let Some(keyword) = q.keyword.as_deref() {
+        let pattern = format!("%{}%", keyword.trim());
+        sql.push_str(" AND (c.contract_no LIKE ? OR c.contract_name LIKE ?)");
+        params.push(Value::from(pattern.clone()));
+        params.push(Value::from(pattern));
+    }
+
+    let order_by = q
+        .contract_no
+        .as_deref()
+        .and_then(prefix_boost_order)
+        .unwrap_or_else(|| CONTRACT_ORDER.to_string());
+
+    let result = scope::paginate_unscoped(
+        CONTRACT_TARGET,
+        &sql,
+        params,
+        Some(&order_by),
+        q.page,
+        q.page_size,
+    )
+    .await?;
+    let rows = result
+        .list
+        .iter()
+        .map(ContractRow::from_row)
+        .collect::<DbResult<Vec<ContractRow>>>()?;
+    Ok((rows, i64::try_from(result.total).unwrap_or(i64::MAX)))
+}
+
+/// 前缀加权排序子句：输入只含 `[A-Za-z0-9_-]` 才生效（见 [`contract_page`] 文档）。
+fn prefix_boost_order(raw: &str) -> Option<String> {
+    let prefix = raw.trim();
+    if prefix.is_empty() {
+        return None;
+    }
+    if !prefix
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return None;
+    }
+    // 注：进入本分支的字符串不含引号 / 通配符 / 分号（上面已逐个字符白名单），
+    // 且长度上限由调用方（query string）间接约束，拼接是安全的。
+    Some(format!(
+        "ORDER BY CASE WHEN c.contract_no LIKE '{prefix}%' THEN 0 ELSE 1 END, \
+         c.created_at DESC, c.id DESC"
+    ))
+}
+
+/// 按主键取合同（软删行视为不存在 → `None`）。
+pub async fn contract_find(id: Uuid) -> DbResult<Option<ContractRow>> {
+    let sql = format!(
+        "SELECT {CONTRACT_LIST_COLUMNS} {CONTRACT_JOIN} WHERE c.id = ?::uuid AND c.deleted_at IS NULL"
+    );
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(ContractRow::from_row).transpose()
+}
+
+/// 锁读合同的**状态相关列**（`SELECT … FOR UPDATE`）。
+///
+/// 为什么不用 [`contract_find`]：带 `LEFT JOIN` 的查询**不能** `FOR UPDATE`
+/// （PG 报 `FOR UPDATE cannot be applied to the nullable side of an outer join`），
+/// 所以锁读走单表 + 最小投影；事务里需要的只有状态与日期。
+///
+/// 调用方必须在事务里调（否则锁随语句结束就释放，等于没锁）。
+pub async fn contract_lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ContractStateRow>> {
+    let row = ex
+        .query_first_sql(
+            "SELECT id, contract_no, status, sign_date, start_date, end_date \
+               FROM biz_contract WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    row.as_ref()
+        .map(|row| {
+            Ok(ContractStateRow {
+                id: row.get_typed("id")?,
+                contract_no: row.get_typed("contract_no")?,
+                status: row.get_typed("status")?,
+                sign_date: row.get_typed("sign_date")?,
+                start_date: row.get_typed("start_date")?,
+                end_date: row.get_typed("end_date")?,
+            })
+        })
+        .transpose()
+}
+
+/// 锁读整行（`PUT` 合并字段用：需要旧值才能算出「没传的字段保持原值」）。
+///
+/// 与 [`contract_lock`] 的差别只是投影宽窄；同样是单表 + `FOR UPDATE`。
+pub async fn contract_lock_full(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ContractRow>> {
+    let row = ex
+        .query_first_sql(
+            format!(
+                "SELECT {CONTRACT_BASE_COLUMNS}, NULL::text AS {PARTY_B_CURRENT_ALIAS} \
+                   FROM biz_contract c WHERE c.id = ?::uuid AND c.deleted_at IS NULL FOR UPDATE"
+            ),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    row.as_ref().map(ContractRow::from_row).transpose()
+}
+
+/// `biz_seq(seq_type='CT')` 缺失时幂等补一行（正常库有 `V0195` 的种子）。
+async fn ensure_seq_row(ex: &impl SqlExecutor) -> DbResult<()> {
+    // SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列。
+    ex.exec_sql(
+        "INSERT INTO biz_seq (id, seq_type, seq_name, prefix, date_pattern, period_key, \
+                              current_no, step, separator, status, remark) \
+         SELECT ?, 'CT', '合同号', 'HT', 'yyyyMMdd', '', 0, 1, '-', 1, \
+                '合同号：HT-yyyyMMdd-000001，按天（CST）滚动' \
+          WHERE NOT EXISTS (SELECT 1 FROM biz_seq WHERE seq_type = 'CT' AND deleted_at IS NULL)"
+            .to_string(),
+        vec![Value::from(Uuid::now_v7())],
+    )
+    .await
+    .or_else(|err| match err {
+        DbError::UniqueViolation { .. } => Ok(0),
+        other => Err(other),
+    })?;
+    Ok(())
+}
+
+/// 推进 `biz_seq(seq_type='CT')` 一个号（三分支：同日累加 / 新日重置 / 时钟回拨不重置）。
+async fn bump_seq(ex: &impl SqlExecutor, period_key: &str) -> DbResult<Option<i64>> {
+    // SCOPE-EXEMPT: 同上，biz_seq 是全局取号规则字典。
+    let rows = ex
+        .query_sql(
+            "UPDATE biz_seq \
+                SET current_no = CASE WHEN period_key = ? THEN current_no + 1 \
+                                      WHEN period_key < ? THEN 1 \
+                                      ELSE current_no + 1 END, \
+                    period_key = CASE WHEN period_key < ? THEN ? ELSE period_key END, \
+                    updated_at = now() \
+              WHERE seq_type = 'CT' AND deleted_at IS NULL \
+             RETURNING current_no"
+                .to_string(),
+            vec![
+                Value::from(period_key),
+                Value::from(period_key),
+                Value::from(period_key),
+                Value::from(period_key),
+            ],
+        )
+        .await?;
+    rows.first()
+        .map(|row| row.get_typed("current_no"))
+        .transpose()
+}
+
+/// 组装合同号（`HT-{周期键}-{6 位流水}`）。
+pub fn format_contract_no(period_key: &str, no: i64) -> String {
+    format!("{NO_PREFIX}-{period_key}-{no:0NO_SEQ_WIDTH$}")
+}
+
+/// 取一个合同号（周期键按北京时间，与 PO / IN / TR 同款）。
+pub async fn next_contract_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult<String> {
+    let period_key = crate::business::erp::serial_model::period_key_of(now);
+    ensure_seq_row(ex).await?;
+    match bump_seq(ex, &period_key).await? {
+        Some(no) => Ok(format_contract_no(&period_key, no)),
+        None => Err(DbError::InvalidValue(format!(
+            "取号失败：biz_seq(seq_type='CT') 行不存在（period_key={period_key}）"
+        ))),
+    }
+}
+
+/// 插入一张合同（状态恒 `DRAFT`，单号由调用方先取好）。
+///
+/// # 参数
+///
+/// * `id` —— 先由 handler 生成（`Uuid::now_v7()`），便于插入后无需 `RETURNING`
+/// * `contract_no` —— [`next_contract_no`] 的返回值（同一事务里取）
+pub async fn contract_insert(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    contract_no: &str,
+    new: &NewContract,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "INSERT INTO biz_contract \
+            (id, contract_no, contract_name, contract_type, party_a_id, party_a_name, \
+             party_b_type, party_b_id, party_b_name, amount, currency_code, \
+             sign_date, start_date, end_date, status, owner_id, dept_id, remark, \
+             created_at, updated_at, create_by, update_by) \
+         VALUES (?::uuid, ?, ?, ?, NULLIF(?::text,'')::uuid, ?, ?, ?::uuid, ?, NULLIF(?::text,'')::numeric, ?, \
+                 NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, \
+                 ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, ?, now(), now(), \
+                 NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+            .to_string(),
+        vec![
+            Value::from(&id),
+            Value::from(contract_no.to_string()),
+            Value::from(new.contract_name.clone()),
+            Value::from(new.contract_type.clone()),
+            uuid_text(new.party_a_id),
+            Value::from(new.party_a_name.clone()),
+            Value::from(new.party_b_type.clone()),
+            Value::from(&new.party_b_id),
+            Value::from(new.party_b_name.clone()),
+            Value::from(new.amount.to_string()),
+            Value::from(new.currency_code.clone()),
+            date_text(new.sign_date),
+            date_text(new.start_date),
+            date_text(new.end_date),
+            Value::from(STATUS_DRAFT),
+            uuid_text(new.owner_id),
+            uuid_text(new.dept_id),
+            Value::from(new.remark.clone()),
+            uuid_text(new.operator),
+            uuid_text(new.operator),
+        ],
+    )
+    .await
+}
+
+/// 覆盖写可改列（`WHERE status = 'DRAFT'` 是第二道闸，防「读了 DRAFT、写时已流转」）。
+///
+/// # 返回值
+///
+/// 受影响行数：`0` = 期间状态已不是 `DRAFT`（或行被删），调用方应报冲突。
+pub async fn contract_apply(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    mut_row: &ContractMut,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_contract \
+            SET contract_name = ?, party_b_id = ?::uuid, party_b_name = ?, \
+                amount = NULLIF(?::text,'')::numeric, \
+                sign_date = NULLIF(?::text,'')::date, start_date = NULLIF(?::text,'')::date, \
+                end_date = NULLIF(?::text,'')::date, remark = ?, updated_at = now(), \
+                update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL AND status = 'DRAFT'"
+            .to_string(),
+        vec![
+            Value::from(mut_row.contract_name.clone()),
+            Value::from(&mut_row.party_b_id),
+            Value::from(mut_row.party_b_name.clone()),
+            Value::from(mut_row.amount.to_string()),
+            date_text(mut_row.sign_date),
+            date_text(mut_row.start_date),
+            date_text(mut_row.end_date),
+            Value::from(mut_row.remark.clone()),
+            uuid_text(operator),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 写状态（**只由 `contract_handler::change_status` 在状态机过闸之后调用**，
+/// 且带 `status = <旧状态>` 的 CAS 条件，防并发双写覆盖）。
+///
+/// ⚠️ 卡面写「更新 `status` + `status_changed_at`」，但 `V0195` 的 23 列里
+/// **没有 `status_changed_at`**（§2.1 明确不加「状态时间」冗余列）。因此这里只写
+/// `status` + `updated_at`；真正的「什么时候变成这个状态」以 `biz_status_log.created_at`
+/// 为准（`transition()` 在同一事务里写的，不会缺）。已写进 A2 交付说明的顺带报告。
+pub async fn contract_write_status(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_contract SET status = ?, updated_at = now(), \
+                update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::from(to.to_string()),
+            uuid_text(operator),
+            Value::from(&id),
+            Value::from(from.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 软删（写 `deleted_at`）。
+///
+/// # 返回值
+///
+/// 受影响行数：`0` = 不存在 / 已删。
+pub async fn contract_soft_delete(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    operator: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_contract SET deleted_at = now(), updated_at = now(), \
+                update_by = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL"
+            .to_string(),
+        vec![uuid_text(operator), Value::from(&id)],
+    )
+    .await
+}
+
+/// `biz_purchase_order` 是否已经有 `contract_id` 列（A3 之前没有）。
+///
+/// 这是**防御式实现**：A2 落地时 A3（采购单挂合同）还没做，直接查 `contract_id`
+/// 会让删除接口在 A3 之前**整个不可用**（列不存在 → 500）。A3 建好列后本函数返回 `true`，
+/// 引用守卫自动生效，不需要回来改代码。
+pub async fn contract_reference_column_exists(ex: &impl SqlExecutor) -> DbResult<bool> {
+    let count: i64 = ex
+        .scalar_sql(
+            "SELECT count(*) FROM information_schema.columns \
+              WHERE table_schema = 'public' AND table_name = 'biz_purchase_order' \
+                AND column_name = 'contract_id'"
+                .to_string(),
+            vec![],
+        )
+        .await?;
+    Ok(count > 0)
+}
+
+/// 引用该合同的采购单号（**未软删**的）。
+///
+/// # 返回值
+///
+/// * `Ok(None)` —— `biz_purchase_order` 还没有 `contract_id` 列（A3 未落地），守卫跳过
+/// * `Ok(Some(vec![]))` —— 列在、无引用
+/// * `Ok(Some(order_nos))` —— 有引用（最多 20 个，够用户处理；超出会在文案里提示）
+pub async fn contract_referencing_orders(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Option<Vec<String>>> {
+    if !contract_reference_column_exists(ex).await? {
+        return Ok(None);
+    }
+    // SCOPE-EXEMPT: 按合同主键精确查引用单据，不是列表查询，不涉及数据范围。
+    let rows = ex
+        .query_sql(
+            "SELECT order_no FROM biz_purchase_order \
+              WHERE contract_id = ?::uuid AND deleted_at IS NULL \
+              ORDER BY order_no LIMIT 20"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await?;
+    let mut numbers = Vec::with_capacity(rows.len());
+    for row in &rows {
+        numbers.push(row.get_typed::<String>("order_no")?);
+    }
+    Ok(Some(numbers))
+}
+
+/// `Option<Uuid>` → 参数（空绑定空串，SQL 侧 `NULLIF(?::text,'')::uuid` 转 NULL）。
+fn uuid_text(value: Option<Uuid>) -> Value {
+    Value::from(value.map(|id| id.to_string()))
+}
+
+/// `Option<NaiveDate>` → 参数（同上，SQL 侧 `NULLIF(?::text,'')::date`）。
+fn date_text(value: Option<NaiveDate>) -> Value {
+    Value::from(value.map(|date| date.format("%Y-%m-%d").to_string()))
+}
+
+/// 合同状态机的边是否与注册表一致（**配置漂移的运行时守卫**，也被单测直接调用）。
+///
+/// `transition()` 自己也会核对（不一致 500）；这里给出 `bool` 是为了让
+/// `contract_handler` 的单测能在**不连库**的情况下把「A1 改了注册表、A2 没跟上」钉死。
+pub fn legal_edges_match_registry() -> bool {
+    state_machine::Entity::Contract.edges() == &LEGAL_EDGES[..]
 }
 
 // ==================== 单测（真库用例需 ERP_DB_URL，未设置则跳过） ====================

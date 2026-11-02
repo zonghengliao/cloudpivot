@@ -42,6 +42,9 @@ pub(crate) const ENTITY_TABLES: &[(&str, &str)] = &[
     ("PAYABLE", "biz_payable"),
     ("VOUCHER", "biz_voucher"),
     ("ACCOUNTING_PERIOD", "biz_accounting_period"),
+    // A2：合同状态流转也写 `biz_status_log`（`entity_type = 'CONTRACT'`），
+    // 夹具清场不登记它就会在测试库里攒孤儿行（每跑一次多几条，永远收不走）。
+    ("CONTRACT", "biz_contract"),
 ];
 
 /// `entity_type` 对应的单据表；未登记的实体直接 panic（别静默跳过 —— 那等于「断言永远绿」）。
