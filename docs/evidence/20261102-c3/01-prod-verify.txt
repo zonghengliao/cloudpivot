@@ -1,0 +1,28 @@
+==============================================================
+C3 残留审计  db=cloudpivot@127.0.0.1:5432  只读
+目标测试流程: d5_281866,d5_282996,e2e_cs_084913,p12_canvas_demo
+标准流程(8):  payable_cancel,payable_pay,po_approve,stock_in_cancel,stock_in_post,stock_transfer,task_accept,voucher_reverse
+==============================================================
+---- C1 目标测试流程在 biz_flow_def 的行数（含软删）
+[PASS] C1 目标测试流程定义残留 = 0（0）
+---- C2 存活流程定义（deleted_at is null）
+[PASS] C2a 存活流程定义条数 = 8（8）
+[PASS] C2b 存活流程定义缺标准流程 = 0（0）
+[PASS] C2c 存活流程定义多出标准之外的 = 0（0）
+        实际存活集合: payable_cancel,payable_pay,po_approve,stock_in_cancel,stock_in_post,stock_transfer,task_accept,voucher_reverse
+---- C3 目标测试流程的实例行数（按 flow_code 与 def_id 双口径）
+[PASS] C3 目标测试流程实例残留 = 0（0）
+---- C4 目标测试流程的待办行数
+[PASS] C4 目标测试流程待办残留 = 0（0）
+---- C5 PENDING 待办的可追溯性（活定义 + 活实例 + 实例非终态）
+[PASS] C5 PENDING 待办中不可追溯的 = 0（PENDING 总数 2）（0）
+---- C6 孤儿待办（实例终态 + 待办 PENDING）
+[PASS] C6 孤儿待办 = 0（0）
+---- C7 非终态实例的流程定义必须存活
+[PASS] C7 定义已删/不存在但实例还在跑 = 0（0）
+---- C8 PENDING 待办清单（判决证据）
+        01a19c2b-077a-75c0-b676-e97d1ab7f818 | po_approve | FLW-20261102-94417B93 | PO-20261102-000001 | PENDING | 老六测试号 | n_dept | 2026-11-02 20:10:28.079604+08
+        01a19c2b-0778-7016-b599-cdd03e1b5abd | po_approve | FLW-20261102-94417B93 | PO-20261102-000001 | PENDING | Henry.Liao | n_dept | 2026-11-02 20:10:28.079604+08
+==============================================================
+结果：9 通过 / 0 失败
+==============================================================

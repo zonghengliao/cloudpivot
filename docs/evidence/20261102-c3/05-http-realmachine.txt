@@ -1,0 +1,10 @@
+[HTTP] POST /api/system/auth/login -> 200 code=0 msg=None
+       登录成功 user=admin roles=None
+
+[HTTP] GET /api/business/flow/def/page -> 200 total=8 返回条数=8
+       列表 flow_code: payable_cancel,payable_pay,po_approve,stock_in_cancel,stock_in_post,stock_transfer,task_accept,voucher_reverse
+       测试/演示流程条目: 无
+
+[HTTP] GET /api/business/flow/task/todo (admin) -> 200 total=0
+
+[HTTP] GET /api/business/flow/instance/my (admin) -> 200 total=11 首页 flow_code=['po_approve', 'stock_in_post']
