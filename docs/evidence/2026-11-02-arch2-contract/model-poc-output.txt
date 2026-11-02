@@ -1,0 +1,236 @@
+# ARCH-2 · biz_contract 数据模型 POC —— 真实执行日志（工具输出，非手工编写）
+#
+# 采集时间: 2026-11-02 11:46 CST
+# PG: PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) aarch64
+# 探针库: arch2_contract_poc —— 由 `pg_dump --schema-only cloudpivot_3b_sql` 重建（93 张表、82 个外键、0 个触发器、biz_contract 原不存在）
+# 仓库迁移号上限: V0192（开工实测；V0193 无任何文件占用）
+# 脚本: docs/evidence/2026-11-02-arch2-contract/model-poc.sql（psql -v ON_ERROR_STOP=1，exit=0）
+Pager usage is off.
+
+══════════════ P0 前置事实（实测，非印象）══════════════
+         db         |                                                                  pg                                                                   
+--------------------+---------------------------------------------------------------------------------------------------------------------------------------
+ arch2_contract_poc | PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) on aarch64-unknown-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit
+(1 row)
+
+ biz_contract_absent 
+---------------------
+ t
+(1 row)
+
+ triggers_in_schema 
+--------------------
+                  0
+(1 row)
+
+ fk_total 
+----------
+       82
+(1 row)
+
+ tbl | fk_count 
+-----+----------
+(0 rows)
+
+         tbl         |         col          |      ref      
+---------------------+----------------------+---------------
+ biz_material_serial | warehouse_id         | biz_warehouse
+ biz_stock_transfer  | from_warehouse_id    | biz_warehouse
+ biz_stock_transfer  | to_warehouse_id      | biz_warehouse
+ biz_stock_transfer  | transit_warehouse_id | biz_warehouse
+(4 rows)
+
+     table_name     |  column_name  | data_type | numeric_precision | numeric_scale | character_maximum_length 
+--------------------+---------------+-----------+-------------------+---------------+--------------------------
+ biz_payable        | amount        | numeric   |                18 |             4 |                         
+ biz_payable        | currency_code | character |                   |               |                        3
+ biz_purchase_order | currency_code | character |                   |               |                        3
+ biz_purchase_order | total_amount  | numeric   |                18 |             4 |                         
+ biz_stock_in       | currency_code | character |                   |               |                        3
+ biz_stock_in       | total_amount  | numeric   |                18 |             4 |                         
+(6 rows)
+
+      indexname       |                                                        indexdef                                                        
+----------------------+------------------------------------------------------------------------------------------------------------------------
+ uk_biz_po_no         | CREATE UNIQUE INDEX uk_biz_po_no ON public.biz_purchase_order USING btree (order_no) WHERE (deleted_at IS NULL)
+ uk_biz_seq_type      | CREATE UNIQUE INDEX uk_biz_seq_type ON public.biz_seq USING btree (seq_type) WHERE (deleted_at IS NULL)
+ uk_biz_supplier_code | CREATE UNIQUE INDEX uk_biz_supplier_code ON public.biz_supplier USING btree (supplier_code) WHERE (deleted_at IS NULL)
+(3 rows)
+
+
+══════════════ P1 执行 DDL（合同主表 + 取号规则）══════════════
+CREATE TABLE
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+INSERT 0 1
+ columns 
+---------
+      23
+(1 row)
+
+ check_constraints 
+-------------------
+                 9
+(1 row)
+
+        indexname         |                                                             indexdef                                                             
+--------------------------+----------------------------------------------------------------------------------------------------------------------------------
+ biz_contract_pkey        | CREATE UNIQUE INDEX biz_contract_pkey ON public.biz_contract USING btree (id)
+ idx_biz_contract_end     | CREATE INDEX idx_biz_contract_end ON public.biz_contract USING btree (end_date) WHERE (deleted_at IS NULL)
+ idx_biz_contract_party_b | CREATE INDEX idx_biz_contract_party_b ON public.biz_contract USING btree (party_b_id, sign_date DESC) WHERE (deleted_at IS NULL)
+ idx_biz_contract_status  | CREATE INDEX idx_biz_contract_status ON public.biz_contract USING btree (status) WHERE (deleted_at IS NULL)
+ uk_biz_contract_no       | CREATE UNIQUE INDEX uk_biz_contract_no ON public.biz_contract USING btree (contract_no) WHERE (deleted_at IS NULL)
+(5 rows)
+
+ seq_type | prefix | date_pattern 
+----------+--------+--------------
+ CT       | HT     | yyyyMMdd
+(1 row)
+
+ contract_fk_targets 
+---------------------
+                   0
+(1 row)
+
+
+══════════════ P2 DB 级校验逐条触发（每条都必须被拦）══════════════
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-01 PASS  非枚举类型被拦 [23514] ck_biz_contract_type
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-02 PASS  非枚举乙方类型被拦 [23514] ck_biz_contract_party_b_type
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-03a PASS  采购合同配 CUSTOMER 被拦 [23514] ck_biz_contract_type_party_pair
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-03b PASS  销售合同配 SUPPLIER 被拦 [23514] ck_biz_contract_type_party_pair
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-04a PASS  amount=0 被拦 [23514] ck_biz_contract_amount
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-04b PASS  amount<0 被拦 [23514] ck_biz_contract_amount
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-05 PASS  end_date<start_date 被拦 [23514] ck_biz_contract_date_order
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-06 PASS  非法状态被拦 [23514] ck_biz_contract_status
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-07 PASS  小写币种被拦 [23514] ck_biz_contract_currency
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-08 PASS  SIGNED 缺签日/期限被拦 [23514] ck_biz_contract_signed_dates
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  V-09 PASS  合同号含空白被拦 [23514] ck_biz_contract_no_charset
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:272: NOTICE:  ---- 以上 10 条 CHECK 全部按预期拦截 ----
+DO
+
+══════════════ P3 软删除下的唯一约束语义 ══════════════
+INSERT 0 2
+INSERT 0 1
+psql:docs/evidence/2026-11-02-arch2-contract/model-poc.sql:299: NOTICE:  P3-1 PASS  活跃行重号被拦 [23505] uk_biz_contract_no
+DO
+UPDATE 1
+INSERT 0 1
+    contract_no     |    contract_name     | is_deleted 
+--------------------+----------------------+------------
+ HT-20261102-000001 | 一号采购合同         | t
+ HT-20261102-000001 | 一号采购合同（重签） | f
+(2 rows)
+
+
+══════════════ P4 状态机：DB 拦不住，必须应用层把门（反证）══════════════
+INSERT 0 1
+UPDATE 1
+                                                   note                                                   |  status   
+----------------------------------------------------------------------------------------------------------+-----------
+ P4 结论：DRAFT→COMPLETED 直改库成功（DB 无 CHECK 可表达边）⇒ 边表必须由应用层 state_machine 统一入口把关 | COMPLETED
+(1 row)
+
+
+══════════════ P5 合同换乙方：下游偏移量与可检出性（20,000 张采购单）══════════════
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+ALTER TABLE
+INSERT 0 0
+INSERT 0 1
+INSERT 0 20000
+INSERT 0 2000
+INSERT 0 2000
+ANALYZE
+ANALYZE
+ANALYZE
+-- 变更前：漂移应为 0 --
+ po_drift_before 
+-----------------
+               0
+(1 row)
+
+-- 执行「合同换乙方」（本卡设计上只允许 DRAFT 阶段改，这里模拟绕过守卫的直改库）--
+UPDATE 1
+-- 变更后：① 采购单快照 vs 合同真相 = 20,000 行偏移（SNAPSHOT 合法历史）--
+ po_drift_after 
+----------------
+          20000
+(1 row)
+
+-- 变更后：② 入库单 vs 其采购单 = 0 行（COPY 链内部仍然自洽，不算缺陷）--
+ in_vs_po_defect 
+-----------------
+               0
+(1 row)
+
+-- 变更后：③ 应付单 vs 其入库单 = 0 行 --
+ payable_vs_in_defect 
+----------------------
+                    0
+(1 row)
+
+-- 人为打断一环（1 张入库单的供应商被改成供应商B）：必须被检出且只检出 1 行 --
+UPDATE 1
+ in_vs_po_defect_after_break 
+-----------------------------
+                           1
+(1 row)
+
+-- 巡检 SQL 的执行计划（20,000 行级，确认不全表笛卡尔积）--
+                                                    QUERY PLAN                                                    
+------------------------------------------------------------------------------------------------------------------
+ Hash Join (actual time=0.019..5.525 rows=20000.00 loops=1)
+   Hash Cond: (o.contract_id = c.id)
+   Join Filter: (o.supplier_id IS DISTINCT FROM c.party_b_id)
+   Buffers: shared hit=543
+   ->  Seq Scan on biz_purchase_order o (actual time=0.007..3.149 rows=20000.00 loops=1)
+         Filter: (deleted_at IS NULL)
+         Buffers: shared hit=541
+   ->  Hash (actual time=0.010..0.011 rows=3.00 loops=1)
+         Buckets: 1024  Batches: 1  Memory Usage: 9kB
+         Buffers: shared hit=2
+         ->  Index Scan using idx_biz_contract_end on biz_contract c (actual time=0.007..0.008 rows=3.00 loops=1)
+               Index Searches: 1
+               Buffers: shared hit=2
+ Planning:
+   Buffers: shared hit=1
+ Planning Time: 0.107 ms
+ Execution Time: 6.208 ms
+(17 rows)
+
+-- 孤儿乙方巡检：SUPPLIER 分支指向不存在的供应商 --
+INSERT 0 1
+    contract_no     |              party_b_id              
+--------------------+--------------------------------------
+ HT-20261102-000101 | deadbeef-0000-4000-8000-000000000000
+(1 row)
+
+
+══════════════ P6 汇总（供文档引用）══════════════
+ cols | checks | idx_incl_pk | seeded_po | seeded_in | seeded_payable 
+------+--------+-------------+-----------+-----------+----------------
+   23 |      9 |           5 |     20000 |      2000 |           2000
+(1 row)
+
