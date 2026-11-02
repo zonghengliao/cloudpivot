@@ -117,6 +117,27 @@
 
         <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
 
+        <template #purchase_type="{ row }">
+          <t-tag
+            size="small"
+            variant="outline"
+            :theme="purchaseTypeTheme(row.purchase_type)"
+            :data-testid="`purchase-type-${row.order_no}`"
+          >
+            {{ purchaseTypeLabel(row.purchase_type) }}
+          </t-tag>
+        </template>
+
+        <!-- A6：合同号读**快照列**（不是实时 JOIN）；现货单没有合同 → 显示「—」 -->
+        <template #contract_no_snapshot="{ row }">
+          <span
+            v-if="row.contract_no_snapshot"
+            class="mono"
+            :data-testid="`purchase-contract-no-${row.order_no}`"
+          >{{ row.contract_no_snapshot }}</span>
+          <span v-else class="muted">—</span>
+        </template>
+
         <template #order_date="{ row }">
           <span class="muted">{{ shortDate(row.order_date) }}</span>
         </template>
@@ -229,6 +250,61 @@
       </div>
 
       <t-form :data="form" label-width="84px">
+        <!--
+          A6：**先选采购类型**（放在供应商上方，顺序即语义）。
+          类型决定供应商从哪来：合同采购 = 合同乙方（只读）/ 现货采购 = 手选。
+          编辑态整组只读 —— 后端改类型直接 409，别让用户白点一次。
+        -->
+        <div class="form-row">
+          <t-form-item
+            label="采购类型"
+            name="purchase_type"
+            class="form-row__col"
+            :help="isPurchaseTypeLocked(form) ? '建单后不允许改采购类型（后端同样禁止）' : ''"
+          >
+            <t-radio-group
+              :value="form.purchase_type"
+              :disabled="isPurchaseTypeLocked(form)"
+              data-testid="purchase-type"
+              @change="handleSwitchPurchaseType"
+            >
+              <t-radio :value="PURCHASE_TYPE_CONTRACT" data-testid="purchase-type-contract">合同采购</t-radio>
+              <t-radio :value="PURCHASE_TYPE_SPOT" data-testid="purchase-type-spot">现货采购</t-radio>
+            </t-radio-group>
+          </t-form-item>
+
+          <!-- 合同采购才有合同选择器；现货采购整块不渲染（不是置灰 —— 灰控件会让人以为「本该能点」） -->
+          <t-form-item
+            v-if="isContractPurchase(form)"
+            label="合同"
+            name="contract_id"
+            class="form-row__col"
+            :status="formErrors.contract_id ? 'error' : undefined"
+            :tips="formErrors.contract_id"
+          >
+            <!-- 编辑态 + 合同采购：合同只读且不给换（换合同等于洗掉已有单据的关联） -->
+            <t-input
+              v-if="isContractLocked(form)"
+              :value="contractNoText(form)"
+              readonly
+              :placeholder="'—'"
+              data-testid="purchase-contract-readonly"
+            />
+            <t-select
+              v-else
+              v-model="form.contract_id"
+              :options="contractOptions"
+              placeholder="选择合同（只列已签署 / 已生效的采购合同）"
+              filterable
+              data-testid="purchase-contract"
+              @change="handleContractChange"
+            />
+            <p v-if="form.contract_no" class="field-note" data-testid="purchase-contract-no">
+              合同号：<span class="mono">{{ form.contract_no }}</span>
+            </p>
+          </t-form-item>
+        </div>
+
         <div class="form-row">
           <t-form-item
             label="供应商"
@@ -237,7 +313,18 @@
             :status="formErrors.supplier_id ? 'error' : undefined"
             :tips="formErrors.supplier_id"
           >
+            <!-- 合同采购：供应商只读，值来自合同乙方（不给编辑，避免与合同口径打架） -->
+            <div v-if="isContractPurchase(form)" class="readonly-field">
+              <t-input
+                :value="contractSupplierText"
+                readonly
+                :placeholder="'选择合同后自动带出乙方'"
+                data-testid="purchase-supplier-readonly"
+              />
+              <p class="field-note" data-testid="purchase-supplier-hint">{{ supplierHintOf(form) }}</p>
+            </div>
             <t-select
+              v-else
               v-model="form.supplier_id"
               :options="supplierOptions"
               placeholder="选择供应商"
@@ -512,6 +599,24 @@
         </div>
 
         <div class="detail__grid">
+          <!-- A6：采购类型 + 合同号（合同号可点 → 合同详情；与下方「审批单 FLW-xxx」链接并存，互不影响） -->
+          <div class="detail-field">
+            <span class="detail-field__label">采购类型</span>
+            <span class="detail-field__value" data-testid="purchase-detail-type">{{ purchaseTypeLabel(detail.purchase_type) }}</span>
+          </div>
+          <div class="detail-field">
+            <span class="detail-field__label">合同号</span>
+            <span class="detail-field__value">
+              <t-link
+                v-if="detail.contract_no"
+                theme="primary"
+                class="mono"
+                data-testid="purchase-detail-contract-link"
+                @click="openContract(detail.contract_id)"
+              >{{ detail.contract_no }}</t-link>
+              <span v-else class="muted">—</span>
+            </span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">供应商</span><span class="detail-field__value">{{ supplierNameOf(detail.supplier_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.warehouse_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">下单日期</span><span class="detail-field__value">{{ detail.order_date }}</span></div>
@@ -526,30 +631,10 @@
         </div>
 
         <!--
-          P1-FIX-2：审批进度（照抄收货单 P16 / 应付单 P17 的做法）。
-          进度条复用 `FlowProgress`，节点 + 审批人明细都只来自 `GET /business/flow/instance/{id}`；
-          拉不到节点就降级成单号链接（不报错、不弹窗，详情照常看）。
+          P1-FIX-3：审批进度挪到抽屉最底部（明细之后）。
+          用户操作流是「看单头（含审批单号）→ 扫明细 → 最后才看谁批的/批到哪一步」，
+          时间线夹在基本信息与收货进度之间会把明细挤下去，想看审批还得在中间找。
         -->
-        <template v-if="hasApprovalProgress(approvalProgress)">
-          <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
-          <FlowProgress
-            :nodes="approvalProgress.nodes"
-            :tasks="approvalProgress.tasks"
-            data-testid="purchase-detail-approval-progress"
-          />
-        </template>
-        <div
-          v-else-if="approvalFallback"
-          class="approval-fallback"
-          data-testid="purchase-detail-approval-fallback"
-        >
-          <span class="muted">审批进度暂时拉不到，</span>
-          <t-link theme="primary" @click="openApprovalInstance(detail.approval_instance_id)">
-            {{ approvalFallback.label }} {{ approvalFallback.no }}
-          </t-link>
-          <span class="muted">（点开看审批单详情）</span>
-        </div>
-
         <!-- D4/F6：收货进度（已收 X / 订单 Y）+ 已生成的收货单可反查 -->
         <div v-if="pending" class="section-title" data-testid="purchase-receive-progress">
           收货进度：已收 {{ formatQty(pendingTotal.received) }} / 订单 {{ formatQty(pendingTotal.ordered) }}
@@ -590,6 +675,38 @@
             </span>
           </template>
         </t-table>
+
+        <!--
+          P1-FIX-3：完整审批详情（节点时间线 + 审批人 + 时间 + 意见）放最底部。
+          进度条复用 `FlowProgress`，节点 + 审批人明细都只来自 `GET /business/flow/instance/{id}`；
+          拉不到节点就降级成一句提示 + 单号链接（不报错、不弹窗，详情照常看）。
+        -->
+        <template v-if="hasApprovalProgress(approvalProgress)">
+          <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
+          <FlowProgress
+            :nodes="approvalProgress.nodes"
+            :tasks="approvalProgress.tasks"
+            data-testid="purchase-detail-approval-progress"
+          />
+        </template>
+        <div
+          v-else-if="approvalFallback"
+          class="approval-fallback"
+          data-testid="purchase-detail-approval-fallback"
+        >
+          <span class="muted">审批进度暂时拉不到，</span>
+          <t-link theme="primary" @click="openApprovalInstance(detail.approval_instance_id)">
+            {{ approvalFallback.no }}
+          </t-link>
+        </div>
+        <!-- 没挂审批单的老单（PO-000004~000008 这类）：给一句空态说明，别留白也别报错 -->
+        <div
+          v-else
+          class="approval-fallback"
+          data-testid="purchase-detail-approval-empty-state"
+        >
+          <span class="muted">未发起审批，暂无审批过程</span>
+        </div>
       </div>
     </t-drawer>
   </div>
@@ -609,6 +726,7 @@ import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-n
 import {
   createPurchaseOrder,
   deletePurchaseOrder,
+  fetchContractPage,
   fetchMaterialPage,
   fetchPurchaseOrderDetail,
   fetchPurchaseOrderItems,
@@ -619,11 +737,13 @@ import {
   submitPurchaseOrderApproval,
   updatePurchaseOrder,
   updatePurchaseOrderStatus,
+  type ContractRow,
   type MaterialRow,
   type PendingReceiveRes,
   type PriceMode,
   type PurchaseOrderItemLine,
   type PurchaseOrderRow,
+  type PurchaseType,
   type Supplier,
   type Warehouse,
 } from '@/api/business/erp';
@@ -649,11 +769,17 @@ import {
   MAX_REMARK,
   PURCHASE_PAGE_SIZE,
   PURCHASE_STATUS_FILTER_OPTIONS,
+  PURCHASE_TYPE_CONTRACT,
+  PURCHASE_TYPE_SPOT,
+  applyContractToForm,
+  applyPurchaseType,
   availablePurchaseActions,
   buildPurchasePayload,
   buildPurchaseQuery,
   buildStatusPayload,
   computeTotals,
+  contractNoText,
+  contractOptionLabel,
   dash,
   detailToForm,
   emptyPurchaseFilter,
@@ -661,7 +787,10 @@ import {
   emptyPurchaseItem,
   formatMoney,
   formatQty,
+  isContractLocked,
+  isContractPurchase,
   isPurchaseFiltered,
+  isPurchaseTypeLocked,
   lineAmountsOfItem,
   lineCountText,
   priceColumnTitle,
@@ -670,8 +799,12 @@ import {
   priceModeTip,
   purchaseStatusLabel,
   purchaseStatusTheme,
+  purchaseTypeLabel,
+  purchaseTypeTheme,
+  selectableContracts,
   shortDate,
   shortId,
+  supplierHintOf,
   switchConfirmMessage,
   switchPriceMode,
   toNumber,
@@ -704,6 +837,10 @@ const columns: PrimaryTableCol[] = [
     disabled: (options: { row: unknown }) => !isSelectable(options.row as PurchaseOrderRow),
   },
   { colKey: 'order_no', title: '采购单号', width: 250 },
+  // A6：采购类型列（合同采购 / 现货采购）—— 一行先看清供应商从哪来
+  { colKey: 'purchase_type', title: '采购类型', width: 100 },
+  // A6：合同号列**只读快照列** `contract_no_snapshot`（R3-a / AP-6），不为显示去实时 JOIN 合同表
+  { colKey: 'contract_no_snapshot', title: '合同号', width: 170, ellipsis: true },
   { colKey: 'supplier_id', title: '供应商', minWidth: 160, ellipsis: true },
   { colKey: 'order_date', title: '日期', width: 100 },
   // ★ 金额列标题带「(价税合计)」—— PRD 硬要求，避免两人对着同一单说不同数
@@ -748,6 +885,7 @@ const taxRateOptions = [
  * 金额、备注、日期都是一次性的，记了只会让下次新建带出错的数字。
  */
 const MEMORY_FIELDS: readonly (keyof PurchaseFormState)[] = [
+  'purchase_type',
   'supplier_id',
   'warehouse_id',
   'price_mode',
@@ -756,6 +894,7 @@ const MEMORY_FIELDS: readonly (keyof PurchaseFormState)[] = [
 
 /** 记忆字段的中文名（提示条「已带出上次的供应商、仓库」） */
 const MEMORY_LABELS: Record<string, string> = {
+  purchase_type: '采购类型',
   supplier_id: '供应商',
   warehouse_id: '仓库',
   price_mode: '金额口径',
@@ -905,6 +1044,13 @@ const memoryLabels = ref<string[]>([]);
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
 const materials = ref<MaterialRow[]>([]);
+/**
+ * 可下单的合同（A6）：`GET /erp/contract/page` 拉一页全量再本地过滤。
+ *
+ * 过滤口径写在 `selectableContracts`（采购类 + `SIGNED`/`ACTIVE`），与后端
+ * `contract_model::USABLE_FOR_ORDER` 同源；失败不影响建单页其它字段（下拉为空 + 提示）。
+ */
+const contracts = ref<ContractRow[]>([]);
 
 /** 是否处于筛选态 */
 const filtered = computed(() => isPurchaseFiltered(filter));
@@ -923,6 +1069,27 @@ const warehouseOptions = computed(() =>
 const materialOptions = computed(() =>
   materials.value.map((item) => ({ label: `${item.material_name}（${item.material_code}）`, value: item.id })),
 );
+
+/**
+ * 合同下拉（A6）：只列可下单的采购合同，文案 = 合同号 + 名称 + 乙方（+ 合同总额）。
+ *
+ * 卡面要的「剩余可用金额」后端列表接口没给（无已下单额 / 剩余额聚合字段），
+ * 这里如实显示**合同总额**并写明「合同总额」，不冒充剩余额度。
+ */
+const contractOptions = computed(() =>
+  selectableContracts(contracts.value).map((item) => ({ label: contractOptionLabel(item), value: item.id })),
+);
+
+/** 合同采购时供应商的显示值：合同乙方名 → 供应商主档名 → 占位提示 */
+const contractSupplierText = computed(() => {
+  if (form.contract_supplier_name) {
+    return form.contract_supplier_name;
+  }
+  if (form.supplier_id) {
+    return supplierNameOf(form.supplier_id);
+  }
+  return '';
+});
 
 /** 分页器（服务端分页） */
 const pagination = computed(() => ({
@@ -992,14 +1159,46 @@ async function loadOrders(page: number = current.value): Promise<void> {
 
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
-  const [supplierList, warehousePage, materialPage] = await Promise.all([
+  const [supplierList, warehousePage, materialPage, contractPage] = await Promise.all([
     fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]),
     fetchWarehousePage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
     fetchMaterialPage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
+    // A6：合同下拉的数据源（只取一页，过滤在前端做 —— 列表接口不支持「可下单」筛选）
+    fetchContractPage({ page: 1, page_size: 100, contract_type: 'PURCHASE' }).catch(() => null),
   ]);
   suppliers.value = supplierList;
   warehouses.value = warehousePage?.list ?? [];
   materials.value = materialPage?.list ?? [];
+  contracts.value = contractPage?.list ?? [];
+}
+
+/**
+ * 切换采购类型（A6）：就地清掉另一条路的字段，并清相关校验提示。
+ *
+ * 不清的话会出现「选了现货采购却带着 contract_id 提交」→ 后端 400，
+ * 或者「切回合同采购但供应商还是上次手填的那个」→ 供应商与合同对不上。
+ */
+function handleSwitchPurchaseType(value: unknown): void {
+  const next: PurchaseType = value === PURCHASE_TYPE_CONTRACT ? PURCHASE_TYPE_CONTRACT : PURCHASE_TYPE_SPOT;
+  applyPurchaseType(form, next);
+  delete formErrors.value.contract_id;
+  delete formErrors.value.supplier_id;
+}
+
+/** 选中合同（A6）：把乙方灌进供应商字段（只读展示 + 提交时由服务端再次派生） */
+function handleContractChange(value: unknown): void {
+  const contractId = typeof value === 'string' ? value : '';
+  const hit = contracts.value.find((item) => item.id === contractId);
+  if (!hit) {
+    // 清空选择：合同与供应商一起清，别留一个孤儿供应商
+    form.contract_id = '';
+    form.contract_no = '';
+    form.contract_supplier_name = '';
+    form.supplier_id = '';
+    return;
+  }
+  applyContractToForm(form, hit);
+  delete formErrors.value.contract_id;
 }
 
 /** 查询（回第一页） */
@@ -1089,6 +1288,13 @@ function applyCreateDefaults(source: Partial<PurchaseFormState> = {}): void {
   );
   // 只写记忆字段：日期 / 明细 / 备注保持刚 reset 的系统默认
   Object.assign(form, pickFields(resolved, MEMORY_FIELDS));
+  // 合同采购的供应商由合同乙方带出 —— 记忆里的供应商只留给现货采购，别让它在合同单里「冒充」
+  if (isContractPurchase(form)) {
+    form.supplier_id = '';
+    form.contract_id = '';
+    form.contract_no = '';
+    form.contract_supplier_name = '';
+  }
   memoryLabels.value = formMemory.labelsOf(source);
 }
 
@@ -1314,6 +1520,22 @@ function openApprovalInstance(instanceId: string | null): void {
     return;
   }
   void router.push({ path: `/flow/instance/${instanceId}` });
+}
+
+/** 合同管理页路径（A5 建的根级页面，`business/erp/contract`） */
+const CONTRACT_PATH = '/business/erp/contract';
+
+/**
+ * 详情里的合同号点击 → 合同详情（A6）。
+ *
+ * 带 `?contract_id=` 过去，合同页认这个参数会直开详情抽屉（A5 页面已支持）；
+ * 没有 id 就没有链接可点，所以这里空值直接忽略，不跳一个空列表。
+ */
+function openContract(contractId: string | null): void {
+  if (!contractId) {
+    return;
+  }
+  void router.push({ path: CONTRACT_PATH, query: { contract_id: contractId } });
 }
 /** 抽屉可见 */
 const detailVisible = ref(false);
@@ -1821,12 +2043,12 @@ onMounted(() => {
   line-height: 1.5;
 }
 
-/* P1-FIX-2：审批进度拉不到时的降级行（只有单号链接，不报错） */
+/* P1-FIX-3：审批进度拉不到时的降级行（抽屉最底部：一句提示 + 单号链接） */
 .approval-fallback {
   display: flex;
   gap: 4px;
   align-items: center;
-  margin: 4px 0 10px;
+  margin: 16px 0 4px;
   font-size: 12px;
 }
 
@@ -1865,5 +2087,33 @@ onMounted(() => {
   font-size: 13px;
   font-weight: 600;
   color: var(--td-text-color-primary);
+}
+
+/* ==================== A6 采购类型 / 合同 ==================== */
+
+/* 只读字段下面那行说明（「供应商来自合同乙方，如需更换请改合同」） */
+.field-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-color-placeholder);
+}
+
+.readonly-field {
+  width: 100%;
+
+  /*
+   * 只读字段视觉上也要「灰」：TDesign 的 readonly `<t-input>` 默认仍是白底，
+   * 用户会当成可编辑框去点。这里给只读区一个浅底色 + 默认光标，
+   * 「供应商由合同/采购单带出」这件事在视觉上也能一眼看出来（不只是功能只读）。
+   */
+  :deep(.t-input),
+  :deep(.t-select__wrap) {
+    background-color: var(--td-bg-color-container-hover);
+  }
+
+  :deep(input) {
+    cursor: default;
+  }
 }
 </style>

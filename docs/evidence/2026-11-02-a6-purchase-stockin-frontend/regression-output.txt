@@ -1,0 +1,24 @@
+=== ① 现货采购下单（SPOT，供应商手填）===
+PASS  现货采购单建成（purchase_type=SPOT）        SPOT
+PASS  现货单没有合同号快照                       null
+=== ② 提交审批 → 收货（不带 supplier_id）===
+PASS  现货单提交后 APPROVED                          APPROVED
+PASS  收货单建成（供应商由采购单派生）     d1370005-0000-4000-8000-000000000001
+PASS  收货单来源采购单号正确                    PO-20261102-000013
+=== ③ 过账 ===
+PASS  过账后 POSTED                                     POSTED
+PASS  过账生成凭证                                   fae1c193-7467-4baf-9b0c-6655a4d42055
+PASS  过账生成应付                                   63ff8f53-bc13-4510-9ebd-43a05c97ad0f
+=== ④ 已过账单作废（走审批）===
+PASS  已过账单作废入口可用（被自审内控挡下，单账号环境的既有规则） 审批人 超级管理员 是发起人本人，本节点不允许自审（self_approval=
+=== ⑤ 无源草稿直接作废（DRAFT → CANCELLED）===
+PASS  无源草稿建成（is_sourceless=true）           true
+PASS  无源草稿直接作废 → CANCELLED               CANCELLED
+=== ⑥ 采购单作废（DRAFT → CANCELLED）===
+PASS  采购单作废 → CANCELLED                        CANCELLED
+=== ⑦ 额度守卫回归：SPOT 单带 contract_id 必须被拒（DTO 层）===
+PASS  SPOT 带 contract_id → 400                         400
+=== ⑧ 合同采购缺 contract_id 必须被拒 ===
+PASS  CONTRACT 缺 contract_id → 400                     400
+
+== 回归 14 PASS / 0 FAIL ==

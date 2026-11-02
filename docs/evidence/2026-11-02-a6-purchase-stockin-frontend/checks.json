@@ -1,0 +1,275 @@
+{
+  "base": "http://127.0.0.1:5216",
+  "total": 49,
+  "passed": 49,
+  "failed": [],
+  "checks": [
+    {
+      "name": "15a 登录（真实 token）",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "15b 采购单列表打开（非 404）",
+      "ok": true,
+      "detail": "采购订单 - 云枢 CloudPivot"
+    },
+    {
+      "name": "15c 新建默认「合同采购」",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "15d 合同采购时出现合同选择器",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "15e 合同采购时供应商是只读框（readonly 属性在）",
+      "ok": true,
+      "detail": "readonly="
+    },
+    {
+      "name": "15f 供应商字段挂「来自合同乙方，如需更换请改合同」说明",
+      "ok": true,
+      "detail": "供应商来自合同乙方，如需更换请改合同"
+    },
+    {
+      "name": "15g 选中合同 → 供应商自动带出乙方名",
+      "ok": true,
+      "detail": "示例供应商（种子）"
+    },
+    {
+      "name": "15h 合同号在表单上可见",
+      "ok": true,
+      "detail": "合同号：HT-20261102-000023"
+    },
+    {
+      "name": "15i 保存合同采购单接口 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "15j 服务端回填 contract_no_snapshot（合同号快照）",
+      "ok": true,
+      "detail": "HT-20261102-000023"
+    },
+    {
+      "name": "15k 采购类型落库 = CONTRACT",
+      "ok": true,
+      "detail": "CONTRACT"
+    },
+    {
+      "name": "16a 列表显示「合同采购」",
+      "ok": true,
+      "detail": "合同采购"
+    },
+    {
+      "name": "16b 列表合同号列 = 快照合同号",
+      "ok": true,
+      "detail": "HT-20261102-000023"
+    },
+    {
+      "name": "17a 详情采购类型 = 合同采购",
+      "ok": true,
+      "detail": "合同采购"
+    },
+    {
+      "name": "17b 详情底部仍有审批过程区块（进度 / 降级 / 空态三选一）",
+      "ok": true,
+      "detail": "progress=0 fallback=0 empty=1 顶部链接=0"
+    },
+    {
+      "name": "18 点合同号 → 合同详情抽屉打开且是同一张合同",
+      "ok": true,
+      "detail": "HT-20261102-000023"
+    },
+    {
+      "name": "19a 采购单提交审批 → APPROVED（免审流程）",
+      "ok": true,
+      "detail": "200 / APPROVED"
+    },
+    {
+      "name": "19b 已审批单详情仍有「审批单 FLW-xxx」链接",
+      "ok": true,
+      "detail": "count=1"
+    },
+    {
+      "name": "19c 收货页供应商只读（灰）",
+      "ok": true,
+      "detail": "readonly 输入框在"
+    },
+    {
+      "name": "19d 收货页供应商说明 = 「来自采购单，不可修改」",
+      "ok": true,
+      "detail": "供应商来自采购单，不可修改"
+    },
+    {
+      "name": "19e 收货页显示采购单号",
+      "ok": true,
+      "detail": "采购单号：PO-20261102-000011"
+    },
+    {
+      "name": "19f 收货页供应商值 = 采购单供应商",
+      "ok": true,
+      "detail": "示例供应商（种子）"
+    },
+    {
+      "name": "19g 收货页仓库随采购单带出且只读",
+      "ok": true,
+      "detail": "disabled=true"
+    },
+    {
+      "name": "20a 保存收货单（草稿）200",
+      "ok": true,
+      "detail": "status=200 IN-20261102-000009"
+    },
+    {
+      "name": "20b 收货单供应商由后端从采购单派生（前端没传 supplier_id）",
+      "ok": true,
+      "detail": "示例供应商（种子） / PO-20261102-000011"
+    },
+    {
+      "name": "20c 过账接口 200",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "20d 过账后状态 = POSTED（免审直过）",
+      "ok": true,
+      "detail": "POSTED"
+    },
+    {
+      "name": "20e 过账回写了凭证 / 应付（voucher_id + payable_id 均非空）",
+      "ok": true,
+      "detail": "voucher=c9026a84-39ca-404f-a894-e66e992ac54f payable=4d3c28be-af5b-4786-88b0-8ae9e50d057b"
+    },
+    {
+      "name": "20f 凭证借贷平衡（借方合计 = 贷方合计）",
+      "ok": true,
+      "detail": "lines=3 debit=406.80 credit=406.80"
+    },
+    {
+      "name": "20g 应付单生成且金额 = 收货单价税合计",
+      "ok": true,
+      "detail": "payable=406.8000 stockin=406.8000"
+    },
+    {
+      "name": "20h 库存流水写入（IN 一条，引用本单号）",
+      "ok": true,
+      "detail": "rows=1"
+    },
+    {
+      "name": "20i 即时库存数量 ≥ 本次收货量（库存台账动了）",
+      "ok": true,
+      "detail": "qty=16.0000 received=3"
+    },
+    {
+      "name": "21a 现货采购 → 合同选择器消失",
+      "ok": true,
+      "detail": "count=0"
+    },
+    {
+      "name": "21b 现货采购 → 供应商回到可编辑下拉",
+      "ok": true,
+      "detail": "select=true readonly=0"
+    },
+    {
+      "name": "21c 现货采购单保存 200",
+      "ok": true,
+      "detail": "200 PO-20261102-000012"
+    },
+    {
+      "name": "21d 现货单 purchase_type = SPOT 且无合同号",
+      "ok": true,
+      "detail": "SPOT / null"
+    },
+    {
+      "name": "21e 现货单选到了供应商（手填生效）",
+      "ok": true,
+      "detail": "示例供应商（种子）（SUP-0001）"
+    },
+    {
+      "name": "22a 未选采购单 → 供应商显示「请先选择采购单」",
+      "ok": true,
+      "detail": "请先选择采购单"
+    },
+    {
+      "name": "22b 非采购入库 → 出现「无源单据」标记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "22c 无源单据 → 供应商转手选（后端要求自己指定）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "22d 无源单不填备注 → 提交被拦（文案点明要写来源）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "22e 无源单据保存 200（显式 is_sourceless）",
+      "ok": true,
+      "detail": "200 IN-20261102-000010"
+    },
+    {
+      "name": "22f 落库 is_sourceless = true 且没有来源采购单",
+      "ok": true,
+      "detail": "is_sourceless=true"
+    },
+    {
+      "name": "22g 列表上打「无源单据」标记",
+      "ok": true,
+      "detail": "IN-20261102-000010"
+    },
+    {
+      "name": "22h 详情抽屉显示「无源单据」标记",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "23a 页面级 JS 异常 0",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "23b 采购 / 收货 / 合同接口 4xx-5xx = 0",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "23c 页面 JS 异常与业务报错为 0（仅剩既有 SSE 401 噪声）",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "23d 已知噪声只有全局 SSE 401（既有缺陷，A5 已取证）",
+      "ok": true,
+      "detail": "sse=5 控制台错误=5"
+    }
+  ],
+  "pageErrors": [],
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "badResponses": [
+    "401 GET http://127.0.0.1:5216/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIxYWRiZjQyNi0xNTljLTQ5M2EtOWQ2NS1mNzkxZjc1OTlhOTUiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYyMDk2MywiaWF0IjoxNzkzNjIwMDYzLCJ2ZXIiOjEsInNpYXQiOjE3OTM2MjAwNjMsInNpZCI6ImNlZmViNmNjLWIyNDAtNDMyYS1hZmM4LWE2YjhlNGZjNjI1MyJ9.TCMbjlpTJLw3g4S8KCIb8Gvuylpe8SkVOBc9os1HUPs",
+    "401 GET http://127.0.0.1:5216/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIxYWRiZjQyNi0xNTljLTQ5M2EtOWQ2NS1mNzkxZjc1OTlhOTUiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYyMDk2MywiaWF0IjoxNzkzNjIwMDYzLCJ2ZXIiOjEsInNpYXQiOjE3OTM2MjAwNjMsInNpZCI6ImNlZmViNmNjLWIyNDAtNDMyYS1hZmM4LWE2YjhlNGZjNjI1MyJ9.TCMbjlpTJLw3g4S8KCIb8Gvuylpe8SkVOBc9os1HUPs",
+    "401 GET http://127.0.0.1:5216/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIxYWRiZjQyNi0xNTljLTQ5M2EtOWQ2NS1mNzkxZjc1OTlhOTUiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYyMDk2MywiaWF0IjoxNzkzNjIwMDYzLCJ2ZXIiOjEsInNpYXQiOjE3OTM2MjAwNjMsInNpZCI6ImNlZmViNmNjLWIyNDAtNDMyYS1hZmM4LWE2YjhlNGZjNjI1MyJ9.TCMbjlpTJLw3g4S8KCIb8Gvuylpe8SkVOBc9os1HUPs",
+    "401 GET http://127.0.0.1:5216/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIxYWRiZjQyNi0xNTljLTQ5M2EtOWQ2NS1mNzkxZjc1OTlhOTUiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYyMDk2MywiaWF0IjoxNzkzNjIwMDYzLCJ2ZXIiOjEsInNpYXQiOjE3OTM2MjAwNjMsInNpZCI6ImNlZmViNmNjLWIyNDAtNDMyYS1hZmM4LWE2YjhlNGZjNjI1MyJ9.TCMbjlpTJLw3g4S8KCIb8Gvuylpe8SkVOBc9os1HUPs",
+    "401 GET http://127.0.0.1:5216/api/business/notice/stream?token=eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiIxYWRiZjQyNi0xNTljLTQ5M2EtOWQ2NS1mNzkxZjc1OTlhOTUiLCJzdWIiOiIwMWExOWJjNS1jOTliLTcyZGYtYjlkNS1jMzc1M2EyYmQ5Y2QiLCJ1c2VybmFtZSI6ImFkbWluIiwicm9sZXMiOlsiU1VQRVJfQURNSU4iXSwicGVybWlzc2lvbnMiOlsiKjoqOioiXSwidG9rZW5fdHlwZSI6ImFjY2VzcyIsImV4cCI6MTc5MzYyMDk2MywiaWF0IjoxNzkzNjIwMDYzLCJ2ZXIiOjEsInNpYXQiOjE3OTM2MjAwNjMsInNpZCI6ImNlZmViNmNjLWIyNDAtNDMyYS1hZmM4LWE2YjhlNGZjNjI1MyJ9.TCMbjlpTJLw3g4S8KCIb8Gvuylpe8SkVOBc9os1HUPs"
+  ],
+  "artifacts": {
+    "orderNo": "PO-20261102-000011",
+    "contractNoSnapshot": "HT-20261102-000023",
+    "inNo": "IN-20261102-000009",
+    "spotOrderNo": "PO-20261102-000012",
+    "sourcelessInNo": "IN-20261102-000010"
+  }
+}

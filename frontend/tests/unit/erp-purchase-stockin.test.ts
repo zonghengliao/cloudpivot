@@ -242,7 +242,14 @@ test('⑥ 请求体：不含税口径带 price_excl，含税口径带 price_incl
 // ==================== ⑦ 表单校验（与后端同规则，少跑一次 400） ====================
 
 test('⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都能拦住', () => {
-  const ok = { ...emptyPurchaseForm(), supplier_id: 'sup-1', warehouse_id: 'wh-1', items: [line()] };
+  // A6：采购单默认「合同采购」（供应商由合同带），本组用例测的是**现货采购**手填供应商那套校验
+  const ok = {
+    ...emptyPurchaseForm(),
+    purchase_type: 'SPOT' as const,
+    supplier_id: 'sup-1',
+    warehouse_id: 'wh-1',
+    items: [line()],
+  };
   assert.deepEqual(validatePurchaseForm(ok), {}, '合法表单无错误');
 
   const zeroQty = validatePurchaseForm({ ...ok, items: [line({ qty: 0 })] });
@@ -259,6 +266,7 @@ test('⑦ 表单校验：0 数量 / 负单价 / 越界税率 / 缺供应商都�
 
   const stockInErrors = validateStockInForm({
     ...emptyStockInForm(),
+    purchase_order_id: 'po-1',
     supplier_id: 'sup-1',
     warehouse_id: 'wh-1',
     items: [inLine({ qty: 0 })],

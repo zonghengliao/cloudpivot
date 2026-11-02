@@ -1155,6 +1155,17 @@ export type PurchaseOrderStatus =
   | 'CANCELLED';
 
 /**
+ * 采购类型（A3/V0198 的 `biz_purchase_order.purchase_type`）。
+ *
+ * - `CONTRACT` 合同采购：供应商**从合同乙方派生**（只读），必须带 `contract_id`；
+ * - `SPOT` 现货采购：供应商手选（历史行为），存量单全是这个值。
+ *
+ * ⚠️ 建单后**不允许改**（后端 409 `locked_change`）：改类型等于换掉供应商来源，
+ * 与已生成的收货单 / 应付单口径冲突。
+ */
+export type PurchaseType = 'CONTRACT' | 'SPOT';
+
+/**
  * 采购订单主表行（逐字抄 `dto.rs::PurchaseOrderRes`，列表与详情共用同一形状）。
  *
  * 列表接口 `GET /erp/purchase-order/page` 的 list 元素就是它（**不是** `PurchaseOrderCard`：
@@ -1194,6 +1205,22 @@ export interface PurchaseOrderRow {
   remark: string | null;
   /** 金额口径（PRD §3.1.4 的口径徽标读它） */
   price_mode: PriceMode;
+  /** 采购类型（A3/V0198：`CONTRACT` 合同采购 / `SPOT` 现货采购；存量单全为 `SPOT`） */
+  purchase_type: PurchaseType;
+  /** 合同 id（只有 `CONTRACT` 单有；详情「合同号」点进去跳合同详情用它） */
+  contract_id: string | null;
+  /** 合同号（**快照**，与下面 `contract_no_snapshot` 同源；`SPOT` 单为 `null`） */
+  contract_no: string | null;
+  /**
+   * 合同号快照列原文（`biz_purchase_order.contract_no_snapshot`）。
+   *
+   * 列表页**只读它**（R3-a / AP-6：不为显示单号去实时 JOIN 合同表，否则合同改名后历史单会「跟着变」）。
+   */
+  contract_no_snapshot: string | null;
+  /** 供应商名称（显示用：快照优先，存量行由后端用主档现值兜底） */
+  supplier_name: string | null;
+  /** 供应商名称快照列原文（存量行 `null`，那时名称不可知） */
+  supplier_name_snapshot: string | null;
   /** 提交时间 */
   submitted_at: string | null;
   /** 提交人 */
@@ -1326,8 +1353,22 @@ export interface PurchaseOrderItemReq {
 
 /** 建单请求体（`POST /erp/purchase-order`） */
 export interface CreatePurchaseOrderReq {
-  /** 供应商 id（必填） */
-  supplier_id: string;
+  /**
+   * 供应商 id。
+   *
+   * - `SPOT`（现货采购）：**必填**；
+   * - `CONTRACT`（合同采购）：**可以不传** —— 服务端从合同乙方派生；传了必须等于乙方
+   *   （不等 → 400 `66025`，不静默覆盖）。前端在合同采购时不传，避免「填了个和自己不一样的」。
+   */
+  supplier_id?: string;
+  /**
+   * 采购类型（省缺 = 沿用当前类型；新建省缺 = `SPOT`）。
+   *
+   * ⚠️ 改单时**不能与库里不同**（后端 409），所以编辑态只读回传原值。
+   */
+  purchase_type?: PurchaseType;
+  /** 合同 id（`CONTRACT` 必填；`SPOT` 必须为空，DTO 会拦） */
+  contract_id?: string | null;
   /** 收货仓库 id（必填） */
   warehouse_id: string;
   /** 下单日期 `YYYY-MM-DD`（不传 = 服务端取北京今天） */
@@ -1546,6 +1587,18 @@ export interface StockInRow {
   source_order_no: string | null;
   /** 供应商 id */
   supplier_id: string | null;
+  /**
+   * 供应商名称（后端按 `supplier_id` 快照读主数据，**不 JOIN 采购单** —— R3-a）。
+   * 列表/详情直接渲染它，别在前端自己拼。
+   */
+  supplier_name?: string | null;
+  /**
+   * 无源单据标记（A4/V0199：`true` = 期初 / 复制 / 其他，没有来源采购单）。
+   *
+   * 它**不是**「`source_order_id` 为空」的同义反复：后端要求建单时**显式**声明
+   * （`is_sourceless = true` + 备注），否则 400 `66027` —— 无源要可枚举、能进巡检。
+   */
+  is_sourceless?: boolean;
   /** 收货仓库 id */
   warehouse_id: string;
   /** 入库日期 `YYYY-MM-DD` */
@@ -1687,8 +1740,19 @@ export interface CreateStockInReq {
    * 这条链路读起来更顺。带它时每行必须带 `purchase_order_item_id`，否则后端无法回写已收数量。
    */
   purchase_order_id?: string | null;
-  /** 供应商 id */
-  supplier_id: string;
+  /**
+   * 供应商 id（A4 起**不再是用户输入**）。
+   *
+   * - 带来源采购单：**不要传** —— 服务端从 `biz_purchase_order.supplier_id` 派生；
+   *   传了且与采购单不一致 → 400（不静默覆盖）；
+   * - 无来源（期初 / 复制 / 其他）：**必填**，且必须同时 `is_sourceless = true`。
+   */
+  supplier_id?: string;
+  /**
+   * 无源单据标记（A4/AP-5）。无来源采购单时**必须显式 `true` + 填 `remark`**，
+   * 否则后端 400 `66027`（无源要可枚举、能进巡检，不能靠空值隐式表达）。
+   */
+  is_sourceless?: boolean;
   /** 收货仓库 id（带源单时必须与采购单收货仓库一致） */
   warehouse_id: string;
   /** 入库日期 `YYYY-MM-DD` */

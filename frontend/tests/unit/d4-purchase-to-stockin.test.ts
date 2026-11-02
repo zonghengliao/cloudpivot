@@ -147,7 +147,14 @@ test('D4 · 防超收：刚好等于待收（部分收货的极限）要放行',
     qty: 70,
     pending: { ordered_qty: 100, received_qty: 30, pending_qty: 70 },
   });
-  const form = { ...emptyStockInForm(), supplier_id: 'sup-1', warehouse_id: 'wh-1', items: [line] };
+  // A6/A4：有「待收」的行必然带来源采购单，采样数据要跟着带上（否则先被「必须选采购单」拦掉）
+  const form = {
+    ...emptyStockInForm(),
+    purchase_order_id: 'po-1',
+    supplier_id: 'sup-1',
+    warehouse_id: 'wh-1',
+    items: [line],
+  };
   assert.deepEqual(validateStockInForm(form), {});
 });
 
@@ -156,7 +163,13 @@ test('D4 · 防超收：改小数量（部分收货是常态）不拦', () => {
     qty: 30,
     pending: { ordered_qty: 100, received_qty: 30, pending_qty: 70 },
   });
-  const form = { ...emptyStockInForm(), supplier_id: 'sup-1', warehouse_id: 'wh-1', items: [line] };
+  const form = {
+    ...emptyStockInForm(),
+    purchase_order_id: 'po-1',
+    supplier_id: 'sup-1',
+    warehouse_id: 'wh-1',
+    items: [line],
+  };
   assert.deepEqual(validateStockInForm(form), {});
 });
 

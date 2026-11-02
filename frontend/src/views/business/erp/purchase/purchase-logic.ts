@@ -30,10 +30,12 @@
  * ⚠️ 合计是**逐行舍入后再相加**（PRD §3.1.5「禁止先加总再舍入」），不是 `sum(qty×price)` 再 round。
  */
 import type {
+  ContractRow,
   PriceMode,
   PurchaseOrderItemLine,
   PurchaseOrderRow,
   PurchaseOrderStatus,
+  PurchaseType,
   CreatePurchaseOrderReq,
   PurchaseOrderItemReq,
   PurchaseOrderStatusReq,
@@ -44,6 +46,31 @@ export const PRICE_MODE_EXCL: PriceMode = 'EXCL';
 
 /** 含税录入 */
 export const PRICE_MODE_INCL: PriceMode = 'INCL';
+
+/** 合同采购（A3：供应商从合同乙方派生，只读） */
+export const PURCHASE_TYPE_CONTRACT: PurchaseType = 'CONTRACT';
+
+/** 现货采购（供应商手选，历史口径） */
+export const PURCHASE_TYPE_SPOT: PurchaseType = 'SPOT';
+
+/**
+ * 采购类型下拉选项 —— **顺序即语义**：先选类型，供应商字段的形态跟着变。
+ *
+ * 卡面明确 `CONTRACT` 是默认值（合同驱动是主干流程，现货是例外）。
+ */
+export const PURCHASE_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: PurchaseType }> = [
+  { label: '合同采购', value: PURCHASE_TYPE_CONTRACT },
+  { label: '现货采购', value: PURCHASE_TYPE_SPOT },
+];
+
+/**
+ * 能不能被采购单引用的合同状态（**与后端 `contract_model::USABLE_FOR_ORDER` 逐字一致**）。
+ *
+ * ⚠️ 卡面写「只列出 status = ACTIVE」，但后端 `resolve_contract` 实际接受 `SIGNED` / `ACTIVE`
+ * （ARCH-2 §5.1 V-22 与设计 §6.2 都是「已签署 / 生效」）。这里跟着后端走 ——
+ * 否则用户会看到「合同可用 = true」却选不出来、下不了单。
+ */
+export const ORDERABLE_CONTRACT_STATUSES: ReadonlyArray<string> = ['SIGNED', 'ACTIVE'];
 
 /** 每页条数（与其它 ERP 列表页同口径） */
 export const PURCHASE_PAGE_SIZE = 20;
@@ -88,6 +115,18 @@ export interface PurchaseItemForm {
 export interface PurchaseFormState {
   /** 单据 id（有值 = 编辑） */
   id: string;
+  /**
+   * 采购类型（A3）。**建单后不可改**（后端 409），编辑态只读回传。
+   *
+   * 它决定供应商从哪来：`CONTRACT` = 合同乙方（只读）/ `SPOT` = 用户手选。
+   */
+  purchase_type: PurchaseType;
+  /** 合同 id（`CONTRACT` 必填；`SPOT` 必须为空） */
+  contract_id: string;
+  /** 合同号（**快照**，选中合同时写入，用于表单上「让操作员确认选对了」） */
+  contract_no: string;
+  /** 合同乙方名称（= 供应商显示值；供应商下拉数据可能还没加载完，这里留一份兜底） */
+  contract_supplier_name: string;
   /** 供应商 id */
   supplier_id: string;
   /** 收货仓库 id */
@@ -444,7 +483,112 @@ export function availablePurchaseActions(status: PurchaseOrderStatus | string): 
   };
 }
 
-// ==================== 表单 ====================
+// ==================== 采购类型 / 合同（A3） ====================
+
+/** 采购类型中文名（列表列、详情、徽标共用一处，别在模板里写三元） */
+export function purchaseTypeLabel(type: PurchaseType | string | null | undefined): string {
+  return type === PURCHASE_TYPE_CONTRACT ? '合同采购' : '现货采购';
+}
+
+/** 采购类型徽标配色：合同采购用主色（主干流程），现货采购用中性色 */
+export function purchaseTypeTheme(type: PurchaseType | string | null | undefined): 'primary' | 'default' {
+  return type === PURCHASE_TYPE_CONTRACT ? 'primary' : 'default';
+}
+
+/** 是否合同采购（模板里判断字段形态的唯一入口） */
+export function isContractPurchase(form: Pick<PurchaseFormState, 'purchase_type'>): boolean {
+  return form.purchase_type === PURCHASE_TYPE_CONTRACT;
+}
+
+/**
+ * 采购类型是否只读 —— **编辑态一律只读**。
+ *
+ * 后端改单时 `purchase_type` 与库里不同会 409；前端让它从一开始就点不动，
+ * 比点完再弹「已锁定」体面。
+ */
+export function isPurchaseTypeLocked(form: Pick<PurchaseFormState, 'id'>): boolean {
+  return Boolean(form.id);
+}
+
+/** 合同选择器是否只读：编辑态 + 合同采购 → 不让换合同（避免洗掉关联） */
+export function isContractLocked(form: Pick<PurchaseFormState, 'id' | 'purchase_type'>): boolean {
+  return Boolean(form.id) && isContractPurchase(form);
+}
+
+/**
+ * 切换采购类型时要把「另一条路」的残留清掉，否则会带着不该存在的字段提交：
+ *
+ * - → `CONTRACT`：供应商改由合同带，`supplier_id` 清空（等选合同），合同字段就位；
+ * - → `SPOT`：`contract_id` / 合同号 / 乙方名清空（后端 SPOT 带 contract_id 直接 400）。
+ *
+ * @returns 同一个 form（就地改，返回便于单测断言）
+ */
+export function applyPurchaseType<F extends PurchaseFormState>(form: F, next: PurchaseType): F {
+  if (isPurchaseTypeLocked(form)) {
+    return form; // 建单后不可改：后端 409，这里直接不动
+  }
+  form.purchase_type = next;
+  if (next === PURCHASE_TYPE_CONTRACT) {
+    form.supplier_id = '';
+    form.contract_id = '';
+    form.contract_no = '';
+    form.contract_supplier_name = '';
+  } else {
+    form.contract_id = '';
+    form.contract_no = '';
+    form.contract_supplier_name = '';
+  }
+  return form;
+}
+
+/** 合同下拉只列「采购类 + 可下单状态」（`SIGNED` / `ACTIVE`，与后端 `USABLE_FOR_ORDER` 同步） */
+export function selectableContracts(rows: ReadonlyArray<ContractRow>): ContractRow[] {
+  return rows.filter(
+    (row) => row.contract_type === 'PURCHASE' && ORDERABLE_CONTRACT_STATUSES.includes(row.status),
+  );
+}
+
+/**
+ * 合同下拉的一项文案：**合同号 + 名称 + 乙方**（操作员要靠这三样确认没选错）。
+ *
+ * 卡面还要求「剩余可用金额」，但 `GET /erp/contract/page` 只给合同总额、没有已下单额 /
+ * 剩余额（A5 已报告该接口无聚合字段），所以这里只在有金额时附上**合同总额**并标注清楚，
+ * 不假装是剩余额。
+ */
+export function contractOptionLabel(contract: Pick<ContractRow, 'contract_no' | 'name' | 'party_b_name' | 'amount'>): string {
+  const amount = toNumber(contract.amount);
+  const amountText = amount > 0 ? ` · 合同总额 ${formatMoney(amount)}` : '';
+  return `${contract.contract_no} · ${contract.name} · 乙方：${contract.party_b_name}${amountText}`;
+}
+
+/**
+ * 选中合同 → 把乙方灌进表单（**供应商字段的唯一写入点**）。
+ *
+ * 供应商 id 与名称同时写：id 用于提交（合同采购时后端其实不看，但不留空能防呆），
+ * 名称用于「供应商下拉还没加载完」时的只读展示兜底。
+ *
+ * @returns 同一个 form（就地改；返回便于单测断言）
+ */
+export function applyContractToForm<F extends PurchaseFormState>(
+  form: F,
+  contract: Pick<ContractRow, 'id' | 'contract_no' | 'party_b_id' | 'party_b_name' | 'party_b_current_name'>,
+): F {
+  form.contract_id = contract.id;
+  form.contract_no = contract.contract_no;
+  form.contract_supplier_name = contract.party_b_current_name || contract.party_b_name;
+  form.supplier_id = contract.party_b_id;
+  return form;
+}
+
+/** 供应商字段下面那行说明（合同采购才有；空串 = 不显示） */
+export function supplierHintOf(form: Pick<PurchaseFormState, 'purchase_type'>): string {
+  return isContractPurchase(form) ? '供应商来自合同乙方，如需更换请改合同' : '';
+}
+
+/** 合同号展示（空 = 未选合同） */
+export function contractNoText(form: Pick<PurchaseFormState, 'contract_id' | 'contract_no'>): string {
+  return form.contract_no || (form.contract_id ? '（合同号缺失）' : '');
+}
 
 /** 空筛选 */
 export function emptyPurchaseFilter(): PurchaseFilterState {
@@ -456,10 +600,14 @@ export function emptyPurchaseItem(key: string): PurchaseItemForm {
   return { key, material_id: '', qty: 1, price: 0, tax_rate: 13 };
 }
 
-/** 空表单（默认不含税口径 —— 徽标开局就是「不含税」） */
+/** 空表单（默认不含税口径 —— 徽标开局就是「不含税」；采购类型默认合同采购，卡面口径） */
 export function emptyPurchaseForm(): PurchaseFormState {
   return {
     id: '',
+    purchase_type: PURCHASE_TYPE_CONTRACT,
+    contract_id: '',
+    contract_no: '',
+    contract_supplier_name: '',
     supplier_id: '',
     warehouse_id: '',
     order_date: todayString(),
@@ -484,6 +632,11 @@ export function detailToForm(
   const mode: PriceMode = order.price_mode === PRICE_MODE_INCL ? PRICE_MODE_INCL : PRICE_MODE_EXCL;
   return {
     id: order.id,
+    // 存量单后端已回填 `SPOT`，这里只在明确 `CONTRACT` 时才认合同采购（缺字段也别翻成合同）
+    purchase_type: order.purchase_type === PURCHASE_TYPE_CONTRACT ? PURCHASE_TYPE_CONTRACT : PURCHASE_TYPE_SPOT,
+    contract_id: order.contract_id ?? '',
+    contract_no: order.contract_no ?? order.contract_no_snapshot ?? '',
+    contract_supplier_name: order.supplier_name ?? '',
     supplier_id: order.supplier_id ?? '',
     warehouse_id: order.warehouse_id ?? '',
     order_date: order.order_date ?? todayString(),
@@ -513,7 +666,12 @@ export function detailToForm(
 export function validatePurchaseForm(form: PurchaseFormState): PurchaseFormErrors {
   const errors: PurchaseFormErrors = {};
 
-  if (!form.supplier_id) {
+  // 合同采购：供应商由合同乙方派生 → 拦「没选合同」，不拦「供应商为空」（那是结果不是原因）
+  if (isContractPurchase(form)) {
+    if (!form.contract_id) {
+      errors.contract_id = '合同采购必须选择合同（供应商由合同乙方带出）';
+    }
+  } else if (!form.supplier_id) {
     errors.supplier_id = '请选择供应商';
   }
   if (!form.warehouse_id) {
@@ -594,8 +752,16 @@ export function buildPurchasePayload(form: PurchaseFormState): CreatePurchaseOrd
     return line;
   });
 
+  const isContract = form.purchase_type === PURCHASE_TYPE_CONTRACT;
+  // 合同采购只发 contract_id（供应商由服务端从合同乙方派生，别把派生值再发回去）：
+  // 前端传了不一致的 supplier_id 会被 400 `66025` 顶回来，传一致的也只是幂等噪声；
+  // 现货采购反之 —— 必须发 supplier_id，且 contract_id 一个字段都不能带（DTO 会 400）。
+  const head = isContract
+    ? { purchase_type: form.purchase_type, contract_id: form.contract_id || null }
+    : { purchase_type: form.purchase_type, contract_id: null, supplier_id: form.supplier_id };
+
   return {
-    supplier_id: form.supplier_id,
+    ...head,
     warehouse_id: form.warehouse_id,
     order_date: form.order_date,
     expect_date: form.expect_date || null,

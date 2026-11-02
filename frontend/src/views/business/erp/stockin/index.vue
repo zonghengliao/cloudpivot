@@ -139,6 +139,14 @@
           >
             {{ row.source_order_no }}
           </t-link>
+          <!-- A6：无源单据（A4 的显式标记）在列表上要看得见，不能只是一个「—」 -->
+          <t-tag
+            v-else-if="row.is_sourceless"
+            size="small"
+            theme="warning"
+            variant="outline"
+            :data-testid="`stockin-sourceless-${row.in_no}`"
+          >无源单据</t-tag>
           <span v-else class="muted">—</span>
         </template>
 
@@ -262,7 +270,66 @@
       </t-alert>
 
       <t-form :data="form" label-width="84px">
+        <!--
+          A6：单据来源（采购入库 / 无源单据）。
+          采购入库必须绑采购单（供应商由后端从采购单派生）；无源是 A4 的显式例外
+          （期初 / 复制 / 其他），要自己指定供应商 + 备注写原因，后端 400 兜底。
+        -->
         <div class="form-row">
+          <t-form-item
+            label="单据来源"
+            name="sourceless"
+            class="form-row__col"
+            :help="Boolean(form.id) ? '编辑态不能改单据来源（否则已收数量与供应商口径会打架）' : ''"
+          >
+            <div class="source-mode">
+              <t-radio-group
+                :value="stockInSourceMode(form)"
+                :disabled="Boolean(form.id)"
+                data-testid="stockin-source-mode"
+                @change="handleSourceModeChange"
+              >
+                <t-radio value="PURCHASE" data-testid="stockin-source-purchase">采购入库</t-radio>
+                <t-radio value="SOURCELESS" data-testid="stockin-source-sourceless">无源单据</t-radio>
+              </t-radio-group>
+              <!-- 「无源单据」标记（A4 口径：无源必须可枚举，界面上要能一眼看出来） -->
+              <t-tag
+                v-if="showsSourcelessMark(form)"
+                size="small"
+                theme="warning"
+                variant="outline"
+                data-testid="stockin-sourceless-mark"
+              >无源单据</t-tag>
+            </div>
+          </t-form-item>
+        </div>
+
+        <div class="form-row">
+          <!-- 采购单：PURCHASE 型必选；选中后带出供应商 / 仓库 / 待收明细 -->
+          <t-form-item
+            v-if="!form.sourceless"
+            label="采购单"
+            name="purchase_order_id"
+            class="form-row__col"
+            :status="formErrors.purchase_order_id ? 'error' : undefined"
+            :tips="formErrors.purchase_order_id"
+          >
+            <div class="readonly-field">
+              <t-select
+                v-model="form.purchase_order_id"
+                :options="purchaseOrderOptions"
+                :disabled="Boolean(form.id)"
+                placeholder="选择采购单（只列已审批 / 部分收货的）"
+                filterable
+                data-testid="stockin-purchase-order"
+                @change="handlePurchaseOrderChange"
+              />
+              <p v-if="form.purchase_order_no" class="field-note" data-testid="stockin-purchase-order-no">
+                采购单号：<span class="mono">{{ form.purchase_order_no }}</span>
+              </p>
+            </div>
+          </t-form-item>
+
           <t-form-item
             label="供应商"
             name="supplier_id"
@@ -270,7 +337,19 @@
             :status="formErrors.supplier_id ? 'error' : undefined"
             :tips="formErrors.supplier_id"
           >
+            <!-- A4：采购入库的供应商只读（值来自采购单，后端已派生；前端不再传 supplier_id） -->
+            <div v-if="isSupplierReadonly(form)" class="readonly-field">
+              <t-input
+                :value="supplierText"
+                readonly
+                :placeholder="'请先选择采购单'"
+                data-testid="stockin-supplier-readonly"
+              />
+              <p class="field-note" data-testid="stockin-supplier-hint">{{ supplierHintText(form) }}</p>
+            </div>
+            <!-- 无源单据：没有采购单可带出，后端要求自己指定（AP-4 的例外路径） -->
             <t-select
+              v-else
               v-model="form.supplier_id"
               :options="supplierOptions"
               placeholder="选择供应商"
@@ -286,13 +365,20 @@
             :status="formErrors.warehouse_id ? 'error' : undefined"
             :tips="formErrors.warehouse_id"
           >
-            <t-select
-              v-model="form.warehouse_id"
-              :options="warehouseOptions"
-              placeholder="选择收货仓库"
-              filterable
-              data-testid="stockin-warehouse"
-            />
+            <div class="readonly-field">
+              <t-select
+                v-model="form.warehouse_id"
+                :options="warehouseOptions"
+                :disabled="Boolean(form.purchase_order_id)"
+                placeholder="选择收货仓库"
+                filterable
+                data-testid="stockin-warehouse"
+              />
+              <!-- A6：带源单时仓库由采购单带出（后端要求两者一致，改了就是 400） -->
+              <p v-if="form.purchase_order_id" class="field-note" data-testid="stockin-warehouse-hint">
+                仓库来自采购单，不可修改
+              </p>
+            </div>
           </t-form-item>
         </div>
 
@@ -569,6 +655,20 @@
         </div>
 
         <div class="detail__grid">
+          <!-- A6：单据来源（采购入库 / 无源单据）—— 无源是 A4 的显式标记，详情里要说出来 -->
+          <div class="detail-field">
+            <span class="detail-field__label">单据来源</span>
+            <span class="detail-field__value" data-testid="stockin-detail-source">
+              <t-tag
+                v-if="detail.header.is_sourceless"
+                size="small"
+                theme="warning"
+                variant="outline"
+                data-testid="stockin-detail-sourceless-mark"
+              >无源单据</t-tag>
+              <span v-else>采购入库</span>
+            </span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">供应商</span><span class="detail-field__value">{{ supplierNameOf(detail.header.supplier_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.header.warehouse_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">入库日期</span><span class="detail-field__value">{{ detail.header.in_date }}</span></div>
@@ -652,6 +752,7 @@ import {
   createStockIn,
   deleteStockIn,
   fetchMaterialPage,
+  fetchPurchaseOrderPage,
   fetchPurchaseOrderPendingItems,
   fetchStockInDetail,
   fetchStockInPage,
@@ -662,6 +763,7 @@ import {
   updateStockInStatus,
   withdrawStockInCancel,
   type MaterialRow,
+  type PurchaseOrderRow,
   type StockInDetail,
   type StockInRow,
   type Supplier,
@@ -700,6 +802,7 @@ import {
   STOCKIN_MAX_LINES,
   STOCKIN_PAGE_SIZE,
   STOCKIN_STATUS_FILTER_OPTIONS,
+  applySourceMode,
   availableStockInActions,
   buildCancelPayload,
   buildPostPayload,
@@ -714,16 +817,24 @@ import {
   emptyStockInFilter,
   emptyStockInForm,
   emptyStockInItem,
+  fillFromPending,
   formatMoney,
   formatQty,
   formFromPending,
   isStockInFiltered,
+  isSupplierReadonly,
   lineAmountsOfItem,
+  purchaseOrderOptionLabel,
+  selectablePurchaseOrders,
   shortDate,
   shortId,
+  showsSourcelessMark,
+  stockInSourceMode,
   stockInStatusLabel,
   stockinCopyNotice,
   stockInStatusTheme,
+  supplierDisplayText,
+  supplierHintText,
   validateStockInForm,
   type StockInFilterState,
   type StockInFormErrors,
@@ -955,6 +1066,13 @@ const memoryLabels = ref<string[]>([]);
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
 const materials = ref<MaterialRow[]>([]);
+/**
+ * 可收货的采购单（A6：直接建收货单时选源单）。
+ *
+ * 只取一页（`OPTION_LIMIT`）再本地筛状态，筛选口径在 `selectablePurchaseOrders`
+ * （`APPROVED` / `PARTIAL_RECEIVED`，卡面口径）；有没有待收行由后端 `pending-items` 最终裁定。
+ */
+const purchaseOrders = ref<PurchaseOrderRow[]>([]);
 
 const filtered = computed(() => isStockInFiltered(filter));
 
@@ -968,6 +1086,14 @@ const warehouseOptions = computed(() =>
 
 const materialOptions = computed(() =>
   materials.value.map((item) => ({ label: `${item.material_name}（${item.material_code}）`, value: item.id })),
+);
+
+/** 采购单下拉（A6）：只列已审批 / 部分收货的单，文案 = 单号 + 供应商 + 状态 */
+const purchaseOrderOptions = computed(() =>
+  selectablePurchaseOrders(purchaseOrders.value).map((row) => ({
+    label: purchaseOrderOptionLabel(row),
+    value: row.id,
+  })),
 );
 
 const pagination = computed(() => ({
@@ -1037,14 +1163,17 @@ async function loadOrders(page: number = current.value): Promise<void> {
 
 /** 主数据 */
 async function loadBasics(): Promise<void> {
-  const [supplierList, warehousePage, materialPage] = await Promise.all([
+  const [supplierList, warehousePage, materialPage, poPage] = await Promise.all([
     fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]),
     fetchWarehousePage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
     fetchMaterialPage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
+    // A6：采购单下拉（状态在前端筛；没权限 / 失败只让下拉为空，不影响收货页其它功能）
+    fetchPurchaseOrderPage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
   ]);
   suppliers.value = supplierList;
   warehouses.value = warehousePage?.list ?? [];
   materials.value = materialPage?.list ?? [];
+  purchaseOrders.value = poPage?.list ?? [];
 }
 
 function handleSearch(): void {
@@ -1080,6 +1209,57 @@ const saving = ref(false);
 const submitError = ref('');
 const form = reactive<StockInFormState>(emptyStockInForm());
 const formErrors = ref<StockInFormErrors>({});
+
+/** 供应商只读展示值：采购单带出 → 名称；还没选采购单 → 「请先选择采购单」 */
+const supplierText = computed(() => supplierDisplayText(form, (id) => supplierNameOf(id)));
+
+/**
+ * 切换单据来源（A6）：采购入库 ⇄ 无源单据。
+ *
+ * 切到无源 → 清来源单、供应商转手选；切回采购入库 → 清供应商等采购单带出。
+ * 不清就会「无源单带着 source_order_id」或「采购单还挂着上次手选的供应商」。
+ */
+function handleSourceModeChange(value: unknown): void {
+  applySourceMode(form, value === 'SOURCELESS');
+  delete formErrors.value.supplier_id;
+  delete formErrors.value.purchase_order_id;
+  delete formErrors.value.remark;
+}
+
+/**
+ * 在表单里选采购单（A6）：拉待收明细 → 供应商 / 仓库 / 明细行一次带出。
+ *
+ * 与「从采购单详情点生成收货单」走同一个后端接口，差别只是**不重置单据 id**
+ * （编辑草稿时换源单，改的还是这张草稿）。
+ */
+async function handlePurchaseOrderChange(value: unknown): Promise<void> {
+  const poId = typeof value === 'string' ? value : '';
+  delete formErrors.value.purchase_order_id;
+  if (!poId) {
+    form.purchase_order_id = '';
+    form.purchase_order_no = '';
+    form.supplier_id = '';
+    form.supplier_name = '';
+    return;
+  }
+  loading.value = true;
+  try {
+    const pending = await fetchPurchaseOrderPendingItems(poId);
+    fillFromPending(form, pending);
+    const lineCount = form.items.filter((item) => item.purchase_order_item_id).length;
+    if (lineCount === 0) {
+      MessagePlugin.warning(pending.blocked_reason ?? `采购单 ${pending.order.order_no} 没有可收的待收明细`);
+    } else {
+      MessagePlugin.success(`已从采购单 ${pending.order.order_no} 带出 ${lineCount} 行待收明细`);
+    }
+  } catch (error) {
+    form.purchase_order_id = '';
+    form.purchase_order_no = '';
+    MessagePlugin.error(messageOf(error));
+  } finally {
+    loading.value = false;
+  }
+}
 
 /** 实时合计（仅用于所见即所得；落库以服务端为准） */
 const totals = computed(() => computeTotals(form.items));
@@ -1969,5 +2149,37 @@ async function applyRouteQuery(): Promise<void> {
   font-size: 13px;
   font-weight: 600;
   color: var(--td-text-color-primary);
+}
+
+/* ==================== A6 单据来源 / 只读字段 ==================== */
+
+/* 只读字段下面那行说明（「供应商来自采购单，不可修改」） */
+.field-note {
+  margin: 4px 0 0;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--td-text-color-placeholder);
+}
+
+.readonly-field {
+  width: 100%;
+
+  /* 只读字段视觉上也要「灰」：TDesign 的 readonly `<t-input>` 默认白底，会被当成可编辑框 */
+  :deep(.t-input),
+  :deep(.t-select__wrap) {
+    background-color: var(--td-bg-color-container-hover);
+  }
+
+  :deep(input) {
+    cursor: default;
+  }
+}
+
+/* 「单据来源」一行：单选 + 无源标记并排（标记不能挤到下一行去） */
+.source-mode {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 </style>

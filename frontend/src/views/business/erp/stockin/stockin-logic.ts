@@ -116,6 +116,20 @@ export interface StockInFormState {
   purchase_order_no: string;
   /** 供应商 id */
   supplier_id: string;
+  /**
+   * 供应商名称（A6：**只读展示**用）。
+   *
+   * 来源 = 采购单的供应商名（A4 后端已派生）/ 详情接口回的 `supplier_name`；
+   * 前端不拿它做任何计算，只是省一次主档查找（下拉还没加载完时也不至于显示 id）。
+   */
+  supplier_name: string;
+  /**
+   * 无源单据标记（A4/V0199 的 `is_sourceless`）。
+   *
+   * - `false`（默认）= 采购入库：**必须**选采购单，供应商由采购单派生；
+   * - `true` = 期初 / 复制 / 其他：没有采购单，供应商手选 + 备注写原因（后端 400 兜底）。
+   */
+  sourceless: boolean;
   /** 收货仓库 id */
   warehouse_id: string;
   /** 入库日期 `YYYY-MM-DD` */
@@ -460,19 +474,119 @@ export function emptyStockInItem(key: string): StockInItemForm {
   return { key, purchase_order_item_id: '', material_id: '', qty: 1, price_excl: 0, tax_rate: 13 };
 }
 
-/** 空表单（`invoice_received` 默认 `true`） */
+/** 空表单（`invoice_received` 默认 `true`；默认「采购入库」，供应商 = 请先选择采购单） */
 export function emptyStockInForm(): StockInFormState {
   return {
     id: '',
     purchase_order_id: '',
     purchase_order_no: '',
     supplier_id: '',
+    supplier_name: '',
+    sourceless: false,
     warehouse_id: '',
     in_date: todayString(),
     invoice_received: true,
     remark: '',
     items: [emptyStockInItem('row-1')],
   };
+}
+
+// ==================== A6：来源方式（采购单 / 无源单据） ====================
+
+/** 规格：供应商字段的三种形态 —— 决定模板怎么渲染，也决定校验拦什么 */
+export type StockInSourceMode = 'PURCHASE' | 'SOURCELESS';
+
+/** 当前是采购入库还是无源单据 */
+export function stockInSourceMode(form: Pick<StockInFormState, 'sourceless'>): StockInSourceMode {
+  return form.sourceless ? 'SOURCELESS' : 'PURCHASE';
+}
+
+/** 供应商字段是否只读（采购入库 = 只读；无源 = 手选，后端要求自己指定） */
+export function isSupplierReadonly(form: Pick<StockInFormState, 'sourceless'>): boolean {
+  return !form.sourceless;
+}
+
+/** 供应商只读值：采购单带出 → 名称；还没选采购单 → 「请先选择采购单」 */
+export function supplierDisplayText(
+  form: Pick<StockInFormState, 'sourceless' | 'purchase_order_id' | 'supplier_id' | 'supplier_name'>,
+  nameOf?: (id: string) => string,
+): string {
+  if (form.sourceless) {
+    return form.supplier_name || (form.supplier_id && nameOf ? nameOf(form.supplier_id) : '');
+  }
+  if (!form.purchase_order_id) {
+    return '请先选择采购单';
+  }
+  if (form.supplier_name) {
+    return form.supplier_name;
+  }
+  return form.supplier_id && nameOf ? nameOf(form.supplier_id) : '';
+}
+
+/** 供应商字段下面那行说明（空串 = 不显示） */
+export function supplierHintText(form: Pick<StockInFormState, 'sourceless' | 'purchase_order_id'>): string {
+  if (form.sourceless) {
+    return '无源单据（期初 / 复制 / 其他）：供应商需手工指定，并在备注写明来源';
+  }
+  return '供应商来自采购单，不可修改';
+}
+
+/** 「无源单据」标记是否显示（非采购入库一律打标 —— AP-5 要求可枚举） */
+export function showsSourcelessMark(form: Pick<StockInFormState, 'sourceless'>): boolean {
+  return form.sourceless;
+}
+
+/**
+ * 能作为收货来源的采购单状态（卡面口径）。
+ *
+ * 后端 `pending-items` 还会再判一次「有没有待收行 / 单据状态是否可收」，
+ * 这里只做下拉层面的粗筛，别把不可收的单混进列表里让人白点。
+ */
+export const RECEIVABLE_ORDER_STATUSES: ReadonlyArray<string> = ['APPROVED', 'PARTIAL_RECEIVED'];
+
+/** 采购单下拉：只留有剩余待收可能的状态 */
+export function selectablePurchaseOrders<T extends { status: string }>(rows: ReadonlyArray<T>): T[] {
+  return rows.filter((row) => RECEIVABLE_ORDER_STATUSES.includes(row.status));
+}
+
+/** 采购单下拉一项的文案：单号 + 供应商 + 状态（选单时最该确认的三件事） */
+export function purchaseOrderOptionLabel(row: {
+  order_no: string;
+  supplier_name?: string | null;
+  status_label?: string | null;
+  status?: string | null;
+}): string {
+  const supplier = row.supplier_name ? ` · ${row.supplier_name}` : '';
+  const status = row.status_label || row.status || '';
+  return `${row.order_no}${supplier}${status ? `（${status}）` : ''}`;
+}
+
+/** 切到「无源单据」/「采购入库」时清掉另一条路的残留 */
+export function applySourceMode<F extends StockInFormState>(form: F, sourceless: boolean): F {
+  form.sourceless = sourceless;
+  if (sourceless) {
+    // 无源：清来源单，供应商转为手选（后端要求自己指定）
+    form.purchase_order_id = '';
+    form.purchase_order_no = '';
+    form.supplier_id = '';
+    form.supplier_name = '';
+  } else {
+    // 采购入库：供应商交给采购单，先清空等带出
+    form.supplier_id = '';
+    form.supplier_name = '';
+  }
+  return form;
+}
+
+/**
+ * 选中采购单 → 把待收明细灌进当前表单（A6：直接建单也能选单）。
+ *
+ * 与 `formFromPending` 的差别只有一点：**保留 `form.id`**（编辑已有草稿时换源单不换单据）。
+ */
+export function fillFromPending<F extends StockInFormState>(form: F, pending: PendingReceiveResLike): F {
+  const { form: filled } = formFromPending(pending);
+  Object.assign(form, { ...filled, id: form.id });
+  return form;
 }
 
 /**
@@ -507,6 +621,9 @@ export function detailToForm(
     purchase_order_id: header.source_order_id ?? '',
     purchase_order_no: header.source_order_no ?? '',
     supplier_id: header.supplier_id ?? '',
+    supplier_name: header.supplier_name ?? '',
+    // A4 的无源标记原样回填：编辑无源单时不能因为「界面上没这个词」就把它洗成有源
+    sourceless: header.is_sourceless === true,
     warehouse_id: header.warehouse_id ?? '',
     in_date: header.in_date ?? todayString(),
     invoice_received: header.invoice_received !== false,
@@ -561,6 +678,8 @@ export function formFromPending(
       purchase_order_id: pending.order.id,
       purchase_order_no: pending.order.order_no,
       supplier_id: pending.order.supplier_id,
+      supplier_name: pending.order.supplier_name ?? '',
+      sourceless: false,
       warehouse_id: pending.order.warehouse_id,
       in_date: todayString(),
       invoice_received: true,
@@ -578,6 +697,7 @@ export interface PendingReceiveResLike {
     id: string;
     order_no: string;
     supplier_id: string;
+    supplier_name?: string;
     warehouse_id: string;
   };
   items: ReadonlyArray<{
@@ -595,8 +715,17 @@ export interface PendingReceiveResLike {
 export function validateStockInForm(form: StockInFormState): StockInFormErrors {
   const errors: StockInFormErrors = {};
 
-  if (!form.supplier_id) {
-    errors.supplier_id = '请选择供应商';
+  // A6/A4：供应商**不再是用户输入**，校验拦的是它的来源
+  if (form.sourceless) {
+    if (!form.supplier_id) {
+      errors.supplier_id = '无源单据必须指定供应商';
+    }
+    if (!form.remark.trim()) {
+      // 后端 400 `66029`：无源要能被人看懂、能进巡检
+      errors.remark = '无源单据必须在备注里写明来源（如：期初余额 / 复制自 IN-xxx / 其他）';
+    }
+  } else if (!form.purchase_order_id) {
+    errors.purchase_order_id = '采购入库必须选择采购单（无来源请切换为「无源单据」）';
   }
   if (!form.warehouse_id) {
     errors.warehouse_id = '请选择收货仓库';
@@ -670,7 +799,11 @@ export function buildStockInPayload(form: StockInFormState): CreateStockInReq {
   return {
     // 带来源采购单时用业务别名 `purchase_order_id`（与 `source_order_id` 同义，只能给一个）
     purchase_order_id: form.purchase_order_id || null,
-    supplier_id: form.supplier_id,
+    // A6/A4：采购入库**不再传 supplier_id** —— 后端从采购单派生（传了不一致 → 400，一致也只是噪声）；
+    // 无源单据反过来必须传，并且要显式声明 is_sourceless（否则后端 400 `66027`）。
+    ...(form.sourceless
+      ? { supplier_id: form.supplier_id, is_sourceless: true }
+      : {}),
     warehouse_id: form.warehouse_id,
     in_date: form.in_date,
     invoice_received: form.invoice_received,

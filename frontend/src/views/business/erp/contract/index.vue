@@ -542,6 +542,7 @@
  * | `meta.auth` | 本仓 `meta.permission`（`router/index.ts` 的 RouteMeta 只有 `permission`） |
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   changeContractStatus,
@@ -974,7 +975,25 @@ function formatDateTime(value: string | null | undefined): string {
 onMounted(() => {
   void loadBasics();
   void loadContracts(1);
+  void applyRouteQuery();
 });
+
+/**
+ * 跨页深链（A6 加的，**只加这一个入口，不动 A5 已有行为**）：
+ * 采购单详情点「合同号」→ `/business/erp/contract?contract_id=<id>` → 直开这张合同的详情抽屉。
+ *
+ * 参数消费后立刻 `replace` 掉：刷新不该重复弹（与采购/收货页同一套约定）。
+ */
+async function applyRouteQuery(): Promise<void> {
+  const router = useRouter();
+  const route = useRoute();
+  const contractId = typeof route.query.contract_id === 'string' ? route.query.contract_id : '';
+  if (!contractId) {
+    return;
+  }
+  await router.replace({ path: route.path, query: {} });
+  await openDetail({ id: contractId });
+}
 </script>
 
 <style scoped lang="less">
