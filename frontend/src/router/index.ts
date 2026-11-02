@@ -314,6 +314,14 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '流程编辑器', permission: 'business:flow:read' },
       },
       {
+        // 流程模板库（P-FLOW-5）：标准模板按业务域摊开，看流程图 / 另存为 / 启用停用。
+        // `/flow/templates` 与 `sys_menu.path`（V0194 种子 …07a5）逐字一致。
+        path: 'flow/templates',
+        name: 'BusinessFlowTemplates',
+        component: () => import('@/views/business/flow/templates/index.vue'),
+        meta: { title: '流程模板库', permission: 'business:flow:read' },
+      },
+      {
         // 发起审批：只列 PUBLISHED 流程；提交走实例侧接口。
         path: 'flow/start',
         name: 'BusinessFlowStart',

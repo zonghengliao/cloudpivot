@@ -352,6 +352,16 @@ export interface FlowOfflineRes {
   current_version_no: number;
 }
 
+/** 恢复启用回执（`EnableRes`） */
+export interface FlowEnableRes {
+  /** 流程 id */
+  id: string;
+  /** 启用后的状态（PUBLISHED） */
+  status: string;
+  /** 当前版本号（启用不动版本） */
+  current_version_no: number;
+}
+
 /** 删除回执（`DefDeleteRes`） */
 export interface FlowDefDeleteRes {
   /** 是否已删除 */
@@ -587,6 +597,16 @@ export function offlineFlowDef(id: string): Promise<FlowOfflineRes> {
   return post<FlowOfflineRes>(`/api/business/flow/def/${id}/offline`);
 }
 
+/**
+ * 恢复启用（`POST /business/flow/def/{id}/enable`）：`DISABLED → PUBLISHED`。
+ *
+ * 只拨状态位：不产生新版本、不动在跑实例、不动默认标记。
+ * 草稿（`DRAFT`）不能走这里 —— 要走 {@link publishFlowDef} 过发布校验，否则 409。
+ */
+export function enableFlowDef(id: string): Promise<FlowEnableRes> {
+  return post<FlowEnableRes>(`/api/business/flow/def/${id}/enable`);
+}
+
 /** 版本列表（`GET /business/flow/def/{id}/versions`，按版本号倒序）。 */
 export function listFlowVersions(id: string): Promise<{ list: FlowVersionSummary[] }> {
   return get<{ list: FlowVersionSummary[] }>(`/api/business/flow/def/${id}/versions`);
@@ -626,6 +646,112 @@ export function validateFlowVersion(vid: string): Promise<FlowValidateRes> {
  */
 export function createFlowDraft(id: string, body: FlowDraftReq = {}): Promise<FlowDraftRes> {
   return post<FlowDraftRes>(`/api/business/flow/def/${id}/draft`, body);
+}
+
+// ==================== 模板库（P-FLOW-5） ====================
+
+/**
+ * 模板库条目（`GET /business/flow/def/templates` 的 item）。
+ *
+ * `is_system` = 系统预置（前端标「标准」）；`view_version_id` 是**能拿去画图的那个版本**
+ * （有发布版就是发布版，只有草稿的另存为副本退到最新草稿；一个版本都没有时是 null）。
+ */
+export interface FlowTemplateItem {
+  /** 流程 id */
+  id: string;
+  /** 编码 */
+  flow_code: string;
+  /** 名称 */
+  flow_name: string;
+  /** 业务类型 */
+  biz_type: string;
+  /** 分类（分组名，后端保证非空串） */
+  category: string;
+  /** 状态：DRAFT / PUBLISHED / DISABLED */
+  status: FlowDefStatus;
+  /** 是否该业务类型的默认流程 */
+  is_default: boolean;
+  /** 是否系统预置（前端标「标准」） */
+  is_system: boolean;
+  /** 可查看流程图的版本 id（null = 还没有任何版本） */
+  view_version_id: string | null;
+  /** 该版本号（0 = 没有版本） */
+  view_version_no: number;
+  /** 节点数 */
+  node_count: number;
+  /** 连线数 */
+  edge_count: number;
+  /** 已用次数（发起的审批实例数） */
+  usage_count: number;
+  /** 最近一次使用时间（RFC3339；从未用过 → null） */
+  last_used_at: string | null;
+  /** 一句话适用场景（条件分流标签，没有条件边则取说明首句） */
+  summary: string;
+}
+
+/** 模板库分组（按 category）。 */
+export interface FlowTemplateGroup {
+  /** 分类名 */
+  category: string;
+  /** 组内条目 */
+  items: FlowTemplateItem[];
+}
+
+/** 模板库出参。 */
+export interface FlowTemplatesRes {
+  /** 分组清单（顺序固定：采购管理 → 仓库管理 → 财务管理 → 任务 → 其它） */
+  groups: FlowTemplateGroup[];
+  /** 条目总数 */
+  total: number;
+}
+
+/**
+ * 流程模板库（`GET /business/flow/def/templates`）。
+ *
+ * 一次拉全量（后端已按业务域分好组）：模板库是「一次看全」，不做分页。
+ */
+export function getFlowTemplates(): Promise<FlowTemplatesRes> {
+  return get<FlowTemplatesRes>('/api/business/flow/def/templates');
+}
+
+/** 另存为请求（`POST /business/flow/def/{id}/duplicate`）。 */
+export interface FlowDuplicateReq {
+  /** 新编码（小写 + 数字 + 下划线，不可重复） */
+  new_flow_code: string;
+  /** 新名称 */
+  new_flow_name: string;
+}
+
+/** 另存为回执（副本恒 DRAFT、is_system=false、is_default=false）。 */
+export interface FlowDuplicateRes {
+  /** 新流程 id */
+  id: string;
+  /** 新编码 */
+  flow_code: string;
+  /** 新名称 */
+  flow_name: string;
+  /** 状态（恒 DRAFT） */
+  status: FlowDefStatus;
+  /** 是否系统预置（恒 false） */
+  is_system: boolean;
+  /** 新流程的初始版本 id（据此跳编辑页） */
+  version_id: string;
+  /** 版本号（恒 1） */
+  version_no: number;
+  /** 复制过来的节点数 */
+  node_count: number;
+  /** 复制过来的边数 */
+  edge_count: number;
+}
+
+/**
+ * 另存为（`POST /business/flow/def/{id}/duplicate`）。
+ *
+ * 复制定义（节点 + 连线 + 审批人）成一份**新编码的 DRAFT**，原模板一行不动；
+ * 只复制定义、**不复制实例数据**。编码重复 → 409 + 10003。
+ */
+export function duplicateFlowDef(id: string, body: FlowDuplicateReq): Promise<FlowDuplicateRes> {
+  return post<FlowDuplicateRes>(`/api/business/flow/def/${id}/duplicate`, body);
 }
 
 // ==================== 实例侧类型（D2 已交付，2026-10-29 对齐） ====================

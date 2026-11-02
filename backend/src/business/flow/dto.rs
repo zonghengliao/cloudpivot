@@ -858,6 +858,94 @@ pub struct DefPageRes {
     pub page_size: u64,
 }
 
+/// 模板库条目（`GET /business/flow/def/templates` 的一个 item）。
+///
+/// 前端卡片要显示的全在这一个结构里：名称 / 标准标签（`is_system`）/ 启用状态 /
+/// 适用场景（`summary`）/ 节点边数 / 已用次数 / 能拿去画图的那个版本（`view_version_id`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TemplateItemRes {
+    /// 流程 id。
+    pub id: String,
+    /// 编码。
+    pub flow_code: String,
+    /// 名称。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 分类（分组名，永不空串）。
+    pub category: String,
+    /// 状态（`DRAFT` / `PUBLISHED` / `DISABLED`）。
+    pub status: String,
+    /// 是否该业务类型的默认流程。
+    pub is_default: bool,
+    /// 是否系统预置（前端标「标准」）。
+    pub is_system: bool,
+    /// 可查看流程图的版本 id（一个版本都没有 → `null`）。
+    pub view_version_id: Option<String>,
+    /// 该版本号（没有版本 → 0）。
+    pub view_version_no: i32,
+    /// 节点数。
+    pub node_count: i64,
+    /// 连线数。
+    pub edge_count: i64,
+    /// 已用次数（发起的审批实例数）。
+    pub usage_count: i64,
+    /// 最近一次使用时间（RFC3339；从未用过 → `null`）。
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// 一句话适用场景（条件连线的分流标签；没有条件边 → 说明首句）。
+    pub summary: String,
+}
+
+/// 模板库分组（按 `category`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct TemplateGroupRes {
+    /// 分类名。
+    pub category: String,
+    /// 组内条目。
+    pub items: Vec<TemplateItemRes>,
+}
+
+/// 模板库出参。
+#[derive(Debug, Clone, Serialize)]
+pub struct TemplatesRes {
+    /// 分组清单（顺序固定：采购管理 → 仓库管理 → 财务管理 → 任务 → 其它）。
+    pub groups: Vec<TemplateGroupRes>,
+    /// 条目总数（方便前端显示「共 N 个模板」）。
+    pub total: u64,
+}
+
+/// 另存为（`POST /business/flow/def/{id}/duplicate`）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct DuplicateReq {
+    /// 新编码（必填，小写 + 数字 + 下划线；不可与已有编码重复）。
+    pub new_flow_code: String,
+    /// 新名称（必填）。
+    pub new_flow_name: String,
+}
+
+/// 另存为回执。
+#[derive(Debug, Clone, Serialize)]
+pub struct DuplicateRes {
+    /// 新流程 id。
+    pub id: String,
+    /// 新编码。
+    pub flow_code: String,
+    /// 新名称。
+    pub flow_name: String,
+    /// 状态（**恒 `DRAFT`**：用户改完自己发布）。
+    pub status: String,
+    /// 是否系统预置（**恒 `false`**：副本是客户的）。
+    pub is_system: bool,
+    /// 新流程的初始版本 id（前端据此跳编辑页）。
+    pub version_id: String,
+    /// 版本号（恒 1）。
+    pub version_no: i32,
+    /// 复制过来的节点数。
+    pub node_count: i64,
+    /// 复制过来的边数。
+    pub edge_count: i64,
+}
+
 /// 新建流程回执。
 #[derive(Debug, Clone, Serialize)]
 pub struct DefSaveRes {
@@ -1103,6 +1191,17 @@ pub struct OfflineRes {
     /// 停用后的状态（`DISABLED`）。
     pub status: String,
     /// 当前版本号（停用不动版本）。
+    pub current_version_no: i32,
+}
+
+/// 恢复启用回执（`POST /business/flow/def/{id}/enable`）。
+#[derive(Debug, Clone, Serialize)]
+pub struct EnableRes {
+    /// 流程 id。
+    pub id: String,
+    /// 启用后的状态（恒 `PUBLISHED`）。
+    pub status: String,
+    /// 当前版本号（启用不动版本）。
     pub current_version_no: i32,
 }
 

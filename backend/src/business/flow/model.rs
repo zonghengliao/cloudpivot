@@ -296,6 +296,162 @@ pub async fn page_defs(filter: &DefFilter, page: u64, page_size: u64) -> DbResul
     })
 }
 
+// ==================== 模板库（P-FLOW-5） ====================
+
+/// 模板库条目行（`GET /business/flow/def/templates` 的一行）。
+///
+/// 比 [`DefRow`] 多三样模板库独有的东西：
+/// - `is_system`：系统预置（前端标「标准」）；
+/// - `view_version_id` / `view_version_no`：**能拿去看图的那个版本** ——
+///   有发布版就是发布版，没发布版（客户另存为出来的 DRAFT）退到最新草稿，
+///   不这样处理，模板库里但凡有草稿就会「点查看流程图一片空白」；
+/// - `usage_count` / `last_used_at`：该定义被发起过多少次（查 `biz_flow_instance`，
+///   按 `def_id` 归组；删掉的实例不计）。
+#[derive(Debug, Clone)]
+pub struct TemplateRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 编码。
+    pub flow_code: String,
+    /// 名称。
+    pub flow_name: String,
+    /// 业务类型。
+    pub biz_type: String,
+    /// 分类（分组依据）。
+    pub category: Option<String>,
+    /// 说明。
+    pub description: Option<String>,
+    /// 状态（`DRAFT` / `PUBLISHED` / `DISABLED`）。
+    pub status: String,
+    /// 是否该业务类型的默认流程。
+    pub is_default: bool,
+    /// 是否系统预置。
+    pub is_system: bool,
+    /// 可查看流程图的版本（发布版 > 最新草稿；一个版本都没有 → `None`）。
+    pub view_version_id: Option<Uuid>,
+    /// 该版本号（没有版本 → 0）。
+    pub view_version_no: i32,
+    /// 节点数。
+    pub node_count: i64,
+    /// 连线数。
+    pub edge_count: i64,
+    /// 已用次数（发起的审批实例数）。
+    pub usage_count: i64,
+    /// 最近一次使用时间。
+    pub last_used_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+impl TemplateRow {
+    /// 由查询行构造。
+    ///
+    /// # 异常情况
+    ///
+    /// 列缺失 / 类型不符 → [`DbError`]。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            flow_code: row.get_typed("flow_code")?,
+            flow_name: row.get_typed("flow_name")?,
+            biz_type: row.get_typed("biz_type")?,
+            category: row.get_typed("category")?,
+            description: row.get_typed("description")?,
+            status: row.get_typed("status")?,
+            is_default: row.get_typed("is_default")?,
+            is_system: row.get_typed("is_system")?,
+            view_version_id: row.get_typed("view_version_id")?,
+            view_version_no: row.get_typed("view_version_no")?,
+            node_count: row.get_typed("node_count")?,
+            edge_count: row.get_typed("edge_count")?,
+            usage_count: row.get_typed("usage_count")?,
+            last_used_at: row.get_typed("last_used_at")?,
+        })
+    }
+
+    /// 分组名：分类为空 → `未分类`（绝不把空串当分组名丢给前端）。
+    pub fn category_label(&self) -> String {
+        match self.category.as_deref().map(str::trim) {
+            Some(text) if !text.is_empty() => text.to_string(),
+            _ => "未分类".to_string(),
+        }
+    }
+}
+
+/// 模板库清单（未软删的全部定义，系统预置排前、再按分类 / 编码）。
+///
+/// **一条 SQL 出全部数据**（含 `usage_count` 与 `view_version_id`）：
+/// 模板库是「一次看全」，逐条查使用次数会变成 N+1。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn templates() -> DbResult<Vec<TemplateRow>> {
+    let rows = db()
+        .find(
+            "SELECT d.id, d.flow_code, d.flow_name, d.biz_type, d.category, d.description, \
+                    d.status, d.is_default, d.is_system, \
+                    COALESCE(d.current_version_id, lv.id) AS view_version_id, \
+                    CAST(COALESCE(v.version_no, lv.version_no, 0) AS int) AS view_version_no, \
+                    CAST(COALESCE(v.node_count, lv.node_count, 0) AS bigint) AS node_count, \
+                    CAST(COALESCE(v.edge_count, lv.edge_count, 0) AS bigint) AS edge_count, \
+                    CAST(COALESCE(u.usage_count, 0) AS bigint) AS usage_count, u.last_used_at \
+               FROM biz_flow_def d \
+               LEFT JOIN biz_flow_def_version v ON v.id = d.current_version_id \
+               LEFT JOIN LATERAL ( \
+                    SELECT l.id, l.version_no, l.node_count, l.edge_count \
+                      FROM biz_flow_def_version l WHERE l.def_id = d.id \
+                     ORDER BY l.version_no DESC LIMIT 1 \
+               ) lv ON TRUE \
+               LEFT JOIN ( \
+                    SELECT i.def_id, count(*) AS usage_count, max(i.started_at) AS last_used_at \
+                      FROM biz_flow_instance i WHERE i.deleted_at IS NULL GROUP BY i.def_id \
+               ) u ON u.def_id = d.id \
+              WHERE d.deleted_at IS NULL \
+              ORDER BY d.is_system DESC, d.category NULLS LAST, d.flow_code",
+        )
+        .await?;
+    rows.iter().map(TemplateRow::from_row).collect()
+}
+
+/// 模板库「一句话说明」素材：各定义可查看版本的**条件连线标签**（按优先级）。
+///
+/// 返回 `(def_id, 标签)` 列表，调用方按 def_id 归组后拼成
+/// 「金额 < 10000 / 10000 ≤ 金额 < 100000 / 金额 ≥ 100000」这种一眼看懂的分流说明。
+///
+/// **只保留「分流到审批节点」的边**（`to_node.node_type <> 'CONDITION'`）：
+/// 金额分级流程里，网关 A 的兜底边写的是「金额 ≥ 10000」而它指向的是网关 B，
+/// 这条边不是一档业务分层（真分层是同网关的「金额 < 10000」和网关 B 的
+/// 「10000 ≤ 金额 < 100000」「金额 ≥ 100000」）。把网关之间的中转边拼进摘要，
+/// 就会出现「≥ 1 万」和「< 1 万」并列这种自相矛盾的说明。
+/// 判据用「目标节点类型」而不是 `is_default`：网关 B 的兜底边「金额 ≥ 100000」
+/// 虽然也是 `is_default = true`，但它真的指向会签节点，是有效的一档。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn template_condition_labels() -> DbResult<Vec<(Uuid, String)>> {
+    let rows = db()
+        .find(
+            "SELECT v.def_id, e.condition_label \
+               FROM biz_flow_edge e \
+               JOIN biz_flow_def_version v ON v.id = e.version_id \
+               JOIN biz_flow_def d ON d.id = v.def_id \
+               JOIN biz_flow_node n ON n.id = e.to_node_id \
+              WHERE d.deleted_at IS NULL \
+                AND v.id = COALESCE(d.current_version_id, ( \
+                        SELECT l.id FROM biz_flow_def_version l WHERE l.def_id = d.id \
+                         ORDER BY l.version_no DESC LIMIT 1)) \
+                AND n.node_type <> 'CONDITION' \
+                AND e.condition_label IS NOT NULL AND btrim(e.condition_label) <> '' \
+              ORDER BY v.def_id, e.priority, e.edge_key",
+        )
+        .await?;
+    let mut out: Vec<(Uuid, String)> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        out.push((row.get_typed("def_id")?, row.get_typed("condition_label")?));
+    }
+    Ok(out)
+}
+
 /// 按 id 取流程定义（未软删；不存在 / 已删 → `None`）。
 ///
 /// # 异常情况
@@ -781,6 +937,30 @@ pub async fn mark_disabled(id: Uuid, operator: Uuid) -> DbResult<u64> {
     db().execute_with_params(
         "UPDATE biz_flow_def SET status = 'DISABLED', updated_at = now(), update_by = ?::uuid \
           WHERE id = ?::uuid AND deleted_at IS NULL",
+        vec![Value::from(&operator), Value::from(&id)],
+    )
+    .await
+}
+
+/// 恢复启用（`POST /def/{id}/enable` 的写路径）：`DISABLED → PUBLISHED`。
+///
+/// 三个 `WHERE` 条件都是**语义闸门**，不是性能优化：
+/// - `status = 'DISABLED'`：只有被停用的流程才谈得上「恢复启用」；
+///   `DRAFT` 要走发布（图校验 + 快照），这里放过去就等于绕过 12 条发布校验。
+/// - `current_version_id IS NOT NULL`：没有已发布版本就「启用」= 让发起接口拿不到图，
+///   必须在写之前拦下来（返回 0 行，handler 据此报 409）。
+/// - `deleted_at IS NULL`：软删的流程不能被复活。
+///
+/// 备注：`is_default` 不动 —— 停用没清默认标记（历史口径），恢复后默认关系自然回来。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn mark_enabled(id: Uuid, operator: Uuid) -> DbResult<u64> {
+    db().execute_with_params(
+        "UPDATE biz_flow_def SET status = 'PUBLISHED', updated_at = now(), update_by = ?::uuid \
+          WHERE id = ?::uuid AND deleted_at IS NULL \
+            AND status = 'DISABLED' AND current_version_id IS NOT NULL",
         vec![Value::from(&operator), Value::from(&id)],
     )
     .await

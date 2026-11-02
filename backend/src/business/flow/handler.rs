@@ -717,8 +717,82 @@ pub async fn offline(
     }))
 }
 
-// ==================== 8. 版本列表 ====================
+// ==================== 7b. 恢复启用 ====================
 
+/// 恢复启用流程（`POST /business/flow/def/{id}/enable`）。
+///
+/// 「停用」的反向操作，只做 **`DISABLED → PUBLISHED`** 一件事：
+/// 不动版本、不动在跑实例、不动 `is_default`。
+///
+/// # 为什么不能复用 `publish`
+///
+/// `publish` 的语义是「把草稿校验成快照」：它要求存在 DRAFT 版本，并且要跑完 12 条发布
+/// 校验。而一个被停用的流程**没有草稿**（`current_version_id` 指向已发布版本），
+/// 用它启用会稳定返回 `409 没有可发布的草稿版本` —— 模板库点「启用」就永远失败。
+/// 所以「恢复启用」必须是独立入口：它不产生新版本，只把状态位从 `DISABLED` 拨回 `PUBLISHED`。
+///
+/// 反过来，DRAFT 流程不能走这里（[`model::mark_enabled`] 的 `WHERE status = 'DISABLED'`
+/// 会返回 0 行 → 409），否则等于绕过发布校验直接把未校验的图放上线。
+///
+/// # 异常情况
+///
+/// - 404 + `65001`：流程不存在 / 已软删；
+/// - 409 + `65006`：当前状态不是 `DISABLED`（草稿请走发布接口）；
+/// - 409 + `65006`：该流程从来没有发布过版本（没有可运行的图）。
+#[nik::permission(
+    path = "/business/flow/def/{id}/enable",
+    method = "POST",
+    permission = "business:flow:publish"
+)]
+#[nik::post("/business/flow/def/{id}/enable")]
+pub async fn enable(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+) -> ResResult<dto::EnableRes> {
+    let operator = me_of(&claims)?;
+    let def_id = parse_uuid_field(&id, "流程 id")?;
+    let before = load_def(def_id).await?;
+
+    if before.status != dto::DEF_STATUS_DISABLED {
+        return Err(ApiError::new(
+            409,
+            error_code::FLOW_VERSION_NOT_EDITABLE,
+            format!(
+                "只有已停用的流程能恢复启用（当前状态 {}）。草稿请用「发布」，启用中的流程无需操作",
+                before.status
+            ),
+        ));
+    }
+    if before.current_version_id.is_none() {
+        return Err(ApiError::new(
+            409,
+            error_code::FLOW_VERSION_NOT_EDITABLE,
+            "该流程还没有发布过版本，无法直接启用：请先在流程编辑器里发布草稿",
+        ));
+    }
+
+    let affected = model::mark_enabled(def_id, operator)
+        .await
+        .map_err(|error| utils::db_error(error, "恢复启用流程定义"))?;
+    if affected == 0 {
+        // 并发：读到的状态与写入时不一致（别人刚改过），如实报冲突而不是假装成功
+        return Err(ApiError::new(
+            409,
+            error_code::FLOW_VERSION_NOT_EDITABLE,
+            "流程状态已被其他操作改动，请刷新后重试",
+        ));
+    }
+
+    let row = load_def(def_id).await?;
+    tracing::info!(%def_id, operator = %operator, status = %row.status, "流程定义已恢复启用");
+    Ok(Res::ok(dto::EnableRes {
+        id: def_id.to_string(),
+        status: row.status,
+        current_version_no: row.current_version_no,
+    }))
+}
+
+// ==================== 8. 版本列表 ====================
 /// 版本列表（`GET /business/flow/def/{id}/versions`）。
 ///
 /// 版本号倒序；含发布人姓名 / 时间 / 节点数 / 当前标记。
@@ -2799,6 +2873,245 @@ pub async fn instance_tasks(
         instance_id: instance_id.to_string(),
         list,
         total,
+    }))
+}
+
+// ==================== 模板库（P-FLOW-5） ====================
+
+/// 模板库分类展示顺序（= 前端 Tab 顺序，与卡面「采购管理 / 仓库管理 / 财务管理 / 任务」一致）。
+const TEMPLATE_CATEGORY_ORDER: [&str; 4] = ["采购管理", "仓库管理", "财务管理", "任务"];
+
+/// 分类排序权重：已知业务域按固定顺序，未知分类排最后（按名字排）。
+fn template_category_rank(category: &str) -> usize {
+    TEMPLATE_CATEGORY_ORDER
+        .iter()
+        .position(|known| *known == category)
+        .unwrap_or(TEMPLATE_CATEGORY_ORDER.len())
+}
+
+/// 截断到 `max` 个字符（按字符不是字节，中文不会被切一半）。
+fn truncate_chars(text: &str, max: usize) -> String {
+    let mut out: String = text.chars().take(max).collect();
+    if text.chars().count() > max {
+        out.push('…');
+    }
+    out
+}
+
+/// 模板卡片的一句话适用场景。
+///
+/// 优先用**条件连线的分流标签**（「金额 < 10000 / 10000 ≤ 金额 < 100000 / 金额 ≥ 100000」）——
+/// 这是真正决定审批走向的阈值，比说明文字更接近用户问的「这个流程适用于什么情况」；
+/// 没有条件边（如任务验收）才退到 `description` 的首句。
+fn template_summary(labels: &[String], description: Option<&str>) -> String {
+    if !labels.is_empty() {
+        return truncate_chars(&labels.join(" / "), 120);
+    }
+    let Some(desc) = description.map(str::trim).filter(|text| !text.is_empty()) else {
+        return String::new();
+    };
+    let first = desc.split(['。', '\n']).next().unwrap_or(desc).trim();
+    truncate_chars(first, 120)
+}
+
+/// 流程模板库（`GET /business/flow/def/templates`）。
+///
+/// 一次返回**按业务域分组**的全部模板（未软删的定义）：每组内系统预置在前，
+/// 每条带「标准」标记（`is_system`）、启用状态、节点 / 连线数、已用次数与一句话适用场景。
+///
+/// 数据来源全部是库里的真实事实：分组 = `biz_flow_def.category`，
+/// 已用次数 = `biz_flow_instance` 计数，适用场景 = 条件连线标签（退 `description` 首句）。
+///
+/// # 异常情况
+///
+/// - 500：数据库异常。
+#[nik::permission(
+    path = "/business/flow/def/templates",
+    method = "GET",
+    permission = "business:flow:read"
+)]
+#[nik::get("/business/flow/def/templates")]
+pub async fn templates() -> ResResult<dto::TemplatesRes> {
+    let rows = model::templates()
+        .await
+        .map_err(|error| utils::db_error(error, "查询流程模板库"))?;
+    let labels = model::template_condition_labels()
+        .await
+        .map_err(|error| utils::db_error(error, "查询流程分流标签"))?;
+
+    let mut labels_of: std::collections::HashMap<Uuid, Vec<String>> =
+        std::collections::HashMap::new();
+    for (def_id, label) in labels {
+        labels_of.entry(def_id).or_default().push(label);
+    }
+
+    // 分组（保持 SQL 的组内顺序：系统预置优先 → 分类 → 编码）
+    let mut groups: Vec<dto::TemplateGroupRes> = Vec::new();
+    for row in &rows {
+        let category = row.category_label();
+        let label_list = labels_of.remove(&row.id).unwrap_or_default();
+        let item = dto::TemplateItemRes {
+            id: row.id.to_string(),
+            flow_code: row.flow_code.clone(),
+            flow_name: row.flow_name.clone(),
+            biz_type: row.biz_type.clone(),
+            category: category.clone(),
+            status: row.status.clone(),
+            is_default: row.is_default,
+            is_system: row.is_system,
+            view_version_id: row.view_version_id.map(|id| id.to_string()),
+            view_version_no: row.view_version_no,
+            node_count: row.node_count,
+            edge_count: row.edge_count,
+            usage_count: row.usage_count,
+            last_used_at: row.last_used_at,
+            summary: template_summary(&label_list, row.description.as_deref()),
+        };
+        match groups.iter_mut().find(|group| group.category == category) {
+            Some(group) => group.items.push(item),
+            None => groups.push(dto::TemplateGroupRes {
+                category,
+                items: vec![item],
+            }),
+        }
+    }
+
+    groups.sort_by(|left, right| {
+        template_category_rank(&left.category)
+            .cmp(&template_category_rank(&right.category))
+            .then_with(|| left.category.cmp(&right.category))
+    });
+    let total = groups.iter().map(|group| group.items.len() as u64).sum();
+    Ok(Res::ok(dto::TemplatesRes { groups, total }))
+}
+
+/// 另存为（`POST /business/flow/def/{id}/duplicate`）。
+///
+/// 「模板 → 我们自己的流程」的唯一入口：**复制定义**（节点 + 连线 + 审批人 + 元信息），
+/// 生成一个新编码的 `DRAFT`（`is_system = false`），原模板一行不动。用户改完自己发布。
+///
+/// # 三条刻意的口径
+///
+/// 1. **只复制定义，不复制实例**：`biz_flow_instance` 一条也不碰 —— 副本拿去跑新单子，
+///    历史审批记录仍挂在原模板的 def_id 上（审计口径不串）。
+/// 2. **副本 `is_default = false`**：`uk_biz_flow_def_default` 允许每个 biz_type 只有一个默认流程，
+///    副本若抢占默认，等于**悄悄改了客户在跑的规则**。要换成副本，由用户在流程定义页显式切换。
+/// 3. **`is_system = false`**：副本是客户的，前端不标「标准」。
+///
+/// # 异常情况
+///
+/// - 400 + `65005`：新编码 / 新名称非法（格式 / 长度）；
+/// - 404 + `65001`：源流程不存在 / 已软删；
+/// - 409 + `10003`：新编码已被占用；
+/// - 409 + `65006`：源流程一个版本都没有（没有可复制的图）。
+#[nik::permission(
+    path = "/business/flow/def/{id}/duplicate",
+    method = "POST",
+    permission = "business:flow:create"
+)]
+#[nik::post("/business/flow/def/{id}/duplicate")]
+pub async fn duplicate(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Path(id): Path<String>,
+    Json(req): Json<dto::DuplicateReq>,
+) -> ResResult<dto::DuplicateRes> {
+    let operator = me_of(&claims)?;
+    let def_id = parse_uuid_field(&id, "流程 id")?;
+    let source = load_def(def_id).await?;
+    let new_code = dto::normalize_flow_code(&req.new_flow_code).map_err(field_invalid)?;
+    let new_name = dto::normalize_name(&req.new_flow_name).map_err(field_invalid)?;
+
+    if model::flow_code_taken(&new_code, None)
+        .await
+        .map_err(|error| utils::db_error(error, "校验流程编码"))?
+    {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!("流程编码 {new_code} 已被占用"),
+        ));
+    }
+
+    // 复制源：当前发布版本 > 最新版本（与「另存为新草稿」同一口径）
+    let source_version = match source.current_version_id {
+        Some(version_id) => load_version(version_id).await?,
+        None => model::versions_of(def_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询流程版本"))?
+            .into_iter()
+            .next()
+            .ok_or_else(|| {
+                ApiError::new(
+                    409,
+                    error_code::FLOW_VERSION_NOT_EDITABLE,
+                    "该模板还没有任何版本，无法另存为",
+                )
+            })?,
+    };
+    let source_version_id = source_version.id;
+    let source_version_no = source_version.version_no;
+
+    let new_def = model::NewDef {
+        id: Uuid::now_v7(),
+        flow_code: new_code.clone(),
+        flow_name: new_name.clone(),
+        biz_type: source.biz_type.clone(),
+        category: source.category.clone(),
+        description: source.description.clone(),
+        is_default: false,
+        allow_auto_approve: source.allow_auto_approve,
+    };
+    let new_def_id = new_def.id;
+    let note = format!("从模板 {} v{source_version_no} 另存为", source.flow_code);
+    let note_for_tx = note.clone();
+    let (version_id, node_count, edge_count) = db()
+        .transaction(|tx| async move {
+            model::create_def(&tx, &new_def, operator).await?;
+            let version_id =
+                model::create_version(&tx, new_def_id, 1, Some(&note_for_tx), operator).await?;
+            let (node_count, edge_count) = model::copy_version_to_draft(
+                &tx,
+                new_def_id,
+                source_version_id,
+                version_id,
+                Some(&note_for_tx),
+                operator,
+            )
+            .await?;
+            model::touch_version(
+                &tx,
+                version_id,
+                Some(&note_for_tx),
+                node_count,
+                edge_count,
+                operator,
+            )
+            .await?;
+            Ok((version_id, node_count, edge_count))
+        })
+        .await
+        .map_err(|error| utils::db_error(error, "另存为流程模板"))?;
+
+    tracing::info!(
+        source_def = %def_id,
+        new_def = %new_def_id,
+        %new_code,
+        %version_id,
+        node_count,
+        edge_count,
+        operator = %operator,
+        "流程模板已另存为"
+    );
+    Ok(Res::ok(dto::DuplicateRes {
+        id: new_def_id.to_string(),
+        flow_code: new_code,
+        flow_name: new_name,
+        status: "DRAFT".to_string(),
+        is_system: false,
+        version_id: version_id.to_string(),
+        version_no: 1,
+        node_count,
+        edge_count,
     }))
 }
 
