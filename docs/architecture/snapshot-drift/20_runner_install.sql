@@ -25,7 +25,8 @@ SELECT * FROM (VALUES
   ('DI-11','应付来源入库单悬空/已删',       'P0',        'PAYABLE',        false, 'biz_stock_in.id'),
   ('DI-12','采购单供应商主档悬空/已删',     'P0/P1',     'PURCHASE_ORDER', false, 'biz_supplier.deleted_at'),
   ('DI-13','同一合同下快照互斥',            'P1',        'CONTRACT',       true,  'biz_contract.party_b_id'),
-  ('DI-14','结构护栏缺失（巡检自身可信度）','P0',        'SYSTEM',         false, 'pg_constraint')
+  ('DI-14','结构护栏缺失（巡检自身可信度）','P0',        'SYSTEM',         false, 'pg_constraint'),
+  ('DI-15','合同已终止但仍有在途采购单',    'P0/P1',     'PURCHASE_ORDER', true,  'biz_contract.status')
 ) AS t(issue_code, check_name, priority_rule, entity_type, needs_contract, truth_source);
 
 COMMENT ON VIEW di.v_check_registry IS
@@ -58,7 +59,8 @@ UNION ALL SELECT * FROM di.c_di10
 UNION ALL SELECT * FROM di.c_di11
 UNION ALL SELECT * FROM di.c_di12
 UNION ALL SELECT * FROM di.c_di13 WHERE (SELECT contract_checks_ready FROM di.di_capability)
-UNION ALL SELECT * FROM di.c_di14;
+UNION ALL SELECT * FROM di.c_di14
+UNION ALL SELECT * FROM di.c_di15 WHERE (SELECT contract_checks_ready FROM di.di_capability);
 
 COMMENT ON VIEW di.v_drift_now IS
   '本轮全量未决缺陷（只读）：运维可直接 select * 复核；定时任务用它一条语句落库';

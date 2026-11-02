@@ -33,7 +33,10 @@ INSERT INTO biz_contract (id, contract_no, contract_name, contract_type, party_b
  ('f1c00000-0000-4000-8000-0000000000c2','FIXDI-CT-2','夹具合同二','PURCHASE','SUPPLIER',
   'f1c00000-0000-4000-8000-000000000001','夹具供应商乙1','ACTIVE', current_date, 1000),
  ('f1c00000-0000-4000-8000-0000000000c3','FIXDI-CT-3','夹具合同三','PURCHASE','SUPPLIER',
-  'f1c00000-0000-4000-8000-000000000002','夹具供应商乙2','ACTIVE', current_date, 1000);
+  'f1c00000-0000-4000-8000-000000000002','夹具供应商乙2','ACTIVE', current_date, 1000),
+ -- 已终止的合同（给 DI-15 当上游）
+ ('f1c00000-0000-4000-8000-0000000000c4','FIXDI-CT-4','夹具合同四（已终止）','PURCHASE','SUPPLIER',
+  'f1c00000-0000-4000-8000-000000000001','夹具供应商乙1','TERMINATED', current_date, 1000);
 UPDATE biz_contract SET deleted_at = now() WHERE id = 'f1c00000-0000-4000-8000-0000000000c2';
 
 -- CT3 的乙方变更台账：T = 2026-10-01，B1 → B2
@@ -83,7 +86,11 @@ INSERT INTO biz_purchase_order
  -- 已软删的采购单（给 DI-07 当上游）
  ('f1c00000-0000-4000-8000-000000000109','FIXDI-P9','f1c00000-0000-4000-8000-000000000001',
   current_date,'f1c00000-0000-4000-8000-0000000000f1','APPROVED','SPOT',
-  NULL,NULL,NULL, now() - interval '4 day');
+  NULL,NULL,NULL, now() - interval '4 day'),
+ -- 引用已终止合同 → DI-15 P0（APPROVED 在途）
+ ('f1c00000-0000-4000-8000-000000000110','FIXDI-P10','f1c00000-0000-4000-8000-000000000001',
+  current_date,'f1c00000-0000-4000-8000-0000000000f1','APPROVED','CONTRACT',
+  'f1c00000-0000-4000-8000-0000000000c4','FIXDI-CT-4',NULL, now() - interval '3 day');
 UPDATE biz_purchase_order SET deleted_at = now() WHERE id = 'f1c00000-0000-4000-8000-000000000109';
 
 -- 4) 入库单

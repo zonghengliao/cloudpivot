@@ -318,4 +318,26 @@ SELECT 'DI-14'::text AS issue_code, 'SYSTEM'::text AS entity_type,
   FROM missing m
  GROUP BY 1;
 
+-- ============================================================
+-- DI-15 合同已终止/已完成，但仍有在途采购单引用（P0/P1）
+--   含义：合同 TERMINATED/COMPLETED 之后，其名下还有未走完的采购单 ——
+--   这些单据的乙方真相来自一份「已经不被允许继续履约」的合同。
+--   跨卡对应：通用勾稽规则卡的 I-P5（本卡把它落成可执行 SQL）。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di15 AS
+SELECT 'DI-15'::text AS issue_code, 'PURCHASE_ORDER'::text AS entity_type,
+       o.id AS entity_id, o.order_no::text AS entity_no, 'contract_id'::text AS field_name,
+       ('CONTRACT_STATUS=' || c.status || ' / PO_STATUS=' || o.status)::text AS snapshot_value,
+       'CONTRACT_LIVE'::text AS truth_value,
+       'biz_contract.status'::text AS truth_source,
+       'DEFECT'::text AS drift_kind,
+       CASE WHEN o.status IN ('APPROVED','PARTIAL_RECEIVED','RECEIVED') THEN 'ERROR' ELSE 'WARN' END AS severity,
+       1 AS affected_count
+  FROM di.v_po o
+  JOIN di.v_contract c ON c.id = o.contract_id
+ WHERE o.deleted_at IS NULL AND c.deleted_at IS NULL
+   AND o.purchase_type = 'CONTRACT'
+   AND o.status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_RECEIVED','RECEIVED')
+   AND c.status IN ('TERMINATED','COMPLETED');
+
 COMMIT;
