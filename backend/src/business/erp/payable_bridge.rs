@@ -40,7 +40,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::separation;
-use crate::business::flow::{engine, model as flow_model};
+use crate::business::flow::{engine, model as flow_model, settle_guard};
 use crate::shared::error_code;
 
 /// 付款审批的业务类型（与 V0175 种子 / `payable_payment::PAY_BIZ_TYPE` 同口径）。
@@ -728,18 +728,28 @@ async fn settle_cancel(instance_id: Uuid, verdict: CancelVerdict) -> DbResult<Op
     let Some(payable_id) = instance.biz_id else {
         return Ok(None);
     };
-    // ② 单据必须仍是「作废审批中」，否则就是不归本回调管的重复回调 / 已被别处推进
+    // ② 单据必须存在（当前状态能不能收这条结论交给 ③ 的统一前置校验）
     let Some(row) = crate::business::erp::payable_query::find_payable(payable_id).await? else {
         tracing::warn!(%payable_id, "应付单不存在或已删除，跳过作废回调");
         return Ok(None);
     };
-    if row.status != crate::business::erp::payable::STATUS_PENDING_CANCEL {
-        tracing::debug!(
-            %payable_id,
-            status = %row.status,
-            verdict = verdict.as_str(),
-            "应付单不在 PENDING_CANCEL（重复回调 / 已撤回 / 已作废），跳过"
-        );
+    // ★ C1（t_1e174431）：写单据状态前先校验应付单还在不在「能接受这个审批结论」的合法路径上
+    //   （状态机边 `PENDING_CANCEL → CANCELLED|OPEN`）。已作废 / 已被别的路径推走
+    //   → 不落状态 + WARN + 审批实例留痕（审批单本身仍按自己的结论结束）。
+    let target = match verdict {
+        CancelVerdict::Cancel => crate::business::erp::payable::STATUS_CANCELLED,
+        CancelVerdict::Restore => crate::business::erp::payable::STATUS_OPEN,
+    };
+    if !settle_guard::gate(
+        &instance,
+        crate::business::shared::state_machine::Entity::Payable,
+        &row.payable_no,
+        &row.status,
+        crate::business::erp::payable::STATUS_PENDING_CANCEL,
+        target,
+    )
+    .await
+    {
         return Ok(None);
     }
     // ③ 审批人（落 `update_by` / 状态日志用）：引擎把「谁点的」写在待办行

@@ -1,0 +1,22 @@
+===== 全量后端单测（干净库 cloudpivot_c1f，--test-threads=1）=====
+命令：ERP_DB_URL=...cloudpivot_c1f TASK_DB_URL=...cloudpivot_c1f cargo test --lib -- --test-threads=1
+
+test result: ok. 2073 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 882.69s
+CARGO_EXIT=0
+
+本次新增用例（11 条，全部在这一次全量里跑过）：
+2074
+test business::erp::pflow3b_tests::pflow3b_c1_moved_doc_is_not_overwritten_by_approval ... ok
+test business::flow::settle_guard::tests::already_settled_is_idempotent ... ok
+test business::flow::settle_guard::tests::approval_does_not_jump_from_doing_to_done ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_approval ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_rejection ... ok
+test business::flow::settle_guard::tests::review_task_accepts_approval ... ok
+test business::flow::settle_guard::tests::skip_comment_carries_all_required_fields ... ok
+test business::flow::settle_guard::tests::unknown_status_is_moved_not_panic ... ok
+test business::flow::task_bridge::flow_cascade_tests::cancelled_task_keeps_status_on_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::doing_task_is_not_pushed_to_done_by_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::review_task_still_completes_on_approval ... ok
+
+注：全量跑的是本卡源码（仅跑完后做了一次 clippy 触发的内部重构：skip_comment→SkipNote，语义不变）；
+    C1 相关 17 条用例已在重构后的最终源码上重跑，见 01-unit-tests.txt；真机 e2e 也在最终二进制上重跑，见 02-e2e.txt。

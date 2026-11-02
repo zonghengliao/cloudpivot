@@ -2878,6 +2878,82 @@ pub async fn reviewed_count(ex: &Transaction, instance_id: Uuid) -> DbResult<i64
     }
 }
 
+// ---------- 读：留痕挂点（C1 审批结论未落单据） ----------
+
+/// 留痕挂点：实例上**最新的一个节点行**（审批时间线按 `node_key` 分组，留痕挂在它上面）。
+#[derive(Debug, Clone)]
+pub struct NodeAnchor {
+    /// 实例节点主键（`biz_flow_task.instance_node_id` 的外键目标）。
+    pub id: Uuid,
+    /// 节点 key（时间线分组键）。
+    pub node_key: String,
+    /// 轮次。
+    pub round: i32,
+}
+
+/// 取实例上最新的一个节点行（留痕的挂点）。
+///
+/// # 为什么需要它
+///
+/// `biz_flow_task.instance_node_id` 是 **NOT NULL + 外键**：审批回调要在实例上补一条
+/// 「目标已不可改，跳过落状态」的留痕，必须先知道挂在哪一个节点上。挂最新的节点
+/// （`round` 最大、`created_at` 最新）在时间线上就是「刚结束的那一步」，语义最贴近。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。实例一条节点行都没有时返回 `Ok(None)`（调用方记 WARN 后放弃留痕）。
+// SCOPE-EXEMPT: 按 `instance_id` 精确取**单条**节点行（`ORDER BY … LIMIT 1`），不是列表查询；
+// 调用方是审批回调（系统身份），实例可见性已在发起侧校验，这里再套数据范围只会把留痕弄丢。
+pub async fn last_node_anchor(instance_id: Uuid) -> DbResult<Option<NodeAnchor>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT n.id, n.node_key, n.round FROM biz_flow_instance_node n \
+              WHERE n.instance_id = ?::uuid \
+              ORDER BY n.round DESC, n.created_at DESC, n.id DESC LIMIT 1",
+            vec![Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(NodeAnchor {
+            id: row.get_typed("id")?,
+            node_key: row.get_typed("node_key")?,
+            round: row.get_typed("round")?,
+        })),
+    }
+}
+
+/// 这个实例上是否已经留过「审批结论未落单据」的痕迹（幂等判据）。
+///
+/// 同一个实例只留一条：重复回调 / 重放不重复刷痕（`SKIPPED` 行不走
+/// `uk_biz_flow_task_pending`，没有库层唯一键兜底，只能在这里判）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（调用方当作「留痕没写成」，只记 WARN，不影响审批结论）。
+// SCOPE-EXEMPT: 按 `instance_id` 的 `count(*)` 做存在性判定，不是列表查询；
+// 与 `last_node_anchor` 同一调用链（审批回调 / 系统身份）。
+pub async fn has_skip_trace(instance_id: Uuid, prefix: &str) -> DbResult<bool> {
+    let rows = db()
+        .find_with_params(
+            "SELECT count(*) AS total FROM biz_flow_task t \
+              WHERE t.instance_id = ?::uuid AND t.status = 'SKIPPED' \
+                AND t.is_auto = true AND t.comment LIKE ?::text",
+            vec![
+                Value::from(&instance_id),
+                Value::Text(format!("%{prefix}%")),
+            ],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(false),
+        Some(row) => {
+            let total: i64 = row.get_typed("total")?;
+            Ok(total > 0)
+        }
+    }
+}
+
 /// 实例的审批时间线（全部轮次，含 `SKIPPED` / `TRANSFERRED` / `CANCELLED` 留痕）。
 ///
 /// # 异常情况

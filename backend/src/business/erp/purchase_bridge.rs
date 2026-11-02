@@ -37,6 +37,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::purchase_model::{self, STATUS_APPROVED, STATUS_DRAFT, STATUS_SUBMITTED};
 use crate::business::erp::separation;
 use crate::business::flow::model as flow_model;
+use crate::business::flow::settle_guard;
 use crate::shared::error_code;
 
 /// 采购订单审批的业务类型（与 V0182 种子 / `purchase_handler::submit_approval` 同口径）。
@@ -177,20 +178,11 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
     let Some(order_id) = instance.biz_id else {
         return Ok(None);
     };
-    // ② 单据必须是「已提交（审批中）」，否则就是不归本回调管的重复回调 / 已被别处推进
+    // ② 单据必须存在（当前状态能不能收这个结论交给 ③ 的统一前置校验）
     let Some(row) = purchase_model::find_order(order_id).await? else {
         tracing::warn!(%order_id, "采购订单不存在或已删除，跳过审批回调");
         return Ok(None);
     };
-    if row.status != STATUS_SUBMITTED {
-        tracing::debug!(
-            %order_id,
-            status = %row.status,
-            verdict = verdict.as_str(),
-            "采购订单不在 SUBMITTED（重复回调 / 已审批 / 已取消），跳过"
-        );
-        return Ok(None);
-    }
     // ③ 审批人（落库用）：引擎把「谁点的」写在待办行，实例行没有该字段
     let approver = latest_completed_assignee(instance_id).await?;
     // ④ 审批意见（驳回时写进 remark，让人一眼看到为什么被打回）
@@ -205,6 +197,21 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
             },
         ),
     };
+    // ★ C1（t_1e174431）：写目标状态前先校验采购单当前状态还在不在「能接受这个审批结论」
+    //   的合法路径上（状态机边 `SUBMITTED → APPROVED|DRAFT`）。单据已作废 / 已被别的
+    //   路径推走 → 不落状态 + WARN + 审批实例留痕（审批单本身仍是它自己的结论）。
+    if !settle_guard::gate(
+        &instance,
+        crate::business::shared::state_machine::Entity::PurchaseOrder,
+        &row.order_no,
+        &row.status,
+        STATUS_SUBMITTED,
+        to_status,
+    )
+    .await
+    {
+        return Ok(None);
+    }
     let now = Utc::now();
     let tx = db().begin().await?;
     let outcome = async {

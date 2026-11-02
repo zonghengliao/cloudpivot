@@ -1,0 +1,23 @@
+==== C1 真机验收 base=http://127.0.0.1:18098 db=cloudpivot_c1e ====
+       admin id = 01a19e69-b9b2-75a4-984e-6c82fd261b43
+[PASS] ① 建任务 200 — {"code": 0, "msg": "ok", "data": {"id": "01a19e7d-9bda-734e-a25a-5d8e5a44b236", "task_no": "TSK-202611-000002", "status": "TODO", "priority": "P2", "progress": 0, "due_date": "2026-11-06", "owner_id":
+       任务 TSK-202611-000002（01a19e7d-9bda-734e-a25a-5d8e5a44b236）
+[PASS] ① TSK-202611-000002 推进到 DOING — {"code": 0, "msg": "ok", "data": {"id": "01a19e7d-9bda-734e-a25a-5d8e5a44b236", "task_no": "TSK-202611-000002", "from": "TODO", "status": "DOING", "progress": 10, "done_at": null, "comment_id": "01a19
+[PASS] ① TSK-202611-000002 推进到 REVIEW — {"code": 0, "msg": "ok", "data": {"id": "01a19e7d-9bda-734e-a25a-5d8e5a44b236", "task_no": "TSK-202611-000002", "from": "DOING", "status": "REVIEW", "progress": 100, "done_at": null, "comment_id": "01
+[PASS] ① 提交验收后生成 PENDING 审批实例 + 待办 — instance_no=FLW-20261102-3DD6BE95 status=PENDING todo=01a19e7d-9bfc-741d-9d44-4f4d7ec85f6f
+[PASS] ② 事故形态就位：任务 CANCELLED 且审批实例仍 PENDING — task=CANCELLED instance=PENDING
+[PASS] ③ 审批通过 200 — {"code": 0, "msg": "ok", "data": {"instance_id": "01a19e7d-9bf5-74b6-b96c-a231c5da2731", "instance_status": "APPROVED", "node_status": "APPROVED", "done": true, "idempotent": false, "next_nodes": [], "auto_passed_nodes": 0, "approver_count"
+[PASS] ④ 审批实例已按结论结束 = APPROVED（GUE 走完了，红线：不退回去） — APPROVED
+[PASS] ④ 任务保持 CANCELLED（审批通过不许把它改回 DONE） — CANCELLED
+[PASS] ④ 任务进度未被改写（审批通过的 100% 副作用同样不落） — 30
+[PASS] ④ 跳过落状态留下一条留痕 — 1 条
+[PASS] ④ 留痕形态：SKIPPED + is_auto=true — SKIPPED/true
+[PASS] ④ 留痕正文含 单号/当前状态/目标状态/实例号/时间要素 — 缺失 []：审批结论未落单据（目标已不可改，跳过落状态）：系统留痕 · biz_task TSK-202611-000002 当前状态 CANCELLED，审批结论要落的 DONE（等审批状态应为 REVIEW）；审批单 FLW-20261102-3DD6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED 
+       留痕正文：审批结论未落单据（目标已不可改，跳过落状态）：系统留痕 · biz_task TSK-202611-000002 当前状态 CANCELLED，审批结论要落的 DONE（等审批状态应为 REVIEW）；审批单 FLW-20261102-3DD6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）；时间 2026-11-02T22:59:54.645808869+00:00
+[PASS] ④ 服务日志有一条 WARN（含实例号） — 态）：系统留痕 · biz_task TSK-202611-000002 当前状态 CANCELLED，审批结论要落的 DONE（等审批状态应为 REVIEW）；审批单 FLW-20261102-3DD6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）；时间 2026-11-02T22:59:54.645808869+00:00"), Null, Null, Text("SKIPPED"), Null]
+[PASS] ④ WARN 含 TSK-202611-000002 — D6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）；时间 2026-11-02T22:59:54.645808869+00:00"), Null, Null, Text("SKIPPED"), Null]
+[PASS] ④ WARN 含 CANCELLED — D6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）；时间 2026-11-02T22:59:54.645808869+00:00"), Null, Null, Text("SKIPPED"), Null]
+[PASS] ④ WARN 含 DONE — D6BE95 已按结论结束，单据状态保持不变；原因：任务的 CANCELLED → DONE 不在审批回调的合法路径上（只认 REVIEW → DONE/DOING）；时间 2026-11-02T22:59:54.645808869+00:00"), Null, Null, Text("SKIPPED"), Null]
+[PASS] ⑤ 收尾：软删 e2e 任务 — HTTP 200
+       e2e 任务：TSK-202611-000002（01a19e7d-9bda-734e-a25a-5d8e5a44b236）实例 FLW-20261102-3DD6BE95
+---- PASS=17 FAIL=0

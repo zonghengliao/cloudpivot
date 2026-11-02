@@ -1227,6 +1227,73 @@ fn skip_claims() -> TokenClaims {
     }
 }
 
+/// C1（t_1e174431）：单据**已不在「作废审批中」**时，审批通过**不许激活/改写它**，且必须留痕。
+///
+/// 形态对位「任务已取消但审批通过」在业务单据侧的同类：作废审批还挂着，单据已经被
+/// 别的路径推回（reconcile / 人工撤回后重复回调），这时审批结论要落的 `CANCELLED`
+/// 一条都不许写 —— 只留一条 WARN 痕迹，审批单本身仍按自己的结论结束。
+#[tokio::test]
+async fn pflow3b_c1_moved_doc_is_not_overwritten_by_approval() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let id = payable_with("1000", "0", payable::STATUS_OPEN, U_FM).await;
+    payable_payment::submit_cancel(id, Some("重复开票"), Some(uid(U_FM)), &none_gate())
+        .await
+        .expect("提交作废失败");
+    let instance = instance_id_of(payable::CANCEL_BIZ_TYPE, id).await;
+    // 审批单已按结论结束（夹具直接落终态：`ck_biz_flow_instance_end` 要求终态必须有 ended_at）
+    exec(&format!(
+        "UPDATE biz_flow_instance SET status = 'APPROVED', ended_at = now() WHERE id = '{instance}'::uuid"
+    ))
+    .await;
+    // 单据被别的路径推回 OPEN（不在 PENDING_CANCEL 了）
+    exec(&format!(
+        "UPDATE biz_payable SET status = '{}', cancel_instance_id = NULL WHERE id = '{id}'::uuid",
+        payable::STATUS_OPEN
+    ))
+    .await;
+    let before = payable_row(id).await;
+
+    let advanced = payable_bridge::on_cancel_settled(Some(instance), "APPROVED").await;
+
+    assert_eq!(advanced, None, "C1：单据已不可改 → 回调不许「推进」");
+    let after = payable_row(id).await;
+    assert_eq!(
+        after.status,
+        payable::STATUS_OPEN,
+        "C1：单据 CANCELLED/作废路径不可用 → 状态必须保持原样（审批通过不许激活已作废/已回退的单据）"
+    );
+    assert_eq!(after.amount, before.amount, "C1：金额一分都不许动");
+    assert_eq!(after.paid_amount, before.paid_amount, "C1：已付金额不许动");
+
+    // 留痕：审批实例上一条 SKIPPED（口径 `settle_guard::SKIP_TRACE_PREFIX`）
+    let traces: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_flow_task t \
+              WHERE t.instance_id = ?::uuid AND t.status = 'SKIPPED' AND t.is_auto = true \
+                AND t.comment LIKE ?::text",
+            vec![
+                Value::from(&instance),
+                Value::Text(format!(
+                    "%{}%",
+                    crate::business::flow::settle_guard::SKIP_TRACE_PREFIX
+                )),
+            ],
+        )
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(traces, 1, "C1：跳过落状态必须在审批实例上留一条痕");
+    // 审批实例本身仍是 APPROVED（红线：不改实例状态）
+    assert_eq!(
+        instance_of(payable::CANCEL_BIZ_TYPE, id).await.as_deref(),
+        Some("APPROVED"),
+        "C1：审批单本身已经走完，不许被回调改回去"
+    );
+}
+
 /// ⑰ **跑在最后**（名字按字母序排在本模块末尾）：把夹具清干净再退场。
 ///
 /// 全量套件是同一个库串行跑，本模块留下的 P3B 科目 / 供应商会让

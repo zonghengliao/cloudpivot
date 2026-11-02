@@ -1,0 +1,23 @@
+===== cargo test --lib settle_guard =====
+test business::flow::settle_guard::tests::already_settled_is_idempotent ... ok
+test business::flow::settle_guard::tests::approval_does_not_jump_from_doing_to_done ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_approval ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_rejection ... ok
+test business::flow::settle_guard::tests::review_task_accepts_approval ... ok
+test business::flow::settle_guard::tests::skip_trace_carries_all_required_fields ... ok
+test business::flow::settle_guard::tests::unknown_status_is_moved_not_panic ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2066 filtered out; finished in 0.00s
+===== cargo test --lib flow_cascade_tests =====
+test business::flow::task_bridge::flow_cascade_tests::approve_cascades_parent_doing_to_review ... ok
+test business::flow::task_bridge::flow_cascade_tests::approve_recalculates_parent_progress ... ok
+test business::flow::task_bridge::flow_cascade_tests::cancelled_task_keeps_status_on_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::cascade_failure_does_not_block_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::doing_task_is_not_pushed_to_done_by_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::reject_does_not_roll_parent_back ... ok
+test business::flow::task_bridge::flow_cascade_tests::review_task_still_completes_on_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::settle_target_still_only_maps_final_verdicts ... ok
+test business::flow::task_bridge::flow_cascade_tests::three_levels_cascade_up_to_grandparent ... ok
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2064 filtered out; finished in 7.65s
+===== cargo test --lib pflow3b_c1 =====
+test business::erp::pflow3b_tests::pflow3b_c1_moved_doc_is_not_overwritten_by_approval ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2072 filtered out; finished in 2.13s

@@ -43,7 +43,7 @@ use nik::uuid::Uuid;
 use crate::business::erp::separation;
 use crate::business::erp::stockin_handler;
 use crate::business::erp::stockin_model::{self, STATUS_PENDING_CANCEL};
-use crate::business::flow::{engine, model as flow_model};
+use crate::business::flow::{engine, model as flow_model, settle_guard};
 use crate::shared::error_code;
 
 /// 作废审批的业务类型（与 V0174 种子 / `stockin_model::published_cancel_flow` 同口径）。
@@ -133,18 +133,28 @@ async fn settle(instance_id: Uuid, verdict: Verdict) -> DbResult<Option<Uuid>> {
         return Ok(None);
     };
 
-    // ② 单据必须是「作废审批中」，否则就是不归本回调管的重复回调 / 已被别处推进
+    // ② 单据必须存在（当前状态能不能收这条结论交给 ③ 的统一前置校验）
     let Some(row) = stockin_model::find_stock_in(stock_in_id).await? else {
         tracing::warn!(%stock_in_id, "收货单不存在或已删除，跳过作废回调");
         return Ok(None);
     };
-    if row.status != STATUS_PENDING_CANCEL {
-        tracing::debug!(
-            %stock_in_id,
-            status = %row.status,
-            verdict = verdict.as_str(),
-            "收货单不在 PENDING_CANCEL（重复回调 / 已撤回 / 已作废），跳过"
-        );
+    // ★ C1（t_1e174431）：写单据状态前先校验它还在不在「能接受这个审批结论」的合法路径上
+    //   （状态机边 `PENDING_CANCEL → CANCELLED|POSTED`）。已作废 / 已被 reconcile 推走
+    //   → 不落状态 + WARN + 审批实例留痕（审批单本身仍按自己的结论结束）。
+    let target = match verdict {
+        Verdict::Cancel => stockin_model::STATUS_CANCELLED,
+        Verdict::Restore => stockin_model::STATUS_POSTED,
+    };
+    if !settle_guard::gate(
+        &instance,
+        crate::business::shared::state_machine::Entity::StockIn,
+        &row.in_no,
+        &row.status,
+        STATUS_PENDING_CANCEL,
+        target,
+    )
+    .await
+    {
         return Ok(None);
     }
 
@@ -432,6 +442,24 @@ async fn settle_post(instance_id: Uuid, verdict: PostVerdict) -> DbResult<Option
             verdict = verdict.as_str(),
             "收货单不在 PENDING_POST（重复回调 / 已撤回 / 已作废），跳过"
         );
+        return Ok(None);
+    }
+    // ★ C1（t_1e174431）：写单据状态前先校验它还在不在「能接受这个审批结论」的合法路径上
+    //   （状态机边 `PENDING_POST → POSTED|DRAFT`）。不在路径上 → 不落状态 + WARN + 留痕。
+    let target = match verdict {
+        PostVerdict::Execute => stockin_model::STATUS_POSTED,
+        PostVerdict::BackToDraft => stockin_model::STATUS_DRAFT,
+    };
+    if !settle_guard::gate(
+        &instance,
+        crate::business::shared::state_machine::Entity::StockIn,
+        &row.in_no,
+        &row.status,
+        stockin_model::STATUS_PENDING_POST,
+        target,
+    )
+    .await
+    {
         return Ok(None);
     }
     let approver = latest_completed_assignee(instance_id).await?;

@@ -38,7 +38,7 @@ use crate::business::erp::transfer_model as erp_transfer;
 use crate::business::flow::graph;
 use crate::business::flow::node_config::{self, OnCancel, OnComplete, OnReject, TaskNodeConfig};
 use crate::business::flow::task_node;
-use crate::business::flow::{engine, model};
+use crate::business::flow::{engine, model, settle_guard};
 use crate::business::task::model as task_model;
 use crate::business::task::state::{self, ActorKind, TaskStatus};
 use crate::shared::error_code;
@@ -309,6 +309,21 @@ async fn settle(
     let from = TaskStatus::parse(&row.status).ok_or_else(|| {
         DbError::InvalidValue(format!("库里的任务状态不是 5 态之一：{}", row.status))
     })?;
+
+    // ★ C1（t_1e174431）：写目标状态**之前**先校验【目标单据此刻的状态】还在不在
+    //   「能接受这个审批结论」的合法路径上。实测事故 TSK-202610-000813：
+    //   20:00:26 任务 → CANCELLED，20:09:06 审批实例 → APPROVED —— 回调在任务侧被静默跳过，
+    //   既没 WARN 也没留痕。现在不在路径上就：不落状态 + WARN + 审批实例留痕
+    //   （实例本身仍是 APPROVED，红线：不改审批实例状态）。
+    //   判定走任务状态机的 `callback_transition`（`FlowCallback` 只开 `REVIEW → DONE|DOING`），
+    //   这里不写任何 if-else 硬判。
+    let biz_no = instance
+        .biz_no
+        .clone()
+        .unwrap_or_else(|| task_id.to_string());
+    if !settle_guard::gate_task(&instance, &biz_no, &row.status, target.code()).await {
+        return Ok(None);
+    }
     // 驳回意见即打回原因（审批单的 `result_comment`；不足 5 字也放行 —— 系统身份不看这条）
     // 引擎把「驳回意见」落在待办行（`biz_flow_task.comment`）而不是实例行，实例行的
     // `result_comment` 常为空 → 读不到就回退到最近一条有意见的待办行。
@@ -1532,12 +1547,24 @@ async fn settle_transfer(instance_id: Uuid, approved: bool) -> DbResult<Option<U
         tracing::warn!(%transfer_id, "调拨单不存在或已删除，跳过审批回调");
         return Ok(None);
     };
-    if row.status != erp_transfer::STATUS_PENDING {
-        tracing::debug!(
-            %transfer_id,
-            status = %row.status,
-            "调拨单不在 PENDING（重复回调 / 已人工撤回），跳过"
-        );
+    // ★ C1（t_1e174431）：写目标状态前先校验调拨单当前状态还在不在「能接受这个审批结论」
+    //   的合法路径上（状态机边 `PENDING → APPROVED|DRAFT`，不写 if-else 硬判）。
+    //   不在路径上（已取消 / 已被别的路径推走）→ 不落状态 + WARN + 审批实例留痕。
+    let target = if approved {
+        erp_transfer::STATUS_APPROVED
+    } else {
+        erp_transfer::STATUS_DRAFT
+    };
+    if !settle_guard::gate(
+        &instance,
+        crate::business::shared::state_machine::Entity::Transfer,
+        &row.transfer_no,
+        &row.status,
+        erp_transfer::STATUS_PENDING,
+        target,
+    )
+    .await
+    {
         return Ok(None);
     }
 
@@ -1791,6 +1818,23 @@ mod flow_cascade_tests {
         )
         .await
         .expect("回写 approval_instance_id 失败");
+        id
+    }
+
+    /// 给夹具实例补一个节点行。
+    ///
+    /// `biz_flow_task.instance_node_id` 是 **NOT NULL + 外键**：留痕要挂在节点上。
+    /// 真实实例在引擎走图时必然有节点行（`engine` 到达即建行），夹具按同一形态补一行。
+    async fn insert_node(instance_id: Uuid) -> Uuid {
+        let id = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_flow_instance_node \
+                 (id, instance_id, node_key, node_name, node_type, round, status, activated_at, ended_at) \
+             VALUES (?::uuid, ?::uuid, 'approve', '审批', 'APPROVAL', 1, 'APPROVED', now(), now())",
+            vec![Value::from(&id), Value::from(&instance_id)],
+        )
+        .await
+        .expect("夹具节点写入失败");
         id
     }
 
@@ -2062,6 +2106,171 @@ mod flow_cascade_tests {
         assert!(
             gaps.iter().any(|gap| gap.task_id == uuid(PARENT)),
             "⑤ 级联失败后的不一致必须能被巡检扫出来"
+        );
+    }
+
+    // ---------- ⑥ C1：审批通过前校验目标单据状态（t_1e174431） ----------
+
+    /// 读库里那张实例的**状态**（红线：跳过落状态不许改审批实例）。
+    async fn instance_status_of_id(instance_id: Uuid) -> String {
+        let rows = db()
+            .find_with_params(
+                "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查实例失败");
+        rows.first()
+            .expect("实例应存在")
+            .get_typed("status")
+            .expect("取实例 status")
+    }
+
+    /// 读实例上的留痕行（`SKIPPED` + `is_auto` + comment 前缀）。
+    async fn skip_traces_of(instance_id: Uuid) -> Vec<(String, bool, String)> {
+        let rows = db()
+            .find_with_params(
+                "SELECT t.status, t.is_auto, coalesce(t.comment,'') AS comment FROM biz_flow_task t \
+                  WHERE t.instance_id = ?::uuid ORDER BY t.created_at",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("查留痕失败");
+        rows.iter()
+            .map(|row| {
+                (
+                    row.get_typed::<String>("status").expect("取 status"),
+                    row.get_typed::<bool>("is_auto").expect("取 is_auto"),
+                    row.get_typed::<String>("comment").expect("取 comment"),
+                )
+            })
+            .collect()
+    }
+
+    /// 卡面头号形态：**任务已取消 + 审批通过 → 任务保持 CANCELLED**，且过程留痕、实例不动。
+    #[tokio::test]
+    async fn cancelled_task_keeps_status_on_approval() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let me = uuid(U_ID);
+        reset(me).await;
+        insert_task(uuid(CHILD1), "C1-已取消", None, "CANCELLED", 0, me).await;
+        let instance =
+            insert_settled_instance(uuid(CHILD1), "T13-C1-取消", "APPROVED", None, me).await;
+        insert_node(instance).await;
+
+        let advanced = on_instance_settled(Some(instance), "APPROVED").await;
+
+        assert_eq!(advanced, None, "⑥ 已取消的任务不该被回调「推进」");
+        assert_eq!(
+            status_of(uuid(CHILD1)).await,
+            TaskStatus::Cancelled,
+            "⑥ 卡面硬要求：任务 CANCELLED + 审批 APPROVED → 任务保持 CANCELLED，不许改回 DONE"
+        );
+        assert_eq!(
+            progress_of(uuid(CHILD1)).await,
+            0,
+            "⑥ 进度也不许被改写（审批通过 = 进度 100 的副作用同样不许落）"
+        );
+        assert_eq!(
+            instance_status_of_id(instance).await,
+            "APPROVED",
+            "⑥ 红线：审批实例本身仍按自己的结论结束（GUE 走完就是 APPROVED）"
+        );
+
+        // 留痕：一条 SKIPPED + is_auto + comment 写明「目标已不可改，跳过落状态」
+        let traces = skip_traces_of(instance).await;
+        assert_eq!(
+            traces.len(),
+            1,
+            "⑥ 跳过落状态必须留一条痕，实际 {traces:#?}"
+        );
+        let (status, is_auto, comment) = &traces[0];
+        assert_eq!(status, "SKIPPED", "⑥ 留痕行必须是 SKIPPED（不占待办槽位）");
+        assert!(is_auto, "⑥ 留痕必须标 is_auto（系统代写，不是人审的）");
+        assert!(
+            comment.starts_with(settle_guard::SKIP_TRACE_PREFIX),
+            "⑥ 留痕正文口径统一：{comment}"
+        );
+        for needle in ["T13-C1-取消", "CANCELLED", "DONE", "T13FLW"] {
+            assert!(comment.contains(needle), "⑥ 留痕必须含 {needle}：{comment}");
+        }
+
+        // 幂等：再回调一次不重复刷痕
+        on_instance_settled(Some(instance), "APPROVED").await;
+        assert_eq!(
+            skip_traces_of(instance).await.len(),
+            1,
+            "⑥ 重复回调不许重复留痕"
+        );
+    }
+
+    /// 不误伤：任务在等验收（REVIEW）+ 审批通过 → 正常变 DONE。
+    #[tokio::test]
+    async fn review_task_still_completes_on_approval() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let me = uuid(U_ID);
+        reset(me).await;
+        insert_task(uuid(CHILD1), "C1-待验收", None, "REVIEW", 80, me).await;
+        let instance =
+            insert_settled_instance(uuid(CHILD1), "T13-C1-正常", "APPROVED", None, me).await;
+        insert_node(instance).await;
+
+        let advanced = on_instance_settled(Some(instance), "APPROVED").await;
+
+        assert_eq!(
+            advanced,
+            Some(uuid(CHILD1)),
+            "⑥ 正常路径（REVIEW + APPROVED）不许被前置校验误伤"
+        );
+        assert_eq!(
+            status_of(uuid(CHILD1)).await,
+            TaskStatus::Done,
+            "⑥ 正常路径：任务 REVIEW + 审批通过 → DONE"
+        );
+        assert_eq!(progress_of(uuid(CHILD1)).await, 100, "⑥ 进度随状态落 100");
+        assert!(
+            skip_traces_of(instance).await.is_empty(),
+            "⑥ 正常落状态不留「跳过」痕迹"
+        );
+    }
+
+    /// 跳级不落：任务还在 DOING（没走提交验收）+ 审批通过 → **不落 DONE**，只留痕。
+    ///
+    /// 口径与 `task::state::callback_transition` 一致（`FlowCallback` 只开 `REVIEW → DONE|DOING`）：
+    /// 放开 `from` 就等于让一条审批通过把任意任务跳级推到 DONE。
+    #[tokio::test]
+    async fn doing_task_is_not_pushed_to_done_by_approval() {
+        let _guard = DB_LOCK.lock().await;
+        if !ensure_db().await {
+            return;
+        }
+        let me = uuid(U_ID);
+        reset(me).await;
+        insert_task(uuid(CHILD1), "C1-进行中", None, "DOING", 40, me).await;
+        let instance =
+            insert_settled_instance(uuid(CHILD1), "T13-C1-跳级", "APPROVED", None, me).await;
+        insert_node(instance).await;
+
+        assert_eq!(
+            on_instance_settled(Some(instance), "APPROVED").await,
+            None,
+            "⑥ 不在 REVIEW 的任务不该被审批结论推进"
+        );
+        assert_eq!(
+            status_of(uuid(CHILD1)).await,
+            TaskStatus::Doing,
+            "⑥ 任务 DOING + 审批通过 → 保持 DOING（审批回调不许跳级）"
+        );
+        assert_eq!(
+            skip_traces_of(instance).await.len(),
+            1,
+            "⑥ 跳级被拦同样要留痕（否则又是一次静默跳过）"
         );
     }
 
