@@ -525,6 +525,31 @@
           <div class="detail-field detail-field--wide"><span class="detail-field__label">备注</span><span class="detail-field__value">{{ dash(detail.remark) }}</span></div>
         </div>
 
+        <!--
+          P1-FIX-2：审批进度（照抄收货单 P16 / 应付单 P17 的做法）。
+          进度条复用 `FlowProgress`，节点 + 审批人明细都只来自 `GET /business/flow/instance/{id}`；
+          拉不到节点就降级成单号链接（不报错、不弹窗，详情照常看）。
+        -->
+        <template v-if="hasApprovalProgress(approvalProgress)">
+          <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
+          <FlowProgress
+            :nodes="approvalProgress.nodes"
+            :tasks="approvalProgress.tasks"
+            data-testid="purchase-detail-approval-progress"
+          />
+        </template>
+        <div
+          v-else-if="approvalFallback"
+          class="approval-fallback"
+          data-testid="purchase-detail-approval-fallback"
+        >
+          <span class="muted">审批进度暂时拉不到，</span>
+          <t-link theme="primary" @click="openApprovalInstance(detail.approval_instance_id)">
+            {{ approvalFallback.label }} {{ approvalFallback.no }}
+          </t-link>
+          <span class="muted">（点开看审批单详情）</span>
+        </div>
+
         <!-- D4/F6：收货进度（已收 X / 订单 Y）+ 已生成的收货单可反查 -->
         <div v-if="pending" class="section-title" data-testid="purchase-receive-progress">
           收货进度：已收 {{ formatQty(pendingTotal.received) }} / 订单 {{ formatQty(pendingTotal.ordered) }}
@@ -603,6 +628,16 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { getFlowInstance } from '@/api/business/flow-api';
+import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import {
+  APPROVAL_PROGRESS_TITLE,
+  EMPTY_APPROVAL_PROGRESS,
+  approvalFallbackOf,
+  hasApprovalProgress,
+  loadApprovalProgress,
+  type ApprovalProgress,
+} from '@/views/business/erp/shared/approval-progress';
 import FormMemoryHint from '@/components/FormMemoryHint.vue';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { pickFields, resolveDefaults } from '@/composables/memory-core';
@@ -1290,6 +1325,15 @@ const detailError = ref('');
 const detail = ref<PurchaseOrderRow | null>(null);
 /** 明细 */
 const detailItems = ref<PurchaseOrderItemLine[]>([]);
+/**
+ * 审批进度（P1-FIX-2）：节点条 + 审批人明细，只来自 `GET /business/flow/instance/{id}`。
+ *
+ * 空 = 没挂审批单 / 拉不到 → 模板降级成「审批中 FLW-xxx」单号链接（不报错）。
+ */
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+
+/** 降级链接文案（`null` = 这张单连实例都没有 → 整块不显示） */
+const approvalFallback = computed(() => approvalFallbackOf(detail.value));
 
 /** 打开详情抽屉 */
 async function openDetail(row: PurchaseOrderRow): Promise<void> {
@@ -1332,6 +1376,7 @@ async function loadDetail(id: string): Promise<void> {
   detail.value = null;
   detailItems.value = [];
   pending.value = null;
+  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
   try {
     const [order, items] = await Promise.all([
       fetchPurchaseOrderDetail(id),
@@ -1345,6 +1390,8 @@ async function loadDetail(id: string): Promise<void> {
   } finally {
     detailLoading.value = false;
   }
+  // 审批进度单独兜底：拉不到（权限 / 实例已归档 / 网络）只降级成单号链接，详情照常看
+  approvalProgress.value = await loadApprovalProgress(detail.value?.approval_instance_id, getFlowInstance);
   // 待收明细单独兜底：拉不到（权限 / 网络）只影响「生成收货单」按钮，详情照常看
   try {
     pending.value = await fetchPurchaseOrderPendingItems(id);
@@ -1772,6 +1819,15 @@ onMounted(() => {
   margin: 4px 0 10px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* P1-FIX-2：审批进度拉不到时的降级行（只有单号链接，不报错） */
+.approval-fallback {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin: 4px 0 10px;
+  font-size: 12px;
 }
 
 .detail__grid {
