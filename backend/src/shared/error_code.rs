@@ -1245,6 +1245,27 @@ pub const ERP_SI_OVER_RECEIVE: i32 = 66032;
 /// 与「系统没配流程」（找管理员 / 显式跳过），并且要在报文里稳定拿到 `flow_code`。
 pub const APPROVAL_FLOW_NOT_CONFIGURED: i32 = 66033;
 
+// ---------- DC-13 出库单（库存账只增不减的硬缺口，接在 66033 之后） ----------
+
+/// 出库数量超过账面可用量，且该仓库不允许负库存（HTTP 409）。
+///
+/// ARCH-3 §5 DC-13 / §6 R-P0-1：出库单是本卡新增的单据类型，
+/// 判据是「(物料, 仓库, 库位桶) 的账面数量 < 本次出库数量」且
+/// `biz_warehouse.allow_negative = 0`。报文必须点名**物料编码/名称与可用量**
+/// （包括该仓合计可用量，便于用户判断「是不是没指定库位」）。
+///
+/// 为什么是 409 而不是 400：入参本身合法（数量 > 0、物料存在），
+/// 冲突的是「账上现在没有这么多货」这个现状 —— 建单时可能够、过账时被别人领走了。
+pub const ERP_STOCK_OUT_NEGATIVE: i32 = 66034;
+
+/// 作废出库单时账面已被别的业务取走，冲不回来（HTTP 409）。
+///
+/// 出库单作废要把当时扣掉的 qty / amount 原路加回。账面金额是加得回来的（加法永远成功），
+/// 但**数量**若被后续业务（又一次出库 / 调拨）消耗掉，加回后仍是正的 —— 所以这条码
+/// 实际拦的是「过账流水缺失 / 单据金额快照为 0」这类数据不自洽的作废：
+/// 没有流水就不知道当时扣了多少，**绝不按当前均价估算**（那是污染成本的捷径）。
+pub const ERP_STOCK_OUT_CANCEL_BLOCKED: i32 = 66035;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1295,6 +1316,9 @@ mod tests {
             (ERP_SI_OVER_RECEIVE, 66032),
             // 审批流未配置改为默认拒绝（ARCH-3 DC-01，66033）
             (APPROVAL_FLOW_NOT_CONFIGURED, 66033),
+            // 出库单（ARCH-3 DC-13，66034–66035）
+            (ERP_STOCK_OUT_NEGATIVE, 66034),
+            (ERP_STOCK_OUT_CANCEL_BLOCKED, 66035),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

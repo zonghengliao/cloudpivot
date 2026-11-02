@@ -81,6 +81,8 @@ async fn blue_voucher(ctx: &Ctx) -> Uuid {
             status: Some("POSTED".to_string()),
             reason: None,
             serials: Vec::new(),
+            // ARCH-3 DC-01：不请求跳过审批（默认行为不变）
+            approval: Default::default(),
         },
         Some(ctx.worker),
     )

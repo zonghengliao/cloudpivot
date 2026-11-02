@@ -16,6 +16,9 @@
 //! | [`stockin_dto`] | 收货入库出入参契约：建单 / 改单 / 过账 / 详情 / 分页 + 校验 | **P2-B1** |
 //! | [`stockin_handler`] | 收货入库 6 个接口：建 / 改 / 过账 / 作废 / 删 / 列表 + 详情 | **P2-B1** |
 //! | [`stockin_bridge`] | 收货单**作废审批** / **过账审批**的业务回调 + 反向兜底（孤儿实例回收） | **P16 / P-FLOW-3A** |
+//! | [`stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
+//! | [`stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
+//! | [`stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
 //! | [`purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
@@ -93,6 +96,9 @@ pub mod stockin_bridge;
 pub mod stockin_dto;
 pub mod stockin_handler;
 pub mod stockin_model;
+pub mod stockout_dto;
+pub mod stockout_handler;
+pub mod stockout_model;
 pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;
@@ -119,6 +125,7 @@ mod stockin_purchase; // 收货入库↔采购单联动
 mod stockin_query; // 收货入库只读
 mod stockin_validate; // 收货入库校验（可作废前置）
 mod stockin_write; // 收货入库写入（建改删 + 过账）
+mod stockout_base; // 出库单底座：常量 / 状态机 / 行结构 / 取号
 mod transfer_base; // 调拨单底座：常量 / 6 态状态机 / 行结构 / 取号
 mod transfer_query; // 调拨单只读
 mod transfer_scan; // 调拨单在途超期扫描

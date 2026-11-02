@@ -66,6 +66,16 @@ def dec(v):
         return Decimal("0")
 
 
+def table_exists(name):
+    """表是否存在（新表还没上线的库要能跑完整个套件，不能因为缺表整组炸掉）。"""
+    try:
+        rows = q("select 1 from information_schema.tables "
+                 f"where table_schema = 'public' and table_name = '{name}'")
+        return bool(rows)
+    except Exception:
+        return False
+
+
 def check(name, group, level, ok, detail="", locator_sql=None):
     """登记一条检查结果。ok=True 为 PASS。detail 说明差多少。"""
     RESULT.append(dict(name=name, group=group, level=level,
@@ -257,6 +267,89 @@ def group_b():
              left join biz_material m on m.id=coalesce(t.material_id,i.material_id)
              left join biz_warehouse w on w.id=coalesce(t.warehouse_id,i.warehouse_id)
              where abs(coalesce(t.q,0)-coalesce(i.q,0)) > 0.0001""")
+
+    # ══════════════════════════════════════════════════════════════
+    # B5 / B6 出库单（ARCH-3 DC-13）：B1/B2/B4/C1 只能证「账平」，
+    # **发现不了「该出没出」**。这两条专门盯出库侧的两种硬伤：
+    #   B5  已过账却没凭证（成本没进 6401/1901，1405 不会减 → 存货虚增）
+    #   B6  出库量累计 > 入库+期初（账实不符的负向版本：货出了但没记入库/期初）
+    # ══════════════════════════════════════════════════════════════
+    if not table_exists("biz_stock_out"):
+        check("B5 出库单已过账 → 必有成本结转凭证", "账账", "INFO", True,
+              "biz_stock_out 未建（本库还没跑 V0203）：跳过")
+        check("B6 出库量累计 ≤ 入库+期初（不允许负库存的仓）", "账账", "INFO", True,
+              "biz_stock_out 未建（本库还没跑 V0203）：跳过")
+    else:
+        # B5：POSTED 且金额 > 0 的出库单，凭证必须存在且金额对得上。
+        # 金额 0 的（零成本存量出库）按设计跳过凭证 → 不算违约（单独 INFO）。
+        bad5 = q("""
+            select s.out_no, s.total_amount::text,
+                   coalesce(v.voucher_no, '(无凭证)'),
+                   coalesce(v.total_debit, 0)::text
+            from biz_stock_out s
+            left join biz_voucher v
+                   on v.id = s.voucher_id and v.deleted_at is null and v.is_red = 0
+            where s.deleted_at is null
+              and s.status = 'POSTED'
+              and s.total_amount > 0.0001
+              and (s.voucher_id is null
+                   or v.id is null
+                   or abs(v.total_debit - s.total_amount) > 0.0001)
+            order by 1
+        """)
+        check("B5 出库单已过账 → 必有成本结转凭证", "账账", "BLOCKER", not bad5,
+              f"{len(bad5)} 张已过账出库单缺凭证或金额不符（成本没结转，1405 不会减）"
+              if bad5 else "全部有凭证且金额一致",
+              """select s.out_no, s.status, s.total_amount::text, coalesce(v.voucher_no,'(无)')
+                 from biz_stock_out s left join biz_voucher v on v.id = s.voucher_id
+                 where s.deleted_at is null and s.status='POSTED' and s.total_amount > 0.0001
+                   and (s.voucher_id is null or v.id is null)""")
+
+        zero_cost = q("""
+            select s.out_no, s.total_qty::text
+            from biz_stock_out s
+            where s.deleted_at is null and s.status = 'POSTED'
+              and s.total_amount <= 0.0001
+        """)
+        check("B5b 零成本出库单（金额 = 0，按设计无凭证）", "账账", "INFO", True,
+              f"{len(zero_cost)} 张（零成本存量，财务按需补账）" if zero_cost else "无")
+
+        # B6：出库累计 ≤ 入库累计（含期初，期初也走 IN 流水）。
+        # 允许负库存的仓库（biz_warehouse.allow_negative = 1）**排除**：
+        # 那是仓库自己的策略，负数量是预期的（C1 也不该为它报错）。
+        bad6 = q("""
+            with inb as (
+                select material_id, warehouse_id, sum(qty) as q
+                from biz_inventory_txn where txn_type = 'IN' group by 1, 2
+            ), outb as (
+                select material_id, warehouse_id, sum(qty) as q
+                from biz_inventory_txn where txn_type = 'OUT' group by 1, 2
+            )
+            select coalesce(o.material_id, i.material_id)::text,
+                   coalesce(o.warehouse_id, i.warehouse_id)::text,
+                   coalesce(i.q, 0)::text, coalesce(o.q, 0)::text
+            from outb o
+            full outer join inb i
+              on i.material_id = o.material_id and i.warehouse_id = o.warehouse_id
+            left join biz_warehouse w on w.id = coalesce(o.warehouse_id, i.warehouse_id)
+            where coalesce(o.q, 0) > coalesce(i.q, 0) + 0.0001
+              and coalesce(w.allow_negative, 0) = 0
+        """)
+        check("B6 出库量累计 ≤ 入库+期初", "账账", "BLOCKER", not bad6,
+              f"{len(bad6)} 组出库量大于入库量（货出了，但入库/期初没记）"
+              if bad6 else "全部相符",
+              """with inb as (select material_id, warehouse_id, sum(qty) q
+                              from biz_inventory_txn where txn_type='IN' group by 1,2),
+                    outb as (select material_id, warehouse_id, sum(qty) q
+                               from biz_inventory_txn where txn_type='OUT' group by 1,2)
+               select m.material_code, w.warehouse_name,
+                      coalesce(i.q,0)::text as 入库累计, coalesce(o.q,0)::text as 出库累计
+               from outb o full outer join inb i
+                 on i.material_id=o.material_id and i.warehouse_id=o.warehouse_id
+               left join biz_material m on m.id=coalesce(o.material_id,i.material_id)
+               left join biz_warehouse w on w.id=coalesce(o.warehouse_id,i.warehouse_id)
+               where coalesce(o.q,0) > coalesce(i.q,0) + 0.0001
+                 and coalesce(w.allow_negative,0) = 0""")
 
 
 # ══════════════════════════════════════════════════════════════════

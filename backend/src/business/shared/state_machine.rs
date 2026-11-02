@@ -94,6 +94,45 @@ pub const ENTITY_YEAR_END: &str = "ACCOUNTING_YEAR";
 /// `VARCHAR(32)` 且无 CHECK 白名单，新实体登记后 `transition()` 即可用）。
 pub const ENTITY_CONTRACT: &str = "CONTRACT";
 
+/// 实体类型：出库单（`biz_stock_out`，ARCH-3 DC-13 / R-P0-1）。
+///
+/// 补的是「普通物料没有任何出库单据」这个 P0 缺口：领用 / 报废 / 盘亏都走这张单，
+/// 三本账负向变动 + 成本结转凭证。`biz_status_log.entity_type` 无 CHECK 白名单，
+/// 本常量登记后 `transition()` 即可用；巡检 / 报表按它筛「出库轨迹」。
+pub const ENTITY_STOCK_OUT: &str = "STOCK_OUT";
+
+/// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
+///
+/// ```text
+/// DRAFT          → PENDING_POST   提交待过账（只改状态，三本账一分没动）
+/// PENDING_POST   → POSTED         过账（三本账负向 + 成本结转凭证，同一事务）
+/// PENDING_POST   → DRAFT          撤回 / 驳回（打回草稿，账没动）
+/// DRAFT          → POSTED         直接过账（制单人自己就是过账人的场景；受
+///                                 erp.separation_of_duties.post 开关约束）
+/// DRAFT          → CANCELLED      草稿作废（从未出过库，不动账）
+/// POSTED         → CANCELLED      已过账作废（三本账回滚 + 凭证红冲，**必须给原因**）
+/// ```
+///
+/// **没有** `PENDING_POST → CANCELLED`：待过账的单据从未动过账，
+/// 作废它等价于「撤回 + 作废」两步，让状态机保持单向（少了这条边就少了
+/// 「作废一张账没动的单却跑了回滚逻辑」的可能）。
+pub const STOCK_OUT_EDGES: [(&str, &str); 6] = [
+    ("DRAFT", "PENDING_POST"),
+    ("PENDING_POST", "POSTED"),
+    ("PENDING_POST", "DRAFT"),
+    ("DRAFT", "POSTED"),
+    ("DRAFT", "CANCELLED"),
+    ("POSTED", "CANCELLED"),
+];
+
+/// 需要 reason 的出库单边：已过账作废（红冲凭证的摘要与审计依据都靠它）。
+pub const STOCK_OUT_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "CANCELLED")];
+
+/// 出库单入账态：已过账（数量 / 金额 / 明细都不许再改，更正只能作废重开）。
+///
+/// `PENDING_POST` 也锁：待过账状态下改一行数量，「别人批的 / 过的」就不是同一张单了。
+pub const STOCK_OUT_LOCKED: [&str; 2] = ["POSTED", "PENDING_POST"];
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -363,11 +402,13 @@ pub enum Entity {
     YearEnd,
     /// 合同 `biz_contract`（A1 合同表基座，ARCH-2）。
     Contract,
+    /// 出库单 `biz_stock_out`（ARCH-3 DC-13）。
+    StockOut,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 8] = [
+    pub const ALL: [Entity; 9] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -376,6 +417,7 @@ impl Entity {
         Entity::Period,
         Entity::YearEnd,
         Entity::Contract,
+        Entity::StockOut,
     ];
 
     /// 落库的 `entity_type`。
@@ -389,6 +431,7 @@ impl Entity {
             Entity::Period => ENTITY_PERIOD,
             Entity::YearEnd => ENTITY_YEAR_END,
             Entity::Contract => ENTITY_CONTRACT,
+            Entity::StockOut => ENTITY_STOCK_OUT,
         }
     }
 
@@ -408,6 +451,7 @@ impl Entity {
             Entity::Period => "会计期间",
             Entity::YearEnd => "会计年度",
             Entity::Contract => "合同",
+            Entity::StockOut => "出库单",
         }
     }
 
@@ -422,6 +466,7 @@ impl Entity {
             Entity::Period => &PERIOD_EDGES,
             Entity::YearEnd => &YEAR_END_EDGES,
             Entity::Contract => &CONTRACT_EDGES,
+            Entity::StockOut => &STOCK_OUT_EDGES,
         }
     }
 
@@ -436,6 +481,7 @@ impl Entity {
             Entity::Period => &PERIOD_REASON_EDGES,
             Entity::YearEnd => &YEAR_END_REASON_EDGES,
             Entity::Contract => &CONTRACT_REASON_EDGES,
+            Entity::StockOut => &STOCK_OUT_REASON_EDGES,
         }
     }
 
@@ -450,6 +496,7 @@ impl Entity {
             Entity::Period => &PERIOD_LOCKED,
             Entity::YearEnd => &YEAR_END_LOCKED,
             Entity::Contract => &CONTRACT_LOCKED,
+            Entity::StockOut => &STOCK_OUT_LOCKED,
         }
     }
 
@@ -1527,7 +1574,11 @@ mod contract_tests {
             Entity::ALL.contains(&Entity::Contract),
             "Entity::ALL 必须包含 Contract（漏登记 = transition 直接 500）"
         );
-        assert_eq!(Entity::ALL.len(), 8, "注册表从 7 个实体扩到 8 个");
+        assert_eq!(
+            Entity::ALL.len(),
+            9,
+            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT，ARCH-3 DC-13）"
+        );
 
         // ③ as_str
         assert_eq!(Entity::Contract.as_str(), "CONTRACT");

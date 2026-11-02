@@ -69,6 +69,8 @@ async fn posted_stock_in(ctx: &Ctx, qty: &str, price: &str, rate: &str) -> Uuid 
             status: Some("POSTED".to_string()),
             reason: None,
             serials: Vec::new(),
+            // ARCH-3 DC-01：不请求跳过审批（默认行为不变）
+            approval: Default::default(),
         },
         Some(ctx.worker),
     )
@@ -122,6 +124,8 @@ async fn pay(ctx: &Ctx, payable_id: Uuid, amount: &str) -> std::result::Result<(
         pay_date: None,
         pay_method: Some("银行转账".to_string()),
         remark: Some(format!("{} 付款", ctx.tag)),
+        // ARCH-3 DC-01：新加的「显式跳过审批」片段（不请求跳过 = 默认行为不变）
+        approval: Default::default(),
     };
     pay_payable(payable_id, &req, Some(ctx.worker))
         .await

@@ -95,6 +95,8 @@ fn post_req() -> StockInStatusReq {
         status: Some("POSTED".to_string()),
         reason: None,
         serials: Vec::new(),
+        // ARCH-3 DC-01：不请求跳过审批（默认行为不变）
+        approval: Default::default(),
     }
 }
 
@@ -103,6 +105,8 @@ fn cancel_req(reason: Option<&str>) -> StockInStatusReq {
         status: Some("CANCELLED".to_string()),
         reason: reason.map(str::to_string),
         serials: Vec::new(),
+        // ARCH-3 DC-01：不请求跳过审批（默认行为不变）
+        approval: Default::default(),
     }
 }
 

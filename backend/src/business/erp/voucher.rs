@@ -145,6 +145,11 @@ pub const SOURCE_SERIAL_BATCH: &str = "SERIAL_BATCH";
 pub const SOURCE_SERIAL_OUT: &str = "SERIAL_OUT";
 /// 凭证来源类型：在库序列号报废（同上）。
 pub const SOURCE_SERIAL_SCRAP: &str = "SERIAL_SCRAP";
+/// 凭证来源类型：出库单（领用 / 报废 / 盘亏 / 其他，ARCH-3 DC-13）。
+///
+/// 与 `biz_stock_out` 一一对应：一张出库单最多一张蓝字凭证（作废后再加一张红字）。
+/// `biz_voucher.source_type` 是 `VARCHAR(24)` 且无 CHECK 白名单，新增取值不需要迁移。
+pub const SOURCE_STOCK_OUT: &str = "STOCK_OUT";
 
 // ==================== 取号（通用：`{前缀}-yyyyMMdd-NNNNNN`） ====================
 
@@ -1624,6 +1629,158 @@ enum DebitSide {
     Inventory,
     /// 借对方科目、贷存货（出库 / 报废）。
     Counterpart(&'static str, &'static str),
+}
+
+// ==================== 写：出库单成本结转凭证（ARCH-3 DC-13） ====================
+
+/// 出库单过账 → 蓝字凭证的入参（一张单**一张**凭证，不按行拆）。
+///
+/// 打包成结构体是必须的：`post_voucher` 之外还有 9 个业务字段，
+/// 摊平会直接撞 clippy 的 `too_many_arguments`（-D warnings 下是硬错）。
+#[derive(Debug, Clone)]
+pub struct StockOutVoucher<'a> {
+    /// 出库单 id（`biz_voucher.source_id`）。
+    pub doc_id: Uuid,
+    /// 出库单号。
+    pub doc_no: &'a str,
+    /// 凭证日期（= 出库单的 `out_date`，决定会计期间）。
+    pub voucher_date: NaiveDate,
+    /// 出库类型（`ISSUE` / `SCRAP` / `LOSS` / `OTHER`，进摘要）。
+    pub out_type: &'a str,
+    /// 借方科目编码（报废·盘亏 1901 / 其余 6401）。
+    pub debit_code: &'a str,
+    /// 借方科目名（写进分录摘要，便于人直接看懂）。
+    pub debit_name: &'a str,
+    /// 第一行物料（`biz_voucher_entry.aux_material_id` 辅助核算用；多行单取首行）。
+    pub first_material: Option<Uuid>,
+    /// 出库仓库（存货行的 `aux_warehouse_id`：账上能按仓拆开看）。
+    pub warehouse_id: Uuid,
+    /// **账上真实差额**（Σ 各明细 `biz_inventory.amount` 的变动量），
+    /// 由调用方从 `RETURNING` 的 before / after 算出，本函数**绝不重算** `qty × avg`。
+    pub amount: Decimal,
+    /// 凭证摘要。
+    pub summary: String,
+}
+
+/// 出库单过账时生成蓝字凭证：借 6401 / 1901，贷 1405。
+///
+/// # 金额口径（硬红线）
+///
+/// `amount` 必须是**账上真实差额**（`before.amount − after.amount` 的合计），
+/// 不是 `Σ qty × avg_cost`。理由与序列号出库同一条（见
+/// [`create_for_serial_movement`]）：多桶 / 4 位舍入下两者不相等，
+/// 拿重算值去贷 1405 会让 `erp_invariants.py` 的 B2（库存金额 = 存货科目余额）
+/// 报出 0.00x 的差 —— 那是 BLOCKER。
+///
+/// # 差额 ≤ 0 直接跳过（不是错误）
+///
+/// 零成本存量（`qty>0 / avg_cost=0 / amount=0`）出库时差额恰好为 0；
+/// `post_voucher` 在 `借贷合计 <= 0` 时会报错（那是对**单据**的护栏），
+/// 所以这里提前 `Ok(None)` 并打 WARN 点名单据 —— 财务按这条日志判断要不要补账。
+///
+/// # 事务
+///
+/// 吃 `&impl SqlExecutor`（`Db` / `Transaction`），由调用方开事务；不 `begin` 不 `commit`。
+pub async fn create_for_stock_out(
+    ex: &impl SqlExecutor,
+    req: &StockOutVoucher<'_>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Option<Uuid>> {
+    let amount = req.amount.round_dp(4);
+    if amount <= Decimal::ZERO {
+        tracing::warn!(
+            doc_no = req.doc_no,
+            doc_id = %req.doc_id,
+            amount = %amount,
+            out_type = req.out_type,
+            "出库单成本差额为 0（零成本存量 / 账面金额已为 0）：跳过凭证生成，只动库存与流水"
+        );
+        return Ok(None);
+    }
+
+    let inventory = account_required(ex, DEFAULT_INVENTORY_CODE, "库存商品").await?;
+    let debit = account_required(ex, req.debit_code, req.debit_name).await?;
+    let lines = vec![
+        EntryLine {
+            line_no: 1,
+            summary: req.summary.clone(),
+            account: debit,
+            debit: amount,
+            credit: Decimal::ZERO,
+            aux_supplier_id: None,
+            aux_material_id: req.first_material,
+            // 借方（成本 / 待处理损溢）是全公司口径的科目，不挂仓库辅助核算。
+            aux_warehouse_id: None,
+        },
+        EntryLine {
+            line_no: 2,
+            summary: req.summary.clone(),
+            account: inventory,
+            debit: Decimal::ZERO,
+            credit: amount,
+            aux_supplier_id: None,
+            aux_material_id: req.first_material,
+            aux_warehouse_id: Some(req.warehouse_id),
+        },
+    ];
+
+    let voucher_id = post_voucher(
+        ex,
+        &PostVoucher {
+            voucher_type: VOUCHER_TYPE_AUTO,
+            source_type: SOURCE_STOCK_OUT,
+            source_id: Some(req.doc_id),
+            source_no: Some(req.doc_no),
+            voucher_date: req.voucher_date,
+            summary: req.summary.clone(),
+            lines,
+            remark: None,
+            red_of: None,
+        },
+        operator,
+        now,
+    )
+    .await?;
+    Ok(Some(voucher_id))
+}
+
+/// 按**来源单据**找原凭证并红冲（出库单作废用；找不到原凭证 → `Ok(None)`）。
+///
+/// 与 [`reverse_for_stock_in`] 的区别只有一处：不写死 `SOURCE_STOCK_IN`，
+/// 而是把来源类型当参数 —— 这样出库单（`SOURCE_STOCK_OUT`）与将来的退货单
+/// 不用各抄一份「找凭证 + 定日期 + 红冲」的胶水代码。
+/// 红冲本身**只有一份实现**（[`reverse_posted`]）：原凭证保持 `POSTED` + 写
+/// `reversed_by`，新凭证 `is_red = 1`。
+///
+/// # 返回
+///
+/// * `Ok(Some(red_id))`：已红冲；
+/// * `Ok(None)`：这张单没有凭证（零成本存量 / 从未过账），不阻断作废。
+pub async fn reverse_by_source(
+    ex: &impl SqlExecutor,
+    source_type: &str,
+    source_id: Uuid,
+    voucher_date: NaiveDate,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<Option<Uuid>> {
+    let Some(original) = find_voucher_by_source(ex, source_type, source_id).await? else {
+        return Ok(None);
+    };
+    let red_id = reverse_posted(
+        ex,
+        &original,
+        ReversalInput {
+            reason,
+            voucher_date,
+        },
+        operator,
+        now,
+    )
+    .await?;
+    Ok(Some(red_id))
 }
 
 // ==================== 写：红冲 ====================
