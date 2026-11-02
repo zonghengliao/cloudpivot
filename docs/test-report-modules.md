@@ -10,6 +10,21 @@
   ```
   另加 HTTP 层越权验证 `bash scripts/verify/testd_http.sh`：`结果：11 通过 / 0 失败`
 
+> **口径更新（2026-11-03 · 卡 `t_3d77b506`【TEST-HYGIENE】）**：DEPLOY-A 全量跑时本目标
+> 有 3 条**守卫型用例**变红 —— 它们断言「某个缺陷仍然存在」，缺陷修好之后必然红，属报告
+> 口径过期而非回归。已全部改成正向断言并同步本报告：
+>
+> | 用例 | 旧断言（守护的缺陷） | 让旧断言失效的改动 | 现在的断言 |
+> |---|---|---|---|
+> | `G03` | 公告软删后关联 `sys_notice` **不**下线（BUG-D-05） | **FIX-04**：`soft_delete_with_notice` 把「公告软删 + 通知下线」绑进同一事务 | 通知**必须**同事务下线；收件行只打 `is_deleted`、已读回执保留；消息中心与未读徽标都不再出现它 |
+> | `K08` | `src/business/erp/` 里**没有** `SELF_APPROVAL`（BUG-D-14） | `ac1a34d`（P-FLOW-3A）+ P-FLOW-3B：四个审批桥接上 `guard_self_approval`（403 + 65019） | 四个审批桥**逐一点名**校验内控闸存在；错误码 65019 / 内控留痕口径 / 自审策略 `FORBID` 不许漂 |
+> | `zz_…`（Z01） | 无需改断言（它一直是正向的） | 上面两条 panic 后跳过尾部 `reset()`，把 `TD-` 夹具留在库里 → Z01 被**假缺陷**打成红 | Z01 保留为外部交叉验证；每条用例的清理改为 `c::case()` 外壳（**panic 也清**）+ 开工前扫同 tag 残留，收尾断言本前缀残留 0 |
+>
+> 夹具清理口径也一起修了（详见 §9.1）：61 条用例统一走 `c::case(tag, |ctx| async move {…})`，
+> 清理挂在**外壳**上而不是用例尾部 —— 用例 panic 时尾部 `ctx.reset().await` 根本不会执行，
+> 这是 Z01 那 20 个用户 / 5 条公告 / 5 条通知 / 5 条互斥的真正来源。
+
+
 ---
 
 ## 0. ★ 安全类发现（先看这里）
@@ -21,9 +36,9 @@
 | **BUG-D-08** | **P2 越权（已修复 ✅）** | **文件存储没有属主隔离**：`sys_file.uploaded_by` 记了上传人，但读路径 `storage::model::find_active_file` 只有 `id` 入参，**结构上不可能按用户收口**。凡持 `business:storage:download` 的人都能下载别人上传的任何未删文件 | 修前：`[F05] 越权下载风险：读路径无属主隔离（other=… 也能取到 owner=… 的文件 …）`；修后：`[F05] 属主隔离生效：他人下载 → 403；本人 → 200（… 字节）；共享 → 他人 200` | F05 |
 | **BUG-D-09** | **P2 危险文件类型漏网（已修复 ✅）** | 硬禁止扩展名黑名单只有 `exe/sh/bat/ps1/so/dll/jar/py/js/vbs/msi`，**没有 `php/jsp/aspx/cgi`**；而内置默认分类策略 `allowed_extensions` 为空（= 不校验白名单），于是 `shell.php` 直接放行 | 修前：`[F03] 黑名单未收录：["php", "jsp", "aspx", "cgi"]；默认策略下 shell.php 是否放行：true`；修后：`[F03] 服务端脚本已全拦（php/jsp/aspx/cgi 等 11 个扩展名）；默认策略下 shell.php → ExtensionForbidden` | F03 |
 | **BUG-D-13** | **P2 审计缺口（明文外泄无留痕）（已修复 ✅）** | 持 `system:field-mask:plain` 的用户导出即明文（设计如此），但「明文访问留痕」写入函数在真库上**直接报错**，而调用处是 `tokio::spawn` + 只打日志 → **明文导出没有审计痕迹**。**根因更正**：不是 `Value::Json` 绑不到 `?::jsonb`（真库实测 jsonb 位正常），而是 `request_id` 写了 `field-mask:<uuid>`（47 字符）超出 `audit_logs.request_id VARCHAR(36)` → `value too long for type character varying(36)` | 修前：`[X05] 审计写入失败（明文访问无留痕）：query failed: : db error`；修后：`[X05] 明文导出留痕：FIELD_MASK_PLAIN_READ n → n+1（含直接调用 1 条）` | X05 |
-| **BUG-D-14** | **P1 内控缺口** | `business/erp` 下**没有**「制单人不得审核自己单据」的校验（全目录扫描 `制单人不得/不能审核自己/ensure_not_self/SELF_APPROVAL` 零命中）。目前唯一屏障是「角色互斥（SoD）」，一旦角色配置漏配或历史数据双持，同一人即可自审 | `[K08] ERP 侧无 maker≠checker 校验（仅靠角色互斥兜底）` | K08 / X05(mutex) |
+| **BUG-D-14** | **P1 内控缺口（已修复 ✅，2026-11-03 关闭）** | 修前：`business/erp` 下**没有**「制单人不得审核自己单据」的校验（全目录扫描 `制单人不得/不能审核自己/ensure_not_self/SELF_APPROVAL` 零命中），唯一屏障是「角色互斥（SoD）」，角色漏配或历史数据双持时同一人即可自审。修后：四个审批桥各一道 `guard_self_approval`（403 + `FLOW_SELF_APPROVAL_FORBIDDEN` 65019），另有 `flow::internal_control` 在**生成待办前**就把制单人 / 发起人排除并落 `SKIPPED` 留痕（防会签死锁） | 修前：`[K08] ERP 侧无 maker≠checker 校验（仅靠角色互斥兜底）`；修后：`[K08] ERP 内控已落地：4 个审批桥各有 guard_self_approval（403+65019），另有 internal_control 在生成待办前排除制单人/发起人` | K08 / X05(mutex) |
 | BUG-D-10 | P3 跨平台一致性 | `sanitize_key` 对前导 `/` 会规整进根目录（安全），但反斜杠形态 `..\..\windows\system32\cmd.exe` 在 Linux 上被当成普通文件名保留；将来若在 Windows 跑本地后端必须先收紧 | F04 断言规整后仍落在 root 内 | F04 |
-| BUG-D-05 | P3 数据一致性 | 公告下线（软删）后，由它扇出的通知**不随之软删**，收件人仍能在「我的消息」里看到并回执 | `[G03] 公告下线后仍可见的通知收件行：1` | G03 |
+| BUG-D-05 | **P3 数据一致性（已修复 ✅，2026-11-03 关闭）** | 修前：公告下线（软删）后，由它扇出的通知**不随之软删**，收件人仍能在「我的消息」里看到并回执（点进去 404）。修后（FIX-04）：`announcement::model::soft_delete_with_notice` 把「公告软删 + `notice::model::withdraw_by_biz`」绑进**同一个事务** —— 通知 `deleted_at` 落值、收件行只打 `is_deleted` 用户侧标记（行与 `read_flag/read_at` 都保留）、定时通知一并 `CANCELED` | 修前：`[G03] 公告下线后仍可见的通知收件行：1`；修后：`G03` 断言通知 `deleted_at` 有值、收件行 2 行全 `is_deleted`、u1 的 `read_flag/read_at` 原样保留、`page_my_notices` 两人都查不到、`count_unread` 归零 | G03 |
 
 ### 0.1 修复记录（三张 P2 已修，卡 `t_7a9b87f8`）
 
@@ -34,6 +49,13 @@
 | BUG-D-13 | ① `request_id` 改成一个 UUID v7（36 字符，与 `VARCHAR(36)` 逐字匹配）——**这才是真因**：`detail` 的 `Value::Json` + `?::jsonb` 绑定在真库上本来就正常（修前后都不需要动）；② 失败不再静默：后台任务重试 3 次，最后一次仍失败 `tracing::error!` + 进程级计数 `model::plain_read_audit_failures()` | `masking/model.rs`、`masking/registry.rs` | X05（导出后 `audit_logs.operation='FIELD_MASK_PLAIN_READ'` 计数必须 +1，且 detail 是合法 JSON 对象；直接调用写入函数必须成功；失败计数不得增长） |
 
 口径说明：**文件中心不是「全员共享」**。默认私有（fail-closed），只有 `avatar`（头像要展示给别人）与 `template`（导入模板人人可用）两类组织级资产共享；其余分类的跨用户访问由业务入口（公告可见性 / 任务可见性）授权，不靠文件中心这一层放开。
+
+### 0.2 修复记录（BUG-D-05 / BUG-D-14 已修，卡 `t_3d77b506` 收口口径）
+
+| # | 修法（谁修的） | 落点 | 回归 |
+|---|---|---|---|
+| BUG-D-05 | **FIX-04**（通知下线改造）：`announcement::model::soft_delete_with_notice` 在同一事务里「软删公告 → `notice::model::withdraw_by_biz`」，后者 ① 置 `sys_notice.deleted_at` ② `dispatch_status='PENDING'` 的定时通知置 `CANCELED` ③ 收件行只打 `is_deleted=TRUE, deleted_at`（`read_flag`/`read_at` 不动）。删公告 handler 也改成事务内一次做完，`affected=0`（并发已删）时什么都不做，避免误杀新版本通知 | `announcement/model.rs`、`announcement/handler.rs`、`notice/model.rs` | `tests/fix04_notice_offline.rs` T1–T9（同事务回滚 / 幂等 / 不误伤别的 biz_type）+ 本报告 `G03`（正向） |
+| BUG-D-14 | **P-FLOW-3A `ac1a34d`**（采购订单 / 收货过账）+ **P-FLOW-3B**（应付付款 / 应付作废 / 凭证红冲）：四个审批桥各一个 `guard_self_approval(task_id, operator)`，在**事务之前**判「操作人 = 制单人 或 = 审批发起人」→ `403 + FLOW_SELF_APPROVAL_FORBIDDEN(65019)`；`flow::internal_control` 再在**生成待办前**排除这两类人并落 `SKIPPED` 留痕（会签不会因为「那一票没人能点」而死锁），被排除人绕过前端直接调审批接口仍被 403 兜底 | `erp/{purchase,stockin,payable,voucher}_bridge.rs`、`flow/internal_control.rs`、`shared/error_code.rs` | `K08`（正向：四个桥逐一点名 + 65019 + 留痕口径）、`flow::internal_control` 单测（全排除 → 422 + 65018）、`erp::pflow3b_tests`（制单人/发起人 403，第三方放行） |
 
 **已确认不存在以下风险（反向验证通过，不是漏测）：**
 
@@ -102,7 +124,7 @@
 |---|---|
 | G01 | 定向公告发布后 `receiver_count=1`、扇出通知；目标用户未读 ≥1 且出现在可见列表；**非目标用户看不到**（无越权泄漏） |
 | G02 | 已读/未读统计：首次标记新增、重复标记幂等（`read_count` 仍为 1）、统计接口与未读名单一致 |
-| G03 | 公告删除是**软删**（`deleted_at` 有值），已读回执**保留**（审计需要）；但关联通知不随之下线 → **BUG-D-05（P3）** |
+| G03 | 公告删除是**软删**（`deleted_at` 有值），已读回执**保留**（审计需要）；关联通知**同事务软删**、收件行只打 `is_deleted`（`read_flag/read_at` 不动）、消息中心与未读徽标都不再出现它 —— **BUG-D-05 已由 FIX-04 修复，本用例改正向断言** |
 | G04 | 已发布公告禁止编辑（必须先下线）；下线后可编辑 |
 | G05 | 多目标扇出：`receiver_count=2`、`sys_notice_receiver` 2 行、两人未读各 +1 |
 | G06 | 消息已读 → 未读数归零（徽标联动见 K02） |
@@ -163,7 +185,7 @@
 | X02 | 已持 A 再授 B → 拒绝，错误码 **61009（ROLE_MUTEX_CONFLICT）** |
 | X03 | 一次请求里同时授 A+B 也拦（并集校验，复现 P09 的 `qa.mutex` 场景） |
 | X04 | 绕过 API 直接写库造「双持用户」→ 全量扫描必须点名；此时新建规则对被 **409** 拦住（除非 force） |
-| X05 | 互斥基座对 ERP「制单/审核」角色对生效 → 同一人无法同时持有；但 ERP 侧无独立「制单人≠审核人」校验 → **BUG-D-14（P1）** |
+| X05 | 互斥基座对 ERP「制单/审核」角色对生效 → 同一人无法同时持有；ERP 侧另有独立「制单人≠审核人」内控闸（`guard_self_approval`，403 + 65019）→ **BUG-D-14 已修复** |
 | H01 | 帮助文档 CRUD：分类 → 草稿 → 保存（`version+1`）→ 发布 `PUBLISHED` → 软删 |
 | H02 | 搜索：命中/未命中/空关键词（空关键词返回空页，不查库）；**`keywords` 列不参与检索**（只写进 keywords 的词搜不到）→ **BUG-D-12（P3）** |
 | H03 | XSS：`content_html` 里的 `<script>` 出参被净化（不执行、不带原标签） |
@@ -184,7 +206,7 @@
 | K05 | 导出 ↔ 脱敏 | 异步导出产物：`李*`、`l***@example.com`、`139****1111` —— 脱敏在**异步产物**里同样生效 |
 | K06 | 项目 ↔ 任务 | 删项目 → 任务 `project_id` 解绑（`unbound_tasks=2`），不产生孤儿、也不误删 |
 | K07 | 所有模块 ↔ changelog | 建/发布/下线各恰好 +1 条，不多不少 |
-| K08 | 互斥 ↔ ERP | 互斥基座对 ERP 制单/审核角色对生效；ERP 侧缺独立校验 → BUG-D-14 |
+| K08 | 互斥 ↔ ERP | 互斥基座对 ERP 制单/审核角色对生效；ERP 侧四个审批桥各有 `guard_self_approval`（403+65019）+ 生成待办前排除制单人 → **BUG-D-14 已修复（正向断言）** |
 
 ---
 
@@ -213,6 +235,46 @@ test testd::storage::zz_no_fixture_residue_after_full_suite ... [Z01] TD- 前缀
 ok
 test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 332.85s
 ```
+
+### 9.1 清理挂在用例**尾部**的第二类污染（卡 `t_3d77b506`，2026-11-03 修复）
+
+**现象**：DEPLOY-A 全量跑完后 Z01 报 `sys_user=12, sys_role=12, sys_user_role=9, sys_announcement=3,
+sys_notice=3, sys_role_mutex=3`（另一轮实测 20/20/15/5/5/5）。
+
+**根因**：不是清理语句写错，而是**清理压根没执行** —— 清理写在用例最后一行
+（`ctx.reset().await;`），而 `G03` / `K08` 这两条守卫型用例当时是**红的（panic）**，
+unwind 直接跳过尾部清理。行数与「崩了几轮」严格线性（G03 每轮留 2 用户 + 1 角色 +
+1 公告 + 1 通知 + 1 收件行，K08 每轮留 2 用户 + 3 角色 + 3 角色绑定 + 1 互斥），
+库里连前缀都能对上是 `TD-G03-…` / `TD-K08-…`（按前缀 + 外键链 `sys_user_role →
+sys_role_mutex → sys_role → sys_user`、`sys_notice_receiver → sys_notice →
+sys_announcement` 逐条查证）。**缺陷修好后守卫变绿、这个问题就"自己消失"了**——
+但那是运气，不是机制：任何一次 panic 都会重新污染库。
+
+**修复**（只改 `backend/tests/testd/**`，不碰业务代码）：
+
+1. 新增 `common::case(tag, |ctx| async move { … })` 外壳：用例体包进
+   `AssertUnwindSafe(..).catch_unwind()`，**正常返回和 panic 两条路径都执行
+   `ctx.reset()`**，panic 清理后再 `resume_unwind` 原样抛回（红还是红，绝不吞失败）；
+2. 61 条用例统一改成这个外壳（`common.rs` 的注释里给了模板），用例体本身一行没改；
+3. `Ctx::new` 开工前先扫 **`TD-<tag>%`**（同一条用例上一轮的残留）——「崩了 → 脏了 →
+   下一轮开工自愈」，不靠人工洗库、也不靠别的用例兜底；
+4. `residue()` 扩到 16 张表（补 `sys_user_role` / `sys_role_mutex` /
+   `sys_notice_receiver` / `sys_announcement_read` / `sys_announcement_attachment`），
+   正常返回时**断言本前缀残留 = 0**（外部查库，不是 self-report）；
+5. Z01 保留、但降级为**外部交叉验证**（它自己不删任何东西）：再红就说明有夹具逃过了
+   「每例自清 + 同 tag 自愈」两层。
+
+**实测**（`cargo test --test testd -- --test-threads=1`，`cloudpivot_test`）：
+```
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 458.16s
+```
+库侧独立复查（psql 直接查，不经测试代码）：
+```
+user=0 role=0 user_role=0 ann=0 notice=0 mutex=0    # TD% 前缀，全零
+```
+> 整轮 458.16s vs 修前 295.80s 的差距主要来自**机器抢占**（同一时段 D3 卡在编 `cloudpivot`，
+> load average 1.3、单核满载），不是清理开销：每条用例多出的两轮 `reset` 是按前缀的
+> 几十条 DELETE + 16 条 count，单条用例量级 <1s。
 
 ---
 
@@ -261,7 +323,7 @@ test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fin
 | 存储双持后端切换 MinIO 的**真实** S3 往返 | 部分 | 本机无 MinIO/S3 端点，F06 验的是本地真实读写 + SigV4 预签名算法（签名串/有效期），未做真实对象上传 |
 | 导出产物 30 分钟过期的**时钟流逝** | 用 `expire_at` 回填模拟 | 不真等 30 分钟（I12 直接改写 `expire_at` 再调下载，验 410 分支） |
 | 邮件/短信/Webhook 通道真实投递 | 只能验到 `SKIPPED` | 本机没有网关；G08 钉的是「未配置 = 明确 SKIPPED，不静默丢失」 |
-| ERP 单据「制单人≠审核人」 | 代码层证据（扫描）+ 互斥基座 | ERP 属别的卡在改，本卡不动 erp；BUG-D-14 已登记 |
+| ERP 单据「制单人≠审核人」 | 代码层证据（扫描四个审批桥）+ 互斥基座 | 内控闸已落地（P-FLOW-3A/3B），`K08` 只做源码层点名 + 错误码/留痕口径校验；**端到端**「同一个人点审批被 403」由 `erp::pflow3b_tests` / `flow::internal_control` 单测覆盖（真库），本报告不重复造真库审批夹具 |
 
 ---
 
@@ -292,4 +354,4 @@ PGPASSWORD=*** bash /opt/cloudpivot/scripts/verify/testd_http.sh
 
 - 卡面要求的 **≥58 + 8 联动 = ≥66** 全部落地：**67 条真库用例全绿**（含 1 条清理自检），另有 **11 条 HTTP 层断言**全绿。
 - 未改任何业务代码（`git show --stat` 只有 `backend/tests/**`、`scripts/verify/testd_http.sh`、本报告）。
-- **放行判断**：P0 的导入导出「事务边界 / 幂等 / 1 万行 / 篡改拒绝 / 过期 410 / 失败可重试」与脱敏「详情 / 导出 / fail-closed」都成立；**BUG-D-08（文件下载无属主隔离）与 BUG-D-09（php 类脚本漏网）已于卡 `t_7a9b87f8` 修复并回归全绿**；BUG-D-13（明文导出无留痕）同卡修复（真因是 `request_id` 超长，不是 jsonb 绑定）；BUG-D-14（ERP 自审）仍由 ERP 卡跟进。
+- **放行判断**：P0 的导入导出「事务边界 / 幂等 / 1 万行 / 篡改拒绝 / 过期 410 / 失败可重试」与脱敏「详情 / 导出 / fail-closed」都成立；**BUG-D-08（文件下载无属主隔离）与 BUG-D-09（php 类脚本漏网）已于卡 `t_7a9b87f8` 修复并回归全绿**；BUG-D-13（明文导出无留痕）同卡修复（真因是 `request_id` 超长，不是 jsonb 绑定）；**BUG-D-05（公告删了通知还在）由 FIX-04 修复、BUG-D-14（ERP 自审）由 P-FLOW-3A/3B 修复**，两条守卫型用例都已在卡 `t_3d77b506` 改成正向断言（`cargo test --test testd` = 67 passed / 0 failed）。

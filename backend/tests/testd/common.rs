@@ -26,6 +26,7 @@
 
 #![allow(dead_code)]
 
+use futures_util::FutureExt;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -77,7 +78,11 @@ pub async fn ensure_db() -> bool {
 
 /// 用例前置：连不上库时返回 `None`（用例直接 `return`）。
 pub async fn ready() -> Option<()> {
-    if ensure_db().await { Some(()) } else { None }
+    if ensure_db().await {
+        Some(())
+    } else {
+        None
+    }
 }
 
 // ==================== 身份 ====================
@@ -179,7 +184,23 @@ pub struct Ctx {
 
 impl Ctx {
     /// 建上下文并做一次前置清理。
+    ///
+    /// 前置清理有两层，**都是按前缀精确过滤**，不依赖用例执行顺序：
+    ///
+    /// 1. `TD-<tag>%`：**同一条用例**上一轮崩溃/中断留下的残留（panic 时函数尾部的
+    ///    `reset` 不会执行，见 [`case`]）；
+    /// 2. `TD-<tag>-<suffix>%`：本次前缀（理论上刚清过，等于免费自检）。
     pub async fn new(tag: &str) -> Self {
+        // 第一层：上一轮的「同名用例」残留。前缀只到 tag，仍然只有本用例会碰这些行。
+        let stale = Self {
+            tag: tag.to_string(),
+            prefix: format!("{ROOT}-{tag}"),
+        };
+        let stale_left = stale.reset().await;
+        if stale_left > 0 {
+            println!("WARN[cleanup] 用例 {tag} 上一轮残留 {stale_left} 行，已在本轮开工前清掉");
+        }
+
         let simple = Uuid::now_v7().simple().to_string();
         // 取**尾部** 8 位：UUIDv7 的高位是时间戳，同一批用例里前缀相同，会撞前缀。
         let suffix = simple[simple.len() - 8..].to_string();
@@ -347,18 +368,40 @@ impl Ctx {
     }
 
     /// 本前缀在关键表里的残留行数（自检用；0 = 清干净）。
+    ///
+    /// 覆盖顺序与 [`Ctx::reset`] 的清理清单一一对应（含「关联行」：用户的角色绑定、
+    /// 角色的互斥规则、通知的收件行与投递行、公告的已读回执/范围/附件）。
+    /// 只查实体表会漏掉「实体删了、关联脏行还在」——那正是 BUG-D-04 的老形态。
     pub async fn residue(&self) -> i64 {
         let p = format!("{}%", self.prefix);
         let lpct = format!("{}%", self.prefix.to_lowercase());
+        let users = format!("(SELECT id FROM sys_user WHERE username LIKE '{p}')");
+        let roles = format!("(SELECT id FROM sys_role WHERE role_code LIKE '{p}')");
+        let notices =
+            format!("(SELECT id FROM sys_notice WHERE title LIKE '{p}' OR sender_id IN {users})");
+        let anns = format!(
+            "(SELECT id FROM sys_announcement WHERE title LIKE '{p}' OR publisher_id IN {users})"
+        );
         let checks = [
             format!("SELECT count(*) AS n FROM sys_user WHERE username LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_role WHERE role_code LIKE '{p}'"),
+            format!("SELECT count(*) AS n FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"),
+            format!(
+                "SELECT count(*) AS n FROM sys_role_mutex WHERE role_a_id IN {roles} OR role_b_id IN {roles} OR reason LIKE '{p}'"
+            ),
             format!(
                 "SELECT count(*) AS n FROM biz_project WHERE project_no LIKE '{p}' OR project_name LIKE '{p}'"
             ),
             format!("SELECT count(*) AS n FROM biz_task WHERE title LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_announcement WHERE title LIKE '{p}'"),
+            format!(
+                "SELECT count(*) AS n FROM sys_announcement_read WHERE announcement_id IN {anns}"
+            ),
+            format!(
+                "SELECT count(*) AS n FROM sys_announcement_attachment WHERE announcement_id IN {anns}"
+            ),
             format!("SELECT count(*) AS n FROM sys_notice WHERE title LIKE '{p}'"),
+            format!("SELECT count(*) AS n FROM sys_notice_receiver WHERE notice_id IN {notices}"),
             format!("SELECT count(*) AS n FROM sys_import_task WHERE task_no LIKE '{p}'"),
             format!(
                 "SELECT count(*) AS n FROM sys_export_task WHERE task_no LIKE '{p}' OR export_name LIKE '{p}'"
@@ -374,6 +417,72 @@ impl Ctx {
             total += count(sql, Vec::new()).await;
         }
         total
+    }
+}
+
+/// 跑一条用例：**任何退出路径**（正常返回 / panic）都按前缀做一次确定性清理。
+///
+/// # 为什么清理不能写在用例尾部
+///
+/// `#[tokio::test]` 用例体 panic 时，函数末尾的 `ctx.reset().await` 根本不会执行 ——
+/// 夹具就那么留在库里。2026-11-03 实测：G03 / K08 各崩 5 轮，`cloudpivot_test` 攒下
+/// 20 个 `TD-` 用户 / 5 条公告 / 5 条通知 / 5 条互斥规则，把全量套件的收口用例
+/// `storage::zz_no_fixture_residue_after_full_suite` 打成红 —— 这正是「守卫型用例过期」
+/// 连带出的假缺陷。所以清理挂在外壳上：用例体包进 `catch_unwind`，unwind 之后先清库、
+/// 再把 panic **原样抛回去**（用例仍然是红的，绝不吞失败）。
+///
+/// # 确定性（不靠「按名字排序最后兜底」）
+///
+/// - 每个用例只清**自己的前缀**（`TD-<tag>-<suffix>`），不扫全表、不看别的用例脸色；
+/// - [`Ctx::new`] 开工前先扫掉**同 tag** 的历史残留（上一轮崩溃留下的），所以「崩了 →
+///   库里脏了 → 下一轮开工自愈」，不需要人工介入；
+/// - 正常返回时**断言本前缀残留为 0**：`residue()` 是外部事实（重新查库），不是
+///   「我调过清理了」的自我报告。
+///
+/// 收口用例 `zz_no_fixture_residue_after_full_suite` 保留，但降级为**外部交叉验证**：
+/// 它再红就意味着有夹具逃过了「每例自清 + 同 tag 自愈」两层，是真问题。
+///
+/// # 用法
+///
+/// ```ignore
+/// #[tokio::test]
+/// async fn g01_xxx() {
+///     let Some(()) = c::ready().await else { return };
+///     c::case("G01", |ctx| async move {
+///         // 用例体（原来怎么写还怎么写）
+///     })
+///     .await;
+/// }
+/// ```
+pub async fn case<F, Fut>(tag: &str, body: F)
+where
+    F: FnOnce(Ctx) -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let ctx = Ctx::new(tag).await;
+    // AssertUnwindSafe：夹具（`Ctx`）跨 panic 边界后用不着，用例体里被改坏的状态也不会
+    // 影响清理（清理只认前缀 + 全局连接池）。这是 `catch_unwind` 唯一的实际顾虑。
+    let outcome = std::panic::AssertUnwindSafe(body(ctx.clone()))
+        .catch_unwind()
+        .await;
+    let left = ctx.reset().await;
+    match outcome {
+        Ok(()) => assert_eq!(
+            left, 0,
+            "用例 {tag} 结束后本前缀仍有 {left} 行残留（{}）—— 夹具清理语句没跟上用例",
+            ctx.prefix
+        ),
+        Err(panic) => {
+            if left > 0 {
+                println!(
+                    "WARN[cleanup] 用例 {tag} panic 后仍残留 {left} 行（{}），已尽量清理；\
+                     下一轮开工前会再扫一次同 tag 残留",
+                    ctx.prefix
+                );
+            }
+            // 真红照旧抛回去：外壳只负责清库，不负责把失败变成绿。
+            std::panic::resume_unwind(panic);
+        }
     }
 }
 
