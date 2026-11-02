@@ -304,12 +304,18 @@ pub async fn next_in_no(ex: &impl SqlExecutor, now: DateTime<Utc>) -> DbResult<S
 /// 建单 / 改单的单头字段。
 #[derive(Debug, Clone)]
 pub struct NewStockIn<'a> {
-    /// 供应商（`in_type='PURCHASE'` 时库约束要求必填）。
+    /// 供应商（**快照**：有源时由采购单派生；无源时由用户显式填写）。
     pub supplier_id: Uuid,
     /// 收货仓库（列 `NOT NULL`）。
     pub warehouse_id: Uuid,
-    /// 来源采购单（可空）。
+    /// 来源采购单（PURCHASE 有源单必填；无源单为 `None`）。
     pub source_order_id: Option<Uuid>,
+    /// 无源单据标记（AP-5：期初 / 复制 / 其他）。
+    ///
+    /// 与 `source_order_id` 由库约束 `ck_biz_si_sourceless_pair` 钉死
+    /// （`is_sourceless = (source_order_id IS NULL)`）：无源必须显式声明，
+    /// 不能靠「空就是无源」隐式表达（AP-5 要求可枚举、能进巡检）。
+    pub is_sourceless: bool,
     /// 入库日期。
     pub in_date: NaiveDate,
     /// 发票是否已到（缺省 true，与列默认值一致）。
@@ -388,7 +394,7 @@ impl Totals {
 // ==================== 读：行结构 ====================
 
 /// `biz_stock_in` 列清单（`currency_code` 是 `CHAR(3)`：显式 `::text` 去掉补空格）。
-pub const HEADER_COLUMNS: &str = "id, in_no, in_type, source_order_id, supplier_id, warehouse_id, \
+pub const HEADER_COLUMNS: &str = "id, in_no, in_type, source_order_id, supplier_id, is_sourceless, warehouse_id, \
      in_date, status, currency_code::text AS currency_code, total_qty, total_amount, total_tax, \
      total_with_tax, invoice_received, voucher_id, payable_id, remark, posted_at, posted_by, \
      cancelled_at, cancelled_by, cancel_reason, approval_instance_id, created_at, updated_at, \
@@ -405,8 +411,10 @@ pub struct StockInRow {
     pub in_type: String,
     /// 来源采购单。
     pub source_order_id: Option<Uuid>,
-    /// 供应商。
+    /// 供应商（**快照**：有源时派生自采购单，无源时用户显式填写）。
     pub supplier_id: Option<Uuid>,
+    /// 无源单据标记（`true` ⇔ 不绑采购单，由 `ck_biz_si_sourceless_pair` 钉死）。
+    pub is_sourceless: bool,
     /// 收货仓库。
     pub warehouse_id: Uuid,
     /// 入库日期。
@@ -466,6 +474,7 @@ impl StockInRow {
             in_type: row.get_typed("in_type")?,
             source_order_id: row.get_typed("source_order_id")?,
             supplier_id: row.get_typed("supplier_id")?,
+            is_sourceless: row.get_typed("is_sourceless")?,
             warehouse_id: row.get_typed("warehouse_id")?,
             in_date: row.get_typed("in_date")?,
             status: row.get_typed("status")?,

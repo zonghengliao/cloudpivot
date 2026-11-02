@@ -296,16 +296,31 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
         .map_err(|error| utils::db_error(error, "统计收货入库单序列号"))?;
     // 来源采购单号（F3）：详情页要显示「来源采购单：PO-xxx」并可点回采购单。
     let mut header = StockInRes::from(&row);
+    let mut contract_no = None;
     if let Some(order_id) = row.source_order_id {
         header.source_order_no = stockin_model::order_no_of(order_id)
             .await
             .map_err(|error| utils::db_error(error, "查询来源采购单号"))?;
+        // A4：合同号**一跳带出**（读采购单上的 `contract_no_snapshot`），
+        // 不 JOIN `biz_contract`（合同在两环之上，设计 §6.4 / AP-6）。
+        contract_no = stockin_model::contract_no_of(order_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询来源采购单的合同号"))?;
     }
-    Ok(StockInDetailRes::with_summary(
+    // 供应商名：读 `supplier_id` 快照关联主数据取名（**不 JOIN 采购单**，R3-a 列表口径冻结）
+    if let Some(supplier_id) = row.supplier_id {
+        let names = crate::business::erp::purchase_model::supplier_names_of(&[supplier_id])
+            .await
+            .map_err(|error| utils::db_error(error, "查询供应商名称"))?;
+        header.supplier_name = names.get(&supplier_id).cloned();
+    }
+    let mut detail = StockInDetailRes::with_summary(
         header,
         items.iter().map(StockInItemRes::from).collect(),
         serial_count,
-    ))
+    );
+    detail.contract_no = contract_no;
+    Ok(detail)
 }
 
 // ==================== 明细规划（校验 + 查引用） ====================
@@ -498,6 +513,145 @@ fn purchase_status_label(status: &str) -> &'static str {
     }
 }
 
+// ==================== 供应商来源：唯一取值点（A4） ====================
+
+/// 「供应商 + 无源标记」的唯一取值结果。
+///
+/// 设计 §6.2 ② 的 `guard_parent_supplier`，扩成**同时决定供应商来源与无源标记**：
+/// 建单 / 改单 / 过账复校三处调用同一个函数，口径不会分叉。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ParentPointer {
+    /// 落库的供应商（有源 = 采购单的；无源 = 用户显式填的）。
+    supplier_id: Uuid,
+    /// 是否无源单据（AP-5：期初 / 复制 / 其他，必须显式）。
+    is_sourceless: bool,
+}
+
+/// 解析并钉死「供应商 + 无源标记」。
+///
+/// # 规则（卡面 A4 §1 / 设计 §4.3 §4.5 §6.2）
+///
+/// | 情形 | 结果 |
+/// |---|---|
+/// | 有 `source_order_id` + 采购单存在 / 可收 / 仓库一致 | 供应商 = 采购单供应商（派生），`is_sourceless = false` |
+/// | 有 `source_order_id` + 客户端传了不同供应商 | 400 + [`error_code::ERP_SI_SUPPLIER_MISMATCH`]（**不静默覆盖**） |
+/// | 有 `source_order_id` + `is_sourceless = true`（自相矛盾） | 以来源单为准**归一化**：落库 `is_sourceless = false`，供应商取自采购单 |
+/// | 无 `source_order_id` + 没声明无源 | 400 + [`error_code::ERP_SI_SOURCE_REQUIRED`]（AP-4：入库绑采购单，不绑供应商） |
+/// | 无 `source_order_id` + `is_sourceless = true` + 有供应商 + 有备注 | 通过，`is_sourceless = true`（E4：期初 / 复制 / 其他） |
+/// | 无 `source_order_id` + 无供应商 / 无备注 | 400（无源也要说清「哪来的」） |
+///
+/// 为什么「无源」要求备注：AP-5 要求无源可枚举且能进巡检，光一个布尔位只能数出「有几张」，
+/// 数不出「为什么」——运维看到 12 张无源单时总得知道该不该清。
+async fn resolve_parent_pointer(
+    source_order_id: Option<Uuid>,
+    declared_sourceless: Option<bool>,
+    given_supplier: Option<&str>,
+    remark: Option<&str>,
+    warehouse_id: Uuid,
+) -> std::result::Result<ParentPointer, ApiError> {
+    match source_order_id {
+        Some(order_id) => {
+            // 有源单恒为「有源」：客户端多带一个 `is_sourceless=true` 属于自相矛盾的冗余
+            // （标记本来就等价于「没有来源单」），这里按**来源单为准**归一化，不静默改供应商、
+            // 也不因此拒单 —— 真正要拦的是「有源单把供应商填成别人」，见下面的 66028。
+            // 反过来「无源却没打标记」才是必须拒的（AP-5：无源要显式），见 None 分支。
+            // 正常/未删/可收/仓库一致（D4 的既有校验，原样复用）
+            let order = require_purchase_order(order_id, warehouse_id).await?;
+            let truth = order.supplier_id;
+            if let Some(raw) = given_supplier {
+                let got = parse_uuid(raw, "supplier_id")?;
+                if got != truth {
+                    return Err(ApiError::new(
+                        400,
+                        error_code::ERP_SI_SUPPLIER_MISMATCH,
+                        format!(
+                            "供应商与来源采购单 {} 不一致：本单填的是 {}，采购单是 {}。\
+                             入库单的供应商由采购单带出、不允许手工填写；\
+                             请留空由服务端自动带出（相等则幂等放行）",
+                            order.order_no, got, truth
+                        ),
+                    ));
+                }
+            }
+            Ok(ParentPointer {
+                supplier_id: truth,
+                is_sourceless: false,
+            })
+        }
+        None => {
+            if declared_sourceless != Some(true) {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_SI_SOURCE_REQUIRED,
+                    "采购入库必须绑定来源采购单（source_order_id）：供应商由采购单带出，\
+                     不再由用户手工填写。确属没有采购单的入库（期初 / 复制 / 其他）\
+                     请显式传 is_sourceless=true 并在 remark 写明来源"
+                        .to_string(),
+                ));
+            }
+            let Some(raw) = given_supplier.map(str::trim).filter(|t| !t.is_empty()) else {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_SI_SOURCELESS_CONFLICT,
+                    "无源入库单必须自己指定供应商（supplier_id）：没有采购单可带出".to_string(),
+                ));
+            };
+            let reason = remark.map(str::trim).unwrap_or_default();
+            if reason.is_empty() {
+                return Err(ApiError::new(
+                    400,
+                    error_code::ERP_SI_SOURCELESS_CONFLICT,
+                    "无源入库单必须填写 remark 说明来源（期初 / 复制自 IN-xxx / 其他）：\
+                     无源标记要能进巡检、能被人看懂"
+                        .to_string(),
+                ));
+            }
+            Ok(ParentPointer {
+                supplier_id: parse_uuid(raw, "supplier_id")?,
+                is_sourceless: true,
+            })
+        }
+    }
+}
+
+/// 过账前复校：单据头的供应商必须仍等于来源采购单的供应商（兜「建单后被直接改库」）。
+///
+/// 设计 §7.2「过账前复校」：建单期的校验挡不住绕过接口的 UPDATE，
+/// 而应付单直接取单据头 `supplier_id`（`payable_bridge`），错了就是记错账。
+async fn guard_posting_supplier(
+    header: &stockin_model::StockInRow,
+) -> std::result::Result<(), ApiError> {
+    let Some(order_id) = header.source_order_id else {
+        return Ok(());
+    };
+    let order = stockin_model::purchase_order_ref(order_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询来源采购单"))?
+        .ok_or_else(|| {
+            reference_missing(format!(
+                "来源采购单不存在或已删除（{order_id}）：已绑定采购单的入库单不允许带着悬空来源过账"
+            ))
+        })?;
+    if header.supplier_id != Some(order.supplier_id) {
+        return Err(ApiError::new(
+            400,
+            error_code::ERP_SI_SUPPLIER_MISMATCH,
+            format!(
+                "收货入库单 {} 的供应商（{}）与来源采购单 {} 的供应商（{}）不一致，不能过账：\
+                 供应商是采购单带出的快照，被直接改库了。请核对后重开单据",
+                header.in_no,
+                header
+                    .supplier_id
+                    .map(|v| v.to_string())
+                    .unwrap_or_else(|| "空".to_string()),
+                order.order_no,
+                order.supplier_id
+            ),
+        ));
+    }
+    Ok(())
+}
+
 /// 带 `source_order_id` 且没给明细时，按采购单**未收数量**自动带出一批明细。
 ///
 /// 口径：只取 `qty - received_qty > 0` 的行，单价 / 税率沿用采购明细（含税单价也照搬快照），
@@ -603,20 +757,28 @@ pub async fn create_stock_in(
     }
 
     let prepared = request.prepare(false)?;
-    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
 
-    model::supplier_find_by_id(supplier_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询供应商"))?
-        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
     model::warehouse_find_by_id(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
-    if let Some(order_id) = source_order_id {
-        require_purchase_order(order_id, warehouse_id).await?;
-    }
+
+    // ★ A4：供应商的唯一取值点。有源 → 从采购单派生（客户端填错即 400）；
+    //   无源 → 必须显式 is_sourceless=true + 供应商 + 备注（AP-5）。
+    let pointer = resolve_parent_pointer(
+        source_order_id,
+        request.is_sourceless,
+        prepared.supplier_id_raw.as_deref(),
+        prepared.remark.as_deref(),
+        warehouse_id,
+    )
+    .await?;
+    let supplier_id = pointer.supplier_id;
+    model::supplier_find_by_id(supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商"))?
+        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
 
     let plans = plan_lines(&prepared, source_order_id, warehouse_id).await?;
     let lines: Vec<NewStockInLine> = plans.iter().map(|plan| plan.new.clone()).collect();
@@ -625,6 +787,7 @@ pub async fn create_stock_in(
         supplier_id,
         warehouse_id,
         source_order_id,
+        is_sourceless: pointer.is_sourceless,
         in_date: prepared.in_date,
         invoice_received: prepared.invoice_received,
         remark: prepared.remark.as_deref(),
@@ -773,13 +936,29 @@ pub async fn copy_stock_in(id: Uuid, claims: &TokenClaims) -> std::result::Resul
         })
         .collect();
     let totals = Totals::of(&lines);
+    // ★ A4 / 设计 §4.5 档 B：复制单是 E4 的「无源」情形 —— 来源单已清空，
+    //   所以必须显式打无源标记，并在备注里写明「复制自 IN-xxx」（无源要可枚举、可追溯）。
+    //   备注长度按 `MAX_REMARK_LEN` 兜底：追加后超长就只保留原备注（不因为一条标记把复制搞失败）。
+    let copy_mark = format!("| 复制自 {}", origin.in_no);
+    let remark = match origin.remark.as_deref().map(str::trim) {
+        None | Some("") => copy_mark,
+        Some(text) => {
+            let merged = format!("{text} {copy_mark}");
+            if merged.chars().count() > crate::business::erp::stockin_dto::MAX_REMARK_LEN {
+                text.to_string()
+            } else {
+                merged
+            }
+        }
+    };
     let new = NewStockIn {
         supplier_id,
         warehouse_id: origin.warehouse_id,
         source_order_id: None,
+        is_sourceless: true,
         in_date: crate::business::erp::stockin_dto::today_cst(),
         invoice_received: origin.invoice_received,
-        remark: origin.remark.as_deref(),
+        remark: Some(remark.as_str()),
     };
 
     // ③ 插入新单 + 明细（`create` 内部取号 + 写建单日志，与正常建单同一条路径）
@@ -840,6 +1019,11 @@ async fn ensure_remark_only(
     current: &stockin_model::StockInRow,
     req: &CreateStockInReq,
 ) -> std::result::Result<(), ApiError> {
+    if let Some(flag) = req.is_sourceless
+        && flag != current.is_sourceless
+    {
+        return Err(locked_change(current, "无源标记 is_sourceless"));
+    }
     if let Some(raw) = req
         .supplier_id
         .as_deref()
@@ -1039,19 +1223,33 @@ pub async fn update_stock_in(
     }
 
     let prepared = request.prepare(false)?;
-    let supplier_id = parse_uuid(&prepared.supplier_id_raw, "supplier_id")?;
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
-    model::supplier_find_by_id(supplier_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询供应商"))?
-        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
     model::warehouse_find_by_id(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
-    if let Some(order_id) = source_order_id {
-        require_purchase_order(order_id, warehouse_id).await?;
-    }
+
+    // ★ A4：草稿改单也走同一个取值点。
+    //   ① 请求没带 `is_sourceless` 且这张单本来就是无源单（`current.is_sourceless`）→ 沿用它，
+    //      免得「改个备注 / 改个数量」还要每次重申无源身份；
+    //   ② 请求带了 ≠ 库里的值 → 按请求走：有源单解绑必须显式声明无源，无源单挂上采购单
+    //      则供应商随之重新派生（不允许单独把供应商从 A 换成 B）。
+    let declared_sourceless = request
+        .is_sourceless
+        .or_else(|| (source_order_id.is_none() && current.is_sourceless).then_some(true));
+    let pointer = resolve_parent_pointer(
+        source_order_id,
+        declared_sourceless,
+        prepared.supplier_id_raw.as_deref(),
+        prepared.remark.as_deref(),
+        warehouse_id,
+    )
+    .await?;
+    let supplier_id = pointer.supplier_id;
+    model::supplier_find_by_id(supplier_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询供应商"))?
+        .ok_or_else(|| reference_missing("supplier_id 供应商不存在或已删除"))?;
 
     let plans = plan_lines(&prepared, source_order_id, warehouse_id).await?;
     let lines: Vec<NewStockInLine> = plans.iter().map(|plan| plan.new.clone()).collect();
@@ -1060,6 +1258,7 @@ pub async fn update_stock_in(
         supplier_id,
         warehouse_id,
         source_order_id,
+        is_sourceless: pointer.is_sourceless,
         in_date: prepared.in_date,
         invoice_received: prepared.invoice_received,
         remark: prepared.remark.as_deref(),
@@ -2129,6 +2328,8 @@ pub async fn post_after_approval(
     //
     // 放在 `post_in_tx` 之前：六本账一动没动就被拦下，调用方（bridge / 免审分支）
     // 负责把单据打回草稿，不会留下「停在审批中却没有任何待办」的死单。
+    // ★ A4：审批通过的过账路径同样复校一次（两条入口同一把尺子）
+    guard_posting_supplier(&row).await?;
     let op = state_machine::Operator::of(operator.or(row.create_by));
     separation::guard(
         separation::Duty::Post,
@@ -2338,6 +2539,9 @@ async fn post_stock_in(
     req: &StockInStatusReq,
     operator: &state_machine::Operator,
 ) -> std::result::Result<(), ApiError> {
+    // ★ A4：过账前复校「单据头供应商 = 来源采购单供应商」。
+    //   建单期的校验挡不住绕过接口的 UPDATE，而应付/凭证直接取单据头 `supplier_id`。
+    guard_posting_supplier(header).await?;
     let (items, serial_required, provided, po_snapshot) =
         posting_inputs(id, header.source_order_id, Some(req)).await?;
 
@@ -2811,6 +3015,19 @@ pub async fn stock_in_page(
             }
         }
     }
+    // 供应商名称：同样一次 `IN (...)` 批量补齐，读的是**本单的 `supplier_id` 快照**去关联主数据
+    // （不是实时 JOIN 采购单拿供应商 —— 列表口径必须冻结在「收货那一刻」，R3-a）。
+    let supplier_ids: Vec<Uuid> = rows.iter().filter_map(|row| row.supplier_id).collect();
+    if !supplier_ids.is_empty() {
+        let names = crate::business::erp::purchase_model::supplier_names_of(&supplier_ids)
+            .await
+            .map_err(|error| utils::db_error(error, "查询供应商名称"))?;
+        for (header, row) in list.iter_mut().zip(rows.iter()) {
+            if let Some(supplier_id) = row.supplier_id {
+                header.supplier_name = names.get(&supplier_id).cloned();
+            }
+        }
+    }
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -2932,6 +3149,11 @@ mod tests {
     const LOC_DICT_A: &str = "b2b10003-0000-4000-8000-000000000001";
     /// 库位字典（第二个库位）。
     const LOC_DICT_B: &str = "b2b10003-0000-4000-8000-000000000002";
+    /// A4 夹具：**第二个**供应商。
+    ///
+    /// 与 [`SUPPLIER`] 分开，才能证明「入库单的供应商确实从采购单派生」——
+    /// 用同一个供应商的话，派生与手填的结果一样，断言再严也测不出东西。
+    const A4_SUPPLIER_B: &str = "b2b10001-0000-4000-8000-000000000014";
 
     const FIXTURES: &[&str] = &[
         "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
@@ -2939,6 +3161,10 @@ mod tests {
          ON CONFLICT DO NOTHING",
         "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status)
          VALUES ('b2b10001-0000-4000-8000-000000000002', 'P2B1-SUP', 'P2B1 测试供应商', 1)
+         ON CONFLICT DO NOTHING",
+        // A4 夹具：第二个供应商（证明入库单供应商是从采购单派生的）
+        "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status)
+         VALUES ('b2b10001-0000-4000-8000-000000000014', 'A4-SUP-B', 'A4 二号供应商', 1)
          ON CONFLICT DO NOTHING",
         "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, level, is_leaf, status)
          VALUES ('b2b10001-0000-4000-8000-000000000003', 'P2B1-WH', 'P2B1 收货仓',
@@ -3019,7 +3245,7 @@ mod tests {
             "biz_type IN ('STOCK_IN_POST', 'STOCK_IN_CANCEL') AND ( \
                  biz_id IS NULL \
               OR biz_id NOT IN (SELECT id FROM biz_stock_in) \
-              OR biz_id IN (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+              OR biz_id IN (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)))"
         )
     }
 
@@ -3039,7 +3265,7 @@ mod tests {
             // `cleanup_fixtures` 里会被整行删掉，不需要先置 NULL）。
             format!(
                 "UPDATE biz_stock_in SET approval_instance_id = NULL \
-                  WHERE supplier_id = '{SUPPLIER}'::uuid AND deleted_at IS NULL \
+                  WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid) AND deleted_at IS NULL \
                     AND status NOT IN ('PENDING_CANCEL', 'PENDING_POST')"
             ),
             format!(
@@ -3081,17 +3307,17 @@ mod tests {
             // 同时收掉上一轮删单留下的孤儿（`entity_id` 已指向不存在的收货单 —— 每轮几十行）。
             format!(
                 "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND ( \
-                     entity_id IN (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid) \
+                     entity_id IN (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)) \
                   OR entity_id NOT IN (SELECT id FROM biz_stock_in))"
             ),
             "DELETE FROM biz_status_log WHERE entity_no LIKE 'B1-%'".to_string(),
             format!(
                 "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
-             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
             ),
             format!(
                 "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN \
-             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
             ),
             format!(
                 "DELETE FROM biz_inventory WHERE material_id IN \
@@ -3108,15 +3334,15 @@ mod tests {
             format!(
                 "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
              (SELECT id FROM biz_voucher WHERE source_id IN \
-              (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+              (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)))"
             ),
             format!(
                 "DELETE FROM biz_voucher WHERE source_id IN \
-             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
             ),
             format!(
                 "DELETE FROM biz_payable WHERE source_id IN \
-             (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+             (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
             ),
             // 作废路径会为凭证 / 应付写状态日志（P10 起所有实体都写），而日志**没有外键**：
             // 单据删了日志还在，每轮多攒几百行永远对不上的孤儿。这里收掉「entity_id 已指向
@@ -3125,8 +3351,12 @@ mod tests {
                 AND entity_id NOT IN (SELECT id FROM biz_payable) \
                 AND entity_id NOT IN (SELECT id FROM biz_voucher)"
                 .to_string(),
-            format!("DELETE FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid"),
-            format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid"),
+            format!(
+                "DELETE FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
+            ),
+            format!(
+                "DELETE FROM biz_purchase_order WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
+            ),
         ];
         for sql in cleanups {
             if let Err(err) = db().execute_with_params(&sql, vec![]).await {
@@ -3187,10 +3417,12 @@ mod tests {
             source_order_id: None,
             purchase_order_id: None,
             supplier_id: Some(SUPPLIER.to_string()),
+            // A4：没有来源采购单 ⇒ 必须显式声明「无源单据」+ 写明来源（AP-5）
+            is_sourceless: Some(true),
             warehouse_id: Some(WAREHOUSE.to_string()),
             in_date: None,
             invoice_received: None,
-            remark: None,
+            remark: Some("A4 夹具：无源入库（手工单）".to_string()),
             items: lines,
             total_qty: None,
             total_amount: None,
@@ -6557,17 +6789,17 @@ mod tests {
                    (SELECT id FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
                      (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
                         AND biz_id IN \
-                       (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)))"
+                       (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))))"
             ),
             format!(
                 "DELETE FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
                    (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' \
                       AND biz_id IN \
-                     (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid))"
+                     (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)))"
             ),
             format!(
                 "DELETE FROM biz_flow_instance WHERE biz_type = 'STOCK_IN_POST' AND biz_id IN \
-                   (SELECT id FROM biz_stock_in WHERE supplier_id = '{SUPPLIER}'::uuid)"
+                   (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
             ),
         ] {
             sql(&sql_text).await;
@@ -7405,6 +7637,616 @@ mod tests {
         copy_stock_in(origin_id, &with_create)
             .await
             .expect("有 create 码就应放行");
+    }
+
+    // ==================== A4：入库单改绑采购单（供应商从采购单派生 + 无源标记） ====================
+    //
+    // 卡面 t_a8aa8c71 验收 A 的 11 条断言在这里逐条落地。全部走**生产同一条代码路径**
+    // （`create_stock_in` / `update_stock_in` / `change_stock_in_status` / `detail_of` /
+    // `stock_in_page`），只跳过认证 —— 单测能调的路径就是 HTTP 走的那条。
+    //
+    // 夹具设计的关键：A4 用**第二个供应商** [`A4_SUPPLIER_B`] 建采购单，
+    // 而请求里不带 `supplier_id`。如果供应商不是真从采购单派生，落库值会是空的或另一个值，
+    // 断言立刻红 —— 用同一个供应商就测不出「派生」。
+
+    /// 造一张**指定供应商 / 指定状态**的采购单（1 行物料 A），返回 `(order_id, item_id)`。
+    async fn a4_seed_po(supplier: &str, qty: &str, status: &str) -> (Uuid, Uuid) {
+        let order_id = Uuid::now_v7();
+        let item_id = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_purchase_order \
+                 (id, order_no, supplier_id, order_date, warehouse_id, status, total_qty, \
+                  total_amount, total_tax, total_with_tax) \
+             VALUES (?::uuid, ?, ?::uuid, CURRENT_DATE, ?::uuid, ?, \
+                 NULLIF(?::text,'')::numeric, 0, 0, 0)",
+            vec![
+                Value::from(&order_id),
+                // 单号取 uuid 的随机段（同毫秒多张单不会撞 uk_biz_po_no）
+                Value::Text(format!("B1-A4-{}", &order_id.simple().to_string()[24..32])),
+                Value::from(&Uuid::parse_str(supplier).unwrap()),
+                Value::from(&Uuid::parse_str(WAREHOUSE).unwrap()),
+                Value::Text(status.to_string()),
+                Value::Text(qty.to_string()),
+            ],
+        )
+        .await
+        .expect("A4 夹具：采购单");
+        db().execute_with_params(
+            "INSERT INTO biz_purchase_order_item \
+                 (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate, \
+                  amount, tax_amount, with_tax_amount, received_qty) \
+             VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
+                 2, 2, 0, NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric, 0)",
+            vec![
+                Value::from(&item_id),
+                Value::from(&order_id),
+                Value::from(&Uuid::parse_str(MATERIAL_A).unwrap()),
+                Value::from(&Uuid::parse_str(UNIT).unwrap()),
+                Value::Text(qty.to_string()),
+                Value::Text(qty.to_string()),
+                Value::Text(qty.to_string()),
+            ],
+        )
+        .await
+        .expect("A4 夹具：采购明细");
+        (order_id, item_id)
+    }
+
+    /// 从采购单生成收货单的请求（`supplier` = `None` 时证明服务端派生）。
+    fn a4_sourced_req(
+        order_id: Uuid,
+        item_id: Uuid,
+        qty: &str,
+        supplier: Option<&str>,
+    ) -> CreateStockInReq {
+        let mut one = line(MATERIAL_A, qty, "2", "0");
+        one.purchase_order_item_id = Some(item_id.to_string());
+        CreateStockInReq {
+            source_order_id: Some(order_id.to_string()),
+            supplier_id: supplier.map(str::to_string),
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            items: vec![one],
+            ..Default::default()
+        }
+    }
+
+    /// 采购单当前状态（A4 用例读回写结果用）。
+    async fn a4_po_status(order_id: Uuid) -> String {
+        db().scalar_with_params(
+            "SELECT status::text FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .expect("查采购单状态")
+    }
+
+    /// ① + ⑥ + ⑨：有源单 → 创建成功，供应商**从采购单派生**（请求里根本没给），
+    /// 且明细 `source_item_id` 是从采购单带出的。
+    #[tokio::test]
+    async fn a4_01_purchase_with_source_derives_supplier() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+
+        let id = create_stock_in(&a4_sourced_req(order_id, item_id, "4", None), None)
+            .await
+            .unwrap_or_else(|err| panic!("有源单应当建得出来：{} {}", err.code, err.msg));
+
+        let row = stockin_model::find_stock_in(id)
+            .await
+            .unwrap()
+            .expect("单头");
+        assert_eq!(
+            row.supplier_id,
+            Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()),
+            "供应商必须从采购单派生（请求里没传 supplier_id）"
+        );
+        assert_eq!(row.source_order_id, Some(order_id), "主关联 = 采购单");
+        assert!(!row.is_sourceless, "有源单不能被打成无源");
+
+        let items = stockin_model::items_of(id).await.unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(
+            items[0].source_item_id,
+            Some(item_id),
+            "明细的来源行必须是从采购单带出的 source_item_id（只绑上一环）"
+        );
+        assert_eq!(items[0].qty, dec("4"));
+    }
+
+    /// ②：PURCHASE 型却没绑采购单、也没声明无源 → 400 + 66027。
+    ///
+    /// 这条是 AP-4 的机械保障：入库绑的是**采购单**，不是供应商 ——
+    /// 客户端再也不能「填个供应商就建单」。
+    #[tokio::test]
+    async fn a4_02_purchase_without_source_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let payload = CreateStockInReq {
+            supplier_id: Some(SUPPLIER.to_string()),
+            is_sourceless: None,
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            items: vec![line(MATERIAL_A, "1", "2", "0")],
+            ..Default::default()
+        };
+        let err = create_stock_in(&payload, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_SOURCE_REQUIRED);
+        assert!(
+            err.msg.contains("来源采购单") && err.msg.contains("is_sourceless"),
+            "文案要说清「要么绑采购单、要么显式声明无源」：{}",
+            err.msg
+        );
+    }
+
+    /// ③：来源采购单不存在 / 已软删 → 400（66002 引用缺失）。
+    #[tokio::test]
+    async fn a4_03_source_order_missing_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        db().execute_with_params(
+            "UPDATE biz_purchase_order SET deleted_at = now() WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .expect("软删采购单");
+
+        let err = create_stock_in(&a4_sourced_req(order_id, item_id, "1", None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING);
+        assert!(err.msg.contains("采购单不存在或已删除"), "{}", err.msg);
+    }
+
+    /// ④：采购单状态不允许收货（DRAFT / CANCELLED / CLOSED）→ 400。
+    ///
+    /// ⚠️ 与卡面的**一处口径差异**（已写进完成说明）：卡面写「状态允许收货
+    /// （APPROVED / PARTIAL_RECEIVED）」，本仓 `purchase_receivable` 的白名单是
+    /// `SUBMITTED | APPROVED | PARTIAL_RECEIVED`（D4 定稿；ERP-B2 的内控开关默认关，
+    /// SUBMITTED 是「还没走审批」的常态）。把 SUBMITTED 判死会让「建单 → 收货」这条主链路
+    /// 在默认配置下直接断掉，所以本卡**保留** SUBMITTED 可收，只把终态 / 草稿态判死。
+    #[tokio::test]
+    async fn a4_04_source_order_not_receivable_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        for status in ["DRAFT", "CANCELLED", "CLOSED"] {
+            let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", status).await;
+            let err = create_stock_in(&a4_sourced_req(order_id, item_id, "1", None), None)
+                .await
+                .err()
+                .unwrap_or_else(|| panic!("采购单状态 {status} 不允许收货，却建单成功了"));
+            assert_eq!(err.status, 400, "{}", err.msg);
+            assert!(
+                err.msg.contains("不能收货"),
+                "文案要说清「这张采购单现在不能收货」：{}",
+                err.msg
+            );
+        }
+    }
+
+    /// ⑤：客户端传的供应商 ≠ 采购单供应商 → 400 + 66028（**不静默覆盖**）。
+    /// 传相同的值 → 幂等放行（不是错误）。
+    #[tokio::test]
+    async fn a4_05_client_supplier_mismatch_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+
+        let err = create_stock_in(
+            &a4_sourced_req(order_id, item_id, "1", Some(SUPPLIER)),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
+        assert!(
+            err.msg.contains("由采购单带出") && err.msg.contains("不允许手工填写"),
+            "文案要说清「从采购单带出、别手填」：{}",
+            err.msg
+        );
+
+        // 传对（与采购单一致）→ 幂等放行，落库仍是采购单那边的值
+        let id = create_stock_in(
+            &a4_sourced_req(order_id, item_id, "1", Some(A4_SUPPLIER_B)),
+            None,
+        )
+        .await
+        .unwrap_or_else(|err| panic!("传对供应商不该报错：{} {}", err.code, err.msg));
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert_eq!(
+            row.supplier_id,
+            Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap())
+        );
+    }
+
+    /// ⑦ + ⑧：无源单据必须**显式**打标记 + 写原因；有源单不许标无源。
+    #[tokio::test]
+    async fn a4_06_sourceless_requires_flag_and_reason() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        // ① 无源 + 没有标记 → 400（走的是「必须绑采购单」那条）
+        let no_flag = CreateStockInReq {
+            supplier_id: Some(SUPPLIER.to_string()),
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            items: vec![line(MATERIAL_A, "1", "2", "0")],
+            ..Default::default()
+        };
+        let err = create_stock_in(&no_flag, None).await.unwrap_err();
+        assert_eq!(err.code, error_code::ERP_SI_SOURCE_REQUIRED, "{}", err.msg);
+
+        // ② 无源 + 有标记但没写原因 → 400（AP-5：无源要说清「哪来的」）
+        let no_reason = CreateStockInReq {
+            supplier_id: Some(SUPPLIER.to_string()),
+            is_sourceless: Some(true),
+            warehouse_id: Some(WAREHOUSE.to_string()),
+            items: vec![line(MATERIAL_A, "1", "2", "0")],
+            ..Default::default()
+        };
+        let err = create_stock_in(&no_reason, None).await.unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_SOURCELESS_CONFLICT);
+        assert!(err.msg.contains("remark"), "{}", err.msg);
+
+        // ③ 无源 + 标记 + 原因 → 成功，落库 is_sourceless = true
+        let ok = CreateStockInReq {
+            remark: Some("期初补录：2026-10 前的手工库存".to_string()),
+            ..no_reason
+        };
+        let id = create_stock_in(&ok, None)
+            .await
+            .unwrap_or_else(|err| panic!("无源单应当建得出来：{} {}", err.code, err.msg));
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert!(row.is_sourceless, "无源标记必须落库");
+        assert_eq!(row.source_order_id, None);
+        assert_eq!(row.supplier_id, Some(Uuid::parse_str(SUPPLIER).unwrap()));
+
+        // ④ 有源单却声明无源 → 以**来源单为准**归一化（不拒单、也不静默改供应商）：
+        //    标记本来就等价于「没有来源单」，多带的 true 是冗余而非谎言，落库仍是
+        //    is_sourceless = false + 供应商来自采购单。这条把「归一化」钉成显式行为，
+        //    免得将来有人把它改成「静默信任客户端的标记」。
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let mut mixed = a4_sourced_req(order_id, item_id, "1", None);
+        mixed.is_sourceless = Some(true);
+        mixed.remark = Some("自相矛盾的请求".to_string());
+        let id = create_stock_in(&mixed, None)
+            .await
+            .unwrap_or_else(|err| panic!("有源单多带无源标记不该拒单：{} {}", err.code, err.msg));
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert!(!row.is_sourceless, "有源单落库必须是无源 = false");
+        assert_eq!(
+            row.supplier_id,
+            Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()),
+            "供应商仍取自采购单"
+        );
+    }
+
+    /// ⑦ + ⑧（DB 层）：非 PURCHASE 型入库单带着供应商 → 撞 `ck_biz_si_supplier_scope`；
+    /// 无源却不打标记 → 撞 `ck_biz_si_sourceless_pair`。
+    ///
+    /// 为什么用裸 SQL 而不是 DTO：`create` 路径把 `in_type` 硬编码成 `'PURCHASE'`，
+    /// 接口层根本造不出 `RETURN` / `OTHER`（A4 不扩枚举，设计 §4.4 要求「未来新增枚举值」
+    /// 而不是放宽现有约束）。这两条约束必须由 DB 兜住，才挡得住绕过接口的写入。
+    #[tokio::test]
+    async fn a4_07_non_purchase_with_supplier_db_rejects() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let insert = |in_type: &'static str, sourceless: bool, with_supplier: bool| {
+            let supplier = if with_supplier {
+                format!("'{SUPPLIER}'::uuid")
+            } else {
+                "NULL".to_string()
+            };
+            format!(
+                "INSERT INTO biz_stock_in (id, in_no, in_type, supplier_id, warehouse_id, in_date, \
+                     status, total_qty, total_amount, total_tax, total_with_tax, is_sourceless) \
+                 VALUES (gen_random_uuid(), 'B1-A4-NEG-{in_type}-{sourceless}-{with_supplier}', \
+                     '{in_type}', {supplier}, '{WAREHOUSE}'::uuid, CURRENT_DATE, 'DRAFT', \
+                     0, 0, 0, 0, {sourceless})"
+            )
+        };
+
+        // ① 非 PURCHASE 带供应商 → 拒（A3 的 ck_biz_si_supplier_scope）
+        let err = db()
+            .execute_with_params(&insert("RETURN", true, true), vec![])
+            .await
+            .expect_err("非采购入库带供应商必须被 DB 拒");
+        assert!(
+            format!("{err}").contains("ck_biz_si_supplier_scope"),
+            "应当撞 ck_biz_si_supplier_scope：{err}"
+        );
+
+        // ② 无源却不打标记（任何 in_type）→ 拒（本卡的 ck_biz_si_sourceless_pair）
+        let err = db()
+            .execute_with_params(&insert("OTHER", false, false), vec![])
+            .await
+            .expect_err("无源单据不打标记必须被 DB 拒");
+        assert!(
+            format!("{err}").contains("ck_biz_si_sourceless_pair"),
+            "应当撞 ck_biz_si_sourceless_pair：{err}"
+        );
+
+        // ③ 一行都不许落库
+        let left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM biz_stock_in WHERE in_no LIKE 'B1-A4-NEG-%'",
+                vec![],
+            )
+            .await
+            .unwrap();
+        assert_eq!(left, 0, "反例一行都不该落库");
+    }
+
+    /// ⑩：超收（本次数量 > 采购单待收）→ 400（D4 的老校验还在）。
+    #[tokio::test]
+    async fn a4_08_over_receipt_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "5", "SUBMITTED").await;
+
+        // ① 一次就要 6 件（采购单只有 5）→ 400
+        let err = create_stock_in(&a4_sourced_req(order_id, item_id, "6", None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(
+            err.msg.contains("未收") && err.msg.contains("件"),
+            "文案要说清本次 / 待收 / 已收 / 订单：{}",
+            err.msg
+        );
+
+        // ② 先收 3 并**过账**（待收 5 → 2），再要 3 → 400（待收是按已过账数量算的）
+        let first = create_stock_in(&a4_sourced_req(order_id, item_id, "3", None), None)
+            .await
+            .expect("收 3 件合法");
+        change_stock_in_status(first, &post_req(), None)
+            .await
+            .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+        let err = create_stock_in(&a4_sourced_req(order_id, item_id, "3", None), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert!(
+            err.msg.contains("未收"),
+            "过账后待收只剩 2 件，再收 3 件必须被拒：{}",
+            err.msg
+        );
+    }
+
+    /// ⑪：列表下发 `source_order_no` 快照 + `supplier_name`（读主数据）+ `is_sourceless`；
+    /// 详情另外下发**一跳带出**的合同号（不 JOIN 合同表）。
+    #[tokio::test]
+    async fn a4_09_list_and_detail_expose_snapshot_columns() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+            .await
+            .expect("建单");
+        let po_no = stockin_model::order_no_of(order_id)
+            .await
+            .unwrap()
+            .expect("采购单号");
+
+        let page = stock_in_page(Query(StockInPageQuery {
+            supplier_id: Some(A4_SUPPLIER_B.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        }))
+        .await
+        .expect("列表应能查");
+        let list = page.data.expect("有数据").list;
+        assert_eq!(list.len(), 1, "本供应商下就这一张单");
+        assert_eq!(
+            list[0].source_order_no.as_deref(),
+            Some(po_no.as_str()),
+            "列表必须下发来源采购单号快照"
+        );
+        assert_eq!(
+            list[0].supplier_name.as_deref(),
+            Some("A4 二号供应商"),
+            "供应商名读 supplier_id 快照关联主数据（不是实时 JOIN 采购单）"
+        );
+        assert!(!list[0].is_sourceless);
+
+        let detail = detail_of(id).await.expect("详情");
+        assert_eq!(
+            detail.header.supplier_name.as_deref(),
+            Some("A4 二号供应商")
+        );
+        assert_eq!(detail.purchase_order_no.as_deref(), Some(po_no.as_str()));
+        // 这张采购单是 SPOT（没挂合同）→ 一跳带出为空，且**绝不**去 JOIN biz_contract
+        assert_eq!(detail.contract_no, None);
+    }
+
+    /// 过账前复校（设计 §7.2）：建单后有人直接改库把供应商换掉 → 过账 400，
+    /// 库存一分没动（应付单取的就是单据头供应商，放过就是记错账）。
+    #[tokio::test]
+    async fn a4_10_posting_rechecks_supplier() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+            .await
+            .expect("建单");
+
+        // 模拟「绕过接口直接改库」
+        db().execute_with_params(
+            "UPDATE biz_stock_in SET supplier_id = ?::uuid WHERE id = ?::uuid",
+            vec![
+                Value::from(&Uuid::parse_str(SUPPLIER).unwrap()),
+                Value::from(&id),
+            ],
+        )
+        .await
+        .expect("模拟改库");
+
+        let err = change_stock_in_status(id, &post_req(), None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
+        assert!(err.msg.contains("直接改库"), "{}", err.msg);
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("0"), dec("0"), dec("0")),
+            "复校拦下后库存必须一分没动"
+        );
+    }
+
+    /// 全链路（卡面 §5）：有源建单 → 过账（库存 + 流水 + 凭证 + 采购回写 + 状态推进）→
+    /// 作废（账与采购数量全部回基线）。这条就是 A4 最怕被改坏的链。
+    #[tokio::test]
+    async fn a4_11_post_and_cancel_keep_purchase_chain() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let id = create_stock_in(&a4_sourced_req(order_id, item_id, "6", None), None)
+            .await
+            .expect("建单");
+
+        change_stock_in_status(id, &post_req(), None)
+            .await
+            .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+
+        // ① 库存增加
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("6"), dec("12"), dec("2.000000")),
+            "过账后库存 6 件 / 12 元 / 单价 2"
+        );
+        // ② 流水 1 条（PURCHASE_IN）
+        assert_eq!(txn_count(id, "PURCHASE_IN").await, 1, "过账写一条入库流水");
+        // ③ 凭证生成（1 张，非红冲）
+        assert_eq!(voucher_count(id, None).await, 1, "过账生成 1 张凭证");
+        assert_eq!(voucher_count(id, Some(1)).await, 0, "此刻不该有红冲凭证");
+        // ④ 采购明细已收数量 + 采购单状态推进（部分收货）
+        assert_eq!(
+            db().scalar_with_params::<Decimal>(
+                "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
+                vec![Value::from(&item_id)],
+            )
+            .await
+            .unwrap(),
+            dec("6"),
+            "过账必须回写采购明细 received_qty"
+        );
+        assert_eq!(a4_po_status(order_id).await, "PARTIAL_RECEIVED");
+
+        // 作废 → 账与采购数量全部回基线（ERP 铁律）
+        cancel(id, "A4 全链路：作废回基线").await;
+        assert_eq!(
+            inventory_of(MATERIAL_A).await,
+            (dec("0"), dec("0"), dec("0")),
+            "作废后库存必须回基线"
+        );
+        assert_eq!(
+            db().scalar_with_params::<Decimal>(
+                "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
+                vec![Value::from(&item_id)],
+            )
+            .await
+            .unwrap(),
+            dec("0"),
+            "作废必须把采购明细的已收数量退回去"
+        );
+        assert_eq!(
+            a4_po_status(order_id).await,
+            "PARTIAL_RECEIVED",
+            "退回后采购单回到「部分收货」（RECEIVED → PARTIAL_RECEIVED 是 D4 的合法边）"
+        );
+    }
+
+    /// 复制为新单：`source_order_id` 被清空 ⇒ 必须打成无源，并在备注里留「复制自 IN-xxx」。
+    #[tokio::test]
+    async fn a4_12_copy_marks_sourceless() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let origin = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+            .await
+            .expect("建单");
+        let origin_no = stockin_model::find_stock_in(origin)
+            .await
+            .unwrap()
+            .unwrap()
+            .in_no;
+
+        let copy_id = copy_stock_in(origin, &create_only()).await.expect("复制");
+        let copy = stockin_model::find_stock_in(copy_id)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(copy.is_sourceless, "复制单没有来源单 ⇒ 必须是无源单");
+        assert_eq!(copy.source_order_id, None);
+        assert_eq!(
+            copy.supplier_id,
+            Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap())
+        );
+        assert!(
+            copy.remark
+                .as_deref()
+                .unwrap_or_default()
+                .contains(&origin_no),
+            "备注要留「复制自 {origin_no}」：{:?}",
+            copy.remark
+        );
+    }
+
+    /// 草稿改单也不能把供应商单独换成别的（有源单只能跟着采购单走）。
+    #[tokio::test]
+    async fn a4_13_draft_update_cannot_hand_pick_supplier() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let (order_id, item_id) = a4_seed_po(A4_SUPPLIER_B, "10", "SUBMITTED").await;
+        let id = create_stock_in(&a4_sourced_req(order_id, item_id, "2", None), None)
+            .await
+            .expect("建单");
+
+        let err = update_stock_in(
+            id,
+            &a4_sourced_req(order_id, item_id, "2", Some(SUPPLIER)),
+            None,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_SI_SUPPLIER_MISMATCH);
+        let row = stockin_model::find_stock_in(id).await.unwrap().unwrap();
+        assert_eq!(
+            row.supplier_id,
+            Some(Uuid::parse_str(A4_SUPPLIER_B).unwrap()),
+            "被拒之后库里的供应商一个字节都不许动"
+        );
     }
 
     // ---------- ⑬ 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------

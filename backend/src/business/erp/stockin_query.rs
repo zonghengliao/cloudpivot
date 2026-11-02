@@ -165,6 +165,25 @@ pub async fn order_no_of(order_id: Uuid) -> DbResult<Option<String>> {
     }
 }
 
+/// 单查来源采购单的合同号快照（详情页「PO-xxx → HT-xxx」**一跳**带出用）。
+///
+/// 只读 `biz_purchase_order.contract_no_snapshot`（A3 落库的快照列），
+/// **不 JOIN `biz_contract`**：合同在两环之上（设计 §6.4 / AP-6），入库单里也没有
+/// `contract_id` 列 —— 显示可以，落库/判定不行。
+pub async fn contract_no_of(order_id: Uuid) -> DbResult<Option<String>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT contract_no_snapshot FROM biz_purchase_order \
+              WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&order_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(row.get_typed("contract_no_snapshot")?),
+    }
+}
+
 /// 批量取采购单号：`source_order_id → order_no`（列表补 `source_order_no` 用，**一次**查询）。
 ///
 /// 列表一页 20 条，逐条查会是 20 次往返；这里一次 `IN (...)` 拿完。

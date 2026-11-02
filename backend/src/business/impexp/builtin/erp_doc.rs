@@ -678,9 +678,9 @@ mod tests {
             ),
             format!(
                 "INSERT INTO biz_stock_in (id, in_no, in_type, supplier_id, warehouse_id, in_date, status, \
-                 total_qty, total_amount, total_tax, total_with_tax, remark) \
+                 total_qty, total_amount, total_tax, total_with_tax, remark, is_sourceless) \
                  VALUES ('{doc}', 'IN-D7EXP-000001', 'PURCHASE', '{supplier}', '{warehouse}', '2026-03-01', \
-                 'DRAFT', 2.0000, 20.0000, 2.6000, 22.6000, 'D7 导出测试') ON CONFLICT DO NOTHING"
+                 'DRAFT', 2.0000, 20.0000, 2.6000, 22.6000, 'D7 导出测试', true) ON CONFLICT DO NOTHING"
             ),
         ];
         for sql in fixtures {

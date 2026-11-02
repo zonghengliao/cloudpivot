@@ -1177,6 +1177,30 @@ pub const ERP_PO_SUPPLIER_MISMATCH: i32 = 66025;
 /// 两个可选项，而不是「参数非法」这种没有出路的文案。
 pub const ERP_PO_TYPE_INVALID: i32 = 66026;
 
+// ---------- A4 入库单 ↔ 采购单勾稽（入库单侧的业务码，接在采购单侧 66026 之后） ----------
+//
+// 为什么入库单侧也要独立码：前端对「这单必须绑采购单」「供应商填错了」「别乱标无源」
+// 三种情形的引导完全不同（去选采购单 / 清空供应商留空带出 / 取消无源标记），
+// 混成 `PARAM_INVALID` 只能靠匹配中文串。码值只增不改（自检见 `erp_error_codes_are_stable`）。
+
+/// 采购入库却没绑来源采购单，且没有显式声明「无源单据」（HTTP 400）。
+///
+/// AP-4 / AP-5：入库绑的是**采购单**，不是供应商；无源（期初 / 复制 / 其他）是 E4 例外，
+/// 必须显式 `is_sourceless=true` 并写明原因，否则「无源」既不可枚举也进不了巡检。
+pub const ERP_SI_SOURCE_REQUIRED: i32 = 66027;
+
+/// 客户端传的 `supplier_id` 与来源采购单的供应商不一致（HTTP 400）。
+///
+/// 设计 §6.2 的「唯一取值点」：入库单供应商**从采购单派生**，手填值只允许与之一致（幂等），
+/// 不一致必须报错，不能悄悄按采购单覆盖（那会让「带错单」无声无息）。
+pub const ERP_SI_SUPPLIER_MISMATCH: i32 = 66028;
+
+/// 无源标记与来源单自相矛盾 / 无源单没写原因（HTTP 400）。
+///
+/// 三种情形共用：① 有来源单却 `is_sourceless=true`；② 无源单没填 `remark` 说明来源；
+/// ③ 想在有源单上改供应商 / 来源单（那一步走 409 `RESOURCE_CONFLICT`，不在这里）。
+pub const ERP_SI_SOURCELESS_CONFLICT: i32 = 66029;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1216,6 +1240,10 @@ mod tests {
             (ERP_PO_CONTRACT_UNEXPECTED, 66024),
             (ERP_PO_SUPPLIER_MISMATCH, 66025),
             (ERP_PO_TYPE_INVALID, 66026),
+            // A4 入库单 ↔ 采购单勾稽（66027–66029）
+            (ERP_SI_SOURCE_REQUIRED, 66027),
+            (ERP_SI_SUPPLIER_MISMATCH, 66028),
+            (ERP_SI_SOURCELESS_CONFLICT, 66029),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

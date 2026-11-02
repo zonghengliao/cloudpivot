@@ -300,10 +300,10 @@ mod tests {
                  5.0000, 10.000000, 13.0000, 50.0000, 6.5000, 56.5000)",
         // 收货入库单
         "INSERT INTO biz_stock_in (id, in_no, in_type, supplier_id, warehouse_id, in_date, status,
-                                   total_qty, total_amount, total_tax, total_with_tax)
+                                   total_qty, total_amount, total_tax, total_with_tax, is_sourceless)
          VALUES ('d2a30001-0000-4000-8000-000000000031', 'P1FIX-IN-1', 'PURCHASE',
                  'd2a30001-0000-4000-8000-000000000001', 'd2a30001-0000-4000-8000-000000000002',
-                 CURRENT_DATE, 'DRAFT', 100.0000, 200.0000, 26.0000, 226.0000)
+                 CURRENT_DATE, 'DRAFT', 100.0000, 200.0000, 26.0000, 226.0000, true)
          ON CONFLICT (id) DO NOTHING",
         "INSERT INTO biz_stock_in_item (stock_in_id, line_no, material_id, unit_id, qty, price,
                                         tax_rate, amount, tax_amount, with_tax_amount)

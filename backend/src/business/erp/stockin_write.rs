@@ -83,10 +83,10 @@ pub async fn create(
     ex.exec_sql(
         format!(
             "INSERT INTO {TABLE} \
-                (id, in_no, in_type, source_order_id, supplier_id, warehouse_id, in_date, status, \
+                (id, in_no, in_type, source_order_id, supplier_id, is_sourceless, warehouse_id, in_date, status, \
                  total_qty, total_amount, total_tax, total_with_tax, invoice_received, remark, \
                  created_at, updated_at, create_by, update_by) \
-             VALUES (?, ?, '{IN_TYPE_PURCHASE}', NULLIF(?::text,'')::uuid, ?::uuid, ?::uuid, \
+             VALUES (?, ?, '{IN_TYPE_PURCHASE}', NULLIF(?::text,'')::uuid, ?::uuid, ?, ?::uuid, \
                  NULLIF(?::text,'')::date, '{STATUS_DRAFT}', \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
@@ -101,6 +101,7 @@ pub async fn create(
                     .unwrap_or_default(),
             ),
             Value::from(&new.supplier_id),
+            Value::from(new.is_sourceless),
             Value::from(&new.warehouse_id),
             Value::Text(new.in_date.to_string()),
             Value::Text(totals.qty.round_dp(4).to_string()),
@@ -149,6 +150,7 @@ pub async fn update(
             format!(
                 "UPDATE {TABLE} \
                     SET source_order_id = NULLIF(?::text,'')::uuid, supplier_id = ?::uuid, \
+                        is_sourceless = ?, \
                         warehouse_id = ?::uuid, in_date = NULLIF(?::text,'')::date, \
                         total_qty = NULLIF(?::text,'')::numeric, \
                         total_amount = NULLIF(?::text,'')::numeric, \
@@ -165,6 +167,7 @@ pub async fn update(
                         .unwrap_or_default(),
                 ),
                 Value::from(&new.supplier_id),
+                Value::from(new.is_sourceless),
                 Value::from(&new.warehouse_id),
                 Value::Text(new.in_date.to_string()),
                 Value::Text(totals.qty.round_dp(4).to_string()),

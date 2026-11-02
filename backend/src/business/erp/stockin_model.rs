@@ -6,7 +6,7 @@
 //!
 //! ```text
 //! biz_stock_in       id, in_no, in_type(PURCHASE/RETURN/OTHER), source_order_id, supplier_id,
-//!                    warehouse_id(NOT NULL), in_date, status(DRAFT/POSTED/CANCELLED),
+//!                    is_sourceless(A4), warehouse_id(NOT NULL), in_date, status(DRAFT/POSTED/CANCELLED),
 //!                    currency_code(CHAR(3)), total_qty, total_amount, total_tax, total_with_tax,
 //!                    invoice_received, voucher_id, payable_id, remark, posted_at, posted_by,
 //!                    cancelled_at, cancelled_by, cancel_reason,
@@ -19,17 +19,20 @@
 //! biz_inventory_txn  22 列（qty > 0 禁负数、txn_type 只认 IN/OUT、period_code NOT NULL）
 //! ```
 //!
-//! # 卡面没写、但库里有约束的六处（照卡面写必然挂）
+//! # 卡面没写、但库里有约束的八处（照卡面写必然挂）
 //!
 //! 1. **明细 `unit_id` 是 `NOT NULL`**：卡面 body 里没有这个字段 → 由物料的基础单位带出，不让客户端传。
 //! 2. **`biz_stock_in_item` 的 `ck_biz_si_item_tax` 是精确恒等**（`with_tax_amount = amount + tax_amount`），
 //!    回写的三金额必须逐行算好，不能靠库里补。
 //! 3. **`ck_biz_si_item_qty CHECK (qty > 0)`**：0 数量的行插不进库 → 建单即 400（与 P2-A2 同口径）。
 //! 4. **`ck_biz_si_supplier`**：`in_type='PURCHASE'` 时 `supplier_id` 必填（本卡只产生 `PURCHASE`）。
-//! 5. **`biz_inventory` 的唯一键是表达式索引** `uk_biz_inv_mat_wh_loc
+//! 5. **A4 的 `ck_biz_si_sourceless_pair`**：`is_sourceless = (source_order_id IS NULL)`
+//!    —— 无源单必须显式打标记，有源单恒为 `false`（「无源」不可靠空值隐式表达，AP-5）。
+//! 6. **A4 的 `ck_biz_si_supplier_scope`**（A3 落）：非 `PURCHASE` 入库不许带供应商。
+//! 7. **`biz_inventory` 的唯一键是表达式索引** `uk_biz_inv_mat_wh_loc
 //!    (material_id, warehouse_id, COALESCE(location_id, '000…0'::uuid))` → 所有 upsert 的
 //!    `ON CONFLICT` 目标必须**写成同一个表达式**，否则真库 42P10（W3a 实测）。
-//! 6. **`biz_inventory_txn` 有 `period_code`（`yyyy-MM`）与 `after_*` 三列**：卡面只要求 `before_*` 快照，
+//! 8. **`biz_inventory_txn` 有 `period_code`（`yyyy-MM`）与 `after_*` 三列**：卡面只要求 `before_*` 快照，
 //!    但列是 `NOT NULL`，`after_*` 用 upsert 回读的真实落库值填（不是「before ± 数量」算出来的）。
 //!
 //! # 过账口径（PRD §3.2.3 / §3.2.6，本卡核心）

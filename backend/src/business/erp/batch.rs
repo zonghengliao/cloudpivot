@@ -599,6 +599,8 @@ mod tests {
             supplier_id: Uuid::parse_str(SUPPLIER).expect("supplier"),
             warehouse_id: Uuid::parse_str(WAREHOUSE).expect("warehouse"),
             source_order_id: None,
+            // A4：无源单必须显式打标记（库约束 ck_biz_si_sourceless_pair）
+            is_sourceless: true,
             in_date: NaiveDate::from_ymd_opt(2026, 3, 15).expect("date"),
             invoice_received: true,
             remark: Some("D7 批量测试"),

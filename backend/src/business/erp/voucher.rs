@@ -1851,10 +1851,12 @@ mod tests {
             source_order_id: None,
             purchase_order_id: None,
             supplier_id: Some(SUPPLIER.to_string()),
+            // A4：没有来源采购单 ⇒ 必须显式声明「无源单据」+ 写明来源（AP-5）
+            is_sourceless: Some(true),
             warehouse_id: Some(WAREHOUSE.to_string()),
             in_date: None,
             invoice_received: None,
-            remark: None,
+            remark: Some("A4 夹具：无源入库（凭证链路用例）".to_string()),
             items,
             total_qty: None,
             total_amount: None,

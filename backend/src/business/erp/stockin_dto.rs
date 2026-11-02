@@ -24,6 +24,9 @@
 //! | `serial_ids` 非空时**条数必须 = qty**（且 qty 为整数） | 400 | 卡面 ⑩ |
 //! | `serial_ids` 单行内不得重复 / 不得空白 / ≤ 64 字 | 400 | `biz_material_serial.serial_no` 唯一键 |
 //! | `source_order_id` 有值时，每行必须带 `purchase_order_item_id` | 400 | 过账要回写该采购行的 `received_qty`（否则超收无从判定） |
+//! | **有源单的 `supplier_id` 必须等于采购单的**（可省略，服务端派生） | 400 `66028` | A4 / 设计 §6.2「唯一取值点」：入库单绑采购单，不绑供应商 |
+//! | **PURCHASE 无来源单且未声明 `is_sourceless=true`** | 400 `66027` | A4 / AP-4：无源属 E4 例外，必须显式 |
+//! | **无源单缺 `remark`（来源说明）** | 400 `66029` | A4 / AP-5：无源要可枚举、能进巡检，也要能被人看懂 |
 //!
 //! # 权限码（与 `backend/migrations/business/V0147__erp_stock_in_permissions.up.sql` 逐字一致）
 //!
@@ -93,8 +96,19 @@ pub struct CreateStockInReq {
     /// 的调用方按业务语义叫它 `purchase_order_id`。两个都给时**必须相等**，
     /// 不等直接 400（静默挑一个会让「带错单」这种事故无声无息）。
     pub purchase_order_id: Option<String>,
-    /// 供应商（必填：`in_type='PURCHASE'` 时库约束要求）。
+    /// 供应商（**快照，不由用户决定**）。
+    ///
+    /// * 有来源采购单（`source_order_id` 非空）：**可以不传** —— 服务端从
+    ///   `biz_purchase_order.supplier_id` 派生；传了且与采购单不一致 → 400
+    ///   （不静默覆盖：静默改值会让「带错单」这类事故无声无息）；
+    /// * 无来源采购单（期初 / 复制 / 其他）：**必填**，且必须同时 `is_sourceless = true`。
     pub supplier_id: Option<String>,
+    /// 无源单据标记（AP-5：期初 / 复制 / 其他）。
+    ///
+    /// 入库必须绑定采购单；确实没有来源单的场景（期初余额、复制为新单、其他）**必须显式声明
+    /// 本字段为 `true`**，并填 `remark` 说明原因 —— 不能靠「`source_order_id` 为空」隐式表达，
+    /// 否则「无源」既不可枚举也进不了巡检。有来源单时给 `true` → 400。
+    pub is_sourceless: Option<bool>,
     /// 收货仓库（必填，列 `NOT NULL`）。
     pub warehouse_id: Option<String>,
     /// 入库日期（缺省 = 今天，北京时间）。
@@ -274,8 +288,9 @@ pub struct PreparedLine {
 pub struct PreparedStockIn {
     /// 来源采购单 id 原文。
     pub source_order_id_raw: Option<String>,
-    /// 供应商 id 原文。
-    pub supplier_id_raw: String,
+    /// 供应商 id 原文（**可空**：有源单时由采购单派生，见
+    /// [`crate::business::erp::stockin_handler`] 的 `resolve_parent_pointer`）。
+    pub supplier_id_raw: Option<String>,
     /// 仓库 id 原文。
     pub warehouse_id_raw: String,
     /// 入库日期。
@@ -333,7 +348,14 @@ impl CreateStockInReq {
         &self,
         allow_empty_items: bool,
     ) -> std::result::Result<PreparedStockIn, ApiError> {
-        let supplier_id_raw = require_text(self.supplier_id.as_deref(), "supplier_id")?;
+        // 供应商不再在这里强制：有源单由采购单派生（`resolve_parent_pointer`），
+        // 无源单在同一个函数里强制 + 要求显式无源标记。DTO 层只负责「原样带出」。
+        let supplier_id_raw = self
+            .supplier_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
         let warehouse_id_raw = require_text(self.warehouse_id.as_deref(), "warehouse_id")?;
 
         let in_date = self.in_date.unwrap_or_else(today_cst);
@@ -569,8 +591,14 @@ pub struct StockInRes {
     /// 列表与详情都要显示「来源采购单」，前端不该为了一个单号再发 N 次请求：
     /// 列表走一次 `IN (...)` 批量补齐（`stockin_model::order_nos_of`），详情单查一次。
     pub source_order_no: Option<String>,
-    /// 供应商。
+    /// 供应商（快照）。
     pub supplier_id: Option<String>,
+    /// 供应商名称（读主数据：`biz_supplier` 按 `supplier_id` 快照列取名，**不 JOIN 采购单**）。
+    ///
+    /// R3-a：列表口径要冻结 —— 显示的是「这次收货时的供应商」，不是「采购单现在填的供应商」。
+    pub supplier_name: Option<String>,
+    /// 无源单据标记（`true` = 期初 / 复制 / 其他，没有来源采购单）。
+    pub is_sourceless: bool,
     /// 收货仓库。
     pub warehouse_id: String,
     /// 入库日期。
@@ -626,6 +654,8 @@ impl From<&StockInRow> for StockInRes {
             source_order_id: row.source_order_id.map(|v| v.to_string()),
             source_order_no: None,
             supplier_id: row.supplier_id.map(|v| v.to_string()),
+            supplier_name: None,
+            is_sourceless: row.is_sourceless,
             warehouse_id: row.warehouse_id.to_string(),
             in_date: row.in_date,
             status: row.status.clone(),
@@ -728,6 +758,11 @@ pub struct StockInDetailRes {
     pub purchase_order_id: Option<String>,
     /// 来源采购单号（前端直接显示「来源采购单：PO-xxx」并可点回采购单）。
     pub purchase_order_no: Option<String>,
+    /// 来源采购单的合同号（**一跳带出**：`source_order_id → biz_purchase_order.contract_no_snapshot`）。
+    ///
+    /// 注意：入库单**没有** `contract_id` 列（设计 §6.4），合同在两环之上，只在详情页显示；
+    /// 也不 JOIN `biz_contract`（R2.1 推论 2 / AP-6），读的是采购单上冻住的快照。
+    pub contract_no: Option<String>,
 }
 
 impl StockInDetailRes {
@@ -739,6 +774,7 @@ impl StockInDetailRes {
             summary: STOCK_IN_SUMMARY_PLACEHOLDER.to_string(),
             purchase_order_id: header.source_order_id.clone(),
             purchase_order_no: header.source_order_no.clone(),
+            contract_no: None,
             header,
         }
     }
