@@ -1,0 +1,767 @@
+// ============================================================================
+// stockin_write.rs —— 写入：建单/改单/软删/过账（库存加法 + 库位账 + 流水 + 应付凭证联动）
+//
+// 由 `stockin_model.rs` 按职责拆出（TD-1 拆分）。**本文件不含任何行为变更**：
+// 所有函数体、SQL、签名与拆分前一致，只是换了落点；公开 API 由 facade
+// `stockin_model.rs` 用 `pub use` 重导出，调用方一行不用改。
+// ============================================================================
+
+use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::rust_decimal::Decimal;
+use nik::prelude::*;
+use nik::uuid::Uuid;
+
+use crate::business::erp::serial_model;
+use crate::business::shared::state_machine;
+
+use super::stockin_base::*;
+
+/// 插入明细（建单 / 改单共用），返回明细 id（按行序）。
+pub(super) async fn insert_items(
+    ex: &impl SqlExecutor,
+    stock_in_id: Uuid,
+    lines: &[NewStockInLine],
+) -> DbResult<Vec<Uuid>> {
+    let mut ids = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        let id = Uuid::now_v7();
+        let cost = line.cost();
+        ex.exec_sql(
+            format!(
+                "INSERT INTO {ITEM_TABLE} \
+                    (id, stock_in_id, line_no, source_item_id, material_id, unit_id, qty, price, \
+                     price_incl, tax_rate, amount, tax_amount, with_tax_amount, cost_price, \
+                     location_id, remark) \
+                 VALUES (?, ?::uuid, ?, NULLIF(?::text,'')::uuid, ?::uuid, ?::uuid, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,''))"
+            ),
+            vec![
+                Value::from(&id),
+                Value::from(&stock_in_id),
+                Value::from(i32::try_from(index + 1).unwrap_or(i32::MAX)),
+                Value::Text(
+                    line.source_item_id
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::from(&line.material_id),
+                Value::from(&line.unit_id),
+                Value::Text(line.qty.round_dp(4).to_string()),
+                Value::Text(line.price.to_string()),
+                Value::Text(line.price_incl.to_string()),
+                Value::Text(line.tax_rate.to_string()),
+                Value::Text(line.amount.round_dp(4).to_string()),
+                Value::Text(line.tax_amount.round_dp(4).to_string()),
+                Value::Text(line.with_tax_amount.round_dp(4).to_string()),
+                Value::Text(cost.unit_cost.to_string()),
+                Value::Text(line.location_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(line.remark.clone().unwrap_or_default()),
+            ],
+        )
+        .await?;
+        ids.push(id);
+    }
+    Ok(ids)
+}
+
+/// 建单（`status = DRAFT`）：**取号 → 单头 → 明细 → 建单日志**，调用方负责事务边界。
+pub async fn create(
+    ex: &impl SqlExecutor,
+    new: &NewStockIn<'_>,
+    lines: &[NewStockInLine],
+    totals: &Totals,
+    operator: state_machine::Operator,
+    now: DateTime<Utc>,
+) -> DbResult<Uuid> {
+    let in_no = next_in_no(ex, now).await?;
+    let id = Uuid::now_v7();
+    let operator_text = Value::Text(operator.id.map(|v| v.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        format!(
+            "INSERT INTO {TABLE} \
+                (id, in_no, in_type, source_order_id, supplier_id, warehouse_id, in_date, status, \
+                 total_qty, total_amount, total_tax, total_with_tax, invoice_received, remark, \
+                 created_at, updated_at, create_by, update_by) \
+             VALUES (?, ?, '{IN_TYPE_PURCHASE}', NULLIF(?::text,'')::uuid, ?::uuid, ?::uuid, \
+                 NULLIF(?::text,'')::date, '{STATUS_DRAFT}', \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
+                 ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+        ),
+        vec![
+            Value::from(&id),
+            Value::Text(in_no.clone()),
+            Value::Text(
+                new.source_order_id
+                    .map(|v| v.to_string())
+                    .unwrap_or_default(),
+            ),
+            Value::from(&new.supplier_id),
+            Value::from(&new.warehouse_id),
+            Value::Text(new.in_date.to_string()),
+            Value::Text(totals.qty.round_dp(4).to_string()),
+            Value::Text(totals.amount.round_dp(4).to_string()),
+            Value::Text(totals.tax.round_dp(4).to_string()),
+            Value::Text(totals.with_tax.round_dp(4).to_string()),
+            Value::from(new.invoice_received),
+            Value::Text(new.remark.unwrap_or_default().to_string()),
+            Value::from(now),
+            Value::from(now),
+            operator_text.clone(),
+            operator_text,
+        ],
+    )
+    .await?;
+    insert_items(ex, id, lines).await?;
+    // P10 铁律 ③：建单留痕（`from_status = NULL → DRAFT`），与建单**同一事务**。
+    // 失败即整单回滚：宁可建不出单，也不要「有单没轨迹」。
+    state_machine::log_created(
+        ex,
+        state_machine::ENTITY_STOCK_IN,
+        id,
+        &in_no,
+        STATUS_DRAFT,
+        operator.clone(),
+        None,
+    )
+    .await
+    .map_err(|error| DbError::InvalidValue(format!("[{}] {}", error.code, error.msg)))?;
+    Ok(id)
+}
+
+/// 改单（**仅 DRAFT 由调用方保证**）：单头整单覆盖 + 明细「删旧插新」。返回 `affected`。
+pub async fn update(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    new: &NewStockIn<'_>,
+    lines: &[NewStockInLine],
+    totals: &Totals,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    let affected = ex
+        .exec_sql(
+            format!(
+                "UPDATE {TABLE} \
+                    SET source_order_id = NULLIF(?::text,'')::uuid, supplier_id = ?::uuid, \
+                        warehouse_id = ?::uuid, in_date = NULLIF(?::text,'')::date, \
+                        total_qty = NULLIF(?::text,'')::numeric, \
+                        total_amount = NULLIF(?::text,'')::numeric, \
+                        total_tax = NULLIF(?::text,'')::numeric, \
+                        total_with_tax = NULLIF(?::text,'')::numeric, invoice_received = ?, \
+                        remark = NULLIF(?::text,''), updated_at = ?, \
+                        update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = '{STATUS_DRAFT}' AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::Text(
+                    new.source_order_id
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
+                Value::from(&new.supplier_id),
+                Value::from(&new.warehouse_id),
+                Value::Text(new.in_date.to_string()),
+                Value::Text(totals.qty.round_dp(4).to_string()),
+                Value::Text(totals.amount.round_dp(4).to_string()),
+                Value::Text(totals.tax.round_dp(4).to_string()),
+                Value::Text(totals.with_tax.round_dp(4).to_string()),
+                Value::from(new.invoice_received),
+                Value::Text(new.remark.unwrap_or_default().to_string()),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+            ],
+        )
+        .await?;
+    if affected == 0 {
+        return Ok(0);
+    }
+    // 明细没有 deleted_at，也不该留历史行：整单重建（行号从 1 连续）
+    ex.exec_sql(
+        format!("DELETE FROM {ITEM_TABLE} WHERE stock_in_id = ?::uuid"),
+        vec![Value::from(&id)],
+    )
+    .await?;
+    insert_items(ex, id, lines).await?;
+    Ok(affected)
+}
+
+/// 只改备注（**入账后唯一允许改的业务列**，卡面 §二 ③ 白名单）。
+///
+/// `remark` 不进任何账务口径（不参与成本、不进凭证），所以 `POSTED` / `RECEIVED` 之后
+/// 仍可补一句「这单是 XX 客户急件」；改它必须走这个函数，**不能**顺手把金额带过去。
+pub async fn update_remark(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    remark: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET remark = NULLIF(?::text,''), updated_at = ?, \
+                update_by = NULLIF(?::text,'')::uuid \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::Text(remark.unwrap_or_default().to_string()),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+/// 状态流转（CAS：`WHERE id = ? AND status = from`），返回 `affected`。
+///
+/// * `DRAFT → POSTED`：写 `posted_at` / `posted_by`。**库存增加不在这里做** ——
+///   由 [`apply_cost`] / [`post_stock_in`] 在同一事务里完成。
+/// * `DRAFT → CANCELLED`：写 `cancelled_at/by/reason`，不动库存（从未加过）。
+/// * `POSTED → CANCELLED`：只改状态 + 原因；库存冲回由调用方（`cancel_in_tx`）在同事务做。
+/// * `POSTED → PENDING_CANCEL`（P16）：写状态 + `cancel_reason`（申请理由）+
+///   `approval_instance_id`；**账一动没动**。
+/// * `PENDING_CANCEL → CANCELLED`（P16）：写 `cancelled_at/by`，保留 `cancel_reason`
+///   （红冲凭证摘要用它），并**清空 `approval_instance_id`**（`ck_biz_si_pending_cancel`
+///   要求非审批中状态不得挂实例）。
+/// * `PENDING_CANCEL → POSTED`（P16 驳回 / 撤回）：状态回滚 + 清空实例与申请理由。
+pub async fn apply_status(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    apply_status_with_instance(ex, id, from, to, reason, operator, None, now).await
+}
+
+/// 同 [`apply_status`]，但能**同时**写 `approval_instance_id`（P16 发起作废审批用）。
+///
+/// 拆成两个入口是因为「写不写实例 id」是两件事：普通流转必须保持 `NULL`
+/// （否则 `ck_biz_si_pending_cancel` 当场 23514），只有发起审批那次才带值。
+#[allow(clippy::too_many_arguments)]
+pub async fn apply_status_with_instance(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    reason: Option<&str>,
+    operator: Option<Uuid>,
+    approval_instance_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    let reason_text = reason.unwrap_or_default().to_string();
+    let (sql, params) = match to {
+        STATUS_POSTED => (
+            format!(
+                "UPDATE {TABLE} \
+                    SET status = '{STATUS_POSTED}', posted_at = ?, \
+                        posted_by = NULLIF(?::text,'')::uuid, updated_at = ?, \
+                        update_by = NULLIF(?::text,'')::uuid, \
+                        approval_instance_id = NULL, cancel_reason = NULL \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                operator_text.clone(),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
+        STATUS_PENDING_CANCEL => {
+            // 审批中没有实例 id 就等于「永远等不到回调」：库约束和代码两头都挡
+            let Some(instance_id) = approval_instance_id else {
+                return Err(DbError::InvalidValue(
+                    "发起作废审批必须同时写 approval_instance_id（ck_biz_si_pending_cancel）"
+                        .to_string(),
+                ));
+            };
+            (
+                format!(
+                    "UPDATE {TABLE} \
+                        SET status = '{STATUS_PENDING_CANCEL}', cancel_reason = ?::text, \
+                            approval_instance_id = ?::uuid, updated_at = ?, \
+                            update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::Text(reason_text),
+                    Value::from(&instance_id),
+                    Value::from(now),
+                    operator_text,
+                    Value::from(&id),
+                    Value::Text(from.to_string()),
+                ],
+            )
+        }
+        // P-FLOW-3A：提交过账审批（`DRAFT → PENDING_POST`）。只挂审批单，账一分没动。
+        STATUS_PENDING_POST => {
+            let Some(instance_id) = approval_instance_id else {
+                return Err(DbError::InvalidValue(
+                    "提交过账审批必须同时写 approval_instance_id（ck_biz_si_pending_approval）"
+                        .to_string(),
+                ));
+            };
+            (
+                format!(
+                    "UPDATE {TABLE} \
+                        SET status = '{STATUS_PENDING_POST}', approval_instance_id = ?::uuid, \
+                            updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                      WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+                ),
+                vec![
+                    Value::from(&instance_id),
+                    Value::from(now),
+                    operator_text,
+                    Value::from(&id),
+                    Value::Text(from.to_string()),
+                ],
+            )
+        }
+        // P-FLOW-3A：过账审批驳回 / 撤回（`PENDING_POST → DRAFT`）。清实例，账一分没动。
+        STATUS_DRAFT => (
+            format!(
+                "UPDATE {TABLE} \
+                    SET status = '{STATUS_DRAFT}', approval_instance_id = NULL, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
+        STATUS_CANCELLED => (
+            format!(
+                "UPDATE {TABLE} \
+                    SET status = '{STATUS_CANCELLED}', cancelled_at = ?, \
+                        cancelled_by = NULLIF(?::text,'')::uuid, cancel_reason = ?::text, \
+                        approval_instance_id = NULL, \
+                        updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
+                  WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            ),
+            vec![
+                Value::from(now),
+                operator_text.clone(),
+                Value::Text(reason_text),
+                Value::from(now),
+                operator_text,
+                Value::from(&id),
+                Value::Text(from.to_string()),
+            ],
+        ),
+        other => {
+            return Err(DbError::InvalidValue(format!(
+                "状态流转的目标 `{other}` 不在 3 个可写目标里（DRAFT 只由建单产生）"
+            )));
+        }
+    };
+    ex.exec_sql(sql, params).await
+}
+
+/// 软删（**仅 DRAFT / PENDING_POST 由调用方保证**），返回 `affected`。
+///
+/// P-FLOW-3A：`PENDING_POST`（过账审批中）也允许删 —— 前提是调用方**先**终止在跑的
+/// 审批单（[`crate::business::erp::stockin_bridge::cancel_approval_of`]，同一事务），
+/// 否则删掉的单据会留下孤儿审批（P11 的教训）。删的同时清空 `approval_instance_id`。
+pub async fn soft_delete(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} SET deleted_at = ?, updated_at = ?, \
+                    update_by = NULLIF(?::text,'')::uuid, approval_instance_id = NULL \
+              WHERE id = ?::uuid AND status IN ('{STATUS_DRAFT}', '{STATUS_PENDING_POST}') \
+                AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(now),
+            Value::from(now),
+            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
+            Value::from(&id),
+        ],
+    )
+    .await
+}
+
+// ==================== ★ 过账：库存加法 + 流水 ====================
+
+/// 锁读 `(物料, 仓库, 库位)` 的库存行（`FOR UPDATE`，PRD §3.2.6）。
+///
+/// `location_id` 为 `None` 时按 `COALESCE(location_id, 零 uuid) = 零 uuid` 命中「未分配库位汇总桶」，
+/// 与 `uk_biz_inv_mat_wh_loc` 的表达式索引完全一致（否则走不上索引、也锁不到同一行）。
+pub(super) async fn lock_inventory(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+) -> DbResult<Option<InventorySnapshot>> {
+    let row = ex
+        .query_first_sql(
+            "SELECT qty, amount, avg_cost FROM biz_inventory \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+                AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
+                  = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) \
+              FOR UPDATE"
+                .to_string(),
+            vec![
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default()),
+            ],
+        )
+        .await?;
+    row.as_ref()
+        .map(|row| {
+            Ok(InventorySnapshot {
+                qty: row.get_typed("qty")?,
+                amount: row.get_typed("amount")?,
+                avg_cost: row.get_typed("avg_cost")?,
+            })
+        })
+        .transpose()
+}
+
+/// **一条明细的过账成本落地**（PRD §3.2.3）：加数量 + 加金额 + 重算移动加权单价。
+///
+/// 两步：
+/// 1. `SELECT … FOR UPDATE` 锁住库存行（行不存在则无锁可拿）；
+/// 2. `INSERT … ON CONFLICT (material, warehouse, COALESCE(location)) DO UPDATE` 做**加法**，
+///    `RETURNING` 回读真实落库值。
+///
+/// 为什么第 2 步用 upsert 而不是「读到就 UPDATE、读不到就 INSERT」：两个收货单并发收同一物料、
+/// 且库存行**还不存在**时，两边都读到「无行」→ 两边 INSERT → 后到的撞唯一键（42P10/23505）。
+/// upsert 让后到的那笔走 `DO UPDATE` 分支，加法照做，数字不丢。
+///
+/// `avg_cost` 的算子在 SQL 里（不是在 Rust 里）：`ROUND` 是 PG 的 numeric 语义，
+/// 与库内既有 `avg_cost` 的构造方式同源（W3c 踩过「Rust 与 PG 舍入差 1 分钱」）。
+pub async fn apply_cost(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+    cost: CostBasis,
+    now: DateTime<Utc>,
+) -> DbResult<AppliedInventory> {
+    let locked = lock_inventory(ex, material_id, warehouse_id, location_id).await?;
+    let qty_text = cost.qty.round_dp(4).to_string();
+    let amount_text = cost.amount.round_dp(4).to_string();
+    let unit_text = cost.unit_cost.to_string();
+    let location_text = Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default());
+
+    let row = ex
+        .query_first_sql(
+            "INSERT INTO biz_inventory AS i \
+                 (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount, \
+                  last_txn_at, created_at, updated_at) \
+             VALUES (?, ?::uuid, ?::uuid, NULLIF(?::text,'')::uuid, \
+                     NULLIF(?::text,'')::numeric, 0, \
+                     CASE WHEN NULLIF(?::text,'')::numeric > 0 \
+                          THEN ROUND(NULLIF(?::text,'')::numeric / NULLIF(?::text,'')::numeric, 6) \
+                          ELSE 0 END, \
+                     NULLIF(?::text,'')::numeric, ?, ?, ?) \
+             ON CONFLICT (material_id, warehouse_id, \
+                          COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) \
+             DO UPDATE SET \
+                 qty = i.qty + EXCLUDED.qty, \
+                 amount = i.amount + EXCLUDED.amount, \
+                 avg_cost = CASE \
+                     WHEN i.qty > 0 AND (i.qty + EXCLUDED.qty) > 0 \
+                         THEN ROUND((i.amount + EXCLUDED.amount) / (i.qty + EXCLUDED.qty), 6) \
+                     WHEN EXCLUDED.qty > 0 \
+                         THEN ROUND(EXCLUDED.amount / EXCLUDED.qty, 6) \
+                     ELSE 0 END, \
+                 last_txn_at = EXCLUDED.last_txn_at, \
+                 updated_at = EXCLUDED.updated_at \
+             RETURNING qty, amount, avg_cost"
+                .to_string(),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                location_text,
+                Value::Text(qty_text.clone()),
+                Value::Text(unit_text.clone()),
+                Value::Text(amount_text.clone()),
+                Value::Text(qty_text.clone()),
+                Value::Text(amount_text.clone()),
+                Value::from(now),
+                Value::from(now),
+                Value::from(now),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue(
+                "库存 upsert 未返回行（biz_inventory 的 RETURNING 不应为空）".into(),
+            )
+        })?;
+    let after = InventorySnapshot {
+        qty: row.get_typed("qty")?,
+        amount: row.get_typed("amount")?,
+        avg_cost: row.get_typed("avg_cost")?,
+    };
+    let before = match locked {
+        Some(snapshot) => snapshot,
+        // 无行 → 并发插入分支：从「变动后」精确反推（加法可逆）
+        None => InventorySnapshot::derived_before(after, cost.qty, cost.amount),
+    };
+    Ok(AppliedInventory { before, after })
+}
+
+// ==================== ★ 过账：库位账（数量账）加法 ====================
+
+/// 库位账一次加法前后的数量（`biz_inventory_location`）。
+#[derive(Debug, Clone, Copy)]
+pub struct AppliedLocation {
+    /// 加之前（行不存在 = 0）。
+    pub before_qty: Decimal,
+    /// 加之后（`RETURNING` 回读的真实落库值）。
+    pub after_qty: Decimal,
+}
+
+/// **一条明细的库位账落地**（P6）：把 `qty` 加到 `biz_inventory_location` 的对应行。
+///
+/// 过账原来只写成本账（`biz_inventory`）+ 流水，**库位账一行不写** → 「即时库存」与
+/// 「库位库存」两个 Tab 永远对不上（违反不变式③）。本函数补上那一半，且由
+/// [`crate::business::erp::stockin_handler`] 的过账事务在**同一事务**里调用（失败整单回滚）。
+///
+/// # 两种分支（`location_id` 在本仓是 `biz_inventory_location.id`，不是 `biz_location.id`）
+///
+/// V0139 文件头 ① 与 `serial_model` 模块头把这条口径钉死了：ERP 里凡是 `location_id`
+/// 都指**库位库存行 id**（`biz_inventory.location_id` / `biz_stock_in_item.location_id` /
+/// `biz_material_serial.location_id` 三处外键都指向 `biz_inventory_location(id)`）。
+/// 而 `biz_inventory_location.location_id` 这一列存的才是**库位字典 id**（`biz_location.id`，弱引用）。
+/// 两条分支就是从这个「两个 id 不能混用」里长出来的：
+///
+/// * `Some(row_id)`：**按主键 UPDATE 这一行**，并校验它的 `material_id` / `warehouse_id`
+///   与本次明细一致（库位下拉里可能选到别的物料／别的仓的库位行）；
+/// * `None`：往 `(material, warehouse, location_id IS NULL)` 这个**未分配库位桶**加
+///   （`uk_biz_inv_loc … NULLS NOT DISTINCT` 保证最多一行，NULL 也占一行、不会重复）。
+///
+/// 为什么有行 id 时不走「三列 upsert」：那会把库位行 id 当成库位字典 id 塞进
+/// `biz_inventory_location.location_id`，**新建**一行（qty 从 0 开始），库位账合计立刻大于成本账。
+///
+/// # 锁顺序（PRD §3.2.6，防死锁）
+///
+/// 先 `SELECT … FOR UPDATE` 拿 before 快照，再加法。全局只有一种加锁顺序：
+/// **明细按 `material_id` 升序 → 成本账先锁 → 库位账后锁**。所以两个收货单并发收同一物料时
+/// 只会在成本账行上排队，库位账那一把锁永远在对方放手之后才拿，不会交叉等待。
+///
+/// # `locked_qty`
+///
+/// 收货不入锁定量：新建行显式写 `locked_qty = 0`，已有行**不动**（`ck_biz_inv_loc_locked` 要求 ≥ 0，
+/// 且锁定量属于出库/占用流程）。
+pub async fn apply_location_qty(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    location_id: Option<Uuid>,
+    qty: Decimal,
+    now: DateTime<Utc>,
+) -> DbResult<AppliedLocation> {
+    let qty_text = qty.round_dp(4).to_string();
+
+    // ---------- 分支 A：明细指定了库位库存行 → 按主键加 ----------
+    if let Some(row_id) = location_id {
+        let row = ex
+            .query_first_sql(
+                "SELECT material_id, warehouse_id, qty FROM biz_inventory_location \
+                  WHERE id = ?::uuid FOR UPDATE"
+                    .to_string(),
+                vec![Value::from(&row_id)],
+            )
+            .await?
+            .ok_or_else(|| {
+                DbError::InvalidValue(format!(
+                    "库位账行不存在（location_id = {row_id}）：建单时校验通过，过账前被删掉了"
+                ))
+            })?;
+        let row_material: Uuid = row.get_typed("material_id")?;
+        let row_warehouse: Uuid = row.get_typed("warehouse_id")?;
+        if row_material != material_id || row_warehouse != warehouse_id {
+            return Err(DbError::InvalidValue(format!(
+                "明细 location_id（{row_id}）指向的库位账行属于物料 {row_material} / 仓库 {row_warehouse}，\
+                 与本次过账的物料 {material_id} / 仓库 {warehouse_id} 不一致（库位选错了）"
+            )));
+        }
+        let before_qty: Decimal = row.get_typed("qty")?;
+        let updated = ex
+            .query_first_sql(
+                "UPDATE biz_inventory_location \
+                    SET qty = qty + NULLIF(?::text,'')::numeric, last_txn_at = ?, updated_at = ? \
+                  WHERE id = ?::uuid RETURNING qty"
+                    .to_string(),
+                vec![
+                    Value::Text(qty_text),
+                    Value::from(now),
+                    Value::from(now),
+                    Value::from(&row_id),
+                ],
+            )
+            .await?
+            .ok_or_else(|| {
+                DbError::InvalidValue(
+                    "库位账 UPDATE 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
+                )
+            })?;
+        let after_qty: Decimal = updated.get_typed("qty")?;
+        return Ok(AppliedLocation {
+            before_qty,
+            after_qty,
+        });
+    }
+
+    // ---------- 分支 B：未分配库位桶（location_id IS NULL）----------
+    let existing = ex
+        .query_first_sql(
+            "SELECT qty FROM biz_inventory_location \
+              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
+              FOR UPDATE"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    let before_qty: Decimal = match existing {
+        Some(row) => row.get_typed("qty")?,
+        None => Decimal::ZERO,
+    };
+    // `ON CONFLICT (material_id, warehouse_id, location_id)` 能直接推断到
+    // `uk_biz_inv_loc … NULLS NOT DISTINCT`（PG 18 实测：`NULL` 同样命中冲突分支，
+    // 不会因为「NULL 不相等」再插一行）。**不要**改成 `COALESCE(…)` 表达式形式——
+    // 那是 `uk_biz_inv_mat_wh_loc`（biz_inventory）的口径，套到这里会 42P10。
+    let row = ex
+        .query_first_sql(
+            "INSERT INTO biz_inventory_location AS il \
+                 (id, material_id, warehouse_id, location_id, qty, locked_qty, \
+                  last_txn_at, created_at, updated_at) \
+             VALUES (?, ?::uuid, ?::uuid, NULL, NULLIF(?::text,'')::numeric, 0, ?, ?, ?) \
+             ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE SET \
+                 qty = il.qty + EXCLUDED.qty, \
+                 last_txn_at = EXCLUDED.last_txn_at, \
+                 updated_at = EXCLUDED.updated_at \
+             RETURNING qty"
+                .to_string(),
+            vec![
+                Value::from(Uuid::now_v7()),
+                Value::from(&material_id),
+                Value::from(&warehouse_id),
+                Value::Text(qty_text),
+                Value::from(now),
+                Value::from(now),
+                Value::from(now),
+            ],
+        )
+        .await?
+        .ok_or_else(|| {
+            DbError::InvalidValue(
+                "库位账 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
+            )
+        })?;
+    let after_qty: Decimal = row.get_typed("qty")?;
+    Ok(AppliedLocation {
+        before_qty,
+        after_qty,
+    })
+}
+
+/// 写一条 `IN` 流水（**只增不改**，`qty` 恒正、方向看 `txn_type`）。
+#[allow(clippy::too_many_arguments)]
+pub async fn write_txn(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    line_no: i32,
+    cost: CostBasis,
+    applied: &AppliedInventory,
+    doc_id: Uuid,
+    doc_no: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<()> {
+    let period_code = serial_model::period_code_of(now);
+    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    ex.exec_sql(
+        "INSERT INTO biz_inventory_txn \
+             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
+              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
+              after_qty, after_amount, after_cost, period_code, operator_id, created_at) \
+         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
+                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?)"
+            .to_string(),
+        vec![
+            Value::from(Uuid::now_v7()),
+            Value::from(&material_id),
+            Value::from(&warehouse_id),
+            Value::from(TXN_TYPE_IN),
+            Value::from(BIZ_TYPE_PURCHASE_IN),
+            Value::from(DOC_TYPE_STOCK_IN),
+            Value::from(&doc_id),
+            Value::from(doc_no),
+            Value::from(line_no),
+            Value::Text(cost.qty.round_dp(4).to_string()),
+            Value::Text(cost.unit_cost.to_string()),
+            Value::Text(cost.amount.round_dp(4).to_string()),
+            Value::Text(applied.before.qty.to_string()),
+            Value::Text(applied.before.amount.to_string()),
+            Value::Text(applied.before.avg_cost.to_string()),
+            Value::Text(applied.after.qty.to_string()),
+            Value::Text(applied.after.amount.to_string()),
+            Value::Text(applied.after.avg_cost.to_string()),
+            Value::from(period_code.as_str()),
+            operator_text,
+            Value::from(now),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+// ==================== ★ 作废：库存反向冲减（P9） ====================
+
+/// 回写凭证 / 应付单引用（P2-C1：入库即生成）。
+///
+/// `voucher_id` / `payable_id` 是**弱引用**（V0145 建表时就有这两列、可空、无外键），
+/// 由过账事务在同一 `ex` 里回写（卡面 §三 ⑤）。
+pub async fn link_voucher_and_payable(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    voucher_id: Uuid,
+    payable_id: Uuid,
+    now: DateTime<Utc>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        format!(
+            "UPDATE {TABLE} \
+                SET voucher_id = ?::uuid, payable_id = ?::uuid, updated_at = ? \
+              WHERE id = ?::uuid AND deleted_at IS NULL"
+        ),
+        vec![
+            Value::from(&voucher_id),
+            Value::from(&payable_id),
+            Value::from(now),
+            Value::from(&id),
+        ],
+    )
+    .await
+}

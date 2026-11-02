@@ -1,0 +1,50 @@
+{
+  "src": "src/business/erp/model.rs",
+  "base": "model_base",
+  "tests_mod": "model_tests",
+  "notes": {
+    "model_base": "底座：分页归一化、id 解析、通用分页/按 id 取数模板（保序与列清单无关的公共件）",
+    "model_master": "主数据只读：计量单位 / 仓库 / 库位 / 物料 / 供应商 / 会计科目 / 会计期间 / 取号规则",
+    "model_order": "采购订单只读：订单头与明细的行结构 + 分页/按号查",
+    "model_inventory": "库存台账只读：两级库存账、库存余额、库存流水"
+  },
+  "targets": {
+    "model_master": [
+      "UNIT_COLUMNS", "UnitRow", "UNIT_TARGET", "UNIT_ORDER",
+      "unit_find_by_id", "unit_page", "unit_list_all",
+      "WAREHOUSE_COLUMNS", "WarehouseRow", "WAREHOUSE_TARGET", "WAREHOUSE_ORDER",
+      "warehouse_find_by_id", "warehouse_find_by_code", "warehouse_tree",
+      "warehouse_children", "warehouse_child_counts", "warehouse_page", "path_prefix_upper",
+      "LOCATION_COLUMNS", "LocationRow", "LOCATION_TARGET", "LOCATION_ORDER",
+      "location_find_by_id", "location_by_warehouse", "location_page",
+      "MATERIAL_COLUMNS", "SERIAL_COLUMN", "SERIAL_COLUMN_MISSING", "MaterialRow",
+      "MATERIAL_TARGET", "MATERIAL_ORDER", "material_find_by_id", "material_find_by_code",
+      "material_has_serial_column", "material_page",
+      "SUPPLIER_COLUMNS", "SupplierRow", "SUPPLIER_TARGET", "SUPPLIER_ORDER",
+      "supplier_find_by_id", "supplier_page",
+      "ACCOUNT_COLUMNS", "AccountRow", "ACCOUNT_TARGET", "ACCOUNT_ORDER",
+      "account_find_by_id", "account_find_by_code", "account_children", "account_page",
+      "PERIOD_COLUMNS", "PeriodRow", "PERIOD_TARGET", "PERIOD_ORDER",
+      "period_find_by_id", "period_find_by_code", "period_page",
+      "SEQ_COLUMNS", "SeqRow", "SEQ_TARGET", "SEQ_ORDER",
+      "seq_find_by_id", "seq_find_by_type", "seq_page"
+    ],
+    "model_order": [
+      "PURCHASE_ORDER_COLUMNS", "PurchaseOrderRow", "PURCHASE_ORDER_TARGET",
+      "PURCHASE_ORDER_ORDER", "purchase_order_find_by_id", "purchase_order_find_by_no",
+      "purchase_order_page", "PURCHASE_ORDER_ITEM_COLUMNS", "PurchaseOrderItemRow",
+      "PURCHASE_ORDER_ITEM_ORDER", "purchase_order_items", "purchase_order_item_find_by_id",
+      "purchase_order_item_page"
+    ],
+    "model_inventory": [
+      "INVENTORY_COLUMNS", "InventoryRow", "INVENTORY_TARGET", "INVENTORY_ORDER",
+      "inventory_find", "inventory_page",
+      "INVENTORY_LOCATION_COLUMNS", "InventoryLocationRow", "INVENTORY_LOCATION_TARGET",
+      "INVENTORY_LOCATION_ORDER", "inventory_locations", "inventory_location_page",
+      "InventoryBalance", "inventory_balance",
+      "INVENTORY_TXN_COLUMNS", "InventoryTxnRow", "INVENTORY_TXN_TARGET",
+      "INVENTORY_TXN_ORDER", "inventory_txn_page", "day_start"
+    ],
+    "model_tests": ["tests"]
+  }
+}

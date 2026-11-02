@@ -93,6 +93,27 @@ pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;
 
+// ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
+// 下面 18 个 `mod` 是三个超千行 model 文件按职责拆出的部件，**不直接对外**：
+// 公开 API 由 `model` / `stockin_model` / `transfer_model` 三个 facade 用
+// `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
+// 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
+mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
+mod model_inventory; // 库存台账只读
+mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科目/期间/取号规则）
+mod model_order; // 采购订单只读（头 + 明细）
+mod stockin_base; // 收货入库底座：常量 / 状态机 / 行结构 / 取号
+mod stockin_cancel; // 收货入库作废链路
+mod stockin_purchase; // 收货入库↔采购单联动
+mod stockin_query; // 收货入库只读
+mod stockin_validate; // 收货入库校验（可作废前置）
+mod stockin_write; // 收货入库写入（建改删 + 过账）
+mod transfer_base; // 调拨单底座：常量 / 6 态状态机 / 行结构 / 取号
+mod transfer_query; // 调拨单只读
+mod transfer_scan; // 调拨单在途超期扫描
+mod transfer_settle; // 调拨单过账结算
+mod transfer_write; // 调拨单写入（建改删 + 状态流转）
+
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]
 pub(crate) mod fixture_hygiene;

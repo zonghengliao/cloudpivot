@@ -1,0 +1,329 @@
+// ============================================================================
+// model_order.rs —— 采购订单只读：订单头与明细的行结构 + 分页/按号查
+//
+// 由 `model.rs` 按职责拆出（TD-1 拆分）。**本文件不含任何行为变更**：
+// 所有函数体、SQL、签名与拆分前一致，只是换了落点；公开 API 由 facade
+// `model.rs` 用 `pub use` 重导出，调用方一行不用改。
+// ============================================================================
+
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
+use nik::prelude::rust_decimal::Decimal;
+use nik::prelude::*;
+use nik::uuid::Uuid;
+
+use crate::business::erp::dto::{PurchaseOrderFilter, PurchaseOrderItemFilter};
+use crate::business::shared::scope;
+use crate::utils;
+
+use super::model_base::*;
+
+/// `biz_purchase_order` 列清单。
+///
+/// `currency_code` 是 `CHAR(3)`：显式 `::text`，避免定长补空格
+/// （`bpchar` 的末尾空格会带进 `String`，比较与展示都会出错）。
+pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date, expect_date, \
+     warehouse_id, status, currency_code::text AS currency_code, total_qty, total_amount, \
+     total_tax, total_with_tax, credit_days, remark, price_mode, submitted_at, submitted_by, \
+     approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
+     create_by, update_by, deleted_at";
+
+/// 采购订单行。
+#[derive(Debug, Clone)]
+pub struct PurchaseOrderRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 订单号（未删除内唯一，由 `biz_seq` 的 `PO` 序列生成）。
+    pub order_no: String,
+    /// 供应商。
+    pub supplier_id: Uuid,
+    /// 下单日期。
+    pub order_date: NaiveDate,
+    /// 期望到货日。
+    pub expect_date: Option<NaiveDate>,
+    /// 收货仓库。
+    pub warehouse_id: Uuid,
+    /// 状态：`DRAFT` / `SUBMITTED` / `APPROVED` / `PARTIAL_RECEIVED` / `RECEIVED` / `CLOSED` / `CANCELLED`。
+    pub status: String,
+    /// 币种（`CHAR(3)`，已 `::text`）。
+    pub currency_code: String,
+    /// 合计数量（`NUMERIC(18,4)`）。
+    pub total_qty: Decimal,
+    /// 合计金额（不含税，`NUMERIC(18,4)`）。
+    pub total_amount: Decimal,
+    /// 合计税额（`NUMERIC(18,4)`）。
+    pub total_tax: Decimal,
+    /// 合计含税金额（DB 约束 `= total_amount + total_tax`）。
+    pub total_with_tax: Decimal,
+    /// 账期天数。
+    pub credit_days: i32,
+    /// 备注。
+    pub remark: Option<String>,
+    /// 金额口径（`EXCL` 不含税录入 / `INCL` 含税录入，V0145 加的列）。
+    pub price_mode: String,
+    /// 提交时间。
+    pub submitted_at: Option<DateTime<Utc>>,
+    /// 提交人。
+    pub submitted_by: Option<Uuid>,
+    /// 审批时间。
+    pub approved_at: Option<DateTime<Utc>>,
+    /// 审批人。
+    pub approved_by: Option<Uuid>,
+    /// 关闭时间。
+    pub closed_at: Option<DateTime<Utc>>,
+    /// 关闭人。
+    pub closed_by: Option<Uuid>,
+    /// 提交审批的实例 id（P-FLOW-3A；`None` = 未走审批 / 已驳回打回）。
+    ///
+    /// 与 `status` 的关系由代码维护（没有库侧 CHECK，因为 `APPROVED` 之后还要留着做审计）：
+    /// `SUBMITTED`（审批中）必有值；驳回回 `DRAFT` 时清空；通过后保留（详情显示「审批通过 FLW-xxx」）。
+    pub approval_instance_id: Option<Uuid>,
+    /// 创建时间。
+    pub created_at: DateTime<Utc>,
+    /// 更新时间。
+    pub updated_at: DateTime<Utc>,
+    /// 创建人。
+    pub create_by: Option<Uuid>,
+    /// 更新人。
+    pub update_by: Option<Uuid>,
+    /// 软删时间（`None` = 未删除）。
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl PurchaseOrderRow {
+    /// 由查询行构造。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            order_no: row.get_typed("order_no")?,
+            supplier_id: row.get_typed("supplier_id")?,
+            order_date: row.get_typed("order_date")?,
+            expect_date: row.get_typed("expect_date")?,
+            warehouse_id: row.get_typed("warehouse_id")?,
+            status: row.get_typed("status")?,
+            currency_code: row.get_typed("currency_code")?,
+            total_qty: row.get_typed("total_qty")?,
+            total_amount: row.get_typed("total_amount")?,
+            total_tax: row.get_typed("total_tax")?,
+            total_with_tax: row.get_typed("total_with_tax")?,
+            credit_days: row.get_typed("credit_days")?,
+            remark: row.get_typed("remark")?,
+            price_mode: row.get_typed("price_mode")?,
+            submitted_at: row.get_typed("submitted_at")?,
+            submitted_by: row.get_typed("submitted_by")?,
+            approved_at: row.get_typed("approved_at")?,
+            approved_by: row.get_typed("approved_by")?,
+            closed_at: row.get_typed("closed_at")?,
+            closed_by: row.get_typed("closed_by")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+            create_by: row.get_typed("create_by")?,
+            update_by: row.get_typed("update_by")?,
+            deleted_at: row.get_typed("deleted_at")?,
+        })
+    }
+}
+
+/// `biz_purchase_order` 的分页锚点。
+pub const PURCHASE_ORDER_TARGET: scope::ScopeTarget =
+    scope::ScopeTarget::unscoped("biz_purchase_order");
+
+/// 采购订单列表排序：下单日期降序 → 单号降序（走 `idx_biz_po_date`）。
+pub const PURCHASE_ORDER_ORDER: &str = "ORDER BY order_date DESC, order_no DESC";
+
+/// 按主键取采购订单。
+pub async fn purchase_order_find_by_id(id: Uuid) -> DbResult<Option<PurchaseOrderRow>> {
+    find_by_id(
+        "biz_purchase_order",
+        PURCHASE_ORDER_COLUMNS,
+        id,
+        true,
+        PurchaseOrderRow::from_row,
+    )
+    .await
+}
+
+/// 按单号取采购订单（幂等校验 / 按单号跳转）。
+pub async fn purchase_order_find_by_no(order_no: &str) -> DbResult<Option<PurchaseOrderRow>> {
+    let sql = format!(
+        "SELECT {PURCHASE_ORDER_COLUMNS} FROM biz_purchase_order \
+         WHERE order_no = ? AND deleted_at IS NULL"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(order_no)])
+        .await?;
+    rows.first().map(PurchaseOrderRow::from_row).transpose()
+}
+
+/// 采购订单分页（关键词 / 状态 / 供应商 / 仓库 / 下单日期区间）。
+pub async fn purchase_order_page(
+    q: &PurchaseOrderFilter,
+) -> DbResult<(Vec<PurchaseOrderRow>, i64)> {
+    let mut sql =
+        format!("SELECT {PURCHASE_ORDER_COLUMNS} FROM biz_purchase_order WHERE deleted_at IS NULL");
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(pattern) = utils::like_pattern(q.keyword.as_deref()) {
+        sql.push_str(" AND (order_no LIKE ? OR remark LIKE ?)");
+        params.push(Value::from(pattern.clone()));
+        params.push(Value::from(pattern));
+    }
+    if let Some(status) = q.status.as_deref() {
+        sql.push_str(" AND status = ?");
+        params.push(Value::from(status));
+    }
+    if let Some(supplier_id) = q.supplier_id.as_deref() {
+        sql.push_str(" AND supplier_id = ?");
+        params.push(Value::from(parse_id(supplier_id)?));
+    }
+    if let Some(warehouse_id) = q.warehouse_id.as_deref() {
+        sql.push_str(" AND warehouse_id = ?");
+        params.push(Value::from(parse_id(warehouse_id)?));
+    }
+    if let Some(date_from) = q.date_from {
+        sql.push_str(" AND order_date >= ?");
+        params.push(Value::from(date_from));
+    }
+    if let Some(date_to) = q.date_to {
+        sql.push_str(" AND order_date <= ?");
+        params.push(Value::from(date_to));
+    }
+    page_of(
+        PURCHASE_ORDER_TARGET,
+        sql,
+        params,
+        PURCHASE_ORDER_ORDER,
+        q.page,
+        q.page_size,
+        PurchaseOrderRow::from_row,
+    )
+    .await
+}
+
+// ==================== ⑩ biz_purchase_order_item 采购明细 ====================
+
+/// `biz_purchase_order_item` 列清单。
+pub const PURCHASE_ORDER_ITEM_COLUMNS: &str = "id, order_id, line_no, material_id, unit_id, \
+     qty, price, price_incl, tax_rate, amount, tax_amount, with_tax_amount, received_qty, \
+     remark, created_at, updated_at";
+
+/// 采购明细行。
+///
+/// 明细**没有 `deleted_at`**：唯一外键 `order_id → biz_purchase_order(id) ON DELETE CASCADE`，
+/// 主单软删时明细留在库里（随主单一起不可见），主单物理删除时级联删。
+#[derive(Debug, Clone)]
+pub struct PurchaseOrderItemRow {
+    /// 主键。
+    pub id: Uuid,
+    /// 所属订单。
+    pub order_id: Uuid,
+    /// 行号（订单内唯一）。
+    pub line_no: i32,
+    /// 物料。
+    pub material_id: Uuid,
+    /// 计量单位。
+    pub unit_id: Uuid,
+    /// 数量（`NUMERIC(18,4)`，`> 0`）。
+    pub qty: Decimal,
+    /// 不含税单价（`NUMERIC(18,6)`，权威值）。
+    pub price: Decimal,
+    /// 含税单价（`NUMERIC(18,6)`，V0145 加的输入快照：口径 B 时用户键入的就是它）。
+    pub price_incl: Decimal,
+    /// 税率（`NUMERIC(7,4)`，百分数 0–100）。
+    pub tax_rate: Decimal,
+    /// 不含税金额（`NUMERIC(18,4)`）。
+    pub amount: Decimal,
+    /// 税额。
+    pub tax_amount: Decimal,
+    /// 含税金额（DB 约束 `= amount + tax_amount`）。
+    pub with_tax_amount: Decimal,
+    /// 已收货数量（`0 <= received_qty <= qty`）。
+    pub received_qty: Decimal,
+    /// 备注。
+    pub remark: Option<String>,
+    /// 创建时间。
+    pub created_at: DateTime<Utc>,
+    /// 更新时间。
+    pub updated_at: DateTime<Utc>,
+}
+
+impl PurchaseOrderItemRow {
+    /// 由查询行构造。
+    pub fn from_row(row: &Row) -> DbResult<Self> {
+        Ok(Self {
+            id: row.get_typed("id")?,
+            order_id: row.get_typed("order_id")?,
+            line_no: row.get_typed("line_no")?,
+            material_id: row.get_typed("material_id")?,
+            unit_id: row.get_typed("unit_id")?,
+            qty: row.get_typed("qty")?,
+            price: row.get_typed("price")?,
+            price_incl: row.get_typed("price_incl")?,
+            tax_rate: row.get_typed("tax_rate")?,
+            amount: row.get_typed("amount")?,
+            tax_amount: row.get_typed("tax_amount")?,
+            with_tax_amount: row.get_typed("with_tax_amount")?,
+            received_qty: row.get_typed("received_qty")?,
+            remark: row.get_typed("remark")?,
+            created_at: row.get_typed("created_at")?,
+            updated_at: row.get_typed("updated_at")?,
+        })
+    }
+}
+
+/// 采购明细的**列表排序**：行号升序。
+pub const PURCHASE_ORDER_ITEM_ORDER: &str = "ORDER BY line_no ASC";
+
+/// 按订单取全部明细（行号升序，走 `idx_biz_po_item_order`）。
+///
+/// 明细是「一个主单几十行」的小集合，不做分页（与前端一次拉整单的口径一致）。
+pub async fn purchase_order_items(order_id: Uuid) -> DbResult<Vec<PurchaseOrderItemRow>> {
+    let sql = format!(
+        "SELECT {PURCHASE_ORDER_ITEM_COLUMNS} FROM biz_purchase_order_item \
+         WHERE order_id = ? ORDER BY line_no ASC"
+    );
+    let rows = db()
+        .find_with_params(&sql, vec![Value::from(order_id)])
+        .await?;
+    rows.iter().map(PurchaseOrderItemRow::from_row).collect()
+}
+
+/// 按主键取采购明细。
+pub async fn purchase_order_item_find_by_id(id: Uuid) -> DbResult<Option<PurchaseOrderItemRow>> {
+    find_by_id(
+        "biz_purchase_order_item",
+        PURCHASE_ORDER_ITEM_COLUMNS,
+        id,
+        false,
+        PurchaseOrderItemRow::from_row,
+    )
+    .await
+}
+
+/// 采购明细分页（按订单 / 按物料），供「物料采购记录」类页面使用。
+pub async fn purchase_order_item_page(
+    q: &PurchaseOrderItemFilter,
+) -> DbResult<(Vec<PurchaseOrderItemRow>, i64)> {
+    let mut sql =
+        format!("SELECT {PURCHASE_ORDER_ITEM_COLUMNS} FROM biz_purchase_order_item WHERE 1 = 1");
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(order_id) = q.order_id.as_deref() {
+        sql.push_str(" AND order_id = ?");
+        params.push(Value::from(parse_id(order_id)?));
+    }
+    if let Some(material_id) = q.material_id.as_deref() {
+        sql.push_str(" AND material_id = ?");
+        params.push(Value::from(parse_id(material_id)?));
+    }
+    page_of(
+        scope::ScopeTarget::unscoped("biz_purchase_order_item"),
+        sql,
+        params,
+        PURCHASE_ORDER_ITEM_ORDER,
+        q.page,
+        q.page_size,
+        PurchaseOrderItemRow::from_row,
+    )
+    .await
+}
+
+// ==================== ⑪ biz_inventory 即时库存（成本账） ====================

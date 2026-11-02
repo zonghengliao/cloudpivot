@@ -1,0 +1,37 @@
+{
+  "src": "src/business/erp/transfer_model.rs",
+  "base": "transfer_base",
+  "tests_mod": "transfer_tests",
+  "notes": {
+    "transfer_base": "底座：表名/状态常量、6 态状态机、审批闸、行结构与列清单、取号、建单契约",
+    "transfer_query": "只读：分页/详情/明细/序列号/仓库与物料引用解析",
+    "transfer_write": "写入：建单/改单/软删/状态流转（含审批落定）/审批流定义",
+    "transfer_settle": "过账结算：借调出/调入两段库存与库位账搬迁、序列号转移、流水、不变量断言",
+    "transfer_scan": "在途超期扫描：阈值读取、超期判定、候选扫描与告警打标、汇总"
+  },
+  "targets": {
+    "transfer_query": [
+      "TransferQuery", "page", "find_by_id", "find_by_no", "warehouse_names", "items_of",
+      "copy_source", "serials_of", "warehouse_name", "transit_warehouse_id",
+      "inventory_location_ref", "material_ref", "count_valid_serials"
+    ],
+    "transfer_write": [
+      "create", "insert_items", "update", "replace_items", "soft_delete", "apply_status",
+      "settle_approval", "PublishedFlow", "published_transfer_flow"
+    ],
+    "transfer_settle": [
+      "DOC_TYPE_TRANSFER", "BIZ_TYPE_TRANSFER_OUT", "BIZ_TYPE_TRANSFER_IN", "BUCKET_LOCATION_SQL",
+      "SettleError", "SettleResult", "uuid_text", "SettleLine", "SettleOutcome", "OutSnapshot",
+      "InSnapshot", "StockTxn", "settle_transfer", "load_settle_lines", "resolve_inventory_row",
+      "current_qty", "deduct_inventory_row", "CreditReq", "credit_inventory_row", "move_serials",
+      "post_stock_txn", "assert_settle_invariants", "location_broken_detail"
+    ],
+    "transfer_scan": [
+      "CONFIG_OVERDUE_DAYS_KEY", "DEFAULT_OVERDUE_DAYS", "CONFIG_REALERT_HOURS_KEY",
+      "DEFAULT_REALERT_HOURS", "OVERDUE_SCAN_BATCH", "is_in_transit_overdue", "cutoff_of",
+      "overdue_elapsed_days", "overdue_threshold_days", "realert_hours", "OverdueCandidate",
+      "scan_overdue_candidates", "mark_overdue_alerted", "OverdueSummary", "overdue_summary"
+    ],
+    "transfer_tests": ["tests"]
+  }
+}

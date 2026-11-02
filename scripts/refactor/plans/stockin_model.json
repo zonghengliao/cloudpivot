@@ -1,0 +1,39 @@
+{
+  "src": "src/business/erp/stockin_model.rs",
+  "base": "stockin_base",
+  "tests_mod": "stockin_tests",
+  "notes": {
+    "stockin_base": "底座：表名/状态/流水常量、状态机、行结构与列清单、取号（纯函数 + 取号写库）",
+    "stockin_query": "只读：单据/明细/来源单查询、采购单与审批流定义的只读引用解析",
+    "stockin_write": "写入：建单/改单/软删/过账（库存加法 + 库位账 + 流水 + 应付凭证联动）",
+    "stockin_cancel": "作废链路：作废前置测算、成本与库位反冲、序列号作废、作废流水",
+    "stockin_purchase": "采购单联动：已收数量回写、采购单状态同步、可入库判据",
+    "stockin_validate": "校验：可作废前置校验（短溢/缺流水/序列号已出库/采购单抢跑）"
+  },
+  "targets": {
+    "stockin_query": [
+      "find_stock_in", "lock_stock_in", "items_of", "copy_source", "stock_in_page",
+      "parse_id", "order_no_of", "order_nos_of", "source_lines_of", "serial_count_of",
+      "PublishedFlow", "CANCEL_BIZ_TYPE", "CANCEL_FLOW_CODE", "POST_BIZ_TYPE",
+      "POST_FLOW_CODE", "published_cancel_flow", "published_post_flow", "published_flow_of"
+    ],
+    "stockin_write": [
+      "insert_items", "create", "update", "update_remark", "apply_status",
+      "apply_status_with_instance", "soft_delete", "lock_inventory", "apply_cost",
+      "AppliedLocation", "apply_location_qty", "write_txn", "link_voucher_and_payable"
+    ],
+    "stockin_cancel": [
+      "TXN_TYPE_OUT", "BIZ_TYPE_PURCHASE_IN_CANCEL", "SHORTFALL_PREFIX", "MISSING_TXN_PREFIX",
+      "SERIAL_SHIPPED_PREFIX", "PO_RACE_PREFIX", "CancelLine", "CancelDoc", "cancel_plan_of",
+      "reverse_cost", "reverse_location_qty", "write_cancel_txn", "insert_serials",
+      "SerialBatch", "generate_serials", "SerialBrief", "serial_status_label",
+      "lock_serials_of", "void_serials_of"
+    ],
+    "stockin_purchase": [
+      "revert_received_qty", "add_received_qty", "sync_purchase_status",
+      "purchase_receivable", "remaining_qty", "purchase_order_ref", "material_serial_required"
+    ],
+    "stockin_validate": ["ensure_cancellable", "inventory_qty_of"],
+    "stockin_tests": ["pure_tests"]
+  }
+}
