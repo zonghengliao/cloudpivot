@@ -93,6 +93,31 @@ call() {
 
 jqv() { printf '%s' "$REQ_BODY" | jq -r "$1" 2>/dev/null; }
 
+# ---------- 审批（t_72e95761）：以夹具审批人身份把某张审批单的待办批掉 ----------
+APPROVER_TOKEN=""
+login_approver() {
+    local tmp
+    tmp=$(mktemp)
+    curl -s -o "$tmp" -X POST -H 'Content-Type: application/json' \
+        --data-binary "{\"username\":\"$APPROVER_USER\",\"password\":\"$APPROVER_PASS\"}" \
+        "$BASE/system/auth/login"
+    APPROVER_TOKEN=$(jq -r '.data.access_token // empty' < "$tmp" 2>/dev/null)
+    rm -f "$tmp"
+    [ -n "$APPROVER_TOKEN" ]
+}
+
+# 批掉某张单据（按实例 id）当前的 PENDING 待办；返回审批接口的 HTTP 码
+approve_pending_of() {
+    local instance_id="$1" task_id
+    task_id=$(psql_q "SELECT id FROM biz_flow_task WHERE instance_id = '$instance_id'::uuid
+                       AND status = 'PENDING' ORDER BY created_at LIMIT 1")
+    [ -n "$task_id" ] || { REQ_CODE=000; return; }
+    REQ_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+        -H "Authorization: Bearer $APPROVER_TOKEN" -H 'Content-Type: application/json' \
+        --data-binary '{"comment":"D4 单据链回归：复核通过"}' \
+        "$BASE/business/flow/task/$task_id/approve")
+}
+
 echo '==> 0. 登录'
 tmp=$(mktemp)
 REQ_CODE=$(curl -s -o "$tmp" -w '%{http_code}' -X POST -H 'Content-Type: application/json' \
@@ -154,13 +179,27 @@ psql_x "INSERT INTO biz_material (id, material_code, material_name, unit_id, sta
         VALUES ('$MATERIAL_A', 'D4-E2E-MA', '物料 A', '$UNIT'::uuid, 1, false) ON CONFLICT DO NOTHING" >/dev/null
 psql_x "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, serial_required)
         VALUES ('$MATERIAL_B', 'D4-E2E-MB', '物料 B', '$UNIT'::uuid, 1, false) ON CONFLICT DO NOTHING" >/dev/null
-# ★ ARCH-3 DC-01（t_4130a770）：本脚本验的是**单据链**（采购单 → 收货单 → 过账 → 待收额度），
-#   不覆盖审批流。DC-01 之后「没配流程 = 409」，而「配了流程 = 送审」都会挡住这条链，
-#   所以这里把两个流程显式**下线**，并让请求走「显式跳过审批」这条唯一合法的免审通道
-#   （理由 ≥10 字，会写进 biz_status_log）。断言口径一行没改；收尾无条件恢复 PUBLISHED。
-SKIP_JSON='{"skip_approval":true,"skip_reason":"D4 单据链回归：本用例不覆盖审批流，显式免审"}'
-psql_x "UPDATE biz_flow_def SET status = 'DRAFT' WHERE flow_code IN ('po_approve','stock_in_post')" >/dev/null
-ok '主数据就绪（审批流程临时下线，过账/提交走显式跳过）'
+# ★ t_72e95761：本脚本**不再**临时下线 po_approve / stock_in_post，也不再传 skip_approval。
+#   现在两个流程都是「真的在、真的在等人批」：
+#     · 采购单提交 → SUBMITTED + 1 条待办（部门主管）；
+#     · 收货过账 → PENDING_POST + 1 条待办（仓管主管）→ 审批通过才 POSTED。
+#   下面先造一个「审批人」夹具账号（部门主管 + 仓管主管 + 超管角色以便拿到
+#   business:flow:approve），口令直接抄 admin 的哈希（首登改密之后才抄得到）。
+APPROVER_ID='d4000002-0000-4000-8000-000000000001'
+APPROVER_USER='d4.approver'
+APPROVER_PASS="${D4_ADMIN_PASSWORD:-Admin@123456}"
+if [ "$MUST_CHANGE" = "true" ]; then APPROVER_PASS="D4_${ADMIN_PASS}_new"; fi
+psql_x "INSERT INTO sys_user (id, username, password, real_name, status)
+        VALUES ('$APPROVER_ID'::uuid, '$APPROVER_USER',
+                (SELECT password FROM sys_user WHERE username = '$ADMIN_USER' ORDER BY created_at LIMIT 1),
+                'D4 审批人', 1)
+        ON CONFLICT (id) DO UPDATE SET password = EXCLUDED.password, status = 1" >/dev/null
+psql_x "DELETE FROM sys_user_role WHERE user_id = '$APPROVER_ID'::uuid" >/dev/null
+psql_x "INSERT INTO sys_user_role (user_id, role_id)
+        SELECT '$APPROVER_ID'::uuid, id FROM sys_role
+         WHERE role_code IN ('DEPT_LEADER','WAREHOUSE_MANAGER','SUPER_ADMIN') AND deleted_at IS NULL
+        ON CONFLICT DO NOTHING" >/dev/null
+assert_eq 2 "$(psql_q "SELECT count(*) FROM biz_flow_def WHERE flow_code IN ('po_approve','stock_in_post') AND status = 'PUBLISHED'")" '两个审批流程都在线（PUBLISHED，未临时下线）'
 
 echo '==> 2. ① 建采购订单：物料 A × 100、物料 B × 50 → 提交'
 BODY=$(cat <<JSON
@@ -179,8 +218,12 @@ if [ -z "$PO_ID" ] || [ "$PO_ID" = "null" ]; then
     PO_NO=$(psql_q "SELECT order_no FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")
 fi
 ok "采购单已建：$PO_NO（$PO_ID）"
-call PATCH "/business/erp/purchase-order/$PO_ID/status" "{\"status\":\"SUBMITTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
+call PATCH "/business/erp/purchase-order/$PO_ID/status" '{"status":"SUBMITTED"}'
 assert_eq 200 "$REQ_CODE" '提交采购单'
+PO_INSTANCE=$(psql_q "SELECT approval_instance_id FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")
+assert_eq SUBMITTED "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")" '提交后停在 SUBMITTED（没人批不许 APPROVED）'
+assert_eq 1 "$(psql_q "SELECT count(*) FROM biz_flow_task WHERE instance_id = '$PO_INSTANCE'::uuid AND status = 'PENDING'")" '提交后确实有 1 条待办在等人批'
+assert_eq 0 "$(psql_q "SELECT count(*) FROM biz_flow_task WHERE instance_id = '$PO_INSTANCE'::uuid AND status = 'SKIPPED'")" '没有人被内控跳过（审批人不是制单人）'
 
 echo '==> 3. ② 待收明细（没收过 → 待收 = 订单）'
 call GET "/business/erp/purchase-order/$PO_ID/pending-items"
@@ -214,9 +257,15 @@ assert_eq "$PO_NO" "$(jqv '.data.purchase_order_no')" '详情响应给 purchase_
 assert_eq "$ITEM_A" "$(jqv '.data.items[0].source_item_id')" '行 1 落 source_item_id（按行匹配）'
 assert_eq SUBMITTED "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")" '建草稿不改采购单状态'
 
-echo '==> 5. ④ 过账 → 库存 A +30、采购单变 PARTIAL_RECEIVED'
-call PATCH "/business/erp/stock-in/$IN_ID/status" "{\"status\":\"POSTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
-assert_eq 200 "$REQ_CODE" '过账'
+echo '==> 5. ④ 过账 → 送审（PENDING_POST）→ 仓管主管批 → 库存 A +30、采购单变 PARTIAL_RECEIVED'
+call PATCH "/business/erp/stock-in/$IN_ID/status" '{"status":"POSTED"}'
+assert_eq 200 "$REQ_CODE" '提交过账'
+assert_eq PENDING_POST "$(jqv '.data.header.status')" '提交后停在 PENDING_POST（等仓管主管复核）'
+login_approver || bad '审批人夹具登录失败'
+IN_INSTANCE=$(psql_q "SELECT approval_instance_id FROM biz_stock_in WHERE id = '$IN_ID'::uuid")
+approve_pending_of "$IN_INSTANCE"
+assert_eq 200 "$REQ_CODE" '仓管主管审批通过'
+call GET "/business/erp/stock-in/$IN_ID"
 assert_eq POSTED "$(jqv '.data.header.status')" '单据变 POSTED'
 assert_num 30 "$(psql_q "SELECT qty FROM biz_inventory WHERE material_id = '$MATERIAL_A'::uuid
     AND warehouse_id = '$WAREHOUSE'::uuid AND location_id IS NULL")" '库存 A +30'
@@ -261,8 +310,16 @@ call POST '/business/erp/stock-in' \
       \"items\":[{\"purchase_order_item_id\":\"$ITEM_A\",\"material_id\":\"$MATERIAL_A\",\"qty\":\"70\",\"price_excl\":\"10\",\"tax_rate\":\"13\"}]}"
 assert_eq 200 "$REQ_CODE" '建第二张收货单（只收 A 的剩余 70）'
 IN2_ID=$(jqv '.data.header.id')
-call PATCH "/business/erp/stock-in/$IN2_ID/status" "{\"status\":\"POSTED\",\"skip_approval\":true,\"skip_reason\":\"D4 单据链回归：本用例不覆盖审批流，显式免审\"}"
-assert_eq 200 "$REQ_CODE" '第二张过账'
+call PATCH "/business/erp/stock-in/$IN2_ID/status" '{"status":"POSTED"}'
+assert_eq 200 "$REQ_CODE" '第二张提交过账'
+IN2_INSTANCE=$(psql_q "SELECT approval_instance_id FROM biz_stock_in WHERE id = '$IN2_ID'::uuid")
+if [ -n "$IN2_INSTANCE" ] && [ "$IN2_INSTANCE" != "" ]; then
+    approve_pending_of "$IN2_INSTANCE"
+    assert_eq 200 "$REQ_CODE" '第二张审批通过'
+else
+    # 种子 stock_in_post 对 < 1000 元的单是「免审直过 + 知会仓管主管」（流程定义里就这么配的）
+    ok '第二张小额免审直过（< 1000 元，种子里配的就是免审）'
+fi
 assert_eq RECEIVED "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO_ID'::uuid")" '采购单变 RECEIVED'
 call GET "/business/erp/purchase-order/$PO_ID/pending-items"
 assert_eq false "$(jqv '.data.can_receive')" '收满后 can_receive=false（前端不显示按钮）'
@@ -270,8 +327,23 @@ assert_eq 0 "$(jqv '.data.pending_line_count')" '0 行未收完'
 assert_contains "$(jqv '.data.blocked_reason')" '已收满' '给出「已收满」原因'
 
 echo '==> 10. 清理 + 残留核对'
-# ★ DC-01：恢复本脚本临时下线的两个审批流程（幂等，重跑多少次都回到 PUBLISHED）
-psql_x "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code IN ('po_approve','stock_in_post')" >/dev/null
+# t_72e95761：审批流全程在线，不再需要「恢复 PUBLISHED」。这里清掉本轮的审批痕迹与审批人夹具。
+psql_x "DELETE FROM biz_flow_task WHERE instance_id IN
+          (SELECT id FROM biz_flow_instance WHERE biz_id IN
+              (SELECT id FROM biz_stock_in WHERE supplier_id = '$SUPPLIER'::uuid
+               UNION ALL
+               SELECT id FROM biz_purchase_order WHERE supplier_id = '$SUPPLIER'::uuid))" >/dev/null
+psql_x "DELETE FROM biz_flow_instance_node WHERE instance_id IN
+          (SELECT id FROM biz_flow_instance WHERE biz_id IN
+              (SELECT id FROM biz_stock_in WHERE supplier_id = '$SUPPLIER'::uuid
+               UNION ALL
+               SELECT id FROM biz_purchase_order WHERE supplier_id = '$SUPPLIER'::uuid))" >/dev/null
+psql_x "DELETE FROM biz_flow_instance WHERE biz_id IN
+          (SELECT id FROM biz_stock_in WHERE supplier_id = '$SUPPLIER'::uuid
+           UNION ALL
+           SELECT id FROM biz_purchase_order WHERE supplier_id = '$SUPPLIER'::uuid)" >/dev/null
+psql_x "DELETE FROM sys_user_role WHERE user_id = '$APPROVER_ID'::uuid" >/dev/null
+psql_x "DELETE FROM sys_user WHERE id = '$APPROVER_ID'::uuid" >/dev/null
 psql_x "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN
           (SELECT id FROM biz_stock_in WHERE supplier_id = '$SUPPLIER'::uuid)" >/dev/null
 psql_x "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN

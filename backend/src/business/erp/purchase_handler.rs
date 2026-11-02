@@ -1166,13 +1166,18 @@ async fn submit_po_tx(
         .await
         .map_err(|error| submit_conflict(error, "发起采购审批单", &row.order_no))?;
     if let Some(rejected) = out.rejected.take() {
+        // 引擎的码与文案原样交给前端；只在「自审策略」这一类上加一句「怎么解决」。
+        // `FLOW_NO_ASSIGNEE`（含 t_72e95761 的「审批人全被内控排除」）的报文自己
+        // 已经写明两条出路（换审批岗位 / 换人提交），不再叠一句泛泛的提示。
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：审批人不能是发起人本人。请由他人提交，或让另一个账号具备审批权限后再审）"
+        } else {
+            ""
+        };
         return Err(ApiError::new(
             rejected.status,
             rejected.code,
-            format!(
-                "{}（内控要求：审批人不能是发起人本人。请由他人提交，或让另一个账号具备审批权限后再审）",
-                rejected.msg
-            ),
+            format!("{}{hint}", rejected.msg),
         ));
     }
     let instance_id = out
@@ -2169,6 +2174,8 @@ mod tests {
     const U_PM: &str = "d2a2000a-0000-4000-8000-000000000003";
     /// 总经理（GENERAL_MANAGER 成员）。
     const U_GM: &str = "d2a2000a-0000-4000-8000-000000000004";
+    /// 超管夹具（t_72e95761：本库没有 bootstrap admin 时用它顶替「admin」）。
+    const U_SUPER: &str = "d2a2000a-0000-4000-8000-000000000005";
 
     fn uid(raw: &str) -> Uuid {
         Uuid::parse_str(raw).expect("夹具 UUID 非法")
@@ -2215,6 +2222,37 @@ mod tests {
         // 本卡夹具的单：先清审批痕迹（**含上一轮删单留下的孤儿实例**，见
         // `po_instance_where` 的第 2 条），再清订单本体 —— 顺序反了就会每轮攒一批孤儿 PENDING。
         purge_fixture_docs().await;
+    }
+
+    /// 取「admin」：本库有 bootstrap admin 就用它，否则建一个挂 `SUPER_ADMIN` 角色的夹具。
+    ///
+    /// t_72e95761 的复现条件是「提交人就是平台超管（兜底审批人的唯一人选）」，
+    /// 所以用例必须真的用超管身份提交，不能拿普通制单人糊弄过去。
+    async fn admin_like_user() -> Uuid {
+        let existing = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT id FROM sys_user WHERE username = 'admin' AND deleted_at IS NULL LIMIT 1",
+                vec![],
+            )
+            .await
+            .expect("查 bootstrap admin");
+        if let Some(id) = existing {
+            return id;
+        }
+        sql(&format!(
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES ('{U_SUPER}'::uuid, 'p3a_admin', 'x', 'p3a 超管', 1) \
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await;
+        sql(&format!(
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             SELECT '{U_SUPER}'::uuid, id FROM sys_role \
+              WHERE role_code = 'SUPER_ADMIN' AND deleted_at IS NULL \
+             ON CONFLICT DO NOTHING"
+        ))
+        .await;
+        uid(U_SUPER)
     }
 
     /// 造一张含税金额 = `amount` 的采购单（单行、税率 0，所以含税 = 不含税）。
@@ -2388,6 +2426,74 @@ mod tests {
             uid(U_DEPT),
             "8000 元必须派给 DEPT_LEADER（部门主管）"
         );
+    }
+
+    /// ②b t_72e95761：「admin（超管）提交 8000 元采购单」必须停在 SUBMITTED + 1 条待办。
+    ///
+    /// 卡面复现路径就是 `POST /purchase-order` → `PATCH /status {SUBMITTED}`，操作人 admin
+    /// （SUPER_ADMIN）。以前没人批就到 APPROVED：种子 `po_approve` 的 `n_dept` 是
+    /// `empty_assignee=FALLBACK_ADMIN`，部门主管角色 0 人时兜底到**发起人本人**，
+    /// 内控把他排除后节点 0 人 → 引擎按「空审批人」自动通过。
+    ///
+    /// 现在必须满足：单据停在 SUBMITTED、实例 PENDING、**有且仅有 1 条 PENDING 待办**、
+    /// 待办落在部门主管头上、admin 自己一条待办都没有（内控不许自审）、批完才 APPROVED。
+    #[tokio::test]
+    async fn t72957_admin_submit_8000_waits_for_a_real_approver() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        let admin = admin_like_user().await;
+
+        // 与卡面一致：admin 自己造单、自己提交（DRAFT → SUBMITTED 走 submit_approval）
+        let request = req("EXCL", &[(MATERIAL_A, "1", "8000", "0")]);
+        let id = create_purchase_order(&request, Some(admin))
+            .await
+            .unwrap_or_else(|err| panic!("admin 造单失败：{} {}", err.code, err.msg));
+        submit_approval(id, Some(admin), &none_gate())
+            .await
+            .unwrap_or_else(|err| panic!("admin 提交失败：{} {}", err.code, err.msg));
+
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(
+            row.status, STATUS_SUBMITTED,
+            "提交后必须停在 SUBMITTED —— 没有任何人点过「通过」，不许是 APPROVED"
+        );
+        assert!(
+            row.approved_at.is_none(),
+            "没人点过通过，approval 时间必须为空"
+        );
+        let instance = row
+            .approval_instance_id
+            .expect("SUBMITTED 必须回写审批实例 id");
+        let instance_status: String = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT status FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance)],
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(instance_status, "PENDING", "实例必须还在等审批");
+
+        let tasks = pending_tasks(instance).await;
+        assert_eq!(
+            tasks.len(),
+            1,
+            "必须恰好 1 条待办（流程真的在等人批），实际 {tasks:?}"
+        );
+        assert_eq!(tasks[0].1, uid(U_DEPT), "8000 元档的待办要落在部门主管头上");
+        assert!(
+            task_of(instance, admin).await.is_none(),
+            "admin 是制单人 + 发起人，内控不许他拿到一条自己的待办"
+        );
+
+        // 部门主管批完才 APPROVED（证明这条链路还能走完，不是把单卡死）
+        approve_as(tasks[0].0, U_DEPT).await;
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, "APPROVED", "部门主管点通过之后才允许 APPROVED");
+        assert_eq!(row.approved_by, Some(uid(U_DEPT)));
     }
 
     /// ③ 50000 元（1–10 万）→ 派给「采购经理」。

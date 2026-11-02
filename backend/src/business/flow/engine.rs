@@ -2588,6 +2588,40 @@ impl<'a> Run<'a> {
                     }
                 }
 
+                // ★ t_72e95761：**内控把审批人排除到 0 人 ≠ 没人可派**。
+                //
+                // 此前这里直接落进下面「空审批人 → 节点 SKIPPED + 自动通过」那条路径，
+                // 于是出现「配了流程也无人复核就生效」：种子 `po_approve` 的
+                // `empty_assignee=FALLBACK_ADMIN` 在只有一个超管的库里兜底出来的正是
+                // **发起人本人**，内控把他排除后节点 0 人 → 整单 APPROVED（实测证据见
+                // docs/evidence/20261103-po-approval-no-approver.md）。
+                //
+                // 内控的含义是「这张单必须有一个既不是制单人、也不是发起人的人签过字」；
+                // 排除到 0 人说明**审批岗位配错了**（没人可派），这不是「配置了免审」。
+                // 静默通过比卡住更坏（单据看起来被复核过，实际没人看），所以按卡面决策：
+                // **发起即失败**（422），报文点名节点 + 每个人为什么被排除 + 两条出路。
+                //
+                // 与「真的没有候选（`empty_assignee=SKIP`，例如角色里 0 人）」严格区分：
+                // 那条路径（`control_excluded` 为空）保持原来的自动通过语义不变。
+                if approvers.is_empty() {
+                    let who = control_excluded
+                        .iter()
+                        .map(|(candidate, reason)| format!("{}（{reason}）", candidate.name))
+                        .collect::<Vec<_>>()
+                        .join("；");
+                    return Ok(Step::Fail(ApiError::new(
+                        422,
+                        error_code::FLOW_NO_ASSIGNEE,
+                        format!(
+                            "节点「{}」的审批人全部是制单人 / 发起人本人，内控（职责分离）不允许他们审批自己的单据，\
+                             本节点没有一个可用审批人：{who}。\
+                             请先把该节点的审批岗位（角色成员 / 指定审批人）指派给非制单人、非发起人；\
+                             或改由他人提交本单。",
+                            spec.name
+                        ),
+                    )));
+                }
+
                 // 内控排除的 SKIPPED 留痕行（**不删人、不静默丢弃**：审计要能回答「谁没批、为什么」）
                 for (candidate, reason) in &control_excluded {
                     let insert = model::insert_task(
@@ -2623,34 +2657,23 @@ impl<'a> Run<'a> {
                 }
 
                 if approvers.is_empty() {
-                    // ① 角色内 0 人 / 自审跳过 → 与改动前同一条路径；
-                    // ② **内控把审批人全部排除** → 走同一条「跳过」路径，但必须留下
-                    //    「配置有问题」的证据：这条流程是**没人签字**就通过的。
-                    if !control_excluded.is_empty() {
-                        tracing::warn!(
-                            instance_id = %self.instance.id,
-                            node_key = %spec.key,
-                            excluded = control_excluded.len(),
-                            "内控排除了本节点的全部审批人，节点将自动通过 —— 审批人配置有问题：该节点的审批岗位不能由制单人 / 发起人担任"
-                        );
-                    }
+                    // 只有「真的没有候选」才会走到这里：角色内 0 人且 `empty_assignee=SKIP`
+                    // （自己跳过的人不算候选，见 assignee::finalize 的 ⑤）。
+                    // 「内控排除到 0 人」在上面的 fail-closed 检查里已经 422，不会到这里。
+                    debug_assert!(
+                        control_excluded.is_empty(),
+                        "内控排除到 0 人必须走 fail-closed（422），不该落到自动通过"
+                    );
                     // 空审批人 SKIP：节点跳过 + `auto_passed_nodes + 1`（派生值，见 sync_auto_passed）
                     model::end_node_row(self.ex, row.id, "SKIPPED", Tally::default(), None, true)
                         .await?;
                     model::sync_auto_passed(self.ex, self.instance.id).await?;
-                    let detail = if control_excluded.is_empty() {
-                        "没有有效审批人（自审跳过 / 角色内 0 人）".to_string()
-                    } else {
-                        format!(
-                            "没有有效审批人（{} 人因内控被排除：制单人 / 发起人不可自审，请把审批岗位换成其他人）",
-                            control_excluded.len()
-                        )
-                    };
                     self.effects.notice(
                         vec![self.instance.initiator_id],
                         format!("节点自动跳过：{}", spec.name),
                         format!(
-                            "审批单 {} 的节点「{}」{detail}，已自动跳过 —— 请检查审批人配置。",
+                            "审批单 {} 的节点「{}」没有有效审批人（自审跳过 / 角色内 0 人），\
+                             已自动跳过 —— 请检查审批人配置。",
                             self.instance.instance_no, spec.name
                         ),
                         format!("/flow/instance/{}", self.instance.id),

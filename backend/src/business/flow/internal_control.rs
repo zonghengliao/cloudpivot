@@ -28,12 +28,18 @@
 //! - **不碰节点配置**：`self_approval` 仍是 `ALLOW`。内控语义是「这一票没人能点 ⇒ 不算一票」，
 //!   与框架的「发起人自审策略」是两件事（后者只有 `SKIP`/`FORBID`，前者还包括**制单人**）。
 //!
-//! # ⚠️ 配置红线（自动通过）
+//! # ⚠️ 配置红线（全部被排除 = 发起即失败）
 //!
-//! 若某节点**全部**审批人都是被排除的人，节点会按 `empty_assignee` 策略自动通过
-//! （与「角色内 0 人」同一路径），并打 `warn` + 给发起人发一条知会。
-//! 这是「流程别卡死」的最低要求，但**它意味着这张单没过任何人的手** ——
-//! 出现这种日志说明审批人配置有问题：审批岗位必须由**非制单人 / 非发起人**担任。
+//! 若某节点**全部**审批人都是被排除的人，本模块给不出任何一个能签字的候选人 ⇒
+//! 引擎在落待办之前就以 `422 + FLOW_NO_ASSIGNEE` **整单发起失败**（报文点名节点 +
+//! 每个人为什么被排除 + 两条出路：换审批岗位 / 换人提交）。
+//!
+//! 以前这里会按「空审批人」自动通过（`SKIPPED` + `auto_passed_nodes + 1`），
+//! 结果是「配了流程也无人复核就生效」—— 种子 `po_approve` 的
+//! `empty_assignee = FALLBACK_ADMIN` 在只有一个超管的库里兜底出来的正好是**发起人本人**
+//! （实测见 `docs/evidence/20261103-po-approval-no-approver.md`）。
+//! 「真的没有候选」（角色里 0 人 + `empty_assignee=SKIP`）仍按配置自动通过，两者语义不同：
+//! 前者是**审批岗位配错了**，后者是**客户明确配置了免审**。
 
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -474,8 +480,20 @@ mod db_tests {
     }
 
     impl Scenario {
-        /// 造场景并**发起实例**。
+        /// 造场景并**发起实例**（发起被拒 → panic；「发起应当失败」的用例用 [`Self::build`]）。
         async fn start(
+            tag: &str,
+            seed: u128,
+            approvers: &[(Uuid, &str)],
+            role_members: &[Uuid],
+        ) -> Self {
+            let scenario = Self::build(tag, seed, approvers, role_members).await;
+            scenario.run_start().await;
+            scenario
+        }
+
+        /// 只造场景与流程定义，**不发起**实例。
+        async fn build(
             tag: &str,
             seed: u128,
             approvers: &[(Uuid, &str)],
@@ -609,13 +627,12 @@ mod db_tests {
                 order_id,
                 initiator,
             };
-            scenario.run_start().await;
             scenario
         }
 
-        /// `engine::start`（事务内）+ 提交 + flush 副作用。
-        async fn run_start(&self) {
-            let req = engine::StartReq {
+        /// 只造 `StartReq`（`run_start` / `try_start` 共用）。
+        fn start_req(&self) -> engine::StartReq {
+            engine::StartReq {
                 instance_id: self.instance_id,
                 def_id: self.def_id,
                 version_id: self.version_id,
@@ -630,13 +647,52 @@ mod db_tests {
                 initiator_name: Some("发起人".to_string()),
                 initiator_dept_id: None,
                 form_data: json!({}),
-            };
+            }
+        }
+
+        /// `engine::start`（事务内）+ 提交 + flush 副作用。
+        async fn run_start(&self) {
+            let req = self.start_req();
             let tx = db().begin().await.expect("开启事务");
             let mut out = engine::start(&tx, &req).await.expect("发起实例");
             assert!(out.rejected.is_none(), "发起不应失败：{:?}", out.rejected);
             tx.commit().await.expect("提交事务");
             engine::flush_effects(out.effects.take()).await;
             engine::flush_drafts(out.effects.take_drafts()).await;
+        }
+
+        /// 发起实例，**允许失败**：被拒时按业务入口的口径 `rollback`，返回拒绝原因。
+        ///
+        /// 业务入口（`submit_po_approval` / `submit_post` / `submit_payment`）拿到
+        /// `out.rejected` 就是 `Err` + 回滚，所以「发起失败 = 库里不许多出任何行」。
+        async fn try_start(&self) -> Option<ApiError> {
+            let req = self.start_req();
+            let tx = db().begin().await.expect("开启事务");
+            let mut out = engine::start(&tx, &req).await.expect("发起实例");
+            match out.rejected.take() {
+                Some(error) => {
+                    tx.rollback().await.expect("回滚事务");
+                    Some(error)
+                }
+                None => {
+                    tx.commit().await.expect("提交事务");
+                    engine::flush_effects(out.effects.take()).await;
+                    engine::flush_drafts(out.effects.take_drafts()).await;
+                    None
+                }
+            }
+        }
+
+        /// 实例状态（不存在 → `None`，用来证明「发起失败没留下半截审批单」）。
+        async fn instance_status_opt(&self) -> Option<String> {
+            let row = db()
+                .query_first_sql(
+                    "SELECT status FROM biz_flow_instance WHERE id = ?::uuid".to_string(),
+                    vec![Value::from(&self.instance_id)],
+                )
+                .await
+                .expect("读实例");
+            row.map(|row| row.get_typed::<String>("status").expect("读 status"))
         }
 
         /// 本实例的全部待办行：`(assignee, status, comment)`。
@@ -927,9 +983,13 @@ mod db_tests {
         assert_eq!(sc.instance_status().await, "APPROVED");
     }
 
-    /// ⑦ 会签 3 人**全被 SKIP** → 节点自动通过（并留痕 + warn），流程不卡死。
+    /// ⑦ 会签 2 人**全被内控排除** → 发起即失败（422 + 65018），**不许**静默自动通过。
+    ///
+    /// 这条用例以前断言「节点自动通过、实例 APPROVED」—— 那正是 t_72e95761 报的缺陷
+    /// （配了流程也无人复核就生效）。新语义：审批岗位配错时在**发起那一刻**就挡住，
+    /// 库里不留实例 / 节点 / 待办（回滚），报文点名节点 + 为什么被排除 + 两条出路。
     #[tokio::test]
-    async fn countersign_all_excluded_auto_passes() {
+    async fn countersign_all_excluded_fails_closed() {
         let _guard = DB_LOCK.lock().await;
         if !ensure_db().await {
             return;
@@ -937,7 +997,7 @@ mod db_tests {
         let seed = 3u128;
         let creator = uid(seed * 100 + 5);
         let initiator = uid(seed * 100 + 6);
-        let sc = Scenario::start(
+        let sc = Scenario::build(
             "all_skip",
             seed,
             &[(creator, "USER"), (initiator, "USER")],
@@ -945,21 +1005,39 @@ mod db_tests {
         )
         .await;
 
-        // 两条 SKIPPED 留痕（不删待办行）
-        let tasks = sc.tasks().await;
-        assert_eq!(tasks.len(), 2, "被排除的人必须有留痕行：{tasks:?}");
-        assert!(tasks.iter().all(|(_, status, _)| status == "SKIPPED"));
-        assert!(
-            tasks.iter().all(|(_, _, comment)| comment.contains("内控")),
-            "留痕要写原因：{tasks:?}"
-        );
-        // 节点按「空审批人」策略跳过，实例继续走到 END
-        assert_eq!(sc.node_status("n1").await, "SKIPPED");
-        assert_eq!(sc.node_approver_count("n1").await, 0);
+        let error = sc.try_start().await.expect("全部被内控排除必须发起失败");
+        assert_eq!(error.status, 422, "发起应当 422：{}", error.msg);
         assert_eq!(
-            sc.instance_status().await,
-            "APPROVED",
-            "全部被排除时节点自动通过（同时打 warn：配置有问题）"
+            error.code,
+            crate::shared::error_code::FLOW_NO_ASSIGNEE,
+            "码必须是 65018（没有可用审批人）：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("内控") && error.msg.contains("全部是制单人"),
+            "报文要说清是内控排除导致的：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("内控审批"),
+            "报文要点名节点名：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains("指派给非制单人"),
+            "报文要给可执行的出路：{}",
+            error.msg
+        );
+
+        // 回滚：没有实例、没有待办（不留半截审批单）
+        assert_eq!(
+            sc.instance_status_opt().await,
+            None,
+            "发起失败后不许留下实例行"
+        );
+        assert!(
+            sc.tasks().await.is_empty(),
+            "发起失败后不许留下待办 / 留痕行"
         );
     }
 
