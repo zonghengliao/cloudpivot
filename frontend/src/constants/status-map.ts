@@ -22,6 +22,7 @@ export type StatusDomain =
   | 'task'
   | 'announcement'
   | 'import'
+  | 'erp-contract'
   | 'flow-def'
   | 'flow-instance'
   | 'flow-node'
@@ -150,6 +151,25 @@ const FLOW_CC_STATUS_MAP: Record<string, StatusMeta> = {
 };
 
 /**
+ * 合同状态映射（A5 · `contract_model::STATUSES` 逐字一致）。
+ *
+ * 配色口径来自 A5 卡面：草稿灰 / 生效中绿 / 已完成蓝 / 已终止橙；
+ * **没有「已取消」**——草稿作废走软删除，卡面写的 `CANCELLED` 在 DDL 的
+ * `ck_biz_contract_status` 白名单里不存在（A2 已报告过同一处出入）。
+ *
+ * `SIGNED`（已签订、待生效）卡面没给颜色：`t-tag` 只有 5 个 theme，绿被 `ACTIVE`、
+ * 蓝被 `COMPLETED`、橙被 `TERMINATED` 占了，于是按「尚未生效」的口径留在灰档，
+ * 用更深的圆点色（`text-color-secondary`）与 `DRAFT` 的浅灰区分。
+ */
+const ERP_CONTRACT_STATUS_MAP: Record<string, StatusMeta> = {
+  DRAFT: { label: '草稿', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+  SIGNED: { label: '已签订', theme: 'default', dotVar: 'var(--td-text-color-secondary)' },
+  ACTIVE: { label: '已生效', theme: 'success', dotVar: 'var(--td-success-color)' },
+  COMPLETED: { label: '已完成', theme: 'primary', dotVar: 'var(--td-brand-color)' },
+  TERMINATED: { label: '已终止', theme: 'warning', dotVar: 'var(--td-warning-color)' },
+};
+
+/**
  * 全部域的映射表。
  *
  * `announcement` / `import` 为**扩展位**：留空对象，等对应页面迁移时填充。
@@ -161,6 +181,7 @@ export const STATUS_MAP: Record<StatusDomain, Record<string, StatusMeta>> = {
   announcement: {},
   // TODO(批次C+·T6 后续小卡)：把导入/导出任务的状态抽到这里
   import: {},
+  'erp-contract': ERP_CONTRACT_STATUS_MAP,
   'flow-def': FLOW_DEF_STATUS_MAP,
   'flow-instance': FLOW_INSTANCE_STATUS_MAP,
   'flow-node': FLOW_NODE_STATUS_MAP,

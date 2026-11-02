@@ -1,0 +1,621 @@
+/**
+ * 合同管理页的纯逻辑（A5）。
+ *
+ * # 为什么单拎一个 `.ts`
+ *
+ * 状态配色、合法边、表单校验这些「错了会误导人」的判定必须能在没有 DOM 的
+ * `tsx --test` 里断言（本仓惯例：`*-logic.ts` 承载口径，`.vue` 只渲染）。
+ *
+ * # 口径来源（逐条抄真代码，不抄卡面）
+ *
+ * | 内容 | 唯一真相 |
+ * |---|---|
+ * | 5 个状态字面量 | `backend/src/business/erp/contract_model.rs::STATUSES` |
+ * | 状态中文名 | `contract_model.rs::status_label` |
+ * | 合法边 | `backend/src/business/shared/state_machine.rs::CONTRACT_EDGES` |
+ * | 需要 reason 的边 | `state_machine.rs::CONTRACT_REASON_EDGES` |
+ * | 建单白名单 / 金额下限 / 日期顺序 | `contract_dto.rs::CreateContractReq::validate` |
+ * | 乙方快照口径 | `contract_dto.rs::ContractRes`（`party_b_name` + `party_b_current_name`） |
+ *
+ * # 与 A5 卡面的三处出入（都以已落库的代码 / DDL 为准，卡里已报告）
+ *
+ * 1. **没有 `CANCELLED`**：DDL 白名单是 `DRAFT/SIGNED/ACTIVE/COMPLETED/TERMINATED`，
+ *    草稿作废走软删除；卡面「DRAFT → [生效][取消]」实际是 `DRAFT → SIGNED`（登记签订）。
+ * 2. **金额是 `> 0` 不是 `≥ 0`**：`ck_biz_contract_amount CHECK (amount > 0)`，0 元合同
+ *    后端 400（DEC-04 不支持不限额框架合同）——前端先拦，不让用户白填一遍。
+ * 3. **没有「税率」「付款条件」列**：`V0195` 的 23 列里没有 `tax_rate` / `payment_terms`，
+ *    所以表单不提供这两个字段（合同只存含税总额 `amount`）。
+ */
+import {
+  statusLabel,
+  statusMeta,
+  statusOptions,
+  type StatusTagTheme,
+} from '@/constants/status-map';
+import type {
+  ContractDetail,
+  ContractPageQuery,
+  ContractRow,
+  ContractStatus,
+  ContractType,
+  CreateContractPayload,
+  UpdateContractPayload,
+} from '@/api/business/erp';
+import { formatMoney, toNumber } from '@/views/business/erp/shared/money';
+
+/** 徽标域（`constants/status-map.ts`，配色不在这里硬写） */
+export const CONTRACT_STATUS_DOMAIN = 'erp-contract';
+
+/** 默认每页条数（后端 `DEFAULT_PAGE_SIZE` = 20，上限 100） */
+export const CONTRACT_PAGE_SIZE = 20;
+
+/** 名称长度上限（`contract_name VARCHAR(200)` + `contract_dto::MAX_NAME_LEN`） */
+export const MAX_CONTRACT_NAME = 200;
+
+/** 备注长度上限（`contract_dto::MAX_REMARK_LEN` = 2000 字） */
+export const MAX_CONTRACT_REMARK = 2000;
+
+/** 金额小数位上限（`NUMERIC(18,4)`） */
+export const MAX_AMOUNT_SCALE = 4;
+
+/**
+ * 5 个状态（与 `contract_model::STATUSES` 逐字一致）。
+ *
+ * ⚠️ 没有 `CANCELLED`：草稿作废走软删（`DELETE /business/erp/contract/{id}`）。
+ */
+export const CONTRACT_STATUSES: readonly ContractStatus[] = [
+  'DRAFT',
+  'SIGNED',
+  'ACTIVE',
+  'COMPLETED',
+  'TERMINATED',
+] as const;
+
+/** 终态（`state_machine::CONTRACT_EDGES` 里没有出边的两个） */
+export const CONTRACT_TERMINAL_STATUSES: readonly ContractStatus[] = ['COMPLETED', 'TERMINATED'] as const;
+
+/**
+ * 合法边（**与 `state_machine.rs::CONTRACT_EDGES` 逐条一致**）。
+ *
+ * ```text
+ * DRAFT   → SIGNED      登记签订（三个日期必填）
+ * SIGNED  → ACTIVE      生效
+ * SIGNED  → TERMINATED  已签未生效即终止（必填原因）
+ * ACTIVE  → COMPLETED   履约完成
+ * ACTIVE  → TERMINATED  中途终止（必填原因）
+ * ```
+ *
+ * 单测 `contract-edges-mirror-backend` 会读 Rust 源码逐条比对 —— 后端加一条边、
+ * 前端没跟，用例先红（不是靠人眼记）。
+ */
+export const CONTRACT_EDGES: ReadonlyArray<readonly [ContractStatus, ContractStatus]> = [
+  ['DRAFT', 'SIGNED'],
+  ['SIGNED', 'ACTIVE'],
+  ['SIGNED', 'TERMINATED'],
+  ['ACTIVE', 'COMPLETED'],
+  ['ACTIVE', 'TERMINATED'],
+] as const;
+
+/** 需要 reason 的边（`state_machine::CONTRACT_REASON_EDGES`：两条终止边） */
+export const CONTRACT_REASON_EDGES: ReadonlyArray<readonly [ContractStatus, ContractStatus]> = [
+  ['SIGNED', 'TERMINATED'],
+  ['ACTIVE', 'TERMINATED'],
+] as const;
+
+/** 本期放行的合同类型（`contract_dto::SUPPORTED_TYPES`，只有 `PURCHASE`） */
+export const SUPPORTED_CONTRACT_TYPES: readonly ContractType[] = ['PURCHASE'] as const;
+
+/** 合同类型中文名（`ck_biz_contract_type` 的 4 个值） */
+const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
+  PURCHASE: '采购合同',
+  SALES: '销售合同',
+  SERVICE: '服务合同',
+  LEASE: '租赁合同',
+};
+
+/** 状态 → 动作文案（目标态即动作名：`→SIGNED` = 登记签订） */
+const TRANSITION_LABELS: Record<ContractStatus, string> = {
+  DRAFT: '退回草稿',
+  SIGNED: '登记签订',
+  ACTIVE: '生效',
+  COMPLETED: '完成',
+  TERMINATED: '终止',
+};
+
+/** 状态 → 动作按钮配色（`t-link` 用） */
+const TRANSITION_THEMES: Record<ContractStatus, 'primary' | 'success' | 'warning' | 'danger' | 'default'> = {
+  DRAFT: 'default',
+  SIGNED: 'primary',
+  ACTIVE: 'success',
+  COMPLETED: 'success',
+  TERMINATED: 'danger',
+};
+
+// ==================== 展示 ====================
+
+/** 状态中文名（走 `status-map` 的唯一来源，未知值原样显示） */
+export function contractStatusLabel(status: string): string {
+  return statusLabel(CONTRACT_STATUS_DOMAIN, status);
+}
+
+/** 状态徽标主题（配色口径在 `status-map.ts`） */
+export function contractStatusTheme(status: string): StatusTagTheme {
+  return statusMeta(CONTRACT_STATUS_DOMAIN, status).theme;
+}
+
+/** 状态下拉选项（顺序 = 状态机推进顺序，`''` = 全部由页面自己加） */
+export const CONTRACT_STATUS_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: string; theme: StatusTagTheme }> =
+  statusOptions(CONTRACT_STATUS_DOMAIN);
+
+/** 合同类型中文名 */
+export function contractTypeLabel(type: string | null | undefined): string {
+  if (!type) {
+    return '—';
+  }
+  return CONTRACT_TYPE_LABELS[type as ContractType] ?? type;
+}
+
+/**
+ * 合同类型下拉：本期只有「采购合同」可选，其余**置灰**（不是隐藏 —— 置灰能让用户
+ * 知道系统里有销售/服务/租赁，只是还没开，比凭空少几个选项更容易解释）。
+ */
+export function contractTypeOptions(): Array<{ label: string; value: ContractType; disabled: boolean }> {
+  return (Object.keys(CONTRACT_TYPE_LABELS) as ContractType[]).map((value) => ({
+    label: SUPPORTED_CONTRACT_TYPES.includes(value)
+      ? CONTRACT_TYPE_LABELS[value]
+      : `${CONTRACT_TYPE_LABELS[value]}（本期未开放）`,
+    value,
+    disabled: !SUPPORTED_CONTRACT_TYPES.includes(value),
+  }));
+}
+
+/**
+ * 金额文案：`¥1,234,567.89`（千分位 + `¥` 前缀）。
+ *
+ * 走 `shared/money.ts::formatMoney`（整数分口径，避免浮点二次舍入）。
+ */
+export function contractAmountText(value: number | string | null | undefined): string {
+  return `¥${formatMoney(value)}`;
+}
+
+/** 有效期文案：`2026-01-01 ~ 2026-12-31`（任一端缺 → 尽量显示已填的那端） */
+export function contractPeriodText(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) {
+    return '—';
+  }
+  return `${start || '—'} ~ ${end || '—'}`;
+}
+
+/** 乙方名称：优先主档现值（改名后跟着变），没有现值用签约快照，都没有给短 id */
+export function contractPartyBName(row: Pick<ContractRow, 'party_b_name' | 'party_b_current_name'>): string {
+  return row.party_b_current_name || row.party_b_name || '—';
+}
+
+// ==================== 状态流转 ====================
+
+/** 一条可用动作 */
+export interface ContractTransition {
+  /** 目标状态 */
+  target: ContractStatus;
+  /** 按钮文案（`登记签订` / `生效` / `完成` / `终止`） */
+  label: string;
+  /** 按钮配色 */
+  theme: 'primary' | 'success' | 'warning' | 'danger' | 'default';
+  /** 是否必须填原因（两条终止边） */
+  needReason: boolean;
+}
+
+/** 该状态是不是终态（没有出边） */
+export function isContractTerminal(status: string): boolean {
+  return CONTRACT_TERMINAL_STATUSES.includes(status as ContractStatus);
+}
+
+/**
+ * 当前状态能走的合法边。
+ *
+ * @param status 当前状态
+ * @param nextStatuses 后端详情下发的 `next_statuses`（**有就优先用它**，见卡面第 2 点；
+ *   列表行没有这个字段，才回落到 {@link CONTRACT_EDGES}）
+ */
+export function contractTransitions(status: string, nextStatuses?: readonly string[] | null): ContractTransition[] {
+  const from = (status ?? '').trim().toUpperCase() as ContractStatus;
+  const targets = nextStatuses && nextStatuses.length > 0
+    ? nextStatuses.map((item) => (item ?? '').trim().toUpperCase())
+    : CONTRACT_EDGES.filter(([edgeFrom]) => edgeFrom === from).map(([, to]) => to as string);
+
+  return targets
+    .filter((target) => target.length > 0)
+    .map((target) => {
+      const key = target as ContractStatus;
+      return {
+        target: key,
+        label: TRANSITION_LABELS[key] ?? contractStatusLabel(key),
+        theme: TRANSITION_THEMES[key] ?? 'primary',
+        needReason: needsReason(from, key),
+      };
+    });
+}
+
+/** 这条边是否必须填原因（`CONTRACT_REASON_EDGES`） */
+export function needsReason(from: string, to: string): boolean {
+  const f = (from ?? '').trim().toUpperCase();
+  const t = (to ?? '').trim().toUpperCase();
+  return CONTRACT_REASON_EDGES.some(([edgeFrom, edgeTo]) => edgeFrom === f && edgeTo === t);
+}
+
+/**
+ * 流转请求体。
+ *
+ * `reason` 只在该边需要时带上（不需要的边也带会被后端写进
+ * `biz_status_log.reason`，等于给审计塞噪声）。
+ */
+export function buildStatusPayload(
+  from: string,
+  target: string,
+  reason?: string,
+): { target_status: string; reason?: string } {
+  const text = (reason ?? '').trim();
+  const payload: { target_status: string; reason?: string } = { target_status: target };
+  if (needsReason(from, target) && text) {
+    payload.reason = text;
+  }
+  return payload;
+}
+
+/** 流转确认文案（说明「从哪个状态到哪个状态」+ 副作用） */
+export function transitionConfirmText(
+  contractNo: string,
+  status: string,
+  action: ContractTransition,
+): string {
+  const from = contractStatusLabel(status);
+  const to = contractStatusLabel(action.target);
+  const tail = action.target === 'TERMINATED'
+    ? '终止是不可逆的终态：终止后这张合同不能再被新采购单引用，原因会写进状态日志与备注。'
+    : action.target === 'SIGNED'
+      ? '登记签订会写状态日志；此后关键字段（乙方 / 金额 / 日期）冻结，只能作废重签。'
+      : '';
+  return `确定把 ${contractNo} 从「${from}」流转到「${to}」吗？${tail}`;
+}
+
+/** 行内/行级动作的显隐（卡面：只有草稿能编辑、只有草稿能删） */
+export function contractActionsOf(status: string): { edit: boolean; remove: boolean } {
+  const draft = (status ?? '').trim().toUpperCase() === 'DRAFT';
+  return { edit: draft, remove: draft };
+}
+
+/**
+ * 「编辑」入口是否显示。
+ *
+ * 优先级：**后端详情给的 `can_edit` > 状态判断**。列表行没有 `can_edit`，
+ * 按「状态 = DRAFT」判（与后端 `ContractDetailRes::from` 的可编辑口径相同）。
+ */
+export function canEditContract(row: { status?: string | null; can_edit?: boolean | null }): boolean {
+  if (typeof row.can_edit === 'boolean') {
+    return row.can_edit;
+  }
+  return (row.status ?? '').trim().toUpperCase() === 'DRAFT';
+}
+
+/** 「删除」入口是否显示（卡面：仅 DRAFT；被引用时后端还会 409 + 66018） */
+export function canDeleteContract(row: { status?: string | null }): boolean {
+  return (row.status ?? '').trim().toUpperCase() === 'DRAFT';
+}
+
+// ==================== 列表 ====================
+
+/** 筛选行（区间用两元素数组，空数组 = 没选） */
+export interface ContractFilterState {
+  /** 合同号（模糊） */
+  contract_no: string;
+  /** 名称（模糊） */
+  name: string;
+  /** 合同类型（`''` = 全部） */
+  contract_type: string;
+  /** 状态（`''` = 全部） */
+  status: string;
+  /** 乙方（供应商）id */
+  party_b_id: string;
+  /** 签订日期区间 `[from, to]` */
+  sign_range: string[];
+  /** 到期日期区间 `[from, to]` */
+  expire_range: string[];
+}
+
+/** 空筛选 */
+export function emptyContractFilter(): ContractFilterState {
+  return {
+    contract_no: '',
+    name: '',
+    contract_type: '',
+    status: '',
+    party_b_id: '',
+    sign_range: [],
+    expire_range: [],
+  };
+}
+
+/** 是否处于筛选态（决定空态文案说「没有匹配」还是「还没有合同」） */
+export function isContractFiltered(filter: ContractFilterState): boolean {
+  return Boolean(
+    filter.contract_no.trim()
+      || filter.name.trim()
+      || filter.contract_type
+      || filter.status
+      || filter.party_b_id
+      || filter.sign_range.length > 0
+      || filter.expire_range.length > 0,
+  );
+}
+
+/** 区间数组 → 两个边界值（`t-date-range-picker` 的 `[]` / `[from]` / `[from, to]` 都兼容） */
+function rangeBounds(range: string[] | null | undefined): [string, string] {
+  const values = (range ?? []).map((item) => (item ?? '').trim()).filter(Boolean);
+  return [values[0] ?? '', values[1] ?? ''];
+}
+
+/**
+ * 拼分页查询。
+ *
+ * 空串 / 空数组一律**不发**（后端把 `?contract_no=` 当「等于空串」过滤，会查出 0 行）。
+ * 到期日期区间落后端 `expire_date_from` / `expire_date_to`（对应 `end_date` 列）。
+ */
+export function buildContractQuery(
+  filter: ContractFilterState,
+  page: number,
+  pageSize: number = CONTRACT_PAGE_SIZE,
+): ContractPageQuery {
+  const [signFrom, signTo] = rangeBounds(filter.sign_range);
+  const [expireFrom, expireTo] = rangeBounds(filter.expire_range);
+  const query: ContractPageQuery = {
+    page: Math.max(1, Math.trunc(page)),
+    page_size: Math.max(1, Math.trunc(pageSize)),
+  };
+  const contractNo = filter.contract_no.trim();
+  const name = filter.name.trim();
+  if (contractNo) {
+    query.contract_no = contractNo;
+  }
+  if (name) {
+    query.name = name;
+  }
+  if (filter.contract_type) {
+    query.contract_type = filter.contract_type;
+  }
+  if (filter.status) {
+    query.status = filter.status;
+  }
+  if (filter.party_b_id) {
+    query.party_b_id = filter.party_b_id;
+  }
+  if (signFrom) {
+    query.sign_date_from = signFrom;
+  }
+  if (signTo) {
+    query.sign_date_to = signTo;
+  }
+  if (expireFrom) {
+    query.expire_date_from = expireFrom;
+  }
+  if (expireTo) {
+    query.expire_date_to = expireTo;
+  }
+  return query;
+}
+
+/** 列表区状态（行数 / 总数 / 是否空 / 总数文案） */
+export interface ContractListState {
+  /** 当前页行 */
+  rows: ContractRow[];
+  /** 总条数 */
+  total: number;
+  /** 是否空表 */
+  isEmpty: boolean;
+  /** 「共 N 条」文案 */
+  totalText: string;
+}
+
+/**
+ * 把一次分页响应用成列表区状态。
+ *
+ * 空表文案**分两种**（卡面第 1 点「空态友好提示」）：筛选后无结果 vs 一条都没有 ——
+ * 两者的下一步动作完全不同（改条件 vs 新建成第一张）。
+ */
+export function contractListState(
+  data: { list?: ContractRow[] | null; total?: number | null } | null | undefined,
+): ContractListState {
+  const rows = data?.list ?? [];
+  const total = data?.total ?? rows.length;
+  return {
+    rows,
+    total,
+    isEmpty: rows.length === 0,
+    totalText: `共 ${total} 条`,
+  };
+}
+
+/** 空态文案 */
+export function contractEmptyState(filtered: boolean): { title: string; desc: string } {
+  return filtered
+    ? { title: '没有匹配的合同', desc: '换个条件再查，或点右侧「重置」回全量' }
+    : { title: '还没有合同', desc: '点左上角「新建合同」录入第一张' };
+}
+
+// ==================== 表单 ====================
+
+/** 表单状态（`id` 为空 = 新建） */
+export interface ContractFormState {
+  /** 主键（空 = 新建） */
+  id: string;
+  /** 合同号（后端生成；编辑时只读展示，**不可改**） */
+  contract_no: string;
+  /** 合同名称 */
+  name: string;
+  /** 合同类型 */
+  contract_type: string;
+  /** 乙方（供应商）id */
+  party_b_id: string;
+  /** 合同金额（含税总额；`undefined` = 没填 —— `t-input-number` 的 v-model 不认 `null`） */
+  amount: number | undefined;
+  /** 签订日期 */
+  sign_date: string;
+  /** 生效日 */
+  start_date: string;
+  /** 到期日 */
+  end_date: string;
+  /** 备注 */
+  remark: string;
+}
+
+/** 表单错误（键与字段同名；明细行不涉及） */
+export type ContractFormErrors = Partial<Record<keyof ContractFormState, string>>;
+
+/** 空表单（默认 `PURCHASE`：本期唯一可用类型，不让用户多点一次） */
+export function emptyContractForm(): ContractFormState {
+  return {
+    id: '',
+    contract_no: '',
+    name: '',
+    contract_type: 'PURCHASE',
+    party_b_id: '',
+    amount: undefined,
+    sign_date: '',
+    start_date: '',
+    end_date: '',
+    remark: '',
+  };
+}
+
+/**
+ * 详情 → 表单（编辑回填）。
+ *
+ * `contract_no` 只回填到只读展示位；改单请求里**没有**这个字段（后端 serde 会丢掉）。
+ * 金额转 `number`：`Decimal` 出 JSON 是字符串，`t-input-number` 只认数字。
+ */
+export function contractFormFromDetail(detail: ContractDetail): ContractFormState {
+  return {
+    id: detail.id,
+    contract_no: detail.contract_no,
+    name: detail.name,
+    contract_type: detail.contract_type,
+    party_b_id: detail.party_b_id,
+    amount: detail.amount === null || detail.amount === undefined ? undefined : toNumber(detail.amount),
+    sign_date: detail.sign_date ?? '',
+    start_date: detail.start_date ?? '',
+    end_date: detail.end_date ?? '',
+    remark: detail.remark ?? '',
+  };
+}
+
+/** 日期比较（`YYYY-MM-DD` 直接比字符串即字典序 = 时间序，非法值视为空） */
+function dateValue(text: string): string {
+  return /^\d{4}-\d{2}-\d{2}/.test(text) ? text.slice(0, 10) : '';
+}
+
+/**
+ * 提交前校验（**与后端 `CreateContractReq::validate` 同口径**，后端还会再校一遍）。
+ *
+ * 逐条对应：
+ * 1. 名称非空 + ≤ 200 字；
+ * 2. 合同类型必须是本期放行的 `PURCHASE`；
+ * 3. 乙方必选；
+ * 4. 金额必填且 **> 0**（DDL 是 `amount > 0`，卡面写的 `≥ 0` 与 DDL 不符）+ ≤ 4 位小数；
+ * 5. 签订日期必填（卡面要求；后端「流转到 SIGNED 前必须三件套齐全」）；
+ * 6. 到期日 ≥ 生效日（`ck_biz_contract_date_order`）；
+ * 7. 签订日期 ≤ 生效日（`require_sign_not_after_start`，应用层规则）。
+ */
+export function validateContractForm(form: ContractFormState): ContractFormErrors {
+  const errors: ContractFormErrors = {};
+
+  const name = form.name.trim();
+  if (!name) {
+    errors.name = '合同名称不能为空';
+  } else if (name.length > MAX_CONTRACT_NAME) {
+    errors.name = `合同名称最长 ${MAX_CONTRACT_NAME} 个字符（当前 ${name.length} 个）`;
+  }
+
+  if (!form.contract_type) {
+    errors.contract_type = '请选择合同类型';
+  } else if (!SUPPORTED_CONTRACT_TYPES.includes(form.contract_type as ContractType)) {
+    errors.contract_type = `本批次只支持 ${SUPPORTED_CONTRACT_TYPES.map(contractTypeLabel).join(' / ')}`;
+  }
+
+  if (!form.party_b_id) {
+    errors.party_b_id = '请选择乙方供应商';
+  }
+
+  if (form.amount === null || form.amount === undefined || Number.isNaN(Number(form.amount))) {
+    errors.amount = '请填写合同金额';
+  } else {
+    const amount = Number(form.amount);
+    if (amount <= 0) {
+      errors.amount = '合同金额必须大于 0（后端 ck_biz_contract_amount 是 amount > 0，不支持 0 元合同）';
+    } else if (String(amount).split('.')[1]?.length > MAX_AMOUNT_SCALE) {
+      errors.amount = `合同金额最多 ${MAX_AMOUNT_SCALE} 位小数（NUMERIC(18,4)）`;
+    }
+  }
+
+  const sign = dateValue(form.sign_date);
+  const start = dateValue(form.start_date);
+  const end = dateValue(form.end_date);
+
+  if (!sign) {
+    errors.sign_date = '请选择签订日期';
+  }
+  if (!start) {
+    errors.start_date = '请选择有效期起';
+  }
+  if (!end) {
+    errors.end_date = '请选择有效期止';
+  }
+  if (start && end && end < start) {
+    errors.end_date = `有效期止（${end}）不能早于有效期起（${start}）：区间反了`;
+  }
+  if (sign && start && sign > start) {
+    errors.sign_date = `签订日期（${sign}）不能晚于有效期起（${start}）：先签约再生效`;
+  }
+
+  if (form.remark.trim().length > MAX_CONTRACT_REMARK) {
+    errors.remark = `备注最长 ${MAX_CONTRACT_REMARK} 个字符（当前 ${form.remark.trim().length} 个）`;
+  }
+
+  return errors;
+}
+
+/** 新建请求体（**不含** `contract_no` / `status`：后端一律忽略，前端干脆不发） */
+export function buildCreatePayload(form: ContractFormState): CreateContractPayload {
+  return {
+    name: form.name.trim(),
+    contract_type: form.contract_type,
+    party_b_id: form.party_b_id,
+    amount: form.amount ?? 0,
+    sign_date: dateValue(form.sign_date) || null,
+    start_date: dateValue(form.start_date) || null,
+    end_date: dateValue(form.end_date) || null,
+    remark: form.remark.trim() || null,
+  };
+}
+
+/**
+ * 改单请求体（**只有 DRAFT 能提交**，卡面「编辑时不允许改合同号」）。
+ *
+ * 空日期 / 空备注显式传 `null`（后端 `double_option`：`null` = 清空），
+ * 这样「把到期日删掉」才真的能清空 —— 不传会被当成「保持原值」。
+ */
+export function buildUpdatePayload(form: ContractFormState): UpdateContractPayload {
+  return {
+    name: form.name.trim(),
+    party_b_id: form.party_b_id,
+    amount: form.amount ?? 0,
+    sign_date: dateValue(form.sign_date) || null,
+    start_date: dateValue(form.start_date) || null,
+    end_date: dateValue(form.end_date) || null,
+    remark: form.remark.trim() || null,
+  };
+}
+
+/** 表单整体提示（错误条数文案，点保存时用） */
+export function formErrorMessage(errors: ContractFormErrors): string {
+  const count = Object.keys(errors).length;
+  return count > 0 ? `表单还有 ${count} 处需要修正` : '';
+}

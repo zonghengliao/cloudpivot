@@ -3577,3 +3577,231 @@ export function closeYearEnd(year: number, reason?: string): Promise<YearEndClos
 export function reopenYearEnd(year: number, reason: string): Promise<YearEndReopenResult> {
   return post<YearEndReopenResult>(`${BASE}/year-end/reopen`, { year, reason });
 }
+
+// ==================== 合同（A5 · 契约来自 A2 `contract_dto.rs`） ====================
+
+/**
+ * 合同类型（`contract_dto::CONTRACT_TYPES` + `ck_biz_contract_type` 逐字一致）。
+ *
+ * 本期后端只放行 `PURCHASE`（`SUPPORTED_TYPES`）：`SALES` 的乙方是客户、客户主数据属
+ * 批次 2 → 400 + `66020`；`SERVICE` / `LEASE` → 400 + `10001`。表单里其余选项置灰。
+ */
+export type ContractType = 'PURCHASE' | 'SALES' | 'SERVICE' | 'LEASE';
+
+/**
+ * 合同状态（`contract_model::STATUSES` + `ck_biz_contract_status` 逐字一致）。
+ *
+ * ⚠️ **没有 `CANCELLED`**：草稿作废走软删除（`DELETE`），「终止」只用于已签合同。
+ * A5 卡面写的 5 态含 `CANCELLED`，与 DDL / ARCH-2 不符 —— 以 DDL 为准（A2 已在交付
+ * 说明里报告过同一处出入）。
+ */
+export type ContractStatus = 'DRAFT' | 'SIGNED' | 'ACTIVE' | 'COMPLETED' | 'TERMINATED';
+
+/**
+ * 列表行（`contract_dto::ContractRes`）。
+ *
+ * `name` 与 `contract_name` 后端**同值双写**（卡面字段名 / DDL 列名），页面只读 `name`。
+ * `party_b_name` 是**签约快照**，`party_b_current_name` 是主档现值（供应商改名后两者不同）。
+ */
+export interface ContractRow {
+  /** 主键 */
+  id: string;
+  /** 合同号 `HT-yyyyMMdd-000001`（只用于显示 / 模糊查） */
+  contract_no: string;
+  /** 合同名称（= `contract_name`） */
+  name: string;
+  /** 合同名称（DDL 列名，与 `name` 同值） */
+  contract_name: string;
+  /** 合同类型 */
+  contract_type: ContractType;
+  /** 乙方类型（本期恒 `SUPPLIER`） */
+  party_b_type: string;
+  /** 乙方 id（本期 = 供应商 id） */
+  party_b_id: string;
+  /** 乙方名称快照（签约时） */
+  party_b_name: string;
+  /** 乙方名称现值（主档已删时为 `null`） */
+  party_b_current_name: string | null;
+  /** 合同金额（> 0；后端 `Decimal` 出 JSON 是字符串） */
+  amount: number | string;
+  /** 币种 */
+  currency_code: string;
+  /** 签订日期 */
+  sign_date: string | null;
+  /** 生效日 */
+  start_date: string | null;
+  /** 到期日 */
+  end_date: string | null;
+  /** 状态 */
+  status: ContractStatus;
+  /** 状态中文名（后端给，页面用本地映射保证配色一致） */
+  status_label: string;
+  /** 最后更新时间 */
+  updated_at: string;
+}
+
+/**
+ * 详情（`contract_dto::ContractDetailRes` = 列表行 + DDL 其余可读列 + 三个派生字段）。
+ *
+ * ⚠️ DDL（`V0195`）**没有** `terms` / `attachment` / `tax_rate` / `payment_terms` 列，
+ * 所以详情里也没有 —— 卡面提到的「税率」「付款条件」本期无处落库（已在交付说明里报告）。
+ */
+export interface ContractDetail extends ContractRow {
+  /** 甲方 id（`null` = 本组织） */
+  party_a_id: string | null;
+  /** 甲方名称快照 */
+  party_a_name: string | null;
+  /** 负责人 */
+  owner_id: string | null;
+  /** 归属部门 */
+  dept_id: string | null;
+  /** 备注 */
+  remark: string | null;
+  /** 创建时间 */
+  created_at: string;
+  /** 创建人 */
+  create_by: string | null;
+  /** 最后修改人 */
+  update_by: string | null;
+  /** 能否编辑（= 状态 `DRAFT`）—— 后端给的唯一判据，前端别自己判状态 */
+  can_edit: boolean;
+  /** 能否被采购单引用（`SIGNED` / `ACTIVE`） */
+  usable_for_order: boolean;
+  /** 当前状态的合法去向（**状态机给的**，前端别硬编码边） */
+  next_statuses: string[];
+}
+
+/** 分页筛选（`contract_dto::ContractFilter`，空值一律不发）。 */
+export interface ContractPageQuery {
+  /** 页码（1 起） */
+  page?: number;
+  /** 每页条数（后端上限 100，默认 20） */
+  page_size?: number;
+  /** 合同号模糊 */
+  contract_no?: string;
+  /** 合同名称模糊（后端 `name` 优先，`contract_name` 次之） */
+  name?: string;
+  /** 合同类型 */
+  contract_type?: string;
+  /** 状态 */
+  status?: string;
+  /** 乙方 id */
+  party_b_id?: string;
+  /** 签订日期 ≥（`YYYY-MM-DD`） */
+  sign_date_from?: string;
+  /** 签订日期 ≤ */
+  sign_date_to?: string;
+  /** 到期日期 ≥（落 `end_date`） */
+  expire_date_from?: string;
+  /** 到期日期 ≤ */
+  expire_date_to?: string;
+  /** 合同号或名称关键词 */
+  keyword?: string;
+}
+
+/**
+ * 新建请求（`contract_dto::CreateContractReq`）。
+ *
+ * **没有** `status` / `contract_no`：状态恒 `DRAFT`、单号由后端 `biz_seq(CT)` 取；
+ * 乙方名称也由后端从 `biz_supplier` 读快照，客户端传了不算数。
+ */
+export interface CreateContractPayload {
+  /** 合同名称（必填，≤ 200 字） */
+  name: string;
+  /** 合同类型（本期只有 `PURCHASE`） */
+  contract_type: string;
+  /** 乙方（供应商）id，必填 */
+  party_b_id: string;
+  /** 合同金额（后端 `CHECK (amount > 0)`） */
+  amount: number | string;
+  /** 币种（缺省 `CNY`） */
+  currency_code?: string;
+  /** 签订日期 */
+  sign_date?: string | null;
+  /** 生效日 */
+  start_date?: string | null;
+  /** 到期日 */
+  end_date?: string | null;
+  /** 备注 */
+  remark?: string | null;
+}
+
+/**
+ * 改单请求（`contract_dto::UpdateContractReq`，**仅 `DRAFT`**）。
+ *
+ * 嵌套 `Option` 语义：字段不传 = 保持原值；显式传 `null` = 清空（日期 / 备注）。
+ * `contract_no` / `status` 不在契约里 —— 传了会被 serde 丢掉。
+ */
+export interface UpdateContractPayload {
+  /** 合同名称 */
+  name?: string;
+  /** 乙方 id */
+  party_b_id?: string;
+  /** 合同金额 */
+  amount?: number | string;
+  /** 签订日期（`null` = 清空） */
+  sign_date?: string | null;
+  /** 生效日（`null` = 清空） */
+  start_date?: string | null;
+  /** 到期日（`null` = 清空） */
+  end_date?: string | null;
+  /** 备注（`null` = 清空） */
+  remark?: string | null;
+}
+
+/** 状态流转请求（`contract_dto::ContractStatusReq`）。 */
+export interface ContractStatusPayload {
+  /** 目标状态 */
+  target_status: string;
+  /** 原因（两条**终止**边必填，后端 `CONTRACT_REASON_EDGES`） */
+  reason?: string;
+}
+
+/** 合同分页（`GET /business/erp/contract/page`，权限 `erp:contract:list`）。 */
+export function fetchContractPage(query: ContractPageQuery): Promise<PageData<ContractRow>> {
+  return get<PageData<ContractRow>>(`${BASE}/contract/page`, asParams(query));
+}
+
+/** 合同详情（`GET /business/erp/contract/{id}`，含 `can_edit` / `next_statuses`）。 */
+export function fetchContractDetail(id: string): Promise<ContractDetail> {
+  return get<ContractDetail>(`${BASE}/contract/${id}`);
+}
+
+/** 新建合同（`POST /business/erp/contract`，权限 `erp:contract:create`，落 `DRAFT`）。 */
+export function createContract(payload: CreateContractPayload): Promise<ContractDetail> {
+  return post<ContractDetail>(`${BASE}/contract`, payload);
+}
+
+/** 改单（`PUT /business/erp/contract/{id}`，**仅 `DRAFT`**，非草稿 409 + `66016`）。 */
+export function updateContract(id: string, payload: UpdateContractPayload): Promise<ContractDetail> {
+  return put<ContractDetail>(`${BASE}/contract/${id}`, payload);
+}
+
+/**
+ * 状态流转（`PATCH /business/erp/contract/{id}/status`）。
+ *
+ * 非法边 409 + `66015`（文案由状态机生成，含「当前态允许去哪」）；
+ * 两条 `→TERMINATED` 边缺 `reason` 会 400。
+ */
+export function changeContractStatus(id: string, payload: ContractStatusPayload): Promise<ContractDetail> {
+  return patch<ContractDetail>(`${BASE}/contract/${id}/status`, payload);
+}
+
+/** 软删（`DELETE /business/erp/contract/{id}`，被未关闭采购单引用时 409 + `66018`）。 */
+export function deleteContract(id: string): Promise<{ id: string; contract_no: string; deleted: boolean }> {
+  return del<{ id: string; contract_no: string; deleted: boolean }>(`${BASE}/contract/${id}`);
+}
+
+/**
+ * 反查「这张合同被哪些采购单引用」（详情抽屉用）。
+ *
+ * 后端**没有**专门的 `/contract/{id}/purchase-orders` 接口，但 A3 给
+ * `GET /erp/purchase-order/page` 加了 `contract_id` 筛选（走部分索引 `idx_biz_po_contract`），
+ * 所以前端直接复用现成接口 —— 不需要为 A5 改后端。
+ */
+export function fetchContractPurchaseOrders(contractId: string, pageSize = 50): Promise<PageData<PurchaseOrderRow>> {
+  return get<PageData<PurchaseOrderRow>>(
+    `${BASE}/purchase-order/page`,
+    asParams({ contract_id: contractId, page: 1, page_size: pageSize }),
+  );
+}

@@ -425,6 +425,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '采购订单', permission: 'business:erp:purchase-order:list' },
       },
       {
+        // ==================== ERP 合同管理（A5） ====================
+        // `sys_menu`（V0197 …1100）path = `/business/erp/contract`、component
+        // `business/erp/contract/index`，**根级页面**（与「采购管理」「基础数据」同级，
+        // 不再造「ERP」目录层 —— 用户明确要求过）。**路由手工注册**（没有 views 自动扫描），
+        // 漏了 = 点菜单进 404。权限码是 `erp:contract:list`（**不是** `business:erp:contract:*`，
+        // 见 V0197 的说明：这是 ARCH-2 附录 B #7 的逐字契约）。
+        path: 'business/erp/contract',
+        name: 'BusinessErpContract',
+        component: () => import('@/views/business/erp/contract/index.vue'),
+        meta: { title: '合同管理', permission: 'erp:contract:list' },
+      },
+      {
         // ==================== ERP 收货入库（P2-E1） ====================
         // `sys_menu` 种子（V0147 …0998）path = `/business/erp/stock-in`；
         // 卡面验收路径是 `/business/erp/stockin`（目录名），两者都通。
