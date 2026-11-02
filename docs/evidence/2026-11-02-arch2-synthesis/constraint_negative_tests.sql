@@ -25,6 +25,11 @@ EXCEPTION WHEN check_violation THEN RAISE NOTICE 'BLOCKED [%] %', SQLSTATE, SQLE
 END $$;
 
 \echo '=== 反例 4：活跃行合同号重号（期望 23505 uk_biz_contract_no）'
+-- 自包含：先建一行合法合同，再插同号；结束时清掉，保证本脚本在 schema-only 空库上可独立复跑
+-- （原写法依赖「库里已有 FIXCT-1」，在干净探针库上会 UNEXPECTED_PASS，属证据资产缺陷，已修）
+INSERT INTO biz_contract (contract_no, contract_name, contract_type, party_b_type, party_b_id, party_b_name, amount, sign_date, start_date, end_date, status)
+VALUES ('FIXCT-1','重号','PURCHASE','SUPPLIER','11111111-1111-1111-1111-111111111111','甲方供应商', 100,'2026-01-01','2026-01-01','2026-12-31','ACTIVE')
+ON CONFLICT DO NOTHING;
 DO $$ BEGIN
   INSERT INTO biz_contract (contract_no, contract_name, contract_type, party_b_type, party_b_id, party_b_name, amount, sign_date, start_date, end_date, status)
   VALUES ('FIXCT-1','重号','PURCHASE','SUPPLIER','11111111-1111-1111-1111-111111111111','甲方供应商', 100,'2026-01-01','2026-01-01','2026-12-31','ACTIVE');
@@ -71,9 +76,17 @@ EXCEPTION WHEN check_violation THEN RAISE NOTICE 'BLOCKED [%] %', SQLSTATE, SQLE
 END $$;
 
 \echo '=== 正例：同一 (issue_code,entity,field) 未解决行只能有一条（期望 23505）'
+-- 自包含：先插一条未解决漂移，再插同键（同样修掉「依赖库里已有行」的缺陷）
+INSERT INTO biz_snapshot_drift (issue_code, entity_type, entity_id, entity_no, field_name, drift_kind, severity)
+VALUES ('DI-01','CONTRACT','44444444-4444-4444-4444-444444444444','FIXCT-1','party_b_id','DEFECT','ERROR')
+ON CONFLICT DO NOTHING;
 DO $$ BEGIN
   INSERT INTO biz_snapshot_drift (issue_code, entity_type, entity_id, entity_no, field_name, drift_kind, severity)
   VALUES ('DI-01','CONTRACT','44444444-4444-4444-4444-444444444444','FIXCT-1','party_b_id','DEFECT','ERROR');
   RAISE EXCEPTION 'UNEXPECTED_PASS';
 EXCEPTION WHEN unique_violation THEN RAISE NOTICE 'BLOCKED [%] 重复的未解决漂移被唯一键挡住', SQLSTATE;
 END $$;
+
+-- 收尾：清掉本脚本自建的夹具，保证可反复执行且不污染后续用例计数
+DELETE FROM biz_snapshot_drift WHERE entity_id = '44444444-4444-4444-4444-444444444444'::uuid;
+DELETE FROM biz_contract WHERE contract_no = 'FIXCT-1';
