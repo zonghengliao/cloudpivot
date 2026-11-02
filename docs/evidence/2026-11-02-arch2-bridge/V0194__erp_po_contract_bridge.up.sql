@@ -25,8 +25,8 @@
 --    谁后落地谁的注释生效，但**语义结论是快照**，实现卡请以本文件为准。
 --
 -- ── 三条不可违反的口径（实测，见证据目录）────────────────────────────────
--- 1) **单据链不建外键**：本机实测（2026-11-02，PG 18.6，cloudpivot_t06d）biz_purchase_order
---    共 9 个 UUID 列（主键 + 8 个引用）、biz_stock_in 共 10 个（主键 + 9 个引用），
+-- 1) **单据链不建外键**：本机实测（2026-11-02，PG 18.6，cloudpivot_t06d = V0001–V0192 全量）
+--    biz_purchase_order 共 9 个 UUID 列（主键 + 8 个引用）、biz_stock_in 共 11 个（主键 + 10 个引用），
 --    两表的外键数都是 **0**（`select count(*) from pg_constraint where contype='f'` 原文在证据目录）。
 --    同链的 biz_payable / biz_voucher 同样零外键；只有 biz_stock_transfer（V0140）与
 --    biz_inventory_location 走了硬外键。本卡跟**同链**对齐（弱引用 + 应用层校验 + 巡检兜底），

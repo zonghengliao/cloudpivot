@@ -15,39 +15,39 @@ ANALYZE
 ===== A. 现状：列表页单表查询（无 JOIN，供应商名由前端字典补） =====
                                                                           QUERY PLAN                                                                           
 ---------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=53.93..57.39 rows=20 width=68) (actual time=0.927..0.929 rows=20.00 loops=1)
-   ->  Incremental Sort  (cost=53.93..17348.68 rows=100000 width=68) (actual time=0.926..0.927 rows=20.00 loops=1)
+ Limit  (cost=53.93..57.39 rows=20 width=68) (actual time=1.019..1.021 rows=20.00 loops=1)
+   ->  Incremental Sort  (cost=53.93..17348.93 rows=100000 width=68) (actual time=1.018..1.019 rows=20.00 loops=1)
          Sort Key: order_date DESC, order_no DESC
          Presorted Key: order_date
          Full-sort Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
          Pre-sorted Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
-         ->  Index Scan using idx_biz_po_date on biz_purchase_order  (cost=0.29..13431.71 rows=100000 width=68) (actual time=0.012..0.443 rows=334.00 loops=1)
+         ->  Index Scan using idx_biz_po_date on biz_purchase_order  (cost=0.29..13431.97 rows=100000 width=68) (actual time=0.008..0.494 rows=334.00 loops=1)
                Filter: (deleted_at IS NULL)
                Index Searches: 1
- Planning Time: 0.332 ms
- Execution Time: 0.944 ms
+ Planning Time: 0.349 ms
+ Execution Time: 1.038 ms
 (11 rows)
 
 
 ===== B. 方案A（纯关联）：列表必须 JOIN 合同 + 供应商才出名称 =====
                                                                                  QUERY PLAN                                                                                  
 -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=75.47..80.18 rows=20 width=104) (actual time=0.889..0.892 rows=20.00 loops=1)
-   ->  Incremental Sort  (cost=75.47..23636.68 rows=100000 width=104) (actual time=0.889..0.890 rows=20.00 loops=1)
+ Limit  (cost=75.47..80.18 rows=20 width=104) (actual time=1.190..1.193 rows=20.00 loops=1)
+   ->  Incremental Sort  (cost=75.47..23636.93 rows=100000 width=104) (actual time=1.186..1.188 rows=20.00 loops=1)
          Sort Key: o.order_date DESC, o.order_no DESC
          Presorted Key: o.order_date
          Full-sort Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
          Pre-sorted Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
-         ->  Nested Loop Left Join  (cost=0.87..19719.71 rows=100000 width=104) (actual time=0.028..0.393 rows=334.00 loops=1)
-               ->  Nested Loop Left Join  (cost=0.58..16466.20 rows=100000 width=100) (actual time=0.021..0.269 rows=334.00 loops=1)
-                     ->  Index Scan using idx_biz_po_date on biz_purchase_order o  (cost=0.29..13431.71 rows=100000 width=84) (actual time=0.006..0.132 rows=334.00 loops=1)
+         ->  Nested Loop Left Join  (cost=0.87..19719.97 rows=100000 width=104) (actual time=0.023..0.673 rows=334.00 loops=1)
+               ->  Nested Loop Left Join  (cost=0.58..16466.45 rows=100000 width=100) (actual time=0.017..0.535 rows=334.00 loops=1)
+                     ->  Index Scan using idx_biz_po_date on biz_purchase_order o  (cost=0.29..13431.97 rows=100000 width=84) (actual time=0.007..0.383 rows=334.00 loops=1)
                            Filter: (deleted_at IS NULL)
                            Index Searches: 1
                      ->  Memoize  (cost=0.29..0.31 rows=1 width=48) (actual time=0.000..0.000 rows=1.00 loops=334)
                            Cache Key: o.contract_id
                            Cache Mode: logical
                            Hits: 313  Misses: 21  Evictions: 0  Overflows: 0  Memory Usage: 4kB
-                           ->  Index Scan using biz_contract_pkey on biz_contract c  (cost=0.28..0.30 rows=1 width=48) (actual time=0.002..0.002 rows=1.00 loops=21)
+                           ->  Index Scan using biz_contract_pkey on biz_contract c  (cost=0.28..0.30 rows=1 width=48) (actual time=0.003..0.003 rows=1.00 loops=21)
                                  Index Cond: (id = o.contract_id)
                                  Filter: (deleted_at IS NULL)
                                  Index Searches: 21
@@ -59,40 +59,40 @@ ANALYZE
                            Index Cond: (id = c.party_b_id)
                            Filter: (deleted_at IS NULL)
                            Index Searches: 21
- Planning Time: 0.399 ms
- Execution Time: 0.929 ms
+ Planning Time: 0.534 ms
+ Execution Time: 1.216 ms
 (29 rows)
 
 
 ===== C. 方案B（同表快照）：列表 0 JOIN，合同号/供应商名同表出列 =====
                                                                            QUERY PLAN                                                                           
 ----------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=53.93..57.39 rows=20 width=104) (actual time=0.551..0.553 rows=20.00 loops=1)
-   ->  Incremental Sort  (cost=53.93..17348.68 rows=100000 width=104) (actual time=0.551..0.551 rows=20.00 loops=1)
+ Limit  (cost=53.93..57.39 rows=20 width=104) (actual time=0.901..0.903 rows=20.00 loops=1)
+   ->  Incremental Sort  (cost=53.93..17348.93 rows=100000 width=104) (actual time=0.901..0.901 rows=20.00 loops=1)
          Sort Key: order_date DESC, order_no DESC
          Presorted Key: order_date
          Full-sort Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
          Pre-sorted Groups: 1  Sort Method: top-N heapsort  Average Memory: 30kB  Peak Memory: 30kB
-         ->  Index Scan using idx_biz_po_date on biz_purchase_order  (cost=0.29..13431.71 rows=100000 width=104) (actual time=0.003..0.102 rows=334.00 loops=1)
+         ->  Index Scan using idx_biz_po_date on biz_purchase_order  (cost=0.29..13431.97 rows=100000 width=104) (actual time=0.004..0.429 rows=334.00 loops=1)
                Filter: (deleted_at IS NULL)
                Index Searches: 1
- Planning Time: 0.032 ms
- Execution Time: 0.560 ms
+ Planning Time: 0.054 ms
+ Execution Time: 0.913 ms
 (11 rows)
 
 
 ===== D. 方案A 深翻页（OFFSET 2000）：JOIN 代价每页重做 =====
                                                                                   QUERY PLAN                                                                                  
 ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
- Limit  (cost=582.28..587.29 rows=20 width=104) (actual time=7.379..7.381 rows=20.00 loops=1)
-   ->  Incremental Sort  (cost=80.57..25166.12 rows=100000 width=104) (actual time=1.034..7.331 rows=2020.00 loops=1)
+ Limit  (cost=582.28..587.30 rows=20 width=104) (actual time=7.351..7.353 rows=20.00 loops=1)
+   ->  Incremental Sort  (cost=80.57..25166.38 rows=100000 width=104) (actual time=1.111..7.301 rows=2020.00 loops=1)
          Sort Key: o.order_date DESC, o.order_no DESC
          Presorted Key: o.order_date
          Full-sort Groups: 7  Sort Methods: top-N heapsort, quicksort  Average Memory: 33kB  Peak Memory: 33kB
          Pre-sorted Groups: 7  Sort Methods: top-N heapsort, quicksort  Average Memory: 69kB  Peak Memory: 69kB
-         ->  Nested Loop Left Join  (cost=0.87..19719.71 rows=100000 width=104) (actual time=0.010..2.319 rows=2332.00 loops=1)
-               ->  Nested Loop Left Join  (cost=0.58..16466.20 rows=100000 width=100) (actual time=0.007..1.626 rows=2332.00 loops=1)
-                     ->  Index Scan using idx_biz_po_date on biz_purchase_order o  (cost=0.29..13431.71 rows=100000 width=84) (actual time=0.003..0.932 rows=2332.00 loops=1)
+         ->  Nested Loop Left Join  (cost=0.87..19719.97 rows=100000 width=104) (actual time=0.018..2.255 rows=2332.00 loops=1)
+               ->  Nested Loop Left Join  (cost=0.58..16466.45 rows=100000 width=100) (actual time=0.013..1.585 rows=2332.00 loops=1)
+                     ->  Index Scan using idx_biz_po_date on biz_purchase_order o  (cost=0.29..13431.97 rows=100000 width=84) (actual time=0.004..0.871 rows=2332.00 loops=1)
                            Filter: (deleted_at IS NULL)
                            Index Searches: 1
                      ->  Memoize  (cost=0.29..0.31 rows=1 width=48) (actual time=0.000..0.000 rows=1.00 loops=2332)
@@ -111,29 +111,29 @@ ANALYZE
                            Index Cond: (id = c.party_b_id)
                            Filter: (deleted_at IS NULL)
                            Index Searches: 141
- Planning Time: 0.144 ms
- Execution Time: 7.396 ms
+ Planning Time: 0.178 ms
+ Execution Time: 7.376 ms
 (29 rows)
 
 
 ===== E. 合同维度回查（合同执行情况页）：部分索引是否生效 =====
                                                               QUERY PLAN                                                               
 ---------------------------------------------------------------------------------------------------------------------------------------
- Sort  (cost=254.88..255.00 rows=50 width=27) (actual time=0.181..0.183 rows=50.00 loops=1)
+ Sort  (cost=254.88..255.00 rows=50 width=27) (actual time=0.212..0.215 rows=50.00 loops=1)
    Sort Key: o.order_date DESC
    Sort Method: quicksort  Memory: 27kB
    InitPlan 1
-     ->  Seq Scan on biz_contract  (cost=0.00..68.00 rows=1 width=16) (actual time=0.007..0.107 rows=1.00 loops=1)
+     ->  Seq Scan on biz_contract  (cost=0.00..68.00 rows=1 width=16) (actual time=0.011..0.121 rows=1.00 loops=1)
            Filter: ((contract_no)::text = 'HT-BENCH-000007'::text)
            Rows Removed by Filter: 1999
-   ->  Bitmap Heap Scan on biz_purchase_order o  (cost=4.68..185.46 rows=50 width=27) (actual time=0.128..0.173 rows=50.00 loops=1)
+   ->  Bitmap Heap Scan on biz_purchase_order o  (cost=4.68..185.46 rows=50 width=27) (actual time=0.143..0.202 rows=50.00 loops=1)
          Recheck Cond: (contract_id = (InitPlan 1).col1)
          Filter: (deleted_at IS NULL)
          Heap Blocks: exact=50
-         ->  Bitmap Index Scan on idx_biz_po_contract  (cost=0.00..4.67 rows=50 width=0) (actual time=0.119..0.119 rows=50.00 loops=1)
+         ->  Bitmap Index Scan on idx_biz_po_contract  (cost=0.00..4.67 rows=50 width=0) (actual time=0.133..0.133 rows=50.00 loops=1)
                Index Cond: (contract_id = (InitPlan 1).col1)
                Index Searches: 1
- Planning Time: 0.089 ms
- Execution Time: 0.194 ms
+ Planning Time: 0.081 ms
+ Execution Time: 0.231 ms
 (16 rows)
 
