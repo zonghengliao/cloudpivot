@@ -1,0 +1,38 @@
+# 拆分**后**的测试结果（工作树 = 拆分结果，隔离库为与基线同源的克隆库）
+
+## 1) 受影响面（与基线逐条同数）
+
+```
+$ cargo test --lib -- business::task -- --test-threads=1            # 隔离库 cp_td2_a2
+test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 1877 filtered out; finished in 10.21s
+
+$ cargo test --lib -- business::erp::stockin -- --test-threads=1    # 隔离库 cp_td2_a3
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 1954 filtered out; finished in 348.70s
+```
+
+基线：210 / 133（见 01-baseline.txt）→ **一条没少、一条没多、一条没红**。
+
+用例名多重集也逐一相同（`scripts/refactor/verify_move.py`：task 77 → 77、stockin 122 → 122，
+见 05-fidelity.txt）。变化只有测试模块路径：
+
+```
+business::erp::stockin_handler::tests::cancel_rolls_back_cost_inventory
+  → business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory
+business::task::model::cascade_tests::t11_cancel::cancel_parent_cancels_doing_child
+  → business::task::model::cascade_cancel_tests::cancel_parent_cancels_doing_child
+```
+
+（同一文件内不超限的测试 mod 走 `#[path] mod <原名>;`，路径完全不变，例如
+`business::task::model::tests::assign_owner_sql_is_guarded`。）
+
+## 2) 编译门禁
+
+```
+$ cargo check --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.24s
+0 error, 0 warning
+```
+
+## 3) 全量 lib
+
+见 04-full-lib.txt。

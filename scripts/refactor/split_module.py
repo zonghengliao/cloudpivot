@@ -129,6 +129,17 @@ def split_file(path: Path):
         if is_attr_or_doc:
             pending.append(line)
             i += 1
+            if line.startswith("#["):
+                # 多行属性（`#[route(\n  path = ..., \n)]` / `#[permission(...)]`）：
+                # 必须整块挂到下一项，否则属性体（path/method/permission 行与 `)]`）
+                # 会被当成上一项的尾巴 —— TD-2 第一批实测踩到（route 属性 27 处）。
+                bal = (line.count("[") - line.count("]")
+                       + line.count("(") - line.count(")"))
+                while bal > 0 and i < n:
+                    pending.append(lines[i])
+                    bal += (lines[i].count("[") - lines[i].count("]")
+                            + lines[i].count("(") - lines[i].count(")"))
+                    i += 1
             continue
         if cur is None:
             # 极少数顶部注释块：挂到伪项

@@ -302,3 +302,112 @@ lib 本体用 `cargo clippy --lib -- -D warnings` 单独把关（第一批：0 w
 - `/tmp` 是 tmpfs 且被多个 agent 的 target 目录占满（实测 100%）：
   `cargo`/`clippy` 会报 `No space left on device`。跑之前 `export TMPDIR=<root 下的目录>`，
   日志也写到 `/root/...`，不要写 `/tmp`。
+
+---
+
+## 10. 第二批（TD-2，2026-11-03）：全仓最大的两个文件
+
+目标：`task/model.rs`（7604 行，全仓最大）与 `erp/stockin_handler.rs`（9394 行，
+其中 **5990 行是 `#[cfg(test)] mod tests`**）。两者都是「测试比实现还长」的结构，
+所以第二批真正的难点不在拆实现，而在**拆测试**。
+
+### 10.1 实测结果（行数为 `wc -l` 实测）
+
+| 文件 | 拆分前 | facade | 代码部件 | 测试部件 |
+|---|---|---|---|---|
+| `task/model.rs` | 7604 | **142** | `task_model_base` 564 / `rows` 812 / `query` 777 / `write` 526 / `hierarchy` 634 / `dep` 441 / `ai` 333 / `stats` 91 / `flow` 230 / `schedule` 152 | `_tests` 321 / `_display_file_name_tests` 61 / `_depth_tests` 419 / `_root_only_tests` 385 / `_statuses_filter_tests` 393 / `_stats_tests` 55 / `_repair_tests` 331 / `_cascade_tests` 596 / `_cascade_cancel_tests` 529 |
+| `erp/stockin_handler.rs` | 9394 | **131** | `stockin_handler_common` 682 / `purchase` 482 / `write` 497 / `post` 847 / `cancel` 612 / `status` 259 / `query` 101 | `_tests_fixtures` 445 / `_tests_helpers` 816 / `_tests_posting` 468 / `_tests_update` 377 / `_tests_location` 328 / `_tests_cancel` 623 / `_tests_p10_locked` 274 / `_tests_dc03` 352 / `_tests_p16` 705 / `_tests_d4_purchase` 426 / `_tests_pflow3a` 448 / `_tests_d9_copy` 377 / `_tests_a4` 547 |
+
+保真度（`git HEAD` vs 拆分后，脚本见 §10.4）：
+
+| 判据 | task/model.rs | erp/stockin_handler.rs |
+|---|---|---|
+| 条目多重集（fn/struct/enum/const/static/type/impl，递归进 mod） | 310 → 310，MISSING/ADDED=none | 270 → 270，MISSING/ADDED=none |
+| SQL 字面量多重集 | 116 → 116，missing=0 added=0 | 168 → 168，missing=0 added=0 |
+| 用例名多重集 | 77 → 77 | 122 → 122 |
+| **代码 token 多重集**（剔注释/use/mod 结构行后逐 token；逗号单列，见 §10.2 尾注） | 36807 → 36807 | 54942 → 54942 |
+
+「代码 token 多重集」是本批新增的判据：比条目/SQL 更严 —— 只要有一个标识符、
+字面量、运算符或括号被改写/合并/删除，多重集立刻对不上。它也证明拆分中唯一的
+文本改动只有 `fn`→`pub(super) fn`、`字段`→`pub(super) 字段` 与新增文件头注释
+（`pub(super)` 前缀在比对前被剥掉；唯一不计的是逗号 —— rustfmt 会给多行调用补尾逗号，
+单独格式化一次就会差 1 个）。
+
+验收：`cargo check --all-targets` 0 error **0 warning**；
+`cargo test --lib -- business::task` 210 passed / 0 failed；
+`cargo test --lib -- business::erp::stockin` 133 passed / 0 failed（与前一轮基线逐条同数）。
+
+### 10.2 拆测试的四条新坑（都实测踩过）
+
+1. **`#[route(...)]` 这类多行属性会被撕开。**
+   TD-1 的 `split_module.py` 只把「以 `#[` 开头的那一行」当属性，属性体
+   （`path = ...` / `method = ...` / `)]`）被当成**上一项**的尾巴 →
+   拆完立刻 `unexpected closing delimiter: )`（stockin 27 处 route 属性）。
+   → 已修在 `scripts/refactor/split_module.py`：属性行括号不配平时继续吃续行。
+2. **测试模块顶部的显式 `use` 不能跟着 `#[path]` 走。**
+   原 `mod tests` 里的 `use super::*` 拿的是「父模块的项 **+ 父模块私有 `use`**
+   （私有 `use` 对子模块可见）」。搬到独立文件、挂到 facade 下之后，
+   facade 只有 `pub use`，没有原 import 块 → `db()` / `Uuid` / `Decimal` 全部 not found。
+   → 每个测试部件**自带原文件的 import 块**；但这样一来，原 mod 顶部那些显式
+   `use crate::...::{A, B};` 会和自带块同名 → `E0252 defined multiple times`，
+   要把重复名从自带块或从原句里去掉（测试文件里的显式 use 优先保留）。
+3. **测试夹具必须单独成部件，并且双向 glob。**
+   5990 行的 `mod tests` 是按「用例语义」分组的，但夹具（`FIXTURES` / `ensure_db` /
+   `setup` / 造单/造采购单/造库位的小工具）是各组共用的：
+   `stockin_handler_tests_fixtures`（常量 + 连库 + 清理）与
+   `stockin_handler_tests_helpers`（造数据）两个部件，每组 `use super::<夹具>::*;`。
+   夹具部件之间也要互相 glob（fixtures 用到 helpers 的造数函数，反之亦然）。
+4. **私有结构体字段跨部件访问。** `LinePlan { new }` / `ParentPointer { supplier_id, is_sourceless }`
+   原来同名文件内可见，拆开后要放宽成 `pub(super)` 字段 ——
+   与 TD-1 的 `fn → pub(super) fn` 是同一类可见性改动（crate 内、不进公开 API），
+   `vis_fix` 只处理顶层声明，impl/struct 内部要单独改。
+
+另外两个**警告级**坑：
+
+- 某个部件里**一个 `pub` 项都没有**（如 `stockin_handler_purchase` 全是内部辅助）时，
+  facade 的 `pub use super::<它>::*;` 会触发
+  `glob import doesn't reexport anything with visibility pub`
+  → 这类部件**不进 facade**，跨部件调用各自 `use super::<它>::*;`（对外可见性不变，
+  因为它们本来就是模块私有）。
+- 拆完每个部件都带着原文件的整块 import → 先 `cargo check --all-targets` 收集
+  `unused import` 警告，再跑 `scripts/refactor/fix_unused_imports.py --log ... --root backend`
+  （**测试代码也要跑一遍**：`--lib` 不编译 `#[cfg(test)]`，必须用 `--all-targets`）；
+  剩下 `use super::xxx::*;` 这类整语句未用（脚本跳过 glob）与 `nik::prelude::*`
+  要手工删。最后 `rustfmt --edition 2024 <新文件>` 收敛格式（不要全仓 `cargo fmt`，
+  会把别人的在途改动一起格式化）。
+
+### 10.3 测试模块路径会变（唯一允许的「名字变化」）
+
+单个测试 mod 超过 1000 行时必须按语义分组拆开，模块路径因此变化：
+
+```
+before: business::erp::stockin_handler::tests::cancel_refuses_when_serial_already_shipped
+after : business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_serial_already_shipped
+
+before: business::task::model::cascade_tests::t11_cancel::cancel_parent_cancels_doing_child
+after : business::task::model::cascade_cancel_tests::cancel_parent_cancels_doing_child
+```
+
+**用例函数名、断言、夹具调用一个字都没改**（用例名多重集 77/122 逐条相同）；
+变的只有 `mod` 名。文档/注释里出现旧路径的地方（如 `cargo test --lib ...::cascade_tests`
+的用法示例）要顺手改成新路径。同一文件内不超限的测试 mod 仍然走
+`#[path] mod <原名>;`，路径完全不变（如 `task_model_tests` 仍叫 `model::tests`）。
+
+### 10.4 第二批的脚本与证据
+
+| 文件 | 用途 |
+|---|---|
+| `scripts/refactor/split_module.py` | TD-1 拆分器（本批修了多行属性 bug） |
+| `scripts/refactor/td2_split.py` | 在 TD-1 拆分器之上加：任意路径、每部件 `extra_uses`、测试整 mod 搬离、**测试 mod 内部分组**、`drop` / `unwrap_mod` |
+| `scripts/refactor/plans/task_model.json`、`plans/stockin_handler.json` | 第二批两份 plan（项名 → 部件映射，含测试分组与目标文件名） |
+| `scripts/refactor/verify_move.py` | 保真度校验器（条目 / SQL / 用例名 / **代码行** 四重多重集，对比 `git HEAD` 与拆分后文件族） |
+| `docs/evidence/20261103-td2/` | 基线 / 拆后 / 保真度 / wc -l / git 证据 |
+
+用法（第二批原样）：
+
+```bash
+python3 scripts/refactor/td2_split.py --plan scripts/refactor/plans/task_model.json \
+        --root backend --dry-run          # 先看每个文件行数，超 1000 会标 !!
+python3 scripts/refactor/td2_split.py --plan scripts/refactor/plans/task_model.json --root backend
+python3 scripts/refactor/verify_move.py 52f1ccf   # 拆分前 ref；四重多重集必须全 none
+```

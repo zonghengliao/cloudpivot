@@ -1,0 +1,26 @@
+# TD-2 编译门禁（工作树 = 拆分结果，2026-11-03）
+
+## 1) cargo build
+```
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 21s
+BUILD_EXIT=0
+```
+
+## 2) cargo check --all-targets（0 error / 0 warning）
+```
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.24s
+```
+
+## 3) cargo clippy --lib -- -D warnings
+```
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 40.98s
+CLIPPY_EXIT=0
+```
+
+## 4) rustfmt --check（本卡新增/改写的文件）
+```
+(无输出 = 全部已格式化)
+```

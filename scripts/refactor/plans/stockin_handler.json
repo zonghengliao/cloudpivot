@@ -1,0 +1,523 @@
+{
+ "parts": [
+  {
+   "name": "stockin_handler_common",
+   "note": "底座：错误构造 / 行计划 / 快照与派生总额 / 锁与权限判定",
+   "items": [
+    "parse_uuid",
+    "parse_optional_uuid",
+    "operator_of",
+    "not_found",
+    "conflict",
+    "reference_missing",
+    "bad_request",
+    "trim_qty",
+    "CancelGuard",
+    "cancel_write_error",
+    "STOCK_IN_LABEL",
+    "submit_conflict",
+    "write_error",
+    "detail_of",
+    "LinePlan",
+    "plan_lines",
+    "pending_post_no_of",
+    "decimal_as_number",
+    "stock_in_form_data",
+    "flush_effects",
+    "COPY_PERMISSION",
+    "locked_change",
+    "ensure_remark_only",
+    "ensure_derived_totals",
+    "items_match",
+    "__head__"
+   ],
+   "extra_uses": [
+    "use super::stockin_handler_purchase::*;\n"
+   ]
+  },
+  {
+   "name": "stockin_handler_purchase",
+   "note": "采购联动：来源单解析 / 供应商守卫 / 行回填 / 过账前复查",
+   "items": [
+    "po_item_of",
+    "PurchaseOrderFault",
+    "purchase_order_fault",
+    "fetch_purchase_order",
+    "require_purchase_order",
+    "require_purchase_order_at_post",
+    "purchase_status_label",
+    "ParentPointer",
+    "resolve_parent_pointer",
+    "guard_posting_supplier",
+    "pull_lines_from_purchase",
+    "purchase_item_snapshot",
+    "resolve_purchase_order",
+    "guard_purchase_before_post",
+    "guard_posting_units"
+   ],
+   "extra_uses": []
+  },
+  {
+   "name": "stockin_handler_write",
+   "note": "写入：建单 / 复制 / 编辑 / 删除",
+   "items": [
+    "create_stock_in",
+    "stock_in_create",
+    "copy_stock_in",
+    "stock_in_copy",
+    "update_stock_in",
+    "stock_in_update",
+    "delete_stock_in",
+    "stock_in_delete"
+   ],
+   "extra_uses": [
+    "use super::stockin_handler_purchase::*;\n"
+   ]
+  },
+  {
+   "name": "stockin_handler_post",
+   "note": "过账：提交审批 / 审批通过后过账 / 事务内扣库与成本",
+   "items": [
+    "posting_inputs",
+    "submit_post",
+    "submit_post_approval",
+    "submit_post_tx",
+    "post_after_approval",
+    "restore_after_post_rejection",
+    "post_stock_in",
+    "post_in_tx",
+    "request_serials"
+   ],
+   "extra_uses": [
+    "use super::stockin_handler_purchase::*;\n",
+    "use super::stockin_handler_status::*;\n"
+   ]
+  },
+  {
+   "name": "stockin_handler_cancel",
+   "note": "作废：提交/撤回作废审批 / 审批后反冲",
+   "items": [
+    "submit_cancel_approval",
+    "submit_cancel_tx",
+    "withdraw_cancel_approval",
+    "withdraw_cancel_tx",
+    "cancel_after_approval",
+    "restore_after_cancel_approval",
+    "cancel_in_tx"
+   ],
+   "extra_uses": []
+  },
+  {
+   "name": "stockin_handler_status",
+   "note": "状态流转与其余 HTTP 入口（改状态 / 提交过账 / 撤回作废）",
+   "items": [
+    "change_stock_in_status",
+    "change_stock_in_status_with",
+    "stock_in_change_status",
+    "stock_in_submit_post",
+    "stock_in_cancel_withdraw"
+   ],
+   "extra_uses": [
+    "use super::stockin_handler_post::*;\n",
+    "use super::stockin_handler_cancel::*;\n"
+   ]
+  },
+  {
+   "name": "stockin_handler_query",
+   "note": "只读入口：分页 / 详情",
+   "items": [
+    "stock_in_page",
+    "stock_in_detail",
+    "page_body"
+   ],
+   "extra_uses": []
+  }
+ ],
+ "tests": [
+  {
+   "inner_of": "tests",
+   "drop": [
+    "__head__"
+   ],
+   "into": [
+    {
+     "name": "stockin_handler_tests_fixtures",
+     "file": "stockin_handler_tests_fixtures.rs",
+     "items": [
+      "none_gate",
+      "UNIT",
+      "SUPPLIER",
+      "WAREHOUSE",
+      "MATERIAL_A",
+      "MATERIAL_B",
+      "MATERIAL_SN",
+      "MATERIAL_BOX",
+      "UNIT_BOX",
+      "LOC_DICT_A",
+      "LOC_DICT_B",
+      "A4_SUPPLIER_B",
+      "FIXTURES",
+      "DB_LOCK",
+      "ensure_db",
+      "setup",
+      "post_instance_where",
+      "purge_post_approval_traces",
+      "cleanup_fixtures",
+      "dec",
+      "line",
+      "line_at",
+      "req",
+      "post_req",
+      "uuid_keeper",
+      "ROLE_WH_MGR",
+      "U_WH_MGR",
+      "U_KEEPER",
+      "uid_of",
+      "sql",
+      "zz_teardown_purges_post_approval_residue"
+     ],
+     "publish_all": true,
+     "note": "测试夹具与库连接（常量 / 建库 / 清理 / 小工具）",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_helpers",
+     "file": "stockin_handler_tests_helpers.rs",
+     "items": [
+      "inventory_of",
+      "post_new",
+      "sourced_doc",
+      "po_no_of",
+      "posting_footprint",
+      "deadlocks_detected",
+      "waiting_locks",
+      "wait_waiters",
+      "seed_purchase_order",
+      "seed_location_row",
+      "location_row_of",
+      "location_qty_of",
+      "null_bucket_qty",
+      "location_row_count",
+      "location_qty_sum",
+      "cost_qty_sum",
+      "cancel_req",
+      "cancel",
+      "cancel_request",
+      "pending_task_of",
+      "approve_cancel",
+      "reject_cancel",
+      "instance_status_of",
+      "txn_count",
+      "voucher_count",
+      "serial_counts_of",
+      "post_new_by",
+      "d4_seed_po",
+      "d4_insert_posted",
+      "d4_seed_po_with_posted",
+      "d4_set_po_status",
+      "d4_po_status",
+      "d4_ledger_received",
+      "setup_post_approval",
+      "stock_in_with_amount",
+      "running_post_instance",
+      "post_pending_tasks",
+      "post_task_of",
+      "post_approve_as",
+      "stock_in_status",
+      "copy_claims",
+      "create_only",
+      "header_snapshot",
+      "a4_seed_po",
+      "a4_sourced_req",
+      "a4_po_status"
+     ],
+     "publish_all": true,
+     "note": "测试辅助：造单 / 造采购单 / 造库位 / 查询小工具",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_posting",
+     "file": "stockin_handler_tests_posting.rs",
+     "items": [
+      "non_base_unit_line_is_rejected",
+      "posting_rejects_non_base_unit_snapshot",
+      "first_receipt_creates_inventory_row",
+      "second_receipt_moves_weighted_average",
+      "rounding_dust_keeps_amount_authoritative",
+      "serial_material_generates_serials_in_receipt_warehouse",
+      "non_serial_material_generates_no_serials",
+      "txn_snapshot_is_before_and_after",
+      "concurrent_receipts_do_not_lose_or_deadlock",
+      "repeated_post_is_conflict",
+      "cost_uses_net_amount_not_gross"
+     ],
+     "note": "过账主链：库存/序列号/成本/并发/重复过账",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_update",
+     "file": "stockin_handler_tests_update.rs",
+     "items": [
+      "update_draft_replaces_lines",
+      "update_posted_is_conflict",
+      "serial_count_mismatch_is_bad_request",
+      "serial_ids_on_non_serial_material_is_rejected",
+      "over_receipt_against_purchase_order_is_rejected",
+      "auto_pull_lines_from_purchase_order",
+      "delete_only_draft",
+      "page_filters_by_status",
+      "biz_active_conflict_maps_to_409_with_stock_in_no",
+      "cancel_paths"
+     ],
+     "note": "编辑草稿/已过账锁定/序列号校验/来源采购单/分页筛选",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_location",
+     "file": "stockin_handler_tests_location.rs",
+     "items": [
+      "receipt_without_location_writes_null_bucket",
+      "receipt_with_location_updates_that_row",
+      "same_location_receipts_accumulate_one_row",
+      "different_locations_stay_separate",
+      "location_sum_equals_cost_book",
+      "location_failure_rolls_back_cost_account",
+      "concurrent_receipts_share_one_location_row",
+      "existing_location_row_is_updated_not_reinserted",
+      "location_row_of_another_material_is_rejected_with_reason"
+     ],
+     "note": "库位账：空桶 / 单行累加 / 失败回滚 / 并发共用一行",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_cancel",
+     "file": "stockin_handler_tests_cancel.rs",
+     "items": [
+      "cancel_rolls_back_cost_inventory",
+      "cancel_rolls_back_location_ledger",
+      "cancel_writes_out_txn",
+      "cancel_still_generates_red_voucher",
+      "cancel_twice_is_409",
+      "cancel_with_shipped_goods_is_409",
+      "cancel_uses_posted_amount_not_current_avg",
+      "cancel_zero_qty_zeroes_amount",
+      "concurrent_cancels_do_not_deadlock",
+      "failed_cancel_rolls_back_everything",
+      "cancel_keeps_invariant_e4",
+      "cancel_posted_voids_serials_of_the_receipt",
+      "cancel_refuses_when_serial_already_shipped",
+      "cancel_voids_only_serials_of_that_receipt",
+      "cancel_refuses_when_posted_txn_missing"
+     ],
+     "note": "作废反冲：成本/库位/流水/红字凭证/序列号/并发/不变量",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_p10_locked",
+     "file": "stockin_handler_tests_p10_locked.rs",
+     "items": [
+      "p10_posted_amount_change_is_conflict",
+      "p10_posted_qty_change_is_conflict",
+      "p10_posted_items_change_is_conflict",
+      "p10_posted_remark_change_is_allowed",
+      "p10_draft_amount_change_is_allowed",
+      "p10_posted_total_amount_field_alone_is_conflict",
+      "p10_draft_total_amount_direct_is_bad_request",
+      "p10_receipt_advances_order_and_logs_ref",
+      "p10_partial_receipt_advances_to_partial_received"
+     ],
+     "note": "P10：已过账字段锁（金额/数量/明细/总额/备注）",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_dc03",
+     "file": "stockin_handler_tests_dc03.rs",
+     "items": [
+      "dc03_posting_rejected_when_source_order_cancelled",
+      "dc03_second_open_receipt_is_rejected_with_available_qty",
+      "dc03_full_receipt_still_posts",
+      "lockorder_concurrent_post_and_cancel_no_deadlock"
+     ],
+     "note": "DC-03 来源单关闭/重复开单 + 过账与作废并发不死锁",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_p16",
+     "file": "stockin_handler_tests_p16.rs",
+     "items": [
+      "p16_submit_moves_to_pending_cancel_with_instance",
+      "dc01_cancel_without_published_flow_is_409",
+      "p16_duplicate_submit_is_409",
+      "p16_pending_cancel_is_locked",
+      "p16_approval_rolls_back_six_ledgers",
+      "p16_approval_uses_posted_amount_not_current_avg",
+      "p16_approval_generates_red_voucher",
+      "p16_approval_voids_serials",
+      "p16_reject_restores_posted",
+      "p16_withdraw_restores_posted",
+      "p16_resubmit_after_reject",
+      "p16_soft_deleted_doc_reconciles_instance",
+      "p16_other_path_cancel_reconciles_instance",
+      "p16_withdraw_failure_rolls_back",
+      "p16_self_approval_is_forbidden",
+      "p16_seed_flow_is_self_consistent"
+     ],
+     "note": "P16：作废走审批流（提交/撤回/通过/驳回/对账/自审拦截）",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_d4_purchase",
+     "file": "stockin_handler_tests_d4_purchase.rs",
+     "items": [
+      "d4_pending_fresh_order_equals_ordered",
+      "d4_pending_after_partial_receipt",
+      "d4_pending_all_received_is_zero",
+      "d4_pending_sums_multiple_receipts",
+      "d4_pending_ignores_draft_stock_in",
+      "d4_over_receipt_message_is_exact",
+      "d4_draft_order_cannot_receive",
+      "d4_received_order_cannot_receive",
+      "d4_cancelled_order_cannot_receive",
+      "d4_foreign_source_item_rejected",
+      "d4_post_advances_to_partial_received",
+      "d4_post_all_advances_to_received",
+      "d4_delete_draft_does_not_change_order",
+      "d4_cancel_posted_restores_pending",
+      "d4_purchase_order_id_alias_links_source",
+      "d4_conflicting_alias_rejected",
+      "d4_pending_matches_ledger_column"
+     ],
+     "note": "D4：在途/待收口径与采购单状态推进",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_pflow3a",
+     "file": "stockin_handler_tests_pflow3a.rs",
+     "items": [
+      "pflow3a_si_submit_post_pending_without_ledger",
+      "dc01_post_without_published_flow_is_409",
+      "pflow3a_si_small_amount_auto_posts_and_notifies",
+      "pflow3a_si_5000_needs_manager_approval",
+      "pflow3a_si_approve_posts_all_books",
+      "pflow3a_si_reject_back_to_draft_without_ledger",
+      "pflow3a_si_pending_post_is_locked",
+      "pflow3a_si_delete_cancels_pending_approval",
+      "pflow3a_si_maker_cannot_approve_own_post"
+     ],
+     "note": "P-FLOW-3A：过账走流程（小额自动/大额审批/驳回/锁定/自审）",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_d9_copy",
+     "file": "stockin_handler_tests_d9_copy.rs",
+     "items": [
+      "d9_stockin_copy_creates_draft_with_new_no_and_same_items",
+      "d9_stockin_copy_clears_purchase_order_id",
+      "d9_stockin_copy_clears_voucher_payable_and_approval_links",
+      "d9_stockin_copy_works_when_source_purchase_order_is_gone",
+      "d9_stockin_copy_without_items_is_400",
+      "d9_stockin_copy_three_times_yields_three_distinct_nos",
+      "d9_stockin_copy_does_not_touch_origin",
+      "d9_stockin_copy_requires_create_permission"
+     ],
+     "note": "D9：复制入库单（新单号、清联动、权限）",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    },
+    {
+     "name": "stockin_handler_tests_a4",
+     "file": "stockin_handler_tests_a4.rs",
+     "items": [
+      "a4_01_purchase_with_source_derives_supplier",
+      "a4_02_purchase_without_source_is_400",
+      "a4_03_source_order_missing_is_400",
+      "a4_04_source_order_not_receivable_is_400",
+      "a4_05_client_supplier_mismatch_is_400",
+      "a4_06_sourceless_requires_flag_and_reason",
+      "a4_07_non_purchase_with_supplier_db_rejects",
+      "a4_08_over_receipt_is_400",
+      "a4_09_list_and_detail_expose_snapshot_columns",
+      "a4_10_posting_rechecks_supplier",
+      "a4_11_post_and_cancel_keep_purchase_chain",
+      "a4_12_copy_marks_sourceless",
+      "a4_13_draft_update_cannot_hand_pick_supplier"
+     ],
+     "note": "A4：供应商来源派生与快照列",
+     "extra_uses": [
+      "use super::*;\n",
+      "use super::stockin_handler_tests_fixtures::*;\n",
+      "use super::stockin_handler_tests_helpers::*;\n",
+      "use crate::business::erp::stockin_dto::StockInLineSerials;\n",
+      "use std::str::FromStr;\n"
+     ]
+    }
+   ]
+  }
+ ],
+ "src": "src/business/erp/stockin_handler.rs"
+}

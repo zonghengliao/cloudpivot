@@ -132,6 +132,18 @@ mod transfer_scan; // 调拨单在途超期扫描
 mod transfer_settle; // 调拨单过账结算
 mod transfer_write; // 调拨单写入（建改删 + 状态流转）
 
+// ==================== TD-2 拆分出的部件（只经 facade 对外） ====================
+// `stockin_handler.rs`（9394 行，含 5990 行测试）按职责拆成 7 个代码部件 + 13 个测试部件，
+// 公开 API 由 `stockin_handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
+// 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。
+mod stockin_handler_cancel; // 作废：提交/撤回作废审批 + 审批后反冲
+mod stockin_handler_common; // 底座：错误构造 / 行计划 / 快照与派生总额 / 锁与权限判定
+mod stockin_handler_post; // 过账：提交审批 + 审批后过账 + 事务内扣库与成本
+mod stockin_handler_purchase; // 采购联动：来源单解析 / 供应商守卫 / 行回填 / 过账前复查
+mod stockin_handler_query; // 只读入口：分页 / 详情
+mod stockin_handler_status; // 状态流转与其余 HTTP 入口
+mod stockin_handler_write; // 写入：建单 / 复制 / 编辑 / 删除
+
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]
 pub(crate) mod fixture_hygiene;

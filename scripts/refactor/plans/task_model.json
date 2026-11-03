@@ -1,0 +1,327 @@
+{
+ "parts": [
+  {
+   "name": "task_model_base",
+   "note": "底座：数据权限锚点 / 常量 / 状态机纯逻辑 / 时间与编号纯函数",
+   "items": [
+    "TASK_TARGET",
+    "VISIBLE_OR_TAIL",
+    "MEMBER_SCOPE_LIMIT",
+    "MyScopeIds",
+    "impl:MyScopeIds",
+    "ids_array_param",
+    "visible_params",
+    "assert_scope_fragment",
+    "check_fragment_shape",
+    "cst_date_of",
+    "today_cst",
+    "default_due_date",
+    "MyBucket",
+    "bucket_of",
+    "format_task_no",
+    "month_key",
+    "NEW_TASK_WINDOW_DAYS",
+    "is_new_task",
+    "is_new_task_at",
+    "mark_is_new",
+    "escape_like",
+    "OPEN_STATES",
+    "open_states_sql",
+    "MAX_TASK_DEPTH",
+    "MAX_PARENT_DEPTH",
+    "PROGRESS_AUTO_COMMENT",
+    "CASCADE_REASON_FIRST_ACTIVE",
+    "CASCADE_REASON_ALL_TERMINAL",
+    "TERMINAL_STATUS_CODES",
+    "REPAIR_SCAN_LIMIT",
+    "normalize_repair_limit",
+    "CASCADE_CANCEL_REASON",
+    "blocks_child_advance",
+    "cascade_target",
+    "COMMENT_TYPE_STATUS_CHANGE",
+    "COMMENT_TYPE_PROGRESS_AUTO",
+    "COMMENT_TYPE_PLAIN",
+    "COMMENT_TYPE_AI_REPORT",
+    "COMMENT_TYPE_AI_PROGRESS",
+    "COMMENT_TYPE_ASSIGN",
+    "COMMENT_TYPE_SCHEDULE",
+    "CARD_COLUMNS",
+    "CARD_FROM",
+    "DEP_PEER_COLUMNS",
+    "PEER_SCHEDULE_COLUMNS",
+    "ASSIGN_OWNER_SQL",
+    "MEMBERS_INSERT_SQL",
+    "display_file_name",
+    "completion_rate",
+    "stats_default_window",
+    "stats_window_error",
+    "MAX_STATS_WINDOW_DAYS",
+    "__head__"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_rows",
+   "note": "行结构与入参契约：所有查询行 / 写库载荷 / 过滤条件结构体",
+   "items": [
+    "TaskCardRow",
+    "impl:TaskCardRow",
+    "TaskDetailRow",
+    "TaskMemberRow",
+    "TaskAttachmentRow",
+    "TaskFilter",
+    "VisiblePage",
+    "TaskFlowDetailRow",
+    "TaskFlowApprovalRow",
+    "NewTask",
+    "TaskPatch",
+    "impl:TaskPatch",
+    "ChildRow",
+    "impl:ChildRow",
+    "StatusUpdate",
+    "CommentExtra",
+    "ProgressRecalc",
+    "StatusCascade",
+    "ParentStatusGap",
+    "CancelCascade",
+    "OwnerChange",
+    "DependencyRow",
+    "impl:DependencyRow",
+    "TaskRelation",
+    "GanttTaskRow",
+    "GanttFilter",
+    "GanttResult",
+    "SyncTargetRow",
+    "StatsFilter",
+    "ExecModeStat",
+    "ScheduleRow",
+    "impl:ScheduleRow",
+    "PeerSchedule",
+    "impl:PeerSchedule"
+   ],
+   "extra_uses": []
+  },
+  {
+   "name": "task_model_query",
+   "note": "只读查询：列表/详情/我的任务/协作人/附件/用户校验/AI 轮询目标",
+   "items": [
+    "build_filters",
+    "page_visible",
+    "find_detail",
+    "find_detail_with_visibility",
+    "detail_from_row",
+    "list_children",
+    "list_members",
+    "list_attachments",
+    "my_tasks",
+    "scan_overdue",
+    "find_raw",
+    "count_open_children",
+    "my_member_task_ids",
+    "user_dept",
+    "user_exists",
+    "people_of",
+    "child_rows_with",
+    "children_of",
+    "snapshots_of",
+    "member_ids",
+    "user_type_of",
+    "user_display_name",
+    "valid_users",
+    "has_open_or_any_children",
+    "sync_targets",
+    "count_ai_attachments"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_write",
+   "note": "写入：建/改/删任务、协作人、评论、进度、转派",
+   "items": [
+    "create_task",
+    "next_task_no",
+    "add_member",
+    "update_task",
+    "soft_delete",
+    "purge_dependencies",
+    "insert_members",
+    "remove_member",
+    "assign_owner",
+    "apply_status",
+    "set_progress",
+    "insert_comment",
+    "insert_comment_full"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_hierarchy",
+   "note": "父子链：深度校验 / 进度重算 / 状态级联 / 取消级联 / 巡检",
+   "items": [
+    "recalc_ancestors",
+    "cascade_parent_status",
+    "cascade_cancel_descendants",
+    "cascade_cancel_sql",
+    "scan_parent_status_gaps",
+    "parent_status",
+    "scalar_status",
+    "scalar_progress",
+    "ancestor_chain_sql",
+    "validate_parent",
+    "parent_of"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n",
+    "use super::task_model_query::*;\n",
+    "use super::task_model_write::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_dep",
+   "note": "依赖与甘特：前置/后继/环检测/甘特取数",
+   "items": [
+    "list_prerequisites",
+    "list_successors",
+    "blocking_prerequisites",
+    "dependency_edges",
+    "find_dependency",
+    "insert_dependency",
+    "delete_dependency",
+    "task_relation",
+    "dependency_labels",
+    "gantt_tasks",
+    "blocked_task_ids",
+    "gantt_edges"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n",
+    "use super::task_model_query::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_ai",
+   "note": "Hermes 同步：令牌 / 派活 / 状态回写 / AI 附件绑定",
+   "items": [
+    "upsert_ai_token",
+    "delete_ai_token",
+    "mark_dispatched",
+    "touch_hermes",
+    "sync_progress_of_ai",
+    "mark_ai_active",
+    "apply_ai_done",
+    "bind_ai_attachment",
+    "bind_human_attachment"
+   ],
+   "extra_uses": []
+  },
+  {
+   "name": "task_model_stats",
+   "note": "统计：按执行模式的完成率统计",
+   "items": [
+    "task_stats"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n",
+    "use super::task_model_query::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_flow",
+   "note": "任务 ↔ 流程：来源实例/节点查询与审批人解析",
+   "items": [
+    "flow_ref_of_task",
+    "split_approvers",
+    "switch_field"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n"
+   ]
+  },
+  {
+   "name": "task_model_schedule",
+   "note": "改期：排期快照读取与落库",
+   "items": [
+    "find_schedule_row",
+    "schedule_prerequisites",
+    "schedule_successors",
+    "schedule_parent",
+    "schedule_children",
+    "update_schedule"
+   ],
+   "extra_uses": [
+    "use super::task_model_rows::*;\n"
+   ]
+  }
+ ],
+ "tests": [
+  {
+   "mod": "tests",
+   "file": "task_model_tests.rs",
+   "note": "纯逻辑回归：转派 SQL 口径等"
+  },
+  {
+   "mod": "display_file_name_tests",
+   "file": "task_model_display_file_name_tests.rs",
+   "note": "附件显示名纯逻辑回归"
+  },
+  {
+   "mod": "depth_tests",
+   "file": "task_model_depth_tests.rs",
+   "note": "父任务链深度校验"
+  },
+  {
+   "mod": "root_only_tests",
+   "file": "task_model_root_only_tests.rs",
+   "note": "列表 root_only"
+  },
+  {
+   "mod": "statuses_filter_tests",
+   "file": "task_model_statuses_filter_tests.rs",
+   "note": "状态多选筛选"
+  },
+  {
+   "mod": "stats_tests",
+   "file": "task_model_stats_tests.rs",
+   "note": "统计窗口与完成率"
+  },
+  {
+   "mod": "repair_tests",
+   "file": "task_model_repair_tests.rs",
+   "note": "父任务状态巡检"
+  },
+  {
+   "inner_of": "cascade_tests",
+   "into": [
+    {
+     "name": "cascade_tests",
+     "file": "task_model_cascade_tests.rs",
+     "items": "ALL",
+     "exclude": [
+      "t11_cancel"
+     ],
+     "publish_all": true,
+     "note": "子任务状态 → 父任务状态级联（规则①②⑨）"
+    },
+    {
+     "name": "cascade_cancel_tests",
+     "file": "task_model_cascade_cancel_tests.rs",
+     "items": [
+      "t11_cancel"
+     ],
+     "unwrap_mod": true,
+     "extra_uses": [
+      "use super::cascade_tests::*;\n"
+     ],
+     "note": "父任务取消 → 子孙级联取消（T11，原 cascade_tests::t11_cancel）"
+    }
+   ]
+  }
+ ],
+ "src": "src/business/task/model.rs"
+}

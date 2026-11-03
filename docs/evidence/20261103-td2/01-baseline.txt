@@ -1,0 +1,38 @@
+# TD-2 基线（拆分**前**，HEAD = 52f1ccf，工作树只多一个未跟踪的 scripts/refactor/_dump_items.py）
+
+日期：2026-11-03
+环境：`NIK_PROFILE=test`，`SYS_DB_URL = ERP_DB_URL = TASK_DB_URL = <当前这一轮用的隔离库>`，
+`NIK_MIDDLEWARE_AUTH_JWT_SECRET` 注入 64 hex，`TMPDIR=/root/cp-td2/tmp`（/tmp 是共享 tmpfs 且已满）。
+
+## 1) 受影响面基线（本卡真正会碰到的两个模块）
+
+隔离库：`cp_td2_b2`（`CREATE DATABASE ... TEMPLATE cloudpivot_tdh`，150 条迁移，与工单库里
+上一轮全量跑完的库同源）与 `cp_td2_b3`（同样克隆）。
+
+```
+$ cargo test --lib -- business::task -- --test-threads=1
+test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 1877 filtered out; finished in 11.28s
+
+$ cargo test --lib -- business::erp::stockin -- --test-threads=1
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 1954 filtered out; finished in 362.24s
+```
+
+（210 + 133 + 1877/1954 的 filtered out 都是 2087，与全仓 lib 用例总数一致。）
+
+## 2) 全量 lib 基线（如实记录：本卡没有把它跑完）
+
+```
+$ cargo test --lib -- --test-threads=1        # 隔离库 cp_td2_base
+… 跑到 554 条（全部 ok，无失败）后被主动中止（时间预算：本机 4 核且有多张卡并行跑真库用例，
+实测速率 ~2 条/秒，跑完整轮预计 >2 小时）→ 日志 /root/cp-td2/baseline-lib.log
+```
+
+参照口径（同一 HEAD 上别的卡跑出来的真实数字，用于判断「拆完有没有引入回归」）：
+
+- 父卡 `t_3d77b506`（testhygiene）全量 lib：**2086 passed / 1 failed**，
+  唯一失败 `business::flow::edge_admin_tests::list_view_reports_base_config_and_effective`
+  是 D3 卡当时**未提交**文件的用例间夹具污染（单跑 2/2 绿），与本卡无关；
+- 卡 `t_1e174431`（C1）在同一 HEAD 上全量 lib：**2073 passed / 0 failed**。
+
+→ 本卡的判定口径：**受影响面的 210 + 133 条必须逐条同数全绿**（拆分前后用同源克隆库），
+并额外跑一轮全量 lib 记录实际数字（见 04-full-lib.txt）。

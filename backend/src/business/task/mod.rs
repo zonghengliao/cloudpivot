@@ -83,3 +83,18 @@ pub mod schedule;
 pub mod state;
 pub mod template;
 pub mod workspace_files;
+
+// ==================== TD-2 拆分出的部件（只经 facade 对外） ====================
+// `model.rs`（7604 行）按职责拆成 10 个代码部件 + 9 个测试部件，**不直接对外**：
+// 公开 API 由 `model` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变。
+// 拆法见 `docs/refactor-methodology.md`（TD-2 章节）。
+mod task_model_ai; // Hermes 同步：令牌 / 派活 / 状态回写 / AI 附件绑定
+mod task_model_base; // 底座：数据权限锚点 / 常量 / 状态机纯逻辑 / 时间与编号纯函数
+mod task_model_dep; // 依赖与甘特：前置/后继/环检测/甘特取数
+mod task_model_flow; // 任务 ↔ 流程：来源实例/节点查询与审批人解析
+mod task_model_hierarchy; // 父子链：深度校验 / 进度重算 / 状态级联 / 取消级联 / 巡检
+mod task_model_query; // 只读查询：列表/详情/我的任务/协作人/附件/用户校验/AI 轮询目标
+mod task_model_rows; // 行结构与入参契约（查询行 / 写库载荷 / 过滤条件）
+mod task_model_schedule; // 改期：排期快照读取与落库
+mod task_model_stats; // 统计：按执行模式的完成率统计
+mod task_model_write; // 写入：建/改/删任务、协作人、评论、进度、转派

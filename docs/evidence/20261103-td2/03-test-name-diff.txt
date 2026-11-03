@@ -1,0 +1,28 @@
+# 受影响面：用例逐条对照（拆分前 vs 拆分后）
+
+只比「用例函数名」（`test <模块路径>::<函数名> ... ok` 的**最后一段**），
+因为拆超限测试 mod 的唯一变化是模块路径。
+
+## business::task
+```
+拆分前用例数: 210
+拆分后用例数: 210
+函数名差异（< 前独有 / > 后独有）:
+  （无差异）
+
+模块路径变化示例（同一用例）:
+  test business::task::model::cascade_tests::t11_cancel::cancel_parent_cancels_doing_child ... ok
+  test business::task::model::cascade_cancel_tests::cancel_parent_cancels_doing_child ... ok
+```
+
+## business::erp::stockin
+```
+拆分前用例数: 133
+拆分后用例数: 133
+函数名差异（< 前独有 / > 后独有）:
+  （无差异）
+
+模块路径变化示例（同一用例）:
+  test business::erp::stockin_handler::tests::cancel_rolls_back_cost_inventory ... ok
+  test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory ... ok
+```

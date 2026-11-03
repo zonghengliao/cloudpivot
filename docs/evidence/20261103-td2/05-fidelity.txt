@@ -1,0 +1,15 @@
+==============================================================================
+backend/src/business/task/model.rs   （拆分前 ref = 52f1ccf）
+  条目多重集                前=  310 后=  310  MISSING=none  ADDED=none
+  SQL 字面量              前=  116 后=  116  MISSING=none  ADDED=none
+  用例名                  前=   77 后=   77  MISSING=none  ADDED=none
+  代码 token 多重集         前=36807 后=36807  MISSING=none  ADDED=none
+==============================================================================
+backend/src/business/erp/stockin_handler.rs   （拆分前 ref = 52f1ccf）
+  条目多重集                前=  270 后=  270  MISSING=none  ADDED=none
+  SQL 字面量              前=  168 后=  168  MISSING=none  ADDED=none
+  用例名                  前=  122 后=  122  MISSING=none  ADDED=none
+  代码 token 多重集         前=54942 后=54942  MISSING=none  ADDED=none
+==============================================================================
+结论： PASS（条目 / SQL / 用例名 / 代码 token 四重多重集全部一一对应，只搬不移）
+EXIT=0

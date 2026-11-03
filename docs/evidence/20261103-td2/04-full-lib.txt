@@ -1,0 +1,63 @@
+# 全量测试（工作树 = 拆分结果，2026-11-03）
+
+## 1) cargo test --lib -- --test-threads=1
+
+库：`cp_td2_clean`（`CREATE DATABASE ... TEMPLATE cloudpivot_tdh` 之后
+`delete from biz_account where account_code like 'P2D1%'` 清掉模板里的历史残留 ——
+即方法论 §9② 记录的既有假红来源）。
+
+```
+test result: ok. 2087 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1074.52s
+EXIT=0
+```
+
+对照：父卡 t_3d77b506 在拆分前同一 HEAD 上跑的是 **2086 passed / 1 failed**
+（唯一失败 `flow::edge_admin_tests::list_view_reports_base_config_and_effective`，
+是 D3 卡当时未提交文件造成的用例间夹具污染，单跑 2/2 绿）；C1 卡在同一 HEAD 上 2073/0。
+本轮 **2087 / 0**，用例总数一致（2087）—— 拆分没有删改任何用例。
+
+## 2) 19 个集成 target（cargo test --test <name> -- --test-threads=1，隔离库 cp_td2_it2 全新克隆）
+
+```
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+  test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+EXIT=0
+```
+
+## 3) testd（独立硬校验，连 cloudpivot_test）
+
+```
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 183.81s
+EXIT=0
+```
+
+## 4) 说明：为什么另外几轮出现了红（都与本卡改动无关）
+
+- **集成 target 默认并行跑**：第一次集成跑（`cp_td2_it`，没加 `--test-threads=1`）里
+  `batchT_t1_task` 的 3 条用例红在 `sys_dept_pkey` / `sys_role_pkey` 主键冲突 ——
+  同一 target 内的用例并行跑，都往同一组固定 UUID 夹具里插（文件头就写明「固定 UUID」
+  与「先清一次再跑」）。加 `--test-threads=1` 换全新克隆库后 5/5 全绿（见 §2）：
+  这是**跑法问题**，不是代码问题。
+- `cargo test --tests` 会把 **lib 单测也带上**（`unittests` target）：
+  它在**已经被上一轮 lib 跑过**的库上再跑一遍，`erp::payable_bridge::tests::
+  zz_teardown_purges_payment_status_logs` 因固定夹具残留而红 ——
+  属「同一个库跑第二遍」的既有夹具问题（方法论 §9② 同类）。本卡没碰 `payable_bridge.rs`。
+- 第一次 testd 跑的 `testd::storage::zz_no_fixture_residue_after_full_suite` 报
+  `sys_file=1`：那是 `cloudpivot_test` 里此前被中断的跑留下的 `TD%` 文件名残留；
+  库侧复查 `select count(*) from sys_file where file_name like 'TD%'` 已为 0，重跑见 §3（67/0）。
