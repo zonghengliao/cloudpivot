@@ -1,0 +1,139 @@
+# 卡 t_1b3b5c5c：卡 C 探针复验（硬化后）
+# 环境：PROBE_DIR=/root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a
+#       CP_SRC=/root/.hermes/profiles/backend-developer/cache/scratch/gate_clean_1b3b/backend/src   （干净树 = git archive HEAD 3d80f85 的 backend/src）
+# 说明：CP_SRC 用干净树而不是 /opt/cloudpivot/backend/src，是因为共享工作区里有别卡未提交的
+#   测试面文件，会让本卡的 SKIP_MANIFEST 断言（正确地）先报一条（见 56_dirty_tree_manifest_fired.txt）；
+#   探针要验的是**解析器**，基线必须是已提交的树。脚本本身仍是被测的 /opt/cloudpivot/scripts/lint/*.py。
+#
+# 期望（卡面验收 2）：T4 exit=1、T5b exit=1、U2 报红、case08 进 problems；T0 基线 exit=0。
+# ══════════════════════════════════════════════════════════════════
+## 1) scope_bypass.py（T0/T2/T3/T4/T5a/T5b/T6a/T6b/T7）
+$ python3 docs/evidence/20261103-gate-v2/probes/scope_bypass.py
+
+### T0 基线（未改动副本）  → exit=0
+   闸② 判定面（v2）：扫描生产面 310 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     PASS：0 处
+
+### T2 生产文件里裸 #[cfg(test)]（后文生产查询 sys_notice）  → exit=1
+   闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_a.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     FAIL：1 个文件（按文件计）
+    zz_a 是否被判红： True
+
+### T3 cfg(test) mod 之后的生产函数（sys_user）  → exit=1
+   闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_b.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     FAIL：1 个文件（按文件计）
+    报红内容： ['FAIL: business/task/zz_b.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT', 'business/task/zz_b.rs (sys_user)']
+    biz_task（测试区内）是否被误报： False
+
+### T4 同一文件被普通 mod 与 #[cfg(test)] mod 双指向  → exit=1
+   闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_c.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     FAIL：1 个文件（按文件计）
+    zz_c 被跳过： True
+    zz_c 报红： True
+    --list-skipped 里 zz_c 那行： ['FAIL: business/task/zz_c.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT', 'business/task/zz_c.rs (sys_notice)']
+
+### T5a 先让 zz_d 报红（对照）  → exit=1
+   闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_d.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     FAIL：1 个文件（按文件计）
+
+### T5b 加一条 #[cfg(test)] #[path=zz_d.rs] mod ghost_copy;  → exit=1
+   闸② 判定面（v2）：扫描生产面 310 个文件 / 跳过测试面 52 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     FAIL：跳过清单断言：backend/src/business/task/zz_d.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t5_phantom_path/backend/src/business/erp/approval_gate.rs:797）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/zz_d.rs",
+    zz_d 报红： True
+    --list-skipped 里 zz_d 那行： ['business/task/zz_d.rs  ← /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t5_phantom_path/backend/src/business/erp/approval_gate.rs:797', 'FAIL：跳过清单断言：backend/src/business/task/zz_d.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t5_phantom_path/backend/src/business/erp/approval_gate.rs:797）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/zz_d.rs",']
+
+### T6a 把 task_model_query.rs 声明成 #[cfg(test)]（改 mod.rs）  → exit=1
+   闸② 判定面（v2）：扫描生产面 309 个文件 / 跳过测试面 52 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t6_guard/backend/src/business/task/mod.rs:97）—— 解析器误判，闸② 不许据此变绿
+     FAIL：跳过清单断言：backend/src/business/task/task_model_query.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t6_guard/backend/src/business/task/mod.rs:97）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/task_model_query.rs",
+    guard 报错： ['FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_bypass/t6_guard/backend/src/business/task/mod.rs:97）—— 解析器误判，闸② 不许据此变绿']
+
+### T6b 脚本副本把 task_model_query.rs 从扫描集合剔除  → exit=1
+   闸② 判定面（v2）：扫描生产面 309 个文件 / 跳过测试面 51 个文件
+     FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 不在生产面扫描结果里
+
+### T7 一个 SCOPE-EXEMPT 注释是否连带豁免同文件里的用户可见列表查询  → exit=0
+   闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+     PASS：0 处
+    zz_e 报红： False
+PROBE_EXIT=0
+
+# ══════════════════════════════════════════════════════════════════
+## 2) scope_edges.py（U1–U6）
+$ python3 docs/evidence/20261103-gate-v2/probes/scope_edges.py
+$ scope_gate.py --root /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/scope_edges   EXIT=1
+  闸② 判定面（v2）：扫描生产面 316 个文件 / 跳过测试面 51 个文件
+  FAIL: business/task/zz_u1.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u2.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u4.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u5.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u6.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+PROBE_EXIT=0
+
+# ══════════════════════════════════════════════════════════════════
+## 3) g5_build_and_run.py（case01–case11）
+$ python3 docs/evidence/20261103-gate-v2/probes/g5_build_and_run.py
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/scripts/lint/changelog_in_tx.py --root /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/g5fix --src /root/.hermes/profiles/backend-developer/cache/scratch/probe_t1b3b_a/g5fix/backend/src --list
+EXIT=1
+  ok  backend/src/_pad.rs:1 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:2 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:3 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:4 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:5 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:6 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:7 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:8 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:9 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:10 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:11 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:12 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:13 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:14 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:15 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:16 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:17 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:18 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:19 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:20 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:21 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:22 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:23 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:24 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:25 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:26 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:27 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:28 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:29 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:30 record(…) 在 transaction 闭包内
+  skip backend/src/case04_shadow.rs:6 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/case04_shadow.rs:7 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  ok  backend/src/case05_typed_param.rs:3 record(ex) 形参声明为 Transaction：cancel(ex: &Transaction)
+  ok  backend/src/case10_crate_begin.rs:3 record(…) 使用 begin() 创建的显式事务句柄
+G5 FAIL：6 个调用点不合规（检查了 37 个调用点，扫了 12 个文件）
+  backend/src/case01_top_level_db.rs:2: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  backend/src/case02_spawn.rs:3: record(&tx) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/case03_tx_but_db.rs:3: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  backend/src/case04_shadow.rs:8: record(conn) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/case08_plain_import.rs:4: 裸调 record(…) 没写 changelog:: 限定，且本文件没有本地 fn record——只可能是 use 导入的裸调，静态上看不出它走的是 changelog 写入入口，请改写成 changelog::record(_in)
+  backend/src/case11_tx_but_other_handle.rs:3: record(other_pool) 第一个实参里看不到 tx / Transaction 类型，无法证明是同事务执行器
+  修法：把 changelog::record(_in) 放进 db().transaction(|tx| async move { … }) 里、第一个实参传 &tx；或让首参是形参声明为 &Transaction 的事务句柄
+
+PROBE_EXIT=0

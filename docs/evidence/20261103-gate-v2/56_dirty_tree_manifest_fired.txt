@@ -1,0 +1,7 @@
+# 卡 t_1b3b5c5c：共享工作区（含别卡未提交测试面文件）上 SKIP_MANIFEST 断言的实际拦截
+$ python3 scripts/lint/scope_gate.py --root /opt/cloudpivot
+闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 52 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  FAIL：跳过清单断言：backend/src/business/erp/cancel_cascade_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:184）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/cancel_cascade_tests.rs",
+EXIT=1

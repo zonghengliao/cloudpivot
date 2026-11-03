@@ -11,6 +11,9 @@
 3. 忽略方法调用（匹配位置前一个非空字符是 `.`，如缓存闸门的 `TREE_CACHE_GATE.record(true)`）；
 4. 忽略同文件本地 `fn record(` 遮蔽下的裸调用（如 `business/flow/linkage/engine.rs`），
    但**同文件里真实的 `changelog::record` 仍要查**；
+4'. 反过来（口径 v2 硬化 R4）：非 changelog 模块里的裸调用，若本文件**没有**本地
+   `fn record(`，就只可能是 `use …changelog::record;` 导入的裸调 —— **直接判红**。
+   v2 早期版本对这种写法只打一行「提示」就放行（exit 0），那是本口径唯一一处真实放宽，现已收回。
 5. 注释 / 字符串照旧用 `mask()` 处理。
 
 ## 事务证据（D5 = 看类型，不看名字）
@@ -343,8 +346,8 @@ def is_definition(masked: str, pos: int) -> bool:
     return bool(re.search(r"\bfn\s+$", masked[max(0, pos - 16) : pos]))
 
 
-def check_file(path: Path, repo_root: Path, verbose: bool) -> tuple[list[str], int, list[str]]:
-    """返回 (违例列表, 本文件判定过的调用点数, 提示信息)。"""
+def check_file(path: Path, repo_root: Path, verbose: bool) -> tuple[list[str], int]:
+    """返回 (违例列表, 本文件判定过的调用点数)。"""
     source = path.read_text(encoding="utf-8")
     masked = mask(source)
     blocks = block_kinds(masked)
@@ -367,9 +370,11 @@ def check_file(path: Path, repo_root: Path, verbose: bool) -> tuple[list[str], i
             raw_sites.append((match.start(), match.group(1), "bare"))
     raw_sites.sort()
 
-    notes: list[str] = []
-    # 可审计：非 changelog 模块里的裸调不在判定面（D4.1），若该文件没有本地 fn record 遮蔽
-    # 提醒一句「可能是 use changelog::record 导入的裸调，请改成限定名」——只提示，不判红。
+    problems: list[str] = []
+    # 非 changelog 模块里的裸调（D4.1 + 口径 v2 硬化 R4）：
+    #   · 本地有 `fn record(` 遮蔽（D4.4）→ 那不是 changelog 的调用点，跳过（--list 时打印依据）；
+    #   · 本地**没有**定义 → 只可能是 `use …changelog::record;` 导入的裸调，直接判红。
+    #     v2 早期版本对这一种只打一行「提示」就放行（exit 0），是本口径唯一一处真实放宽，现收回。
     if not inside_module:
         for match in BARE_CALL_RE.finditer(masked):
             if is_definition(masked, match.start()):
@@ -379,12 +384,12 @@ def check_file(path: Path, repo_root: Path, verbose: bool) -> tuple[list[str], i
                 if verbose:
                     print(f"  skip {rel}:{line} 裸调 {match.group(1)}(…)（本地 fn record 遮蔽，D4.4）")
             else:
-                notes.append(
-                    f"{rel}:{line}: 裸调 {match.group(1)}(…) 不在判定面（D4 只认限定名），"
-                    "且本文件没有本地 fn record —— 若是 use 导入的裸调，请改写成 changelog::record"
+                problems.append(
+                    f"{rel}:{line}: 裸调 {match.group(1)}(…) 没写 changelog:: 限定，且本文件没有本地 fn record"
+                    "——只可能是 use 导入的裸调，静态上看不出它走的是 changelog 写入入口，"
+                    "请改写成 changelog::record(_in)"
                 )
 
-    problems: list[str] = []
     sites = 0
     for pos, name, kind in raw_sites:
         paren = masked.index("(", pos + len(name))
@@ -439,7 +444,7 @@ def check_file(path: Path, repo_root: Path, verbose: bool) -> tuple[list[str], i
                 "首参也不是 Transaction 类型的形参"
                 "（也不在 begin() 创建的显式事务句柄负责的范围里）"
             )
-    return problems, sites, notes
+    return problems, sites
 
 
 def coverage_ok(call_sites: int) -> bool:
@@ -470,18 +475,13 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     problems: list[str] = []
-    notes: list[str] = []
     checked = 0
     call_sites = 0
     for path in files:
-        found, sites, file_notes = check_file(path, repo_root, args.list)
+        found, sites = check_file(path, repo_root, args.list)
         problems.extend(found)
-        notes.extend(file_notes)
         call_sites += sites
         checked += 1
-
-    for note in notes:
-        print(f"  提示：{note}")
 
     if not coverage_ok(call_sites):
         print(
@@ -640,6 +640,22 @@ pub async fn run(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
         "problems": 0,
         "sites": 1,
     },
+    {
+        # 口径 v2 硬化 R4：v2 早期版本对这一种只打「提示」就 exit 0，现收回。
+        "name": "⑨' use 导入后的裸调 record(db(), …) → 报红（R4：本地没有 fn record 就不许裸调）",
+        "file": "backend/src/case_plain_import.rs",
+        "source": """
+use crate::business::changelog::record;
+
+pub async fn sneaky(db: &Db, ctx: &ChangeCtx) -> Result<(), ApiError> {
+    record(db(), ctx, target, input).await?;
+    Ok(())
+}
+""",
+        "problems": 1,
+        "sites": 0,
+        "problem_contains": "use 导入的裸调",
+    },
 )
 
 
@@ -658,7 +674,7 @@ def self_test() -> int:
         path = base / case["file"]
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(case["source"].lstrip("\n"), encoding="utf-8")
-        problems, sites, _notes = check_file(path, base, False)
+        problems, sites = check_file(path, base, False)
         ok = len(problems) == case["problems"] and sites == case["sites"]
         if ok and case.get("problem_contains"):
             ok = any(case["problem_contains"] in item for item in problems)

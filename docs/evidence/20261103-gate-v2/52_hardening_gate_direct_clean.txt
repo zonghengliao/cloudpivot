@@ -1,0 +1,23 @@
+# 卡 t_1b3b5c5c：闸② / G5 直跑（干净树 = git archive HEAD 3d80f85 的 backend/src）
+# 为什么不用共享工作区 /opt/cloudpivot：那个树上有别卡未提交的测试面文件，会被本文的
+#   SKIP_MANIFEST 断言正确拦下（见 56_dirty_tree_manifest_fired.txt），不是本卡判据问题。
+
+$ python3 scripts/lint/scope_gate.py --root <clean>
+闸② 判定面（v2）：扫描生产面 310 个文件 / 跳过测试面 51 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（51 条；多一个少一个都不放行）
+  PASS：0 处
+EXIT=0
+
+$ python3 scripts/lint/scope_gate.py --root <clean> --list-skipped  (前 4 行)
+闸② 判定面（v2）：扫描生产面 310 个文件 / 跳过测试面 51 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+被跳过的测试面文件（51 个，含声明位置）：
+跳过清单行数：51
+SKIP_MANIFEST 条数：51
+
+$ python3 scripts/lint/changelog_in_tx.py --root <clean>
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 361 个文件）
+EXIT=0
