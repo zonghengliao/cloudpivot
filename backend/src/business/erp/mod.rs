@@ -83,6 +83,9 @@ pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;
 pub mod period;
+pub mod period_items;
+pub mod period_owner;
+pub mod period_remind;
 pub mod purchase_bridge;
 pub mod purchase_dto;
 pub mod purchase_handler;
@@ -115,6 +118,9 @@ pub mod year_end;
 // 公开 API 由 `model` / `stockin_model` / `transfer_model` 三个 facade 用
 // `pub use super::<部件>::*;` 重导出，调用方路径与拆分前完全一致。
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
+#[cfg(test)]
+mod period_test_support; // PERIOD-CLOSE 真库用例的公共夹具（`2033-xx` / `P2-` 前缀）
+
 mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读
 mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科目/期间/取号规则）

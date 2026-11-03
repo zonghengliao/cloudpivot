@@ -183,6 +183,8 @@ export const PERIOD_ACTION_PERMISSIONS = {
   open: 'business:erp:period:open',
   close: 'business:erp:period:close',
   reopen: 'business:erp:period:reopen',
+  /** 催办（PERIOD-CLOSE）：能给处理人发催办 ≠ 有资格替他把单过账，所以另立一码 */
+  remind: 'business:erp:period:remind',
 } as const;
 
 /** 期间行上可用的动作 */
@@ -313,4 +315,185 @@ export function batchOpenError(from: string, to: string): string | null {
     return `一次最多开 120 个期间（当前 ${months} 个）：期间行建出来不可删除`;
   }
   return null;
+}
+
+// ==================== 结账明细（PERIOD-CLOSE） ====================
+
+/**
+ * 单据类型 → 中文（与后端 `period_items::doc_type_label` 同口径）。
+ *
+ * 未知类型原样返回：后端加了新单据类型时页面不该显示空白。
+ */
+const BLOCKING_DOC_TYPE_LABELS: Record<string, string> = {
+  VOUCHER: '凭证',
+  STOCK_IN: '收货',
+  PURCHASE_ORDER: '采购',
+  STOCK_TRANSFER: '调拨',
+  INVENTORY: '库存',
+};
+
+/** 单据类型中文（未知类型原样返回） */
+export function blockingDocTypeLabel(docType: string | null | undefined): string {
+  const key = (docType ?? '').trim();
+  if (!key) {
+    return '—';
+  }
+  return BLOCKING_DOC_TYPE_LABELS[key] ?? key;
+}
+
+/**
+ * 角色码 → 中文岗位名。
+ *
+ * 只是**展示**用：后端给的是角色码（`ACCOUNTANT`），催办也按角色扇出，
+ * 所以这里查不到就原样显示角色码（不猜、不吞）。
+ */
+const OWNER_ROLE_LABELS: Record<string, string> = {
+  SUPER_ADMIN: '超级管理员',
+  ADMIN: '管理员',
+  FINANCE: '财务',
+  FINANCE_MANAGER: '财务经理',
+  FINANCE_DIRECTOR: '财务总监',
+  ACCOUNTANT: '会计',
+  WAREHOUSE: '仓管',
+  WAREHOUSE_MANAGER: '仓管',
+  PURCHASER: '采购',
+  PURCHASE_MANAGER: '采购经理',
+  GENERAL_MANAGER: '总经理',
+  DEPT_LEADER: '部门主管',
+};
+
+/** 角色码 → 中文（查不到原样返回） */
+export function ownerRoleLabel(role: string | null | undefined): string {
+  const key = (role ?? '').trim();
+  if (!key) {
+    return '待分配';
+  }
+  return OWNER_ROLE_LABELS[key] ?? key;
+}
+
+/**
+ * 「该谁处理」一栏的文案：`会计(李四)` / `会计` / `待分配`。
+ *
+ * - 有具体人 → 角色(姓名)：能直接点名催；
+ * - 只有角色 → 只写角色：该角色全体都会收到催办；
+ * - 都没有 → 「待分配」：**不瞎猜**，催办按钮置灰。
+ */
+export function ownerText(item: {
+  owner_role?: string | null;
+  owner_name?: string | null;
+}): string {
+  const role = (item.owner_role ?? '').trim();
+  const name = (item.owner_name ?? '').trim();
+  if (!role) {
+    return '待分配';
+  }
+  const label = ownerRoleLabel(role);
+  return name ? `${label}(${name})` : label;
+}
+
+/** 这一行能不能催办（有角色或有具体人；都没有就是「待分配」） */
+export function canRemindItem(item: {
+  owner_role?: string | null;
+  owner_name?: string | null;
+}): boolean {
+  return Boolean((item.owner_role ?? '').trim() || (item.owner_name ?? '').trim());
+}
+
+/** 金额文案：`¥1,234.00`；空值 → `—`（不是所有单据都有金额） */
+export function blockingMoneyText(amount: string | number | null | undefined): string {
+  if (amount === null || amount === undefined || amount === '') {
+    return '—';
+  }
+  const value = typeof amount === 'number' ? amount : Number(amount);
+  if (!Number.isFinite(value)) {
+    return String(amount);
+  }
+  return `¥${value.toLocaleString('zh-CN', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/**
+ * 「已等」文案：`3 天` / `5 小时` / `不到 1 小时` / `—`。
+ *
+ * 后端给的是 `waiting_since`（单据创建时间），按**自然时长**算，不做工作日折算
+ * （财务只关心「压了几天」，折算工作日反而要解释节假日表）。
+ */
+export function waitingText(
+  since: string | null | undefined,
+  now: Date = new Date(),
+): string {
+  const text = (since ?? '').trim();
+  if (!text) {
+    return '—';
+  }
+  const start = new Date(text);
+  if (Number.isNaN(start.getTime())) {
+    return '—';
+  }
+  const hours = (now.getTime() - start.getTime()) / 3_600_000;
+  if (hours < 0) {
+    return '—';
+  }
+  if (hours < 1) {
+    return '不到 1 小时';
+  }
+  if (hours < 24) {
+    return `${Math.floor(hours)} 小时`;
+  }
+  return `${Math.floor(hours / 24)} 天`;
+}
+
+/** 这一类 blocker 有没有单据级明细（没有 → 退回「一句话 + 去看看」老样式） */
+export function blockerHasItems(blocker: { items?: unknown[] }): boolean {
+  return Array.isArray(blocker.items) && blocker.items.length > 0;
+}
+
+/** 明细里**可催办**的那些（有处理人） */
+export function remindableItems<T extends { owner_role?: string | null; owner_name?: string | null }>(
+  items: readonly T[],
+): T[] {
+  return items.filter((item) => canRemindItem(item));
+}
+
+/** 明细总数（弹窗标题用：「共 N 张挡路单据」） */
+export function blockingItemCount(
+  blockers: ReadonlyArray<{ items?: ReadonlyArray<unknown> }>,
+): number {
+  return blockers.reduce((sum, blocker) => sum + (blocker.items?.length ?? 0), 0);
+}
+
+/**
+ * 催办结果 → toast 文案。
+ *
+ * 后端已经给了一句人话（`message`），优先用它；缺失时按计数合成，
+ * 保证「点了催办」一定有个明确结论，而不是静默成功。
+ */
+export function remindToast(result: {
+  sent: number;
+  failed: number;
+  skipped_no_owner: number;
+  skipped_recent: number;
+  total: number;
+  message?: string;
+}): string {
+  const message = (result.message ?? '').trim();
+  if (message) {
+    return message;
+  }
+  if (result.total === 0) {
+    return '没有可催办的单据';
+  }
+  const parts = [`已催办 ${result.sent} 张`];
+  if (result.skipped_recent > 0) {
+    parts.push(`${result.skipped_recent} 张 24 小时内已催过`);
+  }
+  if (result.skipped_no_owner > 0) {
+    parts.push(`${result.skipped_no_owner} 张未指定处理人`);
+  }
+  if (result.failed > 0) {
+    parts.push(`${result.failed} 张发送失败`);
+  }
+  return parts.join('，');
 }

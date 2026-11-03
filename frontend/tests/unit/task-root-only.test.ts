@@ -91,8 +91,18 @@ test('后端 dto / model / handler 三处与前端契约一致', () => {
   const dtoBlock = slice(dto, 'pub struct TaskPageQuery {', '\n}\n');
   assert.match(dtoBlock, /pub root_only: Option<bool>,/, 'dto.rs 的 TaskPageQuery 必须有 root_only');
 
-  const model = readFileSync(join(REPO, 'backend/src/business/task/model.rs'), 'utf8');
-  assert.match(model, /pub root_only: bool,/, 'model.rs 的 TaskFilter 必须有归一化后的 root_only');
+  // TD-2 拆分后 `TaskFilter` 在 `task_model_*.rs` 部件里（`model.rs` 只剩 facade 重导出），
+  // 所以这里按「model.rs + 所有 task_model_*.rs 部件」拼起来读 —— 再拆一次也不会假红。
+  const modelPath = join(REPO, 'backend/src/business/task/model.rs');
+  const taskDir = join(REPO, 'backend/src/business/task');
+  const model = [
+    readFileSync(modelPath, 'utf8'),
+    ...readdirSync(taskDir)
+      .filter((name: string) => name.startsWith('task_model_') && name.endsWith('.rs'))
+      .sort()
+      .map((name: string) => readFileSync(join(taskDir, name), 'utf8')),
+  ].join('\n');
+  assert.match(model, /pub root_only: bool,/, 'model.rs / task_model_*.rs 的 TaskFilter 必须有归一化后的 root_only');
   assert.match(model, /if filter\.root_only \{[\s\S]{0,400}?AND t\.parent_id IS NULL/, 'root_only 必须落成无参数片段 AND t.parent_id IS NULL');
 
   const handler = readFileSync(join(REPO, 'backend/src/business/task/handler.rs'), 'utf8');

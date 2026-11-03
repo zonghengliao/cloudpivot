@@ -1,0 +1,55 @@
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/01-close-dialog-blocked.png
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/02-single-remind.png
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/03-remind-all.png
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/04-goto-stock-in.png
+{
+  "phase": "1",
+  "period": "2036-03",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "period-page",
+      "ok": true
+    },
+    {
+      "step": "open-close-dialog",
+      "ok": true,
+      "rows": 3,
+      "confirmDisabled": true,
+      "hasVoucher": true,
+      "hasStockIn": true,
+      "hasPurchase": true,
+      "hasOwnerColumn": true,
+      "hasAction": true
+    },
+    {
+      "step": "remind-one",
+      "ok": true,
+      "toast": "2036-03：已催办 1 张",
+      "remindedTag": 1
+    },
+    {
+      "step": "remind-all",
+      "ok": true,
+      "button": "全部催办（2）",
+      "toast": "2036-03：已催办 2 张"
+    },
+    {
+      "step": "goto-document",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/stock-in",
+      "showsDocNo": true
+    }
+  ],
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/01-close-dialog-blocked.png",
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/02-single-remind.png",
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/03-remind-all.png",
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/04-goto-stock-in.png"
+  ]
+}

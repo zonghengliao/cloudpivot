@@ -1,0 +1,29 @@
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/05-close-dialog-cleared.png
+{
+  "phase": "2",
+  "period": "2036-03",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "period-page",
+      "ok": true
+    },
+    {
+      "step": "recheck-cleared",
+      "ok": true,
+      "okAlert": 1,
+      "blockedAlert": 0,
+      "confirmDisabled": false,
+      "rows": 0,
+      "text": "结账 2036-03\n前置校验全部通过，可以结账\n\n另有 1 项全库巡检提醒（不拦结账）：\n\n巡检提示：10 组「库存流水累计 ≠ 当前库存」（账账不符），不影响本次结账 去看看\nW2C1-M-PLAIN W2C1 按数量物料 @ W2C1 联动仓流水累计 ≠ 当前库存去看库存\nW2C2-M-PLAIN W2C2 按数量物料 @ W2C2 A 仓流水累计 ≠ 当前库存去看库存\nW2C2-M-SN "
+    }
+  ],
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/05-close-dialog-cleared.png"
+  ]
+}

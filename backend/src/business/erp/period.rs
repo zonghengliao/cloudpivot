@@ -20,6 +20,7 @@
 //! | GET | `/business/erp/period/{id}/close-check` | `business:erp:period:close` | 结账预检（只读） |
 //! | POST | `/business/erp/period/{id}/close` | `business:erp:period:close` | 结账 |
 //! | POST | `/business/erp/period/{id}/reopen` | `business:erp:period:reopen` | 反结账（必填原因 ≥ 10 字） |
+//! | POST | `/business/erp/period/{id}/remind` | `business:erp:period:remind` | 催办（把挡路单据的待办发给处理人，见 [`crate::business::erp::period_remind`]） |
 //!
 //! # 结账的四项前置校验（卡面硬红线 2）
 //!
@@ -28,6 +29,9 @@
 //! ② 期间内单据全部终态                    → 409「还有 N 张单据未完成（采购单 5 / 收货单 2 …）」
 //! ③ 试算平衡（分录 Σ借 = Σ贷）             → 409「借贷不平，差 X 元」
 //! ④ 期间内不变量（erp_invariants A 组）     → 409「不变量未通过：A1 有 2 张凭证分录取和不平 …」
+//! 每一条 blocker 都带明细（`items`，最多 50 条）：单号 / 类型 / 金额 / 制单人 /
+//! 该谁处理 / 已等多久 / 「去处理」跳转。明细的取数口径与判定口径同源，
+//! 实现见 [`crate::business::erp::period_items`]（**改判定必须两处同步**）。
 //! ```
 //!
 //! **全库口径的账实 / 账账巡检（B4 流水累计、C1/C2 负库存）不拦结账**，
@@ -84,6 +88,7 @@ use std::str::FromStr;
 
 use crate::business::erp::dto::PeriodRes;
 use crate::business::erp::model::{self, PeriodRow};
+use crate::business::erp::period_items::{self, BlockingItem, OwnerResolver};
 use crate::business::erp::voucher;
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -98,15 +103,21 @@ pub const PERM_CLOSE: &str = "business:erp:period:close";
 /// 反结账权限码（高危：撤销已封账的月份）。
 pub const PERM_REOPEN: &str = "business:erp:period:reopen";
 
-/// 三个权限码清单（与 `V0188__erp_period_close.up.sql` 逐字一致）。
+/// 四个权限码清单（`open/close/reopen` 与 `V0188__erp_period_close.up.sql` 逐字一致，
+/// `remind` 见 `V0207__erp_period_remind.up.sql`）。
 ///
-/// 为什么三个码分开（卡面硬红线 4）：能看期间列表 ≠ 能封账 ≠ 能撤封账。
+/// 为什么三个动作各自一个码（卡面硬红线 4）：能看期间列表 ≠ 能封账 ≠ 能撤封账。
 /// 只读的会计要 `period:list`（列在 V0141），不该顺手拿到封账能力；
 /// 反结账只给财务总监 / 超管，与「结账」再分一层。
-pub const PERIOD_PERMISSIONS: [(&str, &str); 3] = [
+/// **催办另立一个码**：能给处理人发催办 ≠ 有资格替他把单过账。
+pub const PERIOD_PERMISSIONS: [(&str, &str); 4] = [
     (PERM_OPEN, "开账（建期间 / 批量开账）"),
     (PERM_CLOSE, "结账（含结账预检）"),
     (PERM_REOPEN, "反结账（撤销已封账的期间）"),
+    (
+        crate::business::erp::period_remind::PERM_REMIND,
+        "催办（把结账待办发给处理人）",
+    ),
 ];
 
 /// 期间状态（逐字抄 `ck_biz_period_status`）。
@@ -211,6 +222,13 @@ pub struct Blocker {
     /// 定位线索（凭证号 / 单号，最多 3 个）。
     #[serde(skip_serializing_if = "Vec::is_empty", default)]
     pub samples: Vec<String>,
+    /// ★ 挡路单据明细（PERIOD-CLOSE，最多 [`period_items::ITEM_LIMIT`] 条）。
+    ///
+    /// 空数组 = 这一类没有「单据级」明细（例如期间自身状态不对），
+    /// 前端此时退回「一句话 + 去看看」的老样式（backward compat）。
+    /// 超过上限时 `message` 里会写明「共 N 张，仅显示前 50 张」。
+    #[serde(default)]
+    pub items: Vec<BlockingItem>,
 }
 
 impl Blocker {
@@ -223,6 +241,7 @@ impl Blocker {
             message,
             link,
             samples: Vec::new(),
+            items: Vec::new(),
         }
     }
 
@@ -230,6 +249,24 @@ impl Blocker {
     fn samples(mut self, samples: Vec<String>) -> Self {
         self.samples = samples;
         self
+    }
+
+    /// 挂上单据明细（PERIOD-CLOSE）。
+    fn items(mut self, items: Vec<BlockingItem>) -> Self {
+        self.items = items;
+        self
+    }
+}
+
+/// 超过明细上限时追加在 `message` 后面的那句话（前端据此提示「先去列表页批量处理」）。
+fn limit_note(count: i64) -> String {
+    if count > period_items::ITEM_LIMIT {
+        format!(
+            "（共 {count} 张，仅显示前 {} 张，请先去列表页批量处理）",
+            period_items::ITEM_LIMIT
+        )
+    } else {
+        String::new()
     }
 }
 
@@ -432,33 +469,44 @@ pub fn unbalanced_blocker(debit: Decimal, credit: Decimal) -> Option<Blocker> {
         ),
         link: Some("/business/erp/ledger".to_string()),
         samples: Vec::new(),
+        items: Vec::new(),
     })
 }
 
-/// 草稿凭证 → 阻塞项（**文案点名张数**，卡面 O5）。
+/// 草稿凭证 → 阻塞项（**文案点名张数**，卡面 O5；明细给到单号 / 金额 / 制单人 / 处理人）。
 pub fn draft_voucher_blocker(
     count: i64,
     period_code: &str,
-    samples: Vec<String>,
+    items: Vec<BlockingItem>,
 ) -> Option<Blocker> {
     if count <= 0 {
         return None;
     }
+    // 定位线索 = 明细里的前 3 个凭证号（老字段保留：前端/日志可能还在读）
+    let samples = items
+        .iter()
+        .take(3)
+        .map(|item| item.doc_no.clone())
+        .collect::<Vec<_>>();
     Some(
         Blocker::with_count(
             BLOCKER_DRAFT_VOUCHER,
             count,
-            format!("还有 {count} 张草稿凭证未过账：结账前必须全部过账或作废"),
+            format!(
+                "还有 {count} 张草稿凭证未过账：结账前必须全部过账或作废{}",
+                limit_note(count)
+            ),
             Some(format!(
                 "/business/erp/voucher?status=DRAFT&period={period_code}"
             )),
         )
-        .samples(samples),
+        .samples(samples)
+        .items(items),
     )
 }
 
 /// 未完成单据 → 阻塞项（按类型点名：采购单 5 张 / 收货单 2 张 …）。
-pub fn unfinished_doc_blocker(counts: &[(&str, i64)]) -> Option<Blocker> {
+pub fn unfinished_doc_blocker(counts: &[(&str, i64)], items: Vec<BlockingItem>) -> Option<Blocker> {
     let total: i64 = counts.iter().map(|(_, count)| *count).sum();
     if total <= 0 {
         return None;
@@ -473,27 +521,32 @@ pub fn unfinished_doc_blocker(counts: &[(&str, i64)]) -> Option<Blocker> {
         BLOCKER_DOC_UNFINISHED,
         total,
         format!(
-            "还有 {total} 张单据未完成（{detail}）：结账前单据必须到终态（已过账 / 已作废 / 已完成）"
+            "还有 {total} 张单据未完成（{detail}）：结账前单据必须到终态（已过账 / 已作废 / 已完成）{}",
+            limit_note(total)
         ),
         Some("/business/erp/stock-in".to_string()),
-    ))
+    )
+    .items(items))
 }
 
-/// 不变量未通过 → 阻塞项。
-pub fn invariant_blocker(failures: Vec<String>) -> Option<Blocker> {
+/// 不变量未通过 → 阻塞项（明细是失败的那几张凭证）。
+pub fn invariant_blocker(failures: Vec<String>, items: Vec<BlockingItem>) -> Option<Blocker> {
     if failures.is_empty() {
         return None;
     }
     let count = i64::try_from(failures.len()).unwrap_or(i64::MAX);
-    Some(Blocker::with_count(
-        BLOCKER_INVARIANT,
-        count,
-        format!(
-            "不变量未通过（{count} 项）：{}。账不平不能封，请先修复后再结账",
-            failures.join("；")
-        ),
-        Some("/business/erp/inventory?audit=1".to_string()),
-    ))
+    Some(
+        Blocker::with_count(
+            BLOCKER_INVARIANT,
+            count,
+            format!(
+                "不变量未通过（{count} 项）：{}。账不平不能封，请先修复后再结账",
+                failures.join("；")
+            ),
+            Some("/business/erp/inventory?audit=1".to_string()),
+        )
+        .items(items),
+    )
 }
 
 // ==================== 期间行读写 ====================
@@ -654,14 +707,29 @@ async fn apply_status(
     Ok(affected)
 }
 
-/// 读回一个期间的出参形态。
-async fn load_res(ex: &impl SqlExecutor, id: Uuid) -> Result<PeriodRes, ApiError> {
+/// 读回一个期间行（按 id）；不存在 → `Ok(None)`。
+///
+/// 预检、催办、结账前读行都走它：三处各自写一遍 `select_period_sql` 是漂移之源。
+pub(crate) async fn load_period_row(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> Result<Option<PeriodRow>, ApiError> {
     let rows = ex
         .query_sql(select_period_sql("id = ?::uuid"), vec![Value::from(&id)])
         .await
-        .map_err(|error| db_error(error, "回读会计期间"))?;
-    let row = rows.into_iter().next().ok_or_else(not_found)?;
-    let row = PeriodRow::from_row(&row).map_err(|error| db_error(error, "解析会计期间"))?;
+        .map_err(|error| db_error(error, "查询会计期间"))?;
+    match rows.into_iter().next() {
+        Some(row) => {
+            let row = PeriodRow::from_row(&row).map_err(|error| db_error(error, "解析会计期间"))?;
+            Ok(Some(row))
+        }
+        None => Ok(None),
+    }
+}
+
+/// 读回一个期间的出参形态。
+async fn load_res(ex: &impl SqlExecutor, id: Uuid) -> Result<PeriodRes, ApiError> {
+    let row = load_period_row(ex, id).await?.ok_or_else(not_found)?;
     Ok(PeriodRes::from(&row))
 }
 
@@ -870,95 +938,9 @@ pub async fn batch_open(
 
 // ==================== ② 结账 ====================
 
-/// 期间内草稿凭证（条数 + 最多 3 个凭证号）。
-async fn draft_vouchers(ex: &impl SqlExecutor, code: &str) -> Result<(i64, Vec<String>), ApiError> {
-    let count: i64 = ex
-        .scalar_sql(
-            "SELECT COUNT(*) FROM biz_voucher \
-              WHERE deleted_at IS NULL AND period = ? AND status = 'DRAFT'"
-                .to_string(),
-            vec![Value::Text(code.to_string())],
-        )
-        .await
-        .map_err(|error| db_error(error, "统计草稿凭证"))?;
-    if count == 0 {
-        return Ok((0, Vec::new()));
-    }
-    let rows = ex
-        .query_sql(
-            "SELECT voucher_no FROM biz_voucher \
-              WHERE deleted_at IS NULL AND period = ? AND status = 'DRAFT' \
-              ORDER BY voucher_no LIMIT 3"
-                .to_string(),
-            vec![Value::Text(code.to_string())],
-        )
-        .await
-        .map_err(|error| db_error(error, "取草稿凭证号"))?;
-    let samples = rows
-        .iter()
-        .map(|row| {
-            row.get_typed::<String>("voucher_no")
-                .map_err(|error| db_error(error, "解析凭证号"))
-        })
-        .collect::<Result<Vec<_>, ApiError>>()?;
-    Ok((count, samples))
-}
-
-/// 期间内未完成单据（按类型计数：采购单 / 收货单 / 调拨单）。
-///
-/// 判据按「单据的业务日期落在期间内 + 状态不在终态」：
-/// * 采购单 `DRAFT / SUBMITTED / APPROVED / PARTIAL_RECEIVED`（`RECEIVED / CLOSED / CANCELLED` 是终态）
-/// * 收货单 `DRAFT / PENDING_POST / PENDING_CANCEL`（`POSTED / CANCELLED` 是终态）
-/// * 调拨单 `DRAFT / PENDING / APPROVED / IN_TRANSIT`（`DONE / CANCELLED` 是终态）
-///
-/// 期间日期直接用 `biz_accounting_period` 的 `start_date / end_date`（期间可能不是自然月），
-/// 不用日期的 `yyyy-MM` 推 —— 那是 `voucher::period_of` 的 fail-open 兜底口径，
-/// 结账校验必须按期间表的真实区间。
-async fn unfinished_docs(
-    ex: &impl SqlExecutor,
-    row: &PeriodRow,
-) -> Result<[(&'static str, i64); 3], ApiError> {
-    let rows = ex
-        .query_sql(
-            "SELECT \
-                (SELECT COUNT(*) FROM biz_purchase_order \
-                  WHERE deleted_at IS NULL \
-                    AND order_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_RECEIVED')) AS po, \
-                (SELECT COUNT(*) FROM biz_stock_in \
-                  WHERE deleted_at IS NULL \
-                    AND in_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','PENDING_POST','PENDING_CANCEL')) AS si, \
-                (SELECT COUNT(*) FROM biz_stock_transfer \
-                  WHERE deleted_at IS NULL \
-                    AND transfer_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','PENDING','APPROVED','IN_TRANSIT')) AS tr"
-                .to_string(),
-            vec![
-                Value::Text(row.start_date.to_string()),
-                Value::Text(row.end_date.to_string()),
-                Value::Text(row.start_date.to_string()),
-                Value::Text(row.end_date.to_string()),
-                Value::Text(row.start_date.to_string()),
-                Value::Text(row.end_date.to_string()),
-            ],
-        )
-        .await
-        .map_err(|error| db_error(error, "统计未完成单据"))?;
-    let row_data = rows.first().ok_or_else(|| {
-        ApiError::new(500, error_code::INTERNAL_ERROR, "未完成单据统计没有返回行")
-    })?;
-    let po: i64 = row_data
-        .get_typed("po")
-        .map_err(|error| db_error(error, "解析采购单计数"))?;
-    let si: i64 = row_data
-        .get_typed("si")
-        .map_err(|error| db_error(error, "解析收货单计数"))?;
-    let tr: i64 = row_data
-        .get_typed("tr")
-        .map_err(|error| db_error(error, "解析调拨单计数"))?;
-    Ok([("采购单", po), ("收货单", si), ("调拨单", tr)])
-}
+// ① 草稿凭证 / ② 未完成单据的取数（条数 + 明细）搬到了
+// [`crate::business::erp::period_items`]：判定条件与明细投影必须是同一份 SQL，
+// 两处各写一遍必然漂成「文案说 3 张、表格列 5 行」。
 
 /// 期间内试算平衡：分录 Σ借 / Σ贷。
 async fn trial_balance(ex: &impl SqlExecutor, code: &str) -> Result<(Decimal, Decimal), ApiError> {
@@ -989,78 +971,10 @@ async fn trial_balance(ex: &impl SqlExecutor, code: &str) -> Result<(Decimal, De
     ))
 }
 
-/// 期间内不变量：**A 组**（逐张凭证的分录自洽），按 `period` 切。
-///
-/// 只放「属于这个月、这个月该修」的两条：
-/// * A1 每张凭证 Σ分录借 = Σ分录贷
-/// * A2 凭证头金额 = 分录取和
-///
-/// 这两条一旦红，说明期间的账本身就是坏的，封账等于把坏账锁死 —— 必须拦。
-/// 全库口径的**账实 / 账账**检查（erp_invariants 的 B4 流水累计、C1/C2 负库存）
-/// 不在这里拦，理由见 [`global_health_warnings`]。
-async fn period_invariant_failures(
-    ex: &impl SqlExecutor,
-    code: &str,
-) -> Result<Vec<String>, ApiError> {
-    let mut failures = Vec::new();
-
-    let rows = ex
-        .query_sql(
-            "SELECT v.voucher_no, \
-                    ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0))::text AS diff \
-               FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-              WHERE v.deleted_at IS NULL AND v.period = ? \
-              GROUP BY v.id, v.voucher_no \
-             HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001 \
-              ORDER BY v.voucher_no LIMIT 3"
-                .to_string(),
-            vec![Value::Text(code.to_string())],
-        )
-        .await
-        .map_err(|error| db_error(error, "不变量 A1"))?;
-    if !rows.is_empty() {
-        let names = rows
-            .iter()
-            .map(|row| row.get_typed::<String>("voucher_no").unwrap_or_default())
-            .collect::<Vec<_>>();
-        failures.push(format!(
-            "A1 有 {} 张凭证分录取和不平（{}）",
-            rows.len(),
-            names.join(" / ")
-        ));
-    }
-
-    let rows = ex
-        .query_sql(
-            "SELECT v.voucher_no \
-               FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-              WHERE v.deleted_at IS NULL AND v.period = ? \
-              GROUP BY v.id, v.voucher_no, v.total_debit, v.total_credit \
-             HAVING ABS(v.total_debit - COALESCE(SUM(e.debit_amount), 0)) > 0.0001 \
-                 OR ABS(v.total_credit - COALESCE(SUM(e.credit_amount), 0)) > 0.0001 \
-              ORDER BY v.voucher_no LIMIT 3"
-                .to_string(),
-            vec![Value::Text(code.to_string())],
-        )
-        .await
-        .map_err(|error| db_error(error, "不变量 A2"))?;
-    if !rows.is_empty() {
-        let names = rows
-            .iter()
-            .map(|row| row.get_typed::<String>("voucher_no").unwrap_or_default())
-            .collect::<Vec<_>>();
-        failures.push(format!(
-            "A2 有 {} 张凭证头与分录不一致（{}）",
-            rows.len(),
-            names.join(" / ")
-        ));
-    }
-
-    // C1 / C2 与 B4 属**全库**口径，见 [`global_health_warnings`]：它们是「账实 / 账账」
-    // 巡检项，不是「这个月」的账务问题，所以只作为提示上报，不拦封账。
-
-    Ok(failures)
-}
+// ④ 期间内不变量（A 组）的判定与明细在 [`crate::business::erp::period_items::invariant_details`]：
+// 它同时给出**文案**（A1 / A2 各多少张）与**明细**（哪几张凭证），一次查询口径。
+// 全库口径的**账实 / 账账**检查（erp_invariants 的 B4 流水累计、C1/C2 负库存）
+// 不在这里拦，理由见 [`global_health_warnings`]。
 
 /// 全库账实 / 账账巡检（erp_invariants 的 B4 + C1/C2）——**只提示，不拦结账**。
 ///
@@ -1084,49 +998,36 @@ async fn period_invariant_failures(
 async fn global_health_warnings(ex: &impl SqlExecutor) -> Result<Vec<Blocker>, ApiError> {
     let mut warnings = Vec::new();
 
-    let negative: i64 = ex
-        .scalar_sql(
-            "SELECT (SELECT COUNT(*) FROM biz_inventory WHERE qty < 0) \
-                  + (SELECT COUNT(*) FROM biz_inventory_location WHERE qty < 0)"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .map_err(|error| db_error(error, "巡检 C1/C2"))?;
+    let (negative, negative_items) = period_items::negative_stock_items(ex).await?;
     if negative > 0 {
-        warnings.push(Blocker::with_count(
-            BLOCKER_INVARIANT,
-            negative,
-            format!(
-                "巡检提示：库里有 {negative} 行负库存（账实不符，见库存巡检页），不影响本次结账"
-            ),
-            Some("/business/erp/inventory?audit=1".to_string()),
-        ));
+        warnings.push(
+            Blocker::with_count(
+                BLOCKER_INVARIANT,
+                negative,
+                format!(
+                    "巡检提示：库里有 {negative} 行负库存（账实不符，见库存巡检页），不影响本次结账{}",
+                    limit_note(negative)
+                ),
+                Some("/business/erp/inventory?audit=1".to_string()),
+            )
+            .items(negative_items),
+        );
     }
 
-    let drift: i64 = ex
-        .scalar_sql(
-            "SELECT COUNT(*) FROM (\
-                WITH txn AS (SELECT material_id, warehouse_id, \
-                                    SUM(CASE WHEN txn_type = 'IN' THEN qty ELSE -qty END) AS q \
-                               FROM biz_inventory_txn GROUP BY 1, 2), \
-                     inv AS (SELECT material_id, warehouse_id, SUM(qty) AS q \
-                               FROM biz_inventory GROUP BY 1, 2) \
-                SELECT 1 FROM txn t FULL OUTER JOIN inv i \
-                  ON t.material_id = i.material_id AND t.warehouse_id = i.warehouse_id \
-                 WHERE ABS(COALESCE(t.q, 0) - COALESCE(i.q, 0)) > 0.0001) bad"
-                .to_string(),
-            vec![],
-        )
-        .await
-        .map_err(|error| db_error(error, "巡检 B4"))?;
+    let (drift, drift_items) = period_items::stock_drift_items(ex).await?;
     if drift > 0 {
-        warnings.push(Blocker::with_count(
-            BLOCKER_INVARIANT,
-            drift,
-            format!("巡检提示：{drift} 组「库存流水累计 ≠ 当前库存」（账账不符），不影响本次结账"),
-            Some("/business/erp/inventory?audit=1".to_string()),
-        ));
+        warnings.push(
+            Blocker::with_count(
+                BLOCKER_INVARIANT,
+                drift,
+                format!(
+                    "巡检提示：{drift} 组「库存流水累计 ≠ 当前库存」（账账不符），不影响本次结账{}",
+                    limit_note(drift)
+                ),
+                Some("/business/erp/inventory?audit=1".to_string()),
+            )
+            .items(drift_items),
+        );
     }
 
     Ok(warnings)
@@ -1151,11 +1052,15 @@ impl CheckOutcome {
 /// 四项前置校验（结账与预检**共用同一份实现**，不许两处口径分裂）。
 ///
 /// 返回 [`CheckOutcome`]：`blockers` 拦人，`warnings` 只提示（全库巡检口径）。
-async fn collect_blockers(
+/// 每条 blocker 都带 `items`（最多 50 条明细 + 该谁处理 + 跳转），实现在
+/// [`crate::business::erp::period_items`]。
+pub(crate) async fn collect_blockers(
     ex: &impl SqlExecutor,
     row: &PeriodRow,
 ) -> Result<CheckOutcome, ApiError> {
     let mut blockers = Vec::new();
+    // 处理人反查按请求缓存：同一个权限码一次预检只查一次库
+    let mut owners = OwnerResolver::new();
 
     // ⓪ 期间自身状态
     match row.status.as_str() {
@@ -1184,14 +1089,15 @@ async fn collect_blockers(
     }
 
     // ① 草稿凭证
-    let (draft_count, draft_samples) = draft_vouchers(ex, &row.period_code).await?;
-    if let Some(blocker) = draft_voucher_blocker(draft_count, &row.period_code, draft_samples) {
+    let (draft_count, draft_items) =
+        period_items::draft_voucher_items(ex, &row.period_code, &mut owners).await?;
+    if let Some(blocker) = draft_voucher_blocker(draft_count, &row.period_code, draft_items) {
         blockers.push(blocker);
     }
 
     // ② 未完成单据
-    let docs = unfinished_docs(ex, row).await?;
-    if let Some(blocker) = unfinished_doc_blocker(&docs) {
+    let (docs, doc_items) = period_items::unfinished_doc_items(ex, row, &mut owners).await?;
+    if let Some(blocker) = unfinished_doc_blocker(&docs, doc_items) {
         blockers.push(blocker);
     }
 
@@ -1202,8 +1108,9 @@ async fn collect_blockers(
     }
 
     // ④ 不变量（期间内 A 组拦人；全库 B/C 只提示）
-    let failures = period_invariant_failures(ex, &row.period_code).await?;
-    if let Some(blocker) = invariant_blocker(failures) {
+    let (failures, invariant_items) =
+        period_items::invariant_details(ex, &row.period_code, &mut owners).await?;
+    if let Some(blocker) = invariant_blocker(failures, invariant_items) {
         blockers.push(blocker);
     }
     let warnings = global_health_warnings(ex).await?;
@@ -1230,12 +1137,7 @@ pub fn rejection_message(period_code: &str, blockers: &[Blocker]) -> String {
 
 /// 结账预检（只读，不锁行）。
 pub async fn close_check(id: Uuid) -> Result<CloseCheckRes, ApiError> {
-    let rows = db()
-        .query_sql(select_period_sql("id = ?::uuid"), vec![Value::from(&id)])
-        .await
-        .map_err(|error| db_error(error, "查询会计期间"))?;
-    let row = rows.into_iter().next().ok_or_else(not_found)?;
-    let row = PeriodRow::from_row(&row).map_err(|error| db_error(error, "解析会计期间"))?;
+    let row = load_period_row(db(), id).await?.ok_or_else(not_found)?;
     let outcome = collect_blockers(db(), &row).await?;
     Ok(CloseCheckRes {
         can_close: outcome.can_close(),
@@ -1570,7 +1472,7 @@ pub async fn period_reopen_handler(
 }
 
 /// 路径里的期间 id：非法 UUID → 400（不静默当成 404）。
-fn parse_period_id(raw: &str) -> Result<Uuid, ApiError> {
+pub(crate) fn parse_period_id(raw: &str) -> Result<Uuid, ApiError> {
     let text = raw.trim();
     if text.is_empty() {
         return Err(bad_request("id 不能为空"));

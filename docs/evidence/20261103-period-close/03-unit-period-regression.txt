@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 15 tests
+test business::erp::period::tests::p1_batch_open_creates_fourteen_periods ... ok
+test business::erp::period::tests::p1_close_blocked_by_draft_vouchers ... ok
+test business::erp::period::tests::p1_close_blocked_by_unbalanced_entries ... ok
+test business::erp::period::tests::p1_close_blocked_by_unfinished_documents ... ok
+test business::erp::period::tests::p1_close_empty_period_succeeds ... ok
+test business::erp::period::tests::p1_input_guards_are_strict ... ok
+test business::erp::period::tests::p1_manual_voucher_on_closed_period_is_bad_request ... ok
+test business::erp::period::tests::p1_open_period_computes_month_range ... ok
+test business::erp::period::tests::p1_open_same_period_twice_is_conflict ... ok
+test business::erp::period::tests::p1_open_without_permission_is_forbidden ... ok
+test business::erp::period::tests::p1_post_voucher_to_closed_period_is_bad_request ... ok
+test business::erp::period::tests::p1_reopen_blocked_by_later_closed_period ... ok
+test business::erp::period::tests::p1_reopen_clears_closed_marks ... ok
+test business::erp::period::tests::p1_reopen_requires_reason ... ok
+test business::erp::period::tests::p1_reopen_restores_posting ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2096 filtered out; finished in 8.39s
+

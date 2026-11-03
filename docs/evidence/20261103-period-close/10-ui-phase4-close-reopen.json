@@ -1,0 +1,33 @@
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/07-closed-period.png
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/08-reopened-period.png
+{
+  "phase": "4",
+  "period": "2036-03",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "period-page",
+      "ok": true
+    },
+    {
+      "step": "close-period",
+      "ok": true,
+      "status": "已结账",
+      "confirmDisabled": false
+    },
+    {
+      "step": "reopen-period",
+      "ok": true,
+      "status": "已开启"
+    }
+  ],
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/07-closed-period.png",
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/08-reopened-period.png"
+  ]
+}

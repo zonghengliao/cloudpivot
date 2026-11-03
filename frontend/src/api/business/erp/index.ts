@@ -2651,6 +2651,69 @@ export interface PeriodCloseBlocker {
   link?: string;
   /** 定位线索（凭证号 / 单号，最多 3 个） */
   samples?: string[];
+  /**
+   * ★ 挡路单据明细（PERIOD-CLOSE，后端 `period_items::BlockingItem`，最多 50 条）。
+   *
+   * 空数组 / 缺省 = 这一类没有单据级明细（例如期间自身状态不对），
+   * 前端退回「一句话 + 去看看」的老样式（backward compat）。
+   */
+  items?: PeriodBlockingItem[];
+}
+
+/**
+ * 一条挡路单据的明细（逐字抄 `period_items::BlockingItem`）。
+ *
+ * `doc_id` 是单据主键（催办接口按它选中「催哪几张」）；`route` 是带 id 的前端路由，
+ * 「去处理」直接跳过去；`owner_role` 是**角色码**（前端译成中文），
+ * `owner_name` 只在「该角色恰好一个启用用户」时有值。
+ */
+export interface PeriodBlockingItem {
+  /** 单据类型：`VOUCHER` / `STOCK_IN` / `PURCHASE_ORDER` / `STOCK_TRANSFER` / `INVENTORY` */
+  doc_type: string;
+  /** 单据主键（uuid 字符串） */
+  doc_id: string;
+  /** 单据号（`PZ-…` / `IN-…` / `PO-…` / `TR-…`） */
+  doc_no: string;
+  /** 当前状态（中文标签，后端已翻译） */
+  status_label: string;
+  /** 金额（定点字符串；不是所有单据都有） */
+  amount?: string | number | null;
+  /** 制单人（只作参考，不作处理人） */
+  created_by_name?: string | null;
+  /** 下一步该谁处理（角色码；缺省 = 待分配） */
+  owner_role?: string | null;
+  /** 具体处理人（只在唯一用户时有值） */
+  owner_name?: string | null;
+  /** 前端动作文案：「去过账」/「去审批」/「去收货」 */
+  action_label: string;
+  /** 前端路由（带 id 直达） */
+  route: string;
+  /** 卡了多久的起点（ISO 时间戳） */
+  waiting_since?: string | null;
+}
+
+/** 催办入参（逐字抄 `period_remind::RemindReq`） */
+export interface PeriodRemindPayload {
+  /** 催哪一类（缺省 / 空 = 该期间全部有处理人的明细） */
+  blocker_kind?: string | null;
+  /** 催哪几张（缺省 / 空 = 该类全部） */
+  item_ids?: string[];
+}
+
+/** 催办结果（逐字抄 `period_remind::RemindRes`） */
+export interface PeriodRemindResult {
+  /** 发出去的条数 */
+  sent: number;
+  /** 发送失败条数（可重试） */
+  failed: number;
+  /** 没有处理人而跳过 */
+  skipped_no_owner: number;
+  /** 24 小时内已催过而跳过 */
+  skipped_recent: number;
+  /** 命中的明细条数 */
+  total: number;
+  /** 一句给人看的结论 */
+  message: string;
 }
 
 /** 结账预检响应（逐字抄 `period.rs::CloseCheckRes`） */
@@ -2721,6 +2784,21 @@ export function closePeriod(id: string, reason?: string): Promise<AccountPeriodR
  */
 export function reopenPeriod(id: string, reason: string): Promise<AccountPeriodRow> {
   return post<AccountPeriodRow>(`${BASE}/period/${encodeURIComponent(id)}/reopen`, { reason });
+}
+
+/**
+ * 催办：把挡路单据的待办发给处理人（PERIOD-CLOSE）。
+ *
+ * `POST /erp/period/{id}/remind`，权限 `business:erp:period:remind`。
+ *
+ * 收件人**在服务端现算**（不信任前端传的收件人）：请求只带「催哪一类 + 催哪几张」，
+ * 后端重新跑一遍结账预检再按明细的 owner 发通知；同一张单 24 小时内不重复催。
+ *
+ * 返回 `{ sent, failed, skipped_no_owner, skipped_recent, total, message }`，
+ * `message` 是可以直接 toast 的一句话。
+ */
+export function remindPeriod(id: string, payload: PeriodRemindPayload): Promise<PeriodRemindResult> {
+  return post<PeriodRemindResult>(`${BASE}/period/${encodeURIComponent(id)}/remind`, payload);
 }
 
 // ==================== 即时库存 / 库位库存 / 库存流水（P4-D 前端） ====================

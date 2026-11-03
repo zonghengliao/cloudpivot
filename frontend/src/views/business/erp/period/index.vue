@@ -234,7 +234,7 @@
       </p>
     </t-dialog>
 
-    <!-- ==================== ⑤ 结账弹窗（先预检） ==================== -->
+    <!-- ==================== ⑤ 结账弹窗（先预检：列明细 + 标处理人 + 一键催办） ==================== -->
     <t-dialog
       v-model:visible="closeDialog.visible"
       :header="`结账 ${closeDialog.code}`"
@@ -245,7 +245,7 @@
         disabled: !closeDialog.check?.can_close,
       }"
       :cancel-btn="{ content: '取消' }"
-      width="620px"
+      width="980px"
       data-testid="period-close-dialog"
       @confirm="submitClose"
     >
@@ -253,33 +253,19 @@
         正在做结账预检…
       </div>
       <template v-else>
-        <t-alert
-          v-if="closeDialog.check?.can_close"
-          theme="success"
-          :message="closeCheckSummary(closeDialog.check ?? emptyCheck)"
-          data-testid="period-close-check-ok"
+        <!--
+          ★ PERIOD-CLOSE：预检结果交给面板组件渲染
+          「阻断项」按单据列表格化（单据号 / 类型 / 金额 / 制单人 / 该谁处理 / 已等 / 操作），
+          「提醒项」沿用灰字列表；空明细时面板自己退回老样式（一句话 + 去列表处理）。
+        -->
+        <CloseCheckPanel
+          ref="checkPanel"
+          :check="closeDialog.check"
+          :period-id="closeDialog.id"
+          :can-remind="canRemind"
+          @goto="gotoDocument"
+          @reminded="onReminded"
         />
-        <t-alert
-          v-else
-          theme="warning"
-          :message="closeCheckSummary(closeDialog.check ?? emptyCheck)"
-          data-testid="period-close-check-blocked"
-        >
-          <template #description>
-            <ul class="blocker-list" data-testid="period-close-blockers">
-              <li v-for="(blocker, index) in closeDialog.check?.blockers ?? []" :key="`${blocker.type}-${index}`">
-                <span class="blocker-type mono">{{ blocker.type }}</span>
-                <span>{{ blocker.message }}</span>
-                <a v-if="blocker.link" class="blocker-link" :href="blocker.link" target="_blank" rel="noopener">
-                  去处理
-                </a>
-                <span v-if="blocker.samples && blocker.samples.length" class="blocker-samples mono">
-                  （{{ blocker.samples.join(' / ') }}）
-                </span>
-              </li>
-            </ul>
-          </template>
-        </t-alert>
 
         <div class="form-row close-reason-row">
           <label class="form-label">结账备注（可选）</label>
@@ -288,16 +274,6 @@
             placeholder="如：2026 年 10 月结账"
             data-testid="period-close-reason"
           />
-        </div>
-        <!-- 全库巡检告警：只提示、不拦结账（后端 blockers / warnings 分开的理由见 period.rs） -->
-        <div v-if="(closeDialog.check?.warnings ?? []).length > 0" class="check-warnings" data-testid="period-close-warnings">
-          <p class="check-warnings__title">另有 {{ closeDialog.check?.warnings?.length }} 项全库巡检提醒（不拦结账）：</p>
-          <ul class="blocker-list">
-            <li v-for="(warning, index) in closeDialog.check?.warnings ?? []" :key="`w-${index}`">
-              {{ warning.message }}
-              <a v-if="warning.link" class="blocker-link" :href="warning.link" target="_blank" rel="noopener">去看看</a>
-            </li>
-          </ul>
         </div>
         <p class="form-hint">
           结账后本期间只读：不能再生成凭证、单据不能过账、红冲也会被拒。如需再动账，只能「反结账」（要填原因）。
@@ -373,6 +349,7 @@
  * 出参 `dto.rs::PeriodRes` 同名 + `id / remark / created_at / updated_at`。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
@@ -385,7 +362,9 @@ import {
   reopenPeriod,
   type AccountPeriodRow,
   type PeriodCloseCheck,
+  type PeriodRemindResult,
 } from '@/api/business/erp';
+import CloseCheckPanel from './CloseCheckPanel.vue';
 import { useUserStore } from '@/stores/user';
 import {
   MIN_REOPEN_REASON_CHARS,
@@ -394,7 +373,6 @@ import {
   batchOpenError,
   buildPeriodQuery,
   canRunPeriodAction,
-  closeCheckSummary,
   closeReasonError,
   closedAtText,
   emptyPeriodFilter,
@@ -406,6 +384,7 @@ import {
   periodStatusLabel,
   periodStatusTheme,
   periodYearOptions,
+  remindToast,
   reopenReasonError,
   type PeriodAction,
   type PeriodFilterState,
@@ -484,9 +463,19 @@ const canOpen = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS
 const canClose = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS.close));
 /** 有反结账权限（行内「反结账」） */
 const canReopen = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS.reopen));
+/**
+ * 有催办权限（PERIOD-CLOSE）。
+ *
+ * 与开账 / 结账分开一个码：能给处理人发催办 ≠ 有资格替他把单过账。
+ * 无权限时面板里的「催办」按钮全部不出现（只留「去处理」）。
+ */
+const canRemind = computed(() => userStore.hasPermission(PERIOD_ACTION_PERMISSIONS.remind));
 
-/** 预检结果为空时的占位（模板里 `?? emptyCheck`，避免把 `null` 传进纯函数） */
-const emptyCheck = { can_close: false, blockers: [] as PeriodCloseCheck['blockers'] };
+/** 结账弹窗里的检查清单面板（重新预检时清掉「已催」标记） */
+const checkPanel = ref<InstanceType<typeof CloseCheckPanel> | null>(null);
+
+/** 路由：点「去处理」直达单据（弹窗先关掉，免得挡住目标页） */
+const router = useRouter();
 
 /** 页头那句提示：按当前账号的权限说清楚「能做什么」 */
 const actionTip = computed(() => {
@@ -494,6 +483,7 @@ const actionTip = computed(() => {
   if (canOpen.value) actions.push('开账');
   if (canClose.value) actions.push('结账');
   if (canReopen.value) actions.push('反结账');
+  if (canRemind.value) actions.push('催办');
   if (actions.length === 0) {
     return '只读：开账 / 结账 / 反结账需要财务权限';
   }
@@ -744,11 +734,41 @@ async function openCloseDialog(row: AccountPeriodRow): Promise<void> {
   closeDialog.loadingCheck = true;
   try {
     closeDialog.check = await fetchPeriodCloseCheck(row.id);
+    // 每次打开都清掉上一次的「已催（今天）」标记（别人可能已经处理掉一批了）
+    checkPanel.value?.reset();
   } catch (error) {
     MessagePlugin.error(`结账预检失败：${messageOf(error)}`);
     closeDialog.visible = false;
   } finally {
     closeDialog.loadingCheck = false;
+  }
+}
+
+/**
+ * 结账弹窗里点「去处理」：直达单据。
+ *
+ * 先关弹窗再跳：目标页有自己的详情抽屉，弹窗留着会盖住它。
+ * 路由里带的是后端算好的 `route`（凭证 `?voucher_no=`，采购 `?po_id=`，收货 `?in_id=`），
+ * 目标页的深链逻辑会直接把那张单打开（见 voucher / purchase / stockin 的 `applyRouteQuery`）。
+ */
+function gotoDocument(route: string): void {
+  closeDialog.visible = false;
+  void router.push(route);
+}
+
+/**
+ * 催办回执：用后端那句人话弹 toast。
+ *
+ * 三种颜色分开：真发出去了（成功）/ 有失败（警告，可重试）/ 只是「已催过 / 未指定处理人」（普通提示）。
+ */
+function onReminded(result: PeriodRemindResult): void {
+  const text = remindToast(result);
+  if (result.failed > 0) {
+    MessagePlugin.warning(text);
+  } else if (result.sent > 0) {
+    MessagePlugin.success(text);
+  } else {
+    MessagePlugin.info(text);
   }
 }
 

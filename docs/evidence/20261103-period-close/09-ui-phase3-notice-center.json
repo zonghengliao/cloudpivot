@@ -1,0 +1,27 @@
+[shot] /opt/cloudpivot/docs/evidence/20261103-period-close/shots/06-notice-message-center.png
+{
+  "phase": "3",
+  "period": "2036-03",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "period-page",
+      "ok": true
+    },
+    {
+      "step": "notice-center",
+      "ok": true,
+      "showsPeriod": true,
+      "showsDocNo": true,
+      "excerpt": "云枢 CloudPivot\n系统管理\n公告与消息\n7\n支撑功能\n审批流\n8\n工作任务\n数据权限\n字段脱敏\n角色互斥\n采购管理\n项目\n仓库管理\n流程模板库（标准模板 / 启用停用 / 另存为）\n内容管理\n通用底座\n财务管理\n合同管理（采购/销售/服务/租赁）\n基础数据\n首页\n消息中心\n7\n消息中心\n7 条未读\n 未读\n 已读\n 全部\n全部已读\n2036-03 月结账待处理：PC-IN-203603-001\n警告\n\n赵六 的 收货单 PC-IN-203603-001（560） 还是 草稿（未过账），挡住了 2036-03 的结账。请去过账。已等待 0 天。\n\n待办\n2026-11-03 14:11:16\n待你审批：状态机配置变更：STOCK_OUT DRAFT→POSTED 禁用\n通知\n\n审批单 FLW-20261103-5A363AA0（状态机配置变更审批（改流程规则前先过复核））到达节点「流程配置复核」，请及时处理。\n\n待办\n2026-11-03 10:55:51\n待你审批：状态机配置变更：PURCHASE_ORDER SUBMITTED→CLOSED 删除配置（回到 BASE_EDGES）\n通知\n\n审批单 FLW-20261103-F0617486（状态机配置变更审批（改流程规则前先过复核））到达节点「流程配置复核」，请及时处理。\n\n待办\n2026-11-03 10:55:47\n"
+    }
+  ],
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-period-close/shots/06-notice-message-center.png"
+  ]
+}
