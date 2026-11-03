@@ -1,0 +1,123 @@
+# V0211 结构（隔离库 cp_p13_mig）
+
+                                    Table "public.biz_stock_take"
+        Column        |           Type           | Collation | Nullable |          Default           
+----------------------+--------------------------+-----------+----------+----------------------------
+ id                   | uuid                     |           | not null | gen_random_uuid()
+ take_no              | character varying(32)    |           | not null | 
+ warehouse_id         | uuid                     |           | not null | 
+ take_date            | date                     |           | not null | 
+ take_type            | character varying(16)    |           | not null | 'FULL'::character varying
+ status               | character varying(24)    |           | not null | 'DRAFT'::character varying
+ approval_instance_id | uuid                     |           |          | 
+ voucher_id           | uuid                     |           |          | 
+ reverse_voucher_id   | uuid                     |           |          | 
+ total_book_qty       | numeric(18,4)            |           | not null | 0
+ total_actual_qty     | numeric(18,4)            |           | not null | 0
+ total_gain_qty       | numeric(18,4)            |           | not null | 0
+ total_loss_qty       | numeric(18,4)            |           | not null | 0
+ total_gain_amount    | numeric(18,4)            |           | not null | 0
+ total_loss_amount    | numeric(18,4)            |           | not null | 0
+ remark               | character varying(500)   |           |          | 
+ posted_at            | timestamp with time zone |           |          | 
+ posted_by            | uuid                     |           |          | 
+ cancelled_at         | timestamp with time zone |           |          | 
+ cancelled_by         | uuid                     |           |          | 
+ cancel_reason        | character varying(255)   |           |          | 
+ created_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at           | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ create_by            | uuid                     |           |          | 
+ update_by            | uuid                     |           |          | 
+ deleted_at           | timestamp with time zone |           |          | 
+Indexes:
+    "biz_stock_take_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_st_approval" btree (approval_instance_id) WHERE approval_instance_id IS NOT NULL
+    "idx_biz_st_date" btree (take_date DESC)
+    "idx_biz_st_status" btree (status)
+    "idx_biz_st_voucher" btree (voucher_id)
+    "idx_biz_st_warehouse" btree (warehouse_id, take_date DESC)
+    "uk_biz_st_no" UNIQUE, btree (take_no) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_st_cancel" CHECK (status::text <> 'CANCELLED'::text OR cancel_reason IS NOT NULL)
+    "ck_biz_st_status" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'PENDING_POST'::character varying, 'POSTED'::character varying, 'CANCELLED'::character varying]::text[]))
+    "ck_biz_st_totals" CHECK (total_book_qty >= 0::numeric AND total_actual_qty >= 0::numeric AND total_gain_qty >= 0::numeric AND total_loss_qty >= 0::numeric AND total_gain_amount >= 0::numeric AND total_loss_amount >= 0::numeric)
+    "ck_biz_st_type" CHECK (take_type::text = ANY (ARRAY['FULL'::character varying, 'PARTIAL'::character varying]::text[]))
+Referenced by:
+    TABLE "biz_stock_take_item" CONSTRAINT "biz_stock_take_item_take_id_fkey" FOREIGN KEY (take_id) REFERENCES biz_stock_take(id) ON DELETE CASCADE
+
+                                          Table "public.biz_stock_take_item"
+   Column    |           Type           | Collation | Nullable |                       Default                        
+-------------+--------------------------+-----------+----------+------------------------------------------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ take_id     | uuid                     |           | not null | 
+ line_no     | integer                  |           | not null | 
+ material_id | uuid                     |           | not null | 
+ unit_id     | uuid                     |           | not null | 
+ location_id | uuid                     |           |          | 
+ book_qty    | numeric(18,4)            |           | not null | 0
+ actual_qty  | numeric(18,4)            |           | not null | 0
+ diff_qty    | numeric(18,4)            |           |          | generated always as ((actual_qty - book_qty)) stored
+ unit_cost   | numeric(18,6)            |           | not null | 0
+ diff_amount | numeric(18,4)            |           | not null | 0
+ remark      | character varying(255)   |           |          | 
+ created_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+ updated_at  | timestamp with time zone |           | not null | CURRENT_TIMESTAMP
+Indexes:
+    "biz_stock_take_item_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_st_item_material" btree (material_id)
+    "idx_biz_st_item_take" btree (take_id)
+    "uk_biz_st_item_line" UNIQUE CONSTRAINT, btree (take_id, line_no)
+Check constraints:
+    "ck_biz_st_item_amount" CHECK (unit_cost >= 0::numeric AND diff_amount >= 0::numeric)
+    "ck_biz_st_item_qty" CHECK (book_qty >= 0::numeric AND actual_qty >= 0::numeric)
+Foreign-key constraints:
+    "biz_stock_take_item_take_id_fkey" FOREIGN KEY (take_id) REFERENCES biz_stock_take(id) ON DELETE CASCADE
+
+## 权限码（sys_menu）
+           auth_code            |              name              | menu_type |           path           |           component           
+--------------------------------+--------------------------------+-----------+--------------------------+-------------------------------
+ business:erp:stock-take:create | business:erp:stock-take:create |         3 |                          | 
+ business:erp:stock-take:delete | business:erp:stock-take:delete |         3 |                          | 
+ business:erp:stock-take:detail | business:erp:stock-take:detail |         3 |                          | 
+ business:erp:stock-take:list   | business:erp:stock-take:list   |         2 | /business/erp/stock-take | business/erp/stock-take/index
+ business:erp:stock-take:status | business:erp:stock-take:status |         3 |                          | 
+ business:erp:stock-take:update | business:erp:stock-take:update |         3 |                          | 
+(6 rows)
+
+## 取号规则
+  seq_type  | prefix | date_pattern | separator | step 
+------------+--------+--------------+-----------+------
+ STOCK_TAKE | ST     | yyyyMMdd     | -         |    1
+(1 row)
+
+## 审批流程（定义 / 节点 / 边 / 审批人）
+ERROR:  column "graph_hash" does not exist
+LINE 1: ...ow_code, flow_name, biz_type, status, is_default, graph_hash...
+                                                             ^
+ node_key |           node_name           | node_type | assignee_type | empty_assignee | self_approval 
+----------+-------------------------------+-----------+---------------+----------------+---------------
+ s        | 开始                          | START     |               | SKIP           | SKIP
+ c_amt    | 差异金额分级（< 1 万单级）    | CONDITION |               | SKIP           | SKIP
+ n_wh     | 仓管主管审批（< 1 万）        | APPROVAL  | ROLE          | FALLBACK_ADMIN | ALLOW
+ n_fin    | 仓管主管审批（≥ 1 万·第一级） | APPROVAL  | ROLE          | FALLBACK_ADMIN | ALLOW
+ n_gm     | 总经理审批（≥ 1 万·第二级）   | APPROVAL  | ROLE          | FALLBACK_ADMIN | ALLOW
+ e        | 结束                          | END       |               | SKIP           | SKIP
+(6 rows)
+
+  edge_key  |       condition_label        | is_default |                                condition_expr                                 
+------------+------------------------------+------------+-------------------------------------------------------------------------------
+ e_fin_gm   |                              | f          | 
+ e_gm_end   |                              | f          | 
+ e_low      | 差异金额 < 10000（单级审批） | f          | {"op": "cmp", "cmp": "lt", "field": "form.total_diff_amount", "value": 10000}
+ e_low_else | 差异金额 ≥ 10000（两级审批） | t          | 
+ e_start    |                              | f          | 
+ e_wh_end   |                              | f          | 
+(6 rows)
+
+ node_key | assignee_type |     role_code     
+----------+---------------+-------------------
+ n_fin    | ROLE          | WAREHOUSE_MANAGER
+ n_gm     | ROLE          | GENERAL_MANAGER
+ n_wh     | ROLE          | WAREHOUSE_MANAGER
+(3 rows)
+

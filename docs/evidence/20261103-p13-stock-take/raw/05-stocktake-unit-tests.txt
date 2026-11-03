@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 19 tests
+test business::erp::stocktake_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::stocktake_bridge::tests::verdict_target_is_legal_stock_take_edge ... ok
+test business::erp::stocktake_tests::cancel_after_post_rolls_back_and_reds_voucher ... ok
+test business::erp::stocktake_tests::diff_totals_are_gain_plus_loss ... ok
+test business::erp::stocktake_tests::full_take_snapshots_book_qty ... ok
+test business::erp::stocktake_tests::gain_books_inbound_direction ... ok
+test business::erp::stocktake_tests::illegal_transitions_are_rejected ... ok
+test business::erp::stocktake_tests::large_diff_takes_two_approval_levels ... ok
+test business::erp::stocktake_tests::loss_posts_three_books_and_voucher ... ok
+test business::erp::stocktake_tests::negative_stock_is_blocked ... ok
+test business::erp::stocktake_tests::no_diff_posts_without_any_entry ... ok
+test business::erp::stocktake_tests::partial_scope_only_includes_requested_material ... ok
+test business::erp::stocktake_tests::payload_validation ... ok
+test business::erp::stocktake_tests::post_requires_approved_instance ... ok
+test business::erp::stocktake_tests::reject_returns_to_draft ... ok
+test business::erp::stocktake_tests::scope_validation_rejects_bad_requests ... ok
+test business::erp::stocktake_tests::status_and_edges_are_consistent ... ok
+test business::erp::stocktake_tests::withdraw_and_delete_terminate_running_approval ... ok
+test business::erp::stocktake_tests::zz_teardown_purges_stocktake_fixtures ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 2170 filtered out; finished in 35.94s
+

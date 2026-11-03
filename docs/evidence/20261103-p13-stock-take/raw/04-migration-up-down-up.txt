@@ -1,0 +1,21 @@
+== 第 1 轮 down
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.down.sql:123: NOTICE:  V0211 down 完成：两表 / 6 个权限节点 / 1 条取号规则 / 1 个审批流程全部撤销，零残留
+   状态：tables=0 idx=0 con=0 menu=0 seq=0 flow=0 nodes=0 edges=0 gencol=0
+   零残留 OK
+== 第 1 轮 up
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.up.sql:294: NOTICE:  V0211：盘点单 6 个权限码已种，授权新增 18 行（角色数 8）
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.up.sql:542: NOTICE:  V0211 就绪：盘点两表 / 8 索引 / 7 约束 / 6 权限码 / 1 取号规则 / 1 审批流程（差异金额分档）
+   状态：tables=2 idx=8 con=7 menu=6 seq=1 flow=1 nodes=6 edges=6 gencol=1
+   结构齐全 OK
+== 第 2 轮 down
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.down.sql:123: NOTICE:  V0211 down 完成：两表 / 6 个权限节点 / 1 条取号规则 / 1 个审批流程全部撤销，零残留
+   状态：tables=0 idx=0 con=0 menu=0 seq=0 flow=0 nodes=0 edges=0 gencol=0
+   零残留 OK
+== 第 2 轮 up
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.up.sql:294: NOTICE:  V0211：盘点单 6 个权限码已种，授权新增 18 行（角色数 8）
+    psql:/opt/cloudpivot/backend/migrations/business/V0211__erp_stock_take.up.sql:542: NOTICE:  V0211 就绪：盘点两表 / 8 索引 / 7 约束 / 6 权限码 / 1 取号规则 / 1 审批流程（差异金额分档）
+   状态：tables=2 idx=8 con=7 menu=6 seq=1 flow=1 nodes=6 edges=6 gencol=1
+   结构齐全 OK
+== 终态核对（应 tables=2 idx=8 con=7 menu=6 seq=1 flow=1 nodes=6 edges=6 gencol=1）
+   tables=2 idx=8 con=7 menu=6 seq=1 flow=1 nodes=6 edges=6 gencol=1
+== 终态 OK

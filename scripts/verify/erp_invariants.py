@@ -847,9 +847,102 @@ def group_h():
               f"执行异常（表/列缺失？）：{str(e)[:120]}")
 
 
+# ══════════════════════════════════════════════════════════════════
+# I. 盘点单（ARCH-3 DC-14）—— 账实差异必须有单据有凭证
+# ══════════════════════════════════════════════════════════════════
+def group_i():
+    print("\n" + "=" * 92)
+    print("I. 盘点单（盘盈盘亏必须有凭证、差异必须等于库存变化）")
+    print("=" * 92)
+
+    if not table_exists("biz_stock_take"):
+        check("I0 盘点单表存在", "盘点", "INFO", True,
+              "本库还没有 V0211（盘点单）——整组跳过，不算失败")
+        return
+
+    # I1 已过账且差异金额 > 0 的盘点单，必须有蓝字凭证（且来源对得上）
+    bad1 = q("""
+        select t.take_no,
+               (t.total_gain_amount + t.total_loss_amount)::text as diff_amount,
+               coalesce(t.voucher_id::text, '(无)') as voucher_id,
+               coalesce(v.source_type || '/' || v.status || case when v.is_red = 1 then '/红字' else '' end, '(找不到凭证)') as voucher
+          from biz_stock_take t
+          left join biz_voucher v on v.id = t.voucher_id and v.deleted_at is null
+         where t.deleted_at is null and t.status = 'POSTED'
+           and (t.total_gain_amount + t.total_loss_amount) > 0.0001
+           and (t.voucher_id is null
+                or v.id is null
+                or v.source_type <> 'STOCK_TAKE'
+                or v.is_red = 1)
+         order by t.take_no
+    """)
+    check("I1 盘点单已过账 → 必须有盘点差异凭证", "盘点", "BLOCKER", not bad1,
+          f"{len(bad1)} 张已过账盘点单没有（或挂错了）凭证" if bad1 else "全部有凭证",
+          """select t.take_no, (t.total_gain_amount + t.total_loss_amount)::text as 差异金额,
+                    coalesce(t.voucher_id::text,'(无)') as 凭证
+               from biz_stock_take t
+               left join biz_voucher v on v.id = t.voucher_id and v.deleted_at is null
+              where t.deleted_at is null and t.status = 'POSTED'
+                and (t.total_gain_amount + t.total_loss_amount) > 0.0001
+                and (t.voucher_id is null or v.id is null or v.source_type <> 'STOCK_TAKE' or v.is_red = 1)""")
+
+    # I2 盘点差异累计 = 库存流水累计（按盘点单 id 对齐）
+    bad2 = q("""
+        with diff as (
+            select t.id, t.take_no,
+                   coalesce(sum(i.diff_qty), 0) as diff_qty
+              from biz_stock_take t
+              join biz_stock_take_item i on i.take_id = t.id
+             where t.deleted_at is null and t.status = 'POSTED'
+             group by 1, 2
+        ), txn as (
+            select doc_id,
+                   sum(case when txn_type = 'IN' then qty else -qty end) as txn_qty
+              from biz_inventory_txn
+             where doc_type = 'STOCK_TAKE'
+             group by 1
+        )
+        select d.take_no, d.diff_qty::text, coalesce(x.txn_qty, 0)::text
+          from diff d
+          left join txn x on x.doc_id = d.id
+         where abs(d.diff_qty - coalesce(x.txn_qty, 0)) > 0.0001
+         order by d.take_no
+    """)
+    check("I2 盘点差异累计 = 库存流水累计（对得上）", "盘点", "BLOCKER", not bad2,
+          f"{len(bad2)} 张盘点单的差异与流水不符" if bad2 else "全部相符",
+          """with diff as (select t.id, t.take_no, coalesce(sum(i.diff_qty),0) as q
+                            from biz_stock_take t join biz_stock_take_item i on i.take_id=t.id
+                           where t.deleted_at is null and t.status='POSTED' group by 1,2),
+                  txn as (select doc_id, sum(case when txn_type='IN' then qty else -qty end) as q
+                            from biz_inventory_txn where doc_type='STOCK_TAKE' group by 1)
+             select d.take_no, d.q::text as 差异, coalesce(x.q,0)::text as 流水
+               from diff d left join txn x on x.doc_id=d.id
+              where abs(d.q - coalesce(x.q,0)) > 0.0001""")
+
+    # I3 已作废的盘点单：正向 + 冲销必须抵消为 0（红冲前的账必须回基线）
+    bad3 = q("""
+        select t.id, t.take_no,
+               sum(case when x.txn_type = 'IN' then x.qty else -x.qty end)::text as net
+          from biz_stock_take t
+          join biz_inventory_txn x on x.doc_type = 'STOCK_TAKE' and x.doc_id = t.id
+         where t.deleted_at is null and t.status = 'CANCELLED'
+         group by 1, 2
+        having abs(sum(case when x.txn_type = 'IN' then x.qty else -x.qty end)) > 0.0001
+         order by t.take_no
+    """)
+    check("I3 已作废盘点单 → 流水净额为 0（正向已冲销）", "盘点", "WARN", not bad3,
+          f"{len(bad3)} 张作废盘点单的流水没抵消" if bad3 else "全部抵消",
+          """select t.take_no,
+                    sum(case when x.txn_type='IN' then x.qty else -x.qty end)::text as 净额
+               from biz_stock_take t join biz_inventory_txn x
+                 on x.doc_type='STOCK_TAKE' and x.doc_id=t.id
+              where t.deleted_at is null and t.status='CANCELLED'
+              group by 1 having abs(sum(case when x.txn_type='IN' then x.qty else -x.qty end)) > 0.0001""")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
-          "审批": group_h}
+          "审批": group_h, "盘点": group_i}
 
 
 def main():

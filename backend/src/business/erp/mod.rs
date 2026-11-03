@@ -19,6 +19,10 @@
 //! | [`stockout_model`] | 出库单数据层（ARCH-3 DC-13）：取号 + 三本账**负向**（成本账 / 库位账 / 流水）+ 负库存闸 + 作废回滚 | **ARCH-3 P0** |
 //! | [`stockout_dto`] | 出库单出入参契约：建单 / 改单 / 状态流转（提交 / 过账 / 作废）/ 详情 / 分页 + 校验 | **ARCH-3 P0** |
 //! | [`stockout_handler`] | 出库单 6 个接口：建 / 改 / 删 / 状态流转 / 列表 / 详情 + 过账与作废的事务编排 | **ARCH-3 P0** |
+//! | [`stocktake_model`] | 盘点单数据层（ARCH-3 DC-14）：账面快照 + 差异三本账（盘盈走入库 / 盘亏走出库）+ 盘点差异凭证 + 作废回滚 | **ARCH-3 P1** |
+//! | [`stocktake_dto`] | 盘点单契约：建单（账面数服务端快照）/ 填实盘 / 提交审批 / 过账 / 作废 / 详情 / 分页 | **ARCH-3 P1** |
+//! | [`stocktake_handler`] | 盘点单 6 个接口 + 过账 / 作废事务编排 + 审批发起（`stock_take_post`） | **ARCH-3 P1** |
+//! | [`stocktake_bridge`] | 盘点**审批**的业务回调（驳回 → 回草稿）+ 内控闸 + 反向兜底 | **ARCH-3 P1** |
 //! | [`purchase_bridge`] | 采购订单**审批**的业务回调 + 内控闸 + 反向兜底 | **P-FLOW-3A** |
 //! | [`payable`] | 应付单数据层：过账即生成（AP-yyyyMMdd-6 位）+ 作废联动 | **P2-C1** |
 //! | [`voucher`] | 凭证 / 分录 / 科目映射规则：借贷平衡 + 红冲（借贷互换） | **P2-C1** |
@@ -116,6 +120,10 @@ pub mod stockin_model;
 pub mod stockout_dto;
 pub mod stockout_handler;
 pub mod stockout_model;
+pub mod stocktake_bridge;
+pub mod stocktake_dto;
+pub mod stocktake_handler;
+pub mod stocktake_model;
 pub mod transfer_dto;
 pub mod transfer_handler;
 pub mod transfer_model;
@@ -135,6 +143,8 @@ pub mod year_end_remind;
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 #[cfg(test)]
 mod period_test_support; // PERIOD-CLOSE 真库用例的公共夹具（`2033-xx` / `P2-` 前缀）
+#[cfg(test)]
+pub mod stocktake_tests; // 盘点单用例（纯逻辑 + 真库：盘盈 / 盘亏 / 无差异 / 作废回滚 / 审批流 / 负库存）
 #[cfg(test)]
 pub mod year_end_test_support; // YEAR-END 真库用例的公共夹具（`2037-xx` / `2038-xx` / `YE-` 前缀）
 

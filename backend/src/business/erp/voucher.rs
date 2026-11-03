@@ -150,6 +150,8 @@ pub const SOURCE_SERIAL_SCRAP: &str = "SERIAL_SCRAP";
 /// 与 `biz_stock_out` 一一对应：一张出库单最多一张蓝字凭证（作废后再加一张红字）。
 /// `biz_voucher.source_type` 是 `VARCHAR(24)` 且无 CHECK 白名单，新增取值不需要迁移。
 pub const SOURCE_STOCK_OUT: &str = "STOCK_OUT";
+/// 凭证来源类型：盘点单（ARCH-3 DC-14，盘点差异凭证）。
+pub const SOURCE_STOCK_TAKE: &str = "STOCK_TAKE";
 
 // ==================== 取号（通用：`{前缀}-yyyyMMdd-NNNNNN`） ====================
 

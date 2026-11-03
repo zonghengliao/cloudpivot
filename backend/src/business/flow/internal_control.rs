@@ -150,6 +150,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
                 .await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::stocktake_bridge::BIZ_TYPE {
+        // ARCH-3 DC-14：盘点过账审批的 `biz_id` 是**盘点单 id**（盘的人不能批自己盘的账）
+        let creator =
+            crate::business::erp::stocktake_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

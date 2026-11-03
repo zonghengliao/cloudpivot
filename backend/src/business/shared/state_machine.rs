@@ -136,6 +136,41 @@ pub const STOCK_OUT_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "CANCELLED")];
 /// `PENDING_POST` 也锁：待过账状态下改一行数量，「别人批的 / 过的」就不是同一张单了。
 pub const STOCK_OUT_LOCKED: [&str; 2] = ["POSTED", "PENDING_POST"];
 
+/// 实体类型：盘点单（`biz_stock_take`，ARCH-3 **DC-14**）。
+///
+/// 补的是「账实差异只能手改 `biz_inventory`」这个 P1 缺口：盘盈盘亏没有单据、
+/// 没有审批、没有凭证 → 审计上说不清「为什么库存变了」。`biz_status_log.entity_type`
+/// 无 CHECK 白名单，本常量登记后 `transition()` 即可用。
+pub const ENTITY_STOCK_TAKE: &str = "STOCK_TAKE";
+
+/// 盘点单合法边（与 `stocktake_base::LEGAL_EDGES` 同源）。
+///
+/// ```text
+/// DRAFT          → PENDING_POST   提交审批（审批通过后仍是「待过账」）
+/// PENDING_POST   → POSTED         过账（三本账按差异正负 + 盘点差异凭证，同一事务）
+/// PENDING_POST   → DRAFT          撤回 / 驳回（打回草稿，账没动）
+/// DRAFT          → CANCELLED      草稿作废（从未动过账）
+/// PENDING_POST   → CANCELLED      待过账作废（账没动，顺带终止在跑的审批）
+/// POSTED         → CANCELLED      已过账作废（三本账回滚 + 凭证红冲，**必须给原因**）
+/// ```
+///
+/// **没有** `DRAFT → POSTED`：盘点必须先走审批（`stock_take_post`）才能过账，
+/// 这正是 DC-14 要堵的「没人批就改账」。
+pub const STOCK_TAKE_EDGES: [(&str, &str); 6] = [
+    ("DRAFT", "PENDING_POST"),
+    ("PENDING_POST", "POSTED"),
+    ("PENDING_POST", "DRAFT"),
+    ("DRAFT", "CANCELLED"),
+    ("PENDING_POST", "CANCELLED"),
+    ("POSTED", "CANCELLED"),
+];
+
+/// 需要 reason 的盘点单边：已过账作废（红字凭证的摘要与审计依据都靠它）。
+pub const STOCK_TAKE_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "CANCELLED")];
+
+/// 盘点单入账态：已过账（明细不许再改）；待过账也锁（审批过的那份差异不能被改薄）。
+pub const STOCK_TAKE_LOCKED: [&str; 2] = ["POSTED", "PENDING_POST"];
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -619,6 +654,18 @@ pub const STOCK_OUT_BASE: [BaseEdge; 6] = [
     BaseEdge::mandatory("POSTED", "CANCELLED", "已过账作废", true),
 ];
 
+/// 盘点单的 BASE_EDGES（与 [`STOCK_TAKE_EDGES`] 逐条对应，顺序一致）。
+///
+/// **没有可选边**：`DRAFT → POSTED` 在盘点上是禁止的（必须先审批 + 独立过账）。
+pub const STOCK_TAKE_BASE: [BaseEdge; 6] = [
+    BaseEdge::mandatory("DRAFT", "PENDING_POST", "提交审批", false),
+    BaseEdge::mandatory("PENDING_POST", "POSTED", "过账", false),
+    BaseEdge::mandatory("PENDING_POST", "DRAFT", "撤回/驳回", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("PENDING_POST", "CANCELLED", "待过账作废", false),
+    BaseEdge::mandatory("POSTED", "CANCELLED", "已过账作废", true),
+];
+
 /// 单据类型注册表。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Entity {
@@ -640,11 +687,13 @@ pub enum Entity {
     Contract,
     /// 出库单 `biz_stock_out`（ARCH-3 DC-13）。
     StockOut,
+    /// 盘点单 `biz_stock_take`（ARCH-3 DC-14）。
+    StockTake,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 9] = [
+    pub const ALL: [Entity; 10] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -654,6 +703,7 @@ impl Entity {
         Entity::YearEnd,
         Entity::Contract,
         Entity::StockOut,
+        Entity::StockTake,
     ];
 
     /// 落库的 `entity_type`。
@@ -668,6 +718,7 @@ impl Entity {
             Entity::YearEnd => ENTITY_YEAR_END,
             Entity::Contract => ENTITY_CONTRACT,
             Entity::StockOut => ENTITY_STOCK_OUT,
+            Entity::StockTake => ENTITY_STOCK_TAKE,
         }
     }
 
@@ -688,6 +739,7 @@ impl Entity {
             Entity::YearEnd => "会计年度",
             Entity::Contract => "合同",
             Entity::StockOut => "出库单",
+            Entity::StockTake => "盘点单",
         }
     }
 
@@ -703,6 +755,7 @@ impl Entity {
             Entity::YearEnd => &YEAR_END_EDGES,
             Entity::Contract => &CONTRACT_EDGES,
             Entity::StockOut => &STOCK_OUT_EDGES,
+            Entity::StockTake => &STOCK_TAKE_EDGES,
         }
     }
 
@@ -721,6 +774,7 @@ impl Entity {
             Entity::YearEnd => &YEAR_END_BASE,
             Entity::Contract => &CONTRACT_BASE,
             Entity::StockOut => &STOCK_OUT_BASE,
+            Entity::StockTake => &STOCK_TAKE_BASE,
         }
     }
 
@@ -743,6 +797,7 @@ impl Entity {
             Entity::YearEnd => &YEAR_END_REASON_EDGES,
             Entity::Contract => &CONTRACT_REASON_EDGES,
             Entity::StockOut => &STOCK_OUT_REASON_EDGES,
+            Entity::StockTake => &STOCK_TAKE_REASON_EDGES,
         }
     }
 
@@ -758,6 +813,7 @@ impl Entity {
             Entity::YearEnd => &YEAR_END_LOCKED,
             Entity::Contract => &CONTRACT_LOCKED,
             Entity::StockOut => &STOCK_OUT_LOCKED,
+            Entity::StockTake => &STOCK_TAKE_LOCKED,
         }
     }
 
@@ -3530,8 +3586,8 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            9,
-            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT，ARCH-3 DC-13）"
+            10,
+            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT，ARCH-3 DC-13）→ 10（STOCK_TAKE，ARCH-3 DC-14）"
         );
 
         // ③ as_str

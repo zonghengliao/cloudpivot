@@ -197,7 +197,7 @@ pub const TRIGGER_FLOW_INSTANCE: &str = "FLOW_INSTANCE";
 
 /// 允许作为 `trigger_entity` 的取值。
 ///
-/// 前 9 个与 [`state_machine`] 的实体注册表逐字一致（由单测
+/// 前 10 个与 [`state_machine`] 的实体注册表逐字一致（由单测
 /// `triggers_cover_state_machine_entities` 钉住），后 2 个是本模块补充的：
 /// `TASK`（任务）与 `FLOW_INSTANCE`（审批实例）。
 pub const TRIGGERS: &[&str] = &[
@@ -210,6 +210,8 @@ pub const TRIGGERS: &[&str] = &[
     state_machine::ENTITY_PERIOD,
     state_machine::ENTITY_YEAR_END,
     state_machine::ENTITY_CONTRACT,
+    // ARCH-3 DC-14：盘点单过账 / 作废也是「状态变更之后要做什么」的合法触发点
+    state_machine::ENTITY_STOCK_TAKE,
     TRIGGER_TASK,
     TRIGGER_FLOW_INSTANCE,
 ];
