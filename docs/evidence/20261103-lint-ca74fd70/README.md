@@ -35,13 +35,13 @@
 
 | # | 命令 | 结果 | 日志 |
 |---|---|---|---|
-| 1 | `cargo fmt -- --check` | exit 0 | `01_fmt_clippy.log` |
-| 2 | `cargo clippy --all-targets -- -D warnings` | **exit 0（整仓，含 testd 集成测试 target）** | `01_fmt_clippy.log` |
-| 3 | `cargo test --lib business::flow::internal_control`（`P0FIX_DB_URL` → `cloudpivot_test`） | **14 passed / 0 failed**，9.57s（真库，非 SKIP） | `02_internal_control_tests.log` |
-| 4 | `cargo test --lib business::erp::stockout_model::tests`（`ERP_DB_URL` → `cp_dc13_t1`） | **7 passed / 0 failed**，10.55s（真库） | `03_stockout_reminder_tests.log` |
-| 5 | `cargo test --lib business::erp::reminder` | 33 passed / 0 failed | `03_stockout_reminder_tests.log` |
-| 6 | `bash scripts/check.sh` | fmt / clippy / cargo check / pnpm typecheck / 闸① / C7 G1–G4·G6 全绿；**批次B 闸②、C7 G5 红** | `04_check_sh.log` |
-| 7 | `BATCHB_GATE=warn bash scripts/check.sh` | 同上，闸② 降级为告警后其余全绿（能跑到 C7 最后一条） | `05_check_sh_batchb_warn.log` |
+| 1 | `cargo fmt -- --check` | exit 0 | `01_fmt_clippy.txt` |
+| 2 | `cargo clippy --all-targets -- -D warnings` | **exit 0（整仓，含 testd 集成测试 target）** | `01_fmt_clippy.txt` |
+| 3 | `cargo test --lib business::flow::internal_control`（`P0FIX_DB_URL` → `cloudpivot_test`） | **14 passed / 0 failed**，9.57s（真库，非 SKIP） | `02_internal_control_tests.txt` |
+| 4 | `cargo test --lib business::erp::stockout_model::tests`（`ERP_DB_URL` → `cp_dc13_t1`） | **7 passed / 0 failed**，10.55s（真库） | `03_stockout_reminder_tests.txt` |
+| 5 | `cargo test --lib business::erp::reminder` | 33 passed / 0 failed | `03_stockout_reminder_tests.txt` |
+| 6 | `bash scripts/check.sh` | fmt / clippy / cargo check / pnpm typecheck / 闸① / C7 G1–G4·G6 全绿；**批次B 闸②、C7 G5 红** | `04_check_sh.txt` |
+| 7 | `BATCHB_GATE=warn bash scripts/check.sh` | 同上，闸② 降级为告警后其余全绿（能跑到 C7 最后一条） | `05_check_sh_batchb_warn.txt` |
 | 8 | HEAD(26a1111) 干净 worktree vs 提交后树：闸② / C7 G5 失败清单 diff | **(IDENTICAL)** | `06_preexisting_gate_diff.txt` |
 
 ### 关于 6/7 里的两条红：存量债，不是本卡引入

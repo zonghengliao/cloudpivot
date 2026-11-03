@@ -1,0 +1,113 @@
+==> 后端：cargo fmt --check
+==> 后端：cargo clippy -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+==> 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.13s
+==> 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
+    白名单：business/shared/scope.rs（+ 注释行不计）
+  PASS：0 处（分页全部走 scope::paginate）
+==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
+    登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def biz_project biz_project_member biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc 
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/attachment/tests.rs 查询 sys_file sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/approval_gate.rs 查询 biz_flow_def 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/contract_approval_tests.rs 查询 biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/contract_handler.rs 查询 biz_flow_instance 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/period_remind_tests.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/period_test_support.rs 查询 sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/pflow3b_tests.rs 查询 biz_flow_def biz_flow_edge biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/reminder.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/reminder_tests.rs 查询 sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_bridge.rs 查询 biz_flow_instance biz_flow_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_handler_tests_fixtures.rs 查询 biz_flow_cc biz_flow_instance biz_flow_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_handler_tests_helpers.rs 查询 biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_handler_tests_p16.rs 查询 biz_flow_def biz_flow_instance biz_flow_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_handler_tests_pflow3a.rs 查询 biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stocktake_tests.rs 查询 biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/year_end_remind_tests.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/year_end_test_support.rs 查询 sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/edge_admin_tests.rs 查询 biz_flow_def biz_flow_instance biz_flow_task sys_notice sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/internal_control.rs 查询 biz_flow_def biz_flow_def_version biz_flow_instance biz_flow_instance_node biz_flow_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/task_node.rs 查询 biz_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/template_vars.rs 查询 biz_flow_instance biz_flow_instance_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/test_support.rs 查询 biz_flow_instance biz_flow_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_cascade_cancel_tests.rs 查询 biz_task biz_task_comment 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_cascade_tests.rs 查询 biz_task biz_task_comment 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_depth_tests.rs 查询 biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_flow.rs 查询 biz_flow_task biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_hierarchy.rs 查询 biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_repair_tests.rs 查询 biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_schedule.rs 查询 biz_task biz_task_dependency 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_write.rs 查询 biz_task biz_task_dependency biz_task_member 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/menu/tests.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/role/tests.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/session_tests.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/tests_support.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: system/user/tests.rs 查询 biz_project sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：35 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+==> 批次B 门禁汇总：闸①=0 处  闸②=35 处  （B0 基线 20 / 21）
+==> 批次B 门禁：1 条未通过（BATCHB_GATE=warn → 仅告警，不中断）
+==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）
+  PASS：0 处
+==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
+  PASS：0 处（注释中的示例不计）
+==> C7 G3：record 的签名必须带 &impl SqlExecutor
+  PASS
+==> C7 G4：不得存在『无 executor 版本』的 record 函数
+  PASS
+==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx
+G5 FAIL：37 个调用点不合规（扫了 362 个文件）
+  backend/src/business/flow/linkage/engine.rs:208: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:220: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:232: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:239: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:242: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:246: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:291: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/model.rs:2802: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/task_node.rs:308: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:96: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:107: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:109: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:117: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:118: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:120: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:122: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:154: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:158: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:160: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:185: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:191: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:195: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:345: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:348: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:357: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:361: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:363: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:251: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:254: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:265: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:269: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:271: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:415: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:418: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:427: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:431: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:433: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  修法：把 record(_in) 放进 db().transaction(|tx| async move { … }) 里，第一个实参传 &tx
+==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）
+  PASS：0 处
+==> C7 门禁汇总：G1–G6 共 6 条，未通过 1 条
+==> C7 门禁：1 条未通过。修法：
+    G1 sys_change_log 只能由 business/changelog/ 访问
+    G2 changelog 模块内不要 db()，改用调用方传进来的 &impl SqlExecutor
+    G3/G4 record 必须只吃 &impl SqlExecutor（不许有无 executor 的重载）
+    G5 record(_in) 只能在 db().transaction(|tx| async move { … }) 里调用，第一个实参传 &tx
+    G6 按 id 查必须带 created_at（分区键），否则会扫全部月分区
+CHECK_EXIT=1
