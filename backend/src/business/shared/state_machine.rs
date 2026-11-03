@@ -2032,6 +2032,49 @@ pub async fn log_created(
     .await
 }
 
+/// 写一行「状态机配置变更」的审计备注（`biz_status_log`，`entity_type = 'FLOW_EDGE_CFG'`）。
+///
+/// # 为什么需要它（D3 审批化）
+///
+/// 配置行本身的变化由 [`upsert_edge_config`] / [`delete_edge_config`] 留痕（改前 → 改后快照）。
+/// 但审批化之后还有几种**不是「行变了」**的事件也得能被审计回答：
+///
+/// | 事件 | 谁写 | state |
+/// |------|------|-------|
+/// | 没有已发布流程时「显式跳过审批」直接生效 | `flow::edge_admin` | `SKIPPED` |
+/// | 审批通过、配置已生效 | `flow::edge_admin`（回调） | `APPLIED` |
+/// | 审批驳回 / 撤回（配置一分没动） | `flow::edge_admin`（回调） | `REJECTED` |
+/// | 审批通过但没落地（发起人已不是超管 / 内核拒绝） | `flow::edge_admin`（回调） | `APPROVED` |
+///
+/// 这里只做 INSERT（与 [`insert_log`] 同一个写入形态），**不碰任何配置行** ——
+/// 唯一写入口仍然是 `upsert_edge_config` / `delete_edge_config`。
+#[allow(clippy::too_many_arguments)]
+pub async fn note_edge_config(
+    ex: &impl SqlExecutor,
+    entity: Entity,
+    from: &str,
+    to: &str,
+    entity_id: Uuid,
+    from_state: &str,
+    to_state: &str,
+    operator: Operator,
+    reason: &str,
+) -> Result<(), ApiError> {
+    insert_log(
+        ex,
+        ENTITY_EDGE_CONFIG,
+        entity_id,
+        &format!("{} {from}>{to}", entity.as_str()),
+        Some(from_state),
+        to_state,
+        &operator,
+        Some(reason),
+        None,
+    )
+    .await
+    .map(|_| ())
+}
+
 /// 写一行 `biz_status_log`（**只有 INSERT，没有 UPDATE**）。
 #[allow(clippy::too_many_arguments)]
 async fn insert_log(

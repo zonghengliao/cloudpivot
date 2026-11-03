@@ -1,0 +1,41 @@
+=== 干净库一次装起来（三张干净库各应用 150 个迁移，含 V0206）===
+[2m2026-11-02T23:30:50.824265Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 150 个迁移
+[2m2026-11-02T23:36:35.934061Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 150 个迁移
+[2m2026-11-02T23:31:34.539429Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 150 个迁移
+=== 重启后指纹校验（同一库再启一次 = 应用 0 个迁移）===
+[2m2026-11-02T23:27:24.399788Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+=== V0206 自检 NOTICE ===
+    RAISE NOTICE 'V0206 完成：2 个权限码 + flow_edge_config 种子流程（s → n_cfg → e，hash %）', left(v_hash, 12);
+[2m2026-11-02T23:30:50.801365Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0206 完成：2 个权限码 + flow_edge_config 种子流程（s → n_cfg → e，hash c0ad61937b73）
+
+=== 种子流程与权限码（psql 实测，库 cloudpivot_d3full）===
+    flow_code     |   biz_type    |  status   | current_version_no | is_system 
+------------------+---------------+-----------+--------------------+-----------
+ flow_edge_config | FLOW_EDGE_CFG | PUBLISHED |                  1 | t
+(1 row)
+
+ version_status | is_current |                            graph_hash                            | node_count | edge_count 
+----------------+------------+------------------------------------------------------------------+------------+------------
+ PUBLISHED      | t          | c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08 |          3 |          2
+(1 row)
+
+ node_key |  node_name   | node_type | empty_assignee | assignee_type |      role_code       
+----------+--------------+-----------+----------------+---------------+----------------------
+ s        | 开始         | START     | SKIP           |               | 
+ n_cfg    | 流程配置复核 | APPROVAL  | FALLBACK_ADMIN | ROLE          | FLOW_CONFIG_APPROVER
+ e        | 结束         | END       | SKIP           |               | 
+(3 rows)
+
+ edge_key  | from_key | to_key 
+-----------+----------+--------
+ e_cfg_end | n_cfg    | e
+ e_start   | s        | n_cfg
+(2 rows)
+
+            auth_code            | menu_type | is_visible |              parent_id               
+---------------------------------+-----------+------------+--------------------------------------
+ business:flow:state-edge:list   |         3 | f          | 20000000-0000-0000-0000-000000000780
+ business:flow:state-edge:manage |         3 | f          | 20000000-0000-0000-0000-000000000780
+(2 rows)
+

@@ -61,6 +61,9 @@
 pub mod assignee;
 pub mod batch;
 pub mod dto;
+pub mod edge_admin;
+#[cfg(test)]
+pub mod edge_admin_tests;
 pub mod engine;
 pub mod expression;
 pub mod graph;

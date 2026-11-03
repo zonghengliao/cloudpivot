@@ -1,0 +1,22 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 23.98s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 12 tests
+test business::flow::edge_admin_tests::bad_patch_is_rejected_before_any_approval ... ok
+test business::flow::edge_admin_tests::biz_id_is_stable_per_edge ... ok
+test business::flow::edge_admin_tests::change_takes_effect_only_after_approval ... ok
+test business::flow::edge_admin_tests::change_verdict_maps_terminal_states ... ok
+test business::flow::edge_admin_tests::delete_config_also_goes_through_approval ... ok
+test business::flow::edge_admin_tests::form_data_rejects_dirty_payload ... ok
+test business::flow::edge_admin_tests::form_data_round_trips_both_actions ... ok
+test business::flow::edge_admin_tests::list_view_reports_base_config_and_effective ... ok
+test business::flow::edge_admin_tests::rejected_change_does_not_take_effect ... ok
+test business::flow::edge_admin_tests::seed_flow_hash_matches_rows ... [D3] 种子流程 hash 自洽：c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08
+ok
+test business::flow::edge_admin_tests::seed_migration_matches_code_constants ... ok
+test business::flow::edge_admin_tests::summary_spells_out_the_change ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2073 filtered out; finished in 6.68s
+
+EXIT=0

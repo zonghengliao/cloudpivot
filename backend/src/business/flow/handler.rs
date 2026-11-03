@@ -1696,6 +1696,8 @@ pub async fn withdraw_instance(
     crate::business::erp::payable_bridge::on_cancel_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「凭证红冲」单 → 只清 pending（凭证一直是 POSTED，账没动）
     crate::business::erp::voucher_bridge::on_reverse_settled(Some(instance_id), "WITHDRAWN").await;
+    // D3：也可能是「状态机配置变更」单 → 配置一分不动（撤回 = 不改流程规则）
+    crate::business::flow::edge_admin::on_settled(Some(instance_id), "WITHDRAWN").await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1766,6 +1768,8 @@ pub async fn approve_task(
     // P-FLOW-3B：也可能是「凭证红冲」发起的 —— 通过才生成红字凭证（原凭证保持 POSTED）
     crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
         .await;
+    // D3：也可能是「状态机配置变更」发起的 —— 通过才真正写 biz_flow_state_edge（驳回则一分不动）
+    crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
 }
 
@@ -1836,6 +1840,8 @@ pub async fn reject_task(
     // P-FLOW-3B：凭证红冲被驳回 → 只清 pending（凭证一直是 POSTED，账没动）
     crate::business::erp::voucher_bridge::on_reverse_settled(out.instance_id, &out.instance_status)
         .await;
+    // D3：状态机配置变更被驳回 / 驳回终止 → 配置一分不动（只留审计行）
+    crate::business::flow::edge_admin::on_settled(out.instance_id, &out.instance_status).await;
     Ok(Res::ok(action_res(out)))
 }
 

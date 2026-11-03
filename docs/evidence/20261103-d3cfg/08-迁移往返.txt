@@ -1,0 +1,24 @@
+=== 迁移往返（干净库 cloudpivot_d3rt）===
+--- down ---
+DO
+DELETE 1
+DELETE 2
+DELETE 3
+UPDATE 1
+DELETE 1
+DELETE 1
+DELETE 0
+DELETE 2
+DELETE 14
+DELETE 1
+--- down 后计数（def / version / node / edge / menu / role / 配置表）---
+0|0|0|0|0|0|0
+--- up ---
+INSERT 0 1
+INSERT 0 3
+INSERT 0 2
+INSERT 0 1
+psql:migrations/business/V0206__flow_edge_config_admin.up.sql:286: NOTICE:  V0206 完成：2 个权限码 + flow_edge_config 种子流程（s → n_cfg → e，hash c0ad61937b73）
+DO
+--- up 后计数 ---
+1|1|3|2|2|1

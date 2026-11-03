@@ -10,6 +10,8 @@ cd "${REPO:-/opt/cloudpivot}/backend" || exit 1
 DB=${D3_FULL_DB:-cloudpivot_d3inv}
 PW=${PGPASSWORD:-alun}
 export ERP_DB_URL="${ERP_DB_URL:-postgres://alun:${PW}@127.0.0.1:5432/${DB}}"
+# C1 的教训：只设 ERP_DB_URL 时 `flow_cascade_tests`（TASK_DB_URL 开关）会静默早退 = 假绿
+export TASK_DB_URL="${TASK_DB_URL:-postgres://alun:${PW}@127.0.0.1:5432/${DB}}"
 export NIK_PROFILE=test
 export NIK_MIDDLEWARE_AUTH_JWT_SECRET="$(openssl rand -hex 32)"
 export CLOUDPIVOT_STORAGE_MASTER_KEY="$(openssl rand -hex 32)"

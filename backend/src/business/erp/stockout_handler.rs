@@ -1058,7 +1058,12 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockOutDetailRes, ApiEr
     let materials = materials_of(&material_ids)
         .await
         .map_err(|error| utils::db_error(error, "查询物料"))?;
-    Ok(super::stockout_dto::detail_of(&row, items, &materials))
+    // D3：前端按钮跟着**配置**走 —— 详情里的 `next_statuses` 用有效边（BASE ∩ 配置），
+    // 不再是代码里的边表；配置禁用 `DRAFT → POSTED` 之后前端按钮会跟着消失。
+    let edges = state_machine::effective_edges(db(), state_machine::Entity::StockOut).await;
+    Ok(super::stockout_dto::detail_of(
+        &row, items, &materials, &edges,
+    ))
 }
 
 /// 分页核心。

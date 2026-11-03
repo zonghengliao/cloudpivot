@@ -36,6 +36,7 @@ use nik::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::business::erp::stockout_model::{self as model, MaterialInfo};
+use crate::business::shared::state_machine;
 use crate::shared::error_code;
 
 use super::stockout_base::{
@@ -417,18 +418,29 @@ pub struct StockOutDetailRes {
     /// 作废原因。
     pub cancel_reason: Option<String>,
     /// 当前状态能去哪些状态（前端按钮置灰直接用这份，不在前端写第二份状态机）。
+    ///
+    /// **D3 起读的是「有效边」**（`state_machine::effective_edges` = BASE_EDGES ∩ 配置）：
+    /// 管理端把 `DRAFT → POSTED` 配成禁用之后，这里就不再出现 `POSTED`，前端按钮随之消失
+    /// —— 不再是「按钮还在、点下去 409」。
     pub next_statuses: Vec<String>,
-    /// 写死的状态机边表（前端也可以在无接口时兜底；两边同源）。
+    /// 有效边表（与 `next_statuses` 同源，可供调试 / 单测对照）。
     pub legal_edges: Vec<(String, String)>,
 }
 
 impl StockOutDetailRes {
     /// 组装详情。
-    pub fn of(row: &StockOutRow, items: &[(StockOutItemRow, Option<MaterialInfo>)]) -> Self {
-        let edges: Vec<(String, String)> = super::stockout_base::LEGAL_EDGES
+    ///
+    /// `edges` 必须是**有效边**（`state_machine::effective_edges` / `edge_resolution`），
+    /// 由 handler 取一次传进来 —— 本函数保持纯函数性质（不碰数据库）。
+    pub fn of(
+        row: &StockOutRow,
+        items: &[(StockOutItemRow, Option<MaterialInfo>)],
+        edges: &[state_machine::Edge],
+    ) -> Self {
+        let available: Vec<(String, String)> = edges
             .iter()
-            .filter(|(from, _)| *from == row.status.as_str())
-            .map(|(from, to)| (from.to_string(), to.to_string()))
+            .filter(|edge| edge.from == row.status.as_str())
+            .map(|edge| (edge.from.to_string(), edge.to.to_string()))
             .collect();
         Self {
             header: StockOutRes::of(row),
@@ -439,8 +451,8 @@ impl StockOutDetailRes {
             posted_at: row.posted_at.map(|at| at.to_rfc3339()),
             cancelled_at: row.cancelled_at.map(|at| at.to_rfc3339()),
             cancel_reason: row.cancel_reason.clone(),
-            next_statuses: edges.iter().map(|(_, to)| to.clone()).collect(),
-            legal_edges: edges,
+            next_statuses: available.iter().map(|(_, to)| to.clone()).collect(),
+            legal_edges: available,
         }
     }
 }
@@ -462,10 +474,14 @@ pub struct StockOutPageRes {
 }
 
 /// 把明细 + 物料信息拼成 DTO（详情 / 建单返回共用）。
+///
+/// `edges` 传**有效边**（`state_machine::effective_edges`）：前端按钮跟着配置走，
+/// 而不是跟着代码里的边表走（D1 §8.1 的已知边界，D3 收口）。
 pub fn detail_of(
     row: &StockOutRow,
     items: Vec<StockOutItemRow>,
     materials: &std::collections::HashMap<uuid::Uuid, MaterialInfo>,
+    edges: &[state_machine::Edge],
 ) -> StockOutDetailRes {
     let pairs: Vec<(StockOutItemRow, Option<MaterialInfo>)> = items
         .into_iter()
@@ -474,7 +490,7 @@ pub fn detail_of(
             (item, info)
         })
         .collect();
-    StockOutDetailRes::of(row, &pairs)
+    StockOutDetailRes::of(row, &pairs, edges)
 }
 
 /// 提前校验「该状态的单据不能再改」（400，附中文状态名）。

@@ -1,0 +1,52 @@
+[INFO] 登录成功（admin），BASE=http://127.0.0.1:18096，DB=cloudpivot_d3cfg
+[INFO] 夹具：出库单 d3e2e000-0000-4000-8000-000000000001（DRAFT）/ 只读账号 d3_e2e_reader
+[PASS] ① GET /api/business/flow/state-edge 可用（HTTP 200）
+[PASS] ① 返回的是 STOCK_OUT 的视图
+[PASS] ① 带上了 BASE 边（出库单 6 条）
+[PASS] ① 带上了有效边（无配置时 == BASE）
+[PASS] ① 基线：DRAFT 能直接过账（optional 边默认启用）
+[PASS] ② 持 :list 的账号能查配置（HTTP 200）
+[PASS] ② 无 :manage 码改配置 → 403（HTTP 403）
+[PASS] ② 无 :manage 码删配置 → 403（HTTP 403）
+[INFO] ③ PUT 原文：{"code": 0, "msg": "ok", "data": {"applied": false, "instance_id": "01a19e9f-6352-7087-b195-8899d008fad9", "instance_no": "FLW-20261102-CBD52A8C", "instance_status": "PENDING", "message": "STOCK_OUT DRAFT→POSTED 禁用：已提交审批 FLW-20261102-CBD52A8C，审批通过后才会生效（驳回或撤回则配置不变）"}}
+[PASS] ③ PUT 只提交审批（applied=false，HTTP 200）
+[PASS] ③ 返回审批单号（可直接去审批中心搜）
+[PASS] ③ 审批单状态 PENDING（等复核）
+[PASS] ③ 审批通过之前**一行配置都没写**（唯一入口仍是内核）
+[PASS] ③ 提交后有效边不变（还没生效）
+[PASS] ③ GET 能看到「这条边正在审批中」
+[PASS] ⑦ 重复提交同一条边 → 409 且报文带审批单号（HTTP 409）
+[PASS] ③ 审批通过（HTTP 200）
+[PASS] ③ 审批通过后有效边里 `DRAFT → POSTED` 消失
+[PASS] ③ 更严的那条路（提交待过账）还在
+[PASS] ③ 配置行真的落库（enabled = false）
+[PASS] ③ 审计留痕：审批通过生效写了 biz_status_log（APPLIED×1）
+[INFO] ⑤ 出库单详情 next_statuses = ['PENDING_POST', 'CANCELLED']
+[PASS] ⑤ 出库单详情可用（HTTP 200）
+[PASS] ⑤ 配置禁用后按钮不显示：详情的 next_statuses 不再含 POSTED（前端按钮直接照它渲染）
+[PASS] ⑤ 提交待过账按钮仍在（更严的那条路）
+[PASS] ⑤ legal_edges 与 next_statuses 同源
+[PASS] ⑤ 直接点 POSTED 仍被拒（HTTP 409）
+[PASS] ⑤ 报文点名「已被状态机配置禁用」
+[PASS] ④ 第二条边提交审批（HTTP 200）
+[PASS] ④ 驳回（HTTP 200）
+[PASS] ④ 驳回之后一条配置行都没有（配置一分不动）
+[PASS] ④ 驳回后有效边不变（仍能直接关闭）
+[PASS] ⑥ DELETE 也提交审批（HTTP 200）
+[PASS] ⑥ 删除审批通过（HTTP 200）
+[PASS] ⑥ 删除生效后行为回到 BASE_EDGES（直接过账按钮回来）
+[PASS] ⑥ 存活配置行 0（软删 = 回到 BASE_EDGES）
+[PASS] ⑥ 详情 next_statuses 里 POSTED 回来了（按钮联动是双向的）
+
+---- 清理前计数 ----
+flow_state_edge(存活) = 0
+审批单(FLOW_EDGE_CFG) = 3
+审计(FLOW_EDGE_CFG) = 5
+出库单(D3-E2E) = 1
+---- 清理后计数 ----
+flow_state_edge(整表) = 0
+审批单(FLOW_EDGE_CFG) = 0
+审计(FLOW_EDGE_CFG) = 0
+出库单(D3-E2E) = 0
+
+RESULT: 35 passed, 0 failed
