@@ -1,0 +1,29 @@
+# 13_gate2_v2: 新 scripts/lint/scope_gate.py 在同一棵树上跑（跳过测试面后只剩 10 个生产文件）
+# 树状态：HEAD=43a73f8（cc5474a + 仅前端 NOTIFY-POP 提交）；git diff cc5474a..HEAD -- backend/ scripts/ 为空，即 backend/src 与 scripts/ 逐字相同
+$ python3 scripts/lint/scope_gate.py --root . --baseline 21
+闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/erp/approval_gate.rs 查询 biz_flow_def 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/contract_handler.rs 查询 biz_flow_instance 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/reminder.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_bridge.rs 查询 biz_flow_instance biz_flow_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/task_node.rs 查询 biz_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/template_vars.rs 查询 biz_flow_instance biz_flow_instance_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_flow.rs 查询 biz_flow_task biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_hierarchy.rs 查询 biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_schedule.rs 查询 biz_task biz_task_dependency 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_write.rs 查询 biz_task biz_task_dependency biz_task_member 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：10 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/approval_gate.rs (biz_flow_def)
+    business/erp/contract_handler.rs (biz_flow_instance)
+    business/erp/reminder.rs (sys_user)
+    business/erp/stockin_bridge.rs (biz_flow_instance, biz_flow_task)
+    business/flow/task_node.rs (biz_task, sys_user)
+    business/flow/template_vars.rs (biz_flow_instance, biz_flow_instance_node)
+    business/task/task_model_flow.rs (biz_flow_task, biz_task)
+    business/task/task_model_hierarchy.rs (biz_task)
+    business/task/task_model_schedule.rs (biz_task, biz_task_dependency)
+    business/task/task_model_write.rs (biz_task, biz_task_dependency, biz_task_member)
+EXIT=1

@@ -1,0 +1,40 @@
+# 11_g5_after: 口径 v2 改后的 changelog_in_tx.py（D4 只认限定名 + D5 类型级事务证据）
+$ python3 scripts/lint/changelog_in_tx.py --root . --list
+  ok  backend/src/business/announcement/handler.rs:935 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1054 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1123 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1241 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1397 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/changelog/mod.rs:304 record(ex) 模块内部透传 executor
+  ok  backend/src/business/changelog/test_hooks.rs:119 record_in(…) 使用 begin() 创建的显式事务句柄
+  skip backend/src/business/flow/linkage/engine.rs:208 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:220 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:232 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:239 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:242 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:246 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:291 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  ok  backend/src/business/flow/model.rs:2802 record(ex) 形参声明为 Transaction：cancel_flow_tasks(ex: &Transaction)
+  ok  backend/src/business/flow/task_bridge.rs:438 record(…) 在 transaction 闭包内
+  ok  backend/src/business/flow/task_bridge.rs:552 record(…) 在 transaction 闭包内
+  ok  backend/src/business/flow/task_node.rs:308 record(ex) 形参声明为 Transaction：spawn(ex: &Transaction)
+  ok  backend/src/business/help/handler.rs:291 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:358 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:400 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:456 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:526 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1287 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1308 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1351 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:4123 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:4722 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/schedule.rs:607 record(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:194 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:330 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:462 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:283 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:407 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:539 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:656 record_in(…) 在 transaction 闭包内
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 362 个文件）
+EXIT=0

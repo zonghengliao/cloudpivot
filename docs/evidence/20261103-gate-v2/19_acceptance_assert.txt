@@ -1,0 +1,21 @@
+# 19_acceptance: 本卡四条硬指标的自动断言（闸② 清单恰等于卡面 10 文件 / G5 exit 0 且 N>=27）
+$ python3 verify_acceptance.py
+PASS  闸② exit 1  rc=1
+PASS  闸② 失败文件恰好 10 个  实际 10
+PASS  闸② 文件集合与卡面一致  多=[] 少=[]
+PASS    business/erp/approval_gate.rs 表集合一致  实际 {'biz_flow_def'}
+PASS    business/erp/contract_handler.rs 表集合一致  实际 {'biz_flow_instance'}
+PASS    business/erp/reminder.rs 表集合一致  实际 {'sys_user'}
+PASS    business/erp/stockin_bridge.rs 表集合一致  实际 {'biz_flow_task', 'biz_flow_instance'}
+PASS    business/flow/task_node.rs 表集合一致  实际 {'biz_task', 'sys_user'}
+PASS    business/flow/template_vars.rs 表集合一致  实际 {'biz_flow_instance_node', 'biz_flow_instance'}
+PASS    business/task/task_model_flow.rs 表集合一致  实际 {'biz_flow_task', 'biz_task'}
+PASS    business/task/task_model_hierarchy.rs 表集合一致  实际 {'biz_task'}
+PASS    business/task/task_model_schedule.rs 表集合一致  实际 {'biz_task', 'biz_task_dependency'}
+PASS    business/task/task_model_write.rs 表集合一致  实际 {'biz_task_member', 'biz_task', 'biz_task_dependency'}
+PASS  闸② 打印扫描/跳过计数
+PASS  G5 exit 0  rc=0
+PASS  G5 N >= 27  N=29
+
+结论： 全部通过
+EXIT=0

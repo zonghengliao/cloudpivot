@@ -1,0 +1,79 @@
+# 14_gate2_skipped: 被跳过的测试面文件清单（--list-skipped，含声明位置）
+$ python3 scripts/lint/scope_gate.py --root . --list-skipped
+闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+被跳过的测试面文件（50 个，含声明位置）：
+  business/attachment/tests.rs  ← /opt/cloudpivot/backend/src/business/attachment/mod.rs:48
+  business/erp/contract_approval_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:81
+  business/erp/fixture_hygiene.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:182
+  business/erp/model_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/model.rs:80
+  business/erp/period_items_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/period_items.rs:993
+  business/erp/period_remind_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/period_remind.rs:562
+  business/erp/period_test_support.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:145
+  business/erp/pflow3b_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:185
+  business/erp/reminder_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:189
+  business/erp/stockin_handler_tests_a4.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:131
+  business/erp/stockin_handler_tests_cancel.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:103
+  business/erp/stockin_handler_tests_d4_purchase.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:119
+  business/erp/stockin_handler_tests_d9_copy.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:127
+  business/erp/stockin_handler_tests_dc03.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:111
+  business/erp/stockin_handler_tests_fixtures.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:83
+  business/erp/stockin_handler_tests_helpers.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:87
+  business/erp/stockin_handler_tests_location.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:99
+  business/erp/stockin_handler_tests_p10_locked.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:107
+  business/erp/stockin_handler_tests_p16.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:115
+  business/erp/stockin_handler_tests_pflow3a.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:123
+  business/erp/stockin_handler_tests_posting.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:91
+  business/erp/stockin_handler_tests_update.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_handler.rs:95
+  business/erp/stockin_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/stockin_model.rs:127
+  business/erp/stockout_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/stockout_model.rs:1099
+  business/erp/stocktake_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:147
+  business/erp/transfer_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/transfer_model.rs:70
+  business/erp/year_end_items_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/year_end.rs:2646
+  business/erp/year_end_remind_tests.rs  ← /opt/cloudpivot/backend/src/business/erp/year_end_remind.rs:207
+  business/erp/year_end_test_support.rs  ← /opt/cloudpivot/backend/src/business/erp/mod.rs:149
+  business/flow/edge_admin_tests.rs  ← /opt/cloudpivot/backend/src/business/flow/mod.rs:66
+  business/flow/test_support.rs  ← /opt/cloudpivot/backend/src/business/flow/mod.rs:83
+  business/masking/tests.rs  ← /opt/cloudpivot/backend/src/business/masking/mod.rs:49
+  business/permission/tests.rs  ← /opt/cloudpivot/backend/src/business/permission/mod.rs:46
+  business/task/task_model_cascade_cancel_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:142
+  business/task/task_model_cascade_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:138
+  business/task/task_model_depth_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:98
+  business/task/task_model_display_file_name_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:94
+  business/task/task_model_repair_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:134
+  business/task/task_model_root_only_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:112
+  business/task/task_model_stats_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:130
+  business/task/task_model_statuses_filter_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:126
+  business/task/task_model_tests.rs  ← /opt/cloudpivot/backend/src/business/task/model.rs:89
+  system/authz_tests.rs  ← /opt/cloudpivot/backend/src/system/mod.rs:39
+  system/dept/tests.rs  ← /opt/cloudpivot/backend/src/system/dept/mod.rs:28
+  system/menu/permission_audit_tests.rs  ← /opt/cloudpivot/backend/src/system/menu/mod.rs:20
+  system/menu/tests.rs  ← /opt/cloudpivot/backend/src/system/menu/mod.rs:16
+  system/role/tests.rs  ← /opt/cloudpivot/backend/src/system/role/mod.rs:31
+  system/session_tests.rs  ← /opt/cloudpivot/backend/src/system/mod.rs:43
+  system/tests_support.rs  ← /opt/cloudpivot/backend/src/system/mod.rs:35
+  system/user/tests.rs  ← /opt/cloudpivot/backend/src/system/user/mod.rs:34
+    FAIL: business/erp/approval_gate.rs 查询 biz_flow_def 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/contract_handler.rs 查询 biz_flow_instance 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/reminder.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/stockin_bridge.rs 查询 biz_flow_instance biz_flow_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/task_node.rs 查询 biz_task sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/template_vars.rs 查询 biz_flow_instance biz_flow_instance_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_flow.rs 查询 biz_flow_task biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_hierarchy.rs 查询 biz_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_schedule.rs 查询 biz_task biz_task_dependency 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/task/task_model_write.rs 查询 biz_task biz_task_dependency biz_task_member 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：10 个文件（按文件计）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/approval_gate.rs (biz_flow_def)
+    business/erp/contract_handler.rs (biz_flow_instance)
+    business/erp/reminder.rs (sys_user)
+    business/erp/stockin_bridge.rs (biz_flow_instance, biz_flow_task)
+    business/flow/task_node.rs (biz_task, sys_user)
+    business/flow/template_vars.rs (biz_flow_instance, biz_flow_instance_node)
+    business/task/task_model_flow.rs (biz_flow_task, biz_task)
+    business/task/task_model_hierarchy.rs (biz_task)
+    business/task/task_model_schedule.rs (biz_task, biz_task_dependency)
+    business/task/task_model_write.rs (biz_task, biz_task_dependency, biz_task_member)
+EXIT=1

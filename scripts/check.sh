@@ -50,8 +50,9 @@ echo "==> 前端：pnpm typecheck"
 #       但它们是按 task_id 挂在任务下的子表，将来一旦分页查询就得有 scope —— 提前列入，
 #       避免「新代码没有对应门禁条目」这类静默缺口；确实不需要数据范围的查询写
 #       `// SCOPE-EXEMPT: <理由>` 即可（status_def 是全局字典，属典型豁免场景）。
-# 注：闸② 用 `grep -rl "FROM $t"` 做**前缀匹配**，`biz_task` 本身就会命中
-# biz_task_* 全家族；7 条并列列出是为了让清单自解释，重复命中由下面的 `sort -u` 收敛。
+# 注：闸② 的表名判定是**前缀匹配**（`FROM biz_task` 本身就会命中 biz_task_* 全家族，
+# 由 scripts/lint/scope_gate.py 用 `"FROM <t>" in line` 做子串判定，等价于原 `grep -rl`）；
+# 7 条并列列出是为了让清单自解释，重复命中由脚本内的 set 收敛。
 BATCHB_SCOPED_TABLES="sys_user sys_dept sys_import_task sys_export_task sys_notice
 sys_file operation_logs audit_logs auth_logs security_logs
 biz_task biz_task_comment biz_task_attachment biz_task_worklog
@@ -102,7 +103,7 @@ BATCHB_GATE_WARNED=0
 batchb_gates() {
     local src="$ROOT/backend/src"
     local failed=0
-    local gate1_out gate1_n i t f gate2_n gate2_tmp file tables
+    local gate1_out gate1_n i t f gate2_n gate2_out
 
     echo "==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）"
     echo "    白名单：$BATCHB_GATE1_WHITELIST（+ 注释行不计）"
@@ -123,70 +124,31 @@ batchb_gates() {
     echo "==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由"
     echo "    登记表：$(echo "$BATCHB_SCOPED_TABLES" | tr '\n' ' ')"
 
-    # 扫描范围自检（设计修正 A · 修正 2 第②条）：
-    # 闸② 的扫描根是**整个** backend/src（不是只扫 business/ 或某几个模块），
-    # 因此 business/task/ 天然在范围内。但「天然在范围内」这种结论会随着目录搬家
-    # 静默失效（模块改名 / 挪到别处 / 被 .gitignore 掉），所以这里把「必须在范围内
-    # 且真有 .rs 文件」写成硬断言：宁可门禁自己红，也不要在缺少覆盖时假绿。
-    local missing=0 d n_rs code_lines
-    for d in business/task business system support shared; do
-        if [ ! -d "$src/$d" ]; then
-            echo "  FAIL：扫描范围缺少目录 backend/src/$d（闸② 会漏掉该目录下的查询）"
-            missing=$((missing + 1))
-            continue
-        fi
-        n_rs=$(find "$src/$d" -name '*.rs' -type f | wc -l | tr -d ' ')
-        if [ "$n_rs" -eq 0 ]; then
-            echo "  FAIL：扫描范围 backend/src/$d 下没有 .rs 文件（目录搬走或未纳入版本管理）"
-            missing=$((missing + 1))
-        fi
-    done
-    if [ "$missing" -eq 0 ]; then
-        echo "  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}"
-    else
-        failed=$((failed + 1))
-    fi
-
-    gate2_tmp="$(mktemp)"
-    # 注意写法：不用 `grep -l | while read`（子 shell 里的退出码/计数传不出来），
-    # 改用 for 遍历 + 临时文件累计，计数与输出都在同一 shell 内。
-    #
-    # 判定**只看真实代码行**（整行注释先剥掉），两侧都剥：
-    #   · `FROM <表>`：文档注释里举例的 SQL（如 business/shared/mod.rs 的 `//!` 示例）
-    #     不是查询，不该把文件拖进门禁；
-    #   · `scope::`：注释里写一句「本文件参考 `scope::ScopeKind`」就能让整个文件被判成
-    #     已接入 —— 这类**假绿**比漏接更危险，它让门禁永远绿（skill cailu-dev §9.15-6 实测踩过）。
-    # SCOPE-EXEMPT 相反：它本身就是注释标记，必须整文件搜。
-    for t in $BATCHB_SCOPED_TABLES; do
-        for f in $(grep -rl "FROM $t" "$src" --include=*.rs 2>/dev/null || true); do
-            code_lines="$(mktemp)"
-            grep -v -E '^[[:space:]]*(//|\*)' "$f" >"$code_lines" || true
-            if grep -q "FROM $t" "$code_lines" \
-                && ! grep -q "SCOPE-EXEMPT" "$f" \
-                && ! grep -q "scope::" "$code_lines"; then
-                # 只记「文件|表」原始对，展示与计数在下面按文件聚合
-                printf '%s|%s\n' "${f#"$src"/}" "$t" >>"$gate2_tmp"
-            fi
-            rm -f "$code_lines"
-        done
-    done
-    # 按**文件**聚合：一个文件漏接多张表只算 1 处（`biz_task` 会前缀命中
-    # biz_task_member 等，同一文件因此可能出现多行），表名并列显示。
+    # 判定实现搬进 scripts/lint/scope_gate.py（门禁口径 v2 · D1，见 docs/门禁口径-v2-20261103.md）：
+    #   · 只判定「会进生产编译的代码」—— 父模块以 `#[cfg(test)]` 声明的模块文件整文件跳过，
+    #     文件内 `#[cfg(test)] mod xxx { … }` 内联区跳过；跳过可审计（打印计数，
+    #     `python3 scripts/lint/scope_gate.py --list-skipped` 打印清单+声明位置）；
+    #   · 原有语义逐条保留：整行注释不算代码行（`//`、`*` 开头）、`SCOPE-EXEMPT` 沿整文件搜、
+    #     表名按前缀命中（`FROM biz_task` 也命中 biz_task_*）、按文件聚合计数；
+    #   · 扫描范围硬断言 + 「已知生产文件必须在生产面」的防假绿断言都在脚本里：
+    #     缺覆盖 / 解析器把生产文件误判成测试面 → 立刻 FAIL，不许静默变绿。
     gate2_n=0
-    if [ -s "$gate2_tmp" ]; then
-        while IFS= read -r file; do
-            tables=$(grep -F "${file}|" "$gate2_tmp" | cut -d'|' -f2 | sort -u | tr '\n' ' ')
-            printf '    FAIL: %s 查询 %s未接入 scope:: 且无 SCOPE-EXEMPT\n' "$file" "$tables"
-            gate2_n=$((gate2_n + 1))
-        done < <(cut -d'|' -f1 "$gate2_tmp" | sort -u)
-    fi
-    if [ "$gate2_n" -gt 0 ]; then
-        echo "  FAIL：$gate2_n 个文件（按文件计；B0 实测基线 ${BATCHB_GATE2_BASELINE} 处是 file×table 口径，仅作历史参考）"
-        failed=$((failed + 1))
+    gate2_out=""
+    if command -v python3 >/dev/null 2>&1; then
+        if gate2_out="$(python3 "$ROOT/scripts/lint/scope_gate.py" \
+            --root "$ROOT" --baseline "$BATCHB_GATE2_BASELINE" 2>&1)"; then
+            printf '%s\n' "$gate2_out"
+        else
+            printf '%s\n' "$gate2_out"
+            failed=$((failed + 1))
+            gate2_n="$(printf '%s\n' "$gate2_out" | sed -n 's/^  FAIL：\([0-9][0-9]*\) 个文件.*$/\1/p' | head -1)"
+            gate2_n="${gate2_n:-1}"
+        fi
     else
-        echo "  PASS：0 处"
+        echo "  FAIL：找不到 python3（闸② 需要它按 Rust 模块语义解析测试面）"
+        failed=$((failed + 1))
+        gate2_n=1
     fi
-    rm -f "$gate2_tmp"
 
     echo "==> 批次B 门禁汇总：闸①=${gate1_n:-0} 处  闸②=${gate2_n:-0} 处  （B0 基线 20 / ${BATCHB_GATE2_BASELINE}）"
 

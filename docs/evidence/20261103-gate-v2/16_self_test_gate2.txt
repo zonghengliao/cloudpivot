@@ -1,0 +1,15 @@
+# 16_self_test_gate2: scope_gate.py --self-test（口径 v2 · D6 闸② 侧负例矩阵）
+$ python3 scripts/lint/scope_gate.py --self-test
+闸② 负例自测（临时目录 /root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_xb6wq0l4）
+  PASS  ① 生产面漏接 task_model_write.rs 报红  failures=['business/erp/comment_only_scope.rs', 'business/task/task_model_write.rs']
+  PASS  ② #[cfg(test)] mod x; 挂载的 tests 文件被跳过（不在 failures）
+  PASS  ②' #[cfg(test)] #[path=...] 挂载的 tests 文件被跳过
+  PASS  ③ 内联 #[cfg(test)] mod 区的漏接被跳过（inline_tests_only.rs 不报红）
+  PASS  ④ SCOPE-EXEMPT 生产文件放行（business/erp/exempt.rs）
+  PASS  ⑤ 注释里的 scope:: 不造成假绿（comment_only_scope.rs 报红）
+  PASS  ⑥ 内联注释行里的 FROM 不算代码行（task_model_write.rs 只报 biz_task）  实际 ['biz_task']
+  PASS  ⑦ 扫描/跳过计数可审计  scanned=15 skipped=2
+  PASS  ⑧ 防假绿断言：已知生产文件被误判成测试面 → FAIL（guard_errors 非空）  防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_xb6wq0l4/guard/business/task/mod.rs:2）—— 解析器误判，闸② 不许据此变绿
+  PASS  ⑨ 扫描范围断言：缺 system/ 目录 → coverage_errors 非空  扫描范围缺少目录 backend/src/system（闸② 会漏掉该目录下的查询）
+闸② 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/backend-developer/cache/scratch/scope_gate_selftest_xb6wq0l4）
+EXIT=0

@@ -1,0 +1,43 @@
+# 10_g5_before: 旧版（cc5474a:scripts/lint/changelog_in_tx.py，口径 v2 改之前）在同一棵树上跑
+# 树状态：HEAD=43a73f8（cc5474a + 仅前端 NOTIFY-POP 提交）；git diff cc5474a..HEAD -- backend/ scripts/ 为空，即 backend/src 与 scripts/ 逐字相同
+$ python3 <cc5474a 版 changelog_in_tx.py> --root /opt/cloudpivot
+G5 FAIL：37 个调用点不合规（扫了 362 个文件）
+  backend/src/business/flow/linkage/engine.rs:208: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:220: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:232: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:239: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:242: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:246: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/linkage/engine.rs:291: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/model.rs:2802: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/business/flow/task_node.rs:308: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:96: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:107: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:109: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:117: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:118: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:120: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/cache_gate.rs:122: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:154: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:158: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:160: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:185: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:191: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/shared/session_cache.rs:195: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:345: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:348: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:357: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:361: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/dept/model.rs:363: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:251: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:254: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:265: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:269: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/menu/model.rs:271: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:415: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:418: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:427: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:431: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/system/role/model.rs:433: record(...) 不在任何 transaction(|tx| ...) 闭包内（也不在 begin() 创建的显式事务句柄负责的范围里）
+  修法：把 record(_in) 放进 db().transaction(|tx| async move { … }) 里，第一个实参传 &tx
+EXIT=1

@@ -1,0 +1,47 @@
+# 18_gate2_diff: 旧闸② 35 文件 → 口径 v2 10 文件的逐文件归因（24 个整文件测试面 + 1 个仅内联测试区 + 10 个生产面）
+# 复现：python3 docs/evidence/20261103-gate-v2/probe_classify.py（复用 scripts/lint/scope_gate.py 的同一套解析）
+旧闸②（不跳过测试面）：35 个文件
+只跳过内联测试区（仍含测试模块文件）：11 个文件
+口径 v2（两种都跳）：10 个文件
+
+差异分类：
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/attachment/tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/contract_approval_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/period_remind_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/period_test_support.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/pflow3b_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/reminder_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/stockin_handler_tests_fixtures.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/stockin_handler_tests_helpers.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/stockin_handler_tests_p16.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/stockin_handler_tests_pflow3a.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/stocktake_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/year_end_remind_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/erp/year_end_test_support.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/flow/edge_admin_tests.rs
+  仅内联 #[cfg(test)] 区跳过: business/flow/internal_control.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/flow/test_support.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/task/task_model_cascade_cancel_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/task/task_model_cascade_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/task/task_model_depth_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: business/task/task_model_repair_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: system/menu/tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: system/role/tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: system/session_tests.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: system/tests_support.rs
+  整文件跳过（父模块 #[cfg(test)] 声明）: system/user/tests.rs
+
+v2 仍失败（生产面）：
+  business/erp/approval_gate.rs (biz_flow_def)
+  business/erp/contract_handler.rs (biz_flow_instance)
+  business/erp/reminder.rs (sys_user)
+  business/erp/stockin_bridge.rs (biz_flow_instance, biz_flow_task)
+  business/flow/task_node.rs (biz_task, sys_user)
+  business/flow/template_vars.rs (biz_flow_instance, biz_flow_instance_node)
+  business/task/task_model_flow.rs (biz_flow_task, biz_task)
+  business/task/task_model_hierarchy.rs (biz_task)
+  business/task/task_model_schedule.rs (biz_task, biz_task_dependency)
+  business/task/task_model_write.rs (biz_task, biz_task_dependency, biz_task_member)
+
+v2 失败 == 内联口径失败 的差集： ['business/flow/internal_control.rs']
+EXIT=0

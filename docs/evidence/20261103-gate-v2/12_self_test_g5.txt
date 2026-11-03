@@ -1,0 +1,17 @@
+# 12_self_test_g5: changelog_in_tx.py --self-test（口径 v2 · D6 负例矩阵，9 类 + 3 项防假绿下限）
+$ python3 scripts/lint/changelog_in_tx.py --self-test
+G5 负例自测（临时目录 /root/.hermes/profiles/backend-developer/cache/scratch/g5_selftest_dykqvffz）
+  PASS  ① 函数顶层 changelog::record(db(), …) → 报红  problems=1 sites=1 | backend/src/case_top_level_db.rs:4: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  PASS  ② tokio::spawn(async { changelog::record(&tx, …) }) → 报红（不在 transaction 闭包内）  problems=1 sites=1 | backend/src/case_spawn.rs:3: record(&tx) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 
+  PASS  ③ transaction(|tx| async move { changelog::record(db(), …) }) → 报红（第二个事务入口）  problems=1 sites=1 | backend/src/case_tx_db.rs:3: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  PASS  ④ 本地 fn record 遮蔽 + 裸调不报红，同文件 changelog::record 在事务外仍报红  problems=1 sites=1 | backend/src/case_shadow.rs:8: record(conn) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不
+  PASS  ⑤ fn f(ex: &Transaction, …) 里 changelog::record(ex, …) → 判绿（D5 类型证据）  problems=0 sites=1
+  PASS  ⑥ 缓存闸门方法调用 GATE.record(true) 不计入判定面（28 处误报的回归防护）  problems=0 sites=0
+  PASS  ⑦ changelog 模块内部未限定调用 record(ex, …) 保留在判定面且透传判绿  problems=0 sites=1
+  PASS  ⑧ 注释里的 changelog::record(db(), …) 不判红（mask 生效）  problems=0 sites=0
+  PASS  ⑨ 事务闭包内 &tx 判绿（原有合规形态不能回退）  problems=0 sites=1
+  PASS  ⑩ 防假绿：调用点数 0 → coverage_ok=False
+  PASS  ⑪ 防假绿：调用点数 26 → coverage_ok=False
+  PASS  ⑫ 防假绿：调用点数 27 → coverage_ok=True
+G5 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/backend-developer/cache/scratch/g5_selftest_dykqvffz）
+EXIT=0
