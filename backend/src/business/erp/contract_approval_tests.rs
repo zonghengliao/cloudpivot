@@ -172,7 +172,7 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     // 共享角色的**排他**占位：`PURCHASE_MANAGER` / `GENERAL_MANAGER` 是种子角色，
     // 别的模块的夹具账号（如 `purchase_handler` 的 `p3a_*`）也挂在上面。审批节点按角色
     // 展开，多一个人就多一条待办 → 「一级审完就通过」会变成「还差一个人」（实测：
-    // 同一个库连跑第二遍时本模块两条用例假红，见 docs/evidence/20261104-test-hygiene/raw/erp_run2.txt）。
+    // 同一个库连跑第二遍时本模块两条用例假红，见 docs/evidence/20261104-test-hygiene/raw_prefix_2failed/ 里的 erp_run2 原始日志）。
     //
     // 因此和 `purchase_handler::tests::setup_approval()` 做**对称**处理：只留本模块夹具的绑定，
     // 其它人先摘掉（他们各自的 `setup()` 会重新挂回来）。
@@ -285,7 +285,7 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
 /// （`PURCHASE_MANAGER` / `GENERAL_MANAGER` 是共享资源，`purchase_handler` 的
 /// `p3a_*` 夹具账号也挂在上面）。同一个库连跑第二遍时那些账号还在 → 一个节点被展开成
 /// **2 条待办**，于是「单级审批只有一条待办」这种**按条数**的断言假红（实测：erp 段第二轮
-/// `large_amount_…` / `small_amount_…` 各红一条，见 docs/evidence/20261104-test-hygiene/raw/erp_run2.txt）。
+/// `large_amount_…` / `small_amount_…` 各红一条，见 docs/evidence/20261104-test-hygiene/raw_prefix_2failed/ 里的 erp_run2 原始日志）。
 ///
 /// 本用例要证明的业务事实是「**走到哪一级**」：单级分支只该有采购经理这一级的待办，
 /// 不该有总经理的、也不该有制单人的（内控）。按夹具账号过滤后这两条照样成立，而「角色上
