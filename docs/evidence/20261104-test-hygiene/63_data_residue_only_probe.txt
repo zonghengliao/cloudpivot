@@ -1,0 +1,67 @@
+# 63 · 数据残留「单跑」对照：谁是真被残留数据判死，谁只是同库串跑下的传染性假红
+# 时间: 2026-11-04 01:23:42 CST
+# 库: hyg_flowonly（= 只跑过 flow 段的污染库副本，与 §61 同一份数据）
+# 每组用例都单独起一个 cargo test 进程（--test-threads=1），彼此不共享进程状态。
+
+### 63.1 dc01（断言「没配已发布的 po_approve 流程 → 必须 409」）
+$ ERP_DB_URL=…/hyg_flowonly cargo test --lib 'business::erp::purchase_handler::tests::dc01_submit_without_published_flow_is_409' -- --test-threads=1
+running 1 test
+test business::erp::purchase_handler::tests::dc01_submit_without_published_flow_is_409 ... FAILED
+
+failures:
+
+---- business::erp::purchase_handler::tests::dc01_submit_without_published_flow_is_409 stdout ----
+
+thread 'business::erp::purchase_handler::tests::dc01_submit_without_published_flow_is_409' (3360576) panicked at src/business/erp/purchase_handler.rs:1463:9:
+assertion `left == right` failed: 引用的数据不存在（外键 biz_flow_instance_initiator_id_fkey）
+  left: 400
+ right: 409
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::purchase_handler::tests::dc01_submit_without_published_flow_is_409
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2203 filtered out; finished in 1.45s
+
+error: test failed, to rerun pass `--lib`
+EXIT=101
+
+### 63.2 zz_teardown（断言「全库不许剩 PENDING 的 PO_APPROVE 实例」）
+$ ERP_DB_URL=…/hyg_flowonly cargo test --lib 'business::erp::purchase_handler::tests::zz_teardown_purges_po_approval_residue' -- --test-threads=1
+running 1 test
+test business::erp::purchase_handler::tests::zz_teardown_purges_po_approval_residue ... FAILED
+
+failures:
+
+---- business::erp::purchase_handler::tests::zz_teardown_purges_po_approval_residue stdout ----
+
+thread 'business::erp::purchase_handler::tests::zz_teardown_purges_po_approval_residue' (3360796) panicked at src/business/erp/purchase_handler.rs:2930:9:
+assertion `left == right` failed: 模块收尾后不许剩 PENDING 的采购审批实例（同库连跑第二遍的前提）
+  left: 3
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::purchase_handler::tests::zz_teardown_purges_po_approval_residue
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2203 filtered out; finished in 2.84s
+
+error: test failed, to rerun pass `--lib`
+EXIT=101
+
+### 63.3 a4 夹具子模块（首轮 67 条失败最集中的一组）单跑：13/13 全绿
+→ 说明这 13 条**不是**被残留数据直接判死的：它们的失败只出现在「同一进程里更早的用例先失败过」之后。
+$ ERP_DB_URL=…/hyg_flowonly cargo test --lib 'business::erp::stockin_handler::stockin_handler_tests_a4' -- --test-threads=1
+running 13 tests
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2191 filtered out; finished in 23.36s
+
+### 63.4 同一份污染数据、整段 erp 跑：erp 838/2（卡 D 首轮 773/67）
+→ 两个数字都来自「flow 段先跑过」的库，条数却不同：这一族的失败随进程内状态漂移，
+  正是「同库串跑」最危险的地方（失败了也没法稳定复现 → 只能靠分库分进程消灭）。
+running 840 tests
+test result: FAILED. 838 passed; 2 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 958.60s
+
+### 63.5 对照组：同一份代码、干净库上整段 erp（脚本 cp_libtest_erp，见 §64）
+→ 840/0，连跑两遍都一样。

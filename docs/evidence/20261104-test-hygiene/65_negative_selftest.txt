@@ -1,0 +1,53 @@
+# 65 · 脚本自身的负例自测（守门有效性）
+# 时间: 2026-11-04 02:16:09 CST  HEAD: b3d83df
+
+### 65.1 脏库必须被 preflight 拦住（故意复用 hyg_flowonly：跑过 flow 段、users=44）
+$ MODULES='flowonly=business::erp::' DB_PREFIX=hyg KEEP_DB=1 bash scripts/verify/run_lib_tests_by_module.sh
+按模块分库跑 lib 真库用例  模块：flowonly=business::erp::  轮次：1
+工作树：/root/t_e2a368f0/repo
+库：alun@127.0.0.1:5432  模板：cloudpivot_libtest_template  前缀：hyg
+提示：RUNS=1（只跑一遍）。幂等性守门要求 RUNS=2 —— 同一个库连跑两遍都必须 0 failed；
+      只跑一遍时，「上一轮残留把这一轮判死」这类问题看不出来。
+应用账号无 CREATEDB 权限 → 建/删库走 postgres 超级用户（需要 root）
+模板库：复用 cloudpivot_libtest_template
+模板库种子用户数：1（preflight 上限）
+
+─── 模块 flowonly   filter='business::erp::' ───
+  复用库：hyg_flowonly（KEEP_DB=1）
+  preflight[flowonly] hyg_flowonly :: instances=15 tasks=22 po=9 p0fix_defs=7 users=44
+[flowonly] 库不干净（hyg_flowonly）： 流程实例=15 流程待办=22 采购单=9 p0fix夹具定义=7 用户=44
+        → 这是「复用了一个跑过别的模块的库」，正是本脚本要避免的那件事；
+          去掉 KEEP_DB=1 重跑（默认每次先删后建）。
+
+================ 汇总 ================
+模块         轮  库                                  passed   failed  ignored 结果
+日志目录：/root/t_e2a368f0/neglogs
+FAILED 模块：flowonly
+EXIT=1
+
+### 65.2 过滤器打不中任何用例 = 假绿，必须判 FAIL
+$ MODULES='empty=business::erp::no_such_test_xyz' bash scripts/verify/run_lib_tests_by_module.sh
+按模块分库跑 lib 真库用例  模块：empty=business::erp::no_such_test_xyz  轮次：1
+工作树：/root/t_e2a368f0/repo
+库：alun@127.0.0.1:5432  模板：cloudpivot_libtest_template  前缀：cp_libtest
+提示：RUNS=1（只跑一遍）。幂等性守门要求 RUNS=2 —— 同一个库连跑两遍都必须 0 failed；
+      只跑一遍时，「上一轮残留把这一轮判死」这类问题看不出来。
+应用账号无 CREATEDB 权限 → 建/删库走 postgres 超级用户（需要 root）
+模板库：复用 cloudpivot_libtest_template
+模板库种子用户数：1（preflight 上限）
+
+─── 模块 empty   filter='business::erp::no_such_test_xyz' ───
+  新建：cp_libtest_empty 与 cp_libtest_empty_p0fix（模板 cloudpivot_libtest_template）
+  preflight[empty] cp_libtest_empty :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 0 tests
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2204 filtered out; finished in 0.00s
+  → test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2204 filtered out; finished in 0.00s  (cargo rc=0)
+[empty=business::erp::no_such_test_xyz] 第 1 轮：过滤器 'business::erp::no_such_test_xyz' 没命中任何用例（passed=0）→ 判 FAIL（假绿）
+  ✘ empty 有失败
+
+================ 汇总 ================
+模块         轮  库                                  passed   failed  ignored 结果
+empty=business::erp::no_such_test_xyz 1    cp_libtest_empty                          0        0        0 FAIL
+日志目录：/root/t_e2a368f0/neglogs
+FAILED 模块：empty
+EXIT=1

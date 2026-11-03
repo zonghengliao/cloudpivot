@@ -1,0 +1,45 @@
+# 62 · 进程级 set_db 先到先得：P0FIX_DB_URL 会被**静默忽略**
+# 时间: 2026-11-04 01:23:42 CST
+#
+# 机制: vendor/nik-web/src/resources.rs 的 set_db() 是 OnceLock —— 一个进程只能装一个全局连接；
+#       business/flow/internal_control.rs 的 ensure_db() 先判 `try_db().is_some()` 就 return true，
+#       所以只要同进程里更早的用例用 ERP_DB_URL 装好了全局连接，它就直接拿那个库开跑。
+
+### 62.1 反例：整段 business::flow:: 一起跑（P0FIX_DB_URL 指向 hyg_p0fix_shared）
+$ cargo test --lib 'business::flow::' -- --test-threads=1   # ERP/TASK_DB_URL=hyg_shared  P0FIX_DB_URL=hyg_p0fix_shared
+running 345 tests
+test result: ok. 345 passed; 0 failed; 0 ignored; 0 measured; 1859 filtered out; finished in 73.87s
+
+跑完之后：p0fix 夹具（7 条定义）落在 **ERP 库**，P0FIX 库一行没有。
+$ psql -d hyg_shared -Atc "select flow_code, biz_type, status from biz_flow_def where flow_code like 'p0fix%' order by 1"
+p0fix_all_skip|PO_APPROVE|PUBLISHED
+p0fix_bypass|PO_APPROVE|PUBLISHED
+p0fix_normal_vote|PO_APPROVE|PUBLISHED
+p0fix_one_skip|PO_APPROVE|PUBLISHED
+p0fix_role_fix|PO_APPROVE|PUBLISHED
+p0fix_todo|PO_APPROVE|PUBLISHED
+p0fix_two_skip|PO_APPROVE|PUBLISHED
+
+$ psql -d hyg_p0fix_shared -Atc "select count(*) as defs, count(*) filter (where flow_code like 'p0fix%') as p0fix_defs from biz_flow_def"
+11|0
+
+### 62.2 更硬的证据：把 P0FIX_DB_URL 指到一个**根本不存在的库**，flow 段照样全绿
+$ P0FIX_DB_URL=postgres://alun:…@127.0.0.1:5432/hyg_iso_p0fix2（该库不存在）cargo test --lib 'business::flow::' -- --test-threads=1
+running 345 tests
+test result: ok. 345 passed; 0 failed; 0 ignored; 0 measured; 1859 filtered out; finished in 75.64s
+$ psql -d postgres -Atc "select count(*) as db_exists from pg_database where datname='hyg_iso_p0fix2'"
+0
+
+$ psql -d hyg_flowonly -Atc "select count(*) filter (where flow_code like 'p0fix%') as p0fix_defs_written_into_erp_db from biz_flow_def"
+7
+
+### 62.3 正例：把 internal_control 单独一个进程跑（本脚本的 flow_p0fix 模块），P0FIX 库才真正被写入
+$ cargo test --lib 'business::flow::internal_control::db_tests' -- --test-threads=1   # ERP/TASK=hyg_iso  P0FIX=hyg_iso_p0fix
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 9.27s
+$ psql -d hyg_iso -Atc "select count(*) as defs, count(*) filter (where flow_code like 'p0fix%') as p0fix_defs from biz_flow_def"
+11|0
+
+$ psql -d hyg_iso_p0fix -Atc "select count(*) as defs, count(*) filter (where flow_code like 'p0fix%') as p0fix_defs from biz_flow_def"
+18|7
+

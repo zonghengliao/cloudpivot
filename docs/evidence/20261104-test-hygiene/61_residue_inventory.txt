@@ -1,0 +1,92 @@
+# 61 · 残留清单：flow 段跑完，同一个库（hyg_flowonly）比干净库（gate_d_changelog）多了什么
+# 时间: 2026-11-04 01:23:42 CST
+# 库: hyg_flowonly = gate_d_changelog 的副本，**只跑过** `business::flow::`（345/0 全绿）
+# 做法: 逐个 public 表 count(*) 后比对，只列出行数不同的表。
+
+### 61.1 逐表行数差（fresh=gate_d_changelog  after_flow=hyg_flowonly）
+biz_flow_def                       fresh=11    after_flow=20    diff=+9
+biz_flow_def_version               fresh=11    after_flow=20    diff=+9
+biz_flow_instance                  fresh=0     after_flow=15    diff=+15
+biz_flow_instance_node             fresh=0     after_flow=22    diff=+22
+biz_flow_linkage_rule              fresh=0     after_flow=1     diff=+1
+biz_flow_task                      fresh=0     after_flow=22    diff=+22
+biz_location                       fresh=4     after_flow=6     diff=+2
+biz_material                       fresh=5     after_flow=12    diff=+7
+biz_purchase_order                 fresh=0     after_flow=9     diff=+9
+biz_purchase_order_item            fresh=0     after_flow=3     diff=+3
+biz_seq                            fresh=5     after_flow=9     diff=+4
+biz_status_log                     fresh=0     after_flow=1     diff=+1
+biz_stock_in                       fresh=0     after_flow=2     diff=+2
+biz_stock_in_item                  fresh=0     after_flow=2     diff=+2
+biz_supplier                       fresh=1     after_flow=4     diff=+3
+biz_task                           fresh=0     after_flow=10    diff=+10
+biz_task_comment                   fresh=0     after_flow=6     diff=+6
+biz_unit                           fresh=28    after_flow=32    diff=+4
+biz_warehouse                      fresh=3     after_flow=5     diff=+2
+sys_change_log                     fresh=0     after_flow=11    diff=+11
+sys_change_log_2026_11             fresh=0     after_flow=11    diff=+11
+sys_notice                         fresh=0     after_flow=16    diff=+16
+sys_notice_receiver                fresh=0     after_flow=18    diff=+18
+sys_role                           fresh=8     after_flow=9     diff=+1
+sys_user                           fresh=1     after_flow=44    diff=+43
+sys_user_role                      fresh=1     after_flow=6     diff=+5
+
+### 61.2 流程定义：污染库 20 条 vs 干净库 11 条 —— 多出的 9 条里 7 条是 PUBLISHED 的 PO_APPROVE
+--- 干净库 gate_d_changelog ---
+$ psql -d gate_d_changelog -Atc "select flow_code, biz_type, status from biz_flow_def order by 1"
+contract_approve|CONTRACT_APPROVE|PUBLISHED
+flow_edge_config|FLOW_EDGE_CFG|PUBLISHED
+payable_cancel|PAYABLE_CANCEL|PUBLISHED
+payable_pay|PAYABLE_PAY|PUBLISHED
+po_approve|PO_APPROVE|PUBLISHED
+stock_in_cancel|STOCK_IN_CANCEL|PUBLISHED
+stock_in_post|STOCK_IN_POST|PUBLISHED
+stock_take_post|STOCK_TAKE_POST|PUBLISHED
+stock_transfer|STOCK_TRANSFER|PUBLISHED
+task_accept|TASK_ACCEPT|PUBLISHED
+voucher_reverse|VOUCHER_REVERSE|PUBLISHED
+
+--- 跑过 flow 段的 hyg_flowonly ---
+$ psql -d hyg_flowonly -Atc "select flow_code, biz_type, status, is_default, is_system from biz_flow_def order by 1"
+contract_approve|CONTRACT_APPROVE|PUBLISHED|t|f
+flow_edge_config|FLOW_EDGE_CFG|PUBLISHED|t|t
+p0fix_all_skip|PO_APPROVE|PUBLISHED|f|f
+p0fix_bypass|PO_APPROVE|PUBLISHED|f|f
+p0fix_normal_vote|PO_APPROVE|PUBLISHED|f|f
+p0fix_one_skip|PO_APPROVE|PUBLISHED|f|f
+p0fix_role_fix|PO_APPROVE|PUBLISHED|f|f
+p0fix_todo|PO_APPROVE|PUBLISHED|f|f
+p0fix_two_skip|PO_APPROVE|PUBLISHED|f|f
+p11_cancel_flow|TASK_ACCEPT|DRAFT|f|f
+payable_cancel|PAYABLE_CANCEL|PUBLISHED|t|t
+payable_pay|PAYABLE_PAY|PUBLISHED|t|t
+po_approve|PO_APPROVE|PUBLISHED|t|t
+stock_in_cancel|STOCK_IN_CANCEL|PUBLISHED|t|t
+stock_in_post|STOCK_IN_POST|PUBLISHED|t|t
+stock_take_post|STOCK_TAKE_POST|PUBLISHED|t|f
+stock_transfer|STOCK_TRANSFER|PUBLISHED|t|t
+t12_delete_flow|TASK_ACCEPT|DRAFT|f|f
+task_accept|TASK_ACCEPT|PUBLISHED|t|t
+voucher_reverse|VOUCHER_REVERSE|PUBLISHED|t|t
+
+### 61.3 流程实例 / 待办：PO_APPROVE 有 3 条 PENDING
+$ psql -d hyg_flowonly -Atc "select biz_type, status, count(*) from biz_flow_instance group by 1,2 order by 1,2"
+PO_APPROVE|APPROVED|3
+PO_APPROVE|PENDING|3
+TASK_ACCEPT|APPROVED|4
+TASK_ACCEPT|CANCELLED|2
+TASK_ACCEPT|PENDING|3
+
+$ psql -d hyg_flowonly -Atc "select count(*) as flow_task from biz_flow_task"
+22
+
+$ psql -d hyg_flowonly -Atc "select count(*) as users from sys_user"
+44
+
+### 61.4 被 erp 段「全库口径」断言直接判死的两行数据
+$ psql -d hyg_flowonly -Atc "select count(*) filter (where biz_type='PO_APPROVE' and status='PENDING' and deleted_at is null) as pending_po_instances from biz_flow_instance"
+3
+
+$ psql -d hyg_flowonly -Atc "select count(*) filter (where flow_code='po_approve' and status='PUBLISHED') as published_po_approve, count(*) filter (where flow_code like 'p0fix%' and status='PUBLISHED' and biz_type='PO_APPROVE') as published_p0fix_po_approve from biz_flow_def"
+1|7
+

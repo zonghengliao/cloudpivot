@@ -291,3 +291,37 @@ bash scripts/e2e-postrun-check.sh --check-only   # 只看不治（巡检 / 告�
 回环 + 18000-18999 / 5100-5999 才算隔离；`5173`、`8023`、`80/443`、`172.18.10.144`、
 `172.18.10.7` 一律拒跑。**不要**把它写成「文档约定」——三道闸口（config / global-setup / support）
 都是加载期抛错。
+
+---
+
+## 真库 lib 单测：**按模块分库 + 分进程**跑（`run_lib_tests_by_module.sh`）
+
+`cargo test --lib` 里连真库的那批用例（`ERP_DB_URL` / `TASK_DB_URL` / `P0FIX_DB_URL`）**不能把几个模块
+串在同一个库上跑**：模块之间会互相踩（flow 段写的流程定义/实例/待办会被 erp 段"全库口径"的断言判死；
+`internal_control` 的 `P0FIX_DB_URL` 还会因为进程里 `set_db()` 先到先得被静默忽略）。
+根因、复现命令与证据见 [`docs/测试卫生-真库单测分库跑法.md`](../../docs/测试卫生-真库单测分库跑法.md)。
+
+```bash
+# 4 个模块（changelog / flow_p0fix / flow / erp）各一个干净库、各一个进程，跑完汇总
+bash scripts/verify/run_lib_tests_by_module.sh
+
+# 交卡 / 发版前的守门：同一个库连跑两遍都必须 0 failed，且两轮 passed 数一致
+RUNS=2 bash scripts/verify/run_lib_tests_by_module.sh
+
+# 只跑某几个模块 / 自定义条目
+MODULES="erp" RUNS=2 bash scripts/verify/run_lib_tests_by_module.sh
+MODULES="mymod=business::erp::contract_" bash scripts/verify/run_lib_tests_by_module.sh
+```
+
+| 做了什么 | 为什么 |
+|---|---|
+| 每个模块 `createdb -T 模板库`（`cp_libtest_<模块>`，另配 `…_p0fix`） | 库里不许有别的模块的行 |
+| 每模块单独一个 `cargo test` 进程 + `--test-threads=1` | 一个进程只有一个全局 `db()`，天然免疫 `set_db` 先到先得 |
+| preflight 断言库是干净的（实例/待办/采购单/`p0fix_*` 定义全 0） | 有人在脏库上跑时立刻红，而不是产出 60 多条假红 |
+| `flow_p0fix` 单列模块 + 泄漏校验（P0FIX 库 ≥1 条 `p0fix_*`、模块库 0 条） | 守住 `P0FIX_DB_URL` 被静默忽略这个坑 |
+| 第 2 轮 passed 数必须等于第 1 轮 | 幂等性：防"某轮 SKIP 变多"式的假绿 |
+| 任一模块任一轮失败 → `exit 1` | 可直接给 CI 用 |
+
+模板库 `cloudpivot_libtest_template` 不存在时，脚本会用后端二进制跑一次启动迁移 + 种子自动建出来
+（二进制不在就先 `cargo build --bin cloudpivot`）。`check.sh` 只跑 fmt/clippy/check/typecheck，
+**不跑**真库用例，两者互不替代。

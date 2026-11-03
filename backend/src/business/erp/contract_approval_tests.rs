@@ -13,8 +13,10 @@
 //! `setup()` 每次先按前缀清掉上一轮，重复跑不积累；模块最后一条 `zz_` 用例负责收尾。
 //!
 //! ⚠️ 与其它真库用例共用全局 `db()` 与同一批 `biz_seq`，所以必须 `--test-threads=1` 串行跑。
-//! ⚠️ **不删** `sys_user_role` 里 `PURCHASE_MANAGER` / `GENERAL_MANAGER` 的**其它**用户：
-//! 那两个角色是共享资源（`po_approve` 的用例也在用），只删本模块夹具账号自己的绑定。
+//! ⚠️ `PURCHASE_MANAGER` / `GENERAL_MANAGER` 是**共享角色**：本模块 `setup()` 会先把这两个角色上
+//! **不属于本模块夹具**的绑定摘掉（对称于 `purchase_handler::tests::setup_approval()`），跑完不恢复 ——
+//! 别的模块各自 `setup()` 时会重新挂回自己的。原因：审批节点**按角色展开**，角色上多一个人就多一条
+//! 待办，"单级审批只有一个待办" 与 "一级审完就通过" 都会被别人的夹具账号判死（同一个库连跑第二遍即触发）。
 
 use std::str::FromStr;
 
@@ -167,6 +169,21 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     }
     purge_fixtures().await;
 
+    // 共享角色的**排他**占位：`PURCHASE_MANAGER` / `GENERAL_MANAGER` 是种子角色，
+    // 别的模块的夹具账号（如 `purchase_handler` 的 `p3a_*`）也挂在上面。审批节点按角色
+    // 展开，多一个人就多一条待办 → 「一级审完就通过」会变成「还差一个人」（实测：
+    // 同一个库连跑第二遍时本模块两条用例假红，见 docs/evidence/20261104-test-hygiene/raw/erp_run2.txt）。
+    //
+    // 因此和 `purchase_handler::tests::setup_approval()` 做**对称**处理：只留本模块夹具的绑定，
+    // 其它人先摘掉（他们各自的 `setup()` 会重新挂回来）。
+    // ⚠️ 这条只在 `--test-threads=1`（真库用例的既有约定）下成立：串行时「谁 setup 谁占位」，
+    //    并发时两个模块会互摘对方的绑定 —— 真库用例本来就必须串行，见 backend/src/test_db_guard.rs。
+    exec(&format!(
+        "DELETE FROM sys_user_role WHERE role_id IN ('{ROLE_PM}'::uuid, '{ROLE_GM}'::uuid) \
+         AND user_id NOT IN ('{U_MAKER}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
+    ))
+    .await;
+
     exec(&format!(
         "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status, credit_days) \
          VALUES ('{SUPPLIER}'::uuid, 'A2AP-SUP', 'A2AP 合同审批测试供应商', 1, 30) \
@@ -259,6 +276,26 @@ async fn pending_tasks(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
                 row.get_typed("assignee_id").unwrap(),
             )
         })
+        .collect()
+}
+
+/// 某实例的待办里**属于本模块夹具账号**的那部分（`U_PM` / `U_GM` / `U_MAKER`）。
+///
+/// 为什么要这一层过滤（`t_e2a368f0` 测试卫生）：审批节点的审批人是**按角色展开**的
+/// （`PURCHASE_MANAGER` / `GENERAL_MANAGER` 是共享资源，`purchase_handler` 的
+/// `p3a_*` 夹具账号也挂在上面）。同一个库连跑第二遍时那些账号还在 → 一个节点被展开成
+/// **2 条待办**，于是「单级审批只有一条待办」这种**按条数**的断言假红（实测：erp 段第二轮
+/// `large_amount_…` / `small_amount_…` 各红一条，见 docs/evidence/20261104-test-hygiene/raw/erp_run2.txt）。
+///
+/// 本用例要证明的业务事实是「**走到哪一级**」：单级分支只该有采购经理这一级的待办，
+/// 不该有总经理的、也不该有制单人的（内控）。按夹具账号过滤后这两条照样成立，而「角色上
+/// 有几个人」不再影响判定 —— 这是**按级判**（更贴合业务事实），不是放宽。
+async fn pending_tasks_of_fixtures(instance_id: Uuid) -> Vec<(Uuid, Uuid)> {
+    let fixtures = [uid(U_PM), uid(U_GM), uid(U_MAKER)];
+    pending_tasks(instance_id)
+        .await
+        .into_iter()
+        .filter(|(_, assignee)| fixtures.contains(assignee))
         .collect()
 }
 
@@ -368,12 +405,17 @@ async fn small_amount_single_level_approval_signs_contract() {
     submit(id).await.expect("提交审批应成功");
     let instance = running_instance(id).await;
 
-    let tasks = pending_tasks(instance).await;
+    let tasks = pending_tasks_of_fixtures(instance).await;
     assert_eq!(
         tasks.len(),
         1,
         "小额分支是**单级**审批：只有一个节点应该有待办（实际 {:?}）",
         tasks
+    );
+    assert_eq!(tasks[0].1, uid(U_PM), "单级审批的待办必须落到采购经理");
+    assert!(
+        !tasks.iter().any(|(_, assignee)| *assignee == uid(U_GM)),
+        "小额分支**不该**给总经理派待办（否则单级/两级被搞反）"
     );
     let out = approve(tasks[0].0, tasks[0].1).await;
     assert_eq!(out.instance_status, "APPROVED", "一级审完就应通过");
@@ -416,7 +458,7 @@ async fn large_amount_requires_two_levels_in_sequence() {
     let instance = running_instance(id).await;
 
     // 第一级：采购经理
-    let tasks = pending_tasks(instance).await;
+    let tasks = pending_tasks_of_fixtures(instance).await;
     assert_eq!(tasks.len(), 1, "两级审批的第一级只有一条待办");
     let out = approve(tasks[0].0, tasks[0].1).await;
     contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
@@ -427,8 +469,9 @@ async fn large_amount_requires_two_levels_in_sequence() {
     );
 
     // 第二级：总经理（第一级的待办批完，节点推进到 n_gm）
-    let tasks = pending_tasks(instance).await;
+    let tasks = pending_tasks_of_fixtures(instance).await;
     assert_eq!(tasks.len(), 1, "第二级应有一条总经理待办");
+    assert_eq!(tasks[0].1, uid(U_GM), "第二级必须落到总经理这一级");
     let out = approve(tasks[0].0, tasks[0].1).await;
     assert_eq!(out.instance_status, "APPROVED");
     contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;

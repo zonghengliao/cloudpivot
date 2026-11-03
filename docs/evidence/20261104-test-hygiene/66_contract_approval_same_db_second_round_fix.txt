@@ -1,0 +1,61 @@
+# 66 · 同一个库连跑第二遍：erp 段红 2 条（contract_approval_tests）—— 定位与修复
+# 时间: 2026-11-04 02:16:28 CST  HEAD: b3d83df
+# 库: cp_libtest_erp（脚本第 1 轮跑完后**已带残留**的库）
+# 用例组: business::erp::contract_approval_tests（9 条）
+
+## 66.1 现象（修复前）：同一个库上跑第 2 遍，2 条红（第 1 遍 840/0 全绿）
+原始日志：raw_prefix_2failed/erp_run2_同一库第二轮_2failed_修复前.txt（当时整个 erp 段 838/2）
+----- 失败详情 -----
+failures:
+
+---- business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence stdout ----
+
+thread 'business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence' (3458544) panicked at src/business/erp/contract_approval_tests.rs:420:5:
+assertion `left == right` failed: 两级审批的第一级只有一条待办
+  left: 2
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract stdout ----
+
+thread 'business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract' (3458737) panicked at src/business/erp/contract_approval_tests.rs:372:5:
+assertion `left == right` failed: 小额分支是**单级**审批：只有一个节点应该有待办（实际 [(01a1a280-db1c-72f1-a412-473625cfd48a, a2a90002-0000-4000-8000-000000000002), (01a1a280-db1c-72f1-a412-4737a9adf0d8, d2a2000a-0000-4000-8000-000000000003)]）
+  left: 2
+ right: 1
+
+
+failures:
+    business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence
+    business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract
+
+test result: FAILED. 838 passed; 2 failed; 0 ignored; 0 measured; 1364 filtered out; finished in 919.87s
+
+## 66.2 根因（库里的证据）：审批节点按角色展开，共享角色上有别的模块的夹具账号
+库 hyg_shared（整段 erp 跑过一次，未做本卡的修复）里的 PURCHASE_MANAGER / GENERAL_MANAGER 成员：
+$ psql -d hyg_shared -Atc "select username, role_id from sys_user u join sys_user_role r …"
+p3a_0003 | 20000000-0000-4000-8000-0000000f0002
+p3a_0004 | 20000000-0000-4000-8000-0000000f0003
+
+p3a_0003 / p3a_0004 是 purchase_handler 的审批夹具账号（d2a2000a-…-0003/0004），
+跑完不删 → 第二轮里 contract_approve 的“采购经理”节点被展开成 2 条待办，
+「单级审批只有一条待办」和「一级审完就通过（APPROVED）」双双假红。
+
+## 66.3 修法（测试侧，不动业务代码、不降断言）
+1) contract_approval_tests::setup() 先摘掉共享角色上**非本模块夹具**的绑定
+   （与 purchase_handler::tests::setup_approval() 早就做的完全对称；串行跑时“谁 setup 谁占位”）；
+2) 待办断言从“条数”改成“落到哪一级/谁”，并新增两条更强的断言：
+   · 小额分支不该给总经理派待办（单级/两级别搞反）
+   · 两级审批的第二级必须落到总经理
+
+## 66.4 修复后：同一个（带残留的）库上连跑 3 遍，9/9 全绿
+$ 第 1 遍：ERP_DB_URL=…/cp_libtest_erp cargo test --lib 'business::erp::contract_approval_tests' -- --test-threads=1
+running 9 tests
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2195 filtered out; finished in 12.90s
+$ 第 2 遍：ERP_DB_URL=…/cp_libtest_erp cargo test --lib 'business::erp::contract_approval_tests' -- --test-threads=1
+running 9 tests
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2195 filtered out; finished in 12.71s
+$ 第 3 遍：ERP_DB_URL=…/cp_libtest_erp cargo test --lib 'business::erp::contract_approval_tests' -- --test-threads=1
+running 9 tests
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2195 filtered out; finished in 12.98s
+
+## 66.5 全量：脚本 RUNS=2（同一库 × 2 轮）→ erp 840/0 ×2，见 64 号文件
