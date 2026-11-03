@@ -1,0 +1,136 @@
+{
+  "base": "http://172.18.10.144",
+  "contract_no": "HT-20261103-000010",
+  "tests": 23,
+  "passed": 23,
+  "failed": 0,
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/01-list-draft-quick-action.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/02-detail-draft-submit-approval.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/03-confirm-dialog-submit-approval.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/04-detail-pending-approval-actions.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/05-list-pending-approval.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/06-detail-reject-withdraw-button.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/07-confirm-dialog-reject-withdraw.png",
+    "/opt/cloudpivot/docs/evidence/20261103-contract-edges-fix/shots/08-list-rejected-back-to-draft.png"
+  ],
+  "console_errors": [],
+  "http_errors": [],
+  "results": [
+    {
+      "name": "⓪-1 建出草稿合同",
+      "passed": true,
+      "detail": "HT-20261103-000010 status=DRAFT 乙方=示例供应商（种子）"
+    },
+    {
+      "name": "①-1 列表行给出「提交审批」",
+      "passed": true,
+      "detail": "按钮=1 文案=提交审批"
+    },
+    {
+      "name": "①-2 列表行不再给出「签订」(DRAFT→SIGNED 已删)",
+      "passed": true,
+      "detail": "DRAFT→SIGNED 按钮数=0"
+    },
+    {
+      "name": "②-1 详情出现「提交审批」",
+      "passed": true,
+      "detail": "文案=提交审批"
+    },
+    {
+      "name": "②-2 详情没有「登记签订」按钮",
+      "passed": true,
+      "detail": "detail→SIGNED 按钮数=0"
+    },
+    {
+      "name": "③-1 确认弹窗文案是「草稿 → 审批中」",
+      "passed": true,
+      "detail": "确定把 HT-20261103-000010 从「草稿」流转到「审批中」吗？提交后合同进入「审批中」：业务字段冻结，要等"
+    },
+    {
+      "name": "③-2 提交审批不需要填原因（后端 CONTRACT_REASON_EDGES 只有两条终止边）",
+      "passed": true,
+      "detail": "原因框=0"
+    },
+    {
+      "name": "③-3 提交后后端状态 = PENDING_APPROVAL",
+      "passed": true,
+      "detail": "status=PENDING_APPROVAL"
+    },
+    {
+      "name": "③-4 合同状态徽标显示「审批中」",
+      "passed": true,
+      "detail": "徽标=审批中"
+    },
+    {
+      "name": "③-5 审批中详情出现「审批通过签订」",
+      "passed": true,
+      "detail": "文案=审批通过签订"
+    },
+    {
+      "name": "③-6 审批中详情出现「驳回/撤回」",
+      "passed": true,
+      "detail": "文案=驳回/撤回"
+    },
+    {
+      "name": "③-7 列表行（审批中）也给「审批通过签订 / 驳回撤回」",
+      "passed": true,
+      "detail": "SIGNED=1 DRAFT=1"
+    },
+    {
+      "name": "④-1 审批中合同挂了审批实例",
+      "passed": true,
+      "detail": "instance=01a1a1c7-1bf6-7168-9549-6836c2d6c0b4"
+    },
+    {
+      "name": "④-2 实例上有 PENDING 审批待办",
+      "passed": true,
+      "detail": "节点=采购经理审批（< 10 万） 审批人=Henry.Liao（ROLE）"
+    },
+    {
+      "name": "④-3 驳回空意见被拒（400 + 65005「驳回必须填写意见」）",
+      "passed": true,
+      "detail": "400 {\"code\":65005,\"msg\":\"驳回必须填写意见\"}"
+    },
+    {
+      "name": "④-4 驳回 2 字意见被拒（至少 5 字）",
+      "passed": true,
+      "detail": "400 {\"code\":65005,\"msg\":\"驳回意见至少 5 个字（当前 2 个）\"}"
+    },
+    {
+      "name": "④-5 admin 不是这条待办的审批人（应 403；审批人=Henry.Liao）",
+      "passed": true,
+      "detail": "403 {\"code\":65028,\"msg\":\"这条待办不是你的，不能审批\"}"
+    },
+    {
+      "name": "④-6 「驳回/撤回」确认弹窗说明了副作用（终止审批实例 / 回草稿）",
+      "passed": true,
+      "detail": "确定把 HT-20261103-000010 从「审批中」流转到「草稿」吗？驳回 / 撤回会把在跑的审批实例终止、合同退回草稿（可以再改再提交）；审批驳回的意见"
+    },
+    {
+      "name": "④-7 驳回/撤回后后端状态回到 DRAFT",
+      "passed": true,
+      "detail": "status=DRAFT"
+    },
+    {
+      "name": "④-8 列表回到「草稿」且又能「提交审批」",
+      "passed": true,
+      "detail": "徽标=草稿 提交审批按钮=1"
+    },
+    {
+      "name": "⑤-1 测试草稿已删除",
+      "passed": true,
+      "detail": "200 HT-20261103-000010"
+    },
+    {
+      "name": "⑥-1 无意外 4xx/5xx",
+      "passed": true,
+      "detail": "none"
+    },
+    {
+      "name": "⑥-2 无前端 console error",
+      "passed": true,
+      "detail": "none"
+    }
+  ]
+}
