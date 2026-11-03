@@ -1,0 +1,38 @@
+# 本卡改动（只动 tests/testd + 文档，未改任何业务代码）
+
+## 本卡提交
+5ae9112 test(testd): 三条守卫型用例口径刷新 + TD- 夹具 panic 安全清理
+
+## git show --stat 5ae9112
+5ae9112 test(testd): 三条守卫型用例口径刷新 + TD- 夹具 panic 安全清理
+ backend/tests/testd/announcement.rs                | 1221 ++++++++--------
+ backend/tests/testd/common.rs                      |  111 +-
+ backend/tests/testd/impexp.rs                      | 1493 ++++++++++----------
+ backend/tests/testd/linkage.rs                     | 1145 +++++++--------
+ backend/tests/testd/masking.rs                     |  563 ++++----
+ backend/tests/testd/mutex_help_ai.rs               |  913 ++++++------
+ backend/tests/testd/project_log.rs                 |  745 +++++-----
+ backend/tests/testd/storage.rs                     | 1059 +++++++-------
+ docs/test-report-modules.md                        |   76 +-
+ ...217\243\345\276\204\345\210\267\346\226\260.md" |  108 ++
+ 10 files changed, 3920 insertions(+), 3514 deletions(-)
+
+## 改动文件清单
+  backend/tests/testd/announcement.rs
+  backend/tests/testd/common.rs
+  backend/tests/testd/impexp.rs
+  backend/tests/testd/linkage.rs
+  backend/tests/testd/masking.rs
+  backend/tests/testd/mutex_help_ai.rs
+  backend/tests/testd/project_log.rs
+  backend/tests/testd/storage.rs
+  docs/test-report-modules.md
+  "docs/\346\265\213\350\257\225\345\215\253\347\224\237-testd\345\256\210\345\215\253\347\224\250\344\276\213\345\217\243\345\276\204\345\210\267\346\226\260.md"
+
+## 与 main 的关系（本卡提交之后 main 上还落了其它卡的提交，属正常并行）
+  merge-base(HEAD, origin/main-ish) / 本卡提交是否为祖先:
+  5ae9112 已在 HEAD 历史中 ✅
+
+## 本卡用到的库（只在这两个库里读写；生产库/8023 服务零触碰）
+  库: cloudpivot_tdh
+  库: cloudpivot_test

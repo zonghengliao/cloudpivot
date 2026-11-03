@@ -1,0 +1,54 @@
+# 修前复现（本卡开工第一件事：在本机 cloudpivot_test 上原样复现 DEPLOY-A 的 3 条红）
+#
+#   cd /opt/cloudpivot/backend
+#   TESTD_DB_URL="postgres://alun:***@127.0.0.1:5432/cloudpivot_test" \
+#     cargo test --test testd -- --test-threads=1
+#
+# 真实输出（节选，未改动文案）：
+
+failures:
+
+---- testd::announcement::g03_delete_announcement_keeps_read_receipts stdout ----
+
+thread 'testd::announcement::g03_delete_announcement_keeps_read_receipts' (928108) panicked at tests/testd/announcement.rs:319:9:
+实现已变更：公告下线会软删关联通知，请更新 BUG-D-05 与报告口径
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- testd::linkage::k08_mutex_erp_maker_checker_gap stdout ----
+
+thread 'testd::linkage::k08_mutex_erp_maker_checker_gap' (933798) panicked at tests/testd/linkage.rs:718:5:
+ERP 已实现「制单人不得审核」校验（["/opt/cloudpivot/backend/src/business/erp/payable_payment.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/payable_bridge.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/pflow3b_tests.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/stockin_handler.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/voucher_bridge.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/purchase_bridge.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/stockin_bridge.rs::SELF_APPROVAL", "/opt/cloudpivot/backend/src/business/erp/purchase_handler.rs::SELF_APPROVAL"]）：请把本用例改成正向断言并更新 BUG-D-14
+
+---- testd::storage::zz_no_fixture_residue_after_full_suite stdout ----
+[Z01] TD- 前缀残留：[("sys_user", 20), ("sys_role", 20), ("sys_user_role", 15), ("biz_project", 0), ("biz_task", 0), ("biz_task_attachment", 0), ("sys_announcement", 5), ("sys_notice", 5), ("sys_import_task", 0), ("sys_export_task", 0), ("sys_help_doc", 0), ("sys_help_category", 0), ("sys_dict_type", 0), ("sys_dict_item", 0), ("sys_role_mutex", 5), ("sys_file", 0)]
+
+thread 'testd::storage::zz_no_fixture_residue_after_full_suite' (940824) panicked at tests/testd/storage.rs:759:5:
+cloudpivot_test 存在本卡夹具残留（sys_user=20, sys_role=20, sys_user_role=15, sys_announcement=5, sys_notice=5, sys_role_mutex=5）：用例没有自清理干净
+
+failures:
+    testd::announcement::g03_delete_announcement_keeps_read_receipts
+    testd::linkage::k08_mutex_erp_maker_checker_gap
+    testd::storage::zz_no_fixture_residue_after_full_suite
+
+test result: FAILED. 64 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 295.80s
+error: test failed, to rerun pass `--test testd`
+real    5m6.626s
+
+# ---------------------------------------------------------------------------
+# 残留归属（按前缀 + 外键链逐条查证；psql 直查，不经测试代码）
+#
+#   select username from sys_user where username like 'TD%' order by 1;
+#
+# TD-G03-161d71f3-publisher      TD-K08-2c3e69b5-erp_admin
+# TD-G03-161d71f3-u1             TD-K08-2c3e69b5-maker
+# TD-G03-451f92fc-publisher      TD-K08-6ff441d5-erp_admin
+# TD-G03-451f92fc-u1             TD-K08-6ff441d5-maker
+# TD-G03-558d8be6-publisher      TD-K08-945ca29b-erp_admin
+# TD-G03-558d8be6-u1             TD-K08-945ca29b-maker
+# TD-G03-861c8f83-publisher      TD-K08-e426f87a-erp_admin
+# TD-G03-861c8f83-u1             TD-K08-e426f87a-maker
+#
+# 只有 G03 / K08 两个 tag，各 4 轮（= 当天崩过 4 次），每轮遗留的行数与用例夹具严格对应：
+#   G03：2 用户 + 1 角色 + 1 公告 + 1 通知 + 1 收件行 + 1 已读回执
+#   K08：2 用户 + 3 角色 + 3 角色绑定 + 1 互斥规则
+# → 结论：不是清理语句写错，是 panic 让尾部的 ctx.reset() 根本没执行。

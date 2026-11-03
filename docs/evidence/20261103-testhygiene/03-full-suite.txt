@@ -1,0 +1,61 @@
+# 全量验证（本卡）：lib + tests/ 下 19 个集成 target
+#
+# 隔离库：cloudpivot_tdh（新建 + 迁移到 V0206 + bootstrap 种好 admin↔SUPER_ADMIN，启动后按库查证 admin_bindings=1 才开跑）；testd 仍连 cloudpivot_test（其自身硬校验）。
+# 环境：SYS_DB_URL=ERP_DB_URL=TASK_DB_URL=cloudpivot_tdh，NIK_PROFILE=test，--test-threads=1
+# 注意：跑的是**当前工作树**（含 D3 卡未提交的 src/business/flow/edge_admin*.rs 等），不是 HEAD 的纯净快照。
+
+## 1) 集成 target（cargo test --no-fail-fast --test <19 个>）
+
+  tests/batchB_b2_scope.rs           test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchB_b7_mutex.rs           test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchC_c3_dispatch.rs        test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchC_c4_help.rs            test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  tests/batchC_c5_changelog.rs       test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+  tests/batchC_c6_changelog.rs       test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchC_c7_rollback.rs        test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchE_e7_dep_cleanup.rs     test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/batchT_t1_task.rs            test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+  tests/batchT_t5_ai_rules.rs        test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.29s
+  tests/fix04_notice_offline.rs      test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/impexp_worker.rs             test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/linkage.rs                   test result: ok. 62 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+  tests/pflow1a.rs                   test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/pflow1b.rs                   test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/pflow5.rs                    test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/pref_preference.rs           test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/s3_minio.rs                  test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+  tests/testd.rs                     test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 489.68s
+
+CARGO_EXIT=0  （0 = 19 个 target 全绿，含 testd 67/0）
+
+## 2) lib 单元测试（cargo test --lib，同一棵工作树）
+
+  test result: FAILED. 2086 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1076.50s
+
+  失败用例（唯一 1 条）：
+    - business::flow::edge_admin_tests::list_view_reports_base_config_and_effective
+
+  定性：该用例在 src/business/flow/edge_admin_tests.rs —— **D3 卡（t_217a95ad）未提交的
+  工作树文件**（git status 里是 ?? 未跟踪），断言「干净库里没有配置行」，与本卡的改动
+  （只动 backend/tests/testd/**）无关；本卡改动不进 lib 编译单元。
+  已复核（同一棵树、同一个库，单独跑这两条）：
+      cargo test --lib edge_admin_tests::list_view -- --test-threads=1
+      → test result: ok. 2 passed; 0 failed ... finished in 1.38s
+  即：单跑绿、全量跑红 = 该文件内部用例间的**夹具残留/顺序污染**（前一条用例配了边配置行
+  没清，后一条断言「干净库没有配置行」）—— 属 D3 卡自己的夹具问题，不是回归，也不在本卡范围。
+  本卡开工时 HEAD=a71db4a，父卡 C1（t_1e174431）在同一 HEAD 上跑过全量：
+  2073 passed / 0 failed / 0 ignored。
+
+## 3) testd（交付口径）
+
+  test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 458.16s
+
+## 4) 库侧残留复查（psql 直查 TD% 前缀，不经测试代码）
+
+  sys_user             = 0
+  sys_role             = 0
+  sys_user_role        = 0
+  sys_announcement     = 0
+  sys_notice           = 0
+  sys_role_mutex       = 0
+

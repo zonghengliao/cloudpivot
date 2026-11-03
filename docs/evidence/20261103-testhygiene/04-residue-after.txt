@@ -1,0 +1,23 @@
+# 库侧残留复查（psql 直查，不经测试代码）
+#
+#   psql "postgres://alun:***@127.0.0.1:5432/cloudpivot_test" -Atc "…"
+#
+# 跑完 cargo test --test testd（67 passed / 0 failed）之后，TD- 前缀在关键表里应为 0。
+# 同时用于反向证明：修前这些数字是 user=20 role=20 user_role=15 ann=5 notice=5 mutex=5。
+
+sys_user             = 0
+sys_role             = 0
+sys_user_role        = 0
+sys_announcement     = 0
+sys_notice           = 0
+sys_notice_receiver  = 0   # （按 notice_id in 已删通知 + user_id in TD 用户 双条件查）
+sys_announcement_read= 0
+sys_role_mutex       = 0
+biz_project          = 0
+biz_task             = 0
+sys_file             = 0
+
+# 修前同口径（本卡开工时 psql 实测，只列有值的行）：
+#   user=16 role=16 user_role=12 ann=4 notice=4 mutex=4        ← 上 N 轮遗留
+#   复现那一轮 Z01 读到：user=20 role=20 user_role=15 ann=5 notice=5 mutex=5
+#   （= G03 / K08 各崩 5 轮，每轮遗留行数与夹具严格对应；前缀全部是 TD-G03-* / TD-K08-*）

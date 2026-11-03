@@ -85,12 +85,19 @@ sys_user`、`sys_notice_receiver → sys_notice → sys_announcement` 逐条查�
 | 项 | 命令 / 结果 |
 |---|---|
 | 修前 | `test result: FAILED. 64 passed; 3 failed`（`announcement.rs:319` / `linkage.rs:718` / `storage.rs:759`） |
-| 修后（本卡） | `test result: ok. 67 passed; 0 failed; 0 ignored; finished in 458.16s` |
+| 修后（本卡，交付口径） | `cargo test --test testd -- --test-threads=1` → **67 passed / 0 failed / 0 ignored**（458.16s；第二次独立整轮 489.68s，同样 67/0） |
 | 库侧独立复查 | `TD%` 前缀：`user=0 role=0 user_role=0 ann=0 notice=0 mutex=0` |
-| lib + 其它 target | 见 `docs/evidence/20261103-testhygiene/03-full-suite.txt`（干净隔离库 `cloudpivot_tdh`，迁移到 V0206） |
-| 编译 | `cargo test --test testd --no-run` 无 warning（`rustfmt --check` 干净） |
+| 19 个集成 target | 全部 `test result: ok`（含 testd 67/0、linkage 62/0、fix04 9/0…），`CARGO_EXIT=0` |
+| lib 单元测试 | `2086 passed / 1 failed` —— 唯一失败是 **D3 卡（`t_217a95ad`）未提交的工作树文件** `src/business/flow/edge_admin_tests.rs`（未被 git 跟踪；单跑这 2 条 → 2 passed，全量跑红 = 该文件内部用例间夹具残留），与本卡无关；本卡开工 HEAD `a71db4a` 上父卡 C1 跑过全量 `2073 passed / 0 failed` |
+| 编译 | `cargo test --test testd --no-run` 0 warning；`rustfmt --check tests/testd/*.rs` 干净 |
 
-原始日志：`docs/evidence/20261103-testhygiene/`
+原始日志：`docs/evidence/20261103-testhygiene/`（修前复现 / 修后整轮 / 全量 target / 库侧复查 / git）
+
+> 首次全量跑出现过 `1998 passed / 87 failed`，原因是**我建库时只等到「数据库迁移完成」就
+> kill 了实例**，`bootstrap::seed_super_admin` 还没跑完 → 库里没有 `admin`、没有
+> `SUPER_ADMIN` 绑定 → 87 条用例按设计报 `65018 本节点没有有效审批人，且平台没有可兜底的
+> 超级管理员`。修正建库脚本（等 `admin↔SUPER_ADMIN` 绑定落到库再停）后重跑，就是上面的结果。
+> 这条也记在这里，免得下次有人踩同一个坑。
 
 ---
 
