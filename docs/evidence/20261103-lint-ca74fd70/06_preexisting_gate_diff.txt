@@ -1,0 +1,80 @@
+# 批测B 闸②：HEAD(26a1111) 干净 worktree vs 当前树 的失败文件清单对比
+## HEAD
+    FAIL: business/attachment/tests.rs 
+    FAIL: business/erp/approval_gate.rs 
+    FAIL: business/erp/contract_approval_tests.rs 
+    FAIL: business/erp/contract_handler.rs 
+    FAIL: business/erp/period_remind_tests.rs 
+    FAIL: business/erp/period_test_support.rs 
+    FAIL: business/erp/pflow3b_tests.rs 
+    FAIL: business/erp/reminder.rs 
+    FAIL: business/erp/reminder_tests.rs 
+    FAIL: business/erp/stockin_bridge.rs 
+    FAIL: business/erp/stockin_handler_tests_fixtures.rs 
+    FAIL: business/erp/stockin_handler_tests_helpers.rs 
+    FAIL: business/erp/stockin_handler_tests_p16.rs 
+    FAIL: business/erp/stockin_handler_tests_pflow3a.rs 
+    FAIL: business/erp/stocktake_tests.rs 
+    FAIL: business/erp/year_end_remind_tests.rs 
+    FAIL: business/erp/year_end_test_support.rs 
+    FAIL: business/flow/edge_admin_tests.rs 
+    FAIL: business/flow/internal_control.rs 
+    FAIL: business/flow/task_node.rs 
+    FAIL: business/flow/template_vars.rs 
+    FAIL: business/flow/test_support.rs 
+    FAIL: business/task/task_model_cascade_cancel_tests.rs 
+    FAIL: business/task/task_model_cascade_tests.rs 
+    FAIL: business/task/task_model_depth_tests.rs 
+    FAIL: business/task/task_model_flow.rs 
+    FAIL: business/task/task_model_hierarchy.rs 
+    FAIL: business/task/task_model_repair_tests.rs 
+    FAIL: business/task/task_model_schedule.rs 
+    FAIL: business/task/task_model_write.rs 
+    FAIL: system/menu/tests.rs 
+    FAIL: system/role/tests.rs 
+    FAIL: system/session_tests.rs 
+    FAIL: system/tests_support.rs 
+    FAIL: system/user/tests.rs 
+
+## 当前树（本提交后）
+    FAIL: business/attachment/tests.rs 
+    FAIL: business/erp/approval_gate.rs 
+    FAIL: business/erp/contract_approval_tests.rs 
+    FAIL: business/erp/contract_handler.rs 
+    FAIL: business/erp/period_remind_tests.rs 
+    FAIL: business/erp/period_test_support.rs 
+    FAIL: business/erp/pflow3b_tests.rs 
+    FAIL: business/erp/reminder.rs 
+    FAIL: business/erp/reminder_tests.rs 
+    FAIL: business/erp/stockin_bridge.rs 
+    FAIL: business/erp/stockin_handler_tests_fixtures.rs 
+    FAIL: business/erp/stockin_handler_tests_helpers.rs 
+    FAIL: business/erp/stockin_handler_tests_p16.rs 
+    FAIL: business/erp/stockin_handler_tests_pflow3a.rs 
+    FAIL: business/erp/stocktake_tests.rs 
+    FAIL: business/erp/year_end_remind_tests.rs 
+    FAIL: business/erp/year_end_test_support.rs 
+    FAIL: business/flow/edge_admin_tests.rs 
+    FAIL: business/flow/internal_control.rs 
+    FAIL: business/flow/task_node.rs 
+    FAIL: business/flow/template_vars.rs 
+    FAIL: business/flow/test_support.rs 
+    FAIL: business/task/task_model_cascade_cancel_tests.rs 
+    FAIL: business/task/task_model_cascade_tests.rs 
+    FAIL: business/task/task_model_depth_tests.rs 
+    FAIL: business/task/task_model_flow.rs 
+    FAIL: business/task/task_model_hierarchy.rs 
+    FAIL: business/task/task_model_repair_tests.rs 
+    FAIL: business/task/task_model_schedule.rs 
+    FAIL: business/task/task_model_write.rs 
+    FAIL: system/menu/tests.rs 
+    FAIL: system/role/tests.rs 
+    FAIL: system/session_tests.rs 
+    FAIL: system/tests_support.rs 
+    FAIL: system/user/tests.rs 
+
+## diff（空 = 完全一致）
+(IDENTICAL)
+
+# C7 G5：HEAD vs 当前树的失败清单对比（空 = 完全一致）
+(IDENTICAL)
