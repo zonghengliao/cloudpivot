@@ -1,0 +1,38 @@
+# 42 · 门禁自测矩阵（卡 D 独立复跑，不采信 A/C 的自测结论）
+# 时间: 2026-11-03 23:53:22 CST  HEAD: 3d80f85d1bc8ee20fd41eacab40dc8736dc09971
+# 树: /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818（git clone ssh://root@172.18.10.144/opt/git/cloudpivot.git，工作区除 docs/evidence 外干净）
+# python3: /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 / Python 3.14.9
+
+=== [42.1] G5 负例自测（期望：①②③④ 报红、⑤ 判绿）===
+$ python3 scripts/lint/changelog_in_tx.py --root . --self-test
+G5 负例自测（临时目录 /root/.hermes/profiles/test-enginner/cache/scratch/g5_selftest_62dq22gu）
+  PASS  ① 函数顶层 changelog::record(db(), …) → 报红  problems=1 sites=1 | backend/src/case_top_level_db.rs:4: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  PASS  ② tokio::spawn(async { changelog::record(&tx, …) }) → 报红（不在 transaction 闭包内）  problems=1 sites=1 | backend/src/case_spawn.rs:3: record(&tx) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 
+  PASS  ③ transaction(|tx| async move { changelog::record(db(), …) }) → 报红（第二个事务入口）  problems=1 sites=1 | backend/src/case_tx_db.rs:3: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  PASS  ④ 本地 fn record 遮蔽 + 裸调不报红，同文件 changelog::record 在事务外仍报红  problems=1 sites=1 | backend/src/case_shadow.rs:8: record(conn) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不
+  PASS  ⑤ fn f(ex: &Transaction, …) 里 changelog::record(ex, …) → 判绿（D5 类型证据）  problems=0 sites=1
+  PASS  ⑥ 缓存闸门方法调用 GATE.record(true) 不计入判定面（28 处误报的回归防护）  problems=0 sites=0
+  PASS  ⑦ changelog 模块内部未限定调用 record(ex, …) 保留在判定面且透传判绿  problems=0 sites=1
+  PASS  ⑧ 注释里的 changelog::record(db(), …) 不判红（mask 生效）  problems=0 sites=0
+  PASS  ⑨ 事务闭包内 &tx 判绿（原有合规形态不能回退）  problems=0 sites=1
+  PASS  ⑩ 防假绿：调用点数 0 → coverage_ok=False
+  PASS  ⑪ 防假绿：调用点数 26 → coverage_ok=False
+  PASS  ⑫ 防假绿：调用点数 27 → coverage_ok=True
+G5 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/test-enginner/cache/scratch/g5_selftest_62dq22gu）
+EXIT=0
+
+=== [42.2] 闸② 负例自测 + 跳过清单（期望：生产面漏接报红、cfg(test) 文件与内联测试区跳过并打印清单）===
+$ python3 scripts/lint/scope_gate.py --root . --self-test
+闸② 负例自测（临时目录 /root/.hermes/profiles/test-enginner/cache/scratch/scope_gate_selftest_nad4324j）
+  PASS  ① 生产面漏接 task_model_write.rs 报红  failures=['business/erp/comment_only_scope.rs', 'business/task/task_model_write.rs']
+  PASS  ② #[cfg(test)] mod x; 挂载的 tests 文件被跳过（不在 failures）
+  PASS  ②' #[cfg(test)] #[path=...] 挂载的 tests 文件被跳过
+  PASS  ③ 内联 #[cfg(test)] mod 区的漏接被跳过（inline_tests_only.rs 不报红）
+  PASS  ④ SCOPE-EXEMPT 生产文件放行（business/erp/exempt.rs）
+  PASS  ⑤ 注释里的 scope:: 不造成假绿（comment_only_scope.rs 报红）
+  PASS  ⑥ 内联注释行里的 FROM 不算代码行（task_model_write.rs 只报 biz_task）  实际 ['biz_task']
+  PASS  ⑦ 扫描/跳过计数可审计  scanned=15 skipped=2
+  PASS  ⑧ 防假绿断言：已知生产文件被误判成测试面 → FAIL（guard_errors 非空）  防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/test-enginner/cache/scratch/scope_gate_selftest_nad4324j/guard/business/task/mod.rs:2）—— 解析器误判，闸② 不许据此变绿
+  PASS  ⑨ 扫描范围断言：缺 system/ 目录 → coverage_errors 非空  扫描范围缺少目录 backend/src/system（闸② 会漏掉该目录下的查询）
+闸② 自测结论：全部通过（临时目录保留供复核：/root/.hermes/profiles/test-enginner/cache/scratch/scope_gate_selftest_nad4324j）
+EXIT=0

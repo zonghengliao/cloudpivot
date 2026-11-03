@@ -1,0 +1,42 @@
+# 41 · 全仓编译门禁单独复跑（不依赖 check.sh 的一次性结果）
+# 时间: 2026-11-03 23:58:48 CST  HEAD: 3d80f85d1bc8ee20fd41eacab40dc8736dc09971
+# rustc: rustc 1.94.1 (e408947bf 2026-03-25)  cargo: cargo 1.94.1 (29ea6fb6a 2026-03-24)
+# node: v22.23.4  pnpm: 11.22.0  vue-tsc: frontend/node_modules/.bin/vue-tsc
+# CARGO_TARGET_DIR=/root/.hermes/profiles/test-enginner/cache/scratch/cargo-target-gate（/tmp 仅 104M 可用，target 不放 /tmp）；CARGO_BUILD_JOBS=2
+
+=== [41.1] cargo fmt -- --check ===
+$ cd backend && cargo fmt -- --check
+EXIT=0
+
+=== [41.2] cargo clippy --all-targets -- -D warnings ===
+$ cd backend && cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+EXIT=0
+
+=== [41.3] cargo check ===
+$ cd backend && cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+EXIT=0
+
+=== [41.4] pnpm typecheck（前端依赖已就绪：frontend/node_modules 450M，package.json/pnpm-lock.yaml 与已装版本逐字相同）===
+$ cd frontend && pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/frontend
+> vue-tsc --noEmit
+
+EXIT=0
+
+=== [41.5] 强制缓存失效后重跑（touch backend/src/lib.rs，仅改 mtime；git 工作区仍干净）===
+# 目的：41.2/41.3 命中增量缓存（0.2s Finished），不足以证明「真的编译过」；此处强制重编 crate
+# 时间: 2026-11-03 23:59:23 CST  git status(backend/src/lib.rs): 0 行改动
+
+$ cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 23.80s
+EXIT=0
+
+$ cargo check
+    Checking cloudpivot v0.1.0 (/root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 6.77s
+EXIT=0

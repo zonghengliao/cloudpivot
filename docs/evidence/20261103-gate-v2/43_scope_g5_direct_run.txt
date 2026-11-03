@@ -1,0 +1,115 @@
+# 43 · 现行树直跑：G5（changelog_in_tx）+ 闸②（scope_gate）
+# 时间: 2026-11-03 23:53:22 CST  HEAD: 3d80f85d1bc8ee20fd41eacab40dc8736dc09971
+
+=== [43.1] G5 直跑 ===
+$ python3 scripts/lint/changelog_in_tx.py --root .
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 361 个文件）
+EXIT=0
+
+=== [43.2] G5 逐调用点清单（审计用）===
+$ python3 scripts/lint/changelog_in_tx.py --root . --list
+  ok  backend/src/business/announcement/handler.rs:935 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1054 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1123 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1241 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/announcement/handler.rs:1397 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/changelog/mod.rs:304 record(ex) 模块内部透传 executor
+  ok  backend/src/business/changelog/test_hooks.rs:119 record_in(…) 使用 begin() 创建的显式事务句柄
+  skip backend/src/business/flow/linkage/engine.rs:208 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:220 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:232 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:239 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:242 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:246 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/business/flow/linkage/engine.rs:291 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  ok  backend/src/business/flow/model.rs:2802 record(ex) 形参声明为 Transaction：cancel_flow_tasks(ex: &Transaction)
+  ok  backend/src/business/flow/task_bridge.rs:438 record(…) 在 transaction 闭包内
+  ok  backend/src/business/flow/task_bridge.rs:552 record(…) 在 transaction 闭包内
+  ok  backend/src/business/flow/task_node.rs:308 record(ex) 形参声明为 Transaction：spawn(ex: &Transaction)
+  ok  backend/src/business/help/handler.rs:291 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:358 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:400 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:456 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/help/handler.rs:526 record_in(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1287 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1308 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:1351 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:4123 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/handler.rs:4722 record(…) 在 transaction 闭包内
+  ok  backend/src/business/task/schedule.rs:607 record(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:194 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:330 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/role/handler.rs:462 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:283 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:407 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:539 record_in(…) 在 transaction 闭包内
+  ok  backend/src/system/user/handler.rs:656 record_in(…) 在 transaction 闭包内
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 361 个文件）
+EXIT=0
+
+=== [43.3] 闸② 直跑 ===
+$ python3 scripts/lint/scope_gate.py --root .
+闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：0 处
+EXIT=0
+
+=== [43.4] 闸② 跳过清单（审计用）===
+$ python3 scripts/lint/scope_gate.py --root . --list-skipped
+闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+被跳过的测试面文件（50 个，含声明位置）：
+  business/attachment/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/attachment/mod.rs:48
+  business/erp/contract_approval_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:81
+  business/erp/fixture_hygiene.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:182
+  business/erp/model_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/model.rs:80
+  business/erp/period_items_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/period_items.rs:993
+  business/erp/period_remind_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/period_remind.rs:562
+  business/erp/period_test_support.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:145
+  business/erp/pflow3b_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:185
+  business/erp/reminder_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:189
+  business/erp/stockin_handler_tests_a4.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:131
+  business/erp/stockin_handler_tests_cancel.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:103
+  business/erp/stockin_handler_tests_d4_purchase.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:119
+  business/erp/stockin_handler_tests_d9_copy.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:127
+  business/erp/stockin_handler_tests_dc03.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:111
+  business/erp/stockin_handler_tests_fixtures.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:83
+  business/erp/stockin_handler_tests_helpers.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:87
+  business/erp/stockin_handler_tests_location.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:99
+  business/erp/stockin_handler_tests_p10_locked.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:107
+  business/erp/stockin_handler_tests_p16.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:115
+  business/erp/stockin_handler_tests_pflow3a.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:123
+  business/erp/stockin_handler_tests_posting.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:91
+  business/erp/stockin_handler_tests_update.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_handler.rs:95
+  business/erp/stockin_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockin_model.rs:127
+  business/erp/stockout_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/stockout_model.rs:1099
+  business/erp/stocktake_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:147
+  business/erp/transfer_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/transfer_model.rs:70
+  business/erp/year_end_items_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/year_end.rs:2646
+  business/erp/year_end_remind_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/year_end_remind.rs:207
+  business/erp/year_end_test_support.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/erp/mod.rs:149
+  business/flow/edge_admin_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/flow/mod.rs:66
+  business/flow/test_support.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/flow/mod.rs:83
+  business/masking/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/masking/mod.rs:49
+  business/permission/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/permission/mod.rs:46
+  business/task/task_model_cascade_cancel_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:142
+  business/task/task_model_cascade_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:138
+  business/task/task_model_depth_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:98
+  business/task/task_model_display_file_name_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:94
+  business/task/task_model_repair_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:134
+  business/task/task_model_root_only_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:112
+  business/task/task_model_stats_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:130
+  business/task/task_model_statuses_filter_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:126
+  business/task/task_model_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/business/task/model.rs:89
+  system/authz_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/mod.rs:39
+  system/dept/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/dept/mod.rs:28
+  system/menu/permission_audit_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/menu/mod.rs:20
+  system/menu/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/menu/mod.rs:16
+  system/role/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/role/mod.rs:31
+  system/session_tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/mod.rs:43
+  system/tests_support.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/mod.rs:35
+  system/user/tests.rs  ← /root/.hermes/profiles/test-enginner/cache/scratch/verify-gate-v2-234818/backend/src/system/user/mod.rs:34
+  PASS：0 处
+EXIT=0

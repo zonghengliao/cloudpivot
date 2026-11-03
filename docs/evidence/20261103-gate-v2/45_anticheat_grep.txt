@@ -1,0 +1,191 @@
+# 45 · 反作弊抽查（三条，任一命中即判不通过）
+# 时间: 2026-11-04 00:00:29 CST  HEAD: 3d80f85d1bc8ee20fd41eacab40dc8736dc09971
+# 基线：门禁 v2 落地前的 commit = 5408859~1（43a73f8）
+
+############ ① backend/src 里没有为门禁新增的 #[allow( ############
+$ grep -rn "#\[allow(" backend/src | wc -l
+37
+
+# 全量清单（逐条：文件:行:内容），并统计 allow 的种类
+backend/src/business/aiagent/hermes.rs:1942:    #[allow(dead_code)]
+backend/src/business/announcement/dto.rs:1474:    #[allow(clippy::too_many_arguments)]
+backend/src/business/announcement/model.rs:1289:#[allow(clippy::too_many_arguments)]
+backend/src/business/changelog/handler.rs:523:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/payable_payment.rs:929:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/payable_payment.rs:1255:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/payable_payment.rs:1367:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/period.rs:669:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/period_remind_tests.rs:503:#[allow(dead_code)]
+backend/src/business/erp/purchase_model.rs:615:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockin_cancel.rs:384:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockin_handler_post.rs:554:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockin_handler_tests_helpers.rs:492:#[allow(dead_code)]
+backend/src/business/erp/stockin_write.rs:253:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockin_write.rs:688:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockout_model.rs:747:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockout_model.rs:966:#[allow(clippy::too_many_arguments)]
+backend/src/business/erp/stockout_tests.rs:331:#[allow(dead_code)]
+backend/src/business/erp/stockout_tests.rs:347:#[allow(dead_code)]
+backend/src/business/erp/transfer_write.rs:289:#[allow(clippy::too_many_arguments)]
+backend/src/business/flow/linkage/model.rs:617:#[allow(clippy::too_many_arguments)]
+backend/src/business/mod.rs:48:#[allow(dead_code)]
+backend/src/business/shared/guard.rs:54:            #[allow(clippy::cast_sign_loss)]
+backend/src/business/shared/principal.rs:516:#[allow(async_fn_in_trait)]
+backend/src/business/shared/principal.rs:523:#[allow(async_fn_in_trait)]
+backend/src/business/shared/principal.rs:993:    #[allow(clippy::await_holding_lock)] // 单测专用：目的就是让两个缓存用例串行访问进程内埋点
+backend/src/business/shared/principal.rs:1038:    #[allow(clippy::await_holding_lock)] // 同上：与上一个用例共用 STATS_LOCK
+backend/src/business/shared/state_machine.rs:1340:#[allow(clippy::too_many_arguments)]
+backend/src/business/shared/state_machine.rs:1946:#[allow(clippy::too_many_arguments)]
+backend/src/business/shared/state_machine.rs:2068:#[allow(clippy::too_many_arguments)]
+backend/src/business/shared/state_machine.rs:2154:#[allow(clippy::too_many_arguments)]
+backend/src/business/shared/state_machine.rs:2182:#[allow(clippy::too_many_arguments)]
+backend/src/business/task/state.rs:672:#[allow(clippy::too_many_arguments)]
+backend/src/shared/constants.rs:47:#[allow(non_camel_case_types)]
+backend/src/support/job/model.rs:22:#[allow(non_camel_case_types)]
+backend/src/system/menu/model.rs:25:#[allow(non_camel_case_types)]
+backend/src/system/menu/tests.rs:913:#[allow(dead_code)]
+
+$ grep -rho "#\[allow([^]]*)\]" backend/src | sort | uniq -c
+      2 #[allow(async_fn_in_trait)]
+      2 #[allow(clippy::await_holding_lock)]
+      1 #[allow(clippy::cast_sign_loss)]
+     22 #[allow(clippy::too_many_arguments)]
+      7 #[allow(dead_code)]
+      3 #[allow(non_camel_case_types)]
+
+--- 门禁 v2 三个提交里 backend/src 的改动（A/B 是否夹带代码）---
+$ git log --oneline 5408859~1..HEAD
+3d80f85 docs(evidence): 卡 C 安全复核 —— 闸② 测试面跳过 + G5 词法判定两处放宽（verdict: pass-with-notes）
+2a9db18 fix(scope): 闸② 生产面 10 文件逐条裁定 —— 25 处函数级 SCOPE-EXEMPT（附调用链证据）
+5408859 fix(lint): 门禁口径 v2 落地 —— 闸② 只判生产面（新 scripts/lint/scope_gate.py）+ G5 只认 changelog 限定名 / 类型级事务证据
+
+$ git diff --stat 5408859~1 HEAD -- backend/src
+ backend/src/business/erp/approval_gate.rs         | 1 +
+ backend/src/business/erp/contract_handler.rs      | 1 +
+ backend/src/business/erp/reminder.rs              | 1 +
+ backend/src/business/erp/stockin_bridge.rs        | 2 ++
+ backend/src/business/flow/task_node.rs            | 2 ++
+ backend/src/business/flow/template_vars.rs        | 1 +
+ backend/src/business/task/task_model_flow.rs      | 1 +
+ backend/src/business/task/task_model_hierarchy.rs | 8 ++++++++
+ backend/src/business/task/task_model_schedule.rs  | 5 +++++
+ backend/src/business/task/task_model_write.rs     | 3 +++
+ 10 files changed, 25 insertions(+)
+
+$ git diff 5408859~1 HEAD -- backend/src | grep -E "^\+[^+]" | grep -vc "^\+// SCOPE-EXEMPT:"   # 非注释的新增行数（期望 0）
+0
+
+$ git diff 5408859~1 HEAD -- backend/src | grep -E "^\+.*#\[allow\("    # 新增 allow（期望空）
+（空：无新增 allow）
+
+############ ② scripts/check.sh 里没有 || true / set +e / 提前 exit 0 / BATCHB_GATE 默认被改成 warn ############
+$ grep -nE "\|\| true|set \+e|exit 0|BATCHB_GATE|ERP_INVARIANTS_GATE|set -e" scripts/check.sh
+6:#   BATCHB_GATE=warn bash scripts/check.sh
+12:set -euo pipefail
+95:BATCHB_GATE2_BASELINE=21
+98:BATCHB_GATE1_WHITELIST="business/shared/scope.rs"
+101:BATCHB_GATE_WARNED=0
+109:    echo "    白名单：$BATCHB_GATE1_WHITELIST（+ 注释行不计）"
+113:        | grep -v "$BATCHB_GATE1_WHITELIST" \
+114:        | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" || true)
+139:            --root "$ROOT" --baseline "$BATCHB_GATE2_BASELINE" 2>&1)"; then
+153:    echo "==> 批次B 门禁汇总：闸①=${gate1_n:-0} 处  闸②=${gate2_n:-0} 处  （B0 基线 20 / ${BATCHB_GATE2_BASELINE}）"
+156:        if [ "${BATCHB_GATE:-fail}" = "warn" ]; then
+157:            echo "==> 批次B 门禁：$failed 条未通过（BATCHB_GATE=warn → 仅告警，不中断）" >&2
+158:            BATCHB_GATE_WARNED="$failed"
+164:        echo "    B2–B4 施工期可临时用 BATCHB_GATE=warn bash scripts/check.sh 绕过本门禁。" >&2
+191:    grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(//|\*)' || true
+200:    out=$(grep -rn "sys_change_log" "$src" --include=*.rs | grep -v "/business/changelog/" | batchc_strip_comments || true)
+211:    out=$(grep -rn "db()" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+240:    done < <(grep -rnE "async fn record(_in)?[[:space:]]*\(" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+260:    out=$(grep -rn "FROM sys_change_log WHERE id" "$src" --include=*.rs | batchc_strip_comments || true)
+307:# 三档开关（`ERP_INVARIANTS_GATE`）：
+315:    local mode="${ERP_INVARIANTS_GATE:-block}"
+317:        echo "==> 闸③：ERP 不变量（ERP_INVARIANTS_GATE=off → 跳过）"
+336:        echo "  ✓ 全部不变量成立（$(grep -c '✅' "$log" || true) 条通过）"
+342:    blockers="$(grep -oE 'BLOCKER [0-9]+' "$log" | head -1 | grep -oE '[0-9]+' || true)"
+345:        echo "  ⚠ 有 ${blockers} 条 BLOCKER（ERP_INVARIANTS_GATE=warn → 不阻断）"
+346:        grep '^  · \[' "$log" | head -10 || true
+351:    grep '^  · \[' "$log" | head -10 >&2 || true
+352:    echo "    完整报告：$log（修完再跑；存量修复期可 ERP_INVARIANTS_GATE=warn 临时放行）" >&2
+361:if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
+362:    echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
+
+$ grep -nE "^[[:space:]]*exit " scripts/check.sh    # 所有 exit（应只有 2 条失败路径 exit 1，无 exit 0）
+297:    exit 1
+357:    exit 1
+
+$ grep -nE "scope_gate.py|changelog_in_tx.py|palette_def_sync.py|erp_invariants.py|cargo fmt|cargo clippy|cargo check|pnpm typecheck" scripts/check.sh   # 门禁调用是否都在（无被注释掉）
+16:echo "==> 后端：cargo fmt --check"
+17:(cd "$ROOT/backend" && cargo fmt -- --check)
+19:echo "==> 后端：cargo clippy -- -D warnings"
+20:(cd "$ROOT/backend" && cargo clippy --all-targets -- -D warnings)
+22:echo "==> 后端：cargo check"
+23:(cd "$ROOT/backend" && cargo check)
+25:echo "==> 前端：pnpm typecheck"
+26:(cd "$ROOT/frontend" && pnpm typecheck)
+54:# 由 scripts/lint/scope_gate.py 用 `"FROM <t>" in line` 做子串判定，等价于原 `grep -rl`）；
+127:    # 判定实现搬进 scripts/lint/scope_gate.py（门禁口径 v2 · D1，见 docs/门禁口径-v2-20261103.md）：
+130:    #     `python3 scripts/lint/scope_gate.py --list-skipped` 打印清单+声明位置）；
+138:        if gate2_out="$(python3 "$ROOT/scripts/lint/scope_gate.py" \
+251:        if ! python3 "$ROOT/scripts/lint/changelog_in_tx.py" --root "$ROOT"; then
+295:if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
+320:    echo "==> 闸③：ERP 不变量（scripts/verify/erp_invariants.py）"
+335:    if python3 "$ROOT/scripts/verify/erp_invariants.py" > "$log" 2>&1; then
+
+############ ③ scripts/lint/*.py 里没有「正则命中数为 0 也返回 0」的分支 ############
+$ grep -nE "coverage_ok|COVERAGE|>= 27|27|0 个调用点|只检查到" scripts/lint/changelog_in_tx.py
+445:def coverage_ok(call_sites: int) -> bool:
+486:    if not coverage_ok(call_sites):
+488:            f"G5 FAIL：只检查到 {call_sites} 个调用点（口径要求 ≥ {MIN_CALL_SITES}）"
+673:    check("⑩ 防假绿：调用点数 0 → coverage_ok=False", not coverage_ok(0))
+674:    check(f"⑪ 防假绿：调用点数 {MIN_CALL_SITES - 1} → coverage_ok=False", not coverage_ok(MIN_CALL_SITES - 1))
+675:    check(f"⑫ 防假绿：调用点数 {MIN_CALL_SITES} → coverage_ok=True", coverage_ok(MIN_CALL_SITES))
+
+$ grep -nE "coverage_errors|guard_errors|KNOWN_PRODUCTION|PASS：0 处|if not files" scripts/lint/scope_gate.py | head -30
+338:    coverage_errors: list[str]
+339:    guard_errors: list[str]
+343:        return not (self.failures or self.coverage_errors or self.guard_errors)
+348:    if not files:
+351:    coverage_errors: list[str] = []
+355:            coverage_errors.append(f"扫描范围缺少目录 backend/src/{rel}（闸② 会漏掉该目录下的查询）")
+358:            coverage_errors.append(f"扫描范围 backend/src/{rel} 下没有 .rs 文件（目录搬走或未纳入版本管理）")
+364:    guard_errors: list[str] = []
+369:            guard_errors.append(f"防假绿断言：已知生产文件 backend/src/{rel} 不存在（扫描根/目录结构异常）")
+371:            guard_errors.append(
+376:            guard_errors.append(f"防假绿断言：已知生产文件 backend/src/{rel} 不在生产面扫描结果里")
+393:    return Report(failures, dict(sorted(skipped_rel.items())), len(production), coverage_errors, guard_errors)
+404:    if report.coverage_errors:
+405:        for item in report.coverage_errors:
+415:    if report.guard_errors:
+416:        for item in report.guard_errors:
+428:    elif not (report.coverage_errors or report.guard_errors):
+610:        "⑧ 防假绿断言：已知生产文件被误判成测试面 → FAIL（guard_errors 非空）",
+611:        bool(guard_report.guard_errors) and not guard_report.ok,
+612:        "; ".join(guard_report.guard_errors) or "guard_errors 为空（假绿！）",
+615:    # 覆盖范围断言：删掉 system/ 目录 → coverage_errors 必须非空
+626:        "⑨ 扫描范围断言：缺 system/ 目录 → coverage_errors 非空",
+627:        bool(coverage_report.coverage_errors),
+628:        "; ".join(coverage_report.coverage_errors) or "coverage_errors 为空（假绿！）",
+
+--- 实测探针 A：G5 对「有 .rs 但 0 个调用点」的树（口径要求 ≥27）---
+$ python3 scripts/lint/changelog_in_tx.py --root /root/.hermes/profiles/test-enginner/cache/scratch/probe_zero_sites
+G5 FAIL：只检查到 0 个调用点（口径要求 ≥ 27）—— 判定面/正则可能被改坏了，0 命中假绿同样判 FAIL
+EXIT=1   （期望非 0）
+
+--- 实测探针 B：G5 对「连 .rs 都没有」的树 ---
+$ python3 scripts/lint/changelog_in_tx.py --root /root/.hermes/profiles/test-enginner/cache/scratch/probe_empty_tree
+G5 跳过/失败：/root/.hermes/profiles/test-enginner/cache/scratch/probe_empty_tree/backend/src 下没有 .rs 文件
+EXIT=2   （期望非 0）
+
+--- 实测探针 C：闸② 对「缺已知生产文件」的树（防假绿硬断言）---
+$ python3 scripts/lint/scope_gate.py --root /root/.hermes/profiles/test-enginner/cache/scratch/probe_zero_sites2
+闸② 判定面（v2）：扫描生产面 1 个文件 / 跳过测试面 0 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  FAIL：扫描范围 backend/src/system 下没有 .rs 文件（目录搬走或未纳入版本管理）
+  FAIL：扫描范围 backend/src/support 下没有 .rs 文件（目录搬走或未纳入版本管理）
+  FAIL：扫描范围 backend/src/shared 下没有 .rs 文件（目录搬走或未纳入版本管理）
+  FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 不存在（扫描根/目录结构异常）
+  FAIL：防假绿断言：已知生产文件 backend/src/business/project/model.rs 不存在（扫描根/目录结构异常）
+  FAIL：防假绿断言：已知生产文件 backend/src/business/shared/scope.rs 不存在（扫描根/目录结构异常）
+EXIT=1   （期望非 0）
