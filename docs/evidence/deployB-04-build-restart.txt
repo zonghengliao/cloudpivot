@@ -1,0 +1,19 @@
+DEPLOY-B 后端编译 + 重启（2026-11-03 11:12:44 CST）
+== release 二进制 ==
+-rwxr-xr-x 2 root root 51846488 2026-11-03 10:53:38.846909376 +0800 /opt/cloudpivot/backend/target/release/cloudpivot
+ac855ac87e82a33e3f988ba5733dad16  /opt/cloudpivot/backend/target/release/cloudpivot
+== 进程 vs 磁盘 ==
+proc_pid = 4188039
+proc_md5 = ac855ac87e82a33e3f988ba5733dad16
+disk_md5 = ac855ac87e82a33e3f988ba5733dad16
+== systemctl ==
+● cloudpivot.service - CloudPivot (云枢) backend (Rust / NIK framework)
+     Loaded: loaded (/etc/systemd/system/cloudpivot.service; enabled; preset: enabled)
+     Active: active (running) since Tue 2026-11-03 10:56:29 CST; 16min ago
+ Invocation: 1cc53222da0c42a2b58f928f91c1363c
+   Main PID: 4188039 (cloudpivot)
+      Tasks: 5 (limit: 6725)
+== /health ==
+{"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"prod","time":"2026-11-03T03:12:45.132763755+00:00"}}
+== 启动日志 ==
+Nov 03 10:56:29 ubuntu-svr cloudpivot[4188039]: {"timestamp":"2026-11-03T02:56:29.543924Z","level":"INFO","fields":{"message":"数据库迁移完成: 应用 0 个迁移"},"target":"nik_web::app"}

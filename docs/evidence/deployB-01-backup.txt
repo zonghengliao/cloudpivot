@@ -1,0 +1,9 @@
+DEPLOY-B 备份（生成时间 2026-11-03 11:12:44 CST）
+== 全库备份 ==
+-rw-r--r-- 1 root root 1712094 2026-11-03 10:50:34.049132149 +0800 /root/backup-pre-V0201-20261103-105033.dump
+== 旧二进制 ==
+-rwxr-xr-x 1 root root 49887648 2026-11-02 20:01:12.015739515 +0800 /root/cloudpivot-bin-pre-DEPLOYB
+8ad2905f4d3527bd458b8caf714e8624  /root/cloudpivot-bin-pre-DEPLOYB
+== 旧 dist ==
+14M	/root/dist-pre-DEPLOYB
+assets/index-C7HCCblS.js

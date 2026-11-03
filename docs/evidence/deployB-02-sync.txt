@@ -1,0 +1,24 @@
+DEPLOY-B 主仓同步（2026-11-03 11:12:44 CST）
+HEAD            = d04054b739e7fa48e41556c99c1b1070b4011a8e
+origin/main     = d04054b739e7fa48e41556c99c1b1070b4011a8e
+bare main       = d04054b739e7fa48e41556c99c1b1070b4011a8e
+两者一致        = yes
+== 6 个新迁移 ==
+backend/migrations/business/V0201__erp_material_costing_moving_avg_only.up.sql
+backend/migrations/business/V0202__erp_approval_flow_health.up.sql
+backend/migrations/business/V0203__erp_stock_out.up.sql
+backend/migrations/business/V0204__flow_state_edge.up.sql
+backend/migrations/business/V0205__flow_linkage_rule.up.sql
+backend/migrations/business/V0206__flow_edge_config_admin.up.sql
+== 出库单后端 ==
+backend/src/business/erp/stockout_base.rs
+backend/src/business/erp/stockout_dto.rs
+backend/src/business/erp/stockout_handler.rs
+backend/src/business/erp/stockout_model.rs
+backend/src/business/erp/stockout_tests.rs
+== 出库单前端 ==
+frontend/src/api/business/erp/stock-out.ts
+
+frontend/src/views/business/erp/stock-out/:
+index.vue
+stock-out-logic.ts

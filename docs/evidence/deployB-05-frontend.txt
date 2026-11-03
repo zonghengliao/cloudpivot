@@ -1,0 +1,14 @@
+DEPLOY-B 前端构建 + 替换（2026-11-03 11:12:44 CST）
+== pnpm install / typecheck / build 结论 ==
+install_rc=0
+typecheck_rc=0
+build_rc=0
+== dist 与线上入口 ==
+dist/index.html   : assets/index-COHYtSHL.js
+线上 http://127.0.0.1/ : assets/index-COHYtSHL.js
+入口 chunk 可下载: 200 115562B
+== 替换前（备份）入口 ==
+assets/index-C7HCCblS.js
+== 出库单页面 chunk ==
+/opt/cloudpivot/frontend/dist/assets/index-DbuYH0X2.js
+drwxr-xr-x 3 root root 73 2026-11-03 10:54:31.798851839 +0800 /opt/cloudpivot/frontend/dist

@@ -1,0 +1,62 @@
+DEPLOY-B 迁移结果（2026-11-03 11:12:44 CST）
+
+----- schema_migrations ≥201
+201 | erp_material_costing_moving_avg_only | imported | true
+202 | erp_approval_flow_health | imported | true
+203 | erp_stock_out | imported | true
+204 | flow_state_edge | imported | true
+205 | flow_linkage_rule | imported | true
+206 | flow_edge_config_admin | imported | true
+
+----- V0201 ck_biz_material_costing 定义
+CHECK ((((costing_method)::text = 'MOVING_AVG'::text) IS TRUE))
+
+----- V0201 违反行数（应为 0）
+0
+
+----- V0201 同表其余 CHECK 仍在（应为 3）
+3
+
+----- V0202 权限码 1200/1201
+business:erp:approval-flow:health, business:erp:skip-approval
+
+----- V0203 两张表 + 列数
+biz_stock_out|21
+biz_stock_out_item|13
+
+----- V0203 权限码 6 个 + 取号规则
+6
+STOCK_OUT|OUT|4
+
+----- V0204 表 + 唯一约束
+1
+UNIQUE (entity, from_status, to_status)
+
+----- V0205 表 + action_code CHECK
+1
+ck_flow_linkage_action_code :: CHECK (((action_code)::text = ANY ((ARRAY['WRITE_INVENTORY'::character varying, 'WRITE_INVENTORY_TXN'::character varying, 'UPDATE_COST'::character varying, 'GENERATE_VOUCHER'::character varying, 'REVERSE_VOUCHER'::character varying, 'UPDATE_DOC_STATUS'::character varying, 'UPDATE_RECEIVED_QTY'::character varying, 'UPDATE_PAYABLE_BALANCE'::character varying, 'CREATE_TASK'::character varying, 'SEND_NOTICE'::character varying, 'LOCK_DOCUMENT'::character varying])::text[])))
+ck_flow_linkage_name :: CHECK ((length(btrim((name)::text)) > 0))
+ck_flow_linkage_no_sql_key :: CHECK ((NOT (action_params ?| ARRAY['sql'::text, 'sql_text'::text, 'statement'::text, 'stmt'::text, 'query'::text, 'queries'::text, 'script'::text, 'expression'::text, 'exec'::text, 'execute'::text, 'shell'::text, 'cmd'::text])))
+ck_flow_linkage_params_object :: CHECK ((jsonb_typeof(action_params) = 'object'::text))
+ck_flow_linkage_seq :: CHECK ((seq >= 0))
+
+----- V0206 权限码 1210/1211 + 角色 + 种子流程
+business:flow:state-edge:list, business:flow:state-edge:manage
+FLOW_CONFIG_APPROVER|流程配置复核员
+flow_edge_config|PUBLISHED|FLOW_EDGE_CFG|1
+3
+
+----- 四张新表合计（期望 4）
+4
+
+== schema_migrations 里 201-206（含记账口径）==
+ version |                 name                 | applied_via | success | execution_ms |                                 source                                 
+---------+--------------------------------------+-------------+---------+--------------+------------------------------------------------------------------------
+ 201     | erp_material_costing_moving_avg_only | imported    | t       |           60 | migrations/business/V0201__erp_material_costing_moving_avg_only.up.sql
+ 202     | erp_approval_flow_health             | imported    | t       |           50 | migrations/business/V0202__erp_approval_flow_health.up.sql
+ 203     | erp_stock_out                        | imported    | t       |           82 | migrations/business/V0203__erp_stock_out.up.sql
+ 204     | flow_state_edge                      | imported    | t       |           36 | migrations/business/V0204__flow_state_edge.up.sql
+ 205     | flow_linkage_rule                    | imported    | t       |           38 | migrations/business/V0205__flow_linkage_rule.up.sql
+ 206     | flow_edge_config_admin               | imported    | t       |           41 | migrations/business/V0206__flow_edge_config_admin.up.sql
+(6 rows)
+

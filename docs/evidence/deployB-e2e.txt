@@ -1,0 +1,96 @@
+[PASS] API 登录成功 user=admin token=eyJ0eXAiOiJK…
+
+===== ① 登录能进（不白屏）=====
+       页面文本长度=506 hasToken=true
+[PASS] 首页已渲染（非白屏，localStorage 有令牌）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-01-login-home.png
+
+===== 数据准备 =====
+       物料=M-W1A-001 原料A（种子） id=d1370003-0000-4000-8000-000000000001
+       仓库=WH02 分仓（种子） id=d1370001-0000-4000-8000-000000000002
+       出库前成本账：qty=391.0000 amount=782.0000 avg=2.000000
+       库位账行 id=fcd4ac69-1e69-486f-a31a-eee2dab5631f qty=391.0000
+
+===== ② 出库单页面 / 新建 / 过账 =====
+[PASS] 出库单页面打开（btn-stockout-create 可见，路由不 404）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-02-stockout-list.png
+[PASS] 新建出库单抽屉打开
+       截图 → /opt/cloudpivot/docs/evidence/deployB-03-stockout-create-issue-drawer.png
+[PASS] 领用单保存成功（无 submit-error）
+       保存后自动打开了详情抽屉，先关闭
+[PASS] 领用单已落库：OUT-20261103-000007 status=DRAFT
+[PASS] 详情抽屉打开：OUT-20261103-000007
+       截图 → /opt/cloudpivot/docs/evidence/deployB-04-stockout-detail-draft.png
+       截图 → /opt/cloudpivot/docs/evidence/deployB-05-stockout-post-dialog.png
+[PASS] 过账动作返回成功（无 post-error）
+       详情状态徽标=已过账
+[PASS] 详情状态 = 已过账
+       截图 → /opt/cloudpivot/docs/evidence/deployB-06-stockout-detail-posted.png
+       过账后 detail: status=POSTED total_amount=4.0000 voucher_id=2ca98111-b416-4c91-86ff-9dde8236c637
+[PASS] API 详情 status=POSTED
+[PASS] 成本结转凭证已生成 voucher_id=2ca98111-b416-4c91-86ff-9dde8236c637
+[PASS] 成本结转金额 > 0（4.0000）
+       出库后成本账：qty=389.0000 amount=778.0000
+[PASS] 库存减少 2（391.0000 → 389.0000）
+       SCRAP 单已存在草稿，跳过创建
+[PASS] SCRAP 单已存在（草稿）
+       LOSS 单已存在草稿，跳过创建
+[PASS] LOSS 单已存在（草稿）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-07-stockout-list-three-types.png
+
+===== ③ 成本法只剩「移动加权」 =====
+       成本法控件文本= input=移动加权平均（MOVING_AVG） disabled=true
+       灰字说明=本版本仅支持移动加权平均（MOVING_AVG）；FIFO / 标准成本（STANDARD）需要批次成本层，属路线图能力，暂不可选。
+       可展开选项=[]（控件按设计置灰，展开为空属预期）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-08-material-costing-disabled-single.png
+[PASS] 成本法控件=「移动加权平均（MOVING_AVG）」且置灰（不给「选了不生效」的机会）
+[PASS] 灰字说明与后端文案同口径（FIFO/STANDARD 属路线图）
+[PASS] 下拉里除「移动加权」外没有第二项（FIFO/STANDARD 已移除）
+
+===== ④ 非基本单位被拒（物料主数据闸） =====
+       使用单位：箱 id=d1370000-0000-4000-8000-000000000003
+       POST /material → 400 {"code":66030,"msg":"物料的计量单位必须是基本单位：折算单位（箱/打）只能用于显示，本版本单据不支持多单位换算（当前「箱」）"}
+[PASS] 非基本单位建物料 → 400 + 66030
+       表单报错：物料的计量单位必须是基本单位：折算单位（箱/打）只能用于显示，本版本单据不支持多单位换算（当前「箱」）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-09-material-unit-rejected.png
+[PASS] UI 选「箱」保存 → 被拒并展示 66030 文案
+
+===== ⑤ 已取消采购单收货被拒 =====
+       已取消采购单：PO-20261031-000005 id=01a18dee-e67c-7133-90da-2e364b3036ea
+       POST /stock-in → 400 {"code":10001,"msg":"来源采购单 PO-20261031-000005 当前是「已取消」（CANCELLED），不能收货：只有已提交（SUBMITTED）/ 已审批（APPROVED）/部分收货（PARTIAL_RECEIVED）的采购单可以收"}
+[PASS] 收货被拒：400 + code 10001
+
+===== ⑦ 四单审批进度（审批人 + 时间）=====
+       截图 → /opt/cloudpivot/docs/evidence/deployB-10-approval-purchase.png
+       采购单：审批进度块=（无 data-testid 块） 页面含「审批」=true
+[PASS] 采购单 详情能看到审批信息（含审批人/时间区域）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-11-approval-stockin.png
+       收货单：审批进度块=（无 data-testid 块） 页面含「审批」=true
+[PASS] 收货单 详情能看到审批信息（含审批人/时间区域）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-12-approval-payable.png
+       应付单：审批进度块=（无 data-testid 块） 页面含「审批」=true
+[PASS] 应付单 详情能看到审批信息（含审批人/时间区域）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-13-approval-voucher.png
+       凭证：审批进度块=（无 data-testid 块） 页面含「审批」=true
+[PASS] 凭证 详情能看到审批信息（含审批人/时间区域）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-14-approval-transfer.png
+       调拨单：审批进度块=开始 已通过 超管审批 已通过 结束 已通过 超管审批 超级管理员 已同意 2026-10-31 11:35:21 自审 Henry.Liao 已同意 2026-10-31 11:35:59 老六 已同意 2026-11-02 11:33: 页面含「审批」=true
+[PASS] 调拨单 详情能看到审批信息（含审批人/时间区域）
+
+===== ⑧ 状态机边配置 =====
+       GET /business/flow/state-edge → 200 code=0 total=1
+[PASS] 状态机边配置 HTTP 面可用（V0204 + D3 接口已上线）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-15-flow-def-page.png
+       流程定义页（/flow/def）文本长度=888；「边配置」按钮/链接数=0
+[FAIL] 流程定义页**没有**「边配置」入口（前端未交付该入口，详见卡内报告）
+
+===== ⑩ 控制台 / 4xx-5xx =====
+       console error 数=1（其中负向断言引起的 1 条）；API 4xx/5xx 数=1（其中 400/409 负向断言 1）
+[PASS] 控制台无意外 error
+[PASS] 无意外 4xx/5xx
+       （预期内的负向断言请求：400 http://127.0.0.1/api/business/erp/material）
+       截图 → /opt/cloudpivot/docs/evidence/deployB-16-final-state.png
+
+===== 汇总 TAG=DEPLOYB-20261103034751 PASS=29 FAIL=1 SKIP=0 截图=16 张 =====
+未通过项：
+ - 流程定义页**没有**「边配置」入口（前端未交付该入口，详见卡内报告）

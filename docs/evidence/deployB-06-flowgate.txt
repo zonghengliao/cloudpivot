@@ -1,0 +1,16 @@
+=== 恢复前状态 ===
+po_approve | PUBLISHED | ver=20000000-0000-4000-8000-0000000a0183
+=== 临时下线 po_approve（只影响这一次取证的 10 秒窗口）===
+po_approve | DISABLED
+=== 提交 DRAFT 采购单（期望 409 + 66033）===
+目标采购单：PO-20261102-000002 status=DRAFT id=01a19c2b-56bb-7187-ac2c-b0ea6adf6105
+POST submit-approval → status=409 code=66033
+msg=没有配置已发布的审批流程 `po_approve`（业务类型 PO_APPROVE）：为避免「没有审批就直接生效」，本次操作已被拒绝。两条出路：① 让管理员在「审批配置」里发布 `po_approve`；② 如果这类单据暂时不走审批，请给对应角色授予 `business:erp:skip-approval`，并在请求里显式传 skip_approval=true + skip_reason（≥10 字）
+[PASS] 审批流未配置 → 409 + 66033，报文点名 po_approve
+复核单据状态：DRAFT（应为 DRAFT）
+flowgate_rc=0
+=== 已恢复 po_approve → PUBLISHED ===
+=== 恢复后：审批流健康自检（期望 healthy=8）===
+health: {"total":8,"healthy":8,"unhealthy":0,"unhealthy_list":[]}
+=== po_approve 最终状态 ===
+po_approve | PUBLISHED
