@@ -91,6 +91,8 @@
 | 每个新文件 <1000 行 | 最大 847 | 06-wc-l.txt |
 | 保真度（条目 / SQL / 用例名 / 代码 token 四重多重集） | 全部 MISSING=none ADDED=none | 05-fidelity.txt |
 | 单测是否被改 | 用例名多重集 77→77、122→122；断言与夹具调用逐 token 相同 | 05-fidelity.txt |
+| 原有 `pub` 接口一个没变 | `task/model.rs` 140 → 140、`stockin_handler.rs` 23 → 23，丢失/新增均为 none | 08-pub-api.txt |
+| 调用方零改动 | 提交里 `task/handler.rs`、`erp/handler.rs`、`*_bridge.rs`、router、bootstrap 出现 0 次 | 09-git.txt |
 
 不变量的自查（32/32）：本卡**只搬代码**，未触碰任何业务分支/SQL/状态机；
 `verify_move.py` 的 token 多重集（36807 / 54942 个 token 逐一相同）是比「人眼 diff」

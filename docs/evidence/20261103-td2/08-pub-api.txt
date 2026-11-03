@@ -1,0 +1,17 @@
+# 公开 API 不变（逐项对照拆分前 ref = 52f1ccf）
+
+判据：拆分前每个**顶层 `pub` 项**（fn/struct/enum/trait/type/const/static），
+拆分后必须仍是 `pub`（不是被降级成 `pub(super)`）。
+
+```
+======================================================================
+backend/src/business/task/model.rs   拆分前 pub 项 140 个 → 拆分后 pub 项 140 个
+  丢失（降级成 pub(super) 或消失）: none
+  新增: none
+======================================================================
+backend/src/business/erp/stockin_handler.rs   拆分前 pub 项 23 个 → 拆分后 pub 项 23 个
+  丢失（降级成 pub(super) 或消失）: none
+  新增: none
+======================================================================
+结论: PASS（原有 pub 接口一个没变）
+```

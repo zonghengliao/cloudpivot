@@ -1,0 +1,90 @@
+# git：提交与改动面
+
+## 提交
+```
+f6a79e73e5009c7acc32400428e8b1d3c98dca6b
+refactor(erp): TD-2 拆分第二批 —— task/model.rs 7604→142、stockin_handler.rs 9394→131
+```
+
+## 改动面（git show --stat）
+```
+f6a79e7 refactor(erp): TD-2 拆分第二批 —— task/model.rs 7604→142、stockin_handler.rs 9394→131
+ backend/src/business/erp/mod.rs                    |   12 +
+ backend/src/business/erp/stockin_handler.rs        | 9371 +-------------------
+ backend/src/business/erp/stockin_handler_cancel.rs |  612 ++
+ backend/src/business/erp/stockin_handler_common.rs |  682 ++
+ backend/src/business/erp/stockin_handler_post.rs   |  847 ++
+ .../src/business/erp/stockin_handler_purchase.rs   |  482 +
+ backend/src/business/erp/stockin_handler_query.rs  |  101 +
+ backend/src/business/erp/stockin_handler_status.rs |  259 +
+ .../src/business/erp/stockin_handler_tests_a4.rs   |  547 ++
+ .../business/erp/stockin_handler_tests_cancel.rs   |  623 ++
+ .../erp/stockin_handler_tests_d4_purchase.rs       |  426 +
+ .../business/erp/stockin_handler_tests_d9_copy.rs  |  377 +
+ .../src/business/erp/stockin_handler_tests_dc03.rs |  352 +
+ .../business/erp/stockin_handler_tests_fixtures.rs |  445 +
+ .../business/erp/stockin_handler_tests_helpers.rs  |  816 ++
+ .../business/erp/stockin_handler_tests_location.rs |  328 +
+ .../erp/stockin_handler_tests_p10_locked.rs        |  274 +
+ .../src/business/erp/stockin_handler_tests_p16.rs  |  705 ++
+ .../business/erp/stockin_handler_tests_pflow3a.rs  |  448 +
+ .../business/erp/stockin_handler_tests_posting.rs  |  468 +
+ .../business/erp/stockin_handler_tests_update.rs   |  377 +
+ backend/src/business/erp/stockin_handler_write.rs  |  497 ++
+ backend/src/business/task/mod.rs                   |   15 +
+ backend/src/business/task/model.rs                 | 7538 +---------------
+ backend/src/business/task/task_model_ai.rs         |  333 +
+ backend/src/business/task/task_model_base.rs       |  564 ++
+ .../task/task_model_cascade_cancel_tests.rs        |  529 ++
+ .../src/business/task/task_model_cascade_tests.rs  |  596 ++
+ backend/src/business/task/task_model_dep.rs        |  441 +
+ .../src/business/task/task_model_depth_tests.rs    |  419 +
+ .../task/task_model_display_file_name_tests.rs     |   61 +
+ backend/src/business/task/task_model_flow.rs       |  230 +
+ backend/src/business/task/task_model_hierarchy.rs  |  634 ++
+ backend/src/business/task/task_model_query.rs      |  777 ++
+ .../src/business/task/task_model_repair_tests.rs   |  331 +
+ .../business/task/task_model_root_only_tests.rs    |  385 +
+ backend/src/business/task/task_model_rows.rs       |  812 ++
+ backend/src/business/task/task_model_schedule.rs   |  152 +
+ backend/src/business/task/task_model_stats.rs      |   91 +
+ .../src/business/task/task_model_stats_tests.rs    |   55 +
+ .../task/task_model_statuses_filter_tests.rs       |  393 +
+ backend/src/business/task/task_model_tests.rs      |  321 +
+ backend/src/business/task/task_model_write.rs      |  526 ++
+ ...72\214\346\211\271-\350\257\264\346\230\216.md" |  110 +
+ docs/evidence/20261103-td2/01-baseline.txt         |   38 +
+ docs/evidence/20261103-td2/02-after-tests.txt      |   38 +
+ docs/evidence/20261103-td2/03-test-name-diff.txt   |   28 +
+ docs/evidence/20261103-td2/04-full-lib.txt         |   63 +
+ docs/evidence/20261103-td2/05-fidelity.txt         |   15 +
+ docs/evidence/20261103-td2/06-wc-l.txt             |   56 +
+ docs/evidence/20261103-td2/07-build-clippy.txt     |   26 +
+ docs/refactor-methodology.md                       |  109 +
+ scripts/refactor/plans/stockin_handler.json        |  523 ++
+ scripts/refactor/plans/task_model.json             |  327 +
+ scripts/refactor/split_module.py                   |   11 +
+ scripts/refactor/td2_split.py                      |  259 +
+ scripts/refactor/verify_move.py                    |  176 +
+ 57 files changed, 19214 insertions(+), 16817 deletions(-)
+```
+
+## 调用方零改动
+```
+# 被改动的既有文件（其余全是新增文件 / 文档 / refactor 工具）：
+M	backend/src/business/erp/mod.rs
+M	backend/src/business/erp/stockin_handler.rs
+M	backend/src/business/task/mod.rs
+M	backend/src/business/task/model.rs
+M	docs/refactor-methodology.md
+M	scripts/refactor/split_module.py
+
+# 调用方文件（task/handler.rs、erp/handler.rs、*_bridge.rs、router、bootstrap）在本提交里出现的次数：
+0
+```
+
+## 拆分前后行数
+```
+task/model.rs          7604 → 142
+erp/stockin_handler.rs 9394 → 131
+```
