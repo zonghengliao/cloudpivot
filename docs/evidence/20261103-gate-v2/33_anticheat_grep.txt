@@ -1,0 +1,134 @@
+# 手法检查（反作弊）原始输出   2026-11-03T23:44:05+08:00
+
+== 1) BATCHB_GATE 默认值（必须仍是 fail）==
+6:#   BATCHB_GATE=warn bash scripts/check.sh
+156:        if [ "${BATCHB_GATE:-fail}" = "warn" ]; then
+157:            echo "==> 批次B 门禁：$failed 条未通过（BATCHB_GATE=warn → 仅告警，不中断）" >&2
+164:        echo "    B2–B4 施工期可临时用 BATCHB_GATE=warn bash scripts/check.sh 绕过本门禁。" >&2
+362:    echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"
+
+== 2) check.sh 的 exit / set +e / 提前返回 ==
+159:            return 0
+165:        return 1
+168:    return 0
+278:        return 1
+281:    return 0
+297:    exit 1
+318:        return 0
+330:        return 0
+338:        return 0
+348:        return 0
+353:    return 1
+357:    exit 1
+
+== 3) check.sh 里所有 '|| true' 的上下文（是否在门禁判据里吞错）==
+114:        | grep -v -E "^[^:]+:[0-9]+: *(//|\*)" || true)
+191:    grep -v -E '^[^:]+:[0-9]+:[[:space:]]*(//|\*)' || true
+200:    out=$(grep -rn "sys_change_log" "$src" --include=*.rs | grep -v "/business/changelog/" | batchc_strip_comments || true)
+211:    out=$(grep -rn "db()" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+240:    done < <(grep -rnE "async fn record(_in)?[[:space:]]*\(" "$src/business/changelog/" --include=*.rs | batchc_strip_comments || true)
+260:    out=$(grep -rn "FROM sys_change_log WHERE id" "$src" --include=*.rs | batchc_strip_comments || true)
+336:        echo "  ✓ 全部不变量成立（$(grep -c '✅' "$log" || true) 条通过）"
+342:    blockers="$(grep -oE 'BLOCKER [0-9]+' "$log" | head -1 | grep -oE '[0-9]+' || true)"
+346:        grep '^  · \[' "$log" | head -10 || true
+351:    grep '^  · \[' "$log" | head -10 >&2 || true
+
+== 4) 被注释掉的门禁调用 ==
+54:# 由 scripts/lint/scope_gate.py 用 `"FROM <t>" in line` 做子串判定，等价于原 `grep -rl`）；
+127:    # 判定实现搬进 scripts/lint/scope_gate.py（门禁口径 v2 · D1，见 docs/门禁口径-v2-20261103.md）：
+130:    #     `python3 scripts/lint/scope_gate.py --list-skipped` 打印清单+声明位置）；
+
+== 5) 门禁脚本里的 0 命中放行分支检查 ==
+74:MIN_CALL_SITES = 27
+445:def coverage_ok(call_sites: int) -> bool:
+447:    return call_sites >= MIN_CALL_SITES
+486:    if not coverage_ok(call_sites):
+488:            f"G5 FAIL：只检查到 {call_sites} 个调用点（口径要求 ≥ {MIN_CALL_SITES}）"
+506:    return 0
+673:    check("⑩ 防假绿：调用点数 0 → coverage_ok=False", not coverage_ok(0))
+674:    check(f"⑪ 防假绿：调用点数 {MIN_CALL_SITES - 1} → coverage_ok=False", not coverage_ok(MIN_CALL_SITES - 1))
+675:    check(f"⑫ 防假绿：调用点数 {MIN_CALL_SITES} → coverage_ok=True", coverage_ok(MIN_CALL_SITES))
+681:    return 0 if failures == 0 else 1
+
+== 6) backend/src 里 #[allow( 的分类计数 ==
+      1 993:    #[allow(clippy::await_holding_lock)] // 单测专用：目的就是让两个缓存用例串行访问进程内埋点
+      1 966:#[allow(clippy::too_many_arguments)]
+      1 929:#[allow(clippy::too_many_arguments)]
+      1 913:#[allow(dead_code)]
+      1 747:#[allow(clippy::too_many_arguments)]
+      1 688:#[allow(clippy::too_many_arguments)]
+      1 672:#[allow(clippy::too_many_arguments)]
+      1 669:#[allow(clippy::too_many_arguments)]
+      1 619:#[allow(clippy::too_many_arguments)]
+      1 617:#[allow(clippy::too_many_arguments)]
+      1 554:#[allow(clippy::too_many_arguments)]
+      1 54:            #[allow(clippy::cast_sign_loss)]
+      1 523:#[allow(clippy::too_many_arguments)]
+      1 523:#[allow(async_fn_in_trait)]
+      1 516:#[allow(async_fn_in_trait)]
+      1 503:#[allow(dead_code)]
+      1 492:#[allow(dead_code)]
+      1 48:#[allow(dead_code)]
+      1 47:#[allow(non_camel_case_types)]
+      1 384:#[allow(clippy::too_many_arguments)]
+      1 347:#[allow(dead_code)]
+      1 331:#[allow(dead_code)]
+      1 289:#[allow(clippy::too_many_arguments)]
+      1 25:#[allow(non_camel_case_types)]
+      1 253:#[allow(clippy::too_many_arguments)]
+      1 22:#[allow(non_camel_case_types)]
+      1 2203:#[allow(clippy::too_many_arguments)]
+      1 2175:#[allow(clippy::too_many_arguments)]
+      1 2089:#[allow(clippy::too_many_arguments)]
+      1 1967:#[allow(clippy::too_many_arguments)]
+      1 1942:    #[allow(dead_code)]
+      1 1474:    #[allow(clippy::too_many_arguments)]
+      1 1367:#[allow(clippy::too_many_arguments)]
+      1 1361:#[allow(clippy::too_many_arguments)]
+      1 1289:#[allow(clippy::too_many_arguments)]
+      1 1255:#[allow(clippy::too_many_arguments)]
+      1 1038:    #[allow(clippy::await_holding_lock)] // 同上：与上一个用例共用 STATS_LOCK
+
+== 7) 门禁相关文件里是否新增 allow/ignore ==
+(无)
+
+== 8) A/B 两个提交是否碰过业务代码（只应有注释与脚本/文档）==
+    - bash scripts/check.sh 仍 exit 1（闸② 的 10 个生产面由卡 B 修）；BATCHB_GATE=warn 模式跑到底 exit 0，
+      C7 G1–G6 全通过、色板一致
+
+ docs/evidence/20261103-gate-v2/10_g5_before.txt    |  43 ++
+ docs/evidence/20261103-gate-v2/11_g5_after.txt     |  40 ++
+ docs/evidence/20261103-gate-v2/12_self_test_g5.txt |  17 +
+ docs/evidence/20261103-gate-v2/13_gate2_v2.txt     |  29 +
+ .../evidence/20261103-gate-v2/14_gate2_skipped.txt |  79 +++
+ docs/evidence/20261103-gate-v2/15_check_sh.txt     |  47 ++
+ .../20261103-gate-v2/16_self_test_gate2.txt        |  15 +
+ .../evidence/20261103-gate-v2/17_check_sh_warn.txt |  69 +++
+ .../20261103-gate-v2/18_gate2_diff_35_to_10.txt    |  47 ++
+ .../20261103-gate-v2/19_acceptance_assert.txt      |  21 +
+ docs/evidence/20261103-gate-v2/probe_classify.py   |  56 ++
+ .../evidence/20261103-gate-v2/verify_acceptance.py |  53 ++
+ ...246\201\345\217\243\345\276\204-v2-20261103.md" | 212 +++++++
+ scripts/check.sh                                   |  88 +--
+ scripts/lint/changelog_in_tx.py                    | 536 ++++++++++++++---
+ scripts/lint/scope_gate.py                         | 667 +++++++++++++++++++++
+ 16 files changed, 1878 insertions(+), 141 deletions(-)
+-----
+ backend/src/business/task/task_model_schedule.rs   |   5 +
+ backend/src/business/task/task_model_write.rs      |   3 +
+ .../20261103-gate-v2/20_scope_gate_after.txt       |  11 +
+ ..._erp_approval_gate_\350\257\201\346\215\256.md" |  25 +
+ ...p_contract_handler_\350\257\201\346\215\256.md" |  24 +
+ .../21_erp_reminder_\350\257\201\346\215\256.md"   |  25 +
+ ...erp_stockin_bridge_\350\257\201\346\215\256.md" |  26 +
+ .../21_flow_task_node_\350\257\201\346\215\256.md" |  23 +
+ ...flow_template_vars_\350\257\201\346\215\256.md" |  20 +
+ ...sk_task_model_flow_\350\257\201\346\215\256.md" |  24 +
+ ...sk_model_hierarchy_\350\257\201\346\215\256.md" |  34 +
+ ...ask_model_schedule_\350\257\201\346\215\256.md" |  24 +
+ ...k_task_model_write_\350\257\201\346\215\256.md" |  24 +
+ .../20261103-gate-v2/22_cargo_check_clippy.txt     |  11 +
+ docs/evidence/20261103-gate-v2/23_tests.txt        | 892 +++++++++++++++++++++
+ .../23b_tests_contract_approval_isolation.txt      |  55 ++
+ .../20261103-gate-v2/24_check_sh_all_green.txt     |  49 ++
+ 25 files changed, 1292 insertions(+)

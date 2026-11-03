@@ -1,0 +1,41 @@
+# 复核时刻：2026-11-03T23:43:53+08:00
+# 工作树：2a9db18 fix(scope): 闸② 生产面 10 文件逐条裁定 —— 25 处函数级 SCOPE-EXEMPT（附调用链证据）
+# 未跟踪文件（别的卡片的产物，非本次复核引入）：
+ M backend/src/business/erp/mod.rs
+ M backend/src/business/erp/payable_payment.rs
+ M backend/src/business/erp/purchase_dto.rs
+ M backend/src/business/erp/purchase_handler.rs
+ M backend/src/business/erp/purchase_model.rs
+ M backend/src/business/shared/state_machine.rs
+?? backend/migrations/business/V0213__erp_cancel_cascade_permissions.down.sql
+?? backend/migrations/business/V0213__erp_cancel_cascade_permissions.up.sql
+?? backend/src/business/erp/cancel_cascade.rs
+?? backend/src/test_db_guard.rs
+?? docs/evidence/20261103-gate-v2/31_probe_outputs.txt
+?? docs/evidence/20261103-gate-v2/32_gate_runs_on_committed_tree.txt
+?? docs/evidence/20261103-gate-v2/probes/
+
+== 干净树（git archive 2a9db18）闸② ==
+闸② 判定面（v2）：扫描生产面 311 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：0 处
+EXIT=0
+
+== 干净树 G5 ==
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 361 个文件）
+EXIT=0
+
+== 干净树闸② --list-skipped 计数 ==
+50
+
+== 工作树（含 2 个未跟踪 .rs）闸② ==
+闸② 判定面（v2）：扫描生产面 313 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：0 处
+EXIT=0
+
+== 工作树 G5 ==
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 363 个文件）
+EXIT=0

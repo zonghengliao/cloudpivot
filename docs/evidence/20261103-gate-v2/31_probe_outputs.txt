@@ -1,0 +1,427 @@
+====================================================================================================
+## G5 自建负例（5 条必核 + 我的额外探针）
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/g5_build_and_run.py
+EXIT=0
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/scripts/lint/changelog_in_tx.py --root /root/.hermes/profiles/information-security/cache/scratch/probe_work/g5fix --src /root/.hermes/profiles/information-security/cache/scratch/probe_work/g5fix/backend/src --list
+EXIT=1
+  ok  backend/src/_pad.rs:1 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:2 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:3 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:4 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:5 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:6 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:7 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:8 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:9 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:10 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:11 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:12 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:13 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:14 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:15 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:16 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:17 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:18 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:19 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:20 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:21 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:22 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:23 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:24 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:25 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:26 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:27 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:28 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:29 record(…) 在 transaction 闭包内
+  ok  backend/src/_pad.rs:30 record(…) 在 transaction 闭包内
+  skip backend/src/case04_shadow.rs:6 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  skip backend/src/case04_shadow.rs:7 裸调 record(…)（本地 fn record 遮蔽，D4.4）
+  ok  backend/src/case05_typed_param.rs:3 record(ex) 形参声明为 Transaction：cancel(ex: &Transaction)
+  ok  backend/src/case10_crate_begin.rs:3 record(…) 使用 begin() 创建的显式事务句柄
+  提示：backend/src/case08_plain_import.rs:4: 裸调 record(…) 不在判定面（D4 只认限定名），且本文件没有本地 fn record —— 若是 use 导入的裸调，请改写成 changelog::record
+G5 FAIL：5 个调用点不合规（检查了 37 个调用点，扫了 12 个文件）
+  backend/src/case01_top_level_db.rs:2: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  backend/src/case02_spawn.rs:3: record(&tx) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/case03_tx_but_db.rs:3: record(db()) 第一个实参含 db()——这会开第二个事务，回滚时留下假日志
+  backend/src/case04_shadow.rs:8: record(conn) 不在任何 transaction(|tx| ...) 闭包内，首参也不是 Transaction 类型的形参（也不在 begin() 创建的显式事务句柄负责的范围里）
+  backend/src/case11_tx_but_other_handle.rs:3: record(other_pool) 第一个实参里看不到 tx / Transaction 类型，无法证明是同事务执行器
+  修法：把 changelog::record(_in) 放进 db().transaction(|tx| async move { … }) 里、第一个实参传 &tx；或让首参是形参声明为 &Transaction 的事务句柄
+
+====================================================================================================
+## 旧 G5 报的 37 处逐条归类
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/classify37.py
+EXIT=0
+旧脚本报告的调用点数：37
+
+--- A_method_call: 28 处 ---
+    backend/src/shared/cache_gate.rs:96   gate.record(false);
+    backend/src/shared/cache_gate.rs:107   gate.record(false);
+    backend/src/shared/cache_gate.rs:109   gate.record(true);
+    backend/src/shared/cache_gate.rs:117   gate.record(false);
+    backend/src/shared/cache_gate.rs:118   gate.record(false);
+    backend/src/shared/cache_gate.rs:120   gate.record(true);
+    backend/src/shared/cache_gate.rs:122   gate.record(true);
+    backend/src/shared/session_cache.rs:154   GATE.record(true);
+    backend/src/shared/session_cache.rs:158   Ok(()) => GATE.record(true),
+    backend/src/shared/session_cache.rs:160   GATE.record(false);
+    backend/src/shared/session_cache.rs:185   GATE.record(true);
+    backend/src/shared/session_cache.rs:191   GATE.record(true);
+    backend/src/shared/session_cache.rs:195   GATE.record(false);
+    backend/src/system/dept/model.rs:345   TREE_CACHE_GATE.record(false);
+    backend/src/system/dept/model.rs:348   TREE_CACHE_GATE.record(true);
+    backend/src/system/dept/model.rs:357   TREE_CACHE_GATE.record(true);
+    backend/src/system/dept/model.rs:361   Ok(()) => TREE_CACHE_GATE.record(true),
+    backend/src/system/dept/model.rs:363   TREE_CACHE_GATE.record(false);
+    backend/src/system/menu/model.rs:251   TREE_CACHE_GATE.record(false);
+    backend/src/system/menu/model.rs:254   TREE_CACHE_GATE.record(true);
+    backend/src/system/menu/model.rs:265   TREE_CACHE_GATE.record(true);
+    backend/src/system/menu/model.rs:269   Ok(()) => TREE_CACHE_GATE.record(true),
+    backend/src/system/menu/model.rs:271   TREE_CACHE_GATE.record(false);
+    backend/src/system/role/model.rs:415   ENABLED_ROLES_GATE.record(false);
+    backend/src/system/role/model.rs:418   ENABLED_ROLES_GATE.record(true);
+    backend/src/system/role/model.rs:427   ENABLED_ROLES_GATE.record(true);
+    backend/src/system/role/model.rs:431   Ok(()) => ENABLED_ROLES_GATE.record(true),
+    backend/src/system/role/model.rs:433   ENABLED_ROLES_GATE.record(false);
+
+--- B_local_shadow: 7 处 ---
+    backend/src/business/flow/linkage/engine.rs:208   runs.push(record(
+    backend/src/business/flow/linkage/engine.rs:220   runs.push(record(
+    backend/src/business/flow/linkage/engine.rs:232   runs.push(record(&rule, Outcome::Skipped(reason), ctx));
+    backend/src/business/flow/linkage/engine.rs:239   runs.push(record(&rule, Outcome::Success(note), ctx));
+    backend/src/business/flow/linkage/engine.rs:242   runs.push(record(&rule, Outcome::Skipped(reason), ctx));
+    backend/src/business/flow/linkage/engine.rs:246   runs.push(record(&rule, Outcome::Failed(reason.clone()), ctx));
+    backend/src/business/flow/linkage/engine.rs:291   runs.push(record(&rule, outcome, ctx));
+
+--- C_typed_param: 0 处 ---
+
+--- D_UNKNOWN: 2 处 ---
+    backend/src/business/flow/model.rs:2802   arg= | sig= | line=changelog::record(
+    backend/src/business/flow/task_node.rs:308   arg= | sig= | line=let record = changelog::record(
+
+=== 汇总 ===
+{'A_method_call': 28, 'B_local_shadow': 7, 'C_typed_param': 0, 'D_UNKNOWN': 2} 合计 37
+有本地 fn record 的文件： ['backend/src/business/flow/linkage/engine.rs']
+
+====================================================================================================
+## 闸② 测试面判定绕过（T0–T7）
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/scope_bypass.py
+EXIT=0
+
+### T0 基线（未改动副本）  → exit=0
+   闸② 判定面（v2）：扫描生产面 313 个文件 / 跳过测试面 50 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：0 处
+
+### T2 生产文件里裸 #[cfg(test)]（后文生产查询 sys_notice）  → exit=1
+   闸② 判定面（v2）：扫描生产面 314 个文件 / 跳过测试面 50 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_a.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+     FAIL：1 个文件（按文件计）
+    zz_a 是否被判红： True
+
+### T3 cfg(test) mod 之后的生产函数（sys_user）  → exit=1
+   闸② 判定面（v2）：扫描生产面 314 个文件 / 跳过测试面 50 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_b.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+     FAIL：1 个文件（按文件计）
+    报红内容： ['FAIL: business/task/zz_b.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT', 'business/task/zz_b.rs (sys_user)']
+    biz_task（测试区内）是否被误报： False
+
+### T4 同一文件被普通 mod 与 #[cfg(test)] mod 双指向  → exit=0
+   闸② 判定面（v2）：扫描生产面 313 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：0 处
+    zz_c 被跳过： False
+    zz_c 报红： False
+    --list-skipped 里 zz_c 那行： ['business/task/zz_c.rs  ← /root/.hermes/profiles/information-security/cache/scratch/probe_work/scope_bypass/t4_double_mount/backend/src/business/task/model.rs:145']
+
+### T5a 先让 zz_d 报红（对照）  → exit=1
+   闸② 判定面（v2）：扫描生产面 314 个文件 / 跳过测试面 50 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+       FAIL: business/task/zz_d.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+     FAIL：1 个文件（按文件计）
+
+### T5b 加一条 #[cfg(test)] #[path=zz_d.rs] mod ghost_copy;  → exit=0
+   闸② 判定面（v2）：扫描生产面 313 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：0 处
+    zz_d 报红： False
+    --list-skipped 里 zz_d 那行： ['business/task/zz_d.rs  ← /root/.hermes/profiles/information-security/cache/scratch/probe_work/scope_bypass/t5_phantom_path/backend/src/business/erp/approval_gate.rs:797']
+
+### T6a 把 task_model_query.rs 声明成 #[cfg(test)]（改 mod.rs）  → exit=1
+   闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 51 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/information-security/cache/scratch/probe_work/scope_bypass/t6_guard/backend/src/business/task/mod.rs:97）—— 解析器误判，闸② 不许据此变绿
+    guard 报错： ['FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 被判成了测试面（声明位置 /root/.hermes/profiles/information-security/cache/scratch/probe_work/scope_bypass/t6_guard/backend/src/business/task/mod.rs:97）—— 解析器误判，闸② 不许据此变绿']
+
+### T6b 脚本副本把 task_model_query.rs 从扫描集合剔除  → exit=1
+   闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 50 个文件
+     FAIL：防假绿断言：已知生产文件 backend/src/business/task/task_model_query.rs 不在生产面扫描结果里
+
+### T7 一个 SCOPE-EXEMPT 注释是否连带豁免同文件里的用户可见列表查询  → exit=0
+   闸② 判定面（v2）：扫描生产面 314 个文件 / 跳过测试面 50 个文件
+     PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+     PASS：0 处
+    zz_e 报红： False
+
+====================================================================================================
+## 闸② 解析器边角（U1–U6）
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/scope_edges.py
+EXIT=0
+$ scope_gate.py --root /root/.hermes/profiles/information-security/cache/scratch/probe_work/scope_edges   EXIT=1
+  闸② 判定面（v2）：扫描生产面 319 个文件 / 跳过测试面 50 个文件
+  FAIL: business/task/zz_u1.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u4.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u5.rs 查询 sys_notice 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL: business/task/zz_u6.rs 查询 sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+
+====================================================================================================
+## 50 个跳过文件的 Rust 语义审计
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/audit_skips.py
+EXIT=0
+被跳过的测试面文件：50 个
+  business/attachment/tests.rs
+      ← business/attachment/mod.rs:48 mod tests; → Rust=['business/attachment/tests.rs'] OK
+  business/erp/contract_approval_tests.rs
+      ← business/erp/mod.rs:82 mod contract_approval_tests; → Rust=['business/erp/contract_approval_tests.rs'] OK
+  business/erp/fixture_hygiene.rs
+      ← business/erp/mod.rs:188 mod fixture_hygiene; → Rust=['business/erp/fixture_hygiene.rs'] OK
+  business/erp/model_tests.rs
+      ← business/erp/model.rs:80 mod tests; → Rust=['business/erp/model_tests.rs'] OK
+  business/erp/period_items_tests.rs
+      ← business/erp/period_items.rs:993 mod tests; → Rust=['business/erp/period_items_tests.rs'] OK
+  business/erp/period_remind_tests.rs
+      ← business/erp/period_remind.rs:562 mod tests; → Rust=['business/erp/period_remind_tests.rs'] OK
+  business/erp/period_test_support.rs
+      ← business/erp/mod.rs:146 mod period_test_support; → Rust=['business/erp/period_test_support.rs'] OK
+  business/erp/pflow3b_tests.rs
+      ← business/erp/mod.rs:191 mod pflow3b_tests; → Rust=['business/erp/pflow3b_tests.rs'] OK
+  business/erp/reminder_tests.rs
+      ← business/erp/mod.rs:195 mod reminder_tests; → Rust=['business/erp/reminder_tests.rs'] OK
+  business/erp/stockin_handler_tests_a4.rs
+      ← business/erp/stockin_handler.rs:131 mod stockin_handler_tests_a4; → Rust=['business/erp/stockin_handler_tests_a4.rs'] OK
+  business/erp/stockin_handler_tests_cancel.rs
+      ← business/erp/stockin_handler.rs:103 mod stockin_handler_tests_cancel; → Rust=['business/erp/stockin_handler_tests_cancel.rs'] OK
+  business/erp/stockin_handler_tests_d4_purchase.rs
+      ← business/erp/stockin_handler.rs:119 mod stockin_handler_tests_d4_purchase; → Rust=['business/erp/stockin_handler_tests_d4_purchase.rs'] OK
+  business/erp/stockin_handler_tests_d9_copy.rs
+      ← business/erp/stockin_handler.rs:127 mod stockin_handler_tests_d9_copy; → Rust=['business/erp/stockin_handler_tests_d9_copy.rs'] OK
+  business/erp/stockin_handler_tests_dc03.rs
+      ← business/erp/stockin_handler.rs:111 mod stockin_handler_tests_dc03; → Rust=['business/erp/stockin_handler_tests_dc03.rs'] OK
+  business/erp/stockin_handler_tests_fixtures.rs
+      ← business/erp/stockin_handler.rs:83 mod stockin_handler_tests_fixtures; → Rust=['business/erp/stockin_handler_tests_fixtures.rs'] OK
+  business/erp/stockin_handler_tests_helpers.rs
+      ← business/erp/stockin_handler.rs:87 mod stockin_handler_tests_helpers; → Rust=['business/erp/stockin_handler_tests_helpers.rs'] OK
+  business/erp/stockin_handler_tests_location.rs
+      ← business/erp/stockin_handler.rs:99 mod stockin_handler_tests_location; → Rust=['business/erp/stockin_handler_tests_location.rs'] OK
+  business/erp/stockin_handler_tests_p10_locked.rs
+      ← business/erp/stockin_handler.rs:107 mod stockin_handler_tests_p10_locked; → Rust=['business/erp/stockin_handler_tests_p10_locked.rs'] OK
+  business/erp/stockin_handler_tests_p16.rs
+      ← business/erp/stockin_handler.rs:115 mod stockin_handler_tests_p16; → Rust=['business/erp/stockin_handler_tests_p16.rs'] OK
+  business/erp/stockin_handler_tests_pflow3a.rs
+      ← business/erp/stockin_handler.rs:123 mod stockin_handler_tests_pflow3a; → Rust=['business/erp/stockin_handler_tests_pflow3a.rs'] OK
+  business/erp/stockin_handler_tests_posting.rs
+      ← business/erp/stockin_handler.rs:91 mod stockin_handler_tests_posting; → Rust=['business/erp/stockin_handler_tests_posting.rs'] OK
+  business/erp/stockin_handler_tests_update.rs
+      ← business/erp/stockin_handler.rs:95 mod stockin_handler_tests_update; → Rust=['business/erp/stockin_handler_tests_update.rs'] OK
+  business/erp/stockin_tests.rs
+      ← business/erp/stockin_model.rs:127 mod tests; → Rust=['business/erp/stockin_tests.rs'] OK
+  business/erp/stockout_tests.rs
+      ← business/erp/stockout_model.rs:1099 mod tests; → Rust=['business/erp/stockout_tests.rs'] OK
+  business/erp/stocktake_tests.rs
+      ← business/erp/mod.rs:148 mod stocktake_tests; → Rust=['business/erp/stocktake_tests.rs'] OK
+  business/erp/transfer_tests.rs
+      ← business/erp/transfer_model.rs:70 mod tests; → Rust=['business/erp/transfer_tests.rs'] OK
+  business/erp/year_end_items_tests.rs
+      ← business/erp/year_end.rs:2646 mod item_tests; → Rust=['business/erp/year_end_items_tests.rs'] OK
+  business/erp/year_end_remind_tests.rs
+      ← business/erp/year_end_remind.rs:207 mod tests; → Rust=['business/erp/year_end_remind_tests.rs'] OK
+  business/erp/year_end_test_support.rs
+      ← business/erp/mod.rs:150 mod year_end_test_support; → Rust=['business/erp/year_end_test_support.rs'] OK
+  business/flow/edge_admin_tests.rs
+      ← business/flow/mod.rs:66 mod edge_admin_tests; → Rust=['business/flow/edge_admin_tests.rs'] OK
+  business/flow/test_support.rs
+      ← business/flow/mod.rs:83 mod test_support; → Rust=['business/flow/test_support.rs'] OK
+  business/masking/tests.rs
+      ← business/masking/mod.rs:49 mod tests; → Rust=['business/masking/tests.rs'] OK
+  business/permission/tests.rs
+      ← business/permission/mod.rs:46 mod tests; → Rust=['business/permission/tests.rs'] OK
+  business/task/task_model_cascade_cancel_tests.rs
+      ← business/task/model.rs:142 mod cascade_cancel_tests; → Rust=['business/task/task_model_cascade_cancel_tests.rs'] OK
+  business/task/task_model_cascade_tests.rs
+      ← business/task/model.rs:138 mod cascade_tests; → Rust=['business/task/task_model_cascade_tests.rs'] OK
+  business/task/task_model_depth_tests.rs
+      ← business/task/model.rs:98 mod depth_tests; → Rust=['business/task/task_model_depth_tests.rs'] OK
+  business/task/task_model_display_file_name_tests.rs
+      ← business/task/model.rs:94 mod display_file_name_tests; → Rust=['business/task/task_model_display_file_name_tests.rs'] OK
+  business/task/task_model_repair_tests.rs
+      ← business/task/model.rs:134 mod repair_tests; → Rust=['business/task/task_model_repair_tests.rs'] OK
+  business/task/task_model_root_only_tests.rs
+      ← business/task/model.rs:112 mod root_only_tests; → Rust=['business/task/task_model_root_only_tests.rs'] OK
+  business/task/task_model_stats_tests.rs
+      ← business/task/model.rs:130 mod stats_tests; → Rust=['business/task/task_model_stats_tests.rs'] OK
+  business/task/task_model_statuses_filter_tests.rs
+      ← business/task/model.rs:126 mod statuses_filter_tests; → Rust=['business/task/task_model_statuses_filter_tests.rs'] OK
+  business/task/task_model_tests.rs
+      ← business/task/model.rs:89 mod tests; → Rust=['business/task/task_model_tests.rs'] OK
+  system/authz_tests.rs
+      ← system/mod.rs:39 mod authz_tests; → Rust=['system/authz_tests.rs'] OK
+  system/dept/tests.rs
+      ← system/dept/mod.rs:28 mod tests; → Rust=['system/dept/tests.rs'] OK
+  system/menu/permission_audit_tests.rs
+      ← system/menu/mod.rs:20 mod permission_audit_tests; → Rust=['system/menu/permission_audit_tests.rs'] OK
+  system/menu/tests.rs
+      ← system/menu/mod.rs:16 mod tests; → Rust=['system/menu/tests.rs'] OK
+  system/role/tests.rs
+      ← system/role/mod.rs:31 mod tests; → Rust=['system/role/tests.rs'] OK
+  system/session_tests.rs
+      ← system/mod.rs:43 mod session_tests; → Rust=['system/session_tests.rs'] OK
+  system/tests_support.rs
+      ← system/mod.rs:35 mod tests_support; → Rust=['system/tests_support.rs'] OK
+  system/user/tests.rs
+      ← system/user/mod.rs:34 mod tests; → Rust=['system/user/tests.rs'] OK
+
+=== 结论 ===
+OK：所有跳过都能按 Rust 语义追溯到真正的 #[cfg(test)] 声明（无误跳）
+
+=== 非 mod.rs/lib.rs/main.rs 里声明 mod 的文件（误解析土壤） ===
+  business/erp/model.rs:80  mod tests;   (parent.stem=model)
+  business/erp/period_items.rs:993  mod tests;   (parent.stem=period_items)
+  business/erp/period_remind.rs:562  mod tests;   (parent.stem=period_remind)
+  business/erp/stockin_handler.rs:83  mod stockin_handler_tests_fixtures;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:87  mod stockin_handler_tests_helpers;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:91  mod stockin_handler_tests_posting;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:95  mod stockin_handler_tests_update;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:99  mod stockin_handler_tests_location;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:103  mod stockin_handler_tests_cancel;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:107  mod stockin_handler_tests_p10_locked;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:111  mod stockin_handler_tests_dc03;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:115  mod stockin_handler_tests_p16;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:119  mod stockin_handler_tests_d4_purchase;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:123  mod stockin_handler_tests_pflow3a;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:127  mod stockin_handler_tests_d9_copy;   (parent.stem=stockin_handler)
+  business/erp/stockin_handler.rs:131  mod stockin_handler_tests_a4;   (parent.stem=stockin_handler)
+  business/erp/stockin_model.rs:127  mod tests;   (parent.stem=stockin_model)
+  business/erp/stockout_model.rs:1099  mod tests;   (parent.stem=stockout_model)
+  business/erp/transfer_model.rs:70  mod tests;   (parent.stem=transfer_model)
+  business/erp/year_end.rs:2646  mod item_tests;   (parent.stem=year_end)
+  business/erp/year_end_remind.rs:207  mod tests;   (parent.stem=year_end_remind)
+  business/flow/linkage.rs:58  mod tests;   (parent.stem=linkage)
+  business/task/model.rs:89  mod tests;   (parent.stem=model)
+  business/task/model.rs:94  mod display_file_name_tests;   (parent.stem=model)
+  business/task/model.rs:98  mod depth_tests;   (parent.stem=model)
+  business/task/model.rs:112  mod root_only_tests;   (parent.stem=model)
+  business/task/model.rs:126  mod statuses_filter_tests;   (parent.stem=model)
+  business/task/model.rs:130  mod stats_tests;   (parent.stem=model)
+  business/task/model.rs:134  mod repair_tests;   (parent.stem=model)
+  business/task/model.rs:138  mod cascade_tests;   (parent.stem=model)
+  business/task/model.rs:142  mod cascade_cancel_tests;   (parent.stem=model)
+共 31 条
+
+====================================================================================================
+## 抽检 3 个豁免文件的查询↔注释映射
+$ /root/.hermes/installs/8a4017c4cabfe15f/environments/223ee29e001a49e1b6d5ba479c1a2a02/venv/bin/python3 /opt/cloudpivot/docs/evidence/20261103-gate-v2/probes/sample_exempt.py
+EXIT=0
+====================================================================================================
+### business/task/task_model_flow.rs  （231 行）
+SCOPE-EXEMPT 注释行：[101]   scope:: 出现次数：1
+pub fn 数量：1
+
+  fn flow_ref_of_task  (定义行 102)  查询行 [123, 127]  表 ['biz_flow_task', 'biz_task']
+     豁免注释在其上方 25 行内：[101]
+     签名：pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRow>> {
+     返回行集(Vec)：False
+
+  查询行合计：[123, 127]
+   豁免 @101 → 下一个查询行 123  注释：// SCOPE-EXEMPT: 按 task_id 单条取这张任务的流程块（WHERE t.id = ?::uuid），不产生行集；权限在端点的单条可见性校验：business/task/handler.rs:4515
+====================================================================================================
+### business/task/task_model_hierarchy.rs  （642 行）
+SCOPE-EXEMPT 注释行：[31, 61, 243, 410, 490, 518, 604, 619]   scope:: 出现次数：0
+pub fn 数量：6
+
+  fn ancestor_chain_sql  (定义行 32)  查询行 [35]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[31]
+     签名：pub(super) fn ancestor_chain_sql() -> String {
+     返回行集(Vec)：False
+
+  fn validate_parent  (定义行 62)  查询行 [68]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[61]
+     签名：pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult<()> {
+     返回行集(Vec)：False
+
+  fn scalar_status  (定义行 244)  查询行 [247]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[243]
+     签名：pub(super) async fn scalar_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
+     返回行集(Vec)：False
+
+  fn scan_parent_status_gaps  (定义行 411)  查询行 [423]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[410]
+     签名：pub async fn scan_parent_status_gaps( ex: &impl SqlExecutor, limit: i64, ) -> DbResult<Vec<ParentStatusGap>> {
+     返回行集(Vec)：True
+
+  fn parent_status  (定义行 491)  查询行 [494]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[490]
+     签名：pub async fn parent_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
+     返回行集(Vec)：False
+
+  fn cascade_cancel_sql  (定义行 519)  查询行 [522, 524, 527]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[518]
+     签名：pub(super) fn cascade_cancel_sql() -> String {
+     返回行集(Vec)：False
+
+  fn parent_of  (定义行 605)  查询行 [608]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[604]
+     签名：pub(super) async fn parent_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
+     返回行集(Vec)：False
+
+  fn scalar_progress  (定义行 620)  查询行 [623]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[604, 619]
+     签名：pub(super) async fn scalar_progress(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i16> {
+     返回行集(Vec)：False
+
+  查询行合计：[35, 68, 247, 423, 494, 522, 524, 527, 608, 623]
+   豁免 @31 → 下一个查询行 35  注释：// SCOPE-EXEMPT: 只产出「向上爬祖先链」的 SQL 文本（供 validate_parent 用），返回 Ok/Err 不返回行集；调用方 handler 建/改任务时已按 id 定位本任务并过中间件闸 
+   豁免 @61 → 下一个查询行 68  注释：// SCOPE-EXEMPT: 父任务存在性 + 深度 + 成环校验：输入是用户指定的 parent_id，输出只有 Ok/Err，不向用户产出任何行；注入 scope 会改变语义（看不见的父任务被判「不存在」），是否
+   豁免 @243 → 下一个查询行 247  注释：// SCOPE-EXEMPT: 事务内按 id 读单个状态字面量（父任务状态级联的内部读），不产出行集；调用链 cascade_parent_status ← handler.rs:1005 find_detail 可
+   豁免 @410 → 下一个查询行 423  注释：// SCOPE-EXEMPT: 产出的是「父任务状态不一致」的**运维诊断清单**（父任务 id + 样本子任务），不是业务行集展示；唯一读者是批量修数接口 handler.rs:4689 repair_parent_
+   豁免 @490 → 下一个查询行 494  注释：// SCOPE-EXEMPT: 按 id 取父任务当前状态（「父任务已取消 → 子任务不许推进」的守卫），单值不产出行集；调用 handler.rs:1034 / :1205（change_status 事务内），可见
+   豁免 @518 → 下一个查询行 522  注释：// SCOPE-EXEMPT: 只产出级联取消的 SQL 文本（WITH RECURSIVE … UPDATE … RETURNING），是**写路径**：按父任务 id 把子孙写到 CANCELLED，不向用户产出可
+   豁免 @604 → 下一个查询行 608  注释：// SCOPE-EXEMPT: 按 id 取 parent_id 单值（重算进度时向上走一层），不产出行集；调用 recalc_ancestors ← handler.rs:1342（change_status）/ :
+   豁免 @619 → 下一个查询行 623  注释：// SCOPE-EXEMPT: 按 id 读单个 progress 旧值（「变了才写」与评论），单值不产出行集；与 parent_of 同一调用链（handler.rs:1342 / :1558 / :1692），可见
+====================================================================================================
+### business/task/task_model_schedule.rs  （157 行）
+SCOPE-EXEMPT 注释行：[21, 42, 63, 84, 106]   scope:: 出现次数：0
+pub fn 数量：6
+
+  fn find_schedule_row  (定义行 22)  查询行 [26]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[21]
+     签名：pub async fn find_schedule_row(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ScheduleRow>> {
+     返回行集(Vec)：False
+
+  fn schedule_prerequisites  (定义行 43)  查询行 [51]  表 ['biz_task', 'biz_task_dependency']
+     豁免注释在其上方 25 行内：[21, 42]
+     签名：pub async fn schedule_prerequisites( ex: &impl SqlExecutor, task_id: Uuid, ) -> DbResult<Vec<PeerSchedule>> {
+     返回行集(Vec)：True
+
+  fn schedule_successors  (定义行 64)  查询行 [72]  表 ['biz_task', 'biz_task_dependency']
+     豁免注释在其上方 25 行内：[42, 63]
+     签名：pub async fn schedule_successors( ex: &impl SqlExecutor, task_id: Uuid, ) -> DbResult<Vec<PeerSchedule>> {
+     返回行集(Vec)：True
+
+  fn schedule_parent  (定义行 85)  查询行 [93]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[63, 84]
+     签名：pub async fn schedule_parent( ex: &impl SqlExecutor, parent_id: Uuid, ) -> DbResult<Option<PeerSchedule>> {
+     返回行集(Vec)：False
+
+  fn schedule_children  (定义行 107)  查询行 [115]  表 ['biz_task']
+     豁免注释在其上方 25 行内：[84, 106]
+     签名：pub async fn schedule_children( ex: &impl SqlExecutor, task_id: Uuid, ) -> DbResult<Vec<PeerSchedule>> {
+     返回行集(Vec)：True
+
+  查询行合计：[26, 51, 72, 93, 115]
+   豁免 @21 → 下一个查询行 26  注释：// SCOPE-EXEMPT: 事务内按 task_id 读本任务的排期快照（单行），不产出行集；唯一调用方 business/task/schedule.rs:545，其前置已做可见性 find_detail（sch
+   豁免 @42 → 下一个查询行 51  注释：// SCOPE-EXEMPT: 按 task_id 取「我依赖谁」的 FS 边（校验用的关系集合）；调用方 schedule.rs:566。注入 scope 会把看不见的前置过滤掉 → 改期校验静默漏判（比越权更难发现
+   豁免 @63 → 下一个查询行 72  注释：// SCOPE-EXEMPT: 按 task_id 取「谁依赖我」的 FS 边（同上，校验用关系集合）；调用方 schedule.rs:567，注入 scope 会让看不见的后继被漏判；权限点 schedule.rs:
+   豁免 @84 → 下一个查询行 93  注释：// SCOPE-EXEMPT: 按 parent_id 取父任务排期单行（父子区间校验用）；调用方 schedule.rs:569，权限点 schedule.rs:517 / :524。
+   豁免 @106 → 下一个查询行 115  注释：// SCOPE-EXEMPT: 按 task_id 取子任务排期集合（「别把子任务甩出父区间」校验用）；调用方 schedule.rs:572，权限点 schedule.rs:517 / :524；产出行集仅用于校验，
+
