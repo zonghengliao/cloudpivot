@@ -1,0 +1,96 @@
+登录成功 → http://127.0.0.1:5174/dashboard
+
+=== contract → /business/erp/contract ===
+[console.error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+附件条目 2 条（期望 2） ✓
+附件
+已上传 2 / 50
+拖拽文件到此处，或点击选择（大小 / 格式按存储策略，单文件上限 100 MB）
+合同扫描件
+合同扫描件.png
+84 B
+超级管理员
+2026-11-03 22:31:34
+下载
+删除
+其他
+合同补充协议.png
+86 B
+超级管理员
+2026-11-03 22:31:34
+补充条款第 3 页
+下载
+删除
+截图 → 01-contract-attachments.png
+界面上传成功：附件从 2 条变 3 条 ✓
+附件
+已上传 3 / 50
+拖拽文件到此处，或点击选择（大小 / 格式按存储策略，单文件上限 100 MB）
+合同扫描件
+合同扫描件.png
+84 B
+超级管理员
+2026-11-03 22:31:34
+下载
+删除
+其他
+合同补充协议.png
+86 B
+超级管理员
+2026-11-03 22:31:34
+补充条款第 3 页
+下载
+删除
+合同扫描件
+p14-ui-upload.png
+85 B
+超级管理员
+2026-11-03 22:31:41
+下载
+删除
+截图 → 02-contract-upload.png
+
+=== purchase → /business/erp/purchase-order ===
+[console.error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+附件条目 1 条（期望 1） ✓
+附件
+已上传 1 / 50
+拖拽文件到此处，或点击选择（大小 / 格式按存储策略，单文件上限 100 MB）
+签收单
+采购签收单.png
+90 B
+超级管理员
+2026-11-03 22:31:34
+下载
+删除
+截图 → 03-purchase-attachments.png
+
+=== stockin → /business/erp/stock-in ===
+[console.error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+附件条目 1 条（期望 1） ✓
+附件
+已上传 1 / 50
+拖拽文件到此处，或点击选择（大小 / 格式按存储策略，单文件上限 100 MB）
+签收单
+收货签收单.png
+84 B
+超级管理员
+2026-11-03 22:31:34
+下载
+删除
+截图 → 04-stockin-attachments.png
+
+=== payable → /business/erp/payable ===
+[console.error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+附件条目 1 条（期望 1） ✓
+附件
+已上传 1 / 50
+拖拽文件到此处，或点击选择（大小 / 格式按存储策略，单文件上限 100 MB）
+发票影像
+发票影像.png
+83 B
+超级管理员
+2026-11-03 22:31:34
+下载
+删除
+截图 → 05-payable-attachments.png

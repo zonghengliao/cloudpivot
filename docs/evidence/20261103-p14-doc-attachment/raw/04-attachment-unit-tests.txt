@@ -1,0 +1,27 @@
+# P1-4 单测（business::attachment，15 条：8 纯逻辑 + 7 真库）
+# 命令：cd backend && ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cp_p14_clean cargo test --lib business::attachment -j 6 -- --test-threads=1
+# 时间：2026-11-03 22:31:33 CST
+
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 47.54s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 15 tests
+test business::attachment::tests::can_delete_is_owner_or_privileged ... ok
+test business::attachment::tests::db_bind_is_idempotent_per_doc_and_file ... ok
+test business::attachment::tests::db_bind_list_and_soft_delete ... ok
+test business::attachment::tests::db_count_by_doc_isolation_and_quota ... ok
+test business::attachment::tests::db_doc_exists_covers_five_tables ... ok
+test business::attachment::tests::db_doc_exists_rejects_soft_deleted_doc ... ok
+test business::attachment::tests::db_shared_file_reference_count ... ok
+test business::attachment::tests::display_name_never_leaks_object_key ... ok
+test business::attachment::tests::doc_kinds_cover_five_distinct_tables ... ok
+test business::attachment::tests::doc_not_found_message_names_the_kind ... ok
+test business::attachment::tests::file_roles_parse_and_default ... ok
+test business::attachment::tests::permission_codes_match_migration ... ok
+test business::attachment::tests::upload_meta_rejects_long_remark ... ok
+test business::attachment::tests::upload_meta_rejects_missing_or_bad_ids ... ok
+test business::attachment::tests::zz_teardown_purges_fixtures ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2189 filtered out; finished in 8.17s
+

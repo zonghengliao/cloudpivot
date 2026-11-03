@@ -1,0 +1,11 @@
+== 重启后：附件不丢 ==
+[PASS] 重启后 PURCHASE_ORDER 列表仍有 1 条（采购签收单.png）
+[PASS] 重启后 PURCHASE_ORDER 仍能下载且字节一致
+[PASS] 重启后 STOCK_IN 列表仍有 1 条（收货签收单.png）
+[PASS] 重启后 STOCK_IN 仍能下载且字节一致
+[PASS] 重启后 PAYMENT 列表仍有 1 条（付款发票影像.png）
+[PASS] 重启后 PAYMENT 仍能下载且字节一致
+[PASS] 重启后已删除的合同附件不复活
+
+==================== 汇总 ====================
+通过 7 / 失败 0

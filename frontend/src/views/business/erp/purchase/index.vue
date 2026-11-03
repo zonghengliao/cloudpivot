@@ -707,6 +707,15 @@
         >
           <span class="muted">未发起审批，暂无审批过程</span>
         </div>
+
+        <!-- 附件：签收单 / 报价单 / 其它（ARCH-3 DC-17）—— 四个单据详情页共用同一组件 -->
+        <div class="section-title">附件</div>
+        <DocAttachmentPanel
+          doc-type="PURCHASE_ORDER"
+          :doc-id="detail.id"
+          default-role="OTHER"
+          testid-prefix="purchase-attach"
+        />
       </div>
     </t-drawer>
   </div>
@@ -750,6 +759,7 @@ import {
 import { ApiError } from '@/api/request';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import {
   APPROVAL_PROGRESS_TITLE,
   EMPTY_APPROVAL_PROGRESS,

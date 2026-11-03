@@ -1,0 +1,73 @@
+== 库：cp_p14_e2e（隔离实例 18098）==
+== 导出时间：2026-11-03T22:31:50+08:00 ==
+
+---- ① 表结构 biz_doc_attachment ----
+                             Table "public.biz_doc_attachment"
+   Column    |           Type           | Collation | Nullable |          Default           
+-------------+--------------------------+-----------+----------+----------------------------
+ id          | uuid                     |           | not null | gen_random_uuid()
+ doc_type    | character varying(32)    |           | not null | 
+ doc_id      | uuid                     |           | not null | 
+ file_id     | uuid                     |           | not null | 
+ file_role   | character varying(32)    |           | not null | 'OTHER'::character varying
+ remark      | character varying(255)   |           |          | 
+ uploaded_by | uuid                     |           |          | 
+ created_at  | timestamp with time zone |           | not null | now()
+ deleted_at  | timestamp with time zone |           |          | 
+Indexes:
+    "biz_doc_attachment_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_doc_attachment_doc" btree (doc_type, doc_id) WHERE deleted_at IS NULL
+    "idx_biz_doc_attachment_file" btree (file_id)
+    "uk_biz_doc_attachment" UNIQUE, btree (doc_type, doc_id, file_id) WHERE deleted_at IS NULL
+Check constraints:
+    "ck_biz_doc_attachment_role" CHECK (file_role::text = ANY (ARRAY['CONTRACT_SCAN'::character varying, 'SIGN_RECEIPT'::character varying, 'INVOICE'::character varying, 'OTHER'::character varying]::text[]))
+    "ck_biz_doc_attachment_type" CHECK (doc_type::text = ANY (ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying]::text[]))
+Foreign-key constraints:
+    "biz_doc_attachment_file_id_fkey" FOREIGN KEY (file_id) REFERENCES sys_file(id) ON DELETE RESTRICT
+    "biz_doc_attachment_uploaded_by_fkey" FOREIGN KEY (uploaded_by) REFERENCES sys_user(id) ON DELETE SET NULL
+
+
+---- ② 列清单（含注释）----
+id | uuid | notnull=true | 
+doc_type | character varying(32) | notnull=true | 单据类型：CONTRACT / PURCHASE_ORDER / STOCK_IN / PAYABLE / PAYMENT（与 attachment::model::DocKind 一一对应）
+doc_id | uuid | notnull=true | 单据主键（**应用层校验存在性**：五类单据分散在五张表，单列无法建物理外键）
+file_id | uuid | notnull=true | 
+file_role | character varying(32) | notnull=true | 文件角色：CONTRACT_SCAN 合同扫描件 / SIGN_RECEIPT 签收单 / INVOICE 发票影像 / OTHER 其他
+remark | character varying(255) | notnull=false | 
+uploaded_by | uuid | notnull=false | 上传人（行级判据：上传人可删自己的附件；删他人附件需 business:attachment:delete 码）
+created_at | timestamp with time zone | notnull=true | 
+deleted_at | timestamp with time zone | notnull=false | 
+
+---- ③ 约束（含 CHECK 定义）----
+biz_doc_attachment_created_at_not_null :: NOT NULL created_at
+biz_doc_attachment_doc_id_not_null :: NOT NULL doc_id
+biz_doc_attachment_doc_type_not_null :: NOT NULL doc_type
+biz_doc_attachment_file_id_fkey :: FOREIGN KEY (file_id) REFERENCES sys_file(id) ON DELETE RESTRICT
+biz_doc_attachment_file_id_not_null :: NOT NULL file_id
+biz_doc_attachment_file_role_not_null :: NOT NULL file_role
+biz_doc_attachment_id_not_null :: NOT NULL id
+biz_doc_attachment_pkey :: PRIMARY KEY (id)
+biz_doc_attachment_uploaded_by_fkey :: FOREIGN KEY (uploaded_by) REFERENCES sys_user(id) ON DELETE SET NULL
+ck_biz_doc_attachment_role :: CHECK (((file_role)::text = ANY ((ARRAY['CONTRACT_SCAN'::character varying, 'SIGN_RECEIPT'::character varying, 'INVOICE'::character varying, 'OTHER'::character varying])::text[])))
+ck_biz_doc_attachment_type :: CHECK (((doc_type)::text = ANY ((ARRAY['CONTRACT'::character varying, 'PURCHASE_ORDER'::character varying, 'STOCK_IN'::character varying, 'PAYABLE'::character varying, 'PAYMENT'::character varying])::text[])))
+
+---- ④ 索引 ----
+CREATE UNIQUE INDEX biz_doc_attachment_pkey ON public.biz_doc_attachment USING btree (id)
+CREATE INDEX idx_biz_doc_attachment_doc ON public.biz_doc_attachment USING btree (doc_type, doc_id) WHERE (deleted_at IS NULL)
+CREATE INDEX idx_biz_doc_attachment_file ON public.biz_doc_attachment USING btree (file_id)
+CREATE UNIQUE INDEX uk_biz_doc_attachment ON public.biz_doc_attachment USING btree (doc_type, doc_id, file_id) WHERE (deleted_at IS NULL)
+
+---- ⑤ 权限节点（3 个）与授权行数 ----
+20000000-0000-0000-0000-000000001223 | menu_type=3 | business:attachment:delete | visible=false | 授权角色数=5
+20000000-0000-0000-0000-000000001222 | menu_type=3 | business:attachment:list | visible=false | 授权角色数=5
+20000000-0000-0000-0000-000000001221 | menu_type=3 | business:attachment:upload | visible=false | 授权角色数=5
+
+---- ⑥ 迁移记录 ----
+ERROR:  multiple decimal points
+
+---- ⑦ 五类单据 `doc_type` 与真实表的对应（存在性校验口径）----
+CONTRACT|biz_contract|1
+PURCHASE_ORDER|biz_purchase_order|1
+STOCK_IN|biz_stock_in|1
+PAYABLE|biz_payable|1
+PAYMENT|biz_payment|1

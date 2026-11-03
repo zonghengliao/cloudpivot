@@ -462,6 +462,20 @@
             作废同理：配了「应付作废审批」流程时先送审（单据变<strong>作废审批中</strong>、欠款不动），
             财务经理通过才真正作废并红冲进项凭证。
           </p>
+
+          <!--
+            附件：发票影像 / 付款回单（ARCH-3 DC-17）—— 四个单据详情页共用同一组件。
+            挂的是**应付单**（`PAYABLE`）：这是页面上的单据本体；单笔付款登记行
+            （`biz_payment`）另有 `PAYMENT` 类型可用，接口一视同仁
+            （`GET /api/business/attachment/list?doc_type=PAYMENT&doc_id=<付款行 id>`）。
+          -->
+          <div class="section-title">附件</div>
+          <DocAttachmentPanel
+            doc-type="PAYABLE"
+            :doc-id="detail.id"
+            default-role="INVOICE"
+            testid-prefix="payable-attach"
+          />
         </div>
       </div>
     </t-drawer>
@@ -606,6 +620,7 @@ import {
   type PayablePaymentInfo,
 } from './payable-write-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
   EMPTY_APPROVAL_PROGRESS,

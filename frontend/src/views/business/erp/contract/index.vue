@@ -486,6 +486,15 @@
         <p v-else class="muted" data-testid="contract-detail-linked-empty">
           暂无采购单引用这张合同（合同需先走完审批、变成「已签订 / 已生效」才能被采购单引用）。
         </p>
+
+        <!-- 附件：合同扫描件 / 补充协议（ARCH-3 DC-17）—— 组件与另外三个单据详情页共用 -->
+        <div class="section-title">附件</div>
+        <DocAttachmentPanel
+          doc-type="CONTRACT"
+          :doc-id="detail.id"
+          default-role="CONTRACT_SCAN"
+          testid-prefix="contract-attach"
+        />
       </div>
     </t-drawer>
 
@@ -560,6 +569,7 @@ import {
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { shortId, todayString } from '@/views/business/erp/shared/money';
 import {
   CONTRACT_PAGE_SIZE,

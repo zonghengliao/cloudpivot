@@ -1,0 +1,71 @@
+== 前置：登录 + 造夹具 ==
+    · admin 登录成功（当前口令 P14@Passw0rd!）
+    · 建无权限账号 p14_guest: HTTP 200
+    · 默认存储后端：LOCAL；库 cp_p14_e2e
+
+== ① 合同：上传一张图（CONTRACT_SCAN） ==
+[PASS] 上传合同扫描件 200
+[PASS] 角色回显 CONTRACT_SCAN
+[PASS] 文件名回显原始名
+[PASS] 首次上传非秒传
+    · 绑定 id=01a1a1d1-93dd-73df-993b-97ae3cce3417 file_id=01a1a1d1-93dc-73c4-a643-801997330861 size=84
+
+== ② 合同：列表能看到 ==
+[PASS] 合同列表 1 条
+[PASS] 列表文件名正确
+[PASS] 列表角色中文名正确
+[PASS] 列表带上传人姓名
+[PASS] 上传人可删自己的附件
+[PASS] 上限回显 50
+
+== ③ 合同：能下载且字节一致 ==
+[PASS] 下载 200
+[PASS] 下载字节与原文件一致
+[PASS] Content-Disposition 为 attachment
+[PASS] X-Content-Type-Options: nosniff
+
+== ④ 采购单 / 收货单 / 付款单 各传一个 ==
+[PASS] PURCHASE_ORDER 上传 采购签收单.png 200
+[PASS] PURCHASE_ORDER 列表能看到 1 条
+[PASS] PURCHASE_ORDER 列表文件名正确
+[PASS] STOCK_IN 上传 收货签收单.png 200
+[PASS] STOCK_IN 列表能看到 1 条
+[PASS] STOCK_IN 列表文件名正确
+[PASS] PAYMENT 上传 付款发票影像.png 200
+[PASS] PAYMENT 列表能看到 1 条
+[PASS] PAYMENT 列表文件名正确
+
+== ⑤ 负例：类型非法 / 主键非法 / 缺文件字段 ==
+[PASS] doc_type 非法 → 400 + 10001
+[PASS] 消息列出可选类型
+[PASS] doc_id 非法 → 400
+[PASS] 缺 file 字段 → 400
+
+== ⑥ 负例：单据不存在 → 404 ==
+[PASS] 不存在的合同 → 404
+[PASS] 不存在的收货单列表 → 404
+[PASS] 不存在的单据没有落下任何绑定行
+
+== ⑦ 超权限：无角色账号 → 403 ==
+[PASS] 无权限账号列表 → 403
+[PASS] 无权限账号上传 → 403
+[PASS] 无权限账号下载 → 403
+
+== ⑧ 删除合同附件（上传人本人） ==
+[PASS] 删除 200 + deleted=true
+    · 文件记录是否同时软删：True（还有别的单据引用时为 false）
+[PASS] 删除后列表归零
+[PASS] 删除后再下载 → 404
+[PASS] 重复删除 → 404（幂等语义）
+
+== ⑨ 数据落库口径（psql 侧核对） ==
+    · CONTRACT | CONTRACT_SCAN | f | 合同扫描件.png
+    · PAYMENT | INVOICE | t | 付款发票影像.png
+    · PURCHASE_ORDER | SIGN_RECEIPT | t | 采购签收单.png
+    · STOCK_IN | SIGN_RECEIPT | t | 收货签收单.png
+[PASS] 现存未删绑定 3 条（采购/收货/付款，合同已删）
+
+    · 状态已存 /root/p14-e2e-state.json（重启后校验用）
+
+==================== 汇总 ====================
+通过 38 / 失败 0

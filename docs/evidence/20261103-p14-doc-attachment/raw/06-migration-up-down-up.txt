@@ -1,0 +1,36 @@
+== 建空库 cp_p14_mig ==
+== 先跑一次完整启动链把底座迁移都应用上（临时实例，端口 18097）==
+启动 pid=2967554 库=cp_p14_mig 端口=18097 日志=/root/p14-mig-server.log
+健康检查通过（/health 200）
+[2m2026-11-03T14:26:59.057483Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 156 个迁移
+-- V0212：业务单据附件（`biz_doc_attachment`）—— ARCH-3 §6 **R-P1-3**（断链 DC-17，P1）
+已停 pid=2967554
+== 回放到初始态（down）==
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.down.sql:63: NOTICE:  V0212 down 完成：biz_doc_attachment / 3 个权限节点 / 其角色授权全部撤销，零残留
+===== 第 1 轮 =====
+-- up --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:193: NOTICE:  V0212：单据附件 3 个权限码已种，授权新增 18 行（角色数 8）
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:228: NOTICE:  V0212 完成：biz_doc_attachment 1 表 / 3 索引 / 2 约束 / 3 权限节点就绪
+[up] 表=1 索引=3 约束=2 权限节点=3 授权行=18
+-- down --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.down.sql:63: NOTICE:  V0212 down 完成：biz_doc_attachment / 3 个权限节点 / 其角色授权全部撤销，零残留
+[down] 表=0 索引=0 约束=0 权限节点=0 授权行=0
+===== 第 2 轮 =====
+-- up --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:193: NOTICE:  V0212：单据附件 3 个权限码已种，授权新增 18 行（角色数 8）
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:228: NOTICE:  V0212 完成：biz_doc_attachment 1 表 / 3 索引 / 2 约束 / 3 权限节点就绪
+[up] 表=1 索引=3 约束=2 权限节点=3 授权行=18
+-- down --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.down.sql:63: NOTICE:  V0212 down 完成：biz_doc_attachment / 3 个权限节点 / 其角色授权全部撤销，零残留
+[down] 表=0 索引=0 约束=0 权限节点=0 授权行=0
+===== 第 3 轮 =====
+-- up --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:193: NOTICE:  V0212：单据附件 3 个权限码已种，授权新增 18 行（角色数 8）
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.up.sql:228: NOTICE:  V0212 完成：biz_doc_attachment 1 表 / 3 索引 / 2 约束 / 3 权限节点就绪
+[up] 表=1 索引=3 约束=2 权限节点=3 授权行=18
+-- down --
+psql:/opt/cloudpivot/backend/migrations/business/V0212__erp_doc_attachment.down.sql:63: NOTICE:  V0212 down 完成：biz_doc_attachment / 3 个权限节点 / 其角色授权全部撤销，零残留
+[down] 表=0 索引=0 约束=0 权限节点=0 授权行=0
+== 终态：up 一次留作巡检库 ==
+[up] 表=1 索引=3 约束=2 权限节点=3 授权行=18
+结论：V0212 up/down 三轮往返全部通过，零残留

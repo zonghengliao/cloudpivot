@@ -746,6 +746,15 @@
             复制会新建一张<strong>草稿</strong>：明细全带出，单号重新取，采购单关联清空
           </span>
         </div>
+
+        <!-- 附件：签收单 / 验收报告 / 发票影像（ARCH-3 DC-17）—— 四个单据详情页共用同一组件 -->
+        <div class="section-title">附件</div>
+        <DocAttachmentPanel
+          doc-type="STOCK_IN"
+          :doc-id="detail.header.id"
+          default-role="SIGN_RECEIPT"
+          testid-prefix="stockin-attach"
+        />
       </div>
     </t-drawer>
   </div>
@@ -799,6 +808,7 @@ import { useFormMemory } from '@/composables/useFormMemory';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
+import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
   hasApprovalProgress,
