@@ -1,0 +1,103 @@
+{
+  "base": "http://127.0.0.1:5198",
+  "impact": {
+    "summary": "作废 PO-20261031-000011 将影响以下 4 张单据（本次会执行 4 个动作）",
+    "steps": [
+      "收货入库单 IN-20261102-000001 ¥16.95 作废（回滚三本账 + 退序列号） 三本账（成本 / 库位 / 流水）反向冲减 + 序列号退回",
+      "凭证 PZ-20261102-000001 ¥16.95 自动红冲（生成红字凭证） 随第 1 步在同一个事务里完成，原凭证保持已记账、打上红冲标记",
+      "应付单 AP-20261102-000001 ¥16.95 自动作废 随第 1 步在同一个事务里完成，在跑的付款审批一起终止",
+      "采购订单 PO-20261031-000011 ¥16.95 作废采购单 状态 → 已作废；在跑的审批单会先被终止，不留孤儿待办"
+    ],
+    "blockers": "",
+    "confirmDisabled": true
+  },
+  "confirmEnabledAfterReason": true,
+  "afterCascadeToast": "PO-20261031-000011 已联动作废：2 个动作在一个事务里完成",
+  "statusAfter": "PO-20261031-000011 已取消 不含税 审批单 FLW-20261101-28449CF1 生成收货单",
+  "sticky": {
+    "purchase": {
+      "before": {
+        "top": 68,
+        "height": 41,
+        "position": "sticky",
+        "zIndex": "30",
+        "text": "关键操作 提交审批 生成收货单 作废"
+      },
+      "after": {
+        "top": 60,
+        "height": 41
+      },
+      "scrolled": 146
+    },
+    "stockin": {
+      "before": {
+        "top": 68,
+        "height": 41,
+        "position": "sticky",
+        "zIndex": "30",
+        "text": "关键操作 过账 作废 撤回作废申请"
+      },
+      "after": {
+        "top": 68,
+        "height": 41
+      },
+      "scrolled": 0
+    },
+    "payable": {
+      "before": {
+        "top": 69,
+        "height": 49,
+        "position": "sticky",
+        "zIndex": "30",
+        "text": "关键操作 发起付款（未付 226.00） 作废"
+      },
+      "after": {
+        "top": 69,
+        "height": 49
+      },
+      "scrolled": 0
+    },
+    "transfer": {
+      "before": {
+        "top": 68,
+        "height": 41,
+        "position": "sticky",
+        "zIndex": "30",
+        "text": "关键操作 提交审批 发货 完成（收货） 作废"
+      },
+      "after": {
+        "top": 68,
+        "height": 41
+      },
+      "scrolled": 0
+    }
+  },
+  "warnNoWarehouse": "先选「调出仓」：可调拨的库存是按调出仓算的",
+  "pickerRows": {
+    "head": [
+      "",
+      "物料",
+      "库位",
+      "可用量",
+      "成本价",
+      "本次调拨"
+    ],
+    "meta": "可选 1 条 · 已选 0 条",
+    "rows": [
+      "原料A（种子）（M-W1A-001） —（未分配库位） 18 ¥7.6111"
+    ]
+  },
+  "itemsAfterPick": {
+    "rows": [
+      "非一物一码，只填数量 删除"
+    ],
+    "materialTexts": [
+      "原料A（种子）（M-W1A-001）"
+    ],
+    "qtyValues": [
+      "18"
+    ],
+    "pickerStillOpen": true,
+    "toast": "已从库存带入 1 条明细（明细共 1 行：同物料同库位的已累加数量）"
+  }
+}

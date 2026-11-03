@@ -644,6 +644,43 @@
       <t-alert v-else-if="detailError" theme="error" :message="detailError" />
 
       <div v-else-if="detail" class="detail">
+        <!--
+          R-P1-5：关键动作吸顶（用户原话「不能满屏去找按钮」）。
+          过账 / 作废原来只长在列表行上，点进详情一个都看不见。
+        -->
+        <DocActionBar title="关键操作" testid="stockin-action-bar">
+          <t-button
+            size="small"
+            theme="primary"
+            :disabled="!actionsOf(detail.header).post || !canPost(detail.header)"
+            data-testid="btn-stockin-detail-post"
+            @click="openPostDialog(detail.header)"
+          >
+            <template #icon><t-icon name="file-paste" /></template>
+            过账
+          </t-button>
+          <t-button
+            size="small"
+            theme="danger"
+            variant="outline"
+            :disabled="!actionsOf(detail.header).cancel"
+            data-testid="btn-stockin-detail-cancel"
+            @click="confirmCancel(detail.header)"
+          >
+            <template #icon><t-icon name="delete" /></template>
+            作废
+          </t-button>
+          <t-button
+            size="small"
+            theme="warning"
+            variant="outline"
+            :disabled="!actionsOf(detail.header).withdrawCancel"
+            data-testid="btn-stockin-detail-withdraw-cancel"
+            @click="confirmWithdrawCancel(detail.header)"
+          >
+            撤回作废申请
+          </t-button>
+        </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.header.in_no }}</span>
           <t-tag size="small" :theme="stockInStatusTheme(detail.header.status)">
@@ -809,6 +846,7 @@ import { useListFilterMemory } from '@/composables/useListFilterMemory';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import {
   EMPTY_APPROVAL_PROGRESS,
   hasApprovalProgress,

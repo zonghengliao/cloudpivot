@@ -76,6 +76,7 @@
 
 pub mod approval_gate;
 pub mod batch;
+pub mod cancel_cascade;
 pub mod cash_flow;
 #[cfg(test)]
 mod contract_approval_tests;
@@ -176,6 +177,11 @@ mod stockin_handler_purchase; // 采购联动：来源单解析 / 供应商守�
 mod stockin_handler_query; // 只读入口：分页 / 详情
 mod stockin_handler_status; // 状态流转与其余 HTTP 入口
 mod stockin_handler_write; // 写入：建单 / 复制 / 编辑 / 删除
+
+/// R-P1-5 的真库单测（联动作废：影响分析 / 执行顺序 / 中途失败回滚 / 无下游直接作废）。
+/// 只在 `cargo test` 时编译。
+#[cfg(test)]
+mod cancel_cascade_tests;
 
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]

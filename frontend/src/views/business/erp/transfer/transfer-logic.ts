@@ -401,6 +401,12 @@ export interface TransferItemForm {
   material_id: string;
   /** 数量（恒 > 0；`t-input-number` 的出入参是 `number | string`，统一 `Number()` 归一） */
   qty: number | string;
+  /**
+   * 调出库位（`biz_inventory_location.id`，可空 = 未指定 —— R-P1-5「从库存选择」带出来的）。
+   *
+   * `null` 与空串同义（都不发）；后端 `CreateTransferItemReq::from_location_id` 可空。
+   */
+  from_location_id: string | null;
   /** 已选序列号 id（一物一码物料必须 `length === qty`） */
   serial_ids: string[];
   /** 物料是否一物一码（来自物料主数据，用于「必须选序列号」的校验与列显隐） */
@@ -448,12 +454,95 @@ export interface TransferFormErrors {
 
 /** 新建一行的默认值（`key` 由调用方给，便于单测注入固定值） */
 export function emptyTransferItem(key = 'row-1'): TransferItemForm {
-  return { key, material_id: '', qty: 1, serial_ids: [], serial_required: false };
+  return {
+    key,
+    material_id: '',
+    qty: 1,
+    from_location_id: null,
+    serial_ids: [],
+    serial_required: false,
+  };
 }
 
 /** 加一行（页面的「+ 添加明细」用；`key` 由调用方保证唯一） */
 export function addTransferItem(key: string): TransferItemForm {
   return emptyTransferItem(key);
+}
+
+/**
+ * 「从库存选择」带回来的一行（`StockPickerDialog` 的 `confirm` 出参）。
+ *
+ * `from_location_id` 是 **`biz_inventory_location.id`（库位库存行）**，不是库位主数据 id。
+ */
+export interface StockPickLine {
+  /** 物料 id */
+  material_id: string;
+  /** 调出库位（库位库存行 id；`null` = 该仓库未分配库位） */
+  from_location_id: string | null;
+  /** 本次调拨数量（> 0 才生效） */
+  qty: number;
+  /** 是否一物一码（物料主数据，带入后要给序列号入口） */
+  serial_required?: boolean;
+}
+
+/** 一条明细是否「整行空着」（只有空行才能被第一条带出的库存复用，避免凭空多一行） */
+function isBlankItem(item: TransferItemForm): boolean {
+  return !item.material_id && Number(item.qty) <= 1 && item.serial_ids.length === 0;
+}
+
+/**
+ * 把「从库存选择」的结果并进表单明细（纯函数，页面只管把返回值塞回 `form.items`）。
+ *
+ * 规则（三条，都是作业员会遇到的真实情况）：
+ *
+ * 1. **同物料 + 同库位 → 累加数量**：作业员点了两次「从库存选择」（先选 A 仓物料、
+ *    又回来补一点），不该出现两行一样的物料；
+ * 2. **同物料不同库位 → 各占一行**：库位是调出的真实来源，合并就把库位弄丢了；
+ * 3. **第一行整行空着 → 复用它**：新建表单默认有一行空行，带出 1 条时不该留一行空的
+ *    在下面（提交会报「物料必填」）。
+ *
+ * `qty <= 0` 的选入行直接丢弃；不改入参（返回新数组，便于单测与撤销）。
+ */
+export function mergeStockPicks(
+  items: TransferItemForm[],
+  picks: StockPickLine[],
+  keySeed: (index: number) => string,
+): TransferItemForm[] {
+  const merged = items.map((item) => ({ ...item, serial_ids: [...item.serial_ids] }));
+  const usable = picks.filter((pick) => pick.material_id && Number(pick.qty) > 0);
+
+  for (const pick of usable) {
+    const qty = Number(pick.qty);
+    const hit = merged.find(
+      (item) => item.material_id === pick.material_id
+        && (item.from_location_id ?? null) === (pick.from_location_id ?? null),
+    );
+    if (hit) {
+      hit.qty = Number(hit.qty) + qty;
+      continue;
+    }
+    const blankIndex = merged.findIndex(isBlankItem);
+    if (blankIndex >= 0) {
+      merged[blankIndex] = {
+        key: merged[blankIndex].key,
+        material_id: pick.material_id,
+        qty,
+        from_location_id: pick.from_location_id ?? null,
+        serial_ids: [],
+        serial_required: pick.serial_required ?? false,
+      };
+      continue;
+    }
+    merged.push({
+      key: keySeed(merged.length),
+      material_id: pick.material_id,
+      qty,
+      from_location_id: pick.from_location_id ?? null,
+      serial_ids: [],
+      serial_required: pick.serial_required ?? false,
+    });
+  }
+  return merged;
 }
 
 /** 今天的 `YYYY-MM-DD`（本地时区；`t-date-picker` 的默认值，也是 `transfer_date` 的默认值） */
@@ -616,6 +705,9 @@ export function hasTransferFormError(errors: TransferFormErrors): boolean {
  * 1. 原因 / 备注 trim 后为空 → 整键缺席（不是发 `""`，后端存空串会脏）；
  * 2. `serial_ids` 只在非空时才发 —— 非一物一码物料发 `[]` 会让 W3b 的分支判断变复杂；
  * 3. `qty` 强制转 number（`t-input-number` 出参就是 number，但 `v-model` 可能是字符串）。
+ *
+ * 外加 R-P1-5 的第 4 条：`from_location_id`（调出库位 = `biz_inventory_location.id`）
+ * 只在「从库存选择」带出来之后才发；手工选物料的行不发（后端按整仓处理）。
  */
 export function buildTransferPayload(form: TransferFormState): CreateTransferReq {
   const items: TransferItemReq[] = form.items.map((item) => {
@@ -623,6 +715,9 @@ export function buildTransferPayload(form: TransferFormState): CreateTransferReq
       material_id: item.material_id,
       qty: Number(item.qty),
     };
+    if (item.from_location_id) {
+      row.from_location_id = item.from_location_id;
+    }
     if (item.serial_ids.length > 0) {
       row.serial_ids = [...item.serial_ids];
     }
@@ -684,6 +779,8 @@ export function detailToForm(
       key: item.id || `row-${index + 1}`,
       material_id: item.material_id,
       qty: Number(item.qty),
+      // R-P1-5：编辑时把「从库存选择」带出来的库位原样带回，不然一改单一存库位就丢了
+      from_location_id: item.from_location_id ?? null,
       serial_ids: (item.serials ?? []).map((serial) => serial.serial_id),
       serial_required: materialSerialRequired[item.material_id] ?? false,
     })),

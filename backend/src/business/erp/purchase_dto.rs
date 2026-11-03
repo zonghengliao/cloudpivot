@@ -1040,7 +1040,7 @@ mod tests {
     /// 详见 `shared/state_machine.rs::PURCHASE_ORDER_EDGES` 的注释）。
     #[test]
     fn state_machine_allows_four_edges() {
-        assert_eq!(LEGAL_EDGES.len(), 13);
+        assert_eq!(LEGAL_EDGES.len(), 15);
         for (from, to) in [
             ("DRAFT", "SUBMITTED"),
             ("DRAFT", "CANCELLED"),
@@ -1057,6 +1057,9 @@ mod tests {
             // P-FLOW-3A：审批驳回打回草稿 / 审批通过后取消
             ("SUBMITTED", "DRAFT"),
             ("APPROVED", "CANCELLED"),
+            // R-P1-5：联动作废（下游收货单已全部作废之后才走这两条边）
+            ("PARTIAL_RECEIVED", "CANCELLED"),
+            ("RECEIVED", "CANCELLED"),
         ] {
             assert!(can_transition(from, to), "{from} → {to} 必须放行");
         }
@@ -1075,7 +1078,6 @@ mod tests {
             ("APPROVED", "DRAFT"),
             ("CLOSED", "CANCELLED"),
             ("CANCELLED", "SUBMITTED"),
-            ("RECEIVED", "CANCELLED"),
             ("SUBMITTED", "SUBMITTED"),
             ("PARTIAL_RECEIVED", "PARTIAL_RECEIVED"),
         ] {

@@ -106,13 +106,17 @@ pub const STATUS_DRAFT: &str = "DRAFT";
 pub const STATUS_SUBMITTED: &str = "SUBMITTED";
 /// 状态：审批通过（P-FLOW-3A）。此后才允许收货（`purchase_receivable` 同时收 SUBMITTED / APPROVED）。
 pub const STATUS_APPROVED: &str = "APPROVED";
+/// 状态：部分收货（P2-B1 收货推进写入）。
+pub const STATUS_PARTIAL_RECEIVED: &str = "PARTIAL_RECEIVED";
+/// 状态：已收货（明细的 `received_qty` 全部收满）。
+pub const STATUS_RECEIVED: &str = "RECEIVED";
 /// 状态：已关闭。
 pub const STATUS_CLOSED: &str = "CLOSED";
 /// 状态：已取消。
 pub const STATUS_CANCELLED: &str = "CANCELLED";
 
 /// 合法边表（唯一真相在 `shared/state_machine`，P-FLOW-3A 扩到 13 条）。
-pub const LEGAL_EDGES: [(&str, &str); 13] = state_machine::PURCHASE_ORDER_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 15] = state_machine::PURCHASE_ORDER_EDGES;
 
 /// 状态中文标签（错误文案与前端徽标共用）。
 pub fn status_label(status: &str) -> &'static str {

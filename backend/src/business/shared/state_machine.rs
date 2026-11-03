@@ -226,7 +226,17 @@ pub const STOCK_IN_EDGES: [(&str, &str); 10] = [
 ///
 /// 所以补这条回退边：**只在收货单作废的回退路径上使用**（`sync_purchase_status`
 /// 的 `reason` 写明是哪张收货单作废触发的）。正向的 `DRAFT → RECEIVED` 依旧非法。
-pub const PURCHASE_ORDER_EDGES: [(&str, &str); 13] = [
+/// # R-P1-5 追加的第 12、13 条（`PARTIAL_RECEIVED → CANCELLED` / `RECEIVED → CANCELLED`）
+///
+/// 「作废一张已收货的采购单」在联动作废之前是**做不到**的：下游收货单作废把单据推回
+/// `PARTIAL_RECEIVED`（`sync_purchase_status` 的回退方向），而旧边表里
+/// `PARTIAL_RECEIVED` / `RECEIVED` 没有任何出边 → 用户只能看着一张废单挂着。
+///
+/// 联动作废（`erp::cancel_cascade`）的执行顺序是「先作废全部下游收货单 → 再作废采购单」，
+/// 所以走到这一步时下游三本账已经回到基线、`received_qty` 已经退回，
+/// 缺的只是这两条**带必填原因**的边。生产上它们只由联动作废使用
+/// （`PURCHASE_ORDER_REASON_EDGES` 同步登记，原因写进 `biz_status_log`）。
+pub const PURCHASE_ORDER_EDGES: [(&str, &str); 15] = [
     ("DRAFT", "SUBMITTED"),
     ("DRAFT", "CANCELLED"),
     ("SUBMITTED", "APPROVED"),
@@ -242,6 +252,9 @@ pub const PURCHASE_ORDER_EDGES: [(&str, &str); 13] = [
     ("APPROVED", "CANCELLED"),
     ("PARTIAL_RECEIVED", "RECEIVED"),
     ("RECEIVED", "PARTIAL_RECEIVED"),
+    // R-P1-5：联动作废（先作废全部下游收货单，再废本单）—— 见上方注释
+    ("PARTIAL_RECEIVED", "CANCELLED"),
+    ("RECEIVED", "CANCELLED"),
 ];
 
 /// 库存调拨单合法边（与 `transfer_model::LEGAL_EDGES` 同源，P5 的 6 条）。
@@ -340,8 +353,13 @@ pub const STOCK_IN_REASON_EDGES: [(&str, &str); 3] = [
     ("PENDING_CANCEL", "CANCELLED"),
 ];
 /// 需要 reason 的边：已提交的采购单作废。
-pub const PURCHASE_ORDER_REASON_EDGES: [(&str, &str); 2] =
-    [("SUBMITTED", "CANCELLED"), ("APPROVED", "CANCELLED")];
+pub const PURCHASE_ORDER_REASON_EDGES: [(&str, &str); 4] = [
+    ("SUBMITTED", "CANCELLED"),
+    ("APPROVED", "CANCELLED"),
+    // R-P1-5：联动作废走的两条边（作废已收货的单必须留原因）
+    ("PARTIAL_RECEIVED", "CANCELLED"),
+    ("RECEIVED", "CANCELLED"),
+];
 /// 需要 reason 的边：调拨单取消。
 pub const TRANSFER_REASON_EDGES: [(&str, &str); 2] =
     [("DRAFT", "CANCELLED"), ("PENDING", "CANCELLED")];
@@ -570,7 +588,7 @@ pub const STOCK_IN_BASE: [BaseEdge; 10] = [
 ///
 /// 可选边只有 `SUBMITTED → CLOSED`（**不收货直接关闭**，卡面点名的那个例子：
 /// 「客户不想让采购单能直接关闭」）。
-pub const PURCHASE_ORDER_BASE: [BaseEdge; 13] = [
+pub const PURCHASE_ORDER_BASE: [BaseEdge; 15] = [
     BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交", false),
     BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
     BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过", false),
@@ -584,6 +602,9 @@ pub const PURCHASE_ORDER_BASE: [BaseEdge; 13] = [
     BaseEdge::mandatory("APPROVED", "CANCELLED", "作废", true),
     BaseEdge::mandatory("PARTIAL_RECEIVED", "RECEIVED", "收货完成", false),
     BaseEdge::mandatory("RECEIVED", "PARTIAL_RECEIVED", "收货单作废回退", false),
+    // R-P1-5：联动作废专用（下游已全部作废之后才走）—— 必须给原因
+    BaseEdge::mandatory("PARTIAL_RECEIVED", "CANCELLED", "联动作废", true),
+    BaseEdge::mandatory("RECEIVED", "CANCELLED", "联动作废", true),
 ];
 
 /// 库存调拨单的 BASE_EDGES（与 [`TRANSFER_EDGES`] 逐条对应，顺序一致）。

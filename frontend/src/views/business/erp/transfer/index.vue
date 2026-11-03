@@ -284,6 +284,56 @@
       <t-alert v-else-if="detailError" theme="error" :message="detailError" />
 
       <div v-else-if="detail" class="detail">
+        <!--
+          R-P1-5：关键动作固定在抽屉顶部（吸顶条，翻到底也看得见）。
+          用户原话「操作员操作的时候不能满屏去找按钮」—— 这 4 个动作原来分散在列表行上，
+          点进详情就一个也看不到。
+        -->
+        <DocActionBar title="关键操作" testid="transfer-action-bar">
+          <t-button
+            size="small"
+            theme="primary"
+            :disabled="!actionsOf(detail).submit"
+            data-testid="btn-transfer-detail-submit"
+            @click="runAction(detail, 'submit')"
+          >
+            <template #icon><t-icon name="send" /></template>
+            提交审批
+          </t-button>
+          <t-button
+            size="small"
+            theme="primary"
+            variant="outline"
+            :disabled="!actionsOf(detail).ship"
+            data-testid="btn-transfer-detail-ship"
+            @click="openShipDialog(detail)"
+          >
+            <template #icon><t-icon name="vehicle" /></template>
+            发货
+          </t-button>
+          <t-button
+            size="small"
+            theme="success"
+            variant="outline"
+            :disabled="!actionsOf(detail).receive"
+            data-testid="btn-transfer-detail-receive"
+            @click="runAction(detail, 'receive')"
+          >
+            <template #icon><t-icon name="check-circle" /></template>
+            完成（收货）
+          </t-button>
+          <t-button
+            size="small"
+            theme="danger"
+            variant="outline"
+            :disabled="!actionsOf(detail).withdraw"
+            data-testid="btn-transfer-detail-cancel"
+            @click="openWithdrawDialog(detail)"
+          >
+            <template #icon><t-icon name="delete" /></template>
+            作废
+          </t-button>
+        </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.transfer_no }}</span>
           <t-tag :theme="transferStatusTheme(detail.status)" :variant="transferStatusVariant(detail.status)" size="small">
@@ -452,6 +502,18 @@
         <div class="items">
           <div class="items__head">
             <span class="items__title">明细</span>
+            <!-- R-P1-5：从库存直接选 —— 作业员不用另开库存页抄物料 / 库位 / 数量 -->
+            <t-button
+              size="small"
+              theme="primary"
+              variant="outline"
+              class="items__pick"
+              data-testid="btn-transfer-pick-stock"
+              @click="openStockPicker"
+            >
+              <template #icon><t-icon name="swap" /></template>
+              从库存选择
+            </t-button>
             <span class="items__hint">一物一码物料必须逐个选序列号（个数 == 数量）</span>
           </div>
 
@@ -665,6 +727,15 @@
       </t-form>
       <p v-if="withdrawError" class="ship-text" data-testid="transfer-withdraw-error">{{ withdrawError }}</p>
     </t-dialog>
+
+    <!-- ==================== ⑧ 从库存选择（R-P1-5：物料 / 库位 / 可用量 / 成本价 直接带出） ==================== -->
+    <StockPickerDialog
+      v-model:visible="stockPickerVisible"
+      :warehouse-id="form.from_warehouse_id"
+      :warehouse-name="warehouseNameOf(form.from_warehouse_id)"
+      :materials="materials"
+      @confirm="applyStockPicks"
+    />
   </div>
 </template>
 
@@ -712,6 +783,9 @@ import {
   approvalProgressOf,
   type ApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
+import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import StockPickerDialog from '@/views/business/erp/shared/StockPickerDialog.vue';
+import type { StockPick } from '@/views/business/erp/shared/stock-pick';
 import {
   OVERDUE_DEFAULT_THRESHOLD_DAYS,
   SERIAL_OPTION_LIMIT,
@@ -732,6 +806,7 @@ import {
   isStatusFilterLocked,
   isTransferFiltered,
   itemCountText,
+  mergeStockPicks,
   overdueBadgeText,
   overdueBadgeTooltip,
   overdueSummaryText,
@@ -1556,6 +1631,58 @@ function addItem(): void {
   form.items.push(addTransferItem(`row-${form.items.length + 1}-${Date.now()}`));
 }
 
+// ==================== R-P1-5：从库存选择 ====================
+
+/** 库存选择弹窗可见 */
+const stockPickerVisible = ref(false);
+
+/** 打开库存选择：没有调出仓就没有库存口径（弹窗里也会提示，但这里先拦一句更省事） */
+function openStockPicker(): void {
+  if (!form.from_warehouse_id) {
+    MessagePlugin.warning('先选「调出仓」：可调拨的库存是按调出仓算的');
+    return;
+  }
+  stockPickerVisible.value = true;
+}
+
+/**
+ * 把弹窗选中的库存并进明细。
+ *
+ * 合并规则在 `mergeStockPicks`（纯函数，单测钉住）：同物料同库位累加、不同库位各占一行、
+ * 整行空着的首行先复用 —— 作业员点完不该看到一行空的明细或者两行一模一样的物料。
+ */
+function applyStockPicks(picks: StockPick[]): void {
+  if (picks.length === 0) {
+    return;
+  }
+  const before = form.items.length;
+  form.items = mergeStockPicks(
+    form.items,
+    picks.map((pick) => ({
+      material_id: pick.material_id,
+      from_location_id: pick.from_location_id,
+      qty: pick.qty,
+      serial_required: pick.serial_required,
+    })),
+    (index) => `row-${index + 1}-${Date.now()}`,
+  );
+  syncSerialRequired();
+  formErrors.value = validateTransferForm(form);
+  const added = form.items.length - before;
+  MessagePlugin.success(
+    added > 0
+      ? `已从库存带入 ${picks.length} 条（新增 ${added} 行明细）`
+      : `已从库存带入 ${picks.length} 条明细（明细共 ${form.items.length} 行：同物料同库位的已累加数量）`,
+  );
+  // 一物一码物料带出来后必须选序列号，别让作业员以为完事了
+  const needSerials = form.items.filter(
+    (item) => serialRequiredOf(item.material_id) && item.serial_ids.length !== Number(item.qty),
+  );
+  if (needSerials.length > 0) {
+    MessagePlugin.info(`${needSerials.length} 行是一物一码物料：还要点「选择序列号」把号码对上数量`);
+  }
+}
+
 /** 删一行明细（至少留一条） */
 function removeItem(index: number): void {
   if (form.items.length <= 1) {
@@ -2078,6 +2205,11 @@ onMounted(async () => {
 .items__hint {
   font-size: 12px;
   color: var(--td-text-color-placeholder);
+}
+
+/* 「从库存选择」按钮：贴在明细标题右边，窄屏换行也不挤掉提示 */
+.items__pick {
+  align-self: center;
 }
 
 /* 列宽固定：物料弹性、数量/序列号/操作定宽，行与表头用同一套 grid 才不跑偏 */

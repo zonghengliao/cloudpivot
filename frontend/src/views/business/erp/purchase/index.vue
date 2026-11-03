@@ -562,6 +562,40 @@
       <t-alert v-else-if="detailError" theme="error" :message="detailError" />
 
       <div v-else-if="detail" class="detail">
+        <!-- R-P1-5：关键动作固定在抽屉顶部（吸顶，翻到底也看得见） -->
+        <DocActionBar title="关键操作" testid="purchase-action-bar">
+          <t-button
+            size="small"
+            theme="primary"
+            :disabled="detail.status !== 'DRAFT'"
+            data-testid="btn-detail-submit"
+            @click="submitFromDetail"
+          >
+            <template #icon><t-icon name="send" /></template>
+            提交审批
+          </t-button>
+          <t-button
+            size="small"
+            theme="primary"
+            :disabled="!pending?.can_receive"
+            data-testid="btn-detail-gen-stockin"
+            @click="goCreateStockIn"
+          >
+            <template #icon><t-icon name="add" /></template>
+            生成收货单
+          </t-button>
+          <t-button
+            size="small"
+            theme="danger"
+            variant="outline"
+            :disabled="detail.status === 'CANCELLED'"
+            data-testid="btn-detail-cancel"
+            @click="openCancelImpact"
+          >
+            <template #icon><t-icon name="delete" /></template>
+            作废
+          </t-button>
+        </DocActionBar>
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.order_no }}</span>
           <t-tag size="small" :theme="purchaseStatusTheme(detail.status)">{{ purchaseStatusLabel(detail.status) }}</t-tag>
@@ -718,6 +752,15 @@
         />
       </div>
     </t-drawer>
+
+    <!-- R-P1-5：联动作废影响面确认（先看影响面再动手） -->
+    <CancelImpactDialog
+      v-model:visible="cancelImpactVisible"
+      doc-type="purchase-order"
+      :doc-id="detail?.id ?? ''"
+      :doc-no="detail?.order_no"
+      @done="handleCascadeDone"
+    />
   </div>
 </template>
 
@@ -760,6 +803,8 @@ import { ApiError } from '@/api/request';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
+import CancelImpactDialog from '@/views/business/erp/shared/CancelImpactDialog.vue';
 import {
   APPROVAL_PROGRESS_TITLE,
   EMPTY_APPROVAL_PROGRESS,
@@ -1570,6 +1615,38 @@ const approvalFallback = computed(() => approvalFallbackOf(detail.value));
 /** 打开详情抽屉 */
 async function openDetail(row: PurchaseOrderRow): Promise<void> {
   await loadDetail(row.id);
+}
+
+// ==================== R-P1-5：详情页固定动作区 ====================
+
+/** 联动作废影响面弹窗 */
+const cancelImpactVisible = ref(false);
+
+/** 详情页「提交审批」（与列表行的 `confirmSubmit` 同一接口，只是数据源是详情行） */
+async function submitFromDetail(): Promise<void> {
+  const row = detail.value;
+  if (!row) return;
+  try {
+    await submitPurchaseOrderApproval(row.id);
+    MessagePlugin.success(`${row.order_no} 已提交审批`);
+    await loadOrders();
+    await loadDetail(row.id);
+  } catch (error) {
+    MessagePlugin.error(messageOf(error));
+  }
+}
+
+/** 详情页「作废」：一律先看影响面（联动作废弹窗），不在这里静默级联 */
+function openCancelImpact(): void {
+  if (!detail.value) return;
+  cancelImpactVisible.value = true;
+}
+
+/** 联动作废成功：列表与详情一起刷新（下游单据/凭证/应付都变了） */
+async function handleCascadeDone(): Promise<void> {
+  const id = detail.value?.id;
+  await loadOrders();
+  if (id) await loadDetail(id);
 }
 
 // ==================== D4：采购单 → 一键生成收货单 ====================

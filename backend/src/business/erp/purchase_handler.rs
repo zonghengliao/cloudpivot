@@ -861,6 +861,32 @@ pub async fn change_purchase_order_status(
         return Err(conflict(transition_rejected_message(&row.status, target)));
     }
 
+    // ★ R-P1-5：收过货的单据**不许从这个入口直接作废**。
+    //
+    // 边表为了联动作废（`erp::cancel_cascade`）补了 `PARTIAL_RECEIVED/RECEIVED → CANCELLED`，
+    // 但那条边的前提是「下游收货单已经全部作废、三本账已回基线」。从 `PATCH /status`
+    // 直接推过去就绕过了影响面确认，留下的是一堆孤儿收货单 / 凭证 / 应付单 ——
+    // 正是这张卡要消灭的场景。所以这里显式拦下，把用户导向联动作废入口。
+    if target == STATUS_CANCELLED
+        && matches!(
+            row.status.as_str(),
+            purchase_model::STATUS_PARTIAL_RECEIVED | purchase_model::STATUS_RECEIVED
+        )
+    {
+        return Err(ApiError::new(
+            409,
+            error_code::RESOURCE_CONFLICT,
+            format!(
+                "采购订单 {} 已经收过货（{}），不能直接作废：请点「作废」先看影响面\
+                 （GET /business/erp/purchase-order/{}/cancel-impact），再一键按顺序处理\
+                 （POST …/cancel-cascade）—— 下游收货单 / 凭证 / 应付单会被一起回滚",
+                row.order_no,
+                purchase_model::status_label(&row.status),
+                row.id
+            ),
+        ));
+    }
+
     // SUBMITTED → CANCELLED 必须给出原因（卡面 §三）；DRAFT → CANCELLED 原因可选
     if target == STATUS_CANCELLED && row.status == STATUS_SUBMITTED && reason.is_none() {
         return Err(ApiError::new(

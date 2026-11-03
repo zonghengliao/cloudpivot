@@ -234,6 +234,57 @@
         </div>
 
         <div class="drawer-body">
+          <!--
+            R-P1-5：关键动作吸顶（用户原话「不能满屏去找按钮」）。
+            付款 / 作废 / 撤回作废原来埋在正文中段（付款）与列表行（作废），点进详情就找不到。
+          -->
+          <DocActionBar title="关键操作" testid="payable-action-bar">
+            <t-button
+              v-if="canStartPay(payInfo?.payable, hasPayPermission, payInfo?.payable.status ?? detail.status)"
+              theme="primary"
+              data-testid="btn-payable-drawer-pay"
+              @click="openPayFromDetail"
+            >
+              发起付款（未付 {{ formatMoney(payPrefillAmount(payInfo?.payable)) }}）
+            </t-button>
+            <span
+              v-else-if="isPendingCancel(detail)"
+              class="drawer-actions__blocked"
+              data-testid="payable-pay-blocked-pending"
+            >
+              作废审批中不能付款（撤回或驳回后回到「未付」才能付）
+            </span>
+            <span
+              v-else-if="payInfo && !payInfo.payable.can_pay"
+              class="drawer-actions__blocked"
+              data-testid="payable-pay-blocked"
+            >
+              {{ payInfo.payable.blocked_reason }}
+            </span>
+            <span v-else-if="payInfo && !hasPayPermission" class="drawer-actions__blocked" data-testid="payable-pay-noperm">
+              当前账号没有付款权限（business:erp:payable:pay）
+            </span>
+
+            <t-button
+              v-if="canCancel(detail)"
+              theme="danger"
+              variant="outline"
+              data-testid="btn-payable-drawer-cancel"
+              @click="openCancel(detail)"
+            >
+              <template #icon><t-icon name="delete" /></template>
+              作废
+            </t-button>
+            <t-button
+              v-if="isPendingCancel(detail) && canWithdrawCancel(detail, hasWithdrawPermission)"
+              theme="warning"
+              variant="outline"
+              data-testid="btn-payable-bar-withdraw"
+              @click="openWithdrawCancel(detail)"
+            >
+              撤回作废审批
+            </t-button>
+          </DocActionBar>
           <!-- ★ P-FLOW-3B：作废审批中（欠款一分没动）→ 一句话说清 + 撤回入口 -->
           <t-alert
             v-if="isPendingCancel(detail)"
@@ -268,34 +319,7 @@
             <span class="muted">作废原因：</span>{{ cancelReasonText(detail) }}
           </p>
 
-          <!-- ★ D5：发起付款（payInfo.can_pay 由后端 payment-info 接口裁决，前端不推状态） -->
-          <div class="drawer-actions" data-testid="payable-drawer-actions">
-            <t-button
-              v-if="canStartPay(payInfo?.payable, hasPayPermission, payInfo?.payable.status ?? detail.status)"
-              theme="primary"
-              data-testid="btn-payable-drawer-pay"
-              @click="openPayFromDetail"
-            >
-              发起付款（未付 {{ formatMoney(payPrefillAmount(payInfo?.payable)) }}）
-            </t-button>
-            <span
-              v-else-if="isPendingCancel(detail)"
-              class="drawer-actions__blocked"
-              data-testid="payable-pay-blocked-pending"
-            >
-              作废审批中不能付款（撤回或驳回后回到「未付」才能付）
-            </span>
-            <span
-              v-else-if="payInfo && !payInfo.payable.can_pay"
-              class="drawer-actions__blocked"
-              data-testid="payable-pay-blocked"
-            >
-              {{ payInfo.payable.blocked_reason }}
-            </span>
-            <span v-else-if="payInfo && !hasPayPermission" class="drawer-actions__blocked" data-testid="payable-pay-noperm">
-              当前账号没有付款权限（business:erp:payable:pay）
-            </span>
-          </div>
+          <!-- R-P1-5：「发起付款」已上移到吸顶动作条（见顶部 DocActionBar），这里不再重复 -->
           <!-- ★ D5 反向：审批中那笔现在看已经超付（审批期间被别的付款付掉了） -->
           <t-alert
             v-if="payInfo?.payable.overpay_risk"
@@ -621,6 +645,7 @@ import {
 } from './payable-write-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import { getFlowInstance } from '@/api/business/flow-api';
 import {
   EMPTY_APPROVAL_PROGRESS,

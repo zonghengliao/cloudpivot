@@ -2623,6 +2623,96 @@ pub async fn payable_withdraw_cancel_handler(
     ))
 }
 
+// ==================== 联动作废（R-P1-5）的复用入口 ====================
+//
+// 联动作废（`erp::cancel_cascade`）要的三件事，**全部复用本模块的实现**，
+// 不另写一套：
+//   读一张应付单（影响分析，只读）/ 在事务里锁住它 / 在事务里把它作废。
+// 作废体就是 [`cancel_body_in_tx`]：终止在跑的付款审批 → 红冲进项凭证 → 状态机 →
+// CAS 回写状态。与 [`cancel_in_tx`] 的唯一差别是**多收一个 `PENDING_CANCEL` 起点**
+// （作废审批中被联动作废直接执行，同时终止那张审批单，不留孤儿待办）。
+
+/// 按主键读应付单（只读，不加锁）—— `GET …/cancel-impact` 用。
+pub async fn find_payable_for_cascade(id: Uuid) -> std::result::Result<PayableRow, ApiError> {
+    // SCOPE-EXEMPT: 应付台账无归属列（见模块文档）。
+    let rows = db()
+        .find_with_params(
+            &format!(
+                "SELECT {} FROM {} WHERE id = ?::uuid AND deleted_at IS NULL",
+                payable::COLUMNS,
+                payable::TABLE
+            ),
+            vec![Value::from(&id)],
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "查询应付单"))?;
+    rows.first()
+        .map(payable_of_row)
+        .transpose()
+        .map_err(|error| utils::db_error(error, "读取应付单"))?
+        .ok_or_else(not_found)
+}
+
+/// 在调用方的事务里锁住应付单（联动作废的第一步）。
+pub async fn lock_payable_in_tx(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> std::result::Result<Option<PayableRow>, ApiError> {
+    lock_payable(ex, id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定应付单"))
+}
+
+/// 在调用方的事务里作废一张应付单（联动作废用）。
+///
+/// 与 [`cancel_in_tx`] 的区别只有一处：**接受 `PENDING_CANCEL` 起点**（作废审批中
+/// 被联动作废直接执行），执行前先把那张审批单终止。已付款（`paid_amount > 0`）的
+/// 单一律 409 —— 钱已经出去了，作废单据表达不了。
+pub async fn cancel_payable_in_tx(
+    ex: &Transaction,
+    id: Uuid,
+    reason: &str,
+    operator: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> std::result::Result<(), ApiError> {
+    let row = lock_payable(ex, id)
+        .await
+        .map_err(|error| utils::db_error(error, "锁定应付单"))?
+        .ok_or_else(not_found)?;
+    if row.status == payable::STATUS_CANCELLED {
+        // 幂等：已经作废过的直接成功（重复调用 / 收货单作废时已经联动作废）
+        return Ok(());
+    }
+    if row.paid_amount > Decimal::ZERO {
+        return Err(conflict(format!(
+            "应付单 {} 已付 {}，不能作废：只有「一分钱都没付」的应付单能作废 —— \
+             已经付过款的请走付款冲销 / 红冲凭证",
+            row.payable_no, row.paid_amount
+        )));
+    }
+    if !matches!(
+        row.status.as_str(),
+        payable::STATUS_OPEN | payable::STATUS_PENDING_CANCEL
+    ) {
+        return Err(conflict(format!(
+            "应付单 {} 当前是「{}」，不能作废：只有未付（OPEN）或作废审批中（PENDING_CANCEL）的能作废",
+            row.payable_no,
+            payable_query::status_label(&row.status)
+        )));
+    }
+    if row.status == payable::STATUS_PENDING_CANCEL {
+        payable_bridge::cancel_approval_of_payable_cancel(
+            ex,
+            id,
+            &row.payable_no,
+            "联动作废：应付作废审批自动终止",
+        )
+        .await
+        .map_err(|error| utils::db_error(error, "终止在跑的作废审批"))?;
+    }
+    cancel_body_in_tx(ex, &row, reason, operator, now).await
+}
+
 // ==================== 单测 ====================
 //
 // 真库用例（需要 `ERP_DB_URL` 指向「已应用 V0148 + V0158 的隔离库」，缺省则全部 SKIP）：
