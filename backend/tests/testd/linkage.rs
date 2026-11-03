@@ -3,9 +3,9 @@
 //! 每颗用例都跨**两个及以上**模块，断言的是「一条变更发生时，关联物该同步到什么样子」。
 //! 这正是 TSK-149 暴露的盲区：单模块用例再密，也发现不了「状态变了、关联物没跟上」。
 
+use axum::Json;
 use axum::extract::{ConnectInfo, Path};
 use axum::http::HeaderMap;
-use axum::Json;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use std::net::SocketAddr;
@@ -21,8 +21,8 @@ use cloudpivot::business::mutex::{
     dto::MutexCreateReq, handler as mutex_handler, model as mutex_model,
 };
 use cloudpivot::business::notice::{
-    dispatch, dto::ContentFormat, dto::NoticeLevel, dto::NoticeType, model as notice_model,
-    DispatchResult, NoticeDraft, NoticeTarget,
+    DispatchResult, NoticeDraft, NoticeTarget, dispatch, dto::ContentFormat, dto::NoticeLevel,
+    dto::NoticeType, model as notice_model,
 };
 use cloudpivot::business::project::{dto::ProjectCreateReq, handler as project_handler};
 use cloudpivot::system::badge::model as badge_model;
@@ -616,7 +616,7 @@ async fn k07_state_change_appends_one_log() {
         .expect("建公告");
         let ann_id = Uuid::parse_str(&created.data.expect("data").id).expect("id");
         let after_create =
-            changelog_model::count_for_object(&*db(), "sys_announcement", &ann_id.to_string())
+            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
                 .await
                 .expect("计数");
         assert_eq!(after_create, 1, "建公告应留 1 条日志，实际 {after_create}");
@@ -630,7 +630,7 @@ async fn k07_state_change_appends_one_log() {
         .await
         .expect("发布");
         let after_publish =
-            changelog_model::count_for_object(&*db(), "sys_announcement", &ann_id.to_string())
+            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
                 .await
                 .expect("计数");
         assert_eq!(after_publish, after_create + 1, "发布应恰好 +1 条日志");
@@ -647,7 +647,7 @@ async fn k07_state_change_appends_one_log() {
         .await
         .expect("下线");
         let after_offline =
-            changelog_model::count_for_object(&*db(), "sys_announcement", &ann_id.to_string())
+            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
                 .await
                 .expect("计数");
         assert_eq!(after_offline, after_publish + 1, "下线应恰好 +1 条日志");

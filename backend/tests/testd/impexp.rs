@@ -42,7 +42,7 @@ fn xlsx(headers: &[&str], rows: &[Vec<&str>]) -> Vec<u8> {
 
 /// 读 xlsx 的第一个 sheet → 二维文本（含表头）。
 fn read_xlsx(bytes: &[u8]) -> Vec<Vec<String>> {
-    use calamine::{open_workbook_from_rs, Xlsx};
+    use calamine::{Xlsx, open_workbook_from_rs};
     let cursor = std::io::Cursor::new(bytes.to_vec());
     let mut workbook: Xlsx<_> = open_workbook_from_rs(cursor).expect("打开 xlsx");
     let name = workbook
@@ -111,7 +111,7 @@ async fn precheck(bytes: &[u8], mode: ImportMode) -> validate::PrecheckReport {
         operator: None,
         mode,
     };
-    let outcome = validate::precheck(
+    validate::precheck(
         definition.as_ref(),
         bytes,
         validate::global_dicts(),
@@ -119,8 +119,7 @@ async fn precheck(bytes: &[u8], mode: ImportMode) -> validate::PrecheckReport {
         &ctx,
     )
     .await
-    .expect("预检不应结构性失败");
-    outcome
+    .expect("预检不应结构性失败")
 }
 
 /// 一个数据有效行（字典编码用夹具里真实存在的 dict_type）。
@@ -170,7 +169,7 @@ async fn i01_import_chain_template_precheck_confirm() {
         let headers_ref: Vec<&str> = dict_headers();
         let label_a = ctx.key("项A");
         let label_b = ctx.key("项B");
-        let rows = vec![
+        let rows = [
             good_row(&dict_code, "10", &label_a),
             good_row(&dict_code, "11", &label_b),
         ];
@@ -238,7 +237,7 @@ async fn i02_error_report_row_and_column() {
         .await;
 
         let headers = dict_headers();
-        let rows = vec![
+        let rows = [
             good_row(&dict_code, "20", &ctx.key("正常行")),
             // 第 3 行（表头算第 1 行）：字典项名称必填却为空
             good_row(&dict_code, "21", ""),
@@ -321,7 +320,7 @@ async fn i03_strict_vs_partial_transaction_boundary() {
         .await;
 
         let headers = dict_headers();
-        let rows = vec![
+        let rows = [
             good_row(&dict_code, "30", &ctx.key("好行")),
             good_row(&dict_code, "31", ""), // 缺必填
         ];
@@ -464,7 +463,7 @@ async fn i05_duplicate_import_is_idempotent() {
         .await;
 
         let headers = dict_headers();
-        let rows = vec![good_row(&dict_code, "40", &ctx.key("重复项"))];
+        let rows = [good_row(&dict_code, "40", &ctx.key("重复项"))];
         let rows_ref: Vec<Vec<&str>> = rows
             .iter()
             .map(|row| row.iter().map(String::as_str).collect())
@@ -502,7 +501,7 @@ async fn i05_duplicate_import_is_idempotent() {
         assert_eq!(after_second, 1, "重复导入产生了重复行（去重失效）");
 
         // 文件内重复（同一文件里两行相同）→ 预检阶段就要报 UNIQUE，不等到入库
-        let dup_rows = vec![
+        let dup_rows = [
             good_row(&dict_code, "41", &ctx.key("文件内重复")),
             good_row(&dict_code, "41", &ctx.key("文件内重复")),
         ];
@@ -1043,7 +1042,7 @@ async fn i14_tampered_import_file_rejected() {
         .await;
 
         let headers = dict_headers();
-        let rows = vec![good_row(&dict_code, "50", &ctx.key("原始行"))];
+        let rows = [good_row(&dict_code, "50", &ctx.key("原始行"))];
         let rows_ref: Vec<Vec<&str>> = rows
             .iter()
             .map(|row| row.iter().map(String::as_str).collect())
@@ -1057,7 +1056,7 @@ async fn i14_tampered_import_file_rejected() {
             vec![Value::from(&task)],
         )
         .await;
-        let tampered_rows = vec![good_row(&dict_code, "51", &ctx.key("被替换的行"))];
+        let tampered_rows = [good_row(&dict_code, "51", &ctx.key("被替换的行"))];
         let tampered_ref: Vec<Vec<&str>> = tampered_rows
             .iter()
             .map(|row| row.iter().map(String::as_str).collect())

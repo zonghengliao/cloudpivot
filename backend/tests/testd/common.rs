@@ -78,11 +78,7 @@ pub async fn ensure_db() -> bool {
 
 /// 用例前置：连不上库时返回 `None`（用例直接 `return`）。
 pub async fn ready() -> Option<()> {
-    if ensure_db().await {
-        Some(())
-    } else {
-        None
-    }
+    if ensure_db().await { Some(()) } else { None }
 }
 
 // ==================== 身份 ====================
@@ -385,7 +381,9 @@ impl Ctx {
         let checks = [
             format!("SELECT count(*) AS n FROM sys_user WHERE username LIKE '{p}'"),
             format!("SELECT count(*) AS n FROM sys_role WHERE role_code LIKE '{p}'"),
-            format!("SELECT count(*) AS n FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"),
+            format!(
+                "SELECT count(*) AS n FROM sys_user_role WHERE user_id IN {users} OR role_id IN {roles}"
+            ),
             format!(
                 "SELECT count(*) AS n FROM sys_role_mutex WHERE role_a_id IN {roles} OR role_b_id IN {roles} OR reason LIKE '{p}'"
             ),

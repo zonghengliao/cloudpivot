@@ -519,7 +519,7 @@ mod db_tests {
             let order_id = uid(seed * 100 + 4);
             let creator = uid(seed * 100 + 5);
             let initiator = uid(seed * 100 + 6);
-            let users = vec![
+            let users = [
                 uid(seed * 100 + 11),
                 uid(seed * 100 + 12),
                 uid(seed * 100 + 13),
@@ -633,15 +633,14 @@ mod db_tests {
             .await
             .expect("插版本快照");
 
-            let scenario = Self {
+            Self {
                 tag: tag.to_string(),
                 def_id,
                 version_id,
                 instance_id,
                 order_id,
                 initiator,
-            };
-            scenario
+            }
         }
 
         /// 只造 `StartReq`（`run_start` / `try_start` 共用）。
@@ -880,10 +879,11 @@ mod db_tests {
             return;
         }
         let tag = "todo";
-        let creator = uid(0 * 100 + 5);
-        let keeper = uid(0 * 100 + 11);
-        let initiator = uid(0 * 100 + 6);
-        let sc = Scenario::start(tag, 0, &[(creator, "USER"), (keeper, "USER")], &[]).await;
+        let seed = 7u128;
+        let creator = uid(seed * 100 + 5);
+        let keeper = uid(seed * 100 + 11);
+        let initiator = uid(seed * 100 + 6);
+        let sc = Scenario::start(tag, seed, &[(creator, "USER"), (keeper, "USER")], &[]).await;
 
         assert_eq!(sc.status_of(creator).await.as_deref(), Some("SKIPPED"));
         assert_eq!(sc.status_of(keeper).await.as_deref(), Some("PENDING"));

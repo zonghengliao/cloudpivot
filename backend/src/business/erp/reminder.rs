@@ -1149,10 +1149,12 @@ mod tests {
         let empty = KindRunRes::of(RemindKind::LowStock, &ScanReport::default());
         assert_eq!(run_message(&[empty]), "本次扫描没有需要提醒的单据");
 
-        let mut report = ScanReport::default();
-        report.scanned = 2;
-        report.sent = 1;
-        report.skipped_no_recipient = 1;
+        let report = ScanReport {
+            scanned: 2,
+            sent: 1,
+            skipped_no_recipient: 1,
+            ..Default::default()
+        };
         let message = run_message(&[KindRunRes::of(RemindKind::LowStock, &report)]);
         assert!(message.contains("扫到 2 条"), "{message}");
         assert!(message.contains("已发 1 条通知"), "{message}");

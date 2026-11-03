@@ -3,9 +3,9 @@
 //! 项目部分走真实 handler（`create/create/update/delete`）与 `model`（成员、统计）；
 //! 变更日志部分用公告的真实状态流转产生日志，再验「全、准、不可改、可查」。
 
+use axum::Json;
 use axum::extract::{ConnectInfo, Path, Query};
 use axum::http::HeaderMap;
-use axum::Json;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use std::net::SocketAddr;
@@ -259,9 +259,11 @@ async fn p04_project_membership_is_not_a_scope() {
         )
         .await
         .expect("移出成员");
-        assert!(!project_model::is_member(project, member)
-            .await
-            .expect("成员判断"));
+        assert!(
+            !project_model::is_member(project, member)
+                .await
+                .expect("成员判断")
+        );
     })
     .await;
 }
@@ -372,14 +374,14 @@ async fn c01_every_state_change_logged() {
         .expect("下线");
 
         let count =
-            changelog_model::count_for_object(&*db(), "sys_announcement", &ann_id.to_string())
+            changelog_model::count_for_object(db(), "sys_announcement", &ann_id.to_string())
                 .await
                 .expect("计数");
         assert_eq!(count, 3, "建/发布/下线应各留一条日志，实际 {count} 条");
 
         // 动作序列按时间递增且覆盖三种动作
         let timeline = changelog_query::timeline(
-            &*db(),
+            db(),
             "sys_announcement",
             &ann_id.to_string(),
             None,
@@ -392,7 +394,7 @@ async fn c01_every_state_change_logged() {
         println!("[C01] 动作序列：{actions:?}");
         for expected in ["CREATE", "PUBLISH", "OFFLINE"] {
             assert!(
-                actions.iter().any(|action| *action == expected),
+                actions.contains(&expected),
                 "缺少 {expected} 动作，实际 {actions:?}"
             );
         }
@@ -513,7 +515,7 @@ async fn c04_timeline_by_object() {
         let (_user, ann_id) = published_announcement(&ctx).await;
 
         let timeline = changelog_query::timeline(
-            &*db(),
+            db(),
             "sys_announcement",
             &ann_id.to_string(),
             None,
@@ -539,7 +541,7 @@ async fn c04_timeline_by_object() {
 
         // 查一个不存在的单据 → 空（不能串到别的单据）
         let empty = changelog_query::timeline(
-            &*db(),
+            db(),
             "sys_announcement",
             &Uuid::now_v7().to_string(),
             None,
@@ -624,7 +626,7 @@ async fn c06_ten_objects_log_count_matches() {
 
         for (index, id) in ids.iter().enumerate() {
             let count =
-                changelog_model::count_for_object(&*db(), "sys_announcement", &id.to_string())
+                changelog_model::count_for_object(db(), "sys_announcement", &id.to_string())
                     .await
                     .expect("计数");
             // 每张单据：1 次建 + 1 次发布 = 2 次状态变更

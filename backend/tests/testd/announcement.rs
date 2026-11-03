@@ -5,9 +5,9 @@
 
 use std::net::SocketAddr;
 
+use axum::Json;
 use axum::extract::{ConnectInfo, Path, Query};
 use axum::http::HeaderMap;
-use axum::Json;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -17,8 +17,8 @@ use cloudpivot::business::announcement::dto::{
 use cloudpivot::business::announcement::{handler as ann_handler, model as ann_model};
 use cloudpivot::business::notice::dto::{ContentFormat, NoticeLevel, NoticeType};
 use cloudpivot::business::notice::{
-    dispatch, model as notice_model, render as notice_render, DispatchResult, NoticeDraft,
-    NoticeTarget,
+    DispatchResult, NoticeDraft, NoticeTarget, dispatch, model as notice_model,
+    render as notice_render,
 };
 
 use crate::testd::common::{self as c, Ctx};

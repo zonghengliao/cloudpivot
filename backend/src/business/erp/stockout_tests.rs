@@ -307,15 +307,13 @@ async fn cost_ledger(material_id: Uuid, warehouse_id: Uuid) -> (Decimal, Decimal
 
 /// 库位账合计。
 async fn location_ledger(material_id: Uuid, warehouse_id: Uuid) -> Decimal {
-    let value = db()
-        .scalar_with_params(
-            "SELECT coalesce(sum(qty),0) FROM biz_inventory_location \
+    db().scalar_with_params(
+        "SELECT coalesce(sum(qty),0) FROM biz_inventory_location \
               WHERE material_id = ?::uuid AND warehouse_id = ?::uuid",
-            vec![Value::from(&material_id), Value::from(&warehouse_id)],
-        )
-        .await
-        .expect("读库位账");
-    value
+        vec![Value::from(&material_id), Value::from(&warehouse_id)],
+    )
+    .await
+    .expect("读库位账")
 }
 
 /// 流水累计（IN 加、OUT 减）。
@@ -432,10 +430,9 @@ async fn make_doc(
             remark: None,
         }],
     };
-    let id = super::super::stockout_handler::create_stock_out(&req, None)
+    super::super::stockout_handler::create_stock_out(&req, None)
         .await
-        .unwrap_or_else(|error| panic!("建出库单失败：{} {}", error.code, error.msg));
-    id
+        .unwrap_or_else(|error| panic!("建出库单失败：{} {}", error.code, error.msg))
 }
 
 // ==================== ① 全链：入库 100 → 领用 30 → 报废 10 → 盘亏 5 ====================

@@ -505,7 +505,7 @@ async fn ai02_robot_operation_traced_in_changelog() {
     c::case("A02", |ctx| async move {
         let robot = c::make_user(&ctx, "robot", "ROBOT").await;
         // 表里冗余的 operator_type 由 users.user_type 推导（changelog::model::operator_type_of）
-        let ty = changelog_model::operator_type_of(&*db(), Some(robot))
+        let ty = changelog_model::operator_type_of(db(), Some(robot))
             .await
             .expect("推导操作人类型");
         assert_eq!(
@@ -517,7 +517,7 @@ async fn ai02_robot_operation_traced_in_changelog() {
         let id = Uuid::now_v7();
         let resource_id = ctx.key("obj");
         changelog_model::insert(
-            &*db(),
+            db(),
             &changelog_model::NewChangeLog {
                 id,
                 request_id: Some(&ctx.key("req")),
@@ -550,7 +550,7 @@ async fn ai02_robot_operation_traced_in_changelog() {
         .await;
         assert_eq!(stored_type, "ROBOT", "changelog 未记录 AI 操作人类型");
         assert_eq!(
-            changelog_model::count_for_object(&*db(), "biz_task", &resource_id)
+            changelog_model::count_for_object(db(), "biz_task", &resource_id)
                 .await
                 .expect("按对象计数"),
             1
