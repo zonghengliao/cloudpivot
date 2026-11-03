@@ -1,0 +1,58 @@
+== 种子：4 个通知模板（sys_notice_template）
+        template_code         |        template_name        | notice_type | default_level | status 
+------------------------------+-----------------------------+-------------+---------------+--------
+ ERP_REMINDER_CONTRACT_EXPIRE | ERP：合同到期提醒           | ALERT       | WARN          |      1
+ ERP_REMINDER_LOW_STOCK       | ERP：库存低于安全库存提醒   | ALERT       | WARN          |      1
+ ERP_REMINDER_PAYABLE_DUE     | ERP：应付账款到期提醒       | ALERT       | WARN          |      1
+ ERP_REMINDER_PO_OVERDUE      | ERP：采购订单超期未收货提醒 | ALERT       | WARN          |      1
+(4 rows)
+
+
+== 种子：4 条 sys_job（status=0 = 内置 cron 已在跑，本行仅供查看/手动执行）
+         job_name         |  cron_expr   |      invoke_target       | status |                                                             remark                                                              
+--------------------------+--------------+--------------------------+--------+---------------------------------------------------------------------------------------------------------------------------------
+ erp_contract_expire_scan | 0 30 7 * * * | erp_contract_expire_scan |      0 | 合同到期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:30 扫描「30/15/7/1 天后到期」的生效合同并通知制单人 + 采购经理
+ erp_low_stock_scan       | 0 40 7 * * * | erp_low_stock_scan       |      0 | 低库存提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:40 扫描「当前库存 < 安全库存」的物料×仓库并通知仓管主管
+ erp_payable_due_scan     | 0 10 7 * * * | erp_payable_due_scan     |      0 | 应付到期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:10 扫描「7/3/1 天后到期」的未付应付单并通知采购员 + 财务
+ erp_po_overdue_scan      | 0 20 7 * * * | erp_po_overdue_scan      |      0 | 采购超期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:20 扫描「超过期望到货日仍未收完」的采购单并通知制单人 + 采购经理
+(4 rows)
+
+
+== 种子：权限节点 + 授权角色
+         auth_code         | menu_type |      title       |                                              roles                                              
+---------------------------+-----------+------------------+-------------------------------------------------------------------------------------------------
+ business:erp:reminder:run |         3 | 手动触发业务提醒 | FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER
+(1 row)
+
+
+== 种子：重提醒间隔参数
+              config_key              | config_value | ref_value |                                               description                                               
+--------------------------------------+--------------+-----------+---------------------------------------------------------------------------------------------------------
+ erp.reminder.low_stock.realert_days  | 3            | 1~90      | 低库存重提醒间隔（天）：同一「物料×仓库」在间隔内不重复通知（台账 biz_reminder_log 判定；1 = 每天一次）
+ erp.reminder.po_overdue.realert_days | 3            | 1~90      | 采购超期重提醒间隔（天）：同一张采购单在间隔内不重复通知（台账 biz_reminder_log 判定；1 = 每天一次）
+(2 rows)
+
+
+== 台账结构（biz_reminder_log 列 + 幂等唯一索引）
+  column_name   |        data_type         | is_nullable 
+----------------+--------------------------+-------------
+ id             | uuid                     | NO
+ doc_type       | character varying        | NO
+ doc_id         | uuid                     | NO
+ doc_no         | character varying        | YES
+ remind_kind    | character varying        | NO
+ stage          | character varying        | NO
+ remind_date    | date                     | NO
+ notice_id      | uuid                     | YES
+ receiver_count | integer                  | NO
+ sent_at        | timestamp with time zone | NO
+(10 rows)
+
+          indexname          |                                                              indexdef                                                              
+-----------------------------+------------------------------------------------------------------------------------------------------------------------------------
+ biz_reminder_log_pkey       | CREATE UNIQUE INDEX biz_reminder_log_pkey ON public.biz_reminder_log USING btree (id)
+ idx_biz_reminder_log_doc    | CREATE INDEX idx_biz_reminder_log_doc ON public.biz_reminder_log USING btree (doc_type, doc_id, remind_date DESC)
+ idx_biz_reminder_log_recent | CREATE INDEX idx_biz_reminder_log_recent ON public.biz_reminder_log USING btree (remind_kind, remind_date DESC)
+ uk_biz_reminder_log_dedupe  | CREATE UNIQUE INDEX uk_biz_reminder_log_dedupe ON public.biz_reminder_log USING btree (doc_type, doc_id, remind_kind, remind_date)
+(4 rows)
+

@@ -1,0 +1,17 @@
+== 第 1 轮 down
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.down.sql:64: NOTICE:  V0210 回滚自检通过：台账 / 模板 / 任务 / 参数 / 权限节点 零残留
+   状态：templates=0 jobs=0 menu=0 cfg=0 ledger_table=0 uniq_idx=0
+== 第 1 轮 up
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.up.sql:314: NOTICE:  V0210：手动触发提醒权限已种，授权新增 6 行
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.up.sql:314: NOTICE:  V0210 自检通过：台账 9 列 + 幂等唯一索引 + 4 模板 + 4 任务 + 2 参数 + 1 权限节点
+   状态：templates=4 jobs=4 menu=1 cfg=2 ledger_table=1 uniq_idx=1
+== 第 2 轮 down
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.down.sql:64: NOTICE:  V0210 回滚自检通过：台账 / 模板 / 任务 / 参数 / 权限节点 零残留
+   状态：templates=0 jobs=0 menu=0 cfg=0 ledger_table=0 uniq_idx=0
+== 第 2 轮 up
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.up.sql:314: NOTICE:  V0210：手动触发提醒权限已种，授权新增 6 行
+    psql:/opt/cloudpivot/backend/migrations/business/V0210__erp_business_reminder.up.sql:314: NOTICE:  V0210 自检通过：台账 9 列 + 幂等唯一索引 + 4 模板 + 4 任务 + 2 参数 + 1 权限节点
+   状态：templates=4 jobs=4 menu=1 cfg=2 ledger_table=1 uniq_idx=1
+== 终态核对（应 templates=4 jobs=4 menu=1 cfg=2 ledger_table=1 uniq_idx=1）
+   templates=4 jobs=4 menu=1 cfg=2 ledger_table=1 uniq_idx=1
+== 终态 OK

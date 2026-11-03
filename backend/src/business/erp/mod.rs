@@ -41,6 +41,11 @@
 //! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
 //! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
 //! | [`approval_gate`] | 审批流未配置改「默认拒绝」（DC-01）：6 个入口 409 + 新码、显式跳过（`business:erp:skip-approval` + 理由 ≥10 字）、8 个流程配置自检端点 | **ARCH-3 P0** |
+//! | [`reminder`] | **业务提醒任务包**（DC-06 / DC-12）：4 类提醒的元数据 / 业务日 / 幂等台账（`biz_reminder_log`）/ 收件人解析 / 统一发送 / 4 个 cron 注册 / 手动触发端点 | **ARCH-3 R-P1-2** |
+//! | [`reminder_payable`] | ① 应付到期：`due_date` 前 7/3/1 天 → 供应商对应采购员 + 财务（经理/总监） | **ARCH-3 R-P1-2** |
+//! | [`reminder_purchase`] | ② 采购超期：超过 `expect_date` 未收完 → 制单人 + 采购经理（重提醒 3 天） | **ARCH-3 R-P1-2** |
+//! | [`reminder_contract`] | ③ 合同到期：`end_date` 前 30/15/7/1 天 → 制单人 + 负责人 + 采购经理 | **ARCH-3 R-P1-2** |
+//! | [`reminder_stock`] | ④ 低库存：`qty < safety_stock`（DC-12 摆设字段落地）→ 仓管主管 | **ARCH-3 R-P1-2** |
 //!
 //! # 表结构的唯一依据
 //!
@@ -94,6 +99,11 @@ pub mod purchase_bridge;
 pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;
+pub mod reminder;
+pub mod reminder_contract;
+pub mod reminder_payable;
+pub mod reminder_purchase;
+pub mod reminder_stock;
 pub mod report;
 pub mod separation;
 pub mod serial_dto;
@@ -163,3 +173,7 @@ pub(crate) mod fixture_hygiene;
 /// P-FLOW-3B 的真库单测（应付作废 + 凭证红冲审批）。只在 `cargo test` 时编译。
 #[cfg(test)]
 mod pflow3b_tests;
+
+/// R-P1-2 的真库单测（业务提醒任务包：幂等 / 收件人 / 真机扫描）。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod reminder_tests;

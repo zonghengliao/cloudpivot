@@ -295,6 +295,9 @@ impl Scheduler {
         crate::business::flow::timeout::register_builtin(self);
         // LNK-F12：在途调拨超期扫描 + 告警（每小时第 5 分钟；阈值走 sys_config，默认 7 天）
         crate::business::erp::transfer_overdue::register_builtin(self);
+        // R-P1-2：业务提醒任务包（应付到期 07:10 / 采购超期 07:20 / 合同到期 07:30 / 低库存 07:40）。
+        // 幂等由 biz_reminder_log 台账（单据 × 类型 × 业务日唯一）+ 通知幂等键两层保证。
+        crate::business::erp::reminder::register_builtin(self);
         // P16：收货作废审批的**孤儿实例回收**（每 10 分钟）。
         // 判据：审批还在跑、单据却已删除或已不是「作废审批中」→ 终止审批单（P11 教训：
         // 不回收就是审批中心一堆点进去 404 的待办，且下一次发起会被 uk_ 唯一索引永久堵死）。
@@ -593,6 +596,16 @@ pub async fn run_handler(
         "clean_security_log" => cleanup_json_logs(JsonLogTable::Security, "安全日志").await,
         "clean_password_log" => {
             cleanup_json_logs(JsonLogTable::PasswordChange, "密码变更日志").await
+        }
+        // R-P1-2：业务提醒（4 类扫描）。sys_job 里的 4 行种子默认停用（内置 cron 已在跑），
+        // 但「定时任务」页的「立即执行」走的就是这里 —— 验收与事后补跑都用它。
+        target if crate::business::erp::reminder::RemindKind::from_task_name(target).is_some() => {
+            let kind = crate::business::erp::reminder::RemindKind::from_task_name(target)
+                .expect("上面刚判过");
+            let report = crate::business::erp::reminder::run_kind(kind, chrono::Utc::now())
+                .await
+                .map_err(|e| utils::db_error(e, "执行业务提醒扫描"))?;
+            Ok(report.summary(kind))
         }
         other => Err(ApiError::new(
             422,
