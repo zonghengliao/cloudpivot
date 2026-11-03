@@ -1,0 +1,11 @@
+# 闸②（scope_gate.py，口径 v2）— 本卡落地后
+# 时间: 2026-11-03T23:18:36+08:00
+# commit(base): 5408859bea2c6f576fc8bd0b154ae2c1cd1c65b0
+# 命令: python3 scripts/lint/scope_gate.py --root .
+
+闸② 判定面（v2）：扫描生产面 312 个文件 / 跳过测试面 50 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：0 处
+
+EXIT=0

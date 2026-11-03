@@ -221,6 +221,7 @@ async fn detail_of(id: Uuid) -> ResResult<ContractDetailRes> {
 /// 为什么要它：列表 / 详情要显示「审批中（FLW-xxx）」—— 用户拿着单号能直接去审批中心
 /// 找到它；而 `ContractRes::from(&ContractRow)` 只拿得到实例 **id**。
 /// 批量查一次而不是逐行查（一页 20 行逐行查就是 20 次往返）。
+// SCOPE-EXEMPT: 只在**已授权的行集合**上按 id 批量补展示字段（SELECT id, instance_no FROM biz_flow_instance WHERE id = ANY(...)），不产生行集、也不决定谁能看；行集权限在 business/erp/contract_model.rs:496（contract_page → scope::paginate_unscoped）+ 中间件 erp:contract:list（contract_handler.rs:283）。
 async fn fill_approval_no(rows: &mut [ContractRes]) {
     let ids: Vec<Uuid> = rows
         .iter()

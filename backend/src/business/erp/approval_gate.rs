@@ -362,6 +362,7 @@ pub struct FlowHealthRes {
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: biz_flow_def 是全局流程配置（无 dept_id / 归属人列），自检必须看到 8 个 biz_type「运行时实际会选中的那一行」，注入部门范围会把别部门已发布的流程判成「没有配置」→ 上线体检假红（错的是告警而不是数据）；权限在端点：business/erp/approval_gate.rs:519 approval_flow_health（:516 #[nik::permission] business:erp:approval-flow:health，管理员/实施专用）。
 async fn inspect(biz_type: &str, flow_code: &str) -> DbResult<FlowHealthItem> {
     let rows = db()
         .find_with_params(

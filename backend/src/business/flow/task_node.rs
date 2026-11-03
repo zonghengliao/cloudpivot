@@ -552,6 +552,7 @@ pub fn cst_today(now: chrono::DateTime<Utc>) -> NaiveDate {
 }
 
 /// 幂等前置查询：同一实例 + 同一节点 + 同一轮是否已有未软删的任务。
+// SCOPE-EXEMPT: 事务内幂等判重（按 flow_instance_id + node_key + round 取已有任务 id，LIMIT 1）；任务由流程引擎在审批节点上生成，没有请求操作人可注入数据范围；调用 task_node.rs:121 / :256，均在同一事务 ex 上。
 async fn find_existing(
     ex: &Transaction,
     instance_id: Uuid,
@@ -578,6 +579,7 @@ async fn find_existing(
 }
 
 /// 负责人的部门快照（任务看板按 `dept_id` 分组，与手工建任务同一口径）。
+// SCOPE-EXEMPT: 按 user_id 单条取负责人部门快照（写入 biz_task.dept_id 供看板分组），返回单列、不产出行集；输入是流程已选定的负责人；调用 task_node.rs:213（流程引擎事务内，无操作人）。
 async fn owner_dept(ex: &Transaction, owner_id: Uuid) -> DbResult<Option<Uuid>> {
     let rows = ex
         .find_with_params(

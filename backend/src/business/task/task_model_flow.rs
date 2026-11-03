@@ -98,6 +98,7 @@ pub(super) fn switch_field<T>(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 按 task_id 单条取这张任务的流程块（WHERE t.id = ?::uuid），不产生行集；权限在端点的单条可见性校验：business/task/handler.rs:4515 principal::resolve_for_claims → handler.rs:4517 find_detail(&me, task_id)（内核 task_model_query.rs:222 scope::filter_for）看不见即 404（handler.rs:4520）。
 pub async fn flow_ref_of_task(task_id: Uuid) -> DbResult<Option<TaskFlowDetailRow>> {
     let rows = db()
         .find_with_params(

@@ -215,6 +215,7 @@ pub async fn build(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 实例内取「上一审批人」一个字段（instance_id + round 由调用方确定，LIMIT 1），不产出行集；调用 template_vars.rs:166（渲染流程变量），实例 id 由已鉴权的业务流程持有。
 pub async fn prev_approver(
     ex: &impl SqlExecutor,
     instance_id: Uuid,

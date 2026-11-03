@@ -28,6 +28,7 @@ use crate::business::task::state::{self, ChildSnapshot, TaskStatus};
 ///
 /// 注意：链条**不按 `deleted_at` 截断**。被软删的中间层仍然占一层（宁可多算深度，
 /// 也不让「删掉父任务再挂子任务」绕过层级限制），只会比树形展示的口径更严。
+// SCOPE-EXEMPT: 只产出「向上爬祖先链」的 SQL 文本（供 validate_parent 用），返回 Ok/Err 不返回行集；调用方 handler 建/改任务时已按 id 定位本任务并过中间件闸 business:task:create（handler.rs:311）/ business:task:update（handler.rs:577）。
 pub(super) fn ancestor_chain_sql() -> String {
     format!(
         "WITH RECURSIVE chain(id, parent_id, depth) AS ( \
@@ -57,6 +58,7 @@ pub(super) fn ancestor_chain_sql() -> String {
 ///
 /// - 父任务不存在 / 已删除 → `DbError::InvalidValue`（handler 转 400 + `TASK_PARENT_INVALID`）；
 /// - 深度 / 成环 / 祖先链脏环 → 同上。
+// SCOPE-EXEMPT: 父任务存在性 + 深度 + 成环校验：输入是用户指定的 parent_id，输出只有 Ok/Err，不向用户产出任何行；注入 scope 会改变语义（看不见的父任务被判「不存在」），是否允许挂到该父任务属业务规则而非数据可见性；权限：handler.rs:365（create，business:task:create）/ handler.rs:639（update，business:task:update）。
 pub async fn validate_parent(parent_id: Uuid, self_id: Option<Uuid>) -> DbResult<()> {
     if Some(parent_id) == self_id {
         return Err(DbError::InvalidValue("父任务不能是任务自己".to_string()));
@@ -238,6 +240,7 @@ pub async fn recalc_ancestors(
 /// 读一个任务的状态字面量（`None` = 行不存在 / 已软删 / 状态不是 5 态之一）。
 ///
 /// 解析不出来时不猜、不 panic：调用方一律视为「这条任务不该被级联」，停止向上爬。
+// SCOPE-EXEMPT: 事务内按 id 读单个状态字面量（父任务状态级联的内部读），不产出行集；调用链 cascade_parent_status ← handler.rs:1005 find_detail 可见性校验（scope ∪ 参与关系）后的 change_status 事务；管理端修复走超管（handler.rs:4697 is_super_admin）。
 pub(super) async fn scalar_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
     let rows = ex
         .query_sql(
@@ -404,6 +407,7 @@ pub async fn cascade_parent_status(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。库里状态不是 5 态之一的行（历史脏值）**跳过不猜**。
+// SCOPE-EXEMPT: 产出的是「父任务状态不一致」的**运维诊断清单**（父任务 id + 样本子任务），不是业务行集展示；唯一读者是批量修数接口 handler.rs:4689 repair_parent_status —— 中间件 business:task:update + handler.rs:4697 is_super_admin（非超管 403 + 63002），而超管的 scope 恒为「全部」，注入片段是 no-op；文档口径亦明确「这是跨全库的批量修数接口，不按单个任务的数据范围做闸」。
 pub async fn scan_parent_status_gaps(
     ex: &impl SqlExecutor,
     limit: i64,
@@ -483,6 +487,7 @@ pub async fn scan_parent_status_gaps(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 按 id 取父任务当前状态（「父任务已取消 → 子任务不许推进」的守卫），单值不产出行集；调用 handler.rs:1034 / :1205（change_status 事务内），可见性已在 handler.rs:1005 find_detail 过闸。
 pub async fn parent_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<TaskStatus>> {
     let rows = ex
         .query_sql(
@@ -510,6 +515,7 @@ pub async fn parent_status(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<T
 ///    也是**防环闸**（脏数据成环时递归停在这里，不是靠运气）；
 /// 3. `status NOT IN ('DONE','CANCELLED')` 落在 `victims` 里（`UPDATE` 的
 ///    `WHERE` 只能写目标表列，写 `v.status` 更清楚）：`DONE` 不回退、已取消不重复写。
+// SCOPE-EXEMPT: 只产出级联取消的 SQL 文本（WITH RECURSIVE … UPDATE … RETURNING），是**写路径**：按父任务 id 把子孙写到 CANCELLED，不向用户产出可浏览行集；调用 link cascade_cancel_descendants ← handler.rs:1252 （change_status 事务内，可见性见 handler.rs:1005，角色/状态机判定见 handler.rs:1047 state::check_transition）。
 pub(super) fn cascade_cancel_sql() -> String {
     format!(
         "WITH RECURSIVE tree(id, depth) AS ( \
@@ -595,6 +601,7 @@ pub async fn cascade_cancel_descendants(
 }
 
 /// 任务的父任务 ID（`None` = 顶层任务 / 不存在）。
+// SCOPE-EXEMPT: 按 id 取 parent_id 单值（重算进度时向上走一层），不产出行集；调用 recalc_ancestors ← handler.rs:1342（change_status）/ :1558（change_progress，可见性 handler.rs:1509 find_detail）/ :1692（子任务创建）。
 pub(super) async fn parent_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
     let rows = ex
         .query_sql(
@@ -609,6 +616,7 @@ pub(super) async fn parent_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Optio
 }
 
 /// 任务的当前进度（重算前读旧值，只用于「变了才写」与评论）。
+// SCOPE-EXEMPT: 按 id 读单个 progress 旧值（「变了才写」与评论），单值不产出行集；与 parent_of 同一调用链（handler.rs:1342 / :1558 / :1692），可见性在 handler 侧 find_detail 完成。
 pub(super) async fn scalar_progress(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i16> {
     let rows = ex
         .query_sql(

@@ -504,6 +504,7 @@ pub async fn ledger_record(
 ///
 /// 收件人是人不是角色：`NoticeTarget::Role` 会把「此刻角色里有谁」交给扇出侧决定，
 /// 而提醒要在台账里写清「发给了几个人」，两者口径必须一致，所以这里直接展开。
+// SCOPE-EXEMPT: 后台扇出的收件人解析，没有请求操作人 ⇒ 不存在「操作人的数据范围」；收件人由角色定义决定（谁在角色里谁收提醒），注入范围会让同角色里的其他人静默收不到提醒；调用方全是调度器注册的后台扫描（reminder.rs:795 register_builtin → register_cron → tokio::spawn；业务侧 reminder_purchase.rs:106 / reminder_payable.rs:91 / reminder_contract.rs:116 / reminder_stock.rs:128）。
 pub async fn users_of_roles(codes: &[&str]) -> DbResult<Vec<Uuid>> {
     if codes.is_empty() {
         return Ok(Vec::new());

@@ -1,0 +1,11 @@
+# cargo check / clippy --all-targets -- -D warnings（本卡改动后）
+# 时间: 2026-11-03T23:18:41+08:00
+# 命令: cd backend && cargo check ; cargo clippy --all-targets -- -D warnings
+# TMPDIR=/root/.hermes/profiles/backend-developer/cache/scratch（本机 /tmp 100% 满）
+
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 8.20s
+CHECK_EXIT=0
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 24.86s
+CLIPPY_EXIT=0

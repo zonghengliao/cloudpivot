@@ -85,6 +85,7 @@ pub async fn create_task(
 ///
 /// `pub(crate)`：流程引擎的 `flow::task_node::spawn` 要用同一套取号逻辑
 /// （`uk_biz_task_task_no` 撞库重试也复用同一个口径），不许在流程侧另写一份 MAX+1。
+// SCOPE-EXEMPT: 取号必须跨**全表** MAX+1（表上有唯一索引 uk_biz_task_task_no），注入数据范围会让不同部门算出同一个号 → 撞唯一索引/串号，这是取号语义本身的硬要求；返回一个编号字符串、不产出行集；调用 create_task（task_model_write.rs:41）← handler.rs:314（business:task:create）与流程引擎 flow/task_node.rs:221（无操作人）。
 pub(crate) async fn next_task_no(ex: &Transaction, month: &str) -> DbResult<String> {
     // 咨询锁键：7700000000 + YYYYMM（固定命名空间，避免与其它模块的 advisory lock 撞号）
     let month_number: i64 = month.parse().unwrap_or(0);
@@ -260,6 +261,7 @@ pub async fn soft_delete(ex: &Transaction, id: Uuid, operator: Uuid) -> DbResult
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 软删任务时按 id **双向**清依赖边（DELETE … WHERE task_id = ? OR depends_on_id = ?），写路径、只返回受影响行数；调用 soft_delete（task_model_write.rs:246）← handler.rs:716 delete （:735 require_task 取行 + :737 负责人/创建人/超管 403 判定）。
 pub async fn purge_dependencies(ex: &impl SqlExecutor, id: Uuid) -> DbResult<u64> {
     ex.exec_sql(
         "DELETE FROM biz_task_dependency WHERE task_id = ?::uuid OR depends_on_id = ?::uuid"
@@ -515,6 +517,7 @@ pub async fn insert_members(
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
+// SCOPE-EXEMPT: 按 (task_id, user_id) 删一行协作关系，写路径、只返回受影响行数，不产出行集；调用 handler.rs:4394（:4375 require_task 取当前行 + :4382 may_manage_members 判定 创建人/负责人/分派人或 business:task:member 码），中间件 business:task:read（handler.rs:4365）。
 pub async fn remove_member(ex: &Transaction, task_id: Uuid, user_id: Uuid) -> DbResult<u64> {
     ex.execute_with_params(
         "DELETE FROM biz_task_member WHERE task_id = ?::uuid AND user_id = ?::uuid",

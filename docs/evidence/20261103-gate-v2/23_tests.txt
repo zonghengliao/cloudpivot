@@ -1,0 +1,892 @@
+# 真库回归（本卡改动后）
+# 时间: 2026-11-03T23:21:47+08:00
+# 库: cp_p14_clean（本地 PG，已应用 V0000–V0212 迁移；账号 alun）
+# 说明: 本卡只改注释（无 SQL / 签名变更），回归用于证明生产面 & 测试面仍全绿
+
+================================================================
+### cargo test --lib business::task:: -- --test-threads=1
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 210 tests
+test business::task::batch::tests::batch_task_assign_requires_owner ... ok
+test business::task::batch::tests::batch_task_status_validates_permission_ids_and_target ... ok
+test business::task::burndown::tests::ideal_line_is_linear_to_zero ... ok
+test business::task::burndown::tests::series_ignores_completions_outside_window ... ok
+test business::task::burndown::tests::series_matches_acceptance_numbers ... ok
+test business::task::burndown::tests::series_single_point_is_safe ... ok
+test business::task::collab::attachment_columns_tests::attachment_columns_expose_original_and_stored_name ... ok
+test business::task::collab::tests::comment_delete_matrix ... ok
+test business::task::collab::tests::comment_excerpt_is_char_safe ... ok
+test business::task::collab::tests::mention_targets_dedup_and_skip_author ... ok
+test business::task::collab::tests::parse_mentions_tolerates_dirty_values ... ok
+test business::task::collab::tests::quota_verdicts ... ok
+test business::task::collab::tests::work_date_parsing ... ok
+test business::task::collab::tests::worklog_date_not_in_future ... ok
+test business::task::collab::tests::worklog_hours_bounds ... ok
+test business::task::dep::tests::acyclic_and_diamond_are_allowed ... ok
+test business::task::dep::tests::bar_span_maps_dates_to_offsets ... ok
+test business::task::dep::tests::blocking_prerequisites_filters_terminals ... ok
+test business::task::dep::tests::cycle_label_renders_every_node ... ok
+test business::task::dep::tests::cycle_path_is_oriented_from_the_task_being_edited ... ok
+test business::task::dep::tests::depth_limit_fails_closed ... ok
+test business::task::dep::tests::direct_cycle_is_rejected ... ok
+test business::task::dep::tests::gantt_edges_keep_only_both_ends_visible ... ok
+test business::task::dep::tests::long_cycle_is_rejected_with_full_path ... ok
+test business::task::dep::tests::only_done_and_cancelled_release_the_block ... ok
+test business::task::dep::tests::range_defaults_and_limits ... ok
+test business::task::dep::tests::self_cycle_is_rejected ... ok
+test business::task::dep::tests::today_line_and_overdue ... ok
+test business::task::dto::tests::empty_update_is_detected ... ok
+test business::task::dto::tests::keyword_is_collapsed ... ok
+test business::task::dto::tests::priority_and_status_are_whitelisted ... ok
+test business::task::dto::tests::status_change_req_accepts_both_to_and_status ... ok
+test business::task::dto::tests::truncate_counts_chars_not_bytes ... ok
+test business::task::dto::tests::update_req_distinguishes_absent_and_null ... ok
+test business::task::handler::copy_db_tests::d9_task_copy_keeps_fields_but_not_children ... ok
+test business::task::handler::copy_db_tests::d9_task_copy_requires_create_permission ... ok
+test business::task::handler::copy_db_tests::zz_teardown_purges_super_admin_fixture_user ... ok
+test business::task::handler::stats_handler_tests::total_handles_empty_and_cancelled_only ... ok
+test business::task::handler::stats_handler_tests::total_is_weighted_by_done_count_not_a_plain_mean ... ok
+test business::task::handler::stats_handler_tests::weighted_average_ignores_zero_and_negative_weights ... ok
+test business::task::handler::tests::actor_role_prefers_creator_then_owner_then_assigner ... ok
+test business::task::handler::tests::ai_comment_content_is_truncated ... ok
+test business::task::handler::tests::assign_and_member_permission_matrix ... ok
+test business::task::handler::tests::assigner_id_follows_card_rule ... ok
+test business::task::handler::tests::comment_type_forgery_is_rejected ... ok
+test business::task::handler::tests::copy_title_appends_suffix_and_keeps_limit ... ok
+test business::task::handler::tests::creator_and_owner_are_protected_members ... ok
+test business::task::handler::tests::current_user_rejects_bad_subject ... ok
+test business::task::handler::tests::filter_blank_statuses_means_no_filter ... ok
+test business::task::handler::tests::filter_keeps_legacy_status_alongside_statuses ... ok
+test business::task::handler::tests::filter_normalizes_statuses_list ... ok
+test business::task::handler::tests::filter_rejects_bad_owner_uuid ... ok
+test business::task::handler::tests::filter_rejects_unknown_status_and_priority ... ok
+test business::task::handler::tests::filter_rejects_unknown_status_in_statuses ... ok
+test business::task::handler::tests::hours_are_bounded_and_rounded ... ok
+test business::task::handler::tests::member_quota_boundary ... ok
+test business::task::handler::tests::title_is_trimmed_and_rejected_when_blank ... ok
+test business::task::handler::tests::user_comment_content_limit_is_strict ... ok
+test business::task::hermes_sync::tests::dispatch_body_contains_token_and_upload_contract ... ok
+test business::task::hermes_sync::tests::dispatch_body_declares_output_naming_rule ... ok
+test business::task::hermes_sync::tests::dispatch_body_flattens_multiline_title ... ok
+test business::task::hermes_sync::tests::done_relay_is_idempotent_across_polling_cycles ... ok
+test business::task::hermes_sync::tests::hermes_status_maps_to_expected_actions ... ok
+test business::task::hermes_sync::tests::idempotency_key_is_stable_and_valid ... ok
+test business::task::hermes_sync::tests::mime_guess_is_conservative ... ok
+test business::task::hermes_sync::tests::output_file_name_carries_task_no ... ok
+test business::task::hermes_sync::tests::priority_mapping_matches_contract ... ok
+test business::task::hermes_sync::tests::relay_path_accepts_file_inside_workspace ... ok
+test business::task::hermes_sync::tests::relay_path_guards_reject_untrusted_paths ... ok
+test business::task::model::cascade_cancel_tests::cancel_grandparent_cancels_three_levels ... ok
+test business::task::model::cascade_cancel_tests::cancel_keeps_progress_untouched ... ok
+test business::task::model::cascade_cancel_tests::cancel_parent_cancels_all_open_children ... ok
+test business::task::model::cascade_cancel_tests::cancel_parent_cancels_doing_child ... ok
+test business::task::model::cascade_cancel_tests::cancel_parent_keeps_done_child_but_cancels_its_open_descendant ... ok
+test business::task::model::cascade_cancel_tests::cancelled_children_are_reported_one_by_one ... ok
+test business::task::model::cascade_cancel_tests::cancelled_parent_blocks_child_to_doing ... ok
+test business::task::model::cascade_cancel_tests::cancelled_parent_blocks_child_to_review ... ok
+test business::task::model::cascade_cancel_tests::cancelled_parent_still_allows_child_cancel ... ok
+test business::task::model::cascade_cancel_tests::cascade_failure_rolls_back_parent_cancel ... ok
+test business::task::model::cascade_cancel_tests::dirty_cycle_terminates ... ok
+test business::task::model::cascade_cancel_tests::guard_blocks_only_advance_under_cancelled_parent ... ok
+test business::task::model::cascade_tests::all_children_done_sends_parent_to_review ... ok
+test business::task::model::cascade_tests::cancelled_child_counts_as_terminal ... ok
+test business::task::model::cascade_tests::cascade_failure_rolls_back_child_change ... ok
+test business::task::model::cascade_tests::cascade_target_follows_the_three_rules ... ok
+test business::task::model::cascade_tests::dirty_cycle_stops_cascade ... ok
+test business::task::model::cascade_tests::first_active_child_moves_todo_parent_to_doing ... ok
+test business::task::model::cascade_tests::partially_done_children_keep_parent_in_doing ... ok
+test business::task::model::cascade_tests::single_child_done_sends_parent_to_review ... ok
+test business::task::model::cascade_tests::terminal_parent_never_rolls_back ... ok
+test business::task::model::cascade_tests::three_children_all_done_sends_parent_to_review ... ok
+test business::task::model::cascade_tests::three_levels_cascade_upward ... ok
+test business::task::model::depth_tests::ancestor_chain_cycle_terminates_with_error ... ok
+test business::task::model::depth_tests::ancestor_chain_query_is_one_recursive_cte ... ok
+test business::task::model::depth_tests::cycle_edge_is_rejected ... ok
+test business::task::model::depth_tests::level_eight_is_allowed ... ok
+test business::task::model::depth_tests::level_nine_is_rejected_with_63005 ... ok
+test business::task::model::depth_tests::level_one_task_can_be_created ... ok
+test business::task::model::depth_tests::level_three_is_allowed_and_really_created ... ok
+test business::task::model::depth_tests::level_two_under_root_is_allowed ... ok
+test business::task::model::depth_tests::missing_or_deleted_parent_is_rejected ... ok
+test business::task::model::depth_tests::self_parent_is_rejected ... ok
+test business::task::model::display_file_name_tests::empty_original_name_is_treated_as_missing ... ok
+test business::task::model::display_file_name_tests::falls_back_to_stored_basename ... ok
+test business::task::model::display_file_name_tests::never_returns_a_path ... ok
+test business::task::model::display_file_name_tests::prefers_original_name ... ok
+test business::task::model::repair_tests::repair_limit_is_clamped ... ok
+test business::task::model::repair_tests::scan_reports_then_repairs_three_gaps ... ok
+test business::task::model::repair_tests::scan_target_matches_cascade_rule_three ... ok
+test business::task::model::repair_tests::terminal_codes_match_enum ... ok
+test business::task::model::root_only_tests::root_only_absent_is_backward_compatible ... ok
+test business::task::model::root_only_tests::root_only_keyword_searches_within_top_level ... ok
+test business::task::model::root_only_tests::root_only_lists_top_level_rows_only ... ok
+test business::task::model::root_only_tests::root_only_snippet_adds_no_bind_params ... ok
+test business::task::model::root_only_tests::root_only_snippet_keeps_param_order ... ok
+test business::task::model::root_only_tests::root_only_status_filters_within_top_level ... ok
+test business::task::model::root_only_tests::root_only_total_counts_top_level_only ... ok
+test business::task::model::stats_tests::completion_rate_excludes_cancelled_and_clamps ... ok
+test business::task::model::stats_tests::default_stats_window_is_thirty_days_inclusive ... ok
+test business::task::model::stats_tests::stats_window_error_covers_reversed_and_too_long ... ok
+test business::task::model::statuses_filter_tests::empty_statuses_produces_no_snippet ... ok
+test business::task::model::statuses_filter_tests::empty_statuses_returns_all_rows ... ok
+test business::task::model::statuses_filter_tests::page_returns_only_selected_statuses ... ok
+test business::task::model::statuses_filter_tests::single_statuses_equals_legacy_status ... ok
+test business::task::model::statuses_filter_tests::statuses_builds_in_clause_with_ordered_params ... ok
+test business::task::model::statuses_filter_tests::statuses_combines_with_root_only ... ok
+test business::task::model::statuses_filter_tests::statuses_keeps_param_order_with_other_filters ... ok
+test business::task::model::statuses_filter_tests::statuses_wins_over_single_status ... ok
+test business::task::model::tests::assign_owner_sql_is_guarded ... ok
+test business::task::model::tests::buckets_cover_all_cases ... ok
+test business::task::model::tests::card_columns_expose_child_stats ... ok
+test business::task::model::tests::cst_date_shifts_by_eight_hours ... ok
+test business::task::model::tests::default_due_date_is_this_friday ... ok
+test business::task::model::tests::fragment_shape_guard_accepts_known_shapes_and_rejects_or ... ok
+test business::task::model::tests::ids_array_param_is_pg_literal ... ok
+test business::task::model::tests::is_new_task_matches_a_criteria ... ok
+test business::task::model::tests::like_wildcards_are_escaped ... ok
+test business::task::model::tests::member_limit_truncation_rule ... ok
+test business::task::model::tests::members_insert_sql_is_set_based ... ok
+test business::task::model::tests::new_window_matches_badge ... ok
+test business::task::model::tests::patch_empty_detection ... ok
+test business::task::model::tests::task_no_is_zero_padded_and_month_scoped ... ok
+test business::task::model::tests::truncated_scope_degrades_to_empty_array ... ok
+test business::task::model::tests::visible_params_are_one_uuid_array ... ok
+test business::task::model::tests::visible_tail_uses_member_id_array_only ... ok
+test business::task::recurring::tests::day_and_weekday_follow_cron_semantics ... ok
+test business::task::recurring::tests::next_run_daily_nine ... ok
+test business::task::recurring::tests::next_run_impossible_returns_none ... ok
+test business::task::recurring::tests::next_run_weekly_and_monthly ... ok
+test business::task::recurring::tests::parse_cron_accepts_five_and_six_fields ... ok
+test business::task::recurring::tests::parse_cron_expands_ranges_steps_lists ... ok
+test business::task::recurring::tests::parse_cron_rejects_bad_expressions ... ok
+test business::task::schedule::tests::check_order_reports_date_sanity_before_dependencies ... ok
+test business::task::schedule::tests::child_outside_parent_range_is_rejected_with_names ... ok
+test business::task::schedule::tests::completed_or_cancelled_predecessor_does_not_block ... ok
+test business::task::schedule::tests::conflict_encoding_round_trips ... ok
+test business::task::schedule::tests::date_sanity_rejects_reversed_and_too_old ... ok
+test business::task::schedule::tests::explicit_keeps_unmentioned_date ... ok
+test business::task::schedule::tests::mode_rejects_both_or_neither_or_zero ... ok
+test business::task::schedule::tests::parent_shift_must_not_push_children_out ... ok
+test business::task::schedule::tests::predecessor_check_names_task_no_title_and_due ... ok
+test business::task::schedule::tests::predecessor_without_due_date_is_not_a_conflict ... ok
+test business::task::schedule::tests::shift_moves_both_dates_by_same_delta ... ok
+test business::task::schedule::tests::shift_without_any_date_is_rejected ... ok
+test business::task::schedule::tests::signed_days_renders_sign ... ok
+test business::task::schedule::tests::successor_check_names_task_no_title_and_start ... ok
+test business::task::state::callback_tests::callback_bypasses_gate_on_review_to_done ... ok
+test business::task::state::callback_tests::callback_bypasses_role_and_reason_on_review_to_doing ... ok
+test business::task::state::callback_tests::callback_identity_does_not_leak_into_user_path ... ok
+test business::task::state::callback_tests::callback_stays_inside_review ... ok
+test business::task::state::gate_tests::approved_releases_review_to_done_and_rejected_releases_reject ... ok
+test business::task::state::gate_tests::other_transitions_are_untouched_while_approval_pending ... ok
+test business::task::state::gate_tests::pending_approval_blocks_review_exits_for_every_role ... ok
+test business::task::state::gate_tests::pending_match_is_case_insensitive_and_unknown_status_does_not_lock ... ok
+test business::task::state::gate_tests::without_approval_instance_the_gate_never_fires ... ok
+test business::task::state::tests::aggregate_edges ... ok
+test business::task::state::tests::all_done_children_pin_parent_to_hundred_without_changing_status ... ok
+test business::task::state::tests::done_at_effects_are_set_on_done_and_cleared_on_reopen ... ok
+test business::task::state::tests::equal_weight_when_hours_are_missing ... ok
+test business::task::state::tests::illegal_pairs_are_rejected_with_illegal_pair ... ok
+test business::task::state::tests::need_review_blocks_direct_done_but_keeps_review_open ... ok
+test business::task::state::tests::no_transition_targets_itself_and_pairs_are_unique ... ok
+test business::task::state::tests::open_children_counts_only_non_terminal ... ok
+test business::task::state::tests::out_edges_are_stable ... ok
+test business::task::state::tests::progress_effects_follow_the_transition ... ok
+test business::task::state::tests::reject_requires_reason_of_at_least_five_chars ... ok
+test business::task::state::tests::reopen_and_restore_are_creator_or_admin_only ... ok
+test business::task::state::tests::review_to_done_needs_acceptance_right_not_just_ownership ... ok
+test business::task::state::tests::role_mask_unions_and_admin_is_independent ... ok
+test business::task::state::tests::status_parse_and_labels ... ok
+test business::task::state::tests::todo_to_doing_allows_four_roles_and_rejects_none ... ok
+test business::task::state::tests::weighted_progress_matches_the_card_example ... ok
+test business::task::state::tests::whitelist_covers_exactly_the_ten_allowed_pairs ... ok
+test business::task::template::tests::normalize_save_ok ... ok
+test business::task::template::tests::normalize_save_rejects_invalid ... ok
+test business::task::template::tests::subtasks_encode_always_array ... ok
+test business::task::template::tests::subtasks_json_parses_and_skips_bad_items ... ok
+test business::task::template::tests::subtasks_json_rejects_non_array_and_handles_empty ... ok
+test business::task::template::tests::truncate_keeps_chars ... ok
+test business::task::workspace_files::tests::base64_matches_rfc4648_vectors ... ok
+test business::task::workspace_files::tests::csv_preview_keeps_first_hundred_lines ... ok
+test business::task::workspace_files::tests::ext_whitelist_rejects_executables ... ok
+test business::task::workspace_files::tests::list_workspace_filters_and_sorts ... ok
+test business::task::workspace_files::tests::markdown_preview_truncates_by_chars ... ok
+test business::task::workspace_files::tests::name_whitelist_blocks_traversal ... ok
+test business::task::workspace_files::tests::preview_kind_matches_card ... ok
+test business::task::workspace_files::tests::profile_name_validation ... ok
+test business::task::workspace_files::tests::resolve_readable_blocks_escape_and_bad_ext ... ok
+test business::task::workspace_files::tests::resolve_readable_blocks_symlink_escape ... ok
+test business::task::workspace_files::tests::resolve_readable_rejects_oversized_file ... ok
+
+test result: ok. 210 passed; 0 failed; 0 ignored; 0 measured; 1994 filtered out; finished in 1.71s
+
+EXIT=0
+
+================================================================
+### cargo test --lib business::flow:: -- --test-threads=1
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 345 tests
+test business::flow::assignee::expression_tests::expression_candidates_keep_underlying_source ... ok
+test business::flow::assignee::expression_tests::expression_eval_error_is_treated_as_not_matched ... ok
+test business::flow::assignee::expression_tests::expression_falls_through_to_second_rule_when_first_fails ... ok
+test business::flow::assignee::expression_tests::expression_first_hit_wins_and_later_rules_are_not_consulted ... ok
+test business::flow::assignee::expression_tests::expression_hit_but_zero_people_does_not_fall_through ... ok
+test business::flow::assignee::expression_tests::expression_hits_first_rule_and_uses_its_then ... ok
+test business::flow::assignee::expression_tests::expression_invalid_structure_is_501_with_reason ... ok
+test business::flow::assignee::expression_tests::expression_missing_config_is_unsupported_501 ... ok
+test business::flow::assignee::expression_tests::expression_no_match_follows_empty_policy_error ... ok
+test business::flow::assignee::expression_tests::expression_no_match_follows_empty_policy_fallback_admin ... ok
+test business::flow::assignee::expression_tests::expression_no_match_follows_empty_policy_skip ... ok
+test business::flow::assignee::expression_tests::expression_no_match_without_otherwise_yields_no_target ... ok
+test business::flow::assignee::expression_tests::expression_prev_approver_is_rejected_with_65033 ... ok
+test business::flow::assignee::expression_tests::expression_targets_translate_to_existing_query_plans ... ok
+test business::flow::assignee::expression_tests::is_expression_recognizes_case_and_rejects_others ... ok
+test business::flow::assignee::tests::array_param_uses_text_literal ... ok
+test business::flow::assignee::tests::disabled_user_is_dropped_with_note ... ok
+test business::flow::assignee::tests::eight_sources_map_to_query_plans ... ok
+test business::flow::assignee::tests::empty_assignee_policies ... ok
+test business::flow::assignee::tests::explicit_user_wins_over_implicit_source_when_deduping ... ok
+test business::flow::assignee::tests::form_var_accepts_scalar_and_array ... ok
+test business::flow::assignee::tests::initiator_superior_levels_are_clamped ... ok
+test business::flow::assignee::tests::robot_is_filtered_for_implicit_sources_but_allowed_for_explicit_user ... ok
+test business::flow::assignee::tests::self_approval_allow_and_forbid ... ok
+test business::flow::assignee::tests::self_approval_skip_keeps_a_skipped_row_and_counts ... ok
+test business::flow::assignee::tests::self_approval_skip_with_other_approvers_keeps_node_active ... ok
+test business::flow::assignee::tests::three_layer_dedupe_collapses_same_user ... ok
+test business::flow::batch::tests::batch_approve_requires_permission_and_ids ... ok
+test business::flow::batch::tests::decision_defaults_to_approve_and_is_case_insensitive ... ok
+test business::flow::dto::expression_tests::save_accepts_expression_assignee_type ... ok
+test business::flow::dto::expression_tests::save_allows_prev_approver_draft_but_publish_rejects_it ... ok
+test business::flow::dto::expression_tests::save_does_not_require_expression_on_static_nodes ... ok
+test business::flow::dto::expression_tests::save_rejects_expression_over_limits_65016 ... ok
+test business::flow::dto::expression_tests::save_rejects_expression_without_expression_65016 ... ok
+test business::flow::dto::expression_tests::save_rejects_invalid_expression_json_65016 ... ok
+test business::flow::dto::tests::biz_type_and_names_are_normalized ... ok
+test business::flow::dto::tests::config_defaults_to_empty_object ... ok
+test business::flow::dto::tests::flow_code_is_normalized_to_lowercase ... ok
+test business::flow::dto::tests::graph_request_infers_assignee_type_from_assignees ... ok
+test business::flow::dto::tests::graph_request_keeps_declared_assignee_type ... ok
+test business::flow::dto::tests::graph_request_maps_to_domain_graph ... ok
+test business::flow::dto::tests::graph_request_normalizes_enums_case_insensitively ... ok
+test business::flow::dto::tests::graph_request_rejects_bad_shapes ... ok
+test business::flow::dto::tests::graph_request_rejects_mixed_assignee_kinds ... ok
+test business::flow::dto::tests::keys_must_match_db_check ... ok
+test business::flow::edge_admin_tests::bad_patch_is_rejected_before_any_approval ... ok
+test business::flow::edge_admin_tests::biz_id_is_stable_per_edge ... ok
+test business::flow::edge_admin_tests::change_takes_effect_only_after_approval ... ok
+test business::flow::edge_admin_tests::change_verdict_maps_terminal_states ... ok
+test business::flow::edge_admin_tests::delete_config_also_goes_through_approval ... ok
+test business::flow::edge_admin_tests::form_data_rejects_dirty_payload ... ok
+test business::flow::edge_admin_tests::form_data_round_trips_both_actions ... ok
+test business::flow::edge_admin_tests::list_view_marks_configured_edges ... ok
+test business::flow::edge_admin_tests::list_view_reports_base_config_and_effective ... ok
+test business::flow::edge_admin_tests::offline_flow_falls_back_to_explicit_skip ... ok
+test business::flow::edge_admin_tests::rejected_change_does_not_take_effect ... ok
+test business::flow::edge_admin_tests::seed_flow_hash_matches_rows ... ok
+test business::flow::edge_admin_tests::seed_migration_matches_code_constants ... ok
+test business::flow::edge_admin_tests::summary_spells_out_the_change ... ok
+test business::flow::engine::tests::countersign_all_waits_for_everyone ... ok
+test business::flow::engine::tests::countersign_any_passes_on_first_vote ... ok
+test business::flow::engine::tests::countersign_ratio_passes_early ... ok
+test business::flow::engine::tests::effects_dedupe_recipients ... ok
+test business::flow::engine::tests::eval_context_fills_every_root_in_source ... ok
+test business::flow::engine::tests::eval_context_struct_resolves_every_whitelisted_field ... ok
+test business::flow::engine::tests::instance_state_machine_5x5_matrix ... ok
+test business::flow::engine::tests::no_accumulator_on_vote_counts ... ok
+test business::flow::engine::tests::return_to_parsing ... ok
+test business::flow::engine::tests::single_sign_matrix ... ok
+test business::flow::engine::tests::start_keys_are_detected ... ok
+test business::flow::engine::tests::verdict_matrix_is_exhaustive ... ok
+test business::flow::engine::tests::veto_is_orthogonal_to_mode ... ok
+test business::flow::engine::tests::zero_assignees_auto_pass ... ok
+test business::flow::expression::tests::e_t01_single_rule_hit ... ok
+test business::flow::expression::tests::e_t02_first_match_wins_and_second_rule_not_evaluated ... ok
+test business::flow::expression::tests::e_t03_no_match_with_otherwise ... ok
+test business::flow::expression::tests::e_t04_no_match_without_otherwise ... ok
+test business::flow::expression::tests::e_t05_and_short_circuits ... ok
+test business::flow::expression::tests::e_t06_or_short_circuits ... ok
+test business::flow::expression::tests::e_t07_missing_treated_as_false ... ok
+test business::flow::expression::tests::e_t08_type_mismatch_treated_as_false ... ok
+test business::flow::expression::tests::e_t09_in_and_nin ... ok
+test business::flow::expression::tests::e_t10_is_null_and_not_null ... ok
+test business::flow::expression::tests::e_t11_contains ... ok
+test business::flow::expression::tests::e_t12_not ... ok
+test business::flow::expression::tests::e_t13_targets_keep_json_order ... ok
+test business::flow::expression::tests::e_t14_duplicate_rule_id_rejected ... ok
+test business::flow::expression::tests::e_t15_structural_limits ... ok
+test business::flow::expression::tests::e_t16_reserved_and_invalid_targets ... ok
+test business::flow::expression::tests::e_t17_all_ten_target_sources_map_to_plans ... ok
+test business::flow::expression::tests::e_t18_empty_arrays_rejected ... ok
+test business::flow::expression::tests::e_t19_when_field_not_in_whitelist ... ok
+test business::flow::expression::tests::e_t20_otherwise_is_the_only_fallback ... ok
+test business::flow::expression::tests::e_t21_parse_config_without_expression ... ok
+test business::flow::expression::tests::e_t22_parse_config_ignores_other_keys_and_rejects_unknown_version ... ok
+test business::flow::expression::tests::e_t23_unknown_fields_rejected ... ok
+test business::flow::expression::tests::e_t24_output_feeds_finalize ... ok
+test business::flow::graph::expression_tests::assignee_kind_expression_is_parsed_but_not_enumerable ... ok
+test business::flow::graph::expression_tests::prev_approver_scan_looks_only_at_then_and_otherwise ... ok
+test business::flow::graph::expression_tests::r16_expression_without_config_is_65016 ... ok
+test business::flow::graph::expression_tests::r16_invalid_expression_structure_is_65016_with_reason ... ok
+test business::flow::graph::expression_tests::r16_only_checks_expression_nodes ... ok
+test business::flow::graph::expression_tests::r16_prev_approver_is_65033_not_65016 ... ok
+test business::flow::graph::expression_tests::r16_valid_expression_produces_no_issue ... ok
+test business::flow::graph::expression_tests::validate_reports_r16_through_graph_validate ... ok
+test business::flow::graph::task_node_rule_tests::node_type_round_trip_covers_nine_values ... ok
+test business::flow::graph::task_node_rule_tests::r17_notify_node_two_exits_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r17_task_node_single_exit_passes ... ok
+test business::flow::graph::task_node_rule_tests::r17_task_node_two_exits_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r18_approve_with_review_still_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r18_approve_without_review_passes_in_1b ... ok
+test business::flow::graph::task_node_rule_tests::r18_task_config_on_approval_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r18_task_config_on_notify_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r18_task_node_without_config_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r18_valid_task_config_passes_all_rules ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_inline_syntax_error_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_inline_unknown_variable_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_node_accepted_after_pflow2 ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_on_timeout_requires_timeout_hours ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_targets_count_bounds ... ok
+test business::flow::graph::task_node_rule_tests::r19_notify_without_config_rejected ... ok
+test business::flow::graph::task_node_rule_tests::r20_skip_allowed_with_explicit_flag ... ok
+test business::flow::graph::task_node_rule_tests::r20_skip_requires_explicit_flag ... ok
+test business::flow::graph::task_node_rule_tests::r20_task_node_requires_assignee_source ... ok
+test business::flow::graph::task_node_rule_tests::r20_timeout_action_restricted ... ok
+test business::flow::graph::task_node_rule_tests::r21_due_field_must_be_form_path ... ok
+test business::flow::graph::task_node_rule_tests::r21_nested_dot_variable_is_syntax_error ... ok
+test business::flow::graph::task_node_rule_tests::r21_task_vars_only_on_task_accept ... ok
+test business::flow::graph::task_node_rule_tests::r21_unknown_variable_path_rejected ... ok
+test business::flow::graph::tests::cycle_1_chain_of_200_has_no_cycle ... ok
+test business::flow::graph::tests::cycle_2_back_edge_returns_closed_path ... ok
+test business::flow::graph::tests::cycle_3_self_loop_detected ... ok
+test business::flow::graph::tests::cycle_4_diamond_is_not_a_cycle ... ok
+test business::flow::graph::tests::dsl_eval_works ... ok
+test business::flow::graph::tests::dsl_node_budget_is_enforced ... ok
+test business::flow::graph::tests::dsl_parses_nested_expression ... ok
+test business::flow::graph::tests::dsl_rejects_unknown_field_object_literal_and_bad_cmp ... ok
+test business::flow::graph::tests::module_sources_have_no_cte_cycle ... ok
+test business::flow::graph::tests::r10_rejects_unknown_field_and_deep_nesting ... ok
+test business::flow::graph::tests::r11_rejects_unreachable_node ... ok
+test business::flow::graph::tests::r12_rejects_node_that_cannot_reach_end ... ok
+test business::flow::graph::tests::r13_rejects_missing_default_edge ... ok
+test business::flow::graph::tests::r14_accepts_assignees_without_assignee_type ... ok
+test business::flow::graph::tests::r14_rejects_empty_assignee ... ok
+test business::flow::graph::tests::r14_rejects_unparsable_assignee_kind ... ok
+test business::flow::graph::tests::r14_still_rejects_when_both_missing ... ok
+test business::flow::graph::tests::r15_rejects_oversized_graph ... ok
+test business::flow::graph::tests::r1_rejects_zero_or_two_starts ... ok
+test business::flow::graph::tests::r2_rejects_missing_end ... ok
+test business::flow::graph::tests::r3_rejects_cycle_and_names_every_node ... ok
+test business::flow::graph::tests::r4_rejects_start_with_inbound_and_end_with_outbound ... ok
+test business::flow::graph::tests::r5_rejects_node_without_out_edge ... ok
+test business::flow::graph::tests::r6_rejects_approval_with_two_out_edges ... ok
+test business::flow::graph::tests::r7_rejects_condition_with_single_out_edge ... ok
+test business::flow::graph::tests::r8_rejects_mixed_sources ... ok
+test business::flow::graph::tests::r8_rejects_xor_branches_joining_with_and ... ok
+test business::flow::graph::tests::r9_rejects_bad_ratio_and_missing_mode ... ok
+test business::flow::graph::tests::snapshot_carries_runtime_policy_fields ... ok
+test business::flow::graph::tests::snapshot_is_deterministic_and_hash_stable ... ok
+test business::flow::graph::tests::snapshot_round_trips ... ok
+test business::flow::graph::tests::toposort_orders_chain ... ok
+test business::flow::graph::tests::toposort_returns_none_on_cycle_and_lists_cycle_nodes ... ok
+test business::flow::graph::tests::validate_ok_on_condition_diamond ... ok
+test business::flow::graph::tests::validate_ok_on_minimal_graph ... ok
+test business::flow::handler::stats_tests::avg_uses_finished_only ... ok
+test business::flow::handler::stats_tests::empty_stats_are_zero_not_null ... ok
+test business::flow::handler::stats_tests::overview_counts_five_instances ... ok
+test business::flow::handler::stats_tests::parse_time_accepts_date_and_rfc3339 ... ok
+test business::flow::handler::stats_tests::parse_time_rejects_garbage ... ok
+test business::flow::handler::stats_tests::slowest_picks_max_avg ... ok
+test business::flow::handler::stats_tests::window_defaults_and_validates ... ok
+test business::flow::handler::tests::cc_res_carries_d5_display_fields ... ok
+test business::flow::handler::tests::instance_res_exposes_form_data ... ok
+test business::flow::handler::tests::my_task_res_degrades_missing_initiator_name ... ok
+test business::flow::handler::tests::task_res_carries_d5_display_fields ... ok
+test business::flow::internal_control::db_tests::countersign_all_excluded_fails_closed ... ok
+test business::flow::internal_control::db_tests::countersign_one_excluded_then_two_approve_passes ... ok
+test business::flow::internal_control::db_tests::countersign_two_excluded_then_one_approves ... ok
+test business::flow::internal_control::db_tests::excluded_user_cannot_bypass_by_calling_approve ... ok
+test business::flow::internal_control::db_tests::remaining_approver_votes_normally ... ok
+test business::flow::internal_control::db_tests::role_members_are_not_excluded ... ok
+test business::flow::internal_control::db_tests::skipped_task_is_not_in_my_todo ... ok
+test business::flow::internal_control::tests::business_roles_leave_nobody_excluded ... ok
+test business::flow::internal_control::tests::creator_in_approvers_is_skipped_not_pending ... ok
+test business::flow::internal_control::tests::initiator_in_approvers_is_skipped ... ok
+test business::flow::internal_control::tests::nobody_excluded_keeps_everyone_pending ... ok
+test business::flow::internal_control::tests::reasons_are_human_readable ... ok
+test business::flow::internal_control::tests::same_person_keeps_one_reason ... ok
+test business::flow::internal_control::tests::ungovened_business_is_untouched ... ok
+test business::flow::linkage::tests::after_commit_actions_are_never_critical ... ok
+test business::flow::linkage::tests::engine_critical_failure_rolls_back ... ok
+test business::flow::linkage::tests::engine_is_fail_safe_when_table_missing ... ok
+test business::flow::linkage::tests::engine_runs_in_seq_order ... ok
+test business::flow::linkage::tests::engine_skips_disabled_rules ... ok
+test business::flow::linkage::tests::engine_skips_missing_target ... ok
+test business::flow::linkage::tests::engine_skips_placeholder_action ... ok
+test business::flow::linkage::tests::forbidden_sql_keys_are_rejected ... ok
+test business::flow::linkage::tests::migration_check_covers_every_action_code ... ok
+test business::flow::linkage::tests::notice_setting_parsing ... ok
+test business::flow::linkage::tests::param_types_are_enforced ... ok
+test business::flow::linkage::tests::params_must_be_object ... ok
+test business::flow::linkage::tests::required_params_are_enforced ... ok
+test business::flow::linkage::tests::shape_notice_defaults_are_identical ... ok
+test business::flow::linkage::tests::status_notice_bad_params_fall_back_to_legacy ... ok
+test business::flow::linkage::tests::status_notice_shadow_keeps_legacy ... ok
+test business::flow::linkage::tests::status_notice_takeover_sends_configured_notice ... ok
+test business::flow::linkage::tests::status_notice_without_rule_is_legacy ... ok
+test business::flow::linkage::tests::triggers_cover_state_machine_entities ... ok
+test business::flow::linkage::tests::unknown_param_key_is_rejected ... ok
+test business::flow::linkage::tests::upsert_rejects_not_implemented_action ... ok
+test business::flow::linkage::tests::upsert_rejects_params_with_sql_key ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_action_code ... ok
+test business::flow::linkage::tests::upsert_rejects_unknown_trigger ... ok
+test business::flow::linkage::tests::upsert_requires_super_admin_and_confirm ... ok
+test business::flow::linkage::tests::upsert_then_load_roundtrip ... ok
+test business::flow::linkage::tests::uuid_list_kind_validates_items ... ok
+test business::flow::linkage::tests::voucher_action_fails_and_rolls_back_when_period_closed ... ok
+test business::flow::linkage::tests::voucher_action_params_are_validated_on_write ... ok
+test business::flow::linkage::tests::voucher_action_skips_inactive_template ... ok
+test business::flow::linkage::tests::voucher_action_skips_missing_target ... ok
+test business::flow::linkage::tests::voucher_action_skips_zero_amount_doc ... ok
+test business::flow::linkage::tests::voucher_new_path_matches_legacy_field_by_field ... ok
+test business::flow::linkage::tests::voucher_shadow_rolls_back_and_compares ... ok
+test business::flow::linkage::tests::whitelist_has_eight_or_more_actions ... ok
+test business::flow::maintain::tests::audit_payload_carries_both_hashes ... ok
+test business::flow::maintain::tests::batching_plan_is_bounded ... ok
+test business::flow::maintain::tests::clean_data_does_not_alarm ... ok
+test business::flow::maintain::tests::constants_match_architecture ... ok
+test business::flow::maintain::tests::row_edit_is_detected ... ok
+test business::flow::maintain::tests::snapshot_edit_is_detected ... ok
+test business::flow::model::t12_delete_flow_tests::approved_instance_untouched ... ok
+test business::flow::model::t12_delete_flow_tests::delete_cancel_comment_is_stable ... ok
+test business::flow::model::t12_delete_flow_tests::other_biz_instances_untouched ... ok
+test business::flow::model::t12_delete_flow_tests::pending_flow_task_and_node_cancelled ... ok
+test business::flow::model::t12_delete_flow_tests::pending_instance_cancelled_with_ended_at_and_comment ... ok
+test business::flow::model::t12_delete_flow_tests::rollback_keeps_task_and_pending_instance ... ok
+test business::flow::model::t12_delete_flow_tests::second_call_is_idempotent ... ok
+test business::flow::model::t12_delete_flow_tests::task_without_instances_deleted_ok ... ok
+test business::flow::model::tests::delete_and_publish_sql_are_scoped_to_draft_or_def ... ok
+test business::flow::model::tests::done_status_set_is_my_operations_and_excludes_pending ... ok
+test business::flow::model::tests::identity_wheres_never_use_instance_visibility ... ok
+test business::flow::model::tests::list_orders_follow_index_and_card_spec ... ok
+test business::flow::model::tests::todo_status_set_is_pending_only ... ok
+test business::flow::model::tests::version_editability_follows_status ... ok
+test business::flow::node_config::notify_config_tests::channels_map_to_bitmask ... ok
+test business::flow::node_config::notify_config_tests::minimal_config_uses_documented_defaults ... ok
+test business::flow::node_config::notify_config_tests::target_keys_must_match_source ... ok
+test business::flow::node_config::notify_config_tests::template_must_be_exactly_one ... ok
+test business::flow::node_config::notify_config_tests::unknown_key_rejected ... ok
+test business::flow::node_config::notify_config_tests::when_round_trip_and_deferred ... ok
+test business::flow::node_config::tests::enums_round_trip ... ok
+test business::flow::node_config::tests::matrix_follows_design_table ... ok
+test business::flow::node_config::tests::parse_minimal_uses_documented_defaults ... ok
+test business::flow::node_config::tests::parse_rejects_approve_without_biz_type ... ok
+test business::flow::node_config::tests::parse_rejects_bad_form_mapping ... ok
+test business::flow::node_config::tests::parse_rejects_biz_type_without_approve ... ok
+test business::flow::node_config::tests::parse_rejects_due_mode_conflict ... ok
+test business::flow::node_config::tests::parse_rejects_due_mode_missing_keys ... ok
+test business::flow::node_config::tests::parse_rejects_unknown_keys ... ok
+test business::flow::notify::tests::force_policy ... ok
+test business::flow::notify::tests::idempotency_key_is_scoped ... ok
+test business::flow::notify::tests::result_text_reflects_outcome ... ok
+test business::flow::notify::tests::template_codes_fit_db_check ... ok
+test business::flow::notify::tests::template_vars_are_complete ... ok
+test business::flow::notify::tests::todo_draft_carries_context ... ok
+test business::flow::notify_node::db_tests::delivery_failure_does_not_block_flow ... ok
+test business::flow::notify_node::db_tests::inline_template_renders_instance_variables ... ok
+test business::flow::notify_node::db_tests::multiple_targets_all_receive_without_duplicates ... ok
+test business::flow::notify_node::db_tests::on_enter_sends_and_drives_downstream ... ok
+test business::flow::notify_node::db_tests::on_leave_sends_after_node_passed ... ok
+test business::flow::notify_node::db_tests::on_timeout_fires_only_when_due ... ok
+test business::flow::notify_node::db_tests::render_failure_returns_400_and_rolls_back ... ok
+test business::flow::notify_node::db_tests::target_initiator_receives ... ok
+test business::flow::notify_node::db_tests::target_role_fans_out_members ... ok
+test business::flow::notify_node::db_tests::target_user_receives ... ok
+test business::flow::notify_node::db_tests::template_code_uses_library_template ... ok
+test business::flow::notify_node::tests::deferred_only_for_timeout ... ok
+test business::flow::notify_node::tests::every_when_has_its_own_key_segment ... ok
+test business::flow::notify_node::tests::flow_aliases_are_complete ... ok
+test business::flow::notify_node::tests::idempotency_key_is_scoped_and_short ... ok
+test business::flow::notify_node::tests::inline_render_uses_dotted_paths ... ok
+test business::flow::notify_node::tests::missing_variable_is_a_render_failure ... ok
+test business::flow::notify_node::tests::node_marks_are_added_to_vars ... ok
+test business::flow::notify_node::tests::render_failure_maps_to_400 ... ok
+test business::flow::notify_node::tests::urgent_level_maps_to_error ... ok
+test business::flow::settle_guard::tests::already_settled_is_idempotent ... ok
+test business::flow::settle_guard::tests::approval_does_not_jump_from_doing_to_done ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_approval ... ok
+test business::flow::settle_guard::tests::cancelled_task_cannot_be_revived_by_rejection ... ok
+test business::flow::settle_guard::tests::review_task_accepts_approval ... ok
+test business::flow::settle_guard::tests::skip_trace_carries_all_required_fields ... ok
+test business::flow::settle_guard::tests::unknown_status_is_moved_not_panic ... ok
+test business::flow::task_bridge::flow_cascade_tests::approve_cascades_parent_doing_to_review ... ok
+test business::flow::task_bridge::flow_cascade_tests::approve_recalculates_parent_progress ... ok
+test business::flow::task_bridge::flow_cascade_tests::cancelled_task_keeps_status_on_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::cascade_failure_does_not_block_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::doing_task_is_not_pushed_to_done_by_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::reject_does_not_roll_parent_back ... ok
+test business::flow::task_bridge::flow_cascade_tests::review_task_still_completes_on_approval ... ok
+test business::flow::task_bridge::flow_cascade_tests::settle_target_still_only_maps_final_verdicts ... ok
+test business::flow::task_bridge::flow_cascade_tests::three_levels_cascade_up_to_grandparent ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::approved_history_is_untouched ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_and_delete_comments_are_distinct ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_failure_rolls_back_task_status ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_task_settles_its_instance ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_task_settles_its_node ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_task_settles_its_pending_todo ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_twice_is_idempotent ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::cancel_without_instance_is_noop ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::other_biz_instances_untouched ... ok
+test business::flow::task_bridge::p11_cancel_flow_tests::parent_cancel_settles_children_approvals ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::cancel_back_to_prev_returns_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::cancel_stay_keeps_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::cancel_terminate_ends_instance ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::doing_to_done_approve_starts_approval ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::doing_to_done_direct_approves_node ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::doing_to_review_keeps_node_active ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::flow_task_outcome_has_four_variants ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::only_tabulated_transitions_act_on_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::reject_back_to_prev_returns_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::reject_stay_keeps_node_active ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::reject_terminate_ends_instance ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::reopen_done_to_doing_keeps_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::review_to_done_approves_node_without_second_approval ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::revive_cancelled_to_todo_does_not_touch_flow ... ok
+test business::flow::task_bridge::pflow1b_mapping_tests::todo_to_doing_does_not_touch_flow ... ok
+test business::flow::task_bridge::tests::accept_biz_type_is_normalized ... ok
+test business::flow::task_bridge::tests::settle_target_maps_only_final_verdicts ... ok
+test business::flow::task_node::tests::absolute_due_falls_back_to_today_when_expired ... ok
+test business::flow::task_node::tests::field_due_reads_form_value ... ok
+test business::flow::task_node::tests::relative_due_covers_three_units ... ok
+test business::flow::task_node::tests::workday_due_skips_weekend ... ok
+test business::flow::template_vars::tests::fill_missing_uses_visible_placeholders ... ok
+test business::flow::template_vars::tests::from_nested_produces_both_key_shapes ... ok
+test business::flow::template_vars::tests::from_nested_warns_when_prev_approver_missing ... ok
+test business::flow::timeout::tests::action_parsing_defaults_to_remind ... ok
+test business::flow::timeout::tests::auto_approve_is_closed_by_default ... ok
+test business::flow::timeout::tests::constants_match_card ... ok
+test business::flow::timeout::tests::remind_stops_at_three ... ok
+test business::flow::timeout::tests::report_summary_lists_all_counters ... ok
+test business::flow::timeout::tests::scan_sql_is_batched_and_guarded ... ok
+test business::flow::timeout::tests::three_consecutive_scans_remind_once ... ok
+test business::flow::timeout::tests::urge_idempotency_key_varies_by_count ... ok
+test business::flow::timeout::tests::urge_interval_is_half_timeout_with_floor ... ok
+test business::flow::timeout::tests::urge_interval_respected_after_elapsed ... ok
+
+test result: ok. 345 passed; 0 failed; 0 ignored; 0 measured; 1859 filtered out; finished in 21.73s
+
+EXIT=0
+
+================================================================
+### cargo test --lib business::erp::approval_gate -- --test-threads=1
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 4 tests
+test business::erp::approval_gate::tests::dc01_flow_types_cover_the_eight_biz_types ... ok
+test business::erp::approval_gate::tests::dc01_gate_denies_by_default_and_requires_permission_and_reason ... ok
+test business::erp::approval_gate::tests::dc01_health_reports_eight_published_flows ... ok
+test business::erp::approval_gate::tests::dc01_merge_reason_keeps_business_reason_first_and_clamps ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 2200 filtered out; finished in 1.35s
+
+EXIT=0
+
+================================================================
+### cargo test --lib business::erp::reminder -- --test-threads=1
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 33 tests
+test business::erp::reminder::tests::business_day_uses_beijing_offset ... ok
+test business::erp::reminder::tests::idempotency_key_shape ... ok
+test business::erp::reminder::tests::kind_metadata_is_stable ... ok
+test business::erp::reminder::tests::merge_recipients_dedup_and_cap ... ok
+test business::erp::reminder::tests::report_summary_shape ... ok
+test business::erp::reminder::tests::run_message_is_human ... ok
+test business::erp::reminder_contract::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_contract::tests::non_stage_day_yields_nothing ... ok
+test business::erp::reminder_contract::tests::recipient_dedup ... ok
+test business::erp::reminder_contract::tests::recipient_rule_is_described ... ok
+test business::erp::reminder_contract::tests::stage_only_on_four_days ... ok
+test business::erp::reminder_payable::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_payable::tests::no_recipient_marks_empty ... ok
+test business::erp::reminder_payable::tests::non_stage_day_yields_nothing ... ok
+test business::erp::reminder_payable::tests::parse_date_reports_error ... ok
+test business::erp::reminder_payable::tests::stage_only_on_three_days ... ok
+test business::erp::reminder_payable::tests::stage_uses_business_day ... ok
+test business::erp::reminder_purchase::tests::doc_id_is_order_id ... ok
+test business::erp::reminder_purchase::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_purchase::tests::overdue_days_boundary ... ok
+test business::erp::reminder_purchase::tests::recipients_degrade_gracefully ... ok
+test business::erp::reminder_purchase::tests::stage_is_overdue_days ... ok
+test business::erp::reminder_stock::tests::bad_numeric_does_not_panic ... ok
+test business::erp::reminder_stock::tests::doc_id_is_inventory_row ... ok
+test business::erp::reminder_stock::tests::gap_keeps_decimals ... ok
+test business::erp::reminder_stock::tests::message_carries_stock_facts ... ok
+test business::erp::reminder_stock::tests::no_keeper_marks_empty ... ok
+test business::erp::reminder_tests::contract_expire_sends_for_d30 ... ok
+test business::erp::reminder_tests::ledger_uses_beijing_business_day ... ok
+test business::erp::reminder_tests::low_stock_sends_once_and_dedupes ... ok
+test business::erp::reminder_tests::no_recipient_is_counted_not_dropped ... ok
+test business::erp::reminder_tests::payable_due_sends_once_per_day ... ok
+test business::erp::reminder_tests::purchase_overdue_respects_realert_window ... ok
+
+test result: ok. 33 passed; 0 failed; 0 ignored; 0 measured; 2171 filtered out; finished in 11.47s
+
+EXIT=0
+
+================================================================
+### cargo test --lib business::erp::contract -- --test-threads=1
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 47 tests
+test business::erp::contract_approval_tests::draft_cannot_be_signed_or_activated_without_approval ... ok
+test business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence ... FAILED
+test business::erp::contract_approval_tests::manual_withdraw_cancels_running_instance ... ok
+test business::erp::contract_approval_tests::reject_returns_contract_to_draft_and_clears_instance ... ok
+test business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract ... FAILED
+test business::erp::contract_approval_tests::submit_moves_draft_to_pending_and_attaches_instance ... ok
+test business::erp::contract_approval_tests::submit_without_dates_returns_400 ... ok
+test business::erp::contract_approval_tests::submit_without_published_flow_returns_409 ... ok
+test business::erp::contract_approval_tests::zz_teardown_purges_fixtures ... ok
+test business::erp::contract_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::contract_bridge::tests::verdict_targets_are_legal_contract_edges ... ok
+test business::erp::contract_dto::tests::create_with_bad_contract_type_is_rejected ... ok
+test business::erp::contract_dto::tests::create_with_legal_payload_passes_and_uses_server_snapshot ... ok
+test business::erp::contract_dto::tests::create_with_non_positive_amount_is_rejected ... ok
+test business::erp::contract_dto::tests::create_with_reversed_date_range_is_rejected ... ok
+test business::erp::contract_dto::tests::create_with_sign_date_after_start_is_rejected ... ok
+test business::erp::contract_dto::tests::create_with_too_many_decimals_is_rejected ... ok
+test business::erp::contract_dto::tests::create_without_name_is_rejected ... ok
+test business::erp::contract_dto::tests::filter_rejects_unknown_status_and_bad_values ... ok
+test business::erp::contract_dto::tests::list_row_exposes_both_name_spellings ... ok
+test business::erp::contract_dto::tests::page_size_is_capped_at_one_hundred ... ok
+test business::erp::contract_dto::tests::sales_contract_derives_customer_party_type ... ok
+test business::erp::contract_dto::tests::status_req_accepts_both_spellings ... ok
+test business::erp::contract_handler::tests::contract_permission_codes_are_well_formed ... ok
+test business::erp::contract_handler::tests::contract_permission_constants_match_list ... ok
+test business::erp::contract_handler::tests::contract_permissions_match_menu ... ok
+test business::erp::contract_handler::tests::create_returns_draft_with_ht_number ... ok
+test business::erp::contract_handler::tests::create_with_unknown_party_b_returns_66021 ... ok
+test business::erp::contract_handler::tests::create_without_required_fields_returns_400 ... ok
+test business::erp::contract_handler::tests::detail_of_soft_deleted_returns_66014 ... ok
+test business::erp::contract_handler::tests::field_locked_message_points_to_status_endpoint ... ok
+test business::erp::contract_handler::tests::legal_edges_match_state_machine ... ok
+test business::erp::contract_handler::tests::merge_option_keeps_patch_semantics ... ok
+test business::erp::contract_handler::tests::page_filters_and_hides_soft_deleted ... ok
+test business::erp::contract_handler::tests::reference_check_skips_before_a3_column_exists ... ok
+test business::erp::contract_handler::tests::reference_guard_reports_in_use_with_order_numbers ... ok
+test business::erp::contract_handler::tests::status_illegal_edge_returns_66015 ... ok
+test business::erp::contract_handler::tests::status_legal_edge_moves_forward ... ok
+test business::erp::contract_handler::tests::status_reason_edge_without_reason_returns_400 ... ok
+test business::erp::contract_handler::tests::update_draft_persists_changes ... ok
+test business::erp::contract_handler::tests::update_non_draft_returns_66016 ... ok
+test business::erp::contract_handler::tests::validate_mutation_catches_reversed_range_after_merge ... ok
+test business::erp::contract_model::tests::party_b_ref_customer_branch_is_closed ... ok
+test business::erp::contract_model::tests::party_b_ref_for_new_rejects_disabled_supplier ... ok
+test business::erp::contract_model::tests::party_b_ref_returns_supplier_name ... ok
+test business::erp::contract_model::tests::party_b_ref_soft_deleted_is_none ... ok
+test business::erp::contract_model::tests::party_b_ref_unknown_id_is_none ... ok
+
+failures:
+
+---- business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence stdout ----
+
+thread 'business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence' (3082791) panicked at src/business/erp/contract_approval_tests.rs:420:5:
+assertion `left == right` failed: 两级审批的第一级只有一条待办
+  left: 3
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract stdout ----
+
+thread 'business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract' (3083008) panicked at src/business/erp/contract_approval_tests.rs:372:5:
+assertion `left == right` failed: 小额分支是**单级**审批：只有一个节点应该有待办（实际 [(01a1a201-37b0-75e8-a723-3e9980d32586, 01a1a201-17b8-7652-a8c7-1e88a46ae26a), (01a1a201-37b0-75e8-a723-3e9a1b643125, a2a90002-0000-4000-8000-000000000002), (01a1a201-37b1-76ca-8410-77e198b0c0c2, d2a2000a-0000-4000-8000-000000000003)]）
+  left: 3
+ right: 1
+
+
+failures:
+    business::erp::contract_approval_tests::large_amount_requires_two_levels_in_sequence
+    business::erp::contract_approval_tests::small_amount_single_level_approval_signs_contract
+
+test result: FAILED. 45 passed; 2 failed; 0 ignored; 0 measured; 2157 filtered out; finished in 15.96s
+
+error: test failed, to rerun pass `--lib`
+EXIT=101
+
+================================================================
+### cargo test --lib business::erp::stockin -- --test-threads=1
+### （此段为补齐的原始输出重跑：第一次运行的结果行在整理注记时被误切，故用同一份二进制重跑一次）
+================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 133 tests
+test business::erp::stockin_bridge::tests::biz_type_matches_seed ... ok
+test business::erp::stockin_bridge::tests::status_constants_are_exact ... ok
+test business::erp::stockin_bridge::tests::verdict_maps_only_final_states ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_01_purchase_with_source_derives_supplier ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_02_purchase_without_source_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_03_source_order_missing_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_04_source_order_not_receivable_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_05_client_supplier_mismatch_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_06_sourceless_requires_flag_and_reason ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_07_non_purchase_with_supplier_db_rejects ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_08_over_receipt_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_09_list_and_detail_expose_snapshot_columns ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_10_posting_rechecks_supplier ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_11_post_and_cancel_keep_purchase_chain ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_12_copy_marks_sourceless ... ok
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_13_draft_update_cannot_hand_pick_supplier ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_posted_txn_missing ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_serial_already_shipped ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_with_shipped_goods_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::failed_cancel_rolls_back_everything ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_cancel_posted_restores_pending ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_cancelled_order_cannot_receive ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_conflicting_alias_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_delete_draft_does_not_change_order ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_draft_order_cannot_receive ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_foreign_source_item_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_over_receipt_message_is_exact ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_after_partial_receipt ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_all_received_is_zero ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_fresh_order_equals_ordered ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_ignores_draft_stock_in ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_matches_ledger_column ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_sums_multiple_receipts ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_post_advances_to_partial_received ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_post_all_advances_to_received ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_purchase_order_id_alias_links_source ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_received_order_cannot_receive ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_clears_purchase_order_id ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_clears_voucher_payable_and_approval_links ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_creates_draft_with_new_no_and_same_items ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_does_not_touch_origin ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_requires_create_permission ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_three_times_yields_three_distinct_nos ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_without_items_is_400 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d9_copy::d9_stockin_copy_works_when_source_purchase_order_is_gone ... ok
+test business::erp::stockin_handler::stockin_handler_tests_dc03::dc03_full_receipt_still_posts ... ok
+test business::erp::stockin_handler::stockin_handler_tests_dc03::dc03_posting_rejected_when_source_order_cancelled ... ok
+test business::erp::stockin_handler::stockin_handler_tests_dc03::dc03_second_open_receipt_is_rejected_with_available_qty ... ok
+test business::erp::stockin_handler::stockin_handler_tests_dc03::lockorder_concurrent_post_and_cancel_no_deadlock ... ok
+test business::erp::stockin_handler::stockin_handler_tests_fixtures::zz_teardown_purges_post_approval_residue ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::concurrent_receipts_share_one_location_row ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::different_locations_stay_separate ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::existing_location_row_is_updated_not_reinserted ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::location_failure_rolls_back_cost_account ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::location_row_of_another_material_is_rejected_with_reason ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::location_sum_equals_cost_book ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::receipt_with_location_updates_that_row ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::receipt_without_location_writes_null_bucket ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location::same_location_receipts_accumulate_one_row ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_draft_amount_change_is_allowed ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_draft_total_amount_direct_is_bad_request ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_partial_receipt_advances_to_partial_received ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_posted_amount_change_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_posted_items_change_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_posted_qty_change_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_posted_remark_change_is_allowed ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_posted_total_amount_field_alone_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p10_locked::p10_receipt_advances_order_and_logs_ref ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::dc01_cancel_without_published_flow_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_generates_red_voucher ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_rolls_back_six_ledgers ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_uses_posted_amount_not_current_avg ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_voids_serials ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_duplicate_submit_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_other_path_cancel_reconciles_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_pending_cancel_is_locked ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_reject_restores_posted ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_resubmit_after_reject ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_seed_flow_is_self_consistent ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_self_approval_is_forbidden ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_soft_deleted_doc_reconciles_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_submit_moves_to_pending_cancel_with_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_withdraw_failure_rolls_back ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_withdraw_restores_posted ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::dc01_post_without_published_flow_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_5000_needs_manager_approval ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_approve_posts_all_books ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_delete_cancels_pending_approval ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_maker_cannot_approve_own_post ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_pending_post_is_locked ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_reject_back_to_draft_without_ledger ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_small_amount_auto_posts_and_notifies ... ok
+test business::erp::stockin_handler::stockin_handler_tests_pflow3a::pflow3a_si_submit_post_pending_without_ledger ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::concurrent_receipts_do_not_lose_or_deadlock ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::cost_uses_net_amount_not_gross ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::first_receipt_creates_inventory_row ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::non_base_unit_line_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::non_serial_material_generates_no_serials ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::posting_rejects_non_base_unit_snapshot ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::repeated_post_is_conflict ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::rounding_dust_keeps_amount_authoritative ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::second_receipt_moves_weighted_average ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::serial_material_generates_serials_in_receipt_warehouse ... ok
+test business::erp::stockin_handler::stockin_handler_tests_posting::txn_snapshot_is_before_and_after ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::auto_pull_lines_from_purchase_order ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::biz_active_conflict_maps_to_409_with_stock_in_no ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::cancel_paths ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::delete_only_draft ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::over_receipt_against_purchase_order_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::page_filters_by_status ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::serial_count_mismatch_is_bad_request ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::serial_ids_on_non_serial_material_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::update_draft_replaces_lines ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::update_posted_is_conflict ... ok
+test business::erp::stockin_model::tests::cancel_sentinels_are_distinct ... ok
+test business::erp::stockin_model::tests::cost_basis_is_net_amount_per_unit ... ok
+test business::erp::stockin_model::tests::derived_before_is_exact_inverse_of_addition ... ok
+test business::erp::stockin_model::tests::in_no_format ... ok
+test business::erp::stockin_model::tests::only_six_legal_edges ... ok
+test business::erp::stockin_model::tests::pending_cancel_is_locked ... ok
+test business::erp::stockin_model::tests::serial_status_label_covers_all_states ... ok
+test business::erp::stockin_model::tests::unit_cost_rounds_half_up_to_six_places ... ok
+
+test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2071 filtered out; finished in 314.53s
+
+EXIT=0
+
+================================================================
+### 结果汇总与失败归因（人工注记；上面的原始输出一字未改）
+================================================================
+business::task::                     210 passed / 0 failed   EXIT=0
+business::flow::                     345 passed / 0 failed   EXIT=0
+business::erp::approval_gate           4 passed / 0 failed   EXIT=0
+business::erp::reminder               33 passed / 0 failed   EXIT=0
+business::erp::contract               45 passed / 2 failed   EXIT=101   ← 见下（非代码回归）
+business::erp::stockin               133 passed / 0 failed   EXIT=0
+
+那 2 个失败（contract_approval_tests::small_amount_single_level_approval_signs_contract /
+large_amount_requires_two_levels_in_sequence）不是代码回归：
+  - 断言是「审批节点只应有 1 条待办」，实测 3 / 2 条；多出来的是别的卡片（P2 / P3a）留在
+    共享库 cp_p14_clean 里的测试账号，它们仍绑在 PURCHASE_MANAGER / GENERAL_MANAGER 角色上，
+    审批节点按角色扇出 → 待办多出人。
+  - 本卡改动只有 10 个文件 25 行 // SCOPE-EXEMPT 注释，git diff 里没有任何代码 / SQL / 签名变化，
+    运行期行为与改动前逐字节相同。
+  - 归因实验（可逆、含恢复实况）：docs/evidence/20261103-gate-v2/23b_tests_contract_approval_isolation.txt
+    —— 临时摘掉那 3 条残留角色绑定后，同一份二进制 9 passed / 0 failed。

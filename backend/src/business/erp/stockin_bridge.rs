@@ -257,6 +257,7 @@ pub async fn cancel_approval_of(
 /// 3. 单据 id 可解析（`biz_id` 为空说明实例本身就没挂业务，交给上游维护）。
 ///
 /// 返回终止的实例数。定时任务每 10 分钟跑一次；单测 / 运维脚本也可直接调。
+// SCOPE-EXEMPT: 后台定时对账任务（stockin_bridge.rs:330 register_builtin → scheduler.register_cron，cron "3-59/10 * * * *"，tokio::spawn 里跑，无操作人）；判据是「实例仍 PENDING + 单据已删/已不在作废中」的全局一致性兜底，注入部门范围会让别部门的孤儿实例永远回收不掉。
 pub async fn reconcile_orphan_cancels() -> DbResult<u64> {
     let rows = db()
         .find_with_params(
@@ -308,6 +309,7 @@ pub async fn reconcile_orphan_cancels() -> DbResult<u64> {
 }
 
 /// 最近一条**已完成**待办的审批人（多节点取最后一票）。读不到 → `None`。
+// SCOPE-EXEMPT: 单实例取「最后一票审批人」一个字段（instance_id 由审批回传确定，LIMIT 1），不产出行集；调用方是审批结论落库路径 stockin_bridge.rs:162 / :467（引擎回调，无操作人），用于写 cancelled_by/posted_by 与「复核人≠制单人」内控闸。
 async fn latest_completed_assignee(instance_id: Uuid) -> DbResult<Option<Uuid>> {
     let rows = db()
         .find_with_params(
