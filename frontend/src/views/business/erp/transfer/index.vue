@@ -677,6 +677,7 @@ import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
 import type { BatchActionSpec, BatchExportTask, BatchResult, BatchRow } from '@/utils/batch-action';
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   createTransfer,
@@ -738,6 +739,7 @@ import {
   serialSummary,
   transferActionHint,
   transferCopyNotice,
+  transferNoFromQuery,
   transferStatusLabel,
   transferStatusTheme,
   transferStatusVariant,
@@ -815,6 +817,9 @@ const MEMORY_LABELS: Record<string, string> = {
 
 // ==================== 列表 / 筛选 ====================
 
+/** 路由（`?transfer_no=` 深链要在首屏列表之后消费） */
+const route = useRoute();
+const router = useRouter();
 /** 筛选行 */
 const filter = reactive<TransferFilterState>(emptyTransferFilter());
 /** 行数据 */
@@ -1729,10 +1734,43 @@ function confirmSerialPick(): void {
 
 // ==================== 初始化 ====================
 
+/**
+ * 路由参数（跨模块深链）——`?transfer_no=TR-…` 直接打开该调拨单详情。
+ *
+ * # 为什么需要
+ *
+ * 结账 / 年结的「挡路单据明细」里，调拨单那行的「去处理」带的是 `transfer_no`
+ * （后端 `period_items::route_of` 给的），但本页原来**不消费**这个参数：
+ * 点过来只落到一张没筛选的列表上，用户还得自己再搜一遍单号。
+ * voucher / purchase / stock-in 三页早就都有 `applyRouteQuery`，这里补齐。
+ *
+ * # 两条边界
+ *
+ * 1. 参数消费后立刻 `replace` 掉：刷新页面不该重复弹一次详情；
+ * 2. 查不到（单号不存在 / 已删 / 无权限）就**说清**，不留一张静默的空列表。
+ */
+async function applyRouteQuery(): Promise<void> {
+  const transferNo = transferNoFromQuery(route.query as Record<string, unknown>);
+  if (!transferNo) {
+    return;
+  }
+  await router.replace({ path: route.path, query: {} });
+  filter.transfer_no = transferNo;
+  await loadTransfers(1);
+  const row = rows.value.find((item) => item.transfer_no === transferNo);
+  if (!row) {
+    void MessagePlugin.warning(`没有找到调拨单 ${transferNo}（可能已删除，或没有查看权限）`);
+    return;
+  }
+  await openDetail(row);
+}
+
 onMounted(async () => {
   await loadMasterData();
   // 列表记忆恢复的页码要在首次加载就生效
   await loadTransfers(current.value);
+  // 深链要等首屏列表出来之后再跑（要按单号在列表里定位那一行）
+  await applyRouteQuery();
 });
 </script>
 

@@ -25,6 +25,14 @@ export const YEAR_END_PERMISSIONS = {
   read: 'business:erp:yearend:read',
   close: 'business:erp:yearend:close',
   reopen: 'business:erp:yearend:reopen',
+  /**
+   * 催办（YEAR-END 新加，与上面三个**不同前缀**：V0208 按卡面要求种的码是 `year-end`）。
+   *
+   * 能年结 ≠ 该被允许催人：只读的财务助理可以催人，但不该拿到「结转整年」的能力。
+   * 这个串必须与后端 `year_end_remind::PERM_REMIND`、`V0208` 迁移三处**逐字一致**，
+   * 拼错任何一处 → 页面按钮可见但接口 403。
+   */
+  remind: 'business:erp:year-end:remind',
 } as const;
 
 /** 反年结原因最小字数（后端 400 的判据，前端先提示） */
@@ -126,6 +134,55 @@ export function checkLines(check: YearEndCheck | null): CheckLine[] {
 export function extraBlockers(check: YearEndCheck | null): YearEndBlocker[] {
   const fixed = new Set<string>(CHECK_ORDER);
   return (check?.blockers ?? []).filter((item) => !fixed.has(item.type));
+}
+
+/**
+ * 带**单据明细**的阻塞项（年结检查清单上表格的那部分）。
+ *
+ * 年结的 5 类里只有两类有单据级明细（`DOC_UNFINISHED` / `INVARIANT`）；
+ * 其余三类（期间未结 / 借贷不平 / 下年未开账）是「整年 / 整组期间」的问题，
+ * 没有某一张单能负责 —— 它们继续用 `message` 说话，不硬造空表。
+ */
+export function blockersWithItems(check: YearEndCheck | null): YearEndBlocker[] {
+  return (check?.blockers ?? []).filter((blocker) => (blocker.items?.length ?? 0) > 0);
+}
+
+/** 明细总条数（页头「共 N 张挡路单据」；条数是全量，明细每类最多 50） */
+export function yearEndItemCount(check: YearEndCheck | null): number {
+  return (check?.blockers ?? []).reduce((sum, blocker) => sum + (blocker.items?.length ?? 0), 0);
+}
+
+/**
+ * 年结检查清单的一句话摘要（面板顶部 / 无权限提示共用）。
+ *
+ * - 全部通过 → 「前置校验全部通过，可以年结」；
+ * - 通过项也数出来（`3/5`）：财务关心的是「还差几项」，不是「有几项失败」。
+ */
+export function yearEndCheckSummary(check: YearEndCheck | null): string {
+  if (!check) {
+    return '还没读到年度状态';
+  }
+  const passed = CHECK_ORDER.filter((type) => !blockerOf(check, type)).length;
+  if (check.can_close) {
+    return '前置校验全部通过，可以年结';
+  }
+  return `${check.year} 年度前置校验 ${passed}/${CHECK_ORDER.length} 通过，还有 ${check.blockers.length} 项要处理`;
+}
+
+/**
+ * 深链参数 `?year=2040` → 年度（`null` = 没带 / 非法，页面退回「最新年度」）。
+ *
+ * 年结是按**会计年度**看的，年度值得能收藏 / 转发；只接受 2000–2998 的整数
+ * （与后端 `validate_year` 同口径），其余一律忽略 —— 手敲的 query 不该把页面搞崩。
+ */
+export function yearFromQuery(query: Record<string, unknown> | null | undefined): number | null {
+  const raw = query?.year;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  const year = typeof first === 'string' ? Number(first.trim()) : Number.NaN;
+  if (!Number.isInteger(year) || year < 2000 || year > 2998) {
+    return null;
+  }
+  return year;
 }
 
 /**

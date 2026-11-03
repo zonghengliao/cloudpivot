@@ -52,6 +52,21 @@
 //! （批次 A 的唯一发送口径）。本模块的产品只是一份 [`NoticeDraft`]。
 //! `force = true`：结账被挡是「漏了就结不了账」的一类，跳过 `notify.inbox` 偏好。
 //!
+//! # 年结催办为什么也走这里（YEAR-END）
+//!
+//! 年结的催办与期间催办**只差四样**：标题里的「月 / 年」、正文里的口径、
+//! `sys_notice.biz_type`（消息中心分组）、幂等键前缀。收件人怎么算、24h 防重、
+//! 扇出、结果计数**全共用** —— 所以抽成 [`RemindScope`] + [`dispatch_all`]，
+//! 年结那边（[`crate::business::erp::year_end_remind`]）只写「上下文 + 取数 + 权限码」。
+//!
+//! | | 期间催办 | 年结催办 |
+//! |---|---|---|
+//! | 标题 | `2036-03 月结账待处理：{单号}` | `2026 年结账待处理：{单号}` |
+//! | 正文口径 | `挡住了 2036-03 的结账` | `挡住了 2026 年度的结账` |
+//! | `biz_type` | `period_remind` | `year_end_remind` |
+//! | 幂等键 | `PERIOD:REMIND:…` | `YEAREND:REMIND:…` |
+//! | 权限码 | `business:erp:period:remind` | `business:erp:year-end:remind` |
+//!
 //! # 数据权限
 //!
 //! ```text
@@ -82,6 +97,9 @@ pub const PERM_REMIND: &str = "business:erp:period:remind";
 
 /// 通知的业务类型（`sys_notice.biz_type`，通知中心按它分组）。
 pub const BIZ_TYPE: &str = "period_remind";
+
+/// 年结催办的通知业务类型（与期间催办分开：两边 24h 防重与消息中心分组互不干扰）。
+pub const BIZ_TYPE_YEAR_END: &str = "year_end_remind";
 
 /// 发送人展示名（调用方是登录用户时会被替换成他的名字）。
 pub const SENDER_NAME: &str = "会计期间";
@@ -147,15 +165,62 @@ fn db_error(error: DbError, ctx: &str) -> ApiError {
     utils::db_error(error, ctx)
 }
 
-// ==================== 纯逻辑（不连库，可单测） ====================
+// ==================== 催办上下文（期间 / 年结共用） ====================
 
-/// 通知标题：「{期间} 月结账待处理：{单据号}」。
-pub fn remind_title(period_code: &str, item: &BlockingItem) -> String {
-    format!("{period_code} 月结账待处理：{}", item.doc_no)
+/// 一次催办的**上下文**：期间催办与年结催办只有这几处不同，其余全部共用。
+///
+/// 显式写出每个串，而不是拼「{code} {单位}」，是因为中文里
+/// 「2036-03 月结账」与「2026 年度结账」的词形不一样（标题要「2026 年结账」、
+/// 正文要「2026 年度的结账」），靠一个单位字拼不出来。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RemindScope {
+    /// 标题前缀：「2036-03 月」/「2026 年」（拼成「{前缀}结账待处理：{单号}」）。
+    pub title_prefix: String,
+    /// 正文里的口径：「2036-03 的结账」/「2026 年度的结账」（拼成「挡住了{口径}」）。
+    pub blocked_phrase: String,
+    /// 结果摘要前缀：「2036-03：」/「2026 年度：」。
+    pub summary_prefix: String,
+    /// 幂等键里的定位串：「2036-03」/「2026」。
+    pub key_label: String,
+    /// `sys_notice.biz_type`（消息中心分组 + 24h 防重的判据）。
+    pub biz_type: &'static str,
+    /// 幂等键前缀（`PERIOD:REMIND` / `YEAREND:REMIND`）。
+    pub idem_prefix: &'static str,
+}
+
+impl RemindScope {
+    /// 期间催办的上下文（`2036-03`）。
+    pub fn period(period_code: &str) -> Self {
+        Self {
+            title_prefix: format!("{period_code} 月"),
+            blocked_phrase: format!("{period_code} 的结账"),
+            summary_prefix: format!("{period_code}："),
+            key_label: period_code.to_string(),
+            biz_type: BIZ_TYPE,
+            idem_prefix: "PERIOD:REMIND",
+        }
+    }
+
+    /// 年结催办的上下文（`2026`）。
+    pub fn year_end(year: i16) -> Self {
+        Self {
+            title_prefix: format!("{year} 年"),
+            blocked_phrase: format!("{year} 年度的结账"),
+            summary_prefix: format!("{year} 年度："),
+            key_label: year.to_string(),
+            biz_type: BIZ_TYPE_YEAR_END,
+            idem_prefix: "YEAREND:REMIND",
+        }
+    }
+}
+
+/// 通知标题：「{前缀}结账待处理：{单据号}」。
+pub fn title_of(scope: &RemindScope, item: &BlockingItem) -> String {
+    format!("{}结账待处理：{}", scope.title_prefix, item.doc_no)
 }
 
 /// 通知正文（卡面模板逐字）。
-pub fn remind_content(period_code: &str, item: &BlockingItem, now: DateTime<Utc>) -> String {
+pub fn content_of(scope: &RemindScope, item: &BlockingItem, now: DateTime<Utc>) -> String {
     let creator = item
         .created_by_name
         .as_deref()
@@ -167,13 +232,36 @@ pub fn remind_content(period_code: &str, item: &BlockingItem, now: DateTime<Utc>
         None => String::new(),
     };
     format!(
-        "{creator} 的 {} {}{amount} 还是 {}，挡住了 {period_code} 的结账。请{}。已等待 {} 天。",
+        "{creator} 的 {} {}{amount} 还是 {}，挡住了 {}。请{}。已等待 {} 天。",
         period_items::doc_type_label(&item.doc_type),
         item.doc_no,
         item.status_label,
+        scope.blocked_phrase,
         item.action_label,
         item.waiting_days(now),
     )
+}
+
+/// 幂等键：`{前缀}:{定位}:{类型}:{id}:{日期}`（同一天同一张单只发一条）。
+pub fn idempotency_key_of(scope: &RemindScope, item: &BlockingItem, now: DateTime<Utc>) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        scope.idem_prefix,
+        scope.key_label,
+        item.doc_type,
+        item.doc_id,
+        now.format("%Y%m%d")
+    )
+}
+
+/// 通知标题：「{期间} 月结账待处理：{单据号}」（期间催办的便捷入口）。
+pub fn remind_title(period_code: &str, item: &BlockingItem) -> String {
+    title_of(&RemindScope::period(period_code), item)
+}
+
+/// 通知正文（期间催办的便捷入口）。
+pub fn remind_content(period_code: &str, item: &BlockingItem, now: DateTime<Utc>) -> String {
+    content_of(&RemindScope::period(period_code), item, now)
 }
 
 /// 金额文案：去掉无意义的尾零（`1234.0000` → `1234`，`1234.5000` → `1234.5`）。
@@ -187,12 +275,7 @@ pub fn remind_idempotency_key(
     item: &BlockingItem,
     now: DateTime<Utc>,
 ) -> String {
-    format!(
-        "PERIOD:REMIND:{period_code}:{}:{}:{}",
-        item.doc_type,
-        item.doc_id,
-        now.format("%Y%m%d")
-    )
+    idempotency_key_of(&RemindScope::period(period_code), item, now)
 }
 
 /// 这条明细的发送目标；`None` = 没有处理人（不发，计入 `skipped_no_owner`）。
@@ -208,12 +291,12 @@ pub fn target_of(item: &BlockingItem) -> Option<NoticeTarget> {
 ///
 /// # 参数
 ///
-/// - `period_code`：期间编码（`2026-10`），标题与正文都用它；
+/// - `scope`：催办上下文（期间 / 年结），决定标题、正文口径、`biz_type` 与幂等键；
 /// - `item`：挡路明细（已带 owner）；
 /// - `now`：时间基准（「已等待 N 天」与幂等键的日期）；
 /// - `operator`：催办人（进 `sender_id / sender_name`，通知里能看出是谁催的）。
-pub fn build_draft(
-    period_code: &str,
+pub fn build_draft_in(
+    scope: &RemindScope,
     item: &BlockingItem,
     now: DateTime<Utc>,
     operator: &state_machine::Operator,
@@ -222,14 +305,14 @@ pub fn build_draft(
     let mut draft = NoticeDraft::text(
         NoticeType::Todo,
         NoticeLevel::Warn,
-        remind_title(period_code, item),
-        remind_content(period_code, item, now),
+        title_of(scope, item),
+        content_of(scope, item, now),
         target,
     );
     draft.link_url = Some(item.route.clone());
-    draft.biz_type = Some(BIZ_TYPE.to_string());
+    draft.biz_type = Some(scope.biz_type.to_string());
     draft.biz_id = Some(item.doc_id.to_string());
-    draft.idempotency_key = Some(remind_idempotency_key(period_code, item, now));
+    draft.idempotency_key = Some(idempotency_key_of(scope, item, now));
     draft.sender_id = operator.id;
     draft.sender_name = Some(
         operator
@@ -243,23 +326,34 @@ pub fn build_draft(
     Some(draft)
 }
 
+/// 把明细组装成一条通知草稿（期间催办的便捷入口）。
+pub fn build_draft(
+    period_code: &str,
+    item: &BlockingItem,
+    now: DateTime<Utc>,
+    operator: &state_machine::Operator,
+) -> Option<NoticeDraft> {
+    build_draft_in(&RemindScope::period(period_code), item, now, operator)
+}
+
 /// 从明细里挑出本次要催的那些（`kind` 空 = 全部；`ids` 空 = 该类全部）。
-pub fn pick_items(
-    blockers: &[period::Blocker],
+///
+/// `sources` 是 `(blocker 类型, 该类明细)` 的序列：期间催办与年结催办都能直接传，
+/// 「哪一类 + 哪几张」的筛选逻辑只此一份。
+pub fn pick_from<'a>(
+    sources: impl IntoIterator<Item = (&'a str, &'a [BlockingItem])>,
     kind: Option<&str>,
     ids: &[String],
 ) -> Result<Vec<BlockingItem>, ApiError> {
     let wanted_kind = kind.map(str::trim).filter(|value| !value.is_empty());
     let mut picked = Vec::new();
-    for blocker in blockers {
+    for (blocker_kind, items) in sources {
         if let Some(wanted) = wanted_kind
-            && blocker.kind != wanted
+            && blocker_kind != wanted
         {
             continue;
         }
-        for item in &blocker.items {
-            picked.push(item.clone());
-        }
+        picked.extend(items.iter().cloned());
     }
     if ids.is_empty() {
         return Ok(picked);
@@ -279,6 +373,21 @@ pub fn pick_items(
         .filter(|item| wanted_ids.contains(&item.doc_id))
         .collect::<Vec<_>>();
     Ok(filtered)
+}
+
+/// 从期间预检结果里挑出本次要催的那些（期间催办的便捷入口）。
+pub fn pick_items(
+    blockers: &[period::Blocker],
+    kind: Option<&str>,
+    ids: &[String],
+) -> Result<Vec<BlockingItem>, ApiError> {
+    pick_from(
+        blockers
+            .iter()
+            .map(|blocker| (blocker.kind.as_str(), blocker.items.as_slice())),
+        kind,
+        ids,
+    )
 }
 
 // ==================== 催办主流程 ====================
@@ -320,36 +429,10 @@ pub async fn remind_period(
         });
     }
 
-    let mut result = RemindRes {
-        total: i64::try_from(picked.len()).unwrap_or(i64::MAX),
-        ..RemindRes::default()
-    };
-    for item in &picked {
-        let Some(draft) = build_draft(&row.period_code, item, now, &operator) else {
-            result.skipped_no_owner += 1;
-            continue;
-        };
-        if reminded_recently(item.doc_id, now).await? {
-            result.skipped_recent += 1;
-            continue;
-        }
-        match notice::dispatch(draft).await {
-            Ok(reply) if reply.duplicated => result.skipped_recent += 1,
-            Ok(_) => result.sent += 1,
-            Err(error) => {
-                result.failed += 1;
-                tracing::warn!(
-                    period = %row.period_code,
-                    doc_no = %item.doc_no,
-                    error = %error,
-                    "结账催办发送失败（计入 failed，可重试）"
-                );
-            }
-        }
-    }
-    result.message = summary_of(&row.period_code, &result);
+    let scope = RemindScope::period(&row.period_code);
+    let result = dispatch_all(&scope, &picked, now, &operator).await?;
     tracing::info!(
-        period = %row.period_code,
+        scope = %row.period_code,
         sent = result.sent,
         failed = result.failed,
         skipped_no_owner = result.skipped_no_owner,
@@ -359,8 +442,57 @@ pub async fn remind_period(
     Ok(result)
 }
 
-/// 24 小时内是否已经催过这张单（`sys_notice` 里最近一条 `period_remind`）。
-async fn reminded_recently(doc_id: Uuid, now: DateTime<Utc>) -> Result<bool, ApiError> {
+/// 逐条发送（**期间 / 年结共用的唯一发送循环**）。
+///
+/// 三条行为在两边必须一致：
+/// * 没有处理人 → 计入 `skipped_no_owner`，不发（不往全员推）；
+/// * 24 小时内催过 → 计入 `skipped_recent`，不再打扰；
+/// * 单条 `dispatch` 失败 → 计入 `failed` 并继续（一条失败不该让 49 条都发不出去）。
+pub async fn dispatch_all(
+    scope: &RemindScope,
+    items: &[BlockingItem],
+    now: DateTime<Utc>,
+    operator: &state_machine::Operator,
+) -> Result<RemindRes, ApiError> {
+    let mut result = RemindRes {
+        total: i64::try_from(items.len()).unwrap_or(i64::MAX),
+        ..RemindRes::default()
+    };
+    for item in items {
+        let Some(draft) = build_draft_in(scope, item, now, operator) else {
+            result.skipped_no_owner += 1;
+            continue;
+        };
+        if reminded_recently(scope.biz_type, item.doc_id, now).await? {
+            result.skipped_recent += 1;
+            continue;
+        }
+        match notice::dispatch(draft).await {
+            Ok(reply) if reply.duplicated => result.skipped_recent += 1,
+            Ok(_) => result.sent += 1,
+            Err(error) => {
+                result.failed += 1;
+                tracing::warn!(
+                    scope = %scope.key_label,
+                    doc_no = %item.doc_no,
+                    error = %error,
+                    "结账催办发送失败（计入 failed，可重试）"
+                );
+            }
+        }
+    }
+    result.message = summary_in(scope, &result);
+    Ok(result)
+}
+
+/// 24 小时内是否已经催过这张单（`sys_notice` 里最近一条同 `biz_type` 的记录）。
+///
+/// 判据带 `biz_type`：期间催办与年结催办互不干扰（同一个单据 id 在两个上下文里各催一次）。
+async fn reminded_recently(
+    biz_type: &str,
+    doc_id: Uuid,
+    now: DateTime<Utc>,
+) -> Result<bool, ApiError> {
     let since = now - Duration::hours(REMIND_WINDOW_HOURS);
     let count: i64 = db()
         .scalar_sql(
@@ -368,7 +500,7 @@ async fn reminded_recently(doc_id: Uuid, now: DateTime<Utc>) -> Result<bool, Api
               WHERE biz_type = ? AND biz_id = ? AND created_at > ?"
                 .to_string(),
             vec![
-                Value::Text(BIZ_TYPE.to_string()),
+                Value::Text(biz_type.to_string()),
                 Value::Text(doc_id.to_string()),
                 Value::from(since),
             ],
@@ -379,7 +511,7 @@ async fn reminded_recently(doc_id: Uuid, now: DateTime<Utc>) -> Result<bool, Api
 }
 
 /// 一句给人看的结论。
-pub fn summary_of(period_code: &str, result: &RemindRes) -> String {
+pub fn summary_in(scope: &RemindScope, result: &RemindRes) -> String {
     if result.total == 0 {
         return "没有可催办的单据".to_string();
     }
@@ -396,7 +528,12 @@ pub fn summary_of(period_code: &str, result: &RemindRes) -> String {
     if result.failed > 0 {
         parts.push(format!("{} 张发送失败（可重试）", result.failed));
     }
-    format!("{period_code}：{}", parts.join("，"))
+    format!("{}{}", scope.summary_prefix, parts.join("，"))
+}
+
+/// 一句给人看的结论（期间催办的便捷入口）。
+pub fn summary_of(period_code: &str, result: &RemindRes) -> String {
+    summary_in(&RemindScope::period(period_code), result)
 }
 
 // ==================== 接口层 ====================

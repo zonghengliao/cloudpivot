@@ -3631,6 +3631,17 @@ export interface YearEndBlocker {
   message: string;
   link?: string;
   samples?: string[];
+  /**
+   * ★ 挡路单据明细（YEAR-END，后端 `period_items::BlockingItem`，最多 50 条）。
+   *
+   * 与 `PeriodCloseBlocker.items` **完全同构**，所以前端复用同一张表
+   * （`shared/BlockerCheckPanel.vue`）：单号 / 类型 / 金额 / 制单人 / 该谁处理 / 已等 /
+   * 去处理 / 催办。
+   *
+   * 空数组 / 缺省 = 这一类没有单据级明细（期间未结 / 借贷不平 / 下年未开账），
+   * 页面只显示 `message`。
+   */
+  items?: PeriodBlockingItem[];
 }
 
 /** 年度结转状态（`year_end.rs::YearEndState`） */
@@ -3718,6 +3729,29 @@ export function closeYearEnd(year: number, reason?: string): Promise<YearEndClos
  */
 export function reopenYearEnd(year: number, reason: string): Promise<YearEndReopenResult> {
   return post<YearEndReopenResult>(`${BASE}/year-end/reopen`, { year, reason });
+}
+
+/** 年结催办入参（后端 `year_end_remind::YearEndRemindReq`，`year` 必填） */
+export interface YearEndRemindPayload {
+  /** 催哪一类（`DOC_UNFINISHED` / `INVARIANT`）；缺省 / 空 = 本次预检里全部有处理人的明细 */
+  blocker_kind?: string | null;
+  /** 催哪几张（明细里的 `doc_id`）；缺省 / 空 = 该类全部 */
+  item_ids?: string[];
+}
+
+/**
+ * 年结催办：把挡路单据的待办发给处理人（**服务端现算收件人**，同一张单 24h 不重复）。
+ *
+ * - 后端：`POST /business/erp/year-end/remind`，权限 `business:erp:year-end:remind`；
+ * - 返回与期间催办同一个结构（`PeriodRemindResult`：sent / failed / skipped_no_owner /
+ *   skipped_recent / total / message），所以 toast 逻辑可以直接复用 `remindToast()`；
+ * - 失败口径：400（年度越界 / 勾选超过 50 张 / 非法 UUID）、403（没有催办权限）。
+ */
+export function remindYearEnd(
+  year: number,
+  payload: YearEndRemindPayload,
+): Promise<PeriodRemindResult> {
+  return post<PeriodRemindResult>(`${BASE}/year-end/remind`, { year, ...payload });
 }
 
 // ==================== 合同（A5 · 契约来自 A2 `contract_dto.rs`） ====================

@@ -259,7 +259,7 @@ impl Blocker {
 }
 
 /// 超过明细上限时追加在 `message` 后面的那句话（前端据此提示「先去列表页批量处理」）。
-fn limit_note(count: i64) -> String {
+pub(crate) fn limit_note(count: i64) -> String {
     if count > period_items::ITEM_LIMIT {
         format!(
             "（共 {count} 张，仅显示前 {} 张，请先去列表页批量处理）",

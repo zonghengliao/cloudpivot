@@ -71,6 +71,24 @@
 //!   年结会用算出来的数覆盖它，必须让人先自己决定（清空后再结，或放弃年结）；
 //! * `ALREADY_CLOSED`：本年度已经结转过了（重复年结不是幂等操作）。
 //!
+//! # 只报汇总不够：每条阻塞项都要带「单据明细 + 处理人」（YEAR-END 卡）
+//!
+//! 老板对结账提的三句话（列单据 / 写清谁处理 / 能发消息催）在年结页原来一句都没落地 ——
+//! `YearEndBlocker` 只有一句 `message` 和最多 3 个 `samples`。现在：
+//!
+//! ```text
+//! ② DOC_UNFINISHED → period_items::unfinished_doc_items_between(全年 1/1~12/31)
+//! ④ INVARIANT      → period_items::invariant_details_between(全年凭证)
+//!                     ↓ 两者都带 BlockingItem（单号 / 类型 / 金额 / 制单人 / 状态 /
+//!                       owner_role + owner_name（权限码反查）/ 已等 / 去处理路由）
+//!                     ↓ 明细合并后统一截断到 50 条（不是 12 个月 × 50）
+//! 催办 → POST /business/erp/year-end/remind（见 year_end_remind）
+//! ```
+//!
+//! **取数一行 SQL 都不复制**：两个 `period_items` 的「日期区间」入口是期间结账那年
+//! （`t_1d3a6fce`）就写好的同一份实现，年结只是把区间换成「一整年」。
+//! `can_close()` 仍然只看 `blockers` 是否为空 —— 明细是「给人看的」，不参与判定。
+//!
 //! # 反年结（卡面 §五，必填原因 ≥ 10 字）
 //!
 //! ```text
@@ -109,6 +127,7 @@ use std::str::FromStr;
 
 use crate::business::erp::opening;
 use crate::business::erp::period;
+use crate::business::erp::period_items::{self, BlockingItem, OwnerResolver};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
@@ -221,6 +240,16 @@ pub struct YearEndBlocker {
     /// 定位线索（单号 / 凭证号，最多 3 个）。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub samples: Vec<String>,
+    /// ★ 挡路单据明细（YEAR-END，结构**逐字照搬** `period_items::BlockingItem`）。
+    ///
+    /// 前端因此能直接复用结账弹窗那张表（单号 / 类型 / 金额 / 制单人 / 该谁处理 /
+    /// 已等 / 去处理 / 催办），不必再写一套。
+    ///
+    /// * 空数组 = 这一类没有「单据级」明细（期间未结 / 借贷不平 / 下年未开账），
+    ///   前端此时只显示 [`Self::message`]；
+    /// * 最多 [`period_items::ITEM_LIMIT`] 条：超限时 `message` 里写明「共 N 张，仅显示前 50 张」。
+    #[serde(default)]
+    pub items: Vec<BlockingItem>,
 }
 
 impl YearEndBlocker {
@@ -234,6 +263,7 @@ impl YearEndBlocker {
             message: message.into(),
             link: link.map(str::to_string),
             samples: Vec::new(),
+            items: Vec::new(),
         }
     }
 
@@ -246,6 +276,18 @@ impl YearEndBlocker {
     /// 补条数。
     fn with_count(mut self, count: i64) -> Self {
         self.count = Some(count);
+        self
+    }
+
+    /// 补明细（YEAR-END）；同时把前 3 个单号写进老字段 `samples`
+    /// （老前端 / 日志可能还在读它，保持不空）。
+    fn with_items(mut self, items: Vec<BlockingItem>) -> Self {
+        self.samples = items
+            .iter()
+            .take(3)
+            .map(|item| item.doc_no.clone())
+            .collect();
+        self.items = items;
         self
     }
 }
@@ -654,57 +696,6 @@ async fn months_not_opened_next_year(
         .collect())
 }
 
-/// 本年未完成单据（采购 / 收货 / 调拨），按类型计数。
-///
-/// 期间口径按**业务日期落在本年度**（`order_date` / `in_date` / `transfer_date`），
-/// 与 ERP-P1 结账校验同源，只是把「一个月」换成「一年」（卡面 §二 ②「跨年度」）。
-async fn unfinished_docs_of_year(
-    ex: &impl SqlExecutor,
-    start: NaiveDate,
-    end: NaiveDate,
-) -> Result<[(&'static str, i64); 3], ApiError> {
-    let rows = ex
-        .query_sql(
-            "SELECT \
-                (SELECT COUNT(*) FROM biz_purchase_order \
-                  WHERE deleted_at IS NULL \
-                    AND order_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','SUBMITTED','APPROVED','PARTIAL_RECEIVED')) AS po, \
-                (SELECT COUNT(*) FROM biz_stock_in \
-                  WHERE deleted_at IS NULL \
-                    AND in_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','PENDING_POST','PENDING_CANCEL')) AS si, \
-                (SELECT COUNT(*) FROM biz_stock_transfer \
-                  WHERE deleted_at IS NULL \
-                    AND transfer_date BETWEEN ?::text::date AND ?::text::date \
-                    AND status IN ('DRAFT','PENDING','APPROVED','IN_TRANSIT')) AS tr"
-                .to_string(),
-            vec![
-                Value::Text(start.to_string()),
-                Value::Text(end.to_string()),
-                Value::Text(start.to_string()),
-                Value::Text(end.to_string()),
-                Value::Text(start.to_string()),
-                Value::Text(end.to_string()),
-            ],
-        )
-        .await
-        .map_err(|error| db_error(error, "统计本年未完成单据"))?;
-    let row = rows.first().ok_or_else(|| {
-        ApiError::new(500, error_code::INTERNAL_ERROR, "未完成单据统计没有返回行")
-    })?;
-    let po: i64 = row
-        .get_typed("po")
-        .map_err(|error| db_error(error, "解析采购单计数"))?;
-    let si: i64 = row
-        .get_typed("si")
-        .map_err(|error| db_error(error, "解析收货单计数"))?;
-    let tr: i64 = row
-        .get_typed("tr")
-        .map_err(|error| db_error(error, "解析调拨单计数"))?;
-    Ok([("采购单", po), ("收货单", si), ("调拨单", tr)])
-}
-
 /// 全年度试算平衡：**分录**求和（不看单头，理由见 `period` 模块文档）。
 async fn trial_balance_of_year(
     ex: &impl SqlExecutor,
@@ -736,72 +727,6 @@ async fn trial_balance_of_year(
         Decimal::from_str(&debit).unwrap_or(Decimal::ZERO),
         Decimal::from_str(&credit).unwrap_or(Decimal::ZERO),
     ))
-}
-
-/// 全年度不变量 A1 / A2（逐张凭证的分录自洽）。
-async fn invariant_failures_of_year(
-    ex: &impl SqlExecutor,
-    start: NaiveDate,
-    end: NaiveDate,
-) -> Result<Vec<String>, ApiError> {
-    let mut failures = Vec::new();
-
-    let rows = ex
-        .query_sql(
-            "SELECT v.voucher_no \
-               FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-              WHERE v.deleted_at IS NULL \
-                AND v.voucher_date >= ?::text::date AND v.voucher_date <= ?::text::date \
-              GROUP BY v.id, v.voucher_no \
-             HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001 \
-              ORDER BY v.voucher_no LIMIT 3"
-                .to_string(),
-            vec![
-                Value::Text(start.to_string()),
-                Value::Text(end.to_string()),
-            ],
-        )
-        .await
-        .map_err(|error| db_error(error, "不变量 A1"))?;
-    if !rows.is_empty() {
-        let names = rows
-            .iter()
-            .map(|row| row.get_typed::<String>("voucher_no").unwrap_or_default())
-            .collect::<Vec<_>>();
-        failures.push(format!(
-            "A1 有 {} 张凭证分录取和不平（{}）",
-            names.len(),
-            names.join(" / ")
-        ));
-    }
-
-    let rows = ex
-        .query_sql(
-            "SELECT v.voucher_no \
-               FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-              WHERE v.deleted_at IS NULL \
-                AND v.voucher_date >= ?::text::date AND v.voucher_date <= ?::text::date \
-              GROUP BY v.id, v.voucher_no, v.total_debit, v.total_credit \
-             HAVING ABS(v.total_debit - COALESCE(SUM(e.debit_amount), 0)) > 0.0001 \
-                 OR ABS(v.total_credit - COALESCE(SUM(e.credit_amount), 0)) > 0.0001 \
-              ORDER BY v.voucher_no LIMIT 3"
-                .to_string(),
-            vec![Value::Text(start.to_string()), Value::Text(end.to_string())],
-        )
-        .await
-        .map_err(|error| db_error(error, "不变量 A2"))?;
-    if !rows.is_empty() {
-        let names = rows
-            .iter()
-            .map(|row| row.get_typed::<String>("voucher_no").unwrap_or_default())
-            .collect::<Vec<_>>();
-        failures.push(format!(
-            "A2 有 {} 张凭证头与分录不一致（{}）",
-            names.len(),
-            names.join(" / ")
-        ));
-    }
-    Ok(failures)
 }
 
 /// 截至 `end`（含）全科目的余额：`(科目, Σ借−Σ贷, 科目类别)`。
@@ -1092,6 +1017,8 @@ pub async fn collect_blockers(
 ) -> Result<Vec<YearEndBlocker>, ApiError> {
     let (start, end) = year_range(year)?;
     let mut blockers: Vec<YearEndBlocker> = Vec::new();
+    // 处理人反查器（与结账页同一实现）：一次预检里同一个权限码只查一次库
+    let mut owners = OwnerResolver::new();
 
     // ① 本年 12 个月必须全部结账
     let open_months = months_not_closed(ex, year).await?;
@@ -1112,7 +1039,12 @@ pub async fn collect_blockers(
     }
 
     // ② 本年不能有未完成单据
-    let docs = unfinished_docs_of_year(ex, start, end).await?;
+    //
+    // **明细与条数同源**：直接用 `period_items` 的日期区间入口（全年一次 BETWEEN 取完），
+    // 不再自写一份 COUNT(*) SQL —— 两份 SQL 各自演化就会出现「文案说 3 张、表格列 5 行」。
+    // 明细合并（采购 / 收货 / 调拨）后统一截断到 50 条，与结账页同一个上限。
+    let (docs, doc_items) =
+        period_items::unfinished_doc_items_between(ex, start, end, &mut owners).await?;
     let total: i64 = docs.iter().map(|(_, count)| *count).sum();
     if total > 0 {
         let detail = docs
@@ -1126,11 +1058,13 @@ pub async fn collect_blockers(
                 BLOCKER_DOC_UNFINISHED,
                 format!(
                     "{year} 年还有 {total} 张单据未完成（{detail}）：年结前单据必须到终态\
-                     （已过账 / 已作废 / 已完成），否则明年才到的货会记不进账"
+                     （已过账 / 已作废 / 已完成），否则明年才到的货会记不进账{}",
+                    period::limit_note(total)
                 ),
                 Some("/business/erp/stock-in"),
             )
-            .with_count(total),
+            .with_count(total)
+            .with_items(doc_items),
         );
     }
 
@@ -1150,13 +1084,23 @@ pub async fn collect_blockers(
             ),
             link: Some("/business/erp/ledger".to_string()),
             samples: Vec::new(),
+            // 借贷不平是「整年合计」的差，没有某一张单据能负责 → 不编造明细行
+            items: Vec::new(),
         });
     }
 
     // ④ 全年度不变量（A1 / A2）
-    let failures = invariant_failures_of_year(ex, start, end).await?;
+    //
+    // 明细同样复用 `period_items::invariant_details_between`（与结账页同一份 SQL）：
+    // 单号 / 状态标签 / 「去看凭证」路由都由它给，年结这边只负责挂到 blocker 上。
+    let (failures, invariant_items) =
+        period_items::invariant_details_between(ex, start, end, &mut owners).await?;
     if !failures.is_empty() {
         let count = i64::try_from(failures.len()).unwrap_or(i64::MAX);
+        // 上限口径统一：**任何一条 blocker 的明细都不超过 50 行**
+        // （A1 / A2 各取 50 再按凭证去重，理论上能到 100 行，这里再兜一次）。
+        let mut invariant_items = invariant_items;
+        invariant_items.truncate(usize::try_from(period_items::ITEM_LIMIT).unwrap_or(50));
         blockers.push(
             YearEndBlocker::new(
                 BLOCKER_INVARIANT,
@@ -1166,7 +1110,8 @@ pub async fn collect_blockers(
                 ),
                 Some("/business/erp/inventory?audit=1"),
             )
-            .with_count(count),
+            .with_count(count)
+            .with_items(invariant_items),
         );
     }
 
@@ -2695,3 +2640,7 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+#[path = "year_end_items_tests.rs"]
+mod item_tests;

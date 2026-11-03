@@ -57,6 +57,20 @@
 //! 超过时限 50 条，并把 `message` 改成「共 N 张（仅显示前 50 张）」，
 //! 前端据此提示「请先去列表页批量处理」。
 //!
+//! # 年结为什么直接复用本模块（YEAR-END）
+//!
+//! 年结的前置校验与结账**是同一批单据、同一套判据**，只是范围从「一个月」变成「一整年」。
+//! 于是本模块给了两个「日期区间」入口，SQL 一行没复制：
+//!
+//! | 需要 | 期间结账用 | 年结用 |
+//! |------|-----------|--------|
+//! | 未完成单据 | [`unfinished_doc_items`]（期间起止日） | [`unfinished_doc_items_between`]（1/1 ~ 12/31） |
+//! | 不变量 A1/A2 | [`invariant_details`]（`v.period = ?`） | [`invariant_details_between`]（`voucher_date` 区间） |
+//!
+//! 两条纪律跟着一起复用：
+//! * **明细合并后统一截断到 50 条**（年结不是「12 个月 × 50 = 600 行」）；
+//! * **处理人一律从权限码反查**（不变量类留空，系统不指定人）。
+//!
 //! # 数据权限
 //!
 //! ```text
@@ -65,7 +79,7 @@
 //! 可见性由 business:erp:period:{close,remind} 控制；这里不注入数据范围。
 //! ```
 
-use nik::prelude::chrono::{DateTime, Utc};
+use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -508,15 +522,32 @@ pub async fn draft_voucher_items(
 /// 明细按「单据日期 + 单号」排序，**三类混排后统一截断**到 [`ITEM_LIMIT`] 条
 /// （每条 blocker 的明细上限是 50，不能因为合并了三类就变成 150）；
 /// 条数是**全量** `COUNT(*)`（前端据此提示「共 N 张，仅显示前 50 张」）。
+///
+/// 年结走 [`unfinished_doc_items_between`]（同一份 SQL，只是把「一个月」换成「全年」）。
 pub async fn unfinished_doc_items(
     ex: &impl SqlExecutor,
     row: &PeriodRow,
     owners: &mut OwnerResolver,
 ) -> Result<(Vec<(&'static str, i64)>, Vec<BlockingItem>), ApiError> {
+    unfinished_doc_items_between(ex, row.start_date, row.end_date, owners).await
+}
+
+/// 日期区间内未完成单据：`(按类型条数, 明细)`。
+///
+/// 与 [`unfinished_doc_items`] 是**同一份取数口径**（本函数是唯一实现）：
+/// 期间结账传「当月 1 日 ~ 月末」，年结传「1 月 1 日 ~ 12 月 31 日」。
+/// 年结合并 12 个月不必按月循环 12 次 —— 一条 `BETWEEN` 就等价，
+/// 而且天然不会踩「12 个月 × 50 = 600 行」的坑。
+pub async fn unfinished_doc_items_between(
+    ex: &impl SqlExecutor,
+    start: NaiveDate,
+    end: NaiveDate,
+    owners: &mut OwnerResolver,
+) -> Result<(Vec<(&'static str, i64)>, Vec<BlockingItem>), ApiError> {
     let mut counts = Vec::with_capacity(3);
     let mut items = Vec::new();
 
-    for (label, source) in doc_sources(row) {
+    for (label, source) in doc_sources_between(start, end) {
         let (count, mut loaded) = source.load(ex, owners).await?;
         counts.push((label, count));
         items.append(&mut loaded);
@@ -535,9 +566,12 @@ pub async fn unfinished_doc_items(
 }
 
 /// 三类未完成单据的取数口径（标签 + SQL）。抽成函数是为了让测试能逐类断言。
-fn doc_sources(row: &PeriodRow) -> [(&'static str, DocSource); 3] {
-    let start = row.start_date.to_string();
-    let end = row.end_date.to_string();
+///
+/// 参数是**日期区间**（不是 `PeriodRow`）：期间结账与年结合用一份 SQL，
+/// 差别只在区间大小 —— 两处口径不允许分裂。
+fn doc_sources_between(start: NaiveDate, end: NaiveDate) -> [(&'static str, DocSource); 3] {
+    let start = start.to_string();
+    let end = end.to_string();
     let date_params = vec![Value::Text(start.clone()), Value::Text(end.clone())];
 
     let purchase = DocSource {
@@ -622,15 +656,79 @@ pub async fn invariant_details(
     period_code: &str,
     owners: &mut OwnerResolver,
 ) -> Result<(Vec<String>, Vec<BlockingItem>), ApiError> {
-    let params = vec![Value::Text(period_code.to_string())];
+    invariant_details_scoped(ex, VoucherScope::Period(period_code), owners).await
+}
+
+/// 日期区间内的不变量失败：`(失败描述, 明细)` —— 年结的「全年 A1 / A2」走这里。
+///
+/// 与 [`invariant_details`] 同一份实现（差别只有取数范围），
+/// 所以年结页与结账页看到的不变量口径一致，不会「结账说平、年结说不平」。
+pub async fn invariant_details_between(
+    ex: &impl SqlExecutor,
+    start: NaiveDate,
+    end: NaiveDate,
+    owners: &mut OwnerResolver,
+) -> Result<(Vec<String>, Vec<BlockingItem>), ApiError> {
+    invariant_details_scoped(ex, VoucherScope::Dates(start, end), owners).await
+}
+
+/// 凭证取数范围：**期间**（`v.period = ?`，与 P1 结账同口径）或**日期区间**
+/// （`voucher_date` 落在区间内，年结的「全年」口径）。
+///
+/// 唯一的差别是占位符（1 个 vs 2 个），所以用枚举把「同一段 SQL + 同一套参数」收在一处：
+/// A1 / A2 的 where 片段由 [`VoucherScope::filter`] 给出，计数与明细共用，
+/// 两处口径不允许分裂（历史上「条数说 3 张、表格列 5 行」就是这么来的）。
+#[derive(Debug, Clone, Copy)]
+enum VoucherScope<'a> {
+    /// 单期间（`2036-03`）。
+    Period(&'a str),
+    /// 日期区间（年结：`2036-01-01` ~ `2036-12-31`）。
+    Dates(NaiveDate, NaiveDate),
+}
+
+impl VoucherScope<'_> {
+    /// WHERE 片段（**不含** `WHERE` 关键字）。
+    fn filter(&self) -> &'static str {
+        match self {
+            Self::Period(_) => "v.deleted_at IS NULL AND v.period = ?",
+            Self::Dates(_, _) => {
+                "v.deleted_at IS NULL AND v.voucher_date >= ?::text::date \
+                 AND v.voucher_date <= ?::text::date"
+            }
+        }
+    }
+
+    /// 与 [`Self::filter`] 一一对应的参数（顺序不能乱）。
+    fn params(&self) -> Vec<Value> {
+        match self {
+            Self::Period(code) => vec![Value::Text((*code).to_string())],
+            Self::Dates(start, end) => {
+                vec![Value::Text(start.to_string()), Value::Text(end.to_string())]
+            }
+        }
+    }
+}
+
+/// 不变量取数的唯一实现（期间 / 日期区间共用）。
+async fn invariant_details_scoped(
+    ex: &impl SqlExecutor,
+    scope: VoucherScope<'_>,
+    owners: &mut OwnerResolver,
+) -> Result<(Vec<String>, Vec<BlockingItem>), ApiError> {
+    let params = scope.params();
+    let filter = scope.filter();
     let mut failures = Vec::new();
     let mut items = Vec::new();
 
     // ---------- A1：分录借贷不平 ----------
-    let a1_where = "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-                    WHERE v.deleted_at IS NULL AND v.period = ? \
-                    GROUP BY v.id, v.voucher_no \
-                   HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
+    let a1_having =
+        "HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
+    let a1_where = format!(
+        "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
+         WHERE {filter} \
+         GROUP BY v.id, v.voucher_no \
+         {a1_having}"
+    );
     let a1_total: i64 = ex
         .scalar_sql(
             format!("SELECT COUNT(*) FROM (SELECT 1 {a1_where}) bad"),
@@ -639,19 +737,21 @@ pub async fn invariant_details(
         .await
         .map_err(|error| db_error(error, "不变量 A1 计数"))?;
     if a1_total > 0 {
+        let a1_detail_where = format!(
+            "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
+                   LEFT JOIN sys_user u ON u.id = v.create_by \
+             WHERE {filter} \
+             GROUP BY v.id, v.voucher_no, v.status, v.total_debit, v.created_at, \
+                      u.real_name, u.username \
+             {a1_having}"
+        );
         let rows = ex
             .query_sql(
                 format!(
                     "SELECT v.id AS doc_id, v.voucher_no AS doc_no, v.status AS status, \
                             v.total_debit::text AS amount, v.created_at AS created_at, \
                             COALESCE(NULLIF(u.real_name, ''), u.username) AS creator \
-                       {a1_where} ORDER BY v.voucher_no LIMIT {ITEM_LIMIT}",
-                    a1_where = "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-                                LEFT JOIN sys_user u ON u.id = v.create_by \
-                                WHERE v.deleted_at IS NULL AND v.period = ? \
-                                GROUP BY v.id, v.voucher_no, v.status, v.total_debit, v.created_at, \
-                                         u.real_name, u.username \
-                               HAVING ABS(COALESCE(SUM(e.debit_amount), 0) - COALESCE(SUM(e.credit_amount), 0)) > 0.0001"
+                     {a1_detail_where} ORDER BY v.voucher_no LIMIT {ITEM_LIMIT}"
                 ),
                 params.clone(),
             )
@@ -677,11 +777,14 @@ pub async fn invariant_details(
     }
 
     // ---------- A2：单头金额 ≠ 分录取和 ----------
-    let a2_where = "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
-                    WHERE v.deleted_at IS NULL AND v.period = ? \
-                    GROUP BY v.id, v.voucher_no, v.total_debit, v.total_credit \
-                   HAVING ABS(v.total_debit - COALESCE(SUM(e.debit_amount), 0)) > 0.0001 \
-                       OR ABS(v.total_credit - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
+    let a2_having = "HAVING ABS(v.total_debit - COALESCE(SUM(e.debit_amount), 0)) > 0.0001 \
+                         OR ABS(v.total_credit - COALESCE(SUM(e.credit_amount), 0)) > 0.0001";
+    let a2_where = format!(
+        "FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
+         WHERE {filter} \
+         GROUP BY v.id, v.voucher_no, v.total_debit, v.total_credit \
+         {a2_having}"
+    );
     let a2_total: i64 = ex
         .scalar_sql(
             format!("SELECT COUNT(*) FROM (SELECT 1 {a2_where}) bad"),
@@ -698,11 +801,10 @@ pub async fn invariant_details(
                             COALESCE(NULLIF(u.real_name, ''), u.username) AS creator \
                        FROM biz_voucher v LEFT JOIN biz_voucher_entry e ON e.voucher_id = v.id \
                             LEFT JOIN sys_user u ON u.id = v.create_by \
-                      WHERE v.deleted_at IS NULL AND v.period = ? \
+                      WHERE {filter} \
                       GROUP BY v.id, v.voucher_no, v.status, v.total_debit, v.total_credit, \
                                v.created_at, u.real_name, u.username \
-                     HAVING ABS(v.total_debit - COALESCE(SUM(e.debit_amount), 0)) > 0.0001 \
-                         OR ABS(v.total_credit - COALESCE(SUM(e.credit_amount), 0)) > 0.0001 \
+                     {a2_having} \
                       ORDER BY v.voucher_no LIMIT {ITEM_LIMIT}"
                 ),
                 params,

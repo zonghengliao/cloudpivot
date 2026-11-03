@@ -112,6 +112,7 @@ pub mod voucher_bridge;
 pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;
+pub mod year_end_remind;
 
 // ==================== TD-1 拆分出的部件（只经 facade 对外） ====================
 // 下面 18 个 `mod` 是三个超千行 model 文件按职责拆出的部件，**不直接对外**：
@@ -120,6 +121,8 @@ pub mod year_end;
 // 拆法见 `docs/refactor-methodology.md`，拆分器 `scripts/refactor/split_module.py`。
 #[cfg(test)]
 mod period_test_support; // PERIOD-CLOSE 真库用例的公共夹具（`2033-xx` / `P2-` 前缀）
+#[cfg(test)]
+pub mod year_end_test_support; // YEAR-END 真库用例的公共夹具（`2037-xx` / `2038-xx` / `YE-` 前缀）
 
 mod model_base; // 底座：分页归一化 / id 解析 / 通用取数模板
 mod model_inventory; // 库存台账只读

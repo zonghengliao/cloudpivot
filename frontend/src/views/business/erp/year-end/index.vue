@@ -80,6 +80,28 @@
         </li>
       </ul>
 
+      <!--
+        ★ YEAR-END：挡路单据明细表（与结账弹窗同一个组件 `shared/BlockerCheckPanel.vue`）
+        - 只渲染「有明细」的阻塞项（全年未完成单据 / 不变量坏凭证），
+          其余三类（期间未结 / 借贷不平 / 下年未开账）在上面五行里已经用一句话说清；
+        - `show-messages=false`：五行里已经有 message，表格上方不再重复一遍；
+        - 每行 [去处理] 直达单据、[催办] 发站内信（`POST /year-end/remind`）。
+      -->
+      <BlockerCheckPanel
+        v-if="itemBlockers.length > 0"
+        ref="checkPanel"
+        :blockers="itemBlockers"
+        :remind="canRemind ? remindFn : undefined"
+        :show-messages="false"
+        testid-prefix="yearend"
+        @goto="gotoDocument"
+        @reminded="onReminded"
+      />
+      <p v-if="itemBlockers.length > 0" class="card-hint" data-testid="yearend-items-hint">
+        共 {{ itemCount }} 张挡路单据（每类最多显示 50 张）；「催办」把待办发到处理人的站内信，同一张单 24
+        小时内不重复催。
+      </p>
+
       <div v-if="extras.length > 0" class="extra-blockers" data-testid="yearend-extra-blockers">
         <t-alert
           v-for="item in extras"
@@ -229,18 +251,24 @@
  * 页面照实说「期初已生成 N 行」，别让人以为漏了凭证。
  */
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import {
   closeYearEnd,
   fetchPeriodPage,
   fetchYearEndCheck,
+  remindYearEnd,
   reopenYearEnd,
+  type PeriodRemindResult,
   type YearEndCheck,
 } from '@/api/business/erp';
 import { useUserStore } from '@/stores/user';
+import BlockerCheckPanel from '../shared/BlockerCheckPanel.vue';
+import { remindToast, type BlockerRemindFn } from '../shared/blocker-logic';
 import {
   YEAR_END_PERMISSIONS,
+  blockersWithItems,
   canClose,
   canReopen,
   checkLines,
@@ -253,9 +281,13 @@ import {
   statusLabel,
   statusTheme,
   voucherText,
+  yearEndItemCount,
+  yearFromQuery,
 } from './year-end-logic';
 
 const userStore = useUserStore();
+const route = useRoute();
+const router = useRouter();
 
 // ---------- 状态 ----------
 const loading = ref(false);
@@ -281,7 +313,64 @@ const showReopenButton = computed(
   () => hasPermission(YEAR_END_PERMISSIONS.reopen) && canReopen(check.value, hasPermission),
 );
 
+// ---------- 挡路单据明细 / 催办（YEAR-END） ----------
+/** 有单据明细的阻塞项（全年未完成单据 / 不变量坏凭证） */
+const itemBlockers = computed(() => blockersWithItems(check.value));
+/** 明细总条数（全量，明细每类最多 50） */
+const itemCount = computed(() => yearEndItemCount(check.value));
+/** 有催办权限才渲染催办按钮 */
+const canRemind = computed(() => hasPermission(YEAR_END_PERMISSIONS.remind));
+/** 催办面板的 ref（重新预检后清掉「已催（今天）」标记） */
+const checkPanel = ref<InstanceType<typeof BlockerCheckPanel> | null>(null);
+
+/**
+ * 催办：只传「哪一类 + 哪几张」，收件人由后端按明细的 owner 现算。
+ *
+ * 年度由页面给（年结的上下文是年度，不是期间 id）。
+ */
+const remindFn = computed<BlockerRemindFn | undefined>(() => {
+  if (!canRemind.value) {
+    return undefined;
+  }
+  const year = yearModel.value;
+  if (year === undefined) {
+    return undefined;
+  }
+  return (payload) => remindYearEnd(year, payload);
+});
+
+/** 点「去处理」：直达单据（后端算好的 route：凭证 ?voucher_no= / 采购 ?po_id= / 收货 ?in_id= / 调拨 ?transfer_no=） */
+function gotoDocument(route: string): void {
+  void router.push(route);
+}
+
+/** 催办回执：用后端那句人话弹 toast（成功 / 有失败 / 只是「已催过」三种颜色） */
+function onReminded(result: PeriodRemindResult): void {
+  const text = remindToast(result);
+  if (result.failed > 0) {
+    void MessagePlugin.warning(text);
+  } else if (result.sent > 0) {
+    void MessagePlugin.success(text);
+  } else {
+    void MessagePlugin.info(text);
+  }
+}
+
 // ---------- 读 ----------
+
+/**
+ * 路由参数：`?year=2040` 直接看这个年度。
+ *
+ * 年结是按「会计年度」看的（不是期间），所以年度值得能收藏 / 转发：
+ * `?year=` 只是**预选下拉**，参数本身不消费（保留在 URL 上，刷新后还是那一年）。
+ * 非法值（不是 2000–2998 的整数）一律忽略，退回「最新年度」。
+ */
+function applyRouteQuery(): void {
+  const year = yearFromQuery(route.query as Record<string, unknown>);
+  if (year !== null) {
+    yearModel.value = year;
+  }
+}
 async function loadYearOptions(): Promise<void> {
   yearLoading.value = true;
   try {
@@ -308,6 +397,8 @@ async function loadCheck(): Promise<void> {
   loadError.value = '';
   try {
     check.value = await fetchYearEndCheck(yearModel.value);
+    // 每次重新预检都清掉上一次的「已催（今天）」标记（别人可能已经处理掉一批了）
+    checkPanel.value?.reset();
   } catch (error) {
     check.value = null;
     loadError.value = error instanceof ApiError ? error.message : '读取年度结转状态失败';
@@ -378,6 +469,8 @@ async function submitReopen(): Promise<void> {
 
 onMounted(async () => {
   await loadYearOptions();
+  // `?year=2040` 优先于「最新年度」（年结按年度看，收藏 / 转发要能落到同一年）
+  applyRouteQuery();
   await loadCheck();
 });
 </script>

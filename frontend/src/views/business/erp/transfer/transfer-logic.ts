@@ -919,3 +919,20 @@ export function instanceStatusLabel(status: string): string {
       return status;
   }
 }
+
+/**
+ * 深链参数里的调拨单号（`/business/erp/transfer?transfer_no=TR-…`）。
+ *
+ * 结账 / 年结的「挡路单据明细」给调拨单算的路由就是这种形态
+ * （见后端 `period_items::route_of`），但调拨页原来**不消费**这个参数 ——
+ * 点「去处理」只会落到一张没筛选的列表上（voucher / purchase / stock-in 三页都有深链处理，
+ * 唯独这里缺）。
+ *
+ * 只接受字符串（或数组首元素）：用户手敲的 query 可能是 `?transfer_no=a&transfer_no=b`，
+ * 取第一个；其它类型（对象 / 数字）一律当没带，不让页面崩在 `trim()` 上。
+ */
+export function transferNoFromQuery(query: Record<string, unknown> | null | undefined): string {
+  const raw = query?.transfer_no;
+  const first = Array.isArray(raw) ? raw[0] : raw;
+  return typeof first === 'string' ? first.trim() : '';
+}
