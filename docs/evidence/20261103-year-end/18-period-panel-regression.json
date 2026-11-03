@@ -1,0 +1,32 @@
+{
+  "steps": [
+    {
+      "step": "period-close-panel",
+      "ok": true,
+      "rows": 1,
+      "remindButtons": 1,
+      "hasOwnerColumn": true,
+      "hasAction": true,
+      "hasDocNo": true,
+      "excerpt": "结账 2041-01\n还有 1 张单据未完成（采购单 1 张）：结账前单据必须到终态（已过账 / 已作废 / 已完成）\n\nDOC_UNFINISHED还有 1 张单据未完成（采购单 1 张）：结账前单据必须到终态（已过账 / 已作废 / 已完成） 去列表处理\n\n单据号\n\t\n类型\n\t\n金额\n\t\n制单人\n\t\n该谁处理\n\t\n已等\n\t\n操作\n\nPC-REGR-204101-001已提交待审批\t采购\t¥11"
+    }
+  ],
+  "dump": [
+    {
+      "cls": "t-popup t-select__dropdown",
+      "html": "<div class=\"t-popup__content\" style=\"width: 140px;\"><!----><div class=\"t-select__dropdown-inner t-select__dropdown-inner--size-m\"><!----><!----><!----><ul class=\"t-select__list\"><li class=\"t-select-option t-size-m\" title=\"2041 年\"><span>2041 年</span></li><li class=\"t-select-option t-size-m\" title=\"2040 年\"><span>2040 年</span></li><li class=\"t-select-option t-size-m\" title=\"2026 年\"><span>2026 年</span></li></ul></div><!----><!----></div>"
+    },
+    {
+      "cls": "t-select-option t-size-m",
+      "html": "<span>2041 年</span>"
+    },
+    {
+      "cls": "t-select-option t-size-m",
+      "html": "<span>2040 年</span>"
+    },
+    {
+      "cls": "t-select-option t-size-m",
+      "html": "<span>2026 年</span>"
+    }
+  ]
+}

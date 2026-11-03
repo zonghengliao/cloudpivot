@@ -1,0 +1,16 @@
+== sys_notice（年结催办，biz_type = year_end_remind）==
+title | content | link_url | sender_name | biz_id
+2040 年结账待处理：PC-YE-PO-2040-001 | 超级管理员 的 采购单 PC-YE-PO-2040-001（8800） 还是 已提交待审批，挡住了 2040 年度的结账。请去审批。已等待 0 天。 | /business/erp/purchase-order?po_id=e529b079-8587-4ab2-95f2-a456559a4194 | admin | e529b079-8587-4ab2-95f2-a456559a4194
+2040 年结账待处理：PC-YE-IN-2040-001 | 超级管理员 的 收货单 PC-YE-IN-2040-001（560） 还是 草稿（未过账），挡住了 2040 年度的结账。请去过账。已等待 0 天。 | /business/erp/stock-in?in_id=6ce174c0-fede-498c-a82c-c1ad8b87ac0a | admin | 6ce174c0-fede-498c-a82c-c1ad8b87ac0a
+2040 年结账待处理：PC-YE-PO-2040-001 | 超级管理员 的 采购单 PC-YE-PO-2040-001（8800） 还是 已提交待审批，挡住了 2040 年度的结账。请去审批。已等待 0 天。 | /business/erp/purchase-order?po_id=705963cf-1b60-4cb6-822c-ef31406635ab | admin | 705963cf-1b60-4cb6-822c-ef31406635ab
+2040 年结账待处理：PC-YE-IN-2040-001 | 超级管理员 的 收货单 PC-YE-IN-2040-001（560） 还是 草稿（未过账），挡住了 2040 年度的结账。请去过账。已等待 0 天。 | /business/erp/stock-in?in_id=338a83ba-11d5-4b11-8392-75cfb0d0b2a1 | admin | 338a83ba-11d5-4b11-8392-75cfb0d0b2a1
+(4 rows)
+
+== 第一次催办（全部）==
+{"code":0,"msg":"ok","data":{"sent":2,"failed":0,"skipped_no_owner":1,"skipped_recent":0,"total":3,"message":"2040 年度：已催办 2 张，1 张未指定处理人"}}
+
+== 24h 内再催一次（应全部 skipped_recent）==
+{"code":0,"msg":"ok","data":{"sent":0,"failed":0,"skipped_no_owner":1,"skipped_recent":2,"total":3,"message":"2040 年度：已催办 0 张，2 张24小时内已催过（不重复打扰），1 张未指定处理人"}}
+
+== 只催没有处理人的那张（调拨单 → skipped_no_owner）==
+{"code":0,"msg":"ok","data":{"sent":0,"failed":0,"skipped_no_owner":1,"skipped_recent":0,"total":1,"message":"2040 年度：已催办 0 张，1 张未指定处理人"}}

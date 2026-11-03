@@ -1,0 +1,7 @@
+BEGIN
+DELETE 1
+DELETE 1
+DELETE 1
+COMMIT
+psql:/opt/cloudpivot/docs/evidence/20261103-year-end/06-clear-demo-docs.sql:34: NOTICE:  YEAR-END 演示单据已清空：挡路项应为 0
+DO

@@ -1,0 +1,57 @@
+[shot] /root/ye-evidence/shots/01-year-end-items-table.png
+[shot] /root/ye-evidence/shots/02-year-end-remind-one.png
+[shot] /root/ye-evidence/shots/03-year-end-remind-all.png
+[shot] /root/ye-evidence/shots/04-goto-transfer-detail.png
+{
+  "phase": "1",
+  "year": "2040",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "year-end-page",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/year-end?year=2040"
+    },
+    {
+      "step": "items-table",
+      "ok": true,
+      "rows": 3,
+      "hasPo": true,
+      "hasStockIn": true,
+      "hasTransfer": true,
+      "hasOwnerColumn": true,
+      "hasPendingOwner": true,
+      "hasAction": true,
+      "hint": true
+    },
+    {
+      "step": "remind-one",
+      "ok": true,
+      "toast": "2040 年度：已催办 1 张",
+      "remindedTag": 1
+    },
+    {
+      "step": "remind-all",
+      "ok": true,
+      "button": "全部催办（1）",
+      "toast": "2040 年度：已催办 1 张"
+    },
+    {
+      "step": "goto-transfer",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/transfer",
+      "showsDocNo": true
+    }
+  ],
+  "shots": [
+    "/root/ye-evidence/shots/01-year-end-items-table.png",
+    "/root/ye-evidence/shots/02-year-end-remind-one.png",
+    "/root/ye-evidence/shots/03-year-end-remind-all.png",
+    "/root/ye-evidence/shots/04-goto-transfer-detail.png"
+  ]
+}

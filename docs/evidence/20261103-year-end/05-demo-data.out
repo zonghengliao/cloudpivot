@@ -1,0 +1,18 @@
+BEGIN
+DELETE 0
+DELETE 0
+DELETE 0
+DELETE 0
+DELETE 1
+DELETE 2
+DELETE 0
+DELETE 0
+DELETE 24
+INSERT 0 12
+INSERT 0 12
+INSERT 0 1
+INSERT 0 1
+INSERT 0 1
+COMMIT
+psql:/opt/cloudpivot/docs/evidence/20261103-year-end/05-demo-data.sql:113: NOTICE:  YEAR-END 演示数据就绪：2040 已结账 12 个月、2041 已开账 12 个月、挡路单据 3 张
+DO

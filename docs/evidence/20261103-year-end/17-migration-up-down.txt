@@ -1,0 +1,19 @@
+隔离库 cp_ye_mig_test（从 cp_year_end_clean 克隆，已迁移到 V0208）
+
+① 迁移前：节点数 = 1
+
+② 跑 V0208 down:
+   节点数 = 0（应为 0）
+   授权行数 = 0（应为 0）
+
+③ 重放 V0208 up:
+psql:backend/migrations/business/V0208__erp_year_end_remind.up.sql:91: NOTICE:  V0208：年结催办权限已种，授权新增 1 行
+psql:backend/migrations/business/V0208__erp_year_end_remind.up.sql:91: NOTICE:  V0208 自检通过：年结催办 1 个权限节点
+   节点数 = 1（应为 1）
+   节点 = 20000000-0000-0000-0000-000000001213 / parent 20000000-0000-0000-0000-000000001025 / title 催办
+   授权角色 = SUPER_ADMIN
+
+④ 再跑一次 up（幂等）：
+psql:backend/migrations/business/V0208__erp_year_end_remind.up.sql:91: NOTICE:  V0208：年结催办权限已种，授权新增 0 行
+psql:backend/migrations/business/V0208__erp_year_end_remind.up.sql:91: NOTICE:  V0208 自检通过：年结催办 1 个权限节点
+   节点数 = 1（仍应为 1）

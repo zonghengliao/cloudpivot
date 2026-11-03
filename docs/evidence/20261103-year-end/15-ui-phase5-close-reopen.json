@@ -1,0 +1,34 @@
+[shot] /root/ye-evidence/shots/08-year-end-closed.png
+[shot] /root/ye-evidence/shots/09-year-end-reopened.png
+{
+  "phase": "5",
+  "year": "2040",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "year-end-page",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/year-end?year=2040"
+    },
+    {
+      "step": "close-year",
+      "ok": true,
+      "status": "2040 年度已结转",
+      "closeDisabled": false
+    },
+    {
+      "step": "reopen-year",
+      "ok": true,
+      "status": "2040 年度未结转"
+    }
+  ],
+  "shots": [
+    "/root/ye-evidence/shots/08-year-end-closed.png",
+    "/root/ye-evidence/shots/09-year-end-reopened.png"
+  ]
+}

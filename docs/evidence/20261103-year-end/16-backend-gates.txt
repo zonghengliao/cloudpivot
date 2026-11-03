@@ -1,0 +1,15 @@
+== cargo check --all-targets ==
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 15.09s
+
+== cargo clippy --lib -- -D warnings ==
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 18.93s
+
+== cargo fmt --check（只列差异文件）==
+      2 Diff in /opt/cloudpivot/backend/tests/testd/announcement.rs
+      2 Diff in /opt/cloudpivot/backend/tests/testd/common.rs
+      1 Diff in /opt/cloudpivot/backend/tests/testd/impexp.rs
+      2 Diff in /opt/cloudpivot/backend/tests/testd/linkage.rs
+      2 Diff in /opt/cloudpivot/backend/tests/testd/project_log.rs
+（tests/testd/* 的 5 个文件是既有 rustfmt 版本漂移，本卡未触碰）

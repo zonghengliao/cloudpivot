@@ -1,0 +1,29 @@
+[shot] /root/ye-evidence/shots/05-year-end-cleared.png
+{
+  "phase": "2",
+  "year": "2040",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "year-end-page",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/year-end?year=2040"
+    },
+    {
+      "step": "recheck-cleared",
+      "ok": true,
+      "itemTables": 0,
+      "lineText": "✅\n无未完成单据",
+      "closeDisabled": false,
+      "text": "云枢 CloudPivot\n系统管理\n公告与消息\n9\n支撑功能\n审批流\n8\n工作任务\n数据权限\n字段脱敏\n角色互斥\n采购管理\n项目\n仓库管理\n流程模板库（标准模板 / 启用停用 / 另存为）\n内容管理\n通用底座\n财务管理\n合同管理（采购/销售/服务/租赁）\n基础数据\n首页\n年度结转\n9\n会计年度\n2040 年度未结转\n本年已结账 12/12 月\n2041 年已开账 12/12 月\n刷新\n前置检查\n五项全过才能年结（任一不过后端 409 并逐条点名）\n✅\n12 个月全部结账\n✅\n无未完成单据\n✅\n试算平衡\n✅\n不变量全绿\n✅\n下一年度已开账\n年度结转\n本年净利润\n0.00\n结转凭证\n尚未生成结转"
+    }
+  ],
+  "shots": [
+    "/root/ye-evidence/shots/05-year-end-cleared.png"
+  ]
+}

@@ -1,0 +1,28 @@
+[shot] /root/ye-evidence/shots/06-year-end-notice-center.png
+{
+  "phase": "3",
+  "year": "2040",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "token",
+      "url": "http://127.0.0.1:5173/dashboard"
+    },
+    {
+      "step": "year-end-page",
+      "ok": true,
+      "url": "http://127.0.0.1:5173/business/erp/year-end?year=2040"
+    },
+    {
+      "step": "notice-center",
+      "ok": true,
+      "showsYear": true,
+      "showsDocNo": true,
+      "excerpt": "云枢 CloudPivot\n系统管理\n公告与消息\n9\n支撑功能\n审批流\n8\n工作任务\n数据权限\n字段脱敏\n角色互斥\n采购管理\n项目\n仓库管理\n流程模板库（标准模板 / 启用停用 / 另存为）\n内容管理\n通用底座\n财务管理\n合同管理（采购/销售/服务/租赁）\n基础数据\n首页\n消息中心\n9\n消息中心\n9 条未读\n 未读\n 已读\n 全部\n全部已读\n2040 年结账待处理：PC-YE-IN-2040-001\n警告\n\n超级管理员 的 收货单 PC-YE-IN-2040-001（560） 还是 草稿（未过账），挡住了 2040 年度的结账。请去过账。已等待 0 天。\n\n待办\n2026-11-03 15:33:29\n2040 年结账待处理：PC-YE-IN-2040-001\n警告\n\n超级管理员 的 收货单 PC-YE-IN-2040-001（560） 还是 草稿（未过账），挡住了 2040 年度的结账。请去过账。已等待 0 天。\n\n待办\n2026-11-03 15:30:12\n2036-03 月结账待处理：PC-IN-203603-001\n警告\n\n赵六 的 收货单 PC-IN-203603-001（560） 还是 草稿（未过账），挡住了 2036-03 的结账。请去过账。已等待 0 天。\n\n待办\n2026-11-03 14:11:16\n待你审批：状态机配置变更：STOCK_OUT DRAFT→P"
+    }
+  ],
+  "shots": [
+    "/root/ye-evidence/shots/06-year-end-notice-center.png"
+  ]
+}
