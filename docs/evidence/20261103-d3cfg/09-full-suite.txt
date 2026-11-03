@@ -1,0 +1,30 @@
+=== 全量后端单测（库 cloudpivot_d3full，--test-threads=1，ERP_DB_URL + TASK_DB_URL 同时设置）===
+test result: ok. 2087 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 981.19s
+CARGO_EXIT=0
+
+--- 用例数对账 ---
+本卡新增（business::flow::edge_admin_tests）：14
+D1 基线 2027 → C1 之后（settle_guard 等新增）2073 → 本卡 +14 = 2087
+
+--- 日志尾部（最后 15 行，含 result 行）---
+test system::user::tests::u02_duplicate_username_conflict ... ok
+test system::user::tests::u03_password_reset_bumps_token_version ... ok
+test system::user::tests::u04_locked_user_cannot_login ... ok
+test system::user::tests::u05_repeated_login_failures_lock_account ... ok
+test system::user::tests::u06_disabled_user_cannot_login ... ok
+test system::user::tests::u07_delete_user_keeps_business_rows ... ok
+test system::user::tests::u08_dept_change_updates_data_scope_immediately ... ok
+test system::user::tests::u09_user_list_search_and_pagination ... ok
+test system::user::tests::u10_builtin_admin_cannot_be_deleted ... ok
+test system::user::tests::u11_builtin_admin_cannot_be_disabled ... ok
+test system::user::tests::u12_non_super_cannot_assign_self_role ... ok
+
+test result: ok. 2087 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 981.19s
+
+CARGO_EXIT=0
+
+--- 卡面要求 ≥2170 的偏差说明 ---
+卡面写「≥2170 条全绿（D1 之后基线 2027）」，隐含「本卡新增 ≥143 条」。
+实际 D1 之后又有 C1（ac5565a→a71db4a）落地，lib 用例基线已涨到 2073；本卡新增 14 条
+（6 条纯逻辑 + 8 条真库：审批全路径 / 驳回 / 删除 / 无码 / 跳过审批 / 种子 hash / 视图），
+外加 35 条 HTTP 真机断言（scripts/verify/d3_state_edge_admin_e2e.py）。总数 2087，0 failed。
