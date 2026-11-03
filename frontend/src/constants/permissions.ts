@@ -290,6 +290,10 @@ export const FLOW_PERMISSIONS = {
   flowDelete: 'business:flow:delete',
   /** 发布 / 停用 */
   flowPublish: 'business:flow:publish',
+  /** 状态机边配置：读（BASE 边 / 当前配置 / 有效边，V0206 只授 SUPER_ADMIN） */
+  flowStateEdgeList: 'business:flow:state-edge:list',
+  /** 状态机边配置：改 / 删（提交审批，V0206 只授 SUPER_ADMIN） */
+  flowStateEdgeManage: 'business:flow:state-edge:manage',
 } as const;
 
 /** 实例侧权限码（D2 · V0124 已种，父节点 = D1 的流程定义页面） */

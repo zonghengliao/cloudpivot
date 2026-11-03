@@ -34,6 +34,17 @@
             <template #icon><t-icon name="add" /></template>
             新建流程
           </t-button>
+          <!-- 状态机边配置入口（D3 管理面前端入口，卡 t_a392a5da）：读 BASE 边 + 配置，改配置走审批 -->
+          <t-button
+            v-privilege="[PERM.flowStateEdgeList]"
+            variant="outline"
+            size="small"
+            data-testid="btn-state-edge"
+            @click="openStateEdge()"
+          >
+            <template #icon><t-icon name="setting" /></template>
+            边配置
+          </t-button>
           <t-button variant="outline" size="small" :loading="loading" @click="loadList">
             <template #icon><t-icon name="refresh" /></template>
             刷新
@@ -219,6 +230,9 @@
       <p>删除 <strong>{{ currentRow?.flow_name }}</strong>（{{ currentRow?.flow_code }}）？</p>
       <p class="dialog-tip">软删；有进行中的审批单时后端会拒绝（409）。编码在软删后可被新流程复用。</p>
     </t-dialog>
+
+    <!-- 状态机边配置（D3 管理面的前端入口；改配置一律提交审批，不直写库） -->
+    <StateEdgePanel v-model:visible="stateEdgeVisible" :initial-entity="stateEdgeEntity" />
   </div>
 </template>
 
@@ -242,7 +256,7 @@
  * 区别只是后者带 `?vid=` 指定要看哪一版（编辑器据此决定加载哪张图 / 是否只读）。
  */
 import { computed, onMounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol, FormRules } from 'tdesign-vue-next';
 import {
@@ -259,8 +273,10 @@ import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import { flowVersionStatusMeta } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
+import StateEdgePanel from './StateEdgePanel.vue';
 
 const router = useRouter();
+const route = useRoute();
 
 /** 查询条件 */
 const query = ref<{ keyword: string; status: string; biz_type: string }>({ keyword: '', status: '', biz_type: '' });
@@ -582,8 +598,26 @@ function openVersionEditor(row: FlowVersionSummary): void {
   void router.push({ path: `/flow/def/${currentRow.value.id}/edit`, query: { vid: row.id } });
 }
 
+// ==================== 状态机边配置（D3 管理面入口） ====================
+
+/** 边配置抽屉可见 */
+const stateEdgeVisible = ref(false);
+/** 打开时优先定位的实体（深链 `/flow/def?entity=STOCK_OUT` 或默认由后端顺序决定） */
+const stateEdgeEntity = ref('');
+
+/** 打开边配置面板（不传 entity 时由面板按后端返回顺序落到第一个实体） */
+function openStateEdge(entity = ''): void {
+  stateEdgeEntity.value = entity;
+  stateEdgeVisible.value = true;
+}
+
 onMounted(() => {
   void loadList();
+  // 深链：`/flow/def?entity=STOCK_OUT` 直接打开面板并定位到该实体（路由路径本身不动）
+  const deepLink = route.query.entity;
+  if (typeof deepLink === 'string' && deepLink.trim()) {
+    openStateEdge(deepLink.trim());
+  }
 });
 </script>
 
