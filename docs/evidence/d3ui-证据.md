@@ -36,7 +36,8 @@
 | `frontend/tests/unit/flow-state-edge.test.ts`（新，264 行） | 11 条单测，全部 11 PASS |
 
 配套验证脚本：`scripts/verify/d3ui_state_edge_e2e.mjs`（真机 17 项断言）、
-`scripts/verify/d3ui_evidence.mjs`（接口样例 + DOM 证据 + 撤回清场）。
+`scripts/verify/d3ui_evidence.mjs`（接口样例 + DOM 证据 + 撤回清场）、
+`scripts/verify/d3ui_smoke_pages.mjs`（换 dist 后 6 页冒烟）。
 
 ## 3. 接口返回样例（144 生产，`GET /business/flow/state-edge?entity=STOCK_OUT`）
 
@@ -144,6 +145,7 @@ cd /opt/cloudpivot && node scripts/verify/d3ui_state_edge_e2e.mjs
 | `pnpm test:unit`（99 工作树） | **543 / 543 PASS**（含新增 11 条 `flow-state-edge.test.ts`） |
 | dist 原子替换 | `mv dist dist-prev-d3ui-20261103-115913 && mv dist-d3ui dist`；线上入口 == dist 入口 == `index-CURoWZzb.js`，入口 chunk 200 / 115562B |
 | prod 残留 | 无：验收审批单已撤回；`biz_flow_state_edge` 配置 0 行；`pending_changes` 0 |
+| 换 dist 后冒烟（`d3ui_smoke_pages.mjs`） | **6 页全 PASS**：`/dashboard` `/task/list` `/flow/def` `/business/erp/stock-out` `/business/erp/purchase-order` `/system/menu` —— 每页文本非空、表格有行、`console_err=0`、`http_err=0` |
 
 ## 7. 边界（刻意不做的事）
 
