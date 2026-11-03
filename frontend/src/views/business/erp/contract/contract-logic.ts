@@ -10,17 +10,19 @@
  *
  * | 内容 | 唯一真相 |
  * |---|---|
- * | 5 个状态字面量 | `backend/src/business/erp/contract_model.rs::STATUSES` |
+ * | 6 个状态字面量 | `backend/src/business/erp/contract_model.rs::STATUSES` |
  * | 状态中文名 | `contract_model.rs::status_label` |
  * | 合法边 | `backend/src/business/shared/state_machine.rs::CONTRACT_EDGES` |
  * | 需要 reason 的边 | `state_machine.rs::CONTRACT_REASON_EDGES` |
+ * | 边的按钮文案 | `state_machine.rs::CONTRACT_BASE`（`BaseEdge::default_label`） |
  * | 建单白名单 / 金额下限 / 日期顺序 | `contract_dto.rs::CreateContractReq::validate` |
  * | 乙方快照口径 | `contract_dto.rs::ContractRes`（`party_b_name` + `party_b_current_name`） |
  *
  * # 与 A5 卡面的三处出入（都以已落库的代码 / DDL 为准，卡里已报告）
  *
- * 1. **没有 `CANCELLED`**：DDL 白名单是 `DRAFT/SIGNED/ACTIVE/COMPLETED/TERMINATED`，
- *    草稿作废走软删除；卡面「DRAFT → [生效][取消]」实际是 `DRAFT → SIGNED`（登记签订）。
+ * 1. **没有 `CANCELLED`**：DDL 白名单是 `DRAFT/PENDING_APPROVAL/SIGNED/ACTIVE/COMPLETED/TERMINATED`，
+ *    草稿作废走软删除；卡面「DRAFT → [生效][取消]」在 R-P1-1 之后是
+ *    `DRAFT → PENDING_APPROVAL`（提交审批），审批通过才 `PENDING_APPROVAL → SIGNED`。
  * 2. **金额是 `> 0` 不是 `≥ 0`**：`ck_biz_contract_amount CHECK (amount > 0)`，0 元合同
  *    后端 400（DEC-04 不支持不限额框架合同）——前端先拦，不让用户白填一遍。
  * 3. **没有「税率」「付款条件」列**：`V0195` 的 23 列里没有 `tax_rate` / `payment_terms`，
@@ -59,12 +61,14 @@ export const MAX_CONTRACT_REMARK = 2000;
 export const MAX_AMOUNT_SCALE = 4;
 
 /**
- * 5 个状态（与 `contract_model::STATUSES` 逐字一致）。
+ * 6 个状态（与 `contract_model::STATUSES` 逐字一致、顺序一致）。
  *
  * ⚠️ 没有 `CANCELLED`：草稿作废走软删（`DELETE /business/erp/contract/{id}`）。
+ * `PENDING_APPROVAL`（审批中）由 R-P1-1 引入：单据交出去等人批，业务字段冻结。
  */
 export const CONTRACT_STATUSES: readonly ContractStatus[] = [
   'DRAFT',
+  'PENDING_APPROVAL',
   'SIGNED',
   'ACTIVE',
   'COMPLETED',
@@ -75,28 +79,43 @@ export const CONTRACT_STATUSES: readonly ContractStatus[] = [
 export const CONTRACT_TERMINAL_STATUSES: readonly ContractStatus[] = ['COMPLETED', 'TERMINATED'] as const;
 
 /**
- * 合法边（**与 `state_machine.rs::CONTRACT_EDGES` 逐条一致**）。
+ * 合法边（**与 `state_machine.rs::CONTRACT_EDGES` 逐条一致、顺序也一致**）。
  *
  * ```text
- * DRAFT   → SIGNED      登记签订（三个日期必填）
- * SIGNED  → ACTIVE      生效
- * SIGNED  → TERMINATED  已签未生效即终止（必填原因）
- * ACTIVE  → COMPLETED   履约完成
- * ACTIVE  → TERMINATED  中途终止（必填原因）
+ * DRAFT             → PENDING_APPROVAL  提交审批（起 contract_approve 实例）
+ * PENDING_APPROVAL  → SIGNED            审批通过签订（日期三件套必填）
+ * PENDING_APPROVAL  → DRAFT             驳回 / 撤回（审批实例被终止）
+ * SIGNED            → ACTIVE            生效
+ * SIGNED            → TERMINATED        已签未生效即终止（必填原因）
+ * ACTIVE            → COMPLETED         履约完成
+ * ACTIVE            → TERMINATED        中途终止（必填原因）
  * ```
  *
- * 单测 `contract-edges-mirror-backend` 会读 Rust 源码逐条比对 —— 后端加一条边、
- * 前端没跟，用例先红（不是靠人眼记）。
+ * ⚠️ R-P1-1 之后**没有 `DRAFT → SIGNED`**：没人审过的合同不能一步变成可用于
+ * 采购付款的已签状态（后端直接 409 并点名「先提交审批」）。前端回落路径（列表行
+ * 没拿到 `next_statuses` 时）也必须给出「提交审批」而不是「登记签订」。
+ *
+ * 单测 `⑦ 状态按钮` 会读 Rust 源码逐条比对 —— 后端加一条边、前端没跟，用例先红
+ * （不是靠人眼记）。
  */
 export const CONTRACT_EDGES: ReadonlyArray<readonly [ContractStatus, ContractStatus]> = [
-  ['DRAFT', 'SIGNED'],
+  ['DRAFT', 'PENDING_APPROVAL'],
+  ['PENDING_APPROVAL', 'SIGNED'],
+  ['PENDING_APPROVAL', 'DRAFT'],
   ['SIGNED', 'ACTIVE'],
   ['SIGNED', 'TERMINATED'],
   ['ACTIVE', 'COMPLETED'],
   ['ACTIVE', 'TERMINATED'],
 ] as const;
 
-/** 需要 reason 的边（`state_machine::CONTRACT_REASON_EDGES`：两条终止边） */
+/**
+ * 需要 reason 的边（`state_machine::CONTRACT_REASON_EDGES`：两条终止边）。
+ *
+ * ⚠️ `PENDING_APPROVAL → DRAFT`（驳回 / 撤回）**不在**这张表里：后端只对两条终止边
+ * 校验 reason（`transition()` 缺 reason 才 400）。审批驳回时的「意见」是**流程待办**
+ * 的必填项（`POST /business/flow/task/{id}/reject`，`normalize_reject_comment` ≥ 5 字），
+ * 不是合同状态流转的 reason —— 前端在这里弹出必填框会把「撤回」也一起挡住。
+ */
 export const CONTRACT_REASON_EDGES: ReadonlyArray<readonly [ContractStatus, ContractStatus]> = [
   ['SIGNED', 'TERMINATED'],
   ['ACTIVE', 'TERMINATED'],
@@ -113,18 +132,40 @@ const CONTRACT_TYPE_LABELS: Record<ContractType, string> = {
   LEASE: '租赁合同',
 };
 
-/** 状态 → 动作文案（目标态即动作名：`→SIGNED` = 登记签订） */
+/**
+ * 状态 → 动作文案（**按目标态兜底**）。
+ *
+ * 一条边的文案优先看 {@link EDGE_LABELS}（同一目标态可能有多种语义，例如
+ * `PENDING_APPROVAL → SIGNED` 是「审批通过签订」而目标态 `SIGNED` 本身叫「已签订」）。
+ */
 const TRANSITION_LABELS: Record<ContractStatus, string> = {
   DRAFT: '退回草稿',
+  PENDING_APPROVAL: '提交审批',
   SIGNED: '登记签订',
   ACTIVE: '生效',
   COMPLETED: '完成',
   TERMINATED: '终止',
 };
 
-/** 状态 → 动作按钮配色（`t-link` 用） */
+/**
+ * 边 → 动作文案（**逐条抄 `state_machine.rs::CONTRACT_BASE` 的 `default_label`**）。
+ *
+ * 只有「目标态文案会误导」的边才单列：
+ * - `PENDING_APPROVAL → SIGNED` 若按目标态取文案会写「登记签订」，但这条边是审批通过后
+ *   的回调落地，用户看到「登记签订」会以为要自己填日期；
+ * - `PENDING_APPROVAL → DRAFT` 若按目标态会写「退回草稿」，而这既可能是审批驳回、
+ *   也可能是自己撤回。
+ */
+const EDGE_LABELS: Record<string, string> = {
+  'DRAFT→PENDING_APPROVAL': '提交审批',
+  'PENDING_APPROVAL→SIGNED': '审批通过签订',
+  'PENDING_APPROVAL→DRAFT': '驳回/撤回',
+};
+
+/** 状态 → 动作按钮配色（`t-link` 用，按**目标态**上色，与状态徽标同一套语义） */
 const TRANSITION_THEMES: Record<ContractStatus, 'primary' | 'success' | 'warning' | 'danger' | 'default'> = {
   DRAFT: 'default',
+  PENDING_APPROVAL: 'primary',
   SIGNED: 'primary',
   ACTIVE: 'success',
   COMPLETED: 'success',
@@ -197,7 +238,7 @@ export function contractPartyBName(row: Pick<ContractRow, 'party_b_name' | 'part
 export interface ContractTransition {
   /** 目标状态 */
   target: ContractStatus;
-  /** 按钮文案（`登记签订` / `生效` / `完成` / `终止`） */
+  /** 按钮文案（`提交审批` / `审批通过签订` / `驳回/撤回` / `生效` / `完成` / `终止`） */
   label: string;
   /** 按钮配色 */
   theme: 'primary' | 'success' | 'warning' | 'danger' | 'default';
@@ -229,7 +270,7 @@ export function contractTransitions(status: string, nextStatuses?: readonly stri
       const key = target as ContractStatus;
       return {
         target: key,
-        label: TRANSITION_LABELS[key] ?? contractStatusLabel(key),
+        label: EDGE_LABELS[`${from}→${key}`] ?? TRANSITION_LABELS[key] ?? contractStatusLabel(key),
         theme: TRANSITION_THEMES[key] ?? 'primary',
         needReason: needsReason(from, key),
       };
@@ -262,19 +303,37 @@ export function buildStatusPayload(
   return payload;
 }
 
+/**
+ * 边 → 确认弹窗的补充说明（说明**副作用**，空串 = 不补充）。
+ *
+ * 按 `from→to` 单列而不是按目标态分支：`PENDING_APPROVAL→SIGNED` 与
+ * （历史上）`DRAFT→SIGNED` 的副作用完全不同，按目标态写文案必然误导其中一边。
+ */
+const EDGE_CONFIRM_TAILS: Record<string, string> = {
+  'DRAFT→PENDING_APPROVAL':
+    '提交后合同进入「审批中」：业务字段冻结，要等审批人通过才会变成「已签订」；没人审过的合同不能直接用于采购付款。',
+  'PENDING_APPROVAL→SIGNED':
+    '审批通过后合同变为「已签订」（可被采购单引用）；此后关键字段（乙方 / 金额 / 日期）冻结，只能作废重签。',
+  'PENDING_APPROVAL→DRAFT':
+    '驳回 / 撤回会把在跑的审批实例终止、合同退回草稿（可以再改再提交）；审批驳回的意见在流程待办里填。',
+  'SIGNED→ACTIVE': '生效后合同可被新建采购单引用。',
+  'SIGNED→TERMINATED':
+    '终止是不可逆的终态：终止后这张合同不能再被新采购单引用，原因会写进状态日志与备注。',
+  'ACTIVE→COMPLETED': '履约完成后合同不再接受新采购单。',
+  'ACTIVE→TERMINATED':
+    '终止是不可逆的终态：终止后这张合同不能再被新采购单引用，原因会写进状态日志与备注。',
+};
+
 /** 流转确认文案（说明「从哪个状态到哪个状态」+ 副作用） */
 export function transitionConfirmText(
   contractNo: string,
   status: string,
   action: ContractTransition,
 ): string {
-  const from = contractStatusLabel(status);
+  const fromKey = (status ?? '').trim().toUpperCase();
+  const from = contractStatusLabel(fromKey);
   const to = contractStatusLabel(action.target);
-  const tail = action.target === 'TERMINATED'
-    ? '终止是不可逆的终态：终止后这张合同不能再被新采购单引用，原因会写进状态日志与备注。'
-    : action.target === 'SIGNED'
-      ? '登记签订会写状态日志；此后关键字段（乙方 / 金额 / 日期）冻结，只能作废重签。'
-      : '';
+  const tail = EDGE_CONFIRM_TAILS[`${fromKey}→${action.target}`] ?? '';
   return `确定把 ${contractNo} 从「${from}」流转到「${to}」吗？${tail}`;
 }
 

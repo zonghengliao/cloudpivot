@@ -7,7 +7,7 @@
  *
  * 本仓没有 happy-dom/jsdom（零新依赖），`tests/unit` 里也没有组件渲染的先例。
  * 但这些用例真正要钉住的是**口径**：
- * - 5 个状态的文案与配色（`constants/status-map.ts`，页面只调它）；
+ * - 6 个状态的文案与配色（`constants/status-map.ts`，页面只调它）；
  * - 合法边（`state_machine.rs::CONTRACT_EDGES` —— 直接 `readFileSync` 读 Rust 源码比对，
  *   后端加一条边而前端没跟，这里先红）；
  * - 表单校验（`contract_dto.rs::CreateContractReq::validate` 的同口径）；
@@ -46,6 +46,7 @@ import {
   emptyContractFilter,
   emptyContractForm,
   isContractFiltered,
+  isContractTerminal,
   needsReason,
   validateContractForm,
   type ContractFormState,
@@ -143,9 +144,10 @@ test('⑤ 列表空态：无数据给友好提示，且区分「筛不到」与�
 
 // ---------------------------------------------------------------- ⑥ 状态徽标
 
-test('⑥ 状态徽标：5 个状态的文案与配色（照卡面色表 + 后端 status_label）', () => {
+test('⑥ 状态徽标：6 个状态的文案与配色（照后端口径 status_label）', () => {
   const expected = [
     ['DRAFT', '草稿', 'default'],
+    ['PENDING_APPROVAL', '审批中', 'primary'],
     ['SIGNED', '已签订', 'default'],
     ['ACTIVE', '已生效', 'success'],
     ['COMPLETED', '已完成', 'primary'],
@@ -216,11 +218,35 @@ test('⑦ 状态按钮：只显示当前状态能走的合法边，且与前端�
     '需要 reason 的边也要与后端一致（两条终止边）',
   );
 
+  // 状态清单本身也不许漂（后端 R-P1-1 加了 PENDING_APPROVAL）
+  const contractModel = backendSource('erp/contract_model.rs');
+  const statusesBlock = contractModel.slice(
+    contractModel.indexOf('pub const STATUSES'),
+    contractModel.indexOf('/// 草稿。'),
+  );
+  const rustStatuses = [...statusesBlock.matchAll(/"([A-Z_]+)"/g)].map((hit) => hit[1]);
+  assert.deepEqual(
+    rustStatuses,
+    [...CONTRACT_STATUSES],
+    '前端 CONTRACT_STATUSES 必须与 contract_model.rs::STATUSES 逐条一致（顺序也一致）',
+  );
+
+  // 这条边在 R-P1-1 里被删掉了：没人审过的合同不能一步变成已签（后端会 409 + 点名「先提交审批」）
+  assert.ok(
+    !CONTRACT_EDGES.some(([from, to]) => from === 'DRAFT' && to === 'SIGNED'),
+    'DRAFT → SIGNED 已删除，前端不许再给「登记签订」按钮',
+  );
+
   // ---- 按钮矩阵
   assert.deepEqual(
     contractTransitions('DRAFT').map((item) => [item.label, item.target]),
-    [['登记签订', 'SIGNED']],
-    'DRAFT 只有一条边：登记签订（卡面的「生效」在 SIGNED 之后）',
+    [['提交审批', 'PENDING_APPROVAL']],
+    'DRAFT 只有一条边：提交审批（不是直接登记签订）',
+  );
+  assert.deepEqual(
+    contractTransitions('PENDING_APPROVAL').map((item) => [item.label, item.target]),
+    [['审批通过签订', 'SIGNED'], ['驳回/撤回', 'DRAFT']],
+    '审批中可以「审批通过签订」或「驳回/撤回」',
   );
   assert.deepEqual(
     contractTransitions('SIGNED').map((item) => [item.label, item.target]),
@@ -234,11 +260,17 @@ test('⑦ 状态按钮：只显示当前状态能走的合法边，且与前端�
   );
   assert.deepEqual(contractTransitions('COMPLETED'), [], '终态没有按钮');
   assert.deepEqual(contractTransitions('TERMINATED'), [], '终态没有按钮');
+  assert.equal(contractTransitions('COMPLETED').length, 0, '终态没有按钮');
+  assert.equal(isContractTerminal('PENDING_APPROVAL'), false, '审批中不是终态（还能通过 / 驳回）');
 
-  // 两条终止边必须带原因，其余边不带
+  // 两条终止边必须带原因；「驳回/撤回」不带（后端 CONTRACT_REASON_EDGES 只有两条终止边，
+  // 审批意见是流程待办的必填项，不是状态流转的 reason）
   assert.equal(needsReason('SIGNED', 'TERMINATED'), true);
   assert.equal(needsReason('ACTIVE', 'TERMINATED'), true);
   assert.equal(needsReason('ACTIVE', 'COMPLETED'), false);
+  assert.equal(needsReason('DRAFT', 'PENDING_APPROVAL'), false, '提交审批不需要 reason');
+  assert.equal(needsReason('PENDING_APPROVAL', 'DRAFT'), false, '撤回不需要 reason（后端只校验两条终止边）');
+  assert.equal(needsReason('PENDING_APPROVAL', 'SIGNED'), false);
   assert.equal(
     contractTransitions('ACTIVE').find((item) => item.target === 'TERMINATED')?.needReason,
     true,
@@ -251,8 +283,13 @@ test('⑦ 状态按钮：只显示当前状态能走的合法边，且与前端�
     '传了 next_statuses 就只按它渲染（不叠加上前端边表）',
   );
   assert.deepEqual(
+    contractTransitions('PENDING_APPROVAL', ['SIGNED', 'DRAFT']).map((item) => [item.label, item.target]),
+    [['审批通过签订', 'SIGNED'], ['驳回/撤回', 'DRAFT']],
+    '详情抽屉用后端 next_statuses 时，文案仍按前端边表给（后端只下发状态字面量）',
+  );
+  assert.deepEqual(
     contractTransitions('DRAFT', []).map((item) => item.target),
-    ['SIGNED'],
+    ['PENDING_APPROVAL'],
     'next_statuses 为空数组时回落到边表（列表行没有这个字段）',
   );
 

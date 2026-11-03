@@ -3765,13 +3765,23 @@ export function remindYearEnd(
 export type ContractType = 'PURCHASE' | 'SALES' | 'SERVICE' | 'LEASE';
 
 /**
- * 合同状态（`contract_model::STATUSES` + `ck_biz_contract_status` 逐字一致）。
+ * 合同状态（`contract_model::STATUSES` + `ck_biz_contract_status` 逐字一致、顺序一致）。
  *
  * ⚠️ **没有 `CANCELLED`**：草稿作废走软删除（`DELETE`），「终止」只用于已签合同。
  * A5 卡面写的 5 态含 `CANCELLED`，与 DDL / ARCH-2 不符 —— 以 DDL 为准（A2 已在交付
  * 说明里报告过同一处出入）。
+ *
+ * R-P1-1（合同审批流）之后是 **6 态**：多了 `PENDING_APPROVAL`（审批中，
+ * `approval_instance_id` 非空、业务字段冻结），且 `DRAFT → SIGNED` 这条边被删除
+ * （没人审过的合同不能直接变成可用于采购付款的已签状态）。
  */
-export type ContractStatus = 'DRAFT' | 'SIGNED' | 'ACTIVE' | 'COMPLETED' | 'TERMINATED';
+export type ContractStatus =
+  | 'DRAFT'
+  | 'PENDING_APPROVAL'
+  | 'SIGNED'
+  | 'ACTIVE'
+  | 'COMPLETED'
+  | 'TERMINATED';
 
 /**
  * 列表行（`contract_dto::ContractRes`）。

@@ -484,7 +484,7 @@
           <template #total_with_tax="{ row }">{{ contractAmountText(row.total_with_tax) }}</template>
         </t-table>
         <p v-else class="muted" data-testid="contract-detail-linked-empty">
-          暂无采购单引用这张合同（合同需先「登记签订」才能被采购单引用）。
+          暂无采购单引用这张合同（合同需先走完审批、变成「已签订 / 已生效」才能被采购单引用）。
         </p>
       </div>
     </t-drawer>
@@ -536,7 +536,7 @@
  *
  * | 卡面 | 实际 |
  * |---|---|
- * | 5 态含 `CANCELLED`、DRAFT → [生效][取消] | 无 `CANCELLED`；DRAFT → SIGNED（登记签订），草稿作废走删除 |
+ * | 5 态含 `CANCELLED`、DRAFT → [生效][取消] | 无 `CANCELLED`；R-P1-1 后是 **6 态**，DRAFT → PENDING_APPROVAL（提交审批）→ 审批通过才 SIGNED；草稿作废走删除 |
  * | 金额 ≥ 0 | `amount > 0`（`ck_biz_contract_amount`），0 元合同后端 400 |
  * | 税率 / 付款条件字段 | DDL 无 `tax_rate` / `payment_terms` 列，表单不提供 |
  * | `meta.auth` | 本仓 `meta.permission`（`router/index.ts` 的 RouteMeta 只有 `permission`） |

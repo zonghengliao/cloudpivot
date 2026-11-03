@@ -163,6 +163,8 @@ const FLOW_CC_STATUS_MAP: Record<string, StatusMeta> = {
  */
 const ERP_CONTRACT_STATUS_MAP: Record<string, StatusMeta> = {
   DRAFT: { label: '草稿', theme: 'default', dotVar: 'var(--td-text-color-placeholder)' },
+  // 审批中（R-P1-1）：与采购单 SUBMITTED、流程待办 PENDING 同一套语义/配色（进行中 = 品牌蓝）
+  PENDING_APPROVAL: { label: '审批中', theme: 'primary', dotVar: 'var(--td-brand-color)' },
   SIGNED: { label: '已签订', theme: 'default', dotVar: 'var(--td-text-color-secondary)' },
   ACTIVE: { label: '已生效', theme: 'success', dotVar: 'var(--td-success-color)' },
   COMPLETED: { label: '已完成', theme: 'primary', dotVar: 'var(--td-brand-color)' },
