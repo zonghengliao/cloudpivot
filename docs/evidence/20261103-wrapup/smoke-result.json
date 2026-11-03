@@ -1,0 +1,82 @@
+{
+  "base": "http://172.18.10.144",
+  "at": "2026-11-03T06:57:10.872Z",
+  "steps": [
+    {
+      "step": "login",
+      "ok": true,
+      "via": "form",
+      "url": "http://172.18.10.144/dashboard"
+    },
+    {
+      "step": "page-contract",
+      "ok": true,
+      "path": "/business/erp/contract",
+      "rows": 1,
+      "meta": "共 1 条",
+      "loadErr": null,
+      "errs": []
+    },
+    {
+      "step": "page-purchase",
+      "ok": true,
+      "path": "/business/erp/purchase-order",
+      "rows": 13,
+      "meta": "共 13 条",
+      "loadErr": null,
+      "errs": []
+    },
+    {
+      "step": "purchase-detail-approval",
+      "ok": true,
+      "orderNo": "PO-20261102-000001",
+      "link": "审批单 FLW-20261102-94417B93",
+      "progressLen": 108,
+      "progressHead": "开始 / 已通过 / 金额分级①（< 1 万） / 已通过",
+      "fallback": null,
+      "triedCount": 1
+    },
+    {
+      "step": "page-stock-in",
+      "ok": true,
+      "path": "/business/erp/stock-in",
+      "rows": 12,
+      "meta": "共 12 条",
+      "loadErr": null,
+      "errs": []
+    },
+    {
+      "step": "page-voucher",
+      "ok": true,
+      "path": "/business/erp/voucher",
+      "rows": 18,
+      "meta": "共 18 条",
+      "loadErr": null,
+      "errs": []
+    },
+    {
+      "step": "page-period",
+      "ok": true,
+      "path": "/business/erp/period",
+      "rows": 2,
+      "meta": "共 2 个期间",
+      "loadErr": null,
+      "errs": []
+    },
+    {
+      "step": "console-errors",
+      "ok": true,
+      "note": "见 steps 内 errs 字段"
+    }
+  ],
+  "shots": [
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/01-contract.png",
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/02-purchase.png",
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/03-purchase-detail-approval.png",
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/04-stock-in.png",
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/05-voucher.png",
+    "/opt/cloudpivot/docs/evidence/20261103-wrapup/shots/06-period.png"
+  ],
+  "contractRows": 1,
+  "failed": 0
+}

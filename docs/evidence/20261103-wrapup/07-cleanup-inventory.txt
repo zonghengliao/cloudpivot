@@ -1,0 +1,37 @@
+# 清理前清单 2026-11-03 14:37:28
+## /root 下 cargo 构建产物目录（含 CACHEDIR.TAG，可重建）
+17G	/root/t6d8-target
+9.8G	/root/d7-target
+8.8G	/root/f12-target
+8.3G	/root/dc01-target
+7.6G	/root/td7fix-target
+6.6G	/root/fix03-target
+6.4G	/root/p13-target
+6.3G	/root/p11-target
+5.7G	/root/t270-target
+5.7G	/root/p0fix-target
+3.6G	/root/p10-cp-target
+1.8G	/root/p10-ship-target
+1.2G	/root/t0f02-target
+962M	/root/p0fix-rel
+953M	/root/p1-target
+519M	/root/d7-ship-target
+
+## /tmp 大头（tmpfs 7.6G 已 100%）
+4702	/tmp/fix04-target
+2320	/tmp/poc-batchA-archive
+368	/tmp/erpb2-target
+78	/tmp/e2e-iso
+72	/tmp/agent-browser-chrome-77579619-1e9f-465e-9ef9-b807f048abda
+20	/tmp/pf5-chrome
+13	/tmp/t6f-dist
+13	/tmp/fe-build-1b
+11	/tmp/prodchunks
+7	/tmp/termiod
+4	/tmp/erp_backup_split
+3	/tmp/r4e_server.log
+
+## df -h 清理前
+Filesystem                         Size  Used Avail Use% Mounted on
+/dev/mapper/ubuntu--vg-ubuntu--lv  253G  246G  7.6G  98% /
+tmpfs                              7.6G  7.6G     0 100% /tmp
