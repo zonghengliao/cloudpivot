@@ -1,0 +1,134 @@
+# chromium
+{
+  "title": "登录 - 云枢 CloudPivot",
+  "href": "http://172.18.10.144/login?redirect=/dashboard",
+  "icons": [
+    {
+      "rel": "icon",
+      "sizes": "any",
+      "type": "",
+      "href": "/favicon.ico?v=2",
+      "abs": "http://172.18.10.144/favicon.ico?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "32x32",
+      "type": "image/png",
+      "href": "/favicon-32x32.png?v=2",
+      "abs": "http://172.18.10.144/favicon-32x32.png?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "16x16",
+      "type": "image/png",
+      "href": "/favicon-16x16.png?v=2",
+      "abs": "http://172.18.10.144/favicon-16x16.png?v=2"
+    },
+    {
+      "rel": "apple-touch-icon",
+      "sizes": "180x180",
+      "type": "",
+      "href": "/apple-touch-icon.png?v=2",
+      "abs": "http://172.18.10.144/apple-touch-icon.png?v=2"
+    }
+  ],
+  "legacyPng": 0
+}
+
+# chromium-incognito
+{
+  "title": "登录 - 云枢 CloudPivot",
+  "href": "http://172.18.10.144/login?redirect=/dashboard",
+  "icons": [
+    {
+      "rel": "icon",
+      "sizes": "any",
+      "type": "",
+      "href": "/favicon.ico?v=2",
+      "abs": "http://172.18.10.144/favicon.ico?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "32x32",
+      "type": "image/png",
+      "href": "/favicon-32x32.png?v=2",
+      "abs": "http://172.18.10.144/favicon-32x32.png?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "16x16",
+      "type": "image/png",
+      "href": "/favicon-16x16.png?v=2",
+      "abs": "http://172.18.10.144/favicon-16x16.png?v=2"
+    },
+    {
+      "rel": "apple-touch-icon",
+      "sizes": "180x180",
+      "type": "",
+      "href": "/apple-touch-icon.png?v=2",
+      "abs": "http://172.18.10.144/apple-touch-icon.png?v=2"
+    }
+  ],
+  "legacyPng": 0
+}
+
+# webkit
+{
+  "title": "登录 - 云枢 CloudPivot",
+  "href": "http://172.18.10.144/login?redirect=/dashboard",
+  "icons": [
+    {
+      "rel": "icon",
+      "sizes": "any",
+      "type": "",
+      "href": "/favicon.ico?v=2",
+      "abs": "http://172.18.10.144/favicon.ico?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "32x32",
+      "type": "image/png",
+      "href": "/favicon-32x32.png?v=2",
+      "abs": "http://172.18.10.144/favicon-32x32.png?v=2"
+    },
+    {
+      "rel": "icon",
+      "sizes": "16x16",
+      "type": "image/png",
+      "href": "/favicon-16x16.png?v=2",
+      "abs": "http://172.18.10.144/favicon-16x16.png?v=2"
+    },
+    {
+      "rel": "apple-touch-icon",
+      "sizes": "180x180",
+      "type": "",
+      "href": "/apple-touch-icon.png?v=2",
+      "abs": "http://172.18.10.144/apple-touch-icon.png?v=2"
+    }
+  ],
+  "legacyPng": 0
+}
+
+# chromium 解码结果
+{
+  "favicon.ico": {
+    "complete": true,
+    "w": 48,
+    "h": 48
+  },
+  "favicon-32x32.png": {
+    "complete": true,
+    "w": 32,
+    "h": 32
+  },
+  "favicon-16x16.png": {
+    "complete": true,
+    "w": 16,
+    "h": 16
+  },
+  "apple-touch-icon.png": {
+    "complete": true,
+    "w": 180,
+    "h": 180
+  }
+}

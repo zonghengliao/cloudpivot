@@ -1,0 +1,61 @@
+# 线上响应实录  2026-11-03 22:46:44 CST  主机 172.18.10.144
+
+### curl -sI http://172.18.10.144/favicon.ico
+HTTP/1.1 200 OK
+Content-Type: image/x-icon
+Content-Length: 5627
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-15fb"
+Cache-Control: public, max-age=604800
+
+### curl -sI http://172.18.10.144/favicon-32x32.png
+HTTP/1.1 200 OK
+Content-Type: image/png
+Content-Length: 1762
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-6e2"
+Cache-Control: public, max-age=604800
+
+### curl -sI http://172.18.10.144/favicon-16x16.png
+HTTP/1.1 200 OK
+Content-Type: image/png
+Content-Length: 724
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-2d4"
+Cache-Control: public, max-age=604800
+
+### curl -sI http://172.18.10.144/apple-touch-icon.png
+HTTP/1.1 200 OK
+Content-Type: image/png
+Content-Length: 14729
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-3989"
+Cache-Control: public, max-age=604800
+
+### curl -sI http://172.18.10.144/favicon-does-not-exist.png
+HTTP/1.1 404 Not Found
+Content-Type: text/html
+Content-Length: 162
+
+### curl -sI http://172.18.10.144/index.html
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 1415
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-587"
+Cache-Control: no-cache, no-store, must-revalidate
+
+### curl -sI http://172.18.10.144/
+HTTP/1.1 200 OK
+Content-Type: text/html
+Content-Length: 1415
+Last-Modified: Tue, 03 Nov 2026 14:40:06 GMT
+ETag: "6ae9f246-587"
+Cache-Control: no-cache, no-store, must-revalidate
+
+### 哈希比对
+线上  curl -s .../favicon.ico        | md5sum: 28f6d2cd2908884e899e975bae0f2d88
+线上  144:/opt/cloudpivot/frontend/dist/favicon.ico: 28f6d2cd2908884e899e975bae0f2d88
+本地  /opt/cloudpivot/frontend/dist/favicon.ico: 28f6d2cd2908884e899e975bae0f2d88
+线上  curl -s .../apple-touch-icon.png | md5sum: 4ca892960ff506f044b80a3470a18dc2
+线上  144:/opt/cloudpivot/frontend/dist/apple-touch-icon.png: 4ca892960ff506f044b80a3470a18dc2
