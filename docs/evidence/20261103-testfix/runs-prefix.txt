@@ -1,0 +1,119 @@
+################ 修前基线 ################
+# commit: 42f671e chore(evidence): D3-UI 换 dist 后冒烟（6 页全 PASS）并补冒烟脚本
+# 库: cloudpivot_t6d8  超管人数（= 会签人数）: 3
+# 命令: <lib测试二进制> stockin_handler_tests_cancel --test-threads=1
+
+
+running 15 tests
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4 ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_posted_txn_missing ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_serial_already_shipped ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409 ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_with_shipped_goods_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock ... FAILED
+test business::erp::stockin_handler::stockin_handler_tests_cancel::failed_cancel_rolls_back_everything ... ok
+
+failures:
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4 stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4' (1932496) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt' (1932605) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory' (1932920) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger' (1933042) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher' (1933156) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409 stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409' (1933288) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg' (1933381) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt' (1933492) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn' (1933745) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount' (1933842) panicked at src/business/erp/stockin_handler_tests_helpers.rs:343:5:
+assertion `left == right` failed: 复核通过后单据必须真的作废
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+
+---- business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock' (1933937) panicked at src/business/erp/stockin_handler_tests_cancel.rs:312:5:
+assertion `left == right` failed: 两张单都作废 → 库存归零（没有互相踩掉/多扣）
+  left: 50.0000
+ right: 0
+
+
+failures:
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn
+    business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount
+    business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock
+
+test result: FAILED. 4 passed; 11 failed; 0 ignored; 0 measured; 2072 filtered out; finished in 38.06s
+

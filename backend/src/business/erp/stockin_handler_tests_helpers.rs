@@ -354,8 +354,8 @@ pub(super) async fn cancel_request(id: Uuid, reason: &str) {
         .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));
 }
 
-/// 取某单审批单里第一条 `PENDING` 待办（含审批人）。
-pub(super) async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
+/// 取某单作废审批实例 id（没有 → panic）。
+pub(super) async fn cancel_instance_of(stock_in_id: Uuid) -> Uuid {
     let instance_id: Option<Uuid> = db()
         .scalar_with_params(
             "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
@@ -363,7 +363,12 @@ pub(super) async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
         )
         .await
         .expect("查 approval_instance_id");
-    let instance_id = instance_id.expect("作废审批中必须有实例 id（ck_biz_si_pending_cancel）");
+    instance_id.expect("作废审批中必须有实例 id（ck_biz_si_pending_cancel）")
+}
+
+/// 取某单审批单里第一条 `PENDING` 待办（含审批人）。
+pub(super) async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
+    let instance_id = cancel_instance_of(stock_in_id).await;
     let rows = db()
         .find_with_params(
             "SELECT id, assignee_id FROM biz_flow_task \
@@ -381,18 +386,32 @@ pub(super) async fn pending_task_of(stock_in_id: Uuid) -> (Uuid, Uuid) {
 }
 
 /// 复核**通过**：引擎投票 → 提交事务 → 回调收货单（生产同款顺序）。
+///
+/// ⚠️ `stock_in_cancel` 的审批人来源是 `ADMIN`（运行时展开**全部超管**），
+/// `join_mode=AND` ⇒ **会签**。库里超管有几个，节点就有几条待办；只批第一条会让实例
+/// 停在 `PENDING`，业务桥 `on_cancel_settled` 根本不会被调到（实测单据卡在
+/// `PENDING_CANCEL`、`settle_guard` 留痕 0 条）。所以这里必须**批到终态**，
+/// 并断言实例真的 `APPROVED` —— 没到终态就是夹具的错，不能让它悄悄绿着过去。
 pub(super) async fn approve_cancel(stock_in_id: Uuid) {
-    let (task_id, approver) = pending_task_of(stock_in_id).await;
-    let tx = db().begin().await.expect("开审批事务");
-    let out = engine::approve(&tx, task_id, approver, Some("单测：同意作废"))
-        .await
-        .expect("引擎同意失败");
-    tx.commit().await.expect("提交审批事务");
-    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    let instance_id = cancel_instance_of(stock_in_id).await;
+    let outs =
+        crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废")
+            .await;
+    assert!(
+        !outs.is_empty(),
+        "作废审批必须至少有一条 PENDING 待办可批（实例 {instance_id}）"
+    );
+    for out in outs {
+        // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
+        stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
+    }
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
 }
 
 /// 复核**驳回**（并终止）：实例落 `REJECTED` → 回执打回已过账。
+///
+/// 驳回是「一票否决」（`reject_veto = true`），所以只驳**一条**待办实例就终止；
+/// 仍然断言实例确实 `REJECTED` 再回调 —— 否则回调不该被触发。
 pub(super) async fn reject_cancel(stock_in_id: Uuid, comment: &str) {
     let (task_id, approver) = pending_task_of(stock_in_id).await;
     let tx = db().begin().await.expect("开审批事务");
@@ -400,8 +419,9 @@ pub(super) async fn reject_cancel(stock_in_id: Uuid, comment: &str) {
         .await
         .expect("引擎驳回失败");
     tx.commit().await.expect("提交审批事务");
-    crate::business::erp::stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status)
-        .await;
+    let instance_id = out.instance_id.expect("驳回出参必须带实例 id");
+    crate::business::flow::test_support::assert_instance_status(instance_id, "REJECTED").await;
+    stockin_bridge::on_cancel_settled(out.instance_id, &out.instance_status).await;
 }
 
 /// 某单的实例状态（没有实例 → `None`）。

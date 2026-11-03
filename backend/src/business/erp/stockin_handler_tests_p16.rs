@@ -61,7 +61,14 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
         "发起审批不许写反向流水"
     );
     assert_eq!(voucher_count(id, Some(1)).await, 0, "发起审批不许红冲");
-    // 审批中心真的有待办（否则等于没人能复核）
+    // 审批中心真的有待办（否则等于没人能复核）。
+    // ⚠️ `n_review` 的审批人来源是 `ADMIN`（运行时展开**全部超管**）+ `join_mode=AND`（会签）
+    //    ⇒ 待办数 = 超管人数（库里多一个超管就多一条，写死 1 会在有第二个超管时假红）。
+    let admins = crate::business::flow::test_support::super_admin_count().await;
+    assert!(
+        admins > 0,
+        "库里必须至少有一个超管，否则 `ADMIN` 节点只能走 `FALLBACK_ADMIN` 兜底"
+    );
     let todos: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
@@ -69,7 +76,10 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
         )
         .await
         .unwrap();
-    assert_eq!(todos, 1, "发起后审批中心必须有 1 条待办");
+    assert_eq!(
+        todos, admins,
+        "发起后审批中心必须给**每个超管**各 1 条待办（ADMIN 展开 + 会签：待办数 {todos}，超管 {admins}）"
+    );
 }
 
 /// **DC-01 ③**：没配 `stock_in_cancel` 流程 → **409 + 66033**（改造前是静默直接作废、六本账立刻回滚）。

@@ -2129,7 +2129,6 @@ mod tests {
     use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
     use crate::business::erp::stockin_handler::{change_stock_in_status, create_stock_in};
     use crate::business::erp::{fixture_hygiene, payable, stockin_model};
-    use crate::business::flow::engine;
     use nik::prelude::chrono::Duration;
     use std::str::FromStr;
 
@@ -2367,33 +2366,37 @@ mod tests {
     /// 为什么要这个 helper：直接 `change_stock_in_status(id, &cancel_req(..), None)` 会
     /// `401 发起作废审批需要登录用户`（V0174 起作废先走审批，必须有发起人）。
     /// 这里把三步串起来，走的仍是**生产同一条路径**，所以旧断言（红字凭证 / 应付作废）不变。
+    ///
+    /// ⚠️ 复核节点是 `assignee_type = 'ADMIN'` + `join_mode = AND` ⇒ **会签**：
+    /// 库里超管有几个就有几条待办，只批一条会让实例停在 `PENDING`、`on_cancel_settled`
+    /// 根本不被调到（单据卡在 `PENDING_CANCEL`）。所以这里批到终态并断言 `APPROVED`。
     async fn cancel_via_approval(stock_in_id: Uuid, reason: &str) {
         change_stock_in_status(stock_in_id, &cancel_req(reason), Some(uid(KEEPER)))
             .await
             .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));
-        let rows = db()
-            .find_with_params(
-                "SELECT t.id AS task_id, t.assignee_id AS assignee \
-                   FROM biz_flow_task t JOIN biz_flow_instance i ON i.id = t.instance_id \
-                  WHERE i.biz_type = 'STOCK_IN_CANCEL' AND i.biz_id = ?::uuid AND t.status = 'PENDING' \
-                  ORDER BY t.id LIMIT 1",
+        let instance_id: Uuid = db()
+            .scalar_with_params::<Option<Uuid>>(
+                "SELECT approval_instance_id FROM biz_stock_in WHERE id = ?::uuid",
                 vec![Value::from(&stock_in_id)],
             )
             .await
-            .expect("查作废待办失败");
-        let row = rows.first().expect("作废审批必须生成待办");
-        let task_id: Uuid = row.get_typed("task_id").unwrap();
-        let approver: Uuid = row.get_typed("assignee").unwrap();
-        let tx = db().begin().await.expect("开审批事务");
-        let out = engine::approve(&tx, task_id, approver, Some("单测：同意作废"))
-            .await
-            .expect("引擎同意失败");
-        tx.commit().await.expect("提交审批事务");
-        crate::business::erp::stockin_bridge::on_cancel_settled(
-            out.instance_id,
-            &out.instance_status,
-        )
-        .await;
+            .expect("查作废实例失败")
+            .expect("作废审批必须回写实例 id");
+        let outs =
+            crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意作废")
+                .await;
+        assert!(
+            !outs.is_empty(),
+            "作废审批必须至少有一条 PENDING 待办可批（实例 {instance_id}）"
+        );
+        for out in outs {
+            crate::business::erp::stockin_bridge::on_cancel_settled(
+                out.instance_id,
+                &out.instance_status,
+            )
+            .await;
+        }
+        crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
     }
 
     fn uid(text: &str) -> Uuid {

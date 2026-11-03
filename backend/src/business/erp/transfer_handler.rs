@@ -1383,26 +1383,27 @@ mod tests {
 /// P5 起 `PENDING → APPROVED` 有人工门闸（`65030`），夹具不能再靠「人工直推」跨越审批，
 /// 只能走生产路径。两套真库用例（`db_tests` / `w3c_tests`）共用这一个实现，
 /// 免得两边对「怎么样才算审批通过」各写一套。
+///
+/// ⚠️ `stock_transfer` 的审批人来源是 `ADMIN`（运行时展开**全部超管**）：库里超管有几个
+/// 就有几条待办，只批第一条会让实例停在 `PENDING`、单据永远进不了 `APPROVED`。
+/// 所以这里**批到终态**并断言实例真的 `APPROVED`。
 #[cfg(test)]
 async fn approve_flow_instance(instance_id: Uuid) {
-    let todos = db()
-        .find_with_params(
-            "SELECT id, assignee_id FROM biz_flow_task \
-              WHERE instance_id = ?::uuid AND status = 'PENDING'",
-            vec![Value::from(&instance_id)],
+    let outs =
+        crate::business::flow::test_support::approve_all_pending(instance_id, "单测：同意").await;
+    assert!(
+        !outs.is_empty(),
+        "审批通过前必须有 PENDING 待办（实例 {instance_id}）"
+    );
+    for out in outs {
+        // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
+        crate::business::flow::task_bridge::on_transfer_settled(
+            out.instance_id,
+            &out.instance_status,
         )
-        .await
-        .expect("查待办");
-    let todo = todos.first().expect("审批通过前必须有 PENDING 待办");
-    let task_id: Uuid = todo.get_typed("id").expect("todo id");
-    let approver: Uuid = todo.get_typed("assignee_id").expect("assignee");
-    let tx = db().begin().await.expect("开审批事务");
-    let out = engine::approve(&tx, task_id, approver, Some("单测：同意"))
-        .await
-        .expect("引擎同意失败");
-    tx.commit().await.expect("提交审批事务");
-    crate::business::flow::task_bridge::on_transfer_settled(out.instance_id, &out.instance_status)
         .await;
+    }
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
 }
 
 // ==================== 单测：真库行为（卡面 §五 的 ①–⑰） ====================
@@ -2690,38 +2691,46 @@ mod db_tests {
             )
             .await
             .expect("查审批待办");
-        assert_eq!(
-            todos.len(),
-            1,
-            "③ 单节点审批：待办恰好 1 条（不给同一人重复派单）"
-        );
-        let todo = &todos[0];
-        assert_eq!(
-            todo.get_typed::<String>("status").expect("status"),
-            "PENDING"
+        let admins = crate::business::flow::test_support::super_admin_count().await;
+        assert!(
+            admins > 0,
+            "库里必须至少有一个超管（`n_approve` 的审批人来源是 ADMIN）"
         );
         assert_eq!(
-            todo.get_typed::<String>("node_key").expect("node"),
-            "n_approve"
+            todos.len() as i64,
+            admins,
+            "③ 单节点审批：每个超管各 1 条待办（ADMIN 展开；同一人不得重复派单）"
         );
-        assert_eq!(
-            todo.get_typed::<String>("assignee_source").expect("source"),
-            "ADMIN",
-            "③ 审批人来源必须是种子节点的 ADMIN（超管展开）"
-        );
-        let assignee: Uuid = todo.get_typed("assignee_id").expect("assignee_id");
-        // 待办必须落在真实存在的超管账号上（否则审批中心里没人看得到）
-        let is_super: i64 = db()
-            .scalar_with_params(
-                "SELECT count(*) FROM sys_user u \
-                   JOIN sys_user_role ur ON ur.user_id = u.id \
-                   JOIN sys_role r ON r.id = ur.role_id \
-                  WHERE u.id = ?::uuid AND r.role_code = 'SUPER_ADMIN' AND u.deleted_at IS NULL",
-                vec![Value::from(&assignee)],
-            )
-            .await
-            .expect("查超管角色");
-        assert_eq!(is_super, 1, "③ 待办审批人必须是 SUPER_ADMIN 角色成员");
+        let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+        for todo in &todos {
+            assert_eq!(
+                todo.get_typed::<String>("status").expect("status"),
+                "PENDING"
+            );
+            assert_eq!(
+                todo.get_typed::<String>("node_key").expect("node"),
+                "n_approve"
+            );
+            assert_eq!(
+                todo.get_typed::<String>("assignee_source").expect("source"),
+                "ADMIN",
+                "③ 审批人来源必须是种子节点的 ADMIN（超管展开）"
+            );
+            let assignee: Uuid = todo.get_typed("assignee_id").expect("assignee_id");
+            assert!(seen.insert(assignee), "③ 同一超管不得被重复派单");
+            // 待办必须落在真实存在的超管账号上（否则审批中心里没人看得到）
+            let is_super: i64 = db()
+                .scalar_with_params(
+                    "SELECT count(*) FROM sys_user u \
+                       JOIN sys_user_role ur ON ur.user_id = u.id \
+                       JOIN sys_role r ON r.id = ur.role_id \
+                      WHERE u.id = ?::uuid AND r.role_code = 'SUPER_ADMIN' AND u.deleted_at IS NULL",
+                    vec![Value::from(&assignee)],
+                )
+                .await
+                .expect("查超管角色");
+            assert_eq!(is_super, 1, "③ 待办审批人必须是 SUPER_ADMIN 角色成员");
+        }
 
         // ③ 按调拨单反查也能命中（审批中心「待办」按 biz_type + biz_id 过滤的口径）
         let hit: i64 = db()
@@ -2734,7 +2743,10 @@ mod db_tests {
             )
             .await
             .expect("按单据反查待办");
-        assert_eq!(hit, 1, "③ 审批待办里能按调拨单找到这条待办");
+        assert_eq!(
+            hit, admins,
+            "③ 审批中心里能按调拨单找到全部 {admins} 条待办（实际 {hit}）"
+        );
     }
 
     // ---------- ⑰-d（P5 ⑦）审批中不许人工直推 APPROVED（409 + 65030） ----------

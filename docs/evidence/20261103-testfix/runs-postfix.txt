@@ -1,0 +1,25 @@
+################ 修后 ################
+# commit: 42f671e chore(evidence): D3-UI 换 dist 后冒烟（6 页全 PASS）并补冒烟脚本 + 本卡未提交改动（10 个文件）
+# 库: cloudpivot_t6d8  超管人数（= 会签人数）: 3
+# 命令: <lib测试二进制> stockin_handler_tests_cancel --test-threads=1
+
+
+running 15 tests
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_keeps_invariant_e4 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_posted_voids_serials_of_the_receipt ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_posted_txn_missing ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_refuses_when_serial_already_shipped ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_cost_inventory ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_rolls_back_location_ledger ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_still_generates_red_voucher ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_twice_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_uses_posted_amount_not_current_avg ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_voids_only_serials_of_that_receipt ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_with_shipped_goods_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_writes_out_txn ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::cancel_zero_qty_zeroes_amount ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::concurrent_cancels_do_not_deadlock ... ok
+test business::erp::stockin_handler::stockin_handler_tests_cancel::failed_cancel_rolls_back_everything ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2072 filtered out; finished in 47.92s
+

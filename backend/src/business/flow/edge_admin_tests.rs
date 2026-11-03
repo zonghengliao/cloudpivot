@@ -489,8 +489,7 @@ async fn change_takes_effect_only_after_approval() {
     assert_eq!(dup.status, 409, "报文：{}", dup.msg);
 
     // 审批通过 → 回调落库
-    let task_id = pending_task_of(instance_id).await;
-    approve_task(task_id).await;
+    approve_all(instance_id).await;
     assert!(
         !stock_out_allows_direct_post().await,
         "审批通过后 `DRAFT → POSTED` 必须从有效边里消失"
@@ -730,8 +729,7 @@ async fn delete_config_also_goes_through_approval() {
         "审批通过之前配置还在"
     );
 
-    let task_id = pending_task_of(instance_id).await;
-    approve_task(task_id).await;
+    approve_all(instance_id).await;
     assert!(
         allows_close(state_machine::effective_edges(db(), Entity::PurchaseOrder).await),
         "删除审批通过后应回到 BASE_EDGES（可以直接关闭）"
@@ -903,15 +901,21 @@ async fn pending_task_of(instance_id: Uuid) -> Uuid {
     value.expect("审批单必须有待办（否则没人能批）")
 }
 
-/// 以 admin 身份同意，并按 `flow::handler` 的口径跑回调。
-async fn approve_task(task_id: Uuid) {
-    let operator = admin_id().await;
-    let out = db()
-        .transaction(|tx| async move {
-            crate::business::flow::engine::approve(&tx, task_id, operator, Some("同意")).await
-        })
-        .await
-        .unwrap_or_else(|err| panic!("同意失败：{err}"));
-    assert_eq!(out.instance_status, "APPROVED", "应当一次通过");
-    edge_admin::on_settled(out.instance_id, &out.instance_status).await;
+/// 把审批单**批到终态**，并按 `flow::handler` 的口径跑回调。
+///
+/// ⚠️ `flow_edge_config` 的 `n_cfg` 是 `ROLE` + `empty_assignee = FALLBACK_ADMIN`：
+/// 那个角色当前没人时回退给**全部超管**，`join_mode = AND` ⇒ 会签人数 = 超管人数。
+/// 只批一条会让实例停在 `PENDING`（实测在这里报「应当一次通过」假红），
+/// 所以一律批到终态并断言真的 `APPROVED`。
+async fn approve_all(instance_id: Uuid) {
+    let outs = crate::business::flow::test_support::approve_all_pending(instance_id, "同意").await;
+    assert!(
+        !outs.is_empty(),
+        "审批单必须有 PENDING 待办可批（实例 {instance_id}）"
+    );
+    for out in outs {
+        // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
+        edge_admin::on_settled(out.instance_id, &out.instance_status).await;
+    }
+    crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
 }

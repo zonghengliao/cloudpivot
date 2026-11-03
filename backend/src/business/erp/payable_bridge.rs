@@ -1813,11 +1813,23 @@ mod tests {
     }
 
     /// 全部审批人都批一遍（制单人不是超管，不在审批人里）。
+    ///
+    /// `payable_pay` 的两个节点都是 `assignee_type = 'ADMIN'`（运行时展开**全部超管**），
+    /// 而且节点是**串行**的（`n_dept` → `n_fin`）：一次快照只批当前节点的待办，
+    /// 后面节点的待办是批完才生成的。所以用 `test_support::approve_all_pending`
+    /// **逐轮重查**直到实例离开 `PENDING`，并断言真的 `APPROVED`。
     async fn approve_all(instance_id: Uuid) {
-        let tasks = pending_tasks(instance_id).await;
-        for (task, assignee, _) in tasks {
-            approve(task, assignee).await;
+        let outs =
+            crate::business::flow::test_support::approve_all_pending(instance_id, "P17 同意").await;
+        assert!(
+            !outs.is_empty(),
+            "付款审批必须有 PENDING 待办可批（实例 {instance_id}）"
+        );
+        for out in outs {
+            // 与 `flow::handler::approve_task` 同序：事务已提交，再跑业务回调
+            on_payment_settled(out.instance_id, &out.instance_status).await;
         }
+        crate::business::flow::test_support::assert_instance_status(instance_id, "APPROVED").await;
     }
 
     // ---------- ⑭ 驳回 → 账不动，可重新提交 ----------
