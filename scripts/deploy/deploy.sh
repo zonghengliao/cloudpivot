@@ -207,6 +207,20 @@ fi
 if [ "$NCOMMITS" = "0" ]; then
   say "已是最新，无需同步"
 else
+  # 未跟踪副本会挡住 ff（历史上 scp 过同一路径的脚本就会这样）：
+  # 与将要合入的版本**逐字节相同**就挪到 /root/deploy-untracked-<TAG>/，不同则停下让人比对。
+  mapfile -t INCOMING < <(git diff --name-only --diff-filter=A "$OLD_HEAD" "$NEW_HEAD")
+  for f in "${INCOMING[@]:-}"; do
+    [ -n "${f:-}" ] || continue
+    [ -e "$f" ] || continue
+    if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then continue; fi
+    if git show "$NEW_HEAD:$f" | cmp -s - "$f"; then
+      SIDE="/root/deploy-untracked-$TAG"; mkdir -p "$SIDE/$(dirname "$f")"
+      mv "$f" "$SIDE/$f" && say "挪开未跟踪副本（与提交逐字节相同）：$f → $SIDE/$f"
+    else
+      die "未跟踪文件 $f 与将要合入的版本内容不同，脚本不覆盖（先人工 diff / 决定保留哪份）"
+    fi
+  done
   if [ "$DRY_RUN" = "1" ]; then
     say "dry-run：将执行 git merge --ff-only $NEW_HEAD"
   else
