@@ -31,6 +31,19 @@
 | `11_after_p0fix_nonexistent_db.txt` | 修复后：`P0FIX_DB_URL` 指向**根本不存在的库**（上游卡 62 的「更硬反例」复跑） | 7 条全部显式失败（修复前是 345/0 全绿）；证明「没去连」这件事再也不会被当成通过 |
 | `raw/` | 脚本每轮 `cargo test` 原始输出（`<模块>_run<轮>.txt`） | — |
 
+## 「同一个进程里先跑 ERP 用例、再跑本组」是怎么证明的
+
+`01` / `02` 是**同一个进程**的两份日志（同一条命令、`--test-threads=1`），执行顺序可直接从行号读出：
+
+| 日志 | 先跑的（用 `ERP_DB_URL`） | 后跑的（用 `P0FIX_DB_URL`） | 结果 |
+|---|---|---|---|
+| `01`（修复前） | `:57` `edge_admin_tests::bad_patch_is_rejected_before_any_approval … ok`、`:58` `…::biz_id_is_stable_per_edge … ok` | `:187` / `:188` `internal_control::db_tests::…` | 全是 `ok`；而 `p0fix_*` 定义落在 **ERP 库**（见 `08`） |
+| `02`（修复后） | `:57` / `:58` 同上（照旧 `ok`，它们本来就该跑在 ERP 库） | `:187` / `:188` 同两条 | **`FAILED`**，panic 点名「当前连的是 A、要求的是 B」 |
+
+即：`edge_admin_tests` 先 `set_db(ERP 库)` → 同一个进程里 `internal_control::db_tests` 随后 `ensure_db()`。
+修复前它`return true` 静默复用，修复后它比对库名并**显式失败**。
+
+
 ## 环境（可复现）
 
 - 库：本机 PostgreSQL 18.6（`alun@127.0.0.1:5432`）。模板库 `cloudpivot_libtest_template`
