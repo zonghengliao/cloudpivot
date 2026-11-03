@@ -1,0 +1,151 @@
+{
+  "base": "http://127.0.0.1",
+  "period": "2026-10",
+  "year": "2026",
+  "passed": 24,
+  "failed": 0,
+  "results": [
+    {
+      "name": "⑤-1 登录后跳转非 /login",
+      "passed": true,
+      "detail": "url=http://127.0.0.1/dashboard"
+    },
+    {
+      "name": "⑤-2 页面有内容（不白屏）",
+      "passed": true,
+      "detail": "body 799 字 / 布局节点 4"
+    },
+    {
+      "name": "①-1 期间列表有结账按钮",
+      "passed": true,
+      "detail": "period=2026-10"
+    },
+    {
+      "name": "①-2 结账弹窗打开且预检「不通过」",
+      "passed": true,
+      "detail": "弹窗=true blocked 节点 1"
+    },
+    {
+      "name": "①-3 挡路单据明细表格出现",
+      "passed": true,
+      "detail": "表格 1 个"
+    },
+    {
+      "name": "①-4 表格里有逐单行",
+      "passed": true,
+      "detail": "7 行"
+    },
+    {
+      "name": "①-5 每行标了「该谁处理」",
+      "passed": true,
+      "detail": "处理人节点 7"
+    },
+    {
+      "name": "①-6 每行有「去处理」",
+      "passed": true,
+      "detail": "去处理按钮 7"
+    },
+    {
+      "name": "①-7 每行有「催办 / 已催办」",
+      "passed": true,
+      "detail": "催办节点 7"
+    },
+    {
+      "name": "②-1 年结五项检查清单出现",
+      "passed": true,
+      "detail": "检查项节点 6"
+    },
+    {
+      "name": "②-2 年结挡路单据明细表格出现",
+      "passed": true,
+      "detail": "表格 1 个"
+    },
+    {
+      "name": "②-3 年结表格里有逐单行",
+      "passed": true,
+      "detail": "8 行"
+    },
+    {
+      "name": "②-4 年结每行标了处理人",
+      "passed": true,
+      "detail": "处理人 8"
+    },
+    {
+      "name": "②-5 年结每行有催办",
+      "passed": true,
+      "detail": "催办 8"
+    },
+    {
+      "name": "③-1 「边配置」入口可打开",
+      "passed": true,
+      "detail": "10 条边"
+    },
+    {
+      "name": "③-2 边变更提交后生成审批单（待审批列表出现）",
+      "passed": true,
+      "detail": "pending 1 / toast: 已提交审批 FLW-20261103-B8005F58：审批通过后才会生效（驳回或撤回则配置不变）"
+    },
+    {
+      "name": "④-1 新建出库单表单可打开",
+      "passed": true,
+      "detail": ""
+    },
+    {
+      "name": "④-2 表单填好（仓库/物料/数量/事由）",
+      "passed": true,
+      "detail": "仓库=WH02 分仓（种子） 物料=M-W1A-001 原料A（种子）"
+    },
+    {
+      "name": "④-3 领用单保存成功",
+      "passed": true,
+      "detail": "toast: 已保存草稿 OUT-20261103-000008 OUT-20261103-000008"
+    },
+    {
+      "name": "④-4 草稿单详情有「过账」动作",
+      "passed": true,
+      "detail": "单号 OUT-20261103-000008"
+    },
+    {
+      "name": "④-5 过账成功（状态=已过账）",
+      "passed": true,
+      "detail": "状态=已过账 toast="
+    },
+    {
+      "name": "④-6 列表里该单为已过账",
+      "passed": true,
+      "detail": "单号 OUT-20261103-000008"
+    },
+    {
+      "name": "⑤-3 控制台无 error（已排除 favicon/devtools）",
+      "passed": true,
+      "detail": "0 条"
+    },
+    {
+      "name": "⑤-4 无 4xx/5xx 请求",
+      "passed": true,
+      "detail": "0 条"
+    }
+  ],
+  "shots": [
+    "/root/dc-evidence/run5/01-login-page.png",
+    "/root/dc-evidence/run5/02-dashboard.png",
+    "/root/dc-evidence/run5/03-period-list.png",
+    "/root/dc-evidence/run5/04-period-close-blockers.png",
+    "/root/dc-evidence/run5/05-period-blocker-table-zoom.png",
+    "/root/dc-evidence/run5/06-year-end-check.png",
+    "/root/dc-evidence/run5/07-year-end-blocker-table.png",
+    "/root/dc-evidence/run5/08-flow-def.png",
+    "/root/dc-evidence/run5/09-state-edge-drawer.png",
+    "/root/dc-evidence/run5/10-state-edge-change-dialog.png",
+    "/root/dc-evidence/run5/10b-state-edge-change-filled.png",
+    "/root/dc-evidence/run5/11-state-edge-pending.png",
+    "/root/dc-evidence/run5/12-stockout-form-filled.png",
+    "/root/dc-evidence/run5/13-stockout-created.png",
+    "/root/dc-evidence/run5/14-stockout-detail-draft.png",
+    "/root/dc-evidence/run5/15-stockout-post-confirm.png",
+    "/root/dc-evidence/run5/16-stockout-posted.png",
+    "/root/dc-evidence/run5/17-stockout-list-after-post.png"
+  ],
+  "consoleErrors": [],
+  "httpErrors": []
+}
