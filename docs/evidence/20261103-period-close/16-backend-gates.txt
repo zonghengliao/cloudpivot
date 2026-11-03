@@ -1,0 +1,44 @@
+### 1) cargo check --all-targets
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+
+### 2) cargo clippy -- -D warnings（AGENTS.md 规定的门禁口径 = lib）
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+
+### 3) cargo clippy --lib --all-targets -D warnings（附加：含 tests/ 目标）
+      5 tests/testd/project_log.rs: error: deref on an immutable reference: help: if you would like to reborrow, try removing `&*`: `db()`
+      4 tests/testd/impexp.rs: error: useless use of `vec!`
+      3 tests/testd/mutex_help_ai.rs: error: deref on an immutable reference: help: if you would like to reborrow, try removing `&*`: `db()`
+      3 tests/testd/linkage.rs: error: deref on an immutable reference: help: if you would like to reborrow, try removing `&*`: `db()`
+      3 src/business/flow/internal_control.rs: error: this operation will always return zero. This is likely not the intended outcome
+      2 src/business/erp/stockout_tests.rs: error: returning the result of a `let` binding from a block
+      2 error: errors
+      1 tests/testd/project_log.rs: error: using `contains()` instead of `iter().any()` is more efficient: help: try: `actions.contains(&expected)`
+      1 tests/testd/impexp.rs: error: useless use of `vec!`: help: you can use an array directly: `[good_row(&dict_code, "51", &ctx.key("被替换的行"))]`
+      1 tests/testd/impexp.rs: error: useless use of `vec!`: help: you can use an array directly: `[good_row(&dict_code, "50", &ctx.key("原始行"))]`
+
+-- 这些 error 的落点（本卡一个文件都没碰）：
+      2 error
+      2 src/business/erp/stockout_tests.rs
+      8 src/business/flow/internal_control.rs
+      8 tests/testd/impexp.rs
+      3 tests/testd/linkage.rs
+      3 tests/testd/mutex_help_ai.rs
+      6 tests/testd/project_log.rs
+
+### 4) cargo fmt --check
+Diff in /opt/cloudpivot/backend/tests/testd/announcement.rs
+Diff in /opt/cloudpivot/backend/tests/testd/common.rs
+Diff in /opt/cloudpivot/backend/tests/testd/impexp.rs
+Diff in /opt/cloudpivot/backend/tests/testd/linkage.rs
+Diff in /opt/cloudpivot/backend/tests/testd/project_log.rs
+
+### 本卡提交改了哪些后端文件（证明上面 --all-targets 的告警文件都不在其中）
+backend/src/business/erp/mod.rs                 |   6 +
+backend/src/business/erp/period.rs              | 382 ++++------
+backend/src/business/erp/period_items.rs        | 891 ++++++++++++++++++++++++
+backend/src/business/erp/period_items_tests.rs  | 535 ++++++++++++++
+backend/src/business/erp/period_owner.rs        | 172 +++++
+backend/src/business/erp/period_remind.rs       | 425 +++++++++++
+backend/src/business/erp/period_remind_tests.rs | 506 ++++++++++++++
+backend/src/business/erp/period_test_support.rs | 416 +++++++++++
+8 files changed, 3093 insertions(+), 240 deletions(-)
