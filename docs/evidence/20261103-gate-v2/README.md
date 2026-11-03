@@ -105,3 +105,19 @@
 - 首轮共享库跑出的 67 条失败已定性为「同库跨模块污染」，但**仓库测试隔离缺陷本身**（模块级夹具互踩）没有在本卡修；
   属测试卫生问题，建议另开卡（本卡不改实现）。
 - 闸③ 的「生产库」含义是 144 上 `NIK_DATABASE_NAME=cloudpivot` 的在用库（只读审计）；本机 PG 上另有 230 个历史隔离库未清理。
+
+## 7. 环境处置（本机副作用，需知会）
+
+本机在做本卡时遇到两处**环境级**阻碍，处置如下（都不是门禁问题，但会影响后续卡片，故记录）：
+
+1. **`/tmp`（7.6G tmpfs）100% 满** → `check.sh` 闸③ 的 `mktemp /tmp/erp_inv.*.log` 写不进去，审计输出丢失 →
+   被误判成「有 BLOCKER」EXIT=1（首跑日志见 `40` 之前的说明）。
+   处置：把 3 个 2026-11-01 的遗留目录 `/tmp/e2e-iso`、`/tmp/t6f-dist`、`/tmp/fe-build-1b`（共 104M）
+   **移动到** `$TMPDIR/tmp_evicted/`（保留未删，可还原），`/tmp` 余量恢复到 104M。
+2. **磁盘 `/` 100%（3.8M 可用）** → PostgreSQL 建库直接失败（`could not create file ... No space left on device`），
+   真库回归无法进行。处置：删除两张**已完工卡片**遗留的 cargo target 目录
+   `/root/f12-target`（8.8G，mtime 2026-10-31）、`/root/td7fix-target`（7.6G，mtime 2026-10-31），可用空间恢复到 17G。
+   `/root` 下另有约 70G 同类历史 target 目录（`t6d8-target` 17G / `p10-cp-131816` 13G / `d7-target` 9.8G …），
+   **未动**，建议另开清理卡统一处理。
+3. 本卡所有构建产物都放 `$TMPDIR`（磁盘），**没有占用 `/tmp`**；验证完未删除 `$TMPDIR/cargo-target-gate`（6.7G），
+   以便复跑；如无需要可随 scratch 清理。
