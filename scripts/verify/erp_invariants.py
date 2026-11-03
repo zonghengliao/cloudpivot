@@ -768,6 +768,84 @@ def group_h():
                and not exists (select 1 from biz_task t where t.deleted_at is null
                                and (t.id = i.biz_id or (i.biz_id is null and t.task_no = i.biz_no)))""")
 
+    # H4：审批实例已 APPROVED，但单据**仍在待审批态** → P0（ARCH-3 §6 R-P1-1 · 断链 DC-04）。
+    #
+    # 这是「审批闭环」的最后一段：审批单走到终态了，业务回调却没把单据推走
+    # （回调失败只记 WARN 不回滚审批单，所以这种形态在库里是**合法落库**的），
+    # 结果就是「审批中心显示已通过、单据还写着审批中，没人能再推进它」——
+    # 用户会去重提（撞唯一索引 409）、或找 IT 手工改库，两种都是事故。
+    #
+    # 口径：按 biz_type 逐类给出「待审批态」的真实状态值（不猜、不 JOIN 错表）：
+    #   PO_APPROVE      → biz_purchase_order.status = SUBMITTED
+    #   STOCK_IN_POST   → biz_stock_in.status      = PENDING_POST
+    #   STOCK_IN_CANCEL → biz_stock_in.status      = PENDING_CANCEL
+    #   PAYABLE_CANCEL  → biz_payable.status       = PENDING_CANCEL
+    #   CONTRACT_APPROVE→ biz_contract.status      = PENDING_APPROVAL（本卡新增）
+    #   VOUCHER_REVERSE → 凭证 status 恒 POSTED，待审批由 pending_reverse_instance_id 表达
+    # 只查**未软删**的单据与实例（软删单据上的历史实例是审计留痕，不是卡死）。
+    try:
+        bad4 = q("""
+            select 'PO_APPROVE', i.instance_no, coalesce(i.biz_no,'(空)'), o.status::text
+              from biz_flow_instance i
+              join biz_purchase_order o on o.id = i.biz_id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and o.deleted_at is null and o.status = 'SUBMITTED'
+            union all
+            select 'STOCK_IN_POST', i.instance_no, coalesce(i.biz_no,'(空)'), s.status::text
+              from biz_flow_instance i
+              join biz_stock_in s on s.id = i.biz_id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and s.deleted_at is null and s.status = 'PENDING_POST'
+            union all
+            select 'STOCK_IN_CANCEL', i.instance_no, coalesce(i.biz_no,'(空)'), s.status::text
+              from biz_flow_instance i
+              join biz_stock_in s on s.id = i.biz_id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and s.deleted_at is null and s.status = 'PENDING_CANCEL'
+            union all
+            select 'PAYABLE_CANCEL', i.instance_no, coalesce(i.biz_no,'(空)'), p.status::text
+              from biz_flow_instance i
+              join biz_payable p on p.id = i.biz_id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and p.deleted_at is null and p.status = 'PENDING_CANCEL'
+            union all
+            select 'CONTRACT_APPROVE', i.instance_no, coalesce(i.biz_no,'(空)'), c.status::text
+              from biz_flow_instance i
+              join biz_contract c on c.id = i.biz_id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and c.deleted_at is null and c.status = 'PENDING_APPROVAL'
+            union all
+            select 'VOUCHER_REVERSE', i.instance_no, coalesce(i.biz_no,'(空)'), 'POSTED+pending_reverse'
+              from biz_flow_instance i
+              join biz_voucher v on v.pending_reverse_instance_id = i.id
+             where i.status = 'APPROVED' and i.deleted_at is null
+               and v.deleted_at is null
+            order by 1, 2
+        """)
+        detail = ("；".join(f"{row[0]} {row[1] or '(空)'} 仍 {row[3]} → {row[2]}" for row in bad4[:5])
+                  if bad4 else "全部单据已随审批结论前进")
+        if bad4:
+            detail = f"{len(bad4)} 张单据审批已通过但没前进：" + detail
+        check("H4 审批已通过 → 单据必须前进（不许停在待审批态）", "审批", "BLOCKER", not bad4,
+              detail,
+              """select i.biz_type || ' / ' || i.instance_no || ' / ' || coalesce(i.biz_no,'(空)')
+                 from biz_flow_instance i
+                where i.status='APPROVED' and i.deleted_at is null
+                  and (   (i.biz_type='PO_APPROVE' and exists (select 1 from biz_purchase_order o
+                                where o.id=i.biz_id and o.deleted_at is null and o.status='SUBMITTED'))
+                       or (i.biz_type in ('STOCK_IN_POST','STOCK_IN_CANCEL') and exists (select 1 from biz_stock_in s
+                                where s.id=i.biz_id and s.deleted_at is null
+                                  and s.status = case when i.biz_type='STOCK_IN_POST' then 'PENDING_POST' else 'PENDING_CANCEL' end))
+                       or (i.biz_type='PAYABLE_CANCEL' and exists (select 1 from biz_payable p
+                                where p.id=i.biz_id and p.deleted_at is null and p.status='PENDING_CANCEL'))
+                       or (i.biz_type='CONTRACT_APPROVE' and exists (select 1 from biz_contract c
+                                where c.id=i.biz_id and c.deleted_at is null and c.status='PENDING_APPROVAL'))
+                       or (i.biz_type='VOUCHER_REVERSE' and exists (select 1 from biz_voucher v
+                                where v.pending_reverse_instance_id=i.id and v.deleted_at is null)))""")
+    except Exception as e:
+        check("H4 审批已通过 → 单据必须前进（不许停在待审批态）", "审批", "BLOCKER", False,
+              f"执行异常（表/列缺失？）：{str(e)[:120]}")
+
 
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,

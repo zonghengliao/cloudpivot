@@ -143,6 +143,13 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
             crate::business::erp::voucher_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::contract_bridge::BIZ_TYPE {
+        // ARCH-3 R-P1-1：合同审批的 `biz_id` 是**合同 id**（制单人不能批自己拟的合同）
+        let creator =
+            crate::business::erp::contract_bridge::internal_control_creator(instance.biz_id)
+                .await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

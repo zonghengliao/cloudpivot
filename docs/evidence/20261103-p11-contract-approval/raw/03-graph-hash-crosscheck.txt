@@ -1,0 +1,5 @@
+hash(graph_snapshot) = 95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768
+version.graph_hash   = 95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768
+① 快照↔hash: OK
+hash(rows)           = 95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768
+② 行↔快照: OK

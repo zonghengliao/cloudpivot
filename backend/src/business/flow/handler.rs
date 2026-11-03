@@ -1690,6 +1690,9 @@ pub async fn withdraw_instance(
     crate::business::erp::stockin_bridge::on_post_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3A：也可能是「采购订单审批」单 → 打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
+    // ARCH-3 R-P1-1：也可能是「合同审批」单 → 撤回即回草稿（实例清空，可改后重提）
+    crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "WITHDRAWN")
+        .await;
     // P17：也可能是「应付付款」单 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3B：也可能是「应付作废」单 → 单据回 OPEN（欠款一分没动）
@@ -1736,6 +1739,8 @@ pub async fn approve_task(
     // ★ P-FLOW-3B 内控闸：凭证红冲同款（制单人 ≠ 审批人）。
     //   应付作废走 payable_bridge::guard_self_approval（内部按 biz_type 分流）。
     crate::business::erp::voucher_bridge::guard_self_approval(task_id, operator).await?;
+    // ★ ARCH-3 R-P1-1 内控闸：合同审批同款（制单人 / 发起人 ≠ 审批人）。
+    crate::business::erp::contract_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1759,6 +1764,12 @@ pub async fn approve_task(
     // P-FLOW-3A：也可能是「采购订单审批」发起的 —— 通过则 APPROVED（可收货），驳回则打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
         .await;
+    // ARCH-3 R-P1-1：也可能是「合同审批」发起的 —— 通过则 SIGNED（可被采购单引用），驳回则回草稿
+    crate::business::erp::contract_bridge::on_contract_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // P17：也可能是「应付付款」发起的 —— 通过才记账（应付回写 + 借 2202 / 贷 1002 凭证）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;
@@ -1831,6 +1842,12 @@ pub async fn reject_task(
     // P-FLOW-3A：采购订单审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
         .await;
+    // ARCH-3 R-P1-1：合同审批被驳回 / 驳回终止 → 回草稿（可改后重提，意见进状态日志）
+    crate::business::erp::contract_bridge::on_contract_settled(
+        out.instance_id,
+        &out.instance_status,
+    )
+    .await;
     // P17：付款审批被驳回 / 驳回终止 → 付款记录标 REJECTED（账一分没动，可重新提交）
     crate::business::erp::payable_bridge::on_payment_settled(out.instance_id, &out.instance_status)
         .await;

@@ -346,29 +346,59 @@ pub const VOUCHER_LOCKED: [&str; 1] = ["POSTED"];
 
 // ==================== 合同（ARCH-2 · A1 基座） ====================
 
-/// 合同的合法边（ARCH-2 §4.1，5 条，唯一真相）。
+/// 合同的合法边（ARCH-2 §4.1 + ARCH-3 R-P1-1，7 条，唯一真相）。
 ///
 /// ```text
-/// DRAFT   → SIGNED      登记签订（三个日期必填，V-08 同步生效；乙方存在 V-11）
-/// SIGNED  → ACTIVE      生效（到达 start_date 或手工确认）
-/// SIGNED  → TERMINATED  已签未生效即终止（**必须给原因**，DEC-05）
-/// ACTIVE  → COMPLETED   履约完成
-/// ACTIVE  → TERMINATED  中途终止（**必须给原因**）
+/// DRAFT            → PENDING_APPROVAL  提交审批（发起 contract_approve 流程）
+/// PENDING_APPROVAL → SIGNED            审批通过 → 已签订（三个日期必填，V-08；乙方存在 V-11）
+/// PENDING_APPROVAL → DRAFT             驳回 / 撤回 / 终止审批 → 回位草稿，可改后重提
+/// SIGNED           → ACTIVE            生效（到达 start_date 或手工确认）
+/// SIGNED           → TERMINATED        已签未生效即终止（**必须给原因**，DEC-05）
+/// ACTIVE           → COMPLETED         履约完成
+/// ACTIVE           → TERMINATED        中途终止（**必须给原因**）
 /// ```
 ///
-/// ⚠️ 与实现卡正文的差异：卡面写「DRAFT → ACTIVE / CANCELLED、ACTIVE → … / CANCELLED」，
-/// 但 ARCH-2（以及建表 CHECK 的 5 值白名单）**没有 `CANCELLED` 态** —— 草稿作废走
-/// **软删除**（§4.2：草稿从未对外生效，「终止」是对已签合同的动作，两者混用会让
-/// 「终止率」统计失真）。卡面本身写了「按文档实际写的来」，故以文档的 5 条边为准。
+/// # 为什么 A1 的 `DRAFT → SIGNED` 被换掉了（ARCH-3 §6 R-P1-1 · 断链 DC-02）
 ///
-/// 15 条禁止边 + 5 条自环见 §4.2，单测逐条覆盖（`contract_*` 测试组）。
-pub const CONTRACT_EDGES: [(&str, &str); 5] = [
-    ("DRAFT", "SIGNED"),
+/// A1 的 5 条边是 `DRAFT → SIGNED → ACTIVE → COMPLETED/TERMINATED`。问题在于
+/// **`DRAFT → SIGNED` 一步就把合同变成「可被采购单引用、可用于付钱」的已签状态，
+/// 中间没有任何人审批** —— 采购单自己有 `po_approve` 复核，而它挂的合同是一人点一下
+/// 就生效的，等于「给合同付钱」这件事只审了单、没审合同。
+///
+/// R-P1-1 的修法是插一个**待审批态**：`DRAFT → PENDING_APPROVAL → SIGNED`。
+/// 于是：
+///
+/// * **没有任何边能一步从 `DRAFT` 到 `SIGNED`/`ACTIVE`** —— 「不审批直接点签订/生效」
+///   在状态机层面就不成立（handler 给 409 + 66015，文案指向「先提交审批」）；
+/// * `SIGNED` 只有一个入口（审批通过），`ACTIVE` 只有一个入口（`SIGNED → ACTIVE`），
+///   所以「合同可用于采购单」= 「它一定被批过」；
+/// * 撤回/驳回走 `PENDING_APPROVAL → DRAFT`（不是新增 `CANCELLED` 态：草稿作废仍走
+///   软删除，见 §4.2 与 [`CONTRACT_LOCKED`] 下的说明）。
+///
+/// 状态**值**没变（`DRAFT / SIGNED / ACTIVE / COMPLETED / TERMINATED` 语义与顺序原样），
+/// 只多了一个「审批中」的中间态 —— 与 ARCH-3「加一条 `DRAFT → 待审批` 过渡」的写法一致。
+///
+/// ⚠️ 与实现卡正文的差异：卡面写「DRAFT → ACTIVE / CANCELLED、ACTIVE → … / CANCELLED」，
+/// 但 ARCH-2（以及建表 CHECK 的白名单）**没有 `CANCELLED` 态** —— 草稿作废走
+/// **软删除**（§4.2：草稿从未对外生效，「终止」是对已签合同的动作，两者混用会让
+/// 「终止率」统计失真）。卡面本身写了「按文档实际写的来」，故不加 `CANCELLED`。
+///
+/// 禁止边 + 自环见 §4.2，单测逐条覆盖（`contract_*` 测试组）。
+pub const CONTRACT_EDGES: [(&str, &str); 7] = [
+    ("DRAFT", "PENDING_APPROVAL"),
+    ("PENDING_APPROVAL", "SIGNED"),
+    ("PENDING_APPROVAL", "DRAFT"),
     ("SIGNED", "ACTIVE"),
     ("SIGNED", "TERMINATED"),
     ("ACTIVE", "COMPLETED"),
     ("ACTIVE", "TERMINATED"),
 ];
+
+/// 合同的「审批中」状态（`approval_instance_id` 非空的唯一合法状态）。
+///
+/// 与 `biz_stock_in.PENDING_POST` / `biz_purchase_order.SUBMITTED` 同一语义：
+/// 「单子已经交出去等人批，业务字段冻结，等审批结论推进」。
+pub const CONTRACT_PENDING_APPROVAL: &str = "PENDING_APPROVAL";
 
 /// 需要 reason 的合同边：两条终止边（§4.1 E3 / E5）。
 ///
@@ -384,7 +414,18 @@ pub const CONTRACT_REASON_EDGES: [(&str, &str); 2] =
 /// 因此 `locked_statuses()` **只用于**前端置灰与 `is_locked` 判断；
 /// 写库校验必须走 §5.3 的字段白名单（A2 的 `contract_handler::update` 读旧行比对），
 /// **handler 不得直接调 `ensure_writable`** —— 否则连「终止原因写 remark」都会被自己挡住。
-pub const CONTRACT_LOCKED: [&str; 4] = ["SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
+///
+/// R-P1-1 把 `PENDING_APPROVAL` 也收进来（与收货单的 `PENDING_POST` 同口径）：
+/// 审批中如果还能改金额 / 乙方 / 日期，审批人批的就是一份**已经变过的数据**
+/// （审批对象 ≠ 执行对象），复核等于没做。真正的写库闸是 `contract_apply` 的
+/// `WHERE status = 'DRAFT'`（非草稿一律改不动），本表只影响前端置灰与文案。
+pub const CONTRACT_LOCKED: [&str; 5] = [
+    "PENDING_APPROVAL",
+    "SIGNED",
+    "ACTIVE",
+    "COMPLETED",
+    "TERMINATED",
+];
 
 // ==================== 第 1 层：BASE_EDGES（硬约束白名单） ====================
 //
@@ -552,8 +593,14 @@ pub const YEAR_END_BASE: [BaseEdge; 2] = [
 ];
 
 /// 合同的 BASE_EDGES（与 [`CONTRACT_EDGES`] 逐条对应，顺序一致）。
-pub const CONTRACT_BASE: [BaseEdge; 5] = [
-    BaseEdge::mandatory("DRAFT", "SIGNED", "签订", false),
+///
+/// 三条新边全是 `mandatory`：提交审批（唯一入口）、审批落地（回调要能写 SIGNED）、
+/// 驳回回位（审批驳回 / 撤回 / 终止后单据必须回到可编辑态）—— 被配置禁用就是
+/// 「单据卡死在审批中」或「审批回调 500」，属于加严的反面。
+pub const CONTRACT_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("DRAFT", "PENDING_APPROVAL", "提交审批", false),
+    BaseEdge::mandatory("PENDING_APPROVAL", "SIGNED", "审批通过签订", false),
+    BaseEdge::mandatory("PENDING_APPROVAL", "DRAFT", "驳回/撤回", false),
     BaseEdge::mandatory("SIGNED", "ACTIVE", "生效", false),
     BaseEdge::mandatory("SIGNED", "TERMINATED", "已签未生效终止", true),
     BaseEdge::mandatory("ACTIVE", "COMPLETED", "履约完成", false),
@@ -3425,27 +3472,44 @@ mod contract_tests {
     use super::*;
 
     /// 合同的 5 个状态（ARCH-2 §2.2 的 `ck_biz_contract_status` 白名单，逐字一致）。
-    const CONTRACT_STATUSES: [&str; 5] = ["DRAFT", "SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
+    const CONTRACT_STATUSES: [&str; 6] = [
+        "DRAFT",
+        "PENDING_APPROVAL",
+        "SIGNED",
+        "ACTIVE",
+        "COMPLETED",
+        "TERMINATED",
+    ];
 
-    /// §4.1 的 5 条合法边（照抄文档表格，用来与注册表对拍）。
-    const EXPECTED_EDGES: [(&str, &str); 5] = [
-        ("DRAFT", "SIGNED"),
+    /// ARCH-2 §4.1 + ARCH-3 R-P1-1 的 7 条合法边（照抄文档表格，用来与注册表对拍）。
+    const EXPECTED_EDGES: [(&str, &str); 7] = [
+        ("DRAFT", "PENDING_APPROVAL"),
+        ("PENDING_APPROVAL", "SIGNED"),
+        ("PENDING_APPROVAL", "DRAFT"),
         ("SIGNED", "ACTIVE"),
         ("SIGNED", "TERMINATED"),
         ("ACTIVE", "COMPLETED"),
         ("ACTIVE", "TERMINATED"),
     ];
 
-    /// §4.2 的 15 条禁止边（逐条列举，实现卡直接照抄成单测）。
-    const FORBIDDEN_EDGES: [(&str, &str); 15] = [
+    /// 禁止边（逐条列举）。R-P1-1 之后 **`DRAFT → SIGNED` / `DRAFT → ACTIVE` 都成了禁止边**
+    /// —— 这正是「没人审就生效」在状态机层面的封堵点，必须一条不落地钉住。
+    const FORBIDDEN_EDGES: [(&str, &str); 23] = [
+        ("DRAFT", "SIGNED"),
         ("DRAFT", "ACTIVE"),
         ("DRAFT", "COMPLETED"),
         ("DRAFT", "TERMINATED"),
+        ("PENDING_APPROVAL", "ACTIVE"),
+        ("PENDING_APPROVAL", "COMPLETED"),
+        ("PENDING_APPROVAL", "TERMINATED"),
         ("SIGNED", "DRAFT"),
+        ("SIGNED", "PENDING_APPROVAL"),
         ("SIGNED", "COMPLETED"),
         ("ACTIVE", "DRAFT"),
+        ("ACTIVE", "PENDING_APPROVAL"),
         ("ACTIVE", "SIGNED"),
         ("COMPLETED", "DRAFT"),
+        ("COMPLETED", "PENDING_APPROVAL"),
         ("COMPLETED", "SIGNED"),
         ("COMPLETED", "ACTIVE"),
         ("COMPLETED", "TERMINATED"),
@@ -3453,6 +3517,7 @@ mod contract_tests {
         ("TERMINATED", "SIGNED"),
         ("TERMINATED", "ACTIVE"),
         ("TERMINATED", "COMPLETED"),
+        ("TERMINATED", "PENDING_APPROVAL"),
     ];
 
     /// ⑦ 七处注册全部生效：变体 / ALL / as_str / label / edges / reason_edges / locked_statuses。
@@ -3510,8 +3575,8 @@ mod contract_tests {
     fn contract_legal_edges_all_pass() {
         assert_eq!(
             Entity::Contract.edges().len(),
-            5,
-            "ARCH-2 §4.1 明写 5 条合法边"
+            7,
+            "ARCH-3 R-P1-1：A1 的 5 条边 + 「提交审批」与「审批落地/回位」两条 → 7 条"
         );
         for (from, to) in EXPECTED_EDGES {
             assert!(
@@ -3524,7 +3589,16 @@ mod contract_tests {
             );
         }
         // 逐条给出旁证：每个 from 的去向集合与文档表格一致
-        assert_eq!(Entity::Contract.next_statuses("DRAFT"), vec!["SIGNED"]);
+        assert_eq!(
+            Entity::Contract.next_statuses("DRAFT"),
+            vec!["PENDING_APPROVAL"],
+            "草稿只有一个去处：提交审批（不许一步签订/生效）"
+        );
+        assert_eq!(
+            Entity::Contract.next_statuses("PENDING_APPROVAL"),
+            vec!["SIGNED", "DRAFT"],
+            "审批中：审批通过 → SIGNED；驳回/撤回 → DRAFT"
+        );
         assert_eq!(
             Entity::Contract.next_statuses("SIGNED"),
             vec!["ACTIVE", "TERMINATED"]
@@ -3535,16 +3609,53 @@ mod contract_tests {
         );
     }
 
-    /// ⑥ 每条非法边都被拒（§4.2 的 15 条逐条断言）。
+    /// R-P1-1 的核心判据：**没有任何边能从 DRAFT 一步到 SIGNED / ACTIVE**。
+    ///
+    /// 这是「合同没人审就生效」在状态机层面的唯一封堵点 —— handler 不做 `match`，
+    /// 全靠这张表。所以单独一条用例把它钉死，别让它被后来的「顺手放宽」吃掉。
+    #[test]
+    fn contract_draft_cannot_reach_signed_or_active_directly() {
+        let direct = Entity::Contract.next_statuses("DRAFT");
+        assert_eq!(direct, vec!["PENDING_APPROVAL"]);
+        assert!(
+            !Entity::Contract.can_transition("DRAFT", "SIGNED"),
+            "DRAFT → SIGNED 必须禁止：签订只能由审批通过产生"
+        );
+        assert!(
+            !Entity::Contract.can_transition("DRAFT", "ACTIVE"),
+            "DRAFT → ACTIVE 必须禁止：生效必须先签订（而签订必须先审批）"
+        );
+        // 反向：ACTIVE 的唯一入口是 SIGNED → ACTIVE，SIGNED 的唯一入口是审批落地边
+        let into_active: Vec<&str> = Entity::Contract
+            .edges()
+            .iter()
+            .filter(|(_, to)| *to == "ACTIVE")
+            .map(|(from, _)| *from)
+            .collect();
+        assert_eq!(into_active, vec!["SIGNED"], "ACTIVE 只能从 SIGNED 来");
+        let into_signed: Vec<&str> = Entity::Contract
+            .edges()
+            .iter()
+            .filter(|(_, to)| *to == "SIGNED")
+            .map(|(from, _)| *from)
+            .collect();
+        assert_eq!(
+            into_signed,
+            vec!["PENDING_APPROVAL"],
+            "SIGNED 只能从审批中（审批通过）来"
+        );
+    }
+
+    /// ⑥ 每条非法边都被拒（逐条断言 + 全组合扫描）。
     #[test]
     fn contract_forbidden_edges_all_rejected() {
         for (from, to) in FORBIDDEN_EDGES {
             assert!(
                 !Entity::Contract.can_transition(from, to),
-                "非法边 {from} → {to} 竟然被放行（ARCH-2 §4.2 明令禁止）"
+                "非法边 {from} → {to} 竟然被放行（ARCH-2 §4.2 + ARCH-3 R-P1-1）"
             );
         }
-        // 15 条禁止边 + 5 条合法边 = 25 种组合里的 20 个非边，一个不漏
+        // 23 条禁止边 + 7 条合法边 + 6 条自环 = 6 状态两两组合 36 种，一个不漏
         let mut rejected = 0;
         for from in CONTRACT_STATUSES {
             for to in CONTRACT_STATUSES {
@@ -3559,8 +3670,8 @@ mod contract_tests {
             }
         }
         assert_eq!(
-            rejected, 20,
-            "5 状态两两组合 25 种，去掉 5 条边应剩 20 种被拒"
+            rejected, 29,
+            "6 状态两两组合 36 种，去掉 7 条边应剩 29 种被拒（23 条跨态 + 6 条自环）"
         );
     }
 
@@ -3575,7 +3686,7 @@ mod contract_tests {
         }
     }
 
-    /// 两个终态没有出边；`DRAFT` 没有入边。
+    /// 两个终态没有出边；`DRAFT` 是起始态（但 R-P1-1 起它可以被「驳回/撤回」回位）。
     #[test]
     fn contract_terminal_states_have_no_outgoing_edges() {
         for terminal in ["COMPLETED", "TERMINATED"] {
@@ -3591,11 +3702,19 @@ mod contract_tests {
         }
         let has_incoming =
             |target: &str| Entity::Contract.edges().iter().any(|(_, to)| *to == target);
-        assert!(!has_incoming("DRAFT"), "DRAFT 是起始态，不该有入边");
+        assert!(
+            has_incoming("DRAFT"),
+            "R-P1-1：DRAFT 有入边（PENDING_APPROVAL → DRAFT 是驳回/撤回回位），不再是纯起始态"
+        );
+        assert!(has_incoming("PENDING_APPROVAL"), "提交审批边给出了入边");
         assert!(has_incoming("SIGNED"));
         assert!(has_incoming("ACTIVE"));
         assert!(has_incoming("COMPLETED"));
         assert!(has_incoming("TERMINATED"));
+        // 起始态（无入边）只有 START 语义的 DRAFT 之外没有别的 —— 这里钉住「自环不存在」
+        for (from, to) in Entity::Contract.edges() {
+            assert_ne!(from, to, "自环不是状态变更");
+        }
     }
 
     /// ⑥ 必须填原因的两条边 = 两条终止边（§4.1「是否必须给 reason」列）。
@@ -3605,7 +3724,9 @@ mod contract_tests {
         assert!(Entity::Contract.needs_reason("SIGNED", "TERMINATED"));
         assert!(Entity::Contract.needs_reason("ACTIVE", "TERMINATED"));
         for (from, to) in [
-            ("DRAFT", "SIGNED"),
+            ("DRAFT", "PENDING_APPROVAL"),
+            ("PENDING_APPROVAL", "SIGNED"),
+            ("PENDING_APPROVAL", "DRAFT"),
             ("SIGNED", "ACTIVE"),
             ("ACTIVE", "COMPLETED"),
         ] {
@@ -3623,12 +3744,18 @@ mod contract_tests {
         }
     }
 
-    /// ⑦ locked：`SIGNED` 之后冻结，`DRAFT` 可自由改（§5.3）。
+    /// ⑦ locked：`DRAFT` 可自由改，其余（含审批中）一律冻结（§5.3 + R-P1-1）。
     #[test]
     fn contract_locked_statuses_start_after_draft() {
         assert_eq!(Entity::Contract.locked_statuses(), &CONTRACT_LOCKED[..]);
         assert!(!Entity::Contract.is_locked("DRAFT"), "草稿可改");
-        for status in ["SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"] {
+        for status in [
+            "PENDING_APPROVAL",
+            "SIGNED",
+            "ACTIVE",
+            "COMPLETED",
+            "TERMINATED",
+        ] {
             assert!(Entity::Contract.is_locked(status), "{status} 应判为已冻结");
         }
         // locked 只能取状态白名单里的值（写错值等于永不生效）
@@ -3647,7 +3774,10 @@ mod contract_tests {
         assert!(msg.contains("合同"), "文案要带单据中文名：{msg}");
         assert!(msg.contains("DRAFT"), "文案要带当前态：{msg}");
         assert!(msg.contains("ACTIVE"), "文案要带被拒的目标态：{msg}");
-        assert!(msg.contains("SIGNED"), "文案要给出合法去向：{msg}");
+        assert!(
+            msg.contains("PENDING_APPROVAL"),
+            "文案要给出合法去向：{msg}"
+        );
         assert_eq!(
             error_code::ERP_CONTRACT_STATUS_ILLEGAL,
             66015,

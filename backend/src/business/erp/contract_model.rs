@@ -49,16 +49,30 @@ pub const PARTY_B_SUPPLIER: &str = "SUPPLIER";
 /// 乙方类型：客户（表属批次 2，本期写入硬拒 66020，见 ARCH-2 §3.2.3）。
 pub const PARTY_B_CUSTOMER: &str = "CUSTOMER";
 
-/// 合同的 5 个状态（与 DDL 的 `ck_biz_contract_status` 白名单逐字一致）。
+/// 合同的 6 个状态（与 DDL 的 `ck_biz_contract_status` 白名单逐字一致）。
+///
+/// R-P1-1 之前是 5 个（`DRAFT/SIGNED/ACTIVE/COMPLETED/TERMINATED`），
+/// 现在多了 `PENDING_APPROVAL`（审批中）—— 见 [`crate::business::shared::state_machine::CONTRACT_EDGES`]
+/// 的说明：**没有待审批态就没法表达「合同已经交出去等人批」**，而 A1 的
+/// `DRAFT → SIGNED` 一条边就把合同变成了可用于采购付款的已签状态。
 ///
 /// 状态推进**只能**走 [`crate::business::shared::state_machine::transition`]
 /// （`Entity::Contract`，ARCH-2 DEC-10）；本模块不提供 `UPDATE ... SET status`，
 /// 也不该有人提供 —— `rg "SET status" business/erp/contract_*` 必须 0 命中。
-pub const STATUSES: [&str; 5] = ["DRAFT", "SIGNED", "ACTIVE", "COMPLETED", "TERMINATED"];
+pub const STATUSES: [&str; 6] = [
+    "DRAFT",
+    "PENDING_APPROVAL",
+    "SIGNED",
+    "ACTIVE",
+    "COMPLETED",
+    "TERMINATED",
+];
 
 /// 草稿。
 pub const STATUS_DRAFT: &str = "DRAFT";
-/// 已签订（日期三件套必填；此后关键字段冻结）。
+/// 审批中（`approval_instance_id` 非空；字段冻结，等审批结论推进）。
+pub const STATUS_PENDING_APPROVAL: &str = "PENDING_APPROVAL";
+/// 已签订（日期三件套必填；此后关键字段冻结）。**只能由审批通过产生**。
 pub const STATUS_SIGNED: &str = "SIGNED";
 /// 已生效。
 pub const STATUS_ACTIVE: &str = "ACTIVE";
@@ -174,7 +188,7 @@ pub async fn party_b_ref_for_new(party_b_type: &str, id: Uuid) -> DbResult<Optio
 /// `state_machine::BASE_EDGES` 成了唯一真相（并新增 `base_edges_match_registry` 单测
 /// 钉死 BASE 与注册表逐条同序），再抄一份只会制造**第三个**需要同步的地方，
 /// 所以改成别名：想多放一条边必须改 `shared/state_machine.rs`，别的路径做不到。
-pub const LEGAL_EDGES: [(&str, &str); 5] = state_machine::CONTRACT_EDGES;
+pub const LEGAL_EDGES: [(&str, &str); 7] = state_machine::CONTRACT_EDGES;
 
 /// 「日期三件套必填」的状态集合（与 DDL 的 `ck_biz_contract_signed_dates` 逐字一致）。
 ///
@@ -186,6 +200,7 @@ pub const FULL_DATES_STATUSES: [&str; 3] = [STATUS_SIGNED, STATUS_ACTIVE, STATUS
 pub fn status_label(status: &str) -> &'static str {
     match status {
         STATUS_DRAFT => "草稿",
+        STATUS_PENDING_APPROVAL => "审批中",
         STATUS_SIGNED => "已签订",
         STATUS_ACTIVE => "已生效",
         STATUS_COMPLETED => "已完成",
@@ -215,13 +230,15 @@ pub const PARTY_B_CURRENT_ALIAS: &str = "party_b_current_name";
 pub const CONTRACT_BASE_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c.contract_type, \
      c.party_a_id, c.party_a_name, c.party_b_type, c.party_b_id, c.party_b_name, c.amount, \
      c.currency_code, c.sign_date, c.start_date, c.end_date, c.status, c.owner_id, c.dept_id, \
-     c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at";
+     c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at, \
+     c.approval_instance_id";
 
 /// 列表 / 详情用的列清单 = 基础列 + 关联带出的乙方现值。
 pub const CONTRACT_LIST_COLUMNS: &str = "c.id, c.contract_no, c.contract_name, c.contract_type, \
      c.party_a_id, c.party_a_name, c.party_b_type, c.party_b_id, c.party_b_name, c.amount, \
      c.currency_code, c.sign_date, c.start_date, c.end_date, c.status, c.owner_id, c.dept_id, \
      c.remark, c.created_at, c.updated_at, c.create_by, c.update_by, c.deleted_at, \
+     c.approval_instance_id, \
      s.supplier_name AS party_b_current_name";
 
 /// 乙方现值关联（**LEFT JOIN**：主档软删 / 不存在也要能查出合同 —— 历史合同不能因为
@@ -289,6 +306,9 @@ pub struct ContractRow {
     pub update_by: Option<Uuid>,
     /// 软删时间。
     pub deleted_at: Option<DateTime<Utc>>,
+    /// 提交审批的实例 id（R-P1-1）：`PENDING_APPROVAL` 必有值；驳回/撤回时清空；
+    /// `SIGNED` 之后保留作审计（详情可显示「审批通过 FLW-xxx」）。
+    pub approval_instance_id: Option<Uuid>,
 }
 
 impl ContractRow {
@@ -319,6 +339,7 @@ impl ContractRow {
             create_by: row.get_typed("create_by")?,
             update_by: row.get_typed("update_by")?,
             deleted_at: row.get_typed("deleted_at")?,
+            approval_instance_id: row.get_typed("approval_instance_id")?,
         })
     }
 }
@@ -400,6 +421,8 @@ pub struct ContractStateRow {
     pub start_date: Option<NaiveDate>,
     /// 到期日。
     pub end_date: Option<NaiveDate>,
+    /// 在跑审批实例 id（R-P1-1：422 文案带 FLW 单号 / 撤回时终止实例都要它）。
+    pub approval_instance_id: Option<Uuid>,
 }
 
 /// 分页查询（软删行不返回）。
@@ -526,7 +549,7 @@ pub async fn contract_find(id: Uuid) -> DbResult<Option<ContractRow>> {
 pub async fn contract_lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<ContractStateRow>> {
     let row = ex
         .query_first_sql(
-            "SELECT id, contract_no, status, sign_date, start_date, end_date \
+            "SELECT id, contract_no, status, sign_date, start_date, end_date, approval_instance_id \
                FROM biz_contract WHERE id = ?::uuid AND deleted_at IS NULL FOR UPDATE"
                 .to_string(),
             vec![Value::from(&id)],
@@ -541,6 +564,7 @@ pub async fn contract_lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<C
                 sign_date: row.get_typed("sign_date")?,
                 start_date: row.get_typed("start_date")?,
                 end_date: row.get_typed("end_date")?,
+                approval_instance_id: row.get_typed("approval_instance_id")?,
             })
         })
         .transpose()
@@ -733,6 +757,44 @@ pub async fn contract_write_status(
         vec![
             Value::from(to.to_string()),
             uuid_text(operator),
+            Value::from(&id),
+            Value::from(from.to_string()),
+        ],
+    )
+    .await
+}
+
+/// 写状态 + 审批实例（R-P1-1：**审批三态的所有写入都走这一个函数**）。
+///
+/// 语义按 `to` 分三种（与 [`crate::business::shared::state_machine::transition`] 的调用点一一对应）：
+///
+/// | 迁移 | `instance_id` | 结果 |
+/// |---|---|---|
+/// | `DRAFT → PENDING_APPROVAL` | `Some(新实例)` | 状态 + 挂上实例（DB 的 `ck_biz_contract_approval` 要求非空） |
+/// | `PENDING_APPROVAL → SIGNED` | `Some(同一实例)` | 状态前进，实例**保留作审计**（详情显示「审批通过 FLW-xxx」） |
+/// | `PENDING_APPROVAL → DRAFT` | `None` | 状态回位 + 清空实例（清不干净下次提交会撞 `uk_biz_flow_instance_biz_active`） |
+///
+/// 带 `status = <旧状态>` 的 CAS 条件：并发下「读了 PENDING、写时已被别人推走」会返回 0 行，
+/// 调用方按 409 处理（与 [`contract_write_status`] 同款）。
+pub async fn contract_apply_approval_transition(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+    from: &str,
+    to: &str,
+    operator: Option<Uuid>,
+    instance_id: Option<Uuid>,
+) -> DbResult<u64> {
+    ex.exec_sql(
+        "UPDATE biz_contract \
+            SET status = ?, updated_at = now(), \
+                update_by = NULLIF(?::text,'')::uuid, \
+                approval_instance_id = NULLIF(?::text,'')::uuid \
+          WHERE id = ?::uuid AND status = ? AND deleted_at IS NULL"
+            .to_string(),
+        vec![
+            Value::from(to.to_string()),
+            uuid_text(operator),
+            uuid_text(instance_id),
             Value::from(&id),
             Value::from(from.to_string()),
         ],

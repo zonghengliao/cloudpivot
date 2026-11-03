@@ -1,0 +1,27 @@
+=== round 1: down ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.down.sql:107: NOTICE:  V0209 down 完成：合同审批流与相关列/约束零残留
+rc=0
+=== round 1: up ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:81: NOTICE:  constraint "ck_biz_contract_approval" of relation "biz_contract" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:289: NOTICE:  V0209 自检通过：合同审批流（金额两档分级）已就绪；状态白名单已扩到 6 值
+rc=0
+=== round 2: down ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.down.sql:107: NOTICE:  V0209 down 完成：合同审批流与相关列/约束零残留
+rc=0
+=== round 2: up ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:81: NOTICE:  constraint "ck_biz_contract_approval" of relation "biz_contract" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:289: NOTICE:  V0209 自检通过：合同审批流（金额两档分级）已就绪；状态白名单已扩到 6 值
+rc=0
+=== round 3: down ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.down.sql:107: NOTICE:  V0209 down 完成：合同审批流与相关列/约束零残留
+rc=0
+=== round 3: up ===
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:81: NOTICE:  constraint "ck_biz_contract_approval" of relation "biz_contract" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0209__erp_contract_approval.up.sql:289: NOTICE:  V0209 自检通过：合同审批流（金额两档分级）已就绪；状态白名单已扩到 6 值
+rc=0
+=== 终态 ===
+def=1
+nodes=6
+edges=6
+status_check=CHECK (((status)::text = ANY ((ARRAY['DRAFT'::character varying, 'PENDING_APPROVAL'::character varying, 'SIGNED'::character varying, 'ACTIVE'::character varying, 'COMPLETED'::character varying, 'TERMINATED'::character varying])::text[])))
+approval_check=CHECK (((deleted_at IS NOT NULL) OR (((status)::text = 'PENDING_APPROVAL'::text) AND (approval_instance_id IS NOT NULL)) OR ((status)::text <> 'PENDING_APPROVAL'::text)))

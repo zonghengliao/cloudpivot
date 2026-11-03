@@ -48,11 +48,14 @@ use nik::prelude::chrono::Utc;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use crate::business::erp::approval_gate;
+use crate::business::erp::contract_bridge;
 use crate::business::erp::contract_dto::{
     ContractDetailRes, ContractFilter, ContractRes, ContractStatusReq, CreateContractReq,
     SUPPORTED_TYPES, UpdateContractReq, normalize_page, parse_optional_uuid, parse_uuid_text,
 };
 use crate::business::erp::contract_model::{self, ContractMut, STATUS_DRAFT};
+use crate::business::flow::{engine, model as flow_model};
 use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
@@ -99,6 +102,11 @@ fn not_usable(detail: &str) -> ApiError {
 /// 非法流转边（409 + `66015`），文案由状态机生成（含「当前态允许去哪」）。
 fn illegal_transition(message: String) -> ApiError {
     ApiError::new(409, error_code::ERP_CONTRACT_STATUS_ILLEGAL, message)
+}
+
+/// 通用冲突（409 + `RESOURCE_CONFLICT`）：重复提交审批 / 并发改动。
+fn conflict(message: String) -> ApiError {
+    ApiError::new(409, error_code::RESOURCE_CONFLICT, message)
 }
 
 /// 非草稿改单（409 + `66016`）。
@@ -203,7 +211,53 @@ async fn detail_of(id: Uuid) -> ResResult<ContractDetailRes> {
         .await
         .map_err(|error| utils::db_error(error, "回读合同"))?
         .ok_or_else(|| not_usable(&format!("id={id}")))?;
-    Ok(Res::ok(ContractDetailRes::from(&row)))
+    let mut detail = ContractDetailRes::from(&row);
+    fill_approval_no(std::slice::from_mut(&mut detail.base)).await;
+    Ok(Res::ok(detail))
+}
+
+/// 回填审批实例单号（`approval_instance_no`）：一次查完整页的实例号，逐行按 id 对上。
+///
+/// 为什么要它：列表 / 详情要显示「审批中（FLW-xxx）」—— 用户拿着单号能直接去审批中心
+/// 找到它；而 `ContractRes::from(&ContractRow)` 只拿得到实例 **id**。
+/// 批量查一次而不是逐行查（一页 20 行逐行查就是 20 次往返）。
+async fn fill_approval_no(rows: &mut [ContractRes]) {
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(|row| row.approval_instance_id.as_deref())
+        .filter_map(|raw| Uuid::parse_str(raw).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let found = db()
+        .find_with_params(
+            "SELECT id, instance_no FROM biz_flow_instance \
+              WHERE id = ANY(?::text::uuid[])",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await
+        .unwrap_or_default();
+    let map: std::collections::HashMap<String, String> = found
+        .iter()
+        .filter_map(|row| {
+            let id: Uuid = row.get_typed("id").ok()?;
+            let no: String = row.get_typed("instance_no").ok()?;
+            Some((id.to_string(), no))
+        })
+        .collect();
+    for row in rows.iter_mut() {
+        if let Some(id) = row.approval_instance_id.as_deref()
+            && let Some(no) = map.get(id)
+        {
+            row.approval_instance_no = Some(no.clone());
+        }
+    }
 }
 
 // ==================== ① 分页 ====================
@@ -236,7 +290,8 @@ pub async fn contract_page(
     let (rows, total) = contract_model::contract_page(&query)
         .await
         .map_err(|error| utils::db_error(error, "分页查询合同"))?;
-    let list = rows.iter().map(ContractRes::from).collect();
+    let mut list: Vec<ContractRes> = rows.iter().map(ContractRes::from).collect();
+    fill_approval_no(&mut list).await;
     Ok(Res::page(
         list,
         u64::try_from(total).unwrap_or(0),
@@ -544,7 +599,8 @@ fn validate_mutation(merged: &ContractMut) -> std::result::Result<(), ApiError> 
 
 // ==================== ⑤ 状态流转 ====================
 
-/// 合同状态流转（`DRAFT→SIGNED→ACTIVE→COMPLETED`，另有 `SIGNED/ACTIVE→TERMINATED`）。
+/// 合同状态流转（`DRAFT → PENDING_APPROVAL → SIGNED → ACTIVE → COMPLETED`，
+/// 另有 `PENDING_APPROVAL → DRAFT` 回位与 `SIGNED/ACTIVE → TERMINATED`）。
 ///
 /// # 边从哪来
 ///
@@ -553,17 +609,26 @@ fn validate_mutation(merged: &ContractMut) -> std::result::Result<(), ApiError> 
 ///
 /// # 顺序
 ///
-/// 1. 目标态白名单（5 态；卡面的 `CANCELLED` 不存在 → 400 并点名可用态）；
+/// 1. 目标态白名单（6 态；卡面的 `CANCELLED` 不存在 → 400 并点名可用态）；
 /// 2. 事务 + `FOR UPDATE` 锁行，取当前态；
 /// 3. 边判定（非法 → 409 + `66015`，文案带「当前态允许去哪」）；
-/// 4. DDL 前置：目标态需要日期三件套（`ck_biz_contract_signed_dates`）→ 缺 → 400；
-/// 5. `transition()`（需要 reason 的边缺 reason → 它自己报 400）；
-/// 6. 带 CAS 的 `UPDATE status`，0 行 → 409。
+///    **`DRAFT → SIGNED/ACTIVE` 在这里被拒**，文案直接点名「先提交审批」
+///    （R-P1-1 的核心：没人审过的合同不能变成可用于付款的已签状态）；
+/// 4. 目标态 = `PENDING_APPROVAL` → 走**提交审批**分支（起 `contract_approve` 实例 +
+///    回写 `approval_instance_id`，与本事务同生共死，见 [`submit_approval_tx`]）；
+/// 5. 目标态 = `DRAFT` 且当前 `PENDING_APPROVAL` → 视为**撤回**：先在跑的审批终止
+///    （否则留下孤儿实例，下次提交撞唯一索引），再走普通流转并清空实例；
+/// 6. DDL 前置：目标态需要日期三件套（`ck_biz_contract_signed_dates`）→ 缺 → 400；
+/// 7. `transition()`（需要 reason 的边缺 reason → 它自己报 400）；
+/// 8. 带 CAS 的 `UPDATE status`，0 行 → 409。
 ///
 /// # 异常情况
 ///
-/// - 400 + `10001`：目标态非法 / 缺 reason / 缺日期；404 + `66014`：合同不存在；
-/// - 409 + `66015`：非法边或并发冲突；500：数据库异常。
+/// - 400 + `10001`：目标态非法 / 缺 reason / 缺日期；
+/// - 404 + `66014`：合同不存在；409 + `66015`：非法边或并发冲突；
+/// - 409 + `65020`（`APPROVAL_FLOW_NOT_CONFIGURED`）：没有已发布的 `contract_approve`
+///   流程（fail-closed，显式跳过需 `business:erp:skip-approval` + ≥10 字理由）；
+/// - 403 / 422：发起审批时的内控 / 审批人解析问题（引擎原码透传）；500：数据库异常。
 #[nik::permission(
     path = "/business/erp/contract/{id}/status",
     method = "PATCH",
@@ -599,10 +664,69 @@ pub async fn contract_change_status(
     // ③ 边判定：注册表是唯一真相（不是 handler 里的 match）
     let entity = state_machine::Entity::Contract;
     if !entity.can_transition(&row.status, &target) {
-        let message =
-            state_machine::rejection_message(state_machine::ENTITY_CONTRACT, &row.status, &target);
+        let message = reveal_approval_requirement(&row, &target).unwrap_or_else(|| {
+            state_machine::rejection_message(state_machine::ENTITY_CONTRACT, &row.status, &target)
+        });
         let _ = tx.rollback().await;
         return Err(illegal_transition(message));
+    }
+
+    // ④ 提交审批：起流程 + 回写实例（同事务）
+    if target == contract_model::STATUS_PENDING_APPROVAL {
+        let mut out = match submit_approval_tx(&tx, id, &row, &req, &claims, operator).await {
+            Ok(out) => out,
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(error);
+            }
+        };
+        let instance = out.instance_id.unwrap_or_default();
+        let auto_finished = out.instance_status.eq_ignore_ascii_case("APPROVED");
+        if let Err(error) = tx.commit().await {
+            return Err(utils::db_error(error, "提交合同审批事务"));
+        }
+        // 锁外副作用（审批通知 / 客户自配的通知节点）必须在提交之后发，失败只 WARN
+        let effects = out.effects.take();
+        if !effects.is_empty() {
+            engine::flush_effects(effects).await;
+        }
+        let drafts = out.effects.take_drafts();
+        if !drafts.is_empty() {
+            engine::flush_drafts(drafts).await;
+        }
+        tracing::info!(
+            contract_id = %id,
+            contract_no = %row.contract_no,
+            instance_id = %instance,
+            flow_code = %contract_bridge::FLOW_CODE,
+            "合同已提交审批（状态 PENDING_APPROVAL）"
+        );
+        // 流程里没有任何审批节点（全被跳过 / 免审配置）→ 实例在同一个事务里就走完了，
+        // 提交后立刻执行「审批通过」的回调，否则合同会停在 PENDING_APPROVAL 且没有待办能推进它。
+        if auto_finished {
+            contract_bridge::on_contract_settled(Some(instance), "APPROVED").await;
+        }
+        return detail_of(id).await;
+    }
+
+    // ⑤ 审批中 → 草稿（手动撤回）：先终止在跑的审批，别留孤儿实例
+    if row.status == contract_model::STATUS_PENDING_APPROVAL
+        && target == contract_model::STATUS_DRAFT
+    {
+        match contract_bridge::cancel_approval_of(
+            &tx,
+            id,
+            &row.contract_no,
+            "合同撤回审批（操作人主动把单据改回草稿）",
+        )
+        .await
+        {
+            Ok(_) => {}
+            Err(error) => {
+                let _ = tx.rollback().await;
+                return Err(utils::db_error(error, "终止合同审批实例"));
+            }
+        }
     }
 
     // ④ DDL 前置：SIGNED / ACTIVE / COMPLETED 要求 sign/start/end 三件套齐全
@@ -650,16 +774,24 @@ pub async fn contract_change_status(
         return Err(error);
     }
 
-    // ⑥ 带 CAS 的写状态
-    let affected = match contract_model::contract_write_status(
-        &tx,
-        id,
-        &row.status,
-        &target,
-        operator,
-    )
-    .await
-    {
+    // ⑦ 带 CAS 的写状态
+    //    * 从 `PENDING_APPROVAL` 回位（撤回 / 人工驳回）→ 连实例一起清空，
+    //      否则合同挂在「草稿 + 旧实例」上，下次提交会撞 `uk_biz_flow_instance_biz_active`；
+    //    * 其余边（`SIGNED→ACTIVE` 等）只写状态，`approval_instance_id` 保留作审计。
+    let write = if row.status == contract_model::STATUS_PENDING_APPROVAL {
+        contract_model::contract_apply_approval_transition(
+            &tx,
+            id,
+            &row.status,
+            &target,
+            operator,
+            None,
+        )
+        .await
+    } else {
+        contract_model::contract_write_status(&tx, id, &row.status, &target, operator).await
+    };
+    let affected = match write {
         Ok(rows) => rows,
         Err(error) => {
             let _ = tx.rollback().await;
@@ -678,6 +810,264 @@ pub async fn contract_change_status(
         .map_err(|error| utils::db_error(error, "提交合同状态流转事务"))?;
 
     detail_of(id).await
+}
+
+// ==================== ⑤-b 提交审批（内部） ====================
+
+/// 边表判定失败时的「额外提示」：把 `DRAFT → SIGNED/ACTIVE` 这种**被审批要求挡住**的边
+/// 翻译成用户能照着做的文案（而不是干巴巴的「非法流转」）。
+///
+/// 为什么单独一个函数：文案要带合同号与当前状态，还要点名「提交到哪个目标态」，
+/// 塞进 `match` 里会把 handler 撑成第二张边表（P10 铁律③的坑）。
+fn reveal_approval_requirement(
+    row: &contract_model::ContractStateRow,
+    target: &str,
+) -> Option<String> {
+    if row.status != contract_model::STATUS_DRAFT {
+        return None;
+    }
+    if target != contract_model::STATUS_SIGNED && target != contract_model::STATUS_ACTIVE {
+        return None;
+    }
+    Some(format!(
+        "合同 {} 当前是「草稿」：{} 必须先提交审批（target_status=PENDING_APPROVAL），\
+         审批通过后系统自动落「已签订（SIGNED）」，再点「生效」到 ACTIVE。\
+         这是内控要求（ARCH-3 R-P1-1）：没人审过的合同不能变成可用于采购付款的已签状态。",
+        row.contract_no,
+        if target == contract_model::STATUS_SIGNED {
+            "「登记签订」"
+        } else {
+            "「生效」"
+        }
+    ))
+}
+
+/// 提交审批的事务体：`DRAFT → PENDING_APPROVAL` + 起 `contract_approve` 实例 + 回写实例 id。
+///
+/// 返回引擎动作结果（调用方**提交事务之后**负责发锁外副作用：审批通知 / 通知节点草稿）。
+///
+/// # 闸门顺序（越早拒绝越好，全部在同一个事务里）
+///
+/// 1. 三个日期必须齐全 —— 审批通过会直接落 `SIGNED`，而 `ck_biz_contract_signed_dates`
+///    要求 `SIGNED` 三件套齐全；提交时不校验，审批通过那一刻就会 500（最难排查的形态）；
+/// 2. 同一单已有在跑的审批 → 409 且带审批单号（幂等，与采购单同款文案）；
+/// 3. 流程：**有流程就必须走流程**（请求里带 `skip_approval` 也 400）；
+///    没流程 → `approval_gate::authorize_missing_flow`（默认 409 + 点名 `contract_approve`，
+///    只有 `business:erp:skip-approval` + ≥10 字理由才放行）；
+/// 4. 没流程且被显式跳过 → 直接落 `SIGNED`（记一条 warn + 理由进 `biz_status_log`），
+///    与「审批通过」同一个落点 —— 跳过审批不能产生一个谁都没批过的「审批中」。
+async fn submit_approval_tx(
+    tx: &Transaction,
+    id: Uuid,
+    row: &contract_model::ContractStateRow,
+    req: &ContractStatusReq,
+    claims: &TokenClaims,
+    operator: Option<Uuid>,
+) -> std::result::Result<engine::ActionOut, ApiError> {
+    // ① 只有草稿能提交审批（边表已保证，这里再核一次状态值便于文案）
+    if row.status != contract_model::STATUS_DRAFT {
+        return Err(conflict(format!(
+            "合同 {} 当前是「{}」（{}），只有草稿（DRAFT）可以提交审批",
+            row.contract_no,
+            contract_model::status_label(&row.status),
+            row.status
+        )));
+    }
+    // ② 三个日期必须齐全（审批通过直接落 SIGNED）
+    let missing: Vec<&str> = [
+        ("sign_date", row.sign_date.is_none()),
+        ("start_date", row.start_date.is_none()),
+        ("end_date", row.end_date.is_none()),
+    ]
+    .into_iter()
+    .filter_map(|(name, absent)| absent.then_some(name))
+    .collect();
+    if !missing.is_empty() {
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "合同 {} 提交审批前必须先补全 {}：审批通过会直接把合同落成「已签订」，\
+                 而 ck_biz_contract_signed_dates 要求三个日期齐全（草稿可用 PUT 补）",
+                row.contract_no,
+                missing.join(" / ")
+            ),
+        ));
+    }
+    // ③ 幂等：同一单已有在跑的审批 → 409
+    if flow_model::biz_instance_running(contract_bridge::BIZ_TYPE, id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询在跑审批单"))?
+    {
+        return Err(conflict(format!(
+            "合同 {} 已在审批中：请等审批结束，或从审批中心撤回后再提交",
+            row.contract_no
+        )));
+    }
+    let flow = contract_bridge::published_contract_flow()
+        .await
+        .map_err(|error| utils::db_error(error, "查询合同审批流程"))?;
+    let gate = approval_gate::ApprovalGate::new(&req.gate, claims);
+    let Some(flow) = flow else {
+        // ARCH-3 DC-01 的 fail-closed 在这里**更严一档**：合同**不提供**「跳过审批」旁路。
+        //
+        // 采购单 / 收货单没流程时还能靠 `business:erp:skip-approval` + 理由放行（它们
+        // 的边表里有 `DRAFT → SUBMITTED` / `DRAFT → POSTED` 这类「不走审批也能推进」的边）。
+        // 合同的边表里**没有** `DRAFT → SIGNED`（R-P1-1 就是要封掉它），所以「跳过审批」
+        // 在合同上唯一可行的实现就是绕过状态机 —— 那等于把本卡刚堵上的洞重新打开。
+        //
+        // 于是这里一律 409：让管理员去发布 `contract_approve`（种子 `V0209` 已经种好，
+        // 正常库不会走到这里；走到这里说明有人删了/停用了流程）。请求里带
+        // `skip_approval=true` 也是 409，报文同样点名流程编码。
+        let _ = gate;
+        return Err(ApiError::new(
+            409,
+            error_code::APPROVAL_FLOW_NOT_CONFIGURED,
+            format!(
+                "没有配置已发布的审批流程 `{}`（业务类型 {}）：合同必须先审批才能签订/生效，\
+                 本次提交已被拒绝。请让管理员在「审批配置」里发布该流程\
+                 （种子迁移 V0209 已预置，正常库不应缺失）。",
+                contract_bridge::FLOW_CODE,
+                contract_bridge::BIZ_TYPE
+            ),
+        ));
+    };
+    // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
+    approval_gate::ensure_not_skipped(&flow.flow_code, &gate)?;
+    let Some(operator_id) = operator else {
+        return Err(ApiError::new(
+            401,
+            error_code::AUTH_TOKEN_MISSING,
+            "提交审批需要登录用户（令牌里没有用户 id）",
+        ));
+    };
+    let (initiator_name, initiator_dept_id) = flow_model::user_profile(operator_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询发起人"))?
+        .unwrap_or((String::new(), None));
+    let instance_id = Uuid::now_v7();
+    let title = format!("{} 合同审批", row.contract_no)
+        .chars()
+        .take(200)
+        .collect::<String>();
+    let start = engine::StartReq {
+        instance_id,
+        def_id: flow.def_id,
+        version_id: flow.version_id,
+        version_no: flow.version_no,
+        flow_code: flow.flow_code.clone(),
+        flow_name: flow.flow_name.clone(),
+        biz_type: flow.biz_type.clone(),
+        biz_id: Some(id),
+        biz_no: Some(row.contract_no.clone()),
+        title,
+        initiator_id: operator_id,
+        initiator_name: Some(initiator_name),
+        initiator_dept_id,
+        form_data: contract_form_data(id, row).await,
+    };
+    let mut out = engine::start(tx, &start)
+        .await
+        .map_err(|error| submit_conflict(error, "发起合同审批单", &row.contract_no))?;
+    if let Some(rejected) = out.rejected.take() {
+        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
+            "（内控要求：审批人不能是发起人本人。请由他人提交，或让另一个账号具备审批权限后再审）"
+        } else {
+            ""
+        };
+        return Err(ApiError::new(
+            rejected.status,
+            rejected.code,
+            format!("{}{hint}", rejected.msg),
+        ));
+    }
+    let started = out
+        .instance_id
+        .ok_or_else(|| ApiError::new(500, error_code::INTERNAL_ERROR, "审批单发起后没有实例 id"))?;
+    // 状态机唯一入口（边校验 + 写 biz_status_log）
+    state_machine::transition(
+        tx,
+        state_machine::ENTITY_CONTRACT,
+        id,
+        &row.contract_no,
+        &contract_model::LEGAL_EDGES,
+        contract_model::STATUS_DRAFT,
+        contract_model::STATUS_PENDING_APPROVAL,
+        operator,
+        Some("提交审批"),
+        None,
+    )
+    .await?;
+    // CAS 回写：状态 + 实例 id（同一条 UPDATE，杜绝「状态变了但没挂实例」）
+    let affected = contract_model::contract_apply_approval_transition(
+        tx,
+        id,
+        contract_model::STATUS_DRAFT,
+        contract_model::STATUS_PENDING_APPROVAL,
+        operator,
+        Some(started),
+    )
+    .await
+    .map_err(|error| write_error(error, "合同进入审批中"))?;
+    if affected == 0 {
+        return Err(illegal_transition(format!(
+            "合同 {} 的状态在本次提交期间已被改动（期望 DRAFT），请刷新后重试",
+            row.contract_no
+        )));
+    }
+    Ok(out)
+}
+
+/// 合同审批的**表单变量**。金额必须写成 JSON **数字**（不是字符串）：
+/// 条件边比较走 `as_f64()`，`"500000.0000"` 会 TypeMismatch → 引擎按「条件不成立」
+/// 静默走兜底边（这会静默把 ≥10 万的合同降级成单级审批 —— 正是审批最不该出错的地方）。
+///
+/// 同时把**人看的中文名**冻进 `form_data`：审批岗位角色没有 `business:erp:*` 读权限
+/// （`form_snapshot` 文件头有实测），审批人零 ERP 权限也要能看懂这是哪家供应商的合同。
+async fn contract_form_data(id: Uuid, row: &contract_model::ContractStateRow) -> serde_json::Value {
+    let full = contract_model::contract_find(id).await.ok().flatten();
+    let amount_text = full
+        .as_ref()
+        .map(|item| item.amount.round_dp(4).to_string())
+        .unwrap_or_default();
+    let number = amount_text
+        .parse::<f64>()
+        .ok()
+        .and_then(serde_json::Number::from_f64)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null);
+    let mut form = serde_json::json!({
+        "contract_id": id.to_string(),
+        "contract_no": row.contract_no,
+        "amount": number,
+        "amount_text": amount_text,
+        "sign_date": row.sign_date.map(|d| d.to_string()),
+        "start_date": row.start_date.map(|d| d.to_string()),
+        "end_date": row.end_date.map(|d| d.to_string()),
+    });
+    if let Some(full) = full.as_ref() {
+        for (key, value) in [
+            ("contract_name", Some(full.contract_name.clone())),
+            ("contract_type", Some(full.contract_type.clone())),
+            ("currency_code", Some(full.currency_code.trim().to_string())),
+        ] {
+            if let Some(value) = value {
+                form[key] = serde_json::Value::String(value);
+            }
+        }
+        form["supplier_id"] = serde_json::Value::String(full.party_b_id.to_string());
+        form["supplier_name"] = serde_json::Value::String(full.party_b_name.clone());
+        form["create_by"] = match full.create_by {
+            Some(id) => serde_json::Value::String(id.to_string()),
+            None => serde_json::Value::Null,
+        };
+    }
+    form
+}
+
+/// 发起审批时的写冲突翻译（唯一索引撞车 / 其它写错误）。
+fn submit_conflict(error: DbError, ctx: &str, contract_no: &str) -> ApiError {
+    write_error(error, &format!("{ctx}（{contract_no}）"))
 }
 
 // ==================== ⑥ 软删 ====================
@@ -748,6 +1138,23 @@ pub async fn contract_delete(
         let _ = tx.rollback().await;
         return Err(not_usable(&format!("id={id}（并发删除）")));
     }
+    // R-P1-1：审批中删单是合法的反向路径（草稿作废走软删除），但**在跑的审批必须先终止**
+    // —— 审批实例的 `biz_id` 是弱引用，合同删了而实例还在跑，就是一条永远等不到回调的
+    // 孤儿待办（点进去 404），并且会撞 `uk_biz_flow_instance_biz_active`。
+    let cancelled = match contract_bridge::cancel_approval_of(
+        &tx,
+        id,
+        &row.contract_no,
+        "合同已删除（草稿作废），在跑的审批一并终止",
+    )
+    .await
+    {
+        Ok(count) => count,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(utils::db_error(error, "终止合同审批实例"));
+        }
+    };
     tx.commit()
         .await
         .map_err(|error| utils::db_error(error, "提交删除合同事务"))?;
@@ -756,6 +1163,7 @@ pub async fn contract_delete(
         "id": id.to_string(),
         "contract_no": row.contract_no,
         "deleted": true,
+        "cancelled_approvals": cancelled.unwrap_or(0),
         "reference_guard": if referencing.is_none() {
             "skipped: biz_purchase_order.contract_id 尚未建列（A3 落地后自动生效）"
         } else {
@@ -856,7 +1264,7 @@ mod tests {
             contract_model::legal_edges_match_registry(),
             "contract_model::LEGAL_EDGES 与 state_machine::CONTRACT_EDGES 不一致（transition 会 500）"
         );
-        assert_eq!(contract_model::LEGAL_EDGES.len(), 5);
+        assert_eq!(contract_model::LEGAL_EDGES.len(), 7);
         let entity = state_machine::Entity::Contract;
         for (from, to) in contract_model::LEGAL_EDGES {
             assert!(
@@ -1129,7 +1537,11 @@ mod tests {
             "关联带出的现值"
         );
         assert!(detail.can_edit, "草稿可改");
-        assert_eq!(detail.next_statuses, vec!["SIGNED".to_string()]);
+        assert_eq!(
+            detail.next_statuses,
+            vec!["PENDING_APPROVAL".to_string()],
+            "R-P1-1：草稿只有一个去处 —— 提交审批（不再能一步签订）"
+        );
     }
 
     /// 验收第 3 条：party_b_id 不存在 → 400 + 66021。
@@ -1181,25 +1593,28 @@ mod tests {
         assert_eq!(detail.base.status, "DRAFT", "改单不动状态");
     }
 
+    /// 前置：把合同直接推到某个「已签」状态（**只用于给别的用例造前置**）。
+    ///
+    /// 为什么可以绕过状态机：`DRAFT → SIGNED` 在 R-P1-1 之后已经不是合法边了（必须走审批），
+    /// 而这几条用例测的是「非草稿能不能改」「终止边要不要 reason」—— 它们只需要一个
+    /// **状态值**，不需要审批链路。真正的「提交审批 → 通过 → SIGNED」链路由
+    /// `contract_approval_tests` 覆盖（真种子 + 真待办）。
+    async fn force_status(id: Uuid, status: &str) {
+        db().execute_with_params(
+            "UPDATE biz_contract SET status = ? WHERE id = ?::uuid",
+            vec![Value::Text(status.to_string()), Value::from(&id)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造前置状态失败：{err}"));
+    }
+
     /// 验收第 7 条：修改非 DRAFT → 409 + 66016（卡面写 400 + 66014，已按 A1 的码表更正）。
     #[tokio::test]
     async fn update_non_draft_returns_66016() {
         let Some(_guard) = setup().await else { return };
         let (id, _name) = create_ok("LOCK").await;
-        // 先流转到 SIGNED（合法的第一条边）
-        data(
-            contract_change_status(
-                Extension(AuthClaims(claims())),
-                Path(id.to_string()),
-                Json(ContractStatusReq {
-                    target_status: Some("SIGNED".to_string()),
-                    reason: None,
-                    status: None,
-                }),
-            )
-            .await
-            .expect("DRAFT→SIGNED"),
-        );
+        // 前置：已签订（真实链路见 contract_approval_tests）
+        force_status(id, "SIGNED").await;
 
         let err = contract_update(
             Extension(AuthClaims(claims())),
@@ -1215,30 +1630,17 @@ mod tests {
         assert_eq!(err.code, error_code::ERP_CONTRACT_FIELD_LOCKED);
     }
 
-    /// 验收第 8 条：状态流转合法边成功（DRAFT → SIGNED；卡面的 DRAFT→ACTIVE 不是合法边）。
+    /// 验收第 8 条：状态流转合法边成功。
+    ///
+    /// R-P1-1 之后 `DRAFT` 的第一条边变成「提交审批」（`DRAFT → PENDING_APPROVAL`），
+    /// 完整链路（提交 → 一级/两级审批 → SIGNED → ACTIVE）由 `contract_approval_tests`
+    /// 用真种子跑；这里验「签订之后」那条边：`SIGNED → ACTIVE` 放行 + 写状态日志。
     #[tokio::test]
     async fn status_legal_edge_moves_forward() {
         let Some(_guard) = setup().await else { return };
         let (id, _name) = create_ok("MOVE").await;
+        force_status(id, "SIGNED").await;
 
-        let signed = data(
-            contract_change_status(
-                Extension(AuthClaims(claims())),
-                Path(id.to_string()),
-                Json(ContractStatusReq {
-                    target_status: Some("SIGNED".to_string()),
-                    ..Default::default()
-                }),
-            )
-            .await
-            .expect("DRAFT→SIGNED"),
-        );
-        assert_eq!(signed.base.status, "SIGNED");
-        assert_eq!(signed.base.status_label, "已签订");
-        assert!(signed.usable_for_order, "SIGNED 可被采购单引用");
-        assert!(!signed.can_edit, "非草稿不可改");
-
-        // 继续走 SIGNED → ACTIVE
         let active = data(
             contract_change_status(
                 Extension(AuthClaims(claims())),
@@ -1252,8 +1654,10 @@ mod tests {
             .expect("SIGNED→ACTIVE"),
         );
         assert_eq!(active.base.status, "ACTIVE");
+        assert_eq!(active.base.status_label, "已生效");
+        assert!(active.usable_for_order, "已生效可被采购单引用");
 
-        // biz_status_log 必须留下两条轨迹（状态机的副作用）
+        // biz_status_log 必须留下轨迹（状态机的副作用）
         let logged: i64 = db()
             .scalar_with_params(
                 "SELECT count(*) FROM biz_status_log WHERE entity_type = 'CONTRACT' AND entity_id = ?::uuid",
@@ -1261,7 +1665,7 @@ mod tests {
             )
             .await
             .expect("查状态日志");
-        assert_eq!(logged, 2, "两次流转要有两条日志（谁在什么时候改的）");
+        assert_eq!(logged, 1, "一次流转要有一条日志（谁在什么时候改的）");
     }
 
     /// 验收第 9 条：非法边 → 409 + 66015（卡面写 400 + 66014，已按 A1 的码表更正）。
@@ -1301,18 +1705,7 @@ mod tests {
     async fn status_reason_edge_without_reason_returns_400() {
         let Some(_guard) = setup().await else { return };
         let (id, _name) = create_ok("REASON").await;
-        data(
-            contract_change_status(
-                Extension(AuthClaims(claims())),
-                Path(id.to_string()),
-                Json(ContractStatusReq {
-                    target_status: Some("SIGNED".to_string()),
-                    ..Default::default()
-                }),
-            )
-            .await
-            .expect("DRAFT→SIGNED"),
-        );
+        force_status(id, "SIGNED").await;
 
         let err = contract_change_status(
             Extension(AuthClaims(claims())),
@@ -1321,6 +1714,7 @@ mod tests {
                 target_status: Some("TERMINATED".to_string()),
                 reason: None,
                 status: None,
+                ..Default::default()
             }),
         )
         .await
@@ -1337,6 +1731,7 @@ mod tests {
                     target_status: Some("TERMINATED".to_string()),
                     reason: Some("供应商违约".to_string()),
                     status: None,
+                    ..Default::default()
                 }),
             )
             .await

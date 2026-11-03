@@ -616,8 +616,18 @@ impl UpdateContractReq {
 /// 状态流转请求（`PATCH /business/erp/contract/{id}/status`）。
 ///
 /// ```json
-/// { "target_status": "SIGNED", "reason": "可选，两条终止边必填" }
+/// { "target_status": "PENDING_APPROVAL", "reason": "可选，两条终止边必填" }
 /// ```
+///
+/// # `target_status = PENDING_APPROVAL` 就是「提交审批」（R-P1-1）
+///
+/// 不另开一个 `/submit-approval` 端点，理由：**合同的每一次状态变化都必须过状态机**
+/// （ARCH-2 DEC-10「状态变更只有一个入口」）。多一个端点 = 多一条能绕开边表的写库路径。
+/// 于是「提交审批」在协议层就是一条普通流转，只是这条流转在事务里多做两件事：
+/// 起 `contract_approve` 审批实例 + 把实例 id 回写到合同。
+///
+/// 没配流程时的「显式跳过审批」也复用同一入口的 `skip_approval` / `skip_reason`
+/// 两个字段（口径与采购单 / 收货单的 `approval_gate::SkipApprovalReq` 逐字一致）。
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct ContractStatusReq {
@@ -627,6 +637,9 @@ pub struct ContractStatusReq {
     pub status: Option<String>,
     /// 原因（`SIGNED→TERMINATED` / `ACTIVE→TERMINATED` 必填）。
     pub reason: Option<String>,
+    /// 「显式跳过审批」片段（只有「没发布 contract_approve 流程」时才可能生效）。
+    #[serde(flatten)]
+    pub gate: crate::business::erp::approval_gate::SkipApprovalReq,
 }
 
 impl ContractStatusReq {
@@ -701,6 +714,11 @@ pub struct ContractRes {
     pub status: String,
     /// 状态中文名。
     pub status_label: String,
+    /// 提交审批的实例 id（R-P1-1；`null` = 从未提交过审批）。
+    pub approval_instance_id: Option<String>,
+    /// 审批实例单号（`FLW-…`；与 `approval_instance_id` 同源，列表直接展示
+    /// 「审批中（FLW-xxx）」；实例查不到时为 `null`）。
+    pub approval_instance_no: Option<String>,
     /// 最后更新时间。
     pub updated_at: DateTime<Utc>,
 }
@@ -724,6 +742,10 @@ impl From<&ContractRow> for ContractRes {
             end_date: row.end_date,
             status: row.status.clone(),
             status_label: contract_model::status_label(&row.status).to_string(),
+            approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
+            // 单号要查一次实例表：`From<&ContractRow>` 只拿得到 id。
+            // 列表 / 详情都由 `contract_handler::fill_approval_no` 批量回填。
+            approval_instance_no: None,
             updated_at: row.updated_at,
         }
     }
@@ -1016,6 +1038,7 @@ mod tests {
             create_by: None,
             update_by: None,
             deleted_at: None,
+            approval_instance_id: None,
         };
         let res = ContractRes::from(&row);
         assert_eq!(
@@ -1035,8 +1058,8 @@ mod tests {
         assert!(!detail.usable_for_order, "DRAFT 不能被采购单引用");
         assert_eq!(
             detail.next_statuses,
-            vec!["SIGNED".to_string()],
-            "去向由状态机给"
+            vec!["PENDING_APPROVAL".to_string()],
+            "去向由状态机给（R-P1-1：草稿只能提交审批）"
         );
     }
 }
