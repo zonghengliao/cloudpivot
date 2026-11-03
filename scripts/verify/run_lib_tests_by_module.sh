@@ -23,6 +23,10 @@
 #      用例已经用 `ERP_DB_URL` 装好了全局连接，它就直接拿别人的库开跑，`P0FIX_DB_URL` 形同虚设。
 #      实测：整段 `business::flow::` 跑完，7 条 `p0fix_*` 定义落进了 ERP 库，而 P0FIX 库一行没有；
 #      把 `P0FIX_DB_URL` 指到一个**根本不存在的库**，flow 段照样 345/0 全绿——这就是证据。
+#      **已收口（卡 t_f38d1f45）**：`ensure_db()` 现在会问 `SELECT current_database()`，与
+#      `P0FIX_DB_URL` 的库名不一致就 panic 并指路（不再静默降级）。因此本脚本的 `flow` 模块
+#      显式 `--skip business::flow::internal_control::db_tests`，那 7 条归 `flow_p0fix` 模块独占进程跑。
+#      证据：docs/evidence/20261104-setdb-reuse-guard/
 #
 # 结论：真库用例的隔离单位是「模块 × 进程 × 库」，不是「一次 cargo test 跑全部」。
 #       本脚本把这条跑法固化下来，并在跑之前/之后做洁净性与泄漏校验。
@@ -197,6 +201,23 @@ filter_of() {
 }
 module_db_name() { printf '%s' "${1%%=*}"; }
 
+# ── 模块要**排除**的用例（libtest `--skip`）─────────────────────────────────
+# `internal_control::db_tests` 是唯一一组「要求连**指定库**」的用例：它断言库名必须含
+# p0fix（`P0FIX_DB_URL`），且靠真实库造审批实例 / 待办。它归 `flow_p0fix` 模块独占进程跑；
+# 而 `flow` 模块的过滤器 `business::flow::` 会把它一起捞进来 —— 那时进程里全局 db() 已经被
+# 更早的 `edge_admin_tests` 用 ERP_DB_URL 装好，`set_db()` 是 OnceLock 换不了库。
+#
+# 修复前这里靠 `ensure_db()` 的 `if try_db().is_some() { return true }` 静默降级（于是那 7 条
+# 用例跑在 ERP 库上、`test result` 仍然是绿的）；现在 `ensure_db()` 会显式 panic 并指路
+# （卡 `t_f38d1f45`）。所以 `flow` 模块必须显式把它 skip 掉，否则整段变红——但那不是回归，
+# 是「不许再在别人的库上跑」的正常反应。
+skip_of() {
+  case "$1" in
+    flow) printf '%s' 'business::flow::internal_control::db_tests' ;;
+    *)    printf '%s' '' ;;
+  esac
+}
+
 # ── 洁净性前置断言：模块库必须是「刚建出来的空库」 ─────────────────────────
 preflight() { # <db> <label>
   local db="$1" label="$2" row
@@ -231,6 +252,10 @@ preflight() { # <db> <label>
 run_once() { # <module> <run#> <db> <p0fix_db> <run_log> <module_log>
   local module="$1" run="$2" db="$3" p0fix="$4" run_log="$5" module_log="$6"
   local filter; filter=$(filter_of "$module")
+  local skip; skip=$(skip_of "$module")
+  local -a skip_args=()
+  if [ -n "$skip" ]; then skip_args=(--skip "$skip"); fi
+  local skip_text=""; if [ -n "$skip" ]; then skip_text=" --skip '$skip'"; fi
   {
     say ""
     say "==================================================================="
@@ -238,7 +263,7 @@ run_once() { # <module> <run#> <db> <p0fix_db> <run_log> <module_log>
     say "  库：$db    P0FIX：$p0fix"
     say "  时间：$(date '+%F %T %Z')  HEAD：$(cd "$ROOT" && git rev-parse --short HEAD 2>/dev/null || echo n/a)"
     say "  命令：ERP_DB_URL=…/$db TASK_DB_URL=…/$db P0FIX_DB_URL=…/$p0fix \\"
-    say "        $CARGO_BIN test --lib '$filter' -- --test-threads=1"
+    say "        $CARGO_BIN test --lib '$filter' -- --test-threads=1$skip_text"
     say "==================================================================="
   } | tee -a "$module_log" > "$run_log"
 
@@ -250,7 +275,7 @@ run_once() { # <module> <run#> <db> <p0fix_db> <run_log> <module_log>
     ERP_DB_URL="postgres://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$db" \
     TASK_DB_URL="postgres://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$db" \
     P0FIX_DB_URL="postgres://$DB_USER:$DB_PASS@$DB_HOST:$DB_PORT/$p0fix" \
-    "$CARGO_BIN" test --lib "$filter" -- --test-threads=1 2>&1 ) \
+    "$CARGO_BIN" test --lib "$filter" -- --test-threads=1 "${skip_args[@]}" 2>&1 ) \
     | tee -a "$run_log" \
     | grep -aE '^test result:|^failures:$|^error(\[|:)|^running [0-9]+ tests' || true
   local rc=${PIPESTATUS[0]}

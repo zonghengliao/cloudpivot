@@ -1,0 +1,111 @@
+# 库内行数：修复前 vs 修复后（对应 01 / 02 / 04 / 05 四次跑完之后立刻执行的 psql 输出）
+# 库：hyg_f38d_erp（= ERP_DB_URL/TASK_DB_URL 目标）  hyg_f38d_p0fix（= P0FIX_DB_URL 目标）
+# 两库都在每次跑之前用 `createdb -T cloudpivot_libtest_template` 重建（模板=干净库：102 张表 / 11 条流程定义 / 1 个用户）
+#
+# 查询：
+#   select 'p0fix_defs='||count(*) from biz_flow_def where flow_code like 'p0fix%';
+#   select 'defs_total='||count(*) from biz_flow_def;
+#   select 'instances='||count(*) from biz_flow_instance;
+#   select 'tasks='||count(*) from biz_flow_task;
+#   select 'users='||count(*) from sys_user;
+
+================================================================================
+[A] 修复前 —— 01_before_same_process_flow_segment.txt（HEAD 5dd36c0 原代码）
+    命令：ERP_DB_URL=…/hyg_f38d_erp  TASK_DB_URL=…/hyg_f38d_erp  P0FIX_DB_URL=…/hyg_f38d_p0fix
+          cargo test --lib 'business::flow::' -- --test-threads=1
+    结果：test result: ok. 345 passed; 0 failed    ← 全绿，看不出任何异常
+--------------------------------------------------------------------------------
+--- hyg_f38d_erp            ← 7 条 p0fix_* 定义落在了**业务库**
+p0fix_defs=7
+defs_total=20
+instances=15
+tasks=22
+users=39
+--- hyg_f38d_p0fix          ← P0FIX 库一行没写：P0FIX_DB_URL 形同虚设
+p0fix_defs=0
+defs_total=11
+instances=0
+tasks=0
+users=1
+
+================================================================================
+[B] 修复后 —— 02_after_same_process_flow_segment.txt（本卡代码，**不加** --skip）
+    同一命令、同一环境、同一干净库
+    结果：test result: FAILED. 338 passed; 7 failed    ← 那 7 条**显式失败并指路**
+--------------------------------------------------------------------------------
+--- hyg_f38d_erp
+p0fix_defs=0       ← 再也不会静默写进 ERP 库（修复前是 7）
+defs_total=13
+instances=9
+tasks=7
+users=4
+--- hyg_f38d_p0fix
+p0fix_defs=0       ← 这个进程根本没去连 P0FIX 库（正因为连不上，才必须失败而不是假装通过）
+defs_total=11
+instances=0
+tasks=0
+users=1
+
+  7 条失败的 panic 原文（每条一样，摘自 02 的 failures 段）：
+  ---- business::flow::internal_control::db_tests::countersign_all_excluded_fails_closed stdout ----
+  thread '…::countersign_all_excluded_fails_closed' panicked at src/business/flow/internal_control.rs:404:25:
+
+  [internal_control::db_tests] 全局 db() 已被同进程更早的用例初始化，且连的不是 P0FIX 库 ——
+  本组用例拒绝在别人的库上跑（那样 P0FIX_DB_URL 与「库名必须含 p0fix」的断言都不会被执行）。
+    · 当前全局连接实际连的库：hyg_f38d_erp
+    · P0FIX_DB_URL 要求的库    ：hyg_f38d_p0fix（postgres://alun:***@127.0.0.1:5432/hyg_f38d_p0fix）
+  成因：set_db() 是进程级 OnceLock（先到先得），同进程里更早的用例一旦用 ERP_DB_URL /
+  TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。
+  下一步（任选其一）：
+  1) 本组用例独占进程：
+  P0FIX_DB_URL='postgres://alun:***@127.0.0.1:5432/hyg_f38d_p0fix' cargo test --lib business::flow::internal_control -- --test-threads=1
+  2) 用分库跑法脚本（推荐，一条命令连库和泄漏校验都做了）：
+  MODULES='flow_p0fix' bash scripts/verify/run_lib_tests_by_module.sh
+  3) 若你确实要整段跑 flow，把本组排除掉（它属于 flow_p0fix 模块）：
+  cargo test --lib 'business::flow::' -- --test-threads=1 --skip business::flow::internal_control::db_tests
+
+================================================================================
+[C] 修复后 —— 03_after_flow_with_skip.txt（整段 flow + 显式排除本组）
+    命令：… cargo test --lib 'business::flow::' -- --test-threads=1 \
+            --skip business::flow::internal_control::db_tests
+    结果：test result: ok. 338 passed; 0 failed    ← 345 条里的其余 338 条照旧全绿
+--------------------------------------------------------------------------------
+--- hyg_f38d_erp
+p0fix_defs=0
+instances=9
+tasks=7
+users=4
+--- hyg_f38d_p0fix
+p0fix_defs=0
+instances=0
+tasks=0
+users=1
+（备注：这条 --skip 已经被跑法脚本的 flow 模块固化下来，见 07/09）
+
+================================================================================
+[D] 修复后 —— 04_after_solo_internal_control.txt（本组独占进程＝正路）
+    命令：… cargo test --lib business::flow::internal_control -- --test-threads=1
+    结果：test result: ok. 14 passed; 0 failed   ← 7 条纯逻辑 + 7 条真库
+--------------------------------------------------------------------------------
+--- hyg_f38d_erp
+p0fix_defs=0
+instances=0
+users=1
+--- hyg_f38d_p0fix          ← 7 条定义正确地落在 P0FIX 库
+p0fix_defs=7
+instances=6
+users=36
+
+================================================================================
+[E] 修复后 —— 05_after_legit_reuse_same_db.txt（**合法复用**分支的阳性对照）
+    命令：ERP_DB_URL=…/hyg_f38d_p0fix  TASK_DB_URL=…/hyg_f38d_p0fix  P0FIX_DB_URL=…/hyg_f38d_p0fix
+          cargo test --lib 'business::flow::' -- --test-threads=1 --nocapture
+    （三个变量指向**同一个** p0fix 库：更早的 flow 用例先 set_db，本组随后复用同一个库）
+    结果：test result: ok. 345 passed; 0 failed
+    日志原文：test …::countersign_all_excluded_fails_closed ... [internal_control] 复用同进程已初始化的全局 db()（库：hyg_f38d_p0fix，与 P0FIX_DB_URL 一致）
+--------------------------------------------------------------------------------
+--- hyg_f38d_erp
+p0fix_defs=0
+--- hyg_f38d_p0fix
+p0fix_defs=7
+（结论：守卫只拦「不是我要的那个库」，不误伤「确实是同一个库」的复用）

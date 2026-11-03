@@ -1,0 +1,26 @@
+按模块分库跑 lib 真库用例  模块：flow_p0fix  轮次：2
+工作树：/opt/cloudpivot
+库：alun@127.0.0.1:5432  模板：cloudpivot_libtest_template  前缀：cp_f38d
+应用账号无 CREATEDB 权限 → 建/删库走 postgres 超级用户（需要 root）
+模板库：复用 cloudpivot_libtest_template
+模板库种子用户数：1（preflight 上限）
+
+─── 模块 flow_p0fix   filter='business::flow::internal_control::db_tests' ───
+  新建：cp_f38d_flow_p0fix 与 cp_f38d_flow_p0fix_p0fix（模板 cloudpivot_libtest_template）
+  preflight[flow_p0fix] cp_f38d_flow_p0fix :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2211 filtered out; finished in 8.90s
+  → test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2211 filtered out; finished in 8.90s  (cargo rc=0)
+running 7 tests
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2211 filtered out; finished in 8.89s
+  → test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2211 filtered out; finished in 8.89s  (cargo rc=0)
+  泄漏校验：P0FIX 库 p0fix 夹具=7，模块库=0
+  ✔ flow_p0fix 全绿
+
+================ 汇总 ================
+模块         轮  库                                  passed   failed  ignored 结果
+flow_p0fix     1    cp_f38d_flow_p0fix                        7        0        0 OK
+flow_p0fix     2    cp_f38d_flow_p0fix                        7        0        0 OK
+日志目录：/root/.hermes/profiles/test-enginner/cache/scratch/logs/script
+全部模块 × 2 轮全绿（分库 + 分进程跑法）
+EXIT_06=0

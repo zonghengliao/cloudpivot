@@ -1,0 +1,66 @@
+
+===================================================================
+[changelog] 第 1 轮  filter='business::changelog'
+  库：cp_f38d_changelog    P0FIX：cp_f38d_changelog_p0fix
+  时间：2026-11-04 03:06:15 CST  HEAD：5dd36c0
+  命令：ERP_DB_URL=…/cp_f38d_changelog TASK_DB_URL=…/cp_f38d_changelog P0FIX_DB_URL=…/cp_f38d_changelog_p0fix \
+        cargo test --lib 'business::changelog' -- --test-threads=1
+===================================================================
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 51 tests
+test business::changelog::diff::flow_action_tests::flow_action_codes_roundtrip ... ok
+test business::changelog::diff::flow_action_tests::flow_action_mapping_matches_d17 ... ok
+test business::changelog::diff::flow_action_tests::flow_tables_are_registered ... ok
+test business::changelog::diff::flow_action_tests::no_action_value_added ... ok
+test business::changelog::diff::tests::big_preview_is_truncated_to_200_chars ... ok
+test business::changelog::diff::tests::big_threshold_boundary ... ok
+test business::changelog::diff::tests::diff_marks_absent_side_as_null ... ok
+test business::changelog::diff::tests::diff_skips_unchanged_fields ... ok
+test business::changelog::diff::tests::empty_when_nothing_changed ... ok
+test business::changelog::diff::tests::registered_fields_are_lowercase_columns ... ok
+test business::changelog::diff::tests::sensitive_big_field_goes_redacted_not_big ... ok
+test business::changelog::diff::tests::unregistered_table_has_no_spec ... ok
+test business::changelog::handler::tests::blank_time_is_none ... ok
+test business::changelog::handler::tests::content_disposition_is_rfc5987_safe ... ok
+test business::changelog::handler::tests::list_filter_gets_default_window ... ok
+test business::changelog::handler::tests::parse_time_accepts_three_formats ... ok
+test business::changelog::handler::tests::render_diff_empty_is_empty ... ok
+test business::changelog::handler::tests::render_diff_pairs_and_sorts ... ok
+test business::changelog::handler::tests::render_diff_shows_redacted_marker ... ok
+test business::changelog::mask::tests::broken_rule_never_leaks_plaintext ... ok
+test business::changelog::mask::tests::builtin_decisions_by_kind ... ok
+test business::changelog::mask::tests::builtin_list_matches_operation_log ... ok
+test business::changelog::mask::tests::db_rule_beats_builtin ... ok
+test business::changelog::mask::tests::non_scalar_sensitive_value_redacted ... ok
+test business::changelog::mask::tests::plain_and_null_untouched ... ok
+test business::changelog::mask::tests::sha256_is_stable_and_sensitive ... ok
+test business::changelog::mask::tests::strictest_rule_wins ... ok
+test business::changelog::model::tests::array_literal_shapes ... ok
+test business::changelog::model::tests::insert_sql_placeholder_count_matches_params ... ok
+test business::changelog::partition::tests::constants_match_architecture ... ok
+test business::changelog::partition::tests::dirty_names_are_never_expired ... ok
+test business::changelog::partition::tests::non_positive_retention_never_drops_current_month ... ok
+test business::changelog::partition::tests::oldest_kept_month_is_36_months_inclusive ... ok
+test business::changelog::partition::tests::partition_name_matches_ddl_convention ... ok
+test business::changelog::partition::tests::partition_name_roundtrip_and_rejects_dirty_names ... ok
+test business::changelog::partition::tests::prebuild_targets_current_and_next_month ... ok
+test business::changelog::partition::tests::report_summary_and_changed_flag ... ok
+test business::changelog::partition::tests::shift_month_handles_year_boundary ... ok
+test business::changelog::query::tests::blank_strings_are_ignored ... ok
+test business::changelog::query::tests::default_window_is_90_days_and_open_ended ... ok
+test business::changelog::query::tests::empty_filter_produces_empty_clause ... ok
+test business::changelog::query::tests::explicit_start_time_is_kept ... ok
+test business::changelog::query::tests::limits_are_clamped ... ok
+test business::changelog::query::tests::registry_lists_the_four_wired_tables ... ok
+test business::changelog::query::tests::where_clause_placeholder_count_matches_params ... ok
+test business::changelog::tests::action_and_source_codes_match_ddl ... ok
+test business::changelog::tests::diff_meta_action_matches_code ... ok
+test business::changelog::tests::preflight_accepts_registered_table ... ok
+test business::changelog::tests::preflight_rejects_future_time ... ok
+test business::changelog::tests::preflight_rejects_unregistered_table ... ok
+test business::changelog::tests::preflight_tolerates_small_skew ... ok
+
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 2167 filtered out; finished in 0.01s
+

@@ -1,0 +1,23 @@
+按模块分库跑 lib 真库用例  模块：flow  轮次：1
+工作树：/opt/cloudpivot
+库：alun@127.0.0.1:5432  模板：cloudpivot_libtest_template  前缀：cp_f38d
+提示：RUNS=1（只跑一遍）。幂等性守门要求 RUNS=2 —— 同一个库连跑两遍都必须 0 failed；
+      只跑一遍时，「上一轮残留把这一轮判死」这类问题看不出来。
+应用账号无 CREATEDB 权限 → 建/删库走 postgres 超级用户（需要 root）
+模板库：复用 cloudpivot_libtest_template
+模板库种子用户数：1（preflight 上限）
+
+─── 模块 flow   filter='business::flow::' ───
+  新建：cp_f38d_flow 与 cp_f38d_flow_p0fix（模板 cloudpivot_libtest_template）
+  preflight[flow] cp_f38d_flow :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+running 338 tests
+test result: ok. 338 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 63.22s
+  → test result: ok. 338 passed; 0 failed; 0 ignored; 0 measured; 1880 filtered out; finished in 63.22s  (cargo rc=0)
+  ✔ flow 全绿
+
+================ 汇总 ================
+模块         轮  库                                  passed   failed  ignored 结果
+flow           1    cp_f38d_flow                            338        0        0 OK
+日志目录：/root/.hermes/profiles/test-enginner/cache/scratch/logs/script
+全部模块 × 1 轮全绿（分库 + 分进程跑法）
+EXIT_07=0

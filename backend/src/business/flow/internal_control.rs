@@ -331,11 +331,34 @@ mod tests {
 // 所以这批用例连真库（`P0FIX_DB_URL`），未设置时**整组 SKIP**（`cargo test --lib` 在没配库的
 // 机器上仍然全绿），设置了就真跑。
 //
-// 跑法：
+// 跑法（**本组必须独占进程**，原因见下）：
 // ```bash
 // P0FIX_DB_URL='postgres://p0fixrole:***@127.0.0.1:5432/cloudpivot_p0fix' \
 //   cargo test --lib business::flow::internal_control -- --test-threads=1 --nocapture
 // ```
+//
+// # ⚠️ 为什么必须独占进程（`ensure_db` 的冲突守卫）
+//
+// `set_db()` 是进程级 `OnceLock`（`backend/vendor/nik-web/src/resources.rs`）——一个测试进程
+// 只能装**一个**全局连接，先到先得。历史上这里写的是「`try_db().is_some()` 就直接 `return true`」，
+// 于是同进程里更早的用例（`ERP_DB_URL` / `TASK_DB_URL` / `SYS_DB_URL` 那一批）一装好连接，
+// 本组用例就**静默跑在别人的库上**：`P0FIX_DB_URL` 形同虚设，下面那条「库名必须含 p0fix」的
+// 硬断言与全部用例一起被跳过，可 `test result` 仍然是绿的（假绿）。
+//
+// 实测反例（`docs/evidence/20261104-setdb-reuse-guard/`）：`cargo test --lib 'business::flow::'`
+// 一起跑时 7 条 `p0fix_*` 流程定义落在了 ERP 库，`P0FIX_DB_URL` 指向的库一行没写；把
+// `P0FIX_DB_URL` 指到一个**根本不存在的库**也照样全绿 —— 证明那个进程压根没去连。
+//
+// 现在：`try_db()` 已存在时，先问它「你连的到底是哪个库」（`SELECT current_database()`），
+// 与 `P0FIX_DB_URL` 里的库名**逐字比对**：
+// * 同一个库 → 复用（合法，例如同进程里更早的用例用的就是同一个 P0FIX 库）；
+// * 不是同一个库 → **panic 并指路**（不是 SKIP、不是继续跑）。
+//
+// 选 `panic` 而不是「WARN + SKIP」的理由：本组的价值全在「跑在 P0FIX 库上」这件事上，
+// SKIP 会让 `test result` 依旧是 `ok`，正是本卡要灭掉的那类假绿；而冲突只发生在操作者
+// **显式设了 `P0FIX_DB_URL`** 的场合（没设 → 仍是老老实实 SKIP），此时失败才是诚实响应。
+// 若你确实要跑整段 flow，请把本组排除掉：`-- --skip business::flow::internal_control::db_tests`
+// （`scripts/verify/run_lib_tests_by_module.sh` 的 `flow` 模块就是这么做的，本组归 `flow_p0fix` 模块）。
 //
 // 夹具约定：所有行都带 `p0fix` 前缀（`order_no` / `username` / `role_code`），用例开头先按前缀清场，
 // 所以「同一枚举库连跑几轮」不会互相污染；清理只按**本卡前缀**，不碰别人的夹具。
@@ -355,6 +378,9 @@ mod db_tests {
     const SEED_BASE: u128 = 0x00f0_f100_0000_0000_0000_0000_0000_0000u128;
 
     /// 初始化全局数据库；`false` = 没配 `P0FIX_DB_URL`，用例直接跳过。
+    ///
+    /// `try_db()` 已被同进程更早的用例初始化时**不再无条件复用**：先问它连的是哪个库，
+    /// 与 `P0FIX_DB_URL` 逐字比对，不同就 panic 并指路（见上方模块注释的「为什么必须独占进程」）。
     async fn ensure_db() -> bool {
         use tokio::sync::OnceCell;
         static READY: OnceCell<bool> = OnceCell::const_new();
@@ -369,7 +395,32 @@ mod db_tests {
                     "P0FIX_DB_URL 必须指向 cloudpivot_p0fix 或 cloudpivot_test（当前：{url}）——\
                      本套测试会造真实审批实例与待办"
                 );
+                let wanted = db_name_of(&url);
                 if try_db().is_some() {
+                    // 进程级 OnceLock 已经装了别人的连接 ⇒ 再也换不了库。过去这里直接 `return true`，
+                    // 于是本组用例静默跑在别人的库上。现在只接受「库里也是我要的那一个」。
+                    let current = current_db_name().await;
+                    if current != wanted {
+                        panic!(
+                            "\n\
+[internal_control::db_tests] 全局 db() 已被同进程更早的用例初始化，且连的不是 P0FIX 库 ——\n\
+本组用例拒绝在别人的库上跑（那样 P0FIX_DB_URL 与「库名必须含 p0fix」的断言都不会被执行）。\n\
+  · 当前全局连接实际连的库：{current}\n\
+  · P0FIX_DB_URL 要求的库    ：{wanted}（{url}）\n\
+成因：set_db() 是进程级 OnceLock（先到先得），同进程里更早的用例一旦用 ERP_DB_URL /\n\
+TASK_DB_URL / SYS_DB_URL 装好连接，本组就换不了库了。\n\
+下一步（任选其一）：\n\
+  1) 本组用例独占进程：\n\
+     P0FIX_DB_URL='{url}' cargo test --lib business::flow::internal_control -- --test-threads=1\n\
+  2) 用分库跑法脚本（推荐，一条命令连库和泄漏校验都做了）：\n\
+     MODULES='flow_p0fix' bash scripts/verify/run_lib_tests_by_module.sh\n\
+  3) 若你确实要整段跑 flow，把本组排除掉（它属于 flow_p0fix 模块）：\n\
+     cargo test --lib 'business::flow::' -- --test-threads=1 --skip business::flow::internal_control::db_tests\n"
+                        );
+                    }
+                    println!(
+                        "[internal_control] 复用同进程已初始化的全局 db()（库：{current}，与 P0FIX_DB_URL 一致）"
+                    );
                     return true;
                 }
                 let mut config = DatabaseConfig::from_url(&url);
@@ -387,6 +438,32 @@ mod db_tests {
                 }
             })
             .await
+    }
+
+    /// 从连接串里取库名：`postgres://user:pass@host:port/<db>?params` → `<db>`。
+    ///
+    /// 只做「够用」的解析 —— 本组要的是「两个连接串指向同一个库吗」，
+    /// 因此忽略协议/账号/端口/查询参数，只比路径最后一段。
+    fn db_name_of(url: &str) -> String {
+        let without_query = url.split(['?', '#']).next().unwrap_or(url);
+        without_query
+            .rsplit('/')
+            .next()
+            .unwrap_or_default()
+            .trim()
+            .to_string()
+    }
+
+    /// 当前全局连接**实际**连的库名（`SELECT current_database()`）。
+    ///
+    /// 为什么不用「进程里的 `ERP_DB_URL` / `TASK_DB_URL` 是不是同一个串」来判断：
+    /// 更早的用例可能压根没设这两个变量（例如走 `SYS_DB_URL`），或者它们与
+    /// `P0FIX_DB_URL` 写法不同但指向同一个库。问数据库自己最靠得住。
+    async fn current_db_name() -> String {
+        match db().scalar::<String>("SELECT current_database()").await {
+            Ok(name) => name,
+            Err(error) => format!("<查询 current_database() 失败：{error}>"),
+        }
     }
 
     /// 一致性 uuid（同一 `seed` 永远得到同一个 id，重跑时先删后建）。

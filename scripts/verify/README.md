@@ -319,6 +319,7 @@ MODULES="mymod=business::erp::contract_" bash scripts/verify/run_lib_tests_by_mo
 | 每模块单独一个 `cargo test` 进程 + `--test-threads=1` | 一个进程只有一个全局 `db()`，天然免疫 `set_db` 先到先得 |
 | preflight 断言库是干净的（实例/待办/采购单/`p0fix_*` 定义全 0） | 有人在脏库上跑时立刻红，而不是产出 60 多条假红 |
 | `flow_p0fix` 单列模块 + 泄漏校验（P0FIX 库 ≥1 条 `p0fix_*`、模块库 0 条） | 守住 `P0FIX_DB_URL` 被静默忽略这个坑 |
+| `flow` 模块显式 `--skip business::flow::internal_control::db_tests` | 那 7 条要求「连的必须是 P0FIX 库」，`ensure_db()` 现在会因此显式失败（卡 `t_f38d1f45`）；它们归 `flow_p0fix` 模块独占进程跑。`flow` 338 + `flow_p0fix` 7 = 原来那 345 条，一条没少 |
 | 第 2 轮 passed 数必须等于第 1 轮 | 幂等性：防"某轮 SKIP 变多"式的假绿 |
 | 任一模块任一轮失败 → `exit 1` | 可直接给 CI 用 |
 

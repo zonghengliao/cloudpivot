@@ -1,0 +1,126 @@
+# 真库连库入口扫描（卡 t_f38d1f45）
+# 时间：2026-11-04 03:07:00 CST   HEAD：5dd36c0
+# 说明：只读扫描，不改代码。完整逐处清单见 docs/测试卫生-真库连库入口清单.md
+
+## 1) 读 xxx_DB_URL 的连库入口
+$ grep -rnE 'env::var\("[A-Z0-9_]*_DB_URL"\)' backend/src --include=*.rs
+backend/src/business/erp/stockin_handler_tests_fixtures.rs:110:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/serial_handler.rs:541:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/payable_payment.rs:2816:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/period.rs:1537:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/voucher.rs:2181:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/stocktake_tests.rs:115:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/payable_bridge.rs:1010:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/opening.rs:1776:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/model_tests.rs:187:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/inventory_audit.rs:474:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/handler.rs:2336:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/form_snapshot.rs:227:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/contract_model.rs:909:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/contract_handler.rs:1400:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/batch.rs:468:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/approval_gate.rs:721:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/purchase_handler.rs:1653:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/payable_query.rs:626:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/year_end.rs:1652:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/voucher_write.rs:1290:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/voucher_query.rs:757:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/stockout_tests.rs:73:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/pflow3b_tests.rs:72:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/transfer_handler.rs:1481:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/period_test_support.rs:57:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/contract_approval_tests.rs:92:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/erp/cancel_cascade_tests.rs:64:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/flow/linkage/tests.rs:426:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/flow/task_bridge.rs:1675:                let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/flow/task_bridge.rs:2606:                let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/flow/notify_node.rs:909:                let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/flow/model.rs:4209:                let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/flow/internal_control.rs:389:                let Ok(url) = std::env::var("P0FIX_DB_URL") else {
+backend/src/business/flow/edge_admin_tests.rs:221:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/impexp/builtin/erp_doc.rs:632:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/shared/state_machine.rs:2351:                let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/business/task/task_model_statuses_filter_tests.rs:40:            let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/task/task_model_root_only_tests.rs:43:            let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/task/task_model_depth_tests.rs:49:            let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/task/handler.rs:5304:                let Ok(url) = std::env::var("ERP_DB_URL").or_else(|_| std::env::var("TASK_DB_URL"))
+backend/src/business/task/task_model_repair_tests.rs:30:            let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/task/task_model_cascade_tests.rs:32:            let Ok(url) = std::env::var("TASK_DB_URL") else {
+backend/src/business/attachment/tests.rs:245:            let Ok(url) = std::env::var("ERP_DB_URL") else {
+backend/src/system/tests_support.rs:39:    std::env::var("SYS_DB_URL").ok().filter(|v| !v.is_empty())
+
+## 2) try_db() 的所有出现（连库入口 + 3 处非测试用途）
+$ grep -rn 'try_db()' backend/src --include=*.rs
+backend/src/bootstrap.rs:233:    let db = match try_db() {
+backend/src/business/erp/stockin_handler_tests_fixtures.rs:114:            if try_db().is_some() {
+backend/src/business/erp/serial_handler.rs:545:                if try_db().is_some() {
+backend/src/business/erp/payable_payment.rs:2820:                if try_db().is_some() {
+backend/src/business/erp/period.rs:1541:                if try_db().is_some() {
+backend/src/business/erp/voucher.rs:2185:                if try_db().is_some() {
+backend/src/business/erp/stocktake_tests.rs:119:            if try_db().is_some() {
+backend/src/business/erp/payable_bridge.rs:1014:                if try_db().is_some() {
+backend/src/business/erp/opening.rs:1780:                if try_db().is_some() {
+backend/src/business/erp/model_tests.rs:191:            if try_db().is_some() {
+backend/src/business/erp/inventory_audit.rs:478:                if try_db().is_some() {
+backend/src/business/erp/handler.rs:2340:                if try_db().is_some() {
+backend/src/business/erp/form_snapshot.rs:231:                if try_db().is_some() {
+backend/src/business/erp/contract_model.rs:913:                if try_db().is_some() {
+backend/src/business/erp/contract_handler.rs:1404:                if try_db().is_some() {
+backend/src/business/erp/batch.rs:472:                if try_db().is_some() {
+backend/src/business/erp/approval_gate.rs:725:                if try_db().is_some() {
+backend/src/business/erp/purchase_handler.rs:1657:                if try_db().is_some() {
+backend/src/business/erp/payable_query.rs:630:                if try_db().is_some() {
+backend/src/business/erp/year_end.rs:1656:                if try_db().is_some() {
+backend/src/business/erp/voucher_write.rs:1294:                if try_db().is_some() {
+backend/src/business/erp/voucher_query.rs:761:                if try_db().is_some() {
+backend/src/business/erp/stockout_tests.rs:77:            if try_db().is_some() {
+backend/src/business/erp/pflow3b_tests.rs:76:            if try_db().is_some() {
+backend/src/business/erp/transfer_handler.rs:1485:                if try_db().is_some() {
+backend/src/business/erp/period_test_support.rs:61:            if try_db().is_some() {
+backend/src/business/erp/contract_approval_tests.rs:96:            if try_db().is_some() {
+backend/src/business/erp/cancel_cascade_tests.rs:68:            if try_db().is_some() {
+backend/src/business/flow/linkage/tests.rs:430:            if try_db().is_some() {
+backend/src/business/flow/task_bridge.rs:1679:                if try_db().is_some() {
+backend/src/business/flow/task_bridge.rs:2610:                if try_db().is_some() {
+backend/src/business/flow/notify_node.rs:913:                if try_db().is_some() {
+backend/src/business/flow/model.rs:4213:                if try_db().is_some() {
+backend/src/business/flow/internal_control.rs:343:// 只能装**一个**全局连接，先到先得。历史上这里写的是「`try_db().is_some()` 就直接 `return true`」，
+backend/src/business/flow/internal_control.rs:352:// 现在：`try_db()` 已存在时，先问它「你连的到底是哪个库」（`SELECT current_database()`），
+backend/src/business/flow/internal_control.rs:382:    /// `try_db()` 已被同进程更早的用例初始化时**不再无条件复用**：先问它连的是哪个库，
+backend/src/business/flow/internal_control.rs:399:                if try_db().is_some() {
+backend/src/business/flow/edge_admin_tests.rs:225:            if try_db().is_some() {
+backend/src/business/impexp/builtin/erp_doc.rs:636:                if try_db().is_some() {
+backend/src/business/shared/state_machine.rs:2355:                if try_db().is_some() {
+backend/src/business/task/task_model_statuses_filter_tests.rs:44:            if try_db().is_some() {
+backend/src/business/task/task_model_root_only_tests.rs:47:            if try_db().is_some() {
+backend/src/business/task/task_model_depth_tests.rs:53:            if try_db().is_some() {
+backend/src/business/task/handler.rs:5309:                if try_db().is_some() {
+backend/src/business/task/task_model_repair_tests.rs:34:            if try_db().is_some() {
+backend/src/business/task/task_model_cascade_tests.rs:36:            if try_db().is_some() {
+backend/src/business/attachment/tests.rs:249:            if try_db().is_some() {
+backend/src/support/log/bus.rs:284:        let Some(database) = try_db() else {
+backend/src/system/tests_support.rs:69:            if try_db().is_some() {
+
+## 3) 库身份断言（url.contains / current_database）
+$ grep -rn 'url.contains(' backend/src --include=*.rs
+backend/src/business/announcement/dto.rs:1620:                !url.contains(forbidden),
+backend/src/business/flow/internal_control.rs:394:                    url.contains("p0fix") || url.contains("/cloudpivot_test"),
+backend/src/business/storage/sigv4.rs:777:            too_small.url.contains("X-Amz-Expires=60&"),
+backend/src/business/storage/sigv4.rs:795:            too_large.url.contains("X-Amz-Expires=604800&"),
+backend/src/business/storage/store.rs:1948:        assert!(url.contains("X-Amz-Signature="));
+$ grep -rn 'current_database' backend/src --include=*.rs
+backend/src/business/erp/stockin_handler_tests_helpers.rs:128:        "SELECT deadlocks FROM pg_stat_database WHERE datname = current_database()",
+backend/src/business/flow/internal_control.rs:352:// 现在：`try_db()` 已存在时，先问它「你连的到底是哪个库」（`SELECT current_database()`），
+backend/src/business/flow/internal_control.rs:457:    /// 当前全局连接**实际**连的库名（`SELECT current_database()`）。
+backend/src/business/flow/internal_control.rs:463:        match db().scalar::<String>("SELECT current_database()").await {
+backend/src/business/flow/internal_control.rs:465:            Err(error) => format!("<查询 current_database() 失败：{error}>"),
+backend/src/business/monitor/model.rs:10://! | 数据库 | 现有连接 | `current_database()` / `pg_database_size()` / `pg_stat_activity` / `version()` |
+backend/src/business/monitor/model.rs:115:        SELECT current_database()                                             AS db_name,
+backend/src/business/monitor/model.rs:116:               pg_database_size(current_database())::bigint                    AS db_size,
+
+## 4) 汇总（脚本按文件/变量归类；未纳入 git 的文件单独列出）
+rows(纳入)= 43 Counter({'ERP_DB_URL': 32, 'TASK_DB_URL': 9, 'P0FIX_DB_URL': 1, 'SYS_DB_URL': 1})
+rows(排除,未纳入 git)= 1 [('business/erp/cancel_cascade_tests.rs', 64)]
+早退模式命中: 43 / 43
+库身份断言命中: 1
+-> /root/.hermes/profiles/test-enginner/cache/scratch/inventory_table.md
