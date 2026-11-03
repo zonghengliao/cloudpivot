@@ -400,6 +400,17 @@ export function buildNoticeSseUrl(): string {
   return `${base}/api/business/notice/stream${query}`;
 }
 
+/**
+ * 构造 SSE 订阅地址（**不带令牌**）。
+ *
+ * 给 `fetch` + `ReadableStream` 那条读者用：令牌放在 `Authorization` 头里，
+ * 不依赖 `NIK_AUTH_QUERY_TOKEN_PATHS` 白名单（该环境变量默认空 ⇒ `?token=` 版本实测 401）。
+ */
+export function buildNoticeStreamUrl(): string {
+  const base = import.meta.env.VITE_APP_BASE_API || '';
+  return `${base}/api/business/notice/stream`;
+}
+
 /** 消息通知模块接口集合 */
 export const noticeApi = {
   sendNotice,
@@ -418,4 +429,5 @@ export const noticeApi = {
   previewNoticeTemplate,
   fetchChannelConfig,
   buildNoticeSseUrl,
+  buildNoticeStreamUrl,
 };

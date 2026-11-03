@@ -11,6 +11,7 @@ import {
 } from '@/api/system/auth-api';
 import { clearTokens, REFRESH_TOKEN_KEY, saveTokens, TOKEN_KEY } from '@/api/request';
 import { syncPreferenceFromServer } from '@/composables/usePalette';
+import { clearLoginUnreadShown } from '@/utils/login-unread';
 
 /** 超级管理员通配权限码 */
 const SUPER_PERMISSION = '*:*:*';
@@ -124,6 +125,8 @@ export const useUserStore = defineStore('user', () => {
       // 后端登出失败（如令牌已过期）不影响前端清理，忽略即可
     }
     reset();
+    // 清「登录未读提示已弹过」标记：下次登录要重新提示（不清的话同一标签页里换账号登录就再也不弹）
+    clearLoginUnreadShown();
   }
 
   return {

@@ -1,0 +1,88 @@
+{
+  "stages": {
+    "precondition": {
+      "toastAtStart": false,
+      "streamResponses": [
+        "401 http://127.0.0.1:5290/api/business/notice/stream?…"
+      ]
+    },
+    "a1": {
+      "sent": {
+        "status": 200,
+        "noticeId": "01a1a1f2-c77e-763b-a89b-cc68304ef04f",
+        "receiverCount": 1
+      },
+      "pushDelayMs": 7,
+      "title": "新消息 1 条",
+      "itemCount": 1,
+      "firstItemText": "[NP] 采购单 PO-20261103-000011 审批通过 待办 刚刚",
+      "iconClass": "t-icon t-icon-task notice-toast__icon notice-toast__icon--success",
+      "box": {
+        "x": 1124,
+        "y": 64,
+        "width": 300,
+        "height": 170
+      },
+      "zIndex": "2000",
+      "transition": "0s"
+    },
+    "a2": {
+      "visibleMs": 7981,
+      "hiddenAfter8s": true
+    },
+    "a3": {
+      "visibleAfter10sHovering": true,
+      "hiddenAfterLeave": true
+    },
+    "a4": {
+      "toastInstances": 1,
+      "title": "新消息 3 条",
+      "itemCount": 3,
+      "itemTitles": [
+        "[NP] 预警：应付单据 3 天内到期",
+        "[NP] 任务「月度对账」已分派给你",
+        "[NP] 公告：关于国庆放假的通知"
+      ],
+      "icons": [
+        "t-icon t-icon-error-circle notice-toast__icon notice-toast__icon--warn",
+        "t-icon t-icon-task notice-toast__icon notice-toast__icon--info",
+        "t-icon t-icon-notification notice-toast__icon notice-toast__icon--info"
+      ]
+    },
+    "a5": {
+      "path": "/business/notice/message",
+      "focus": "32dba996-3c70-4a4a-a62d-5fc405bc2d03",
+      "toastHidden": true
+    },
+    "a6": {
+      "path": "/business/notice/message",
+      "focus": null,
+      "toastHidden": true
+    },
+    "a7": {
+      "hidden": true
+    },
+    "a8": {
+      "panelVisible": true,
+      "bellItems": 5,
+      "badge": "7"
+    }
+  },
+  "createdNotices": [
+    "01a1a1f2-c77e-763b-a89b-cc68304ef04f",
+    "01a1a1f2-e8af-7052-9458-a1fa982d8b63",
+    "01a1a1f3-30eb-7084-a007-d27eb1fd54e2",
+    "01a1a1f3-3101-7032-99c2-503f764c8c34",
+    "01a1a1f3-3112-71f0-8446-e8f245a3c535",
+    "01a1a1f3-3f81-7372-a922-61a08f67f842",
+    "01a1a1f3-493e-7218-9dba-5f37e3b2ecd9"
+  ],
+  "streamResponses": [
+    "401 http://127.0.0.1:5290/api/business/notice/stream?…",
+    "200 http://127.0.0.1:5290/api/business/notice/stream",
+    "401 http://127.0.0.1:5290/api/business/notice/stream?…",
+    "200 http://127.0.0.1:5290/api/business/notice/stream",
+    "401 http://127.0.0.1:5290/api/business/notice/stream?…",
+    "200 http://127.0.0.1:5290/api/business/notice/stream"
+  ]
+}

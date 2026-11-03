@@ -1,0 +1,7 @@
+10-toast-online-single.png: size=(1440, 900) box_mean=242.4 box_var=879.9 edge%=6.09 | control_var=3249.5 control_edge%=1.65
+11-toast-auto-closed.png: size=(1440, 900) box_mean=182.4 box_var=1729.3 edge%=1.35 | control_var=3249.5 control_edge%=1.65
+12-toast-hover-pause.png: size=(1440, 900) box_mean=239.3 box_var=1023.1 edge%=6.04 | control_var=3249.5 control_edge%=1.65
+13-toast-merged-3.png: size=(1440, 900) box_mean=240.8 box_var=1133.8 edge%=8.21 | control_var=4172.3 control_edge%=1.95
+15-bell-still-works.png: size=(1440, 900) box_mean=190.2 box_var=1781.6 edge%=0.67 | control_var=3132.7 control_edge%=0.73
+01-login-dialog-admin.png: size=(1440, 900) box_mean=235.4 box_var=1865.9 edge%=3.12 | control_var=2033.2 control_edge%=2.98
+06-login-dialog-empty-skip.png: size=(1440, 900) box_mean=244.0 box_var=493.8 edge%=3.81 | control_var=12703.4 control_edge%=4.76

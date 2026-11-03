@@ -1,0 +1,20 @@
+dist/assets/index-BEb7ksnn.js.gz               51.68kb / gzip: 12.85kb
+dist/assets/index-VJT8-CRk.js.gz               40.42kb / gzip: 15.02kb
+dist/assets/index-co7QZDi8.js.gz               40.56kb / gzip: 12.98kb
+dist/assets/index-eomQU-GE.js.gz               14.71kb / gzip: 5.21kb
+dist/assets/index-mWxxEbXZ.js.gz               12.59kb / gzip: 4.39kb
+dist/assets/index-gyKwno3P.js.gz               27.36kb / gzip: 9.10kb
+dist/assets/index-slJyroD9.js.gz               13.62kb / gzip: 5.21kb
+dist/assets/preference-CgzuezNY.js.gz          10.13kb / gzip: 4.28kb
+dist/assets/index-xQL28qug.js.gz               26.33kb / gzip: 7.80kb
+dist/assets/templates-rdqKM_LC.js.gz           12.98kb / gzip: 4.79kb
+dist/assets/useBatchSelection-Cd1kI3Re.js.gz   10.48kb / gzip: 4.26kb
+dist/assets/detail-Wo1E4vmK.js.gz              52.47kb / gzip: 17.87kb
+dist/assets/index-C-ZNxQkz.js.gz               114.30kb / gzip: 42.52kb
+dist/assets/edit-D1BLnE8L.js.gz                189.62kb / gzip: 64.42kb
+dist/assets/tdesign-E5ATeBiM.css.gz            437.80kb / gzip: 49.58kb
+dist/assets/echarts-CuV_skF0.js.gz             1002.89kb / gzip: 331.52kb
+dist/assets/tdesign-DB7yHua6.js.gz             7990.84kb / gzip: 770.99kb
+
+
+exit=0

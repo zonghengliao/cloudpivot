@@ -1,0 +1,37 @@
+{
+  "stages": {
+    "d1": {
+      "counts": {
+        "notice": "1 条",
+        "announcement": "0 条",
+        "task": "0 条",
+        "approval": "0 条"
+      },
+      "title": "你有 1 条待处理"
+    },
+    "d2": {
+      "flagAfterOk": "1"
+    },
+    "d3_confirmButtons": [
+      "取消",
+      "退出"
+    ],
+    "d3": {
+      "flagAfterLogout": null,
+      "url": "/login"
+    },
+    "d4": {
+      "counts": {
+        "notice": "1 条",
+        "announcement": "0 条",
+        "task": "0 条",
+        "approval": "0 条"
+      },
+      "dialogShownAgain": true
+    },
+    "e": {
+      "dialogVisible": false,
+      "flag": "1"
+    }
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "base": "http://127.0.0.1:5290",
+  "note": "本文件只保留第一轮（admin 四类非 0 场景）的 A/B/C；「退出登录→重新登录又弹」「全空不弹」见 results-login-dialog-2.json",
+  "stages": {
+    "A_dialogShown": {
+      "ok": true,
+      "counts": {
+        "notice": "11 条",
+        "announcement": "1 条",
+        "task": "1 条",
+        "approval": "8 条"
+      },
+      "title": "你有 21 条待处理",
+      "dialogWidth": 480,
+      "dialogCenterX": 720,
+      "viewportHalf": 720
+    },
+    "B_nav_notice": {
+      "ok": true,
+      "expected": "/business/notice/message",
+      "actual": "/business/notice/message"
+    },
+    "B_nav_announcement": {
+      "ok": true,
+      "expected": "/announcement",
+      "actual": "/announcement"
+    },
+    "B_nav_task": {
+      "ok": true,
+      "expected": "/task/list",
+      "actual": "/task/list"
+    },
+    "B_nav_approval": {
+      "ok": true,
+      "expected": "/flow/task",
+      "actual": "/flow/task"
+    },
+    "C_closeAndReload": {
+      "ok": true,
+      "flagAfterOk": "1",
+      "visibleAfterReload": false
+    }
+  },
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ]
+}

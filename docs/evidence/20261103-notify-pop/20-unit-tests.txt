@@ -1,0 +1,142 @@
+TAP version 13
+# Subtest: 四类汇总：条数与合计正确，顺序与跳转路径固定
+ok 1 - 四类汇总：条数与合计正确，顺序与跳转路径固定
+  ---
+  duration_ms: 0.970439
+  type: 'test'
+  ...
+# Subtest: collectUnread 并行取数：全部成功时逐类落到对应键
+ok 2 - collectUnread 并行取数：全部成功时逐类落到对应键
+  ---
+  duration_ms: 0.222922
+  type: 'test'
+  ...
+# Subtest: collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+ok 3 - collectUnread 单类失败按 0 计，不影响其它类别（无权限 403 不能让弹窗哑火）
+  ---
+  duration_ms: 0.187004
+  type: 'test'
+  ...
+# Subtest: collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+ok 4 - collectUnread 缺 loader 的类别按 0 计（分阶段接接口时不会崩）
+  ---
+  duration_ms: 0.214088
+  type: 'test'
+  ...
+# Subtest: 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+ok 5 - 登录标记：未弹过 → 弹一次后标记 → 清标记后又能弹（退出登录再登录）
+  ---
+  duration_ms: 0.149212
+  type: 'test'
+  ...
+# Subtest: 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+ok 6 - 「有未读就弹 / 全空不弹」的判定口径：合计 > 0 才该弹
+  ---
+  duration_ms: 0.22613
+  type: 'test'
+  ...
+# Subtest: 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+ok 7 - 计数容错：负数 / 空串 / null / NaN 一律按 0（后端下发 null 时不能显示「NaN 条」）
+  ---
+  duration_ms: 0.275382
+  type: 'test'
+  ...
+# Subtest: 类别清单是四条且键名与后端取数一一对应
+ok 8 - 类别清单是四条且键名与后端取数一一对应
+  ---
+  duration_ms: 0.107252
+  type: 'test'
+  ...
+# Subtest: latestItems 累积：后到的排在最前，条数逐条递增
+ok 9 - latestItems 累积：后到的排在最前，条数逐条递增
+  ---
+  duration_ms: 1.0899
+  type: 'test'
+  ...
+# Subtest: latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+ok 10 - latestItems 上限：第 6 条进来挤掉最旧的一条，恒不超过 5 条
+  ---
+  duration_ms: 0.248255
+  type: 'test'
+  ...
+# Subtest: 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+ok 11 - 同一条消息（同 receiver_id）从不同通道重复送到时只入队一次
+  ---
+  duration_ms: 0.122295
+  type: 'test'
+  ...
+# Subtest: 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+ok 12 - 脏数据（缺 receiver_id / 缺 title / 非对象）不入队，也不抛错
+  ---
+  duration_ms: 0.394217
+  type: 'test'
+  ...
+# Subtest: 计时到期自动收起（8 秒的短时长等价用例）
+ok 13 - 计时到期自动收起（8 秒的短时长等价用例）
+  ---
+  duration_ms: 82.597513
+  type: 'test'
+  ...
+# Subtest: 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+ok 14 - 鼠标悬停暂停计时：暂停期间不收起，离开后按剩余时间继续
+  ---
+  duration_ms: 183.358523
+  type: 'test'
+  ...
+# Subtest: 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+ok 15 - 新消息到达时重新计满：两条消息间隔小于 8 秒也只收起一次
+  ---
+  duration_ms: 134.072605
+  type: 'test'
+  ...
+# Subtest: cancel 之后不再触发收起（用户点 [×] 的情形）
+ok 16 - cancel 之后不再触发收起（用户点 [×] 的情形）
+  ---
+  duration_ms: 60.294503
+  type: 'test'
+  ...
+# Subtest: 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+ok 17 - 按 notice_type 区分图标、按 level 区分语义色、相对时间文案正确
+  ---
+  duration_ms: 0.565721
+  type: 'test'
+  ...
+# Subtest: appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+ok 18 - appendPopupItem 不修改入参（store 里是 ref 数组，必须换新引用才触发渲染）
+  ---
+  duration_ms: 0.3933
+  type: 'test'
+  ...
+# Subtest: SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+ok 19 - SSE 帧解析：跨 chunk 的半截帧要拼接完整后才产出
+  ---
+  duration_ms: 0.348508
+  type: 'test'
+  ...
+# Subtest: SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+ok 20 - SSE 心跳注释帧（`: keep-alive`）被忽略，不影响后续数据帧
+  ---
+  duration_ms: 0.09821
+  type: 'test'
+  ...
+# Subtest: filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+ok 21 - filterArrivedSince 只留新到的：旧未读不因「拉最新 5 条」被误报成新消息
+  ---
+  duration_ms: 0.099211
+  type: 'test'
+  ...
+# Subtest: filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+ok 22 - filterArrivedSince 对脏 created_at 保留（宁可多显示一条，也不吞掉新消息）
+  ---
+  duration_ms: 0.06196
+  type: 'test'
+  ...
+1..22
+# tests 22
+# suites 0
+# pass 22
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 560.901275

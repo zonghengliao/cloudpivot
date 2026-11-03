@@ -82,16 +82,24 @@
         </router-view>
       </t-content>
     </t-layout>
+
+    <!-- 新消息自动浮层（右上角滑入 / 8 秒自收 / 悬停暂停）：全站只在这里挂一次 -->
+    <notice-toast />
+
+    <!-- 登录后「你有 N 条待处理」汇总弹窗：由下方 onMounted 触发，同一次登录只弹一次 -->
+    <login-unread-dialog ref="loginUnreadRef" />
   </t-layout>
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, type DropdownOption } from 'tdesign-vue-next';
 import SideMenuItem from '@/layouts/components/SideMenuItem.vue';
 import PaletteSwitch from '@/layouts/components/PaletteSwitch.vue';
 import NoticeBell from '@/layouts/components/NoticeBell.vue';
+import NoticeToast from '@/layouts/components/NoticeToast.vue';
+import LoginUnreadDialog from '@/layouts/components/LoginUnreadDialog.vue';
 import OnboardingHint from '@/components/OnboardingHint.vue';
 import { useUserStore } from '@/stores/user';
 import { useSettingStore } from '@/stores/setting';
@@ -231,9 +239,14 @@ const noticeStore = useNoticeStore();
  */
 const badgeStore = useBadgeStore();
 
+/** 登录未读汇总弹窗：挂载后检查一次（「同一次登录只弹一次」由组件内部的 sessionStorage 标记保证） */
+const loginUnreadRef = ref<InstanceType<typeof LoginUnreadDialog> | null>(null);
+
 onMounted(() => {
   noticeStore.connect();
   badgeStore.startPolling();
+  // 登录后必然经过这里：有未读才弹，全空不弹，弹过不再弹
+  void loginUnreadRef.value?.open();
 });
 
 onBeforeUnmount(() => {
