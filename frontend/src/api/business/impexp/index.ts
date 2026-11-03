@@ -19,6 +19,9 @@ import service, { del, get, post, type PageData } from '@/api/request';
 /** 导入模式：`STRICT` 严格（默认）/ `PARTIAL` 允许部分导入 */
 export type ImportMode = 'STRICT' | 'PARTIAL';
 
+/** 重复数据策略：`UPSERT` 按编码更新（默认）/ `SKIP` 已存在则跳过 */
+export type DuplicateStrategy = 'UPSERT' | 'SKIP';
+
 /** 导入任务状态 */
 export type ImportTaskStatus =
   | 'PENDING'
@@ -69,10 +72,17 @@ export interface ImportErrorRes {
   column_header?: string | null;
   /** 原始单元格值 */
   raw_value?: string | null;
-  /** 错误码（如 `REQUIRED` / `TYPE` / `UNIQUE`） */
-  error_code: string;
-  /** 失败原因（E-IMP-08 ~ E-IMP-17 文案） */
-  error_message: string;
+  /**
+   * 错误码。预检报告（`RowIssue`）用 `kind`，错误明细分页（`ImportErrorRes`）用 `error_code`，
+   * 两个接口共用本类型，所以两个字段都可选。
+   */
+  kind?: string;
+  /** 错误码（分页接口口径） */
+  error_code?: string;
+  /** 失败原因。预检报告用 `message`，分页接口用 `error_message` */
+  message?: string;
+  /** 失败原因（分页接口口径） */
+  error_message?: string;
 }
 
 /** 预检报告（对应后端 `PrecheckReport`） */
@@ -242,12 +252,13 @@ export function uploadImportFile(
   file: File,
   bizType: string,
   mode: ImportMode = 'STRICT',
+  duplicate: DuplicateStrategy = 'UPSERT',
 ): Promise<ImportUploadRes> {
   const formData = new FormData();
   formData.append('file', file);
   return service
     .post<{ code: number; msg: string; data: ImportUploadRes }>(
-      `/api/business/impexp/import/upload?biz_type=${encodeURIComponent(bizType)}&mode=${mode}`,
+      `/api/business/impexp/import/upload?biz_type=${encodeURIComponent(bizType)}&mode=${mode}&duplicate=${duplicate}`,
       formData,
     )
     .then((response) => {

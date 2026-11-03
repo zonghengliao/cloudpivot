@@ -374,6 +374,44 @@ pub async fn finish_import_canceled(
     Ok(())
 }
 
+/// 读取导入任务的 `options` 快照（JSON 文本）。
+///
+/// # 为什么业务定义需要它
+///
+/// 一次导入的行为有两维：`mode`（校验失败行怎么办）落在 `sys_import_task.mode` 列上、
+/// 已经进了 [`crate::business::impexp::definition::ImportCtx`]；而「编码已存在的行怎么办」
+/// （[`crate::business::impexp::definition::DuplicateStrategy`]）是**业务定义自己**才用得上的
+/// 选项，框架不为它单开列，随上传时的查询串快照在 `options.duplicate_strategy` 里。
+/// 业务 `persist` 拿到 [`ImportCtx::task_id`] 后调本函数即可读到**本任务自己的**那一份，
+/// 不会串到别的任务上（主键收口）。
+///
+/// # 参数
+///
+/// - `id`：任务主键。
+///
+/// # 返回值
+///
+/// 命中返回 `options::text`（列为 NULL 时按 `{}` 返回）；任务不存在返回 `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常返回 [`DbError`]。
+pub async fn import_task_options(id: &uuid::Uuid) -> std::result::Result<Option<String>, DbError> {
+    let rows = db()
+        .find_with_params(
+            "SELECT options::text AS options FROM sys_import_task WHERE id = ?::uuid",
+            vec![Value::from(*id)],
+        )
+        .await?;
+    match rows.into_iter().next() {
+        Some(row) => {
+            let options: Option<String> = row.get_typed("options")?;
+            Ok(Some(options.unwrap_or_else(|| "{}".to_string())))
+        }
+        None => Ok(None),
+    }
+}
+
 /// 按主键查任务。
 ///
 /// # 参数

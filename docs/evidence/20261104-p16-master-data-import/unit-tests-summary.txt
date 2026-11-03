@@ -1,0 +1,2 @@
+test business::impexp::builtin::master_data::db_tests::material_import_100_rows_is_fast_and_checks_unit_fk ... P16-6 实测：100 行物料 预检+入库 耗时 137.003339ms（预检 48 ms）
+test result: ok. 127 passed; 0 failed; 0 ignored; 0 measured; 2128 filtered out; finished in 7.94s

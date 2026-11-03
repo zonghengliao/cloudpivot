@@ -23,6 +23,11 @@ pub struct UploadQuery {
     pub biz_type: String,
     /// 导入模式：`STRICT`（默认）/ `PARTIAL`。
     pub mode: Option<String>,
+    /// 重复数据策略：`UPSERT`（默认，按编码更新）/ `SKIP`（已存在则跳过）。
+    ///
+    /// 快照进 `sys_import_task.options.duplicate_strategy`，由业务定义的 `persist` 读取
+    /// （见 `model::import_task_options`）。
+    pub duplicate: Option<String>,
 }
 
 /// 同步导出查询。

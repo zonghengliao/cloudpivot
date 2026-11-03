@@ -26,6 +26,12 @@
               <t-radio value="PARTIAL" :disabled="!currentDef?.allow_partial">允许部分导入</t-radio>
             </t-radio-group>
           </t-form-item>
+          <t-form-item label="重复数据">
+            <t-radio-group v-model="duplicate">
+              <t-radio value="UPSERT">按编码更新（幂等：重导同一文件不会重复创建）</t-radio>
+              <t-radio value="SKIP">已存在则跳过（只补新增，不覆盖线上数据）</t-radio>
+            </t-radio-group>
+          </t-form-item>
           <t-form-item label="模板">
             <t-space>
               <t-button
@@ -137,7 +143,9 @@
             <template #raw_value="{ row }">
               <span class="cell-mono">{{ row.raw_value ?? '（空）' }}</span>
             </template>
-            <template #error_message="{ row }">{{ row.error_message }}</template>
+            <!-- 预检报告用 kind / message，错误明细分页接口用 error_code / error_message -->
+            <template #error_code="{ row }">{{ row.kind || row.error_code }}</template>
+            <template #error_message="{ row }">{{ row.message || row.error_message }}</template>
           </t-table>
           <p v-if="report.truncated" class="hint">
             明细已截断（服务端仅返回前 {{ report.errors.length }} 条），完整明细请下载错误文件
@@ -190,6 +198,7 @@ import {
   listDefinitions,
   uploadImportFile,
   type DefinitionBrief,
+  type DuplicateStrategy,
   type ImportConfirmRes,
   type ImportMode,
   type PrecheckReport,
@@ -206,6 +215,7 @@ const defs = ref<DefinitionBrief[]>([]);
 const defLoading = ref(false);
 const bizType = ref('');
 const mode = ref<ImportMode>('STRICT');
+const duplicate = ref<DuplicateStrategy>('UPSERT');
 const pickedFile = ref<File | null>(null);
 const fileInputRef = ref<HTMLInputElement>();
 const dragging = ref(false);
@@ -240,6 +250,7 @@ const errorColumns: PrimaryTableCol[] = [
   { colKey: 'row_no', title: '行号', width: 100 },
   { colKey: 'column', title: '列', width: 160 },
   { colKey: 'raw_value', title: '原始值', width: 200, ellipsis: true },
+  { colKey: 'error_code', title: '错误码', width: 120 },
   { colKey: 'error_message', title: '失败原因', width: 320 },
 ];
 
@@ -293,7 +304,7 @@ async function startUpload(): Promise<void> {
   uploading.value = true;
   stepError.value = '';
   try {
-    const res = await uploadImportFile(pickedFile.value, bizType.value, mode.value);
+    const res = await uploadImportFile(pickedFile.value, bizType.value, mode.value, duplicate.value);
     taskId.value = res.task_id;
     taskNo.value = res.task_no;
     report.value = res.report;

@@ -1,0 +1,82 @@
+[PASS] 首登强制改密已完成（admin → 脚本专用口令）
+[PASS] 下拉里有「供应商」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+[PASS] 下拉里有「物料」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+[PASS] 下拉里有「计量单位」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+[PASS] 下拉里有「会计科目」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+[PASS] 下拉里有「仓库」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+[PASS] 下拉里有「库位」（实际列：会计科目|库位|物料|供应商|计量单位|仓库|字典项…）
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/01-definitions-dropdown.png
+[PASS] business.erp.supplier 模板 HTTP = 200
+[PASS] business.erp.supplier 模板是 xlsx 且非空（8256 字节）
+[PASS] business.erp.material 模板 HTTP = 200
+[PASS] business.erp.material 模板是 xlsx 且非空（8238 字节）
+[PASS] business.erp.unit 模板 HTTP = 200
+[PASS] business.erp.unit 模板是 xlsx 且非空（8116 字节）
+[PASS] business.erp.account 模板 HTTP = 200
+[PASS] business.erp.account 模板是 xlsx 且非空（8131 字节）
+[PASS] business.erp.warehouse 模板 HTTP = 200
+[PASS] business.erp.warehouse 模板是 xlsx 且非空（8111 字节）
+[PASS] business.erp.location 模板 HTTP = 200
+[PASS] business.erp.location 模板是 xlsx 且非空（8203 字节）
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/supplier-3rows.xlsx：3 行，表头 ['供应商编码', '供应商名称', '简称', '联系人', '联系电话', '纳税人识别号', '信用额度', '状态']
+[PASS] 生成 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/supplier-3rows.xlsx
+[PASS] 供应商预检-总行数 = 3
+[PASS] 供应商预检-通过 = 3
+[PASS] 供应商预检-失败 = 0
+  预检耗时：1 ms
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/02-supplier-precheck-pass.png
+[PASS] 入库结果提示包含「入库 3 行」：即将把 3 行数据写入业务表，任务号 IMP20261103-DD20。入库过程中不可撤回。 共 1 批，入库 3 行（校验失败 0 行已跳过） 返回首页 确认入库 查看任务列表
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/03-supplier-import-done.png
+[PASS] 供应商列表能看到 P16MD-SUP1
+[PASS] 供应商列表能看到 P16MD-SUP2
+[PASS] 供应商列表能看到 P16MD-SUP3
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/04-supplier-list.png
+[PASS] 供应商接口条数 = 3
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/supplier-bad-row.xlsx：3 行，表头 ['供应商编码', '供应商名称', '简称', '联系人', '联系电话', '纳税人识别号', '信用额度', '状态']
+[PASS] 生成 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/supplier-bad-row.xlsx
+[PASS] 坏文件-总行数 = 3
+[PASS] 坏文件-失败行数 = 2
+  错误明细原文： 失败明细（行号 / 列 / 原因） 共 2 行失败，表格最多展示 2 条 下载错误明细 行号 列 原始值 错误码 失败原因 第 4 行 供应商编码 REQUIRED 必填项为空 第 5 行 信用额度 -100 RANGE 数值超出范围（≥0，最多 4 位小数，实际 -100）
+[PASS] 错误明细出现「第 4 行」（缺编码那一行）
+[PASS] 错误明细点名列「供应商编码」
+[PASS] 错误明细说明原因「必填项为空」
+[PASS] 错误明细报出错码 REQUIRED
+[PASS] 错误明细同时报出负数信用额度（第 5 行 / 超出范围）
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/05-supplier-error-rows.png
+[PASS] 重复导入后供应商条数（幂等） = 3
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/06-supplier-reimport-idempotent.png
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/material-100rows.xlsx：100 行，表头 ['物料编码', '物料名称', '规格型号', '基本单位', '分类', '成本法', '安全库存', '状态']
+[PASS] 生成 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/material-100rows.xlsx
+[PASS] 物料预检-总行数 = 100
+[PASS] 物料预检-失败 = 0
+[PASS] 物料入库行数 = 100
+  100 行物料：预检 8 ms，上传→预检→入库全链路 47 ms
+[PASS] 100 行物料全链路耗时 < 5000 ms（实测 47 ms）
+[PASS] 物料列表能看到 P16MD-MAT001
+  shot → /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/07-material-list.png
+
+==== P1-6 验收：43 passed / 0 failed ====
+PAGE_EXIT=0
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/unit-2rows.xlsx：2 行，表头 ['单位编码', '单位名称', '是否基本单位', '基准单位编码', '换算率', '状态']
+[PASS] business.erp.unit 预检失败行 = 0
+  business.erp.unit：预检 0 ms，全链路 33 ms
+[PASS] 计量单位（辅助单位引用同文件的基准单位）入库行数 = 2
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/account-2rows.xlsx：2 行，表头 ['科目编码', '科目名称', '科目类别', '借贷方向', '是否末级', '上级科目编码', '状态']
+[PASS] business.erp.account 预检失败行 = 0
+  business.erp.account：预检 1 ms，全链路 26 ms
+[PASS] 会计科目（子级排在父级前面）入库行数 = 2
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/warehouse-2rows.xlsx：2 行，表头 ['仓库编码', '仓库名称', '仓库类型', '地址', '负责人', '是否允许负库存', '状态']
+[PASS] business.erp.warehouse 预检失败行 = 0
+  business.erp.warehouse：预检 1 ms，全链路 26 ms
+[PASS] 仓库入库行数 = 2
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/location-2rows.xlsx：2 行，表头 ['库位编码', '所属仓库编码', '库位名称', '库位类型', '是否默认', '容量', '状态']
+[PASS] business.erp.location 预检失败行 = 0
+  business.erp.location：预检 2 ms，全链路 26 ms
+[PASS] 库位（挂在刚导入的仓库下）入库行数 = 2
+写出 /opt/cloudpivot/docs/evidence/20261104-p16-master-data-import/unit-2rows.xlsx：2 行，表头 ['单位编码', '单位名称', '是否基本单位', '基准单位编码', '换算率', '状态']
+[PASS] business.erp.unit 预检失败行 = 0
+  business.erp.unit：预检 1 ms，全链路 23 ms
+[PASS] 计量单位重导行数（幂等） = 2
+
+==== 其余 4 个定义：10 passed / 0 failed ====
+OTHER_EXIT=0

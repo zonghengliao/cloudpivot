@@ -113,6 +113,7 @@ business/erp/year_end_test_support.rs
 business/flow/edge_admin_tests.rs
 business/flow/linkage/tests.rs
 business/flow/test_support.rs
+business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
 business/task/task_model_cascade_cancel_tests.rs

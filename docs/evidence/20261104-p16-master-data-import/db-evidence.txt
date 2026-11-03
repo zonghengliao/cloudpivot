@@ -1,0 +1,49 @@
+== 供应商（重复导入 3 次后仍应 3 行）
+rows | string_agg
+3 | P16MD-SUP1/北京甲供应链有限公司, P16MD-SUP2/上海乙贸易有限公司, P16MD-SUP3/广州丙实业有限公司
+(1 row)
+== 物料（100 行，成本法只剩 MOVING_AVG）
+rows | costing
+100 | MOVING_AVG
+(1 row)
+== 计量单位（辅助单位指向同文件的基准单位）
+unit_code | is_base | base_unit | rate
+P16MD-U-BOX2 | 0 | P16MD-U-PCS2 | 12.000000
+P16MD-U-PCS2 | 1 |  | 1.000000
+(2 rows)
+== 会计科目（级次由上级推导 / 末级标记）
+account_code | level | is_leaf | has_parent
+P16MD-A | 1 | 0 | f
+P16MD-A01 | 2 | 1 | t
+(2 rows)
+== 仓库（物化路径 / 一级 / 叶子 / 负库存）
+warehouse_code | level | is_leaf | allow_negative | warehouse_path
+P16MD-W1 | 1 | 1 | 0 | /01a1a3ca-fd7e-7578-afa8-4d59a7618639/
+P16MD-W2 | 1 | 1 | 1 | /01a1a3ca-fd7e-7578-afa8-4d5a02c364c6/
+(2 rows)
+== 库位（每仓最多一个默认位）
+location_code | warehouse_code | is_default | capacity
+P16MD-LC1 | P16MD-W1 | 1 | 100.0000
+P16MD-LC2 | P16MD-W1 | 0 | 
+(2 rows)
+== 导入任务（6 个 biz_type 都跑过，全部 SUCCESS；options 里带重复数据策略）
+biz_type | status | total_rows | error_rows | imported_rows | mode | duplicate
+business.erp.supplier | SUCCESS | 3 | 0 | 3 | STRICT | UPSERT
+business.erp.supplier | VALIDATED | 3 | 2 | 0 | STRICT | UPSERT
+business.erp.supplier | SUCCESS | 3 | 0 | 3 | STRICT | UPSERT
+business.erp.material | SUCCESS | 100 | 0 | 100 | STRICT | UPSERT
+business.erp.unit | SUCCESS | 2 | 0 | 2 | STRICT | UPSERT
+business.erp.account | SUCCESS | 2 | 0 | 2 | STRICT | UPSERT
+business.erp.warehouse | SUCCESS | 2 | 0 | 2 | STRICT | UPSERT
+business.erp.location | SUCCESS | 2 | 0 | 2 | STRICT | UPSERT
+business.erp.unit | SUCCESS | 2 | 0 | 2 | STRICT | UPSERT
+(9 rows)
+== 按 biz_type 汇总（幂等：供应商 3 次导入只 3 行）
+biz_type | tasks | imported
+business.erp.account | 1 | 2
+business.erp.location | 1 | 2
+business.erp.material | 1 | 100
+business.erp.supplier | 3 | 6
+business.erp.unit | 2 | 4
+business.erp.warehouse | 1 | 2
+(6 rows)

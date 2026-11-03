@@ -51,7 +51,7 @@ use sha2::{Digest, Sha256};
 use tokio_util::io::ReaderStream;
 
 use crate::business::impexp::definition::{
-    ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
+    DuplicateStrategy, ExportFilter, ImportCtx, ImportDefinition, ImportMode, RowIssue,
 };
 use crate::business::impexp::dto::{
     ConfirmRes, ErrorPageQuery, ExportCreateReq, ExportPageQuery, ExportSyncQuery, ExportTaskRes,
@@ -181,6 +181,14 @@ pub async fn import_upload(
         )
     })?;
     let mode = ensure_mode_allowed(definition.allow_partial(), mode)?;
+    let duplicate =
+        DuplicateStrategy::parse(query.duplicate.as_deref().unwrap_or("")).ok_or_else(|| {
+            ApiError::new(
+                400,
+                error_code::PARAM_INVALID,
+                "duplicate 只能是 UPSERT 或 SKIP",
+            )
+        })?;
 
     let (file_name, bytes) = read_upload_file(multipart).await?;
     let max_bytes = (cfg().upload.max_size_mb as usize).saturating_mul(1024 * 1024);
@@ -196,6 +204,9 @@ pub async fn import_upload(
     let task_no = model::build_import_task_no(&task_id);
     let file_sha256 = sha256_hex(&bytes);
     let file_path = persist_upload(task_id, &bytes).await?;
+    // 选项快照：重复数据策略要跟着任务走（确认入库时只凭 task_id 读回来），
+    // 否则「用户选 SKIP 却按 UPSERT 覆盖线上主数据」是静默的数据事故。
+    let options = serde_json::json!({ "duplicate_strategy": duplicate.as_str() }).to_string();
 
     model::insert_import_task(&NewImportTask {
         id: task_id,
@@ -208,7 +219,7 @@ pub async fn import_upload(
         file_size: bytes.len() as i64,
         mode: mode.as_str(),
         operator: utils::current_user_uuid(&claims),
-        options: Some("{}"),
+        options: Some(&options),
     })
     .await
     .map_err(|error| utils::db_error(error, "创建导入任务"))?;
@@ -1651,7 +1662,26 @@ pub async fn import_retry(
         .clone()
         .unwrap_or_else(|| "import.xlsx".to_string());
     // 来源留档：新任务的 options 里记下「从哪条任务重试而来」，审计可回溯
-    let options = serde_json::json!({ "retry_from": task.id.to_string() }).to_string();
+    // 重复数据策略必须跟着继承：重试是「同一份文件的再试一次」，不能悄悄把 SKIP 变成 UPSERT。
+    let source_options = model::import_task_options(&task.id)
+        .await
+        .map_err(|error| utils::db_error(error, "读取原任务选项"))?
+        .unwrap_or_else(|| "{}".to_string());
+    let duplicate = serde_json::from_str::<serde_json::Value>(&source_options)
+        .ok()
+        .and_then(|value| {
+            value
+                .get("duplicate_strategy")
+                .and_then(|item| item.as_str())
+                .map(str::to_string)
+        })
+        .and_then(|raw| DuplicateStrategy::parse(&raw))
+        .unwrap_or_default();
+    let options = serde_json::json!({
+        "retry_from": task.id.to_string(),
+        "duplicate_strategy": duplicate.as_str(),
+    })
+    .to_string();
     model::insert_import_task(&NewImportTask {
         id: new_id,
         task_no: &new_task_no,

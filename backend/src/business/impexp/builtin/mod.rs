@@ -12,6 +12,7 @@
 
 pub mod dict_item;
 pub mod erp_doc;
+pub mod master_data;
 
 use crate::business::impexp::registry::DefinitionRegistry;
 
@@ -30,6 +31,14 @@ pub const DICT_ITEM_BIZ_TYPE: &str = "system.dict_item";
 pub fn register(registry: &mut DefinitionRegistry) -> std::result::Result<(), String> {
     registry.register_import(std::sync::Arc::new(dict_item::DictItemImport))?;
     registry.register_export(std::sync::Arc::new(dict_item::DictItemExport))?;
+    // P1-6：ERP 主数据 6 个导入定义（供应商 / 物料 / 计量单位 / 会计科目 / 仓库 / 库位）。
+    // 只注册导入：主数据导出走 `/business/erp/*/export`，不进 impexp 的批量导出清单。
+    registry.register_import(std::sync::Arc::new(master_data::supplier::SupplierImport))?;
+    registry.register_import(std::sync::Arc::new(master_data::material::MaterialImport))?;
+    registry.register_import(std::sync::Arc::new(master_data::unit::UnitImport))?;
+    registry.register_import(std::sync::Arc::new(master_data::account::AccountImport))?;
+    registry.register_import(std::sync::Arc::new(master_data::warehouse::WarehouseImport))?;
+    registry.register_import(std::sync::Arc::new(master_data::location::LocationImport))?;
     // D7：ERP 单据三个导出定义（批量导出的落点）。只注册导出：这些单据不走 Excel 导入。
     for definition in erp_doc::definitions() {
         registry.register_export(std::sync::Arc::new(definition))?;

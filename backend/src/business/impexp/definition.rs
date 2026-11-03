@@ -744,6 +744,47 @@ impl ImportMode {
     }
 }
 
+/// 重复数据策略（同一业务编码在库中已存在时怎么处理）。
+///
+/// 与 [`ImportMode`] 正交：`mode` 决定「校验失败的行怎么办」，本枚举决定
+/// 「编码已存在的行怎么办」。二者共同构成一次导入的行为，故都由上传接口的查询串
+/// 传入并快照到 `sys_import_task.options`（见 `handler::import_upload`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DuplicateStrategy {
+    /// 按业务编码 upsert：已存在则更新其余字段（默认，幂等重导的首选）。
+    #[default]
+    Upsert,
+    /// 已存在则跳过（只插入新编码），用于「只补新增、绝不覆盖线上已有主数据」。
+    Skip,
+}
+
+impl DuplicateStrategy {
+    /// 字符串 → 策略（大小写不敏感，空串按默认）。
+    ///
+    /// # 参数
+    ///
+    /// - `raw`：`UPSERT` / `SKIP`。
+    ///
+    /// # 返回值
+    ///
+    /// 合法时返回策略，非法返回 `None`。
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_uppercase().as_str() {
+            "" | "UPSERT" | "UPDATE" => Some(DuplicateStrategy::Upsert),
+            "SKIP" | "IGNORE" => Some(DuplicateStrategy::Skip),
+            _ => None,
+        }
+    }
+
+    /// 落库字符串（写进 `sys_import_task.options.duplicate_strategy`）。
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            DuplicateStrategy::Upsert => "UPSERT",
+            DuplicateStrategy::Skip => "SKIP",
+        }
+    }
+}
+
 /// 导入上下文（传给业务 `validate_row` / `persist`）。
 #[derive(Debug, Clone)]
 pub struct ImportCtx {
