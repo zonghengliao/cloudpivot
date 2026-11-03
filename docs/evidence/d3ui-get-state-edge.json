@@ -1,0 +1,139 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "list": [
+      {
+        "entity": "STOCK_OUT",
+        "entity_label": "出库单",
+        "base_edges": [
+          {
+            "from": "DRAFT",
+            "to": "PENDING_POST",
+            "label": "提交待过账",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "PENDING_POST",
+            "to": "POSTED",
+            "label": "过账",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "PENDING_POST",
+            "to": "DRAFT",
+            "label": "撤回",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "DRAFT",
+            "to": "POSTED",
+            "label": "直接过账",
+            "mandatory": false,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "DRAFT",
+            "to": "CANCELLED",
+            "label": "草稿作废",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "POSTED",
+            "to": "CANCELLED",
+            "label": "已过账作废",
+            "mandatory": true,
+            "requires_reason": true,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          }
+        ],
+        "configs": [],
+        "effective_edges": [
+          {
+            "from": "DRAFT",
+            "to": "PENDING_POST",
+            "label": "提交待过账",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "PENDING_POST",
+            "to": "POSTED",
+            "label": "过账",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "PENDING_POST",
+            "to": "DRAFT",
+            "label": "撤回",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "DRAFT",
+            "to": "POSTED",
+            "label": "直接过账",
+            "mandatory": false,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "DRAFT",
+            "to": "CANCELLED",
+            "label": "草稿作废",
+            "mandatory": true,
+            "requires_reason": false,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          },
+          {
+            "from": "POSTED",
+            "to": "CANCELLED",
+            "label": "已过账作废",
+            "mandatory": true,
+            "requires_reason": true,
+            "auth_code": null,
+            "configured": false,
+            "enabled": true
+          }
+        ],
+        "pending_changes": []
+      }
+    ],
+    "total": 1
+  }
+}

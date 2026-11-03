@@ -1,0 +1,14 @@
+深链 /flow/def?entity=STOCK_OUT
+抽屉可见 = true  box = {"x":0,"y":0,"width":1500,"height":1000}
+表格 box = {"x":516,"y":183.796875,"width":968,"height":279}
+行数 = 6
+单元格矩阵：
+  1. DRAFT | PENDING_POST | 提交待过账 | 硬约束 | 不要求原因 | — | 默认 | 启用 | 变更
+  2. PENDING_POST | POSTED | 过账 | 硬约束 | 不要求原因 | — | 默认 | 启用 | 变更
+  3. PENDING_POST | DRAFT | 撤回 | 硬约束 | 不要求原因 | — | 默认 | 启用 | 变更
+  4. DRAFT | POSTED | 直接过账 | 可选 | 不要求原因 | — | 默认 | 启用 | 变更
+  5. DRAFT | CANCELLED | 草稿作废 | 硬约束 | 不要求原因 | — | 默认 | 启用 | 变更
+  6. POSTED | CANCELLED | 已过账作废 | 硬约束 | 必须填原因 | — | 默认 | 启用 | 变更
+
+抽屉文本 = 状态机边配置 这里显示的是代码里的 BASE 边（state_machine::BASE_EDGES）与库里的配置合并后的结果。 改任何一条都要提交 flow_edge_config 审批：审批通过才写库，驳回或撤回配置一分不动。 刷新 BASE 边 6 条 · 生效 6 条 · 存活配置 0 条 从 到 文案 约束 原因 追加权限码 当前配置 生效 操作 DRAFT PENDING_POST 提交待过账 硬约束 不要求原因 — 默认 启用 变更 PENDING_POST POSTED 过账 硬约束 不要求原因 — 默认 启用 变更 PENDING_POST DRAFT 撤回 硬约束 不要求原因 — 默认 启用 变更 DRAFT POSTED 直接过账 可选 不要求原因 — 默认 启用 变更 DRAFT CANCELLED 草稿作废 硬约束 不要求原因 — 默认 启用 变更 POSTED CANCELLED 已过账作废 硬约束 必须填原因 — 默认 启用 变更
+控制台 error = []

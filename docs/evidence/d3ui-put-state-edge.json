@@ -1,0 +1,11 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "applied": false,
+    "instance_id": "01a19f90-8af4-77c1-9a8a-0ba80989c514",
+    "instance_no": "FLW-20261103-4C65B63B",
+    "instance_status": "PENDING",
+    "message": "STOCK_OUT DRAFT→POSTED 禁用 / 要求填原因：已提交审批 FLW-20261103-4C65B63B，审批通过后才会生效（驳回或撤回则配置不变）"
+  }
+}
