@@ -205,3 +205,14 @@ bash scripts/verify/p0_fix5_period_seed_check.sh cp_p5_verify2 18122
 
 **没有**放宽任何闸门：写凭证本来就只拦 `CLOSED`（缺期时 fail-open 照样写），
 本卡只是让「期间行存在」这件事实恒成立，F2 从 WARN 变绿。
+
+---
+
+## 5. 恢复调度后的第 3 轮复验（HEAD `7978a1c`）
+
+实现未改，只做独立复验：在**干净工作树**（`/root/p5-wt2`，HEAD `7978a1c`）冷编译
+二进制，用工作树自带的迁移目录与 `erp_invariants.py`，两个全新隔离库连跑两轮
+（`cp_p5_v1/18161`、`cp_p5_v2/18162`）→ 均 `RESULT: PASS（0 项失败）`、
+`51/51 · BLOCKER 0 · WARN 0`（套件在 HEAD 上已从 40 项扩到 51 项，F2 仍 ✅）。
+
+详见 `round-3-HEAD-7978a1c/README.md`，原始输出与冷编译/单测日志在同目录。

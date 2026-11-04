@@ -1,0 +1,56 @@
+
+[1m==== ① 全新隔离库 cp_p5_v1 —— 真引擎迁移 ====[0m
+[2m2026-11-04T17:48:31.719489Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 changelog_partition_maintain [0 20 1 1 * *] 已排程
+[2m2026-11-04T17:48:31.719499Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 31 个任务已启动
+[2m2026-11-04T17:48:31.720130Z[0m [32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m 运行时参数快照已装载 [3mparams[0m[2m=[0m19
+  ℹ️  schema_migrations 最大版本 = 234（共享工作区里别人的迁移也在跑，本卡只锚 V0221）
+  ✅ V0221 已应用并记录在 schema_migrations（= 1）
+  ✅ 当年 2026 期间行数（= 12）
+  ✅ 当年期间全部 OPEN（= 12）
+  ✅ 12 个月编码齐备（= 0）
+  ✅ 区间是自然月（起始 1 号、月末 ≥28）（= 0）
+  ✅ 启动保底日志出现：会计期间保底：当年 12 期已齐，无需补建
+结果：51/51 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+============================================================================================
+
+★ 全部不变量成立，账目干净。
+  ✅ 不变量 F2 绿（全新库）
+  ✅ BLOCKER 0
+
+[1m==== ①b 迁移脚本 up / down / up 幂等（同一库，psql 直跑迁移文件） ====[0m
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：当年 2026 年会计期间 —— 新建 0 期，已存在 12 期（共 12 期）
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：按 CURRENT_DATE = 2026-11-05 判定，当月 = 11
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:126: NOTICE:  V0221 自检通过：当年 2026 的 12 期齐备
+  ✅ 第 2 次 up 后行数（幂等）（= 12）
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.down.sql:52: NOTICE:  V0221 down：删除种子期间 11 行，保留（已结账 / 有凭证）0 行
+  ✅ down 后只剩 V0137 的 2026-10 种子行（= 1）
+  ✅ V0137 字面 id 的种子行没被误删（= 1）
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.down.sql:52: NOTICE:  V0221 down：删除种子期间 0 行，保留（已结账 / 有凭证）0 行
+  ✅ 第 2 次 down 后行数（幂等）（= 1）
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：当年 2026 年会计期间 —— 新建 11 期，已存在 1 期（共 12 期）
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:83: NOTICE:  V0221：按 CURRENT_DATE = 2026-11-05 判定，当月 = 11
+    psql:/root/p5-wt2/backend/migrations/business/V0221__erp_seed_accounting_period_year.up.sql:126: NOTICE:  V0221 自检通过：当年 2026 的 12 期齐备
+  ✅ 再 up 后回到 12 行（= 12）
+
+[1m==== ①c 跨年通道：删掉一期 → 重启 → 启动保底补回（不必等明年） ====[0m
+  ✅ 人为删掉 2026-06 后行数（= 11）
+  ✅ 重启后行数（启动保底补回）（= 12）
+  ✅ 重启日志确认补建：会计期间保底：已补齐当年缺失的会计期间（status = OPEN） [3mcreated[0m[2m=[0m1
+
+[1m==== ② 存量库（cloudpivot_audit 的副本 cp_p5_v1_f2）—— 5 张无期间凭证能否转绿 ====[0m
+  复制前：期间 1 行 / 凭证 5 张 / 迁移 219
+  复制前无期间凭证：5 张
+  ℹ️  存量库 schema_migrations 最大版本 = 234
+  ✅ 存量库已应用 V0221（= 1）
+  ✅ 存量库当年期间行数（= 12）
+  ✅ 无期间凭证数（F2 判据）（= 0）
+结果：51/51 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+============================================================================================
+
+★ 全部不变量成立，账目干净。
+  ✅ 不变量 F2 绿（存量库 5 张凭证已挂上期间）
+  ✅ BLOCKER 0（存量库）
+
+[1m==== 结果 ====[0m
+RESULT: PASS（0 项失败） · 日志目录 /root/.cloudpivot/p0fix5-v1
+EXIT=0

@@ -1,0 +1,10 @@
+   Compiling cloudpivot v0.1.0 (/root/p5-wt2/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 43s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+test business::erp::period::tests::p1_ensure_year_periods_seeds_twelve_and_is_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2400 filtered out; finished in 0.54s
+
+EXIT=0
