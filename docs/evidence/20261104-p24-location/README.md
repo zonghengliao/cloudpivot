@@ -4,6 +4,8 @@
 > 依据：`docs/architecture/ARCH-3-模块勾稽关系审计.md` §5 **DC-22**
 > 口径文档：`docs/ERP-库位策略.md`
 > 迁移：`backend/migrations/business/V0218__erp_p2_4_stock_in_item_location_dict.{up,down}.sql`
+> 提交：`d3d94e6`（`feat(erp): P2-4 库位做完整…`），已推 `origin`（144 bare）与 `github`，
+> 两端 `main` 均指向 `d3d94e6`。
 
 ## 1. 改了什么（一句话）
 
