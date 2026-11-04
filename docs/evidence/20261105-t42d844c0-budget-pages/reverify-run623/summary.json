@@ -1,0 +1,24 @@
+{
+  "results": [
+    {
+      "route": "/business/erp/budget",
+      "nf404": 0,
+      "file": "/root/.hermes/profiles/frontend-developer/cache/scratch/t42d-reverify/01-budget-list.png",
+      "excerpt": "云枢 CloudPivot 系统管理 公告与消息 12 支撑功能 审批流 8 工作任务 6 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 内容管理 通用底座 财务管理 合同管理（采购/销售/服务/租赁） 基础数据 首页 预算编制 12 新建预算 刷新 查询 重置 预算编制 共 4 条 一条预算 = 部门 × "
+    },
+    {
+      "route": "/business/erp/budget/report",
+      "nf404": 0,
+      "file": "/root/.hermes/profiles/frontend-developer/cache/scratch/t42d-reverify/03-budget-report.png",
+      "excerpt": "云枢 CloudPivot 系统管理 公告与消息 12 支撑功能 审批流 8 工作任务 6 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 内容管理 通用底座 财务管理 合同管理（采购/销售/服务/租赁） 基础数据 首页 预算执行 12 额度合计 600,000.00 3 个「部门 × 科目」槽 占用中 0.0"
+    },
+    {
+      "route": "/business/erp/budget/mapping",
+      "nf404": 0,
+      "file": "/root/.hermes/profiles/frontend-developer/cache/scratch/t42d-reverify/04-budget-mapping.png",
+      "excerpt": "云枢 CloudPivot 系统管理 公告与消息 12 支撑功能 审批流 8 工作任务 6 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 内容管理 通用底座 财务管理 合同管理（采购/销售/服务/租赁） 基础数据 首页 预算科目映射 12 新建映射 刷新 查询 重置 预算科目映射 共 1 条 命中顺序：物料 "
+    }
+  ],
+  "total404": 0,
+  "errors": []
+}
