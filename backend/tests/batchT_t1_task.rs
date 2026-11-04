@@ -278,6 +278,9 @@ async fn create_task(
         dept_id: Some(dept(dept_id)),
         parent_id: None,
         project_id: None,
+        // 自由任务：不关联任何单据（P2-9 的 doc_type/doc_id 必须成对为空）
+        doc_type: None,
+        doc_id: None,
         start_date: None,
         due_date,
         estimate_hours: None,
@@ -476,6 +479,9 @@ async fn crud_roundtrip() {
         dept_id: Some(dept(DEPT_R_SUB)),
         parent_id: None,
         project_id: None,
+        // 自由任务：不关联任何单据（P2-9 的 doc_type/doc_id 必须成对为空）
+        doc_type: None,
+        doc_id: None,
         start_date: None,
         due_date: Some(default_due),
         estimate_hours: Some(2.5),

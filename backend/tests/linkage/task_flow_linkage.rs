@@ -39,6 +39,9 @@ async fn make_task(
         owner_id: Some(ctx.worker.to_string()),
         parent_id: parent.map(|id| id.to_string()),
         project_id: None,
+        // 自由任务：不关联任何单据（P2-9 的 doc_type/doc_id 必须成对为空）
+        doc_type: None,
+        doc_id: None,
         start_date: None,
         due_date: None,
         estimate_hours: None,
