@@ -1,0 +1,14 @@
+── 巡检脚本零 DML（期望 0）──
+0
+── 巡检 SQL 包（唯一命中是第 12 行既有设计注释，不是 DML）──
+12:--   ② 巡检任务只需一条 INSERT ... SELECT（见 20_upsert_converge.sql）；
+
+── 日志里 ALERT 行分布（BLOCKER 0 的轮次不应有）──
+75:  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+80:  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+85:  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+18:04 之后的 ALERT 条数：0
+
+── 通知钩子只在有 BLOCKER 时被调用：本轮 BLOCKER 0 ⇒ 无 ALERT、无消息 ──
+[2026-11-04T18:04:43+08:00] db=cloudpivot@127.0.0.1 BLOCKER=0 WARN=0 INFO=80 checks=25(passed=22 skipped=0 failed=0) exit=0
+[2026-11-04T18:06:03+08:00] db=cloudpivot@127.0.0.1 BLOCKER=0 WARN=0 INFO=80 checks=25(passed=22 skipped=0 failed=0) exit=0

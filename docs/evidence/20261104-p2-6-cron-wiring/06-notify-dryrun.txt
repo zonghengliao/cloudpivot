@@ -1,0 +1,18 @@
+$ SNAPSHOT_AUDIT_BLOCKERS=1 SNAPSHOT_AUDIT_SUMMARY="快照一致性巡检检出 1 条 BLOCKER（库 cloudpivot）" \
+  bash /opt/cloudpivot/scripts/cron/snapshot_audit_notify.sh --dry-run
+── DRY-RUN（不会发送任何消息）──
+目标：feishu 团队告警频道（经 172.18.10.99:/root/.hermes/profiles/backend-developer/scripts/feishu_alert_send.py）
+── 卡片正文 ──
+**快照一致性巡检检出 1 条 BLOCKER（库 cloudpivot）**
+
+- 主机：172.18.10.144（生产）
+- BLOCKER：1
+- 结果文件：`/var/log/cloudpivot/snapshot-audit.latest.json`
+- 全量日志：`/var/log/cloudpivot/snapshot-audit.log`
+- 处置：按《快照一致性巡检与告警设计》AP-8 —— 巡检只报不修，人工看图后决定改数据还是改口径；
+  确认是「历史正常」就走 DI 豁免台账（精确到行 id + 期限），**不要停 cron、不要删视图**。
+
+抓取现场：`sed -n '/BLOCKER/,$p' /var/log/cloudpivot/snapshot-audit.latest.json` 或直接 tail 日志。
+── 将会执行的命令 ──
+printf '%s' "$BODY" | ssh root@172.18.10.99 python3 /root/.hermes/profiles/backend-developer/scripts/feishu_alert_send.py --subject '生产快照巡检 BLOCKER 1' --stdin
+exit=0

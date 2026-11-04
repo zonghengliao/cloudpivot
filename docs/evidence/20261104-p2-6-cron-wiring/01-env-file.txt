@@ -1,0 +1,24 @@
+$ ls -l /etc/cloudpivot/snapshot-audit.env
+-rw------- 1 root root 1208 Nov  4 18:04 /etc/cloudpivot/snapshot-audit.env
+
+$ stat -c '%a %U:%G' /etc/cloudpivot/snapshot-audit.env
+600 root:root
+
+$ sed -E "s/^(NIK_DATABASE_PASSWORD=).*/\\1<hidden>/" /etc/cloudpivot/snapshot-audit.env
+# 快照一致性巡检（snapshot_audit.sh）—— 生产环境配置
+# 部署位置：/etc/cloudpivot/snapshot-audit.env    权限 600 root:root
+# 由 /opt/cloudpivot/scripts/cron/snapshot_audit.sh 自动 source
+#   查找顺序：$SNAPSHOT_AUDIT_ENV → /etc/cloudpivot/snapshot-audit.env → ~/.cloudpivot/snapshot-audit.env
+# 为什么必须存在这个文件：脚本 source 完会显式 export，不写就会回落到「当前 shell 的环境变量」，
+#   历史上踩过「日志显示 db=cp_lockorder_t / 实际连默认库 → no password supplied」。
+NIK_DATABASE_HOST=127.0.0.1
+NIK_DATABASE_PORT=5432
+NIK_DATABASE_USER=cloudpivot
+NIK_DATABASE_NAME=cloudpivot
+NIK_DATABASE_PASSWORD=<hidden>
+SNAPSHOT_AUDIT_LOG_DIR=/var/log/cloudpivot
+SNAPSHOT_AUDIT_KEEP_DAYS=30
+# 有 BLOCKER（或某条巡检执行失败）时执行的通知钩子；只有 WARN/INFO 不打扰人。
+# 通道：ssh → 172.18.10.99 的 feishu_alert_send.py（飞书卡片），bot 凭据留在 99，不在生产机另存。
+# 验接线不发消息：bash /opt/cloudpivot/scripts/cron/snapshot_audit_notify.sh --dry-run
+SNAPSHOT_AUDIT_NOTIFY_CMD=/opt/cloudpivot/scripts/cron/snapshot_audit_notify.sh
