@@ -183,6 +183,10 @@ mod stockin_handler_write; // 写入：建单 / 复制 / 编辑 / 删除
 #[cfg(test)]
 mod cancel_cascade_tests;
 
+/// 凭证辅助核算（DC-11 · P2-1）：写入口径 + 辅助账查询。只在 `cargo test` 时编译。
+#[cfg(test)]
+mod aux_tests;
+
 /// 夹具卫生（`#[cfg(test)]`）：`biz_status_log` 孤儿行的统一判据与清理。
 #[cfg(test)]
 pub(crate) mod fixture_hygiene;

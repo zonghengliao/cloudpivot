@@ -263,6 +263,7 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
                     aux_supplier_id: None,
                     aux_material_id: Some(material_id),
                     aux_warehouse_id: Some(warehouse_id),
+                    aux_dept_id: None,
                 },
                 voucher::EntryLine {
                     line_no: 2,
@@ -272,6 +273,7 @@ async fn seed_inbound(material_id: Uuid, warehouse_id: Uuid, qty: Decimal, unit_
                     credit: amount,
                     aux_supplier_id: None,
                     aux_material_id: Some(material_id),
+                    aux_dept_id: None,
                     aux_warehouse_id: None,
                 },
             ],

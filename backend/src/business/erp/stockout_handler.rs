@@ -606,6 +606,25 @@ async fn post_out_tx(
         header.out_no,
         total_amount
     );
+    // 物料辅助核算：整单只有**一种**物料时才有值。多物料出库的成本结转凭证是一条
+    // 汇总行（借 6401 / 贷 1405），把整笔成本挂到首个物料上会让物料成本报表虚增。
+    let distinct_materials = {
+        let mut materials: Vec<Uuid> = items.iter().map(|item| item.material_id).collect();
+        materials.sort_unstable();
+        materials.dedup();
+        materials.len()
+    };
+    let aux_material_id = if distinct_materials <= 1 {
+        items.first().map(|item| item.material_id)
+    } else {
+        tracing::warn!(
+            out_no = %header.out_no,
+            material_count = distinct_materials,
+            "出库单含 {} 种物料，成本结转凭证是汇总行 ⇒ aux_material_id 留空（按物料拆分录待 P2-1b 决议）",
+            distinct_materials
+        );
+        None
+    };
     let voucher_id = voucher::create_for_stock_out(
         ex,
         &voucher::StockOutVoucher {
@@ -615,7 +634,7 @@ async fn post_out_tx(
             out_type: &header.out_type,
             debit_code,
             debit_name,
-            first_material: items.first().map(|item| item.material_id),
+            aux_material_id,
             warehouse_id: header.warehouse_id,
             amount: total_amount,
             summary,

@@ -687,6 +687,8 @@ pub struct EntryLine {
     pub aux_material_id: Option<Uuid>,
     /// 辅助核算：仓库。
     pub aux_warehouse_id: Option<Uuid>,
+    /// 辅助核算：部门（"谁花的钱"；只有付款凭证写，见模块文档 §辅助核算）。
+    pub aux_dept_id: Option<Uuid>,
 }
 
 /// 分录构造参数（避免 `too_many_arguments`）。
@@ -726,6 +728,10 @@ pub fn purchase_in_lines(
             aux_supplier_id: None,
             aux_material_id: ctx.material_id,
             aux_warehouse_id: ctx.warehouse_id,
+            // 采购入库**故意不写部门**：`biz_purchase_order` / `biz_stock_in` 都没有
+            // `dept_id`，"谁买的"在系统里没有权威字段（DC-11 / DC-16）。按申请人部门
+            // 猜一个值等于给财务一张错的部门辅助账，不如留空（见模块文档 §辅助核算）。
+            aux_dept_id: None,
         });
     }
     if amounts.tax > Decimal::ZERO
@@ -740,6 +746,7 @@ pub fn purchase_in_lines(
             aux_supplier_id: None,
             aux_material_id: None,
             aux_warehouse_id: None,
+            aux_dept_id: None,
         });
     }
     if amounts.with_tax > Decimal::ZERO {
@@ -751,6 +758,7 @@ pub fn purchase_in_lines(
             credit: amounts.with_tax,
             aux_supplier_id: ctx.supplier_id,
             aux_material_id: None,
+            aux_dept_id: None,
             aux_warehouse_id: None,
         });
     }
@@ -778,6 +786,9 @@ pub fn reversed_lines(original: &[EntryRow], reason: Option<&str>) -> Vec<EntryL
             aux_supplier_id: row.aux_supplier_id,
             aux_material_id: row.aux_material_id,
             aux_warehouse_id: row.aux_warehouse_id,
+            // 红冲必须原样复制辅助核算（技术架构 §3.1.7 第 4 条）：按辅助项查明细
+            // 时，红冲行要落在**同一个**辅助项下，否则红冲会"冲不掉"那一项。
+            aux_dept_id: row.aux_dept_id,
         })
         .collect()
 }
@@ -885,7 +896,7 @@ impl VoucherRow {
 /// `biz_voucher_entry` 列清单。
 pub const ENTRY_COLUMNS: &str = "id, voucher_id, line_no, summary, account_id, account_code, \
      account_name, debit_amount, credit_amount, aux_supplier_id, aux_material_id, \
-     aux_warehouse_id, created_at";
+     aux_warehouse_id, aux_dept_id, created_at";
 
 /// 分录行（读回用）。
 #[derive(Debug, Clone)]
@@ -910,6 +921,8 @@ pub struct EntryRow {
     pub aux_material_id: Option<Uuid>,
     /// 辅助核算：仓库。
     pub aux_warehouse_id: Option<Uuid>,
+    /// 辅助核算：部门。
+    pub aux_dept_id: Option<Uuid>,
 }
 
 impl EntryRow {
@@ -929,6 +942,7 @@ impl EntryRow {
             aux_supplier_id: row.get_typed("aux_supplier_id")?,
             aux_material_id: row.get_typed("aux_material_id")?,
             aux_warehouse_id: row.get_typed("aux_warehouse_id")?,
+            aux_dept_id: row.get_typed("aux_dept_id")?,
         })
     }
 }
@@ -1035,6 +1049,17 @@ pub struct VoucherBizCtx {
     pub biz_type: String,
     /// 存货科目退化用的物料。
     pub material_id: Option<Uuid>,
+    /// 存货行的**物料辅助核算值**（只有单据里**唯一一种物料**时才有值）。
+    ///
+    /// 为什么与 `material_id` 分开：`material_id` 还承担「按物料解析存货科目」的职责
+    /// （`resolve_accounts_with`），必须始终有值；而辅助核算写错比留空更糟 ——
+    /// 一张 3 种物料的收货单，存货借方是**汇总行**，把整笔金额挂到首个物料上
+    /// 会让「物料成本」报表凭空多出两个物料的成本（DC-11 的反向坑）。
+    /// 多物料时的正确做法是「按物料拆分录」，那是独立决议（见 P2-1b 卡），
+    /// 在决议落地前这里留空 + WARN，让数据保持可解释。
+    pub aux_material_id: Option<Uuid>,
+    /// 单据里的物料种类数（`COUNT(DISTINCT material_id)`，用于判定并写进 WARN）。
+    pub material_count: i64,
     /// 应付科目退化用的供应商。
     pub supplier_id: Option<Uuid>,
     /// 辅助核算：仓库。
@@ -1046,7 +1071,14 @@ impl VoucherBizCtx {
     ///
     /// 与 `create_for_stock_in` 拆分前逐字相同（金额 `round_dp(4)`、摘要格式、
     /// `biz_type = PURCHASE_IN`、辅助核算取首个物料 / 供应商 / 仓库）。
-    pub fn of_stock_in(header: &StockInRow, first_material: Option<Uuid>) -> Self {
+    ///
+    /// `material_count` = 本单的**物料种类数**：`> 1` 时存货借方是汇总行，
+    /// 物料辅助核算只能留空（理由见 [`VoucherBizCtx::aux_material_id`]）。
+    pub fn of_stock_in(
+        header: &StockInRow,
+        first_material: Option<Uuid>,
+        material_count: i64,
+    ) -> Self {
         Self {
             source_type: SOURCE_STOCK_IN.to_string(),
             source_id: header.id,
@@ -1059,6 +1091,12 @@ impl VoucherBizCtx {
             ),
             biz_type: BIZ_TYPE_PURCHASE_IN.to_string(),
             material_id: first_material,
+            aux_material_id: if material_count <= 1 {
+                first_material
+            } else {
+                None
+            },
+            material_count,
             supplier_id: header.supplier_id,
             warehouse_id: Some(header.warehouse_id),
         }
@@ -1126,13 +1164,24 @@ pub async fn create_by_rule(
         ));
     }
 
+    // 多物料收货单的存货借方是一条汇总行 ⇒ 物料辅助核算留空（写首个物料的 id 等于
+    // 把整笔金额记到那个物料头上，会让物料成本报表虚增）。这里是唯一打 WARN 的地方：
+    // 财务看到这条日志就知道「这张单的成本按物料查不到」，而不会误以为查到的数是全的。
+    if ctx.material_count > 1 {
+        tracing::warn!(
+            source_no = %ctx.source_no,
+            material_count = ctx.material_count,
+            "收货单含 {} 种物料，存货借方是汇总行 ⇒ aux_material_id 留空（按物料拆分录待 P2-1b 决议）",
+            ctx.material_count
+        );
+    }
     let lines = purchase_in_lines(
         &accounts,
         ctx.amounts,
         &ctx.summary,
         LineContext {
             warehouse_id: ctx.warehouse_id,
-            material_id: ctx.material_id,
+            material_id: ctx.aux_material_id,
             supplier_id: ctx.supplier_id,
         },
     );
@@ -1191,6 +1240,8 @@ pub struct VoucherLineSnapshot {
     pub aux_material_id: Option<Uuid>,
     /// 辅助核算：仓库。
     pub aux_warehouse_id: Option<Uuid>,
+    /// 辅助核算：部门。
+    pub aux_dept_id: Option<Uuid>,
 }
 
 /// 一张凭证的逐字段快照 —— 「旧路径发的凭证」与「配置发的凭证」的对比物。
@@ -1269,6 +1320,7 @@ pub async fn snapshot_of(ex: &impl SqlExecutor, voucher_id: Uuid) -> DbResult<Vo
             aux_supplier_id: entry.aux_supplier_id,
             aux_material_id: entry.aux_material_id,
             aux_warehouse_id: entry.aux_warehouse_id,
+            aux_dept_id: entry.aux_dept_id,
         })
         .collect();
     Ok(VoucherSnapshot {
@@ -1359,10 +1411,12 @@ async fn write_entries(
             format!(
                 "INSERT INTO {ENTRY_TABLE} \
                     (voucher_id, line_no, summary, account_id, account_code, account_name, \
-                     debit_amount, credit_amount, aux_supplier_id, aux_material_id, aux_warehouse_id) \
+                     debit_amount, credit_amount, aux_supplier_id, aux_material_id, aux_warehouse_id, \
+                     aux_dept_id) \
                  VALUES (?::uuid, ?, ?, ?::uuid, ?, ?, NULLIF(?::text,'')::numeric, \
                          NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::uuid, \
-                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid)"
+                         NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
+                         NULLIF(?::text,'')::uuid)"
             ),
             vec![
                 Value::from(&voucher_id),
@@ -1388,6 +1442,7 @@ async fn write_entries(
                         .map(|v| v.to_string())
                         .unwrap_or_default(),
                 ),
+                Value::Text(line.aux_dept_id.map(|v| v.to_string()).unwrap_or_default()),
             ],
         )
         .await?;
@@ -1715,11 +1770,44 @@ pub async fn create_for_stock_in(
     ex: &impl SqlExecutor,
     header: &StockInRow,
     first_material: Option<Uuid>,
+    material_count: i64,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
-    let ctx = VoucherBizCtx::of_stock_in(header, first_material);
+    let ctx = VoucherBizCtx::of_stock_in(header, first_material, material_count);
     create_by_rule(ex, None, &ctx, operator, now).await
+}
+
+/// 某个用户**当前**所属部门（`sys_user.dept_id`；用户不存在 / 已软删 / 没配部门 → `None`）。
+///
+/// # 为什么凭证的部门从这里取（DC-11 的「部门从哪来」）
+///
+/// `biz_payment` 只有 `create_by`（付款登记人 = 付款凭证的申请人），没有 `dept_id` 列；
+/// 系统里唯一有权威部门的是 `sys_user.dept_id`。所以「付款凭证的部门」= **申请人所属部门**。
+///
+/// 这是一份**快照**，与 `biz_task.dept_id`（"创建时负责人所属部门"）同口径：
+/// 人调部门后，历史凭证的部门辅助账不跟着漂移 —— 凭证是审计证据，不允许事后变。
+///
+/// # 为什么查不到就返回 None 而不是报错
+///
+/// 部门辅助核算是**增强维度**，不是记账前提。系统账号（AI 用户 / 集成账号）本来
+/// 可能没有部门，为此拒绝付款入账是错的；留空 + 由调用方打 WARN 即可。
+pub async fn user_dept_of(ex: &impl SqlExecutor, user_id: Uuid) -> DbResult<Option<Uuid>> {
+    // SCOPE-EXEMPT: 按主键查单个用户的部门（登录主体已知），不产出用户可见行集。
+    let row = ex
+        .query_first_sql(
+            "SELECT dept_id FROM sys_user WHERE id = ?::uuid AND deleted_at IS NULL".to_string(),
+            vec![Value::from(&user_id)],
+        )
+        .await?;
+    match row
+        .as_ref()
+        .map(|row| row.get_typed::<Option<Uuid>>("dept_id"))
+    {
+        Some(Ok(dept_id)) => Ok(dept_id),
+        Some(Err(err)) => Err(err),
+        None => Ok(None),
+    }
 }
 
 // ==================== 写：序列号侧三种「无来源」库存变动 ====================
@@ -1853,6 +1941,7 @@ pub async fn create_for_serial_movement(
                     debit: amount,
                     credit: Decimal::ZERO,
                     aux_supplier_id: None,
+                    aux_dept_id: None,
                     aux_material_id: Some(material_id),
                     aux_warehouse_id: inventory_aux_warehouse,
                 },
@@ -1862,6 +1951,7 @@ pub async fn create_for_serial_movement(
                     account: counterpart,
                     debit: Decimal::ZERO,
                     credit: amount,
+                    aux_dept_id: None,
                     aux_supplier_id: None,
                     aux_material_id: Some(material_id),
                     aux_warehouse_id: None,
@@ -1876,6 +1966,7 @@ pub async fn create_for_serial_movement(
                     summary: summary.clone(),
                     account: counterpart,
                     debit: amount,
+                    aux_dept_id: None,
                     credit: Decimal::ZERO,
                     aux_supplier_id: None,
                     aux_material_id: Some(material_id),
@@ -1885,6 +1976,7 @@ pub async fn create_for_serial_movement(
                     line_no: 2,
                     summary: summary.clone(),
                     account: inventory,
+                    aux_dept_id: None,
                     debit: Decimal::ZERO,
                     credit: amount,
                     aux_supplier_id: None,
@@ -1944,8 +2036,12 @@ pub struct StockOutVoucher<'a> {
     pub debit_code: &'a str,
     /// 借方科目名（写进分录摘要，便于人直接看懂）。
     pub debit_name: &'a str,
-    /// 第一行物料（`biz_voucher_entry.aux_material_id` 辅助核算用；多行单取首行）。
-    pub first_material: Option<Uuid>,
+    /// 存货行的物料辅助核算值：**只有整单唯一一种物料时才有值**。
+    ///
+    /// 多物料出库单的成本结转凭证是「一条汇总行」（借 6401 / 贷 1405 各一行），
+    /// 把整笔成本挂到首个物料上会让物料成本报表虚增/虚减，所以多物料时传 `None`，
+    /// 由调用方打 WARN。按物料拆分录是 P2-1b 的独立决议（DC-11）。
+    pub aux_material_id: Option<Uuid>,
     /// 出库仓库（存货行的 `aux_warehouse_id`：账上能按仓拆开看）。
     pub warehouse_id: Uuid,
     /// **账上真实差额**（Σ 各明细 `biz_inventory.amount` 的变动量），
@@ -2002,9 +2098,10 @@ pub async fn create_for_stock_out(
             debit: amount,
             credit: Decimal::ZERO,
             aux_supplier_id: None,
-            aux_material_id: req.first_material,
+            aux_material_id: req.aux_material_id,
             // 借方（成本 / 待处理损溢）是全公司口径的科目，不挂仓库辅助核算。
             aux_warehouse_id: None,
+            aux_dept_id: None,
         },
         EntryLine {
             line_no: 2,
@@ -2013,8 +2110,9 @@ pub async fn create_for_stock_out(
             debit: Decimal::ZERO,
             credit: amount,
             aux_supplier_id: None,
-            aux_material_id: req.first_material,
+            aux_material_id: req.aux_material_id,
             aux_warehouse_id: Some(req.warehouse_id),
+            aux_dept_id: None,
         },
     ];
 
@@ -2554,6 +2652,7 @@ mod tests {
                 .map(|row| EntryLine {
                     line_no: row.line_no,
                     summary: row.summary.clone(),
+                    aux_dept_id: None,
                     account: row.account.clone(),
                     debit: row.debit,
                     credit: row.credit,
@@ -2816,6 +2915,7 @@ mod tests {
                 .iter()
                 .map(|row| EntryLine {
                     line_no: row.line_no,
+                    aux_dept_id: None,
                     summary: row.summary.clone(),
                     account: row.account.clone(),
                     debit: row.debit,
@@ -3066,6 +3166,7 @@ mod tests {
             .map(|line| EntryRow {
                 id: Uuid::nil(),
                 voucher_id: Uuid::nil(),
+                aux_dept_id: line.aux_dept_id,
                 line_no: line.line_no,
                 summary: line.summary.clone(),
                 account: line.account.clone(),

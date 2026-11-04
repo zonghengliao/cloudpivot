@@ -1066,6 +1066,21 @@ async fn settle_payment_in_tx(
             .await
             .map_err(|error| write_error(error, "解析付款凭证贷方科目"))?;
     let summary = format!("付款 {payment_no} 应付单 {}", row.payable_no);
+    // 部门辅助核算（DC-11 的「部门从哪来」）：付款凭证的部门 = **付款申请人**的部门。
+    // 申请人 = `biz_payment.create_by` = 本函数的 `operator`（直付与审批路径都由同一人落库），
+    // 部门取 `sys_user.dept_id` 的**当前值**并写进凭证（快照语义，与 `biz_task.dept_id` 同口径）。
+    let dept_id = match operator {
+        Some(user_id) => voucher::user_dept_of(tx, user_id)
+            .await
+            .map_err(|error| write_error(error, "查询付款申请人所属部门"))?,
+        None => None,
+    };
+    if dept_id.is_none() {
+        tracing::warn!(
+            payment_no,
+            "付款凭证未能确定申请人部门（申请人未配部门 / 系统账号）⇒ aux_dept_id 留空"
+        );
+    }
     let lines = vec![
         EntryLine {
             line_no: 1,
@@ -1076,6 +1091,8 @@ async fn settle_payment_in_tx(
             aux_supplier_id: Some(row.supplier_id),
             aux_material_id: None,
             aux_warehouse_id: None,
+            // 应付账款挂部门：这是"哪个部门欠的/花的"，辅助账才有意义。
+            aux_dept_id: dept_id,
         },
         EntryLine {
             line_no: 2,
@@ -1086,6 +1103,9 @@ async fn settle_payment_in_tx(
             aux_supplier_id: Some(row.supplier_id),
             aux_material_id: None,
             aux_warehouse_id: None,
+            // 银行存款是公司级账户，**不挂部门**（挂了会让同一个账户按部门拆成多份，
+            // 银行对账时对不上）。
+            aux_dept_id: None,
         },
     ];
     let voucher_id = voucher::post_voucher(
@@ -3189,8 +3209,66 @@ mod tests {
         );
     }
 
-    // ---------- ⑨（附加）未付款的应付单作废 → CANCELLED + 红冲进项凭证 ----------
+    /// ⑧b 付款凭证的**部门辅助核算**（ARCH-3 §5 DC-11 · P2-1）：
+    /// 部门 = 申请人（`biz_payment.create_by` = 登录操作人）当前所属部门 `sys_user.dept_id`；
+    /// 只挂在借方 2202 那一行 —— 银行存款是公司级账户，挂部门会让银行对账拆散。
+    #[tokio::test]
+    async fn p21_payment_voucher_writes_applicant_dept() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        const DEPT: &str = "e21b0001-0000-4000-8000-000000000001";
+        const USER: &str = "e21b0002-0000-4000-8000-000000000002";
+        exec(&format!(
+            "INSERT INTO sys_dept (id, dept_code, dept_name, status) \
+             VALUES ('{DEPT}'::uuid, 'P21PAYD', 'P2-1 付款部门', 1) \
+             ON CONFLICT (id) DO NOTHING"
+        ))
+        .await;
+        exec(&format!(
+            "INSERT INTO sys_user (id, username, password, dept_id, status) \
+             VALUES ('{USER}'::uuid, 'p21pay_user', 'x', '{DEPT}'::uuid, 1) \
+             ON CONFLICT (id) DO UPDATE SET dept_id = EXCLUDED.dept_id"
+        ))
+        .await;
+        let applicant = Uuid::parse_str(USER).expect("USER 非法");
 
+        let id = new_payable(dec("226"), Decimal::ZERO, payable::STATUS_OPEN).await;
+        let detail = pay_payable(id, &pay_req("100"), Some(applicant))
+            .await
+            .unwrap_or_else(|err| panic!("付款失败：{} {}", err.code, err.msg));
+        let payment = &detail.payments[0];
+        let voucher_id = Uuid::parse_str(payment.voucher_id.as_deref().expect("付款必须生成凭证"))
+            .expect("凭证 id 非法");
+        let entries = entries_of(db(), voucher_id).await.unwrap();
+
+        let debit = entries
+            .iter()
+            .find(|row| row.account.code == PAY_DEBIT_CODE)
+            .expect("缺借方 2202 应付账款");
+        assert_eq!(
+            debit.aux_dept_id,
+            Some(Uuid::parse_str(DEPT).expect("DEPT 非法")),
+            "借方应付账款要带申请人部门（DC-11 的部门口径）"
+        );
+        let credit = entries
+            .iter()
+            .find(|row| row.account.code == PAY_CREDIT_CODE)
+            .expect("缺贷方 1002 银行存款");
+        assert_eq!(credit.aux_dept_id, None, "银行存款不挂部门");
+        // 供应商维度照旧（这次改动没动它）
+        assert_eq!(
+            debit.aux_supplier_id,
+            Some(Uuid::parse_str(SUPPLIER).expect("SUPPLIER 非法"))
+        );
+
+        // 清场：本用例自建的部门 / 用户
+        exec(&format!("DELETE FROM sys_user WHERE id = '{USER}'::uuid")).await;
+        exec(&format!("DELETE FROM sys_dept WHERE id = '{DEPT}'::uuid")).await;
+    }
+
+    // ---------- ⑨（附加）未付款的应付单作废 → CANCELLED + 红冲进项凭证 ----------
     /// ⑨ 作废 `OPEN` 且未付款的应付单：状态 `CANCELLED`、原因进 remark、
     /// 关联的进项凭证被红冲（红字凭证 `reverse_of` 指向原凭证）。
     #[tokio::test]
@@ -3226,6 +3304,7 @@ mod tests {
                         aux_supplier_id: None,
                         aux_material_id: None,
                         aux_warehouse_id: None,
+                        aux_dept_id: None,
                     },
                     EntryLine {
                         line_no: 2,
@@ -3235,6 +3314,7 @@ mod tests {
                         credit: dec("226"),
                         aux_supplier_id: None,
                         aux_material_id: None,
+                        aux_dept_id: None,
                         aux_warehouse_id: None,
                     },
                 ],

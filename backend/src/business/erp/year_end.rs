@@ -488,6 +488,7 @@ fn line(
         aux_supplier_id: None,
         aux_material_id: None,
         aux_warehouse_id: None,
+        aux_dept_id: None,
     }
 }
 
@@ -1775,6 +1776,7 @@ mod tests {
                 credit: dec(credit),
                 aux_supplier_id: None,
                 aux_material_id: None,
+                aux_dept_id: None,
                 aux_warehouse_id: None,
             });
         }

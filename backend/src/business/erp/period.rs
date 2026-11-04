@@ -1722,6 +1722,7 @@ mod tests {
                 aux_supplier_id: None,
                 aux_material_id: None,
                 aux_warehouse_id: None,
+                aux_dept_id: None,
             },
             EntryLine {
                 line_no: 2,
@@ -1731,6 +1732,7 @@ mod tests {
                 credit: dec("10"),
                 aux_supplier_id: None,
                 aux_material_id: None,
+                aux_dept_id: None,
                 aux_warehouse_id: None,
             },
         ];

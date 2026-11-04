@@ -1,0 +1,37 @@
+# P2-1 辅助核算单测（真库）
+#
+#   ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_p16md' \
+#     cargo test --lib p21_ -- --test-threads=1
+#
+# 2026-11-04 实测输出（原样）：
+
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 29.30s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 18 tests
+test business::erp::aux_tests::p21_aux_balance_dept_reads_payment_dimension ... ok
+test business::erp::aux_tests::p21_aux_balance_lists_all_items_of_a_dimension ... ok
+test business::erp::aux_tests::p21_aux_balance_material_splits_opening_and_period ... ok
+test business::erp::aux_tests::p21_aux_balance_rejects_bad_params ... ok
+test business::erp::aux_tests::p21_aux_balance_reports_unassigned_amounts ... ok
+test business::erp::aux_tests::p21_aux_balance_respects_period_bounds ... ok
+test business::erp::aux_tests::p21_aux_balance_supplier_sums_credit_side ... ok
+test business::erp::aux_tests::p21_aux_balance_warehouse_reads_stock_in_dimension ... ok
+test business::erp::aux_tests::p21_aux_column_whitelist_maps_four_dimensions ... ok
+test business::erp::aux_tests::p21_biz_ctx_keeps_material_for_account_but_drops_aux_when_multi ... ok
+test business::erp::aux_tests::p21_dec_keeps_four_scale ... ok
+test business::erp::aux_tests::p21_entries_roundtrip_all_four_aux_columns ... ok
+test business::erp::aux_tests::p21_purchase_in_lines_leave_material_empty_when_aggregated ... ok
+test business::erp::aux_tests::p21_purchase_in_lines_write_material_and_warehouse_only ... ok
+test business::erp::aux_tests::p21_reversed_lines_copy_aux_dimensions ... ok
+test business::erp::aux_tests::p21_user_dept_of_reads_sys_user_dept ... ok
+test business::erp::aux_tests::zz_p21_aux_teardown_purges_fixtures ... ok
+test business::erp::payable_payment::tests::p21_payment_voucher_writes_applicant_dept ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 2255 filtered out; finished in 19.05s
+
+# 回归（同日同库）：
+#
+#   ERP_DB_URL=... cargo test --lib business::erp -- --test-threads=1
+#   → test result: ok. 872 passed; 0 failed; 0 ignored (1040.14s)

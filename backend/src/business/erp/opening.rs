@@ -649,6 +649,7 @@ fn build_lines(
             aux_supplier_id: None,
             aux_material_id: None,
             aux_warehouse_id: None,
+            aux_dept_id: None,
         });
     }
     if inventory_amount > Decimal::ZERO
@@ -662,6 +663,7 @@ fn build_lines(
             credit: Decimal::ZERO,
             aux_supplier_id: None,
             aux_material_id: None,
+            aux_dept_id: None,
             aux_warehouse_id: None,
         });
         lines.push(EntryLine {
@@ -671,6 +673,7 @@ fn build_lines(
             debit: Decimal::ZERO,
             credit: inventory_amount,
             aux_supplier_id: None,
+            aux_dept_id: None,
             aux_material_id: None,
             aux_warehouse_id: None,
         });
@@ -2648,6 +2651,7 @@ mod tests {
                         account: cash,
                         debit: dec("2500"),
                         credit: Decimal::ZERO,
+                        aux_dept_id: None,
                         aux_supplier_id: None,
                         aux_material_id: None,
                         aux_warehouse_id: None,
@@ -2657,6 +2661,7 @@ mod tests {
                         summary: "本期收回货款".to_string(),
                         account: receivable,
                         debit: Decimal::ZERO,
+                        aux_dept_id: None,
                         credit: dec("2500"),
                         aux_supplier_id: None,
                         aux_material_id: None,

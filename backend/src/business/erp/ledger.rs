@@ -9,6 +9,7 @@
 //! |------|------|--------|------|
 //! | GET | `/business/erp/ledger/page` | `business:erp:ledger:list` | 某科目的分录流水 + **逐行余额**（`account_id` 或 `account_code` 必填） |
 //! | GET | `/business/erp/ledger/trial-balance` | `business:erp:ledger:trial-balance` | 科目余额表（`period` 必填，★ Σ借 = Σ贷 校验） |
+//! | GET | `/business/erp/ledger/aux-balance` | `business:erp:ledger:aux-balance` | 辅助账（`aux_type` 必填：某物料 / 仓库 / 部门 / 供应商的期初 + 本期 + 期末） |
 //!
 //! # ★ 只算 `status='POSTED'`（硬红线 2，PRD §3.3.3）
 //!
@@ -76,6 +77,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::business::erp::model::normalize_page;
 use crate::business::erp::voucher_query::{is_month_key, unbalanced_error};
@@ -682,6 +684,372 @@ pub async fn trial_balance(period: &str) -> std::result::Result<TrialBalanceRes,
     Ok(result)
 }
 
+// ==================== 辅助账（按辅助核算维度查发生额与余额） ====================
+
+/// 辅助核算维度：物料。
+pub const AUX_MATERIAL: &str = "MATERIAL";
+/// 辅助核算维度：仓库。
+pub const AUX_WAREHOUSE: &str = "WAREHOUSE";
+/// 辅助核算维度：部门。
+pub const AUX_DEPT: &str = "DEPT";
+/// 辅助核算维度：供应商。
+pub const AUX_SUPPLIER: &str = "SUPPLIER";
+
+/// `aux_type` → `(规范化枚举值, biz_voucher_entry 列名)`。
+///
+/// 大小写不敏感（`material` / `Material` 都认）：前端下拉传的是大写，但报表脚本 /
+/// 手工 curl 常写小写，为此回 400 只会让人反复试。**白名单**是关键：
+/// 列名要从入参拼进 SQL，只接受这 4 个常量，别的一律 400，不存在注入面。
+pub fn aux_column(
+    aux_type: Option<&str>,
+) -> std::result::Result<(&'static str, &'static str), ApiError> {
+    let raw = aux_type
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| bad_request("aux_type 必填：MATERIAL / WAREHOUSE / DEPT / SUPPLIER"))?;
+    match raw.to_ascii_uppercase().as_str() {
+        AUX_MATERIAL => Ok((AUX_MATERIAL, "aux_material_id")),
+        AUX_WAREHOUSE => Ok((AUX_WAREHOUSE, "aux_warehouse_id")),
+        AUX_DEPT => Ok((AUX_DEPT, "aux_dept_id")),
+        AUX_SUPPLIER => Ok((AUX_SUPPLIER, "aux_supplier_id")),
+        other => Err(bad_request(format!(
+            "aux_type 只接受 MATERIAL / WAREHOUSE / DEPT / SUPPLIER，收到「{other}」"
+        ))),
+    }
+}
+
+/// 辅助项名称的取数表（`(表名, 名称列)`）。
+fn aux_name_source(aux_type: &str) -> (&'static str, &'static str) {
+    match aux_type {
+        AUX_MATERIAL => ("biz_material", "material_name"),
+        AUX_WAREHOUSE => ("biz_warehouse", "warehouse_name"),
+        AUX_DEPT => ("sys_dept", "dept_name"),
+        _ => ("biz_supplier", "supplier_name"),
+    }
+}
+
+/// 辅助账查询（Query）。
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct AuxBalanceQuery {
+    /// 辅助核算维度：`MATERIAL` / `WAREHOUSE` / `DEPT` / `SUPPLIER`（必填）。
+    pub aux_type: Option<String>,
+    /// 辅助项 id（可选）。不给 = 该维度下**所有**辅助项各出一组行。
+    pub aux_id: Option<String>,
+    /// 起始期间 / 日期：`yyyy-MM`（取月首）或 `yyyy-MM-dd`。
+    pub period_from: Option<String>,
+    /// 结束期间 / 日期：`yyyy-MM`（取月末）或 `yyyy-MM-dd`。
+    pub period_to: Option<String>,
+}
+
+/// 辅助账的一行（**辅助项 × 科目**）。
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxBalanceRow {
+    /// 辅助项 id。
+    pub aux_id: String,
+    /// 辅助项名称（主数据被删也照样回显，历史凭证要能读懂）。
+    pub aux_name: Option<String>,
+    /// 科目 id。
+    pub account_id: String,
+    /// 科目编码。
+    pub account_code: String,
+    /// 科目名称。
+    pub account_name: String,
+    /// 期初借方余额。
+    pub opening_debit: Decimal,
+    /// 期初贷方余额。
+    pub opening_credit: Decimal,
+    /// 本期借方发生额。
+    pub period_debit: Decimal,
+    /// 本期贷方发生额。
+    pub period_credit: Decimal,
+    /// 期末借方余额。
+    pub closing_debit: Decimal,
+    /// 期末贷方余额。
+    pub closing_credit: Decimal,
+}
+
+/// 本期该维度**没有**辅助核算值的那部分发生额（覆盖度自证）。
+///
+/// 为什么必须回这个数：物料 / 仓库维度目前只对「单据里唯一一种物料」写值
+/// （多物料汇总行留空，见 P2-1b），仓库以外的科目也本来就不挂维度。
+/// 只说「这个物料的借方是 1234.00」而不说「另有 5678.00 没归到任何物料」，
+/// 报表使用者会以为 1234 就是全部 —— 这是比空表更坏的误导。
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxUnassigned {
+    /// 未挂该辅助维度的分录行数。
+    pub entry_count: i64,
+    /// 未挂该辅助维度的借方合计。
+    pub period_debit: Decimal,
+    /// 未挂该辅助维度的贷方合计。
+    pub period_credit: Decimal,
+}
+
+/// 辅助账结果。
+#[derive(Debug, Clone, Serialize)]
+pub struct AuxBalanceRes {
+    /// 规范化后的维度。
+    pub aux_type: String,
+    /// 过滤用的辅助项 id（未指定 = `null`）。
+    pub aux_id: Option<String>,
+    /// 过滤用的辅助项名称。
+    pub aux_name: Option<String>,
+    /// 起始日期（含）。
+    pub date_from: Option<NaiveDate>,
+    /// 结束日期（含）。
+    pub date_to: Option<NaiveDate>,
+    /// 明细行（按科目编码、辅助项 id 升序）。
+    pub rows: Vec<AuxBalanceRow>,
+    /// 期初借方合计。
+    pub total_opening_debit: Decimal,
+    /// 期初贷方合计。
+    pub total_opening_credit: Decimal,
+    /// 本期借方合计。
+    pub total_period_debit: Decimal,
+    /// 本期贷方合计。
+    pub total_period_credit: Decimal,
+    /// 期末借方合计。
+    pub total_closing_debit: Decimal,
+    /// 期末贷方合计。
+    pub total_closing_credit: Decimal,
+    /// 本期未挂该维度的发生额。
+    pub unassigned: AuxUnassigned,
+}
+
+/// 查一批辅助项的名称（`id → 名称`）。查不到的 id 不进 map（回显时 `aux_name = null`）。
+async fn aux_names(aux_type: &str, ids: &[Uuid]) -> DbResult<HashMap<Uuid, String>> {
+    let mut names = HashMap::new();
+    if ids.is_empty() {
+        return Ok(names);
+    }
+    let (table, name_column) = aux_name_source(aux_type);
+    let placeholders = vec!["?::uuid"; ids.len()].join(", ");
+    let params: Vec<Value> = ids.iter().map(Value::from).collect();
+    // 不过滤 deleted_at：主数据被停用 / 软删后，历史凭证仍要显示当时的名称。
+    let sql = format!("SELECT id, {name_column} AS name FROM {table} WHERE id IN ({placeholders})");
+    let rows = db().query_sql(sql, params).await?;
+    for row in &rows {
+        let id: Uuid = row.get_typed("id")?;
+        let name: String = row.get_typed("name")?;
+        names.insert(id, name);
+    }
+    Ok(names)
+}
+
+/// 辅助账（某维度 × 科目的期初 / 本期 / 期末）。
+///
+/// # 口径（与本模块其它报表逐条一致）
+///
+/// * 只算 `status = 'POSTED'` 且凭证未软删（硬红线 2）；
+/// * 红字凭证金额恒为正、借贷互换 ⇒ 净额天然为负，**不需要任何特判**；
+/// * `opening_*` = `voucher_date < date_from` 的累计（没给 `period_from` 时恒为 0，
+///   即"从建账至今"全部算本期）；
+/// * `closing = opening + 本期借 − 本期贷`，再按正负拆成借 / 贷两侧；
+/// * 一个辅助项在不同科目上各占一行（1405 / 2202 / 6401 ……），不做科目间抵销。
+///
+/// # 为什么不做「Σ借 = Σ贷」断言
+///
+/// 按辅助维度筛出来的子集**本来就不平衡**（某个物料的借方 1405 对应的是供应商的
+/// 贷方 2202，两者不在同一个辅助项下）。在这里做平衡校验只会得到假红。
+/// 全公司口径的平衡由 `ledger::trial_balance` 负责，分工明确。
+pub async fn aux_balance(q: &AuxBalanceQuery) -> std::result::Result<AuxBalanceRes, ApiError> {
+    let (aux_type, column) = aux_column(q.aux_type.as_deref())?;
+    let aux_id = match q.aux_id.as_deref().map(str::trim).filter(|t| !t.is_empty()) {
+        Some(raw) => Some(Uuid::parse_str(raw).map_err(|_| {
+            ApiError::new(
+                400,
+                error_code::ERP_FILTER_INVALID,
+                format!("aux_id 不是合法的 UUID：{raw}"),
+            )
+        })?),
+        None => None,
+    };
+    let date_from = parse_boundary(q.period_from.as_deref(), "period_from", false)?;
+    let date_to = parse_boundary(q.period_to.as_deref(), "period_to", true)?;
+    if let (Some(from), Some(to)) = (date_from, date_to)
+        && from > to
+    {
+        return Err(bad_request(format!(
+            "period_from（{from}）不能晚于 period_to（{to}）"
+        )));
+    }
+
+    // 期初 / 本期两段：给了 date_from 就用 CASE 拆，没给就只有本期。
+    let mut params: Vec<Value> = Vec::new();
+    let (opening_debit, opening_credit, period_debit, period_credit) = match date_from {
+        Some(from) => {
+            params.push(Value::from(from)); // ① opening debit
+            params.push(Value::from(from)); // ② opening credit
+            params.push(Value::from(from)); // ③ period debit
+            params.push(Value::from(from)); // ④ period credit
+            (
+                "SUM(CASE WHEN v.voucher_date < ? THEN e.debit_amount ELSE 0 END)::numeric(20,4)",
+                "SUM(CASE WHEN v.voucher_date < ? THEN e.credit_amount ELSE 0 END)::numeric(20,4)",
+                "SUM(CASE WHEN v.voucher_date >= ? THEN e.debit_amount ELSE 0 END)::numeric(20,4)",
+                "SUM(CASE WHEN v.voucher_date >= ? THEN e.credit_amount ELSE 0 END)::numeric(20,4)",
+            )
+        }
+        None => (
+            "0::numeric(20,4)",
+            "0::numeric(20,4)",
+            "SUM(e.debit_amount)::numeric(20,4)",
+            "SUM(e.credit_amount)::numeric(20,4)",
+        ),
+    };
+
+    let mut sql = format!(
+        "SELECT e.{column} AS aux_id, e.account_id, a.account_code, a.account_name, \
+                {opening_debit} AS opening_debit, {opening_credit} AS opening_credit, \
+                {period_debit} AS period_debit, {period_credit} AS period_credit \
+         FROM {ENTRY_TABLE} e \
+         JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
+         JOIN {ACCOUNT_TABLE} a ON a.id = e.account_id \
+         WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL AND e.{column} IS NOT NULL"
+    );
+    if let Some(id) = aux_id {
+        sql.push_str(&format!(" AND e.{column} = ?::uuid"));
+        params.push(Value::from(&id));
+    }
+    if let Some(to) = date_to {
+        sql.push_str(" AND v.voucher_date <= ?");
+        params.push(Value::from(to));
+    }
+    sql.push_str(&format!(
+        " GROUP BY e.{column}, e.account_id, a.account_code, a.account_name \
+          ORDER BY a.account_code, e.{column}"
+    ));
+
+    // SCOPE-EXEMPT: 凭证台账无归属列（见模块文档），可见性由
+    // `business:erp:ledger:aux-balance` 权限码控制；本接口不分页（辅助项 × 科目
+    // 的基数远小于分录行数），所以走 db() 而不是 scope::paginate。
+    let raw = db()
+        .query_sql(sql, params)
+        .await
+        .map_err(|error| utils::db_error(error, "查询辅助账"))?;
+
+    let mut ids: Vec<Uuid> = Vec::new();
+    for row in &raw {
+        let id: Uuid = row
+            .get_typed("aux_id")
+            .map_err(|error| utils::db_error(error, "读取辅助项 id"))?;
+        if !ids.contains(&id) {
+            ids.push(id);
+        }
+    }
+    let names = aux_names(aux_type, &ids)
+        .await
+        .map_err(|error| utils::db_error(error, "查询辅助项名称"))?;
+
+    let mut res = AuxBalanceRes {
+        aux_type: aux_type.to_string(),
+        aux_id: aux_id.map(|id| id.to_string()),
+        aux_name: None,
+        date_from,
+        date_to,
+        rows: Vec::with_capacity(raw.len()),
+        total_opening_debit: Decimal::ZERO,
+        total_opening_credit: Decimal::ZERO,
+        total_period_debit: Decimal::ZERO,
+        total_period_credit: Decimal::ZERO,
+        total_closing_debit: Decimal::ZERO,
+        total_closing_credit: Decimal::ZERO,
+        unassigned: AuxUnassigned {
+            entry_count: 0,
+            period_debit: Decimal::ZERO,
+            period_credit: Decimal::ZERO,
+        },
+    };
+    for row in &raw {
+        let aux_id: Uuid = row
+            .get_typed("aux_id")
+            .map_err(|error| utils::db_error(error, "读取辅助项 id"))?;
+        let account_id: Uuid = row
+            .get_typed("account_id")
+            .map_err(|error| utils::db_error(error, "读取科目 id"))?;
+        let opening_debit: Decimal = row
+            .get_typed("opening_debit")
+            .map_err(|error| utils::db_error(error, "读取期初借方"))?;
+        let opening_credit: Decimal = row
+            .get_typed("opening_credit")
+            .map_err(|error| utils::db_error(error, "读取期初贷方"))?;
+        let period_debit: Decimal = row
+            .get_typed("period_debit")
+            .map_err(|error| utils::db_error(error, "读取本期借方"))?;
+        let period_credit: Decimal = row
+            .get_typed("period_credit")
+            .map_err(|error| utils::db_error(error, "读取本期贷方"))?;
+        let net = opening_debit - opening_credit + period_debit - period_credit;
+        let (closing_debit, closing_credit) = split_balance(net);
+        let (opening_debit_side, opening_credit_side) =
+            split_balance(opening_debit - opening_credit);
+        res.total_opening_debit += opening_debit_side;
+        res.total_opening_credit += opening_credit_side;
+        res.total_period_debit += period_debit;
+        res.total_period_credit += period_credit;
+        res.total_closing_debit += closing_debit;
+        res.total_closing_credit += closing_credit;
+        res.rows.push(AuxBalanceRow {
+            aux_id: aux_id.to_string(),
+            aux_name: names.get(&aux_id).cloned(),
+            account_id: account_id.to_string(),
+            account_code: row
+                .get_typed("account_code")
+                .map_err(|error| utils::db_error(error, "读取科目编码"))?,
+            account_name: row
+                .get_typed("account_name")
+                .map_err(|error| utils::db_error(error, "读取科目名称"))?,
+            opening_debit: opening_debit_side,
+            opening_credit: opening_credit_side,
+            period_debit,
+            period_credit,
+            closing_debit,
+            closing_credit,
+        });
+    }
+    if let Some(id) = res.aux_id.as_deref() {
+        res.aux_name = Uuid::parse_str(id)
+            .ok()
+            .and_then(|id| names.get(&id).cloned());
+    }
+    res.unassigned = unassigned_of(column, date_from, date_to)
+        .await
+        .map_err(|error| utils::db_error(error, "统计未挂辅助核算的发生额"))?;
+    Ok(res)
+}
+
+/// 本期**没有**该维度值的发生额（覆盖度自证，见 [`AuxUnassigned`]）。
+async fn unassigned_of(
+    column: &str,
+    date_from: Option<NaiveDate>,
+    date_to: Option<NaiveDate>,
+) -> DbResult<AuxUnassigned> {
+    let mut sql = format!(
+        "SELECT COUNT(*) AS entry_count, \
+                COALESCE(SUM(e.debit_amount), 0)::numeric(20,4) AS debit, \
+                COALESCE(SUM(e.credit_amount), 0)::numeric(20,4) AS credit \
+         FROM {ENTRY_TABLE} e JOIN {VOUCHER_TABLE} v ON v.id = e.voucher_id \
+         WHERE v.status = '{POSTED}' AND v.deleted_at IS NULL AND e.{column} IS NULL"
+    );
+    let mut params: Vec<Value> = Vec::new();
+    if let Some(from) = date_from {
+        sql.push_str(" AND v.voucher_date >= ?");
+        params.push(Value::from(from));
+    }
+    if let Some(to) = date_to {
+        sql.push_str(" AND v.voucher_date <= ?");
+        params.push(Value::from(to));
+    }
+    let row = db()
+        .query_first_sql(sql, params)
+        .await?
+        .ok_or_else(|| DbError::InvalidValue("辅助账覆盖度统计没有返回行".to_string()))?;
+    Ok(AuxUnassigned {
+        entry_count: row.get_typed("entry_count")?,
+        period_debit: row.get_typed("debit")?,
+        period_credit: row.get_typed("credit")?,
+    })
+}
+
 // ==================== 接口层 ====================
 
 /// 科目流水（总账）。
@@ -749,6 +1117,24 @@ pub async fn trial_balance_handler(
         .filter(|text| !text.is_empty())
         .ok_or_else(|| bad_request("period 必填（yyyy-MM）"))?;
     Ok(Res::ok(trial_balance(period).await?))
+}
+
+/// 辅助账（按辅助核算维度查借贷发生额与期末余额）。
+///
+/// 典型用法：
+///
+/// ```text
+/// GET /business/erp/ledger/aux-balance?aux_type=MATERIAL&aux_id=<物料 id>&period_from=2026-11
+/// GET /business/erp/ledger/aux-balance?aux_type=DEPT&period_from=2026-11-01&period_to=2026-11-30
+/// ```
+#[nik::permission(
+    path = "/business/erp/ledger/aux-balance",
+    method = "GET",
+    permission = "business:erp:ledger:aux-balance"
+)]
+#[nik::get("/business/erp/ledger/aux-balance")]
+pub async fn aux_balance_handler(Query(query): Query<AuxBalanceQuery>) -> ResResult<AuxBalanceRes> {
+    Ok(Res::ok(aux_balance(&query).await?))
 }
 
 // ==================== 单测 ====================

@@ -89,10 +89,22 @@ pub async fn first_material_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Opti
     }
 }
 
+/// 收货单的**物料种类数**（`COUNT(DISTINCT material_id)`）。
+///
+/// 与 [`first_material_of`] 同一个作用域、同一张明细表。用途只有一个：
+/// `> 1` 时存货借方是汇总行 ⇒ 物料辅助核算留空（`VoucherBizCtx::aux_material_id`）。
+pub async fn material_count_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i64> {
+    ex.scalar_sql(
+        format!("SELECT COUNT(DISTINCT material_id) FROM {ITEM_TABLE} WHERE stock_in_id = ?::uuid"),
+        vec![Value::from(&id)],
+    )
+    .await
+}
+
 /// 收货单的**凭证上下文**（联动动作 `GENERATE_VOUCHER` 的唯一取数入口）。
 ///
 /// 取数公式只有一份（[`crate::business::erp::voucher::VoucherBizCtx::of_stock_in`]）：
-/// 本函数只负责「按 id 取单头 + 取首个物料」，然后交给它。
+/// 本函数只负责「按 id 取单头 + 取首个物料 + 取物料种类数」，然后交给它。
 /// 单据不存在 → `Ok(None)`（调用方跳过动作，不当失败）。
 pub async fn voucher_biz_ctx(
     ex: &impl SqlExecutor,
@@ -102,8 +114,13 @@ pub async fn voucher_biz_ctx(
         return Ok(None);
     };
     let first_material = first_material_of(ex, id).await?;
+    let material_count = material_count_of(ex, id).await?;
     Ok(Some(
-        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(&header, first_material),
+        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(
+            &header,
+            first_material,
+            material_count,
+        ),
     ))
 }
 

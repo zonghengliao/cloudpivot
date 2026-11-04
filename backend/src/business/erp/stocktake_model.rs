@@ -1280,6 +1280,7 @@ pub async fn create_voucher(
             aux_material_id: Some(pair.material_id),
             // 存货行挂仓库辅助核算；1901 是全公司口径的过渡科目，不挂仓库（与出库单同口径）。
             aux_warehouse_id: pair.gain.then_some(take.warehouse_id),
+            aux_dept_id: None,
         });
         lines.push(voucher::EntryLine {
             line_no: base + 2,
@@ -1289,6 +1290,7 @@ pub async fn create_voucher(
             credit: amount,
             aux_supplier_id: None,
             aux_material_id: Some(pair.material_id),
+            aux_dept_id: None,
             aux_warehouse_id: (!pair.gain).then_some(take.warehouse_id),
         });
     }

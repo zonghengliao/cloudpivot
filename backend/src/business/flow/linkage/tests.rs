@@ -1585,12 +1585,22 @@ async fn voucher_new_path_matches_legacy_field_by_field() {
     let first_material = stockin_model::first_material_of(db(), fixture_si_ok())
         .await
         .expect("取首个物料");
+    let material_count = stockin_model::material_count_of(db(), fixture_si_ok())
+        .await
+        .expect("取物料种类数");
 
     // ---- 路 1：旧路径 ----
     let tx = db().begin().await.expect("开事务（旧路）");
-    let legacy_id = voucher::create_for_stock_in(&tx, &header, first_material, None, Utc::now())
-        .await
-        .expect("旧路生成凭证");
+    let legacy_id = voucher::create_for_stock_in(
+        &tx,
+        &header,
+        first_material,
+        material_count,
+        None,
+        Utc::now(),
+    )
+    .await
+    .expect("旧路生成凭证");
     let legacy = voucher::snapshot_of(&tx, legacy_id)
         .await
         .expect("旧路凭证快照");
@@ -1698,9 +1708,19 @@ async fn voucher_shadow_rolls_back_and_compares() {
     let first_material = stockin_model::first_material_of(db(), fixture_si_ok2())
         .await
         .expect("取首个物料");
-    let legacy_id = voucher::create_for_stock_in(&tx, &header, first_material, None, Utc::now())
+    let material_count = stockin_model::material_count_of(db(), fixture_si_ok2())
         .await
-        .expect("旧路生成凭证");
+        .expect("取物料种类数");
+    let legacy_id = voucher::create_for_stock_in(
+        &tx,
+        &header,
+        first_material,
+        material_count,
+        None,
+        Utc::now(),
+    )
+    .await
+    .expect("旧路生成凭证");
     let compare = engine::finish_stockin_voucher_shadow(&tx, &ctx, &shadow, legacy_id).await;
     assert!(
         compare.matched,
