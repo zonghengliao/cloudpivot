@@ -1,0 +1,102 @@
+
+### business::erp::payable_bridge::tests::p17_seeded_flow_graph_is_consistent
+   SQL 失败：foreign key violated (constraint `biz_flow_task_assignee_id_fkey`)
+   SQL: DELETE FROM sys_user WHERE id IN ('e7e70001-0000-4000-8000-0000000c0170'::uuid, 'e7e70001-0000-4000-8000-0000000a0171'::uuid, 'e7e70001-0000-4000-8000-0000000a0172'::uuid)
+   note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+### business::masking::tests::m01_create_rule_and_reject_duplicate
+   同 (表,列,角色) 重复配置必须被拒: Res { code: 0, msg: "ok", data: Some(FieldMaskRes { id: "2bc6aaa4-1f1a-4cb1-97c1-65d995bc51d6", table_name: "sys_user", column_name: "remark", mask_type: 4, mask_type_code: "name", mask_type_label: "
+
+### business::masking::tests::m02_unauthorized_role_gets_masked_value
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-d482-71ca-84fd-1c47695c6e60 硬删失败（非业务表外键）：foreign key violated (constraint `sys_field_mask_role_id_fkey`)
+   WARN[cleanup] masking/sweep 未完全成功：users=[] roles=["01a1a6c6-d482-71ca-84fd-1c47695c6e60: foreign key violated (constraint `sys_field_mask_role_id_fkey`)"]
+   该列有规则，必须返回 Some
+
+### business::masking::tests::m03_exempt_principal_sees_plaintext
+   建脱敏规则失败：500/10004 服务器内部错误
+
+### business::masking::tests::m04_export_applies_mask_from_database_rule
+   建脱敏规则失败：500/10004 规则写入成功但回读失败
+
+### business::masking::tests::m05_list_and_detail_share_same_ruleset
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-db7e-72ea-953f-19a7e00f136a 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_role_id_fkey`)
+   WARN[cleanup] masking/sweep 未完全成功：users=[] roles=["01a1a6c6-db7e-72ea-953f-19a7e00f136a: foreign key violated (constraint `sys_user_role_role_id_fkey`)"]
+   建脱敏规则失败：500/10004 规则写入成功但回读失败
+
+### business::masking::tests::m07_config_change_takes_effect_immediately
+   WARN[cleanup] 夹具用户(sys_user.username LIKE 'tc_m%') 行 01a1a6c6-db7e-72ea-953f-19a84b61be39 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-dd14-707e-98bc-1ebd727c9bb2 硬删失败（非业务表外键）：foreign key violated (constraint `sys_field_mask_role_id_fkey`)
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-dde9-7097-8b43-84ea6f71a5d4 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_role_id_fkey`)
+   WARN[cleanup] masking/sweep 未完全成功：users=["01a1a6c6-db7e-72ea-953f-19a84b61be39: foreign key violated (constraint `sys_user_role_user_id_fkey`)"] roles=["01a1a6c6-dd14-707e-98bc-1ebd727c9bb2: foreign key violated (constra
+   新建后必须立刻命中
+
+### business::masking::tests::m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped
+   WARN[cleanup] 夹具用户(sys_user.username LIKE 'tc_m%') 行 01a1a6c6-dfe6-7558-8779-e15a99acf2f7 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-dfe6-7558-8779-e1595cd12d14 硬删失败（非业务表外键）：foreign key violated (constraint `sys_field_mask_role_id_fkey`)
+   WARN[cleanup] 夹具角色(sys_role.role_code LIKE 'tc_m%') 行 01a1a6c6-e11d-777c-bd77-9a1819571126 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_role_id_fkey`)
+   WARN[cleanup] masking/sweep 未完全成功：users=["01a1a6c6-dfe6-7558-8779-e15a99acf2f7: foreign key violated (constraint `sys_user_role_user_id_fkey`)"] roles=["01a1a6c6-dfe6-7558-8779-e1595cd12d14: foreign key violated (constra
+   assertion `left == right` failed: tc_m 规则行必须被清干净
+     left: 1
+    right: 0
+
+### system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router
+   以下菜单前端未注册路由，点进去必然 404：
+   business:erp:stock-take:list (/business/erp/stock-take, component=Some("business/erp/stock-take/index"))
+
+### system::role::tests::r02_role_permission_change_takes_effect_immediately
+   执行 SQL 失败：foreign key violated (constraint `sys_user_role_role_id_fkey`)
+   SQL: INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)
+
+### system::role::tests::r06_duplicate_role_code_conflict
+   WARN[cleanup] 夹具用户(sys_user.username LIKE 'tc_r%') 行 01a1a6c7-5f4f-74fb-a349-acc590028958 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   WARN[cleanup] role/sweep 未完全成功：[] ["01a1a6c7-5f4f-74fb-a349-acc590028958: foreign key violated (constraint `sys_user_role_user_id_fkey`)"]
+   建角色 tc_r_r06_T1793799447711049 失败：403/61002 不能把数据范围设为「本部门」：超出你自身的可见范围（当前为「仅本人」）
+
+### system::role::tests::r05_mutex_roles_rejected
+   同时授予互斥角色必须被拒: ()
+
+### system::role::tests::r07_assign_menus_bumps_holders_token_version
+   WARN[cleanup] 夹具用户(sys_user.username LIKE 'tc_r%') 行 01a1a6c7-5f4f-74fb-a349-acc590028958 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   WARN[cleanup] role/sweep 未完全成功：[] ["01a1a6c7-5f4f-74fb-a349-acc590028958: foreign key violated (constraint `sys_user_role_user_id_fkey`)"]
+   查询标量失败：record not found
+   SQL: SELECT token_version AS v FROM sys_user WHERE id = ?::text::uuid
+
+### system::tests_support::self_check::x00_suite_leaves_zero_fixture_residue
+     sys_menu: 0
+     sys_role: 1
+     sys_user: 2
+     sys_dept: 0
+     样例: sys_role.role_code=tc_m_m07_T1793799413734009_ROLE, sys_user.username=tc_m_m07_T1793799413734009_holder, sys_user.username=tc_m_m07_T1793799413734009_plain
+   assertion `left == right` failed: 角色夹具残留必须为 0
+     sys_menu: 0
+     sys_role: 1
+     sys_user: 2
+     sys_dept: 0
+     样例: sys_role.role_code=tc_m_m07_T1793799413734009_ROLE, sys_user.username=tc_m_m07_T1793799413734009_holder, sys_user.username=tc_m_m07_T1793799413734009_plain
+     left: 1
+    right: 0
+
+### system::user::tests::u02_duplicate_username_conflict
+   assertion `left == right` failed: 失败的重名请求不得插入第二条
+     left: 0
+    right: 1
+
+### system::user::tests::u03_password_reset_bumps_token_version
+   用户应存在
+
+### system::user::tests::u04_locked_user_cannot_login
+   执行 SQL 失败：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   SQL: INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)
+
+### system::user::tests::u08_dept_change_updates_data_scope_immediately
+   WARN[cleanup] 夹具用户(sys_user.username LIKE 'tc_u%') 行 01a1a6c7-7b7b-777d-a816-1c2ef3af236b 硬删失败（非业务表外键）：foreign key violated (constraint `sys_user_role_user_id_fkey`)
+   WARN[cleanup] user/sweep 未完全成功：["01a1a6c7-7b7b-777d-a816-1c2ef3af236b: foreign key violated (constraint `sys_user_role_user_id_fkey`)"]
+   改部门失败: ApiError { code: 30001, msg: "操作者账号不存在，拒绝操作", status: 403, internal_detail: None }
+
+### system::user::tests::u05_repeated_login_failures_lock_account
+   assertion `left == right` failed: 连续失败 5 次后账号必须被锁定（否则可以无限撞库）
+     left: 0
+    right: 1
+
+### system::user::tests::u09_user_list_search_and_pagination
+   建用户 tc_u_u09_T1793799456896080_1 失败：403/30001 操作者账号不存在，拒绝操作

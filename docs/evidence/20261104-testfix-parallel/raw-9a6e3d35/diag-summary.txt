@@ -1,0 +1,25 @@
+== masking_t4  filter=business::masking::tests  args=--test-threads=4  exit=101  elapsed=1s
+     test result: FAILED. 8 passed; 2 failed; 0 ignored; 0 measured; 2320 filtered out; finished in 0.38s
+     failed_list=2
+== masking_t1  filter=business::masking::tests  args=--test-threads=1  exit=0  elapsed=1s
+     test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2320 filtered out; finished in 0.27s
+     failed_list=0
+== sysuser_t4  filter=system::user::tests  args=--test-threads=4  exit=101  elapsed=3s
+     test result: FAILED. 7 passed; 5 failed; 0 ignored; 0 measured; 2318 filtered out; finished in 3.31s
+     failed_list=5
+== sysuser_t1  filter=system::user::tests  args=--test-threads=1  exit=0  elapsed=11s
+     test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2318 filtered out; finished in 10.38s
+     failed_list=0
+== sysrole_t4  filter=system::role::tests  args=--test-threads=4  exit=101  elapsed=2s
+     test result: FAILED. 4 passed; 4 failed; 0 ignored; 0 measured; 2322 filtered out; finished in 1.88s
+     failed_list=4
+== sysrole_t1  filter=system::role::tests  args=--test-threads=1  exit=0  elapsed=6s
+     test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2322 filtered out; finished in 5.27s
+     failed_list=0
+== p17_t1  filter=business::erp::payable_bridge::tests::p17_seeded_flow_graph_is_consistent  args=--exact --test-threads=1  exit=0  elapsed=2s
+     test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2329 filtered out; finished in 2.20s
+     failed_list=0
+== menu_n08  filter=system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router  args=--exact --test-threads=1  exit=101  elapsed=0s
+     test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2329 filtered out; finished in 0.26s
+     failed_list=1
+== DIAG DONE

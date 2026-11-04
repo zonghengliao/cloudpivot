@@ -1,0 +1,12 @@
+===== run2-前（run1 残留） @ 2026-11-04 21:46:49 CST db=cloudpivot_9a6e3d35
+schema_migrations(max|count) = 219|163
+public 表数 = 102
+超管人数 = 3
+sys_user 总数 = 25
+sys_role 总数 = 10
+biz_voucher = 13
+biz_accounting_period = 43
+biz_purchase_order = 6
+biz_status_log = 91
+sys_field_mask 规则 = 4
+夹具残留（tc_%/T?_ 前缀）: sys_user=2 sys_role=1 sys_field_mask=4

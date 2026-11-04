@@ -1,0 +1,12 @@
+exit=101
+elapsed=1570s
+start=2026-11-04 21:46:50 CST
+end=2026-11-04 22:13:00 CST
+db=cloudpivot_9a6e3d35
+ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/cloudpivot_9a6e3d35
+cmd=cargo test -j 1
+summary_lines:
+  test result: FAILED. 2311 passed; 19 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1309.76s
+  error: test failed, to rerun pass `--lib`
+failed_lines=19
+skip_lines=0

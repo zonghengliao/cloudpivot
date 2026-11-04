@@ -1,0 +1,11 @@
+phase	db	cmd	result_line	failed	elapsed	log
+run1_clean	cloudpivot_9a6e3d35	cargo test -j 1	FAILED. 2310 passed; 20 failed; 0 ignored	20	1130.31s	run1.log
+run2_residual	cloudpivot_9a6e3d35	cargo test -j 1	FAILED. 2311 passed; 19 failed; 0 ignored	19	1309.76s	run2.log
+diag_masking_t4	cloudpivot_9a6e3d35_diag	--test-threads=4	FAILED. 8 passed; 2 failed	2	0.38s	diag-masking_t4.log
+diag_masking_t1	cloudpivot_9a6e3d35_diag	--test-threads=1	ok. 10 passed; 0 failed	0	0.27s	diag-masking_t1.log
+diag_sysuser_t4	cloudpivot_9a6e3d35_diag	--test-threads=4	FAILED. 7 passed; 5 failed	5	3.31s	diag-sysuser_t4.log
+diag_sysuser_t1	cloudpivot_9a6e3d35_diag	--test-threads=1	ok. 12 passed; 0 failed	0	10.38s	diag-sysuser_t1.log
+diag_sysrole_t4	cloudpivot_9a6e3d35_diag	--test-threads=4	FAILED. 4 passed; 4 failed	4	1.88s	diag-sysrole_t4.log
+diag_sysrole_t1	cloudpivot_9a6e3d35_diag	--test-threads=1	ok. 8 passed; 0 failed	0	5.27s	diag-sysrole_t1.log
+diag_p17_exact_t1	cloudpivot_9a6e3d35_diag	--exact --test-threads=1	ok. 1 passed; 0 failed	0	2.20s	diag-p17_t1.log
+diag_n08_exact_t1	cloudpivot_9a6e3d35_diag	--exact --test-threads=1	FAILED. 0 passed; 1 failed	1	0.26s	diag-menu_n08.log
