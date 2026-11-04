@@ -472,6 +472,36 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '盘点单', permission: 'business:erp:stock-take:list' },
       },
       {
+        // ==================== ERP 固定资产：资产卡片（FIN-2 / ARCH-6 §5.10） ====================
+        // `sys_menu` 种子（V0229 …1401）path = `/business/erp/asset`、component
+        // `business/erp/asset/index`，权限码 `business:erp:asset:list`。
+        // 目录节点（…1400）也挂在 `/business/erp/asset` 上（menu_type=1 无组件），
+        // 所以这一条既是「点目录」的落点，也是「点资产卡片」的落点 —— 只注册一条。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点菜单 404。
+        path: 'business/erp/asset',
+        name: 'BusinessErpAsset',
+        component: () => import('@/views/business/erp/asset/index.vue'),
+        meta: { title: '资产卡片', permission: 'business:erp:asset:list' },
+      },
+      {
+        // ==================== ERP 固定资产：资产分类（V0229 …1402） ====================
+        // path `/business/erp/asset-category`、component `business/erp/asset-category/index`，
+        // 权限码 `business:erp:asset-category:list`。
+        path: 'business/erp/asset-category',
+        name: 'BusinessErpAssetCategory',
+        component: () => import('@/views/business/erp/asset-category/index.vue'),
+        meta: { title: '资产分类', permission: 'business:erp:asset-category:list' },
+      },
+      {
+        // ==================== ERP 固定资产：折旧计提（V0230 …1403） ====================
+        // path `/business/erp/depreciation`、component `business/erp/depreciation/index`，
+        // 权限码 `business:erp:depreciation:list`。
+        path: 'business/erp/depreciation',
+        name: 'BusinessErpDepreciation',
+        component: () => import('@/views/business/erp/depreciation/index.vue'),
+        meta: { title: '折旧计提', permission: 'business:erp:depreciation:list' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
