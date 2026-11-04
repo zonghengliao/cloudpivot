@@ -72,13 +72,10 @@ pub const BIZ_TYPE_PURCHASE_IN: &str = "PURCHASE_IN";
 /// 流水单据类型：收货入库单。
 pub const DOC_TYPE_STOCK_IN: &str = "STOCK_IN";
 
-/// 序列号来源类型（`biz_material_serial.source_type` 白名单见 serial_model::SOURCE_TYPES）。
+/// 收货单 `in_type` → 序列号来源类型（`source_id` 一律 = 本收货单 id）。
 ///
 /// P2-6b 起这张单**自己决定**序列号来源：采购入库写 `PURCHASE`、退货入库写 `RETURN`
-/// （两者都在 `biz_stock_in` 这张表里，靠 `in_type` 区分）。见 [`serial_source_of_in_type`]。
-pub const SERIAL_SOURCE_PURCHASE: &str = "PURCHASE";
-
-/// 收货单 `in_type` → 序列号来源类型（`source_id` 一律 = 本收货单 id）。
+/// （两者都在 `biz_stock_in` 这张表里，靠 `in_type` 区分）。
 ///
 /// | `in_type` | `source_type` | 说明 |
 /// |---|---|---|
@@ -90,9 +87,10 @@ pub const SERIAL_SOURCE_PURCHASE: &str = "PURCHASE";
 /// 追溯给出的是**假答案**。来源域里没有 `OTHER` 是设计选择（V0138 定的 4 值），
 /// 不在这张卡扩域 —— 扩域要动 CHECK + 前端映射 + 巡检登记表，属于独立卡。
 pub fn serial_source_of_in_type(in_type: &str) -> Option<&'static str> {
+    use crate::business::shared::doc_kind::SerialSourceType;
     match in_type {
-        "PURCHASE" => Some(crate::business::shared::doc_kind::SerialSourceType::Purchase.as_str()),
-        "RETURN" => Some(crate::business::shared::doc_kind::SerialSourceType::Return.as_str()),
+        "PURCHASE" => Some(SerialSourceType::Purchase.as_str()),
+        "RETURN" => Some(SerialSourceType::Return.as_str()),
         _ => None,
     }
 }

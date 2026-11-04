@@ -154,15 +154,6 @@ pub const CST_OFFSET_HOURS: i64 = 8;
 /// 来源单据类型白名单（V0138 列注释：PURCHASE / TRANSFER / PRODUCE / RETURN）。
 pub const SOURCE_TYPES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
 
-/// 序列号来源 → 目标单据表（**唯一映射**，`None` = 这类来源没有实体单据表）。
-///
-/// 唯一真相在 [`crate::business::shared::doc_kind::SerialSourceType::target_table`]
-/// （巡检 SQL `di.v_poly_ref_map` 与它逐行对齐，有单测机械核对）。这里只做一层薄包装，
-/// 让序列号模块不必到处 `use doc_kind`。
-pub fn source_target_table(source_type: &str) -> Option<&'static str> {
-    doc_kind::SerialSourceType::parse(source_type).and_then(|kind| kind.target_table())
-}
-
 /// 校验「来源类型 + 来源 id」这一对是否自洽（`Ok(())` = 可以落库）。
 ///
 /// 三条规则（P2-6b 定稿，写入点必须过这道闸，否则 DI-21 会一直红）：
