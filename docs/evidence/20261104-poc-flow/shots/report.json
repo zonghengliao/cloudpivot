@@ -52,7 +52,6 @@
         }
       ],
       "usesFO": null,
-      "cardCount": 6,
       "cards": 6,
       "spread": {
         "count": 6,
@@ -111,7 +110,6 @@
         }
       ],
       "usesFO": false,
-      "cardCount": 6,
       "cards": 6,
       "spread": {
         "count": 6,
@@ -170,7 +168,6 @@
         }
       ],
       "usesFO": false,
-      "cardCount": 18,
       "cards": 0,
       "spread": {
         "count": 6,
@@ -237,7 +234,6 @@
         }
       ],
       "usesFO": null,
-      "cardCount": 6,
       "cards": 6,
       "spread": {
         "count": 6,
@@ -296,7 +292,6 @@
         }
       ],
       "usesFO": false,
-      "cardCount": 6,
       "cards": 6,
       "spread": {
         "count": 6,
@@ -355,7 +350,6 @@
         }
       ],
       "usesFO": false,
-      "cardCount": 18,
       "cards": 0,
       "spread": {
         "count": 6,
