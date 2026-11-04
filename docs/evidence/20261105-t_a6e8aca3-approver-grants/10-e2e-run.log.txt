@@ -1,0 +1,44 @@
+==================== ① admin 登录 ====================
+  [32mPASS[0m admin 登录成功
+==================== ② 部门 ====================
+  [32mPASS[0m 部门已存在，复用（dept_id=01a1a849-1900-709a-9552-a687401a51a8）
+==================== ③ 夹具账号 ====================
+  [32mPASS[0m 夹具就绪：e2e_dept_leader→DEPT_LEADER，e2e_fin_mgr→FINANCE_MANAGER
+  approve 授权行数：DEPT_LEADER=1  FINANCE_MANAGER=1
+==================== ④ 建预算 + 提交 ====================
+  科目 1221  额度 12000
+  [32mPASS[0m 建预算 200（budget_id=01a1a853-51dd-714f-9d68-5cd426c35653，status=DRAFT）
+  [32mPASS[0m 提交审批 200（status=SUBMITTED）
+  instance=01a1a853-5229-7104-a7e5-17eb99685680  待办：n_dept→e2e_dept_leader 
+  [32mPASS[0m 待办落在部门主管（task=01a1a853-5234-7660-a661-adc8f56f7db3）
+==================== ⑤ 部门主管：待办列表（instance:read） ====================
+  [32mPASS[0m e2e_dept_leader 登录成功（非超管）
+  [32mPASS[0m GET /api/business/flow/task/todo → 200 且含本任务（business:flow:instance:read 已授）
+==================== ⑥ 部门主管审批（approve） ====================
+  HTTP 200  {"code":0,"msg":"ok","data":{"instance_id":"01a1a853-5229-7104-a7e5-17eb99685680","instance_status":"PENDING","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+  [32mPASS[0m POST /api/business/flow/task/01a1a853-5234-7660-a661-adc8f56f7db3/approve → 200（不再 403 需要权限 business:flow:approve）
+  n_dept 任务状态 = APPROVED
+  [32mPASS[0m 审批链推进到财务经理（task=01a1a853-5402-735e-a935-ef8e06e12fc7）
+==================== ⑦ 财务经理审批 ====================
+  [32mPASS[0m e2e_fin_mgr 登录成功
+  HTTP 200  {"code":0,"msg":"ok","data":{"instance_id":"01a1a853-5229-7104-a7e5-17eb99685680","instance_status":"APPROVED","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+  [32mPASS[0m 财务经理 approve 200
+  实例=APPROVED  预算=ACTIVE
+  [32mPASS[0m 审批实例 APPROVED
+  [32mPASS[0m 预算随桥接回调 ACTIVE（审批链真的推到底了）
+==================== ⑧ 反向对照：撤掉 V0239 授权后同一个人再点 ====================
+  科目 1401  额度 13000
+  第二条 budget=01a1a853-55f0-701a-a65e-c6a38eb3e466 instance=01a1a853-561f-7699-8682-ae9090967d28 task=01a1a853-5626-71e5-a4c3-ae59712b9ac3（提交 200）
+  [32mPASS[0m down.sql 执行（8 个节点的授权清零；库里 approve 授权 = 0 行）
+  [32mPASS[0m 重启实例（进程内权限缓存清空，等价于真实「迁移 + 重启」上线路径）
+  HTTP 403  {"code":403,"msg":"无权限访问，需要权限: business:flow:approve"}
+  [32mPASS[0m 撤权后同一个部门主管再点 → 403（复现卡面现象）
+==================== ⑨ 复原：重跑 up.sql（幂等） ====================
+psql:/opt/cloudpivot/backend/migrations/business/V0239__flow_approver_role_grants.up.sql:239: NOTICE:  V0239 自检通过：审批角色 approve 授权 7 行；8 个实例侧节点合计授权 56 行
+  [32mPASS[0m 再次重启实例
+  HTTP 200  {"code":0,"msg":"ok","data":{"instance_id":"01a1a853-561f-7699-8682-ae9090967d28","instance_status":"PENDING","node_status":"APPROVED","done":true,"idempotent":false,"next_nodes":[],"auto_passed_nodes":0,"approver_count":1,"approved_count":1,"rejected_count":0}}
+  [32mPASS[0m 重新授权后同一账号 → 200（幂等复原成功）
+
+==================== 汇总 ====================
+预算1 ACTIVE / 实例1 APPROVED  |  预算2 SUBMITTED / 实例2 PENDING
+PASS=19 FAIL=0

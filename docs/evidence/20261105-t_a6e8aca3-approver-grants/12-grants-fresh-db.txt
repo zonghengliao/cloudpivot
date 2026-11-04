@@ -1,0 +1,51 @@
+# 探查库：cloudpivot_pg239_fresh（2026-11-05 04:52:04 CST）
+
+## 1) 审批岗位角色 × business:flow:approve 授权
+DEPT_LEADER|YES
+FINANCE_DIRECTOR|YES
+FINANCE_MANAGER|YES
+FLOW_CONFIG_APPROVER|YES
+GENERAL_MANAGER|YES
+PURCHASE_MANAGER|YES
+SUPER_ADMIN|NO
+WAREHOUSE_MANAGER|YES
+
+## 2) 当前生效流程里 ROLE 指派的审批节点（flow/node/role）
+asset_disposal|n_gm|APPROVAL|GENERAL_MANAGER
+budget_approve|n_dept|APPROVAL|DEPT_LEADER
+budget_approve|n_fin|APPROVAL|FINANCE_MANAGER
+budget_approve|n_fin_adj|APPROVAL|FINANCE_MANAGER
+budget_approve|n_fin_gm|COUNTERSIGN|FINANCE_MANAGER
+budget_approve|n_fin_gm|COUNTERSIGN|GENERAL_MANAGER
+budget_approve|n_gm|APPROVAL|GENERAL_MANAGER
+budget_approve|n_gm_fd|COUNTERSIGN|FINANCE_DIRECTOR
+budget_approve|n_gm_fd|COUNTERSIGN|GENERAL_MANAGER
+contract_approve|n_gm|APPROVAL|GENERAL_MANAGER
+contract_approve|n_pm|APPROVAL|PURCHASE_MANAGER
+contract_approve|n_pm_hi|APPROVAL|PURCHASE_MANAGER
+flow_edge_config|n_cfg|APPROVAL|FLOW_CONFIG_APPROVER
+payable_cancel|n_fm|APPROVAL|FINANCE_MANAGER
+po_approve|n_board|COUNTERSIGN|GENERAL_MANAGER
+po_approve|n_board|COUNTERSIGN|PURCHASE_MANAGER
+po_approve|n_dept|APPROVAL|DEPT_LEADER
+po_approve|n_fin|APPROVAL|FINANCE_MANAGER
+po_approve|n_pm|APPROVAL|PURCHASE_MANAGER
+stock_in_post|n_wh|APPROVAL|WAREHOUSE_MANAGER
+stock_take_post|n_fin|APPROVAL|WAREHOUSE_MANAGER
+stock_take_post|n_gm|APPROVAL|GENERAL_MANAGER
+stock_take_post|n_wh|APPROVAL|WAREHOUSE_MANAGER
+voucher_reverse|n_cs|COUNTERSIGN|FINANCE_DIRECTOR
+voucher_reverse|n_cs|COUNTERSIGN|FINANCE_MANAGER
+voucher_reverse|n_fm|APPROVAL|FINANCE_MANAGER
+
+## 3) 五项授权行数（…0800 create / …0801 read / …0802 withdraw / …0803 approve / …0804 admin / …0860,0861,0862 页面）
+|8
+business:flow:admin|1
+business:flow:approve|7
+business:flow:instance:create|16
+business:flow:instance:read|16
+business:flow:instance:withdraw|8
+
+## 4) sys_dept / sys_user
+sys_dept=1
+sys_user=3

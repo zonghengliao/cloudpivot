@@ -18,6 +18,7 @@
 //! | N16 | 每个路由要么有 `#[nik::permission]`，要么在「无权限路由白名单」里写明理由 | 新增裸接口（无任何权限闸）→ 红 |
 //! | N17 | 扫描器自检：人造的死码 / 裸路由必须被扫出来 | 扫描逻辑退化成永远绿 → 红 |
 //! | N18 | 例外台账必须是「活的」：登记为例外的码仍未被后端引用且在菜单里 | 例外过期没人删 → 红 |
+//! | N19 | 流程定义里每个 `APPROVAL`/`COUNTERSIGN` 节点的 `ROLE` 指派角色都必须有 `business:flow:approve` | 审批角色缺审批权限 → 节点永远点不动（全员 403）→ 红 |
 //!
 //! # 口径（与 `docs/dead-permissions-20261101.md` 逐字一致）
 //!
@@ -734,4 +735,122 @@ async fn n18_route_level_exception_ledger_is_live() {
         ROUTE_LEVEL_ONLY.len(),
         NO_PERMISSION_ROUTES.len()
     );
+}
+
+// ==================== N19 审批节点的角色必须能审 ====================
+
+/// 审批节点指派了角色、但该角色**没有** `business:flow:approve` 的组合（权限点 = 菜单 …0803）。
+///
+/// 口径：只看**当前生效的已发布版本**（`v.is_current AND v.version_status='PUBLISHED'`
+/// 且流程定义 `PUBLISHED` 未软删）里的 `APPROVAL` / `COUNTERSIGN` 节点，只看
+/// `assignee_type='ROLE'` 且角色仍在用（未软删）的行 —— 已删除角色的悬空指派是另一类
+/// 缺陷（节点缺审批人），不该混进这条断言里制造噪音。
+const SQL_APPROVAL_ROLE_WITHOUT_APPROVE: &str = "\
+SELECT d.flow_code AS flow_code, n.node_key AS node_key, r.role_code AS role_code
+  FROM biz_flow_node_assignee a
+  JOIN biz_flow_node n         ON n.id = a.node_id
+  JOIN biz_flow_def_version v  ON v.id = n.version_id
+  JOIN biz_flow_def d          ON d.id = v.def_id
+  JOIN sys_role r              ON r.id = a.ref_id AND r.deleted_at IS NULL
+ WHERE a.assignee_type = 'ROLE'
+   AND n.node_type IN ('APPROVAL', 'COUNTERSIGN')
+   AND v.is_current
+   AND v.version_status = 'PUBLISHED'
+   AND d.deleted_at IS NULL
+   AND d.status = 'PUBLISHED'
+   AND NOT EXISTS (
+           SELECT 1 FROM sys_role_menu rm
+            WHERE rm.role_id = r.id AND rm.menu_id = '20000000-0000-0000-0000-000000000803'::uuid
+       )
+ ORDER BY d.flow_code, n.node_key, r.role_code";
+
+/// N19：**流程定义里每个审批节点的 `ROLE` 指派角色，都必须拥有 `business:flow:approve`**。
+///
+/// # 为什么这条必须有（t_a6e8aca3 真机实测）
+///
+/// 权限码 `business:flow:approve` 是 `POST /business/flow/task/{id}/approve|reject|transfer|
+/// add-sign` 与 `/task/batch` 的中间件闸（`business/flow/handler.rs` 的注解 + `batch.rs`
+/// 的 `PERM_APPROVE`）。角色没有这条授权时，**登录正常、待办可见（若另有读权限）、点同意
+/// 一律 403「需要权限: business:flow:approve」**，实例永远停在 PENDING。
+///
+/// 实测踩到：预算 `budget_approve` 的 n_dept/n_fin 指派 DEPT_LEADER / FINANCE_MANAGER，
+/// 而这两个角色一条菜单授权都没有 —— 根因是「授"所有角色"的迁移（V0128）跑在
+/// 建角色（V0182/V0191）之前」，只在全新库/新角色上复现，超管因 `is_super_admin`
+/// 短路而完全看不见。修法是 V0239 的授权补种；本用例是它的常驻防线。
+///
+/// 命中时的修法：新增种子流程时，在同一条迁移里给被指派的角色补 approve 授权
+/// （参考 `V0239__flow_approver_role_grants.up.sql` 的口径）。
+#[tokio::test]
+async fn n19_approval_node_role_assignees_have_approve_permission() {
+    if !ts::ensure_db().await {
+        return;
+    }
+
+    // 先确认权限点本身还在：码被退休掉的话，下面的断言会以「全部缺」的形式炸出来，误导排查
+    let point = db()
+        .find_with_params(
+            "SELECT auth_code FROM sys_menu \
+             WHERE id = '20000000-0000-0000-0000-000000000803'::uuid \
+               AND deleted_at IS NULL AND status = 1",
+            vec![],
+        )
+        .await
+        .expect("查 business:flow:approve 权限点失败");
+    assert_eq!(
+        point.len(),
+        1,
+        "权限点 business:flow:approve（菜单 …0803）不在 sys_menu 里或已停用/软删：\
+         审批接口对所有人 403，先修种子再谈授权"
+    );
+
+    let rows = db()
+        .find_with_params(SQL_APPROVAL_ROLE_WITHOUT_APPROVE, vec![])
+        .await
+        .expect("查「审批节点角色缺 approve」失败");
+
+    let mut missing: Vec<String> = Vec::with_capacity(rows.len());
+    for row in &rows {
+        missing.push(format!(
+            "{} / {} → 角色 {}",
+            row.get_typed::<String>("flow_code").unwrap_or_default(),
+            row.get_typed::<String>("node_key").unwrap_or_default(),
+            row.get_typed::<String>("role_code").unwrap_or_default(),
+        ));
+    }
+
+    assert!(
+        missing.is_empty(),
+        "[N19] 以下审批节点指派了角色，但那个角色没有 business:flow:approve —— \
+         该节点永远点不动（审批人一律 403）：\n{}\n\
+         修法：在该角色的授权里补 business:flow:approve（种子迁移口径见 V0239）",
+        missing.join("\n")
+    );
+
+    // 反向自检：这条 SQL 得真的能看见审批节点，否则「永远绿」等于没有防线
+    let total = db()
+        .find_with_params(
+            "SELECT count(*) AS n \
+               FROM biz_flow_node_assignee a \
+               JOIN biz_flow_node n        ON n.id = a.node_id \
+               JOIN biz_flow_def_version v ON v.id = n.version_id \
+               JOIN biz_flow_def d         ON d.id = v.def_id \
+              WHERE a.assignee_type = 'ROLE' \
+                AND n.node_type IN ('APPROVAL', 'COUNTERSIGN') \
+                AND v.is_current AND v.version_status = 'PUBLISHED' \
+                AND d.deleted_at IS NULL AND d.status = 'PUBLISHED'",
+            vec![],
+        )
+        .await
+        .expect("查审批节点角色指派总数失败");
+    let assigned = total
+        .first()
+        .and_then(|r| r.get_typed::<i64>("n").ok())
+        .unwrap_or(0);
+    assert!(
+        assigned > 0,
+        "[N19] 库里查不到任何「ROLE 指派的审批节点」—— 扫描口径失效（种子流程没装 / 版本表不匹配），\
+         这条用例此时是假绿"
+    );
+
+    println!("[N19] {assigned} 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓");
 }
