@@ -854,3 +854,326 @@ mod tests {
         );
     }
 }
+
+// ==================== 补测（P2-3A）：审批进度 / 审批闸门的判据边界 ====================
+//
+// 评审实测：审批相关只有 `approval_gate.rs` 的 4 条 `#[test]`，而它是**六个业务入口
+// 共用的一道闸**（采购提交 / 收货过账 / 收货作废 / 应付付款 / 应付作废 / 凭证红冲）。
+// 判据写松一格 = 内控被静默绕过；写严一格 = 正常业务提交不了。两边都是生产事故。
+//
+// 已有 4 条覆盖「主路径」，本模块补**边界与契约**：
+// - 理由字数的 9 / 10 字边界（按**字符**计，中文一字算一字）；
+// - 合成理由的截断口径（200 字）与前缀可读性；
+// - 四个错误出口的 status / code 与「报文里必须出现的东西」；
+// - `ApprovalGate::none()`（系统内部路径）不能变成后门。
+//
+// 全部为纯逻辑用例（不连库），跑法：
+//
+// ```bash
+// cargo test --lib business::erp::approval_gate
+// ```
+#[cfg(test)]
+mod gate_boundary_tests {
+    use super::*;
+
+    /// 造一份 claims（只关心 `permissions`）。
+    fn claims_with(permissions: &[&str]) -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: Uuid::now_v7().to_string(),
+            username: Some("p23a_approval".to_string()),
+            roles: Vec::new(),
+            permissions: permissions.iter().map(|item| item.to_string()).collect(),
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
+    }
+
+    fn skip_req(flag: bool, reason: Option<&str>) -> SkipApprovalReq {
+        SkipApprovalReq {
+            skip_approval: flag,
+            skip_reason: reason.map(str::to_string),
+        }
+    }
+
+    /// 持有跳过权限码的操作者。
+    fn holder() -> TokenClaims {
+        claims_with(&[PERM_SKIP_APPROVAL])
+    }
+
+    // ---------- ① 跳过请求片段 ----------
+
+    /// 缺省（老客户端不传）= 没请求跳过；只有显式 `true` 才算请求。
+    #[test]
+    fn skip_req_default_is_no_request() {
+        let default = SkipApprovalReq::default();
+        assert!(!default.requested(), "缺省必须是「没请求」");
+        assert_eq!(default.reason_text(), None);
+        assert!(
+            !skip_req(false, Some("理由写满了也一样")).requested(),
+            "flag=false 不生效"
+        );
+        assert!(skip_req(true, None).requested());
+    }
+
+    /// 理由去空白；空串 / 纯空白 → `None`（不能算「写了理由」）。
+    #[test]
+    fn skip_req_reason_text_trims_and_blank_is_none() {
+        assert_eq!(
+            skip_req(true, Some("  现场已验收  ")).reason_text(),
+            Some("现场已验收")
+        );
+        assert_eq!(skip_req(true, Some("")).reason_text(), None);
+        assert_eq!(skip_req(true, Some("   \n\t ")).reason_text(), None);
+        assert_eq!(skip_req(true, None).reason_text(), None);
+    }
+
+    // ---------- ② 闸门的能力声明 ----------
+
+    /// 系统内部路径（`ApprovalGate::none()`）：不请求跳过、也没有任何权限 → 只能走 409。
+    #[test]
+    fn gate_none_has_no_skip_capability() {
+        let gate = ApprovalGate::none();
+        assert!(!gate.requested(), "系统路径不带跳过请求");
+        assert!(!gate.may_skip(), "系统路径没有任何权限可声明");
+        let error = authorize_missing_flow("PAYABLE_PAY", "payable_pay", &gate)
+            .expect_err("系统路径必须 409（fail-closed 的核心）");
+        assert_eq!(error.status, 409);
+        assert_eq!(error.code, error_code::APPROVAL_FLOW_NOT_CONFIGURED);
+    }
+
+    /// HTTP 路径：能力完全由 claims 决定（无权限码 → false，`*` 通配 → true）。
+    #[test]
+    fn gate_new_derives_capability_from_claims() {
+        let req = skip_req(true, Some("月底关账，供应商已现场验收"));
+        let nobody = claims_with(&["business:erp:purchase-order:status"]);
+        let gate = ApprovalGate::new(&req, &nobody);
+        assert!(gate.requested(), "请求了跳过");
+        assert!(!gate.may_skip(), "没有权限码不能跳");
+
+        let root = claims_with(&["*"]);
+        let gate = ApprovalGate::new(&req, &root);
+        assert!(gate.may_skip(), "SUPER_ADMIN 通配必须短路放行");
+    }
+
+    // ---------- ③ 理由字数边界（9 字拒 / 10 字放行） ----------
+
+    /// 边界：9 字拒（报文给出「当前 9 字」），10 字放行 —— 差一个字就是能不能过内控。
+    #[test]
+    fn authorize_missing_flow_enforces_nine_vs_ten_chars() {
+        let claims = holder();
+
+        let nine = "一二三四五六七八九";
+        assert_eq!(nine.chars().count(), MIN_SKIP_REASON_CHARS - 1);
+        let req = skip_req(true, Some(nine));
+        let gate = ApprovalGate::new(&req, &claims);
+        let error =
+            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect_err("9 字必须拒");
+        assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
+        assert!(
+            error.msg.contains("当前 9 字"),
+            "报文必须给出实际字数：{}",
+            error.msg
+        );
+        assert!(
+            error.msg.contains(&MIN_SKIP_REASON_CHARS.to_string()),
+            "报文必须给出下限：{}",
+            error.msg
+        );
+
+        let ten = "一二三四五六七八九十";
+        assert_eq!(ten.chars().count(), MIN_SKIP_REASON_CHARS);
+        let req = skip_req(true, Some(ten));
+        let gate = ApprovalGate::new(&req, &claims);
+        let reason =
+            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).expect("10 字必须放行");
+        assert!(reason.contains(ten), "理由原样带出：{reason}");
+    }
+
+    /// 字数按**字符**计：11 个汉字 = 11 字（不是 33 字节），带空白的不算数。
+    #[test]
+    fn authorize_missing_flow_counts_chars_not_bytes() {
+        let claims = holder();
+        // 「供」+ 9 个字符 = 10 字；字节数 20，若按字节判会被误拒。
+        let ten_cjk = "供应商已受12345";
+        assert_eq!(ten_cjk.chars().count(), 10);
+        assert!(ten_cjk.len() > 10, "字节数必须大于 10 才有区分度");
+        let req = skip_req(true, Some(ten_cjk));
+        let gate = ApprovalGate::new(&req, &claims);
+        assert!(
+            authorize_missing_flow("PO_APPROVE", "po_approve", &gate).is_ok(),
+            "10 个字符必须放行（按字符不按字节）"
+        );
+
+        // 前后空白不算：`"  一二三四五六七八九  "` 仍是 9 字。
+        let req = skip_req(true, Some("  一二三四五六七八九  "));
+        let gate = ApprovalGate::new(&req, &claims);
+        let error = authorize_missing_flow("PO_APPROVE", "po_approve", &gate)
+            .expect_err("去空白后只有 9 字必须拒");
+        assert!(error.msg.contains("当前 9 字"), "{}", error.msg);
+    }
+
+    /// 超长理由截断到 [`MAX_MERGED_REASON_CHARS`] 字，前缀（「跳过审批（未配置 x 流程）：」）完整保留。
+    #[test]
+    fn authorize_missing_flow_clamps_reason_to_limit() {
+        let claims = holder();
+        let long = "甲".repeat(MAX_MERGED_REASON_CHARS + 80);
+        let req = skip_req(true, Some(&long));
+        let gate = ApprovalGate::new(&req, &claims);
+        let reason = authorize_missing_flow("VOUCHER_REVERSE", "voucher_reverse", &gate)
+            .expect("超长理由应放行（截断而不是拒）");
+        let tail = reason
+            .split("）：")
+            .nth(1)
+            .expect("合成理由必须带「）：」分隔，日志才读得懂");
+        assert_eq!(
+            tail.chars().count(),
+            MAX_MERGED_REASON_CHARS,
+            "截断后必须恰好 {MAX_MERGED_REASON_CHARS} 字"
+        );
+        assert!(
+            reason.starts_with("跳过审批（未配置 voucher_reverse 流程）："),
+            "前缀必须保留：{reason}"
+        );
+    }
+
+    // ---------- ④ 四条错误出口的报文契约 ----------
+
+    /// 默认拒绝（409）的报文必须：点名 flow_code、说明「默认拒绝」、给出两条出路。
+    #[test]
+    fn flow_not_configured_message_offers_two_ways_out() {
+        let req = skip_req(false, None);
+        let nobody = claims_with(&[]);
+        let gate = ApprovalGate::new(&req, &nobody);
+        let error = authorize_missing_flow("STOCK_IN_POST", "stock_in_post", &gate)
+            .expect_err("没请求跳过必须 409");
+        assert_eq!(
+            (error.status, error.code),
+            (409, error_code::APPROVAL_FLOW_NOT_CONFIGURED)
+        );
+        assert!(error.msg.contains("stock_in_post"), "{}", error.msg);
+        assert!(
+            error.msg.contains("STOCK_IN_POST"),
+            "业务类型也要点名：{}",
+            error.msg
+        );
+        assert!(error.msg.contains("①"), "出路①（发布流程）：{}", error.msg);
+        assert!(error.msg.contains("②"), "出路②（授权跳过）：{}", error.msg);
+        assert!(error.msg.contains(PERM_SKIP_APPROVAL), "{}", error.msg);
+    }
+
+    /// 403 的报文必须点名缺哪个权限码，并说明「不能自助开启」。
+    #[test]
+    fn skip_forbidden_message_names_the_permission_code() {
+        let req = skip_req(true, Some("月底关账，供应商已现场验收"));
+        let nobody = claims_with(&["business:erp:payable-payment:status"]);
+        let gate = ApprovalGate::new(&req, &nobody);
+        let error = authorize_missing_flow("PAYABLE_PAY", "payable_pay", &gate)
+            .expect_err("无权限码必须 403");
+        assert_eq!(
+            (error.status, error.code),
+            (403, error_code::PERMISSION_DENIED)
+        );
+        assert!(error.msg.contains(PERM_SKIP_APPROVAL), "{}", error.msg);
+        assert!(error.msg.contains("不能自助"), "{}", error.msg);
+    }
+
+    /// 已发布流程上请求跳过 → 400，且报文告诉用户「要跳过先下线流程」。
+    #[test]
+    fn ensure_not_skipped_explains_disabling_the_flow() {
+        let claims = holder();
+        let req = skip_req(true, Some("月底关账，供应商已现场验收"));
+        let gate = ApprovalGate::new(&req, &claims);
+        let error = ensure_not_skipped("stock_in_post", &gate).expect_err("已发布不许跳过");
+        assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
+        assert!(error.msg.contains("stock_in_post"), "{}", error.msg);
+        assert!(error.msg.contains("下线"), "要指明明线：{}", error.msg);
+    }
+
+    /// 没请求跳过时，已发布流程的闸必须放行（这是六个入口的正常路径）。
+    #[test]
+    fn ensure_not_skipped_allows_normal_requests() {
+        let req = skip_req(false, None);
+        let nobody = claims_with(&[]);
+        let gate = ApprovalGate::new(&req, &nobody);
+        assert!(ensure_not_skipped("po_approve", &gate).is_ok());
+        assert!(ensure_not_skipped("voucher_reverse", &gate).is_ok());
+    }
+
+    // ---------- ⑤ 理由合成 ----------
+
+    /// 业务理由为空 / 纯空白时只留跳过标记（不能出现「｜跳过审批」这种残句）。
+    #[test]
+    fn merge_reason_ignores_blank_own_reason() {
+        let skip = "跳过审批（未配置 po_approve 流程）：现场已验收";
+        assert_eq!(merge_reason(None, skip), skip);
+        assert_eq!(merge_reason(Some("   "), skip), skip);
+        assert_eq!(merge_reason(Some(""), skip), skip);
+        assert_eq!(
+            merge_reason(Some("  供应商召回  "), skip),
+            format!("供应商召回｜{skip}"),
+            "业务理由要去空白且排在前"
+        );
+    }
+
+    /// 合成后总长恰好截到 200 字（`biz_status_log.reason` 的写入口会判 400）。
+    #[test]
+    fn merge_reason_clamps_total_length() {
+        let merged = merge_reason(
+            Some(&"业".repeat(150)),
+            &format!("跳过审批：{}", "由".repeat(150)),
+        );
+        assert_eq!(
+            merged.chars().count(),
+            MAX_MERGED_REASON_CHARS,
+            "合成理由必须恰好截到 {MAX_MERGED_REASON_CHARS} 字"
+        );
+        assert!(merged.starts_with("业业"), "业务理由在前：{merged}");
+        let short = merge_reason(Some("理由"), "跳过审批");
+        assert_eq!(short, "理由｜跳过审批");
+    }
+
+    // ---------- ⑥ 常量 / 清单契约 ----------
+
+    /// 权限码是 `模块:资源:动作` 三段式，且两个码不能相同（授权/自检分开管）。
+    #[test]
+    fn permission_codes_are_scoped_and_distinct() {
+        for code in [PERM_SKIP_APPROVAL, PERM_FLOW_HEALTH] {
+            let parts: Vec<&str> = code.split(':').collect();
+            assert!(
+                parts.len() >= 3,
+                "权限码必须是 {{模块}}:{{资源}}:{{动作}}：{code}"
+            );
+            assert_eq!(parts[0], "business", "业务侧权限码前缀：{code}");
+            assert_eq!(parts[1], "erp", "{code}");
+        }
+        assert_ne!(
+            PERM_SKIP_APPROVAL, PERM_FLOW_HEALTH,
+            "跳过审批与配置自检必须是两个码"
+        );
+        assert_eq!(MIN_SKIP_REASON_CHARS, 10, "理由下限是 10 字（卡面契约）");
+        assert_eq!(MAX_MERGED_REASON_CHARS, 200, "合成理由上限 200 字");
+    }
+
+    /// 8 个自检业务类型的 flow_code 不能重复（重复会让体检单漏报一个流程）。
+    #[test]
+    fn flow_type_codes_are_unique() {
+        let mut biz_types: Vec<&str> = FLOW_TYPES.iter().map(|(biz, _)| *biz).collect();
+        let mut flow_codes: Vec<&str> = FLOW_TYPES.iter().map(|(_, code)| *code).collect();
+        assert_eq!(biz_types.len(), 8);
+        biz_types.sort_unstable();
+        biz_types.dedup();
+        assert_eq!(biz_types.len(), 8, "biz_type 不能重复");
+        flow_codes.sort_unstable();
+        flow_codes.dedup();
+        assert_eq!(flow_codes.len(), 8, "flow_code 不能重复");
+        for (biz_type, flow_code) in FLOW_TYPES {
+            assert!(
+                !flow_code.chars().any(|c| c.is_ascii_uppercase()),
+                "flow_code 一律小写（{biz_type} → {flow_code}）"
+            );
+        }
+    }
+}

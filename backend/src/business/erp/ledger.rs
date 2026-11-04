@@ -1494,3 +1494,444 @@ mod tests {
         println!("[P2D1-⑪] 科目解析（400 / 404 / 成功）✓");
     }
 }
+
+// ==================== 补测（P2-3A）：总账纯逻辑 + 边界 ====================
+//
+// 评审实测：总账相关文件里 `ledger.rs` 只有 9 条 `#[test]`（其中 6 条真库用例在没设
+// `ERP_DB_URL` 时是 SKIP 假绿），而总账是**报表口径的唯一来源** —— 期间解析错一天、
+// 借贷拆侧把负数漏掉、`aux_type` 白名单少一个，报表就整张错，界面不会报错。
+//
+// 本模块只补两类：
+// 1. **纯逻辑**（不连库）：`month_range` / `parse_boundary` / `split_balance` /
+//    `balance_gap` / `where_clause` 的参数契约 / `aux_column` 白名单；
+// 2. **真库**（`ERP_DB_URL`，复用 `voucher_query::tests::setup` 的 6 张凭证夹具）。
+//
+// 跑法：
+//
+// ```bash
+// export ERP_DB_URL='postgres://…/cloudpivot_test_xxx'
+// cargo test --lib business::erp::ledger -- --test-threads=1
+// ```
+#[cfg(test)]
+mod extra_tests {
+    use super::*;
+    use crate::business::erp::voucher_query::tests::{ACCOUNT_A, setup};
+
+    fn date(year: i32, month: u32, day: u32) -> NaiveDate {
+        NaiveDate::from_ymd_opt(year, month, day).expect("合法日期")
+    }
+
+    fn account_a() -> Uuid {
+        Uuid::parse_str(ACCOUNT_A).expect("夹具科目 id")
+    }
+
+    fn bare_filter() -> LedgerFilter {
+        LedgerFilter {
+            account_id: account_a(),
+            date_from: None,
+            date_to: None,
+            page: 1,
+            page_size: 50,
+        }
+    }
+
+    // ---------- ① 期间键 / 月首月末 ----------
+
+    /// 非 `yyyy-MM` 一律 `None`（**不能**按「截 7 个字符」硬解析出错误的月份）。
+    #[test]
+    fn month_range_rejects_malformed_keys() {
+        for bad in [
+            "",
+            "2026",
+            "2026-1",
+            "2026-13",
+            "2026-00",
+            "26-10",
+            "2026/10",
+            "2026-10-01",
+            "2026-10 ",
+            " 2026-10",
+            "202610",
+            "2026-十",
+        ] {
+            assert_eq!(month_range(bad), None, "「{bad}」不是合法期间键");
+        }
+    }
+
+    /// 每月天数：平年 / 闰年 2 月、31 天月、30 天月、12 月跨年。
+    #[test]
+    fn month_range_handles_month_lengths_and_year_end() {
+        assert_eq!(
+            month_range("2026-02"),
+            Some((date(2026, 2, 1), date(2026, 2, 28))),
+            "2026 平年 2 月 28 天"
+        );
+        assert_eq!(
+            month_range("2024-02"),
+            Some((date(2024, 2, 1), date(2024, 2, 29))),
+            "2024 闰年 2 月 29 天"
+        );
+        assert_eq!(
+            month_range("2100-02").map(|(_, end)| end),
+            Some(date(2100, 2, 28)),
+            "2100 是整百年且非 400 倍数 ⇒ 平年"
+        );
+        assert_eq!(
+            month_range("2026-04").map(|(_, end)| end),
+            Some(date(2026, 4, 30)),
+            "4 月 30 天"
+        );
+        assert_eq!(
+            month_range("2026-12"),
+            Some((date(2026, 12, 1), date(2026, 12, 31))),
+            "12 月末不能算成次年 1 月 0 日"
+        );
+        assert_eq!(
+            month_range("2027-01"),
+            Some((date(2027, 1, 1), date(2027, 1, 31)))
+        );
+    }
+
+    // ---------- ② 边界解析 ----------
+
+    /// `yyyy-MM` 下端取月首、上端取月末；`yyyy-MM-dd` 原样。
+    #[test]
+    fn parse_boundary_expands_month_to_first_and_last_day() {
+        assert_eq!(
+            parse_boundary(Some("2026-10"), "period_from", false).expect("月首"),
+            Some(date(2026, 10, 1))
+        );
+        assert_eq!(
+            parse_boundary(Some("2026-10"), "period_to", true).expect("月末"),
+            Some(date(2026, 10, 31))
+        );
+    }
+
+    /// 显式日期优先于「按月份展开」：`2026-10-05` 在上端也必须是 10-05，不能变成 10-31。
+    #[test]
+    fn parse_boundary_prefers_explicit_date_over_month_expansion() {
+        assert_eq!(
+            parse_boundary(Some("2026-10-05"), "d", true).expect("日期"),
+            Some(date(2026, 10, 5))
+        );
+        assert_eq!(
+            parse_boundary(Some("2026-10-05"), "d", false).expect("日期"),
+            Some(date(2026, 10, 5))
+        );
+        assert_eq!(
+            parse_boundary(Some(" 2026-03-31 "), "d", true).expect("去空白"),
+            Some(date(2026, 3, 31))
+        );
+    }
+
+    /// `None` / 空串 / 纯空白 = 不限；非法输入 400，且报文点名**字段**与**原值**。
+    #[test]
+    fn parse_boundary_blank_is_unbounded_and_errors_name_the_field() {
+        assert_eq!(
+            parse_boundary(None, "period_from", false).expect("未提供"),
+            None
+        );
+        assert_eq!(
+            parse_boundary(Some(""), "period_from", false).expect("空串"),
+            None
+        );
+        assert_eq!(
+            parse_boundary(Some("   "), "period_to", true).expect("空白"),
+            None
+        );
+
+        let error = parse_boundary(Some("2026/10"), "period_from", false).expect_err("非法");
+        assert_eq!(error.status, 400);
+        assert_eq!(error.code, error_code::PARAM_INVALID);
+        assert!(
+            error.msg.contains("period_from"),
+            "要点名字段：{}",
+            error.msg
+        );
+        assert!(error.msg.contains("2026/10"), "要回显原值：{}", error.msg);
+    }
+
+    /// 2 月 30 日这种「格式对、日子不存在」的输入必须被判 400（不能静默取 3 月 2 日）。
+    #[test]
+    fn parse_boundary_rejects_non_existent_dates() {
+        let error = parse_boundary(Some("2026-02-30"), "d", true).expect_err("2 月没有 30 日");
+        assert_eq!(error.status, 400);
+    }
+
+    // ---------- ③ 余额拆两侧 / 平衡校验 ----------
+
+    /// 净额按符号拆成借 / 贷两侧，正负对称，0 两侧都是 0。
+    #[test]
+    fn split_balance_is_sign_symmetric() {
+        assert_eq!(
+            split_balance(Decimal::from(70)),
+            (Decimal::from(70), Decimal::ZERO)
+        );
+        assert_eq!(
+            split_balance(Decimal::from(-70)),
+            (Decimal::ZERO, Decimal::from(70))
+        );
+        assert_eq!(split_balance(Decimal::ZERO), (Decimal::ZERO, Decimal::ZERO));
+    }
+
+    /// 分位不能被吃掉：0.01 的借贷方向必须原样保留（报表合计靠它）。
+    #[test]
+    fn split_balance_keeps_cent_precision() {
+        let cent = Decimal::new(1, 2); // 0.01
+        assert_eq!(split_balance(cent), (cent, Decimal::ZERO));
+        assert_eq!(split_balance(-cent), (Decimal::ZERO, cent));
+        let big = Decimal::new(123_456_789_012_345, 4); // 12 345 678 901.2345
+        assert_eq!(split_balance(big), (big, Decimal::ZERO));
+    }
+
+    /// 差额校验：等值放行、1 分钱也算不平，方向带符号（借方多 → 正差额）。
+    #[test]
+    fn balance_gap_is_cent_sensitive_and_signed() {
+        assert_eq!(balance_gap(Decimal::from(130), Decimal::from(130)), None);
+        assert_eq!(
+            balance_gap(Decimal::from(130), Decimal::new(12999, 2)),
+            Some(Decimal::new(1, 2)),
+            "130 与 129.99 差 1 分"
+        );
+        assert_eq!(
+            balance_gap(Decimal::new(12999, 2), Decimal::from(130)),
+            Some(Decimal::new(-1, 2)),
+            "贷方多则差额为负"
+        );
+        assert_eq!(
+            balance_gap(Decimal::ZERO, Decimal::ZERO),
+            None,
+            "全 0 也是平的"
+        );
+    }
+
+    // ---------- ④ 流水/期初共用的 WHERE（参数顺序是契约） ----------
+
+    /// 无日期过滤：只绑定科目 id 一个参数，且必须固定「只算 POSTED + 未删凭证」。
+    #[test]
+    fn where_clause_without_dates_binds_only_account() {
+        let (sql, params) = where_clause(&bare_filter());
+        assert_eq!(params.len(), 1, "只应有 account_id 一个参数");
+        assert!(sql.contains("e.account_id = ?::uuid"), "{sql}");
+        assert!(sql.contains("v.status = 'POSTED'"), "总账只算已过账：{sql}");
+        assert!(sql.contains("v.deleted_at IS NULL"), "{sql}");
+        assert!(
+            !sql.contains("voucher_date"),
+            "没给日期时不能凭空加日期条件：{sql}"
+        );
+    }
+
+    /// 起止都给：**先 from 后 to**（`sum_before` 与本查询共用这个顺序，错序会把期初算错）。
+    #[test]
+    fn where_clause_with_both_dates_binds_from_then_to() {
+        let mut filter = bare_filter();
+        filter.date_from = Some(date(2026, 10, 1));
+        filter.date_to = Some(date(2026, 10, 31));
+        let (sql, params) = where_clause(&filter);
+        assert_eq!(params.len(), 3, "account + from + to");
+        let from_at = sql.find("v.voucher_date >= ?").expect("必须有下界");
+        let to_at = sql.find("v.voucher_date <= ?").expect("必须有上界");
+        assert!(from_at < to_at, "参数顺序是契约：先 from 后 to\n{sql}");
+    }
+
+    /// 只给上界 / 只给下界：必须只加一个条件（不能把缺的一侧当成 today）。
+    #[test]
+    fn where_clause_handles_single_sided_bounds() {
+        let mut only_from = bare_filter();
+        only_from.date_from = Some(date(2026, 10, 1));
+        let (sql, params) = where_clause(&only_from);
+        assert_eq!(params.len(), 2);
+        assert!(sql.contains("v.voucher_date >= ?"));
+        assert!(!sql.contains("v.voucher_date <= ?"), "{sql}");
+
+        let mut only_to = bare_filter();
+        only_to.date_to = Some(date(2026, 10, 31));
+        let (sql, params) = where_clause(&only_to);
+        assert_eq!(params.len(), 2);
+        assert!(sql.contains("v.voucher_date <= ?"));
+        assert!(!sql.contains("v.voucher_date >= ?"), "{sql}");
+    }
+
+    // ---------- ⑤ 辅助账维度白名单（列名要拼进 SQL，只能认 4 个常量） ----------
+
+    /// 大小写 / 首尾空白都认，且回传规范化的枚举值与列名。
+    #[test]
+    fn aux_column_accepts_any_case_and_trims() {
+        for (input, column) in [
+            ("MATERIAL", "aux_material_id"),
+            ("material", "aux_material_id"),
+            ("  Material  ", "aux_material_id"),
+            ("WAREHOUSE", "aux_warehouse_id"),
+            ("dept", "aux_dept_id"),
+            ("SUPPLIER", "aux_supplier_id"),
+        ] {
+            let (dimension, column_actual) = aux_column(Some(input)).expect("白名单内的维度");
+            assert_eq!(column_actual, column, "「{input}」必须映射到 {column}");
+            assert_eq!(
+                dimension,
+                column
+                    .trim_start_matches("aux_")
+                    .trim_end_matches("_id")
+                    .to_ascii_uppercase(),
+                "规范化后的维度值要与列名一致"
+            );
+        }
+    }
+
+    /// 缺参 / 空白 / 未知维度一律 400，并在报文里列出 4 个合法值（白名单无注入面）。
+    #[test]
+    fn aux_column_rejects_blank_and_unknown_dimension() {
+        for bad in [None, Some(""), Some("   ")] {
+            let error = aux_column(bad).expect_err("缺 aux_type 必须 400");
+            assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
+            assert!(error.msg.contains("MATERIAL"), "{}", error.msg);
+        }
+        for bad in ["CUSTOMER", "material_id", "' OR 1=1 --"] {
+            let error = aux_column(Some(bad)).expect_err("白名单外必须 400");
+            assert_eq!((error.status, error.code), (400, error_code::PARAM_INVALID));
+            // 报文回显的是**规范化后**（大写）的值：`material_id` → `MATERIAL_ID`。
+            assert!(
+                error.msg.contains(&bad.to_ascii_uppercase()),
+                "报文要回显收到的值（大写归一后）：{}",
+                error.msg
+            );
+        }
+    }
+
+    /// 辅助项名称取数表逐维度固定；未知维度兜底到供应商（调用前已被白名单拦过）。
+    #[test]
+    fn aux_name_source_maps_each_dimension() {
+        assert_eq!(
+            aux_name_source(AUX_MATERIAL),
+            ("biz_material", "material_name")
+        );
+        assert_eq!(
+            aux_name_source(AUX_WAREHOUSE),
+            ("biz_warehouse", "warehouse_name")
+        );
+        assert_eq!(aux_name_source(AUX_DEPT), ("sys_dept", "dept_name"));
+        assert_eq!(
+            aux_name_source(AUX_SUPPLIER),
+            ("biz_supplier", "supplier_name")
+        );
+        assert_eq!(
+            aux_name_source("UNKNOWN"),
+            ("biz_supplier", "supplier_name"),
+            "未知维度兜底到供应商（白名单在上游已拦）"
+        );
+    }
+
+    // ---------- ⑥ 入口参数校验（不连库就得拒） ----------
+
+    /// 期间格式不对 → 400 + `10001`，且报文回显原值；**不查库**就要拒（省一次全表扫）。
+    #[tokio::test]
+    async fn trial_balance_rejects_bad_period_before_querying() {
+        for bad in ["", "2026-1", "2026-13", "26-10", "2026-10-01"] {
+            let error = trial_balance(bad).await.expect_err("非法期间必须 400");
+            assert_eq!(error.status, 400, "「{bad}」");
+            assert_eq!(error.code, error_code::PARAM_INVALID, "「{bad}」");
+            assert!(error.msg.contains(bad), "报文要回显原值：{}", error.msg);
+        }
+    }
+
+    /// `period_range` 也按同一口径拒（它被余额表与辅助账共用）。
+    #[tokio::test]
+    async fn period_range_rejects_bad_period() {
+        let error = period_range("2026-13").await.expect_err("非法期间");
+        assert!(
+            format!("{error:?}").contains("yyyy-MM"),
+            "错误要说明格式：{error:?}"
+        );
+    }
+
+    // ---------- ⑦ 真库：起止边界 / 越界分页 / 期间表优先 ----------
+
+    /// 只给下界时，边界前一天的凭证必须被排除（**边界之后的所有月份都要保留**）；
+    /// 页内余额从区间首行起算（与 P2D1-⑤ 同口径）。
+    #[tokio::test]
+    async fn ledger_page_respects_single_sided_date_bound() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let mut q = bare_filter();
+        q.date_from = Some(date(2026, 10, 6));
+        let (rows, total) = ledger_page(&q).await.expect("科目 A 流水");
+        let nos: Vec<_> = rows.iter().map(|row| row.voucher_no.as_str()).collect();
+        assert_eq!(
+            nos,
+            vec!["P2D1-0003", "P2D1-0005", "P2D1-0006"],
+            "只给下界时 10-05 的 0002 要排除，10 月之后（11-03 的 0006）必须保留"
+        );
+        assert_eq!(total, 3, "total 必须与过滤后行数一致");
+        assert_eq!(
+            rows[0].running_balance,
+            Decimal::from(30),
+            "区间首行余额 = 本行净额（不含区间外期初）"
+        );
+        assert_eq!(rows[1].running_balance, Decimal::from(-20), "30 − 50");
+        assert_eq!(rows[2].running_balance, Decimal::from(-13), "−20 + 7");
+        println!("[P2-3A·总账] 单边下界过滤 + 页内余额起算 ✓");
+    }
+
+    /// 分页越界：`rows` 为空但 `total` 仍要给出全量行数（前端靠它画页码）。
+    #[tokio::test]
+    async fn ledger_page_beyond_last_page_is_empty_but_keeps_total() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let mut q = bare_filter();
+        q.page = 99;
+        q.page_size = 2;
+        let (rows, total) = ledger_page(&q).await.expect("越界分页");
+        assert!(rows.is_empty(), "第 99 页必须没有行");
+        assert_eq!(total, 5, "total 仍是科目 A 的 5 行 POSTED");
+        println!("[P2-3A·总账] 越界分页 rows=0 / total=5 ✓");
+    }
+
+    /// `period_range` 优先取 `biz_accounting_period` 的行，缺行时按自然月推导（两种都对）。
+    #[tokio::test]
+    async fn period_range_prefers_accounting_period_row() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let row = db()
+            .query_first_sql(
+                "SELECT start_date, end_date FROM biz_accounting_period \
+                 WHERE period_code = '2026-10' AND status <> 'NOT_OPENED'"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .expect("查期间行");
+        let (start, end) = period_range("2026-10").await.expect("2026-10 期间");
+        match row {
+            Some(row) => {
+                let row_start: NaiveDate = row.get_typed("start_date").expect("start_date");
+                let row_end: NaiveDate = row.get_typed("end_date").expect("end_date");
+                assert_eq!(
+                    (start, end),
+                    (row_start, row_end),
+                    "有期间行时必须用行上的起止"
+                );
+            }
+            None => {
+                assert_eq!(
+                    (start, end),
+                    (date(2026, 10, 1), date(2026, 10, 31)),
+                    "缺行按自然月"
+                );
+            }
+        }
+        // 未开账的月份也要给出可用区间（不能让报表直接 500）：区间至少要覆盖 11-03 那张凭证。
+        let (nov_start, nov_end) = period_range("2026-11").await.expect("2026-11 期间");
+        assert!(
+            nov_start >= date(2026, 11, 1) && nov_start <= date(2026, 11, 3),
+            "起始日必须落在 11 月初：{nov_start}"
+        );
+        assert!(
+            nov_start <= date(2026, 11, 3) && nov_end >= date(2026, 11, 3),
+            "11 月区间必须覆盖夹具里 2026-11-03 的凭证：{nov_start}~{nov_end}"
+        );
+        println!("[P2-3A·总账] period_range 期间行优先 / 自然月兜底 ✓");
+    }
+}
