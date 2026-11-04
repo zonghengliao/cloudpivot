@@ -1,0 +1,439 @@
+{
+  "generated_at": "2026-11-04T16:25:56+08:00",
+  "dry_run": false,
+  "database": {
+    "host": "127.0.0.1",
+    "port": "5432",
+    "name": "cloudpivot",
+    "user": "cloudpivot"
+  },
+  "capability": {
+    "has_contract_table": true,
+    "has_po_contract_id": true,
+    "has_po_purchase_type": true,
+    "has_party_change_ledger": false,
+    "contract_checks_ready": true,
+    "has_drift_table": false
+  },
+  "summary": {
+    "blocker": 1,
+    "warn": 47,
+    "info": 32,
+    "checks_total": 22,
+    "checks_checked": 22,
+    "checks_skipped": 0,
+    "checks_failed": 0,
+    "checks_passed": 19,
+    "exit_code": 1
+  },
+  "checks": [
+    {
+      "id": "DI-01",
+      "name": "采购单供应商快照 ≠ 合同乙方（三态）",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-02",
+      "name": "采购单引用的合同已软删",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-03",
+      "name": "采购单 contract_id 悬空",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-04",
+      "name": "CONTRACT 采购单缺 contract_id",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-05",
+      "name": "SPOT 采购单缺 supplier_id",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-13",
+      "name": "同一合同下快照互斥（多个不同供应商）",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-15",
+      "name": "合同已终止/已完成但仍有在途采购单",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-06",
+      "name": "入库单供应商 ≠ 来源采购单供应商",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-07",
+      "name": "入库单的来源采购单已软删",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-08",
+      "name": "入库单来源采购单悬空",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-09",
+      "name": "采购入库（PURCHASE）缺 supplier_id",
+      "group": "实物链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-16",
+      "name": "已过账收货单的来源采购单已不可收",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-10",
+      "name": "应付单供应商 ≠ 来源入库单供应商",
+      "group": "资金链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-11",
+      "name": "应付来源入库单悬空/已软删",
+      "group": "资金链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-12",
+      "name": "采购单供应商主档悬空/已软删",
+      "group": "主档",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-14",
+      "name": "结构护栏自检（约束/部分唯一索引缺失）",
+      "group": "护栏",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-17",
+      "name": "凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空）",
+      "group": "多态引用",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-18",
+      "name": "库存流水单据悬空（doc_id 指向的单据已软删/不存在）",
+      "group": "多态引用",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 2,
+      "rows": [
+        {
+          "issue_code": "DI-18",
+          "entity_type": "INVENTORY_TXN",
+          "entity_id": "01a19108-ee53-73c6-bdaa-0109614ea963",
+          "entity_no": "SN-20261031-000011",
+          "field_name": "doc_id",
+          "snapshot_value": "SERIAL_BATCH → biz_material_serial",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_material_serial.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "ERROR",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-18",
+          "entity_type": "INVENTORY_TXN",
+          "entity_id": "01a1f140-0000-4000-8000-000000000001",
+          "entity_no": "DATAFIX-20261101-P14",
+          "field_name": "doc_id",
+          "snapshot_value": "ADJUST → (无实体表)",
+          "truth_value": "NO_TARGET_TABLE",
+          "truth_source": "README:doc_type=ADJUST",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        }
+      ],
+      "by_severity": {
+        "ERROR": 1,
+        "INFO": 1
+      },
+      "note": ""
+    },
+    {
+      "id": "DI-19",
+      "name": "流程实例业务单据悬空/缺 biz_id",
+      "group": "多态引用",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 47,
+      "rows": [
+        {
+          "issue_code": "DI-19",
+          "entity_type": "FLOW_INSTANCE",
+          "entity_id": "01a18cae-80e8-768e-8fd8-43058240490f",
+          "entity_no": "FLW-20261030-116EC757",
+          "field_name": "biz_id",
+          "snapshot_value": "TASK_ACCEPT → biz_task",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_task.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-19",
+          "entity_type": "FLOW_INSTANCE",
+          "entity_id": "01a18cd9-af9e-72df-bba6-37e177fc315f",
+          "entity_no": "FLW-20261030-1B082876",
+          "field_name": "biz_id",
+          "snapshot_value": "TASK_ACCEPT → biz_task",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_task.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-19",
+          "entity_type": "FLOW_INSTANCE",
+          "entity_id": "01a18a9d-88f6-7039-80c8-2b8ede671589",
+          "entity_no": "FLW-20261030-1BAE2858",
+          "field_name": "biz_id",
+          "snapshot_value": "TASK_ACCEPT → biz_task",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_task.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-19",
+          "entity_type": "FLOW_INSTANCE",
+          "entity_id": "01a18cd9-ae9c-777a-b058-e33dfa7f16f0",
+          "entity_no": "FLW-20261030-1F7A19D8",
+          "field_name": "biz_id",
+          "snapshot_value": "TASK_ACCEPT → biz_task",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_task.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-19",
+          "entity_type": "FLOW_INSTANCE",
+          "entity_id": "01a18cae-c4c0-71c3-8c7c-2874aa14d5a4",
+          "entity_no": "FLW-20261030-23C3AECC",
+          "field_name": "biz_id",
+          "snapshot_value": "TASK_ACCEPT → biz_task",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_task.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        }
+      ],
+      "by_severity": {
+        "WARN": 47
+      },
+      "note": ""
+    },
+    {
+      "id": "DI-20",
+      "name": "状态日志实体悬空（entity_type 指向的实体已软删/不存在）",
+      "group": "多态引用",
+      "level": "INFO",
+      "status": "CHECKED",
+      "hit": 31,
+      "rows": [
+        {
+          "issue_code": "DI-20",
+          "entity_type": "STATUS_LOG",
+          "entity_id": "01a1a1c5-c5cb-7462-9a8c-a50369f1493f",
+          "entity_no": "HT-20261103-000006",
+          "field_name": "entity_id",
+          "snapshot_value": "CONTRACT → biz_contract",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_contract.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-20",
+          "entity_type": "STATUS_LOG",
+          "entity_id": "01a1a1c6-4513-7199-9ea7-7c85b3362d92",
+          "entity_no": "HT-20261103-000007",
+          "field_name": "entity_id",
+          "snapshot_value": "CONTRACT → biz_contract",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_contract.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-20",
+          "entity_type": "STATUS_LOG",
+          "entity_id": "01a1a1c6-452a-745e-b537-273d53d5bbea",
+          "entity_no": "HT-20261103-000007",
+          "field_name": "entity_id",
+          "snapshot_value": "CONTRACT → biz_contract",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_contract.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-20",
+          "entity_type": "STATUS_LOG",
+          "entity_id": "01a1a1c6-5e9d-7236-81a0-18854425d697",
+          "entity_no": "HT-20261103-000008",
+          "field_name": "entity_id",
+          "snapshot_value": "CONTRACT → biz_contract",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_contract.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-20",
+          "entity_type": "STATUS_LOG",
+          "entity_id": "01a1a1c6-5eba-77a2-a2f2-26da457b0919",
+          "entity_no": "HT-20261103-000008",
+          "field_name": "entity_id",
+          "snapshot_value": "CONTRACT → biz_contract",
+          "truth_value": "SOFT_DELETED",
+          "truth_source": "biz_contract.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "INFO",
+          "affected_count": 1
+        }
+      ],
+      "by_severity": {
+        "INFO": 31
+      },
+      "note": ""
+    },
+    {
+      "id": "DI-21",
+      "name": "序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）",
+      "group": "多态引用",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-22",
+      "name": "多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）",
+      "group": "多态引用",
+      "level": "INFO",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    }
+  ]
+}

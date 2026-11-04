@@ -146,6 +146,31 @@ CHECKS = [
     dict(id="DI-14", group="护栏", view="di.c_di14", level="BLOCKER", contract=False,
          name="结构护栏自检（约束/部分唯一索引缺失）",
          meaning="CHECK 约束或去重索引被 drop = 缺陷先落库再被发现、且修复后再发生写不进来（漏报）"),
+
+    # ── 多态引用（ARCH-3 §5 DC-08 / 卡 P2-6）────────────────────────────────
+    # 「类型列 + id 列」的引用无法用外键表达，单据软删后引用方仍挂着，没人发现。
+    # 分级口径：账务证据链断 = BLOCKER；审批/追溯体验坏 = WARN；只增不改的历史 = INFO。
+    dict(id="DI-17", group="多态引用", view="di.c_di17", level="BLOCKER", contract=False,
+         name="凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空）",
+         meaning="凭证是审计证据链的终点：悬空 ⇒ 按来源筛凭证出现点不进去的幽灵行(P0)；缺 id ⇒ 只剩 source_no 可人工追(P1)"),
+    dict(id="DI-18", group="多态引用", view="di.c_di18", level="BLOCKER", contract=False,
+         name="库存流水单据悬空（doc_id 指向的单据已软删/不存在）",
+         meaning="流水是「账动了多少」的唯一证据，必须能回跳到造成它的单据；无源 ⇒ 账实不符时说不出谁动的(P0)。"
+                 "doc_type 本来没有实体表（ADJUST/OPENING）却填了 doc_id ⇒ 手工修数痕迹，INFO"),
+    dict(id="DI-19", group="多态引用", view="di.c_di19", level="WARN", contract=False,
+         name="流程实例业务单据悬空/缺 biz_id",
+         meaning="审批挂在不存在的单据上：账不受影响，但审批中心点进去 404、TASK_OWNER 等变量解析不到(P1)"),
+    dict(id="DI-20", group="多态引用", view="di.c_di20", level="INFO", contract=False,
+         name="状态日志实体悬空（entity_type 指向的实体已软删/不存在）",
+         meaning="日志是只增不改的历史台账：实体被删是正常生命周期，日志必须保留「谁在什么时候改了什么」⇒ 只记录不告警"),
+    dict(id="DI-21", group="多态引用", view="di.c_di21", level="WARN", contract=False,
+         name="序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）",
+         meaning="序列号的影响在「一物一码」的件数（C5 已守），来源单据缺失只影响「这件货哪张单进来的」追责 ⇒ INFO；"
+                 "无表映射却填了 id ⇒ WARN（映射未定义，需人工确认指向）"),
+    dict(id="DI-22", group="多态引用", view="di.c_di22", level="INFO", contract=False,
+         name="多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）",
+         meaning="本组巡检的可信度护栏：未登记的类型 ⇒ 它的悬空不会被 DI-17…DI-21 查到（静默漏报），"
+                 "典型命中是客户端自建流程 biz_type / E2E 夹具（按设计不参与自检）"),
 ]
 
 GROUPS = []
