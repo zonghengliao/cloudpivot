@@ -1,0 +1,136 @@
+{
+  "chromium": {
+    "native": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 108
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.82
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "vue-flow": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 97
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.74
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "logicflow": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 97
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.82
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "legacy": {
+      "layoutRects": [
+        [
+          129,
+          389
+        ],
+        [
+          309,
+          389
+        ],
+        [
+          529,
+          269
+        ],
+        [
+          529,
+          509
+        ],
+        [
+          749,
+          509
+        ],
+        [
+          969,
+          389
+        ]
+      ],
+      "distinct": 6
+    }
+  },
+  "webkit": {
+    "native": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 108
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.82
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "vue-flow": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 97
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.74
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "logicflow": {
+      "drag": {
+        "nodesMoved": 1,
+        "maxMove": 97
+      },
+      "zoom": {
+        "before": 1,
+        "after": 1.82
+      },
+      "pan": -90,
+      "errors": []
+    },
+    "legacy": {
+      "layoutRects": [
+        [
+          129,
+          389
+        ],
+        [
+          309,
+          389
+        ],
+        [
+          529,
+          269
+        ],
+        [
+          529,
+          509
+        ],
+        [
+          749,
+          509
+        ],
+        [
+          969,
+          389
+        ]
+      ],
+      "distinct": 6
+    }
+  }
+}

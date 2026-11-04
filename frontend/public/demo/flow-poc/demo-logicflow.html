@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>③ LogicFlow · 云枢流程画布方案对比</title>
+<link rel="stylesheet" href="./shared-style.css" />
+<link rel="stylesheet" href="./vendor/logicflow.css" />
+<style>
+  .lf-graph { background: var(--cp-bg); }
+  .poc-lf { position: absolute; inset: 0; }
+  /* 关掉 LogicFlow 默认给节点/边叠的描边高亮，视觉以我们自己的形状为准 */
+  .lf-node-selected .lf-node-content { outline: none; }
+  .lf-edge-selected path { filter: none; }
+</style>
+</head>
+<body>
+<div class="poc-page">
+  <header class="poc-head">
+    <div class="poc-head__main">
+      <div class="poc-head__title">
+        <span class="poc-head__badge" style="background:#7B6CC4">方案 ③</span>
+        LogicFlow
+      </div>
+      <div class="poc-head__flow" id="flowName"></div>
+    </div>
+    <div class="poc-metrics">
+      <div class="poc-metric">
+        <div class="poc-metric__k">技术栈</div>
+        <div class="poc-metric__v">@logicflow/core（纯 JS）</div>
+      </div>
+      <div class="poc-metric">
+        <div class="poc-metric__k">节点渲染</div>
+        <div class="poc-metric__v" id="mRender">纯 SVG 图形</div>
+      </div>
+      <div class="poc-metric">
+        <div class="poc-metric__k">运行体积</div>
+        <div class="poc-metric__v">387.1 KiB</div>
+      </div>
+      <div class="poc-metric">
+        <div class="poc-metric__k">第三方依赖</div>
+        <div class="poc-metric__v">1 个包（内含 preact）</div>
+      </div>
+      <div class="poc-metric">
+        <div class="poc-metric__k">Safari</div>
+        <div class="poc-metric__v is-ok" id="mSafari">待测</div>
+      </div>
+    </div>
+  </header>
+
+  <div class="poc-tools">
+    <div class="poc-zoom">
+      <button type="button" id="zoomOut" title="缩小">−</button>
+      <span class="poc-zoom__val" id="zoomVal">100%</span>
+      <button type="button" id="zoomIn" title="放大">+</button>
+      <button type="button" id="zoomFit" title="适应画布">⤢</button>
+    </div>
+    <span class="poc-hint"><b>拖拽节点</b> · <b>滚轮缩放</b> · 空白处<b>拖动平移</b></span>
+  </div>
+
+  <div class="poc-canvas is-idle" id="canvasWrap">
+    <div class="poc-lf" id="lfRoot"></div>
+    <div class="poc-note">
+      <b>唯一的纯 SVG 方案</b><br />
+      卡片是 <code>&lt;rect&gt;+&lt;text&gt;</code> 画出来的，<b>整棵树没有 foreignObject</b>，
+      所以 WebKit 的「布局对、绘制错」那类问题天然不存在。
+      代价：文字省略号、换行、<code>box-shadow</code> 都要手写 SVG 等价物。
+    </div>
+    <div class="poc-fail" id="fail">库加载失败，请刷新页面。</div>
+  </div>
+</div>
+
+<script src="./vendor/logicflow.bundle.js"></script>
+<script type="module">
+import {
+  flowData, NODE, NODE_TYPES, C, FONT_STACK, bezierPath, labelLayout, fitViewport,
+} from './shared-data.js';
+
+document.getElementById('flowName').textContent = flowData.name;
+if (new URLSearchParams(location.search).has('embed')) document.body.classList.add('is-embed');
+
+if (!window.LFKit) {
+  const el = document.getElementById('fail');
+  el.classList.add('is-on');
+  el.textContent = 'LogicFlow 运行时未加载（vendor/logicflow.bundle.js）';
+  throw new Error('LFKit missing');
+}
+const { default: LogicFlow, h, RectNode, RectNodeModel, BezierEdge, BezierEdgeModel } = window.LFKit;
+
+/* 阴影滤镜 + 箭头：都放在一个隐藏 svg 里（三个 demo 同一份定义） */
+const host = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+host.setAttribute('width', '0');
+host.setAttribute('height', '0');
+host.style.position = 'absolute';
+host.innerHTML = `<defs>
+  <marker id="poc-arrow" viewBox="0 0 10 8" refX="9" refY="4"
+          markerWidth="10" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto-start-reverse">
+    <path d="M 0 0 L 10 4 L 0 8 z" fill="${C.brandLight}"></path>
+  </marker>
+  <filter id="poc-node-shadow" x="-30%" y="-50%" width="160%" height="220%">
+    <feDropShadow dx="0" dy="2" stdDeviation="4" flood-color="${C.brand}" flood-opacity="0.08"></feDropShadow>
+  </filter>
+</defs>`;
+document.body.appendChild(host);
+
+/* ================= 自定义节点：纯 SVG 画卡片 ================= */
+class CpNodeModel extends RectNodeModel {
+  initNodeData(data) {
+    super.initNodeData(data);
+    this.width = NODE.w;
+    this.height = NODE.h;
+    this.radius = NODE.r;
+  }
+  getNodeStyle() {
+    const style = super.getNodeStyle();
+    style.fill = 'transparent';
+    style.stroke = 'none';
+    return style;
+  }
+}
+
+class CpNodeView extends RectNode {
+  getShape() {
+    const model = this.props.model;
+    const { x, y, width, height } = model;
+    const raw = model.properties.raw;
+    const meta = NODE_TYPES[raw.type];
+    const x0 = x - width / 2;
+    const y0 = y - height / 2;
+    const textX = x0 + 13 + NODE.iconSize + 8; // 13 padding + 30 icon + 8 gap
+
+    return h('g', {}, [
+      // 卡片本体（圆角 11 + 阴影用 SVG filter 等价 box-shadow）
+      h('rect', {
+        x: x0, y: y0, width, height, rx: NODE.r, ry: NODE.r,
+        fill: C.card, stroke: C.border, strokeWidth: 1,
+        filter: 'url(#poc-node-shadow)',
+      }),
+      // 左侧类型色条 3.5px
+      h('rect', { x: x0, y: y0 + 8, width: NODE.barW, height: height - 16, rx: 3, ry: 3, fill: meta.color }),
+      // 图标底块 30x30 / 圆角 9
+      h('rect', { x: x0 + 13, y: y0 + 17, width: NODE.iconSize, height: NODE.iconSize, rx: NODE.iconR, ry: NODE.iconR, fill: meta.color }),
+      h('text', {
+        x: x0 + 28, y: y0 + 32.5, 'text-anchor': 'middle', 'dominant-baseline': 'central',
+        fill: '#fff', stroke: 'none', 'font-size': 15, 'font-weight': 700, 'font-family': FONT_STACK,
+      }, meta.icon),
+      // 标题 / 副标题（HTML 里是 13px/600 与 11px/400，这里用 SVG text 等价）
+      h('text', {
+        x: textX, y: y0 + 27.5, fill: C.text, stroke: 'none', 'font-size': 13, 'font-weight': 600, 'font-family': FONT_STACK,
+      }, raw.name),
+      h('text', {
+        x: textX, y: y0 + 42.5, fill: C.textSub, stroke: 'none', 'font-size': 11, 'font-family': FONT_STACK,
+      }, meta.sub),
+    ]);
+  }
+}
+
+/* ================= 自定义连线：同一套贝塞尔 + 标签排版 ================= */
+class CpEdgeModel extends BezierEdgeModel {
+  getPath() {
+    const { startPoint: s, endPoint: e } = this;
+    return bezierPath(s.x, s.y, e.x, e.y);
+  }
+  getEdgeStyle() {
+    return { ...super.getEdgeStyle(), stroke: C.brandLight, strokeWidth: 1.5, fill: 'none' };
+  }
+  getArrowStyle() {
+    return {
+      ...super.getArrowStyle(),
+      refX: 9, refY: 4, offset: 10, verticalLength: 4,
+      stroke: C.brandLight, fill: C.brandLight,
+    };
+  }
+}
+
+class CpEdgeView extends BezierEdge {
+  /** 终点箭头形状改成和另外两个 demo 完全一样的三角形 */
+  getEndArrow() {
+    return h('path', { d: 'M0,0 L10,4 L0,8 Z', fill: C.brandLight });
+  }
+  getEdge() {
+    const model = this.props.model;
+    const kids = [
+      h('path', { d: model.path, ...model.getEdgeStyle(), ...model.arrowConfig, 'fill-rule': 'nonzero' }),
+    ];
+    const text = model.properties && model.properties.label;
+    if (text) {
+      const L = labelLayout(model.startPoint.x, model.startPoint.y, model.endPoint.x, model.endPoint.y, text);
+      kids.push(
+        h('g', { class: 'edge-label', 'pointer-events': 'none' }, [
+          h('rect', { class: 'edge-label__bg', x: L.x, y: L.y, width: L.w, height: L.h, rx: 4, stroke: C.border, fill: '#fff' }),
+          ...L.lines.map((t, i) =>
+            h('text', {
+              x: L.cx, y: L.baselineY[i], 'text-anchor': 'middle', 'font-size': 11,
+              fill: C.textSub, stroke: 'none', 'font-family': FONT_STACK,
+            }, t),
+          ),
+        ]),
+      );
+    }
+    return h('g', {}, kids);
+  }
+}
+
+/* ================= 初始化 ================= */
+const wrap = document.getElementById('canvasWrap');
+const rect = wrap.getBoundingClientRect();
+
+const lf = new LogicFlow({
+  container: document.getElementById('lfRoot'),
+  width: rect.width,
+  height: rect.height,
+  background: { background: C.bg },
+  grid: { size: 18, visible: true, type: 'dot', config: { color: C.dot, thickness: 2.3 } },
+  keyboard: { enabled: false },
+  edgeTextMode: 'TEXT',
+  autoExpand: false,
+  stopMoveGraph: false,
+});
+lf.setZoomMiniSize(0.1);
+lf.register({ type: 'cp-node', view: CpNodeView, model: CpNodeModel });
+lf.register({ type: 'cp-edge', view: CpEdgeView, model: CpEdgeModel });
+
+lf.render({
+  nodes: flowData.nodes.map((n) => ({
+    id: n.id,
+    type: 'cp-node',
+    x: n.x + NODE.w / 2,      // LogicFlow 用中心点坐标
+    y: n.y + NODE.h / 2,
+    properties: { raw: n },
+  })),
+  edges: flowData.edges.map((e, i) => ({
+    id: `edge-${i}`,
+    type: 'cp-edge',
+    sourceNodeId: e.from,
+    targetNodeId: e.to,
+    properties: { label: e.label },
+  })),
+});
+
+/* ---------- 视口：与另外两个 demo 用同一套 fit 公式 ---------- */
+function setView(x, y, s) {
+  const tm = lf.graphModel.transformModel;
+  tm.zoom(Math.min(tm.MAX_SCALE_SIZE, Math.max(tm.MINI_SCALE_SIZE, s)));
+  tm.translate(x - tm.TRANSLATE_X, y - tm.TRANSLATE_Y);
+  document.getElementById('zoomVal').textContent = `${Math.round(tm.SCALE_X * 100)}%`;
+}
+
+function fit() {
+  const r = wrap.getBoundingClientRect();
+  const v = fitViewport(r.width, r.height);
+  setView(v.x, v.y, v.s);
+}
+
+/* 光标处缩放：缩小放大都保持鼠标下的那个点不动 */
+function zoomAt(px, py, k) {
+  const tm = lf.graphModel.transformModel;
+  const s = Math.min(tm.MAX_SCALE_SIZE, Math.max(tm.MINI_SCALE_SIZE, tm.SCALE_X * k));
+  const ratio = s / tm.SCALE_X;
+  setView(px - (px - tm.TRANSLATE_X) * ratio, py - (py - tm.TRANSLATE_Y) * ratio, s);
+}
+
+/* ⚠️ @logicflow/core 的 wheel 是「滚动画布」不是缩放（官方 Zoom 要靠 @logicflow/extension 的
+   MouseWheelZoom 插件）。POC 只用 core，这里按标准做法自己接 wheel → zoom，
+   否则三个 demo 的「滚轮缩放」这一项没法公平对比。 */
+wrap.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  e.stopPropagation();
+  const r = wrap.getBoundingClientRect();
+  zoomAt(e.clientX - r.left, e.clientY - r.top, Math.exp(-e.deltaY * 0.0015));
+}, { capture: true, passive: false });
+
+const zoomBy = (k) => {
+  const tm = lf.graphModel.transformModel;
+  const s = Math.min(tm.MAX_SCALE_SIZE, Math.max(tm.MINI_SCALE_SIZE, tm.SCALE_X * k));
+  const r = wrap.getBoundingClientRect();
+  const cx = r.width / 2;
+  const cy = r.height / 2;
+  const ratio = s / tm.SCALE_X;
+  setView(cx - (cx - tm.TRANSLATE_X) * ratio, cy - (cy - tm.TRANSLATE_Y) * ratio, s);
+};
+document.getElementById('zoomIn').onclick = () => zoomBy(1.2);
+document.getElementById('zoomOut').onclick = () => zoomBy(1 / 1.2);
+document.getElementById('zoomFit').onclick = fit;
+
+lf.on('graph:transform', () => {
+  const tm = lf.graphModel.transformModel;
+  document.getElementById('zoomVal').textContent = `${Math.round(tm.SCALE_X * 100)}%`;
+});
+
+fit();
+new ResizeObserver(() => {
+  const r = wrap.getBoundingClientRect();
+  lf.resize(r.width, r.height);
+  fit();
+}).observe(wrap);
+
+/* ---------- 诊断口 ---------- */
+window.__poc = {
+  engine: 'logicflow',
+  ready: true,
+  edges: () => document.querySelectorAll('.lf-edge').length,
+  nodes: () => {
+    // LogicFlow 的 .lf-node 不带 data-id，且拖拽会重排 DOM → 用模型坐标换算屏幕坐标，稳定可复现
+    // （+ canvas 容器的页面偏移，跟另外两个 demo 的 getBoundingClientRect 口径一致）
+    const tm = lf.graphModel.transformModel;
+    const cr = wrap.getBoundingClientRect();
+    return lf.getGraphData().nodes.map((n) => ({
+      id: n.id,
+      x: Math.round((n.x - NODE.w / 2) * tm.SCALE_X + tm.TRANSLATE_X + cr.left),
+      y: Math.round((n.y - NODE.h / 2) * tm.SCALE_Y + tm.TRANSLATE_Y + cr.top),
+      w: NODE.w,
+      h: NODE.h,
+    }));
+  },
+  zoom: () => lf.graphModel.transformModel.SCALE_X,
+  fit,
+  usesForeignObject: () => !!document.querySelector('.lf-graph foreignObject'),
+  lf,
+};
+</script>
+</body>
+</html>

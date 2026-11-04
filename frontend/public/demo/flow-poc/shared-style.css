@@ -1,0 +1,230 @@
+/* ============================================================
+   POC-FLOW · 三个 demo 共用的视觉规格
+   前半段是卡片给定的「云枢统一视觉规格」，一个值都不许改；
+   后半段是 demo 页外壳（信息栏 / 工具栏 / 画布容器）的样式。
+   ============================================================ */
+
+/* 云枢品牌色 */
+:root {
+  --cp-brand:        #51697C;   /* 深海蓝（主色） */
+  --cp-brand-light:  #AAB7C2;   /* 霜月白灰 */
+  --cp-bg:           #F2F2EE;   /* 漂木棕底（页面背景） */
+  --cp-card:         #FFFFFF;
+  --cp-border:       #E0E4E8;
+  --cp-text:         #1A1A1A;
+  --cp-text-sub:     #6B7785;
+  --cp-shadow-1:     0 2px 8px rgba(81, 105, 124, 0.08);
+  --cp-shadow-2:     0 4px 16px rgba(81, 105, 124, 0.14);
+
+  /* 节点类型色（与现有画布一致） */
+  --node-start:      #2BA471;
+  --node-condition:  #E8A33D;
+  --node-approval:   #51697C;
+  --node-countersign:#7B6CC4;
+  --node-end:        #8A8F99;
+
+  --cp-font: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+/* 节点卡片（与现有 FlowCanvas 完全一致的规格） */
+.node-card {
+  width: 150px;
+  height: 64px;
+  box-sizing: border-box;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 13px;
+  background: var(--cp-card);
+  border: 1px solid var(--cp-border);
+  border-radius: 11px;          /* ← 关键：11px 圆角 */
+  box-shadow: var(--cp-shadow-1);
+  overflow: hidden;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
+  font-family: var(--cp-font);
+}
+.node-card:hover {
+  box-shadow: var(--cp-shadow-2);
+  border-color: var(--cp-brand-light);
+}
+
+/* 左侧类型色条 */
+.node-card__bar {
+  position: absolute;
+  left: 0; top: 8px; bottom: 8px;
+  width: 3.5px;
+  background: var(--node-color);
+  border-radius: 3px;
+}
+
+/* 图标底块：30x30 圆角 9px */
+.node-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px; height: 30px;
+  font-size: 15px; font-weight: 700; line-height: 1;
+  color: #fff;
+  background: var(--node-color);
+  border-radius: 9px;
+}
+
+.node-card__text { display: flex; flex-direction: column; min-width: 0; flex: 1 1 auto; }
+.node-card__title { font-size: 13px; font-weight: 600; color: var(--cp-text);
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.node-card__sub   { font-size: 11px; color: var(--cp-text-sub);
+                    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* 连线 */
+.flow-edge { fill: none; stroke: var(--cp-brand-light); stroke-width: 1.5; }
+.flow-edge--taken { stroke: var(--cp-brand); stroke-width: 2; }
+/* 三个库的 path 都挂这个类（Vue Flow 的边容器是它自己的 <g>，样式没法从父级继承） */
+.flow-edge__line { fill: none; stroke: var(--cp-brand-light); stroke-width: 1.5; }
+
+/* 条件标签：白底圆角小标签 */
+.edge-label {
+  font-size: 11px;
+  font-family: var(--cp-font);
+  fill: var(--cp-text-sub);
+}
+.edge-label__bg {
+  fill: #fff;
+  stroke: var(--cp-border);
+  rx: 3;
+}
+
+/* ============================================================
+   以下是 demo 页外壳（信息栏 / 工具栏 / 画布），三个 demo 与入口页共用
+   ============================================================ */
+
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  background: var(--cp-bg);
+  color: var(--cp-text);
+  font-family: var(--cp-font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.poc-page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+/* ---------- 顶部信息栏 ---------- */
+.poc-head {
+  flex: none;
+  display: flex; align-items: center; gap: 20px;
+  padding: 13px 20px;
+  background: var(--cp-card);
+  border-bottom: 1px solid var(--cp-border);
+  box-shadow: 0 1px 0 rgba(81, 105, 124, 0.04);
+}
+.poc-head__main { min-width: 0; flex: 1 1 auto; }
+.poc-head__title {
+  display: flex; align-items: center; gap: 9px;
+  font-size: 15px; font-weight: 650; letter-spacing: 0.2px;
+  color: var(--cp-text);
+}
+.poc-head__badge {
+  flex: none;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.6px;
+  line-height: 1; padding: 4px 7px; border-radius: 5px;
+  color: #fff; background: var(--cp-brand);
+}
+.poc-head__flow { margin-top: 5px; font-size: 12px; color: var(--cp-text-sub); }
+
+.poc-metrics { display: flex; align-items: stretch; gap: 0; flex: none; }
+.poc-metric { padding: 0 14px; border-left: 1px solid var(--cp-border); min-width: 92px; }
+.poc-metric:first-child { border-left: none; }
+.poc-metric__k {
+  font-size: 10px; letter-spacing: 0.4px; text-transform: uppercase;
+  color: var(--cp-text-sub); opacity: 0.85; white-space: nowrap;
+}
+.poc-metric__v { margin-top: 3px; font-size: 12.5px; font-weight: 620; color: var(--cp-text); white-space: nowrap; }
+.poc-metric__v.is-warn { color: #B4761E; }
+.poc-metric__v.is-ok { color: #2BA471; }
+
+/* ---------- 工具栏 ---------- */
+.poc-tools {
+  flex: none;
+  display: flex; align-items: center; gap: 10px;
+  padding: 7px 16px;
+  background: #FAFAF8;
+  border-bottom: 1px solid var(--cp-border);
+}
+.poc-zoom {
+  display: flex; align-items: center;
+  background: var(--cp-card);
+  border: 1px solid var(--cp-border);
+  border-radius: 8px; overflow: hidden;
+  box-shadow: var(--cp-shadow-1);
+}
+.poc-zoom button {
+  width: 28px; height: 26px; border: 0; background: transparent; cursor: pointer;
+  color: var(--cp-brand); font-size: 15px; line-height: 1;
+  display: grid; place-items: center;
+  transition: background 0.15s ease;
+}
+.poc-zoom button:hover { background: #F0F3F5; }
+.poc-zoom button:active { background: #E6EBEF; }
+.poc-zoom__val {
+  min-width: 46px; text-align: center; font-size: 11.5px; font-weight: 600;
+  color: var(--cp-text-sub); font-variant-numeric: tabular-nums;
+  border-left: 1px solid var(--cp-border); border-right: 1px solid var(--cp-border);
+  line-height: 26px;
+}
+.poc-hint { font-size: 11.5px; color: var(--cp-text-sub); }
+.poc-hint b { font-weight: 600; color: var(--cp-brand); }
+.poc-switch {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; color: var(--cp-text-sub); cursor: pointer;
+  padding: 4px 9px; border-radius: 7px; border: 1px solid var(--cp-border);
+  background: var(--cp-card); margin-left: auto;
+}
+.poc-switch input { margin: 0; accent-color: var(--cp-brand); cursor: pointer; }
+.poc-switch--on { border-color: var(--cp-brand-light); color: var(--cp-brand); background: #F4F7F9; }
+
+/* ---------- 画布 ---------- */
+.poc-canvas {
+  position: relative; flex: 1 1 auto; min-height: 0;
+  overflow: hidden;
+  background: var(--cp-bg);
+  touch-action: none;
+  user-select: none;
+}
+.poc-canvas.is-panning { cursor: grabbing; }
+.poc-canvas.is-idle { cursor: grab; }
+.poc-svg { position: absolute; left: 0; top: 0; width: 100%; height: 100%; overflow: visible; display: block; }
+
+/* 节点卡片在 SVG 里靠 foreignObject 承载（native / vue-flow 同款） */
+.flow-node { cursor: grab; }
+.flow-node.is-dragging { cursor: grabbing; }
+
+/* 侧边说明卡（画布右下角，解释本方案的坑） */
+.poc-note {
+  position: absolute; right: 14px; bottom: 14px; max-width: 268px;
+  padding: 10px 12px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--cp-border);
+  box-shadow: var(--cp-shadow-2);
+  backdrop-filter: blur(6px);
+  font-size: 11.5px; line-height: 1.55; color: var(--cp-text-sub);
+}
+.poc-note b { color: var(--cp-text); font-weight: 600; }
+.poc-note code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px; background: #F1F4F6; padding: 1px 4px; border-radius: 4px; color: var(--cp-brand);
+}
+
+/* ---------- 失败兜底（CDN/脚本加载不到时不留白屏） ---------- */
+.poc-fail {
+  position: absolute; inset: 0; display: none; place-items: center;
+  padding: 24px; text-align: center; font-size: 13px; color: #B4423A;
+  background: #FFF8F7;
+}
+.poc-fail.is-on { display: grid; }
+
+/* ---------- 入口页 iframe 内嵌模式（?embed=1）：自带信息栏/工具栏/说明卡都藏掉 ---------- */
+body.is-embed .poc-head,
+body.is-embed .poc-tools,
+body.is-embed .poc-note { display: none; }

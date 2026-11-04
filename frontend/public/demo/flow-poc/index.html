@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>云枢流程画布方案对比 · 自研 / Vue Flow / LogicFlow</title>
+<link rel="stylesheet" href="./shared-style.css" />
+<style>
+  body { background: var(--cp-bg); }
+  .idx { max-width: 1440px; margin: 0 auto; padding: 26px 26px 60px; }
+  .card {
+    background: var(--cp-card); border: 1px solid var(--cp-border); border-radius: 14px;
+    box-shadow: var(--cp-shadow-1);
+  }
+
+  /* ---------- 页头 ---------- */
+  .hero { display: flex; align-items: flex-start; gap: 18px; margin-bottom: 18px; }
+  .hero__mark {
+    flex: none; width: 44px; height: 44px; border-radius: 12px;
+    background: var(--cp-brand); color: #fff;
+    display: grid; place-items: center; font-size: 19px; font-weight: 700;
+    box-shadow: 0 6px 16px rgba(81, 105, 124, 0.28);
+  }
+  .hero__text { flex: 1 1 auto; min-width: 0; }
+  .hero h1 { margin: 0; font-size: 21px; font-weight: 700; letter-spacing: 0.2px; }
+  .hero p { margin: 6px 0 0; font-size: 12.5px; line-height: 1.6; color: var(--cp-text-sub); }
+  .hero__meta { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 10px; }
+  .tag {
+    font-size: 11px; line-height: 1; padding: 5px 8px; border-radius: 6px;
+    background: #F3F6F8; color: var(--cp-brand); border: 1px solid #E4EAEE;
+    white-space: nowrap;
+  }
+  .tag--ok { background: #EEF8F3; color: #1F8558; border-color: #CFEBDD; }
+  .tag--warn { background: #FFF7E9; color: #A8710F; border-color: #F3E1BC; }
+
+  /* ---------- 切换条 ---------- */
+  .tabs {
+    display: inline-flex; align-items: center; gap: 4px; padding: 4px;
+    background: #EBEDEA; border-radius: 11px; margin-bottom: 14px;
+  }
+  .tabs button {
+    appearance: none; border: 0; background: transparent; cursor: pointer;
+    font: inherit; font-size: 12.5px; font-weight: 600; color: var(--cp-text-sub);
+    padding: 7px 14px; border-radius: 8px; transition: all 0.16s ease; white-space: nowrap;
+  }
+  .tabs button:hover { color: var(--cp-brand); }
+  .tabs button.is-on {
+    background: var(--cp-card); color: var(--cp-brand);
+    box-shadow: 0 1px 3px rgba(81, 105, 124, 0.16);
+  }
+  .tabs__sep { width: 1px; height: 18px; background: #D8DCD9; margin: 0 4px; }
+  .hint-line { font-size: 11.5px; color: var(--cp-text-sub); margin: -4px 0 12px 2px; }
+
+  /* ---------- 画布舞台 ---------- */
+  .stage { overflow: hidden; padding: 0; }
+  .stage__grid { display: grid; gap: 1px; background: var(--cp-border); }
+  .stage__grid.is-parallel { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .stage__grid.is-single { grid-template-columns: minmax(0, 1fr); }
+  .pane { display: flex; flex-direction: column; background: var(--cp-bg); min-width: 0; }
+  .pane__head {
+    display: flex; align-items: center; gap: 8px;
+    padding: 9px 12px; background: var(--cp-card); border-bottom: 1px solid var(--cp-border);
+  }
+  .pane__dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+  .pane__name { font-size: 12.5px; font-weight: 650; }
+  .pane__render {
+    font-size: 10.5px; color: var(--cp-text-sub); padding: 3px 6px; border-radius: 5px;
+    background: #F3F5F6; white-space: nowrap;
+  }
+  .pane__size { margin-left: auto; font-size: 10.5px; color: var(--cp-text-sub); font-variant-numeric: tabular-nums; }
+  .pane__open {
+    font-size: 10.5px; color: var(--cp-brand); text-decoration: none; padding: 3px 7px;
+    border: 1px solid var(--cp-border); border-radius: 6px; white-space: nowrap;
+  }
+  .pane__open:hover { background: #F4F7F9; border-color: var(--cp-brand-light); }
+  .pane iframe { display: block; width: 100%; border: 0; background: var(--cp-bg); }
+  .stage.is-parallel .pane iframe { height: 520px; }
+  .stage.is-single .pane iframe { height: 620px; }
+
+  /* ---------- 对比表 ---------- */
+  .section-title {
+    display: flex; align-items: baseline; gap: 10px; margin: 30px 0 12px;
+  }
+  .section-title h2 { margin: 0; font-size: 16px; font-weight: 700; }
+  .section-title span { font-size: 12px; color: var(--cp-text-sub); }
+
+  .table-wrap { overflow: hidden; }
+  table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  thead th {
+    position: sticky; top: 0; z-index: 1;
+    background: #F7F8F6; color: var(--cp-text-sub);
+    font-size: 11px; font-weight: 650; letter-spacing: 0.3px;
+    text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--cp-border);
+  }
+  thead th.is-native { color: var(--cp-brand); }
+  tbody td { padding: 11px 14px; border-bottom: 1px solid #F0F2F0; vertical-align: top; line-height: 1.55; }
+  tbody tr:last-child td { border-bottom: 0; }
+  tbody tr:hover td { background: #FCFDFC; }
+  tbody td:first-child { color: var(--cp-text-sub); font-weight: 600; width: 132px; }
+  tbody tr.key td { background: #FBFCFB; }
+  tbody tr.key td:first-child { box-shadow: inset 3px 0 0 var(--cp-brand-light); }
+  .yes { color: #1F8558; font-weight: 600; }
+  .no { color: #B4423A; font-weight: 600; }
+  .warn { color: #A8710F; font-weight: 600; }
+  .num { font-variant-numeric: tabular-nums; }
+  .muted { color: var(--cp-text-sub); }
+  .best {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: 0.3px;
+    padding: 2px 5px; border-radius: 4px; background: #EEF8F3; color: #1F8558; margin-left: 5px;
+    vertical-align: 1px;
+  }
+
+  /* ---------- 结论卡 ---------- */
+  .concl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .concl__card { padding: 15px 16px; }
+  .concl__card h3 { margin: 0 0 7px; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 7px; }
+  .concl__card p { margin: 0; font-size: 12px; line-height: 1.65; color: var(--cp-text-sub); }
+  .concl__card b { color: var(--cp-text); }
+  .concl__n {
+    display: grid; place-items: center; width: 18px; height: 18px; border-radius: 5px;
+    background: var(--cp-brand); color: #fff; font-size: 11px; font-weight: 700; flex: none;
+  }
+  .foot { margin-top: 26px; font-size: 11.5px; line-height: 1.8; color: var(--cp-text-sub); }
+  .foot code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+               background: #EDF0F2; padding: 1px 5px; border-radius: 4px; color: var(--cp-brand); }
+  .foot a { color: var(--cp-brand); }
+
+  @media (max-width: 1080px) {
+    .stage.is-parallel .stage__grid { grid-template-columns: minmax(0, 1fr); }
+    .concl { grid-template-columns: minmax(0, 1fr); }
+    .hero__meta { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="idx">
+  <!-- ============ 页头 ============ -->
+  <div class="hero">
+    <div class="hero__mark">枢</div>
+    <div class="hero__text">
+      <h1>云枢流程画布方案对比</h1>
+      <p>同一份流程数据、同一套视觉规格，三个方案各画一遍 —— 只比「库」本身，不比设计。</p>
+      <div class="hero__meta">
+        <span class="tag">流程：采购订单审批（标准·金额分级）</span>
+        <span class="tag">6 节点 / 6 边 / 含条件分支</span>
+        <span class="tag">节点 150×64 · 圆角 11 · 色条 3.5</span>
+        <span class="tag tag--ok">WebKit 已实测</span>
+        <span class="tag tag--ok">像素差 0.58/255</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 切换条 ============ -->
+  <div class="tabs" id="tabs" role="tablist">
+    <button type="button" data-mode="parallel" class="is-on">并排三栏</button>
+    <span class="tabs__sep"></span>
+    <button type="button" data-mode="native">① 自研 SVG</button>
+    <button type="button" data-mode="vue-flow">② Vue Flow</button>
+    <button type="button" data-mode="logicflow">③ LogicFlow</button>
+  </div>
+  <div class="hint-line" id="hint">三栏是「一眼比对」用的；要看细节 / 拖节点，点上面的 Tab 切单栏（1:1 显示）。</div>
+
+  <!-- ============ 画布舞台 ============ -->
+  <section class="card stage is-parallel" id="stage">
+    <div class="stage__grid is-parallel" id="grid"></div>
+  </section>
+
+  <!-- ============ 对比表 ============ -->
+  <div class="section-title">
+    <h2>对比表</h2>
+    <span>灰底行是「会决定要不要换」的三行</span>
+  </div>
+  <section class="card table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>维度</th>
+          <th class="is-native">① 自研 SVG</th>
+          <th>② Vue Flow</th>
+          <th>③ LogicFlow</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr class="key">
+          <td>节点渲染方式</td>
+          <td>HTML in <code>&lt;foreignObject&gt;</code><br /><span class="muted">卡片是真实 DOM，CSS 全部可用</span></td>
+          <td><b>HTML div + CSS transform</b><br /><span class="muted">实测<b>没有</b> foreignObject（与常见说法不同）</span></td>
+          <td><span class="yes">纯 SVG</span>（rect + text）<br /><span class="muted">文字省略/换行/阴影要手写</span></td>
+        </tr>
+        <tr>
+          <td>平移缩放实现</td>
+          <td><code>&lt;svg&gt;</code> 自己的 CSS transform<br /><span class="muted">祖先 <code>&lt;g&gt;</code> 不能加 transform</span></td>
+          <td>viewport pane 上的 transform（d3-zoom）</td>
+          <td><code>matrix(scale,tx,ty)</code> 作用在 overlay 层</td>
+        </tr>
+        <tr>
+          <td>连线 / 条件标签</td>
+          <td>自己算贝塞尔 + 自己排标签</td>
+          <td>可复用自带边，本 demo 用同一函数自算（保证几何一致）</td>
+          <td>同上（<code>getPath</code> 覆写）</td>
+        </tr>
+        <tr class="key">
+          <td>Safari / WebKit</td>
+          <td><span class="yes">✅ 现写法正常</span><br /><span class="muted">旧写法（<code>&lt;g transform&gt;</code>）在 WebKit 会「布局对、绘制错」，demo 里有开关可现场复现</span></td>
+          <td><span class="yes">✅ 正常</span><br /><span class="muted">节点是普通 div，不踩 foreignObject 的坑</span></td>
+          <td><span class="yes">✅ 正常</span><br /><span class="muted">整棵树没有 foreignObject</span></td>
+        </tr>
+        <tr class="key">
+          <td>运行体积（库 + 样式）</td>
+          <td><b class="num">0 KB</b><span class="best">最小</span><br /><span class="muted">本 demo 页 12.1 KiB（gzip 4.5）</span></td>
+          <td class="num">291.7 KiB<br /><span class="muted">gzip 101.4 KiB（含 Vue 3 运行时）</span></td>
+          <td class="num">387.1 KiB<br /><span class="muted">gzip 99.3 KiB（含 preact）</span></td>
+        </tr>
+        <tr>
+          <td>第三方依赖数</td>
+          <td><b>0</b>（坐标来自流程数据，无需 dagre）</td>
+          <td>3 个包：core / background / controls，另需 Vue 3</td>
+          <td>1 个包：@logicflow/core</td>
+        </tr>
+        <tr>
+          <td>滚轮缩放</td>
+          <td>自带（约 20 行代码）</td>
+          <td>自带</td>
+          <td><span class="warn">core 不自带</span>（wheel 是滚动画布；官方缩放靠 extension 插件，本 demo 自己接）</td>
+        </tr>
+        <tr>
+          <td>节点自定义自由度</td>
+          <td><span class="yes">最高</span>：HTML 随你写（省略号、换行、阴影全部免费）</td>
+          <td><span class="yes">高</span>：Vue 组件，样式与交互与业务代码同构</td>
+          <td><span class="warn">受限</span>：只能画 SVG 图形</td>
+        </tr>
+        <tr>
+          <td>Vue 3 支持</td>
+          <td>无框架依赖（纯 DOM，塞进任何框架都行）</td>
+          <td><span class="yes">原生</span>（Vue 组件 + 响应式 store）</td>
+          <td>框架无关（命令式 API，需自己桥接响应式）</td>
+        </tr>
+        <tr>
+          <td>换的成本</td>
+          <td><b>0</b>（现在就是它）</td>
+          <td>重写画布组件 + 现有 15 条画布测试 + 状态同步层</td>
+          <td>重写画布 + 15 条测试 + Vue 3 适配层 + 自己补滚轮缩放</td>
+        </tr>
+        <tr>
+          <td>长期维护</td>
+          <td>我们（框架内自研，跟着业务改）</td>
+          <td>核心团队（MIT，迭代活跃）</td>
+          <td>社区（蚂蚁开源）</td>
+        </tr>
+        <tr>
+          <td>与现有视觉的贴合度</td>
+          <td>就是基准</td>
+          <td><b>像素差 0.58 / 255</b>（差异像素 0.28%）</td>
+          <td><b>像素差 2.15 / 255</b>（差异像素 1.77%，文字与阴影略差）</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- ============ 结论 ============ -->
+  <div class="section-title">
+    <h2>结论</h2>
+    <span>基于上面实测，不是感觉</span>
+  </div>
+  <div class="concl">
+    <div class="card concl__card">
+      <h3><span class="concl__n">1</span>Safari 塌陷的根因不是「自研」，是 foreignObject</h3>
+      <p>Vue Flow 的节点是普通 div，<b>根本不走 foreignObject</b>，所以换它确实能绕开这个坑；
+      但同一套修法（transform 落在 svg 自己身上）已经在我们自己的画布上验证通过，<b>不是必须换库</b>。</p>
+    </div>
+    <div class="card concl__card">
+      <h3><span class="concl__n">2</span>换库买到的是「交互 + 生态」，代价是体积与适配</h3>
+      <p>Vue Flow 换来 pan/zoom/框选/连接线等一整套交互与 Vue 3 原生集成，代价是 <b>+291.7 KiB</b> 与一次画布重写；
+      LogicFlow 换来纯 SVG 的渲染确定性，代价是 <b>+387.1 KiB</b>、文字排版要手写、滚轮缩放还得自己补。</p>
+    </div>
+    <div class="card concl__card">
+      <h3><span class="concl__n">3</span>如果只为修 Safari，建议不换</h3>
+      <p>现有自研画布的视觉规格已经被三个库「照着做」且做到像素级接近 ——
+      说明自研的渲染能力不是短板。<b>真正该评估的是交互功能（框选/对齐/撤销）是否还要自己写</b>。</p>
+    </div>
+  </div>
+
+  <div class="foot">
+    入口：<a href="./demo-native.html">demo-native.html</a> ·
+    <a href="./demo-vue-flow.html">demo-vue-flow.html</a> ·
+    <a href="./demo-logicflow.html">demo-logicflow.html</a> ·
+    <a href="./README.md">README.md</a>（技术栈 / 体积 / Safari 结论）<br />
+    实测口径：Chromium 141 + WebKit（Playwright 1.64.1，webkit-2370），视口 1280×760，同一 fit 算法；<br />
+    体积 = <code>curl</code> 下载后 <code>wc -c</code>（gzip = <code>gzip -9</code>），不是估的。
+  </div>
+</div>
+
+<script>
+const PANES = [
+  { id: 'native', name: '① 自研 SVG', color: '#51697C', render: 'foreignObject', size: '0 KB 依赖', file: 'demo-native.html' },
+  { id: 'vue-flow', name: '② Vue Flow', color: '#2BA471', render: 'HTML div', size: '291.7 KiB', file: 'demo-vue-flow.html' },
+  { id: 'logicflow', name: '③ LogicFlow', color: '#7B6CC4', render: '纯 SVG', size: '387.1 KiB', file: 'demo-logicflow.html' },
+];
+
+const grid = document.getElementById('grid');
+const stage = document.getElementById('stage');
+let mode = 'parallel';
+
+function render() {
+  const list = mode === 'parallel' ? PANES : PANES.filter((p) => p.id === mode);
+  grid.className = 'stage__grid ' + (mode === 'parallel' ? 'is-parallel' : 'is-single');
+  stage.className = 'card stage ' + (mode === 'parallel' ? 'is-parallel' : 'is-single');
+  grid.innerHTML = list
+    .map(
+      (p) => `
+    <div class="pane">
+      <div class="pane__head">
+        <span class="pane__dot" style="background:${p.color}"></span>
+        <span class="pane__name">${p.name}</span>
+        <span class="pane__render">${p.render}</span>
+        <span class="pane__size">${p.size}</span>
+        <a class="pane__open" href="./${p.file}" target="_blank" rel="noopener">新窗口打开 ↗</a>
+      </div>
+      <iframe src="./${p.file}?embed=1" title="${p.name}" loading="lazy"></iframe>
+    </div>`,
+    )
+    .join('');
+}
+
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('button[data-mode]');
+  if (!btn) return;
+  mode = btn.dataset.mode;
+  [...e.currentTarget.querySelectorAll('button')].forEach((b) => b.classList.toggle('is-on', b === btn));
+  render();
+});
+
+render();
+</script>
+</body>
+</html>
