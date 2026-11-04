@@ -309,8 +309,22 @@ PH.flow = async () => {
     await shot('flow-editor');
   });
 
+  // 「标准流程」= `/flow/def` 页的第二个 Tab（P2-6 决策 A：卡片墙并入流程定义页）。
+  // 地址栏 `?view=standard` 是 Tab 的唯一真源；老菜单 `/flow/templates` 已由 P2-6c 改成
+  // redirect → `/flow/def?view=standard`、并由 P2-6d 软删（V0234），所以这里直接打 Tab 地址，
+  // 截图里不会再出现已下线的「流程模板库」页面。
+  await step('标准流程', async () => {
+    await goto('/flow/def?view=standard');
+    const url = page.url();
+    if (!url.includes('view=standard')) throw new Error(`未落在「标准流程」Tab（地址栏=${url}）`);
+    note(`标准流程 Tab 地址栏=${url.replace(BASE, '')}`);
+    const facts = await pageFacts('标准流程');
+    // 旧术语「流程模板库」已随菜单收口下线；标题里再出现说明截到了老页面 / 老菜单缓存
+    if (String(facts.title || '').includes('模板库')) throw new Error(`页面标题仍是旧术语：${facts.title}`);
+    await shot('flow-standard-wall');
+  });
+
   for (const [p, label, name] of [
-    ['/flow/templates', '流程模板库', 'flow-templates'],
     ['/flow/task', '审批中心', 'flow-task-center'],
     ['/flow/start', '发起审批', 'flow-start'],
   ]) {

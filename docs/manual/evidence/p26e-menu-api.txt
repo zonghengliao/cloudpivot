@@ -1,0 +1,17 @@
+# P2-6e 取证：cloudpivot_manual2 菜单收口 + 「标准流程」Tab 落地
+
+## 1) sys_menu（cloudpivot_manual2）
+    name    |      path       |          deleted_at           
+------------+-----------------+-------------------------------
+ 流程定义   | /flow/def       | 
+ 流程模板库 | /flow/templates | 2026-11-05 01:46:08.350579+08
+(2 rows)
+
+## 2) GET /api/system/auth/menus（18097，重启后）
+menu nodes total = 81
+模板库 hits = []
+/flow/templates hits = []
+/flow nodes = [('审批流', '/flow'), ('流程定义', '/flow/def'), ('发起审批', '/flow/start'), ('审批中心', '/flow/task')]
+
+## 3) 截图 03 采集时的地址栏（见 p26e-capture-run1/2.log.txt）
+7:  [note] 标准流程 Tab 地址栏=/flow/def?view=standard
