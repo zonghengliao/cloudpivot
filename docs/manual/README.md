@@ -39,7 +39,7 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 - 自动关闭「你有 N 条待处理」登录提醒弹窗；
 - 每个模块输出到 `docs/manual/images/<phase>/<nn>-<name>.png`；
 - 单步失败只记 `!!`，不中断整轮，便于一次跑完 9 个模块；
-- 默认**只读**（不改库）；`MANUAL_WRITE=1` 才允许真机建单取证（任务创建见 `docs/manual/evidence/task-create-verify.log`，返回 `任务已创建：TSK-202611-000007`）；
+- 默认**只读**（不改库）；`MANUAL_WRITE=1` 才允许真机建单取证（任务创建见 `docs/manual/evidence/task-create-verify.log.txt`，返回 `任务已创建：TSK-202611-000007`）；
 - 同时打印 `SUMMARY` 行（表头 / 行数 / 按钮 / 页签），手册正文的列名、按钮名均以此为准。
 
 ## 二、截图环境实况（截图里能看到的数据）
@@ -54,7 +54,7 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 
 ## 三、连跑两轮的一致性（证据）
 
-`docs/manual/evidence/capture-run1.log` / `capture-run2.log` 是同一脚本连续两轮的原始输出：
+`docs/manual/evidence/capture-run1.log.txt` / `capture-run2.log.txt` 是同一脚本连续两轮的原始输出：
 
 - 两轮均 **38 张 / 9 个模块目录（task flow purchase stockin stockout inventory transfer finance report）**，模块级 SUMMARY（表头、按钮、页签）逐行一致；
 - 两轮 **0 失败（0 个 `!!`）**，逐行 SUMMARY 完全相同；
