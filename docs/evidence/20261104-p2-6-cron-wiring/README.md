@@ -16,8 +16,8 @@
 | 步 | 做了什么 | 证据文件 |
 |---|---|---|
 | 1 | 写 `/etc/cloudpivot/snapshot-audit.env`（`chmod 600 root:root`，口令从 `cloudpivot.env` 取值、全程不回显） | `01-env-file.txt` |
-| 2 | 手工跑一轮（**不加 cron**）：`bash /opt/cloudpivot/scripts/cron/snapshot_audit.sh; echo exit=$?` → `exit=0` | `02-manual-run-first.log` |
-| 2b | 用 cron 的最小环境（`env -i PATH=/usr/bin:/bin HOME=/root`）复跑真正的 cron 命令行 → `exit=0`（证明 cron 里 python3 / env 文件都能找到） | `03-cron-style-run.log` |
+| 2 | 手工跑一轮（**不加 cron**）：`bash /opt/cloudpivot/scripts/cron/snapshot_audit.sh; echo exit=$?` → `exit=0` | `02-manual-run-first.txt` |
+| 2b | 用 cron 的最小环境（`env -i PATH=/usr/bin:/bin HOME=/root`）复跑真正的 cron 命令行 → `exit=0`（证明 cron 里 python3 / env 文件都能找到） | `03-cron-style-run.txt` |
 | 2c | `--install-views` 后 `di` schema 视图数量 / 11 列契约 / 豁免台账 | `04-views-and-waiver.txt` |
 | 3 | 日志与 JSON 落位（`blocker/warn/info` 三计数） | `05-json-summary.txt` |
 | 1b | 通知钩子 `--dry-run`（只打印正文与命令，不发消息） | `06-notify-dryrun.txt` |
