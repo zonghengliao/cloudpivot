@@ -139,7 +139,20 @@ $ python3 scripts/verify/biz_type_domain.py --self-check
 PASS：巡检脚本只读（所有 SQL 字面量都以 SELECT 开头，无 INSERT/UPDATE/DELETE/DDL）
 ```
 
-### 4.4 不变量套件
+### 4.4 生产（144）迁移后
+
+```
+$ （144 上，仓库里已有 doc_kind.rs + 巡检脚本）
+结果：PASS（所有列的值都在 doc_kind.rs 的词表域内）      ← 默认口径（prod-after.txt）
+注：37 行是 e2e 脚本写进本库的测试残留（E2E_*/D2_SMOKE），已单列不计红；要判红请加 --strict
+结果：FAIL（1 列有域外值）  biz_flow_instance.biz_type    ← --strict 口径（prod-after-strict.txt）
+```
+
+**两个口径同时留证**：默认口径看业务数据（PASS）；`--strict` 把别人 e2e 的
+37 条残留也判红（FAIL，只点名 `biz_flow_instance.biz_type`，业务表全 PASS）。
+这正是「具名例外」而不是静默放行 —— 想严格随时能严格。
+
+### 4.5 不变量套件
 
 ```
 $ NIK_DATABASE_NAME=cp_p25_vocab python3 scripts/verify/erp_invariants.py
@@ -152,9 +165,47 @@ $ NIK_DATABASE_NAME=cp_p25_vocab python3 scripts/verify/erp_invariants.py
 
 ---
 
-## 5. 真机：采购单审批全链路（隔离实例）
+## 5. 真机：采购单审批全链路
 
-`e2e_po_approval.py`（库 `cp_p25_vocab`，实例 `127.0.0.1:18145`）：
+### 5.0 生产（144，部署后 · `prod-e2e.txt`）
+
+部署 `b9879ec` 后在生产上跑（真实主数据，`docs/evidence/.../e2e_po_approval_prod*.py`）：
+
+```
+[PASS] ① admin 登录成功
+[PASS] ② 采购单建单成功（DRAFT）              PO-20261104-000001
+[PASS] ③ 提交审批成功并发起实例
+[PASS] ③ 审批轴：实例 biz_type == 定义 biz_type == PO_APPROVE
+[PASS] ③ 对象轴：状态日志 entity_type = PURCHASE_ORDER
+[PASS] ④ 产生待办
+[PASS] ⑤ 历史别名 purchase_order 被拒（400）
+[PASS] ⑤ 历史别名 PO 被拒（400）
+[PASS] ⑤ 规范路径段 purchase-order 正常
+—— 第二轮：把会签待办批完 ——
+[PASS] ① 采购单落 APPROVED
+[PASS] ② 审批实例落 APPROVED
+[PASS] ③ 审批轴：实例 == 定义 == PO_APPROVE
+[PASS] ④ 对象轴：状态日志 entity_type 只有 PURCHASE_ORDER
+[PASS] ⑤ 两条会签待办都已通过
+```
+
+**过程中撞到一个真实机制（值得记进 skill）**：`po_approve` 的「部门主管审批」节点按
+**角色**展开，生产里该角色有 2 个真人（Henry.Liao / 老六测试号）⇒ 一张单生成 2 条待办，
+只批 1 条实例仍是 `PENDING`（与 `references/deploy-cards.md` §3「会签种子让老夹具假红」同一件事）。
+另外待办不是 admin 的时直接批会 403 + `65028`，脚本用「转办」（改 `assignee_id`）后批。
+
+**生产数据变动（可回滚，已如实列出）**：
+
+| 项 | 内容 |
+|---|---|
+| 采购单 | `PO-20261104-000001`（`01a1a59f-e6f8-772d-a6f7-52d067f66b1f`）= `APPROVED`，100 元 × 1，备注「P2-5 词表收敛真机验收（可直接作废）」 |
+| 审批实例 | `01a1a59f-e705-75c5-ab51-5483a3880980` = `APPROVED`，`biz_type=PO_APPROVE` |
+| 待办 | `n_dept` 两条由 admin 代批（原指派 Henry.Liao / 老六测试号） |
+| 用户 | `p25maker` 已停用 + 软删（`biz_flow_instance.initiator_id` 是外键，不能硬删，行保留） |
+
+### 5.1 隔离实例（`cp_p25_vocab` / `127.0.0.1:18145`，`e2e_po_approval.py`）
+
+`e2e_po_approval.py`：
 
 ```
 [PASS] ① 采购单建单成功（DRAFT）
@@ -280,3 +331,38 @@ NIK_DATABASE_NAME=<库> python3 scripts/verify/biz_type_domain.py
 python3 docs/evidence/20261104-p2-5-biz-type/e2e_po_approval.py
 python3 docs/evidence/20261104-p2-5-biz-type/migration_roundtrip.py
 ```
+
+---
+
+## 10. 部署与跟进项
+
+### 10.1 上线（144）
+
+```
+$ bash scripts/deploy/deploy.sh --tag p25-20261104
+[8/8] 收口核对
+  主仓 HEAD == origin/main   b9879ec
+  迁移最大版本              V0219
+  服务状态                  active
+  /health                   {"code":0,...}
+  进程==磁盘                yes
+  线上前端入口              assets/index-DO2fUU71.js == dist/index.html
+```
+
+迁移记账（`V0218` 是 P2-4 的，本次一并补跑）：
+
+```
+max_version=219
+218|erp_p2_4_stock_in_item_location_dict|imported|t   disk==db checksum
+219|erp_p2_5_biz_type_vocabulary|imported|t           disk==db checksum
+biz_status_log: TRANSFER(1) → STOCK_TRANSFER(1)，TRANSFER_rows=0
+已发布预置审批流：11 条（biz_type 全在域内）
+```
+
+### 10.2 跟进项（不在本卡范围，已在卡里点名）
+
+| # | 事 | 为什么不在本卡做 | 建议 |
+|---|---|---|---|
+| 1 | 生产库 37 条 `E2E_*` 测试残留（`biz_flow_instance` 活行 + 132 条软删流程） | 是「e2e 跑在生产库」的数据卫生问题，与词表无关；本卡已让巡检把它具名列出（`--strict` 可判红） | 建一张数据清理卡：清 `E2E_*` 实例/流程 + 给 e2e 脚本加「禁止指向生产库」的守卫 |
+| 2 | 词表只读对账页（ARCH-3 DC-21 建议的最终形态） | 词表是编译期枚举，页面的价值主要是给人看；本卡的巡检脚本已提供等价能力（`--list-domains` / `--json`） | 需要 UI 时另开卡，读 `COLUMN_DOMAINS` 出页面，不再建重复的白名单 |
+| 3 | 生产上那个验收单 `PO-20261104-000001` | 验收产物，单据本身合法 | 不需要时按 ERP 正常流程作废（`POST /purchase-order/{id}/status` → `CANCELLED`）或软删 |

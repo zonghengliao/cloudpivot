@@ -1,0 +1,16 @@
+[info] 第 1 轮：1 条待办待批
+  · approve 01a1a59f… → 200
+[PASS] ① 采购单落 APPROVED
+[PASS] ② 审批实例落 APPROVED
+[PASS] ③ 审批轴：实例 == 定义 == PO_APPROVE
+[PASS] ④ 对象轴：状态日志 entity_type 只有 PURCHASE_ORDER
+[PASS] ⑤ 两条会签待办都已通过
+
+[生产数据变动]
+  · 采购单 PO-20261104-000001（01a1a59f-e6f8-772d-a6f7-52d067f66b1f）= APPROVED（P2-5 验收单，100 元 × 1，可直接作废）
+  · 审批实例 01a1a59f-e705-75c5-ab51-5483a3880980 = APPROVED，biz_type=PO_APPROVE
+  · 两条 n_dept 待办由 admin 代批（原指派 Henry.Liao / 老六测试号，验收需要）
+  · 用户 p25maker 已停用 + 软删（保留行满足实例发起人外键）
+
+============================================================
+结果：5 通过 / 0 失败

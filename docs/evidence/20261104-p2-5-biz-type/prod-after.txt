@@ -1,0 +1,58 @@
+==============================================================================
+业务类型词表值域巡检 —— 14 列 / 391 行（库 cloudpivot@127.0.0.1:5432/cloudpivot）
+==============================================================================
+[PASS] ① 业务对象      biz_status_log.entity_type               取值 9 种
+[PASS] ① 业务对象      biz_doc_attachment.doc_type              取值 0 种
+[PASS] ① 业务对象      biz_reminder_log.doc_type                取值 0 种
+[PASS] ② 审批动作      biz_flow_def.biz_type                    取值 11 种
+[PASS] ② 审批动作      biz_flow_instance.biz_type               取值 44 种
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGIUH0' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUIISH7' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGV4Z6' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVVVNYNA' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUG1QDJ' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUH65NX' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUDLKWR' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHT4EP' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGSLLV' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUDHLRV' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUILFQ4' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUIAQVY' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUIGDYM' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHXQWA' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHJS3Y' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVVVDF01' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUDIMAO' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUI6IRL' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHHEMK' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHW2P8' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGHEEC' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGY3QW' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGQ0TH' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUI2JJO' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUARZ2Z' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUARCAT' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGEC7Q' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGU17V' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUD6MFJ' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHOU9K' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUH39TA' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUMJHST' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUGX433' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHZWNE' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUHM4D7' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUI8G6Z' × 1
+       ⚠ 域外值（e2e 测试残留） 'E2E_AP_E2EMVUIEG1U' × 1
+[PASS] ③ 库存变动动作  biz_inventory_txn.biz_type               取值 7 种
+[PASS] ③ 库存变动动作  biz_voucher_rule.biz_type                取值 1 种
+[PASS] ④ 流水来源单据  biz_inventory_txn.doc_type               取值 5 种
+[PASS] ⑤ 凭证来源      biz_voucher.source_type                  取值 2 种
+[PASS] ⑤ 凭证来源      biz_payable.source_type                  取值 1 种
+[PASS] ⑥ 序列号来源    biz_material_serial.source_type          取值 0 种
+[PASS] ⑦ 单据子类型    biz_stock_in.in_type                     取值 1 种
+[PASS] ⑦ 单据子类型    biz_stock_out.out_type                   取值 3 种
+[PASS] ⑦ 单据子类型    biz_stock_take.take_type                 取值 0 种
+------------------------------------------------------------------------------
+注：37 行是 e2e 脚本写进本库的测试残留（E2E_*/D2_SMOKE），已单列不计红；要判红请加 --strict
+结果：PASS（所有列的值都在 doc_kind.rs 的词表域内）
+EXIT=0
