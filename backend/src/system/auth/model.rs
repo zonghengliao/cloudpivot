@@ -284,6 +284,10 @@ async fn load_permissions_uncached(
             permissions.push(code);
         }
     }
+    // 兼容期双码：库里只存规范码（`V0241` 把合同域就地改名成 `business:erp:contract:*`），
+    // 这里给**每个已授予的码**补上它的历史别名 —— 老令牌 / 前端老包 / 第三方脚本里
+    // 仍在用的 `erp:contract:*` 因此继续放行。收口只此一处（见 `shared::permission_alias`）。
+    crate::shared::permission_alias::expand(&mut permissions);
     Ok(permissions)
 }
 

@@ -1,0 +1,9 @@
+                  id                  |          auth_code           |             name             | grants 
+--------------------------------------+------------------------------+------------------------------+--------
+ 20000000-0000-0000-0000-000000001100 | business:erp:contract:list   | 合同管理                     |      1
+ 20000000-0000-0000-0000-000000001101 | business:erp:contract:create | business:erp:contract:create |      1
+ 20000000-0000-0000-0000-000000001102 | business:erp:contract:update | business:erp:contract:update |      1
+ 20000000-0000-0000-0000-000000001103 | business:erp:contract:delete | business:erp:contract:delete |      1
+ 20000000-0000-0000-0000-000000001104 | business:erp:contract:status | business:erp:contract:status |      1
+(5 rows)
+

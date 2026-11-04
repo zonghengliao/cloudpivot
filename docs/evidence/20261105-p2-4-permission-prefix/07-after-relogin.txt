@@ -1,0 +1,14 @@
+--- ③ 重新登录后 /me 的权限集合 ---
+business:erp:contract:create
+business:erp:contract:delete
+business:erp:contract:list
+business:erp:contract:status
+business:erp:contract:update
+erp:contract:create
+erp:contract:delete
+erp:contract:list
+erp:contract:status
+erp:contract:update
+--- ④ 合同分页（新令牌） ---
+{"code":0,"msg":"ok","total":0}
+contract_page_http=200

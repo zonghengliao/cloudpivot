@@ -212,7 +212,7 @@ def main():
          ["business:erp:stock-in:create", "business:erp:stock-in:status", "business:erp:stock-in:list",
           "business:erp:stock-in:detail", "business:flow:approve"]),
         ("audit_maker", "制单员", "AUDIT_MAKER",
-         ["erp:contract:create", "erp:contract:status", "erp:contract:list",
+         ["business:erp:contract:create", "business:erp:contract:status", "business:erp:contract:list",
           "business:erp:purchase-order:create", "business:erp:purchase-order:status",
           "business:erp:purchase-order:submit-approval", "business:erp:purchase-order:list",
           "business:erp:stock-in:create", "business:erp:stock-in:status",

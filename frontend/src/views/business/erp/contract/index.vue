@@ -605,13 +605,13 @@ import {
   type ContractTransition,
 } from './contract-logic';
 
-/** 本页权限码（`V0197`：`erp:contract:*`，**不是** `business:erp:contract:*`） */
+/** 本页权限码（P2-4 已统一到 `business:erp:contract:*`，与 ERP 其余码同族） */
 const PERM = {
-  list: 'erp:contract:list',
-  create: 'erp:contract:create',
-  update: 'erp:contract:update',
-  remove: 'erp:contract:delete',
-  status: 'erp:contract:status',
+  list: 'business:erp:contract:list',
+  create: 'business:erp:contract:create',
+  update: 'business:erp:contract:update',
+  remove: 'business:erp:contract:delete',
+  status: 'business:erp:contract:status',
 } as const;
 
 /** 主数据下拉一次拉多少（种子规模下够用） */

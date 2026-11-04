@@ -4087,7 +4087,7 @@ export interface ContractStatusPayload {
   reason?: string;
 }
 
-/** 合同分页（`GET /business/erp/contract/page`，权限 `erp:contract:list`）。 */
+/** 合同分页（`GET /business/erp/contract/page`，权限 `business:erp:contract:list`）。 */
 export function fetchContractPage(query: ContractPageQuery): Promise<PageData<ContractRow>> {
   return get<PageData<ContractRow>>(`${BASE}/contract/page`, asParams(query));
 }
@@ -4097,7 +4097,7 @@ export function fetchContractDetail(id: string): Promise<ContractDetail> {
   return get<ContractDetail>(`${BASE}/contract/${id}`);
 }
 
-/** 新建合同（`POST /business/erp/contract`，权限 `erp:contract:create`，落 `DRAFT`）。 */
+/** 新建合同（`POST /business/erp/contract`，权限 `business:erp:contract:create`，落 `DRAFT`）。 */
 export function createContract(payload: CreateContractPayload): Promise<ContractDetail> {
   return post<ContractDetail>(`${BASE}/contract`, payload);
 }

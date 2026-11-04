@@ -756,7 +756,7 @@ psql -v ON_ERROR_STOP=1 -h 127.0.0.1 -U alun -d arch2_contract_poc \
 | 4 | 错误码 `66013–66020` | `shared/error_code.rs` | 已确认 66013+ 空（F14）；只加常量，不改既有码 |
 | 5 | `contract_model::party_b_ref` | 新建 `business/erp/contract_model.rs` | 照抄 `purchase_model::supplier_ref`（F13）：`SELECT supplier_name ... WHERE id=? AND deleted_at IS NULL` |
 | 6 | 巡检 SQL 三条 + 孤儿 SQL | 交 t_c7610b31 | §3.3 Q1、§6.3 Q4-a/b/c，**原样使用**（POC 已验证） |
-| 7 | 权限码 | `erp:contract:{list,create,update,delete,status}` | 与 `sys_menu.auth_code` 一一对应；SUPER_ADMIN 短路 |
+| 7 | 权限码 | `business:erp:contract:{list,create,update,delete,status}` | 与 `sys_menu.auth_code` 一一对应；SUPER_ADMIN 短路。**P2-4 起统一到 `business:erp:*` 前缀**（原 `erp:contract:*` 由迁移 `V0241` 就地改名 + 代码侧兼容别名继续识别，别再改回去） |
 | 8 | 前端路由与菜单 | `views/business/erp/contract/` | 本期只开放 PURCHASE（DEC-08 / §3.2.3） |
 
 ---

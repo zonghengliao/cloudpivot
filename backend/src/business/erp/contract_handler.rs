@@ -2,12 +2,23 @@
 //!
 //! | 方法 | 路径（`/api` 前缀由框架注入） | 权限码 | 说明 |
 //! |------|------|--------|------|
-//! | GET | `/business/erp/contract/page` | `erp:contract:list` | 分页（软删行不返回） |
-//! | GET | `/business/erp/contract/{id}` | `erp:contract:list` | 详情（含 `can_edit` / `usable_for_order` / `next_statuses`） |
-//! | POST | `/business/erp/contract` | `erp:contract:create` | 建单（`DRAFT` + `HT-yyyyMMdd-000001`） |
-//! | PUT | `/business/erp/contract/{id}` | `erp:contract:update` | 改单（**仅 `DRAFT`**） |
-//! | DELETE | `/business/erp/contract/{id}` | `erp:contract:delete` | 软删（引用守卫） |
-//! | PATCH | `/business/erp/contract/{id}/status` | `erp:contract:status` | 状态流转（状态机唯一入口） |
+//! | GET | `/business/erp/contract/page` | `business:erp:contract:list` | 分页（软删行不返回） |
+//! | GET | `/business/erp/contract/{id}` | `business:erp:contract:list` | 详情（含 `can_edit` / `usable_for_order` / `next_statuses`） |
+//! | POST | `/business/erp/contract` | `business:erp:contract:create` | 建单（`DRAFT` + `HT-yyyyMMdd-000001`） |
+//! | PUT | `/business/erp/contract/{id}` | `business:erp:contract:update` | 改单（**仅 `DRAFT`**） |
+//! | DELETE | `/business/erp/contract/{id}` | `business:erp:contract:delete` | 软删（引用守卫） |
+//! | PATCH | `/business/erp/contract/{id}/status` | `business:erp:contract:status` | 状态流转（状态机唯一入口） |
+//!
+//! # 权限码前缀（P2-4 已统一，历史沿革别再改回去）
+//!
+//! 合同域最初按 `ARCH-2 附录 B #7` 逐字用了 `erp:contract:*`，与 ERP 其余 313 个
+//! `business:erp:*` 码前缀不一致（前端判权要记两套规则）。P2-4 统一为
+//! `business:erp:contract:*`：
+//!
+//! - `V0241` 把 `sys_menu.auth_code` **就地改名**（菜单 id 不动 ⇒ 已配的 `sys_role_menu`
+//!   一行不丢）；
+//! - 旧码 `erp:contract:*` 在兼容期内由 `shared::permission_alias` 装载时互扩，
+//!   老令牌 / 前端老包继续可用（详见该模块文档）。
 //!
 //! # 错误码（`shared/error_code`，卡面的 66013 被 ERP-B2 占用后整体顺延）
 //!
@@ -61,20 +72,21 @@ use crate::shared::error_code;
 use crate::utils;
 
 /// 合同列表 / 详情（`sys_menu` 里是 menu_type=2 的菜单节点）。
-pub const PERM_LIST: &str = "erp:contract:list";
+pub const PERM_LIST: &str = "business:erp:contract:list";
 /// 新建合同。
-pub const PERM_CREATE: &str = "erp:contract:create";
+pub const PERM_CREATE: &str = "business:erp:contract:create";
 /// 编辑合同（A2 按 §5.3 冻结矩阵校验）。
-pub const PERM_UPDATE: &str = "erp:contract:update";
+pub const PERM_UPDATE: &str = "business:erp:contract:update";
 /// 删除合同（软删，V-21 引用守卫）。
-pub const PERM_DELETE: &str = "erp:contract:delete";
+pub const PERM_DELETE: &str = "business:erp:contract:delete";
 /// 状态流转（`state_machine::transition(Entity::Contract, …)` 的唯一入口）。
-pub const PERM_STATUS: &str = "erp:contract:status";
+pub const PERM_STATUS: &str = "business:erp:contract:status";
 
 /// 合同域全部权限码（顺序与 `V0197` 的 `auth_code` 一致，也是「权限码唯一真相」）。
 ///
-/// 与迁移**逐字对应**：`V0197__erp_contract_permissions.up.sql` 的 5 条 `sys_menu` 行
-/// 就是这个数组。任一侧改动而另一侧没跟，`contract_permissions_match_menu` 用例会红。
+/// 与迁移**逐字对应**：`V0241__erp_contract_permission_prefix_unify.up.sql` 改名后的 5 条
+/// `sys_menu` 行就是这个数组。任一侧改动而另一侧没跟，`contract_permissions_match_menu`
+/// 用例会红。
 pub const PERMISSIONS: [&str; 5] = [
     PERM_LIST,
     PERM_CREATE,
@@ -83,10 +95,24 @@ pub const PERMISSIONS: [&str; 5] = [
     PERM_STATUS,
 ];
 
-/// 权限码的模块前缀（`{模块}:{资源}:{动作}` 的第一段）。
-pub const PERMISSION_MODULE: &str = "erp";
-/// 权限码的资源段（第二段）。
-pub const PERMISSION_RESOURCE: &str = "contract";
+/// 合同域历史权限码（P2-4 前缀统一前的 `erp:contract:*`）。
+///
+/// **只在兼容期存在**：库里已经没有这些码（`V0241` 已改名），但老令牌 / 前端老包 /
+/// 第三方脚本可能还在送，因此 `shared::permission_alias` 把它们与 [`PERMISSIONS`]
+/// 双向互扩。删兼容层时连同 `LEGACY_ALIASES` 一起删。
+pub const LEGACY_PERMISSIONS: [&str; 5] = [
+    "erp:contract:list",
+    "erp:contract:create",
+    "erp:contract:update",
+    "erp:contract:delete",
+    "erp:contract:status",
+];
+
+/// 权限码前缀：`{模块}:{资源}`，动作段由各常量尾段给出。
+///
+/// P2-4 统一到 `business:erp:contract`（四段式，与 ERP 其余码同族）；统一前是
+/// `erp:contract`（三段式），历史原因见文件头。
+pub const PERMISSION_PREFIX: &str = "business:erp:contract";
 
 // ==================== 错误构造 ====================
 
@@ -221,7 +247,7 @@ async fn detail_of(id: Uuid) -> ResResult<ContractDetailRes> {
 /// 为什么要它：列表 / 详情要显示「审批中（FLW-xxx）」—— 用户拿着单号能直接去审批中心
 /// 找到它；而 `ContractRes::from(&ContractRow)` 只拿得到实例 **id**。
 /// 批量查一次而不是逐行查（一页 20 行逐行查就是 20 次往返）。
-// SCOPE-EXEMPT: 只在**已授权的行集合**上按 id 批量补展示字段（SELECT id, instance_no FROM biz_flow_instance WHERE id = ANY(...)），不产生行集、也不决定谁能看；行集权限在 business/erp/contract_model.rs:496（contract_page → scope::paginate_unscoped）+ 中间件 erp:contract:list（contract_handler.rs:283）。
+// SCOPE-EXEMPT: 只在**已授权的行集合**上按 id 批量补展示字段（SELECT id, instance_no FROM biz_flow_instance WHERE id = ANY(...)），不产生行集、也不决定谁能看；行集权限在 business/erp/contract_model.rs:496（contract_page → scope::paginate_unscoped）+ 中间件 business:erp:contract:list（contract_handler.rs:303）。
 async fn fill_approval_no(rows: &mut [ContractRes]) {
     let ids: Vec<Uuid> = rows
         .iter()
@@ -275,12 +301,12 @@ async fn fill_approval_no(rows: &mut [ContractRes]) {
 /// # 异常情况
 ///
 /// - 400 + `10001`：日期格式非法 / 区间反了 / 枚举不在白名单 / `party_b_id` 不是 UUID；
-/// - 403：无 `erp:contract:list`；
+/// - 403：无 `business:erp:contract:list`；
 /// - 500：数据库异常。
 #[nik::permission(
     path = "/business/erp/contract/page",
     method = "GET",
-    permission = "erp:contract:list"
+    permission = "business:erp:contract:list"
 )]
 #[nik::get("/business/erp/contract/page")]
 pub async fn contract_page(
@@ -317,7 +343,7 @@ pub async fn contract_page(
 #[nik::permission(
     path = "/business/erp/contract/{id}",
     method = "GET",
-    permission = "erp:contract:list"
+    permission = "business:erp:contract:list"
 )]
 #[nik::get("/business/erp/contract/{id}")]
 pub async fn contract_detail(Path(id): Path<String>) -> ResResult<ContractDetailRes> {
@@ -345,7 +371,7 @@ pub async fn contract_detail(Path(id): Path<String>) -> ResResult<ContractDetail
 #[nik::permission(
     path = "/business/erp/contract",
     method = "POST",
-    permission = "erp:contract:create"
+    permission = "business:erp:contract:create"
 )]
 #[nik::post("/business/erp/contract")]
 pub async fn contract_create(
@@ -435,7 +461,7 @@ pub async fn contract_create(
 #[nik::permission(
     path = "/business/erp/contract/{id}",
     method = "PUT",
-    permission = "erp:contract:update"
+    permission = "business:erp:contract:update"
 )]
 #[nik::put("/business/erp/contract/{id}")]
 pub async fn contract_update(
@@ -633,7 +659,7 @@ fn validate_mutation(merged: &ContractMut) -> std::result::Result<(), ApiError> 
 #[nik::permission(
     path = "/business/erp/contract/{id}/status",
     method = "PATCH",
-    permission = "erp:contract:status"
+    permission = "business:erp:contract:status"
 )]
 #[nik::patch("/business/erp/contract/{id}/status")]
 pub async fn contract_change_status(
@@ -1090,7 +1116,7 @@ fn submit_conflict(error: DbError, ctx: &str, contract_no: &str) -> ApiError {
 #[nik::permission(
     path = "/business/erp/contract/{id}",
     method = "DELETE",
-    permission = "erp:contract:delete"
+    permission = "business:erp:contract:delete"
 )]
 #[nik::delete("/business/erp/contract/{id}")]
 pub async fn contract_delete(
@@ -1209,7 +1235,7 @@ mod tests {
 
     // ---------- 纯逻辑用例（无需数据库） ----------
 
-    /// ① 权限码：5 个、不重复、`erp:contract:*` 三段式。
+    /// ① 权限码：5 个、不重复、统一前缀 `business:erp:contract:`（P2-4 前缀统一后四段式）。
     #[test]
     fn contract_permission_codes_are_well_formed() {
         assert_eq!(PERMISSIONS.len(), 5, "ARCH-2 附录 B #7 定了 5 个码");
@@ -1219,18 +1245,18 @@ mod tests {
         for code in PERMISSIONS {
             assert_eq!(
                 code.matches(':').count(),
-                2,
-                "{code} 必须是 {{模块}}:{{资源}}:{{动作}} 三段式（N15 只认 ≥2 个冒号）"
+                3,
+                "{code} 必须是 {{模块}}:{{资源}}:{{动作}} 四段式（business:erp:contract:x，与 ERP 其余码同族）"
             );
-            let mut parts = code.split(':');
-            assert_eq!(parts.next(), Some(PERMISSION_MODULE), "{code} 的模块段不对");
-            assert_eq!(
-                parts.next(),
-                Some(PERMISSION_RESOURCE),
-                "{code} 的资源段不对"
+            let action = code
+                .strip_prefix(PERMISSION_PREFIX)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .unwrap_or_default();
+            assert!(
+                !action.is_empty(),
+                "{code} 缺动作段 / 前缀不是 {PERMISSION_PREFIX}"
             );
-            let action = parts.next().unwrap_or_default();
-            assert!(!action.is_empty(), "{code} 缺动作段");
+            assert!(!action.contains(':'), "{code} 的动作段不得再含冒号");
             assert!(
                 action.chars().all(|c| c.is_ascii_lowercase() || c == '-'),
                 "{code} 的动作段必须小写（前端 error-code / 按钮判权按小写匹配）"
@@ -1248,14 +1274,50 @@ mod tests {
         );
     }
 
-    /// ② 常量名与码值一一对应。
+    /// ② 常量名与码值一一对应（P2-4：统一到 `business:erp:contract:*`）。
     #[test]
     fn contract_permission_constants_match_list() {
-        assert_eq!(PERM_LIST, "erp:contract:list");
-        assert_eq!(PERM_CREATE, "erp:contract:create");
-        assert_eq!(PERM_UPDATE, "erp:contract:update");
-        assert_eq!(PERM_DELETE, "erp:contract:delete");
-        assert_eq!(PERM_STATUS, "erp:contract:status");
+        assert_eq!(PERM_LIST, "business:erp:contract:list");
+        assert_eq!(PERM_CREATE, "business:erp:contract:create");
+        assert_eq!(PERM_UPDATE, "business:erp:contract:update");
+        assert_eq!(PERM_DELETE, "business:erp:contract:delete");
+        assert_eq!(PERM_STATUS, "business:erp:contract:status");
+        assert_eq!(PERMISSION_PREFIX, "business:erp:contract");
+        for code in PERMISSIONS {
+            assert!(
+                code.starts_with(PERMISSION_PREFIX),
+                "{code} 必须落在统一前缀下（前端 / 运维只按 business:erp:* 一套规则判权）"
+            );
+        }
+    }
+
+    /// ②b P2-4 兼容期双码：每个规范码都能互扩出对应的历史码，反之亦然。
+    ///
+    /// 这条把「旧码仍能访问」钉在代码层：装载权限时（`auth::model::load_permissions`）
+    /// 只有规范码，靠 `shared::permission_alias::expand` 补出旧码 —— 老令牌 / 前端老包
+    /// 因此在兼容期内继续命中。
+    #[test]
+    fn contract_legacy_codes_alias_both_ways() {
+        use crate::shared::permission_alias;
+        assert_eq!(LEGACY_PERMISSIONS.len(), PERMISSIONS.len());
+        for (i, canonical) in PERMISSIONS.iter().enumerate() {
+            let legacy = LEGACY_PERMISSIONS[i];
+            assert_eq!(
+                legacy.rsplit(':').next(),
+                canonical.rsplit(':').next(),
+                "对照表必须按同一动作位排列（{legacy} vs {canonical}）"
+            );
+            assert_eq!(
+                permission_alias::aliases_of(canonical),
+                vec![legacy],
+                "{canonical} 应扩出 {legacy}"
+            );
+            assert_eq!(
+                permission_alias::aliases_of(legacy),
+                vec![*canonical],
+                "{legacy} 应扩出 {canonical}（老令牌带着旧码时路由才放行）"
+            );
+        }
     }
 
     /// ③ 合同边表与状态机注册表逐条一致（A1 改了注册表、A2 没跟上 → 立刻红）。
@@ -1357,14 +1419,18 @@ mod tests {
     /// ⑨ 与 `sys_menu.auth_code` 一一对应（真库用例；需 `ERP_DB_URL`，否则跳过）。
     ///
     /// 这条是「权限码唯一真相」的守门人：迁移里少种一个码 → 除超管外全员 403；
-    /// 多种一个码 → 管理面能勾一个永不生效的权限。A1 定的 5 个码，A2 一个都没动。
+    /// 多种一个码 → 管理面能勾一个永不生效的权限。
+    ///
+    /// P2-4 之后口径（`V0241`）：库里有且只有 5 个 `business:erp:contract:*`，
+    /// **旧码 `erp:contract:*` 必须 0 行**（否则管理面会同时出现两套同义节点，
+    /// 而代码只认一套 —— 那正是本卡要消灭的"双真值源"）。
     #[tokio::test]
     async fn contract_permissions_match_menu() {
         let Some(_guard) = setup().await else { return };
         let rows = db()
             .find_with_params(
                 "SELECT auth_code FROM sys_menu \
-                  WHERE auth_code LIKE 'erp:contract:%' AND deleted_at IS NULL AND status = 1",
+                  WHERE auth_code LIKE 'business:erp:contract:%' AND deleted_at IS NULL AND status = 1",
                 vec![],
             )
             .await
@@ -1379,8 +1445,117 @@ mod tests {
         expected.sort();
         assert_eq!(
             in_db, expected,
-            "sys_menu.auth_code 必须与 crate 常量逐字一致（V0197 迁移 + 本文件要同步改）"
+            "sys_menu.auth_code 必须与 crate 常量逐字一致（V0241 迁移 + 本文件要同步改）"
         );
+
+        let legacy_left: i64 = db()
+            .scalar_with_params(
+                "SELECT count(*) FROM sys_menu \
+                  WHERE auth_code LIKE 'erp:contract:%' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("查询旧码残留失败");
+        assert_eq!(
+            legacy_left, 0,
+            "V0241 之后 sys_menu 里不应再有 erp:contract:*（旧码只活在兼容别名表里）"
+        );
+    }
+
+    /// ⑩ 真库：授权 → 装载权限 → **双码都在**（P2-4「兼容期旧码仍能访问」的落地点）。
+    ///
+    /// 造一个只持合同 5 个权限点的非超管用户，走真实的 `auth::model::load_permissions`
+    /// （登录 / 刷新令牌 / `/me` 都是这一条读路径），断言：
+    ///
+    /// 1. 5 个规范码 `business:erp:contract:*` 在（库里就这些）；
+    /// 2. 5 个历史码 `erp:contract:*` 也在 —— 全靠 `shared::permission_alias::expand`
+    ///    在装载末尾补出来，因此老令牌里的旧码、前端老包按旧码判权都继续命中；
+    /// 3. 其它 ERP 码不被误扩（只按对照表逐条映射，不按前缀）。
+    #[tokio::test]
+    async fn granted_contract_permissions_carry_legacy_alias() {
+        let Some(_guard) = setup().await else { return };
+        let role_id = Uuid::now_v7();
+        let user_id = Uuid::now_v7();
+        let tag = &user_id.simple().to_string()[..8];
+        let role_code = format!("A2P4_ROLE_{tag}");
+        let username = format!("A2P4_USER_{tag}");
+
+        db().execute_with_params(
+            "INSERT INTO sys_role (id, role_code, role_name, status) VALUES (?::uuid, ?, 'P2-4 合同授权角色', 1)",
+            vec![Value::from(&role_id), Value::Text(role_code.clone())],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造角色失败：{err}"));
+        db().execute_with_params(
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES (?::uuid, ?, 'x', 'P2-4 用户', 1)",
+            vec![Value::from(&user_id), Value::Text(username.clone())],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("造用户失败：{err}"));
+        db().execute_with_params(
+            "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::uuid, ?::uuid)",
+            vec![Value::from(&user_id), Value::from(&role_id)],
+        )
+        .await
+        .unwrap_or_else(|err| panic!("关联用户角色失败：{err}"));
+        // 按 auth_code 找菜单 id 授权 —— 与管理员在「角色授权」树里勾选等价（按 menu_id 落库）
+        let mut granted = 0u64;
+        for code in PERMISSIONS {
+            granted += db()
+                .execute_with_params(
+                    "INSERT INTO sys_role_menu (role_id, menu_id) \
+                     SELECT ?::uuid, id FROM sys_menu \
+                      WHERE auth_code = ? AND deleted_at IS NULL",
+                    vec![Value::from(&role_id), Value::Text(code.to_string())],
+                )
+                .await
+                .unwrap_or_else(|err| panic!("授权 {code} 失败：{err}"));
+        }
+        assert_eq!(granted, 5, "5 个合同权限点都应授出去（实际 {granted}）");
+
+        let perms = crate::system::auth::model::load_permissions(&user_id, false)
+            .await
+            .expect("装载权限失败");
+        for code in PERMISSIONS {
+            assert!(
+                perms.contains(&code.to_string()),
+                "缺规范码 {code}：{perms:?}"
+            );
+        }
+        for code in LEGACY_PERMISSIONS {
+            assert!(
+                perms.contains(&code.to_string()),
+                "缺历史码 {code}（兼容期老令牌将 403）：{perms:?}"
+            );
+        }
+        assert_eq!(perms.len(), 10, "只应涉及合同 10 个码：{perms:?}");
+        assert!(
+            !perms
+                .iter()
+                .any(|c| c.starts_with("business:erp:contract:")
+                    && !PERMISSIONS.contains(&c.as_str())),
+            "不得凭前缀凭空扩码：{perms:?}"
+        );
+        println!("[P2-4] 授权 5 个新码 → load_permissions 返回 10 个（新 5 + 旧 5）✓");
+
+        // 清场（授权 → 用户角色 → 用户 → 角色；sys_role_menu 先删以免外键拦住）
+        for (sql, param) in [
+            (
+                "DELETE FROM sys_role_menu WHERE role_id = ?::uuid",
+                &role_id,
+            ),
+            (
+                "DELETE FROM sys_user_role WHERE user_id = ?::uuid",
+                &user_id,
+            ),
+            ("DELETE FROM sys_user WHERE id = ?::uuid", &user_id),
+            ("DELETE FROM sys_role WHERE id = ?::uuid", &role_id),
+        ] {
+            db().execute_with_params(sql, vec![Value::from(param)])
+                .await
+                .unwrap_or_else(|err| panic!("清场失败（{sql}）：{err}"));
+        }
     }
 
     // ---------- 真库用例（`ERP_DB_URL`，与 A1 同一套夹具约定） ----------

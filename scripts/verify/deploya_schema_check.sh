@@ -47,8 +47,9 @@ chk "默认值 approve=true" "$(Q "select config_value from sys_config where con
 chk "默认值 pay=true" "$(Q "select config_value from sys_config where config_key='erp.separation_of_duties.pay'")" "true"
 chk "字典项 erp_internal_control" "$(Q "select count(*) from sys_dict_item i join sys_dict_type t on t.id=i.dict_type_id where t.dict_code='config_category' and i.item_value='erp_internal_control'")" "1"
 
-echo "[V0197] 合同权限码/菜单"
-chk "erp:contract:* 权限码 5 个" "$(Q "select count(*) from sys_menu where auth_code like 'erp:contract:%' and deleted_at is null")" "5"
+echo "[V0197/V0241] 合同权限码/菜单"
+chk "business:erp:contract:* 权限码 5 个" "$(Q "select count(*) from sys_menu where auth_code like 'business:erp:contract:%' and deleted_at is null")" "5"
+chk "旧码 erp:contract:* 残留 0 条（V0241 已就地改名）" "$(Q "select count(*) from sys_menu where auth_code like 'erp:contract:%' and deleted_at is null")" "0"
 chk "合同菜单 component/path" "$(Q "select count(*) from sys_menu where id='20000000-0000-0000-0000-000000001100' and component='business/erp/contract/index' and path='/business/erp/contract'")" "1"
 
 echo "[V0198] 采购单绑定合同"

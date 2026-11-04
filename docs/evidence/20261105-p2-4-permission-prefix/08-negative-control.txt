@@ -1,0 +1,3 @@
+--- ⑤ 反例：无合同授权账号 ---
+me_permissions=[]
+contract_page: {"code":403,"msg":"无权限访问，需要权限: business:erp:contract:list"} http=403

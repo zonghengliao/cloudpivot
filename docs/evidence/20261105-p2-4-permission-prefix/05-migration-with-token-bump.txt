@@ -1,0 +1,2 @@
+psql:backend/migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql:178: NOTICE:  V0241 自检通过：5 个 business:erp:contract:* 就位，旧码 0 残留，授权行 5 → 5（零丢失），在途令牌升级 1 人
+DO

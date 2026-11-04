@@ -1,0 +1,10 @@
+business:erp:contract:create
+business:erp:contract:delete
+business:erp:contract:list
+business:erp:contract:status
+business:erp:contract:update
+erp:contract:create
+erp:contract:delete
+erp:contract:list
+erp:contract:status
+erp:contract:update
