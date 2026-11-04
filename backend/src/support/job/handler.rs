@@ -1132,9 +1132,13 @@ mod db_tests {
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
     /// 取锁 + 连库；`None` = 跳过（未配 `SYS_DB_URL` / 连不上 / 全局连接指向了别的库）。
+    ///
+    /// 跳过时**逐条**打印 SKIP（`ensure_db` 里的原因因为 `OnceCell` 只会打一次）：
+    /// 否则 `--nocapture` 里只有第一条能看出「这条没真跑」，其余像是绿了。
     async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = DB_LOCK.lock().await;
         if !ensure_db().await {
+            println!("SKIP: 本用例未执行（真库不可用，原因见 ensure_db 首条 SKIP）");
             return None;
         }
         Some(guard)
