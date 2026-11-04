@@ -1,0 +1,19 @@
+# 重启后端 → 登录 → 查侧边栏真实数据源 GET /api/system/auth/menus
+# 实例：cloudpivot_p26d2（= cloudpivot_manual 克隆 + V0234）127.0.0.1:18128，admin 登录
+
+$ bash menu_probe.sh 18128   # 内里：POST /api/system/auth/login → GET /api/system/auth/menus
+code=0 顶层节点数=18 全量节点数=81
+--- /flow* 路径节点（侧边栏可见即说明有入口）---
+- name='审批流' path='/flow' menu_type=1
+  - name='流程定义' path='/flow/def' menu_type=2
+  - name='发起审批' path='/flow/start' menu_type=2
+  - name='审批中心' path='/flow/task' menu_type=2
+--- 命中统计：流程模板库=0 流程定义=1 path=/flow/templates=0 ---
+
+--- 对照：同一实例在「软删前 / 软删后但未重启」两态下的返回（说明菜单树是进程内缓存，必须重启才生效）---
+§A 库仍是软删前（down 复位）+ 未重启 →
+  顶层节点数=19 全量=82，/flow* 下多一条 name='流程模板库' path='/flow/templates'
+§B 库已软删（up 重新应用）+ 未重启 →
+  顶层节点数=19 全量=82，/flow* 仍多那条（缓存，未变）
+§C 重启后 →
+  顶层节点数=18 全量=81，只剩 审批流([流程定义/发起审批/审批中心])，流程模板库=0（上方输出即 §C）

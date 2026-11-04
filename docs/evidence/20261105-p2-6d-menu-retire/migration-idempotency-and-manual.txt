@@ -1,0 +1,28 @@
+# SQL 级幂等 + 可回滚实测（直接跑迁移文件本体，看 UPDATE 行数与 DO 自检块）
+# 每段都是 down → up → up：第 1 轮 up 应 UPDATE 1，第 2 轮 up 必须 UPDATE 0（幂等）
+
+## A. 隔离库 cloudpivot_p26d
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.down.sql   -> UPDATE 1 DO 
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.up.sql   -> UPDATE 1 DO 
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.up.sql   -> UPDATE 0 DO 
+
+## B. 真库 cloudpivot_manual（同一套操作；结束后仍回到软删态）
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.down.sql   -> UPDATE 1 DO 
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.up.sql   -> UPDATE 1 DO 
+$ psql -f backend/migrations/business/V0234__flow_template_menu_retire.up.sql   -> UPDATE 0 DO 
+
+## C. cloudpivot_manual 验收查询（path, deleted_at）
+                  id                  |    name    |      path       |     auth_code      |          deleted_at           
+--------------------------------------+------------+-----------------+--------------------+-------------------------------
+ 20000000-0000-0000-0000-000000000780 | 流程定义   | /flow/def       | business:flow:read | 
+ 20000000-0000-0000-0000-0000000007a5 | 流程模板库 | /flow/templates | business:flow:read | 2026-11-05 01:43:41.057472+08
+(2 rows)
+
+## D. 软删后计数（/flow/templates 在用必须 0；/flow/def 在用必须 1；节点总行数仍 1 = 软删非硬删）
+              probe               | count 
+----------------------------------+-------
+ /flow/templates 在用             |     0
+ /flow/def 在用                   |     1
+ /flow/templates 全部行（含软删） |     1
+(3 rows)
+

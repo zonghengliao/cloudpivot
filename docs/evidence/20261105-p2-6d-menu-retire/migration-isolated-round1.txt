@@ -1,0 +1,23 @@
+# P2-6d 迁移两轮实测 · 隔离库 cloudpivot_p26d2（pg_dump cloudpivot_manual 克隆 → 用 down 迁移复位回「软删前」）
+# 跑法：真实迁移跑器（cargo 二进制启动即自动迁移），不是手工 psql
+
+=============== 第 1 轮（启动 → 自动迁移）===============
+2026-11-05T01:43:31+08:00
+$ NIK_DATABASE_NAME=cloudpivot_p26d2 NIK_SERVER_LISTEN=127.0.0.1:18128 ./target/debug/cloudpivot
+--- 启动日志（迁移 NOTICE）---
+[2m2026-11-04T17:42:21.298989Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0233：is_system 打标 2 行（budget_approve / asset_disposal），预置白名单 13 个编码全部为系统流程
+
+--- schema_migrations（version >= 233）---
+ version |           name            |     checksum     | applied_at | success |                           source                            
+---------+---------------------------+------------------+------------+---------+-------------------------------------------------------------
+ 233     | flow_seed_is_system_fix2  | dad06ebf202885e8 | 1793814141 | t       | migrations/business/V0233__flow_seed_is_system_fix2.up.sql
+ 234     | flow_template_menu_retire | 4b77fb2d797527f0 | 1793814141 | t       | migrations/business/V0234__flow_template_menu_retire.up.sql
+(2 rows)
+
+--- 迁移后 sys_menu ---
+                  id                  |    name    |      path       |          deleted_at           
+--------------------------------------+------------+-----------------+-------------------------------
+ 20000000-0000-0000-0000-000000000780 | 流程定义   | /flow/def       | 
+ 20000000-0000-0000-0000-0000000007a5 | 流程模板库 | /flow/templates | 2026-11-05 01:42:21.300131+08
+(2 rows)
+

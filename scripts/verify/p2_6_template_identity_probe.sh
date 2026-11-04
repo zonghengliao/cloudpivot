@@ -12,6 +12,17 @@
 # 库连接：优先 NIK_DATABASE_HOST/PORT/USER/NAME/PASSWORD；
 #         缺省回落到 /root/.cloudpivot/snapshot-audit.env（本机隔离库，600）。
 #
+# 【P2-6d 落地后口径变更（2026-11-04 决策 A）】
+#   `docs/architecture/P2-6-模板实体-决策.md` §3.3/§3.4 已拍板「合并概念」：菜单从 2 个
+#   入口收敛为 1 个，`sys_menu` 里 `path='/flow/templates'` 的节点（V0194 种下，id 尾部
+#   …07a5）由迁移 V0234 软删（`deleted_at` 置位，不硬删）。所以 P5 组里
+#     · P5a「存在 /flow/templates 节点」            期望 1 → **0**
+#     · P5c「两个入口并存、指向同一张表」          期望 1 → **0**
+#   断言一条都没删（保留可追溯性），只翻期望值 / 收紧度量口径：
+#     · P5b 改成查**含软删行**的节点 —— 它现在证的是「软删≠硬删，回滚有路」；
+#     · P5d 是本次新增，单独钉住「唯一入口 /flow/def 仍在用」，防止收口把入口删光；
+#     · P5c 改度量「两个在用入口是否并存」（=2 → 1，否则 0），才是它描述的那件事。
+#
 # 退出码：0 = 全部探针与预期一致；1 = 有探针不符（说明结论/现状变了，先看输出再改文档）。
 # ==============================================================
 set -uo pipefail
@@ -99,13 +110,20 @@ WHERE_SYS=$(awk '/pub async fn templates\(/,/\}\);/' "$SRC" 2>/dev/null \
             | grep -c 'AND d\.is_system' || true)
 probe P4a "model::templates() 标准口径带 is_system 过滤（应 = 1；P2-6b 前这里是 0）" 1 "$WHERE_SYS"
 
-# ---------- P5 菜单：模板库是顶层节点、流程定义在「审批流」组里 ----------
+# ---------- P5 菜单：P2-6d 后入口从 2 个收敛为 1 个（口径变更理由见文件头注释） ----------
 MENU_TPL=$(q "select count(*) from sys_menu where path = '/flow/templates' and deleted_at is null" 2>/dev/null)
-MENU_TPL_TOP=$(q "select count(*) from sys_menu where path = '/flow/templates' and deleted_at is null and parent_id is null" 2>/dev/null)
+MENU_TPL_TOP=$(q "select count(*) from sys_menu where path = '/flow/templates' and parent_id is null" 2>/dev/null)
 MENU_DEF=$(q "select count(*) from sys_menu where path = '/flow/def' and deleted_at is null" 2>/dev/null)
-probe P5a "存在 /flow/templates 菜单节点" 1 "$MENU_TPL"
-probe P5b "该节点是**顶层**节点（不在审批流组下）" 1 "$MENU_TPL_TOP"
-probe P5c "同时存在 /flow/def（流程定义）节点 —— 两个入口指向同一张表" 1 "$MENU_DEF"
+# 「两个入口并存」= /flow/def 与 /flow/templates 同为**在用**（一张表两份入口）时记 1，否则 0。
+# P2-6d 前 = 1（病态：同一张表两个入口，用户分不清该点哪个）；P2-6d 后 = 0。
+MENU_TWO_ENTRIES=$(q "select case when count(*) = 2 then 1 else 0 end
+                        from sys_menu
+                       where path in ('/flow/def', '/flow/templates')
+                         and deleted_at is null" 2>/dev/null)
+probe P5a "存在 **在用**的 /flow/templates 菜单节点（P2-6d 已软删，期望 1→0）" 0 "$MENU_TPL"
+probe P5b "/flow/templates 节点行仍在库内（软删非硬删）且仍是顶层节点（可回滚）" 1 "$MENU_TPL_TOP"
+probe P5c "两个入口并存（/flow/def + /flow/templates 同时在用，一张表两份入口）—— P2-6d 后须 0" 0 "$MENU_TWO_ENTRIES"
+probe P5d "/flow/def（审批流程定义）唯一入口仍在用（收口不许把入口删光）" 1 "$MENU_DEF"
 
 # ---------- P6 版本 / 实例规模（说明 def 本身已是「可复用骨架」） ----------
 VER=$(q "select count(*) from biz_flow_def_version")

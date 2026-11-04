@@ -86,7 +86,7 @@
 | 发布校验 | `FlowGraph::validate_with` 已实现 **R1–R21**（可达性、无环、禁止混流汇聚、会签阈值、条件 DSL、规模上限、`task.*` 变量白名单…） | **扩展** | 补 R22–R28（见 §4 每节点「后置约束」） |
 | 环检测 | 应用层纯 Rust DFS（实测递归 CTE 在 200 节点 300 秒不结束，内存遍历 0.250ms） | **直接复用** | 新增节点类型不得引入 SQL 递归 |
 | 配置管理面 + 走审批 | D1 状态机边（`V0204`）、D2 跨单据联动白名单（`V0205`）、D3 配置管理面（`V0206`） | **直接复用** | 表单/清单/证据的要求变更走同一条审批通道 |
-| 模板库 | `GET /business/flow/templates` + `POST /def/{id}/duplicate` | **扩展** | 模板新增 `flow_type` / `category` 分组（发起中心模板墙的数据源） |
+| 模板库 | `GET /business/flow/templates` + `POST /def/{id}/duplicate` | **扩展** | 模板新增 `flow_type` / `category` 分组（发起中心模板墙的数据源）。**P2-6 决策 A（2026-11-04）：不建模板表** —— 端点名前缀 `templates` 保留作 legacy 别名，数据源就是 `biz_flow_def` + `biz_flow_def_version`；新增 `flow_type` / `category` 即给 `biz_flow_def` 加列 |
 | 抄送 | `biz_flow_cc` 独立表（**刻意不进 `biz_flow_task`**，否则抄送人占用待办唯一槽位） | **直接复用** | 不改 |
 
 ### B. 实例运行侧
@@ -3552,6 +3552,13 @@ graph LR
 
 **`AUTOMATION` 类型不出现在发起中心**（它是系统自动跑的，人工发起没有意义）。
 
+> **数据源确认（P2-6 决策 A，2026-11-04）**：模板墙卡片**全部取自已存在的两张表** ——
+> 骨架/分类/可见性取 `biz_flow_def`（`is_system` 即「标准流程」标记），步数与图结构取
+> `biz_flow_def_version`（`node_count` / `graph_snapshot`）。**不新建模板表**
+> （`biz_flow_template` 之类），也不新增 `business:flow:template:read` 权限码；
+> 卡片墙是 `is_system=TRUE` 的展示投影，与「我的流程」共用 `business:flow:read`
+> 和 `GET /business/flow/def/templates`。术语契约见 `docs/architecture/P2-6-模板实体-决策.md` §2.1。
+
 ## 12.5 页面⑤ · 我的流程（新增）
 
 ### 12.5.1 三个 Tab
@@ -3659,7 +3666,7 @@ graph LR
 | `business:flow:closure:close` / `:force` | 闭环关闭 / 强制关闭 |
 | `business:flow:instance:claim` | 认领 |
 | `business:flow:instance:signal` | 投递 WAIT 事件 |
-| `business:flow:template:read` | 模板库 |
+| `business:flow:template:read` | 模板库 —— ⚠️ **已取消**（P2-6 决策 A，2026-11-04）：不建独立模板实体，标准流程与流程定义共用 `business:flow:read`，本码**不落地**（见 `docs/architecture/P2-6-模板实体-决策.md` §3.3 第 3 行） |
 
 ## 13.3 实例可见性谓词（本设计要收敛的一处）
 

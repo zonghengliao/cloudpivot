@@ -1,0 +1,8 @@
+$ bash scripts/verify/p2_6_template_identity_probe.sh   # 第 1 / 第 2 轮
+
+--- 两轮 diff（剔除输出自带的行首时间戳行）---
+(diff 为空)
+
+--- 仅时间戳行不同：---
+== P2-6 探针 @ cloudpivot_manual 2026-11-05T01:43:44+08:00 ==
+== P2-6 探针 @ cloudpivot_manual 2026-11-05T01:43:46+08:00 ==
