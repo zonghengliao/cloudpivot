@@ -6,7 +6,7 @@
 # 全文 0 处 DML（grep -cwE 'UPDATE|INSERT|DELETE' = 0），只读纪律没有被这次改动破坏。
 #
 # 用法：
-#   D1_DB=cloudpivot_p26 bash scripts/verify/p26_poly_ref_drill.sh
+#   D1_DB=cloudpivot_p26 bash docs/evidence/20261104-p2-6/drill.sh
 #   输出落在 docs/evidence/20261104-p2-6/drill/
 set -uo pipefail
 DB=${D1_DB:-cloudpivot_p26}

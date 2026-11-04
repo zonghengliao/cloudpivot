@@ -15,7 +15,7 @@
 | `docs/architecture/snapshot-drift/10_checks.sql` | 新增 **DI-17…DI-22** 六个视图 + 两个公共层视图（`di.v_poly_ref_map` 登记表、`di.v_poly_ref_dangling` 取数层）；11 列契约与既有 16 条完全一致 |
 | `scripts/verify/snapshot_audit.py` | `CHECKS` 新增 6 项（新分组「多态引用」）；**执行层一行没动**（仍是只读事务 + `statement_timeout` + 锁文件） |
 | `docs/architecture/P2-6-多态引用列盘点.md` | 全库 **14 处**多态引用盘点（含「为什么不查其余 9 处」） |
-| `scripts/verify/p26_poly_ref_drill.sh` | 脏数据演练夹具（只在隔离库跑，`trap` 自动清场） |
+| `docs/evidence/20261104-p2-6/drill.sh` | 脏数据演练夹具（只在隔离库跑，`trap` 自动清场） |
 | `docs/evidence/20261104-p2-6/` | 本证据包 |
 
 **编号说明**：卡面写「编号接在现有之后（DI-16 起）」，但实测 **DI-16 已被占用**
@@ -59,7 +59,8 @@ $ sed -n '378,980p' docs/architecture/snapshot-drift/10_checks.sql | grep -cwE "
 - 每条巡检都在 `BEGIN READ ONLY` 事务里跑（`PGOPTIONS=-c default_transaction_read_only=on` 双保险），
   写操作会被 PG 直接拒绝；
 - 6 条新视图只有 `SELECT` + `LEFT JOIN`，**发现悬空绝不回写业务数据**；
-- 演练脚本 `p26_poly_ref_drill.sh` 里的 DML 是**造脏/清脏的夹具**（只对隔离库），不属于巡检链路。
+- 演练脚本 `docs/evidence/20261104-p2-6/drill.sh` 里的 DML 是**造脏/清脏的夹具**（只对隔离库），
+  刻意放在 `docs/evidence/` 而不是 `scripts/verify/`，让「巡检链路零 DML」这个性质**可以靠目录边界一眼验证**；
 
 ---
 
@@ -121,7 +122,7 @@ INVENTORY_TXN 01a1f140-0000-4000-8000-000000000001 (DATAFIX-20261101-P14)
 
 ## 5. 脏数据演练（红 → 绿，两次输出都在）
 
-夹具：`scripts/verify/p26_poly_ref_drill.sh`（隔离库 `cloudpivot_p26`，真机造出的收货/凭证/流水）。
+夹具：`docs/evidence/20261104-p2-6/drill.sh`（隔离库 `cloudpivot_p26`，真机造出的收货/凭证/流水）。
 输出：`drill/*.txt`（7 次运行）。
 
 | 步骤 | 造了什么脏数据 | 结果 |
@@ -165,7 +166,7 @@ NIK_DATABASE_USER=alun NIK_DATABASE_PASSWORD=alun NIK_DATABASE_NAME=cloudpivot_p
   python3 scripts/verify/snapshot_audit.py --install-views --group 多态引用
 
 # 脏数据演练（造脏 → 变红 → 清场 → 变绿）
-D1_DB=cloudpivot_p26 bash scripts/verify/p26_poly_ref_drill.sh
+D1_DB=cloudpivot_p26 bash docs/evidence/20261104-p2-6/drill.sh
 
 # 生产（只读，装 di 巡检视图）
 set -a; . /etc/cloudpivot/cloudpivot.env; set +a

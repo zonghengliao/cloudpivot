@@ -1,6 +1,6 @@
 ====================================================================================
 云枢 · 快照一致性巡检（B1，只报不修）
-库: cloudpivot_p26@127.0.0.1:5432   生成: 2026-11-04 16:26:36+0800
+库: cloudpivot_p26@127.0.0.1:5432   生成: 2026-11-04 16:29:43+0800
 能力: 合同表=就位 采购单合同列=就位 变更台账=无（按「无台账 ⇒ P0」保守处理） 结果表 biz_snapshot_drift=缺失（本脚本只报不落表，见卡 B2）
 ====================================================================================
 
@@ -10,7 +10,7 @@
   ✓ DI-19  流程实例业务单据悬空/缺 biz_id  通过
   ✓ DI-20  状态日志实体悬空（entity_type 指向的实体已软删/不存在）  通过
   ℹ DI-21  序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）  1 条 [INFO]
-       ▸ MATERIAL_SERIAL 2b5458e4-9b8a-499e-871b-c4baa8cd32b1 (P26-DRILL-SN1) source_id: 快照=PURCHASE → (无实体表) ≠ 真相=SOURCE_ID_REQUIRED [DEFECT/INFO]
+       ▸ MATERIAL_SERIAL a14ea133-1d2f-4334-adf5-5272e1cdfabd (P26-DRILL-SN1) source_id: 快照=PURCHASE → (无实体表) ≠ 真相=SOURCE_ID_REQUIRED [DEFECT/INFO]
          真相来源: biz_material_serial.source_id
   ✓ DI-22  多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）  通过
 
