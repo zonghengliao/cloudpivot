@@ -1,0 +1,293 @@
+vite v6.3.7 building for production...
+transforming...
+✓ 5220 modules transformed.
+rendering chunks...
+computing gzip size...
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/index.html                                                                 1.42 kB │ gzip:   0.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/EChart-CBtkWo53.css                                                 0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/UserSelect-B436yNgK.css                                             0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowPreview-Bj3TT3jy.css                                            0.08 kB │ gzip:   0.10 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FileUploader-DF7156XO.css                                           0.11 kB │ gzip:   0.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/LocationFormDialog-BJjNC4eh.css                                     0.12 kB │ gzip:   0.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/StatusBadge-DpuFYDXn.css                                            0.14 kB │ gzip:   0.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BWLRblPI.css                                                  0.32 kB │ gzip:   0.20 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CmZsS8I8.css                                                  0.32 kB │ gzip:   0.20 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DhajOaaP.css                                                  0.36 kB │ gzip:   0.21 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BjkeXFqu.css                                                  0.39 kB │ gzip:   0.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useListFilterMemory-B38iKhZ1.css                                    0.41 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useFormMemory-CccH-JK1.css                                          0.42 kB │ gzip:   0.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-D6GuI0lP.css                                                  0.52 kB │ gzip:   0.29 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CTopka9g.css                                                  0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-EtDaQsAN.css                                                  0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CsTIpoct.css                                                  0.53 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DocActionBar-B_gX95Q5.css                                           0.56 kB │ gzip:   0.31 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/change-password-2S89RJek.css                                        0.66 kB │ gzip:   0.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/NewDot-C9AF_qqb.css                                                 0.69 kB │ gzip:   0.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/profile-D3DHjSzr.css                                                0.92 kB │ gzip:   0.35 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Cccbdz2W.css                                                  1.05 kB │ gzip:   0.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DyoxQY3_.css                                                  1.06 kB │ gzip:   0.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/BlockerCheckPanel-DJVhF51Z.css                                      1.27 kB │ gzip:   0.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useBatchSelection-BIf9ZBZy.css                                      1.28 kB │ gzip:   0.48 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CheUli4Y.css                                                  1.36 kB │ gzip:   0.43 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DocAttachmentPanel-Da3OBp60.css                                     1.60 kB │ gzip:   0.52 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DFgHLbMq.css                                                  1.62 kB │ gzip:   0.48 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/templates-BdlNSVtc.css                                              1.63 kB │ gzip:   0.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-LEXEAEFE.css                                                  1.65 kB │ gzip:   0.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CxLEn83o.css                                                  1.95 kB │ gzip:   0.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-1_zOxZVU.css                                                  2.00 kB │ gzip:   0.57 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-D_H9YS6o.css                                                  2.07 kB │ gzip:   0.55 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-XzGaR-lZ.css                                                  2.22 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-OGalfjKW.css                                                  2.23 kB │ gzip:   0.60 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DGB911bL.css                                                  2.28 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B_lDAqG4.css                                                  2.29 kB │ gzip:   0.62 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DyOZoQnx.css                                                  2.42 kB │ gzip:   0.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-OD71dPFa.css                                                  2.47 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CucBU_yh.css                                                  2.49 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DF6fVECV.css                                                  2.50 kB │ gzip:   0.60 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CHxpxFNe.css                                                  2.50 kB │ gzip:   0.71 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BeW7yORn.css                                                  2.55 kB │ gzip:   0.78 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CTsIOtpy.css                                                  2.66 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-D8jgGVAV.css                                                  2.68 kB │ gzip:   0.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BqCmyQqX.css                                                  2.68 kB │ gzip:   0.72 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-vWFjUmFC.css                                                  2.70 kB │ gzip:   0.79 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CvT4M1HS.css                                                  2.71 kB │ gzip:   0.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B0XaN-Ju.css                                                  2.71 kB │ gzip:   0.65 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BqKvsihJ.css                                                  2.75 kB │ gzip:   0.71 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Bps9w9Wb.css                                                  2.78 kB │ gzip:   0.78 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Di-rr5h5.css                                                  2.79 kB │ gzip:   0.80 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DYCAXbKg.css                                                  2.81 kB │ gzip:   0.74 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BbpKHosk.css                                                  2.82 kB │ gzip:   0.68 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-ByxQTaGZ.css                                                  2.88 kB │ gzip:   0.76 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-tshtFaKn.css                                                  2.88 kB │ gzip:   0.82 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DataScopePanel-B9dCO80c.css                                         2.89 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DCucuROh.css                                                  2.90 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CGUAP-1e.css                                                  2.91 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CyAHO8QP.css                                                  2.92 kB │ gzip:   0.82 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-KB8ru_BJ.css                                                  3.04 kB │ gzip:   0.81 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C_w-uRwS.css                                                  3.17 kB │ gzip:   0.83 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-zA_v_pWx.css                                                  3.42 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Dj_B-AQa.css                                                  3.48 kB │ gzip:   0.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BYkUQAIY.css                                                  3.48 kB │ gzip:   0.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BEcyQU6n.css                                                  3.58 kB │ gzip:   0.84 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-vODhf6KT.css                                                  3.68 kB │ gzip:   0.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DbDbUtF4.css                                                  3.84 kB │ gzip:   0.89 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DM9bgobx.css                                                  3.96 kB │ gzip:   0.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowProgress-CVbj9FU4.css                                           4.20 kB │ gzip:   0.94 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C4QSg032.css                                                  4.38 kB │ gzip:   0.94 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DHLRdGhg.css                                                  4.40 kB │ gzip:   1.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/gantt-CKLUNzcX.css                                                  4.44 kB │ gzip:   1.13 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DxiY21pC.css                                                  4.56 kB │ gzip:   1.04 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/MarkdownViewer-GqN7gBIX.css                                         4.68 kB │ gzip:   1.18 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-3YbqCQTy.css                                                  4.71 kB │ gzip:   0.98 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DX7inzVf.css                                                  4.81 kB │ gzip:   1.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-T20WSO7u.css                                                  4.91 kB │ gzip:   1.18 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/detail-DXXrSjrG.css                                                 5.26 kB │ gzip:   1.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DrTLPGXx.css                                                  5.74 kB │ gzip:   1.26 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/preference-D7zVN2R4.css                                             6.52 kB │ gzip:   1.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Bnhfc4_3.css                                                  6.62 kB │ gzip:   1.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CyPbv76t.css                                                  6.65 kB │ gzip:   1.38 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BwuBFsR9.css                                                  7.90 kB │ gzip:   1.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BdAPX2vC.css                                                  7.98 kB │ gzip:   1.99 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowCanvas-DSaM96LR.css                                             9.70 kB │ gzip:   2.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-D4UUnzgv.css                                                 13.22 kB │ gzip:   2.63 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/detail-zcFRWXGX.css                                                13.90 kB │ gzip:   2.60 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/BasicLayout-DTKH0vVU.css                                           15.23 kB │ gzip:   3.03 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/edit-BP1kM6YO.css                                                  21.04 kB │ gzip:   3.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/tdesign-E5ATeBiM.css                                              448.31 kB │ gzip:  51.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/logo-CxXS7KxG.js                                                    0.04 kB │ gzip:   0.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/_plugin-vue_export-helper-DlAUqK2U.js                               0.09 kB │ gzip:   0.10 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/download-DSxzK7DZ.js                                                0.30 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/menu-api-Ca2RvbZt.js                                                0.35 kB │ gzip:   0.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/dept-api-BXHRpc19.js                                                0.35 kB │ gzip:   0.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/format-CTE9S_Xn.js                                                  0.36 kB │ gzip:   0.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/changelog-api-BNjM59gq.js                                           0.50 kB │ gzip:   0.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/dict-4-x3rO1v.js                                                    0.53 kB │ gzip:   0.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/role-api-3B1lT2S-.js                                                0.60 kB │ gzip:   0.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/NewDot-wVo5oUUZ.js                                                  0.64 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DocActionBar-B4rdbyEt.js                                            0.64 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/user-api-CxM1GAxu.js                                                0.65 kB │ gzip:   0.26 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowPreview-DS5VspQo.js                                             0.70 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/project-api-566lFHWV.js                                             0.71 kB │ gzip:   0.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/dict-api-cwVwCcgy.js                                                0.75 kB │ gzip:   0.25 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DxQE0jt3.js                                                   0.77 kB │ gzip:   0.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DUwaobS0.js                                                   0.78 kB │ gzip:   0.55 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/StatusBadge-DvxGeUos.js                                             0.79 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CdWcU6o6.js                                                   0.81 kB │ gzip:   0.56 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/memory-core-DucR4N1R.js                                             0.86 kB │ gzip:   0.44 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/money-hBinEgCN.js                                                   0.91 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-kRtOJIHk.js                                                   1.00 kB │ gzip:   0.38 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/approval-progress-CE9exxyu.js                                       1.03 kB │ gzip:   0.51 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DeptTreeSelect.vue_vue_type_script_setup_true_lang-AHw3UyJ2.js      1.07 kB │ gzip:   0.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/help-api-DvT_V5IT.js                                                1.12 kB │ gzip:   0.40 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/approval-flow-oUX1e84k.js                                           1.20 kB │ gzip:   0.64 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/badge-CgcwP8h5.js                                                   1.35 kB │ gzip:   0.73 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/announcement-api-DiL8iCXr.js                                        1.36 kB │ gzip:   0.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useFormMemory-Ba4Vk6pr.js                                           1.45 kB │ gzip:   0.86 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/UserSelect-xzfCqg8E.js                                              1.58 kB │ gzip:   0.90 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BvskHO9a.js                                                   1.61 kB │ gzip:   0.62 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FileUploader-DCzrw1t_.js                                            1.67 kB │ gzip:   0.97 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DcetaD-h.js                                                   1.92 kB │ gzip:   0.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/EChart-D5MxjkA7.js                                                  1.99 kB │ gzip:   1.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/flow-api-B4vREHnC.js                                                2.05 kB │ gzip:   0.59 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/markdown-lite-Dj5SRKV6.js                                           2.13 kB │ gzip:   1.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/task-api-D0nFT4an.js                                                2.97 kB │ gzip:   1.03 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/change-password-BeWEO0qE.js                                         3.03 kB │ gzip:   1.45 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useListFilterMemory-Dl1AfbgJ.js                                     3.14 kB │ gzip:   1.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-LqxiscZ6.js                                                   3.39 kB │ gzip:   1.64 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/permissions-Bp0DAJYy.js                                             4.00 kB │ gzip:   0.99 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/status-map-DG1yJMT8.js                                              4.32 kB │ gzip:   1.06 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowProgress-vnSI_FYf.js                                            4.33 kB │ gzip:   1.78 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Mzek9R6_.js                                                   4.49 kB │ gzip:   2.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/flow-error-codes-Q-4uBLjM.js                                        4.64 kB │ gzip:   2.37 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CTYFSm7m.js                                                   4.80 kB │ gzip:   2.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DocAttachmentPanel-JQNQijQS.js                                      6.07 kB │ gzip:   2.87 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-kESf8pQh.js                                                   6.14 kB │ gzip:   2.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C1htP0FG.js                                                   6.66 kB │ gzip:   1.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/notice-CuuLuIvG.js                                                  6.67 kB │ gzip:   2.96 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-wUL8KwLU.js                                                   6.91 kB │ gzip:   3.09 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/profile-ByNk2cG7.js                                                 7.09 kB │ gzip:   2.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/dayjs.min-D9ppDFAL.js                                               7.16 kB │ gzip:   3.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BLjEIy_a.js                                                   7.18 kB │ gzip:   3.01 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C0NVZHV8.js                                                   7.40 kB │ gzip:   3.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DwnCNki3.js                                                   7.53 kB │ gzip:   3.24 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/MarkdownViewer-CB6XmUqP.js                                          7.85 kB │ gzip:   3.58 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/BlockerCheckPanel-DKw5flqu.js                                       7.98 kB │ gzip:   3.37 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BKYbag0F.js                                                   8.16 kB │ gzip:   3.52 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B1yKrO6V.js                                                   8.54 kB │ gzip:   3.61 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CkYGNald.js                                                   8.59 kB │ gzip:   3.46 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BaVfPTZL.js                                                   8.66 kB │ gzip:   3.26 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B7Ckv5r3.js                                                   9.17 kB │ gzip:   3.80 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-esez6sqn.js                                                   9.19 kB │ gzip:   3.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/use-flow-master-names-M8kWEB9S.js                                   9.23 kB │ gzip:   3.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/LocationFormDialog-D5DxKQd1.js                                      9.88 kB │ gzip:   3.88 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B_6U-VYz.js                                                  10.05 kB │ gzip:   3.81 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-aow2YgBn.js                                                  10.14 kB │ gzip:   4.18 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DSRf2vo-.js                                                  10.26 kB │ gzip:   4.21 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/preference-COGEfaTk.js                                             10.37 kB │ gzip:   4.39 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C-kTGkL6.js                                                  10.37 kB │ gzip:   4.19 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/useBatchSelection-Df2-vwfI.js                                      10.73 kB │ gzip:   4.36 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Byfdg5pC.js                                                  10.80 kB │ gzip:   4.17 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-mP4J0M-5.js                                                  10.80 kB │ gzip:   4.29 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/DataScopePanel-BsjH50sS.js                                         10.86 kB │ gzip:   4.12 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-8caOE7nv.js                                                  11.31 kB │ gzip:   4.23 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DDFVUfOd.js                                                  11.51 kB │ gzip:   4.21 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Cu6v4orJ.js                                                  11.56 kB │ gzip:   3.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BDEAhXgp.js                                                  11.67 kB │ gzip:   4.54 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CDOs8oYi.js                                                  12.02 kB │ gzip:   3.89 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BaKuB_5B.js                                                  12.20 kB │ gzip:   4.87 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-uMKTAd9G.js                                                  12.68 kB │ gzip:   3.88 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C-BHlrPl.js                                                  12.89 kB │ gzip:   4.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/graph-DpPQoDDh.js                                                  13.04 kB │ gzip:   5.01 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-zflmWjBx.js                                                  13.23 kB │ gzip:   5.28 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/templates-Bvnk9Oo3.js                                              13.30 kB │ gzip:   4.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Db0-xQTF.js                                                  13.54 kB │ gzip:   5.29 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DITsu1pP.js                                                  13.90 kB │ gzip:   5.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C0HU_Q_y.js                                                  13.91 kB │ gzip:   4.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Cul2aLtP.js                                                  13.97 kB │ gzip:   4.91 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BZrS-cLb.js                                                  14.20 kB │ gzip:   5.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-xbT0JRqF.js                                                  15.07 kB │ gzip:   5.34 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-li8tTCgf.js                                                  15.12 kB │ gzip:   5.71 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BMPxgCZN.js                                                  16.04 kB │ gzip:   5.85 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BAQZXSfr.js                                                  16.24 kB │ gzip:   6.02 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C0tPgMsF.js                                                  16.64 kB │ gzip:   5.69 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/detail-DICvJaEk.js                                                 17.50 kB │ gzip:   6.39 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BeDDUkYD.js                                                  17.80 kB │ gzip:   6.30 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BAe3Nll9.js                                                  17.94 kB │ gzip:   6.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BC9pyqLn.js                                                  18.32 kB │ gzip:   6.66 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/BasicLayout-DMu2EXhs.js                                            18.76 kB │ gzip:   7.16 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CWlJuK4G.js                                                  18.81 kB │ gzip:   7.07 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DQMIj7is.js                                                  19.62 kB │ gzip:   6.38 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DhkWLpdz.js                                                  20.81 kB │ gzip:   7.75 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/FlowCanvas-B8bV5zfH.js                                             21.71 kB │ gzip:   7.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Di4kNF3-.js                                                  22.02 kB │ gzip:   7.50 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-6_2K5wBj.js                                                  22.26 kB │ gzip:   7.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/gantt-BkU7yjHj.js                                                  23.03 kB │ gzip:   8.49 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-KjL2N2PK.js                                                  24.40 kB │ gzip:   8.32 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BQ7gkVCD.js                                                  26.46 kB │ gzip:   7.97 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BY6AyhNb.js                                                  27.06 kB │ gzip:   9.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CJAcneD2.js                                                  28.01 kB │ gzip:   9.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Br7VzDcn.js                                                  29.14 kB │ gzip:   9.70 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-B3Hme7Ka.js                                                  30.44 kB │ gzip:  10.41 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-C28Xi2KN.js                                                  33.36 kB │ gzip:  10.92 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-DCAAv-H3.js                                                  41.39 kB │ gzip:  15.39 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-CNfCCR1D.js                                                  46.62 kB │ gzip:  14.68 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-BwcbswGM.js                                                  48.57 kB │ gzip:  15.62 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-ipwzEIla.js                                                  52.65 kB │ gzip:  17.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-Dk8MxiFK.js                                                  52.92 kB │ gzip:  13.16 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/detail-BEaOZRSt.js                                                 53.73 kB │ gzip:  18.33 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/index-bjgrlE7E.js                                                 117.14 kB │ gzip:  43.67 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/edit-BJ3E8p6X.js                                                  194.17 kB │ gzip:  66.11 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/echarts-CuV_skF0.js                                             1,026.96 kB │ gzip: 340.14 kB
+../../../root/.hermes/profiles/frontend-developer/cache/scratch/safari-flow/dist/assets/tdesign-CZOFE4Js.js                                             8,183.18 kB │ gzip: 792.37 kB
+
+(!) Some chunks are larger than 1500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+✓ built in 45.14s
+
+✨ [vite-plugin-compression]:algorithm=gzip - compressed file successfully: 
+dist/assets/DataScopePanel-BsjH50sS.js.gz      10.60kb / gzip: 4.01kb
+dist/assets/BasicLayout-DMu2EXhs.js.gz         18.32kb / gzip: 6.98kb
+dist/assets/BasicLayout-DTKH0vVU.css.gz        14.87kb / gzip: 2.95kb
+dist/assets/FlowCanvas-B8bV5zfH.js.gz          21.21kb / gzip: 7.73kb
+dist/assets/detail-DICvJaEk.js.gz              17.09kb / gzip: 6.24kb
+dist/assets/detail-zcFRWXGX.css.gz             13.57kb / gzip: 2.53kb
+dist/assets/edit-BP1kM6YO.css.gz               20.54kb / gzip: 3.30kb
+dist/assets/index-6_2K5wBj.js.gz               21.74kb / gzip: 6.96kb
+dist/assets/index-8caOE7nv.js.gz               11.04kb / gzip: 4.12kb
+dist/assets/graph-DpPQoDDh.js.gz               12.74kb / gzip: 4.89kb
+dist/assets/gantt-BkU7yjHj.js.gz               22.49kb / gzip: 8.28kb
+dist/assets/index-BAe3Nll9.js.gz               17.52kb / gzip: 6.33kb
+dist/assets/index-BAQZXSfr.js.gz               15.86kb / gzip: 5.86kb
+dist/assets/index-B3Hme7Ka.js.gz               29.72kb / gzip: 10.15kb
+dist/assets/index-BDEAhXgp.js.gz               11.40kb / gzip: 4.43kb
+dist/assets/index-BC9pyqLn.js.gz               17.89kb / gzip: 6.50kb
+dist/assets/index-BMPxgCZN.js.gz               15.66kb / gzip: 5.70kb
+dist/assets/index-BaKuB_5B.js.gz               11.92kb / gzip: 4.75kb
+dist/assets/index-BY6AyhNb.js.gz               26.43kb / gzip: 8.91kb
+dist/assets/index-BZrS-cLb.js.gz               13.87kb / gzip: 4.98kb
+dist/assets/index-BeDDUkYD.js.gz               17.38kb / gzip: 6.14kb
+dist/assets/index-Byfdg5pC.js.gz               10.54kb / gzip: 4.08kb
+dist/assets/index-C-BHlrPl.js.gz               12.59kb / gzip: 4.39kb
+dist/assets/index-Br7VzDcn.js.gz               28.46kb / gzip: 9.45kb
+dist/assets/index-C-kTGkL6.js.gz               10.13kb / gzip: 4.09kb
+dist/assets/index-C0tPgMsF.js.gz               16.25kb / gzip: 5.55kb
+dist/assets/index-CDOs8oYi.js.gz               11.73kb / gzip: 3.80kb
+dist/assets/index-C0HU_Q_y.js.gz               13.58kb / gzip: 4.56kb
+dist/assets/index-BwcbswGM.js.gz               47.43kb / gzip: 15.22kb
+dist/assets/index-CJAcneD2.js.gz               27.36kb / gzip: 9.10kb
+dist/assets/index-CWlJuK4G.js.gz               18.37kb / gzip: 6.89kb
+dist/assets/index-C28Xi2KN.js.gz               32.58kb / gzip: 10.65kb
+dist/assets/index-CNfCCR1D.js.gz               45.53kb / gzip: 14.33kb
+dist/assets/index-Cu6v4orJ.js.gz               11.29kb / gzip: 3.81kb
+dist/assets/index-Cul2aLtP.js.gz               13.64kb / gzip: 4.79kb
+dist/assets/index-D4UUnzgv.css.gz              12.91kb / gzip: 2.56kb
+dist/assets/index-DDFVUfOd.js.gz               11.24kb / gzip: 4.10kb
+dist/assets/index-DITsu1pP.js.gz               13.57kb / gzip: 4.90kb
+dist/assets/index-DSRf2vo-.js.gz               10.02kb / gzip: 4.10kb
+dist/assets/index-DQMIj7is.js.gz               19.16kb / gzip: 6.21kb
+dist/assets/index-Db0-xQTF.js.gz               13.22kb / gzip: 5.16kb
+dist/assets/index-DhkWLpdz.js.gz               20.32kb / gzip: 7.55kb
+dist/assets/index-Di4kNF3-.js.gz               21.50kb / gzip: 7.31kb
+dist/assets/index-BQ7gkVCD.js.gz               25.84kb / gzip: 7.75kb
+dist/assets/index-DCAAv-H3.js.gz               40.42kb / gzip: 15.02kb
+dist/assets/index-KjL2N2PK.js.gz               23.83kb / gzip: 8.11kb
+dist/assets/index-li8tTCgf.js.gz               14.76kb / gzip: 5.57kb
+dist/assets/index-mP4J0M-5.js.gz               10.55kb / gzip: 4.18kb
+dist/assets/index-uMKTAd9G.js.gz               12.38kb / gzip: 3.79kb
+dist/assets/index-xbT0JRqF.js.gz               14.71kb / gzip: 5.21kb
+dist/assets/index-zflmWjBx.js.gz               12.92kb / gzip: 5.15kb
+dist/assets/preference-COGEfaTk.js.gz          10.13kb / gzip: 4.28kb
+dist/assets/templates-Bvnk9Oo3.js.gz           12.98kb / gzip: 4.79kb
+dist/assets/useBatchSelection-Df2-vwfI.js.gz   10.48kb / gzip: 4.26kb
+dist/assets/detail-BEaOZRSt.js.gz              52.47kb / gzip: 17.87kb
+dist/assets/index-Dk8MxiFK.js.gz               51.68kb / gzip: 12.85kb
+dist/assets/index-ipwzEIla.js.gz               51.42kb / gzip: 16.67kb
+dist/assets/index-bjgrlE7E.js.gz               114.40kb / gzip: 42.57kb
+dist/assets/edit-BJ3E8p6X.js.gz                189.62kb / gzip: 64.42kb
+dist/assets/tdesign-E5ATeBiM.css.gz            437.80kb / gzip: 49.58kb
+dist/assets/echarts-CuV_skF0.js.gz             1002.89kb / gzip: 331.52kb
+dist/assets/tdesign-CZOFE4Js.js.gz             7991.39kb / gzip: 771.11kb
+
+

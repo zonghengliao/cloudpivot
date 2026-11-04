@@ -9,7 +9,7 @@
     @keydown="onKeydown"
     @contextmenu.prevent
   >
-    <svg class="flow-canvas__svg" width="100%" height="100%">
+    <svg class="flow-canvas__svg" width="100%" height="100%" :style="sceneStyle">
       <defs>
         <!-- 点阵背景（18 px 网点）：patternTransform 跟着 view 走 —— 平移 / 缩放时网点跟内容一起动，
              观感才是「在画布上移动」而不是「内容在静态玻璃后面飘」 -->
@@ -49,8 +49,16 @@
 
       <rect class="flow-canvas__grid" width="100%" height="100%" fill="url(#flow-grid-pattern)" />
 
-      <!-- 全部图形都在这一个 <g> 里：平移 + 缩放只改它的 transform，节点 x/y 一个字节都不动 -->
-      <g ref="sceneRef" :transform="`translate(${view.x},${view.y}) scale(${view.scale})`">
+      <!-- 全部图形都在这一个 <g> 里：平移 + 缩放只改**外层 svg 的 CSS transform**，节点 x/y 一个字节都不动。
+
+           ★ SAFARI-FLOW：这个 <g> 上**不能**再写 transform。
+           WebKit（Safari）对「祖先 transform + foreignObject 里的 HTML」只做布局、不做绘制：
+           getBoundingClientRect 全对，但卡片实际被画在**未变换**的位置（缩放到 0.75 时整片卡片
+           错位；原先节点 g 上再加 translate 时就是 6 张卡全糊在画布原点叠成一堆）。
+           把 view 的 translate/scale 换成 svg 元素自己的 CSS transform（transform-origin: 0 0）后，
+           整个 svg 作为一个普通 HTML 盒子被合成，WebKit 与 Chrome 的绘制位置都与布局一致
+           （2026-11 实测：scripts/verify/flow_canvas_diag.cjs 的 paint 校验两引擎都通过）。 -->
+      <g ref="sceneRef">
         <!-- ① 连线 -->
         <g class="flow-canvas__edges">
           <g v-for="item in edgeViews" :key="item.edge.key" class="flow-edge" :class="item.cls" :data-edge-key="item.edge.key">
@@ -81,7 +89,16 @@
         <path v-if="connectDraft" class="flow-canvas__draft" :d="connectDraft" fill="none" />
 
         <!-- ③ 节点：卡片本体走 foreignObject（HTML 排版换行 / 省略 / 圆角 / 阴影都比手搓 SVG 稳），
-             锚点与校验角标仍是 SVG（要精确的圆和描边） -->
+             锚点与校验角标仍是 SVG（要精确的圆和描边）。
+
+             ★ SAFARI-FLOW：节点坐标**不再**用 `<g transform="translate(x,y)">`，而是直接落在
+             foreignObject 的 `x/y`（以及锚点 / 角标的绝对坐标）上。
+             Safari（WebKit）在「<g transform> 包 <foreignObject>」这个组合下，foreignObject 里的
+             HTML 可能不跟随外层 g 的 translate → 所有卡片塌陷到画布左上角叠在一起
+             （2026-11 用户真机实测：连线与缩略图正常、只有卡片跑位）。
+             foreignObject 的 x/y 与 <g transform> 在同级坐标系里完全等价（Chrome 下几何一致，
+             有 scripts/verify/flow_canvas_diag.cjs 做双引擎对照），但少了一层 Safari 处理不好的组合。
+             新增节点子元素时请同样用 `node.x / node.y` 做偏移，不要再给这个 <g> 加 transform。 -->
         <g
           v-for="node in nodeViews"
           :key="node.data.key"
@@ -89,10 +106,9 @@
           :class="node.cls"
           :data-node-key="node.data.key"
           :data-node-type="node.data.type"
-          :transform="`translate(${node.x},${node.y})`"
           @pointerdown.stop="onNodeDown($event, node.data)"
         >
-          <foreignObject class="flow-node__fo" x="0" y="0" :width="node.size.w" :height="node.size.h">
+          <foreignObject class="flow-node__fo" :x="node.x" :y="node.y" :width="node.size.w" :height="node.size.h">
             <div xmlns="http://www.w3.org/1999/xhtml" class="flow-node__card">
               <span class="flow-node__bar" />
               <span class="flow-node__icon">{{ node.icon }}</span>
@@ -109,23 +125,36 @@
             </div>
           </foreignObject>
 
-          <!-- 入口 / 出口锚点（只读态不显示） -->
+          <!-- 命中层：卡片是 HTML（foreignObject 里的 div），它在 WebKit 里会盖住同位置的 SVG 锚点
+               → 从锚点拉线会变成「拖节点」。所以命中统一交给这层透明 rect（与卡片同矩形、同一个 <g>，
+               事件照旧冒泡到 onNodeDown），HTML 卡片本身 pointer-events: none（见样式）。
+               Chrome 下点到的也是这层，行为与改前一致（改前点的是卡片本身）。 -->
+          <rect
+            class="flow-node__hit"
+            :x="node.x"
+            :y="node.y"
+            :width="node.size.w"
+            :height="node.size.h"
+            fill="transparent"
+          />
+
+          <!-- 入口 / 出口锚点（只读态不显示）：坐标是「画布绝对坐标」，不再依赖外层 g 的 translate -->
           <template v-if="!readonly">
-            <circle class="flow-node__port" :cx="0" :cy="node.size.h / 2" r="5" />
+            <circle class="flow-node__port" :cx="node.x" :cy="node.y + node.size.h / 2" r="5" />
             <circle
               class="flow-node__port flow-node__port--out"
               :class="{ 'is-target': connectTargetKey === node.data.key }"
-              :cx="node.size.w"
-              :cy="node.size.h / 2"
+              :cx="node.x + node.size.w"
+              :cy="node.y + node.size.h / 2"
               r="5"
               @pointerdown.stop="onPortDown($event, node.data)"
             />
           </template>
 
-          <!-- 校验问题角标 -->
-          <g v-if="issueSet.has(node.data.key)" class="flow-node__issue" :transform="`translate(${node.size.w - 4},4)`">
-            <circle r="8" />
-            <text y="4">!</text>
+          <!-- 校验问题角标（同样用绝对坐标：右上角往里 4px） -->
+          <g v-if="issueSet.has(node.data.key)" class="flow-node__issue">
+            <circle :cx="node.x + node.size.w - 4" :cy="node.y + 4" r="8" />
+            <text :x="node.x + node.size.w - 4" :y="node.y + 8">!</text>
           </g>
         </g>
       </g>
@@ -366,6 +395,21 @@ const takenSet = computed(() => new Set(props.takenPairs ?? []));
 
 /** 当前缩放百分比（缩放控件显示） */
 const zoomPercent = computed(() => Math.round(view.value.scale * 100));
+
+/**
+ * 画布平移 / 缩放的**承载方式**：挂在 svg 元素自己的 CSS transform 上（不是内部 `<g>`）。
+ *
+ * 为什么不是 `<g transform>`：WebKit 对「祖先 transform + foreignObject 里的 HTML」只更新布局、
+ * 不更新绘制，卡片会画在未变换的位置（Safari 上表现为「节点全挤在画布左上角」）。
+ * 换成 SVG 元素的 CSS transform 后，整个画布作为一个合成层被整体变换，两引擎的绘制都和布局一致。
+ *
+ * `transform-origin: 0 0` + `translate() scale()` 与 `<g transform="translate() scale()">` 完全等价
+ * （点 p → translate + p × scale），所以 fitView / 小地图 / screenToCanvas 的口径一行都不用改。
+ */
+const sceneStyle = computed(() => ({
+  transform: `translate(${view.value.x}px, ${view.value.y}px) scale(${view.value.scale})`,
+  transformOrigin: '0 0',
+}));
 
 /** rAF 句柄（拖拽节流） */
 let rafId = 0;
@@ -1206,6 +1250,9 @@ defineExpose({
     display: block;
     width: 100%;
     height: 100%;
+    // SAFARI-FLOW：平移/缩放是 svg 元素自己的 CSS transform（见 sceneStyle），
+    // 缩小或平移到画布外时内容必须还能画出来 —— 由容器 .flow-canvas 的 overflow: hidden 负责裁剪。
+    overflow: visible;
     touch-action: none;
     user-select: none;
   }
@@ -1396,6 +1443,8 @@ defineExpose({
     height: 100%;
     padding: 11px 13px;
     overflow: hidden;
+    // 命中交给同位置的 SVG rect（.flow-node__hit）：WebKit 里 foreignObject 的 HTML 会盖住 SVG 锚点
+    pointer-events: none;
     background: var(--td-bg-color-container);
     border: 1px solid var(--td-component-stroke);
     border-radius: 11px;

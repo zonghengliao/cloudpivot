@@ -1,0 +1,194 @@
+[
+  {
+    "label": "① 正常加载（fitView 改过 scene transform）",
+    "layout": [
+      {
+        "key": "s",
+        "left": 487,
+        "top": 517,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      },
+      {
+        "key": "c_amt",
+        "left": 623,
+        "top": 517,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      },
+      {
+        "key": "n_dept",
+        "left": 790,
+        "top": 411,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      },
+      {
+        "key": "n_fin",
+        "left": 790,
+        "top": 608,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      },
+      {
+        "key": "n_gm",
+        "left": 956,
+        "top": 608,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      },
+      {
+        "key": "e",
+        "left": 1122,
+        "top": 517,
+        "scene": "translate(-0.512820512820511,239.48317307692307) scale(0.7564102564102564)"
+      }
+    ],
+    "painted": {
+      "count": 41827,
+      "bands": [
+        {
+          "y1": 186,
+          "y2": 249,
+          "x1": 907,
+          "x2": 1056
+        },
+        {
+          "y1": 326,
+          "y2": 409,
+          "x1": 507,
+          "x2": 818
+        },
+        {
+          "y1": 446,
+          "y2": 509,
+          "x1": 907,
+          "x2": 1252
+        }
+      ]
+    }
+  },
+  {
+    "label": "② 加载后 JS 写 scene transform = translate(300,180) scale(1)",
+    "layout": [
+      {
+        "key": "s",
+        "left": 807,
+        "top": 506,
+        "scene": "translate(300,180) scale(1)"
+      },
+      {
+        "key": "c_amt",
+        "left": 987,
+        "top": 506,
+        "scene": "translate(300,180) scale(1)"
+      },
+      {
+        "key": "n_dept",
+        "left": 1207,
+        "top": 366,
+        "scene": "translate(300,180) scale(1)"
+      },
+      {
+        "key": "n_fin",
+        "left": 1207,
+        "top": 626,
+        "scene": "translate(300,180) scale(1)"
+      },
+      {
+        "key": "n_gm",
+        "left": 1427,
+        "top": 626,
+        "scene": "translate(300,180) scale(1)"
+      },
+      {
+        "key": "e",
+        "left": 1647,
+        "top": 506,
+        "scene": "translate(300,180) scale(1)"
+      }
+    ],
+    "painted": {
+      "count": 41226,
+      "bands": [
+        {
+          "y1": 186,
+          "y2": 249,
+          "x1": 907,
+          "x2": 1056
+        },
+        {
+          "y1": 326,
+          "y2": 409,
+          "x1": 507,
+          "x2": 818
+        },
+        {
+          "y1": 446,
+          "y2": 509,
+          "x1": 907,
+          "x2": 1252
+        }
+      ]
+    }
+  },
+  {
+    "label": "③ 加载后 JS 写 scene transform = translate(40,40) scale(1)（= 组件首帧的初始 view）",
+    "layout": [
+      {
+        "key": "s",
+        "left": 547,
+        "top": 366,
+        "scene": "translate(40,40) scale(1)"
+      },
+      {
+        "key": "c_amt",
+        "left": 727,
+        "top": 366,
+        "scene": "translate(40,40) scale(1)"
+      },
+      {
+        "key": "n_dept",
+        "left": 947,
+        "top": 226,
+        "scene": "translate(40,40) scale(1)"
+      },
+      {
+        "key": "n_fin",
+        "left": 947,
+        "top": 486,
+        "scene": "translate(40,40) scale(1)"
+      },
+      {
+        "key": "n_gm",
+        "left": 1167,
+        "top": 486,
+        "scene": "translate(40,40) scale(1)"
+      },
+      {
+        "key": "e",
+        "left": 1387,
+        "top": 366,
+        "scene": "translate(40,40) scale(1)"
+      }
+    ],
+    "painted": {
+      "count": 41689,
+      "bands": [
+        {
+          "y1": 186,
+          "y2": 249,
+          "x1": 907,
+          "x2": 1056
+        },
+        {
+          "y1": 326,
+          "y2": 409,
+          "x1": 507,
+          "x2": 818
+        },
+        {
+          "y1": 446,
+          "y2": 509,
+          "x1": 907,
+          "x2": 1252
+        }
+      ]
+    }
+  }
+]

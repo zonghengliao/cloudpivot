@@ -1,0 +1,360 @@
+{
+  "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.2 Safari/605.1.15",
+  "hasSvg": true,
+  "sceneTransform": null,
+  "sceneCssTransform": "matrix(0.75641, 0, 0, 0.75641, -0.512821, 239.48317)",
+  "view": {
+    "scale": 0.7564,
+    "x": -0.51,
+    "y": 239.48
+  },
+  "canvasRect": {
+    "left": 426,
+    "top": 125.19,
+    "width": 828,
+    "height": 814.81
+  },
+  "nodeCount": 6,
+  "nodes": [
+    {
+      "key": "s",
+      "type": "START",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "80",
+        "y": "200",
+        "width": "96",
+        "height": "44"
+      },
+      "cardComputed": {
+        "width": "96px",
+        "height": "44px"
+      },
+      "cardRect": {
+        "left": 487,
+        "top": 516.95,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "foRect": {
+        "left": 487,
+        "top": 516.95,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "groupRect": {
+        "left": 483.22,
+        "top": 516.95,
+        "width": 80.18,
+        "height": 33.28
+      },
+      "ports": [
+        {
+          "cx": "80",
+          "cy": "222",
+          "left": 483.22,
+          "top": 529.81,
+          "width": 7.56
+        },
+        {
+          "cx": "176",
+          "cy": "222",
+          "left": 555.83,
+          "top": 529.81,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 2359,
+        "total": 2555,
+        "ratio": 0.923
+      }
+    },
+    {
+      "key": "c_amt",
+      "type": "CONDITION",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "260",
+        "y": "200",
+        "width": "132",
+        "height": "84"
+      },
+      "cardComputed": {
+        "width": "132px",
+        "height": "84px"
+      },
+      "cardRect": {
+        "left": 623.15,
+        "top": 516.95,
+        "width": 99.85,
+        "height": 63.54
+      },
+      "foRect": {
+        "left": 623.15,
+        "top": 516.95,
+        "width": 99.85,
+        "height": 63.54
+      },
+      "groupRect": {
+        "left": 619.37,
+        "top": 516.95,
+        "width": 107.41,
+        "height": 63.54
+      },
+      "ports": [
+        {
+          "cx": "260",
+          "cy": "242",
+          "left": 619.37,
+          "top": 544.94,
+          "width": 7.56
+        },
+        {
+          "cx": "392",
+          "cy": "242",
+          "left": 719.22,
+          "top": 544.94,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 6341,
+        "total": 6500,
+        "ratio": 0.976
+      }
+    },
+    {
+      "key": "n_dept",
+      "type": "COUNTERSIGN",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "480",
+        "y": "60",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 789.56,
+        "top": 411.06,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 789.56,
+        "top": 411.06,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 785.78,
+        "top": 411.06,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "480",
+          "cy": "92",
+          "left": 785.78,
+          "top": 431.48,
+          "width": 7.56
+        },
+        {
+          "cx": "630",
+          "cy": "92",
+          "left": 899.24,
+          "top": 431.48,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5419,
+        "total": 5635,
+        "ratio": 0.962
+      }
+    },
+    {
+      "key": "n_fin",
+      "type": "APPROVAL",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "480",
+        "y": "320",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 789.56,
+        "top": 607.72,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 789.56,
+        "top": 607.72,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 785.78,
+        "top": 607.72,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "480",
+          "cy": "352",
+          "left": 785.78,
+          "top": 628.15,
+          "width": 7.56
+        },
+        {
+          "cx": "630",
+          "cy": "352",
+          "left": 899.24,
+          "top": 628.15,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5365,
+        "total": 5750,
+        "ratio": 0.933
+      }
+    },
+    {
+      "key": "n_gm",
+      "type": "APPROVAL",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "700",
+        "y": "320",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 955.97,
+        "top": 607.72,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 955.97,
+        "top": 607.72,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 952.19,
+        "top": 607.72,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "700",
+          "cy": "352",
+          "left": 952.19,
+          "top": 628.15,
+          "width": 7.56
+        },
+        {
+          "cx": "850",
+          "cy": "352",
+          "left": 1065.65,
+          "top": 628.15,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5326,
+        "total": 5750,
+        "ratio": 0.926
+      }
+    },
+    {
+      "key": "e",
+      "type": "END",
+      "groupTransform": null,
+      "foAttr": {
+        "x": "920",
+        "y": "200",
+        "width": "96",
+        "height": "44"
+      },
+      "cardComputed": {
+        "width": "96px",
+        "height": "44px"
+      },
+      "cardRect": {
+        "left": 1122.38,
+        "top": 516.95,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "foRect": {
+        "left": 1122.38,
+        "top": 516.95,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "groupRect": {
+        "left": 1118.6,
+        "top": 516.95,
+        "width": 80.18,
+        "height": 33.28
+      },
+      "ports": [
+        {
+          "cx": "920",
+          "cy": "222",
+          "left": 1118.6,
+          "top": 529.81,
+          "width": 7.56
+        },
+        {
+          "cx": "1016",
+          "cy": "222",
+          "left": 1191.22,
+          "top": 529.81,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 2361,
+        "total": 2555,
+        "ratio": 0.924
+      }
+    }
+  ],
+  "url": "http://127.0.0.1:5187/flow/def/01a1a4ae-2d84-774b-97a4-020962be22a4/edit",
+  "browser": "webkit",
+  "consoleErrors": [],
+  "spread": {
+    "x": 635.38,
+    "y": 196.66,
+    "maxW": 113.46,
+    "maxH": 63.54
+  },
+  "verdict": "ok"
+}

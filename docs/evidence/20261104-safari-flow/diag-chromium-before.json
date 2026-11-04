@@ -1,0 +1,358 @@
+{
+  "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.8078.4 Safari/537.36",
+  "hasSvg": true,
+  "sceneTransform": "translate(-0.512820512820511,240.07692307692307) scale(0.7564102564102564)",
+  "sceneCssTransform": "none",
+  "view": null,
+  "canvasRect": {
+    "left": 426,
+    "top": 124,
+    "width": 828,
+    "height": 816
+  },
+  "nodeCount": 6,
+  "nodes": [
+    {
+      "key": "s",
+      "type": "START",
+      "groupTransform": "translate(80,200)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "96",
+        "height": "44"
+      },
+      "cardComputed": {
+        "width": "96px",
+        "height": "44px"
+      },
+      "cardRect": {
+        "left": 487,
+        "top": 516.36,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "foRect": {
+        "left": 487,
+        "top": 516.36,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "groupRect": {
+        "left": 483.22,
+        "top": 516.36,
+        "width": 80.18,
+        "height": 33.28
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "22",
+          "left": 483.22,
+          "top": 529.22,
+          "width": 7.56
+        },
+        {
+          "cx": "96",
+          "cy": "22",
+          "left": 555.83,
+          "top": 529.22,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 2212,
+        "total": 2482,
+        "ratio": 0.891
+      }
+    },
+    {
+      "key": "c_amt",
+      "type": "CONDITION",
+      "groupTransform": "translate(260,200)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "132",
+        "height": "84"
+      },
+      "cardComputed": {
+        "width": "132px",
+        "height": "84px"
+      },
+      "cardRect": {
+        "left": 623.15,
+        "top": 516.36,
+        "width": 99.85,
+        "height": 63.54
+      },
+      "foRect": {
+        "left": 623.15,
+        "top": 516.36,
+        "width": 99.85,
+        "height": 63.54
+      },
+      "groupRect": {
+        "left": 619.37,
+        "top": 516.36,
+        "width": 107.41,
+        "height": 63.54
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "42",
+          "left": 619.37,
+          "top": 544.35,
+          "width": 7.56
+        },
+        {
+          "cx": "132",
+          "cy": "42",
+          "left": 719.22,
+          "top": 544.35,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 6131,
+        "total": 6400,
+        "ratio": 0.958
+      }
+    },
+    {
+      "key": "n_dept",
+      "type": "COUNTERSIGN",
+      "groupTransform": "translate(480,60)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 789.56,
+        "top": 410.46,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 789.56,
+        "top": 410.46,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 785.78,
+        "top": 410.46,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "32",
+          "left": 785.78,
+          "top": 430.88,
+          "width": 7.56
+        },
+        {
+          "cx": "150",
+          "cy": "32",
+          "left": 899.24,
+          "top": 430.88,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5338,
+        "total": 5635,
+        "ratio": 0.947
+      }
+    },
+    {
+      "key": "n_fin",
+      "type": "APPROVAL",
+      "groupTransform": "translate(480,320)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 789.56,
+        "top": 607.13,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 789.56,
+        "top": 607.13,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 785.78,
+        "top": 607.13,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "32",
+          "left": 785.78,
+          "top": 627.55,
+          "width": 7.56
+        },
+        {
+          "cx": "150",
+          "cy": "32",
+          "left": 899.24,
+          "top": 627.55,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5349,
+        "total": 5635,
+        "ratio": 0.949
+      }
+    },
+    {
+      "key": "n_gm",
+      "type": "APPROVAL",
+      "groupTransform": "translate(700,320)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "150",
+        "height": "64"
+      },
+      "cardComputed": {
+        "width": "150px",
+        "height": "64px"
+      },
+      "cardRect": {
+        "left": 955.97,
+        "top": 607.13,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "foRect": {
+        "left": 955.97,
+        "top": 607.13,
+        "width": 113.46,
+        "height": 48.41
+      },
+      "groupRect": {
+        "left": 952.19,
+        "top": 607.13,
+        "width": 121.03,
+        "height": 48.41
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "32",
+          "left": 952.19,
+          "top": 627.55,
+          "width": 7.56
+        },
+        {
+          "cx": "150",
+          "cy": "32",
+          "left": 1065.65,
+          "top": 627.55,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 5322,
+        "total": 5635,
+        "ratio": 0.944
+      }
+    },
+    {
+      "key": "e",
+      "type": "END",
+      "groupTransform": "translate(920,200)",
+      "foAttr": {
+        "x": "0",
+        "y": "0",
+        "width": "96",
+        "height": "44"
+      },
+      "cardComputed": {
+        "width": "96px",
+        "height": "44px"
+      },
+      "cardRect": {
+        "left": 1122.38,
+        "top": 516.36,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "foRect": {
+        "left": 1122.38,
+        "top": 516.36,
+        "width": 72.62,
+        "height": 33.28
+      },
+      "groupRect": {
+        "left": 1118.6,
+        "top": 516.36,
+        "width": 80.18,
+        "height": 33.28
+      },
+      "ports": [
+        {
+          "cx": "0",
+          "cy": "22",
+          "left": 1118.6,
+          "top": 529.22,
+          "width": 7.56
+        },
+        {
+          "cx": "96",
+          "cy": "22",
+          "left": 1191.22,
+          "top": 529.22,
+          "width": 7.56
+        }
+      ],
+      "issue": null,
+      "paint": {
+        "changed": 2204,
+        "total": 2482,
+        "ratio": 0.888
+      }
+    }
+  ],
+  "url": "http://127.0.0.1:5187/flow/def/01a1a4ae-2d84-774b-97a4-020962be22a4/edit",
+  "browser": "chromium",
+  "consoleErrors": [
+    "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+  ],
+  "spread": {
+    "x": 635.38,
+    "y": 196.67,
+    "maxW": 113.46,
+    "maxH": 63.54
+  },
+  "verdict": "ok"
+}

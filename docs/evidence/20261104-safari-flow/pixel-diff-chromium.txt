@@ -1,0 +1,13 @@
+orig-chromium.png vs e-chromium.png
+{
+  "sameSize": true,
+  "size": [
+    1600,
+    1000
+  ],
+  "totalPixels": 1600000,
+  "diffPixels": 537,
+  "diffRatio": 0.000335625,
+  "maxDelta": 153,
+  "meanDelta": 0.015400208333333333
+}

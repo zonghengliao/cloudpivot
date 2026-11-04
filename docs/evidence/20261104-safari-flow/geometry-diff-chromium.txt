@@ -1,0 +1,6 @@
+before=orig-chromium.json (chromium)  after=e-chromium.json (chromium)
+承载方式: g transform=translate(-0.512820512820511,240.07692307692307) scale(0.7564102564102564) / svg css=none  →  g transform=null / svg css=matrix(0.75641, 0, 0, 0.75641, -0.512821, 240.077)
+节点集合: before=s,c_amt,n_dept,n_fin,n_gm,e  after=s,c_amt,n_dept,n_fin,n_gm,e
+卡片跨度: before={"x":635.38,"y":196.67,"maxW":113.46,"maxH":63.54}  after={"x":635.38,"y":196.67,"maxW":113.46,"maxH":63.54}
+
+✅ 改前 / 改后：Chrome 下每个节点卡片 / foreignObject / g / 锚点的屏幕矩形逐项一致（差 ≤ 0.01px）
