@@ -964,6 +964,36 @@ async function refreshApprovalProgress(row: PayableDetail): Promise<void> {
   await loadApprovalProgressOf(target.instanceId, target.title);
 }
 
+/**
+ * 重新拉详情（付款 / 作废提交成功后的唯一刷新入口）。
+ *
+ * # 为什么不能只信写接口回包
+ *
+ * `PaySubmitRes.detail` 是**那次写事务提交后**的快照。页面拿它当唯一数据源时，只要后端把
+ * 详情拼在提交前（P2-2B 手册真机采集就撞到过：提交成功、弹窗已关，抽屉里仍是「付款记录
+ * 0 笔 / 未付 80.00」，关掉抽屉重开才变成「共 1 笔 30.00」），抽屉就会一直显示旧账，
+ * 用户会以为付款没登记上。读接口才是权威口径：付款记录、已付 / 未付、单据状态、审批进度
+ * 一次重取。
+ *
+ * @param id 应付单 id
+ * @param approvalInstanceId 刚发起的审批实例（详情里查不到「审批中的付款」时兜底用之）
+ */
+async function refreshDetail(id: string, approvalInstanceId?: string | null): Promise<void> {
+  try {
+    const fresh = await fetchPayableDetail(id);
+    detail.value = fresh;
+    await refreshApprovalProgress(fresh);
+    if (approvalInstanceId && !hasApprovalProgress(approvalProgress.value)) {
+      await loadApprovalProgressOf(approvalInstanceId);
+    }
+  } catch (error) {
+    // 抽屉不关：单头 / 付款记录仍是上一次的快照，但至少要说清「没刷新成功」
+    void MessagePlugin.warning(`详情刷新失败：${messageOf(error)}`);
+  }
+  // ★ D5：可付信息一起重取（未付变了 → 按钮文案 / 能否再付都要重算）
+  await loadPayInfo(id);
+}
+
 // ==================== D5：可付信息（应付单 → 发起付款） ====================
 
 /** 付款权限码（按钮「显不显示」= 后端 `can_pay` **且** 有本码） */
@@ -1227,11 +1257,11 @@ async function submitPay(): Promise<void> {
         `${result.message}：${result.detail.payable_no} 当前状态「${payableStatusLabel(result.detail.status)}」`,
       );
     }
-    // 列表刷新（未付金额 / 状态可能变了），抽屉里换成最新单头 + 审批进度
+    // 写接口回包先落到抽屉（点完立刻有反馈），再**从读接口重取权威快照**：
+    // 只信回包里的 detail 会让抽屉停在提交前那一版（P2-2B 手册实测「付款记录 0 笔 / 未付 80.00」），
+    // 必须关闭抽屉重开才更新 —— 用户会以为付款没登记上。见 `refreshDetail` 注释。
     detail.value = result.detail;
-    await loadApprovalProgressOf(result.approval_instance_id);
-    // ★ D5：可付信息跟着刷新（未付变了 → 按钮文案 / 能否再付都要重算）
-    await loadPayInfo(target.id);
+    await refreshDetail(target.id, result.approval_instance_id);
     void loadPayables();
   } catch (error) {
     payError.value = messageOf(error);
