@@ -4,8 +4,10 @@
  * 运行：`pnpm test:unit`。
  *
  * 两组用例：
- * 1. **flag 优先级**：`?canvas=` > `VITE_FLOW_CANVAS` > 默认 native。
- *    默认必须是 native —— 新画布稳定前，一个写错的环境变量不该把全网的编辑器换掉。
+ * 1. **flag 优先级 / 回退开关**：`?canvas=` > `VITE_FLOW_CANVAS` > 默认 vueflow（VUE-FLOW-3 起）。
+ *    默认必须是 vueflow（新画布已全量验收）；但 `?canvas=native` 与
+ *    `VITE_FLOW_CANVAS=native` 两条回退路径必须一直可用 —— 线上出问题时要能当场切回，
+ *    所以「回退可用」和「默认值」在这里各有一条断言，改默认值时不会顺手把回退弄丢。
  * 2. **节点视图文案**：Vue Flow 画布的卡片文案（会签模式 / 缺审批人 / 任务完成方式 /
  *    运行状态叠加 / 类型色 class）是**从老画布逐字搬过来的**，这里把期望值写死，
  *    防止「搬的时候少了一行 else-if」这种只在真机才看得见的漂移。
@@ -47,8 +49,8 @@ function node(patch: Partial<FlowNode> = {}): FlowNode {
 
 // ==================== ① flag 优先级 ====================
 
-test('① 默认引擎是 native（env / 参数都没给）', () => {
-  assert.equal(resolveFlowCanvasEngine({ search: '', env: undefined }), 'native');
+test('① 默认引擎是 vueflow（env / 参数都没给）', () => {
+  assert.equal(resolveFlowCanvasEngine({ search: '', env: undefined }), 'vueflow');
 });
 
 test('② env 生效：VITE_FLOW_CANVAS=vueflow', () => {
@@ -62,9 +64,13 @@ test('③ URL 参数优先于 env（运维灰度后，开发者仍能单页 A/B�
   assert.equal(resolveFlowCanvasEngine({ search: '?foo=1&canvas=vueflow', env: 'native' }), 'vueflow');
 });
 
-test('④ 非法值不生效（拼错参数不该把画布换掉）', () => {
+test('④ 非法值不生效（拼错参数不该把画布换掉）；回退到 native 一定有两条路', () => {
   assert.equal(resolveFlowCanvasEngine({ search: '?canvas=vufelow', env: 'vueflow' }), 'vueflow');
-  assert.equal(resolveFlowCanvasEngine({ search: '?canvas=', env: 'nonsense' }), 'native');
+  assert.equal(resolveFlowCanvasEngine({ search: '?canvas=', env: 'nonsense' }), 'vueflow');
+  // 回退路径 ①：URL 参数（不依赖 env、不改代码）
+  assert.equal(resolveFlowCanvasEngine({ search: '?canvas=native', env: undefined }), 'native');
+  // 回退路径 ②：构建期 env（整个环境一起回退）
+  assert.equal(resolveFlowCanvasEngine({ search: '', env: 'native' }), 'native');
   assert.equal(normalizeFlowCanvasEngine(undefined), null);
   assert.equal(normalizeFlowCanvasEngine(42), null);
   assert.equal(normalizeFlowCanvasEngine('vue-flow'), 'vueflow');

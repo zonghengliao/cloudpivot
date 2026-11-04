@@ -2,18 +2,28 @@
  * 流程画布引擎开关（feature flag）。
  *
  * 画布有两套实现，**契约完全一致**：
- * - `native`：`FlowCanvas.vue`（纯 SVG 自绘，老画布，默认）
- * - `vueflow`：`FlowCanvasVueFlow.vue`（Vue Flow 基座）
+ * - `vueflow`：`FlowCanvasVueFlow.vue`（Vue Flow 基座，**默认**）
+ * - `native`：`FlowCanvas.vue`（纯 SVG 自绘，老画布，**已 deprecated**，只保留作回退）
  *
  * 切换优先级（高 → 低）：
- * 1. URL 参数 `?canvas=vueflow|native`（开发 / 灰度验证用，刷新即生效）
- * 2. 构建期环境变量 `VITE_FLOW_CANVAS=vueflow|native`（可随部署灰一整个环境）
- * 3. 默认 `native`
+ * 1. URL 参数 `?canvas=native|vueflow`（开发 / 灰度 / 线上回退用，刷新即生效）
+ * 2. 构建期环境变量 `VITE_FLOW_CANVAS=native|vueflow`（可随部署灰一整个环境）
+ * 3. 默认 `vueflow`
  *
- * # 为什么默认还是 native
+ * # 为什么默认切到 vueflow（VUE-FLOW-3）
  *
- * 新画布要等 VUE-FLOW-3 真机全量验证后再改默认；在那之前用户随时能回退，
- * 不用改代码、不用重发版（URL 参数即可切换）。
+ * 换库的初衷是 Safari/WebKit 下的画布渲染与拖拽缺陷（老画布 `<g transform>` +
+ * `foreignObject` 的绘制、拖拽被当成选中文本吃指针事件）。VUE-FLOW-1/2/2B 已把
+ * 9 种节点、11 项业务特性、锚点方向、落点容差逐项对齐并用 Chrome + WebKit 双引擎
+ * 回归过，本卡再把默认值反过来。
+ *
+ * # 回退方法（至少保留一个版本，Ops 一秒钟就能切回）
+ *
+ * - 单个页面：URL 加 `?canvas=native` 刷新即可（不改库、不发版）；
+ * - 整个环境：构建时 `VITE_FLOW_CANVAS=native pnpm build`（或部署环境变量里置 native）；
+ * - 永久回退：把本文件 `resolveFlowCanvasEngine()` 末行的 `'vueflow'` 改回 `'native'`。
+ *
+ * 回退开关的可用性由 `tests/unit/flow-canvas-vueflow-flag.test.ts` ①③④ 钉住。
  *
  * # 为什么参数优先于 env
  *
@@ -72,5 +82,5 @@ export function resolveFlowCanvasEngine(options: { search?: string; env?: unknow
   // `import.meta.env` 只在 Vite 构建里存在（单测走 tsx 时是 undefined），这里取值要防一手
   const envSource = ((import.meta as unknown as { env?: Record<string, unknown> }).env ?? {}) as Record<string, unknown>;
   const env = options.env ?? envSource[FLOW_CANVAS_ENV_VAR];
-  return engineFromSearch(search) ?? normalizeFlowCanvasEngine(env) ?? 'native';
+  return engineFromSearch(search) ?? normalizeFlowCanvasEngine(env) ?? 'vueflow';
 }

@@ -1,0 +1,121 @@
+{
+  "browser": "webkit",
+  "baseUrl": "http://127.0.0.1:5197",
+  "defId": "20000000-0000-4000-8000-0000000a0182",
+  "rounds": 15,
+  "createdAt": "2026-11-04T09:14:01.624Z",
+  "vueflow": {
+    "samples": [
+      449,
+      526,
+      439,
+      400,
+      516,
+      408,
+      417,
+      401,
+      413,
+      490,
+      439,
+      474,
+      376,
+      564,
+      540
+    ],
+    "medianMs": 439,
+    "medianScriptKB": 0
+  },
+  "native": {
+    "samples": [
+      339,
+      369,
+      370,
+      479,
+      402,
+      396,
+      402,
+      407,
+      412,
+      412,
+      392,
+      432,
+      346,
+      327,
+      409
+    ],
+    "medianMs": 402,
+    "medianScriptKB": 0
+  },
+  "deltaPercent": 9.2,
+  "firstScreenScripts": [
+    {
+      "name": "index-C2I75n54.js",
+      "bytes": 0
+    },
+    {
+      "name": "tdesign-BsJqNBS6.js",
+      "bytes": 0
+    },
+    {
+      "name": "BasicLayout-BXnxBZXz.js",
+      "bytes": 0
+    },
+    {
+      "name": "logo-CxXS7KxG.js",
+      "bytes": 0
+    },
+    {
+      "name": "badge-BHSbpx94.js",
+      "bytes": 0
+    },
+    {
+      "name": "_plugin-vue_export-helper-DlAUqK2U.js",
+      "bytes": 0
+    },
+    {
+      "name": "index-CVKjnJsa.js",
+      "bytes": 0
+    },
+    {
+      "name": "notice-imrNrjSl.js",
+      "bytes": 0
+    },
+    {
+      "name": "format-DMxTD6dn.js",
+      "bytes": 0
+    },
+    {
+      "name": "dayjs.min-Ceqszffb.js",
+      "bytes": 0
+    },
+    {
+      "name": "task-api-C0NzddH4.js",
+      "bytes": 0
+    },
+    {
+      "name": "flow-api-C7erdX-Q.js",
+      "bytes": 0
+    },
+    {
+      "name": "announcement-api-FdNORMpi.js",
+      "bytes": 0
+    },
+    {
+      "name": "EChart-CLCea0F6.js",
+      "bytes": 2286
+    },
+    {
+      "name": "index-Bhwvz4yp.js",
+      "bytes": 13190
+    },
+    {
+      "name": "echarts-CuV_skF0.js",
+      "bytes": 1027264
+    },
+    {
+      "name": "index.js",
+      "bytes": 0
+    }
+  ],
+  "firstScreenHasVueFlow": false
+}
