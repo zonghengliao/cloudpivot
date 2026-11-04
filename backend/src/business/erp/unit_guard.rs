@@ -555,4 +555,132 @@ mod tests {
             "{plain}"
         );
     }
+
+    /// ⑦ 折算建议保留 4 位并四舍五入：`12.123456 × 1` → `12.1235`（不是浮点尾巴一堆 0）。
+    #[test]
+    fn suggestion_rounds_to_four_decimals() {
+        let text = not_base_message(0, "M-9", "箱", dec("12.123456"), "千克", dec("1"));
+        assert!(text.contains("1 箱 = 12.123456 千克"), "{text}");
+        assert!(text.ends_with("→ 录 12.1235）"), "{text}");
+        assert!(!text.contains("12.12350"), "尾零必须去掉：{text}");
+    }
+
+    /// ⑧ 数量为 0 时建议值就是 0（不能出现空串或 `-0`）。
+    #[test]
+    fn zero_qty_suggests_zero() {
+        let text = not_base_message(0, "M-1", "箱", dec("12"), "个", dec("0"));
+        assert!(text.ends_with("→ 录 0）"), "{text}");
+        assert!(!text.contains("-0"), "{text}");
+    }
+
+    /// ⑨ 建议值是「按本行数量」算的：同一个折算率，2 箱 → 24、5 箱 → 60。
+    #[test]
+    fn suggestion_is_per_line_not_shared() {
+        let two = not_base_message(0, "M-1", "箱", dec("12"), "个", dec("2"));
+        let five = not_base_message(1, "M-1", "箱", dec("12"), "个", dec("5"));
+        assert!(two.ends_with("→ 录 24）"), "{two}");
+        assert!(five.ends_with("→ 录 60）"), "{five}");
+        assert!(five.starts_with("items[1] "), "行号跟着行走：{five}");
+    }
+
+    /// ⑩ 行号原样回显（含两位下标），调用方按 `items[i]` 定位不用再算。
+    #[test]
+    fn line_no_is_echoed_verbatim() {
+        for line_no in [0usize, 9, 12, 999] {
+            let text = not_base_message(line_no, "M-1", "箱", dec("12"), "个", dec("1"));
+            assert!(
+                text.starts_with(&format!("items[{line_no}] 物料 M-1：")),
+                "{text}"
+            );
+        }
+    }
+
+    /// ⑪ 物料主数据闸：只有 `is_base == 1` 放行，其它值（0 / 2 / -1 / 异常码）一律拒。
+    #[test]
+    fn material_unit_gate_accepts_only_is_base_one() {
+        assert!(ensure_material_unit_is_base(1, "个").is_ok());
+        for is_base in [0i16, 2, -1, 9] {
+            let error = match ensure_material_unit_is_base(is_base, "箱") {
+                Ok(()) => panic!("is_base={is_base} 必须被拒"),
+                Err(error) => error,
+            };
+            assert_eq!(error.status, 400);
+            assert_eq!(error.code, error_code::ERP_UNIT_NOT_BASE);
+            assert!(error.msg.contains("「箱」"), "{}", error.msg);
+        }
+    }
+
+    /// ⑫ `trim_decimal` 的性能边界：大数不丢精度、负数与整数值不出现 `.0` / `-0`。
+    #[test]
+    fn trim_decimal_handles_large_negative_and_integer_values() {
+        assert_eq!(
+            trim_decimal(dec("1234567890123.120000")),
+            "1234567890123.12"
+        );
+        assert_eq!(trim_decimal(dec("12000006.000000")), "12000006");
+        assert_eq!(trim_decimal(dec("-1.500000")), "-1.5");
+        assert_eq!(trim_decimal(dec("0.000000")), "0");
+        assert_eq!(
+            trim_decimal(dec("1.000001")),
+            "1.000001",
+            "有效小数不许被裁掉"
+        );
+    }
+
+    /// ⑬ 单位查不到文案的行号与主体：给了物料编码点名物料，没给就只说「单位」。
+    #[test]
+    fn unit_missing_message_respects_line_and_subject() {
+        let with_code = unit_missing_message(7, Some("M-7"));
+        assert!(
+            with_code.starts_with("items[7] 物料 M-7：单位在 biz_unit 里查不到"),
+            "{with_code}"
+        );
+        let plain = unit_missing_message(7, None);
+        assert!(
+            plain.starts_with("items[7] 单位在 biz_unit 里查不到"),
+            "{plain}"
+        );
+        assert!(
+            !plain.contains("物料 "),
+            "没有编码时不许编一个物料出来：{plain}"
+        );
+    }
+
+    /// ⑭ 折算率恰好 1 时也照原文渲染（`1 个 = 1 个`），不特判、不改口径。
+    #[test]
+    fn rate_one_is_rendered_as_is() {
+        let text = not_base_message(0, "M-1", "个", dec("1"), "个", dec("7"));
+        assert!(text.contains("（1 个 = 1 个 → 录 7）"), "{text}");
+        assert_eq!(
+            text,
+            not_base_line_message(0, Some("M-1"), "个", dec("1"), "个", dec("7")),
+            "两条实现必须逐字一致"
+        );
+    }
+
+    /// ⑮ 大数量 × 大折算率仍然精确（不失精度、不出科学计数法）。
+    #[test]
+    fn large_qty_times_rate_stays_exact() {
+        let text = not_base_message(0, "M-1", "吨", dec("12"), "千克", dec("1000000.5"));
+        assert!(text.ends_with("→ 录 12000006）"), "{text}");
+        // 只看建议值那一段：Decimal → String 不许退化成科学计数法
+        let suggested = text
+            .rsplit_once("→ 录 ")
+            .map(|(_, tail)| tail.trim_end_matches('）').to_string())
+            .expect("文案必须带建议值");
+        assert_eq!(suggested, "12000006", "建议值必须是纯整数：{suggested}");
+        assert!(
+            suggested.chars().all(|ch| ch.is_ascii_digit()),
+            "建议值不许出现 e/E 等非数字字符：{suggested}"
+        );
+    }
+
+    /// ⑯ 小数量（< 1）× 折算率：0.25 箱 × 4 = 1，建议值取整后仍带 0 位小数。
+    #[test]
+    fn fractional_qty_rounds_to_integer_when_exact() {
+        let text = not_base_message(0, "M-1", "箱", dec("4"), "个", dec("0.25"));
+        assert!(text.ends_with("→ 录 1）"), "{text}");
+        let text = not_base_message(0, "M-1", "箱", dec("4"), "个", dec("0.375"));
+        assert!(text.ends_with("→ 录 1.5）"), "{text}");
+    }
 }

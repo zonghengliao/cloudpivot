@@ -610,13 +610,17 @@ pub async fn precheck(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::business::impexp::definition::{ColumnKind, EnumItem};
+    use crate::business::impexp::definition::{ColumnKind, EnumItem, ImportColumn};
     use nik::prelude::Export;
 
-    /// 计数器型外键解析器：不连库，只如实记录被调用次数与收到的取值。
+    /// 计数器型外键解析器：不连库，只如实记录被调用次数与**每次收到的取值个数**。
+    ///
+    /// `sizes` 用来断言「先按列去重、再发一条 SQL」：同一列 300 行进来的取值个数应该
+    /// 等于去重后的个数，而不是行数。
     struct CountingFkResolver {
         known: HashSet<String>,
         calls: AtomicUsize,
+        sizes: std::sync::Mutex<Vec<usize>>,
     }
 
     impl CountingFkResolver {
@@ -624,7 +628,13 @@ mod tests {
             Self {
                 known: known.iter().map(|value| value.to_string()).collect(),
                 calls: AtomicUsize::new(0),
+                sizes: std::sync::Mutex::new(Vec::new()),
             }
+        }
+
+        /// 每次 `existing_values` 收到的取值个数（按列调用顺序）。
+        fn sizes(&self) -> Vec<usize> {
+            self.sizes.lock().expect("取值个数记录锁未中毒").clone()
         }
     }
 
@@ -636,6 +646,10 @@ mod tests {
             values: &[String],
         ) -> std::result::Result<HashSet<String>, DbError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
+            self.sizes
+                .lock()
+                .expect("取值个数记录锁未中毒")
+                .push(values.len());
             Ok(values
                 .iter()
                 .filter(|value| self.known.contains(*value))
@@ -1014,5 +1028,433 @@ mod tests {
         let definition = definition();
         let codes = required_dict_codes(&definition);
         assert!(codes.is_empty(), "本用例列定义没有字典列");
+    }
+
+    // ==================== 以下为 P2-3B 追加（③–⑬） ====================
+
+    /// 通用造表：表头 + 行（行内缺列补空串），表头顺序即列顺序。
+    fn bytes_with(headers: &[&str], rows: Vec<Vec<&str>>) -> Vec<u8> {
+        let rows = rows
+            .into_iter()
+            .map(|values| {
+                let mut map = std::collections::HashMap::new();
+                for (index, header) in headers.iter().enumerate() {
+                    map.insert(
+                        (*header).to_string(),
+                        values.get(index).copied().unwrap_or("").to_string(),
+                    );
+                }
+                map
+            })
+            .collect::<Vec<_>>();
+        Export::to_xlsx_bytes(headers, &rows).expect("造 xlsx")
+    }
+
+    /// 带字典列的用例定义：两列共用同一个字典编码（顺带覆盖 `required_dict_codes` 去重）。
+    static DICT_COLUMNS: &[ImportColumn] = &[
+        ImportColumn {
+            key: "code",
+            header: "编码",
+            required: true,
+            kind: ColumnKind::Text { max_len: Some(32) },
+            unique_key: true,
+            fk: None,
+            example: "DICT-0001",
+            width: None,
+            remark: "",
+        },
+        ImportColumn {
+            key: "status",
+            header: "状态",
+            required: true,
+            kind: ColumnKind::Dict("user_status"),
+            unique_key: false,
+            fk: None,
+            example: "启用",
+            width: None,
+            remark: "",
+        },
+        ImportColumn {
+            key: "status_alias",
+            header: "状态别名",
+            required: false,
+            kind: ColumnKind::Dict("user_status"),
+            unique_key: false,
+            fk: None,
+            example: "",
+            width: None,
+            remark: "",
+        },
+    ];
+
+    struct DictDefinition;
+
+    #[async_trait]
+    impl ImportDefinition for DictDefinition {
+        fn biz_type(&self) -> &'static str {
+            "test.validate.dict"
+        }
+        fn biz_name(&self) -> &'static str {
+            "字典列校验用例"
+        }
+        fn max_rows(&self) -> usize {
+            100
+        }
+        fn columns(&self) -> &'static [ImportColumn] {
+            DICT_COLUMNS
+        }
+        async fn persist(
+            &self,
+            _tx: &nik::prelude::Transaction,
+            _rows: &[RowValues],
+            _ctx: &ImportCtx,
+        ) -> std::result::Result<usize, DbError> {
+            Ok(0)
+        }
+    }
+
+    /// ③ 外键取值**先按列去重再查**：3 行数据、2 个外键列 → 每列各 1 条 SQL，
+    /// 且解析器收到的取值个数是去重后的个数（第一列 2 个不同取值、第二列 1 个），不是行数 3。
+    #[tokio::test]
+    async fn fk_values_are_deduplicated_per_column_before_lookup() {
+        let bytes = bytes_of(vec![
+            vec!["EX-7001", "user_status", "1", "启用"],
+            vec!["EX-7002", "user_status", "1", "启用"],
+            vec!["EX-7003", "sys_dict_type", "1", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "sys_dict_type", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.valid, 3);
+        assert_eq!(report.fk_sql_statements, 2, "两个外键列各 1 条 SQL");
+        assert_eq!(
+            resolver.sizes(),
+            vec![2, 1],
+            "第一列 2 个不同取值、第二列 1 个（不是 3 行各查一次）"
+        );
+    }
+
+    /// ④ 外键列整列为空时不发 SQL（空值的「必填」判定在逐行校验里），
+    /// 且错误类型是 REQUIRED 而不是 FK_NOT_FOUND（不能把「没填」报成「不存在」）。
+    #[tokio::test]
+    async fn fk_column_without_values_sends_no_sql() {
+        let bytes = bytes_of(vec![
+            vec!["EX-7101", "", "", "启用"],
+            vec!["EX-7102", "", "", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.error, 2);
+        assert_eq!(resolver.statements(), 0, "全空的外键列不发 SQL");
+        assert_eq!(resolver.sizes(), Vec::<usize>::new(), "根本没有调用解析器");
+        assert!(
+            report
+                .errors
+                .iter()
+                .all(|issue| issue.kind == ErrorKind::Required),
+            "没填的外键列只能是 REQUIRED：{:?}",
+            report.errors
+        );
+    }
+
+    /// ⑤ 行长按 **字符数**（chars）而不是字节数：32 个汉字放行，33 个汉字报 LENGTH。
+    /// 若实现用 `len()`（UTF-8 字节），32 个汉字会被误判为 96 字节而超限。
+    #[tokio::test]
+    async fn text_length_limit_counts_chars_not_bytes() {
+        let exactly_32 = "测".repeat(32);
+        let over_33 = "测".repeat(33);
+        let bytes = bytes_of(vec![
+            vec![exactly_32.as_str(), "user_status", "1", "启用"],
+            vec![over_33.as_str(), "user_status", "1", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.valid, 1, "32 个汉字正好在上限内（闭区间）");
+        assert_eq!(report.error, 1);
+        let issue = &report.errors[0];
+        assert_eq!(issue.kind, ErrorKind::Length);
+        assert_eq!(issue.column_header, Some("编码"));
+        assert!(
+            issue.message.contains("33"),
+            "文案要报实际字符数：{}",
+            issue.message
+        );
+    }
+
+    /// ⑥ 枚举列 label 与 code 都认、落库统一成 code；未知值报 ENUM 并列出可选范围。
+    #[tokio::test]
+    async fn enum_accepts_label_and_code_but_rejects_unknown() {
+        let bytes = bytes_of(vec![
+            vec!["EX-7201", "user_status", "1", "启用"],
+            vec!["EX-7202", "user_status", "1", "1"],
+            vec!["EX-7203", "user_status", "1", "停用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let outcome = validate(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+            true,
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(outcome.report.valid, 2, "label 与 code 都要认");
+        assert_eq!(outcome.report.error, 1);
+        assert_eq!(outcome.rows.len(), 2);
+        assert!(
+            outcome.rows.iter().all(|row| row.get("status") == "1"),
+            "落库值必须是 code"
+        );
+        let issue = &outcome.report.errors[0];
+        assert_eq!(issue.kind, ErrorKind::Enum);
+        assert_eq!(issue.column_header, Some("状态"));
+        assert!(
+            issue.message.contains("启用") && issue.message.contains("停用"),
+            "文案要列出可选范围：{}",
+            issue.message
+        );
+    }
+
+    /// ⑦ 字典列走 `DictProvider::seed` 的翻译表：label / code 都命中并落成 code，
+    /// 未知值报 DICT；两列共用一个字典编码时只装载一次（不连库）。
+    #[tokio::test]
+    async fn dict_column_translates_labels_and_codes() {
+        let dicts = DictProvider::new();
+        dicts.seed(
+            "user_status",
+            DictTranslation::from_items(vec![
+                ("1".to_string(), "启用".to_string()),
+                ("0".to_string(), "停用".to_string()),
+            ]),
+        );
+        let bytes = bytes_with(
+            &["编码", "状态", "状态别名"],
+            vec![
+                vec!["D-0001", "启用", ""],
+                vec!["D-0002", "1", "停用"],
+                vec!["D-0003", "停用", ""],
+                vec!["D-0004", "未知值", ""],
+            ],
+        );
+        let resolver = CountingFkResolver::new(&[]);
+        let outcome = validate(&DictDefinition, &bytes, &dicts, &resolver, &ctx(), true)
+            .await
+            .expect("预检应成功");
+        assert_eq!(outcome.report.valid, 3, "label/code 都翻译成功");
+        assert_eq!(outcome.report.error, 1);
+        assert_eq!(outcome.rows.len(), 3);
+        assert_eq!(outcome.rows[0].get("status"), "1", "label → code");
+        assert_eq!(outcome.rows[1].get("status"), "1", "code → code");
+        assert_eq!(
+            outcome.rows[1].get("status_alias"),
+            "0",
+            "第二列的 label → code"
+        );
+        assert_eq!(outcome.rows[2].get("status"), "0");
+        let issue = &outcome.report.errors[0];
+        assert_eq!(issue.kind, ErrorKind::Dict);
+        assert_eq!(issue.column_header, Some("状态"));
+        assert!(
+            issue.message.contains("未知值") && issue.message.contains("user_status"),
+            "文案要点名取值与字典编码：{}",
+            issue.message
+        );
+    }
+
+    /// ⑧ `keep_rows = true` 时保留的行**顺序**与 Excel 一致、值已 trim、行号是 Excel 真实行号。
+    #[tokio::test]
+    async fn keep_rows_preserves_order_and_trims_values() {
+        let bytes = bytes_of(vec![
+            vec!["  EX-8001  ", " user_status ", " 1 ", " 启用 "],
+            vec!["EX-8002", "user_status", "1", "启用"],
+            vec![" EX-8003", "user_status", "1", ""],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let outcome = validate(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+            true,
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(outcome.rows.len(), 3);
+        let codes = outcome
+            .rows
+            .iter()
+            .map(|row| row.get("code"))
+            .collect::<Vec<_>>();
+        assert_eq!(codes, vec!["EX-8001", "EX-8002", "EX-8003"], "顺序不能乱");
+        assert_eq!(
+            outcome.rows[0].get("status"),
+            "1",
+            "枚举列落库值是 code，原文的前后空白已被 trim 掉"
+        );
+        assert_eq!(
+            outcome
+                .rows
+                .iter()
+                .map(|row| row.row_no)
+                .collect::<Vec<_>>(),
+            vec![2, 3, 4],
+            "行号是 Excel 真实行号（表头占第 1 行）"
+        );
+    }
+
+    /// ⑨ 整行为空只计入 `skipped_blank`，既不进 total 也不报错。
+    #[tokio::test]
+    async fn blank_rows_are_counted_as_skipped_blank() {
+        let bytes = bytes_of(vec![
+            vec!["EX-8101", "user_status", "1", "启用"],
+            vec!["", "", "", ""],
+            vec!["EX-8102", "user_status", "1", "启用"],
+        ]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.skipped_blank, 1, "中间空行计入 skipped_blank");
+        assert_eq!(report.total, 2, "空行不进 total");
+        assert_eq!(report.valid, 2);
+        assert_eq!(report.error, 0);
+    }
+
+    /// ⑩ 一行有多个问题：明细按列各记一条，但 `error`（失败行数）只计 1。
+    #[tokio::test]
+    async fn one_row_with_multiple_issues_counts_error_once() {
+        let over_long = "测".repeat(33);
+        let bytes = bytes_of(vec![vec![over_long.as_str(), "user_status", "1", "停用"]]);
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition(),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.error, 1, "同一行多错只计 1 行");
+        assert_eq!(report.valid, 0);
+        assert_eq!(report.errors.len(), 2, "明细按列各一条");
+        let kinds = report
+            .errors
+            .iter()
+            .map(|issue| issue.kind)
+            .collect::<Vec<_>>();
+        assert!(kinds.contains(&ErrorKind::Length));
+        assert!(kinds.contains(&ErrorKind::Enum));
+        assert!(
+            report.errors.iter().all(|issue| issue.row_no == 2),
+            "两条明细都指向同一行"
+        );
+    }
+
+    /// ⑪ 行数上限是**闭区间**：恰好等于 `max_rows` 放行，多 1 行才拒。
+    #[tokio::test]
+    async fn row_limit_is_inclusive_at_exact_max() {
+        let rows = (0..2)
+            .map(|index| {
+                vec![
+                    format!("EX-82{:02}", index),
+                    "user_status".to_string(),
+                    "1".to_string(),
+                    "启用".to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let bytes = bytes_of(
+            rows.iter()
+                .map(|row| row.iter().map(String::as_str).collect::<Vec<_>>())
+                .collect(),
+        );
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition_with_max(2),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("恰好 2 行 = 上限，必须放行");
+        assert_eq!(report.total, 2);
+        assert_eq!(report.valid, 2);
+    }
+
+    /// ⑫ 明细超过 `MAX_ERRORS` 时只留前 2 000 条并置 `truncated`；
+    /// 同时证明 2 001 行 × 2 个外键列仍然只有 2 条 SQL。
+    #[tokio::test]
+    async fn error_details_are_truncated_at_max_errors() {
+        let rows = (0..MAX_ERRORS + 1)
+            .map(|index| {
+                vec![
+                    format!("EX-{:05}", 10_000 + index),
+                    "user_status".to_string(),
+                    "1".to_string(),
+                    // 「停用」不在 STATUS（只有 启用）里 → 每行 1 条 ENUM
+                    "停用".to_string(),
+                ]
+            })
+            .collect::<Vec<_>>();
+        let bytes = bytes_of(
+            rows.iter()
+                .map(|row| row.iter().map(String::as_str).collect::<Vec<_>>())
+                .collect(),
+        );
+        let resolver = CountingFkResolver::new(&["user_status", "1"]);
+        let report = precheck(
+            &definition_with_max(5_000),
+            &bytes,
+            &DictProvider::new(),
+            &resolver,
+            &ctx(),
+        )
+        .await
+        .expect("预检应成功");
+        assert_eq!(report.error, MAX_ERRORS + 1, "失败行数按行计，不截断");
+        assert_eq!(report.errors.len(), MAX_ERRORS, "明细只留前 2 000 条");
+        assert!(report.truncated, "截断标志必须为真");
+        assert_eq!(report.fk_sql_statements, 2, "2 001 行 × 2 列仍然 2 条 SQL");
+    }
+
+    /// ⑬ `required_dict_codes` 对**多个字典列共用同一编码**去重，字典只装载一次。
+    #[test]
+    fn required_dict_codes_are_deduplicated_for_dict_columns() {
+        let codes = required_dict_codes(&DictDefinition);
+        assert_eq!(codes, vec!["user_status"], "两列同一编码只能出现一次");
     }
 }

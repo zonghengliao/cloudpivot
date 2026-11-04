@@ -201,3 +201,173 @@ fn describe_carries_all_six_numbers() {
         assert!(text.contains(needle), "报文缺 {needle}：{text}");
     }
 }
+
+/// ⑫ 策略词表：三个取值一个不多一个不少，`as_str` / `label` / `parse` 双向自洽。
+///
+/// 库里存的是 `as_str`（`biz_budget.control_mode` / `sys_config`），报文里用 `label`；
+/// 任何一处漏改都会让「配了 BLOCK 却按 WARN 走」，所以逐值钉死。
+#[test]
+fn control_mode_vocabulary_round_trips() {
+    assert_eq!(ControlMode::ALL.len(), 3, "取值域只能是 OFF/WARN/BLOCK");
+    assert_eq!(
+        ControlMode::ALL.map(ControlMode::as_str),
+        ["OFF", "WARN", "BLOCK"]
+    );
+    assert_eq!(
+        ControlMode::ALL.map(ControlMode::label),
+        ["不校验", "标记并强制审批", "阻断提交"]
+    );
+    for mode in ControlMode::ALL {
+        assert_eq!(
+            ControlMode::parse(mode.as_str()),
+            Some(mode),
+            "as_str 必须能被 parse 还原：{}",
+            mode.as_str()
+        );
+        assert!(!mode.label().is_empty());
+    }
+    // 落库值大小写不敏感 + 前后空白容忍（Excel / 配置页粘贴常带空格）
+    assert_eq!(ControlMode::parse(" block "), Some(ControlMode::Block));
+    assert_eq!(ControlMode::parse("\twarn\n"), Some(ControlMode::Warn));
+    // 空串与未知值一律 None（调用方走默认，不许静默当 OFF）
+    assert_eq!(ControlMode::parse(""), None);
+    assert_eq!(ControlMode::parse("   "), None);
+    assert_eq!(ControlMode::parse("ON"), None, "ON 不是合法取值");
+}
+
+/// ⑬ 槽级策略解析的空白边界：空串 / 纯空格也要继承全局，不能因「有个值」就当非法值丢掉全局。
+#[test]
+fn blank_slot_mode_inherits_global() {
+    for raw in [None, Some(""), Some("   "), Some("\t"), Some("nonsense")] {
+        assert_eq!(
+            ControlMode::resolve(raw, ControlMode::Block),
+            ControlMode::Block,
+            "raw={raw:?} 应继承全局 BLOCK"
+        );
+    }
+    assert_eq!(
+        ControlMode::resolve(Some("off"), ControlMode::Block),
+        ControlMode::Off,
+        "槽级 OFF 覆盖全局 BLOCK（大小写不敏感）"
+    );
+}
+
+/// ⑭ 年度边界：2000 与 2100 都算合法（闭区间），2101 与 1999 越过纪元窗。
+#[test]
+fn slot_year_window_is_inclusive() {
+    let dept = Uuid::now_v7();
+    let account = Uuid::now_v7();
+    for (period, year) in [("2000-01", 2000), ("2100-12", 2100), ("2026-12", 2026)] {
+        let slot = Slot::new(dept, account, period).unwrap_or_else(|| panic!("{period} 应合法"));
+        assert_eq!(slot.fiscal_year, year, "{period} 年度推导错");
+        assert_eq!(slot.year_text(), format!("{year} 年"));
+    }
+    for bad in [
+        "1999-12", "2101-01", "2026-13", "2026-00", "abcd-03", "-2026-03",
+    ] {
+        assert!(
+            Slot::new(dept, account, bad).is_none(),
+            "越界 / 非法的期间码 {bad} 应被拒"
+        );
+    }
+    // 期间码按**位置**取年（0..4）与月（5..7），分隔符不参与校验：
+    // `2026/03` 也能解析出正确的年月（历史数据里出现过手动改分隔符的期间码）。
+    let slash = Slot::new(dept, account, "2026/03").expect("位置解析应容忍分隔符差异");
+    assert_eq!(slash.fiscal_year, 2026);
+    assert_eq!(slash.period_code, "2026/03", "原始期间码原样保留");
+}
+
+/// ⑮ `missing_budget` 只看「年度额度与年度已用都 <= 0」：额度为 0 但有历史占用不算「未编制」。
+#[test]
+fn missing_budget_only_when_no_limit_and_no_usage() {
+    let nothing = verdict(ControlMode::Warn, "0", "0", "0", "0", "100");
+    assert!(nothing.missing_budget, "额度 0 + 已用 0 = 未编制预算");
+
+    let spent_without_limit = verdict(ControlMode::Warn, "0", "500", "0", "0", "100");
+    assert!(
+        !spent_without_limit.missing_budget,
+        "有历史占用说明预算曾经存在过，不能报「未编制」"
+    );
+
+    let has_limit = verdict(ControlMode::Warn, "5000", "0", "0", "0", "100");
+    assert!(!has_limit.missing_budget);
+    // 月度额度没分解行（= 0）时月度闸按 0 判：年度还有钱但月度缺口是全额（ARCH-6 §3.1）
+    assert_eq!(has_limit.month_gap, dec("100"), "月度额度 0 → 月度缺口全额");
+    assert_eq!(has_limit.year_gap, Decimal::ZERO, "年度额度够，不计年缺口");
+    assert!(has_limit.over, "月度闸先命中：{}", has_limit.describe());
+}
+
+/// ⑯ 0 元单永远不超支（任何额度下），即使该槽根本没预算。
+#[test]
+fn zero_amount_is_never_over() {
+    for (limit, used) in [("0", "0"), ("100", "100"), ("100", "200")] {
+        let v = verdict(ControlMode::Block, limit, used, limit, used, "0");
+        assert!(!v.over, "本次 0 元不该超：{}", v.describe());
+        assert_eq!(v.over_amount(), Decimal::ZERO);
+        assert!(!v.blocks(), "0 元单在 BLOCK 模式下也不该被拦");
+    }
+}
+
+/// ⑰ 三种结论的文案头：未编制 / 超支 / 预算内，且都带策略中文名。
+#[test]
+fn describe_branches_are_distinguishable() {
+    let missing = verdict(ControlMode::Warn, "0", "0", "0", "0", "100");
+    assert!(missing.describe().starts_with("未编制预算："));
+
+    let over = verdict(ControlMode::Block, "1000", "900", "1000", "0", "500");
+    assert!(over.describe().starts_with("超出预算（超支 "));
+
+    let within = verdict(ControlMode::Off, "1000", "0", "1000", "0", "100");
+    // 剩余 = min(年可用, 月可用)（不扣本次金额：本次金额单列在文案里）
+    assert!(within.describe().contains("预算内（剩余 1000）"));
+    for text in [missing.describe(), over.describe(), within.describe()] {
+        assert!(
+            text.contains("（") && text.contains("）"),
+            "结论必须带策略中文名：{text}"
+        );
+    }
+}
+
+/// ⑱ `OFF` 仍如实算出缺口（只用于日志/预览），但永不阻断、也不该写占用。
+#[test]
+fn off_mode_still_reports_gaps_without_blocking() {
+    let v = verdict(ControlMode::Off, "1000", "0", "1000", "0", "1500");
+    assert!(v.over, "OFF 不校验但缺口照算，日志里要看得见");
+    assert_eq!(v.over_amount(), dec("500"));
+    assert!(!v.blocks(), "OFF 永不阻断");
+    assert!(!v.mode.enforces(), "OFF 不占用");
+}
+
+/// ⑲ `over_amount` = 两个缺口里更大的那个，且恒 >= 0（额度调低后的负可用已被截零）。
+#[test]
+fn over_amount_is_max_and_never_negative() {
+    // 只有年缺口：年可用 1000-900=100 → 缺口 500-100=400；月可用 10000-0 → 月缺口 0
+    let only_year = verdict(ControlMode::Warn, "1000", "900", "10000", "0", "500");
+    assert_eq!(
+        (only_year.year_gap, only_year.month_gap),
+        (dec("400"), Decimal::ZERO)
+    );
+    assert_eq!(only_year.over_amount(), dec("400"));
+    // 只有月缺口：年可用 10000；月可用 1000-900=100 → 月缺口 400
+    let only_month = verdict(ControlMode::Warn, "10000", "0", "1000", "900", "500");
+    assert_eq!(
+        (only_month.year_gap, only_month.month_gap),
+        (Decimal::ZERO, dec("400"))
+    );
+    assert_eq!(only_month.over_amount(), dec("400"));
+    // 两边都缺但大小不同：年缺口 100、月缺口 400 → 取大的（月）
+    let both = verdict(ControlMode::Warn, "400", "0", "100", "0", "500");
+    assert_eq!((both.year_gap, both.month_gap), (dec("100"), dec("400")));
+    assert_eq!(both.over_amount(), dec("400"), "取 max 而不是 min/年缺口");
+    let same = verdict(ControlMode::Warn, "1000", "900", "1000", "900", "500");
+    assert_eq!(same.year_gap, same.month_gap, "两道闸一样紧");
+    assert_eq!(same.over_amount(), dec("400"));
+    // 已用远超额度（可用为负）时截零，缺口 = 本次金额本身，不是 本次 + 超编额度
+    let negative_available = verdict(ControlMode::Warn, "100", "500", "100", "500", "50");
+    assert_eq!(negative_available.year_gap, dec("50"));
+    assert_eq!(negative_available.year_available(), Decimal::ZERO);
+    assert_eq!(negative_available.over_amount(), dec("50"));
+    let none = verdict(ControlMode::Warn, "10000", "0", "10000", "0", "1");
+    assert_eq!(none.over_amount(), Decimal::ZERO);
+    assert!(!none.over);
+}
