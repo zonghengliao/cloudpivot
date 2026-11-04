@@ -1,4 +1,5 @@
-# 闸② scope_gate（隔离树，仅含本卡改动）
+# python3 scripts/lint/scope_gate.py --root .
+闸② 判定面（v2）：扫描生产面 340 个文件 / 跳过测试面 61 个文件
     跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
   PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
     FAIL: business/erp/asset_handler.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT

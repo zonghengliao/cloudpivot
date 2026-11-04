@@ -1,0 +1,3 @@
+# cd frontend && npx vue-tsc --noEmit
+exit=0
+# 无任何诊断输出（0 error）
