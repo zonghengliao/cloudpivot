@@ -24,6 +24,8 @@ pub mod dict;
 pub mod file;
 pub mod health;
 pub(crate) mod ipgeo;
+// P2-7：账务不变量巡检结果落库 + 只读看板（见 `invariant` 模块文档）
+pub mod invariant;
 pub mod job;
 pub mod log;
 pub mod online;

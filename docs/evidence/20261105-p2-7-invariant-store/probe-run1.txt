@@ -1,0 +1,37 @@
+基线：库 cloudpivot_p27_inv @ 127.0.0.1:5432，实例 http://127.0.0.1:18095
+
+A1     OK     sys_invariant_result 表存在且列齐全 | 列数=16
+A2     OK     run_at 倒序索引 + 非 OK 部分索引存在 | idx_invariant_not_ok,idx_invariant_run_at,sys_invariant_result_pkey
+A3     OK     status / trigger_type 的 CHECK 约束存在 | ck_invariant_status,ck_invariant_trigger
+A4     OK     sys_job 已种入 invariant_audit（可见行，供查看/手动执行） | [["invariant_audit", "0 20 2 * * *", "invariant_audit", "0"]]
+B1a    OK     第 1 轮 POST /support/invariant/run 返回 200 | HTTP 200 code=0 msg=ok
+B1b    OK     第 1 轮结论是账务结论（OK/FAIL）且检查条数 > 0 | status=OK total=52 passed=52 blockers=0 warns=0 duration=2836ms
+B1c    OK     第 1 轮 trigger_type=MANUAL | MANUAL
+B2a    OK     第 2 轮 POST /support/invariant/run 返回 200 | HTTP 200 code=0 msg=ok
+B2b    OK     第 2 轮结论是账务结论（OK/FAIL）且检查条数 > 0 | status=OK total=52 passed=52 blockers=0 warns=0 duration=2887ms
+B2c    OK     第 2 轮 trigger_type=MANUAL | MANUAL
+B3     OK     两轮运行各落一行（count +2） | 6 -> 8
+B4     OK     库里最新一行的 id 与第二轮返回体一致 | 01a1a7cd-2325-7506-8af6-09d73438d53b
+B5     OK     库里最新一行的 total/passed/failed 与返回体一致 | db=52/52/0 api=52/52/0
+B6     OK     明细与失败项两个 JSONB 列都已写入 | detail=t failures=t
+B7     OK     两轮是两条独立记录（id 不同） | 01a1a7cd-17ce-7071-a480-215bb76b24cf vs 01a1a7cd-2325-7506-8af6-09d73438d53b
+C1     OK     GET /overview 返回 200
+C2     OK     overview.latest 指向最近一次运行 | 01a1a7cd-2325-7506-8af6-09d73438d53b
+C3     OK     当前失败项条数 == 最近一次 failed | failures=0 failed=0
+C4     OK     趋势最后一点是今天（北京时间切日） | 最后一点=2026-11-05 今天=2026-11-05
+C5     OK     今天的趋势点累计到两轮运行 | runs=8
+C6     OK     趋势口径自洽：失败数为 0 的点不会标成非 OK
+C7     OK     窗口内运行次数 >= 2 | 8
+C8     OK     看板展示的调度口径 = 每天 02:20 | {"task_name": "invariant_audit", "cron": "0 20 2 * * *", "description": "内置定时任务，每天 02:20 自动执行（无需在定时任务页启用）"}
+D1     OK     GET /page 返回分页 | total=8 本页=8
+D2     OK     分页按 run_at 倒序（首行是最新一次）
+D3     OK     分页列表不带全量明细（只带计数） | 字段=['blockers', 'database_name', 'duration_ms', 'error', 'failed', 'id', 'passed', 'run_at', 'script_path', 'status', 'total', 'trigger_type', 'warns']
+D4     OK     status 过滤生效 | ERROR 行 1 条
+D5     OK     详情返回全量检查明细（条数 == total） | detail=52 total=52
+D6     OK     详情里的失败项条数 == failed | failures=0 failed=0
+D7     OK     检查项字段与脚本输出同构（name/group/level/ok/detail）
+D8     OK     非法 id 返回 400（不是 500） | HTTP 400
+
+==============================================================================
+结果：31/31 通过   FAIL=0
+==============================================================================

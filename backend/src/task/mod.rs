@@ -32,6 +32,7 @@
 //! | 审批超时扫描 + 催办 | `0 */10 * * * *` | `flow_timeout_scan` | 批次 D · D4c（真实现，见 `business::flow::timeout::register_builtin`） |
 //! | 审批图快照自检 | `0 30 3 * * *` | `flow_graph_selfcheck` | 批次 D · D4d（真实现，见 `business::flow::maintain::register_builtin`） |
 //! | 令牌吊销表清理 | `0 50 3 * * *` | `token_blacklist_cleanup` | 批次 G · 令牌吊销落库（见 `system::auth::cleanup::register_builtin`） |
+//! | 账务不变量巡检 | `0 20 2 * * *` | `invariant_audit` | P2-7（真实现，见 `support::invariant::runner`） |
 //!
 //! 五张日志表错峰清理（均为每小时 3 点的不同分钟），避免同时发起批量删除抬高
 //! 数据库瞬时压力。存储对象回收单独排在 04:30，与日志清理完全错峰（它要遍历
@@ -323,6 +324,37 @@ impl Scheduler {
         // 判据 `expire_at < now() - 1h`（保留宽限吸收时钟偏差）；清理任务同时是
         // 「每请求主键点查」查询计划的隐式前提，挂了必须有人知道（任务内发 rows 指标）。
         crate::system::auth::cleanup::register_builtin(self);
+        // P2-7：账务不变量巡检（每天 02:20）。跑的是闸③ 同一个脚本
+        // `scripts/verify/erp_invariants.py --json`，结果落 `sys_invariant_result`，
+        // 供「账务巡检看板」出趋势。02:20 与 03:00-03:50 的日志清理错峰。
+        // 这里**只注册调度**，任务体在 `support::invariant::runner`（跑脚本 + 落库）。
+        {
+            use crate::support::invariant::runner;
+            self.register_cron(
+                runner::TASK_NAME,
+                runner::CRON,
+                "系统任务：账务不变量巡检（结果落 sys_invariant_result）",
+                || {
+                    tokio::spawn(async move {
+                        match runner::run_and_store(runner::Trigger::Scheduled).await {
+                            Ok(record) => tracing::info!(
+                                result = %runner::summary(&record),
+                                "账务不变量巡检完成"
+                            ),
+                            Err(error) => tracing::error!(
+                                %error,
+                                "账务不变量巡检落库失败（本次运行未被记录）"
+                            ),
+                        }
+                    })
+                },
+            );
+            tracing::info!(
+                invoke_target = runner::TASK_NAME,
+                cron = runner::CRON,
+                "账务不变量巡检任务已注册（P2-7）"
+            );
+        }
     }
 
     /// 注册一个业务侧的内置 cron 任务（供业务模块在 [`Self::register_builtin`] 中调用）。
@@ -559,6 +591,7 @@ async fn run_builtin(invoke_target: &'static str) {
 /// 已注册返回 `true`，否则 `false`。
 pub fn is_registered_target(target: &str) -> bool {
     LOG_CLEAN_TASKS.iter().any(|(name, _)| *name == target)
+        || target == crate::support::invariant::runner::TASK_NAME
 }
 
 /// 执行指定处理器。
@@ -608,6 +641,17 @@ pub async fn run_handler(
                 .await
                 .map_err(|e| utils::db_error(e, "执行业务提醒扫描"))?;
             Ok(report.summary(kind))
+        }
+        // P2-7：账务不变量巡检（定时任务页「执行一次」与内置 cron 共用同一任务体）。
+        // 注意这里返回 Ok 即使 status = FAIL —— 那是账务结论，不是任务执行失败；
+        // 只有脚本没跑成（ERROR 行）与写库失败会让摘要里出现原因。
+        target if target == crate::support::invariant::runner::TASK_NAME => {
+            let record = crate::support::invariant::runner::run_and_store(
+                crate::support::invariant::runner::Trigger::Manual,
+            )
+            .await
+            .map_err(|e| utils::db_error(e, "执行账务不变量巡检并落库"))?;
+            Ok(crate::support::invariant::runner::summary(&record))
         }
         other => Err(ApiError::new(
             422,

@@ -103,6 +103,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '在线用户', permission: 'support:online:list' },
       },
       {
+        path: 'support/invariant',
+        name: 'SupportInvariant',
+        component: () => import('@/views/support/invariant/index.vue'),
+        meta: { title: '账务巡检', permission: 'support:invariant:list' },
+      },
+      {
         path: 'user/profile',
         name: 'UserProfile',
         component: () => import('@/views/user/profile.vue'),
