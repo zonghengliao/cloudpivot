@@ -148,11 +148,41 @@ PASS | 页面 /business/erp/voucher
 
 `pnpm test:unit`：**606/606 pass**（在 99，同一提交 `c003ab1`）。
 
+### 5.6 后端测试（`cargo test -j 2 --no-fail-fast`，干净库 `cp_gate_v217`）
+
+干净库自举：新建空库 → 同一份代码启动一次 → 引擎自己应用 1..217（**102 表 / admin 1 行 / maxver 217**），
+说明这 6 条迁移在全新库上也成立，不依赖生产存量。
+
+两轮结果：
+
+| 轮 | 合计 | 失败 |
+|---|---|---|
+| 第 1 轮（`c003ab1`） | 2517 passed | 3 failed（2 条并行假红 + **1 条真红** I06） |
+| 第 2 轮（修完 I06 后） | **2518 passed** | 2 failed（**全是并行假红**，已逐条归因） |
+
+**真红（已在本次修掉，`114a574`）**：`testd::impexp::i06_task_import_definition_missing` ——
+P1-6（`64563c5`）交付了 6 个主数据 `ImportDefinition`，但 I06 的「内建导入定义清单」tripwire
+还钉在 `vec![system.dict_item]` ⇒ 交付后一直是红。生产 impexp 注册表实测就这 7 个 biz_type，
+属**有意变更**，故补齐期望值并改为排序后比较（注册顺序不是稳定契约）。修后单跑 → passed。
+
+**两条并行假红（非本卡引入，已建卡 `t_9476d9f1` 给 test-enginner）**：
+
+1. `cash_flow::tests::r3_real_config_covers_all_accounts`
+   —— 报「`P21AUXA P2-1 测试资产` / `P21AUXB P2-1 测试负债` 没有分类行」。这两个科目是 **P2-1 用例
+   造出来没清理的夹具**（`created_at` 与测试同分钟）；删掉这两行后**单跑即 passed**。
+   该断言遍历 `biz_account` 全表，与并行造科目的用例必撞。
+2. `period_items::tests::can_close_is_unaffected_by_items`
+   —— 固定期次 `2033-10` + 按整期 `UPDATE biz_voucher ... WHERE period='2033-10'`，把并行用例
+   刚种的草稿凭证一并过账；**单跑即 passed**（skill `references/deploy-cards.md` §7.2 记录过同类）。
+
+两条都不是产品代码问题（零 schema / 零业务逻辑关联），但它们是**恒定假红**，等于废掉这道门禁，
+所以单独建卡修测试隔离，不塞进发布卡里改别人的断言。
+
 ## 6. 顺带发现 / 未做
 
 - `deploy_check_v2.sh` 算「迁移落后 97 个」是**算法错**：它拿 `max(version)`（91，只对 system 迁移有意义）
   跟磁盘号（217）比；business 迁移的 `version` 列存的是**不补零的文件号**且与 system 分属两套版本空间。
   正确判据是「库 `max(version::int)` vs 磁盘 business 最大号」。本次未改那个脚本（属 laoliu 的巡检侧），
   但 `deploy.sh` 已改成按「磁盘 vs 库」判，两者口径可以对齐了。
-- 生产上遗留两个演练/测试库待清理：`cp_reh_212217`（本次预演）、99 上的 `cp_gate_v217`（本次门禁用）。
+- 本次预演/门禁用的两个库已在验收后删除：`cp_reh_212217`（144 预演）、`cp_gate_v217`（99 门禁）。
 - 生产 `frontend/` 下历史 dist 备份已累积 9 个（各 13–14 MB），未清理（不属本卡范围）。
