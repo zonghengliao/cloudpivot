@@ -51,7 +51,7 @@
  * | `STOCK_TRANSFER` | `GET /business/erp/transfer/{id}` | 活着 → `code 0` |
  * | `PAYABLE_PAY` / `PAYABLE_CANCEL` | `GET /business/erp/payable/{id}` | 后端注释：不存在 → `404 + 10002` |
  * | `VOUCHER_REVERSE` | `GET /business/erp/voucher/{id}` | 后端注释：不存在 → `404` |
- * | `FLOW_EDGE_CFG` | `GET /business/flow/state-edge?entity={实体}` | 无「单条配置」详情接口（`biz_id` 是变更指纹，不是库里的行）→ 探实体是否存在 |
+ * | `FLOW_EDGE_CFG` | `GET /business/flow/state-edge?entity={实体}` | 无「单条配置」详情接口（`biz_id` 是变更指纹，不是库里的行）→ 探实体是否存在；非法实体 → `400 + 10001` |
  *
  * 探测结论只有四种（见 {@link classifyProbeFailure}）：
  * `alive`（可跳）/ `gone`（已清场）/ `forbidden`（没权限）/ `unknown`（探测失败，说不清）。
@@ -95,7 +95,8 @@ export interface BizLinkTarget {
   /**
    * 除 HTTP 404 之外的「对象不存在」业务码（该类型自己的口径，抄后端源码）。
    *
-   * 生产实测：任务 `63001`、合同 `66014`；边配置的「实体不认识」是 `65005`（HTTP 400）。
+   * 生产实测：任务 `63001`、合同 `66014`、应付/凭证/入库/调拨/采购单 `10002`；
+   * 边配置的「实体不认识」是 `10001`（HTTP 400，报文：`未知的单据类型「NOPE」…`）。
    */
   notFoundCodes?: readonly number[];
 }
@@ -229,7 +230,7 @@ export const BIZ_LINKS: Readonly<Partial<Record<FlowBizType, BizLinkTarget>>> = 
       // 实体名都取不到 ⇒ 没法拿真接口确认，别假装探测过（页面照常可打开）
       return entity ? { url: '/api/business/flow/state-edge', params: { entity } } : null;
     },
-    notFoundCodes: [65005],
+    notFoundCodes: [10001],
   },
 };
 

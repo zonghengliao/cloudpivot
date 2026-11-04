@@ -265,11 +265,14 @@ test('探测失败分三支：403 归「没权限」，404/不存在业务码归
   // 404：生产实测「任务软删 → HTTP 404 + 63001」「合同软删 → HTTP 404 + 66014」
   assert.equal(classifyProbeFailure({ status: 404, code: 63001 }), 'gone');
   assert.equal(classifyProbeFailure({ status: 404, code: 66014 }), 'gone');
+  assert.equal(classifyProbeFailure({ status: 404, code: 10002 }), 'gone');
   assert.equal(classifyProbeFailure({ code: RESOURCE_NOT_FOUND }), 'gone');
   assert.equal(classifyProbeFailure({ code: 63001 }, [63001]), 'gone');
   // 状态码丢了但业务码口径在（单测兜住「以后有人只加业务码」的情况）
-  assert.equal(classifyProbeFailure({ code: 65005 }, [65005]), 'gone');
-  assert.equal(classifyProbeFailure({ code: 65005 }), 'unknown');
+  // 边配置「实体不认识」= HTTP 400 + 10001（生产实测报文：未知的单据类型「NOPE」…）
+  assert.equal(classifyProbeFailure({ status: 400, code: 10001 }, [10001]), 'gone');
+  assert.equal(classifyProbeFailure({ code: 10001 }), 'unknown');
+  assert.equal(BIZ_LINKS.FLOW_EDGE_CFG?.notFoundCodes?.includes(10001), true);
   // 网络失败 / 超时 / 5xx：说不清，但仍不跳（fail-closed）
   assert.equal(classifyProbeFailure({ status: 500, code: 10004 }), 'unknown');
   assert.equal(classifyProbeFailure({}), 'unknown');
