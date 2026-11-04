@@ -191,6 +191,31 @@
             <t-link theme="primary" :data-testid="`btn-voucher-view-${row.voucher_no}`" @click.stop="openDetail(row)">
               查看
             </t-link>
+            <!--
+              ★ P0-FIX-4B：审核链三动作（DRAFT→AUDITED→POSTED）。
+              按钮清单由 `voucher-audit-logic.ts::voucherActionButtons` 给：状态先筛一道
+              （草稿只有「审核」、已审核才有「反审核 / 记账」、已记账一个都没有），
+              再叠权限 + 自审。置灰的用 <span> 兜住 title —— TDesign 的 disabled 链接
+              不派发鼠标事件，tooltip 永远不出现（见 SKILL「t-tooltip 包 disabled」）。
+            -->
+            <template v-for="btn in auditButtons(row)" :key="btn.key">
+              <span
+                v-if="btn.disabled"
+                class="op-dead"
+                :title="btn.reason"
+                :data-testid="`btn-voucher-${btn.key}-${row.voucher_no}`"
+              >
+                {{ btn.label }}
+              </span>
+              <t-link
+                v-else
+                :theme="btn.theme"
+                :data-testid="`btn-voucher-${btn.key}-${row.voucher_no}`"
+                @click.stop="onAuditAction(btn, row)"
+              >
+                {{ btn.label }}
+              </t-link>
+            </template>
             <t-link
               v-if="canReverse(row)"
               theme="danger"
@@ -271,6 +296,42 @@
             </t-button>
           </div>
         </div>
+
+        <!--
+          ★ P0-FIX-4B：审核链动作条（详情里直接操作，不必回列表点）。
+          状态先筛（草稿只有「审核」/ 已审核才有「反审核 · 记账」/ 已记账没有），
+          没权限或自审的置灰并在右侧写出原因 —— 「为什么点不了」比「按钮凭空消失」诚实。
+        -->
+        <div class="audit-bar" data-testid="voucher-detail-audit-actions">
+          <t-button
+            v-for="btn in detailAuditButtons"
+            :key="btn.key"
+            size="small"
+            :theme="btn.theme"
+            :variant="btn.disabled ? 'outline' : 'base'"
+            :disabled="btn.disabled"
+            :data-testid="`btn-voucher-detail-${btn.key}`"
+            @click="onAuditAction(btn, detail)"
+          >
+            {{ btn.label }}
+          </t-button>
+          <span v-if="auditBlockedReasons.length === 0 && detailAuditButtons.length === 0" class="audit-bar__why">
+            没有可执行的审核动作
+          </span>
+          <span v-else-if="auditBlockedReasons.length > 0" class="audit-bar__why">
+            {{ auditBlockedReasons.join('；') }}
+          </span>
+          <span class="audit-bar__spacer" />
+          <span class="audit-bar__note" data-testid="voucher-audit-note">{{ voucherAuditNote(detail.status) }}</span>
+        </div>
+
+        <t-alert
+          v-if="auditError"
+          theme="error"
+          :message="auditError"
+          data-testid="voucher-audit-error"
+          class="audit-alert"
+        />
 
         <!-- ★ P-FLOW-3B：红冲审批中 → 说清「账没动」+ 撤回入口 -->
         <t-alert
@@ -404,17 +465,68 @@
             节点进度 + 审批人明细（谁 / 什么时间 / 意见或跳过说明）都来自
             `GET /business/flow/instance/{id}`，前端不自己推「走到第几步」。
           -->
-          <template v-if="hasApprovalProgress(reverseProgress)">
+          <template v-if="hasApprovalProgress(approvalProgress)">
             <div class="section-title">{{ APPROVAL_PROGRESS_TITLE }}</div>
             <FlowProgress
-              :nodes="reverseProgress.nodes"
-              :tasks="reverseProgress.tasks"
+              :nodes="approvalProgress.nodes"
+              :tasks="approvalProgress.tasks"
               data-testid="voucher-approval-progress"
             />
           </template>
         </t-loading>
       </div>
     </t-drawer>
+
+    <!--
+      ==================== ④ 反审核弹窗（原因必填） ====================
+      AUDITED → DRAFT，PRD E4-09。原因写进凭证状态日志，所以**必填**：
+      确认按钮在理由为空时置灰，且点确认再校验一次（两条路都堵，单测覆盖校验函数）。
+    -->
+    <t-dialog
+      v-model:visible="unAuditVisible"
+      header="反审核（打回草稿）"
+      theme="warning"
+      width="520px"
+      :confirm-btn="{
+        content: '确认反审核',
+        theme: 'warning',
+        loading: auditSubmitting,
+        disabled: !unAuditReasonValid,
+      }"
+      :close-on-overlay-click="!auditSubmitting"
+      data-testid="voucher-unaudit-dialog"
+      @confirm="submitUnAudit"
+    >
+      <div v-if="unAuditTarget" class="dialog-body">
+        <div class="dialog-meta">
+          <span class="mono">{{ unAuditTarget.voucher_no }}</span>
+          <span class="muted">
+            {{ voucherStatusLabel(unAuditTarget.status) }} → 草稿
+          </span>
+        </div>
+        <t-form label-align="top">
+          <t-form-item label="反审核原因" required-mark>
+            <t-textarea
+              v-model="unAuditForm.reason"
+              :maxlength="200"
+              :autosize="{ minRows: 3, maxRows: 5 }"
+              placeholder="例如：科目选错，需重做 / 金额录错，已与原始单据核对"
+              data-testid="voucher-unaudit-reason"
+            />
+          </t-form-item>
+        </t-form>
+        <p class="form-tip">
+          原因<strong>必填</strong>，会写进凭证状态日志（审计要能查到「为什么把已审核打回草稿」）。
+          反审核后凭证回到「草稿」，改完需要重新审核才能记账。
+        </p>
+        <t-alert
+          v-if="unAuditError"
+          theme="error"
+          :message="unAuditError"
+          data-testid="voucher-unaudit-error"
+        />
+      </div>
+    </t-dialog>
 
     <!-- ==================== ④ 红冲弹窗（原因必填 → P-FLOW-3B 起走审批） ==================== -->
     <t-dialog
@@ -646,6 +758,26 @@ import {
   loadApprovalProgress,
   type ApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
+/**
+ * ★ P0-FIX-4B：审核 / 反审核 / 记账
+ *
+ * - `voucher-audit-logic.ts` 是「哪个状态能点哪个按钮、为什么点不了」的**唯一真相**
+ *   （纯函数，`tests/unit/p0-fix-4b-voucher-audit.test.ts` 直接打状态矩阵）；
+ * - `voucher-audit-api.ts` 是三个写接口的契约（路径 / 入参 / 权限码写在文件头）。
+ *
+ * 页面这一层只做三件事：把 `hasPermission` 喂进去、弹确认、把回执贴回列表和抽屉。
+ */
+import {
+  unAuditReasonError,
+  voucherActionButtons,
+  voucherActionConfirmText,
+  voucherActionDoneText,
+  voucherApprovalInstanceId,
+  voucherAuditNote,
+  type VoucherActionButton,
+  type VoucherAuditAction,
+} from './voucher-audit-logic';
+import { auditVoucher, postVoucher, unAuditVoucher } from './voucher-audit-api';
 
 /** 表格列（`colKey` 与 `VoucherRow` 字段同名；`source_type` / `entry_count` 不是列字段，走插槽） */
 const columns: PrimaryTableCol[] = [
@@ -665,7 +797,8 @@ const columns: PrimaryTableCol[] = [
   { colKey: 'total_debit', title: '借方', width: 130, align: 'right' },
   { colKey: 'total_credit', title: '贷方', width: 130, align: 'right' },
   { colKey: 'status', title: '状态', width: 100 },
-  { colKey: 'op', title: '操作', width: 80, fixed: 'right' },
+  // P0-FIX-4B：操作列从「查看 / 红冲」扩成「查看 + 审核链三动作 + 红冲」，80px 放不下
+  { colKey: 'op', title: '操作', width: 220, fixed: 'right' },
 ];
 
 /** 分录列（★ 借方 / 贷方两列并排，空的那侧不写 0，与纸质凭证同排版） */
@@ -886,22 +1019,22 @@ const detailLoading = ref(false);
 const detail = ref<VoucherDetailEx | null>(null);
 
 /**
- * 审批进度（C2）。
+ * 审批进度（C2 + P1-FIX-11）。
  *
- * 凭证只在「红冲审批中」时挂 `pending_reverse_instance_id`（P-FLOW-3B 起 `VoucherRes`
- * 的列表 / 详情 / 红冲回执三处都下发），所以这里只有一张单能画：红冲审批。
+ * 凭证的审批实例有两处来源，取先有值的那个（判据在
+ * `voucher-audit-logic.ts::voucherApprovalInstanceId`，单测覆盖四种组合）：
+ * - `pending_reverse_instance_id`：红冲审批中（P-FLOW-3B，列表 / 详情 / 红冲回执三处都下发）；
+ * - `approval_instance_id`：后端 4A 若给审核链也挂实例，就用它。
+ *
  * 装载器与采购 / 收货 / 应付 / 调拨同一个（`shared/approval-progress`），
  * `tasks` 就是同一接口的 `timeline[]`（谁 / 时间 / 意见 / 跳过说明）。
  * 拉不到（权限 / 实例已归档）→ 空结果，只少这一块，不影响凭证本身。
  */
-const reverseProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
+const approvalProgress = ref<ApprovalProgress>({ ...EMPTY_APPROVAL_PROGRESS });
 
-/** 按凭证当前的红冲实例 id 重拉进度（没有实例 id → 直接清空，一次请求都不发）。 */
-async function loadReverseProgress(row: VoucherDetailEx | null): Promise<void> {
-  reverseProgress.value = await loadApprovalProgress(
-    row?.pending_reverse_instance_id ?? null,
-    getFlowInstance,
-  );
+/** 按凭证当前挂的审批实例 id 重拉进度（没有实例 id → 直接清空，一次请求都不发）。 */
+async function loadVoucherApprovalProgress(row: VoucherDetailEx | null): Promise<void> {
+  approvalProgress.value = await loadApprovalProgress(voucherApprovalInstanceId(row), getFlowInstance);
 }
 
 /** 空凭证（打开抽屉的占位，避免下一帧读到上一张凭证的合计） */
@@ -937,11 +1070,11 @@ async function openDetail(row: VoucherRow): Promise<void> {
   detailVisible.value = true;
   detailLoading.value = true;
   // 先清进度：上一张凭证的红冲审批节点不能漏到这一张上
-  reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+  approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
   try {
     const loaded = await loadDetailEx(row.id);
     detail.value = normalizePendingReverse(loaded);
-    await loadReverseProgress(detail.value);
+    await loadVoucherApprovalProgress(detail.value);
   } catch (error) {
     // 详情失败不关抽屉：单头仍可看，分录位置给出原因
     void MessagePlugin.error(messageOf(error));
@@ -970,7 +1103,7 @@ async function openById(id: string | null): Promise<void> {
   detailLoading.value = true;
   try {
     detail.value = normalizePendingReverse(await loadDetailEx(id));
-    await loadReverseProgress(detail.value);
+    await loadVoucherApprovalProgress(detail.value);
   } catch (error) {
     void MessagePlugin.error(messageOf(error));
   } finally {
@@ -989,6 +1122,166 @@ const balance = computed(() =>
 
 /** 合计行样式类（平 = 绿，不平 = 红） */
 const balanceClass = computed(() => (balance.value.balanced ? 'balance--ok' : 'balance--bad'));
+
+// ==================== P0-FIX-4B：审核链（审核 / 反审核 / 记账） ====================
+
+/**
+ * 审核链动作的操作对象。
+ *
+ * 列表行（`VoucherRowEx`）与详情（`VoucherDetailEx`）都满足：审核动作只需要这 4 个字段。
+ * `create_by` 后端**没有**下发给列表 / 详情（`voucher_query.rs::VoucherRes` 里没这个字段），
+ * 所以声明成可选：拿不到就不做自审判定（宁可不拦，也不误拦），真正的自审闸在后端 403。
+ */
+interface VoucherAuditable {
+  id: string;
+  voucher_no: string;
+  status: string;
+  create_by?: string | null;
+}
+
+/** 写操作进行中（列表 / 详情 / 弹窗共用一把，避免连点打出两次状态流转） */
+const auditSubmitting = ref(false);
+/** 审核链最后一次失败的原因（详情抽屉里常驻显示，关掉弹窗也还看得见） */
+const auditError = ref('');
+
+/** 反审核弹窗 */
+const unAuditVisible = ref(false);
+const unAuditTarget = ref<VoucherAuditable | null>(null);
+const unAuditForm = reactive({ reason: '' });
+const unAuditError = ref('');
+
+/** 原因必填：非空白才允许点「确认反审核」（判据在 `voucher-audit-logic.ts`，单测直接打） */
+const unAuditReasonValid = computed(() => unAuditReasonError(unAuditForm.reason) === '');
+
+/** 判定按钮可用性需要的上下文（权限 / 当前用户 / 制单人） */
+function auditContextOf(target: VoucherAuditable): {
+  hasPermission: (code: string) => boolean;
+  currentUserId: string | null;
+  createdBy: string | null;
+} {
+  return {
+    hasPermission: (code: string) => userStore.hasPermission(code),
+    currentUserId: userStore.userInfo?.id ?? null,
+    createdBy: target.create_by ?? null,
+  };
+}
+
+/** 列表某行的审核按钮（状态 → 权限 → 自审三道筛，纯逻辑在 `voucher-audit-logic.ts`） */
+function auditButtons(target: VoucherAuditable): VoucherActionButton[] {
+  return voucherActionButtons(target.status, auditContextOf(target));
+}
+
+/** 详情抽屉的审核按钮（同上；`detail` 为空时没有按钮） */
+const detailAuditButtons = computed<VoucherActionButton[]>(() =>
+  detail.value ? voucherActionButtons(detail.value.status, auditContextOf(detail.value)) : [],
+);
+
+/** 详情里「为什么点不了」的原因清单（空数组 = 没有置灰按钮） */
+const auditBlockedReasons = computed<string[]>(() =>
+  detailAuditButtons.value.filter((btn) => btn.disabled).map((btn) => btn.reason),
+);
+
+/**
+ * 点了审核链按钮。
+ *
+ * - 反审核 → 开弹窗（原因必填，不能用一个 confirm 糊过去）；
+ * - 审核 / 记账 → 二次确认（记账动总账且不可撤销，必须让用户看清后果）。
+ */
+function onAuditAction(btn: VoucherActionButton | null, target: VoucherAuditable | null): void {
+  if (!btn || !target || btn.disabled || auditSubmitting.value) {
+    return;
+  }
+  if (btn.key === 'un-audit') {
+    openUnAudit(target);
+    return;
+  }
+  const dialog = DialogPlugin.confirm({
+    header: btn.key === 'audit' ? '审核凭证' : '记账',
+    theme: btn.key === 'post' ? 'warning' : 'default',
+    body: voucherActionConfirmText(btn.key, target.voucher_no),
+    confirmBtn: {
+      content: btn.key === 'audit' ? '确认审核' : '确认记账',
+      theme: btn.theme,
+    },
+    cancelBtn: '再想想',
+    onConfirm: async () => {
+      dialog.hide();
+      await runAuditAction(btn.key, target);
+    },
+  });
+}
+
+/**
+ * 执行审核 / 记账（都是写操作，回执是凭证详情：直接用它刷抽屉，不再多发一次 GET）。
+ *
+ * 失败原因落两处：`auditError`（详情里常驻）+ toast（列表页操作时用户不在详情里）。
+ */
+async function runAuditAction(action: VoucherAuditAction, target: VoucherAuditable): Promise<void> {
+  if (auditSubmitting.value || action === 'un-audit') {
+    return;
+  }
+  auditSubmitting.value = true;
+  auditError.value = '';
+  try {
+    const updated = action === 'audit' ? await auditVoucher(target.id) : await postVoucher(target.id);
+    applyAuditResult(action, target, updated);
+  } catch (error) {
+    auditError.value = messageOf(error);
+    MessagePlugin.error(auditError.value);
+  } finally {
+    auditSubmitting.value = false;
+  }
+}
+
+/** 打开反审核弹窗（每次清空上一张的原因与错误） */
+function openUnAudit(target: VoucherAuditable): void {
+  unAuditTarget.value = target;
+  unAuditForm.reason = '';
+  unAuditError.value = '';
+  unAuditVisible.value = true;
+}
+
+/**
+ * 提交反审核：**原因必填**，空原因在弹窗这一层就拦住（一次请求都不发），
+ * 同时原因 ≥ 1 字由 `unAuditReasonError` 判定（后端 4A 若要求更长，它会 400 并点名）。
+ */
+async function submitUnAudit(): Promise<void> {
+  const target = unAuditTarget.value;
+  if (!target || auditSubmitting.value) {
+    return;
+  }
+  const reasonError = unAuditReasonError(unAuditForm.reason);
+  if (reasonError) {
+    unAuditError.value = reasonError;
+    return;
+  }
+  auditSubmitting.value = true;
+  unAuditError.value = '';
+  auditError.value = '';
+  try {
+    const updated = await unAuditVoucher(target.id, unAuditForm.reason.trim());
+    unAuditVisible.value = false;
+    applyAuditResult('un-audit', target, updated);
+  } catch (error) {
+    unAuditError.value = messageOf(error);
+  } finally {
+    auditSubmitting.value = false;
+  }
+}
+
+/**
+ * 动作成功后的收口：提示 + （详情开着同一张时）用回执刷新详情 + 列表重拉。
+ *
+ * 回执是 `VoucherDetailRes`（含全部分录），所以详情可以整块替换；
+ * 列表必须重拉 —— 状态列颜色 / 按钮显隐 / 红冲入口都跟着状态变。
+ */
+function applyAuditResult(action: VoucherAuditAction, target: VoucherAuditable, updated: VoucherDetailEx): void {
+  MessagePlugin.success(voucherActionDoneText(action, updated.voucher_no || target.voucher_no));
+  if (detail.value?.id === updated.id) {
+    detail.value = normalizePendingReverse(updated);
+  }
+  void loadVouchers();
+}
 
 // ==================== 红冲（P7 → P-FLOW-3B 走审批） ====================
 
@@ -1050,12 +1343,12 @@ async function submitReverse(): Promise<void> {
       detail.value = normalizePendingReverse({ ...result, pending_reverse_instance_id: instanceId });
       detailVisible.value = true;
       // C2：送审那一刻就把审批进度拉出来（看到「谁是第一个审批人 / 现在停在哪个节点」）
-      await loadReverseProgress(detail.value);
+      await loadVoucherApprovalProgress(detail.value);
     } else {
       // 直接红冲：抽屉切到红字凭证，用户能立刻看到借贷互换后的分录
       detail.value = result;
       detailVisible.value = true;
-      reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+      approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
     void loadVouchers();
   } catch (error) {
@@ -1107,7 +1400,7 @@ async function doWithdrawReverse(row: { id: string; voucher_no: string }): Promi
     if (detail.value?.id === updated.id) {
       detail.value = normalizePendingReverse({ ...updated, pending_reverse_instance_id: null });
       // C2：审批单没了 → 进度区跟着消失（不留上一张审批单的节点）
-      reverseProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
+      approvalProgress.value = { ...EMPTY_APPROVAL_PROGRESS };
     }
     void loadVouchers();
   } catch (error) {
@@ -1542,6 +1835,50 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+/**
+ * ★ P0-FIX-4B：置灰的审核动作。
+ *
+ * TDesign 的 `t-link disabled` 不派发鼠标事件 → 包一层 <span> 接住 hover，
+ * `title` 才出得来（用户看得到「为什么点不了」，而不是一个点不动的灰字）。
+ */
+.op-dead {
+  display: inline-flex;
+  align-items: center;
+  color: var(--td-text-color-disabled, #c4c7cc);
+  cursor: not-allowed;
+  font-size: 14px;
+}
+
+/* ★ P0-FIX-4B：详情抽屉里的审核动作条 */
+.audit-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  border-radius: 6px;
+  background: var(--td-bg-color-secondarycontainer, #f3f3f3);
+}
+
+.audit-bar__why {
+  font-size: 12px;
+  color: var(--td-text-color-secondary, #666);
+}
+
+.audit-bar__spacer {
+  flex: 1 1 auto;
+}
+
+.audit-bar__note {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder, #999);
+}
+
+.audit-alert {
+  margin-bottom: 12px;
 }
 
 .linked {
