@@ -1,0 +1,16 @@
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "access_token": "<redacted: 真实令牌不入库，见 README 复现命令>",
+    "refresh_token": "<redacted>",
+    "token_type": "Bearer",
+    "expires_in": 900,
+    "user": {
+      "id": "be065f8c-8799-4416-ad70-95c1320bf997",
+      "username": "fin2gm",
+      "real_name": "FIN2 验收总经理"
+    },
+    "must_change_password": false
+  }
+}

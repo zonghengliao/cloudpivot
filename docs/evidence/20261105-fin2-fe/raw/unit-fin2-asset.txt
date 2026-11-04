@@ -1,0 +1,154 @@
+TAP version 13
+# Subtest: parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+ok 1 - parseMoney：后端字符串 → 四位定点 bigint，不经过 Number
+  ---
+  duration_ms: 0.850386
+  type: 'test'
+  ...
+# Subtest: 加减比较：0.1 + 0.2 精确等于 0.3
+ok 2 - 加减比较：0.1 + 0.2 精确等于 0.3
+  ---
+  duration_ms: 0.218211
+  type: 'test'
+  ...
+# Subtest: isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+ok 3 - isZeroMoney / formatMoney：-0.0001 展示不出现 -0.00
+  ---
+  duration_ms: 0.172878
+  type: 'test'
+  ...
+# Subtest: formatRate：0.0500 → 5.00%
+ok 4 - formatRate：0.0500 → 5.00%
+  ---
+  duration_ms: 0.09221
+  type: 'test'
+  ...
+# Subtest: previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+ok 5 - previewDepreciation：100000 / 残值 5% / 36 个月 = 2638.8889，起提次月 1 日
+  ---
+  duration_ms: 1.324434
+  type: 'test'
+  ...
+# Subtest: previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+ok 6 - previewDepreciation：短年限尾差补齐 / 入参不全返回 null
+  ---
+  duration_ms: 0.303379
+  type: 'test'
+  ...
+# Subtest: periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+ok 7 - periodAmountOf：第 1 月 = 月折旧，最后 1 月补尾差，提足后为 0
+  ---
+  duration_ms: 0.349921
+  type: 'test'
+  ...
+# Subtest: periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+ok 8 - periodAmountOf：处置当月仍提整月，处置次月起为 0；闲置照提
+  ---
+  duration_ms: 0.172336
+  type: 'test'
+  ...
+# Subtest: summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+ok 9 - summarizeDepreciation：已提 = POSTED 批次合计，差异给方向
+  ---
+  duration_ms: 1.049639
+  type: 'test'
+  ...
+# Subtest: diffDisplay / runResultText / K4 自检
+ok 10 - diffDisplay / runResultText / K4 自检
+  ---
+  duration_ms: 0.563174
+  type: 'test'
+  ...
+# Subtest: 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+ok 11 - 期间工具：上一会计月 / 期初期末 / 月差 / 下拉
+  ---
+  duration_ms: 0.530174
+  type: 'test'
+  ...
+# Subtest: validateAssetForm：必填与税额口径（镜像后端 400）
+ok 12 - validateAssetForm：必填与税额口径（镜像后端 400）
+  ---
+  duration_ms: 0.193169
+  type: 'test'
+  ...
+# Subtest: applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+ok 13 - applyStockInSource：金额预填 + 锁定，税额清零，购物口径 FROM_STOCK
+  ---
+  duration_ms: 0.172419
+  type: 'test'
+  ...
+# Subtest: toCreatePayload：金额补足四位、空串字段不发
+ok 14 - toCreatePayload：金额补足四位、空串字段不发
+  ---
+  duration_ms: 0.084834
+  type: 'test'
+  ...
+# Subtest: validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+ok 15 - validateDisposeForm：SALE 必须有售价，SCRAP/LOSS 不许有金额
+  ---
+  duration_ms: 0.167752
+  type: 'test'
+  ...
+# Subtest: disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+ok 16 - disposeSummaryOf：净值 / 已提月数 / 剩余可提 全部取接口值
+  ---
+  duration_ms: 0.098168
+  type: 'test'
+  ...
+# Subtest: 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+ok 17 - 动作可见性：处置卡只读，在跑审批不再允许提交，已处置可作废
+  ---
+  duration_ms: 0.171502
+  type: 'test'
+  ...
+# Subtest: 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+ok 18 - 状态与变动文案：后端没给 label 时按词表兜底，未知值原样显示
+  ---
+  duration_ms: 0.100585
+  type: 'test'
+  ...
+# Subtest: errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+ok 19 - errorText：66038/66039/66040/65019 补「怎么办」，普通错误带错误码
+  ---
+  duration_ms: 0.109293
+  type: 'test'
+  ...
+# Subtest: 原因校验：普通原因非空，红冲原因 ≥ 2 字
+ok 20 - 原因校验：普通原因非空，红冲原因 ≥ 2 字
+  ---
+  duration_ms: 0.080543
+  type: 'test'
+  ...
+# Subtest: validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+ok 21 - validateCategoryForm：编码 / 月数 / 残值率 / 科目必填
+  ---
+  duration_ms: 0.160502
+  type: 'test'
+  ...
+# Subtest: 分类逻辑：科目只列末级、回填表单、方法译名
+ok 22 - 分类逻辑：科目只列末级、回填表单、方法译名
+  ---
+  duration_ms: 0.167169
+  type: 'test'
+  ...
+# Subtest: 迁移里的三个菜单 component 都真实存在视图文件
+ok 23 - 迁移里的三个菜单 component 都真实存在视图文件
+  ---
+  duration_ms: 0.90197
+  type: 'test'
+  ...
+# Subtest: router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+ok 24 - router/index.ts 注册了三条固定资产路由（路径按菜单，不改路由）
+  ---
+  duration_ms: 0.259379
+  type: 'test'
+  ...
+1..24
+# tests 24
+# suites 0
+# pass 24
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 116.836579

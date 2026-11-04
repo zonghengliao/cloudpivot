@@ -843,14 +843,16 @@ const pagination = computed(() => ({
   showPageSize: false,
 }));
 
+// 列宽总和 = 948px：1280 视口（侧栏展开时表格可视宽实测 968px）也不会被固定「操作」列遮挡。
+// 上一版合计 1020px，在 1280 下溢出 52px，固定列正好压住「状态」列（实测 statusRight 1112 > opLeft 1060）。
 const columns: PrimaryTableCol[] = [
-  { colKey: 'asset_no', title: '资产编号', width: 150 },
-  { colKey: 'asset_name', title: '名称 / 规格 · 分类', width: 186, ellipsis: true },
-  { colKey: 'use_dept_name', title: '使用部门', width: 108, ellipsis: true },
-  { colKey: 'original_value', title: '原值', width: 108, align: 'right' },
-  { colKey: 'monthly_depreciation', title: '月折旧', width: 100, align: 'right' },
-  { colKey: 'net_value', title: '净值', width: 108, align: 'right' },
-  { colKey: 'status', title: '状态', width: 80 },
+  { colKey: 'asset_no', title: '资产编号', width: 148 },
+  { colKey: 'asset_name', title: '名称 / 规格 · 分类', width: 160, ellipsis: true },
+  { colKey: 'use_dept_name', title: '使用部门', width: 96, ellipsis: true },
+  { colKey: 'original_value', title: '原值', width: 100, align: 'right' },
+  { colKey: 'monthly_depreciation', title: '月折旧', width: 92, align: 'right' },
+  { colKey: 'net_value', title: '净值', width: 100, align: 'right' },
+  { colKey: 'status', title: '状态', width: 68 },
   { colKey: 'op', title: '操作', width: 180, fixed: 'right' },
 ];
 

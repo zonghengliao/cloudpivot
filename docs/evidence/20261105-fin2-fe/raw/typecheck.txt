@@ -1,0 +1,5 @@
+# 门禁：在干净 worktree（HEAD 119e15e）跑
+$ cd <tree>/frontend && ./node_modules/.bin/vue-tsc --noEmit
+# 退出码 0，无任何输出（0 error 0 warning）
+exit=0
+errors=0
