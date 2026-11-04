@@ -33,7 +33,8 @@
 //! # 不收货（硬红线 7）
 //!
 //! 本卡**不写** `biz_stock_in` / `biz_inventory` / `biz_inventory_txn`，
-//! `received_qty` 建单恒 0，`PARTIAL_RECEIVED` / `RECEIVED` 两个状态也不由本卡写入（P2-B1）。
+//! 已收数量（`received_qty`）是派生值（P2-3：只算已过账收货单，建单时恒 0），
+//! `PARTIAL_RECEIVED` / `RECEIVED` 两个状态也不由本卡写入（P2-B1）。
 
 use axum::Json;
 use nik::prelude::chrono::{DateTime, NaiveDate, Utc};

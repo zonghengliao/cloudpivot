@@ -12,7 +12,9 @@
 //!                           created_at, updated_at, create_by, update_by, deleted_at
 //! biz_purchase_order_item   id, order_id, line_no, material_id, unit_id, qty, price,
 //!                           price_incl, tax_rate, amount, tax_amount, with_tax_amount,
-//!                           received_qty, remark, created_at, updated_at
+//!                           remark, created_at, updated_at
+//!                           （P2-3 / V0217 起 **没有 `received_qty`**：已收数量读时现算，
+//!                            口径见 [`POSTED_RECEIVED_SQL`]）
 //! ```
 //!
 //! # 五条「卡面没写、但库里有」的硬事实（照卡面写必然挂）
@@ -108,7 +110,7 @@ pub const STATUS_SUBMITTED: &str = "SUBMITTED";
 pub const STATUS_APPROVED: &str = "APPROVED";
 /// 状态：部分收货（P2-B1 收货推进写入）。
 pub const STATUS_PARTIAL_RECEIVED: &str = "PARTIAL_RECEIVED";
-/// 状态：已收货（明细的 `received_qty` 全部收满）。
+/// 状态：已收货（明细的「已收数量」全部收满；P2-3 起该数量是派生值）。
 pub const STATUS_RECEIVED: &str = "RECEIVED";
 /// 状态：已关闭。
 pub const STATUS_CLOSED: &str = "CLOSED";
@@ -428,12 +430,12 @@ async fn insert_items(
             format!(
                 "INSERT INTO {ITEM_TABLE} \
                     (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, \
-                     tax_rate, amount, tax_amount, with_tax_amount, received_qty, remark) \
+                     tax_rate, amount, tax_amount, with_tax_amount, remark) \
                  VALUES (?, ?::uuid, ?, ?::uuid, ?::uuid, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,''))"
+                     NULLIF(?::text,'')::numeric, NULLIF(?::text,''))"
             ),
             vec![
                 Value::from(Uuid::now_v7()),
@@ -895,6 +897,15 @@ pub async fn material_ref(id: Uuid) -> DbResult<Option<MaterialRef>> {
 
 /// 「已过账收货量」聚合表达式（按**明细行**匹配，不按物料）。
 ///
+/// # ★ 唯一真相（P2-3）
+///
+/// 采购明细的「已收数量」**只有这一个来源**：`biz_purchase_order_item` 上的
+/// `received_qty` 列已被迁移 V0217 删除，读的地方（采购单详情 / 待收明细 /
+/// 过账闸 / 判收满 / 联动动作）全部用本表达式现算 —— 写一个数、读一个数，
+/// 不存在「列和现算打架」。历史教训：列由过账 +N 作废 −N 维护、
+/// 待收明细另算一遍，并发/异常回滚/手工改库都会让两个数漂开，
+/// 用户看到「已收完」的采购单还能建收货单。
+///
 /// 口径（卡面硬红线 4 / 5，一个条件都不能少）：
 ///
 /// - `s.status = 'POSTED'`：**只算已过账**。草稿（`DRAFT`）还没进仓库，作废
@@ -933,13 +944,10 @@ pub struct PendingReceiveLine {
     /// 订单数量。
     pub ordered_qty: Decimal,
     /// 已收数量（**只算已过账收货单**，见 [`POSTED_RECEIVED_SQL`]）。
-    pub received_qty: Decimal,
-    /// 采购明细列上的冗余「已收数量」（过账时累加、作废时回退）。
     ///
-    /// 与 [`Self::received_qty`] 口径相同、来源不同：本字段是**写路径的并发闸**
-    /// （`received_qty + 本次 <= qty` 的条件更新），独立重算一次是为了让两者
-    /// 互相印证 —— 不等就说明有人绕过收货单改过账（单测 `pending_matches_ledger` 钉死这一点）。
-    pub ledger_received_qty: Decimal,
+    /// P2-3 起这是唯一口径：列 `biz_purchase_order_item.received_qty` 已删除，
+    /// 不再有「冗余列 vs 现算」两套数（`ledger_received_qty` 字段随之退场）。
+    pub received_qty: Decimal,
     /// 不含税单价。
     pub price_excl: Decimal,
     /// 含税单价快照。
@@ -980,7 +988,6 @@ impl PendingReceiveLine {
             unit_name: row.get_typed("unit_name")?,
             ordered_qty: row.get_typed("ordered_qty")?,
             received_qty: row.get_typed("received_qty")?,
-            ledger_received_qty: row.get_typed("ledger_received_qty")?,
             price_excl: row.get_typed("price")?,
             price_incl: row.get_typed("price_incl")?,
             tax_rate: row.get_typed("tax_rate")?,
@@ -997,8 +1004,8 @@ pub async fn pending_receive_lines(order_id: Uuid) -> DbResult<Vec<PendingReceiv
                 COALESCE(m.material_code, '') AS material_code, \
                 COALESCE(m.material_name, '') AS material_name, \
                 i.unit_id, COALESCE(u.unit_name, '') AS unit_name, \
-                i.qty AS ordered_qty, i.received_qty AS ledger_received_qty, \
-                {POSTED_RECEIVED_SQL} AS received_qty, \
+                i.qty AS ordered_qty, \
+                ({POSTED_RECEIVED_SQL})::numeric(18,4) AS received_qty, \
                 i.price, i.price_incl, i.tax_rate \
            FROM biz_purchase_order_item i \
            LEFT JOIN biz_material m ON m.id = i.material_id \

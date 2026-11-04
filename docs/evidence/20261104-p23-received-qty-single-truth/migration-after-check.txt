@@ -1,0 +1,33 @@
+== 迁移后：派生值（逐行） ==
+01a18dee-80dd-72d9-b110-061f84eed5cd|line=1|qty=100.0000|recalc=0.0000
+01a18dee-80e3-731a-9942-cc8903a90617|line=1|qty=100.0000|recalc=100.0000
+01a18dee-ac34-71c8-80c3-e95e7f6c2da5|line=1|qty=100.0000|recalc=100.0000
+01a18dee-e678-7314-a4d2-9ec10783b117|line=1|qty=100.0000|recalc=100.0000
+01a18dee-e67c-7133-90da-2e37dd3dca2c|line=1|qty=100.0000|recalc=0.0000
+01a18def-1a2b-7329-a9d3-c6b088c0df30|line=1|qty=100.0000|recalc=100.0000
+01a18def-510a-771e-bf08-e2e32dd30b18|line=1|qty=100.0000|recalc=100.0000
+01a18dff-90ee-77fd-b83c-33143b320982|line=1|qty=100.0000|recalc=100.0000
+01a18f91-4018-735f-b85b-4a043041beaf|line=1|qty=3.0000|recalc=0.0000
+01a18f91-6f70-7092-b031-3a1fc3e95a07|line=1|qty=3.0000|recalc=0.0000
+01a18f91-6f74-7495-bfee-c31855365a11|line=1|qty=3.0000|recalc=3.0000
+01a19519-a37f-74bb-9749-d03ab89f7588|line=1|qty=1.0000|recalc=0.0000
+01a19519-b358-7091-809e-bc87ed73dc45|line=1|qty=1.0000|recalc=0.0000
+01a1951a-ecde-70d6-a8a9-f9ce70d5846f|line=1|qty=1.0000|recalc=0.0000
+01a1951a-fcf9-72c1-91f7-2a906a05e9f9|line=1|qty=1.0000|recalc=0.0000
+01a19c2a-f656-7108-8264-59b064829d2f|line=1|qty=10.0000|recalc=10.0000
+01a19c2b-56bc-7653-8cee-656f17c20efd|line=1|qty=2.0000|recalc=0.0000
+== 迁移前后逐行比对（旧列值 vs 新派生值） ==
+rows_pre=17 rows_post=17 identical=True
+compare_exit=0
+== 列已删除 / 索引已建 / 迁移尾部 ==
+col_count=0
+idx=1
+migrations_tail=erp_ledger_aux_balance_permission,erp_p2_2_stub_fields,erp_p2_2b_po_credit_branch,erp_p2_3_received_qty_derived
+== 索引可用性（关掉 seqscan 看规划器是否会用部分索引） ==
+SET
+Aggregate
+  ->  Nested Loop
+        ->  Index Scan using idx_biz_stock_in_source_posted on biz_stock_in s
+              Index Cond: (source_order_id = '01a18dee-80e3-731a-9942-cc8903a90617'::uuid)
+        ->  Index Scan using idx_biz_si_item_in on biz_stock_in_item si
+              Index Cond: (stock_in_id = s.id)

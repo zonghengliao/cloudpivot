@@ -1,0 +1,18 @@
+test result: ok. 893 passed; 0 failed; 0 ignored; 0 measured; 1402 filtered out; finished in 1060.59s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+== 关键用例 ==
+test business::erp::stockin_handler::stockin_handler_tests_a4::a4_11_post_and_cancel_keep_purchase_chain ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_cancel_posted_restores_pending ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_pending_ignores_draft_stock_in ... ok
+test business::erp::stockin_handler::stockin_handler_tests_d4_purchase::d4_received_qty_has_single_truth ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::auto_pull_lines_from_purchase_order ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::biz_active_conflict_maps_to_409_with_stock_in_no ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::cancel_paths ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::delete_only_draft ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::over_receipt_against_purchase_order_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::page_filters_by_status ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::serial_count_mismatch_is_bad_request ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::serial_ids_on_non_serial_material_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::update_draft_replaces_lines ... ok
+test business::erp::stockin_handler::stockin_handler_tests_update::update_posted_is_conflict ... ok

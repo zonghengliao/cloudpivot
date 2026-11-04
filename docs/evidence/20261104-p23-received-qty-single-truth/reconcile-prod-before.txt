@@ -1,0 +1,66 @@
+== 1. row counts ==
+po_items=17 si_items_with_src=9 po_items_recv_nonzero=8
+== 3. diff row count (strict: only POSTED, stock_in not soft-deleted) ==
+diff_rows=0
+== 4. diff detail (max 30) ==
+== 5. stock_in status (with source order) ==
+DRAFT|1
+POSTED|8
+== 6. purchase order status ==
+APPROVED|2
+CANCELLED|2
+DRAFT|5
+RECEIVED|8
+== 7. PO items touched by non-POSTED stock-ins ==
+1
+== 8. all PO items with both values (full table, 17 rows) ==
+01a18dee-80dd-72d9-b110-061f84eed5cd|line=1|qty=100.0000|col=0.0000|recalc=0.0000
+01a18dee-80e3-731a-9942-cc8903a90617|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18dee-ac34-71c8-80c3-e95e7f6c2da5|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18dee-e678-7314-a4d2-9ec10783b117|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18dee-e67c-7133-90da-2e37dd3dca2c|line=1|qty=100.0000|col=0.0000|recalc=0.0000
+01a18def-1a2b-7329-a9d3-c6b088c0df30|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18def-510a-771e-bf08-e2e32dd30b18|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18dff-90ee-77fd-b83c-33143b320982|line=1|qty=100.0000|col=100.0000|recalc=100.0000
+01a18f91-4018-735f-b85b-4a043041beaf|line=1|qty=3.0000|col=0.0000|recalc=0.0000
+01a18f91-6f70-7092-b031-3a1fc3e95a07|line=1|qty=3.0000|col=0.0000|recalc=0.0000
+01a18f91-6f74-7495-bfee-c31855365a11|line=1|qty=3.0000|col=3.0000|recalc=3.0000
+01a19519-a37f-74bb-9749-d03ab89f7588|line=1|qty=1.0000|col=0.0000|recalc=0.0000
+01a19519-b358-7091-809e-bc87ed73dc45|line=1|qty=1.0000|col=0.0000|recalc=0.0000
+01a1951a-ecde-70d6-a8a9-f9ce70d5846f|line=1|qty=1.0000|col=0.0000|recalc=0.0000
+01a1951a-fcf9-72c1-91f7-2a906a05e9f9|line=1|qty=1.0000|col=0.0000|recalc=0.0000
+01a19c2a-f656-7108-8264-59b064829d2f|line=1|qty=10.0000|col=10.0000|recalc=10.0000
+01a19c2b-56bc-7653-8cee-656f17c20efd|line=1|qty=2.0000|col=0.0000|recalc=0.0000
+== 9. schema: biz_purchase_order_item index / constraint on received_qty ==
+biz_purchase_order_item_amount_not_null :: NOT NULL amount
+biz_purchase_order_item_created_at_not_null :: NOT NULL created_at
+biz_purchase_order_item_id_not_null :: NOT NULL id
+biz_purchase_order_item_line_no_not_null :: NOT NULL line_no
+biz_purchase_order_item_material_id_not_null :: NOT NULL material_id
+biz_purchase_order_item_order_id_fkey :: FOREIGN KEY (order_id) REFERENCES biz_purchase_order(id) ON DELETE CASCADE
+biz_purchase_order_item_order_id_not_null :: NOT NULL order_id
+biz_purchase_order_item_pkey :: PRIMARY KEY (id)
+biz_purchase_order_item_price_incl_not_null :: NOT NULL price_incl
+biz_purchase_order_item_price_not_null :: NOT NULL price
+biz_purchase_order_item_qty_not_null :: NOT NULL qty
+biz_purchase_order_item_received_qty_not_null :: NOT NULL received_qty
+biz_purchase_order_item_tax_amount_not_null :: NOT NULL tax_amount
+biz_purchase_order_item_tax_rate_not_null :: NOT NULL tax_rate
+biz_purchase_order_item_unit_id_not_null :: NOT NULL unit_id
+biz_purchase_order_item_updated_at_not_null :: NOT NULL updated_at
+biz_purchase_order_item_with_tax_amount_not_null :: NOT NULL with_tax_amount
+ck_biz_po_item_qty :: CHECK ((qty > (0)::numeric))
+ck_biz_po_item_recv :: CHECK (((received_qty >= (0)::numeric) AND (received_qty <= qty)))
+ck_biz_po_item_tax :: CHECK ((with_tax_amount = (amount + tax_amount)))
+ck_biz_po_item_tax_rate :: CHECK (((tax_rate >= (0)::numeric) AND (tax_rate <= (100)::numeric)))
+uk_biz_po_item_line :: UNIQUE (order_id, line_no)
+biz_purchase_order_item_pkey :: CREATE UNIQUE INDEX biz_purchase_order_item_pkey ON public.biz_purchase_order_item USING btree (id)
+uk_biz_po_item_line :: CREATE UNIQUE INDEX uk_biz_po_item_line ON public.biz_purchase_order_item USING btree (order_id, line_no)
+idx_biz_po_item_order :: CREATE INDEX idx_biz_po_item_order ON public.biz_purchase_order_item USING btree (order_id)
+idx_biz_po_item_material :: CREATE INDEX idx_biz_po_item_material ON public.biz_purchase_order_item USING btree (material_id)
+== 10. indexes on biz_stock_in_item ==
+biz_stock_in_item_pkey :: CREATE UNIQUE INDEX biz_stock_in_item_pkey ON public.biz_stock_in_item USING btree (id)
+uk_biz_si_item_line :: CREATE UNIQUE INDEX uk_biz_si_item_line ON public.biz_stock_in_item USING btree (stock_in_id, line_no)
+idx_biz_si_item_in :: CREATE INDEX idx_biz_si_item_in ON public.biz_stock_in_item USING btree (stock_in_id)
+idx_biz_si_item_material :: CREATE INDEX idx_biz_si_item_material ON public.biz_stock_in_item USING btree (material_id)
+idx_biz_si_item_src :: CREATE INDEX idx_biz_si_item_src ON public.biz_stock_in_item USING btree (source_item_id)

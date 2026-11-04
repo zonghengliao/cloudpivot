@@ -564,21 +564,14 @@ pub(super) async fn cancel_in_tx(
         payable::cancel_for_stock_in(ex, id, operator.id, now)
             .await
             .map_err(|error| write_error(error, "作废：应付单作废"))?;
-        // ⑥ 回退采购单的已收数量 + 重算采购单状态（D4）
+        // ⑥ 重算采购单状态（D4）—— 已收数量**不用退**（P2-3）
         //
-        // 没有这一步：作废只回滚了库存六本账，`biz_purchase_order_item.received_qty`
-        // 还是满的 —— 采购单显示"已收完"、`RECEIVED` 又不在收货白名单里，
-        // 老板再也收不进这批货（正是 D4 要解决的场景）。
-        // 顺序：先退数量再重算状态（重算读的是退完之后的数）。
+        // 本单在 ⓪ 步已经变成 `CANCELLED`，派生口径（`POSTED_RECEIVED_SQL`，
+        // 只算 `status='POSTED'`）立刻不再把它算进「已收」，所以这里只要重算状态：
+        // 采购单该从 `RECEIVED` 退回 `PARTIAL_RECEIVED` / 从 `PARTIAL_RECEIVED`
+        // 退回可继续收的态。以前这里要先逐行 `revert_received_qty` 再重算，
+        // 那是维护第二份数；现在数只有一份，重算读到的就是退完之后的真实值。
         if let Some(order_id) = row.source_order_id {
-            let source_lines = stockin_model::source_lines_of(ex, id)
-                .await
-                .map_err(|error| utils::db_error(error, "作废：查询来源采购明细"))?;
-            for (source_item_id, qty) in source_lines {
-                stockin_model::revert_received_qty(ex, source_item_id, qty, now)
-                    .await
-                    .map_err(|error| write_error(error, "作废：回退采购单已收数量"))?;
-            }
             stockin_model::sync_purchase_status(
                 ex,
                 order_id,

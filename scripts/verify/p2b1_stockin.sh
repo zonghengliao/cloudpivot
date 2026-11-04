@@ -243,9 +243,20 @@ PO=$(psql_q "INSERT INTO biz_purchase_order
               'SUBMITTED', 30, 60, 0, 60) RETURNING id")
 PO_ITEM=$(psql_q "INSERT INTO biz_purchase_order_item
       (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate,
-       amount, tax_amount, with_tax_amount, received_qty)
+       amount, tax_amount, with_tax_amount)
       VALUES (gen_random_uuid(), '$PO'::uuid, 1, '$MATERIAL_A'::uuid, '$UNIT'::uuid,
-              30, 2, 2, 0, 60, 0, 60, 10) RETURNING id")
+              30, 2, 2, 0, 60, 0, 60) RETURNING id")
+# P2-3：已收数量是派生值（只算已过账收货单），造「已收 10」要造一张 POSTED 收货单
+psql_x "WITH si AS (
+         INSERT INTO biz_stock_in (id, in_no, in_type, source_order_id, supplier_id, warehouse_id,
+                                   in_date, status, total_qty, total_amount, total_tax, total_with_tax)
+         VALUES (gen_random_uuid(), 'E2B1-IN-SEED', 'PURCHASE', '$PO'::uuid, '$SUPPLIER'::uuid,
+                 '$WAREHOUSE'::uuid, CURRENT_DATE, 'POSTED', 10, 20, 0, 20) RETURNING id)
+       INSERT INTO biz_stock_in_item (id, stock_in_id, line_no, source_item_id, material_id, unit_id,
+                                      qty, price, price_incl, tax_rate, amount, tax_amount, with_tax_amount)
+       SELECT gen_random_uuid(), si.id, 1, '$PO_ITEM'::uuid, '$MATERIAL_A'::uuid, '$UNIT'::uuid,
+              10, 2, 2, 0, 20, 0, 20
+         FROM si"
 psql_x "SELECT 1" >/dev/null
 call POST "/business/erp/stock-in" \
      "{\"source_order_id\":\"$PO\",\"supplier_id\":\"$SUPPLIER\",\"warehouse_id\":\"$WAREHOUSE\",
@@ -261,7 +272,7 @@ assert_num 20 "$(jqv '.data.items[0].qty')" "自动带出的数量 = 未收 20"
 PO_IN=$(jqv '.data.header.id')
 call PATCH "/business/erp/stock-in/$PO_IN/status" '{"status":"POSTED"}'
 assert_eq 200 "$REQ_CODE" "采购收货过账"
-assert_num 30 "$(psql_q "SELECT received_qty FROM biz_purchase_order_item WHERE id = '$PO_ITEM'::uuid")" "回写 received_qty = 10+20"
+assert_num 30 "$(psql_q "SELECT COALESCE(SUM(si.qty),0) FROM biz_stock_in s JOIN biz_stock_in_item si ON si.stock_in_id = s.id WHERE s.source_order_id = '$PO'::uuid AND si.source_item_id = '$PO_ITEM'::uuid AND s.status = 'POSTED' AND s.deleted_at IS NULL")" "已收数量（派生）= 10+20"
 assert_eq "RECEIVED" "$(psql_q "SELECT status FROM biz_purchase_order WHERE id = '$PO'::uuid")" "收满推送采购单 RECEIVED"
 
 echo "==> 11. 改单（DRAFT 能改）/ 删除（DRAFT 能删）/ 作废"

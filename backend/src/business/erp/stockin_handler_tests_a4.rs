@@ -6,7 +6,6 @@
 // `stockin_handler.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -443,15 +442,15 @@ async fn a4_11_post_and_cancel_keep_purchase_chain() {
     assert_eq!(voucher_count(id, None).await, 1, "过账生成 1 张凭证");
     assert_eq!(voucher_count(id, Some(1)).await, 0, "此刻不该有红冲凭证");
     // ④ 采购明细已收数量 + 采购单状态推进（部分收货）
+    //    P2-3：已收数量是派生值（只算已过账收货单），走生产读路径断言
     assert_eq!(
-        db().scalar_with_params::<Decimal>(
-            "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
-            vec![Value::from(&item_id)],
-        )
-        .await
-        .unwrap(),
+        crate::business::erp::model::purchase_order_item_find_by_id(item_id)
+            .await
+            .unwrap()
+            .expect("采购明细行必须存在")
+            .received_qty,
         dec("6"),
-        "过账必须回写采购明细 received_qty"
+        "过账后采购明细的已收数量（派生）必须 = 本次过账数量"
     );
     assert_eq!(a4_po_status(order_id).await, "PARTIAL_RECEIVED");
 
@@ -463,14 +462,13 @@ async fn a4_11_post_and_cancel_keep_purchase_chain() {
         "作废后库存必须回基线"
     );
     assert_eq!(
-        db().scalar_with_params::<Decimal>(
-            "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
-            vec![Value::from(&item_id)],
-        )
-        .await
-        .unwrap(),
+        crate::business::erp::model::purchase_order_item_find_by_id(item_id)
+            .await
+            .unwrap()
+            .expect("采购明细行必须存在")
+            .received_qty,
         dec("0"),
-        "作废必须把采购明细的已收数量退回去"
+        "作废后已收数量必须回退（本单不再计入 POSTED 集合）"
     );
     assert_eq!(
         a4_po_status(order_id).await,

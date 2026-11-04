@@ -220,7 +220,8 @@ pub const STOCK_IN_EDGES: [(&str, &str); 10] = [
 /// # D4 追加的第 11 条（`RECEIVED → PARTIAL_RECEIVED`）
 ///
 /// 收货单可以作废（`POSTED → CANCELLED`，P9/P16 的既有能力）。作废之后：
-/// 库存 / 成本六本账回滚、采购明细的 `received_qty` 回退 —— 此时采购单如果还是
+/// 库存 / 成本六本账回滚，采购明细的「已收数量」随之回退（P2-3：它是派生值，
+/// 本单变 `CANCELLED` 后就不再计入已过账集合）—— 此时采购单如果还是
 /// `RECEIVED`，就变成「已收货却没有一分已收数量」，而且 `RECEIVED` 不在收货白名单里，
 /// **老板再也收不进这批货**（D4 要解决的正是"收不了货"）。
 ///
@@ -233,7 +234,7 @@ pub const STOCK_IN_EDGES: [(&str, &str); 10] = [
 /// `PARTIAL_RECEIVED` / `RECEIVED` 没有任何出边 → 用户只能看着一张废单挂着。
 ///
 /// 联动作废（`erp::cancel_cascade`）的执行顺序是「先作废全部下游收货单 → 再作废采购单」，
-/// 所以走到这一步时下游三本账已经回到基线、`received_qty` 已经退回，
+/// 所以走到这一步时下游三本账已经回到基线、已收数量已经回退（派生口径自动生效），
 /// 缺的只是这两条**带必填原因**的边。生产上它们只由联动作废使用
 /// （`PURCHASE_ORDER_REASON_EDGES` 同步登记，原因写进 `biz_status_log`）。
 pub const PURCHASE_ORDER_EDGES: [(&str, &str); 15] = [

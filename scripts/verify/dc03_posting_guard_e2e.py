@@ -258,7 +258,14 @@ def si_status(stock_in_id: str) -> str:
 
 
 def ledger_received(item_id: str) -> str:
-    return psql(f"SELECT received_qty::text FROM biz_purchase_order_item WHERE id = '{item_id}'::uuid")
+    """已收数量 —— P2-3 起是派生值（只算已过账收货单），库表里没有这一列。"""
+    return psql(
+        f"SELECT COALESCE(SUM(si.qty),0)::numeric(18,4)::text "
+        f"FROM biz_purchase_order_item i "
+        f"LEFT JOIN biz_stock_in_item si ON si.source_item_id = i.id "
+        f"LEFT JOIN biz_stock_in s ON s.id = si.stock_in_id "
+        f"WHERE i.id = '{item_id}'::uuid AND s.status = 'POSTED' AND s.deleted_at IS NULL"
+    )
 
 
 def scenario_a() -> None:

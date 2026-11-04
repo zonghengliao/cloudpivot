@@ -582,7 +582,7 @@ pub struct PurchaseOrderLineRes {
     pub tax_amount: Decimal,
     /// 价税合计。
     pub with_tax_amount: Decimal,
-    /// 已收货数量（P2-B1 维护，建单时恒 0）。
+    /// 已收货数量（**派生值**：P2-3 起由已过账收货单现算，建单时恒 0）。
     pub received_qty: Decimal,
     /// 行备注。
     pub remark: Option<String>,

@@ -42,7 +42,8 @@
 //! [`ActionSpec::implemented`] 区分「已接管」与「占位」：
 //!
 //! - **已实现（3 个）**：`SEND_NOTICE`（第 2 步接管任务状态通知）、
-//!   `UPDATE_RECEIVED_QTY`（复用既有 `add_received_qty`，作为关键动作事务语义的活样本）、
+//!   `UPDATE_RECEIVED_QTY`（P2-3 起语义=校验：累计收货量是派生值 `POSTED_RECEIVED_SQL`，
+//!   本动作判「其他单据已过账收货 + 本次 ≤ 订购量」，作为关键动作事务语义的活样本）、
 //!   `GENERATE_VOUCHER`（**D3 第 3 步**：复用 `voucher::create_by_rule`，
 //!   与收货过账的旧路径是同一个函数、同一份取数与取号）；
 //! - **占位（8 个）**：入参契约已定、[`ActionSpec::reuse`] 写清了后续要复用的既有函数；
@@ -478,10 +479,11 @@ pub const ACTIONS: &[ActionSpec] = &[
     },
     ActionSpec {
         code: "UPDATE_RECEIVED_QTY",
-        label: "更新累计收货量",
+        label: "校验累计收货量",
         phase: Phase::InTx,
         severity: Severity::Critical,
-        // ★ 已实现：直接复用 post_in_tx ⑤ 用的那个条件更新（0 行 = 超收）
+        // ★ 已接管（P2-3 起语义=校验）：累计收货量是派生值（`POSTED_RECEIVED_SQL`），
+        //   本动作只判「其他单据已过账收货 + 本次 ≤ 订购量」，故意不再写任何列。
         implemented: true,
         params: &[
             ParamSpec {
@@ -497,7 +499,7 @@ pub const ACTIONS: &[ActionSpec] = &[
                 note: "本次收货数量（正数）",
             },
         ],
-        reuse: "erp/stockin_purchase.rs::add_received_qty（条件更新 received_qty + qty <= qty，0 行 = 超收）",
+        reuse: "erp/purchase_model.rs::POSTED_RECEIVED_SQL（派生口径：只算已过账收货单；P2-3 起本动作只校验不落库）",
     },
     ActionSpec {
         code: "UPDATE_PAYABLE_BALANCE",

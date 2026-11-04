@@ -1,0 +1,9 @@
+test result: ok. 339 passed; 0 failed; 0 ignored; 0 measured; 1956 filtered out; finished in 23.36s
+
+== 联动动作用例 ==
+test business::flow::linkage::tests::engine_critical_failure_rolls_back ... ok
+test business::flow::linkage::tests::engine_is_fail_safe_when_table_missing ... ok
+test business::flow::linkage::tests::engine_runs_in_seq_order ... ok
+test business::flow::linkage::tests::engine_skips_disabled_rules ... ok
+test business::flow::linkage::tests::engine_skips_missing_target ... ok
+test business::flow::linkage::tests::engine_skips_placeholder_action ... ok

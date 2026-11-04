@@ -7,7 +7,7 @@
 //! | 动作 | 复用的既有实现 |
 //! |------|----------------|
 //! | [`SEND_NOTICE`](spec::ACTION_SEND_NOTICE) | `business::notice::dispatch`（渲染/扇出/偏好/幂等/投递记录） |
-//! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::stockin_purchase::add_received_qty`（条件更新，0 行 = 超收） |
+//! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::purchase_model::POSTED_RECEIVED_SQL`（P2-3：累计收货量是派生值，本动作只校验不落库） |
 //! | [`GENERATE_VOUCHER`](spec::ACTION_GENERATE_VOUCHER) | `erp::voucher::create_by_rule`（D3 抽出的唯一实现：取数 + 取号 + 借贷平衡 + 落库） |
 //!
 //! 其余 8 个动作仍是**占位**：参数契约已定、`spec.reuse` 指向要复用的既有函数，
@@ -342,11 +342,27 @@ fn recipient_ids(draft: &NoticeDraft) -> Vec<Uuid> {
 
 // ==================== UPDATE_RECEIVED_QTY ====================
 
-/// 回写采购明细的累计收货量（`Phase::InTx`，**关键**动作）。
+/// 校验采购明细的累计收货量（`Phase::InTx`，**关键**动作）。
 ///
-/// 复用 `erp::stockin_purchase::add_received_qty`（`post_in_tx` ⑤ 用的同一个函数）：
-/// 条件更新 `received_qty + qty <= qty`，返回 0 行 = 超收。
-/// 超收是**执行失败**（`ActionError::Failed`），关键动作 → 调用方整笔回滚。
+/// # P2-3：从「写一列」改成「校验一处」
+///
+/// 动作码保留（配置与 `ck_flow_linkage_action_code` 不用迁移），语义变成
+/// **校验**：`已过账收货量 + 本次 qty ≤ 订购量`，超了就是关键动作失败
+/// （调用方整笔回滚）。为什么不再回写：`biz_purchase_order_item.received_qty`
+/// 列已被迁移 V0217 删除，累计收货量是派生值
+/// （[`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]：只算已过账收货单）。
+///
+/// 口径复用同一个表达式，且**减掉触发单据自己的贡献**：过账流程里本动作跑在
+/// 单据已经是 `POSTED` 之后，`POSTED_RECEIVED_SQL` 已经把本次收货算进去了，
+/// 直接 `+ qty` 会把自己算两遍（假超收）。所以：
+///
+/// ```text
+/// 其他单据已过账收货 = POSTED_RECEIVED_SQL − 本单(source_id = ctx.doc_id)贡献
+/// 判据：其他单据已过账收货 + 本次 qty ≤ 订购量
+/// ```
+///
+/// 这与过账闸 `guard_purchase_before_post` 的判据**同源**（都读 `POSTED_RECEIVED_SQL`），
+/// 差别只是过账闸在状态变更**之前**跑（本单还没进 POSTED 集合，天然不用减）。
 pub async fn update_received_qty(
     ex: &impl SqlExecutor,
     rule: &LinkageRuleRow,
@@ -364,30 +380,53 @@ pub async fn update_received_qty(
             "UPDATE_RECEIVED_QTY：参数 qty 缺失或不是十进制数，跳过".to_string(),
         ));
     };
-    // 第 3 层：明细行必须存在（不存在 = target 不在，跳过而不是「更新 0 行当超收」）
-    let exists: i64 = ex
-        .scalar_sql(
-            "SELECT count(*) FROM biz_purchase_order_item WHERE id = ?::uuid".to_string(),
-            vec![Value::from(&source_item_id)],
+    // 第 3 层：明细行必须存在（不存在 = target 不在，跳过而不是「判成超收」）
+    let sql = format!(
+        "SELECT i.qty AS order_qty, \
+                {posted} AS posted_total, \
+                COALESCE((SELECT SUM(si.qty) FROM biz_stock_in s \
+                           JOIN biz_stock_in_item si ON si.stock_in_id = s.id \
+                          WHERE s.source_order_id = i.order_id \
+                            AND si.source_item_id = i.id \
+                            AND s.status = 'POSTED' \
+                            AND s.deleted_at IS NULL \
+                            AND s.id = ?::uuid), 0) AS posted_self \
+           FROM biz_purchase_order_item i \
+          WHERE i.id = ?::uuid",
+        posted = crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+    );
+    let rows = ex
+        .query_sql(
+            sql,
+            vec![Value::from(&ctx.doc_id), Value::from(&source_item_id)],
         )
         .await
         .map_err(|error| ActionError::Failed(format!("校验采购明细行失败：{error}")))?;
-    if exists == 0 {
+    let Some(row) = rows.first() else {
         return Err(ActionError::Skipped(format!(
             "UPDATE_RECEIVED_QTY：采购明细行 {source_item_id} 不存在，跳过（target 不在）"
         )));
-    }
-    let affected =
-        crate::business::erp::stockin_model::add_received_qty(ex, source_item_id, qty, ctx.now)
-            .await
-            .map_err(|error| ActionError::Failed(format!("回写累计收货量失败：{error}")))?;
-    if affected == 0 {
+    };
+    let order_qty: Decimal = row
+        .get_typed("order_qty")
+        .map_err(|error| ActionError::Failed(format!("读订购量失败：{error}")))?;
+    let posted_total: Decimal = row
+        .get_typed("posted_total")
+        .map_err(|error| ActionError::Failed(format!("读已过账收货量失败：{error}")))?;
+    let posted_self: Decimal = row
+        .get_typed("posted_self")
+        .map_err(|error| ActionError::Failed(format!("读本单已过账收货量失败：{error}")))?;
+    let posted_other = posted_total - posted_self;
+    if posted_other + qty > order_qty {
         return Err(ActionError::Failed(format!(
-            "UPDATE_RECEIVED_QTY：采购明细行 {source_item_id} 已收数量 + 本次 {qty} 超过订购量（超收），\
-             关键动作失败 → 本次状态变更整笔回滚"
+            "UPDATE_RECEIVED_QTY：采购明细行 {source_item_id} 其他单据已收 {posted_other} + \
+             本次 {qty} 超过订购量 {order_qty}（超收），关键动作失败 → 本次状态变更整笔回滚"
         )));
     }
-    Ok(format!("采购明细 {source_item_id} 累计收货量 +{qty}"))
+    Ok(format!(
+        "采购明细 {source_item_id} 累计收货校验通过：其他单据已收 {posted_other} + 本次 {qty} \
+         ≤ 订购量 {order_qty}（P2-3 起累计收货量为派生值，不落库）"
+    ))
 }
 
 // ==================== GENERATE_VOUCHER ====================

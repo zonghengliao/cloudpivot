@@ -155,7 +155,7 @@ async fn over_receipt_against_purchase_order_is_rejected() {
     assert!(err.msg.contains("已收 10"), "{}", err.msg);
     assert!(err.msg.contains("订单 30"), "{}", err.msg);
 
-    // 收 20（刚好剩余）→ 成功，采购单变 RECEIVED 且 received_qty = 30
+    // 收 20（刚好剩余）→ 成功，采购单变 RECEIVED 且已收数量（派生）= 30
     let mut ok = line(MATERIAL_A, "20", "2", "0");
     ok.purchase_order_item_id = Some(item_id.to_string());
     let mut request = req(vec![ok]);
@@ -163,17 +163,16 @@ async fn over_receipt_against_purchase_order_is_rejected() {
     let id = create_stock_in(&request, None).await.unwrap();
     change_stock_in_status(id, &post_req(), None).await.unwrap();
 
-    let row = db()
-        .find_with_params(
-            "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
-            vec![Value::from(&item_id)],
-        )
+    // P2-3：已收数量是派生值（只算已过账收货单），断言走生产读路径
+    let received = crate::business::erp::model::purchase_order_item_find_by_id(item_id)
         .await
-        .unwrap();
+        .unwrap()
+        .expect("采购明细行必须存在")
+        .received_qty;
     assert_eq!(
-        row[0].get_typed::<Decimal>("received_qty").unwrap(),
+        received,
         dec("30"),
-        "过账必须回写采购明细的已收数量"
+        "过账后已收数量（派生）= 前述已收 10 + 本次 20"
     );
     let status: String = db()
         .scalar_with_params(

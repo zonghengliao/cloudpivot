@@ -141,10 +141,10 @@ const FIXTURES: &[&str] = &[
      ON CONFLICT DO NOTHING",
     // 采购明细（金额 100 + 税 13 = 113）
     "INSERT INTO biz_purchase_order_item (id, order_id, line_no, material_id, unit_id, qty, price,
-                                          tax_rate, amount, tax_amount, with_tax_amount, received_qty)
+                                          tax_rate, amount, tax_amount, with_tax_amount)
      VALUES ('b1b0000a-0000-4000-8000-000000000001', 'b1b00009-0000-4000-8000-000000000001', 1,
              'b1b00004-0000-4000-8000-000000000001', 'b1b00001-0000-4000-8000-000000000001',
-             5.0000, 20.000000, 0.1300, 100.0000, 13.0000, 113.0000, 0.0000)
+             5.0000, 20.000000, 0.1300, 100.0000, 13.0000, 113.0000)
      ON CONFLICT DO NOTHING",
     // 成本账：5 个、均价 20、金额 100
     "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount)
@@ -411,7 +411,11 @@ async fn purchase_order_item_row_maps_qty_and_received() {
     assert_eq!(item.line_no, 1);
     assert_eq!(item.qty, dec("5"));
     assert_eq!(item.price, dec("20"), "单价 NUMERIC(18,6) 读回 20");
-    assert_eq!(item.received_qty, Decimal::ZERO);
+    assert_eq!(
+        item.received_qty,
+        Decimal::ZERO,
+        "P2-3：已收数量是派生值，没有已过账收货单就是 0"
+    );
     assert_eq!(item.with_tax_amount, item.amount + item.tax_amount);
 }
 

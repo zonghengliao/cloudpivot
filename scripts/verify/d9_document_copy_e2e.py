@@ -271,9 +271,9 @@ def seed_purchase_order(qty: str) -> None:
     )
     psql(
         f"insert into biz_purchase_order_item (id, order_id, line_no, material_id, unit_id, qty, price, "
-        f"price_incl, tax_rate, amount, tax_amount, with_tax_amount, received_qty) "
+        f"price_incl, tax_rate, amount, tax_amount, with_tax_amount) "
         f"values ('{PO_ITEM_ID}'::uuid, '{PO_ID}'::uuid, 1, '{M_PLAIN}'::uuid, '{UNIT_ID}'::uuid, "
-        f"{qty}, 2, 0, 0, {qty}, 0, {qty}, 0) on conflict do nothing"
+        f"{qty}, 2, 0, 0, {qty}, 0, {qty}) on conflict do nothing"
     )
 
 

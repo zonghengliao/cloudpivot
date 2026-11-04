@@ -234,10 +234,27 @@ pub async fn purchase_order_page(
 
 // ==================== ⑩ biz_purchase_order_item 采购明细 ====================
 
-/// `biz_purchase_order_item` 列清单。
-pub const PURCHASE_ORDER_ITEM_COLUMNS: &str = "id, order_id, line_no, material_id, unit_id, \
-     qty, price, price_incl, tax_rate, amount, tax_amount, with_tax_amount, received_qty, \
-     remark, created_at, updated_at";
+/// `biz_purchase_order_item` 列清单（**不含派生列** `received_qty`）。
+///
+/// P2-3 起「已收数量」不再落库：迁移 V0217 删掉了那一列，读的时候由
+/// [`purchase_order_item_columns`] 追加一段现算表达式（唯一真相 = 已过账收货单）。
+/// 列名统一带 `i.` 前缀：调用方一律 `FROM biz_purchase_order_item i`，
+/// 派生表达式里写死了 `i.order_id` / `i.id`（见 `POSTED_RECEIVED_SQL`）。
+pub const PURCHASE_ORDER_ITEM_COLUMNS: &str = "i.id, i.order_id, i.line_no, i.material_id, i.unit_id, \
+     i.qty, i.price, i.price_incl, i.tax_rate, i.amount, i.tax_amount, i.with_tax_amount, \
+     i.remark, i.created_at, i.updated_at";
+
+/// 采购明细列清单 + **派生**「已收数量」（`received_qty`）。
+///
+/// `received_qty` 的口径只有一份：`purchase_model::POSTED_RECEIVED_SQL`
+/// （只算 `status='POSTED'` 且未软删的收货单、按采购明细行匹配）。
+/// 行结构 [`PurchaseOrderItemRow::received_qty`] 是它的投影，前端字段名不变。
+pub fn purchase_order_item_columns() -> String {
+    format!(
+        "{PURCHASE_ORDER_ITEM_COLUMNS}, ({}::numeric(18,4)) AS received_qty",
+        super::purchase_model::POSTED_RECEIVED_SQL
+    )
+}
 
 /// 采购明细行。
 ///
@@ -270,6 +287,9 @@ pub struct PurchaseOrderItemRow {
     /// 含税金额（DB 约束 `= amount + tax_amount`）。
     pub with_tax_amount: Decimal,
     /// 已收货数量（`0 <= received_qty <= qty`）。
+    ///
+    /// **派生值**（P2-3）：读时由 `POSTED_RECEIVED_SQL` 现算，库里没有这一列。
+    /// 口径 = 只算 `status='POSTED'` 且未软删的收货单明细，按采购明细行匹配。
     pub received_qty: Decimal,
     /// 备注。
     pub remark: Option<String>,
@@ -304,15 +324,17 @@ impl PurchaseOrderItemRow {
 }
 
 /// 采购明细的**列表排序**：行号升序。
-pub const PURCHASE_ORDER_ITEM_ORDER: &str = "ORDER BY line_no ASC";
+pub const PURCHASE_ORDER_ITEM_ORDER: &str = "ORDER BY i.line_no ASC";
 
 /// 按订单取全部明细（行号升序，走 `idx_biz_po_item_order`）。
 ///
 /// 明细是「一个主单几十行」的小集合，不做分页（与前端一次拉整单的口径一致）。
+/// `received_qty` 是派生列（`POSTED_RECEIVED_SQL`）：一次查询拿整单，不做 N+1。
 pub async fn purchase_order_items(order_id: Uuid) -> DbResult<Vec<PurchaseOrderItemRow>> {
     let sql = format!(
-        "SELECT {PURCHASE_ORDER_ITEM_COLUMNS} FROM biz_purchase_order_item \
-         WHERE order_id = ? ORDER BY line_no ASC"
+        "SELECT {} FROM biz_purchase_order_item i \
+         WHERE i.order_id = ? ORDER BY i.line_no ASC",
+        purchase_order_item_columns()
     );
     let rows = db()
         .find_with_params(&sql, vec![Value::from(order_id)])
@@ -321,30 +343,33 @@ pub async fn purchase_order_items(order_id: Uuid) -> DbResult<Vec<PurchaseOrderI
 }
 
 /// 按主键取采购明细。
+///
+/// 不走通用 `find_by_id`：派生列要求表别名 `i`（见 [`PURCHASE_ORDER_ITEM_COLUMNS`]），
+/// 而通用模板只拼 `FROM {table}`。明细没有 `deleted_at`（随主单级联），语义不变。
 pub async fn purchase_order_item_find_by_id(id: Uuid) -> DbResult<Option<PurchaseOrderItemRow>> {
-    find_by_id(
-        "biz_purchase_order_item",
-        PURCHASE_ORDER_ITEM_COLUMNS,
-        id,
-        false,
-        PurchaseOrderItemRow::from_row,
-    )
-    .await
+    let sql = format!(
+        "SELECT {} FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
+        purchase_order_item_columns()
+    );
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(PurchaseOrderItemRow::from_row).transpose()
 }
 
 /// 采购明细分页（按订单 / 按物料），供「物料采购记录」类页面使用。
 pub async fn purchase_order_item_page(
     q: &PurchaseOrderItemFilter,
 ) -> DbResult<(Vec<PurchaseOrderItemRow>, i64)> {
-    let mut sql =
-        format!("SELECT {PURCHASE_ORDER_ITEM_COLUMNS} FROM biz_purchase_order_item WHERE 1 = 1");
+    let mut sql = format!(
+        "SELECT {} FROM biz_purchase_order_item i WHERE 1 = 1",
+        purchase_order_item_columns()
+    );
     let mut params: Vec<Value> = Vec::new();
     if let Some(order_id) = q.order_id.as_deref() {
-        sql.push_str(" AND order_id = ?");
+        sql.push_str(" AND i.order_id = ?");
         params.push(Value::from(parse_id(order_id)?));
     }
     if let Some(material_id) = q.material_id.as_deref() {
-        sql.push_str(" AND material_id = ?");
+        sql.push_str(" AND i.material_id = ?");
         params.push(Value::from(parse_id(material_id)?));
     }
     page_of(

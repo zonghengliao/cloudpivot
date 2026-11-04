@@ -17,60 +17,21 @@ use crate::business::shared::state_machine;
 
 use super::stockin_cancel::PO_RACE_PREFIX;
 
-/// 作废已过账收货单时**回退**采购明细的已收数量（`received_qty − qty`，不低于 0）。
-///
-/// 与 [`add_received_qty`] 严格对称：过账加、作废减。没有这一步，
-/// 「作废收货单」只回滚了库存六本账，采购明细的 `received_qty` 还是满的 ——
-/// 采购单会显示"已收完"并挡住老板重新收货（D4 要解决的核心场景）。
-pub async fn revert_received_qty(
-    ex: &impl SqlExecutor,
-    source_item_id: Uuid,
-    qty: Decimal,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
-    ex.exec_sql(
-        "UPDATE biz_purchase_order_item \
-            SET received_qty = GREATEST(received_qty - NULLIF(?::text,'')::numeric, 0), \
-                updated_at = ? \
-          WHERE id = ?::uuid"
-            .to_string(),
-        vec![
-            Value::Text(qty.round_dp(4).to_string()),
-            Value::from(now),
-            Value::from(&source_item_id),
-        ],
-    )
-    .await
-}
+// P2-3：作废已过账收货单时**不再回退任何「已收数量」列**。
+//
+// 以前这里有一对镜像写：过账 `add_received_qty`（+N，条件 `received_qty + N <= qty`）、
+// 作废 `revert_received_qty`（−N）。列已由迁移 V0217 删除，已收数量改由
+// `purchase_model::POSTED_RECEIVED_SQL` 现算：本单状态一旦变成 `CANCELLED`
+// （作废事务的 ⓪ 步，早于调用点），聚合就被 `s.status = 'POSTED'` 过滤掉，
+// 已收数量自动回退 —— 少一次写，也就少一次「写了忘了减」的漂移机会。
+//
+// 超收闸随之**只剩一处**：过账事务 ①b 的 `guard_purchase_before_post`
+// （锁采购单头 FOR UPDATE + `order_item_balances` 待收额度复核，出口 409 + 66032）。
+// 它读的就是同一个派生口径，所以「页面说还能收多少」= 「过账放行多少」。
+//
+// 保留下来的动作只有「重算采购单状态」（`sync_purchase_status`）。
 
 // ==================== 写：建单 / 改单 / 状态 / 删 ====================
-
-/// 回写采购明细的已收数量（条件更新：`received_qty + 本次 ≤ qty`），返回 `affected`。
-///
-/// 0 行 = 超收（或明细已被删）→ 调用方按 400 处理（卡面 ⑪）。
-/// 条件写在 `WHERE` 里而不是先读再判：并发两张收货单收同一采购行时，
-/// 后到的那笔在拿到行锁后会**重判**最新值（READ COMMITTED），不会双花。
-pub async fn add_received_qty(
-    ex: &impl SqlExecutor,
-    source_item_id: Uuid,
-    qty: Decimal,
-    now: DateTime<Utc>,
-) -> DbResult<u64> {
-    ex.exec_sql(
-        "UPDATE biz_purchase_order_item \
-            SET received_qty = received_qty + NULLIF(?::text,'')::numeric, updated_at = ? \
-          WHERE id = ?::uuid \
-            AND received_qty + NULLIF(?::text,'')::numeric <= qty"
-            .to_string(),
-        vec![
-            Value::Text(qty.round_dp(4).to_string()),
-            Value::from(now),
-            Value::from(&source_item_id),
-            Value::Text(qty.round_dp(4).to_string()),
-        ],
-    )
-    .await
-}
 
 /// 按明细已收情况推进采购单状态（`PARTIAL_RECEIVED` / `RECEIVED`）。
 ///
@@ -96,8 +57,9 @@ pub async fn add_received_qty(
 ///
 /// # D4：`RECEIVED` 只在**回退**方向动
 ///
-/// 收货单作废会先把 `received_qty` 退回去（[`revert_received_qty`]），再调本函数重算：
-/// 此时采购单可能还是 `RECEIVED`，必须能退到 `PARTIAL_RECEIVED`（边表第 11 条），
+/// 收货单作废会把本单从已过账集合里摘出去（状态先变 `CANCELLED`，见
+/// `cancel_in_tx` ⓪ 步），再调本函数重算：此时采购单可能还是 `RECEIVED`，
+/// 必须能退到 `PARTIAL_RECEIVED`（边表第 11 条），
 /// 否则「已收货却没有已收数量」的单既不能收也不能改。正向收货撞不到这条路径
 /// （`RECEIVED` 不在 [`purchase_receivable`] 白名单里）。
 ///
@@ -135,14 +97,16 @@ pub async fn sync_purchase_status(
     }
 
     // ② 收货进度 → 目标状态
-    let pending: i64 = ex
-        .scalar_sql(
-            "SELECT count(*) FROM biz_purchase_order_item \
-              WHERE order_id = ?::uuid AND received_qty < qty"
-                .to_string(),
-            vec![Value::from(&order_id)],
-        )
-        .await?;
+    //
+    // P2-3：判据用**派生口径**（`POSTED_RECEIVED_SQL`），不再读已被删除的
+    // `received_qty` 列。这一步与「待收明细」页面、「过账闸」读的是同一段 SQL，
+    // 「页面显示已收完」与「状态推进成 RECEIVED」永远不会打架。
+    let sql = format!(
+        "SELECT count(*) FROM biz_purchase_order_item i \
+          WHERE i.order_id = ?::uuid AND ({}) < i.qty",
+        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+    );
+    let pending: i64 = ex.scalar_sql(sql, vec![Value::from(&order_id)]).await?;
     let target = if pending == 0 {
         "RECEIVED"
     } else {
@@ -202,13 +166,16 @@ pub async fn sync_purchase_status(
 /// **D4 起不含 `RECEIVED`**：卡面 ⑦「采购单已 RECEIVED → 400（已收完）」。
 /// 旧白名单把 `RECEIVED` 也算可收（当时靠 `pull_lines_from_purchase` 的
 /// 「每行都收满 → 400」兜底），结果是**已收满的单还能建出一张 0 行/无意义的收货单**，
-/// 或者收出超收后再被 `add_received_qty` 的条件更新拦下 —— 报错点太靠后、文案也不对。
+/// 或者收出超收后再被过账闸拦下 —— 报错点太靠后、文案也不对。
 /// 现在前置拦：`RECEIVED` 直接判不可收货，文案说清「已收完」。
 pub fn purchase_receivable(status: &str) -> bool {
     matches!(status, "SUBMITTED" | "APPROVED" | "PARTIAL_RECEIVED")
 }
 
 /// 采购单的一条明细的「未收数量」文本（`qty - received_qty`，负数按 0）。
+///
+/// `received_qty` 是派生值（P2-3：`POSTED_RECEIVED_SQL`），所以这里算出来的
+/// 「未收」与「待收明细」页面、「过账闸」的可用量是同一个数。
 pub fn remaining_qty(item: &PurchaseOrderItemRow) -> Decimal {
     let remaining = item.qty - item.received_qty;
     if remaining < Decimal::ZERO {
@@ -218,7 +185,7 @@ pub fn remaining_qty(item: &PurchaseOrderItemRow) -> Decimal {
     }
 }
 
-/// 采购单引用（收货要回写 `received_qty`，先确认单子存在且可收）。
+/// 采购单引用（先确认单子存在且可收）。
 pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrderRow>> {
     crate::business::erp::model::purchase_order_find_by_id(order_id).await
 }
@@ -231,7 +198,8 @@ pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrder
 ///
 /// 两种锁都能挡住「取消采购单」的普通 `UPDATE status`。选 `FOR UPDATE` 是为了让
 /// **两张收货单收同一张采购单**也互斥：`FOR SHARE` 彼此相容，两个过账事务会同时通过
-/// 待收额度复核，最后只能靠 `add_received_qty` 的条件更新兜底（报 400 而不是带待收量的 409）。
+/// 待收额度复核，最后只能靠（已删除的）条件更新兜底 —— P2-3 之后兜底没了，
+/// 本函数的 `FOR UPDATE` 是**唯一**的并发互斥点。
 ///
 /// # 加锁顺序（P2 收口：两条路径已统一）
 ///
@@ -255,7 +223,8 @@ pub async fn purchase_order_ref(order_id: Uuid) -> DbResult<Option<PurchaseOrder
 ///
 /// - 并发「取消 / 关闭采购单」必须等本次过账事务提交或回滚 ⇒ 复核到的状态在提交前有效；
 /// - 两张收货单收同一张采购单也会在这里串行化 ⇒ 待收额度复核
-///   （[`order_item_balances`]）成为**权威判据**，[`add_received_qty`] 的条件更新退化成兜底。
+///   （[`order_item_balances`]）成为**权威判据**（也是唯一判据：P2-3 之后
+///   `add_received_qty` 的条件更新已随列一起删除）。
 pub async fn lock_purchase_order(
     ex: &impl SqlExecutor,
     order_id: Uuid,
@@ -310,7 +279,7 @@ pub async fn order_item_balances(
 ) -> DbResult<Vec<OrderItemBalance>> {
     let sql = format!(
         "SELECT i.id AS item_id, i.line_no, i.qty AS order_qty, \
-                {} AS posted_received \
+                ({}::numeric(18,4)) AS posted_received \
            FROM biz_purchase_order_item i \
           WHERE i.order_id = ?::uuid \
           ORDER BY i.line_no ASC",

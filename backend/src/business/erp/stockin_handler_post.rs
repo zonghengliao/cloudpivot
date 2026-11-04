@@ -30,21 +30,23 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
-/// 过账所需的**输入快照**（明细 / 一物一码开关 / 序列号请求 / 采购未收快照）。
+/// 过账所需的**输入快照**（明细 / 一物一码开关 / 序列号请求）。
 ///
 /// `req = None` 表示**审批回调路径**（[`post_after_approval`]）：审批单不携带序列号，
 /// 一物一码走 [`stockin_model::generate_serials`] 的「入参为空 → 自动取号」分支
 /// （与直接过账「操作员不填序列号」走的是同一条路，不另写一套）。
+///
+/// P2-3 删掉了原来的第 4 项「采购未收快照」（`po_snapshot`）：它只用于过账 ⑤ 步
+/// 回写失败时的报错文案，而 ⑤ 步已随 `received_qty` 列一起删除；
+/// 超收拦截与文案现在只由 ①b 的 `guard_purchase_before_post` 提供。
 pub(super) async fn posting_inputs(
     id: Uuid,
-    source_order_id: Option<Uuid>,
     req: Option<&StockInStatusReq>,
 ) -> std::result::Result<
     (
         Vec<stockin_model::StockInItemRow>,
         HashMap<Uuid, bool>,
         HashMap<i32, Vec<String>>,
-        HashMap<Uuid, (Decimal, Decimal)>,
     ),
     ApiError,
 > {
@@ -67,8 +69,7 @@ pub(super) async fn posting_inputs(
         Some(req) => request_serials(req, &items)?,
         None => HashMap::new(),
     };
-    let po_snapshot = purchase_item_snapshot(source_order_id).await?;
-    Ok((items, serial_required, provided, po_snapshot))
+    Ok((items, serial_required, provided))
 }
 
 /// 走「过账」的**唯一对外入口**（P-FLOW-3A + ARCH-3 DC-01）：配了已发布的 `stock_in_post`
@@ -378,8 +379,7 @@ pub async fn post_after_approval(
         &format!("收货入库单 {}", row.in_no),
     )
     .await?;
-    let (items, serial_required, provided, po_snapshot) =
-        posting_inputs(id, row.source_order_id, None).await?;
+    let (items, serial_required, provided) = posting_inputs(id, None).await?;
     // ★ DC-09 补口：审批通过这条过账入口同样按明细快照的 unit_id 复检（与直接过账同一把尺子）
     guard_posting_units(&items).await?;
     let mut ordered: Vec<&stockin_model::StockInItemRow> = items.iter().collect();
@@ -398,7 +398,6 @@ pub async fn post_after_approval(
         &ordered,
         &serial_required,
         &provided,
-        &po_snapshot,
         &op,
         STATUS_PENDING_POST,
         None,
@@ -497,8 +496,7 @@ pub(super) async fn post_stock_in(
     // ★ A4：过账前复校「单据头供应商 = 来源采购单供应商」。
     //   建单期的校验挡不住绕过接口的 UPDATE，而应付/凭证直接取单据头 `supplier_id`。
     guard_posting_supplier(header).await?;
-    let (items, serial_required, provided, po_snapshot) =
-        posting_inputs(id, header.source_order_id, Some(req)).await?;
+    let (items, serial_required, provided) = posting_inputs(id, Some(req)).await?;
     // ★ DC-09 补口：过账期按明细快照的 unit_id 复检（建单期校验挡不住 UPDATE / 存量草稿）
     guard_posting_units(&items).await?;
 
@@ -520,7 +518,6 @@ pub(super) async fn post_stock_in(
         &ordered,
         &serial_required,
         &provided,
-        &po_snapshot,
         operator,
         STATUS_DRAFT,
         reason,
@@ -548,9 +545,11 @@ pub(super) async fn post_stock_in(
 /// * `DRAFT` —— 直接过账（未配过账流程 / 内部调用 / 老用例）；
 /// * `PENDING_POST` —— 过账审批通过后执行（[`post_after_approval`]）。
 ///
-/// 其余六本账动作（库存 / 库位账 / 流水 / 序列号 / 采购已收 / 凭证 + 应付）
+/// 其余六本账动作（库存 / 库位账 / 流水 / 序列号 / 凭证 + 应付）
 /// **一行都没重写**：审批通过只换了入口状态，"审 A 记 B" 的风险由
 /// `STOCK_IN_LOCKED`（PENDING_POST 锁单据）兜住。
+///
+/// P2-3：`po_snapshot` 参数（采购未收快照，只服务于已删除的回写步骤）一并去掉。
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn post_in_tx(
     ex: &impl SqlExecutor,
@@ -559,7 +558,6 @@ pub(super) async fn post_in_tx(
     ordered: &[&stockin_model::StockInItemRow],
     serial_required: &HashMap<Uuid, bool>,
     provided: &HashMap<i32, Vec<String>>,
-    po_snapshot: &HashMap<Uuid, (Decimal, Decimal)>,
     operator: &state_machine::Operator,
     from_status: &str,
     reason: Option<&str>,
@@ -691,25 +689,11 @@ pub(super) async fn post_in_tx(
             })?;
         }
 
-        // ⑤ 回写采购明细已收数量（条件更新，0 行 = 超收）
-        if let Some(source_item_id) = item.source_item_id {
-            let affected = stockin_model::add_received_qty(ex, source_item_id, item.qty, now)
-                .await
-                .map_err(|error| write_error(error, "过账：回写采购已收数量"))?;
-            if affected == 0 {
-                let (po_qty, received) = po_snapshot
-                    .get(&source_item_id)
-                    .copied()
-                    .unwrap_or_default();
-                return Err(bad_request(format!(
-                    "第 {} 行收货数量超过采购单未收数量：采购 {po_qty}、已收 {received}，\
-                     本次再收 {} → 超出 {}（并发下别的收货单可能刚收走了）",
-                    item.line_no,
-                    item.qty,
-                    received + item.qty - po_qty
-                )));
-            }
-        }
+        // ⑤ 采购明细「已收数量」**不需要回写**（P2-3）：
+        //    已收数量是派生值（`POSTED_RECEIVED_SQL`，只算已过账收货单），本单状态在
+        //    ② 步已经变成 POSTED，聚合自然把它算进去；作废时状态变 CANCELLED，
+        //    聚合自然把它排除。写路径上再维护一份 = 第二真相，本卡已删掉这一列。
+        //    超收闸只有一处：①b `guard_purchase_before_post`（同一口径，409 + 66032）。
     }
 
     // ⑥ 推进采购单状态（PARTIAL_RECEIVED / RECEIVED）—— P10：走状态机唯一入口

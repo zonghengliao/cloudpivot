@@ -1,0 +1,32 @@
+copy exit=0 (17 行采购明细)
+== 复制后的基线（列已删、派生可见） ==
+col_count=0
+
+== down：把列加回来并按派生值回填 ==
+down exit=0
+col_count=1
+check_exists=1
+idx_after_down=0
+-- 回填后「列 = 现算」逐行比对：
+01a18dee-80dd-72d9-b110-061f84eed5cd|col=0.0000|recalc=0.0000
+01a18dee-80e3-731a-9942-cc8903a90617|col=100.0000|recalc=100.0000
+01a18dee-ac34-71c8-80c3-e95e7f6c2da5|col=100.0000|recalc=100.0000
+01a18dee-e678-7314-a4d2-9ec10783b117|col=100.0000|recalc=100.0000
+01a18dee-e67c-7133-90da-2e37dd3dca2c|col=0.0000|recalc=0.0000
+01a18def-1a2b-7329-a9d3-c6b088c0df30|col=100.0000|recalc=100.0000
+01a18def-510a-771e-bf08-e2e32dd30b18|col=100.0000|recalc=100.0000
+01a18dff-90ee-77fd-b83c-33143b320982|col=100.0000|recalc=100.0000
+01a18f91-4018-735f-b85b-4a043041beaf|col=1.0000|recalc=1.0000
+01a18f91-6f70-7092-b031-3a1fc3e95a07|col=0.0000|recalc=0.0000
+01a18f91-6f74-7495-bfee-c31855365a11|col=3.0000|recalc=3.0000
+01a19519-a37f-74bb-9749-d03ab89f7588|col=0.0000|recalc=0.0000
+01a19519-b358-7091-809e-bc87ed73dc45|col=0.0000|recalc=0.0000
+01a1951a-ecde-70d6-a8a9-f9ce70d5846f|col=0.0000|recalc=0.0000
+01a1951a-fcf9-72c1-91f7-2a906a05e9f9|col=0.0000|recalc=0.0000
+01a19c2a-f656-7108-8264-59b064829d2f|col=10.0000|recalc=10.0000
+01a19c2b-56bc-7653-8cee-656f17c20efd|col=0.0000|recalc=0.0000
+
+== up 再来一次（回到单真相） ==
+up exit=0
+col_count=0
+idx=1

@@ -208,10 +208,10 @@ async fn create_po(lines: &[(&str, &str)]) -> (Uuid, Vec<Uuid>) {
             &format!(
                 "INSERT INTO biz_purchase_order_item \
                      (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate, \
-                      amount, tax_amount, with_tax_amount, received_qty) \
+                      amount, tax_amount, with_tax_amount) \
                  VALUES (?::uuid, ?::uuid, {}, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, 0, \
-                     NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric, 0)",
+                     NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric)",
                 index + 1
             ),
             vec![
@@ -574,15 +574,13 @@ async fn p15_cascade_voids_downstream_then_order() {
     );
     // 应付单作废
     assert_eq!(payable_status(stock_in_id).await, "CANCELLED");
-    // 采购明细的已收数量退回
-    assert_eq!(
-        decimal_of(&format!(
-            "SELECT received_qty FROM biz_purchase_order_item WHERE id = '{}'::uuid",
-            item_ids[0]
-        ))
-        .await,
-        Decimal::ZERO
-    );
+    // 采购明细的已收数量退回（P2-3：派生值，本单作废后不再计入 POSTED 集合）
+    let received_after = crate::business::erp::model::purchase_order_item_find_by_id(item_ids[0])
+        .await
+        .unwrap()
+        .expect("采购明细行必须存在")
+        .received_qty;
+    assert_eq!(received_after, Decimal::ZERO);
 }
 
 /// ⑧ 无下游时直接作废：只有采购单自己一个动作。

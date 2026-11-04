@@ -34,7 +34,8 @@
 //!    · P6 补口：同一行还要把 qty 加到 `biz_inventory_location`（成本账 + 库位账两本账同事务，
 //!      见 [`stockin_model::apply_location_qty`]；「有库位」按行 id UPDATE、「无库位」加 NULL 桶）
 //! ④ 一物一码物料生成 / 落序列号（数量 = 本行 qty）
-//! ⑤ 带来源采购单时回写 received_qty（条件 `received_qty + 本次 ≤ qty`，0 行 = 超收 400）
+//! ⑤ 采购明细「已收数量」**不回写**（P2-3）：它是派生值（只算已过账收货单），
+//!    本单 ② 步已进 POSTED 集合，聚合自然计入；超收闸只在 ①b `guard_purchase_before_post`
 //! ⑥ 推送采购单状态 PARTIAL_RECEIVED / RECEIVED
 //! ```
 //!

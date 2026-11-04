@@ -521,9 +521,10 @@ async fn ensure_po() {
     for (line_no, item) in [(1_i32, fixture_item1()), (2_i32, fixture_item2())] {
         db().execute_with_params(
             "INSERT INTO biz_purchase_order_item \
-                (id, order_id, line_no, material_id, unit_id, qty, received_qty, created_at, updated_at) \
-             VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, 10, 0, ?, ?) \
-             ON CONFLICT (id) DO UPDATE SET qty = 10, received_qty = 0",
+                (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, \
+                 tax_rate, amount, tax_amount, with_tax_amount, created_at, updated_at) \
+             VALUES (?::uuid, ?::uuid, ?, ?::uuid, ?::uuid, 10, 0, 0, 0, 0, 0, 0, ?, ?) \
+             ON CONFLICT (id) DO UPDATE SET qty = 10",
             vec![
                 Value::from(&item),
                 Value::from(&fixture_po()),
@@ -882,7 +883,10 @@ async fn engine_skips_disabled_rules() {
 
     let received: DbResult<String> = tx
         .scalar_sql(
-            "SELECT received_qty::text FROM biz_purchase_order_item WHERE id = ?::uuid".to_string(),
+            format!(
+                "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
+                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+            ),
             vec![Value::from(&fixture_item1())],
         )
         .await;
@@ -949,21 +953,33 @@ async fn engine_runs_in_seq_order() {
         run.runs[1].outcome
     );
 
+    // P2-3：累计收货量是派生值（只算已过账收货单），本动作不再写任何列 ——
+    // 断言 ①动作成功 ②派生值仍是 0（没有已过账收货单，本就该是 0）。
     let qty1: String = tx
         .scalar_sql(
-            "SELECT received_qty::text FROM biz_purchase_order_item WHERE id = ?::uuid".to_string(),
+            format!(
+                "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
+                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+            ),
             vec![Value::from(&fixture_item1())],
         )
         .await
         .expect("查已收数量");
-    assert_eq!(qty1, "2.0000");
+    assert_eq!(
+        qty1, "0.0000",
+        "派生口径：动作不落库，值只由已过账收货单决定"
+    );
     tx.rollback().await.expect("回滚");
 }
 
 /// **关键动作失败 → 整笔回滚**（卡面核心用例）。
 ///
-/// 两条规则：第一条成功（已收 +2），第二条超收（qty 999）→ 引擎返回 Err；
-/// 调用方 rollback 后两条规则的效果都不在库里（第一条也被回滚）。
+/// 两条规则：第一条通过校验（其他单据已收 0 + 本次 2 ≤ 订购量 10），
+/// 第二条超收（qty 999 > 10）→ 引擎返回 Err；
+/// 调用方 rollback 后两条规则的效果都不在库里。
+///
+/// P2-3 起本动作不写列（累计收货量是派生值），"回滚"验的是
+/// 「关键动作失败 → 整个事务不提交」，所以断言看的是派生值保持 0 且引擎报错。
 #[tokio::test]
 async fn engine_critical_failure_rolls_back() {
     let Some(_guard) = setup().await else { return };
@@ -1004,12 +1020,14 @@ async fn engine_critical_failure_rolls_back() {
     );
     tx.rollback().await.expect("回滚");
 
-    // 回滚后：两条明细都没变（第一条的 +2 也一起撤销了）
+    // 回滚后：两条明细的已收数量（派生）都没变
     for item in [fixture_item1(), fixture_item2()] {
         let qty: String = db()
             .scalar_sql(
-                "SELECT received_qty::text FROM biz_purchase_order_item WHERE id = ?::uuid"
-                    .to_string(),
+                format!(
+                    "SELECT ({}::numeric(18,4))::text FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
+                    crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+                ),
                 vec![Value::from(&item)],
             )
             .await

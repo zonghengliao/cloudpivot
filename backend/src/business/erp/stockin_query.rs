@@ -6,7 +6,6 @@
 // `stockin_model.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -281,29 +280,9 @@ pub async fn order_nos_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uu
     Ok(map)
 }
 
-/// 取一张收货单里带来源采购明细行的 `(source_item_id, qty)`（作废回退已收数量用）。
-///
-/// 只返回 `source_item_id IS NOT NULL` 的行：手工收货（无来源采购单）/ 采购单之外的入库
-/// 不该动 `biz_purchase_order_item`。
-pub async fn source_lines_of(
-    ex: &impl SqlExecutor,
-    stock_in_id: Uuid,
-) -> DbResult<Vec<(Uuid, Decimal)>> {
-    let rows = ex
-        .query_sql(
-            "SELECT source_item_id, qty FROM biz_stock_in_item \
-              WHERE stock_in_id = ?::uuid AND source_item_id IS NOT NULL \
-              ORDER BY line_no ASC"
-                .to_string(),
-            vec![Value::from(&stock_in_id)],
-        )
-        .await?;
-    let mut lines = Vec::with_capacity(rows.len());
-    for row in rows.iter() {
-        lines.push((row.get_typed("source_item_id")?, row.get_typed("qty")?));
-    }
-    Ok(lines)
-}
+// P2-3：`source_lines_of(stock_in_id)` 已删除。它只为「作废时逐行回退
+// `biz_purchase_order_item.received_qty`」服务；列删除后已收数量是派生值
+// （`POSTED_RECEIVED_SQL` 只算 `POSTED`），作废把单头状态改成 `CANCELLED` 就够了。
 
 /// 收货单已生成的序列号数量（详情展示 / 单测断言）。
 pub async fn serial_count_of(stock_in_id: Uuid) -> DbResult<i64> {

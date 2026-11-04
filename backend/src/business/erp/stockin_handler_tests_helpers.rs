@@ -167,6 +167,14 @@ pub(super) async fn wait_waiters(max_ms: u64, want: i64) -> Option<std::time::Du
 }
 
 /// 造一张采购单（`qty` 件的 1 行，已收 `received`）并置为 `SUBMITTED`。
+///
+/// # P2-3：`received > 0` 时补一张**已过账收货单**
+///
+/// 以前这里直接把 `received` 写进 `biz_purchase_order_item.received_qty` 列；
+/// 该列已被迁移 V0217 删除，已收数量只能由「已过账收货单明细」派生。
+/// 所以夹具改成**造真账**：`received > 0` 就补一张 `status='POSTED'` 的收货单
+/// （[`d4_insert_posted`]，只写单头 + 一行明细 —— 这些用例只验待收口径，
+/// 不跑不变量套件）。
 pub(super) async fn seed_purchase_order(qty: &str, received: &str) -> (Uuid, Uuid) {
     let order_id = Uuid::now_v7();
     let item_id = Uuid::now_v7();
@@ -191,10 +199,10 @@ pub(super) async fn seed_purchase_order(qty: &str, received: &str) -> (Uuid, Uui
     db().execute_with_params(
         "INSERT INTO biz_purchase_order_item \
              (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate, \
-              amount, tax_amount, with_tax_amount, received_qty) \
+              amount, tax_amount, with_tax_amount) \
          VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
              NULLIF(?::text,'')::numeric, 0, 0, NULLIF(?::text,'')::numeric, 0, \
-             NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric)",
+             NULLIF(?::text,'')::numeric)",
         vec![
             Value::from(&item_id),
             Value::from(&order_id),
@@ -204,11 +212,14 @@ pub(super) async fn seed_purchase_order(qty: &str, received: &str) -> (Uuid, Uui
             Value::Text("2".to_string()),
             Value::Text(qty.to_string()),
             Value::Text(qty.to_string()),
-            Value::Text(received.to_string()),
         ],
     )
     .await
     .unwrap();
+    // P2-3：已收数量 = 已过账收货单派生，造「已收 N」就必须造一张 POSTED 收货单
+    if dec(received) > Decimal::ZERO {
+        d4_insert_posted(order_id, item_id, received).await;
+    }
     (order_id, item_id)
 }
 
@@ -501,8 +512,8 @@ pub(super) async fn post_new_by(lines: Vec<StockInItemReq>, operator: Option<Uui
 // ==================== D4：采购订单 → 一键生成收货单 ====================
 /// 造一张采购单（1 行，物料 A），返回 `(order_id, item_id)`。
 ///
-/// `received` **只写明细的冗余列**；要造「真的收过货」请用
-/// [`d4_seed_po_with_posted`]（D4 起已收数量有两个独立来源，测试必须让它们一致）。
+/// `received` > 0 时由 [`seed_purchase_order`] 造一张真实已过账收货单
+/// （P2-3：已收数量只有一个来源，没有「写列」这条路可走了）。
 pub(super) async fn d4_seed_po(qty: &str, received: &str) -> (Uuid, Uuid) {
     seed_purchase_order(qty, received).await
 }
@@ -548,13 +559,12 @@ pub(super) async fn d4_insert_posted(order_id: Uuid, item_id: Uuid, qty: &str) {
     .unwrap();
 }
 
-/// 造采购单 + 真账：`received > 0` 时补一张 POSTED 收货单（明细列与聚合口径一致）。
+/// 造采购单 + 真账：`received > 0` 时补一张 POSTED 收货单。
+///
+/// P2-3 起这一步已收进 [`seed_purchase_order`]（列删除后「造已收」只有这一条路），
+/// 本函数保留为语义化别名，调用方不必改。
 pub(super) async fn d4_seed_po_with_posted(qty: &str, received: &str) -> (Uuid, Uuid) {
-    let (order_id, item_id) = d4_seed_po(qty, received).await;
-    if dec(received) > Decimal::ZERO {
-        d4_insert_posted(order_id, item_id, received).await;
-    }
-    (order_id, item_id)
+    d4_seed_po(qty, received).await
 }
 
 /// 改采购单状态（造 DRAFT / RECEIVED / CANCELLED 这些非默认态）。
@@ -577,14 +587,19 @@ pub(super) async fn d4_po_status(order_id: Uuid) -> String {
     .unwrap()
 }
 
-/// 读采购明细的 `received_qty`（冗余列）。
+/// 读采购明细的「已收数量」——**派生值**（P2-3）。
+///
+/// 以前直接读 `biz_purchase_order_item.received_qty` 列；列已删除（迁移 V0217），
+/// 这里改成与生产**同一个**聚合表达式（`POSTED_RECEIVED_SQL`），
+/// 断言才有意义（读自己的实现会把 bug 一起读回来，所以表达式直接从生产常量取）。
 pub(super) async fn d4_ledger_received(item_id: Uuid) -> Decimal {
-    db().scalar_with_params(
-        "SELECT received_qty FROM biz_purchase_order_item WHERE id = ?::uuid",
-        vec![Value::from(&item_id)],
-    )
-    .await
-    .unwrap()
+    let sql = format!(
+        "SELECT ({}::numeric(18,4)) AS received_qty FROM biz_purchase_order_item i WHERE i.id = ?::uuid",
+        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+    );
+    db().scalar_with_params(&sql, vec![Value::from(&item_id)])
+        .await
+        .unwrap()
 }
 
 /// 过账审批夹具：仓管主管账号 + 角色绑定 + 清掉本卡夹具的审批实例 / 通知。
@@ -789,9 +804,9 @@ pub(super) async fn a4_seed_po(supplier: &str, qty: &str, status: &str) -> (Uuid
     db().execute_with_params(
         "INSERT INTO biz_purchase_order_item \
              (id, order_id, line_no, material_id, unit_id, qty, price, price_incl, tax_rate, \
-              amount, tax_amount, with_tax_amount, received_qty) \
+              amount, tax_amount, with_tax_amount) \
          VALUES (?::uuid, ?::uuid, 1, ?::uuid, ?::uuid, NULLIF(?::text,'')::numeric, \
-             2, 2, 0, NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric, 0)",
+             2, 2, 0, NULLIF(?::text,'')::numeric, 0, NULLIF(?::text,'')::numeric)",
         vec![
             Value::from(&item_id),
             Value::from(&order_id),

@@ -6,8 +6,6 @@
 // `stockin_handler.rs` 用 `pub use` 重导出，调用方一行不用改。
 // ============================================================================
 
-use std::collections::HashMap;
-
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -283,8 +281,9 @@ pub(super) async fn guard_posting_supplier(
 
 /// 带 `source_order_id` 且没给明细时，按采购单**未收数量**自动带出一批明细。
 ///
-/// 口径：只取 `qty - received_qty > 0` 的行，单价 / 税率沿用采购明细（含税单价也照搬快照），
-/// `source_item_id` 落该采购行 id —— 这样过账能回写 `received_qty`、后续能判超收。
+/// 口径：只取 `qty - received_qty > 0` 的行（`received_qty` 是派生值，P2-3），
+/// 单价 / 税率沿用采购明细（含税单价也照搬快照），
+/// `source_item_id` 落该采购行 id —— 过账时按这一列判超收（`order_item_balances`）。
 pub(super) async fn pull_lines_from_purchase(
     order_id: Uuid,
 ) -> std::result::Result<Vec<crate::business::erp::stockin_dto::StockInItemReq>, ApiError> {
@@ -316,22 +315,12 @@ pub(super) async fn pull_lines_from_purchase(
     Ok(lines)
 }
 
-/// 采购单明细快照（超收文案用）：`source_item_id → (qty, received_qty)`。
-pub(super) async fn purchase_item_snapshot(
-    order_id: Option<Uuid>,
-) -> std::result::Result<HashMap<Uuid, (Decimal, Decimal)>, ApiError> {
-    let mut map = HashMap::new();
-    let Some(order_id) = order_id else {
-        return Ok(map);
-    };
-    let items = model::purchase_order_items(order_id)
-        .await
-        .map_err(|error| utils::db_error(error, "查询采购单明细"))?;
-    for item in items {
-        map.insert(item.id, (item.qty, item.received_qty));
-    }
-    Ok(map)
-}
+// P2-3：原来这里还有 `purchase_item_snapshot(order_id)`，给过账 ⑤ 步拼
+// 「采购 X、已收 Y、超出 Z」的超收文案（`source_item_id → (qty, received_qty)`）。
+// 列删除后 ⑤ 步一并消失，超收拦截只剩
+// `stockin_handler_purchase::guard_purchase_before_post` 一处，
+// 文案直接带 `order_item_balances` 的订单量 / 已过账收货量 —— 少一份快照，
+// 也少一处「快照与实时值不一致」的可能。
 
 // ==================== ① 建单 ====================
 

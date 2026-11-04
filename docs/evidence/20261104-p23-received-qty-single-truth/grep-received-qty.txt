@@ -1,0 +1,117 @@
+=== ① 全仓搜 received_qty（后端源码 + 迁移）——排除调拨单 biz_stock_transfer_item（另一个字段，另一张表） ===
+backend/src/business/erp/dto.rs:2624:    pub received_qty: Decimal,
+backend/src/business/erp/dto.rs:2637:            received_qty: row.received_qty,
+backend/src/business/erp/dto.rs:2668:    pub received_qty: Decimal,
+backend/src/business/erp/dto.rs:2691:            received_qty: row.received_qty,
+backend/src/business/erp/model_order.rs:237:/// `biz_purchase_order_item` 列清单（**不含派生列** `received_qty`）。
+backend/src/business/erp/model_order.rs:247:/// 采购明细列清单 + **派生**「已收数量」（`received_qty`）。
+backend/src/business/erp/model_order.rs:249:/// `received_qty` 的口径只有一份：`purchase_model::POSTED_RECEIVED_SQL`
+backend/src/business/erp/model_order.rs:251:/// 行结构 [`PurchaseOrderItemRow::received_qty`] 是它的投影，前端字段名不变。
+backend/src/business/erp/model_order.rs:254:        "{PURCHASE_ORDER_ITEM_COLUMNS}, {} AS received_qty",
+backend/src/business/erp/model_order.rs:289:    /// 已收货数量（`0 <= received_qty <= qty`）。
+backend/src/business/erp/model_order.rs:293:    pub received_qty: Decimal,
+backend/src/business/erp/model_order.rs:318:            received_qty: row.get_typed("received_qty")?,
+backend/src/business/erp/model_order.rs:332:/// `received_qty` 是派生列（`POSTED_RECEIVED_SQL`）：一次查询拿整单，不做 N+1。
+backend/src/business/erp/stockin_purchase.rs:22:// 以前这里有一对镜像写：过账 `add_received_qty`（+N，条件 `received_qty + N <= qty`）、
+backend/src/business/erp/stockin_purchase.rs:23:// 作废 `revert_received_qty`（−N）。列已由迁移 V0217 删除，已收数量改由
+backend/src/business/erp/stockin_purchase.rs:102:    // `received_qty` 列。这一步与「待收明细」页面、「过账闸」读的是同一段 SQL，
+backend/src/business/erp/stockin_purchase.rs:177:/// 采购单的一条明细的「未收数量」文本（`qty - received_qty`，负数按 0）。
+backend/src/business/erp/stockin_purchase.rs:179:/// `received_qty` 是派生值（P2-3：`POSTED_RECEIVED_SQL`），所以这里算出来的
+backend/src/business/erp/stockin_purchase.rs:182:    let remaining = item.qty - item.received_qty;
+backend/src/business/erp/stockin_purchase.rs:229:///   `add_received_qty` 的条件更新已随列一起删除）。
+backend/src/business/erp/stockin_handler_post.rs:40:/// 回写失败时的报错文案，而 ⑤ 步已随 `received_qty` 列一起删除；
+backend/src/business/erp/stockin_query.rs:284:// `biz_purchase_order_item.received_qty`」服务；列删除后已收数量是派生值
+backend/src/business/erp/model_tests.rs:415:        item.received_qty,
+backend/src/business/erp/purchase_dto.rs:586:    pub received_qty: Decimal,
+backend/src/business/erp/purchase_dto.rs:605:            received_qty: row.received_qty,
+backend/src/business/erp/purchase_dto.rs:680:    pub received_qty: Decimal,
+backend/src/business/erp/purchase_dto.rs:681:    /// 待收数量 = `ordered_qty - received_qty`（负数按 0）。
+backend/src/business/erp/purchase_dto.rs:724:            received_qty: line.received_qty,
+backend/src/business/erp/purchase_model.rs:16://!                           （P2-3 / V0217 起 **没有 `received_qty`**：已收数量读时现算，
+backend/src/business/erp/purchase_model.rs:903:/// `received_qty` 列已被迁移 V0217 删除，读的地方（采购单详情 / 待收明细 /
+backend/src/business/erp/purchase_model.rs:948:    /// P2-3 起这是唯一口径：列 `biz_purchase_order_item.received_qty` 已删除，
+backend/src/business/erp/purchase_model.rs:949:    /// 不再有「冗余列 vs 现算」两套数（`ledger_received_qty` 字段随之退场）。
+backend/src/business/erp/purchase_model.rs:950:    pub received_qty: Decimal,
+backend/src/business/erp/purchase_model.rs:962:        let pending = self.ordered_qty - self.received_qty;
+backend/src/business/erp/purchase_model.rs:990:            received_qty: row.get_typed("received_qty")?,
+backend/src/business/erp/purchase_model.rs:1008:                {POSTED_RECEIVED_SQL} AS received_qty, \
+backend/src/business/erp/purchase_handler.rs:36://! 已收数量（`received_qty`）是派生值（P2-3：只算已过账收货单，建单时恒 0），
+backend/src/business/erp/purchase_handler.rs:602:/// - `received_qty` **只算已过账（`POSTED`）的收货单**，草稿 / 作废 / 软删一律不算
+backend/src/business/erp/purchase_handler.rs:605:/// - `pending_qty = ordered_qty - received_qty`（负数按 0）；
+backend/src/business/erp/purchase_handler.rs:1952:        assert_eq!(line.received_qty, dec("0"));
+backend/src/business/erp/stockin_handler_common.rs:373:                    trim_qty(po_item.received_qty),
+backend/src/business/erp/stockin_handler_purchase.rs:284:/// 口径：只取 `qty - received_qty > 0` 的行（`received_qty` 是派生值，P2-3），
+backend/src/business/erp/stockin_handler_purchase.rs:319:// 「采购 X、已收 Y、超出 Z」的超收文案（`source_item_id → (qty, received_qty)`）。
+backend/src/business/erp/stockin_handler_cancel.rs:572:        // 退回可继续收的态。以前这里要先逐行 `revert_received_qty` 再重算，
+backend/src/business/erp/cancel_cascade_tests.rs:582:        .received_qty;
+backend/src/business/flow/linkage/actions.rs:351:/// （调用方整笔回滚）。为什么不再回写：`biz_purchase_order_item.received_qty`
+backend/src/business/flow/linkage/actions.rs:366:pub async fn update_received_qty(
+backend/src/business/flow/linkage/actions.rs:650:        spec::ACTION_UPDATE_RECEIVED_QTY => update_received_qty(ex, rule, ctx).await,
+backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:261:    received_qty    NUMERIC(18,4) NOT NULL DEFAULT 0,               -- 已收货数量（部分收货累计）
+backend/migrations/business/V0137__erp_master_data_and_warehouse.up.sql:268:    CONSTRAINT ck_biz_po_item_recv CHECK (received_qty >= 0 AND received_qty <= qty),
+backend/migrations/business/V0145__purchase_order_amounts_and_stock_in.up.sql:15:--       price(18,6) / tax_rate(7,4) / amount / tax_amount / with_tax_amount / received_qty
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:2:-- V0217__erp_p2_3_received_qty_derived.down.sql
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:4:-- 回滚：把 `received_qty` 列加回来，并按**当前唯一真相**（已过账收货单明细）
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:15:    ADD COLUMN IF NOT EXISTS received_qty NUMERIC(18,4) NOT NULL DEFAULT 0;
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:18:   SET received_qty = LEAST(
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:32:    ADD CONSTRAINT ck_biz_po_item_recv CHECK (received_qty >= 0 AND received_qty <= qty);
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:2:-- V0217__erp_p2_3_received_qty_derived.up.sql
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:4:-- 【P2-3】biz_purchase_order_item.received_qty 双真相收敛为「单真相」。
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:7:--   A. 列 `received_qty`：收货过账时 +N（stockin_purchase::add_received_qty）、
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:8:--      收货单作废时 −N（stockin_purchase::revert_received_qty）；
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:32:ALTER TABLE biz_purchase_order_item DROP COLUMN IF EXISTS received_qty;
+
+=== ② 谁在写 biz_purchase_order_item 的 received_qty？（应为 0 处） ===
+backend/src/business/flow/linkage/tests.rs:1142:        "UPDATE biz_purchase_order_item SET remark = 'after-probe' WHERE id = ?::uuid",
+
+=== ③ 唯一的「已收数量」口径 POSTED_RECEIVED_SQL 的引用点 ===
+backend/src/business/erp/model_order.rs:242:/// 派生表达式里写死了 `i.order_id` / `i.id`（见 `POSTED_RECEIVED_SQL`）。
+backend/src/business/erp/model_order.rs:249:/// `received_qty` 的口径只有一份：`purchase_model::POSTED_RECEIVED_SQL`
+backend/src/business/erp/model_order.rs:255:        super::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/model_order.rs:291:    /// **派生值**（P2-3）：读时由 `POSTED_RECEIVED_SQL` 现算，库里没有这一列。
+backend/src/business/erp/model_order.rs:332:/// `received_qty` 是派生列（`POSTED_RECEIVED_SQL`）：一次查询拿整单，不做 N+1。
+backend/src/business/erp/stockin_handler_tests_helpers.rs:593:/// 这里改成与生产**同一个**聚合表达式（`POSTED_RECEIVED_SQL`），
+backend/src/business/erp/stockin_handler_tests_helpers.rs:598:        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/stockin_purchase.rs:24:// `purchase_model::POSTED_RECEIVED_SQL` 现算：本单状态一旦变成 `CANCELLED`
+backend/src/business/erp/stockin_purchase.rs:101:    // P2-3：判据用**派生口径**（`POSTED_RECEIVED_SQL`），不再读已被删除的
+backend/src/business/erp/stockin_purchase.rs:107:        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/stockin_purchase.rs:179:/// `received_qty` 是派生值（P2-3：`POSTED_RECEIVED_SQL`），所以这里算出来的
+backend/src/business/erp/stockin_purchase.rs:275:/// 已收口径**复用** [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]
+backend/src/business/erp/stockin_purchase.rs:288:        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/stockin_handler.rs:29://!    （口径 = `POSTED_RECEIVED_SQL`，出口 409 + 66032）。在扣减库存之前，失败整笔回滚。
+backend/src/business/erp/stockin_handler_post.rs:693:        //    已收数量是派生值（`POSTED_RECEIVED_SQL`，只算已过账收货单），本单状态在
+backend/src/business/erp/stockin_query.rs:285:// （`POSTED_RECEIVED_SQL` 只算 `POSTED`），作废把单头状态改成 `CANCELLED` 就够了。
+backend/src/business/erp/purchase_model.rs:17://!                            口径见 [`POSTED_RECEIVED_SQL`]）
+backend/src/business/erp/purchase_model.rs:919:pub const POSTED_RECEIVED_SQL: &str = "COALESCE((\
+backend/src/business/erp/purchase_model.rs:946:    /// 已收数量（**只算已过账收货单**，见 [`POSTED_RECEIVED_SQL`]）。
+backend/src/business/erp/purchase_model.rs:1008:                {POSTED_RECEIVED_SQL} AS received_qty, \
+backend/src/business/erp/stockin_handler_tests_d4_purchase.rs:398:/// 1. `pending_items_of`（收货页「待收明细」，走 `POSTED_RECEIVED_SQL`）；
+backend/src/business/erp/purchase_handler.rs:603:///   （聚合表达式见 [`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]）；
+backend/src/business/erp/stockin_handler_purchase.rs:370:///    [`stockin_model::order_item_balances`]（= `POSTED_RECEIVED_SQL`），
+backend/src/business/erp/stockin_handler_cancel.rs:569:        // 本单在 ⓪ 步已经变成 `CANCELLED`，派生口径（`POSTED_RECEIVED_SQL`，
+backend/src/business/flow/linkage/actions.rs:10://! | [`UPDATE_RECEIVED_QTY`](spec::ACTION_UPDATE_RECEIVED_QTY) | `erp::purchase_model::POSTED_RECEIVED_SQL`（P2-3：累计收货量是派生值，本动作只校验不落库） |
+backend/src/business/flow/linkage/actions.rs:353:/// （[`crate::business::erp::purchase_model::POSTED_RECEIVED_SQL`]：只算已过账收货单）。
+backend/src/business/flow/linkage/actions.rs:356:/// 单据已经是 `POSTED` 之后，`POSTED_RECEIVED_SQL` 已经把本次收货算进去了，
+backend/src/business/flow/linkage/actions.rs:360:/// 其他单据已过账收货 = POSTED_RECEIVED_SQL − 本单(source_id = ctx.doc_id)贡献
+backend/src/business/flow/linkage/actions.rs:364:/// 这与过账闸 `guard_purchase_before_post` 的判据**同源**（都读 `POSTED_RECEIVED_SQL`），
+backend/src/business/flow/linkage/actions.rs:396:        posted = crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/flow/linkage/spec.rs:45://!   `UPDATE_RECEIVED_QTY`（P2-3 起语义=校验：累计收货量是派生值 `POSTED_RECEIVED_SQL`，
+backend/src/business/flow/linkage/spec.rs:485:        // ★ 已接管（P2-3 起语义=校验）：累计收货量是派生值（`POSTED_RECEIVED_SQL`），
+backend/src/business/flow/linkage/spec.rs:502:        reuse: "erp/purchase_model.rs::POSTED_RECEIVED_SQL（派生口径：只算已过账收货单；P2-3 起本动作只校验不落库）",
+backend/src/business/flow/linkage/tests.rs:888:                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/flow/linkage/tests.rs:962:                crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/flow/linkage/tests.rs:1026:                    crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/shared/error_code.rs:1229:/// 先后过账就会重复入库。待收口径 = 订单量 − 已过账收货量（`POSTED_RECEIVED_SQL`）。
+
+=== ④ 迁移 V0217 的 DDL 片段 ===
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:29:-- ① 删列（先删依赖它的 CHECK：PG 的 DROP COLUMN 会连带删掉列约束，但显式写出来
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:31:ALTER TABLE biz_purchase_order_item DROP CONSTRAINT IF EXISTS ck_biz_po_item_recv;
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:32:ALTER TABLE biz_purchase_order_item DROP COLUMN IF EXISTS received_qty;
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.up.sql:38:CREATE INDEX IF NOT EXISTS idx_biz_stock_in_source_posted
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:15:    ADD COLUMN IF NOT EXISTS received_qty NUMERIC(18,4) NOT NULL DEFAULT 0;
+backend/migrations/business/V0217__erp_p2_3_received_qty_derived.down.sql:32:    ADD CONSTRAINT ck_biz_po_item_recv CHECK (received_qty >= 0 AND received_qty <= qty);
+
+=== ⑤ 库里确认：列已不存在 / 索引已建（干净库 cp_p23_erp） ===
+column received_qty exists = 0
+indexes: idx_biz_stock_in_source_posted
+CHECK ck_biz_po_item_recv exists = 0

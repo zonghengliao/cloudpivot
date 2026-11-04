@@ -1,0 +1,20 @@
+=== ① 增量维护函数是否还存在（函数定义 / 生产调用点，应为 0） ===
+-- 定义：
+（0 处定义）
+-- 调用：
+（0 处调用）
+
+=== ② 对 biz_purchase_order_item 的写语句（INSERT/UPDATE/DELETE） ===
+backend/src/business/erp/form_snapshot.rs:293:        "INSERT INTO biz_purchase_order_item (order_id, line_no, material_id, unit_id, qty, price,
+
+=== ③ 生产码里读「已收数量」的全部落点（应全部指向派生表达式） ===
+backend/src/business/erp/model_order.rs:254:        "{PURCHASE_ORDER_ITEM_COLUMNS}, {} AS received_qty",
+backend/src/business/erp/model_order.rs:255:        super::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/purchase_model.rs:1008:                {POSTED_RECEIVED_SQL} AS received_qty, \
+backend/src/business/erp/stockin_purchase.rs:107:        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/erp/stockin_purchase.rs:288:        crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+backend/src/business/flow/linkage/actions.rs:396:        posted = crate::business::erp::purchase_model::POSTED_RECEIVED_SQL
+
+=== ④ 前端仍在用的字段名（证明接口形状没变，前端零改动） ===
+28
+（前端源码里 received_qty 引用条数，全部是接口字段，没有一处写库）

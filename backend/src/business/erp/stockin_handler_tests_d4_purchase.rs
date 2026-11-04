@@ -82,8 +82,8 @@ async fn d4_pending_sums_multiple_receipts() {
         Some(guard) => guard,
         None => return,
     };
-    let (order_id, item_id) = d4_seed_po("100", "50").await;
-    // 明细列写 50，真账拆成两张 POSTED（30 + 20）
+    let (order_id, item_id) = d4_seed_po("100", "0").await;
+    // 真账拆成两张 POSTED（30 + 20）：P2-3 起「已收」只能由已过账收货单派生
     d4_insert_posted(order_id, item_id, "30").await;
     d4_insert_posted(order_id, item_id, "20").await;
     let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
@@ -390,17 +390,26 @@ async fn d4_conflicting_alias_rejected() {
     assert!(err.msg.contains("不一致"), "{}", err.msg);
 }
 
-/// ⑰ 两条「已收」口径必须永远相等（冗余列 vs POSTED 聚合）。
+/// ⑰ 三条读路径必须永远给出同一个「已收数量」（P2-3 单真相锁）。
 ///
-/// 这是 D4 的口径锁：以后谁改一侧忘了另一侧，这条先红。
+/// P2-3 之前这条叫 `d4_pending_matches_ledger_column`：比对「冗余列」与「POSTED 聚合」。
+/// 列已删除（迁移 V0217），双真相消失；本用例改成**锁住剩下的三条读路径**：
+///
+/// 1. `pending_items_of`（收货页「待收明细」，走 `POSTED_RECEIVED_SQL`）；
+/// 2. `purchase_order_items`（采购单详情的明细行，走 `purchase_order_item_columns`）；
+/// 3. `purchase_order_item_find_by_id`（按主键取一行，走同一条派生表达式）。
+///
+/// 三条都从「已过账收货单」派生，任何一条改成读别的来源（或哪天有人又加回一列），
+/// 这条先红。
 #[tokio::test]
-async fn d4_pending_matches_ledger_column() {
+async fn d4_received_qty_has_single_truth() {
     let _db = match setup().await {
         Some(guard) => guard,
         None => return,
     };
     let (order_id, item_id) = d4_seed_po("100", "0").await;
     // 两张**部分**收货单：30 → 过账，20 → 过账
+    let mut posted_ids = Vec::new();
     for qty in ["30", "20"] {
         let mut request = req(vec![{
             let mut line = line(MATERIAL_A, qty, "2", "0");
@@ -410,6 +419,7 @@ async fn d4_pending_matches_ledger_column() {
         request.source_order_id = Some(order_id.to_string());
         let id = create_stock_in(&request, None).await.unwrap();
         change_stock_in_status(id, &post_req(), None).await.unwrap();
+        posted_ids.push(id);
     }
     let pending = crate::business::erp::purchase_handler::pending_items_of(order_id)
         .await
@@ -418,9 +428,42 @@ async fn d4_pending_matches_ledger_column() {
     let row = &pending.items[0];
     assert_eq!(row.received_qty, dec("50"), "两张单要累加");
     assert_eq!(row.pending_qty, dec("50"));
-    let ledger: Decimal = d4_ledger_received(item_id).await;
+
+    let items = crate::business::erp::model::purchase_order_items(order_id)
+        .await
+        .unwrap();
+    assert_eq!(items.len(), 1);
     assert_eq!(
-        row.received_qty, ledger,
-        "冗余列（写路径闸）与已过账聚合（读路径）必须一致"
+        items[0].received_qty,
+        dec("50"),
+        "采购单详情的明细行必须与待收明细同一个数"
     );
+
+    let one = crate::business::erp::model::purchase_order_item_find_by_id(item_id)
+        .await
+        .unwrap()
+        .expect("明细行必须存在");
+    assert_eq!(one.received_qty, dec("50"), "按主键取也必须同一个数");
+
+    // 作废其中一张（30 那张）→ 三条路径同步回退到 20（不是"其中一条回退了"）
+    cancel(posted_ids[0], "P2-3 单真相回退验证").await;
+
+    let pending_after = crate::business::erp::purchase_handler::pending_items_of(order_id)
+        .await
+        .unwrap();
+    let items_after = crate::business::erp::model::purchase_order_items(order_id)
+        .await
+        .unwrap();
+    let one_after = crate::business::erp::model::purchase_order_item_find_by_id(item_id)
+        .await
+        .unwrap()
+        .expect("明细行必须存在");
+    assert_eq!(
+        pending_after.items[0].received_qty,
+        dec("20"),
+        "作废后只算剩下的"
+    );
+    assert_eq!(items_after[0].received_qty, dec("20"));
+    assert_eq!(one_after.received_qty, dec("20"));
+    assert_eq!(pending_after.items[0].pending_qty, dec("80"));
 }

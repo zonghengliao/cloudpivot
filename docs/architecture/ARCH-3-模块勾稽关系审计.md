@@ -852,7 +852,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | **DC-02** | 合同无审批流：`biz_contract` 无 `approval_instance_id` 列，`biz_flow_def` 无 `CONTRACT` 流程 | 合同额度直接决定能花多少钱（额度守卫 `guard_contract_amount` 以此为准），却没有任何人审批 | 一个采购员即可新建 → SIGNED → ACTIVE 合同，随后下单花掉全部额度。采购单要审批，但它能花多少钱是合同定的 | 加 `approval_instance_id` 列 + `CONTRACT` 流程定义（节点：部门经理 → 总经理，金额条件分支）+ 审批通过才允许 `SIGNED` | **P1** |
 | **DC-03** | 收货单**建单时**校验采购单状态（`require_purchase_order`，`stockin_handler.rs:473`），**过账时不再校验**（`purchase_item_snapshot` 只读 qty，`stockin_handler.rs:691`） | 已取消/已关闭的采购单仍可入库并生成应付+进项凭证 → 库存虚增、应付虚增 | 采购员建了收货单草稿 → 采购经理把采购单取消了 → 仓管第二天点「过账」→ 成功入库、生成应付。要发现只能靠人肉对账 | 过账事务内重跑 `require_purchase_order`（同一函数、同一口径），状态不可收则 409 并点名「来源采购单已取消」 | **P0** |
 | **DC-04** | 审批终态 → 单据状态**没有反向断言**：`erp_invariants.py` 有 H1（实例终态→待办终态）、H2（任务终态→实例终态），**没有 H3（实例 APPROVED → 单据必须前进）** | 「审批走完了单子没动」这类 A3 孤儿问题只能靠各自回调，漏一处就静默卡住 | 用户看到审批中心显示「已通过」，回到单据页发现状态还是「审批中」，只能找管理员 | 加巡检 H3：`flow_instance.status='APPROVED' AND 单据.status IN (待审批态)` 即报 P0；并逐单据登记「expected_next_status」映射 | **P1** |
-| **DC-05** | `biz_purchase_order_item.received_qty` **双真相**：列由 `stockin_purchase.rs:61` 增量维护（作废时 `:33` 减回），而「待收明细」用 `POSTED_RECEIVED_SQL` 现算（`purchase_model.rs:903`） | 两个数字可能不一致（并发/异常回滚/历史数据），用户看到「已收 100/100」但待收列表说「还能收 100」 | 采购单详情显示「已收完」，点「去收货」却还能建单收货 | 选一个真相：要么列改成纯派生（不落库，读时算），要么现算改成读列；并加巡检 DI「列 ≠ SUM(POSTED 收货)」 | **P2** |
+| **DC-05** | `biz_purchase_order_item.received_qty` **双真相**：列由 `stockin_purchase.rs:61` 增量维护（作废时 `:33` 减回），而「待收明细」用 `POSTED_RECEIVED_SQL` 现算（`purchase_model.rs:903`） | 两个数字可能不一致（并发/异常回滚/历史数据），用户看到「已收 100/100」但待收列表说「还能收 100」 | 采购单详情显示「已收完」，点「去收货」却还能建单收货 | **✅ 已解决（P2-3，2026-11-04）**：选「列退场、只留现算」——迁移 `V0217` 删列（连同 CHECK），所有读点统一走 `POSTED_RECEIVED_SQL`（采购单详情 / 待收明细 / 过账闸 / 判收满 / 联动动作）。证据：`docs/evidence/20261104-p23-received-qty-single-truth/` | **P2**（已收口） |
 | **DC-06** | 业务提醒缺失：`biz_payable.due_date`、`biz_purchase_order.expect_date`、`biz_contract.end_date`、`biz_material.safety_stock` 都有值，**没有任何提醒任务消费它们** | 应付到期无人提醒 → 逾期付款；采购未收货无人催 → 断料；合同到期无人续签；低于安全库存无人补 | 财务每天手工翻应付列表按到期日排序；采购靠 Excel 记「哪张单还没到货」 | 建「业务提醒」注册机制（复刻 `transfer_overdue.rs` 的成功范式）：4 条 `sys_job` 定时扫描 → `notice::dispatch` → 幂等键防重，页面加「我的提醒」 | **P1** |
 | **DC-07** | 供应商名字**三套口径**：① 采购单 `supplier_name_snapshot` 落库快照（`purchase_handler.rs:301`）；② 收货单实时批查 `supplier_names_of()`（`stockin_handler.rs:3022`）；③ 审批页用 `form_data` 冻结快照（`form_snapshot.rs`） | 供应商改名后，三处显示三个名字；对账/审计时说不清「当时是谁」 | 同一笔业务：采购单显示「老名字」、收货单显示「新名字」、审批单显示「提交时的名字」 | 统一策略：**单据表头统一落 `*_name_snapshot`（创建时冻结）**，列表只读快照，缺失才回填现值（采购单已是这个范式，把收货单补齐） | **P1** |
 | **DC-08** | 多态引用无巡检：`biz_voucher.source_id`、`biz_inventory_txn.doc_id`、`biz_status_log.entity_id`、`biz_material_serial.source_id` 都是「类型 + id」多态，**没有任何巡检项检查悬空**；`biz_status_log` 的孤儿只有测试夹具在清（`fixture_hygiene.rs`） | 单据删了，流水/凭证/日志仍指向它 → 报表按来源汇总时出现「幽灵行」 | 财务按「来源单据」筛凭证，出现一堆点不进去的空行；审计追一条流水，跳转 404 | 加 4 条巡检（照 `snapshot-drift` 的 `di.*` 形态）：`entity_type` + `entity_id` 逐类型 LEFT JOIN 主表，`IS NULL` 即孤儿 | **P2** |
@@ -893,13 +893,13 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 
 | # | 结果 | 路径 A | 路径 B | 会不会真的不一致 | 处置 |
 |---|---|---|---|---|---|
-| 1 | 采购明细「已收数量」 | 列 `received_qty`（增量维护） | `POSTED_RECEIVED_SQL` 现算 | **会**（并发/历史数据） | DC-05（P2） |
+| 1 | 采购明细「已收数量」 | 列 `received_qty`（增量维护） | `POSTED_RECEIVED_SQL` 现算 | **不会了**（P2-3 删列，只剩现算） | ✅ 已解决：DC-05 / `V0217` |
 | 2 | 供应商显示名 | 采购单快照列 | 收货单实时批查 | **会**（改名后） | DC-07（P1） |
 | 3 | 期间是否可记账 | 会计期间状态（`biz_accounting_period`） | 巡检 F1「已结账期间无新凭证」 | 不会（F1 兜底） | ✅ 已解决 |
 | 4 | 单据是否「已过账」 | `biz_stock_in.status` | `biz_voucher.source_type='STOCK_IN'` 是否存在 | 不会（巡检 D1 兜底） | ✅ 已解决 |
 | 5 | 库存数量 | `biz_inventory.qty`（成本账） | `biz_inventory_location` 合计（库位账） | 不会（巡检 B1 兜底） | ✅ 已解决 |
 | 6 | 库存金额 | `biz_inventory.amount` | 凭证 1405 余额 | 不会（巡检 B2 兜底） | ✅ 已解决 |
-| 7 | 收货明细「已收」 | 列 `received_qty`（采购明细） | 收货单明细 SUM | = 上面第 1 条 | 同 DC-05 |
+| 7 | 收货明细「已收」 | 列 `received_qty`（采购明细） | 收货单明细 SUM | = 上面第 1 条 | ✅ 同 DC-05（列已删） |
 | 8 | 期初库存 | `biz_opening_inventory` | 期初凭证 1405 借方 | 不会（保存时互斥拦截 + B2） | ✅ 已解决 |
 
 > **这一节是本文最有价值的部分之一**：8 组「双真相」里 **5 组已被巡检钉死**，2 组会漂（DC-05/DC-07），1 组靠业务拦截。说明本仓的「巡检兜底」策略是有效的，缺的是「把没兜的补上」而不是推翻重来。
