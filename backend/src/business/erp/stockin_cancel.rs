@@ -435,20 +435,40 @@ pub async fn write_cancel_txn(
 // ==================== 一物一码：序列号 ====================
 
 /// 落一行序列号（客户给号 / 自动取号共用）。
+///
+/// `batch.source_type` 由调用方按本单 `in_type` 决定（采购入库 / 退货入库，见
+/// [`super::stockin_base::serial_source_of_in_type`]）；`None` = 该 `in_type`
+/// 不在序列号来源 4 类域内（其他入库）⇒ `source_type` / `source_id` **都不写**，
+/// 保证「有类型必有 id、有 id 必有类型」这条不变量从写入点就成立。
+///
+/// 参数直接收 `&SerialBatch`（而不是 8 个散参数）：clippy 的 `too_many_arguments`
+/// 只是症状，真问题是「谁的号 / 落在哪 / 来自哪张单」散着传时调用点读不出来。
 pub(super) async fn insert_serials(
     ex: &impl SqlExecutor,
     pairs: &[(Uuid, String)],
-    material_id: Uuid,
-    warehouse_id: Uuid,
-    location_id: Option<Uuid>,
-    stock_in_id: Uuid,
-    operator: Option<Uuid>,
+    batch: &SerialBatch<'_>,
 ) -> DbResult<()> {
+    let SerialBatch {
+        stock_in_id,
+        source_type,
+        material_id,
+        warehouse_id,
+        location_id,
+        operator,
+        ..
+    } = *batch;
     if pairs.is_empty() {
         return Ok(());
     }
     let payload = serial_model::pair_payload(pairs);
     let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
+    // 没有来源类型 ⇒ 连 id 一起留空（半个来源比没有来源更难查）。
+    let source_type_text = Value::Text(source_type.unwrap_or_default().to_string());
+    let source_id_text = Value::Text(
+        source_type
+            .map(|_| stock_in_id.to_string())
+            .unwrap_or_default(),
+    );
     ex.exec_sql(
         "INSERT INTO biz_material_serial \
              (id, serial_no, material_id, warehouse_id, location_id, batch_no, status, inbound_at, \
@@ -463,8 +483,8 @@ pub(super) async fn insert_serials(
             Value::from(&material_id),
             Value::from(&warehouse_id),
             Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(SERIAL_SOURCE_PURCHASE),
-            Value::Text(stock_in_id.to_string()),
+            source_type_text,
+            source_id_text,
             operator_text.clone(),
             operator_text,
             Value::Text(payload),
@@ -480,6 +500,8 @@ pub(super) async fn insert_serials(
 pub struct SerialBatch<'a> {
     /// 来源收货单（`biz_material_serial.source_id`）。
     pub stock_in_id: Uuid,
+    /// 序列号来源类型（按本单 `in_type` → `PURCHASE` / `RETURN`；`None` = 不记来源）。
+    pub source_type: Option<&'static str>,
     /// 物料。
     pub material_id: Uuid,
     /// 收货仓库（序列号的 `warehouse_id`）。
@@ -508,26 +530,19 @@ pub async fn generate_serials(
     ex: &impl SqlExecutor,
     batch: &SerialBatch<'_>,
 ) -> DbResult<Vec<String>> {
-    let SerialBatch {
-        stock_in_id,
-        material_id,
-        warehouse_id,
-        location_id,
-        qty,
-        serial_ids,
-        operator,
-        now,
-    } = *batch;
-    let count: i64 = qty.try_into().map_err(|_| {
-        DbError::InvalidValue(format!("一物一码物料的数量必须是整数（当前 {qty}）"))
+    let count: i64 = batch.qty.try_into().map_err(|_| {
+        DbError::InvalidValue(format!(
+            "一物一码物料的数量必须是整数（当前 {}）",
+            batch.qty
+        ))
     })?;
     if count <= 0 {
         return Err(DbError::InvalidValue(
             "一物一码物料的入库数量必须 > 0".into(),
         ));
     }
-    let pairs: Vec<(Uuid, String)> = if serial_ids.is_empty() {
-        let period_key = serial_model::period_key_of(now);
+    let pairs: Vec<(Uuid, String)> = if batch.serial_ids.is_empty() {
+        let period_key = serial_model::period_key_of(batch.now);
         let start = serial_model::take_numbers(ex, count, &period_key).await?;
         (1..=count)
             .map(|offset| {
@@ -538,21 +553,13 @@ pub async fn generate_serials(
             })
             .collect()
     } else {
-        serial_ids
+        batch
+            .serial_ids
             .iter()
             .map(|serial_no| (Uuid::now_v7(), serial_no.trim().to_string()))
             .collect()
     };
-    insert_serials(
-        ex,
-        &pairs,
-        material_id,
-        warehouse_id,
-        location_id,
-        stock_in_id,
-        operator,
-    )
-    .await?;
+    insert_serials(ex, &pairs, batch).await?;
     Ok(pairs.into_iter().map(|(_, serial_no)| serial_no).collect())
 }
 
@@ -574,7 +581,13 @@ pub(super) fn serial_status_label(status: &str) -> &'static str {
     }
 }
 
-/// 锁读本单生成的一物一码序列号（`source_type='PURCHASE' AND source_id = 本单`）。
+/// 锁读本单生成的一物一码序列号（`source_id = 本单 id`）。
+///
+/// P2-6b：判据从「`source_type='PURCHASE' AND source_id=本单`」收紧为**只按 `source_id`**。
+/// 理由：`source_id` 就是「哪张收货单生成的号」，与来源类型无关 —— 退货入库
+/// （`in_type=RETURN`）的号写的是 `source_type='RETURN'`，若还带类型谓词，作废时会
+/// 命中 0 行、静默跳过退号（留下「单已作废、号还在库」的幽灵序列号）。
+/// 收货单生成的号在这个库里只有本模块会写，`source_id` 唯一指回本单，不存在误伤。
 ///
 /// `FOR UPDATE` 是必须的：作废与「单品出库 / 报废」改的是同一行的 `status`，
 /// 行锁让两边在这行上串行 —— 否则「刚校验完就有人出库」会让后面的软删漏掉已出库的件，
@@ -587,13 +600,10 @@ pub async fn lock_serials_of(
     let rows = ex
         .query_sql(
             "SELECT serial_no, status FROM biz_material_serial \
-              WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
+              WHERE source_id = ?::uuid AND deleted_at IS NULL \
               ORDER BY serial_no FOR UPDATE"
                 .to_string(),
-            vec![
-                Value::from(SERIAL_SOURCE_PURCHASE),
-                Value::from(&stock_in_id),
-            ],
+            vec![Value::from(&stock_in_id)],
         )
         .await?;
     let mut serials = Vec::with_capacity(rows.len());
@@ -651,14 +661,13 @@ pub async fn void_serials_of(
         .exec_sql(
             "UPDATE biz_material_serial \
                 SET deleted_at = ?, updated_at = ?, update_by = NULLIF(?::text,'')::uuid \
-              WHERE source_type = ? AND source_id = ?::uuid AND status = ? \
+              WHERE source_id = ?::uuid AND status = ? \
                 AND deleted_at IS NULL"
                 .to_string(),
             vec![
                 Value::from(now),
                 Value::from(now),
                 Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::from(SERIAL_SOURCE_PURCHASE),
                 Value::from(&stock_in_id),
                 Value::from(serial_model::STATUS_IN_STOCK),
             ],

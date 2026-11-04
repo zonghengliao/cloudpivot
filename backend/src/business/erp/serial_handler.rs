@@ -99,6 +99,11 @@ fn reference_missing(message: impl Into<String>) -> ApiError {
 }
 
 /// 写路径的数据库错误收口：唯一冲突 → `409 + 66001`，其余交给 `utils::db_error`。
+///
+/// 注意：**不要**把 `DbError::InvalidValue` 一律翻成 400 —— 模型层用同一个变体表达
+/// 两类完全不同的事：①「调用方参数不自洽」（应当 400）与 ②「服务端前置数据缺失」
+/// （科目被停用 / 映射缺失，应当 500 + `internal_detail`，见 T15 用例）。
+/// 入参类的判断在接口层做（`source_pair` 校验就是），这里只保留唯一冲突这一条已知语义。
 fn write_error(err: DbError, ctx: &str) -> ApiError {
     match &err {
         DbError::UniqueViolation { constraint, .. } => ApiError::new(
@@ -191,6 +196,17 @@ pub async fn generate_serials(
         .map(str::trim)
         .filter(|text| !text.is_empty());
     let source_id = optional_uuid(req.source_id.as_deref(), "source_id")?;
+    // P2-6b：来源类型与来源 id 必须成对、且 id 指向真实未软删的单据。
+    // 闸门**先于取号**（取号会推进 biz_seq，参数错不该消耗号段）；
+    // 模型层 `batch_generate` 里还有一次同样的校验（防直接调模型层绕过）。
+    serial_model::ensure_source_pair(db(), source_type, source_id)
+        .await
+        .map_err(|err| match err {
+            DbError::InvalidValue(message) => {
+                ApiError::new(400, error_code::PARAM_INVALID, message)
+            }
+            other => utils::db_error(other, "校验序列号来源单据"),
+        })?;
 
     let params = GenerateParams {
         material_id,
@@ -612,7 +628,10 @@ mod tests {
             count,
             // ADR-20261031：批量生成 = 无来源入库，必须录成本单价（夹具统一 10.000000）
             unit_cost: Some(OptionalDecimal::Num(Decimal::from(10))),
-            source_type: Some("PURCHASE".to_string()),
+            // P2-6b：批量生成是「无来源入库（期初 / 其他入库）」，来源两列**都不写**。
+            // 以前这里写 `PURCHASE` 却把 `source_id` 留空 —— 正是 DI-21 恒红的那个设计缺口
+            // （有类型无 id），现在由 `serial_model::ensure_source_pair` 直接拒绝这种组合。
+            source_type: None,
             source_id: None,
         }
     }
@@ -1491,10 +1510,81 @@ mod tests {
         assert_eq!(row.material_id, uuid(M_SN_ID));
         assert_eq!(row.warehouse_id, Some(uuid(W_ID)));
         assert_eq!(row.location_id, Some(uuid(IL_ID)));
-        assert_eq!(row.source_type.as_deref(), Some("PURCHASE"));
+        // P2-6b：批量生成 = 无来源入库 ⇒ 来源两列都为空（不再写「有类型无 id」的半个来源）
+        assert!(row.source_type.is_none(), "批量生成不写来源类型");
         assert!(row.source_id.is_none());
         assert!(row.deleted_at.is_none());
         assert_eq!(row.created_at, row.updated_at, "刚生成时两者相等");
+    }
+
+    /// ㊶ P2-6b：`source_type` 与 `source_id` 必须**成对**且指向真实单据。
+    ///
+    /// 四类坏组合逐条拒（都是 400，不是 500）：有类型没 id / 有 id 没类型 /
+    /// id 指向不存在的单据 / 无单据表的类型（PRODUCE）却带 id。
+    /// 另外断言「拒的时候一条号都没落」：闸门在 `take_numbers` **之前**，
+    /// 拒绝不能把当天号段推进一截（跳号可接受，但因为参数错而跳号不该发生）。
+    #[tokio::test]
+    async fn source_pair_gate_rejects_half_and_dangling_references() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let before = in_stock_count(uuid(M_SN_ID), uuid(W_ID)).await;
+
+        // ① 有类型没 id：PURCHASE 有实体单据表（biz_stock_in）⇒ 必须给 id
+        let mut req = req_for(M_SN_ID, 1);
+        req.source_type = Some("PURCHASE".to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("有类型无 id 必须拒");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("必须同时给 source_id"), "{}", err.msg);
+
+        // ② 有 id 没类型：不知道这个 id 指向哪张表
+        let mut req = req_for(M_SN_ID, 1);
+        req.source_id = Some(Uuid::now_v7().to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("有 id 无类型必须拒");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("不能单独出现"), "{}", err.msg);
+
+        // ③ 指向不存在的单据：今天写进去、明天就是悬空引用
+        let mut req = req_for(M_SN_ID, 1);
+        req.source_type = Some("PURCHASE".to_string());
+        req.source_id = Some(Uuid::now_v7().to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("指向不存在的收货单必须拒");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("不存在或已删除"), "{}", err.msg);
+
+        // ④ 生产入库没有实体单据表（生产模块尚未落地）⇒ 不许带 id
+        let mut req = req_for(M_SN_ID, 1);
+        req.source_type = Some("PRODUCE".to_string());
+        req.source_id = Some(Uuid::now_v7().to_string());
+        let err = generate_serials(&req, None)
+            .await
+            .expect_err("PRODUCE 带 id 必须拒");
+        assert_eq!(err.status, 400);
+        assert!(err.msg.contains("没有实体单据表"), "{}", err.msg);
+
+        assert_eq!(
+            in_stock_count(uuid(M_SN_ID), uuid(W_ID)).await,
+            before,
+            "四次拒绝都必须在取号之前，一条序列号都不许落"
+        );
+    }
+
+    /// ㊷ P2-6b：收货单 `in_type` → 序列号来源类型（纯逻辑，不连库）。
+    #[test]
+    fn in_type_maps_to_serial_source() {
+        use super::super::stockin_base::serial_source_of_in_type;
+        assert_eq!(serial_source_of_in_type("PURCHASE"), Some("PURCHASE"));
+        assert_eq!(serial_source_of_in_type("RETURN"), Some("RETURN"));
+        // 其他入库不在序列号来源的 4 类域内 ⇒ 不记来源（而不是硬塞成 PURCHASE）
+        assert_eq!(serial_source_of_in_type("OTHER"), None);
+        assert_eq!(serial_source_of_in_type("WHATEVER"), None);
     }
 
     // ---------- W2c-1 库存联动用例（不变式 ①②） ----------

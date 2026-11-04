@@ -164,13 +164,23 @@ CHECKS = [
          name="状态日志实体悬空（entity_type 指向的实体已软删/不存在）",
          meaning="日志是只增不改的历史台账：实体被删是正常生命周期，日志必须保留「谁在什么时候改了什么」⇒ 只记录不告警"),
     dict(id="DI-21", group="多态引用", view="di.c_di21", level="WARN", contract=False,
-         name="序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）",
-         meaning="序列号的影响在「一物一码」的件数（C5 已守），来源单据缺失只影响「这件货哪张单进来的」追责 ⇒ INFO；"
-                 "无表映射却填了 id ⇒ WARN（映射未定义，需人工确认指向）"),
+         name="序列号来源悬空 / 未记录（source_type 指出的收货单/调拨单已软删，或有类型无 id）",
+         meaning="序列号的影响在「一物一码」的件数（C5 已守），来源单据缺失只影响「这件货哪张单进来的」追责；"
+                 "P2-6b 起四种来源都有登记表 ⇒ 能把**真悬空**查出来（WARN）；"
+                 "历史「有类型无 id」= INFO（可人工补），PRODUCE 无单据表不算缺"),
     dict(id="DI-22", group="多态引用", view="di.c_di22", level="INFO", contract=False,
          name="多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）",
-         meaning="本组巡检的可信度护栏：未登记的类型 ⇒ 它的悬空不会被 DI-17…DI-21 查到（静默漏报），"
+         meaning="本组巡检的可信度护栏：未登记的类型 ⇒ 它的悬空不会被 DI-17…DI-25 查到（静默漏报），"
                  "典型命中是客户端自建流程 biz_type / E2E 夹具（按设计不参与自检）"),
+    dict(id="DI-23", group="多态引用", view="di.c_di23", level="WARN", contract=False,
+         name="单据附件指向的单据悬空（doc_type 指出的单据已软删/不存在）",
+         meaning="附件是证据副本：单据没了附件还在 ⇒ 点开 404、归档不知归属（P2-6b 补口，生产当前 0 行）"),
+    dict(id="DI-24", group="多态引用", view="di.c_di24", level="INFO", contract=False,
+         name="业务提醒台账指向的单据悬空",
+         meaning="提醒历史是只增不改的台账，单据被删是正常生命周期（口径同 DI-20）⇒ 只记录不告警"),
+    dict(id="DI-25", group="多态引用", view="di.c_di25", level="INFO", contract=False,
+         name="流程抄送来源悬空 / 缺来源 id（角色/部门被删，或角色来源没记 source_ref）",
+         meaning="抄送在通知侧，不影响审批结论与账；但来源断链后说不清「这条抄送是怎么来的」（P2-6b 补口）"),
 ]
 
 GROUPS = []

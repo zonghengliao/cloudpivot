@@ -702,6 +702,9 @@ pub(super) async fn post_in_tx(
                 ex,
                 &stockin_model::SerialBatch {
                     stock_in_id: id,
+                    // P2-6b：来源类型由本单 `in_type` 决定（采购入库 PURCHASE / 退货入库 RETURN，
+                    // 其他入库不记来源），不再一律硬编码 PURCHASE。
+                    source_type: super::stockin_base::serial_source_of_in_type(&header.in_type),
                     material_id: item.material_id,
                     warehouse_id: header.warehouse_id,
                     location_id: location_row,
