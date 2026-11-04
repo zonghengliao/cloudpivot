@@ -78,7 +78,7 @@
 //! ```
 
 use axum::Json;
-use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
+use nik::prelude::chrono::{DateTime, Datelike, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -934,6 +934,66 @@ pub async fn batch_open(
         created_count,
         skipped_count,
     })
+}
+
+// ==================== ①b 期间行保底（新库自动开账）====================
+
+/// 保证 `year` 年 1–12 月**每个期间都有一行**（`status = OPEN`），返回本次新建的行数。
+///
+/// # 为什么需要（卡 P0-FIX-5 的实测病）
+///
+/// V0137 只种了 `2026-10` 一期；空库迁移完 `biz_accounting_period` 就 1 行，而
+/// [`voucher::period_of`] 对「区间里查不到期间」是 **fail-open** 的（退化成 `yyyy-MM`），
+/// 于是凭证照样落库、`period` 却指向一个不存在的期间 —— 巡检 F2「凭证期间必有期间记录」
+/// 从第一笔业务起就是 WARN，账做得出、但对不上，部署新环境必须先手工开账。
+///
+/// # 状态为什么一律 `OPEN`（不是 `NOT_OPENED`）
+///
+/// 1. 既有的 [`STATUS_NOT_OPENED`] 语义是「行在、账没开」，**只能**由[`open_period`]逐期
+///    置为 `OPEN`；[`batch_open`] 对已存在的行（含 `NOT_OPENED`）一律 `skipped`，
+///    不会把它打开 —— 种子若写 `NOT_OPENED`，用户在「批量开账」里会看到 12 条 skipped、
+///    一期都没开成，反而比「没有行」更难收拾；
+/// 2. 写凭证只拦 `CLOSED`（[`voucher::post_voucher`]），记期初要求 `OPEN`
+///    （`opening::lock_period`）：`OPEN` 是唯一「建出来就能用」的状态；
+/// 3. 与 V0137 的既有种子同形（那一期就是 `OPEN`），不新增第四种状态（库层
+///    `ck_biz_period_status` 只有 `NOT_OPENED|OPEN|CLOSED` 三值，也没有 FUTURE）。
+///
+/// # 幂等
+///
+/// `ON CONFLICT (period_year, period_month) DO NOTHING`（唯一索引 `uk_biz_period_ym`）：
+/// 已有行 —— 不管是开着的、封住的，还是 V0137 那种字面 id 的种子 —— **一律不动**
+/// （不覆盖状态、不改日期区间），重复调用返回 0。
+///
+/// `year` 由调用方给（迁移里写死当年、启动钩子按 CST 当天取），本函数不读时钟，
+/// 这样单测可以拿一个不碰生产的年度钉住幂等性。
+pub async fn ensure_year_periods(ex: &impl SqlExecutor, year: i16) -> DbResult<u64> {
+    // 期间区间一律取自然月（与 `open_period` / `batch_open` 的 `month_range` 同口径）；
+    // `make_date` 自动处理闰年与月末，不写 `+28/30/31` 的天数表。
+    let sql = format!(
+        "INSERT INTO biz_accounting_period \
+            (id, period_year, period_month, period_code, start_date, end_date, status) \
+         SELECT gen_random_uuid(), {year}, m, \
+                {year}::text || '-' || lpad(m::text, 2, '0'), \
+                make_date({year}, m, 1), \
+                (make_date({year}, m, 1) + INTERVAL '1 month' - INTERVAL '1 day')::date, \
+                '{STATUS_OPEN}' \
+           FROM generate_series(1, 12) AS m \
+         ON CONFLICT (period_year, period_month) DO NOTHING"
+    );
+    ex.exec_sql(sql, vec![]).await
+}
+
+/// 启动钩子用：按**北京时间当天**所属年度补齐 12 期（[`ensure_year_periods`] 的取年包装）。
+///
+/// 凭证归期用 [`voucher::today_cst`] 取 CST 当天，这里必须用同一把尺：
+/// UTC 的 12-31 16:00 之后北京时间已经是次年 1 月，若按 UTC 取年就会少建一整年。
+///
+/// 跨年是这张卡的「第二年复发」通道：迁移只跑一次，2027-01-01 起又会是 0 行，
+/// 所以每次启动都补一次（只 INSERT 缺失行，不动已有状态）。
+pub async fn ensure_current_year_periods() -> DbResult<u64> {
+    let today = voucher::today_cst(Utc::now());
+    let year = i16::try_from(today.year()).unwrap_or(1970);
+    ensure_year_periods(db(), year).await
 }
 
 // ==================== ② 结账 ====================
@@ -1855,6 +1915,93 @@ mod tests {
         assert_eq!(again.created_count, 0);
         assert_eq!(again.skipped_count, 14);
         assert_eq!(period_count("2031-04").await, 1);
+    }
+
+    /// ④b 期间行保底（P0-FIX-5）：12 期齐建、重跑 0 新建、**已有行原样保留**。
+    ///
+    /// 夹具年度 2046：比本模块（2031–2033）、年结（2021–2023 / 2040–2041）、
+    /// 盘点（2033）的夹具年度都晚，`cleanup()` 不按它删，所以本用例自己收尾。
+    /// 钉住的三件事正是卡 P0-FIX-5 的验收口径：
+    /// ① 一次建满 12 期；② 重复调用 0 新建（幂等）；③ `ON CONFLICT DO NOTHING`
+    /// 不把已有行（如手工先建、`NOT_OPENED`、带备注）的状态或备注改掉。
+    #[tokio::test]
+    async fn p1_ensure_year_periods_seeds_twelve_and_is_idempotent() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        const YEAR: i16 = 2046;
+        sql("DELETE FROM biz_accounting_period WHERE period_year = 2046").await;
+
+        // 先放一行「非种子形态」的期间：保底逻辑必须原样保留它
+        sql(
+            "INSERT INTO biz_accounting_period \
+                (period_year, period_month, period_code, start_date, end_date, status, remark) \
+             VALUES (2046, 3, '2046-03', DATE '2046-03-01', DATE '2046-03-31', 'NOT_OPENED', 'p1 手工行')",
+        )
+        .await;
+
+        let first = ensure_year_periods(db(), YEAR).await.expect("期间保底");
+        assert_eq!(first, 11, "12 期里已有 1 行 → 只该新建 11 行");
+        let second = ensure_year_periods(db(), YEAR).await.expect("重跑期间保底");
+        assert_eq!(second, 0, "重跑必须幂等（0 新建）");
+
+        let rows = db()
+            .find_with_params(
+                "SELECT period_code, status, start_date::text AS start_date, \
+                        end_date::text AS end_date, COALESCE(remark, '') AS remark \
+                   FROM biz_accounting_period WHERE period_year = ? ORDER BY period_month",
+                vec![Value::I16(YEAR)],
+            )
+            .await
+            .expect("读期间");
+        assert_eq!(rows.len(), 12, "当年必须正好 12 期");
+        for (index, row) in rows.iter().enumerate() {
+            let month = i16::try_from(index + 1).expect("月份");
+            let code = format!("{YEAR}-{month:02}");
+            assert_eq!(
+                row.get_typed::<String>("period_code").expect("period_code"),
+                code,
+                "第 {month} 期的编码不对"
+            );
+            assert_eq!(
+                row.get_typed::<String>("start_date").expect("start_date"),
+                format!("{code}-01"),
+                "{code} 的起始日必须是当月 1 号"
+            );
+            let end: String = row.get_typed("end_date").expect("end_date");
+            assert!(
+                end.starts_with(&code),
+                "{code} 的结束日必须落在本月（实际 {end}）"
+            );
+        }
+        // 2046 不是闰年 → 2 月末是 28 号（`make_date` 自己的口径，别写成 30）
+        let feb_end: String = rows[1].get_typed("end_date").expect("end_date");
+        assert_eq!(feb_end, "2046-02-28");
+        let dec_end: String = rows[11].get_typed("end_date").expect("end_date");
+        assert_eq!(dec_end, "2046-12-31");
+
+        // 种子行一律 OPEN；手工那行保持 NOT_OPENED + 备注不动
+        for (index, row) in rows.iter().enumerate() {
+            let status: String = row.get_typed("status").expect("status");
+            if index == 2 {
+                assert_eq!(status, STATUS_NOT_OPENED, "已有行不许被改成 OPEN");
+                let remark: String = row.get_typed("remark").expect("remark");
+                assert_eq!(remark, "p1 手工行", "已有行的备注不许被覆盖");
+            } else {
+                assert_eq!(status, STATUS_OPEN, "种子期间必须建出来就能用（OPEN）");
+            }
+        }
+
+        // 收尾：只删本年夹具
+        sql("DELETE FROM biz_accounting_period WHERE period_year = 2046").await;
+        let left: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_accounting_period WHERE period_year = 2046",
+                vec![],
+            )
+            .await
+            .expect("复查收尾");
+        assert_eq!(left, 0);
     }
 
     /// ④ 无 `business:erp:period:open` → 403；有码放行；三个码在 `sys_menu` 里都有节点。

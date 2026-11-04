@@ -1,0 +1,2 @@
+2026-11-04T15:37:49.214180Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+2026-11-04T15:37:49.370616Z  INFO cloudpivot::bootstrap: 会计期间保底：已补齐当年缺失的会计期间（status = OPEN） created=1

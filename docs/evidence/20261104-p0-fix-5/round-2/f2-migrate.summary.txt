@@ -1,0 +1,5 @@
+2026-11-04T15:38:01.823458Z  INFO tokio_postgres::connection: NOTICE: V0221：当年 2026 年会计期间 —— 新建 11 期，已存在 1 期（共 12 期）
+2026-11-04T15:38:01.823474Z  INFO tokio_postgres::connection: NOTICE: V0221：按 CURRENT_DATE = 2026-11-04 判定，当月 = 11
+2026-11-04T15:38:01.824008Z  INFO tokio_postgres::connection: NOTICE: V0221 自检通过：当年 2026 的 12 期齐备
+2026-11-04T15:38:01.841606Z  INFO nik_web::app: 数据库迁移完成: 应用 5 个迁移
+2026-11-04T15:38:01.994812Z  INFO cloudpivot::bootstrap: 会计期间保底：当年 12 期已齐，无需补建

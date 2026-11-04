@@ -10,7 +10,9 @@
 //! 2. 写入幂等种子数据：管理员账号 `admin` → 超级管理员角色绑定（见 [`seed_super_admin`]）；
 //! 3. 装载定时任务（系统内置任务 + `sys_job` 中启用的任务，见 [`load_scheduled_jobs`]）；
 //! 4. 预热内置字典缓存（见 [`warm_dict_cache`]）；
-//! 5. 装载运行时参数快照（见 [`load_runtime_config`]），供订阅了参数的插件直接取用。
+//! 5. 装载运行时参数快照（见 [`load_runtime_config`]），供订阅了参数的插件直接取用；
+//! 6. 补齐当年 12 个会计期间行（见 [`ensure_accounting_periods`]）—— 年度来自时钟，
+//!    写不进迁移，缺了会让凭证落到「不存在的期间」上（巡检 F2）。
 //!
 //! 内置超级管理员角色、菜单与按钮权限点等**无需运行期计算的种子数据**已全部下沉到
 //! `migrations/seed/S__*.sql` 种子迁移；后续新增功能只需追加迁移，无需改动本文件。
@@ -58,7 +60,36 @@ pub async fn bootstrap() {
         ai_agent_invariant_guard(),
         orphan_dependency_guard(),
         test_residue_guard(),
+        ensure_accounting_periods(),
     );
+}
+
+/// 启动保底：当年 12 个会计期间行必须都在（卡 P0-FIX-5）。
+///
+/// # 为什么放在启动钩子而不是只写给迁移
+///
+/// 迁移只跑一次，而「当年」每年都在变：`V0221` 把**迁移当年**的 12 期建齐之后，
+/// 到了下一年 1 月 1 日库里又没有新一年的期间行 —— `voucher::period_of` 对缺失期间
+/// 是 fail-open 的，凭证照样入库、期间却指空，巡检 F2（凭证期间必有期间记录）
+/// 立刻转 WARN，首笔业务就报警。这正是本文件开头那句「**需要运行期计算**的种子
+/// 数据放这里」的场景：年度来自时钟，没法写死进 SQL。
+///
+/// 口径与 `V0221` 完全一致（12 期、`status = OPEN`、只补齐缺失行不覆盖已有行），
+/// 实现只有一份：[`crate::business::erp::period::ensure_year_periods`]。
+///
+/// # 异常情况
+///
+/// 查库失败（连不上 / 权限不足）只记 `warn` 并继续启动：期间行缺失不会让服务起不来，
+/// 但不该由它单点拖垮启动（与同文件其它 guard 的处置一致）。
+async fn ensure_accounting_periods() {
+    match crate::business::erp::period::ensure_current_year_periods().await {
+        Ok(0) => tracing::info!("会计期间保底：当年 12 期已齐，无需补建"),
+        Ok(created) => tracing::info!(
+            created,
+            "会计期间保底：已补齐当年缺失的会计期间（status = OPEN）"
+        ),
+        Err(error) => tracing::warn!("会计期间保底无法完成（继续启动）：{error}"),
+    }
 }
 
 /// 启动自检：库里有没有 **e2e 测试残留**（`t_61dca492`）。
