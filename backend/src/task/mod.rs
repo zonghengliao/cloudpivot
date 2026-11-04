@@ -313,6 +313,8 @@ impl Scheduler {
         // uk_biz_flow_instance_biz_active 永久 409；凭证那边还会永远 409「已在红冲审批中」。
         crate::business::erp::payable_bridge::register_cancel_builtin(self);
         crate::business::erp::voucher_bridge::register_builtin(self);
+        // FIN-2：折旧计提（每月 1 日 01:30 计提上一个会计月的折旧）
+        crate::business::erp::depreciation_model::register_builtin(self);
         // 批次 D · D4d：审批图快照自检（每天 03:30，分批扫 PUBLISHED 版本重算 graph_hash；不一致 WARN + 审计）
         crate::business::flow::maintain::register_builtin(self);
         // 批次 E · E11：周期任务生成（每 5 分钟扫一次 biz_task_template.next_run_at）

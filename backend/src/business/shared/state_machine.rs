@@ -220,6 +220,79 @@ pub const BUDGET_REASON_EDGES: [(&str, &str); 3] = [
 /// （草稿可改；调整走新版本）。
 pub const BUDGET_LOCKED: [&str; 4] = ["SUBMITTED", "ACTIVE", "SUPERSEDED", "CLOSED"];
 
+// ==================== FIN-2 固定资产（ARCH-6 第五章） ====================
+
+/// 实体类型：固定资产卡片（`biz_fixed_asset`，ARCH-6 §5.6）。
+pub const ENTITY_FIXED_ASSET: &str = DocKind::FixedAsset.as_str();
+
+/// 固定资产合法边（ARCH-6 §5.6 / `ck_biz_fa_status` 的四个状态）。
+///
+/// ```text
+/// IN_USE   → IDLE       停用（在用但闲置，照提折旧）
+/// IDLE     → IN_USE     启用（重新投用）
+/// IN_USE   → DISPOSED   处置（出售 / 报废 / 盘亏，**审批通过后**才走这条）
+/// IDLE     → DISPOSED   处置（闲置资产同样要清账）
+/// DISPOSED → IN_USE     作废处置（红冲处置凭证 → 资产恢复在役）
+/// ```
+///
+/// **没有 `DISPOSED → IDLE`**：资产从「已处置」回来只有一条路（作废处置），
+/// 回来时的状态就是它在役时的状态（在役）；要闲置再走一次停用，留两条痕迹。
+///
+/// **没有 `→ CANCELLED`**：`CANCELLED` 是建卡后未启用即作废的口径，
+/// 本卡不提供「建卡即作废」入口（建错了直接软删，`deleted_at` 才是它的语义）。
+pub const FIXED_ASSET_EDGES: [(&str, &str); 5] = [
+    ("IN_USE", "IDLE"),
+    ("IDLE", "IN_USE"),
+    ("IN_USE", "DISPOSED"),
+    ("IDLE", "DISPOSED"),
+    ("DISPOSED", "IN_USE"),
+];
+
+/// 需要 reason 的资产边：**五条全要**。
+///
+/// 理由：`biz_fixed_asset_change.reason` 是 `NOT NULL`（内控留痕），
+/// 而每条状态边都必然写一行变动记录 ⇒ 边不带原因就写不出留痕行。
+pub const FIXED_ASSET_REASON_EDGES: [(&str, &str); 5] = [
+    ("IN_USE", "IDLE"),
+    ("IDLE", "IN_USE"),
+    ("IN_USE", "DISPOSED"),
+    ("IDLE", "DISPOSED"),
+    ("DISPOSED", "IN_USE"),
+];
+
+/// 资产「不可改」状态：已处置的卡片不许改金额 / 部门 / 使用人
+/// （要改只能先作废处置）。
+pub const FIXED_ASSET_LOCKED: [&str; 1] = ["DISPOSED"];
+
+/// 实体类型：折旧批次（`biz_depreciation_batch`，ARCH-6 §5.5.5）。
+pub const ENTITY_DEPRECIATION: &str = DocKind::Depreciation.as_str();
+
+/// 折旧批次合法边（ARCH-6 §5.5.5 的状态图 + 「红冲后重跑复用同一批次行」）。
+///
+/// ```text
+/// CALCULATED → POSTED      生成凭证 + 回写卡片
+/// POSTED     → REVERSED    红冲（红字凭证 + 回滚卡片 + 明细标 REVERSED）
+/// CALCULATED → SKIPPED     跳过（本期无应提折旧）
+/// REVERSED   → CALCULATED  红冲后重跑（**复用同一行**，否则 uk(period_code) 挡死）
+/// ```
+///
+/// `REVERSED → CALCULATED` 这条边是设计 §5.5.5 末尾点名必须有的：
+/// 「红冲后不删批次，重跑复用同一批次行」。没有它，第一次重跑就是 500。
+pub const DEPRECIATION_EDGES: [(&str, &str); 4] = [
+    ("CALCULATED", "POSTED"),
+    ("POSTED", "REVERSED"),
+    ("CALCULATED", "SKIPPED"),
+    ("REVERSED", "CALCULATED"),
+];
+
+/// 需要 reason 的折旧边：红冲与重跑都要写清为什么。
+pub const DEPRECIATION_REASON_EDGES: [(&str, &str); 2] =
+    [("POSTED", "REVERSED"), ("REVERSED", "CALCULATED")];
+
+/// 折旧「不可改」状态：已过账 / 已红冲的批次行不许再改金额
+/// （重跑走 `REVERSED → CALCULATED` 显式流转）。
+pub const DEPRECIATION_LOCKED: [&str; 2] = ["POSTED", "REVERSED"];
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -728,6 +801,34 @@ pub const BUDGET_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("SUBMITTED", "CANCELLED", "审批中作废", true),
 ];
 
+/// 固定资产的 BASE_EDGES（与 [`FIXED_ASSET_EDGES`] 逐条对应，顺序一致）。
+///
+/// **五条全是 mandatory**：没有「捷径」可配 —— 停用 / 启用 / 处置 / 作废处置
+/// 每一步都是内控动作，配置层不许把它们关掉（关掉等于资产永远停在某个状态）。
+pub const FIXED_ASSET_BASE: [BaseEdge; 5] = [
+    BaseEdge::mandatory("IN_USE", "IDLE", "停用（闲置，照提折旧）", true),
+    BaseEdge::mandatory("IDLE", "IN_USE", "启用（重新投用）", true),
+    BaseEdge::mandatory("IN_USE", "DISPOSED", "处置（审批通过后清账）", true),
+    BaseEdge::mandatory("IDLE", "DISPOSED", "处置（闲置资产清账）", true),
+    BaseEdge::mandatory("DISPOSED", "IN_USE", "作废处置（红冲后恢复在役）", true),
+];
+
+/// 折旧批次的 BASE_EDGES（与 [`DEPRECIATION_EDGES`] 逐条对应，顺序一致）。
+///
+/// 四条全 mandatory：一条计提 / 一次红冲 / 一次重跑都是财务动作，
+/// 没有「可选捷径」这种东西。
+pub const DEPRECIATION_BASE: [BaseEdge; 4] = [
+    BaseEdge::mandatory("CALCULATED", "POSTED", "生成凭证并回写卡片", false),
+    BaseEdge::mandatory("POSTED", "REVERSED", "红冲（红字凭证 + 回滚卡片）", true),
+    BaseEdge::mandatory("CALCULATED", "SKIPPED", "跳过（本期无应提折旧）", false),
+    BaseEdge::mandatory(
+        "REVERSED",
+        "CALCULATED",
+        "红冲后重跑（复用同一批次行）",
+        true,
+    ),
+];
+
 /// 出库单的 BASE_EDGES（与 [`STOCK_OUT_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 可选边只有 `DRAFT → POSTED`（跳过过账审批直接过账）。
@@ -777,11 +878,15 @@ pub enum Entity {
     StockTake,
     /// 预算 `biz_budget`（ARCH-6 第三章 · FIN-1）。
     Budget,
+    /// 固定资产 `biz_fixed_asset`（ARCH-6 第五章 · FIN-2）。
+    FixedAsset,
+    /// 折旧批次 `biz_depreciation_batch`（ARCH-6 §5.5.5 · FIN-2）。
+    Depreciation,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 11] = [
+    pub const ALL: [Entity; 13] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -793,6 +898,8 @@ impl Entity {
         Entity::StockOut,
         Entity::StockTake,
         Entity::Budget,
+        Entity::FixedAsset,
+        Entity::Depreciation,
     ];
 
     /// 落库的 `entity_type`。
@@ -809,6 +916,8 @@ impl Entity {
             Entity::StockOut => ENTITY_STOCK_OUT,
             Entity::StockTake => ENTITY_STOCK_TAKE,
             Entity::Budget => ENTITY_BUDGET,
+            Entity::FixedAsset => ENTITY_FIXED_ASSET,
+            Entity::Depreciation => ENTITY_DEPRECIATION,
         }
     }
 
@@ -831,6 +940,8 @@ impl Entity {
             Entity::StockOut => "出库单",
             Entity::StockTake => "盘点单",
             Entity::Budget => "预算",
+            Entity::FixedAsset => "固定资产",
+            Entity::Depreciation => "折旧批次",
         }
     }
 
@@ -848,6 +959,8 @@ impl Entity {
             Entity::StockOut => &STOCK_OUT_EDGES,
             Entity::StockTake => &STOCK_TAKE_EDGES,
             Entity::Budget => &BUDGET_EDGES,
+            Entity::FixedAsset => &FIXED_ASSET_EDGES,
+            Entity::Depreciation => &DEPRECIATION_EDGES,
         }
     }
 
@@ -868,6 +981,8 @@ impl Entity {
             Entity::StockOut => &STOCK_OUT_BASE,
             Entity::StockTake => &STOCK_TAKE_BASE,
             Entity::Budget => &BUDGET_BASE,
+            Entity::FixedAsset => &FIXED_ASSET_BASE,
+            Entity::Depreciation => &DEPRECIATION_BASE,
         }
     }
 
@@ -892,6 +1007,8 @@ impl Entity {
             Entity::StockOut => &STOCK_OUT_REASON_EDGES,
             Entity::StockTake => &STOCK_TAKE_REASON_EDGES,
             Entity::Budget => &BUDGET_REASON_EDGES,
+            Entity::FixedAsset => &FIXED_ASSET_REASON_EDGES,
+            Entity::Depreciation => &DEPRECIATION_REASON_EDGES,
         }
     }
 
@@ -909,6 +1026,8 @@ impl Entity {
             Entity::StockOut => &STOCK_OUT_LOCKED,
             Entity::StockTake => &STOCK_TAKE_LOCKED,
             Entity::Budget => &BUDGET_LOCKED,
+            Entity::FixedAsset => &FIXED_ASSET_LOCKED,
+            Entity::Depreciation => &DEPRECIATION_LOCKED,
         }
     }
 
@@ -2271,6 +2390,57 @@ pub async fn note_edge_config(
     )
     .await
     .map(|_| ())
+}
+
+/// 写一条「状态没变」的业务留痕（转移 / 使用人变更这类不改变状态的变动）。
+///
+/// # 为什么需要它
+///
+/// ARCH-6 §5.6.1 / §5.6.2 要求部门转移与使用人变更**也写状态日志**
+/// （`entity_type='FIXED_ASSET'`，`reason` = 变动原因），但这两件事**不改变状态**——
+/// 走 [`transition`] 会被「原地流转不是状态变更」的护栏挡住（那条护栏是对的：
+/// 状态没变就不是状态变更）。
+///
+/// 所以这里显式区分两种留痕：
+/// * `from_status ≠ to_status` → 状态变更，必须走 [`transition`]（校验边 + 写日志）；
+/// * `from_status = to_status` → 业务事件，走本函数（**只写日志**，不校验边）。
+///
+/// 这一条 `from = to` 的日志在时间线上读起来是「6 月 3 日 由 研发部 转到 产品部」——
+/// 正是内控想看到的；它不会被 `state_machine::can_transition` 认成一条边。
+// 与 `transition` 同一组参数（实体 + 单据 + 状态 + 操作人 + 原因 + 关联单据），
+// 两者签名刻意保持一致，调用方才能在「状态变了」与「状态没变」之间一处切换。
+#[allow(clippy::too_many_arguments)]
+pub async fn log_event(
+    ex: &impl SqlExecutor,
+    entity_type: &str,
+    entity_id: Uuid,
+    entity_no: &str,
+    status: &str,
+    operator: impl Into<Operator>,
+    reason: Option<&str>,
+    biz_ref: Option<(&str, &str)>,
+) -> Result<Uuid, ApiError> {
+    let entity = Entity::parse(entity_type).ok_or_else(|| unknown_entity(entity_type))?;
+    let no = entity_no.trim();
+    if no.is_empty() || status.trim().is_empty() {
+        return Err(ApiError::new(
+            500,
+            error_code::INTERNAL_ERROR,
+            format!("{entity_type} 的业务留痕缺少单号或状态：日志没有单号就查不到轨迹"),
+        ));
+    }
+    insert_log(
+        ex,
+        entity.as_str(),
+        entity_id,
+        no,
+        Some(status),
+        status,
+        &operator.into(),
+        reason,
+        biz_ref,
+    )
+    .await
 }
 
 /// 写一行 `biz_status_log`（**只有 INSERT，没有 UPDATE**）。
@@ -3681,8 +3851,9 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            11,
-            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）"
+            13,
+            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
+             → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）"
         );
 
         // ③ as_str

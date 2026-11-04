@@ -1,0 +1,6 @@
+v1 [PUBLISHED] 节点 3 边 2
+  stored   = b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac
+  computed = b4bef2fc227db8131f75792028217d170e961a529055db9a96d3ac11333139ac
+  一致     = True
+
+ drifted = 0

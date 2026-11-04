@@ -129,7 +129,7 @@ async fn account_snapshot(account_id: Uuid) -> std::result::Result<(String, Stri
 #[nik::permission(
     path = "/business/erp/budget/page",
     method = "GET",
-    permission = "budget:list"
+    permission = "business:erp:budget:list"
 )]
 #[nik::get("/business/erp/budget/page")]
 pub async fn budget_page(
@@ -168,7 +168,7 @@ fn budget_dto_default() -> u64 {
 #[nik::permission(
     path = "/business/erp/budget/{id}",
     method = "GET",
-    permission = "budget:list"
+    permission = "business:erp:budget:list"
 )]
 #[nik::get("/business/erp/budget/{id}")]
 pub async fn budget_detail(Path(id): Path<String>) -> ResResult<BudgetDetailRes> {
@@ -273,7 +273,7 @@ async fn month_used_of(
 #[nik::permission(
     path = "/business/erp/budget",
     method = "POST",
-    permission = "budget:create"
+    permission = "business:erp:budget:create"
 )]
 #[nik::post("/business/erp/budget")]
 pub async fn budget_create(
@@ -386,7 +386,7 @@ fn build_conflict(error: DbError) -> ApiError {
 #[nik::permission(
     path = "/business/erp/budget/{id}",
     method = "PUT",
-    permission = "budget:update"
+    permission = "business:erp:budget:update"
 )]
 #[nik::put("/business/erp/budget/{id}")]
 pub async fn budget_update(
@@ -462,7 +462,7 @@ pub async fn budget_update(
 #[nik::permission(
     path = "/business/erp/budget/{id}",
     method = "DELETE",
-    permission = "budget:delete"
+    permission = "business:erp:budget:delete"
 )]
 #[nik::delete("/business/erp/budget/{id}")]
 pub async fn budget_delete(
@@ -493,7 +493,7 @@ pub async fn budget_delete(
 #[nik::permission(
     path = "/business/erp/budget/{id}/submit",
     method = "POST",
-    permission = "budget:submit"
+    permission = "business:erp:budget:submit"
 )]
 #[nik::post("/business/erp/budget/{id}/submit")]
 pub async fn budget_submit(
@@ -713,7 +713,7 @@ fn json_number(text: &str) -> serde_json::Value {
 #[nik::permission(
     path = "/business/erp/budget/{id}/adjust",
     method = "POST",
-    permission = "budget:adjust"
+    permission = "business:erp:budget:adjust"
 )]
 #[nik::post("/business/erp/budget/{id}/adjust")]
 pub async fn budget_adjust(
@@ -856,7 +856,7 @@ pub async fn adjust(
 #[nik::permission(
     path = "/business/erp/budget/report",
     method = "GET",
-    permission = "budget:report"
+    permission = "business:erp:budget:report"
 )]
 #[nik::get("/business/erp/budget/report")]
 pub async fn budget_report(Query(filter): Query<BudgetFilter>) -> ResResult<Vec<ReportRes>> {
@@ -872,7 +872,7 @@ pub async fn budget_report(Query(filter): Query<BudgetFilter>) -> ResResult<Vec<
 #[nik::permission(
     path = "/business/erp/budget/mapping/page",
     method = "GET",
-    permission = "budget:mapping"
+    permission = "business:erp:budget:mapping"
 )]
 #[nik::get("/business/erp/budget/mapping/page")]
 pub async fn mapping_page(
@@ -900,7 +900,7 @@ pub async fn mapping_page(
 #[nik::permission(
     path = "/business/erp/budget/mapping",
     method = "POST",
-    permission = "budget:mapping"
+    permission = "business:erp:budget:mapping"
 )]
 #[nik::post("/business/erp/budget/mapping")]
 pub async fn mapping_create(
@@ -941,7 +941,7 @@ pub async fn mapping_create(
 #[nik::permission(
     path = "/business/erp/budget/mapping/{id}",
     method = "PUT",
-    permission = "budget:mapping"
+    permission = "business:erp:budget:mapping"
 )]
 #[nik::put("/business/erp/budget/mapping/{id}")]
 pub async fn mapping_update(
@@ -978,7 +978,7 @@ pub async fn mapping_update(
 #[nik::permission(
     path = "/business/erp/budget/mapping/{id}",
     method = "DELETE",
-    permission = "budget:mapping"
+    permission = "business:erp:budget:mapping"
 )]
 #[nik::delete("/business/erp/budget/mapping/{id}")]
 pub async fn mapping_delete(

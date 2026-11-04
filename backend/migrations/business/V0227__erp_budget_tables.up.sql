@@ -229,25 +229,25 @@ VALUES
     ('20000000-0000-0000-0000-000000001300'::uuid, '预算管理', 1, '',
      '/business/erp/budget', '20000000-0000-0000-0000-000000000e02'::uuid, NULL,
      25, 1, 'money', '预算管理（编制 / 执行 / 科目映射）', TRUE, 'business'),
-    ('20000000-0000-0000-0000-000000001301'::uuid, '预算编制', 2, 'budget:list',
+    ('20000000-0000-0000-0000-000000001301'::uuid, '预算编制', 2, 'business:erp:budget:list',
      '/business/erp/budget', '20000000-0000-0000-0000-000000001300'::uuid,
      'business/erp/budget/index', 10, 1, 'money', '预算编制（部门 × 科目 × 期间）', TRUE, 'business'),
-    ('20000000-0000-0000-0000-000000001302'::uuid, '预算执行', 2, 'budget:report',
+    ('20000000-0000-0000-0000-000000001302'::uuid, '预算执行', 2, 'business:erp:budget:report',
      '/business/erp/budget/report', '20000000-0000-0000-0000-000000001300'::uuid,
      'business/erp/budget/report', 20, 1, 'chart-bar', '预算执行（已用 / 可用 / 执行率）', TRUE, 'business'),
-    ('20000000-0000-0000-0000-000000001303'::uuid, '预算科目映射', 2, 'budget:mapping',
+    ('20000000-0000-0000-0000-000000001303'::uuid, '预算科目映射', 2, 'business:erp:budget:mapping',
      '/business/erp/budget/mapping', '20000000-0000-0000-0000-000000001300'::uuid,
      'business/erp/budget/mapping', 30, 1, 'link', '预算科目映射（采购 → 预算科目）', TRUE, 'business'),
     -- 编制页的按钮权限（menu_type=3）
-    ('20000000-0000-0000-0000-000000001311'::uuid, 'budget:create', 3, 'budget:create',
+    ('20000000-0000-0000-0000-000000001311'::uuid, 'business:erp:budget:create', 3, 'business:erp:budget:create',
      NULL, '20000000-0000-0000-0000-000000001301'::uuid, NULL, 10, 1, NULL, '新建预算', FALSE, 'business'),
-    ('20000000-0000-0000-0000-000000001312'::uuid, 'budget:update', 3, 'budget:update',
+    ('20000000-0000-0000-0000-000000001312'::uuid, 'business:erp:budget:update', 3, 'business:erp:budget:update',
      NULL, '20000000-0000-0000-0000-000000001301'::uuid, NULL, 20, 1, NULL, '编辑预算（仅草稿）', FALSE, 'business'),
-    ('20000000-0000-0000-0000-000000001313'::uuid, 'budget:delete', 3, 'budget:delete',
+    ('20000000-0000-0000-0000-000000001313'::uuid, 'business:erp:budget:delete', 3, 'business:erp:budget:delete',
      NULL, '20000000-0000-0000-0000-000000001301'::uuid, NULL, 30, 1, NULL, '删除预算（仅草稿）', FALSE, 'business'),
-    ('20000000-0000-0000-0000-000000001314'::uuid, 'budget:submit', 3, 'budget:submit',
+    ('20000000-0000-0000-0000-000000001314'::uuid, 'business:erp:budget:submit', 3, 'business:erp:budget:submit',
      NULL, '20000000-0000-0000-0000-000000001301'::uuid, NULL, 40, 1, NULL, '提交预算审批（budget_approve）', FALSE, 'business'),
-    ('20000000-0000-0000-0000-000000001315'::uuid, 'budget:adjust', 3, 'budget:adjust',
+    ('20000000-0000-0000-0000-000000001315'::uuid, 'business:erp:budget:adjust', 3, 'business:erp:budget:adjust',
      NULL, '20000000-0000-0000-0000-000000001301'::uuid, NULL, 50, 1, NULL, '预算调整（新增版本 → 走审批）', FALSE, 'business')
 ON CONFLICT (id) DO NOTHING;
 
@@ -296,8 +296,8 @@ BEGIN
 
         -- 6.4 8 个权限码
         SELECT count(*) INTO n FROM sys_menu
-         WHERE auth_code IN ('budget:list','budget:create','budget:update','budget:delete',
-                             'budget:submit','budget:adjust','budget:report','budget:mapping')
+         WHERE auth_code IN ('business:erp:budget:list','business:erp:budget:create','business:erp:budget:update','business:erp:budget:delete',
+                             'business:erp:budget:submit','business:erp:budget:adjust','business:erp:budget:report','business:erp:budget:mapping')
            AND deleted_at IS NULL;
         IF n <> 8 THEN
             RAISE EXCEPTION 'V0227 自检失败：预算权限码种了 % 个（期望 8）', n;

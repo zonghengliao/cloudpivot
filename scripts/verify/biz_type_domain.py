@@ -47,7 +47,11 @@ ROOT = Path(__file__).resolve().parents[2]
 VOCAB = ROOT / "backend/src/business/shared/doc_kind.rs"
 
 # 允许为空的列（其余列出现 NULL 也报警）
-NULLABLE = {("biz_material_serial", "source_type")}
+#
+# `biz_fixed_asset.disposal_type` 是**业务上就该为空**的列：未处置的资产没有处置类型
+# （DDL 的 `ck_biz_fa_disposal` 也只要求「处置类型 ∈ SALE/SCRAP/LOSS 或 NULL」）。
+# 登记进来不是放宽校验：一旦有值，仍然必须落在三个取值里。
+NULLABLE = {("biz_material_serial", "source_type"), ("biz_fixed_asset", "disposal_type")}
 
 DB = dict(
     host=os.environ.get("NIK_DATABASE_HOST", "127.0.0.1"),

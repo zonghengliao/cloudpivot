@@ -95,11 +95,22 @@ pub enum DocKind {
     /// 与其它单据的区别：预算的「调整」不是改字段，而是**新增版本行**
     /// （`version_no + 1` + `supersedes_id`），旧行只改状态（`ACTIVE → SUPERSEDED`）。
     Budget,
+    /// 固定资产卡片 `biz_fixed_asset`（ARCH-6 第五章 · FIN-2）。
+    ///
+    /// 一台设备 / 一处房产一张卡；**同型号多台请建多张卡**（与 ARCH-6 §5.2.2 的
+    /// 「不做卡片数量字段」一致）。
+    FixedAsset,
+    /// 折旧批次 `biz_depreciation_batch`（一个期间一批，`entity_no` 存期间 `yyyy-MM`）。
+    ///
+    /// 为什么不是 `biz_depreciation`（明细）：一次计提是**一个整体动作**，
+    /// 财务问的是「10 月的折旧提了吗 / 提了多少 / 凭证号多少 / 红冲过吗」——
+    /// 这四个问题的答案都在批次行上（ARCH-6 §5.2.4）。
+    Depreciation,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 15] = [
+    pub const ALL: [DocKind; 17] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -115,6 +126,8 @@ impl DocKind {
         DocKind::FlowEdgeConfig,
         DocKind::FlowLinkageConfig,
         DocKind::Budget,
+        DocKind::FixedAsset,
+        DocKind::Depreciation,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -135,6 +148,8 @@ impl DocKind {
             DocKind::FlowEdgeConfig => "FLOW_EDGE_CFG",
             DocKind::FlowLinkageConfig => "FLOW_LINKAGE_CFG",
             DocKind::Budget => "BUDGET",
+            DocKind::FixedAsset => "FIXED_ASSET",
+            DocKind::Depreciation => "DEPRECIATION",
         }
     }
 
@@ -156,6 +171,8 @@ impl DocKind {
             DocKind::FlowEdgeConfig => "状态机配置",
             DocKind::FlowLinkageConfig => "联动规则配置",
             DocKind::Budget => "预算",
+            DocKind::FixedAsset => "固定资产",
+            DocKind::Depreciation => "折旧批次",
         }
     }
 
@@ -176,6 +193,8 @@ impl DocKind {
             DocKind::FlowEdgeConfig => "biz_flow_edge",
             DocKind::FlowLinkageConfig => "biz_flow_linkage_rule",
             DocKind::Budget => "biz_budget",
+            DocKind::FixedAsset => "biz_fixed_asset",
+            DocKind::Depreciation => "biz_depreciation_batch",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -195,6 +214,8 @@ impl DocKind {
                 | DocKind::Voucher
                 | DocKind::Contract
                 | DocKind::Budget
+                | DocKind::FixedAsset
+                | DocKind::Depreciation
         )
     }
 
@@ -210,6 +231,8 @@ impl DocKind {
             DocKind::StockOut => "stock-out",
             DocKind::StockTransfer => "stock-transfer",
             DocKind::Budget => "budget",
+            DocKind::FixedAsset => "fixed-asset",
+            DocKind::Depreciation => "depreciation",
             _ => return None,
         })
     }
@@ -240,12 +263,16 @@ impl DocKind {
 /// 能挂附件的对象（与 `ck_biz_doc_attachment_type` 逐字一致）。
 ///
 /// 加成员必须同时改 V0212 的 CHECK，否则写库直接 `check constraint violated`。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 5] = [
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 6] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
     DocKind::Payable,
     DocKind::Payment,
+    // FIN-2：资产的发票 / 验收单 / 处置单（ARCH-6 §6.2.4）。
+    // `EXPENSE_REPORT` 由 FIN-3 一起加 —— 一次只放宽到自己真用得上的取值，
+    // 免得 CHECK 里出现「代码侧还没实现」的值。
+    DocKind::FixedAsset,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
@@ -297,11 +324,17 @@ pub enum FlowBizType {
     /// `ORIGINAL` 走「部门主管 → 财务（≥50 万加总经理会签）」，
     /// `ADJUST` 走「财务前置 → 总经理（≥50 万加财务总监会签）」。
     BudgetApprove,
+    /// 资产处置审批（`asset_disposal`，ARCH-6 §5.6.3）。
+    ///
+    /// 处置资产 = 把公司资产变成现金或废品，是最容易发生舞弊的环节
+    /// （低价卖给关联方、假装报废后私用），所以**不分金额档、第一站就是总经理**
+    /// （频次低，多一道签的成本可以接受）。
+    AssetDisposal,
 }
 
 impl FlowBizType {
     /// 全部审批业务类型（顺序 = 声明顺序）。
-    pub const ALL: [FlowBizType; 14] = [
+    pub const ALL: [FlowBizType; 15] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -316,6 +349,7 @@ impl FlowBizType {
         FlowBizType::Expense,
         FlowBizType::Other,
         FlowBizType::BudgetApprove,
+        FlowBizType::AssetDisposal,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -351,6 +385,7 @@ impl FlowBizType {
             FlowBizType::Expense => "EXPENSE",
             FlowBizType::Other => "OTHER",
             FlowBizType::BudgetApprove => "BUDGET_APPROVE",
+            FlowBizType::AssetDisposal => "ASSET_DISPOSAL",
         }
     }
 
@@ -371,6 +406,7 @@ impl FlowBizType {
             FlowBizType::Expense => "expense",
             FlowBizType::Other => "other",
             FlowBizType::BudgetApprove => "budget_approve",
+            FlowBizType::AssetDisposal => "asset_disposal",
         }
     }
 
@@ -391,6 +427,7 @@ impl FlowBizType {
             FlowBizType::Expense => "费用审批",
             FlowBizType::Other => "其他审批",
             FlowBizType::BudgetApprove => "预算审批",
+            FlowBizType::AssetDisposal => "资产处置审批",
         }
     }
 
@@ -408,6 +445,7 @@ impl FlowBizType {
             FlowBizType::ContractApprove => DocKind::Contract,
             FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
             FlowBizType::BudgetApprove => DocKind::Budget,
+            FlowBizType::AssetDisposal => DocKind::FixedAsset,
             FlowBizType::TaskAccept | FlowBizType::Expense | FlowBizType::Other => return None,
         })
     }
@@ -683,11 +721,17 @@ pub enum VoucherSourceType {
     YearEnd,
     /// 手工新增。
     Manual,
+    /// 固定资产购入（建卡时生成，ARCH-6 §5.3.3 / §6.4）。
+    FixedAssetAcq,
+    /// 固定资产处置（出售 / 报废 / 盘亏，ARCH-6 §5.6.4）。
+    FixedAssetDisposal,
+    /// 折旧计提（月度批次过账，ARCH-6 §5.5.3）。
+    Depreciation,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 10] = [
+    pub const ALL: [VoucherSourceType; 13] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -698,6 +742,9 @@ impl VoucherSourceType {
         VoucherSourceType::Opening,
         VoucherSourceType::YearEnd,
         VoucherSourceType::Manual,
+        VoucherSourceType::FixedAssetAcq,
+        VoucherSourceType::FixedAssetDisposal,
+        VoucherSourceType::Depreciation,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -713,6 +760,9 @@ impl VoucherSourceType {
             VoucherSourceType::Opening => "OPENING",
             VoucherSourceType::YearEnd => "YEAR_END",
             VoucherSourceType::Manual => "MANUAL",
+            VoucherSourceType::FixedAssetAcq => "FIXED_ASSET_ACQ",
+            VoucherSourceType::FixedAssetDisposal => "FIXED_ASSET_DISPOSAL",
+            VoucherSourceType::Depreciation => "DEPRECIATION",
         }
     }
 
@@ -729,6 +779,9 @@ impl VoucherSourceType {
             VoucherSourceType::Opening => "期初录入",
             VoucherSourceType::YearEnd => "年结结转",
             VoucherSourceType::Manual => "手工录入",
+            VoucherSourceType::FixedAssetAcq => "固定资产购入",
+            VoucherSourceType::FixedAssetDisposal => "固定资产处置",
+            VoucherSourceType::Depreciation => "折旧计提",
         }
     }
 
@@ -744,6 +797,10 @@ impl VoucherSourceType {
             VoucherSourceType::Opening => DocKind::AccountingPeriod,
             VoucherSourceType::YearEnd => DocKind::AccountingYear,
             VoucherSourceType::Manual => return None,
+            VoucherSourceType::FixedAssetAcq | VoucherSourceType::FixedAssetDisposal => {
+                DocKind::FixedAsset
+            }
+            VoucherSourceType::Depreciation => DocKind::Depreciation,
         })
     }
 
@@ -943,7 +1000,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 15] = [
+const DOC_KIND_VALUES: [&str; 17] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -959,9 +1016,11 @@ const DOC_KIND_VALUES: [&str; 15] = [
     "FLOW_EDGE_CFG",
     "FLOW_LINKAGE_CFG",
     "BUDGET",
+    "FIXED_ASSET",
+    "DEPRECIATION",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 14] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -976,6 +1035,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 14] = [
     "EXPENSE",
     "OTHER",
     "BUDGET_APPROVE",
+    "ASSET_DISPOSAL",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 19] = [
@@ -1010,7 +1070,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 7] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 10] = [
+const VOUCHER_SOURCE_VALUES: [&str; 13] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1021,6 +1081,9 @@ const VOUCHER_SOURCE_VALUES: [&str; 10] = [
     "OPENING",
     "YEAR_END",
     "MANUAL",
+    "FIXED_ASSET_ACQ",
+    "FIXED_ASSET_DISPOSAL",
+    "DEPRECIATION",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
@@ -1049,11 +1112,69 @@ const BUDGET_USAGE_STATUS_VALUES: [&str; 3] = ["OCCUPIED", "CONSUMED", "RELEASED
 /// 这正是 ARCH-6 D4「控制点只有 2 处」在数据层的体现。第三个控制点要先改这里。
 const BUDGET_USAGE_SOURCE_VALUES: [&str; 2] = ["EXPENSE_REPORT", "PURCHASE_ORDER"];
 
+// ===== FIN-2 固定资产（ARCH-6 第五章）=====
+
+/// `biz_fixed_asset.status` 的取值域（与 `state_machine::FIXED_ASSET_EDGES` 的节点集合一致）。
+const ASSET_STATUS_VALUES: [&str; 4] = ["IN_USE", "IDLE", "DISPOSED", "CANCELLED"];
+
+/// `biz_fixed_asset.disposal_type` 的取值域（`ck_biz_fa_disposal`）。
+const ASSET_DISPOSAL_TYPE_VALUES: [&str; 3] = ["SALE", "SCRAP", "LOSS"];
+
+/// `biz_fixed_asset_change.change_type` 的取值域（`ck_biz_fa_chg_type`）。
+const ASSET_CHANGE_TYPE_VALUES: [&str; 5] = ["TRANSFER", "CUSTODIAN", "DISPOSAL", "ENABLE", "IDLE"];
+
+/// `biz_depreciation_batch.status` 的取值域（`ck_biz_dep_batch_status`）。
+const DEPRECIATION_STATUS_VALUES: [&str; 4] = ["CALCULATED", "POSTED", "REVERSED", "SKIPPED"];
+
+/// `biz_voucher_rule.biz_type` 的取值域：**横跨两根轴**（历史事实，不是设计选择）。
+///
+/// * 采购入库规则（`PURCHASE_IN_DEFAULT`）用的是**库存变动轴**（`TxnBizType`）；
+/// * FIN-2 起的固资 / 折旧规则用的是**凭证来源轴**（`VoucherSourceType`），
+///   因为 ARCH-6 §6.4 要求「规则的 `biz_type` 必须与 `VoucherSourceType::as_str()`
+///   逐字一致」；折旧与处置的凭证来源本来就是 `DEPRECIATION` /
+///   `FIXED_ASSET_ACQ` / `FIXED_ASSET_DISPOSAL`。
+///
+/// 所以域是两轴的并集（去重），不是「随便放宽」：任何既不在 txn 轴、也不在
+/// voucher-source 轴上的值仍然是 FAIL。
+const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 29] = [
+    // txn 轴（19）
+    "PURCHASE_IN",
+    "PURCHASE_IN_CANCEL",
+    "PURCHASE_RETURN",
+    "SALE_OUT",
+    "PRODUCTION_IN",
+    "ADJUST_IN",
+    "ADJUST_OUT",
+    "TRANSFER_OUT",
+    "TRANSFER_IN",
+    "ISSUE_OUT",
+    "SCRAP_OUT",
+    "LOSS_OUT",
+    "OTHER_OUT",
+    "STOCK_OUT_CANCEL",
+    "PRODUCE_CANCEL",
+    "SERIAL_IN",
+    "SERIAL_OUT",
+    "SERIAL_SCRAP",
+    "OPENING",
+    // voucher-source 轴（13，去重后 10 个新值）
+    "STOCK_IN",
+    "STOCK_OUT",
+    "PAYMENT",
+    "STOCK_TAKE",
+    "SERIAL_BATCH",
+    "YEAR_END",
+    "MANUAL",
+    "FIXED_ASSET_ACQ",
+    "FIXED_ASSET_DISPOSAL",
+    "DEPRECIATION",
+];
+
 /// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。
 ///
 /// 域里**不留**已废弃的别名：`biz_status_log.entity_type = 'TRANSFER'` 已被 V0219
 /// 统一成 `STOCK_TRANSFER`，出现在库里就是 FAIL（不是「历史兼容」）。
-pub const COLUMN_DOMAINS: [ColumnDomain; 17] = [
+pub const COLUMN_DOMAINS: [ColumnDomain; 21] = [
     ColumnDomain {
         table: "biz_status_log",
         column: "entity_type",
@@ -1093,7 +1214,7 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 17] = [
     ColumnDomain {
         table: "biz_voucher_rule",
         column: "biz_type",
-        values: &TXN_BIZ_TYPE_VALUES,
+        values: &VOUCHER_RULE_BIZ_TYPE_VALUES,
         axis: "③ 库存变动动作",
     },
     ColumnDomain {
@@ -1156,6 +1277,31 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 17] = [
         column: "source_type",
         values: &BUDGET_USAGE_SOURCE_VALUES,
         axis: "⑨ 预算占用来源",
+    },
+    // ===== FIN-2 固定资产 =====
+    ColumnDomain {
+        table: "biz_fixed_asset",
+        column: "status",
+        values: &ASSET_STATUS_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_fixed_asset",
+        column: "disposal_type",
+        values: &ASSET_DISPOSAL_TYPE_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_fixed_asset_change",
+        column: "change_type",
+        values: &ASSET_CHANGE_TYPE_VALUES,
+        axis: "⑩ 资产状态",
+    },
+    ColumnDomain {
+        table: "biz_depreciation_batch",
+        column: "status",
+        values: &DEPRECIATION_STATUS_VALUES,
+        axis: "⑩ 资产状态",
     },
 ];
 

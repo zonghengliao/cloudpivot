@@ -44,6 +44,14 @@
 //! | [`contract_bridge`] | 合同**审批**的业务回调（通过 → 已签订 / 驳回 → 回草稿）+ 内控 + 反向兜底 | **ARCH-3 R-P1-1** |
 //! | [`contract_dto`] | 合同出入参契约：筛选 / 新建 / 修改 / 状态流转 / 列表行 / 详情 + 纯逻辑校验 | **A2** |
 //! | [`contract_handler`] | 合同 6 个接口：分页 / 详情 / 新建 / 修改 / 状态流转 / 软删 | **A1 装配位 → A2 实现** |
+//! | [`asset_compute`] | 固定资产**纯计算**（ARCH-6 §5.3/§5.4/§5.6.4）：起提日 / 月折旧 / 尾差 / 期间工具 / 处置分录（不碰库） | **FIN-2** |
+//! | [`asset_dto`] | 固资契约：分类 / 卡片 / 转移 / 处置 / 折旧批次的入参与校验（纯函数，必填缺 400 指名） | **FIN-2** |
+//! | [`asset_model`] | 固资数据层（V0229/V0230）：分类 / 卡片 / 变动留痕（append-only）/ 折旧批次与明细 + 扫描 SQL | **FIN-2** |
+//! | [`asset_handler`] | 固资 14 个接口：分类 CRUD、建卡（含购入凭证）、转移 / 变更使用人、处置提交 / 作废、详情 | **FIN-2** |
+//! | [`asset_bridge`] | 资产**处置审批**的业务回调（通过 → 处置凭证 + 卡片 DISPOSED + 留痕）+ 内控闸 | **FIN-2** |
+//! | [`depreciation_model`] | 折旧计提（期间闸 / 幂等闸 / 扫描 / 按部门多借方凭证 / 回写卡片）+ 红冲 + 定时任务 | **FIN-2** |
+//! | [`depreciation_handler`] | 折旧 4 个接口：批次分页 / 详情 / 手动计提 / 红冲 | **FIN-2** |
+//! | [`voucher_multi`] | **多借方凭证入口**（ARCH-6 §6.4 边界 ①）：折旧按部门拆借方、购入价税拆分、处置三张凭证都走它 | **FIN-2** |
 //! | [`unit_guard`] | 单据单位止血（DC-09）：明细的物料基础单位必须是 `is_base = 1`，否则 400 + 折算建议 | **ARCH-3 P0** |
 //! | [`approval_gate`] | 审批流未配置改「默认拒绝」（DC-01）：6 个入口 409 + 新码、显式跳过（`business:erp:skip-approval` + 理由 ≥10 字）、8 个流程配置自检端点 | **ARCH-3 P0** |
 //! | [`reminder`] | **业务提醒任务包**（DC-06 / DC-12）：4 类提醒的元数据 / 业务日 / 幂等台账（`biz_reminder_log`）/ 收件人解析 / 统一发送 / 4 个 cron 注册 / 手动触发端点 | **ARCH-3 R-P1-2** |
@@ -76,6 +84,11 @@
 //! 理由见 [`model`] 文件头的 `SCOPE-EXEMPT` 说明。
 
 pub mod approval_gate;
+pub mod asset_bridge;
+pub mod asset_compute;
+pub mod asset_dto;
+pub mod asset_handler;
+pub mod asset_model;
 pub mod batch;
 pub mod budget_bridge;
 pub mod budget_dto;
@@ -90,6 +103,8 @@ pub mod contract_bridge;
 pub mod contract_dto;
 pub mod contract_handler;
 pub mod contract_model;
+pub mod depreciation_handler;
+pub mod depreciation_model;
 pub mod dto;
 pub mod form_snapshot;
 pub mod handler;
@@ -139,6 +154,7 @@ pub mod transfer_overdue;
 pub mod unit_guard;
 pub mod voucher;
 pub mod voucher_bridge;
+pub mod voucher_multi;
 pub mod voucher_query;
 pub mod voucher_write;
 pub mod year_end;

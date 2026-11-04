@@ -1,0 +1,41 @@
+──────── 第 1 轮 ────────
+    ✅ 资产表已删 = 0
+    ✅ 固资凭证规则已删 = 0
+    ✅ asset 权限码已删 = 0
+    ✅ asset_disposal 流程已删 = 0
+psql:/opt/cloudpivot/backend/migrations/business/V0231__erp_asset_disposal_flow.up.sql:153: NOTICE:  V0231 OK：asset_disposal 已发布（3 节点 / 2 边 / hash b4bef2fc227d）
+    ✅ 五张表已建 = 5
+    ✅ 分类种子 = 5
+    ✅ 固资凭证规则 = 4
+    ✅ asset 权限码 14 个 = 14
+    ✅ asset_disposal 节点数 = 3
+    ✅ asset_disposal 边数 = 2
+    ✅ graph_hash 一致（ drifted = 0）
+──────── 第 2 轮 ────────
+    ✅ 资产表已删 = 0
+    ✅ 固资凭证规则已删 = 0
+    ✅ asset 权限码已删 = 0
+    ✅ asset_disposal 流程已删 = 0
+psql:/opt/cloudpivot/backend/migrations/business/V0231__erp_asset_disposal_flow.up.sql:153: NOTICE:  V0231 OK：asset_disposal 已发布（3 节点 / 2 边 / hash b4bef2fc227d）
+    ✅ 五张表已建 = 5
+    ✅ 分类种子 = 5
+    ✅ 固资凭证规则 = 4
+    ✅ asset 权限码 14 个 = 14
+    ✅ asset_disposal 节点数 = 3
+    ✅ asset_disposal 边数 = 2
+    ✅ graph_hash 一致（ drifted = 0）
+──────── 第 3 轮 ────────
+    ✅ 资产表已删 = 0
+    ✅ 固资凭证规则已删 = 0
+    ✅ asset 权限码已删 = 0
+    ✅ asset_disposal 流程已删 = 0
+psql:/opt/cloudpivot/backend/migrations/business/V0231__erp_asset_disposal_flow.up.sql:153: NOTICE:  V0231 OK：asset_disposal 已发布（3 节点 / 2 边 / hash b4bef2fc227d）
+    ✅ 五张表已建 = 5
+    ✅ 分类种子 = 5
+    ✅ 固资凭证规则 = 4
+    ✅ asset 权限码 14 个 = 14
+    ✅ asset_disposal 节点数 = 3
+    ✅ asset_disposal 边数 = 2
+    ✅ graph_hash 一致（ drifted = 0）
+
+★ 三轮 up/down/up 全部通过

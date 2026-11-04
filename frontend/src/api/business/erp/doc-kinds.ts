@@ -53,6 +53,8 @@ export const DOC_KINDS = [
   'FLOW_EDGE_CFG',
   'FLOW_LINKAGE_CFG',
   'BUDGET',
+  'FIXED_ASSET',
+  'DEPRECIATION',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -75,6 +77,8 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   FLOW_EDGE_CFG: '状态机配置',
   FLOW_LINKAGE_CFG: '联动规则配置',
   BUDGET: '预算',
+  FIXED_ASSET: '固定资产',
+  DEPRECIATION: '折旧批次',
 };
 
 /**
@@ -105,6 +109,8 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   FLOW_EDGE_CFG: 'biz_flow_edge',
   FLOW_LINKAGE_CFG: 'biz_flow_linkage_rule',
   BUDGET: 'biz_budget',
+  FIXED_ASSET: 'biz_fixed_asset',
+  DEPRECIATION: 'biz_depreciation_batch',
 };
 
 /**
@@ -136,6 +142,7 @@ export const ATTACHMENT_DOC_TYPES = [
   'STOCK_IN',
   'PAYABLE',
   'PAYMENT',
+  'FIXED_ASSET',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */
@@ -159,6 +166,7 @@ export const FLOW_BIZ_TYPES = [
   'EXPENSE',
   'OTHER',
   'BUDGET_APPROVE',
+  'ASSET_DISPOSAL',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -180,6 +188,7 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   EXPENSE: '费用审批',
   OTHER: '其他审批',
   BUDGET_APPROVE: '预算审批',
+  ASSET_DISPOSAL: '资产处置审批',
 };
 
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
@@ -198,6 +207,7 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   EXPENSE: 'expense',
   OTHER: 'other',
   BUDGET_APPROVE: 'budget_approve',
+  ASSET_DISPOSAL: 'asset_disposal',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */
@@ -295,6 +305,9 @@ export const VOUCHER_SOURCE_TYPES = [
   'OPENING',
   'YEAR_END',
   'MANUAL',
+  'FIXED_ASSET_ACQ',
+  'FIXED_ASSET_DISPOSAL',
+  'DEPRECIATION',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -312,6 +325,9 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   OPENING: '期初录入',
   YEAR_END: '年结结转',
   MANUAL: '手工录入',
+  FIXED_ASSET_ACQ: '固定资产购入',
+  FIXED_ASSET_DISPOSAL: '固定资产处置',
+  DEPRECIATION: '折旧计提',
 };
 
 // ==================== ⑥ 序列号来源 ====================

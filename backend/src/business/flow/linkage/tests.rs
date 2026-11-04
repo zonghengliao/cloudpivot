@@ -263,14 +263,28 @@ fn migration_check_covers_every_action_code() {
     assert!(up.contains(spec::AUDIT_ENTITY_TYPE) || up.contains("FLOW_LINKAGE_CFG"));
 }
 
-/// 触发点白名单必须覆盖状态机注册表的全部实体。
+/// 触发点白名单必须覆盖状态机注册表的全部实体（例外必须显式登记在 `TRIGGER_EXEMPT`）。
 #[test]
 fn triggers_cover_state_machine_entities() {
     for entity in state_machine::Entity::ALL {
         assert!(
-            spec::is_known_trigger(entity.as_str()),
-            "状态机实体 {} 不在联动触发点白名单里",
+            spec::is_known_trigger(entity.as_str())
+                || spec::TRIGGER_EXEMPT.contains(&entity.as_str()),
+            "状态机实体 {} 既不在联动触发点白名单里、也没登记在 TRIGGER_EXEMPT（漏登记 = 挂不上联动）",
             entity.as_str()
+        );
+    }
+    // 例外清单必须自我一致：不许和真白名单重复、每一项都得是真实实体
+    for exempt in spec::TRIGGER_EXEMPT {
+        assert!(
+            !spec::is_known_trigger(exempt),
+            "{exempt} 同时在白名单与例外清单里"
+        );
+        assert!(
+            state_machine::Entity::ALL
+                .iter()
+                .any(|entity| entity.as_str() == *exempt),
+            "例外清单里的 {exempt} 不是状态机注册的实体（写错名字等于白登记）"
         );
     }
     assert!(spec::is_known_trigger(spec::TRIGGER_TASK));

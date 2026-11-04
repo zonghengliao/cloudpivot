@@ -42,6 +42,8 @@ pub const DOC_STOCK_IN: &str = "STOCK_IN";
 pub const DOC_PAYABLE: &str = "PAYABLE";
 /// 单据类型：付款登记单。
 pub const DOC_PAYMENT: &str = "PAYMENT";
+/// 单据类型：固定资产卡片（FIN-2：发票 / 验收单 / 处置单）。
+pub const DOC_FIXED_ASSET: &str = "FIXED_ASSET";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -71,16 +73,19 @@ pub enum DocKind {
     Payable,
     /// 付款登记 → `biz_payment`
     Payment,
+    /// 固定资产卡片 → `biz_fixed_asset`（ARCH-6 §6.2.4：发票 / 验收单 / 处置单）
+    FixedAsset,
 }
 
 impl DocKind {
     /// 全部类型（顺序与前端下拉一致）。
-    pub const ALL: [DocKind; 5] = [
+    pub const ALL: [DocKind; 6] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::Payable,
         DocKind::Payment,
+        DocKind::FixedAsset,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -99,6 +104,7 @@ impl DocKind {
             DOC_STOCK_IN => Some(DocKind::StockIn),
             DOC_PAYABLE => Some(DocKind::Payable),
             DOC_PAYMENT => Some(DocKind::Payment),
+            DOC_FIXED_ASSET => Some(DocKind::FixedAsset),
             _ => None,
         }
     }
@@ -111,6 +117,7 @@ impl DocKind {
             DocKind::StockIn => DOC_STOCK_IN,
             DocKind::Payable => DOC_PAYABLE,
             DocKind::Payment => DOC_PAYMENT,
+            DocKind::FixedAsset => DOC_FIXED_ASSET,
         }
     }
 
@@ -122,6 +129,7 @@ impl DocKind {
             DocKind::StockIn => "收货单",
             DocKind::Payable => "应付单",
             DocKind::Payment => "付款单",
+            DocKind::FixedAsset => "固定资产",
         }
     }
 
@@ -133,6 +141,7 @@ impl DocKind {
             DocKind::StockIn => "biz_stock_in",
             DocKind::Payable => "biz_payable",
             DocKind::Payment => "biz_payment",
+            DocKind::FixedAsset => "biz_fixed_asset",
         }
     }
 
@@ -153,6 +162,11 @@ impl DocKind {
             }
             DocKind::Payment => {
                 "SELECT 1 FROM biz_payment WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            // FIN-2：资产（发票 / 验收单 / 处置单）。它与 DDL 的
+            // `ck_biz_doc_attachment_type`（V0232 放宽到 6 值）逐字对应。
+            DocKind::FixedAsset => {
+                "SELECT 1 FROM biz_fixed_asset WHERE id = ?::uuid AND deleted_at IS NULL"
             }
         }
     }

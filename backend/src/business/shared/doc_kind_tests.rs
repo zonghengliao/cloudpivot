@@ -246,15 +246,15 @@ fn domain_consts_match_enums() {
     );
 }
 
-/// 九根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
+/// 十根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
 #[test]
 fn domain_columns_exist_and_cover_all_axes() {
     let axes: std::collections::BTreeSet<&str> =
         COLUMN_DOMAINS.iter().map(|item| item.axis).collect();
     assert_eq!(
         axes.len(),
-        9,
-        "必须覆盖九根轴（⑦ 单据子类型之后加了 ⑧ 预算状态 / ⑨ 预算占用来源），实际：{axes:?}"
+        10,
+        "必须覆盖十根轴（⑦ 单据子类型之后加了 ⑧ 预算状态 / ⑨ 预算占用来源 / ⑩ 资产状态），实际：{axes:?}"
     );
     // 每根轴至少一列
     assert!(axes.contains("① 业务对象"));
@@ -264,6 +264,7 @@ fn domain_columns_exist_and_cover_all_axes() {
     assert!(axes.contains("⑤ 凭证来源"));
     assert!(axes.contains("⑥ 序列号来源"));
     assert!(axes.contains("⑦ 单据子类型"));
+    assert!(axes.contains("⑩ 资产状态"));
 
     // 列清单里不许有重复的 (表, 列)
     let mut seen = std::collections::BTreeSet::new();

@@ -213,6 +213,10 @@ pub const TRIGGERS: &[&str] = &[
     state_machine::ENTITY_CONTRACT,
     // ARCH-3 DC-14：盘点单过账 / 作废也是「状态变更之后要做什么」的合法触发点
     state_machine::ENTITY_STOCK_TAKE,
+    // ARCH-6 第五章：固定资产的停用 / 启用 / 处置 / 作废处置都要能挂联动
+    state_machine::ENTITY_FIXED_ASSET,
+    // ARCH-6 §5.5.5：折旧批次的过账 / 红冲同样是要「状态变更之后做什么」的触发点
+    state_machine::ENTITY_DEPRECIATION,
     TRIGGER_TASK,
     TRIGGER_FLOW_INSTANCE,
 ];
@@ -221,6 +225,16 @@ pub const TRIGGERS: &[&str] = &[
 pub fn is_known_trigger(entity: &str) -> bool {
     TRIGGERS.contains(&entity)
 }
+
+/// 状态机里有、但**明确不做**联动触发点的实体（白名单的例外清单）。
+///
+/// 加进这里不是「把红测试改绿」——是给「这个实体为什么没有触发点」留一条可查的理由：
+/// 没有理由就不许进这张表（单测会核对里面每一项都是真实注册的实体）。
+pub const TRIGGER_EXEMPT: &[&str] = &[
+    // ARCH-6 §3：预算审批的结果是「额度状态翻 ACTIVE」，没有任何业务单据跟着变状态；
+    // 预算的到期/超额提醒走 `biz_business_reminder`（V0210 那套），不挂在单据联动上。
+    state_machine::ENTITY_BUDGET,
+];
 
 /// 配置变更审计写 `biz_status_log` 时用的 `entity_type`。
 ///

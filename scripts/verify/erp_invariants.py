@@ -940,9 +940,150 @@ def group_i():
               group by 1 having abs(sum(case when x.txn_type='IN' then x.qty else -x.qty end)) > 0.0001""")
 
 
+# ══════════════════════════════════════════════════════════════════
+# K. 固定资产（ARCH-6 第五章 · FIN-2）—— 折旧缓存列必须等于明细，科目必须对得上
+# ══════════════════════════════════════════════════════════════════
+def group_k():
+    print("\n" + "=" * 92)
+    print("K. 固定资产（折旧缓存 = 明细、1601/1602/1606 与卡片对账、处置必留痕）")
+    print("=" * 92)
+    if not table_exists("biz_fixed_asset"):
+        check("K0 固定资产表存在", "固资", "WARN", False, "biz_fixed_asset 不存在（本库还没上 FIN-2）")
+        return
+
+    # K1 月折旧额 = round((原值-残值)/月数, 4)（WARN：历史数据 / 手工改库可能漂）
+    bad = q("""
+        select a.asset_no, a.monthly_depreciation::text,
+               round((a.original_value - a.residual_value) / a.useful_life_months, 4)::text
+          from biz_fixed_asset a
+         where a.deleted_at is null
+           and abs(a.monthly_depreciation
+                   - round((a.original_value - a.residual_value) / a.useful_life_months, 4)) > 0.0001
+         order by a.asset_no
+    """)
+    check("K1 月折旧额 = round((原值−残值)/月数,4)", "固资", "WARN", not bad,
+          f"{len(bad)} 张卡的月折旧额与公式不符" if bad else "全部相符")
+
+    # K2 累计折旧 = Σ(POSTED 明细)（BLOCKER：缓存列唯一写入者是折旧过账）
+    bad2 = q("""
+        select a.asset_no, a.accumulated_depreciation::text,
+               coalesce(sum(d.amount) filter (where d.status = 'POSTED'), 0)::text
+          from biz_fixed_asset a
+          left join biz_depreciation d on d.asset_id = a.id
+         where a.deleted_at is null
+         group by a.id, a.asset_no, a.accumulated_depreciation
+        having abs(a.accumulated_depreciation
+                   - coalesce(sum(d.amount) filter (where d.status = 'POSTED'), 0)) > 0.0001
+         order by a.asset_no
+    """)
+    check("K2 卡片累计折旧 = Σ明细(POSTED)", "固资", "BLOCKER", not bad2,
+          f"{len(bad2)} 张卡的累计折旧与明细不符" if bad2 else "全部相符")
+
+    # K3 累计 ≤ 可折旧总额 且 净值 = 原值 − 累计（库 CHECK 也挡，这里查历史脏数据）
+    bad3 = q("""
+        select a.asset_no, a.accumulated_depreciation::text, a.depreciable_base::text,
+               a.net_value::text, (a.original_value - a.accumulated_depreciation)::text
+          from biz_fixed_asset a
+         where a.deleted_at is null
+           and (a.accumulated_depreciation > a.depreciable_base + 0.0001
+                or abs(a.net_value - (a.original_value - a.accumulated_depreciation)) > 0.0001)
+         order by a.asset_no
+    """)
+    check("K3 累计 ≤ 可折旧总额 且 净值 = 原值 − 累计", "固资", "BLOCKER", not bad3,
+          f"{len(bad3)} 张卡违反净值恒等 / 提足上限" if bad3 else "全部相符")
+
+    # K4 批次 total = Σ明细 且 asset_count = 明细行数
+    bad4 = q("""
+        select b.batch_no, b.total_amount::text, coalesce(sum(d.amount),0)::text,
+               b.asset_count, count(d.id)
+          from biz_depreciation_batch b
+          left join biz_depreciation d on d.batch_id = b.id
+         group by b.id, b.batch_no, b.total_amount, b.asset_count
+        having abs(b.total_amount - coalesce(sum(d.amount),0)) > 0.0001
+            or b.asset_count <> count(d.id)
+         order by b.batch_no
+    """)
+    check("K4 批次合计 = Σ明细 且 台数 = 明细行数", "固资", "BLOCKER", not bad4,
+          f"{len(bad4)} 个批次的合计/台数与明细不符" if bad4 else "全部相符")
+
+    # K5 1602 贷方余额 = Σ 卡片累计折旧（容差 0.0001）
+    get_1602 = one("""
+        select coalesce(sum(e.credit_amount - e.debit_amount), 0)::text
+          from biz_voucher_entry e
+          join biz_voucher v on v.id = e.voucher_id and v.deleted_at is null
+         where e.account_code = '1602'
+    """)
+    cards_accum = one("""
+        select coalesce(sum(accumulated_depreciation), 0)::text
+          from biz_fixed_asset where deleted_at is null
+    """)
+    ok5 = abs(dec(get_1602) - dec(cards_accum)) <= TOL
+    check("K5 1602 贷方余额 = Σ卡片累计折旧", "固资", "BLOCKER", ok5,
+          f"1602 = {get_1602} / 卡片 = {cards_accum}" if not ok5 else f"1602 = {get_1602}")
+
+    # K6 1601 借方余额 = Σ 未处置卡片原值
+    get_1601 = one("""
+        select coalesce(sum(e.debit_amount - e.credit_amount), 0)::text
+          from biz_voucher_entry e
+          join biz_voucher v on v.id = e.voucher_id and v.deleted_at is null
+         where e.account_code = '1601'
+    """)
+    live_original = one("""
+        select coalesce(sum(original_value), 0)::text
+          from biz_fixed_asset where deleted_at is null and status <> 'DISPOSED'
+    """)
+    ok6 = abs(dec(get_1601) - dec(live_original)) <= TOL
+    check("K6 1601 借方余额 = Σ未处置卡片原值", "固资", "BLOCKER", ok6,
+          f"1601 = {get_1601} / 在役卡片 = {live_original}" if not ok6 else f"1601 = {get_1601}")
+
+    # K7 1606 固定资产清理必须归零（WARN：处置完成后的清理科目不许挂账）
+    get_1606 = one("""
+        select coalesce(sum(e.debit_amount - e.credit_amount), 0)::text
+          from biz_voucher_entry e
+          join biz_voucher v on v.id = e.voucher_id and v.deleted_at is null
+         where e.account_code = '1606'
+    """)
+    ok7 = abs(dec(get_1606)) <= TOL
+    check("K7 1606 固定资产清理余额 = 0（无未结转挂账）", "固资", "WARN", ok7,
+          f"1606 余额 = {get_1606}（处置未结转完 / 有人直接记了这个科目）" if not ok7 else "归零")
+
+    # K8 同一资产同一期间只能有一条 POSTED 明细
+    bad8 = q("""
+        select asset_id::text, period_code, count(*)::text
+          from biz_depreciation where status = 'POSTED'
+         group by 1, 2 having count(*) > 1
+    """)
+    check("K8 同资产同期只有一条 POSTED 折旧", "固资", "BLOCKER", not bad8,
+          f"{len(bad8)} 组重复计提" if bad8 else "无重复")
+
+    # K9 已 POSTED 批次的目标期间必须存在且已过账（WARN：历史 / 手工造数）
+    bad9 = q("""
+        select b.batch_no, b.period_code
+          from biz_depreciation_batch b
+         where b.status = 'POSTED'
+           and not exists (select 1 from biz_accounting_period p
+                            where p.period_code = b.period_code)
+         order by b.batch_no
+    """)
+    check("K9 已过账批次的期间必须存在", "固资", "WARN", not bad9,
+          f"{len(bad9)} 个批次的期间不存在" if bad9 else "全部有期间行")
+
+    # K10 已处置资产必有 DISPOSAL 留痕
+    bad10 = q("""
+        select a.asset_no
+          from biz_fixed_asset a
+         where a.deleted_at is null and a.status = 'DISPOSED'
+           and not exists (select 1 from biz_fixed_asset_change c
+                            where c.asset_id = a.id and c.change_type = 'DISPOSAL')
+         order by a.asset_no
+    """)
+    check("K10 已处置资产必有 DISPOSAL 变动留痕", "固资", "BLOCKER", not bad10,
+          f"{len(bad10)} 张已处置卡没有处置留痕" if bad10 else "全部有留痕")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
-          "审批": group_h, "盘点": group_i}
+          "审批": group_h, "盘点": group_i, "固资": group_k}
 
 
 def main():
