@@ -2417,6 +2417,16 @@ pub struct PurchaseOrderRes {
     pub supplier_name: Option<String>,
     /// 供应商名称快照列原文（存量行为 `null`，那时名称不可知）。
     pub supplier_name_snapshot: Option<String>,
+    /// 收货仓库名称（**显示用**：列表读快照，详情由 handler 换成现值；见 `fill_warehouse_names`）。
+    ///
+    /// 列表与详情下发的口径**不同**，这是 P2-9 刻意的（卡面验收）：
+    /// - 列表：`warehouse_name_snapshot`，老单（快照为空）回落关联查 → 仓库改名后列表显示旧名；
+    /// - 详情：关联查的**现值** → 用户点进单据看到「现在是哪个仓」。
+    ///
+    /// 两者并列时前端按「现值（原：快照）」显示差异（与 P2-7 供应商名的 S2 口径一致）。
+    pub warehouse_name: Option<String>,
+    /// 收货仓库名称快照列原文（P2-9 之前的老单为 `null`）。
+    pub warehouse_name_snapshot: Option<String>,
     /// 所属项目（弱引用 `biz_project.id`；`null` = 未归集项目，P2-8 / V0237）。
     pub project_id: Option<String>,
     /// 所属项目名称（**实时关联查**，不是快照 —— 项目改名后这里跟着变，P2-8 口径 P1）。
@@ -2482,6 +2492,9 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             // 快照优先；存量行（`NULL`）由 `purchase_handler::fill_supplier_names` 用主档现值兜底
             supplier_name: row.supplier_name_snapshot.clone(),
             supplier_name_snapshot: row.supplier_name_snapshot.clone(),
+            // P2-9：列表口径 = 快照（老单为空 → `fill_warehouse_names` 回落关联查）
+            warehouse_name: row.warehouse_name_snapshot.clone(),
+            warehouse_name_snapshot: row.warehouse_name_snapshot.clone(),
             project_id: row.project_id.map(|id| id.to_string()),
             project_name: None,
             submitted_at: row.submitted_at,

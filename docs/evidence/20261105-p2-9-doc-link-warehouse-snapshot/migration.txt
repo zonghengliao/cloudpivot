@@ -1,0 +1,23 @@
+COMMENT
+psql:/root/p28-tree/backend/migrations/business/V0238__task_doc_link_and_po_warehouse_snapshot.up.sql:138: NOTICE:  V0238：任务可挂单据（doc_type/doc_id + ck + 部分索引）+ 采购单仓库名快照已就位
+DO
+--- up 后结构
+doc_id:uuid:nullable=YES
+doc_type:character varying:nullable=YES
+CREATE INDEX idx_biz_task_doc ON public.biz_task USING btree (doc_type, doc_id) WHERE (doc_id IS NOT NULL)
+ck_biz_task_doc_pair => CHECK (((doc_type IS NULL) = (doc_id IS NULL)))
+warehouse_name_snapshot:character varying
+biz_task 列数=41
+--- 半对反例（期望 check violation）
+ERROR:  new row for relation "biz_task" violates check constraint "ck_biz_task_doc_pair"
+DETAIL:  Failing row contains (1b8789f7-03e8-4779-9e7b-6a5fe77ccfbf, P29-EV-HALF, t, null, TODO, P2, 0, f, f33b92ce-ec59-4d13-85a8-db1252cfcb7b, 5bf7d93a-0bdb-4eb4-9df3-f325fbcac577, null, null, null, null, null, null, null, null, null, SELF, null, null, null, 2026-11-05 03:52:05.412401+08, 2026-11-05 03:52:05.412401+08, null, null, null, null, HUMAN, null, null, null, null, null, null, null, null, null, PURCHASE_ORDER, null).
+--- down
+psql:/root/p28-tree/backend/migrations/business/V0238__task_doc_link_and_po_warehouse_snapshot.down.sql:64: NOTICE:  V0238 down：任务挂单据两列 + 采购单仓库名快照已删除，其余列未动
+DO
+--- down 后 biz_task 列数（期望 39）
+39
+--- down 幂等重放
+DO
+--- 再 up（恢复）
+DO
+biz_task 列数=41

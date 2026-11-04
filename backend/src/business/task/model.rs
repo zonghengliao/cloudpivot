@@ -88,6 +88,14 @@ pub use super::task_model_write::*;
 #[path = "task_model_tests.rs"]
 mod tests;
 
+/// P2-9 / DC-19：任务挂业务单据（doc_type / doc_id）的真库用例。
+///
+/// 覆盖白名单（63022）、单据不存在 / 已软删（63023）、反向查询（`list_by_doc`
+/// 的可见性）、落库与详情下发、改任务清单 / 换单。`TASK_DB_URL` 未设置则整段 SKIP。
+#[cfg(test)]
+#[path = "task_doc_link_tests.rs"]
+mod doc_link_tests;
+
 /// E12：附件显示名的纯逻辑回归（不连库，`cargo test` 里必然跑到）。
 #[cfg(test)]
 #[path = "task_model_display_file_name_tests.rs"]

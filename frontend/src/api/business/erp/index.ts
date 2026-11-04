@@ -1227,6 +1227,19 @@ export interface PurchaseOrderRow {
   /** 供应商名称快照列原文（存量行 `null`，那时名称不可知） */
   supplier_name_snapshot: string | null;
   /**
+   * 收货仓库名称（P2-9 / DC-23；**列表读快照、详情读现值**）。
+   *
+   * - 列表：`warehouse_name_snapshot`（仓库改名后仍显示下单当时的名字），老单
+   *   （快照为 `null`）由后端批量现查兜底，所以列表里这一列**基本总有值**；
+   * - 详情：关联查的现名（点进单据看到「现在是哪个仓」），仓库被软删时回落快照。
+   *
+   * 前端**不要**再拿 `warehouse_id` 去 `warehouses` 列表里找名字（那是第二份真相，
+   * 且找不到时会退化成 uuid 短号）；只在这个字段为空时兜底。
+   */
+  warehouse_name: string | null;
+  /** 收货仓库名称快照列原文（P2-9 之前的老单为 `null`） */
+  warehouse_name_snapshot: string | null;
+  /**
    * 所属项目 id（V0237 / P2-8）。`null` = **未归集项目**（存量 18 张单全是它）。
    *
    * ⚠️ 与 `supplier_id` 不同：这是**弱引用 + 无外键**，项目被软删后本字段仍然保留原 uuid

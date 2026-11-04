@@ -554,6 +554,33 @@ pub const TASK_MEMBER_NOT_FOUND: i32 = 63020;
 /// 那是幂等收敛，见 `task::model::blocks_child_advance`）。
 pub const TASK_PARENT_CANCELLED: i32 = 63021;
 
+// ── P2-9 追加（63022–63023）：任务挂业务单据（DC-19）─────────────────────
+
+/// 任务挂的「单据类型」不在白名单（HTTP 400）。
+///
+/// 白名单唯一来源：[`crate::business::task::doc_ref::DOC_TYPES`]
+/// （`PURCHASE_ORDER` / `STOCK_IN` / `CONTRACT` / `PAYABLE` / `VOUCHER`）。
+///
+/// # 为什么不复用 63004（字段取值非法）
+///
+/// 「类型不认识」与「这个字段的格式不对」的下一步动作不同：前者是前端该给出
+/// 可选项（下拉 / 更新版本），后者是用户填错了格式。前端文案映射按码值命中，
+/// 合并会让「请选择单据类型」被写成「格式错误」。
+pub const TASK_DOC_TYPE_INVALID: i32 = 63022;
+
+/// 任务挂的单据不存在 / 已软删（HTTP 400）。
+///
+/// `doc_id` 是弱引用（5 张表之一，无外键），存在性只能在 handler 里查一次
+/// （[`crate::business::task::doc_ref::resolve`]）。单据被软删后**不允许**再被
+/// 新任务挂上去 —— 与 ERP 侧所有引用校验口径一致（`deleted_at IS NULL`）。
+///
+/// # 为什么是 400 而不是 404
+///
+/// 404 的语义是「你要的**任务**不存在」；这里是「任务参数里引用的单据无效」，
+/// 动作是改请求参数后重试，不是换一个任务 id。两者混用会让前端把用户引导到
+/// 「任务已被删除」的错误提示上。
+pub const TASK_DOC_NOT_FOUND: i32 = 63023;
+
 // ── T4 追加（631xx 子段）：依赖环检测 / 前置阻塞 / 甘特时间窗 ─────────────
 //
 // 为什么这批码跳到 **631xx** 而不是接着 63021：卡面 t_687d35b1 明确要求
@@ -1502,6 +1529,9 @@ mod tests {
             (TASK_MEMBER_NOT_FOUND, 63020),
             // T11 追加：父任务取消后的子任务守卫
             (TASK_PARENT_CANCELLED, 63021),
+            // P2-9 追加：任务挂业务单据（类型白名单 / 单据不存在或已软删）
+            (TASK_DOC_TYPE_INVALID, 63022),
+            (TASK_DOC_NOT_FOUND, 63023),
             // T4 追加：依赖环检测 / 前置阻塞 / 依赖不合法 / 依赖不存在 / 甘特时间窗
             (TASK_DEPENDENCY_CYCLE, 63101),
             (TASK_DEPENDENCY_BLOCKED, 63102),
@@ -1530,7 +1560,7 @@ mod tests {
         let unique: std::collections::BTreeSet<i32> = codes.iter().map(|(c, _)| *c).collect();
         assert_eq!(unique.len(), codes.len(), "63xxx 段不得有重复码值");
         println!(
-            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63021 + 63101–63105 + 63110–63112 + 63301–63308）✓",
+            "[码表] 63xxx 段 {} 个码齐全且不重复（63001–63023 + 63101–63105 + 63110–63112 + 63301–63308）✓",
             codes.len()
         );
     }

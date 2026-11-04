@@ -448,6 +448,79 @@ pub async fn fill_project_names(rows: &mut [PurchaseOrderRes]) {
     }
 }
 
+/// 列表口径：**快照优先**，老单（快照为 `NULL`）回落关联查（P2-9 / DC-23）。
+///
+/// # 为什么列表要「读快照」而不是「读现值」
+///
+/// 验收口径（卡面）：仓库改名后，**老采购单列表仍显示旧名**（那批货当时进的就是
+/// 那个仓），点进详情才看到「现在的名字」。若列表也读现值，用户会以为单据被改过。
+///
+/// # 存量单的过渡期方案（本卡不做的回填）
+///
+/// `warehouse_name_snapshot` 是 V0238 才加的列，P2-9 之前的老单全是 `NULL`。
+/// 这里对「`warehouse_name` 为空」的行按 `warehouse_id` **批量**现查一次补上
+/// （`purchase_model::warehouse_names_of`），于是老单在列表里也有名字可显示，
+/// 且**不写库**（不回填 = 不伪造历史：那些单下单时仓库叫什么，谁也不知道）。
+/// 新单有快照 ⇒ 不进这条查询（0 次额外往返）。
+///
+/// 仓库已被软删的老单：查不到名字 ⇒ 保持 `None`，前端显示「（仓库已删除）」，
+/// **不回落 uuid**（与 `project_name` / `supplier_name` 同口径）。
+pub async fn fill_warehouse_names(rows: &mut [PurchaseOrderRes]) {
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter(|row| row.warehouse_name.is_none())
+        .filter_map(|row| Uuid::parse_str(&row.warehouse_id).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let map = purchase_model::warehouse_names_of(&ids)
+        .await
+        .unwrap_or_default();
+    for row in rows.iter_mut() {
+        if row.warehouse_name.is_some() {
+            continue;
+        }
+        if let Ok(id) = Uuid::parse_str(&row.warehouse_id)
+            && let Some(name) = map.get(&id)
+        {
+            row.warehouse_name = Some(name.clone());
+        }
+    }
+}
+
+/// 详情口径：**现名优先**（关联查），查不到才回落到快照（P2-9 / DC-23）。
+///
+/// # 与列表相反，为什么
+///
+/// 详情页回答的是「这张单的货要进/已进哪个仓，**现在**是哪个仓」—— 用户要点进去
+/// 才能知道仓库是否改名 / 是否停用，所以详情必须显示现值；快照仍然下发
+/// （`warehouse_name_snapshot`），前端可以并列显示「现名（原：旧名）」，
+/// 与 P2-7 供应商名的 S2 口径一致。
+///
+/// # 查不到现值（仓库已软删）
+///
+/// 回落 `warehouse_name_snapshot`（**不清空**）：详情比列表更不能一片空白 ——
+/// 「当时叫什么」是这张单唯一的仓库线索。
+pub async fn fill_warehouse_name_current(rows: &mut [PurchaseOrderRes]) {
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter_map(|row| Uuid::parse_str(&row.warehouse_id).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let map = purchase_model::warehouse_names_of(&ids)
+        .await
+        .unwrap_or_default();
+    for row in rows.iter_mut() {
+        let live = Uuid::parse_str(&row.warehouse_id)
+            .ok()
+            .and_then(|id| map.get(&id).cloned());
+        row.warehouse_name = live.or_else(|| row.warehouse_name_snapshot.clone());
+    }
+}
+
 // ==================== 详情组装 ====================
 /// 详情：单头（含三金额 + 口径）+ 明细（行号升序）。
 pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, ApiError> {
@@ -462,6 +535,8 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     fill_approval_no(std::slice::from_mut(&mut order)).await;
     fill_supplier_names(std::slice::from_mut(&mut order)).await;
     fill_project_names(std::slice::from_mut(&mut order)).await;
+    // P2-9：详情口径 = 仓库现名（查不到回落快照）
+    fill_warehouse_name_current(std::slice::from_mut(&mut order)).await;
     Ok(PurchaseOrderDetailRes {
         order,
         items: items.iter().map(PurchaseOrderLineRes::from).collect(),
@@ -526,7 +601,8 @@ pub async fn create_purchase_order(
     let prepared = req.prepare()?;
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
 
-    purchase_model::warehouse_ref(warehouse_id)
+    // 收货仓库：存在性 + 名称快照一次拿到（P2-9 / DC-23：多查一列，不多一次往返）
+    let warehouse_name = purchase_model::warehouse_ref(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
@@ -548,6 +624,7 @@ pub async fn create_purchase_order(
             .as_ref()
             .map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
+        warehouse_name_snapshot: Some(warehouse_name.as_str()),
         project_id,
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
@@ -810,7 +887,7 @@ pub async fn update_purchase_order(
     let prepared = req.prepare()?;
 
     let warehouse_id = parse_uuid(&prepared.warehouse_id_raw, "warehouse_id")?;
-    purchase_model::warehouse_ref(warehouse_id)
+    let warehouse_name = purchase_model::warehouse_ref(warehouse_id)
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
@@ -830,6 +907,7 @@ pub async fn update_purchase_order(
             .as_ref()
             .map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
+        warehouse_name_snapshot: Some(warehouse_name.as_str()),
         project_id,
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
@@ -1854,7 +1932,7 @@ mod tests {
         "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, level, is_leaf, status)
          VALUES ('d2a20001-0000-4000-8000-000000000002', 'P2A2-WH', 'P2A2 测试仓',
                  '/d2a20001-0000-4000-8000-000000000002/', 1, 1, 1)
-         ON CONFLICT (id) DO NOTHING",
+         ON CONFLICT (id) DO UPDATE SET warehouse_name = EXCLUDED.warehouse_name, deleted_at = NULL",
         "INSERT INTO biz_material (id, material_code, material_name, unit_id, status)
          VALUES ('d2a20001-0000-4000-8000-000000000011', 'P2A2-M1', '螺丝 M6x20',
                  'd2a20001-0000-4000-8000-000000000003', 1),
@@ -4279,5 +4357,233 @@ mod tests {
         assert_eq!(err.status, 400);
         assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
         assert!(err.msg.contains("project_id"), "{}", err.msg);
+    }
+
+    // ==================== P2-9 / DC-23：采购单仓库名快照 ====================
+
+    /// 夹具仓库的原始名（`FIXTURES` 里那份；改名前后的断言都拿它当基准）。
+    const WAREHOUSE_NAME: &str = "P2A2 测试仓";
+
+    /// 把夹具仓库恢复成「原名 + 未软删」（每个 P2-9 用例开头调一次：
+    /// 上一条用例若 panic 在半路，重命名 / 软删会留在库里，下一条立刻假红）。
+    async fn reset_warehouse() {
+        db().execute_with_params(
+            &format!(
+                "UPDATE biz_warehouse SET warehouse_name = '{WAREHOUSE_NAME}', deleted_at = NULL \
+                  WHERE id = '{WAREHOUSE}'::uuid"
+            ),
+            vec![],
+        )
+        .await
+        .expect("复位仓库夹具");
+    }
+
+    /// 改仓库名（P2-9 的核心场景：主档改名后历史单据该显示什么）。
+    async fn rename_warehouse(name: &str) {
+        db().execute_with_params(
+            &format!(
+                "UPDATE biz_warehouse SET warehouse_name = '{name}' WHERE id = '{WAREHOUSE}'::uuid"
+            ),
+            vec![],
+        )
+        .await
+        .expect("重命名仓库夹具");
+    }
+
+    /// 软删仓库（验证「详情查不到现值 → 回落快照」）。
+    async fn soft_delete_warehouse() {
+        db().execute_with_params(
+            &format!("UPDATE biz_warehouse SET deleted_at = now() WHERE id = '{WAREHOUSE}'::uuid"),
+            vec![],
+        )
+        .await
+        .expect("软删仓库夹具");
+    }
+
+    /// 直接读库里的 `warehouse_name_snapshot`（验证「真的落库」，不只看 DTO 回显）。
+    async fn stored_warehouse_snapshot(id: Uuid) -> Option<String> {
+        db().scalar_with_params::<Option<String>>(
+            "SELECT warehouse_name_snapshot FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("读 warehouse_name_snapshot")
+        .filter(|text| !text.trim().is_empty())
+    }
+
+    /// 清掉快照列，模拟「P2-9 之前的老单」（验证过渡期的 fallback，不回填）。
+    async fn null_warehouse_snapshot(id: Uuid) {
+        db().execute_with_params(
+            "UPDATE biz_purchase_order SET warehouse_name_snapshot = NULL WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("清空快照列");
+    }
+
+    /// 列表口径：与 `handler::purchase_order_page` 同一串回填（快照优先 + 老单兜底）。
+    async fn list_rows() -> Vec<PurchaseOrderRes> {
+        use crate::business::erp::dto::PurchaseOrderFilter;
+
+        let filter = PurchaseOrderFilter {
+            supplier_id: Some(SUPPLIER.to_string()),
+            page: 1,
+            page_size: 50,
+            ..Default::default()
+        };
+        let (rows, _) = crate::business::erp::model::purchase_order_page(&filter)
+            .await
+            .expect("列表查询");
+        let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
+        fill_warehouse_names(&mut list).await;
+        list
+    }
+
+    /// ① 建单写快照：`warehouse_name_snapshot` = 当时的仓库名（真落库），详情同值。
+    #[tokio::test]
+    async fn p9_create_writes_warehouse_name_snapshot() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        reset_warehouse().await;
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "10", "5", "13")]), None)
+            .await
+            .expect("建单");
+        assert_eq!(
+            stored_warehouse_snapshot(id).await.as_deref(),
+            Some(WAREHOUSE_NAME),
+            "warehouse_name_snapshot 必须真的写进 biz_purchase_order"
+        );
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.warehouse_name.as_deref(), Some(WAREHOUSE_NAME));
+        assert_eq!(
+            detail.order.warehouse_name_snapshot.as_deref(),
+            Some(WAREHOUSE_NAME),
+            "快照列原样下发（与 supplier_name_snapshot 同口径）"
+        );
+    }
+
+    /// ② 改单刷新快照：仓库改名后改单（同一仓库）→ 快照跟着改成新名。
+    #[tokio::test]
+    async fn p9_update_refreshes_snapshot() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        reset_warehouse().await;
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "10", "5", "13")]), None)
+            .await
+            .expect("建单");
+        rename_warehouse("P2A2 改名前仓").await;
+        update_purchase_order(id, &req("EXCL", &[(MATERIAL_A, "12", "5", "13")]), None)
+            .await
+            .expect("改单");
+        assert_eq!(
+            stored_warehouse_snapshot(id).await.as_deref(),
+            Some("P2A2 改名前仓"),
+            "改单是整单覆盖，快照要刷新成当前仓库名"
+        );
+        reset_warehouse().await;
+    }
+
+    /// ③ 卡面验收：仓库改名后 **列表显示旧名（快照）**、**详情显示现名（关联）**。
+    #[tokio::test]
+    async fn p9_list_keeps_snapshot_but_detail_shows_live_name() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        reset_warehouse().await;
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "10", "5", "13")]), None)
+            .await
+            .expect("建单");
+        rename_warehouse("P2A2 改名后仓").await;
+
+        let list = list_rows().await;
+        let row = list
+            .iter()
+            .find(|row| row.id == id.to_string())
+            .expect("列表里必须有这张单");
+        assert_eq!(
+            row.warehouse_name.as_deref(),
+            Some(WAREHOUSE_NAME),
+            "列表读快照：改名后仍显示下单当时的仓库名"
+        );
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.order.warehouse_name.as_deref(),
+            Some("P2A2 改名后仓"),
+            "详情读现值：点进单据看到现在的仓库名"
+        );
+        assert_eq!(
+            detail.order.warehouse_name_snapshot.as_deref(),
+            Some(WAREHOUSE_NAME),
+            "快照仍原样下发，前端可以并列显示「现值（原：旧名）」"
+        );
+        reset_warehouse().await;
+    }
+
+    /// ④ 过渡期方案：老单（快照为 NULL）列表 fallback 到关联查，且**不写库**。
+    #[tokio::test]
+    async fn p9_legacy_null_snapshot_falls_back_without_backfill() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        reset_warehouse().await;
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "10", "5", "13")]), None)
+            .await
+            .expect("建单");
+        null_warehouse_snapshot(id).await;
+        rename_warehouse("P2A2 老单改名仓").await;
+
+        let list = list_rows().await;
+        let row = list
+            .iter()
+            .find(|row| row.id == id.to_string())
+            .expect("列表里必须有这张单");
+        assert_eq!(
+            row.warehouse_name.as_deref(),
+            Some("P2A2 老单改名仓"),
+            "老单没快照 → 批量现查兜底（否则列表一片空白）"
+        );
+
+        // 不回填：库里那两列必须还是 NULL / 原值（`fill_warehouse_names` 只读不写）
+        assert_eq!(
+            stored_warehouse_snapshot(id).await,
+            None,
+            "显示兜底不许偷偷回填快照（R1：不伪造历史）"
+        );
+        reset_warehouse().await;
+    }
+
+    /// ⑤ 仓库被软删：详情查不到现值 → 回落快照（不许一片空白），列表仍是快照。
+    #[tokio::test]
+    async fn p9_deleted_warehouse_detail_falls_back_to_snapshot() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        reset_warehouse().await;
+        let id = create_purchase_order(&req("EXCL", &[(MATERIAL_A, "10", "5", "13")]), None)
+            .await
+            .expect("建单");
+        soft_delete_warehouse().await;
+
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.order.warehouse_name.as_deref(),
+            Some(WAREHOUSE_NAME),
+            "现值查不到时回落快照：详情不能因为仓库被删就变空白"
+        );
+        let list = list_rows().await;
+        let row = list
+            .iter()
+            .find(|row| row.id == id.to_string())
+            .expect("列表里必须有这张单");
+        assert_eq!(row.warehouse_name.as_deref(), Some(WAREHOUSE_NAME));
+        reset_warehouse().await;
     }
 }

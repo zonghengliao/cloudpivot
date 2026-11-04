@@ -1,0 +1,7 @@
+# cargo clippy -- -D warnings
+    |                       ^^^^^^^
+
+error: error writing dependencies to `/root/p28-target/debug/deps/cloudpivot-5017a2098c26fab0.d`: No such file or directory (os error 2)
+
+error: could not compile `cloudpivot` (lib) due to 442 previous errors
+EXIT=0

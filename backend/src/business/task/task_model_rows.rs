@@ -52,6 +52,10 @@ pub struct TaskCardRow {
     pub project_code: String,
     /// 项目名称（空串 = 无项目，或项目已被软删）。
     pub project_name: String,
+    /// 关联单据类型（P2-9 / DC-19；`None` = 自由任务）。
+    pub doc_type: Option<String>,
+    /// 关联单据主键（弱引用；与 `doc_type` 成对，库侧 `ck_biz_task_doc_pair` 兜底）。
+    pub doc_id: Option<Uuid>,
     /// 创建时间。
     pub created_at: chrono::DateTime<Utc>,
     /// 更新时间。
@@ -96,6 +100,8 @@ impl TaskCardRow {
             project_id: row.get_typed("project_id")?,
             project_code: row.get_typed("project_code")?,
             project_name: row.get_typed("project_name")?,
+            doc_type: row.get_typed("doc_type")?,
+            doc_id: row.get_typed("doc_id")?,
             created_at: row.get_typed("created_at")?,
             updated_at: row.get_typed("updated_at")?,
             flow_instance_id: row.get_typed("flow_instance_id").ok().flatten(),
@@ -331,6 +337,10 @@ pub struct NewTask {
     pub parent_id: Option<Uuid>,
     /// 项目。
     pub project_id: Option<Uuid>,
+    /// 关联单据类型（P2-9 / DC-19；`None` = 自由任务）。
+    pub doc_type: Option<String>,
+    /// 关联单据主键（与 `doc_type` 成对；handler 已校验存在性）。
+    pub doc_id: Option<Uuid>,
     /// 计划开始日。
     pub start_date: Option<NaiveDate>,
     /// 截止日。
@@ -366,6 +376,13 @@ pub struct TaskPatch {
     pub due_date: Option<Option<NaiveDate>>,
     /// 预估工时（`Some(None)` = 清空）。
     pub estimate_hours: Option<Option<f64>>,
+    /// 关联单据（P2-9：`Some((Some(type), Some(id)))` = 整对替换；
+    /// `Some((None, None))` = 清空挂接关系）。
+    ///
+    /// 用**一对**而不是两个独立 `Option`：`biz_task` 上有 `ck_biz_task_doc_pair`
+    /// （类型与 id 必须同时有值或同时为空），两个独立字段能表达出「只改一个」的
+    /// 非法中间态，一对则从类型上就不可能写坏。
+    pub doc: Option<(Option<String>, Option<Uuid>)>,
 }
 
 impl TaskPatch {
@@ -381,6 +398,7 @@ impl TaskPatch {
             && self.start_date.is_none()
             && self.due_date.is_none()
             && self.estimate_hours.is_none()
+            && self.doc.is_none()
     }
 }
 

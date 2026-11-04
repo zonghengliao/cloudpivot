@@ -44,11 +44,13 @@ pub async fn create_task(
         "INSERT INTO biz_task \
                  (id, task_no, title, description, status, priority, progress, need_review, \
                   owner_id, creator_id, assigner_id, dept_id, parent_id, project_id, \
+                  doc_type, doc_id, \
                   start_date, due_date, done_at, estimate_hours, actual_hours, source, \
                   cancel_reason, reject_reason, approval_instance_id, \
                   created_at, updated_at, create_by, update_by) \
              VALUES (?::uuid, ?, ?, ?, 'TODO', ?, 0, ?, \
                      ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, ?::uuid, \
+                     ?, ?::uuid, \
                      ?::date, ?::date, NULL, ?::numeric, NULL, ?, \
                      NULL, NULL, NULL, \
                      now(), now(), ?::uuid, ?::uuid)",
@@ -65,6 +67,9 @@ pub async fn create_task(
             Value::from(new.dept_id.as_ref()),
             Value::from(new.parent_id.as_ref()),
             Value::from(new.project_id.as_ref()),
+            // P2-9：类型与 id 一起落（库侧 ck_biz_task_doc_pair 兜底成对）
+            Value::from(new.doc_type.clone()),
+            Value::from(new.doc_id.as_ref()),
             Value::from(new.start_date),
             Value::from(new.due_date),
             Value::from(new.estimate_hours),
@@ -198,6 +203,15 @@ pub async fn update_task(
     if let Some(estimate_hours) = patch.estimate_hours.as_ref() {
         sets.push("estimate_hours = ?::numeric");
         params.push(Value::from(*estimate_hours));
+    }
+    // P2-9：挂/换/清单据。`(None, None)` 落两个 NULL —— 与 `ck_biz_task_doc_pair`
+    // 的「同时为空」一致，不会出现半对（半对由 `doc_ref::normalize_pair` 在
+    // handler 层先拦掉，库侧约束是最后一道）。
+    if let Some((doc_type, doc_id)) = patch.doc.as_ref() {
+        sets.push("doc_type = ?");
+        params.push(Value::from(doc_type.clone()));
+        sets.push("doc_id = ?::uuid");
+        params.push(Value::from(doc_id.as_ref()));
     }
 
     if sets.is_empty() {

@@ -277,6 +277,7 @@ pub(super) const CARD_COLUMNS: &str = "\
         AND c.status = 'DONE') AS child_done_count, \
     t.project_id, COALESCE(pj.project_no, '') AS project_code, \
     COALESCE(pj.project_name, '') AS project_name, \
+    t.doc_type, t.doc_id, \
     t.flow_instance_id, t.flow_node_key, t.flow_round";
 
 /// 任务卡 FROM 子句（负责人姓名来自 `sys_user`：SELECT 里没有部门类过滤，

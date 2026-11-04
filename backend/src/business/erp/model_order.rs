@@ -27,6 +27,7 @@ pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date,
      approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
      create_by, update_by, deleted_at, \
      purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+     warehouse_name_snapshot, \
      project_id, \
      over_credit_limit, credit_exposure, credit_limit_snapshot";
 
@@ -98,6 +99,13 @@ pub struct PurchaseOrderRow {
     pub contract_no_snapshot: Option<String>,
     /// 供应商名称快照（业务发生那一刻；**快照不是冗余**，合同换乙方不回写）。
     pub supplier_name_snapshot: Option<String>,
+    /// 收货仓库名称快照（P2-9 / DC-23；建单 / 改单那一刻的 `biz_warehouse.warehouse_name`）。
+    ///
+    /// **是快照**（与 `supplier_name_snapshot` 同口径、与 `project_id` 相反）：
+    /// 仓库改名后，历史单据的「收货仓库」应显示当时的名字 —— 那才是这批货实际进的那个仓。
+    /// 本列是 P2-9 才加的，**存量单为 `None`**：显示时由 handler 回落到关联查
+    /// （`purchase_handler::fill_warehouse_names`），不回填（R1 不做假数据）。
+    pub warehouse_name_snapshot: Option<String>,
     /// 所属项目（弱引用 `biz_project.id`，P2-8 / V0237；`None` = 未归集项目）。
     ///
     /// **不是快照**：项目改名后单据应跟着显示新名（成本归集看的是「同一个项目」，
@@ -147,6 +155,7 @@ impl PurchaseOrderRow {
             contract_id: row.get_typed("contract_id")?,
             contract_no_snapshot: row.get_typed("contract_no_snapshot")?,
             supplier_name_snapshot: row.get_typed("supplier_name_snapshot")?,
+            warehouse_name_snapshot: row.get_typed("warehouse_name_snapshot")?,
             project_id: row.get_typed("project_id")?,
             over_credit_limit: row.get_typed("over_credit_limit")?,
             credit_exposure: row.get_typed("credit_exposure")?,

@@ -266,6 +266,11 @@ pub struct NewPurchaseOrder<'a> {
     pub contract_no_snapshot: Option<&'a str>,
     /// 供应商名称快照（业务发生那一刻；拿不到主档名时可为 `None`）。
     pub supplier_name_snapshot: Option<&'a str>,
+    /// 收货仓库名称快照（P2-9 / DC-23：建单 / 改单那一刻的仓库名，`None` = 查不到）。
+    ///
+    /// 由 handler 从 `warehouse_ref` 的返回值直接带上（那次查询本来就要做存在性校验，
+    /// 不多一次往返）；仓库被软删 → `None`，落库为 NULL（不阻塞建单，历史单据仍可用）。
+    pub warehouse_name_snapshot: Option<&'a str>,
     /// 所属项目（弱引用 `biz_project.id`，P2-8；`None` = 不归集项目）。
     /// 事务前已由 handler 校验「存在且未软删」，库侧无外键。
     pub project_id: Option<Uuid>,
@@ -481,13 +486,13 @@ pub async fn create(
                  price_mode, total_qty, total_amount, total_tax, total_with_tax, credit_days, \
                  remark, created_at, updated_at, create_by, update_by, \
                  purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
-                 project_id) \
+                 warehouse_name_snapshot, project_id) \
              VALUES (?, ?, ?::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, \
                  ?::uuid, 'DRAFT', ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
                  ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''), \
-                 NULLIF(?::text,'')::uuid)"
+                 NULLIF(?::text,''), NULLIF(?::text,'')::uuid)"
         ),
         vec![
             Value::from(&id),
@@ -515,6 +520,7 @@ pub async fn create(
             ),
             Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
+            Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
             Value::Text(
                 new.project_id
                     .map(|value| value.to_string())
@@ -566,6 +572,7 @@ pub async fn update(
                         purchase_type = ?, contract_id = NULLIF(?::text,'')::uuid, \
                         contract_no_snapshot = NULLIF(?::text,''), \
                         supplier_name_snapshot = NULLIF(?::text,''), \
+                        warehouse_name_snapshot = NULLIF(?::text,''), \
                         project_id = NULLIF(?::text,'')::uuid \
                   WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
             ),
@@ -591,6 +598,7 @@ pub async fn update(
                 ),
                 Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
+                Value::Text(new.warehouse_name_snapshot.unwrap_or_default().to_string()),
                 Value::Text(
                     new.project_id
                         .map(|value| value.to_string())
@@ -907,6 +915,42 @@ pub async fn project_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashMa
     for row in rows.iter() {
         let id: Uuid = row.get_typed("id")?;
         let name: String = row.get_typed("project_name")?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
+/// 仓库名称（批量：一次查多行，`None` = 主档已删 / 不存在）。
+///
+/// # 为什么需要批量版（P2-9 / DC-23）
+///
+/// 列表页要显示「收货仓库」，而**存量单没有快照**（`warehouse_name_snapshot` 为 NULL）：
+/// 这些行只能按 `warehouse_id` 现查名称。一页 20 行逐行查就是 20 次往返
+/// （与 [`supplier_names_of`] / [`project_names_of`] 同一套理由）。
+///
+/// 新单（有快照）**不进这条查询**：列表口径是「快照优先」，改了名的仓库不该让
+/// 历史单的列表列跟着变（详情才显示现值，见 `purchase_handler::fill_warehouse_names`）。
+pub async fn warehouse_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    // SCOPE-EXEMPT: biz_warehouse 是全局主数据（无 dept_id / 归属人列），按主键批量解析名称。
+    let rows = db()
+        .find_with_params(
+            "SELECT id, warehouse_name FROM biz_warehouse \
+              WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in rows.iter() {
+        let id: Uuid = row.get_typed("id")?;
+        let name: String = row.get_typed("warehouse_name")?;
         map.insert(id, name);
     }
     Ok(map)

@@ -235,6 +235,14 @@ pub struct TaskCreateReq {
     pub due_date: Option<NaiveDate>,
     /// 预估工时（小时，可空）。
     pub estimate_hours: Option<f64>,
+    /// 关联单据类型（P2-9 / DC-19；白名单见
+    /// [`crate::business::task::doc_ref::DOC_TARGETS`]，类型词表取自 `DocKind`）。
+    ///
+    /// 与 `doc_id` **必须成对**（`None` + `None` = 自由任务）。采购单详情底部
+    /// 「关联任务」区新建任务时就带这一对。
+    pub doc_type: Option<String>,
+    /// 关联单据主键（弱引用；handler 校验「存在且未软删」后落库）。
+    pub doc_id: Option<String>,
 }
 
 // ==================== 请求：编辑 ====================
@@ -274,6 +282,15 @@ pub struct TaskUpdateReq {
     /// 预估工时（缺席 = 不改；`null` = 清空）。
     #[serde(default, deserialize_with = "double_option")]
     pub estimate_hours: Option<Option<f64>>,
+    /// 关联单据类型（P2-9；缺席 = 不改；`null` = 与 `doc_id` 一起清空）。
+    ///
+    /// **必须与 `doc_id` 同时出现或同时为 `null`**（一个传一个不传 → 400 + 63004）：
+    /// 「只改类型不改 id」在语义上不存在（换了类型，原 id 指向的是另一张表）。
+    #[serde(default, deserialize_with = "double_option")]
+    pub doc_type: Option<Option<String>>,
+    /// 关联单据主键（同上；换了单据类型 / 单据 → 走这里整对替换）。
+    #[serde(default, deserialize_with = "double_option")]
+    pub doc_id: Option<Option<String>>,
 }
 
 impl TaskUpdateReq {
@@ -289,6 +306,8 @@ impl TaskUpdateReq {
             && self.start_date.is_none()
             && self.due_date.is_none()
             && self.estimate_hours.is_none()
+            && self.doc_type.is_none()
+            && self.doc_id.is_none()
     }
 }
 
@@ -457,6 +476,13 @@ pub struct TaskCardRes {
     pub project_code: String,
     /// 项目名称（空串 = 无项目 / 项目已删）。
     pub project_name: String,
+    /// 关联单据类型（P2-9 / DC-19；`null` = 自由任务）。
+    ///
+    /// 前端按它对上「单据类型 → 路由 / 文案」（`PURCHASE_ORDER` → 采购单详情），
+    /// 列表也能直接显示「挂：采购单」角标，**不需要**再查一次接口。
+    pub doc_type: Option<String>,
+    /// 关联单据主键（弱引用；`null` = 自由任务）。
+    pub doc_id: Option<String>,
     /// 来源段（P-FLOW-1A）：`source != 'FLOW'` 时为 `null`。
     ///
     /// 前端据此在任务卡上标「流程任务」并给出「查看审批单」入口，**不需要**再查一次接口。
@@ -681,6 +707,12 @@ pub struct TaskDetailRes {
     pub parent_id: Option<String>,
     /// 父任务编号（面包屑用）。
     pub parent_task_no: Option<String>,
+    /// 关联单据单号（P2-9 / DC-19；`null` = 没挂单，或单据已被软删）。
+    ///
+    /// 由 handler 现查回填（`doc_ref::doc_no_of`）：`doc_type` / `doc_id` 随任务卡
+    /// 扁平下发，单号是「另一张表里的展示字段」—— 查不到就 `null`（前端显示
+    /// 「单据已删除」），**不回落 uuid**。
+    pub doc_no: Option<String>,
     /// 完成时间。
     pub done_at: Option<chrono::DateTime<chrono::Utc>>,
     /// 预估工时。
@@ -711,6 +743,39 @@ pub struct TaskDetailRes {
     pub members: Vec<TaskMemberRes>,
     /// 附件。
     pub attachments: Vec<TaskAttachmentRes>,
+}
+
+// ==================== 响应：按单据反查任务（P2-9） ====================
+
+/// 按单据反查任务（`GET /business/task/by-doc`）的查询参数。
+///
+/// 两个都必填：`doc_type` 决定查哪张表、`doc_id` 决定查哪一行，
+/// 少一个无法定位（handler 直接 400 + 63004）。
+#[derive(Debug, Clone, Deserialize)]
+pub struct TaskByDocQuery {
+    /// 单据类型（白名单见 [`crate::business::task::doc_ref::DOC_TARGETS`]）。
+    pub doc_type: String,
+    /// 单据主键。
+    pub doc_id: String,
+}
+
+/// 按单据反查任务（`GET /business/task/by-doc`）的出参。
+///
+/// 形状与 [`TaskPageRes`] 的前几项一致（`list` / `total`），但**不分页**：
+/// 一张单上挂的任务天然是十几条量级；同时多回 `doc_no`，前端在采购单详情
+/// 底部直接显示「关联任务（PO-xxx）」，不必再查一次单据。
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskByDocRes {
+    /// 单据类型（归一化后的大写值；未登记的取值不会走到这里）。
+    pub doc_type: String,
+    /// 单据主键。
+    pub doc_id: String,
+    /// 单据单号（查不到 / 已软删 → `null`）。
+    pub doc_no: Option<String>,
+    /// 关联任务总数（= `list.len()`，保留字段便于将来加硬上限时提示）。
+    pub total: i64,
+    /// 关联任务卡（**已按任务可见性过滤**）。
+    pub list: Vec<TaskCardRes>,
 }
 
 // ==================== 响应：写操作 ====================

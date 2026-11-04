@@ -220,6 +220,15 @@ export interface TaskCard {
   /** 项目名称（空串 = 无项目 / 项目已删） */
   project_name: string;
   /**
+   * 关联单据类型（P2-9 / DC-19；`null` = 自由任务）。
+   *
+   * 白名单：`PURCHASE_ORDER` / `STOCK_IN` / `CONTRACT` / `PAYABLE` / `VOUCHER`。
+   * 前端按它对上「单据中文名 + 跳转路由」，**不要**在别处再写一份映射。
+   */
+  doc_type?: string | null;
+  /** 关联单据主键（弱引用；`null` = 自由任务） */
+  doc_id?: string | null;
+  /**
    * 来源流程（P-FLOW-1A）：`source !== 'FLOW'` 时为 `null`。
    *
    * 有它 → 列表标题前加「流程」徽标 + 详情页顶部流程上下文条；
@@ -296,6 +305,12 @@ export interface TaskDetail extends TaskCard {
   parent_id: string | null;
   /** 父任务编号（面包屑用） */
   parent_task_no: string | null;
+  /**
+   * 关联单据单号（P2-9 / DC-19；`null` = 没挂单，或单据已被软删）。
+   *
+   * 由后端现查回填；查不到就是 `null`（页面显示「单据已删除」），不回落到 uuid。
+   */
+  doc_no?: string | null;
   /** 所属项目 id */
   project_id: string | null;
   /** 完成时间 */
@@ -382,6 +397,14 @@ export interface TaskCreateReq {
   due_date?: string | null;
   /** 预估工时（小时） */
   estimate_hours?: number | null;
+  /**
+   * 关联单据类型（P2-9 / DC-19；与 `doc_id` **必须成对**）。
+   *
+   * 采购单详情底部的「关联任务」区新建任务时就带这一对；单独传一个 → 400 + 63004。
+   */
+  doc_type?: string | null;
+  /** 关联单据主键（弱引用；后端校验「存在且未软删」） */
+  doc_id?: string | null;
 }
 
 /**
@@ -411,6 +434,15 @@ export interface TaskUpdateReq {
   due_date?: string | null;
   /** 预估工时（`null` = 清空） */
   estimate_hours?: number | null;
+  /**
+   * 关联单据类型（P2-9；`null` = 与 `doc_id` 一起清空）。
+   *
+   * 与 `doc_id` **必须同时出现或同时为 `null`**（一个出现一个缺席 → 400 + 63004）：
+   * 「只改类型不改 id」在语义上不存在。
+   */
+  doc_type?: string | null;
+  /** 关联单据主键（同上：整对替换 / 整对清空） */
+  doc_id?: string | null;
 }
 
 /** 创建 / 编辑回执（对应后端 `TaskSaveRes`） */
@@ -484,6 +516,33 @@ export function listMyTasks(): Promise<MyTasks> {
 /** 任务详情（`GET /business/task/{id}`） */
 export function getTask(id: string): Promise<TaskDetail> {
   return get<TaskDetail>(`/api/business/task/${id}`);
+}
+
+/**
+ * 按单据反查任务（`GET /business/task/by-doc`，P2-9 / DC-19）。
+ *
+ * 采购单详情底部的「关联任务」区用它：**结果已按任务可见性过滤**（别人挂在
+ * 同一张单上的任务我看不到），所以前端不要拿 `doc_id` 去翻任务列表自己筛 ——
+ * 那样既拉全量、又把可见性判断挪到了前端。
+ *
+ * `doc_type` / `doc_id` 成对必填；后端校验白名单与「存在且未软删」。
+ */
+export function getTasksByDoc(docType: string, docId: string): Promise<TaskByDoc> {
+  return get<TaskByDoc>('/api/business/task/by-doc', { doc_type: docType, doc_id: docId });
+}
+
+/** 按单据反查任务的出参（对应后端 `TaskByDocRes`；**不分页**，后端硬上限 500 条） */
+export interface TaskByDoc {
+  /** 单据类型（归一化后的大写值） */
+  doc_type: string;
+  /** 单据主键 */
+  doc_id: string;
+  /** 单据单号（查不到 / 已软删 → `null`） */
+  doc_no: string | null;
+  /** 关联任务条数（= `list.length`） */
+  total: number;
+  /** 关联任务卡（已按任务可见性过滤） */
+  list: TaskCard[];
 }
 
 /**

@@ -1,0 +1,66 @@
+
+=== 登录 admin
+  OK   admin 登录成功（口令 P29Admin@123456）
+  OK   业务接口可用（不再被首登门闸拦）
+
+=== 取种子主数据（仓库 / 供应商 / 物料）
+  warehouse=d1370001-0000-4000-8000-000000000002 WH02 改名后仓（P2-9）
+  supplier=d2a20001-0000-4000-8000-000000000001
+  material=d1370003-0000-4000-8000-000000000001 base_unit=1
+  OK   物料挂在基本单位上（否则建单会被 unit_guard 拒）
+
+=== 建采购单（POST /business/erp/purchase-order）
+  create: 200 {"code": 0, "msg": "ok", "data": {"order": {"id": "01a1a825-5466-77e8-837d-1beaacd1bb0f", "order_no": "PO-20261105-000056", "supplier_id": "d2a20001-0000-4000-8000-000000000001", "order_date": "2026-11-05", "expect_date": null, "warehouse_id": "d1370001-0000-4000-8000-000000000002", "status": "DRAFT", "currency_code": "CNY", "total_qty": "10.0000", "total_amount": "50.0000", "total_tax": "6.5000",
+  OK   建单成功
+  OK   详情下发仓库名 = WH02 改名后仓（P2-9）
+  OK   详情下发快照列 = 建单时的仓库名
+
+=== 仓库改名 → WH02 改名后仓（P2-9-1793822381）
+  rename: 200 {"code": 0, "msg": "ok", "data": {"id": "d1370001-0000-4000-8000-000000000002", "warehouse_code": "WH02", "warehouse_name": "WH02 改名后仓（P2-9-1793822381）", "warehouse_type": "NORMAL", "manager": null, "allow_negative": false, "address": "北京市", "status": 1, "sort_order": 2, "remark": null, "parent_id":
+  OK   仓库改名成功
+  OK   列表查询成功
+  OK   列表里能查到刚建的单
+  列表 warehouse_name = 'WH02 改名后仓（P2-9）'
+  OK   ① 列表读快照：仓库改名后，老单列表仍显示下单当时的旧名
+  详情 warehouse_name = 'WH02 改名后仓（P2-9-1793822381）' / snapshot = 'WH02 改名后仓（P2-9）'
+  OK   ② 详情读现值：点进单据看到现在的仓库名
+  OK   详情同时下发快照（前端可并列显示）
+
+=== 给采购单新建跟进任务（POST /business/task，带 doc_type/doc_id）
+  create task: 200 {"code": 0, "msg": "ok", "data": {"id": "01a1a825-5478-7466-b59a-8ed828c4794f", "task_no": "TSK-202611-000006", "status": "TODO", "priority": "P1", "progress": 0, "due_date": "2026-11-06", "owner_id": "01a1a81e-585e-7330-bbe1-c4c9a463e8ef"}}
+  OK   建任务成功
+
+=== 反向查询 GET /business/task/by-doc
+  by-doc: 200 {"code": 0, "msg": "ok", "data": {"doc_type": "PURCHASE_ORDER", "doc_id": "01a1a825-5466-77e8-837d-1beaacd1bb0f", "doc_no": "PO-20261105-000056", "total": 1, "list": [{"id": "01a1a825-5478-7466-b59a-8ed828c4794f", "task_no": "TSK-202611-000006", "title": "P2-9 催货：跟进到货", "status": "TODO", "priority": "P1", "progress": 0, "need_review": false, "owner_id": "01a1a81e-585e-7330-bbe1-c4c9a463e8ef", "owner_name": "超级管理员", "dept_id": null, "source": "SELF", "start_date": null, "due_date": "2026-11-06", 
+  OK   反向查询成功
+  OK   by-doc 回带单据单号
+  OK   ③ 采购单的关联任务列表里能看到刚建的任务
+  OK   任务卡上带回 doc_type / doc_id
+
+=== 任务列表能看到这条任务（GET /business/task/page）
+  OK   任务列表查询成功
+  OK   ④ 任务列表里能看到它
+
+=== 任务详情能看到关联单据（GET /business/task/{id}）
+  detail doc_type=PURCHASE_ORDER doc_id=01a1a825-5466-77e8-837d-1beaacd1bb0f doc_no=PO-20261105-000056
+  OK   ⑤ 任务详情下发 doc_type
+  OK   ⑤ 任务详情下发 doc_id
+  OK   ⑤ 任务详情下发单据单号
+
+=== 负例：doc_type 不在白名单 → 400 + 63022
+  -> 400 {"code": 63022, "msg": "doc_type 取值非法：SALES_ORDER（本版本允许挂单的类型：PURCHASE_ORDER / STOCK_IN / CONTRACT / PAYABLE / VOUCHER）"}
+  OK   非法 doc_type 被拒（63022）
+
+=== 负例：单据不存在 → 400 + 63023
+  -> 400 {"code": 63023, "msg": "采购订单不存在或已删除（00000000-0000-4000-8000-000000000000）：无法把任务挂到这张单上"}
+  OK   单据不存在被拒（63023）
+
+=== 负例：只给 doc_id 不给 doc_type → 400 + 63004
+  -> 400 {"code": 63004, "msg": "doc_type 与 doc_id 必须同时给出：只给 id 不知道该查哪张表（补 doc_type，或两者都清空）"}
+  OK   半对被拒（63004）
+
+=== 采购单详情（/purchase-order/{id}）与建单响应一致
+  OK   详情两个口径都下发（现值 + 快照）
+
+==================== P2-9 e2e ALL PASS ====================
+单据 PO-20261105-000056 / 任务 TSK-202611-000006 / 步骤 12

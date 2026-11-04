@@ -74,6 +74,7 @@ pub mod batch;
 pub mod burndown;
 pub mod collab;
 pub mod dep;
+pub mod doc_ref;
 pub mod dto;
 pub mod handler;
 pub mod hermes_sync;

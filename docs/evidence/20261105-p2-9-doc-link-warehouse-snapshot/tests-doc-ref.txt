@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (/root/p28-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 6 tests
+test business::task::doc_ref::tests::find_is_strict_and_rejects_unknown ... ok
+test business::task::doc_ref::tests::normalize_rejects_unknown_type_and_bad_uuid ... ok
+test business::task::doc_ref::tests::normalize_requires_pair ... ok
+test business::task::doc_ref::tests::normalize_returns_canonical_pair ... ok
+test business::task::doc_ref::tests::whitelist_codes_come_from_the_single_vocabulary ... ok
+test business::task::doc_ref::tests::whitelist_is_exactly_the_five_doc_types ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 2492 filtered out; finished in 0.00s
+

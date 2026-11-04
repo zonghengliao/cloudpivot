@@ -172,6 +172,25 @@
                 <span v-else>—</span>
               </dd>
             </div>
+            <!--
+              P2-9 / DC-19：关联单据（任务挂在哪张业务单据上）。
+              单号由后端现查回填；查不到（单据已软删）显示「单据已删除」，绝不回落 uuid。
+              只有**采购单**有前端深链（`?po_id=` 会直接打开详情抽屉）；其它类型
+              （收货单 / 合同 / 应付 / 凭证）先只显示单号 —— 它们的详情页还没有深链，
+              给个点不动的链接比不给更糟。
+            -->
+            <div v-if="detail.doc_type" class="info__item">
+              <dt>关联单据</dt>
+              <dd :data-testid="`task-doc-${detail.doc_type}`">
+                <t-link v-if="detail.doc_id && docRoute(detail.doc_type)" theme="primary" @click="openRelatedDoc">
+                  {{ docKindLabel(detail.doc_type) }}{{ detail.doc_no ? ` ${detail.doc_no}` : '' }}
+                </t-link>
+                <span v-else>
+                  {{ docKindLabel(detail.doc_type) }}{{ detail.doc_no ? ` ${detail.doc_no}` : '' }}
+                </span>
+                <span v-if="!detail.doc_no" class="placeholder">（单据已删除）</span>
+              </dd>
+            </div>
             <div class="info__item">
               <dt>计划开始</dt>
               <dd>{{ detail.start_date || '—' }}</dd>
@@ -554,6 +573,7 @@ import {
   type TaskFlowDetail,
   type TaskWorklogItem,
 } from '@/api/business/task-api';
+import { docKindLabel } from '@/api/business/erp/doc-kinds';
 import { PERM } from '@/constants/permissions';
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { renderMarkdownLite } from '@/utils/markdown-lite';
@@ -717,6 +737,33 @@ function openProject(): void {
     return;
   }
   void router.push({ path: '/project', query: { id: detail.value.project_id } });
+}
+
+/**
+ * 关联单据 → 前端路由（P2-9 / DC-19）。
+ *
+ * **只登记有深链的单据**：采购单页支持 `?po_id=<id>` 直接打开详情抽屉，
+ * 所以它是唯一一条真正可点的。其余类型（收货单 / 合同 / 应付 / 凭证）的详情页
+ * 还没有深链参数 —— 与其给一个点进去落空的链接，不如只显示单号 + 类型名，
+ * 用户自己去对应菜单按单号搜。等那些页面补上 `?id=` 再往这里加一行。
+ */
+const DOC_ROUTES: Record<string, { path: string; queryKey: string }> = {
+  PURCHASE_ORDER: { path: '/business/erp/purchase-order', queryKey: 'po_id' },
+};
+
+/** 取关联单据的前端路由（没有深链 → `undefined`，模板据此降级成纯文本）。 */
+function docRoute(docType: string | null | undefined): { path: string; queryKey: string } | undefined {
+  return docType ? DOC_ROUTES[docType] : undefined;
+}
+
+/** 点「关联单据」→ 打开对应单据详情（当前只支持采购单）。 */
+function openRelatedDoc(): void {
+  const doc = detail.value;
+  const target = doc ? docRoute(doc.doc_type) : undefined;
+  if (!doc?.doc_id || !target) {
+    return;
+  }
+  void router.push({ path: target.path, query: { [target.queryKey]: doc.doc_id } });
 }
 
 /** 工时展示：null → 未估 */

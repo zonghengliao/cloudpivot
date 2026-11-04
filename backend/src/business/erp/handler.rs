@@ -1813,6 +1813,8 @@ pub async fn purchase_order_page(
     crate::business::erp::purchase_handler::fill_supplier_names(&mut list).await;
     // P2-8：所属项目名称按 id 现查（不是快照 —— 项目改名后列表跟着变）
     crate::business::erp::purchase_handler::fill_project_names(&mut list).await;
+    // P2-9：仓库名**列表读快照**（老单快照为空 → 批量现查兜底，不写库）
+    crate::business::erp::purchase_handler::fill_warehouse_names(&mut list).await;
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -1836,6 +1838,11 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
     // P2-8：详情同样回填项目名（关联查现值，口径见 fill_project_names）
     crate::business::erp::purchase_handler::fill_project_names(std::slice::from_mut(&mut res))
         .await;
+    // P2-9：详情要**现值**（仓库改名后点进来看到现在的名字），快照另行下发
+    crate::business::erp::purchase_handler::fill_warehouse_name_current(std::slice::from_mut(
+        &mut res,
+    ))
+    .await;
     Ok(Res::ok(res))
 }
 

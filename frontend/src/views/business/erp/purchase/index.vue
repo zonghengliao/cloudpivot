@@ -133,6 +133,11 @@
           </span>
         </template>
 
+        <!-- P2-9 / DC-23：仓库列读后端 `warehouse_name`（列表 = 快照；老单后端兜底现查） -->
+        <template #warehouse_name="{ row }">
+          <span :data-testid="`purchase-warehouse-${row.order_no}`">{{ warehouseDisplayOf(row) }}</span>
+        </template>
+
         <template #purchase_type="{ row }">
           <t-tag
             size="small"
@@ -718,7 +723,23 @@
               {{ dash(detail.supplier_name) }}
             </span>
           </div>
-          <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.warehouse_id) }}</span></div>
+          <!--
+            P2-9 / DC-23：仓库**并列两行**（范式同上面的供应商 S2）——
+            「收货仓库（现名）」= 后端详情回填的现值（仓库改名后点进来看到新名）；
+            「下单时仓库快照」= warehouse_name_snapshot（列表口径就是它）。
+          -->
+          <div class="detail-field">
+            <span class="detail-field__label">收货仓库（现名）</span>
+            <span class="detail-field__value" data-testid="purchase-detail-warehouse">
+              {{ warehouseDisplayOf(detail) }}
+            </span>
+          </div>
+          <div class="detail-field">
+            <span class="detail-field__label">下单时仓库快照</span>
+            <span class="detail-field__value muted" data-testid="purchase-detail-warehouse-snapshot">
+              {{ dash(detail.warehouse_name_snapshot) }}
+            </span>
+          </div>
           <!-- P2-8：所属项目（实时项目名 →「（已删除项目）」→ —，不落 uuid） -->
           <div class="detail-field">
             <span class="detail-field__label">所属项目</span>
@@ -821,6 +842,18 @@
           default-role="OTHER"
           testid-prefix="purchase-attach"
         />
+
+        <!--
+          P2-9 / DC-19：关联任务（挂在这张采购单上的工作任务）。
+          列出 + 直接新建，任务详情里能点回本单；审批待办（biz_flow_task）不在
+          这里显示 —— 两套任务各司其职，本卡不合并。
+        -->
+        <DocTaskPanel
+          :doc-type="DOC_KIND.PURCHASE_ORDER"
+          :doc-id="detail.id"
+          :doc-no="detail.order_no"
+          testid="purchase-related-tasks"
+        />
       </div>
     </t-drawer>
 
@@ -876,6 +909,7 @@ import { DOC_KIND, DOC_KIND_ROUTES } from '@/api/business/erp/doc-kinds';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
+import DocTaskPanel from '@/views/business/task/components/DocTaskPanel.vue';
 import DocActionBar from '@/views/business/erp/shared/DocActionBar.vue';
 import CancelImpactDialog from '@/views/business/erp/shared/CancelImpactDialog.vue';
 import {
@@ -987,6 +1021,14 @@ const columns: PrimaryTableCol[] = [
    * 采购单号仍是 250：它是 19 位 mono + 口径徽标，压窄就换行，宁可少收别的列。
    */
   { colKey: 'project_name', title: '项目', width: 160, ellipsis: true },
+  /*
+   * P2-9 / DC-23：收货仓库列 —— **只读后端下发的 `warehouse_name`**。
+   *
+   * 列表口径 = 下单当时的仓库名（快照）：仓库改名后历史单仍显示旧名，
+   * 老单（快照为 NULL）由后端批量现查兜底。前端**不**再拿 `warehouse_id` 去
+   * `warehouses` 列表里找名字（第二份真相，且找不到会退化成 uuid 短号）。
+   */
+  { colKey: 'warehouse_name', title: '收货仓库', width: 130, ellipsis: true },
   { colKey: 'order_date', title: '日期', width: 76 },
   // ★ 金额列标题带「(价税合计)」—— PRD 硬要求，避免两人对着同一单说不同数
   { colKey: 'total_with_tax', title: AMOUNT_COLUMN_TITLE, width: 112, align: 'right' },
@@ -1292,13 +1334,35 @@ function supplierNameOf(supplierId: string | null | undefined): string {
   return supplierCurrentNameOf(supplierId, supplierNameMap.value);
 }
 
-/** 仓库名称 */
-function warehouseNameOf(warehouseId: string | null | undefined): string {
-  if (!warehouseId) {
+/**
+ * 仓库显示名（P2-9 / DC-23）。
+ *
+ * # 口径（列表与详情同一函数，差别在数据源）
+ *
+ * 后端下发的 `warehouse_name` **优先**：
+ * - 列表：后端给的是**快照**（仓库改名后仍显示下单当时的名字），老单由后端批量现查兜底；
+ * - 详情：后端给的是**现值**（点进单据看到「现在是哪个仓」），仓库被软删时回落快照。
+ *
+ * 因此前端**不做**「按 id 找名字」的判断（那是第二份真相）。只有后端没给名字时
+ * 才回落到已加载的 `warehouses` 缓存；两者都没有 → 「（仓库已删除）」。
+ * **任何情况都不显示 uuid 短号**（同供应商 S2 口径：uuid 对用户没有信息量）。
+ */
+function warehouseDisplayOf(
+  row: Pick<PurchaseOrderRow, 'warehouse_id' | 'warehouse_name'> | null | undefined,
+): string {
+  if (!row) {
     return '—';
   }
-  const hit = warehouses.value.find((item) => item.id === warehouseId);
-  return hit ? hit.warehouse_name : shortId(warehouseId);
+  if (row.warehouse_name) {
+    return row.warehouse_name;
+  }
+  const hit = row.warehouse_id
+    ? warehouses.value.find((item) => item.id === row.warehouse_id)
+    : undefined;
+  if (hit) {
+    return hit.warehouse_name;
+  }
+  return row.warehouse_id ? '（仓库已删除）' : '—';
 }
 
 /** 物料名称 */

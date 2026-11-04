@@ -106,16 +106,17 @@ use crate::business::notice::{self, NoticeDraft, NoticeTarget};
 use crate::business::shared::principal::{self, ScopedPrincipal};
 use crate::business::storage;
 use crate::business::task::dep;
+use crate::business::task::doc_ref;
 use crate::business::task::dto::{
     self, GanttBarRes, GanttDepRes, GanttRangeRes, GanttTaskRes, MyCounts, MyTasksRes,
     ParentProgressRes, TaskAiProgressReq, TaskAiProgressRes, TaskAssignReq, TaskAssignRes,
-    TaskAttachmentRes, TaskCardRes, TaskCommentReq, TaskCommentRes, TaskCreateReq, TaskDeleteRes,
-    TaskDependenciesRes, TaskDependencyAddReq, TaskDependencyAddRes, TaskDependencyItemRes,
-    TaskDependencyRemoveRes, TaskDetailRes, TaskDispatchReq, TaskDispatchRes, TaskGanttQuery,
-    TaskGanttRes, TaskMemberAddReq, TaskMemberAddRes, TaskMemberRemoveRes, TaskMemberRes,
-    TaskMembersRes, TaskPageQuery, TaskPageRes, TaskPostCommentReq, TaskProgressReq,
-    TaskProgressRes, TaskSaveRes, TaskStatusChangeReq, TaskStatusRes, TaskSubtaskCreateReq,
-    TaskSubtaskListRes, TaskUpdateReq, TaskUploadRes,
+    TaskAttachmentRes, TaskByDocQuery, TaskByDocRes, TaskCardRes, TaskCommentReq, TaskCommentRes,
+    TaskCreateReq, TaskDeleteRes, TaskDependenciesRes, TaskDependencyAddReq, TaskDependencyAddRes,
+    TaskDependencyItemRes, TaskDependencyRemoveRes, TaskDetailRes, TaskDispatchReq,
+    TaskDispatchRes, TaskGanttQuery, TaskGanttRes, TaskMemberAddReq, TaskMemberAddRes,
+    TaskMemberRemoveRes, TaskMemberRes, TaskMembersRes, TaskPageQuery, TaskPageRes,
+    TaskPostCommentReq, TaskProgressReq, TaskProgressRes, TaskSaveRes, TaskStatusChangeReq,
+    TaskStatusRes, TaskSubtaskCreateReq, TaskSubtaskListRes, TaskUpdateReq, TaskUploadRes,
 };
 use crate::business::task::hermes_sync;
 use crate::business::task::model::{self, MyBucket, TaskCardRow, TaskDetailRow, TaskFilter};
@@ -171,6 +172,59 @@ pub async fn page(
         page: result.page,
         page_size: result.size,
         member_scope_truncated: result.member_scope_truncated,
+    }))
+}
+
+/// 按单据反查「这张单上挂了哪些任务」（P2-9 / DC-19）。
+///
+/// # 它解决什么
+///
+/// 采购单详情底部的「关联任务」区、以及任务详情里的「关联单据」链接都需要
+/// 这条反向查询。**不许**让前端拿 `doc_id` 去翻任务列表再自己筛 —— 那要拉全量
+/// 任务，而且会把可见性判断放到前端。
+///
+/// # 参数
+///
+/// - `doc_type` / `doc_id`：**成对必填**（白名单与存在性校验都走
+///   [`doc_ref::resolve`]，与建任务时同一份实现）；
+/// - 结果按创建时间倒序，硬上限 [`model::DOC_TASK_LIMIT`] 条。
+///
+/// # 可见性
+///
+/// 走 [`model::list_by_doc`]：**与任务列表同一套谓词**（数据范围 ∪ 我参与）。
+/// 挂单不是共享权限 —— 别人挂在同一张采购单上的任务，我看采购单也看不到。
+///
+/// # 异常情况
+///
+/// - 400 + `63022`：`doc_type` 不在白名单；
+/// - 400 + `63023`：单据不存在 / 已软删；
+/// - 400 + `63004`：`doc_id` 不是合法 UUID；
+/// - 401：令牌缺用户标识；
+/// - 500：数据库异常。
+#[nik::permission(
+    path = "/business/task/by-doc",
+    method = "GET",
+    permission = "business:task:read"
+)]
+#[nik::get("/business/task/by-doc")]
+pub async fn by_doc(
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+    Query(query): Query<TaskByDocQuery>,
+) -> ResResult<TaskByDocRes> {
+    let me = principal::resolve_for_claims(&claims).await?;
+    let (target, doc_id) = doc_ref::resolve(Some(&query.doc_type), Some(&query.doc_id))
+        .await?
+        .ok_or_else(|| param_invalid("doc_type 与 doc_id 都必须给出".to_string()))?;
+    let rows = model::list_by_doc(&me, target.kind.as_str(), doc_id, model::DOC_TASK_LIMIT)
+        .await
+        .map_err(|error| utils::db_error(error, "按单据查询任务"))?;
+    let doc_no = doc_ref::doc_no(target, doc_id).await;
+    Ok(Res::ok(TaskByDocRes {
+        doc_type: target.kind.as_str().to_string(),
+        doc_id: doc_id.to_string(),
+        doc_no,
+        total: i64::try_from(rows.len()).unwrap_or(i64::MAX),
+        list: rows.iter().map(card_res).collect(),
     }))
 }
 
@@ -370,6 +424,9 @@ pub async fn create(
         None | Some("") => None,
         Some(raw) => Some(parse_uuid_field(raw, "项目")?),
     };
+    // 关联单据（P2-9 / DC-19）：白名单 → UUID → 存在且未软删，三件一起校验。
+    // 采购单详情底部的「关联任务」区新建任务时带的就是这一对。
+    let doc = doc_ref::resolve(req.doc_type.as_deref(), req.doc_id.as_deref()).await?;
 
     let due_date = req
         .due_date
@@ -388,6 +445,8 @@ pub async fn create(
         dept_id,
         parent_id,
         project_id,
+        doc_type: doc.map(|(target, _)| target.kind.as_str().to_string()),
+        doc_id: doc.map(|(_, id)| id),
         start_date: req.start_date,
         due_date: Some(due_date),
         estimate_hours,
@@ -507,6 +566,10 @@ pub async fn copy_task(id: Uuid, claims: &TokenClaims) -> std::result::Result<Uu
         // 副本是独立新任务：不挂父任务（见文档注释）
         parent_id: None,
         project_id: origin.card.project_id,
+        // P2-9：副本**不继承**单据关联（挂单是显式业务声明；静默继承会让单据侧
+        // 「关联任务」里冒出用户没主动挂的行。要挂就编辑时显式再挂一次）。
+        doc_type: None,
+        doc_id: None,
         start_date: None,
         due_date: Some(model::default_due_date(today)),
         estimate_hours: origin.estimate_hours,
@@ -658,6 +721,25 @@ pub async fn update(
     }
     if let Some(estimate_hours) = req.estimate_hours.as_ref() {
         patch.estimate_hours = Some(validate_hours(*estimate_hours)?);
+    }
+    // P2-9：关联单据整对改。缺席 = 不改；两个都 `null` = 清单；只给一个 → 400 + 63004。
+    if req.doc_type.is_some() || req.doc_id.is_some() {
+        if req.doc_type.is_some() != req.doc_id.is_some() {
+            return Err(ApiError::new(
+                400,
+                error_code::TASK_FIELD_INVALID,
+                "doc_type 与 doc_id 必须同时给出：要么两个都给（挂/换单），\
+                 要么两个都置 null（清单）",
+            ));
+        }
+        let (doc_type, doc_id) = (
+            req.doc_type.as_ref().and_then(|inner| inner.as_deref()),
+            req.doc_id.as_ref().and_then(|inner| inner.as_deref()),
+        );
+        patch.doc = Some(match doc_ref::resolve(doc_type, doc_id).await? {
+            Some((target, id)) => (Some(target.kind.as_str().to_string()), Some(id)),
+            None => (None, None),
+        });
     }
     if let (Some(Some(start)), Some(Some(due))) = (patch.start_date, patch.due_date)
         && start > due
@@ -836,6 +918,9 @@ pub async fn detail(
     let attachments = model::list_attachments(task_id)
         .await
         .map_err(|error| utils::db_error(error, "查询任务附件"))?;
+    // P2-9：关联单据的单号（展示用；查不到 / 已软删 → None，前端显示「单据已删除」）
+    let doc_id_text = row.card.doc_id.map(|id| id.to_string());
+    let doc_no = doc_ref::doc_no_of(row.card.doc_type.as_deref(), doc_id_text.as_deref()).await;
 
     Ok(Res::ok(TaskDetailRes {
         card: card_res(&row.card),
@@ -847,6 +932,7 @@ pub async fn detail(
         dept_name: row.dept_name.clone(),
         parent_id: row.parent_id.map(|id| id.to_string()),
         parent_task_no: row.parent_task_no.clone(),
+        doc_no,
         done_at: row.done_at,
         estimate_hours: row.estimate_hours,
         actual_hours: row.actual_hours,
@@ -1675,6 +1761,9 @@ pub async fn create_subtask(
         dept_id,
         parent_id: Some(parent_id),
         project_id: parent.project_id,
+        // P2-9：子任务不继承父任务的单据关联（同理：挂单要显式）
+        doc_type: None,
+        doc_id: None,
         start_date: req.start_date,
         due_date,
         estimate_hours,
@@ -3251,6 +3340,8 @@ fn card_res(row: &TaskCardRow) -> TaskCardRes {
         project_id: row.project_id.map(|id| id.to_string()),
         project_code: row.project_code.clone(),
         project_name: row.project_name.clone(),
+        doc_type: row.doc_type.clone(),
+        doc_id: row.doc_id.map(|id| id.to_string()),
         // P-FLOW-1A：`flow_instance_id` 非空 ⇔ `source='FLOW'`（库侧双向 CHECK 保证），
         // 所以这里只用三列拼段，不再多看 `source`（少一个可能漂移的判断口径）。
         flow: row.flow_instance_id.map(|instance_id| dto::TaskFlowRef {
@@ -5413,6 +5504,8 @@ mod copy_db_tests {
             dept_id: None,
             parent_id: parent,
             project_id: None,
+            doc_type: None,
+            doc_id: None,
             start_date: None,
             due_date: None,
             estimate_hours: estimate,

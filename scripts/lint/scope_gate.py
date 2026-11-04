@@ -119,6 +119,7 @@ business/impexp/builtin/master_data/db_tests.rs
 business/masking/tests.rs
 business/permission/tests.rs
 business/shared/doc_kind_tests.rs
+business/task/task_doc_link_tests.rs
 business/task/task_model_cascade_cancel_tests.rs
 business/task/task_model_cascade_tests.rs
 business/task/task_model_depth_tests.rs

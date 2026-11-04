@@ -202,6 +202,66 @@ pub async fn page_visible(
     })
 }
 
+/// 反查「这张单上挂了哪些任务」（P2-9 / DC-19）。
+///
+/// # 与 [`page_visible`] 的关系
+///
+/// **同一套可见性谓词**（[`VISIBLE_OR_TAIL`] + 参与 id 数组），只有两处不同：
+/// 多一个 `doc_type/doc_id` 过滤、不分页（一张单上挂的任务天然是十几条量级，
+/// 分页反而让前端多一层状态）。所以它走的是 [`find_detail_with_visibility`]
+/// 的拼法（手写 `{FILTER}` 替换），而不是 `scope::paginate`。
+///
+/// # 为什么必须受可见性约束
+///
+/// 采购单详情里的「关联任务」区是**跨模块入口**：如果按 `doc_id` 直查
+/// `biz_task`（不接 scope），任何能看采购单的人都能看到别的部门挂在同一张单上
+/// 的任务标题与负责人 —— 那是任务模块的越权（T1 的红线一）。挂单不是共享权限。
+///
+/// # 参数
+///
+/// - `limit`：硬上限（`doc_ref` 侧传 [`DOC_TASK_LIMIT`]），避免一张单被挂几千条
+///   任务时把详情页拖垮。
+///
+/// # 异常情况
+///
+/// - 片段形态异常 → `DbError::InvalidValue`（[`assert_scope_fragment`]）；
+/// - 数据库异常 → `DbError`。
+pub async fn list_by_doc(
+    principal: &ScopedPrincipal,
+    doc_type: &str,
+    doc_id: Uuid,
+    limit: i64,
+) -> DbResult<Vec<TaskCardRow>> {
+    assert_scope_fragment(principal)?;
+    let scope_ids = my_member_task_ids(principal.user_id()).await?;
+    let fragment = scope::filter_for(principal, TASK_TARGET);
+    let tail = VISIBLE_OR_TAIL.replacen(scope::FILTER_MARKER, fragment.sql().trim(), 1);
+
+    let mut sql = String::with_capacity(1024);
+    sql.push_str("SELECT ");
+    sql.push_str(CARD_COLUMNS);
+    sql.push_str(CARD_FROM);
+    sql.push_str(" WHERE t.deleted_at IS NULL");
+    sql.push_str(&tail);
+    // 参数顺序 = SQL 文本顺序：片段参数 → 参与 id 数组 → doc_type → doc_id → limit
+    let mut params = fragment.params().to_vec();
+    params.extend(visible_params(&scope_ids));
+    sql.push_str(" AND t.doc_type = ? AND t.doc_id = ?::uuid");
+    params.push(Value::Text(doc_type.to_string()));
+    params.push(Value::from(&doc_id));
+    sql.push_str(" ORDER BY t.created_at DESC, t.id DESC LIMIT ?");
+    params.push(Value::I64(limit.max(1)));
+
+    let rows = db().find_with_params(&sql, params).await?;
+    rows.iter().map(TaskCardRow::from_row).collect()
+}
+
+/// 一张单据最多展示 / 返回多少条关联任务（`by-doc` 与采购单详情「关联任务」区共用）。
+///
+/// 500 = 远大于真实量级（一张采购单上的跟进任务通常个位数），又不会让
+/// 「某张单被脚本挂了上万条」把页面拖死。超限时前端按 `total` 提示即可。
+pub const DOC_TASK_LIMIT: i64 = 500;
+
 /// 任务详情（同样受可见性约束：看不见的任务一律 404，**不暴露「存在但无权」**）。
 ///
 /// # 异常情况
@@ -472,7 +532,8 @@ pub async fn find_raw(id: Uuid) -> DbResult<Option<TaskDetailRow>> {
                     COALESCE(d.dept_name, '') AS dept_name, \
                     t.parent_id, pt.task_no AS parent_task_no, t.project_id, \
                     COALESCE(pj.project_no, '') AS project_code, \
-                    COALESCE(pj.project_name, '') AS project_name, t.done_at, \
+                    COALESCE(pj.project_name, '') AS project_name, \
+                    t.doc_type, t.doc_id, t.done_at, \
                     t.estimate_hours::float8 AS estimate_hours, \
                     t.actual_hours::float8 AS actual_hours, \
                     t.cancel_reason, t.reject_reason, t.approval_instance_id, \

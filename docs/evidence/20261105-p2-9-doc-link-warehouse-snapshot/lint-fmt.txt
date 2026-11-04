@@ -1,0 +1,8 @@
+# rustfmt 1.94.1 --edition 2024 --check（本卡 20 个文件）
+OK：全部已格式化（0 diff）
+
+# cargo fmt -p cloudpivot -- --check（整仓口径；HEAD 既有 2 处漂移与本卡无关）
+Diff in /root/p28-tree/backend/src/bootstrap.rs:112:
+Diff in /root/p28-tree/backend/src/shared/startup_guard.rs:969:
+Diff in /root/p28-tree/backend/src/shared/startup_guard.rs:1059:
+（以上文件均未被本卡修改；见 README §5）

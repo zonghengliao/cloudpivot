@@ -187,6 +187,8 @@ async fn create_via_model(id: Uuid, parent: Option<Uuid>, me: Uuid) -> String {
         dept_id: None,
         parent_id: parent,
         project_id: None,
+        doc_type: None,
+        doc_id: None,
         start_date: None,
         due_date: None,
         estimate_hours: None,

@@ -319,3 +319,16 @@ fn card_columns_expose_child_stats() {
     // 反向断言：CANCELLED 不是「完成」，别把取消也算进去
     assert!(!CARD_COLUMNS.contains("CANCELLED"));
 }
+
+/// P2-9 / DC-19：任务卡的列清单必须带上「关联单据」两列。
+///
+/// 与上一条同性质：`TaskCardRow::from_row` 对 `doc_type` / `doc_id` 是**硬取**
+/// （`get_typed` 不吞列缺失），少一列整条列表 / 详情接口就是 500。
+/// 纯逻辑用例，不连库 —— `CARD_COLUMNS` 被 5 条查询共用，改它时这条会先红。
+#[test]
+fn card_columns_expose_doc_link() {
+    assert!(
+        CARD_COLUMNS.contains("t.doc_type, t.doc_id"),
+        "任务卡必须下发 doc_type / doc_id（P2-9）：{CARD_COLUMNS}"
+    );
+}
