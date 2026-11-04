@@ -63,7 +63,7 @@ test result: ok. 1 passed; 0 failed; 11 ignored; 0 measured; 0 filtered out; fin
 
 【run4 · 同一库（带 run3 残留）】2026-11-05 00:34:08 → 00:56:14 CST，exit=0，1326 s，22 个 test target，SKIP=0
 test result: ok. 2331 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1138.19s
-（其余 21 行同 run3：全部 `ok. … 0 failed`，最大差异是 testd 67 passed 用了 167.84 s；完整原文见 raw/run4.log）
+（其余 21 行同 run3：全部 `ok. … 0 failed`，最大差异是 testd 67 passed 用了 167.84 s；完整原文见 `run4.log.txt`）
 ```
 
 - **lib 主套件 2331 条两轮全绿**，第 2 轮跑在第 1 轮的残留上 ⇒ 用例清场是干净的，不靠清库。
@@ -185,5 +185,5 @@ cp backend/config/config-dev.toml backend/config/config-test.toml /root/25926f63
 bash docs/evidence/20261104-testfix-parallel/9a6e3d35b/run_twice_fixed_tree.sh
 ```
 
-原始日志：本目录 `run1.log`（未修复版干净库）、`run2.log`（未修复版残留库）、`run3.log`（验收第 1 轮）、`run4.log`（验收第 2 轮）、
+原始日志：本目录 `run1.log.txt`（未修复版干净库）、`run2.log.txt`（未修复版残留库）、`run3.log.txt`（验收第 1 轮）、`run4.log.txt`（验收第 2 轮）、
 `summary.tsv` / `summary2.tsv` / `fingerprints2.txt` / `clean2-db.out` / `release-bin.sha256`。
