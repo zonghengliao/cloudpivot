@@ -33,6 +33,7 @@ import {
   loadApprovalProgress,
 } from '@/views/business/erp/shared/approval-progress';
 import { buildApprovalSteps, formatTime } from '@/views/business/erp/transfer/transfer-logic';
+import { voucherApprovalInstanceId } from '@/views/business/erp/voucher/voucher-audit-logic';
 import { groupProgressTasks, progressTaskLabel } from '@/views/business/flow/components/flow-progress-tasks';
 
 const ROOT = resolve(process.cwd());
@@ -200,21 +201,46 @@ test('③ 凭证详情：底部新增「审批进度」区块（节点 + 审批�
 
   // 标题用共享常量（与采购单同一个词），不是页面自己写的字面量
   assert.match(drawer, /\{\{ APPROVAL_PROGRESS_TITLE \}\}/);
-  assert.match(drawer, /:nodes="reverseProgress\.nodes"/);
-  assert.match(drawer, /:tasks="reverseProgress\.tasks"/, '凭证的进度块也必须传 tasks');
-  assert.match(drawer, /v-if="hasApprovalProgress\(reverseProgress\)"/, '没有红冲实例时不该画空区块');
+  // P1-FIX-11 / C2 统一口径：凭证与采购 / 收货 / 应付 / 调拨同一套命名（approvalProgress），
+  // 历史上「红冲专用」的 `reverseProgress` 已退场 —— 两套状态并存迟早对不上。
+  assert.match(drawer, /:nodes="approvalProgress\.nodes"/);
+  assert.match(drawer, /:tasks="approvalProgress\.tasks"/, '凭证的进度块也必须传 tasks');
+  assert.match(drawer, /v-if="hasApprovalProgress\(approvalProgress\)"/, '没有红冲实例时不该画空区块');
+  // 反向断言：旧名必须彻底退场（含 loadReverseProgress 这类驼峰写法，故不区分大小写）
+  assert.equal(
+    (VOUCHER.match(/reverseProgress/gi) ?? []).length,
+    0,
+    '凭证页不该再有 reverseProgress（已统一为 approvalProgress）',
+  );
 });
 
 test('③-补 凭证：进度数据源是 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id', () => {
-  // 装载入口读的字段
+  // 装载入口：实例 id 必须经 `voucherApprovalInstanceId(row)` 归一（先红冲字段、后审核链），
+  // 不是页面自己拼 `row.pending_reverse_instance_id ?? null`。
   assert.match(
     VOUCHER,
-    /loadApprovalProgress\(\s*row\?\.pending_reverse_instance_id \?\? null,/,
+    /loadApprovalProgress\(\s*voucherApprovalInstanceId\(row\),\s*getFlowInstance\)/,
     '凭证进度必须从 pending_reverse_instance_id 取实例（红冲审批中的凭证才有）',
+  );
+  assert.match(
+    VOUCHER,
+    /voucherApprovalInstanceId,/,
+    'voucherApprovalInstanceId 必须从 voucher-audit-logic 引入（判据矩阵单测在 p0-fix-4b）',
+  );
+  // 判据本身读的就是 P-FLOW-3B 的字段（行为级，不只是源码子串）
+  assert.equal(
+    voucherApprovalInstanceId({ pending_reverse_instance_id: 'FLW-REV' }),
+    'FLW-REV',
+    'pending_reverse_instance_id 有值就必须用它当进度实例',
+  );
+  assert.equal(
+    voucherApprovalInstanceId({ pending_reverse_instance_id: null }),
+    null,
+    '没有红冲实例 → null（进度块整块不渲染，不打空接口）',
   );
   // 三个入口都要刷新：打开详情 / 详情内跳另一张 / 送审成功
   assert.equal(
-    count(VOUCHER, 'loadReverseProgress('),
+    count(VOUCHER, 'loadVoucherApprovalProgress('),
     4,
     '定义 1 处 + openDetail / openById / submitReverse 各 1 处（少一处就会出现「送审后进度区还是空的」）',
   );
@@ -222,8 +248,14 @@ test('③-补 凭证：进度数据源是 `pending_reverse_instance_id`（P-FLOW
   const withdraw = VOUCHER.slice(VOUCHER.indexOf('async function doWithdrawReverse'));
   assert.match(
     withdraw.slice(0, 800),
-    /reverseProgress\.value = \{ \.\.\.EMPTY_APPROVAL_PROGRESS \}/,
+    /approvalProgress\.value = \{ \.\.\.EMPTY_APPROVAL_PROGRESS \}/,
     '撤回红冲审批后进度要清空',
+  );
+  // 反向断言：装载函数也不再叫 loadReverseProgress（旧名会让「清空」写成另一个 ref）
+  assert.equal(
+    (VOUCHER.match(/reverseProgress/gi) ?? []).length,
+    0,
+    '凭证页不该再有 reverseProgress / loadReverseProgress（已统一为 approvalProgress）',
   );
 });
 
