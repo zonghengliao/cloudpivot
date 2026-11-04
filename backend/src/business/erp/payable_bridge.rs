@@ -943,9 +943,11 @@ pub fn register_cancel_builtin(scheduler: &crate::task::Scheduler) {
 // ```
 //
 // 夹具全部带 `P17` 前缀（应付单号 `AP-P17-…`、用户 `p17_*`），每次 `setup()` 先按前缀清掉上一轮。
-// ⚠️ 本模块与 `payable_payment::tests`（P7）**共用一把锁**（都写同一批表：biz_payment / biz_voucher），
-//    所以这里的 `DB_LOCK` 与 P7 的是两个不同的静态量 —— 靠 `--test-threads=1` 串行跑，
-//    并且夹具前缀 / 外键链完全不重叠（`AP-P17-` vs `AP-P7-`）。
+// ⚠️ 本模块与 `payable_payment::tests`（P7）**共用同一把锁**（`fixture_hygiene::FINANCE_SEED_LOCK`）：
+//    两者都写 `biz_payment` / `biz_voucher`，**并且都会改写种子流程行 `biz_flow_def`（payable_pay）**。
+//    过去的「各一把锁 + 靠 --test-threads=1 串行」在并行下会互踩：P7 的 setup 把 P17 临时
+//    DISABLE 的 payable_pay 重新发布 ⇒ P17 的「显式跳过审批」拿到 10001（卡 `t_0d7c51f8`）。
+//    夹具前缀 / 外键链仍然完全不重叠（`AP-P17-` vs `AP-P7-`）。
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -999,8 +1001,14 @@ mod tests {
     /// 复核人 2（超管）。
     const APPROVER2: &str = "e7e70001-0000-4000-8000-0000000a0172";
 
-    /// 真库用例必须串行（共用全局 `db()` 与同一批 `biz_seq`）。
-    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    /// 真库用例必须**互斥**（共用全局 `db()` / `biz_seq` / **种子流程行** `biz_flow_def`）。
+    ///
+    /// 与 `payable_payment::tests`（P7/D5）用的是**同一把**锁
+    /// （`fixture_hygiene::FINANCE_SEED_LOCK`）：两个模块都会改写 `payable_pay` 流程的
+    /// `status`（本模块的「显式跳过审批」用例临时 DISABLE，P7 的 `setup()` 会置回
+    /// PUBLISHED 自愈）。两把锁时 P7 的 setup 会插在「DISABLE → 提交付款」中间把流程重新
+    /// 发布 ⇒ 本模块拿到 10001 —— 干净库全量第一轮实测假红（卡 `t_0d7c51f8`）。
+    use crate::business::erp::fixture_hygiene::FINANCE_SEED_LOCK as DB_LOCK;
 
     async fn ensure_db() -> bool {
         use tokio::sync::OnceCell;
@@ -1050,74 +1058,132 @@ mod tests {
         Decimal::from_str(text).expect("测试金额字面量非法")
     }
 
-    /// 拿锁 + 连库 + 清上一轮 + 建夹具。
+    /// 收集一段 `SELECT id` 的 id 集合 —— **夹具删除集的唯一来源**。
+    ///
+    /// 清场只许删「本模块自己造的行」，所以删除条件一律是**显式的 id 集合**，
+    /// 不按单号前缀（`AP-P17-%`）/ 期次 / `biz_type` 扫全表：前缀扫在并行线程下会把
+    /// 兄弟用例（甚至别的模块）正在写的同批行一起删掉，造成偶发假红（卡 `t_bfa81333`）。
+    async fn fixture_ids(sql: &str) -> Vec<Uuid> {
+        db().find_with_params(sql, vec![])
+            .await
+            .unwrap_or_else(|err| panic!("收集夹具 id 失败：{err}\nSQL: {sql}"))
+            .iter()
+            .map(|row| row.get_typed::<Uuid>("id").expect("读 id 失败"))
+            .collect()
+    }
+
+    /// `Uuid` 集合 → SQL 的 `IN (...)` 字面量。
+    ///
+    /// 空集合给一个「不可能存在」的 id：`IN ()` 是语法错误，`IN (NULL)` 的语义又容易被
+    /// 误读成「全部」，用零 uuid 最不容易骗人。
+    fn id_list(ids: &[Uuid]) -> String {
+        if ids.is_empty() {
+            return "'00000000-0000-0000-0000-000000000000'::uuid".to_string();
+        }
+        ids.iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
     /// 清掉本模块夹具的**全部痕迹**（审批实例 / 通知 / 状态日志 / 凭证 / 付款 / 应付 / 夹具用户）。
     ///
-    /// 两处调用：每个用例开头的 `setup()`，以及模块里名字排最后
-    /// （`zz_` 之后）的 `zz_teardown_purges_payment_status_logs`。
+    /// # 删除集怎么来的（R3 / R4：按 id 集合，不按前缀、不按期次、不扫全表）
+    ///
+    /// 1. **应付单**：`supplier_id = SUPPLIER_ID`。这是本模块**独占的夹具主数据行**
+    ///    （固定 uuid，`new_payable()` 每张单都写它，别的模块不用）—— 选出来的就是
+    ///    本模块历次运行造过的全部应付单 id 集合，跨进程/跨轮次都能收干净；
+    /// 2. **付款单 / 凭证 / 审批实例**：上一步的 id 沿外键链派生
+    ///    （`payable_id` / `source_id` / `biz_id`）；
+    /// 3. **状态日志**：`biz_status_log` 没有外键，必须在删单据**之前**按上面收集到的
+    ///    id 集合删（`fixture_hygiene`）。
+    ///
+    /// 两处调用：每个用例开头的 `setup()`（自清上一轮），以及
+    /// [`tests::p17_skip_approval_payment_logs_are_purged_by_id`]（验证清场本身有效）。
+    /// **不靠** `zz_` 名字排序 —— libtest 4 线程下不保证最后跑。
     ///
     /// ⚠️ 状态日志必须**在删单据之前**按 id 清：`biz_status_log` 没有外键（`fixture_hygiene`）。
     async fn cleanup_fixtures() {
+        let payables = fixture_ids(&format!(
+            "SELECT id FROM biz_payable WHERE supplier_id = '{SUPPLIER_ID}'::uuid"
+        ))
+        .await;
+        let payments = fixture_ids(&format!(
+            "SELECT id FROM biz_payment WHERE payable_id IN ({})",
+            id_list(&payables)
+        ))
+        .await;
+        let vouchers = fixture_ids(&format!(
+            "SELECT id FROM biz_voucher WHERE source_id IN ({})",
+            id_list(&payments)
+        ))
+        .await;
+        let instances = fixture_ids(&format!(
+            "SELECT id FROM biz_flow_instance WHERE biz_type = 'PAYABLE_PAY' AND biz_id IN ({})",
+            id_list(&payments)
+        ))
+        .await;
+        // 实例 id 的 text 形态（`sys_notice.biz_id` 是 varchar，V0043）
+        let instance_text = if instances.is_empty() {
+            "'00000000-0000-0000-0000-000000000000'".to_string()
+        } else {
+            instances
+                .iter()
+                .map(|id| format!("'{id}'"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let payables_sql = id_list(&payables);
+        let payments_sql = id_list(&payments);
+        let vouchers_sql = id_list(&vouchers);
+        let instances_sql = id_list(&instances);
+        let users_sql = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
         let cleanups = [
             // 制单人不能是超管（上一轮旧夹具可能给他挂过角色）
-            "DELETE FROM sys_user_role WHERE user_id = (SELECT id FROM sys_user WHERE username = 'p17_creator')"
-                .to_string(),
-            // 审批实例（子表 ON DELETE CASCADE；先删实例再删付款）
-            "DELETE FROM biz_flow_instance WHERE biz_type = 'PAYABLE_PAY' AND biz_id IN \
-             (SELECT id FROM biz_payment WHERE payable_id IN \
-              (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%'))"
-                .to_string(),
-            "DELETE FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN \
-             (SELECT i.id::text FROM biz_flow_instance i WHERE i.biz_type = 'PAYABLE_PAY')"
-                .to_string(),
-            // 凭证 / 分录：只删本夹具外键链上的行（`PM-` 是生产号段，绝不能按它模糊删）
+            format!(
+                "DELETE FROM sys_user_role WHERE user_id = '{}'::uuid",
+                uid(CREATOR)
+            ),
+            // 审批实例：先解开自引用（`prev_instance_id` 无级联），再删子表与本体（按 id）
+            format!(
+                "UPDATE biz_flow_instance SET prev_instance_id = NULL \
+                  WHERE prev_instance_id IN ({instances_sql})"
+            ),
+            format!("DELETE FROM biz_flow_task WHERE instance_id IN ({instances_sql})"),
+            format!("DELETE FROM biz_flow_cc WHERE instance_id IN ({instances_sql})"),
+            format!("DELETE FROM biz_flow_instance WHERE id IN ({instances_sql})"),
+            // 通知：按上一步收集到的**实例 id 集合**删（不再是「全部 PAYABLE_PAY 实例」）
+            format!(
+                "DELETE FROM sys_notice_receiver WHERE notice_id IN \
+                  (SELECT id FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN ({instance_text}))"
+            ),
+            format!(
+                "DELETE FROM sys_notice WHERE biz_type = 'flow' AND biz_id IN ({instance_text})"
+            ),
             // 状态日志（无外键）：必须在删凭证 / 应付单之前按 id 清（`fixture_hygiene`）
-            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
-             (SELECT id FROM biz_voucher WHERE source_id IN \
-              (SELECT id FROM biz_payment WHERE payable_id IN \
-               (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%')))"
-                .to_string(),
-            "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
-             (SELECT id FROM biz_voucher WHERE source_id IN \
-              (SELECT id FROM biz_payment WHERE payable_id IN \
-               (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%')))"
-                .to_string(),
-            "DELETE FROM biz_voucher WHERE source_id IN \
-             (SELECT id FROM biz_payment WHERE payable_id IN \
-              (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%'))"
-                .to_string(),
-            "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
-             (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%')"
-                .to_string(),
-            "DELETE FROM biz_payment WHERE payable_id IN \
-             (SELECT id FROM biz_payable WHERE payable_no LIKE 'AP-P17-%')"
-                .to_string(),
-            "DELETE FROM biz_payable WHERE payable_no LIKE 'AP-P17-%'".to_string(),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN ({vouchers_sql})"
+            ),
+            format!("DELETE FROM biz_voucher_entry WHERE voucher_id IN ({vouchers_sql})"),
+            format!("DELETE FROM biz_voucher WHERE id IN ({vouchers_sql})"),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN ({payables_sql})"
+            ),
+            format!("DELETE FROM biz_payment WHERE id IN ({payments_sql})"),
+            format!("DELETE FROM biz_payable WHERE id IN ({payables_sql})"),
             // ⚠️ P17 的审批人夹具是**超管**，而「审批人 = 全部超管」：留着会污染兄弟模块
             // 的用例（实测 transfer_handler 的「1 条待办」断言被算成 3 条）。
             // 删之前必须把**指向这些人的流程行**清掉（`biz_flow_task.assignee_id` 是硬外键）：
             //   ① 先解开自引用（prev_instance_id 无级联）→ ② 删他们发起的实例（子表级联）
-            //   → ③ 删残留待办 → ④ 删角色关联 → ⑤ 删用户
-            "UPDATE biz_flow_instance SET prev_instance_id = NULL \
-              WHERE initiator_id IN (SELECT id FROM sys_user \
-                                      WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))"
-                .to_string(),
-            "DELETE FROM biz_flow_instance \
-              WHERE initiator_id IN (SELECT id FROM sys_user \
-                                      WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))"
-                .to_string(),
-            "DELETE FROM biz_flow_task \
-              WHERE assignee_id IN (SELECT id FROM sys_user \
-                                     WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))"
-                .to_string(),
-            "DELETE FROM biz_flow_cc \
-              WHERE receiver_id IN (SELECT id FROM sys_user \
-                                     WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))"
-                .to_string(),
-            "DELETE FROM sys_user_role WHERE user_id IN \
-             (SELECT id FROM sys_user WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))"
-                .to_string(),
-            "DELETE FROM sys_user WHERE username IN ('p17_creator','p17_ap1','p17_ap2')".to_string(),
+            //   → ③ 删残留待办 → ④ 删角色关联 → ⑤ 删用户（全部按夹具用户的**固定 uuid**）
+            format!(
+                "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE initiator_id IN ({users_sql})"
+            ),
+            format!("DELETE FROM biz_flow_instance WHERE initiator_id IN ({users_sql})"),
+            format!("DELETE FROM biz_flow_task WHERE assignee_id IN ({users_sql})"),
+            format!("DELETE FROM biz_flow_cc WHERE receiver_id IN ({users_sql})"),
+            format!("DELETE FROM sys_user_role WHERE user_id IN ({users_sql})"),
+            format!("DELETE FROM sys_user WHERE id IN ({users_sql})"),
         ];
         for sql in cleanups {
             exec(&sql).await;
@@ -2141,50 +2207,62 @@ mod tests {
         assert_eq!(value.as_f64().unwrap(), 10000.0);
     }
 
-    /// ㉒ 收尾：把本模块的夹具用户删净（**靠名字排在模块最后跑**）。
+    /// ㉒ 清场自证 ①：`cleanup_fixtures()` 会把本模块的夹具用户删净（按**固定 uuid 集合**）。
     ///
-    /// 为什么必须有这一条：审批人来源是「全部超管」，而兄弟模块（transfer_handler /
+    /// 为什么必须删：审批人来源是「全部超管」，而兄弟模块（transfer_handler /
     /// stockin_handler）的用例会断言「发起后审批中心有几条待办」—— 多出来的两个超管夹具
     /// 会把他们的断言从 1 变成 3。夹具不许留在库里。
+    ///
+    /// **不依赖名字排序**（R5）：`setup()` 每次都会重建夹具用户，本用例只验证
+    /// 「清场函数能按 id 删净」，因此单跑 / 并行跑 / 排在模块中间跑，行为一致。
     #[tokio::test]
-    async fn p17_zzz_fixture_users_are_removed() {
+    async fn p17_fixture_users_are_removed_by_cleanup() {
         let _db = match setup().await {
             Some(guard) => guard,
             None => return,
         };
-        cleanup_fixture_users().await;
-        let left: i64 = db()
-            .scalar_with_params(
-                "SELECT count(*) FROM sys_user WHERE username IN ('p17_creator','p17_ap1','p17_ap2')",
-                vec![],
-            )
-            .await
-            .unwrap();
         assert_eq!(
-            left, 0,
+            fixture_users_left().await,
+            3,
+            "setup() 必须建出 3 个夹具用户，否则这条用例证明不了什么"
+        );
+        cleanup_fixtures().await;
+        assert_eq!(
+            fixture_users_left().await,
+            0,
             "夹具用户必须删净（否则会污染「审批人 = 全部超管」的兄弟模块用例）"
         );
     }
 
-    /// 删掉 P17 的夹具用户（先删角色关联，再删用户）。
-    async fn cleanup_fixture_users() {
-        exec(
-            "DELETE FROM sys_user_role WHERE user_id IN \
-             (SELECT id FROM sys_user WHERE username IN ('p17_creator','p17_ap1','p17_ap2'))",
-        )
-        .await;
-        exec("DELETE FROM sys_user WHERE username IN ('p17_creator','p17_ap1','p17_ap2')").await;
+    /// 夹具用户剩余条数：按**固定 uuid 集合**数（不按 username 模糊匹配）。
+    async fn fixture_users_left() -> i64 {
+        let users = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
+        let sql = format!("SELECT count(*) FROM sys_user WHERE id IN ({users})");
+        db().scalar_with_params::<Option<i64>>(sql.as_str(), vec![])
+            .await
+            .expect("查夹具用户")
+            .unwrap_or(0)
     }
 
-    // ---------- 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
+    // ---------- 收尾清场自证（**不承担清场职责**：清场在每例 setup 前跑） ----------
 
-    /// 本模块跑完**不许留** `PAYABLE` / `VOUCHER` 状态日志（含孤儿行）。
+    /// 显式跳过审批的直付会写 `PAYABLE` / `VOUCHER` 状态日志，且模块清场**按 id 把它们删干净**。
     ///
     /// 付款审批落账会同时写「应付流转」与「付款凭证」两条日志；`biz_status_log` 没有外键，
-    /// 清场里漏掉「删单据前先删日志」时，每跑一遍全量多 6 条 VOUCHER 孤儿（本卡实测）。
-    /// `zz_` 排在本模块最后（`p17_zzz_*` 之后），是这一块的收口。
+    /// 清场里漏掉「删单据前先删日志」时，每跑一遍全量就多 6 条 VOUCHER 孤儿（卡 `t_0d7c51f8` 实测）。
+    ///
+    /// # 为什么这条用例不再是 `zz_`（R5）
+    ///
+    /// 旧写法叫 `zz_teardown_purges_payment_status_logs`，靠「libtest 按名字排序 ⇒ `zz_` 最后跑」
+    /// 来保证「模块跑完库是干净的」。`--test-threads=4` 下这个前提**不成立**（`t_9476d9f1` 实测），
+    /// 于是它既抢兄弟用例的行、又把自己的失败解释成别人的假红。现在：
+    ///
+    /// * 清场只删**自己造的 id 集合**（见 [`cleanup_fixtures`]），任意用例任意时刻调都安全；
+    /// * 本用例在自身范围内造一张单、断言日志存在 → 调清场 → 断言日志按 id 被删净；
+    /// * 末尾的「整库无孤儿」用收敛式判定（`settle_orphans`），真孤儿等多久都还在 ⇒ 仍会红，
+    ///   只吸收兄弟模块「单据已删、日志还没删」的毫秒级窗口 —— 口径没有放宽。
     #[tokio::test]
-    async fn zz_teardown_purges_payment_status_logs() {
+    async fn p17_skip_approval_payment_logs_are_purged_by_id() {
         let _db = match setup().await {
             Some(guard) => guard,
             None => return,
@@ -2266,12 +2344,18 @@ mod tests {
             );
         }
 
-        // ③ 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
-        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        // ③ 兜底：整库最终不许留 PAYABLE / VOUCHER 的孤儿行。
+        // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
+        // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
+        // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
+        let left = fixture_hygiene::settle_orphans(
+            fixture_hygiene::FINANCE,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
         assert_eq!(
-            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
-            0,
-            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+            left, 0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
     }
 }

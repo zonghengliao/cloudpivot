@@ -192,20 +192,30 @@ pub(super) async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     Some(guard)
 }
 
-/// 本夹具的「过账 / 作废」审批实例定位口径（多处复用，必须逐字一致）。
+/// 本模块夹具供应商的 id 列表 —— **夹具删除集的根**（本模块独占的固定 uuid 主数据行）。
 ///
-/// 三条任一成立即算本夹具的：
-/// 1. `biz_id` 指向本夹具供应商的收货单；
-/// 2. `biz_id` 为空，或指向**已经不存在的收货单** —— 上一轮 `cleanup_fixtures()` 删单时留下的孤儿，
-///    这正是「每跑一轮全量就多 10 条 `STOCK_IN_POST | PENDING`」的真身
-///    （实例 `biz_id` 是弱引用，删单据带不走它）；
-/// 3. 按本模块的两条审批流类型（`STOCK_IN_POST` / `STOCK_IN_CANCEL`）。
+/// 夹具造的所有单据（收货单 / 采购单 / 凭证 / 应付 / 状态日志）都能沿外键链
+/// 从这两个供应商 id 派生出来，所以清场不需要（也不允许）按单号前缀 `B1-%` /
+/// 期次 / `biz_type` 扫全表（卡 `t_bfa81333`：这种写法在并行线程下会删掉兄弟用例的行）。
+pub(super) fn fixture_suppliers() -> String {
+    format!("'{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid")
+}
+
+/// 本夹具的「过账 / 作废」审批实例定位口径（**按本模块 id 集合**，不扫全库）。
+///
+/// 成立条件只有一个：`biz_type` 是本模块的两条审批流类型，且 `biz_id` 指向
+/// **本夹具供应商**的收货单（→ 夹具删除集的根，见 [`fixture_suppliers`]）。
+///
+/// ⚠️ 这里**不再**带 `biz_id IS NULL OR biz_id NOT IN (SELECT id FROM biz_stock_in)`
+/// 这半句「全库孤儿扫」：那是上一轮残留的口径，放在每例 `setup()` 里等于
+/// 「谁跑 setup 谁扫全库」，并行时会删掉别的模块/别的进程正在用的实例
+/// （审计 S3/S5 同族问题）。孤儿收口只放在模块级 `zz_` 收尾做，且是收敛式判定
+/// （见 [`zz_module_namespace_has_no_residue`]）。
 pub(super) fn post_instance_where() -> String {
     format!(
-        "biz_type IN ('STOCK_IN_POST', 'STOCK_IN_CANCEL') AND ( \
-             biz_id IS NULL \
-          OR biz_id NOT IN (SELECT id FROM biz_stock_in) \
-          OR biz_id IN (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)))"
+        "biz_type IN ('STOCK_IN_POST', 'STOCK_IN_CANCEL') AND biz_id IN \
+         (SELECT id FROM biz_stock_in WHERE supplier_id IN ({}))",
+        fixture_suppliers()
     )
 }
 
@@ -267,14 +277,34 @@ pub(super) async fn cleanup_fixtures() {
         // 免得一条用例 panic 之后拖垮后面所有用例
         "UPDATE biz_flow_def SET deleted_at = NULL WHERE flow_code = 'stock_in_cancel'".to_string(),
         // 作废审批实例已由上面的 `purge_post_approval_traces` 一并清掉（含孤儿）。
-        // P10：状态日志没有外键，必须在删单据之前按「本夹具的单据 id / 单号」清掉；
-        // 同时收掉上一轮删单留下的孤儿（`entity_id` 已指向不存在的收货单 —— 每轮几十行）。
+        // P10：状态日志没有外键，必须在删单据之前按「本夹具收货单 id 集合」清掉。
+        // ⚠️ 这里**不再**收「entity_id 已指向不存在的收货单」的孤儿行（审计 S3）：
+        //    那是「上一轮残留」的口径，放在每例 setup 里 = 谁跑 setup 谁扫全表，
+        //    并行时会删掉别处正在写的行。孤儿收口只在 `zz_` 收尾做（收敛式，见文件末尾），
+        //    而**本轮**产生的日志一条都不会变孤儿 —— 它们先于单据被按 id 删掉。
         format!(
-            "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND ( \
-                 entity_id IN (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)) \
-              OR entity_id NOT IN (SELECT id FROM biz_stock_in))"
+            "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_IN' AND entity_id IN \
+             (SELECT id FROM biz_stock_in WHERE supplier_id IN ({}))",
+            fixture_suppliers()
         ),
-        "DELETE FROM biz_status_log WHERE entity_no LIKE 'B1-%'".to_string(),
+        // ⚠️ 这里**不再**有 `entity_no LIKE 'B1-%'`（审计 S4）：单号是弱引用，
+        //    按前缀删等于「按号段扫全表」。本轮日志已由上面按 id 清掉，历史孤儿由 `zz_` 收口。
+        // 作废路径会为凭证 / 应付写状态日志（P10 起所有实体都写），而日志**没有外键**：
+        // 单据删了日志还在。所以要在删凭证/应付**之前**、按「本夹具收货单 → 凭证/应付」的
+        // id 链清掉（审计 S5：过去这里扫的是「全库 PAYABLE/VOUCHER 孤儿」，
+        // 会删掉 voucher / payable_payment 模块正在写的行 —— 夹具只许动自己造的行）。
+        format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'VOUCHER' AND entity_id IN \
+             (SELECT id FROM biz_voucher WHERE source_id IN \
+              (SELECT id FROM biz_stock_in WHERE supplier_id IN ({})))",
+            fixture_suppliers()
+        ),
+        format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'PAYABLE' AND entity_id IN \
+             (SELECT id FROM biz_payable WHERE source_id IN \
+              (SELECT id FROM biz_stock_in WHERE supplier_id IN ({})))",
+            fixture_suppliers()
+        ),
         format!(
             "DELETE FROM biz_material_serial WHERE source_type = 'PURCHASE' AND source_id IN \
          (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
@@ -318,12 +348,8 @@ pub(super) async fn cleanup_fixtures() {
          (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
         ),
         // 作废路径会为凭证 / 应付写状态日志（P10 起所有实体都写），而日志**没有外键**：
-        // 单据删了日志还在，每轮多攒几百行永远对不上的孤儿。这里收掉「entity_id 已指向
-        // 不存在的凭证 / 应付」的行（活行的日志一条不动）。
-        "DELETE FROM biz_status_log WHERE entity_type IN ('PAYABLE', 'VOUCHER') \
-            AND entity_id NOT IN (SELECT id FROM biz_payable) \
-            AND entity_id NOT IN (SELECT id FROM biz_voucher)"
-            .to_string(),
+        // 单据删了日志还在。所以要在删凭证/应付**之前**、按「本夹具收货单 → 凭证/应付」的
+        // id 链清掉 —— 那两条语句排在前面（紧跟 STOCK_IN 日志之后），这里不再重复。
         format!(
             "DELETE FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
         ),
@@ -438,19 +464,21 @@ pub(super) async fn sql(text: &str) {
     }
 }
 
-// ---------- ⑬ 收尾清场：模块级 teardown（`zz_` 排在本模块最后） ----------
-/// 本模块跑完**不许留**「STOCK_IN_POST 实例 / 待办 / 状态日志 / 夹具收货单」四类残留。
+// ---------- ⑬ 收尾自证：清场按 id 生效 + 模块命名空间口径复查 ----------
+//
+// 下面两条**都不承担清场职责**（R5）：清场在每例 `setup()` 前跑，且只删本模块 id 集合。
+// 它们只证明「清场真的有效」与「模块命名空间最终干净」，因此单跑、并行跑、排在模块
+// 中间跑，行为都一样 —— 不再依赖「libtest 按名字排序 ⇒ `zz_` 最后跑」
+// （`--test-threads=4` 下这个前提不成立，卡 `t_9476d9f1` 实测）。
+
+/// 过账审批的痕迹（实例 / 待办 / 状态日志）会被模块清场**按本用例 id** 收干净。
 ///
-/// 为什么必须有这一条：`setup()` 只在**每个用例开头**跑，模块最后一个用例的产物没人收；
-/// 同一库连跑第二遍时，遗留的 `STOCK_IN_POST | PENDING` 会顶住
-/// `uk_biz_flow_instance_biz_active`（下一次提交永久 409），`biz_status_log` 则每轮多攒几十行。
-/// libtest 按名字排序，`zz_` 必然最后。
-///
-/// 顺带钉住「孤儿也算本夹具的」这条口径：本用例造的单被清场删掉后，实例
-/// （`biz_id` 是弱引用）必须**跟着一起**被 `purge_post_approval_traces` 收走 ——
-/// 这正是「每跑一轮多 10 条 PENDING」的结构性缺口。
+/// 原 `zz_teardown_purges_post_approval_residue` 的断言全部保留，只改两处机制：
+/// ① 「清场靠 `zz_` 排序」→ 改成每例 `setup()` 自清（本用例只验证清场函数有效）；
+/// ② 「全库不许剩 PENDING 过账实例」→ 收到**本模块命名空间 + 收敛判定**，
+///    见 [`zz_module_namespace_has_no_residue`]。
 #[tokio::test]
-pub(super) async fn zz_teardown_purges_post_approval_residue() {
+pub(super) async fn post_approval_residue_is_purged_by_cleanup() {
     let _db = match setup().await {
         Some(guard) => guard,
         None => return,
@@ -469,7 +497,7 @@ pub(super) async fn zz_teardown_purges_post_approval_residue() {
     // 走模块**真实**的收尾路径（`cleanup_fixtures`：先审批痕迹 → 状态日志 → 单据本体），
     // 而不是在用例里另写一套 —— 这样这条用例证明的就是「模块收尾真的不留残留」。
     cleanup_fixtures().await;
-    // ① 实例没了（**孤儿也认**：单据已删，实例仍必须被收走）
+    // ① 实例 / 待办没了（按本用例的 instance_id 精确查）
     for (label, sql) in [
         (
             "残留实例",
@@ -487,7 +515,7 @@ pub(super) async fn zz_teardown_purges_post_approval_residue() {
             .unwrap_or(0);
         assert_eq!(n, 0, "清场后{label}必须为 0");
     }
-    // ② 状态日志没了（无外键 → 必须在删单据之前清）
+    // ② 状态日志没了（无外键 → 必须在删单据之前按 id 清）
     let logs: i64 = db()
         .scalar_with_params::<Option<i64>>(
             "SELECT count(*) FROM biz_status_log \
@@ -498,11 +526,47 @@ pub(super) async fn zz_teardown_purges_post_approval_residue() {
         .expect("查状态日志")
         .unwrap_or(0);
     assert_eq!(logs, 0, "清场后状态日志必须为 0");
-    // ③ 全库不剩「在跑的过账实例」—— 顶住唯一索引的就是它
+}
+
+/// 模块命名空间最终无残留（**只做复查，不做清场**）。
+///
+/// 口径全部落在「本模块私有 / 夹具 id」上，不是整库：
+/// 1. **夹具供应商名下的收货单 = 0**（`supplier_id IN (夹具供应商 id)`，夹具删除集的根）；
+/// 2. **`STOCK_IN_POST` / `STOCK_IN_CANCEL` 命名空间内无 PENDING 实例** —— 顶住
+///    `uk_biz_flow_instance_biz_active` 的就是它，留着会让下一轮提交永久 409。
+///    这两种 `biz_type` 只有本模块产生（`stockin_query::POST_BIZ_TYPE` / `CANCEL_BIZ_TYPE`），
+///    且本模块测试全在 `DB_LOCK` 内串行，所以「命名空间内还有 PENDING」必然是自己的残留；
+/// 3. **`STOCK_IN` 状态日志没有孤儿行** —— 用**收敛式判定**
+///    （`fixture_hygiene::settle_orphans`）：`biz_status_log` 没有外键，历史轮次可能留下
+///    「单据已删、日志还在」的行。真孤儿等多久都还在 ⇒ 仍会红；收敛只吸收「别人删单据与
+///    删日志之间」的毫秒级窗口，口径没有放宽。
+///
+/// 本用例**不造任何数据**，`setup()` 刚清过一轮 ⇒ 单独跑也成立、并行跑也成立。
+#[tokio::test]
+pub(super) async fn zz_module_namespace_has_no_residue() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let stock_in_where = format!("supplier_id IN ({})", fixture_suppliers());
+    let sql = format!("SELECT count(*) FROM biz_stock_in WHERE {stock_in_where}");
+    let left: i64 = db()
+        .scalar_with_params::<Option<i64>>(sql.as_str(), vec![])
+        .await
+        .expect("查夹具收货单")
+        .unwrap_or(0);
+    assert_eq!(
+        left, 0,
+        "模块命名空间内不许留夹具收货单（setup 已清过一轮）"
+    );
+
+    // 本模块命名空间内的孤儿实例（`biz_id` 指向已不存在的收货单）先收掉，再断言为 0
+    purge_orphan_post_instances().await;
     let running: i64 = db()
         .scalar_with_params::<Option<i64>>(
             "SELECT count(*) FROM biz_flow_instance \
-              WHERE biz_type = 'STOCK_IN_POST' AND status = 'PENDING' AND deleted_at IS NULL",
+              WHERE biz_type IN ('STOCK_IN_POST', 'STOCK_IN_CANCEL') \
+                AND status = 'PENDING' AND deleted_at IS NULL",
             vec![],
         )
         .await
@@ -510,6 +574,44 @@ pub(super) async fn zz_teardown_purges_post_approval_residue() {
         .unwrap_or(0);
     assert_eq!(
         running, 0,
-        "模块收尾后不许剩 PENDING 的过账审批实例（同库连跑第二遍的前提）"
+        "本模块命名空间内不许剩 PENDING 的过账/作废审批实例（同库连跑第二遍的前提）"
     );
+
+    let orphans = crate::business::erp::fixture_hygiene::settle_orphans(
+        &["STOCK_IN"],
+        std::time::Duration::from_secs(5),
+    )
+    .await;
+    assert_eq!(
+        orphans, 0,
+        "STOCK_IN 状态日志不许留孤儿行（收敛等待 5s 后仍非 0）"
+    );
+}
+
+/// 收掉本模块命名空间内的**孤儿审批实例**（`biz_id` 指向已不存在的收货单）。
+///
+/// 只在 [`zz_module_namespace_has_no_residue`] 里调用，不进每例 `setup()`：
+/// * 判据先按**本模块私有的两种 `biz_type`** 收口（不是全库扫），再看 `biz_id` 是否已死；
+/// * 这类行只可能来自本模块历史轮次（某轮在「删实例」与「删单据」之间 panic）；
+/// * 顺序与 [`purge_post_approval_traces`] 一致：先解自引用 → 删子表 → 删本体。
+async fn purge_orphan_post_instances() {
+    let inst_where = "biz_type IN ('STOCK_IN_POST', 'STOCK_IN_CANCEL') \
+                      AND biz_id IS NOT NULL AND biz_id NOT IN (SELECT id FROM biz_stock_in)";
+    for text in [
+        format!(
+            "UPDATE biz_flow_instance SET prev_instance_id = NULL \
+              WHERE prev_instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+        ),
+        format!(
+            "DELETE FROM biz_flow_task \
+              WHERE instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+        ),
+        format!(
+            "DELETE FROM biz_flow_cc \
+              WHERE instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
+        ),
+        format!("DELETE FROM biz_flow_instance WHERE {inst_where}"),
+    ] {
+        sql(&text).await;
+    }
 }

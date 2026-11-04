@@ -104,6 +104,58 @@ pub(crate) async fn purge_orphans(entity_types: &[&str]) -> i64 {
 /// 本卡口径：凭证 / 应付两类（`t_7f47221c` 的验收对象）。
 pub(crate) const FINANCE: &[&str] = &["PAYABLE", "VOUCHER"];
 
+/// 「付款 / 应付链路**种子行**」的总互斥锁（`#[cfg(test)]`）。
+///
+/// # 为什么这两个模块必须共用**同一把**锁
+///
+/// `payable_payment::tests`（P7/D5）与 `payable_bridge::tests`（P17）写的是同一批
+/// **全局行**，其中最关键的是**种子流程定义** `biz_flow_def`：
+///
+/// * P17 的「显式跳过审批的直付」用例会把 `flow_code = 'payable_pay'` 临时改成
+///   `status = 'DISABLED'`，跑完再改回 `PUBLISHED`；
+/// * P7 的 `setup()` 反过来会把 `payable_pay` 置回 `PUBLISHED`（自愈上一轮的残留）。
+///
+/// 两把互不相识的锁时，P7 的 setup 会插在 P17 的「DISABLE → 提交付款」中间把流程**重新发布**，
+/// 于是 P17 的 `submit_payment` 拿到 10001「有流程时必须走审批」—— 干净库全量第一轮实测就红
+/// （卡 `t_0d7c51f8`：`payable_bridge::tests::zz_teardown_purges_payment_status_logs`，
+/// 2323 passed / 1 failed）。夹具没法靠「换个唯一前缀」隔离：流程定义按 `flow_code` 查、
+/// 是种子行，全库只有一行。按「同一批全局行 = 同一把锁」（测试卫生铁律）合并锁是唯一正确解。
+///
+/// 除此之外两者还共用 `biz_payable` / `biz_payment` / `biz_voucher` 与 `biz_seq` 号段，
+/// 本来就不该并行。
+pub(crate) static FINANCE_SEED_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+
+/// 「整库不许留孤儿」的**收敛式**判定：删 → 复查，最多等 `max_wait`，返回最终剩余条数。
+///
+/// # 为什么不能「purge 一次就断言 0」
+///
+/// 真库用例是**并行**跑的（libtest 默认 4 个测试线程，`cargo test -j N` 的 `-j` 只是编译
+/// 并行度）。别的模块随时可能正处在「单据行已删、它自己的状态日志还没删」的毫秒级中间态里
+/// —— 那一瞬间本模块的「整库无孤儿」断言会把**别人的中间态**判成自己的假红。实测（卡
+/// `t_0d7c51f8`）：干净隔离库上第一轮 `cargo test`，`payable_bridge::tests::
+/// zz_teardown_purges_payment_status_logs` 就红在这一句上，单跑/单模块跑全绿。
+///
+/// # 口径没有放宽
+///
+/// 真孤儿（没有任何模块会再回来删）等多久都还在 ⇒ 仍然红。收敛只吸收「别人正在删」的
+/// 瞬时窗口，所以断言强度 = 原来的「整库最终无孤儿」，而不是「这一瞬间恰好没有」。
+pub(crate) async fn settle_orphans(entity_types: &[&str], max_wait: std::time::Duration) -> i64 {
+    let step = std::time::Duration::from_millis(50);
+    let mut waited = std::time::Duration::ZERO;
+    loop {
+        purge_orphans(entity_types).await;
+        let left = orphans(entity_types).await;
+        if left == 0 || waited >= max_wait {
+            return left;
+        }
+        // 用阻塞 sleep 而不是 `tokio::time`：每个 `#[tokio::test]` 是独立的
+        // current-thread runtime，本函数内部没有别的任务需要被调度，阻塞等待最直接。
+        std::thread::sleep(step);
+        waited += step;
+    }
+}
+
 /// 已登记类型的全量清单（模块级 teardown 的「整库不许留孤儿」断言用）。
 pub(crate) const ALL_TYPES: &[&str] = &[
     "STOCK_IN",
