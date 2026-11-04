@@ -1,0 +1,49 @@
+P2-5A 测试实跑记录（两轮，均在**重建的空库**上跑，`--test-threads=1`）
+
+环境
+  · 隔离库 cloudpivot_p25a（`createdb -O alun`）
+  · 起一次 target/debug/cloudpivot → 自动应用 182 个迁移 + 种 SUPER_ADMIN
+  · ERP_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_p25a
+  · 命令：cargo test --lib -- <filter> --test-threads=1
+
+────────────────────────────────────────────────────────────────────
+第 1 轮（收口完成、clippy 修复之后的最终代码，干净库）
+────────────────────────────────────────────────────────────────────
+---- filter: business::erp
+test result: ok. 1045 passed; 0 failed; 0 ignored; 0 measured; 1491 filtered out; finished in 1133.57s
+exit=0
+---- filter: business::flow::linkage
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 2501 filtered out; finished in 13.63s
+exit=0
+
+────────────────────────────────────────────────────────────────────
+第 2 轮（重建干净库，同一份代码再跑一遍；下面是原始日志结果行）
+────────────────────────────────────────────────────────────────────
+---- filter: business::erp
+test result: ok. 1045 passed; 0 failed; 0 ignored; 0 measured; 1491 filtered out; finished in 1160.83s
+exit=0
+---- filter: business::flow::linkage
+test result: ok. 35 passed; 0 failed; 0 ignored; 0 measured; 2501 filtered out; finished in 13.69s
+exit=0
+
+  第 2 轮 `test ... ok` 行合计 1080；
+  `SKIP: 未设置 ERP_DB_URL` 出现 **0 次** —— 真库用例全部真跑，没有「静默 SKIP 假绿」。
+
+────────────────────────────────────────────────────────────────────
+收口过程中踩到的 1 条红（已修，留档）
+────────────────────────────────────────────────────────────────────
+第 0 轮（修 `period_code` 之前）：
+  test business::erp::opening::tests::r5_09_inventory_opening_writes_location_and_txn ... FAILED
+  panicked at src/business/erp/opening.rs:2379:
+  assertion `left == right` failed
+    left: "2026-11"      ← 写入口按 now 折算期间码
+   right: "2034-09"      ← 期初必须落在「会计期间」
+  处置：TxnRecord.period_code 改成 Option<&str>，期初两条流水显式传会计期间；
+        重跑 business::erp::opening::tests → 16 passed / 0 failed。
+
+────────────────────────────────────────────────────────────────────
+静态检查
+────────────────────────────────────────────────────────────────────
+cargo fmt --check                          → 通过
+cargo clippy --lib -- -D warnings          → 通过
+cargo clippy --all-targets -- -D warnings  → 通过（含 tests/ 集成测试）

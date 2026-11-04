@@ -106,6 +106,8 @@ use crate::business::erp::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, SerialMovement};
 use crate::business::shared::scope;
 
+use super::inventory_writer::{self, TxnRecord};
+
 /// 金额 / 单价舍入策略：**四舍五入**（与 PG `ROUND(numeric, n)` 同口径）。
 ///
 /// `rust_decimal` 默认的 `round_dp` 是「四舍六入五成双」，`.005` 边界会比库里少 1 分钱。
@@ -763,58 +765,14 @@ pub async fn recompute_quantity(
         )));
     }
 
-    // ③ 成本账：逐桶对齐成在库件数（没有在库件的桶归零；avg_cost 不动）。
-    ex.exec_sql(
-        format!(
-            "UPDATE biz_inventory i \
-                SET qty = c.q, amount = c.q * i.avg_cost, last_txn_at = now(), updated_at = now() \
-               FROM (SELECT location_id AS bucket, count(*)::numeric AS q \
-                       FROM biz_material_serial \
-                      WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
-                        AND status = 'IN_STOCK' AND deleted_at IS NULL \
-                      GROUP BY 1) c \
-              WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid \
-                AND COALESCE(i.location_id, '{ZERO_UUID}'::uuid) = COALESCE(c.bucket, '{ZERO_UUID}'::uuid)"
-        ),
-        vec![
-            Value::from(&material_id),
-            Value::from(&warehouse_id),
-            Value::from(&material_id),
-            Value::from(&warehouse_id),
-        ],
-    )
-    .await?;
-    // ③b 上面只覆盖「有在库件的桶」；没有在库件的桶要显式归零
-    //     （`UPDATE … FROM` 不会碰没有匹配行的那一侧）。
-    ex.exec_sql(
-        "UPDATE biz_inventory i SET qty = 0, amount = 0, last_txn_at = now(), updated_at = now() \
-          WHERE i.material_id = ?::uuid AND i.warehouse_id = ?::uuid AND i.qty <> 0 \
-            AND NOT EXISTS (SELECT 1 FROM biz_material_serial s \
-                             WHERE s.material_id = i.material_id \
-                               AND s.warehouse_id = i.warehouse_id \
-                               AND s.status = 'IN_STOCK' AND s.deleted_at IS NULL \
-                               AND ((i.location_id IS NULL AND s.location_id IS NULL) \
-                                    OR s.location_id = i.location_id))"
-            .to_string(),
-        vec![Value::from(&material_id), Value::from(&warehouse_id)],
-    )
-    .await?;
-
-    // ④ 库位账：以自身行驱动（`il.id` 对应序列号的 `location_id`；NULL 桶单独匹配）。
-    ex.exec_sql(
-        "UPDATE biz_inventory_location il \
-            SET qty = (SELECT count(*) FROM biz_material_serial s \
-                        WHERE s.material_id = il.material_id \
-                          AND s.warehouse_id = il.warehouse_id \
-                          AND s.status = 'IN_STOCK' AND s.deleted_at IS NULL \
-                          AND ((il.location_id IS NULL AND s.location_id IS NULL) \
-                               OR s.location_id = il.id)), \
-                last_txn_at = now(), updated_at = now() \
-          WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid"
-            .to_string(),
-        vec![Value::from(&material_id), Value::from(&warehouse_id)],
-    )
-    .await?;
+    // ③ 成本账：逐桶对齐成在库件数（有在库件的桶对齐、没有在库件的桶归零；avg_cost 不动）。
+    // ④ 库位账：以自身行驱动对齐成在库件数。
+    //
+    // P2-5A：这三段（① + ①b 必须成对、漏一条就留下「号走了账还在」）收口到唯一写入口
+    // [`inventory_writer::sync_cost_qty_from_serials`] /
+    // [`inventory_writer::sync_location_qty_from_serials`]。
+    inventory_writer::sync_cost_qty_from_serials(ex, material_id, warehouse_id).await?;
+    inventory_writer::sync_location_qty_from_serials(ex, material_id, warehouse_id).await?;
 
     // ⑤ 返回仓级 qty。
     let total: Decimal = ex
@@ -880,56 +838,36 @@ async fn post_serial_txn(
     note: &TxnNote<'_>,
     qty: i64,
 ) -> DbResult<()> {
-    let period_code = period_code_of(note.now);
-    let now = note.now;
-    let operator = note.operator;
-    let qty_text = Decimal::from(qty).round_dp(4).to_string();
-    let unit_text = note
-        .unit_cost
-        .round_dp_with_strategy(6, ROUNDING)
-        .to_string();
-    let amount_text = note.amount.round_dp(4).to_string();
-    // SCOPE-EXEMPT: 库存流水是仓储数据，无归属列（口径同 erp/model.rs）。
-    let affected = ex
-        .exec_sql(
-            "INSERT INTO biz_inventory_txn \
-                 (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
-                  qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-                  after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
-             VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, 1, \
-                     NULLIF(?::text, '')::numeric, NULLIF(?::text, '')::numeric, \
-                     NULLIF(?::text, '')::numeric, \
-                     NULLIF(?::text, '')::numeric, NULLIF(?::text, '')::numeric, \
-                     NULLIF(?::text, '')::numeric, \
-                     NULLIF(?::text, '')::numeric, NULLIF(?::text, '')::numeric, \
-                     NULLIF(?::text, '')::numeric, \
-                     ?, NULLIF(?::text, '')::uuid, NULLIF(?::text, ''), ?)"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                Value::from(note.txn_type),
-                Value::from(note.biz_type),
-                Value::from(note.doc_type),
-                Value::from(&note.doc_id),
-                Value::from(note.doc_no.as_str()),
-                Value::Text(qty_text),
-                Value::Text(unit_text),
-                Value::Text(amount_text),
-                Value::Text(note.before.qty.to_string()),
-                Value::Text(note.before.amount.to_string()),
-                Value::Text(note.before.avg_cost.to_string()),
-                Value::Text(note.after.qty.to_string()),
-                Value::Text(note.after.amount.to_string()),
-                Value::Text(note.after.avg_cost.to_string()),
-                Value::from(period_code.as_str()),
-                uuid_text(operator),
-                Value::from(note.remark.as_deref().unwrap_or("")),
-                Value::from(now),
-            ],
-        )
-        .await?;
+    // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]；本函数只保留
+    // 「影响行数必须恰为 1」的自检（双写/漏写都在这里拦住整单回滚）。
+    let snapshot = |s: InventorySnapshot| super::stockin_base::InventorySnapshot {
+        qty: s.qty,
+        amount: s.amount,
+        avg_cost: s.avg_cost,
+    };
+    let affected = inventory_writer::insert_txn(
+        ex,
+        &TxnRecord {
+            material_id,
+            warehouse_id,
+            txn_type: note.txn_type,
+            biz_type: note.biz_type,
+            doc_type: note.doc_type,
+            doc_id: note.doc_id,
+            doc_no: note.doc_no.as_str(),
+            line_no: 1,
+            qty: Decimal::from(qty).round_dp(4),
+            unit_cost: note.unit_cost.round_dp_with_strategy(6, ROUNDING),
+            amount: note.amount.round_dp(4),
+            before: snapshot(note.before),
+            after: snapshot(note.after),
+            operator: note.operator,
+            period_code: None,
+            remark: note.remark.as_deref(),
+            now: note.now,
+        },
+    )
+    .await?;
     if affected != 1 {
         return Err(DbError::InvalidValue(format!(
             "库存流水写入行数异常：期望 1，实际 {affected}（物料 {material_id} / 仓 {warehouse_id}）"

@@ -65,6 +65,8 @@ use crate::business::shared::scope;
 use crate::business::shared::state_machine;
 use crate::utils;
 
+use super::inventory_writer::{self, TxnRecord};
+use super::stockin_base::InventorySnapshot;
 use super::stockout_base::*;
 
 // ==================== 只读 ====================
@@ -637,49 +639,14 @@ pub async fn deduct_cost(
     qty_out: Decimal,
     now: DateTime<Utc>,
 ) -> DbResult<AppliedDeduct> {
-    let qty_text = qty_out.round_dp(4).to_string();
-    // SCOPE-EXEMPT: 库存是仓储数据，无归属列。
-    let row = ex
-        .query_first_sql(
-            "UPDATE biz_inventory \
-                SET qty = qty - NULLIF(?::text,'')::numeric, \
-                    amount = CASE WHEN NULLIF(?::text,'')::numeric >= qty THEN 0 \
-                                  ELSE GREATEST(amount - ROUND(NULLIF(?::text,'')::numeric * avg_cost, 4), 0) END, \
-                    avg_cost = CASE WHEN qty - NULLIF(?::text,'')::numeric > 0 \
-                                    THEN ROUND( \
-                                        CASE WHEN NULLIF(?::text,'')::numeric >= qty THEN 0 \
-                                             ELSE GREATEST(amount - ROUND(NULLIF(?::text,'')::numeric * avg_cost, 4), 0) END \
-                                        / (qty - NULLIF(?::text,'')::numeric), 6) \
-                                    ELSE 0 END, \
-                    last_txn_at = ?, updated_at = ? \
-              WHERE id = ?::uuid \
-             RETURNING qty, amount, avg_cost"
-                .to_string(),
-            vec![
-                Value::Text(qty_text.clone()), // $1 qty 减法
-                Value::Text(qty_text.clone()), // $2 整桶取完判断
-                Value::Text(qty_text.clone()), // $3 金额减数
-                Value::Text(qty_text.clone()), // $4 avg 的 CASE 判断
-                Value::Text(qty_text.clone()), // $5 整桶取完判断（avg 分支）
-                Value::Text(qty_text.clone()), // $6 金额减数（avg 分支）
-                Value::Text(qty_text),         // $7 avg 分母
-                Value::from(now),              // $8 last_txn_at
-                Value::from(now),              // $9 updated_at
-                Value::from(&bucket.inventory_id), // $10
-            ],
-        )
-        .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "出库扣减成本账未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
-            )
-        })?;
-    let after_amount: Decimal = row.get_typed("amount")?;
-    let amount = (bucket.amount - after_amount).round_dp(4);
+    // P2-5A：扣减 SQL（整桶取完金额归零 + GREATEST 夹 0 + 均价重算）收口到
+    // [`inventory_writer::deduct_cost`]；「账上真实扣减金额」仍按差额算。
+    let after = inventory_writer::deduct_cost(ex, bucket.inventory_id, qty_out, now).await?;
+    let amount = (bucket.amount - after.amount).round_dp(4);
     Ok(AppliedDeduct {
-        after_qty: row.get_typed("qty")?,
-        after_amount,
-        after_cost: row.get_typed("avg_cost")?,
+        after_qty: after.qty,
+        after_amount: after.amount,
+        after_cost: after.avg_cost,
         amount,
     })
 }
@@ -796,24 +763,8 @@ pub async fn lock_location_row(
     warehouse_id: Uuid,
     location_id: Option<Uuid>,
 ) -> DbResult<Option<(Uuid, Decimal)>> {
-    let sql = match location_id {
-        Some(_) => {
-            "SELECT id, qty FROM biz_inventory_location WHERE id = ?::uuid FOR UPDATE".to_string()
-        }
-        None => "SELECT id, qty FROM biz_inventory_location \
-                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
-                  FOR UPDATE"
-            .to_string(),
-    };
-    let params = match location_id {
-        Some(row_id) => vec![Value::from(&row_id)],
-        None => vec![Value::from(&material_id), Value::from(&warehouse_id)],
-    };
-    let row = ex.query_first_sql(sql, params).await?;
-    match row {
-        None => Ok(None),
-        Some(row) => Ok(Some((row.get_typed("id")?, row.get_typed("qty")?))),
-    }
+    // P2-5A：锁读 SQL 收口到 [`inventory_writer::lock_location`]。
+    inventory_writer::lock_location(ex, material_id, warehouse_id, location_id).await
 }
 
 /// 库位账扣减（只记数量，不记成本）。返回扣减后的数量。
@@ -823,26 +774,8 @@ pub async fn deduct_location_qty(
     qty: Decimal,
     now: DateTime<Utc>,
 ) -> DbResult<Decimal> {
-    let row = ex
-        .query_first_sql(
-            "UPDATE biz_inventory_location \
-                SET qty = qty - NULLIF(?::text,'')::numeric, last_txn_at = ?, updated_at = ? \
-              WHERE id = ?::uuid RETURNING qty"
-                .to_string(),
-            vec![
-                Value::Text(qty.round_dp(4).to_string()),
-                Value::from(now),
-                Value::from(now),
-                Value::from(&location_row_id),
-            ],
-        )
-        .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "出库扣减库位账未返回行（UPDATE 命中 0 行：锁读之后行被删了）".into(),
-            )
-        })?;
-    row.get_typed("qty")
+    // P2-5A：扣减 SQL 收口到 [`inventory_writer::deduct_location_qty`]。
+    inventory_writer::deduct_location_qty(ex, location_row_id, qty, now).await
 }
 
 /// 写一条出库流水（`txn_type='OUT'`，数量与金额恒正，方向看 `txn_type`）。
@@ -865,46 +798,39 @@ pub async fn write_txn(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let period_code = super::serial_model::period_code_of(now);
-    // SCOPE-EXEMPT: 库存流水是仓储台账，无归属列。
-    ex.exec_sql(
-        "INSERT INTO biz_inventory_txn \
-             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
-              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-              after_qty, after_amount, after_cost, period_code, operator_id, created_at) \
-         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?)"
-            .to_string(),
-        vec![
-            Value::from(&Uuid::now_v7()),
-            Value::from(&item.material_id),
-            Value::from(&warehouse_id),
-            Value::from(TXN_TYPE_OUT),
-            Value::from(biz_type),
-            Value::from(DOC_TYPE_STOCK_OUT),
-            Value::from(&doc_id),
-            Value::from(doc_no),
-            Value::from(item.line_no),
-            Value::Text(item.qty.round_dp(4).to_string()),
-            Value::Text(unit_cost.to_string()),
-            Value::Text(amount.round_dp(4).to_string()),
-            Value::Text(before_qty.to_string()),
-            Value::Text(before_amount.to_string()),
-            Value::Text(before_cost.to_string()),
-            Value::Text(after_qty.to_string()),
-            Value::Text(after_amount.to_string()),
-            Value::Text(after_cost.to_string()),
-            Value::from(period_code.as_str()),
-            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(now),
-        ],
+    // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
+    inventory_writer::insert_txn(
+        ex,
+        &TxnRecord {
+            material_id: item.material_id,
+            warehouse_id,
+            txn_type: TXN_TYPE_OUT,
+            biz_type,
+            doc_type: DOC_TYPE_STOCK_OUT,
+            doc_id,
+            doc_no,
+            line_no: item.line_no,
+            qty: item.qty.round_dp(4),
+            unit_cost,
+            amount: amount.round_dp(4),
+            before: InventorySnapshot {
+                qty: before_qty,
+                amount: before_amount,
+                avg_cost: before_cost,
+            },
+            after: InventorySnapshot {
+                qty: after_qty,
+                amount: after_amount,
+                avg_cost: after_cost,
+            },
+            operator,
+            period_code: None,
+            remark: None,
+            now,
+        },
     )
-    .await?;
-    Ok(())
+    .await
+    .map(|_| ())
 }
 
 // ==================== 三本账：正向回滚（作废） ====================
@@ -923,70 +849,9 @@ pub async fn restore_cost(
     amount: Decimal,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let qty_text = qty.round_dp(4).to_string();
-    let amount_text = amount.round_dp(4).to_string();
-    let location_text = Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default());
-    // 行已存在 → 加数量 + 加金额 + 重算均价；行不存在（历史缺口）→ 建档
-    let row = ex
-        .query_first_sql(
-            "UPDATE biz_inventory \
-                SET qty = qty + NULLIF(?::text,'')::numeric, \
-                    amount = amount + NULLIF(?::text,'')::numeric, \
-                    avg_cost = CASE WHEN qty + NULLIF(?::text,'')::numeric > 0 \
-                                    THEN ROUND((amount + NULLIF(?::text,'')::numeric) \
-                                               / (qty + NULLIF(?::text,'')::numeric), 6) \
-                                    ELSE 0 END, \
-                    last_txn_at = ?, updated_at = ? \
-              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
-                AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
-                  = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) \
-             RETURNING id"
-                .to_string(),
-            vec![
-                Value::Text(qty_text.clone()),    // $1 qty 加法
-                Value::Text(amount_text.clone()), // $2 金额加法
-                Value::Text(qty_text.clone()),    // $3 avg 判断
-                Value::Text(amount_text.clone()), // $4 avg 分子
-                Value::Text(qty_text.clone()),    // $5 avg 分母
-                Value::from(now),
-                Value::from(now),
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                location_text,
-            ],
-        )
-        .await?;
-    if row.is_some() {
-        return Ok(());
-    }
-    // 建档（成本账行被硬删过的历史缺口）：数量与金额直接用本次退回值
-    ex.exec_sql(
-        "INSERT INTO biz_inventory \
-             (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount, \
-              last_txn_at, created_at, updated_at) \
-         VALUES (?, ?::uuid, ?::uuid, NULLIF(?::text,'')::uuid, \
-                 NULLIF(?::text,'')::numeric, 0, \
-                 CASE WHEN NULLIF(?::text,'')::numeric > 0 \
-                      THEN ROUND(NULLIF(?::text,'')::numeric / NULLIF(?::text,'')::numeric, 6) \
-                      ELSE 0 END, \
-                 NULLIF(?::text,'')::numeric, ?, ?, ?)"
-            .to_string(),
-        vec![
-            Value::from(&Uuid::now_v7()),
-            Value::from(&material_id),
-            Value::from(&warehouse_id),
-            Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default()),
-            Value::Text(qty_text.clone()),
-            Value::Text(amount_text.clone()),
-            Value::Text(amount_text),
-            Value::Text(qty_text),
-            Value::from(now),
-            Value::from(now),
-            Value::from(now),
-        ],
-    )
-    .await?;
-    Ok(())
+    // P2-5A：回加 SQL（按桶键加 + 缺行建档）收口到 [`inventory_writer::restore_cost`]。
+    inventory_writer::restore_cost(ex, material_id, warehouse_id, location_id, qty, amount, now)
+        .await
 }
 
 /// 库位账回加（作废出库单）。
@@ -1001,64 +866,10 @@ pub async fn restore_location_qty(
     qty: Decimal,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let qty_text = qty.round_dp(4).to_string();
-    let updated = match location_id {
-        Some(row_id) => {
-            ex.query_first_sql(
-                "UPDATE biz_inventory_location SET qty = qty + NULLIF(?::text,'')::numeric, \
-                        last_txn_at = ?, updated_at = ? WHERE id = ?::uuid RETURNING id"
-                    .to_string(),
-                vec![
-                    Value::Text(qty_text.clone()),
-                    Value::from(now),
-                    Value::from(now),
-                    Value::from(&row_id),
-                ],
-            )
-            .await?
-        }
-        None => {
-            ex.query_first_sql(
-                "UPDATE biz_inventory_location SET qty = qty + NULLIF(?::text,'')::numeric, \
-                        last_txn_at = ?, updated_at = ? \
-                  WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
-                 RETURNING id"
-                    .to_string(),
-                vec![
-                    Value::Text(qty_text.clone()),
-                    Value::from(now),
-                    Value::from(now),
-                    Value::from(&material_id),
-                    Value::from(&warehouse_id),
-                ],
-            )
-            .await?
-        }
-    };
-    if updated.is_some() {
-        return Ok(());
-    }
-    // 行不存在：往未分配库位桶建档（`ON CONFLICT` 目标与 uk_biz_inv_loc 一致，NULL 也命中）
-    ex.exec_sql(
-        "INSERT INTO biz_inventory_location \
-             (id, material_id, warehouse_id, location_id, qty, locked_qty, last_txn_at, created_at, updated_at) \
-         VALUES (?, ?::uuid, ?::uuid, NULL, NULLIF(?::text,'')::numeric, 0, ?, ?, ?) \
-         ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE SET \
-             qty = biz_inventory_location.qty + EXCLUDED.qty, \
-             last_txn_at = EXCLUDED.last_txn_at, updated_at = EXCLUDED.updated_at"
-            .to_string(),
-        vec![
-            Value::from(&Uuid::now_v7()),
-            Value::from(&material_id),
-            Value::from(&warehouse_id),
-            Value::Text(qty_text),
-            Value::from(now),
-            Value::from(now),
-            Value::from(now),
-        ],
-    )
-    .await?;
-    Ok(())
+    // P2-5A：回加 SQL（按行 id / 未分配桶两条分支 + 缺行建档）收口到
+    // [`inventory_writer::restore_location_qty`]。
+    inventory_writer::restore_location_qty(ex, material_id, warehouse_id, location_id, qty, now)
+        .await
 }
 
 /// 写作废冲销流水（`txn_type='IN'` + `biz_type='STOCK_OUT_CANCEL'`）。
@@ -1081,47 +892,40 @@ pub async fn write_cancel_txn(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let period_code = super::serial_model::period_code_of(now);
-    // SCOPE-EXEMPT: 库存流水是仓储台账，无归属列。
-    ex.exec_sql(
-        "INSERT INTO biz_inventory_txn \
-             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
-              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-              after_qty, after_amount, after_cost, period_code, operator_id, created_at, remark) \
-         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
-            .to_string(),
-        vec![
-            Value::from(&Uuid::now_v7()),
-            Value::from(&item.material_id),
-            Value::from(&warehouse_id),
-            Value::from(TXN_TYPE_IN),
-            Value::from(BIZ_TYPE_STOCK_OUT_CANCEL),
-            Value::from(DOC_TYPE_STOCK_OUT),
-            Value::from(&doc_id),
-            Value::from(doc_no),
-            Value::from(item.line_no),
-            Value::Text(item.qty.round_dp(4).to_string()),
-            Value::Text(item.unit_cost.to_string()),
-            Value::Text(item.amount.round_dp(4).to_string()),
-            Value::Text(before_qty.to_string()),
-            Value::Text(before_amount.to_string()),
-            Value::Text(before_cost.to_string()),
-            Value::Text(after_qty.to_string()),
-            Value::Text(after_amount.to_string()),
-            Value::Text(after_cost.to_string()),
-            Value::from(period_code.as_str()),
-            Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(now),
-            Value::Text(format!("出库单作废冲销：{doc_no}")),
-        ],
+    // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
+    let remark = format!("出库单作废冲销：{doc_no}");
+    inventory_writer::insert_txn(
+        ex,
+        &TxnRecord {
+            material_id: item.material_id,
+            warehouse_id,
+            txn_type: TXN_TYPE_IN,
+            biz_type: BIZ_TYPE_STOCK_OUT_CANCEL,
+            doc_type: DOC_TYPE_STOCK_OUT,
+            doc_id,
+            doc_no,
+            line_no: item.line_no,
+            qty: item.qty.round_dp(4),
+            unit_cost: item.unit_cost,
+            amount: item.amount.round_dp(4),
+            before: InventorySnapshot {
+                qty: before_qty,
+                amount: before_amount,
+                avg_cost: before_cost,
+            },
+            after: InventorySnapshot {
+                qty: after_qty,
+                amount: after_amount,
+                avg_cost: after_cost,
+            },
+            operator,
+            period_code: None,
+            remark: Some(remark.as_str()),
+            now,
+        },
     )
-    .await?;
-    Ok(())
+    .await
+    .map(|_| ())
 }
 
 /// 该单的过账流水是否齐（作废前的数据完整性闸）。

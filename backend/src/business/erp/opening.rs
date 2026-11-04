@@ -72,6 +72,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::{Deserialize, Serialize};
 
+use super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::period;
 use crate::business::erp::stockin_model::{self, CostBasis};
 use crate::business::erp::voucher::{self, AccountRef, EntryLine, PostVoucher};
@@ -1464,44 +1465,29 @@ pub async fn save_inventory_in(
         } else {
             "OUT"
         };
-        let txn_qty = delta_qty.abs().round_dp(4);
-        let txn_amount = delta_amount.abs().round_dp(4);
-        tx.exec_sql(
-            "INSERT INTO biz_inventory_txn \
-                (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
-                 line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-                 after_qty, after_amount, after_cost, period_code, operator_id, remark, \
-                 created_at) \
-             VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, 1, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(&row.material_id),
-                Value::from(&row.warehouse_id),
-                Value::Text(txn_type.to_string()),
-                Value::Text(BIZ_TYPE_OPENING.to_string()),
-                Value::Text(DOC_TYPE_OPENING.to_string()),
-                Value::from(Uuid::now_v7()),
-                Value::Text(doc_no.clone()),
-                Value::Text(txn_qty.to_string()),
-                Value::Text(row.unit_cost.to_string()),
-                Value::Text(txn_amount.to_string()),
-                Value::Text(applied.before.qty.to_string()),
-                Value::Text(applied.before.amount.to_string()),
-                Value::Text(applied.before.avg_cost.to_string()),
-                Value::Text(applied.after.qty.to_string()),
-                Value::Text(applied.after.amount.to_string()),
-                Value::Text(applied.after.avg_cost.to_string()),
-                Value::Text(period_code.to_string()),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(format!("库存期初（{doc_no}）")),
-                Value::from(now),
-            ],
+        // P2-5A：流水 SQL 收口到唯一写入口 [`inventory_writer::insert_txn`]。
+        let remark = format!("库存期初（{doc_no}）");
+        inventory_writer::insert_txn(
+            tx,
+            &TxnRecord {
+                material_id: row.material_id,
+                warehouse_id: row.warehouse_id,
+                txn_type,
+                biz_type: BIZ_TYPE_OPENING,
+                doc_type: DOC_TYPE_OPENING,
+                doc_id: Uuid::now_v7(),
+                doc_no: doc_no.as_str(),
+                line_no: 1,
+                qty: delta_qty.abs().round_dp(4),
+                unit_cost: row.unit_cost,
+                amount: delta_amount.abs().round_dp(4),
+                before: applied.before,
+                after: applied.after,
+                operator,
+                period_code: Some(period_code),
+                remark: Some(remark.as_str()),
+                now,
+            },
         )
         .await
         .map_err(|error| write_error(error, "库存期初写入流水"))?;
@@ -1528,40 +1514,29 @@ pub async fn save_inventory_in(
         stockin_model::apply_location_qty(tx, *material_id, *warehouse_id, None, -*old_qty, now)
             .await
             .map_err(|error| write_error(error, "库存期初退回库位账"))?;
-        tx.exec_sql(
-            "INSERT INTO biz_inventory_txn \
-                (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, \
-                 line_no, qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-                 after_qty, after_amount, after_cost, period_code, operator_id, remark, created_at) \
-             VALUES (?, ?::uuid, ?::uuid, 'OUT', ?, ?, ?::uuid, ?, 1, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?, ?)"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(material_id),
-                Value::from(warehouse_id),
-                Value::Text(BIZ_TYPE_OPENING.to_string()),
-                Value::Text(DOC_TYPE_OPENING.to_string()),
-                Value::from(Uuid::now_v7()),
-                Value::Text(doc_no.clone()),
-                Value::Text(old_qty.abs().round_dp(4).to_string()),
-                Value::Text(unit_cost.to_string()),
-                Value::Text(old_amount.abs().round_dp(4).to_string()),
-                Value::Text(applied.before.qty.to_string()),
-                Value::Text(applied.before.amount.to_string()),
-                Value::Text(applied.before.avg_cost.to_string()),
-                Value::Text(applied.after.qty.to_string()),
-                Value::Text(applied.after.amount.to_string()),
-                Value::Text(applied.after.avg_cost.to_string()),
-                Value::Text(period_code.to_string()),
-                Value::Text(operator.map(|v| v.to_string()).unwrap_or_default()),
-                Value::Text(format!("库存期初取消（{doc_no}）")),
-                Value::from(now),
-            ],
+        // P2-5A：流水 SQL 收口到唯一写入口 [`inventory_writer::insert_txn`]。
+        let remark = format!("库存期初取消（{doc_no}）");
+        inventory_writer::insert_txn(
+            tx,
+            &TxnRecord {
+                material_id: *material_id,
+                warehouse_id: *warehouse_id,
+                txn_type: "OUT",
+                biz_type: BIZ_TYPE_OPENING,
+                doc_type: DOC_TYPE_OPENING,
+                doc_id: Uuid::now_v7(),
+                doc_no: doc_no.as_str(),
+                line_no: 1,
+                qty: old_qty.abs().round_dp(4),
+                unit_cost,
+                amount: old_amount.abs().round_dp(4),
+                before: applied.before,
+                after: applied.after,
+                operator,
+                period_code: Some(period_code),
+                remark: Some(remark.as_str()),
+                now,
+            },
         )
         .await
         .map_err(|error| write_error(error, "库存期初取消写入流水"))?;
@@ -2819,11 +2794,18 @@ mod tests {
         );
 
         // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
-        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        // 兜底：整库最终不许留 PAYABLE / VOUCHER 的孤儿行。
+        // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
+        // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
+        // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
+        let left = fixture_hygiene::settle_orphans(
+            fixture_hygiene::FINANCE,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
         assert_eq!(
-            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
-            0,
-            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+            left, 0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
     }
 }

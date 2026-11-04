@@ -36,6 +36,8 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use super::inventory_writer;
+
 /// `biz_location` 的一行（库位字典 / 主数据）。
 #[derive(Debug, Clone)]
 pub struct LocationDict {
@@ -287,32 +289,9 @@ pub async fn ensure_location_row(
     location_dict_id: Uuid,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
-    let row = ex
-        .query_first_sql(
-            "INSERT INTO biz_inventory_location AS il \
-                 (id, material_id, warehouse_id, location_id, qty, locked_qty, \
-                  created_at, updated_at) \
-             VALUES (?, ?::uuid, ?::uuid, ?::uuid, 0, 0, ?, ?) \
-             ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE \
-                 SET updated_at = EXCLUDED.updated_at \
-             RETURNING il.id"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                Value::from(&location_dict_id),
-                Value::from(now),
-                Value::from(now),
-            ],
-        )
-        .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库位账行 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-            )
-        })?;
-    row.get_typed("id")
+    // P2-5A：库位账行 upsert 收口到 [`inventory_writer::ensure_location_row`]。
+    inventory_writer::ensure_location_row(ex, material_id, warehouse_id, location_dict_id, now)
+        .await
 }
 
 /// 过账时把「解析出来的库位账行 id」回写到明细（作废 / 红冲按它原路退回）。

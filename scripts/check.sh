@@ -298,6 +298,24 @@ if ! python3 "$ROOT/scripts/lint/palette_def_sync.py" --root "$ROOT"; then
 fi
 
 # ======================================================================
+# 库存三本账「唯一写入口」闸（P2-5A）
+#
+# 为什么是硬门禁：`biz_inventory` / `biz_inventory_location` / `biz_inventory_txn`
+# 收口前分别有 13 / 13 / 8 个文件直接写 SQL，同一件事各写一遍 —— `ROUND` 位数、
+# 整桶归零、`GREATEST(…,0)` 夹 0 这些口径只要有一处漂移，账不会当场报错，
+# 只会在巡检里变成「账不对」。写语句必须只在 `inventory_writer.rs` 里。
+#
+# 豁免：文件名含 test 的文件 + 文件内 `#[cfg(test)]` 之后的代码（夹具要能直写脏数据
+# 来造「被人手工改过账」的场景）。报告会给到 文件:行号:表名。
+# ======================================================================
+
+echo "==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）"
+if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py"; then
+    echo "==> 门禁未通过：库存三本账的写语句必须走 backend/src/business/erp/inventory_writer.rs" >&2
+    exit 1
+fi
+
+# ======================================================================
 # 批次 D · ERP 账务不变量（P9「闸③」）
 #
 # 为什么是硬门禁：ERP 的账错了不会抛异常，只会**安静地算错** —— 库存对不上总账、

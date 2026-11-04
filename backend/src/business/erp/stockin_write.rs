@@ -11,9 +11,9 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
-use crate::business::erp::serial_model;
 use crate::business::shared::state_machine;
 
+use super::inventory_writer::{self, CostDelta, TxnRecord};
 use super::stockin_base::*;
 
 /// 插入明细（建单 / 改单共用），返回明细 id（按行序）。
@@ -420,30 +420,8 @@ pub(super) async fn lock_inventory(
     warehouse_id: Uuid,
     location_id: Option<Uuid>,
 ) -> DbResult<Option<InventorySnapshot>> {
-    let row = ex
-        .query_first_sql(
-            "SELECT qty, amount, avg_cost FROM biz_inventory \
-              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
-                AND COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid) \
-                  = COALESCE(NULLIF(?::text,'')::uuid, '00000000-0000-0000-0000-000000000000'::uuid) \
-              FOR UPDATE"
-                .to_string(),
-            vec![
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default()),
-            ],
-        )
-        .await?;
-    row.as_ref()
-        .map(|row| {
-            Ok(InventorySnapshot {
-                qty: row.get_typed("qty")?,
-                amount: row.get_typed("amount")?,
-                avg_cost: row.get_typed("avg_cost")?,
-            })
-        })
-        .transpose()
+    // P2-5A：锁读 SQL 收口到唯一写入口 [`inventory_writer`]。
+    inventory_writer::lock_cost(ex, material_id, warehouse_id, location_id).await
 }
 
 /// **一条明细的过账成本落地**（PRD §3.2.3）：加数量 + 加金额 + 重算移动加权单价。
@@ -467,64 +445,22 @@ pub async fn apply_cost(
     cost: CostBasis,
     now: DateTime<Utc>,
 ) -> DbResult<AppliedInventory> {
-    let locked = lock_inventory(ex, material_id, warehouse_id, location_id).await?;
-    let qty_text = cost.qty.round_dp(4).to_string();
-    let amount_text = cost.amount.round_dp(4).to_string();
-    let unit_text = cost.unit_cost.to_string();
-    let location_text = Value::Text(location_id.map(|v| v.to_string()).unwrap_or_default());
-
-    let row = ex
-        .query_first_sql(
-            "INSERT INTO biz_inventory AS i \
-                 (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount, \
-                  last_txn_at, created_at, updated_at) \
-             VALUES (?, ?::uuid, ?::uuid, NULLIF(?::text,'')::uuid, \
-                     NULLIF(?::text,'')::numeric, 0, \
-                     CASE WHEN NULLIF(?::text,'')::numeric > 0 \
-                          THEN ROUND(NULLIF(?::text,'')::numeric / NULLIF(?::text,'')::numeric, 6) \
-                          ELSE 0 END, \
-                     NULLIF(?::text,'')::numeric, ?, ?, ?) \
-             ON CONFLICT (material_id, warehouse_id, \
-                          COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) \
-             DO UPDATE SET \
-                 qty = i.qty + EXCLUDED.qty, \
-                 amount = i.amount + EXCLUDED.amount, \
-                 avg_cost = CASE \
-                     WHEN i.qty > 0 AND (i.qty + EXCLUDED.qty) > 0 \
-                         THEN ROUND((i.amount + EXCLUDED.amount) / (i.qty + EXCLUDED.qty), 6) \
-                     WHEN EXCLUDED.qty > 0 \
-                         THEN ROUND(EXCLUDED.amount / EXCLUDED.qty, 6) \
-                     ELSE 0 END, \
-                 last_txn_at = EXCLUDED.last_txn_at, \
-                 updated_at = EXCLUDED.updated_at \
-             RETURNING qty, amount, avg_cost"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                location_text,
-                Value::Text(qty_text.clone()),
-                Value::Text(unit_text.clone()),
-                Value::Text(amount_text.clone()),
-                Value::Text(qty_text.clone()),
-                Value::Text(amount_text.clone()),
-                Value::from(now),
-                Value::from(now),
-                Value::from(now),
-            ],
-        )
-        .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库存 upsert 未返回行（biz_inventory 的 RETURNING 不应为空）".into(),
-            )
-        })?;
-    let after = InventorySnapshot {
-        qty: row.get_typed("qty")?,
-        amount: row.get_typed("amount")?,
-        avg_cost: row.get_typed("avg_cost")?,
-    };
+    // P2-5A：成本账加法（锁读 + upsert）收口到 [`inventory_writer::add_cost`]；
+    // 「变动前」快照仍按原口径取：能锁到就用锁到的，锁不到（并发新建）就从加法反推。
+    let locked = inventory_writer::lock_cost(ex, material_id, warehouse_id, location_id).await?;
+    let after = inventory_writer::add_cost(
+        ex,
+        &CostDelta {
+            material_id,
+            warehouse_id,
+            location_id,
+            qty: cost.qty,
+            unit_cost: cost.unit_cost,
+            amount: cost.amount,
+        },
+        now,
+    )
+    .await?;
     let before = match locked {
         Some(snapshot) => snapshot,
         // 无行 → 并发插入分支：从「变动后」精确反推（加法可逆）
@@ -587,105 +523,10 @@ pub async fn apply_location_qty(
     qty: Decimal,
     now: DateTime<Utc>,
 ) -> DbResult<AppliedLocation> {
-    let qty_text = qty.round_dp(4).to_string();
-
-    // ---------- 分支 A：明细指定了库位库存行 → 按主键加 ----------
-    if let Some(row_id) = location_id {
-        let row = ex
-            .query_first_sql(
-                "SELECT material_id, warehouse_id, qty FROM biz_inventory_location \
-                  WHERE id = ?::uuid FOR UPDATE"
-                    .to_string(),
-                vec![Value::from(&row_id)],
-            )
-            .await?
-            .ok_or_else(|| {
-                DbError::InvalidValue(format!(
-                    "库位账行不存在（location_id = {row_id}）：建单时校验通过，过账前被删掉了"
-                ))
-            })?;
-        let row_material: Uuid = row.get_typed("material_id")?;
-        let row_warehouse: Uuid = row.get_typed("warehouse_id")?;
-        if row_material != material_id || row_warehouse != warehouse_id {
-            return Err(DbError::InvalidValue(format!(
-                "明细 location_id（{row_id}）指向的库位账行属于物料 {row_material} / 仓库 {row_warehouse}，\
-                 与本次过账的物料 {material_id} / 仓库 {warehouse_id} 不一致（库位选错了）"
-            )));
-        }
-        let before_qty: Decimal = row.get_typed("qty")?;
-        let updated = ex
-            .query_first_sql(
-                "UPDATE biz_inventory_location \
-                    SET qty = qty + NULLIF(?::text,'')::numeric, last_txn_at = ?, updated_at = ? \
-                  WHERE id = ?::uuid RETURNING qty"
-                    .to_string(),
-                vec![
-                    Value::Text(qty_text),
-                    Value::from(now),
-                    Value::from(now),
-                    Value::from(&row_id),
-                ],
-            )
-            .await?
-            .ok_or_else(|| {
-                DbError::InvalidValue(
-                    "库位账 UPDATE 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-                )
-            })?;
-        let after_qty: Decimal = updated.get_typed("qty")?;
-        return Ok(AppliedLocation {
-            before_qty,
-            after_qty,
-        });
-    }
-
-    // ---------- 分支 B：未分配库位桶（location_id IS NULL）----------
-    let existing = ex
-        .query_first_sql(
-            "SELECT qty FROM biz_inventory_location \
-              WHERE material_id = ?::uuid AND warehouse_id = ?::uuid AND location_id IS NULL \
-              FOR UPDATE"
-                .to_string(),
-            vec![Value::from(&material_id), Value::from(&warehouse_id)],
-        )
-        .await?;
-    let before_qty: Decimal = match existing {
-        Some(row) => row.get_typed("qty")?,
-        None => Decimal::ZERO,
-    };
-    // `ON CONFLICT (material_id, warehouse_id, location_id)` 能直接推断到
-    // `uk_biz_inv_loc … NULLS NOT DISTINCT`（PG 18 实测：`NULL` 同样命中冲突分支，
-    // 不会因为「NULL 不相等」再插一行）。**不要**改成 `COALESCE(…)` 表达式形式——
-    // 那是 `uk_biz_inv_mat_wh_loc`（biz_inventory）的口径，套到这里会 42P10。
-    let row = ex
-        .query_first_sql(
-            "INSERT INTO biz_inventory_location AS il \
-                 (id, material_id, warehouse_id, location_id, qty, locked_qty, \
-                  last_txn_at, created_at, updated_at) \
-             VALUES (?, ?::uuid, ?::uuid, NULL, NULLIF(?::text,'')::numeric, 0, ?, ?, ?) \
-             ON CONFLICT (material_id, warehouse_id, location_id) DO UPDATE SET \
-                 qty = il.qty + EXCLUDED.qty, \
-                 last_txn_at = EXCLUDED.last_txn_at, \
-                 updated_at = EXCLUDED.updated_at \
-             RETURNING qty"
-                .to_string(),
-            vec![
-                Value::from(Uuid::now_v7()),
-                Value::from(&material_id),
-                Value::from(&warehouse_id),
-                Value::Text(qty_text),
-                Value::from(now),
-                Value::from(now),
-                Value::from(now),
-            ],
-        )
-        .await?
-        .ok_or_else(|| {
-            DbError::InvalidValue(
-                "库位账 upsert 未返回行（biz_inventory_location 的 RETURNING 不应为空）".into(),
-            )
-        })?;
-    let after_qty: Decimal = row.get_typed("qty")?;
+    // P2-5A：库位账加法（两条分支 + 库位行归属校验）收口到 [`inventory_writer::add_location_qty`]。
+    let (before_qty, after_qty) =
+        inventory_writer::add_location_qty(ex, material_id, warehouse_id, location_id, qty, now)
+            .await?;
     Ok(AppliedLocation {
         before_qty,
         after_qty,
@@ -706,46 +547,31 @@ pub async fn write_txn(
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<()> {
-    let period_code = serial_model::period_code_of(now);
-    let operator_text = Value::Text(operator.map(|v| v.to_string()).unwrap_or_default());
-    ex.exec_sql(
-        "INSERT INTO biz_inventory_txn \
-             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
-              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-              after_qty, after_amount, after_cost, period_code, operator_id, created_at) \
-         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?)"
-            .to_string(),
-        vec![
-            Value::from(Uuid::now_v7()),
-            Value::from(&material_id),
-            Value::from(&warehouse_id),
-            Value::from(TXN_TYPE_IN),
-            Value::from(BIZ_TYPE_PURCHASE_IN),
-            Value::from(DOC_TYPE_STOCK_IN),
-            Value::from(&doc_id),
-            Value::from(doc_no),
-            Value::from(line_no),
-            Value::Text(cost.qty.round_dp(4).to_string()),
-            Value::Text(cost.unit_cost.to_string()),
-            Value::Text(cost.amount.round_dp(4).to_string()),
-            Value::Text(applied.before.qty.to_string()),
-            Value::Text(applied.before.amount.to_string()),
-            Value::Text(applied.before.avg_cost.to_string()),
-            Value::Text(applied.after.qty.to_string()),
-            Value::Text(applied.after.amount.to_string()),
-            Value::Text(applied.after.avg_cost.to_string()),
-            Value::from(period_code.as_str()),
-            operator_text,
-            Value::from(now),
-        ],
+    // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]（22 列只写一份）。
+    inventory_writer::insert_txn(
+        ex,
+        &TxnRecord {
+            material_id,
+            warehouse_id,
+            txn_type: TXN_TYPE_IN,
+            biz_type: BIZ_TYPE_PURCHASE_IN,
+            doc_type: DOC_TYPE_STOCK_IN,
+            doc_id,
+            doc_no,
+            line_no,
+            qty: cost.qty.round_dp(4),
+            unit_cost: cost.unit_cost,
+            amount: cost.amount.round_dp(4),
+            before: applied.before,
+            after: applied.after,
+            operator,
+            period_code: None,
+            remark: None,
+            now,
+        },
     )
-    .await?;
-    Ok(())
+    .await
+    .map(|_| ())
 }
 
 // ==================== ★ 作废：库存反向冲减（P9） ====================

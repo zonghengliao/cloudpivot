@@ -94,6 +94,8 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 use serde::Serialize;
 
+use super::inventory_writer;
+
 // ==================== 权限与路由 ====================
 
 /// 巡检权限码（与 `V0143__erp_audit_permission.up.sql` 逐字一致）。
@@ -174,30 +176,13 @@ fn audit_sql() -> String {
 ///   COALESCE(location_id, 全零 uuid))`（`uk_biz_inv_mat_wh_loc`），`INSERT` 显式写
 ///   `location_id = NULL` = 整仓汇总桶。写两列目标会在 V0139 之后以 PG 42P10 失败、
 ///   `dry_run=false` 直接 500（与 `recompute_quantity` 同一处修法，见模块头）。
+///
+/// 只在单测里用来断言「冲突目标是三列表达式」（生产路径直接用写入口执行）。
+#[cfg(test)]
 fn fix_sql() -> String {
-    format!(
-        "{AUDIT_CTE} \
-         , bad AS ( \
-            SELECT * FROM combos \
-             WHERE book_qty <> actual_qty AND warehouse_id IS NOT NULL \
-         ) \
-         INSERT INTO biz_inventory AS i \
-             (id, material_id, warehouse_id, location_id, qty, locked_qty, avg_cost, amount) \
-         SELECT gen_random_uuid(), b.material_id, b.warehouse_id, NULL::uuid, b.actual_qty, \
-                0, COALESCE(i_amt.avg_cost, 0)::numeric, \
-                b.actual_qty * COALESCE(i_amt.avg_cost, 0)::numeric \
-           FROM bad b \
-           LEFT JOIN biz_inventory i_amt \
-             ON i_amt.material_id = b.material_id AND i_amt.warehouse_id = b.warehouse_id \
-            AND i_amt.location_id IS NULL \
-         ON CONFLICT (material_id, warehouse_id, \
-                      COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid)) \
-         DO UPDATE \
-            SET qty = EXCLUDED.qty, \
-                amount = EXCLUDED.qty * i.avg_cost, \
-                updated_at = now() \
-         RETURNING i.id"
-    )
+    // P2-5A：写语句本体住在唯一写入口 [`inventory_writer::align_cost_qty_sql`]，
+    // 这里只把巡检侧「报的口径」那段只读 CTE 拼上去（读与写共用同一段 combos 定义）。
+    inventory_writer::align_cost_qty_sql(AUDIT_CTE)
 }
 
 // ==================== 契约 ====================
@@ -320,10 +305,13 @@ async fn scan(ex: &impl SqlExecutor, prefix: &str) -> DbResult<AuditReport> {
 
 /// 一条 `WITH … INSERT … ON CONFLICT` 修掉全部不一致行，返回实际改动行数。
 async fn fix(ex: &impl SqlExecutor, prefix: &str) -> DbResult<u64> {
-    let rows = ex
-        .query_sql(fix_sql(), vec![Value::from(prefix), Value::from(prefix)])
-        .await?;
-    Ok(u64::try_from(rows.len()).unwrap_or(0))
+    // P2-5A：执行也走唯一写入口（SQL 只有一份，报与修不可能各写一套）。
+    inventory_writer::align_cost_qty_batch(
+        ex,
+        AUDIT_CTE,
+        vec![Value::from(prefix), Value::from(prefix)],
+    )
+    .await
 }
 
 /// 巡检入口（`prefix` = 物料编码过滤，测试用）。

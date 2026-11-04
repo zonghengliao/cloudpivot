@@ -40,6 +40,7 @@ use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
+use super::inventory_writer::{self, TxnRecord};
 use crate::business::erp::stockin_base::{CostBasis, InventorySnapshot};
 use crate::business::erp::{stockin_cancel, stockin_write, stockout_model, voucher};
 use crate::business::shared::scope;
@@ -874,46 +875,31 @@ pub async fn page(q: &StockTakeFilter) -> DbResult<(Vec<StockTakeRow>, i64)> {
 
 /// 写一条盘点流水（`doc_type='STOCK_TAKE'`，数量与金额恒正，方向看 `txn_type`）。
 pub async fn write_txn(ex: &impl SqlExecutor, txn: &TxnWrite) -> DbResult<()> {
-    let period_code = super::serial_model::period_code_of(txn.now);
-    // SCOPE-EXEMPT: 库存流水是仓储台账，无归属列。
-    ex.exec_sql(
-        "INSERT INTO biz_inventory_txn \
-             (id, material_id, warehouse_id, txn_type, biz_type, doc_type, doc_id, doc_no, line_no, \
-              qty, unit_cost, amount, before_qty, before_amount, before_cost, \
-              after_qty, after_amount, after_cost, period_code, operator_id, created_at) \
-         VALUES (?, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                 NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,'')::uuid, ?)"
-            .to_string(),
-        vec![
-            Value::from(&Uuid::now_v7()),
-            Value::from(&txn.material_id),
-            Value::from(&txn.warehouse_id),
-            Value::from(txn.txn_type),
-            Value::from(txn.biz_type),
-            Value::from(DOC_TYPE),
-            Value::from(&txn.doc_id),
-            Value::from(txn.doc_no.as_str()),
-            Value::from(txn.line_no),
-            Value::Text(txn.qty.round_dp(4).to_string()),
-            Value::Text(txn.unit_cost.round_dp(6).to_string()),
-            Value::Text(txn.amount.round_dp(4).to_string()),
-            Value::Text(txn.before.qty.to_string()),
-            Value::Text(txn.before.amount.to_string()),
-            Value::Text(txn.before.avg_cost.to_string()),
-            Value::Text(txn.after.qty.to_string()),
-            Value::Text(txn.after.amount.to_string()),
-            Value::Text(txn.after.avg_cost.to_string()),
-            Value::from(period_code.as_str()),
-            Value::Text(txn.operator.map(|v| v.to_string()).unwrap_or_default()),
-            Value::from(txn.now),
-        ],
+    // P2-5A：流水 SQL 收口到 [`inventory_writer::insert_txn`]。
+    inventory_writer::insert_txn(
+        ex,
+        &TxnRecord {
+            material_id: txn.material_id,
+            warehouse_id: txn.warehouse_id,
+            txn_type: txn.txn_type,
+            biz_type: txn.biz_type,
+            doc_type: DOC_TYPE,
+            doc_id: txn.doc_id,
+            doc_no: txn.doc_no.as_str(),
+            line_no: txn.line_no,
+            qty: txn.qty.round_dp(4),
+            unit_cost: txn.unit_cost.round_dp(6),
+            amount: txn.amount.round_dp(4),
+            before: txn.before,
+            after: txn.after,
+            operator: txn.operator,
+            period_code: None,
+            remark: None,
+            now: txn.now,
+        },
     )
-    .await?;
-    Ok(())
+    .await
+    .map(|_| ())
 }
 
 // ==================== 过账：一行差异动三本账 ====================

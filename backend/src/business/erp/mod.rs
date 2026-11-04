@@ -110,6 +110,11 @@ pub mod form_snapshot;
 pub mod handler;
 pub mod income_statement;
 pub mod inventory_audit;
+/// 库存三本账（`biz_inventory` / `biz_inventory_location` / `biz_inventory_txn`）的**唯一写入口**。
+///
+/// P2-5A 收口：所有写 SQL 住在这里，业务模块只编排；闸门在
+/// `scripts/verify/inventory_write_gate.py`（非测试代码出现直接写 => 判红）。
+mod inventory_writer;
 pub mod ledger;
 pub mod model;
 pub mod opening;
