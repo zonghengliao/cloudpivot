@@ -1,0 +1,210 @@
+# AUDIT-ALL 手段1b · 质量信号扫描
+# repo_root = /opt/cp_audit_head
+
+## A 权限码覆盖（handler 级）
+模块                    handler文件  pub fn    权限标注     覆盖率
+task                          1      28      24     86%
+flow                          1      33      33    100%
+erp                          29     140      93     66%
+project                       1      10      11    110%
+system                        7      41      30     73%
+permission+masking            2      11      11    100%
+collab                        2      43      43    100%
+storage                       3      28      27     96%
+impexp                        1      19      19    100%
+help+changelog                2      21      22    105%
+job                           1       9       9    100%
+
+## A2 有 handler 文件但零权限标注的文件（潜在越权/漏码）
+  backend/src/business/erp/stockin_handler_cancel.rs: pub fn=3, permission=0
+  backend/src/business/erp/stockin_handler_common.rs: pub fn=1, permission=0
+  backend/src/business/erp/stockin_handler_post.rs: pub fn=3, permission=0
+  backend/src/system/auth/handler.rs: pub fn=8, permission=0
+  backend/src/system/badge/handler.rs: pub fn=1, permission=0
+  backend/src/system/preference/handler.rs: pub fn=2, permission=0
+
+## B 生产代码 panic 风险（排除 #[cfg(test)] 之后）
+  impexp               4
+  help+changelog       3
+  erp                  2
+  task                 1
+  flow                 1
+  permission+masking   1
+  shared               1
+  —— TOP20 明细 ——
+  [task] backend/src/business/task/handler.rs:1242  *flow_conflict_tx.lock().unwrap() = Some(error);
+  [flow] backend/src/business/flow/graph.rs:570  /// let cycle = graph.find_cycle().expect("必须检出环");
+  [erp] backend/src/business/erp/payable_query.rs:522  &nik::prelude::chrono::FixedOffset::east_opt(8 * 3600).expect("CST 偏移恒定"),
+  [erp] backend/src/business/erp/reminder.rs:286  FixedOffset::east_opt(TZ_OFFSET_SECS).expect("+08:00 一定是合法偏移")
+  [permission+masking] backend/src/business/masking/handler.rs:48  regex::Regex::new(r"^[a-z][a-z0-9_]{1,63}$").expect("标识符正则必须可编译")
+  [impexp] backend/src/business/impexp/builtin/master_data/account.rs:257  .map(|item| item.expect("全部行都应解析完成"))
+  [impexp] backend/src/business/impexp/registry.rs:176  panic!("内置导入导出定义注册失败：{error}");
+  [impexp] backend/src/business/impexp/registry.rs:184  panic!("用户导出定义注册失败：{error}");
+  [impexp] backend/src/business/impexp/validate.rs:520  .expect("unique_columns 非空");
+  [help+changelog] backend/src/business/changelog/handler.rs:593  .unwrap_or_else(|| date.and_hms_opt(0, 0, 0).expect("00:00:00 一定合法"))
+  [help+changelog] backend/src/business/changelog/partition.rs:109  chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 一定合法")
+  [help+changelog] backend/src/business/changelog/partition.rs:125  chrono::NaiveDate::from_ymd_opt(1970, 1, 1).expect("1970-01-01 一定合法")
+  [shared] backend/src/business/shared/doc_kind.rs:211  None => panic!("DocKind 没有 REST 路径段（不该在这里取）"),
+  —— 合计 13 处 ——
+
+## C 半截功能标记
+  collab               48
+  flow                 47
+  task                 22
+  erp                  13
+  help+changelog       9
+  shared               8
+  system               6
+  project              5
+  impexp               4
+  storage              3
+  job                  1
+  —— 合计 166 处；明细 TOP30 ——
+  [task] backend/src/business/task/burndown.rs:183  /// 占位符文本顺序：`{FILTER}` 内 scope 参数 → 「我参与」id 数组 → 项目 id。
+  [task] backend/src/business/task/dto.rs:35  pub const STATUS_TODO: &str = "TODO";
+  [task] backend/src/business/task/hermes_sync.rs:1342  "示例必须用本任务号占位：{body}"
+  [task] backend/src/business/task/mod.rs:15  //! | **T6b** | 补齐 T1 建表未实现的三张表：评论（列表 / 软删 / @强制通知）/ 附件（列表 / 软删 / **可见性校验的下载**）/ 工时（登记 / 删除 / **服务端汇总 `actual_hours`**）+
+  [task] backend/src/business/task/model.rs:118  /// ① `IN (?,?,…)` 的占位符个数 = `statuses` 长度，绑定参数按 vec 顺序逐个 push
+  [task] backend/src/business/task/state.rs:1030  // CANCELLED → TODO：同样只认创建人 / 管理员
+  [task] backend/src/business/task/state.rs:1326  assert_eq!(outgoing(TaskStatus::Cancelled).len(), 1); // TODO（恢复）
+  [task] backend/src/business/task/task_model_base.rs:30  /// 占位符顺序（**文本顺序**，必须与参数顺序一致）：
+  [task] backend/src/business/task/task_model_base.rs:224  ///    选择列表出现在所有 `WHERE` 占位符之前，放一个 `?` 进去，它的文本位置
+  [task] backend/src/business/task/task_model_query.rs:72  // `Value` 支不支持），且占位符个数与 `list` 长度严格一致。
+  [task] backend/src/business/task/task_model_root_only_tests.rs:183  "片段里不许有占位符：{sql_on}"
+  [task] backend/src/business/task/task_model_root_only_tests.rs:212  "status 1 + keyword 2 = 3，root_only 不占位"
+  [task] backend/src/business/task/task_model_root_only_tests.rs:223  "占位符个数也不许变"
+  [task] backend/src/business/task/task_model_rows.rs:200  /// `status`**：`IN (?,?,…)` 的占位符个数 = 本 vec 长度，绑定参数按 vec 顺序
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:20  const T_TODO: &str = "7a9d0000-0000-4000-8000-000000000101";
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:172  // ---------- ① 纯逻辑：IN 子句的占位符个数与参数顺序 ----------
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:175  /// 这是本卡最容易错的地方：占位符个数必须等于 vec 长度，参数逐个 push，
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:192  "占位符个数必须等于状态个数"
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:248  "优先取 statuses 的值（DONE），不是 status 的 TODO：{got}"
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:264  /// 与其它过滤组合时，`IN (?,?)` 的占位符仍在最前（参数顺序不被打乱）。
+  [task] backend/src/business/task/task_model_statuses_filter_tests.rs:307  // TODO 顶层 + DOING 顶层 + DOING 子任务 = 3
+  [task] backend/src/business/task/task_model_tests.rs:154  // 占位符数量（不含 {FILTER} 内的）必须等于 visible_params 的长度
+  [flow] backend/src/business/flow/assignee.rs:169  /// 业务拒绝（`65019` 自审禁止 / `65018` 无审批人 / `65032` EXPRESSION 未实现）。
+  [flow] backend/src/business/flow/dto.rs:1692  /// 可选：`true` = 与运行期完全一致（缺变量 → 400 + 65039）；默认 `false`（可见占位 + warning）。
+  [flow] backend/src/business/flow/dto.rs:1767  /// 告警（缺变量的可见占位、上一审批人为空、固定日期已过期…）。
+  [flow] backend/src/business/flow/edge_admin_tests.rs:210  assert!(!sql.contains("{edge_admin}"), "迁移里的占位符没被替换");
+  [flow] backend/src/business/flow/graph.rs:1333  // ③ 内联模板的占位符必须①语法正确②在白名单内（与 R21 同一套 `template_field_allowed`）；
+  [flow] backend/src/business/flow/graph.rs:1389  // ③ 内联模板占位符：语法 + 白名单
+  [flow] backend/src/business/flow/graph.rs:1481  // 发布期静态扫描（不是运行期 422）：占位符写错是最高频的配置错误。
+  [flow] backend/src/business/flow/graph.rs:1497  /// 模板语法错（占位符未闭合 / 变量名非法 / 超过一层点号）→ `65036`，与预演接口同码。
+
+## D 双真相嫌疑：同一张业务表被多个模块写入（INSERT/UPDATE 命中文件数 > 1）
+  biz_inventory              13 文件  <== 多写入点
+      - backend/src/business/erp/inventory_audit.rs
+      - backend/src/business/erp/model_tests.rs
+      - backend/src/business/erp/reminder_tests.rs
+      - backend/src/business/erp/serial_handler.rs
+      - backend/src/business/erp/serial_model.rs
+      - backend/src/business/erp/stockin_cancel.rs
+      - backend/src/business/erp/stockin_handler_tests_cancel.rs
+      - backend/src/business/erp/stockin_write.rs
+  biz_inventory_txn           8 文件  <== 多写入点
+      - backend/src/business/erp/model_tests.rs
+      - backend/src/business/erp/opening.rs
+      - backend/src/business/erp/serial_model.rs
+      - backend/src/business/erp/stockin_cancel.rs
+      - backend/src/business/erp/stockin_write.rs
+      - backend/src/business/erp/stockout_model.rs
+      - backend/src/business/erp/stocktake_model.rs
+      - backend/src/business/erp/transfer_settle.rs
+  biz_inventory_location     13 文件  <== 多写入点
+      - backend/src/business/erp/inventory_audit.rs
+      - backend/src/business/erp/model_tests.rs
+      - backend/src/business/erp/serial_handler.rs
+      - backend/src/business/erp/serial_model.rs
+      - backend/src/business/erp/stockin_cancel.rs
+      - backend/src/business/erp/stockin_handler_tests_helpers.rs
+      - backend/src/business/erp/stockin_handler_tests_location.rs
+      - backend/src/business/erp/stockin_handler_tests_location_dict.rs
+  biz_voucher                11 文件  <== 多写入点
+      - backend/src/business/erp/cash_flow.rs
+      - backend/src/business/erp/income_statement.rs
+      - backend/src/business/erp/period.rs
+      - backend/src/business/erp/period_test_support.rs
+      - backend/src/business/erp/pflow3b_tests.rs
+      - backend/src/business/erp/report.rs
+      - backend/src/business/erp/voucher.rs
+      - backend/src/business/erp/voucher_bridge.rs
+  biz_voucher_entry           9 文件  <== 多写入点
+      - backend/src/business/erp/aux_tests.rs
+      - backend/src/business/erp/cash_flow.rs
+      - backend/src/business/erp/income_statement.rs
+      - backend/src/business/erp/period.rs
+      - backend/src/business/erp/period_test_support.rs
+      - backend/src/business/erp/report.rs
+      - backend/src/business/erp/voucher.rs
+      - backend/src/business/erp/voucher_query.rs
+  biz_payable                 6 文件  <== 多写入点
+      - backend/src/business/attachment/tests.rs
+      - backend/src/business/erp/cancel_cascade_tests.rs
+      - backend/src/business/erp/payable_bridge.rs
+      - backend/src/business/erp/payable_payment.rs
+      - backend/src/business/erp/pflow3b_tests.rs
+      - backend/src/business/erp/reminder_tests.rs
+  biz_stock_in               10 文件  <== 多写入点
+      - backend/src/business/attachment/tests.rs
+      - backend/src/business/erp/batch.rs
+      - backend/src/business/erp/form_snapshot.rs
+      - backend/src/business/erp/period_test_support.rs
+      - backend/src/business/erp/stockin_handler_tests_a4.rs
+      - backend/src/business/erp/stockin_handler_tests_fixtures.rs
+      - backend/src/business/erp/stockin_handler_tests_helpers.rs
+      - backend/src/business/erp/stockin_handler_tests_p16.rs
+  biz_stock_out               0 文件
+  biz_purchase_order         15 文件  <== 多写入点
+      - backend/src/business/attachment/tests.rs
+      - backend/src/business/erp/cancel_cascade_tests.rs
+      - backend/src/business/erp/form_snapshot.rs
+      - backend/src/business/erp/model_tests.rs
+      - backend/src/business/erp/period.rs
+      - backend/src/business/erp/period_test_support.rs
+      - backend/src/business/erp/purchase_credit.rs
+      - backend/src/business/erp/purchase_handler.rs
+  biz_stock_transfer          4 文件  <== 多写入点
+      - backend/src/business/erp/form_snapshot.rs
+      - backend/src/business/erp/period_test_support.rs
+      - backend/src/business/erp/transfer_handler.rs
+      - backend/src/business/erp/transfer_scan.rs
+  biz_material_serial         7 文件  <== 多写入点
+      - backend/src/business/erp/inventory_audit.rs
+      - backend/src/business/erp/serial_handler.rs
+      - backend/src/business/erp/serial_model.rs
+      - backend/src/business/erp/stockin_cancel.rs
+      - backend/src/business/erp/stockin_handler_tests_cancel.rs
+      - backend/src/business/erp/transfer_handler.rs
+      - backend/src/business/erp/transfer_settle.rs
+  biz_status_log              3 文件  <== 多写入点
+      - backend/src/business/flow/linkage/model.rs
+      - backend/src/business/flow/linkage/tests.rs
+      - backend/src/business/shared/state_machine.rs
+
+## E 前端占位/死按钮（TODO/即将上线/敬请期待/未开放/console.log 遗留）
+  命中文件 58 个，共 118 处
+  frontend/src/components/BatchActionBar.vue:14  | 没勾选 | 整条工具栏不出现（不占位、不显示灰按钮） |
+  frontend/src/components/DeptTreeSelect.vue:28  /** 占位提示 */
+  frontend/src/components/DictSelect.vue:26  /** 占位提示 */
+  frontend/src/components/IconSelect/index.vue:82  /** 占位提示 */
+  frontend/src/layouts/BasicLayout.vue:154  /** 头像占位文字：取展示名首字符 */
+  frontend/src/layouts/components/LoginUnreadDialog.vue:106  status: 'TODO',
+  frontend/src/layouts/components/SideMenuItem.vue:61  /** 菜单项取值：有路径时用路由路径，否则用 id 占位（目录点击不跳转） */
+  frontend/src/views/business/announcement/center/index.vue:415  /* 已读：留占位但不显色（无红点）；未读：8px 语义错误色实心点 */
+  frontend/src/views/business/erp/payable/index.vue:935  * 详情接口失败不关抽屉：单头仍可看（用列表行占位）。
+  frontend/src/views/business/erp/purchase/index.vue:1157  /** 合同采购时供应商的显示值：合同乙方名 → 供应商主档名 → 占位提示 */
+  frontend/src/views/business/erp/stock-out/index.vue:774  /** 事由框的占位 / 提示随类型变（报废 / 盘亏必填） */
+  frontend/src/views/business/erp/stock-out/index.vue:858  /** 库位账行下拉的占位文案 */
+  frontend/src/views/business/erp/voucher/index.vue:907  /** 空凭证（打开抽屉的占位，避免下一帧读到上一张凭证的合计） */
+  frontend/src/views/business/erp/voucher/index.vue:929  * 先用列表行占位（单头字段列表已全给），再拉详情补 `entries` ——
+  frontend/src/views/business/flow/components/ConditionNodeRow.vue:211  /** 右值输入框占位文案（`in` 提示逗号分隔） */
+  frontend/src/views/business/flow/components/FlowCanvas.vue:1285  // 点阵：用「占位文字色 × 45%」混合，浅色 / 深色 / 22 套配色下都是一层淡淡的网点
+  frontend/src/views/business/flow/components/FlowCanvasVueFlow.vue:73  但老画布的网点色是「占位文字色 × 45%」，在浅色主题下本身只有 2/255 的可见度
+  frontend/src/views/business/flow/components/NodeProps.vue:666  /* 通知节点的只读占位（P-FLOW-2 起有正式表单，这两个类名仅为兼容旧样式保留） */
+  frontend/src/views/business/flow/components/TaskPreview.vue:41  打开「严格模式」看运行期会怎么报；关掉时缺变量会渲染成可见占位 〔form.xxx〕。
+  frontend/src/views/business/flow/components/TaskPreview.vue:45  <!-- 告警清单（黄）：缺变量的可见占位、固定日期已过期、解析出 0 人… -->
+  frontend/src/views/business/flow/components/TaskPreview.vue:121  * - 缺变量由后端渲染成可见占位 `〔form.xxx〕` 并进 `warnings`（黄），
+  frontend/src/views/business/flow/components/TemplateVarPicker.vue:69  没列出来的字段请直接手输，插入后得到 &#123;&#123;form.字段名&#125;&#125; 形式的占位符。
+  frontend/src/views/business/flow/components/ThenTargetEditor.vue:277  * 第二类必须补一条占位选项，否则 `t-select` 找不到 label 会显示成裸编码，
+  frontend/src/views/business/flow/start/index.vue:113  *   这里如实把后端错误提示出来（`flow-api.ts` 里该函数带 `TODO(D2)`），
+  frontend/src/views/business/notice/message/index.vue:158  TODO: '待办',

@@ -1,0 +1,82 @@
+================================================================================================
+AUDIT-ALL 6 条核心链路真机验证   接口=http://127.0.0.1:18099   库=cloudpivot_audit
+================================================================================================
+
+## 0. 登录与夹具
+[FAIL] admin 登录   token=无
+[PASS] 健康检查 /health   200
+[PASS] 审批人夹具就绪（制单员 1 + 审批人 6）
+[PASS] admin 已是改密后状态（重复跑幂等）   HTTP 401 未授权访问，请先登录
+[PASS] 用新密码重新登录   token=有
+[FAIL] 制单员登录（与审批人分离）   token=无
+
+## ① 合同 → 采购 → 收货 → 过账 → 应付 → 付款
+[PASS] 建合同   HTTP 200 no=HT-20261104-000002 msg=ok
+[FAIL] 合同提交审批   HTTP 400 target_status 必须是 DRAFT / PENDING_APPROVAL / SIGNED / ACTIVE / COMPLETED / TERMINATED 之一（当前 `SUBMITTED`） status=None
+[FAIL] 建采购单（合同采购）   HTTP 400 no=None 金额=None 合同=None msg=合同 HT-20261104-000002 当前是「草稿」（DRAFT），只有已签署（SIGNED）/ 生效（ACTIVE）的合同可以下单
+
+## ② 收货作废 → 三账回滚 + 凭证红冲
+[PASS] 建无源收货单   HTTP 200 no=None msg=ok
+[PASS] 过账后库存 +5   期望=10.0 实际=10.0
+[FAIL] 收货单落 CANCELLED   POSTED (HTTP 422 审批人 超级管理员 是发起人本人，本节点不允许自审（self_approval=FORBID）（内控要求：作废复核人不能是发起人本人。请由他人发起，或让另一个账号具备复核权限后再审）)
+[FAIL] 库存回滚到作废前   期望=5.0 实际=10.0
+[FAIL] 凭证红冲（is_red / reverse_of）   红字=0 反向指针=0
+[PASS] 作废增量凭证数   凭证总数 2 → 2
+
+## ③ 出库（领用）→ 库存减 + 成本凭证
+[PASS] 建领用单   HTTP 200 no=OUT-20261104-000003 msg=ok
+[FAIL] 领用过账   HTTP 409 金额=None 凭证=None msg=库存不足，过账已拒绝：物料 M-W1A-001 原料A（种子） 在仓库 WH01（总仓（种子））本次要出库 2.0000，没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：无库存。请把这一行拆成多行并分别指定库位，或先补货
+[FAIL] 库存减少 2   期望=-2.0 实际=0.0
+[FAIL] 领用成本金额 > 0
+[FAIL] 成本结转凭证已生成
+[PASS] 负库存出库被拦截（非 200）   HTTP 409 库存不足，过账已拒绝：物料 M-W1A-001 原料A（种子） 在仓库 WH01（总仓（种子））本次要出库 99999.0000，没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：无库存。请把这一行拆成多行并分别指定库位，或先补货
+
+## ④ 调拨 → 在途 → 完成
+[PASS] 建调拨单   HTTP 200 no=TK-20261104-000002 msg=ok
+[PASS] 调拨提交审批   HTTP 200 instance=01a1a6aa-010c-7231-95cf-9fb72b96fa31
+   ! 无法登录审批人 admin
+[FAIL] 调拨审批走完   PENDING
+[FAIL] 调拨发货 IN_TRANSIT   HTTP 409 非法状态流转：待审批 → IN_TRANSIT（在途）。待审批（PENDING）可以流转到：APPROVED / CANCELLED
+[FAIL] 调拨收货 DONE   HTTP 409 非法状态流转：待审批 → DONE（已完成）。待审批（PENDING）可以流转到：APPROVED / CANCELLED
+[FAIL] 调出仓减少 1   期望=-1.0 实际=0.0
+[FAIL] 调入仓增加 1   期望=1.0 实际=0.0
+
+## ⑤ 采购审批：金额分级 + 超信用额度分支
+[PASS] 建单 金额 80   HTTP 200 no=PO-20261104-000001 over_credit=False
+[PASS] 金额分级命中 小额 <10000 → 部门主管   s,c_credit,c_low,n_dept
+[FAIL] 超信用额度 → 财务复核节点出现（信用额度=0）   s,c_credit,c_low,n_dept
+   · 审批人 audit_dept 节点 n_dept → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 审批通过后单据 APPROVED   SUBMITTED
+[PASS] 建单 金额 60000   HTTP 200 no=PO-20261104-000002 over_credit=False
+[PASS] 金额分级命中 10000≤x<100000 → 采购经理   s,c_credit,c_low,c_mid,n_pm
+[FAIL] 超信用额度 → 财务复核节点出现（信用额度=0）   s,c_credit,c_low,c_mid,n_pm
+   · 审批人 audit_pm 节点 n_pm → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 审批通过后单据 APPROVED   SUBMITTED
+
+## 账簿终态
+[PASS] 全账 Σ借 = Σ贷   期望=90.4000 实际=90.4000
+[PASS] 库存金额 = 1405 余额   期望=80.0000 实际=80.0
+
+================================================================================================
+链路验证汇总：PASS=18  FAIL=20
+================================================================================================
+  [FAIL] admin 登录  token=无
+  [FAIL] 制单员登录（与审批人分离）  token=无
+  [FAIL] 合同提交审批  HTTP 400 target_status 必须是 DRAFT / PENDING_APPROVAL / SIGNED / ACTIVE / COMPLETED / TERMINATED 之一（当前 `SUBMITTED`） status=None
+  [FAIL] 建采购单（合同采购）  HTTP 400 no=None 金额=None 合同=None msg=合同 HT-20261104-000002 当前是「草稿」（DRAFT），只有已签署（SIGNED）/ 生效（ACTIVE）的合同可以下单
+  [FAIL] 收货单落 CANCELLED  POSTED (HTTP 422 审批人 超级管理员 是发起人本人，本节点不允许自审（self_approval=FORBID）（内控要求：作废复核人不能是发起人本人。请由他人发起，或让另一个账号具备复核权限后再审）)
+  [FAIL] 库存回滚到作废前  期望=5.0 实际=10.0
+  [FAIL] 凭证红冲（is_red / reverse_of）  红字=0 反向指针=0
+  [FAIL] 领用过账  HTTP 409 金额=None 凭证=None msg=库存不足，过账已拒绝：物料 M-W1A-001 原料A（种子） 在仓库 WH01（总仓（种子））本次要出库 2.0000，没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：无库存。请把这一行拆成多行并分别指定库位，或先补货
+  [FAIL] 库存减少 2  期望=-2.0 实际=0.0
+  [FAIL] 领用成本金额 > 0  None
+  [FAIL] 成本结转凭证已生成  None
+  [FAIL] 调拨审批走完  PENDING
+  [FAIL] 调拨发货 IN_TRANSIT  HTTP 409 非法状态流转：待审批 → IN_TRANSIT（在途）。待审批（PENDING）可以流转到：APPROVED / CANCELLED
+  [FAIL] 调拨收货 DONE  HTTP 409 非法状态流转：待审批 → DONE（已完成）。待审批（PENDING）可以流转到：APPROVED / CANCELLED
+  [FAIL] 调出仓减少 1  期望=-1.0 实际=0.0
+  [FAIL] 调入仓增加 1  期望=1.0 实际=0.0
+  [FAIL] 超信用额度 → 财务复核节点出现（信用额度=0）  s,c_credit,c_low,n_dept
+  [FAIL] 审批通过后单据 APPROVED  SUBMITTED
+  [FAIL] 超信用额度 → 财务复核节点出现（信用额度=0）  s,c_credit,c_low,c_mid,n_pm
+  [FAIL] 审批通过后单据 APPROVED  SUBMITTED

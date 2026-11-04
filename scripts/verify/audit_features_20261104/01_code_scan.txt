@@ -1,0 +1,361 @@
+# AUDIT-ALL 手段1 · 代码扫描原始输出
+# repo_root = /opt/cp_audit_head
+# commit    = 26f5edf25ded008421e65b2b4759d91028a4db13
+
+  # 功能                 文件     LOC   测试文件   测试函数   风险标记 unwrap   权限码  裸SQL  最大文件                                                 文档
+----------------------------------------------------------------------------------------------------------------------------------
+  1 工作任务管理             73   47164     13    213    183      5     0   103  backend/src/business/task/handler.rs (5664)          13
+  2 审批流引擎              69   62818     21    347     22     25     0   164  backend/src/business/flow/model.rs (4708)            9
+  3 采购管理               71   50974      8    127      0    134     0    75  backend/src/business/erp/purchase_handler.rs (3771)  5
+  4 收货管理               94   54601      4    144      0    385     0   169  frontend/src/views/business/erp/stockin/index.vue (2389) 3
+  5 出库管理               66   43162      1      7      0      0     0    27  frontend/src/views/business/erp/stockin/index.vue (2389) 2
+  6 库存管理               73   54218      7    123      0     33     0   139  backend/src/business/erp/opening.rs (2829)           2
+  7 调拨管理               71   47951      5     81      0      5     0    70  backend/src/business/erp/transfer_handler.rs (4576)  1
+  8 财务管理               69   54182      8    108      0    181     0   118  backend/src/business/erp/payable_payment.rs (4123)   0
+  9 财务报表               64   45994      3     55      0      3     0    20  backend/src/business/erp/cash_flow.rs (2562)         2
+ 10 会计期间/年结            73   48337      7     70      0      0     0    79  backend/src/business/erp/year_end.rs (2648)          0
+ 11 总账/辅助账             63   41599      1     31      0     15     0    10  frontend/src/views/business/erp/stockin/index.vue (2389) 1
+ 12 基础数据               63   40681      1      6      0      0     0    23  frontend/src/views/business/erp/stockin/index.vue (2389) 0
+ 13 项目管理                5    3302      2     21      1      4     0    11  backend/src/business/project/model.rs (1025)         2
+ 14 系统管理               50   24972     13    119     10      6     0   112  backend/src/system/auth/handler.rs (1892)            0
+ 15 数据权限               16    9612      9     81      0     11     0    48  backend/src/business/shared/scope.rs (1361)          0
+ 16 协作                 20   17101     14    121      8     13     0    74  backend/src/business/announcement/handler.rs (2308)  1
+ 17 文件存储               21   13973     10     93      0      0     0    26  backend/src/business/storage/handler.rs (2548)       2
+ 18 导入导出               27   15887     18    128      0      0     0    51  backend/src/business/impexp/handler.rs (1798)        1
+ 19 帮助中心/变更日志          17   11320     11     80      0      3     0    39  backend/src/business/help/model.rs (1951)            0
+ 20 定时任务                5    1732      0      0      0      0     0     2  backend/src/support/job/handler.rs (650)             0
+ 21 流程模板库              68   62588     21    347     22     25     0   164  backend/src/business/flow/model.rs (4708)            2
+ 22 状态机配置化             74   50027      1     39      0     25     0     9  backend/src/business/shared/state_machine.rs (3899)  4
+ 23 跨单据联动白名单           45   25874      0     35      2      0     0    19  frontend/src/views/business/flow/components/FlowCanvas.vue (1795) 3
+ 24 巡检体系               70   42061      0      0      0      0     0     0  frontend/src/views/business/erp/stockin/index.vue (2389) 3
+ 25 审批进度显示            102   60833      1      4      1      0     0     3  frontend/src/views/business/erp/stockin/index.vue (2389) 1
+ 26 结账检查清单             66   41687      2     24      0      0     0    25  frontend/src/views/business/erp/stockin/index.vue (2389) 0
+
+## 每功能 TOP5 最大文件
+
+### 1 工作任务管理
+    5664  backend/src/business/task/handler.rs
+    4037  frontend/src/api/business/erp/index.ts
+    2073  frontend/src/views/business/task/detail.vue
+    1760  backend/src/business/task/state.rs
+    1751  backend/src/business/task/dto.rs
+
+### 2 审批流引擎
+    4708  backend/src/business/flow/model.rs
+    4313  backend/src/business/flow/graph.rs
+    3649  backend/src/business/flow/engine.rs
+    3492  backend/src/business/flow/handler.rs
+    3205  backend/src/business/flow/task_bridge.rs
+
+### 3 采购管理
+    3771  backend/src/business/erp/purchase_handler.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1849  backend/src/business/erp/contract_handler.rs
+
+### 4 收货管理
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+### 5 出库管理
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+### 6 库存管理
+    2829  backend/src/business/erp/opening.rs
+    2808  backend/src/business/erp/serial_handler.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+
+### 7 调拨管理
+    4576  backend/src/business/erp/transfer_handler.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+
+### 8 财务管理
+    4123  backend/src/business/erp/payable_payment.rs
+    3689  backend/src/business/erp/voucher.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2361  backend/src/business/erp/payable_bridge.rs
+    2318  frontend/src/views/business/erp/transfer/index.vue
+
+### 9 财务报表
+    2562  backend/src/business/erp/cash_flow.rs
+    2500  backend/src/business/erp/report.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+
+### 10 会计期间/年结
+    2648  backend/src/business/erp/year_end.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2325  backend/src/business/erp/period.rs
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+
+### 11 总账/辅助账
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+### 12 基础数据
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+### 13 项目管理
+    1025  backend/src/business/project/model.rs
+     850  backend/src/business/project/handler.rs
+     842  frontend/src/views/business/project/index.vue
+     549  backend/src/business/project/dto.rs
+      36  backend/src/business/project/mod.rs
+
+### 14 系统管理
+    1892  backend/src/system/auth/handler.rs
+    1256  backend/src/system/user/handler.rs
+    1246  backend/src/system/role/handler.rs
+    1185  backend/src/system/menu/tests.rs
+    1059  frontend/src/views/system/role/index.vue
+
+### 15 数据权限
+    1361  backend/src/business/shared/scope.rs
+    1261  backend/src/business/permission/scope_model.rs
+     896  backend/src/business/masking/tests.rs
+     867  frontend/src/views/system/masking/index.vue
+     841  backend/src/business/masking/masker.rs
+
+### 16 协作
+    2308  backend/src/business/announcement/handler.rs
+    2267  backend/src/business/announcement/model.rs
+    1647  backend/src/business/announcement/dto.rs
+    1584  backend/src/business/notice/model.rs
+    1126  frontend/src/views/business/announcement/manage/index.vue
+
+### 17 文件存储
+    2548  backend/src/business/storage/handler.rs
+    2065  backend/src/business/storage/store.rs
+    1679  backend/src/business/storage/model.rs
+    1052  frontend/src/views/business/storage/backend/index.vue
+     827  backend/src/business/storage/sigv4.rs
+
+### 18 导入导出
+    1798  backend/src/business/impexp/handler.rs
+    1608  backend/src/business/impexp/model.rs
+    1212  backend/src/business/impexp/definition.rs
+    1054  backend/src/business/impexp/worker.rs
+    1018  backend/src/business/impexp/validate.rs
+
+### 19 帮助中心/变更日志
+    1951  backend/src/business/help/model.rs
+    1130  backend/src/business/help/handler.rs
+     948  frontend/src/views/business/help/manage/index.vue
+     926  backend/src/business/changelog/diff.rs
+     839  backend/src/business/changelog/dto.rs
+
+### 20 定时任务
+     650  backend/src/support/job/handler.rs
+     532  frontend/src/views/support/job/index.vue
+     339  backend/src/support/job/model.rs
+     181  backend/src/support/job/dto.rs
+      30  backend/src/support/job/mod.rs
+
+### 21 流程模板库
+    4708  backend/src/business/flow/model.rs
+    4313  backend/src/business/flow/graph.rs
+    3649  backend/src/business/flow/engine.rs
+    3492  backend/src/business/flow/handler.rs
+    3205  backend/src/business/flow/task_bridge.rs
+
+### 22 状态机配置化
+    3899  backend/src/business/shared/state_machine.rs
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+
+### 23 跨单据联动白名单
+    1795  frontend/src/views/business/flow/components/FlowCanvas.vue
+    1793  backend/src/business/flow/linkage/tests.rs
+    1689  frontend/src/views/business/flow/components/FlowCanvasVueFlow.vue
+    1373  frontend/src/views/business/flow/def/edit.vue
+    1196  frontend/src/views/business/flow/instance/detail.vue
+
+### 24 巡检体系
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+### 25 审批进度显示
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1795  frontend/src/views/business/flow/components/FlowCanvas.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+
+### 26 结账检查清单
+    2389  frontend/src/views/business/erp/stockin/index.vue
+    2318  frontend/src/views/business/erp/transfer/index.vue
+    2225  frontend/src/views/business/erp/purchase/index.vue
+    1698  frontend/src/views/business/erp/payable/index.vue
+    1598  frontend/src/views/business/erp/voucher/index.vue
+
+## 文档命中明细
+
+### 1 工作任务管理  (13 篇)
+  - docs/evidence/20261103-gate-v2/21_flow_task_node_证据.md
+  - docs/evidence/20261103-gate-v2/21_task_task_model_flow_证据.md
+  - docs/evidence/20261103-gate-v2/21_task_task_model_hierarchy_证据.md
+  - docs/evidence/20261103-gate-v2/21_task_task_model_schedule_证据.md
+  - docs/evidence/20261103-gate-v2/21_task_task_model_write_证据.md
+  - docs/任务列表-root_only-T8C-证据.md
+  - docs/任务列表树形改造-T8B-证据.md
+  - docs/任务父子深度-8层-T8A-证据.md
+  - docs/批次C+-工作任务管理-产品需求PRD.md
+  - docs/批次C+-工作任务管理-核心设计.md
+  - docs/批次C+-工作任务管理-详细架构.md
+  - docs/批次E-E11-任务模板与周期任务-验证证据.md
+
+### 2 审批流引擎  (9 篇)
+  - docs/architecture/ARCH-5-工作流引擎设计.md
+  - docs/architecture/流程全配置化-设计.md
+  - docs/architecture/流程画布-VueFlow迁移与清理计划.md
+  - docs/datafix-20261101-flowclean.md
+  - docs/evidence/20261103-gate-v2/21_flow_task_node_证据.md
+  - docs/evidence/20261103-gate-v2/21_flow_template_vars_证据.md
+  - docs/evidence/20261103-gate-v2/21_task_task_model_flow_证据.md
+  - docs/批次D-工作流审批-产品需求PRD.md
+  - docs/批次D-工作流审批-技术架构.md
+
+### 3 采购管理  (5 篇)
+  - docs/P0-FIX-采购审批死锁-证据.md
+  - docs/architecture/ARCH-2-合同表数据模型与校验规则.md
+  - docs/architecture/合同与勾稽关系设计.md
+  - docs/architecture/采购入库勾稽重构-设计.md
+  - docs/evidence/20261102-dc03-过账复核来源采购单.md
+
+### 4 收货管理  (3 篇)
+  - docs/architecture/采购入库勾稽重构-设计.md
+  - docs/evidence/20261103-p2-收货过账作废加锁顺序.md
+  - docs/技术方案-20261031-批量生成无来源入库.md
+
+### 5 出库管理  (2 篇)
+  - docs/evidence/20261103-dc13-出库单.md
+  - docs/evidence/20261103-dc13-出库单前端.md
+
+### 6 库存管理  (2 篇)
+  - docs/批次D-W2b-序列号接口-验证证据.md
+  - docs/批次D-W2c1-库存联动不变式-验证证据.md
+
+### 7 调拨管理  (1 篇)
+  - docs/在途调拨超期告警-LNK-F12.md
+
+### 8 财务管理  (0 篇)
+
+### 9 财务报表  (2 篇)
+  - docs/ERP-R2-利润表.md
+  - docs/ERP-R3-现金流量表.md
+
+### 10 会计期间/年结  (0 篇)
+
+### 11 总账/辅助账  (1 篇)
+  - docs/ERP-辅助核算口径.md
+
+### 12 基础数据  (0 篇)
+
+### 13 项目管理  (2 篇)
+  - docs/批次C+-T7c-项目分组-验证证据.md
+  - docs/项目结构与设计亮点.md
+
+### 14 系统管理  (0 篇)
+
+### 15 数据权限  (0 篇)
+
+### 16 协作  (1 篇)
+  - docs/批次A-通知定时发送.md
+
+### 17 文件存储  (2 篇)
+  - docs/批次C+-T6b-评论附件工时-交付与验收.md
+  - docs/批次E-E13-AI产出文件浏览-验证证据.md
+
+### 18 导入导出  (1 篇)
+  - docs/批次A-导入导出接口.md
+
+### 19 帮助中心/变更日志  (0 篇)
+
+### 20 定时任务  (0 篇)
+
+### 21 流程模板库  (2 篇)
+  - docs/批次E-E11-任务模板与周期任务-验证证据.md
+  - docs/走查记录/模板-走查记录.md
+
+### 22 状态机配置化  (4 篇)
+  - docs/ERP-P10-状态机统一-证据.md
+  - docs/批次C+-T2-状态机与进度-验证证据.md
+  - docs/状态机边配置化-D1.md
+  - docs/状态机配置管理面与审批化-D3.md
+
+### 23 跨单据联动白名单  (3 篇)
+  - docs/批次D-W2c1-库存联动不变式-验证证据.md
+  - docs/跨单据联动动作接管-D3.md
+  - docs/跨单据联动白名单-D2.md
+
+### 24 巡检体系  (3 篇)
+  - docs/P1-FIX-后端-form_data快照与TaskRes-证据.md
+  - docs/architecture/快照一致性巡检与告警设计.md
+  - docs/evidence/20261103-b1-快照巡检落地.md
+
+### 25 审批进度显示  (1 篇)
+  - docs/evidence/c2-审批进度四单统一.md
+
+### 26 结账检查清单  (0 篇)
+
+## 全仓基础数据
+backend/src 总行数        : 287731
+backend .rs 文件数        : 377
+backend 最大 10 文件      :
+5664 backend/src/business/task/handler.rs
+    4708 backend/src/business/flow/model.rs
+    4576 backend/src/business/erp/transfer_handler.rs
+    4313 backend/src/business/flow/graph.rs
+    4123 backend/src/business/erp/payable_payment.rs
+    3899 backend/src/business/shared/state_machine.rs
+    3771 backend/src/business/erp/purchase_handler.rs
+    3690 backend/src/business/erp/dto.rs
+    3689 backend/src/business/erp/voucher.rs
+    3656 backend/src/business/erp/handler.rs
+    3649 backend/src/business/flow/engine.rs
+frontend/src 总行数       : 118523
+frontend 最大 10 文件     :
+4037 frontend/src/api/business/erp/index.ts
+   2389 frontend/src/views/business/erp/stockin/index.vue
+   2378 frontend/src/components/IconSelect/icons.ts
+   2318 frontend/src/views/business/erp/transfer/index.vue
+   2225 frontend/src/views/business/erp/purchase/index.vue
+   2073 frontend/src/views/business/task/detail.vue
+   1795 frontend/src/views/business/flow/components/FlowCanvas.vue
+   1698 frontend/src/views/business/erp/payable/index.vue
+   1689 frontend/src/views/business/flow/components/FlowCanvasVueFlow.vue
+   1598 frontend/src/views/business/task/gantt.vue
+   1598 frontend/src/views/business/erp/voucher/index.vue
+迁移文件数                : 155
+迁移最大版本              : 0219
+全仓 TODO/FIXME/unimplemented：
+230
+全仓 .unwrap() 数量        : 1022
+全仓 #[alun::permission]   : 0

@@ -1,0 +1,94 @@
+================================================================================================
+AUDIT-ALL 6 条核心链路真机验证   接口=http://127.0.0.1:18099   库=cloudpivot_audit
+================================================================================================
+
+## 0. 登录与夹具
+[PASS] admin 登录（已改密状态，幂等重跑）   token=有
+[PASS] 健康检查 /health   200
+[PASS] 夹具就绪（制单员 1 + 审批人 6，口令哈希对齐 admin 现状）
+[PASS] 制单员登录（制单人 ≠ 审批人）   token=有
+
+## ① 合同 → 采购 → 收货 → 过账 → 应付 → 付款
+[PASS] 建合同   HTTP 200 no=HT-20261104-000003 msg=ok
+[PASS] 合同提交审批   HTTP 200 ok status=PENDING_APPROVAL
+   · 审批人 audit_pm 节点 n_pm → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 合同审批后状态（SIGNED/ACTIVE）   PENDING_APPROVAL
+[PASS] 合同签署 SIGNED   HTTP 200 ok
+[PASS] 建采购单（合同采购）   HTTP 200 no=PO-20261104-000003 金额=80.0000 合同=01a1a6aa-8d65-7572-8ee8-e2fc645f067e msg=ok
+[PASS] 采购单提交审批   HTTP 200 status=None instance=01a1a6aa-8f6a-7240-8526-1a44fde3e800
+   · 审批人 audit_dept 节点 n_dept → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 采购审批走完   PENDING
+[PASS] 命中「超信用额度」分支节点 c_credit   s,c_credit,c_low,n_dept
+[PASS] 按采购单建收货单（明细自动带出）   HTTP 200 no=None 金额=None msg=ok
+[PASS] 收货提交过账   HTTP 200 status=None msg=ok
+[PASS] 收货单落 POSTED   POSTED
+[PASS] 库存增加 10   期望=10.0 实际=10.0
+[PASS] 库存金额增加 80（10×8 不含税）   期望=80.0 实际=80.0
+[PASS] 过账自动生成应付单   7e9eacfe-fac1-41e4-8022-d134a85b024c
+[FAIL] 应付金额 = 收货不含税金额   期望=80 实际=90.4000
+[FAIL] 付款提交（走审批或直过）   HTTP 403 outcome=None msg=无权限访问，需要权限: business:erp:payable:pay
+[FAIL] 应付已付金额 = 80   期望=80 实际=0.0000
+[FAIL] 应付单结清   OPEN
+[FAIL] 付款单落库   0
+
+## ② 收货作废 → 三账回滚 + 凭证红冲
+[PASS] 建无源收货单   HTTP 200 no=None msg=ok
+[PASS] 过账后库存 +5   期望=15.0 实际=15.0
+   · 审批人 admin 节点 n_review → HTTP 200 ok
+[PASS] 作废审批走完   APPROVED
+[PASS] 收货单落 CANCELLED   CANCELLED (HTTP 200 ok)
+[PASS] 库存回滚到作废前   期望=10.0 实际=10.0
+[PASS] 凭证红冲（is_red / reverse_of）   红字=1 反向指针=1
+[PASS] 作废增量凭证数   凭证总数 4 → 5
+
+## ③ 出库（领用）→ 库存减 + 成本凭证
+[PASS] 建领用单   HTTP 200 no=OUT-20261104-000005 msg=ok
+[PASS] 领用过账   HTTP 200 金额=16.0000 凭证=52f2bfa3-12f3-43a6-8b18-0216ec401849 msg=ok
+[PASS] 库存减少 2   期望=8.0 实际=8.0
+[PASS] 领用成本金额 > 0   16.0000
+[PASS] 成本结转凭证已生成   52f2bfa3-12f3-43a6-8b18-0216ec401849
+[PASS] 负库存出库被拦截（非 200）   HTTP 409 库存不足，过账已拒绝：物料 M-W1A-001 原料A（种子） 在仓库 WH01（总仓（种子））本次要出库 99999.0000，没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：未分配: 8.0000。请把这一行拆成多行并分别指定库位，或先补货
+
+## ④ 调拨 → 在途 → 完成
+[PASS] 建调拨单   HTTP 200 no=TK-20261104-000003 msg=ok
+[PASS] 调拨提交审批   HTTP 200 instance=01a1a6aa-9cb9-75c5-8f2d-77287a9e69aa
+   · 审批人 admin 节点 n_approve → HTTP 200 ok
+[PASS] 调拨审批走完   APPROVED
+[PASS] 调拨发货 IN_TRANSIT   HTTP 200 ok
+[PASS] 调拨收货 DONE   HTTP 200 ok
+[PASS] 调出仓减少 1   期望=7.0 实际=7.0
+[PASS] 调入仓增加 1   期望=1.0 实际=1.0
+
+## ⑤ 采购审批：金额分级 + 超信用额度分支
+[PASS] 设置供应商信用额度 = 50（原为 0 = 未设额度）   biz_supplier.credit_limit
+[PASS] 建单 金额 80   HTTP 200 no=PO-20261104-000004 over_credit=False
+[FAIL] 金额分级命中 小额 <10000 → 部门主管   s,c_credit,n_fin
+[PASS] 超信用额度 → 财务复核节点出现（信用额度=0）   s,c_credit,n_fin
+   · 审批人 audit_fin 节点 n_fin → HTTP 200 ok
+   · 审批人 audit_dept 节点 n_dept → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 审批通过后单据 APPROVED   SUBMITTED
+[PASS] 建单 金额 60000   HTTP 200 no=PO-20261104-000005 over_credit=False
+[FAIL] 金额分级命中 10000≤x<100000 → 采购经理   s,c_credit,n_fin
+[PASS] 超信用额度 → 财务复核节点出现（信用额度=0）   s,c_credit,n_fin
+   · 审批人 audit_fin 节点 n_fin → HTTP 200 ok
+   · 审批人 audit_pm 节点 n_pm → HTTP 403 无权限访问，需要权限: business:flow:approve
+[FAIL] 审批通过后单据 APPROVED   SUBMITTED
+
+## 账簿终态
+[PASS] 全账 Σ借 = Σ贷   期望=287.2000 实际=287.2000
+[PASS] 库存金额 = 1405 余额   期望=144.0000 实际=144.0
+
+================================================================================================
+链路验证汇总：PASS=43  FAIL=11
+================================================================================================
+  [FAIL] 合同审批后状态（SIGNED/ACTIVE）  PENDING_APPROVAL
+  [FAIL] 采购审批走完  PENDING
+  [FAIL] 应付金额 = 收货不含税金额  期望=80 实际=90.4000
+  [FAIL] 付款提交（走审批或直过）  HTTP 403 outcome=None msg=无权限访问，需要权限: business:erp:payable:pay
+  [FAIL] 应付已付金额 = 80  期望=80 实际=0.0000
+  [FAIL] 应付单结清  OPEN
+  [FAIL] 付款单落库  0
+  [FAIL] 金额分级命中 小额 <10000 → 部门主管  s,c_credit,n_fin
+  [FAIL] 审批通过后单据 APPROVED  SUBMITTED
+  [FAIL] 金额分级命中 10000≤x<100000 → 采购经理  s,c_credit,n_fin
+  [FAIL] 审批通过后单据 APPROVED  SUBMITTED

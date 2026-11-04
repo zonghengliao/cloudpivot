@@ -1,0 +1,306 @@
+Pager usage is off.
+Timing is off.
+=== 00 meta ===
+cloudpivot|2026-11-04 21:00:15.773786|219|115
+=== 00b 全表行数（0 行 = 从未被使用） ===
+operation_logs|6689
+auth_logs|1628
+audit_logs|1221
+biz_task_comment|947
+datafix_e2e_residue_snapshot|929
+biz_task|846
+sys_change_log|671
+sys_change_log_2026_10|662
+sys_notice_receiver|548
+sys_role_menu|361
+biz_flow_instance_node|332
+sys_notice|315
+datafix_e2eres2_snapshot|301
+sys_menu|286
+schema_migrations|163
+datafix_flowclean_snapshot|154
+biz_flow_task|146
+biz_flow_node|141
+biz_flow_edge|123
+biz_status_log|113
+biz_flow_instance|112
+biz_task_worklog|99
+security_logs|89
+sys_dict_item|79
+sys_file|76
+biz_task_attachment|68
+datafix_e2eres2_target|63
+biz_account|56
+biz_voucher_entry|55
+biz_report_item|53
+datafix_e2e_residue_guard|45
+datafix_e2eres2_guard|39
+biz_flow_def_version|38
+biz_flow_node_assignee|36
+biz_flow_def|33
+sys_token_blacklist|33
+biz_material_serial|31
+biz_unit|28
+sys_user|26
+biz_inventory_txn|25
+sys_announcement_read|24
+sys_announcement|23
+biz_voucher|21
+biz_task_member|19
+biz_purchase_order|18
+biz_purchase_order_item|18
+sys_config|16
+sys_role|16
+sys_user_role|16
+biz_stock_in|15
+biz_stock_in_item|15
+datafix_flowclean_guard|14
+biz_cashflow_item|12
+biz_payable|12
+sys_help_doc_version|12
+biz_contract|11
+datafix_p14_snapshot|11
+sys_dict_type|11
+sys_notice_template|11
+biz_seq|10
+p0fix_self_approval_backup|10
+sys_ai_agent|9
+sys_change_log_2026_11|9
+sys_help_category|9
+biz_location|8
+biz_stock_out|8
+biz_stock_out_item|8
+biz_stock_transfer|8
+biz_stock_transfer_item|8
+sys_help_doc|8
+sys_preference_def|8
+sys_storage_policy|8
+sys_user_preference|8
+biz_material|7
+biz_warehouse|7
+biz_stock_transfer_item_serial|5
+biz_task_ai_token|5
+password_change_logs|5
+sys_field_mask|5
+biz_project|4
+sys_dept|4
+sys_job|4
+biz_inventory|3
+biz_accounting_period|2
+biz_inventory_location|2
+sys_export_task|2
+biz_supplier|1
+biz_voucher_rule|1
+sys_role_mutex|1
+sys_storage_config|1
+biz_doc_attachment|0
+biz_flow_cc|0
+biz_flow_linkage_rule|0
+biz_flow_state_edge|0
+biz_opening_balance|0
+biz_opening_inventory|0
+biz_payment|0
+biz_project_member|0
+biz_reminder_log|0
+biz_stock_take|0
+biz_stock_take_item|0
+biz_task_dependency|0
+biz_task_template|0
+datafix_residue_batch|0
+datafix_residue_report|0
+sys_announcement_attachment|0
+sys_announcement_scope|0
+sys_change_log_2026_12|0
+sys_import_task|0
+sys_import_task_error|0
+sys_job_log|0
+sys_notice_delivery|0
+sys_role_dept|0
+=== 01 任务管理 biz_task ===
+task_status|DOING|3
+task_status|DONE|63
+task_status|REVIEW|1
+task_status|TODO|13
+task_total|80|2|14|5|48|39
+task_semantic||80
+task_exec|AI|1
+task_exec|HUMAN|79
+task_depth|1|13
+task_depth|2|7
+task_dep|0
+task_worklog|99|180.0
+task_template|0
+task_comment|947
+task_member|19
+task_attachment|68
+task_hermes|10
+task_ai_token|5
+=== 02 审批流 flow ===
+flowdef|11|9|11|PUBLISHED
+flowdef_list|contract_approve|合同审批（标准·金额分级）|PUBLISHED|1
+flowdef_list|flow_edge_config|状态机配置变更审批（改流程规则前先过复核）|PUBLISHED|1
+flowdef_list|payable_cancel|应付单作废审批（标准）|PUBLISHED|1
+flowdef_list|payable_pay|应付付款审批|PUBLISHED|1
+flowdef_list|po_approve|采购订单审批（标准·金额分级）|PUBLISHED|2
+flowdef_list|stock_in_cancel|收货单作废审批|PUBLISHED|1
+flowdef_list|stock_in_post|收货过账审批（标准·金额分级）|PUBLISHED|1
+flowdef_list|stock_take_post|盘点过账审批（标准·差异金额分级）|PUBLISHED|1
+flowdef_list|stock_transfer|库存调拨审批|PUBLISHED|1
+flowdef_list|task_accept|任务验收|PUBLISHED|1
+flowdef_list|voucher_reverse|凭证红冲审批（标准）|PUBLISHED|1
+flowdef_ver|38|18
+flowinst|APPROVED|91
+flowinst|CANCELLED|16
+flowinst|WITHDRAWN|3
+flowinst|REJECTED|1
+flowinst|PENDING|1
+flowinst_biz|TASK_ACCEPT|91
+flowinst_biz|PO_APPROVE|7
+flowinst_biz|CONTRACT_APPROVE|5
+flowinst_biz|FLOW_EDGE_CFG|4
+flowinst_biz|STOCK_IN_POST|4
+flowinst_biz|STOCK_TRANSFER|1
+flowtask|APPROVED|97
+flowtask|CANCELLED|36
+flowtask|SKIPPED|10
+flowtask|TRANSFERRED|1
+flowtask|REJECTED|1
+flowtask|PENDING|1
+flownode|141
+flowedge|123
+flowassignee|36
+flowcc|0
+linkage_rule|0|0
+state_edge|0|0
+flow_last|2026-11-04 16:14:42.438564+08
+=== 03 采购 purchase + contract ===
+contract|ACTIVE|1
+contract_type|PURCHASE|1
+po|APPROVED|3
+po|CANCELLED|2
+po|DRAFT|1
+po|RECEIVED|8
+po_type|SPOT|EXCL|11
+po_type|SPOT|INCL|2
+po_type|CONTRACT|EXCL|1
+po_total|14|1808.9800|1|0
+po_item|18|826.0000|1808.9800
+po_link|1|13
+=== 04 收货 stockin ===
+stockin|CANCELLED|3
+stockin|DRAFT|2
+stockin|POSTED|9
+stockin_type|PURCHASE|14
+stockin_total|14|1815.9900
+stockin_item|15|835.0000|1817.9900
+stockin_src|9|5
+stockin_posted_novoucher|0
+stockin_cancel|3
+=== 05 出库 stockout ===
+stockout|DRAFT|2
+stockout|POSTED|6
+stockout_type|ISSUE|6
+stockout_type|LOSS|1
+stockout_type|SCRAP|1
+stockout_total|8|22.0000
+stockout_novoucher|0
+=== 06 库存 inventory ===
+inv|3|609.0000|1304.9900|0|0
+inv_loc|2|609.0000|0
+inv_txn|25|2026-10-31 01:50:33.752469+08|2026-11-03 21:34:40.868171+08
+inv_txn_type|IN|14
+inv_txn_type|OUT|11
+serial|IN_STOCK|28
+serial|OUTBOUND|2
+serial|SCRAPPED|1
+opening_inv|0|0|0
+=== 07 调拨 transfer ===
+transfer|CANCELLED|2
+transfer|DONE|2
+transfer|IN_TRANSIT|1
+transfer_item|8|11.0000|3.0000|3.0000
+transfer_transit|1|0
+=== 08 财务 voucher/payable/payment ===
+voucher|POSTED|21
+voucher_src|STOCK_IN|15
+voucher_src|STOCK_OUT|6
+voucher_entry|55|1722.1200|1722.1200|0.0000
+voucher_imbalance|0
+voucher_rule|1
+psql:<stdin>:95: ERROR:  argument of FILTER must be type boolean, not type smallint
+LINE 1: select 'voucher_red' k, count(*) filter (where is_red) red f...
+                                                       ^
+payable|CANCELLED|3
+payable|OPEN|9
+payable_amt|1599.8100|0.0000|1599.8100|0
+payment|0|0
+=== 09 报表 report ===
+report_item|BALANCE_SHEET|41
+report_item|INCOME_STATEMENT|12
+cashflow_item|12
+=== 10 期间/年结 period ===
+period|OPEN|2
+period_all|2|2026-10|2026-11
+opening_bal|0|0|0
+=== 11 总账：科目余额 vs 凭证 ===
+gl_vs_entry|0|0
+=== 12 基础数据 master ===
+material|5|5|1
+material_type|RAW|2
+material_type|FINISHED|2
+material_type|SEMI|1
+supplier|1|1
+warehouse|3
+location|4
+account|56
+unit|28
+=== 13 项目 project ===
+project|ACTIVE|3
+project_member|0
+=== 14 系统 system ===
+user|9|9|7
+role|12
+menu|286|276
+dept|4
+dict_type|11
+auth_log|1628|2026-11-04 19:29:46.939635+08
+=== 15 数据权限 ===
+field_mask|5
+role_dept|0
+role_mutex|1
+=== 16 协作 collab ===
+announcement|PUBLISHED|1
+ann_read|24
+notice|315
+notice_recv|548|254
+notice_tpl|11
+psql:<stdin>:145: ERROR:  operator does not exist: character varying = integer
+LINE 1: ...livery' k, count(*), count(*) filter (where status=0) st0, s...
+                                                             ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+=== 17 文件存储 storage ===
+file|72|12663282
+storage_cfg|1|1
+storage_policy|8
+doc_attach|0
+ann_attach|0
+=== 18 导入导出 impexp ===
+import_err|0
+export_task|SUCCESS|2
+=== 19 帮助/变更日志 ===
+help_doc|5|5
+help_ver|12
+help_cat|9
+change_log|671|2026-10-29 12:06:04.991734+08|2026-11-04 16:14:42.383305+08
+=== 20 定时任务 job ===
+job|0|4
+job_log|0|
+job_list|erp_contract_expire_scan|0 30 7 * * *|0
+job_list|erp_low_stock_scan|0 40 7 * * *|0
+job_list|erp_payable_due_scan|0 10 7 * * *|0
+job_list|erp_po_overdue_scan|0 20 7 * * *|0
+=== 24 巡检/日志 ===
+operation_log|6689|2026-11-04 19:29:46.939929+08
+audit_log|1221
+reminder_log|0
+status_log|113
