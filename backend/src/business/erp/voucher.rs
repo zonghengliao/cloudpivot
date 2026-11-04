@@ -35,9 +35,23 @@
 //! 三行合计天然平衡：`biz_stock_in` 上有 `ck_biz_si_tax CHECK (total_with_tax = total_amount + total_tax)`。
 //! 落库前仍在本模块再断言一次（`InvalidValue`），因为凭证表那条 `CHECK` 是最后一道闸，不是第一道。
 //!
-//! 多物料单据**按单头金额汇总成一行存货分录**（卡面 §三 ④ 明确「3 行」）。PRD §3.4.2 的
-//! 「按物料汇总成多行」在本卡不落地：`biz_stock_in` 没有存「物料存货科目」的快照列，
-//! 逐物料拆行会让同一张凭证在不同时点重放出不同行数。差异写进交付说明。
+//! # 多物料单据：**按去重物料拆分录**（P2-1b / `docs/ERP-辅助核算口径.md` §4）
+//!
+//! 存货借方不再是一条汇总行，而是「**每个去重物料一行**」（粒度 `MATERIAL`，不是明细行）：
+//! 收货含税 `M + 2` 行（`1405`×M + `2221.01`×1 + `2202`×1）、零税 `M + 1` 行、出库 `2M` 行。
+//! `M = 1` 时行数与拆分前**逐字相同**（收货 3 / 出库 2），这是回归面的底线。
+//!
+//! 三条硬约束（违反任一条，物料的辅助账就会记错而不是记缺）：
+//!
+//! 1. **金额取明细、单头不重算**：`Σ(存货行) ≡ 单头 total_amount`，尾差由
+//!    [`absorb_tail_diff`] 吸收到按 `material_id` 升序的最后一行（吸收不了 → 报错，不静默）；
+//! 2. **拆分只写在共享 builder 里**（[`purchase_in_lines`] / [`create_for_stock_out`]）：
+//!    过账路径与联动配置路径都走 [`create_by_rule`]，同改同变 ⇒ D3 影子对比不会因拆分报差异；
+//! 3. **科目逐行解析**（规则 `debit_account_id` → **该行物料** `inventory_account_id` → `1405`）：
+//!    批量一条 SQL 取回，不做 N 次单查。以前只解析首个物料的科目，规则没配 `debit_account_id`
+//!    且两种物料各有存货科目时整笔会挂到首个物料的科目上 —— 那是**记错科目**。
+//!
+//! 贷方应付、进项税**仍按 `DOC` 一条**：应付对供应商、进项税对发票，按物料拆没有会计意义。
 //!
 //! # ★ 红冲口径：借贷互换，不用负数（与卡面 §五 的一处差异）
 //!
@@ -68,6 +82,8 @@ use nik::prelude::chrono::{DateTime, NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
+
+use std::collections::BTreeMap;
 
 use crate::business::erp::serial_model;
 use crate::business::erp::stockin_model::StockInRow;
@@ -530,6 +546,154 @@ async fn material_inventory_account(
     }
 }
 
+/// 一个物料的存货科目解析结果（逐物料出行用；`label` 只用于分行摘要）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaterialInventoryRef {
+    /// 摘要用的物料标签（`物料 {material_code}`；物料已软删 / 取不到编码 → `物料 {id 前 8 位}`）。
+    pub label: String,
+    /// 该物料的存货科目（规则 → 物料 `inventory_account_id` → `1405` 的**最终**结果）。
+    pub account: AccountRef,
+}
+
+/// **一条 SQL** 批量解析本单每个物料的存货科目（P2-1b §4.4）。
+///
+/// 退化顺序与 [`resolve_accounts_with`] 逐字一致，只是把「首个物料的科目」换成「**这一行物料**
+/// 的科目」：
+///
+/// ```text
+/// 规则 debit_account_id  →  该物料 biz_material.inventory_account_id  →  1405 库存商品
+/// ```
+///
+/// # 为什么必须一次取完
+///
+/// 一张 200 行的收货单去重后可能几十个物料；逐行查 `biz_material` + `biz_account` 就是几十次
+/// 往返，而凭证是在**过账事务**里生成的（持着收货单行锁），慢查询会直接拖长锁等待。
+///
+/// # 退化与报错
+///
+/// * 规则配了 `debit_account_id`（实测三个库的活跃规则 100% 有值）⇒ 全部物料都用它
+///   （仍会取一次物料编码做分行摘要，但不再看物料的科目）；
+/// * 物料没配科目 / 科目被停用 / 物料已软删 ⇒ 该行退到默认 `1405`；
+/// * 默认 `1405` 也不存在 ⇒ `account_missing`（宁可拦住，不许兜底，PRD §3.4.3）。
+async fn material_inventory_accounts(
+    ex: &impl SqlExecutor,
+    rule_debit: Option<&AccountRef>,
+    material_lines: &[VoucherMaterialLine],
+) -> DbResult<BTreeMap<Uuid, MaterialInventoryRef>> {
+    let mut resolved: BTreeMap<Uuid, MaterialInventoryRef> = BTreeMap::new();
+    if material_lines.is_empty() {
+        return Ok(resolved);
+    }
+    // 物料编码 + 该物料自己的存货科目（科目必须**启用且未删**，与 `load_account_by_id` 同口径）
+    let mut sql = String::from(
+        "SELECT m.id, m.material_code, a.id AS account_id, a.account_code, a.account_name \
+           FROM biz_material m \
+           LEFT JOIN biz_account a \
+             ON a.id = m.inventory_account_id AND a.status = 1 AND a.deleted_at IS NULL \
+          WHERE m.deleted_at IS NULL AND m.id IN (",
+    );
+    for index in 0..material_lines.len() {
+        if index > 0 {
+            sql.push(',');
+        }
+        sql.push_str("?::uuid");
+    }
+    sql.push(')');
+    let params: Vec<Value> = material_lines
+        .iter()
+        .map(|line| Value::from(&line.material_id))
+        .collect();
+    let rows = ex.query_sql(sql, params).await?;
+    // 中间态：`material_id → (物料编码, 该物料自己的存货科目)`，后一步再套「规则 → 物料 → 1405」
+    let mut from_material: BTreeMap<Uuid, Option<(String, AccountRef)>> = BTreeMap::new();
+    for row in &rows {
+        let id: Uuid = row.get_typed("id")?;
+        let code: String = row.get_typed("material_code")?;
+        let account_id: Option<Uuid> = row.get_typed("account_id")?;
+        let account = match account_id {
+            Some(_) => Some(AccountRef {
+                id: row.get_typed("account_id")?,
+                code: row.get_typed("account_code")?,
+                name: row.get_typed("account_name")?,
+            }),
+            None => None,
+        };
+        from_material.insert(id, account.map(|account| (code, account)));
+    }
+    // 默认 1405 只在真的需要时取一次（多数单子走不到这一层）
+    let mut default_account: Option<AccountRef> = None;
+    for line in material_lines {
+        let found = from_material.get(&line.material_id).cloned().flatten();
+        let (label, material_account) = match found {
+            Some((code, account)) => (format!("物料 {code}"), Some(account)),
+            // 物料已软删 / 不存在：分录照样要出（金额在明细上），摘要退回 id 前 8 位
+            None => (format!("物料 {}", short_id(line.material_id)), None),
+        };
+        let account = match rule_debit {
+            Some(account) => account.clone(),
+            None => match material_account {
+                Some(account) => account,
+                None => match &default_account {
+                    Some(account) => account.clone(),
+                    None => {
+                        let loaded = load_account_by_code(ex, DEFAULT_INVENTORY_CODE)
+                            .await?
+                            .ok_or_else(|| {
+                                account_missing(
+                                    "默认存货科目 1405 库存商品",
+                                    "biz_voucher_rule 无 PURCHASE_IN 规则且物料未配存货科目",
+                                )
+                            })?;
+                        default_account = Some(loaded.clone());
+                        loaded
+                    }
+                },
+            },
+        };
+        resolved.insert(line.material_id, MaterialInventoryRef { label, account });
+    }
+    Ok(resolved)
+}
+
+/// 主键的短形式（前 8 位）：物料已软删 / 取不到编码时，摘要里至少能对上 id。
+fn short_id(id: Uuid) -> String {
+    id.to_string().chars().take(8).collect()
+}
+
+/// 分录摘要里的物料标签：`物料 {编码}`（取不到编码 → `物料 {id 前 8 位}`）。
+fn material_label(codes: &BTreeMap<Uuid, String>, material_id: Uuid) -> String {
+    match codes.get(&material_id) {
+        Some(code) => format!("物料 {code}"),
+        None => format!("物料 {}", short_id(material_id)),
+    }
+}
+
+/// 批量取物料编码（出库凭证的分行摘要用；**一条 SQL**，不给每行查一次）。
+async fn material_codes(ex: &impl SqlExecutor, ids: &[Uuid]) -> DbResult<BTreeMap<Uuid, String>> {
+    let mut codes: BTreeMap<Uuid, String> = BTreeMap::new();
+    if ids.is_empty() {
+        return Ok(codes);
+    }
+    let mut sql = String::from(
+        "SELECT id, material_code FROM biz_material WHERE deleted_at IS NULL AND id IN (",
+    );
+    for index in 0..ids.len() {
+        if index > 0 {
+            sql.push(',');
+        }
+        sql.push_str("?::uuid");
+    }
+    sql.push(')');
+    // SCOPE-EXEMPT: biz_material 是物料主数据（全局），没有归属列。
+    let params: Vec<Value> = ids.iter().map(Value::from).collect();
+    for row in &ex.query_sql(sql, params).await? {
+        let id: Uuid = row.get_typed("id")?;
+        let code: String = row.get_typed("material_code")?;
+        codes.insert(id, code);
+    }
+    Ok(codes)
+}
+
 /// 供应商的应付科目（`biz_supplier.payable_account_id`，可空）。
 async fn supplier_payable_account(
     ex: &impl SqlExecutor,
@@ -668,6 +832,109 @@ impl VoucherAmounts {
     }
 }
 
+/// 一条「按物料拆分」的存货分录来源（P2-1b，`docs/ERP-辅助核算口径.md` §4.2）。
+///
+/// 粒度是**去重物料**（`MATERIAL`）而不是明细行 —— 同一 `material_id` 的多行必须先在
+/// [`VoucherMaterialLine::normalize`] 里合并（金额相加、数量相加、行号取 min/max），
+/// 所以这里的 `amount` 已经是「该物料的 Σ 明细金额」，不是单行金额。
+///
+/// 金额只来自明细（收货 `biz_stock_in_item.amount`、出库账上真实扣减额），单头金额**不在这里
+/// 重算**：`Σ(存货行) ≡ 单头 total_amount` 的尾差由 [`absorb_tail_diff`] 吸收。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VoucherMaterialLine {
+    /// 物料（`biz_material.id`；也是出行的**升序键**，与批次 1 技术架构的加锁顺序同口径）。
+    pub material_id: Uuid,
+    /// 该物料的 Σ 数量。
+    ///
+    /// **不写进分录**：`aux_qty` 本批留空（§4.6：没有数量账消费方，科目上也没有「是否数量核算」
+    /// 开关）。留在这里是为了日志与「行数/数量对得上」的排查。
+    pub qty: Decimal,
+    /// 该物料的 Σ 明细金额（收货是不含税行金额，出库是账上真实扣减金额）。
+    pub amount: Decimal,
+    /// 该物料覆盖的最小明细行号（摘要写「第 k–j 行」，与明细双向追溯）。
+    pub line_from: i32,
+    /// 该物料覆盖的最大明细行号。
+    pub line_to: i32,
+}
+
+impl VoucherMaterialLine {
+    /// 归一化成「按 `material_id` 升序、每个物料恰好一行」。
+    ///
+    /// 三条要求都在这一个地方保证，调用方（过账路径 / 配置路径 / 出库路径）不需要各自再排一次：
+    /// * **升序**：同一张单两次生成的凭证行序必须一致（D3 影子对比逐行比对）；
+    /// * **去重**：同一物料的多行明细先合并（金额、数量相加，行号取区间端点）；
+    /// * **幂等**：已经是归一化结果再走一遍不变。
+    pub fn normalize(lines: impl IntoIterator<Item = Self>) -> Vec<Self> {
+        let mut merged: BTreeMap<Uuid, Self> = BTreeMap::new();
+        for line in lines {
+            match merged.get_mut(&line.material_id) {
+                Some(existing) => {
+                    existing.qty += line.qty;
+                    existing.amount += line.amount;
+                    existing.line_from = existing.line_from.min(line.line_from);
+                    existing.line_to = existing.line_to.max(line.line_to);
+                }
+                None => {
+                    merged.insert(line.material_id, line);
+                }
+            }
+        }
+        merged.into_values().collect()
+    }
+}
+
+/// 把「单头金额 − Σ 明细金额」的尾差吸收到按 `material_id` 升序的最后一行。
+///
+/// # 为什么要吸收而不是重算单头
+///
+/// 凭证的硬约束是 `Σ借 = Σ贷` 与 `Σ(存货行) = 单头 total_amount`（`post_voucher` 与
+/// `erp_invariants` A1/B2）。单头金额是权威值，明细是取数来源；两者只可能因为**非 API 写入**
+/// （历史数据 / 手工 SQL / 测试夹具）而不等，这时候差额必须落在账上，不能悄悄丢掉。
+///
+/// # 口径（§4.2）
+///
+/// * `diff ≠ 0` ⇒ `tracing::warn!` 点名**单号 + 差额**（正常业务恒为 0，非 0 = 数据质量信号）；
+/// * 先加到**最后一个物料**那行；如果吸收后该行金额 ≤ 0（异常数据），往前退一个物料；
+/// * 所有行都吸收不了 ⇒ **报错**（`InvalidValue`），绝不静默吞掉差额。
+///
+/// # 参数
+///
+/// * `header_amount`：单头金额（权威值，已 `round_dp(4)`）；
+/// * `amounts`：按物料升序的逐物料金额（长度与物料行一致，**已剔除 0 元物料**）。
+pub fn absorb_tail_diff(
+    doc_no: &str,
+    header_amount: Decimal,
+    amounts: &[Decimal],
+) -> DbResult<Vec<Decimal>> {
+    let header = header_amount.round_dp(4);
+    let material_sum: Decimal = amounts.iter().copied().sum();
+    let diff = (header - material_sum).round_dp(4);
+    if diff.is_zero() {
+        return Ok(amounts.to_vec());
+    }
+    tracing::warn!(
+        doc_no,
+        header_amount = %header,
+        material_sum = %material_sum.round_dp(4),
+        tail_diff = %diff,
+        "按物料拆分录的尾差不为 0：差额已吸收到最后一行（正常业务恒为 0，非 0 = 数据质量信号）"
+    );
+    let mut adjusted = amounts.to_vec();
+    for index in (0..adjusted.len()).rev() {
+        let candidate = (adjusted[index] + diff).round_dp(4);
+        if candidate > Decimal::ZERO {
+            adjusted[index] = candidate;
+            return Ok(adjusted);
+        }
+    }
+    Err(DbError::InvalidValue(format!(
+        "凭证生成失败：按物料拆分录的尾差吸收不了（单据 {doc_no} 单头金额 {header}、\
+         明细合计 {}、尾差 {diff}；按物料升序从后往前没有一行吸收后仍 > 0）。\
+         这是数据质量问题（单头与明细不一致），请先核对单据金额",
+        material_sum.round_dp(4)
+    )))
+}
+
 /// 一条待落库的分录。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntryLine {
@@ -696,43 +963,103 @@ pub struct EntryLine {
 pub struct LineContext {
     /// 借方存货行的辅助核算：仓库。
     pub warehouse_id: Option<Uuid>,
-    /// 借方存货行的辅助核算：物料（多物料汇总时为空）。
+    /// **回退分支**（`material_lines` 为空）的存货行物料辅助核算。
+    ///
+    /// 按物料拆分录时，每行的物料来自 [`VoucherMaterialLine::material_id`]，不读这个字段
+    /// （P2-1b 起多物料单不再留空，而是逐物料出行）。
     pub material_id: Option<Uuid>,
     /// 贷方应付行的辅助核算：供应商。
     pub supplier_id: Option<Uuid>,
 }
 
-/// 采购入库蓝字分录（PRD §3.4.2 / 卡面 §三 ④）。
+/// 采购入库蓝字分录（PRD §3.4.2 / 卡面 §三 ④ / P2-1b §4.3）。
 ///
 /// ```text
-/// 借 库存商品        total_amount   （不含税）
-/// 借 应交税费-进项税  total_tax      （税率为 0 时不产生该行）
-/// 贷 应付账款        total_with_tax （价税合计）
+/// 借 库存商品        Σ(该物料明细金额)  × M   （每行 aux_material_id = 该行物料 + aux_warehouse_id）
+/// 借 应交税费-进项税  total_tax          × 1   （税率为 0 时不产生该行）
+/// 贷 应付账款        total_with_tax     × 1   （aux_supplier_id，仍按 DOC 一条）
 /// ```
 ///
-/// 金额为 0 的行直接略过（例如 0 元赠品行），行号最后统一重排。
+/// # 两条分支
+///
+/// * `material_lines` 为空 ⇒ **回退**到「单头一行 1405」（`material_id = ctx.material_id`）。
+///   非 `STOCK_IN` 的调用方与历史数据走这里，行为与 P2-1b 之前**逐字相同**；
+/// * 非空 ⇒ **每个去重物料一行**（`M + 2` / 零税 `M + 1` 行）：金额取该物料的 Σ 明细金额，
+///   尾差由 [`absorb_tail_diff`] 吸收到最后一行，科目用 `material_accounts` 里**该物料**的科目。
+///   金额为 0 的物料不出行（0 元赠品行不占金额，数量仍在库存流水里）。
+///
+/// # 为什么拆分写在这里（而不是 handler 里）
+///
+/// 过账路径（`create_for_stock_in`）与联动配置路径（`linkage::actions::commit_voucher`）都调
+/// [`create_by_rule`]，再调本函数 —— **只有一份拆分实现**，所以 D3 影子对比（逐行比 `lines` /
+/// `entry_count`）不会因为两条路径各写一套而报差异。谁在 handler 里另写一套，影子立刻红。
+///
+/// # 参数
+///
+/// * `doc_no`：单号（只用于尾差 WARN / 报错点名单据）；
+/// * `material_accounts`：逐物料存货科目（必须覆盖 `material_lines` 的全部物料，缺了报错）；
+/// * 其它参数同拆分前。
 pub fn purchase_in_lines(
     accounts: &AccountSet,
     amounts: VoucherAmounts,
     summary: &str,
     ctx: LineContext,
-) -> Vec<EntryLine> {
-    let mut lines: Vec<EntryLine> = Vec::with_capacity(3);
-    if amounts.amount > Decimal::ZERO {
-        lines.push(EntryLine {
-            line_no: 0,
-            summary: format!("{summary} 存货"),
-            account: accounts.inventory.clone(),
-            debit: amounts.amount,
-            credit: Decimal::ZERO,
-            aux_supplier_id: None,
-            aux_material_id: ctx.material_id,
-            aux_warehouse_id: ctx.warehouse_id,
-            // 采购入库**故意不写部门**：`biz_purchase_order` / `biz_stock_in` 都没有
-            // `dept_id`，"谁买的"在系统里没有权威字段（DC-11 / DC-16）。按申请人部门
-            // 猜一个值等于给财务一张错的部门辅助账，不如留空（见模块文档 §辅助核算）。
-            aux_dept_id: None,
-        });
+    material_lines: &[VoucherMaterialLine],
+    material_accounts: &BTreeMap<Uuid, MaterialInventoryRef>,
+    doc_no: &str,
+) -> DbResult<Vec<EntryLine>> {
+    let materials = VoucherMaterialLine::normalize(material_lines.iter().cloned());
+    let mut lines: Vec<EntryLine> = Vec::with_capacity(materials.len() + 2);
+    if materials.is_empty() {
+        // ---- 回退：单头一行 1405（与 P2-1b 之前逐字相同）----
+        if amounts.amount > Decimal::ZERO {
+            lines.push(EntryLine {
+                line_no: 0,
+                summary: format!("{summary} 存货"),
+                account: accounts.inventory.clone(),
+                debit: amounts.amount,
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: ctx.material_id,
+                aux_warehouse_id: ctx.warehouse_id,
+                // 采购入库**故意不写部门**：`biz_purchase_order` / `biz_stock_in` 都没有
+                // `dept_id`，"谁买的"在系统里没有权威字段（DC-11 / DC-16）。按申请人部门
+                // 猜一个值等于给财务一张错的部门辅助账，不如留空（见模块文档 §辅助核算）。
+                aux_dept_id: None,
+            });
+        }
+    } else {
+        // ---- 按物料拆：每个物料一行 1405，金额取明细、末行吸尾差 ----
+        let mut positives: Vec<&VoucherMaterialLine> = materials
+            .iter()
+            .filter(|line| line.amount > Decimal::ZERO)
+            .collect();
+        // `normalize` 已按 material_id 升序；这里再排一次是廉价的自证（顺序是契约的一部分）
+        positives.sort_by_key(|line| line.material_id);
+        let amounts_of_materials: Vec<Decimal> = positives.iter().map(|line| line.amount).collect();
+        let split = absorb_tail_diff(doc_no, amounts.amount, &amounts_of_materials)?;
+        for (line, amount) in positives.iter().zip(split) {
+            let resolved = material_accounts.get(&line.material_id).ok_or_else(|| {
+                DbError::InvalidValue(format!(
+                    "凭证生成失败：单据 {doc_no} 的物料 {} 没有解析出存货科目（内部错误：\
+                     逐物料科目批取与物料行对不上）",
+                    line.material_id
+                ))
+            })?;
+            let rows = line_range_text(line.line_from, line.line_to);
+            lines.push(EntryLine {
+                line_no: 0,
+                summary: format!("{summary} 存货 {}（{rows}）", resolved.label),
+                account: resolved.account.clone(),
+                debit: amount,
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: Some(line.material_id),
+                aux_warehouse_id: ctx.warehouse_id,
+                // 同回退分支：采购入库不写部门（单据上没有权威部门字段）
+                aux_dept_id: None,
+            });
+        }
     }
     if amounts.tax > Decimal::ZERO
         && let Some(tax_account) = accounts.tax.clone()
@@ -765,7 +1092,19 @@ pub fn purchase_in_lines(
     for (index, line) in lines.iter_mut().enumerate() {
         line.line_no = i32::try_from(index + 1).unwrap_or(0);
     }
-    lines
+    Ok(lines)
+}
+
+/// 明细行号区间的摘要文字：`第 3 行` / `第 3–5 行`。
+///
+/// 只写区间不写逐行，是因为凭证的物料粒度到「物料」为止；行级金额本来就在
+/// `biz_stock_in_item` / `biz_stock_out_item` 上可查，摘要给出区间即可双向追溯。
+fn line_range_text(line_from: i32, line_to: i32) -> String {
+    if line_from == line_to {
+        format!("第 {line_from} 行")
+    } else {
+        format!("第 {line_from}–{line_to} 行")
+    }
 }
 
 /// 红字分录：**借贷互换**（架构 §2.5.2 方案 B），金额原样、行号重排、摘要加「红冲 」。
@@ -1047,19 +1386,19 @@ pub struct VoucherBizCtx {
     pub summary: String,
     /// 映射规则用的业务类型（`PURCHASE_IN`）。
     pub biz_type: String,
-    /// 存货科目退化用的物料。
-    pub material_id: Option<Uuid>,
-    /// 存货行的**物料辅助核算值**（只有单据里**唯一一种物料**时才有值）。
+    /// 存货科目退化用的物料（= 本单**首个**物料，按 `material_id` 升序）。
     ///
-    /// 为什么与 `material_id` 分开：`material_id` 还承担「按物料解析存货科目」的职责
-    /// （`resolve_accounts_with`），必须始终有值；而辅助核算写错比留空更糟 ——
-    /// 一张 3 种物料的收货单，存货借方是**汇总行**，把整笔金额挂到首个物料上
-    /// 会让「物料成本」报表凭空多出两个物料的成本（DC-11 的反向坑）。
-    /// 多物料时的正确做法是「按物料拆分录」，那是独立决议（见 P2-1b 卡），
-    /// 在决议落地前这里留空 + WARN，让数据保持可解释。
-    pub aux_material_id: Option<Uuid>,
-    /// 单据里的物料种类数（`COUNT(DISTINCT material_id)`，用于判定并写进 WARN）。
-    pub material_count: i64,
+    /// 保留这个字段是因为 [`resolve_accounts_with`] 仍需一个物料来做「规则没配 → 物料科目」
+    /// 的退化；按物料拆行之后，每行的科目由 [`material_inventory_accounts`] 逐物料解析。
+    pub material_id: Option<Uuid>,
+    /// **按去重物料聚合的存货行**（P2-1b §4.2：粒度 `MATERIAL`，按 `material_id` 升序）。
+    ///
+    /// 空 = 回退到「单头一行 1405」（非 `STOCK_IN` 的调用方与历史数据）；
+    /// 非空 = 每个物料一行存货分录，`entry_count = M + 2`（含税）/ `M + 1`（零税）。
+    ///
+    /// 取数只有两条路（口径逐字一致）：过账路径在手内存明细上聚合
+    /// （`stockin_handler_post`），配置路径走 `stockin_query::material_lines_of` 的一条聚合 SQL。
+    pub material_lines: Vec<VoucherMaterialLine>,
     /// 应付科目退化用的供应商。
     pub supplier_id: Option<Uuid>,
     /// 辅助核算：仓库。
@@ -1067,18 +1406,16 @@ pub struct VoucherBizCtx {
 }
 
 impl VoucherBizCtx {
-    /// **取数的唯一实现**：收货单单头 → 凭证上下文。
+    /// **取数的唯一实现**：收货单单头 + 按物料聚合的明细 → 凭证上下文。
     ///
-    /// 与 `create_for_stock_in` 拆分前逐字相同（金额 `round_dp(4)`、摘要格式、
-    /// `biz_type = PURCHASE_IN`、辅助核算取首个物料 / 供应商 / 仓库）。
+    /// 与拆分前逐字相同（金额 `round_dp(4)`、摘要格式、`biz_type = PURCHASE_IN`、
+    /// 供应商 / 仓库辅助核算），只多了一件事：物料维度从「首个物料 + 种类数」换成
+    /// **逐物料的 `(material_id, Σqty, Σamount, 行号区间)`**。
     ///
-    /// `material_count` = 本单的**物料种类数**：`> 1` 时存货借方是汇总行，
-    /// 物料辅助核算只能留空（理由见 [`VoucherBizCtx::aux_material_id`]）。
-    pub fn of_stock_in(
-        header: &StockInRow,
-        first_material: Option<Uuid>,
-        material_count: i64,
-    ) -> Self {
+    /// `material_lines` 会先过一遍 [`VoucherMaterialLine::normalize`]（升序 + 同物料合并），
+    /// 所以两条取数路径即使给的顺序不同，生成的分录也逐行一致（D3 影子对比的前提）。
+    pub fn of_stock_in(header: &StockInRow, material_lines: Vec<VoucherMaterialLine>) -> Self {
+        let material_lines = VoucherMaterialLine::normalize(material_lines);
         Self {
             source_type: SOURCE_STOCK_IN.to_string(),
             source_id: header.id,
@@ -1090,13 +1427,8 @@ impl VoucherBizCtx {
                 header.in_no, header.total_with_tax
             ),
             biz_type: BIZ_TYPE_PURCHASE_IN.to_string(),
-            material_id: first_material,
-            aux_material_id: if material_count <= 1 {
-                first_material
-            } else {
-                None
-            },
-            material_count,
+            material_id: material_lines.first().map(|line| line.material_id),
+            material_lines,
             supplier_id: header.supplier_id,
             warehouse_id: Some(header.warehouse_id),
         }
@@ -1154,7 +1486,8 @@ pub async fn create_by_rule(
         })?),
         None => load_rule(ex, &ctx.biz_type).await?,
     };
-    let accounts = resolve_accounts_with(ex, rule, ctx.material_id, ctx.supplier_id).await?;
+    let accounts =
+        resolve_accounts_with(ex, rule.clone(), ctx.material_id, ctx.supplier_id).await?;
 
     // 税率 > 0 但系统里没有进项税科目 → 拦住（不许静默漏记进项税）
     if ctx.amounts.tax > Decimal::ZERO && accounts.tax.is_none() {
@@ -1164,15 +1497,22 @@ pub async fn create_by_rule(
         ));
     }
 
-    // 多物料收货单的存货借方是一条汇总行 ⇒ 物料辅助核算留空（写首个物料的 id 等于
-    // 把整笔金额记到那个物料头上，会让物料成本报表虚增）。这里是唯一打 WARN 的地方：
-    // 财务看到这条日志就知道「这张单的成本按物料查不到」，而不会误以为查到的数是全的。
-    if ctx.material_count > 1 {
-        tracing::warn!(
+    // 逐物料的存货科目（一条 SQL 批取，P2-1b §4.4）：规则 debit → 该物料科目 → 1405。
+    // 批取是硬要求：凭证在过账事务里生成（持着收货单行锁），N 次单查会把锁等待拖长。
+    let material_accounts = material_inventory_accounts(
+        ex,
+        rule.as_ref().and_then(|r| r.debit.as_ref()),
+        &ctx.material_lines,
+    )
+    .await?;
+    if !ctx.material_lines.is_empty() {
+        // 多物料单不再是「汇总行 + 物料留空」，而是逐物料出行 —— 这条日志让财务能按单号
+        // 确认「这张单的存货成本按物料查得到 M 条」。
+        tracing::info!(
             source_no = %ctx.source_no,
-            material_count = ctx.material_count,
-            "收货单含 {} 种物料，存货借方是汇总行 ⇒ aux_material_id 留空（按物料拆分录待 P2-1b 决议）",
-            ctx.material_count
+            material_count = ctx.material_lines.len(),
+            "凭证按物料拆分录：{} 行存货分录（每个物料一行）",
+            ctx.material_lines.len()
         );
     }
     let lines = purchase_in_lines(
@@ -1181,10 +1521,13 @@ pub async fn create_by_rule(
         &ctx.summary,
         LineContext {
             warehouse_id: ctx.warehouse_id,
-            material_id: ctx.aux_material_id,
+            material_id: ctx.material_id,
             supplier_id: ctx.supplier_id,
         },
-    );
+        &ctx.material_lines,
+        &material_accounts,
+        &ctx.source_no,
+    )?;
     let (debit, credit) = totals_of(&lines);
     if lines.len() < 2 {
         return Err(DbError::InvalidValue(format!(
@@ -1769,12 +2112,11 @@ pub async fn reverse_posted(
 pub async fn create_for_stock_in(
     ex: &impl SqlExecutor,
     header: &StockInRow,
-    first_material: Option<Uuid>,
-    material_count: i64,
+    material_lines: Vec<VoucherMaterialLine>,
     operator: Option<Uuid>,
     now: DateTime<Utc>,
 ) -> DbResult<Uuid> {
-    let ctx = VoucherBizCtx::of_stock_in(header, first_material, material_count);
+    let ctx = VoucherBizCtx::of_stock_in(header, material_lines);
     create_by_rule(ex, None, &ctx, operator, now).await
 }
 
@@ -2018,7 +2360,7 @@ enum DebitSide {
 
 // ==================== 写：出库单成本结转凭证（ARCH-3 DC-13） ====================
 
-/// 出库单过账 → 蓝字凭证的入参（一张单**一张**凭证，不按行拆）。
+/// 出库单过账 → 蓝字凭证的入参（一张单**一张**凭证；行数按物料拆，P2-1b §4.3）。
 ///
 /// 打包成结构体是必须的：`post_voucher` 之外还有 9 个业务字段，
 /// 摊平会直接撞 clippy 的 `too_many_arguments`（-D warnings 下是硬错）。
@@ -2036,11 +2378,14 @@ pub struct StockOutVoucher<'a> {
     pub debit_code: &'a str,
     /// 借方科目名（写进分录摘要，便于人直接看懂）。
     pub debit_name: &'a str,
-    /// 存货行的物料辅助核算值：**只有整单唯一一种物料时才有值**。
+    /// **按物料聚合的出库行**（P2-1b：粒度 `MATERIAL`，`amount` = 该物料账上真实扣减金额）。
     ///
-    /// 多物料出库单的成本结转凭证是「一条汇总行」（借 6401 / 贷 1405 各一行），
-    /// 把整笔成本挂到首个物料上会让物料成本报表虚增/虚减，所以多物料时传 `None`，
-    /// 由调用方打 WARN。按物料拆分录是 P2-1b 的独立决议（DC-11）。
+    /// 非空 ⇒ 借成本科目 `M` 行 + 贷 `1405` `M` 行（`2M` 行），每行带该行物料的辅助核算；
+    /// 空 ⇒ 回退到「借 1 行 + 贷 1 行」的汇总行（历史行为），此时用 [`Self::aux_material_id`]。
+    pub material_lines: Vec<VoucherMaterialLine>,
+    /// **回退分支**（`material_lines` 为空）的存货行物料辅助核算值。
+    ///
+    /// 按物料拆分录时每行的物料来自 [`Self::material_lines`]，本字段不参与。
     pub aux_material_id: Option<Uuid>,
     /// 出库仓库（存货行的 `aux_warehouse_id`：账上能按仓拆开看）。
     pub warehouse_id: Uuid,
@@ -2090,31 +2435,96 @@ pub async fn create_for_stock_out(
 
     let inventory = account_required(ex, DEFAULT_INVENTORY_CODE, "库存商品").await?;
     let debit = account_required(ex, req.debit_code, req.debit_name).await?;
-    let lines = vec![
-        EntryLine {
-            line_no: 1,
-            summary: req.summary.clone(),
-            account: debit,
-            debit: amount,
-            credit: Decimal::ZERO,
-            aux_supplier_id: None,
-            aux_material_id: req.aux_material_id,
-            // 借方（成本 / 待处理损溢）是全公司口径的科目，不挂仓库辅助核算。
-            aux_warehouse_id: None,
-            aux_dept_id: None,
-        },
-        EntryLine {
-            line_no: 2,
-            summary: req.summary.clone(),
-            account: inventory,
-            debit: Decimal::ZERO,
-            credit: amount,
-            aux_supplier_id: None,
-            aux_material_id: req.aux_material_id,
-            aux_warehouse_id: Some(req.warehouse_id),
-            aux_dept_id: None,
-        },
-    ];
+    // 按物料拆（P2-1b §4.3）：`M` 个物料 ⇒ 借成本科目 `M` 行 + 贷 1405 `M` 行。
+    // 金额 ≤ 0 的物料不出行（零成本存量的物料不占分录，数量仍在库存流水里）。
+    let materials = VoucherMaterialLine::normalize(req.material_lines.iter().cloned());
+    let positives: Vec<VoucherMaterialLine> = materials
+        .into_iter()
+        .filter(|line| line.amount > Decimal::ZERO)
+        .collect();
+    let lines = if positives.is_empty() {
+        // ---- 回退：借 1 行 + 贷 1 行（历史行为，`aux_material_id` 只在此时参与）----
+        vec![
+            EntryLine {
+                line_no: 1,
+                summary: req.summary.clone(),
+                account: debit,
+                debit: amount,
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: req.aux_material_id,
+                // 借方（成本 / 待处理损溢）是全公司口径的科目，不挂仓库辅助核算。
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            },
+            EntryLine {
+                line_no: 2,
+                summary: req.summary.clone(),
+                account: inventory,
+                debit: Decimal::ZERO,
+                credit: amount,
+                aux_supplier_id: None,
+                aux_material_id: req.aux_material_id,
+                aux_warehouse_id: Some(req.warehouse_id),
+                aux_dept_id: None,
+            },
+        ]
+    } else {
+        // 逐物料金额 = 该物料的账上真实扣减额；Σ 与单头金额的尾差吸收到最后一行。
+        // 出库侧单头就是逐行累加出来的（`stockout_handler` 的 `total_amount += applied.amount`），
+        // 所以这里的 `diff` 恒为 0；非 0 说明有非 API 写入，`absorb_tail_diff` 会 WARN 点名。
+        let amounts_of_materials: Vec<Decimal> = positives.iter().map(|line| line.amount).collect();
+        let split = absorb_tail_diff(req.doc_no, amount, &amounts_of_materials)?;
+        // 摘要里的物料编码：一条 SQL 批取（取不到 → id 前 8 位），不让每行各查一次
+        let ids: Vec<Uuid> = positives.iter().map(|line| line.material_id).collect();
+        let codes = material_codes(ex, &ids).await?;
+        let mut lines: Vec<EntryLine> = Vec::with_capacity(positives.len() * 2);
+        // 借：成本科目（6401 / 1901），每物料一行，**不挂仓库**
+        for (line, material_amount) in positives.iter().zip(split.iter().copied()) {
+            let label = material_label(&codes, line.material_id);
+            lines.push(EntryLine {
+                line_no: 0,
+                summary: format!(
+                    "{} {}（{}）",
+                    req.summary,
+                    label,
+                    line_range_text(line.line_from, line.line_to)
+                ),
+                account: debit.clone(),
+                debit: material_amount,
+                credit: Decimal::ZERO,
+                aux_supplier_id: None,
+                aux_material_id: Some(line.material_id),
+                // 借方（成本 / 待处理损溢）是全公司口径的科目，不挂仓库辅助核算。
+                aux_warehouse_id: None,
+                aux_dept_id: None,
+            });
+        }
+        // 贷：1405 库存商品，每物料一行，**物料 + 出库仓**（账上能按仓按料拆开看）
+        for (line, material_amount) in positives.iter().zip(split) {
+            let label = material_label(&codes, line.material_id);
+            lines.push(EntryLine {
+                line_no: 0,
+                summary: format!(
+                    "{} 存货 {}（{}）",
+                    req.summary,
+                    label,
+                    line_range_text(line.line_from, line.line_to)
+                ),
+                account: inventory.clone(),
+                debit: Decimal::ZERO,
+                credit: material_amount,
+                aux_supplier_id: None,
+                aux_material_id: Some(line.material_id),
+                aux_warehouse_id: Some(req.warehouse_id),
+                aux_dept_id: None,
+            });
+        }
+        for (index, line) in lines.iter_mut().enumerate() {
+            line.line_no = i32::try_from(index + 1).unwrap_or(0);
+        }
+        lines
+    };
 
     let voucher_id = post_voucher(
         ex,
@@ -3159,7 +3569,11 @@ mod tests {
                 material_id: None,
                 supplier_id: None,
             },
-        );
+            &[],
+            &BTreeMap::new(),
+            "IN-1",
+        )
+        .expect("回退分支必须能构造分录");
         assert_eq!(lines.len(), 2);
         let original: Vec<EntryRow> = lines
             .iter()

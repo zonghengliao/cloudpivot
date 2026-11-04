@@ -737,16 +737,26 @@ pub(super) async fn post_in_tx(
     //      · 配置写脏 / 模板停用 / 单据不全 → 退回老路（凭证不能因为配置写错而漏记）；
     //      · 关键动作失败（借贷不平 / 期间已结账）→ 引擎返回 Err → 整笔过账回滚。
     //    两条路走的是**同一个** `voucher::create_by_rule`，取数与取号只有一份实现。
-    let first_material = ordered.first().map(|item| item.material_id);
-    // 物料种类数：`> 1` 时存货借方是**汇总行**，物料辅助核算只能留空 —— 把整笔金额挂到
-    // 首个物料上会让「物料成本」报表虚增（DC-11 的反向坑）。口径与配置路径
-    // （`stockin_query::material_count_of`）逐字一致：明细里 `material_id` 的去重个数。
-    let material_count = {
-        let mut materials: Vec<Uuid> = ordered.iter().map(|item| item.material_id).collect();
-        materials.sort_unstable();
-        materials.dedup();
-        i64::try_from(materials.len()).unwrap_or(i64::MAX)
-    };
+    // 按物料聚合的存货行（P2-1b §4.2）：粒度 = 去重物料，按 `material_id` 升序；
+    // 同一物料的多行合并（金额 / 数量相加、行号取区间端点）。口径与配置路径
+    // （`stockin_query::material_lines_of` 的一条聚合 SQL）逐字一致 —— 两条路生成的凭证
+    // 行数、行序、行金额必须一样，否则 D3 影子对比会报差异。
+    let material_lines = voucher::VoucherMaterialLine::normalize(ordered.iter().map(|item| {
+        voucher::VoucherMaterialLine {
+            material_id: item.material_id,
+            qty: item.qty,
+            amount: item.amount,
+            line_from: item.line_no,
+            line_to: item.line_no,
+        }
+    }));
+    tracing::info!(
+        stock_in_id = %id,
+        in_no = %locked.in_no,
+        material_count = material_lines.len(),
+        "收货过账：按物料聚合出 {} 行存货分录（每个物料一行）",
+        material_lines.len()
+    );
     let voucher_ctx = linkage::engine::LinkageContext::new(
         state_machine::ENTITY_STOCK_IN,
         STATUS_POSTED,
@@ -757,16 +767,10 @@ pub(super) async fn post_in_tx(
     let voucher_id = match linkage::engine::stockin_voucher(ex, &voucher_ctx).await {
         Ok(linkage::engine::VoucherRoute::Configured { voucher_id, .. }) => voucher_id,
         Ok(linkage::engine::VoucherRoute::Legacy { reason, shadow }) => {
-            let legacy_id = voucher::create_for_stock_in(
-                ex,
-                &locked,
-                first_material,
-                material_count,
-                operator.id,
-                now,
-            )
-            .await
-            .map_err(|error| write_error(error, "过账：生成凭证"))?;
+            let legacy_id =
+                voucher::create_for_stock_in(ex, &locked, material_lines, operator.id, now)
+                    .await
+                    .map_err(|error| write_error(error, "过账：生成凭证"))?;
             if let Some(shadow) = shadow {
                 linkage::engine::finish_stockin_voucher_shadow(
                     ex,

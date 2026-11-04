@@ -67,44 +67,48 @@ pub async fn header_on(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Stock
     row.as_ref().map(StockInRow::from_row).transpose()
 }
 
-/// 首个物料 —— **口径与过账严格一致**。
+/// 收货单的**按物料聚合明细行**（P2-1b §4.2：粒度 `MATERIAL`，不是明细行）。
 ///
-/// `stockin_handler` 过账时把明细按 `(material_id, location_id, line_no)` 升序排再取第一条
-/// 作为「存货科目退化用的物料」（`ordered.first()`）。凭证的存货分录只带这一个物料，
-/// 所以配置路径必须用同一个排序取同一条，否则辅助核算维度会与旧路径差一个物料。
-pub async fn first_material_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<Uuid>> {
-    let row = ex
-        .query_first_sql(
+/// **一条聚合 SQL**：同一 `material_id` 的多行在这里就合并（金额 / 数量相加、行号取区间端点），
+/// 与过账路径（`stockin_handler_post` 用 `VoucherMaterialLine::normalize` 在内存明细上聚合）
+/// 逐字同口径 —— 两条路生成的凭证因此逐行一致，这是 D3 影子对比不报差异的前提。
+///
+/// `ORDER BY material_id ASC` 是**契约**而不是优化：与批次 1 技术架构的加锁顺序同口径，
+/// 保证同一张单两次生成的分录行序与金额完全一致。
+pub async fn material_lines_of(
+    ex: &impl SqlExecutor,
+    id: Uuid,
+) -> DbResult<Vec<crate::business::erp::voucher::VoucherMaterialLine>> {
+    let rows = ex
+        .query_sql(
             format!(
-                "SELECT material_id FROM {ITEM_TABLE} WHERE stock_in_id = ?::uuid \
-                 ORDER BY material_id ASC, location_id ASC, line_no ASC LIMIT 1"
+                "SELECT material_id, sum(amount) AS material_amount, sum(qty) AS material_qty, \
+                        min(line_no) AS line_from, max(line_no) AS line_to \
+                   FROM {ITEM_TABLE} \
+                  WHERE stock_in_id = ?::uuid \
+                  GROUP BY material_id \
+                  ORDER BY material_id ASC"
             ),
             vec![Value::from(&id)],
         )
         .await?;
-    match row.as_ref().map(|row| row.get_typed::<Uuid>("material_id")) {
-        Some(Ok(material_id)) => Ok(Some(material_id)),
-        Some(Err(err)) => Err(err),
-        None => Ok(None),
-    }
-}
-
-/// 收货单的**物料种类数**（`COUNT(DISTINCT material_id)`）。
-///
-/// 与 [`first_material_of`] 同一个作用域、同一张明细表。用途只有一个：
-/// `> 1` 时存货借方是汇总行 ⇒ 物料辅助核算留空（`VoucherBizCtx::aux_material_id`）。
-pub async fn material_count_of(ex: &impl SqlExecutor, id: Uuid) -> DbResult<i64> {
-    ex.scalar_sql(
-        format!("SELECT COUNT(DISTINCT material_id) FROM {ITEM_TABLE} WHERE stock_in_id = ?::uuid"),
-        vec![Value::from(&id)],
-    )
-    .await
+    rows.iter()
+        .map(|row| {
+            Ok(crate::business::erp::voucher::VoucherMaterialLine {
+                material_id: row.get_typed("material_id")?,
+                qty: row.get_typed("material_qty")?,
+                amount: row.get_typed("material_amount")?,
+                line_from: row.get_typed("line_from")?,
+                line_to: row.get_typed("line_to")?,
+            })
+        })
+        .collect()
 }
 
 /// 收货单的**凭证上下文**（联动动作 `GENERATE_VOUCHER` 的唯一取数入口）。
 ///
 /// 取数公式只有一份（[`crate::business::erp::voucher::VoucherBizCtx::of_stock_in`]）：
-/// 本函数只负责「按 id 取单头 + 取首个物料 + 取物料种类数」，然后交给它。
+/// 本函数只负责「按 id 取单头 + 取按物料聚合的明细行」，然后交给它。
 /// 单据不存在 → `Ok(None)`（调用方跳过动作，不当失败）。
 pub async fn voucher_biz_ctx(
     ex: &impl SqlExecutor,
@@ -113,14 +117,9 @@ pub async fn voucher_biz_ctx(
     let Some(header) = header_on(ex, id).await? else {
         return Ok(None);
     };
-    let first_material = first_material_of(ex, id).await?;
-    let material_count = material_count_of(ex, id).await?;
+    let material_lines = material_lines_of(ex, id).await?;
     Ok(Some(
-        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(
-            &header,
-            first_material,
-            material_count,
-        ),
+        crate::business::erp::voucher::VoucherBizCtx::of_stock_in(&header, material_lines),
     ))
 }
 

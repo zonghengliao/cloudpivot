@@ -488,6 +488,10 @@ async fn post_out_tx(
         .ok_or_else(|| reference_missing("出库单的仓库不存在或已删除"))?;
     let biz_type = biz_type_of(&header.out_type);
     let mut total_amount = Decimal::ZERO;
+    // 按物料聚合的存货行（P2-1b §4.2）：每行的金额是**账上真实扣减额** `applied.amount`，
+    // 循环结束后用 `VoucherMaterialLine::normalize` 合并同物料多行（金额、数量相加）。
+    // 不在 handler 里另写一套合并：口径只保留一份实现，否则与收货侧迟早出现两种行序。
+    let mut material_lines: Vec<voucher::VoucherMaterialLine> = Vec::with_capacity(items.len());
     for item in &items {
         let material = stock_out::material_info(ex, item.material_id)
             .await
@@ -590,6 +594,13 @@ async fn post_out_tx(
         .await
         .map_err(|error| write_error(error, "过账：回写明细成本"))?;
         total_amount += applied.amount;
+        material_lines.push(voucher::VoucherMaterialLine {
+            material_id: item.material_id,
+            qty: item.qty,
+            amount: applied.amount,
+            line_from: item.line_no,
+            line_to: item.line_no,
+        });
     }
 
     // ④ 单头金额
@@ -606,25 +617,10 @@ async fn post_out_tx(
         header.out_no,
         total_amount
     );
-    // 物料辅助核算：整单只有**一种**物料时才有值。多物料出库的成本结转凭证是一条
-    // 汇总行（借 6401 / 贷 1405），把整笔成本挂到首个物料上会让物料成本报表虚增。
-    let distinct_materials = {
-        let mut materials: Vec<Uuid> = items.iter().map(|item| item.material_id).collect();
-        materials.sort_unstable();
-        materials.dedup();
-        materials.len()
-    };
-    let aux_material_id = if distinct_materials <= 1 {
-        items.first().map(|item| item.material_id)
-    } else {
-        tracing::warn!(
-            out_no = %header.out_no,
-            material_count = distinct_materials,
-            "出库单含 {} 种物料，成本结转凭证是汇总行 ⇒ aux_material_id 留空（按物料拆分录待 P2-1b 决议）",
-            distinct_materials
-        );
-        None
-    };
+    // 按物料拆分录（P2-1b §4.3）：`M` 个物料 ⇒ 借 6401 / 1901 `M` 行 + 贷 1405 `M` 行。
+    // 合并 / 升序 / 尾差吸收全部在 `voucher::create_for_stock_out` 里（共享 builder），
+    // 这里只负责把「逐行的账上真实扣减额」交过去。
+    let material_lines = voucher::VoucherMaterialLine::normalize(material_lines);
     let voucher_id = voucher::create_for_stock_out(
         ex,
         &voucher::StockOutVoucher {
@@ -634,7 +630,8 @@ async fn post_out_tx(
             out_type: &header.out_type,
             debit_code,
             debit_name,
-            aux_material_id,
+            material_lines,
+            aux_material_id: items.first().map(|item| item.material_id),
             warehouse_id: header.warehouse_id,
             amount: total_amount,
             summary,

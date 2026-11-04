@@ -1,0 +1,134 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.60s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 7 tests
+test business::flow::internal_control::db_tests::countersign_all_excluded_fails_closed ... ok
+test business::flow::internal_control::db_tests::countersign_one_excluded_then_two_approve_passes ... ok
+test business::flow::internal_control::db_tests::countersign_two_excluded_then_one_approves ... ok
+test business::flow::internal_control::db_tests::excluded_user_cannot_bypass_by_calling_approve ... ok
+test business::flow::internal_control::db_tests::remaining_approver_votes_normally ... ok
+test business::flow::internal_control::db_tests::role_members_are_not_excluded ... ok
+test business::flow::internal_control::db_tests::skipped_task_is_not_in_my_todo ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2288 filtered out; finished in 9.93s
+
+     Running unittests src/main.rs (target/debug/deps/cloudpivot-6510f6fbee526741)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batchB_b2_scope.rs (target/debug/deps/batchB_b2_scope-9a4dbca549b09554)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/batchB_b7_mutex.rs (target/debug/deps/batchB_b7_mutex-5c233659c31f740e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/batchC_c3_dispatch.rs (target/debug/deps/batchC_c3_dispatch-ae5c7ca4e3b174b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/batchC_c4_help.rs (target/debug/deps/batchC_c4_help-59bad239dd13e203)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 11 filtered out; finished in 0.00s
+
+     Running tests/batchC_c5_changelog.rs (target/debug/deps/batchC_c5_changelog-005976f109feacad)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; finished in 0.00s
+
+     Running tests/batchC_c6_changelog.rs (target/debug/deps/batchC_c6_changelog-d936d17bd62509b4)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 0.00s
+
+     Running tests/batchC_c7_rollback.rs (target/debug/deps/batchC_c7_rollback-e052ed3d61f27ae6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batchE_e7_dep_cleanup.rs (target/debug/deps/batchE_e7_dep_cleanup-db68c04c90992926)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/batchT_t1_task.rs (target/debug/deps/batchT_t1_task-fc3baf2a44b2e460)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.00s
+
+     Running tests/batchT_t5_ai_rules.rs (target/debug/deps/batchT_t5_ai_rules-e94fa719a53f4eec)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+     Running tests/fix04_notice_offline.rs (target/debug/deps/fix04_notice_offline-f7b3cd6ff06a1120)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 9 filtered out; finished in 0.00s
+
+     Running tests/impexp_worker.rs (target/debug/deps/impexp_worker-776cc21154ec2934)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.00s
+
+     Running tests/linkage.rs (target/debug/deps/linkage-b6ef85419c0c306d)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 62 filtered out; finished in 0.00s
+
+     Running tests/pflow1a.rs (target/debug/deps/pflow1a-c66f93582066df3e)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/pflow1b.rs (target/debug/deps/pflow1b-f452d356433f23e7)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.00s
+
+     Running tests/pflow5.rs (target/debug/deps/pflow5-95270ba44d4fcc13)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 12 filtered out; finished in 0.00s
+
+     Running tests/pref_preference.rs (target/debug/deps/pref_preference-ad2ec8b470155e23)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+
+     Running tests/s3_minio.rs (target/debug/deps/s3_minio-944a137d15b0bccc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 2 filtered out; finished in 0.00s
+
+     Running tests/testd.rs (target/debug/deps/testd-1a47f69868051575)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 67 filtered out; finished in 0.00s
+

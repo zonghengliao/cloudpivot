@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from decimal import Decimal
 
 BASE = os.environ.get("D3_BASE", "http://127.0.0.1:18096")
 DB = os.environ.get("D3_DB", "cloudpivot_d3")
@@ -192,6 +193,26 @@ def post_stock_in(doc_id):
         "PATCH", f"/api/business/erp/stock-in/{doc_id}/status", {"status": "POSTED"}, token=TOKEN
     )
     return code, body
+
+
+def create_stock_in_multi(tag, items):
+    """建一张**多物料**收货单（P2-1b：按去重物料拆分录）。items = [(material_id, qty, price, rate)]。"""
+    body = {
+        "supplier_id": SUPPLIER,
+        "warehouse_id": WAREHOUSE,
+        "is_sourceless": True,
+        "remark": PREFIX + tag,
+        "invoice_received": False,
+        "items": [
+            {"material_id": m, "qty": q, "price_excl": p, "tax_rate": r} for m, q, p, r in items
+        ],
+    }
+    code, resp = http("POST", "/api/business/erp/stock-in", body, token=TOKEN)
+    if code not in (200, 201):
+        raise RuntimeError(f"建多物料收货单失败：{code} {resp}")
+    data = resp.get("data") or {}
+    header = data.get("header") or data
+    return header["id"], header["in_no"]
 
 
 # ---------------- 凭证快照（逐字段） ----------------
@@ -409,6 +430,45 @@ def main():
            and c_row.get("entry_count") == base.get("entry_count"),
            "C12 SHADOW 阶段业务行为不变（金额 / 行数与基线一致）",
            f"{c_row.get('total_debit')} / {c_row.get('entry_count')}")
+
+    # ---------- C+. 多物料单的 SHADOW 一致性（P2-1b：拆分只写在共享 builder 里） ----------
+    # 规则仍是 SHADOW：配置路径与旧路径各按「逐物料拆分录」跑一遍，必须逐行一致 ——
+    # 这条断言就是「谁在 handler 里另写一套拆分录，D3 立刻红」的护栏。
+    material2 = psql("SELECT id FROM biz_material WHERE material_code = 'M-W1A-002' LIMIT 1")
+    expect(bool(material2), "C13 第二个物料就位（多物料用例的夹具）", material2)
+    cm_id, cm_no = create_stock_in_multi(
+        "影子-多物料",
+        [(MATERIAL, "10", "10", "13"), (material2, "20", "5", "13")],
+    )
+    offset = log_size()
+    code, body = post_stock_in(cm_id)
+    time.sleep(0.5)
+    log = log_tail_since(offset)
+    expect(code == 200, "C14 多物料单过账成功（SHADOW）", f"code={code} {body.get('msg', '')}")
+    cm_rows = voucher_rows(cm_id)
+    cm_row = cm_rows[0] if cm_rows else {}
+    cm_entries = entries_of(cm_id)
+    header_total = psql(f"SELECT total_amount FROM biz_stock_in WHERE id = '{cm_id}'")
+    expect(cm_row.get("entry_count") == "4", "C15 多物料含税 ⇒ 凭证 4 行（M + 2）",
+           cm_row.get("entry_count", ""))
+    expect(len(cm_entries) == 4, "C16 分录 4 行落库", str(cm_entries))
+    inv = [e for e in cm_entries if e.split(":")[1] == "1405"]
+    expect(len(inv) == 2, "C17 存货行 2 条（每个去重物料一行）", str(inv))
+    expect([e.split(":")[4] for e in inv] == [MATERIAL, material2],
+           "C18 存货行逐行带物料且按 material_id 升序", str([e.split(":")[4] for e in inv]))
+    inv_sum = sum(Decimal(e.split(":")[2]) for e in inv)
+    expect(str(inv_sum) == str(Decimal(header_total)), "C19 Σ 1405 分录 = 单头 total_amount",
+           f"{inv_sum} vs {header_total}")
+    cm_shadow = line_with(log, "联动凭证影子对比")
+    expect(bool(cm_shadow) and field(cm_shadow, "doc_no") == cm_no,
+           "C20 多物料单产生了影子对比日志", cm_shadow[:190])
+    expect(field(cm_shadow, "matched") == "true" and field(cm_shadow, "diffs") == "[]",
+           "C21 多物料：配置路径 vs 旧路径逐行一致（matched=true diffs=[]）",
+           f"matched={field(cm_shadow, 'matched')} diffs={field(cm_shadow, 'diffs')}")
+    expect(field(cm_shadow, "configured_voucher_no") == field(cm_shadow, "legacy_voucher_no")
+           and field(cm_shadow, "legacy_voucher_no") != "",
+           "C22 多物料：两条路的凭证号也相同（同一号段位置）",
+           f"{field(cm_shadow, 'configured_voucher_no')} / {field(cm_shadow, 'legacy_voucher_no')}")
 
     # ---------- D. TAKEOVER：配置接管 ----------
     upsert_rule("D3E2E-GEN-VOUCHER", {"biz_type": "PURCHASE_IN", "mode": "TAKEOVER"})

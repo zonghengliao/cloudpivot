@@ -9,8 +9,10 @@ P2-1 凭证辅助核算端到端验收（隔离实例 + 真 HTTP，不碰生产�
   ① 迁移 V0214 把 `business:erp:ledger:aux-balance` 权限码种进 `sys_menu`；
   ② 单物料收货过账 → 凭证**存货行**有 `aux_material_id` + `aux_warehouse_id`，
      应付行有 `aux_supplier_id`，且**所有行 `aux_dept_id` 为空**（收货单没有部门语义）；
-  ③ 多物料收货过账 → 存货借方是汇总行 ⇒ `aux_material_id` **必须为空**（不把整笔金额
-     挂在首个物料上），仓库维度照写 —— 这是"宁可留空，不许记错"的口径；
+  ③ 多物料收货过账 → 存货借方**按去重物料拆行**（P2-1b）：甲 160 / 乙 150 各一行、
+     各带物料、仓库照写、合计 = 单头；并验 `Σ 1405 分录 = 单头金额` 与
+     「按物料辅助账 = 该物料成本」；
+  ③b 多物料出库过账 → 成本结转凭证 `2M` 行（借 6401×2 / 贷 1405×2），逐行带物料；
   ④ 领用出库过账 → 成本结转凭证的存货行带物料 + 仓库；
   ⑤ 付款过账 → 借方 2202 带**申请人所属部门** `aux_dept_id`，银行存款行不挂部门；
   ⑥ `GET /api/business/erp/ledger/aux-balance` 按物料 / 部门 / 供应商都能查出借贷发生额；
@@ -353,7 +355,7 @@ def main():
            all(r["aux_dept_id"] == "" for r in rows),
            str([(r["line_no"], r["aux_dept_id"]) for r in rows]))
 
-    print("\n③ 多物料收货（甲 20 + 乙 30）→ 存货借方是汇总行 ⇒ 物料维度必须留空")
+    print("\n③ 多物料收货（甲 20 @ 8 + 乙 30 @ 5，含税 13%）→ 存货借方按物料拆 2 条（P2-1b）")
     multi_id, err = create_and_post_stock_in(
         [{"material_id": MAT1_ID, "qty": "20", "price_excl": "8", "tax_rate": "13"},
          {"material_id": MAT2_ID, "qty": "30", "price_excl": "5", "tax_rate": "13"}],
@@ -362,12 +364,36 @@ def main():
     if multi_id:
         rows = entries_of_voucher_by_source(multi_id)
         inv = [r for r in rows if r["account_code"] == "1405"]
-        ok("多物料：存货行只有一条（汇总行）", len(inv) == 1, f"实际 {len(inv)} 条")
-        if inv:
-            ok("多物料：aux_material_id **为空**（不把整笔挂在首个物料上）",
-               inv[0]["aux_material_id"] == "", f"实际 {inv[0]['aux_material_id']}")
-            ok("多物料：仓库维度照写", inv[0]["aux_warehouse_id"] == WAREHOUSE_ID,
-               f"实际 {inv[0]['aux_warehouse_id']}")
+        header_amount = num(scalar(
+            f"select total_amount from biz_stock_in where id = '{multi_id}'::uuid"))
+        ok("多物料：凭证 4 行（1405×2 + 进项税×1 + 应付×1 = M + 2）", len(rows) == 4,
+           f"实际 {len(rows)} 行：{[(r['line_no'], r['account_code'], str(r['debit']), str(r['credit'])) for r in rows]}")
+        ok("多物料：存货行 2 条（每个去重物料一行）", len(inv) == 2, f"实际 {len(inv)} 条")
+        if len(inv) == 2:
+            ok("存货行 1 = 物料甲（按 material_id 升序）", inv[0]["aux_material_id"] == MAT1_ID,
+               f"实际 {inv[0]['aux_material_id']}")
+            eq_num("存货行 1 借方 = 160（甲 20 × 8）", "160", inv[0]["debit"])
+            ok("存货行 2 = 物料乙", inv[1]["aux_material_id"] == MAT2_ID,
+               f"实际 {inv[1]['aux_material_id']}")
+            eq_num("存货行 2 借方 = 150（乙 30 × 5）", "150", inv[1]["debit"])
+            ok("两条存货行都挂收货仓（仓库照写）",
+               all(r["aux_warehouse_id"] == WAREHOUSE_ID for r in inv),
+               str([r["aux_warehouse_id"] for r in inv]))
+            eq_num("Σ 1405 分录 = 单头 total_amount（310）", str(header_amount),
+                   sum((r["debit"] for r in inv), Decimal("0")))
+        ok("多物料：进项税 / 应付仍各一条（按 DOC，不按物料拆）",
+           len([r for r in rows if r["account_code"] == "2221.01"]) == 1
+           and len([r for r in rows if r["account_code"] == "2202"]) == 1,
+           str([r["account_code"] for r in rows]))
+
+        # 按物料辅助账 = 该物料成本（P2-1b 的目的：MATERIAL 维度能按物料对账）
+        status, resp = aux_balance("MATERIAL", MAT2_ID)
+        bal_rows = ((resp.get("data") or {}).get("rows") or []) if status == 200 else []
+        b_inv = [r for r in bal_rows if r["account_code"] == "1405"]
+        ok("按物料辅助账：乙 1405 本期借 150 / 期末 150（= 该物料成本）",
+           bool(b_inv) and num(b_inv[0]["period_debit"]) == Decimal("150")
+           and num(b_inv[0]["closing_debit"]) == Decimal("150"),
+           f"{status} {str(b_inv)[:300]}")
 
     print("\n④ 领用出库（甲 10）→ 过账 → 成本结转凭证带物料 + 仓库")
     status, resp = call("POST", "/business/erp/stock-out", {
@@ -383,6 +409,34 @@ def main():
         inv = [r for r in rows if r["account_code"] == "1405"]
         ok("出库凭证存货行带物料", bool(inv) and inv[0]["aux_material_id"] == MAT1_ID, str(inv))
         ok("出库凭证存货行带仓库", bool(inv) and inv[0]["aux_warehouse_id"] == WAREHOUSE_ID, str(inv))
+
+    print("\n③b 多物料出库（甲 10 + 乙 10）→ 成本结转凭证 2M = 4 行（借 6401×2 / 贷 1405×2）")
+    status, resp = call("POST", "/business/erp/stock-out", {
+        "out_type": "ISSUE", "warehouse_id": WAREHOUSE_ID, "reason": f"{TAG} 多物料领用",
+        "items": [{"material_id": MAT1_ID, "qty": "10"}, {"material_id": MAT2_ID, "qty": "10"}],
+    })
+    ok("建多物料领用单 200", status == 200, f"{status} {resp}")
+    multi_out_id = (resp.get("data") or {}).get("id") if status == 200 else None
+    if multi_out_id:
+        status, resp = call("PATCH", f"/business/erp/stock-out/{multi_out_id}/status",
+                            {"status": "POSTED"})
+        ok("多物料领用过账 200", status == 200, f"{status} {resp}")
+        rows = entries_of_voucher_by_source(multi_out_id)
+        dr = [r for r in rows if r["account_code"] == "6401"]
+        cr = [r for r in rows if r["account_code"] == "1405"]
+        ok("多物料出库：凭证 4 行（借 6401×2 + 贷 1405×2 = 2M）", len(rows) == 4,
+           f"实际 {len(rows)} 行：{[(r['line_no'], r['account_code'], str(r['debit']), str(r['credit'])) for r in rows]}")
+        ok("借方两条各带物料（甲 / 乙，升序）",
+           [r["aux_material_id"] for r in dr] == [MAT1_ID, MAT2_ID],
+           str([r["aux_material_id"] for r in dr]))
+        ok("借方（成本科目）不挂仓库", all(r["aux_warehouse_id"] == "" for r in dr),
+           str([r["aux_warehouse_id"] for r in dr]))
+        ok("贷方两条各带物料 + 仓库",
+           [r["aux_material_id"] for r in cr] == [MAT1_ID, MAT2_ID]
+           and all(r["aux_warehouse_id"] == WAREHOUSE_ID for r in cr),
+           str([(r["aux_material_id"], r["aux_warehouse_id"]) for r in cr]))
+        eq_num("借方合计 = 贷方合计 = 130（甲 10×8 + 乙 10×5）", "130",
+               sum((r["debit"] for r in dr), Decimal("0")))
 
     print("\n⑤ 付款（应付单 → 付款）→ 借方 2202 带申请人部门，银行行不挂")
     # 付款审批：这个副本库里 `payable_pay` 是发布状态 ⇒ 引擎要求走审批（DC-01 的护栏）。
@@ -425,10 +479,11 @@ def main():
             inv_row = [r for r in rows if r["account_code"] == "1405"]
             ok("物料甲的 1405 行存在", bool(inv_row), str(rows)[:300])
             if inv_row:
-                # 借方 = 单物料收货 800；贷方 = 领用 10×8 = 80
-                eq_num("物料甲 1405 本期借方 = 800", "800", inv_row[0]["period_debit"])
-                eq_num("物料甲 1405 本期贷方 = 80", "80", inv_row[0]["period_credit"])
-                eq_num("物料甲 1405 期末余额 = 720", "720", inv_row[0]["closing_debit"])
+                # 借方 = 单物料收货 800 + 多物料收货里的甲 160 = 960
+                # 贷方 = 领用 10×8 = 80 + 多物料领用里的甲 10×8 = 80 → 160
+                eq_num("物料甲 1405 本期借方 = 960", "960", inv_row[0]["period_debit"])
+                eq_num("物料甲 1405 本期贷方 = 160", "160", inv_row[0]["period_credit"])
+                eq_num("物料甲 1405 期末余额 = 800", "800", inv_row[0]["closing_debit"])
         ok("回参带 aux_name（物料名称）", (data.get("aux_name") or "") == f"{TAG} 物料甲",
            str(data.get("aux_name")))
         unassigned = data.get("unassigned") or {}

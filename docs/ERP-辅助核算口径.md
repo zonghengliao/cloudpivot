@@ -3,9 +3,12 @@
 > 代码入口：`backend/src/business/erp/voucher.rs`（写入口径）、
 > `backend/src/business/erp/ledger.rs`（辅助账查询）、
 > `backend/src/business/erp/payable_payment.rs`（付款凭证的部门）。
-> 真机验收：`scripts/verify/p21_aux_e2e.py`（42 项断言）。
-> §4 是 **P2-1b 决议**（2026-11-04）：多物料单按明细行拆分录 —— 决议口径即目标态，
-> 落地进度看实施卡（`P2-1b` 实施卡）；落地前线上行为仍是 §4.0 的「汇总行 + 留空」。
+> 真机验收：`scripts/verify/p21_aux_e2e.py`（56 项断言）、
+> `scripts/verify/p21b_switch_point.py`（20 项切换点断言）。
+> §4 是 **P2-1b 决议**（2026-11-04）：多物料单按**去重物料**拆分录 —— 决议口径即目标态，
+> **已落地（切换日 2026-11-04）**：`voucher::purchase_in_lines` / `create_for_stock_out` 按物料出行，
+> 切换日**之后**新建的收货 / 出库单按 §4.3 行数出行；切换日**之前**的存量单永久保持 §4.0 的
+> 「一条汇总行 + 物料留空」（§4.7：不回填）。
 
 ## 1. 一句话口径
 
@@ -14,15 +17,16 @@
 
 ## 2. 哪些凭证写哪些维度（**当前实现**）
 
-> ⚠️ P2-1b 决议（§4）会把「采购入库 / 出库」两行的物料维度从「仅单物料单」改为
-> **逐明细行**，行数与落地细节以 §4.3 为准。下表描述的是**落地前**的线上行为。
+> ✅ **P2-1b 已落地（2026-11-04）**：「采购入库 / 出库」两行的物料维度从「仅单物料单」
+> 改为**逐去重物料一行**（粒度 `MATERIAL`，不是明细行），行数见 §4.3。下表是**当前实现**；
+> 切换日之前的存量凭证仍是「汇总行 + 物料留空」（§4.7 不回填）。
 
 | 业务 | 凭证来源 | 借方行 | 贷方行 |
 |---|---|---|---|
-| 采购入库（收货过账） | `STOCK_IN` | `aux_material_id`（**仅单物料单**）、`aux_warehouse_id`（收货仓） | `aux_supplier_id` |
+| 采购入库（收货过账） | `STOCK_IN` | **逐物料一行**：`aux_material_id` + `aux_warehouse_id`（收货仓） | `aux_supplier_id`（按 DOC 一条） |
 | 期初 / 其他入库（序列号批量生成） | `SERIAL_BATCH` | 存货行：`aux_material_id` + `aux_warehouse_id`；对方 1901 行只有 `aux_material_id` | — |
 | 序列号出库 / 报废 | `SERIAL_OUT` / `SERIAL_SCRAP` | 6401 / 1901 行：`aux_material_id` | 1405 行：`aux_material_id` + `aux_warehouse_id` |
-| 出库 / 领用 / 报废单 | `STOCK_OUT` | 6401 / 1901 行：`aux_material_id`（**仅单物料单**），不挂仓库 | 1405 行：`aux_material_id` + `aux_warehouse_id` |
+| 出库 / 领用 / 报废单 | `STOCK_OUT` | 6401 / 1901 行：**逐物料一行** `aux_material_id`，不挂仓库 | 1405 行：**逐物料一行** `aux_material_id` + `aux_warehouse_id` |
 | 盘盈盘亏 | `STOCK_TAKE` | 按物料拆行：每行 `aux_material_id`；盘亏带 `aux_warehouse_id` | 同左 |
 | 付款 | `PAYMENT` | 2202 行：`aux_supplier_id` + **`aux_dept_id`** | 1002 行：`aux_supplier_id`（**不挂部门**） |
 | 手工凭证 / 期初 / 年结 / 红冲 | `MANUAL` / `OPENING` / `YEAR_END` | 不写维度 | 不写维度 |
@@ -199,10 +203,16 @@
 
 * 切换日（实施上线时点）**之前**的多物料凭证永久保持「一条汇总行 + 物料为空」；之后新建单按物料出多行。
   历史凭证是审计证据，不回填（§6）。
+  * **P2-1b 的切换日 = 2026-11-04**（代码落地当天）。注意「生产生效时点」取决于 prod 重启部署 ——
+    重启前 prod 仍在跑旧逻辑，重启后新建单才按物料出行；判断某张单属于哪一边，看它
+    `biz_voucher_entry.aux_material_id` 是否为空（老单恒空），不要按凭证日期猜。
 * ⇒ 按月看物料辅助账时，切换月会出现「有值的物料 + `unassigned` 里的历史部分」并存。**这正是
   `unassigned` 字段存在的理由**：不要用物料辅助账去对历史期间的存货成本，历史期间用库存流水（§6）。
 * 实施卡必须在真机验收里留一条**切换点证据**（上线后新建的多物料单：分录行数 = `M + 2`、逐行物料、
   合计与单头一致），并在完成说明里点名切换日期，供财务解释口径变化。
+  证据：`scripts/verify/p21b_switch_point.py`（3 物料收货 = 5 行 / 2 物料出库 = 4 行 / 逐行物料 /
+  `Σ1405 = 单头` / 该单 1405 行 `aux_material_id` 为空的行数 = 0），输出见
+  `docs/evidence/20261104-p21b-material-split/switch-point.txt`。
 
 ## 5. 辅助账接口
 
