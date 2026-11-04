@@ -23,9 +23,19 @@
  */
 
 import { get, post } from '@/api/request';
+import { DOC_KIND_ROUTES } from '@/api/business/erp/doc-kinds';
 
-/** 支持联动作废的单据类型（后端 `cancel_cascade::DOC_TYPE_*`）。 */
-export type CancelDocType = 'purchase-order' | 'stock-in' | 'payable';
+/**
+ * 支持联动作废的单据类型 —— **就是 REST 路径段本身**（`purchase-order` / `stock-in` / `payable`）。
+ *
+ * P2-5 词表收敛：类型值从 `doc-kinds.ts` 的 `DOC_KIND_ROUTES` 派生（后端
+ * `doc_kind::DocKind::route()` 的镜像），不再手写 kebab 字面量。
+ * 后端也只认这三种规范写法 —— `purchase_order` / `PO` 这类历史别名已经 400。
+ */
+export type CancelDocType =
+  | typeof DOC_KIND_ROUTES.PURCHASE_ORDER
+  | typeof DOC_KIND_ROUTES.STOCK_IN
+  | typeof DOC_KIND_ROUTES.PAYABLE;
 
 /** 影响面里的一行。 */
 export interface CancelImpactItem {

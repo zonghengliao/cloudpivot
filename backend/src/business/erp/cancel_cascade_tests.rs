@@ -34,6 +34,7 @@ use crate::business::erp::purchase_model;
 use crate::business::erp::stockin_dto::{CreateStockInReq, StockInItemReq, StockInStatusReq};
 use crate::business::erp::stockin_handler;
 use crate::business::erp::stockin_model;
+use crate::business::shared::doc_kind::DocKind;
 use crate::business::shared::state_machine;
 
 // ==================== 夹具常量（本模块独占的命名空间） ====================
@@ -339,14 +340,26 @@ async fn payable_status(stock_in_id: Uuid) -> String {
 
 // ==================== ① 纯逻辑用例（不需要库） ====================
 
-/// ① `doc_type` 归一化：三种写法都认，未知类型 400 且点名可选项。
+/// ① `doc_type` 归一化：**只认规范路径段**，历史别名（下划线 / 简写）一律 400 且点名可选项。
 #[test]
 fn p15_doc_type_is_normalized_and_unknown_is_rejected() {
-    for raw in ["purchase-order", "purchase_order", "PO"] {
-        let text = raw.trim().to_ascii_lowercase().replace('_', "-");
+    // P2-5：别名不再被归一（「新旧都认」＝兼容层永久化），只认 kebab 路径段
+    for canonical in [
+        "purchase-order",
+        "stock-in",
+        "payable",
+        "stock-transfer",
+        "voucher",
+    ] {
         assert!(
-            matches!(text.as_str(), "purchase-order" | "po"),
-            "前端可能发这几种写法：{raw}"
+            DocKind::parse_route(canonical).is_some(),
+            "规范路径段必须能解析：{canonical}"
+        );
+    }
+    for legacy in ["purchase_order", "purchaseOrder", "PO", "stock_in", "ap"] {
+        assert!(
+            DocKind::parse_route(legacy).is_none(),
+            "历史写法必须被拒（不留兼容层）：{legacy}"
         );
     }
     // 真正的校验函数是私有的，这里通过公开入口验证 400 行为（不碰库：解析在连接之前）
@@ -368,7 +381,7 @@ fn p15_transfer_is_rejected_with_alternative() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let error = rt
         .block_on(cancel_cascade::cascade(
-            "transfer",
+            "stock-transfer",
             Uuid::now_v7(),
             Some("测试"),
             None,

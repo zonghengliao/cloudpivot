@@ -159,7 +159,7 @@ mod stockin_base; // 收货入库底座：常量 / 状态机 / 行结构 / 取�
 mod stockin_cancel; // 收货入库作废链路
 mod stockin_location; // 收货入库库位解析（P2-4：库位字典 ↔ 库位账行）
 mod stockin_purchase; // 收货入库↔采购单联动
-mod stockin_query; // 收货入库只读
+pub mod stockin_query; // 收货入库只读（`POST_BIZ_TYPE` / `CANCEL_BIZ_TYPE` 是审批词表的登记点，见 doc_kind）
 mod stockin_validate; // 收货入库校验（可作废前置）
 mod stockin_write; // 收货入库写入（建改删 + 过账）
 mod stockout_base; // 出库单底座：常量 / 状态机 / 行结构 / 取号

@@ -22,20 +22,30 @@
  */
 
 import service, { del, get, ApiError, type ApiResult } from '@/api/request';
+import {
+  DOC_KIND_LABELS,
+  type AttachmentDocType,
+} from '@/api/business/erp/doc-kinds';
 
-/** 单据类型（与后端 `DocKind` / DDL 的 `ck_biz_doc_attachment_type` 逐字一致）。 */
-export type DocType = 'CONTRACT' | 'PURCHASE_ORDER' | 'STOCK_IN' | 'PAYABLE' | 'PAYMENT';
+/**
+ * 单据类型（附件可挂的 5 类）。
+ *
+ * P2-5 词表收敛：取值来自 `doc-kinds.ts` 的 `ATTACHMENT_DOC_TYPES`（唯一真相），
+ * 与后端 `doc_kind::ATTACHMENT_DOC_KINDS` + DDL 的 `ck_biz_doc_attachment_type` 逐字一致。
+ * 后端单测会比对两边的取值与顺序，漂了直接红。
+ */
+export type DocType = AttachmentDocType;
 
 /** 文件角色（与 DDL 的 `ck_biz_doc_attachment_role` 逐字一致）。 */
 export type FileRole = 'CONTRACT_SCAN' | 'SIGN_RECEIPT' | 'INVOICE' | 'OTHER';
 
-/** 单据类型中文名（错误提示 / 空态文案用）。 */
+/** 单据类型中文名（错误提示 / 空态文案用；取自词表，不另写一份）。 */
 export const DOC_TYPE_LABELS: Record<DocType, string> = {
-  CONTRACT: '合同',
-  PURCHASE_ORDER: '采购单',
-  STOCK_IN: '收货单',
-  PAYABLE: '应付单',
-  PAYMENT: '付款单',
+  CONTRACT: DOC_KIND_LABELS.CONTRACT,
+  PURCHASE_ORDER: DOC_KIND_LABELS.PURCHASE_ORDER,
+  STOCK_IN: DOC_KIND_LABELS.STOCK_IN,
+  PAYABLE: DOC_KIND_LABELS.PAYABLE,
+  PAYMENT: DOC_KIND_LABELS.PAYMENT,
 };
 
 /**

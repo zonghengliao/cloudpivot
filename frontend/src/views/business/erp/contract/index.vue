@@ -490,7 +490,7 @@
         <!-- 附件：合同扫描件 / 补充协议（ARCH-3 DC-17）—— 组件与另外三个单据详情页共用 -->
         <div class="section-title">附件</div>
         <DocAttachmentPanel
-          doc-type="CONTRACT"
+          :doc-type="DOC_KIND.CONTRACT"
           :doc-id="detail.id"
           default-role="CONTRACT_SCAN"
           testid-prefix="contract-attach"
@@ -568,6 +568,7 @@ import {
   type Supplier,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';
 import { shortId, todayString } from '@/views/business/erp/shared/money';

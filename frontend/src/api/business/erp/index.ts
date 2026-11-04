@@ -520,8 +520,13 @@ export function fetchUnitOptions(): Promise<UnitRow[]> {
  */
 export type SerialStatus = 'IN_STOCK' | 'OUTBOUND' | 'SCRAPPED';
 
-/** 来源单据类型（与 `serial_model::SOURCE_TYPES` 逐字一致，写错的类型会让「按来源追溯」查不到东西） */
-export type SerialSourceType = 'PURCHASE' | 'TRANSFER' | 'PRODUCE' | 'RETURN';
+/**
+ * 来源单据类型（与 `serial_model::SOURCE_TYPES` 逐字一致，写错的类型会让「按来源追溯」查不到东西）。
+ *
+ * P2-5 词表收敛：改为从 `doc-kinds.ts`（= 后端 `SerialSourceType`）派生，
+ * 不再在契约文件里手写一遍字面量 —— 两边漂了就编译不过 / 单测红。
+ */
+export type SerialSourceType = import('./doc-kinds').SerialSourceType;
 
 /**
  * 序列号列表 / 详情行（对应后端 `serial_dto::SerialRes`，字段名逐条抄 serde 出参）。

@@ -46,7 +46,11 @@
 //! | `purchase-order` | 收货单 → 凭证 / 应付 | 卡的正面场景 |
 //! | `stock-in` | 凭证 / 应付 | 只是把「作废收货单」这件事的影响面摊开 |
 //! | `payable` | 凭证 | 未付款的应付单作废（进项凭证红冲） |
-//! | `transfer` | 无 | **不支持**：调拨单作废不跨单据联动，沿用 `PATCH /transfer/{id}/status` |
+//! | `stock-transfer` | 无 | **不支持**：调拨单作废不跨单据联动，沿用 `PATCH /transfer/{id}/status` |
+//!
+//! ⚠️ 路径段由 `shared::doc_kind::DocKind::route()` 生成，**只认 kebab 规范写法**：
+//! `purchase_order` / `purchaseOrder` / `PO` 这类历史别名在 P2-5 起一律 400
+//! （「新旧都认」＝兼容层永久化，见 ARCH-3 DC-21）。
 //!
 //! # 权限与审计
 //!
@@ -88,14 +92,21 @@ use crate::utils;
 
 // ==================== 常量 ====================
 
+// 路径段的唯一真相是 `shared::doc_kind::DocKind::route()`（P2-5 词表收敛）：
+// 这里只是把它取出来当常量用，**不再自己写字面量**，也不再接受 `purchase_order` /
+// `PO` 这类历史别名（「新旧都认」＝兼容层永久化）。
+use crate::business::shared::doc_kind::DocKind;
+
 /// 采购订单（`PO-yyyyMMdd-000001`）。
-pub const DOC_TYPE_PURCHASE_ORDER: &str = "purchase-order";
+pub const DOC_TYPE_PURCHASE_ORDER: &str = DocKind::PurchaseOrder.route_expect();
 /// 收货入库单（`IN-yyyyMMdd-000001`）。
-pub const DOC_TYPE_STOCK_IN: &str = "stock-in";
+pub const DOC_TYPE_STOCK_IN: &str = DocKind::StockIn.route_expect();
 /// 应付单（`AP-yyyyMMdd-000001`）。
-pub const DOC_TYPE_PAYABLE: &str = "payable";
+pub const DOC_TYPE_PAYABLE: &str = DocKind::Payable.route_expect();
+/// 凭证（红冲上游，只作为影响面里的一行出现）。
+pub const DOC_TYPE_VOUCHER: &str = DocKind::Voucher.route_expect();
 /// 库存调拨单（`TK-yyyyMMdd-000001`）—— 不支持级联（见模块文档）。
-pub const DOC_TYPE_TRANSFER: &str = "transfer";
+pub const DOC_TYPE_TRANSFER: &str = DocKind::StockTransfer.route_expect();
 
 /// 处理方式：本模块真的会执行。
 pub const ACTION_EXECUTE: &str = "EXECUTE";
@@ -255,33 +266,40 @@ fn operator_of(claims: &TokenClaims) -> Option<Uuid> {
     utils::current_user_uuid(claims)
 }
 
-/// `doc_type` 归一化：接受驼峰 / 下划线 / 简写，统一成模块常量。
+/// `doc_type` 归一化：**只认规范路径段**（`DocKind::route()`，小写连字符）。
 ///
-/// 前端路由里写 `purchase-order` 最自然，但历史调用方写过 `purchase_order`，
-/// 两形都收，免得 404 之后还要猜。
+/// 曾经这里还收 `purchase_order` / `purchaseorder` / `po` / `ap` / `in` / `tk` 这类别名，
+/// 那是「新旧都认」的兼容层 —— DC-21 的病灶正是它。P2-5 起一律 400，
+/// 前端只发 `DOC_KIND_ROUTES` 里的值（`frontend/src/api/business/erp/doc-kinds.ts`）。
 fn normalize_doc_type(raw: &str) -> std::result::Result<&'static str, ApiError> {
-    let text = raw.trim().to_ascii_lowercase().replace('_', "-");
-    match text.as_str() {
-        "purchase-order" | "purchaseorder" | "po" => Ok(DOC_TYPE_PURCHASE_ORDER),
-        "stock-in" | "stockin" | "in" => Ok(DOC_TYPE_STOCK_IN),
-        "payable" | "ap" => Ok(DOC_TYPE_PAYABLE),
-        "transfer" | "tk" => Ok(DOC_TYPE_TRANSFER),
-        other => Err(bad_request(format!(
-            "doc_type 不支持：{other}（只支持 purchase-order / stock-in / payable；\
-             transfer 的作废不跨单据联动，请用 PATCH /business/erp/transfer/{{id}}/status）"
+    let text = raw.trim();
+    match DocKind::parse_route(text) {
+        Some(DocKind::PurchaseOrder) => Ok(DOC_TYPE_PURCHASE_ORDER),
+        Some(DocKind::StockIn) => Ok(DOC_TYPE_STOCK_IN),
+        Some(DocKind::Payable) => Ok(DOC_TYPE_PAYABLE),
+        // 调拨 / 出库 / 凭证：有路径段但不支持跨单据联动，给出替代入口
+        Some(DocKind::StockTransfer) | Some(DocKind::StockOut) | Some(DocKind::Voucher) => {
+            Err(bad_request(format!(
+                "doc_type 不支持联动作废：{text}（该单据的作废请用 \
+                 PATCH /business/erp/{{模块}}/{{id}}/status，它不跨单据联动）"
+            )))
+        }
+        None => Err(bad_request(format!(
+            "doc_type 不支持：{text}（只支持 {DOC_TYPE_PURCHASE_ORDER} / {DOC_TYPE_STOCK_IN} / \
+             {DOC_TYPE_PAYABLE}；历史写法 purchase_order / po 已废弃，统一用路径段）"
+        ))),
+        Some(other) => Err(bad_request(format!(
+            "doc_type 不支持联动作废：{text}（{} 没有联动作废入口）",
+            other.label()
         ))),
     }
 }
 
 /// 中文类型名。
 fn doc_type_label(doc_type: &str) -> &'static str {
-    match doc_type {
-        DOC_TYPE_PURCHASE_ORDER => "采购订单",
-        DOC_TYPE_STOCK_IN => "收货入库单",
-        DOC_TYPE_PAYABLE => "应付单",
-        DOC_TYPE_TRANSFER => "库存调拨单",
-        "voucher" => "凭证",
-        _ => "单据",
+    match DocKind::parse_route(doc_type) {
+        Some(kind) => kind.label(),
+        None => "单据",
     }
 }
 
@@ -587,8 +605,8 @@ async fn analyze_purchase_order(id: Uuid) -> std::result::Result<CancelImpactRes
         if let Some(found) = voucher_of(brief.id).await? {
             steps.push(CancelImpactItem {
                 exec_step: step,
-                doc_type: "voucher".to_string(),
-                doc_type_label: doc_type_label("voucher").to_string(),
+                doc_type: DOC_TYPE_VOUCHER.to_string(),
+                doc_type_label: doc_type_label(DOC_TYPE_VOUCHER).to_string(),
                 doc_id: found.id.to_string(),
                 doc_no: found.voucher_no.clone(),
                 doc_status: voucher::STATUS_POSTED.to_string(),
@@ -786,8 +804,8 @@ async fn analyze_stock_in(id: Uuid) -> std::result::Result<CancelImpactRes, ApiE
         if let Some(found) = voucher_of(row.id).await? {
             steps.push(CancelImpactItem {
                 exec_step,
-                doc_type: "voucher".to_string(),
-                doc_type_label: doc_type_label("voucher").to_string(),
+                doc_type: DOC_TYPE_VOUCHER.to_string(),
+                doc_type_label: doc_type_label(DOC_TYPE_VOUCHER).to_string(),
                 doc_id: found.id.to_string(),
                 doc_no: found.voucher_no.clone(),
                 doc_status: voucher::STATUS_POSTED.to_string(),

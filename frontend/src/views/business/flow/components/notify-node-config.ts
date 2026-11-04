@@ -19,6 +19,8 @@
  * | `ON_TIMEOUT` 必须有 `timeout_hours` | `65031` | 由 `NodeProps` 的「超时小时」输入框保证 |
  */
 
+import { PO_APPROVE_BIZ_TYPE } from '@/views/business/flow/flow-business-items';
+
 /** 触发时机（`NotifyWhen`） */
 export type NotifyWhen = 'ON_ENTER' | 'ON_LEAVE' | 'ON_TIMEOUT';
 
@@ -336,7 +338,7 @@ export function notifyIssues(config: NotifyConfig): string[] {
 export const PREVIEW_SAMPLES: Record<string, string> = {
   'instance.biz_no': 'PO202611010001',
   'instance.title': '华东金属 · 304 不锈钢板采购',
-  'instance.biz_type': 'PURCHASE_ORDER',
+  'instance.biz_type': PO_APPROVE_BIZ_TYPE,
   'initiator.name': '张三',
   'node.name': '通知发起人',
   'node.key': 'n_notify',

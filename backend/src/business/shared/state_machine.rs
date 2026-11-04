@@ -61,23 +61,33 @@ use nik::uuid::Uuid;
 use crate::shared::error_code;
 
 // ==================== 实体类型 ====================
+//
+// 落库值的**唯一真相**是 [`crate::business::shared::doc_kind::DocKind`]（P2-5 词表收敛）。
+// 这里的常量是它在状态机侧的别名：值从枚举取，不再各写一遍字面量 ——
+// 曾经 `ENTITY_TRANSFER = "TRANSFER"` 与本表 / `doc_type` / 审批 `biz_type` 三处的
+// `STOCK_TRANSFER` 对不上，报表按 `entity_type` 分组就把调拨拆成两行（V0219 已改存量）。
+
+use crate::business::shared::doc_kind::DocKind;
 
 /// 实体类型：收货入库单。
-pub const ENTITY_STOCK_IN: &str = "STOCK_IN";
+pub const ENTITY_STOCK_IN: &str = DocKind::StockIn.as_str();
 /// 实体类型：采购订单。
-pub const ENTITY_PURCHASE_ORDER: &str = "PURCHASE_ORDER";
+pub const ENTITY_PURCHASE_ORDER: &str = DocKind::PurchaseOrder.as_str();
 /// 实体类型：库存调拨单。
-pub const ENTITY_TRANSFER: &str = "TRANSFER";
+///
+/// **P2-5 收敛**：旧值 `TRANSFER` 与 `biz_stock_transfer` / `doc_type` / 审批
+/// `biz_type` 三处的 `STOCK_TRANSFER` 不一致，已统一为 `STOCK_TRANSFER`。
+pub const ENTITY_TRANSFER: &str = DocKind::StockTransfer.as_str();
 /// 实体类型：应付单。
-pub const ENTITY_PAYABLE: &str = "PAYABLE";
+pub const ENTITY_PAYABLE: &str = DocKind::Payable.as_str();
 /// 实体类型：凭证。
-pub const ENTITY_VOUCHER: &str = "VOUCHER";
+pub const ENTITY_VOUCHER: &str = DocKind::Voucher.as_str();
 /// 实体类型：会计期间（`biz_accounting_period`）。
 ///
 /// ERP-P1 起期间的开账 / 结账 / 反结账也写 `biz_status_log`：
 /// 封账是**影响整月账务**的动作，谁封的、什么时候封的、为什么反结，
 /// 必须与单据一样可追溯（卡面 L12 审计）。
-pub const ENTITY_PERIOD: &str = "ACCOUNTING_PERIOD";
+pub const ENTITY_PERIOD: &str = DocKind::AccountingPeriod.as_str();
 
 /// 实体类型：会计年度（年结，ERP-R4）。
 ///
@@ -89,20 +99,20 @@ pub const ENTITY_PERIOD: &str = "ACCOUNTING_PERIOD";
 /// 为什么单独一个实体而不是复用 `ACCOUNTING_PERIOD`：年结的边（`NOT_CLOSED ↔ CLOSED`）
 /// 与期间的边（`NOT_OPENED / OPEN / CLOSED`）语义不同，混在一起会让
 /// `PERIOD_EDGES` 变成两套语义的并集，任何一次期间结账都能「顺便」写成年度已结转。
-pub const ENTITY_YEAR_END: &str = "ACCOUNTING_YEAR";
+pub const ENTITY_YEAR_END: &str = DocKind::AccountingYear.as_str();
 
 /// 实体类型：合同（`biz_contract`，A1 合同表基座）。
 ///
 /// 落库值取 `"CONTRACT"`（ARCH-2 附录 B #3 逐字规定；`biz_status_log.entity_type` 是
 /// `VARCHAR(32)` 且无 CHECK 白名单，新实体登记后 `transition()` 即可用）。
-pub const ENTITY_CONTRACT: &str = "CONTRACT";
+pub const ENTITY_CONTRACT: &str = DocKind::Contract.as_str();
 
 /// 实体类型：出库单（`biz_stock_out`，ARCH-3 DC-13 / R-P0-1）。
 ///
 /// 补的是「普通物料没有任何出库单据」这个 P0 缺口：领用 / 报废 / 盘亏都走这张单，
 /// 三本账负向变动 + 成本结转凭证。`biz_status_log.entity_type` 无 CHECK 白名单，
 /// 本常量登记后 `transition()` 即可用；巡检 / 报表按它筛「出库轨迹」。
-pub const ENTITY_STOCK_OUT: &str = "STOCK_OUT";
+pub const ENTITY_STOCK_OUT: &str = DocKind::StockOut.as_str();
 
 /// 出库单合法边（与 `stockout_base::LEGAL_EDGES` 同源）。
 ///
@@ -141,7 +151,7 @@ pub const STOCK_OUT_LOCKED: [&str; 2] = ["POSTED", "PENDING_POST"];
 /// 补的是「账实差异只能手改 `biz_inventory`」这个 P1 缺口：盘盈盘亏没有单据、
 /// 没有审批、没有凭证 → 审计上说不清「为什么库存变了」。`biz_status_log.entity_type`
 /// 无 CHECK 白名单，本常量登记后 `transition()` 即可用。
-pub const ENTITY_STOCK_TAKE: &str = "STOCK_TAKE";
+pub const ENTITY_STOCK_TAKE: &str = DocKind::StockTake.as_str();
 
 /// 盘点单合法边（与 `stocktake_base::LEGAL_EDGES` 同源）。
 ///
@@ -905,7 +915,7 @@ impl Entity {
 // 避免把日志刷爆）。
 
 /// 配置留痕用的 `biz_status_log.entity_type`（它不是单据，单独一个类型名）。
-pub const ENTITY_EDGE_CONFIG: &str = "FLOW_EDGE_CFG";
+pub const ENTITY_EDGE_CONFIG: &str = DocKind::FlowEdgeConfig.as_str();
 
 /// 合并后的一条有效边。
 ///

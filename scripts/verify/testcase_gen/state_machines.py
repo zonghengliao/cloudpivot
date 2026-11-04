@@ -170,10 +170,10 @@ STOCK_IN = dict(
 TRANSFER = dict(
     prefix="TC-XFER",
     module="库存调拨单",
-    table="biz_transfer",
+    table="biz_stock_transfer",
     api="PATCH /api/business/erp/transfer/{id}/status",
     body='{"status":"{to}"}',
-    log_check="SELECT from_status,to_status FROM biz_status_log WHERE entity_type='TRANSFER' AND entity_id={id}",
+    log_check="SELECT from_status,to_status FROM biz_status_log WHERE entity_type='STOCK_TRANSFER' AND entity_id={id}",
     statuses=[
         ("DRAFT", "草稿"),
         ("PENDING", "待审批"),

@@ -22,6 +22,7 @@
  * 数量列名是 **`qty`**（不是 `quantity`）—— 抄自 `dto.rs::InventoryFilter/InventoryRes`。
  */
 import type { InventoryRow, InventoryTxnType, InventoryTxnRow } from '@/api/business/erp';
+import { txnBizTypeLabel, txnDocTypeLabel } from '@/api/business/erp/doc-kinds';
 import { toCents, toNumber } from '../shared/money';
 
 /** 每页条数（与其它 ERP 列表页同口径 20） */
@@ -155,52 +156,22 @@ export function txnTypeTheme(txnType: string | null | undefined): 'success' | 'w
 }
 
 /**
- * 业务类型 → 中文。key 逐字抄后端的常量（`stockin_model::BIZ_TYPE_PURCHASE_IN`、
- * `transfer_model::BIZ_TYPE_TRANSFER_IN/OUT`、`serial_model::BIZ_TYPE_SERIAL_IN/OUT/SCRAP`）。
+ * 业务类型 → 中文。
  *
- * 另外补了 `SALE_OUT`（卡面 §三 Tab3 点名）与几个常见后缀——**未知值原样返回**，
- * 不做「猜中文」：后端加了新业务类型，页面显示英文码也比显示错的中文强。
+ * P2-5 词表收敛：不再自己维护一份 key 表 —— 旧版这里抄了 13 个 key，
+ * 其中 `PURCHASE_RETURN_OUT` / `SALE_RETURN_IN` / `PRODUCE_IN` /
+ * `MATERIAL_ISSUE_OUT` / `INIT_IN` **后端根本没有这些值**（第 8 套词表的真身，
+ * 那几行标签永远不会被命中，反而让人以为系统支持这些业务类型）。
+ * 现在标签唯一来源是 `doc-kinds.ts` 的 `TXN_BIZ_TYPE_LABELS`（= 后端 `TxnBizType`）。
+ * 未知码原样返回，不猜。
  */
-const BIZ_TYPE_LABELS: Readonly<Record<string, string>> = {
-  PURCHASE_IN: '采购入库',
-  PURCHASE_RETURN_OUT: '采购退货出库',
-  TRANSFER_IN: '调拨入库',
-  TRANSFER_OUT: '调拨出库',
-  SERIAL_IN: '序列号入库',
-  SERIAL_OUT: '序列号出库',
-  SERIAL_SCRAP: '序列号报废',
-  SALE_OUT: '销售出库',
-  SALE_RETURN_IN: '销售退回入库',
-  PRODUCE_IN: '生产入库',
-  PRODUCTION_IN: '生产入库',
-  MATERIAL_ISSUE_OUT: '生产领料出库',
-  ADJUST_IN: '盘盈入库',
-  ADJUST_OUT: '盘亏出库',
-  INIT_IN: '期初入库',
-};
-
-/** 业务类型中文（未知码原样返回，见 {@link BIZ_TYPE_LABELS}） */
 export function bizTypeLabel(bizType: string | null | undefined): string {
-  if (!bizType) {
-    return '—';
-  }
-  return BIZ_TYPE_LABELS[bizType] ?? String(bizType);
+  return txnBizTypeLabel(bizType);
 }
 
-/** 单据类型 → 中文（`STOCK_IN` / `STOCK_TRANSFER` / `MATERIAL_SERIAL` …） */
-const DOC_TYPE_LABELS: Readonly<Record<string, string>> = {
-  STOCK_IN: '收货入库单',
-  STOCK_TRANSFER: '调拨单',
-  MATERIAL_SERIAL: '序列号',
-  SERIAL_BATCH: '序列号批次',
-};
-
-/** 单据类型中文（未知码原样返回） */
+/** 单据类型 → 中文（`STOCK_IN` / `STOCK_TRANSFER` / `MATERIAL_SERIAL` …，取自 `TxnDocType`）。 */
 export function docTypeLabel(docType: string | null | undefined): string {
-  if (!docType) {
-    return '—';
-  }
-  return DOC_TYPE_LABELS[docType] ?? String(docType);
+  return txnDocTypeLabel(docType);
 }
 
 /**

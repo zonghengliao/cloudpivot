@@ -45,6 +45,7 @@
 pub mod batch;
 pub mod conn;
 pub mod content;
+pub mod doc_kind;
 pub mod guard;
 pub mod principal;
 pub mod scope;

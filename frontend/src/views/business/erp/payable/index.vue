@@ -495,7 +495,7 @@
           -->
           <div class="section-title">附件</div>
           <DocAttachmentPanel
-            doc-type="PAYABLE"
+            :doc-type="DOC_KIND.PAYABLE"
             :doc-id="detail.id"
             default-role="INVOICE"
             testid-prefix="payable-attach"
@@ -624,6 +624,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import { listDictItems } from '@/api/support/dict-api';
 import ListMemoryBar from '@/components/ListMemoryBar.vue';
 import { useListFilterMemory } from '@/composables/useListFilterMemory';

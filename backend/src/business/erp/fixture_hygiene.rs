@@ -38,7 +38,9 @@ use nik::prelude::*;
 pub(crate) const ENTITY_TABLES: &[(&str, &str)] = &[
     ("STOCK_IN", "biz_stock_in"),
     ("PURCHASE_ORDER", "biz_purchase_order"),
-    ("TRANSFER", "biz_stock_transfer"),
+    // P2-5 词表收敛：调拨单的 entity_type 旧值 `TRANSFER` 已统一为 `STOCK_TRANSFER`
+    // （与 doc_type / 审批 biz_type 同名），V0219 已改存量。
+    ("STOCK_TRANSFER", "biz_stock_transfer"),
     ("PAYABLE", "biz_payable"),
     ("VOUCHER", "biz_voucher"),
     ("ACCOUNTING_PERIOD", "biz_accounting_period"),
@@ -106,7 +108,7 @@ pub(crate) const FINANCE: &[&str] = &["PAYABLE", "VOUCHER"];
 pub(crate) const ALL_TYPES: &[&str] = &[
     "STOCK_IN",
     "PURCHASE_ORDER",
-    "TRANSFER",
+    "STOCK_TRANSFER",
     "PAYABLE",
     "VOUCHER",
     "ACCOUNTING_PERIOD",

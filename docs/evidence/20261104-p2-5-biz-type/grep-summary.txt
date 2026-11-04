@@ -1,0 +1,7 @@
+# P2-5 相关模块在全量日志里的通过条数
+shared::doc_kind             ok=15 failed=0
+shared::state_machine        ok=39 failed=0
+erp::transfer_handler        ok=56 failed=0
+erp::cancel_cascade          ok=14 failed=0
+erp::fixture_hygiene         ok=0 failed=0
+erp::stockin_handler         ok=132 failed=0

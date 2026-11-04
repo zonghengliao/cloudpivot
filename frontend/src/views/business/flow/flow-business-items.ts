@@ -22,11 +22,26 @@
  * 判定用「有明细的业务类型」白名单（{@link ITEM_SNAPSHOT_BIZ_TYPES}），自定义流程不会被误报。
  */
 
-/** 明细快照在 `form_data` 里的键（行内 8 键见后端 `form_snapshot::ITEM_KEYS`） */
+import { type FlowBizType } from '@/api/business/erp/doc-kinds';
+
+/**
+ * 明细快照在 `form_data` 里的键（行内 8 键见后端 `form_snapshot::ITEM_KEYS`）
+ */
 export const ITEM_SNAPSHOT_KEY = 'items';
 
-/** 采购审批的业务类型（`purchase_bridge::BIZ_TYPE`） */
-export const PO_APPROVE_BIZ_TYPE = 'PO_APPROVE';
+/**
+ * 采购订单审批的业务类型（`purchase_bridge::BIZ_TYPE`）。
+ *
+ * P2-5 词表收敛：值来自 `api/business/erp/doc-kinds.ts` 的 `FLOW_BIZ_TYPES`
+ * （后端 `doc_kind::FlowBizType` 的镜像），不再手写字面量。
+ */
+export const PO_APPROVE_BIZ_TYPE: FlowBizType = 'PO_APPROVE';
+
+/** 收货过账审批（`stockin_query::POST_BIZ_TYPE`）。 */
+export const STOCK_IN_POST_BIZ_TYPE: FlowBizType = 'STOCK_IN_POST';
+
+/** 库存调拨审批（`transfer_model::published_transfer_flow`，`V0157`）。 */
+export const STOCK_TRANSFER_BIZ_TYPE: FlowBizType = 'STOCK_TRANSFER';
 
 /**
  * 后端会给「明细」冻结快照的业务类型（真值来自后端，不是猜的）：
@@ -41,8 +56,8 @@ export const PO_APPROVE_BIZ_TYPE = 'PO_APPROVE';
  */
 export const ITEM_SNAPSHOT_BIZ_TYPES: readonly string[] = [
   PO_APPROVE_BIZ_TYPE,
-  'STOCK_IN_POST',
-  'STOCK_TRANSFER',
+  STOCK_IN_POST_BIZ_TYPE,
+  STOCK_TRANSFER_BIZ_TYPE,
 ];
 
 /** 明细行（键 = 后端快照的 8 键，值原样交给格式化层） */

@@ -1592,7 +1592,7 @@ mod db_tests {
         // ⑤ 状态日志（无外键 → 必须在删单据之前，按 entity_id 精确清）
         exec(
             &format!(
-                "DELETE FROM biz_status_log WHERE entity_type = 'TRANSFER' \
+                "DELETE FROM biz_status_log WHERE entity_type = 'STOCK_TRANSFER' \
                    AND entity_id IN (SELECT id FROM biz_stock_transfer WHERE {doc_where})"
             ),
             vec![docs.clone(), docs.clone()],
@@ -4552,7 +4552,7 @@ mod db_tests {
         // ④ 状态日志没了（无外键 → 必须在删单据之前清，否则永远对不上）
         assert_eq!(
             count_of(
-                "SELECT count(*) FROM biz_status_log WHERE entity_type = 'TRANSFER' AND entity_id = ?::uuid",
+                "SELECT count(*) FROM biz_status_log WHERE entity_type = 'STOCK_TRANSFER' AND entity_id = ?::uuid",
                 vec![Value::from(&id)],
                 "残留状态日志",
             )

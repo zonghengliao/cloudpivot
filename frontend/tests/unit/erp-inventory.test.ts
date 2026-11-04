@@ -81,7 +81,7 @@ test('①附 流水数量签名：IN 加 +、OUT 用 U+2212 减号，库里 qty 
 // ==================== ② biz_type 中文映射 ====================
 
 test('② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出，未知码原样返回', () => {
-  // 后端常量逐字：stockin_model / transfer_model / serial_model
+  // 取值与文案的唯一来源 = doc-kinds.ts 的 TXN_BIZ_TYPE_LABELS（= 后端 TxnBizType）
   assert.equal(bizTypeLabel('PURCHASE_IN'), '采购入库');
   assert.equal(bizTypeLabel('TRANSFER_IN'), '调拨入库');
   assert.equal(bizTypeLabel('TRANSFER_OUT'), '调拨出库');
@@ -90,18 +90,36 @@ test('② 业务类型中文：PURCHASE_IN→采购入库，调拨区分进出�
   assert.equal(bizTypeLabel('SERIAL_SCRAP'), '序列号报废');
   // 卡面点名的销售出库
   assert.equal(bizTypeLabel('SALE_OUT'), '销售出库');
+  // P2-5：真实存在的后端值（旧前端词表里没有，靠英文码兜底）
+  assert.equal(bizTypeLabel('PURCHASE_RETURN'), '采购退货');
+  assert.equal(bizTypeLabel('PRODUCTION_IN'), '生产入库');
+  assert.equal(bizTypeLabel('PURCHASE_IN_CANCEL'), '采购入库红冲');
 
   // 进/出不能同文案（串了就等于把出库看成入库）
   assert.notEqual(bizTypeLabel('TRANSFER_IN'), bizTypeLabel('TRANSFER_OUT'));
+
+  // P2-5 消灭「第 8 套词表」：旧前端自造的 key 后端根本没有 →
+  // 现在一律原样返回英文码（以前会给一个永远不会被命中的「中文」，
+  // 让人误以为系统支持这些业务类型）
+  for (const invented of [
+    'PURCHASE_RETURN_OUT',
+    'SALE_RETURN_IN',
+    'PRODUCE_IN',
+    'MATERIAL_ISSUE_OUT',
+    'INIT_IN',
+  ]) {
+    assert.equal(bizTypeLabel(invented), invented, `自造 key ${invented} 不该有中文`);
+  }
 
   // 未知码原样返回：后端加新类型时，显示英文码也比显示错的中文强
   assert.equal(bizTypeLabel('FUTURE_BIZ'), 'FUTURE_BIZ');
   assert.equal(bizTypeLabel(null), '—');
   assert.equal(bizTypeLabel(''), '—');
 
-  // 单据类型映射（列表副行用）
+  // 单据类型映射（列表副行用）—— 文案与业务对象词表统一（旧值是「调拨单」）
   assert.equal(docTypeLabel('STOCK_IN'), '收货入库单');
-  assert.equal(docTypeLabel('STOCK_TRANSFER'), '调拨单');
+  assert.equal(docTypeLabel('STOCK_TRANSFER'), '库存调拨单');
+  assert.equal(docTypeLabel('MATERIAL_SERIAL'), '序列号');
   assert.equal(docTypeLabel('UNKNOWN_DOC'), 'UNKNOWN_DOC');
 });
 

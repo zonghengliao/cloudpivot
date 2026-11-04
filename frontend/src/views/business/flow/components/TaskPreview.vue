@@ -126,6 +126,7 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import { ApiError } from '@/api/request';
 import { previewTaskNode, type PreviewAssigneeRes, type TaskPreviewAssigneeReq, type TaskPreviewRes } from '@/api/business/flow-api';
 import { taskNodeErrorText } from '@/views/business/flow/components/flow-error-codes';
+import { PO_APPROVE_BIZ_TYPE } from '@/views/business/flow/flow-business-items';
 import {
   ON_COMPLETE_LABELS,
   taskConfigPatch,
@@ -161,7 +162,14 @@ const DEBOUNCE_MS = 300;
  * 会把它们当 uuid 解析，给个非 uuid 字符串会在「发起人本人」来源上 400。
  */
 const SAMPLE_VARS = {
-  instance: { biz_no: 'PO202611010001', title: '采购申请（示例）', biz_type: 'PURCHASE_ORDER' },
+  // biz_type 取词表里的真值：采购单走的是「采购订单审批」，值 = PO_APPROVE
+  // （旧版这里硬编码 'PURCHASE_ORDER' —— 那是**实体类型**不是审批类型，
+  //  与 biz_flow_def.biz_type 不是同一根轴，预览会显示「本流程业务类型对不上」）。
+  instance: {
+    biz_no: 'PO202611010001',
+    title: '采购申请（示例）',
+    biz_type: PO_APPROVE_BIZ_TYPE as string,
+  },
   initiator: { id: '00000000-0000-0000-0000-000000000001', name: '张三', dept_id: '00000000-0000-0000-0000-000000000002' },
   prev: { approver_name: '李四', approver_id: '00000000-0000-0000-0000-000000000003' },
   form: { supplier_name: '华东金属', amount: 125000, delivery_date: '2026-11-15', urgency: 'P1', task_owner_id: '00000000-0000-0000-0000-000000000001' },
@@ -265,7 +273,7 @@ async function request(): Promise<void> {
   try {
     const vars = JSON.parse(JSON.stringify(SAMPLE_VARS)) as Record<string, unknown>;
     // 示例里的 instance.biz_type 用真实流程的 biz_type（否则「本流程业务类型」的文案会对不上）
-    (vars.instance as Record<string, unknown>).biz_type = (props.bizType ?? 'PURCHASE_ORDER') || 'PURCHASE_ORDER';
+    (vars.instance as Record<string, unknown>).biz_type = props.bizType ?? PO_APPROVE_BIZ_TYPE;
     const response = await previewTaskNode({
       config: taskConfigPatch(props.config).config.task,
       assignee: props.assignee ?? null,
@@ -315,7 +323,7 @@ async function rerenderWithoutAssignee(reason: string): Promise<void> {
   const mine = seq;
   try {
     const vars = JSON.parse(JSON.stringify(SAMPLE_VARS)) as Record<string, unknown>;
-    (vars.instance as Record<string, unknown>).biz_type = (props.bizType ?? 'PURCHASE_ORDER') || 'PURCHASE_ORDER';
+    (vars.instance as Record<string, unknown>).biz_type = props.bizType ?? PO_APPROVE_BIZ_TYPE;
     const response = await previewTaskNode({
       config: taskConfigPatch(props.config).config.task,
       assignee: null,

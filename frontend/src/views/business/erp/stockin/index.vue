@@ -848,7 +848,7 @@
         <!-- 附件：签收单 / 验收报告 / 发票影像（ARCH-3 DC-17）—— 四个单据详情页共用同一组件 -->
         <div class="section-title">附件</div>
         <DocAttachmentPanel
-          doc-type="STOCK_IN"
+          :doc-type="DOC_KIND.STOCK_IN"
           :doc-id="detail.header.id"
           default-role="SIGN_RECEIPT"
           testid-prefix="stockin-attach"
@@ -887,6 +887,7 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { DOC_KIND } from '@/api/business/erp/doc-kinds';
 import {
   stockInBatchDelete,
   stockInBatchExport,

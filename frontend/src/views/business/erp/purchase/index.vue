@@ -762,7 +762,7 @@
         <!-- 附件：签收单 / 报价单 / 其它（ARCH-3 DC-17）—— 四个单据详情页共用同一组件 -->
         <div class="section-title">附件</div>
         <DocAttachmentPanel
-          doc-type="PURCHASE_ORDER"
+          :doc-type="DOC_KIND.PURCHASE_ORDER"
           :doc-id="detail.id"
           default-role="OTHER"
           testid-prefix="purchase-attach"
@@ -773,7 +773,7 @@
     <!-- R-P1-5：联动作废影响面确认（先看影响面再动手） -->
     <CancelImpactDialog
       v-model:visible="cancelImpactVisible"
-      doc-type="purchase-order"
+      :doc-type="DOC_KIND_ROUTES.PURCHASE_ORDER"
       :doc-id="detail?.id ?? ''"
       :doc-no="detail?.order_no"
       @done="handleCascadeDone"
@@ -817,6 +817,7 @@ import {
   type Warehouse,
 } from '@/api/business/erp';
 import { ApiError } from '@/api/request';
+import { DOC_KIND, DOC_KIND_ROUTES } from '@/api/business/erp/doc-kinds';
 import { getFlowInstance } from '@/api/business/flow-api';
 import FlowProgress from '@/views/business/flow/components/FlowProgress.vue';
 import DocAttachmentPanel from '@/views/business/erp/shared/DocAttachmentPanel.vue';

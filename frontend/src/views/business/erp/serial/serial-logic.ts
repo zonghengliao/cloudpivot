@@ -18,6 +18,10 @@
  * | 单次上限 | 1000 | `serial_model.rs::MAX_BATCH_COUNT` |
  */
 import type { SerialBatchRes, SerialRow, SerialSourceType, SerialStatus } from '@/api/business/erp';
+import {
+  SERIAL_SOURCE_TYPES,
+  SERIAL_SOURCE_TYPE_LABELS,
+} from '@/api/business/erp/doc-kinds';
 
 /** 默认每页条数（服务端分页；序列号是一物一码，条数比主数据多一个量级） */
 export const SERIAL_PAGE_SIZE = 20;
@@ -68,13 +72,15 @@ export const SERIAL_STATUS_META: Readonly<Record<SerialStatus, SerialStatusMeta>
 export const SERIAL_STATUS_FILTER_OPTIONS: ReadonlyArray<{ label: string; value: SerialStatus }> =
   SERIAL_STATUSES.map((status) => ({ label: SERIAL_STATUS_META[status].label, value: status }));
 
-/** 来源类型下拉项（批量生成弹窗用；`''` = 不填，后端按「无来源」处理） */
-export const SOURCE_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: SerialSourceType }> = [
-  { label: '采购入库', value: 'PURCHASE' },
-  { label: '调拨入库', value: 'TRANSFER' },
-  { label: '生产入库', value: 'PRODUCE' },
-  { label: '退货入库', value: 'RETURN' },
-];
+/** 来源类型下拉项（批量生成弹窗用；`''` = 不填，后端按「无来源」处理）。
+ *
+ * P2-5 词表收敛：取值与中文都来自 `doc-kinds.ts` 的 `SERIAL_SOURCE_TYPES` /
+ * `SERIAL_SOURCE_TYPE_LABELS`（= 后端 `SerialSourceType`），不再手抄一遍。 */
+export const SOURCE_TYPE_OPTIONS: ReadonlyArray<{ label: string; value: SerialSourceType }> =
+  SERIAL_SOURCE_TYPES.map((value) => ({
+    label: SERIAL_SOURCE_TYPE_LABELS[value],
+    value,
+  }));
 
 /** 状态 → 中文（未知值原样回显，不吞数据：后端加了新状态时页面至少不空白） */
 export function serialStatusLabel(status: string): string {
