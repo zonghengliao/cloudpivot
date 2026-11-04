@@ -1,0 +1,51 @@
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:23:14
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 105
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 105
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:31:38
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 140
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 140
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:57:12
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 245
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 245
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)

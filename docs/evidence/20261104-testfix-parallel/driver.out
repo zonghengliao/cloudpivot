@@ -1,0 +1,114 @@
+[A/R1] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 22.87s (23s) => GREEN
+[A/R2] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 23.11s (23s) => GREEN
+[A/R3] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 22.98s (23s) => GREEN
+[A/R1] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.30s (14s) => GREEN
+[A/R2] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.31s (13s) => GREEN
+[A/R3] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.31s (13s) => GREEN
+[A/R1] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.39s (46s) => GREEN
+[A/R2] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.68s (46s) => GREEN
+[A/R3] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.27s (45s) => GREEN
+[A/R1] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 425.24s (426s) => GREEN
+[A/R2] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 423.95s (424s) => GREEN
+[A/R3] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 420.57s (420s) => GREEN
+=== PHASE A DONE, 库内残留状态（进 PHASE B 前） ===
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:23:14
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 105
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 105
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)
+[B/SEED] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 23.57s (24s) => GREEN
+[B/SEED] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.56s (13s) => GREEN
+[B/SEED] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.58s (46s) => GREEN
+[B/SEED] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 421.18s (421s) => GREEN
+=== PHASE B SEED PASS DONE（故意留下残留） ===
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:31:38
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 140
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 140
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)
+[B/R1] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 23.21s (23s) => GREEN
+[B/R2] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 23.17s (23s) => GREEN
+[B/R3] business::erp::period_items -> test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2317 filtered out; finished in 23.12s (24s) => GREEN
+[B/R1] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.45s (13s) => GREEN
+[B/R2] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.40s (14s) => GREEN
+[B/R3] business::erp::contract_approval_tests -> test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 13.57s (13s) => GREEN
+[B/R1] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.63s (46s) => GREEN
+[B/R2] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.72s (46s) => GREEN
+[B/R3] business::erp::payable_bridge -> test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 2307 filtered out; finished in 45.14s (45s) => GREEN
+[B/R1] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 426.15s (427s) => GREEN
+[B/R2] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 431.15s (431s) => GREEN
+[B/R3] business::erp::stockin_handler -> test result: ok. 133 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 427.83s (428s) => GREEN
+=== PHASE B DONE, 库内残留状态（终态） ===
+[residue] db=cloudpivot_25926f63 @ 2026-11-04 20:57:12
+-- PENDING 流程实例（按 biz_type）--
+PAYABLE_PAY=1
+-- 孤儿状态日志（entity_id 指向已不存在单据）--
+  STOCK_IN           = 0
+  PURCHASE_ORDER     = 245
+  STOCK_TRANSFER     = 0
+  PAYABLE            = 0
+  VOUCHER            = 0
+  ACCOUNTING_PERIOD  = 0
+  CONTRACT           = 0
+  ORPHAN_TOTAL = 245
+-- 夹具号段行数（2040 = period_items 独占号段；AP-P17 / P17- = payable_bridge）--
+  biz_accounting_period 2040-% = 1
+  biz_payable AP-P17-%       = 1
+-- 角色绑定（SEED_ROLE_LOCK 组）--
+(none)
+=== SUMMARY ===
+A	R1	business::erp::period_items	13	0	GREEN	23s	/root/25926f63-runs/period_items__A__R1.log
+A	R2	business::erp::period_items	13	0	GREEN	23s	/root/25926f63-runs/period_items__A__R2.log
+A	R3	business::erp::period_items	13	0	GREEN	23s	/root/25926f63-runs/period_items__A__R3.log
+A	R1	business::erp::contract_approval_tests	9	0	GREEN	14s	/root/25926f63-runs/contract_approval_tests__A__R1.log
+A	R2	business::erp::contract_approval_tests	9	0	GREEN	13s	/root/25926f63-runs/contract_approval_tests__A__R2.log
+A	R3	business::erp::contract_approval_tests	9	0	GREEN	13s	/root/25926f63-runs/contract_approval_tests__A__R3.log
+A	R1	business::erp::payable_bridge	23	0	GREEN	46s	/root/25926f63-runs/payable_bridge__A__R1.log
+A	R2	business::erp::payable_bridge	23	0	GREEN	46s	/root/25926f63-runs/payable_bridge__A__R2.log
+A	R3	business::erp::payable_bridge	23	0	GREEN	45s	/root/25926f63-runs/payable_bridge__A__R3.log
+A	R1	business::erp::stockin_handler	133	0	GREEN	426s	/root/25926f63-runs/stockin_handler__A__R1.log
+A	R2	business::erp::stockin_handler	133	0	GREEN	424s	/root/25926f63-runs/stockin_handler__A__R2.log
+A	R3	business::erp::stockin_handler	133	0	GREEN	420s	/root/25926f63-runs/stockin_handler__A__R3.log
+B	SEED	business::erp::period_items	13	0	GREEN	24s	/root/25926f63-runs/period_items__B__SEED.log
+B	SEED	business::erp::contract_approval_tests	9	0	GREEN	13s	/root/25926f63-runs/contract_approval_tests__B__SEED.log
+B	SEED	business::erp::payable_bridge	23	0	GREEN	46s	/root/25926f63-runs/payable_bridge__B__SEED.log
+B	SEED	business::erp::stockin_handler	133	0	GREEN	421s	/root/25926f63-runs/stockin_handler__B__SEED.log
+B	R1	business::erp::period_items	13	0	GREEN	23s	/root/25926f63-runs/period_items__B__R1.log
+B	R2	business::erp::period_items	13	0	GREEN	23s	/root/25926f63-runs/period_items__B__R2.log
+B	R3	business::erp::period_items	13	0	GREEN	24s	/root/25926f63-runs/period_items__B__R3.log
+B	R1	business::erp::contract_approval_tests	9	0	GREEN	13s	/root/25926f63-runs/contract_approval_tests__B__R1.log
+B	R2	business::erp::contract_approval_tests	9	0	GREEN	14s	/root/25926f63-runs/contract_approval_tests__B__R2.log
+B	R3	business::erp::contract_approval_tests	9	0	GREEN	13s	/root/25926f63-runs/contract_approval_tests__B__R3.log
+B	R1	business::erp::payable_bridge	23	0	GREEN	46s	/root/25926f63-runs/payable_bridge__B__R1.log
+B	R2	business::erp::payable_bridge	23	0	GREEN	46s	/root/25926f63-runs/payable_bridge__B__R2.log
+B	R3	business::erp::payable_bridge	23	0	GREEN	45s	/root/25926f63-runs/payable_bridge__B__R3.log
+B	R1	business::erp::stockin_handler	133	0	GREEN	427s	/root/25926f63-runs/stockin_handler__B__R1.log
+B	R2	business::erp::stockin_handler	133	0	GREEN	431s	/root/25926f63-runs/stockin_handler__B__R2.log
+B	R3	business::erp::stockin_handler	133	0	GREEN	428s	/root/25926f63-runs/stockin_handler__B__R3.log
+=== VERDICT ===
+ALL_GREEN
+DRIVER EXIT=0
