@@ -1,0 +1,13 @@
+# 单测全量（HEAD + 本卡改动，tsx --test tests/unit/**/*.test.ts）
+not ok 21 - ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+not ok 22 - ③-补 凭证：进度数据源是 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+# tests 696
+# pass 694
+# fail 2
+
+# 基线对照（干净 HEAD 1099aed，同一条命令的 fail 列表）
+not ok 21 - ③ 凭证详情：底部新增「审批进度」区块（节点 + 审批人明细），位置在分录 / 合计之后
+not ok 22 - ③-补 凭证：进度数据源是 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id
+# tests 696
+# pass 694
+# fail 2

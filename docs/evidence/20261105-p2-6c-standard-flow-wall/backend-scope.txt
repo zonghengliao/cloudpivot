@@ -1,0 +1,10 @@
+# 后端口径（隔离实例 127.0.0.1:18126 / 库 cloudpivot_p26c，二进制 = HEAD 1099aed 编出）
+# 卡片墙只打 scope=standard；默认口径与 all 的区别在这里一次性量清
+login=200
+{"code":0,"msg":"ok","data":{"access_token":"eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiI2MjAxZjBlYy02NjU0LTQzYjEtOTcwOS1kOTA0ODg5NjBkMTUiLCJzdWIiOiIwMWExYT
+tokenlen=461
+GET /def/templates -> 200 total=11
+GET /def/templates?scope=standard -> 200 total=11
+GET /def/templates?scope=all -> 200 total=13
+GET /def/templates?include_mine=1 -> 200 total=13
+GET /def/templates?scope=bogus -> 400 total=scope bogus 非法（只允许 standard / all）

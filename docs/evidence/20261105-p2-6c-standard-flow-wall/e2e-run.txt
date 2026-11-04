@@ -1,0 +1,26 @@
+# 真机验收（真 Chromium + vite dev :5261 + 隔离后端 :18126 + 库 cloudpivot_p26c）
+# 跑法：cd <verify 目录> && node verify.mjs     （断言全部落在真 DOM / 真网络请求上）
+PASS ① 落在 /flow/def（无 view 参数） :: /flow/def
+PASS ① 两个 Tab 存在：我的流程 / 标准流程 :: [{"text":"我的流程","active":true},{"text":"标准流程","active":false}]
+PASS ① 默认激活「我的流程」
+PASS ① 我的流程表格有数据行 :: rows=15 首行=asset_disposal资产处置审批（出售 / 报废 / 盘亏）默认 已发布v13 节点 / 2 连线ASSET_DISPOSAL2026-11-05 01:16编辑 发布 停用 版本历史删除
+PASS ① 我的流程 Tab 下不渲染卡片墙
+PASS ② 切到标准流程后地址栏写回 ?view=standard :: /flow/def?view=standard
+PASS ② 计数文案为「共 N 条标准流程」 :: 共 11 条标准流程
+PASS ② 卡片墙渲染出条目 :: cards=11
+PASS ② 每张卡都有「标准」标签 :: standard=11 cards=11
+PASS ② 卡片写操作只有 查看流程图 / 另存为 / 停用|启用 :: ["查看流程图","另存为","停用"]
+PASS ② 卡片墙上没有 编辑 / 删除 :: ["查看流程图","另存为","停用"]
+PASS ② 术语：卡片墙内「模板」出现 0 次 :: 模板=0
+PASS ② 术语：整页内容区（含 Tab 名）「模板」0 次 :: 模板=0 nav=我的流程|标准流程|全部|采购管理（1）|仓库管理（3）|财务管理（3）|任务（1）|合同管理（1）|库存管理（1）|系统（1）
+PASS ② 术语：「标准流程」字样在墙内出现 :: 标准流程=3
+PASS ② tpl-* 节点仍在 :: nodes=129
+PASS ③ /flow/templates 落到 /flow/def?view=standard :: /flow/def?view=standard title=流程定义 - 云枢 CloudPivot
+PASS ③ 落位后「标准流程」Tab 是激活态 :: [{"text":"我的流程","active":false},{"text":"标准流程","active":true},{"text":"全部","active":true},{"text":"采购管理（1）","active":false},{"text":"仓库管理（3）","active":false},{"text":"财务管理（3）","active":false},{"text":"任务（1）","active":false},{"text":"合同管理（1）","active":false},{"text":"库存管理（1）","active":false},{"text":"系统（1）","active":false}]
+PASS ③ 卡片墙已渲染（没有 404 页） :: cards=11 total=共 11 条标准流程
+PASS ④ 卡片墙请求带 scope=standard :: ["200 http://127.0.0.1:5261/api/business/flow/def/templates?scope=standard"]
+PASS ⑤ 无 4xx/5xx（除全站既有 notice/stream 401） :: {"otherBad":[],"noticeStream401":2}
+PASS ⑤ 无未捕获 JS 异常 :: []
+INFO notice/stream 401 次数=2（已知全站既有，不计入本卡）
+
+==== 21/21 PASS, 0 FAIL ====

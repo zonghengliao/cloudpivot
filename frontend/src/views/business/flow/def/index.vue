@@ -1,131 +1,146 @@
 <template>
   <div class="flow-def-page">
-    <!-- 筛选区 -->
-    <t-card :bordered="false" class="filter-card">
-      <t-row :gutter="[16, 12]">
-        <t-col :span="5">
-          <t-input v-model="query.keyword" placeholder="流程编码 / 名称" clearable @enter="handleSearch">
-            <template #prefix-icon><t-icon name="search" /></template>
-          </t-input>
-        </t-col>
-        <t-col :span="3">
-          <t-select v-model="query.status" placeholder="状态" clearable :options="statusOpts" />
-        </t-col>
-        <t-col :span="3">
-          <t-input v-model="query.biz_type" placeholder="业务类型，如 TASK_ACCEPT" clearable @enter="handleSearch" />
-        </t-col>
-        <t-col :span="13">
-          <t-space>
-            <t-button theme="primary" @click="handleSearch">
-              <template #icon><t-icon name="search" /></template>
-              查询
-            </t-button>
-            <t-button variant="outline" @click="handleReset">重置</t-button>
-          </t-space>
-        </t-col>
-      </t-row>
-    </t-card>
+    <!-- 两个入口收敛成一个（P2-6 决策 A「合并概念」）：
+         「我的流程」= 原有流程定义表格；「标准流程」= 只读卡片墙（is_system = TRUE 的那批）。 -->
+    <t-card :bordered="false" class="view-tabs-card">
+      <t-tabs v-model="activeTab" data-testid="def-view-tabs">
+        <t-tab-panel value="mine" label="我的流程">
+          <div class="tab-body">
+            <!-- 筛选区 -->
+            <t-card :bordered="false" class="filter-card">
+              <t-row :gutter="[16, 12]">
+                <t-col :span="5">
+                  <t-input v-model="query.keyword" placeholder="流程编码 / 名称" clearable @enter="handleSearch">
+                    <template #prefix-icon><t-icon name="search" /></template>
+                  </t-input>
+                </t-col>
+                <t-col :span="3">
+                  <t-select v-model="query.status" placeholder="状态" clearable :options="statusOpts" />
+                </t-col>
+                <t-col :span="3">
+                  <t-input v-model="query.biz_type" placeholder="业务类型，如 TASK_ACCEPT" clearable @enter="handleSearch" />
+                </t-col>
+                <t-col :span="13">
+                  <t-space>
+                    <t-button theme="primary" @click="handleSearch">
+                      <template #icon><t-icon name="search" /></template>
+                      查询
+                    </t-button>
+                    <t-button variant="outline" @click="handleReset">重置</t-button>
+                  </t-space>
+                </t-col>
+              </t-row>
+            </t-card>
 
-    <!-- 工具条 -->
-    <t-card :bordered="false" class="toolbar-card">
-      <div class="toolbar">
-        <t-space align="center">
-          <t-button v-privilege="[PERM.flowCreate]" theme="primary" size="small" @click="openCreate">
-            <template #icon><t-icon name="add" /></template>
-            新建流程
-          </t-button>
-          <!-- 状态机边配置入口（D3 管理面前端入口，卡 t_a392a5da）：读 BASE 边 + 配置，改配置走审批 -->
-          <t-button
-            v-privilege="[PERM.flowStateEdgeList]"
-            variant="outline"
-            size="small"
-            data-testid="btn-state-edge"
-            @click="openStateEdge()"
-          >
-            <template #icon><t-icon name="setting" /></template>
-            边配置
-          </t-button>
-          <t-button variant="outline" size="small" :loading="loading" @click="loadList">
-            <template #icon><t-icon name="refresh" /></template>
-            刷新
-          </t-button>
-        </t-space>
-        <span class="toolbar__count">共 {{ total }} 个流程 · 状态取值 DRAFT / PUBLISHED / DISABLED</span>
-      </div>
-    </t-card>
+            <!-- 工具条 -->
+            <t-card :bordered="false" class="toolbar-card">
+              <div class="toolbar">
+                <t-space align="center">
+                  <t-button v-privilege="[PERM.flowCreate]" theme="primary" size="small" @click="openCreate">
+                    <template #icon><t-icon name="add" /></template>
+                    新建流程
+                  </t-button>
+                  <!-- 状态机边配置入口（D3 管理面前端入口，卡 t_a392a5da）：读 BASE 边 + 配置，改配置走审批 -->
+                  <t-button
+                    v-privilege="[PERM.flowStateEdgeList]"
+                    variant="outline"
+                    size="small"
+                    data-testid="btn-state-edge"
+                    @click="openStateEdge()"
+                  >
+                    <template #icon><t-icon name="setting" /></template>
+                    边配置
+                  </t-button>
+                  <t-button variant="outline" size="small" :loading="loading" @click="loadList">
+                    <template #icon><t-icon name="refresh" /></template>
+                    刷新
+                  </t-button>
+                </t-space>
+                <span class="toolbar__count">共 {{ total }} 个流程 · 状态取值 DRAFT / PUBLISHED / DISABLED</span>
+              </div>
+            </t-card>
 
-    <!-- 列表 -->
-    <t-card :bordered="false" class="table-card">
-      <t-alert v-if="errorMessage" class="table-alert" theme="error" :message="errorMessage">
-        <template #operation>
-          <t-button size="small" variant="outline" @click="loadList">重试</t-button>
-        </template>
-      </t-alert>
+            <!-- 列表 -->
+            <t-card :bordered="false" class="table-card">
+              <t-alert v-if="errorMessage" class="table-alert" theme="error" :message="errorMessage">
+                <template #operation>
+                  <t-button size="small" variant="outline" @click="loadList">重试</t-button>
+                </template>
+              </t-alert>
 
-      <t-table
-        row-key="id"
-        :data="rows"
-        :columns="columns"
-        :loading="loading"
-        :pagination="tablePagination"
-        :hover="true"
-        stripe
-        @page-change="handlePageChange"
-      >
-        <template #flow_code="{ row }">
-          <span class="cell-code">{{ row.flow_code }}</span>
-        </template>
+              <t-table
+                row-key="id"
+                :data="rows"
+                :columns="columns"
+                :loading="loading"
+                :pagination="tablePagination"
+                :hover="true"
+                stripe
+                @page-change="handlePageChange"
+              >
+                <template #flow_code="{ row }">
+                  <span class="cell-code">{{ row.flow_code }}</span>
+                </template>
 
-        <template #flow_name="{ row }">
-          <div class="cell-name">
-            <t-link theme="primary" @click="openEditor(row)">{{ row.flow_name }}</t-link>
-            <t-tag v-if="row.is_default" size="small" variant="light" theme="primary">默认</t-tag>
+                <template #flow_name="{ row }">
+                  <div class="cell-name">
+                    <t-link theme="primary" @click="openEditor(row)">{{ row.flow_name }}</t-link>
+                    <t-tag v-if="row.is_default" size="small" variant="light" theme="primary">默认</t-tag>
+                  </div>
+                </template>
+
+                <template #status="{ row }">
+                  <StatusBadge domain="flow-def" :status="row.status" />
+                </template>
+
+                <template #version="{ row }">
+                  <span v-if="row.current_version_no > 0">v{{ row.current_version_no }}</span>
+                  <span v-else class="cell-muted">未发布</span>
+                </template>
+
+                <template #graph_size="{ row }">
+                  <span class="cell-muted">{{ row.node_count }} 节点 / {{ row.edge_count }} 连线</span>
+                </template>
+
+                <template #updated_at="{ row }">
+                  {{ formatTime(row.updated_at) }}
+                </template>
+
+                <template #op="{ row }">
+                  <t-space size="small">
+                    <t-link v-privilege="[PERM.flowUpdate]" theme="primary" @click="openEditor(row)">编辑</t-link>
+                    <t-link v-privilege="[PERM.flowPublish]" theme="primary" :disabled="row.status === 'PUBLISHED'" @click="openPublish(row)">
+                      发布
+                    </t-link>
+                    <t-link
+                      v-privilege="[PERM.flowPublish]"
+                      theme="warning"
+                      :disabled="row.status !== 'PUBLISHED'"
+                      @click="openOffline(row)"
+                    >
+                      停用
+                    </t-link>
+                    <t-link theme="default" @click="openVersions(row)">版本历史</t-link>
+                    <t-link v-privilege="[PERM.flowDelete]" theme="danger" @click="openDelete(row)">删除</t-link>
+                  </t-space>
+                </template>
+
+                <template #empty>
+                  <div class="table-empty">
+                    <t-icon name="file-copy" size="24px" />
+                    <p>还没有流程定义。点「新建流程」建一张最简图（开始 → 结束），再进编辑器扩展。</p>
+                  </div>
+                </template>
+              </t-table>
+            </t-card>
           </div>
-        </template>
+        </t-tab-panel>
 
-        <template #status="{ row }">
-          <StatusBadge domain="flow-def" :status="row.status" />
-        </template>
-
-        <template #version="{ row }">
-          <span v-if="row.current_version_no > 0">v{{ row.current_version_no }}</span>
-          <span v-else class="cell-muted">未发布</span>
-        </template>
-
-        <template #graph_size="{ row }">
-          <span class="cell-muted">{{ row.node_count }} 节点 / {{ row.edge_count }} 连线</span>
-        </template>
-
-        <template #updated_at="{ row }">
-          {{ formatTime(row.updated_at) }}
-        </template>
-
-        <template #op="{ row }">
-          <t-space size="small">
-            <t-link v-privilege="[PERM.flowUpdate]" theme="primary" @click="openEditor(row)">编辑</t-link>
-            <t-link v-privilege="[PERM.flowPublish]" theme="primary" :disabled="row.status === 'PUBLISHED'" @click="openPublish(row)">
-              发布
-            </t-link>
-            <t-link
-              v-privilege="[PERM.flowPublish]"
-              theme="warning"
-              :disabled="row.status !== 'PUBLISHED'"
-              @click="openOffline(row)"
-            >
-              停用
-            </t-link>
-            <t-link theme="default" @click="openVersions(row)">版本历史</t-link>
-            <t-link v-privilege="[PERM.flowDelete]" theme="danger" @click="openDelete(row)">删除</t-link>
-          </t-space>
-        </template>
-
-        <template #empty>
-          <div class="table-empty">
-            <t-icon name="file-copy" size="24px" />
-            <p>还没有流程定义。点「新建流程」建一张最简图（开始 → 结束），再进编辑器扩展。</p>
-          </div>
-        </template>
-      </t-table>
+        <t-tab-panel value="standard" label="标准流程">
+          <!-- 只读卡片墙：没有编辑 / 删除，写操作只有「另存为」与「启用 / 停用」 -->
+          <StandardFlowWall @changed="handleWallChanged" />
+        </t-tab-panel>
+      </t-tabs>
     </t-card>
 
     <!-- 新建流程 -->
@@ -238,7 +253,16 @@
 
 <script setup lang="ts">
 /**
- * 流程定义列表（卡面页面 1 / `/flow/def`）。
+ * 流程定义页（`/flow/def`，卡面页面 1）。
+ *
+ * # 两个 Tab（P2-6 决策 A「合并概念」，术语统一为「标准流程」）
+ *
+ * - **我的流程**：原有流程定义表格（分页 / 筛选 / 新建 / 发布 / 停用 / 删除 / 版本历史）。
+ * - **标准流程**：`StandardFlowWall` 只读卡片墙（数据口径 `scope=standard`，即 `is_system = TRUE`）。
+ *   独立的老页面 `/flow/templates`（「流程模板库」）已下线，路由改成 redirect 到
+ *   `/flow/def?view=standard`，老书签 / 老菜单不会 404。
+ *
+ * 地址栏 `?view=standard` 是唯一真源：切 Tab 会写回 query，直链 / 老链接重定向都靠它落位。
  *
  * # 数据来源
  *
@@ -255,7 +279,7 @@
  * 「编辑」与「版本历史 → 查看 / 编辑」都进 `/flow/def/{defId}/edit`，
  * 区别只是后者带 `?vid=` 指定要看哪一版（编辑器据此决定加载哪张图 / 是否只读）。
  */
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { MessagePlugin } from 'tdesign-vue-next';
 import type { PrimaryTableCol, FormRules } from 'tdesign-vue-next';
@@ -273,10 +297,73 @@ import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import { flowVersionStatusMeta } from '@/constants/status-map';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
+import StandardFlowWall from '@/views/business/flow/components/StandardFlowWall.vue';
 import StateEdgePanel from './StateEdgePanel.vue';
 
 const router = useRouter();
 const route = useRoute();
+
+// ==================== Tab（我的流程 / 标准流程） ====================
+
+/** Tab 取值（与地址栏 `?view=` 一一对应；缺省 = 我的流程）。 */
+type DefViewTab = 'mine' | 'standard';
+
+/** `?view=` → Tab（未知值一律回落到「我的流程」，不白屏）。 */
+function normalizeTab(view: unknown): DefViewTab {
+  return view === 'standard' ? 'standard' : 'mine';
+}
+
+/** 当前 Tab（初值同步取地址栏，保证直达 `/flow/def?view=standard` 时**首次渲染**就在标准流程） */
+const activeTab = ref<DefViewTab>(normalizeTab(route.query.view));
+
+/** 地址栏 → Tab（老路由 redirect、手输链接、浏览器前进后退都走这里） */
+watch(
+  () => route.query.view,
+  (view) => {
+    const next = normalizeTab(view);
+    if (next !== activeTab.value) {
+      activeTab.value = next;
+    }
+  },
+);
+
+/** Tab → 地址栏（可分享 / 可刷新；用 replace 不污染历史） */
+watch(activeTab, (tab) => {
+  const current = normalizeTab(route.query.view);
+  if (current === tab) {
+    return;
+  }
+  const nextQuery = { ...route.query };
+  if (tab === 'standard') {
+    nextQuery.view = 'standard';
+  } else {
+    delete nextQuery.view;
+  }
+  void router.replace({ path: route.path, query: nextQuery });
+});
+
+/** 标准流程墙上的启用 / 停用 / 另存为改了数据 → 「我的流程」表格重拉一次（状态列别留在旧值） */
+function handleWallChanged(): void {
+  if (activeTab.value === 'mine') {
+    void loadList();
+  } else {
+    // 表格此时被 Tab 销毁，切回来时由 watch(activeTab) 重拉
+    listDirty.value = true;
+  }
+}
+
+/** 「我的流程」数据是否需要重拉（表格被 Tab 销毁期间墙改过数据）。 */
+const listDirty = ref(false);
+
+/** 切回「我的流程」时表格刚重新挂载，按需重拉（表体是 v-if 销毁的，不主动拉就是空白） */
+watch(activeTab, (tab) => {
+  if (tab === 'mine' && (listDirty.value || rows.value.length === 0)) {
+    listDirty.value = false;
+    void loadList();
+  }
+});
+
+// ==================== 查询条件 ====================
 
 /** 查询条件 */
 const query = ref<{ keyword: string; status: string; biz_type: string }>({ keyword: '', status: '', biz_type: '' });
@@ -623,6 +710,17 @@ onMounted(() => {
 
 <style scoped lang="less">
 .flow-def-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.view-tabs-card {
+  border-radius: 8px;
+}
+
+/* Tab 体内的三张卡保持原来的 12px 竖向间距（面板不是 flex 容器，这里自己补） */
+.tab-body {
   display: flex;
   flex-direction: column;
   gap: 12px;

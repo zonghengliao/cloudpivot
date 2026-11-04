@@ -1,0 +1,16 @@
+## 1) 基线：干净 HEAD（1099aed），**不含本卡任何改动**
+$ cd <clone@1099aed>/frontend && ./node_modules/.bin/vue-tsc --noEmit
+src/api/business/erp/attachment.ts(43,14): error TS2741: Property 'FIXED_ASSET' is missing in type '{ CONTRACT: string; PURCHASE_ORDER: string; STOCK_IN: string; PAYABLE: string; PAYMENT: string; }' but required in type 'Record<"PURCHASE_ORDER" | "STOCK_IN" | "PAYABLE" | "PAYMENT" | "CONTRACT" | "FIXED_ASSET", string>'.
+src/api/business/erp/attachment.ts(204,14): error TS2741: Property 'FIXED_ASSET' is missing in type '{ CONTRACT: "CONTRACT_SCAN"; PURCHASE_ORDER: "OTHER"; STOCK_IN: "SIGN_RECEIPT"; PAYABLE: "INVOICE"; PAYMENT: "INVOICE"; }' but required in type 'Record<"PURCHASE_ORDER" | "STOCK_IN" | "PAYABLE" | "PAYMENT" | "CONTRACT" | "FIXED_ASSET", FileRole>'.
+exit=2
+
+## 2) HEAD + 本卡改动（origin/main 干净树 + 本卡 4 个文件）
+$ cd <clone@1099aed + 本卡改动>/frontend && ./node_modules/.bin/vue-tsc --noEmit
+src/api/business/erp/attachment.ts(43,14): error TS2741: Property 'FIXED_ASSET' is missing in type '{ CONTRACT: string; PURCHASE_ORDER: string; STOCK_IN: string; PAYABLE: string; PAYMENT: string; }' but required in type 'Record<"PURCHASE_ORDER" | "STOCK_IN" | "PAYABLE" | "PAYMENT" | "CONTRACT" | "FIXED_ASSET", string>'.
+src/api/business/erp/attachment.ts(204,14): error TS2741: Property 'FIXED_ASSET' is missing in type '{ CONTRACT: "CONTRACT_SCAN"; PURCHASE_ORDER: "OTHER"; STOCK_IN: "SIGN_RECEIPT"; PAYABLE: "INVOICE"; PAYMENT: "INVOICE"; }' but required in type 'Record<"PURCHASE_ORDER" | "STOCK_IN" | "PAYABLE" | "PAYMENT" | "CONTRACT" | "FIXED_ASSET", FileRole>'.
+exit=2
+
+## 3) 反证：错误全部来自 FIN-2 提交 0eb8b81（doc-kinds.ts 扩了 FIXED_ASSET 但 attachment.ts 两张映射表没跟上）
+临时在 clone 里补 2 行映射（**仅本地跑证据，不进提交**）后重跑：
+$ cd <同 2) 的树 + TEMP-SHIM>/frontend && ./node_modules/.bin/vue-tsc --noEmit
+exit=0

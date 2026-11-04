@@ -1,17 +1,17 @@
 <template>
-  <div class="flow-tpl-page" data-testid="flow-tpl-page">
-    <!-- 头部：标题 + 计数 + 刷新 + 分类 Tab -->
+  <div class="standard-flow-wall flow-tpl-page" data-testid="flow-tpl-page" data-wall="standard">
+    <!-- 头部：说明 + 计数 + 刷新 + 分类 Tab（标题由宿主页面的 Tab 提供，这里不重复） -->
     <t-card :bordered="false" class="head-card">
       <div class="head">
         <div class="head__text">
-          <h3 class="head__title">流程模板库</h3>
           <p class="head__desc">
             预置标准流程开箱即用：看流程图、另存为改成自己的、随时启用停用（在跑的审批单不受影响）。
+            标准流程只读，不能在这里改或删。
           </p>
         </div>
         <t-space align="center">
-          <span class="head__count" data-testid="tpl-total">共 {{ total }} 个模板</span>
-          <t-button variant="outline" size="small" :loading="loading" @click="loadTemplates">
+          <span class="head__count" data-testid="tpl-total">共 {{ total }} 条标准流程</span>
+          <t-button variant="outline" size="small" :loading="loading" data-testid="wall-refresh" @click="loadTemplates">
             <template #icon><t-icon name="refresh" /></template>
             刷新
           </t-button>
@@ -38,7 +38,7 @@
     <t-loading :loading="loading" show-overlay>
       <div v-if="visibleGroups.length === 0 && !loading" class="empty" data-testid="tpl-empty">
         <t-icon name="template" size="32px" />
-        <p>{{ activeCategory === '__all__' ? '还没有任何流程模板' : '该分类下没有模板' }}</p>
+        <p>{{ activeCategory === '__all__' ? '还没有任何标准流程' : '该分类下没有标准流程' }}</p>
       </div>
 
       <section
@@ -84,7 +84,7 @@
 
               <!-- 适用场景（条件分流标签 / 说明首句） -->
               <p class="tpl-card__summary" data-testid="tpl-summary">
-                {{ item.summary || '（该模板还没有配置条件分流）' }}
+                {{ item.summary || '（该标准流程还没有配置条件分流）' }}
               </p>
 
               <!-- 事实行：节点 / 连线 / 已用次数 / 最近使用 -->
@@ -103,7 +103,7 @@
                 <span class="tpl-card__biz">{{ item.biz_type }}</span>
               </div>
 
-              <!-- 操作 -->
+              <!-- 操作：只读墙，唯一写操作是「另存为」与「启用 / 停用」（**没有编辑 / 删除**） -->
               <div class="tpl-card__actions">
                 <t-button
                   size="small"
@@ -179,7 +179,7 @@
           height="calc(100vh - 220px)"
         />
       </template>
-      <div v-else class="graph-state">该模板还没有可查看的版本。</div>
+      <div v-else class="graph-state">该标准流程还没有可查看的版本。</div>
       <!-- 显式关闭：TDesign 的 drawer 头在这里不渲染关闭图标（header 传的是纯文本），
            只靠点遮罩关闭对用户不友好，所以底部给一个明确的「关闭」。 -->
       <template #footer>
@@ -198,7 +198,7 @@
       width="520px"
       @confirm="submitDuplicate"
     >
-      <t-alert theme="info" :message="`将从「${sourceName}」复制一份流程定义（节点 + 连线 + 审批人），原模板不动。`" />
+      <t-alert theme="info" :message="`将从「${sourceName}」复制一份流程定义（节点 + 连线 + 审批人），原标准流程不动。`" />
       <t-form ref="duplicateFormRef" :data="duplicateForm" :rules="duplicateRules" label-align="top" class="dup-form">
         <t-form-item label="新流程编码" name="new_flow_code">
           <t-input
@@ -217,7 +217,7 @@
     <!-- 停用 / 启用 二次确认 -->
     <t-dialog
       v-model:visible="toggleVisible"
-      :header="toggleKind === 'disable' ? '停用流程' : '启用流程'"
+      :header="toggleKind === 'disable' ? '停用标准流程' : '启用标准流程'"
       :theme="toggleKind === 'disable' ? 'warning' : 'info'"
       :confirm-btn="{
         content: toggleKind === 'disable' ? '确认停用' : '确认启用',
@@ -245,20 +245,31 @@
 
 <script setup lang="ts">
 /**
- * 流程模板库（`/flow/templates`，卡面 P-FLOW-5）。
+ * 标准流程卡片墙（宿主：流程定义页 `/flow/def` 的「标准流程」Tab）。
  *
- * # 这一页解决的问题
+ * # 这一块解决的问题
  *
- * 「系统里到底有哪些标准流程？」——以前只能去流程定义列表里翻，且看不到「谁用过几次」。
- * 这一页把标准模板按业务域摊开：一眼看到适用场景（条件分流阈值）、节点规模、已用次数、
+ * 「系统里到底有哪些标准流程？」——摊开看：适用场景（条件分流阈值）、节点规模、已用次数、
  * 启用状态，并能 **看流程图 / 另存为改成自己的 / 启用停用**。
+ *
+ * # 与「模板」的关系（P2-6 决策 A：合并概念）
+ *
+ * 「模板」不是独立实体，就是 `biz_flow_def.is_system = TRUE` 这个角色，术语统一为**标准流程**。
+ * 所以这里没有任何模板表 / 模板接口：数据来自 `GET /business/flow/def/templates?scope=standard`
+ * （接口名是历史遗留，语义 = 标准流程列表）。`data-testid` 前缀保留 `tpl-*`
+ * （既有 UI 断言 / 巡检脚本依赖它，改名会把别人的验收全废掉）。
  *
  * # 三条数据口径（全部来自后端，前端不算也不猜）
  *
- * 1. 分组 = 后端 `category`（`GET /business/flow/def/templates` 已分好组）；
+ * 1. 分组 = 后端 `category`（接口已分好组）；
  * 2. 「标准」标签 = `is_system`（系统预置），另存为出来的副本恒 false —— 客户的流程不冒充标准；
  * 3. 流程图 = `view_version_id` 指向的版本（发布版优先，只有草稿的副本退到最新草稿），
  *    渲染一律走 `FlowPreview`（它内部就是 `FlowCanvas` 的 readonly 模式，**不重画一套**）。
+ *
+ * # 只读语义
+ *
+ * 标准流程是底座，客户要改必须「另存为」出自己的副本再去编辑（`POST /def/{id}/duplicate`）。
+ * 所以墙上**没有编辑 / 删除**按钮，写操作只有「另存为」与「启用 / 停用」。
  *
  * # 为什么「停用」要专门警告默认流程（O5）
  *
@@ -284,11 +295,14 @@ import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import FlowPreview from '@/views/business/flow/components/FlowPreview.vue';
 
+/** 启用 / 停用后通知宿主刷新「我的流程」列表（状态列会变）。 */
+const emit = defineEmits<{ (event: 'changed'): void }>();
+
 const router = useRouter();
 
-/** 模板库数据（后端已分组）。 */
+/** 卡片墙数据（后端已分组）。 */
 const groups = ref<FlowTemplateGroup[]>([]);
-/** 模板总数。 */
+/** 标准流程条数。 */
 const total = ref(0);
 /** 首次加载 / 刷新中。 */
 const loading = ref(false);
@@ -317,7 +331,7 @@ const toggleLoading = ref(false);
 const toggleKind = ref<'enable' | 'disable'>('disable');
 const toggleItem = ref<FlowTemplateItem | null>(null);
 
-/** 状态文案 / 配色（模板库用「启用中 / 未启用」，与流程定义页的「已发布」区分）。 */
+/** 状态文案 / 配色（墙上用「启用中 / 未启用」，与流程定义表格的「已发布」区分）。 */
 const STATUS_META: Record<string, { label: string; theme: 'success' | 'warning' | 'default' }> = {
   PUBLISHED: { label: '启用中', theme: 'success' },
   DRAFT: { label: '未启用（草稿）', theme: 'default' },
@@ -384,7 +398,8 @@ async function loadTemplates() {
   loading.value = true;
   errorMessage.value = '';
   try {
-    const res = await getFlowTemplates();
+    // scope=standard：只要 `is_system = TRUE` 的标准流程（副本永远不进这面墙）
+    const res = await getFlowTemplates('standard');
     groups.value = res.groups;
     total.value = res.total;
     // 当前 Tab 被删空（分类改名）时退回「全部」，避免停在空白页
@@ -397,7 +412,7 @@ async function loadTemplates() {
   } catch (error) {
     groups.value = [];
     total.value = 0;
-    errorMessage.value = error instanceof ApiError ? error.message : '模板库加载失败，请重试';
+    errorMessage.value = error instanceof ApiError ? error.message : '标准流程加载失败，请重试';
   } finally {
     loading.value = false;
   }
@@ -467,6 +482,7 @@ async function submitDuplicate() {
       `已复制为「${res.flow_name}」（草稿 v${res.version_no}，${res.node_count} 节点）`,
     );
     await loadTemplates();
+    emit('changed');
     // 直接进编辑器：用户改完自己发布（另存为的语义就是「复制一份可改」）
     void router.push({
       path: `/flow/def/${res.id}/edit`,
@@ -514,6 +530,7 @@ async function submitToggle() {
     }
     toggleVisible.value = false;
     await loadTemplates();
+    emit('changed');
   } catch (error) {
     MessagePlugin.error(
       error instanceof ApiError
@@ -531,7 +548,7 @@ onMounted(loadTemplates);
 </script>
 
 <style scoped lang="less">
-.flow-tpl-page {
+.standard-flow-wall {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -548,14 +565,8 @@ onMounted(loadTemplates);
   gap: 16px;
 }
 
-.head__title {
-  margin: 0;
-  font-size: 18px;
-  font-weight: 600;
-}
-
 .head__desc {
-  margin: 6px 0 0;
+  margin: 0;
   color: var(--td-text-color-secondary);
   font-size: 13px;
 }

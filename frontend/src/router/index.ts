@@ -314,12 +314,13 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '流程编辑器', permission: 'business:flow:read' },
       },
       {
-        // 流程模板库（P-FLOW-5）：标准模板按业务域摊开，看流程图 / 另存为 / 启用停用。
-        // `/flow/templates` 与 `sys_menu.path`（V0194 种子 …07a5）逐字一致。
+        // 老「流程模板库」入口（P-FLOW-5）已下线（P2-6 决策 A：合并概念，术语统一为「标准流程」）。
+        // 卡片墙并入 `/flow/def` 的「标准流程」Tab，这里保留一版 redirect 让老书签 / 老菜单不 404；
+        // `sys_menu` 里的节点由 P2-6d 软删（必须等本页上线后才做，否则用户直接失去入口）。
+        // 下个版本连同 `sys_menu` 软删一起删掉这条 redirect。
         path: 'flow/templates',
         name: 'BusinessFlowTemplates',
-        component: () => import('@/views/business/flow/templates/index.vue'),
-        meta: { title: '流程模板库', permission: 'business:flow:read' },
+        redirect: '/flow/def?view=standard',
       },
       {
         // 发起审批：只列 PUBLISHED 流程；提交走实例侧接口。

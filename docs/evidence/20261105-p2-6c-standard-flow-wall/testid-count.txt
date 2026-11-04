@@ -1,0 +1,10 @@
+# data-testid="tpl-*" 条数前后对比（本卡把卡片墙从 templates/index.vue 抽成 StandardFlowWall.vue）
+改动前 git show HEAD:frontend/src/views/business/flow/templates/index.vue  -> 13
+改动后 frontend/src/views/business/flow/components/StandardFlowWall.vue      -> 13
+
+# 逐个 tpl-* testid 的取值清单对比（uniq -c）：
+diff 为空：tpl-* 的取值集合与出现次数逐条一致（前缀未改名）
+
+# 新增的非 tpl-* testid（本卡唯一新增：刷新按钮，避免污染 tpl-* 前缀口径）：
+22a23
+>       1 data-testid="wall-refresh"

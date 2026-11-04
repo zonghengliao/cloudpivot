@@ -648,12 +648,14 @@ export function createFlowDraft(id: string, body: FlowDraftReq = {}): Promise<Fl
   return post<FlowDraftRes>(`/api/business/flow/def/${id}/draft`, body);
 }
 
-// ==================== 模板库（P-FLOW-5） ====================
+// ==================== 标准流程列表（legacy 端点名 `/def/templates`） ====================
 
 /**
- * 模板库条目（`GET /business/flow/def/templates` 的 item）。
+ * 标准流程条目（`GET /business/flow/def/templates` 的 item）。
  *
- * `is_system` = 系统预置（前端标「标准」）；`view_version_id` 是**能拿去画图的那个版本**
+ * 「模板」不是实体（P2-6 决策 A：合并概念）—— 标准流程 = `biz_flow_def.is_system = TRUE` 的那批预置流程，
+ * 接口名 `templates` 是历史遗留。`is_system` = 系统预置（前端标「标准」）；
+ * `view_version_id` 是**能拿去画图的那个版本**
  * （有发布版就是发布版，只有草稿的另存为副本退到最新草稿；一个版本都没有时是 null）。
  */
 export interface FlowTemplateItem {
@@ -689,7 +691,7 @@ export interface FlowTemplateItem {
   summary: string;
 }
 
-/** 模板库分组（按 category）。 */
+/** 标准流程分组（按 category）。 */
 export interface FlowTemplateGroup {
   /** 分类名 */
   category: string;
@@ -697,7 +699,7 @@ export interface FlowTemplateGroup {
   items: FlowTemplateItem[];
 }
 
-/** 模板库出参。 */
+/** 标准流程出参。 */
 export interface FlowTemplatesRes {
   /** 分组清单（顺序固定：采购管理 → 仓库管理 → 财务管理 → 任务 → 其它） */
   groups: FlowTemplateGroup[];
@@ -706,12 +708,23 @@ export interface FlowTemplatesRes {
 }
 
 /**
- * 流程模板库（`GET /business/flow/def/templates`）。
- *
- * 一次拉全量（后端已按业务域分好组）：模板库是「一次看全」，不做分页。
+ * 标准流程的口径（后端 `scope` 参数）：
+ * - `standard` = 只要 `is_system = TRUE` 的标准流程（默认口径，**卡片墙用这个**）；
+ * - `all` = 连客户自己另存为的副本一起列（管理视角，含停用）。
  */
-export function getFlowTemplates(): Promise<FlowTemplatesRes> {
-  return get<FlowTemplatesRes>('/api/business/flow/def/templates');
+export type FlowTemplateScope = 'standard' | 'all';
+
+/**
+ * 标准流程列表（`GET /business/flow/def/templates?scope=standard|all`）。
+ *
+ * legacy 别名：函数名 / 端点名里的 `templates` 保留不改，**语义 = 标准流程列表**
+ * （P2-6 决策 A：模板不是实体，就是 `is_system = TRUE` 这个角色）。
+ *
+ * `scope` 省略时由后端按 `standard` 处理；一次拉全量（后端已按业务域分好组），不做分页。
+ */
+export function getFlowTemplates(scope?: FlowTemplateScope): Promise<FlowTemplatesRes> {
+  const query = scope ? `?scope=${scope}` : '';
+  return get<FlowTemplatesRes>(`/api/business/flow/def/templates${query}`);
 }
 
 /** 另存为请求（`POST /business/flow/def/{id}/duplicate`）。 */
