@@ -1,0 +1,5 @@
+tree_file=contract_approval_tests.rs SAME_AS_WORKTREE
+tree_file=fixture_hygiene.rs SAME_AS_WORKTREE
+tree_file=period_items_tests.rs SAME_AS_WORKTREE
+tree_file=period_test_support.rs SAME_AS_WORKTREE
+tree_file=purchase_handler.rs SAME_AS_WORKTREE

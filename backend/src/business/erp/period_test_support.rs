@@ -7,22 +7,38 @@
 //! 它们需要同一套基础设施，但**不能**再用 `2031-xx`：`period.rs` 的用例会自己把
 //! 2031 整年删一遍，两组用例撞在一起就会互删夹具有。
 //!
-//! 所以本文件提供**第二套前缀**（期间 `2033-xx`、单号 `P2-`），两套井水不犯河水；
+//! 所以本文件提供**第二套前缀**（期间 `2033-xx` / `2040-xx`、单号 `P2-`），两套井水不犯河水；
 //! 连库 / 串行 / 清场的写法与 `period.rs::tests` 完全一致（同一个 `ERP_DB_URL`、
 //! 同一个全局锁），见那边的头注释。
 //!
-//! # 铁律（两条都不能破）
+//! # 期次命名空间（谁拥有哪一段，见「改造规范 R1」）
+//!
+//! | 期次 | 所有者 | 用途 |
+//! |---|---|---|
+//! | `2033-02..08` | `period_remind_tests` / `stocktake_tests` | 催办 / 盘点（与 `period::tests` 共用一把锁） |
+//! | **`2040-01..12`** | **`period_items_tests`（独占）** | 结账明细用例，**一条用例一个期次**，见 [`open_case_period`] |
+//!
+//! `period_items` 从 2033 迁到 2040 的原因（卡 `t_f404258c`）：2033 的 03–08 同时被
+//! `period_remind_tests` 占用，两条用例撞同一期次时「按期间读条数」的断言会互相污染
+//! （实测：`draft_voucher_items('2033-03')` 别人多种一张就变 4）。2040 目前无人使用
+//! （2034–2035 = opening、2036–2038 = year_end、2039 = reminder，见各模块头注释）。
+//!
+//! # 铁律（三条都不能破）
 //!
 //! 1. **绝不碰 2026-xx**：生产期间在 2026，其它模块的夹具往 2026-10 记凭证；
 //!    本模块把 2026-10 封了，它们的用例会立刻收到「期间已结账」的 400。
 //! 2. **串行**（[`DB_LOCK`]）：清理按前缀删，并行会互删夹具。
+//! 3. **写操作只按 id 集合**：[`cleanup`] 先在本夹具**拥有的**期次/号段里查出 id，
+//!    再 `WHERE id IN (…)` 删 —— 不再出现「按 period 整期改数」的 UPDATE/DELETE
+//!    （改造规范 R3/R4）。
 //!
 //! # 用法
 //!
 //! ```ignore
 //! let Some(_guard) = support::setup().await else { return; };  // 没有 ERP_DB_URL 时 SKIP
-//! let period = support::open_test_period(3).await;             // 2033-03，返回 PeriodRow
-//! support::seed_draft_voucher("2033-03", "P2-V-001").await;
+//! let row = support::open_case_period(3).await;                // 2040-03（本用例独占）
+//! let period = row.period_code.clone();
+//! support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10","10"), ("10","10")).await;
 //! ```
 
 use nik::prelude::*;
@@ -97,33 +113,162 @@ pub async fn sql(text: &str) {
     }
 }
 
-/// 清掉本套夹具（**只删 2033-xx 与 P2- 前缀**，不碰生产期间 2026-xx）。
+/// 本夹具工具包**拥有**的期次命名空间（`period_items` 独占 2040；2033 与催办/盘点共管，
+/// 但共用同一把 [`DB_LOCK`]，所以谁都不会在别人跑到一半时动手）。
+const OWNED_PERIOD_PREFIXES: [&str; 2] = ["2033-%", "2040-%"];
+
+/// 查一列 `id`（清场第一半：**只按本夹具拥有的范围取 id**，不做任何写操作）。
+async fn uuids_of(query: &str) -> Vec<Uuid> {
+    let rows = db()
+        .query_sql(query.to_string(), vec![])
+        .await
+        .unwrap_or_else(|err| panic!("查夹具残留 id 失败：{err}\nSQL: {query}"));
+    rows.iter()
+        .map(|row| row.get_typed::<Uuid>("id").expect("夹具 id"))
+        .collect()
+}
+
+/// `IN ('<uuid>', …)` 片段（uuid 是库自己生成的，拼进 SQL 安全）。
+fn in_uuids(ids: &[Uuid]) -> String {
+    ids.iter()
+        .map(|id| format!("'{id}'::uuid"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// `IN ('<uuid>', …)` 片段（用于 `biz_id` 这类 **text** 弱引用列）。
+fn in_texts(ids: &[Uuid]) -> String {
+    ids.iter()
+        .map(|id| format!("'{id}'"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// 清掉本套夹具（**只删本夹具拥有的期次/号段里的行，且写操作一律按 id 集合**）。
+///
+/// # 为什么先 SELECT 再按 id 删（改造规范 R3/R4）
+///
+/// 过去的写法是「按 period 前缀整期删凭证」：删除范围 = 整个 2033 年，
+/// 而 2033-03 是 `stocktake_tests` 的夹具期、2033-02..08 是 `period_remind_tests` 的 ——
+/// 一旦哪天哪处没拿同一把锁，这里就会把别人正在用的夹具删掉（卡 `t_f404258c` 的根因族）。
+///
+/// 现在的两段式：① 在**本夹具拥有**的期次/号段里读出 id（读的范围有明确所有权）；
+/// ② `DELETE … WHERE id IN (…)` —— 写操作对象是逐一登记的 id，不再「按期间批量改数」。
 pub async fn cleanup() {
-    sql("DELETE FROM sys_notice WHERE biz_type = 'period_remind' \
-         AND biz_id IN (SELECT id::text FROM biz_voucher WHERE period LIKE '2033-%')")
+    // ---- ① 期次命名空间内的凭证 / 期间（催办通知按凭证 id 派生）----
+    let vouchers = uuids_of(&format!(
+        "SELECT id FROM biz_voucher WHERE period LIKE '{}' OR period LIKE '{}'",
+        OWNED_PERIOD_PREFIXES[0], OWNED_PERIOD_PREFIXES[1]
+    ))
     .await;
-    sql(
-        "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
-         AND entity_no LIKE '2033-%'",
+    if !vouchers.is_empty() {
+        sql(&format!(
+            "DELETE FROM sys_notice WHERE biz_type = 'period_remind' AND biz_id IN ({})",
+            in_texts(&vouchers)
+        ))
+        .await;
+        // 分录随凭证 CASCADE
+        sql(&format!(
+            "DELETE FROM biz_voucher WHERE id IN ({})",
+            in_uuids(&vouchers)
+        ))
+        .await;
+    }
+    let periods = uuids_of(&format!(
+        "SELECT id FROM biz_accounting_period \
+          WHERE period_code LIKE '{}' OR period_code LIKE '{}'",
+        OWNED_PERIOD_PREFIXES[0], OWNED_PERIOD_PREFIXES[1]
+    ))
+    .await;
+    if !periods.is_empty() {
+        // 状态日志没有外键：必须按期间 id 先删（期间行一删就再也定位不到那些日志）
+        sql(&format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
+             AND entity_id IN ({})",
+            in_uuids(&periods)
+        ))
+        .await;
+        sql(&format!(
+            "DELETE FROM biz_accounting_period WHERE id IN ({})",
+            in_uuids(&periods)
+        ))
+        .await;
+    }
+
+    // ---- ② 单据号段（`P2-*` 是本夹具独占的号段）：取 id → 按 id 删 ----
+    for (table, column, prefix) in [
+        ("biz_purchase_order", "order_no", "P2-PO-%"),
+        ("biz_stock_in", "in_no", "P2-IN-%"),
+        ("biz_stock_transfer", "transfer_no", "P2-TR-%"),
+    ] {
+        let ids = uuids_of(&format!(
+            "SELECT id FROM {table} WHERE {column} LIKE '{prefix}'"
+        ))
+        .await;
+        if !ids.is_empty() {
+            sql(&format!(
+                "DELETE FROM {table} WHERE id IN ({})",
+                in_uuids(&ids)
+            ))
+            .await;
+        }
+    }
+
+    // ---- ③ 夹具角色 / 用户 / 权限节点（`P2-` / `p2.` / `P2I-` / `p2i.` 都是本夹具的号段）----
+    // 外键顺序：先删关系，再删主体。
+    let roles =
+        uuids_of("SELECT id FROM sys_role WHERE role_code LIKE 'P2-%' OR role_code LIKE 'P2I-%'")
+            .await;
+    let users =
+        uuids_of("SELECT id FROM sys_user WHERE username LIKE 'p2.%' OR username LIKE 'p2i.%'")
+            .await;
+    if !roles.is_empty() || !users.is_empty() {
+        let mut where_parts = Vec::new();
+        if !roles.is_empty() {
+            where_parts.push(format!("role_id IN ({})", in_uuids(&roles)));
+        }
+        if !users.is_empty() {
+            where_parts.push(format!("user_id IN ({})", in_uuids(&users)));
+        }
+        let clause = where_parts.join(" OR ");
+        sql(&format!("DELETE FROM sys_user_role WHERE {clause}")).await;
+        if !roles.is_empty() {
+            sql(&format!(
+                "DELETE FROM sys_role_menu WHERE role_id IN ({})",
+                in_uuids(&roles)
+            ))
+            .await;
+            sql(&format!(
+                "DELETE FROM sys_role WHERE id IN ({})",
+                in_uuids(&roles)
+            ))
+            .await;
+        }
+        if !users.is_empty() {
+            sql(&format!(
+                "DELETE FROM sys_user WHERE id IN ({})",
+                in_uuids(&users)
+            ))
+            .await;
+        }
+    }
+    let menus = uuids_of(
+        "SELECT id FROM sys_menu \
+          WHERE auth_code LIKE 'business:erp:p2-%' OR auth_code LIKE 'business:erp:p2i-%'",
     )
     .await;
-    // 分录随凭证 CASCADE
-    sql("DELETE FROM biz_voucher WHERE period LIKE '2033-%'").await;
-    sql("DELETE FROM biz_purchase_order WHERE order_no LIKE 'P2-PO-%'").await;
-    sql("DELETE FROM biz_stock_in WHERE in_no LIKE 'P2-IN-%'").await;
-    sql("DELETE FROM biz_stock_transfer WHERE transfer_no LIKE 'P2-TR-%'").await;
-    sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2033-%'").await;
-    // 夹具角色 / 用户 / 权限节点（外键顺序：先删关系，再删主体）
-    sql("DELETE FROM sys_user_role WHERE user_id IN \
-         (SELECT id FROM sys_user WHERE username LIKE 'p2.%') \
-         OR role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'P2-%')")
-    .await;
-    sql("DELETE FROM sys_role_menu WHERE role_id IN \
-         (SELECT id FROM sys_role WHERE role_code LIKE 'P2-%')")
-    .await;
-    sql("DELETE FROM sys_role WHERE role_code LIKE 'P2-%'").await;
-    sql("DELETE FROM sys_user WHERE username LIKE 'p2.%'").await;
-    sql("DELETE FROM sys_menu WHERE auth_code LIKE 'business:erp:p2-%'").await;
+    if !menus.is_empty() {
+        sql(&format!(
+            "DELETE FROM sys_role_menu WHERE menu_id IN ({})",
+            in_uuids(&menus)
+        ))
+        .await;
+        sql(&format!(
+            "DELETE FROM sys_menu WHERE id IN ({})",
+            in_uuids(&menus)
+        ))
+        .await;
+    }
 }
 
 /// 取锁 + 连库 + 清场。`None` = 没有测试库，用例直接 return（SKIP）。
@@ -139,7 +284,7 @@ pub async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
 /// 改一张凭证的状态（**按 id**，不按期间整期 UPDATE）。
 ///
 /// 为什么必须按 id：`can_close_is_unaffected_by_items` 过去写的是
-/// `UPDATE biz_voucher SET status='POSTED' WHERE period='2033-10'`，在并行跑时会把
+/// 「把整个 2033-10 期次的凭证一起改成 POSTED」，在并行跑时会把
 /// 别的用例刚种进同一期间的草稿凭证一并过账 —— 那几个用例的断言（「必须还有草稿挡路」）
 /// 就随机变红。夹具只许动自己造的那一行。
 pub async fn set_voucher_status(id: Uuid, status: &str) {
@@ -152,10 +297,55 @@ pub async fn set_voucher_status(id: Uuid, status: &str) {
 }
 
 /// 开一个测试期间（`2033-MM`）并读回行。
+///
+/// 供 `period_remind_tests` / 其它 2033 号段的调用方使用（**共享号段**，靠 [`DB_LOCK`] 串行）。
+/// `period_items` 自己的用例一律改用 [`open_case_period`]（独占号段 + 用例唯一）。
 pub async fn open_test_period(month: i16) -> PeriodRow {
-    let res = period::open_period(2033, month, Some("P2 夹具"), operator())
+    open_period_in(2033, month, "P2 夹具").await
+}
+
+/// `period_items` 独占的测试期年（见文件头「期次命名空间」）。
+pub const ITEMS_PERIOD_YEAR: i16 = 2040;
+
+/// 已分配的用例月号（`true` = 该期次已被某条用例占用）。
+///
+/// 用途是把「两条用例撞同一期次」从**约定**变成**运行期断言**：重复申请直接 panic，
+/// 而不是让两条用例在同一个期间里互相把对方的凭证算进条数（卡 `t_f404258c` 的假红形态）。
+static CASE_PERIOD_TAKEN: std::sync::Mutex<[bool; 13]> = std::sync::Mutex::new([false; 13]);
+
+/// 开一条用例**独占**的期次并读回行（`2040-<用例序号>`）。
+///
+/// * `case_no` = 期次月号 = 用例序号，必须是 1..=12 且**全模块唯一**；
+/// * 同一进程内重复申请同一序号 → `panic`（这就是「同模块任意两条用例不落同一期次」的门禁）；
+/// * 跨进程/上一轮残留由 [`cleanup`] 在本模块独占的 `2040-%` 里按 id 清掉。
+pub async fn open_case_period(case_no: i16) -> PeriodRow {
+    assert!(
+        (1..=12).contains(&case_no),
+        "用例序号必须是 1..=12（月号即用例序号）：{case_no}"
+    );
+    {
+        let mut taken = CASE_PERIOD_TAKEN
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let slot = usize::try_from(case_no).expect("序号转 usize");
+        assert!(
+            !taken[slot],
+            "期次 {ITEMS_PERIOD_YEAR}-{case_no:02} 已被另一条用例占用：\
+             每条用例必须有自己唯一的期次（见 period_test_support 头注释「期次命名空间」）"
+        );
+        taken[slot] = true;
+    }
+    let row = open_period_in(ITEMS_PERIOD_YEAR, case_no, "P2I 夹具（用例独占期次）").await;
+    let expected = format!("{ITEMS_PERIOD_YEAR}-{case_no:02}");
+    assert_eq!(row.period_code, expected, "开出来的期次必须与用例序号一致");
+    row
+}
+
+/// 开账 + 读回行（[`open_test_period`] / [`open_case_period`] 的唯一实现）。
+async fn open_period_in(year: i16, month: i16, remark: &str) -> PeriodRow {
+    let res = period::open_period(year, month, Some(remark), operator())
         .await
-        .unwrap_or_else(|error| panic!("开账失败（2033-{month:02}）：{}", error.msg));
+        .unwrap_or_else(|error| panic!("开账失败（{year}-{month:02}）：{}", error.msg));
     let id = Uuid::parse_str(&res.id).expect("期间 id 非法");
     period::load_period_row(db(), id)
         .await

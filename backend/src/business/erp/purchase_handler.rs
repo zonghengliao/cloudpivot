@@ -1834,7 +1834,12 @@ mod tests {
     ];
 
     /// 真库用例必须串行（共用全局 `db()` 与同一供应商夹具）。
-    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    /// 本模块（含 `setup_approval`）串行跑的锁 = **共享种子角色组锁**。
+    ///
+    /// 本模块会写 `ROLE_PM` / `ROLE_GM` 上的 `sys_user_role` 绑定（`setup_approval` 还按角色 id
+    /// 摘别人的绑定），`contract_approval_tests` 写的是同一批行 —— 两把不相识的锁时
+    /// 一方会把另一方的夹具账号摘掉，待办展开不到人（实测：同一库两个进程并行时本模块一轮 5 条红）。
+    use crate::business::erp::fixture_hygiene::SEED_ROLE_LOCK as DB_LOCK;
 
     /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`。
     async fn ensure_db() -> bool {

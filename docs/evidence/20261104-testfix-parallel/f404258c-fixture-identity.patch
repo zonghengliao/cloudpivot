@@ -1,0 +1,1009 @@
+diff --git a/backend/src/business/erp/contract_approval_tests.rs b/backend/src/business/erp/contract_approval_tests.rs
+index 6f8a026..28776da 100644
+--- a/backend/src/business/erp/contract_approval_tests.rs
++++ b/backend/src/business/erp/contract_approval_tests.rs
+@@ -9,14 +9,22 @@
+ //! cargo test --lib contract_approval -- --test-threads=1
+ //! ```
+ //!
+-//! 夹具全部带 `a2ap_` 前缀（用户）/ `A2AP-` 前缀（合同名、供应商编码），
+-//! `setup()` 每次先按前缀清掉上一轮，重复跑不积累；模块最后一条 `zz_` 用例负责收尾。
++//! 夹具身份（卡 `t_f404258c` 的改造规范 R3/R4）：
++//! * 账号：`a2ap_` 前缀 + **固定 UUID**（`U_MAKER / U_PM / U_GM`）；供应商：`A2AP-SUP` + 固定 UUID；
++//!   合同：`A2AP-<TAG>` 前缀 + **本模块生成的 id**。三者的清场**只按 id 集合删**，
++//!   不再出现「按 biz_type 全库删」「按角色 id 把别人的绑定摘掉」这类越权写。
++//! * `setup()` 每次先按 id 集合清掉上一轮（crashed 残留也收得走），用例自己跑完不留东西。
+ //!
+-//! ⚠️ 与其它真库用例共用全局 `db()` 与同一批 `biz_seq`，所以必须 `--test-threads=1` 串行跑。
+-//! ⚠️ `PURCHASE_MANAGER` / `GENERAL_MANAGER` 是**共享角色**：本模块 `setup()` 会先把这两个角色上
+-//! **不属于本模块夹具**的绑定摘掉（对称于 `purchase_handler::tests::setup_approval()`），跑完不恢复 ——
+-//! 别的模块各自 `setup()` 时会重新挂回自己的。原因：审批节点**按角色展开**，角色上多一个人就多一条
+-//! 待办，"单级审批只有一个待办" 与 "一级审完就通过" 都会被别人的夹具账号判死（同一个库连跑第二遍即触发）。
++//! ⚠️ 与其它真库用例共用全局 `db()` 与同一批 `biz_seq`，所以本模块整体串行
++//! （[`DB_LOCK`] = `fixture_hygiene::SEED_ROLE_LOCK`）。
++//! ⚠️ `PURCHASE_MANAGER` / `GENERAL_MANAGER` 是**共享种子角色**（审批节点按角色成员展开待办，
++//! `join_mode = AND` = 会签：角色上多一个人就多一条待办，且必须所有人都批完节点才推进）。
++//! 所以「单级审批一级就过 / 两级审批逐级推进」这两条业务事实的前提是**角色成员 = 本模块夹具**：
++//! 本模块在 `SEED_ROLE_LOCK` 里临时**借用**角色成员（登记 → 摘掉别人的 → 用例结束后原样挂回，
++//! 见 `borrow_role_membership` / `restore_borrowed_bindings`）。仅靠「把待办过滤到夹具账号」
++//! 不够 —— 实测过滤后条数对了，但 `approve` 完实例仍是 `PENDING`（还有别人的待办没批）。
++//! 写同一批角色绑定的模块（`purchase_handler`）共用 [`DB_LOCK`] = `fixture_hygiene::SEED_ROLE_LOCK`
++//! （同一批全局行 = 同一把锁；实测两把锁并行时它一轮 5 条红）。
+ 
+ use std::str::FromStr;
+ 
+@@ -50,7 +58,11 @@ const U_GM: &str = "a2a90003-0000-4000-8000-000000000003";
+ const SUPPLIER: &str = "a2a90010-0000-4000-8000-000000000010";
+ 
+ /// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`）。
+-static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
++///
++/// **必须是 `fixture_hygiene::SEED_ROLE_LOCK` 这把**：`purchase_handler::tests` 也写
++/// `ROLE_PM` / `ROLE_GM` 上的 `sys_user_role` 绑定，两把不相识的锁时「谁 setup 谁占位」不成立
++/// ⇒ 一方把另一方的夹具账号摘掉 ⇒ 待办展开不到人（实测并行时 `purchase_handler` 5 条红）。
++use crate::business::erp::fixture_hygiene::SEED_ROLE_LOCK as DB_LOCK;
+ 
+ fn uid(text: &str) -> Uuid {
+     Uuid::parse_str(text).expect("夹具 UUID 非法")
+@@ -122,7 +134,53 @@ async fn exec(text: &str) {
+     }
+ }
+ 
+-/// 清本模块夹具。
++/// 查一列 `id`（清场第一半：**只在本模块拥有的号段里取 id**，不做任何写操作）。
++async fn ids_of(query: &str) -> Vec<Uuid> {
++    let rows = db()
++        .query_sql(query.to_string(), vec![])
++        .await
++        .unwrap_or_else(|err| panic!("查夹具 id 失败：{err}\nSQL: {query}"));
++    rows.iter()
++        .map(|row| row.get_typed::<Uuid>("id").expect("夹具 id"))
++        .collect()
++}
++
++/// `IN ('<uuid>', …)`（uuid 由库/夹具自己生成，拼进 SQL 安全）。
++fn uuid_in(ids: &[Uuid]) -> String {
++    ids.iter()
++        .map(|id| format!("'{id}'::uuid"))
++        .collect::<Vec<_>>()
++        .join(", ")
++}
++
++/// `IN ('<uuid>', …)`（`biz_id` 是 text 弱引用列）。
++fn text_in(ids: &[Uuid]) -> String {
++    ids.iter()
++        .map(|id| format!("'{id}'"))
++        .collect::<Vec<_>>()
++        .join(", ")
++}
++
++/// 本模块夹具的合同 id 集合（`A2AP-` 是**模块独占**的合同名号段，别处不会造）。
++async fn fixture_contract_ids() -> Vec<Uuid> {
++    ids_of("SELECT id FROM biz_contract WHERE contract_name LIKE 'A2AP-%'").await
++}
++
++/// 挂在本模块合同上的审批实例 id 集合（`biz_id` 是合同的 text 形态）。
++///
++/// 只认「挂在 `A2AP-` 合同上」的实例：过去是 `WHERE biz_type = 'CONTRACT_APPROVE'`
++/// 按业务类型**全库删**，那是 class(c) 越权写（别的进程/别的用例的实例也可能落进这一句）。
++async fn fixture_instance_ids() -> Vec<Uuid> {
++    ids_of(
++        "SELECT i.id FROM biz_flow_instance i \
++          WHERE i.biz_type = 'CONTRACT_APPROVE' \
++            AND i.biz_id IN (SELECT c.id FROM biz_contract c \
++                              WHERE c.contract_name LIKE 'A2AP-%')",
++    )
++    .await
++}
++
++/// 清本模块夹具（**只删本模块的 id 集合**，不按 `biz_type` / 角色 id / 前缀批量删）。
+ ///
+ /// 顺序受外键约束：通知 → 审批实例（级联带走待办/节点实例）→ 合同状态日志 → 合同
+ /// → 供应商 → 用户角色 → 用户。
+@@ -130,35 +188,72 @@ async fn exec(text: &str) {
+ /// ⚠️ 合同是先删**状态日志**再删单据：`biz_status_log` 没有外键，单据一删就再也
+ /// 定位不到那些日志（skill「审批痕迹不清理」那一条）。
+ async fn purge_fixtures() {
+-    let cleanups = [
+-        "DELETE FROM sys_notice_receiver WHERE notice_id IN \
+-           (SELECT id FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
+-              (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'CONTRACT_APPROVE'))"
+-            .to_string(),
+-        "DELETE FROM sys_notice WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN \
+-           (SELECT id::text FROM biz_flow_instance WHERE biz_type = 'CONTRACT_APPROVE')"
+-            .to_string(),
++    let contracts = fixture_contract_ids().await;
++    let instances = fixture_instance_ids().await;
++
++    if !instances.is_empty() {
++        let notices = ids_of(&format!(
++            "SELECT id FROM sys_notice \
++              WHERE biz_type = 'FLOW_NOTIFY' AND biz_id IN ({})",
++            text_in(&instances)
++        ))
++        .await;
++        if !notices.is_empty() {
++            exec(&format!(
++                "DELETE FROM sys_notice_receiver WHERE notice_id IN ({})",
++                uuid_in(&notices)
++            ))
++            .await;
++            exec(&format!(
++                "DELETE FROM sys_notice WHERE id IN ({})",
++                uuid_in(&notices)
++            ))
++            .await;
++        }
+         // 弱引用先解开（自引用无 ON DELETE）
+-        "UPDATE biz_flow_instance SET prev_instance_id = NULL \
+-          WHERE prev_instance_id IN \
+-            (SELECT id FROM biz_flow_instance WHERE biz_type = 'CONTRACT_APPROVE')"
+-            .to_string(),
+-        "DELETE FROM biz_flow_instance WHERE biz_type = 'CONTRACT_APPROVE'".to_string(),
++        exec(&format!(
++            "UPDATE biz_flow_instance SET prev_instance_id = NULL \
++              WHERE prev_instance_id IN ({})",
++            uuid_in(&instances)
++        ))
++        .await;
++        exec(&format!(
++            "DELETE FROM biz_flow_instance WHERE id IN ({})",
++            uuid_in(&instances)
++        ))
++        .await;
++    }
++
++    if !contracts.is_empty() {
+         // 合同状态日志（无外键，必须抢在删单据之前）
+-        "DELETE FROM biz_status_log WHERE entity_type = 'CONTRACT' AND entity_id IN \
+-           (SELECT id FROM biz_contract WHERE contract_name LIKE 'A2AP-%')"
+-            .to_string(),
+-        "DELETE FROM biz_contract WHERE contract_name LIKE 'A2AP-%'".to_string(),
+-        "DELETE FROM biz_supplier WHERE supplier_code = 'A2AP-SUP'".to_string(),
+-        // 只删本模块夹具账号自己的角色绑定（角色本身是共享资源）
+-        "DELETE FROM sys_user_role WHERE user_id IN \
+-           (SELECT id FROM sys_user WHERE username LIKE 'a2ap_%')"
+-            .to_string(),
+-        "DELETE FROM sys_user WHERE username LIKE 'a2ap_%'".to_string(),
+-    ];
+-    for sql in cleanups {
+-        exec(&sql).await;
++        exec(&format!(
++            "DELETE FROM biz_status_log WHERE entity_type = 'CONTRACT' \
++             AND entity_id IN ({})",
++            uuid_in(&contracts)
++        ))
++        .await;
++        exec(&format!(
++            "DELETE FROM biz_contract WHERE id IN ({})",
++            uuid_in(&contracts)
++        ))
++        .await;
+     }
++
++    // 供应商 / 夹具账号：都是固定 UUID，按 id 删（不按前缀扫库）。
++    exec(&format!(
++        "DELETE FROM biz_supplier WHERE id = '{SUPPLIER}'::uuid"
++    ))
++    .await;
++    exec(&format!(
++        "DELETE FROM sys_user_role WHERE user_id IN \
++         ('{U_MAKER}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
++    ))
++    .await;
++    exec(&format!(
++        "DELETE FROM sys_user WHERE id IN \
++         ('{U_MAKER}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
++    ))
++    .await;
+ }
+ 
+ /// 拿锁 + 连库 + 清上一轮 + 建夹具（供应商 + 3 个真实账号 + 角色绑定）。
+@@ -167,23 +262,12 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+     if !ensure_db().await {
+         return None;
+     }
++    // 先把上一轮「借用」的共享角色成员挂回去，再清自己的夹具（顺序反了会把它们也当成残留）。
++    restore_borrowed_bindings().await;
+     purge_fixtures().await;
+ 
+-    // 共享角色的**排他**占位：`PURCHASE_MANAGER` / `GENERAL_MANAGER` 是种子角色，
+-    // 别的模块的夹具账号（如 `purchase_handler` 的 `p3a_*`）也挂在上面。审批节点按角色
+-    // 展开，多一个人就多一条待办 → 「一级审完就通过」会变成「还差一个人」（实测：
+-    // 同一个库连跑第二遍时本模块两条用例假红，见 docs/evidence/20261104-test-hygiene/raw_prefix_2failed/ 里的 erp_run2 原始日志）。
+-    //
+-    // 因此和 `purchase_handler::tests::setup_approval()` 做**对称**处理：只留本模块夹具的绑定，
+-    // 其它人先摘掉（他们各自的 `setup()` 会重新挂回来）。
+-    // ⚠️ 这条只在 `--test-threads=1`（真库用例的既有约定）下成立：串行时「谁 setup 谁占位」，
+-    //    并发时两个模块会互摘对方的绑定 —— 真库用例本来就必须串行，见 backend/src/test_db_guard.rs。
+-    exec(&format!(
+-        "DELETE FROM sys_user_role WHERE role_id IN ('{ROLE_PM}'::uuid, '{ROLE_GM}'::uuid) \
+-         AND user_id NOT IN ('{U_MAKER}'::uuid, '{U_PM}'::uuid, '{U_GM}'::uuid)"
+-    ))
+-    .await;
+-
++    // 夹具身份唯一：供应商 / 三个账号 / 角色绑定都是**固定 UUID**，清场按 id 集合删（R3/R4）。
++    // 共享种子角色 ROLE_PM / ROLE_GM 的成员在下一步**锁内借用**（见 `borrow_role_membership`）。
+     exec(&format!(
+         "INSERT INTO biz_supplier (id, supplier_code, supplier_name, status, credit_days) \
+          VALUES ('{SUPPLIER}'::uuid, 'A2AP-SUP', 'A2AP 合同审批测试供应商', 1, 30) \
+@@ -206,9 +290,109 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+          ON CONFLICT DO NOTHING"
+     ))
+     .await;
++    // 独占共享角色成员（只留上面三个账号）：见函数注释 —— 会签语义下这是「单级审批一级就过」
++    // 与「两级审批逐级推进」两个断言成立的前提。
++    borrow_role_membership().await;
+     Some(guard)
+ }
+ 
++/// 本模块在共享角色上**唯一允许出现**的三个夹具账号。
++fn fixture_user_ids() -> [Uuid; 3] {
++    [uid(U_MAKER), uid(U_PM), uid(U_GM)]
++}
++
++/// 被本模块临时「借用」的共享角色绑定：`(user_id, role_id)`，下一次 `setup()` / `zz_teardown` 原样挂回。
++static BORROWED_BINDINGS: std::sync::Mutex<Vec<(Uuid, Uuid)>> = std::sync::Mutex::new(Vec::new());
++
++/// 把上一轮借用的共享角色绑定**原样挂回**（幂等）。
++///
++/// 为什么必须归还（改造规范 C5：禁止把别人的绑定永久摘掉）：这些行属于**别人的夹具账号**
++/// （`purchase_handler` 的 `p3a_*`、`stocktake` 的 `stk_*` 等），永久摘掉会让对方下一次
++/// 「角色成员只有一个」的前提凭空消失。本模块只在用例运行期间借用，随后归还。
++async fn restore_borrowed_bindings() {
++    let pairs = {
++        let mut slot = BORROWED_BINDINGS
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++        std::mem::take(&mut *slot)
++    };
++    for (user, role) in pairs {
++        // `WHERE EXISTS (sys_user)`：对方模块如果连夹具账号一起删了，绑定就没法挂回（外键），
++        // 这里静默跳过 —— 账号都没了，绑定本来也没有意义。
++        exec(&format!(
++            "INSERT INTO sys_user_role (user_id, role_id) \
++             SELECT '{user}'::uuid, '{role}'::uuid \
++              WHERE EXISTS (SELECT 1 FROM sys_user WHERE id = '{user}'::uuid) \
++             ON CONFLICT DO NOTHING"
++        ))
++        .await;
++    }
++}
++
++/// 借用共享角色成员：把 `ROLE_PM` / `ROLE_GM` 上**不属于本模块夹具**的绑定登记后临时摘掉，
++/// 每个用例结束（`restore_borrowed_bindings` 出现在每条用例尾部 / 下一次 `setup()`）原样挂回。
++///
++/// # 为什么「按夹具账号过滤待办」不足够（实测）
++///
++/// 审批节点按**角色成员**展开，种子里的 `join_mode = AND` 是**会签**语义：角色上多一个人
++/// 就多一条待办，而且节点必须**所有人都批完**才推进。所以残留库上只要有第二个成员：
++///
++/// * `assert_eq!(tasks.len(), 1)`（过滤到夹具账号后）仍然通过；
++/// * 但 `approve` 之后实例还是 `PENDING`（`left: "PENDING", right: "APPROVED"`），
++///   两级用例的第二级更是拿不到总经理待办（`left: 0, right: 1`）。
++///
++/// 也就是说「单级审批一级审完就通过」这条**业务事实**只有在「角色成员 = 本模块夹具」时才成立
++/// —— 夹具必须独占角色成员，只过滤待办是不够的。
++///
++/// # 与过去那句 `DELETE … user_id NOT IN (本模块三个)` 的区别
++///
++/// ① **登记 + 归还**：摘掉的每一行都会挂回去，不再永久破坏别人的夹具前提；
++/// ② **只在 [`DB_LOCK`]（= `fixture_hygiene::SEED_ROLE_LOCK`）里做**：写同一批角色绑定的
++///    模块（`purchase_handler`）共用这把锁 ⇒ 不会在它跑到一半时摘它的账号
++///    （实测：两把锁时它一轮 5 条红）；
++/// ③ **只动 `sys_user_role` 的绑定关系**，不碰 `sys_user` / `sys_role` 主体，也不按前缀扫。
++async fn borrow_role_membership() {
++    let ours = fixture_user_ids()
++        .iter()
++        .map(|id| format!("'{id}'::uuid"))
++        .collect::<Vec<_>>()
++        .join(", ");
++    let rows = db()
++        .find_with_params(
++            &format!(
++                "SELECT user_id, role_id FROM sys_user_role \
++                  WHERE role_id IN ('{ROLE_PM}'::uuid, '{ROLE_GM}'::uuid) \
++                    AND user_id NOT IN ({ours}) \
++                  ORDER BY user_id, role_id"
++            ),
++            vec![],
++        )
++        .await
++        .unwrap_or_else(|err| panic!("读共享角色成员失败：{err}"));
++    let pairs: Vec<(Uuid, Uuid)> = rows
++        .iter()
++        .map(|row| {
++            (
++                row.get_typed::<Uuid>("user_id").expect("成员 user_id"),
++                row.get_typed::<Uuid>("role_id").expect("成员 role_id"),
++            )
++        })
++        .collect();
++    if pairs.is_empty() {
++        return;
++    }
++    for (user, role) in &pairs {
++        exec(&format!(
++            "DELETE FROM sys_user_role WHERE user_id = '{user}'::uuid AND role_id = '{role}'::uuid"
++        ))
++        .await;
++    }
++    BORROWED_BINDINGS
++        .lock()
++        .unwrap_or_else(|poisoned| poisoned.into_inner())
++        .extend(pairs);
++}
++
+ // ==================== 夹具：建合同 / 提交 / 审批 ====================
+ 
+ /// 建一张草稿合同（金额由调用方给；三个日期齐全 —— 审批通过会直接落 SIGNED）。
+@@ -395,6 +579,8 @@ async fn submit_moves_draft_to_pending_and_attaches_instance() {
+         .await
+         .expect("查状态日志");
+     assert_eq!(logged, 1, "提交审批必须写一条状态日志");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ② 金额 < 10 万：单级审批通过 → `SIGNED`（此后才可被采购单引用）。
+@@ -447,6 +633,8 @@ async fn small_amount_single_level_approval_signs_contract() {
+     );
+     assert_eq!(active.base.status, "ACTIVE");
+     assert!(active.usable_for_order);
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ③ 金额 ≥ 10 万：**两级串行**审批（采购经理 → 总经理），两级都批完才 SIGNED。
+@@ -476,6 +664,8 @@ async fn large_amount_requires_two_levels_in_sequence() {
+     assert_eq!(out.instance_status, "APPROVED");
+     contract_bridge::on_contract_settled(out.instance_id, &out.instance_status).await;
+     assert_eq!(status_of(id).await, "SIGNED", "两级都批完才落已签订");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ④ 驳回 → 回草稿 + 清实例（否则下次提交撞 `uk_biz_flow_instance_biz_active`）。
+@@ -515,6 +705,8 @@ async fn reject_returns_contract_to_draft_and_clears_instance() {
+     // 回草稿后可以再提交（实例已清空 → 不会撞唯一索引）
+     let again = submit(id).await.expect("回草稿后应能重新提交");
+     assert_eq!(again.base.status, "PENDING_APPROVAL");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ⑤ 审批中直接 PATCH 回草稿 = 撤回：在跑的实例必须被终止（不留孤儿待办）。
+@@ -561,6 +753,8 @@ async fn manual_withdraw_cancels_running_instance() {
+         .await
+         .expect("查待办");
+     assert_eq!(pending, 0, "撤回后不许有 PENDING 待办");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ⑥ 不审批直接点签订 / 生效 → 409 + 66015，文案点名「先提交审批」。
+@@ -591,6 +785,8 @@ async fn draft_cannot_be_signed_or_activated_without_approval() {
+         .await
+         .expect("查实例");
+     assert_eq!(instances, 0, "被拒时不许起任何审批实例");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// 以任意目标态调一次状态流转（用例内部用）。
+@@ -636,6 +832,8 @@ async fn submit_without_dates_returns_400() {
+         assert!(err.msg.contains(field), "文案要点名缺哪个日期：{}", err.msg);
+     }
+     assert_eq!(status_of(id).await, "DRAFT", "被拒后仍是草稿");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ⑧ 流程被下线 → 提交审批 409 + 66033（fail-closed，不静默放行）。
+@@ -657,6 +855,8 @@ async fn submit_without_published_flow_returns_409() {
+         err.msg
+     );
+     assert_eq!(status_of(id).await, "DRAFT", "被拒后仍是草稿");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+ 
+ /// ⑨ 模块收尾：清场并断言零残留（`zz_` 前缀保证排在本模块最后跑）。
+@@ -672,18 +872,32 @@ async fn zz_teardown_purges_fixtures() {
+         "清场前应确有在跑待办"
+     );
+ 
++    // 清场前先把**本模块**的 id 记下来 —— 清完就查不到它们了，这样断言才是「真的删干净了」
++    // 而不是「本来就没有」。
++    let contract_ids = fixture_contract_ids().await;
++    let instance_ids = fixture_instance_ids().await;
++    assert!(!contract_ids.is_empty(), "清场前应确有本模块合同");
++    assert!(!instance_ids.is_empty(), "清场前应确有在跑审批实例");
++
+     purge_fixtures().await;
++    // 本用例自己借用的共享角色成员也在这里归还（其余用例由下一次 `setup()` 归还）。
++    restore_borrowed_bindings().await;
+ 
+     let leftovers: i64 = db()
+         .scalar_with_params(
+-            "SELECT (SELECT count(*) FROM biz_contract WHERE contract_name LIKE 'A2AP-%') \
+-                  + (SELECT count(*) FROM biz_flow_instance WHERE biz_type = 'CONTRACT_APPROVE') \
+-                  + (SELECT count(*) FROM biz_status_log \
+-                      WHERE entity_type = 'CONTRACT' \
+-                        AND entity_id NOT IN (SELECT id FROM biz_contract))",
++            &format!(
++                "SELECT (SELECT count(*) FROM biz_contract WHERE id IN ({contracts})) \
++                      + (SELECT count(*) FROM biz_flow_instance WHERE id IN ({instances})) \
++                      + (SELECT count(*) FROM biz_status_log \
++                          WHERE entity_type = 'CONTRACT' AND entity_id IN ({contracts}))",
++                contracts = uuid_in(&contract_ids),
++                instances = uuid_in(&instance_ids),
++            ),
+             vec![],
+         )
+         .await
+         .expect("查残留");
+-    assert_eq!(leftovers, 0, "清场后必须零残留（合同/实例/状态日志）");
++    assert_eq!(leftovers, 0, "清场后本模块的合同/实例/状态日志必须零残留");
++    // 用例结束：把借用的共享角色成员挂回去（进程内最后一个用例也就不用靠下一轮 setup 收尾）。
++    restore_borrowed_bindings().await;
+ }
+diff --git a/backend/src/business/erp/fixture_hygiene.rs b/backend/src/business/erp/fixture_hygiene.rs
+index c39209b..fb719d6 100644
+--- a/backend/src/business/erp/fixture_hygiene.rs
++++ b/backend/src/business/erp/fixture_hygiene.rs
+@@ -104,6 +104,78 @@ pub(crate) async fn purge_orphans(entity_types: &[&str]) -> i64 {
+ /// 本卡口径：凭证 / 应付两类（`t_7f47221c` 的验收对象）。
+ pub(crate) const FINANCE: &[&str] = &["PAYABLE", "VOUCHER"];
+ 
++/// 「付款 / 应付链路**种子行**」的总互斥锁（`#[cfg(test)]`）。
++///
++/// # 为什么这两个模块必须共用**同一把**锁
++///
++/// `payable_payment::tests`（P7/D5）与 `payable_bridge::tests`（P17）写的是同一批
++/// **全局行**，其中最关键的是**种子流程定义** `biz_flow_def`：
++///
++/// * P17 的「显式跳过审批的直付」用例会把 `flow_code = 'payable_pay'` 临时改成
++///   `status = 'DISABLED'`，跑完再改回 `PUBLISHED`；
++/// * P7 的 `setup()` 反过来会把 `payable_pay` 置回 `PUBLISHED`（自愈上一轮的残留）。
++///
++/// 两把互不相识的锁时，P7 的 setup 会插在 P17 的「DISABLE → 提交付款」中间把流程**重新发布**，
++/// 于是 P17 的 `submit_payment` 拿到 10001「有流程时必须走审批」—— 干净库全量第一轮实测就红
++/// （卡 `t_0d7c51f8`：`payable_bridge::tests::zz_teardown_purges_payment_status_logs`，
++/// 2323 passed / 1 failed）。夹具没法靠「换个唯一前缀」隔离：流程定义按 `flow_code` 查、
++/// 是种子行，全库只有一行。按「同一批全局行 = 同一把锁」（测试卫生铁律）合并锁是唯一正确解。
++///
++/// 除此之外两者还共用 `biz_payable` / `biz_payment` / `biz_voucher` 与 `biz_seq` 号段，
++/// 本来就不该并行。
++pub(crate) static FINANCE_SEED_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
++
++/// 「共享种子角色」组锁（`#[cfg(test)]`）：`sys_user_role` 上 `ROLE_PM` / `ROLE_GM`
++/// 这两条**共享种子角色**的绑定关系。
++///
++/// # 为什么写这两个角色绑定的模块必须共用同一把锁
++///
++/// `PURCHASE_MANAGER` / `GENERAL_MANAGER` 是 V0182 种子里的固定角色，审批流程定义
++/// （`po_approve` / `contract_approve`）的审批节点按**角色**展开待办。于是：
++///
++/// * `purchase_handler::tests::setup_approval()` 会摘掉「不属于自己的」绑定；
++/// * `contract_approval_tests::setup()` 过去也做对称的摘取（卡 `t_f404258c` 判定为
++///   「抢别人绑定」的越权写，已删除）。
++///
++/// 两把互不相识的锁时，「谁 setup 谁占位」不成立：一边正在跑审批、另一边 setup 把它的
++/// 夹具账号从角色上摘掉 ⇒ 待办展开不到人 / 或者多出别人的账号 ⇒
++/// `assert_eq!(tasks.len(), 1)` 随机假红（实测：同一库上两个进程并行，`purchase_handler`
++/// 一轮 5 条红、`contract_approval` 反向也会被摘）。改夹具前缀解决不了：角色是种子行。
++///
++/// 按「同一批全局行 = 同一把锁」把**写这两个角色绑定的模块**并入本锁即可（与
++/// [`FINANCE_SEED_LOCK`] 同思路，互不嵌套，不会死锁）。
++pub(crate) static SEED_ROLE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
++
++/// 「整库不许留孤儿」的**收敛式**判定：删 → 复查，最多等 `max_wait`，返回最终剩余条数。
++///
++/// # 为什么不能「purge 一次就断言 0」
++///
++/// 真库用例是**并行**跑的（libtest 默认 4 个测试线程，`cargo test -j N` 的 `-j` 只是编译
++/// 并行度）。别的模块随时可能正处在「单据行已删、它自己的状态日志还没删」的毫秒级中间态里
++/// —— 那一瞬间本模块的「整库无孤儿」断言会把**别人的中间态**判成自己的假红。实测（卡
++/// `t_0d7c51f8`）：干净隔离库上第一轮 `cargo test`，`payable_bridge::tests::
++/// zz_teardown_purges_payment_status_logs` 就红在这一句上，单跑/单模块跑全绿。
++///
++/// # 口径没有放宽
++///
++/// 真孤儿（没有任何模块会再回来删）等多久都还在 ⇒ 仍然红。收敛只吸收「别人正在删」的
++/// 瞬时窗口，所以断言强度 = 原来的「整库最终无孤儿」，而不是「这一瞬间恰好没有」。
++pub(crate) async fn settle_orphans(entity_types: &[&str], max_wait: std::time::Duration) -> i64 {
++    let step = std::time::Duration::from_millis(50);
++    let mut waited = std::time::Duration::ZERO;
++    loop {
++        purge_orphans(entity_types).await;
++        let left = orphans(entity_types).await;
++        if left == 0 || waited >= max_wait {
++            return left;
++        }
++        // 用阻塞 sleep 而不是 `tokio::time`：每个 `#[tokio::test]` 是独立的
++        // current-thread runtime，本函数内部没有别的任务需要被调度，阻塞等待最直接。
++        std::thread::sleep(step);
++        waited += step;
++    }
++}
++
+ /// 已登记类型的全量清单（模块级 teardown 的「整库不许留孤儿」断言用）。
+ pub(crate) const ALL_TYPES: &[&str] = &[
+     "STOCK_IN",
+diff --git a/backend/src/business/erp/period_items_tests.rs b/backend/src/business/erp/period_items_tests.rs
+index 075825b..b7d9425 100644
+--- a/backend/src/business/erp/period_items_tests.rs
++++ b/backend/src/business/erp/period_items_tests.rs
+@@ -21,9 +21,11 @@ async fn items_draft_vouchers_list_every_doc() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    support::open_test_period(3).await;
++    // 期次按用例唯一（2040-01 归本用例独占）：下面「读这个期间的草稿条数」才不会被
++    // 别的用例种进来的凭证污染（改造规范 R1；见 period_test_support 头注释）。
++    let period = support::open_case_period(1).await.period_code;
+     for no in ["P2-V-001", "P2-V-002", "P2-V-003"] {
+-        support::seed_voucher("2033-03", no, "DRAFT", ("100", "100"), ("100", "100")).await;
++        support::seed_voucher(&period, no, "DRAFT", ("100", "100"), ("100", "100")).await;
+     }
+ 
+     // 隔离库里可能没有任何角色持有「过账」权限（只有 SUPER_ADMIN 有授权行，且它不含该码）：
+@@ -44,7 +46,7 @@ async fn items_draft_vouchers_list_every_doc() {
+         .expect("补上授权后必须能反查到持有过账权限的角色")
+         .role_code;
+ 
+-    let (count, items) = draft_voucher_items(db(), "2033-03", &mut owners)
++    let (count, items) = draft_voucher_items(db(), &period, &mut owners)
+         .await
+         .expect("取草稿凭证明细");
+     assert_eq!(count, 3, "条数必须点名 3 张");
+@@ -82,10 +84,11 @@ async fn items_are_capped_at_fifty_with_message_note() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(4).await;
++    let row = support::open_case_period(2).await;
++    let period = row.period_code.clone();
+     for index in 0..52 {
+         support::seed_voucher(
+-            "2033-04",
++            &period,
+             &format!("P2-V-{index:03}"),
+             "DRAFT",
+             ("10", "10"),
+@@ -122,10 +125,11 @@ async fn items_unfinished_docs_cover_three_types_with_actions() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(5).await;
+-    support::seed_purchase_order("2033-05", "P2-PO-001", "SUBMITTED").await;
+-    support::seed_stock_in("2033-05", "P2-IN-001", "DRAFT").await;
+-    let Some(_) = support::seed_stock_transfer("2033-05", "P2-TR-001", "IN_TRANSIT").await else {
++    let row = support::open_case_period(3).await;
++    let period = row.period_code.clone();
++    support::seed_purchase_order(&period, "P2-PO-001", "SUBMITTED").await;
++    support::seed_stock_in(&period, "P2-IN-001", "DRAFT").await;
++    let Some(_) = support::seed_stock_transfer(&period, "P2-TR-001", "IN_TRANSIT").await else {
+         println!("SKIP: 隔离库没有两个仓库，调拨单明细无法造");
+         return;
+     };
+@@ -185,11 +189,12 @@ async fn unfinished_items_are_capped_at_fifty_across_types() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(6).await;
++    let row = support::open_case_period(4).await;
++    let period = row.period_code.clone();
+     // 采购单 30 + 收货单 30 = 60 张（都不用到调拨单，避免夹具跳过）
+     for index in 0..30 {
+-        support::seed_purchase_order("2033-06", &format!("P2-PO-{index:03}"), "SUBMITTED").await;
+-        support::seed_stock_in("2033-06", &format!("P2-IN-{index:03}"), "DRAFT").await;
++        support::seed_purchase_order(&period, &format!("P2-PO-{index:03}"), "SUBMITTED").await;
++        support::seed_stock_in(&period, &format!("P2-IN-{index:03}"), "DRAFT").await;
+     }
+ 
+     let check = period::close_check(row.id).await.expect("预检");
+@@ -332,16 +337,9 @@ async fn owner_role_is_null_when_no_role_holds_permission() {
+     assert!(owners.resolve(db(), "").await.expect("空码").is_none());
+ 
+     // 不变量明细的处理人必须是 None（账被改坏了怎么修由财务主管判断）
+-    support::open_test_period(6).await;
+-    support::seed_voucher(
+-        "2033-06",
+-        "P2-V-901",
+-        "POSTED",
+-        ("100", "100"),
+-        ("60", "40"),
+-    )
+-    .await;
+-    let (_, items) = invariant_details(db(), "2033-06", &mut owners)
++    let period = support::open_case_period(5).await.period_code;
++    support::seed_voucher(&period, "P2-V-901", "POSTED", ("100", "100"), ("60", "40")).await;
++    let (_, items) = invariant_details(db(), &period, &mut owners)
+         .await
+         .expect("取不变量明细");
+     assert!(!items.is_empty(), "分录不平必须给出明细");
+@@ -363,15 +361,9 @@ async fn items_invariant_blocker_points_to_broken_vouchers() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(7).await;
+-    support::seed_voucher(
+-        "2033-07",
+-        "P2-V-901",
+-        "POSTED",
+-        ("100", "100"),
+-        ("60", "40"),
+-    )
+-    .await;
++    let row = support::open_case_period(6).await;
++    let period = row.period_code.clone();
++    support::seed_voucher(&period, "P2-V-901", "POSTED", ("100", "100"), ("60", "40")).await;
+ 
+     let check = period::close_check(row.id).await.expect("预检");
+     let invariant = check
+@@ -407,8 +399,9 @@ async fn every_blocker_serializes_items_array() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(8).await;
+-    support::seed_voucher("2033-08", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
++    let row = support::open_case_period(7).await;
++    let period = row.period_code.clone();
++    support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+ 
+     let check = period::close_check(row.id).await.expect("预检");
+     let json = serde_json::to_value(&check).expect("预检结果必须可序列化");
+@@ -435,7 +428,7 @@ async fn empty_period_has_no_items_and_no_error() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(9).await;
++    let row = support::open_case_period(8).await;
+     let check = period::close_check(row.id)
+         .await
+         .expect("空期间预检不该报错");
+@@ -452,18 +445,19 @@ async fn can_close_is_unaffected_by_items() {
+     let Some(_guard) = support::setup().await else {
+         return;
+     };
+-    let row = support::open_test_period(10).await;
++    let row = support::open_case_period(9).await;
++    let period = row.period_code.clone();
+     let voucher_id =
+-        support::seed_voucher("2033-10", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
++        support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+ 
+     let blocked = period::close_check(row.id).await.expect("预检");
+     assert!(!blocked.can_close);
+     assert!(!blocked.blockers[0].items.is_empty(), "明细非空");
+ 
+     // 把挡路单据「处理掉」（DRAFT → POSTED）→ 同一份判定逻辑必须放行。
+-    // **只动本用例自己造的那张凭证**（按 id）：过去这里写的是
+-    // `WHERE period = '2033-10'` 整期 UPDATE，并行跑时会把别的用例刚种进同一期间的
+-    // 草稿凭证一并过账，它们的「必须有草稿挡路」断言就随机红。
++    // **只动本用例自己造的那张凭证**（按 id）：过去这里是「按 2033-10 整期 UPDATE」，
++    // 并行跑时会把别的用例刚种进同一期间的草稿凭证一并过账，
++    // 它们的「必须有草稿挡路」断言就随机红。
+     support::set_voucher_status(voucher_id, "POSTED").await;
+     let cleared = period::close_check(row.id).await.expect("预检");
+     assert!(
+diff --git a/backend/src/business/erp/period_test_support.rs b/backend/src/business/erp/period_test_support.rs
+index 9010b6c..6e2f3d9 100644
+--- a/backend/src/business/erp/period_test_support.rs
++++ b/backend/src/business/erp/period_test_support.rs
+@@ -7,22 +7,38 @@
+ //! 它们需要同一套基础设施，但**不能**再用 `2031-xx`：`period.rs` 的用例会自己把
+ //! 2031 整年删一遍，两组用例撞在一起就会互删夹具有。
+ //!
+-//! 所以本文件提供**第二套前缀**（期间 `2033-xx`、单号 `P2-`），两套井水不犯河水；
++//! 所以本文件提供**第二套前缀**（期间 `2033-xx` / `2040-xx`、单号 `P2-`），两套井水不犯河水；
+ //! 连库 / 串行 / 清场的写法与 `period.rs::tests` 完全一致（同一个 `ERP_DB_URL`、
+ //! 同一个全局锁），见那边的头注释。
+ //!
+-//! # 铁律（两条都不能破）
++//! # 期次命名空间（谁拥有哪一段，见「改造规范 R1」）
++//!
++//! | 期次 | 所有者 | 用途 |
++//! |---|---|---|
++//! | `2033-02..08` | `period_remind_tests` / `stocktake_tests` | 催办 / 盘点（与 `period::tests` 共用一把锁） |
++//! | **`2040-01..12`** | **`period_items_tests`（独占）** | 结账明细用例，**一条用例一个期次**，见 [`open_case_period`] |
++//!
++//! `period_items` 从 2033 迁到 2040 的原因（卡 `t_f404258c`）：2033 的 03–08 同时被
++//! `period_remind_tests` 占用，两条用例撞同一期次时「按期间读条数」的断言会互相污染
++//! （实测：`draft_voucher_items('2033-03')` 别人多种一张就变 4）。2040 目前无人使用
++//! （2034–2035 = opening、2036–2038 = year_end、2039 = reminder，见各模块头注释）。
++//!
++//! # 铁律（三条都不能破）
+ //!
+ //! 1. **绝不碰 2026-xx**：生产期间在 2026，其它模块的夹具往 2026-10 记凭证；
+ //!    本模块把 2026-10 封了，它们的用例会立刻收到「期间已结账」的 400。
+ //! 2. **串行**（[`DB_LOCK`]）：清理按前缀删，并行会互删夹具。
++//! 3. **写操作只按 id 集合**：[`cleanup`] 先在本夹具**拥有的**期次/号段里查出 id，
++//!    再 `WHERE id IN (…)` 删 —— 不再出现「按 period 整期改数」的 UPDATE/DELETE
++//!    （改造规范 R3/R4）。
+ //!
+ //! # 用法
+ //!
+ //! ```ignore
+ //! let Some(_guard) = support::setup().await else { return; };  // 没有 ERP_DB_URL 时 SKIP
+-//! let period = support::open_test_period(3).await;             // 2033-03，返回 PeriodRow
+-//! support::seed_draft_voucher("2033-03", "P2-V-001").await;
++//! let row = support::open_case_period(3).await;                // 2040-03（本用例独占）
++//! let period = row.period_code.clone();
++//! support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10","10"), ("10","10")).await;
+ //! ```
+ 
+ use nik::prelude::*;
+@@ -97,33 +113,162 @@ pub async fn sql(text: &str) {
+     }
+ }
+ 
+-/// 清掉本套夹具（**只删 2033-xx 与 P2- 前缀**，不碰生产期间 2026-xx）。
++/// 本夹具工具包**拥有**的期次命名空间（`period_items` 独占 2040；2033 与催办/盘点共管，
++/// 但共用同一把 [`DB_LOCK`]，所以谁都不会在别人跑到一半时动手）。
++const OWNED_PERIOD_PREFIXES: [&str; 2] = ["2033-%", "2040-%"];
++
++/// 查一列 `id`（清场第一半：**只按本夹具拥有的范围取 id**，不做任何写操作）。
++async fn uuids_of(query: &str) -> Vec<Uuid> {
++    let rows = db()
++        .query_sql(query.to_string(), vec![])
++        .await
++        .unwrap_or_else(|err| panic!("查夹具残留 id 失败：{err}\nSQL: {query}"));
++    rows.iter()
++        .map(|row| row.get_typed::<Uuid>("id").expect("夹具 id"))
++        .collect()
++}
++
++/// `IN ('<uuid>', …)` 片段（uuid 是库自己生成的，拼进 SQL 安全）。
++fn in_uuids(ids: &[Uuid]) -> String {
++    ids.iter()
++        .map(|id| format!("'{id}'::uuid"))
++        .collect::<Vec<_>>()
++        .join(", ")
++}
++
++/// `IN ('<uuid>', …)` 片段（用于 `biz_id` 这类 **text** 弱引用列）。
++fn in_texts(ids: &[Uuid]) -> String {
++    ids.iter()
++        .map(|id| format!("'{id}'"))
++        .collect::<Vec<_>>()
++        .join(", ")
++}
++
++/// 清掉本套夹具（**只删本夹具拥有的期次/号段里的行，且写操作一律按 id 集合**）。
++///
++/// # 为什么先 SELECT 再按 id 删（改造规范 R3/R4）
++///
++/// 过去的写法是「按 period 前缀整期删凭证」：删除范围 = 整个 2033 年，
++/// 而 2033-03 是 `stocktake_tests` 的夹具期、2033-02..08 是 `period_remind_tests` 的 ——
++/// 一旦哪天哪处没拿同一把锁，这里就会把别人正在用的夹具删掉（卡 `t_f404258c` 的根因族）。
++///
++/// 现在的两段式：① 在**本夹具拥有**的期次/号段里读出 id（读的范围有明确所有权）；
++/// ② `DELETE … WHERE id IN (…)` —— 写操作对象是逐一登记的 id，不再「按期间批量改数」。
+ pub async fn cleanup() {
+-    sql("DELETE FROM sys_notice WHERE biz_type = 'period_remind' \
+-         AND biz_id IN (SELECT id::text FROM biz_voucher WHERE period LIKE '2033-%')")
+-    .await;
+-    sql(
+-        "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
+-         AND entity_no LIKE '2033-%'",
+-    )
++    // ---- ① 期次命名空间内的凭证 / 期间（催办通知按凭证 id 派生）----
++    let vouchers = uuids_of(&format!(
++        "SELECT id FROM biz_voucher WHERE period LIKE '{}' OR period LIKE '{}'",
++        OWNED_PERIOD_PREFIXES[0], OWNED_PERIOD_PREFIXES[1]
++    ))
+     .await;
+-    // 分录随凭证 CASCADE
+-    sql("DELETE FROM biz_voucher WHERE period LIKE '2033-%'").await;
+-    sql("DELETE FROM biz_purchase_order WHERE order_no LIKE 'P2-PO-%'").await;
+-    sql("DELETE FROM biz_stock_in WHERE in_no LIKE 'P2-IN-%'").await;
+-    sql("DELETE FROM biz_stock_transfer WHERE transfer_no LIKE 'P2-TR-%'").await;
+-    sql("DELETE FROM biz_accounting_period WHERE period_code LIKE '2033-%'").await;
+-    // 夹具角色 / 用户 / 权限节点（外键顺序：先删关系，再删主体）
+-    sql("DELETE FROM sys_user_role WHERE user_id IN \
+-         (SELECT id FROM sys_user WHERE username LIKE 'p2.%') \
+-         OR role_id IN (SELECT id FROM sys_role WHERE role_code LIKE 'P2-%')")
++    if !vouchers.is_empty() {
++        sql(&format!(
++            "DELETE FROM sys_notice WHERE biz_type = 'period_remind' AND biz_id IN ({})",
++            in_texts(&vouchers)
++        ))
++        .await;
++        // 分录随凭证 CASCADE
++        sql(&format!(
++            "DELETE FROM biz_voucher WHERE id IN ({})",
++            in_uuids(&vouchers)
++        ))
++        .await;
++    }
++    let periods = uuids_of(&format!(
++        "SELECT id FROM biz_accounting_period \
++          WHERE period_code LIKE '{}' OR period_code LIKE '{}'",
++        OWNED_PERIOD_PREFIXES[0], OWNED_PERIOD_PREFIXES[1]
++    ))
+     .await;
+-    sql("DELETE FROM sys_role_menu WHERE role_id IN \
+-         (SELECT id FROM sys_role WHERE role_code LIKE 'P2-%')")
++    if !periods.is_empty() {
++        // 状态日志没有外键：必须按期间 id 先删（期间行一删就再也定位不到那些日志）
++        sql(&format!(
++            "DELETE FROM biz_status_log WHERE entity_type = 'ACCOUNTING_PERIOD' \
++             AND entity_id IN ({})",
++            in_uuids(&periods)
++        ))
++        .await;
++        sql(&format!(
++            "DELETE FROM biz_accounting_period WHERE id IN ({})",
++            in_uuids(&periods)
++        ))
++        .await;
++    }
++
++    // ---- ② 单据号段（`P2-*` 是本夹具独占的号段）：取 id → 按 id 删 ----
++    for (table, column, prefix) in [
++        ("biz_purchase_order", "order_no", "P2-PO-%"),
++        ("biz_stock_in", "in_no", "P2-IN-%"),
++        ("biz_stock_transfer", "transfer_no", "P2-TR-%"),
++    ] {
++        let ids = uuids_of(&format!(
++            "SELECT id FROM {table} WHERE {column} LIKE '{prefix}'"
++        ))
++        .await;
++        if !ids.is_empty() {
++            sql(&format!(
++                "DELETE FROM {table} WHERE id IN ({})",
++                in_uuids(&ids)
++            ))
++            .await;
++        }
++    }
++
++    // ---- ③ 夹具角色 / 用户 / 权限节点（`P2-` / `p2.` / `P2I-` / `p2i.` 都是本夹具的号段）----
++    // 外键顺序：先删关系，再删主体。
++    let roles =
++        uuids_of("SELECT id FROM sys_role WHERE role_code LIKE 'P2-%' OR role_code LIKE 'P2I-%'")
++            .await;
++    let users =
++        uuids_of("SELECT id FROM sys_user WHERE username LIKE 'p2.%' OR username LIKE 'p2i.%'")
++            .await;
++    if !roles.is_empty() || !users.is_empty() {
++        let mut where_parts = Vec::new();
++        if !roles.is_empty() {
++            where_parts.push(format!("role_id IN ({})", in_uuids(&roles)));
++        }
++        if !users.is_empty() {
++            where_parts.push(format!("user_id IN ({})", in_uuids(&users)));
++        }
++        let clause = where_parts.join(" OR ");
++        sql(&format!("DELETE FROM sys_user_role WHERE {clause}")).await;
++        if !roles.is_empty() {
++            sql(&format!(
++                "DELETE FROM sys_role_menu WHERE role_id IN ({})",
++                in_uuids(&roles)
++            ))
++            .await;
++            sql(&format!(
++                "DELETE FROM sys_role WHERE id IN ({})",
++                in_uuids(&roles)
++            ))
++            .await;
++        }
++        if !users.is_empty() {
++            sql(&format!(
++                "DELETE FROM sys_user WHERE id IN ({})",
++                in_uuids(&users)
++            ))
++            .await;
++        }
++    }
++    let menus = uuids_of(
++        "SELECT id FROM sys_menu \
++          WHERE auth_code LIKE 'business:erp:p2-%' OR auth_code LIKE 'business:erp:p2i-%'",
++    )
+     .await;
+-    sql("DELETE FROM sys_role WHERE role_code LIKE 'P2-%'").await;
+-    sql("DELETE FROM sys_user WHERE username LIKE 'p2.%'").await;
+-    sql("DELETE FROM sys_menu WHERE auth_code LIKE 'business:erp:p2-%'").await;
++    if !menus.is_empty() {
++        sql(&format!(
++            "DELETE FROM sys_role_menu WHERE menu_id IN ({})",
++            in_uuids(&menus)
++        ))
++        .await;
++        sql(&format!(
++            "DELETE FROM sys_menu WHERE id IN ({})",
++            in_uuids(&menus)
++        ))
++        .await;
++    }
+ }
+ 
+ /// 取锁 + 连库 + 清场。`None` = 没有测试库，用例直接 return（SKIP）。
+@@ -139,7 +284,7 @@ pub async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+ /// 改一张凭证的状态（**按 id**，不按期间整期 UPDATE）。
+ ///
+ /// 为什么必须按 id：`can_close_is_unaffected_by_items` 过去写的是
+-/// `UPDATE biz_voucher SET status='POSTED' WHERE period='2033-10'`，在并行跑时会把
++/// 「把整个 2033-10 期次的凭证一起改成 POSTED」，在并行跑时会把
+ /// 别的用例刚种进同一期间的草稿凭证一并过账 —— 那几个用例的断言（「必须还有草稿挡路」）
+ /// 就随机变红。夹具只许动自己造的那一行。
+ pub async fn set_voucher_status(id: Uuid, status: &str) {
+@@ -152,10 +297,55 @@ pub async fn set_voucher_status(id: Uuid, status: &str) {
+ }
+ 
+ /// 开一个测试期间（`2033-MM`）并读回行。
++///
++/// 供 `period_remind_tests` / 其它 2033 号段的调用方使用（**共享号段**，靠 [`DB_LOCK`] 串行）。
++/// `period_items` 自己的用例一律改用 [`open_case_period`]（独占号段 + 用例唯一）。
+ pub async fn open_test_period(month: i16) -> PeriodRow {
+-    let res = period::open_period(2033, month, Some("P2 夹具"), operator())
++    open_period_in(2033, month, "P2 夹具").await
++}
++
++/// `period_items` 独占的测试期年（见文件头「期次命名空间」）。
++pub const ITEMS_PERIOD_YEAR: i16 = 2040;
++
++/// 已分配的用例月号（`true` = 该期次已被某条用例占用）。
++///
++/// 用途是把「两条用例撞同一期次」从**约定**变成**运行期断言**：重复申请直接 panic，
++/// 而不是让两条用例在同一个期间里互相把对方的凭证算进条数（卡 `t_f404258c` 的假红形态）。
++static CASE_PERIOD_TAKEN: std::sync::Mutex<[bool; 13]> = std::sync::Mutex::new([false; 13]);
++
++/// 开一条用例**独占**的期次并读回行（`2040-<用例序号>`）。
++///
++/// * `case_no` = 期次月号 = 用例序号，必须是 1..=12 且**全模块唯一**；
++/// * 同一进程内重复申请同一序号 → `panic`（这就是「同模块任意两条用例不落同一期次」的门禁）；
++/// * 跨进程/上一轮残留由 [`cleanup`] 在本模块独占的 `2040-%` 里按 id 清掉。
++pub async fn open_case_period(case_no: i16) -> PeriodRow {
++    assert!(
++        (1..=12).contains(&case_no),
++        "用例序号必须是 1..=12（月号即用例序号）：{case_no}"
++    );
++    {
++        let mut taken = CASE_PERIOD_TAKEN
++            .lock()
++            .unwrap_or_else(|poisoned| poisoned.into_inner());
++        let slot = usize::try_from(case_no).expect("序号转 usize");
++        assert!(
++            !taken[slot],
++            "期次 {ITEMS_PERIOD_YEAR}-{case_no:02} 已被另一条用例占用：\
++             每条用例必须有自己唯一的期次（见 period_test_support 头注释「期次命名空间」）"
++        );
++        taken[slot] = true;
++    }
++    let row = open_period_in(ITEMS_PERIOD_YEAR, case_no, "P2I 夹具（用例独占期次）").await;
++    let expected = format!("{ITEMS_PERIOD_YEAR}-{case_no:02}");
++    assert_eq!(row.period_code, expected, "开出来的期次必须与用例序号一致");
++    row
++}
++
++/// 开账 + 读回行（[`open_test_period`] / [`open_case_period`] 的唯一实现）。
++async fn open_period_in(year: i16, month: i16, remark: &str) -> PeriodRow {
++    let res = period::open_period(year, month, Some(remark), operator())
+         .await
+-        .unwrap_or_else(|error| panic!("开账失败（2033-{month:02}）：{}", error.msg));
++        .unwrap_or_else(|error| panic!("开账失败（{year}-{month:02}）：{}", error.msg));
+     let id = Uuid::parse_str(&res.id).expect("期间 id 非法");
+     period::load_period_row(db(), id)
+         .await
+diff --git a/backend/src/business/erp/purchase_handler.rs b/backend/src/business/erp/purchase_handler.rs
+index 3e6c2d8..8553cac 100644
+--- a/backend/src/business/erp/purchase_handler.rs
++++ b/backend/src/business/erp/purchase_handler.rs
+@@ -1745,7 +1745,12 @@ mod tests {
+     ];
+ 
+     /// 真库用例必须串行（共用全局 `db()` 与同一供应商夹具）。
+-    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
++    /// 本模块（含 `setup_approval`）串行跑的锁 = **共享种子角色组锁**。
++    ///
++    /// 本模块会写 `ROLE_PM` / `ROLE_GM` 上的 `sys_user_role` 绑定（`setup_approval` 还按角色 id
++    /// 摘别人的绑定），`contract_approval_tests` 写的是同一批行 —— 两把不相识的锁时
++    /// 一方会把另一方的夹具账号摘掉，待办展开不到人（实测：同一库两个进程并行时本模块一轮 5 条红）。
++    use crate::business::erp::fixture_hygiene::SEED_ROLE_LOCK as DB_LOCK;
+ 
+     /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`。
+     async fn ensure_db() -> bool {

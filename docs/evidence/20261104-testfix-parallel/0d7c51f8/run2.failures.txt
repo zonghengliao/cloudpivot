@@ -1,0 +1,7 @@
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... FAILED
+test business::erp::report::tests::r1_real_previous_period_comparison ... FAILED
+test business::erp::year_end::tests::r4_07_expense_closing_to_current_profit ... FAILED
+test business::erp::year_end::tests::r4_08_profit_transferred_to_distribution ... FAILED
+test business::erp::year_end::tests::r4_09_next_year_opening_equals_year_end ... FAILED
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... FAILED
+test result: FAILED. 2391 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1135.22s

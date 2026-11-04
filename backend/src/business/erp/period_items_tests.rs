@@ -21,9 +21,11 @@ async fn items_draft_vouchers_list_every_doc() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    support::open_test_period(3).await;
+    // 期次按用例唯一（2040-01 归本用例独占）：下面「读这个期间的草稿条数」才不会被
+    // 别的用例种进来的凭证污染（改造规范 R1；见 period_test_support 头注释）。
+    let period = support::open_case_period(1).await.period_code;
     for no in ["P2-V-001", "P2-V-002", "P2-V-003"] {
-        support::seed_voucher("2033-03", no, "DRAFT", ("100", "100"), ("100", "100")).await;
+        support::seed_voucher(&period, no, "DRAFT", ("100", "100"), ("100", "100")).await;
     }
 
     // 隔离库里可能没有任何角色持有「过账」权限（只有 SUPER_ADMIN 有授权行，且它不含该码）：
@@ -44,7 +46,7 @@ async fn items_draft_vouchers_list_every_doc() {
         .expect("补上授权后必须能反查到持有过账权限的角色")
         .role_code;
 
-    let (count, items) = draft_voucher_items(db(), "2033-03", &mut owners)
+    let (count, items) = draft_voucher_items(db(), &period, &mut owners)
         .await
         .expect("取草稿凭证明细");
     assert_eq!(count, 3, "条数必须点名 3 张");
@@ -82,10 +84,11 @@ async fn items_are_capped_at_fifty_with_message_note() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(4).await;
+    let row = support::open_case_period(2).await;
+    let period = row.period_code.clone();
     for index in 0..52 {
         support::seed_voucher(
-            "2033-04",
+            &period,
             &format!("P2-V-{index:03}"),
             "DRAFT",
             ("10", "10"),
@@ -122,10 +125,11 @@ async fn items_unfinished_docs_cover_three_types_with_actions() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(5).await;
-    support::seed_purchase_order("2033-05", "P2-PO-001", "SUBMITTED").await;
-    support::seed_stock_in("2033-05", "P2-IN-001", "DRAFT").await;
-    let Some(_) = support::seed_stock_transfer("2033-05", "P2-TR-001", "IN_TRANSIT").await else {
+    let row = support::open_case_period(3).await;
+    let period = row.period_code.clone();
+    support::seed_purchase_order(&period, "P2-PO-001", "SUBMITTED").await;
+    support::seed_stock_in(&period, "P2-IN-001", "DRAFT").await;
+    let Some(_) = support::seed_stock_transfer(&period, "P2-TR-001", "IN_TRANSIT").await else {
         println!("SKIP: 隔离库没有两个仓库，调拨单明细无法造");
         return;
     };
@@ -185,11 +189,12 @@ async fn unfinished_items_are_capped_at_fifty_across_types() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(6).await;
+    let row = support::open_case_period(4).await;
+    let period = row.period_code.clone();
     // 采购单 30 + 收货单 30 = 60 张（都不用到调拨单，避免夹具跳过）
     for index in 0..30 {
-        support::seed_purchase_order("2033-06", &format!("P2-PO-{index:03}"), "SUBMITTED").await;
-        support::seed_stock_in("2033-06", &format!("P2-IN-{index:03}"), "DRAFT").await;
+        support::seed_purchase_order(&period, &format!("P2-PO-{index:03}"), "SUBMITTED").await;
+        support::seed_stock_in(&period, &format!("P2-IN-{index:03}"), "DRAFT").await;
     }
 
     let check = period::close_check(row.id).await.expect("预检");
@@ -332,16 +337,9 @@ async fn owner_role_is_null_when_no_role_holds_permission() {
     assert!(owners.resolve(db(), "").await.expect("空码").is_none());
 
     // 不变量明细的处理人必须是 None（账被改坏了怎么修由财务主管判断）
-    support::open_test_period(6).await;
-    support::seed_voucher(
-        "2033-06",
-        "P2-V-901",
-        "POSTED",
-        ("100", "100"),
-        ("60", "40"),
-    )
-    .await;
-    let (_, items) = invariant_details(db(), "2033-06", &mut owners)
+    let period = support::open_case_period(5).await.period_code;
+    support::seed_voucher(&period, "P2-V-901", "POSTED", ("100", "100"), ("60", "40")).await;
+    let (_, items) = invariant_details(db(), &period, &mut owners)
         .await
         .expect("取不变量明细");
     assert!(!items.is_empty(), "分录不平必须给出明细");
@@ -363,15 +361,9 @@ async fn items_invariant_blocker_points_to_broken_vouchers() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(7).await;
-    support::seed_voucher(
-        "2033-07",
-        "P2-V-901",
-        "POSTED",
-        ("100", "100"),
-        ("60", "40"),
-    )
-    .await;
+    let row = support::open_case_period(6).await;
+    let period = row.period_code.clone();
+    support::seed_voucher(&period, "P2-V-901", "POSTED", ("100", "100"), ("60", "40")).await;
 
     let check = period::close_check(row.id).await.expect("预检");
     let invariant = check
@@ -407,8 +399,9 @@ async fn every_blocker_serializes_items_array() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(8).await;
-    support::seed_voucher("2033-08", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+    let row = support::open_case_period(7).await;
+    let period = row.period_code.clone();
+    support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
 
     let check = period::close_check(row.id).await.expect("预检");
     let json = serde_json::to_value(&check).expect("预检结果必须可序列化");
@@ -435,7 +428,7 @@ async fn empty_period_has_no_items_and_no_error() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(9).await;
+    let row = support::open_case_period(8).await;
     let check = period::close_check(row.id)
         .await
         .expect("空期间预检不该报错");
@@ -452,18 +445,19 @@ async fn can_close_is_unaffected_by_items() {
     let Some(_guard) = support::setup().await else {
         return;
     };
-    let row = support::open_test_period(10).await;
+    let row = support::open_case_period(9).await;
+    let period = row.period_code.clone();
     let voucher_id =
-        support::seed_voucher("2033-10", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+        support::seed_voucher(&period, "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
 
     let blocked = period::close_check(row.id).await.expect("预检");
     assert!(!blocked.can_close);
     assert!(!blocked.blockers[0].items.is_empty(), "明细非空");
 
     // 把挡路单据「处理掉」（DRAFT → POSTED）→ 同一份判定逻辑必须放行。
-    // **只动本用例自己造的那张凭证**（按 id）：过去这里写的是
-    // `WHERE period = '2033-10'` 整期 UPDATE，并行跑时会把别的用例刚种进同一期间的
-    // 草稿凭证一并过账，它们的「必须有草稿挡路」断言就随机红。
+    // **只动本用例自己造的那张凭证**（按 id）：过去这里是「按 2033-10 整期 UPDATE」，
+    // 并行跑时会把别的用例刚种进同一期间的草稿凭证一并过账，
+    // 它们的「必须有草稿挡路」断言就随机红。
     support::set_voucher_status(voucher_id, "POSTED").await;
     let cleared = period::close_check(row.id).await.expect("预检");
     assert!(

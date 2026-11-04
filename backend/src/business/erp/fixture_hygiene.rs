@@ -125,6 +125,26 @@ pub(crate) const FINANCE: &[&str] = &["PAYABLE", "VOUCHER"];
 /// 本来就不该并行。
 pub(crate) static FINANCE_SEED_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// 「共享种子角色」组锁（`#[cfg(test)]`）：`sys_user_role` 上 `ROLE_PM` / `ROLE_GM`
+/// 这两条**共享种子角色**的绑定关系。
+///
+/// # 为什么写这两个角色绑定的模块必须共用同一把锁
+///
+/// `PURCHASE_MANAGER` / `GENERAL_MANAGER` 是 V0182 种子里的固定角色，审批流程定义
+/// （`po_approve` / `contract_approve`）的审批节点按**角色**展开待办。于是：
+///
+/// * `purchase_handler::tests::setup_approval()` 会摘掉「不属于自己的」绑定；
+/// * `contract_approval_tests::setup()` 过去也做对称的摘取（卡 `t_f404258c` 判定为
+///   「抢别人绑定」的越权写，已删除）。
+///
+/// 两把互不相识的锁时，「谁 setup 谁占位」不成立：一边正在跑审批、另一边 setup 把它的
+/// 夹具账号从角色上摘掉 ⇒ 待办展开不到人 / 或者多出别人的账号 ⇒
+/// `assert_eq!(tasks.len(), 1)` 随机假红（实测：同一库上两个进程并行，`purchase_handler`
+/// 一轮 5 条红、`contract_approval` 反向也会被摘）。改夹具前缀解决不了：角色是种子行。
+///
+/// 按「同一批全局行 = 同一把锁」把**写这两个角色绑定的模块**并入本锁即可（与
+/// [`FINANCE_SEED_LOCK`] 同思路，互不嵌套，不会死锁）。
+pub(crate) static SEED_ROLE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 「整库不许留孤儿」的**收敛式**判定：删 → 复查，最多等 `max_wait`，返回最终剩余条数。
 ///
