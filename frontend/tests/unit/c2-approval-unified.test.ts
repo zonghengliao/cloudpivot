@@ -12,6 +12,14 @@
  * | 凭证 | 只有「红冲审批中」徽标 + 撤回按钮 | 详情底部多一节「审批进度」（节点 + 审批人明细） |
  * | 调拨单 | 自己画的时间线（`.timeline__item`） | 全站 `FlowProgress`（+ 一行「提交人 / 时间 / 单号」） |
  *
+ * # 命名口径（卡 t_3cc4caf2 定死，别再漂）
+ *
+ * 凭证的「红冲审批进度」并进了**统一状态** `approvalProgress`（P1-11：收货 / 应付 / 调拨 / 凭证
+ * 共用同一个 ref + 同一个装载器 `shared/approval-progress`），不再单独造 `reverseProgress`。
+ * 所以 ③ / ③-补 按 `approvalProgress` / `voucherApprovalInstanceId` / `EMPTY_APPROVAL_PROGRESS`
+ * 断言；「送审后立刻拉进度 / 撤回后清空」这两条**行为**断言逐入口保留，
+ * 也不许为了过断言把 `hasApprovalProgress` 这类判据放宽成恒真（③ 断言的是判据本身）。
+ *
  * # 为什么这么测
  *
  * 这些改动全是「模板里少传一个 prop / 少挂一块」的性质：`vue-tsc` 抓不到
@@ -34,6 +42,7 @@ import {
 } from '@/views/business/erp/shared/approval-progress';
 import { buildApprovalSteps, formatTime } from '@/views/business/erp/transfer/transfer-logic';
 import { groupProgressTasks, progressTaskLabel } from '@/views/business/flow/components/flow-progress-tasks';
+import { voucherApprovalInstanceId } from '@/views/business/erp/voucher/voucher-audit-logic';
 
 const ROOT = resolve(process.cwd());
 
@@ -66,6 +75,21 @@ function assertInDrawer(source: string, marker: string): number {
 function drawerOf(source: string, marker: string): string {
   const at = assertInDrawer(source, marker);
   return source.slice(source.lastIndexOf('<t-drawer', at), source.indexOf('</t-drawer>', at));
+}
+
+/**
+ * 取一个**顶层** `async function` 的函数体（到下一个顶层声明为止）。
+ *
+ * 为什么要按函数切：只在整个文件里 `count('loadVoucherApprovalProgress(') === 4`
+ * 会被「定义改了名 / 多调一次」之外的写法糊弄过去，看不出**哪一处**入口漏了刷新。
+ * 顶层声明的缩进都是 0，所以用行首 `\nconst ` / `\nfunction ` 这类边界切是安全的。
+ */
+function fnSource(source: string, name: string): string {
+  const at = source.indexOf(`async function ${name}(`);
+  assert.notEqual(at, -1, `找不到 async function ${name}(`);
+  const rest = source.slice(at + 1);
+  const boundary = rest.search(/\n(?:async function |function |const |let |\/\/ ={6,})/);
+  return boundary === -1 ? rest : rest.slice(0, boundary);
 }
 
 const STOCKIN = sourceOf('src/views/business/erp/stockin/index.vue');
@@ -200,29 +224,56 @@ test('③ 凭证详情：底部新增「审批进度」区块（节点 + 审批�
 
   // 标题用共享常量（与采购单同一个词），不是页面自己写的字面量
   assert.match(drawer, /\{\{ APPROVAL_PROGRESS_TITLE \}\}/);
-  assert.match(drawer, /:nodes="reverseProgress\.nodes"/);
-  assert.match(drawer, /:tasks="reverseProgress\.tasks"/, '凭证的进度块也必须传 tasks');
-  assert.match(drawer, /v-if="hasApprovalProgress\(reverseProgress\)"/, '没有红冲实例时不该画空区块');
+  // 口径：与收货 / 应付 / 调拨共用同一个 `approvalProgress` ref（P1-11 统一），
+  // 不再单独造一套 `reverseProgress` —— 否则「一个页面能看到审批人、另一个看不到」的漂移会重演。
+  assert.match(drawer, /:nodes="approvalProgress\.nodes"/, '凭证进度块必须传 nodes');
+  assert.match(drawer, /:tasks="approvalProgress\.tasks"/, '凭证的进度块也必须传 tasks（谁 / 时间 / 意见都在 timeline 里）');
+  assert.match(drawer, /v-if="hasApprovalProgress\(approvalProgress\)"/, '没有红冲实例时不该画空区块');
+  assert.equal(
+    count(VOUCHER, 'reverseProgress'),
+    0,
+    '凭证页不该再有独立的 reverseProgress（已并入共享的 approvalProgress）',
+  );
 });
 
-test('③-补 凭证：进度数据源是 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id', () => {
-  // 装载入口读的字段
+test('③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-FLOW-3B 下发的字段），不是自造 id', () => {
+  // 装载入口读的字段：实例 id 一律经 `voucherApprovalInstanceId` 归一，页面不自己挑字段
   assert.match(
     VOUCHER,
-    /loadApprovalProgress\(\s*row\?\.pending_reverse_instance_id \?\? null,/,
-    '凭证进度必须从 pending_reverse_instance_id 取实例（红冲审批中的凭证才有）',
+    /loadApprovalProgress\(voucherApprovalInstanceId\(row\), getFlowInstance\)/,
+    '凭证进度必须经 voucherApprovalInstanceId(row) 取实例（红冲审批中的凭证才有）',
   );
-  // 三个入口都要刷新：打开详情 / 详情内跳另一张 / 送审成功
+
+  // 归一判据按**行为**验（源码字符串看不出「谁优先」，四种组合都断）
   assert.equal(
-    count(VOUCHER, 'loadReverseProgress('),
-    4,
-    '定义 1 处 + openDetail / openById / submitReverse 各 1 处（少一处就会出现「送审后进度区还是空的」）',
+    voucherApprovalInstanceId({ pending_reverse_instance_id: 'inst-rev', approval_instance_id: 'inst-audit' }),
+    'inst-rev',
+    '红冲审批中时实例必须取 pending_reverse_instance_id（P-FLOW-3B 下发）',
   );
+  assert.equal(
+    voucherApprovalInstanceId({ pending_reverse_instance_id: null, approval_instance_id: 'inst-audit' }),
+    'inst-audit',
+    '没有红冲审批时回落到审核链实例（4A 若挂）',
+  );
+  assert.equal(voucherApprovalInstanceId({ pending_reverse_instance_id: '  ', approval_instance_id: '' }), null, '空白 id 当没有');
+  assert.equal(voucherApprovalInstanceId({}), null, '两个字段都没有 → 不拉进度');
+  assert.equal(voucherApprovalInstanceId(null), null, '空凭证不许抛');
+
+  // 三处入口各自都要刷新：打开详情 / 详情内跳另一张 / 送审成功
+  // （换成逐入口断言，而不是全文件 count —— 少一处就会出现「送审后进度区还是空的」）
+  for (const entry of ['openDetail', 'openById', 'submitReverse']) {
+    assert.match(
+      fnSource(VOUCHER, entry),
+      /loadVoucherApprovalProgress\(detail\.value\)/,
+      `${entry} 里没有重拉审批进度（少这一处就会出现「送审后进度区还是空的」）`,
+    );
+  }
+
   // 撤回后实例没了 → 进度必须清空（不许留着上一张审批单的节点）
   const withdraw = VOUCHER.slice(VOUCHER.indexOf('async function doWithdrawReverse'));
   assert.match(
     withdraw.slice(0, 800),
-    /reverseProgress\.value = \{ \.\.\.EMPTY_APPROVAL_PROGRESS \}/,
+    /approvalProgress\.value = \{ \.\.\.EMPTY_APPROVAL_PROGRESS \}/,
     '撤回红冲审批后进度要清空',
   );
 });
