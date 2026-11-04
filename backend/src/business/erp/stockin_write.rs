@@ -569,8 +569,11 @@ pub struct AppliedLocation {
 ///
 /// # `locked_qty`
 ///
-/// 收货不入锁定量：新建行显式写 `locked_qty = 0`，已有行**不动**（`ck_biz_inv_loc_locked` 要求 ≥ 0，
-/// 且锁定量属于出库/占用流程）。
+/// 收货不入锁定量：新建行显式写 `locked_qty = 0`，已有行**不动**（`ck_biz_inv_loc_locked` 要求 ≥ 0）。
+///
+/// P2-2 定稿：`locked_qty` 是**预留列** —— 全仓没有任何占用/拣货流程写它（V0215 列注释、
+/// `docs/ERP-摆设字段口径.md`），所以这里也不为它预留扩展点。等「销售订单占用 / 生产预占」
+/// 落地时再改这一句，别提前造一个没人读的数字。
 pub async fn apply_location_qty(
     ex: &impl SqlExecutor,
     material_id: Uuid,

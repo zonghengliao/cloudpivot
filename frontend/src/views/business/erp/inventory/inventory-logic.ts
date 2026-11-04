@@ -102,6 +102,10 @@ export function tabFromMeta(metaTab: unknown, path: string | null | undefined): 
  *
  * 浮点减法后**不**四舍五入（`NUMERIC(18,4)` 最多 4 位小数，`toFixed` 会引入二次舍入），
  * 保留调用方格式化。
+ *
+ * ⚠️ **P2-2 ③ 之后**：`locked_qty` 是预留列（无占用流程，恒为 0），所以本函数当前恒等于
+ * `qty`，页面上「锁定」列已撤掉。公式保留是因为「销售订单占用 / 生产预占」落地后它就是
+ * 真实口径 —— 那时只改数据，不改 UI 公式（详见 `docs/ERP-摆设字段口径.md`）。
  */
 export function availableQty(row: Pick<InventoryRow, 'qty' | 'locked_qty'>): number {
   return toNumber(row.qty) - toNumber(row.locked_qty);

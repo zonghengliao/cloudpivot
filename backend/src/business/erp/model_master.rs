@@ -546,7 +546,10 @@ pub struct MaterialRow {
     pub material_type: String,
     /// 默认仓库（可空）。
     pub default_warehouse_id: Option<Uuid>,
-    /// 安全库存（`NUMERIC(18,4)`）。
+    /// 安全库存（`NUMERIC(18,4)`，`0` = 未设 = 不预警）。
+    ///
+    /// 唯一消费者是低库存提醒 `erp::reminder_stock`：口径 = `biz_inventory.qty`（该物料×该仓库的
+    /// 已过账结存，**不含在途/未过账收货**）< 本列 时提醒。详见 `docs/ERP-摆设字段口径.md`。
     pub safety_stock: Decimal,
     /// 计价方式：`MOVING_AVG` / `FIFO` / `STANDARD`。
     pub costing_method: String,
@@ -728,7 +731,10 @@ pub struct SupplierRow {
     pub address: Option<String>,
     /// 账期天数。
     pub credit_days: i32,
-    /// 信用额度（`NUMERIC(18,4)`）。
+    /// 信用额度（`NUMERIC(18,4)`，`0` = **不限**）。
+    ///
+    /// P2-2 起**真的生效**：采购单提交时现算「该供应商累计未结采购额（含本单）」比较本列，
+    /// 超限则单据标记 `over_credit_limit` 并强制走审批（见 `erp::purchase_credit`）。
     pub credit_limit: Decimal,
     /// 应付科目（可空）。
     pub payable_account_id: Option<Uuid>,

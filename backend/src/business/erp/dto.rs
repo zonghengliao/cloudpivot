@@ -980,7 +980,10 @@ pub struct CreateMaterialReq {
     /// 默认仓库。
     #[serde(default)]
     pub default_warehouse_id: Option<String>,
-    /// 安全库存（缺省 0）。
+    /// 安全库存（缺省 `0` = **未设 = 不预警**）。
+    ///
+    /// 用途只有一个：低库存提醒（`erp::reminder_stock`，口径 `biz_inventory.qty` < 本列）。
+    /// 留空/填 0 都不预警 —— 别把它当「安全库存为 0 也要提醒」。
     #[serde(default)]
     pub safety_stock: Option<Decimal>,
     /// 计价方式（缺省 `MOVING_AVG`）。
@@ -1041,7 +1044,7 @@ pub struct UpdateMaterialReq {
     /// 默认仓库（`Some(None)` = 清空）。
     #[serde(default, deserialize_with = "double_option")]
     pub default_warehouse_id: Option<Option<String>>,
-    /// 安全库存。
+    /// 安全库存（缺席 = 不改；`0` = 关掉低库存提醒）。
     #[serde(default)]
     pub safety_stock: Option<Decimal>,
     /// 计价方式。
@@ -1255,7 +1258,10 @@ pub struct CreateSupplierReq {
     /// 账期天数（`>= 0`）。
     #[serde(default)]
     pub credit_days: i32,
-    /// 信用额度（`>= 0`）。
+    /// 信用额度（`>= 0`，**`0` / 留空 = 不限额度**）。
+    ///
+    /// P2-2 起生效：留空落库是 `0`，采购单提交时**不校验**；填了正数则按「累计未结采购额
+    /// （含本单）」比较，超限只标记 + 强制审批（不直接拒绝），见 `erp::purchase_credit`。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
     /// 应付科目。
@@ -1337,7 +1343,7 @@ pub struct UpdateSupplierReq {
     /// 账期天数。
     #[serde(default)]
     pub credit_days: Option<i32>,
-    /// 信用额度。
+    /// 信用额度（缺席 = 不改；传 `0` = 改为「不限额度」）。
     #[serde(default)]
     pub credit_limit: Option<Decimal>,
     /// 应付科目。
@@ -2413,6 +2419,15 @@ pub struct PurchaseOrderRes {
     ///
     /// 由 handler 回填（DTO 的 `From<&Row>` 只拿到单据行，查不到实例单号）。
     pub approval_instance_no: Option<String>,
+    /// 提交时点是否超供应商信用额度（DC-12 / V0215）。
+    ///
+    /// ⚠️ `false` **不等于**「查过、没超」—— 从未提交过的草稿也是 `false`。
+    /// 要区分请同时看 [`Self::credit_exposure`]：`None` = 没查过（从未提交）。
+    pub over_credit_limit: bool,
+    /// 提交时点「该供应商累计未结采购额（含本单）」快照；`None` = 未评估。
+    pub credit_exposure: Option<Decimal>,
+    /// 提交时点供应商额度快照（`0` = 不限）。
+    pub credit_limit_snapshot: Option<Decimal>,
     /// 创建时间。
     pub created_at: DateTime<Utc>,
     /// 更新时间。
@@ -2452,6 +2467,9 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             closed_by: row.closed_by.map(|id| id.to_string()),
             approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
             approval_instance_no: None,
+            over_credit_limit: row.over_credit_limit,
+            credit_exposure: row.credit_exposure,
+            credit_limit_snapshot: row.credit_limit_snapshot,
             created_at: row.created_at,
             updated_at: row.updated_at,
         }
@@ -2717,9 +2735,20 @@ impl CreateInventoryReq {
 }
 
 /// 调整库存（**只能改锁定量**：数量与金额必须由流水驱动，直接改会破坏账实一致）。
+///
+/// # ⚠️ 本 DTO 目前**没有任何调用方**（P2-2 处置结论）
+///
+/// `locked_qty` 是预留列（V0215：本版本无占用/拣货流程写它，恒为 0），所以这个
+/// 「改锁定量」的入口**不挂任何路由**，前端也没有对应按钮。保留它是因为：
+/// ① 未来「销售订单占用 / 生产预占」落地时它就是现成的写入口；② 删掉属于破坏性
+/// 变更，本卡的口径是「隐藏 + 标注」，不是「删」。
+///
+/// 二开注意：**别顺手把它接到路由上** —— 手工把锁定量改成非 0 不会影响任何判定
+/// （可用量口径 = `qty`，低库存口径 = `qty`），只会造出一列「看着在工作、其实没人读」
+/// 的数字，正是本卡要消灭的那类 bug。
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct UpdateInventoryReq {
-    /// 锁定量（`>= 0`）。
+    /// 锁定量（`>= 0`，**预留**：本版本无占用流程）。
     #[serde(default)]
     pub locked_qty: Option<Decimal>,
 }
@@ -2773,7 +2802,7 @@ pub struct InventoryCard {
     pub warehouse_id: String,
     /// 账面数量。
     pub qty: Decimal,
-    /// 锁定量。
+    /// 锁定量。**预留列**：本版本恒为 0（无占用流程），不参与可用量；前端已隐藏该列。
     pub locked_qty: Decimal,
     /// 均价。
     pub avg_cost: Decimal,
@@ -2809,7 +2838,7 @@ pub struct InventoryRes {
     pub warehouse_id: String,
     /// 账面数量。
     pub qty: Decimal,
-    /// 锁定量。
+    /// 锁定量。**预留列**：本版本恒为 0（无占用流程），不参与可用量；前端已隐藏该列。
     pub locked_qty: Decimal,
     /// 均价。
     pub avg_cost: Decimal,
@@ -2928,7 +2957,7 @@ pub struct InventoryLocationCard {
     pub location_id: Option<String>,
     /// 数量。
     pub qty: Decimal,
-    /// 锁定量。
+    /// 锁定量。**预留列**：本版本恒为 0（无占用流程），不参与可用量；前端已隐藏该列。
     pub locked_qty: Decimal,
 }
 
@@ -2958,7 +2987,7 @@ pub struct InventoryLocationRes {
     pub location_id: Option<String>,
     /// 数量。
     pub qty: Decimal,
-    /// 锁定量。
+    /// 锁定量。**预留列**：本版本恒为 0（无占用流程），不参与可用量；前端已隐藏该列。
     pub locked_qty: Decimal,
     /// 最近流水时间。
     pub last_txn_at: Option<DateTime<Utc>>,

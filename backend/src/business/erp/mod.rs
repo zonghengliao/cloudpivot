@@ -10,6 +10,7 @@
 //! | [`transfer_handler`] | 调拨单 7 个接口：CRUD + 状态流转 + 审批发起/回调 | **W3b** |
 //! | [`transfer_overdue`] | 在途超期扫描与告警（每小时；阈值走 `sys_config`，默认 7 天） | **LNK-F12** |
 //! | [`purchase_model`] | 采购订单数据层：两种金额口径（EXCL/INCL）+ 4 边状态机 + 取号 | **P2-A2** |
+//! | [`purchase_credit`] | 供应商信用额度**现算**守卫（提交时点快照 + 强制审批） | **ARCH-3 P2-2** |
 //! | [`purchase_dto`] | 采购订单出入参契约：建单 / 改单 / 状态流转 / 详情 + 校验 | **P2-A2** |
 //! | [`purchase_handler`] | 采购订单 4 个写接口：建 / 改 / 状态流转 / 删 + **提交审批**（3A） | **P2-A2 / P-FLOW-3A** |
 //! | [`stockin_model`] | 收货入库数据层：**过账**（移动加权加法 + 库存流水 + 一物一码）+ 取号 | **P2-B1** |
@@ -101,6 +102,7 @@ pub mod period_items;
 pub mod period_owner;
 pub mod period_remind;
 pub mod purchase_bridge;
+pub mod purchase_credit;
 pub mod purchase_dto;
 pub mod purchase_handler;
 pub mod purchase_model;

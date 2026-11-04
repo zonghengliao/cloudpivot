@@ -184,6 +184,8 @@ test('新建请求体：serial_required / costing_method 显式带上（不靠�
     material_type: 'FINISHED',
     unit_id: 'u-pcs',
     spec: null,
+    // P2-2 ②：安全库存显式带上（留空 = 0 = 不提醒；不靠后端缺省蒙对）
+    safety_stock: 0,
     costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,

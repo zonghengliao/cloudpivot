@@ -26,7 +26,8 @@ pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date,
      total_tax, total_with_tax, credit_days, remark, price_mode, submitted_at, submitted_by, \
      approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
      create_by, update_by, deleted_at, \
-     purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot";
+     purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+     over_credit_limit, credit_exposure, credit_limit_snapshot";
 
 /// 采购订单行。
 #[derive(Debug, Clone)]
@@ -96,6 +97,13 @@ pub struct PurchaseOrderRow {
     pub contract_no_snapshot: Option<String>,
     /// 供应商名称快照（业务发生那一刻；**快照不是冗余**，合同换乙方不回写）。
     pub supplier_name_snapshot: Option<String>,
+    /// 提交时点是否超供应商信用额度（V0215 / DC-12；`false` **不等于**「查过没问题」——
+    /// 要看 [`Self::credit_exposure`] 是否为 `None`，见 `purchase_credit::assess_summary`）。
+    pub over_credit_limit: bool,
+    /// 提交时点「该供应商累计未结采购额（含本单）」快照（`None` = 从未提交过 / 未评估）。
+    pub credit_exposure: Option<Decimal>,
+    /// 提交时点供应商额度快照（`0` = 不限）。
+    pub credit_limit_snapshot: Option<Decimal>,
 }
 
 impl PurchaseOrderRow {
@@ -133,6 +141,9 @@ impl PurchaseOrderRow {
             contract_id: row.get_typed("contract_id")?,
             contract_no_snapshot: row.get_typed("contract_no_snapshot")?,
             supplier_name_snapshot: row.get_typed("supplier_name_snapshot")?,
+            over_credit_limit: row.get_typed("over_credit_limit")?,
+            credit_exposure: row.get_typed("credit_exposure")?,
+            credit_limit_snapshot: row.get_typed("credit_limit_snapshot")?,
         })
     }
 }

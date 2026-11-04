@@ -1,0 +1,51 @@
+== 0. 登录 + 清场 + 夹具 ==
+  登录成功（令牌 eyJ0eXAiOiJK…）
+  夹具：仓库 WH01 / 物料 M-W1A-005（原安全库存 0.0000）
+
+== ① 超限：额度 1 万，下单 2 万 ==
+  [PASS] ① 建单成功
+  [PASS] ① 草稿阶段「未评估」（credit_exposure 为空,不是 0）
+  [PASS] ① 草稿阶段 over_credit_limit = false
+  [PASS] ① 超限单允许提交（策略 B：允许 + 强制审批）
+  [PASS] ① 提交后 over_credit_limit = true
+  [PASS] ① credit_exposure = 20000（累计含本单）
+  [PASS] ① credit_limit_snapshot = 10000（提交时点额度快照）
+  [PASS] ① 单据状态 = SUBMITTED
+
+== ② 审批单 form_data（流程条件分支的变量） ==
+  [PASS] ② 单据上有审批实例 id
+  [PASS] ② form_data.over_credit_limit 是 JSON 布尔 true
+  [PASS] ② form_data.credit_exposure 是 JSON 数字 20000
+  [PASS] ② form_data.credit_limit 是 JSON 数字 10000
+  [PASS] ② 库内 form_data 同样带 over_credit_limit=true
+
+== ③ 额度 10 万 / 下单 8 千 → 不超限，但累计照记 ==
+  [PASS] ③ 额度内提交成功
+  [PASS] ③ over_credit_limit = false
+  [PASS] ③ credit_exposure = 28000（前一张 2 万 + 本单 8 千；不含作废单）
+  [PASS] ③ credit_limit_snapshot = 100000
+
+== ④ 额度 0（= 不限）→ 不校验 ==
+  [PASS] ④ 不限额度时任何金额都能提交
+  [PASS] ④ over_credit_limit = false（0 不能被当成阈值）
+  [PASS] ④ credit_limit_snapshot = 0（不限）
+
+== ⑤ 作废单不计入累计 ==
+  [PASS] ⑤ 第一张 2 万单作废成功
+  [PASS] ⑤ 额度 3 万 / 在跑 2 万：第二张 2 万不该被拦
+  [PASS] ⑤ credit_exposure = 20000（作废的 2 万没算进去）
+  [PASS] ⑤ over_credit_limit = false
+
+== ⑥ 安全库存：物料接口能写能读 ==
+  [PASS] ⑥ 物料改安全库存 = 50 成功
+  [PASS] ⑥ 回读 safety_stock = 50（提醒任务下一轮扫描就用这个阈值）
+  [PASS] ⑥ 改回 0（= 不提醒）成功
+
+== ⑦ 锁定量：后端照常返回，恒为 0（前端已不显示该列） ==
+  [PASS] ⑦ 库存接口仍返回 locked_qty 且全部为 0
+
+== 收尾：清场 + 还原夹具 ==
+  物料安全库存已还原为 0.0000
+  [PASS] 清理：夹具采购单归零
+
+==== P2-2 e2e 结果：PASS 29 / FAIL 0（共 29 条） ====

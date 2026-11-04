@@ -198,12 +198,27 @@ async fn seed_contract(no: &str, days_left: i64, created_by: Uuid) -> Uuid {
 /// 造一个物料 + 库存行（库存 10 < 安全库存 50）。
 async fn seed_low_stock(material_code: &str) -> (Uuid, Uuid) {
     let warehouse = fixture_warehouse().await;
+    seed_stock_in(material_code, 50, 10, warehouse).await
+}
+
+/// 造一个物料（安全库存 = `safety`）+ 指定仓库的一条库存行（`qty`）—— P2-2 ② 的夹具。
+///
+/// 为什么单独抽出来：安全库存口径的四条边界（0 / 恰好等于 / 负数 / 在途仓）都要**同一套
+/// 造数代码**才可比，各写一遍就会各有各的口径。
+async fn seed_stock_in(
+    material_code: &str,
+    safety: i64,
+    qty: i64,
+    warehouse: Uuid,
+) -> (Uuid, Uuid) {
     let unit = fixture_unit().await;
     let material = Uuid::now_v7();
     db().execute_with_params(
-        "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
-                                   safety_stock, costing_method, status) \
-         VALUES (?, ?, '提醒夹具物料', ?, 'RAW', 50, 'MOVING_AVG', 1)",
+        &format!(
+            "INSERT INTO biz_material (id, material_code, material_name, unit_id, material_type, \
+                                     safety_stock, costing_method, status) \
+             VALUES (?, ?, '提醒夹具物料', ?, 'RAW', {safety}, 'MOVING_AVG', 1)"
+        ),
         vec![
             Value::from(&material),
             Value::Text(material_code.to_string()),
@@ -214,9 +229,13 @@ async fn seed_low_stock(material_code: &str) -> (Uuid, Uuid) {
     .unwrap_or_else(|err| panic!("插入物料失败：{err}"));
 
     let inventory = Uuid::now_v7();
+    // 数量直接拼进 SQL：`i64` 是测试侧常量（无注入面），而 `qty` 是 `numeric`，
+    // 用 `Value::Text` 绑定会在准备语句时报 `error serializing parameter`（实测）。
     db().execute_with_params(
-        "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
-         VALUES (?, ?, ?, 10, 0, 1, 10)",
+        &format!(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
+             VALUES (?, ?, ?, {qty}, 0, 1, {qty})"
+        ),
         vec![
             Value::from(&inventory),
             Value::from(&material),
@@ -226,6 +245,32 @@ async fn seed_low_stock(material_code: &str) -> (Uuid, Uuid) {
     .await
     .unwrap_or_else(|err| panic!("插入库存失败：{err}"));
     (material, inventory)
+}
+
+/// 在途仓（`warehouse_type = 'IN_TRANSIT'`）—— P2-2 ② 的「不参与补货提醒」夹具。
+async fn fixture_transit_warehouse() -> Uuid {
+    let sql_text = "SELECT id FROM biz_warehouse WHERE warehouse_code = 'RM-WH-TRANSIT' AND deleted_at IS NULL";
+    if let Some(id) = uuid_opt(sql_text).await {
+        return id;
+    }
+    sql(
+        "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_type, \
+                                   warehouse_path, status) \
+         VALUES (gen_random_uuid(), 'RM-WH-TRANSIT', '提醒夹具在途仓', 'IN_TRANSIT', \
+                 '/RM-WH-TRANSIT/', 1)",
+    )
+    .await;
+    uuid_opt(sql_text).await.expect("在途仓夹具应存在")
+}
+
+/// 当前扫描出的候选物料编码（**只读**，不发通知；`scan_candidates` 是提醒的唯一取数口径）。
+async fn candidate_codes() -> Vec<String> {
+    reminder_stock::scan_candidates()
+        .await
+        .expect("扫描低库存候选")
+        .iter()
+        .map(|candidate| candidate.material_code.clone())
+        .collect()
 }
 
 /// 某张单在 `sys_notice` 里的通知条数。
@@ -447,8 +492,148 @@ async fn low_stock_sends_once_and_dedupes() {
     );
 }
 
-// ==================== ③ 重提醒间隔（采购超期 / 低库存） ====================
+// ==================== ②b 安全库存口径（P2-2 ②：0 = 不预警 / 恰好等于不报 / 在途仓不报） ====================
 
+/// **P2-2-②a**：安全库存留空（库里 = `0`）→ **不预警**；同仓同批的对照物料照报。
+///
+/// 这是卡面「空值不预警有单测」的那一条。本仓 `biz_material.safety_stock` 是
+/// `NUMERIC NOT NULL DEFAULT 0`，所以「留空」落库就是 `0`，没有 NULL 状态 ——
+/// 判定写成 `COALESCE(safety_stock,0) > 0`，0 与（未来可能的）NULL 都不参与。
+///
+/// 对照组（同一次扫描里 `safety_stock = 50 / qty = 10` 必须出现）保证了「没出现」
+/// 不是因为扫描整体失效（比如 SQL 报错被吞、或物料被 `status = 0` 过滤掉）。
+#[tokio::test]
+async fn low_stock_zero_safety_is_silent_but_control_material_is_not() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let warehouse = fixture_warehouse().await;
+    // 留空（0）：qty 也是 0，若把 0 当阈值就会天天报 —— 正是要消灭的噪音
+    let (_zero, zero_row) = seed_stock_in("RM-M-ZERO", 0, 0, warehouse).await;
+    // 对照组：明确填了 50，库存 10
+    let (_low, _low_row) = seed_stock_in("RM-M-CONTROL", 50, 10, warehouse).await;
+
+    let codes = candidate_codes().await;
+    assert!(
+        !codes.iter().any(|code| code == "RM-M-ZERO"),
+        "安全库存留空（0）的物料不该进候选：{codes:?}"
+    );
+    assert!(
+        codes.iter().any(|code| code == "RM-M-CONTROL"),
+        "同一仓里填了安全库存的对照物料必须进候选（否则本用例证明不了什么）：{codes:?}"
+    );
+
+    // 端到端再确认一次：跑一轮提醒，留空物料一条都不发
+    reminder::run_kind(RemindKind::LowStock, Utc::now())
+        .await
+        .expect("扫描低库存");
+    assert_eq!(
+        notice_count("low_stock", zero_row).await,
+        0,
+        "留空安全库存的库存行不该有提醒"
+    );
+}
+
+/// **P2-2-②b**：`qty` **恰好等于**安全库存 → **不报**（口径是「低于」，不是「不高于」）。
+#[tokio::test]
+async fn low_stock_exact_boundary_is_silent() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let warehouse = fixture_warehouse().await;
+    let (_boundary, boundary_row) = seed_stock_in("RM-M-BOUND", 50, 50, warehouse).await;
+    let (_below, below_row) = seed_stock_in("RM-M-BELOW", 50, 49, warehouse).await;
+
+    let codes = candidate_codes().await;
+    assert!(
+        !codes.iter().any(|code| code == "RM-M-BOUND"),
+        "qty == safety_stock 不算低库存：{codes:?}"
+    );
+    assert!(
+        codes.iter().any(|code| code == "RM-M-BELOW"),
+        "少 1 个就必须报（边界另一侧）：{codes:?}"
+    );
+    let _ = (boundary_row, below_row);
+}
+
+/// **P2-2-②c**：负库存照实数参与（不 `GREATEST(qty,0)` 抹平）——
+/// 允许负库存的仓出现 `-3` 说明账实已经不符，比「刚好低一点」更该提醒。
+#[tokio::test]
+async fn low_stock_negative_qty_is_reported() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let warehouse = fixture_warehouse().await;
+    seed_stock_in("RM-M-NEG", 50, -3, warehouse).await;
+    let codes = candidate_codes().await;
+    assert!(
+        codes.iter().any(|code| code == "RM-M-NEG"),
+        "负库存必须进候选（不许被抹成 0 后当成「刚好」）：{codes:?}"
+    );
+}
+
+/// **P2-2-②d**：**在途仓不参与**低库存提醒 —— 在途仓是记账用的虚拟仓，不是可补货的实体仓。
+///
+/// 同一个物料在两个仓各一行：在途仓 `qty = 0`（本该"低于"），实体仓 `qty = 10`。
+/// 结果是**一条**候选（实体仓那条），不是两条 —— 否则仓管会收到「请给在途仓补货」这种
+/// 无法执行的提醒。
+#[tokio::test]
+async fn low_stock_ignores_in_transit_warehouse() {
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    let warehouse = fixture_warehouse().await;
+    let transit = fixture_transit_warehouse().await;
+    assert_ne!(warehouse, transit, "夹具自检：两个仓必须是不同的行");
+    let (_material, _normal_row) = seed_stock_in("RM-M-TRANSIT", 50, 10, warehouse).await;
+    let (_same_material, transit_row) = {
+        // 同一物料第二条库存行（物料×仓库唯一）：物料复用上一条的 id
+        let material: Uuid = db()
+            .scalar_with_params(
+                "SELECT id FROM biz_material WHERE material_code = 'RM-M-TRANSIT' \
+                  AND deleted_at IS NULL LIMIT 1",
+                vec![],
+            )
+            .await
+            .expect("查物料");
+        let row = Uuid::now_v7();
+        db().execute_with_params(
+            "INSERT INTO biz_inventory (id, material_id, warehouse_id, qty, locked_qty, avg_cost, amount) \
+             VALUES (?, ?, ?, 0, 0, 1, 0)",
+            vec![
+                Value::from(&row),
+                Value::from(&material),
+                Value::from(&transit),
+            ],
+        )
+        .await
+        .expect("插入在途仓库存行");
+        (material, row)
+    };
+
+    let candidates = reminder_stock::scan_candidates()
+        .await
+        .expect("扫描低库存候选");
+    let hits: Vec<&reminder_stock::LowStockCandidate> = candidates
+        .iter()
+        .filter(|candidate| candidate.material_code == "RM-M-TRANSIT")
+        .collect();
+    assert_eq!(
+        hits.len(),
+        1,
+        "同一物料只该有实体仓那一条候选（在途仓被排除）：{:?}",
+        hits.iter()
+            .map(|c| (c.warehouse_name.clone(), c.qty.clone()))
+            .collect::<Vec<_>>()
+    );
+    assert_ne!(hits[0].id, transit_row, "候选不能是在途仓那一行");
+    assert_eq!(
+        hits[0].qty, "10.0000",
+        "候选是实体仓那一行（qty 读出是 NUMERIC 原文，带 4 位标度）"
+    );
+}
+
+// ==================== ③ 重提醒间隔（采购超期 / 低库存） ====================
 /// 采购超期：首次发；间隔内不重复；过了间隔（3 天）再发一次。
 #[tokio::test]
 async fn purchase_overdue_respects_realert_window() {

@@ -1,0 +1,71 @@
+### ① 判定纯函数（不连库）
+test business::erp::purchase_credit::tests::one_cent_over_is_over ... ok
+test business::erp::purchase_credit::tests::missing_supplier_is_not_a_blocker ... ok
+test business::erp::purchase_credit::tests::boundary_equal_is_not_over ... ok
+test business::erp::purchase_credit::tests::assess_summary_distinguishes_never_checked ... ok
+test business::erp::purchase_credit::tests::this_order_is_counted_once ... ok
+test business::erp::purchase_credit::tests::over_limit_when_order_exceeds_credit ... ok
+test business::erp::purchase_credit::tests::zero_limit_means_unlimited_and_never_blocks ... ok
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2283 filtered out; finished in 0.00s
+
+### ② 安全库存口径（真库）
+test business::erp::reminder::tests::business_day_uses_beijing_offset ... ok
+test business::erp::reminder::tests::idempotency_key_shape ... ok
+test business::erp::reminder::tests::kind_metadata_is_stable ... ok
+test business::erp::reminder::tests::merge_recipients_dedup_and_cap ... ok
+test business::erp::reminder::tests::report_summary_shape ... ok
+test business::erp::reminder::tests::run_message_is_human ... ok
+test business::erp::reminder_contract::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_contract::tests::non_stage_day_yields_nothing ... ok
+test business::erp::reminder_contract::tests::recipient_dedup ... ok
+test business::erp::reminder_contract::tests::recipient_rule_is_described ... ok
+test business::erp::reminder_contract::tests::stage_only_on_four_days ... ok
+test business::erp::reminder_payable::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_payable::tests::no_recipient_marks_empty ... ok
+test business::erp::reminder_payable::tests::non_stage_day_yields_nothing ... ok
+test business::erp::reminder_payable::tests::parse_date_reports_error ... ok
+test business::erp::reminder_payable::tests::stage_only_on_three_days ... ok
+test business::erp::reminder_payable::tests::stage_uses_business_day ... ok
+test business::erp::reminder_purchase::tests::doc_id_is_order_id ... ok
+test business::erp::reminder_purchase::tests::message_carries_doc_no_date_and_action ... ok
+test business::erp::reminder_purchase::tests::overdue_days_boundary ... ok
+test business::erp::reminder_purchase::tests::recipients_degrade_gracefully ... ok
+test business::erp::reminder_purchase::tests::stage_is_overdue_days ... ok
+test business::erp::reminder_stock::tests::bad_numeric_does_not_panic ... ok
+test business::erp::reminder_stock::tests::doc_id_is_inventory_row ... ok
+test business::erp::reminder_stock::tests::gap_keeps_decimals ... ok
+test business::erp::reminder_stock::tests::message_carries_stock_facts ... ok
+test business::erp::reminder_stock::tests::no_keeper_marks_empty ... ok
+test business::erp::reminder_tests::contract_expire_sends_for_d30 ... ok
+test business::erp::reminder_tests::ledger_uses_beijing_business_day ... ok
+test business::erp::reminder_tests::low_stock_exact_boundary_is_silent ... ok
+test business::erp::reminder_tests::low_stock_ignores_in_transit_warehouse ... ok
+test business::erp::reminder_tests::low_stock_negative_qty_is_reported ... ok
+test business::erp::reminder_tests::low_stock_sends_once_and_dedupes ... ok
+test business::erp::reminder_tests::low_stock_zero_safety_is_silent_but_control_material_is_not ... ok
+test business::erp::reminder_tests::no_recipient_is_counted_not_dropped ... ok
+test business::erp::reminder_tests::payable_due_sends_once_per_day ... ok
+test business::erp::reminder_tests::purchase_overdue_respects_realert_window ... ok
+test result: ok. 37 passed; 0 failed; 0 ignored; 0 measured; 2253 filtered out; finished in 18.66s
+
+### ③ 信用额度真库用例（含 skip 对照组）
+test business::erp::purchase_handler::tests::p2_2_credit_cancelled_order_not_counted ... ok
+test business::erp::purchase_handler::tests::p2_2_credit_over_limit_cannot_skip_approval ... ok
+test business::erp::purchase_handler::tests::p2_2_credit_over_limit_marks_order_and_goes_to_approval ... ok
+test business::erp::purchase_handler::tests::p2_2_credit_within_limit_can_skip_approval_and_still_records_snapshot ... ok
+test business::erp::purchase_handler::tests::p2_2_credit_within_limit_is_not_marked ... ok
+test business::erp::purchase_handler::tests::p2_2_credit_zero_limit_is_unlimited ... ok
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 2284 filtered out; finished in 14.59s
+
+### ④ business::erp 全量（真库 cloudpivot_p16md，--test-threads=1）
+
+test result: ok. 889 passed; 0 failed; 0 ignored; 0 measured; 1401 filtered out; finished in 1078.42s
+
+### ⑤ 前端 pnpm test:unit（601 条，含本卡新增 p2-2-stub-fields 11 条）
+# suites 0
+# pass 601
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2317.454058

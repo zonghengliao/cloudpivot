@@ -12,16 +12,45 @@
 //!     AND inventory.qty < material.safety_stock
 //! ```
 //!
+//! # 「当前库存」的口径（P2-2 ② 定稿，改之前先读完这一段）
+//!
+//! | 问题 | 口径 | 为什么 |
+//! |------|------|--------|
+//! | 用哪一列 | **`biz_inventory.qty`**（物料×仓库的已过账结存） | 这是账上真实躺在仓里的货；补货决策看的是「手上有多少」 |
+//! | 含在途吗 | **不含** | 在途只存在于 `biz_stock_transfer.transit_warehouse_id`（文档字段），调拨过账（`DONE`）才把数量从调出仓搬到调入仓 —— 在途期间 `biz_inventory` 两边的账都还没变，本来就不该算进任何一仓的结存 |
+//! | 含未过账收货吗 | **不含** | `biz_stock_in` 草稿/待过账的单还没进仓库（过账才写 `biz_inventory`），把「在路上/还没验收」的货算进来会让缺料被掩盖 |
+//! | 含锁定量 `locked_qty` 吗 | **不含（也不用减）** | `locked_qty` 本版本恒为 0（无占用流程，见 V0215 的列注释）；提醒口径是「仓里有多少」，不是「还能卖多少」—— 后者是出库校验的事 |
+//! | 用库位账 `biz_inventory_location` 吗 | **不用** | 库位账是仓库账的细分，且 64% 的行还挂在「未分配库位」桶上；按库位判定会同一物料重复提醒 N 次 |
+//! | 负库存怎么算 | **照实数（可以为负）** | 允许负库存的仓出现 `qty = -3` 说明账实已经不符，这种更要提醒，不能 `GREATEST(qty, 0)` 抹平 |
+//! | 按物料合计吗 | **不，按物料×仓库** | 见下 |
+//!
+//! 口径写进 `docs/ERP-摆设字段口径.md`，列注释写在 V0215 —— 三处必须一致，改一处要同步另两处。
+//!
 //! # 为什么按「物料 × 仓库」而不是按物料合计
 //!
 //! 补货是按仓库补的（原料仓缺货，成品仓再多也调不过来）；`biz_inventory` 的唯一键
 //! 就是 `(material_id, warehouse_id)`，一行天然对应一个可执行的补货动作。
 //! 台账 `doc_id` 记的就是这一行的 id（该表无 `deleted_at`，行永不复用）。
 //!
-//! # 为什么 `safety_stock = 0` 不提醒
+//! # 为什么 `safety_stock = 0` 不提醒（= 前端「留空」）
 //!
 //! 0 的语义是「没设安全库存」（V0137 默认值），把它当阈值会让所有零库存物料天天报 ——
 //! 那不是提醒，那是噪音。只有**明确填了正数**的物料才参与判定。
+//!
+//! 补两条容易踩的：
+//!
+//! * 列是 `NUMERIC NOT NULL DEFAULT 0`，**没有 NULL 状态** —— 前端「留空」落库就是 `0`，
+//!   所以「空值不预警」在本仓的准确说法是「0 不预警」（`dto` 的 `Option<Decimal>` 只是
+//!   「本次请求没带这个字段 = 不改」，不是「清空成 NULL」）。
+//! * SQL 仍写成 `COALESCE(m.safety_stock, 0) > 0`：将来真把列放开成可空（历史库或二开改表），
+//!   NULL 会不满足 `> 0` 而**静默不提醒**，行为与 0 一致 —— 但 `COALESCE` 让它读起来是
+//!   「缺省 0」而不是「依赖 SQL 三值逻辑的巧合」，评审时不用再推一遍。
+//!
+//! # 停用/在途仓不参与
+//!
+//! * `m.status = 1`：停用物料不提醒（不生产了，提醒也没人处理）。
+//! * `w.warehouse_type <> 'IN_TRANSIT'`：在途仓是**记账用的虚拟仓**，不是可补货的实体仓；
+//!   万一有人往里收货（或二开造了行），提醒「在途仓低于安全库存」只会制造噪音。
 //!
 //! # 提醒频率
 //!
@@ -139,6 +168,13 @@ pub async fn scan(now: DateTime<Utc>) -> DbResult<Vec<ReminderMessage>> {
 }
 
 /// 扫描候选行（`safety_stock > 0` 且 `qty < safety_stock`）。
+///
+/// 口径逐条见文件头注释。三处 `WHERE` 条件都不能少：
+/// ① `COALESCE(m.safety_stock,0) > 0` —— 0（= 前端留空）不预警；
+/// ② `i.qty < m.safety_stock` —— 负库存也要报（不 `GREATEST` 抹平）；
+/// ③ `w.warehouse_type IS DISTINCT FROM 'IN_TRANSIT'` —— 在途仓是虚拟记账仓，不参与补货提醒。
+///    用 `IS DISTINCT FROM` 而不是 `<>`：仓库被删时 `w.*` 全是 NULL，`<>` 会把这类行
+///    **静默丢掉**（三值逻辑），而我们要的是「照常提醒，仓库名显示未知仓库」。
 pub async fn scan_candidates() -> DbResult<Vec<LowStockCandidate>> {
     // SCOPE-EXEMPT: 库存是仓库作业台账（biz_inventory 无 dept_id / 归属人列），
     // 可见性由 business:erp:inventory:list 控制；提醒收件人由仓管主管角色决定。
@@ -151,7 +187,9 @@ pub async fn scan_candidates() -> DbResult<Vec<LowStockCandidate>> {
                JOIN biz_material m ON m.id = i.material_id \
                                   AND m.deleted_at IS NULL AND m.status = 1 \
                LEFT JOIN biz_warehouse w ON w.id = i.warehouse_id AND w.deleted_at IS NULL \
-              WHERE m.safety_stock > 0 AND i.qty < m.safety_stock \
+              WHERE COALESCE(m.safety_stock, 0) > 0 \
+                AND i.qty < COALESCE(m.safety_stock, 0) \
+                AND w.warehouse_type IS DISTINCT FROM 'IN_TRANSIT' \
               ORDER BY (i.qty - m.safety_stock) ASC, m.material_code ASC \
               LIMIT ?"
                 .to_string(),

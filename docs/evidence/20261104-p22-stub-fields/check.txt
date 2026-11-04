@@ -1,0 +1,41 @@
+==> 后端：cargo fmt --check
+==> 后端：cargo clippy -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.22s
+==> 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.15s
+==> 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+
+==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
+    白名单：business/shared/scope.rs（+ 注释行不计）
+  PASS：0 处（分页全部走 scope::paginate）
+==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
+    登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def biz_project biz_project_member biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc 
+闸② 判定面（v2）：扫描生产面 320 个文件 / 跳过测试面 54 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+  PASS：跳过清单与 SKIP_MANIFEST 逐条一致（54 条；多一个少一个都不放行）
+  PASS：0 处
+==> 批次B 门禁汇总：闸①=0 处  闸②=0 处  （B0 基线 20 / 21）
+==> 批次B 门禁：全部通过
+==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）
+  PASS：0 处
+==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
+  PASS：0 处（注释中的示例不计）
+==> C7 G3：record 的签名必须带 &impl SqlExecutor
+  PASS
+==> C7 G4：不得存在『无 executor 版本』的 record 函数
+  PASS
+==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 374 个文件）
+==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）
+  PASS：0 处
+==> C7 门禁汇总：G1–G6 共 6 条，未通过 0 条
+==> C7 门禁：全部通过
+==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）
+  PASS：22 套色板与 V0091 的 ui.palette oneof 逐字一致
+==> 闸③：ERP 不变量（ERP_INVARIANTS_GATE=off → 跳过）
+==> 全部检查通过

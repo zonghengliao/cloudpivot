@@ -34,7 +34,8 @@ pub struct InventoryRow {
     pub warehouse_id: Uuid,
     /// 账面数量（`NUMERIC(18,4)`）。
     pub qty: Decimal,
-    /// 锁定量（`>= 0`）。
+    /// 锁定量（`>= 0`）。**预留列**：本版本无占用/拣货流程写它，恒为 `0`（V0215 列注释）；
+    /// 不参与可用量（可用 = `qty`），也不参与低库存判定。
     pub locked_qty: Decimal,
     /// 移动加权平均成本（`NUMERIC(18,6)`）。
     pub avg_cost: Decimal,
@@ -138,7 +139,7 @@ pub struct InventoryLocationRow {
     pub location_id: Option<Uuid>,
     /// 库位数量（`NUMERIC(18,4)`）。
     pub qty: Decimal,
-    /// 库位锁定量（`>= 0`）。
+    /// 库位锁定量（`>= 0`）。**预留列**：同 [`InventoryRow::locked_qty`]，本版本恒为 `0`。
     pub locked_qty: Decimal,
     /// 最近一次流水时间。
     pub last_txn_at: Option<DateTime<Utc>>,

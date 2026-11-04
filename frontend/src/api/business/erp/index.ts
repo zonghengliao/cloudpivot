@@ -1237,6 +1237,22 @@ export interface PurchaseOrderRow {
   approval_instance_id: string | null;
   /** 审批实例单号 `FLW-…`（列表显示「审批中（FLW-xxx）」用，后端批量回填） */
   approval_instance_no: string | null;
+  /**
+   * 提交时点是否超供应商信用额度（P2-2 ① / V0215）。
+   *
+   * ⚠️ `false` **不等于**「查过、没超」：从未提交过的草稿也是 `false`。
+   * 要区分请同时看 {@link credit_exposure}：`null` = 没查过（未评估）。
+   */
+  over_credit_limit: boolean;
+  /**
+   * 提交时点「该供应商累计未结采购额（含本单）」快照；`null` = 未评估。
+   *
+   * 口径 = `SUM(total_with_tax)` WHERE 同供应商 AND `status <> 'CANCELLED'` AND 未删。
+   * 只做展示/审计，**不是**实时值（实时值只在提交那一刻现算，见后端 `purchase_credit`）。
+   */
+  credit_exposure: number | string | null;
+  /** 提交时点供应商信用额度快照（`0` = 不限） */
+  credit_limit_snapshot: number | string | null;
   /** 创建时间 */
   created_at: string;
   /** 更新时间 */
@@ -2811,7 +2827,7 @@ export function remindPeriod(id: string, payload: PeriodRemindPayload): Promise<
  * | 卡面草稿 | 真字段 | 说明 |
  * |---|---|---|
  * | 数量 | `qty` | 账面数量 `NUMERIC(18,4)`，**含**锁定量 |
- * | 锁定 | `locked_qty` | 已占用未出库 |
+ * | 锁定 | `locked_qty` | **预留字段**（本版本无占用流程，恒为 0；页面已不显示该列） |
  * | 可用 | —— | 接口**不给**，前端算 `qty − locked_qty`（见 `inventory-logic.ts`） |
  * | 均价 | `avg_cost` | 移动加权 `NUMERIC(18,6)` |
  * | 金额 | `amount` | 账面金额 `NUMERIC(18,4)` |
@@ -2830,7 +2846,7 @@ export interface InventoryRow {
   warehouse_id: string;
   /** 账面数量（含锁定） */
   qty: number | string;
-  /** 锁定量 */
+  /** 锁定量（**预留字段**：本版本无占用流程，恒为 0） */
   locked_qty: number | string;
   /** 移动加权平均成本 */
   avg_cost: number | string;

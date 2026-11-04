@@ -47,6 +47,7 @@ use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
 use crate::business::erp::model::PurchaseOrderRow;
 use crate::business::erp::purchase_bridge;
+use crate::business::erp::purchase_credit;
 use crate::business::erp::purchase_dto::{
     CreatePurchaseOrderReq, PURCHASE_TYPE_CONTRACT, PendingItemRes, PendingOrderRes,
     PendingReceiveRes, PendingStockInRes, PreparedOrder, PurchaseOrderDetailRes,
@@ -990,6 +991,17 @@ pub async fn purchase_order_change_status(
 ///
 /// 为什么入口收在这里：`PATCH /status`（老前端）与 `POST /submit-approval`（本卡新按钮）
 /// **必须同一条路** —— 否则审批可以被换一个 URL 绕过。
+///
+/// # P2-2：供应商信用额度在这里生效（策略 B）
+///
+/// 提交前**现算**「该供应商累计未结采购额（含本单）」（不缓存，见
+/// [`purchase_credit`] 的口径说明），结果冻结进单据三列 + 审批单 `form_data`：
+///
+/// * 没超 → 照常提交（顺带记下当时的累计，便于以后对账）；
+/// * 超了 → **必须走审批**：有 `po_approve` 就走（标记已落单据，审批流可按
+///   `form.over_credit_limit` 配条件分支）；没有已发布流程时**直接 409 +
+///   `ERP_CREDIT_LIMIT_EXCEEDED`** —— `skip-approval` 这条后门对超限单**不开放**，
+///   否则「信用额度」等于没生效。
 pub async fn submit_approval(
     id: Uuid,
     operator: impl Into<state_machine::Operator>,
@@ -1008,6 +1020,20 @@ pub async fn submit_approval(
             row.order_no, instance_no
         )));
     }
+    // P2-2：信用额度现算（**不缓存**）。审计事实落单据，当前值每次重算。
+    let credit = purchase_credit::verdict_of(db(), &row)
+        .await
+        .map_err(|error| utils::db_error(error, "统计供应商累计未结采购额"))?;
+    if credit.over {
+        tracing::warn!(
+            order_id = %row.id,
+            order_no = %row.order_no,
+            supplier_id = %row.supplier_id,
+            limit = %credit.limit,
+            exposure = %credit.exposure,
+            "采购单提交：超出供应商信用额度（标记落单据 + 强制审批）"
+        );
+    }
     match purchase_bridge::published_po_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单审批流程"))?
@@ -1015,9 +1041,34 @@ pub async fn submit_approval(
         Some(flow) => {
             // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
             approval_gate::ensure_not_skipped(purchase_bridge::FLOW_CODE, gate)?;
-            submit_po_approval(&row, &op, &flow).await
+            submit_po_approval(&row, &op, &flow, &credit).await
         }
         None => {
+            // ★ P2-2 ①：超信用额度的单**不许**走「显式跳过审批」这条后门。
+            //   额度是客户认真填的内控参数，超限又没有流程承接时，唯一正确的动作是把人
+            //   指到「配流程」或「调额度」，而不是让一个持 skip-approval 的账号点一下放行。
+            if credit.over {
+                let supplier_name = purchase_model::supplier_ref(row.supplier_id)
+                    .await
+                    .ok()
+                    .flatten()
+                    .unwrap_or_else(|| row.supplier_id.to_string());
+                return Err(ApiError::new(
+                    409,
+                    error_code::ERP_CREDIT_LIMIT_EXCEEDED,
+                    format!(
+                        "采购单 {} 超出供应商「{}」的信用额度，必须走审批，但系统里没有已发布的 \
+                         po_approve 流程，所以不能提交。{}\n\
+                         两条出路：① 请管理员在「审批流程」里发布采购订单审批流程（po_approve），\
+                         超限单会带着「超信用额度」标记进审批；② 或者把该供应商的信用额度调到 \
+                         {} 及以上（供应商主数据「信用额度」，0 = 不限）。",
+                        row.order_no,
+                        supplier_name,
+                        credit.describe(),
+                        credit.exposure
+                    ),
+                ));
+            }
             // ARCH-3 DC-01：**不再静默降级**。默认 409（点名 po_approve）；
             // 只有「持 business:erp:skip-approval + 理由 ≥10 字」才放行，
             // 理由随状态流转写进 `biz_status_log`（审计据此追溯为什么这次没有复核）。
@@ -1037,7 +1088,20 @@ pub async fn submit_approval(
                 reason: Some(skip_reason),
                 ..Default::default()
             };
-            change_purchase_order_status(id, &req, op).await
+            change_purchase_order_status(id, &req, op).await?;
+            // 跳过审批路径的信用评估结果**事后回写**（本路径自己没有事务可以挂）：
+            // `change_purchase_order_status` 已经提交了状态流转，这里补一条不带事务的
+            // UPDATE。为什么可以这样：这三列是**审计快照**，不参与任何状态机判定 ——
+            // 写失败只影响「这张单当时的评估结果能不能看到」，不能反过来把提交撤销。
+            if let Err(error) = purchase_credit::write_verdict(db(), id, &credit).await {
+                tracing::warn!(
+                    order_id = %id,
+                    order_no = %row.order_no,
+                    %error,
+                    "采购单已提交（跳过审批），但信用评估快照回写失败（只影响展示，不影响单据）"
+                );
+            }
+            Ok(())
         }
     }
 }
@@ -1047,6 +1111,7 @@ async fn submit_po_approval(
     row: &PurchaseOrderRow,
     operator: &state_machine::Operator,
     flow: &purchase_bridge::PoFlow,
+    credit: &purchase_credit::CreditVerdict,
 ) -> std::result::Result<(), ApiError> {
     // ① 只有草稿能提交审批
     if row.status != STATUS_DRAFT {
@@ -1120,7 +1185,7 @@ async fn submit_po_approval(
         initiator_id: operator_id,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: purchase_form_data(row).await,
+        form_data: purchase_form_data(row, credit).await,
     };
 
     let now = Utc::now();
@@ -1128,7 +1193,7 @@ async fn submit_po_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
-    let outcome = submit_po_tx(&tx, row, operator, &start, now).await;
+    let outcome = submit_po_tx(&tx, row, operator, &start, credit, now).await;
     let mut out = match outcome {
         Ok(out) => out,
         Err(error) => {
@@ -1171,6 +1236,7 @@ async fn submit_po_tx(
     row: &PurchaseOrderRow,
     operator: &state_machine::Operator,
     start: &engine::StartReq,
+    credit: &purchase_credit::CreditVerdict,
     now: DateTime<Utc>,
 ) -> std::result::Result<engine::ActionOut, ApiError> {
     // ① 状态机唯一入口（边表 + 写 biz_status_log）
@@ -1228,6 +1294,11 @@ async fn submit_po_tx(
             row.order_no
         )));
     }
+    // ④ P2-2：信用评估结果与状态流转**同一事务**落库（审计快照必须和「已提交」同生共死）：
+    //    状态提交成功而快照没写进去，就会出现「这张单到底评没评过」说不清的单据。
+    purchase_credit::write_verdict(tx, row.id, credit)
+        .await
+        .map_err(|error| write_error(error, "写入信用额度评估快照"))?;
     Ok(out)
 }
 
@@ -1258,14 +1329,25 @@ async fn pending_instance_no_of(
 /// 明细也不会因为单据后续变动而和审批时看到的不一致。键名契约见
 /// [`crate::business::erp::form_snapshot`]。查询失败**不阻断提交**（降级为不写那几个键）：
 /// 显示名缺了顶多退化回 `(ID: …)`，不该让审批发不出去。
-async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
+///
+/// # P2-2：信用额度三键（给审批流的条件分支用）
+///
+/// `over_credit_limit` 是 **JSON 布尔**（`eq` 比较走 `json_eq`，布尔按值比，别写成字符串 `"true"`）；
+/// `credit_exposure` / `credit_limit` 是 **JSON 数字**（要能配 `gt` / `gte` 之类的阈值边）。
+/// 流程管理员可以据此加分支，例如：
+///
+/// ```json
+/// { "field": "form.over_credit_limit", "cmp": "eq", "value": true }
+/// ```
+///
+/// → 指向「财务经理 / 总经理」节点，实现「超信用额度加一道复核」。不配也能用：
+/// 标记照样落在单据上（`biz_purchase_order.over_credit_limit`），审批人看得到。
+async fn purchase_form_data(
+    row: &PurchaseOrderRow,
+    credit: &purchase_credit::CreditVerdict,
+) -> serde_json::Value {
     let amount = row.total_with_tax.round_dp(4).to_string();
-    let number = amount
-        .parse::<f64>()
-        .ok()
-        .and_then(serde_json::Number::from_f64)
-        .map(serde_json::Value::Number)
-        .unwrap_or(serde_json::Value::Null);
+    let number = json_number(&amount);
     let mut form = serde_json::json!({
         "order_id": row.id.to_string(),
         "order_no": row.order_no,
@@ -1278,6 +1360,10 @@ async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
         "price_mode": row.price_mode,
         // 内控留痕：审批人 ≠ 制单人（`purchase_bridge::guard_self_approval` 兜底）
         "create_by": row.create_by.map(|value| value.to_string()),
+        // P2-2：供应商信用额度（现算结果的快照；布尔 + 两个数字，见函数注释）
+        "over_credit_limit": credit.over,
+        "credit_exposure": json_number(&credit.exposure.round_dp(4).to_string()),
+        "credit_limit": json_number(&credit.limit.round_dp(4).to_string()),
     });
     // 显示名 / 明细：查不到就**不写这个键**（前端按 `*_id` 兜底），绝不写空串冒充「查到了」。
     let (supplier, warehouse, items) = (
@@ -1317,6 +1403,22 @@ async fn purchase_form_data(row: &PurchaseOrderRow) -> serde_json::Value {
         }
     }
     form
+}
+
+/// `Decimal` 文本 → JSON **数字**。
+///
+/// 条件求值走 `as_f64()`：写成字符串（`"5000.0000"`）会 `TypeMismatch` → 引擎按「条件不成立」
+/// **静默走兜底边**（金额分级会悄悄错档）。解析失败写 `null`（JSON 合法值）而不是退化成字符串。
+///
+/// 抽出来是因为 `amount` / `credit_exposure` / `credit_limit` 三处都要「数字不是字符串」——
+/// 各写一遍就把这条踩坑记录埋成三份，改一处漏两处。
+fn json_number(decimal_text: &str) -> serde_json::Value {
+    decimal_text
+        .parse::<f64>()
+        .ok()
+        .and_then(serde_json::Number::from_f64)
+        .map(serde_json::Value::Number)
+        .unwrap_or(serde_json::Value::Null)
 }
 
 /// 提交采购订单审批（`DRAFT → SUBMITTED`；没配流程时**默认 409**，见 [`submit_approval`]）。
@@ -2860,7 +2962,10 @@ mod tests {
         // 指向一个不存在的供应商 / 仓库（模拟主数据被删）。
         row.supplier_id = Uuid::nil();
         row.warehouse_id = Uuid::nil();
-        let form = purchase_form_data(&row).await;
+        // 信用评估结果按「额度不限」传：本用例只钉显示名的降级口径
+        let credit =
+            purchase_credit::CreditVerdict::unassessable(Decimal::ZERO, row.total_with_tax);
+        let form = purchase_form_data(&row, &credit).await;
         assert!(
             form.get("supplier_name").is_none(),
             "查不到供应商名就不能写这个键：{form}"
@@ -3335,5 +3440,331 @@ mod tests {
         request.purchase_type = Some("  contract  ".to_string());
         let prepared = request.prepare().unwrap();
         assert_eq!(prepared.purchase_type, "CONTRACT");
+    }
+
+    // ==================== P2-2 ①：供应商信用额度（ARCH-3 DC-12） ====================
+    //
+    // 口径锚点：`purchase_credit` 的文件头（现算 / 0 = 不限 / 作废不计入 / 策略 B）。
+    // 每个用例开头 `setup()` + `setup_approval()`，并**显式重设**供应商额度 ——
+    // 供应商是共享夹具，额度必须在用例里写死，不能依赖上一个用例留下的值。
+
+    /// 把夹具供应商的信用额度设成 `limit`（`0` = 不限）。
+    async fn set_credit_limit(limit: &str) {
+        sql(&format!(
+            "UPDATE biz_supplier SET credit_limit = {limit}::numeric WHERE id = '{SUPPLIER}'::uuid"
+        ))
+        .await;
+    }
+
+    /// 读单据的信用评估三元组（`(over, exposure, limit)`，`exposure`/`limit` 转字符串便于断言）。
+    async fn credit_of(order_id: Uuid) -> (bool, Option<String>, Option<String>) {
+        let row = purchase_model::find_order(order_id)
+            .await
+            .expect("查单据")
+            .expect("单据应存在");
+        (
+            row.over_credit_limit,
+            row.credit_exposure
+                .map(|value| value.normalize().to_string()),
+            row.credit_limit_snapshot
+                .map(|value| value.normalize().to_string()),
+        )
+    }
+
+    /// **P2-2-①a**：供应商额度 1 万，下单 2 万 → 提交后单据带 `over_credit_limit = true`。
+    ///
+    /// 同时钉住三条：
+    /// ① 草稿阶段**未评估**（`credit_exposure IS NULL`，不是「评估过没超」）；
+    /// ② 提交时点快照三元组正确（累计 20000 / 额度 10000）；
+    /// ③ 审批单 `form_data` 里 `over_credit_limit` 是 **JSON 布尔 `true`**、
+    ///    `credit_exposure`/`credit_limit` 是 **JSON 数字** —— 流程管理员据此配条件边，
+    ///    类型写错（字符串 "true" / "20000.0000"）会让条件 TypeMismatch 静默走兜底边。
+    #[tokio::test]
+    async fn p2_2_credit_over_limit_marks_order_and_goes_to_approval() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("10000").await;
+        let id = order_with_amount("20000").await;
+
+        // ① 草稿 = 未评估（`false` + NULL，而不是「查过没超」）
+        assert_eq!(
+            credit_of(id).await,
+            (false, None, None),
+            "草稿阶段不该有评估快照（NULL = 没查过）"
+        );
+
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .unwrap_or_else(|err| {
+                panic!(
+                    "超限单应当能提交（策略 B：允许 + 强制审批）：{} {}",
+                    err.code, err.msg
+                )
+            });
+
+        // ② 快照三元组（`normalize()` 去掉 PG 补的尾零）
+        assert_eq!(
+            credit_of(id).await,
+            (true, Some("20000".to_string()), Some("10000".to_string())),
+            "提交时点必须冻结「累计 2 万 / 额度 1 万 / 超限」"
+        );
+
+        // ③ 审批单 form_data 的三个键（类型也要对）
+        let instance_id = running_instance(id).await;
+        let form = form_data_of(instance_id).await;
+        assert_eq!(
+            form["over_credit_limit"],
+            serde_json::Value::Bool(true),
+            "必须是 JSON 布尔 true（不是字符串）：{form}"
+        );
+        assert_eq!(
+            form["credit_exposure"].as_f64(),
+            Some(20000.0),
+            "累计必须是 JSON 数字：{form}"
+        );
+        assert_eq!(
+            form["credit_limit"].as_f64(),
+            Some(10000.0),
+            "额度必须是 JSON 数字：{form}"
+        );
+
+        // ④ 真机同款结论在引擎里也成立：这样一条边真的会命中（不是纸面约定）
+        use crate::business::flow::graph::{CompareOp, Condition, EvalContext, eval};
+        let condition = Condition::Cmp {
+            field: "form.over_credit_limit".to_string(),
+            cmp: CompareOp::Eq,
+            value: serde_json::Value::Bool(true),
+        };
+        let context = EvalContext {
+            form: form
+                .as_object()
+                .expect("form_data 必须是对象")
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone()))
+                .collect(),
+            ..Default::default()
+        };
+        assert_eq!(
+            eval(&condition, &context),
+            Ok(true),
+            "「超信用额度」条件分支必须命中"
+        );
+    }
+
+    /// **P2-2-①b**：额度 10 万，下单 8 千 → **不**标记超限，但累计照记。
+    #[tokio::test]
+    async fn p2_2_credit_within_limit_is_not_marked() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("100000").await;
+        let id = order_with_amount("8000").await;
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .expect("额度内的单必须能提交");
+
+        let (over, exposure, limit) = credit_of(id).await;
+        assert!(!over, "额度内不该标超限");
+        assert_eq!(exposure.as_deref(), Some("8000"), "累计要记下来（审计用）");
+        assert_eq!(limit.as_deref(), Some("100000"));
+
+        let form = form_data_of(running_instance(id).await).await;
+        assert_eq!(form["over_credit_limit"], serde_json::Value::Bool(false));
+    }
+
+    /// **P2-2-①c**：额度为空（库里 = `0`）→ **不校验**，永不标记超限。
+    ///
+    /// `biz_supplier.credit_limit` 是 `NOT NULL DEFAULT 0`，V0137 的列定义写明「0 = 不限」。
+    /// 所以「留空」在本仓就是 `0`，没有 NULL 这个状态 —— 这里断言的是「0 不拦」。
+    #[tokio::test]
+    async fn p2_2_credit_zero_limit_is_unlimited() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("0").await;
+        let id = order_with_amount("50000").await;
+        submit_approval(id, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .expect("额度为 0（不限）时任何金额都必须能提交");
+
+        assert_eq!(
+            credit_of(id).await,
+            (false, Some("50000".to_string()), Some("0".to_string())),
+            "不限额度也要记累计（前端显示「累计 X（额度不限）」）"
+        );
+    }
+
+    /// **P2-2-①d**：**作废的采购单不计入累计**（卡面红线）。
+    ///
+    /// 额度 3 万：先下一张 2 万的草稿单并作废，再下一张 2 万的单 → 累计只算后一张（2 万），
+    /// **不超限**。若把作废单也算进去（4 万）就会误标超限，白白把用户卡进审批。
+    #[tokio::test]
+    async fn p2_2_credit_cancelled_order_not_counted() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("30000").await;
+
+        let cancelled = order_with_amount("20000").await;
+        change_purchase_order_status(
+            cancelled,
+            &status_req("CANCELLED", None),
+            Some(uid(U_MAKER)),
+        )
+        .await
+        .expect("草稿单作废应当成功");
+
+        let live = order_with_amount("20000").await;
+        submit_approval(live, Some(uid(U_MAKER)), &none_gate())
+            .await
+            .expect("额度 3 万、在跑 2 万，第二张 2 万不该被拦");
+
+        assert_eq!(
+            credit_of(live).await,
+            (false, Some("20000".to_string()), Some("30000".to_string())),
+            "作废单（2 万）不许计入累计"
+        );
+    }
+
+    /// **P2-2-①e**：超限 + **没有已发布流程** → 409 + 66036，且 `skip-approval` **不放行**。
+    ///
+    /// 这是策略 B 的牙齿：超限单只能走审批。流程没配时不能让持 `business:erp:skip-approval`
+    /// 的账号点一下「跳过」就把超限单硬放过去 —— 那样信用额度等于没生效。
+    /// 对照组：同一场景下**额度内的单**用同一个 skip gate 是能跳过的（见下一个用例），
+    /// 说明这里拒的是「超限」而不是「跳过这个动作本身」。
+    #[tokio::test]
+    async fn p2_2_credit_over_limit_cannot_skip_approval() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("1000").await;
+        let id = order_with_amount("5000").await;
+        // 临时下线种子流程（模拟「客户还没配审批」）
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        let skip = approval_gate::SkipApprovalReq {
+            skip_approval: true,
+            skip_reason: Some("月底关账，供应商已现场验收".to_string()),
+        };
+        let claims = skip_claims();
+        let gate = approval_gate::ApprovalGate::new(&skip, &claims);
+        let outcome = submit_approval(id, Some(uid(U_MAKER)), &gate).await;
+        // 先还原流程再断言（断言 panic 也不能把流程留在 DISABLED）
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+
+        let error = outcome.expect_err("超限单不许靠 skip-approval 绕开审批");
+        assert_eq!(error.status, 409, "{}", error.msg);
+        assert_eq!(
+            error.code,
+            error_code::ERP_CREDIT_LIMIT_EXCEEDED,
+            "必须是「超信用额度」码（不是泛泛的审批未配置）：{}",
+            error.msg
+        );
+        assert!(error.msg.contains("po_approve"), "{}", error.msg);
+        assert!(
+            error.msg.contains("信用额度"),
+            "报文要点名是额度问题：{}",
+            error.msg
+        );
+        // 单据一动不动
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, STATUS_DRAFT, "被拒后必须仍是草稿");
+        assert!(row.approval_instance_id.is_none());
+        assert_eq!(
+            credit_of(id).await,
+            (false, None, None),
+            "被拒后不该留下「评估过」的快照（否则详情会显示假结论）"
+        );
+    }
+
+    /// **P2-2-①f**（对照组）：额度内的单，同一 skip gate 在没流程时**可以**跳过 ——
+    /// 证明上一个用例拒的是「超限」而不是「跳过」这个动作本身，也顺带覆盖
+    /// 「跳过后仍把信用评估快照补上」这条分支（事后回写）。
+    #[tokio::test]
+    async fn p2_2_credit_within_limit_can_skip_approval_and_still_records_snapshot() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        setup_approval().await;
+        set_credit_limit("100000").await;
+        let id = order_with_amount("8000").await;
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'DISABLED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+        let skip = approval_gate::SkipApprovalReq {
+            skip_approval: true,
+            skip_reason: Some("月底关账，供应商已现场验收".to_string()),
+        };
+        let claims = skip_claims();
+        let gate = approval_gate::ApprovalGate::new(&skip, &claims);
+        let outcome = submit_approval(id, Some(uid(U_MAKER)), &gate).await;
+        db().execute_with_params(
+            "UPDATE biz_flow_def SET status = 'PUBLISHED' WHERE flow_code = 'po_approve'",
+            vec![],
+        )
+        .await
+        .unwrap();
+
+        outcome
+            .unwrap_or_else(|err| panic!("额度内的单应当能显式跳过审批：{} {}", err.code, err.msg));
+        let row = purchase_model::find_order(id).await.unwrap().unwrap();
+        assert_eq!(row.status, STATUS_SUBMITTED);
+        assert_eq!(
+            credit_of(id).await,
+            (false, Some("8000".to_string()), Some("100000".to_string())),
+            "跳过审批也要补上评估快照（否则这张单永远显示「未评估」）"
+        );
+    }
+
+    /// 读审批单的 `form_data`（引擎冻结的那份）。
+    async fn form_data_of(instance_id: Uuid) -> serde_json::Value {
+        let text: Option<String> = db()
+            .scalar_with_params::<Option<String>>(
+                "SELECT form_data::text FROM biz_flow_instance WHERE id = ?::uuid",
+                vec![Value::from(&instance_id)],
+            )
+            .await
+            .expect("读审批单 form_data")
+            .filter(|text| !text.trim().is_empty());
+        serde_json::from_str(text.as_deref().unwrap_or("{}")).expect("form_data 必须是合法 JSON")
+    }
+
+    /// ARCH-3 DC-01：一个**持有** `business:erp:skip-approval` 的 claims（显式跳过审批要用）。
+    fn skip_claims() -> TokenClaims {
+        TokenClaims {
+            jti: None,
+            sub: U_MAKER.to_string(),
+            username: Some("p22_skip_case".to_string()),
+            roles: Vec::new(),
+            permissions: vec![approval_gate::PERM_SKIP_APPROVAL.to_string()],
+            token_type: None,
+            exp: 0,
+            iat: 0,
+            extra: std::collections::HashMap::new(),
+        }
     }
 }

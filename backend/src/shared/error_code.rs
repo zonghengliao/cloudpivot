@@ -1266,6 +1266,18 @@ pub const ERP_STOCK_OUT_NEGATIVE: i32 = 66034;
 /// 没有流水就不知道当时扣了多少，**绝不按当前均价估算**（那是污染成本的捷径）。
 pub const ERP_STOCK_OUT_CANCEL_BLOCKED: i32 = 66035;
 
+// ---------- P2-2 摆设字段处置（DC-12：信用额度开始生效） ----------
+
+/// 采购单超供应商信用额度，且**没有已发布的 `po_approve` 流程**可以承接（HTTP 409）。
+///
+/// 处置策略是 B（超限不拒绝，但强制审批）。强制审批遇到「流程没配」时就只能拒绝 ——
+/// 不能让 `business:erp:skip-approval` 把超限单悄悄放过去（那等于信用额度没生效）。
+/// 报文必须给出两条出路：① 让管理员发布 `po_approve`；② 调高该供应商额度。
+///
+/// 为什么不复用 [`ERP_CONTRACT_AMOUNT_EXCEEDED`]（66019）：合同额度是「直接拒绝」，
+/// 信用额度是「必须审批」——前端要能分别提示（前者改数量，后者找审批人/配流程）。
+pub const ERP_CREDIT_LIMIT_EXCEEDED: i32 = 66036;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1319,6 +1331,7 @@ mod tests {
             // 出库单（ARCH-3 DC-13，66034–66035）
             (ERP_STOCK_OUT_NEGATIVE, 66034),
             (ERP_STOCK_OUT_CANCEL_BLOCKED, 66035),
+            (ERP_CREDIT_LIMIT_EXCEEDED, 66036),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

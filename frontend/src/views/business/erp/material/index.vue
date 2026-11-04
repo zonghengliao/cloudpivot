@@ -169,6 +169,26 @@
           <t-input v-model="form.spec" :maxlength="200" placeholder="选填，如 整机" data-testid="mat-spec" />
         </t-form-item>
 
+        <!-- 安全库存（P2-2 ②）：填了才生效 —— 低库存提醒的唯一阈值 -->
+        <t-form-item
+          label="安全库存"
+          name="safety_stock"
+          :status="formErrors.safety_stock ? 'error' : undefined"
+          :tips="formErrors.safety_stock"
+        >
+          <div class="dlg-inline">
+            <t-input
+              v-model="form.safety_stock"
+              class="stock-input"
+              placeholder="留空 = 不提醒"
+              type="number"
+              :min="0"
+              data-testid="mat-safety-stock"
+            />
+            <span class="dlg-help" data-testid="mat-safety-stock-help">{{ SAFETY_STOCK_HINT }}</span>
+          </div>
+        </t-form-item>
+
         <!-- 成本法：本版本只有移动加权（V0201 收敛）。下拉只有一项且置灰 —— 不给「选了不生效」的机会 -->
         <t-form-item label="成本法" name="costing_method">
           <div class="dlg-inline">
@@ -223,6 +243,7 @@ import {
   COSTING_METHOD_HINT,
   MATERIAL_PAGE_SIZE,
   MATERIAL_TYPE_OPTIONS,
+  SAFETY_STOCK_HINT,
   SERIAL_FILTER_OPTIONS,
   buildMaterialCreatePayload,
   buildMaterialQuery,
@@ -552,6 +573,11 @@ onMounted(async () => {
 
 /* 成本法：单值下拉，宽度对齐其它表单项；旁边跟灰字说明 */
 .costing-select {
+  width: 220px;
+}
+
+/* 安全库存输入框：与成本法同宽，后面跟口径提示 */
+.stock-input {
   width: 220px;
 }
 

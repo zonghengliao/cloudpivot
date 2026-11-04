@@ -151,6 +151,12 @@
           <t-tag size="small" :theme="purchaseStatusTheme(row.status)" :data-testid="`purchase-status-${row.order_no}`">
             {{ purchaseStatusLabel(row.status) }}
           </t-tag>
+          <!-- P2-2 ①：超信用额度（提交时现算的结论，只有真超了才出现） -->
+          <t-tooltip v-if="creditVerdictOf(row).over" :content="creditVerdictOf(row).tip">
+            <t-tag size="small" theme="danger" variant="light" :data-testid="`purchase-over-credit-${row.order_no}`">
+              超信用额度
+            </t-tag>
+          </t-tooltip>
           <!-- P-FLOW-3A：审批中点名审批单号（O5：报文/界面都要能直接照着找） -->
           <span v-if="row.status === 'SUBMITTED' && row.approval_instance_no" class="approval-no">
             {{ row.approval_instance_no }}
@@ -599,6 +605,17 @@
         <div class="detail__head">
           <span class="detail__no mono">{{ detail.order_no }}</span>
           <t-tag size="small" :theme="purchaseStatusTheme(detail.status)">{{ purchaseStatusLabel(detail.status) }}</t-tag>
+          <!-- P2-2 ①：信用额度结论（未评估 / 额度内 / 超信用额度，tooltip 给累计与额度） -->
+          <t-tooltip :content="creditVerdictOf(detail).tip">
+            <t-tag
+              size="small"
+              :theme="creditVerdictOf(detail).over ? 'danger' : 'default'"
+              :variant="creditVerdictOf(detail).over ? 'light' : 'outline'"
+              data-testid="purchase-detail-credit"
+            >
+              {{ creditVerdictOf(detail).label }}
+            </t-tag>
+          </t-tooltip>
           <!-- 详情头同样常驻口径徽标 -->
           <t-tag size="small" variant="outline" :theme="priceModeTheme(detail.price_mode)" data-testid="purchase-detail-mode">
             {{ priceModeLabel(detail.price_mode) }}
@@ -835,6 +852,7 @@ import {
   computeTotals,
   contractNoText,
   contractOptionLabel,
+  creditVerdictOf,
   dash,
   detailToForm,
   emptyPurchaseFilter,

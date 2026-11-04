@@ -815,3 +815,71 @@ export function isPurchaseFiltered(filter: PurchaseFilterState): boolean {
 export function lineCountText(total: number): string {
   return `${total} 行明细`;
 }
+
+// ==================== 信用额度（P2-2 ①） ====================
+
+/**
+ * 信用额度评估的展示口径（三项 + 是否已评估）。
+ *
+ * 三种状态**不能混**（混了就会把「没查过」显示成「没问题」）：
+ *
+ * | `known` | `over` | 显示 | 含义 |
+ * |---|---|---|---|
+ * | `false` | `false` | 未评估 | 草稿 / 从未提交过（`credit_exposure IS NULL`） |
+ * | `true` | `true` | 超信用额度 | 提交时点累计 > 额度，已强制走审批 |
+ * | `true` | `false` | 额度内 / 额度不限 | 提交时点查过，没超 |
+ */
+export interface CreditVerdictView {
+  /** 是否评估过（`credit_exposure` 非空） */
+  known: boolean;
+  /** 是否超限 */
+  over: boolean;
+  /** 短标签（标签/徽标用） */
+  label: string;
+  /** 完整说明（tooltip 用：累计、额度、差额） */
+  tip: string;
+}
+
+/**
+ * 由单据三列算展示口径。
+ *
+ * 金额一律走 {@link formatMoney}（后端 `Decimal` 出参是字符串，直接拼会出现 `20000.0000`）。
+ * 额度为 `0` 时显示「额度不限」—— 这是 `biz_supplier.credit_limit` 的既有语义（V0137），
+ * 不要显示成「额度 0 / 已超 0」。
+ */
+export function creditVerdictOf(
+  row: Pick<PurchaseOrderRow, 'over_credit_limit' | 'credit_exposure' | 'credit_limit_snapshot'>,
+): CreditVerdictView {
+  if (row.credit_exposure === null || row.credit_exposure === undefined) {
+    return {
+      known: false,
+      over: false,
+      label: '未评估',
+      tip: '草稿还没做过信用评估：提交时才现算该供应商的累计未结采购额',
+    };
+  }
+  const exposure = toNumber(row.credit_exposure);
+  const limit = toNumber(row.credit_limit_snapshot);
+  if (row.over_credit_limit) {
+    return {
+      known: true,
+      over: true,
+      label: '超信用额度',
+      tip: `提交时累计未结采购额 ${formatMoney(exposure)}，超出供应商信用额度 ${formatMoney(limit)}（必须走审批）`,
+    };
+  }
+  if (limit <= 0) {
+    return {
+      known: true,
+      over: false,
+      label: '额度不限',
+      tip: `提交时累计未结采购额 ${formatMoney(exposure)}；该供应商信用额度为 0（不限）`,
+    };
+  }
+  return {
+    known: true,
+    over: false,
+    label: '额度内',
+    tip: `提交时累计未结采购额 ${formatMoney(exposure)} / 额度 ${formatMoney(limit)}，剩余 ${formatMoney(limit - exposure)}`,
+  };
+}

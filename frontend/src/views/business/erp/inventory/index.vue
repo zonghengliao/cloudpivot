@@ -41,7 +41,7 @@
               <span class="panel-head__meta" data-testid="stock-meta">共 {{ stockTotal }} 行</span>
             </div>
             <span class="panel-head__tip">
-              可用 = 数量 − 锁定；主表 <code>biz_inventory</code>，库位维度看「库位库存」Tab
+              数量 = 已过账的账面结存（可用 = 数量；「锁定量」为预留字段，本版本无占用流程，故不显示）
             </span>
           </div>
 
@@ -86,11 +86,6 @@
                 {{ formatQty(row.qty) }}
               </span>
             </template>
-            <template #locked_qty="{ row }">
-              <span class="num" :class="{ 'num--muted': toNumber(row.locked_qty) === 0 }">
-                {{ formatQty(row.locked_qty) }}
-              </span>
-            </template>
             <template #available="{ row }">
               <span
                 class="num"
@@ -131,9 +126,6 @@
             <span class="footer-row__label">本页合计</span>
             <span class="footer-row__item">
               数量 <b class="num" data-testid="stock-footer-qty">{{ formatQty(stockTotals.qty) }}</b>
-            </span>
-            <span class="footer-row__item">
-              锁定 <b class="num">{{ formatQty(stockTotals.locked) }}</b>
             </span>
             <span class="footer-row__item">
               可用 <b class="num" data-testid="stock-footer-available">{{ formatQty(stockTotals.available) }}</b>
@@ -239,11 +231,6 @@
             <template #qty="{ row }">
               <span class="num" :class="{ 'num--zero': toNumber(row.qty) === 0 }" :data-testid="`location-qty-${row.id}`">
                 {{ formatQty(row.qty) }}
-              </span>
-            </template>
-            <template #locked_qty="{ row }">
-              <span class="num" :class="{ 'num--muted': toNumber(row.locked_qty) === 0 }">
-                {{ formatQty(row.locked_qty) }}
               </span>
             </template>
             <template #last_txn_at="{ row }">
@@ -727,7 +714,9 @@ const stockColumns: PrimaryTableCol[] = [
   { colKey: 'material', title: '物料', minWidth: 200 },
   { colKey: 'warehouse', title: '仓库', width: 160 },
   { colKey: 'qty', title: '数量', width: 110, align: 'right' },
-  { colKey: 'locked_qty', title: '锁定', width: 100, align: 'right' },
+  // 「锁定」列已按 P2-2 ③ 撤掉：`locked_qty` 是预留列（无占用流程，恒为 0），
+  // 显示一列永远是 0 的数字会让人以为占用机制在工作。available 保留下是因为
+  // 占用流程落地后它才真正不等于数量（见 docs/ERP-摆设字段口径.md）。
   { colKey: 'available', title: '可用', width: 110, align: 'right' },
   { colKey: 'avg_cost', title: '均价', width: 110, align: 'right' },
   { colKey: 'amount', title: '金额', width: 130, align: 'right' },
@@ -741,19 +730,17 @@ const stockCurrent = ref(1);
 const stockLoading = ref(false);
 const stockError = ref('');
 
-/** 本页合计（数量 / 锁定 / 可用 / 金额），只算本页 */
+/** 本页合计（数量 / 可用 / 金额），只算本页 */
 const stockTotals = computed(() => {
   let qty = 0;
-  let locked = 0;
   let available = 0;
   let amount = 0;
   for (const row of stockRows.value) {
     qty += toNumber(row.qty);
-    locked += toNumber(row.locked_qty);
     available += availableQty(row);
     amount += toNumber(row.amount);
   }
-  return { qty, locked, available, amount };
+  return { qty, available, amount };
 });
 
 const stockPagination = computed(() => ({
@@ -805,7 +792,6 @@ const locationColumns: PrimaryTableCol[] = [
   { colKey: 'material', title: '物料', minWidth: 200 },
   { colKey: 'warehouse', title: '仓库', width: 160 },
   { colKey: 'qty', title: '数量', width: 110, align: 'right' },
-  { colKey: 'locked_qty', title: '锁定', width: 100, align: 'right' },
   { colKey: 'last_txn_at', title: '最近流水', width: 150 },
 ];
 

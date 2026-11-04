@@ -257,6 +257,14 @@ export interface MaterialFormState {
   unit_id: string;
   /** 规格 */
   spec: string;
+  /**
+   * 安全库存（P2-2 ②）。
+   *
+   * 表单里是**文本**：`''` = 留空 = 不预警（后端落库 `0`），不是「0 也要提醒」。
+   * 为什么不留 `number | 0`：0 与「没填」在 UI 上必须可区分（0 是用户明确写的，
+   * 留空是没设阈值），提交时两者统一按 0（不预警）处理。
+   */
+  safety_stock: string;
   /** 成本法（本版本锁定 MOVING_AVG；字段留在表单里是为了回填 + 提交时显式带上） */
   costing_method: string;
   /** ★ 是否一物一码 */
@@ -268,7 +276,9 @@ export interface MaterialFormState {
 }
 
 /** 表单校验错误（键 = 字段名） */
-export type MaterialFieldErrors = Partial<Record<'material_code' | 'material_name' | 'unit_id', string>>;
+export type MaterialFieldErrors = Partial<
+  Record<'material_code' | 'material_name' | 'unit_id' | 'safety_stock', string>
+>;
 
 /** 空表单（新建） */
 export function emptyMaterialForm(defaultType: MaterialType = 'RAW'): MaterialFormState {
@@ -278,12 +288,47 @@ export function emptyMaterialForm(defaultType: MaterialType = 'RAW'): MaterialFo
     material_type: defaultType,
     unit_id: '',
     spec: '',
+    safety_stock: '',
     costing_method: 'MOVING_AVG',
     serial_required: false,
     status: 1,
     remark: '',
   };
 }
+
+/**
+ * 数量/金额的**展示文本**：去掉 PG 补的尾零（`"50.0000"` → `"50"`），非数字原样返回。
+ *
+ * 用于把回填值放进输入框 —— 直接 `String(row.safety_stock)` 会让用户看到 `50.0000`，
+ * 人会以为自己填错了。只做展示，提交时会重新解析（见 [`safetyStockOf`]）。
+ */
+export function quantityText(value: number | string | null | undefined): string {
+  if (value === null || value === undefined || value === '') {
+    return '';
+  }
+  const num = Number(value);
+  return Number.isFinite(num) ? String(num) : String(value);
+}
+
+/**
+ * 安全库存输入 → 提交值（P2-2 ② 的口径）。
+ *
+ * - 留空 / 非数字 → `0`（= 未设 = **不预警**，不是「安全库存为 0 也要提醒」）；
+ * - 负数 → `0`（后端 `require_non_negative` 会 400，前端先按 0 处理，见校验函数）；
+ * - 其余原值提交（后端 `NUMERIC(18,4)`，最多 4 位小数）。
+ */
+export function safetyStockOf(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  const num = Number(trimmed);
+  return Number.isFinite(num) && num > 0 ? num : 0;
+}
+
+/** 安全库存输入框的提示文案（与后端 `reminder_stock` 的口径逐字对齐）。 */
+export const SAFETY_STOCK_HINT =
+  '安全库存用于低库存提醒：某仓库的账面数量低于它时通知仓管主管。留空或填 0 = 不提醒。';
 
 /** 列表行 → 表单（编辑回填） */
 export function materialFormFromRow(row: MaterialRow): MaterialFormState {
@@ -293,6 +338,7 @@ export function materialFormFromRow(row: MaterialRow): MaterialFormState {
     material_type: row.material_type,
     unit_id: row.unit_id,
     spec: row.spec ?? '',
+    safety_stock: quantityText(row.safety_stock),
     costing_method: row.costing_method ?? 'MOVING_AVG',
     serial_required: isSerialRequired(row.serial_required),
     status: row.status,
@@ -324,6 +370,16 @@ export function validateMaterialForm(form: MaterialFormState, isEdit: boolean): 
   if (!form.unit_id) {
     errors.unit_id = '请选择计量单位（后端 unit_id 必填）';
   }
+  // 安全库存：留空合法（= 不预警）；填了就必须是 ≥ 0 的数字（后端 require_non_negative）
+  const safety = form.safety_stock.trim();
+  if (safety !== '') {
+    const num = Number(safety);
+    if (!Number.isFinite(num)) {
+      errors.safety_stock = '安全库存要填数字（留空 = 不提醒）';
+    } else if (num < 0) {
+      errors.safety_stock = '安全库存不能是负数（留空 = 不提醒）';
+    }
+  }
   return errors;
 }
 
@@ -351,6 +407,8 @@ export function buildMaterialCreatePayload(form: MaterialFormState): CreateMater
     material_type: form.material_type,
     unit_id: form.unit_id,
     spec: nullableText(form.spec),
+    // 安全库存：留空也显式发 0（= 不预警），不靠后端缺省蒙对
+    safety_stock: safetyStockOf(form.safety_stock),
     // 成本法显式带上：本版本只有 MOVING_AVG（V0201 收敛），不靠后端缺省蒙对
     costing_method: form.costing_method || 'MOVING_AVG',
     serial_required: form.serial_required === true,
@@ -375,6 +433,8 @@ export function buildMaterialUpdatePayload(form: MaterialFormState, row: Materia
     material_type: form.material_type,
     unit_id: form.unit_id,
     spec: nullableText(form.spec),
+    // 安全库存：编辑时**总是**发（留空 = 0 = 关掉提醒），否则用户「清空」等于没改
+    safety_stock: safetyStockOf(form.safety_stock),
     status: form.status === 1 ? 1 : 0,
     remark: nullableText(form.remark),
   };
