@@ -1811,6 +1811,8 @@ pub async fn purchase_order_page(
     crate::business::erp::purchase_handler::fill_approval_no(&mut list).await;
     // A3：供应商名称快照优先（存量行没快照 → 主档现值兜底），**不 JOIN 合同表**
     crate::business::erp::purchase_handler::fill_supplier_names(&mut list).await;
+    // P2-8：所属项目名称按 id 现查（不是快照 —— 项目改名后列表跟着变）
+    crate::business::erp::purchase_handler::fill_project_names(&mut list).await;
     Ok(page_body(list, total, page, page_size))
 }
 
@@ -1830,6 +1832,9 @@ pub async fn purchase_order_detail(Path(id): Path<String>) -> ResResult<Purchase
     let mut res = PurchaseOrderRes::from(&row);
     crate::business::erp::purchase_handler::fill_approval_no(std::slice::from_mut(&mut res)).await;
     crate::business::erp::purchase_handler::fill_supplier_names(std::slice::from_mut(&mut res))
+        .await;
+    // P2-8：详情同样回填项目名（关联查现值，口径见 fill_project_names）
+    crate::business::erp::purchase_handler::fill_project_names(std::slice::from_mut(&mut res))
         .await;
     Ok(Res::ok(res))
 }

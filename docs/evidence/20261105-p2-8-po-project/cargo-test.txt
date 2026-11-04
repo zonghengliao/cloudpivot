@@ -1,0 +1,12 @@
+running 60 tests
+test business::erp::purchase_handler::tests::p28_archived_project_is_allowed ... ok
+test business::erp::purchase_handler::tests::p28_create_invalid_project_uuid_is_400 ... ok
+test business::erp::purchase_handler::tests::p28_create_soft_deleted_project_is_400 ... ok
+test business::erp::purchase_handler::tests::p28_create_unknown_project_is_400 ... ok
+test business::erp::purchase_handler::tests::p28_create_with_project_persists_and_reports_name ... ok
+test business::erp::purchase_handler::tests::p28_create_without_project_stays_null ... ok
+test business::erp::purchase_handler::tests::p28_filter_rejects_invalid_project_uuid ... ok
+test business::erp::purchase_handler::tests::p28_list_filters_by_project_and_fills_name ... ok
+test business::erp::purchase_handler::tests::p28_soft_deleted_project_keeps_id_but_loses_name ... ok
+test business::erp::purchase_handler::tests::p28_update_reassigns_and_clears_project ... ok
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 2417 filtered out; finished in 101.89s

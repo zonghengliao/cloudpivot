@@ -116,6 +116,8 @@ pub struct CreatePurchaseOrderReq {
     pub purchase_type: Option<String>,
     /// 合同（`CONTRACT` 必填 / `SPOT` 必须为空）。
     pub contract_id: Option<String>,
+    /// 所属项目（P2-8；可空 = 不归集项目）。只校验「存在且未软删」，不校验状态。
+    pub project_id: Option<String>,
     /// 下单日期（缺省 = 今天，北京时间）。
     pub order_date: Option<NaiveDate>,
     /// 期望到货日。
@@ -225,6 +227,8 @@ pub struct PreparedOrder {
     pub purchase_type: String,
     /// 合同 id 原文（`CONTRACT` 必有 / `SPOT` 必为 `None`）。
     pub contract_id_raw: Option<String>,
+    /// 所属项目 id 原文（可空；handler 解析 UUID 并校验存在/未软删，P2-8）。
+    pub project_id_raw: Option<String>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 期望到货日。
@@ -303,6 +307,13 @@ impl CreatePurchaseOrderReq {
         }
         let contract_id_raw = self
             .contract_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
+        // 所属项目（P2-8）：只归一化原文；「存不存在 / 是否已软删」要走 select，纯函数查不了库
+        let project_id_raw = self
+            .project_id
             .as_deref()
             .map(str::trim)
             .filter(|text| !text.is_empty())
@@ -397,6 +408,7 @@ impl CreatePurchaseOrderReq {
             warehouse_id_raw,
             purchase_type,
             contract_id_raw,
+            project_id_raw,
             order_date,
             expect_date: self.expect_date,
             price_mode,

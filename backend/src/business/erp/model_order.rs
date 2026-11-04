@@ -27,6 +27,7 @@ pub const PURCHASE_ORDER_COLUMNS: &str = "id, order_no, supplier_id, order_date,
      approved_at, approved_by, closed_at, closed_by, approval_instance_id, created_at, updated_at, \
      create_by, update_by, deleted_at, \
      purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+     project_id, \
      over_credit_limit, credit_exposure, credit_limit_snapshot";
 
 /// 采购订单行。
@@ -97,6 +98,11 @@ pub struct PurchaseOrderRow {
     pub contract_no_snapshot: Option<String>,
     /// 供应商名称快照（业务发生那一刻；**快照不是冗余**，合同换乙方不回写）。
     pub supplier_name_snapshot: Option<String>,
+    /// 所属项目（弱引用 `biz_project.id`，P2-8 / V0237；`None` = 未归集项目）。
+    ///
+    /// **不是快照**：项目改名后单据应跟着显示新名（成本归集看的是「同一个项目」，
+    /// 不是一个时刻的名字），所以只存 id，名称由 handler 按 id 现查（P2-8 口径 P1）。
+    pub project_id: Option<Uuid>,
     /// 提交时点是否超供应商信用额度（V0215 / DC-12；`false` **不等于**「查过没问题」——
     /// 要看 [`Self::credit_exposure`] 是否为 `None`，见 `purchase_credit::assess_summary`）。
     pub over_credit_limit: bool,
@@ -141,6 +147,7 @@ impl PurchaseOrderRow {
             contract_id: row.get_typed("contract_id")?,
             contract_no_snapshot: row.get_typed("contract_no_snapshot")?,
             supplier_name_snapshot: row.get_typed("supplier_name_snapshot")?,
+            project_id: row.get_typed("project_id")?,
             over_credit_limit: row.get_typed("over_credit_limit")?,
             credit_exposure: row.get_typed("credit_exposure")?,
             credit_limit_snapshot: row.get_typed("credit_limit_snapshot")?,
@@ -203,6 +210,11 @@ pub async fn purchase_order_page(
         // 走部分索引 `idx_biz_po_contract(contract_id, order_date DESC)`（V0198）
         sql.push_str(" AND contract_id = ?");
         params.push(Value::from(parse_id(contract_id)?));
+    }
+    if let Some(project_id) = q.project_id.as_deref() {
+        // 走部分索引 `idx_biz_po_project(project_id, order_date DESC)`（V0237，P2-8）
+        sql.push_str(" AND project_id = ?");
+        params.push(Value::from(parse_id(project_id)?));
     }
     if let Some(supplier_id) = q.supplier_id.as_deref() {
         sql.push_str(" AND supplier_id = ?");

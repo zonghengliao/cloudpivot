@@ -2249,6 +2249,11 @@ pub struct PurchaseOrderFilter {
     pub purchase_type: Option<String>,
     /// 合同（走部分索引 `idx_biz_po_contract`，A3）。
     pub contract_id: Option<String>,
+    /// 所属项目（P2-8；走部分索引 `idx_biz_po_project`）。`None` = 不筛。
+    ///
+    /// 注意：**不能**用它筛「未归集项目」的单（NULL 值没有「空串」口径）；
+    /// 要看未归集的单，请不传本参数再用前端列判断。
+    pub project_id: Option<String>,
     /// 供应商。
     pub supplier_id: Option<String>,
     /// 收货仓库。
@@ -2270,6 +2275,7 @@ impl Default for PurchaseOrderFilter {
             status: None,
             purchase_type: None,
             contract_id: None,
+            project_id: None,
             supplier_id: None,
             warehouse_id: None,
             date_from: None,
@@ -2300,6 +2306,16 @@ impl PurchaseOrderFilter {
                     400,
                     error_code::ERP_FILTER_INVALID,
                     format!("contract_id 不是合法的 UUID：{contract_id}"),
+                )
+            })?;
+        }
+        if let Some(project_id) = self.project_id.as_deref() {
+            // 早失败：非法 UUID 不该走到 SQL（与 contract_id 同口径 → 400 + 66006）
+            nik::uuid::Uuid::parse_str(project_id.trim()).map_err(|_| {
+                ApiError::new(
+                    400,
+                    error_code::ERP_FILTER_INVALID,
+                    format!("project_id 不是合法的 UUID：{project_id}"),
                 )
             })?;
         }
@@ -2401,6 +2417,13 @@ pub struct PurchaseOrderRes {
     pub supplier_name: Option<String>,
     /// 供应商名称快照列原文（存量行为 `null`，那时名称不可知）。
     pub supplier_name_snapshot: Option<String>,
+    /// 所属项目（弱引用 `biz_project.id`；`null` = 未归集项目，P2-8 / V0237）。
+    pub project_id: Option<String>,
+    /// 所属项目名称（**实时关联查**，不是快照 —— 项目改名后这里跟着变，P2-8 口径 P1）。
+    ///
+    /// 由 handler 回填（`From<&Row>` 只拿到 id）；项目已被软删 / 查不到时为 `null`，
+    /// 前端按「（已删除项目）」或 `—` 显示，不得回落 uuid。
+    pub project_name: Option<String>,
     /// 提交时间。
     pub submitted_at: Option<DateTime<Utc>>,
     /// 提交人。
@@ -2459,6 +2482,8 @@ impl From<&PurchaseOrderRow> for PurchaseOrderRes {
             // 快照优先；存量行（`NULL`）由 `purchase_handler::fill_supplier_names` 用主档现值兜底
             supplier_name: row.supplier_name_snapshot.clone(),
             supplier_name_snapshot: row.supplier_name_snapshot.clone(),
+            project_id: row.project_id.map(|id| id.to_string()),
+            project_name: None,
             submitted_at: row.submitted_at,
             submitted_by: row.submitted_by.map(|id| id.to_string()),
             approved_at: row.approved_at,

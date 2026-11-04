@@ -413,8 +413,42 @@ pub async fn fill_supplier_names(rows: &mut [PurchaseOrderRes]) {
     }
 }
 
-// ==================== 详情组装 ====================
+/// 列表 / 详情的**项目名称**回填（P2-8）：按 `project_id` 现查，不是快照。
+///
+/// 为什么项目用关联查、供应商用快照（口径 P1）：
+/// - 供应商：合同可以换乙方、主数据会改名，历史单必须显示「当时是谁」（审计事实）；
+/// - 项目：成本归集看的是「同一个项目」，项目改名后旧单必须跟着显示新名，
+///   否则「按项目汇总」会因为改名裂成两个项目（与 P2-7 的 S2 同一条理由）。
+///
+/// 查不到名字（项目已软删 / 主档不存在）时 `project_name` 保持 `None`，
+/// 前端显示「（已删除项目）」，**不回落 uuid**。
+pub async fn fill_project_names(rows: &mut [PurchaseOrderRes]) {
+    let ids: Vec<Uuid> = rows
+        .iter()
+        .filter(|row| row.project_id.is_some() && row.project_name.is_none())
+        .filter_map(|row| row.project_id.as_deref())
+        .filter_map(|raw| Uuid::parse_str(raw).ok())
+        .collect();
+    if ids.is_empty() {
+        return;
+    }
+    let map = purchase_model::project_names_of(&ids)
+        .await
+        .unwrap_or_default();
+    for row in rows.iter_mut() {
+        if row.project_name.is_some() {
+            continue;
+        }
+        if let Some(id) = row.project_id.as_deref()
+            && let Ok(parsed) = Uuid::parse_str(id)
+            && let Some(name) = map.get(&parsed)
+        {
+            row.project_name = Some(name.clone());
+        }
+    }
+}
 
+// ==================== 详情组装 ====================
 /// 详情：单头（含三金额 + 口径）+ 明细（行号升序）。
 pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, ApiError> {
     let row = purchase_model::find_order(id)
@@ -427,6 +461,7 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<PurchaseOrderDetailRes, 
     let mut order = PurchaseOrderRes::from(&row);
     fill_approval_no(std::slice::from_mut(&mut order)).await;
     fill_supplier_names(std::slice::from_mut(&mut order)).await;
+    fill_project_names(std::slice::from_mut(&mut order)).await;
     Ok(PurchaseOrderDetailRes {
         order,
         items: items.iter().map(PurchaseOrderLineRes::from).collect(),
@@ -497,6 +532,8 @@ pub async fn create_purchase_order(
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
 
     // 供应商 / 合同 / 名称快照一次解析（CONTRACT 的供应商从这里派生，**不接受手填覆盖**）
+    // 所属项目（P2-8）：在事务外先确认存在性，错文案能点名 project_id
+    let project_id = resolve_project(&prepared).await?;
     let head = resolve_head(&prepared).await?;
 
     let items = prepare_items(&prepared).await?;
@@ -511,6 +548,7 @@ pub async fn create_purchase_order(
             .as_ref()
             .map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
+        project_id,
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
         price_mode: &prepared.price_mode,
@@ -542,6 +580,25 @@ pub async fn create_purchase_order(
             Err(write_error(error, "创建采购订单"))
         }
     }
+}
+
+/// 所属项目（P2-8）：`None` = 不归集项目；给了就必须「存在且未软删」。
+///
+/// 走 select 而不是外键：`biz_project` 是软删表，外键拦不住已软删（见
+/// `purchase_model::project_ref` 的注释）。**不校验项目状态**：归档项目上补录当期采购
+/// 是合法业务，拒绝只会让用户把成本挂到别的项目上。
+async fn resolve_project(
+    prepared: &crate::business::erp::purchase_dto::PreparedOrder,
+) -> std::result::Result<Option<Uuid>, ApiError> {
+    let Some(raw) = prepared.project_id_raw.as_deref() else {
+        return Ok(None);
+    };
+    let project_id = parse_uuid(raw, "project_id")?;
+    purchase_model::project_ref(project_id)
+        .await
+        .map_err(|error| utils::db_error(error, "查询所属项目"))?
+        .ok_or_else(|| reference_missing("project_id 项目不存在或已删除"))?;
+    Ok(Some(project_id))
 }
 
 /// 明细：物料存在性 + 基础单位（`unit_id` 列 `NOT NULL`，由物料带出，不让客户端传）。
@@ -757,6 +814,8 @@ pub async fn update_purchase_order(
         .await
         .map_err(|error| utils::db_error(error, "查询收货仓库"))?
         .ok_or_else(|| reference_missing("warehouse_id 仓库不存在或已删除"))?;
+    // 所属项目（P2-8）：在事务外先确认存在性，错文案能点名 project_id
+    let project_id = resolve_project(&prepared).await?;
     let head = resolve_head(&prepared).await?;
 
     let items = prepare_items(&prepared).await?;
@@ -771,6 +830,7 @@ pub async fn update_purchase_order(
             .as_ref()
             .map(|contract| contract.contract_no.as_str()),
         supplier_name_snapshot: head.supplier_name_snapshot.as_deref(),
+        project_id,
         order_date: prepared.order_date,
         expect_date: prepared.expect_date,
         price_mode: &prepared.price_mode,
@@ -1953,6 +2013,7 @@ mod tests {
     /// （详见 [`Self::purge_approval_traces`]）。
     async fn purge_fixture_docs() {
         purge_approval_traces().await;
+        purge_projects().await;
         let sql = format!("DELETE FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid");
         if let Err(err) = db().execute_with_params(&sql, vec![]).await {
             panic!("清理上一轮采购订单失败：{err}");
@@ -1982,6 +2043,8 @@ mod tests {
                 panic!("夹具写入失败：{err}\nSQL: {sql}");
             }
         }
+        // P2-8：项目夹具（采购单 → 项目是弱引用，夹具只在本模块内可见）
+        seed_projects().await;
         Some(guard)
     }
 
@@ -3414,6 +3477,7 @@ mod tests {
         assert_eq!(total, 1, "按合同筛选必须只命中这一张");
         let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
         fill_supplier_names(&mut list).await;
+        fill_project_names(&mut list).await;
         assert_eq!(list[0].purchase_type, "CONTRACT");
         assert_eq!(list[0].contract_no.as_deref(), Some(CONTRACT_ACTIVE_NO));
         assert_eq!(
@@ -3876,5 +3940,344 @@ mod tests {
             iat: 0,
             extra: std::collections::HashMap::new(),
         }
+    }
+
+    // ==================== P2-8：所属项目（project_id，V0237） ====================
+
+    /// 四个项目夹具（`a280…` 段；全仓 grep 过无冲突）。
+    ///
+    /// 采购单 → 项目是**弱引用**（无外键），所以这些夹具的建/删只影响本模块：
+    /// `setup()` 先 `purge_projects()` 再 `seed_projects()`，用例之间互不污染。
+    const PROJECT_MAIN: &str = "a2800000-0000-4000-8000-000000000001";
+    const PROJECT_OTHER: &str = "a2800000-0000-4000-8000-000000000002";
+    const PROJECT_ARCHIVED: &str = "a2800000-0000-4000-8000-000000000003";
+    const PROJECT_DELETED: &str = "a2800000-0000-4000-8000-000000000004";
+    /// 主项目名（断言「下发的是**现值**」用；软删/改名用例依赖它不是快照）
+    const PROJECT_MAIN_NAME: &str = "P2-8 试点项目";
+
+    /// 建 / 重置四个项目夹具。
+    ///
+    /// 为什么是 `ON CONFLICT (id) DO UPDATE` 而不是 `DO NOTHING`：上一个用例可能把
+    /// `PROJECT_MAIN` 软删过（「项目已删只丢名字」那条就这么干），`DO NOTHING` 会把
+    /// 已删状态留给下一条用例 → 立刻假红（技能 §1c 的坑）。DO UPDATE 顺手把
+    /// `deleted_at` 复位成 NULL。
+    async fn seed_projects() {
+        let rows = [
+            (
+                PROJECT_MAIN,
+                "P28-MAIN",
+                PROJECT_MAIN_NAME,
+                "ACTIVE",
+                "NULL",
+            ),
+            (
+                PROJECT_OTHER,
+                "P28-OTHER",
+                "P2-8 备用项目",
+                "ACTIVE",
+                "NULL",
+            ),
+            (
+                PROJECT_ARCHIVED,
+                "P28-ARCH",
+                "P2-8 归档项目",
+                "ARCHIVED",
+                "NULL",
+            ),
+            (
+                PROJECT_DELETED,
+                "P28-DEL",
+                "P2-8 已删项目",
+                "ACTIVE",
+                "now()",
+            ),
+        ];
+        for (id, no, name, status, deleted_at) in rows {
+            let sql = format!(
+                "INSERT INTO biz_project (id, project_no, project_name, status, deleted_at) \
+                 VALUES ('{id}'::uuid, '{no}', '{name}', '{status}', {deleted_at}) \
+                 ON CONFLICT (id) DO UPDATE SET project_no = EXCLUDED.project_no, \
+                     project_name = EXCLUDED.project_name, status = EXCLUDED.status, \
+                     deleted_at = EXCLUDED.deleted_at"
+            );
+            db().execute_with_params(&sql, vec![])
+                .await
+                .unwrap_or_else(|err| panic!("项目夹具写入失败：{err}\nSQL: {sql}"));
+        }
+    }
+
+    /// 删本模块的项目夹具（**只删这四行**，不碰库里别人的项目）。
+    async fn purge_projects() {
+        let sql = format!(
+            "DELETE FROM biz_project WHERE id IN ('{PROJECT_MAIN}'::uuid, \
+             '{PROJECT_OTHER}'::uuid, '{PROJECT_ARCHIVED}'::uuid, '{PROJECT_DELETED}'::uuid)"
+        );
+        db().execute_with_params(&sql, vec![])
+            .await
+            .unwrap_or_else(|err| panic!("清理项目夹具失败：{err}"));
+    }
+
+    /// 直接读库里的 `project_id::text`：验证「真的落库」，不只看 DTO 回显。
+    async fn stored_project_of(id: Uuid) -> Option<String> {
+        db().scalar_with_params::<Option<String>>(
+            "SELECT project_id::text FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("读 project_id")
+        .filter(|text| !text.trim().is_empty())
+    }
+
+    /// 建单请求 + 所属项目（其余字段取 `req()` 的标准形状）。
+    fn req_with_project(project: Option<&str>) -> CreatePurchaseOrderReq {
+        let mut request = req("EXCL", &[(MATERIAL_A, "100", "2", "13")]);
+        request.project_id = project.map(str::to_string);
+        request
+    }
+
+    /// ① 建单带项目 → 落库 + 详情同时下发 `project_id` 与 `project_name`。
+    #[tokio::test]
+    async fn p28_create_with_project_persists_and_reports_name() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req_with_project(Some(PROJECT_MAIN)), None)
+            .await
+            .expect("建单（带项目）");
+        assert_eq!(
+            stored_project_of(id).await.as_deref(),
+            Some(PROJECT_MAIN),
+            "project_id 必须真的写进 biz_purchase_order"
+        );
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.project_id.as_deref(), Some(PROJECT_MAIN));
+        assert_eq!(
+            detail.order.project_name.as_deref(),
+            Some(PROJECT_MAIN_NAME),
+            "详情要下发项目名（关联查现值）"
+        );
+    }
+
+    /// ② 建单不带项目 → 落 NULL，详情两个字段都是 `None`（老单/不归集项目的单不受影响）。
+    #[tokio::test]
+    async fn p28_create_without_project_stays_null() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req_with_project(None), None)
+            .await
+            .expect("建单（不带项目）");
+        assert_eq!(stored_project_of(id).await, None, "不选项目必须落 NULL");
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.project_id, None);
+        assert_eq!(detail.order.project_name, None);
+    }
+
+    /// ③ 项目不存在 → `400 + 66002`，且**一张单都不落**（校验在建单事务之前）。
+    #[tokio::test]
+    async fn p28_create_unknown_project_is_400() {
+        use crate::business::erp::dto::PurchaseOrderFilter;
+
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let ghost = Uuid::now_v7().to_string();
+        let err = create_purchase_order(&req_with_project(Some(&ghost)), None)
+            .await
+            .expect_err("项目不存在必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING, "{}", err.msg);
+        assert!(
+            err.msg.contains("project_id"),
+            "文案必须点名 project_id：{}",
+            err.msg
+        );
+        let filter = PurchaseOrderFilter {
+            supplier_id: Some(SUPPLIER.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        };
+        let (_, total) = crate::business::erp::model::purchase_order_page(&filter)
+            .await
+            .unwrap();
+        assert_eq!(total, 0, "被拒的单不能留下半张");
+    }
+
+    /// ④ 项目已软删 → 同上 `400 + 66002`（外键拦不住软删，所以必须走 select 校验）。
+    #[tokio::test]
+    async fn p28_create_soft_deleted_project_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = create_purchase_order(&req_with_project(Some(PROJECT_DELETED)), None)
+            .await
+            .expect_err("已软删项目必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_REFERENCE_MISSING, "{}", err.msg);
+        assert!(err.msg.contains("已删除"), "{}", err.msg);
+    }
+
+    /// ⑤ 非法 UUID → `400 + 66006`（绝不静默当作「没传」）。
+    #[tokio::test]
+    async fn p28_create_invalid_project_uuid_is_400() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let err = create_purchase_order(&req_with_project(Some("not-a-uuid")), None)
+            .await
+            .expect_err("非法 UUID 必须 400");
+        assert_eq!(err.status, 400, "{}", err.msg);
+        assert_eq!(err.code, error_code::ERP_FILTER_INVALID, "{}", err.msg);
+        assert!(err.msg.contains("project_id"), "{}", err.msg);
+    }
+
+    /// ⑥ 归档项目**允许**挂（跨期补录是合法业务；状态拦截只在前端下拉）。
+    #[tokio::test]
+    async fn p28_archived_project_is_allowed() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req_with_project(Some(PROJECT_ARCHIVED)), None)
+            .await
+            .expect("归档项目上补录采购不该被拒");
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.project_id.as_deref(), Some(PROJECT_ARCHIVED));
+        assert_eq!(detail.order.project_name.as_deref(), Some("P2-8 归档项目"));
+    }
+
+    /// ⑦ 改单：整单覆盖口径 —— 先换项目，再不传项目（= 清空），库里都跟着变。
+    #[tokio::test]
+    async fn p28_update_reassigns_and_clears_project() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req_with_project(Some(PROJECT_MAIN)), None)
+            .await
+            .unwrap();
+        update_purchase_order(id, &req_with_project(Some(PROJECT_OTHER)), None)
+            .await
+            .expect("改单换项目");
+        assert_eq!(stored_project_of(id).await.as_deref(), Some(PROJECT_OTHER));
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(detail.order.project_name.as_deref(), Some("P2-8 备用项目"));
+
+        // 整单覆盖：不传 project_id = 清空归属（与 contract_id / remark 同口径）
+        update_purchase_order(id, &req_with_project(None), None)
+            .await
+            .expect("改单清空项目");
+        assert_eq!(
+            stored_project_of(id).await,
+            None,
+            "不传 project_id 必须清空"
+        );
+        assert_eq!(detail_of(id).await.unwrap().order.project_name, None);
+    }
+
+    /// ⑧ 列表：按 `project_id` 筛得中该项目的单，且 `project_name` 批量回填。
+    #[tokio::test]
+    async fn p28_list_filters_by_project_and_fills_name() {
+        use crate::business::erp::dto::{PurchaseOrderFilter, PurchaseOrderRes};
+
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let with_main = create_purchase_order(&req_with_project(Some(PROJECT_MAIN)), None)
+            .await
+            .unwrap();
+        let _with_other = create_purchase_order(&req_with_project(Some(PROJECT_OTHER)), None)
+            .await
+            .unwrap();
+        let _without = create_purchase_order(&req_with_project(None), None)
+            .await
+            .unwrap();
+
+        let filter = PurchaseOrderFilter {
+            project_id: Some(PROJECT_MAIN.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        };
+        let (rows, total) = crate::business::erp::model::purchase_order_page(&filter)
+            .await
+            .unwrap();
+        assert_eq!(total, 1, "按项目筛选必须只命中挂在该项目上的那 1 张");
+        let mut list: Vec<PurchaseOrderRes> = rows.iter().map(PurchaseOrderRes::from).collect();
+        fill_project_names(&mut list).await;
+        assert_eq!(list[0].id, with_main.to_string());
+        assert_eq!(list[0].project_id.as_deref(), Some(PROJECT_MAIN));
+        assert_eq!(
+            list[0].project_name.as_deref(),
+            Some(PROJECT_MAIN_NAME),
+            "列表要显示项目名（不是 uuid）"
+        );
+
+        // 不筛项目 → 三张都在（未归集的单不会被筛没）
+        let all = PurchaseOrderFilter {
+            supplier_id: Some(SUPPLIER.to_string()),
+            page: 1,
+            page_size: 20,
+            ..Default::default()
+        };
+        let (_, total_all) = crate::business::erp::model::purchase_order_page(&all)
+            .await
+            .unwrap();
+        assert_eq!(total_all, 3);
+    }
+
+    /// ⑨ 项目被软删后：`project_id` 仍在，但**不再给名字**（前端显示「已删除项目」，不回落 uuid）。
+    #[tokio::test]
+    async fn p28_soft_deleted_project_keeps_id_but_loses_name() {
+        let _db = match setup().await {
+            Some(guard) => guard,
+            None => return,
+        };
+        let id = create_purchase_order(&req_with_project(Some(PROJECT_MAIN)), None)
+            .await
+            .unwrap();
+        db().execute_with_params(
+            &format!("UPDATE biz_project SET deleted_at = now() WHERE id = '{PROJECT_MAIN}'::uuid"),
+            vec![],
+        )
+        .await
+        .expect("软删项目");
+        let detail = detail_of(id).await.unwrap();
+        assert_eq!(
+            detail.order.project_id.as_deref(),
+            Some(PROJECT_MAIN),
+            "单据上的归属不因主档软删而消失"
+        );
+        assert_eq!(
+            detail.order.project_name, None,
+            "查不到名字就留空，不许把 uuid 当名字下发"
+        );
+    }
+
+    /// ⑩ 列表筛参校验：合法 UUID 放行、非法 UUID `400 + 66006`（与 contract_id 同口径）。
+    #[tokio::test]
+    async fn p28_filter_rejects_invalid_project_uuid() {
+        use crate::business::erp::dto::PurchaseOrderFilter;
+
+        let ok = PurchaseOrderFilter {
+            project_id: Some(PROJECT_MAIN.to_string()),
+            ..Default::default()
+        };
+        assert!(ok.validate().is_ok(), "合法 UUID 应通过");
+        let bad = PurchaseOrderFilter {
+            project_id: Some("xyz".to_string()),
+            ..Default::default()
+        };
+        let err = bad.validate().expect_err("非法 UUID 必须 400");
+        assert_eq!(err.status, 400);
+        assert_eq!(err.code, error_code::ERP_FILTER_INVALID);
+        assert!(err.msg.contains("project_id"), "{}", err.msg);
     }
 }

@@ -539,7 +539,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 
 **判定：`project` 对 ERP 是孤岛（判据 C：设计上应该被引用，实际没人引用）**，但对 `task` 是**合理独立**。
 
-现实业务里「项目」几乎是所有采购/费用的归集维度（项目成本核算）。当前结构**接不上**：要接需要在 `biz_purchase_order`、`biz_voucher_entry`（或 `aux_extra`）上加 `project_id`，并决定「项目成本 = 收货金额 还是 应付金额」——这是会计口径决策，不是加个字段就完事。→ DC-16（P2，需专项设计）。
+现实业务里「项目」几乎是所有采购/费用的归集维度（项目成本核算）。**P2-8（2026-11-05）起采购单已挂项目**（`biz_purchase_order.project_id`，V0237，可空），但链路只接通了最上游一段：`biz_stock_in` / `biz_payable` / `biz_payment` / `biz_voucher_entry` 仍无项目维度，且「项目成本 = 收货金额 还是 应付金额」这条会计口径**尚未拍板** → DC-16（P2，第一步已落地，其余见 `docs/architecture/P2-8-项目挂ERP口径.md`）。
 
 ### 3.8 维度 ⑧：客户 / 销售（缺失的模块）
 
@@ -648,7 +648,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | ④ 业务 → 审批流 | 8 个流程机制完整，**合同无审批**、**TASK_NODE 零使用**、**未配置流程静默降级** | DC-01/02/20 |
 | ⑤ 业务 → 任务 | 两套任务并存且**没有第二层关联**，单据挂不上跟进任务 | DC-19 |
 | ⑥ 业务 → 通知 | 审批/超时通知完整，**业务提醒（到期/低库存/未收货）完全没有** | DC-06 |
-| ⑦ 项目 → 其他 | 只连任务，**ERP 30 张表 0 张有 project_id** → 项目对 ERP 是孤岛 | DC-16 |
+| ⑦ 项目 → 其他 | 只连任务；ERP 侧 **P2-8 起采购单有 `project_id`**（V0237，第一步），收货/应付/付款/凭证仍未挂 → 项目成本归集只接通了最上游一段 | DC-16（第一步已落地） |
 | ⑧ 客户/销售 | 整块缺失；`contract_type` 预留了 `SALES` 但被白名单挡死；**结构可接，但被「无出库」卡住** | DC-13/15 |
 | ⑨ 组织/权限 | 部门只到任务/项目/合同；**ERP 数据权限为 0（有意）**、部门辅助核算列全空 | DC-11 |
 | ⑩ 存储/导入导出 | **ERP 附件支持为 0**；导入只有字典项（主数据全靠手录） | DC-17/18 |
@@ -715,7 +715,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | 证据 | `biz_project` 自引 5、跨模块 4（`task` 读它）、FK 入 3（`biz_task.project_id` / `biz_task_template.project_id` / `biz_project_member.project_id`）、FK 出 2（`dept_id`/`owner_id`）、行数 2；`biz_project_member` 行数 **0**（功能上线但没人用） |
 | 与 ERP 的关系 | **ERP 30 张表 0 张有 `project_id`**（`E-DB` 列扫描）→ 采购/库存/凭证都归不到项目 |
 | 判决 | **断链（对 ERP）+ 合理独立（对 task）**。项目本身不是孤岛（任务模块重度使用），但「项目成本核算」这条业务价值完全没接上（DC-16） |
-| 建议 | 不删。补 `project_id` 到采购单/凭证分录（或 `aux_extra`），但要先定「项目成本按收货还是按应付确认」 |
+| 建议 | 不删。补 `project_id` 到采购单/凭证分录（或 `aux_extra`），但要先定「项目成本按收货还是按应付确认」——**采购单一段已接（P2-8 / V0237）**，见 `docs/architecture/P2-8-项目挂ERP口径.md` |
 
 #### 4.3.2 `biz_report_item` / `biz_cashflow_item`
 
@@ -825,7 +825,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | 判决 | 表 | 处置建议 |
 |---|---|---|
 | **真孤岛（该删该合）** | **0 张** | 无（全系统没有「代码零引用 + 无页面」的死表） |
-| **断链（该连没连）** | `biz_project` / `biz_project_member`（对 ERP） | 补 `project_id`（DC-16） |
+| **断链（该连没连）** | `biz_project` / `biz_project_member`（对 ERP） | 补 `project_id`（DC-16）——**采购单一段已接（P2-8 / V0237）**，收货/应付/付款/凭证待接 |
 | **合理独立（配置/台账/日志/基础设施）** | `biz_report_item` `biz_cashflow_item` `biz_voucher_rule` `biz_status_log` `biz_opening_balance` `biz_opening_inventory` `biz_material_serial` `biz_flow_cc` `biz_task_ai_token` `biz_seq` `sys_job_log` `sys_change_log` `security_logs` `password_change_logs` `sys_export_task` `sys_import_task` `sys_storage_config` `sys_storage_policy` `sys_notice_template` `sys_config` `audit_logs` `sys_token_blacklist` `sys_preference_def` | 不动 |
 | **合理独立但零使用（观察名单）** | `biz_task_template`（0 行 / 0 同现 / 有外键）`biz_flow_cc`（0 行）`biz_opening_inventory`（0 行）`sys_job_log`（0 行）`password_change_logs`（0 行） | 3 个月后仍 0 行 → 评估下线或补使用入口 |
 
@@ -863,7 +863,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | **DC-13** | **普通物料没有出库/领用/报废单据**：出库只存在于「调拨」（`biz_stock_transfer`）和「序列号出库/报废」（`serial_handler`），非序列号物料**永远出不了账** | 库存账只增不减；1405 存货永远虚增；6401 主营业务成本永远为 0；毛利率永远是 100% | 客户领料生产、报废损坏、赠送给客户 —— 全都没有入口。只能让 IT 手改库存，或走「调拨到废品仓」这种歪招 | 新建「出库单」（`biz_stock_out` + item），支持 `out_type`（领用/报废/盘亏/销售/其他），过账时同事务写三本账 + 成本结转凭证（借 6401 或 6602 / 贷 1405），复用 `stockin_write::apply_location_qty` 的负向逻辑 | **P0** |
 | **DC-14** | **没有盘点单**：账实差异只能手改 `biz_inventory`（且无凭证来源） | 盘盈盘亏没有单据、没有审批、没有凭证 → 审计上说不清「为什么库存变了」 | 年底盘点，账面 100 实际 92 → 仓管不知道怎么在系统里「调平」 | 建盘点单（`biz_stock_take` + item：账面数 / 实盘数 / 差异），审核后生成「盘盈盘亏单」（走 DC-13 的出库/入库类型）+ 凭证 | **P1** |
 | **DC-15** | 客户/销售模块整块缺失：无 `biz_customer`、无销售单、无应收/收款；`CONTRACT_TYPES` 预留 `SALES` 但 `SUPPORTED_TYPES=["PURCHASE"]` 挡死（`contract_dto.rs:69/72`） | 只能做「花钱」不能做「赚钱」的账 | 客户问「能不能开销售单」，答：不能 | 先做 DC-13（通用出库），再按 §3.8.3 的清单分 4 张卡落地 | **P3**（等产品决策，但 DC-13 是前置） |
-| **DC-16** | 项目 → ERP 无关联：30 张 ERP 表 0 张有 `project_id` | 项目成本无法归集；项目毛利算不出来 | 项目经理要「这个项目花了多少采购费」，只能导出所有单据手工筛 | ① `biz_purchase_order.project_id`（下单时选项目）；② 凭证分录走 `aux_extra` 或新增 `aux_project_id`；③ 决定成本确认时点（收货 or 应付） | **P2** |
+| **DC-16** | 项目 → ERP 无关联：30 张 ERP 表 0 张有 `project_id` | 项目成本无法归集；项目毛利算不出来 | 项目经理要「这个项目花了多少采购费」，只能导出所有单据手工筛 | ① `biz_purchase_order.project_id`（下单时选项目）；② 凭证分录走 `aux_extra` 或新增 `aux_project_id`；③ 决定成本确认时点（收货 or 应付） | **P2 → 第一步已落地（2026-11-05，卡 P2-8）**：`V0237` 给采购单加 `project_id`（可空、无外键、部分索引 `idx_biz_po_project`），建单/改单 select 校验「存在且未软删」，列表/详情**实时关联查**项目名（不落快照）；10 条真库用例 + 迁移 up/down 实测。口径与**待挂清单**（收货/应付/付款/凭证 + 「成本按哪个时点确认」这条未决产品决策）见 `docs/architecture/P2-8-项目挂ERP口径.md`。②③ 未做 |
 | **DC-17** | 业务单据无附件：ERP 模块 `sys_file` 引用数 **0** | 合同扫描件、签收单、发票影像、验收报告全都没地方放 | 用户把扫描件存自己电脑，出事时找不到 | 建桥接表（范本：`biz_task_attachment(task_id, file_id)`）→ `biz_doc_attachment(doc_type, doc_id, file_id, file_role)`；前端在详情页加附件 Tab（storage 组件现成） | **P1** |
 | **DC-18** | 主数据无 Excel 导入：impexp 只注册了 `system.dict_item` 一个导入定义（`builtin/mod.rs:31`） | 新客户上线要手工录 13 供应商 / 40 计量单位 / 56 科目 / N 物料 | 实施顾问抱怨「上线一周全在录基础资料」 | 照 `dict_item.rs` 的 `ImportDefinition` 范本补 6 个定义：`erp.supplier` / `erp.material` / `erp.warehouse` / `erp.location` / `erp.unit` / `erp.account`。**导入必须走「先校验后入库」**（现成 `validate.rs`） | **P1** |
 | **DC-19** | 业务单据挂不上跟进任务：`biz_task` 无 `doc_type/doc_id` 列（39 列实测） | 「给这张采购单挂个催货任务」做不到；任务与单据只能靠文字关联 | 采购员建任务「催 XX 供应商」，标题里手抄单号 | `biz_task` 加 `source_doc_type` / `source_doc_id` / `source_doc_no` 三列（与 `source='FLOW'` 的范式一致），任务详情显示「关联单据」可点回 | **P2** |
@@ -1043,7 +1043,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 |---|---|---|---|---|
 | R-P2-1 | **多态引用巡检扩容**（DC-08）：`biz_voucher.source_id` / `biz_inventory_txn.doc_id` / `biz_status_log.entity_id` / `biz_material_serial.source_id` 逐类型 LEFT JOIN 查悬空；`biz_status_log` 孤儿行清理任务 | 4 个巡检项 + 1 个清理任务；照 `snapshot-drift` 的 `di.*` 形态落地 | 1 张卡 | 低（只读巡检） |
 | R-P2-2 | **辅助核算落地 + 部门口径**（DC-11）：凭证生成处写 `aux_material_id` / `aux_warehouse_id`；部门维度需先决定「单据的部门从哪来」（建议加 `biz_purchase_order.dept_id`，默认取申请人部门） | 3 处凭证生成 + 1 列 + 报表加维度筛选 | 2 张卡 | 中：动凭证写入路径，需回归 A1/A2/B2 |
-| R-P2-3 | **项目成本归集**（DC-16）：`biz_purchase_order.project_id` + 凭证 `aux_extra.project_id`；定「项目成本按收货确认」（与应付口径一致） | 1 列 + 1 处凭证 + 1 个「项目成本」报表 | 2 张卡 + 1 次产品决策 | 中：动了会计口径，需要产品/财务拍板 |
+| R-P2-3 | **项目成本归集**（DC-16）：`biz_purchase_order.project_id` **✅ 已做（P2-8 / V0237）**；余下：收货/应付/付款加 `project_id` + 凭证 `aux_extra.project_id`；定「项目成本按收货确认」（与应付口径一致） | 1 列 + 1 处凭证 + 1 个「项目成本」报表（采购单那一列已交付） | 2 张卡 + 1 次产品决策 | 中：动了会计口径，需要产品/财务拍板 |
 | R-P2-4 | **单据 ↔ 任务关联**（DC-19）+ **TASK_NODE 试点**（DC-20）：`biz_task` 加 `source_doc_type/id/no`；选 `po_approve` 试点「审批通过 → 自动建跟进到货任务」 | 3 列 + 1 个流程模板改动 + 任务详情「关联单据」区块 | 2 张卡 | 低（`source` 已有多值范式，加 3 列不破约束；但要更新 `ck_biz_task_source_flow` 的语义说明） |
 | R-P2-5 | **业务类型词表收敛**（DC-21）+ **库位补全**（DC-22）+ **改仓库**（DC-23）：① 建 `sys_biz_type` 映射字典 + 只读对账页（列出代码里所有已用字符串 vs 字典登记）；② 收货页加库位选择 + 默认库位带出；③ 采购单允许「已提交未收货」改仓库（走审批留痕） | 1 张新表 + 3 个页面 + 1 列校验放宽 | 3 张卡（可分 3 批） | 中：词表收敛要动 7 处常量引用，建议先上「对账页」再逐步替换；改仓库要防与已建收货单冲突 |
 

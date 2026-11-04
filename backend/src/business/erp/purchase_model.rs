@@ -266,6 +266,9 @@ pub struct NewPurchaseOrder<'a> {
     pub contract_no_snapshot: Option<&'a str>,
     /// 供应商名称快照（业务发生那一刻；拿不到主档名时可为 `None`）。
     pub supplier_name_snapshot: Option<&'a str>,
+    /// 所属项目（弱引用 `biz_project.id`，P2-8；`None` = 不归集项目）。
+    /// 事务前已由 handler 校验「存在且未软删」，库侧无外键。
+    pub project_id: Option<Uuid>,
     /// 下单日期。
     pub order_date: NaiveDate,
     /// 期望到货日。
@@ -477,12 +480,14 @@ pub async fn create(
                 (id, order_no, supplier_id, order_date, expect_date, warehouse_id, status, \
                  price_mode, total_qty, total_amount, total_tax, total_with_tax, credit_days, \
                  remark, created_at, updated_at, create_by, update_by, \
-                 purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot) \
+                 purchase_type, contract_id, contract_no_snapshot, supplier_name_snapshot, \
+                 project_id) \
              VALUES (?, ?, ?::uuid, NULLIF(?::text,'')::date, NULLIF(?::text,'')::date, \
                  ?::uuid, 'DRAFT', ?, NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                  NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, ?, NULLIF(?::text,''), \
                  ?, ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, \
-                 ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''))"
+                 ?, NULLIF(?::text,'')::uuid, NULLIF(?::text,''), NULLIF(?::text,''), \
+                 NULLIF(?::text,'')::uuid)"
         ),
         vec![
             Value::from(&id),
@@ -510,6 +515,11 @@ pub async fn create(
             ),
             Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
             Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
+            Value::Text(
+                new.project_id
+                    .map(|value| value.to_string())
+                    .unwrap_or_default(),
+            ),
         ],
     )
     .await?;
@@ -555,7 +565,8 @@ pub async fn update(
                         remark = NULLIF(?::text,''), updated_at = ?, update_by = NULLIF(?::text,'')::uuid, \
                         purchase_type = ?, contract_id = NULLIF(?::text,'')::uuid, \
                         contract_no_snapshot = NULLIF(?::text,''), \
-                        supplier_name_snapshot = NULLIF(?::text,'') \
+                        supplier_name_snapshot = NULLIF(?::text,''), \
+                        project_id = NULLIF(?::text,'')::uuid \
                   WHERE id = ?::uuid AND status = 'DRAFT' AND deleted_at IS NULL"
             ),
             vec![
@@ -580,6 +591,11 @@ pub async fn update(
                 ),
                 Value::Text(new.contract_no_snapshot.unwrap_or_default().to_string()),
                 Value::Text(new.supplier_name_snapshot.unwrap_or_default().to_string()),
+                Value::Text(
+                    new.project_id
+                        .map(|value| value.to_string())
+                        .unwrap_or_default(),
+                ),
                 Value::from(&id),
             ],
         )
@@ -831,6 +847,66 @@ pub async fn supplier_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashM
     for row in rows.iter() {
         let id: Uuid = row.get_typed("id")?;
         let name: String = row.get_typed("supplier_name")?;
+        map.insert(id, name);
+    }
+    Ok(map)
+}
+
+// ==================== P2-8：所属项目（弱引用 biz_project） ====================
+
+/// 项目是否存在且未软删（返回项目名）。
+///
+/// 为什么不用外键：`biz_project` 是**软删**表，外键拦不住「已软删」，真正的校验必须
+/// select 一次（同时能给中文文案：「project_id 项目不存在或已删除」）。库侧只留裸 uuid
+/// 列，与 `supplier_id` / `warehouse_id` / `contract_id` 的口径一致。
+///
+/// `ARCHIVED`（已归档）**不拦**：归档项目仍可能补录当期采购（跨期入账），拒绝会让
+/// 用户把单挂到错的项目上。是否允许新单挂归档项目由前端下拉控（只列 ACTIVE）。
+///
+/// SCOPE-EXEMPT: 本处 `biz_project` 只做**按主键的弱引用解析**（存在性 + 名称），
+/// 不承担项目模块的任务可见性口径（那在 `business/project/model.rs`，走 scope::）。
+/// ERP 单据的数据范围是有意保持为 0（ARCH-3 DC-11），若在这里套 `my_project_ids`，
+/// 采购员将挂不上自己没参与的项目 —— 成本归集会直接断掉。
+pub async fn project_ref(id: Uuid) -> DbResult<Option<String>> {
+    let rows = db()
+        .find_with_params(
+            "SELECT project_name FROM biz_project WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(None),
+        Some(row) => Ok(Some(row.get_typed("project_name")?)),
+    }
+}
+
+/// 项目名称批量解析（列表页一页 20 行只查一次，`None` = 项目已软删 / 不存在）。
+///
+/// 与 [`project_ref`] 同一口径（**实时值，不是快照**）：项目改名后列表/详情要跟着变，
+/// 所以本查询**不带** `deleted_at IS NULL` 之外的条件 —— 已软删项目查不到名字，
+/// 前端显示「（已删除项目）」，不回落 uuid。
+///
+/// SCOPE-EXEMPT: 同 [`project_ref`]，按主键批量取名称，不引入项目可见性。
+pub async fn project_names_of(ids: &[Uuid]) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    let rows = db()
+        .find_with_params(
+            "SELECT id, project_name FROM biz_project \
+              WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL",
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in rows.iter() {
+        let id: Uuid = row.get_typed("id")?;
+        let name: String = row.get_typed("project_name")?;
         map.insert(id, name);
     }
     Ok(map)

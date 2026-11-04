@@ -1,0 +1,19 @@
+# P2-8 门禁：rustfmt 1.94.1 / clippy / 构建 / 邻接模块回归
+# 全部在「隔离 clone」(/root/p28-tree = HEAD + 本卡 7 个文件 + 2 个迁移) 上跑，
+# 因为共享工作区 /opt/cloudpivot 里别的卡的未提交 WIP（budget_guard_tests.rs / unit_guard.rs）
+# 本身编不过 —— 那不是本卡的问题，但会挡住 lib test 目标的编译。
+
+=== rustfmt +1.94.1 --edition 2024 --check（本卡 7 个文件） ===
+FMT_EXIT=0
+
+=== cargo clippy -- -D warnings（lib + bins） ===
+CLIPPY_EXIT=0
+
+=== cargo build（产出 /root/p28-target/debug/cloudpivot，用于真机 e2e） ===
+BUILD_EXIT=0
+
+=== 邻接模块回归 1：business::erp::model::tests（读采购单列表/分页，含 purchase_order_page） ===
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 2452 filtered out; finished in 26.42s
+
+=== 邻接模块回归 2：business::erp::stockin_handler::stockin_handler_tests_d4_purchase（采购单 → 收货） ===
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 2460 filtered out; finished in 44.87s

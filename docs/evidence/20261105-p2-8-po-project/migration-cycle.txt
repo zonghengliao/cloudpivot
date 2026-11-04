@@ -1,0 +1,37 @@
+### 库：cloudpivot_p28b（模板 cloudpivot_54ad4c5f_clean 的副本，已应用 V0236 之前全部迁移）
+
+### 1) up（第一次；本卡在 p28b 上已跑过，这次顺带证明幂等）
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.up.sql:41: NOTICE:  column "project_id" of relation "biz_purchase_order" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.up.sql:48: NOTICE:  relation "idx_biz_po_project" already exists, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.up.sql:92: NOTICE:  V0237：采购单已挂项目（project_id 可空 + idx_biz_po_project 部分索引）
+DO
+
+### 2) 结构核对
+project_id uuid nullable=YES
+CREATE INDEX idx_biz_po_project ON public.biz_purchase_order USING btree (project_id, order_date DESC) WHERE (project_id IS NOT NULL)
+
+### 3) down
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.down.sql:37: NOTICE:  V0237 down：project_id 与 idx_biz_po_project 已删除，其余表未动
+DO
+
+### 4) down 之后：列与索引都必须为 0
+0
+0
+
+### 5) down 再跑一遍（幂等）
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.down.sql:9: NOTICE:  index "idx_biz_po_project" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.down.sql:12: NOTICE:  column "project_id" of relation "biz_purchase_order" does not exist, skipping
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.down.sql:37: NOTICE:  V0237 down：project_id 与 idx_biz_po_project 已删除，其余表未动
+DO
+
+### 6) up 恢复
+psql:/opt/cloudpivot/backend/migrations/business/V0237__erp_po_project_link.up.sql:92: NOTICE:  V0237：采购单已挂项目（project_id 可空 + idx_biz_po_project 部分索引）
+DO
+
+### 7) 恢复后列在、索引在
+1
+1
+
+### 8) 真引擎迁移（全新空库 cloudpivot_p28e2e，应用启动时自动跑）
+237 | erp_po_project_link | executed | success=true
+[2m2026-11-04T19:00:32.082398Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 178 个迁移

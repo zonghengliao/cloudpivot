@@ -376,6 +376,7 @@ mod tests {
             contract_id: None,
             contract_no_snapshot: None,
             supplier_name_snapshot: None,
+            project_id: None,
             over_credit_limit: false,
             credit_exposure: None,
             credit_limit_snapshot: None,
