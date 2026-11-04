@@ -547,6 +547,297 @@ pub(crate) async fn sweep_depts(prefix: &str) -> SweepReport {
     .await
 }
 
+// ==================== 用例级夹具身份（并发安全的清扫口径） ====================
+//
+// # 为什么要「按本用例身份」而不是按模块前缀清扫
+//
+// `masking` / `system::user` / `system::role` 三个模块原先各有一个
+// `sweep()`：`DELETE FROM sys_user WHERE username LIKE 'tc_u%'` 这种**整批前缀**扫。
+// 在 libtest 默认线程数（= CPU 数）下，同一个模块的兄弟用例是**并行**跑的：
+// A 用例一开头 sweep 一次，就把 B 用例刚刚建好、正在使用的操作者/角色/规则一起删掉。
+// 实测（卡 t_18dcb777，干净库、只改线程数）：
+//
+// ```text
+// business::masking  --test-threads=4 → 8 passed / 2 failed   --test-threads=1 → 10/0
+// system::user       --test-threads=4 → 7 passed / 5 failed   --test-threads=1 → 12/0
+// system::role       --test-threads=4 → 4 passed / 4 failed   --test-threads=1 → 8/0
+// ```
+//
+// 报错形如 `30001 操作者账号不存在，拒绝操作`、`sys_user_role_user_id_fkey` 违约 ——
+// 都是「自己的操作者被兄弟用例 sweep 掉了」。
+//
+// # 现在的口径
+//
+// 每个用例开头 `let fx = ts::Fixture::new("tc_u", "u03")` 拿到一个**唯一身份**
+// （`tc_u_u03_<毫秒+进程内序号>`），本用例造的所有行都带上它；
+// `fx.sweep()` 只做两段式删除：
+//
+// ```sql
+// SELECT id FROM <表> WHERE <身份列> LIKE '<本用例身份>%'   -- ① 只捞自己的
+// DELETE FROM <表> WHERE id IN (<上面那批 id>)              -- ② 只按 id 删
+// ```
+//
+// **禁止**再按 `tc_m%` / `tc_u%` / `tc_r%` 整批前缀扫：那是「删别人的行」的唯一来源。
+
+/// 正在运行（尚未结束）的用例身份登记表。
+///
+/// 残留自检（`x00`）据此排除**并行兄弟用例正在用**的行：那些行不是残留，
+/// 只是还没到清理那一步。用例一结束（`Fixture` 被 Drop）身份即注销，
+/// 它留下的行立刻重新纳入残留判据 —— 口径没有放宽，只是不再把「在途」当「泄漏」。
+fn active_registry() -> &'static std::sync::Mutex<Vec<String>> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<Vec<String>>> =
+        std::sync::OnceLock::new();
+    REGISTRY.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
+
+/// 当前仍在运行的用例身份（快照）。
+pub(crate) fn active_tags() -> Vec<String> {
+    active_registry()
+        .lock()
+        .map(|guard| guard.clone())
+        .unwrap_or_default()
+}
+
+fn register_tag(tag: &str) {
+    if let Ok(mut guard) = active_registry().lock() {
+        guard.push(tag.to_string());
+    }
+}
+
+fn unregister_tag(tag: &str) {
+    if let Ok(mut guard) = active_registry().lock() {
+        guard.retain(|item| item != tag);
+    }
+}
+
+/// 一个用例的夹具身份。Drop 时自动注销（panic 展开也会走到）。
+#[derive(Debug)]
+pub(crate) struct Fixture {
+    tag: String,
+}
+
+impl Fixture {
+    /// 造一个用例级身份。`family` 是模块族的表头（`tc_m` / `tc_u` / `tc_r`），
+    /// `case` 是用例号（`m05` / `u03` / `r02`），最终形如 `tc_m_m05_T1793800000000001`。
+    pub(crate) fn new(family: &str, case: &str) -> Self {
+        let tag = format!("{family}_{}_{}", case.to_ascii_lowercase(), uniq());
+        register_tag(&tag);
+        Self { tag }
+    }
+
+    /// 本用例的唯一身份（同时是 `username` / `role_code` / `menu.name` /
+    /// `dept_code` / `sys_field_mask.reason` 的公共前缀）。
+    pub(crate) fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    /// 在本用例身份下派生一个夹具标识（`fx.name("holder")` → `tc_m_m05_xxx_holder`）。
+    pub(crate) fn name(&self, suffix: &str) -> String {
+        format!("{}_{}", self.tag, suffix)
+    }
+
+    /// 清掉本用例造的全部夹具（只按 id 集合删，不碰兄弟用例）。
+    pub(crate) async fn sweep(&self) {
+        let reports = sweep_scope(&self.tag).await;
+        let failed: Vec<String> = reports
+            .iter()
+            .flat_map(|report| report.failed.iter().cloned())
+            .collect();
+        if !failed.is_empty() {
+            println!(
+                "WARN[cleanup] 用例身份 {} 清理未完全成功：{failed:?}",
+                self.tag
+            );
+        }
+    }
+}
+
+impl Drop for Fixture {
+    fn drop(&mut self) {
+        unregister_tag(&self.tag);
+    }
+}
+
+/// 把 id 列表渲染成内联 uuid 字面量（id 来自库、且逐条 `Uuid::parse_str` 校验过，
+/// 不存在注入面；空列表渲染成 `NULL` —— `IN (NULL)` 恒不命中，语义就是「什么都不删」）。
+fn uuid_literals(ids: &[String]) -> String {
+    let mut out = String::new();
+    let mut first = true;
+    for id in ids {
+        if uuid::Uuid::parse_str(id).is_err() {
+            continue;
+        }
+        if !first {
+            out.push_str(", ");
+        }
+        out.push('\'');
+        out.push_str(id);
+        out.push_str("'::uuid");
+        first = false;
+    }
+    if out.is_empty() {
+        "NULL".to_string()
+    } else {
+        out
+    }
+}
+
+/// 按身份列捞 id（两段式的第一段）。
+async fn ids_like(table: &str, column: &str, tag: &str) -> Vec<String> {
+    let sql = format!("SELECT id::text AS v FROM {table} WHERE {column} LIKE ?");
+    match db()
+        .find_with_params(&sql, vec![Value::from(format!("{tag}%"))])
+        .await
+    {
+        Ok(rows) => rows
+            .iter()
+            .filter_map(|row| row.get_typed::<Option<String>>("v").unwrap_or(None))
+            .collect(),
+        Err(error) => {
+            println!("WARN[cleanup] 按身份查 id 失败（{table}.{column} LIKE '{tag}%'）：{error}");
+            Vec::new()
+        }
+    }
+}
+
+/// 按 id 集合删一批实体行（两段式的第二段）。
+///
+/// 先整批 `DELETE ... WHERE id IN (...)`；整批失败时**退化逐行**，把影响面收敛到那一行，
+/// 并把「被业务表外键钉住」的行软删（保留引用完整性）、其余失败如实计入报告。
+async fn delete_by_ids(label: &str, table: &str, ids: &[String]) -> SweepReport {
+    let mut report = SweepReport {
+        label: format!("{label}({table} 按 id 删 {} 行)", ids.len()),
+        ..SweepReport::default()
+    };
+    if ids.is_empty() {
+        return report;
+    }
+    let sql = format!("DELETE FROM {table} WHERE id IN ({})", uuid_literals(ids));
+    match db().execute_with_params(&sql, vec![]).await {
+        Ok(rows) => {
+            report.deleted = usize::try_from(rows).unwrap_or(0);
+            return report;
+        }
+        Err(error) => {
+            println!(
+                "WARN[cleanup] {} 整批删除失败，退化逐行：{error}",
+                report.label
+            );
+        }
+    }
+    for id in ids {
+        let sql = format!("DELETE FROM {table} WHERE id = ?::text::uuid");
+        match db()
+            .execute_with_params(&sql, vec![Value::from(id.clone())])
+            .await
+        {
+            Ok(_) => report.deleted += 1,
+            Err(error) => {
+                let text = error.to_string();
+                if let Some(pinned_by) = business_pin(&text) {
+                    let soft = format!(
+                        "UPDATE {table} SET deleted_at = now() WHERE id = ?::text::uuid AND deleted_at IS NULL"
+                    );
+                    match db()
+                        .execute_with_params(&soft, vec![Value::from(id.clone())])
+                        .await
+                    {
+                        Ok(_) => {
+                            println!(
+                                "WARN[cleanup] {} 行 {id} 被业务表 {pinned_by} 引用，已软删",
+                                report.label
+                            );
+                            report.kept_by_business.push(format!("{id}←{pinned_by}"));
+                        }
+                        Err(soft_error) => {
+                            report.failed.push(format!("{id} 软删失败：{soft_error}"));
+                        }
+                    }
+                    continue;
+                }
+                report.failed.push(format!("{id}: {text}"));
+                println!(
+                    "WARN[cleanup] {} 行 {id} 硬删失败（非业务表外键）：{text}",
+                    report.label
+                );
+            }
+        }
+    }
+    println!("[cleanup] {}", report.summary());
+    report
+}
+
+/// 清单个用例身份造的全部夹具：**先按身份 SELECT id，再按 id 集合删**。
+///
+/// 依赖顺序：`sys_field_mask` / `sys_user_role` / `sys_role_menu` / `sys_role_dept` /
+/// `sys_role_mutex` / `sys_user_preference`（引用行）→ 菜单 / 部门 / 角色 / 用户（实体行）。
+/// 一张表都没有别人的行：身份是本用例唯一的。
+pub(crate) async fn sweep_scope(tag: &str) -> Vec<SweepReport> {
+    let users = ids_like("sys_user", "username", tag).await;
+    let roles = ids_like("sys_role", "role_code", tag).await;
+    let menus = ids_like("sys_menu", "name", tag).await;
+    let depts = ids_like("sys_dept", "dept_code", tag).await;
+    let masks = ids_like("sys_field_mask", "reason", tag).await;
+
+    let (user_sql, role_sql, menu_sql, dept_sql, mask_sql) = (
+        uuid_literals(&users),
+        uuid_literals(&roles),
+        uuid_literals(&menus),
+        uuid_literals(&depts),
+        uuid_literals(&masks),
+    );
+
+    // 引用行：按外键依赖顺序先清（顺序错会让实体行删不掉）
+    let dependents = [
+        (
+            "sys_role_menu",
+            format!(
+                "DELETE FROM sys_role_menu WHERE role_id IN ({role_sql}) OR menu_id IN ({menu_sql})"
+            ),
+        ),
+        (
+            "sys_user_role",
+            format!(
+                "DELETE FROM sys_user_role WHERE user_id IN ({user_sql}) OR role_id IN ({role_sql})"
+            ),
+        ),
+        (
+            "sys_role_dept",
+            format!(
+                "DELETE FROM sys_role_dept WHERE role_id IN ({role_sql}) OR dept_id IN ({dept_sql})"
+            ),
+        ),
+        (
+            "sys_role_mutex",
+            format!(
+                "DELETE FROM sys_role_mutex WHERE role_a_id IN ({role_sql}) OR role_b_id IN ({role_sql})"
+            ),
+        ),
+        (
+            "sys_user_preference",
+            format!("DELETE FROM sys_user_preference WHERE user_id IN ({user_sql})"),
+        ),
+        (
+            "sys_field_mask",
+            format!("DELETE FROM sys_field_mask WHERE id IN ({mask_sql})"),
+        ),
+    ];
+    for (label, sql) in dependents {
+        let rows = cleanup_sql(&format!("{tag}→{label}"), &sql, vec![]).await;
+        if rows > 0 {
+            println!("[cleanup] {tag} 先清引用行 {label}：{rows} 行");
+        }
+    }
+
+    // 实体行：按 id 集合删（菜单/部门先于角色：`sys_role_menu` 已清，这里只是顺序稳妥）
+    let mut reports = Vec::new();
+    reports.push(delete_by_ids(tag, "sys_menu", &menus).await);
+    reports.push(delete_by_ids(tag, "sys_dept", &depts).await);
+    reports.push(delete_by_ids(tag, "sys_role", &roles).await);
+    reports.push(delete_by_ids(tag, "sys_user", &users).await);
+    reports
+}
+
 // ==================== 残留自检（跑完 system:: 必须为 0） ====================
 
 /// 已知夹具前缀白名单（与卡片一致；大小写敏感，`~` 是 PostgreSQL 正则）。
@@ -586,12 +877,27 @@ impl ResidueReport {
     }
 }
 
+/// 排除「并行兄弟用例正在用」的行：身份仍登记在 [`active_registry`] 里的一律不算残留。
+///
+/// 口径没有放宽：用例一结束（`Fixture` Drop）身份即注销，它留下的行立刻重新纳入判据；
+/// 只有**正在跑的那一刻**才排除，否则并行跑时「A 用例刚建好、还没清理」会被误判成泄漏。
+fn active_identity_regex() -> String {
+    let tags = active_tags();
+    if tags.is_empty() {
+        // 恒不命中（`~ '^$'` 只匹配空串）
+        "^$".to_string()
+    } else {
+        format!("^({})", tags.join("|"))
+    }
+}
+
 /// 按夹具白名单统计四张实体表的残留行（`created_at < before`，含软删行）。
 pub(crate) async fn count_fixture_residue(before: chrono::DateTime<chrono::Utc>) -> ResidueReport {
     let mut report = ResidueReport {
         per_table: Vec::new(),
         samples: Vec::new(),
     };
+    let active = active_identity_regex();
     for (table, column) in [
         ("sys_menu", "name"),
         ("sys_role", "role_code"),
@@ -599,12 +905,16 @@ pub(crate) async fn count_fixture_residue(before: chrono::DateTime<chrono::Utc>)
         ("sys_dept", "dept_code"),
     ] {
         let count_sql = format!(
-            "SELECT count(*) AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?"
+            "SELECT count(*) AS v FROM {table} WHERE {column} ~ ? AND {column} !~ ? AND {SEED_ID_EXCLUSION} AND created_at < ?"
         );
         let count = db()
             .scalar_with_params(
                 &count_sql,
-                vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
+                vec![
+                    Value::from(FIXTURE_PREFIX_REGEX),
+                    Value::from(active.clone()),
+                    Value::from(before),
+                ],
             )
             .await
             .unwrap_or_else(|error| panic!("统计残留失败：{error}\nSQL: {count_sql}"));
@@ -612,12 +922,16 @@ pub(crate) async fn count_fixture_residue(before: chrono::DateTime<chrono::Utc>)
 
         if count > 0 {
             let sample_sql = format!(
-                "SELECT {column} AS v FROM {table} WHERE {column} ~ ? AND {SEED_ID_EXCLUSION} AND created_at < ? ORDER BY {column} LIMIT 5"
+                "SELECT {column} AS v FROM {table} WHERE {column} ~ ? AND {column} !~ ? AND {SEED_ID_EXCLUSION} AND created_at < ? ORDER BY {column} LIMIT 5"
             );
             if let Ok(rows) = db()
                 .find_with_params(
                     &sample_sql,
-                    vec![Value::from(FIXTURE_PREFIX_REGEX), Value::from(before)],
+                    vec![
+                        Value::from(FIXTURE_PREFIX_REGEX),
+                        Value::from(active.clone()),
+                        Value::from(before),
+                    ],
                 )
                 .await
             {
@@ -766,7 +1080,8 @@ mod self_check {
     /// - **自愈**：清掉 `created_at < 本进程起点`（起点 = 首次连库时刻 - 60s）的残留，
     ///   这些一定是上一轮/历史 run 留下的，不可能是本进程正在用的夹具；
     /// - **判定**：`created_at < now - 5s` 的夹具行必须为 0 —— 同一次 run 里更早跑完的
-    ///   用例若泄漏，也会在这里被抓到（前提：`--test-threads=1`，见文件头跑法）；
+    ///   用例若泄漏，也会在这里被抓到（**并行跑也成立**：仍在运行中的用例身份登记在
+    ///   `active_registry` 里，被排除在残留判据之外，见 `active_identity_regex`）；
     /// - **唯一豁免**：仍被业务表（`biz_*`）引用的夹具用户。硬删会破坏别的卡的业务
     ///   数据引用完整性，只能软删；它们按行计入 `kept_by_business` 并在断言里**精确对账**
     ///   （用户残留数必须恰好等于豁免数，多一行都算泄漏）。

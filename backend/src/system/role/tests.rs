@@ -1,4 +1,4 @@
-//! 测试C · P1-2：`system/role` 用例集（R01–R06）。
+//! 测试C · P1-2：`system/role` 用例集（R01–R08）。
 //!
 //! # 覆盖重点
 //!
@@ -17,11 +17,23 @@
 //! `middleware::session_guard` 逐请求比对），缓存侧清理降级为 warn 日志，因此
 //! **无 Redis 也回 200**，用例直接断言成功。
 //!
+//! # 夹具（2026-11-04 改造：用例级身份 + 只按 id 集合删，见卡 t_18dcb777）
+//!
+//! - 开关头的 `sweep()` 原先按 `tc_r%` **整批前缀**删角色/用户/菜单：并行跑时 A 用例
+//!   会把 B 用例刚建好的操作者、角色、按钮一起删掉（实测 `--test-threads=4` 8 条红 4 条）。
+//!   现在每个用例一个唯一身份 `ts::Fixture::new("tc_r", "r02")`，收尾只按该身份
+//!   `SELECT id → DELETE ... WHERE id IN (...)`。
+//! - 操作者（必须是**库里真实持有 SUPER_ADMIN** 的人）直接用内置管理员 `admin`：
+//!   不再每个用例现造/删一个"临时超管"（`assignee_type='ADMIN'` 的流程节点在运行时
+//!   展开「全部超管」，那种增删会让别的模块写 `biz_flow_task.assignee_id` 时撞硬外键）。
+//!
 //! 跑法：
 //! ```bash
-//! SYS_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
+//! ERP_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
 //!   cargo test --lib system::role::tests -- --nocapture
 //! ```
+//!
+//! **默认线程数就是安全的**。
 
 use nik::prelude::*;
 
@@ -31,98 +43,15 @@ use crate::system::role::dto::{RoleMenuAssignReq, RoleSaveReq};
 use crate::system::role::handler;
 use crate::system::tests_support as ts;
 
-/// 夹具前缀。
-const PREFIX: &str = "tc_r";
-
-/// 清扫本卡历史残留。
-///
-/// # 为什么不再 `let _ =`
-///
-/// 之前每一步都是 `let _ = db().execute_with_params(...)`：删除失败被静默吞掉，
-/// 结果 `system::` 每跑一遍就往 `cloudpivot_test` 里攒 30+ 行 `tc_r` 夹具（用户软删
-/// 行为主）。现在：
-///
-/// - 依赖行（`sys_role_menu` → `sys_user_role` → `sys_role_mutex` → `sys_role`）
-///   走 [`ts::cleanup_sql`]，失败打 `WARN[cleanup]` + SQL + 数据库原文；
-/// - 实体行走 [`ts::sweep_users`] / [`ts::sweep_roles`]，**逐行**删：
-///   整批 DELETE 只要有一行被业务表外键挡住就会整条回滚，一个脏行连累全部夹具；
-///   逐行删把影响面收敛到那一行，并给自检用例留下可断言的明细。
-async fn sweep() {
-    for (label, sql, arity) in [
-        (
-            "sys_role_menu",
-            "DELETE FROM sys_role_menu WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            1,
-        ),
-        (
-            "sys_user_role",
-            "DELETE FROM sys_user_role WHERE role_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            1,
-        ),
-        (
-            "sys_role_mutex",
-            "DELETE FROM sys_role_mutex WHERE role_a_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?) \
-             OR role_b_id IN (SELECT id FROM sys_role WHERE role_code LIKE ?)",
-            2,
-        ),
-    ] {
-        ts::cleanup_sql(
-            &format!("role/sweep→{label}(LIKE '{PREFIX}%')"),
-            sql,
-            vec![Value::from(format!("{PREFIX}%")); arity],
-        )
-        .await;
-    }
-
-    let roles = ts::sweep_roles(PREFIX).await;
-    let users = ts::sweep_users(PREFIX).await;
-    if !roles.is_clean() || !users.is_clean() {
-        println!(
-            "WARN[cleanup] role/sweep 未完全成功：{:?} {:?}",
-            roles.failed, users.failed
-        );
-    }
-
-    // 本卡的菜单夹具也是 `tc_r` 前缀（R01/R02 的授权菜单、R07 的按钮），
-    // 之前只按角色/用户清、漏了菜单——每跑一遍就留 1 行 `tc_r_r07_...-按钮`。
-    let menus = ts::sweep_menus(PREFIX).await;
-    if !menus.is_clean() {
-        println!(
-            "WARN[cleanup] role/sweep 菜单清理未完全成功：{:?}",
-            menus.failed
-        );
-    }
-}
-
-/// 造一个「库里真实持有 SUPER_ADMIN」的操作者声明。
-async fn super_operator() -> (uuid::Uuid, AuthClaims) {
-    let username = format!("{PREFIX}_op_{}", ts::uniq());
-    let user_id = uuid::Uuid::now_v7();
-    let hash = nik::Crypto::hash_password("Operator@123456").expect("哈希失败");
-    ts::exec(
-        "INSERT INTO sys_user (id, username, password, real_name, status) VALUES (?::text::uuid, ?, ?, '角色测试操作者', 1)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(username.clone()),
-            Value::from(hash),
-        ],
-    )
-    .await;
-    let role = ts::scalar_text(
-        "SELECT id::text AS v FROM sys_role WHERE role_code = ? AND deleted_at IS NULL",
-        vec![Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
+/// 「库里真实持有 SUPER_ADMIN」的操作者声明 —— 直接用内置管理员（见文件头夹具说明）。
+async fn admin_operator() -> AuthClaims {
+    let id = ts::scalar_text(
+        "SELECT id::text AS v FROM sys_user WHERE username = ? AND deleted_at IS NULL",
+        vec![Value::from(constants::ADMIN_USERNAME)],
     )
     .await
-    .expect("库里必须有 SUPER_ADMIN 角色");
-    ts::exec(
-        "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(user_id.to_string()), Value::from(role)],
-    )
-    .await;
-    (
-        user_id,
-        ts::claims(&user_id.to_string(), &username, &["*:*:*"]),
-    )
+    .expect("库里必须有内置管理员 admin");
+    ts::claims(&id, constants::ADMIN_USERNAME, &["*:*:*"])
 }
 
 /// 角色请求体。
@@ -206,11 +135,6 @@ async fn assign_menus(claims: &AuthClaims, role_id: &str, menu_ids: &[String]) {
     }
 }
 
-/// 清理（本次用例的夹具）。
-async fn cleanup() {
-    sweep().await;
-}
-
 // ==================== R01 建角色 → 分配权限 ====================
 
 /// R01：新建角色并授权菜单 → `sys_role_menu` 落库、`GET /role/{id}/menus` 反向读得出来。
@@ -219,14 +143,13 @@ async fn r01_create_role_and_assign_menus() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
-    let code = format!("{PREFIX}_{tag}");
+    let fx = ts::Fixture::new("tc_r", "r01");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C 角色").await;
 
-    let menu_a = create_menu(&claims, &format!("{code}-按钮A"), &format!("testc:{tag}:a")).await;
-    let menu_b = create_menu(&claims, &format!("{code}-按钮B"), &format!("testc:{tag}:b")).await;
+    let menu_a = create_menu(&claims, &fx.name("按钮A"), &format!("testc:{}:a", fx.tag())).await;
+    let menu_b = create_menu(&claims, &fx.name("按钮B"), &format!("testc:{}:b", fx.tag())).await;
     assign_menus(&claims, &role_id, &[menu_a.clone(), menu_b.clone()]).await;
 
     let rows = ts::scalar_i64(
@@ -245,19 +168,8 @@ async fn r01_create_role_and_assign_menus() {
     assert_eq!(menus.len(), 2, "反查应得到 2 条授权");
     assert!(menus.contains(&menu_a) && menus.contains(&menu_b));
 
-    // 收尾：先 `sys_role_menu`（引用 role + menu），再菜单行；失败打 WARN 不吞
-    ts::cleanup_sql(
-        &format!("R01→sys_role_menu({menu_a},{menu_b})"),
-        "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(menu_a), Value::from(menu_b)],
-    )
-    .await;
-    let menus = ts::sweep_menus(&format!("{code}-")).await;
-    if !menus.is_clean() {
-        println!("WARN[cleanup] R01 菜单清理未完全成功：{:?}", menus.failed);
-    }
     println!("[R01] 建角色 + 授权 2 条菜单，落库与反查一致 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R02 授权变更 → 在线用户立即生效 ====================
@@ -272,14 +184,13 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
-    let code = format!("{PREFIX}_r02_{tag}");
+    let fx = ts::Fixture::new("tc_r", "r02");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C R02 角色").await;
 
     // 持该角色的用户
-    let username = format!("{PREFIX}_r02_u_{tag}");
+    let username = fx.name("holder");
     let user_id = uuid::Uuid::now_v7();
     let hash = nik::Crypto::hash_password("Passw0rd@2").expect("哈希失败");
     ts::exec(
@@ -300,10 +211,10 @@ async fn r02_role_permission_change_takes_effect_immediately() {
     )
     .await;
 
-    let grant_auth = format!("testc:{tag}:grant");
-    let revoke_auth = format!("testc:{tag}:revoke");
-    let menu_grant = create_menu(&claims, &format!("{code}-授予"), &grant_auth).await;
-    let menu_revoke = create_menu(&claims, &format!("{code}-撤销"), &revoke_auth).await;
+    let grant_auth = format!("testc:{}:grant", fx.tag());
+    let revoke_auth = format!("testc:{}:revoke", fx.tag());
+    let menu_grant = create_menu(&claims, &fx.name("授予"), &grant_auth).await;
+    let menu_revoke = create_menu(&claims, &fx.name("撤销"), &revoke_auth).await;
 
     // 先授予「revoke」这条（之后撤掉它）
     assign_menus(&claims, &role_id, std::slice::from_ref(&menu_revoke)).await;
@@ -328,20 +239,8 @@ async fn r02_role_permission_change_takes_effect_immediately() {
         !after.contains(&revoke_auth),
         "被撤销的权限必须立刻消失，实际 {after:?}"
     );
-
-    // 收尾：先 `sys_role_menu`（引用 role + menu），再菜单行；失败打 WARN 不吞
-    ts::cleanup_sql(
-        &format!("R02→sys_role_menu({menu_grant},{menu_revoke})"),
-        "DELETE FROM sys_role_menu WHERE menu_id IN (?::text::uuid, ?::text::uuid)",
-        vec![Value::from(menu_grant), Value::from(menu_revoke)],
-    )
-    .await;
-    let menus = ts::sweep_menus(&format!("{code}-")).await;
-    if !menus.is_clean() {
-        println!("WARN[cleanup] R02 菜单清理未完全成功：{:?}", menus.failed);
-    }
     println!("[R02] 授权变更后权限重算立即反映（{revoke_auth} → {grant_auth}）✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R03 有用户的角色不能删 ====================
@@ -352,13 +251,12 @@ async fn r03_role_in_use_cannot_be_deleted() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
-    let code = format!("{PREFIX}_r03_{tag}");
+    let fx = ts::Fixture::new("tc_r", "r03");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C R03 角色").await;
 
-    let username = format!("{PREFIX}_r03_u_{tag}");
+    let username = fx.name("holder");
     let user_id = uuid::Uuid::now_v7();
     let hash = nik::Crypto::hash_password("Passw0rd@3").expect("哈希失败");
     ts::exec(
@@ -401,7 +299,7 @@ async fn r03_role_in_use_cannot_be_deleted() {
     .await;
     assert_eq!(alive, 1, "被拒后角色必须仍然存在");
     println!("[R03] 有用户的角色删除 → 409「{}」✓", error.msg);
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R04 内置超管角色受保护 ====================
@@ -412,8 +310,8 @@ async fn r04_builtin_super_admin_role_is_protected() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
+    let _fx = ts::Fixture::new("tc_r", "r04");
+    let claims = admin_operator().await;
     let super_role = ts::scalar_text(
         "SELECT id::text AS v FROM sys_role WHERE role_code = ? AND deleted_at IS NULL",
         vec![Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
@@ -469,7 +367,6 @@ async fn r04_builtin_super_admin_role_is_protected() {
         "[R04] 内置超管角色：删除 → 409「{}」；非超管改授权 → 409「{}」✓",
         delete_error.msg, assign_error.msg
     );
-    cleanup().await;
 }
 
 // ==================== R05 互斥角色不能双持 ====================
@@ -483,23 +380,22 @@ async fn r05_mutex_roles_rejected() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
+    let fx = ts::Fixture::new("tc_r", "r05");
+    let claims = admin_operator().await;
 
-    let role_a = create_role(&claims, &format!("{PREFIX}_r05a_{tag}"), "测试C 互斥A").await;
-    let role_b = create_role(&claims, &format!("{PREFIX}_r05b_{tag}"), "测试C 互斥B").await;
+    let role_a = create_role(&claims, &fx.name("r05a"), "测试C 互斥A").await;
+    let role_b = create_role(&claims, &fx.name("r05b"), "测试C 互斥B").await;
     ts::exec(
         "INSERT INTO sys_role_mutex (role_a_id, role_b_id, reason) VALUES (?::text::uuid, ?::text::uuid, ?)",
         vec![
             Value::from(role_a.clone()),
             Value::from(role_b.clone()),
-            Value::from("测试C：职责分离（采购与付款不得同一人）"),
+            Value::from(fx.name("互斥")),
         ],
     )
     .await;
 
-    let username = format!("{PREFIX}_r05_u_{tag}");
+    let username = fx.name("holder");
     let user_id = uuid::Uuid::now_v7();
     let hash = nik::Crypto::hash_password("Passw0rd@5").expect("哈希失败");
     ts::exec(
@@ -557,7 +453,7 @@ async fn r05_mutex_roles_rejected() {
         "[R05] 互斥角色：同次同授 409、分次补授 409（{}）✓",
         error.msg
     );
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R06 角色编码重复 ====================
@@ -568,9 +464,9 @@ async fn r06_duplicate_role_code_conflict() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let code = format!("{PREFIX}_r06_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_r", "r06");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     create_role(&claims, &code, "测试C R06 角色").await;
 
     let dup = handler::create(
@@ -593,7 +489,7 @@ async fn r06_duplicate_role_code_conflict() {
     .await;
     assert_eq!(count, 1, "失败请求不得插入第二个同编码角色");
     println!("[R06] 角色编码重复 → 409（{}）✓", dup.msg);
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R07 授权变更 → 库侧令牌失效（BUG-SYS-03） ====================
@@ -636,13 +532,12 @@ async fn r07_assign_menus_bumps_holders_token_version() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
-    let code = format!("{PREFIX}_r07_{tag}");
+    let fx = ts::Fixture::new("tc_r", "r07");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C R07 角色").await;
 
-    let holder = create_user(&format!("{PREFIX}_r07_holder_{tag}")).await;
+    let holder = create_user(&fx.name("holder")).await;
     ts::exec(
         "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
         vec![
@@ -651,7 +546,7 @@ async fn r07_assign_menus_bumps_holders_token_version() {
         ],
     )
     .await;
-    let bystander = create_user(&format!("{PREFIX}_r07_by_{tag}")).await;
+    let bystander = create_user(&fx.name("by")).await;
     let admin_id: uuid::Uuid = ts::scalar_text(
         "SELECT id::text AS v FROM sys_user WHERE username = ?",
         vec![Value::from(constants::ADMIN_USERNAME)],
@@ -667,8 +562,8 @@ async fn r07_assign_menus_bumps_holders_token_version() {
 
     let menu = create_menu(
         &claims,
-        &format!("{code}-按钮"),
-        &format!("testc:{tag}:r07"),
+        &fx.name("按钮"),
+        &format!("testc:{}:r07", fx.tag()),
     )
     .await;
     // helper 内部对失败 panic：无 Redis 也必须成功（BUG-SYS-03）
@@ -689,30 +584,8 @@ async fn r07_assign_menus_bumps_holders_token_version() {
         admin_before,
         "内置管理员保留会话（超管权限走通配短路）"
     );
-
-    // 收尾：顺序按外键依赖（sys_user_role → sys_user → sys_role_menu），
-    // 每步失败打 WARN 不吞；菜单本身由 sweep()（`tc_r` 前缀）兜底删掉。
-    ts::cleanup_sql(
-        &format!("R07→sys_user_role({holder},{bystander})"),
-        "DELETE FROM sys_user_role WHERE user_id IN (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(holder.to_string()),
-            Value::from(bystander.to_string()),
-        ],
-    )
-    .await;
-    ts::cleanup_sql(
-        &format!("R07→sys_role_menu(menu={menu})"),
-        "DELETE FROM sys_role_menu WHERE menu_id = ?::text::uuid",
-        vec![Value::from(menu)],
-    )
-    .await;
-    let users = ts::sweep_users(&format!("{PREFIX}_r07_")).await;
-    if !users.is_clean() {
-        println!("WARN[cleanup] R07 用户清理未完全成功：{:?}", users.failed);
-    }
     println!("[R07] 授权变更 → 持有者 token_version +1，无关用户与 admin 不动 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== R08 无缓存（无 Redis）时角色授权照常成功（FIX-03） ====================
@@ -727,19 +600,18 @@ async fn r08_assign_menus_succeeds_without_cache() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
+    let fx = ts::Fixture::new("tc_r", "r08");
     assert!(
         try_cache().is_none(),
         "本用例模拟「无 Redis」：要求进程内没有注册缓存"
     );
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
-    let code = format!("{PREFIX}_r08_{tag}");
+    let claims = admin_operator().await;
+    let code = fx.name("role");
     let role_id = create_role(&claims, &code, "测试C R08 角色").await;
     let menu = create_menu(
         &claims,
-        &format!("{code}-按钮"),
-        &format!("testc:{tag}:r08"),
+        &fx.name("按钮"),
+        &format!("testc:{}:r08", fx.tag()),
     )
     .await;
 
@@ -776,5 +648,5 @@ async fn r08_assign_menus_succeeds_without_cache() {
         .expect("无缓存时启用角色下拉仍必须可查");
 
     println!("[R08] 无缓存：授权 / 清空均成功且落库，缓存读路径回退查库 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }

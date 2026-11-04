@@ -13,17 +13,29 @@
 //! 2. 卡片写「改密后旧 token 失效」——机制是 `sys_user.token_version` 自增 + 会话守卫
 //!    逐请求比对（`middleware/session_guard.rs`），本文件验证 handler 真的推进了版本号。
 //!
-//! # 夹具
+//! # 夹具（2026-11-04 改造：用例级身份 + 只按 id 集合删，见卡 t_18dcb777）
 //!
 //! 所有写操作都以**真实超管身份**执行（`user/guard.rs` 的权限上限要求操作者在库里真实
-//! 存在且持有 `SUPER_ADMIN`），因此每个用例先建一个真超管操作者账号。
-//! 夹具前缀 `tc_u`，用例开头清扫、结尾清理（跑到一半 panic 也不留垃圾）。
+//! 存在且持有 `SUPER_ADMIN`）。操作者直接复用**内置管理员 `admin`**（库里必然存在、
+//! 不会中途被谁删掉），不再每个用例现造一个"临时超管"：
+//!
+//! - 旧写法每个用例建 `tc_u_op_<uniq>` 并挂 `SUPER_ADMIN`，用例末尾把它删掉。
+//!   `assignee_type = 'ADMIN'` 的流程节点在运行时展开「全部超管」，于是别的模块
+//!   （`payable_bridge` / `payable_payment` / `flow`…）会在同一时刻把一个正在被删的
+//!   临时超管写进 `biz_flow_task.assignee_id` —— 那个硬外键一瞬间就炸
+//!   （实测 `foreign key violated (constraint biz_flow_task_assignee_id_fkey)`，
+//!   见卡 t_18dcb777 的取证）。改用内置 admin 后**不再有临时超管的增删**，该竞态消失。
+//! - 每个用例一个唯一身份 `ts::Fixture::new("tc_u", "u03")`，本用例造的所有行都带它；
+//!   收尾 `fx.sweep()` 只做「按本用例身份 SELECT id → 按 id 集合 DELETE」，
+//!   不按 `tc_u%` 整批前缀扫 ⇒ 并行跑也不会删掉兄弟用例正在用的行。
 //!
 //! 跑法：
 //! ```bash
-//! SYS_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
+//! ERP_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
 //!   cargo test --lib system::user::tests -- --nocapture
 //! ```
+//!
+//! **默认线程数就是安全的**（本模块原先要求 `--test-threads=1`，那正是缺陷本身）。
 
 use nik::prelude::*;
 
@@ -36,46 +48,18 @@ use crate::system::user::dto::{
 };
 use crate::system::user::{handler, model};
 
-/// 清扫 / 清理用的夹具前缀（小写，便于 `LIKE 'tc_u%'`）。
-const PREFIX: &str = "tc_u";
-
-/// 造一个「库里真实存在且持有 SUPER_ADMIN 角色」的操作者，返回 `(用户ID, 声明)`。
-async fn super_operator() -> (uuid::Uuid, AuthClaims) {
-    let tag = ts::uniq();
-    let username = format!("{PREFIX}_op_{tag}");
-    let user_id = uuid::Uuid::now_v7();
-    let hash = nik::Crypto::hash_password("Operator@123456").expect("哈希失败");
-    ts::exec(
-        "INSERT INTO sys_user (id, username, password, real_name, status) VALUES (?::text::uuid, ?, ?, '超管操作者', 1)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(username.clone()),
-            Value::from(hash),
-        ],
-    )
-    .await;
-    let role_id = super_admin_role_id().await;
-    ts::exec(
-        "INSERT INTO sys_user_role (user_id, role_id) VALUES (?::text::uuid, ?::text::uuid)",
-        vec![
-            Value::from(user_id.to_string()),
-            Value::from(role_id.to_string()),
-        ],
-    )
-    .await;
-    let claims = ts::claims(&user_id.to_string(), &username, &["*:*:*"]);
-    (user_id, claims)
-}
-
-/// 库里内置超管角色的 ID。
-async fn super_admin_role_id() -> uuid::Uuid {
-    let raw = ts::scalar_text(
-        "SELECT id::text AS v FROM sys_role WHERE role_code = ? AND deleted_at IS NULL",
-        vec![Value::from(constants::SUPER_ADMIN_ROLE_CODE)],
+/// 「库里真实存在且持有 SUPER_ADMIN」的操作者声明 —— 直接用内置管理员。
+///
+/// `guard::ensure_role_grant_allowed` 以**库里的角色绑定**判定操作者是不是超管，
+/// 内置 admin 由 bootstrap 保证持有 `SUPER_ADMIN`，因此 claims 里的 `*:*:*` 与库侧一致。
+async fn admin_operator() -> AuthClaims {
+    let id = ts::scalar_text(
+        "SELECT id::text AS v FROM sys_user WHERE username = ? AND deleted_at IS NULL",
+        vec![Value::from(constants::ADMIN_USERNAME)],
     )
     .await
-    .expect("库里必须有 SUPER_ADMIN 角色（迁移种子）");
-    uuid::Uuid::parse_str(&raw).expect("角色 ID 必须是 UUID")
+    .expect("库里必须有内置 admin 账号（bootstrap 种子）");
+    ts::claims(&id, constants::ADMIN_USERNAME, &["*:*:*"])
 }
 
 /// 造一个用户请求体。
@@ -106,31 +90,6 @@ async fn create_user(claims: &AuthClaims, username: &str, password: &str) -> Str
     created.data.expect("create 必须返回 data").id
 }
 
-/// 清扫本卡历史残留。
-///
-/// 先删**外键依赖行**（登录流程会写 `sys_user_preference`、角色绑定在 `sys_user_role`），
-/// 再删用户本体；删不动时退化为软删（`deleted_at` 置位），既不撞唯一索引，也不影响任何
-/// 按 `deleted_at IS NULL` 的查询。
-///
-/// # 为什么不再 `let _ =`
-///
-/// 之前整批 `DELETE FROM sys_user WHERE username LIKE 'tc_u%'` 只要碰到**一行**被业务表
-/// 外键引用（例如别的卡把夹具用户挂成了单据的 assignee），PostgreSQL 就把整条语句回滚：
-/// 一个脏行连累全部夹具，随后兜底软删让它们永久堆积（实测一次 `system::` +33 行）。
-/// 现在走 [`ts::sweep_users`]：**逐行**删，只有真正删不掉的那几行才软删，并且打
-/// `WARN[cleanup]`（含被哪张业务表钉住）；其它失败一律视为清理 bug，由自检用例判红。
-async fn sweep() {
-    let report = ts::sweep_users(PREFIX).await;
-    if !report.is_clean() {
-        println!("WARN[cleanup] user/sweep 未完全成功：{:?}", report.failed);
-    }
-}
-
-/// 清理本次用例。
-async fn cleanup() {
-    sweep().await;
-}
-
 // ==================== U01 密码不落明文 ====================
 
 /// U01：新建用户时**口令不得明文落库**，必须是 Argon2 哈希（PHC 串）。
@@ -142,9 +101,9 @@ async fn u01_password_never_stored_in_plaintext() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u01_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u01");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let plain = "PlainPass@123";
     let id = create_user(&claims, &username, plain).await;
 
@@ -173,7 +132,7 @@ async fn u01_password_never_stored_in_plaintext() {
         "[U01] 口令落库为 Argon2 PHC（{} 字符），明文不可见且可校验 ✓",
         stored.len()
     );
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U02 用户名重复 ====================
@@ -184,9 +143,9 @@ async fn u02_duplicate_username_conflict() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u02_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u02");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     create_user(&claims, &username, "Passw0rd@1").await;
 
     let dup = handler::create(
@@ -209,7 +168,7 @@ async fn u02_duplicate_username_conflict() {
     .await;
     assert_eq!(count, 1, "失败的重名请求不得插入第二条");
     println!("[U02] 重名建号 → 409（{}），库内仍 1 条 ✓", dup.msg);
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U03 改密 → 旧令牌失效 ====================
@@ -220,9 +179,9 @@ async fn u03_password_reset_bumps_token_version() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u03_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u03");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let id = create_user(&claims, &username, "OldPass@123").await;
     let target = uuid::Uuid::parse_str(&id).expect("id 必须是 UUID");
 
@@ -269,7 +228,7 @@ async fn u03_password_reset_bumps_token_version() {
         "旧口令必须失效"
     );
     println!("[U03] 改密：token_version {ver_before} → {ver_after}，旧令牌作废、旧口令失效 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U04 锁定用户不能登录 ====================
@@ -280,9 +239,9 @@ async fn u04_locked_user_cannot_login() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u04_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u04");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let password = "LockMe@123";
     let id = create_user(&claims, &username, password).await;
 
@@ -309,7 +268,7 @@ async fn u04_locked_user_cannot_login() {
         error.status, error.code, error.msg
     );
     println!("[U04] 锁定账号（口令正确）→ 403「{}」✓", error.msg);
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U05 登录失败达阈值自动锁定 ====================
@@ -320,9 +279,9 @@ async fn u05_repeated_login_failures_lock_account() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u05_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u05");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let id = create_user(&claims, &username, "Right@1234").await;
 
     let (max_fail, _lock_minutes) = crate::system::auth::model::login_security_policy().await;
@@ -360,7 +319,7 @@ async fn u05_repeated_login_failures_lock_account() {
         "失败计数应累计到阈值，实际 {fail_count}"
     );
     println!("[U05] 失败 {max_fail} 次 → is_locked=true（计数 {fail_count}）✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U06 停用用户不能登录 ====================
@@ -371,9 +330,9 @@ async fn u06_disabled_user_cannot_login() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u06_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u06");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let password = "Disabled@123";
     let id = create_user(&claims, &username, password).await;
 
@@ -403,7 +362,7 @@ async fn u06_disabled_user_cannot_login() {
         error.status, error.code, error.msg
     );
     println!("[U06] 停用账号 → 403「{}」✓", error.msg);
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U07 删用户不破坏外键 ====================
@@ -414,9 +373,9 @@ async fn u07_delete_user_keeps_business_rows() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u07_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u07");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let id = create_user(&claims, &username, "DeleteMe@123").await;
 
     // 造一条以该用户为发起人的业务单据（biz_project.owner_id 有外键）
@@ -426,7 +385,7 @@ async fn u07_delete_user_keeps_business_rows() {
          VALUES (?::text::uuid, ?, ?, ?::text::uuid, 'ACTIVE')",
         vec![
             Value::from(project_id.to_string()),
-            Value::from(format!("{PREFIX}PJ{}", ts::uniq())),
+            Value::from(fx.name("PJ")),
             Value::from("测试C 项目"),
             Value::from(id.clone()),
         ],
@@ -477,7 +436,7 @@ async fn u07_delete_user_keeps_business_rows() {
     )
     .await;
     println!("[U07] 软删用户：业务单据与行保留、角色绑定清理 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U08 改部门 → 数据权限立即变化 ====================
@@ -490,9 +449,9 @@ async fn u08_dept_change_updates_data_scope_immediately() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let username = format!("{PREFIX}_u08_{}", ts::uniq());
+    let fx = ts::Fixture::new("tc_u", "u08");
+    let claims = admin_operator().await;
+    let username = fx.name("u");
     let id = create_user(&claims, &username, "Passw0rd@8").await;
     let user_uuid = uuid::Uuid::parse_str(&id).expect("id 必须是 UUID");
 
@@ -505,7 +464,7 @@ async fn u08_dept_change_updates_data_scope_immediately() {
              VALUES (?::text::uuid, ?, ?, NULL, 1, 0, ?)",
             vec![
                 Value::from(dept.to_string()),
-                Value::from(format!("{PREFIX}_D{suffix}_{}", ts::uniq())),
+                Value::from(fx.name(&format!("D{suffix}"))),
                 Value::from(format!("测试C部门{suffix}")),
                 Value::from(format!("/{dept}/")),
             ],
@@ -575,7 +534,7 @@ async fn u08_dept_change_updates_data_scope_immediately() {
         ],
     )
     .await;
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U09 列表分页 / 搜索 ====================
@@ -586,18 +545,18 @@ async fn u09_user_list_search_and_pagination() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
-    let tag = ts::uniq();
+    let fx = ts::Fixture::new("tc_u", "u09");
+    let claims = admin_operator().await;
+    let tag = fx.tag().to_string();
     for i in 0..3 {
-        let username = format!("{PREFIX}_u09_{tag}_{i}");
+        let username = format!("{tag}_{i}");
         create_user(&claims, &username, "Passw0rd@9").await;
     }
 
     let query = UserPageQuery {
         page: Some(1),
         page_size: Some(2),
-        username: Some(format!("{PREFIX}_u09_{tag}")),
+        username: Some(tag.clone()),
         ..Default::default()
     };
     let first = handler::page(axum::Extension(claims.clone()), axum::extract::Query(query))
@@ -607,7 +566,7 @@ async fn u09_user_list_search_and_pagination() {
         .expect("page 必须返回 data");
     assert_eq!(
         first.total, 3,
-        "本次夹具共 3 条（按前缀过滤，不用全局 COUNT）"
+        "本次夹具共 3 条（按本用例身份过滤，不用全局 COUNT）"
     );
     assert_eq!(first.list.len(), 2, "第一页应为 2 条");
     assert_eq!(first.page, 1);
@@ -618,7 +577,7 @@ async fn u09_user_list_search_and_pagination() {
         axum::extract::Query(UserPageQuery {
             page: Some(2),
             page_size: Some(2),
-            username: Some(format!("{PREFIX}_u09_{tag}")),
+            username: Some(tag.clone()),
             ..Default::default()
         }),
     )
@@ -636,7 +595,7 @@ async fn u09_user_list_search_and_pagination() {
         "两页不能出现重复行"
     );
     println!("[U09] 搜索命中 3 条，分页 2+1 无重叠 ✓");
-    cleanup().await;
+    fx.sweep().await;
 }
 
 // ==================== U10 内置管理员不可删 ====================
@@ -647,8 +606,8 @@ async fn u10_builtin_admin_cannot_be_deleted() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
+    let _fx = ts::Fixture::new("tc_u", "u10");
+    let claims = admin_operator().await;
     let admin_id = ts::scalar_text(
         "SELECT id::text AS v FROM sys_user WHERE username = ? AND deleted_at IS NULL",
         vec![Value::from(constants::ADMIN_USERNAME)],
@@ -681,7 +640,6 @@ async fn u10_builtin_admin_cannot_be_deleted() {
         "admin 必须仍在（拒绝删除是真拒绝，不是「删了才报错」）"
     );
     println!("[U10] 删除内置 admin → 409「{}」，账号仍在 ✓", error.msg);
-    cleanup().await;
 }
 
 // ==================== U11 内置管理员不可停用 ====================
@@ -692,8 +650,8 @@ async fn u11_builtin_admin_cannot_be_disabled() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
-    let (_, claims) = super_operator().await;
+    let _fx = ts::Fixture::new("tc_u", "u11");
+    let claims = admin_operator().await;
     let admin_id = ts::scalar_text(
         "SELECT id::text AS v FROM sys_user WHERE username = ? AND deleted_at IS NULL",
         vec![Value::from(constants::ADMIN_USERNAME)],
@@ -726,7 +684,6 @@ async fn u11_builtin_admin_cannot_be_disabled() {
         "[U11] 停用内置 admin → 409「{}」，状态仍为启用 ✓",
         error.msg
     );
-    cleanup().await;
 }
 
 // ==================== U12 非超管不能给自己加角色 ====================
@@ -740,10 +697,10 @@ async fn u12_non_super_cannot_assign_self_role() {
     if !ts::ensure_db().await {
         return;
     }
-    sweep().await;
+    let fx = ts::Fixture::new("tc_u", "u12");
 
     // 造一个「普通操作者」：真实存在、不持任何角色
-    let username = format!("{PREFIX}_u12_{}", ts::uniq());
+    let username = fx.name("u");
     let user_id = uuid::Uuid::now_v7();
     let hash = nik::Crypto::hash_password("Normal@12345").expect("哈希失败");
     ts::exec(
@@ -761,7 +718,7 @@ async fn u12_non_super_cannot_assign_self_role() {
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) VALUES (?::text::uuid, ?, ?, 1, 4)",
         vec![
             Value::from(role_id.to_string()),
-            Value::from(format!("{PREFIX}_R12_{}", ts::uniq())),
+            Value::from(fx.name("R12")),
             Value::from("测试C 读角色"),
         ],
     )
@@ -793,17 +750,5 @@ async fn u12_non_super_cannot_assign_self_role() {
     assert_eq!(bound, 0, "被拒后不得留下任何角色绑定");
     println!("[U12] 非超管自我提权 → 403「{}」，无绑定残留 ✓", error.msg);
 
-    ts::cleanup_sql(
-        &format!("U12→sys_user_role({user_id})"),
-        "DELETE FROM sys_user_role WHERE user_id = ?::text::uuid",
-        vec![Value::from(user_id.to_string())],
-    )
-    .await;
-    ts::cleanup_sql(
-        &format!("U12→sys_role({role_id})"),
-        "DELETE FROM sys_role WHERE id = ?::text::uuid",
-        vec![Value::from(role_id.to_string())],
-    )
-    .await;
-    cleanup().await;
+    fx.sweep().await;
 }

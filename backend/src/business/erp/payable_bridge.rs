@@ -1173,17 +1173,32 @@ mod tests {
             format!("DELETE FROM biz_payable WHERE id IN ({payables_sql})"),
             // ⚠️ P17 的审批人夹具是**超管**，而「审批人 = 全部超管」：留着会污染兄弟模块
             // 的用例（实测 transfer_handler 的「1 条待办」断言被算成 3 条）。
-            // 删之前必须把**指向这些人的流程行**清掉（`biz_flow_task.assignee_id` 是硬外键）：
-            //   ① 先解开自引用（prev_instance_id 无级联）→ ② 删他们发起的实例（子表级联）
-            //   → ③ 删残留待办 → ④ 删角色关联 → ⑤ 删用户（全部按夹具用户的**固定 uuid**）
+            //
+            // **不再硬删这三行 `sys_user`**（卡 t_18dcb777）：`biz_flow_task.assignee_id`
+            // 是硬外键，而「全部超管」是运行时展开的 —— 别的模块（`payable_payment` /
+            // `flow` / 调拨…）只要在这一刻发起审批，就会把我们正要删的用户写成 assignee，
+            // 于是 `DELETE FROM sys_user` 撞 `biz_flow_task_assignee_id_fkey` 整条回滚
+            // （实测：干净库全量两轮各红一条，单跑全绿 = 纯并发）。
+            // 现在改为「解除角色绑定 + 软删」：
+            //   ① 先解开自引用（prev_instance_id 无级联）→ ② 删他们**自己发起**的实例
+            //   （`biz_flow_task` / `biz_flow_instance_node` 都是 ON DELETE CASCADE）
+            //   → ③ 删角色关联（= 从「全部超管」里摘出去）
+            //   → ④ **软删**用户行：`assignee_type='ADMIN'` 的展开条件是
+            //     `u.deleted_at IS NULL`（`flow/assignee.rs::admins`），软删后它不再是审批人；
+            //     行还在 ⇒ 任何并发写入的 `assignee_id` 都不会触发外键违约。
+            // setup 里用 `ON CONFLICT (id) DO UPDATE SET deleted_at = NULL` 复活。
+            //
+            // ⚠️ 这里**不再**按 `assignee_id IN (夹具用户)` 删别人发起的流程行：那些行属于
+            // 兄弟模块**正在跑**的实例，删掉会把它们的「1 条待办」断言打成 0 —— 同一类互删
+            // 只是换了个表。我方实例的待办由 ② 的级联负责。
             format!(
                 "UPDATE biz_flow_instance SET prev_instance_id = NULL WHERE initiator_id IN ({users_sql})"
             ),
             format!("DELETE FROM biz_flow_instance WHERE initiator_id IN ({users_sql})"),
-            format!("DELETE FROM biz_flow_task WHERE assignee_id IN ({users_sql})"),
-            format!("DELETE FROM biz_flow_cc WHERE receiver_id IN ({users_sql})"),
             format!("DELETE FROM sys_user_role WHERE user_id IN ({users_sql})"),
-            format!("DELETE FROM sys_user WHERE id IN ({users_sql})"),
+            format!(
+                "UPDATE sys_user SET deleted_at = COALESCE(deleted_at, now()) WHERE id IN ({users_sql})"
+            ),
         ];
         for sql in cleanups {
             exec(&sql).await;
@@ -1218,10 +1233,13 @@ mod tests {
             (APPROVER1, "p17_ap1"),
             (APPROVER2, "p17_ap2"),
         ] {
+            // 复活：`cleanup_fixtures` 只**软删**这三行（硬删会撞 `biz_flow_task.assignee_id`
+            // 的并发写入，见清理段的注释），所以这里必须把 `deleted_at` 清回去，
+            // 否则它们不再是「超管」（`admins()` 过滤 `deleted_at IS NULL`）。
             exec(&format!(
                 "INSERT INTO sys_user (id, username, password, real_name) \
                  VALUES ('{id}'::uuid, '{name}', 'p17-not-a-real-hash', 'P17 {name}') \
-                 ON CONFLICT DO NOTHING"
+                 ON CONFLICT (id) DO UPDATE SET deleted_at = NULL, status = 1"
             ))
             .await;
             if id == CREATOR {
@@ -2207,14 +2225,20 @@ mod tests {
         assert_eq!(value.as_f64().unwrap(), 10000.0);
     }
 
-    /// ㉒ 清场自证 ①：`cleanup_fixtures()` 会把本模块的夹具用户删净（按**固定 uuid 集合**）。
+    /// ㉒ 清场自证 ①：`cleanup_fixtures()` 会把本模块的夹具用户**从「超管集合」里摘干净**。
     ///
-    /// 为什么必须删：审批人来源是「全部超管」，而兄弟模块（transfer_handler /
+    /// 为什么必须摘净：审批人来源是「全部超管」，而兄弟模块（transfer_handler /
     /// stockin_handler）的用例会断言「发起后审批中心有几条待办」—— 多出来的两个超管夹具
-    /// 会把他们的断言从 1 变成 3。夹具不许留在库里。
+    /// 会把他们的断言从 1 变成 3。
+    ///
+    /// 2026-11-04（卡 t_18dcb777）起判据改成「**活的**行 + 角色绑定」：
+    /// `assignee_type='ADMIN'` 的展开条件是 `u.deleted_at IS NULL`（`flow/assignee.rs`），
+    /// 所以「不是超管」= 行已软删且 `sys_user_role` 无绑定。物理行**故意保留**：
+    /// `biz_flow_task.assignee_id` 是硬外键，硬删会在别的模块并发发起审批时整条回滚
+    /// （干净库全量两轮各红一条的正是它）。
     ///
     /// **不依赖名字排序**（R5）：`setup()` 每次都会重建夹具用户，本用例只验证
-    /// 「清场函数能按 id 删净」，因此单跑 / 并行跑 / 排在模块中间跑，行为一致。
+    /// 「清场函数能按 id 摘净」，因此单跑 / 并行跑 / 排在模块中间跑，行为一致。
     #[tokio::test]
     async fn p17_fixture_users_are_removed_by_cleanup() {
         let _db = match setup().await {
@@ -2224,23 +2248,39 @@ mod tests {
         assert_eq!(
             fixture_users_left().await,
             3,
-            "setup() 必须建出 3 个夹具用户，否则这条用例证明不了什么"
+            "setup() 必须建出 3 个**活的**夹具用户，否则这条用例证明不了什么"
         );
         cleanup_fixtures().await;
         assert_eq!(
             fixture_users_left().await,
             0,
-            "夹具用户必须删净（否则会污染「审批人 = 全部超管」的兄弟模块用例）"
+            "夹具用户必须摘净（否则会污染「审批人 = 全部超管」的兄弟模块用例）"
+        );
+        assert_eq!(
+            fixture_user_roles_left().await,
+            0,
+            "夹具用户的 SUPER_ADMIN 绑定必须删净（否则仍会被当成审批人）"
         );
     }
 
-    /// 夹具用户剩余条数：按**固定 uuid 集合**数（不按 username 模糊匹配）。
+    /// 夹具用户剩余条数：按**固定 uuid 集合**数，只数**未软删**的行。
     async fn fixture_users_left() -> i64 {
         let users = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
-        let sql = format!("SELECT count(*) FROM sys_user WHERE id IN ({users})");
+        let sql =
+            format!("SELECT count(*) FROM sys_user WHERE id IN ({users}) AND deleted_at IS NULL");
         db().scalar_with_params::<Option<i64>>(sql.as_str(), vec![])
             .await
             .expect("查夹具用户")
+            .unwrap_or(0)
+    }
+
+    /// 夹具用户身上还剩几条角色绑定（「全部超管」展开的唯一来源）。
+    async fn fixture_user_roles_left() -> i64 {
+        let users = id_list(&[uid(CREATOR), uid(APPROVER1), uid(APPROVER2)]);
+        let sql = format!("SELECT count(*) FROM sys_user_role WHERE user_id IN ({users})");
+        db().scalar_with_params::<Option<i64>>(sql.as_str(), vec![])
+            .await
+            .expect("查夹具用户角色绑定")
             .unwrap_or(0)
     }
 

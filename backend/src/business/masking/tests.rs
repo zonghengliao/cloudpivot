@@ -22,37 +22,39 @@
 //! 生效」，必须挑一列**没有全局规则**的，否则「改前已经命中」会让 M07 这类用例假红。
 //! 顺带说明：全局规则的存在本身是正确行为（默认全体脱敏），已在报告里单列一条观察项。
 //!
-//! # 隔离
+//! # 隔离（2026-11-04 改造：用例级身份 + 只按 id 集合删，见卡 t_18dcb777）
 //!
 //! - 所有规则都绑在本次用例新建的角色上（`role_id` 非空），绝不插全局规则；
-//! - 夹具全部带 `tc_m` 前缀，用例开头先按该前缀清扫历史残留（上一次跑到一半 panic
-//!   就不会留垃圾），结尾再清一次。
+//! - 每个用例一个唯一身份 `ts::Fixture::new("tc_m", "m05")`（`tc_m_m05_<毫秒+序号>`），
+//!   本用例的角色 / 用户 / 规则 `reason` / 菜单都带这串；
+//! - 收尾 `fx.sweep()` 只做「按本用例身份 `SELECT id` → 按 id 集合 `DELETE`」，
+//!   **不按 `tc_m%` 整批前缀扫** ⇒ 并行跑也不会删掉兄弟用例正在用的行。
 //!
-//! # 清理口径（2026-10-31 收紧，见卡片 t_6a4e25d3）
+//! # 清理口径（2026-10-31 收紧 → 2026-11-04 并发化）
 //!
-//! 以前这里（和 `system/*/tests.rs` 同款）是 6 处 `let _ = db().execute_with_params(...)`：
+//! 更早这里（和 `system/*/tests.rs` 同款）是 6 处 `let _ = db().execute_with_params(...)`：
+//! 删除失败被**静默吞掉**，表象是「用例全绿、日志干净、库里一堆 `tc_m` 夹具」。
+//! 之后改成复用 [`crate::system::tests_support`] 的 `cleanup_sql` / `sweep_users` /
+//! `sweep_roles`（失败打 `WARN[cleanup]` + SQL + 数据库原文、逐行删）—— 但**清扫范围**
+//! 仍是整个 `tc_m` 前缀，于是在 libtest 默认线程数下与本模块的兄弟用例互删：
 //!
-//! - 删除失败被**静默吞掉**，表象是「用例全绿、日志干净、库里一堆 `tc_m` 夹具」；
-//! - 而且都是一条**整批** `DELETE ... WHERE ... LIKE 'tc_m%'`：只要有一行被外键挡住
-//!   （实测：`sys_role_mutex.role_a_id/role_b_id` 指向本卡角色时，`DELETE FROM sys_role`
-//!   会因外键整条回滚），这一批全部删不掉，且一行日志都没有。
+//! ```text
+//! 干净库 `--test-threads=4` → 8 passed / 2 failed（m05、m07）    `--test-threads=1` → 10/0
+//! ```
 //!
-//! 现在改为复用 [`crate::system::tests_support`] 的现成实现：
-//! `cleanup_sql` 失败打 `WARN[cleanup]` + SQL + 数据库原文（不 panic、不谎报 0 行）；
-//! `sweep_users` / `sweep_roles` 按外键依赖顺序先清引用行、再**逐行**删实体行，
-//! 一个脏行只影响它自己，并把明细返回给调用方。
+//! 现在清扫范围收敛到「本用例身份」，`m10` 那条自检用例专门盯「被外键钉住的夹具能不能
+//! 收干、以及别人的行一行都不许碰」。
 //!
-//! 清理失败**不许 panic**：用例真正的断言结果不能被清理噪音盖掉；
-//! 但残留必须可被观测——`m10` 那条自检用例专门盯「sweep 能不能收干被外键挡住的夹具」。
+//! 清理失败**不许 panic**：用例真正的断言结果不能被清理噪音盖掉；但残留会被
+//! `system::tests_support::self_check::x00` 抓到（它按夹具前缀白名单统计四张实体表）。
 //!
 //! 跑法：
 //! ```bash
-//! SYS_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
-//!   cargo test --lib business::masking::tests -- --test-threads=1
+//! ERP_DB_URL="postgres://<user>:***@127.0.0.1:5432/cloudpivot_test" \
+//!   cargo test --lib business::masking::tests -- --test-threads=4
 //! ```
 //!
-//! 必须 `--test-threads=1`：`sweep()` 会清掉**全部** `tc_m` 夹具，并行跑会与同前缀的
-//! 兄弟用例互删（本文件所有用例共用同一个前缀族）。
+//! **默认线程数就是安全的**（原先文件头写着「必须 `--test-threads=1`」，那正是本卡的缺陷）。
 
 use nik::prelude::*;
 
@@ -68,47 +70,8 @@ const NAME: i16 = 4;
 /// 目标列：`sys_user.remark`（该列**没有**全局种子规则，见文件头）。
 const TARGET_TABLE: &str = "sys_user";
 const TARGET_COLUMN: &str = "remark";
-/// 夹具前缀：`sys_user.username` / `sys_role.role_code` / `sys_field_mask.reason` 共用。
-///
-/// 清理一律按这一串收敛（`cloudpivot_test` 是多卡共用的验证库，禁止全表删）。
+/// 夹具前缀族（子表头；真正的身份由 [`ts::Fixture`] 生成为 `<PREFIX>_<case>_<uniq>`）。
 const PREFIX: &str = "tc_m";
-
-/// 清扫本卡历史残留（按 `tc_m` 前缀；上一次跑到一半 panic 也不会留垃圾）。
-///
-/// # 为什么不再 `let _ = db().execute_with_params(...)`
-///
-/// 见文件头「清理口径」：整批 `DELETE` 只要有一行被外键挡住就整条回滚，
-/// 外层再 `let _ =` 把 `DbError` 丢掉 ⇒ 用例全绿、库里一行不少、日志一个字都没有。
-/// 实测（本卡探针，旧代码）：`tc_m` 角色对 + `sys_role_mutex` 互斥行 → 跑完仍是
-/// 2 行角色 / 1 行互斥、9 passed、`grep -c 'WARN\[cleanup\]'` = 0。
-///
-/// 现在：规则行按 `reason` 清；实体行走 `sweep_users` / `sweep_roles`
-/// （依赖顺序 + 逐行删，含 `sys_role_mutex` 这个最容易漏掉的引用），失败打
-/// `WARN[cleanup]` 而不是消失。
-async fn sweep() {
-    let masks = ts::cleanup_sql(
-        "masking/sweep→sys_field_mask(reason LIKE 'tc_m%')",
-        "DELETE FROM sys_field_mask WHERE reason LIKE ?",
-        vec![Value::from(format!("{PREFIX}%"))],
-    )
-    .await;
-    if masks > 0 {
-        println!("[cleanup] masking/sweep 先清规则行 sys_field_mask：{masks} 行");
-    }
-
-    // 用户 → 先 `sys_user_role` / `sys_user_preference` / `sys_field_mask(create_by)`，再逐行删。
-    let users = ts::sweep_users(PREFIX).await;
-    // 角色 → 先 `sys_role_menu` / `sys_user_role` / `sys_role_dept` / `sys_field_mask` /
-    // `sys_role_mutex`，再逐行删。**`sys_role_mutex` 那条是关键**：漏了它，
-    // `DELETE FROM sys_role WHERE role_code LIKE 'tc_m%'` 会被外键整条回滚。
-    let roles = ts::sweep_roles(PREFIX).await;
-    if !users.is_clean() || !roles.is_clean() {
-        println!(
-            "WARN[cleanup] masking/sweep 未完全成功：users={:?} roles={:?}",
-            users.failed, roles.failed
-        );
-    }
-}
 
 /// 造一个脱敏规则请求体（规则只作用于本次角色）。
 fn rule_req(role_id: &str, mask_type: i16, reason: &str) -> FieldMaskCreateReq {
@@ -124,7 +87,7 @@ fn rule_req(role_id: &str, mask_type: i16, reason: &str) -> FieldMaskCreateReq {
 }
 
 /// 本次用例的角色 + 两个用户（一个持角色、一个不持角色），返回 `(角色ID, 持角色用户ID, 普通用户ID)`。
-async fn fixtures(prefix: &str) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+async fn fixtures(fx: &ts::Fixture) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
     let role_id = uuid::Uuid::now_v7();
     let holder = uuid::Uuid::now_v7();
     let plain = uuid::Uuid::now_v7();
@@ -132,8 +95,8 @@ async fn fixtures(prefix: &str) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) VALUES (?::text::uuid, ?, ?, 1, 1)",
         vec![
             Value::from(role_id.to_string()),
-            Value::from(format!("{prefix}_ROLE")),
-            Value::from(format!("{prefix}-角色")),
+            Value::from(fx.name("ROLE")),
+            Value::from(format!("{}-角色", fx.tag())),
         ],
     )
     .await;
@@ -143,8 +106,8 @@ async fn fixtures(prefix: &str) -> (uuid::Uuid, uuid::Uuid, uuid::Uuid) {
              VALUES (?::text::uuid, ?, 'x', ?, '机密备注-13912345678', 1)",
             vec![
                 Value::from(id.to_string()),
-                Value::from(format!("{prefix}_{name}")),
-                Value::from(format!("{prefix}-{name}")),
+                Value::from(fx.name(name)),
+                Value::from(format!("{}-{name}", fx.tag())),
             ],
         )
         .await;
@@ -173,38 +136,14 @@ async fn create_rule(claims: &AuthClaims, role_id: &str, mask_type: i16, reason:
     created.data.expect("create 必须返回 data").id
 }
 
-/// 清理本次用例造的夹具。
+/// 夹具统一入口：造一个用例身份 + 本用例的角色/用户，返回 `(身份, 角色ID, 持角色用户ID, 普通用户ID)`。
 ///
-/// 依赖顺序：规则（`sys_field_mask.role_id` / `create_by` 指向本卡角色与用户）
-/// → 用户（`sys_user_role` / `sys_user_preference` 先清）→ 角色（含 `sys_role_mutex`）。
-/// 失败打 `WARN[cleanup]`（不 panic、不谎报），明细由 `sweep_*` 的 `SweepReport` 带出。
-async fn cleanup(prefix: &str) {
-    ts::cleanup_sql(
-        &format!("masking/cleanup→sys_field_mask(reason LIKE '{prefix}%')"),
-        "DELETE FROM sys_field_mask WHERE reason LIKE ?",
-        vec![Value::from(format!("{prefix}%"))],
-    )
-    .await;
-
-    let users = ts::sweep_users(prefix).await;
-    let roles = ts::sweep_roles(prefix).await;
-    if !users.is_clean() || !roles.is_clean() {
-        println!(
-            "WARN[cleanup] masking/cleanup({prefix}) 未完全成功：users={:?} roles={:?}",
-            users.failed, roles.failed
-        );
-    }
-}
-
-/// 夹具统一入口：清扫 + 造夹具，返回 `(前缀, 角色ID, 持角色用户ID, 普通用户ID)`。
-///
-/// 前缀统一用小写 `tc_m_<case>_<唯一>`：同一串同时作为 reason / username / role_code 的
-/// 前缀，清理与清扫都只看这一串，不必记两套。
-async fn setup(case: &str) -> (String, uuid::Uuid, uuid::Uuid, uuid::Uuid) {
-    sweep().await;
-    let base = format!("tc_m_{}_{}", case.to_ascii_lowercase(), ts::uniq());
-    let (role_id, holder, plain) = fixtures(&base).await;
-    (base, role_id, holder, plain)
+/// 身份形如 `tc_m_m05_<毫秒+序号>`，同一串同时作为 reason / username / role_code 的
+/// 前缀，清理只看这一串 —— 不碰兄弟用例的行。
+async fn setup(case: &str) -> (ts::Fixture, uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+    let fx = ts::Fixture::new(PREFIX, case);
+    let (role_id, holder, plain) = fixtures(&fx).await;
+    (fx, role_id, holder, plain)
 }
 
 // ==================== M01 配置规则 / 重复配置 ====================
@@ -216,14 +155,14 @@ async fn m01_create_rule_and_reject_duplicate() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, _, _) = setup("M01").await;
+    let (fx, role_id, _, _) = setup("M01").await;
     let claims = ts::super_claims();
 
     let id = create_rule(
         &claims,
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-不该给只读员看"),
+        &fx.name("不该给只读员看"),
     )
     .await;
     let stored = ts::scalar_i64(
@@ -237,11 +176,7 @@ async fn m01_create_rule_and_reject_duplicate() {
         ts::headers(),
         ts::connect_info(),
         axum::Extension(claims),
-        axum::Json(rule_req(
-            &role_id.to_string(),
-            NAME,
-            &format!("{prefix}-重复规则"),
-        )),
+        axum::Json(rule_req(&role_id.to_string(), NAME, &fx.name("重复规则"))),
     )
     .await
     .expect_err("同 (表,列,角色) 重复配置必须被拒");
@@ -251,7 +186,7 @@ async fn m01_create_rule_and_reject_duplicate() {
         dup.status, dup.code, dup.msg
     );
     println!("[M01] 规则落库 + 重复配置 409 ✓（{}）", dup.msg);
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M02 无权限角色 → 看不到原值 ====================
@@ -262,13 +197,13 @@ async fn m02_unauthorized_role_gets_masked_value() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, plain) = setup("M02").await;
+    let (fx, role_id, holder, plain) = setup("M02").await;
     let claims = ts::super_claims();
     create_rule(
         &claims,
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-手机号脱敏"),
+        &fx.name("手机号脱敏"),
     )
     .await;
 
@@ -300,7 +235,7 @@ async fn m02_unauthorized_role_gets_masked_value() {
         other.rules()
     );
     println!("[M02] 无权限角色 → {masked:?}（不含原值）；无关角色 → 无规则 ✓");
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M03 有权限 / 豁免 → 完整值 ====================
@@ -312,12 +247,12 @@ async fn m03_exempt_principal_sees_plaintext() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, _) = setup("M03").await;
+    let (fx, role_id, holder, _) = setup("M03").await;
     create_rule(
         &ts::super_claims(),
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-手机号脱敏"),
+        &fx.name("手机号脱敏"),
     )
     .await;
 
@@ -375,7 +310,7 @@ async fn m03_exempt_principal_sees_plaintext() {
         "没有明版权限码的同一用户必须被打码"
     );
     println!("[M03] 超管 / 明版权限码豁免生效；同用户无明版权限码时被打码 ✓");
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M04 导出链路 ====================
@@ -389,12 +324,12 @@ async fn m04_export_applies_mask_from_database_rule() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, _) = setup("M04").await;
+    let (fx, role_id, holder, _) = setup("M04").await;
     create_rule(
         &ts::super_claims(),
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-导出也要脱敏"),
+        &fx.name("导出也要脱敏"),
     )
     .await;
 
@@ -462,7 +397,7 @@ async fn m04_export_applies_mask_from_database_rule() {
         "[M04] 导出单元格 {cell:?} 已打码；无规则时 fail-closed（HTTP {}）✓",
         error.http_status()
     );
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M05 列表与详情同源 ====================
@@ -474,12 +409,12 @@ async fn m05_list_and_detail_share_same_ruleset() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, _) = setup("M05").await;
+    let (fx, role_id, holder, _) = setup("M05").await;
     create_rule(
         &ts::super_claims(),
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-同源校验"),
+        &fx.name("同源校验"),
     )
     .await;
 
@@ -512,7 +447,7 @@ async fn m05_list_and_detail_share_same_ruleset() {
     assert_eq!(a, b, "同一用户在两个入口必须得到同一个掩码值");
     assert!(a.is_some(), "该用户应命中规则");
     println!("[M05] resolve() 与 load_user_set() 对同一列给出同一掩码 {a:?} ✓");
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M06 规则冲突按优先级 ====================
@@ -586,7 +521,7 @@ async fn m07_config_change_takes_effect_immediately() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, _) = setup("M07").await;
+    let (fx, role_id, holder, _) = setup("M07").await;
     let claims = ts::super_claims();
 
     // 改前：该列没有规则（目标列刻意避开有全局种子规则的 mobile/email/real_name）
@@ -600,13 +535,7 @@ async fn m07_config_change_takes_effect_immediately() {
     );
 
     // 建规则 → 立刻生效
-    let id = create_rule(
-        &claims,
-        &role_id.to_string(),
-        MOBILE,
-        &format!("{prefix}-第一步"),
-    )
-    .await;
+    let id = create_rule(&claims, &role_id.to_string(), MOBILE, &fx.name("第一步")).await;
     let after_create = registry::load_user_set(&holder)
         .await
         .expect("加载规则失败");
@@ -625,7 +554,7 @@ async fn m07_config_change_takes_effect_immediately() {
             mask_type: NAME,
             mask_param: None,
             status: Some(1),
-            reason: format!("{prefix}-第二步改类型"),
+            reason: fx.name("第二步改类型"),
         }),
     )
     .await
@@ -659,7 +588,7 @@ async fn m07_config_change_takes_effect_immediately() {
         after_delete.rules()
     );
     println!("[M07] 新建 / 改类型 / 删除三步均立刻生效 ✓");
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M08 脱敏不影响业务逻辑 ====================
@@ -673,12 +602,12 @@ async fn m08_masking_does_not_mutate_stored_value() {
     if !ts::ensure_db().await {
         return;
     }
-    let (prefix, role_id, holder, _) = setup("M08").await;
+    let (fx, role_id, holder, _) = setup("M08").await;
     create_rule(
         &ts::super_claims(),
         &role_id.to_string(),
         MOBILE,
-        &format!("{prefix}-不许改库"),
+        &fx.name("不许改库"),
     )
     .await;
 
@@ -695,7 +624,7 @@ async fn m08_masking_does_not_mutate_stored_value() {
     // 库内原值不变（脱敏是出口行为）
     let stored = ts::scalar_text(
         "SELECT remark AS v FROM sys_user WHERE username LIKE ?",
-        vec![Value::from(format!("{prefix}_holder%"))],
+        vec![Value::from(format!("{}%", fx.name("holder")))],
     )
     .await;
     assert_eq!(
@@ -708,7 +637,7 @@ async fn m08_masking_does_not_mutate_stored_value() {
     assert_eq!(raw.chars().count(), 11, "业务侧拿到的原值仍是完整号码");
     assert!(raw.ends_with("5678"), "尾号校验必须基于原值");
     println!("[M08] 响应被打码、库内原值与内部计算不受影响 ✓");
-    cleanup(&prefix).await;
+    fx.sweep().await;
 }
 
 // ==================== M09 fail-closed ====================
@@ -754,45 +683,38 @@ async fn residue(table: &str, column: &str, prefix: &str) -> i64 {
     .await
 }
 
-/// M10：`sweep()` 必须把**被外键挡住**的 `tc_m` 夹具也收干，且**只碰自己的前缀**。
+/// M10：`Fixture::sweep()` 必须把**被外键挡住**的夹具也收干，且**只碰本用例身份的行**。
 ///
-/// # 这条用例守的是什么（本卡的回归闸）
+/// # 这条用例守的是什么（并发安全的回归闸）
 ///
-/// 旧实现是 6 处 `let _ = db().execute_with_params(...)` + 一条整批
-/// `DELETE FROM sys_role WHERE role_code LIKE 'tc_m%'`。只要有一个 `tc_m` 角色被
-/// `sys_role_mutex.role_a_id/role_b_id`（硬外键）钉住，PostgreSQL 会把**整条语句**回滚，
-/// `let _ =` 再把 `DbError` 丢掉 ⇒ 「9 passed、日志 0 条 WARN、库里 2 行角色 + 1 行互斥永远留着」。
-/// 实测就是如此（见文件头与交付说明）。
+/// 1. **能收干被外键钉住的夹具**：角色对 + `sys_role_mutex`（`role_a_id/role_b_id` 两个
+///    硬外键）+ 持角色用户 + 该角色的脱敏规则，四类行必须全部为 0。
+///    如果回到「整批 `DELETE ... LIKE 'tc_m%'` + 吞错」，这里立刻红（残留 2 行角色 / 1 行互斥）；
+///    如果依赖清单漏了 `sys_role_mutex` / `sys_user_role` / `sys_field_mask`，同样红。
 ///
-/// 本用例先造出那个形态（角色对 + 互斥行 + 持角色用户 + 该角色的脱敏规则），
-/// 再调一次 `sweep()`，要求四类行全部为 0：
-///
-/// - 如果回到「整批 DELETE + 吞错」，这里会立刻红（残留 2 行角色 / 1 行互斥）；
-/// - 如果 `sweep_roles` 的依赖清单漏了 `sys_role_mutex`，同样红。
-///
-/// 反向对照：另一个**非** `tc_m` 前缀的角色必须**活下来**——共用库里禁止全表删。
-///
-/// 注：本用例会调用 `sweep()`，必须与其它用例串行跑（`--test-threads=1`，卡面基线跑法）。
+/// 2. **只删自己身份的行**：反向对照是**同族前缀（`tc_m`）但不同身份**的另一个用例夹具
+///    —— 它在 `--test-threads=4` 下代表「兄弟用例正在用的行」，必须一行不少。
+///    这条就是本卡要守的并发口径：清扫范围从「整个 `tc_m` 前缀」收敛到「本用例身份」。
 #[tokio::test]
-async fn m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped() {
+async fn m10_sweep_drains_fk_pinned_fixture_and_stays_scope_scoped() {
     if !ts::ensure_db().await {
         return;
     }
 
+    let probe = ts::Fixture::new(PREFIX, "m10probe");
+    let sibling = ts::Fixture::new(PREFIX, "m10sibling");
     let role_a = uuid::Uuid::now_v7();
     let role_b = uuid::Uuid::now_v7();
     let user_id = uuid::Uuid::now_v7();
-    let keep_id = uuid::Uuid::now_v7();
+    let sibling_role = uuid::Uuid::now_v7();
+    let sibling_user = uuid::Uuid::now_v7();
 
-    // ① 一对 tc_m 前缀角色：互斥行会指向它们（外键 → 整批 DELETE 会回滚）
-    for (id, code) in [
-        (&role_a, format!("{PREFIX}_probe_MAKER_{}", ts::uniq())),
-        (&role_b, format!("{PREFIX}_probe_CHECKER_{}", ts::uniq())),
-    ] {
+    // ① 一对本用例身份的角色：互斥行会指向它们（外键 → 整批 DELETE 会回滚）
+    for (id, suffix) in [(&role_a, "MAKER"), (&role_b, "CHECKER")] {
         ts::exec(
             "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
              VALUES (?::text::uuid, ?, 'tc_m-探针', 1, 1)",
-            vec![Value::from(id.to_string()), Value::from(code)],
+            vec![Value::from(id.to_string()), Value::from(probe.name(suffix))],
         )
         .await;
     }
@@ -803,7 +725,7 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped() {
             Value::from(uuid::Uuid::now_v7().to_string()),
             Value::from(role_a.to_string()),
             Value::from(role_b.to_string()),
-            Value::from(format!("{PREFIX}-探针互斥")),
+            Value::from(probe.name("互斥")),
         ],
     )
     .await;
@@ -814,7 +736,7 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped() {
          VALUES (?::text::uuid, ?, 'x', 'tc_m-探针用户', 1)",
         vec![
             Value::from(user_id.to_string()),
-            Value::from(format!("{PREFIX}_probe_holder_{}", ts::uniq())),
+            Value::from(probe.name("holder")),
         ],
     )
     .await;
@@ -837,60 +759,84 @@ async fn m10_sweep_drains_fk_pinned_fixture_and_stays_prefix_scoped() {
             Value::from(TARGET_COLUMN),
             Value::I16(MOBILE),
             Value::from(role_a.to_string()),
-            Value::from(format!("{PREFIX}-探针规则-{}", ts::uniq())),
+            Value::from(probe.name("规则")),
         ],
     )
     .await;
 
-    // ④ 反向对照：非本卡前缀的角色，sweep 一行都不许碰
+    // ④ 反向对照：**同族前缀、不同身份**的兄弟用例夹具（并行跑时这就是别人的在途行）
     ts::exec(
         "INSERT INTO sys_role (id, role_code, role_name, status, data_scope) \
-         VALUES (?::text::uuid, 'keepme_probe_ROLE', '别人家的角色（不许删）', 1, 1)",
-        vec![Value::from(keep_id.to_string())],
+         VALUES (?::text::uuid, ?, '兄弟用例的角色（不许删）', 1, 1)",
+        vec![
+            Value::from(sibling_role.to_string()),
+            Value::from(sibling.name("ROLE")),
+        ],
+    )
+    .await;
+    ts::exec(
+        "INSERT INTO sys_user (id, username, password, real_name, status) \
+         VALUES (?::text::uuid, ?, 'x', '兄弟用例的用户（不许删）', 1)",
+        vec![
+            Value::from(sibling_user.to_string()),
+            Value::from(sibling.name("holder")),
+        ],
     )
     .await;
 
     assert!(
-        residue("sys_role", "role_code", PREFIX).await >= 2,
+        residue("sys_role", "role_code", probe.tag()).await >= 2,
         "探针角色应已落库"
     );
 
-    // 跑被测的清扫
-    sweep().await;
+    // 跑被测的清扫（只清本用例身份）
+    probe.sweep().await;
 
     assert_eq!(
-        residue("sys_field_mask", "reason", PREFIX).await,
+        residue("sys_field_mask", "reason", probe.tag()).await,
         0,
-        "tc_m 规则行必须被清干净"
+        "本用例的规则行必须被清干净"
     );
     assert_eq!(
-        residue("sys_user", "username", PREFIX).await,
+        residue("sys_user", "username", probe.tag()).await,
         0,
-        "tc_m 用户必须被清干净"
+        "本用例的用户必须被清干净"
     );
     assert_eq!(
-        residue("sys_role", "role_code", PREFIX).await,
+        residue("sys_role", "role_code", probe.tag()).await,
         0,
-        "tc_m 角色必须被清干净（被 sys_role_mutex 钉住时也要能删）"
+        "本用例的角色必须被清干净（被 sys_role_mutex 钉住时也要能删）"
     );
     let mutex_left = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_role_mutex WHERE reason LIKE ?",
-        vec![Value::from(format!("{PREFIX}%"))],
+        vec![Value::from(format!("{}%", probe.tag()))],
     )
     .await;
     assert_eq!(
         mutex_left, 0,
-        "tc_m 的互斥行必须被清掉（漏了它，整批删角色会被外键回滚）"
+        "本用例的互斥行必须被清掉（漏了它，删角色会被外键回滚）"
     );
 
-    // 反向对照：别人的角色一行未少
-    let kept = ts::scalar_i64(
+    // 反向对照：同族前缀的兄弟夹具一行未少（清扫不许越界到别人的身份）
+    let kept_role = ts::scalar_i64(
         "SELECT count(*) AS v FROM sys_role WHERE id = ?::text::uuid",
-        vec![Value::from(keep_id.to_string())],
+        vec![Value::from(sibling_role.to_string())],
     )
     .await;
-    assert_eq!(kept, 1, "sweep 只许按 tc_m 前缀清理，不能全表删");
+    assert_eq!(
+        kept_role, 1,
+        "sweep 只许删本用例身份的行，不能按 tc_m 前缀把兄弟用例的角色一起删"
+    );
+    let kept_user = ts::scalar_i64(
+        "SELECT count(*) AS v FROM sys_user WHERE id = ?::text::uuid",
+        vec![Value::from(sibling_user.to_string())],
+    )
+    .await;
+    assert_eq!(
+        kept_user, 1,
+        "sweep 只许删本用例身份的行，不能按 tc_m 前缀把兄弟用例的用户一起删"
+    );
 
-    ts::cleanup_table("sys_role", "role_code", "keepme_probe").await;
-    println!("[M10] 被外键钉住的 tc_m 夹具已被 sweep 收干；非本卡前缀零影响 ✓");
+    sibling.sweep().await;
+    println!("[M10] 被外键钉住的夹具已被本用例身份的 sweep 收干；同族兄弟用例零影响 ✓");
 }

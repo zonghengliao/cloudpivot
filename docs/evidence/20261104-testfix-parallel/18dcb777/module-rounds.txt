@@ -1,0 +1,13 @@
+round=1 module=business::masking::tests -> test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 0.25s (SKIP 行=0)
+round=1 module=system::user::tests -> test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2319 filtered out; finished in 2.41s (SKIP 行=0)
+round=1 module=system::role::tests -> test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2323 filtered out; finished in 0.84s (SKIP 行=0)
+round=2 module=business::masking::tests -> test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 0.20s (SKIP 行=0)
+round=2 module=system::user::tests -> test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2319 filtered out; finished in 2.40s (SKIP 行=0)
+round=2 module=system::role::tests -> test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2323 filtered out; finished in 0.80s (SKIP 行=0)
+round=3 module=business::masking::tests -> test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 0.20s (SKIP 行=0)
+round=3 module=system::user::tests -> test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2319 filtered out; finished in 2.36s (SKIP 行=0)
+round=3 module=system::role::tests -> test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2323 filtered out; finished in 0.89s (SKIP 行=0)
+round=4 module=business::masking::tests -> test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2321 filtered out; finished in 0.25s (SKIP 行=0)
+round=4 module=system::user::tests -> test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 2319 filtered out; finished in 2.43s (SKIP 行=0)
+round=4 module=system::role::tests -> test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2323 filtered out; finished in 0.94s (SKIP 行=0)
+=== OVERALL: ALL_GREEN
