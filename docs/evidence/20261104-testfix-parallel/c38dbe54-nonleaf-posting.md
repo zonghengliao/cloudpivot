@@ -92,3 +92,25 @@ r1_real_previous_period_comparison                report.rs:2408  2026-12 没建
 
 - 前端科目选择器需带 `is_leaf=1`（`GET /business/erp/account/page` 已支持该过滤位）；本卡只改后端，前端若仍列父科目，用户会吃 400 而不是选不到 —— 属 FIN 前端卡范围（t_539dab1d 同类），已在此登记。
 - `year_end` 的 fail-closed 闸会对「历史上真有父科目余额」的库报 409，这是设计行为；复验请用新建干净库，老库残留（如 `cloudpivot_0d7c51f8b` 里 r4_09 旧夹具留下的 `5602` 150 元）会被判红，不是回归。
+
+## 8. 恢复运行复验（2026-11-05 04:35，干净库重建，HEAD 83db050）
+
+调度恢复后按「核对提交 → 重建干净库 → 复跑」流程独立复验一遍（不复用上次的库）：
+
+```
+ERP_DB=cloudpivot_c38dbe54 RECREATE=1 bash scripts/verify/erp_clean_db.sh
+# 库指纹：schema_migrations max=238 / 179 条；超管 1 人
+#   is_leaf=0：2221 应交税费 / 2241 其他应付款 / 5602 管理费用
+#   is_leaf=1：5602.01 折旧费 … 5602.09 其他（V0226 种子）
+export ERP_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_c38dbe54'
+```
+
+| 模块 | 结果（本轮实测） |
+|---|---|
+| `business::erp::year_end` | **31 passed / 0 failed**（32.86s）—— `r4_07` / `r4_08` / `r4_09` 全 ok；`r4_16` / `r4_17` 也 ok 且日志中**无 SKIP 行**（说明 5602 确为非末级、防回归用例真跑了） |
+| `business::erp::voucher` | **43 passed / 0 failed**（38.47s） |
+| `business::erp::income_statement` | **20 passed / 0 failed**（2.16s） |
+| `business::erp::cash_flow` | **20 passed / 0 failed** |
+| `business::erp::report` | **15 passed / 0 failed** —— §5 里那 2 条 V0221 自动开账红已由 t_20c290c5 修掉，本卡留下的 `r1_real_full_cycle_is_balanced` 仍绿 |
+
+另核对：`r4_09` 的「下年期初借贷必须相等」（`year_end.rs:2438 assert_eq!(debit_total, credit_total, "下年期初借贷必须相等")`）**原样保留**，没有为变绿删断言；非末级科目全量复查仍只有 `2221/2241/5602` 三个，源码中对它们的其余引用（`report::match_account` 断言、`cash_flow` 分类映射、`income_statement` 配置）全是纯内存，不碰真库。
