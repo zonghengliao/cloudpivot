@@ -1,0 +1,462 @@
+{
+  "pages": [
+    {
+      "name": "01_dashboard",
+      "url": "/dashboard",
+      "textLen": 638,
+      "rows": 10,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/01_dashboard.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "02_task_list",
+      "url": "/task/list",
+      "textLen": 354,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/02_task_list.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "03_task_board",
+      "url": "/task/board",
+      "textLen": 285,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/03_task_board.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "04_task_gantt",
+      "url": "/task/gantt",
+      "textLen": 372,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/04_task_gantt.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "05_flow_def",
+      "url": "/flow/def",
+      "textLen": 1323,
+      "rows": 13,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/05_flow_def.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "06_flow_templates",
+      "url": "/flow/templates",
+      "textLen": 1861,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/06_flow_templates.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "07_flow_task",
+      "url": "/flow/task",
+      "textLen": 170,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/07_flow_task.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "08_erp_contract",
+      "url": "/business/erp/contract",
+      "textLen": 365,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/08_erp_contract.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "09_erp_po",
+      "url": "/business/erp/purchase-order",
+      "textLen": 453,
+      "rows": 3,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/09_erp_po.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "10_erp_stockin",
+      "url": "/business/erp/stock-in",
+      "textLen": 412,
+      "rows": 2,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/10_erp_stockin.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "11_erp_stockout",
+      "url": "/business/erp/stock-out",
+      "textLen": 380,
+      "rows": 2,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/11_erp_stockout.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "12_erp_transfer",
+      "url": "/business/erp/transfer",
+      "textLen": 297,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/12_erp_transfer.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "13_erp_inventory",
+      "url": "/business/erp/inventory",
+      "textLen": 499,
+      "rows": 3,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/13_erp_inventory.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "14_erp_inventory_txn",
+      "url": "/business/erp/inventory-txn",
+      "textLen": 728,
+      "rows": 6,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/14_erp_inventory_txn.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "15_erp_payable",
+      "url": "/business/erp/payable",
+      "textLen": 412,
+      "rows": 2,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/15_erp_payable.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "16_erp_voucher",
+      "url": "/business/erp/voucher",
+      "textLen": 811,
+      "rows": 7,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/16_erp_voucher.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "17_erp_ledger",
+      "url": "/business/erp/ledger",
+      "textLen": 301,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/17_erp_ledger.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "18_erp_balance_sheet",
+      "url": "/business/erp/report/balance-sheet",
+      "textLen": 841,
+      "rows": 24,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/18_erp_balance_sheet.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "19_erp_income",
+      "url": "/business/erp/report/income-statement",
+      "textLen": 628,
+      "rows": 13,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/19_erp_income.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "20_erp_cashflow",
+      "url": "/business/erp/report/cash-flow",
+      "textLen": 1172,
+      "rows": 27,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/20_erp_cashflow.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "21_erp_period",
+      "url": "/business/erp/period",
+      "textLen": 279,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/21_erp_period.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "22_erp_opening",
+      "url": "/business/erp/opening",
+      "textLen": 415,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/22_erp_opening.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "23_erp_year_end",
+      "url": "/business/erp/year-end",
+      "textLen": 995,
+      "rows": 2,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/23_erp_year_end.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "24_erp_material",
+      "url": "/business/erp/material",
+      "textLen": 381,
+      "rows": 5,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/24_erp_material.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "25_erp_supplier",
+      "url": "/business/erp/supplier",
+      "textLen": 253,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/25_erp_supplier.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "26_erp_warehouse",
+      "url": "/business/erp/warehouse",
+      "textLen": 360,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/26_erp_warehouse.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "27_erp_account",
+      "url": "/business/erp/account",
+      "textLen": 1465,
+      "rows": 56,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/27_erp_account.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "28_system_user",
+      "url": "/system/user",
+      "textLen": 793,
+      "rows": 8,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/28_system_user.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "29_system_role",
+      "url": "/system/role",
+      "textLen": 3678,
+      "rows": 74,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/29_system_role.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "30_system_menu",
+      "url": "/system/menu",
+      "textLen": 18205,
+      "rows": 286,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/30_system_menu.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "31_system_data_scope",
+      "url": "/system/data-scope",
+      "textLen": 636,
+      "rows": 9,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/31_system_data_scope.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "32_system_field_mask",
+      "url": "/system/field-mask",
+      "textLen": 367,
+      "rows": 3,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/32_system_field_mask.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "33_announcement",
+      "url": "/business/announcement",
+      "textLen": 245,
+      "rows": 2,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/33_announcement.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "34_notice",
+      "url": "/business/notice/message",
+      "textLen": 193,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/34_notice.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "35_storage",
+      "url": "/business/storage/file",
+      "textLen": 240,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/35_storage.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "36_impexp",
+      "url": "/business/impexp/import",
+      "textLen": 370,
+      "rows": 0,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/36_impexp.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "37_help",
+      "url": "/help",
+      "textLen": 1939,
+      "rows": 10,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/37_help.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "38_changelog",
+      "url": "/system/change-log",
+      "textLen": 265,
+      "rows": 1,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/38_changelog.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    },
+    {
+      "name": "39_job",
+      "url": "/support/job",
+      "textLen": 523,
+      "rows": 5,
+      "consoleErrs": 0,
+      "apiErrs": 0,
+      "navErr": "",
+      "shot": "/opt/cloudpivot/scripts/verify/audit_features_20261104/04_screenshot/39_job.png",
+      "sample": "云枢 CloudPivot 系统管理 公告与消息 支撑功能 审批流 工作任务 数据权限 字段脱敏 角色互斥 采购管理 项目 仓库管理 流程模板库（标准模板 / "
+    }
+  ],
+  "flow": {
+    "draftStatus": 200,
+    "nodesRendered": 9,
+    "edgesRendered": 11,
+    "drag": {
+      "before": {
+        "x": 487,
+        "y": 483
+      },
+      "after": {
+        "x": 529,
+        "y": 531
+      },
+      "ok": true
+    },
+    "connect": {
+      "before": 11,
+      "after": 12,
+      "ok": true
+    },
+    "save": true,
+    "publish": {
+      "ok": false,
+      "msg": "发布被发布前校验拦下（预期行为）"
+    },
+    "versionCountBefore": 4,
+    "versionCountAfter": 5
+  },
+  "errors": []
+}

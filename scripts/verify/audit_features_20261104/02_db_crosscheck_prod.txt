@@ -1,0 +1,83 @@
+Pager usage is off.
+=== X1 软删除残留（total vs active） ===
+contract|11|1
+flow_def|33|11
+material|7|5
+po|18|14
+stock_in|15|14
+stock_out|8|8
+supplier|1|1
+task|846|80
+transfer|8|5
+warehouse|7|3
+=== X2 E2E 残留命名（E2E- / TI- / 测试 前缀） ===
+e2e_warehouse|4
+e2e_task|355
+e2e_stockin|0
+test_user|7
+=== X3 会计勾稽：库存金额 vs 1405 科目余额 ===
+inv_amount|1304.9900
+acc_1405|1304.9900
+=== X4 凭证头-明细一致性 ===
+psql:<stdin>:27: ERROR:  argument of AND must be type boolean, not type smallint
+LINE 1: ...'acc_all_leaf' k, count(*) from biz_account where is_leaf an...
+                                                             ^
+voucher_head_vs_entry|0
+voucher_red_cnt|3|3
+=== X5 单据头-明细一致性（收货/出库/采购） ===
+stockin_head_vs_item|0
+po_head_vs_item|0
+stockin_over_receipt|0
+=== X6 库存流水累计 = 库存（B4 不变量预演） ===
+txn_vs_inv|3
+=== X7 应付 vs 收货（勾稽） ===
+payable_vs_stockin|12|1599.8100|1326.9900
+payable_paid_detail|12|0.0000|1599.8100
+payment_any|0
+=== X8 审批实例 ↔ 业务单据 双向孤儿 ===
+po_instance_missing|0
+stockin_instance_missing|0
+payable_instance_missing|0
+voucher_instance_missing|0
+instance_orphan_doc|8
+=== X9 任务层级最大值（8 层声称） ===
+max_depth|3
+=== X10 状态机/配置类表内容 ===
+state_edge_rows|0
+linkage_rule_rows|0
+field_mask_detail|sys_user|email|3|
+field_mask_detail|sys_user|email|3|01a18381-b81e-7672-9f49-9c1305e1c444
+field_mask_detail|sys_user|email|3|01a18381-b81e-7672-9f49-9c1305e1c444
+field_mask_detail|sys_user|mobile|1|
+field_mask_detail|sys_user|real_name|4|
+=== X11 通知投递渠道 ===
+notice_delivery|0|
+notice_status|1|315
+=== X12 期间与凭证覆盖 ===
+voucher_period|2026-10|9
+voucher_period|2026-11|12
+period_status|2026-10|OPEN
+period_status|2026-11|OPEN
+=== X13 用户/角色/权限 ===
+user_list|admin|超级管理员|1
+user_list|cl_43870|日志测试43870|1
+user_list|henry.liao|Henry.Liao|1
+user_list|laoliu|老六|1
+user_list|laoliu_test|老六测试号|1
+user_list|qa.limited|受限管理员|1
+user_list|qa.mutex|双持用户|1
+user_list|qa.viewer|E2E改名 085535|1
+user_list|verify-ai|验证AI|1
+role_list|DEPT_LEADER|部门主管
+role_list|FINANCE_DIRECTOR|财务总监
+role_list|FINANCE_MANAGER|财务经理
+role_list|FLOW_CONFIG_APPROVER|流程配置复核员
+role_list|GENERAL_MANAGER|总经理
+role_list|MUTEX_A|制单员
+role_list|MUTEX_B|审核员
+role_list|PURCHASE_MANAGER|采购经理
+role_list|QA_LIMITED|测试受限管理员
+role_list|QA_VIEWER|测试只读员
+role_list|SUPER_ADMIN|超级管理员
+role_list|WAREHOUSE_MANAGER|仓管主管
+dead_permission|276

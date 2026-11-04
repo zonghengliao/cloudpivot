@@ -1,0 +1,80 @@
+Pager usage is off.
+=== Y1 库存 vs 流水（按 物料×仓库 汇总，两种口径） ===
+sum_inv|609.0000|1304.9900
+sum_txn|681.0000
+per_mat_wh|d1370003-0000-4000-8000-000000000001|d1370001-0000-4000-8000-000000000001|21.0000|49.0000|-28.0000
+per_mat_wh|d1370003-0000-4000-8000-000000000001|d1370001-0000-4000-8000-000000000002|588.0000|612.0000|-24.0000
+per_mat_wh|d1370003-0000-4000-8000-000000000004|d1370001-0000-4000-8000-000000000001|0.0000|20.0000|-20.0000
+loc_sum|609.0000
+=== Y2 应付构成（来源类型） ===
+payable_src|STOCK_IN|12|1599.8100|0.0000
+payable_vs_stockin_detail|AP-20261031-000001|STOCK_IN|IN-20261031-000004|226.0000|200.0000
+payable_vs_stockin_detail|AP-20261031-000002|STOCK_IN|IN-20261031-000005|39.5500|35.0000
+payable_vs_stockin_detail|AP-20261031-000003|STOCK_IN|IN-20261031-000006|27.1200|24.0000
+payable_vs_stockin_detail|AP-20261031-000004|STOCK_IN|IN-20261031-000007|71.1900|63.0000
+payable_vs_stockin_detail|AP-20261031-000005|STOCK_IN|IN-20261031-000003|226.0000|200.0000
+payable_vs_stockin_detail|AP-20261031-000012|STOCK_IN|IN-20261031-000015|2.0000|2.0000
+payable_vs_stockin_detail|AP-20261101-000001|STOCK_IN|IN-20261101-000001|226.0000|200.0000
+payable_vs_stockin_detail|AP-20261101-000002|STOCK_IN|IN-20261101-000002|226.0000|200.0000
+payable_vs_stockin_detail|AP-20261102-000001|STOCK_IN|IN-20261102-000001|16.9500|15.0000
+payable_vs_stockin_detail|AP-20261102-000002|STOCK_IN|IN-20261102-000002|113.0000|100.0000
+payable_vs_stockin_detail|AP-20261103-000001|STOCK_IN|IN-20261103-000001|200.0000|176.9900
+payable_vs_stockin_detail|AP-20261103-000002|STOCK_IN|IN-20261103-000002|226.0000|200.0000
+=== Y3 孤儿审批实例明细 ===
+orphan|IN-20261102-000001|STOCK_IN_POST|APPROVED|2026-11-02 11:36:26.765495+08
+orphan|IN-20261102-000002|STOCK_IN_POST|APPROVED|2026-11-02 20:10:39.212456+08
+orphan|IN-20261103-000001|STOCK_IN_POST|APPROVED|2026-11-03 21:34:06.015503+08
+orphan|IN-20261103-000002|STOCK_IN_POST|APPROVED|2026-11-03 21:34:40.850951+08
+orphan|HT-20261103-000007|CONTRACT_APPROVE|CANCELLED|2026-11-03 22:18:08.006203+08
+orphan|HT-20261103-000008|CONTRACT_APPROVE|CANCELLED|2026-11-03 22:18:14.548729+08
+orphan|HT-20261103-000009|CONTRACT_APPROVE|CANCELLED|2026-11-03 22:18:32.941097+08
+orphan|HT-20261103-000010|CONTRACT_APPROVE|CANCELLED|2026-11-03 22:19:03.029656+08
+=== Y4 E2E 残留（活动行） ===
+task_e2e_active|9|355
+task_e2e_titles|[E2E]详情-e2emvvvdf01-子1
+task_e2e_titles|[E2E]详情-e2emvvvdf01-子2
+task_e2e_titles|[E2E]详情-e2emvvvdf01-子3
+task_e2e_titles|[E2E]详情-e2emvvvdf01
+task_e2e_titles|[E2E]详情-e2emvvvox7o-子1
+warehouse_e2e|E2E-W4A-MVUUPN1M-Q|E2E-W4A-MVUUPN1M-库区|t
+warehouse_e2e|E2E-W4A-MVUUQAHM-Q|E2E-W4A-MVUUQAHM-库区|t
+warehouse_e2e|E2E-W4A-MVUUS3SO-Q|E2E-W4A-MVUUS3SO-库区|t
+warehouse_e2e|E2E-W4A-MVUUVALP-Q|E2E-W4A-MVUUVALP-库区|t
+warehouse_e2e|WH01|总仓（种子）|f
+warehouse_e2e|WH02|分仓（种子）|f
+warehouse_e2e|WH-TRANSIT|在途仓|f
+user_test|laoliu-ai-test|老六AI测试
+user_test|laoliu-ai-test|老六AI测试
+user_test|laoliu-ai-test|老六AI测试
+user_test|laoliu_test|老六测试号
+user_test|qa.boarder|看板验收员
+user_test|qa.limited|受限管理员
+user_test|qa.mutex|双持用户
+user_test|qa.taskview|任务只读验收
+user_test|qa.viewer|E2E改名 085535
+user_test|selftest-ai-084234|自测AI
+user_test|selftest-ai-084330|自测AI
+user_test|selftest-ai-190036|自测AI
+=== Y5 科目叶子数 ===
+=== Y6 任务语义/看板列（自定义列） ===
+psql:<stdin>:35: ERROR:  operator does not exist: smallint = boolean
+LINE 1: ...lect 'acc_leaf' k, count(*) filter (where is_leaf = true) le...
+                                                             ^
+HINT:  No operator matches the given name and argument types. You might need to add explicit type casts.
+task_semantic_null|80
+=== Y7 审批实例耗时（超时/长挂） ===
+inst_pending|1
+task_pending|1|2026-11-02 20:10:28.079604+08
+=== Y8 文件存储策略/实际后端 ===
+file_by_storage|local-default|72|12663282
+=== Y9 变更日志覆盖 ===
+psql:<stdin>:46: ERROR:  column "storage_code" does not exist
+LINE 1: select 'storage_cfg' k, storage_code, backend_type, is_defau...
+                                ^
+changelog_module|business|644
+changelog_module|system|27
+=== Y10 通知模板与已读率 ===
+notice_read_rate|548|254|46.4
+=== Y11 期间结账状态与凭证数量 ===
+period_docs|2026-10|OPEN|9
+period_docs|2026-11|OPEN|12

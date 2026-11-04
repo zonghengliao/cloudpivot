@@ -1,0 +1,86 @@
+================================================================================================
+AUDIT-ALL 6 条核心链路真机验证   接口=http://127.0.0.1:18099   库=cloudpivot_audit
+================================================================================================
+
+## 0. 登录与夹具
+[PASS] admin 登录（初始密码）   token=有
+[PASS] 健康检查 /health   200
+[PASS] admin 首次改密（不改密业务接口一律 403）   HTTP 200 密码已修改
+[PASS] 用新密码重新登录   token=有
+[PASS] 夹具就绪（制单员 1 + 审批人 6，口令哈希对齐 admin 现状）
+[PASS] 制单员登录（制单人 ≠ 审批人）   token=有
+
+## ① 合同 → 采购 → 收货 → 过账 → 应付 → 付款
+[PASS] 建合同   HTTP 200 no=HT-20261104-000001 msg=ok
+[PASS] 合同提交审批   HTTP 200 ok status=PENDING_APPROVAL
+   · 审批人 audit_pm 节点 n_pm → HTTP 200 ok
+[PASS] 合同审批后状态（SIGNED/ACTIVE）   SIGNED
+[PASS] 建采购单（合同采购）   HTTP 200 no=PO-20261104-000001 金额=80.0000 合同=01a1a6ab-5632-7172-ba7f-5a92db565f0e msg=ok
+[PASS] 采购单提交审批   HTTP 200 status=None instance=01a1a6ab-5871-7570-8d77-e93ea53c0598
+   · 审批人 audit_dept 节点 n_dept → HTTP 200 ok
+[PASS] 采购审批走完   APPROVED
+[PASS] 命中「超信用额度」分支节点 c_credit   s,c_credit,c_low,n_dept,e
+[PASS] 按采购单建收货单（明细自动带出）   HTTP 200 no=None 金额=None msg=ok
+[PASS] 收货提交过账   HTTP 200 status=None msg=ok
+[PASS] 收货单落 POSTED   POSTED
+[PASS] 库存增加 10   期望=10.0 实际=10.0
+[PASS] 库存金额增加 80（10×8 不含税）   期望=80.0 实际=80.0
+[PASS] 过账自动生成应付单   dc56da0e-a35e-42b9-8f7b-b19ad27663c0
+[PASS] 应付金额 = 收货价税合计（90.4 = 80×1.13）   期望=90.4 实际=90.4000
+[PASS] 付款提交（走审批或直过）   HTTP 202 outcome=PENDING_APPROVAL msg=已提交审批（付款单 PM-20261104-000001，金额 90.4000），等待审批通过后才会记账
+   · 审批人 admin 节点 n_dept → HTTP 200 ok
+[PASS] 付款审批走完   APPROVED
+[PASS] 应付已付金额 = 90.4   期望=90.4 实际=90.4000
+[PASS] 应付单结清   SETTLED
+[PASS] 付款单落库   1
+
+## ② 收货作废 → 三账回滚 + 凭证红冲
+[PASS] 建无源收货单   HTTP 200 no=None msg=ok
+[PASS] 过账后库存 +5   期望=5.0 实际=5.0
+   · 审批人 admin 节点 n_review → HTTP 200 ok
+[PASS] 作废审批走完   APPROVED
+[PASS] 收货单落 CANCELLED   CANCELLED (HTTP 200 ok)
+[PASS] 库存回滚到作废前   期望=0.0 实际=0.0
+[PASS] 凭证红冲（is_red / reverse_of）   红字=1 反向指针=1
+[PASS] 作废增量凭证数   凭证总数 3 → 4
+
+## ③ 出库（领用）→ 库存减 + 成本凭证
+[PASS] 建领用单   HTTP 200 no=OUT-20261104-000001 msg=ok
+[PASS] 领用过账   HTTP 200 金额=16.0000 凭证=64e5b614-cfd9-4a1d-9765-a568d91bd287 msg=ok
+[PASS] 库存减少 2   期望=8.0 实际=8.0
+[PASS] 领用成本金额 > 0   16.0000
+[PASS] 成本结转凭证已生成   64e5b614-cfd9-4a1d-9765-a568d91bd287
+[PASS] 负库存出库被拦截（非 200）   HTTP 409 库存不足，过账已拒绝：物料 M-W1A-001 原料A（种子） 在仓库 WH01（总仓（种子））本次要出库 99999.0000，没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：未分配: 8.0000。请把这一行拆成多行并分别指定库位，或先补货
+
+## ④ 调拨 → 在途 → 完成
+[PASS] 建调拨单   HTTP 200 no=TK-20261104-000001 msg=ok
+[PASS] 调拨提交审批   HTTP 200 instance=01a1a6ab-622c-76ca-9521-6d14ca8e46c5
+   · 审批人 admin 节点 n_approve → HTTP 200 ok
+[PASS] 调拨审批走完   APPROVED
+[PASS] 调拨发货 IN_TRANSIT   HTTP 200 ok
+[PASS] 调拨收货 DONE   HTTP 200 ok
+[PASS] 调出仓减少 1   期望=7.0 实际=7.0
+[PASS] 调入仓增加 1   期望=1.0 实际=1.0
+
+## ⑤ 采购审批：金额分级 + 超信用额度分支
+[PASS] 设置供应商信用额度 = 50（原为 0 = 未设额度）   biz_supplier.credit_limit
+[PASS] 建单 金额 80   HTTP 200 no=PO-20261104-000002 over_credit=False
+   · 审批人 audit_fin 节点 n_fin → HTTP 200 ok
+   · 审批人 audit_dept 节点 n_dept → HTTP 200 ok
+[PASS] 金额分级命中 小额 <10000 → 部门主管   s,c_credit,n_fin,c_low,n_dept,e
+[PASS] 超信用额度（额度 50 < 90.4）→ 财务复核节点出现   s,c_credit,n_fin,c_low,n_dept,e
+[PASS] 审批通过后单据 APPROVED   APPROVED
+[PASS] 建单 金额 60000   HTTP 200 no=PO-20261104-000003 over_credit=False
+   · 审批人 audit_fin 节点 n_fin → HTTP 200 ok
+   · 审批人 audit_pm 节点 n_pm → HTTP 200 ok
+[PASS] 金额分级命中 10000≤x<100000 → 采购经理   n_fin,s,c_credit,c_low,c_mid,n_pm,e
+[PASS] 超信用额度（额度 50 < 90.4）→ 财务复核节点出现   n_fin,s,c_credit,c_low,c_mid,n_pm,e
+[PASS] 审批通过后单据 APPROVED   APPROVED
+
+## 账簿终态
+[PASS] 全账 Σ借 = Σ贷   期望=287.2000 实际=287.2000
+[PASS] 库存金额 = 1405 余额   期望=64.0000 实际=64.0
+
+================================================================================================
+链路验证汇总：PASS=56  FAIL=0
+================================================================================================
