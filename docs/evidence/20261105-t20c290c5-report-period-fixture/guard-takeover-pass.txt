@@ -1,0 +1,10 @@
+   Compiling cloudpivot v0.1.0 (/root/t20-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.89s
+     Running unittests src/lib.rs (/root/t20-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... [R1-⑬] 空月份 400；有账无期间 → DERIVED + 提示开账 ✓
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2497 filtered out; finished in 0.60s
+

@@ -1,0 +1,45 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.24s
+     Running unittests src/lib.rs (/root/t20-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 15 tests
+test business::erp::report::tests::r1_accumulated_depreciation_is_a_deduction ... ok
+test business::erp::report::tests::r1_formula_with_unknown_item_fails_loudly ... ok
+test business::erp::report::tests::r1_imbalance_is_reported_with_exact_diff ... ok
+test business::erp::report::tests::r1_inventory_and_payable_split_into_two_sides ... ok
+test business::erp::report::tests::r1_only_cash_balances_with_capital ... ok
+test business::erp::report::tests::r1_pattern_syntax_covers_four_forms ... ok
+test business::erp::report::tests::r1_period_parsing_and_previous_month ... ok
+test business::erp::report::tests::r1_real_config_is_consistent ... ok
+test business::erp::report::tests::r1_real_deleted_entry_breaks_the_balance ... ok
+test business::erp::report::tests::r1_real_empty_period_is_all_zero_and_balanced ... ok
+test business::erp::report::tests::r1_real_full_cycle_is_balanced ... ok
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... FAILED
+test business::erp::report::tests::r1_real_previous_period_comparison ... FAILED
+test business::erp::report::tests::r1_tax_details_roll_up_into_tax_item ... ok
+test business::erp::report::tests::r1_tiny_diff_is_not_rounded_away ... ok
+
+failures:
+
+---- business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable stdout ----
+
+thread 'business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable' (3470470) panicked at src/business/erp/report.rs:2340:9:
+assertion `left == right` failed: 缺期间行但有账 → DERIVED
+  left: "OPEN"
+ right: "DERIVED"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- business::erp::report::tests::r1_real_previous_period_comparison stdout ----
+
+thread 'business::erp::report::tests::r1_real_previous_period_comparison' (3470483) panicked at src/business/erp/report.rs:2408:9:
+assertion `left == right` failed: 2026-12 没建期间 → 不出上期对比（不替用户推导不存在的报告期）
+  left: Some("2026-12")
+ right: None
+
+
+failures:
+    business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable
+    business::erp::report::tests::r1_real_previous_period_comparison
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 2483 filtered out; finished in 2.45s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,47 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.10s
+     Running unittests src/lib.rs (/root/t20-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 40 tests
+test business::erp::period::tests::p1_batch_open_creates_fourteen_periods ... ok
+test business::erp::period::tests::p1_close_blocked_by_draft_vouchers ... ok
+test business::erp::period::tests::p1_close_blocked_by_unbalanced_entries ... ok
+test business::erp::period::tests::p1_close_blocked_by_unfinished_documents ... ok
+test business::erp::period::tests::p1_close_empty_period_succeeds ... ok
+test business::erp::period::tests::p1_ensure_year_periods_seeds_twelve_and_is_idempotent ... ok
+test business::erp::period::tests::p1_input_guards_are_strict ... ok
+test business::erp::period::tests::p1_manual_voucher_on_closed_period_is_bad_request ... ok
+test business::erp::period::tests::p1_open_period_computes_month_range ... ok
+test business::erp::period::tests::p1_open_same_period_twice_is_conflict ... ok
+test business::erp::period::tests::p1_open_without_permission_is_forbidden ... ok
+test business::erp::period::tests::p1_post_voucher_to_closed_period_is_bad_request ... ok
+test business::erp::period::tests::p1_reopen_blocked_by_later_closed_period ... ok
+test business::erp::period::tests::p1_reopen_clears_closed_marks ... ok
+test business::erp::period::tests::p1_reopen_requires_reason ... ok
+test business::erp::period::tests::p1_reopen_restores_posting ... ok
+test business::erp::period_items::tests::can_close_is_unaffected_by_items ... ok
+test business::erp::period_items::tests::empty_period_has_no_items_and_no_error ... ok
+test business::erp::period_items::tests::every_blocker_serializes_items_array ... ok
+test business::erp::period_items::tests::items_are_capped_at_fifty_with_message_note ... ok
+test business::erp::period_items::tests::items_draft_vouchers_list_every_doc ... ok
+test business::erp::period_items::tests::items_invariant_blocker_points_to_broken_vouchers ... ok
+test business::erp::period_items::tests::items_unfinished_docs_cover_three_types_with_actions ... ok
+test business::erp::period_items::tests::next_action_table_is_stable ... ok
+test business::erp::period_items::tests::owner_name_only_when_role_has_single_user ... ok
+test business::erp::period_items::tests::owner_role_is_null_when_no_role_holds_permission ... ok
+test business::erp::period_items::tests::owner_role_is_resolved_from_permission ... ok
+test business::erp::period_items::tests::route_encoding_is_safe ... ok
+test business::erp::period_items::tests::unfinished_items_are_capped_at_fifty_across_types ... ok
+test business::erp::period_remind::tests::draft_template_matches_card ... ok
+test business::erp::period_remind::tests::money_text_strips_trailing_zeros ... ok
+test business::erp::period_remind::tests::pick_items_filters_by_kind_and_ids ... ok
+test business::erp::period_remind::tests::remind_dedupes_within_24_hours ... ok
+test business::erp::period_remind::tests::remind_on_clean_period_is_noop ... ok
+test business::erp::period_remind::tests::remind_only_selected_items ... ok
+test business::erp::period_remind::tests::remind_permission_is_enforced_and_seeded ... ok
+test business::erp::period_remind::tests::remind_rejects_invalid_item_ids ... ok
+test business::erp::period_remind::tests::remind_sends_to_owner_and_counts_are_consistent ... ok
+test business::erp::period_remind::tests::remind_skips_items_without_owner ... ok
+test business::erp::period_remind::tests::remind_unknown_period_is_404 ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 2458 filtered out; finished in 40.04s
+

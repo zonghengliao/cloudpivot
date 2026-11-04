@@ -1,0 +1,34 @@
+    Checking cloudpivot v0.1.0 (/root/t20-wt/backend)
+error[E0063]: missing fields `doc_id` and `doc_type` in initializer of `cloudpivot::business::task::model::NewTask`
+   --> tests/batchT_t1_task.rs:269:15
+    |
+269 |     let new = model::NewTask {
+    |               ^^^^^^^^^^^^^^ missing `doc_id` and `doc_type`
+
+error[E0063]: missing fields `doc_id` and `doc_type` in initializer of `cloudpivot::business::task::model::NewTask`
+   --> tests/batchT_t1_task.rs:467:15
+    |
+467 |     let new = model::NewTask {
+    |               ^^^^^^^^^^^^^^ missing `doc_id` and `doc_type`
+
+error[E0063]: missing fields `doc_id` and `doc_type` in initializer of `cloudpivot::business::task::dto::TaskCreateReq`
+    --> tests/pflow1b.rs:1395:15
+     |
+1395 |     let req = task_dto::TaskCreateReq {
+     |               ^^^^^^^^^^^^^^^^^^^^^^^ missing `doc_id` and `doc_type`
+
+error[E0583]: file not found for module `task_flow_linkage`
+  --> tests/linkage/mod.rs:32:1
+   |
+32 | pub mod task_flow_linkage;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: to create the module `task_flow_linkage`, create file "tests/linkage/task_flow_linkage.rs" or "tests/linkage/task_flow_linkage/mod.rs"
+   = note: if there is a `mod task_flow_linkage` elsewhere in the crate already, import it with `use crate::...` instead
+
+For more information about this error, try `rustc --explain E0063`.
+error: could not compile `cloudpivot` (test "batchT_t1_task") due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `cloudpivot` (test "pflow1b") due to 1 previous error
+For more information about this error, try `rustc --explain E0583`.
+error: could not compile `cloudpivot` (test "linkage") due to 1 previous error

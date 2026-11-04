@@ -1,0 +1,6 @@
+=== exact ⑬ ===
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... [R1-⑬] 空月份 400；有账无期间 → DERIVED + 提示开账 ✓
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2497 filtered out; finished in 0.56s
+=== exact ⑭ ===
+test business::erp::report::tests::r1_real_previous_period_comparison ... [R1-⑭] 上期对比：2026-10 → 2026-09（CLOSED 也能出表）；2020-01 无上期 → null ✓
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2497 filtered out; finished in 0.57s

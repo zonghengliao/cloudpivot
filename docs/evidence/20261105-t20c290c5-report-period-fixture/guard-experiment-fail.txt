@@ -1,0 +1,24 @@
+   Compiling cloudpivot v0.1.0 (/root/t20-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.46s
+     Running unittests src/lib.rs (/root/t20-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... FAILED
+
+failures:
+
+---- business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable stdout ----
+
+thread 'business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable' (3488171) panicked at src/business/erp/report.rs:2082:9:
+assertion `left == right` failed: 2019-12 必须是「没有期间行」的样本，实际有 1 行
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2497 filtered out; finished in 0.41s
+
+error: test failed, to rerun pass `--lib`

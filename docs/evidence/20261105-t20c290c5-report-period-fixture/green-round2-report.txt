@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running unittests src/lib.rs (/root/t20-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 15 tests
+test business::erp::report::tests::r1_accumulated_depreciation_is_a_deduction ... ok
+test business::erp::report::tests::r1_formula_with_unknown_item_fails_loudly ... ok
+test business::erp::report::tests::r1_imbalance_is_reported_with_exact_diff ... ok
+test business::erp::report::tests::r1_inventory_and_payable_split_into_two_sides ... ok
+test business::erp::report::tests::r1_only_cash_balances_with_capital ... ok
+test business::erp::report::tests::r1_pattern_syntax_covers_four_forms ... ok
+test business::erp::report::tests::r1_period_parsing_and_previous_month ... ok
+test business::erp::report::tests::r1_real_config_is_consistent ... ok
+test business::erp::report::tests::r1_real_deleted_entry_breaks_the_balance ... ok
+test business::erp::report::tests::r1_real_empty_period_is_all_zero_and_balanced ... ok
+test business::erp::report::tests::r1_real_full_cycle_is_balanced ... ok
+test business::erp::report::tests::r1_real_missing_period_is_rejected_but_derivable ... ok
+test business::erp::report::tests::r1_real_previous_period_comparison ... ok
+test business::erp::report::tests::r1_tax_details_roll_up_into_tax_item ... ok
+test business::erp::report::tests::r1_tiny_diff_is_not_rounded_away ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 2483 filtered out; finished in 2.93s
+

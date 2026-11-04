@@ -2023,7 +2023,13 @@ mod tests {
 
     const FIXTURE_WORD: &str = "ERPR1";
 
-    /// 清夹具 + 建 2026-10 / 2026-11 两个期间（**幂等**）。
+    /// 清夹具 + 建本模块要用的期间（**幂等**，前提由夹具自己保证）。
+    ///
+    /// 「没有期间行」这个前提**不能靠没建**：`V0221`（新库自动开账）按 `CURRENT_DATE` 幂等种当年
+    /// 1–12 月，`bootstrap::ensure_accounting_periods()` 每次启动还会补当年 —— 干净库上
+    /// `2026-01..12` 必然有行。用户例原来拿 `2026-12` 当「无期间行」样本，V0221 一上线就整片失效
+    /// （卡 t_20c290c5）。现在样本期换成**没有任何种子路径**的 `2019-12`，并在下面显式
+    /// DELETE + 断言 0 行 + INSERT `2020-01`，让前提由夹具构造，而不是靠「正好没人种过」。
     async fn setup_fixture() -> Option<tokio::sync::MutexGuard<'static, ()>> {
         let guard = DB_LOCK.lock().await;
         if !ensure_db().await {
@@ -2031,6 +2037,11 @@ mod tests {
         }
         let statements = [
             format!("DELETE FROM biz_voucher WHERE voucher_word = '{FIXTURE_WORD}'"),
+            // 只删本用例自己的两个期间（按 period_code 收敛，不整库扫、不碰别的年度）：
+            //   2019-12 —— 「本期没有期间行」样本，必须保证 0 行（下面 fail-closed 断言）；
+            //   2020-01 —— 「本期有行、上期 2019-12 无行」样本，先删再插，状态/区间由夹具钉死。
+            "DELETE FROM biz_accounting_period WHERE period_code IN ('2019-12', '2020-01')"
+                .to_string(),
             "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
              start_date, end_date, status) VALUES (2026, 10, '2026-10', '2026-10-01', '2026-10-31', 'OPEN') \
              ON CONFLICT (period_code) DO NOTHING"
@@ -2043,10 +2054,11 @@ mod tests {
              start_date, end_date, status) VALUES (2026, 9, '2026-09', '2026-09-01', '2026-09-30', 'CLOSED') \
              ON CONFLICT (period_code) DO NOTHING"
                 .to_string(),
-            // 2026-08 故意**不建**：用来验证「上期没有期间行就不出对比」。
-            // 2027-01 建上：上期 2026-12 同样不存在 → 验证缺失分支。
+            // 2026-08 / 2026-12 由 V0221 种成 OPEN（见上），本模块只把 2026-08 当**凭证日期**用
+            // （取数按日期、不看期间表），不再充当「无期间行」样本。
+            // 2020-01 建上：上期 2019-12 没有期间行 → 验证「上期缺期间行就不出对比」的分支。
             "INSERT INTO biz_accounting_period (period_year, period_month, period_code, \
-             start_date, end_date, status) VALUES (2027, 1, '2027-01', '2027-01-01', '2027-01-31', 'NOT_OPENED') \
+             start_date, end_date, status) VALUES (2020, 1, '2020-01', '2020-01-01', '2020-01-31', 'NOT_OPENED') \
              ON CONFLICT (period_code) DO NOTHING"
                 .to_string(),
             // 2000-12：早于库里任何凭证 → 期初必然为 0（"空期间全 0"用例的唯一确定性口径）
@@ -2060,6 +2072,17 @@ mod tests {
                 .await
                 .unwrap_or_else(|error| panic!("夹具 SQL 失败：{error}\n{sql}"));
         }
+        // fail-closed：「没有期间行」的前提必须被夹具真正构造出来。少了这一条，
+        // 任何一种新种子（迁移 / 启动保底 / 别人留下的行）都会把它悄悄变成
+        // 「测一个有期间行的月份」—— 测试看着是绿的，实际什么也没证明。
+        let sample_rows: i64 = db()
+            .scalar("SELECT count(*) FROM biz_accounting_period WHERE period_code = '2019-12'")
+            .await
+            .unwrap_or_else(|error| panic!("夹具自检失败（查 2019-12 期间行）：{error}"));
+        assert_eq!(
+            sample_rows, 0,
+            "2019-12 必须是「没有期间行」的样本，实际有 {sample_rows} 行"
+        );
         Some(guard)
     }
 
@@ -2316,6 +2339,9 @@ mod tests {
     }
 
     /// ⑬ 真库：期间未建 → 空月份必须 400；**有账的月份**按自然月推算（DERIVED）也要出表。
+    ///
+    /// 「无期间行」样本期 = `2019-12`（`setup_fixture` 显式删空；V0221 / 启动保底只种当年，碰不到它）。
+    /// 别改回「当年某月」：新库自举后 2026-01..12 必然有行，用例会静默失去它要证明的东西。
     #[tokio::test]
     async fn r1_real_missing_period_is_rejected_but_derivable() {
         let Some(_guard) = setup_fixture().await else {
@@ -2334,20 +2360,21 @@ mod tests {
             "错误信息要说清是不存在：{message}"
         );
 
-        // ② 2026-12：没有期间行，但**有**一张 12 月的凭证 → 按自然月推算，状态 DERIVED
-        post_voucher("0301", "2026-12-05", "2026-12", "1002", "3001", 321).await;
-        let snapshot = run("2026-12").await;
+        // ② 2019-12：没有期间行，但**有**一张 12 月的凭证 → 按自然月推算，状态 DERIVED
+        //    （2019-12 由夹具显式删干净：V0221 / 启动保底都只看当年，碰不到这个年份）
+        post_voucher("0301", "2019-12-05", "2019-12", "1002", "3001", 321).await;
+        let snapshot = run("2019-12").await;
         assert_eq!(
             snapshot.period.status, PERIOD_DERIVED,
             "缺期间行但有账 → DERIVED"
         );
         assert_eq!(
             snapshot.period.start_date,
-            NaiveDate::from_ymd_opt(2026, 12, 1).expect("日期")
+            NaiveDate::from_ymd_opt(2019, 12, 1).expect("日期")
         );
         assert_eq!(
             snapshot.period.end_date,
-            NaiveDate::from_ymd_opt(2026, 12, 31).expect("日期")
+            NaiveDate::from_ymd_opt(2019, 12, 31).expect("日期")
         );
         let report = into_response("BALANCE_SHEET", REPORT_NAME, "云枢", "元", snapshot);
         assert!(
@@ -2369,7 +2396,7 @@ mod tests {
         .expect("清理夹具凭证");
     }
 
-    /// ⑭ 真库：上期对比能取到（2026-09 建过期间 → 出对比；1999 没有 → 不出）。
+    /// ⑭ 真库：上期对比能取到（2026-09 建过期间 → 出对比；上期 2019-12 没行 → 不出）。
     #[tokio::test]
     async fn r1_real_previous_period_comparison() {
         let Some(_guard) = setup_fixture().await else {
@@ -2379,7 +2406,8 @@ mod tests {
         let baseline_09 = run("2026-09").await;
         let base_capital = amount_of(&baseline_09.sheet.equity, "PAID_IN_CAPITAL");
 
-        // 2026-08 没有期间行，但凭证日期仍决定它落在 2026-09 的**期初**（取数按日期，不看期间表）
+        // 2026-08 是被 V0221 种出的 OPEN 期间，这里只用它的**凭证日期**（取数按日期，不看期间表），
+        // 该凭证落在 2026-09 的期初。
         post_voucher("0201", "2026-08-20", "2026-08", "1002", "3001", 700).await;
 
         // ① 上期存在（2026-09，状态 CLOSED）→ 2026-10 必须出对比，且 CLOSED 也能出表
@@ -2403,11 +2431,11 @@ mod tests {
             "本期不再发生 → 期末与上期相同"
         );
 
-        // ② 上期不存在（2027-01 的上期 2026-12 没建期间行）→ previous_period = None
-        let snapshot = run("2027-01").await;
+        // ② 上期不存在（2020-01 的上期 2019-12 没建期间行）→ previous_period = None
+        let snapshot = run("2020-01").await;
         assert_eq!(
             snapshot.previous_period, None,
-            "2026-12 没建期间 → 不出上期对比（不替用户推导不存在的报告期）"
+            "2019-12 没建期间 → 不出上期对比（不替用户推导不存在的报告期）"
         );
         let mut sheet = snapshot.sheet.clone();
         attach_previous(&mut sheet, snapshot.previous_sheet.as_ref());
@@ -2420,7 +2448,7 @@ mod tests {
                 .all(|row| row.previous_amount.is_none()),
             "没有上期时，逐行 previous_amount 必须全是 null"
         );
-        println!("[R1-⑭] 上期对比：2026-10 → 2026-09（CLOSED 也能出表）；2027-01 无上期 → null ✓");
+        println!("[R1-⑭] 上期对比：2026-10 → 2026-09（CLOSED 也能出表）；2020-01 无上期 → null ✓");
     }
 
     /// ⑮ 真库：报表配置（41 项）与实际库里的行完全一致，且必含勾稽两项。
