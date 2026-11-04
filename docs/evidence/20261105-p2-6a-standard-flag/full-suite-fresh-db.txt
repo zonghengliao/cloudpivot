@@ -1,0 +1,21 @@
+# P2-6a：全量不变量套件（含新增 H5）在干净隔离库上的实跑 @ 2026-11-05T01:09:06+08:00
+# 库：cloudpivot_2cbeb540（fresh 迁移到 V0232，无夹具残留）
+# 注：cargo test --lib business::flow 会把夹具写进 ERP_DB_URL 指定的库（本次留了 1 张
+#     D2L-SI-2 收货单，已清理）；跑单测请用单独的库，别用证据库。
+
+$ python3 scripts/verify/erp_invariants.py   # 取 H5 行与汇总行
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+结果：51/51 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+$ python3 scripts/verify/erp_invariants.py --group 审批
+  ✅ [审批] H1 实例已终态 → 待办必须终态
+  ✅ [审批] H2 任务已取消/完成 → 审批实例必须终态
+  ✅ [审批] H3 待办必能追溯到任务（未软删）
+  ✅ [审批] H4 审批已通过 → 单据必须前进（不许停在待审批态）
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+结果：5/5 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+# 对照：同一条断言在 cloudpivot_manual（该库落后到 V0220，缺固资表）上的汇总
+$ NIK_DATABASE_NAME=cloudpivot_manual python3 scripts/verify/erp_invariants.py | grep 结果
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+结果：41/42 通过   🚨 BLOCKER 0   ⚠️ WARN 1
