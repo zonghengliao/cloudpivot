@@ -508,6 +508,32 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '折旧计提', permission: 'business:erp:depreciation:list' },
       },
       {
+        // ==================== ERP 预算（FIN-1 / ARCH-6 第三章） ====================
+        // `sys_menu` 种子（V0227）三条菜单 path 与 component 逐字对应：
+        //   `/business/erp/budget`          component `business/erp/budget/index`   （预算编制）
+        //   `/business/erp/budget/report`   component `business/erp/budget/report`  （预算执行）
+        //   `/business/erp/budget/mapping`  component `business/erp/budget/mapping` （预算科目映射）
+        // 目录节点（预算管理）也挂在 `/business/erp/budget` 上（menu_type=1 无组件），
+        // 所以第一条既是「点目录」的落点，也是「点预算编制」的落点 —— 只注册一条。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点菜单进 404（卡 t_42d844c0）。
+        path: 'business/erp/budget',
+        name: 'BusinessErpBudget',
+        component: () => import('@/views/business/erp/budget/index.vue'),
+        meta: { title: '预算编制', permission: 'business:erp:budget:list' },
+      },
+      {
+        path: 'business/erp/budget/report',
+        name: 'BusinessErpBudgetReport',
+        component: () => import('@/views/business/erp/budget/report.vue'),
+        meta: { title: '预算执行', permission: 'business:erp:budget:report' },
+      },
+      {
+        path: 'business/erp/budget/mapping',
+        name: 'BusinessErpBudgetMapping',
+        component: () => import('@/views/business/erp/budget/mapping.vue'),
+        meta: { title: '预算科目映射', permission: 'business:erp:budget:mapping' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
