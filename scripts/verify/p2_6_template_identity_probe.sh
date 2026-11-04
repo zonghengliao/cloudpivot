@@ -1,0 +1,122 @@
+#!/usr/bin/env bash
+# ==============================================================
+# P2-6 证据探针：流程「模板库」到底有没有独立实体？
+#
+# 用途：只读。把「模板库 = biz_flow_def 的一个 flag」这个结论变成可复跑的断言，
+#       而不是读代码读出来的印象。所有 SQL 都是 SELECT / count，不改任何数据。
+#
+# 用法：
+#   bash scripts/verify/p2_6_template_identity_probe.sh            # 跑一轮（人读）
+#   bash scripts/verify/p2_6_template_identity_probe.sh --json     # 跑一轮（机器读，用于两轮 diff）
+#
+# 库连接：优先 NIK_DATABASE_HOST/PORT/USER/NAME/PASSWORD；
+#         缺省回落到 /root/.cloudpivot/snapshot-audit.env（本机隔离库，600）。
+#
+# 退出码：0 = 全部探针与预期一致；1 = 有探针不符（说明结论/现状变了，先看输出再改文档）。
+# ==============================================================
+set -uo pipefail
+
+JSON=0
+[[ "${1:-}" == "--json" ]] && JSON=1
+
+ENV_FILE="${NIK_ENV_FILE:-/root/.cloudpivot/snapshot-audit.env}"
+# 调用方显式给的变量优先于 env 文件（env 文件只是个缺省来源，不能反过来盖掉 CLI 上的指定）
+_OVR_HOST="${NIK_DATABASE_HOST:-}"; _OVR_PORT="${NIK_DATABASE_PORT:-}"
+_OVR_USER="${NIK_DATABASE_USER:-}"; _OVR_NAME="${NIK_DATABASE_NAME:-}"
+_OVR_PASS="${NIK_DATABASE_PASSWORD:-}"
+if [[ -r "$ENV_FILE" ]]; then
+    # shellcheck disable=SC1090
+    set -a; source "$ENV_FILE"; set +a
+fi
+[[ -n "$_OVR_HOST" ]] && NIK_DATABASE_HOST="$_OVR_HOST"
+[[ -n "$_OVR_PORT" ]] && NIK_DATABASE_PORT="$_OVR_PORT"
+[[ -n "$_OVR_USER" ]] && NIK_DATABASE_USER="$_OVR_USER"
+[[ -n "$_OVR_NAME" ]] && NIK_DATABASE_NAME="$_OVR_NAME"
+[[ -n "$_OVR_PASS" ]] && NIK_DATABASE_PASSWORD="$_OVR_PASS"
+
+DB_HOST="${NIK_DATABASE_HOST:-127.0.0.1}"
+DB_PORT="${NIK_DATABASE_PORT:-5432}"
+DB_USER="${NIK_DATABASE_USER:-alun}"
+DB_NAME="${NIK_DATABASE_NAME:-cloudpivot_audit}"
+export PGPASSWORD="${NIK_DATABASE_PASSWORD:-}"
+
+q() {  # q <sql> -> -tAc 单值
+    psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -tAc "$1" 2>/dev/null
+}
+
+FAIL=0
+declare -a ROWS=()
+
+# probe <编号> <说明> <预期> <实际>
+probe() {
+    local id="$1" desc="$2" expect="$3" actual="$4"
+    local mark="OK"
+    if [[ "$expect" != "-" && "$actual" != "$expect" ]]; then
+        mark="MISMATCH"; FAIL=1
+    fi
+    ROWS+=("$(printf '%-6s %-8s expect=%-10s actual=%-10s %s' "$id" "$mark" "$expect" "$actual" "$desc")")
+}
+
+# ---------- P0 连通性 ----------
+if [[ -z "$(q 'select 1')" ]]; then
+    echo "FATAL: 连不上库 $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME（示例：NIK_DATABASE_PASSWORD=xx bash $0）" >&2
+    exit 2
+fi
+
+# ---------- P1 定义总数 / 标准标记数 ----------
+q "select count(*) from biz_flow_def where deleted_at is null" >/dev/null
+DEF_TOTAL=$(q "select count(*) from biz_flow_def where deleted_at is null")
+SYS_TRUE=$(q  "select count(*) from biz_flow_def where deleted_at is null and is_system")
+SYS_FALSE=$(q "select count(*) from biz_flow_def where deleted_at is null and not is_system")
+probe P1a "未软删的流程定义行数（= 模板库页显示的『共 N 个模板』）" - "$DEF_TOTAL"
+probe P1b "其中 is_system = TRUE（页面上挂『标准』标签）" - "$SYS_TRUE"
+probe P1c "其中 is_system = FALSE（页面上没有『标准』标签）" - "$SYS_FALSE"
+
+# ---------- P2 关键反证：非标准行里有多少是「名字自报标准」的种子 ----------
+# 这是本卡最硬的一条：种子迁移插 def 时没写 is_system → 默认 FALSE → 标准流程被错标成客户自建。
+MISLABELED=$(q "select count(*) from biz_flow_def
+                 where deleted_at is null and not is_system and flow_name like '%标准%'")
+MISLABELED_LIST=$(q "select string_agg(flow_code || '(' || flow_name || ')', ' | ' order by flow_code)
+                       from biz_flow_def
+                      where deleted_at is null and not is_system and flow_name like '%标准%'")
+probe P2a "is_system=FALSE 却自称『标准』的行数（错标）" - "$MISLABELED"
+probe P2b "is_system=FALSE 的行里，『自称标准』的占比是否等于全部" "$SYS_FALSE" "$MISLABELED"
+
+# ---------- P3 客户真正自建的流程有多少（另存为副本 / 自定义编码） ----------
+CUSTOM=$(q "select count(*) from biz_flow_def
+             where deleted_at is null and not is_system and flow_code like '%\_custom' escape '\'")
+probe P3a "另存为出来的副本数（flow_code 以 _custom 结尾）" 0 "$CUSTOM"
+
+# ---------- P4 模板库接口与流程定义列表是不是同一张表 ----------
+# model::templates() 的 WHERE 子句只有 deleted_at IS NULL —— 没有 is_system 过滤。
+# 静态核对：后端源码里 /def/templates 查询是否带了 is_system 条件。
+SRC="$(dirname "$0")/../../backend/src/business/flow/model.rs"
+FILTER=$(grep -c 'is_system' "$SRC" 2>/dev/null || echo 0)
+WHERE_SYS=$(awk '/pub async fn templates\(\)/,/\.await\?/' "$SRC" 2>/dev/null \
+            | grep -c 'WHERE d\.deleted_at IS NULL' || true)
+probe P4a "model::templates() 的 WHERE 里没有 is_system 过滤（应 = 1）" 1 "$WHERE_SYS"
+
+# ---------- P5 菜单：模板库是顶层节点、流程定义在「审批流」组里 ----------
+MENU_TPL=$(q "select count(*) from sys_menu where path = '/flow/templates' and deleted_at is null" 2>/dev/null)
+MENU_TPL_TOP=$(q "select count(*) from sys_menu where path = '/flow/templates' and deleted_at is null and parent_id is null" 2>/dev/null)
+MENU_DEF=$(q "select count(*) from sys_menu where path = '/flow/def' and deleted_at is null" 2>/dev/null)
+probe P5a "存在 /flow/templates 菜单节点" 1 "$MENU_TPL"
+probe P5b "该节点是**顶层**节点（不在审批流组下）" 1 "$MENU_TPL_TOP"
+probe P5c "同时存在 /flow/def（流程定义）节点 —— 两个入口指向同一张表" 1 "$MENU_DEF"
+
+# ---------- P6 版本 / 实例规模（说明 def 本身已是「可复用骨架」） ----------
+VER=$(q "select count(*) from biz_flow_def_version")
+INS=$(q "select count(*) from biz_flow_instance where deleted_at is null")
+probe P6a "流程版本行总数（def → version → instance 三层）" - "$VER"
+probe P6b "在跑/历史审批实例总数（def 已被复用发起的次数）" - "$INS"
+
+if [[ $JSON -eq 1 ]]; then
+    printf '{"db":"%s","def_total":%s,"is_system_true":%s,"is_system_false":%s,"mislabeled":%s,"custom":%s,"versions":%s,"instances":%s,"fail":%s}\n' \
+        "$DB_NAME" "$DEF_TOTAL" "$SYS_TRUE" "$SYS_FALSE" "$MISLABELED" "$CUSTOM" "$VER" "$INS" "$FAIL"
+else
+    echo "== P2-6 探针 @ ${DB_NAME} $(date -Is) =="
+    printf '%s\n' "${ROWS[@]}"
+    echo "-- 错标明细：${MISLABELED_LIST:-（无）}"
+    echo "-- 结论：FAIL=${FAIL}（0 = 现状与结论一致；1 = 现状已变，先看输出再改文档）"
+fi
+exit $FAIL
