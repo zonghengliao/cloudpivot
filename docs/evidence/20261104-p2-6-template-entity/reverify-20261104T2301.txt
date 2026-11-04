@@ -1,0 +1,130 @@
+# P2-6 收尾复验（kanban run 580，2026-11-04T23:01+08:00）
+
+目的：不依赖上一位 worker 的叙述，本轮（run 580）亲自重跑两条探针各两轮并 diff。
+环境：HEAD=73f2097（commit 2d50be3 已在其历史内）｜后端 pid=2264469 监听 :8023｜库=cloudpivot_manual
+
+---
+
+## 1) HTTP+DB 探针（python）第一轮
+
+```
+$ TEST_PASS='Manual@123456' python3 scripts/verify/p2_6_template_probe.py
+== P2-6 探针 @ cloudpivot_manual （后端 pid=2264469 http://127.0.0.1:8023）==
+H1     OK       expect=None       actual=11           模板库页「共 N 个模板」= templates API total
+H2     OK       expect=None       actual=11           接口实际返回的卡片数
+H3     OK       expect=None       actual=9            其中 is_system=TRUE（挂「标准」标签）
+H4     OK       expect=None       actual=2            其中 is_system=FALSE（无「标准」标签，却也算「模板」）
+H5     FAIL     expect=0          actual=2            「模板库」里混进了非系统预置流程的数量（期望 0 = 概念干净）
+H6     OK       expect=None       actual=7            按 category 的分组数
+H7     OK       expect=None       actual=11           流程定义页列表条数（同一张 biz_flow_def）
+H7t    OK       expect=None       actual=11           流程定义页 total 字段
+H8     OK       expect=1          actual=1            两个页面看到的是不是同一批行（1=是 → 两个入口一张表）
+H0     OK       expect=None       actual=po_approve         is_system=True  status=PUBLISHED  cat=采购管理     卡片明细
+H0     OK       expect=None       actual=stock_in_cancel    is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=stock_in_post      is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=stock_transfer     is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=payable_cancel     is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=payable_pay        is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=voucher_reverse    is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=task_accept        is_system=True  status=PUBLISHED  cat=任务     卡片明细
+H0     OK       expect=None       actual=contract_approve   is_system=False status=PUBLISHED  cat=合同管理     卡片明细
+H0     OK       expect=None       actual=stock_take_post    is_system=False status=PUBLISHED  cat=库存管理     卡片明细
+H0     OK       expect=None       actual=flow_edge_config   is_system=True  status=PUBLISHED  cat=系统     卡片明细
+H9     OK       expect=None       actual=2            名称自称「标准」但 is_system=FALSE 的行数（口径不一致）
+H9x    OK       expect=None       actual=contract_approve     错标明细：合同审批（标准·金额分级）
+H9x    OK       expect=None       actual=stock_take_post   错标明细：盘点过账审批（标准·差异金额分级）
+D1     OK       expect=1          actual=1            有没有独立模板表（biz_flow_template / sys_flow_template / biz_flow_tpl 任一存在即 0）
+D2     OK       expect=None       actual=11           biz_flow_def 未软删行数
+D3     OK       expect=None       actual=9            其中 is_system=TRUE
+D4     OK       expect=None       actual=12           流程版本行数
+D5     OK       expect=None       actual=0            审批实例数（def 被复用发起）
+D6     OK       expect=None       actual=2            sys_menu 里指向流程的两个页面节点数（2 = 两个入口一张表）
+D7     OK       expect=None       actual=1            其中 /flow/templates 是顶层节点（无父级）
+D8     OK       expect=None       actual=false / nullable=NO biz_flow_def.is_system 默认值 / 可空性
+D9     OK       expect=None       actual=(none)       biz_flow_def 里带 template/tpl/skeleton 字样的列（为空 = 模板只是 flag）
+D10    OK       expect=None       actual=contract_approve | stock_take_post 库里「名称含标准但 is_system=FALSE」的行（应为 0）
+D11    OK       expect=1          actual=1            存在 biz_task_template（任务模板 = 独立实体，与流程侧形成反差）
+D12    OK       expect=None       actual=219          库里已应用的最大迁移号（新增迁移必须更大）
+-- 断言 35 条，FAIL=1
+-- 数据库：cloudpivot_manual
+-- 结论：FAIL=0 表示现状与决策文档描述一致；>0 先看是哪条变了
+```
+
+## 2) diff 第一轮 vs 第二轮
+
+```
+$ diff /tmp/p26verify/r1.txt /tmp/p26verify/r2.txt
+（无输出）
+IDENTICAL
+```
+
+## 3) diff 本轮 vs 已入库 `probe-architect-run1.txt`（忽略首行时间戳）
+
+```
+$ diff <(grep -v '^== ' /tmp/p26verify/r1.txt) <(grep -v '^== ' docs/evidence/20261104-p2-6-template-entity/probe-architect-run1.txt)
+（无输出）
+MATCHES_COMMITTED_EVIDENCE
+```
+
+## 4) 纯 SQL 探针（bash）第一轮
+
+```
+$ NIK_DATABASE_NAME=cloudpivot_manual NIK_DATABASE_PASSWORD=alun bash scripts/verify/p2_6_template_identity_probe.sh
+== P2-6 探针 @ cloudpivot_manual 2026-11-04T23:01:15+08:00 ==
+P1a    OK       expect=-          actual=11         未软删的流程定义行数（= 模板库页显示的『共 N 个模板』）
+P1b    OK       expect=-          actual=9          其中 is_system = TRUE（页面上挂『标准』标签）
+P1c    OK       expect=-          actual=2          其中 is_system = FALSE（页面上没有『标准』标签）
+P2a    OK       expect=-          actual=2          is_system=FALSE 却自称『标准』的行数（错标）
+P2b    OK       expect=2          actual=2          is_system=FALSE 的行里，『自称标准』的占比是否等于全部
+P3a    OK       expect=0          actual=0          另存为出来的副本数（flow_code 以 _custom 结尾）
+P4a    OK       expect=1          actual=1          model::templates() 的 WHERE 里没有 is_system 过滤（应 = 1）
+P5a    OK       expect=1          actual=1          存在 /flow/templates 菜单节点
+P5b    OK       expect=1          actual=1          该节点是**顶层**节点（不在审批流组下）
+P5c    OK       expect=1          actual=1          同时存在 /flow/def（流程定义）节点 —— 两个入口指向同一张表
+P6a    OK       expect=-          actual=12         流程版本行总数（def → version → instance 三层）
+P6b    OK       expect=-          actual=0          在跑/历史审批实例总数（def 已被复用发起的次数）
+-- 错标明细：contract_approve(合同审批（标准·金额分级）) | stock_take_post(盘点过账审批（标准·差异金额分级）)
+-- 结论：FAIL=0（0 = 现状与结论一致；1 = 现状已变，先看输出再改文档）
+```
+
+## 5) diff SQL 第一轮 vs 第二轮 / vs 已入库
+
+```
+$ diff <(grep -v '^== ' /tmp/p26verify/s1.txt) <(grep -v '^== ' /tmp/p26verify/s2.txt)     → 无输出 IDENTICAL
+$ diff <(grep -v '^== ' /tmp/p26verify/s1.txt) <(grep -v '^== ' docs/evidence/.../identity-manual-run1.txt) → 无输出 MATCHES_COMMITTED_EVIDENCE
+```
+
+## 6) 源码侧复核（不信探针，直接看代码 / 迁移）
+
+```
+$ grep -n 'WHERE d.deleted_at IS NULL' backend/src/business/flow/model.rs
+252:    let mut where_sql = String::from(" WHERE d.deleted_at IS NULL");     # page_defs() 动态拼装（流程定义页列表）
+408:              WHERE d.deleted_at IS NULL \                           # ← templates()（函数起于 387）的 WHERE
+439:              WHERE d.deleted_at IS NULL \                           # ← template_condition_labels()（起于 431）
+# 408 行这一条属 templates()，WHERE 里确实没有 is_system → H5 根因成立
+
+$ sed -n '91,92p' backend/migrations/business/V0209__erp_contract_approval.up.sql
+INSERT INTO biz_flow_def (
+    id, flow_code, flow_name, biz_type, category, description, status,
+# 列清单续行：current_version_id, current_version_no, is_default, allow_auto_approve, owner_dept_id
+# → grep -c is_system = 0（缺列，吃 DEFAULT FALSE）
+
+$ sed -n '299,300p' backend/migrations/business/V0211__erp_stock_take.up.sql
+INSERT INTO biz_flow_def (
+    id, flow_code, flow_name, biz_type, category, description, status,
+# → grep -c is_system = 0（同一处系统性漏写）
+
+$ ls backend/migrations/business/ | grep -o 'V0[0-9]*' | sort -u | tail -3
+V0217
+V0218
+V0219
+# 最大已应用 219 → P2-6a 的 V0220 号段可用
+```
+
+## 结论
+
+现状与决策文档 `docs/architecture/P2-6-模板实体-决策.md` 一致：
+
+- `H5` = FAIL（expect=0 actual=2）是**待治的病**，由 `P2-6b`（接口加 `is_system` 过滤）修；
+- `P2a` = 2 是**待修的错标**，由 `P2-6a`（迁移 V0220）修，与本卡的 A/B 之争无关；
+- 两条探针各跑两轮**逐字节一致**，且与已提交证据一致 → 决策依据可复现，不是一次性快照。
