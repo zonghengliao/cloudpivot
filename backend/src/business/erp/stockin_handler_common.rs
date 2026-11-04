@@ -258,7 +258,126 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockInDetailRes, ApiErr
         serial_count,
     );
     detail.contract_no = contract_no;
+
+    // ★ P2-4：库位译名 + 「未分配 / 超容量」提示（只提示不拦截）
+    //
+    // 两种口径都要能译名：新客户端给 `location_dict_id`；旧客户端给 `location_id`（库位账行），
+    // 后者要反查它自己的库位字典列（`biz_inventory_location.location_id`）。
+    let legacy_rows: Vec<Uuid> = items
+        .iter()
+        .filter(|item| item.location_dict_id.is_none())
+        .filter_map(|item| item.location_id)
+        .collect();
+    let legacy_dicts = stockin_model::location_dict_of_rows(&legacy_rows)
+        .await
+        .map_err(|error| utils::db_error(error, "查询库位账行的库位"))?;
+    let mut dict_ids: Vec<Uuid> = items
+        .iter()
+        .filter_map(|item| item.location_dict_id)
+        .collect();
+    dict_ids.extend(legacy_dicts.values().copied().flatten());
+    let briefs = stockin_model::location_briefs_of(&dict_ids)
+        .await
+        .map_err(|error| utils::db_error(error, "查询库位主数据"))?;
+    for line in &mut detail.items {
+        let dict_id = line
+            .location_dict_id
+            .as_deref()
+            .and_then(|raw| Uuid::parse_str(raw).ok())
+            .or_else(|| {
+                line.location_id
+                    .as_deref()
+                    .and_then(|raw| Uuid::parse_str(raw).ok())
+                    .and_then(|row| legacy_dicts.get(&row).copied().flatten())
+            });
+        if let Some(brief) = dict_id.and_then(|id| briefs.get(&id)) {
+            line.location_code = Some(brief.location_code.clone());
+            line.location_name = brief.location_name.clone();
+        }
+    }
+    detail.location_warnings = location_warnings_of(&row, &items, &briefs).await?;
     Ok(detail)
+}
+
+/// 库位提示（P2-4）：未分配桶 / 超容量 —— **只提示不拦截**（卡面 §三 二选一选「预警」）。
+///
+/// 两类的判据都**现算**，不落库：
+/// - 未分配：明细没有 `location_dict_id`（且建单时该仓也没有默认库位可兜底）；
+/// - 超容量：`SUM(该库位所有物料 qty) + 本单待过账数量 > biz_location.capacity`。
+///   草稿态才把本单数量算进来，已过账的单据数量已经在 `used` 里，避免重复计一遍
+///   （这也是「详情接口随时可看、不需要持久化告警」的原因）。
+async fn location_warnings_of(
+    header: &stockin_model::StockInRow,
+    items: &[stockin_model::StockInItemRow],
+    briefs: &std::collections::HashMap<Uuid, stockin_model::LocationBrief>,
+) -> std::result::Result<Vec<String>, ApiError> {
+    let mut warnings = Vec::new();
+    let draft = header.status == stockin_model::STATUS_DRAFT
+        || header.status == stockin_model::STATUS_PENDING_POST;
+
+    // ① 未分配：这些行过账后会记进「未分配」库位桶（客户会以为库位管理没生效）
+    //    判据是**两个口径都空**：新客户端看 `location_dict_id`，旧客户端看 `location_id`
+    //    （库位账行），任何一个有值都说明「这批货有指定库位」，不该提示未分配。
+    let unassigned: Vec<String> = items
+        .iter()
+        .filter(|item| item.location_dict_id.is_none() && item.location_id.is_none())
+        .map(|item| item.line_no.to_string())
+        .collect();
+    if !unassigned.is_empty() {
+        let warehouse = stockin_model::warehouse_label_of(header.warehouse_id)
+            .await
+            .map_err(|error| utils::db_error(error, "查询仓库"))?
+            .map(|(code, name)| format!("{code}（{name}）"))
+            .unwrap_or_else(|| header.warehouse_id.to_string());
+        let lines = unassigned.join("、");
+        warnings.push(if draft {
+            format!(
+                "第 {lines} 行未指定库位，仓库 {warehouse} 也没有默认库位：过账后会记进「未分配」\
+                 库位桶。建议先在「库位管理」里设一个默认库位，或在明细里选库位"
+            )
+        } else {
+            format!("第 {lines} 行记在「未分配」库位桶（本单未指定库位，仓库 {warehouse} 也没有默认库位）")
+        });
+    }
+
+    // ② 超容量（按库位合计所有物料数量；只提示不拦截）
+    let mut incoming: std::collections::HashMap<Uuid, Decimal> = std::collections::HashMap::new();
+    if draft {
+        for item in items {
+            if let Some(dict_id) = item.location_dict_id {
+                *incoming.entry(dict_id).or_insert(Decimal::ZERO) += item.qty;
+            }
+        }
+    }
+    let mut capacity_hits: Vec<(String, Decimal, Decimal, Decimal)> = Vec::new();
+    for (dict_id, brief) in briefs {
+        let Some(capacity) = brief.capacity else {
+            continue;
+        };
+        let used = stockin_model::location_usage_in(db(), header.warehouse_id, *dict_id)
+            .await
+            .map_err(|error| utils::db_error(error, "统计库位已用量"))?;
+        let extra = incoming.get(dict_id).copied().unwrap_or(Decimal::ZERO);
+        let total = used + extra;
+        if total > capacity {
+            capacity_hits.push((brief.label(), capacity, extra, total));
+        }
+    }
+    capacity_hits.sort_by(|a, b| a.0.cmp(&b.0));
+    for (label, capacity, extra, total) in capacity_hits {
+        warnings.push(format!(
+            "库位 {label} 容量 {}：{}后合计 {}，超出容量（库位容量按基础单位合计计，\
+             目前只提示不拦截；如需严格管控请拆到多个库位）",
+            trim_qty(capacity),
+            if extra > Decimal::ZERO {
+                format!("本单再入 {}", trim_qty(extra))
+            } else {
+                "当前已用".to_string()
+            },
+            trim_qty(total)
+        ));
+    }
+    Ok(warnings)
 }
 
 // ==================== 明细规划（校验 + 查引用） ====================
@@ -317,6 +436,51 @@ pub(super) async fn plan_lines(
             ));
         }
 
+        // ★ P2-4：库位（两种入参口径 + 默认兜底）
+        //
+        //   location_dict_id（新，推荐）= `biz_location.id`：用户在收货表单上选的库位；
+        //   location_id（旧，兼容）= `biz_inventory_location.id`：库位账行；
+        //   都不给 → 该仓默认库位（is_default = 1）；仍没有 → 两列都空（过账进「未分配」桶）。
+        //
+        // 校验口径：库位必须属于**本单收货仓库**、未软删、已启用 —— 跨仓库/停用/已删
+        // 一律拒在门口（过账时才发现就晚了：账已经动了一半）。
+        let location_dict_id = match line.location_dict_id_raw.as_deref() {
+            None => None,
+            Some(raw) => {
+                let location_dict_id =
+                    parse_uuid(raw, &format!("items[{index}].location_dict_id"))?;
+                let dict = stockin_model::location_dict_of(location_dict_id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "查询库位"))?
+                    .ok_or_else(|| {
+                        reference_missing(format!(
+                            "items[{index}].location_dict_id 库位不存在（{location_dict_id}；\
+                             该字段收的是 biz_location.id，库位账行 id 请放 location_id）"
+                        ))
+                    })?;
+                if dict.deleted {
+                    return Err(reference_missing(format!(
+                        "items[{index}].location_dict_id 库位 {} 已被删除，不能用于收货",
+                        dict.location_code
+                    )));
+                }
+                if dict.warehouse_id != warehouse_id {
+                    return Err(reference_missing(format!(
+                        "items[{index}].location_dict_id 库位 {} 属于仓库 {}，与收货仓库 {warehouse_id} 不一致",
+                        dict.location_code, dict.warehouse_id
+                    )));
+                }
+                if dict.status != 1 {
+                    return Err(bad_request(format!(
+                        "items[{index}].location_dict_id 库位 {} 已停用（status = 0），不接受新入库：\
+                         请先在库位管理里启用，或换一个库位",
+                        dict.location_code
+                    )));
+                }
+                Some(location_dict_id)
+            }
+        };
+
         let location_id = match line.location_id_raw.as_deref() {
             None => None,
             Some(raw) => {
@@ -339,6 +503,34 @@ pub(super) async fn plan_lines(
                 }
                 Some(location_id)
             }
+        };
+
+        // 两个都给时必须指向同一个库位（否则「用户选 A、账落到 B」，没人能解释）
+        if let (Some(dict_id), Some(row_id)) = (location_dict_id, location_id) {
+            let row_dict = stockin_model::location_dict_of_ledger_row(row_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询库位账行的库位"))?;
+            if row_dict != Some(dict_id) {
+                return Err(bad_request(format!(
+                    "items[{index}] 的 location_dict_id（{dict_id}）与 location_id（库位账行 {row_id}）\
+                     指向不同的库位：请只给 location_dict_id（推荐），或让两者指向同一库位"
+                )));
+            }
+        }
+
+        // 兜底顺序：用户指定 → 旧口径（库位账行，**原样保留**，不改判成库位字典）→ 该仓默认库位 → 空
+        //
+        // 旧口径不做「行 → 字典」的改写：库位账行是按物料建的，改写会把
+        // 「拿别的物料的库位账行来收货」这种错误在过账前悄悄自愈掉，
+        // 反而掩盖了调用方的 bug。`location_id` 有值时一律按原行走到过账（既有校验不变）。
+        let location_dict_id = match (location_dict_id, location_id) {
+            (Some(dict_id), _) => Some(dict_id),
+            (None, Some(_)) => None,
+            (None, None) => stockin_model::default_location_of(warehouse_id)
+                .await
+                .map_err(|error| utils::db_error(error, "查询仓库默认库位"))?
+                .filter(|dict| dict.status == 1)
+                .map(|dict| dict.id),
         };
 
         let source_item_id = parse_optional_uuid(
@@ -390,6 +582,7 @@ pub(super) async fn plan_lines(
                 tax_amount: line.tax_amount,
                 with_tax_amount: line.with_tax_amount,
                 location_id,
+                location_dict_id,
                 serial_ids: line.serial_ids.clone(),
                 remark: line.remark.clone(),
             },

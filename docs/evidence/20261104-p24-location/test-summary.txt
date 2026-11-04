@@ -1,0 +1,14 @@
+# cargo test --lib （全量，ERP_DB_URL=cloudpivot_p24，默认线程数）
+
+test result: FAILED. 2304 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1170.32s
+
+test business::erp::payable_bridge::tests::zz_teardown_purges_payment_status_logs ... FAILED
+test result: FAILED. 2304 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1170.32s
+
+## 孤立复跑同一条用例（证明是跨模块夹具串扰，不是本卡回归）
+$ cargo test --lib payable_bridge::tests::zz_teardown_purges_payment_status_logs
+test result: ok. 1 passed; 0 failed
+
+## 本卡新增/受影响用例的孤立复跑
+$ cargo test --lib stockin_handler_tests_location
+test result: ok. 19 passed; 0 failed

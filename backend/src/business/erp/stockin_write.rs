@@ -31,13 +31,13 @@ pub(super) async fn insert_items(
                 "INSERT INTO {ITEM_TABLE} \
                     (id, stock_in_id, line_no, source_item_id, material_id, unit_id, qty, price, \
                      price_incl, tax_rate, amount, tax_amount, with_tax_amount, cost_price, \
-                     location_id, remark) \
+                     location_id, location_dict_id, remark) \
                  VALUES (?, ?::uuid, ?, NULLIF(?::text,'')::uuid, ?::uuid, ?::uuid, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
                      NULLIF(?::text,'')::numeric, NULLIF(?::text,'')::numeric, \
-                     NULLIF(?::text,'')::uuid, NULLIF(?::text,''))"
+                     NULLIF(?::text,'')::uuid, NULLIF(?::text,'')::uuid, NULLIF(?::text,''))"
             ),
             vec![
                 Value::from(&id),
@@ -59,6 +59,11 @@ pub(super) async fn insert_items(
                 Value::Text(line.with_tax_amount.round_dp(4).to_string()),
                 Value::Text(cost.unit_cost.to_string()),
                 Value::Text(line.location_id.map(|v| v.to_string()).unwrap_or_default()),
+                Value::Text(
+                    line.location_dict_id
+                        .map(|v| v.to_string())
+                        .unwrap_or_default(),
+                ),
                 Value::Text(line.remark.clone().unwrap_or_default()),
             ],
         )

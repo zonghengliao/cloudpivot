@@ -213,6 +213,7 @@ pub async fn copy_stock_in(id: Uuid, claims: &TokenClaims) -> std::result::Resul
             tax_amount: item.tax_amount,
             with_tax_amount: item.with_tax_amount,
             location_id: item.location_id,
+            location_dict_id: item.location_dict_id,
             // 实物序列号不复制（原单那批号码已经过账占用）
             serial_ids: Vec::new(),
             remark: item.remark.clone(),

@@ -99,6 +99,11 @@ mod stockin_handler_tests_update;
 #[path = "stockin_handler_tests_location.rs"]
 mod stockin_handler_tests_location;
 
+/// P2-4：库位做完整（指定库位 / 默认库位 / 跨仓库被拒 / 容量预警 / 出库 FIFO）。
+#[cfg(test)]
+#[path = "stockin_handler_tests_location_dict.rs"]
+mod stockin_handler_tests_location_dict;
+
 #[cfg(test)]
 #[path = "stockin_handler_tests_cancel.rs"]
 mod stockin_handler_tests_cancel;

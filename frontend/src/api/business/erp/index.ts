@@ -1694,8 +1694,19 @@ export interface StockInItemLine {
   with_tax_amount: number | string;
   /** 入库成本单价快照（过账时的移动加权后单价） */
   cost_price: number | string;
-  /** 库位 id（可空 = 未指定库位） */
+  /** 库位账行 id（`biz_inventory_location.id`；过账后才落定，可空 = 未分配桶） */
   location_id: string | null;
+  /**
+   * 用户选的库位（`biz_location.id`，P2-4）。
+   *
+   * 为空 = 建单时没指定 → 过账用仓库默认库位，没有默认则进「未分配」桶
+   * （此时详情会带 `location_warnings` 提示）。
+   */
+  location_dict_id?: string | null;
+  /** 库位编码（后端按 `location_dict_id` 译名，如 `A-01-03`） */
+  location_code?: string | null;
+  /** 库位名称 */
+  location_name?: string | null;
   /** 批次号 */
   lot_no: string | null;
   /** 行备注 */
@@ -1716,6 +1727,12 @@ export interface StockInDetail {
   purchase_order_id: string | null;
   /** 来源采购单号（详情页「来源采购单：PO-xxx」+ 可点回采购单） */
   purchase_order_no: string | null;
+  /**
+   * 库位提示（P2-4）：未指定库位会进「未分配」桶 / 库位超容量 —— **只提示不拦截**。
+   *
+   * 服务端按当前数据现算（草稿态已把本单数量算进来），前端显示成告警条即可。
+   */
+  location_warnings?: string[];
 }
 
 /**
@@ -1739,6 +1756,12 @@ export interface StockInItemReq {
   tax_rate: number;
   /** 库位 id（可空） */
   location_id?: string | null;
+  /**
+   * 用户选的库位（`biz_location.id`，P2-4，**推荐用这个**）。
+   *
+   * 后端校验：必须属于本单收货仓库、未软删、已启用；不传 → 仓库默认库位，仍没有则进「未分配」桶。
+   */
+  location_dict_id?: string | null;
   /** 序列号（一物一码物料；长度为 0 表示过账时自动取号） */
   serial_ids?: string[];
   /** 行备注 */

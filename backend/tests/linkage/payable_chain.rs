@@ -53,6 +53,7 @@ async fn posted_stock_in(ctx: &Ctx, qty: &str, price: &str, rate: &str) -> Uuid 
             price_excl: Some(common::dec(price)),
             tax_rate: Some(common::dec(rate)),
             location_id: Some(loc.to_string()),
+            location_dict_id: None,
             serial_ids: Vec::new(),
             remark: None,
         }],

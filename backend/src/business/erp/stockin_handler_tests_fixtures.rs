@@ -47,6 +47,18 @@ pub(super) const LOC_DICT_B: &str = "b2b10003-0000-4000-8000-000000000002";
 /// 与 [`SUPPLIER`] 分开，才能证明「入库单的供应商确实从采购单派生」——
 /// 用同一个供应商的话，派生与手填的结果一样，断言再严也测不出东西。
 pub(super) const A4_SUPPLIER_B: &str = "b2b10001-0000-4000-8000-000000000014";
+/// P2-4：默认库位候选（用例把 `is_default` 临时置 1，cleanup 每轮复位）。
+pub(super) const LOC_DEFAULT: &str = "b2b10004-0000-4000-8000-000000000001";
+/// P2-4：容量 50 的小库位（超容量预警用例）。
+pub(super) const LOC_CAP: &str = "b2b10004-0000-4000-8000-000000000002";
+/// P2-4：停用库位（status = 0）。
+pub(super) const LOC_DISABLED: &str = "b2b10004-0000-4000-8000-000000000003";
+/// P2-4：已软删库位。
+pub(super) const LOC_DELETED: &str = "b2b10004-0000-4000-8000-000000000004";
+/// P2-4：第二个仓库（跨仓库位被拒用例）。
+pub(super) const WAREHOUSE_B: &str = "b2b10004-0000-4000-8000-000000000010";
+/// P2-4：第二个仓库下的库位。
+pub(super) const LOC_IN_WAREHOUSE_B: &str = "b2b10004-0000-4000-8000-000000000011";
 
 pub(super) const FIXTURES: &[&str] = &[
     "INSERT INTO biz_unit (id, unit_code, unit_name, is_base, base_unit_id, rate, status, sort_order)
@@ -95,6 +107,35 @@ pub(super) const FIXTURES: &[&str] = &[
     // 引擎会因为他出现在 ADMIN 候选里直接 422 —— 那不是 bug，是「不许自审自批」的硬拦。
     "INSERT INTO sys_user (id, username, password, real_name)
      VALUES ('b2b10009-0000-4000-8000-000000000001', 'p16_keeper', 'x', 'P16 仓管员')
+     ON CONFLICT DO NOTHING",
+    // ==================== P2-4：库位做完整 ====================
+    // ① 默认库位候选：`is_default` 由用例临时置 1（cleanup 复位），避免影响既有用例的 NULL 桶口径
+    // ② 容量 50 的小库位（超容量预警用例）③ 停用位 ④ 已软删位
+    "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                               is_default, capacity, status, sort_order)
+     VALUES ('b2b10004-0000-4000-8000-000000000001', 'P2B1-L03', 'P2B1 默认位（用例置默认）',
+             'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 1, 3),
+            ('b2b10004-0000-4000-8000-000000000002', 'P2B1-L04', 'P2B1 小库位（容量 50）',
+             'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, 50, 1, 4),
+            ('b2b10004-0000-4000-8000-000000000003', 'P2B1-L05', 'P2B1 停用位',
+             'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 0, 5)
+     ON CONFLICT DO NOTHING",
+    // 已软删位（`deleted_at` 非空；库位编码可复用，所以不受部分唯一索引约束）
+    "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                               is_default, capacity, status, sort_order, deleted_at)
+     VALUES ('b2b10004-0000-4000-8000-000000000004', 'P2B1-L06', 'P2B1 已删位',
+             'b2b10001-0000-4000-8000-000000000003', 'STORAGE', 0, NULL, 1, 6,
+             CURRENT_TIMESTAMP)
+     ON CONFLICT DO NOTHING",
+    // 第二个仓库 + 它的库位（跨仓库位被拒的用例；本夹具的库位不属于它）
+    "INSERT INTO biz_warehouse (id, warehouse_code, warehouse_name, warehouse_path, level, is_leaf, status)
+     VALUES ('b2b10004-0000-4000-8000-000000000010', 'P2B1-WH2', 'P2B1 二号仓',
+             '/b2b10004-0000-4000-8000-000000000010/', 1, 1, 1)
+     ON CONFLICT DO NOTHING",
+    "INSERT INTO biz_location (id, location_code, location_name, warehouse_id, location_type,
+                               is_default, capacity, status, sort_order)
+     VALUES ('b2b10004-0000-4000-8000-000000000011', 'P2B1-W2-L01', '二号仓一号位',
+             'b2b10004-0000-4000-8000-000000000010', 'STORAGE', 0, NULL, 1, 1)
      ON CONFLICT DO NOTHING",
 ];
 
@@ -217,6 +258,11 @@ pub(super) async fn cleanup_fixtures() {
     // 每轮多 10~15 条、顶住 `uk_biz_flow_instance_biz_active`）。
     purge_post_approval_traces().await;
     let cleanups = [
+        // P2-4：默认库位是**用例临时置的**（每轮复位，免得一条用例 panic 之后拖垮后面所有用例）
+        format!("UPDATE biz_location SET is_default = 0 WHERE id = '{LOC_DEFAULT}'::uuid"),
+        // P2-4：第二个仓库的台账（跨仓库用例万一写进去了也要收干净）
+        format!("DELETE FROM biz_inventory_location WHERE warehouse_id = '{WAREHOUSE_B}'::uuid"),
+        format!("DELETE FROM biz_inventory WHERE warehouse_id = '{WAREHOUSE_B}'::uuid"),
         // P16：某条用例会把种子流程临时下线（降级路径），这里无条件恢复，
         // 免得一条用例 panic 之后拖垮后面所有用例
         "UPDATE biz_flow_def SET deleted_at = NULL WHERE flow_code = 'stock_in_cancel'".to_string(),
@@ -236,6 +282,15 @@ pub(super) async fn cleanup_fixtures() {
         format!(
             "DELETE FROM biz_inventory_txn WHERE doc_type = 'STOCK_IN' AND doc_id IN \
          (SELECT id FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid))"
+        ),
+        // ★ P2-4：库位用例会**出库**（验证 FIFO / 指定库位扣减），出库流水挂在
+        // `doc_type='STOCK_OUT'` 上，上面那条删不到 —— 留着会让后续用例的
+        // 「流水累计 = 当前库存」（B4）差出这批出库量。按「夹具物料 × 夹具仓库」清，
+        // 不按单据类型清：这台库上的这些物料都只属于本模块。
+        format!(
+            "DELETE FROM biz_inventory_txn WHERE material_id IN \
+         ('{MATERIAL_A}'::uuid, '{MATERIAL_B}'::uuid, '{MATERIAL_SN}'::uuid) \
+         AND warehouse_id = '{WAREHOUSE}'::uuid"
         ),
         format!(
             "DELETE FROM biz_inventory WHERE material_id IN \
@@ -296,6 +351,7 @@ pub(super) fn line(material: &str, qty: &str, price: &str, rate: &str) -> StockI
         price_excl: Some(dec(price)),
         tax_rate: Some(dec(rate)),
         location_id: None,
+        location_dict_id: None,
         serial_ids: Vec::new(),
         remark: None,
     }
@@ -311,6 +367,20 @@ pub(super) fn line_at(
 ) -> StockInItemReq {
     StockInItemReq {
         location_id: Some(location.to_string()),
+        ..line(material, qty, price, rate)
+    }
+}
+
+/// 同 [`line`]，但带上「用户选的库位」（`biz_location.id`，P2-4 的推荐口径）。
+pub(super) fn line_dict(
+    material: &str,
+    qty: &str,
+    price: &str,
+    rate: &str,
+    location_dict: &str,
+) -> StockInItemReq {
+    StockInItemReq {
+        location_dict_id: Some(location_dict.to_string()),
         ..line(material, qty, price, rate)
     }
 }

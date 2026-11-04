@@ -149,8 +149,14 @@ pub struct StockInItemReq {
     pub price_excl: Option<Decimal>,
     /// 税率（百分数 0–100，缺省 0）。
     pub tax_rate: Option<Decimal>,
-    /// 库位（`biz_inventory_location.id`，可空）。
+    /// 库位（`biz_inventory_location.id`，可空；**兼容旧口径**，新前端请用 `location_dict_id`）。
     pub location_id: Option<String>,
+    /// 用户选的库位（`biz_location.id`，可空；P2-4）。
+    ///
+    /// - 给了：必须属于本单收货仓库、未软删、已启用（否则 400/404）；
+    /// - 不给：过账时自动用该仓库的默认库位（`is_default = 1`），没有默认则进
+    ///   「未分配」桶并在详情里给出 `location_warnings` 提示。
+    pub location_dict_id: Option<String>,
     /// 单品序列号（一物一码物料：非空时**必须**与 `qty` 等长，空则过账时自动取号）。
     pub serial_ids: Vec<String>,
     /// 行备注。
@@ -279,8 +285,10 @@ pub struct PreparedLine {
     pub tax_amount: Decimal,
     /// 价税合计（4 位）。
     pub with_tax_amount: Decimal,
-    /// 库位 id 原文。
+    /// 库位账行 id 原文（旧口径，可为空）。
     pub location_id_raw: Option<String>,
+    /// 用户选的库位（`biz_location.id`）原文，可为空。
+    pub location_dict_id_raw: Option<String>,
     /// 单品序列号。
     pub serial_ids: Vec<String>,
     /// 行备注。
@@ -491,6 +499,12 @@ impl StockInItemReq {
             .map(str::trim)
             .filter(|text| !text.is_empty())
             .map(str::to_string);
+        let location_dict_id_raw = self
+            .location_dict_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            .map(str::to_string);
 
         let serial_ids = normalize_serials(index, &self.serial_ids, qty)?;
 
@@ -505,6 +519,7 @@ impl StockInItemReq {
             tax_amount,
             with_tax_amount,
             location_id_raw,
+            location_dict_id_raw,
             serial_ids,
             remark: self
                 .remark
@@ -716,8 +731,14 @@ pub struct StockInItemRes {
     pub with_tax_amount: Decimal,
     /// 入库成本单价（不含税，过账后它就是该行的成本依据）。
     pub cost_price: Decimal,
-    /// 库位。
+    /// 库位账行（`biz_inventory_location.id`，未过账时可能为空）。
     pub location_id: Option<String>,
+    /// 用户选的库位（`biz_location.id`，P2-4；为空 = 未指定）。
+    pub location_dict_id: Option<String>,
+    /// 库位编码（`biz_location.location_code`，详情接口按 `location_dict_id` 译名）。
+    pub location_code: Option<String>,
+    /// 库位名称。
+    pub location_name: Option<String>,
     /// 批次号。
     pub lot_no: Option<String>,
     /// 行备注。
@@ -741,6 +762,9 @@ impl From<&StockInItemRow> for StockInItemRes {
             with_tax_amount: row.with_tax_amount,
             cost_price: row.cost_price,
             location_id: row.location_id.map(|v| v.to_string()),
+            location_dict_id: row.location_dict_id.map(|v| v.to_string()),
+            location_code: None,
+            location_name: None,
             lot_no: row.lot_no.clone(),
             remark: row.remark.clone(),
         }
@@ -767,6 +791,11 @@ pub struct StockInDetailRes {
     /// 注意：入库单**没有** `contract_id` 列（设计 §6.4），合同在两环之上，只在详情页显示；
     /// 也不 JOIN `biz_contract`（R2.1 推论 2 / AP-6），读的是采购单上冻住的快照。
     pub contract_no: Option<String>,
+    /// 库位提示（P2-4）：未分配 / 超容量 —— **只提示不拦截**。
+    ///
+    /// 由服务端按当前数据现算（草稿态把本单数量算进来），因此过账后再看详情
+    /// 不会重复计一遍；前端把它显示成告警条即可。
+    pub location_warnings: Vec<String>,
 }
 
 impl StockInDetailRes {
@@ -779,6 +808,7 @@ impl StockInDetailRes {
             purchase_order_id: header.source_order_id.clone(),
             purchase_order_no: header.source_order_no.clone(),
             contract_no: None,
+            location_warnings: Vec::new(),
             header,
         }
     }

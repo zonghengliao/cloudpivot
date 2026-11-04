@@ -117,6 +117,7 @@
 
 pub use super::stockin_base::*;
 pub use super::stockin_cancel::*;
+pub use super::stockin_location::*;
 pub use super::stockin_purchase::*;
 pub use super::stockin_query::*;
 pub use super::stockin_validate::*;

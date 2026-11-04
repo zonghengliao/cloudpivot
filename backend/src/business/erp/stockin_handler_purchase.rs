@@ -303,6 +303,8 @@ pub(super) async fn pull_lines_from_purchase(
             price_excl: Some(item.price),
             tax_rate: Some(item.tax_rate),
             location_id: None,
+            // 自动带出的行不指定库位：建单路径会按「仓库默认库位」兜底（P2-4）
+            location_dict_id: None,
             serial_ids: Vec::new(),
             remark: Some(format!("由采购单自动带出（未收 {remaining}）")),
         });

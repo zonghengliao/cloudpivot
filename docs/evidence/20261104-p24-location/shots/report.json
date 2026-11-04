@@ -1,0 +1,16 @@
+{
+  "form_location_text": "P24-D-01 默认收货位（默认）",
+  "batch_control": 1,
+  "01-stockin-form-location": "docs/evidence/20261104-p24-location/shots-prod-ish/01-stockin-form-location.png",
+  "02-stockin-detail-location": "docs/evidence/20261104-p24-location/shots-prod-ish/02-stockin-detail-location.png",
+  "detail_location_cells": 1,
+  "detail_warnings": "库位提示（1 条）",
+  "02b-stockin-detail-unassigned-warning": "docs/evidence/20261104-p24-location/shots-prod-ish/02b-stockin-detail-unassigned-warning.png",
+  "03-location-default": "docs/evidence/20261104-p24-location/shots-prod-ish/03-location-default.png",
+  "location_rows": 8,
+  "04-inventory-location-ledger": "docs/evidence/20261104-p24-location/shots-prod-ish/04-inventory-location-ledger.png",
+  "ledger_rows": 4,
+  "console_errors": [],
+  "failed_requests": [],
+  "problems": []
+}

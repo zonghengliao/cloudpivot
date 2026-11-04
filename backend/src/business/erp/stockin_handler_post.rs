@@ -611,14 +611,53 @@ pub(super) async fn post_in_tx(
         )));
     }
 
-    // ③ 逐行：库存加法 + 流水（成本口径 = 不含税金额）
+    // ③a P2-4：先把每行的库位**落定**（用户选的库位字典 → find-or-create 出库位账行）。
+    //
+    // 为什么在这里做而不是建单时：库位账行是「(物料, 仓库, 库位) 的库存账」，
+    // 草稿单不该凭空建出 0 数量的账行（会把「库位库存」Tab 撑出空行）。所以建单只存
+    // **用户意图**（`location_dict_id`），过账才按它建账并把行 id 回写 `location_id`
+    // —— 下游（成本账 / 库位账 / 序列号 / 作废回滚）看到的仍是原来的「库位账行 id」。
+    let mut plan: Vec<(&stockin_model::StockInItemRow, Option<Uuid>)> =
+        Vec::with_capacity(ordered.len());
     for item in ordered {
+        let location_row = match item.location_dict_id {
+            Some(dict_id) => Some(
+                stockin_model::ensure_location_row(
+                    ex,
+                    item.material_id,
+                    header.warehouse_id,
+                    dict_id,
+                    now,
+                )
+                .await
+                .map_err(|error| write_error(error, "过账：按库位建账"))?,
+            ),
+            // 旧口径 / 未分配桶：沿用明细上已有（或为空）的库位账行 id
+            None => item.location_id,
+        };
+        if let Some(row_id) = location_row
+            && item.location_id != Some(row_id)
+        {
+            stockin_model::set_item_location_id(ex, item.id, row_id, now)
+                .await
+                .map_err(|error| write_error(error, "过账：回写明细库位"))?;
+        }
+        plan.push((item, location_row));
+    }
+    // 锁顺序（PRD §3.2.6）：`material_id` 升序 → 库位账行升序 → 行号。
+    // 两张收货单并发收同一物料时只会在同一把锁上排队，不会交叉等待。
+    plan.sort_by(|(a, a_loc), (b, b_loc)| {
+        (a.material_id, *a_loc, a.line_no).cmp(&(b.material_id, *b_loc, b.line_no))
+    });
+
+    // ③ 逐行：库存加法 + 流水（成本口径 = 不含税金额）
+    for (item, location_row) in plan {
         let cost = CostBasis::of(item.qty, item.amount);
         let applied = stockin_model::apply_cost(
             ex,
             item.material_id,
             header.warehouse_id,
-            item.location_id,
+            location_row,
             cost,
             now,
         )
@@ -631,7 +670,7 @@ pub(super) async fn post_in_tx(
             ex,
             item.material_id,
             header.warehouse_id,
-            item.location_id,
+            location_row,
             item.qty,
             now,
         )
@@ -665,7 +704,7 @@ pub(super) async fn post_in_tx(
                     stock_in_id: id,
                     material_id: item.material_id,
                     warehouse_id: header.warehouse_id,
-                    location_id: item.location_id,
+                    location_id: location_row,
                     qty: item.qty,
                     serial_ids: &serial_ids,
                     operator: operator.id,

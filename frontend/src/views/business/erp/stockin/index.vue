@@ -373,6 +373,7 @@
                 placeholder="选择收货仓库"
                 filterable
                 data-testid="stockin-warehouse"
+                @change="handleWarehouseChange"
               />
               <!-- A6：带源单时仓库由采购单带出（后端要求两者一致，改了就是 400） -->
               <p v-if="form.purchase_order_id" class="field-note" data-testid="stockin-warehouse-hint">
@@ -422,6 +423,30 @@
           <div class="items__head">
             <span class="items__title">明细</span>
             <span class="items__hint">数量必须 > 0；单价填不含税单价</span>
+            <!-- ★ P2-4：批量设置库位（一次给多行设同一个） -->
+            <div class="items__batch" data-testid="stockin-batch-location">
+              <span class="items__batch-label">批量设库位</span>
+              <t-select
+                v-model="batchLocationId"
+                :options="locationOptions"
+                :disabled="!form.warehouse_id"
+                :placeholder="form.warehouse_id ? '选择库位' : '先选收货仓库'"
+                size="small"
+                clearable
+                filterable
+                class="items__batch-select"
+                data-testid="stockin-batch-location-select"
+              />
+              <t-button
+                size="small"
+                variant="outline"
+                :disabled="!batchLocationId"
+                data-testid="btn-stockin-batch-location"
+                @click="handleBatchSetLocation"
+              >
+                应用到全部行
+              </t-button>
+            </div>
           </div>
 
           <div class="items__grid items__grid--head">
@@ -429,6 +454,7 @@
             <span>数量</span>
             <span>不含税单价</span>
             <span>税率</span>
+            <span>库位</span>
             <span class="ta-right">{{ AMOUNT_COLUMN_TITLE }}</span>
             <span class="ta-right">其中税额</span>
             <span />
@@ -487,6 +513,22 @@
                   :data-testid="`stockin-item-tax-${index}`"
                 />
                 <p v-if="rowErrors(index).tax_rate" class="cell-error">{{ rowErrors(index).tax_rate }}</p>
+              </div>
+
+              <!-- ★ P2-4：库位（按当前收货仓库过滤；留空 = 用仓库默认库位 / 未分配桶） -->
+              <div class="items__cell">
+                <t-select
+                  v-model="item.location_dict_id"
+                  :options="locationOptions"
+                  :disabled="!form.warehouse_id"
+                  :placeholder="form.warehouse_id ? '默认库位' : '先选仓库'"
+                  clearable
+                  filterable
+                  :data-testid="`stockin-item-location-${index}`"
+                />
+                <p v-if="form.warehouse_id && locationOptions.length === 0" class="cell-hint">
+                  该仓库还没有库位
+                </p>
               </div>
 
               <div class="items__cell items__cell--num">
@@ -740,6 +782,20 @@
 
         <p v-if="detail.summary" class="detail__summary">{{ detail.summary }}</p>
 
+        <!-- ★ P2-4：库位提示（未分配 / 超容量）—— 服务端现算，只提示不拦截 -->
+        <t-alert
+          v-if="detail.location_warnings?.length"
+          theme="warning"
+          :message="`库位提示（${detail.location_warnings.length} 条）`"
+          data-testid="stockin-detail-location-warnings"
+        >
+          <template #description>
+            <ul class="location-warnings">
+              <li v-for="(text, index) in detail.location_warnings" :key="index">{{ text }}</li>
+            </ul>
+          </template>
+        </t-alert>
+
         <!--
           P16：作废审批进度（复用审批中心的 FlowProgress，进度只来自引擎写的节点行）。
           C2：与采购 / 应付 / 凭证 / 调拨统一口径 —— 节点进度 + 审批人明细（谁 / 时间 / 意见 / 跳过说明）
@@ -764,6 +820,11 @@
           <template #tax_amount="{ row }">{{ formatMoney(row.tax_amount) }}</template>
           <template #with_tax_amount="{ row }">{{ formatMoney(row.with_tax_amount) }}</template>
           <template #cost_price="{ row }">{{ formatMoney(row.cost_price) }}</template>
+          <template #location_code="{ row }">
+            <span :data-testid="`stockin-detail-location-${row.line_no}`">
+              {{ row.location_code || '未分配' }}
+            </span>
+          </template>
         </t-table>
 
         <!-- D9：复制为新单（原单只读，后端建新草稿；权限 = 建单权限） -->
@@ -806,6 +867,7 @@ import {
   createStockIn,
   deleteStockIn,
   fetchMaterialPage,
+  fetchLocationList,
   fetchPurchaseOrderPage,
   fetchPurchaseOrderPendingItems,
   fetchStockInDetail,
@@ -817,6 +879,7 @@ import {
   updateStockInStatus,
   withdrawStockInCancel,
   type MaterialRow,
+  type Location,
   type PurchaseOrderRow,
   type StockInDetail,
   type StockInRow,
@@ -863,6 +926,7 @@ import {
   STOCKIN_PAGE_SIZE,
   STOCKIN_STATUS_FILTER_OPTIONS,
   applySourceMode,
+  applyLocationToAllLines,
   availableStockInActions,
   buildCancelPayload,
   buildPostPayload,
@@ -874,9 +938,11 @@ import {
   dash,
   defaultInvoiceChoice,
   detailToForm,
+  defaultLocationIdOf,
   emptyStockInFilter,
   emptyStockInForm,
   emptyStockInItem,
+  fillDefaultLocation,
   fillFromPending,
   formatMoney,
   formatQty,
@@ -884,6 +950,7 @@ import {
   isStockInFiltered,
   isSupplierReadonly,
   lineAmountsOfItem,
+  locationSelectOptions,
   purchaseOrderOptionLabel,
   selectablePurchaseOrders,
   shortDate,
@@ -943,6 +1010,9 @@ const columns: PrimaryTableCol[] = [
 const detailColumns: PrimaryTableCol[] = [
   { colKey: 'line_no', title: '#', width: 50, align: 'center' },
   { colKey: 'material_id', title: '物料', minWidth: 150, ellipsis: true },
+  // ★ P2-4：库位放在物料右边（抽屉宽度有限，放最后一列会被横向滚出视野 ——
+  //   而「这批货进了哪个库位」正是用户点开详情最想看的两件事之一）
+  { colKey: 'location_code', title: '库位', width: 120, ellipsis: true },
   { colKey: 'qty', title: '数量', width: 80, align: 'right' },
   { colKey: 'price', title: '不含税单价', width: 110, align: 'right' },
   { colKey: 'tax_rate', title: '税率', width: 70, align: 'right' },
@@ -1126,6 +1196,63 @@ const memoryLabels = ref<string[]>([]);
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
 const materials = ref<MaterialRow[]>([]);
+
+// ==================== P2-4：库位（按当前收货仓库过滤） ====================
+
+/** 当前收货仓库下的库位（`fetchLocationList(warehouse_id, false)`：只取启用的） */
+const locations = ref<Location[]>([]);
+/** 批量设置库位用的选择值（空串 = 未选） */
+const batchLocationId = ref('');
+
+/** 库位下拉选项（只列启用的；默认库位带「（默认）」标记） */
+const locationOptions = computed(() => locationSelectOptions(locations.value));
+
+/** 该仓默认库位 id（没有 → 空串）：新增行 / 换仓库时自动带出 */
+const defaultLocationId = computed(() => defaultLocationIdOf(locations.value));
+
+/**
+ * 拉当前仓库的库位。
+ *
+ * 换仓库 / 打开表单 / 从采购单带出时都要重拉：库位是**仓库内唯一**的，
+ * 拿旧仓库的库位去提交必然 400「库位属于仓库 X，与收货仓库 Y 不一致」。
+ *
+ * @param fillRows 是否把「还没选库位」的行补成默认库位（编辑已有草稿时**不要**补，
+ *                 否则会把用户保存过的选择洗成默认值）
+ */
+async function loadLocations(fillRows = false): Promise<void> {
+  const warehouseId = form.warehouse_id;
+  if (!warehouseId) {
+    locations.value = [];
+    batchLocationId.value = '';
+    return;
+  }
+  try {
+    locations.value = await fetchLocationList(warehouseId, false);
+  } catch {
+    // 主数据拉不到不该挡住建单：下拉空着，用户仍可提交（后端按默认库位兜底）
+    locations.value = [];
+  }
+  if (fillRows) {
+    fillDefaultLocation(form, defaultLocationId.value);
+  }
+}
+
+/** 仓库变化 → 重拉库位 + 给空行补默认库位（用户已选的行不动） */
+function handleWarehouseChange(): void {
+  batchLocationId.value = '';
+  void loadLocations(true);
+}
+
+/** 批量设置库位（一次给所有明细行设同一个） */
+function handleBatchSetLocation(): void {
+  if (!batchLocationId.value) {
+    MessagePlugin.warning('请先选择要批量设置的库位');
+    return;
+  }
+  applyLocationToAllLines(form, batchLocationId.value);
+  MessagePlugin.success(`已把 ${form.items.length} 行的库位设为同一库位`);
+}
+
 /**
  * 可收货的采购单（A6：直接建收货单时选源单）。
  *
@@ -1363,6 +1490,8 @@ function openCreateDialog(): void {
   resetForm();
   applyCreateDefaults();
   formVisible.value = true;
+  // 打开就拉库位：有默认库位的话，第一行立刻带出来（用户不用手选）
+  void loadLocations(true);
 }
 
 // ==================== D4：采购订单 → 一键生成收货单 ====================
@@ -1407,6 +1536,7 @@ async function openFromPurchaseOrder(poId: string): Promise<void> {
     Object.assign(form, filled);
     formErrors.value = {};
     submitError.value = '';
+    void loadLocations(true);
     // 源单带出的字段压过「上次记忆」——提示条只报源单带出的条数
     memoryLabels.value = [];
     formVisible.value = true;
@@ -1446,6 +1576,8 @@ async function openEditDialog(row: StockInRow): Promise<void> {
   try {
     const detail = await fetchStockInDetail(row.id);
     Object.assign(form, detailToForm(detail.header, detail.items));
+    // 编辑已有草稿：**不**补默认库位（尊重用户保存过的选择）
+    void loadLocations(false);
   } catch (error) {
     formVisible.value = false;
     MessagePlugin.error(messageOf(error));
@@ -1478,6 +1610,7 @@ async function copyCurrent(): Promise<void> {
     Object.assign(form, detailToForm(created.header, created.items));
     memoryLabels.value = [];
     copyNotice.value = stockinCopyNotice(origin);
+    void loadLocations(false);
     formErrors.value = {};
     submitError.value = '';
     formVisible.value = true;
@@ -1498,6 +1631,8 @@ function addItem(): void {
   const line = emptyStockInItem(`row-${Date.now()}-${form.items.length + 1}`);
   // 明细行记忆：新行沿用上一次填的税率
   Object.assign(line, pickFields(lineMemory.recall(), LINE_MEMORY_FIELDS));
+  // ★ P2-4：新行自动带出该仓默认库位（没有默认就留空，由后端兜底进未分配桶 + 提示）
+  line.location_dict_id = defaultLocationId.value;
   form.items.push(line);
 }
 
@@ -1522,6 +1657,10 @@ async function save(): Promise<void> {
     const payload = buildStockInPayload(form);
     const detail = isEdit ? await updateStockIn(form.id, payload) : await createStockIn(payload);
     MessagePlugin.success(`${detail.header.in_no} 已保存为草稿`);
+    // ★ P2-4：后端会把「未指定库位 / 库位超容量」这类提醒放在详情里 —— 保存后当场说出来
+    if (detail.location_warnings?.length) {
+      MessagePlugin.warning(detail.location_warnings[0]);
+    }
     formVisible.value = false;
     // 保存成功才写记忆（用户这次的供应商 / 仓库 / 发票选项就是下次的默认）
     formMemory.remember(form);
@@ -1954,9 +2093,34 @@ async function applyRouteQuery(): Promise<void> {
   color: var(--td-text-color-placeholder);
 }
 
+/* P2-4：明细头部的「批量设库位」控件 */
+.items__batch {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.items__batch-label {
+  font-size: 12px;
+  color: var(--td-text-color-placeholder);
+}
+
+.items__batch-select {
+  width: 200px;
+}
+
+/* P2-4：详情里的库位提示列表 */
+.location-warnings {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
 .items__grid {
   display: grid;
-  grid-template-columns: minmax(160px, 2fr) 96px 120px 96px 130px 110px 40px;
+  grid-template-columns: minmax(160px, 2fr) 96px 120px 96px 168px 130px 110px 40px;
   gap: 8px;
   align-items: start;
 }

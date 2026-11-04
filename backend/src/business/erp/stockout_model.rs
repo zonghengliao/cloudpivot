@@ -684,6 +684,108 @@ pub async fn deduct_cost(
     })
 }
 
+/// **FIFO 选库位**（P2-4 出库策略）：明细没指定库位时，从该物料该仓的库位账里
+/// 挑「最早建账」且**单个库位够量**的那一行，返回 `(库位账行 id, 该行数量)`。
+///
+/// 口径（卡面 §二「出库时从哪个库位扣：优先 FIFO，或指定」取**FIFO + 指定**并存）：
+///
+/// - **FIFO 的排序键**是 `biz_inventory_location.created_at`（= 该库位**第一次**收到
+///   这个物料的时间），并列时按行 id。这是当前库位账能做出来的最近似口径 ——
+///   逐笔入库时间没有落在库位账上（`biz_inventory_txn` 没有 location 列），
+///   真正的批次库龄 FIFO 要等批次卡，这里不假装它是。
+/// - **只挑够量的库位**：一次出库只扣一个库位桶（明细只有一个 `location_id` 字段，
+///   拆桶会让「一行明细 ↔ 一笔流水」的对应关系断掉）。都不够量 → 返回 `None`，
+///   由调用方给出「分散在 N 个库位、请拆行或指定库位」的可读 409（见
+///   [`location_availability`]）。
+/// - `allow_negative = true` 的仓库放宽为「最早建账的那一行」（负库存是它的既定策略）。
+pub async fn fifo_location_row(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    qty: Decimal,
+    allow_negative: bool,
+) -> DbResult<Option<(Option<Uuid>, Decimal)>> {
+    let sql = if allow_negative {
+        "SELECT id, qty, location_id FROM biz_inventory_location \
+          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+          ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE"
+    } else {
+        "SELECT id, qty, location_id FROM biz_inventory_location \
+          WHERE material_id = ?::uuid AND warehouse_id = ?::uuid \
+            AND qty >= NULLIF(?::text,'')::numeric \
+          ORDER BY created_at ASC, id ASC LIMIT 1 FOR UPDATE"
+    };
+    let mut params = vec![Value::from(&material_id), Value::from(&warehouse_id)];
+    if !allow_negative {
+        params.push(Value::Text(qty.round_dp(4).to_string()));
+    }
+    let row = ex.query_first_sql(sql.to_string(), params).await?;
+    match row {
+        None => Ok(None),
+        Some(row) => {
+            // ★ 「未分配」桶在成本账里是 `biz_inventory.location_id IS NULL`，**不是**它的行 id：
+            //   账行 id 只在「具体库位」口径下与成本账一一对应。命中 NULL 桶时返回值必须是
+            //   `None`，否则 lock_bucket 会去 `location_id = <行 id>` 找一行不存在的成本账
+            //   （DC-13 的负库存/全链用例当场 409）。
+            let ledger_dict: Option<Uuid> = row.get_typed("location_id")?;
+            let key = match ledger_dict {
+                None => None,
+                Some(_) => Some(row.get_typed::<Uuid>("id")?),
+            };
+            Ok(Some((key, row.get_typed("qty")?)))
+        }
+    }
+}
+
+/// 该物料该仓**各库位的可用量**（`(库位编码或「未分配」, 数量)`，按数量降序）。
+///
+/// 只用于 FIFO 失败时的 409 文案：「分散在 A-01-03: 30 / A-01-04: 20，单个库位都不够 60」。
+pub async fn location_availability(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+) -> DbResult<Vec<(String, Decimal)>> {
+    let rows = ex
+        .query_sql(
+            "SELECT COALESCE(b.location_code, '未分配') AS label, il.qty \
+               FROM biz_inventory_location il \
+               LEFT JOIN biz_location b ON b.id = il.location_id \
+              WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid \
+              ORDER BY il.qty DESC, il.created_at ASC"
+                .to_string(),
+            vec![Value::from(&material_id), Value::from(&warehouse_id)],
+        )
+        .await?;
+    let mut list = Vec::with_capacity(rows.len());
+    for row in rows {
+        list.push((row.get_typed("label")?, row.get_typed("qty")?));
+    }
+    Ok(list)
+}
+
+/// 过账时把 FIFO 选中的库位账行回写到明细（作废 / 红冲按它原路退回）。
+///
+/// `None` = 命中的是「未分配」桶（明细的 `location_id` 留空，与成本账的 NULL 桶同口径）。
+pub async fn set_item_location(
+    ex: &impl SqlExecutor,
+    item_id: Uuid,
+    location_row_id: Option<Uuid>,
+    now: DateTime<Utc>,
+) -> DbResult<()> {
+    ex.exec_sql(
+        "UPDATE biz_stock_out_item SET location_id = NULLIF(?::text,'')::uuid, updated_at = ? \
+          WHERE id = ?::uuid"
+            .to_string(),
+        vec![
+            Value::Text(location_row_id.map(|id| id.to_string()).unwrap_or_default()),
+            Value::from(now),
+            Value::from(&item_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
 /// 锁读库位账行（`biz_inventory_location`），返回 `(行 id, 数量)`。
 ///
 /// `location_id = None` → 未分配库位桶（`location_id IS NULL` 的那一行，

@@ -2812,6 +2812,7 @@ mod tests {
             price_excl: Some(dec(price)),
             tax_rate: Some(dec(rate)),
             location_id: None,
+            location_dict_id: None,
             serial_ids: Vec::new(),
             remark: None,
         }

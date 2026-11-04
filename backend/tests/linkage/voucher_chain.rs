@@ -65,6 +65,7 @@ async fn blue_voucher(ctx: &Ctx) -> Uuid {
             price_excl: Some(common::dec("2")),
             tax_rate: Some(common::dec("13")),
             location_id: Some(loc.to_string()),
+            location_dict_id: None,
             serial_ids: Vec::new(),
             remark: None,
         }],

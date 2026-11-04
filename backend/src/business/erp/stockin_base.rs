@@ -347,8 +347,10 @@ pub struct NewStockInLine {
     pub tax_amount: Decimal,
     /// 价税合计（4 位，恒等 `amount + tax_amount`）。
     pub with_tax_amount: Decimal,
-    /// 库位（可空）。
+    /// 库位账行（`biz_inventory_location.id`，可空；P2-4 起由过账回写）。
     pub location_id: Option<Uuid>,
+    /// 用户选的库位（`biz_location.id`，可空；过账时 find-or-create 出库位账行）。
+    pub location_dict_id: Option<Uuid>,
     /// 客户端给的单品序列号（空 = 过账时自动取号生成）。
     pub serial_ids: Vec<String>,
     /// 行备注。
@@ -505,7 +507,7 @@ impl StockInRow {
 /// `biz_stock_in_item` 列清单。
 pub const ITEM_COLUMNS: &str = "id, stock_in_id, line_no, source_item_id, material_id, unit_id, \
      qty, price, price_incl, tax_rate, amount, tax_amount, with_tax_amount, cost_price, \
-     location_id, lot_no, remark, created_at, updated_at";
+     location_id, location_dict_id, lot_no, remark, created_at, updated_at";
 
 /// 收货入库单明细行。
 #[derive(Debug, Clone)]
@@ -538,8 +540,10 @@ pub struct StockInItemRow {
     pub with_tax_amount: Decimal,
     /// 入库成本单价（不含税）。
     pub cost_price: Decimal,
-    /// 库位。
+    /// 库位账行（`biz_inventory_location.id`；P2-4 起由过账按 `location_dict_id` 回写）。
     pub location_id: Option<Uuid>,
+    /// 用户选的库位（`biz_location.id`；NULL = 未指定 → 默认库位 / 未分配桶）。
+    pub location_dict_id: Option<Uuid>,
     /// 批次号。
     pub lot_no: Option<String>,
     /// 行备注。
@@ -569,6 +573,7 @@ impl StockInItemRow {
             with_tax_amount: row.get_typed("with_tax_amount")?,
             cost_price: row.get_typed("cost_price")?,
             location_id: row.get_typed("location_id")?,
+            location_dict_id: row.get_typed("location_dict_id")?,
             lot_no: row.get_typed("lot_no")?,
             remark: row.get_typed("remark")?,
             created_at: row.get_typed("created_at")?,

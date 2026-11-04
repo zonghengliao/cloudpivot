@@ -50,6 +50,7 @@ async fn line(ctx: &Ctx, material: Uuid, qty: &str, price: &str, rate: &str) -> 
         price_excl: Some(common::dec(price)),
         tax_rate: Some(common::dec(rate)),
         location_id: Some(loc.to_string()),
+        location_dict_id: None,
         serial_ids: Vec::new(),
         remark: None,
     }
@@ -64,6 +65,7 @@ fn line_no_loc(material: Uuid, qty: &str, price: &str, rate: &str) -> StockInIte
         price_excl: Some(common::dec(price)),
         tax_rate: Some(common::dec(rate)),
         location_id: None,
+        location_dict_id: None,
         serial_ids: Vec::new(),
         remark: None,
     }

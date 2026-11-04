@@ -157,6 +157,7 @@ mod model_master; // 主数据只读（单位/仓库/库位/物料/供应商/科
 mod model_order; // 采购订单只读（头 + 明细）
 mod stockin_base; // 收货入库底座：常量 / 状态机 / 行结构 / 取号
 mod stockin_cancel; // 收货入库作废链路
+mod stockin_location; // 收货入库库位解析（P2-4：库位字典 ↔ 库位账行）
 mod stockin_purchase; // 收货入库↔采购单联动
 mod stockin_query; // 收货入库只读
 mod stockin_validate; // 收货入库校验（可作废前置）

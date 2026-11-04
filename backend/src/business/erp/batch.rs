@@ -600,6 +600,7 @@ mod tests {
             tax_amount: Decimal::from_str("2.6").expect("tax"),
             with_tax_amount: Decimal::from_str("22.6").expect("with_tax"),
             location_id: None,
+            location_dict_id: None,
             serial_ids: Vec::new(),
             remark: None,
         };

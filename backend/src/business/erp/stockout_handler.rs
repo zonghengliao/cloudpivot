@@ -501,8 +501,65 @@ async fn post_out_tx(
             .map(MaterialInfo::label)
             .unwrap_or_else(|| item.material_id.to_string());
 
+        // ★ P2-4 出库库位策略：**指定就按指定扣，没指定就 FIFO**
+        //
+        // 改之前「没指定库位」= 只从「未分配」桶扣：客户把货收到 A 库位后，
+        // 不选库位出库会报「库存不足（可用 0）」，明明账上有货 —— 这也是
+        // 收货永远进未分配桶的下游症状。现在的口径（与 docs/ERP-库位策略.md 一致）：
+        //   ① 明细指定了库位账行 → 精确扣那一桶（校验物料 / 仓库）；
+        //   ② 没指定 → 按库位**建账时间**升序 FIFO，挑第一个够量的库位；
+        //   ③ 单个库位都不够量 → 409 点名各库位余量，让用户拆行或指定库位
+        //      （不静默跨桶拆扣：一行明细 ↔ 一笔流水的对应关系会断）。
+        let mut location_row = item.location_id;
+        if location_row.is_none() {
+            match stock_out::fifo_location_row(
+                ex,
+                item.material_id,
+                header.warehouse_id,
+                item.qty,
+                policy.allow_negative,
+            )
+            .await
+            .map_err(|error| utils::db_error(error, "FIFO 选库位"))?
+            {
+                Some((row_key, _)) => {
+                    location_row = row_key;
+                    // 回写明细：作废时按同一行原路退回（NULL = 未分配桶，同样要写回去）
+                    if location_row != item.location_id {
+                        stock_out::set_item_location(ex, item.id, row_key, now)
+                            .await
+                            .map_err(|error| write_error(error, "过账：回写明细库位"))?;
+                    }
+                }
+                None => {
+                    let availability =
+                        stock_out::location_availability(ex, item.material_id, header.warehouse_id)
+                            .await
+                            .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
+                    let detail = availability
+                        .iter()
+                        .map(|(label, qty)| format!("{label}: {}", qty.round_dp(4)))
+                        .collect::<Vec<_>>()
+                        .join("、");
+                    return Err(negative_stock(format!(
+                        "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）本次要出库 {}，\
+                         没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：{}。\
+                         请把这一行拆成多行并分别指定库位，或先补货",
+                        policy.warehouse_code,
+                        policy.warehouse_name,
+                        item.qty.round_dp(4),
+                        if detail.is_empty() {
+                            "无库存".to_string()
+                        } else {
+                            detail
+                        }
+                    )));
+                }
+            }
+        }
+
         let Some(bucket) =
-            stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, item.location_id)
+            stock_out::lock_bucket(ex, item.material_id, header.warehouse_id, location_row)
                 .await
                 .map_err(|error| utils::db_error(error, "锁定库存行"))?
         else {
@@ -532,14 +589,10 @@ async fn post_out_tx(
             .map_err(|error| write_error(error, "过账：扣减成本账"))?;
 
         // 库位账（数量账）：与成本账同一事务同步减，否则 B1（Σ库位 = 成本账）立刻红
-        let Some((location_row_id, location_qty)) = stock_out::lock_location_row(
-            ex,
-            item.material_id,
-            header.warehouse_id,
-            item.location_id,
-        )
-        .await
-        .map_err(|error| utils::db_error(error, "锁定库位账行"))?
+        let Some((location_row_id, location_qty)) =
+            stock_out::lock_location_row(ex, item.material_id, header.warehouse_id, location_row)
+                .await
+                .map_err(|error| utils::db_error(error, "锁定库位账行"))?
         else {
             return Err(negative_stock(format!(
                 "物料 {label} 在仓库 {}（{}）的库位账缺行（明细没指定库位且该仓没有未分配库位桶，\

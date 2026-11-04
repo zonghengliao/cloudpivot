@@ -94,6 +94,12 @@ export interface StockInItemForm {
   price_excl: number;
   /** 税率 0–100 */
   tax_rate: number;
+  /**
+   * 库位（`biz_location.id`，P2-4）：空串 = 未指定。
+   *
+   * 空串时后端用「该仓默认库位」兜底；没有默认库位则进「未分配」桶并在详情里给提示。
+   */
+  location_dict_id?: string;
 }
 
 /** 一行「待收」快照（来自 `GET /purchase-order/{id}/pending-items`） */
@@ -471,7 +477,15 @@ export function emptyStockInFilter(): StockInFilterState {
 
 /** 单行空明细（税率默认 13%，与采购单同口径） */
 export function emptyStockInItem(key: string): StockInItemForm {
-  return { key, purchase_order_item_id: '', material_id: '', qty: 1, price_excl: 0, tax_rate: 13 };
+  return {
+    key,
+    purchase_order_item_id: '',
+    material_id: '',
+    qty: 1,
+    price_excl: 0,
+    tax_rate: 13,
+    location_dict_id: '',
+  };
 }
 
 /** 空表单（`invoice_received` 默认 `true`；默认「采购入库」，供应商 = 请先选择采购单） */
@@ -489,6 +503,81 @@ export function emptyStockInForm(): StockInFormState {
     remark: '',
     items: [emptyStockInItem('row-1')],
   };
+}
+
+// ==================== P2-4：库位（收货表单的库位下拉 / 默认库位 / 批量设置） ====================
+
+/**
+ * 库位下拉的最小数据形状（`biz_location` 的一行；单测可直接构造）。
+ *
+ * 只取本页用得到的字段：`fetchLocationList` 返回的 `Location` 结构比它宽，赋值兼容。
+ */
+export interface LocationLike {
+  /** 库位字典 id（`biz_location.id`） */
+  id: string;
+  /** 库位编码（仓库内唯一，如 `A-01-03`） */
+  location_code: string;
+  /** 库位名称（可空） */
+  location_name?: string | null;
+  /** 是否该仓默认收货库位 */
+  is_default: boolean;
+  /** 1 启用 / 0 停用 */
+  status: number;
+  /** 容量上限（只用于提示，不做拦截） */
+  capacity?: string | number | null;
+}
+
+/**
+ * 库位下拉选项：**只列启用中的**（停用库位后端会 400），默认库位加「（默认）」后缀。
+ *
+ * 让用户一眼看出「不选会落到哪」—— 这正是卡面「默认库位带出」的可见性要求。
+ */
+export function locationSelectOptions(
+  locations: readonly LocationLike[],
+): Array<{ label: string; value: string }> {
+  return locations
+    .filter((item) => item.status === 1)
+    .map((item) => {
+      const name = item.location_name ? ` ${item.location_name}` : '';
+      const mark = item.is_default ? '（默认）' : '';
+      return { label: `${item.location_code}${name}${mark}`, value: item.id };
+    });
+}
+
+/** 该仓默认库位 id（没有默认 → 空串）。新增行 / 换仓库时用它自动带出。 */
+export function defaultLocationIdOf(locations: readonly LocationLike[]): string {
+  const hit = locations.find((item) => item.is_default && item.status === 1);
+  return hit ? hit.id : '';
+}
+
+/**
+ * 批量设置库位：一次给所有明细行设同一个库位（卡面第 1 步的「批量设置库位」）。
+ *
+ * 只改 `location_dict_id`，不碰物料 / 数量 / 金额。
+ */
+export function applyLocationToAllLines<F extends StockInFormState>(form: F, locationId: string): F {
+  for (const item of form.items) {
+    item.location_dict_id = locationId;
+  }
+  return form;
+}
+
+/**
+ * 把「空库位」的行补成默认库位（换仓库 / 新建成单后调用）。
+ *
+ * 只填**没选过**的行：用户手选过的库位不会被覆盖（否则换仓库会把已选值洗掉，
+ * 而后端也会因为跨仓库位直接 400 —— 那种失败最难解释）。
+ */
+export function fillDefaultLocation<F extends StockInFormState>(form: F, defaultId: string): F {
+  if (!defaultId) {
+    return form;
+  }
+  for (const item of form.items) {
+    if (!item.location_dict_id) {
+      item.location_dict_id = defaultId;
+    }
+  }
+  return form;
 }
 
 // ==================== A6：来源方式（采购单 / 无源单据） ====================
@@ -638,6 +727,7 @@ export function detailToForm(
             qty: toNumber(line.qty),
             price_excl: round6(toNumber(line.price)),
             tax_rate: toNumber(line.tax_rate),
+            location_dict_id: line.location_dict_id ?? '',
           })),
   };
 }
@@ -665,6 +755,7 @@ export function formFromPending(
     qty: toNumber(item.pending_qty),
     price_excl: round6(toNumber(item.price_excl)),
     tax_rate: toNumber(item.tax_rate),
+    location_dict_id: '',
     pending: {
       ordered_qty: toNumber(item.ordered_qty),
       received_qty: toNumber(item.received_qty),
@@ -794,6 +885,8 @@ export function buildStockInPayload(form: StockInFormState): CreateStockInReq {
     qty: toNumber(item.qty),
     price_excl: round6(toNumber(item.price_excl)),
     tax_rate: toNumber(item.tax_rate),
+    // ★ P2-4：库位（库位字典 id；空 = 交给后端用仓库默认库位兜底）
+    location_dict_id: item.location_dict_id || null,
   }));
 
   return {
