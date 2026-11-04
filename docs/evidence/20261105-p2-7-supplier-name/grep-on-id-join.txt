@@ -1,0 +1,16 @@
+$ grep -rn "JOIN biz_supplier" backend/src --include=*.rs | grep -v "_tests\|tests_"
+  backend/src/business/erp/contract_dto.rs:25://! | 乙方名称「走关联带出，不存名称文本列」 | DDL **有** `party_b_name` 快照列（审计口径：签约时乙方是谁） | 两个都给：`party_b_name`（快照）+ `party_b_current_name`（主档现值，`LEFT JOIN biz_supplier`） |
+  backend/src/business/erp/contract_dto.rs:701:    /// 乙方名称现值（`LEFT JOIN biz_supplier`；主档已删 / 不存在时为 `null`）。
+  backend/src/business/erp/reminder_payable.rs:126:               LEFT JOIN biz_supplier s ON s.id = p.supplier_id AND s.deleted_at IS NULL \
+  backend/src/business/erp/reminder_purchase.rs:131:               LEFT JOIN biz_supplier s ON s.id = o.supplier_id AND s.deleted_at IS NULL \
+  backend/src/business/erp/contract_model.rs:226:/// 乙方现值（主档名）在行里的别名：`LEFT JOIN biz_supplier` 带出，不做数据源。
+  backend/src/business/erp/contract_model.rs:247:     LEFT JOIN biz_supplier s ON s.id = c.party_b_id";
+  backend/src/business/erp/payable_query.rs:94:     LEFT JOIN biz_supplier s ON s.id = p.supplier_id AND s.deleted_at IS NULL";
+  backend/src/business/impexp/builtin/erp_doc.rs:396:           LEFT JOIN biz_supplier sp ON sp.id = s.supplier_id AND sp.deleted_at IS NULL \
+  backend/src/business/impexp/builtin/erp_doc.rs:415:           LEFT JOIN biz_supplier sp ON sp.id = p.supplier_id AND sp.deleted_at IS NULL \
+
+$ grep -rni "group by.*supplier" backend/src frontend/src
+  （0 处）
+
+$ grep -rn "supplier_name *=\|supplier_name *like" backend/src（去测试）
+backend/src/business/erp/model_master.rs:816:        sql.push_str(" AND (supplier_code LIKE ? OR supplier_name LIKE ? OR short_name LIKE ?)");

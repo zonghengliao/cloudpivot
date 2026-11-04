@@ -1,0 +1,43 @@
+== 夹具前基线（干净库上只有存量快照 NULL 一类）==
+ drift_kind | severity | n 
+------------+----------+---
+ SNAPSHOT   | INFO     | 4
+(1 row)
+
+== 夹具后：逐条明细 ==
+  entity_type   |       entity_no       |       field_name        |                 snapshot_value                  |              truth_value               | drift_kind | severity | affected_count 
+----------------+-----------------------+-------------------------+-------------------------------------------------+----------------------------------------+------------+----------+----------------
+ PURCHASE_ORDER | W1B-PO-0001           | supplier_name_snapshot  | W1B 旧名（改名前的名字）                        | W1B 供应商                             | DEFECT     | WARN     |              1
+ SUPPLIER       | P27-DUP-A / P27-DUP-B | supplier_name           | p2-7 同名测试供应商                             | 活跃供应商里这个名字只能出现一次       | DEFECT     | WARN     |              2
+ SUPPLIER       | P27-SHT-A / P27-SHT-B | short_name              | 同一简称                                        | 活跃供应商里这个简称只能出现一次       | DEFECT     | WARN     |              2
+ SUPPLIER       | P27-SHW-A             | short_name              | 简称「P7 付款测试供应商」= 供应商 P7-SUP 的全名 | 简称不得与任何其它活跃供应商的全名相同 | DEFECT     | WARN     |              1
+ CONTRACT       | HT-20261105-000038    | party_b_name            | A2 合同乙方 LOCK（旧名）                        | A2 合同乙方 LOCK                       | SNAPSHOT   | INFO     |              1
+ FLOW_INSTANCE  | PM-20261105-000048    | form_data.supplier_name | P17 付款审批测试供应商（旧名）                  | P17 付款审批测试供应商                 | SNAPSHOT   | INFO     |              1
+ PURCHASE_ORDER | P15-91b646c2          | supplier_name_snapshot  | (快照 NULL：存量行 V0198 未回填)                | P15 联动作废供应商                     | SNAPSHOT   | INFO     |              1
+ PURCHASE_ORDER | P1FIX-PO-1            | supplier_name_snapshot  | (快照 NULL：存量行 V0198 未回填)                | P1FIX 快照供应商                       | SNAPSHOT   | INFO     |              1
+ PURCHASE_ORDER | P1FIX-PO-2            | supplier_name_snapshot  | (快照 NULL：存量行 V0198 未回填)                | P1FIX 快照供应商                       | SNAPSHOT   | INFO     |              1
+(9 rows)
+
+== 断言：6 类分支命中数（期望 NAME_DUP=1 SHORT_DUP=1 SHORT_SHADOWS_NAME=1 LATE_WRITE=1 DRIFT=2 MISSING=3）==
+       branch        | expected | actual | ok 
+---------------------+----------+--------+----
+ NAME_DUP            |        1 |      1 | t
+ SHORT_DUP           |        1 |      1 | t
+ SHORT_SHADOWS_NAME  |        1 |      1 | t
+ SNAPSHOT_DRIFT      |        2 |      2 | t
+ SNAPSHOT_LATE_WRITE |        1 |      1 | t
+ SNAPSHOT_MISSING    |        3 |      3 | t
+(6 rows)
+
+== 断言：无 UNKNOWN 分支 / WARN 总计 4 条 ==
+ defect_warn_total | error_total 
+-------------------+-------------
+                 4 |           0
+(1 row)
+
+== 回滚后：夹具残留必须 0，命中数回到基线，快照恢复 NULL ==
+ residual_supplier | hits_after_rollback | residual_po_snapshot | residual_flow 
+-------------------+---------------------+----------------------+---------------
+                 0 |                   4 |                    0 |             0
+(1 row)
+

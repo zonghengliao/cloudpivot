@@ -1,0 +1,151 @@
+{
+  "generated_at": "2026-11-05T02:38:08+08:00",
+  "dry_run": false,
+  "database": {
+    "host": "127.0.0.1",
+    "port": "5432",
+    "name": "cloudpivot_54ad4c5f_seeded",
+    "user": "alun"
+  },
+  "capability": {
+    "has_contract_table": true,
+    "has_po_contract_id": true,
+    "has_po_purchase_type": true,
+    "has_party_change_ledger": false,
+    "contract_checks_ready": true,
+    "has_drift_table": false
+  },
+  "summary": {
+    "blocker": 2,
+    "warn": 4,
+    "info": 5,
+    "checks_total": 2,
+    "checks_checked": 2,
+    "checks_skipped": 0,
+    "checks_failed": 0,
+    "checks_passed": 0,
+    "exit_code": 1
+  },
+  "checks": [
+    {
+      "id": "DI-12",
+      "name": "采购单供应商主档悬空/已软删",
+      "group": "主档",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 2,
+      "rows": [
+        {
+          "issue_code": "DI-12",
+          "entity_type": "PURCHASE_ORDER",
+          "entity_id": "0d2d0000-0000-4000-8000-000000000001",
+          "entity_no": "D2L-PO",
+          "field_name": "supplier_id",
+          "snapshot_value": "0d2d0000-0000-4000-8000-000000000007",
+          "truth_value": "SUPPLIER_ROW_MISSING",
+          "truth_source": "biz_supplier.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "ERROR",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-12",
+          "entity_type": "PURCHASE_ORDER",
+          "entity_id": "01a1a76e-0f4b-7650-ae49-59d0df6eab91",
+          "entity_no": "RM-PO-0001",
+          "field_name": "supplier_id",
+          "snapshot_value": "4f09c187-a9e7-4244-a45d-8137bfe59d45",
+          "truth_value": "SUPPLIER_ROW_MISSING",
+          "truth_source": "biz_supplier.deleted_at",
+          "drift_kind": "DEFECT",
+          "severity": "ERROR",
+          "affected_count": 1
+        }
+      ],
+      "by_severity": {
+        "ERROR": 2
+      },
+      "note": ""
+    },
+    {
+      "id": "DI-23",
+      "name": "供应商 ID→名字映射唯一性（同名/同简称/简称撞他人全名/晚写旧名/快照名≠现名）",
+      "group": "主档",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 9,
+      "rows": [
+        {
+          "issue_code": "DI-23",
+          "entity_type": "SUPPLIER",
+          "entity_id": "4a100b11-da1d-4a5d-8368-949bbfe22123",
+          "entity_no": "P27-DUP-A / P27-DUP-B",
+          "field_name": "supplier_name",
+          "snapshot_value": "p2-7 同名测试供应商",
+          "truth_value": "活跃供应商里这个名字只能出现一次",
+          "truth_source": "biz_supplier.supplier_name 归一 lower(btrim()) + deleted_at IS NULL",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 2
+        },
+        {
+          "issue_code": "DI-23",
+          "entity_type": "SUPPLIER",
+          "entity_id": "3115dfdb-51d3-47f8-a5b3-12dfc81ec224",
+          "entity_no": "P27-SHT-A / P27-SHT-B",
+          "field_name": "short_name",
+          "snapshot_value": "同一简称",
+          "truth_value": "活跃供应商里这个简称只能出现一次",
+          "truth_source": "biz_supplier.short_name 归一 lower(btrim()) + deleted_at IS NULL",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 2
+        },
+        {
+          "issue_code": "DI-23",
+          "entity_type": "SUPPLIER",
+          "entity_id": "aceaf2f8-671b-478f-8aff-b7369022fb28",
+          "entity_no": "P27-SHW-A",
+          "field_name": "short_name",
+          "snapshot_value": "简称「P7 付款测试供应商」= 供应商 P7-SUP 的全名",
+          "truth_value": "简称不得与任何其它活跃供应商的全名相同",
+          "truth_source": "biz_supplier.short_name vs biz_supplier.supplier_name（归一 lower(btrim())）",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-23",
+          "entity_type": "PURCHASE_ORDER",
+          "entity_id": "b1b00009-0000-4000-8000-000000000001",
+          "entity_no": "W1B-PO-0001",
+          "field_name": "supplier_name_snapshot",
+          "snapshot_value": "W1B 旧名（改名前的名字）",
+          "truth_value": "W1B 供应商",
+          "truth_source": "biz_supplier.supplier_name (id=b1b00005-0000-4000-8000-000000000001) 主档最后修改=2026-11-05 00:13:59，本单创建=2026-11-05 02:34:18",
+          "drift_kind": "DEFECT",
+          "severity": "WARN",
+          "affected_count": 1
+        },
+        {
+          "issue_code": "DI-23",
+          "entity_type": "CONTRACT",
+          "entity_id": "01a1a76a-16aa-7201-b754-d1f2ecef8221",
+          "entity_no": "HT-20261105-000038",
+          "field_name": "party_b_name",
+          "snapshot_value": "A2 合同乙方 LOCK（旧名）",
+          "truth_value": "A2 合同乙方 LOCK",
+          "truth_source": "biz_supplier.supplier_name (id=01a1a76a-1656-735a-87f2-9c97e1d548b9)",
+          "drift_kind": "SNAPSHOT",
+          "severity": "INFO",
+          "affected_count": 1
+        }
+      ],
+      "by_severity": {
+        "INFO": 5,
+        "WARN": 4
+      },
+      "note": ""
+    }
+  ]
+}

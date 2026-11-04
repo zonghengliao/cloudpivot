@@ -157,4 +157,33 @@ $do$;
 COMMENT ON VIEW di.v_party_change IS
   '合同乙方变更台账（合同 id + 变更时刻）：DI-01 靠它把「合法历史快照」与「事后篡改」分开；空视图 = 无台账 = 一律按 P0 处理';
 
+-- ---------- ⑤ 固定资产视图：V0229 之前给空壳（JOIN 恒 0 行，不报错）----------
+-- 为什么要这一层：`biz_fixed_asset.supplier_name` 是**快照名**（建卡时取主档名），
+-- 是 DI-23「快照名 vs 现名」的四类来源之一；但该表 V0229 才建，
+-- 巡检 SQL 直接引用它会让 V0229 之前的库 `--install-views` 整体失败。
+DO $do$
+BEGIN
+    IF to_regclass('public.biz_fixed_asset') IS NOT NULL THEN
+        EXECUTE $sql$
+            CREATE OR REPLACE VIEW di.v_asset AS
+            SELECT a.id, a.asset_no, a.supplier_id, a.supplier_name,
+                   a.created_at, a.updated_at, a.deleted_at
+              FROM biz_fixed_asset a
+        $sql$;
+    ELSE
+        EXECUTE $sql$
+            CREATE OR REPLACE VIEW di.v_asset AS
+            SELECT NULL::uuid AS id, NULL::varchar(32) AS asset_no,
+                   NULL::uuid AS supplier_id, NULL::varchar(200) AS supplier_name,
+                   NULL::timestamptz AS created_at, NULL::timestamptz AS updated_at,
+                   NULL::timestamptz AS deleted_at
+             WHERE FALSE
+        $sql$;
+    END IF;
+END
+$do$;
+
+COMMENT ON VIEW di.v_asset IS
+  '固定资产巡检视图：V0229 之前是「零行空壳」，DI-23 的资产快照分支因此天然 0 行（不是通过，是还没这张表）';
+
 COMMIT;

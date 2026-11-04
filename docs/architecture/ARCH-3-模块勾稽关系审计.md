@@ -854,7 +854,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | **DC-04** | 审批终态 → 单据状态**没有反向断言**：`erp_invariants.py` 有 H1（实例终态→待办终态）、H2（任务终态→实例终态），**没有 H3（实例 APPROVED → 单据必须前进）** | 「审批走完了单子没动」这类 A3 孤儿问题只能靠各自回调，漏一处就静默卡住 | 用户看到审批中心显示「已通过」，回到单据页发现状态还是「审批中」，只能找管理员 | 加巡检 H3：`flow_instance.status='APPROVED' AND 单据.status IN (待审批态)` 即报 P0；并逐单据登记「expected_next_status」映射 | **P1** |
 | **DC-05** | `biz_purchase_order_item.received_qty` **双真相**：列由 `stockin_purchase.rs:61` 增量维护（作废时 `:33` 减回），而「待收明细」用 `POSTED_RECEIVED_SQL` 现算（`purchase_model.rs:903`） | 两个数字可能不一致（并发/异常回滚/历史数据），用户看到「已收 100/100」但待收列表说「还能收 100」 | 采购单详情显示「已收完」，点「去收货」却还能建单收货 | **✅ 已解决（P2-3，2026-11-04）**：选「列退场、只留现算」——迁移 `V0217` 删列（连同 CHECK），所有读点统一走 `POSTED_RECEIVED_SQL`（采购单详情 / 待收明细 / 过账闸 / 判收满 / 联动动作）。证据：`docs/evidence/20261104-p23-received-qty-single-truth/` | **P2**（已收口） |
 | **DC-06** | 业务提醒缺失：`biz_payable.due_date`、`biz_purchase_order.expect_date`、`biz_contract.end_date`、`biz_material.safety_stock` 都有值，**没有任何提醒任务消费它们** | 应付到期无人提醒 → 逾期付款；采购未收货无人催 → 断料；合同到期无人续签；低于安全库存无人补 | 财务每天手工翻应付列表按到期日排序；采购靠 Excel 记「哪张单还没到货」 | 建「业务提醒」注册机制（复刻 `transfer_overdue.rs` 的成功范式）：4 条 `sys_job` 定时扫描 → `notice::dispatch` → 幂等键防重，页面加「我的提醒」 | **P1** |
-| **DC-07** | 供应商名字**三套口径**：① 采购单 `supplier_name_snapshot` 落库快照（`purchase_handler.rs:301`）；② 收货单实时批查 `supplier_names_of()`（`stockin_handler.rs:3022`）；③ 审批页用 `form_data` 冻结快照（`form_snapshot.rs`） | 供应商改名后，三处显示三个名字；对账/审计时说不清「当时是谁」 | 同一笔业务：采购单显示「老名字」、收货单显示「新名字」、审批单显示「提交时的名字」 | 统一策略：**单据表头统一落 `*_name_snapshot`（创建时冻结）**，列表只读快照，缺失才回填现值（采购单已是这个范式，把收货单补齐） | **P1** |
+| **DC-07** | 供应商名字**三套口径**：① 采购单 `supplier_name_snapshot` 落库快照（`purchase_handler.rs:301`）；② 收货单实时批查 `supplier_names_of()`（`stockin_handler.rs:3022`）；③ 审批页用 `form_data` 冻结快照（`form_snapshot.rs`） | 供应商改名后，三处显示三个名字；对账/审计时说不清「当时是谁」 | 同一笔业务：采购单显示「老名字」、收货单显示「新名字」、审批单显示「提交时的名字」 | ~~统一策略：单据表头统一落 `*_name_snapshot`，列表只读快照~~ → **P2-7 定稿口径（S1–S6）**：关联/过滤/汇总一律用 `id`；**列表/报表/导出显示现值**（按 id 关联，缺失回落快照，不落 uuid）；快照只出现在「冻结文书 + 详情页并列展示」两处，**永不修改**；简称只用于检索/导入。盘点表 13 处、巡检 **DI-23**（同名/同简称/简称撞全名/晚写旧名 = WARN；快照≠现名 = INFO）：`docs/architecture/P2-7-供应商名口径盘点.md` | **P1 → 口径已定 + 巡检已补**（2026-11-05，卡 P2-7；显示层对齐见跟进卡 P2-7-F1） |
 | **DC-08** | 多态引用无巡检：`biz_voucher.source_id`、`biz_inventory_txn.doc_id`、`biz_status_log.entity_id`、`biz_material_serial.source_id` 都是「类型 + id」多态，**没有任何巡检项检查悬空**；`biz_status_log` 的孤儿只有测试夹具在清（`fixture_hygiene.rs`） | 单据删了，流水/凭证/日志仍指向它 → 报表按来源汇总时出现「幽灵行」 | 财务按「来源单据」筛凭证，出现一堆点不进去的空行；审计追一条流水，跳转 404 | 加 4 条巡检（照 `snapshot-drift` 的 `di.*` 形态）：`entity_type` + `entity_id` 逐类型 LEFT JOIN 主表，`IS NULL` 即孤儿 | **P2** |
 | **DC-09** | 计量单位换算未落地：`biz_unit.rate` / `base_unit_id` 可配，**单据路径 0 处读取**（`grep` 只在主数据 CRUD 出现） | 「1 箱 = 12 个」配了也没用：按箱下单 10，库存记 10（应是 120）→ 数量、金额、成本全错 | 上线第一天就会遇到——只要客户用了非基本单位 | 定口径：① 单据落库统一折算基本单位（`qty_base = qty × rate`），明细同时保留原单位与原数量；② 或暂时**禁用多单位**（`is_base=1` 才可选用），避免用户误配 | **P0** |
 | **DC-10** | `costing_method` 三种值域（`MOVING_AVG`/`FIFO`/`STANDARD`，`dto.rs:78`），引擎只有移动加权（`stockin_write.rs` upsert `avg_cost`） | 用户以为选了 FIFO，实际按移动加权算 → 成本口径错，且**没有任何提示** | 物料的「成本法」下拉选「先进先出」，用了半年才发现成本不是 FIFO 算的 | 短期：值域收敛为 `["MOVING_AVG"]`（下拉只剩一项 + 灰字说明「本版本仅支持移动加权」）；长期：补 FIFO（需要批次成本层，专项） | **P0** |
@@ -894,7 +894,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | # | 结果 | 路径 A | 路径 B | 会不会真的不一致 | 处置 |
 |---|---|---|---|---|---|
 | 1 | 采购明细「已收数量」 | 列 `received_qty`（增量维护） | `POSTED_RECEIVED_SQL` 现算 | **不会了**（P2-3 删列，只剩现算） | ✅ 已解决：DC-05 / `V0217` |
-| 2 | 供应商显示名 | 采购单快照列 | 收货单实时批查 | **会**（改名后） | DC-07（P1） |
+| 2 | 供应商显示名 | 采购单快照列 | 收货单实时批查 | **会**（改名后，且这是**合法历史**） | 口径已定（P2-7 S2：显示一律现值 + 详情并列快照，**不再要求两边同源**）；漂移由 **DI-23** 留痕 |
 | 3 | 期间是否可记账 | 会计期间状态（`biz_accounting_period`） | 巡检 F1「已结账期间无新凭证」 | 不会（F1 兜底） | ✅ 已解决 |
 | 4 | 单据是否「已过账」 | `biz_stock_in.status` | `biz_voucher.source_type='STOCK_IN'` 是否存在 | 不会（巡检 D1 兜底） | ✅ 已解决 |
 | 5 | 库存数量 | `biz_inventory.qty`（成本账） | `biz_inventory_location` 合计（库位账） | 不会（巡检 B1 兜底） | ✅ 已解决 |
@@ -914,7 +914,7 @@ stockin  supplier   transfer   unit     voucher   warehouse  year-end
 | DC-04 审批终态→单据不动 | ⚠️ 只有一半（H1/H2 是反向） | 缺 H3 |
 | DC-05 received_qty 双真相 | ❌ | — |
 | DC-06 业务提醒 | ❌ | 无提醒=无数据，巡检发现不了 |
-| DC-07 供应商三名 | ⚠️ DI-06/DI-10 覆盖「供应商 id 一致」，不覆盖「名字一致」 | 需补 DI-16 |
+| DC-07 供应商三名 | ✅ **已补 DI-23**（P2-7） | DI-23 查「名字映射唯一性 + 快照名 vs 现名」：同名/同简称/简称撞全名/晚写旧名 = WARN，快照≠现名/存量 NULL = INFO；另 `backend/tests/invariant_registry.rs` 防「视图写了没登记」 |
 | DC-08 多态悬空 | ❌ | DI 清单 15 条里没有一条查 `source_id`/`doc_id`/`entity_id` |
 | DC-09 单位换算 | ❌ | B2/C4 只校验「金额=数量×均价」，不校验「数量单位是否正确」 |
 | DC-10 成本法 | ❌ | C4 用 `avg_cost` 自洽，看不出「本应是 FIFO」 |

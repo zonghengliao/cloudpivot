@@ -1,6 +1,7 @@
 -- ============================================================
--- 10_checks.sql —— 巡检项定义（DI-01…DI-22，其中 DI-14 是护栏自检，
---                    DI-17…DI-22 是多态引用巡检（类型列 + id 列，见 ARCH-3 DC-08））
+-- 10_checks.sql —— 巡检项定义（DI-01…DI-23，其中 DI-14 是护栏自检，
+--                    DI-17…DI-22 是多态引用巡检（类型列 + id 列，见 ARCH-3 DC-08），
+--                    DI-23 是供应商 ID→名字映射唯一性（见 ARCH-3 DC-07 / 卡 P2-7））
 --
 -- 每个巡检项 = 一个只读视图 di.c_diNN，输出统一 11 列：
 --   issue_code / entity_type / entity_id / entity_no / field_name
@@ -977,5 +978,182 @@ SELECT 'DI-22'::text AS issue_code, 'POLY_REF_MAP'::text AS entity_type,
 
 COMMENT ON VIEW di.c_di22 IS
   'DI-22 多态引用登记缺口（INFO）：数据里出现 di.v_poly_ref_map 未登记的类型 ⇒ 该类型的悬空不会被 DI-17…DI-21 查到（护栏自检）';
+
+
+-- ============================================================
+-- DI-23 供应商 ID→名字 映射唯一性 / 快照名 vs 现名（WARN / INFO）
+--   为什么需要这条（ARCH-3 §5 DC-07 / 卡 P2-7）：
+--     同一个供应商在系统里有**三套名字**：`biz_supplier.supplier_name`（全名，主档现值）、
+--     `biz_supplier.short_name`（简称，只用于检索/导入）、以及各处**冻结的快照名**
+--     （`biz_purchase_order.supplier_name_snapshot` / `biz_contract.party_b_name` /
+--     `biz_fixed_asset.supplier_name` / 审批单 `form_data.supplier_name`）。
+--     ID 是唯一关联键，但「名字」不是：DI-06 / DI-10 只保证「同一个 id 被抄到了对的地方」，
+--     **不保证名字映射唯一**。主档改名后，历史单据的快照名不动（这是对的，审计要
+--     「当时是谁」），可是「同一处显示取哪个来源」并没有被任何东西守住 ⇒ 按名字汇总/人工
+--     识别就会把两家并成一家、或把一家拆成两家。
+--   本项查五类，逐类定级（为什么没有 ERROR）：
+--     ① NAME_DUP           两个**活跃**供应商同名（归一 trim+lower）     WARN
+--        同名 ⇒ 下拉框里两个选项长得一样、按名字汇总必然合并 ⇒ 选错主体的人为风险。
+--        但 id 关联本身没错、账也没错，够不上 BLOCKER（§2.3：钱没动、链没断）。
+--     ② SHORT_DUP          两个活跃供应商同简称                          WARN
+--        简称只用于检索（model_master 关键字搜索 / 导入），重复会让「搜 A 出 B」。
+--     ③ SHORT_SHADOWS_NAME 某家的简称 == 别家的全名                      WARN
+--        这是三套名字互相污染的最短路径：单据上出现这个名字时，人分不清是全名还是简称。
+--     ④ SNAPSHOT_DRIFT     快照名 ≠ 主档现名（PO / 合同 / 资产 / 审批单）  INFO
+--        合法历史（§1.1「不能重算的偏移是历史」）：改名后历史单据**必须**保持旧名。
+--        只留痕、不进告警队列；它同时是「按名字汇总会对不上」的实测口径。
+--     ⑤ SNAPSHOT_MISSING   采购单有 supplier_id 但快照 NULL               INFO
+--        V0198 不回填存量（历史事实），显示只能回落主档现值 ⇒ 这些行的名字会「跟着改名变」。
+--     ⑥ SNAPSHOT_LATE_WRITE SPOT 采购单建单**晚于**主档最后一次修改，却写了旧名   WARN
+--        可重算的偏移 = 写路径缺陷（§1.1）：建单时主档已经是新名，快照却写旧名 ⇒
+--        写入点（purchase_handler::resolve_head）漏了「取主档现值」。
+--        CONTRACT 采购单**不在此列**：它的快照名按设计来自合同乙方（签约名），
+--        与主档现名不同是合法的（那一段由 DI-01 盯 PO↔合同）。
+-- ============================================================
+CREATE OR REPLACE VIEW di.c_di23 AS
+WITH act AS (
+    SELECT s.id, s.supplier_code,
+           btrim(s.supplier_name) AS full_name,
+           nullif(btrim(s.short_name), '') AS short_name,
+           s.updated_at
+      FROM biz_supplier s
+     WHERE s.deleted_at IS NULL
+),
+name_dup AS (
+    SELECT (array_agg(a.id ORDER BY a.supplier_code))[1] AS entity_id,
+           string_agg(a.supplier_code, ' / ' ORDER BY a.supplier_code) AS entity_no,
+           min(a.full_name) AS display_name,
+           count(*) AS n
+      FROM act a
+     GROUP BY lower(a.full_name)
+    HAVING count(*) > 1
+),
+short_dup AS (
+    SELECT (array_agg(a.id ORDER BY a.supplier_code))[1] AS entity_id,
+           string_agg(a.supplier_code, ' / ' ORDER BY a.supplier_code) AS entity_no,
+           min(a.short_name) AS display_name,
+           count(*) AS n
+      FROM act a
+     WHERE a.short_name IS NOT NULL
+     GROUP BY lower(a.short_name)
+    HAVING count(*) > 1
+),
+short_shadow AS (
+    SELECT a.id AS entity_id, a.supplier_code AS entity_no,
+           a.short_name AS short_name,
+           string_agg(b.supplier_code, ' / ' ORDER BY b.supplier_code) AS clashes_with,
+           count(*) AS n
+      FROM act a
+      JOIN act b ON b.id <> a.id AND lower(b.full_name) = lower(a.short_name)
+     WHERE a.short_name IS NOT NULL
+     GROUP BY a.id, a.supplier_code, a.short_name
+),
+snap AS (
+    -- ④ 快照名 vs 主档现名：四张快照来源合成一个分支，entity_type 区分来源
+    SELECT 'PURCHASE_ORDER'::text AS entity_type, p.id AS entity_id, p.order_no AS entity_no,
+           'supplier_name_snapshot'::text AS field_name,
+           btrim(p.supplier_name_snapshot) AS snap_name,
+           btrim(s.supplier_name) AS cur_name, s.id AS supplier_id,
+           p.created_at AS doc_at, s.updated_at AS master_at,
+           (p.purchase_type = 'SPOT') AS is_spot
+      FROM di.v_po p
+      JOIN biz_supplier s ON s.id = p.supplier_id AND s.deleted_at IS NULL
+     WHERE p.deleted_at IS NULL
+       AND coalesce(btrim(p.supplier_name_snapshot), '') <> ''
+    UNION ALL
+    SELECT 'CONTRACT', c.id, c.contract_no, 'party_b_name',
+           btrim(c.party_b_name), btrim(s.supplier_name), s.id,
+           c.created_at, s.updated_at, FALSE
+      FROM di.v_contract c
+      JOIN biz_supplier s ON s.id = c.party_b_id AND s.deleted_at IS NULL
+     WHERE c.deleted_at IS NULL
+       AND coalesce(btrim(c.party_b_name), '') <> ''
+    UNION ALL
+    SELECT 'FIXED_ASSET', a.id, a.asset_no, 'supplier_name',
+           btrim(a.supplier_name), btrim(s.supplier_name), s.id,
+           a.created_at, s.updated_at, FALSE
+      FROM di.v_asset a
+      JOIN biz_supplier s ON s.id = a.supplier_id AND s.deleted_at IS NULL
+     WHERE a.deleted_at IS NULL
+       AND coalesce(btrim(a.supplier_name), '') <> ''
+    UNION ALL
+    SELECT 'FLOW_INSTANCE', f.id, f.biz_no, 'form_data.supplier_name',
+           btrim(f.form_data ->> 'supplier_name'), btrim(s.supplier_name), s.id,
+           f.started_at, s.updated_at, FALSE
+      FROM biz_flow_instance f
+      JOIN biz_supplier s ON s.id::text = btrim(f.form_data ->> 'supplier_id')
+                          AND s.deleted_at IS NULL
+     WHERE f.deleted_at IS NULL
+       AND coalesce(btrim(f.form_data ->> 'supplier_name'), '') <> ''
+),
+snap_diff AS (
+    SELECT * FROM snap WHERE lower(snap_name) <> lower(cur_name)
+),
+snap_late AS (
+    -- 晚写：SPOT 采购单建单**晚于**主档最后一次修改，却写了旧名 ⇒ 写路径漏取现值（可重算的偏移）
+    SELECT * FROM snap_diff WHERE is_spot AND doc_at > master_at
+),
+snap_drift AS (
+    -- 合法历史：快照名与现名不同但**不是**晚写（晚写的行只报一次，不重复计数）
+    SELECT d.* FROM snap_diff d
+     WHERE NOT EXISTS (SELECT 1 FROM snap_late l
+                        WHERE l.entity_type = d.entity_type AND l.entity_id = d.entity_id)
+),
+snap_missing AS (
+    SELECT p.id AS entity_id, p.order_no AS entity_no, s.id AS supplier_id,
+           btrim(s.supplier_name) AS cur_name
+      FROM di.v_po p
+      JOIN biz_supplier s ON s.id = p.supplier_id AND s.deleted_at IS NULL
+     WHERE p.deleted_at IS NULL
+       AND p.supplier_id IS NOT NULL
+       AND coalesce(btrim(p.supplier_name_snapshot), '') = ''
+       -- 快照列本身就是 V0198 才加的：列不存在时 di.v_po 全返回 NULL，
+       -- 那种阶段「快照缺失」不是缺陷而是「还没这列」，不能报（0 行 ≠ 无缺陷的反面）
+       AND (SELECT d.has_po_contract_id FROM di.di_capability d)
+)
+SELECT 'DI-23'::text AS issue_code, 'SUPPLIER'::text AS entity_type,
+       d.entity_id, d.entity_no, 'supplier_name'::text AS field_name,
+       d.display_name AS snapshot_value,
+       '活跃供应商里这个名字只能出现一次'::text AS truth_value,
+       'biz_supplier.supplier_name 归一 lower(btrim()) + deleted_at IS NULL'::text AS truth_source,
+       'DEFECT'::text AS drift_kind, 'WARN'::text AS severity, d.n AS affected_count
+  FROM name_dup d
+UNION ALL
+SELECT 'DI-23', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
+       d.display_name, '活跃供应商里这个简称只能出现一次',
+       'biz_supplier.short_name 归一 lower(btrim()) + deleted_at IS NULL',
+       'DEFECT', 'WARN', d.n
+  FROM short_dup d
+UNION ALL
+SELECT 'DI-23', 'SUPPLIER', d.entity_id, d.entity_no, 'short_name',
+       ('简称「' || d.short_name || '」= 供应商 ' || d.clashes_with || ' 的全名'),
+       '简称不得与任何其它活跃供应商的全名相同',
+       'biz_supplier.short_name vs biz_supplier.supplier_name（归一 lower(btrim())）',
+       'DEFECT', 'WARN', d.n
+  FROM short_shadow d
+UNION ALL
+SELECT 'DI-23', d.entity_type, d.entity_id, d.entity_no, d.field_name,
+       d.snap_name,
+       d.cur_name,
+       ('biz_supplier.supplier_name (id=' || d.supplier_id::text || ')'),
+       'SNAPSHOT', 'INFO', 1
+  FROM snap_drift d
+UNION ALL
+SELECT 'DI-23', p.entity_type, p.entity_id, p.entity_no, p.field_name,
+       p.snap_name, p.cur_name,
+       ('biz_supplier.supplier_name (id=' || p.supplier_id::text || ') 主档最后修改='
+        || to_char(p.master_at, 'YYYY-MM-DD HH24:MI:SS') || '，本单创建='
+        || to_char(p.doc_at, 'YYYY-MM-DD HH24:MI:SS')),
+       'DEFECT', 'WARN', 1
+  FROM snap_late p
+UNION ALL
+SELECT 'DI-23', 'PURCHASE_ORDER', m.entity_id, m.entity_no, 'supplier_name_snapshot',
+       '(快照 NULL：存量行 V0198 未回填)', m.cur_name,
+       ('biz_supplier.supplier_name (id=' || m.supplier_id::text || ')'),
+       'SNAPSHOT', 'INFO', 1
+  FROM snap_missing m;
+
+COMMENT ON VIEW di.c_di23 IS
+  'DI-23 供应商 ID→名字映射唯一性（WARN=同名/同简称/简称撞他人全名/建单晚于改名却写旧名；INFO=快照名≠现名、存量快照 NULL）：关联键只认 id，名字用于显示，快照漂移只报不修（ARCH-3 DC-07 / 卡 P2-7）';
 
 COMMIT;

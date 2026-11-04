@@ -1,0 +1,92 @@
+=== [A] 结构与计数 ===
+== A. 版本/表清单 ==
+      tablename       
+----------------------
+ biz_flow_def_version
+ schema_migrations
+ sys_help_doc_version
+
+ public_tables 
+---------------
+           113
+
+   supplier   |         po         |   contract   | fixed_asset |     flow_inst     |   stock_in   |   payable   
+--------------+--------------------+--------------+-------------+-------------------+--------------+-------------
+ biz_supplier | biz_purchase_order | biz_contract |             | biz_flow_instance | biz_stock_in | biz_payable
+
+== B. 采购单列 ==
+      column_name       
+------------------------
+ contract_id
+ created_at
+ deleted_at
+ purchase_type
+ status
+ supplier_id
+ supplier_name_snapshot
+ updated_at
+
+== C. 供应商计数 ==
+ active | soft_deleted | active_with_short 
+--------+--------------+-------------------
+      1 |            0 |                 1
+
+
+=== [B] 名字漂移计数 ===
+== 0. 迁移版本 ==
+ max_version | applied 
+-------------+---------
+ 91          |     163
+
+== 0b. 业务数据量 ==
+ supplier | po | contract | stock_in | payable | flow_inst 
+----------+----+----------+----------+---------+-----------
+        1 | 18 |       11 |       15 |      12 |       112
+
+== 1. 活跃供应商同名（归一 trim+lower）==
+ dup_name_groups | rows_in_groups 
+-----------------+----------------
+               0 |              0
+
+== 2. 活跃简称重复 ==
+ dup_short_groups | rows_in_groups 
+------------------+----------------
+                0 |              0
+
+== 3. 简称撞他人全名 ==
+ short_hits_name 
+-----------------
+               0
+
+== 4. 采购单快照 vs 现名 ==
+ po_total | snap_null | snap_ne_current | spot_snap_ne_current | contract_snap_ne_current 
+----------+-----------+-----------------+----------------------+--------------------------
+       18 |        15 |               0 |                    0 |                        0
+
+== 5. 晚写（SPOT 单建单晚于主档最后修改，却写了旧名）==
+ late_write 
+------------
+          0
+
+== 6. 合同 party_b_name vs 现名 ==
+ contract_total | party_b_ne_current 
+----------------+--------------------
+             11 |                  0
+
+== 7. 审批快照 form_data.supplier_name vs 现名 ==
+ instances_with_name | snap_ne_current 
+---------------------+-----------------
+                  11 |               0
+
+== 8. 简称在单据/报表里的使用（应为 0 行）==
+ short_name_in_docs 
+--------------------
+                  0
+
+
+=== [C] DI-23 六分支等价只读计数 ===
+== DI-23 六个分支在生产库的等价只读计数（不装 di 视图，直接对业务表）==
+ name_dup | short_dup | short_shadows_name | snapshot_drift_po | snapshot_drift_contract | snapshot_drift_flow | snapshot_missing | snapshot_late_write 
+----------+-----------+--------------------+-------------------+-------------------------+---------------------+------------------+---------------------
+        0 |         0 |                  0 |                 0 |                       0 |                   0 |               11 |                   0
+

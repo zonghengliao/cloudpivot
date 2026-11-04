@@ -1,0 +1,30 @@
+告警：（未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+====================================================================================
+云枢 · 快照一致性巡检（B1，只报不修）
+库: cloudpivot_54ad4c5f_seeded@127.0.0.1:5432   生成: 2026-11-05 02:38:08+0800
+能力: 合同表=就位 采购单合同列=就位 变更台账=无（按「无台账 ⇒ P0」保守处理） 结果表 biz_snapshot_drift=缺失（本脚本只报不落表，见卡 B2）
+====================================================================================
+
+── 主档（2 项）──────────────────────────────────────────────────────────────────
+  ✗ DI-12  采购单供应商主档悬空/已软删  2 条 [BLOCKER]
+       ▸ PURCHASE_ORDER 0d2d0000-0000-4000-8000-000000000001 (D2L-PO) supplier_id: 快照=0d2d0000-0000-4000-8000-000000000007 ≠ 真相=SUPPLIER_ROW_MISSING [DEFECT/ERROR]
+         真相来源: biz_supplier.deleted_at
+       ▸ PURCHASE_ORDER 01a1a76e-0f4b-7650-ae49-59d0df6eab91 (RM-PO-0001) supplier_id: 快照=4f09c187-a9e7-4244-a45d-8137bfe59d45 ≠ 真相=SUPPLIER_ROW_MISSING [DEFECT/ERROR]
+         真相来源: biz_supplier.deleted_at
+  ⚠ DI-23  供应商 ID→名字映射唯一性（同名/同简称/简称撞他人全名/晚写旧名/快照名≠现名）  9 条 [WARN]
+       ▸ SUPPLIER 4a100b11-da1d-4a5d-8368-949bbfe22123 (P27-DUP-A / P27-DUP-B) supplier_name: 快照=p2-7 同名测试供应商 ≠ 真相=活跃供应商里这个名字只能出现一次 [DEFECT/WARN] 影响2张单
+         真相来源: biz_supplier.supplier_name 归一 lower(btrim()) + deleted_at IS NULL
+       ▸ SUPPLIER 3115dfdb-51d3-47f8-a5b3-12dfc81ec224 (P27-SHT-A / P27-SHT-B) short_name: 快照=同一简称 ≠ 真相=活跃供应商里这个简称只能出现一次 [DEFECT/WARN] 影响2张单
+         真相来源: biz_supplier.short_name 归一 lower(btrim()) + deleted_at IS NULL
+       ▸ SUPPLIER aceaf2f8-671b-478f-8aff-b7369022fb28 (P27-SHW-A) short_name: 快照=简称「P7 付款测试供应商」= 供应商 P7-SUP 的全名 ≠ 真相=简称不得与任何其它活跃供应商的全名相同 [DEFECT/WARN]
+         真相来源: biz_supplier.short_name vs biz_supplier.supplier_name（归一 lower(btrim())）
+       ▸ PURCHASE_ORDER b1b00009-0000-4000-8000-000000000001 (W1B-PO-0001) supplier_name_snapshot: 快照=W1B 旧名（改名前的名字） ≠ 真相=W1B 供应商 [DEFECT/WARN]
+         真相来源: biz_supplier.supplier_name (id=b1b00005-0000-4000-8000-000000000001) 主档最后修改=2026-11-05 00:13:59，本单创建=2026-11-05 02:34:18
+       ▸ CONTRACT 01a1a76a-16aa-7201-b754-d1f2ecef8221 (HT-20261105-000038) party_b_name: 快照=A2 合同乙方 LOCK（旧名） ≠ 真相=A2 合同乙方 LOCK [SNAPSHOT/INFO]
+         真相来源: biz_supplier.supplier_name (id=01a1a76a-1656-735a-87f2-9c97e1d548b9)
+       … 另有 4 条未展开（详见 --json 或库内视图）
+
+====================================================================================
+汇总: BLOCKER 2 / WARN 4 / INFO 5   巡检项 2（通过 0、有命中 2、跳过 0、失败 0）
+退出码: 1
+====================================================================================

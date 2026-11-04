@@ -1,0 +1,284 @@
+{
+  "generated_at": "2026-11-05T02:38:06+08:00",
+  "dry_run": false,
+  "database": {
+    "host": "127.0.0.1",
+    "port": "5432",
+    "name": "cloudpivot_54ad4c5f_clean",
+    "user": "alun"
+  },
+  "capability": {
+    "has_contract_table": true,
+    "has_po_contract_id": true,
+    "has_po_purchase_type": true,
+    "has_party_change_ledger": false,
+    "contract_checks_ready": true,
+    "has_drift_table": false
+  },
+  "summary": {
+    "blocker": 0,
+    "warn": 0,
+    "info": 0,
+    "checks_total": 23,
+    "checks_checked": 23,
+    "checks_skipped": 0,
+    "checks_failed": 0,
+    "checks_passed": 23,
+    "exit_code": 0
+  },
+  "checks": [
+    {
+      "id": "DI-01",
+      "name": "采购单供应商快照 ≠ 合同乙方（三态）",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-02",
+      "name": "采购单引用的合同已软删",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-03",
+      "name": "采购单 contract_id 悬空",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-04",
+      "name": "CONTRACT 采购单缺 contract_id",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-05",
+      "name": "SPOT 采购单缺 supplier_id",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-13",
+      "name": "同一合同下快照互斥（多个不同供应商）",
+      "group": "合同链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-15",
+      "name": "合同已终止/已完成但仍有在途采购单",
+      "group": "合同链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-06",
+      "name": "入库单供应商 ≠ 来源采购单供应商",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-07",
+      "name": "入库单的来源采购单已软删",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-08",
+      "name": "入库单来源采购单悬空",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-09",
+      "name": "采购入库（PURCHASE）缺 supplier_id",
+      "group": "实物链",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-16",
+      "name": "已过账收货单的来源采购单已不可收",
+      "group": "实物链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-10",
+      "name": "应付单供应商 ≠ 来源入库单供应商",
+      "group": "资金链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-11",
+      "name": "应付来源入库单悬空/已软删",
+      "group": "资金链",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-12",
+      "name": "采购单供应商主档悬空/已软删",
+      "group": "主档",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-23",
+      "name": "供应商 ID→名字映射唯一性（同名/同简称/简称撞他人全名/晚写旧名/快照名≠现名）",
+      "group": "主档",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-14",
+      "name": "结构护栏自检（约束/部分唯一索引缺失）",
+      "group": "护栏",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-17",
+      "name": "凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空）",
+      "group": "多态引用",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-18",
+      "name": "库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO）",
+      "group": "多态引用",
+      "level": "BLOCKER",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-19",
+      "name": "流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO）",
+      "group": "多态引用",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-20",
+      "name": "状态日志实体悬空（entity_type 指向的实体已软删/不存在）",
+      "group": "多态引用",
+      "level": "INFO",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-21",
+      "name": "序列号来源未记录（source_type 有值、source_id 恒空；且来源类型无目标表）",
+      "group": "多态引用",
+      "level": "WARN",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    },
+    {
+      "id": "DI-22",
+      "name": "多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）",
+      "group": "多态引用",
+      "level": "INFO",
+      "status": "CHECKED",
+      "hit": 0,
+      "rows": [],
+      "by_severity": {},
+      "note": ""
+    }
+  ]
+}

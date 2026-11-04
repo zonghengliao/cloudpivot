@@ -142,6 +142,12 @@ CHECKS = [
     dict(id="DI-12", group="主档", view="di.c_di12", level="BLOCKER", contract=False,
          name="采购单供应商主档悬空/已软删",
          meaning="悬空 ⇒ 追溯链断掉(P0)；软删 ⇒ 「当时是谁」只能靠快照名兜底(P1)"),
+    dict(id="DI-23", group="主档", view="di.c_di23", level="WARN", contract=False,
+         name="供应商 ID→名字映射唯一性（同名/同简称/简称撞他人全名/晚写旧名/快照名≠现名）",
+         meaning="关联只认 id，名字只用于显示：两个活跃供应商同名或同简称(P1)会让下拉框与按名字汇总"
+                 "把两家并成一家，简称撞别人全名(P1)会让人分不清全名/简称；SPOT 采购单建单晚于主档"
+                 "改名却写旧名(P1)=写路径漏取现值（可重算的偏移）。快照名≠现名(P2，合法历史)与"
+                 "存量快照 NULL(P2，V0198 未回填、显示回落现值)只留痕不告警——快照漂移只报不修"),
 
     dict(id="DI-14", group="护栏", view="di.c_di14", level="BLOCKER", contract=False,
          name="结构护栏自检（约束/部分唯一索引缺失）",
