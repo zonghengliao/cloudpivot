@@ -141,20 +141,49 @@ if [ "$NCOMMITS" != "0" ]; then
   git log --oneline "$OLD_HEAD..$NEW_HEAD" | sed 's/^/    /'
 fi
 
-# 新增迁移（只认 A=新增；改动的 up.sql 不算「待应用」）
-mapfile -t MIG_FILES < <(git diff --name-only --diff-filter=A "$OLD_HEAD" "$NEW_HEAD" -- backend/migrations/ | grep -E '\.up\.sql$' || true)
-# 后端/前端改动面
+# --- 待应用迁移 -----------------------------------------------------------------
+# 口径：**磁盘上（$NEW_HEAD 的树）版本号 > 库里已应用最大版本** 的 business up 脚本。
+#
+# 为什么不再用 `git diff --diff-filter=A $OLD_HEAD..$NEW_HEAD`：
+# 那个口径只看「这次同步新加的迁移文件」。一旦主仓只同步了代码、迁移没对库跑过
+# （实操里发生过：prod 工作区已到 V0217 的文件，库还停在 V0211），待跑迁移根本
+# 不在 diff 里 ⇒ 脚本报「本次无新迁移」，库与二进制长期不一致，而 v1 检测脚本
+# 又只看 git 落后数，两边都显示"已部署"。按「库 vs 磁盘」比才是生产是否真生效。
+APPLIED_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")
+say "库里已应用的最大迁移版本：V$(printf '%04d' "$APPLIED_MAX")"
+
+mapfile -t MIG_FILES < <(
+  git ls-tree --name-only "$NEW_HEAD" backend/migrations/business/ \
+    | grep -E '^backend/migrations/business/V[0-9]+__[A-Za-z0-9_]+\.up\.sql$' \
+    | awk -F'/' -v applied="$APPLIED_MAX" '{ v=substr($NF,2); sub(/__.*/,"",v); if ((v+0) > applied) print }' \
+    | sort || true
+)
+
+# --- 后端/前端是否要重做 ---------------------------------------------------------
+# 判据不只是「本次 diff 有没有碰这个目录」，还要看**产物是否比最近一次提交旧**：
+# 主仓同步了但没编译/没 build 时，diff 是空的、产物却过期（v2 检测卡抓到的正是这个）。
+BE_LAST_TS=$(git log -1 --format=%ct "$NEW_HEAD" -- backend/ ':!backend/migrations' ':!backend/tests' 2>/dev/null || echo 0)
+BIN_TS=$(stat -c %Y "$BACKEND_DIR/target/release/cloudpivot" 2>/dev/null || echo 0)
 BE_CHANGED=$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- backend/ | grep -vE '^backend/(migrations|tests)/' | head -1 || true)
+if [ -z "$BE_CHANGED" ] && [ "${BE_LAST_TS:-0}" -gt "${BIN_TS:-0}" ]; then
+  BE_CHANGED="stale-binary"
+  say "二进制过期：线上二进制 $(date -d @"$BIN_TS" '+%F %T') 早于最近后端提交 $(date -d @"$BE_LAST_TS" '+%F %T') ⇒ 重编译"
+fi
+
+FE_LAST_TS=$(git log -1 --format=%ct "$NEW_HEAD" -- frontend/ ':!frontend/tests' ':!frontend/dist' 2>/dev/null || echo 0)
+DIST_TS=$(stat -c %Y "$FRONTEND_DIR/dist" 2>/dev/null || echo 0)
 FE_CHANGED=$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- frontend/ | head -1 || true)
+if [ -z "$FE_CHANGED" ] && [ "${FE_LAST_TS:-0}" -gt "${DIST_TS:-0}" ]; then
+  FE_CHANGED="stale-dist"
+  say "dist 过期：线上 dist $(date -d @"$DIST_TS" '+%F %T') 早于最近前端提交 $(date -d @"$FE_LAST_TS" '+%F %T') ⇒ 重构建"
+fi
+
 [ -n "$(git diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- Cargo.toml Cargo.lock rust-toolchain.toml backend/Cargo.toml backend/Cargo.lock backend/rust-toolchain.toml 2>/dev/null)" ] && BE_CHANGED=1
 
 [ "$SKIP_BACKEND" = "1" ] && BE_CHANGED="" && say "（--skip-backend：忽略后端改动）"
 [ "$SKIP_FRONTEND" = "1" ] && FE_CHANGED="" && say "（--skip-frontend：忽略前端改动）"
-say "后端改动：$([ -n "$BE_CHANGED" ] && echo 有 || echo 无)　　前端改动：$([ -n "$FE_CHANGED" ] && echo 有 || echo 无)　　新增迁移：${#MIG_FILES[@]} 个"
-for f in "${MIG_FILES[@]:-}"; do [ -n "${f:-}" ] && say "    + $f"; done
-
-APPLIED_MAX=$($PSQL -c "select coalesce(max(version::int),0) from schema_migrations where kind='versioned' and version ~ '^[0-9]+\$'")
-say "库里已应用的最大迁移版本：V$(printf '%04d' "$APPLIED_MAX")"
+say "后端改动：$([ -n "$BE_CHANGED" ] && echo 有 || echo 无)　　前端改动：$([ -n "$FE_CHANGED" ] && echo 有 || echo 无)　　待应用迁移：${#MIG_FILES[@]} 个"
+for f in "${MIG_FILES[@]:-}"; do [ -n "${f:-}" ] && say "    + $f ($(git show "$NEW_HEAD:$f" >/dev/null 2>&1 || echo '⚠ 不在工作区'))"; done
 
 PENDING_PAIRS=()
 PENDING_NUMS=""
