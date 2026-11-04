@@ -105,7 +105,7 @@ die() {
 }
 
 # ----------------------------------------------------------------------------
-step "[0/7] 前置检查"
+step "[0/8] 前置检查"
 [ -d "$REPO/.git" ] || die "找不到仓库 $REPO（本脚本要在生产机上跑）"
 [ -f "$ENV_FILE" ] || die "找不到生产环境变量 $ENV_FILE"
 [ -f "$MIGRATE_TOOL" ] || die "找不到迁移工具 $MIGRATE_TOOL"
@@ -124,7 +124,7 @@ say "仓库 $REPO，库 $DB_NAME，服务 $SERVICE，标签 $TAG"
 [ "$DRY_RUN" = "1" ] && say ">>> dry-run：只体检与打印计划，不写文件、不动服务 <<<"
 
 # ----------------------------------------------------------------------------
-step "[1/7] 查清待上线内容（git fetch + 差异清单）"
+step "[1/8] 查清待上线内容（git fetch + 差异清单）"
 cd "$REPO" || die "cd $REPO 失败"
 git fetch --quiet origin || die "git fetch 失败"
 OLD_HEAD="$(git rev-parse HEAD)"
@@ -202,7 +202,7 @@ for f in "${MIG_FILES[@]:-}"; do
 done
 
 # ----------------------------------------------------------------------------
-step "[2/7] 备份（库 dump + 线上二进制 + 现有 dist）"
+step "[2/8] 备份（库 dump + 线上二进制 + 现有 dist）"
 if [ "$DRY_RUN" = "1" ]; then
   say "dry-run：将备份到 $BACKUP_DIR/{db.dump,cloudpivot,dist/}"
 else
@@ -228,7 +228,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[3/7] 同步代码（git merge --ff-only）"
+step "[3/8] 同步代码（git merge --ff-only）"
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
   git status --short --untracked-files=no | sed 's/^/    /'
   die "生产工作区有未提交的已跟踪改动，脚本不替你 stash（可能是别人在跑的任务）。请先处理：git -C $REPO status"
@@ -260,11 +260,33 @@ fi
 DID_FF=1
 
 # ----------------------------------------------------------------------------
-step "[4/7] 数据库迁移（逐条跑 + 按引擎口径记账）"
+# 顺序：先编译（不重启）→ 再跑迁移 → 最后换二进制重启。
+# 为什么不是「先迁移再编译」：编译要 5–10 分钟，而 V0217 之类会删列；
+# 迁移一落地，**仍在服务的旧二进制**就可能因为引用已删列而 500，
+# 旧二进制会带着错误撑到编译完。先编好再迁移，把「旧二进制 × 新 schema」
+# 的窗口从「编译耗时」压到「迁移耗时」（秒级）。
+step "[4/8] 后端编译（只编译不重启）"
+BIN_BUILT=0
+if [ -z "$BE_CHANGED" ]; then
+  say "无后端改动，跳过编译"
+elif [ "$DRY_RUN" = "1" ]; then
+  say "dry-run：将 cargo build --release（CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}），迁移完再换二进制重启"
+else
+  cd "$BACKEND_DIR" || die "cd backend 失败"
+  export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
+  BUILD_T0=$(date +%s)
+  say "cargo build --release（jobs=$CARGO_BUILD_JOBS，日志 $LOG）…"
+  cargo build --release || die "cargo build --release 失败"
+  BIN_BUILT=1
+  ok "编译完成（$(( $(date +%s) - BUILD_T0 ))s）新二进制 md5=$(md5sum target/release/cloudpivot | cut -d' ' -f1)  $(stat -c%s target/release/cloudpivot) 字节"
+fi
+
+# ----------------------------------------------------------------------------
+step "[5/8] 数据库迁移（逐条跑 + 按引擎口径记账）"
 if [ "$SKIP_MIGRATE" = "1" ]; then
   say "--skip-migrate：跳过"
 elif [ "${#PENDING_PAIRS[@]}" -eq 0 ]; then
-  ok "本次无新迁移（已应用最大版本 V$(printf '%04d' "$APPLIED_MAX")）"
+  ok "无待应用迁移（库里已是 V$(printf '%04d' "$APPLIED_MAX")）"
 elif [ "$DRY_RUN" = "1" ]; then
   say "dry-run：将依次应用 ${#PENDING_PAIRS[@]} 条：${PENDING_PAIRS[*]}"
 else
@@ -276,18 +298,19 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[5/7] 后端（只在有后端改动时编译并重启）"
+step "[6/8] 启用新二进制（换文件 → 重启 → /health → 进程==磁盘 → 记账自检）"
 if [ -z "$BE_CHANGED" ]; then
-  say "无后端改动，跳过编译与重启"
+  say "无后端改动，不动服务"
 elif [ "$DRY_RUN" = "1" ]; then
-  say "dry-run：将 cargo build --release（CARGO_BUILD_JOBS=${CARGO_BUILD_JOBS:-1}）→ 换二进制 → systemctl restart $SERVICE → 轮询 $HEALTH_URL"
+  say "dry-run：将 cp → .new + mv -f 换二进制 → systemctl restart $SERVICE → 轮询 $HEALTH_URL"
+elif [ "$BIN_BUILT" != "1" ]; then
+  say "本次没有新编译的二进制，不动服务（无谓重启只会抖一下）"
 else
   cd "$BACKEND_DIR" || die "cd backend 失败"
-  export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-1}"
-  say "cargo build --release（jobs=$CARGO_BUILD_JOBS，日志 $LOG）…"
-  cargo build --release || die "cargo build --release 失败"
-  NEW_MD5=$(md5sum target/release/cloudpivot | cut -d' ' -f1)
-  ok "新二进制 md5=$NEW_MD5  $(stat -c%s target/release/cloudpivot) 字节"
+  say "换二进制（cp → .new + mv -f，绝不 cp 到正在运行的路径）…"
+  cp target/release/cloudpivot target/release/cloudpivot.new \
+    && mv -f target/release/cloudpivot.new target/release/cloudpivot \
+    || die "换二进制失败"
 
   say "重启服务 …"
   systemctl restart "$SERVICE" || die "systemctl restart 失败"
@@ -318,7 +341,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[6/7] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）"
+step "[7/8] 前端（只在有前端改动时 typecheck + build，并比对入口指纹）"
 if [ -z "$FE_CHANGED" ]; then
   say "无前端改动，跳过 dist 构建"
 elif [ "$DRY_RUN" = "1" ]; then
@@ -355,7 +378,7 @@ else
 fi
 
 # ----------------------------------------------------------------------------
-step "[7/7] 收口核对"
+step "[8/8] 收口核对"
 if [ "$DRY_RUN" = "1" ]; then
   say "dry-run 结束：未做任何变更"
   exit 0
