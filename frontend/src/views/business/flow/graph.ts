@@ -209,6 +209,53 @@ export function hitTest(nodes: FlowNode[], point: Point, excludeKey?: string): F
   return null;
 }
 
+/**
+ * 连线落点解析（画布无关的纯函数，口径与老画布 `findDropTarget` 逐条一致）。
+ *
+ * # 为什么需要它
+ *
+ * Vue Flow 只认「松手点落在某个 Handle 的 `connectionRadius`（默认 20 画布 px）内」，
+ * 而画布的落点高亮用的是整张卡片（`hitTest`，老画布口径）。两者不一致的结果是：
+ * 用户把线甩到目标卡片上 → 卡片亮起绿色虚线「可以落点」→ 松手却什么也没发生。
+ * 所以松手时用本函数再判一次，命中就按老画布口径补一条 `connect`。
+ *
+ * # 三级判定（与老画布 findDropTarget 同序）
+ *
+ * 1. 压在**别的**节点卡片上（跳过起点；节点可重叠，取最上层）
+ * 2. 没压到别的节点、但压在**起点自己**身上 → 返回起点，交给页面提示「不能连到自己」
+ * 3. 都落空 → 吸附 40 px 内最近节点的入口锚点（老画布的宽容度，防止差几像素落空）
+ */
+export function resolveConnectDrop(nodes: FlowNode[], point: Point, fromKey: string | null): FlowNode | null {
+  const other = hitTest(nodes, point, fromKey ?? undefined);
+  if (other) {
+    return other;
+  }
+  if (!fromKey) {
+    return null;
+  }
+  const self = nodes.find((node) => node.key === fromKey);
+  if (self) {
+    const rect = nodeRect(self);
+    if (point.x >= rect.x && point.x <= rect.x + rect.w && point.y >= rect.y && point.y <= rect.y + rect.h) {
+      return self;
+    }
+  }
+  let nearest: FlowNode | null = null;
+  let best = 40;
+  for (const node of nodes) {
+    if (node.key === fromKey) {
+      continue;
+    }
+    const port = inPort(node);
+    const distance = Math.hypot(port.x - point.x, port.y - point.y);
+    if (distance < best) {
+      best = distance;
+      nearest = node;
+    }
+  }
+  return nearest;
+}
+
 /** 生成图内唯一的 key（`n_1` / `e_3`；后端 `check_key` 要求字母开头） */
 export function nextKey(prefix: 'n' | 'e', used: Iterable<string>): string {
   const taken = new Set(used);

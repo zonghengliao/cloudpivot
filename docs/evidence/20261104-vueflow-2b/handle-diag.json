@@ -1,0 +1,1117 @@
+{
+  "generatedAt": "2026-11-04T08:35:57.703Z",
+  "baseUrl": "http://127.0.0.1:5188",
+  "defId": "20000000-0000-4000-8000-0000000a0182",
+  "passed": 13,
+  "failed": 0,
+  "checks": [
+    {
+      "name": "编辑态：handle 数量 = 2 × 节点数",
+      "ok": true,
+      "detail": {
+        "handles": 18,
+        "nodes": 9
+      }
+    },
+    {
+      "name": "编辑态：data-handlepos 只有 left / right（不是 top / bottom）",
+      "ok": true,
+      "detail": [
+        "left",
+        "right"
+      ]
+    },
+    {
+      "name": "编辑态：每条边的起点都贴着节点右边缘（≤8px）、终点贴着左边缘（≤8px）",
+      "ok": true,
+      "detail": [
+        {
+          "start": [
+            1156.3,
+            312.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_board",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_board",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        }
+      ]
+    },
+    {
+      "name": "编辑态：没有任何一条边从底边中部出 / 顶边中部进",
+      "ok": true,
+      "detail": [
+        {
+          "start": [
+            1156.3,
+            312.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_board",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_board",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        }
+      ]
+    },
+    {
+      "name": "兜底：DOM 里的 handle 已清零（复现「只读态不渲染 Handle」）",
+      "ok": true,
+      "detail": {
+        "removed": 18,
+        "left": 0
+      }
+    },
+    {
+      "name": "兜底：handle 为 0 时连线仍从右边缘出、左边缘进（节点的 sourcePosition/targetPosition 生效）",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "兜底：handle 为 0 时没有退化成「底边出 / 顶边进」",
+      "ok": true,
+      "detail": {
+        "worstBottom": 52.5,
+        "worstTop": 59.2
+      }
+    },
+    {
+      "name": "兜底验证期间 0 页面异常",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "只读态：handle 仍在 DOM（2 × 节点数），不是 0",
+      "ok": true,
+      "detail": {
+        "handles": 20,
+        "nodes": 10
+      }
+    },
+    {
+      "name": "只读态：handle 的 data-handlepos 是 left / right",
+      "ok": true,
+      "detail": [
+        "left",
+        "right"
+      ]
+    },
+    {
+      "name": "只读态：圆点不可见（opacity:0）且不吃指针",
+      "ok": true,
+      "detail": {
+        "opacity": [
+          "0"
+        ],
+        "pointer": [
+          "none"
+        ]
+      }
+    },
+    {
+      "name": "只读态：边 path 起点 ≈ 节点右边缘（不是底边中部）",
+      "ok": true,
+      "detail": []
+    },
+    {
+      "name": "只读态：边 path 终点 ≈ 节点左边缘（不是顶边中部）",
+      "ok": true,
+      "detail": []
+    }
+  ],
+  "info": {
+    "edit": {
+      "zoom": 0.528443,
+      "nodeCount": 9,
+      "handleCount": 18,
+      "handlePositions": [
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right"
+      ],
+      "handleOpacity": [
+        "1"
+      ],
+      "handlePointer": [
+        "all"
+      ],
+      "edges": [
+        {
+          "start": [
+            1156.3,
+            312.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_board",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_board",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            374.3,
+            192.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "n_fin",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "n_fin",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            936.3,
+            -127.7
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_dept",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_dept",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            536.3,
+            192.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "n_fin",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_fin",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            718.3,
+            42.3
+          ],
+          "end": [
+            774.3,
+            -127.7
+          ],
+          "fromRightEdge": {
+            "key": "c_low",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "n_dept",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_low",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "n_dept",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            718.3,
+            42.3
+          ],
+          "end": [
+            774.3,
+            182.3
+          ],
+          "fromRightEdge": {
+            "key": "c_low",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_mid",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_low",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "c_mid",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            918.3,
+            182.3
+          ],
+          "end": [
+            994.3,
+            32.3
+          ],
+          "fromRightEdge": {
+            "key": "c_mid",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "n_pm",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_mid",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "n_pm",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            918.3,
+            182.3
+          ],
+          "end": [
+            994.3,
+            312.3
+          ],
+          "fromRightEdge": {
+            "key": "c_mid",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "n_board",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "c_mid",
+            "dist": 82.8
+          },
+          "toTopCenter": {
+            "key": "n_board",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            1156.3,
+            32.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_pm",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "n_pm",
+            "dist": 86.2
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            102.3,
+            22.3
+          ],
+          "end": [
+            174.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "s",
+            "dist": 4.7
+          },
+          "toLeftEdge": {
+            "key": "c_credit",
+            "dist": 7.8
+          },
+          "fromBottomCenter": {
+            "key": "s",
+            "dist": 57.4
+          },
+          "toTopCenter": {
+            "key": "c_credit",
+            "dist": 84
+          }
+        }
+      ]
+    },
+    "afterRemove": {
+      "zoom": 0.528443,
+      "nodeCount": 9,
+      "handleCount": 0,
+      "handlePositions": [],
+      "handleOpacity": [],
+      "handlePointer": [],
+      "edges": [
+        {
+          "start": [
+            1156.3,
+            312.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_board",
+            "dist": 13.6
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 11.3
+          },
+          "fromBottomCenter": {
+            "key": "n_board",
+            "dist": 79.5
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 19.4
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            318.3,
+            42.3
+          ],
+          "end": [
+            374.3,
+            192.3
+          ],
+          "fromRightEdge": {
+            "key": "c_credit",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "n_fin",
+            "dist": 15
+          },
+          "fromBottomCenter": {
+            "key": "c_credit",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "n_fin",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            936.3,
+            -127.7
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_dept",
+            "dist": 13.6
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 11.3
+          },
+          "fromBottomCenter": {
+            "key": "n_dept",
+            "dist": 79.5
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            536.3,
+            192.3
+          ],
+          "end": [
+            574.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "n_fin",
+            "dist": 13.6
+          },
+          "toLeftEdge": {
+            "key": "c_low",
+            "dist": 19.4
+          },
+          "fromBottomCenter": {
+            "key": "n_fin",
+            "dist": 79.5
+          },
+          "toTopCenter": {
+            "key": "c_low",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            718.3,
+            42.3
+          ],
+          "end": [
+            774.3,
+            -127.7
+          ],
+          "fromRightEdge": {
+            "key": "c_low",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "n_dept",
+            "dist": 15
+          },
+          "fromBottomCenter": {
+            "key": "c_low",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "n_dept",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            718.3,
+            42.3
+          ],
+          "end": [
+            774.3,
+            182.3
+          ],
+          "fromRightEdge": {
+            "key": "c_low",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "c_mid",
+            "dist": 19.4
+          },
+          "fromBottomCenter": {
+            "key": "c_low",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "c_mid",
+            "dist": 84
+          }
+        },
+        {
+          "start": [
+            918.3,
+            182.3
+          ],
+          "end": [
+            994.3,
+            32.3
+          ],
+          "fromRightEdge": {
+            "key": "c_mid",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "n_pm",
+            "dist": 15
+          },
+          "fromBottomCenter": {
+            "key": "c_mid",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "n_pm",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            918.3,
+            182.3
+          ],
+          "end": [
+            994.3,
+            312.3
+          ],
+          "fromRightEdge": {
+            "key": "c_mid",
+            "dist": 18.4
+          },
+          "toLeftEdge": {
+            "key": "n_board",
+            "dist": 15
+          },
+          "fromBottomCenter": {
+            "key": "c_mid",
+            "dist": 70.5
+          },
+          "toTopCenter": {
+            "key": "n_board",
+            "dist": 88
+          }
+        },
+        {
+          "start": [
+            1156.3,
+            32.3
+          ],
+          "end": [
+            1234.3,
+            102.3
+          ],
+          "fromRightEdge": {
+            "key": "n_pm",
+            "dist": 13.6
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 11.3
+          },
+          "fromBottomCenter": {
+            "key": "n_pm",
+            "dist": 79.5
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 59.2
+          }
+        },
+        {
+          "start": [
+            102.3,
+            22.3
+          ],
+          "end": [
+            174.3,
+            42.3
+          ],
+          "fromRightEdge": {
+            "key": "s",
+            "dist": 9.4
+          },
+          "toLeftEdge": {
+            "key": "c_credit",
+            "dist": 19.4
+          },
+          "fromBottomCenter": {
+            "key": "s",
+            "dist": 52.5
+          },
+          "toTopCenter": {
+            "key": "c_credit",
+            "dist": 84
+          }
+        }
+      ]
+    },
+    "readonly": {
+      "zoom": 1,
+      "nodeCount": 10,
+      "handleCount": 20,
+      "handlePositions": [
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right",
+        "left",
+        "right"
+      ],
+      "handleOpacity": [
+        "0"
+      ],
+      "handlePointer": [
+        "none"
+      ],
+      "edges": [
+        {
+          "start": [
+            142.3,
+            232.3
+          ],
+          "end": [
+            194.3,
+            232.3
+          ],
+          "fromRightEdge": {
+            "key": "s",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "task1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "s",
+            "dist": 57.9
+          },
+          "toTopCenter": {
+            "key": "task1",
+            "dist": 87.5
+          }
+        },
+        {
+          "start": [
+            356.3,
+            232.3
+          ],
+          "end": [
+            414.3,
+            232.3
+          ],
+          "fromRightEdge": {
+            "key": "task1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "cond1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "task1",
+            "dist": 86.7
+          },
+          "toTopCenter": {
+            "key": "cond1",
+            "dist": 83.6
+          }
+        },
+        {
+          "start": [
+            558.3,
+            232.3
+          ],
+          "end": [
+            634.3,
+            112.3
+          ],
+          "fromRightEdge": {
+            "key": "cond1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "appr1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "cond1",
+            "dist": 83.1
+          },
+          "toTopCenter": {
+            "key": "appr1",
+            "dist": 87.5
+          }
+        },
+        {
+          "start": [
+            558.3,
+            232.3
+          ],
+          "end": [
+            634.3,
+            232.3
+          ],
+          "fromRightEdge": {
+            "key": "cond1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "appr2",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "cond1",
+            "dist": 83.1
+          },
+          "toTopCenter": {
+            "key": "appr2",
+            "dist": 87.5
+          }
+        },
+        {
+          "start": [
+            558.3,
+            232.3
+          ],
+          "end": [
+            634.3,
+            362.3
+          ],
+          "fromRightEdge": {
+            "key": "cond1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "cs1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "cond1",
+            "dist": 83.1
+          },
+          "toTopCenter": {
+            "key": "cs1",
+            "dist": 87.5
+          }
+        },
+        {
+          "start": [
+            796.3,
+            112.3
+          ],
+          "end": [
+            894.3,
+            182.3
+          ],
+          "fromRightEdge": {
+            "key": "appr1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "par1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "appr1",
+            "dist": 86.7
+          },
+          "toTopCenter": {
+            "key": "par1",
+            "dist": 83.6
+          }
+        },
+        {
+          "start": [
+            796.3,
+            232.3
+          ],
+          "end": [
+            894.3,
+            182.3
+          ],
+          "fromRightEdge": {
+            "key": "appr2",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "par1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "appr2",
+            "dist": 86.7
+          },
+          "toTopCenter": {
+            "key": "par1",
+            "dist": 83.6
+          }
+        },
+        {
+          "start": [
+            796.3,
+            362.3
+          ],
+          "end": [
+            1114.3,
+            60.3
+          ],
+          "fromRightEdge": {
+            "key": "cs1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "cc1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "cs1",
+            "dist": 86.7
+          },
+          "toTopCenter": {
+            "key": "cc1",
+            "dist": 82.1
+          }
+        },
+        {
+          "start": [
+            1038.3,
+            182.3
+          ],
+          "end": [
+            1114.3,
+            200.3
+          ],
+          "fromRightEdge": {
+            "key": "par1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "note1",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "par1",
+            "dist": 83.1
+          },
+          "toTopCenter": {
+            "key": "note1",
+            "dist": 82.1
+          }
+        },
+        {
+          "start": [
+            1266.3,
+            200.3
+          ],
+          "end": [
+            1334.3,
+            212.3
+          ],
+          "fromRightEdge": {
+            "key": "note1",
+            "dist": 5.3
+          },
+          "toLeftEdge": {
+            "key": "e",
+            "dist": 6.8
+          },
+          "fromBottomCenter": {
+            "key": "note1",
+            "dist": 81.3
+          },
+          "toTopCenter": {
+            "key": "e",
+            "dist": 58.7
+          }
+        }
+      ]
+    }
+  }
+}

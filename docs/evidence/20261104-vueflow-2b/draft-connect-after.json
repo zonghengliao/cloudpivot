@@ -1,0 +1,647 @@
+{
+  "label": "② 另存为草稿后",
+  "at": "2026-11-04T08:37:01.062Z",
+  "data": {
+    "wrapClass": "flow-canvas",
+    "readonlyBanner": false,
+    "alertText": null,
+    "hint": "拖节点移动 · 从右侧圆点拖出连线 · 滚轮缩放 · 空格/空白处拖拽平移 · Delete 删除",
+    "handleCount": 18,
+    "nodes": [
+      {
+        "id": "s",
+        "rect": {
+          "x": 487,
+          "y": 483,
+          "w": 51,
+          "h": 23
+        }
+      },
+      {
+        "id": "c_credit",
+        "rect": {
+          "x": 582,
+          "y": 483,
+          "w": 70,
+          "h": 44
+        }
+      },
+      {
+        "id": "n_fin",
+        "rect": {
+          "x": 688,
+          "y": 568,
+          "w": 79,
+          "h": 34
+        }
+      },
+      {
+        "id": "c_low",
+        "rect": {
+          "x": 793,
+          "y": 483,
+          "w": 70,
+          "h": 44
+        }
+      },
+      {
+        "id": "n_dept",
+        "rect": {
+          "x": 899,
+          "y": 399,
+          "w": 79,
+          "h": 34
+        }
+      },
+      {
+        "id": "c_mid",
+        "rect": {
+          "x": 899,
+          "y": 557,
+          "w": 70,
+          "h": 44
+        }
+      },
+      {
+        "id": "n_pm",
+        "rect": {
+          "x": 1015,
+          "y": 483,
+          "w": 79,
+          "h": 34
+        }
+      },
+      {
+        "id": "n_board",
+        "rect": {
+          "x": 1015,
+          "y": 631,
+          "w": 79,
+          "h": 34
+        }
+      },
+      {
+        "id": "e",
+        "rect": {
+          "x": 1142,
+          "y": 526,
+          "w": 51,
+          "h": 23
+        }
+      }
+    ],
+    "handles": [
+      {
+        "node": "s",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 484,
+          "y": 492,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "s",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 534.7,
+          "y": 492,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_credit",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 579.1,
+          "y": 502.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_credit",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 648.8,
+          "y": 502.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_fin",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 684.8,
+          "y": 581.8,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_fin",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 764,
+          "y": 581.8,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_low",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 790.5,
+          "y": 502.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_low",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 860.2,
+          "y": 502.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_dept",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 896.1,
+          "y": 412.7,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_dept",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 975.4,
+          "y": 412.7,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_mid",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 896.1,
+          "y": 576.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "c_mid",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 965.9,
+          "y": 576.5,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_pm",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 1012.4,
+          "y": 497.3,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_pm",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 1091.7,
+          "y": 497.3,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_board",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 1012.4,
+          "y": 645.2,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "n_board",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 1091.7,
+          "y": 645.2,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "e",
+        "handleId": null,
+        "pos": "left",
+        "type": "target",
+        "cls": "vue-flow__handle vue-flow__handle-left vue-flow__handle-null nodrag nopan target connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--in",
+        "rect": {
+          "x": 1139.2,
+          "y": 534.2,
+          "w": 6.1,
+          "h": 6.1
+        }
+      },
+      {
+        "node": "e",
+        "handleId": null,
+        "pos": "right",
+        "type": "source",
+        "cls": "vue-flow__handle vue-flow__handle-right vue-flow__handle-null nodrag nopan source connectable connectablestart connectableend connectionindicator flow-node__port flow-node__port--out",
+        "rect": {
+          "x": 1190,
+          "y": 534.2,
+          "w": 6.1,
+          "h": 6.1
+        }
+      }
+    ],
+    "edgeCount": 11,
+    "store": {
+      "nodesConnectable": true,
+      "hasStore": true,
+      "pairs": [
+        "n_board→e",
+        "c_credit→c_low",
+        "c_credit→n_fin",
+        "n_dept→e",
+        "n_fin→c_low",
+        "c_low→n_dept",
+        "c_low→c_mid",
+        "c_mid→n_pm",
+        "c_mid→n_board",
+        "n_pm→e",
+        "s→c_credit"
+      ],
+      "nodes": [
+        {
+          "id": "s",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 96,
+            "height": 44
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 90.3,
+                "y": 16.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 16.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "c_credit",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 132,
+            "height": 84
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 126.3,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "n_fin",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 150,
+            "height": 64
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 144.3,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "c_low",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 132,
+            "height": 84
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 126.3,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "n_dept",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 150,
+            "height": 64
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 144.3,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "c_mid",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 132,
+            "height": 84
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 126.3,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 36.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "n_pm",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 150,
+            "height": 64
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 144.3,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "n_board",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 150,
+            "height": 64
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 144.3,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 26.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        },
+        {
+          "id": "e",
+          "type": "flow",
+          "connectable": true,
+          "dimensions": {
+            "width": 96,
+            "height": 44
+          },
+          "handleBounds": {
+            "source": [
+              {
+                "id": null,
+                "pos": "right",
+                "x": 90.3,
+                "y": 16.3,
+                "w": 12,
+                "h": 12
+              }
+            ],
+            "target": [
+              {
+                "id": null,
+                "pos": "left",
+                "x": -5.7,
+                "y": 16.3,
+                "w": 12,
+                "h": 12
+              }
+            ]
+          },
+          "sourcePosition": "right",
+          "targetPosition": "left"
+        }
+      ]
+    }
+  }
+}

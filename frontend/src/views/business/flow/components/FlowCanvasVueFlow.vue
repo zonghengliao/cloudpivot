@@ -300,7 +300,7 @@ import { MiniMap } from '@vue-flow/minimap';
 import '@vue-flow/core/dist/style.css';
 import '@vue-flow/core/dist/theme-default.css';
 import type { FlowEdge, FlowNode } from '@/api/business/flow-api';
-import { GRID, MAX_SCALE, MIN_SCALE, edgeLabelPoint, edgePath, hitTest, type Point } from '@/views/business/flow/graph';
+import { GRID, MAX_SCALE, MIN_SCALE, edgeLabelPoint, edgePath, hitTest, resolveConnectDrop, type Point } from '@/views/business/flow/graph';
 import { labelTextWidth, roundedEdgePath } from '@/views/business/flow/components/rounded-path';
 import { buildNodeView, isEdgeTaken, nodeSizeOf, type FlowNodeViewData } from '@/views/business/flow/components/flow-node-view';
 
@@ -421,6 +421,14 @@ const takenSet = computed(() => new Set(props.takenPairs ?? []));
 
 /** 是否已用 Esc 放弃当前拉线（松手时不发 `connect`） */
 const connectCancelled = ref(false);
+
+/**
+ * 本次手势里 Vue Flow 是否已经报过一条连线。
+ *
+ * 用来区分「Vue Flow 自己认了」和「Vue Flow 没认（松手点不在句柄 connectionRadius 内）」——
+ * 后者由 `onConnectEnd` 按老画布口径兜底（见 `resolveConnectDrop`）。
+ */
+let connectedInGesture = false;
 
 /** 拉线中的虚线样式（与老画布 `.flow-canvas__draft` 同款）。
  *
@@ -787,12 +795,13 @@ function onConnectStart(payload: { nodeId?: string | null }): void {
   connectFromKey = payload.nodeId ?? null;
   connectTargetKey.value = null;
   connectCancelled.value = false;
+  connectedInGesture = false;
   isConnecting.value = true;
   window.addEventListener('pointermove', onConnectMove);
 }
 
 /** 拉线中的全局 pointermove：命中谁就把谁标成落点目标 */
-function onConnectMove(event: PointerEvent): void {
+function onConnectMove(event: PointerEvent | MouseEvent): void {
   const point = screenToCanvas(event.clientX, event.clientY);
   const hit = hitTest(props.nodes ?? [], point, connectFromKey ?? undefined);
   const next = hit?.key ?? (connectFromKey && hitSelf(props.nodes ?? [], point, connectFromKey) ? connectFromKey : null);
@@ -812,11 +821,31 @@ function hitSelf(nodes: FlowNode[], point: Point, key: string): boolean {
 }
 
 /** 拉线结束：清态（是否真正成边由 Vue Flow 的 connect 事件决定） */
-function onConnectEnd(): void {
+function onConnectEnd(event?: MouseEvent): void {
+  const from = connectFromKey;
+  const cancelled = connectCancelled.value;
+  const settledByVueFlow = connectedInGesture;
   window.removeEventListener('pointermove', onConnectMove);
   connectFromKey = null;
   connectTargetKey.value = null;
   isConnecting.value = false;
+  connectedInGesture = false;
+
+  // ★ 落点兜底（VUE-FLOW-2B 的真机 bug 根因）：
+  //   Vue Flow 只认「松手点在目标 Handle 的 connectionRadius（默认 20 画布 px）内」；
+  //   而本画布的落点高亮（connectTargetKey，见 onConnectMove）用的是**整张卡片**
+  //   —— 与老画布口径一致。于是用户在目标卡片上松手时，卡片明明亮着绿色虚线「可以落点」，
+  //   边却建不出来（Vue Flow 静默 return，连提示都没有）。
+  //   这里在「Vue Flow 没认 + 没被 Esc 取消」时按老画布同一套规则再判一次：
+  //   压在卡片上 → 发 connect，由父组件继续判自环 / 重复边（父组件本来就有这两个拦截）。
+  if (!cancelled && !settledByVueFlow && from && event) {
+    const point = screenToCanvas(event.clientX, event.clientY);
+    const hit = resolveConnectDrop(props.nodes ?? [], point, from);
+    if (hit) {
+      emit('connect', { from, to: hit.key });
+    }
+  }
+
   // Vue Flow 的 applyDefault 会先往内部连线上塞一条；父组件拒绝时 props 不变，
   // 这里重建一次把「没被确认的边」擦掉（父组件接受时重建结果相同，幂等）。
   void nextTick(() => {
@@ -827,6 +856,8 @@ function onConnectEnd(): void {
 
 /** 拉线成功：交给父组件校验（自环 / 重复边） */
 function onConnect(payload: { source?: string | null; target?: string | null }): void {
+  // Vue Flow 认了这条线：本次手势不再走 connectEnd 的兜底判定
+  connectedInGesture = true;
   const from = payload.source ?? '';
   const to = payload.target ?? '';
   if (!from || !to) {
@@ -1036,6 +1067,16 @@ defineExpose({
   background: var(--td-bg-color-page);
   border: 1px solid var(--td-component-stroke);
   border-radius: 6px;
+  // ★ 画布内不允许选中文本（VUE-FLOW-2B 真机 bug）：
+  //   老画布把 `user-select: none` 写在内部的 `<svg>` 上，新画布的根节点漏了这条 ——
+  //   WebKit 下「在画布上拖一次」会顺手选中提示文案/节点文字，**下一次拖拽就退化成
+  //   「拖动选中的文本」**：指针事件几乎全部消失（实测 19 次 pointermove 只剩 2 次）、
+  //   mouseup 收不到 → 连线状态卡死（`.vue-flow__connection` 残留、is-connecting 不清），
+  //   用户看到的就是「拖不出连线」。Chromium 下不触发，所以只在 Safari 侧暴露。
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  touch-action: none;
 
   &.is-readonly {
     cursor: default;
@@ -1256,6 +1297,20 @@ defineExpose({
   // `scale` 是独立于 transform 的属性，不会覆盖 Vue Flow 用来定位句柄的 translate
   :deep(.vue-flow__handle.flow-node__port:hover) {
     scale: 1.25;
+  }
+
+  // ★ 起手命中区（VUE-FLOW-2B）：视觉圆点仍是 11.5×11.5，但**可点击区域**放大到
+  //   11.5 + 7×2 = 25.5 CSS px（zoom 100% 时 25.5px，fitView 到 53% 时也有 ~13.5px 屏上直径）。
+  //   改前命中区等于视觉圆点本身（屏上 ~6px），真鼠标极易点偏 —— 点偏后事件落到卡片上，
+  //   变成「拖节点」而不是「拉线」，连预览线都不会出现（用户原话：看到圆点但拖不出线）。
+  //   ★ 用 ::before 而不是给元素加 padding/width：`getHandleBounds` 读的是元素 rect，
+  //     元素盒一旦变大，连线端点坐标就会跟着漂（老画布圆点在卡片边缘上，端点多出半格）。
+  //     伪元素不参与 rect，视觉与端点坐标都不动。
+  :deep(.vue-flow__handle.flow-node__port)::before {
+    content: '';
+    position: absolute;
+    inset: -7px;
+    border-radius: 50%;
   }
 
   // 只读：**元素必须留在 DOM 里**（否则 Vue Flow 拿不到锚点坐标，连线会退化成底部出/顶部进），

@@ -1,0 +1,101 @@
+[
+  {
+    "section": "geometry",
+    "zoom": 0.528,
+    "handles": 9
+  },
+  {
+    "section": "hit-sweep",
+    "node": "s",
+    "sweep": {
+      "0": "div.vue-flow__handle.vue-flow__handle-right.vue-flow__handle-null.flow-node__port.flow-node__port--out",
+      "1": "div.vue-flow__handle.vue-flow__handle-right.vue-flow__handle-null.flow-node__port.flow-node__port--out",
+      "2": "div.vue-flow__handle.vue-flow__handle-right.vue-flow__handle-null.flow-node__port.flow-node__port--out",
+      "3": "div.vue-flow__handle.vue-flow__handle-right.vue-flow__handle-null.flow-node__port.flow-node__port--out",
+      "4": "path.",
+      "5": "path.",
+      "6": "path.",
+      "7": "path.",
+      "8": "path.",
+      "9": "path.",
+      "10": "path.",
+      "11": "path.",
+      "12": "path.",
+      "13": "path.",
+      "14": "path.",
+      "15": "path.",
+      "16": "path."
+    }
+  },
+  {
+    "section": "drag",
+    "label": "B 落在目标句柄中心 (n_dept→n_pm)",
+    "started": true,
+    "highlighted": 0,
+    "validHandle": true,
+    "edgesBefore": 11,
+    "edgesAfter": 12,
+    "created": true
+  },
+  {
+    "section": "drag",
+    "label": "C 落在目标卡片中心 (e→s)",
+    "highlighted": 1,
+    "hoverBorder": "dashed / rgb(113, 139, 185)",
+    "edgesBefore": 12,
+    "edgesAfter": 12,
+    "created": false,
+    "toasts": [
+      "已连线"
+    ]
+  },
+  {
+    "section": "drag",
+    "label": "D 落点在目标句柄右 6px (屏幕, n_fin→c_mid)",
+    "started": true,
+    "highlighted": 1,
+    "validHandle": true,
+    "edgesBefore": 12,
+    "edgesAfter": 13,
+    "created": true
+  },
+  {
+    "section": "drag",
+    "label": "D 落点在目标句柄右 10px (屏幕, c_low→n_pm)",
+    "started": true,
+    "highlighted": 1,
+    "validHandle": true,
+    "edgesBefore": 13,
+    "edgesAfter": 14,
+    "created": true
+  },
+  {
+    "section": "drag",
+    "label": "D 落点在目标句柄右 14px (屏幕, c_credit→s)",
+    "started": true,
+    "highlighted": 1,
+    "validHandle": false,
+    "edgesBefore": 14,
+    "edgesAfter": 14,
+    "created": false
+  },
+  {
+    "section": "drag",
+    "label": "D 落点在目标句柄右 20px (屏幕, c_credit→s)",
+    "started": true,
+    "highlighted": 1,
+    "validHandle": false,
+    "edgesBefore": 14,
+    "edgesAfter": 14,
+    "created": false
+  },
+  {
+    "section": "drag-native",
+    "label": "E 老画布：落在目标卡片中心 (s→n_fin)",
+    "started": true,
+    "highlighted": 1,
+    "edgesBefore": 11,
+    "edgesAfter": 12,
+    "created": true
+  }
+]
