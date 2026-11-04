@@ -136,7 +136,12 @@ $ ERP_DB_URL=postgres://alun:…@127.0.0.1:5432/cp_p5_verify \
 test business::erp::period::tests::p1_ensure_year_periods_seeds_twelve_and_is_idempotent ... ok
 test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 2292 filtered out; finished in 42.92s
 ```
-日志：`period-test-round-1.log` / `period-test-round-2.log`
+日志：`period-test-round-1.txt`（共享工作树）/ `period-test-round-2.txt`（干净 worktree，见下）
+
+> **第 2 轮为什么在 worktree 里跑**：共享工作树里另一张卡正在写 `budget_*.rs`（未跟踪文件，
+> 当时编译不过：`budget_handler.rs` 缺 `use crate::utils`），`cargo test` 会整片失败 ——
+> 与本卡无关。第 2 轮改成 `git worktree add /root/p5-wt HEAD`（只含本卡改动）+
+> `CARGO_TARGET_DIR=/root/p5-target`：`40 passed; 0 failed; finished in 43.01s`，两轮同结果。
 
 ---
 
@@ -177,3 +182,22 @@ bash scripts/verify/p0_fix5_period_seed_check.sh cp_p5_verify2 18122
 | `round-{1,2}/fresh-invariants-round.txt`、`f2-invariants-round.txt` | 两轮的全新库 / 存量库不变量原文（40/40） |
 | `round-{1,2}/*.summary.txt` | 从 app 日志抽出的关键行（V0221 NOTICE / 迁移完成 / 启动保底）；**完整 DEBUG 原始日志不入库**（每份 1.7MB），留在 `/root/.cloudpivot/p0fix5/raw/` |
 | `period-test-round-{1,2}.txt` | period 模块真库单测（40 条）两轮结果（后缀 `.txt`：仓里 `.gitignore` 忽略 `*.log`） |
+
+## 7. 上线影响（144 生产，只读查过，未写）
+
+```text
+生产 biz_accounting_period where period_year = 2026  →  2 行：2026-10、2026-11
+生产 schema_migrations max(version) = 219
+```
+
+部署本卡后生产会**新增 10 行**（`2026-01`…`2026-09`、`2026-12`，`status = OPEN`），
+`2026-10 / 2026-11` 原样保留；已有凭证、结账状态、期初余额一律不动（`DO NOTHING`）。
+
+两处可感知变化，都是本卡想要的方向：
+
+1. 「会计期间」页当年从 2 行变 12 行，1–9 月显示「已开启」（原来根本不在列表里，
+   属于「查不到 = 不能结账」的黑洞）；
+2. 结账页的「未结账期间」会多出 1–9 月 —— 这是把历史月份补回台账，不是新欠账。
+
+**没有**放宽任何闸门：写凭证本来就只拦 `CLOSED`（缺期时 fail-open 照样写），
+本卡只是让「期间行存在」这件事实恒成立，F2 从 WARN 变绿。
