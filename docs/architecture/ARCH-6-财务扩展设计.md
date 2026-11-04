@@ -273,7 +273,7 @@ GENERAL_MANAGER / PURCHASE_MANAGER / SUPER_ADMIN / WAREHOUSE_MANAGER
 | 债权人 | 供应商（`supplier_id NOT NULL`，挂供应商主数据） | 员工（`sys_user.id`，无「员工」主数据） | ❌ 两套主数据 |
 | 来源单据 | 收货单 / 期初 / 手工（`source_type + source_id NOT NULL`） | 无上游单据（员工自述 + 明细 + 发票） | ❌ 报销没有 source |
 | 账期 | `credit_days + due_date NOT NULL`，账龄分析的基础 | 无账期（审批通过即可付） | ❌ 强塞 due_date 会污染账龄 |
-| 状态机 | OPEN / PARTIAL_PAID / SETTLED / CANCELLED（`V0148` CHECK） | DRAFT / SUBMITTED / APPROVED / PAID / REJECTED / CANCELLED | ❌ 语义不同（报销有「审批中」应付没有） |
+| 状态机 | OPEN / PARTIAL_PAID / SETTLED / CANCELLED（`V0148` CHECK） | DRAFT / SUBMITTED / APPROVED / PAID / CANCELLED（驳回回 DRAFT，见 §4.2.2） | ❌ 语义不同（报销有「审批中」应付没有） |
 | 辅助核算 | `aux_supplier_id` | `aux_dept_id`（部门）+ 无员工维度 | ⚠️ 可共存但语义分裂 |
 | 明细粒度 | 一张应付 = 一个来源金额（无明细行） | 一单多明细（日期/类型/金额/发票号/税率） | ❌ 要新建明细表 |
 | 预算维度 | 无（采购预算走采购单） | 部门 × 费用科目（**核心用途**） | ❌ 应付无预算字段 |
