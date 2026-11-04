@@ -1535,6 +1535,20 @@ mod extra_tests {
         }
     }
 
+    /// 取夹具锁 + 连库；`None` = 跳过。
+    ///
+    /// 跳过时**逐条**打印（`voucher_query::tests::ensure_db` 的原因因 `OnceCell` 只打一次，
+    /// 否则 `--nocapture` 里只有第一条看得出「没真跑」，其余像绿了）。
+    async fn setup_or_skip() -> Option<tokio::sync::MutexGuard<'static, ()>> {
+        let guard = setup().await;
+        if guard.is_none() {
+            println!(
+                "SKIP: 本用例未执行（真库不可用，原因见 voucher_query::tests::ensure_db 首条 SKIP）"
+            );
+        }
+        guard
+    }
+
     // ---------- ① 期间键 / 月首月末 ----------
 
     /// 非 `yyyy-MM` 一律 `None`（**不能**按「截 7 个字符」硬解析出错误的月份）。
@@ -1850,7 +1864,7 @@ mod extra_tests {
     /// 页内余额从区间首行起算（与 P2D1-⑤ 同口径）。
     #[tokio::test]
     async fn ledger_page_respects_single_sided_date_bound() {
-        let Some(_guard) = setup().await else {
+        let Some(_guard) = setup_or_skip().await else {
             return;
         };
         let mut q = bare_filter();
@@ -1876,7 +1890,7 @@ mod extra_tests {
     /// 分页越界：`rows` 为空但 `total` 仍要给出全量行数（前端靠它画页码）。
     #[tokio::test]
     async fn ledger_page_beyond_last_page_is_empty_but_keeps_total() {
-        let Some(_guard) = setup().await else {
+        let Some(_guard) = setup_or_skip().await else {
             return;
         };
         let mut q = bare_filter();
@@ -1891,7 +1905,7 @@ mod extra_tests {
     /// `period_range` 优先取 `biz_accounting_period` 的行，缺行时按自然月推导（两种都对）。
     #[tokio::test]
     async fn period_range_prefers_accounting_period_row() {
-        let Some(_guard) = setup().await else {
+        let Some(_guard) = setup_or_skip().await else {
             return;
         };
         let row = db()
