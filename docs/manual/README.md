@@ -109,6 +109,7 @@ python3 scripts/manual/check-links.py       # 图片引用与文件一一对应�
 | 2026-11-04 | 修正 04 收货入库 / 07 库存调拨新建表单截图：原截图误截列表页（`dismissOverlays()` 把刚打开的弹窗一起关掉），改为等待 `.t-dialog:visible` 后再截；同步修正「弹窗/抽屉」文案 | `03f81df` + 两轮日志 |
 | 2026-11-04 | 03 采购订单补全弹窗字段（合同、下单日期、期望到货、账期、备注）与按钮口径 | `v0.x 提交` |
 | 2026-11-05 | 手册（二）新增 13 篇（财务 8 + 平台 5）+ `capture2.mjs` 采集脚本 + 52 张真机截图；`check-structure.py` 扩展覆盖 22 篇并给出退出码，`check-links.py` 改为递归扫 `images/**` | 本文件第五节两轮日志 |
+| 2026-11-05 | 15-年度结转 步骤 1 菜单路径改为「财务管理 → 年度结转」；第八节缺口 #2 标注已修复 | 迁移 `V0236`；改前/改后侧边栏见 `docs/evidence/20261105-yearend-menu-reparent/` |
 
 ## 七、口径说明
 
@@ -123,7 +124,7 @@ python3 scripts/manual/check-links.py       # 图片引用与文件一一对应�
 | # | 现象 | 证据 | 归属 |
 | --- | --- | --- | --- |
 | 1 | 预算菜单可点但页面 404：`sys_menu.component=business/erp/budget/index`，前端只有 `budget-logic.ts`，无 `.vue` | `docs/manual/17-预算.md` 第三节；`images/p2b/budget/01-budget-404.png` | 前端页面未交付 |
-| 2 | 年结菜单挂在「采购管理」组下（功能属财务） | `sys_menu`：`/business/erp/year-end` 父节点为 `采购管理` | 菜单归属口径 |
+| 2 | ~~年结菜单挂在「采购管理」组下（功能属财务）~~ **已修复** | `sys_menu` 实测：`/business/erp/year-end` 父节点原为 `采购管理`（种子 `V0190:86` 的过期 `parent_id`）→ 迁移 `V0236__erp_finance_menu_reparent` 移到 `财务管理`（同根因的 `期初余额` 一并归位）；改前/改后侧边栏截图见 `docs/evidence/20261105-yearend-menu-reparent/` | 已闭环（V0236） |
 | 3 | 巡检提醒的「去看看」落点 `/business/erp/inventory?audit=1`，前端未消费 `audit` 参数，页面与普通即时库存一致 | `docs/manual/22-巡检.md` 步骤 2；`grep audit frontend/src/views/business/erp/inventory/` 无命中 | 前端缺口 |
 | 4 | 文件管理「上传人」列显示账号 UUID 而非姓名 | `images/p2b/attach/01-attach-file-list.png`、`seed-attach/01` | 前端展示 |
 | 5 | 付款提交后详情抽屉不自动刷新（需关闭重开） | `docs/manual/12-付款.md` 步骤 3；`images/p2b/seed-payment/02` | 交互体验 |
