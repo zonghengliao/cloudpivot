@@ -1,0 +1,1337 @@
+{
+  "generatedAt": "2026-11-04T07:41:19.976Z",
+  "baseUrl": "http://127.0.0.1:5188",
+  "defId": "01a1a56f-5209-72fa-a7a6-7d42f12e2fda",
+  "browser": "webkit",
+  "canvasVisibleMs": 855,
+  "nativeVisibleMs": 697,
+  "checks": [
+    {
+      "name": "新画布 DOMContentLoaded → 卡片可见 < 3000ms",
+      "ok": true,
+      "detail": 855
+    },
+    {
+      "name": "新画布生效（页面上确实是 .vue-flow）",
+      "ok": true,
+      "detail": "vueflow"
+    },
+    {
+      "name": "节点数量 10（9 种类型各一 + 任务节点）",
+      "ok": true,
+      "detail": 10
+    },
+    {
+      "name": "9 种节点类型全部渲染",
+      "ok": true,
+      "detail": [
+        "APPROVAL",
+        "CC",
+        "CONDITION",
+        "COUNTERSIGN",
+        "END",
+        "NOTIFY_NODE",
+        "PARALLEL",
+        "START",
+        "TASK_NODE"
+      ]
+    },
+    {
+      "name": "卡片尺寸：审批 150×64 / 开始结束 96×44 / 条件并行 132×84 / 抄送通知 140×60",
+      "ok": true,
+      "detail": [
+        "APPROVAL:75.9x32.4",
+        "APPROVAL:75.9x32.4",
+        "CC:70.8x30.3",
+        "CONDITION:66.8x42.5",
+        "COUNTERSIGN:75.9x32.4",
+        "END:48.6x22.3",
+        "NOTIFY_NODE:70.8x30.3",
+        "PARALLEL:66.8x42.5",
+        "START:48.6x22.3",
+        "TASK_NODE:75.9x32.4"
+      ]
+    },
+    {
+      "name": "卡片圆角 11px",
+      "ok": true,
+      "detail": [
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px",
+        "11px"
+      ]
+    },
+    {
+      "name": "左侧色条 3.5px",
+      "ok": true,
+      "detail": [
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8,
+        1.8
+      ]
+    },
+    {
+      "name": "图标底块 30×30（紧凑排版 22×22）",
+      "ok": true,
+      "detail": [
+        "APPROVAL:15.2",
+        "APPROVAL:15.2",
+        "CC:15.2",
+        "CONDITION:15.2",
+        "COUNTERSIGN:15.2",
+        "END:11.1",
+        "NOTIFY_NODE:15.2",
+        "PARALLEL:15.2",
+        "START:11.1",
+        "TASK_NODE:15.2"
+      ]
+    },
+    {
+      "name": "卡片投影存在",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "连线数量 10 + 条件标签 3 条",
+      "ok": true,
+      "detail": {
+        "lines": 10,
+        "labels": [
+          "金额 > 1000",
+          "金额 ≤ 1000",
+          "其他情况"
+        ]
+      }
+    },
+    {
+      "name": "连线是正交折线（全部 L，拐角处有 Q 圆角）",
+      "ok": true,
+      "detail": {
+        "total": 10,
+        "withArc": 7
+      }
+    },
+    {
+      "name": "连线有箭头 marker",
+      "ok": true,
+      "detail": "url(#vf-flow-arrow)"
+    },
+    {
+      "name": "兜底分支是虚线",
+      "ok": true,
+      "detail": [
+        "none",
+        "none",
+        "none",
+        "none",
+        "none",
+        "5px, 3px",
+        "none",
+        "none",
+        "none",
+        "none"
+      ]
+    },
+    {
+      "name": "小地图显示（showMinimap=true）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "缩放工具栏 4 个按钮 + 自动布局按钮",
+      "ok": true,
+      "detail": {
+        "zoomButtons": 4,
+        "layoutActions": 1,
+        "percentText": "51%"
+      }
+    },
+    {
+      "name": "缩放百分比读数正常",
+      "ok": true,
+      "detail": "51%"
+    },
+    {
+      "name": "滚轮能放大",
+      "ok": true,
+      "detail": {
+        "before": 0.506,
+        "after": 0.767
+      }
+    },
+    {
+      "name": "缩放以鼠标位置为锚点（锚点卡片漂移 < 4px）",
+      "ok": true,
+      "detail": {
+        "drift": 1.5
+      }
+    },
+    {
+      "name": "工具栏「适应画布」可用（视口被重算）",
+      "ok": true,
+      "detail": {
+        "before": 0.767,
+        "after": 0.506
+      }
+    },
+    {
+      "name": "工具栏「放大」可用",
+      "ok": true,
+      "detail": {
+        "before": 0.506,
+        "after": 0.607
+      }
+    },
+    {
+      "name": "点百分比回到 100%",
+      "ok": true,
+      "detail": 1
+    },
+    {
+      "name": "拖空白处能平移（视口位移 ≈ 拖拽距离，节点同步位移）",
+      "ok": true,
+      "detail": {
+        "panDx": 72,
+        "panDy": -36,
+        "panCardDx": 72
+      }
+    },
+    {
+      "name": "拖节点能移动",
+      "ok": true,
+      "detail": {
+        "canvasDx": 50.000000000000135,
+        "canvasDy": 50.00000000000002
+      }
+    },
+    {
+      "name": "落点吸附 10px 网格（23px 拖动吸附成整格）",
+      "ok": true,
+      "detail": {
+        "canvasDx": 50.000000000000135,
+        "canvasDy": 50.00000000000002,
+        "expected": 50
+      }
+    },
+    {
+      "name": "从右侧 Handle 拖到左侧 Handle 能建成连线",
+      "ok": true,
+      "detail": {
+        "before": 10,
+        "after": 11
+      }
+    },
+    {
+      "name": "点节点能选中（is-selected）",
+      "ok": true,
+      "detail": null
+    },
+    {
+      "name": "Delete 删除选中节点（事件到父组件生效）",
+      "ok": true,
+      "detail": {
+        "before": 10,
+        "after": 9
+      }
+    },
+    {
+      "name": "小地图可拖、能平移视口",
+      "ok": true,
+      "detail": {
+        "before": {
+          "zoom": 0.506,
+          "x": 39.8,
+          "y": 299.3
+        },
+        "after": {
+          "zoom": 0.506,
+          "x": -464.8,
+          "y": -269.2
+        }
+      }
+    },
+    {
+      "name": "老画布仍是 native（切换器默认值没变）",
+      "ok": true,
+      "detail": "native"
+    },
+    {
+      "name": "两套画布截图尺寸一致",
+      "ok": true,
+      "detail": {
+        "a": [
+          828,
+          815
+        ],
+        "b": [
+          828,
+          815
+        ]
+      }
+    },
+    {
+      "name": "整图（fitView 视图）平均像素差 < 3/255",
+      "ok": true,
+      "detail": {
+        "mean": 1.1885584303968444,
+        "bigRatio": 0.006422453394979402,
+        "count": 674820
+      }
+    },
+    {
+      "name": "100% 缩放下节点尺寸一致、相对位置一致（扣除视口平移差后 < 1.5px）",
+      "ok": true,
+      "detail": {
+        "vue100": {
+          "zoom": 1,
+          "x": -325,
+          "y": 194.5
+        },
+        "native100": {
+          "zoom": 1,
+          "x": -324,
+          "y": 195.4
+        },
+        "shiftX": 1,
+        "shiftY": 0.9000000000000057,
+        "maxSizeDelta": 0,
+        "maxPosDelta": 0,
+        "missing": [],
+        "counts": {
+          "vue": 10,
+          "native": 10
+        }
+      }
+    },
+    {
+      "name": "100% 缩放下可见卡片逐像素一致（平均差 < 3/255 且 >40 的像素 < 3%）",
+      "ok": true,
+      "detail": {
+        "compared": 5,
+        "perCard": [
+          "appr1:2.21@1,0(>40:1.5%)",
+          "appr2:2.21@1,0(>40:1.5%)",
+          "cond1:1.60@1,0(>40:1.1%)",
+          "cs1:2.44@1,0(>40:1.6%)",
+          "par1:1.71@1,0(>40:1.1%)"
+        ]
+      }
+    },
+    {
+      "name": "只读画布也切到 Vue Flow（已发布版本）",
+      "ok": true,
+      "detail": {
+        "engine": true,
+        "cards": 3,
+        "handles": 0,
+        "layoutActions": 0,
+        "zoomButtons": 4,
+        "readonly": true
+      }
+    },
+    {
+      "name": "只读：不画句柄、不显示自动布局按钮、缩放工具栏仍在",
+      "ok": true,
+      "detail": {
+        "engine": true,
+        "cards": 3,
+        "handles": 0,
+        "layoutActions": 0,
+        "zoomButtons": 4,
+        "readonly": true
+      }
+    },
+    {
+      "name": "新画布控制台 0 新增报错（与老画布同集合）",
+      "ok": true,
+      "detail": {
+        "newErrors": [],
+        "vueflow": [],
+        "native": [],
+        "failedResponses": {
+          "vueflow": [],
+          "native": [],
+          "other": []
+        }
+      }
+    }
+  ],
+  "passed": 36,
+  "failed": 0,
+  "geometry": {
+    "vueflow": {
+      "view": {
+        "zoom": 0.506,
+        "x": 39.8,
+        "y": 299.3
+      },
+      "wrapRect": {
+        "left": 426,
+        "top": 125.2,
+        "width": 828,
+        "height": 814.8
+      },
+      "cards": [
+        {
+          "key": "appr1",
+          "type": "APPROVAL",
+          "rect": {
+            "left": 790.4,
+            "top": 465.9,
+            "width": 75.9,
+            "height": 32.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◉",
+            "bg": "rgb(87, 119, 172)"
+          },
+          "title": {
+            "text": "部门主管审批",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": null,
+          "status": null
+        },
+        {
+          "key": "appr2",
+          "type": "APPROVAL",
+          "rect": {
+            "left": 790.4,
+            "top": 526.6,
+            "width": 75.9,
+            "height": 32.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◉",
+            "bg": "rgb(87, 119, 172)"
+          },
+          "title": {
+            "text": "财务复核",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": null,
+          "status": null
+        },
+        {
+          "key": "cc1",
+          "type": "CC",
+          "rect": {
+            "left": 1033.2,
+            "top": 440.6,
+            "width": 70.8,
+            "height": 30.3
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "↗",
+            "bg": "rgb(170, 184, 208)"
+          },
+          "title": {
+            "text": "抄送行政",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "只读知会",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "cond1",
+          "type": "CONDITION",
+          "rect": {
+            "left": 679.2,
+            "top": 521.6,
+            "width": 66.8,
+            "height": 42.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◇",
+            "bg": "rgb(193, 172, 123)"
+          },
+          "title": {
+            "text": "金额分级",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "分支网关",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "cs1",
+          "type": "COUNTERSIGN",
+          "rect": {
+            "left": 790.4,
+            "top": 592.4,
+            "width": 75.9,
+            "height": 32.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "⊕",
+            "bg": "color(srgb 0.292941 0.38549 0.538039)"
+          },
+          "title": {
+            "text": "总经理会签",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "全部同意",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "e",
+          "type": "END",
+          "rect": {
+            "left": 1144.4,
+            "top": 521.6,
+            "width": 48.6,
+            "height": 22.3
+          },
+          "radius": "11px",
+          "padding": "5px 10px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 11.1,
+            "h": 11.1,
+            "text": "■",
+            "bg": "rgb(138, 145, 158)"
+          },
+          "title": {
+            "text": "结束",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "出口",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "note1",
+          "type": "NOTIFY_NODE",
+          "rect": {
+            "left": 1033.2,
+            "top": 511.4,
+            "width": 70.8,
+            "height": 30.3
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "✉",
+            "bg": "color(srgb 0.629804 0.600392 0.519412)"
+          },
+          "title": {
+            "text": "通知申请人",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "发通知（发完即通过）",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "par1",
+          "type": "PARALLEL",
+          "rect": {
+            "left": 921.9,
+            "top": 496.3,
+            "width": 66.8,
+            "height": 42.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "∥",
+            "bg": "color(srgb 0.58 0.514706 0.619216)"
+          },
+          "title": {
+            "text": "并行处理",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "并行",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "s",
+          "type": "START",
+          "rect": {
+            "left": 487,
+            "top": 531.7,
+            "width": 48.6,
+            "height": 22.3
+          },
+          "radius": "11px",
+          "padding": "5px 10px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 11.1,
+            "h": 11.1,
+            "text": "▶",
+            "bg": "rgb(111, 138, 184)"
+          },
+          "title": {
+            "text": "开始",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "入口",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "task1",
+          "type": "TASK_NODE",
+          "rect": {
+            "left": 567.9,
+            "top": 526.6,
+            "width": 75.9,
+            "height": 32.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "☑",
+            "bg": "color(srgb 0.376941 0.49498 0.692392)"
+          },
+          "title": {
+            "text": "填写申请",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "直接通过",
+            "size": "11.5px"
+          },
+          "status": null
+        }
+      ],
+      "lines": [
+        {
+          "d": "M 141 232 L 168 232 L 168 232 L 195 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 1265 200 L 1294 200 Q 1300 200 1300 206 L 1300 206 Q 1300 212 1306 212 L 1335 212",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 355 232 L 385 232 L 385 232 L 415 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 557 232 L 588 232 Q 596 232 596 224 L 596 120 Q 596 112 604 112 L 635 112",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 557 232 L 596 232 L 596 232 L 635 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 557 232 L 588 232 Q 596 232 596 240 L 596 354 Q 596 362 604 362 L 635 362",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "5px, 3px",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 795 112 L 837 112 Q 845 112 845 120 L 845 174 Q 845 182 853 182 L 895 182",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 795 232 L 837 232 Q 845 232 845 224 L 845 190 Q 845 182 853 182 L 895 182",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 795 362 L 947 362 Q 955 362 955 354 L 955 68 Q 955 60 963 60 L 1115 60",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        },
+        {
+          "d": "M 1037 182 L 1068 182 Q 1076 182 1076 190 L 1076 192 Q 1076 200 1084 200 L 1115 200",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#vf-flow-arrow)"
+        }
+      ],
+      "labels": [
+        "金额 > 1000",
+        "金额 ≤ 1000",
+        "其他情况"
+      ],
+      "minimap": true,
+      "toolbar": {
+        "zoomButtons": 4,
+        "layoutActions": 1,
+        "percentText": "51%"
+      },
+      "engine": "vueflow"
+    },
+    "native": {
+      "view": {
+        "zoom": 0.507,
+        "x": 39.7,
+        "y": 299.9
+      },
+      "wrapRect": {
+        "left": 426,
+        "top": 125.2,
+        "width": 828,
+        "height": 814.8
+      },
+      "cards": [
+        {
+          "key": "appr1",
+          "type": "APPROVAL",
+          "rect": {
+            "left": 791.3,
+            "top": 466.6,
+            "width": 76.1,
+            "height": 32.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◉",
+            "bg": "rgb(87, 119, 172)"
+          },
+          "title": {
+            "text": "部门主管审批",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": null,
+          "status": null
+        },
+        {
+          "key": "appr2",
+          "type": "APPROVAL",
+          "rect": {
+            "left": 791.3,
+            "top": 527.5,
+            "width": 76.1,
+            "height": 32.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◉",
+            "bg": "rgb(87, 119, 172)"
+          },
+          "title": {
+            "text": "财务复核",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": null,
+          "status": null
+        },
+        {
+          "key": "cc1",
+          "type": "CC",
+          "rect": {
+            "left": 1034.7,
+            "top": 441.3,
+            "width": 71,
+            "height": 30.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "↗",
+            "bg": "rgb(170, 184, 208)"
+          },
+          "title": {
+            "text": "抄送行政",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "只读知会",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "cond1",
+          "type": "CONDITION",
+          "rect": {
+            "left": 679.7,
+            "top": 522.4,
+            "width": 66.9,
+            "height": 42.6
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "◇",
+            "bg": "rgb(193, 172, 123)"
+          },
+          "title": {
+            "text": "金额分级",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "分支网关",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "cs1",
+          "type": "COUNTERSIGN",
+          "rect": {
+            "left": 791.3,
+            "top": 593.4,
+            "width": 76.1,
+            "height": 32.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "⊕",
+            "bg": "color(srgb 0.292941 0.38549 0.538039)"
+          },
+          "title": {
+            "text": "总经理会签",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "全部同意",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "e",
+          "type": "END",
+          "rect": {
+            "left": 1146.3,
+            "top": 522.4,
+            "width": 48.7,
+            "height": 22.3
+          },
+          "radius": "11px",
+          "padding": "5px 10px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 11.2,
+            "h": 11.2,
+            "text": "■",
+            "bg": "rgb(138, 145, 158)"
+          },
+          "title": {
+            "text": "结束",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "出口",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "note1",
+          "type": "NOTIFY_NODE",
+          "rect": {
+            "left": 1034.7,
+            "top": 512.3,
+            "width": 71,
+            "height": 30.4
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "✉",
+            "bg": "color(srgb 0.629804 0.600392 0.519412)"
+          },
+          "title": {
+            "text": "通知申请人",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "发通知（发完即通过）",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "par1",
+          "type": "PARALLEL",
+          "rect": {
+            "left": 923.2,
+            "top": 497.1,
+            "width": 66.9,
+            "height": 42.6
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "∥",
+            "bg": "color(srgb 0.58 0.514706 0.619216)"
+          },
+          "title": {
+            "text": "并行处理",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "并行",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "s",
+          "type": "START",
+          "rect": {
+            "left": 487,
+            "top": 532.6,
+            "width": 48.7,
+            "height": 22.3
+          },
+          "radius": "11px",
+          "padding": "5px 10px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 11.2,
+            "h": 11.2,
+            "text": "▶",
+            "bg": "rgb(111, 138, 184)"
+          },
+          "title": {
+            "text": "开始",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "入口",
+            "size": "11.5px"
+          },
+          "status": null
+        },
+        {
+          "key": "task1",
+          "type": "TASK_NODE",
+          "rect": {
+            "left": 568.1,
+            "top": 527.5,
+            "width": 76.1,
+            "height": 32.5
+          },
+          "radius": "11px",
+          "padding": "11px 13px",
+          "shadow": true,
+          "barWidth": 1.8,
+          "icon": {
+            "w": 15.2,
+            "h": 15.2,
+            "text": "☑",
+            "bg": "color(srgb 0.376941 0.49498 0.692392)"
+          },
+          "title": {
+            "text": "填写申请",
+            "size": "13px",
+            "weight": "600"
+          },
+          "sub": {
+            "text": "直接通过",
+            "size": "11.5px"
+          },
+          "status": null
+        }
+      ],
+      "lines": [
+        {
+          "d": "M 136 232 L 168 232 L 168 232 L 200 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 1260 200 L 1294 200 Q 1300 200 1300 206 L 1300 206 Q 1300 212 1306 212 L 1340 212",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 350 232 L 385 232 L 385 232 L 420 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 552 232 L 588 232 Q 596 232 596 224 L 596 120 Q 596 112 604 112 L 640 112",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 552 232 L 596 232 L 596 232 L 640 232",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 552 232 L 588 232 Q 596 232 596 240 L 596 354 Q 596 362 604 362 L 640 362",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "5px, 3px",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 790 112 L 837 112 Q 845 112 845 120 L 845 174 Q 845 182 853 182 L 900 182",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 790 232 L 837 232 Q 845 232 845 224 L 845 190 Q 845 182 853 182 L 900 182",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 790 362 L 947 362 Q 955 362 955 354 L 955 68 Q 955 60 963 60 L 1120 60",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        },
+        {
+          "d": "M 1032 182 L 1068 182 Q 1076 182 1076 190 L 1076 192 Q 1076 200 1084 200 L 1120 200",
+          "stroke": "rgb(198, 198, 198)",
+          "width": "1.9px",
+          "dash": "none",
+          "marker": "url(#flow-arrow)"
+        }
+      ],
+      "labels": [
+        "金额 > 1000",
+        "金额 ≤ 1000",
+        "其他情况"
+      ],
+      "minimap": true,
+      "toolbar": {
+        "zoomButtons": 4,
+        "layoutActions": 1,
+        "percentText": "51%"
+      },
+      "engine": "native"
+    }
+  },
+  "pixelDiff": {
+    "fitView": {
+      "whole": {
+        "mean": 1.1885584303968444,
+        "bigRatio": 0.006422453394979402,
+        "count": 674820
+      },
+      "nodes": [
+        {
+          "key": "appr1",
+          "mean": 3.8956564153439674,
+          "bigRatio": 0.01826388888888889,
+          "count": 201600
+        },
+        {
+          "key": "appr2",
+          "mean": 1.530601851851622,
+          "bigRatio": 0.004761904761904762,
+          "count": 201600
+        },
+        {
+          "key": "cc1",
+          "mean": 8.662008928571646,
+          "bigRatio": 0.07499007936507937,
+          "count": 201600
+        },
+        {
+          "key": "cond1",
+          "mean": 4.005896164021456,
+          "bigRatio": 0.017485119047619048,
+          "count": 201600
+        },
+        {
+          "key": "cs1",
+          "mean": 3.8391038359786163,
+          "bigRatio": 0.024072420634920634,
+          "count": 201600
+        },
+        {
+          "key": "e",
+          "mean": 8.935935846559955,
+          "bigRatio": 0.07496031746031746,
+          "count": 201600
+        },
+        {
+          "key": "note1",
+          "mean": 7.068341600528456,
+          "bigRatio": 0.05054563492063492,
+          "count": 201600
+        },
+        {
+          "key": "par1",
+          "mean": 3.571545965608532,
+          "bigRatio": 0.015064484126984128,
+          "count": 201600
+        },
+        {
+          "key": "s",
+          "mean": 2.847007275132409,
+          "bigRatio": 0.011354166666666667,
+          "count": 201600
+        },
+        {
+          "key": "task1",
+          "mean": 3.726375661376164,
+          "bigRatio": 0.012961309523809524,
+          "count": 201600
+        }
+      ],
+      "size": {
+        "a": [
+          828,
+          815
+        ],
+        "b": [
+          828,
+          815
+        ]
+      }
+    },
+    "at100": [
+      {
+        "key": "appr1",
+        "dx": 1,
+        "dy": 0,
+        "mean": 2.2144444444444575,
+        "bigRatio": 0.014791666666666667,
+        "count": 9600,
+        "rect": [
+          316,
+          276,
+          466,
+          340
+        ]
+      },
+      {
+        "key": "appr2",
+        "dx": 1,
+        "dy": 0,
+        "mean": 2.2139236111111242,
+        "bigRatio": 0.014791666666666667,
+        "count": 9600,
+        "rect": [
+          316,
+          396,
+          466,
+          460
+        ]
+      },
+      {
+        "key": "cond1",
+        "dx": 1,
+        "dy": 0,
+        "mean": 1.5992063492063466,
+        "bigRatio": 0.011453823953823954,
+        "count": 11088,
+        "rect": [
+          96,
+          386,
+          228,
+          470
+        ]
+      },
+      {
+        "key": "cs1",
+        "dx": 1,
+        "dy": 0,
+        "mean": 2.4373958333333445,
+        "bigRatio": 0.015520833333333333,
+        "count": 9600,
+        "rect": [
+          316,
+          526,
+          466,
+          590
+        ]
+      },
+      {
+        "key": "par1",
+        "dx": 1,
+        "dy": 0,
+        "mean": 1.7103475228475296,
+        "bigRatio": 0.011453823953823954,
+        "count": 11088,
+        "rect": [
+          576,
+          336,
+          708,
+          420
+        ]
+      }
+    ],
+    "worstNormalizedCard": {
+      "key": "e",
+      "mean": 8.935935846559955,
+      "bigRatio": 0.07496031746031746,
+      "count": 201600
+    }
+  },
+  "consoleErrors": {
+    "vueflow": [],
+    "native": [],
+    "other": []
+  },
+  "pageErrors": {
+    "vueflow": [],
+    "native": [],
+    "other": []
+  },
+  "failedResponses": {
+    "vueflow": [],
+    "native": [],
+    "other": []
+  }
+}

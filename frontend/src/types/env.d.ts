@@ -8,6 +8,8 @@ interface ImportMetaEnv {
   readonly VITE_APP_BASE_API: string;
   /** 部署子路径，默认根路径 */
   readonly VITE_APP_CONTEXT_PATH: string;
+  /** 流程画布引擎：`vueflow` = Vue Flow 新画布，其它 / 未设置 = 老画布（见 FlowCanvasSwitch.vue） */
+  readonly VITE_FLOW_CANVAS?: string;
 }
 
 interface ImportMeta {

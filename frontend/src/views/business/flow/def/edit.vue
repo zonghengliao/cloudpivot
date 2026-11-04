@@ -259,7 +259,9 @@ import {
 import { ApiError } from '@/api/request';
 import { PERM } from '@/constants/permissions';
 import StatusBadge from '@/views/business/task/components/StatusBadge.vue';
-import FlowCanvas from '@/views/business/flow/components/FlowCanvas.vue';
+// 画布接入点：FlowCanvasSwitch 内部按 feature flag 选「老画布 / Vue Flow 画布」
+// （两套 props / emits / 暴露方法完全一致；回退只需把这一行指回 FlowCanvas.vue）
+import FlowCanvas from '@/views/business/flow/components/FlowCanvasSwitch.vue';
 import NodeProps from '@/views/business/flow/components/NodeProps.vue';
 import { FlowHistory, NODE_TYPES, autoLayout, checkEdgeAllowed, makeEdge, makeNode, nodeSize, snapGrid, type FlowCommand, type MutableGraph, applyCommand, revertCommand } from '@/views/business/flow/graph';
 import { computeAutoLayout } from '@/views/business/flow/auto-layout';

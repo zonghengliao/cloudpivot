@@ -29,7 +29,8 @@
  * 连线就会错位。这里只做一层只读包装，几何与配色**只有一份实现**。
  */
 import type { FlowEdge, FlowNode } from '@/api/business/flow-api';
-import FlowCanvas from '@/views/business/flow/components/FlowCanvas.vue';
+// 画布接入点：FlowCanvasSwitch 内部按 feature flag 选「老画布 / Vue Flow 画布」
+import FlowCanvas from '@/views/business/flow/components/FlowCanvasSwitch.vue';
 
 withDefaults(
   defineProps<{
