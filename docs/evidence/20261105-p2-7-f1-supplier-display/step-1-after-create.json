@@ -1,0 +1,16 @@
+{
+  "说明": "建单后：快照 = 下单时主档现值（后端写 supplier_name_snapshot）",
+  "db": "PO-20261105-000004|d1370005-0000-4000-8000-000000000001|示例供应商（种子）",
+  "list_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  },
+  "detail_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  }
+}

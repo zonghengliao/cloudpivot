@@ -1,0 +1,19 @@
+{
+  "说明": "主档软删后：supplier/page 已查不到该 id（前端 Map 未命中）→ 列表/详情必须显示快照名，禁止 uuid",
+  "delete_via_api": "DELETE /erp/supplier/{id} 软删成功（本版后端未拦截被草稿单引用）",
+  "master_list_contains_supplier": false,
+  "master_list_size": 0,
+  "list_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  },
+  "detail_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  },
+  "db_deleted_at": "t"
+}

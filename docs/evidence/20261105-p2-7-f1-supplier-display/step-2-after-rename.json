@@ -1,0 +1,17 @@
+{
+  "说明": "改名后：主档现值 = 新名；采购单列表/详情下发的 supplier_name 仍是旧名（快照，历史不被改写）",
+  "master_current_name": "华信智造",
+  "list_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  },
+  "detail_row": {
+    "order_no": "PO-20261105-000004",
+    "supplier_id": "d1370005-0000-4000-8000-000000000001",
+    "supplier_name": "示例供应商（种子）",
+    "supplier_name_snapshot": "示例供应商（种子）"
+  },
+  "db": "PO-20261105-000004|示例供应商（种子）"
+}

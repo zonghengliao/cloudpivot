@@ -115,7 +115,12 @@
           </div>
         </template>
 
-        <template #supplier_id="{ row }">{{ supplierNameOf(row.supplier_id) }}</template>
+        <!-- P2-7-F1：供应商列走「主档现值 → 单据快照 → —」，**不再回落 uuid 短号**（口径 S2） -->
+        <template #supplier_id="{ row }">
+          <span :data-testid="`purchase-supplier-${row.order_no}`">
+            {{ supplierDisplayOf(row) }}
+          </span>
+        </template>
 
         <template #purchase_type="{ row }">
           <t-tag
@@ -668,7 +673,24 @@
               <span v-else class="muted">—</span>
             </span>
           </div>
-          <div class="detail-field"><span class="detail-field__label">供应商</span><span class="detail-field__value">{{ supplierNameOf(detail.supplier_id) }}</span></div>
+          <!--
+            P2-7-F1（口径 S2/S3）：供应商**并列两行** ——
+            「供应商（现名）」= 主档现值（查不到回落快照，绝不显示 uuid）；
+            「下单时供应商快照」= 后端下发的 `supplier_name`（= supplier_name_snapshot，只读灰字）。
+            范式同合同详情「乙方」+「签约时乙方快照」（contract/index.vue:405-409）。
+          -->
+          <div class="detail-field">
+            <span class="detail-field__label">供应商（现名）</span>
+            <span class="detail-field__value" data-testid="purchase-detail-supplier">
+              {{ supplierDisplayOf(detail) }}
+            </span>
+          </div>
+          <div class="detail-field">
+            <span class="detail-field__label">下单时供应商快照</span>
+            <span class="detail-field__value muted" data-testid="purchase-detail-supplier-snapshot">
+              {{ dash(detail.supplier_name) }}
+            </span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.warehouse_id) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">下单日期</span><span class="detail-field__value">{{ detail.order_date }}</span></div>
           <div class="detail-field"><span class="detail-field__label">期望到货</span><span class="detail-field__value">{{ dash(detail.expect_date) }}</span></div>
@@ -878,6 +900,8 @@ import {
   selectableContracts,
   shortDate,
   shortId,
+  supplierCurrentNameOf,
+  supplierDisplayName,
   supplierHintOf,
   switchConfirmMessage,
   switchPriceMode,
@@ -1118,6 +1142,20 @@ const memoryLabels = ref<string[]>([]);
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
 const materials = ref<MaterialRow[]>([]);
+
+/**
+ * id → 供应商名（列表/详情的「现值」反查走它）。
+ *
+ * 逐格 `find` 是 O(行 × 主数据)，200 行 × 200 家 = 4 万次比较，滚动时肉眼可见地掉帧；
+ * Map 建一次 O(n) 之后每格 O(1)。口径见 {@link supplierDisplayName}。
+ */
+const supplierNameMap = computed(() => {
+  const map = new Map<string, string>();
+  for (const item of suppliers.value) {
+    map.set(item.id, item.supplier_name);
+  }
+  return map;
+});
 /**
  * 可下单的合同（A6）：`GET /erp/contract/page` 拉一页全量再本地过滤。
  *
@@ -1174,13 +1212,21 @@ const pagination = computed(() => ({
   showPageSize: false,
 }));
 
-/** 供应商名称（查不到显示短 id，别留白） */
+/**
+ * 供应商显示名（列表列 + 详情「供应商（现名）」）—— **主档现值 → 单据快照 → `—`**。
+ *
+ * P2-7-F1：**删掉了原来的 `shortId(supplierId)` 兜底**。主档被软删 / 主数据清单没拉回来时，
+ * 旧实现会显示 `0f8a3c1d…` 这种 uuid 短号，用户看不懂，也丢掉了后端已经下发的快照名
+ * （`row.supplier_name` = `supplier_name_snapshot`，存量 NULL 时后端已用现值兜底）。
+ * 口径真源：`docs/编码规范.md` §1.10 S2 / S3。
+ */
+function supplierDisplayOf(row: Pick<PurchaseOrderRow, 'supplier_id' | 'supplier_name'>): string {
+  return supplierDisplayName(row.supplier_id, row.supplier_name, supplierNameMap.value);
+}
+
+/** 供应商现名（表单只读回显用；查不到给 `—`，同样不落 uuid） */
 function supplierNameOf(supplierId: string | null | undefined): string {
-  if (!supplierId) {
-    return '—';
-  }
-  const hit = suppliers.value.find((item) => item.id === supplierId);
-  return hit ? hit.supplier_name : shortId(supplierId);
+  return supplierCurrentNameOf(supplierId, supplierNameMap.value);
 }
 
 /** 仓库名称 */

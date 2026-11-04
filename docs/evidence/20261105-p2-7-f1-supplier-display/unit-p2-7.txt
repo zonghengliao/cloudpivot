@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+ok 1 - map 命中 → 显示主档**现值**（改名后列表跟着变，快照不参与显示）
+  ---
+  duration_ms: 0.720928
+  type: 'test'
+  ...
+# Subtest: map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+ok 2 - map 未命中但有快照 → 显示**快照名**（主档软删 / 主数据没拉回来）
+  ---
+  duration_ms: 0.083746
+  type: 'test'
+  ...
+# Subtest: 两者都没有 → `—`（不留白、不报错）
+ok 3 - 两者都没有 → `—`（不留白、不报错）
+  ---
+  duration_ms: 0.098412
+  type: 'test'
+  ...
+# Subtest: 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+ok 4 - 空串不算名字：主档名为空串 → 回落快照；快照为空串 → `—`
+  ---
+  duration_ms: 0.083079
+  type: 'test'
+  ...
+# Subtest: 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 5 - 任何输入组合下输出都不含 uuid / uuid 短号（禁落 uuid 的回归闸门）
+  ---
+  duration_ms: 0.25628
+  type: 'test'
+  ...
+# Subtest: 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+ok 6 - 对照：`shortId(SUPPLIER_ID)` 确实会长成被禁的形态（证明上面的闸门抓得到东西）
+  ---
+  duration_ms: 0.088455
+  type: 'test'
+  ...
+# Subtest: 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+ok 7 - 详情「供应商（现名）」用 `supplierCurrentNameOf`：只认现值，查不到给 `—`（不给 uuid）
+  ---
+  duration_ms: 0.140619
+  type: 'test'
+  ...
+# Subtest: 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+ok 8 - 列表列走 `supplierDisplayOf(row)`（现名→快照→—），不再出现 `shortId(row.supplier_id)`
+  ---
+  duration_ms: 0.165952
+  type: 'test'
+  ...
+# Subtest: `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+ok 9 - `supplierDisplayOf` 的实现同时读 `supplier_id` 与 `supplier_name`（快照必须进排队列）
+  ---
+  duration_ms: 0.35436
+  type: 'test'
+  ...
+# Subtest: 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+ok 10 - 详情页并列两行：「供应商（现名）」在前、「下单时供应商快照」紧接其后
+  ---
+  duration_ms: 0.422607
+  type: 'test'
+  ...
+# Subtest: 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+ok 11 - 快照栏只读灰字、绑 `detail.supplier_name`，空则 `—`
+  ---
+  duration_ms: 0.179617
+  type: 'test'
+  ...
+# Subtest: 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+ok 12 - 「供应商（现名）」栏绑 `supplierDisplayOf(detail)`（现值→快照→—），不再用裸 shortId
+  ---
+  duration_ms: 0.09233
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 234.052933

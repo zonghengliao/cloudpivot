@@ -382,6 +382,60 @@ export function dash(value: string | null | undefined): string {
   return value === null || value === undefined || value === '' ? '—' : value;
 }
 
+/**
+ * 主数据名 Map 取值 —— **空串当作没命中**。
+ *
+ * 库里 `supplier_name` 是 `NOT NULL`，但接口/前端缓存里出现过 `''`（导入脏数据），
+ * 若直接当命中，列表上会出现一格空白而不是回落到快照名。
+ */
+function nameFromMap(id: string | null | undefined, map: ReadonlyMap<string, string>): string | null {
+  if (!id) {
+    return null;
+  }
+  const name = map.get(id);
+  return typeof name === 'string' && name.trim() !== '' ? name : null;
+}
+
+/**
+ * 供应商显示名（列表 / 报表 / 导出口径）—— **主档现值 → 单据快照 → `—`**。
+ *
+ * 口径真源：`docs/编码规范.md` §1.10（S2）+ `docs/architecture/P2-7-供应商名口径盘点.md` §3。
+ *
+ * # 为什么是「现值优先」而不是「快照优先」
+ *
+ * 列表/报表是**看现在**的地方：供应商改名后，列表必须跟着变（否则同一家供应商在两张单上
+ * 出现两个名字，对账的人会以为是两家）。审计「当时叫什么」由详情页并列的风控快照栏承担（S3）。
+ *
+ * # 为什么**不能**回落 uuid（本函数存在的理由）
+ *
+ * 旧实现是 `supplierNameMap.get(id) ?? shortId(id)`：主档被软删 / 主数据清单还没拉回来时，
+ * 列表上会显示 `0f8a3c1d…` 这种 uuid 短号 —— 用户既看不懂，也**丢掉了后端已经下发的快照名**
+ * （`PurchaseOrderRes.supplier_name` = `supplier_name_snapshot`，存量 NULL 时后端已用现值兜底）。
+ * 现在这条兜底被**彻底删掉**：查不到就回落到快照，快照也没有才是 `—`。
+ */
+export function supplierDisplayName(
+  supplierId: string | null | undefined,
+  snapshotName: string | null | undefined,
+  supplierNameMap: ReadonlyMap<string, string>,
+): string {
+  const current = nameFromMap(supplierId, supplierNameMap);
+  if (current) {
+    return current;
+  }
+  if (typeof snapshotName === 'string' && snapshotName.trim() !== '') {
+    return snapshotName;
+  }
+  return '—';
+}
+
+/** 供应商现名（详情页「供应商（现名）」/ 表单只读字段；只认主档现值，查不到给 `—`，**不落 uuid**） */
+export function supplierCurrentNameOf(
+  supplierId: string | null | undefined,
+  supplierNameMap: ReadonlyMap<string, string>,
+): string {
+  return nameFromMap(supplierId, supplierNameMap) ?? '—';
+}
+
 /** 短 id（主数据没加载完时兜底，别留白） */
 export function shortId(value: string | null | undefined): string {
   if (!value) {

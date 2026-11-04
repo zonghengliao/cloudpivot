@@ -1,0 +1,8 @@
+{
+  "step1_快照=下单时现值": true,
+  "step2_主档现值=新名": true,
+  "step2_单据仍下发旧名快照": true,
+  "step3_主档清单已不含该供应商": true,
+  "step3_列表/详情仍下发旧名快照（非 uuid）": true,
+  "step3_后端确实软删": true
+}
