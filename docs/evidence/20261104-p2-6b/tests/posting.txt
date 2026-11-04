@@ -1,0 +1,2 @@
+$ cargo test --lib serial_material_generates_serials_in_receipt_warehouse
+test result: ok. 1 passed; 0 failed

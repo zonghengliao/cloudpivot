@@ -92,12 +92,42 @@ $ grep -cwE "UPDATE|INSERT|DELETE" docs/architecture/snapshot-drift/10_checks.sq
 
 ## 5. 单测（真库指向隔离库 cloudpivot_p26b）
 
-见 `tests/*.txt`（`run_db_tests.sh` 的输出）：doc_kind 机械核对 19 条、序列号模块全量、
-收货过账写序列号（断言 `source_id == 收货单 id`）。
+| 组 | 命令 | 结果 |
+|---|---|---|
+| doc_kind（含 3 个巡检登记表机械核对） | `cargo test --lib doc_kind` | **20 passed / 0 failed** |
+| 序列号模块全量（含 P2-6b 新增的来源闸门 4 形态） | `cargo test --lib business::erp::serial_handler` | **49 passed / 0 failed** |
+| 收货过账写序列号（断言 `source_type`+`source_id`） | `cargo test --lib serial_material_generates_serials_in_receipt_warehouse` | **1 passed** |
+| fmt / clippy | `rustfmt +1.94.1 --check`；`cargo clippy --all-targets` | 本卡改动文件 **0 告警** |
+
+明细：`tests/doc-kind.txt`、`tests/serial-handler.txt`。
+
+> 隔离库准备：`CREATE DATABASE cloudpivot_p26b`（superuser 通道，`cloudpivot` 账号无 CREATEDB）
+> → release 二进制启动迁移（163 条、102 张表）→ `--install-views`。
+> 另外把科目 `1901` 置为启用（迁移里是停用态，生产是现场启用的）—— 只改隔离库。
 
 ---
 
-## 6. 生产只读首跑
+## 6. 生产只读首跑（2026-11-04 17:09，部署后）
 
-见 `prod-snapshot-audit.txt`（`--group 多态引用`）。DI-21 与 DI-23…DI-25 全部 0 命中
-（31 个序列号全被清场软删；三张新表生产 0 行），DI-22 = 0（没有未登记的类型）。
+```
+汇总: BLOCKER 1 / WARN 47 / INFO 32   巡检项 25（通过 22、有命中 3、跳过 0、失败 0）
+多态引用组 9 条：DI-17 ✓ · DI-19 47 WARN · DI-20 31 INFO ·
+                DI-21 ✓ · DI-22 ✓ · DI-23 ✓ · DI-24 ✓ · DI-25 ✓
+ERP 不变量：40/40 通过（BLOCKER 0 / WARN 0）
+```
+
+- **本卡 4 条新/改巡检全部 0 命中**：DI-21（31 个序列号全被 2026-11-01 清场软删，按口径跳过）、
+  DI-23/24/25（三张表生产 0 行）；
+- BLOCKER 1 / WARN 47 / INFO 32 与父卡 P2-6 完全一致 ⇒ **没有新增命中，也没有把旧命中「修没」**
+  （那 1 条 ERROR 是 `t_3de61e4b` 跟进的「手工修数未闭环」，不是本卡引入）；
+- 完整输出：`prod-snapshot-audit-full.txt` / `prod-snapshot-audit-polyref.txt` / `prod-erp-invariants.txt`。
+
+**部署核对**（本卡改了后端代码，必须换二进制才算上线）：
+
+```
+发布提交 261e487；systemd active；/health = 200
+md5(磁盘二进制) == md5(/proc/<MainPID>/exe) = 1757ad713b5b9ff54c1eb008e4698492
+grep -ac "必须同时给 source_id" 二进制 = 1（新闸门文案真的进了产物）
+di 巡检视图 22 → 25 个 c_di*
+```
+
