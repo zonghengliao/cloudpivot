@@ -1,0 +1,18 @@
+# down 迁移验证（cloudpivot_test_pflow5，事务内执行 + ROLLBACK，不改库状态）
+## 命令
+psql -v ON_ERROR_STOP=1 <<'SQL'  # BEGIN; \i V0233.down.sql ×2; ROLLBACK; SQL
+
+BEGIN
+-- down 前 --
+asset_disposal:true
+budget_approve:true
+UPDATE 2
+-- down 后（事务内） --
+asset_disposal:false
+budget_approve:false
+-- 再执行一次 down（幂等，期望 0 行） --
+UPDATE 0
+ROLLBACK
+-- rollback 后（库未被改动） --
+asset_disposal:true
+budget_approve:true

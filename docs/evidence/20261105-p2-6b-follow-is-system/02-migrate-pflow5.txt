@@ -1,0 +1,4 @@
+[2m2026-11-04T18:02:57.839819Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0233：is_system 打标 2 行（budget_approve / asset_disposal），预置白名单 13 个编码全部为系统流程
+[2m2026-11-04T18:02:57.848852Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 2 个迁移
+[2m2026-11-04T18:02:58.009777Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 插件启动完成 [3melapsed_ms[0m[2m=[0m0
+[2m2026-11-04T18:02:58.118283Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 489ms

@@ -1,0 +1,30 @@
+# 空库从零安装路径（cloudpivot_a9071923f，建库后从未跑过迁移）
+$ su postgres -c 'createdb -O alun cloudpivot_a9071923f'
+$ ./backend/target/debug/cloudpivot   # NIK_DATABASE_NAME=cloudpivot_a9071923f
+
+    RAISE NOTICE 'V0233：is_system 打标 % 行（budget_approve / asset_disposal），预置白名单 % 个编码全部为系统流程',
+[2m2026-11-04T18:06:02.556504Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0233：is_system 打标 2 行（budget_approve / asset_disposal），预置白名单 13 个编码全部为系统流程
+[2m2026-11-04T18:06:02.582518Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 175 个迁移
+[2m2026-11-04T18:06:03.164877Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m cloudpivot 启动完成, 耗时 1616ms
+
+-- schema_migrations（version >= 231）
+versioned|erp_asset_disposal_flow|231|t
+versioned|erp_asset_voucher_rules|232|t
+versioned|flow_seed_is_system_fix2|233|t
+versioned|flow_template_menu_retire|234|t
+-- 预置流程行
+asset_disposal|t
+budget_approve|t
+contract_approve|t
+flow_edge_config|t
+payable_cancel|t
+payable_pay|t
+po_approve|t
+stock_in_cancel|t
+stock_in_post|t
+stock_take_post|t
+stock_transfer|t
+task_accept|t
+voucher_reverse|t
+-- sys|total
+13|13

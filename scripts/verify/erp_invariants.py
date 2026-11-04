@@ -23,8 +23,9 @@
   3. 金额比较一律用 numeric，容差 0.0001（4 位标度）
   4. 分类：BLOCKER（账错了，立刻停）/ WARN（可疑，要人看）/ INFO（仅记录）
 """
-import os, sys, subprocess, json, argparse
+import os, re, sys, subprocess, json, argparse
 from decimal import Decimal
+from pathlib import Path
 
 DB = dict(
     host=os.environ.get("NIK_DATABASE_HOST", "127.0.0.1"),
@@ -699,10 +700,170 @@ def group_g():
 # ══════════════════════════════════════════════════════════════════
 # H. 审批闭环（任务 ↔ 审批实例 ↔ 待办 三者不许脱节）
 # ══════════════════════════════════════════════════════════════════
+#
+# ── H6 的静态检查工具（不连库，只读 migrations 文件）──────────────────
+#
+# 为什么要有它（P2-6b-follow，2026-11-05）：
+#   预置流程种子漏写 `is_system` 已经犯了 **4 次**（V0209 / V0211 / V0228 / V0231）——
+#   每一次都是「INSERT 列清单止于 owner_dept_id」，吃 `DEFAULT FALSE`，于是系统预置、
+#   客户不该改图的流程被当成客户自建。后果不是报错，而是**静默少几张卡**：
+#   P2-6b 把模板列表收口为「标准流程」（`AND d.is_system`）后，V0228/V0231 种下的
+#   两条预置流程直接从列表里消失（budget_approve / asset_disposal）。
+#
+#   库内断言（H5）只认「名字含『标准』」这一个方向，抓不到这两条（名字里没有「标准」）。
+#   所以再加一条**静态**检查：直接扫 migrations 的 INSERT 列清单。它不依赖库状态，
+#   也不依赖起名习惯 —— 新人照抄旧种子复制粘贴时，漏列当场红。
+#
+# 判定口径（四条，缺一不可）：
+#   1. 只扫 `INSERT INTO biz_flow_def (...)`，且 **版本 ≥ V0193**（`is_system` 列由
+#      V0193 加；更早的迁移根本没有这一列，缺列不是错）；
+#   2. 列清单里有 `is_system` → 通过；
+#   3. 没有 → 允许「补偿」：存在**更晚**的迁移里有 `UPDATE biz_flow_def` 语句，
+#      同时含该 `flow_code` 字面量与 `is_system = TRUE`（这正是已应用迁移只能
+#      新开一条修的机制，例如 V0220 补 V0209/V0211、V0233 补 V0228/V0231）。
+#      补偿不到 → 红（BLOCKER）：下一个漏列的新种子不该靠人眼发现。
+#   4. 隐式列清单（`INSERT INTO biz_flow_def SELECT ...`，即 INSERT 后没有括号列名）
+#      → 直接红：静态拿不到列名，且位置依赖表列序，比漏列更脆。
+_IS_SYSTEM_COLUMN_FROM = 193
+_INSERT_FLOW_DEF_RE = re.compile(r"INSERT\s+INTO\s+biz_flow_def\s*\(", re.IGNORECASE)
+# 隐式列清单（`INSERT INTO biz_flow_def SELECT ...` / `VALUES` 不带括号列）：无法静态确认
+# 写了 is_system，而且位置依赖别的表的列序——比漏列更脆，直接判红，别让它从正则缝里溜过去。
+_INSERT_FLOW_DEF_IMPLICIT_RE = re.compile(
+    r"INSERT\s+INTO\s+biz_flow_def\s+(?!\()", re.IGNORECASE)
+_UPDATE_FLOW_DEF_RE = re.compile(r"UPDATE\s+biz_flow_def\b", re.IGNORECASE)
+_IS_SYSTEM_TRUE_RE = re.compile(r"is_system\s*=\s*TRUE", re.IGNORECASE)
+
+
+def _migrations_root():
+    """迁移根目录（`ERP_MIGRATIONS_ROOT` 只给负向自测用；默认仓内 backend/migrations）。"""
+    env = os.environ.get("ERP_MIGRATIONS_ROOT")
+    if env:
+        return Path(env)
+    return Path(__file__).resolve().parents[2] / "backend" / "migrations"
+
+
+def _load_up_migrations():
+    """[(version, path, text)]：版本化 up 方向的 SQL，按版本升序（down / 种子 S__ 不参与）。"""
+    out = []
+    root = _migrations_root()
+    if not root.is_dir():
+        return out
+    for path in sorted(root.rglob("*.sql")):
+        if path.name.endswith(".down.sql"):
+            continue
+        m = re.match(r"^[Vv]?(\d+)__.+\.sql$", path.name)
+        if not m:
+            continue
+        out.append((int(m.group(1)), path,
+                    path.read_text(encoding="utf-8", errors="replace")))
+    out.sort(key=lambda t: (t[0], str(t[1])))
+    return out
+
+
+def _flow_def_inserts(text):
+    """产出 (行号, 列名列表, 语句正文)：每处 `INSERT INTO biz_flow_def (...)`。"""
+    for m in _INSERT_FLOW_DEF_RE.finditer(text):
+        # 括号配对取出列清单（种子都写成多行，不能按行切）
+        i, depth = m.end(), 1
+        while i < len(text) and depth:
+            if text[i] == "(":
+                depth += 1
+            elif text[i] == ")":
+                depth -= 1
+            i += 1
+        cols = [c.strip().strip('"').lower()
+                for c in text[m.end():i - 1].split(",") if c.strip()]
+        line = text.count("\n", 0, m.start()) + 1
+        j = text.find(";", i)
+        yield line, cols, text[i:j if j != -1 else len(text)]
+
+
+def _flow_code_of(stmt):
+    """从 INSERT 的 VALUES/SELECT 里取 flow_code：第一个「小写蛇形」字符串字面量。
+
+    种子写法固定为 `'<uuid>', '<flow_code>', '<中文名>', ...`：uuid 带连字符、
+    名称含中文/大写，都会被正则滤掉，剩下第一个就是 flow_code。
+    """
+    for lit in re.findall(r"'([^']*)'", stmt):
+        if re.fullmatch(r"[a-z][a-z0-9_]{1,63}", lit):
+            return lit
+    return None
+
+
+def _compensating_migration(flow_code, after_version, migrations):
+    """返回补偿该 flow_code 的后续迁移版本号（`V0233` 之类），没有则 None。"""
+    if not flow_code:
+        return None
+    for ver, _path, text in migrations:
+        if ver <= after_version:
+            continue
+        for m in _UPDATE_FLOW_DEF_RE.finditer(text):
+            j = text.find(";", m.end())
+            stmt = text[m.end():j if j != -1 else len(text)]
+            if f"'{flow_code}'" in stmt and _IS_SYSTEM_TRUE_RE.search(stmt):
+                return f"V{ver:04d}"
+    return None
+
+
+def _check_flow_seed_is_system():
+    """H6：预置流程种子必须显式写 is_system（或由后续迁移补偿）。静态，不查库。"""
+    name = "H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）"
+    migrations = _load_up_migrations()
+    if not migrations:
+        check(name, "审批", "WARN", True,
+              f"没扫到版本化迁移（{_migrations_root()}）——检查路径，不算失败")
+        return
+
+    scanned, bad, compensated = 0, [], []
+    for ver, path, text in migrations:
+        if ver < _IS_SYSTEM_COLUMN_FROM:
+            continue
+        for line, cols, stmt in _flow_def_inserts(text):
+            scanned += 1
+            if "is_system" in cols:
+                continue
+            code = _flow_code_of(stmt)
+            by = _compensating_migration(code, ver, migrations)
+            where = f"{path.name}:{line}"
+            if by:
+                compensated.append(f"{where} {code or '(未解析)'} → 已由 {by} 补偿")
+            else:
+                bad.append(f"{where} flow_code={code or '(未解析)'}")
+        # 隐式列清单：正则拿不到列名，一律判红（位置依赖列序，比漏列更脆）
+        for m in _INSERT_FLOW_DEF_IMPLICIT_RE.finditer(text):
+            scanned += 1
+            line = text.count("\n", 0, m.start()) + 1
+            bad.append(f"{path.name}:{line} 列清单隐式（INSERT 后没有括号列清单，"
+                       f"无法静态确认写了 is_system）")
+
+    if scanned == 0:
+        check(name, "审批", "WARN", True,
+              f"V{_IS_SYSTEM_COLUMN_FROM:04d}+ 的迁移里没有 `INSERT INTO biz_flow_def`——跳过，不算失败")
+        return
+
+    detail = f"V{_IS_SYSTEM_COLUMN_FROM:04d}+ 共 {scanned} 处 INSERT 列清单"
+    if bad:
+        detail = (f"{len(bad)} 处漏写 is_system（客户可改身份露出、模板列表里静默消失）："
+                  + "；".join(bad[:8])
+                  + " → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，"
+                    "请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）")
+    elif compensated:
+        detail += f"全部含 is_system；历史遗留 {len(compensated)} 处已由后续迁移补偿：" \
+                  + "；".join(compensated)
+    else:
+        detail += "全部含 is_system"
+    check(name, "审批", "BLOCKER", not bad, detail)
+
+
 def group_h():
     print("\n" + "=" * 92)
     print("H. 审批闭环（任务取消/完成 → 审批必须跟着收口）")
     print("=" * 92)
+
+    # H6 先跑：它是**静态**检查（只读 migrations 文件），不依赖库连接。
+    # 放在最前面，是为了「库连不上 / 库还没建表」时这条结论也能落地，
+    # 不至于被后面第一条 SQL 的异常整组带走（main() 对 group 异常只记一条 BLOCKER）。
+    _check_flow_seed_is_system()
 
     # H1：实例已终态，待办不能还挂 PENDING。
     # 这正是老板报 TSK-202610-000149 的形态：任务取消了、审批单 CANCELLED 了，

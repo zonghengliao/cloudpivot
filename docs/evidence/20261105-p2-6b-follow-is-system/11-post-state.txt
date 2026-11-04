@@ -1,0 +1,17 @@
+# 后状态（迁移引擎真跑之后）
+
+## cloudpivot_test_pflow5
+versioned|flow_seed_is_system_fix2|233|t|174
+versioned|flow_template_menu_retire|234|t|175
+-- 两行 + 全库系统流程计数（sys|total）
+asset_disposal|t
+budget_approve|t
+13|13
+
+## cloudpivot_manual
+versioned|flow_seed_is_system_fix2|233|t|174
+versioned|flow_template_menu_retire|234|t|175
+-- 两行 + 全库系统流程计数（sys|total）
+asset_disposal|t
+budget_approve|t
+13|13

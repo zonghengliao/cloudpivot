@@ -1,0 +1,8 @@
+# 前状态（真实库快照）：cloudpivot_p26c = cloudpivot_manual 的 V0232 期副本，未经本卡修改
+$ psql -d cloudpivot_p26c -c "select name,version from schema_migrations order by applied_seq desc limit 2"
+erp_asset_voucher_rules|232
+erp_asset_disposal_flow|231
+
+$ psql -d cloudpivot_p26c -c "select flow_code, flow_name, is_system from biz_flow_def where not is_system and deleted_at is null"
+asset_disposal|资产处置审批（出售 / 报废 / 盘亏）|f
+budget_approve|预算审批（编制 / 调整双分支）|f

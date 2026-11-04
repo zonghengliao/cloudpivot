@@ -1,0 +1,22 @@
+
+########## 夹具 real（仓库真迁移 /opt/cloudpivot/backend/migrations）##########
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+ok=True level=BLOCKER
+V0193+ 共 5 处 INSERT 列清单全部含 is_system；历史遗留 4 处已由后续迁移补偿：V0209__erp_contract_approval.up.sql:91 contract_approve → 已由 V0220 补偿；V0211__erp_stock_take.up.sql:299 stock_take_post → 已由 V0220 补偿；V0228__erp_budget_approval_flow.up.sql:48 budget_approve → 已由 V0233 补偿；V0231__erp_asset_disposal_flow.up.sql:33 asset_disposal → 已由 V0233 补偿
+
+########## 夹具 bad（/root/.hermes/profiles/backend-developer/cache/scratch/tmp.7e3FOPp13b/bad）##########
+  🚨 [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+        1 处漏写 is_system（客户可改身份露出、模板列表里静默消失）：V0240__bad_seed.up.sql:2 flow_code=fake_seed_flow → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）
+ok=False level=BLOCKER
+1 处漏写 is_system（客户可改身份露出、模板列表里静默消失）：V0240__bad_seed.up.sql:2 flow_code=fake_seed_flow → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）
+
+########## 夹具 ok（/root/.hermes/profiles/backend-developer/cache/scratch/tmp.7e3FOPp13b/ok）##########
+  ✅ [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+ok=True level=BLOCKER
+V0193+ 共 1 处 INSERT 列清单全部含 is_system
+
+########## 夹具 implicit（/root/.hermes/profiles/backend-developer/cache/scratch/tmp.7e3FOPp13b/implicit）##########
+  🚨 [审批] H6 预置流程种子的 INSERT 必须显式写 is_system（或由后续迁移补偿）
+        1 处漏写 is_system（客户可改身份露出、模板列表里静默消失）：V0241__implicit_seed.up.sql:2 列清单隐式（INSERT 后没有括号列清单，无法静态确认写了 is_system） → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）
+ok=False level=BLOCKER
+1 处漏写 is_system（客户可改身份露出、模板列表里静默消失）：V0241__implicit_seed.up.sql:2 列清单隐式（INSERT 后没有括号列清单，无法静态确认写了 is_system） → 种子里显式写 is_system=TRUE；已经应用的迁移不许改，请新开一条迁移按 flow_code 补标（照 V0220 / V0233 的写法）
