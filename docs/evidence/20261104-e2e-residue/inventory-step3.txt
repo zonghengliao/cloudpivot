@@ -1,0 +1,130 @@
+Pager usage is off.
+===== P. 测试残留口径（与 biz_type_domain.py is_test_residue 一致：E2E_* 或 D2_SMOKE）=====
+ tbl | residue | e2e | d2 | residue_live 
+-----+---------+-----+----+--------------
+ def |      85 |  82 |  3 |            0
+(1 row)
+
+   tbl    | residue | residue_live 
+----------+---------+--------------
+ instance |      37 |           37
+(1 row)
+
+===== Q. 待删 def（85）对应的版本/节点/边 计数（含 D2_SMOKE）=====
+ defs | versions | nodes | edges | node_assignees 
+------+----------+-------+-------+----------------
+   85 |       85 |   330 |   245 |              3
+(1 row)
+
+===== Q2. 待删实例（37）子表计数 =====
+ instances | inst_nodes | tasks | ccs | biz_task_refs | prev_refs 
+-----------+------------+-------+-----+---------------+-----------
+        37 |        107 |    37 |   0 |             0 |         0
+(1 row)
+
+===== R. 待删 def 是否被非 E2E 实例引用（防串行）=====
+     flow_code      |      biz_type      |   inst_biz_type    | count 
+--------------------+--------------------+--------------------+-------
+ e2e_ap_e2emvuarcat | E2E_AP_E2EMVUARCAT | E2E_AP_E2EMVUARCAT |     1
+ e2e_ap_e2emvuarz2z | E2E_AP_E2EMVUARZ2Z | E2E_AP_E2EMVUARZ2Z |     1
+ e2e_ap_e2emvud6mfj | E2E_AP_E2EMVUD6MFJ | E2E_AP_E2EMVUD6MFJ |     1
+ e2e_ap_e2emvudhlrv | E2E_AP_E2EMVUDHLRV | E2E_AP_E2EMVUDHLRV |     1
+ e2e_ap_e2emvudimao | E2E_AP_E2EMVUDIMAO | E2E_AP_E2EMVUDIMAO |     1
+ e2e_ap_e2emvudlkwr | E2E_AP_E2EMVUDLKWR | E2E_AP_E2EMVUDLKWR |     1
+ e2e_ap_e2emvug1qdj | E2E_AP_E2EMVUG1QDJ | E2E_AP_E2EMVUG1QDJ |     1
+ e2e_ap_e2emvugec7q | E2E_AP_E2EMVUGEC7Q | E2E_AP_E2EMVUGEC7Q |     1
+ e2e_ap_e2emvugheec | E2E_AP_E2EMVUGHEEC | E2E_AP_E2EMVUGHEEC |     1
+ e2e_ap_e2emvugiuh0 | E2E_AP_E2EMVUGIUH0 | E2E_AP_E2EMVUGIUH0 |     1
+ e2e_ap_e2emvugq0th | E2E_AP_E2EMVUGQ0TH | E2E_AP_E2EMVUGQ0TH |     1
+ e2e_ap_e2emvugsllv | E2E_AP_E2EMVUGSLLV | E2E_AP_E2EMVUGSLLV |     1
+ e2e_ap_e2emvugu17v | E2E_AP_E2EMVUGU17V | E2E_AP_E2EMVUGU17V |     1
+ e2e_ap_e2emvugv4z6 | E2E_AP_E2EMVUGV4Z6 | E2E_AP_E2EMVUGV4Z6 |     1
+ e2e_ap_e2emvugx433 | E2E_AP_E2EMVUGX433 | E2E_AP_E2EMVUGX433 |     1
+ e2e_ap_e2emvugy3qw | E2E_AP_E2EMVUGY3QW | E2E_AP_E2EMVUGY3QW |     1
+ e2e_ap_e2emvuh39ta | E2E_AP_E2EMVUH39TA | E2E_AP_E2EMVUH39TA |     1
+ e2e_ap_e2emvuh65nx | E2E_AP_E2EMVUH65NX | E2E_AP_E2EMVUH65NX |     1
+ e2e_ap_e2emvuhhemk | E2E_AP_E2EMVUHHEMK | E2E_AP_E2EMVUHHEMK |     1
+ e2e_ap_e2emvuhjs3y | E2E_AP_E2EMVUHJS3Y | E2E_AP_E2EMVUHJS3Y |     1
+(20 rows)
+
+===== S. 孤儿实例普查（存活实例但流程定义已软删/不存在）—— 本卡范围外，仅记录 =====
+ orphan_live_instances 
+-----------------------
+                    53
+(1 row)
+
+       flow_code       |      biz_type      |  status   | count 
+-----------------------+--------------------+-----------+-------
+ e2e_ap_e2emvudhlrv    | E2E_AP_E2EMVUDHLRV | APPROVED  |     1
+ diag2_084848          | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvui8g6z    | E2E_AP_E2EMVUI8G6Z | APPROVED  |     1
+ e2e_reject_084913     | OTHER              | APPROVED  |     1
+ e2e_single_084624     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvuh65nx    | E2E_AP_E2EMVUH65NX | APPROVED  |     1
+ e2e_ap_e2emvuilfq4    | E2E_AP_E2EMVUILFQ4 | APPROVED  |     1
+ e2e_single_084703     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvui2jjo    | E2E_AP_E2EMVUI2JJO | APPROVED  |     1
+ e2e_ap_e2emvugu17v    | E2E_AP_E2EMVUGU17V | APPROVED  |     1
+ e2e_cs_084624         | OTHER              | APPROVED  |     1
+ vrf_cs_1030093013     | OTHER              | CANCELLED |     1
+ vrf_single_1030093013 | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvud6mfj    | E2E_AP_E2EMVUD6MFJ | APPROVED  |     1
+ e2e_ap_e2emvuh39ta    | E2E_AP_E2EMVUH39TA | APPROVED  |     1
+ e2e_reject_084642     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvuiaqvy    | E2E_AP_E2EMVUIAQVY | APPROVED  |     1
+ e2e_reject_084624     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvug1qdj    | E2E_AP_E2EMVUG1QDJ | APPROVED  |     1
+ e2e_ap_e2emvugiuh0    | E2E_AP_E2EMVUGIUH0 | APPROVED  |     1
+ e2e_ap_e2emvuarcat    | E2E_AP_E2EMVUARCAT | WITHDRAWN |     1
+ e2e_ap_e2emvugsllv    | E2E_AP_E2EMVUGSLLV | APPROVED  |     1
+ e2e_single_084642     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvuhzwne    | E2E_AP_E2EMVUHZWNE | WITHDRAWN |     1
+ e2e_ap_e2emvugv4z6    | E2E_AP_E2EMVUGV4Z6 | APPROVED  |     1
+ e2e_ap_e2emvuhm4d7    | E2E_AP_E2EMVUHM4D7 | APPROVED  |     1
+ e2e_ap_e2emvui6irl    | E2E_AP_E2EMVUI6IRL | WITHDRAWN |     1
+ e2e_single_084913     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvuiish7    | E2E_AP_E2EMVUIISH7 | APPROVED  |     1
+ e2e_ap_e2emvumjhst    | E2E_AP_E2EMVUMJHST | APPROVED  |     1
+ e2e_ap_e2emvuigdym    | E2E_AP_E2EMVUIGDYM | APPROVED  |     1
+ e2e_cs_084642         | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvuhou9k    | E2E_AP_E2EMVUHOU9K | APPROVED  |     1
+ e2e_ap_e2emvugec7q    | E2E_AP_E2EMVUGEC7Q | APPROVED  |     1
+ e2e_ap_e2emvudimao    | E2E_AP_E2EMVUDIMAO | APPROVED  |     1
+ e2e_ap_e2emvudlkwr    | E2E_AP_E2EMVUDLKWR | APPROVED  |     1
+ e2e_ap_e2emvugheec    | E2E_AP_E2EMVUGHEEC | APPROVED  |     1
+ e2e_reject_084703     | OTHER              | APPROVED  |     1
+ e2e_ap_e2emvvvdf01    | E2E_AP_E2EMVVVDF01 | APPROVED  |     1
+ e2e_ap_e2emvuhxqwa    | E2E_AP_E2EMVUHXQWA | APPROVED  |     1
+(40 rows)
+
+===== T. 存活 def 指纹基线（11 条，删除前后必须逐字节一致）=====
+ keepers |           fingerprint            
+---------+----------------------------------
+      11 | 7fcb32a38a193135a8a7e370db1839d5
+(1 row)
+
+ keeper_versions 
+-----------------
+              16
+(1 row)
+
+ keeper_nodes 
+--------------
+           87
+(1 row)
+
+ keeper_edges 
+--------------
+           89
+(1 row)
+
+===== U. 各表当前总量（对账用）=====
+ def | ver | node | edge | asg | inst | inode | task | cc | slog | btask 
+-----+-----+------+------+-----+------+-------+------+----+------+-------
+ 143 | 151 |  547 |  412 |  51 |  165 |   476 |  191 |  0 |  113 |   846
+(1 row)
+
+===== V. 迁移版本（记录基线）=====
+psql:/tmp/inv_step3.sql:58: ERROR:  relation "_sqlx_migrations" does not exist
+LINE 1: select version, description, success from _sqlx_migrations o...
+                                                  ^

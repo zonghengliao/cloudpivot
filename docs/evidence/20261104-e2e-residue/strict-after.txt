@@ -1,0 +1,20 @@
+==============================================================================
+业务类型词表值域巡检 —— 14 列 / 358 行（库 cloudpivot@127.0.0.1:5432/cloudpivot）
+==============================================================================
+[PASS] ① 业务对象      biz_status_log.entity_type               取值 9 种
+[PASS] ① 业务对象      biz_doc_attachment.doc_type              取值 0 种
+[PASS] ① 业务对象      biz_reminder_log.doc_type                取值 0 种
+[PASS] ② 审批动作      biz_flow_def.biz_type                    取值 11 种
+[PASS] ② 审批动作      biz_flow_instance.biz_type               取值 7 种
+[PASS] ③ 库存变动动作  biz_inventory_txn.biz_type               取值 7 种
+[PASS] ③ 库存变动动作  biz_voucher_rule.biz_type                取值 1 种
+[PASS] ④ 流水来源单据  biz_inventory_txn.doc_type               取值 5 种
+[PASS] ⑤ 凭证来源      biz_voucher.source_type                  取值 2 种
+[PASS] ⑤ 凭证来源      biz_payable.source_type                  取值 1 种
+[PASS] ⑥ 序列号来源    biz_material_serial.source_type          取值 0 种
+[PASS] ⑦ 单据子类型    biz_stock_in.in_type                     取值 1 种
+[PASS] ⑦ 单据子类型    biz_stock_out.out_type                   取值 3 种
+[PASS] ⑦ 单据子类型    biz_stock_take.take_type                 取值 0 种
+------------------------------------------------------------------------------
+结果：PASS（所有列的值都在 doc_kind.rs 的词表域内）
+STRICT_EXIT=0

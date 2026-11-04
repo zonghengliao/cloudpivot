@@ -16,6 +16,12 @@
 
 夹具：三张采购单（`D1-E2E-*`）+ 一行配置，跑完全部清理（打印清理后的计数）。
 """
+
+# ---- E2ERES 环境守卫（t_61dca492）：e2e 不许打到生产库，库名是生产就直接退出 ----
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from db_guard import require_non_prod as _require_non_prod  # noqa: E402
+_require_non_prod(script=_os.path.basename(__file__))
 import json
 import os
 import subprocess

@@ -1,0 +1,35 @@
+==> 备份目标：/root/datafix-backup-e2eres-20261104-162243
+==> 目标库：cloudpivot @ 127.0.0.1:5432（user=cloudpivot）
+==> ① pg_dump 9 张 flow 表 + 审计表 + biz_task
+==> ② 删除前计数
+db=cloudpivot host=127.0.0.1 port=5432 user=cloudpivot ts=20261104-162243
+biz_flow_def|total=143|residue=85
+biz_flow_instance|total=165|residue=37
+biz_flow_task|total=191
+biz_status_log|total=113
+alive_flow_def|11
+==> ③ 导出「即将被删的行」（CSV，含表头）
+COPY 85
+    target/biz_flow_def.csv -> 86 行（含表头）
+COPY 85
+    target/biz_flow_def_version.csv -> 86 行（含表头）
+COPY 330
+    target/biz_flow_node.csv -> 331 行（含表头）
+COPY 3
+    target/biz_flow_node_assignee.csv -> 4 行（含表头）
+COPY 245
+    target/biz_flow_edge.csv -> 246 行（含表头）
+COPY 37
+    target/biz_flow_instance.csv -> 38 行（含表头）
+COPY 107
+    target/biz_flow_instance_node.csv -> 108 行（含表头）
+COPY 37
+    target/biz_flow_task.csv -> 38 行（含表头）
+COPY 0
+    target/biz_flow_cc.csv -> 1 行（含表头）
+COPY 0
+    target/biz_status_log_residue.csv -> 1 行（含表头）
+COPY 113
+==> ④ MANIFEST（md5）
+==> 备份完成：/root/datafix-backup-e2eres-20261104-162243
+    （回滚兜底：pg_restore -d cloudpivot /root/datafix-backup-e2eres-20261104-162243/flow_tables.dump）

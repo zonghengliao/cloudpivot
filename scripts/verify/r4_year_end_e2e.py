@@ -27,6 +27,12 @@ python3 scripts/verify/r4_year_end_e2e.py
    - 下年期初 = 本年期末、损益类归零、且**不生成** 2042-01 的 OPENING 凭证（否则双计）。
 """
 
+# ---- E2ERES 环境守卫（t_61dca492）：e2e 不许打到生产库，库名是生产就直接退出 ----
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from db_guard import require_non_prod as _require_non_prod  # noqa: E402
+_require_non_prod(script=_os.path.basename(__file__))
+
 import json
 import os
 import subprocess

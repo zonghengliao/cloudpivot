@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { newApi, readSharedToken, RUN, type Api } from './support';
+import { classifyTarget } from './target-guard.mjs';
 
 /**
  * 专项 4：**徽标联动**（公告 / 消息 / 审批 / 任务）。
@@ -14,7 +15,19 @@ import { newApi, readSharedToken, RUN, type Api } from './support';
  * 建流程 → 发布 → 发起 → 同意）在 03 / 05 两条 e2e 里已经全 UI 覆盖了；这里验的是
  * 「业务状态变了，徽标是否跟着变」这一层联动，用接口造/推状态更稳，也不会因为拖拽
  * 偶发波动把徽标的结论带歪。
+ *
+ * ⚠️ **本用例只许在隔离实例上跑**（`t_61dca492`）：审批那条链路会在库里造
+ * `biz_type = E2E_AP_<随机>` 的流程定义与实例，而实例没有删除接口 —— 生产库现有的
+ * 37 条残留实例就是这么来的。目标不是隔离实例（含 `E2E_ALLOW_PROD=1` 放行的线上验收）
+ * 就直接 skip，一行数据都不造。
  */
+const TARGET = classifyTarget(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5189');
+test.skip(
+  !TARGET.isolated,
+  `目标 ${TARGET.url} 不是隔离实例（${TARGET.reason}）：本用例会造 E2E_AP_* 流程定义与实例，` +
+    '只允许在隔离实例上跑（bash scripts/verify/e2e_isolated_instance.sh）',
+);
+
 const headers = () => ({ Authorization: `Bearer ${readSharedToken()}` });
 
 interface BadgeCounts {

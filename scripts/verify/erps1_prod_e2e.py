@@ -14,6 +14,12 @@
   ⑤ 结算方式字典 pay_method 7 项
 自清理：脚本自己造的物料 / 单位全部软删 + 物理清掉（只删本脚本前缀的行）。
 """
+
+# ---- E2ERES 环境守卫（t_61dca492）：e2e 不许打到生产库，库名是生产就直接退出 ----
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from db_guard import require_non_prod as _require_non_prod  # noqa: E402
+_require_non_prod(script=_os.path.basename(__file__))
 import json
 import os
 import subprocess

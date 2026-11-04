@@ -1,0 +1,13 @@
+login ok: admin（口令来自 /etc/cloudpivot/cloudpivot.env）
+GET /business/erp/approval-flow/health -> HTTP 200
+checked_at=2026-11-04T08:29:41.212219960+00:00 total=8 healthy=8 unhealthy=0
+  OK  PO_APPROVE         published=True ver=2 graph_ok=True issues=[]
+  OK  STOCK_IN_POST      published=True ver=1 graph_ok=True issues=[]
+  OK  STOCK_IN_CANCEL    published=True ver=1 graph_ok=True issues=[]
+  OK  PAYABLE_PAY        published=True ver=1 graph_ok=True issues=[]
+  OK  PAYABLE_CANCEL     published=True ver=1 graph_ok=True issues=[]
+  OK  VOUCHER_REVERSE    published=True ver=1 graph_ok=True issues=[]
+  OK  STOCK_TRANSFER     published=True ver=1 graph_ok=True issues=[]
+  OK  TASK_ACCEPT        published=True ver=1 graph_ok=True issues=[]
+test_residue=(该版本还没有这个字段)
+EXIT=0

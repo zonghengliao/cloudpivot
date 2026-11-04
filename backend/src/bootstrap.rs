@@ -57,7 +57,34 @@ pub async fn bootstrap() {
         preflight_permission_guard(),
         ai_agent_invariant_guard(),
         orphan_dependency_guard(),
+        test_residue_guard(),
     );
+}
+
+/// 启动自检：库里有没有 **e2e 测试残留**（`t_61dca492`）。
+///
+/// # 为什么只 WARN、不拒启动
+///
+/// 残留（`biz_type` = `E2E_*` / `D2_SMOKE` 的流程定义 / 实例）不影响任何业务读写，
+/// 它污染的是「词表巡检的返回码」和「管理员在审批中心看到的东西」。
+/// 为它拒绝上线，代价远大于收益（而且清残留本身有专门的 datafix 脚本 + 回滚）。
+/// 与 [`ai_agent_invariant_guard`] 刻意不同：那一项错的是权限与审计口径，
+/// 带病上线比不启动更危险。
+///
+/// 详情同时从 `GET /business/erp/approval-flow/health` 的 `test_residue` 字段可取
+/// （给运维一个「不用翻日志」的入口）。
+///
+/// # 异常情况
+///
+/// 查库失败（连不上 / 权限不足）只记 `warn` 并继续启动。
+async fn test_residue_guard() {
+    match crate::shared::startup_guard::count_test_residue().await {
+        Ok(residue) => match crate::shared::startup_guard::test_residue_warning(residue) {
+            Some(message) => tracing::warn!("{message}"),
+            None => tracing::info!("测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"),
+        },
+        Err(error) => tracing::warn!("测试残留自检无法完成（继续启动）：{error}"),
+    }
 }
 
 /// 启动自检：孤儿任务依赖（E7 兜底告警）。

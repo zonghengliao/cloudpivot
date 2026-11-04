@@ -1,0 +1,145 @@
+# 守卫真机验证（2026-11-04，144 上跑，副本库，不碰生产）
+
+## 1. Python 侧 `scripts/verify/db_guard.py`
+
+```
+$ python3 scripts/verify/db_guard.py --self-test
+[ok  ] db='cloudpivot'               host=-          port=-     prod=True want=True
+[ok  ] db='cloudpivot_prod'          host=-          port=-     prod=True want=True
+[ok  ] db='prod_erp'                 host=-          port=-     prod=True want=True
+[ok  ] db='prod'                     host=-          port=-     prod=True want=True
+[ok  ] db='cloudpivot_d2v'           host=-          port=-     prod=False want=False
+[ok  ] db='cloudpivot_e2eres_drill'  host=-          port=-     prod=False want=False
+[ok  ] db='cp_dc01_e2e'              host=-          port=-     prod=False want=False
+[ok  ] db='cloudpivot_test_9476'     host=-          port=-     prod=False want=False
+[ok  ] db=''                         host=-          port=-     prod=True want=True     ← fail-closed
+[ok  ] db='postgres'                 host=127.0.0.1  port=5432  prod=True want=True
+[ok  ] db='postgres'                 host=10.0.0.5   port=5432  prod=False want=False
+---- self-test：11/11 通过 ----
+
+$ python3 scripts/verify/db_guard.py --check cloudpivot
+!! [db-guard] 拒绝执行：库名 == 生产库名 cloudpivot（内置兜底（/etc/cloudpivot/cloudpivot.env 不存在或没有 NIK_DATABASE_NAME））
+… → 退出码 3
+
+$ python3 scripts/verify/db_guard.py --check cloudpivot_d2v
+[db-guard] OK 目标库 cloudpivot_d2v（库名 cloudpivot_d2v 不是生产库）  → 退出码 0
+```
+
+插桩到 39 个 `scripts/verify/*e2e*.py` + `common.py` 之后的行为（实测）：
+
+```
+$ DB_NAME=cloudpivot python3 scripts/verify/p9_cancel_e2e.py
+!! [db-guard] 拒绝执行：库名 == 生产库名 cloudpivot …
+$ echo $?
+3
+
+$ NIK_DATABASE_NAME=cloudpivot python3 scripts/verify/d2_linkage_e2e.py     # source 生产 env 的写法
+!! [db-guard] 拒绝执行：库名 == 生产库名 cloudpivot …
+（两条都在**任何网络/数据库动作之前**退出）
+
+$ E2E_ALLOW_PROD=1 E2E_PROD_REASON='t_61dca492 生产只读核对（测试用）' DB_NAME=cloudpivot python3 scripts/verify/p9_cancel_e2e.py
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! [db-guard] 已按 E2E_ALLOW_PROD=1 放行生产库：cloudpivot
+!! 脚本：p9_cancel_e2e.py
+!! 原因：t_61dca492 生产只读核对（测试用）
+!! 判据结论：库名 == 生产库名 cloudpivot（内置兜底…）
+!! 跑完必须清掉自己造的夹具，并复跑：
+!!   python3 scripts/verify/biz_type_domain.py --strict
+!!   python3 scripts/verify/e2e_fixture_residue.py
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+（随后才继续执行脚本本体；同时 append 到 /tmp/e2e-prod-target.log）
+```
+
+`common.py` 的库名默认值也改掉了（原来默认取服务 env 文件的 `ALUN_DATABASE_NAME` = 生产库名）：
+
+```
+② common.py 导入（无全局库名变量）： DB_NAME= cloudpivot_test   [db-guard] OK …
+③ common.py 导入（DB_NAME=cloudpivot）：exit= 3 | 拒绝= True
+```
+
+## 2. 浏览器侧 `frontend/e2e/target-guard.mjs`（既有，卡 `t_d75b02e7`；本卡复核 + 补一道）
+
+```
+$ node e2e/target-guard.mjs --check http://172.18.10.144
+REFUSED http://172.18.10.144 — 命中已知线上/共享目标：prod（144：nginx 80 → 后端 8023，线上唯一实例）   ← exit 1
+$ node e2e/target-guard.mjs --check http://127.0.0.1:5189
+OK http://127.0.0.1:5189 — 回环 + 隔离端口 5189                                                        ← exit 0
+$ node e2e/target-guard.mjs --check http://127.0.0.1:8023
+REFUSED http://127.0.0.1:8023 — 端口 8023 是共享/默认服务端口 …                                       ← exit 1
+```
+
+**补的一道**（本卡）：造流程定义的 2 条 spec 自己再加「非隔离目标直接 skip」——
+`E2E_ALLOW_PROD=1` 放行的是**页面走查**，不该包括「在生产库造 `E2E_AP_*` 流程 + 实例」
+（`afterAll` 只能软删定义，实例没有删除接口 —— 生产那 37 条就是这么留下的）。
+
+真跑验证（用 127.0.0.1:3000 的最小登录桩，桩只应答 `/api/system/auth/login`，其它一律 418，
+所以「跳过失效」也造不出任何数据）：
+
+```
+$ E2E_ALLOW_PROD=1 E2E_PROD_REASON='t_61dca492 验证 skip 守卫（桩）' E2E_BASE_URL=http://127.0.0.1:3000 \
+  npx playwright test e2e/05-approval.spec.ts e2e/33-badge-linkage.spec.ts
+Running 5 tests using 1 worker
+  -  1 [chromium] › e2e/05-approval.spec.ts:83:3 › 流程5 审批待办 → 同意 › 待办卡片 → 详情 → 填意见 → 同意 → 状态变化
+  -  2 [chromium] › e2e/33-badge-linkage.spec.ts:99:3 › 专项4 徽标联动 › 徽标口径一致：…
+  -  3 [chromium] › e2e/33-badge-linkage.spec.ts:127:3 › 专项4 徽标联动 › 消息已读 → 消息中心徽标 -1
+  -  4 [chromium] › e2e/33-badge-linkage.spec.ts:171:3 › 专项4 徽标联动 › 任务流转 → 工作任务徽标 -1
+  -  5 [chromium] › e2e/33-badge-linkage.spec.ts:195:3 › 专项4 徽标联动 › 审批处理 → 审批中心徽标 -1
+
+  5 skipped
+```
+
+（这 5 条在「隔离实例」下照常执行 —— skip 条件就是 `!TARGET.isolated`。）
+
+## 3. 服务端：启动 WARN + `/health.test_residue`
+
+新二进制（本卡改动的 debug build）起在 **生产库副本** `cloudpivot_e2eres_local`（18097），
+副本里手工塞 1 行 `biz_type='E2E_VERIFY'` 的流程定义：
+
+```
+# ① 启动日志（副本有 1 行残留）
+2026-11-04T08:47:07.017Z  INFO nik_db::factory: database connection established db_type=postgres
+                          url=postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_e2eres_local?sslmode=prefer
+2026-11-04T08:47:07.245Z  WARN cloudpivot::bootstrap: 发现 1 条测试残留流程定义 + 0 条测试残留流程实例
+                          （biz_type = E2E_* / D2_SMOKE，未软删）。有 e2e / 验收脚本被打到了本库
+                          （库 cloudpivot_e2eres_local）。不阻断业务，但会让词表巡检 --strict 常年红：
+                          清理走 scripts/datafix/e2e_residue/apply.sh（自带备份闸 + 快照回滚），
+                          清完复跑 scripts/verify/biz_type_domain.py --strict 应为 PASS。
+
+# ② GET /api/business/erp/approval-flow/health
+HTTP 200  total=8 healthy=8 unhealthy=0
+test_residue={"defs": 1, "instances": 0, "message": "发现 1 条测试残留流程定义 + 0 条测试残留流程实例…"}
+      ← healthy/unhealthy 不受影响（8/8 仍是 8/8）
+
+# ③ 删掉那行残留，**同一个进程**再查（证明是实时查库，不是启动时缓存）
+DELETE 1
+HTTP 200  total=8 healthy=8 unhealthy=0
+test_residue={"defs": 0, "instances": 0, "message": "测试残留 0 行：biz_flow_def / biz_flow_instance 里没有 E2E_* / D2_SMOKE 活行"}
+
+# ④ 重启（残留已删）
+2026-11-04T08:54:08.836Z  INFO cloudpivot::bootstrap: 测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE
+```
+
+验证完：副本库已 `dropdb`、临时 profile 配置已移走、进程已停；
+生产库复核 `live_def=11 / inst=128 / slog=113 / defs=58` 与清理后一致（这条验证没有碰生产）。
+
+### 踩过的两个坑（已写进 `/tmp/e2eres_guard_verify.sh` 注释）
+
+1. 二进制必须在 `/opt/cloudpivot/backend` 下起（配置相对 cwd），否则读不到 `[database]`，
+   启动后 `db()` 为空 → `vendor/nik-web/src/resources.rs:137` panic。
+2. 自造 profile（`config-e2eres.toml`）**不生效**：nik-config 只认已知 profile，
+   会静默回落到 `config.toml` 的 `name = "cloudpivot"` —— **那就是连上生产库**（第一次真发生了，
+   日志里 `url=.../cloudpivot` 抓到，已停并要求脚本自检实际连接串）。
+   正确姿势：`NIK_PROFILE=test NIK_DATABASE_NAME=<副本> cd backend && ./binary`，
+   且脚本必须从日志里核对 `url=` 指向副本库，不是就立刻退出。
+
+## 4. 单元测试（新代码）
+
+```
+$ CARGO_TARGET_DIR=/root/e2eres-target cargo test --lib -- shared::startup_guard::tests --test-threads=1
+test result: ok. 26 passed; 0 failed   （含新增 test_residue_clean_is_silent /
+                                       test_residue_warning_names_both_counts /
+                                       test_residue_partial_counts_still_warn）
+
+$ CARGO_TARGET_DIR=/root/e2eres-target cargo test --lib -- doc_kind --test-threads=1
+test result: ok. 17 passed; 0 failed   （含新增 test_residue_predicate_matches_python_and_sql）
+```

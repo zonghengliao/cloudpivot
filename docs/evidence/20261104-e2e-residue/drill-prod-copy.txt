@@ -1,0 +1,58 @@
+==============================================================
+ E2ERES 演练：cloudpivot (只读快照) → cloudpivot_e2eres_drill
+ 临时目录：/tmp/e2eres-drill-20261104-162234
+==============================================================
+==> ① 建演练库 cloudpivot_e2eres_drill（从 cloudpivot 全量 dump 还原）
+    （库已存在 → 先删）
+==> ② 演练前指纹（副本）
+    asg=80659622bd44a11545bb10a94d29253f cc=(empty) def=30ce6ab06356ccb1b40be4d1d7ae8c15 edge=284285cec8e577561aa80dc432592cee inode=e09fa8c81bbe2b20f4e8d9957e4297a8 inst=90cf26c26e3a07faab045465ba020e52 node=4b9e00c8f166aa50c78262ff523feb19 slog=d3d2fe21eba65c198133873f2db66845 task=f58d9ae06f87de2b37f9b8cb9090fb75 ver=8a14207ba60b80574d851c106cfef2dc
+==> ③ 演练库也走一遍 00_backup.sh（apply 的备份闸要有本库备份）
+    /root/datafix-backup-e2eres-20261104-162235
+==> ④ up #1（真删）
+PASS|orphan_biz_flow_edge|0 条边没有父版本
+PASS|orphan_biz_flow_instance|0 个实例没有父定义
+PASS|orphan_biz_flow_instance_node|0 个实例节点没有父实例
+PASS|orphan_biz_flow_task|0 条待办没有父实例
+PASS|orphan_biz_flow_cc|0 条抄送没有父实例
+PASS|alive_flow_def|实际 11 条（基线 11）
+PASS|keepers_fingerprint|7fcb32a38a193135a8a7e370db1839d5
+PASS|keeper_versions|16 行
+PASS|keeper_nodes|87 行
+PASS|keeper_edges|89 行
+PASS|count_biz_flow_def|actual=58 expected=58
+PASS|count_biz_flow_def_version|actual=66 expected=66
+PASS|count_biz_flow_node|actual=217 expected=217
+PASS|count_biz_flow_edge|actual=167 expected=167
+PASS|count_biz_flow_node_assignee|actual=48 expected=48
+PASS|count_biz_flow_instance|actual=128 expected>=128
+PASS|count_biz_flow_instance_node|actual=369 expected>=369
+PASS|count_biz_flow_task|actual=154 expected>=154
+PASS|biz_status_log_untouched|实际 113 行
+WARN|out_of_scope_deleted_e2e_like_defs|36 条软删定义的 flow_code 带 e2e/diag/vrf/d5/acc 前缀（biz_type 是业务值，本卡不判垃圾）
+WARN|out_of_scope_orphan_instances|16 条存活实例的流程定义已软删（清场前 53，其中 37 条是本卡删掉的 E2E 实例）
+---- 自检：无 FAIL（WARN 见上）----
+---- 现状快照 ----
+alive_flow_def        = 11
+residue_def(测试残留) = 0
+residue_instance      = 0
+instance PENDING(全部) = 1
+biz_status_log        = 113
+各表总量 def/ver/node/edge/asg/inst/inode/task/cc = 58/66/217/167/48/128/369/154/0
+==> E2ERES apply 结束（2026-11-04 16:22:36）
+    删除后指纹：asg=804779c874f163fe265ee5413cd651f7 cc=(empty) def=610b26b207d637da4758dcae6bedf5f3 edge=d934632e014c166780a8c4e5fd35dbb5 inode=7e21fde14dba5ccab05aa7af9d3eff56 inst=1706f554861f496ef188396cb1d783c7 node=1799cec93238f598da013a6ab3f1d3cf slog=d3d2fe21eba65c198133873f2db66845 task=cb21f9878c401be4a7f34635aa45e033 ver=75d7b0a28e07261e3c9615664a4f32c6
+==> ⑤ up #2（幂等：应 0 行受影响）
+    up #2 幂等 OK
+==> ⑥ down（按快照整行写回）
+    回滚后指纹：asg=80659622bd44a11545bb10a94d29253f cc=(empty) def=30ce6ab06356ccb1b40be4d1d7ae8c15 edge=284285cec8e577561aa80dc432592cee inode=e09fa8c81bbe2b20f4e8d9957e4297a8 inst=90cf26c26e3a07faab045465ba020e52 node=4b9e00c8f166aa50c78262ff523feb19 slog=d3d2fe21eba65c198133873f2db66845 task=f58d9ae06f87de2b37f9b8cb9090fb75 ver=8a14207ba60b80574d851c106cfef2dc
+    回滚指纹逐表一致（9 张 flow 表 + biz_status_log）
+==> ⑦ 再 up 一次（证明回滚后还能重来）
+    up #3 OK
+==> ⑧ 清掉演练库 cloudpivot_e2eres_drill
+
+================ 演练结论 ================
+① up 生效            ：指纹已变化（副本上删掉了测试残留）
+② up 幂等            ：第二次 0 行受影响
+③ down 原样恢复      ：9 张 flow 表 + biz_status_log 指纹逐字节等于演练前
+④ 回滚后可重来       ：up #3 自检无 FAIL
+日志：/tmp/e2eres-drill-20261104-162234
+演练库备份：/root/datafix-backup-e2eres-20261104-162235（确认不需要后可删）

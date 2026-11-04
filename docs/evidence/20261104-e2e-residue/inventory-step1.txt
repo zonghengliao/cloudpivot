@@ -1,0 +1,876 @@
+Pager usage is off.
+===== 0. 环境 =====
+     db     |    usr     |                                                                  ver                                                                  
+------------+------------+---------------------------------------------------------------------------------------------------------------------------------------
+ cloudpivot | cloudpivot | PostgreSQL 18.6 (Ubuntu 18.6-0ubuntu0.26.04.1) on aarch64-unknown-linux-gnu, compiled by gcc (Ubuntu 15.2.0-16ubuntu1) 15.2.0, 64-bit
+(1 row)
+
+===== 1. biz_flow_instance 里 E2E% 按 biz_type/status/deleted 分组 =====
+      biz_type      |  status   | live | count 
+--------------------+-----------+------+-------
+ E2E_AP_E2EMVUARCAT | WITHDRAWN | t    |     1
+ E2E_AP_E2EMVUARZ2Z | APPROVED  | t    |     1
+ E2E_AP_E2EMVUD6MFJ | APPROVED  | t    |     1
+ E2E_AP_E2EMVUDHLRV | APPROVED  | t    |     1
+ E2E_AP_E2EMVUDIMAO | APPROVED  | t    |     1
+ E2E_AP_E2EMVUDLKWR | APPROVED  | t    |     1
+ E2E_AP_E2EMVUG1QDJ | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGEC7Q | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGHEEC | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGIUH0 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGQ0TH | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGSLLV | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGU17V | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGV4Z6 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGX433 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUGY3QW | WITHDRAWN | t    |     1
+ E2E_AP_E2EMVUH39TA | APPROVED  | t    |     1
+ E2E_AP_E2EMVUH65NX | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHHEMK | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHJS3Y | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHM4D7 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHOU9K | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHT4EP | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHW2P8 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHXQWA | APPROVED  | t    |     1
+ E2E_AP_E2EMVUHZWNE | WITHDRAWN | t    |     1
+ E2E_AP_E2EMVUI2JJO | APPROVED  | t    |     1
+ E2E_AP_E2EMVUI6IRL | WITHDRAWN | t    |     1
+ E2E_AP_E2EMVUI8G6Z | APPROVED  | t    |     1
+ E2E_AP_E2EMVUIAQVY | APPROVED  | t    |     1
+ E2E_AP_E2EMVUIEG1U | APPROVED  | t    |     1
+ E2E_AP_E2EMVUIGDYM | APPROVED  | t    |     1
+ E2E_AP_E2EMVUIISH7 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUILFQ4 | APPROVED  | t    |     1
+ E2E_AP_E2EMVUMJHST | APPROVED  | t    |     1
+ E2E_AP_E2EMVVVDF01 | APPROVED  | t    |     1
+ E2E_AP_E2EMVVVNYNA | APPROVED  | t    |     1
+(37 rows)
+
+===== 1b. biz_flow_instance E2E 总数 / 全表总数 =====
+ e2e_all | e2e_live | all_rows | live_rows 
+---------+----------+----------+-----------
+      37 |       37 |      165 |       165
+(1 row)
+
+===== 2. biz_flow_def 里 E2E% 按 biz_type/status/live =====
+      biz_type      |     flow_code      |  status   | live | count 
+--------------------+--------------------+-----------+------+-------
+ E2E_AP_E2EMVUARCAT | e2e_ap_e2emvuarcat | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUARZ2Z | e2e_ap_e2emvuarz2z | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUD6MFJ | e2e_ap_e2emvud6mfj | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUDHLRV | e2e_ap_e2emvudhlrv | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUDIMAO | e2e_ap_e2emvudimao | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUDLKWR | e2e_ap_e2emvudlkwr | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUG1QDJ | e2e_ap_e2emvug1qdj | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGEC7Q | e2e_ap_e2emvugec7q | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGHEEC | e2e_ap_e2emvugheec | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGIUH0 | e2e_ap_e2emvugiuh0 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGQ0TH | e2e_ap_e2emvugq0th | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGSLLV | e2e_ap_e2emvugsllv | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGU17V | e2e_ap_e2emvugu17v | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGV4Z6 | e2e_ap_e2emvugv4z6 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGX433 | e2e_ap_e2emvugx433 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUGY3QW | e2e_ap_e2emvugy3qw | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUH39TA | e2e_ap_e2emvuh39ta | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUH65NX | e2e_ap_e2emvuh65nx | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHHEMK | e2e_ap_e2emvuhhemk | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHJS3Y | e2e_ap_e2emvuhjs3y | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHM4D7 | e2e_ap_e2emvuhm4d7 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHOU9K | e2e_ap_e2emvuhou9k | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHT4EP | e2e_ap_e2emvuht4ep | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHW2P8 | e2e_ap_e2emvuhw2p8 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHXQWA | e2e_ap_e2emvuhxqwa | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUHZWNE | e2e_ap_e2emvuhzwne | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUI2JJO | e2e_ap_e2emvui2jjo | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUI6IRL | e2e_ap_e2emvui6irl | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUI8G6Z | e2e_ap_e2emvui8g6z | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUIAQVY | e2e_ap_e2emvuiaqvy | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUIEG1U | e2e_ap_e2emvuieg1u | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUIGDYM | e2e_ap_e2emvuigdym | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUIISH7 | e2e_ap_e2emvuiish7 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUILFQ4 | e2e_ap_e2emvuilfq4 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVUMJHST | e2e_ap_e2emvumjhst | PUBLISHED | f    |     1
+ E2E_AP_E2EMVVVDF01 | e2e_ap_e2emvvvdf01 | PUBLISHED | f    |     1
+ E2E_AP_E2EMVVVNYNA | e2e_ap_e2emvvvnyna | PUBLISHED | f    |     1
+ E2E_E2EMVUARZ2Z    | e2e_e2emvuarz2z    | PUBLISHED | f    |     1
+ E2E_E2EMVUD6MFJ    | e2e_e2emvud6mfj    | PUBLISHED | f    |     1
+ E2E_E2EMVUDHLRV    | e2e_e2emvudhlrv    | PUBLISHED | f    |     1
+ E2E_E2EMVUDIMAO    | e2e_e2emvudimao    | PUBLISHED | f    |     1
+ E2E_E2EMVUDLKWR    | e2e_e2emvudlkwr    | PUBLISHED | f    |     1
+ E2E_E2EMVUG19O2    | e2e_e2emvug19o2    | DRAFT     | f    |     1
+ E2E_E2EMVUG30WV    | e2e_e2emvug30wv    | DRAFT     | f    |     1
+ E2E_E2EMVUG9O5I    | e2e_e2emvug9o5i    | DRAFT     | f    |     1
+ E2E_E2EMVUGBR1I    | e2e_e2emvugbr1i    | PUBLISHED | f    |     1
+ E2E_E2EMVUGEC7Q    | e2e_e2emvugec7q    | PUBLISHED | f    |     1
+ E2E_E2EMVUGFRBD    | e2e_e2emvugfrbd    | DRAFT     | f    |     1
+ E2E_E2EMVUGGBTC    | e2e_e2emvuggbtc    | PUBLISHED | f    |     1
+ E2E_E2EMVUGHEEC    | e2e_e2emvugheec    | PUBLISHED | f    |     1
+ E2E_E2EMVUGIUH0    | e2e_e2emvugiuh0    | PUBLISHED | f    |     1
+ E2E_E2EMVUGJXXA    | e2e_e2emvugjxxa    | PUBLISHED | f    |     1
+ E2E_E2EMVUGQ0TH    | e2e_e2emvugq0th    | PUBLISHED | f    |     1
+ E2E_E2EMVUGSLLV    | e2e_e2emvugsllv    | PUBLISHED | f    |     1
+ E2E_E2EMVUGU17V    | e2e_e2emvugu17v    | PUBLISHED | f    |     1
+ E2E_E2EMVUGV4Z6    | e2e_e2emvugv4z6    | PUBLISHED | f    |     1
+ E2E_E2EMVUGX433    | e2e_e2emvugx433    | PUBLISHED | f    |     1
+ E2E_E2EMVUGY3QW    | e2e_e2emvugy3qw    | PUBLISHED | f    |     1
+ E2E_E2EMVUH39TA    | e2e_e2emvuh39ta    | PUBLISHED | f    |     1
+ E2E_E2EMVUH65NX    | e2e_e2emvuh65nx    | PUBLISHED | f    |     1
+ E2E_E2EMVUHHEMK    | e2e_e2emvuhhemk    | PUBLISHED | f    |     1
+ E2E_E2EMVUHJS3Y    | e2e_e2emvuhjs3y    | PUBLISHED | f    |     1
+ E2E_E2EMVUHM4D7    | e2e_e2emvuhm4d7    | PUBLISHED | f    |     1
+ E2E_E2EMVUHOU9K    | e2e_e2emvuhou9k    | PUBLISHED | f    |     1
+ E2E_E2EMVUHT4EP    | e2e_e2emvuht4ep    | PUBLISHED | f    |     1
+ E2E_E2EMVUHW2P8    | e2e_e2emvuhw2p8    | PUBLISHED | f    |     1
+ E2E_E2EMVUHXQWA    | e2e_e2emvuhxqwa    | PUBLISHED | f    |     1
+ E2E_E2EMVUHZWNE    | e2e_e2emvuhzwne    | PUBLISHED | f    |     1
+ E2E_E2EMVUI2JJO    | e2e_e2emvui2jjo    | PUBLISHED | f    |     1
+ E2E_E2EMVUI6IRL    | e2e_e2emvui6irl    | PUBLISHED | f    |     1
+ E2E_E2EMVUI8G6Z    | e2e_e2emvui8g6z    | PUBLISHED | f    |     1
+ E2E_E2EMVUIAQVY    | e2e_e2emvuiaqvy    | PUBLISHED | f    |     1
+ E2E_E2EMVUIDL5R    | e2e_e2emvuidl5r    | DRAFT     | f    |     1
+ E2E_E2EMVUIGDYM    | e2e_e2emvuigdym    | PUBLISHED | f    |     1
+ E2E_E2EMVUIISH7    | e2e_e2emvuiish7    | PUBLISHED | f    |     1
+ E2E_E2EMVUILFQ4    | e2e_e2emvuilfq4    | PUBLISHED | f    |     1
+ E2E_E2EMVUMJHST    | e2e_e2emvumjhst    | PUBLISHED | f    |     1
+ E2E_E2EMVVVDF01    | e2e_e2emvvvdf01    | PUBLISHED | f    |     1
+ E2E_E2EMVVVNYNA    | e2e_e2emvvvnyna    | PUBLISHED | f    |     1
+ E2E_E2EMVVX6FXM    | e2e_e2emvvx6fxm    | PUBLISHED | f    |     1
+ E2E_E2EMVVXEWV2    | e2e_e2emvvxewv2    | PUBLISHED | f    |     1
+ E2E_PROBEMVUA63EW  | e2e_probemvua63ew  | DRAFT     | f    |     1
+(82 rows)
+
+===== 2b. biz_flow_def E2E 汇总 =====
+ e2e_all | e2e_live | all_rows | live_rows 
+---------+----------+----------+-----------
+      82 |        0 |      143 |        11
+(1 row)
+
+===== 2c. biz_flow_def 全部存活行（判断哪些是真业务/客户自定义） =====
+===== 3. biz_flow_task 挂在 E2E 实例上的行数 =====
+psql:/tmp/inv_step1.sql:30: ERROR:  column "name" does not exist
+LINE 1: select id, flow_code, name, biz_type, status, (current_versi...
+                              ^
+ count 
+-------
+    37
+(1 row)
+
+===== 4. biz_status_log 里 entity_type like E2E% =====
+ entity_type | count 
+-------------+-------
+(0 rows)
+
+ e2e_status_log_rows 
+---------------------
+                   0
+(1 row)
+
+===== 5. biz_flow_def 中 biz_type 不匹配 ^[A-Z_]+$ （卡面口径） =====
+      biz_type      | count 
+--------------------+-------
+ D2_SMOKE           |     3
+ E2E_E2EMVUARZ2Z    |     1
+ E2E_AP_E2EMVVVNYNA |     1
+ E2E_AP_E2EMVUG1QDJ |     1
+ E2E_AP_E2EMVUDLKWR |     1
+ E2E_AP_E2EMVUHT4EP |     1
+ E2E_AP_E2EMVUGSLLV |     1
+ E2E_AP_E2EMVUDHLRV |     1
+ E2E_AP_E2EMVUIAQVY |     1
+ E2E_AP_E2EMVUIGDYM |     1
+ E2E_AP_E2EMVUHXQWA |     1
+ E2E_AP_E2EMVUHJS3Y |     1
+ E2E_AP_E2EMVUI6IRL |     1
+ E2E_E2EMVUDLKWR    |     1
+ E2E_E2EMVUI6IRL    |     1
+ E2E_E2EMVUHXQWA    |     1
+ E2E_AP_E2EMVUHHEMK |     1
+ E2E_AP_E2EMVUGHEEC |     1
+ E2E_E2EMVUI8G6Z    |     1
+ E2E_AP_E2EMVUI2JJO |     1
+ E2E_AP_E2EMVUARCAT |     1
+ E2E_E2EMVUGX433    |     1
+ E2E_PROBEMVUA63EW  |     1
+ E2E_E2EMVUILFQ4    |     1
+ E2E_E2EMVVVNYNA    |     1
+ E2E_E2EMVUDIMAO    |     1
+ E2E_E2EMVUHJS3Y    |     1
+ E2E_AP_E2EMVUGU17V |     1
+ E2E_E2EMVUGSLLV    |     1
+ E2E_AP_E2EMVUD6MFJ |     1
+ E2E_AP_E2EMVUH39TA |     1
+ E2E_E2EMVUHW2P8    |     1
+ E2E_E2EMVUIAQVY    |     1
+ E2E_E2EMVUDHLRV    |     1
+ E2E_AP_E2EMVUMJHST |     1
+ E2E_E2EMVUHZWNE    |     1
+ E2E_AP_E2EMVUHZWNE |     1
+ E2E_AP_E2EMVUI8G6Z |     1
+ E2E_E2EMVVVDF01    |     1
+ E2E_AP_E2EMVUIEG1U |     1
+ E2E_E2EMVUGU17V    |     1
+ E2E_AP_E2EMVUIISH7 |     1
+ E2E_AP_E2EMVUGV4Z6 |     1
+ E2E_E2EMVUGV4Z6    |     1
+ E2E_E2EMVUHT4EP    |     1
+ E2E_E2EMVUH65NX    |     1
+ E2E_AP_E2EMVUH65NX |     1
+ E2E_E2EMVUG30WV    |     1
+ E2E_E2EMVUGQ0TH    |     1
+ E2E_E2EMVUMJHST    |     1
+(50 rows)
+
+===== 6. 其它测试前缀普查（instance + def） =====
+   src    |      biz_type      | count 
+----------+--------------------+-------
+ instance | E2E_AP_E2EMVUIEG1U |     1
+ instance | E2E_AP_E2EMVUGIUH0 |     1
+ instance | E2E_AP_E2EMVUIISH7 |     1
+ instance | E2E_AP_E2EMVUGV4Z6 |     1
+ instance | E2E_AP_E2EMVVVNYNA |     1
+ instance | E2E_AP_E2EMVUG1QDJ |     1
+ instance | E2E_AP_E2EMVUH65NX |     1
+ instance | E2E_AP_E2EMVUDLKWR |     1
+ instance | E2E_AP_E2EMVUHT4EP |     1
+ instance | E2E_AP_E2EMVUGSLLV |     1
+ instance | E2E_AP_E2EMVUDHLRV |     1
+ instance | E2E_AP_E2EMVUILFQ4 |     1
+ instance | E2E_AP_E2EMVUIAQVY |     1
+ instance | E2E_AP_E2EMVUIGDYM |     1
+ instance | E2E_AP_E2EMVUHXQWA |     1
+ instance | E2E_AP_E2EMVUHJS3Y |     1
+ instance | E2E_AP_E2EMVVVDF01 |     1
+ instance | E2E_AP_E2EMVUDIMAO |     1
+ instance | E2E_AP_E2EMVUI6IRL |     1
+ instance | E2E_AP_E2EMVUHHEMK |     1
+ instance | E2E_AP_E2EMVUHW2P8 |     1
+ instance | E2E_AP_E2EMVUGHEEC |     1
+ instance | E2E_AP_E2EMVUGY3QW |     1
+ instance | E2E_AP_E2EMVUGQ0TH |     1
+ instance | E2E_AP_E2EMVUI2JJO |     1
+ instance | E2E_AP_E2EMVUARZ2Z |     1
+ instance | E2E_AP_E2EMVUARCAT |     1
+ instance | E2E_AP_E2EMVUGEC7Q |     1
+ instance | E2E_AP_E2EMVUGU17V |     1
+ instance | E2E_AP_E2EMVUD6MFJ |     1
+ instance | E2E_AP_E2EMVUHOU9K |     1
+ instance | E2E_AP_E2EMVUH39TA |     1
+ instance | E2E_AP_E2EMVUGX433 |     1
+ instance | E2E_AP_E2EMVUMJHST |     1
+ instance | E2E_AP_E2EMVUHZWNE |     1
+ instance | E2E_AP_E2EMVUHM4D7 |     1
+ instance | E2E_AP_E2EMVUI8G6Z |     1
+(37 rows)
+
+ src |      biz_type      | count 
+-----+--------------------+-------
+ def | D2_SMOKE           |     3
+ def | E2E_E2EMVUARZ2Z    |     1
+ def | E2E_AP_E2EMVVVNYNA |     1
+ def | E2E_AP_E2EMVUG1QDJ |     1
+ def | E2E_AP_E2EMVUDLKWR |     1
+ def | E2E_AP_E2EMVUHT4EP |     1
+ def | E2E_AP_E2EMVUGSLLV |     1
+ def | E2E_AP_E2EMVUDHLRV |     1
+ def | E2E_AP_E2EMVUIAQVY |     1
+ def | E2E_AP_E2EMVUIGDYM |     1
+ def | E2E_AP_E2EMVUHXQWA |     1
+ def | E2E_AP_E2EMVUHJS3Y |     1
+ def | E2E_AP_E2EMVUI6IRL |     1
+ def | E2E_E2EMVUDLKWR    |     1
+ def | E2E_E2EMVUI6IRL    |     1
+ def | E2E_E2EMVUHXQWA    |     1
+ def | E2E_AP_E2EMVUHHEMK |     1
+ def | E2E_AP_E2EMVUGHEEC |     1
+ def | E2E_E2EMVUI8G6Z    |     1
+ def | E2E_AP_E2EMVUI2JJO |     1
+ def | E2E_AP_E2EMVUARCAT |     1
+ def | E2E_E2EMVUGX433    |     1
+ def | E2E_PROBEMVUA63EW  |     1
+ def | E2E_E2EMVUILFQ4    |     1
+ def | E2E_E2EMVVVNYNA    |     1
+ def | E2E_E2EMVUDIMAO    |     1
+ def | E2E_E2EMVUHJS3Y    |     1
+ def | E2E_AP_E2EMVUGU17V |     1
+ def | E2E_E2EMVUGSLLV    |     1
+ def | E2E_AP_E2EMVUD6MFJ |     1
+ def | E2E_AP_E2EMVUH39TA |     1
+ def | E2E_E2EMVUHW2P8    |     1
+ def | E2E_E2EMVUIAQVY    |     1
+ def | E2E_E2EMVUDHLRV    |     1
+ def | E2E_AP_E2EMVUMJHST |     1
+ def | E2E_E2EMVUHZWNE    |     1
+ def | E2E_AP_E2EMVUHZWNE |     1
+ def | E2E_AP_E2EMVUI8G6Z |     1
+ def | E2E_E2EMVVVDF01    |     1
+ def | E2E_AP_E2EMVUIEG1U |     1
+ def | E2E_E2EMVUGU17V    |     1
+ def | E2E_AP_E2EMVUIISH7 |     1
+ def | E2E_AP_E2EMVUGV4Z6 |     1
+ def | E2E_E2EMVUGV4Z6    |     1
+ def | E2E_E2EMVUHT4EP    |     1
+ def | E2E_E2EMVUH65NX    |     1
+ def | E2E_AP_E2EMVUH65NX |     1
+ def | E2E_E2EMVUG30WV    |     1
+ def | E2E_E2EMVUGQ0TH    |     1
+ def | E2E_E2EMVUMJHST    |     1
+ def | E2E_AP_E2EMVUILFQ4 |     1
+ def | E2E_E2EMVUI2JJO    |     1
+ def | E2E_E2EMVUHOU9K    |     1
+ def | E2E_AP_E2EMVVVDF01 |     1
+ def | E2E_AP_E2EMVUDIMAO |     1
+ def | E2E_E2EMVUG19O2    |     1
+ def | E2E_E2EMVUGGBTC    |     1
+ def | E2E_E2EMVUGFRBD    |     1
+ def | E2E_AP_E2EMVUHW2P8 |     1
+ def | E2E_E2EMVUGEC7Q    |     1
+ def | E2E_AP_E2EMVUGY3QW |     1
+ def | E2E_AP_E2EMVUGQ0TH |     1
+ def | E2E_E2EMVUIGDYM    |     1
+ def | E2E_E2EMVUGIUH0    |     1
+ def | E2E_AP_E2EMVUARZ2Z |     1
+ def | E2E_E2EMVUGHEEC    |     1
+ def | E2E_AP_E2EMVUGEC7Q |     1
+ def | E2E_E2EMVUHM4D7    |     1
+ def | E2E_E2EMVUGY3QW    |     1
+ def | E2E_E2EMVUIISH7    |     1
+ def | E2E_E2EMVUGBR1I    |     1
+ def | E2E_E2EMVUG9O5I    |     1
+ def | E2E_AP_E2EMVUHOU9K |     1
+ def | E2E_AP_E2EMVUGX433 |     1
+ def | E2E_E2EMVVXEWV2    |     1
+ def | E2E_AP_E2EMVUHM4D7 |     1
+ def | E2E_E2EMVUIDL5R    |     1
+ def | E2E_E2EMVUGJXXA    |     1
+ def | E2E_E2EMVUD6MFJ    |     1
+ def | E2E_E2EMVUHHEMK    |     1
+ def | E2E_E2EMVUH39TA    |     1
+ def | E2E_E2EMVVX6FXM    |     1
+ def | E2E_AP_E2EMVUGIUH0 |     1
+(83 rows)
+
+===== 6b. flow_code 里的测试前缀（定义层） =====
+       flow_code       |      biz_type      |  status   | live 
+-----------------------+--------------------+-----------+------
+ d5_281099             | TASK_ACCEPT        | DRAFT     | f
+ d5_281420             | EXPENSE            | DRAFT     | f
+ d5_281591             | EXPENSE            | DRAFT     | f
+ d5_281720             | EXPENSE            | PUBLISHED | f
+ d5_281844             | EXPENSE            | DRAFT     | f
+ d5_282727             | EXPENSE            | DRAFT     | f
+ d5_282760             | EXPENSE            | PUBLISHED | f
+ diag_084821           | OTHER              | PUBLISHED | f
+ diag2_084848          | OTHER              | PUBLISHED | f
+ e2e_ap_e2emvuarcat    | E2E_AP_E2EMVUARCAT | PUBLISHED | f
+ e2e_ap_e2emvuarz2z    | E2E_AP_E2EMVUARZ2Z | PUBLISHED | f
+ e2e_ap_e2emvud6mfj    | E2E_AP_E2EMVUD6MFJ | PUBLISHED | f
+ e2e_ap_e2emvudhlrv    | E2E_AP_E2EMVUDHLRV | PUBLISHED | f
+ e2e_ap_e2emvudimao    | E2E_AP_E2EMVUDIMAO | PUBLISHED | f
+ e2e_ap_e2emvudlkwr    | E2E_AP_E2EMVUDLKWR | PUBLISHED | f
+ e2e_ap_e2emvug1qdj    | E2E_AP_E2EMVUG1QDJ | PUBLISHED | f
+ e2e_ap_e2emvugec7q    | E2E_AP_E2EMVUGEC7Q | PUBLISHED | f
+ e2e_ap_e2emvugheec    | E2E_AP_E2EMVUGHEEC | PUBLISHED | f
+ e2e_ap_e2emvugiuh0    | E2E_AP_E2EMVUGIUH0 | PUBLISHED | f
+ e2e_ap_e2emvugq0th    | E2E_AP_E2EMVUGQ0TH | PUBLISHED | f
+ e2e_ap_e2emvugsllv    | E2E_AP_E2EMVUGSLLV | PUBLISHED | f
+ e2e_ap_e2emvugu17v    | E2E_AP_E2EMVUGU17V | PUBLISHED | f
+ e2e_ap_e2emvugv4z6    | E2E_AP_E2EMVUGV4Z6 | PUBLISHED | f
+ e2e_ap_e2emvugx433    | E2E_AP_E2EMVUGX433 | PUBLISHED | f
+ e2e_ap_e2emvugy3qw    | E2E_AP_E2EMVUGY3QW | PUBLISHED | f
+ e2e_ap_e2emvuh39ta    | E2E_AP_E2EMVUH39TA | PUBLISHED | f
+ e2e_ap_e2emvuh65nx    | E2E_AP_E2EMVUH65NX | PUBLISHED | f
+ e2e_ap_e2emvuhhemk    | E2E_AP_E2EMVUHHEMK | PUBLISHED | f
+ e2e_ap_e2emvuhjs3y    | E2E_AP_E2EMVUHJS3Y | PUBLISHED | f
+ e2e_ap_e2emvuhm4d7    | E2E_AP_E2EMVUHM4D7 | PUBLISHED | f
+ e2e_ap_e2emvuhou9k    | E2E_AP_E2EMVUHOU9K | PUBLISHED | f
+ e2e_ap_e2emvuht4ep    | E2E_AP_E2EMVUHT4EP | PUBLISHED | f
+ e2e_ap_e2emvuhw2p8    | E2E_AP_E2EMVUHW2P8 | PUBLISHED | f
+ e2e_ap_e2emvuhxqwa    | E2E_AP_E2EMVUHXQWA | PUBLISHED | f
+ e2e_ap_e2emvuhzwne    | E2E_AP_E2EMVUHZWNE | PUBLISHED | f
+ e2e_ap_e2emvui2jjo    | E2E_AP_E2EMVUI2JJO | PUBLISHED | f
+ e2e_ap_e2emvui6irl    | E2E_AP_E2EMVUI6IRL | PUBLISHED | f
+ e2e_ap_e2emvui8g6z    | E2E_AP_E2EMVUI8G6Z | PUBLISHED | f
+ e2e_ap_e2emvuiaqvy    | E2E_AP_E2EMVUIAQVY | PUBLISHED | f
+ e2e_ap_e2emvuieg1u    | E2E_AP_E2EMVUIEG1U | PUBLISHED | f
+ e2e_ap_e2emvuigdym    | E2E_AP_E2EMVUIGDYM | PUBLISHED | f
+ e2e_ap_e2emvuiish7    | E2E_AP_E2EMVUIISH7 | PUBLISHED | f
+ e2e_ap_e2emvuilfq4    | E2E_AP_E2EMVUILFQ4 | PUBLISHED | f
+ e2e_ap_e2emvumjhst    | E2E_AP_E2EMVUMJHST | PUBLISHED | f
+ e2e_ap_e2emvvvdf01    | E2E_AP_E2EMVVVDF01 | PUBLISHED | f
+ e2e_ap_e2emvvvnyna    | E2E_AP_E2EMVVVNYNA | PUBLISHED | f
+ e2e_cs_084613         | OTHER              | DRAFT     | f
+ e2e_cs_084624         | OTHER              | PUBLISHED | f
+ e2e_cs_084642         | OTHER              | PUBLISHED | f
+ e2e_cs_084703         | OTHER              | PUBLISHED | f
+ e2e_cs_084828         | OTHER              | DRAFT     | f
+ e2e_e2emvuarz2z       | E2E_E2EMVUARZ2Z    | PUBLISHED | f
+ e2e_e2emvud6mfj       | E2E_E2EMVUD6MFJ    | PUBLISHED | f
+ e2e_e2emvudhlrv       | E2E_E2EMVUDHLRV    | PUBLISHED | f
+ e2e_e2emvudimao       | E2E_E2EMVUDIMAO    | PUBLISHED | f
+ e2e_e2emvudlkwr       | E2E_E2EMVUDLKWR    | PUBLISHED | f
+ e2e_e2emvug19o2       | E2E_E2EMVUG19O2    | DRAFT     | f
+ e2e_e2emvug30wv       | E2E_E2EMVUG30WV    | DRAFT     | f
+ e2e_e2emvug9o5i       | E2E_E2EMVUG9O5I    | DRAFT     | f
+ e2e_e2emvugbr1i       | E2E_E2EMVUGBR1I    | PUBLISHED | f
+ e2e_e2emvugec7q       | E2E_E2EMVUGEC7Q    | PUBLISHED | f
+ e2e_e2emvugfrbd       | E2E_E2EMVUGFRBD    | DRAFT     | f
+ e2e_e2emvuggbtc       | E2E_E2EMVUGGBTC    | PUBLISHED | f
+ e2e_e2emvugheec       | E2E_E2EMVUGHEEC    | PUBLISHED | f
+ e2e_e2emvugiuh0       | E2E_E2EMVUGIUH0    | PUBLISHED | f
+ e2e_e2emvugjxxa       | E2E_E2EMVUGJXXA    | PUBLISHED | f
+ e2e_e2emvugq0th       | E2E_E2EMVUGQ0TH    | PUBLISHED | f
+ e2e_e2emvugsllv       | E2E_E2EMVUGSLLV    | PUBLISHED | f
+ e2e_e2emvugu17v       | E2E_E2EMVUGU17V    | PUBLISHED | f
+ e2e_e2emvugv4z6       | E2E_E2EMVUGV4Z6    | PUBLISHED | f
+ e2e_e2emvugx433       | E2E_E2EMVUGX433    | PUBLISHED | f
+ e2e_e2emvugy3qw       | E2E_E2EMVUGY3QW    | PUBLISHED | f
+ e2e_e2emvuh39ta       | E2E_E2EMVUH39TA    | PUBLISHED | f
+ e2e_e2emvuh65nx       | E2E_E2EMVUH65NX    | PUBLISHED | f
+ e2e_e2emvuhhemk       | E2E_E2EMVUHHEMK    | PUBLISHED | f
+ e2e_e2emvuhjs3y       | E2E_E2EMVUHJS3Y    | PUBLISHED | f
+ e2e_e2emvuhm4d7       | E2E_E2EMVUHM4D7    | PUBLISHED | f
+ e2e_e2emvuhou9k       | E2E_E2EMVUHOU9K    | PUBLISHED | f
+ e2e_e2emvuht4ep       | E2E_E2EMVUHT4EP    | PUBLISHED | f
+ e2e_e2emvuhw2p8       | E2E_E2EMVUHW2P8    | PUBLISHED | f
+ e2e_e2emvuhxqwa       | E2E_E2EMVUHXQWA    | PUBLISHED | f
+ e2e_e2emvuhzwne       | E2E_E2EMVUHZWNE    | PUBLISHED | f
+ e2e_e2emvui2jjo       | E2E_E2EMVUI2JJO    | PUBLISHED | f
+ e2e_e2emvui6irl       | E2E_E2EMVUI6IRL    | PUBLISHED | f
+ e2e_e2emvui8g6z       | E2E_E2EMVUI8G6Z    | PUBLISHED | f
+ e2e_e2emvuiaqvy       | E2E_E2EMVUIAQVY    | PUBLISHED | f
+ e2e_e2emvuidl5r       | E2E_E2EMVUIDL5R    | DRAFT     | f
+ e2e_e2emvuigdym       | E2E_E2EMVUIGDYM    | PUBLISHED | f
+ e2e_e2emvuiish7       | E2E_E2EMVUIISH7    | PUBLISHED | f
+ e2e_e2emvuilfq4       | E2E_E2EMVUILFQ4    | PUBLISHED | f
+ e2e_e2emvumjhst       | E2E_E2EMVUMJHST    | PUBLISHED | f
+ e2e_e2emvvvdf01       | E2E_E2EMVVVDF01    | PUBLISHED | f
+ e2e_e2emvvvnyna       | E2E_E2EMVVVNYNA    | PUBLISHED | f
+ e2e_e2emvvx6fxm       | E2E_E2EMVVX6FXM    | PUBLISHED | f
+ e2e_e2emvvxewv2       | E2E_E2EMVVXEWV2    | PUBLISHED | f
+ e2e_empty_084613      | OTHER              | DRAFT     | f
+ e2e_empty_084624      | OTHER              | PUBLISHED | f
+ e2e_empty_084642      | OTHER              | PUBLISHED | f
+ e2e_empty_084703      | OTHER              | PUBLISHED | f
+ e2e_empty_084828      | OTHER              | DRAFT     | f
+ e2e_empty_084913      | OTHER              | DRAFT     | f
+ e2e_probemvua63ew     | E2E_PROBEMVUA63EW  | DRAFT     | f
+ e2e_reject_084613     | OTHER              | DRAFT     | f
+ e2e_reject_084624     | OTHER              | PUBLISHED | f
+ e2e_reject_084642     | OTHER              | PUBLISHED | f
+ e2e_reject_084703     | OTHER              | PUBLISHED | f
+ e2e_reject_084828     | OTHER              | DRAFT     | f
+ e2e_reject_084913     | OTHER              | PUBLISHED | f
+ e2e_single_084613     | OTHER              | PUBLISHED | f
+ e2e_single_084624     | OTHER              | PUBLISHED | f
+ e2e_single_084642     | OTHER              | PUBLISHED | f
+ e2e_single_084703     | OTHER              | PUBLISHED | f
+ e2e_single_084828     | OTHER              | DRAFT     | f
+ e2e_single_084913     | OTHER              | PUBLISHED | f
+ vrf_cs_1030093013     | OTHER              | PUBLISHED | f
+ vrf_empty_1030093013  | OTHER              | DRAFT     | f
+ vrf_reject_1030093013 | OTHER              | PUBLISHED | f
+ vrf_single_1030093013 | OTHER              | PUBLISHED | f
+(118 rows)
+
+===== 7. 当前是否有真实业务在跑审批（非 E2E 的 PENDING/RUNNING 实例） =====
+     biz_type     |  status   | count 
+------------------+-----------+-------
+ TASK_ACCEPT      | APPROVED  |    80
+ OTHER            | APPROVED  |    14
+ TASK_ACCEPT      | CANCELLED |    11
+ PO_APPROVE       | APPROVED  |     6
+ CONTRACT_APPROVE | CANCELLED |     5
+ STOCK_IN_POST    | APPROVED  |     4
+ FLOW_EDGE_CFG    | WITHDRAWN |     3
+ OTHER            | CANCELLED |     2
+ STOCK_TRANSFER   | APPROVED  |     1
+ FLOW_EDGE_CFG    | REJECTED  |     1
+ PO_APPROVE       | PENDING   |     1
+(11 rows)
+
+===== 8. 相关表结构 =====
+                                    Table "public.biz_flow_def"
+       Column       |           Type           | Collation | Nullable |          Default           
+--------------------+--------------------------+-----------+----------+----------------------------
+ id                 | uuid                     |           | not null | gen_random_uuid()
+ flow_code          | character varying(64)    |           | not null | 
+ flow_name          | character varying(100)   |           | not null | 
+ biz_type           | character varying(32)    |           | not null | 
+ category           | character varying(32)    |           |          | 
+ description        | text                     |           |          | 
+ status             | character varying(16)    |           | not null | 'DRAFT'::character varying
+ current_version_id | uuid                     |           |          | 
+ current_version_no | integer                  |           | not null | 0
+ is_default         | boolean                  |           | not null | false
+ allow_auto_approve | boolean                  |           | not null | false
+ owner_dept_id      | uuid                     |           |          | 
+ created_at         | timestamp with time zone |           | not null | now()
+ updated_at         | timestamp with time zone |           | not null | now()
+ create_by          | uuid                     |           |          | 
+ update_by          | uuid                     |           |          | 
+ deleted_at         | timestamp with time zone |           |          | 
+ is_system          | boolean                  |           | not null | false
+Indexes:
+    "biz_flow_def_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_def_status" btree (status, biz_type)
+    "uk_biz_flow_def_code" UNIQUE, btree (flow_code) WHERE deleted_at IS NULL
+    "uk_biz_flow_def_default" UNIQUE, btree (biz_type) WHERE is_default AND deleted_at IS NULL
+Check constraints:
+    "biz_flow_def_current_version_no_check" CHECK (current_version_no >= 0)
+    "biz_flow_def_status_check" CHECK (status::text = ANY (ARRAY['DRAFT'::character varying, 'PUBLISHED'::character varying, 'DISABLED'::character varying]::text[]))
+    "ck_biz_flow_def_code" CHECK (flow_code::text ~ '^[a-z][a-z0-9_]{1,63}$'::text)
+    "ck_biz_flow_def_published_has_version" CHECK (status::text <> 'PUBLISHED'::text OR current_version_id IS NOT NULL)
+Referenced by:
+    TABLE "biz_flow_def_version" CONSTRAINT "biz_flow_def_version_def_id_fkey" FOREIGN KEY (def_id) REFERENCES biz_flow_def(id) ON DELETE CASCADE
+    TABLE "biz_flow_instance" CONSTRAINT "biz_flow_instance_def_id_fkey" FOREIGN KEY (def_id) REFERENCES biz_flow_def(id) ON DELETE RESTRICT
+
+                                  Table "public.biz_flow_instance"
+      Column       |           Type           | Collation | Nullable |           Default            
+-------------------+--------------------------+-----------+----------+------------------------------
+ id                | uuid                     |           | not null | gen_random_uuid()
+ instance_no       | character varying(32)    |           | not null | 
+ def_id            | uuid                     |           | not null | 
+ version_id        | uuid                     |           | not null | 
+ version_no        | integer                  |           | not null | 
+ flow_code         | character varying(64)    |           | not null | 
+ flow_name         | character varying(100)   |           | not null | 
+ biz_type          | character varying(32)    |           | not null | 
+ biz_id            | uuid                     |           |          | 
+ biz_no            | character varying(32)    |           |          | 
+ title             | character varying(200)   |           | not null | 
+ status            | character varying(16)    |           | not null | 'PENDING'::character varying
+ initiator_id      | uuid                     |           | not null | 
+ initiator_name    | character varying(50)    |           |          | 
+ initiator_dept_id | uuid                     |           |          | 
+ form_data         | jsonb                    |           | not null | '{}'::jsonb
+ result_comment    | character varying(1000)  |           |          | 
+ auto_passed_nodes | integer                  |           | not null | 0
+ round_total       | integer                  |           | not null | 1
+ prev_instance_id  | uuid                     |           |          | 
+ revision          | integer                  |           | not null | 0
+ started_at        | timestamp with time zone |           | not null | now()
+ ended_at          | timestamp with time zone |           |          | 
+ due_at            | timestamp with time zone |           |          | 
+ created_at        | timestamp with time zone |           | not null | now()
+ updated_at        | timestamp with time zone |           | not null | now()
+ create_by         | uuid                     |           |          | 
+ update_by         | uuid                     |           |          | 
+ deleted_at        | timestamp with time zone |           |          | 
+Indexes:
+    "biz_flow_instance_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_instance_biz" btree (biz_type, biz_id)
+    "idx_biz_flow_instance_def" btree (def_id, status, started_at DESC)
+    "idx_biz_flow_instance_initiator" btree (initiator_id, started_at DESC)
+    "idx_biz_flow_instance_prev_instance" btree (prev_instance_id) WHERE prev_instance_id IS NOT NULL
+    "idx_biz_flow_instance_version_id" btree (version_id)
+    "uk_biz_flow_instance_biz_active" UNIQUE, btree (biz_type, biz_id) WHERE status::text = 'PENDING'::text AND biz_id IS NOT NULL AND deleted_at IS NULL
+    "uk_biz_flow_instance_no" UNIQUE, btree (instance_no)
+Check constraints:
+    "biz_flow_instance_auto_passed_nodes_check" CHECK (auto_passed_nodes >= 0)
+    "biz_flow_instance_revision_check" CHECK (revision >= 0)
+    "biz_flow_instance_round_total_check" CHECK (round_total >= 1)
+    "biz_flow_instance_status_check" CHECK (status::text = ANY (ARRAY['PENDING'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying, 'CANCELLED'::character varying, 'WITHDRAWN'::character varying]::text[]))
+    "ck_biz_flow_instance_end" CHECK ((status::text = 'PENDING'::text) = (ended_at IS NULL))
+Foreign-key constraints:
+    "biz_flow_instance_def_id_fkey" FOREIGN KEY (def_id) REFERENCES biz_flow_def(id) ON DELETE RESTRICT
+    "biz_flow_instance_initiator_id_fkey" FOREIGN KEY (initiator_id) REFERENCES sys_user(id)
+    "biz_flow_instance_prev_instance_id_fkey" FOREIGN KEY (prev_instance_id) REFERENCES biz_flow_instance(id)
+    "biz_flow_instance_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE RESTRICT
+Referenced by:
+    TABLE "biz_flow_cc" CONSTRAINT "biz_flow_cc_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    TABLE "biz_flow_instance_node" CONSTRAINT "biz_flow_instance_node_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    TABLE "biz_flow_instance" CONSTRAINT "biz_flow_instance_prev_instance_id_fkey" FOREIGN KEY (prev_instance_id) REFERENCES biz_flow_instance(id)
+    TABLE "biz_flow_task" CONSTRAINT "biz_flow_task_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    TABLE "biz_task" CONSTRAINT "biz_task_flow_instance_id_fkey" FOREIGN KEY (flow_instance_id) REFERENCES biz_flow_instance(id) ON DELETE SET NULL
+
+                                     Table "public.biz_flow_task"
+       Column        |           Type           | Collation | Nullable |            Default            
+---------------------+--------------------------+-----------+----------+-------------------------------
+ id                  | uuid                     |           | not null | gen_random_uuid()
+ instance_id         | uuid                     |           | not null | 
+ instance_node_id    | uuid                     |           | not null | 
+ node_key            | character varying(64)    |           | not null | 
+ round               | integer                  |           | not null | 1
+ task_kind           | character varying(16)    |           | not null | 'APPROVAL'::character varying
+ assignee_id         | uuid                     |           | not null | 
+ assignee_name       | character varying(50)    |           |          | 
+ assignee_source     | character varying(24)    |           | not null | 
+ assignee_source_ref | uuid                     |           |          | 
+ status              | character varying(16)    |           | not null | 'PENDING'::character varying
+ is_added_sign       | boolean                  |           | not null | false
+ is_self_approval    | boolean                  |           | not null | false
+ is_auto             | boolean                  |           | not null | false
+ comment             | character varying(1000)  |           |          | 
+ attachments         | jsonb                    |           | not null | '[]'::jsonb
+ transferred_from    | uuid                     |           |          | 
+ transferred_to      | uuid                     |           |          | 
+ due_at              | timestamp with time zone |           |          | 
+ remind_count        | smallint                 |           | not null | 0
+ last_remind_at      | timestamp with time zone |           |          | 
+ created_at          | timestamp with time zone |           | not null | now()
+ completed_at        | timestamp with time zone |           |          | 
+ urge_count          | smallint                 |           | not null | 0
+ last_urge_at        | timestamp with time zone |           |          | 
+ assignee_rule_id    | character varying(64)    |           |          | 
+Indexes:
+    "biz_flow_task_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_task_due" btree (due_at) WHERE status::text = 'PENDING'::text AND due_at IS NOT NULL
+    "idx_biz_flow_task_inst" btree (instance_id, created_at)
+    "idx_biz_flow_task_mine" btree (assignee_id, status, created_at DESC)
+    "idx_biz_flow_task_node" btree (instance_node_id, status)
+    "idx_biz_flow_task_transferred_from" btree (transferred_from) WHERE transferred_from IS NOT NULL
+    "idx_biz_flow_task_urge" btree (last_urge_at) WHERE status::text = 'PENDING'::text
+    "uk_biz_flow_task_pending" UNIQUE, btree (instance_node_id, assignee_id) WHERE status::text = 'PENDING'::text
+Check constraints:
+    "biz_flow_task_assignee_source_check" CHECK (assignee_source::text = ANY (ARRAY['USER'::character varying, 'ROLE'::character varying, 'INITIATOR'::character varying, 'INITIATOR_SUPERIOR'::character varying, 'DEPT_LEADER'::character varying, 'TASK_OWNER'::character varying, 'TASK_CREATOR'::character varying, 'TASK_ASSIGNER'::character varying, 'FORM_VAR'::character varying, 'ADMIN'::character varying]::text[]))
+    "biz_flow_task_round_check" CHECK (round >= 1)
+    "biz_flow_task_status_check" CHECK (status::text = ANY (ARRAY['PENDING'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying, 'CANCELLED'::character varying, 'SKIPPED'::character varying, 'TRANSFERRED'::character varying]::text[]))
+    "biz_flow_task_task_kind_check" CHECK (task_kind::text = ANY (ARRAY['APPROVAL'::character varying, 'RESUBMIT'::character varying]::text[]))
+    "ck_biz_flow_task_done" CHECK ((status::text = 'PENDING'::text) = (completed_at IS NULL))
+Foreign-key constraints:
+    "biz_flow_task_assignee_id_fkey" FOREIGN KEY (assignee_id) REFERENCES sys_user(id)
+    "biz_flow_task_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    "biz_flow_task_instance_node_id_fkey" FOREIGN KEY (instance_node_id) REFERENCES biz_flow_instance_node(id) ON DELETE CASCADE
+    "biz_flow_task_transferred_from_fkey" FOREIGN KEY (transferred_from) REFERENCES biz_flow_task(id) ON DELETE SET NULL
+Referenced by:
+    TABLE "biz_flow_task" CONSTRAINT "biz_flow_task_transferred_from_fkey" FOREIGN KEY (transferred_from) REFERENCES biz_flow_task(id) ON DELETE SET NULL
+
+                              Table "public.biz_flow_def_version"
+     Column     |           Type           | Collation | Nullable |          Default           
+----------------+--------------------------+-----------+----------+----------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ def_id         | uuid                     |           | not null | 
+ version_no     | integer                  |           | not null | 
+ version_status | character varying(16)    |           | not null | 'DRAFT'::character varying
+ is_current     | boolean                  |           | not null | false
+ graph_hash     | character(64)            |           |          | 
+ graph_snapshot | jsonb                    |           |          | 
+ node_count     | integer                  |           | not null | 0
+ edge_count     | integer                  |           | not null | 0
+ change_note    | character varying(500)   |           |          | 
+ published_at   | timestamp with time zone |           |          | 
+ published_by   | uuid                     |           |          | 
+ created_at     | timestamp with time zone |           | not null | now()
+ updated_at     | timestamp with time zone |           | not null | now()
+ create_by      | uuid                     |           |          | 
+ update_by      | uuid                     |           |          | 
+Indexes:
+    "biz_flow_def_version_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_def_version_def" btree (def_id, version_no DESC)
+    "uk_biz_flow_def_version" UNIQUE CONSTRAINT, btree (def_id, version_no)
+    "uk_biz_flow_def_version_current" UNIQUE, btree (def_id) WHERE is_current
+Check constraints:
+    "biz_flow_def_version_edge_count_check" CHECK (edge_count >= 0)
+    "biz_flow_def_version_node_count_check" CHECK (node_count >= 0)
+    "biz_flow_def_version_version_no_check" CHECK (version_no >= 1)
+    "biz_flow_def_version_version_status_check" CHECK (version_status::text = ANY (ARRAY['DRAFT'::character varying, 'PUBLISHED'::character varying, 'ARCHIVED'::character varying]::text[]))
+    "ck_biz_flow_def_version_current_published" CHECK (NOT is_current OR version_status::text = 'PUBLISHED'::text)
+    "ck_biz_flow_def_version_published" CHECK (version_status::text <> 'PUBLISHED'::text OR graph_hash IS NOT NULL AND graph_snapshot IS NOT NULL AND published_at IS NOT NULL)
+Foreign-key constraints:
+    "biz_flow_def_version_def_id_fkey" FOREIGN KEY (def_id) REFERENCES biz_flow_def(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "biz_flow_edge" CONSTRAINT "biz_flow_edge_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE CASCADE
+    TABLE "biz_flow_instance" CONSTRAINT "biz_flow_instance_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE RESTRICT
+    TABLE "biz_flow_node" CONSTRAINT "biz_flow_node_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE CASCADE
+
+                                    Table "public.biz_flow_node"
+       Column        |           Type           | Collation | Nullable |           Default           
+---------------------+--------------------------+-----------+----------+-----------------------------
+ id                  | uuid                     |           | not null | gen_random_uuid()
+ version_id          | uuid                     |           | not null | 
+ node_key            | character varying(64)    |           | not null | 
+ node_name           | character varying(100)   |           | not null | 
+ node_type           | character varying(16)    |           | not null | 
+ assignee_type       | character varying(24)    |           |          | 
+ superior_levels     | smallint                 |           | not null | 1
+ form_var_key        | character varying(64)    |           |          | 
+ approval_mode       | character varying(8)     |           |          | 
+ approve_ratio       | numeric(4,3)             |           |          | 
+ reject_veto         | boolean                  |           | not null | true
+ empty_assignee      | character varying(16)    |           | not null | 'SKIP'::character varying
+ self_approval       | character varying(8)     |           | not null | 'SKIP'::character varying
+ allow_robot         | boolean                  |           | not null | false
+ join_mode           | character varying(8)     |           | not null | 'AND'::character varying
+ fork_mode           | character varying(8)     |           | not null | 'AND'::character varying
+ timeout_hours       | integer                  |           |          | 
+ timeout_action      | character varying(16)    |           | not null | 'REMIND'::character varying
+ remind_before_hours | integer                  |           |          | 
+ max_remind_times    | smallint                 |           | not null | 3
+ cc_on_approved      | boolean                  |           | not null | false
+ position_x          | integer                  |           | not null | 0
+ position_y          | integer                  |           | not null | 0
+ sort_order          | integer                  |           | not null | 0
+ config              | jsonb                    |           | not null | '{}'::jsonb
+ created_at          | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_flow_node_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_node_version" btree (version_id, node_type)
+    "uk_biz_flow_node" UNIQUE CONSTRAINT, btree (version_id, node_key)
+Check constraints:
+    "biz_flow_node_approval_mode_check" CHECK (approval_mode::text = ANY (ARRAY['ALL'::character varying, 'RATIO'::character varying, 'ANY'::character varying]::text[]))
+    "biz_flow_node_approve_ratio_check" CHECK (approve_ratio > 0::numeric AND approve_ratio <= 1::numeric)
+    "biz_flow_node_assignee_type_check" CHECK (assignee_type::text = ANY (ARRAY['USER'::character varying, 'ROLE'::character varying, 'INITIATOR'::character varying, 'INITIATOR_SUPERIOR'::character varying, 'DEPT_LEADER'::character varying, 'TASK_OWNER'::character varying, 'TASK_CREATOR'::character varying, 'TASK_ASSIGNER'::character varying, 'FORM_VAR'::character varying, 'ADMIN'::character varying, 'EXPRESSION'::character varying]::text[]))
+    "biz_flow_node_empty_assignee_check" CHECK (empty_assignee::text = ANY (ARRAY['SKIP'::character varying, 'ERROR'::character varying, 'FALLBACK_ADMIN'::character varying]::text[]))
+    "biz_flow_node_fork_mode_check" CHECK (fork_mode::text = ANY (ARRAY['AND'::character varying, 'OR'::character varying]::text[]))
+    "biz_flow_node_join_mode_check" CHECK (join_mode::text = ANY (ARRAY['AND'::character varying, 'OR'::character varying]::text[]))
+    "biz_flow_node_max_remind_times_check" CHECK (max_remind_times >= 0 AND max_remind_times <= 20)
+    "biz_flow_node_node_type_check" CHECK (node_type::text = ANY (ARRAY['START'::text, 'APPROVAL'::text, 'COUNTERSIGN'::text, 'CONDITION'::text, 'PARALLEL'::text, 'CC'::text, 'END'::text, 'TASK_NODE'::text, 'NOTIFY_NODE'::text]))
+    "biz_flow_node_remind_before_hours_check" CHECK (remind_before_hours IS NULL OR remind_before_hours >= 0)
+    "biz_flow_node_self_approval_check" CHECK (self_approval::text = ANY (ARRAY['ALLOW'::character varying, 'SKIP'::character varying, 'FORBID'::character varying]::text[]))
+    "biz_flow_node_superior_levels_check" CHECK (superior_levels >= 1 AND superior_levels <= 10)
+    "biz_flow_node_timeout_action_check" CHECK (timeout_action::text = ANY (ARRAY['REMIND'::character varying, 'AUTO_APPROVE'::character varying, 'AUTO_REJECT'::character varying, 'ESCALATE'::character varying]::text[]))
+    "biz_flow_node_timeout_hours_check" CHECK (timeout_hours IS NULL OR timeout_hours >= 1 AND timeout_hours <= 8760)
+    "ck_biz_flow_node_config_partition" CHECK ((node_type::text = 'TASK_NODE'::text OR NOT config ? 'task'::text) AND (node_type::text = 'NOTIFY_NODE'::text OR NOT config ? 'notify'::text))
+    "ck_biz_flow_node_expression" CHECK (assignee_type::text IS DISTINCT FROM 'EXPRESSION'::text OR
+CASE
+    WHEN jsonb_typeof(config -> 'expression'::text) IS DISTINCT FROM 'object'::text THEN false
+    WHEN jsonb_typeof((config -> 'expression'::text) -> 'rules'::text) IS DISTINCT FROM 'array'::text THEN false
+    WHEN jsonb_array_length((config -> 'expression'::text) -> 'rules'::text) < 1 OR jsonb_array_length((config -> 'expression'::text) -> 'rules'::text) > 16 THEN false
+    ELSE true
+END)
+    "ck_biz_flow_node_key" CHECK (node_key::text ~ '^[A-Za-z][A-Za-z0-9_]{0,63}$'::text)
+    "ck_biz_flow_node_notify_config" CHECK (node_type::text <> 'NOTIFY_NODE'::text OR jsonb_typeof(config -> 'notify'::text) = 'object'::text AND jsonb_typeof((config -> 'notify'::text) -> 'targets'::text) = 'array'::text AND jsonb_array_length((config -> 'notify'::text) -> 'targets'::text) >= 1 AND jsonb_array_length((config -> 'notify'::text) -> 'targets'::text) <= 5 AND jsonb_typeof((config -> 'notify'::text) -> 'when'::text) = 'string'::text AND (((config -> 'notify'::text) ->> 'when'::text) = ANY (ARRAY['ON_ENTER'::text, 'ON_LEAVE'::text, 'ON_TIMEOUT'::text])) AND ((config -> 'notify'::text) ? 'template_code'::text) <> ((config -> 'notify'::text) ? 'inline'::text) AND NOT (config -> 'notify'::text) ? 'task'::text)
+    "ck_biz_flow_node_ratio" CHECK (approval_mode IS NULL OR approval_mode::text <> 'RATIO'::text OR approve_ratio IS NOT NULL)
+    "ck_biz_flow_node_task_config" CHECK (node_type::text <> 'TASK_NODE'::text OR jsonb_typeof(config -> 'task'::text) = 'object'::text AND jsonb_typeof((config -> 'task'::text) -> 'title_template'::text) = 'string'::text AND length((config -> 'task'::text) ->> 'title_template'::text) >= 1 AND length((config -> 'task'::text) ->> 'title_template'::text) <= 200 AND jsonb_typeof((config -> 'task'::text) -> 'on_complete'::text) = 'string'::text AND (((config -> 'task'::text) ->> 'on_complete'::text) = ANY (ARRAY['DIRECT'::text, 'VERIFY'::text, 'APPROVE'::text])) AND (NOT (config -> 'task'::text) ? 'priority'::text OR (((config -> 'task'::text) ->> 'priority'::text) = ANY (ARRAY['P0'::text, 'P1'::text, 'P2'::text, 'P3'::text]))) AND (NOT (config -> 'task'::text) ? 'on_reject'::text OR (((config -> 'task'::text) ->> 'on_reject'::text) = ANY (ARRAY['BACK_TO_PREV'::text, 'TERMINATE'::text, 'STAY'::text]))) AND (NOT (config -> 'task'::text) ? 'on_cancel'::text OR (((config -> 'task'::text) ->> 'on_cancel'::text) = ANY (ARRAY['BACK_TO_PREV'::text, 'TERMINATE'::text, 'STAY'::text]))) AND NOT (config -> 'task'::text) ? 'notify'::text)
+Foreign-key constraints:
+    "biz_flow_node_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE CASCADE
+Referenced by:
+    TABLE "biz_flow_edge" CONSTRAINT "biz_flow_edge_from_node_id_fkey" FOREIGN KEY (from_node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+    TABLE "biz_flow_edge" CONSTRAINT "biz_flow_edge_to_node_id_fkey" FOREIGN KEY (to_node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+    TABLE "biz_flow_instance_node" CONSTRAINT "biz_flow_instance_node_node_id_fkey" FOREIGN KEY (node_id) REFERENCES biz_flow_node(id) ON DELETE SET NULL
+    TABLE "biz_flow_node_assignee" CONSTRAINT "biz_flow_node_assignee_node_id_fkey" FOREIGN KEY (node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+
+                             Table "public.biz_flow_edge"
+     Column      |           Type           | Collation | Nullable |      Default      
+-----------------+--------------------------+-----------+----------+-------------------
+ id              | uuid                     |           | not null | gen_random_uuid()
+ version_id      | uuid                     |           | not null | 
+ edge_key        | character varying(64)    |           | not null | 
+ from_node_id    | uuid                     |           | not null | 
+ to_node_id      | uuid                     |           | not null | 
+ condition_expr  | jsonb                    |           |          | 
+ condition_label | character varying(100)   |           |          | 
+ priority        | integer                  |           | not null | 0
+ is_default      | boolean                  |           | not null | false
+ created_at      | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_flow_edge_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_edge_from" btree (version_id, from_node_id)
+    "idx_biz_flow_edge_to" btree (version_id, to_node_id)
+    "uk_biz_flow_edge" UNIQUE CONSTRAINT, btree (version_id, edge_key)
+Check constraints:
+    "ck_biz_flow_edge_default_no_cond" CHECK (NOT is_default OR condition_expr IS NULL)
+    "ck_biz_flow_edge_not_self" CHECK (from_node_id <> to_node_id)
+Foreign-key constraints:
+    "biz_flow_edge_from_node_id_fkey" FOREIGN KEY (from_node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+    "biz_flow_edge_to_node_id_fkey" FOREIGN KEY (to_node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+    "biz_flow_edge_version_id_fkey" FOREIGN KEY (version_id) REFERENCES biz_flow_def_version(id) ON DELETE CASCADE
+
+                   Table "public.biz_flow_node_assignee"
+    Column     |           Type           | Collation | Nullable | Default 
+---------------+--------------------------+-----------+----------+---------
+ node_id       | uuid                     |           | not null | 
+ assignee_type | character varying(24)    |           | not null | 
+ ref_id        | uuid                     |           | not null | 
+ sort_order    | integer                  |           | not null | 0
+ created_at    | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_flow_node_assignee_pkey" PRIMARY KEY, btree (node_id, assignee_type, ref_id)
+    "idx_biz_flow_node_assignee_ref" btree (assignee_type, ref_id)
+Check constraints:
+    "biz_flow_node_assignee_assignee_type_check" CHECK (assignee_type::text = ANY (ARRAY['USER'::character varying, 'ROLE'::character varying, 'DEPT_LEADER'::character varying]::text[]))
+Foreign-key constraints:
+    "biz_flow_node_assignee_node_id_fkey" FOREIGN KEY (node_id) REFERENCES biz_flow_node(id) ON DELETE CASCADE
+
+                              Table "public.biz_flow_instance_node"
+     Column     |           Type           | Collation | Nullable |           Default            
+----------------+--------------------------+-----------+----------+------------------------------
+ id             | uuid                     |           | not null | gen_random_uuid()
+ instance_id    | uuid                     |           | not null | 
+ node_id        | uuid                     |           |          | 
+ node_key       | character varying(64)    |           | not null | 
+ node_name      | character varying(100)   |           | not null | 
+ node_type      | character varying(16)    |           | not null | 
+ round          | integer                  |           | not null | 1
+ status         | character varying(16)    |           | not null | 'PENDING'::character varying
+ approval_mode  | character varying(8)     |           |          | 
+ approve_ratio  | numeric(4,3)             |           |          | 
+ reject_veto    | boolean                  |           |          | 
+ approver_count | integer                  |           | not null | 0
+ approved_count | integer                  |           | not null | 0
+ rejected_count | integer                  |           | not null | 0
+ taken_edge_key | character varying(64)    |           |          | 
+ is_auto_passed | boolean                  |           | not null | false
+ activated_at   | timestamp with time zone |           |          | 
+ ended_at       | timestamp with time zone |           |          | 
+ duration_ms    | bigint                   |           |          | 
+ created_at     | timestamp with time zone |           | not null | now()
+ updated_at     | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_flow_instance_node_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_instance_node_active" btree (activated_at DESC) WHERE status::text = 'ACTIVE'::text
+    "idx_biz_flow_instance_node_inst" btree (instance_id, round)
+    "idx_biz_flow_instance_node_node_id" btree (node_id) WHERE node_id IS NOT NULL
+    "idx_biz_flow_instance_node_stat" btree (node_key, status, duration_ms) WHERE ended_at IS NOT NULL
+    "uk_biz_flow_instance_node" UNIQUE CONSTRAINT, btree (instance_id, node_key, round)
+Check constraints:
+    "biz_flow_instance_node_approved_count_check" CHECK (approved_count >= 0)
+    "biz_flow_instance_node_approver_count_check" CHECK (approver_count >= 0)
+    "biz_flow_instance_node_rejected_count_check" CHECK (rejected_count >= 0)
+    "biz_flow_instance_node_round_check" CHECK (round >= 1)
+    "biz_flow_instance_node_status_check" CHECK (status::text = ANY (ARRAY['PENDING'::character varying, 'ACTIVE'::character varying, 'APPROVED'::character varying, 'REJECTED'::character varying, 'SKIPPED'::character varying, 'CANCELLED'::character varying]::text[]))
+Foreign-key constraints:
+    "biz_flow_instance_node_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    "biz_flow_instance_node_node_id_fkey" FOREIGN KEY (node_id) REFERENCES biz_flow_node(id) ON DELETE SET NULL
+Referenced by:
+    TABLE "biz_flow_task" CONSTRAINT "biz_flow_task_instance_node_id_fkey" FOREIGN KEY (instance_node_id) REFERENCES biz_flow_instance_node(id) ON DELETE CASCADE
+
+                             Table "public.biz_flow_cc"
+    Column     |           Type           | Collation | Nullable |      Default      
+---------------+--------------------------+-----------+----------+-------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ instance_id   | uuid                     |           | not null | 
+ node_key      | character varying(64)    |           | not null | 
+ round         | integer                  |           | not null | 1
+ receiver_id   | uuid                     |           | not null | 
+ receiver_name | character varying(50)    |           |          | 
+ source_type   | character varying(24)    |           | not null | 
+ source_ref    | uuid                     |           |          | 
+ is_read       | boolean                  |           | not null | false
+ read_at       | timestamp with time zone |           |          | 
+ notice_id     | uuid                     |           |          | 
+ created_at    | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_flow_cc_pkey" PRIMARY KEY, btree (id)
+    "idx_biz_flow_cc_mine" btree (receiver_id, created_at DESC)
+    "idx_biz_flow_cc_unread" btree (receiver_id) WHERE NOT is_read
+    "uk_biz_flow_cc" UNIQUE CONSTRAINT, btree (instance_id, node_key, round, receiver_id)
+Check constraints:
+    "biz_flow_cc_round_check" CHECK (round >= 1)
+Foreign-key constraints:
+    "biz_flow_cc_instance_id_fkey" FOREIGN KEY (instance_id) REFERENCES biz_flow_instance(id) ON DELETE CASCADE
+    "biz_flow_cc_receiver_id_fkey" FOREIGN KEY (receiver_id) REFERENCES sys_user(id)
+
+===== 9. biz_status_log 表结构 =====
+                            Table "public.biz_status_log"
+    Column     |           Type           | Collation | Nullable |      Default      
+---------------+--------------------------+-----------+----------+-------------------
+ id            | uuid                     |           | not null | gen_random_uuid()
+ entity_type   | character varying(32)    |           | not null | 
+ entity_id     | uuid                     |           | not null | 
+ entity_no     | character varying(64)    |           | not null | 
+ from_status   | character varying(24)    |           |          | 
+ to_status     | character varying(24)    |           | not null | 
+ operator_id   | uuid                     |           |          | 
+ operator_name | character varying(64)    |           |          | 
+ reason        | text                     |           |          | 
+ biz_ref_type  | character varying(32)    |           |          | 
+ biz_ref_no    | character varying(64)    |           |          | 
+ created_at    | timestamp with time zone |           | not null | now()
+Indexes:
+    "biz_status_log_pkey" PRIMARY KEY, btree (id)
+    "idx_status_log_entity" btree (entity_type, entity_id, created_at DESC)
+    "idx_status_log_no" btree (entity_no, created_at DESC)
+    "idx_status_log_type_time" btree (entity_type, created_at DESC)
+

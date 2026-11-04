@@ -73,9 +73,27 @@ _SVC_ENV = _read_env_file(DB_ENV_FILE)
 
 DB_HOST = os.environ.get("DB_HOST") or _SVC_ENV.get("ALUN_DATABASE_HOST", "127.0.0.1")
 DB_PORT = os.environ.get("DB_PORT") or _SVC_ENV.get("ALUN_DATABASE_PORT", "5432")
-DB_NAME = os.environ.get("DB_NAME") or _SVC_ENV.get("ALUN_DATABASE_NAME", "cloudpivot")
+# 库名的**默认值必须是测试库**（t_61dca492）：
+#   2026-10-31 之前这里是 `os.environ.get("DB_NAME") or _SVC_ENV.get("ALUN_DATABASE_NAME", "cloudpivot")`，
+#   于是「在 144 上 source /etc/cloudpivot/cloudpivot.env 再 import common」= 对着生产库跑验收，
+#   脚本自己一声不响。现在默认落 `cloudpivot_test`；真是生产库名时下面的 db_guard 直接退出。
+DB_NAME = (
+    os.environ.get("DB_NAME")
+    or os.environ.get("NIK_DATABASE_NAME")
+    or "cloudpivot_test"
+)
 DB_USER = os.environ.get("DB_USER") or _SVC_ENV.get("ALUN_DATABASE_USER", "cloudpivot")
 DB_PASS = os.environ.get("DB_PASS") or _SVC_ENV.get("ALUN_DATABASE_PASSWORD", "")
+
+# ---- E2ERES 环境守卫（t_61dca492）：库名是生产就直接退出（放行口见 db_guard.py 文件头）----
+try:
+    import db_guard as _db_guard  # 同目录导入（校验脚本统一从 scripts/verify 跑）
+except ImportError:  # pragma: no cover - 以包方式导入时走绝对路径
+    import sys as _sys
+
+    _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import db_guard as _db_guard
+_db_guard.require_non_prod(DB_NAME, DB_HOST, DB_PORT, script="common.py")
 
 STAMP = time.strftime("%m%d%H%M%S")
 

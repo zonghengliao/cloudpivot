@@ -352,6 +352,23 @@ pub struct FlowHealthRes {
     pub unhealthy: usize,
     /// 逐项结果。
     pub items: Vec<FlowHealthItem>,
+    /// **测试残留提示**（`t_61dca492`）：库里还剩多少 `E2E_*` / `D2_SMOKE` 的流程定义 / 实例。
+    ///
+    /// 为什么放在这个体检单里：e2e 脚本被指到生产库时，最先被污染的正是这两张表
+    /// （2026-10-30/31 实测 37 条实例 + 85 条定义），而这张单子是运维/实施上线必看的那一页。
+    /// **不影响 `healthy` / `unhealthy` 的判定**（残留不是「流程没配」），只是多一条可见的提示。
+    pub test_residue: TestResidueRes,
+}
+
+/// 测试残留提示（`biz_type` = `E2E_*` / `D2_SMOKE` 且未软删）。
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct TestResidueRes {
+    /// 未软删的测试残留流程定义行数（应为 0）。
+    pub defs: u64,
+    /// 未软删的测试残留流程实例行数（应为 0）。
+    pub instances: u64,
+    /// 人话提示（0 行时是「干净」的文案；> 0 时点名数量 + 清理入口）。
+    pub message: String,
 }
 
 /// 查一个业务类型的流程现状（**任意状态**都返回，便于区分「停用」与「没有」）。
@@ -481,6 +498,52 @@ pub async fn health() -> DbResult<FlowHealthRes> {
         healthy,
         unhealthy: total - healthy,
         items,
+        test_residue: inspect_test_residue().await?,
+    })
+}
+
+/// 查测试残留（`biz_type` = `E2E_*` / `D2_SMOKE` 且未软删）。
+///
+/// 判据**不在这里重写**：用 [`crate::business::shared::doc_kind::TEST_RESIDUE_SQL`]，
+/// 与 `biz_type_domain.py --strict`、[`crate::shared::startup_guard::count_test_residue`]
+/// 是同一个口径（否则「巡检红了但 /health 说干净」这种对不上会反复出现）。
+///
+/// 只读，两条走 `deleted_at` 的 count 查询，毫秒级。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]（500）。
+// SCOPE-EXEMPT: 体检是全局计数（跨全部流程定义/实例），注入数据范围会漏检。
+async fn inspect_test_residue() -> DbResult<TestResidueRes> {
+    use crate::business::shared::doc_kind::TEST_RESIDUE_SQL;
+
+    let defs: i64 = db()
+        .scalar_with_params(
+            &format!(
+                "SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
+            ),
+            vec![],
+        )
+        .await?;
+    let instances: i64 = db()
+        .scalar_with_params(
+            &format!("SELECT count(*) FROM biz_flow_instance WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
+            vec![],
+        )
+        .await?;
+    let residue = crate::shared::startup_guard::TestResidue {
+        defs: defs.max(0) as u64,
+        instances: instances.max(0) as u64,
+    };
+    let message = match crate::shared::startup_guard::test_residue_warning(residue) {
+        Some(message) => message,
+        None => "测试残留 0 行：biz_flow_def / biz_flow_instance 里没有 E2E_* / D2_SMOKE 活行"
+            .to_string(),
+    };
+    Ok(TestResidueRes {
+        defs: residue.defs,
+        instances: residue.instances,
+        message,
     })
 }
 

@@ -941,9 +941,135 @@ pub fn orphan_dependency_warning(count: u64) -> Option<String> {
     ))
 }
 
+/// 启动自检：库里还剩多少 **e2e 测试残留**（`biz_type` = `E2E_*` / `D2_SMOKE`，且未软删）。
+///
+/// # 为什么要有这一项
+///
+/// 2026-10-30/31 有 e2e 脚本被直接指到生产库，写进了 37 条 `E2E_AP_*` 审批实例
+/// （用户能在「我发起的」里看见）+ 85 条 `E2E_*` / `D2_SMOKE` 流程定义
+/// （卡 `t_61dca492`）。残留清完之后，**必须有东西盯着它不再回来**：
+/// 客户端守卫（`scripts/verify/db_guard.py` / `frontend/e2e/target-guard.mjs`）
+/// 只能拦住「走这两个入口的脚本」，拦不住手工 `psql` 或以后新写的工具。
+/// 服务端自检覆盖的是「不管谁写的，只要落在这个库里我就看得见」。
+///
+/// 判据来自 [`crate::business::shared::doc_kind`]（唯一真相，与 Python 巡检同口径），
+/// 这里不再抄一遍字符串。
+///
+/// # 处置
+///
+/// **只告警、不阻启动**（调用方 [`crate::bootstrap`]）：残留不影响任何业务读写，
+/// 但会让 `biz_type_domain.py --strict` 常年红、把真回归埋掉。
+///
+/// # 异常情况
+///
+/// 查库失败 → [`Error::Config`]（调用方同样只告警）。
+// SCOPE-EXEMPT: 启动自检是全局计数（跨全部流程定义 / 实例），注入数据范围会漏检。
+pub async fn count_test_residue() -> std::result::Result<TestResidue, Error> {
+    use crate::business::shared::doc_kind::TEST_RESIDUE_SQL;
+
+    let defs: i64 = db()
+        .scalar_with_params(
+            &format!("SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
+            vec![],
+        )
+        .await
+        .map_err(|e| Error::Config(format!("测试残留自检无法完成（查 biz_flow_def）：{e}")))?;
+    let instances: i64 = db()
+        .scalar_with_params(
+            &format!(
+                "SELECT count(*) FROM biz_flow_instance WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
+            ),
+            vec![],
+        )
+        .await
+        .map_err(|e| Error::Config(format!("测试残留自检无法完成（查 biz_flow_instance）：{e}")))?;
+    Ok(TestResidue {
+        defs: defs.max(0) as u64,
+        instances: instances.max(0) as u64,
+    })
+}
+
+/// 测试残留计数（`biz_flow_def` / `biz_flow_instance` 各一项）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct TestResidue {
+    /// 未软删、`biz_type` 命中测试残留口径的流程定义行数。
+    pub defs: u64,
+    /// 未软删、`biz_type` 命中测试残留口径的流程实例行数。
+    pub instances: u64,
+}
+
+impl TestResidue {
+    /// 干净（0 行残留）。
+    pub fn is_clean(self) -> bool {
+        self.defs == 0 && self.instances == 0
+    }
+}
+
+/// 测试残留的告警文案：干净 → `None`（不打告警）；有残留 → 点名数量 + 清理入口。
+///
+/// 抽成纯函数是为了能单测「多少行才告警 / 文案里有没有给出清理入口」，不必连库。
+pub fn test_residue_warning(residue: TestResidue) -> Option<String> {
+    if residue.is_clean() {
+        return None;
+    }
+    Some(format!(
+        "发现 {} 条测试残留流程定义 + {} 条测试残留流程实例（biz_type = E2E_* / D2_SMOKE，未软删）。\
+         有 e2e / 验收脚本被打到了本库（库 {}）。不阻断业务，但会让词表巡检 --strict 常年红：\
+         清理走 scripts/datafix/e2e_residue/apply.sh（自带备份闸 + 快照回滚），\
+         清完复跑 scripts/verify/biz_type_domain.py --strict 应为 PASS。",
+        residue.defs,
+        residue.instances,
+        std::env::var("NIK_DATABASE_NAME").unwrap_or_else(|_| "<未设置>".to_string()),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ────────────── test_residue_warning：残留告警口径（t_61dca492） ──────────────
+
+    /// 干净（0/0）不许告警：否则每次启动都刷一条 warn，运维很快就会学会忽略它。
+    #[test]
+    fn test_residue_clean_is_silent() {
+        assert_eq!(test_residue_warning(TestResidue::default()), None);
+        assert!(TestResidue::default().is_clean());
+    }
+
+    /// 只要有残留就必须点名两个数字 —— 只说「有残留」等于没给定位。
+    #[test]
+    fn test_residue_warning_names_both_counts() {
+        let message = test_residue_warning(TestResidue {
+            defs: 85,
+            instances: 37,
+        })
+        .expect("有残留必须告警");
+        assert!(message.contains("85"), "文案缺定义数：{message}");
+        assert!(message.contains("37"), "文案缺实例数：{message}");
+        assert!(
+            message.contains("scripts/datafix/e2e_residue/apply.sh"),
+            "文案必须给出清理入口：{message}"
+        );
+        assert!(
+            message.contains("--strict"),
+            "文案必须给出复核口径：{message}"
+        );
+    }
+
+    /// 只有定义、没有实例（或反过来）同样算残留 —— 半截状态正是「删到一半」的典型。
+    #[test]
+    fn test_residue_partial_counts_still_warn() {
+        assert!(test_residue_warning(TestResidue {
+            defs: 1,
+            instances: 0
+        })
+        .is_some());
+        assert!(test_residue_warning(TestResidue {
+            defs: 0,
+            instances: 1
+        })
+        .is_some());
+    }
 
     /// 测试用 64 位十六进制密钥（形状与 `openssl rand -hex 32` 一致，非真实密钥）。
     const VALID_SECRET_HEX64: &str =

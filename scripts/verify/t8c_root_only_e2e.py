@@ -13,6 +13,12 @@ T8C_BASE=http://127.0.0.1:18085 T8C_USER=laoliu T8C_PASS=*** \\
 父任务的 child_count 之和 = 15（子任务一条不少，只是靠懒加载取）、分页无空白尾页、
 keyword / status 都在顶层集合里筛、`root_only` 非法值 400（不静默当 false）。
 """
+
+# ---- E2ERES 环境守卫（t_61dca492）：e2e 不许打到生产库，库名是生产就直接退出 ----
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from db_guard import require_non_prod as _require_non_prod  # noqa: E402
+_require_non_prod(script=_os.path.basename(__file__))
 import json
 import os
 import urllib.error

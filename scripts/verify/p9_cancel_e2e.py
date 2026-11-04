@@ -5,6 +5,12 @@
 跑在 144 上，实例指向 cloudpivot_p9e（prod 修复后的副本）。
 四个快照必须满足：④ 作废后 == ① 基线（逐字段相等）。
 """
+
+# ---- E2ERES 环境守卫（t_61dca492）：e2e 不许打到生产库，库名是生产就直接退出 ----
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+from db_guard import require_non_prod as _require_non_prod  # noqa: E402
+_require_non_prod(script=_os.path.basename(__file__))
 import json
 import os
 import subprocess

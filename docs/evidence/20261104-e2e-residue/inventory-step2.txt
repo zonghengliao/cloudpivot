@@ -1,0 +1,127 @@
+Pager usage is off.
+===== A. D2_SMOKE / 其它非 E2E 域外 biz_type 明细 =====
+                  id                  |   flow_code   |    flow_name    | biz_type |  status   | live |          created_at           | has_cur 
+--------------------------------------+---------------+-----------------+----------+-----------+------+-------------------------------+---------
+ 01a187f2-220b-72b9-8509-c1cfa40fd599 | d2_prod_smoke | D2 生产冒烟流程 | D2_SMOKE | PUBLISHED | f    | 2026-10-29 21:55:55.019582+08 | t
+ 01a187f2-b2a4-74ac-b470-bf91d13839f5 | d2_prod_smoke | D2 生产冒烟流程 | D2_SMOKE | PUBLISHED | f    | 2026-10-29 21:56:32.03632+08  | t
+ 01a187f3-09a2-7061-9c5f-a71c568b6879 | d2_prod_smoke | D2 生产冒烟流程 | D2_SMOKE | PUBLISHED | f    | 2026-10-29 21:56:54.306765+08 | t
+(3 rows)
+
+===== B. flow_code e2e% 计数 vs biz_type E2E% 计数 =====
+ code_e2e | type_e2e | either | total 
+----------+----------+--------+-------
+      105 |       82 |    105 |   143
+(1 row)
+
+===== C. E2E def 相关的版本/节点/边/分配人 行数 =====
+ defs | versions | nodes | edges | node_assignees | instances | inst_nodes | ccs | tasks 
+------+----------+-------+-------+----------------+-----------+------------+-----+-------
+   82 |       82 |   321 |   239 |              0 |        37 |        107 |   0 |    37
+(1 row)
+
+===== D. biz_task 里指向 E2E 实例的外部引用 =====
+ biz_task_ref 
+--------------
+            0
+(1 row)
+
+===== E. E2E 实例的 def_id 是否都指向 E2E def（防串行） =====
+ bad_ref 
+---------
+       0
+(1 row)
+
+===== F. E2E 实例里是否有 PENDING（在飞） =====
+  status   | count 
+-----------+-------
+ WITHDRAWN |     4
+ APPROVED  |    33
+(2 rows)
+
+===== G. 非 E2E 业务在飞的 PENDING 实例明细（删除窗口判断） =====
+                  id                  |      instance_no      |  biz_type  | flow_code  |              title              |       biz_no       | status  |          started_at           
+--------------------------------------+-----------------------+------------+------------+---------------------------------+--------------------+---------+-------------------------------
+ 01a19c2b-076d-75fe-9a8c-be71735ec767 | FLW-20261102-94417B93 | PO_APPROVE | po_approve | PO-20261102-000001 采购订单审批 | PO-20261102-000001 | PENDING | 2026-11-02 20:10:28.079604+08
+(1 row)
+
+===== H. biz_status_log 里任何列出现 E2E/D2_SMOKE 痕迹 =====
+ by_entity_type | by_entity_no | by_ref_no | total 
+----------------+--------------+-----------+-------
+              0 |            0 |         0 |   113
+(1 row)
+
+===== I. biz_status_log 里指向 E2E 实例 entity_id 的行（审计证据，只统计不删） =====
+ entity_type | to_status | count 
+-------------+-----------+-------
+(0 rows)
+
+===== J. 其它测试前缀普查：biz_task / biz_status_log / 各 biz_* 表里的 E2E 痕迹 =====
+    t     | count 
+----------+-------
+ biz_task |   455
+(1 row)
+
+            t            | count 
+-------------------------+-------
+ biz_flow_instance.title |    12
+(1 row)
+
+===== K. 生产库当前活动连接（是否有人在跑审批） =====
+     datname      | state  | count 
+------------------+--------+-------
+ cloudpivot       | active |     1
+ cloudpivot       | idle   |     8
+ cloudpivot_e11   | idle   |     8
+ cloudpivot_p5d   | idle   |     8
+ cloudpivot_p5e2e | idle   |     8
+ cloudpivot_p7    | idle   |     8
+ cloudpivot_t11   | idle   |     8
+ cloudpivot_w3b   | idle   |     8
+(8 rows)
+
+===== L. 当前最大事务 / 锁情况 =====
+ locks_not_granted 
+-------------------
+                 0
+(1 row)
+
+===== M. E2E def 的 created_at 时间分布（判断是哪次 e2e 打的） =====
+           h            | count 
+------------------------+-------
+ 2026-10-30 09:00:00+08 |     4
+ 2026-10-30 10:00:00+08 |     8
+ 2026-10-30 11:00:00+08 |     1
+ 2026-10-30 12:00:00+08 |    47
+ 2026-10-30 13:00:00+08 |    14
+ 2026-10-30 15:00:00+08 |     2
+ 2026-10-31 11:00:00+08 |     2
+ 2026-10-31 12:00:00+08 |     4
+(8 rows)
+
+           h            | count 
+------------------------+-------
+ 2026-10-30 09:00:00+08 |     2
+ 2026-10-30 10:00:00+08 |     4
+ 2026-10-30 12:00:00+08 |    21
+ 2026-10-30 13:00:00+08 |     7
+ 2026-10-30 15:00:00+08 |     1
+ 2026-10-31 11:00:00+08 |     1
+ 2026-10-31 12:00:00+08 |     1
+(7 rows)
+
+===== N. 11 条存活流程定义（必须一个不删） =====
+                  id                  |    flow_code     |                 flow_name                  |     biz_type     |  status   | current_version_no 
+--------------------------------------+------------------+--------------------------------------------+------------------+-----------+--------------------
+ 20000000-0000-4000-8000-0000000c0209 | contract_approve | 合同审批（标准·金额分级）                  | CONTRACT_APPROVE | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000e0206 | flow_edge_config | 状态机配置变更审批（改流程规则前先过复核） | FLOW_EDGE_CFG    | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000c0182 | payable_cancel   | 应付单作废审批（标准）                     | PAYABLE_CANCEL   | PUBLISHED |                  1
+ 20000000-0000-4000-8000-000000000717 | payable_pay      | 应付付款审批                               | PAYABLE_PAY      | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000a0182 | po_approve       | 采购订单审批（标准·金额分级）              | PO_APPROVE       | PUBLISHED |                  2
+ 20000000-0000-4000-8000-00000000d174 | stock_in_cancel  | 收货单作废审批                             | STOCK_IN_CANCEL  | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000b0182 | stock_in_post    | 收货过账审批（标准·金额分级）              | STOCK_IN_POST    | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000c2110 | stock_take_post  | 盘点过账审批（标准·差异金额分级）          | STOCK_TAKE_POST  | PUBLISHED |                  1
+ 20000000-0000-4000-8000-00000000d157 | stock_transfer   | 库存调拨审批                               | STOCK_TRANSFER   | PUBLISHED |                  1
+ 20000000-0000-4000-8000-00000000d127 | task_accept      | 任务验收                                   | TASK_ACCEPT      | PUBLISHED |                  1
+ 20000000-0000-4000-8000-0000000d0182 | voucher_reverse  | 凭证红冲审批（标准）                       | VOUCHER_REVERSE  | PUBLISHED |                  1
+(11 rows)
+

@@ -633,3 +633,47 @@ fn parse_is_strict() {
         Some(DocKind::StockTransfer)
     );
 }
+
+// ==================== 测试残留口径（t_61dca492） ====================
+
+/// [`is_test_residue`] 的判据必须与 Python 巡检（`biz_type_domain.py::is_test_residue`）逐字一致。
+///
+/// 三边（Rust / Python / SQL 片段）任何一边改了拼写，这条就会红 —— 目的就是逼人同步改，
+/// 而不是又一次「第 8 套词表」。
+#[test]
+fn test_residue_predicate_matches_python_and_sql() {
+    // 真阳性：e2e 脚本写进生产库的那两种形态
+    assert!(crate::business::shared::doc_kind::is_test_residue(
+        "E2E_AP_E2EMVUARCAT"
+    ));
+    assert!(crate::business::shared::doc_kind::is_test_residue("E2E_"));
+    assert!(crate::business::shared::doc_kind::is_test_residue("D2_SMOKE"));
+    // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
+    for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
+        assert!(
+            !crate::business::shared::doc_kind::is_test_residue(raw),
+            "{raw} 不该被当成测试残留"
+        );
+    }
+    // SQL 片段与函数同口径（前缀 4 字符 + 精确值）
+    assert_eq!(
+        crate::business::shared::doc_kind::TEST_RESIDUE_SQL,
+        "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE')"
+    );
+    assert_eq!(
+        crate::business::shared::doc_kind::TEST_RESIDUE_PREFIX.len(),
+        4,
+        "SQL 里用的是 left(biz_type, 4)，前缀长度必须也是 4"
+    );
+    // 内置词表里绝不能有测试残留值（否则「删残留」会把内置流程一起删掉）
+    for item in crate::business::shared::doc_kind::COLUMN_DOMAINS {
+        for value in item.values {
+            assert!(
+                !crate::business::shared::doc_kind::is_test_residue(value),
+                "{}.{} 的词表里出现了测试残留值 {value}",
+                item.table,
+                item.column
+            );
+        }
+    }
+}

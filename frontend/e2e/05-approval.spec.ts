@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { assertNavigationOk, newApi, openAuthed, toast, RUN, type Api } from './support';
+import { classifyTarget } from './target-guard.mjs';
 
 /**
  * 流程 5：审批待办 → 审批（同意）
@@ -9,7 +10,22 @@ import { assertNavigationOk, newApi, openAuthed, toast, RUN, type Api } from './
  *
  * 图：开始 → 审批(审批人=发起人本人, 允许自审) → 结束，
  * 于是本账号发起的单子会落在自己的「待我审批」里，一个人就能跑完整条链路。
+ *
+ * ⚠️ **本用例只许在隔离实例上跑**（`t_61dca492`）：它会在库里造 `biz_type = E2E_AP_<随机>` 的
+ * 流程定义 + 流程实例。`afterAll` 能把定义删掉（其实是软删，`deleted_at` 非空 ——
+ * 生产库那 85 条 `E2E_*` 定义就是历次 afterAll 留下的），但**实例没有删除接口**，
+ * 只能一直躺在「我发起的」里（生产库实测 37 条）。所以：
+ * - `playwright.config.ts` 已经拦住「非隔离目标」这条默认路径；
+ * - 但线上验收可以用 `E2E_ALLOW_PROD=1` 放行，而**放行的应该只是页面走查** ——
+ *   本用例自己再退一步：目标不是隔离实例就直接 skip，一行数据都不造。
  */
+const TARGET = classifyTarget(process.env.E2E_BASE_URL ?? 'http://127.0.0.1:5189');
+test.skip(
+  !TARGET.isolated,
+  `目标 ${TARGET.url} 不是隔离实例（${TARGET.reason}）：本用例会在库里造 E2E_AP_* 流程定义与实例，` +
+    '只允许在隔离实例上跑（bash scripts/verify/e2e_isolated_instance.sh）',
+);
+
 test.describe('流程5 审批待办 → 同意', () => {
   let api: Api;
   let defId = '';

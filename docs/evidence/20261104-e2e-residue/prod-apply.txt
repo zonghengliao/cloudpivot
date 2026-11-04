@@ -1,0 +1,105 @@
+==============================================================
+ E2ERES  目标库：cloudpivot @ 127.0.0.1:5432  模式：apply
+ 时间：2026-11-04 16:22:46 CST
+==============================================================
+---- 现状快照 ----
+alive_flow_def        = 11
+residue_def(测试残留) = 85
+residue_instance      = 37
+instance PENDING(全部) = 1
+biz_status_log        = 113
+各表总量 def/ver/node/edge/asg/inst/inode/task/cc = 143/151/547/412/51/165/476/191/0
+---- 备份闸通过：/root/datafix-backup-e2eres-20261104-162243 ----
+   # 目标库  : cloudpivot @ 127.0.0.1:5432 (user=cloudpivot)
+   # 口径    : biz_type 以 E2E_ 开头 或 = D2_SMOKE（= biz_type_domain.py::is_test_residue）
+   # git HEAD: 21761b14c1ab8c8ecc242d25f3951fd870941094
+Pager usage is off.
+CREATE TABLE
+COMMENT
+CREATE TABLE
+COMMENT
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue/10_precheck.sql:241: NOTICE:  E2ERES/10 命中量：def=85 ver=85 node=330 edge=245 asg=3 / inst=37 inode=107 task=37 cc=0
+DO
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue/10_precheck.sql:241: NOTICE:  E2ERES/10 前置校验全部通过（keepers=11 fp=7fcb32a38a193135a8a7e370db1839d5 / 残留 def=85 inst=37）
+                item                 |               val                
+-------------------------------------+----------------------------------
+ biz_status_log_residue              | 0
+ biz_status_log_total                | 113
+ keeper_edges                        | 89
+ keeper_nodes                        | 87
+ keepers_count                       | 11
+ keepers_fingerprint                 | 7fcb32a38a193135a8a7e370db1839d5
+ keeper_versions                     | 16
+ residue_biz_flow_cc                 | 0
+ residue_biz_flow_def                | 85
+ residue_biz_flow_def_version        | 85
+ residue_biz_flow_edge               | 245
+ residue_biz_flow_instance           | 37
+ residue_biz_flow_instance_node      | 107
+ residue_biz_flow_node               | 330
+ residue_biz_flow_node_assignee      | 3
+ residue_biz_flow_task               | 37
+ residue_state                       | present
+ table_biz_flow_cc_before            | 0
+ table_biz_flow_def_before           | 143
+ table_biz_flow_def_version_before   | 151
+ table_biz_flow_edge_before          | 412
+ table_biz_flow_instance_before      | 165
+ table_biz_flow_instance_node_before | 476
+ table_biz_flow_node_assignee_before | 51
+ table_biz_flow_node_before          | 547
+ table_biz_flow_task_before          | 191
+ table_biz_status_log_before         | 113
+(27 rows)
+
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue/20_purge_test_residue.up.sql:217: NOTICE:  E2ERES/20 up: 快照 929 行（回滚底气）
+DO
+psql:/opt/cloudpivot/scripts/datafix/e2e_residue/20_purge_test_residue.up.sql:217: NOTICE:  E2ERES/20 up 完成：def=85 ver=85 node=330 edge=245 asg=3 inst=37 inode=107 task=37 cc=0；biz_status_log 未动（113 行）
+              item              | val 
+--------------------------------+-----
+ deleted_biz_flow_cc            | 0
+ deleted_biz_flow_def           | 85
+ deleted_biz_flow_def_version   | 85
+ deleted_biz_flow_edge          | 245
+ deleted_biz_flow_instance      | 37
+ deleted_biz_flow_instance_node | 107
+ deleted_biz_flow_node          | 330
+ deleted_biz_flow_node_assignee | 3
+ deleted_biz_flow_task          | 37
+(9 rows)
+
+---- 30 自检 ----
+PASS|residue_biz_flow_def|残留 0 行
+PASS|residue_biz_flow_instance|残留 0 行
+PASS|orphan_biz_flow_def_version|0 个版本没有父定义
+PASS|orphan_biz_flow_node|0 个节点没有父版本
+PASS|orphan_biz_flow_edge|0 条边没有父版本
+PASS|orphan_biz_flow_instance|0 个实例没有父定义
+PASS|orphan_biz_flow_instance_node|0 个实例节点没有父实例
+PASS|orphan_biz_flow_task|0 条待办没有父实例
+PASS|orphan_biz_flow_cc|0 条抄送没有父实例
+PASS|alive_flow_def|实际 11 条（基线 11）
+PASS|keepers_fingerprint|7fcb32a38a193135a8a7e370db1839d5
+PASS|keeper_versions|16 行
+PASS|keeper_nodes|87 行
+PASS|keeper_edges|89 行
+PASS|count_biz_flow_def|actual=58 expected=58
+PASS|count_biz_flow_def_version|actual=66 expected=66
+PASS|count_biz_flow_node|actual=217 expected=217
+PASS|count_biz_flow_edge|actual=167 expected=167
+PASS|count_biz_flow_node_assignee|actual=48 expected=48
+PASS|count_biz_flow_instance|actual=128 expected>=128
+PASS|count_biz_flow_instance_node|actual=369 expected>=369
+PASS|count_biz_flow_task|actual=154 expected>=154
+PASS|biz_status_log_untouched|实际 113 行
+WARN|out_of_scope_deleted_e2e_like_defs|36 条软删定义的 flow_code 带 e2e/diag/vrf/d5/acc 前缀（biz_type 是业务值，本卡不判垃圾）
+WARN|out_of_scope_orphan_instances|16 条存活实例的流程定义已软删（清场前 53，其中 37 条是本卡删掉的 E2E 实例）
+---- 自检：无 FAIL（WARN 见上）----
+---- 现状快照 ----
+alive_flow_def        = 11
+residue_def(测试残留) = 0
+residue_instance      = 0
+instance PENDING(全部) = 1
+biz_status_log        = 113
+各表总量 def/ver/node/edge/asg/inst/inode/task/cc = 58/66/217/167/48/128/369/154/0
+==> E2ERES apply 结束（2026-11-04 16:22:46）

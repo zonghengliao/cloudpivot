@@ -36,8 +36,11 @@ ADR-20261031 落地后（批量生成 = 无来源入库，必录成本 + 写两�
 连接口径与 `erp_invariants.py` 相同：只认 `NIK_DATABASE_*`（记得 `set -a; . /etc/cloudpivot/cloudpivot.env`）。
 
 退出码：有残留 → 1；干净 → 0；连库失败 → 2（不要把它当成「干净」）。
-"""
 
+    ⚠ 本脚本**不装** db_guard：它是**只读**巡检，而且 e2e 打生产时必须能对生产库跑一次
+      （`frontend/e2e/target-guard.mjs` 的 POSTRUN_STEPS 就要求在生产上跑它）。
+      「禁止打生产」的守卫在写数据的脚本上，只读审计不加闸。
+"""
 import argparse
 import json
 import os

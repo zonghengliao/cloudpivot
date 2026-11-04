@@ -1095,6 +1095,33 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 14] = [
     },
 ];
 
+// ==================== 测试残留口径（t_61dca492） ====================
+
+/// 测试残留的**前缀**：`biz_type` 以它开头的行都是 e2e / 验收脚本写进来的，不属于业务。
+///
+/// 与 `scripts/verify/biz_type_domain.py::is_test_residue` **逐字一致**：
+/// 那边判 `value.startswith("E2E_") or value == "D2_SMOKE"`，这边是同一个口径的 Rust 版本；
+/// 再加一条 `doc_kind_tests.rs` 的一致性用例钉住，改一边不改另一边会红。
+pub const TEST_RESIDUE_PREFIX: &str = "E2E_";
+
+/// 测试残留的**精确值**（没有统一前缀的历史冒烟流程）。
+pub const TEST_RESIDUE_EXACT: [&str; 1] = ["D2_SMOKE"];
+
+/// 某个 `biz_type` 值是不是测试残留（`E2E_*` 或 `D2_SMOKE`）。
+///
+/// ⚠️ 这个判据**不是**「不在词表里就算垃圾」—— `biz_type` 允许客户自定义，
+/// 客户的真流程同样不在 [`COLUMN_DOMAINS`] 的域里。两件事分得很清：
+/// 词表域回答「这个值是不是内置拼写」，本函数回答「这个值是不是测试脚本写的」。
+pub fn is_test_residue(biz_type: &str) -> bool {
+    biz_type.starts_with(TEST_RESIDUE_PREFIX) || TEST_RESIDUE_EXACT.contains(&biz_type)
+}
+
+/// 与 [`is_test_residue`] 同口径的 **SQL 片段**（列名固定为 `biz_type`）。
+///
+/// 为什么要有这个常量：启动自检和 `/health` 各写一遍 SQL 迟早写歪，
+/// 而 `left(biz_type, 4)` 与 `starts_with` 是同一件事 —— 只在这里写一次。
+pub const TEST_RESIDUE_SQL: &str = "(left(biz_type, 4) = 'E2E_' OR biz_type = 'D2_SMOKE')";
+
 #[cfg(test)]
 #[path = "doc_kind_tests.rs"]
 mod doc_kind_tests;
