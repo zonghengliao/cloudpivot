@@ -1,0 +1,20 @@
+# 只读纪律（AP-8）核验：新增 SQL 段零 DML
+
+## 1) 本次 diff 的新增行里 DML 关键字计数（期望 0）
+$ git diff -U0 -- docs/architecture/snapshot-drift/10_checks.sql | grep "^+" | grep -v "^+++" | grep -cwE "UPDATE|INSERT|DELETE"
+0
+
+## 2) 整个 10_checks.sql 的 DML 关键字计数（期望 0；非 0 只允许是注释里指别的文件）
+$ grep -nwE "UPDATE|INSERT|DELETE" docs/architecture/snapshot-drift/10_checks.sql
+12:--   ② 巡检任务只需一条 INSERT ... SELECT（见 20_upsert_converge.sql）；
+
+## 3) 巡检脚本全文 DML（期望 0；唯一的写是 --install-views 的 CREATE OR REPLACE VIEW）
+$ grep -cwE "UPDATE|INSERT|DELETE" scripts/verify/snapshot_audit.py
+0
+
+## 4) 巡检执行路径只读双保险（脚本内置）
+45:1. 每条巡检都在 `BEGIN READ ONLY` 事务 + `statement_timeout` 里跑：任何写操作都会被 PG 直接拒绝。
+214:    # 双保险：即使有人把 BEGIN READ ONLY 删了，会话级默认也只读。
+216:    env["PGOPTIONS"] = ("-c default_transaction_read_only=on" if readonly
+217:                        else "-c default_transaction_read_only=off")
+225:        text = ("BEGIN READ ONLY;\n"

@@ -1,0 +1,57 @@
+=== 0) 拉平代码 ===
+ ...221\212\350\255\246\350\256\276\350\256\241.md" | 75 +++++++++++++++++--
+ scripts/verify/snapshot_audit.py                   | 12 ++-
+ 3 files changed, 153 insertions(+), 20 deletions(-)
+7f0fe5c fix(verify): DI-19 按实例状态分级（PENDING=WARN/终态=INFO）+ DI-18 精确豁免台账（t_237f1caa）
+HEAD=7f0fe5cbd407121bd7db9d65d79e6475ec4b3e9f  origin/main=7f0fe5cbd407121bd7db9d65d79e6475ec4b3e9f
+
+=== 1) 生产库巡检（--install-views 装 di 视图 + --group 多态引用）===
+已幂等安装 di 巡检视图（25 → 25 个 c_di* 视图）
+====================================================================================
+云枢 · 快照一致性巡检（B1，只报不修）
+库: cloudpivot@127.0.0.1:5432   生成: 2026-11-04 17:54:13+0800
+能力: 合同表=就位 采购单合同列=就位 变更台账=无（按「无台账 ⇒ P0」保守处理） 结果表 biz_snapshot_drift=缺失（本脚本只报不落表，见卡 B2）
+====================================================================================
+
+── 多态引用（9 项）──────────────────────────────────────────────────────────────
+  ✓ DI-17  凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空）  通过
+  ℹ DI-18  库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO）  2 条 [INFO]
+       ▸ INVENTORY_TXN 01a1f140-0000-4000-8000-000000000001 (DATAFIX-20261101-P14) doc_id: 快照=ADJUST → (无实体表) ≠ 真相=NO_TARGET_TABLE [DEFECT/INFO]
+         真相来源: README:doc_type=ADJUST
+       ▸ INVENTORY_TXN 01a19108-ee53-73c6-bdaa-0109614ea963 (SN-20261031-000011) doc_id: 快照=已核查豁免#2026-11-04：SERIAL_BATCH → biz_material_serial ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_material_serial.deleted_at
+  ℹ DI-19  流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO）  47 条 [INFO]
+       ▸ FLOW_INSTANCE 01a18cae-80e8-768e-8fd8-43058240490f (FLW-20261030-116EC757) biz_id: 快照=TASK_ACCEPT → biz_task ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_task.deleted_at
+       ▸ FLOW_INSTANCE 01a18cd9-af9e-72df-bba6-37e177fc315f (FLW-20261030-1B082876) biz_id: 快照=TASK_ACCEPT → biz_task ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_task.deleted_at
+       ▸ FLOW_INSTANCE 01a18a9d-88f6-7039-80c8-2b8ede671589 (FLW-20261030-1BAE2858) biz_id: 快照=TASK_ACCEPT → biz_task ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_task.deleted_at
+       ▸ FLOW_INSTANCE 01a18cd9-ae9c-777a-b058-e33dfa7f16f0 (FLW-20261030-1F7A19D8) biz_id: 快照=TASK_ACCEPT → biz_task ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_task.deleted_at
+       ▸ FLOW_INSTANCE 01a18cae-c4c0-71c3-8c7c-2874aa14d5a4 (FLW-20261030-23C3AECC) biz_id: 快照=TASK_ACCEPT → biz_task ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_task.deleted_at
+       … 另有 42 条未展开（详见 --json 或库内视图）
+  ℹ DI-20  状态日志实体悬空（entity_type 指向的实体已软删/不存在）  31 条 [INFO]
+       ▸ STATUS_LOG 01a1a1c5-c5cb-7462-9a8c-a50369f1493f (HT-20261103-000006) entity_id: 快照=CONTRACT → biz_contract ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_contract.deleted_at
+       ▸ STATUS_LOG 01a1a1c6-4513-7199-9ea7-7c85b3362d92 (HT-20261103-000007) entity_id: 快照=CONTRACT → biz_contract ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_contract.deleted_at
+       ▸ STATUS_LOG 01a1a1c6-452a-745e-b537-273d53d5bbea (HT-20261103-000007) entity_id: 快照=CONTRACT → biz_contract ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_contract.deleted_at
+       ▸ STATUS_LOG 01a1a1c6-5e9d-7236-81a0-18854425d697 (HT-20261103-000008) entity_id: 快照=CONTRACT → biz_contract ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_contract.deleted_at
+       ▸ STATUS_LOG 01a1a1c6-5eba-77a2-a2f2-26da457b0919 (HT-20261103-000008) entity_id: 快照=CONTRACT → biz_contract ≠ 真相=SOFT_DELETED [DEFECT/INFO]
+         真相来源: biz_contract.deleted_at
+       … 另有 26 条未展开（详见 --json 或库内视图）
+  ✓ DI-21  序列号来源悬空 / 未记录（source_type 指出的收货单/调拨单已软删，或有类型无 id）  通过
+  ✓ DI-22  多态引用登记缺口（数据里出现 di.v_poly_ref_map 未登记的类型）  通过
+  ✓ DI-23  单据附件指向的单据悬空（doc_type 指出的单据已软删/不存在）  通过
+  ✓ DI-24  业务提醒台账指向的单据悬空  通过
+  ✓ DI-25  流程抄送来源悬空 / 缺来源 id（角色/部门被删，或角色来源没记 source_ref）  通过
+
+====================================================================================
+汇总: BLOCKER 0 / WARN 0 / INFO 80   巡检项 9（通过 6、有命中 3、跳过 0、失败 0）
+退出码: 0
+====================================================================================
+巡检退出码: 0
