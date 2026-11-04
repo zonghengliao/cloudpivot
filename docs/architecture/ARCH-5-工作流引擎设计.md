@@ -62,8 +62,8 @@
 
 # 第一章 实测基线：现有引擎能做什么、不能做什么
 
-> 本章全部结论来自**当天实测**：读 `backend/src/business/flow/` 下 29 个 Rust 文件（43,409 行）、
-> 读 `backend/migrations/business/` 里 20 个 `*flow*` 迁移、连 PostgreSQL 18.6 查
+> 本章全部结论来自**当天实测**：读 `backend/src/business/flow/` 下 28 个 Rust 文件（41,408 行）、
+> 读 `backend/migrations/business/` 里 24 个 `*flow*` 迁移（up.sql）、连 PostgreSQL 18.6 查
 > `information_schema` 与 `\d+` 看真实表结构、跑一次 DDL 落到 102 张表的库副本上。
 > 每条结论后面括号里是取证方式，不是印象。
 
@@ -77,7 +77,7 @@
 |---|---|---|---|
 | 流程定义主表 | `biz_flow_def`（`flow_code` 软删唯一、`biz_type`、`status` DRAFT/PUBLISHED/DISABLED、`category`、`is_default`、`allow_auto_approve`、`owner_dept_id`） | **扩展** | 加 `flow_type` / `closure_mode` / `archive_policy`；`category` 复用为发起中心 tab |
 | 版本与快照 | `biz_flow_def_version`：`version_no`+`is_current`+`graph_hash`+`graph_snapshot`；PUBLISHED 冻结、`uk_..._current` 保证每 def 至多一个当前版本；CHECK 强制「PUBLISHED ⇒ hash+snapshot+published_at 三者俱全」 | **直接复用** | 不改。实例绑 `version_id`，引擎只读快照（`V0122` 注释 D2） |
-| 节点行 | `biz_flow_node`：25 列，含 `approval_mode` / `approve_ratio` / `reject_veto` / `fork_mode` / `join_mode` / `timeout_hours` / `timeout_action` / `remind_before_hours` / `max_remind_times` / `position_x,y` / `config JSONB` | **扩展** | 加 8 列（`sign_mode` / `co_assignee` / `claim_mode` / `escalate_levels` / `closure_role` / `form_def_id` / `checklist_def_id` / `subprocess_def_id`） |
+| 节点行 | `biz_flow_node`：26 列（扩展后 34 列），含 `approval_mode` / `approve_ratio` / `reject_veto` / `fork_mode` / `join_mode` / `timeout_hours` / `timeout_action` / `remind_before_hours` / `max_remind_times` / `position_x,y` / `config JSONB` | **扩展** | 加 8 列（`sign_mode` / `co_assignee` / `claim_mode` / `escalate_levels` / `closure_role` / `form_def_id` / `checklist_def_id` / `subprocess_def_id`） |
 | 节点类型枚举 | **9 值**：`START / APPROVAL / COUNTERSIGN / CONDITION / PARALLEL / CC / END / TASK_NODE / NOTIFY_NODE`（`V0120` 建 7 值，`V0178` 补 2 值并带自检） | **扩展** | 扩到 15 值：加 `FORM / CHECKLIST / EVIDENCE / WAIT / SUBPROCESS / ACTION` |
 | 审批人引用 | `biz_flow_node_assignee` 独立表（`USER`/`ROLE`/`DEPT_LEADER`），**刻意不塞 config JSONB**（三个理由：无外键、无法反查影响面、驱动不支持数组绑定） | **直接复用** | 有序多签复用其 `sort_order` 作签序，不新增列 |
 | 指派来源 | `assignee_type` **11 值**：`USER / ROLE / INITIATOR / INITIATOR_SUPERIOR / DEPT_LEADER / TASK_OWNER / TASK_CREATOR / TASK_ASSIGNER / FORM_VAR / ADMIN / EXPRESSION` | **直接复用** | 本文所有协作模式的「找谁」全部落在这 11 值里，不造第二套 |
@@ -158,7 +158,7 @@
 | 检查项 | 实测 | 结论 |
 |---|---|---|
 | 节点类型定义 | `graph.rs:68` `enum NodeType`（9 变体）+ `as_str()` + `parse()` | 加变体 = 3 处改动（enum、`as_str`、`parse`），局部 |
-| 节点类型使用点 | `grep -c "NodeType::"` 全仓 **150 处**，分布：`graph.rs` 128、`engine.rs` 11、`handler.rs` 4、`dto.rs` 3、`notify_node.rs` 2、`task_node.rs` 1、`model.rs` 1、`payable_bridge.rs` 1 | **没有「到处 if-else」**：128 处在校验器里（按规则编号组织，新增节点只需在相关规则里加一个 `matches!`），真正分派只有 `engine.rs::step` 的**一个 match** |
+| 节点类型使用点 | `grep -c "NodeType::"` 全仓 **151 处**，分布：`graph.rs` 128、`engine.rs` 11、`handler.rs` 4、`dto.rs` 3、`notify_node.rs` 2、`task_node.rs` 1、`model.rs` 1、`payable_bridge.rs` 1 | **没有「到处 if-else」**：128 处在校验器里（按规则编号组织，新增节点只需在相关规则里加一个 `matches!`），真正分派只有 `engine.rs::step` 的**一个 match** |
 | 引擎分派 | `engine.rs:2231` `match node_type { ... }` 单点分派；每个臂返回 `Step::{Next, Idle, Fail}` | 新增节点类型 = 新增一个臂，**不影响存量臂** |
 | 库级枚举 | `biz_flow_node.node_type` 是 `VARCHAR + CHECK`（不是 PG 原生 ENUM），`V0178` 已有「DROP CONSTRAINT + ADD + 自检」的成熟改法 | 加值不需要 DDL 事务外的特殊处理 |
 | 新增节点类型的**真实成本** | 每个新类型要动：① `NodeType` 3 处 ② `graph.rs` 输出度规则（R5/R6/R7/R17 各加一个 `matches!`）③ `engine.rs` 一个臂 ④ `dto.rs` 枚举字面量 ⑤ 前端 `flow-api.ts` 的 `FlowNodeType` 联合类型 + `flow-node-caps.ts` 的节点面板 ⑥ 发布校验新增 R 规则 | 每类型约 **6 个文件、150–300 行**。6 个新类型合计约 1000–1800 行，**不是架构级改造** |
@@ -4463,7 +4463,8 @@ PKG-FLW-20261104-D4E5F6A7-A.zip
 | `65082` | 归档包生成失败 | 打包 |
 | `65083` | 闭环验证未通过（不许关闭） | 关闭闸 |
 
-> 现有号段实测到 `65039`（`FLOW_PREVIEW_INVALID`）。**实施前必须核对 `shared/error_code.rs` 的实际最大值**（本设计按「+30」预留）。
+> 现有号段实测最大值 **`65039`**（`FLOW_PREVIEW_INVALID`，已核对 `backend/src/shared/error_code.rs:978`）。
+> 本设计从 **`65070`** 起，中间留 `65040`–`65069` 共 30 个空号给并行卡。
 
 ## 18.3 迁移清单（V0220–V0229）
 
