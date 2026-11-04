@@ -60,7 +60,7 @@ $ 同上                                                                    # �
 财务经理审批 · 李四 · 待处理 · 2026-11-04 22:23:55
 ```
 
-截图（7 张，均在仓库外 `<scratch>/4b/shots/`，随卡附件交付）：
+截图（7 张，均在仓库外 `与脚本同跑目录下的 shots/`，随卡附件交付）：
 
 1. `01-list-draft.png` 草稿行 + 只有「审核」
 2. `01b-list-posted.png` 已记账行 + 无审核动作
@@ -94,7 +94,7 @@ $ 点「审核」真机请求：
 
 ```bash
 # 隔离库里已有 DRAFT/AUDITED 夹具时，直接跑；否则用接口造
-node <scratch>/4b/verify.mjs        # 输出 report.json + shots/*.png
+node docs/evidence/20261104-p0-fix-4b/verify.mjs（同目录 serve.mjs 起静态服务+反代）        # 输出 report.json + shots/*.png
 ```
 
 脚本口径：只认 DOM / 接口回读，不认「看起来对」；每一步把实测值写进 `report.json`。
