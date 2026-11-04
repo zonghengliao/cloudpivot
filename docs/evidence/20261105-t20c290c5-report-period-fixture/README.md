@@ -136,7 +136,22 @@ test …::r1_real_missing_period_is_rejected_but_derivable ... [R1-⑬] … ✓ 
 若日后 V0221 / 启动保底把种子范围扩大到历史年度，本卡的 fail-closed 自检会立刻把它打红，
 而不是让用例悄悄失去意义。
 
-## 10. 复跑方法
+## 10. 收口复验（提交后、在提交自己的树上再跑一轮）
+
+提交 `28006a7` 之后，把工作树切到该提交本身（`git status` 脏文件数 = 0，因为期间又有别人的
+`7373914` 落地，所以这一步不是走形式），同一隔离库再跑一次：
+
+```
+被测树 = 28006a7 脏文件数 = 0
+cargo test --lib business::erp::report  → 15 passed; 0 failed（2.94s）
+cargo test --lib business::erp::period  → 40 passed; 0 failed（39.93s）
+r1_real_missing_period_is_rejected_but_derivable → [R1-⑬] … ✓ 1 passed
+r1_real_previous_period_comparison               → [R1-⑭] … ✓ 1 passed
+```
+
+原文：`postcommit-28006a7-report.txt` / `postcommit-28006a7-period.txt`。
+
+## 11. 复跑方法
 
 ```bash
 # 1) 干净树 + 独立 target
