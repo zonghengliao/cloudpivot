@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # D9 不变量归因：干净库 cloudpivot_d9inv 上
-#   ① 跑「收货 + 任务」的 D9 用例 → 不变量必须仍 32/32（本卡不留残留）
+#   ① 跑「收货 + 任务」的 D9 用例 → 不变量必须仍全绿（通过数 = 总条数）（本卡不留残留）
 #   ② 跑调拨 D9 用例 → 看残留
 #   ③ 只跑**既有**调拨用例（本卡之前就有）→ 残留应与 ② 同形（归因：调拨测试夹具自身基线）
 set -uo pipefail
@@ -23,7 +23,7 @@ cargo test --lib business::erp::stockin_handler::tests::d9_ -- --test-threads=1 
 echo "== ① 任务 D9 用例（2 条 + 1 条纯逻辑）=="
 cargo test --lib business::task::handler::copy_db_tests::d9_ -- --test-threads=1 2>&1 | grep -E "^test result:"
 cargo test --lib business::task::handler::tests::copy_title -- --test-threads=1 2>&1 | grep -E "^test result:"
-echo "== ① 跑完不变量（期望 32/32）=="
+echo "== ① 跑完不变量（期望全绿）=="
 run_inv
 
 echo "== ② 调拨 D9 用例（2 条）=="

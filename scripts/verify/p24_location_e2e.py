@@ -12,7 +12,7 @@
     D. 跨仓库的库位 → 建单被拒（400，点名两个仓库）
     E. 出库**不指定库位** → FIFO 从最早建账的库位扣；**指定库位** → 只扣那一桶
 
-最后跑 `scripts/verify/erp_invariants.py`（BLOCKER 0 / WARN 0，32 条全绿）。
+最后跑 `scripts/verify/erp_invariants.py`（BLOCKER 0 / WARN 0，全绿（通过数 = 总条数））。
 
 用法（隔离库，示例）：
     # 1) 建库 + 起实例（迁移自动跑到 V0218）

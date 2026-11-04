@@ -13,7 +13,7 @@
   ⑤ 出库 1 件 ⇒ 成本账 8 / 108.1778、库位账 8，凭证 借 6401 / 贷 1405（金额取账上真实差额）；
   ⑥ 报废 1 件 ⇒ 成本账 7 / 94.6556，凭证 借 1901 / 贷 1405；
   ⑦ 不变式①（`biz_inventory.qty == count(IN_STOCK 号)`）与 B1（库位账合计 == 成本账 qty）全程成立；
-  ⑧ 在本库上跑 `scripts/verify/erp_invariants.py` ⇒ 32/32、BLOCKER 0、WARN 0；并打印
+  ⑧ 在本库上跑 `scripts/verify/erp_invariants.py` ⇒ 全绿、BLOCKER 0、WARN 0；并打印
      `doc_type='STOCK_TRANSFER'` 行数（此数必须为 0，否则 B1 的绿不可信 —— 规格 §11 R3）。
 
 跑法（隔离实例，端口 18089/5189 段）：
@@ -33,6 +33,7 @@ from db_guard import require_non_prod as _require_non_prod  # noqa: E402
 _require_non_prod(script=_os.path.basename(__file__))
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -405,10 +406,13 @@ def main():
     r = subprocess.run([sys.executable, INVARIANTS], capture_output=True, text=True, env=env, timeout=300)
     tail = [ln for ln in r.stdout.strip().split("\n") if ln.strip()]
     print("\n".join(tail[-6:]))
-    # 汇总行的形态是「结果：32/32 通过   🚨 BLOCKER 0   ⚠️ WARN 0」——
+    # 汇总行的形态是「结果：N/N 通过   🚨 BLOCKER 0   ⚠️ WARN 0」——
     # 它**不是**最后一行（最后一行是「★ 全部不变量成立…」），要按前缀找。
     summary = next((ln for ln in tail if "结果：" in ln), "")
-    check_in("巡检汇总 32/32", "32/32", summary)
+    # 条数会随新增检查增长（32 → 33 …）：判「通过数 == 总条数」，不硬编码数字。
+    _m = re.search(r"结果：(\d+)/(\d+) 通过", summary or "")
+    check_eq("巡检汇总 通过数 = 总条数（全绿）",
+             True, bool(_m) and _m.group(1) == _m.group(2))
     check_in("BLOCKER 0", "BLOCKER 0", summary)
     check_in("WARN 0", "WARN 0", summary)
     check_eq("巡检退出码 0", 0, r.returncode)
@@ -419,10 +423,10 @@ def main():
         ok("副本库 STOCK_TRANSFER 流水行数 = 0", transfer)
     else:
         # prod 副本自带 2 条历史 STOCK_TRANSFER（R3：调拨结算不写库位账，已由 t_270b472e 收口）。
-        # 这里不判红，但必须打出来 —— 判据是「B1 仍绿」由上面的 32/32 证明；
+        # 这里不判红，但必须打出来 —— 判据是「B1 仍绿」由上面的全绿汇总证明；
         # 「0 行」这条硬约束在空库隔离实例上单独跑（T421_EXPECT_NO_TRANSFER=1）。
         print(f"  [NOTE] 副本库含 {transfer} 条历史 STOCK_TRANSFER 流水（prod 自带，R3 已单卡收口）；"
-              f"本库的 B1 仍绿由上面 32/32 证明")
+              f"本库的 B1 仍绿由上面「通过数=总条数」证明")
 
     print("\n==> 9. 收尾：清本轮夹具（只删自己造的，固定 UUID 链）")
     cleanup()

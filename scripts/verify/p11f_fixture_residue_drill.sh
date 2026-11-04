@@ -10,7 +10,7 @@
 #
 # 覆盖的断言（18 条）：
 #   注入前后不变量由绿转红（B1 + C3）→ 检出脚本 exit 1 且点名该物料
-#   → 通用清理把三条账清干净 → 32/32 全绿 → 第二遍 0 行 → down 精确还原 → 又回到红
+#   → 通用清理把三条账清干净 → 全绿 → 第二遍 0 行 → down 精确还原 → 又回到红
 #
 # 用法：
 #   bash scripts/verify/p11f_fixture_residue_drill.sh          # 跑完自动删副本库
@@ -133,12 +133,19 @@ txn=$(psql_q "SELECT count(*) FROM biz_inventory_txn t JOIN biz_material m ON m.
 snap=$(psql_q "SELECT count(*) FROM datafix_residue_batch WHERE restored_at IS NULL")
 [ "$snap" = "1" ] && ok "快照批次 1 批（未还原）" || bad "快照批次" "1" "$snap"
 
-echo "== 6) 清理后不变量必须 32/32"
+echo "== 6) 清理后不变量必须全绿"
 out=$(NIK_DATABASE_NAME="$DB" python3 "$REPO/scripts/verify/erp_invariants.py" 2>&1); rc=$?
 res=$(echo "$out" | grep -oE "结果：[0-9]+/[0-9]+ +.*" | head -1)
 echo "    ${res:-?}"
 [ "$rc" = "0" ] && ok "不变量 exit=0" || bad "不变量 exit" "0" "$rc"
-echo "$res" | grep -q "32/32" && ok "32/32 通过" || bad "套件条数" "32/32" "${res:-<无结果>}"
+# 条数会随新增检查增长（32 → 33 …），这里断言「通过数 == 总条数」而不是硬编码条数，
+# 免得以后每加一条不变量就得回来改这里（历史上 32/32 被写死了 5 处）。
+pair=$(echo "$res" | sed -nE 's/.*结果：([0-9]+)\/([0-9]+) .*/\1 \2/p')
+if [ -n "$pair" ] && [ "${pair% *}" = "${pair#* }" ]; then
+  ok "不变量全绿（$(echo "$pair" | tr ' ' '/')）"
+else
+  bad "套件全绿（通过数应等于总条数）" "X/X" "${res:-<无结果>}"
+fi
 echo "$res" | grep -q "BLOCKER 0" && ok "BLOCKER 0" || bad "BLOCKER" "0"
 echo "$res" | grep -q "WARN 0" && ok "WARN 0" || bad "WARN" "0"
 
@@ -176,4 +183,4 @@ fi
 echo "------------------------------------------------------------------------------"
 echo "汇总：PASS=$PASS  FAIL=$FAIL"
 [ "$FAIL" -eq 0 ] || { echo "✗ 有断言失败"; exit 1; }
-echo "★ 演练通过：注入 → 红 → 检出 → 清 → 绿(32/32) → 幂等 → 回滚"
+echo "★ 演练通过：注入 → 红 → 检出 → 清 → 绿 → 幂等 → 回滚"

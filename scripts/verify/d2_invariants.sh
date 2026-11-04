@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# D2：ERP 不变量审计（32 条）。默认在干净库上跑（干净库才可能 32/32）。
+# D2：ERP 不变量审计（条数以脚本汇总行为准 —— 会随新增检查增长）。默认在干净库上跑（干净库才可能全绿）。
 #
 #   bash scripts/verify/d2_invariants.sh            # 干净库 cloudpivot_d2inv
 #   bash scripts/verify/d2_invariants.sh cloudpivot_d2   # 任意库（会因夹具红一片，正常）

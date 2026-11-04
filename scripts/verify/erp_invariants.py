@@ -846,6 +846,46 @@ def group_h():
         check("H4 审批已通过 → 单据必须前进（不许停在待审批态）", "审批", "BLOCKER", False,
               f"执行异常（表/列缺失？）：{str(e)[:120]}")
 
+    # H5：「标准」标签（is_system）与名字必须一致 —— P2-6a 的防回归断言。
+    #
+    # 病（不是笔误，是系统性漏列）：预置流程的种子 INSERT 漏写 `is_system` →
+    # 吃 `DEFAULT FALSE`（列定义 V0193:29），于是系统预置、客户不该改的流程
+    # 被标成「客户自建」：以可改身份露出，却挂不上「标准」标签。
+    # 实测中招的是 V0209（contract_approve）与 V0211（stock_take_post），
+    # 由 V0220 按 flow_code 精确修正（已应用迁移有指纹校验，只能新开一条修）。
+    #
+    # 为什么按「名字含标准」查而不是按 flow_code 白名单查：
+    # 白名单只能钉住已知的 2 个编码，**下一个漏写 is_system 的种子迁移**
+    # （多半也会起名「…（标准）」）照样漏过去。按名字查才能当场抓到新犯。
+    # 为什么只查「非系统 + 名字含标准」这一个方向：
+    # 反方向（is_system=TRUE 但名字里没「标准」四个字）在库里是**正常**的
+    # （如 payable_pay「应付付款审批」、task_accept「任务验收」），不能当错标。
+    #
+    # 级别 WARN 而不是 BLOCKER：这条不影响账（钱没动、追溯链没断），
+    # 只是把系统预置流程错标成客户可改的语义错误 ⇒ 归「可疑，要人看」。
+    # 落库侧另有一道硬闸：V0220 迁移体内带自检，同形态出现时迁移直接 RAISE EXCEPTION 失败。
+    if table_exists("biz_flow_def"):
+        bad5 = q("""
+            select flow_code, flow_name
+              from biz_flow_def
+             where deleted_at is null
+               and not is_system
+               and flow_name like '%标准%'
+             order by flow_code
+        """)
+        check("H5 名字自称「标准」的流程定义必须 is_system=TRUE", "审批", "WARN", not bad5,
+              (f"{len(bad5)} 条错标（种子 INSERT 漏写 is_system，参照 V0209/V0211 的错法）："
+               + "；".join(f"{r[0]} {r[1]}" for r in bad5[:5])
+               + " → 新开一条迁移按 flow_code 补 is_system=TRUE（别改已应用迁移）")
+              if bad5 else "无错标（标准流程都挂 is_system=TRUE）",
+              """select flow_code || ' / ' || flow_name || ' / is_system=' || is_system::text
+                   from biz_flow_def
+                  where deleted_at is null and not is_system and flow_name like '%标准%'
+                  order by flow_code""")
+    else:
+        check("H5 名字自称「标准」的流程定义必须 is_system=TRUE", "审批", "INFO", True,
+              "本库还没有 biz_flow_def（流程模块未上）——跳过，不算失败")
+
 
 # ══════════════════════════════════════════════════════════════════
 # I. 盘点单（ARCH-3 DC-14）—— 账实差异必须有单据有凭证

@@ -130,9 +130,9 @@ smoke=39  a=17  b=23  c=23  task=55  flow=28   →  PASS=185  FAIL=0  SKIP=0   �
 
 | 脚本 | 作用 | 退出码 |
 |---|---|---|
-| `erp_invariants.py` | 32 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
+| `erp_invariants.py` | 33 条不变量审计（会计恒等 / 账账 / 账实 / 单据链 / 状态 / 期间 / 闭环 / 审批闭环 / 标准标签订正）。**只认 `NIK_DATABASE_*`**，跑前必须 `set -a; . /etc/cloudpivot/cloudpivot.env; set +a` | 有 BLOCKER → 1 |
 | `e2e_fixture_residue.py` | 「批量生成零成本夹具」残留检查（只读）。这类行会让 B1（BLOCKER）/ C3（WARN）同时红，e2e 写完数据库建议挂一个后置检查。**判据见下面「语义变化」一节，ADR 落地后不再命中普通批量生成** | 有残留 → 1；连库失败 → 2 |
-| `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 32/32 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
+| `p11f_fixture_residue_drill.sh` | 注入式演练：在 prod 副本库上重放「批量生成夹具」→ 检出 → 清理 → 全绿 → 幂等 → 回滚（31 条断言） | 有 FAIL → 1 |
 | `snapshot_audit.py` | **快照一致性巡检（16 项 `di.c_di01..c_di16`，只报不修）**：把 `docs/architecture/快照一致性巡检与告警设计.md` §2.4 的巡检项落地。合同链 / 实物链 / 资金链 / 主档 / 护栏五组；`--json` / `--group` / `--dry-run` / `--install-views`。只读事务（`BEGIN READ ONLY` + 会话级 `default_transaction_read_only=on`），**没有一行 DML**；发现漂移只写日志+JSON，绝不回写业务数据（AP-8） | 有 BLOCKER → 1；环境/用法错 → 2；上一轮在跑 → 3 |
 
 ```bash
@@ -181,7 +181,7 @@ bash scripts/cron/snapshot_audit.sh
 | 库位账 | **不写** | 同事务写（`apply_location_qty`） |
 | 凭证 | 无 | 生成 借 1405 / 贷 1901；出库 借 6401 / 贷 1405；报废 借 1901 / 贷 1405 |
 | 夹具判据第 ④ 道「库存零价值」 | **命中** → 检出 | **不命中** → 不再算夹具 |
-| `erp_invariants.py` | B1（BLOCKER）+ C3（WARN）+ B2 红 | 32/32，B1/B2/C3 全绿 |
+| `erp_invariants.py` | B1（BLOCKER）+ C3（WARN）+ B2 红 | 全绿（通过数=总条数），B1/B2/C3 全绿 |
 
 **结论（对处置流程的硬约束）**：
 
@@ -200,7 +200,7 @@ bash scripts/cron/snapshot_audit.sh
 # A. 新形态：隔离实例上真跑 spec 12（批量生成 10 件 @12.34），落到副本库
 set -a; . /tmp/e2e-iso-t995/iso.env; set +a          # NIK_DATABASE_* → 副本库
 python3 scripts/verify/e2e_fixture_residue.py        # → exit 0（不误判）
-python3 scripts/verify/erp_invariants.py             # → 32/32  BLOCKER 0  WARN 0
+python3 scripts/verify/erp_invariants.py             # → 全绿  BLOCKER 0  WARN 0
 
 # B. 旧形态：把同一批数据打回 11:34 的落库形态（零成本 + 不写库位账）
 psql -c "update biz_inventory i set amount=0, avg_cost=0 from biz_material m
@@ -218,7 +218,7 @@ python3 scripts/verify/erp_invariants.py             # → 29/32  B1+B2 🚨  C3
   ✅ 无残留：没有「无单据、零价值、批量生成」的物料 —— B1/C3 不会被这类夹具打红
   ✅ [账账] B1 库位账合计 = 成本账 qty
   ✅ [账实] C3 有库存则成本价非零
-  结果：32/32 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+  结果：N/N 通过   🚨 BLOCKER 0   ⚠️ WARN 0
 
 # B（旧形态，零成本 + 无库位账）
   ❌ 命中 M-W1A-004：库存 1 行 / 数量 10.0000；流水 1 条；存活序列号 10（全部 31 条）
@@ -257,7 +257,7 @@ prod 16:17:24（henry.liao / 172.18.10.7，旧代码）：批量生成 10 件 @0
 | 脚本 | 作用 | 退出码 |
 |---|---|---|
 | `e2e_isolated_instance.sh` | 起 e2e 隔离实例：prod `pg_dump` → 本机副本库 `cloudpivot_e2e_iso`（独立 owner 角色）+ profile=test 后端 `127.0.0.1:18089`（Redis db 9）+ vite `127.0.0.1:5189`；端口段不合法 / 被占用直接拒绝，起完自证副本库行数、反代探测 | 失败 → 非 0 |
-| `../e2e-postrun-check.sh`（`scripts/`） | **打过 prod 就跑它**：只读检出零成本夹具 → 有残留走 `00_backup.sh` + `P10_GENERIC_APPLY=1 apply.sh` → 复检 → `erp_invariants.py` 必须 32/32 / BLOCKER 0 / **WARN 0**（不变量脚本对 WARN 不退出非 0，本脚本显式解析） | 达标 → 0；仍有残留/不达标 → 1；环境问题 → 2 |
+| `../e2e-postrun-check.sh`（`scripts/`） | **打过 prod 就跑它**：只读检出零成本夹具 → 有残留走 `00_backup.sh` + `P10_GENERIC_APPLY=1 apply.sh` → 复检 → `erp_invariants.py` 必须全绿 / BLOCKER 0 / **WARN 0**（不变量脚本对 WARN 不退出非 0，本脚本显式解析） | 达标 → 0；仍有残留/不达标 → 1；环境问题 → 2 |
 
 ```bash
 # ① 起隔离实例（默认从 prod 复制一份库，只读 dump）
@@ -280,10 +280,10 @@ NIK_DATABASE_USER=e2erole NIK_DATABASE_PASSWORD=… \
   npx playwright test e2e/12-erp-serial-batch-walkthrough.spec.ts --reporter=list
 #   ① 断「不填单价被拦」（UI 本地拦 + 后端 400/10001）+ 零落库
 #   ② 断 avg_cost = unit_cost / amount = N × unit_cost / qty = N / 库位账合计 = N / 流水写实成本
-#   ⑤ 跑 erp_invariants.py，断 32/32 / BLOCKER 0 / WARN 0，并单独核 B1 / B2 / C3 三行
+#   ⑤ 跑 erp_invariants.py，断全绿（通过数=总条数）/ BLOCKER 0 / WARN 0，并单独核 B1 / B2 / C3 三行
 
 # ② 线上验收确需打 prod 时（E2E_ALLOW_PROD=1 + E2E_PROD_REASON），跑完必须：
-bash scripts/e2e-postrun-check.sh            # 检出 → 清理 → 32/32，exit 0 才算跑完
+bash scripts/e2e-postrun-check.sh            # 检出 → 清理 → 全绿，exit 0 才算跑完
 bash scripts/e2e-postrun-check.sh --check-only   # 只看不治（巡检 / 告警用）
 ```
 

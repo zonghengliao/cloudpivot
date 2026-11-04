@@ -1,0 +1,50 @@
+# P2-6a 迁移证据 @ 2026-11-05T01:03:39+08:00
+# 隔离库：cloudpivot_2cbeb540（fresh，0 张表起步；不碰 cloudpivot_manual / 生产）
+
+===== 第一轮迁移（空库 → 全量）=====
+$ grep "数据库迁移完成" /root/2cbeb540-r1.log
+[2m2026-11-04T17:02:09.713402Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 173 个迁移
+$ grep "V0220：" /root/2cbeb540-r1.log   # 迁移体内的 RAISE NOTICE
+NOTICE: V0220：is_system 打标 2 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+
+===== 第二轮迁移（同一库，期望 0 个待应用）=====
+$ grep "数据库迁移完成" /root/2cbeb540-r2.log
+[2m2026-11-04T17:02:24.788519Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 0 个迁移
+
+===== schema_migrations（V0219 起，kind=versioned）=====
+ version |              name               | success |       applied_at       
+---------+---------------------------------+---------+------------------------
+ 219     | erp_p2_5_biz_type_vocabulary    | t       | 2026-11-05 01:02:09+08
+ 220     | flow_standard_flag_fix          | t       | 2026-11-05 01:02:09+08
+ 221     | erp_seed_accounting_period_year | t       | 2026-11-05 01:02:09+08
+(3 rows)
+
+===== 迁移行总数（第一轮后 / 第二轮后应相同 = 幂等）=====
+r2 之后: 173
+
+===== 目标 2 行的状态 =====
+    flow_code     |             flow_name             | is_system |         updated_at         
+------------------+-----------------------------------+-----------+----------------------------
+ contract_approve | 合同审批（标准·金额分级）         | t         | 2026-11-05 01:03:09.893+08
+ stock_take_post  | 盘点过账审批（标准·差异金额分级） | t         | 2026-11-05 01:03:09.893+08
+(2 rows)
+
+===== 全库错标计数（应为 0）=====
+0
+
+===== V0220 幂等演练：先把 2 行改回 FALSE（模拟修复前）=====
+UPDATE 2
+错标计数: 2
+-- 第一次执行 up.sql：
+psql:/opt/cloudpivot/backend/migrations/business/V0220__flow_standard_flag_fix.up.sql:93: NOTICE:  V0220：is_system 打标 2 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+-- 第二次执行 up.sql（幂等，应打标 0 行）：
+psql:/opt/cloudpivot/backend/migrations/business/V0220__flow_standard_flag_fix.up.sql:93: NOTICE:  V0220：is_system 打标 0 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+
+===== 自检反证：造一条「非本迁移管辖 + 名字含标准 + is_system=FALSE」的行 =====
+payable_pay / 应付付款审批（标准） / is_system=false
+UPDATE 1
+-- 再执行 up.sql：期望 RAISE EXCEPTION（迁移失败 ⇒ 启动失败，不带病上线）：
+psql:/opt/cloudpivot/backend/migrations/business/V0220__flow_standard_flag_fix.up.sql:93: ERROR:  V0220 自检失败：仍有 1 行「名称含『标准』但 is_system=FALSE」的流程定义（本迁移修正 0 行）；请先排查是不是又有种子 INSERT 漏写了 is_system
+-- 还原：
+UPDATE 1
+错标计数（还原后应为 0）: 0

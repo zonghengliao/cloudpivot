@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # D9 不变量验收（两条口径，技能 §6.48）：
-#   ① 干净库（新建 + 迁移完、零夹具）必须 32/32；
+#   ① 干净库（新建 + 迁移完、零夹具）必须全绿；
 #   ② 跑完**本卡用例**的库再巡检一次，与本卡相关的检查必须仍绿（用例自己清干净夹具）。
 set -uo pipefail
 export PATH=/root/.cargo/bin:$PATH
@@ -39,7 +39,7 @@ kill "$(cat /tmp/d9_inv.pid)" 2>/dev/null || true
 sleep 3
 kill -9 "$(cat /tmp/d9_inv.pid)" 2>/dev/null || true
 
-echo "== ① 干净库不变量（期望 32/32、BLOCKER 0、WARN 0）=="
+echo "== ① 干净库不变量（期望全绿、BLOCKER 0、WARN 0）=="
 bash /opt/cloudpivot/scripts/verify/d9_invariants.sh "$DB_INV" | tail -8
 
 echo "== ② 只跑本卡用例（cloudpivot_d9）后再巡检 =="

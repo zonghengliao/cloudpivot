@@ -459,10 +459,12 @@ INV_LOG=$(mktemp)
   timeout 300 python3 scripts/verify/erp_invariants.py >"$INV_LOG" 2>&1 )
 grep -E "结果：|BLOCKER" "$INV_LOG" | tail -3 | sed 's/^/    /'
 if grep -q "BLOCKER 0" "$INV_LOG"; then
-  if grep -q "32/32 通过" "$INV_LOG"; then
-    pass "不变量 32/32 通过、BLOCKER 0"
+  # 条数会随新增检查增长（32 → 33 …）：判「通过数 == 总条数」，不硬编码。
+  inv_pair=$(grep -oE "结果：[0-9]+/[0-9]+ 通过" "$INV_LOG" | tail -1 | sed -nE 's/.*：([0-9]+)\/([0-9]+) .*/\1 \2/p')
+  if [ -n "$inv_pair" ] && [ "${inv_pair% *}" = "${inv_pair#* }" ]; then
+    pass "不变量全绿（$(echo "$inv_pair" | tr ' ' '/')）、BLOCKER 0"
   else
-    pass "不变量 BLOCKER 0（通过数未达 32：库里有夹具，干净库上应是 32/32）"
+    pass "不变量 BLOCKER 0（通过数未达总条数：库里有夹具，干净库上应全绿）"
   fi
 else
   fail "不变量出现 BLOCKER（详见 $INV_LOG）"

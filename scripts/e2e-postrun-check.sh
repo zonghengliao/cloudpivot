@@ -15,7 +15,7 @@
 #   ① 只读检出：scripts/verify/e2e_fixture_residue.py（exit 1 = 有零成本夹具）
 #   ② 有残留就按 P10 清：00_backup.sh → P10_GENERIC_APPLY=1 apply.sh（幂等、带快照可回滚）
 #   ③ 复检：再跑一次 ①，必须 exit 0
-#   ④ 复验不变量：scripts/verify/erp_invariants.py 必须 32/32 / BLOCKER 0 / **WARN 0**
+#   ④ 复验不变量：scripts/verify/erp_invariants.py 必须全绿 / BLOCKER 0 / **WARN 0**
 #      （脚本自身在 WARN 上没有非 0 退出，所以这里显式解析输出里的 WARN 计数）
 #
 # 用法
@@ -26,7 +26,7 @@
 #   E2E_PROD_SSH=root@172.18.10.144 bash scripts/e2e-postrun-check.sh
 #
 # 退出码
-#   0 = prod 干净且 32/32 / BLOCKER 0 / WARN 0
+#   0 = prod 干净且 全绿 / BLOCKER 0 / WARN 0
 #   1 = 仍有残留，或清理后复检/不变量不达标
 #   2 = 环境问题（ssh / psql / env 文件不可用）—— 不要当成「干净」
 #
@@ -96,7 +96,7 @@ run_checks_here() {
       ;;
   esac
 
-  head2 "③ 三账不变量（必须 32/32 / BLOCKER 0 / WARN 0）"
+  head2 "③ 三账不变量（必须全绿 / BLOCKER 0 / WARN 0）"
   local out
   out=$(python3 "$iv" 2>&1)
   local iv_rc=$?
@@ -111,11 +111,11 @@ run_checks_here() {
   say "汇总：$summary"
   if [ "$iv_rc" != "0" ] || ! printf '%s' "$summary" | grep -qE 'BLOCKER 0' || ! printf '%s' "$summary" | grep -qE 'WARN 0'; then
     say ""
-    say "✗ 不变量不达标（要求 32/32、BLOCKER 0、WARN 0）"
+    say "✗ 不变量不达标（要求 全绿、BLOCKER 0、WARN 0）"
     return 1
   fi
   say ""
-  say "✅ 目标库干净：$NIK_DATABASE_NAME 无零成本夹具残留，且 erp_invariants 32/32 / BLOCKER 0 / WARN 0"
+  say "✅ 目标库干净：$NIK_DATABASE_NAME 无零成本夹具残留，且 erp_invariants 全绿 / BLOCKER 0 / WARN 0"
   return 0
 }
 

@@ -46,7 +46,7 @@ P10_GENERIC_APPLY=1 bash scripts/datafix/p10/apply.sh   # 追加 21：清掉**�
 python3 scripts/verify/erp_invariants.py                # 必须 BLOCKER 0 / WARN 0
 
 # 4) 想先在副本库上验证整条链路（推荐，含注入）
-bash scripts/verify/p11f_fixture_residue_drill.sh       # 31 条断言：注入→红→检出→清→32/32→幂等→回滚
+bash scripts/verify/p11f_fixture_residue_drill.sh       # 31 条断言：注入→红→检出→清→全绿→幂等→回滚
 ```
 
 ## 约定

@@ -1,0 +1,25 @@
+# P2-6a 防回归断言 H5 证据 @ 2026-11-05T01:04:59+08:00
+# 断言位置：scripts/verify/erp_invariants.py  group_h()  ← 由 scripts/verify/run_all.sh 阶段⑤ 执行
+# 隔离库：cloudpivot_2cbeb540
+
+===== 1) 修复后现状（期望 ✅）=====
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+结果：5/5 通过   🚨 BLOCKER 0   ⚠️ WARN 0
+
+===== 2) 制造回归：把 2 行 is_system 改回 FALSE（模拟种子漏写）=====
+UPDATE 2
+===== 3) 同一断言（期望 ⚠️ FAIL + 定位）=====
+  ⚠️ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+        2 条错标（种子 INSERT 漏写 is_system，参照 V0209/V0211 的错法）：contract_approve 合同审批（标准·金额分级）；stock_take_post 盘点过账审批（标准·差异金额分级） → 新开一条迁移按 flow_code 补 is_system=TRUE（别改已应用迁移）
+        ↳ 定位（2 条）：
+          contract_approve / 合同审批（标准·金额分级） / is_sy
+          stock_take_post / 盘点过账审批（标准·差异金额分级） / is
+--
+  · [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE  —  2 条错标（种子 INSERT 漏写 is_system，参照 V0209/V0211 的错法）：contract_approve 合同审批（标准·金额分级）；stock_take_post 盘点过账
+
+===== 4) 恢复（重放 V0220）=====
+psql:backend/migrations/business/V0220__flow_standard_flag_fix.up.sql:93: NOTICE:  V0220：is_system 打标 2 行（contract_approve / stock_take_post），残留错标 0 行（应为 0）
+
+===== 5) 收尾复核（期望 ✅）=====
+  ✅ [审批] H5 名字自称「标准」的流程定义必须 is_system=TRUE
+结果：5/5 通过   🚨 BLOCKER 0   ⚠️ WARN 0

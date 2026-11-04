@@ -35,6 +35,7 @@ _require_non_prod(script=_os.path.basename(__file__))
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -492,10 +493,16 @@ def main():
             capture_output=True, text=True, timeout=600, cwd="/opt/cloudpivot", env=dict(os.environ),
         )
         tail = (inv.stdout or "").strip().splitlines()
-        summary = next((line for line in reversed(tail) if "32/" in line or "结果" in line), "")
+        summary = next((line for line in reversed(tail) if "结果" in line), "")
+        # 条数会随新增检查增长（32 → 33 …），判「通过数 == 总条数 + BLOCKER 0 + WARN 0」，
+        # 不硬编码条数（否则每加一条不变量都要回来改这个 e2e）。
+        _m = re.search(r"结果：(\d+)/(\d+) 通过", summary or "")
+        _all_green = bool(_m) and _m.group(1) == _m.group(2)
         check(
-            "⑥d 年结态下 erp_invariants 32/32 · BLOCKER 0",
-            inv.returncode == 0 and "32/32" in (inv.stdout or "") and "BLOCKER 0" in (inv.stdout or ""),
+            f"⑥d 年结态下 erp_invariants 全绿（{_m.group(1)}/{_m.group(2)}）· BLOCKER 0 · WARN 0"
+            if _m else "⑥d 年结态下 erp_invariants 全绿 · BLOCKER 0 · WARN 0",
+            inv.returncode == 0 and _all_green
+            and "BLOCKER 0" in (summary or "") and "WARN 0" in (summary or ""),
             f"rc={inv.returncode} {summary.strip()[:120]}",
         )
 

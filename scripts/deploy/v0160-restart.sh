@@ -131,4 +131,4 @@ if [[ "$VER" != "160" || "$ACC" != "2" || "$PROC_MD5" != "$DISK_MD5" || "$CODE" 
 fi
 say "== ✅ 发布完成：V0160 已应用、科目在位、二进制与进程一致、路由已上"
 say "   别忘了：前端（表单必填 unit_cost）必须同一次窗口发布；发布后跑"
-say "   python3 scripts/verify/erp_invariants.py（应 32/32、BLOCKER 0、WARN 0）"
+say "   python3 scripts/verify/erp_invariants.py（应全绿（通过数=总条数）、BLOCKER 0、WARN 0）"

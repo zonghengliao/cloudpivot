@@ -14,7 +14,7 @@
 #   P11_ADMIN_PW=*** bash scripts/verify/p11_flow_orphan.sh
 #
 # 断言口径（与卡面 §二/§三 一一对应）：
-#   ① 不变量 H1/H2/H3 全绿（32/32，BLOCKER 0）
+#   ① 不变量 H1/H2/H3 全绿（全绿，BLOCKER 0）
 #   ② 「实例已终态 + 待办 PENDING」= 0 条（H1 的直接 SQL 口径）
 #   ③ 数据修复幂等：up 脚本连跑两遍，第二遍 0 行受影响
 #   ④ 审计事实未被篡改：APPROVED/REJECTED/SKIPPED/TRANSFERRED 计数 > 0 且状态分布可打印
