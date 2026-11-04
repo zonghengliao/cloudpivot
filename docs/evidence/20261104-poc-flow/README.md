@@ -73,7 +73,7 @@
 
 | 方案 | 文件 | 字节 | gzip |
 |---|---|---|---|
-| ① | demo-native.html | 12,416 | 4.5 KiB |
+| ① | demo-native.html | 12,774 | 4.7 KiB |
 | ② | vendor/vue-flow.bundle.js | 290,655 | 99.8 KiB |
 | ② | vendor/vue-flow.css | 8,039 | 1.6 KiB |
 | ③ | vendor/logicflow.bundle.js | 393,597 | 98.4 KiB |

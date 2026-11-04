@@ -25,7 +25,7 @@
 
 | 方案 | 运行时代码 | 字节 | gzip |
 |---|---|---|---|
-| ① 自研 | `demo-native.html`（含内联脚本，零依赖） | 12,416 B = 12.1 KiB | 4.5 KiB |
+| ① 自研 | `demo-native.html`（含内联脚本，零依赖） | 12,774 B = 12.5 KiB | 4.7 KiB |
 | ② Vue Flow | `vue-flow.bundle.js` 290,655 + `vue-flow.css` 8,039 | 298,694 B = **291.7 KiB** | 101.4 KiB |
 | ③ LogicFlow | `logicflow.bundle.js` 393,597 + `logicflow.css` 2,833 | 396,430 B = **387.1 KiB** | 99.3 KiB |
 

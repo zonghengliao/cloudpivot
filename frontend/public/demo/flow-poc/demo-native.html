@@ -356,7 +356,8 @@ window.__poc = {
   edges: () => document.querySelectorAll('.flow-edge__line').length,
   nodes: () =>
     [...document.querySelectorAll('.flow-node')].map((g) => {
-      const r = g.getBoundingClientRect();
+      // 量卡片本体（不是外面上留了 16px 阴影空间的 foreignObject），跟另外两个 demo 口径一致
+      const r = g.querySelector('.node-card').getBoundingClientRect();
       return { id: g.dataset.nodeKey, x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height) };
     }),
   zoom: () => state.view.s,
