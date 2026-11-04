@@ -559,11 +559,23 @@ async fn i06_task_import_definition_missing() {
         .map(|brief| brief.biz_type)
         .collect();
     println!("[I06] 已注册导入定义：{registered:?}");
-    assert_eq!(
-        registered,
-        vec![DICT_BIZ],
-        "内建导入定义清单变化，请复核本用例"
-    );
+    // 2026-11-04（DEPLOY dep-v217）复核：P1-6 起主数据导入交付了 6 个定义
+    // （供应商/物料/单位/科目/仓库/库位），本清单 tripwire 当时没跟着更新 ⇒ 假红。
+    // 6 个定义是有意交付的（见 docs/ERP-导入导出口径.md 与 P1-6 卡片），故此处补齐期望值；
+    // 注册顺序不是稳定契约（业务定义先注册、`system.dict_item` 在后），比较前排序。
+    let mut got = registered.clone();
+    got.sort_unstable();
+    let mut want = vec![
+        DICT_BIZ,
+        "business.erp.account",
+        "business.erp.location",
+        "business.erp.material",
+        "business.erp.supplier",
+        "business.erp.unit",
+        "business.erp.warehouse",
+    ];
+    want.sort_unstable();
+    assert_eq!(got, want, "内建导入定义清单变化，请复核本用例");
 }
 
 // ============================================================================

@@ -1,0 +1,118 @@
+{
+  "when": "2026-11-04T04:29:28.757Z",
+  "base": "http://127.0.0.1",
+  "pass": 20,
+  "fail": 0,
+  "results": [
+    {
+      "name": "登录成功（/api/system/auth/login）",
+      "passed": true,
+      "detail": "user=admin"
+    },
+    {
+      "name": "采购订单分页接口",
+      "passed": true,
+      "detail": "rows=10"
+    },
+    {
+      "name": "采购单详情接口",
+      "passed": true,
+      "detail": "keys=id,order_no,supplier_id,order_date,expect_date,warehouse_id,status,currency_code"
+    },
+    {
+      "name": "P2-2 额度三列在 DTO 里（over_credit_limit / credit_exposure / credit_limit_snapshot）",
+      "passed": true,
+      "detail": "over=false exposure=null snapshot=null"
+    },
+    {
+      "name": "P2-3 明细「已收数量」为现算派生值（接口有字段，库无列）",
+      "passed": true,
+      "detail": "rows=5 first.received_qty=0.0000 qty=100.0000"
+    },
+    {
+      "name": "P2-3 派生值量纲合理（0 ≤ 已收 ≤ 订购）",
+      "passed": true,
+      "detail": "received=0 ordered=100"
+    },
+    {
+      "name": "P2-3 待收明细接口可用（qty − 已收 现算）",
+      "passed": true,
+      "detail": "code=0 rows=1"
+    },
+    {
+      "name": "V0213 联动作废影响分析接口 200/code=0",
+      "passed": true,
+      "detail": "keys=doc_type,doc_id,doc_no,doc_status,doc_status_label,amount,can_cancel,summary"
+    },
+    {
+      "name": "V0212 单据附件列表接口 200/code=0",
+      "passed": true,
+      "detail": "total=0"
+    },
+    {
+      "name": "V0214 辅助账接口 200/code=0（权限码已种）",
+      "passed": true,
+      "detail": "status=200 code=0 rows=2"
+    },
+    {
+      "name": "P2-1 按物料查辅助账（有发生额/余额行）",
+      "passed": true,
+      "detail": "material=d1370003-0000-4000-8000-000000000001 code=0"
+    },
+    {
+      "name": "流程定义列表接口",
+      "passed": true,
+      "detail": "defs=11"
+    },
+    {
+      "name": "P2-2b po_approve 已发布 v2（9 节点 / 11 边）",
+      "passed": true,
+      "detail": "no=2 nodes=9 edges=11 status=PUBLISHED"
+    },
+    {
+      "name": "页面 /business/erp/purchase-order",
+      "passed": true,
+      "detail": "命中「采购」=true 404页=false http4xx/5xx=0"
+    },
+    {
+      "name": "页面 /business/erp/ledger",
+      "passed": true,
+      "detail": "命中「余额」=true 404页=false http4xx/5xx=0"
+    },
+    {
+      "name": "页面 /business/impexp/import",
+      "passed": true,
+      "detail": "命中「导入」=true 404页=false http4xx/5xx=0"
+    },
+    {
+      "name": "页面 /flow/def",
+      "passed": true,
+      "detail": "命中「流程」=true 404页=false http4xx/5xx=0"
+    },
+    {
+      "name": "页面 /flow/def/20000000-0000-4000-8000-0000000a0182/edit",
+      "passed": true,
+      "detail": "命中「」=true 404页=false http4xx/5xx=0"
+    },
+    {
+      "name": "SAFARI-FLOW 画布节点位置分散（不是全叠在原点）",
+      "passed": true,
+      "detail": "nodes=12 distinctPos=6 首两个=[{\"x\":487,\"y\":500,\"w\":48,\"h\":22},{\"x\":487,\"y\":500,\"w\":48,\"h\":22}]"
+    },
+    {
+      "name": "页面 /business/erp/voucher",
+      "passed": true,
+      "detail": "命中「凭证」=true 404页=false http4xx/5xx=0"
+    }
+  ],
+  "shots": [
+    "/root/dep-v217-evidence/01-purchase-order-list.png",
+    "/root/dep-v217-evidence/02-ledger.png",
+    "/root/dep-v217-evidence/03-import-wizard.png",
+    "/root/dep-v217-evidence/04-flow-def-list.png",
+    "/root/dep-v217-evidence/05-flow-canvas-po-approve.png",
+    "/root/dep-v217-evidence/06-voucher-list.png"
+  ],
+  "consoleErrors": [],
+  "httpErrors": []
+}
