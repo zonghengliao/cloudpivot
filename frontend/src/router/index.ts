@@ -459,6 +459,18 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '出库单', permission: 'business:erp:stock-out:list' },
       },
       {
+        // ==================== ERP 盘点单（DC-14，ARCH-3 §5） ====================
+        // `sys_menu` 种子（V0211 …1111）path = `/business/erp/stock-take`、component
+        // `business/erp/stock-take/index`，权限码 `business:erp:stock-take:list`。
+        // **路由手工注册**（没有 views 自动扫描），漏了 = 点左侧菜单进 404 ——
+        // 这正是 n08（`menu_paths_all_resolve_in_frontend_router`）抓的那类缺陷，
+        // 本页就是为它补上的（卡 t_71b01775）。
+        path: 'business/erp/stock-take',
+        name: 'BusinessErpStockTake',
+        component: () => import('@/views/business/erp/stock-take/index.vue'),
+        meta: { title: '盘点单', permission: 'business:erp:stock-take:list' },
+      },
+      {
         // ==================== ERP 应付单（P2-E2） ====================
         // `sys_menu` 里**还没有**这条菜单：V0148 只建了 `biz_payable`，既没种
         // `business:erp:payable:*` 权限码也没种菜单节点（`grep -rn 'erp/payable'
