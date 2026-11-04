@@ -1834,11 +1834,16 @@ mod tests {
                   WHERE instance_id IN (SELECT id FROM biz_flow_instance WHERE {inst_where})"
             ),
             format!("DELETE FROM biz_flow_instance WHERE {inst_where}"),
+            // 卡 t_8ec0a1af：这里过去还有半句
+            // `OR entity_id NOT IN (SELECT id FROM biz_purchase_order)`
+            // —— 那是「**全库**孤儿扫」：本模块每跑一次 `setup()` 就全表写一遍，
+            // 并行时会删掉别的模块「单据行已删、自己的日志还没删」的毫秒级中间态
+            // （症状：兄弟模块偶发少了状态日志行，且责任不可追）。
+            // 夹具只许动**自己造的行**：按供应商 id 集合删即可；
+            // 历史孤儿由各模块自己的 `zz_` 收口（`fixture_hygiene::settle_orphans`）。
             format!(
-                "DELETE FROM biz_status_log WHERE entity_type = 'PURCHASE_ORDER' AND ( \
-                     entity_id IN (SELECT id FROM biz_purchase_order \
-                                    WHERE supplier_id = '{SUPPLIER}'::uuid) \
-                  OR entity_id NOT IN (SELECT id FROM biz_purchase_order))"
+                "DELETE FROM biz_status_log WHERE entity_type = 'PURCHASE_ORDER' AND entity_id IN \
+                 (SELECT id FROM biz_purchase_order WHERE supplier_id = '{SUPPLIER}'::uuid)"
             ),
         ];
         for sql in statements {

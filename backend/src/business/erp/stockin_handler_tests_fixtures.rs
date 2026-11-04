@@ -353,6 +353,23 @@ pub(super) async fn cleanup_fixtures() {
         format!(
             "DELETE FROM biz_stock_in WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
         ),
+        // 卡 t_8ec0a1af（**必须排在删采购单之前**）：收货过账会推进采购单状态
+        // （`SUBMITTED → PARTIAL_RECEIVED / RECEIVED`，见 `stockin_purchase.rs`），
+        // 而 `biz_status_log` **没有外键** —— 只在下面那条里删 `biz_purchase_order`，
+        // 采购单的状态日志就永远留在库里。实测后果：每轮 stockin +35 条
+        // `entity_type='PURCHASE_ORDER'` 孤儿，7 轮 245 条、线性无上界
+        // （卡 t_25926f63 并发自检用 psql 独立复查抓到；此前没有任何断言覆盖它，所以一直不红）。
+        //
+        // 删除集口径与上面几条一致：根 = **夹具供应商 id**（[`fixture_suppliers`]），
+        // 沿 `biz_purchase_order.id` 取本模块历次运行造过的采购单 id 集合；
+        // 既不按 `entity_no LIKE 'B1-%'` 前缀扫（单号是弱引用，见 S4），
+        // 也不按「全库孤儿」（`entity_id NOT IN (SELECT id FROM biz_purchase_order)`）扫 ——
+        // 后者会在并行时删掉别的模块「已删单据、还没删日志」的毫秒级中间态。
+        format!(
+            "DELETE FROM biz_status_log WHERE entity_type = 'PURCHASE_ORDER' AND entity_id IN \
+             (SELECT id FROM biz_purchase_order WHERE supplier_id IN ({}))",
+            fixture_suppliers()
+        ),
         format!(
             "DELETE FROM biz_purchase_order WHERE supplier_id IN ('{SUPPLIER}'::uuid, '{A4_SUPPLIER_B}'::uuid)"
         ),
@@ -528,6 +545,70 @@ pub(super) async fn post_approval_residue_is_purged_by_cleanup() {
     assert_eq!(logs, 0, "清场后状态日志必须为 0");
 }
 
+/// 采购单状态日志（无外键）会被模块清场**按本夹具采购单 id 集合**收干净（卡 `t_8ec0a1af`）。
+///
+/// # 这条用例守的是什么
+///
+/// 过去的缺口：清场只删 `biz_purchase_order`，不删 `entity_type = 'PURCHASE_ORDER'` 的
+/// `biz_status_log` ⇒ 每轮 stockin 在库里攒 35 条孤儿（7 轮 245 条、线性无上界，
+/// 卡 `t_25926f63` 用 psql 独立复查抓到），而 `zz_` 断言只复查 `STOCK_IN`，
+/// 所以**没有任何用例会因此变红**。
+///
+/// 走的是**真实路径**，不是另写一套 SQL：造采购单 → 建收货单 → 过账（状态机把采购单推到
+/// `RECEIVED` 并写一行日志）→ 调模块真实的 `cleanup_fixtures()` → 按 `order_id` 精确复查。
+#[tokio::test]
+pub(super) async fn purchase_order_status_logs_are_purged_by_cleanup() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let (order_id, item_id) = seed_purchase_order("30", "0").await;
+    let mut one = line(MATERIAL_A, "30", "2", "0");
+    one.purchase_order_item_id = Some(item_id.to_string());
+    let mut request = req(vec![one]);
+    request.source_order_id = Some(order_id.to_string());
+    let id = create_stock_in(&request, None)
+        .await
+        .unwrap_or_else(|err| panic!("有源单应当建得出来：{} {}", err.code, err.msg));
+    change_stock_in_status(id, &post_req(), None)
+        .await
+        .unwrap_or_else(|err| panic!("过账失败：{} {}", err.code, err.msg));
+
+    assert!(
+        po_status_logs(order_id).await > 0,
+        "过账必须给采购单写状态日志，否则这条用例证明不了什么"
+    );
+
+    cleanup_fixtures().await;
+
+    assert_eq!(
+        po_status_logs(order_id).await,
+        0,
+        "清场后采购单状态日志必须为 0（`biz_status_log` 没有外键 ⇒ 必须在删采购单之前按 id 删）"
+    );
+    let left: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_purchase_order WHERE id = ?::uuid",
+            vec![Value::from(&order_id)],
+        )
+        .await
+        .expect("查采购单本体")
+        .unwrap_or(0);
+    assert_eq!(left, 0, "采购单本体也必须被清场收掉");
+}
+
+/// 指定采购单的 `biz_status_log` 行数（`entity_type = 'PURCHASE_ORDER'`）。
+async fn po_status_logs(order_id: Uuid) -> i64 {
+    db().scalar_with_params::<Option<i64>>(
+        "SELECT count(*) FROM biz_status_log \
+          WHERE entity_type = 'PURCHASE_ORDER' AND entity_id = ?::uuid",
+        vec![Value::from(&order_id)],
+    )
+    .await
+    .expect("查采购单状态日志")
+    .unwrap_or(0)
+}
+
 /// 模块命名空间最终无残留（**只做复查，不做清场**）。
 ///
 /// 口径全部落在「本模块私有 / 夹具 id」上，不是整库：
@@ -536,10 +617,15 @@ pub(super) async fn post_approval_residue_is_purged_by_cleanup() {
 ///    `uk_biz_flow_instance_biz_active` 的就是它，留着会让下一轮提交永久 409。
 ///    这两种 `biz_type` 只有本模块产生（`stockin_query::POST_BIZ_TYPE` / `CANCEL_BIZ_TYPE`），
 ///    且本模块测试全在 `DB_LOCK` 内串行，所以「命名空间内还有 PENDING」必然是自己的残留；
-/// 3. **`STOCK_IN` 状态日志没有孤儿行** —— 用**收敛式判定**
+/// 3. **`STOCK_IN` / `PURCHASE_ORDER` 状态日志没有孤儿行** —— 用**收敛式判定**
 ///    （`fixture_hygiene::settle_orphans`）：`biz_status_log` 没有外键，历史轮次可能留下
 ///    「单据已删、日志还在」的行。真孤儿等多久都还在 ⇒ 仍会红；收敛只吸收「别人删单据与
 ///    删日志之间」的毫秒级窗口，口径没有放宽。
+///    ‼️ `PURCHASE_ORDER` 这条是卡 `t_8ec0a1af` 补的**断言覆盖缺口**：采购单状态日志过去
+///    只删单据不删日志，每轮 stockin 攒 35 条孤儿（7 轮 245 条、线性无上界）而**没有任何
+///    用例会因此变红** —— 断言只复查了 `STOCK_IN`。判据只能落在「整库」上：采购单行一旦
+///    被删，孤儿日志的 `entity_id` 就再也追不到是哪个模块造的（没有供应商可反查），
+///    所以这里用 `settle_orphans` 先收口再断言 0，而不是按模块命名空间过滤。
 ///
 /// 本用例**不造任何数据**，`setup()` 刚清过一轮 ⇒ 单独跑也成立、并行跑也成立。
 #[tokio::test]
@@ -578,13 +664,13 @@ pub(super) async fn zz_module_namespace_has_no_residue() {
     );
 
     let orphans = crate::business::erp::fixture_hygiene::settle_orphans(
-        &["STOCK_IN"],
+        &["STOCK_IN", "PURCHASE_ORDER"],
         std::time::Duration::from_secs(5),
     )
     .await;
     assert_eq!(
         orphans, 0,
-        "STOCK_IN 状态日志不许留孤儿行（收敛等待 5s 后仍非 0）"
+        "STOCK_IN / PURCHASE_ORDER 状态日志不许留孤儿行（收敛等待 5s 后仍非 0）"
     );
 }
 

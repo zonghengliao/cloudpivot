@@ -1,0 +1,31 @@
+=== 1) 备份并改成 RED 变体 2026-11-04T21:16:47+08:00 ===
+REDPROOF 标记数 = 1
+=== 2) 跑新用例（期望 FAILED） 2026-11-04T21:16:47+08:00 ===
+RED_RUN_EXIT=101
+     Running unittests src/lib.rs (/root/8ec0a1af-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+test business::erp::stockin_handler::stockin_handler_tests_fixtures::purchase_order_status_logs_are_purged_by_cleanup ... FAILED
+
+failures:
+
+---- business::erp::stockin_handler::stockin_handler_tests_fixtures::purchase_order_status_logs_are_purged_by_cleanup stdout ----
+
+thread 'business::erp::stockin_handler::stockin_handler_tests_fixtures::purchase_order_status_logs_are_purged_by_cleanup' (2120363) panicked at src/business/erp/stockin_handler_tests_fixtures.rs:584:5:
+assertion `left == right` failed: 清场后采购单状态日志必须为 0（`biz_status_log` 没有外键 ⇒ 必须在删采购单之前按 id 删）
+  left: 1
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    business::erp::stockin_handler::stockin_handler_tests_fixtures::purchase_order_status_logs_are_purged_by_cleanup
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2330 filtered out; finished in 3.62s
+
+error: test failed, to rerun pass `--lib`
+=== 3) 还原修复语句 2026-11-04T21:17:21+08:00 ===
+残留 REDPROOF 标记数 = 0
+369:            "DELETE FROM biz_status_log WHERE entity_type = 'PURCHASE_ORDER' AND entity_id IN \
+=== done 2026-11-04T21:17:21+08:00 ===
+EXIT=0

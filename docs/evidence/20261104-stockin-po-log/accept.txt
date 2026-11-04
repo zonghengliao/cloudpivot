@@ -1,0 +1,30 @@
+######## 0) RECREATE 干净库 2026-11-04T21:19:24+08:00
+    stock_transfer / n_approve / ADMIN / self_approval=ALLOW / AND
+    task_accept / n_creator / TASK_CREATOR / self_approval=ALLOW / AND
+    voucher_reverse / n_fm / ROLE / self_approval=ALLOW / AND
+==> 完成。下一步：
+    export ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_8ec0a1af'
+    cd /root/8ec0a1af-tree/backend && cargo test -j 1
+######## 1) 三轮验收 2026-11-04T21:19:29+08:00
+### DB=cloudpivot_8ec0a1af  开始 2026-11-04T21:19:29+08:00
+### 基线（未跑任何用例）：PO 孤儿=0  PO 日志总数=0  采购单行=0  STOCK_IN 孤儿=0
+===== ROUND 1 开始 2026-11-04T21:19:29+08:00 =====
+ROUND 1 exit=0
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 419.72s
+FAILED_or_panic_lines=0
+ROUND 1 轮后：PO 孤儿=0  PO 日志总数=0  采购单行=0  STOCK_IN 孤儿=0
+===== ROUND 1 结束 2026-11-04T21:28:11+08:00 =====
+===== ROUND 2 开始 2026-11-04T21:28:11+08:00 =====
+ROUND 2 exit=0
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 406.61s
+FAILED_or_panic_lines=0
+ROUND 2 轮后：PO 孤儿=0  PO 日志总数=0  采购单行=0  STOCK_IN 孤儿=0
+===== ROUND 2 结束 2026-11-04T21:34:58+08:00 =====
+===== ROUND 3 开始 2026-11-04T21:34:58+08:00 =====
+ROUND 3 exit=0
+test result: ok. 134 passed; 0 failed; 0 ignored; 0 measured; 2197 filtered out; finished in 415.92s
+FAILED_or_panic_lines=0
+ROUND 3 轮后：PO 孤儿=0  PO 日志总数=0  采购单行=0  STOCK_IN 孤儿=0
+===== ROUND 3 结束 2026-11-04T21:41:54+08:00 =====
+######## ALL DONE 2026-11-04T21:41:54+08:00
+EXIT=0
