@@ -1,0 +1,31 @@
+# 质量闸门原始输出（2026-11-04，backend/ 目录下执行）
+
+$ cargo clippy --all-targets -- -D warnings
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 33.94s
+CLIPPY_EXIT=0   # -D warnings 下 0 告警
+
+$ cargo test --lib login_rate
+running 5 tests
+test system::auth::handler::tests::login_rate_fails_open_without_cache_backend ... ok
+test system::auth::handler::tests::login_rate_is_keyed_by_username_and_ip ... ok
+test system::auth::handler::tests::login_rate_ignores_stale_counter_without_window_key ... ok
+test system::auth::handler::tests::login_rate_blocks_after_max_attempts ... ok
+test system::auth::handler::tests::login_rate_resets_after_window_expires ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 2324 filtered out; finished in 1.11s
+
+$ cargo fmt -- --check
+Diff in /opt/cloudpivot/backend/src/bootstrap.rs:81:
+Diff in /opt/cloudpivot/backend/src/business/shared/doc_kind_tests.rs:647:
+Diff in /opt/cloudpivot/backend/src/shared/startup_guard.rs:969:
+Diff in /opt/cloudpivot/backend/src/shared/startup_guard.rs:1059:
+# 已逐条确认：这 4 处全在**本卡未触碰**的文件里，且是 HEAD 版本自带的（把 HEAD 版本
+# 取出来单独跑 rustfmt --check --edition 2024 同样 exit=1）：本机 rustfmt 1.8.0-stable
+# 与产出这批代码的版本不一致所致，与本卡改动无关。
+# 本卡改的两个文件（system/auth/handler.rs、vendor/nik-cache/src/lib.rs）fmt --check 干净。
+
+$ cargo test --lib -j 1     # 全量回归
+test result: ok. 2329 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.05s
+
+$ cd backend/vendor/nik-cache && cargo test
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out

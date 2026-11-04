@@ -95,3 +95,14 @@ liuzi 中途补了要求：「不止 8 个，16 个一起改；vendor 里彻底�
 
 只剩 `vendor/README.md` / `FORK-NOTES.md` 两个**说明文档**里还有 `nik`（42 处，讲 fork 来源），
 不参与编译，也过 `--include='*.rs' --include='*.toml'` 那条验收。
+
+## 8. 运行期行为修正（vendor 侧 bug fix）
+
+fork 之后对框架**语义**的每一次改动都记在这里（与 §4 的「安全补丁」分开：那些是复制时就带上的）。
+
+| 日期 | 文件 | 改动 | 为什么 / 证据 |
+|---|---|---|---|
+| 2026-11-04 | `nik-cache/src/lib.rs` · `LocalCache::incr` | 自增前先判 `expires_at`：**过期条目按不存在处理**（先删再从 0 加），并对齐 Redis `INCR` 语义 | 旧实现只做加法、不看 TTL，`TTL 已到但尚未被清理`的计数键会继续累加，而 `expires_at` 早在过去 ⇒ 计数永久停在阈值之上。登录限流因此在无 Redis（进程内缓存）下 10 次登录后永久 429，只能重启进程（卡 `t_91a8d427`，已在 18150 实例实机复现并修复后复测）。单测：`test_incr_after_expiry_restarts_from_zero` / `test_incr_keeps_window_ttl` |
+
+约定：改完 vendor 行为必须同时补 crate 内单测（`cargo test -p nik-cache`），
+并在业务侧留一条能复现原故障的回归用例——否则下次 vendor 同步会悄悄退回旧语义。
