@@ -4,137 +4,255 @@
       <t-tabs v-model="activeTab" data-testid="inventory-tabs">
         <!-- ==================== Tab 1：即时库存 ==================== -->
         <t-tab-panel value="stock" label="即时库存">
-          <div class="tool-row">
-            <t-select
-              v-model="stockFilter.material_id"
-              class="tool-row__select"
-              :options="materialOptions"
-              placeholder="物料（全部）"
-              filterable
-              clearable
-              data-testid="stock-filter-material"
-            />
-            <t-select
-              v-model="stockFilter.warehouse_id"
-              class="tool-row__select"
-              :options="warehouseOptions"
-              placeholder="仓库（全部）"
-              filterable
-              clearable
-              data-testid="stock-filter-warehouse"
-            />
-            <label class="tool-row__switch">
-              <t-switch v-model="stockFilter.only_nonzero" size="small" data-testid="stock-switch-nonzero" />
-              <span>隐藏零库存</span>
-            </label>
-            <t-button theme="primary" data-testid="stock-btn-search" @click="handleStockSearch">查询</t-button>
-            <t-button variant="outline" data-testid="stock-btn-reset" @click="handleStockReset">重置</t-button>
-            <t-button variant="outline" data-testid="stock-btn-refresh" @click="refreshStock">
-              <template #icon><t-icon name="refresh" /></template>
-              刷新
-            </t-button>
-          </div>
+          <!--
+            ★ 缺陷①（P2-2B）：后端巡检提醒的「去看看」落点是 ?audit=1（period.rs 的
+            Blocker::with_url 给的就是这条），此前前端不读这个参数 —— 点进来和普通即时库存
+            一模一样，仓管根本看不到漂移物料。这里消费它：只列「账面 ≠ 在库序列号数」的
+            （物料 × 仓库），数据来自 GET /erp/inventory/audit?dry_run=true。
+            页面**只读**：一键改账不该是个页面按钮（后端红线③：dry_run 缺省 true 防误修）。
+          -->
+          <template v-if="auditMode">
+            <t-alert theme="info" class="list-alert audit-banner" data-testid="inventory-audit-banner">
+              <template #title>巡检模式</template>
+              <span data-testid="inventory-audit-summary">{{ auditSummary }}</span>
+              <template #operation>
+                <t-space size="small">
+                  <t-button
+                    size="small"
+                    variant="outline"
+                    :loading="auditLoading"
+                    data-testid="btn-inventory-audit-refresh"
+                    @click="loadAudit()"
+                  >
+                    重新巡检
+                  </t-button>
+                  <t-button
+                    size="small"
+                    theme="primary"
+                    variant="outline"
+                    data-testid="btn-inventory-audit-exit"
+                    @click="exitAuditMode"
+                  >
+                    退出巡检
+                  </t-button>
+                </t-space>
+              </template>
+            </t-alert>
 
-          <div class="panel-head">
-            <div class="panel-head__main">
-              <span class="panel-head__title">即时库存（物料 × 仓库）</span>
-              <span class="panel-head__meta" data-testid="stock-meta">共 {{ stockTotal }} 行</span>
-            </div>
-            <span class="panel-head__tip">
-              数量 = 已过账的账面结存（可用 = 数量；「锁定量」为预留字段，本版本无占用流程，故不显示）
-            </span>
-          </div>
+            <t-alert
+              v-if="auditError"
+              theme="error"
+              :message="auditError"
+              class="list-alert"
+              data-testid="inventory-audit-error"
+            >
+              <template #operation>
+                <t-button size="small" variant="outline" @click="loadAudit()">重试</t-button>
+              </template>
+            </t-alert>
 
-          <t-alert
-            v-if="stockError"
-            theme="error"
-            :message="stockError"
-            class="list-alert"
-            data-testid="stock-load-error"
-          >
-            <template #operation>
-              <t-button size="small" variant="outline" @click="loadStock()">重试</t-button>
-            </template>
-          </t-alert>
-
-          <t-table
-            row-key="id"
-            :data="stockRows"
-            :columns="stockColumns"
-            :loading="stockLoading"
-            :pagination="stockPagination"
-            hover
-            data-testid="stock-table"
-            @page-change="handleStockPageChange"
-          >
-            <template #material="{ row }">
-              <div class="cell-stack">
-                <span class="cell-stack__main" :data-testid="`stock-material-${row.material_id}`">
-                  {{ materialCodeOf(row.material_id) }}
+            <div class="panel-head">
+              <div class="panel-head__main">
+                <span class="panel-head__title">漂移明细（账面 vs 在库序列号）</span>
+                <span class="panel-head__meta" data-testid="inventory-audit-meta">
+                  漂移 {{ auditReport?.mismatched ?? 0 }} 个 / 检查 {{ auditReport?.checked ?? 0 }} 个
                 </span>
-                <span class="cell-stack__sub">{{ materialNameOf(row.material_id) }}</span>
               </div>
-            </template>
-            <template #warehouse="{ row }">
-              <div class="cell-stack" :data-testid="`stock-warehouse-${row.warehouse_id}`">
-                <span class="cell-stack__main mono">{{ warehouseCodeOf(row.warehouse_id) }}</span>
-                <span class="cell-stack__sub">{{ warehouseNameOf(row.warehouse_id) }}</span>
-              </div>
-            </template>
-            <template #qty="{ row }">
-              <span class="num" :class="{ 'num--zero': toNumber(row.qty) === 0 }" :data-testid="`stock-qty-${row.id}`">
-                {{ formatQty(row.qty) }}
+              <span class="panel-head__tip">
+                口径：<code>biz_inventory.qty</code> 对比
+                <code>biz_material_serial.status='IN_STOCK'</code> 的件数；修正走巡检接口
+                （<code>dry_run=false</code>），本页只读
               </span>
-            </template>
-            <template #available="{ row }">
-              <span
-                class="num"
-                :class="isOverLocked(row) ? 'num--bad' : ''"
-                :data-testid="`stock-available-${row.id}`"
-              >
-                {{ formatQty(availableQty(row)) }}
-              </span>
-            </template>
-            <template #avg_cost="{ row }">
-              <span class="num num--muted">{{ formatCost(row.avg_cost) }}</span>
-            </template>
-            <template #amount="{ row }">
-              <span class="num" :data-testid="`stock-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
-            </template>
-            <template #last_txn_at="{ row }">
-              <span class="muted">{{ formatDateTime(row.last_txn_at) }}</span>
-            </template>
+            </div>
 
-            <template #empty>
-              <div class="panel-empty" data-testid="stock-empty">
-                <t-icon name="view-list" class="panel-empty__icon" />
-                <p class="panel-empty__title">
-                  {{ isStockFiltered(stockFilter) ? '当前筛选下没有库存行' : '还没有任何库存' }}
-                </p>
-                <p class="panel-empty__desc">
-                  {{
-                    isStockFiltered(stockFilter)
-                      ? '换个物料 / 仓库再试；「隐藏零库存」开着时 qty=0 的行不会返回'
-                      : '收货入库过账后才会写 biz_inventory（本页只读）'
-                  }}
-                </p>
+            <t-table
+              row-key="key"
+              :data="auditRows"
+              :columns="auditColumns"
+              :loading="auditLoading"
+              size="small"
+              hover
+              data-testid="inventory-audit-table"
+            >
+              <template #material="{ row }">
+                <div class="cell-stack">
+                  <span class="cell-stack__main mono" :data-testid="`audit-material-${row.material_code}`">
+                    {{ row.material_code }}
+                  </span>
+                  <span class="cell-stack__sub">{{ row.material_name }}</span>
+                </div>
+              </template>
+              <template #warehouse="{ row }">
+                <span v-if="row.warehouse_id" class="cell-stack__main">{{ row.warehouse_name }}</span>
+                <t-tag v-else size="small" variant="light" theme="warning">无仓库归属</t-tag>
+              </template>
+              <template #book_qty="{ row }">
+                <span class="num">{{ formatQty(row.book_qty) }}</span>
+              </template>
+              <template #actual_qty="{ row }">
+                <span class="num">{{ formatQty(row.actual_qty) }}</span>
+              </template>
+              <template #diff="{ row }">
+                <span
+                  class="num"
+                  :class="auditDriftKind(row.diff) === 'over' ? 'num--bad' : 'num--out'"
+                  :data-testid="`audit-diff-${row.material_code}`"
+                >
+                  {{ auditDiffText(row.diff) }}
+                </span>
+              </template>
+              <template #drift="{ row }">
+                <t-tag size="small" variant="light" :theme="auditDriftTheme(row.diff)">
+                  {{ auditDriftLabel(row.diff) }}
+                </t-tag>
+              </template>
+              <template #fixable="{ row }">
+                <span class="muted">{{ auditFixableLabel(row.fixable) }}</span>
+              </template>
+
+              <template #empty>
+                <div class="panel-empty" data-testid="inventory-audit-empty">
+                  <t-icon name="check-circle" class="panel-empty__icon" />
+                  <p class="panel-empty__title">{{ auditEmptyTitle }}</p>
+                  <p class="panel-empty__desc">{{ auditEmptyDesc }}</p>
+                </div>
+              </template>
+            </t-table>
+          </template>
+
+          <template v-else>
+            <div class="tool-row">
+              <t-select
+                v-model="stockFilter.material_id"
+                class="tool-row__select"
+                :options="materialOptions"
+                placeholder="物料（全部）"
+                filterable
+                clearable
+                data-testid="stock-filter-material"
+              />
+              <t-select
+                v-model="stockFilter.warehouse_id"
+                class="tool-row__select"
+                :options="warehouseOptions"
+                placeholder="仓库（全部）"
+                filterable
+                clearable
+                data-testid="stock-filter-warehouse"
+              />
+              <label class="tool-row__switch">
+                <t-switch v-model="stockFilter.only_nonzero" size="small" data-testid="stock-switch-nonzero" />
+                <span>隐藏零库存</span>
+              </label>
+              <t-button theme="primary" data-testid="stock-btn-search" @click="handleStockSearch">查询</t-button>
+              <t-button variant="outline" data-testid="stock-btn-reset" @click="handleStockReset">重置</t-button>
+              <t-button variant="outline" data-testid="stock-btn-refresh" @click="refreshStock">
+                <template #icon><t-icon name="refresh" /></template>
+                刷新
+              </t-button>
+            </div>
+
+            <div class="panel-head">
+              <div class="panel-head__main">
+                <span class="panel-head__title">即时库存（物料 × 仓库）</span>
+                <span class="panel-head__meta" data-testid="stock-meta">共 {{ stockTotal }} 行</span>
               </div>
-            </template>
-          </t-table>
+              <span class="panel-head__tip">
+                数量 = 已过账的账面结存（可用 = 数量；「锁定量」为预留字段，本版本无占用流程，故不显示）
+              </span>
+            </div>
 
-          <div class="footer-row" data-testid="stock-footer">
-            <span class="footer-row__label">本页合计</span>
-            <span class="footer-row__item">
-              数量 <b class="num" data-testid="stock-footer-qty">{{ formatQty(stockTotals.qty) }}</b>
-            </span>
-            <span class="footer-row__item">
-              可用 <b class="num" data-testid="stock-footer-available">{{ formatQty(stockTotals.available) }}</b>
-            </span>
-            <span class="footer-row__item">
-              金额 <b class="num" data-testid="stock-footer-amount">{{ formatMoney(stockTotals.amount) }}</b>
-            </span>
-            <span class="footer-row__tip">合计只算本页，不是全仓库存</span>
-          </div>
+            <t-alert
+              v-if="stockError"
+              theme="error"
+              :message="stockError"
+              class="list-alert"
+              data-testid="stock-load-error"
+            >
+              <template #operation>
+                <t-button size="small" variant="outline" @click="loadStock()">重试</t-button>
+              </template>
+            </t-alert>
+
+            <t-table
+              row-key="id"
+              :data="stockRows"
+              :columns="stockColumns"
+              :loading="stockLoading"
+              :pagination="stockPagination"
+              hover
+              data-testid="stock-table"
+              @page-change="handleStockPageChange"
+            >
+              <template #material="{ row }">
+                <div class="cell-stack">
+                  <span class="cell-stack__main" :data-testid="`stock-material-${row.material_id}`">
+                    {{ materialCodeOf(row.material_id) }}
+                  </span>
+                  <span class="cell-stack__sub">{{ materialNameOf(row.material_id) }}</span>
+                </div>
+              </template>
+              <template #warehouse="{ row }">
+                <div class="cell-stack" :data-testid="`stock-warehouse-${row.warehouse_id}`">
+                  <span class="cell-stack__main mono">{{ warehouseCodeOf(row.warehouse_id) }}</span>
+                  <span class="cell-stack__sub">{{ warehouseNameOf(row.warehouse_id) }}</span>
+                </div>
+              </template>
+              <template #qty="{ row }">
+                <span class="num" :class="{ 'num--zero': toNumber(row.qty) === 0 }" :data-testid="`stock-qty-${row.id}`">
+                  {{ formatQty(row.qty) }}
+                </span>
+              </template>
+              <template #available="{ row }">
+                <span
+                  class="num"
+                  :class="isOverLocked(row) ? 'num--bad' : ''"
+                  :data-testid="`stock-available-${row.id}`"
+                >
+                  {{ formatQty(availableQty(row)) }}
+                </span>
+              </template>
+              <template #avg_cost="{ row }">
+                <span class="num num--muted">{{ formatCost(row.avg_cost) }}</span>
+              </template>
+              <template #amount="{ row }">
+                <span class="num" :data-testid="`stock-amount-${row.id}`">{{ formatMoney(row.amount) }}</span>
+              </template>
+              <template #last_txn_at="{ row }">
+                <span class="muted">{{ formatDateTime(row.last_txn_at) }}</span>
+              </template>
+
+              <template #empty>
+                <div class="panel-empty" data-testid="stock-empty">
+                  <t-icon name="view-list" class="panel-empty__icon" />
+                  <p class="panel-empty__title">
+                    {{ isStockFiltered(stockFilter) ? '当前筛选下没有库存行' : '还没有任何库存' }}
+                  </p>
+                  <p class="panel-empty__desc">
+                    {{
+                      isStockFiltered(stockFilter)
+                        ? '换个物料 / 仓库再试；「隐藏零库存」开着时 qty=0 的行不会返回'
+                        : '收货入库过账后才会写 biz_inventory（本页只读）'
+                    }}
+                  </p>
+                </div>
+              </template>
+            </t-table>
+
+            <div class="footer-row" data-testid="stock-footer">
+              <span class="footer-row__label">本页合计</span>
+              <span class="footer-row__item">
+                数量 <b class="num" data-testid="stock-footer-qty">{{ formatQty(stockTotals.qty) }}</b>
+              </span>
+              <span class="footer-row__item">
+                可用 <b class="num" data-testid="stock-footer-available">{{ formatQty(stockTotals.available) }}</b>
+              </span>
+              <span class="footer-row__item">
+                金额 <b class="num" data-testid="stock-footer-amount">{{ formatMoney(stockTotals.amount) }}</b>
+              </span>
+              <span class="footer-row__tip">合计只算本页，不是全仓库存</span>
+            </div>
+          </template>
         </t-tab-panel>
 
         <!-- ==================== Tab 2：库位库存 ==================== -->
@@ -544,6 +662,7 @@ import { useRoute, useRouter } from 'vue-router';
 import type { PrimaryTableCol } from 'tdesign-vue-next';
 import { ApiError } from '@/api/request';
 import {
+  fetchInventoryAudit,
   fetchInventoryLocationPage,
   fetchInventoryPage,
   fetchInventoryTxnDetail,
@@ -551,6 +670,7 @@ import {
   fetchLocationPage,
   fetchMaterialPage,
   fetchWarehousePage,
+  type InventoryAuditReport,
   type InventoryLocationRow,
   type InventoryRow,
   type InventoryTxnRow,
@@ -562,6 +682,13 @@ import {
   INVENTORY_PAGE_SIZE,
   INVENTORY_TABS,
   TXN_TYPE_OPTIONS,
+  auditDiffText,
+  auditDriftKind,
+  auditDriftLabel,
+  auditDriftTheme,
+  auditEmptyText,
+  auditFixableLabel,
+  auditSummaryText,
   availableQty,
   buildLocationQuery,
   buildStockQuery,
@@ -572,6 +699,7 @@ import {
   emptyLocationFilter,
   emptyStockFilter,
   emptyTxnFilter,
+  isAuditQuery,
   isLocationFiltered,
   isOverLocked,
   isStockFiltered,
@@ -999,6 +1127,98 @@ function handleTxnRowClick(context: { row?: unknown }): void {
   }
 }
 
+// ==================== ④ 巡检模式（`?audit=1`） ====================
+
+/**
+ * 巡检模式判定。
+ *
+ * 落点来自后端：`period.rs::global_health_warnings`（结账预检）/ `period_items.rs` /
+ * `year_end.rs` 的 `Blocker::with_url` 都给 `/business/erp/inventory?audit=1`。
+ * 「点『去看看』→ 页面只列漂移物料」这条链路此前断在前端（参数没人读），本块接上。
+ */
+const auditMode = computed(() => isAuditQuery(route.query.audit));
+
+/** 巡检报告（`null` = 还没取到） */
+const auditReport = ref<InventoryAuditReport | null>(null);
+const auditLoading = ref(false);
+const auditError = ref('');
+
+const auditColumns: PrimaryTableCol[] = [
+  { colKey: 'material', title: '物料', minWidth: 220 },
+  { colKey: 'warehouse', title: '仓库', width: 180 },
+  { colKey: 'book_qty', title: '账面数量', width: 120, align: 'right' },
+  { colKey: 'actual_qty', title: '在库件数', width: 120, align: 'right' },
+  { colKey: 'diff', title: '差异', width: 100, align: 'right' },
+  { colKey: 'drift', title: '状态', width: 100 },
+  { colKey: 'fixable', title: '可否修正', width: 120 },
+];
+
+/**
+ * 表格行：`key` 用「物料 + 仓库 + 序号」拼。
+ * 同一物料在多仓各有一行（`material_id` 会撞），不能拿它当 row-key。
+ */
+const auditRows = computed(() =>
+  (auditReport.value?.items ?? []).map((item, index) => ({
+    ...item,
+    key: `${item.material_id}-${item.warehouse_id ?? 'no-warehouse'}-${index}`,
+  })),
+);
+
+/** 顶部一句话结论（未取到前给加载态文案，别显示「发现 0 个漂移」这种假结论） */
+const auditSummary = computed(() => {
+  if (auditReport.value) {
+    return auditSummaryText(auditReport.value);
+  }
+  return auditLoading.value ? '正在巡检（账面 vs 在库序列号）…' : '尚未取到巡检结果';
+});
+
+const auditEmptyTitle = computed(() =>
+  auditReport.value && auditReport.value.mismatched === 0 ? '没有漂移' : '没有可显示的明细',
+);
+const auditEmptyDesc = computed(() => auditEmptyText(auditReport.value ?? { checked: 0, mismatched: 0 }));
+
+/**
+ * 拉巡检报告（只读口径 `dry_run=true`）。
+ *
+ * 权限码 `business:erp:inventory:audit`（V0143）。没这个码的账号会 403 —— 把后端原文
+ * 照出来（而不是一句「加载失败」）：能不能看巡检是个用户需要知道的事实。
+ */
+async function loadAudit(): Promise<void> {
+  auditLoading.value = true;
+  auditError.value = '';
+  try {
+    auditReport.value = await fetchInventoryAudit();
+  } catch (error) {
+    auditReport.value = null;
+    auditError.value = messageOf(error);
+  } finally {
+    auditLoading.value = false;
+  }
+}
+
+/** 退出巡检：只摘掉 `audit` 参数（其它 query 原样保留），回到普通即时库存 */
+function exitAuditMode(): void {
+  const rest = { ...route.query };
+  delete rest.audit;
+  void router.replace({ path: route.path, query: rest });
+}
+
+/**
+ * 进出巡检模式：进来就拉报告，退出就丢掉报告并回到普通列表。
+ *
+ * 初次进入不靠这个 watch（`immediate` 不设），加载统一走 `ensureLoaded('stock')` ——
+ * 否则 onMounted 那一发会重复打两次接口。
+ */
+watch(auditMode, (on) => {
+  if (on) {
+    void loadAudit();
+    return;
+  }
+  auditReport.value = null;
+  auditError.value = '';
+  void loadStock(1);
+});
+
 // ==================== Tab 切换 / 路由同步 ====================
 
 /**
@@ -1015,7 +1235,9 @@ watch(activeTab, (tab) => {
   ensureLoaded(tab);
   const target = INVENTORY_TABS.find((item) => item.key === tab);
   if (target && route.path !== target.path) {
-    void router.push({ path: target.path });
+    // query 一并带过去：巡检模式（`?audit=1`）下切 Tab 不能被顺手清掉，
+    // 否则「切到库位看一眼再切回来」就悄悄退出了巡检。
+    void router.push({ path: target.path, query: route.query });
   }
 });
 
@@ -1044,7 +1266,12 @@ function ensureLoaded(tab: InventoryTabKey): void {
   }
   loadedTabs.add(tab);
   if (tab === 'stock') {
-    void loadStock(1);
+    // 巡检模式（`?audit=1`）下 Tab1 的内容是巡检报告，不是即时库存分页
+    if (auditMode.value) {
+      void loadAudit();
+    } else {
+      void loadStock(1);
+    }
   } else if (tab === 'location') {
     void loadLocation(1);
   } else {

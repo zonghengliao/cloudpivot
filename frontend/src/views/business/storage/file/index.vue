@@ -93,6 +93,19 @@
         <template #storage_code="{ row }">
           <span>{{ row.storage_code || '默认' }}</span>
         </template>
+        <!--
+          缺陷②（P2-2B）：后端 `uploaded_by` 是 `sys_file.uploaded_by` 的 UUID 文本，原来直接渲染，
+          列里是 `01a19012-7573-…`。这里译成姓名（回退 用户名 → UUID），译名见 `uploader-names.ts`。
+        -->
+        <template #uploaded_by="{ row }">
+          <span
+            class="uploader"
+            :title="uploaderDisplayName(row.uploaded_by, uploaderNames)"
+            :data-testid="`file-uploader-${row.id}`"
+          >
+            {{ uploaderDisplayName(row.uploaded_by, uploaderNames) }}
+          </span>
+        </template>
         <template #created_at="{ row }">{{ formatDateTime(row.created_at) }}</template>
         <template #op="{ row }">
           <t-space size="small">
@@ -143,6 +156,13 @@ import {
 import { formatDateTime, formatFileSize } from '@/utils/format';
 import { fallbackFileName, saveBlob } from '@/utils/download';
 import { PERM } from '@/constants/permissions';
+import { pageUsers } from '@/api/system/user-api';
+import {
+  UPLOADER_PAGE_SIZE,
+  mergeUserNames,
+  pendingUploaderIds,
+  uploaderDisplayName,
+} from './uploader-names';
 
 /** 表格分页事件载荷 */
 interface TablePageInfo {
@@ -198,10 +218,35 @@ async function loadList(): Promise<void> {
     });
     rows.value = data.list;
     pagination.total = data.total;
+    // 上传人译名（缺陷②）：不阻塞列表渲染，拿不到就保持 UUID 回退
+    void resolveUploaderNames(rows.value);
   } catch (error) {
     showError(error);
   } finally {
     loading.value = false;
+  }
+}
+
+// ==================== 上传人译名（缺陷②） ====================
+
+/**
+ * `sys_file.uploaded_by` 是 UUID，列表原来直接渲染账号主键。
+ *
+ * 译名数据走 `GET /api/system/user/page`（与资产页 / 流程主数据译名同一条路子）。
+ * **失败不报错**：这里的失败通常就是「当前账号没有 `system:user:list`」，此时列里继续显示
+ * UUID（与改之前一致），不该为了一句译名弹红条打断文件管理的主流程。
+ */
+const uploaderNames = ref<ReadonlyMap<string, string>>(new Map());
+
+async function resolveUploaderNames(list: StorageFileRes[]): Promise<void> {
+  if (pendingUploaderIds(list, uploaderNames.value).length === 0) {
+    return;
+  }
+  try {
+    const page = await pageUsers({ page: 1, page_size: UPLOADER_PAGE_SIZE });
+    uploaderNames.value = mergeUserNames(uploaderNames.value, page.list ?? []);
+  } catch {
+    // 无权限 / 接口异常：保留 UUID 回退（见函数注释，不打扰用户）
   }
 }
 
@@ -570,6 +615,16 @@ onBeforeUnmount(() => {
     &__icon {
       color: var(--td-text-color-secondary);
     }
+  }
+
+  /* 上传人：姓名可能较长（回退 UUID 时更长），一行截断 + title 看全 */
+  .uploader {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
   }
 
   .preview {

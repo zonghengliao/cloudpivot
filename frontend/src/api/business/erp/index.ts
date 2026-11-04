@@ -3042,6 +3042,65 @@ export function fetchInventoryTxnDetail(id: string): Promise<InventoryTxnRow> {
   return get<InventoryTxnRow>(`${BASE}/inventory-txn/${id}`);
 }
 
+// ==================== 库存巡检（不变式③：账面 = 在库序列号数） ====================
+
+/**
+ * 巡检明细行（逐字抄 `inventory_audit.rs::AuditItem`）。
+ *
+ * 一行 = 一个 `(物料, 仓库)` 组合。`warehouse_id` 为 `null` 表示「有在库序列号但没有仓库归属」，
+ * 这种行 `fixable = false`（写不进 `biz_inventory`）。
+ */
+export interface InventoryAuditItem {
+  /** 物料主键 */
+  material_id: string;
+  /** 物料编码 */
+  material_code: string;
+  /** 物料名称 */
+  material_name: string;
+  /** 仓库主键（`null` = 序列号没有仓库归属） */
+  warehouse_id: string | null;
+  /** 仓库名称（与 `warehouse_id` 同生共死） */
+  warehouse_name: string | null;
+  /** 账面数量（`biz_inventory.qty`；行不存在按 0 报） */
+  book_qty: number | string;
+  /** 实际在库件数（`status='IN_STOCK'` 的序列号条数） */
+  actual_qty: number | string;
+  /** 账面 − 实际（正 = 账多，负 = 账少） */
+  diff: number | string;
+  /** 能否被 `dry_run=false` 修正（没有仓库的行不能） */
+  fixable: boolean;
+}
+
+/**
+ * 巡检报告（逐字抄 `inventory_audit.rs::AuditReport`）。
+ *
+ * `checked` 是**检查了多少个组合**（含「有序列号没库存行」那类），`mismatched = items.length`。
+ */
+export interface InventoryAuditReport {
+  /** 本次是否只报不修（缺省 `true`） */
+  dry_run: boolean;
+  /** 检查的 `(物料, 仓库)` 组合数 */
+  checked: number;
+  /** 不一致组合数 */
+  mismatched: number;
+  /** 不一致明细 */
+  items: InventoryAuditItem[];
+  /** 实际修好的行数（`dry_run=true` 恒为 0） */
+  fixed: number;
+  /** 报出来但修不了的行数 */
+  unfixable: number;
+}
+
+/**
+ * 库存巡检（`GET /erp/inventory/audit?dry_run=true`，权限 `business:erp:inventory:audit`）。
+ *
+ * ⚠️ **默认只读**（`dry_run` 缺省 `true`，由后端 `parse_dry_run` 兜底）。前端页面只调只读口径，
+ * 不在页面里提供「修正」入口 —— 一键改账不该是个页面按钮（红线③：防误修）。
+ */
+export function fetchInventoryAudit(dryRun = true): Promise<InventoryAuditReport> {
+  return get<InventoryAuditReport>(`${BASE}/inventory/audit`, asParams({ dry_run: dryRun }));
+}
+
 /**
  * 采购明细分页（`GET /erp/purchase-order-item/page`，权限
  * `business:erp:purchase-order-item:list`）。

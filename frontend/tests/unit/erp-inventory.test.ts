@@ -24,6 +24,13 @@ import {
   INVENTORY_PAGE_SIZE,
   INVENTORY_TABS,
   TXN_TYPE_OPTIONS,
+  auditDiffText,
+  auditDriftKind,
+  auditDriftLabel,
+  auditDriftTheme,
+  auditEmptyText,
+  auditFixableLabel,
+  auditSummaryText,
   availableQty,
   bizTypeLabel,
   buildLocationQuery,
@@ -34,6 +41,7 @@ import {
   emptyLocationFilter,
   emptyStockFilter,
   emptyTxnFilter,
+  isAuditQuery,
   isLocationFiltered,
   isOverLocked,
   isStockFiltered,
@@ -276,4 +284,77 @@ test('⑤ 筛选态判定与日期区间校验（空态文案、400 前置拦截
   assert.equal(clampPage(0, 0), 1);
   assert.equal(clampPage(2, 41), 2);
   assert.equal(clampPage(Number.NaN, 41), 1);
+});
+
+// ==================== ④ 巡检模式（`?audit=1`，P2-2B 缺陷①） ====================
+
+test('④ 巡检模式：只认 1 / true（大小写、空白、数组首值），拼错的参数退回普通库存', () => {
+  // 后端点「去看看」给的就是 ?audit=1（period.rs 的 Blocker::with_url）
+  assert.equal(isAuditQuery('1'), true);
+  assert.equal(isAuditQuery('true'), true);
+  assert.equal(isAuditQuery(' TRUE '), true);
+  // 数组（?audit=1&audit=0）取第一个
+  assert.equal(isAuditQuery(['1', '0']), true);
+  assert.equal(isAuditQuery(['0', '1']), false);
+  // 数字 / 布尔（测试或程序内调用）
+  assert.equal(isAuditQuery(1), true);
+  assert.equal(isAuditQuery(true), true);
+
+  // 这些**都不算**巡检：宁可退回普通库存页，也别把仓管扔进「只列漂移」视图
+  assert.equal(isAuditQuery('0'), false);
+  assert.equal(isAuditQuery('false'), false);
+  assert.equal(isAuditQuery(''), false);
+  assert.equal(isAuditQuery(undefined), false);
+  assert.equal(isAuditQuery(null), false);
+  assert.equal(isAuditQuery(0), false);
+  assert.equal(isAuditQuery('yes'), false);
+  assert.equal(isAuditQuery([]), false);
+  assert.equal(isAuditQuery({}), false);
+});
+
+test('④ 漂移方向：diff 正=账多 / 负=账少 / 零=一致，文案·配色·符号三处一致', () => {
+  // diff = 账面 − 实际（后端口径）
+  assert.equal(auditDriftKind('2.0000'), 'over');
+  assert.equal(auditDriftKind(-2), 'under');
+  assert.equal(auditDriftKind('0.0000'), 'even');
+  assert.equal(auditDriftKind(null), 'even');
+
+  assert.equal(auditDriftLabel(2), '账多');
+  assert.equal(auditDriftLabel('-1.5'), '账少');
+  assert.equal(auditDriftLabel(0), '一致');
+
+  assert.equal(auditDriftTheme(2), 'danger'); // 账多 = 红（真正的账实不符）
+  assert.equal(auditDriftTheme(-2), 'warning'); // 账少 = 橙
+  assert.equal(auditDriftTheme(0), 'default');
+
+  // 符号用 U+2212（与流水页 signedQtyText 同风格），去尾零
+  assert.equal(auditDiffText('2.0000'), '+2');
+  assert.equal(auditDiffText('-2.5000'), '−2.5');
+  assert.equal(auditDiffText('0.0000'), '0');
+  assert.equal(auditDiffText(null), '0');
+});
+
+test('④ 可修正标记与结论文案：把 only-read 口径写进页面，别让用户以为点了就会改账', () => {
+  assert.equal(auditFixableLabel(true), '可修正');
+  // 在库序列号没有仓库归属 → 写不进 biz_inventory，得说清原因
+  assert.equal(auditFixableLabel(false), '缺仓库归属');
+
+  const summary = auditSummaryText({ dry_run: true, checked: 12, mismatched: 3, unfixable: 1 });
+  assert.match(summary, /12 个（物料 × 仓库）组合/);
+  assert.match(summary, /发现 3 个漂移/);
+  assert.match(summary, /其中 1 个缺仓库归属、无法自动修正/);
+  assert.match(summary, /dry_run=true，不改任何库存/);
+
+  // 没有 unfixable 时不该多出一句「其中 0 个…」
+  const clean = auditSummaryText({ dry_run: true, checked: 5, mismatched: 0, unfixable: 0 });
+  assert.doesNotMatch(clean, /其中/);
+  assert.match(clean, /发现 0 个漂移/);
+});
+
+test('④ 空态文案：check=0（没有序列号物料）与「巡检干净」是两件事，别都说成没数据', () => {
+  assert.match(auditEmptyText({ checked: 0, mismatched: 0 }), /排查对象|没有可巡检的对象/);
+  assert.match(auditEmptyText({ checked: 8, mismatched: 0 }), /8 个组合/);
+  assert.match(auditEmptyText({ checked: 8, mismatched: 0 }), /全部一致/);
+  // 后端口径异常（有漂移但明细空）也要有话说，不能显示「没有漂移」
+  assert.match(auditEmptyText({ checked: 8, mismatched: 2 }), /明细为空/);
 });

@@ -383,3 +383,119 @@ export function clampPage(page: number, total: number, pageSize: number = INVENT
   const maxPage = Math.max(1, Math.ceil(total / Math.max(1, pageSize)));
   return Math.min(Math.max(1, Math.floor(page) || 1), maxPage);
 }
+
+// ==================== ④ 巡检模式（`?audit=1`） ====================
+
+/**
+ * `?audit=1` 的判定（P2-2B 缺陷①）。
+ *
+ * 后端 `period.rs::global_health_warnings` / `period_items.rs` / `year_end.rs` 给巡检提醒挂的
+ * 落点都是 `/business/erp/inventory?audit=1`（`Blocker::with_url`），前端此前**没读这个参数**，
+ * 点「去看看」与普通即时库存完全一样。这里只认 `1` / `true`（大小写不敏感、容忍首尾空白），
+ * 其余值（`0` / `false` / 空串 / `undefined`，或 `?audit` 这种空值）一律**不算**巡检模式 ——
+ * 宁可退回普通库存页，也不要因为一个拼错的参数把仓管扔进「只列漂移」的视图里。
+ *
+ * `vue-router` 的 query 值可能是数组（`?audit=1&audit=0`），取第一个。
+ */
+export function isAuditQuery(raw: unknown): boolean {
+  const value = Array.isArray(raw) ? raw[0] : raw;
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'number') {
+    return value === 1;
+  }
+  if (typeof value !== 'string') {
+    return false;
+  }
+  const lowered = value.trim().toLowerCase();
+  return lowered === '1' || lowered === 'true';
+}
+
+/** 漂移方向：`over` = 账多（账面 > 在库），`under` = 账少，`even` = 一致 */
+export type AuditDriftKind = 'over' | 'under' | 'even';
+
+/** 漂移方向判定（`diff = 账面 − 实际`，与后端 `AuditItem.diff` 同口径） */
+export function auditDriftKind(diff: number | string | null | undefined): AuditDriftKind {
+  const value = toNumber(diff);
+  if (value > 0) {
+    return 'over';
+  }
+  if (value < 0) {
+    return 'under';
+  }
+  return 'even';
+}
+
+/** 漂移方向中文（表格「状态」列） */
+export function auditDriftLabel(diff: number | string | null | undefined): string {
+  const kind = auditDriftKind(diff);
+  if (kind === 'over') {
+    return '账多';
+  }
+  if (kind === 'under') {
+    return '账少';
+  }
+  return '一致';
+}
+
+/** 漂移方向的 tag 配色（账多 = 红，账少 = 橙，一致 = 默认） */
+export function auditDriftTheme(diff: number | string | null | undefined): 'danger' | 'warning' | 'default' {
+  const kind = auditDriftKind(diff);
+  if (kind === 'over') {
+    return 'danger';
+  }
+  if (kind === 'under') {
+    return 'warning';
+  }
+  return 'default';
+}
+
+/**
+ * 差异带符号展示：账多 `+2`、账少 `−2`（U+2212，与流水页 `signedQtyText` 同一风格）。
+ * 数量最多 4 位小数，去尾零；`even` 显示 `0`。
+ */
+export function auditDiffText(diff: number | string | null | undefined): string {
+  const value = toNumber(diff);
+  const body = String(Number(Math.abs(value).toFixed(4)));
+  if (value > 0) {
+    return `+${body}`;
+  }
+  if (value < 0) {
+    return `−${body}`;
+  }
+  return '0';
+}
+
+/** 能否被「修正」（`dry_run=false`）修好 —— 缺仓库归属的行修不了，页面上要说清原因 */
+export function auditFixableLabel(fixable: boolean): string {
+  return fixable ? '可修正' : '缺仓库归属';
+}
+
+/**
+ * 巡检结论一句话（页面顶部提示条正文）。
+ *
+ * 只读口径写进文案：`dry_run` 由后端回包给出，前端不假设（万一将来页面加了修正入口，
+ * 这句话会跟着后端口径变，不会骗人）。
+ */
+export function auditSummaryText(report: {
+  dry_run: boolean;
+  checked: number;
+  mismatched: number;
+  unfixable: number;
+}): string {
+  const mode = report.dry_run ? '只读巡检（dry_run=true，不改任何库存）' : '巡检并修正（dry_run=false）';
+  const unfixable = report.unfixable > 0 ? `，其中 ${report.unfixable} 个缺仓库归属、无法自动修正` : '';
+  return `本次检查 ${report.checked} 个（物料 × 仓库）组合，发现 ${report.mismatched} 个漂移${unfixable}。${mode}。`;
+}
+
+/** 巡检空态文案（分「库里没有序列号物料」与「巡检干净」两种，别都说成「没数据」） */
+export function auditEmptyText(report: { checked: number; mismatched: number }): string {
+  if (report.checked === 0) {
+    return '库里没有启用「序列号管理」的物料，本次巡检检查了 0 个组合 —— 不是失败，是没有可巡检的对象。';
+  }
+  if (report.mismatched === 0) {
+    return `本次巡检的 ${report.checked} 个组合，账面数量与在库序列号数全部一致（没有漂移）。`;
+  }
+  return '有漂移但明细为空（后端口径异常），请刷新重试或走巡检接口核对。';
+}
