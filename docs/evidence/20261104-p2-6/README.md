@@ -143,8 +143,10 @@ INVENTORY_TXN 01a1f140-0000-4000-8000-000000000001 (DATAFIX-20261101-P14)
 
 | 套件 | 结果 | 证据文件 |
 |---|---|---|
-| `snapshot_audit.py`（全 22 条） | **22/22 通过**，BLOCKER 0 / WARN 0 / INFO 0，exit 0 | `isolated-p26-snapshot-audit-full.txt` |
-| `erp_invariants.py` | **40/40 通过**，BLOCKER 0 / WARN 0 | `isolated-p26-erp-invariants.txt` |
+| `snapshot_audit.py`（全 22 条，隔离库 p26） | **22/22 通过**，BLOCKER 0 / WARN 0 / INFO 0，exit 0 | `isolated-p26-snapshot-audit-full.txt` |
+| `erp_invariants.py`（隔离库 p26） | **40/40 通过**，BLOCKER 0 / WARN 0 | `isolated-p26-erp-invariants.txt` |
+| `erp_invariants.py`（**生产库**，只读） | **40/40 通过**，BLOCKER 0 / WARN 0 | `prod-erp-invariants.txt` |
+| `snapshot_audit.py`（**生产库**，DI-01…DI-16） | 既有 16 条全绿，本卡未改动它们的口径 | `prod-snapshot-audit-full.txt` |
 
 > 卡面写「原有 32 条」，实测已是 40 条（P2-x 各卡陆续加的 I 组盘点单 3 条等），
 > 这 40 条**一条都没改**，全绿。
