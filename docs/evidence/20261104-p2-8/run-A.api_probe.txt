@@ -1,0 +1,2 @@
+login: http=401 resp={"code":20001,"msg":"用户名或密码错误"}
+SKIP: 响应不是对象壳（登录失败）——本机 dev 库 admin 口令不是仓库默认值，按「不猜凭据」原则停在这里；0 成员问题改用 SQL 复算接口口径（见 sql_recompute.sql）

@@ -1,0 +1,16 @@
+# round A @ 2026-11-04 22:18:27 CST
+=== 1) cp_p23_prod（评审实测看到「3 项目 0 成员」的那套库）
+CP-ITER|云枢平台迭代|ACTIVE|0|1|1|16|0|0|0
+DEMO-EC|示例：电商后台|ACTIVE|0|0|0|0|0|0|0
+CP-DEV|云枢平台开发|ACTIVE|0|59|51|49.5|0|0|0
+=== 2) cloudpivot_manual（本机后端 :8023 正在跑的库）
+CP-ITER|云枢平台迭代|ACTIVE|0|0|0|0|0|0|0
+DEMO-EC|示例：电商后台|ACTIVE|0|0|0|0|0|0|0
+=== 3) 三件套能力存量（表/列层面，任何库都成立）
+table:biz_project_member|true
+table:biz_task_worklog|true
+table:biz_budget|false
+table:%milestone%|false
+col:biz_project.budget%|false
+col:biz_task.milestone%|false
+col:biz_task.hours%|actual_hours,estimate_hours

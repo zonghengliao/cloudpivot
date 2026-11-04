@@ -1,0 +1,9 @@
+login: http=401 code={"code":20001,"msg":"用户名或密码错误"}
+Traceback (most recent call last):
+  File "/opt/cloudpivot/docs/evidence/20261104-p2-8/api_probe.py", line 79, in <module>
+    main()
+    ~~~~^^
+  File "/opt/cloudpivot/docs/evidence/20261104-p2-8/api_probe.py", line 45, in main
+    token = data.get("access_token") or data.get("token")
+            ^^^^^^^^
+AttributeError: 'str' object has no attribute 'get'
