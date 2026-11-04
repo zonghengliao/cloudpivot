@@ -125,9 +125,18 @@ ERP 不变量：40/40 通过（BLOCKER 0 / WARN 0）
 **部署核对**（本卡改了后端代码，必须换二进制才算上线）：
 
 ```
-发布提交 261e487；systemd active；/health = 200
-md5(磁盘二进制) == md5(/proc/<MainPID>/exe) = 1757ad713b5b9ff54c1eb008e4698492
+发布提交 6543949（HEAD == origin/main）；systemd active；/health = 200
+md5(磁盘二进制) == md5(/proc/<MainPID>/exe) = 55e51dd08481901282195031e0bc04b4
 grep -ac "必须同时给 source_id" 二进制 = 1（新闸门文案真的进了产物）
 di 巡检视图 22 → 25 个 c_di*
+tracked 工作区干净（git status --porcelain 无输出）
 ```
+
+> 本卡部署了两次：261e487（功能提交）→ 6543949（收口两处死代码，行为零变化），
+> 两次都走 `scripts/deploy/deploy.sh --skip-migrate --skip-frontend`（无迁移、无前端改动）。
+> 第一次部署后的二进制 md5 = `1757ad71…`；最终线上是 `55e51dd0…`。
+
+**github 远端未同步（如实记录）**：144 上没有 `gh`、也没有 `~/.git-credentials`，
+`git push github` 报 `could not read Username`；且 `github/main`（09d577c）既落后 origin 361 个提交、
+又带着 1 个只在它上面的提交（分叉）。本卡只推 `origin`（144 bare），没有为了「对齐」强推。
 
