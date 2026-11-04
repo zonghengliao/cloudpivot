@@ -72,6 +72,40 @@
 //! SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列；biz_account 是会计科目表，属全局主数据。
 //! ```
 //!
+//! # ★ 记账科目口径：**只允许末级科目**（收口在 [`post_voucher`]）
+//!
+//! 决议（ADR · 卡 t_c38dbe54，与 ARCH-6 §1.3 / §6.6.2 的既定设计一致）：
+//! **本系统不允许往非末级（`is_leaf = 0`）科目记账**，任何记账入口一旦出现非末级科目
+//! 一律 400 拒绝，并点名科目编码。
+//!
+//! 为什么选「拒绝」而不是「让年结把父科目余额也结平」：
+//!
+//! 1. **口径唯一**：期初台账（`year_end::account_balances`）、报表（`report::match_account`
+//!    按「科目 + 全部下级」前缀匹配）、预算额度都是**末级口径**。父科目同时可记账 ⇒
+//!    同一笔费用既在父科目又在子科目，报表按前缀汇总会父子双计，预算按末级累加会漏掉父级；
+//! 2. **结账正确性**：年结只取 `is_leaf = 1`（见 `year_end::account_balances`），父科目上的
+//!    余额**不会被结转**，会留在账上，直接把「下年期初借贷相等」打破。历史事故：
+//!    FIN-1（V0226）给 `5602` 挂了 8 个末级子科目并把父科目置 `is_leaf = 0` 之后，
+//!    年结用例夹具仍往 `5602` 本级记 400 元费用 ⇒ 漏结 400、净利润多算 400、跨年期初差 150；
+//! 3. **与既有文档一致**：ARCH-6 §6.6.2 的风险表原文就是「有人继续往 5602 本级记账 ⇒
+//!    `voucher::account_required` 已校验 `is_leaf`，翻转后自动拦住」。当时的代码**并没有**
+//!    这条校验（`account_required` 只查 `status = 1 AND deleted_at IS NULL`），本函数把
+//!    文档描述的闸补上。
+//!
+//! 闸放在 [`post_voucher`] 而不是 `account_required` / `account_by_code`，因为：
+//!
+//! * 自动凭证（收货 / 应付 / 付款 / 折旧 / 结转）与手工凭证**都**走 `post_voucher`，
+//!   这里是唯一收口，不存在「某条路径忘了查科目」；
+//! * 手工凭证的分录按 `account_id` 提交（`account_by_id`），校验只看 `account_required`
+//!   会被 id 路径绕过。
+//!
+//! 配套的两道防线（不在本文件）：
+//!
+//! * `year_end::close_year` 在结转前做一次 **fail-closed 兜底**：库里若已有非末级科目
+//!   带余额（V0226 之前的历史分录），直接报错而不是静默漏结；
+//! * 前端科目选择器必须带 `is_leaf=1`（`GET /business/erp/account/page` 已支持该过滤位），
+//!   让用户选不到父科目，而不是选完再吃 400。
+//!
 //! # 事务边界
 //!
 //! 所有写函数吃 `&impl SqlExecutor`（`Db` / `Transaction` 都实现），**由调用方开事务**：
@@ -445,6 +479,32 @@ pub async fn account_required(
 /// 按科目 id 取启用中的科目（可空），供手工凭证按 `account_id` 取快照。
 pub async fn account_by_id(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<AccountRef>> {
     load_account_by_id(ex, id).await
+}
+
+/// 分录里落在**非末级**科目上的科目编码（去重、编码升序；空 = 全部可记账）。
+///
+/// 与 [`post_voucher`] 的闸配套，理由见模块文档「记账科目口径」。按**编码**批查一次
+/// （不做 N 次单查）：手工凭证按 `account_id` 提交、自动凭证按编码解析，最后都用编码
+/// 回表比对，两边同一口径。
+async fn non_leaf_codes(ex: &impl SqlExecutor, lines: &[EntryLine]) -> DbResult<Vec<String>> {
+    let mut codes: Vec<String> = lines.iter().map(|line| line.account.code.clone()).collect();
+    codes.sort();
+    codes.dedup();
+    if codes.is_empty() {
+        return Ok(Vec::new());
+    }
+    let placeholders = vec!["?"; codes.len()].join(", ");
+    // SCOPE-EXEMPT: biz_account 是会计科目主数据（全局），没有归属列。
+    let sql = format!(
+        "SELECT account_code FROM biz_account \
+          WHERE account_code IN ({placeholders}) AND deleted_at IS NULL AND is_leaf = 0 \
+          ORDER BY account_code"
+    );
+    let params: Vec<Value> = codes.into_iter().map(Value::Text).collect();
+    let rows = ex.query_sql(sql, params).await?;
+    rows.iter()
+        .map(|row| row.get_typed::<String>("account_code"))
+        .collect()
 }
 
 /// 一条映射规则（三个科目 id 都已解析成 `AccountRef`；税科目可空）。
@@ -1862,6 +1922,19 @@ pub async fn post_voucher(
         return Err(DbError::InvalidValue(
             "凭证生成失败：借贷合计为 0，金额全为 0 的单据不构成一张凭证".to_string(),
         ));
+    }
+
+    // 记账科目口径：**只允许末级科目**（模块文档「记账科目口径」）。
+    //
+    // 放在借贷平衡之后、期间检查之前：科目不合法是**参数错误**（400），与期间开闭无关；
+    // 而且这一闸必须覆盖自动凭证与手工凭证的全部入口 —— `post_voucher` 就是那个唯一收口。
+    let non_leaf = non_leaf_codes(ex, &req.lines).await?;
+    if !non_leaf.is_empty() {
+        return Err(DbError::InvalidValue(format!(
+            "凭证生成失败：科目 {} 是非末级（汇总）科目，不能直接记账 —— 记账、报表与年结\
+             都按末级科目结算，记到上级会让余额被漏结（跨年试算不平）。请改记它下面的末级明细科目",
+            non_leaf.join("、")
+        )));
     }
 
     let period = period_of(ex, req.voucher_date).await?;
@@ -3679,11 +3752,18 @@ mod tests {
         }
 
         // 兜底：整库不再有 PAYABLE / VOUCHER 的孤儿行
-        fixture_hygiene::purge_orphans(fixture_hygiene::FINANCE).await;
+        // 兜底：整库最终不许留 PAYABLE / VOUCHER 的孤儿行。
+        // 并行跑时别的模块可能正处在「单据已删、它自己的日志还没删」的毫秒级中间态，
+        // 一次断言会把别人的中间态判成本模块假红 ⇒ 收敛式判定（`settle_orphans`）：
+        // 真孤儿等多久都还在，仍然会红；只吸收别人正在删的瞬时窗口。
+        let left = fixture_hygiene::settle_orphans(
+            fixture_hygiene::FINANCE,
+            std::time::Duration::from_secs(5),
+        )
+        .await;
         assert_eq!(
-            fixture_hygiene::orphans(fixture_hygiene::FINANCE).await,
-            0,
-            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志"
+            left, 0,
+            "整库不许留 PAYABLE / VOUCHER 的孤儿状态日志（收敛等待 5s 后仍非 0）"
         );
     }
 }

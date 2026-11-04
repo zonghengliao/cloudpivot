@@ -782,6 +782,64 @@ async fn account_balances(
     Ok(out)
 }
 
+/// 兜底：年结前确认**没有非末级科目带余额**（fail-closed，不静默漏结）。
+///
+/// 记账入口已经拒绝非末级科目（`voucher::post_voucher` 的「记账科目口径」闸），
+/// 正常情况下这里什么都查不到。能查到的只可能是两类历史脏数据：
+///
+/// 1. FIN-1（V0226）把 `5602` / `2241` 从末级翻成「仅汇总」**之前**记在父科目上的分录
+///    —— 分录的 `account_code` 快照仍是父编码，翻完之后谁也不会自动改写它；
+/// 2. 绕过引擎、用裸 SQL 灌进去的夹具 / 数据修复脚本。
+///
+/// [`account_balances`] 只取 `is_leaf = 1`，这些余额会被**静默跳过**：年结照样「成功」，
+/// 但下年期初的借贷合计会差这一笔（实测事故：`5602` 上 400 元费用漏结 → 净利润多 400 →
+/// 跨年期初差 150）。所以宁可 409 让人先整理数据，也不要结出一本不平的账。
+///
+/// 口径是**累计到年末**（不是只看本年）：下年期初取的是全时点余额，早年留下的父科目余额
+/// 一样会漏进期初。
+async fn ensure_no_non_leaf_balance(ex: &impl SqlExecutor, end: NaiveDate) -> Result<(), ApiError> {
+    let rows = ex
+        .query_sql(
+            "SELECT a.account_code, a.account_name, COALESCE(s.amount, 0)::text AS amount \
+               FROM biz_account a \
+               JOIN ( \
+                    SELECT e.account_id, SUM(e.debit_amount - e.credit_amount) AS amount \
+                      FROM biz_voucher_entry e JOIN biz_voucher v ON v.id = e.voucher_id \
+                     WHERE v.status = 'POSTED' AND v.deleted_at IS NULL \
+                       AND v.voucher_date <= ?::text::date \
+                     GROUP BY e.account_id \
+               ) s ON s.account_id = a.id \
+              WHERE a.deleted_at IS NULL AND a.is_leaf = 0 AND s.amount <> 0 \
+              ORDER BY a.account_code"
+                .to_string(),
+            vec![Value::Text(end.to_string())],
+        )
+        .await
+        .map_err(|error| db_error(error, "检查非末级科目余额"))?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut details = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let code: String = row
+            .get_typed("account_code")
+            .map_err(|error| db_error(error, "读科目编码"))?;
+        let name: String = row
+            .get_typed("account_name")
+            .map_err(|error| db_error(error, "读科目名称"))?;
+        let amount: String = row
+            .get_typed("amount")
+            .map_err(|error| db_error(error, "解析科目余额"))?;
+        details.push(format!("{code} {name}（余额 {amount}）"));
+    }
+    Err(conflict(format!(
+        "年结被拦住：科目 {} 是非末级（汇总）科目，但账上仍有余额。\
+         年结与下年期初都只按末级科目结算，直接结账会把这些余额**静默漏掉**（跨年试算不平）。\
+         请先把这些余额调整到它们的末级明细科目（做一张调整凭证），再重新年结",
+        details.join("、")
+    )))
+}
+
 /// 按编码取科目（不存在 / 已删除 → 400，消息给出去处）。
 async fn account_of_code(
     ex: &impl SqlExecutor,
@@ -1241,6 +1299,10 @@ pub async fn close_year(
         return Err(conflict(rejection_message(year, &blockers)));
     }
 
+    // 兜底闸（fail-closed）：非末级科目上不许有余额，否则结转/期初会静默漏掉它。
+    // 放在写出任何东西之前 —— 拦在门口，比结出一本不平的账再回滚便宜得多。
+    ensure_no_non_leaf_balance(&tx, end).await?;
+
     // ---------- ① 损益结转凭证 ----------
     let balances = account_balances(&tx, end).await?;
     let current_profit =
@@ -1628,6 +1690,11 @@ mod tests {
     static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
     /// 夹具操作人。
     const TEST_UID: &str = "00000000-0000-7000-8000-0000000000c4";
+    /// 夹具用的**末级**费用科目：`5602.01 管理费用-折旧费`（V0226 / FIN-1 种子）。
+    ///
+    /// 不能用 `5602` 本级：它自 V0226 起 `is_leaf = 0`（8 个末级子科目挂在下面），
+    /// 记账入口会 400，年结也只会结末级 —— 父科目上的余额会被静默漏掉。
+    const EXPENSE_ACCOUNT: &str = "5602.01";
 
     /// 夹具操作人 id。
     fn uid() -> Uuid {
@@ -2178,6 +2245,10 @@ mod tests {
     }
 
     /// ⑦ 费用类结转到本年利润（借 3103 / 贷费用）。
+    ///
+    /// 夹具记的是**末级**科目 `5602.01 管理费用-折旧费`：FIN-1（V0226）把 `5602` 翻成
+    /// 「仅汇总」并挂了 8 个末级子科目之后，`5602` 本级已经不能记账（`voucher::post_voucher`
+    /// 直接 400），而年结只结末级 —— 拿父科目当夹具就是本卡要修的那个 bug 本身。
     #[tokio::test]
     async fn r4_07_expense_closing_to_current_profit() {
         let Some(_guard) = setup().await else {
@@ -2186,14 +2257,14 @@ mod tests {
         open_year(2021).await;
         open_year(2022).await;
         let end = NaiveDate::from_ymd_opt(2021, 12, 31).expect("日期");
-        let expense_base = balance_of("5602", end).await;
+        let expense_base = balance_of(EXPENSE_ACCOUNT, end).await;
         post_at(
             NaiveDate::from_ymd_opt(2021, 4, 8).expect("日期"),
             "R4-EXP-1",
-            &[("5602", "400", "0"), ("1002", "0", "400")],
+            &[(EXPENSE_ACCOUNT, "400", "0"), ("1002", "0", "400")],
         )
         .await;
-        let expense_before = balance_of("5602", end).await;
+        let expense_before = balance_of(EXPENSE_ACCOUNT, end).await;
         assert_eq!(
             expense_before - expense_base,
             dec("400"),
@@ -2205,17 +2276,17 @@ mod tests {
 
         let entries = carry_entries(2021).await;
         assert_eq!(
-            side_of(&entries, "5602", "credit"),
+            side_of(&entries, EXPENSE_ACCOUNT, "credit"),
             expense_before,
-            "贷 5602 把它的借方余额结平"
+            "贷 5602.01 把它的借方余额结平"
         );
-        assert_eq!(side_of(&entries, "5602", "debit"), Decimal::ZERO);
+        assert_eq!(side_of(&entries, EXPENSE_ACCOUNT, "debit"), Decimal::ZERO);
         assert!(
             side_of(&entries, ACCOUNT_CURRENT_PROFIT, "debit") >= dec("400"),
             "借 3103 至少 400（本年费用）"
         );
         assert_eq!(
-            balance_of("5602", end).await,
+            balance_of(EXPENSE_ACCOUNT, end).await,
             Decimal::ZERO,
             "结转后费用类归零"
         );
@@ -2238,7 +2309,7 @@ mod tests {
         post_at(
             NaiveDate::from_ymd_opt(2021, 6, 7).expect("日期"),
             "R4-PROFIT-2",
-            &[("5602", "400", "0"), ("1002", "0", "400")],
+            &[(EXPENSE_ACCOUNT, "400", "0"), ("1002", "0", "400")],
         )
         .await;
         let end = NaiveDate::from_ymd_opt(2021, 12, 31).expect("日期");
@@ -2290,7 +2361,7 @@ mod tests {
         post_at(
             NaiveDate::from_ymd_opt(2021, 2, 3).expect("日期"),
             "R4-OPEN-2",
-            &[("5602", "150", "0"), ("2202", "0", "150")],
+            &[(EXPENSE_ACCOUNT, "150", "0"), ("2202", "0", "150")],
         )
         .await;
         let end = NaiveDate::from_ymd_opt(2021, 12, 31).expect("日期");
@@ -2385,6 +2456,170 @@ mod tests {
             opening_voucher, 0,
             "年结不生成 2027-01 的期初凭证（会双计）"
         );
+    }
+
+    /// 记账入口拒绝**非末级**科目（记账科目口径 · 见 `voucher` 模块文档）。
+    ///
+    /// 这是 r4_07/08/09 三条红的根因闸：`5602` 自 V0226 起是「仅汇总」科目，
+    /// 以前可以直接往它记账 ⇒ 年结只结末级 ⇒ 余额被静默漏掉。
+    #[tokio::test]
+    async fn r4_16_posting_to_non_leaf_account_is_rejected() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        // 前提：库里的 5602 确实是「仅汇总」（老库可能还是末级 → 本用例不成立，跳过）
+        let leaf: i16 = db()
+            .scalar_with_params(
+                "SELECT is_leaf FROM biz_account WHERE account_code = '5602' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("读 5602 的 is_leaf");
+        if leaf == 1 {
+            println!("SKIP: 本库的 5602 仍是末级科目（未应用 V0226），本用例不成立");
+            return;
+        }
+        open_year(2021).await;
+
+        let tx = db().begin().await.expect("开启凭证事务");
+        let parent = voucher::account_required(&tx, "5602", "R4 夹具")
+            .await
+            .expect("取 5602 科目");
+        let bank = voucher::account_required(&tx, "1002", "R4 夹具")
+            .await
+            .expect("取 1002 科目");
+        let error = voucher::post_voucher(
+            &tx,
+            &PostVoucher {
+                voucher_type: voucher::VOUCHER_TYPE_MANUAL,
+                source_type: voucher::SOURCE_MANUAL,
+                source_id: None,
+                source_no: Some("R4-NONLEAF-1"),
+                voucher_date: NaiveDate::from_ymd_opt(2021, 5, 5).expect("日期"),
+                summary: "R4 父科目记账（应被拒）".to_string(),
+                lines: vec![
+                    EntryLine {
+                        line_no: 1,
+                        summary: "借 5602 本级".to_string(),
+                        account: parent,
+                        debit: dec("400"),
+                        credit: Decimal::ZERO,
+                        aux_supplier_id: None,
+                        aux_material_id: None,
+                        aux_dept_id: None,
+                        aux_warehouse_id: None,
+                    },
+                    EntryLine {
+                        line_no: 2,
+                        summary: "贷 1002".to_string(),
+                        account: bank,
+                        debit: Decimal::ZERO,
+                        credit: dec("400"),
+                        aux_supplier_id: None,
+                        aux_material_id: None,
+                        aux_dept_id: None,
+                        aux_warehouse_id: None,
+                    },
+                ],
+                remark: Some("R4 夹具"),
+                red_of: None,
+            },
+            Some(uid()),
+            Utc::now(),
+        )
+        .await
+        .expect_err("往非末级科目 5602 记账必须被拒绝");
+        let _ = tx.rollback().await;
+        let text = format!("{error}");
+        assert!(
+            text.contains("5602") && text.contains("非末级"),
+            "错误消息必须点名科目与非末级原因：{text}"
+        );
+        // 拒绝之后不能留下凭证
+        let count: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_voucher WHERE source_no = 'R4-NONLEAF-1'",
+                vec![],
+            )
+            .await
+            .expect("统计被拒凭证");
+        assert_eq!(count, 0, "被拒的凭证不许落库");
+    }
+
+    /// 历史脏数据兜底：非末级科目上还有余额时，年结**拒绝**而不是静默漏结。
+    ///
+    /// 模拟 FIN-1 之前记在 `5602` 本级的历史分录（裸 SQL 绕过记账入口），验证
+    /// `ensure_no_non_leaf_balance` 的 fail-closed 行为：409 + 点名科目 + 不落结转凭证。
+    #[tokio::test]
+    async fn r4_17_close_year_refuses_non_leaf_balance() {
+        let Some(_guard) = setup().await else {
+            return;
+        };
+        let leaf: i16 = db()
+            .scalar_with_params(
+                "SELECT is_leaf FROM biz_account WHERE account_code = '5602' AND deleted_at IS NULL",
+                vec![],
+            )
+            .await
+            .expect("读 5602 的 is_leaf");
+        if leaf == 1 {
+            println!("SKIP: 本库的 5602 仍是末级科目（未应用 V0226），本用例不成立");
+            return;
+        }
+        open_year(2021).await;
+        open_year(2022).await;
+        close_all_months(2021).await;
+        // 历史脏数据：借 5602 100 / 贷 1002 100（裸 SQL，绕开记账入口的末级校验）
+        sql(
+            "WITH v AS ( \
+                INSERT INTO biz_voucher (voucher_word, voucher_no, period, voucher_date, summary, \
+                                         total_debit, total_credit, entry_count, status) \
+                VALUES ('记', 'R4-NONLEAF-2', '2021-05', DATE '2021-05-05', 'R4 历史父科目分录', \
+                        100, 100, 2, 'POSTED') RETURNING id \
+             ) \
+             INSERT INTO biz_voucher_entry (voucher_id, line_no, summary, account_id, account_code, \
+                                            account_name, debit_amount, credit_amount) \
+             SELECT v.id, 1, '借 5602 本级', a.id, a.account_code, a.account_name, 100, 0 \
+               FROM v, biz_account a WHERE a.account_code = '5602' AND a.deleted_at IS NULL \
+             UNION ALL \
+             SELECT v.id, 2, '贷 1002', a.id, a.account_code, a.account_name, 0, 100 \
+               FROM v, biz_account a WHERE a.account_code = '1002' AND a.deleted_at IS NULL",
+        )
+        .await;
+
+        let error = close_year(2021, None, operator())
+            .await
+            .expect_err("非末级科目带余额时年结必须被拦住");
+        assert_eq!(
+            error.status, 409,
+            "数据状态不允许 → HTTP 409：{} {}",
+            error.status, error.msg
+        );
+        assert_eq!(
+            error.code,
+            error_code::RESOURCE_CONFLICT,
+            "业务码必须是 RESOURCE_CONFLICT：{}",
+            error.code
+        );
+        assert!(
+            error.msg.contains("5602") && error.msg.contains("非末级"),
+            "错误消息必须点名科目与非末级原因：{}",
+            error.msg
+        );
+        // 拦住之后不许留下结转凭证 / 下年期初
+        assert_eq!(
+            carry_voucher_count(2021).await,
+            0,
+            "被拒的年结不许落结转凭证"
+        );
+        let opening: i64 = db()
+            .scalar_with_params(
+                "SELECT COUNT(*) FROM biz_opening_balance WHERE period_code = '2022-01'",
+                vec![],
+            )
+            .await
+            .expect("统计下年期初");
+        assert_eq!(opening, 0, "被拒的年结不许写下年期初");
     }
 
     /// ⑩ 12 月保持 CLOSED，结转凭证落在 12 月（已结账期间）。
