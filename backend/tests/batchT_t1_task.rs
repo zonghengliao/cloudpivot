@@ -22,7 +22,8 @@
 //! su postgres -c "createdb -O cloudpivot cloudpivot_t1v"
 //! # 先用该库起一次服务（自动跑迁移 V0001..V0103 + 种子），看到监听即 Ctrl-C
 //! export TASK_DB_URL="postgres://cloudpivot:***@127.0.0.1:5432/cloudpivot_t1v"
-//! cargo test --test batchT_t1_task -- --nocapture --test-threads=1
+//! cargo test --test batchT_t1_task -- --nocapture
+//! # 不再需要 --test-threads=1：本文件的真库用例已用文件头的 DB_LOCK 互斥
 //! ```
 //!
 //! 缺 `TASK_DB_URL` 时打印 `SKIP` 并直接返回（`cargo test` 全绿，CI 不需要数据库）。
@@ -31,6 +32,8 @@
 //!
 //! 固定 UUID + `t1_` 前缀用户名：开头清一次、结尾清一次，只删自己造的行
 //! （任务 → 用户 → 角色 → 部门，按外键依赖反序），重复跑不积累垃圾。
+//! 5 条用例共用同一批固定行（且 `visibility_four_scenarios` 有整库型断言），
+//! 因此在默认多线程下用文件头的 `DB_LOCK` 互斥 —— 断言与线程数都没动。
 //!
 //! **UUID 段与接口走查夹具（scripts/t1_api_fixture.sql）严格错开**：
 //! 本文件用 `7c`（用户）/ `7e`（部门）/ `7f`（角色）；走查夹具用 `7d` / `7a` / `7b`。
@@ -42,6 +45,22 @@ use nik::uuid::Uuid;
 
 use cloudpivot::business::shared::principal;
 use cloudpivot::business::task::model::{self, MyBucket, TaskFilter, TaskPatch};
+
+// ==================== 并发安全：本 target 的真库用例共用一把锁 ====================
+//
+// 本文件的 4 条真库用例共用**同一批固定 UUID 夹具**（`7c/7e/7f` 段的 5 用户 / 3 部门 /
+// 2 角色）与 `t1t_*` 用户名，`cleanup()` 也是按这批**固定 id**整批删；而且 `visibility_four_scenarios`
+// 里有一条**整库型断言**（「超管可见条数 == 库内未软删任务总数」）。
+//
+// 于是 `cargo test -j 1`（`-j` 只是编译并行度，libtest 的测试线程仍是默认 4 个）下，
+// 4 条用例会并行地「清同一批行 → 插同一批行」，实测 4 条全红：
+//   * `建研发部/建研发一组: duplicate key value violates unique constraint "sys_dept_pkey"`
+//   * `绑定角色: sys_user_role_user_id_fkey`（另一条用例刚把用户删了）
+//
+// 按项目铁律「同一批全局行 = 同一把锁」（`erp::fixture_hygiene::FINANCE_SEED_LOCK` 同思路），
+// 这里给本 target 的真库用例加一把进程内互斥：**断言一条未改、命令行线程数一条未改**，
+// 只是让共用同一批夹具行/整库型断言的用例不互相踩。
+static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 // ==================== 夹具 UUID（固定，便于对照证据） ====================
 
@@ -334,6 +353,8 @@ async fn visibility_four_scenarios() {
     if !ensure_db().await {
         return;
     }
+    // 共用固定夹具行 + 整库型断言 ⇒ 与同 target 的其它真库用例互斥（见文件头 DB_LOCK 说明）
+    let _db_lock = DB_LOCK.lock().await;
     cleanup().await;
     seed_org().await;
     let s = seed_tasks().await;
@@ -434,6 +455,8 @@ async fn crud_roundtrip() {
     if !ensure_db().await {
         return;
     }
+    // 共用固定夹具行 + 整库型断言 ⇒ 与同 target 的其它真库用例互斥（见文件头 DB_LOCK 说明）
+    let _db_lock = DB_LOCK.lock().await;
     cleanup().await;
     seed_org().await;
 
@@ -552,6 +575,8 @@ async fn task_no_is_unique_and_increasing() {
     if !ensure_db().await {
         return;
     }
+    // 共用固定夹具行 + 整库型断言 ⇒ 与同 target 的其它真库用例互斥（见文件头 DB_LOCK 说明）
+    let _db_lock = DB_LOCK.lock().await;
     cleanup().await;
     seed_org().await;
 
@@ -717,6 +742,8 @@ async fn my_buckets_and_overdue_scan() {
     if !ensure_db().await {
         return;
     }
+    // 共用固定夹具行 + 整库型断言 ⇒ 与同 target 的其它真库用例互斥（见文件头 DB_LOCK 说明）
+    let _db_lock = DB_LOCK.lock().await;
     cleanup().await;
     seed_org().await;
 

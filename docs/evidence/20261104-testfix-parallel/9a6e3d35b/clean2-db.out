@@ -1,0 +1,34 @@
+==> 表 owner = alun
+==> dropped: cloudpivot_9a6e3d35b
+==> created: cloudpivot_9a6e3d35b (owner=alun)
+==> 启动 pid=2767134 库=cloudpivot_9a6e3d35b 端口=18096 日志=/root/9a6e3d35b/clean2-db.log（跑迁移 + bootstrap）
+==> 启动日志尾部
+[2m2026-11-04T16:12:40.198489Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 flow_timeout_scan 调度循环已停止
+[2m2026-11-04T16:12:40.198519Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务 task_hermes_sync 调度循环已停止
+[2m2026-11-04T16:12:40.198569Z[0m [32m INFO[0m [2mnik_plugin::scheduler[0m[2m:[0m 定时任务插件: 已停止
+[2m2026-11-04T16:12:40.198575Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: x-log-bus
+[2m2026-11-04T16:12:40.198630Z[0m [32m INFO[0m [2mnik_core::plugin[0m[2m:[0m 停止插件: startup-auth-secret-guard
+==> 库指纹
+    schema_migrations(max|count) = 219|163
+    超管人数（= assignee_type=ADMIN 节点的会签人数） = 1
+    contract_approve / n_gm / ROLE / self_approval=ALLOW / AND
+    contract_approve / n_pm_hi / ROLE / self_approval=ALLOW / AND
+    contract_approve / n_pm / ROLE / self_approval=ALLOW / AND
+    flow_edge_config / n_cfg / ROLE / self_approval=ALLOW / AND
+    payable_cancel / n_fm / ROLE / self_approval=ALLOW / AND
+    payable_pay / n_dept / ADMIN / self_approval=ALLOW / AND
+    payable_pay / n_fin / ADMIN / self_approval=ALLOW / AND
+    po_approve / n_dept / ROLE / self_approval=ALLOW / AND
+    po_approve / n_fin / ROLE / self_approval=ALLOW / AND
+    po_approve / n_pm / ROLE / self_approval=ALLOW / AND
+    stock_in_cancel / n_review / ADMIN / self_approval=FORBID / AND
+    stock_in_post / n_wh / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_fin / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_gm / ROLE / self_approval=ALLOW / AND
+    stock_take_post / n_wh / ROLE / self_approval=ALLOW / AND
+    stock_transfer / n_approve / ADMIN / self_approval=ALLOW / AND
+    task_accept / n_creator / TASK_CREATOR / self_approval=ALLOW / AND
+    voucher_reverse / n_fm / ROLE / self_approval=ALLOW / AND
+==> 完成。下一步：
+    export ERP_DB_URL='postgres://alun:alun@127.0.0.1:5432/cloudpivot_9a6e3d35b'
+    cd /root/25926f63-tree/backend && cargo test -j 1

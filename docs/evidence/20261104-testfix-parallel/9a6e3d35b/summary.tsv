@@ -1,0 +1,15 @@
+round=1 exit=101 elapsed=1140s start=2026-11-04 23:34:20 end=2026-11-04 23:53:20 result_lines=11 SKIP=0 FAILED_lines=5
+  test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+round=2 exit=101 elapsed=1119s start=2026-11-04 23:53:20 end=2026-11-05 00:11:59 result_lines=11 SKIP=0 FAILED_lines=2
+  test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+== 失败集合对比 ==
+run1 失败 5 条；run2 失败 2 条
+-- 共同红 --
+test crud_roundtrip ... FAILED
+-- 仅 run1 红 --
+test my_buckets_and_overdue_scan ... FAILED
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+test task_no_is_unique_and_increasing ... FAILED
+test visibility_four_scenarios ... FAILED
+-- 仅 run2 红 --
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
