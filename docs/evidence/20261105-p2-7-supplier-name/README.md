@@ -31,6 +31,7 @@
 | `invariants-clean.txt` | 同库 `erp_invariants.py` 全量：52/52 通过 |
 | `cargo-test-invariant-registry.log` | `cargo test --test invariant_registry`（视图 ↔ 登记 一一对应） |
 | `grep-on-id-join.txt` | 「没有用名字 join」的取证命令与输出 |
+| `committed-tree-verify.txt` | **提交树自洽复验**：从 commit `8f356ef` 里 `git show` 出三个文件（00/10/snapshot_audit.py）→ 全新空库 → 装 23 个视图 → 全量 23/23 通过。证明提交出去的内容**不依赖**工作区里别卡未提交的 WIP |
 
 ## 2. 复跑（本机 99）
 
