@@ -181,6 +181,45 @@ pub const STOCK_TAKE_REASON_EDGES: [(&str, &str); 1] = [("POSTED", "CANCELLED")]
 /// 盘点单入账态：已过账（明细不许再改）；待过账也锁（审批过的那份差异不能被改薄）。
 pub const STOCK_TAKE_LOCKED: [&str; 2] = ["POSTED", "PENDING_POST"];
 
+// ==================== 预算（ARCH-6 第三章 · FIN-1） ====================
+
+/// 实体类型：预算（`biz_budget`，ARCH-6 §3.3）。
+pub const ENTITY_BUDGET: &str = DocKind::Budget.as_str();
+
+/// 预算合法边（与 `budget_bridge::BUDGET_LEGAL_EDGES` / ARCH-6 §3.3.2 逐条一致）。
+///
+/// ```text
+/// DRAFT          → SUBMITTED   提交审批（编制 / 调整都走这条）
+/// SUBMITTED      → DRAFT       驳回 / 撤回（打回草稿，额度一分没生效）
+/// SUBMITTED      → ACTIVE      审批通过（同槽旧版本 → SUPERSEDED，**同一事务**）
+/// ACTIVE         → SUPERSEDED  被新版本取代（调整通过）
+/// ACTIVE         → CLOSED      年度结账（只在年结时批量关）
+/// DRAFT          → CANCELLED   草稿作废
+/// SUBMITTED      → CANCELLED   审批中作废（先终止审批）
+/// ```
+///
+/// **没有 `ACTIVE → DRAFT`**：已生效的预算不能退回草稿改，只能再调一版（ARCH-6 硬规则 4）。
+pub const BUDGET_EDGES: [(&str, &str); 7] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "DRAFT"),
+    ("SUBMITTED", "ACTIVE"),
+    ("ACTIVE", "SUPERSEDED"),
+    ("ACTIVE", "CLOSED"),
+    ("DRAFT", "CANCELLED"),
+    ("SUBMITTED", "CANCELLED"),
+];
+
+/// 需要 reason 的预算边：驳回 / 审批中作废 / 被取代（都要能追溯到为什么）。
+pub const BUDGET_REASON_EDGES: [(&str, &str); 3] = [
+    ("SUBMITTED", "DRAFT"),
+    ("SUBMITTED", "CANCELLED"),
+    ("ACTIVE", "SUPERSEDED"),
+];
+
+/// 预算的「不可改额度」状态：审批中与已生效都不许改 `total_amount`
+/// （草稿可改；调整走新版本）。
+pub const BUDGET_LOCKED: [&str; 4] = ["SUBMITTED", "ACTIVE", "SUPERSEDED", "CLOSED"];
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -674,6 +713,21 @@ pub const CONTRACT_BASE: [BaseEdge; 7] = [
     BaseEdge::mandatory("ACTIVE", "TERMINATED", "中途终止", true),
 ];
 
+/// 预算的 BASE_EDGES（与 [`BUDGET_EDGES`] 逐条对应，顺序一致）。
+///
+/// 全部 `mandatory`：提交审批（唯一入口）、驳回回位、审批落地（回调要能写 ACTIVE）、
+/// 被取代（版本切换的核心）、年结关闭、两条作废边 —— 任何一条被配置禁用都会让
+/// 「预算卡死在某个状态」，属于加严的反面。
+pub const BUDGET_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批", false),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "驳回/撤回", true),
+    BaseEdge::mandatory("SUBMITTED", "ACTIVE", "审批通过生效", false),
+    BaseEdge::mandatory("ACTIVE", "SUPERSEDED", "被新版本取代", true),
+    BaseEdge::mandatory("ACTIVE", "CLOSED", "年度结账关闭", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SUBMITTED", "CANCELLED", "审批中作废", true),
+];
+
 /// 出库单的 BASE_EDGES（与 [`STOCK_OUT_EDGES`] 逐条对应，顺序一致）。
 ///
 /// 可选边只有 `DRAFT → POSTED`（跳过过账审批直接过账）。
@@ -721,11 +775,13 @@ pub enum Entity {
     StockOut,
     /// 盘点单 `biz_stock_take`（ARCH-3 DC-14）。
     StockTake,
+    /// 预算 `biz_budget`（ARCH-6 第三章 · FIN-1）。
+    Budget,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 10] = [
+    pub const ALL: [Entity; 11] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -736,6 +792,7 @@ impl Entity {
         Entity::Contract,
         Entity::StockOut,
         Entity::StockTake,
+        Entity::Budget,
     ];
 
     /// 落库的 `entity_type`。
@@ -751,6 +808,7 @@ impl Entity {
             Entity::Contract => ENTITY_CONTRACT,
             Entity::StockOut => ENTITY_STOCK_OUT,
             Entity::StockTake => ENTITY_STOCK_TAKE,
+            Entity::Budget => ENTITY_BUDGET,
         }
     }
 
@@ -772,6 +830,7 @@ impl Entity {
             Entity::Contract => "合同",
             Entity::StockOut => "出库单",
             Entity::StockTake => "盘点单",
+            Entity::Budget => "预算",
         }
     }
 
@@ -788,6 +847,7 @@ impl Entity {
             Entity::Contract => &CONTRACT_EDGES,
             Entity::StockOut => &STOCK_OUT_EDGES,
             Entity::StockTake => &STOCK_TAKE_EDGES,
+            Entity::Budget => &BUDGET_EDGES,
         }
     }
 
@@ -807,6 +867,7 @@ impl Entity {
             Entity::Contract => &CONTRACT_BASE,
             Entity::StockOut => &STOCK_OUT_BASE,
             Entity::StockTake => &STOCK_TAKE_BASE,
+            Entity::Budget => &BUDGET_BASE,
         }
     }
 
@@ -830,6 +891,7 @@ impl Entity {
             Entity::Contract => &CONTRACT_REASON_EDGES,
             Entity::StockOut => &STOCK_OUT_REASON_EDGES,
             Entity::StockTake => &STOCK_TAKE_REASON_EDGES,
+            Entity::Budget => &BUDGET_REASON_EDGES,
         }
     }
 
@@ -846,6 +908,7 @@ impl Entity {
             Entity::Contract => &CONTRACT_LOCKED,
             Entity::StockOut => &STOCK_OUT_LOCKED,
             Entity::StockTake => &STOCK_TAKE_LOCKED,
+            Entity::Budget => &BUDGET_LOCKED,
         }
     }
 
@@ -3618,8 +3681,8 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            10,
-            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT，ARCH-3 DC-13）→ 10（STOCK_TAKE，ARCH-3 DC-14）"
+            11,
+            "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）"
         );
 
         // ③ as_str

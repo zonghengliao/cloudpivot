@@ -157,6 +157,12 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
                 .await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::budget_bridge::BIZ_TYPE {
+        // FIN-1：预算审批的 `biz_id` 是**预算版本 id**（编预算的人不能批自己编的预算）
+        let creator =
+            crate::business::erp::budget_bridge::internal_control_creator(instance.biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

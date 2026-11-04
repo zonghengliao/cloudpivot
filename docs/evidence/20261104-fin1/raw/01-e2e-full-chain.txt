@@ -1,0 +1,23 @@
+PASS 0. budget_approve 种子流程通过引擎 validate() ｜ HTTP 200 issues=[]
+PASS 1. 编制预算（DRAFT v1，12 月分解） ｜ HTTP 200 ok
+PASS 1b. 明细合计 = 年度额度（12 行 × 1 万）
+PASS 1c. 期间重复被拒（400 + 期间重复） ｜ HTTP 400
+PASS 2. 提交审批（budget_approve） ｜ HTTP 200 ok
+PASS 2b. 审批通过后预算 ACTIVE ｜ 批准 2 个节点；budget.status=ACTIVE
+PASS 3. 新建预算科目映射（DEFAULT → 5602.02） ｜ HTTP 200
+PASS 4. 建采购单（含税 5 万） ｜ HTTP 200 ok
+PASS 4b. 超预算采购单**提交成功**（策略 B：标记 + 强制审批，不是 409） ｜ HTTP 200 ok
+PASS 4c. 预算占用已写（OCCUPIED + over_budget=1 + 超支额 4 万） ｜ [['OCCUPIED', '50000.0000', '1', '40000.0000']]
+PASS 4d. 审批单 form_data 带 over_budget 标记（供流程加条件节点） ｜ [['true', '40000.0']]
+PASS 5. 采购单取消 ｜ HTTP 200 ok
+PASS 5b. 占用释放（RELEASED，留痕不删行） ｜ [['RELEASED', '采购单作废：FIN-1 真机：取消以验证额度释放']]
+PASS 6. 执行报表：取消后可用余额 = 12 万（额度未泄漏） ｜ ('120000.0000', '0', '120000.0000')
+PASS 7. 预算调整建新版本并送审 ｜ HTTP 200 ok
+PASS 7b. 版本链 v1 ACTIVE / v2 审批中（supersedes 指向 v1） ｜ [['1', 'ACTIVE', 'ORIGINAL', '120000.0000'], ['2', 'SUBMITTED', 'ADJUST', '150000.0000']]
+PASS 7c. 调整通过后 v1 SUPERSEDED / v2 ACTIVE（同槽只一个 ACTIVE） ｜ [['1', 'SUPERSEDED'], ['2', 'ACTIVE']]
+PASS 8. BLOCK 模式：超预算提交被 409 阻断（ERP_BUDGET_EXCEEDED 66037） ｜ HTTP 409 code=66037
+PASS 8b. BLOCK 阻断时**不留占用**（额度没被半张单吃掉） ｜ usage_rows=[['0']]
+
+===== 汇总 =====
+步骤 19 条，失败 0 条
+budget=01a1a750-edf3-739d-bceb-194f03561bc2 order=01a1a750-eee9-720b-ba4c-b3867bdd72ca instance1=01a1a750-ee08-7285-803c-6496bd934d46 instance2=01a1a750-ef6e-7275-94ce-5ec30b6195d9

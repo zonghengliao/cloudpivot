@@ -77,6 +77,11 @@
 
 pub mod approval_gate;
 pub mod batch;
+pub mod budget_bridge;
+pub mod budget_dto;
+pub mod budget_guard;
+pub mod budget_handler;
+pub mod budget_model;
 pub mod cancel_cascade;
 pub mod cash_flow;
 #[cfg(test)]

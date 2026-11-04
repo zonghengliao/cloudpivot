@@ -1278,6 +1278,19 @@ pub const ERP_STOCK_OUT_CANCEL_BLOCKED: i32 = 66035;
 /// 信用额度是「必须审批」——前端要能分别提示（前者改数量，后者找审批人/配流程）。
 pub const ERP_CREDIT_LIMIT_EXCEEDED: i32 = 66036;
 
+// ---------- FIN-1 预算管理（ARCH-6 第三章）----------
+
+/// 预算校验未通过且控制策略为 **BLOCK**（HTTP 409）。
+///
+/// 出厂默认是 `WARN`（标记 + 强制审批），只有客户把
+/// `erp.budget.control_mode` 或某条预算的 `control_mode` 显式设成 `BLOCK`
+/// 才会出现这个码（ARCH-6 D3）。报文必须给出「本次金额 / 年可用 / 月可用 / 超支额」
+/// 六个数，并说明两条出路：调高预算（走调整审批）或改成 WARN。
+///
+/// 为什么单独给码：前端要能区分「预算不足」（去找财务调额度）与
+/// 「单据状态冲突」（刷新重试）—— 两者的处置动作完全不同。
+pub const ERP_BUDGET_EXCEEDED: i32 = 66037;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1332,6 +1345,8 @@ mod tests {
             (ERP_STOCK_OUT_NEGATIVE, 66034),
             (ERP_STOCK_OUT_CANCEL_BLOCKED, 66035),
             (ERP_CREDIT_LIMIT_EXCEEDED, 66036),
+            // FIN-1 预算（ARCH-6 第三章，66037）
+            (ERP_BUDGET_EXCEEDED, 66037),
         ];
         for (actual, expected) in codes {
             assert_eq!(actual, expected, "66xxx 段码值不得改动");

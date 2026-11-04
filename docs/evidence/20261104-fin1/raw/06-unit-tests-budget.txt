@@ -1,0 +1,38 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.86s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 30 tests
+test business::erp::budget_bridge::tests::effective_from_is_next_month_first_day ... ok
+test business::erp::budget_bridge::tests::legal_edges_match_registry ... ok
+test business::erp::budget_dto::budget_dto_tests::control_mode_validation ... ok
+test business::erp::budget_dto::budget_dto_tests::adjust_requires_reason ... ok
+test business::erp::budget_bridge::tests::verdict_mapping ... ok
+test business::erp::budget_dto::budget_dto_tests::create_budget_with_full_periods_passes ... ok
+test business::erp::budget_dto::budget_dto_tests::duplicated_period_is_rejected ... ok
+test business::erp::budget_dto::budget_dto_tests::even_split_puts_remainder_on_december ... ok
+test business::erp::budget_dto::budget_dto_tests::page_normalization ... ok
+test business::erp::budget_dto::budget_dto_tests::mapping_validation ... ok
+test business::erp::budget_dto::budget_dto_tests::negative_amount_is_rejected ... ok
+test business::erp::budget_dto::budget_dto_tests::period_count_must_be_twelve ... ok
+test business::erp::budget_dto::budget_dto_tests::period_code_must_match_year_and_month ... ok
+test business::erp::budget_dto::budget_dto_tests::period_sum_must_equal_total ... ok
+test business::erp::budget_guard::budget_guard_tests::both_over_takes_the_worse_gap ... ok
+test business::erp::budget_guard::budget_guard_tests::boundary_equal_is_not_over ... ok
+test business::erp::budget_guard::budget_guard_tests::control_mode_resolution ... ok
+test business::erp::budget_guard::budget_guard_tests::missing_budget_is_flagged_but_off_mode_never_blocks ... ok
+test business::erp::budget_guard::budget_guard_tests::describe_carries_all_six_numbers ... ok
+test business::erp::budget_guard::budget_guard_tests::month_over_year_within_reports_month_gap_only ... ok
+test business::erp::budget_guard::budget_guard_tests::one_cent_over_is_over ... ok
+test business::erp::budget_guard::budget_guard_tests::within_budget_passes ... ok
+test business::erp::budget_guard::budget_guard_tests::used_beyond_limit_clamps_available_to_zero ... ok
+test business::erp::budget_guard::budget_guard_tests::year_over_month_within_reports_year_gap_only ... ok
+test business::erp::budget_model::budget_model_tests::budget_no_format ... ok
+test business::erp::budget_guard::budget_guard_tests::slot_rejects_malformed_period ... ok
+test business::erp::budget_model::budget_model_tests::status_constants_match_state_machine ... ok
+test business::erp::budget_model::budget_model_tests::report_row_takes_occupied_plus_consumed ... ok
+test business::erp::budget_model::budget_model_tests::exec_ratio_guards_zero_limit ... ok
+test business::erp::budget_model::budget_model_tests::db::version_chain_and_single_active ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 2332 filtered out; finished in 0.57s
+

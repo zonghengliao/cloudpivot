@@ -246,12 +246,16 @@ fn domain_consts_match_enums() {
     );
 }
 
-/// 七根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
+/// 九根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
 #[test]
 fn domain_columns_exist_and_cover_all_axes() {
     let axes: std::collections::BTreeSet<&str> =
         COLUMN_DOMAINS.iter().map(|item| item.axis).collect();
-    assert_eq!(axes.len(), 7, "必须覆盖七根轴，实际：{axes:?}");
+    assert_eq!(
+        axes.len(),
+        9,
+        "必须覆盖九根轴（⑦ 单据子类型之后加了 ⑧ 预算状态 / ⑨ 预算占用来源），实际：{axes:?}"
+    );
     // 每根轴至少一列
     assert!(axes.contains("① 业务对象"));
     assert!(axes.contains("② 审批动作"));
@@ -647,9 +651,18 @@ fn test_residue_predicate_matches_python_and_sql() {
         "E2E_AP_E2EMVUARCAT"
     ));
     assert!(crate::business::shared::doc_kind::is_test_residue("E2E_"));
-    assert!(crate::business::shared::doc_kind::is_test_residue("D2_SMOKE"));
+    assert!(crate::business::shared::doc_kind::is_test_residue(
+        "D2_SMOKE"
+    ));
     // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
-    for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
+    for raw in [
+        "PO_APPROVE",
+        "TASK_ACCEPT",
+        "OTHER",
+        "E2EX",
+        "e2e_ap_x",
+        "D2_SMOKE_X",
+    ] {
         assert!(
             !crate::business::shared::doc_kind::is_test_residue(raw),
             "{raw} 不该被当成测试残留"

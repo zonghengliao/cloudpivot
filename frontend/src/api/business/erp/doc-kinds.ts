@@ -52,6 +52,7 @@ export const DOC_KINDS = [
   'ACCOUNTING_YEAR',
   'FLOW_EDGE_CFG',
   'FLOW_LINKAGE_CFG',
+  'BUDGET',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -73,6 +74,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   ACCOUNTING_YEAR: '会计年度',
   FLOW_EDGE_CFG: '状态机配置',
   FLOW_LINKAGE_CFG: '联动规则配置',
+  BUDGET: '预算',
 };
 
 /**
@@ -102,6 +104,7 @@ export const DOC_KIND_TABLES: Readonly<Partial<Record<DocKind, string>>> = {
   ACCOUNTING_PERIOD: 'biz_accounting_period',
   FLOW_EDGE_CFG: 'biz_flow_edge',
   FLOW_LINKAGE_CFG: 'biz_flow_linkage_rule',
+  BUDGET: 'biz_budget',
 };
 
 /**
@@ -155,6 +158,7 @@ export const FLOW_BIZ_TYPES = [
   'FLOW_EDGE_CFG',
   'EXPENSE',
   'OTHER',
+  'BUDGET_APPROVE',
 ] as const;
 
 /** 审批业务类型（联合类型）。 */
@@ -175,6 +179,7 @@ export const FLOW_BIZ_TYPE_LABELS: Readonly<Record<FlowBizType, string>> = {
   FLOW_EDGE_CFG: '状态机配置变更审批',
   EXPENSE: '费用审批',
   OTHER: '其他审批',
+  BUDGET_APPROVE: '预算审批',
 };
 
 /** 审批业务类型 → 默认流程编码（`biz_flow_def.flow_code`）。 */
@@ -192,6 +197,7 @@ export const FLOW_BIZ_TYPE_FLOW_CODES: Readonly<Record<FlowBizType, string>> = {
   FLOW_EDGE_CFG: 'flow_edge_config',
   EXPENSE: 'expense',
   OTHER: 'other',
+  BUDGET_APPROVE: 'budget_approve',
 };
 
 /** 采购订单审批的业务类型（历史常量名，值来自 {@link FLOW_BIZ_TYPES}）。 */

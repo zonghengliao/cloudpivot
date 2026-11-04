@@ -1690,6 +1690,8 @@ pub async fn withdraw_instance(
     crate::business::erp::stockin_bridge::on_post_settled(Some(instance_id), "WITHDRAWN").await;
     // P-FLOW-3A：也可能是「采购订单审批」单 → 打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(Some(instance_id), "WITHDRAWN").await;
+    // FIN-1：也可能是「预算审批」单 → 打回草稿（额度一分没生效）
+    crate::business::erp::budget_bridge::on_budget_settled(Some(instance_id), "WITHDRAWN").await;
     // ARCH-3 R-P1-1：也可能是「合同审批」单 → 撤回即回草稿（实例清空，可改后重提）
     crate::business::erp::contract_bridge::on_contract_settled(Some(instance_id), "WITHDRAWN")
         .await;
@@ -1746,6 +1748,8 @@ pub async fn approve_task(
     crate::business::erp::contract_bridge::guard_self_approval(task_id, operator).await?;
     // ARCH-3 DC-14：盘点过账审批 —— 盘的人不能批自己盘的账（403 + 65019）
     crate::business::erp::stocktake_bridge::guard_self_approval(task_id, operator).await?;
+    // FIN-1：预算审批 —— 编预算的人不能批自己编的预算（403 + 65019）
+    crate::business::erp::budget_bridge::guard_self_approval(task_id, operator).await?;
     let mut out = db()
         .transaction(|tx| async move {
             engine::approve(&tx, task_id, operator, comment.as_deref()).await
@@ -1768,6 +1772,9 @@ pub async fn approve_task(
         .await;
     // P-FLOW-3A：也可能是「采购订单审批」发起的 —— 通过则 APPROVED（可收货），驳回则打回草稿
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
+        .await;
+    // FIN-1（ARCH-6 §3.3）：也可能是「预算审批」发起的 —— 通过则 ACTIVE（同槽旧版 SUPERSEDED）
+    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
         .await;
     // ARCH-3 R-P1-1：也可能是「合同审批」发起的 —— 通过则 SIGNED（可被采购单引用），驳回则回草稿
     crate::business::erp::contract_bridge::on_contract_settled(
@@ -1853,6 +1860,9 @@ pub async fn reject_task(
         .await;
     // P-FLOW-3A：采购订单审批被驳回 → 打回草稿 + 审批意见写 remark
     crate::business::erp::purchase_bridge::on_po_settled(out.instance_id, &out.instance_status)
+        .await;
+    // FIN-1：预算审批被驳回 / 撤回 → 打回草稿（额度一分没生效）
+    crate::business::erp::budget_bridge::on_budget_settled(out.instance_id, &out.instance_status)
         .await;
     // ARCH-3 R-P1-1：合同审批被驳回 / 驳回终止 → 回草稿（可改后重提，意见进状态日志）
     crate::business::erp::contract_bridge::on_contract_settled(

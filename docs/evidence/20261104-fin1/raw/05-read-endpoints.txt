@@ -1,0 +1,6 @@
+/business/erp/budget/page?page=1&page_size=5&fiscal_year=2026 → HTTP 200 total=2 rows=2
+   首行： {"id": "01a1a750-ef69-770d-a5b5-6bbdd8882c78", "budget_no": "BDG-20261105-000002", "fiscal_year": 2026, "dept_id": "3b5a889e-9d3f-40a3-9a22-1fa771723113", "dept_name": "FIN-1 夹具部门", "account_id": "ba3c7300-ffd7-4471-b790
+/business/erp/budget/report?fiscal_year=2026 → HTTP 200 rows=1
+   首行： {"budget_id": "01a1a750-ef69-770d-a5b5-6bbdd8882c78", "fiscal_year": 2026, "dept_id": "3b5a889e-9d3f-40a3-9a22-1fa771723113", "dept_name": "FIN-1 夹具部门", "account_id": "ba3c7300-ffd7-4471-b790-0e1753517baa", "account_code": "5602.02", "account_name": "管理费用-差旅费"
+/business/erp/budget/mapping/page?page=1&page_size=5 → HTTP 200 total=1 rows=1
+   首行： {"id": "01a1a750-ee9a-7210-b8e6-f41eaa83fbf1", "map_type": "DEFAULT", "ref_id": null, "ref_code": null, "account_id": "ba3c7300-ffd7-4471-b790-0e1753517baa", "account_code": "5602.02", "account_name": "管理费用-差旅费", "dept_i

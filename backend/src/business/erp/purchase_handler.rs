@@ -43,6 +43,7 @@ use nik::prelude::*;
 use nik::uuid::Uuid;
 
 use crate::business::erp::approval_gate;
+use crate::business::erp::budget_guard;
 use crate::business::erp::contract_model;
 use crate::business::erp::dto::PurchaseOrderRes;
 use crate::business::erp::form_snapshot;
@@ -946,6 +947,28 @@ pub async fn change_purchase_order_status(
             )))
         }
         Ok(_) => {
+            // ★ FIN-1（ARCH-6 §3.1.3）：预算占用的生命周期跟着单据状态走 —— 与状态流转**同一事务**。
+            //   · 作废 / 取消 → 释放（`OCCUPIED`/`CONSUMED` → `RELEASED`，**不删行**，留痕）
+            //   · 关闭（订单终结）→ 已执行（`OCCUPIED` → `CONSUMED`）
+            if target == STATUS_CANCELLED {
+                if let Err(error) = budget_guard::release(
+                    &tx,
+                    budget_guard::SOURCE_PURCHASE,
+                    id,
+                    &format!("采购单作废：{}", reason.unwrap_or("未填写原因")),
+                )
+                .await
+                {
+                    let _ = tx.rollback().await;
+                    return Err(write_error(error, "释放预算占用"));
+                }
+            } else if target == purchase_model::STATUS_CLOSED
+                && let Err(error) =
+                    budget_guard::consume(&tx, budget_guard::SOURCE_PURCHASE, id, None).await
+            {
+                let _ = tx.rollback().await;
+                return Err(write_error(error, "预算占用转已执行"));
+            }
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交状态流转事务"))?;
@@ -1035,6 +1058,41 @@ pub async fn submit_approval(
             "采购单提交：超出供应商信用额度（标记落单据 + 强制审批）"
         );
     }
+    // ★★ FIN-1（ARCH-6 §3.5.2）：预算守卫 —— 与信用额度**并列**、互不影响。
+    //    只读判定（不改库存 / 不写 usage）：科目靠 `biz_budget_subject_map` 解析，
+    //    部门取提交人部门快照，期间取单据日期。usage 在 `submit_po_tx` 的事务里写。
+    let operator_dept = match op.id {
+        Some(uid) => crate::business::erp::voucher::user_dept_of(db(), uid)
+            .await
+            .unwrap_or(None),
+        None => None,
+    };
+    let budget = budget_guard::check_for_purchase(db(), &row, operator_dept)
+        .await
+        .map_err(|error| utils::db_error(error, "预算校验（采购提交）"))?;
+    if budget.over() {
+        tracing::warn!(
+            order_id = %row.id,
+            order_no = %row.order_no,
+            mode = %budget.mode.as_str(),
+            reasons = %budget.reason,
+            "采购单提交：超出部门预算（策略 B：标记 + 强制审批）"
+        );
+    }
+    // BLOCK 模式下直接 409（ARCH-6 D3：409 只在显式 BLOCK）
+    if budget.blocks() {
+        return Err(ApiError::new(
+            409,
+            error_code::ERP_BUDGET_EXCEEDED,
+            format!(
+                "采购单 {} 超出部门预算，且该槽的控制策略是 BLOCK（强管控），不能提交。{}\n\
+                 两条出路：① 在「预算管理」里对「部门 × 科目 × 期间」做一次预算调整（走审批，新增版本）；\
+                 ② 让管理员把该槽（或全局 sys_config `erp.budget.control_mode`）改成 WARN —— \
+                 那样超预算单会带着「超预算」标记进审批，由审批人复核。",
+                row.order_no, budget.reason
+            ),
+        ));
+    }
     match purchase_bridge::published_po_flow()
         .await
         .map_err(|error| utils::db_error(error, "查询采购订单审批流程"))?
@@ -1042,7 +1100,7 @@ pub async fn submit_approval(
         Some(flow) => {
             // 有流程就必须走流程：请求里带了 skip_approval 也要 400（不许绕过已配置的内控）
             approval_gate::ensure_not_skipped(purchase_bridge::FLOW_CODE, gate)?;
-            submit_po_approval(&row, &op, &flow, &credit).await
+            submit_po_approval(&row, &op, &flow, &credit, &budget).await
         }
         None => {
             // ★ P2-2 ①：超信用额度的单**不许**走「显式跳过审批」这条后门。
@@ -1089,7 +1147,7 @@ pub async fn submit_approval(
                 reason: Some(skip_reason),
                 ..Default::default()
             };
-            change_purchase_order_status(id, &req, op).await?;
+            change_purchase_order_status(id, &req, op.clone()).await?;
             // 跳过审批路径的信用评估结果**事后回写**（本路径自己没有事务可以挂）：
             // `change_purchase_order_status` 已经提交了状态流转，这里补一条不带事务的
             // UPDATE。为什么可以这样：这三列是**审计快照**，不参与任何状态机判定 ——
@@ -1102,6 +1160,20 @@ pub async fn submit_approval(
                     "采购单已提交（跳过审批），但信用评估快照回写失败（只影响展示，不影响单据）"
                 );
             }
+            // ★ FIN-1：跳过审批路径的预算占用**事后回写**（本路径没有事务可挂）。
+            //    与信用快照同口径：写失败只影响「这张单占没占预算」的可见性，
+            //    不能反过来把已经提交的单据撤销；失败留 WARN 并由巡检对账兜底。
+            match budget_guard::occupy_for_purchase(db(), &row, &budget, op.id).await {
+                Ok(_) => {}
+                Err(error) => {
+                    tracing::warn!(
+                        order_id = %id,
+                        order_no = %row.order_no,
+                        %error,
+                        "采购单已提交（跳过审批），但预算占用写入失败（额度未占，巡检会对账出来）"
+                    );
+                }
+            }
             Ok(())
         }
     }
@@ -1113,6 +1185,7 @@ async fn submit_po_approval(
     operator: &state_machine::Operator,
     flow: &purchase_bridge::PoFlow,
     credit: &purchase_credit::CreditVerdict,
+    budget: &budget_guard::PurchaseBudget,
 ) -> std::result::Result<(), ApiError> {
     // ① 只有草稿能提交审批
     if row.status != STATUS_DRAFT {
@@ -1186,7 +1259,7 @@ async fn submit_po_approval(
         initiator_id: operator_id,
         initiator_name: Some(initiator_name),
         initiator_dept_id,
-        form_data: purchase_form_data(row, credit).await,
+        form_data: purchase_form_data(row, credit, budget).await,
     };
 
     let now = Utc::now();
@@ -1194,7 +1267,7 @@ async fn submit_po_approval(
         .begin()
         .await
         .map_err(|error| utils::db_error(error, "开启采购审批事务"))?;
-    let outcome = submit_po_tx(&tx, row, operator, &start, credit, now).await;
+    let outcome = submit_po_tx(&tx, row, operator, &start, credit, budget, now).await;
     let mut out = match outcome {
         Ok(out) => out,
         Err(error) => {
@@ -1238,6 +1311,7 @@ async fn submit_po_tx(
     operator: &state_machine::Operator,
     start: &engine::StartReq,
     credit: &purchase_credit::CreditVerdict,
+    budget: &budget_guard::PurchaseBudget,
     now: DateTime<Utc>,
 ) -> std::result::Result<engine::ActionOut, ApiError> {
     // ① 状态机唯一入口（边表 + 写 biz_status_log）
@@ -1300,6 +1374,11 @@ async fn submit_po_tx(
     purchase_credit::write_verdict(tx, row.id, credit)
         .await
         .map_err(|error| write_error(error, "写入信用额度评估快照"))?;
+    // ★ FIN-1：预算占用与状态流转**同一事务**（ARCH-6 §3.5.1）：
+    //    单据没提交成功却留下占用 = 额度泄漏；提交成功却没有占用 = 预算形同虚设。
+    budget_guard::occupy_for_purchase(tx, row, budget, operator.id)
+        .await
+        .map_err(|error| write_error(error, "写入预算占用"))?;
     Ok(out)
 }
 
@@ -1346,6 +1425,7 @@ async fn pending_instance_no_of(
 async fn purchase_form_data(
     row: &PurchaseOrderRow,
     credit: &purchase_credit::CreditVerdict,
+    budget: &budget_guard::PurchaseBudget,
 ) -> serde_json::Value {
     let amount = row.total_with_tax.round_dp(4).to_string();
     let number = json_number(&amount);
@@ -1365,6 +1445,15 @@ async fn purchase_form_data(
         "over_credit_limit": credit.over,
         "credit_exposure": json_number(&credit.exposure.round_dp(4).to_string()),
         "credit_limit": json_number(&credit.limit.round_dp(4).to_string()),
+        // FIN-1（ARCH-6 §3.5.2 纪律 3）：超预算**只加一个标记**，不改 po_approve 流程；
+        // 客户想要「超预算加一道财务」，自己在流程设计器里加条件节点即可。
+        "over_budget": budget.over(),
+        "budget_mode": budget.mode.as_str(),
+        "budget_over_amount": json_number(&budget
+            .verdict
+            .as_ref()
+            .map(|verdict| verdict.over_amount().round_dp(4).to_string())
+            .unwrap_or_else(|| "0".to_string())),
     });
     // 显示名 / 明细：查不到就**不写这个键**（前端按 `*_id` 兜底），绝不写空串冒充「查到了」。
     let (supplier, warehouse, items) = (
@@ -2971,7 +3060,17 @@ mod tests {
         // 信用评估结果按「额度不限」传：本用例只钉显示名的降级口径
         let credit =
             purchase_credit::CreditVerdict::unassessable(Decimal::ZERO, row.total_with_tax);
-        let form = purchase_form_data(&row, &credit).await;
+        // FIN-1：预算判定用「未解析到科目」的空结果（本用例只钉显示名降级口径）
+        let budget = budget_guard::PurchaseBudget {
+            mode: budget_guard::ControlMode::Warn,
+            mapped: false,
+            map_type: None,
+            account_id: None,
+            slot: None,
+            verdict: None,
+            reason: String::new(),
+        };
+        let form = purchase_form_data(&row, &credit, &budget).await;
         assert!(
             form.get("supplier_name").is_none(),
             "查不到供应商名就不能写这个键：{form}"

@@ -90,11 +90,16 @@ pub enum DocKind {
     FlowEdgeConfig,
     /// 联动规则配置 `biz_flow_linkage_rule`（配置实体，不是单据）。
     FlowLinkageConfig,
+    /// 预算 `biz_budget`（**一条记录 = 一个版本**，ARCH-6 第三章）。
+    ///
+    /// 与其它单据的区别：预算的「调整」不是改字段，而是**新增版本行**
+    /// （`version_no + 1` + `supersedes_id`），旧行只改状态（`ACTIVE → SUPERSEDED`）。
+    Budget,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 14] = [
+    pub const ALL: [DocKind; 15] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -109,6 +114,7 @@ impl DocKind {
         DocKind::AccountingYear,
         DocKind::FlowEdgeConfig,
         DocKind::FlowLinkageConfig,
+        DocKind::Budget,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -128,6 +134,7 @@ impl DocKind {
             DocKind::AccountingYear => "ACCOUNTING_YEAR",
             DocKind::FlowEdgeConfig => "FLOW_EDGE_CFG",
             DocKind::FlowLinkageConfig => "FLOW_LINKAGE_CFG",
+            DocKind::Budget => "BUDGET",
         }
     }
 
@@ -148,6 +155,7 @@ impl DocKind {
             DocKind::AccountingYear => "会计年度",
             DocKind::FlowEdgeConfig => "状态机配置",
             DocKind::FlowLinkageConfig => "联动规则配置",
+            DocKind::Budget => "预算",
         }
     }
 
@@ -167,6 +175,7 @@ impl DocKind {
             DocKind::AccountingPeriod => "biz_accounting_period",
             DocKind::FlowEdgeConfig => "biz_flow_edge",
             DocKind::FlowLinkageConfig => "biz_flow_linkage_rule",
+            DocKind::Budget => "biz_budget",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -185,6 +194,7 @@ impl DocKind {
                 | DocKind::Payment
                 | DocKind::Voucher
                 | DocKind::Contract
+                | DocKind::Budget
         )
     }
 
@@ -199,6 +209,7 @@ impl DocKind {
             DocKind::Voucher => "voucher",
             DocKind::StockOut => "stock-out",
             DocKind::StockTransfer => "stock-transfer",
+            DocKind::Budget => "budget",
             _ => return None,
         })
     }
@@ -280,11 +291,17 @@ pub enum FlowBizType {
     Expense,
     /// 客户端自建流程的兜底类型（**不在自检范围**）。
     Other,
+    /// 预算编制 / 调整审批（`budget_approve`，ARCH-6 §3.4.2 / §3.4.3）。
+    ///
+    /// 编制与调整**共用一个流程**，靠 `form.change_type` 条件分流：
+    /// `ORIGINAL` 走「部门主管 → 财务（≥50 万加总经理会签）」，
+    /// `ADJUST` 走「财务前置 → 总经理（≥50 万加财务总监会签）」。
+    BudgetApprove,
 }
 
 impl FlowBizType {
     /// 全部审批业务类型（顺序 = 声明顺序）。
-    pub const ALL: [FlowBizType; 13] = [
+    pub const ALL: [FlowBizType; 14] = [
         FlowBizType::PoApprove,
         FlowBizType::StockInPost,
         FlowBizType::StockInCancel,
@@ -298,6 +315,7 @@ impl FlowBizType {
         FlowBizType::FlowEdgeConfig,
         FlowBizType::Expense,
         FlowBizType::Other,
+        FlowBizType::BudgetApprove,
     ];
 
     /// 需要「发布状态自检」的业务类型（`GET /business/erp/approval-flow/health` 的清单）。
@@ -332,6 +350,7 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => "FLOW_EDGE_CFG",
             FlowBizType::Expense => "EXPENSE",
             FlowBizType::Other => "OTHER",
+            FlowBizType::BudgetApprove => "BUDGET_APPROVE",
         }
     }
 
@@ -351,6 +370,7 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => "flow_edge_config",
             FlowBizType::Expense => "expense",
             FlowBizType::Other => "other",
+            FlowBizType::BudgetApprove => "budget_approve",
         }
     }
 
@@ -370,6 +390,7 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => "状态机配置变更审批",
             FlowBizType::Expense => "费用审批",
             FlowBizType::Other => "其他审批",
+            FlowBizType::BudgetApprove => "预算审批",
         }
     }
 
@@ -386,6 +407,7 @@ impl FlowBizType {
             FlowBizType::VoucherReverse => DocKind::Voucher,
             FlowBizType::ContractApprove => DocKind::Contract,
             FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
+            FlowBizType::BudgetApprove => DocKind::Budget,
             FlowBizType::TaskAccept | FlowBizType::Expense | FlowBizType::Other => return None,
         })
     }
@@ -921,7 +943,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 14] = [
+const DOC_KIND_VALUES: [&str; 15] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -936,9 +958,10 @@ const DOC_KIND_VALUES: [&str; 14] = [
     "ACCOUNTING_YEAR",
     "FLOW_EDGE_CFG",
     "FLOW_LINKAGE_CFG",
+    "BUDGET",
 ];
 
-const FLOW_BIZ_TYPE_VALUES: [&str; 13] = [
+const FLOW_BIZ_TYPE_VALUES: [&str; 14] = [
     "PO_APPROVE",
     "STOCK_IN_POST",
     "STOCK_IN_CANCEL",
@@ -952,6 +975,7 @@ const FLOW_BIZ_TYPE_VALUES: [&str; 13] = [
     "FLOW_EDGE_CFG",
     "EXPENSE",
     "OTHER",
+    "BUDGET_APPROVE",
 ];
 
 const TXN_BIZ_TYPE_VALUES: [&str; 19] = [
@@ -1004,11 +1028,32 @@ const IN_TYPE_VALUES: [&str; 3] = ["PURCHASE", "RETURN", "OTHER"];
 const OUT_TYPE_VALUES: [&str; 4] = ["ISSUE", "SCRAP", "LOSS", "OTHER"];
 const TAKE_TYPE_VALUES: [&str; 2] = ["FULL", "PARTIAL"];
 
+// ===== FIN-1 预算（ARCH-6 第三章）=====
+
+/// `biz_budget.status` 的取值域（与 `state_machine::BUDGET_EDGES` 的节点集合一致）。
+const BUDGET_STATUS_VALUES: [&str; 6] = [
+    "DRAFT",
+    "SUBMITTED",
+    "ACTIVE",
+    "SUPERSEDED",
+    "CLOSED",
+    "CANCELLED",
+];
+
+/// `biz_budget_usage.status` 的取值域（占用生命周期，ARCH-6 §3.1.3）。
+const BUDGET_USAGE_STATUS_VALUES: [&str; 3] = ["OCCUPIED", "CONSUMED", "RELEASED"];
+
+/// `biz_budget_usage.source_type` 的取值域（谁占用预算）。
+///
+/// 只有两个值：报销提交（`EXPENSE_REPORT`）与采购提交（`PURCHASE_ORDER`）——
+/// 这正是 ARCH-6 D4「控制点只有 2 处」在数据层的体现。第三个控制点要先改这里。
+const BUDGET_USAGE_SOURCE_VALUES: [&str; 2] = ["EXPENSE_REPORT", "PURCHASE_ORDER"];
+
 /// 需要值域巡检的全部列（**唯一**清单；巡检脚本与 `doc_kind_tests` 按它逐列核对）。
 ///
 /// 域里**不留**已废弃的别名：`biz_status_log.entity_type = 'TRANSFER'` 已被 V0219
 /// 统一成 `STOCK_TRANSFER`，出现在库里就是 FAIL（不是「历史兼容」）。
-pub const COLUMN_DOMAINS: [ColumnDomain; 14] = [
+pub const COLUMN_DOMAINS: [ColumnDomain; 17] = [
     ColumnDomain {
         table: "biz_status_log",
         column: "entity_type",
@@ -1092,6 +1137,25 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 14] = [
         column: "take_type",
         values: &TAKE_TYPE_VALUES,
         axis: "⑦ 单据子类型",
+    },
+    // ===== FIN-1 预算 =====
+    ColumnDomain {
+        table: "biz_budget",
+        column: "status",
+        values: &BUDGET_STATUS_VALUES,
+        axis: "⑧ 预算状态",
+    },
+    ColumnDomain {
+        table: "biz_budget_usage",
+        column: "status",
+        values: &BUDGET_USAGE_STATUS_VALUES,
+        axis: "⑧ 预算状态",
+    },
+    ColumnDomain {
+        table: "biz_budget_usage",
+        column: "source_type",
+        values: &BUDGET_USAGE_SOURCE_VALUES,
+        axis: "⑨ 预算占用来源",
     },
 ];
 

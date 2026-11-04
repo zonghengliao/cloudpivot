@@ -1,0 +1,6 @@
+v1 [PUBLISHED] 节点 11 边 13
+  stored   = 19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871
+  computed = 19b84d031306f9dbb2140690245b153b9f287de2a89d95aacaf2f6cbcf762871
+  一致     = True
+
+ drifted = 0

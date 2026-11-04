@@ -252,6 +252,24 @@ async fn settle(instance_id: Uuid, verdict: PoVerdict) -> DbResult<Option<Uuid>>
                 "采购订单状态在审批回调期间已被改动，请刷新后重试",
             ));
         }
+        // ★ FIN-1（ARCH-6 §3.1.3）：驳回 / 撤回 → 释放预算占用（只改状态，不删行）。
+        //   与单据回草稿同事务：单据回到草稿却没有释放，等于额度被一张废单永久占住。
+        if matches!(verdict, PoVerdict::BackToDraft) {
+            crate::business::erp::budget_guard::release(
+                &tx,
+                crate::business::erp::budget_guard::SOURCE_PURCHASE,
+                order_id,
+                "采购审批驳回 / 撤回：释放预算占用",
+            )
+            .await
+            .map_err(|error| {
+                ApiError::new(
+                    500,
+                    error_code::INTERNAL_ERROR,
+                    format!("释放预算占用失败：{error}"),
+                )
+            })?;
+        }
         Ok::<(), ApiError>(())
     }
     .await;

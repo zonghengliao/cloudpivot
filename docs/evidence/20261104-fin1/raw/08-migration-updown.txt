@@ -1,0 +1,36 @@
+===== 第 1 轮：down → up =====
+  down V0228__erp_budget_approval_flow OK
+  down V0227__erp_budget_tables OK
+  down V0226__erp_budget_subjects_and_config OK
+  残留表=0
+  up V0226__erp_budget_subjects_and_config OK
+  up V0227__erp_budget_tables OK
+psql:V0228__erp_budget_approval_flow.up.sql:203: NOTICE:  V0228 OK：budget_approve 已发布（11 节点 / 13 边 / hash 19b84d031306）
+  up V0228__erp_budget_approval_flow OK
+  科目=9
+  预算表=4
+  流程节点=11
+===== 第 2 轮：down → up =====
+  down V0228__erp_budget_approval_flow OK
+  down V0227__erp_budget_tables OK
+  down V0226__erp_budget_subjects_and_config OK
+  残留表=0
+  up V0226__erp_budget_subjects_and_config OK
+  up V0227__erp_budget_tables OK
+psql:V0228__erp_budget_approval_flow.up.sql:203: NOTICE:  V0228 OK：budget_approve 已发布（11 节点 / 13 边 / hash 19b84d031306）
+  up V0228__erp_budget_approval_flow OK
+  科目=9
+  预算表=4
+  流程节点=11
+===== 第 3 轮：down → up =====
+  down V0228__erp_budget_approval_flow OK
+  down V0227__erp_budget_tables OK
+  down V0226__erp_budget_subjects_and_config OK
+  残留表=0
+  up V0226__erp_budget_subjects_and_config OK
+  up V0227__erp_budget_tables OK
+psql:V0228__erp_budget_approval_flow.up.sql:203: NOTICE:  V0228 OK：budget_approve 已发布（11 节点 / 13 边 / hash 19b84d031306）
+  up V0228__erp_budget_approval_flow OK
+  科目=9
+  预算表=4
+  流程节点=11
