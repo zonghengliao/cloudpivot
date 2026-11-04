@@ -406,11 +406,9 @@ PH.stockin = async () => {
     const btn = page.locator('button:has-text("新建收货"), button:has-text("从采购单生成"), button:has-text("生成收货")').first();
     if (!(await btn.count())) throw new Error('无新建入口');
     await btn.click();
-    await page.waitForTimeout(1500);
-    await dismissOverlays();
-    if (await dlg().isVisible().catch(() => false)) {
-      await page.waitForTimeout(600);
-    }
+    // 注意：这里不能调 dismissOverlays()，它会把刚打开的新建弹窗一起关掉
+    await page.locator('.t-dialog:visible').last().waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(800);
     await shot('stockin-create-form');
     await closeDialog();
   });
