@@ -21,13 +21,14 @@
  *
  * # 为什么新画布用异步组件
  *
- * `@vue-flow/*` 合计 ~290 KiB（gzip ~100 KiB）。默认引擎是 native，异步组件保证
- * **开关关着时这块代码根本不会加载**；即使开关打开，也只进编辑器路由的 chunk，
- * 不进首屏（`vite build` 输出可见 `FlowCanvasVueFlow-*.js` 独立成块）。
+ * `@vue-flow/*` 合计 ~290 KiB（gzip ~100 KiB）。默认引擎已是 vueflow（VUE-FLOW-3），
+ * 但异步组件保证这块代码**只进编辑器路由的 chunk，不进首屏** ——
+ * `vite build` 输出可见 `FlowCanvasVueFlow-*.js` 独立成块（见 docs/evidence/20261104-vueflow-3/）。
  *
- * # flag 优先级
+ * # flag 优先级 / 回退
  *
- * `?canvas=vueflow` > `VITE_FLOW_CANVAS` > 默认 `native`，见 `flow-canvas-flag.ts`。
+ * `?canvas=native|vueflow` > `VITE_FLOW_CANVAS=native|vueflow` > 默认 `vueflow`，
+ * 见 `flow-canvas-flag.ts` 顶部注释（含三条回退方法）。
  */
 import { computed, defineAsyncComponent, ref, type Component, type ComponentPublicInstance } from 'vue';
 import NativeCanvas from '@/views/business/flow/components/FlowCanvas.vue';

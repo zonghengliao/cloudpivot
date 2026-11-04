@@ -16,6 +16,7 @@
 | [前端二开指南.md](./前端二开指南.md) | 前端 / AI | api 封装、列表页范本、路由注册、主题变量、TDesign 坑 |
 | [配色方案.md](./配色方案.md) | 前端 / AI / 设计 | 6 套色板 × 明暗双模式：色值、色阶推导算法、对比度报告、如何新增第 7 套 |
 | [编码规范.md](./编码规范.md) | 所有人 / AI | 后端+前端强制规范、提交前检查命令 |
+| [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md) | 前端 / 架构 / 运维 / AI | 流程画布为什么换成 Vue Flow、引擎开关与三条回退方法、双引擎回归证据指针、老画布清理计划 |
 | [测试卫生-真库单测分库跑法.md](./测试卫生-真库单测分库跑法.md) | 后端 / AI | 真库 lib 单测**为什么必须按模块分库+分进程**跑（同库串跑会 60+ 条假红）、`scripts/verify/run_lib_tests_by_module.sh` 用法、`RUNS=2` 幂等性守门、写"全库口径"断言前的自查清单 |
 | [测试卫生-真库连库入口清单.md](./测试卫生-真库连库入口清单.md) | 后端 / AI | 全仓 43 处「读 `xxx_DB_URL` + `try_db().is_some()` 就复用全局 `db()`」的入口逐处判定：哪处可复用、哪处必须独占进程、统一收口建议与迁移顺序 |
 | [会话吊销的耐久性边界.md](./会话吊销的耐久性边界.md) | 后端 / 运维 | 令牌吊销状态存哪、缓存丢失时退化到什么程度、Redis 水位与淘汰策略要求 |
@@ -57,6 +58,9 @@
 ### 技术栈速览
 - **后端**：Rust 1.94.1+ / edition 2024，框架 `nik`（门面，底层 axum 0.8），PostgreSQL ≥ 14，Redis（缓存 / 令牌黑名单）。
 - **前端**：Vue 3.5 + TS 5.8 + Vite 6 + TDesign Vue Next 1.19 + Pinia 3 + ECharts 5，pnpm 10.5。
+  流程编辑器画布自 VUE-FLOW-3 起用 **Vue Flow 1.48**（`@vue-flow/core|background|minimap`，异步 chunk，不进首屏）；
+  老的纯 SVG 自绘画布保留为回退路径（`?canvas=native` / `VITE_FLOW_CANVAS=native`），见
+  [architecture/流程画布-VueFlow迁移与清理计划.md](./architecture/流程画布-VueFlow迁移与清理计划.md)。
 - **端口**：后端 `8023`；前端 dev `5173`（Vite 代理 `/api`、`/health` → `:8023`）。
 - **默认账号**：`admin`（口令无缺省值，必须由 `NIK_ADMIN_PASSWORD` 注入，首次登录强制改密；`SUPER_ADMIN` 跳过全部权限校验）。
 

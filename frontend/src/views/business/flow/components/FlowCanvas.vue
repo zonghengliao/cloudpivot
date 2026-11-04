@@ -1,3 +1,19 @@
+<!--
+  @deprecated VUE-FLOW-3（2026-11-04）起默认画布已切到 `FlowCanvasVueFlow.vue`（Vue Flow 基座）。
+
+  **本文件（纯 SVG 自绘）只作为回退路径保留**，不再增加新特性：
+    · 单页回退：URL 加 `?canvas=native`；
+    · 整环境回退：构建期 `VITE_FLOW_CANVAS=native`；
+    · 开关解析见 `flow-canvas-flag.ts`（默认值已改为 vueflow）。
+
+  删除计划：新画布线上稳定运行 ≥1 个版本（约一周，期间无回退到 native 的记录）后，
+  随下个版本删除本文件及其独占的辅助（`rounded-path.ts` 里只被它用到的分支、
+  老画布专用的 `<marker>/<pattern>` 定义）。迁移与验证证据见
+  `docs/architecture/流程画布-VueFlow迁移与清理计划.md`。
+
+  ⚠ 删除前必须先确认：`tests/unit/flow-canvas-vueflow-contract.test.ts` 里对老画布的
+  契约比对用例同步下线（那些用例是为了「切换期间两套实现等价」而存在的，不是永久需求）。
+-->
 <template>
   <div
     ref="wrapRef"

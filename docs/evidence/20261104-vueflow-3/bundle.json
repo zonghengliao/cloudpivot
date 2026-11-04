@@ -1,0 +1,33 @@
+{
+  "note": "VUE-FLOW-3 体积对照：同一份仓库、同一个 vite 配置，只差『默认画布 = vueflow』这一行（基线 commit 7750bce，别名 default=native；本次 HEAD，default=vueflow）。两次都在本地 `vite build` 产物上量。",
+  "baseline": {
+    "commit": "7750bce",
+    "defaultCanvas": "native",
+    "dist": "/tmp/vf3-base/frontend/dist",
+    "entryChunk": { "file": "assets/index-hUFo3aUm.js", "bytes": 117306, "gzipBytes": 43673 },
+    "editorRouteChunk": { "file": "assets/edit-D2UPQo6f.js", "bytes": 194171, "gzipBytes": 65979 },
+    "vueFlowChunk": { "file": "assets/FlowCanvasVueFlow-BxWLrw9Q.js", "bytes": 231198, "gzipBytes": 76562 },
+    "jsTotalBytes": 11105476,
+    "jsFileCount": 128,
+    "indexHtmlModulePreload": ["assets/tdesign-BsJqNBS6.js"]
+  },
+  "current": {
+    "commit": "HEAD (本次改动未提交前的工作区)",
+    "defaultCanvas": "vueflow",
+    "dist": "/opt/cloudpivot/frontend/dist",
+    "entryChunk": { "file": "assets/index-C2I75n54.js", "bytes": 117306, "gzipBytes": 43663 },
+    "editorRouteChunk": { "file": "assets/edit-LT_gvv8-.js", "bytes": 194171, "gzipBytes": 65979 },
+    "vueFlowChunk": { "file": "assets/FlowCanvasVueFlow-Cw0pS2ZM.js", "bytes": 231294, "gzipBytes": 76572 },
+    "jsTotalBytes": 11105573,
+    "jsFileCount": 128,
+    "indexHtmlModulePreload": ["assets/tdesign-BsJqNBS6.js"]
+  },
+  "delta": {
+    "entryChunkBytes": 0,
+    "entryChunkGzipBytes": -10,
+    "editorRouteChunkBytes": 0,
+    "vueFlowChunkBytes": 96,
+    "jsTotalBytes": 97,
+    "conclusion": "首屏入口 chunk 逐字节不变（117 306 B，gzip 反而小 10 B）；@vue-flow 仍在独立异步 chunk（231 KB raw / 75 KB gzip），index.html 的 modulepreload 里没有它 → 首屏不加载"
+  }
+}

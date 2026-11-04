@@ -114,12 +114,19 @@
              非只读：可拖拽的 Handle（圆形，半径 5px，hover 放大）。
              ★ 圆点用内嵌 SVG `<circle r=5 stroke-width=1.5>` 画，而不是 div 的 border：
                Chrome 会把 1.5px 的 border-width 取整成 1px（实测），而老画布就是这条 SVG 圆
-               —— 用同一套 SVG 元素，两边的描边栅格化才逐像素一致。 -->
+               —— 用同一套 SVG 元素，两边的描边栅格化才逐像素一致。
+             ★ `data-port-node-key` 挂在两个 Handle 上（**不是** `data-node-key`）：Vue Flow 的 Handle
+               是卡片 div 的**兄弟**（不是子节点），「某节点的出口锚点」需要自己的定位属性；
+               若复用 `data-node-key`，`[data-node-key]` 就会从「一节点一元素」变成 3 个，
+               e2e 的节点计数全错。老画布的锚点在节点 `<g data-node-key>` 内部，于是回归用例写
+               `.flow-node__port--out[data-port-node-key=k], [data-node-key=k] .flow-node__port--out`
+               —— 两条画布都能命中且只有 1 个。 -->
         <Handle
           type="target"
           :position="Position.Left"
           class="flow-node__port flow-node__port--in"
           :class="{ 'is-readonly': readonly }"
+          :data-port-node-key="data.key"
           :connectable="!readonly"
         >
           <svg class="flow-node__port-svg" viewBox="0 0 11.5 11.5" width="11.5" height="11.5" aria-hidden="true">
@@ -131,6 +138,7 @@
           :position="Position.Right"
           class="flow-node__port flow-node__port--out"
           :class="{ 'is-readonly': readonly, 'is-target': connectTargetKey === data.key }"
+          :data-port-node-key="data.key"
           :connectable="!readonly"
         >
           <svg class="flow-node__port-svg" viewBox="0 0 11.5 11.5" width="11.5" height="11.5" aria-hidden="true">

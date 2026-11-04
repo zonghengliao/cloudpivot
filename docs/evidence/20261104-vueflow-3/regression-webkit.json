@@ -1,0 +1,195 @@
+{
+  "browser": "webkit",
+  "baseUrl": "http://127.0.0.1:5188",
+  "publishedDefId": "20000000-0000-4000-8000-0000000a0182",
+  "createdAt": "2026-11-04T09:15:30.319Z",
+  "passed": 22,
+  "failed": 0,
+  "checks": [
+    {
+      "id": "B1",
+      "item": "打开流程列表 → 能看到",
+      "pass": true,
+      "detail": "22 行",
+      "ms": 1277
+    },
+    {
+      "id": "B2",
+      "item": "点「编辑」进画布 → 加载正常（默认 Vue Flow）",
+      "pass": true,
+      "detail": "节点 9 个 · `.vue-flow` 1 个 / `g.flow-node` 0 个",
+      "ms": 1730
+    },
+    {
+      "id": "B8",
+      "item": "已发布流程打开是只读态：拖不动、连不了",
+      "pass": true,
+      "detail": "节点相对位移 1.1px · 边数 11→11 · 画布平移=true",
+      "ms": 1174
+    },
+    {
+      "id": "C1",
+      "item": "节点正常显示、位置正确、不重叠",
+      "pass": true,
+      "detail": "9 个节点，两两重叠 0 对",
+      "ms": 135
+    },
+    {
+      "id": "B9",
+      "item": "「另存为新草稿」能用（→ 可编辑）",
+      "pass": true,
+      "detail": "只读横幅消失=true · 面板可拖=true · 节点 3",
+      "ms": 3088
+    },
+    {
+      "id": "B3a",
+      "item": "新建流程 → 进编辑器（默认 2 节点，Vue Flow）",
+      "pass": true,
+      "detail": "节点 2 个 · `.vue-flow` 1 个 / `g.flow-node` 0 个",
+      "ms": 3023
+    },
+    {
+      "id": "B3",
+      "item": "9 种节点都能从左侧拖出来",
+      "pass": true,
+      "detail": "拖出 9 种：START/TASK_NODE/APPROVAL/COUNTERSIGN/CONDITION/PARALLEL/CC/NOTIFY_NODE/END（共 11 节点）",
+      "ms": 1668
+    },
+    {
+      "id": "B4a",
+      "item": "拖节点（位置真的变了）",
+      "pass": true,
+      "detail": "位移 196px",
+      "ms": 665
+    },
+    {
+      "id": "B4b",
+      "item": "连线（拖锚点成边）",
+      "pass": true,
+      "detail": "边 1 → 2（n_end → n_1）",
+      "ms": 1317
+    },
+    {
+      "id": "B4c",
+      "item": "删线（点中连线按 Delete）",
+      "pass": true,
+      "detail": "边 2 → 1（点击命中点 1206,613）",
+      "ms": 1022
+    },
+    {
+      "id": "B4d",
+      "item": "删节点（选中按 Delete）",
+      "pass": true,
+      "detail": "节点 11 → 10",
+      "ms": 1064
+    },
+    {
+      "id": "B5",
+      "item": "条件分支节点能配置（点开属性面板）",
+      "pass": true,
+      "detail": "属性面板可见，含「条件」配置",
+      "ms": 761
+    },
+    {
+      "id": "B6",
+      "item": "自动布局按钮能用（dagre 重排）",
+      "pass": true,
+      "detail": "10 个节点重排，坐标已变化",
+      "ms": 1566
+    },
+    {
+      "id": "C3",
+      "item": "卡片不盖住锚点（锚点中心 elementFromPoint 命中句柄本身）",
+      "pass": true,
+      "detail": "20 个锚点全部点得中（含 ::before 7px 命中区）",
+      "ms": 228
+    },
+    {
+      "id": "B10",
+      "item": "迷你地图点/拖能移动视口",
+      "pass": true,
+      "detail": "点击/拖动后 transform 变化 (点击)(拖动)",
+      "ms": 1201
+    },
+    {
+      "id": "B11",
+      "item": "缩放工具栏 +/−/fit 都能用",
+      "pass": true,
+      "detail": "比例读数 75%",
+      "ms": 1585
+    },
+    {
+      "id": "B12",
+      "item": "校验失败时角标显示 + 问题清单",
+      "pass": true,
+      "detail": "问题清单 1 个 · 角标 8 个",
+      "ms": 1594
+    },
+    {
+      "id": "B7a",
+      "item": "保存 → 成功",
+      "pass": true,
+      "detail": "toast「已保存」",
+      "ms": 434
+    },
+    {
+      "id": "B7b",
+      "item": "发布 → 成功",
+      "pass": true,
+      "detail": "def vf3_mw1wilty → PUBLISHED（v1）",
+      "ms": 2015
+    },
+    {
+      "id": "B13",
+      "item": "回退开关：?canvas=native 切回老画布",
+      "pass": true,
+      "detail": "老画布 9 节点 / .vue-flow 0",
+      "ms": 1450
+    },
+    {
+      "id": "C2",
+      "item": "拖节点 / 能连线 / 能缩放（本引擎实测汇总）",
+      "pass": true,
+      "detail": "B4a=✓ B4b=✓ B11=✓",
+      "ms": 0
+    },
+    {
+      "id": "X1",
+      "item": "控制台 0 个 JS 报错（4xx 资源单列 httpErrors）",
+      "pass": true,
+      "detail": "HTTP 4xx/5xx 0 条（notice SSE 的 401 属既有行为）",
+      "ms": 0
+    }
+  ],
+  "consoleErrors": [],
+  "httpErrors": [],
+  "loadMetrics": {
+    "note": "见 bench-chromium.json / bench-webkit.json（生产产物 15 轮中位数）"
+  },
+  "shots": [
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b1-flow-list.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b2-editor-published-readonly.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b8-readonly-unchanged.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/c1-nodes-layout.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b9-draft-editable.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b3-new-flow-editor.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b3-nine-node-types.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b4-node-dragged.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b4-edge-created.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b4-edge-selected.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b4-edge-deleted.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b4-node-deleted.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b5-condition-props.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b6-auto-layout.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/c3-anchors-uncovered.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b10-minimap.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b11-zoom-toolbar.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b12-validation-issues.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b7-saved.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b7-published.png",
+    "docs/evidence/20261104-vueflow-3/shots/webkit/b13-native-fallback.png"
+  ],
+  "cleanup": {
+    "newDefId": "01a1a5d7-4935-73ef-a4da-fe19c4f72118"
+  }
+}
