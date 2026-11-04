@@ -453,14 +453,18 @@ async fn can_close_is_unaffected_by_items() {
         return;
     };
     let row = support::open_test_period(10).await;
-    support::seed_voucher("2033-10", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
+    let voucher_id =
+        support::seed_voucher("2033-10", "P2-V-001", "DRAFT", ("10", "10"), ("10", "10")).await;
 
     let blocked = period::close_check(row.id).await.expect("预检");
     assert!(!blocked.can_close);
     assert!(!blocked.blockers[0].items.is_empty(), "明细非空");
 
-    // 把挡路单据「处理掉」（DRAFT → POSTED）→ 同一份判定逻辑必须放行
-    support::sql("UPDATE biz_voucher SET status = 'POSTED' WHERE period = '2033-10'").await;
+    // 把挡路单据「处理掉」（DRAFT → POSTED）→ 同一份判定逻辑必须放行。
+    // **只动本用例自己造的那张凭证**（按 id）：过去这里写的是
+    // `WHERE period = '2033-10'` 整期 UPDATE，并行跑时会把别的用例刚种进同一期间的
+    // 草稿凭证一并过账，它们的「必须有草稿挡路」断言就随机红。
+    support::set_voucher_status(voucher_id, "POSTED").await;
     let cleared = period::close_check(row.id).await.expect("预检");
     assert!(
         cleared.can_close,

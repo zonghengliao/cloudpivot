@@ -53,8 +53,14 @@ const ACCOUNT_DEBIT: &str = "b3b30020-0000-4000-8000-000000000020";
 /// 夹具科目：应付账款（贷）。
 const ACCOUNT_CREDIT: &str = "b3b30021-0000-4000-8000-000000000021";
 
-/// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`）。
-static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`）。
+//
+// 锁与 `cash_flow` 的全表断言共用同一把（`voucher_query::tests::DB_LOCK`）：本模块夹具
+// 在 `biz_account` 里造了 `P3B.1002` / `P3B.2202`（无现金流量分类行），而
+// `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表断言
+// 「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞（`purge_fixtures()` 只在
+// 用例开工时跑，跑用例期间科目就在库里）。
+use crate::business::erp::voucher_query::tests::DB_LOCK;
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")

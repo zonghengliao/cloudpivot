@@ -32,7 +32,14 @@ use crate::business::erp::model::PeriodRow;
 use crate::business::erp::period;
 use crate::business::shared::state_machine;
 
-/// 真库用例串行跑（与 `period.rs::tests::DB_LOCK` 同款：文件级互斥，避免并行清场互删）。
+/// 真库用例串行跑的**共享锁**：本文件、`period::tests`、`stocktake_tests`
+/// 三处夹具都在 `2033-xx` 上工作（期间 / 凭证 / 单据），必须拿**同一个对象**。
+///
+/// 为什么要合并（实测）：过去三处各有一把 `DB_LOCK`，于是
+/// `period::tests::cleanup()`（删 `period LIKE '2033-%'` + `biz_accounting_period
+/// LIKE '2033-%'`）会在 `period_items::tests` 用例体跑到一半时把它刚种的
+/// 2033-10 草稿凭证删掉 ⇒ `!blocked.can_close` 失败；`stocktake_tests` 的
+/// 2033-03 单据与期间同理会凭空消失。锁合并后「谁在 2033 上动夹具」互斥。
 pub static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 /// 夹具操作人（`closed_by` / `sender_id` 是弱引用，不要求真实用户）。
@@ -127,6 +134,21 @@ pub async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     }
     cleanup().await;
     Some(guard)
+}
+
+/// 改一张凭证的状态（**按 id**，不按期间整期 UPDATE）。
+///
+/// 为什么必须按 id：`can_close_is_unaffected_by_items` 过去写的是
+/// `UPDATE biz_voucher SET status='POSTED' WHERE period='2033-10'`，在并行跑时会把
+/// 别的用例刚种进同一期间的草稿凭证一并过账 —— 那几个用例的断言（「必须还有草稿挡路」）
+/// 就随机变红。夹具只许动自己造的那一行。
+pub async fn set_voucher_status(id: Uuid, status: &str) {
+    db().execute_with_params(
+        "UPDATE biz_voucher SET status = ? WHERE id = ?",
+        vec![Value::Text(status.to_string()), Value::from(&id)],
+    )
+    .await
+    .unwrap_or_else(|err| panic!("改凭证状态失败（{id} → {status}）：{err}"));
 }
 
 /// 开一个测试期间（`2033-MM`）并读回行。

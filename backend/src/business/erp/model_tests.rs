@@ -172,11 +172,17 @@ const FIXTURES: &[&str] = &[
      ON CONFLICT DO NOTHING",
 ];
 
-/// 真库用例**串行**执行：36 个用例共用一个库，而
-/// `material_page_serial_required_filter_tracks_column_existence` 会 `ALTER TABLE`
-/// （ACCESS EXCLUSIVE）——并行跑时其它用例的查询会被挂住甚至被断开
-/// （实测 `query failed … : connection closed`）。锁的粒度 = 一个用例，时间在毫秒级。
-static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// 真库用例**串行**执行：36 个用例共用一个库，而
+// `material_page_serial_required_filter_tracks_column_existence` 会 `ALTER TABLE`
+// （ACCESS EXCLUSIVE）——并行跑时其它用例的查询会被挂住甚至被断开
+// （实测 `query failed … : connection closed`）。锁的粒度 = 一个用例，时间在毫秒级。
+//
+// 锁与 `cash_flow` 的全表断言共用同一把（`voucher_query::tests::DB_LOCK`）：本模块夹具
+// 在 `biz_account` 里造了 `W1B1001` / `W1B100101`（无现金流量分类行），而
+// `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表断言
+// 「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞（本模块只在 `zz_` 收尾用例里删，
+// 多线程下不保证 `zz_` 最后跑）。
+use crate::business::erp::voucher_query::tests::DB_LOCK;
 
 /// 初始化全局数据库（进程内只做一次）；`false` = 没配 `ERP_DB_URL`，用例直接跳过。
 async fn ensure_db() -> bool {

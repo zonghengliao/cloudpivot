@@ -2678,8 +2678,13 @@ mod tests {
          ON CONFLICT DO NOTHING",
     ];
 
-    /// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`，与 P2-B1 同范式）。
-    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    // 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`，与 P2-B1 同范式）。
+    //
+    // 锁必须与 `cash_flow` 的全表断言共用同一把（`voucher_query::tests::DB_LOCK`）：
+    // 本模块夹具在 `biz_account` 里造了 `P2C1.1405`（无现金流量分类行），而
+    // `cash_flow::tests::r3_real_config_covers_all_accounts` 遍历 `biz_account` 全表
+    // 断言「每个非现金科目都有分类行」—— 两把不同的锁时并行必撞。
+    use crate::business::erp::voucher_query::tests::DB_LOCK;
 
     async fn ensure_db() -> bool {
         use tokio::sync::OnceCell;

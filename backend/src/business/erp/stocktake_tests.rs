@@ -72,8 +72,13 @@ const MATERIAL_B: &str = "d2110100-0000-4000-8000-000000000012";
 /// 盘点日期（2033-03：测试期间，不与生产 2026-xx 交叠）。
 const TAKE_DATE: &str = "2033-03-15";
 
-/// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`）。
-static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+// 真库用例必须串行（共用全局 `db()`、同一批夹具与同一批 `biz_seq`）。
+//
+// 锁必须是 `period_test_support` 那把的**同一个对象**：本模块的夹具期是 `2033-03`，
+// 而 `period::tests::cleanup()` 会 `DELETE ... WHERE period LIKE '2033-%'` 与
+// `biz_accounting_period LIKE '2033-%'` —— 两把不同的锁时，它会把本模块正在用的
+// 单据与期间删掉（反之 `period_test_support::cleanup()` 同样会删本模块的凭证）。
+use crate::business::erp::period_test_support::DB_LOCK;
 
 fn uid(text: &str) -> Uuid {
     Uuid::parse_str(text).expect("夹具 UUID 非法")

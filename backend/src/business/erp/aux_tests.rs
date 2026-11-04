@@ -14,6 +14,10 @@
 //! * 科目 / 物料 / 仓库 / 供应商 / 部门 / 用户 / 单位都是本组自建的固定 id，
 //!   清场逐个删（科目留着会让 `cash_flow` 的「分类配置覆盖全科目」断言红 —— voucher.rs
 //!   的 `zz_teardown_purges_fixture_accounts` 就是为此存在的）。
+//! * **每条用例结束就清**（正常返回 / panic 都清）：用例体包在 [`case()`] 里，收尾挂在
+//!   外壳上。不靠「下一个用例开工时清」也不靠 `zz_` 名字排序最后跑 ——
+//!   `cargo test` 多线程时 libtest **不保证** `zz_` 最后执行，残留科目会把别的模块的
+//!   全表断言打成假红（实测 `cash_flow::tests::r3_real_config_covers_all_accounts`）。
 //!
 //! # 跑法
 //!
@@ -23,6 +27,7 @@
 //! ```
 #![cfg(test)]
 
+use futures_util::FutureExt;
 use nik::prelude::chrono::{NaiveDate, Utc};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
@@ -331,6 +336,50 @@ async fn setup() -> Option<tokio::sync::MutexGuard<'static, ()>> {
     }
     seed().await;
     Some(guard)
+}
+
+/// 用例外壳：取锁 + 建夹具 → 跑用例体 → **无条件清场** → panic 原样抛回。
+///
+/// # 为什么清场必须挂在外壳上（而不是写在用例体最后一行）
+///
+/// 本组夹具在 `biz_account` 里建了 `P21AUXA` / `P21AUXB` 两个科目，它们**没有**现金
+/// 流量分类行。过去清场只发生在两处：下一个用例开工前的 `seed()`、以及名字排在最后的
+/// `zz_p21_aux_teardown_purges_fixtures`。`cargo test` 默认多线程跑，libtest **不保证**
+/// `zz_` 最后执行 —— 于是本组跑完（甚至跑到一半）时科目还在库里，而
+/// `cash_flow::tests::r3_real_config_covers_all_accounts` 是**遍历 `biz_account` 全表**
+/// 的强断言（每个非现金科目都必须有分类行），两者一撞就红：
+/// 「分类配置漏科目：["P21AUXA …", "P21AUXB …"]」。
+///
+/// 把清场放进 `catch_unwind` 之后：**正常返回和 panic 两条路径都清**，用例仍然按原样
+/// 失败（`resume_unwind`，不吞红），也不依赖用例名排序。写法与 `tests/testd/common.rs`
+/// 的 `case()` 同源（`TD-` 前缀那套：崩了 → 下一个用例开工自愈 + 收尾断言残留为 0）。
+///
+/// 用法：
+///
+/// ```ignore
+/// #[tokio::test]
+/// async fn p21_xxx() {
+///     case(|| async {
+///         // 用例体（不再自己调 setup()）
+///     })
+///     .await;
+/// }
+/// ```
+async fn case<F, Fut>(body: F)
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let Some(_guard) = setup().await else {
+        return;
+    };
+    // AssertUnwindSafe：夹具跨 panic 边界后不再使用，用例体里被改坏的状态也不影响清场
+    // （清场只认本组固定 id 与前缀 + 进程级连接池）。
+    let outcome = std::panic::AssertUnwindSafe(body()).catch_unwind().await;
+    cleanup().await;
+    if let Err(payload) = outcome {
+        std::panic::resume_unwind(payload);
+    }
 }
 
 fn query(aux_type: &str, aux_id: Option<&str>) -> AuxBalanceQuery {
@@ -726,23 +775,23 @@ fn p21_biz_ctx_carries_material_lines_sorted() {
 /// 全程在一个事务里建夹具（物料 / 规则）并 `rollback`，不往共享库留痕。
 #[tokio::test]
 async fn p21_split_resolves_each_materials_own_inventory_account() {
-    let Some(_guard) = setup().await else { return };
-    let tx = db().begin().await.expect("开事务");
-    // 两个物料分别配「测试资产」与「测试负债」两个科目（科目本身由 seed 建好）
-    for (id, code, account_id) in [(MAT2, "P21AUX-M2", ACC_DR), (MAT3, "P21AUX-M3", ACC_CR)] {
-        tx.exec_sql(
-            format!(
-                "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, \
+    case(|| async {
+        let tx = db().begin().await.expect("开事务");
+        // 两个物料分别配「测试资产」与「测试负债」两个科目（科目本身由 seed 建好）
+        for (id, code, account_id) in [(MAT2, "P21AUX-M2", ACC_DR), (MAT3, "P21AUX-M3", ACC_CR)] {
+            tx.exec_sql(
+                format!(
+                    "INSERT INTO biz_material (id, material_code, material_name, unit_id, status, \
                                           inventory_account_id) \
                  VALUES ('{id}'::uuid, '{code}', '{code}', '{UNIT}'::uuid, 1, '{account_id}'::uuid)"
-            ),
-            vec![],
-        )
-        .await
-        .unwrap_or_else(|err| panic!("插入物料失败：{err}"));
-    }
-    // 模板：debit_account_id 故意留 NULL（这里才需要退到「该物料自己的存货科目」）
-    tx.exec_sql(
+                ),
+                vec![],
+            )
+            .await
+            .unwrap_or_else(|err| panic!("插入物料失败：{err}"));
+        }
+        // 模板：debit_account_id 故意留 NULL（这里才需要退到「该物料自己的存货科目」）
+        tx.exec_sql(
         "INSERT INTO biz_voucher_rule (rule_code, biz_type, debit_account_id, credit_account_id, \
                                        tax_account_id, is_active, remark) \
          VALUES ('P21AUX-NODEIBT', 'PURCHASE_IN', NULL, NULL, NULL, 1, \
@@ -753,38 +802,40 @@ async fn p21_split_resolves_each_materials_own_inventory_account() {
     .await
     .expect("插入映射规则失败");
 
-    let mut header = stockin_header_stub();
-    // 用一个别的期间，避开「期间已结账」类用例钉死的 2031-03
-    header.in_date = date("2031-07-15");
-    let ctx = VoucherBizCtx::of_stock_in(
-        &header,
-        vec![
-            mat_line(MAT2, "100", "1", 1, 1),
-            mat_line(MAT3, "100", "1", 2, 2),
-        ],
-    );
-    let voucher_id = create_by_rule(&tx, Some("P21AUX-NODEIBT"), &ctx, None, Utc::now())
-        .await
-        .expect("两个物料各有存货科目时必须能生成凭证");
-    let entries = entries_of(&tx, voucher_id).await.expect("读分录");
-    assert_eq!(entries.len(), 4, "含税 M=2 ⇒ 2 + 1 + 1 行");
-    assert_eq!(
-        entries[0].account.id,
-        uid(ACC_DR),
-        "MAT2 那行走它自己的存货科目"
-    );
-    assert_eq!(
-        entries[1].account.id,
-        uid(ACC_CR),
-        "MAT3 那行走它自己的存货科目（不是首个物料那个）"
-    );
-    assert_eq!(entries[0].aux_material_id, Some(uid(MAT2)));
-    assert_eq!(entries[1].aux_material_id, Some(uid(MAT3)));
-    assert_eq!(entries[0].debit, dec("100"));
-    assert_eq!(entries[1].debit, dec("100"));
-    // 贷方应付仍是按 DOC 一条（1405 由规则/默认解析，本用例不断言）
-    assert_eq!(entries[3].credit, dec("226"), "贷方 = 单头价税合计");
-    tx.rollback().await.expect("回滚");
+        let mut header = stockin_header_stub();
+        // 用一个别的期间，避开「期间已结账」类用例钉死的 2031-03
+        header.in_date = date("2031-07-15");
+        let ctx = VoucherBizCtx::of_stock_in(
+            &header,
+            vec![
+                mat_line(MAT2, "100", "1", 1, 1),
+                mat_line(MAT3, "100", "1", 2, 2),
+            ],
+        );
+        let voucher_id = create_by_rule(&tx, Some("P21AUX-NODEIBT"), &ctx, None, Utc::now())
+            .await
+            .expect("两个物料各有存货科目时必须能生成凭证");
+        let entries = entries_of(&tx, voucher_id).await.expect("读分录");
+        assert_eq!(entries.len(), 4, "含税 M=2 ⇒ 2 + 1 + 1 行");
+        assert_eq!(
+            entries[0].account.id,
+            uid(ACC_DR),
+            "MAT2 那行走它自己的存货科目"
+        );
+        assert_eq!(
+            entries[1].account.id,
+            uid(ACC_CR),
+            "MAT3 那行走它自己的存货科目（不是首个物料那个）"
+        );
+        assert_eq!(entries[0].aux_material_id, Some(uid(MAT2)));
+        assert_eq!(entries[1].aux_material_id, Some(uid(MAT3)));
+        assert_eq!(entries[0].debit, dec("100"));
+        assert_eq!(entries[1].debit, dec("100"));
+        // 贷方应付仍是按 DOC 一条（1405 由规则/默认解析，本用例不断言）
+        assert_eq!(entries[3].credit, dec("226"), "贷方 = 单头价税合计");
+        tx.rollback().await.expect("回滚");
+    })
+    .await;
 }
 
 /// 收货单头的测试替身（只填 `of_stock_in` 用到的字段）。
@@ -873,23 +924,23 @@ fn p21_reversed_lines_copy_aux_dimensions() {
 /// `post_voucher` → `biz_voucher_entry` 的四个辅助列落库并在 `entries_of` 里读回。
 #[tokio::test]
 async fn p21_entries_roundtrip_all_four_aux_columns() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    let fixture = fixtures().await;
-    let entries = entries_of(db(), fixture.material_debit).await.unwrap();
-    assert_eq!(entries.len(), 2);
-    let debit = &entries[0];
-    assert_eq!(debit.aux_material_id, Some(uid(MAT)), "物料辅助核算落库");
-    assert_eq!(debit.aux_warehouse_id, Some(uid(WH)), "仓库辅助核算落库");
-    assert_eq!(debit.aux_dept_id, None, "收货凭证不写部门");
-    let credit = &entries[1];
-    assert_eq!(credit.aux_supplier_id, Some(uid(SUP)));
-    assert_eq!(credit.aux_material_id, None);
+    case(|| async {
+        let fixture = fixtures().await;
+        let entries = entries_of(db(), fixture.material_debit).await.unwrap();
+        assert_eq!(entries.len(), 2);
+        let debit = &entries[0];
+        assert_eq!(debit.aux_material_id, Some(uid(MAT)), "物料辅助核算落库");
+        assert_eq!(debit.aux_warehouse_id, Some(uid(WH)), "仓库辅助核算落库");
+        assert_eq!(debit.aux_dept_id, None, "收货凭证不写部门");
+        let credit = &entries[1];
+        assert_eq!(credit.aux_supplier_id, Some(uid(SUP)));
+        assert_eq!(credit.aux_material_id, None);
 
-    // 付款口径的部门行同样能落库、能读回
-    let dept_entries = entries_of(db(), fixture.dept_debit).await.unwrap();
-    assert_eq!(dept_entries[0].aux_dept_id, Some(uid(DEPT)));
+        // 付款口径的部门行同样能落库、能读回
+        let dept_entries = entries_of(db(), fixture.dept_debit).await.unwrap();
+        assert_eq!(dept_entries[0].aux_dept_id, Some(uid(DEPT)));
+    })
+    .await;
 }
 
 // ==================== ⑤ 辅助账接口（真库） ====================
@@ -897,142 +948,142 @@ async fn p21_entries_roundtrip_all_four_aux_columns() {
 /// 按物料查：期初 / 本期 / 期末 + 名称回显。
 #[tokio::test]
 async fn p21_aux_balance_material_splits_opening_and_period() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("MATERIAL", Some(MAT)))
-        .await
-        .expect("按物料查辅助账");
-    assert_eq!(res.aux_type, "MATERIAL");
-    assert_eq!(res.aux_name.as_deref(), Some(MAT_NAME), "物料名称要回显");
-    assert_eq!(res.rows.len(), 1, "只有一个科目挂了这个物料");
-    let row = &res.rows[0];
-    assert_eq!(row.account_code, "P21AUXA");
-    assert_eq!(row.opening_debit, dec("25"), "2031-02 的 25 是期初");
-    assert_eq!(row.period_debit, dec("100"), "2031-03 的 100 是本期借方");
-    assert_eq!(row.period_credit, Decimal::ZERO);
-    assert_eq!(row.closing_debit, dec("125"));
-    assert_eq!(row.closing_credit, Decimal::ZERO);
-    assert_eq!(res.total_period_debit, dec("100"));
-    assert_eq!(res.total_closing_debit, dec("125"));
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("MATERIAL", Some(MAT)))
+            .await
+            .expect("按物料查辅助账");
+        assert_eq!(res.aux_type, "MATERIAL");
+        assert_eq!(res.aux_name.as_deref(), Some(MAT_NAME), "物料名称要回显");
+        assert_eq!(res.rows.len(), 1, "只有一个科目挂了这个物料");
+        let row = &res.rows[0];
+        assert_eq!(row.account_code, "P21AUXA");
+        assert_eq!(row.opening_debit, dec("25"), "2031-02 的 25 是期初");
+        assert_eq!(row.period_debit, dec("100"), "2031-03 的 100 是本期借方");
+        assert_eq!(row.period_credit, Decimal::ZERO);
+        assert_eq!(row.closing_debit, dec("125"));
+        assert_eq!(row.closing_credit, Decimal::ZERO);
+        assert_eq!(res.total_period_debit, dec("100"));
+        assert_eq!(res.total_closing_debit, dec("125"));
+    })
+    .await;
 }
 
 /// 不给 `aux_id`：该维度下每个辅助项各出一组行（按科目编码 + 辅助项 id 排序）。
 #[tokio::test]
 async fn p21_aux_balance_lists_all_items_of_a_dimension() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("MATERIAL", None))
-        .await
-        .expect("按维度列全部物料");
-    assert!(!res.rows.is_empty());
-    let material = res
-        .rows
-        .iter()
-        .find(|row| row.aux_id == MAT)
-        .expect("列表里必须有 P21AUX 物料");
-    assert_eq!(material.period_debit, dec("100"));
-    assert_eq!(material.aux_name.as_deref(), Some(MAT_NAME));
-    // 排序稳定：科目编码升序
-    let codes: Vec<&str> = res.rows.iter().map(|r| r.account_code.as_str()).collect();
-    let mut sorted = codes.clone();
-    sorted.sort_unstable();
-    assert_eq!(codes, sorted, "行必须按科目编码升序");
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("MATERIAL", None))
+            .await
+            .expect("按维度列全部物料");
+        assert!(!res.rows.is_empty());
+        let material = res
+            .rows
+            .iter()
+            .find(|row| row.aux_id == MAT)
+            .expect("列表里必须有 P21AUX 物料");
+        assert_eq!(material.period_debit, dec("100"));
+        assert_eq!(material.aux_name.as_deref(), Some(MAT_NAME));
+        // 排序稳定：科目编码升序
+        let codes: Vec<&str> = res.rows.iter().map(|r| r.account_code.as_str()).collect();
+        let mut sorted = codes.clone();
+        sorted.sort_unstable();
+        assert_eq!(codes, sorted, "行必须按科目编码升序");
+    })
+    .await;
 }
 
 /// 覆盖度自证：本期没挂该维度的发生额必须算出来（不能只回"有值的那些"）。
 #[tokio::test]
 async fn p21_aux_balance_reports_unassigned_amounts() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("MATERIAL", Some(MAT)))
-        .await
-        .expect("按物料查辅助账");
-    // 2031-03 里没有物料辅助核算的借方：V2 的 40（凭证行本身不挂料）+ V4 的 60（挂部门）
-    assert_eq!(
-        res.unassigned.period_debit,
-        dec("100"),
-        "未挂物料的借方合计 = 40 + 60"
-    );
-    assert!(
-        res.unassigned.entry_count >= 2,
-        "未挂物料的借方分录至少 2 行，实际 {}",
-        res.unassigned.entry_count
-    );
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("MATERIAL", Some(MAT)))
+            .await
+            .expect("按物料查辅助账");
+        // 2031-03 里没有物料辅助核算的借方：V2 的 40（凭证行本身不挂料）+ V4 的 60（挂部门）
+        assert_eq!(
+            res.unassigned.period_debit,
+            dec("100"),
+            "未挂物料的借方合计 = 40 + 60"
+        );
+        assert!(
+            res.unassigned.entry_count >= 2,
+            "未挂物料的借方分录至少 2 行，实际 {}",
+            res.unassigned.entry_count
+        );
+    })
+    .await;
 }
 
 /// 供应商维度：贷方发生额按供应商汇总，名称回显。
 #[tokio::test]
 async fn p21_aux_balance_supplier_sums_credit_side() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("SUPPLIER", Some(SUP)))
-        .await
-        .expect("按供应商查辅助账");
-    assert_eq!(res.aux_name.as_deref(), Some(SUP_NAME));
-    assert_eq!(res.rows.len(), 1);
-    assert_eq!(res.rows[0].period_credit, dec("140"), "100 + 40");
-    assert_eq!(res.rows[0].period_debit, Decimal::ZERO);
-    assert_eq!(res.rows[0].closing_credit, dec("140"));
-    assert_eq!(res.total_period_credit, dec("140"));
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("SUPPLIER", Some(SUP)))
+            .await
+            .expect("按供应商查辅助账");
+        assert_eq!(res.aux_name.as_deref(), Some(SUP_NAME));
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0].period_credit, dec("140"), "100 + 40");
+        assert_eq!(res.rows[0].period_debit, Decimal::ZERO);
+        assert_eq!(res.rows[0].closing_credit, dec("140"));
+        assert_eq!(res.total_period_credit, dec("140"));
+    })
+    .await;
 }
 
 /// 部门维度：付款凭证借方的部门辅助核算能被查出来（DC-11 的主诉求）。
 #[tokio::test]
 async fn p21_aux_balance_dept_reads_payment_dimension() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("DEPT", Some(DEPT)))
-        .await
-        .expect("按部门查辅助账");
-    assert_eq!(res.aux_name.as_deref(), Some(DEPT_NAME), "部门名称要回显");
-    assert_eq!(res.rows.len(), 1);
-    assert_eq!(res.rows[0].period_debit, dec("60"), "付款 60 记到采购部");
-    assert_eq!(res.rows[0].closing_debit, dec("60"));
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("DEPT", Some(DEPT)))
+            .await
+            .expect("按部门查辅助账");
+        assert_eq!(res.aux_name.as_deref(), Some(DEPT_NAME), "部门名称要回显");
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0].period_debit, dec("60"), "付款 60 记到采购部");
+        assert_eq!(res.rows[0].closing_debit, dec("60"));
+    })
+    .await;
 }
 
 /// 仓库维度：收货仓库的借方发生额。
 #[tokio::test]
 async fn p21_aux_balance_warehouse_reads_stock_in_dimension() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    fixtures().await;
-    let res = aux_balance(&query("WAREHOUSE", Some(WH)))
-        .await
-        .expect("按仓库查辅助账");
-    assert_eq!(res.aux_name.as_deref(), Some(WH_NAME));
-    assert_eq!(res.rows.len(), 1);
-    assert_eq!(res.rows[0].period_debit, dec("100"));
+    case(|| async {
+        fixtures().await;
+        let res = aux_balance(&query("WAREHOUSE", Some(WH)))
+            .await
+            .expect("按仓库查辅助账");
+        assert_eq!(res.aux_name.as_deref(), Some(WH_NAME));
+        assert_eq!(res.rows.len(), 1);
+        assert_eq!(res.rows[0].period_debit, dec("100"));
+    })
+    .await;
 }
 
 /// 期间的边界：`period_to` 之外的凭证不计入本期，也不会漏进未挂维度统计。
 #[tokio::test]
 async fn p21_aux_balance_respects_period_bounds() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    let fixture = fixtures().await;
-    let mut q = query("MATERIAL", Some(MAT));
-    q.period_from = Some("2031-03-01".to_string());
-    q.period_to = Some("2031-03-06".to_string());
-    let res = aux_balance(&q).await.expect("按日期区间查");
-    assert_eq!(
-        res.rows[0].period_debit,
-        dec("100"),
-        "V1 在 03-05，仍在区间内"
-    );
-    assert_eq!(res.rows[0].opening_debit, dec("25"), "03-01 之前的算期初");
-    let _ = (&fixture.plain_debit, &fixture.opening);
+    case(|| async {
+        let fixture = fixtures().await;
+        let mut q = query("MATERIAL", Some(MAT));
+        q.period_from = Some("2031-03-01".to_string());
+        q.period_to = Some("2031-03-06".to_string());
+        let res = aux_balance(&q).await.expect("按日期区间查");
+        assert_eq!(
+            res.rows[0].period_debit,
+            dec("100"),
+            "V1 在 03-05，仍在区间内"
+        );
+        assert_eq!(res.rows[0].opening_debit, dec("25"), "03-01 之前的算期初");
+        let _ = (&fixture.plain_debit, &fixture.opening);
+    })
+    .await;
 }
 
 /// 非法参数：`aux_type` 缺失 / 非法、`aux_id` 不是 UUID、`period_from > period_to` 都 400。
@@ -1074,30 +1125,33 @@ async fn p21_aux_balance_rejects_bad_params() {
 /// `user_dept_of`：有部门 → 部门 id；没有部门 / 用户不存在 → None（不报错）。
 #[tokio::test]
 async fn p21_user_dept_of_reads_sys_user_dept() {
-    let Some(_guard) = setup().await else {
-        return;
-    };
-    assert_eq!(
-        user_dept_of(db(), uid(USER)).await.unwrap(),
-        Some(uid(DEPT)),
-        "有部门的申请人"
-    );
-    assert_eq!(
-        user_dept_of(db(), uid(USER_NO_DEPT)).await.unwrap(),
-        None,
-        "没配部门的系统账号不报错，返回 None"
-    );
-    assert_eq!(
-        user_dept_of(db(), Uuid::now_v7()).await.unwrap(),
-        None,
-        "用户不存在也返回 None"
-    );
+    case(|| async {
+        assert_eq!(
+            user_dept_of(db(), uid(USER)).await.unwrap(),
+            Some(uid(DEPT)),
+            "有部门的申请人"
+        );
+        assert_eq!(
+            user_dept_of(db(), uid(USER_NO_DEPT)).await.unwrap(),
+            None,
+            "没配部门的系统账号不报错，返回 None"
+        );
+        assert_eq!(
+            user_dept_of(db(), Uuid::now_v7()).await.unwrap(),
+            None,
+            "用户不存在也返回 None"
+        );
+    })
+    .await;
 }
 
 // ==================== ⑦ 收尾清场 ====================
 
 /// 清场：本组的凭证 / 主数据 / 科目必须全部删掉（科目留着会让别的模块的
 /// 「分类配置覆盖全科目」断言红，与本模块既有的 `zz_teardown_purges_fixture_accounts` 同口径）。
+///
+/// **本用例是外部交叉验证，不再是唯一的清场闸门**：每条真库用例都包在 [`case()`] 里，
+/// 结束时（含 panic）自己清一遍；这里再独立查一次库，红了才说明「每例自清」漏了什么。
 #[tokio::test]
 async fn zz_p21_aux_teardown_purges_fixtures() {
     if !ensure_db().await {

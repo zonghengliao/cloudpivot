@@ -1494,7 +1494,9 @@ pub(crate) fn parse_period_id(raw: &str) -> Result<Uuid, ApiError> {
 // 1. 期间编码一律 `2031-xx` / `2032-xx`（生产在用 `2026-xx`）。**绝不结账 2026-10**：
 //    别的模块（report / income_statement / voucher_write）的夹具往 2026-10 记凭证，
 //    本模块把它封了，那些用例会立刻收到「期间已结账」的 400 —— 那是跨模块污染，不是它们的错。
-// 2. 串行（`DB_LOCK`）：清理按前缀删，并行会互删夹具。
+// 2. 串行（`DB_LOCK`）：清理按前缀删，并行会互删夹具。**本模块的 `DB_LOCK` 与
+//    `period_test_support::DB_LOCK` 是同一个对象**（两套夹具都碰 `2033-xx`，
+//    各拿一把锁时 `cleanup()` 会删掉对方正在用的行）。
 //
 // 夹具前缀：凭证号 `P1-V-`、采购单号 `P1-PO-`、状态日志靠期间编码识别。
 #[cfg(test)]
@@ -1503,8 +1505,12 @@ mod tests {
     use crate::business::erp::voucher::{AccountRef, EntryLine, PostVoucher};
     use crate::system::tests_support as ts;
 
-    /// 真库用例串行跑。
-    static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    // 真库用例串行跑。**必须是 `period_test_support` 那把锁的同一个对象**（见
+    // `period_test_support.rs` 头注释）：两套夹具都在 `2033-xx` 上工作，过去各拿一把
+    // 互不相识的锁 ⇒ `period::tests::cleanup()` 会把 `period_items::tests` 正在用的
+    // 2033-10 草稿凭证（以及 `stocktake_tests` 的 2033-03 单据与期间）删掉，实测把
+    // `period_items::tests::can_close_is_unaffected_by_items` 打成恒定假红。
+    use crate::business::erp::period_test_support::DB_LOCK;
     /// 夹具操作人（`closed_by` 是弱引用，不要求真实用户）。
     const TEST_UID: &str = "00000000-0000-7000-8000-0000000000a1";
 
