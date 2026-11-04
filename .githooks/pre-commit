@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# cloudpivot pre-commit：阻止密钥/口令明文进入 git
+# cloudpivot pre-commit
+#
+#   闸 1 · 密钥/口令明文不得进入 git（scripts/secret-scan.sh --staged）
+#   闸 2 · 库存三本账不得绕过唯一写入口直写（scripts/verify/inventory_write_gate.py，P2-5B）
 #
 # 安装（每个克隆执行一次）：
 #   git config core.hooksPath .githooks
 #
 # 设计：fail closed —— 扫描器不可用时拒绝提交，而不是静默放行。
+# 紧急绕过：git commit --no-verify（关掉全部闸）；或 SKIP_SECRET_SCAN=1 /
+#          SKIP_INVENTORY_GATE=1 只关掉其中一道（都会打 stderr）。
 set -uo pipefail
 
 ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
@@ -22,16 +27,47 @@ fi
 # 允许跳过：仅在明确知道自己在做什么时使用
 if [ "${SKIP_SECRET_SCAN:-0}" = "1" ]; then
   echo "! pre-commit: SKIP_SECRET_SCAN=1，跳过 secret 扫描（已记录到 stderr）" >&2
-  exit 0
+else
+  echo "▶ pre-commit secret 扫描（暂存区）"
+  bash "$SCAN" --staged
+  rc=$?
+  if [ "$rc" -ne 0 ]; then
+    echo "" >&2
+    echo "✘ 提交被拒绝：疑似密钥/口令明文。" >&2
+    echo "  处理方式：把密钥移出代码，改由环境变量注入（cloudpivot 约定 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
+    echo "  密钥文件放 /etc/cloudpivot/<env>.env 并 chmod 600；详见 .gitleaks.toml 顶部说明。" >&2
+    exit "$rc"
+  fi
 fi
 
-echo "▶ pre-commit secret 扫描（暂存区）"
-bash "$SCAN" --staged
-rc=$?
-[ "$rc" -eq 0 ] && exit 0
+# ---------------------------------------------------------------------------
+# 闸 2 · 库存三本账唯一写入口（P2-5B）
+#
+# 为什么放在提交前：这道闸是「口径只有一份」的最后一道保险。库存写错不会抛异常，
+# 只会在巡检里变成「账不对」，等发现时已经错了几个月。成本 ~1.4s（扫 341 个 .rs），
+# 无数据库依赖，所以放在 pre-commit 完全划算。
+# ---------------------------------------------------------------------------
+GATE="$ROOT/scripts/verify/inventory_write_gate.py"
+if [ "${SKIP_INVENTORY_GATE:-0}" = "1" ]; then
+  echo "! pre-commit: SKIP_INVENTORY_GATE=1，跳过库存写入口闸（已记录到 stderr）" >&2
+elif ! command -v python3 >/dev/null 2>&1; then
+  echo "✘ pre-commit: 找不到 python3，无法执行库存写入口闸，拒绝提交。" >&2
+  echo "  绕过（仅限紧急）：SKIP_INVENTORY_GATE=1 git commit …" >&2
+  exit 1
+elif [ ! -f "$GATE" ]; then
+  echo "✘ pre-commit: 找不到 $GATE，拒绝提交。" >&2
+  echo "  绕过（仅限紧急）：SKIP_INVENTORY_GATE=1 git commit …" >&2
+  exit 1
+else
+  echo "▶ pre-commit 库存三本账唯一写入口闸"
+  if ! python3 "$GATE"; then
+    echo "" >&2
+    echo "✘ 提交被拒绝：非测试代码里出现直写 biz_inventory / _location / _txn 的 SQL。" >&2
+    echo "  改法：把写语句搬进 backend/src/business/erp/inventory_writer.rs 的语义函数" >&2
+    echo "        （add_cost / subtract_cost / insert_txn …），业务侧只负责编排。" >&2
+    echo "  说明：docs/后端二开指南.md §十四；测试夹具不受限（*_tests.rs / #[cfg(test)]）。" >&2
+    exit 1
+  fi
+fi
 
-echo "" >&2
-echo "✘ 提交被拒绝：疑似密钥/口令明文。" >&2
-echo "  处理方式：把密钥移出代码，改由环境变量注入（cloudpivot 约定 ALUN_MIDDLEWARE_AUTH_JWT_SECRET 等），" >&2
-echo "  密钥文件放 /etc/cloudpivot/<env>.env 并 chmod 600；详见 .gitleaks.toml 顶部说明。" >&2
-exit "$rc"
+exit 0

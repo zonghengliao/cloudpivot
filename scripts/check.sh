@@ -305,9 +305,17 @@ fi
 # 整桶归零、`GREATEST(…,0)` 夹 0 这些口径只要有一处漂移，账不会当场报错，
 # 只会在巡检里变成「账不对」。写语句必须只在 `inventory_writer.rs` 里。
 #
-# 豁免：文件名含 test 的文件 + 文件内 `#[cfg(test)]` 之后的代码（夹具要能直写脏数据
-# 来造「被人手工改过账」的场景）。报告会给到 文件:行号:表名。
+# 豁免：明确的测试文件命名（`*_tests.rs` / `tests.rs` / `test_*.rs` …）+ 文件内
+# `#[cfg(test)]` 标记的项（花括号配对，只跳测试项本身，不再「到文件末尾全豁免」）+
+# 注释。**"文件名恰好包含 test 子串"不再豁免**（`latest_stock.rs` 会被正常扫描）。
+# 判定规则本身由 `--self-test` 的红/绿语料守住。
 # ======================================================================
+
+echo "==> 库存三本账唯一写入口闸 · 判据自检（--self-test）"
+if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py" --self-test; then
+    echo "==> 门禁自身失效：自检语料未全绿（判据被改坏了？）" >&2
+    exit 1
+fi
 
 echo "==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）"
 if ! python3 "$ROOT/scripts/verify/inventory_write_gate.py"; then
