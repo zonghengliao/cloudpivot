@@ -1574,20 +1574,96 @@ async fn check_login_rate(username: &str, ip: &str) -> std::result::Result<(), A
     let Some(store) = try_cache() else {
         return Ok(());
     };
+    check_login_rate_on(
+        store,
+        username,
+        ip,
+        constants::LOGIN_RATE_WINDOW_SECS,
+        constants::LOGIN_RATE_MAX_ATTEMPTS,
+    )
+    .await
+}
+
+/// [`check_login_rate`] 的实现体：缓存实例与窗口参数显式传入。
+///
+/// 拆成泛型函数是为了让单测用**短窗口 + 独立缓存实例**把「窗口过期后放行」跑出来，
+/// 同时不改动进程级全局缓存（lib 单测约定不调用 `set_cache()`，见 `system/menu/tests.rs`
+/// 的无缓存用例）。
+///
+/// # 参数
+///
+/// - `store`：缓存实现（进程内 `LocalCache` 与 `RedisCache` 语义一致）。
+/// - `username` / `ip`：限流维度（键为 `前缀 + 用户名:IP`）。
+/// - `window_secs`：窗口长度（秒，固定窗口：从窗口内首次尝试起算）。
+/// - `max_attempts`：窗口内允许的最大尝试次数（第 `max_attempts + 1` 次起返回 429）。
+///
+/// # 返回值
+///
+/// 未超限返回 `Ok(())`。
+///
+/// # 异常情况
+///
+/// 计数超过 `max_attempts` 返回 429；缓存读写失败时**放行**（限流器故障不能挡住正常登录）。
+///
+/// # 为什么用「窗口起点键 + 计数键」两个键
+///
+/// 计数键只靠 `INCR` 自增，而 `INCR` 本身没有修复 TTL 的能力：一旦某个计数键的 TTL
+/// 失效（首次写 TTL 失败，或缓存实现的 `incr` 不看过期时间——无 Redis 的进程内缓存在
+/// 旧版本里正是如此），计数就会永久停在阈值之上，账号被锁死到重启进程（卡 t_91a8d427）。
+/// 这里把「窗口起点」单独存成带 TTL 的键，窗口到点由它判定：起点键一过期就**不再读
+/// 计数键**，而是直接 `set_ex` 把计数摁回 1，因此无论计数键残留成什么样，限流器都不会
+/// 把账号永久锁死。
+async fn check_login_rate_on<C: Cache + ?Sized>(
+    store: &C,
+    username: &str,
+    ip: &str,
+    window_secs: u64,
+    max_attempts: i64,
+) -> std::result::Result<(), ApiError> {
     let key = format!("{}{}:{}", constants::CACHE_KEY_PREFIX_LOGIN, username, ip);
-    let count = match Cache::incr(store, &key, 1).await {
-        Ok(count) => count,
+    let window_key = format!("{key}:window");
+    let now = chrono::Utc::now().timestamp();
+
+    // 新窗口判定：起点键「不存在 / 已过期」都算新窗口。
+    // `Cache::get` 在两个后端上都把过期键当作未命中（进程内读时删、Redis 服务端过期），
+    // 因此这里不必自己算 TTL，也就不会出现「实现层的过期语义」分叉。
+    let new_window = match Cache::get::<i64>(store, &window_key).await {
+        Ok(Some(start)) => now.saturating_sub(start) >= window_secs as i64,
+        Ok(None) => true,
         Err(e) => {
-            tracing::warn!(error = %e, "登录限流计数失败，本次放行");
-            return Ok(());
+            tracing::warn!(
+                error = %e,
+                key = %window_key,
+                "读取登录限流窗口起点失败，本次沿用计数键自身 TTL"
+            );
+            false
         }
     };
-    if count == 1
-        && let Err(e) = Cache::set_ex(store, &key, &1i64, constants::LOGIN_RATE_WINDOW_SECS).await
-    {
-        tracing::warn!(error = %e, "设置登录限流窗口失败");
-    }
-    if count > constants::LOGIN_RATE_MAX_ATTEMPTS {
+
+    let count = if new_window {
+        // 新窗口：计数从 1 起算。这里刻意不用 incr —— 计数键上可能残留上一轮（或旧版本
+        // 留下的无 TTL）的值，只有 set_ex 能同时把「值」和「TTL」摁回原点。
+        if let Err(e) = Cache::set_ex(store, &key, &1i64, window_secs).await {
+            tracing::warn!(error = %e, key = %key, "重置登录限流计数失败，本次放行");
+            return Ok(());
+        }
+        // 起点键写失败只影响「下一次能否判定新窗口」；计数键自己带 TTL，仍会到期，
+        // 因此只告警、不放行也不拒绝（保持本次计数有效的语义）。
+        if let Err(e) = Cache::set_ex(store, &window_key, &now, window_secs).await {
+            tracing::warn!(error = %e, key = %window_key, "写入登录限流窗口起点失败");
+        }
+        1
+    } else {
+        match Cache::incr(store, &key, 1).await {
+            Ok(count) => count,
+            Err(e) => {
+                tracing::warn!(error = %e, "登录限流计数失败，本次放行");
+                return Ok(());
+            }
+        }
+    };
+
+    if count > max_attempts {
         return Err(ApiError::new(
             429,
             error_code::TOO_MANY_REQUESTS,
@@ -1662,4 +1738,155 @@ fn log_login_failure(
             detail: Some(serde_json::json!({ "reason": reason })),
         },
     );
+}
+
+// ==================== 单测 ====================
+// 只覆盖纯缓存逻辑（`check_login_rate_on`）：不碰库、不注册全局缓存。
+// 全局缓存一旦在 lib 单测里 `set_cache()`，`system/menu/tests.rs` 的「无缓存（无 Redis）」
+// 用例会当场失真，所以这里一律用独立 `LocalCache` 实例（与线上无 Redis 形态同实现）。
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    /// 单测专用缓存：独立实例（前缀隔离），不注册到全局。
+    fn local_cache() -> LocalCache {
+        LocalCache::new("auth-rate-test", 1024, 0)
+    }
+
+    /// 断言某次检查被限流（429 + TOO_MANY_REQUESTS）。
+    fn assert_429(result: std::result::Result<(), ApiError>) {
+        let err = result.expect_err("应被限流（429）");
+        assert_eq!(
+            err.status, 429,
+            "HTTP 状态码必须是 429，实际 {}",
+            err.status
+        );
+        assert_eq!(
+            err.code,
+            error_code::TOO_MANY_REQUESTS,
+            "业务错误码必须是 10005"
+        );
+    }
+
+    /// 卡面验收 ①：同一账号 + IP 连续 `MAX_ATTEMPTS` 次放行，第 `MAX+1` 次 429。
+    #[tokio::test]
+    async fn login_rate_blocks_after_max_attempts() {
+        let cache = local_cache();
+        let window = constants::LOGIN_RATE_WINDOW_SECS;
+        let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
+
+        for i in 1..=max {
+            let r = check_login_rate_on(&cache, "u_blocks", "1.2.3.4", window, max).await;
+            assert!(r.is_ok(), "第 {i} 次登录尝试不该被限流");
+        }
+        assert_429(check_login_rate_on(&cache, "u_blocks", "1.2.3.4", window, max).await);
+        // 超限后继续尝试仍是 429（不算进新窗口，也不会因为多次重试变成其它错误）
+        assert_429(check_login_rate_on(&cache, "u_blocks", "1.2.3.4", window, max).await);
+    }
+
+    /// 卡面验收 ②（本卡核心）：窗口过期后必须放行，且计数从 1 重新起算。
+    ///
+    /// 用 1 秒窗口把 60 秒的真实窗口等量缩短，断言的是同一段窗口判定逻辑。
+    #[tokio::test]
+    async fn login_rate_resets_after_window_expires() {
+        let cache = local_cache();
+        let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
+        let window = 1u64;
+
+        for _ in 1..=max {
+            check_login_rate_on(&cache, "u_reset", "1.2.3.4", window, max)
+                .await
+                .expect("窗口内未超限应放行");
+        }
+        assert_429(check_login_rate_on(&cache, "u_reset", "1.2.3.4", window, max).await);
+
+        // 等过窗口（窗口 1s + 100ms 余量）
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+
+        // 修复前：这里仍然 429（计数只增不减，永久锁死账号）
+        check_login_rate_on(&cache, "u_reset", "1.2.3.4", window, max)
+            .await
+            .expect("窗口过期后必须放行");
+
+        // 新窗口确实从 1 重新计数：再试 9 次仍放行（累计 10 次），第 11 次才 429
+        for i in 2..=max {
+            check_login_rate_on(&cache, "u_reset", "1.2.3.4", window, max)
+                .await
+                .unwrap_or_else(|_| panic!("新窗口第 {i} 次不该被限流"));
+        }
+        assert_429(check_login_rate_on(&cache, "u_reset", "1.2.3.4", window, max).await);
+    }
+
+    /// 回归：历史版本遗留的「无 TTL 且已超阈值」计数键不得让账号永久 429。
+    ///
+    /// 这既是事故现场的复刻（旧实现的 `incr` 建键不落 TTL），也钉住实现约定：
+    /// 没有窗口起点键 = 新窗口，残留计数会被 `set_ex` 覆盖，而不是继续累加。
+    #[tokio::test]
+    async fn login_rate_ignores_stale_counter_without_window_key() {
+        let cache = local_cache();
+        let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
+        let key = format!(
+            "{}{}:{}",
+            constants::CACHE_KEY_PREFIX_LOGIN,
+            "u_stale",
+            "5.6.7.8"
+        );
+
+        // 造事故现场：计数已远超阈值，且（旧实现是 incr 建键）永不过期
+        for _ in 0..(max + 47) {
+            Cache::incr(&cache, &key, 1).await.unwrap();
+        }
+        let stale: Option<i64> = Cache::get(&cache, &key).await.unwrap();
+        assert_eq!(stale, Some(max + 47), "前置条件：残留计数存在且无 TTL");
+
+        check_login_rate_on(&cache, "u_stale", "5.6.7.8", 60, max)
+            .await
+            .expect("没有窗口起点键时应视为新窗口并放行");
+
+        // 计数被摁回 1：还能再试 9 次（累计 10），第 11 次才 429
+        for i in 2..=max {
+            check_login_rate_on(&cache, "u_stale", "5.6.7.8", 60, max)
+                .await
+                .unwrap_or_else(|_| panic!("残留计数应被清零，第 {i} 次不该被限流"));
+        }
+        assert_429(check_login_rate_on(&cache, "u_stale", "5.6.7.8", 60, max).await);
+    }
+
+    /// 限流维度是「用户名 + IP」：换账号或换 IP 互不牵连（避免一人被锁波及全公司）。
+    #[tokio::test]
+    async fn login_rate_is_keyed_by_username_and_ip() {
+        let cache = local_cache();
+        let max = constants::LOGIN_RATE_MAX_ATTEMPTS;
+
+        for _ in 1..=max {
+            check_login_rate_on(&cache, "u_key", "1.1.1.1", 60, max)
+                .await
+                .unwrap();
+        }
+        assert_429(check_login_rate_on(&cache, "u_key", "1.1.1.1", 60, max).await);
+
+        // 同一账号换 IP、同一 IP 换账号，都该放行
+        check_login_rate_on(&cache, "u_key", "2.2.2.2", 60, max)
+            .await
+            .expect("同账号不同 IP 不该被牵连");
+        check_login_rate_on(&cache, "u_other", "1.1.1.1", 60, max)
+            .await
+            .expect("同 IP 不同账号不该被牵连");
+    }
+
+    /// 缓存不可用（无 Redis 且未注册缓存）时必须放行：限流器故障不能挡住登录。
+    #[tokio::test]
+    async fn login_rate_fails_open_without_cache_backend() {
+        assert!(
+            try_cache().is_none(),
+            "lib 单测不应注册全局缓存（若这里变红，说明有用例调用了 set_cache）"
+        );
+        for i in 1..=(constants::LOGIN_RATE_MAX_ATTEMPTS + 5) {
+            check_login_rate("u_nocache", "9.9.9.9")
+                .await
+                .unwrap_or_else(|_| panic!("无缓存后端时第 {i} 次必须放行"));
+        }
+    }
 }

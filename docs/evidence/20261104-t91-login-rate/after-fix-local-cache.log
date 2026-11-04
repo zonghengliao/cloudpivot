@@ -1,0 +1,25 @@
+== 修复后 · 本地缓存（无 Redis，18150）· 账号 probe_t91_after_local ==
+attempt#1 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#2 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#3 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#4 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#5 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#6 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#7 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#8 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#9 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#10 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#11 http=429 body={"code":10005,"msg":"登录尝试过于频繁，请稍后再试"}
+== 等待 LOGIN_RATE_WINDOW_SECS(60)+2s ==
+after-62s http=401 body={"code":20001,"msg":"用户名或密码错误"}   <== 必须不是 429
+== 新窗口确实从 1 重新计数：再打 9 次（累计第 2..10 次）==
+new-window#2 http=401
+new-window#3 http=401
+new-window#4 http=401
+new-window#5 http=401
+new-window#6 http=401
+new-window#7 http=401
+new-window#8 http=401
+new-window#9 http=401
+new-window#10 http=401
+new-window#11 http=429 body={"code":10005,"msg":"登录尝试过于频繁，请稍后再试"}   <== 必须 429

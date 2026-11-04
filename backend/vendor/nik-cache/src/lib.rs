@@ -4,8 +4,8 @@
 //! - `local` → 内存缓存（默认）
 //! - `redis` → Redis 缓存（需配置 redis_url）
 
-use nik_core::Result;
 use async_trait::async_trait;
+use nik_core::Result;
 use parking_lot::RwLock;
 use redis::aio::ConnectionManager;
 use serde::{Serialize, de::DeserializeOwned};
@@ -333,9 +333,27 @@ impl Cache for LocalCache {
         Ok(found)
     }
 
+    /// 计数自增：key 不存在**或已过期**时从 0 开始（与 Redis 的 `INCR` 一致）。
+    ///
+    /// # 为什么必须先判过期
+    ///
+    /// 过期清理是「读时删 + 后台扫」两路，`incr` 只做加法不看 `expires_at` 的话，
+    /// 一个「TTL 已到但还没被清理」的条目会被继续累加，而它的 `expires_at` 早在过去，
+    /// 于是计数**永久**停在阈值之上（登录限流曾因此在无 Redis 下 10 次后永久 429，
+    /// 只能重启进程；见仓库卡 t_91a8d427）。Redis 对已过期 key 做 `INCR` 是当它不存在，
+    /// 这里对齐该语义。
     async fn incr(&self, key: &str, delta: i64) -> Result<i64> {
         let key = self.prefixed(key);
         let mut guard = self.data.write();
+        let now = Instant::now();
+        let expired = guard
+            .get(&key)
+            .is_some_and(|entry| entry.expires_at.is_some_and(|exp| now > exp));
+        if expired {
+            // 计为一次过期清理，语义与 get/exists 的读时删一致
+            guard.remove(&key);
+            self.stats.expired_cleanups.fetch_add(1, Ordering::Relaxed);
+        }
         let entry = guard.entry(key).or_insert_with(|| CacheEntry {
             value: serde_json::Value::Number(serde_json::Number::from(0i64)),
             expires_at: None,
@@ -459,8 +477,7 @@ impl Cache for RedisCache {
 
     async fn set<T: Serialize + Send + Sync + ?Sized>(&self, key: &str, value: &T) -> Result<()> {
         let key = self.prefixed(key);
-        let json =
-            serde_json::to_string(value).map_err(|e| nik_core::Error::Msg(e.to_string()))?;
+        let json = serde_json::to_string(value).map_err(|e| nik_core::Error::Msg(e.to_string()))?;
         redis::cmd("SET")
             .arg(&key)
             .arg(&json)
@@ -476,8 +493,7 @@ impl Cache for RedisCache {
         ttl_secs: u64,
     ) -> Result<()> {
         let key = self.prefixed(key);
-        let json =
-            serde_json::to_string(value).map_err(|e| nik_core::Error::Msg(e.to_string()))?;
+        let json = serde_json::to_string(value).map_err(|e| nik_core::Error::Msg(e.to_string()))?;
         redis::cmd("SETEX")
             .arg(&key)
             .arg(ttl_secs)
@@ -928,6 +944,36 @@ mod tests {
         assert_eq!(c.incr("counter", 1).await.unwrap(), 1);
         assert_eq!(c.incr("counter", 5).await.unwrap(), 6);
         assert_eq!(c.incr("counter", -2).await.unwrap(), 4);
+    }
+
+    /// 已过 TTL 的计数键必须**从 0 重新开始**（对齐 Redis 的 `INCR`：过期键当不存在）。
+    ///
+    /// 回归用例：旧实现在过期条目上继续累加且不刷新 TTL，计数会永久停在阈值之上
+    /// （登录限流在无 Redis 下 10 次后永久 429，只能重启进程）。
+    #[tokio::test]
+    async fn test_incr_after_expiry_restarts_from_zero() {
+        let c = LocalCache::new("test", 100, 0);
+        c.set_ex("hit", &5i64, 1).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        assert_eq!(
+            c.incr("hit", 1).await.unwrap(),
+            1,
+            "过期键上的 incr 必须从 0 开始，而不是在过期值 5 上继续累加"
+        );
+    }
+
+    /// 窗口内的计数必须**保留原有 TTL**：incr 只加值、不刷新过期时间
+    /// （固定窗口语义 = 从首次尝试起算 `ttl_secs`），否则窗口会被高频重试无限延长。
+    #[tokio::test]
+    async fn test_incr_keeps_window_ttl() {
+        let c = LocalCache::new("test", 100, 0);
+        c.set_ex("win", &1i64, 1).await.unwrap();
+        assert_eq!(c.incr("win", 1).await.unwrap(), 2);
+        assert_eq!(c.incr("win", 1).await.unwrap(), 3);
+        tokio::time::sleep(Duration::from_millis(1100)).await;
+        let v: Option<i64> = c.get("win").await.unwrap();
+        assert_eq!(v, None, "incr 不该延长窗口：TTL 到期后计数必须整键消失");
+        assert_eq!(c.incr("win", 1).await.unwrap(), 1, "新窗口从 1 重新计数");
     }
 
     #[tokio::test]

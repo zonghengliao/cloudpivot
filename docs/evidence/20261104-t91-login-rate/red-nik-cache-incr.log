@@ -1,0 +1,26 @@
+   Compiling nik-cache v0.4.2 (/opt/cloudpivot/backend/vendor/nik-cache)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.32s
+     Running unittests src/lib.rs (/root/.hermes/profiles/backend-developer/cache/scratch/nikcache-target/debug/deps/nik_cache-d443b04aaf2d366f)
+
+running 3 tests
+test tests::test_incr ... ok
+test tests::test_incr_after_expiry_restarts_from_zero ... FAILED
+test tests::test_incr_keeps_window_ttl ... ok
+
+failures:
+
+---- tests::test_incr_after_expiry_restarts_from_zero stdout ----
+
+thread 'tests::test_incr_after_expiry_restarts_from_zero' (1630482) panicked at src/lib.rs:951:9:
+assertion `left == right` failed: 过期键上的 incr 必须从 0 开始，而不是在过期值 5 上继续累加
+  left: 6
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    tests::test_incr_after_expiry_restarts_from_zero
+
+test result: FAILED. 2 passed; 1 failed; 0 ignored; 0 measured; 9 filtered out; finished in 1.11s
+
+error: test failed, to rerun pass `--lib`

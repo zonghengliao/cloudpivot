@@ -1,0 +1,29 @@
+== 修复后 · Redis 后端 · 键 cloudpivot:login:rate:probe_t91_rds2:unknown ==
+attempt#1 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#2 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#3 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+   [redis] count=3 ttl=60s | window_start=1793787453 ttl=60s
+attempt#4 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#5 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#6 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#7 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#8 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#9 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#10 http=401 body={"code":20001,"msg":"用户名或密码错误"}
+attempt#11 http=429 body={"code":10005,"msg":"登录尝试过于频繁，请稍后再试"}
+   [redis] 超限现场 count=11 ttl=60s
+== 等待 62s（> LOGIN_RATE_WINDOW_SECS=60）==
+   [redis] 62s 后该用户残留键=[ ]  （Redis 按 TTL 自动删除）
+after-62s http=401 body={"code":20001,"msg":"用户名或密码错误"}   <== 必须不是 429
+   [redis] 新窗口 count=1 ttl=60s
+== 新窗口再打 9 次，第 11 次要再 429 ==
+new-window#2 http=401
+new-window#3 http=401
+new-window#4 http=401
+new-window#5 http=401
+new-window#6 http=401
+new-window#7 http=401
+new-window#8 http=401
+new-window#9 http=401
+new-window#10 http=401
+new-window#11 http=429 body={"code":10005,"msg":"登录尝试过于频繁，请稍后再试"}   <== 必须 429
