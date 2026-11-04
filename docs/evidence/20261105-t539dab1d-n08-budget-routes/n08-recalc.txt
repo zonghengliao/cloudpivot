@@ -1,0 +1,7 @@
+router registered paths: 90
+sys_menu menu_type=2 rows: 69
+MISSING: 0
+-- budget 三条 --
+/business/erp/budget: OK
+/business/erp/budget/mapping: OK
+/business/erp/budget/report: OK

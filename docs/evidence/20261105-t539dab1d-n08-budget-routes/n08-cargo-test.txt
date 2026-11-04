@@ -1,0 +1,10 @@
+    Finished `release` profile [optimized] target(s) in 0.10s
+     Running unittests src/lib.rs (/root/9a6e3d35-target/release/deps/cloudpivot-5d72281dd5b7809d)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N08] 90 条菜单路径全部能在前端路由里解析 ✓
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2466 filtered out; finished in 0.01s
+
