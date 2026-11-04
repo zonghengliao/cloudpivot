@@ -1,0 +1,81 @@
+[2026-11-04T18:16:29+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:16:30+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=3 WARN=0 INFO=4 checks=25(passed=20 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-11 应付来源入库单悬空/已软删 — 1 条: AP-20261104-000001(6a7b2c0d)
+  HIT BLOCKER DI-17 凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空） — 1 条: PZ-20261104-000001(f17f595e)
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: IN-20261104-000001(01a1a5a8)
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 1 条: FLW-20261104-8F76BE6F(01a1a5a8)
+  HIT INFO    DI-20 状态日志实体悬空（entity_type 指向的实体已软删/不存在） — 3 条: IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8)
+  ALERT blockers=3 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:16:31+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:16:32+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 2 条: D4-DI18-NOWAIVER(01a1f900), D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:16:33+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:16:34+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=0 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:16:35+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:16:37+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=1 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT WARN    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:16:38+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=2 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:16:39+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:17:30+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:17:31+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=3 WARN=0 INFO=4 checks=25(passed=20 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-11 应付来源入库单悬空/已软删 — 1 条: AP-20261104-000001(6a7b2c0d)
+  HIT BLOCKER DI-17 凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空） — 1 条: PZ-20261104-000001(f17f595e)
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: IN-20261104-000001(01a1a5a8)
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 1 条: FLW-20261104-8F76BE6F(01a1a5a8)
+  HIT INFO    DI-20 状态日志实体悬空（entity_type 指向的实体已软删/不存在） — 3 条: IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8)
+  ALERT blockers=3 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:17:34+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:17:35+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 2 条: D4-DI18-NOWAIVER(01a1f900), D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:17:37+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:17:39+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=0 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:17:41+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:17:43+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=1 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT WARN    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:17:45+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=2 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:17:47+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:18:00+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:18:03+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=3 WARN=0 INFO=4 checks=25(passed=20 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-11 应付来源入库单悬空/已软删 — 1 条: AP-20261104-000001(6a7b2c0d)
+  HIT BLOCKER DI-17 凭证来源悬空（source_type 指出的单据已软删/不存在，或类型有而 source_id 空） — 1 条: PZ-20261104-000001(f17f595e)
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: IN-20261104-000001(01a1a5a8)
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 1 条: FLW-20261104-8F76BE6F(01a1a5a8)
+  HIT INFO    DI-20 状态日志实体悬空（entity_type 指向的实体已软删/不存在） — 3 条: IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8), IN-20261104-000001(01a1a5a8)
+  ALERT blockers=3 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:18:05+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）
+[2026-11-04T18:18:07+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 2 条: D4-DI18-NOWAIVER(01a1f900), D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:18:09+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:18:10+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=1 WARN=0 INFO=0 checks=25(passed=24 skipped=0 failed=0) exit=1
+  HIT BLOCKER DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+  ALERT blockers=1 checks_failed=0 → （未配置 --notify-cmd：只写日志 + JSON 结果文件，通知接线留给 B2 卡）
+[2026-11-04T18:18:12+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-18 库存流水单据悬空（doc_id 指向的单据已软删/不存在；已核查豁免降 INFO） — 1 条: D4-DI18-WAIVER-0001(01a19108)
+[2026-11-04T18:18:15+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=1 INFO=1 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT WARN    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:18:16+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=2 checks=25(passed=24 skipped=0 failed=0) exit=0
+  HIT INFO    DI-19 流程实例业务单据悬空/缺 biz_id（按实例状态分级：PENDING=WARN、终态=INFO） — 2 条: FLW-D4-0001(01a1f900), FLW-D4-0002(01a1f900)
+[2026-11-04T18:18:18+08:00] db=cloudpivot_p26@127.0.0.1 BLOCKER=0 WARN=0 INFO=0 checks=25(passed=25 skipped=0 failed=0) exit=0
+  ALL PASS（本轮无 BLOCKER/WARN/INFO 命中）

@@ -1,0 +1,2 @@
+夹具行: 01a1f900-0000-7000-8000-0000000000e2 doc_no=D4-DI18-NOWAIVER doc_type=SERIAL_BATCH doc_id=01a1f900-0000-7000-8000-0000000000d1  目标已软删=true  在豁免台账=false
+夹具行: 01a19108-ee53-73c6-bdaa-0109614ea963 doc_no=D4-DI18-WAIVER-0001 doc_type=SERIAL_BATCH doc_id=01a1f900-0000-7000-8000-0000000000d1  目标已软删=true  在豁免台账=true

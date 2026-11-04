@@ -1,0 +1,47 @@
+########## A. 生产环境事实（只读）##########
+ubuntu-svr
+2026-11-04 18:14:48 CST
+0709e1b docs(evidence): 补 02/03 两份巡检日志证据（仓库 .gitignore 忽略 *.log，改 .txt 入库）
+-- 当前事务只读校验 --
+on
+-- c_di* 视图数量 / 全部 11 列 --
+c_di 视图数=25
+非 11 列的视图: （无）
+-- DI-18 豁免台账（唯一 1 行？）--
+ check_id |     src_table     |                src_id                | checked_on | expires_on | active 
+----------+-------------------+--------------------------------------+------------+------------+--------
+ DI-18    | biz_inventory_txn | 01a19108-ee53-73c6-bdaa-0109614ea963 | 2026-11-04 | 2027-02-04 | t
+(1 row)
+
+-- 线上视图定义是否 = 仓库 HEAD 口径 --
+c_di18 含[已核查豁免#]: true ; c_di18 含[current_date]: false ; c_di19 含[PENDING]: true
+-- 生产 SHOW row_security / 是否只读连接 --
+txid_current_if_assigned=(只读事务未分配 xid)
+
+########## B. DI-18 全行（2 条，含豁免前缀）##########
+      entity_no       | severity |                      snapshot_value                       |   truth_value   
+----------------------+----------+-----------------------------------------------------------+-----------------
+ DATAFIX-20261101-P14 | INFO     | ADJUST → (无实体表)                                       | NO_TARGET_TABLE
+ SN-20261031-000011   | INFO     | 已核查豁免#2026-11-04：SERIAL_BATCH → biz_material_serial | SOFT_DELETED
+(2 rows)
+
+
+########## C. DI-19 全行（47 条）按实例状态分布 ##########
+DI-19 行数=47  去重 entity_id=47
+  status   | severity | rows 
+-----------+----------+------
+ APPROVED  | INFO     |   27
+ CANCELLED | INFO     |   16
+ WITHDRAWN | INFO     |    3
+ REJECTED  | INFO     |    1
+(4 rows)
+
+（全部 47 行明细见 c-di19-all-rows.tsv，行数：51）
+
+########## D. DI-20 行数 ##########
+DI-20 行数=31  severity=INFO
+
+########## E. 与巡检 JSON 结果文件对账 ##########
+-rw-r--r-- 1 root root 13227 Nov  4 18:06 /var/log/cloudpivot/snapshot-audit.latest.json
+summary= {'blocker': 0, 'warn': 0, 'info': 80, 'checks_total': 25, 'checks_checked': 25, 'checks_skipped': 0, 'checks_failed': 0, 'checks_passed': 22, 'exit_code': 0}
+generated_at= 2026-11-04T18:06:03+08:00

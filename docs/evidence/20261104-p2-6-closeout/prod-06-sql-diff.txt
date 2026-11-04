@@ -1,0 +1,133 @@
+diff --git a/docs/architecture/snapshot-drift/10_checks.sql b/docs/architecture/snapshot-drift/10_checks.sql
+index bc2056c..2da494d 100644
+--- a/docs/architecture/snapshot-drift/10_checks.sql
++++ b/docs/architecture/snapshot-drift/10_checks.sql
+@@ -494,6 +494,40 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
+     ('FLOW_CC_SOURCE', 'EXPRESSION',         NULL, NULL, '规则树求值（本身不落库，落到具体来源）')
+   ) AS t(ref_domain, ref_type, target_table, soft_delete_col, note);
+ 
++-- ------------------------------------------------------------
++-- 已核查豁免台账：**精确到行**的「这条已核对过、不必再报」清单
++--   为什么是视图 + VALUES 而不是一张表（关键设计，别改成表）：
++--   豁免会永久关掉一条真实告警，所以它必须**走 git review + 发版**——
++--   改一行 = 一次提交 = 有人签字；而库里的一张表谁都能加一行（写行不用过 review），
++--   「谁能悄悄关掉告警」就等于「巡检守不住的东西」，这种口子不能开。
++--   三条硬约束（缺一不可，见设计文档 §2.4c）：
++--     ① 精确三元组 (check_id, src_table, src_id)：**禁止**按 doc_type / 表名 /
++--        前缀 / 通配豁免（那样一次豁免会顺手盖住未来所有同类真问题）；
++--     ② 必须写 reason（为什么可以不管）+ checked_by（谁核对的）+ checked_on（哪天）；
++--     ③ 必须写 expires_on：**到期自然失效、自动回红**，不靠人记得回来删。
++--   使用方式（其它巡检要豁免时照抄，把 check_id 换成自己的）：
++--     LEFT JOIN di.v_poly_ref_waiver w
++--            ON w.check_id = 'DI-xx' AND w.src_table = d.src_table
++--           AND w.src_id = d.src_id::text AND w.expires_on > current_date
++-- ------------------------------------------------------------
++CREATE OR REPLACE VIEW di.v_poly_ref_waiver AS
++SELECT check_id, src_table, src_id, reason, checked_by, checked_on, expires_on
++  FROM (VALUES
++    -- ① DI-18 / biz_inventory_txn / 01a19108-ee53-73c6-bdaa-0109614ea963
++    --    DATAFIX-20261101-P14：该批次 +10（2026-10-31 16:17:24 本行 IN）与修数 −10
++    --    （2026-11-01 00:20:44 doc_no=DATAFIX-20261101-P14 的 OUT）对平，
++    --    biz_inventory 该物料该仓现存 qty=0 / amount=0 / avg_cost=0，
++    --    修数前快照在 datafix_p14_snapshot（10 条序列号 + 1 条库存行）。
++    --    流水**必须保留**（审计证据），序列号软删是修数本意 ⇒ 它指向的序列号
++    --    永远「悬空」，属历史正常；到期（2027-02-04）自动回 ERROR 再复核一次。
++    ('DI-18', 'biz_inventory_txn', '01a19108-ee53-73c6-bdaa-0109614ea963',
++     'DATAFIX-20261101-P14 修数留档：+10/-10 对平、库存净 0、成本 0、修数前快照在 datafix_p14_snapshot；流水保留作审计证据',
++     'manong', DATE '2026-11-04', DATE '2027-02-04')
++  ) AS t(check_id, src_table, src_id, reason, checked_by, checked_on, expires_on);
++
++COMMENT ON VIEW di.v_poly_ref_waiver IS
++  '已核查豁免台账（精确到行 id + 带期限）：只允许 (check_id, src_table, src_id) 三元组全等匹配，到期（expires_on <= current_date）自动失效回红；豁免变更必须走 git review + 发版';
++
+ -- ------------------------------------------------------------
+ -- 悬空引用明细（本组 5 条巡检的公共取数层）
+ --   ref_shape: DANGLING（指向的行不存在/已软删）| MISSING_ID（有类型没 id）| NO_TARGET（无实体表却填了 id）
+@@ -1004,33 +1038,56 @@ COMMENT ON VIEW di.c_di17 IS
+   'DI-17 凭证来源悬空（BLOCKER，悬空=ERROR/缺 id=WARN）：source_type 指出的单据已软删/不存在，或类型有而 source_id 空 —— 审计证据链断了（ARCH-3 DC-08）';
+ 
+ -- ============================================================
+--- DI-18 库存流水单据悬空（BLOCKER）
++-- DI-18 库存流水单据悬空（BLOCKER，**已核查豁免可降级**）
+ --   为什么是 BLOCKER：库存流水是「账动了多少」的唯一审计证据，必须能回跳到造成它的单据
+ --   （收货 / 出库 / 调拨 / 序列号）。流水无源 ⇒ 账实不符时说不出「谁动的」。
+ --   分级：悬空 = ERROR；doc_type 本来没有实体表（OPENING/ADJUST）却填了 doc_id = INFO
+ --         （手工修数的痕迹，账本身是完整的，只是来源栏位填了个不存在的 id）。
++--   已核查豁免（D-1 收口口径）：命中行若在 di.v_poly_ref_waiver 里有**精确到行 id**
++--   且**未过期**的登记 ⇒ 降 INFO，并在 snapshot_value 前缀 `已核查豁免#<checked_on>：`
++--   （原值保留，可见性不能丢）。expires_on <= current_date 的那一刻，JOIN 不再命中，
++--   本行**自动回到 ERROR** —— 没有任何额外逻辑，也不靠人记得回来删豁免。
+ -- ============================================================
+ CREATE OR REPLACE VIEW di.c_di18 AS
+ SELECT 'DI-18'::text AS issue_code, 'INVENTORY_TXN'::text AS entity_type,
+        d.src_id AS entity_id, d.src_no AS entity_no, d.ref_field AS field_name,
+-       (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
++       (CASE WHEN w.src_id IS NOT NULL
++             THEN '已核查豁免#' || to_char(w.checked_on, 'YYYY-MM-DD') || '：'
++             ELSE '' END
++        || d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+        d.miss_kind::text AS truth_value,
+        d.truth_source,
+        'DEFECT'::text AS drift_kind,
+-       CASE WHEN d.ref_shape = 'NO_TARGET' THEN 'INFO' ELSE 'ERROR' END::text AS severity,
++       CASE WHEN w.src_id IS NOT NULL    THEN 'INFO'   -- 已核对并留档（带期限）
++            WHEN d.ref_shape = 'NO_TARGET' THEN 'INFO'  -- 本来没有实体表却填了 id
++            ELSE 'ERROR' END::text AS severity,
+        1 AS affected_count
+   FROM di.v_poly_ref_dangling d
++  LEFT JOIN di.v_poly_ref_waiver w
++         ON w.check_id = 'DI-18'
++        AND w.src_table = d.src_table
++        AND w.src_id = d.src_id::text
++        AND w.expires_on > current_date
+  WHERE d.ref_domain = 'TXN_DOC';
+ 
+ COMMENT ON VIEW di.c_di18 IS
+-  'DI-18 库存流水单据悬空（BLOCKER，悬空=ERROR/无实体表的 doc_type=INFO）：doc_type 指出的单据已软删/不存在（ARCH-3 DC-08）';
++  'DI-18 库存流水单据悬空（BLOCKER，悬空=ERROR/无实体表的 doc_type=INFO/已核查豁免=INFO）：doc_type 指出的单据已软删/不存在（ARCH-3 DC-08）；豁免只认 di.v_poly_ref_waiver 里精确到行 id 且未过期的登记，到期自动回 ERROR';
+ 
+ -- ============================================================
+--- DI-19 流程实例业务单据悬空（WARN）
+---   为什么是 WARN 而不是 BLOCKER：审批实例可能因为「单据归档 / 测试清场 / 历史清理」
+---   而指向已消失的单据，账与库存都不受影响；但它会让审批中心点进去 404、
+---   任务归属解析不到（TASK_OWNER 等变量渲染成空）。
+---   分级：悬空 = WARN；有类型无 biz_id = WARN（审批对象不明，审批人无法判断在批什么）。
++-- DI-19 流程实例业务单据悬空（**按实例状态分级**：PENDING=WARN / 终态=INFO）
++--   为什么不再一律 WARN：审批实例**不随业务对象删除而删**——
++--   任务删除只终止 PENDING 的那张审批（task_bridge.rs:650「任务已删除，审批单自动终止」），
++--   合同删除同理（contract_handler.rs::cancel_approval_of）。终态实例是**审计证据**
++--   （谁在什么时候批的），永远保留，所以「终态实例指向已删对象」是**历史正常**
++--   （与 T12 / R-P1-1 口径一致：审批终态 = 审批链的终点，可回溯，不随业务清场消失）。
++--   反之「PENDING 实例指向已删对象」= 活待办挂在死对象上，审批人批的是一个不存在的东西
++--   ⇒ 这才是需要人看的（WARN）。
++--   分级：DANGLING + 实例 status='PENDING' ⇒ WARN；
++--         DANGLING + 其它终态（APPROVED / CANCELLED / WITHDRAWN / REJECTED / 将来新增的）
++--         ⇒ INFO（**仍然列出**，可见性不能丢，只是不进告警队列）；
++--         MISSING_ID / NO_TARGET（有 biz_type 没 biz_id、或类型本无实体表）⇒ 保持 WARN
++--         （这类与实例状态无关，无法用「终态」解释）。
++--   注：实例行读不到（LEFT JOIN 落空，正常不会发生）⇒ 无法判断状态 ⇒ 宁可报 WARN。
+ -- ============================================================
+ CREATE OR REPLACE VIEW di.c_di19 AS
+ SELECT 'DI-19'::text AS issue_code, 'FLOW_INSTANCE'::text AS entity_type,
+@@ -1038,12 +1095,19 @@ SELECT 'DI-19'::text AS issue_code, 'FLOW_INSTANCE'::text AS entity_type,
+        (d.ref_type || ' → ' || coalesce(d.target_table, '(无实体表)'))::text AS snapshot_value,
+        d.miss_kind::text AS truth_value,
+        d.truth_source,
+-       'DEFECT'::text AS drift_kind, 'WARN'::text AS severity, 1 AS affected_count
++       'DEFECT'::text AS drift_kind,
++       CASE WHEN d.ref_shape <> 'DANGLING' THEN 'WARN'  -- 缺 id / 无实体表：与实例状态无关
++            WHEN i.id IS NULL            THEN 'WARN'   -- 判不出状态就不降级
++            WHEN i.status = 'PENDING'    THEN 'WARN'   -- 活待办挂在死对象上
++            ELSE 'INFO' END::text AS severity,         -- 终态实例：审计证据，历史正常
++       1 AS affected_count
+   FROM di.v_poly_ref_dangling d
++  LEFT JOIN biz_flow_instance i
++         ON d.src_table = 'biz_flow_instance' AND i.id = d.src_id
+  WHERE d.ref_domain = 'FLOW_BIZ';
+ 
+ COMMENT ON VIEW di.c_di19 IS
+-  'DI-19 流程实例绑定的业务单据悬空/缺 id（WARN）：审批挂在不存在的单据上，账不受影响但审批中心点进去 404（ARCH-3 DC-08）';
++  'DI-19 流程实例业务单据悬空（按实例状态分级：PENDING=WARN/终态=INFO，缺 biz_id 仍 WARN）：终态实例是审计证据、不随业务对象删除（T12/R-P1-1）；只有「活待办指向已删对象」才需要人看（ARCH-3 DC-08）';
+ 
+ -- ============================================================
+ -- DI-20 状态日志实体悬空（INFO，**故意不告警**）
