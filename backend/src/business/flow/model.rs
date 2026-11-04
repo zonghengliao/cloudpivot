@@ -376,39 +376,63 @@ impl TemplateRow {
     }
 }
 
-/// 模板库清单（未软删的全部定义，系统预置排前、再按分类 / 编码）。
+/// 标准流程清单的口径（P2-6b 收口后语义 = 「标准流程」列表）。
+///
+/// 「模板」不是实体，是 `biz_flow_def.is_system = TRUE` 这个**角色**（决策 A：合并概念），
+/// 所以这里不引入任何模板表，只区分「要不要混入客户另存为的副本」。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemplateScope {
+    /// 只看标准流程（`is_system = TRUE`）—— 接口默认口径。
+    Standard,
+    /// 标准流程 + 客户「另存为」出来的副本（`is_system = FALSE`）。
+    All,
+}
+
+/// 标准流程清单（未软删的定义，标准流程排前、再按分类 / 编码）。
 ///
 /// **一条 SQL 出全部数据**（含 `usage_count` 与 `view_version_id`）：
 /// 模板库是「一次看全」，逐条查使用次数会变成 N+1。
 ///
+/// # 口径（P2-6b：语义收口为「标准流程」，不是独立实体）
+///
+/// - [`TemplateScope::Standard`]：`WHERE d.deleted_at IS NULL AND d.is_system`；
+/// - [`TemplateScope::All`]：不过滤 `is_system`（标准流程 + 客户副本）；
+/// - **两种口径都不按 `status` 过滤**：标准流程可能被客户停用（`DISABLED`），
+///   一旦按状态过滤，它就从管理视图里消失、再也启用不回来；`status` 只给前端做标签展示。
+///
 /// # 异常情况
 ///
 /// 数据库异常 → [`DbError`]。
-pub async fn templates() -> DbResult<Vec<TemplateRow>> {
-    let rows = db()
-        .find(
-            "SELECT d.id, d.flow_code, d.flow_name, d.biz_type, d.category, d.description, \
-                    d.status, d.is_default, d.is_system, \
-                    COALESCE(d.current_version_id, lv.id) AS view_version_id, \
-                    CAST(COALESCE(v.version_no, lv.version_no, 0) AS int) AS view_version_no, \
-                    CAST(COALESCE(v.node_count, lv.node_count, 0) AS bigint) AS node_count, \
-                    CAST(COALESCE(v.edge_count, lv.edge_count, 0) AS bigint) AS edge_count, \
-                    CAST(COALESCE(u.usage_count, 0) AS bigint) AS usage_count, u.last_used_at \
-               FROM biz_flow_def d \
-               LEFT JOIN biz_flow_def_version v ON v.id = d.current_version_id \
-               LEFT JOIN LATERAL ( \
-                    SELECT l.id, l.version_no, l.node_count, l.edge_count \
-                      FROM biz_flow_def_version l WHERE l.def_id = d.id \
-                     ORDER BY l.version_no DESC LIMIT 1 \
-               ) lv ON TRUE \
-               LEFT JOIN ( \
-                    SELECT i.def_id, count(*) AS usage_count, max(i.started_at) AS last_used_at \
-                      FROM biz_flow_instance i WHERE i.deleted_at IS NULL GROUP BY i.def_id \
-               ) u ON u.def_id = d.id \
-              WHERE d.deleted_at IS NULL \
-              ORDER BY d.is_system DESC, d.category NULLS LAST, d.flow_code",
-        )
-        .await?;
+pub async fn templates(scope: TemplateScope) -> DbResult<Vec<TemplateRow>> {
+    // 只切 `is_system` 这一句（字面量常量拼接，无外部输入 → 无注入面），
+    // 其余 SQL 两种口径逐字一致，避免两份 SQL 漂移。
+    let scope_clause = match scope {
+        TemplateScope::Standard => " AND d.is_system",
+        TemplateScope::All => "",
+    };
+    let sql = format!(
+        "SELECT d.id, d.flow_code, d.flow_name, d.biz_type, d.category, d.description, \
+                d.status, d.is_default, d.is_system, \
+                COALESCE(d.current_version_id, lv.id) AS view_version_id, \
+                CAST(COALESCE(v.version_no, lv.version_no, 0) AS int) AS view_version_no, \
+                CAST(COALESCE(v.node_count, lv.node_count, 0) AS bigint) AS node_count, \
+                CAST(COALESCE(v.edge_count, lv.edge_count, 0) AS bigint) AS edge_count, \
+                CAST(COALESCE(u.usage_count, 0) AS bigint) AS usage_count, u.last_used_at \
+           FROM biz_flow_def d \
+           LEFT JOIN biz_flow_def_version v ON v.id = d.current_version_id \
+           LEFT JOIN LATERAL ( \
+                SELECT l.id, l.version_no, l.node_count, l.edge_count \
+                  FROM biz_flow_def_version l WHERE l.def_id = d.id \
+                 ORDER BY l.version_no DESC LIMIT 1 \
+           ) lv ON TRUE \
+           LEFT JOIN ( \
+                SELECT i.def_id, count(*) AS usage_count, max(i.started_at) AS last_used_at \
+                  FROM biz_flow_instance i WHERE i.deleted_at IS NULL GROUP BY i.def_id \
+           ) u ON u.def_id = d.id \
+          WHERE d.deleted_at IS NULL{scope_clause} \
+          ORDER BY d.is_system DESC, d.category NULLS LAST, d.flow_code"
+    );
+    let rows = db().find(&sql).await?;
     rows.iter().map(TemplateRow::from_row).collect()
 }
 

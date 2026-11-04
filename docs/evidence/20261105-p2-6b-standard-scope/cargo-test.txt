@@ -1,0 +1,31 @@
+== cargo test --lib business::flow ==
+test business::flow::timeout::tests::urge_interval_is_half_timeout_with_floor ... ok
+test business::flow::timeout::tests::three_consecutive_scans_remind_once ... ok
+test business::flow::timeout::tests::urge_interval_respected_after_elapsed ... ok
+
+test result: ok. 350 passed; 0 failed; 0 ignored; 0 measured; 2051 filtered out; finished in 0.11s
+
+
+== PFLOW5_DB_URL=postgres://alun:***@127.0.0.1:5432/cloudpivot_test_pflow5 cargo test --test pflow5 -- --test-threads=1 ==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/pflow5.rs (target/debug/deps/pflow5-95270ba44d4fcc13)
+
+running 15 tests
+test duplicate_conflict_on_existing_code ... ok
+test duplicate_creates_draft_copy_with_graph ... ok
+test duplicate_does_not_copy_instances ... ok
+test enable_refuses_draft_definitions ... ok
+test enable_restores_default_after_offline ... ok
+test offline_default_leaves_biz_type_without_default ... ok
+test offline_non_default_keeps_other_default ... ok
+test read_only_graph_endpoint_returns_nodes_edges ... ok
+test templates_default_scope_keeps_disabled_standard ... ok
+test templates_default_scope_only_returns_standard ... ok
+test templates_grouped_by_category ... ok
+test templates_legacy_include_mine_equals_scope_all ... ok
+test templates_marks_system_defs ... ok
+test templates_summary_from_condition_labels ... ok
+test templates_usage_count_from_instances ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 22.17s
+

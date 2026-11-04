@@ -1,0 +1,43 @@
+== P2-6 探针 @ cloudpivot_manual （后端 pid=2976259 http://127.0.0.1:8023）==
+H1     OK       expect=None       actual=11           标准流程列表「共 N 个」= templates API total
+H2     OK       expect=None       actual=11           接口实际返回的卡片数
+H3     OK       expect=None       actual=11           其中 is_system=TRUE（挂「标准」标签）
+H4     OK       expect=0          actual=0            其中 is_system=FALSE（默认口径下必须 0）
+H5     OK       expect=0          actual=0            默认口径里混进了非标准流程的数量（期望 0 = 过滤生效；注意库里若本来没有非系统行，这条没有证明力，须造副本或看 H12）
+H6     OK       expect=None       actual=7            按 category 的分组数
+H10    OK       expect=None       actual=14           ?scope=all 的 total（标准流程 + 客户副本）
+H11    OK       expect=None       actual=14           ?scope=all 实际返回条数
+H13    OK       expect=1          actual=1            scope=all 必须 ≥ 默认口径（1=是）
+H7     OK       expect=None       actual=14           流程定义页列表条数（同一张 biz_flow_def，含客户副本）
+H7t    OK       expect=None       actual=14           流程定义页 total 字段
+H8     OK       expect=1          actual=1            标准流程列表的每一条都能在流程定义页找到（1=是 → 两个入口仍是同一张表，不是另一张表）
+H9a    OK       expect=1          actual=1            默认口径 total = is_system=TRUE 条目数（1=是）
+H0     OK       expect=None       actual=po_approve         is_system=True  status=PUBLISHED  cat=采购管理     卡片明细
+H0     OK       expect=None       actual=stock_in_cancel    is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=stock_in_post      is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=stock_transfer     is_system=True  status=PUBLISHED  cat=仓库管理     卡片明细
+H0     OK       expect=None       actual=payable_cancel     is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=payable_pay        is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=voucher_reverse    is_system=True  status=PUBLISHED  cat=财务管理     卡片明细
+H0     OK       expect=None       actual=task_accept        is_system=True  status=PUBLISHED  cat=任务     卡片明细
+H0     OK       expect=None       actual=contract_approve   is_system=True  status=PUBLISHED  cat=合同管理     卡片明细
+H0     OK       expect=None       actual=stock_take_post    is_system=True  status=PUBLISHED  cat=库存管理     卡片明细
+H0     OK       expect=None       actual=flow_edge_config   is_system=True  status=PUBLISHED  cat=系统     卡片明细
+H9     OK       expect=None       actual=0            名称自称「标准」但 is_system=FALSE 的行数（口径不一致）
+D1     OK       expect=1          actual=1            有没有独立模板表（biz_flow_template / sys_flow_template / biz_flow_tpl 任一存在即 0）
+D2     OK       expect=None       actual=14           biz_flow_def 未软删行数
+D3     OK       expect=None       actual=11           其中 is_system=TRUE
+H12    OK       expect=11         actual=11           默认口径 total 必须 = 库里 is_system=TRUE 条数（N = 标准流程数）
+H14    OK       expect=14         actual=14           scope=all 的 total 必须 = 库里未软删定义数（标准流程 + 客户副本）
+D4     OK       expect=None       actual=15           流程版本行数
+D5     OK       expect=None       actual=0            审批实例数（def 被复用发起）
+D6     OK       expect=None       actual=2            sys_menu 里指向流程的两个页面节点数（2 = 两个入口一张表）
+D7     OK       expect=None       actual=1            其中 /flow/templates 是顶层节点（无父级）
+D8     OK       expect=None       actual=false / nullable=NO biz_flow_def.is_system 默认值 / 可空性
+D9     OK       expect=None       actual=(none)       biz_flow_def 里带 template/tpl/skeleton 字样的列（为空 = 模板只是 flag）
+D10    OK       expect=None       actual=(none)       库里「名称含标准但 is_system=FALSE」的行（应为 0）
+D11    OK       expect=1          actual=1            存在 biz_task_template（任务模板 = 独立实体，与流程侧形成反差）
+D12    OK       expect=None       actual=232          库里已应用的最大迁移号（新增迁移必须更大）
+-- 断言 39 条，FAIL=0
+-- 数据库：cloudpivot_manual
+-- 结论：FAIL=0 表示现状与决策文档描述一致；>0 先看是哪条变了

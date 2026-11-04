@@ -79,22 +79,25 @@ MISLABELED=$(q "select count(*) from biz_flow_def
 MISLABELED_LIST=$(q "select string_agg(flow_code || '(' || flow_name || ')', ' | ' order by flow_code)
                        from biz_flow_def
                       where deleted_at is null and not is_system and flow_name like '%标准%'")
-probe P2a "is_system=FALSE 却自称『标准』的行数（错标）" - "$MISLABELED"
-probe P2b "is_system=FALSE 的行里，『自称标准』的占比是否等于全部" "$SYS_FALSE" "$MISLABELED"
+# P2-6a 修完错标后，这里的不变量是「名字自称『标准』 ⇒ is_system 必须 TRUE」；
+# 反过来不再成立（`budget_approve` / `asset_disposal` 等预置流程名字里就没有『标准』两个字，
+# 它们 is_system=FALSE 属另一类问题，不由本探针判定）。
+probe P2a "is_system=FALSE 却自称『标准』的行数（错标，必须 0）" - "$MISLABELED"
+probe P2b "错标行数是否为 0（名字含『标准』的行都已标 is_system=TRUE）" 0 "$MISLABELED"
 
 # ---------- P3 客户真正自建的流程有多少（另存为副本 / 自定义编码） ----------
 CUSTOM=$(q "select count(*) from biz_flow_def
              where deleted_at is null and not is_system and flow_code like '%\_custom' escape '\'")
 probe P3a "另存为出来的副本数（flow_code 以 _custom 结尾）" 0 "$CUSTOM"
 
-# ---------- P4 模板库接口与流程定义列表是不是同一张表 ----------
-# model::templates() 的 WHERE 子句只有 deleted_at IS NULL —— 没有 is_system 过滤。
-# 静态核对：后端源码里 /def/templates 查询是否带了 is_system 条件。
+# ---------- P4 标准流程接口与流程定义列表是不是同一张表 ----------
+# P2-6b 之后：`model::templates(scope)` 在默认口径（`TemplateScope::Standard`）里带
+# `AND d.is_system`；`TemplateScope::All` 才不过滤。静态核对「过滤在不在」。
 SRC="$(dirname "$0")/../../backend/src/business/flow/model.rs"
 FILTER=$(grep -c 'is_system' "$SRC" 2>/dev/null || echo 0)
-WHERE_SYS=$(awk '/pub async fn templates\(\)/,/\.await\?/' "$SRC" 2>/dev/null \
-            | grep -c 'WHERE d\.deleted_at IS NULL' || true)
-probe P4a "model::templates() 的 WHERE 里没有 is_system 过滤（应 = 1）" 1 "$WHERE_SYS"
+WHERE_SYS=$(awk '/pub async fn templates\(/,/\}\);/' "$SRC" 2>/dev/null \
+            | grep -c 'AND d\.is_system' || true)
+probe P4a "model::templates() 标准口径带 is_system 过滤（应 = 1；P2-6b 前这里是 0）" 1 "$WHERE_SYS"
 
 # ---------- P5 菜单：模板库是顶层节点、流程定义在「审批流」组里 ----------
 MENU_TPL=$(q "select count(*) from sys_menu where path = '/flow/templates' and deleted_at is null" 2>/dev/null)

@@ -6,6 +6,9 @@
 //! |---|---|---|
 //! | `templates_grouped_by_category` | ① | 按 `category` 分组；采购管理组排在任务组之前；未知分类排最后 |
 //! | `templates_marks_system_defs` | ② | `is_system` 一 true 一 false，模板库如实下发 |
+//! | `templates_default_scope_only_returns_standard` | P2-6b | 默认口径只回 `is_system=TRUE`（N=库里标准流程数）；`scope=all` = 标准 + 客户副本 |
+//! | `templates_legacy_include_mine_equals_scope_all` | P2-6b | legacy `?include_mine=1` ≡ `scope=all`；`scope` 优先 |
+//! | `templates_default_scope_keeps_disabled_standard` | P2-6b | 停用（`DISABLED`）的标准流程仍出现在默认结果里 |
 //! | `templates_usage_count_from_instances` | ③ | 发起 2 单 → `usage_count = 2`、`last_used_at` 非空 |
 //! | `templates_summary_from_condition_labels` | ① 补充 | 卡片说明取条件分流标签（不是别的字段） |
 //! | `duplicate_creates_draft_copy_with_graph` | ④ | 副本 `DRAFT` / `is_system=false` / `is_default=false` / 节点边完整 |
@@ -28,7 +31,7 @@
 //! ```
 
 use axum::Json;
-use axum::extract::Path;
+use axum::extract::{Path, Query};
 use nik::prelude::*;
 use nik::uuid::Uuid;
 
@@ -241,15 +244,42 @@ async fn start_instance(f: &Fixture, def_id: Uuid, title: &str) -> Uuid {
     Uuid::parse_str(&data.instance_id).expect("instance id")
 }
 
-// ==================== 读模板库 ====================
+// ==================== 读标准流程列表 ====================
 
-/// 拉一次模板库，返回 `(groups, total)`。
-async fn load_templates() -> (Vec<flow_dto::TemplateGroupRes>, u64) {
-    let res = flow_handler::templates()
+/// 拉一次标准流程列表，返回 `(groups, total)`。
+///
+/// `scope` 由调用方给：P2-6b 收口后接口默认只回标准流程（`is_system = TRUE`），
+/// 本套夹具造的流程都是客户流程，所以既要标准口径的用例、也要 `all` 口径的用例。
+async fn load_templates(
+    scope: flow_model::TemplateScope,
+) -> (Vec<flow_dto::TemplateGroupRes>, u64) {
+    let query = flow_dto::TemplateQuery {
+        scope: Some(
+            match scope {
+                flow_model::TemplateScope::Standard => "standard",
+                flow_model::TemplateScope::All => "all",
+            }
+            .to_string(),
+        ),
+        include_mine: None,
+    };
+    let res = flow_handler::templates(Query(query))
         .await
-        .expect("模板库接口必须成功")
+        .expect("标准流程列表接口必须成功")
         .data
-        .expect("模板库必须返回数据");
+        .expect("标准流程列表必须返回数据");
+    (res.groups, res.total)
+}
+
+/// 拉一次默认口径（= 不传任何参数）的标准流程列表，返回 `(groups, total)`。
+///
+/// 走**真实缺省路径**（不是显式 `scope=standard`）：卡面要证明的是「不传参数时只回标准流程」。
+async fn load_templates_default() -> (Vec<flow_dto::TemplateGroupRes>, u64) {
+    let res = flow_handler::templates(Query(flow_dto::TemplateQuery::default()))
+        .await
+        .expect("标准流程列表接口必须成功（缺省口径）")
+        .data
+        .expect("标准流程列表必须返回数据");
     (res.groups, res.total)
 }
 
@@ -296,7 +326,7 @@ async fn templates_grouped_by_category() {
     )
     .await;
 
-    let (groups, total) = load_templates().await;
+    let (groups, total) = load_templates(flow_model::TemplateScope::All).await;
     assert!(total >= 3, "模板库至少包含本用例的 3 条（实际 {total}）");
 
     // 每条都在自己 category 的组里
@@ -365,7 +395,7 @@ async fn templates_marks_system_defs() {
     .await
     .expect("打系统标记");
 
-    let (groups, _) = load_templates().await;
+    let (groups, _) = load_templates(flow_model::TemplateScope::All).await;
     let system_item = find_item(&groups, system_id).expect("系统流程必须在模板库里");
     let custom_item = find_item(&groups, custom_id).expect("客户流程必须在模板库里");
     assert!(
@@ -373,6 +403,181 @@ async fn templates_marks_system_defs() {
         "预置流程必须 is_system = true（前端标「标准」）"
     );
     assert!(!custom_item.is_system, "客户自建流程必须 is_system = false");
+
+    f.cleanup().await;
+}
+
+// ==================== ②' P2-6b：默认口径只回标准流程 ====================
+
+/// 扁平化分组里的全部条目。
+fn flatten(groups: &[flow_dto::TemplateGroupRes]) -> Vec<flow_dto::TemplateItemRes> {
+    groups
+        .iter()
+        .flat_map(|group| group.items.iter().cloned())
+        .collect()
+}
+
+/// 库里某个口径的行数（用来把「N = 标准流程数」钉在真实数据上，而不是写死数字）。
+async fn count_defs(where_sql: &str) -> i64 {
+    db().scalar_with_params::<i64>(
+        &format!("SELECT count(*) AS total FROM biz_flow_def WHERE deleted_at IS NULL {where_sql}"),
+        Vec::new(),
+    )
+    .await
+    .expect("统计流程定义条数")
+}
+
+/// P2-6b 主断言：**不传参数**只回标准流程；`?scope=all` = 标准流程 + 客户副本。
+#[tokio::test]
+async fn templates_default_scope_only_returns_standard() {
+    let Some(()) = ready().await else { return };
+    let f = Fixture::new("scope").await;
+    f.reset().await;
+
+    let (std_id, _) = make_def(&f, "std", "PFLOW5_SCOPE_STD", "采购管理", false, true).await;
+    let (cust_id, _) = make_def(&f, "cust", "PFLOW5_SCOPE_CUST", "采购管理", false, true).await;
+    // 其中一条是标准流程（种子迁移的口径：`is_system` 显式写 TRUE）
+    db().execute_with_params(
+        "UPDATE biz_flow_def SET is_system = TRUE WHERE id = ?::uuid",
+        vec![Value::from(&std_id)],
+    )
+    .await
+    .expect("打标准标记");
+
+    // ---- 默认口径（不传 scope / include_mine）----
+    let (groups, total) = load_templates_default().await;
+    let items = flatten(&groups);
+    assert!(
+        find_item(&groups, std_id).is_some(),
+        "标准流程必须出现在默认结果里"
+    );
+    assert!(
+        find_item(&groups, cust_id).is_none(),
+        "客户副本（is_system=false）不能出现在默认结果里"
+    );
+    assert_eq!(
+        items.iter().filter(|item| !item.is_system).count(),
+        0,
+        "默认口径下 is_system=false 的条目数必须为 0（实际 {} 条）",
+        items.iter().filter(|item| !item.is_system).count()
+    );
+    let standard_rows = count_defs("AND is_system").await as u64;
+    assert_eq!(
+        total, standard_rows,
+        "默认口径 total 必须等于库里标准流程数（is_system=TRUE）"
+    );
+    assert_eq!(items.len() as u64, total, "分组条目合计必须等于 total");
+
+    // ---- scope=all：标准 + 客户副本 ----
+    let (all_groups, all_total) = load_templates(flow_model::TemplateScope::All).await;
+    let all_items = flatten(&all_groups);
+    assert!(
+        find_item(&all_groups, cust_id).is_some(),
+        "scope=all 必须回出客户副本"
+    );
+    assert!(
+        find_item(&all_groups, std_id).is_some(),
+        "scope=all 也必须包含标准流程"
+    );
+    let all_rows = count_defs("").await as u64;
+    assert_eq!(
+        all_total, all_rows,
+        "scope=all 的 total 必须等于库里全部未软删流程数"
+    );
+    assert_eq!(
+        all_total,
+        standard_rows + count_defs("AND NOT is_system").await as u64,
+        "scope=all = 标准流程 + 客户副本"
+    );
+    assert_eq!(all_items.len() as u64, all_total);
+    // all ⊇ standard（一条 standard 条目都不能在 all 里丢）
+    for item in &items {
+        assert!(
+            all_items.iter().any(|other| other.id == item.id),
+            "标准流程 {} 在 scope=all 里必须仍然存在",
+            item.flow_code
+        );
+    }
+
+    f.cleanup().await;
+}
+
+/// 兼容口径：legacy `?include_mine=1` ≡ `scope=all`，且 `scope` 优先。
+#[tokio::test]
+async fn templates_legacy_include_mine_equals_scope_all() {
+    let Some(()) = ready().await else { return };
+    let f = Fixture::new("legacy").await;
+    f.reset().await;
+
+    // 造一条客户副本（不标 is_system）
+    let (cust_id, _) = make_def(&f, "mine", "PFLOW5_LEGACY_MINE", "任务", false, true).await;
+
+    let pull = |scope: Option<&str>, include_mine: Option<&str>| {
+        let query = flow_dto::TemplateQuery {
+            scope: scope.map(str::to_string),
+            include_mine: include_mine.map(str::to_string),
+        };
+        async move {
+            flow_handler::templates(Query(query))
+                .await
+                .expect("口径查询必须成功")
+                .data
+                .expect("必须返回数据")
+        }
+    };
+
+    let via_include_mine = pull(None, Some("1")).await;
+    let via_scope_all = pull(Some("all"), None).await;
+    assert_eq!(
+        via_include_mine.total, via_scope_all.total,
+        "include_mine=1 必须与 scope=all 等价"
+    );
+    assert!(
+        find_item(&via_include_mine.groups, cust_id).is_some(),
+        "include_mine=1 必须回出客户副本"
+    );
+
+    // scope 优先：显式 standard + include_mine=1 → 仍然只回标准流程
+    let both = pull(Some("standard"), Some("1")).await;
+    assert!(
+        find_item(&both.groups, cust_id).is_none(),
+        "scope=standard 优先于 include_mine=1，客户副本不能出现"
+    );
+    assert_eq!(
+        both.groups
+            .iter()
+            .flat_map(|g| g.items.iter())
+            .filter(|i| !i.is_system)
+            .count(),
+        0
+    );
+
+    f.cleanup().await;
+}
+
+/// 「停用的标准流程仍出现在默认结果里」—— 一旦按 status 过滤，它就再也启用不回来。
+#[tokio::test]
+async fn templates_default_scope_keeps_disabled_standard() {
+    let Some(()) = ready().await else { return };
+    let f = Fixture::new("offline").await;
+    f.reset().await;
+
+    let (std_id, _) = make_def(&f, "off", "PFLOW5_SCOPE_OFF", "财务管理", false, true).await;
+    db().execute_with_params(
+        "UPDATE biz_flow_def SET is_system = TRUE, status = 'DISABLED' WHERE id = ?::uuid",
+        vec![Value::from(&std_id)],
+    )
+    .await
+    .expect("停用标准流程");
+
+    let (groups, _) = load_templates_default().await;
+    let item = find_item(&groups, std_id)
+        .expect("停用（DISABLED）的标准流程必须仍在默认结果里，否则用户再也启用不回来");
+    assert_eq!(
+        item.status, "DISABLED",
+        "状态如实下发（前端据此显示「已停用」标签）"
+    );
+    assert!(item.is_system, "停用不改 is_system：它仍是标准流程");
 
     f.cleanup().await;
 }
@@ -391,7 +596,7 @@ async fn templates_usage_count_from_instances() {
     start_instance(&f, def_id, "PFLOW5 用一次").await;
     start_instance(&f, def_id, "PFLOW5 用两次").await;
 
-    let (groups, _) = load_templates().await;
+    let (groups, _) = load_templates(flow_model::TemplateScope::All).await;
     let used = find_item(&groups, def_id).expect("用过的流程在模板库");
     let idle = find_item(&groups, idle_id).expect("没用的流程也在模板库");
     assert_eq!(
@@ -444,7 +649,7 @@ async fn templates_summary_from_condition_labels() {
     .await
     .expect("补一条网关中转边");
 
-    let (groups, _) = load_templates().await;
+    let (groups, _) = load_templates(flow_model::TemplateScope::All).await;
     let item = find_item(&groups, def_id).expect("流程在模板库里");
     assert!(
         item.summary.contains("金额 < 10000"),

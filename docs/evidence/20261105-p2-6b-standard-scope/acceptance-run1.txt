@@ -1,0 +1,29 @@
+== P2-6b 验收 @ cloudpivot_manual (http://127.0.0.1:8023) ==
+-- 基线：未软删流程 13 条（is_system=TRUE 11 / FALSE 2）
+B1     OK     默认口径 HTTP 200
+  [默认/调整前] total=11 条目=11 is_system=false=0 分组=7
+B2     OK     调整前默认口径 is_system=false 条目数 expect=0 actual=0
+-- 另存为：源 stock_transfer id=20000000-0000-4000-8000-00000000d157 → 新编码 stock_transfer_custom
+D0     OK     duplicate HTTP 200 flow_code=stock_transfer_custom is_system=False status=DRAFT
+D1     OK     DB 侧副本已入库：is_system=false 条数 expect=3 actual=3（库里有非系统行，接口却一条不返 → 过滤器真在起作用）
+  [默认/副本存在] total=11 条目=11 is_system=false=0 分组=7
+D2     OK     默认口径 is_system=false 条目数 expect=0 actual=0（DB 里却有 1 条 → 过滤真的生效）
+D3     OK     默认口径不含副本 stock_transfer_custom（actual 含=False）
+D4     OK     默认口径 total=标准流程数 expect=11 actual=11
+D5     OK     ?include_mine=1 回出副本 expect=True actual=True total=14
+  [scope=all] total=14 条目=14 is_system=false=3 分组=7
+       非标准条目：stock_transfer_custom status=DRAFT
+       非标准条目：asset_disposal status=PUBLISHED
+       非标准条目：budget_approve status=PUBLISHED
+D6     OK     ?scope=all 回出副本 actual=True total=14
+D7     OK     include_mine=1 与 scope=all 等价 expect=14 actual=14
+D8     OK     scope=all total=基线+1 expect=14 actual=14
+D9     OK     scope=standard 优先于 include_mine=1（副本出现=False）
+D10    OK     非法 scope → HTTP 400 code=65005（期望 400 / 65005） msg=scope mine 非法（只允许 standard / all）
+D11    OK     停用的标准流程仍出现在默认结果里（命中 1 条，status=DISABLED）
+D12    OK     停用操作不影响 is_system 过滤
+D13    OK     已还原 voucher_reverse 状态 expect=PUBLISHED actual=PUBLISHED
+C1     OK     副本已硬删（残留行 expect=0 actual=0）
+C2     OK     库回到基线：行数 13=13 / 标准 11=11
+C3     OK     清理后默认口径 total=11（= 标准流程数 11）
+-- 断言 19 条，FAIL=0

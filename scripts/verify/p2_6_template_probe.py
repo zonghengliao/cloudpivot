@@ -11,6 +11,12 @@
 
 探的是**真实在跑的那个实例**（默认 http://127.0.0.1:8023）和它连的那个库
 （从 /proc/<pid>/environ 读 NIK_DATABASE_*，找不到再用 psql 默认 admin 库）。
+
+**P2-6b 之后的契约**（口径已收口，别再用旧断言读它）：
+- `GET /business/flow/def/templates` 默认 = **标准流程列表**（`is_system = TRUE`），
+  `?scope=all`（legacy `?include_mine=1`）才带客户副本；
+- 所以 H4/H5 恒为 0 是对的；证明「过滤真的生效」要看 **H12**
+  （接口 total == 库里 `is_system=TRUE` 条数）与「库里确实存在非系统行」时的 H5=0。
 """
 
 import json
@@ -87,19 +93,30 @@ def main():
         print("登录失败，无法继续 HTTP 断言：", login)
         return 2
 
+    # P2-6b 之后：默认口径（不传参数）**只回标准流程**（`is_system = TRUE`），
+    # 所以 H4/H5 恒为 0 才是对的；「全量」要显式带 `?scope=all`（legacy `?include_mine=1` 同义）。
     tpl = http("GET", "/api/business/flow/def/templates", token)
     tpl_data = tpl.get("data") or {}
     groups = tpl_data.get("groups") or []
     items = [it for g in groups for it in g.get("items") or []]
     total = tpl_data.get("total")
-    rec("H1", None, total, "模板库页「共 N 个模板」= templates API total")
+    rec("H1", None, total, "标准流程列表「共 N 个」= templates API total")
     rec("H2", None, len(items), "接口实际返回的卡片数")
     sys_items = [it for it in items if it.get("is_system")]
     non_sys = [it for it in items if not it.get("is_system")]
     rec("H3", None, len(sys_items), "其中 is_system=TRUE（挂「标准」标签）")
-    rec("H4", None, len(non_sys), "其中 is_system=FALSE（无「标准」标签，却也算「模板」）")
-    rec("H5", 0, len(non_sys), "「模板库」里混进了非系统预置流程的数量（期望 0 = 概念干净）")
+    rec("H4", 0, len(non_sys), "其中 is_system=FALSE（默认口径下必须 0）")
+    rec("H5", 0, len(non_sys), "默认口径里混进了非标准流程的数量（期望 0 = 过滤生效；注意库里若本来没有非系统行，这条没有证明力，须造副本或看 H12）")
     rec("H6", None, len(groups), "按 category 的分组数")
+
+    # `?scope=all`：标准流程 + 客户副本（P2-6b 新增口径）
+    allp = http("GET", "/api/business/flow/def/templates?scope=all", token)
+    all_data = allp.get("data") or {}
+    all_items = [it for g in all_data.get("groups") or [] for it in g.get("items") or []]
+    all_total = all_data.get("total")
+    rec("H10", None, all_total, "?scope=all 的 total（标准流程 + 客户副本）")
+    rec("H11", None, len(all_items), "?scope=all 实际返回条数")
+    rec("H13", 1, int((all_total or 0) >= (total or 0)), "scope=all 必须 ≥ 默认口径（1=是）")
 
     # 流程定义页（同一张表的另一个入口）
     dp = http("GET", "/api/business/flow/def/page?page=1&page_size=100", token)
@@ -108,9 +125,18 @@ def main():
     # 拿到 0 行得出「两个页面不是同一批行」的假结论。
     dp_items = dp_data.get("list") or []
     dp_total = dp_data.get("total")
-    rec("H7", None, len(dp_items), "流程定义页列表条数（同一张 biz_flow_def）")
+    rec("H7", None, len(dp_items), "流程定义页列表条数（同一张 biz_flow_def，含客户副本）")
     rec("H7t", None, dp_total, "流程定义页 total 字段")
-    rec("H8", 1, int(total == len(dp_items)), "两个页面看到的是不是同一批行（1=是 → 两个入口一张表）")
+    # P2-6b 前这里断言「两个页面条数相等」；收口后标准流程视图是流程定义页的**子集视图**，
+    # 相等不再是契约 —— 改为「templates 条目 ⊂ 流程定义页条目」，且默认口径恰好是全量里的标准流程。
+    dp_ids = {it.get("id") for it in dp_items}
+    rec(
+        "H8",
+        1,
+        int(all(it.get("id") in dp_ids for it in items)),
+        "标准流程列表的每一条都能在流程定义页找到（1=是 → 两个入口仍是同一张表，不是另一张表）",
+    )
+    rec("H9a", 1, int(total == len(sys_items)), "默认口径 total = is_system=TRUE 条目数（1=是）")
 
     # 卡片级明细：让证据可逐条核对（谁在「模板库」里、带不带「标准」标签）
     for it in items:
@@ -131,10 +157,13 @@ def main():
     # ---------------- DB 侧：结构事实 ----------------
     rec("D1", 1, int(psql(db, "select count(*) from information_schema.tables where table_schema='public' and table_name in ('biz_flow_template','sys_flow_template','biz_flow_tpl')", pwd) == "0"),
         "有没有独立模板表（biz_flow_template / sys_flow_template / biz_flow_tpl 任一存在即 0）")
-    rec("D2", None, psql(db, "select count(*) from biz_flow_def where deleted_at is null", pwd),
-        "biz_flow_def 未软删行数")
-    rec("D3", None, psql(db, "select count(*) from biz_flow_def where deleted_at is null and is_system", pwd),
-        "其中 is_system=TRUE")
+    d2_all = psql(db, "select count(*) from biz_flow_def where deleted_at is null", pwd)
+    d3_sys = psql(db, "select count(*) from biz_flow_def where deleted_at is null and is_system", pwd)
+    rec("D2", None, d2_all, "biz_flow_def 未软删行数")
+    rec("D3", None, d3_sys, "其中 is_system=TRUE")
+    # P2-6b 硬断言：接口口径与库内事实逐字对齐（N = 标准流程数这一条就靠它钉住）
+    rec("H12", int(d3_sys), total, "默认口径 total 必须 = 库里 is_system=TRUE 条数（N = 标准流程数）")
+    rec("H14", int(d2_all), all_total, "scope=all 的 total 必须 = 库里未软删定义数（标准流程 + 客户副本）")
     rec("D4", None, psql(db, "select count(*) from biz_flow_def_version", pwd), "流程版本行数")
     rec("D5", None, psql(db, "select count(*) from biz_flow_instance where deleted_at is null", pwd), "审批实例数（def 被复用发起）")
     rec("D6", None, psql(db, "select count(*) from sys_menu where path in ('/flow/def','/flow/templates') and deleted_at is null", pwd),

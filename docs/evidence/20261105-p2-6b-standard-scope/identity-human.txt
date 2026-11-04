@@ -1,0 +1,15 @@
+== P2-6 探针 @ cloudpivot_manual 2026-11-05T01:18:35+08:00 ==
+P1a    OK       expect=-          actual=13         未软删的流程定义行数（= 模板库页显示的『共 N 个模板』）
+P1b    OK       expect=-          actual=11         其中 is_system = TRUE（页面上挂『标准』标签）
+P1c    OK       expect=-          actual=2          其中 is_system = FALSE（页面上没有『标准』标签）
+P2a    OK       expect=-          actual=0          is_system=FALSE 却自称『标准』的行数（错标，必须 0）
+P2b    OK       expect=0          actual=0          错标行数是否为 0（名字含『标准』的行都已标 is_system=TRUE）
+P3a    OK       expect=0          actual=0          另存为出来的副本数（flow_code 以 _custom 结尾）
+P4a    OK       expect=1          actual=1          model::templates() 标准口径带 is_system 过滤（应 = 1；P2-6b 前这里是 0）
+P5a    OK       expect=1          actual=1          存在 /flow/templates 菜单节点
+P5b    OK       expect=1          actual=1          该节点是**顶层**节点（不在审批流组下）
+P5c    OK       expect=1          actual=1          同时存在 /flow/def（流程定义）节点 —— 两个入口指向同一张表
+P6a    OK       expect=-          actual=14         流程版本行总数（def → version → instance 三层）
+P6b    OK       expect=-          actual=0          在跑/历史审批实例总数（def 已被复用发起的次数）
+-- 错标明细：（无）
+-- 结论：FAIL=0（0 = 现状与结论一致；1 = 现状已变，先看输出再改文档）

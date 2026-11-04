@@ -1,0 +1,12 @@
+== cargo check --all-targets（touch 源文件后真实重编译，0 警告才可能 Finished 无 warning 段）==
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.94s
+
+== cargo clippy --all-targets -- -D warnings ==
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 28.84s
+--- 追加 fmt 复核 ---
+src/business/flow/model.rs: clean
+src/business/flow/handler.rs: clean
+src/business/flow/dto.rs: clean
+tests/pflow5.rs: clean

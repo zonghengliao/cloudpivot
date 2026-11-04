@@ -858,10 +858,13 @@ pub struct DefPageRes {
     pub page_size: u64,
 }
 
-/// 模板库条目（`GET /business/flow/def/templates` 的一个 item）。
+/// 标准流程卡片（`GET /business/flow/def/templates` 的一个 item）。
 ///
 /// 前端卡片要显示的全在这一个结构里：名称 / 标准标签（`is_system`）/ 启用状态 /
 /// 适用场景（`summary`）/ 节点边数 / 已用次数 / 能拿去画图的那个版本（`view_version_id`）。
+///
+/// 字段名沿用 P-FLOW-5 的老名字（`Template*`），**一个都不改**：口径收口只改语义与注释，
+/// 不改线协议，避免前端连锁改动（前端收口见 P2-6c）。
 #[derive(Debug, Clone, Serialize)]
 pub struct TemplateItemRes {
     /// 流程 id。
@@ -896,7 +899,7 @@ pub struct TemplateItemRes {
     pub summary: String,
 }
 
-/// 模板库分组（按 `category`）。
+/// 标准流程分组（按 `category`；结构名沿用以兼容前端）。
 #[derive(Debug, Clone, Serialize)]
 pub struct TemplateGroupRes {
     /// 分类名。
@@ -905,13 +908,31 @@ pub struct TemplateGroupRes {
     pub items: Vec<TemplateItemRes>,
 }
 
-/// 模板库出参。
+/// 标准流程列表出参（结构名沿用以兼容前端）。
 #[derive(Debug, Clone, Serialize)]
 pub struct TemplatesRes {
     /// 分组清单（顺序固定：采购管理 → 仓库管理 → 财务管理 → 任务 → 其它）。
     pub groups: Vec<TemplateGroupRes>,
-    /// 条目总数（方便前端显示「共 N 个模板」）。
+    /// 条目总数（方便前端显示「共 N 个标准流程」）。
     pub total: u64,
+}
+
+/// 标准流程列表查询参数（`GET /business/flow/def/templates`）。
+///
+/// # 两个参数的关系（P2-6b）
+///
+/// - `scope`：`standard`（默认，只看标准流程 = `is_system = TRUE`）/ `all`（标准流程 + 客户副本）；
+///   大小写不敏感，`scope` **优先**；
+/// - `include_mine`：**legacy 兼容参数**，老前端传 `?include_mine=1` 等价于 `scope=all`；
+///   只在没传 `scope` 时生效（两个都传时 `scope` 说了算）。
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct TemplateQuery {
+    /// 口径：`standard` / `all`（缺省 = `standard`）。
+    #[serde(default)]
+    pub scope: Option<String>,
+    /// legacy：`1` / `true` / `yes` / `on` 等价于 `scope=all`，其余视为 `standard`。
+    #[serde(default)]
+    pub include_mine: Option<String>,
 }
 
 /// 另存为（`POST /business/flow/def/{id}/duplicate`）。

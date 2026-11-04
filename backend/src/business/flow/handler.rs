@@ -2927,9 +2927,9 @@ pub async fn instance_tasks(
     }))
 }
 
-// ==================== 模板库（P-FLOW-5） ====================
+// ==================== 标准流程列表（P-FLOW-5，P2-6b 语义收口） ====================
 
-/// 模板库分类展示顺序（= 前端 Tab 顺序，与卡面「采购管理 / 仓库管理 / 财务管理 / 任务」一致）。
+/// 分类展示顺序（= 前端 Tab 顺序，与卡面「采购管理 / 仓库管理 / 财务管理 / 任务」一致）。
 const TEMPLATE_CATEGORY_ORDER: [&str; 4] = ["采购管理", "仓库管理", "财务管理", "任务"];
 
 /// 分类排序权重：已知业务域按固定顺序，未知分类排最后（按名字排）。
@@ -2965,16 +2965,59 @@ fn template_summary(labels: &[String], description: Option<&str>) -> String {
     truncate_chars(first, 120)
 }
 
-/// 流程模板库（`GET /business/flow/def/templates`）。
+/// 解析标准流程列表口径（`scope` 优先，legacy `include_mine` 兜底）。
 ///
-/// 一次返回**按业务域分组**的全部模板（未软删的定义）：每组内系统预置在前，
-/// 每条带「标准」标记（`is_system`）、启用状态、节点 / 连线数、已用次数与一句话适用场景。
+/// - `scope` 非空 → 只认它（`standard` / `all`，大小写不敏感），非法值 → 400 + `65005`；
+/// - `scope` 缺省 / 空串 → 看 legacy `include_mine`：真值 ⇒ `all`，其余 ⇒ `standard`。
+fn parse_template_scope(
+    scope: Option<&str>,
+    include_mine: Option<&str>,
+) -> std::result::Result<model::TemplateScope, ApiError> {
+    if let Some(raw) = scope.map(str::trim).filter(|text| !text.is_empty()) {
+        return match raw.to_ascii_lowercase().as_str() {
+            "standard" => Ok(model::TemplateScope::Standard),
+            "all" => Ok(model::TemplateScope::All),
+            _ => Err(ApiError::new(
+                400,
+                error_code::FLOW_FIELD_INVALID,
+                format!("scope {raw} 非法（只允许 standard / all）"),
+            )),
+        };
+    }
+    if query_truthy(include_mine) {
+        Ok(model::TemplateScope::All)
+    } else {
+        Ok(model::TemplateScope::Standard)
+    }
+}
+
+/// 查询参数里的「真值」判断（`1` / `true` / `yes` / `on`，大小写不敏感；其余一律视为假）。
+fn query_truthy(raw: Option<&str>) -> bool {
+    matches!(
+        raw.map(str::trim).map(str::to_ascii_lowercase).as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    )
+}
+
+/// 标准流程列表（`GET /business/flow/def/templates`）。
+///
+/// **legacy 别名：语义已收口为「标准流程」列表**（端点名保留不改 —— 改名收益 < 动 5 个文件的风险）。
+///
+/// 默认只返回**标准流程**（`is_system = TRUE`，即「模板」这个角色，不是独立实体，决策 A）；
+/// `?scope=all` 才把客户另存为的副本一起带出，老前端的 `?include_mine=1` 等价于 `scope=all`。
+///
+/// 一次返回**按业务域分组**的条目，每组内标准流程在前，每条带「标准」标记（`is_system`）、
+/// 启用状态、节点 / 连线数、已用次数与一句话适用场景。
+///
+/// **不按 `status` 过滤**：标准流程被客户停用（`DISABLED`）后仍要出现在列表里，
+/// 否则它就从管理视图消失、再也启用不回来；`status` 只给前端做标签展示。
 ///
 /// 数据来源全部是库里的真实事实：分组 = `biz_flow_def.category`，
 /// 已用次数 = `biz_flow_instance` 计数，适用场景 = 条件连线标签（退 `description` 首句）。
 ///
 /// # 异常情况
 ///
+/// - 400 + `65005`：`scope` 取值非法（只允许 `standard` / `all`）；
 /// - 500：数据库异常。
 #[nik::permission(
     path = "/business/flow/def/templates",
@@ -2982,10 +3025,11 @@ fn template_summary(labels: &[String], description: Option<&str>) -> String {
     permission = "business:flow:read"
 )]
 #[nik::get("/business/flow/def/templates")]
-pub async fn templates() -> ResResult<dto::TemplatesRes> {
-    let rows = model::templates()
+pub async fn templates(Query(query): Query<dto::TemplateQuery>) -> ResResult<dto::TemplatesRes> {
+    let scope = parse_template_scope(query.scope.as_deref(), query.include_mine.as_deref())?;
+    let rows = model::templates(scope)
         .await
-        .map_err(|error| utils::db_error(error, "查询流程模板库"))?;
+        .map_err(|error| utils::db_error(error, "查询标准流程列表"))?;
     let labels = model::template_condition_labels()
         .await
         .map_err(|error| utils::db_error(error, "查询流程分流标签"))?;
@@ -3038,8 +3082,10 @@ pub async fn templates() -> ResResult<dto::TemplatesRes> {
 
 /// 另存为（`POST /business/flow/def/{id}/duplicate`）。
 ///
-/// 「模板 → 我们自己的流程」的唯一入口：**复制定义**（节点 + 连线 + 审批人 + 元信息），
-/// 生成一个新编码的 `DRAFT`（`is_system = false`），原模板一行不动。用户改完自己发布。
+/// 「标准流程 → 我们自己的流程」的唯一入口：**复制定义**（节点 + 连线 + 审批人 + 元信息），
+/// 生成一个新编码的 `DRAFT`（`is_system = false`），原标准流程一行不动。用户改完自己发布。
+/// 逻辑不动（P2-6b 只收口语义与注释）：副本 `is_system = false` ⇒ 不再出现在默认口径的
+/// 标准流程列表里，要看到它得带 `?scope=all`（或 legacy `?include_mine=1`）。
 ///
 /// # 三条刻意的口径
 ///
@@ -3498,5 +3544,78 @@ mod stats_tests {
         })
         .expect_err("跨度超限必须报错");
         assert_eq!(widen.code, error_code::FLOW_FIELD_INVALID);
+    }
+}
+
+#[cfg(test)]
+mod template_scope_tests {
+    use super::*;
+
+    /// 缺省（两个参数都不传）= 只要标准流程。
+    #[test]
+    fn default_scope_is_standard() {
+        assert_eq!(
+            parse_template_scope(None, None).expect("缺省合法"),
+            model::TemplateScope::Standard
+        );
+        assert_eq!(
+            parse_template_scope(Some("  "), None).expect("空串按缺省"),
+            model::TemplateScope::Standard
+        );
+    }
+
+    /// `scope` 显式取值（大小写不敏感、去空白）。
+    #[test]
+    fn explicit_scope_wins() {
+        assert_eq!(
+            parse_template_scope(Some("all"), None).expect("all"),
+            model::TemplateScope::All
+        );
+        assert_eq!(
+            parse_template_scope(Some("  ALL "), None).expect("大小写 + 空白"),
+            model::TemplateScope::All
+        );
+        assert_eq!(
+            parse_template_scope(Some("Standard"), None).expect("standard"),
+            model::TemplateScope::Standard
+        );
+    }
+
+    /// legacy `include_mine=1` ≡ `scope=all`；且 `scope` 优先（两个都传时 scope 说了算）。
+    #[test]
+    fn legacy_include_mine_equals_scope_all() {
+        assert_eq!(
+            parse_template_scope(None, Some("1")).expect("include_mine=1"),
+            model::TemplateScope::All
+        );
+        assert_eq!(
+            parse_template_scope(None, Some("TRUE")).expect("大小写不敏感"),
+            model::TemplateScope::All
+        );
+        assert_eq!(
+            parse_template_scope(None, Some("0")).expect("0 视为假"),
+            model::TemplateScope::Standard
+        );
+        // scope 优先：老参数不能把显式 standard 顶掉
+        assert_eq!(
+            parse_template_scope(Some("standard"), Some("1")).expect("scope 优先"),
+            model::TemplateScope::Standard
+        );
+        assert_eq!(
+            parse_template_scope(Some("all"), Some("0")).expect("scope 优先"),
+            model::TemplateScope::All
+        );
+    }
+
+    /// 非法 `scope` → 400 + `65005`（不静默退化成默认值，免得前端以为筛选生效了）。
+    #[test]
+    fn invalid_scope_is_rejected() {
+        let error = parse_template_scope(Some("mine"), None).expect_err("非法值必须报错");
+        assert_eq!(error.code, error_code::FLOW_FIELD_INVALID);
+        assert!(
+            error.msg.contains("scope"),
+            "报错文案必须点出是 scope 参数（实际：{}）",
+            error.msg
+        );
     }
 }
