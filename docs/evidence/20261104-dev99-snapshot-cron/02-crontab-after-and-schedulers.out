@@ -1,0 +1,34 @@
+### host=ubuntu-svr ip=172.18.10.99 date=2026-11-04 19:51:27 CST
+
+### 1) crontab -l（改后全量）
+#ARK-PAUSED 0 9,14 * * 1-5 /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+#ARK-PAUSED 0 12,18 * * 1-5 /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+#ARK-PAUSED */10 * * * * /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+0 12,18 * * 1-5 /root/.hermes/profiles/laoliu/scripts/idle_unblock.sh >/dev/null 2>&1
+0 2,6 * * * /root/.hermes/profiles/laoliu/scripts/idle_unblock.sh >/dev/null 2>&1
+#DISABLED[2026-11-04 t_c47bce71 .99 不跑巡检，生产巡检在 144] # B1 快照一致性巡检（只报不修）每日 02:00 —— scripts/cron/snapshot_audit.sh
+#DISABLED[2026-11-04 t_c47bce71 .99 不跑巡检，生产巡检在 144] 0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+0 4 * * * /root/.hermes/profiles/laoliu/scripts/disk_guard.sh >/dev/null 2>&1
+0 */2 * * * /root/.hermes/profiles/laoliu/scripts/deploy_check_v3.sh >/dev/null 2>&1
+0 */6 * * * /root/.hermes/profiles/laoliu/scripts/gen_test_report.py >>/var/log/cloudpivot/test-report.log 2>&1
+*/30 * * * * /root/.hermes/profiles/laoliu/scripts/zero_output_check.py >>/var/log/cloudpivot/zero-output-check.log 2>&1
+
+### 2) 仍启用的 snapshot_audit 调度行（0 = 已停）
+0
+
+### 3) 其它可能的调度入口
+-- /etc/cron.d, /etc/cron.{hourly,daily,weekly,monthly}:
+(无)
+-- systemd timers:
+(无)
+-- atq:
+(atq 无任务/不可用)
+
+### 4) cron 服务与 spool
+active
+Thu 2026-10-08 14:34:43 CST
+-rw------- 1 root crontab 1440 Nov  4 19:51 /var/spool/cron/crontabs/root
+
+### 5) spool 内容与 crontab -l 一致（sha256）
+b14fd76d3fe2eaab2d9cd212424b8a864114e0db9dc528805e0862ede49a67c4  /var/spool/cron/crontabs/root
+ef9297508fdfb52574652401427829a90e61e9ee286843745e4131cd686cf10d  -

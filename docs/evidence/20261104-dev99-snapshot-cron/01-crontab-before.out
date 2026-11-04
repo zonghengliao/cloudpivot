@@ -1,0 +1,14 @@
+### host: ubuntu-svr / 172.18.10.99
+### date: 2026-11-04 19:51:04 CST
+### crontab -l (before)
+#ARK-PAUSED 0 9,14 * * 1-5 /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+#ARK-PAUSED 0 12,18 * * 1-5 /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+#ARK-PAUSED */10 * * * * /root/.hermes/profiles/laoliu/scripts/kanban_peak_gate.sh >/dev/null 2>&1
+0 12,18 * * 1-5 /root/.hermes/profiles/laoliu/scripts/idle_unblock.sh >/dev/null 2>&1
+0 2,6 * * * /root/.hermes/profiles/laoliu/scripts/idle_unblock.sh >/dev/null 2>&1
+# B1 快照一致性巡检（只报不修）每日 02:00 —— scripts/cron/snapshot_audit.sh
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+0 4 * * * /root/.hermes/profiles/laoliu/scripts/disk_guard.sh >/dev/null 2>&1
+0 */2 * * * /root/.hermes/profiles/laoliu/scripts/deploy_check_v3.sh >/dev/null 2>&1
+0 */6 * * * /root/.hermes/profiles/laoliu/scripts/gen_test_report.py >>/var/log/cloudpivot/test-report.log 2>&1
+*/30 * * * * /root/.hermes/profiles/laoliu/scripts/zero_output_check.py >>/var/log/cloudpivot/zero-output-check.log 2>&1

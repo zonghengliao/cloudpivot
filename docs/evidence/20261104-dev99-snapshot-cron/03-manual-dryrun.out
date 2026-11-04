@@ -1,0 +1,16 @@
+### 目的：证明脚本仍在、可手工跑，且日志目录可重定向（不写 /var/log/cloudpivot 默认名）
+### 命令：SNAPSHOT_AUDIT_LOG_DIR=docs/evidence/20261104-dev99-snapshot-cron/dryrun bash scripts/cron/snapshot_audit.sh --dry-run
+
+rc=0
+
+### 重定向后的日志（不连库，只列计划）
+total 8
+-rw-r--r-- 1 root root 6880 Nov  4 19:51 snapshot-audit.log
+──────────────────────────────────────────────────────────────────────────────
+[2026-11-04 19:51:33] 开始：db=cp_lockorder_t@127.0.0.1 配置=/root/.cloudpivot/snapshot-audit.env
+====================================================================================
+云枢 · 快照一致性巡检（--dry-run：只列计划，不连库、不产出日志/JSON 文件）
+库(计划): cp_lockorder_t@127.0.0.1:5432   巡检 SQL 目录: /opt/cloudpivot/docs/architecture/snapshot-drift
+SQL 文件: 00_install_compat.sql, 10_checks.sql （齐备）
+====================================================================================
+

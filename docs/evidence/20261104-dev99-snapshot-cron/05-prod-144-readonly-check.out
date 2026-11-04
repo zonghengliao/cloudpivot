@@ -1,0 +1,9 @@
+### 目的：只读核对 144 生产 cron 未被本卡影响（本卡未登录 144 做任何写操作）
+### 命令：ssh -o BatchMode=yes root@172.18.10.144 'crontab -l'  （只读）
+2026-11-04 19:52:30 CST
+--- crontab -l ---
+0 2 * * * /opt/cloudpivot/scripts/erp-health-daily.sh >/dev/null 2>&1
+0 2 * * * /opt/cloudpivot/scripts/cron/snapshot_audit.sh >> /var/log/cloudpivot/snapshot-audit.cron.log 2>&1
+--- env 权限 ---
+-rw------- 1 root root 1208 Nov  4 18:04 /etc/cloudpivot/snapshot-audit.env
+rc=0

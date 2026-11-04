@@ -1,0 +1,59 @@
+### 1) 最后一次 cron 自动执行的证据（已改名的 dev99 归档日志：02:00 开头 + 结束行）
+2:[2026-11-04 02:00:01] 开始：db=cp_lockorder_t@127.0.0.1 配置=/root/.cloudpivot/snapshot-audit.env
+42:[2026-11-04 02:00:02] 结束：exit=0  日志保留 30 天  轮转归档：1 份
+（该文件共 239 行，其中 p26 演练轮次 69 次 —— 即卡面说的「开发库日志与生产同名」风险实证）
+
+### 2) 最后一轮 JSON 的库与汇总（关键行）
+  "generated_at": "2026-11-04T02:00:01+08:00",
+    "host": "127.0.0.1",
+    "port": "5432",
+    "name": "cp_lockorder_t",
+    "user": "alun"
+    "blocker": 0,
+    "warn": 0,
+    "info": 0,
+    "checks_total": 16,
+    "exit_code": 0
+      "name": "采购单供应商快照 ≠ 合同乙方（三态）",
+      "name": "采购单引用的合同已软删",
+
+### 3) /var/log/cloudpivot 现状（已无 snapshot-audit.log / snapshot-audit.latest.json）
+total 88
+-rw-r--r-- 1 root root  1581 Nov  4 19:51 README-snapshot-audit.txt
+-rw-r--r-- 1 root root   268 Nov  4 08:00 auto-deploy-check.log
+-rw-r--r-- 1 root root   830 Nov  4 16:18 card-done-watch.log
+-rw-r--r-- 1 root root  1973 Nov  4 18:00 deploy-check.log
+-rw-r--r-- 1 root root   113 Nov  4 07:07 disk-guard.log
+-rw-r--r-- 1 root root   283 Nov  2 16:20 kanban-peak.log
+-rw-r--r-- 1 root root     0 Nov  4 02:00 snapshot-audit.dev99.cron.log
+-rw-r--r-- 1 root root  4623 Nov  4 02:00 snapshot-audit.dev99.latest.json
+-rw-r--r-- 1 root root 18156 Nov  3 14:40 snapshot-audit.dev99.log.2026-11-03
+-rw-r--r-- 1 root root 28208 Nov  4 18:13 snapshot-audit.dev99.log.archived-2026-11-04
+-rw-r--r-- 1 root root    88 Nov  4 18:00 test-report.log
+-rw-r--r-- 1 root root   814 Nov  4 19:30 zero-output-check.log
+
+### 4) env 文件（键名可见、值已遮蔽）+ 权限
+total 16
+-rw------- 1 root root 1070 Nov  4 19:51 crontab.bak-20261104T1951.root.txt
+-rw------- 1 root root 1214 Nov  4 19:51 crontab.new-20261104T1951.root.txt
+-rw------- 1 root root 1451 Nov  4 19:51 snapshot-audit.env
+# 快照一致性巡检（B1）目标库配置 —— systemd EnvironmentFile / shell source 两用
+#
+# 由 /opt/cloudpivot/scripts/cron/snapshot_audit.sh 在启动时 source。
+# 权限必须 600（里面是库口令）：chmod 600 /etc/cloudpivot/snapshot-audit.env
+#
+# ⚠️ 上线前必须改成**生产库**。当前指向本机隔离库 cp_lockorder_t（全量迁移到 V0203、
+#    含合同表），只用于验证 cron 通路；生产部署时把 NAME/USER/PASSWORD 换成生产库，
+#    否则凌晨巡检扫的是一个夹具库，看板上永远是「全绿」（比不巡检更危险）。
+NIK_DATABASE_HOST=<redacted>
+NIK_DATABASE_PORT=<redacted>
+NIK_DATABASE_USER=<redacted>
+NIK_DATABASE_NAME=<redacted>
+NIK_DATABASE_PASSWORD=<redacted>
+
+# 有 BLOCKER 时的通知钩子（留空 =<redacted>
+# notice::dispatch 是 in-process 的 Rust 函数，没有 CLI 入口；cron 里只能经
+# POST /api/business/notice/send 打后端实例（需登录 token、实例在线）。接线时的钩子示例：
+# SNAPSHOT_AUDIT_NOTIFY_CMD=<redacted>
+
+# --- 2026-11-04 t_c47bce71：本机(.99) 的 02:00 cron 已停用；本文件仅用于手工验证，勿再挂定时。
