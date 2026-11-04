@@ -652,12 +652,22 @@ const probe = () => {
       engine: Boolean(document.querySelector('.vue-flow')),
       cards: document.querySelectorAll('.flow-node__card').length,
       handles: document.querySelectorAll('.vue-flow__handle').length,
+      // VUE-FLOW-2 起：只读态**保留** Handle（Vue Flow 靠它算锚点，摘掉会让连线变成底部出/顶部进），
+      // 但视觉隐藏（opacity: 0）+ 不可拖。所以这里断言的是「在 DOM 里、但看不见」。
+      handleOpacity: [...new Set([...document.querySelectorAll('.vue-flow__handle')].map((el) => getComputedStyle(el).opacity))],
+      handlePositions: [...new Set([...document.querySelectorAll('.vue-flow__handle')].map((el) => el.getAttribute('data-handlepos')))].sort(),
       layoutActions: document.querySelectorAll('.flow-canvas__action').length,
       zoomButtons: document.querySelectorAll('.flow-canvas__zoom-btn').length,
       readonly: Boolean(document.querySelector('.flow-canvas.is-readonly')),
+      hint: document.querySelector('.flow-canvas__hint')?.textContent?.replace(/\s+/g, ' ').trim() ?? null,
     }));
     check('只读画布也切到 Vue Flow（已发布版本）', ro.engine && ro.cards === 3, ro);
-    check('只读：不画句柄、不显示自动布局按钮、缩放工具栏仍在', ro.handles === 0 && ro.layoutActions === 0 && ro.zoomButtons === 4 && ro.readonly, ro);
+    check(
+      '只读：Handle 保留在 DOM（2×节点数）但 opacity:0 不可见、方向 left/right、不显示自动布局按钮',
+      ro.handles === ro.cards * 2 && ro.handleOpacity.join() === '0' && ro.handlePositions.join() === 'left,right' && ro.layoutActions === 0 && ro.zoomButtons === 4 && ro.readonly,
+      ro,
+    );
+    check('只读：底部提示改成只读说明（不再提示「拖出连线」）', Boolean(ro.hint) && ro.hint.includes('只读模式') && !ro.hint.includes('拖出连线'), ro.hint);
     await roPage.screenshot({ path: path.join(SHOT_DIR, 'readonly-published.png') });
   }
 

@@ -67,11 +67,21 @@
       @viewport-change="onViewportChange"
       @nodes-initialized="onNodesInitialized"
     >
+      <!-- 背景点阵：与外层老画布同一套参数（18px 间距 / 跟着视口走）。
+           ★ 注意 @vue-flow/background 的两个上游坑（都实测过）：
+             1. `size` 是**直径**（内部渲染成 `<circle r=size/2>`），老画布是 `r=1.15`；
+                但老画布的网点色是「占位文字色 × 45%」，在浅色主题下本身只有 2/255 的可见度
+                （实测点阵最暗 239、背景 241），传 1.15 与 2.3 的实测整图差分别是 0.11 / 0.54 ——
+                反而 1.15（更淡）更接近老画布，故保持 1.15（与 VUE-FLOW-1 一致）。
+             2. `offset` 传负数会被拼成 `translate(--0.85)`（字符串拼接），整条 transform 失效；
+                要调相位只能用正数（mod gap）。 -->
       <Background class="flow-canvas__background" variant="dots" :gap="18" :size="1.15" pattern-color="color-mix(in srgb, var(--td-text-color-placeholder) 45%, transparent)" />
 
       <!-- ① 节点卡片：与老画布同一套规格（尺寸随类型、11px 圆角、3.5px 色条、30×30 图标底块）。
-           ★ 卡片与 Handle 是**兄弟**节点：卡片自带 overflow: hidden（老画布同款裁切），
-             句柄必须在卡片外面，否则会被裁掉半截。 -->
+           ★ 卡片 / 校验角标 / Handle 三者是**兄弟**节点：
+             - 卡片自带 overflow: hidden（老画布同款裁切），角标与句柄放在里面会被裁掉；
+             - 它们的定位基准是 Vue Flow 的节点盒子（与卡片同尺寸，见 node + width/height），
+               所以 `top/right: -4px` 与老画布的绝对坐标 (w-4, 4) 逐像素等价。 -->
       <template #node-flow="{ data }">
         <div
           class="flow-node__card"
@@ -87,11 +97,46 @@
             <span v-if="data.subLabel" class="flow-node__sub">{{ data.subLabel }}</span>
           </span>
           <span v-if="data.hasStatus" class="flow-node__status" :class="`flow-node__status--${data.statusTone}`">{{ data.statusMark }}</span>
-          <!-- 校验角标（VUE-FLOW-2 会扩成可点开的清单；本卡先与老画布一致地画一个 ! ） -->
-          <span v-if="data.cls['has-issue']" class="flow-node__issue">!</span>
         </div>
-        <Handle v-if="!readonly" type="target" :position="Position.Left" class="flow-node__port flow-node__port--in" />
-        <Handle v-if="!readonly" type="source" :position="Position.Right" class="flow-node__port flow-node__port--out" />
+
+        <!-- 校验角标：红色圆形 !（16×16，圆心落在卡片右上角往里 4px 处，与老画布 circle(w-4, 4, r=8) 等价）。
+             `title` 给出可读的原因提示 —— 画布只拿到 key 列表（props.issueNodeKeys），
+             详细规则名 / 文案在调用方的「校验未通过 N 条」清单里。 -->
+        <span v-if="data.cls['has-issue']" class="flow-node__issue" :title="ISSUE_HINT" data-issue-badge>!</span>
+
+        <!-- 入口 / 出口锚点：**无论只读与否都必须留在 DOM 里**。
+             ★ 这是 VUE-FLOW-2 修掉的一个真机 bug：Handle 不只是「拖线的手柄」，它还是
+               Vue Flow 计算 sourceX/sourceY/targetX/targetY 的**唯一依据**。
+               只读态用 `v-if="!readonly"` 把 Handle 摘掉 → 锚点坐标退化成节点 bottom/top
+               → 所有连线变成「底部出、顶部进」（老画布是右出左进），用户截图反馈过。
+               所以只读态的做法是：元素保留 + `connectable=false` + CSS `opacity: 0` 视觉隐藏。
+               （**绝不能**用 display:none / visibility:hidden / width:0 —— 一样会让锚点退化。）
+             非只读：可拖拽的 Handle（圆形，半径 5px，hover 放大）。
+             ★ 圆点用内嵌 SVG `<circle r=5 stroke-width=1.5>` 画，而不是 div 的 border：
+               Chrome 会把 1.5px 的 border-width 取整成 1px（实测），而老画布就是这条 SVG 圆
+               —— 用同一套 SVG 元素，两边的描边栅格化才逐像素一致。 -->
+        <Handle
+          type="target"
+          :position="Position.Left"
+          class="flow-node__port flow-node__port--in"
+          :class="{ 'is-readonly': readonly }"
+          :connectable="!readonly"
+        >
+          <svg class="flow-node__port-svg" viewBox="0 0 11.5 11.5" width="11.5" height="11.5" aria-hidden="true">
+            <circle class="flow-node__port-dot" cx="5.75" cy="5.75" r="5" />
+          </svg>
+        </Handle>
+        <Handle
+          type="source"
+          :position="Position.Right"
+          class="flow-node__port flow-node__port--out"
+          :class="{ 'is-readonly': readonly, 'is-target': connectTargetKey === data.key }"
+          :connectable="!readonly"
+        >
+          <svg class="flow-node__port-svg" viewBox="0 0 11.5 11.5" width="11.5" height="11.5" aria-hidden="true">
+            <circle class="flow-node__port-dot" cx="5.75" cy="5.75" r="5" />
+          </svg>
+        </Handle>
       </template>
 
       <!-- ② 连线：正交圆角折线 + 白底小标签（复用 graph.ts / rounded-path.ts 的纯函数，与老画布同一份几何） -->
@@ -185,7 +230,11 @@
     </div>
 
     <div v-if="showHint" class="flow-canvas__hint">
-      拖节点移动 · 从右侧圆点拖出连线 · 滚轮缩放 · 空格/空白处拖拽平移 · Delete 删除
+      {{
+        readonly
+          ? '只读模式（已发布版本）· 如需修改请点顶部「另存为新草稿」'
+          : '拖节点移动 · 从右侧圆点拖出连线 · 滚轮缩放 · 空格/空白处拖拽平移 · Delete 删除'
+      }}
     </div>
 
     <div v-if="nodes.length === 0" class="flow-canvas__empty">
@@ -253,7 +302,7 @@ import '@vue-flow/core/dist/theme-default.css';
 import type { FlowEdge, FlowNode } from '@/api/business/flow-api';
 import { GRID, MAX_SCALE, MIN_SCALE, edgeLabelPoint, edgePath, hitTest, type Point } from '@/views/business/flow/graph';
 import { labelTextWidth, roundedEdgePath } from '@/views/business/flow/components/rounded-path';
-import { buildNodeView, nodeSizeOf, type FlowNodeViewData } from '@/views/business/flow/components/flow-node-view';
+import { buildNodeView, isEdgeTaken, nodeSizeOf, type FlowNodeViewData } from '@/views/business/flow/components/flow-node-view';
 
 /** 组件入参（**与 `FlowCanvas.vue` 逐个同名同默认值**，调用方一行不用改） */
 const props = withDefaults(
@@ -370,11 +419,24 @@ const issueSet = computed(() => new Set(props.issueNodeKeys ?? []));
 /** 已走过的边集合 */
 const takenSet = computed(() => new Set(props.takenPairs ?? []));
 
-/** 拉线中的虚线样式（与老画布 `.flow-canvas__draft` 同款） */
-const connectionLineOptions: ConnectionLineOptions = {
+/** 是否已用 Esc 放弃当前拉线（松手时不发 `connect`） */
+const connectCancelled = ref(false);
+
+/** 拉线中的虚线样式（与老画布 `.flow-canvas__draft` 同款）。
+ *
+ * Esc 取消拉线后置为透明：Vue Flow 1.48 没有公开的 `cancelConnection`，
+ * 拿不到「中断内部连接态」的 API，但可以把跟随鼠标的虚线**视觉上收掉**，
+ * 同时在 `onConnect` 里吞掉这次 emit —— 用户看到的就是「Esc = 放弃这条线」。
+ */
+const connectionLineOptions = computed<ConnectionLineOptions>(() => ({
   type: ConnectionLineType.Straight,
-  style: { stroke: 'var(--td-brand-color)', strokeWidth: 2, strokeDasharray: '6 4' },
-};
+  style: connectCancelled.value
+    ? { stroke: 'transparent', strokeWidth: 0 }
+    : { stroke: 'var(--td-brand-color)', strokeWidth: 2, strokeDasharray: '6 4' },
+}));
+
+/** 校验角标悬停提示（画布只拿到 key，规则文案在调用方的校验清单里） */
+const ISSUE_HINT = '该节点有校验问题：详见画布下方的「校验未通过」清单';
 
 /** 小地图配色（老画布：灰色块 + 品牌色视野框） */
 const miniNodeColor = 'var(--td-gray-color-4)';
@@ -478,6 +540,21 @@ function toVfNode(node: FlowNode): VfNode<FlowNodeViewData> {
     // 预先给出宽高：Vue Flow 首次 fitView 前就能算出包围盒（否则要等 DOM 测量，首帧会闪）
     width: data.w,
     height: data.h,
+    /**
+     * ★ 锚点方向的**兜底声明**（VUE-FLOW-2 真机 bug 的根治项）。
+     *
+     * Vue Flow 的 `getHandlePosition()` 优先用 Handle 的 `position`，**Handle 不存在时**才回落到
+     * 节点的 `sourcePosition` / `targetPosition`，而这两个的默认值是 `Bottom` / `Top`
+     * （内置 DefaultNode 的默认值）。我们的节点是自定义 slot（`#node-flow`），不写这两个字段
+     * 就等于「默认上下」—— 一旦某个节点没渲染 Handle（例如历史上只读态用 v-if 摘掉），
+     * 连线立刻变成「底部出、顶部进」，而老画布始终是右出左进。
+     *
+     * 所以两条腿一起走：
+     * 1. 编辑态 / 只读态都渲染 Handle（只读态 `connectable=false` + `opacity: 0`），走 Handle 的路；
+     * 2. 节点上把方向声明死（right / left），Handle 因任何原因缺失都不会退化。
+     */
+    sourcePosition: Position.Right,
+    targetPosition: Position.Left,
     data,
     draggable: !props.readonly,
     connectable: !props.readonly,
@@ -526,7 +603,7 @@ function rebuildEdges(): void {
       continue;
     }
     const label = edge.is_default ? '其他情况' : (edge.label ?? '');
-    const taken = takenSet.value.has(`${edge.from}>${edge.to}`);
+    const taken = isEdgeTaken(takenSet.value, edge.from, edge.to);
     out.push({
       id: edge.key,
       source: edge.from,
@@ -709,6 +786,7 @@ function onNodeDragStop(payload: { node: VfNode }): void {
 function onConnectStart(payload: { nodeId?: string | null }): void {
   connectFromKey = payload.nodeId ?? null;
   connectTargetKey.value = null;
+  connectCancelled.value = false;
   isConnecting.value = true;
   window.addEventListener('pointermove', onConnectMove);
 }
@@ -741,7 +819,10 @@ function onConnectEnd(): void {
   isConnecting.value = false;
   // Vue Flow 的 applyDefault 会先往内部连线上塞一条；父组件拒绝时 props 不变，
   // 这里重建一次把「没被确认的边」擦掉（父组件接受时重建结果相同，幂等）。
-  void nextTick(() => rebuildEdges());
+  void nextTick(() => {
+    rebuildEdges();
+    connectCancelled.value = false;
+  });
 }
 
 /** 拉线成功：交给父组件校验（自环 / 重复边） */
@@ -749,6 +830,10 @@ function onConnect(payload: { source?: string | null; target?: string | null }):
   const from = payload.source ?? '';
   const to = payload.target ?? '';
   if (!from || !to) {
+    return;
+  }
+  // Esc 已经放弃这条线：不 emit（父组件不知道这条边存在过，等于没画）
+  if (connectCancelled.value) {
     return;
   }
   emit('connect', { from, to });
@@ -807,6 +892,22 @@ function onKeydown(event: KeyboardEvent): void {
   if ((event.key === 'Delete' || event.key === 'Backspace') && !props.readonly) {
     event.preventDefault();
     emit('delete-selected');
+    return;
+  }
+  // Esc：放弃正在拉的线（老画布没有这条，属 VUE-FLOW-2 补齐的键盘交互）；
+  // 再取消选中（与「点空白」同一个出口：select-node(null) + select-edge(null)）
+  if (event.key === 'Escape') {
+    if (isConnecting.value) {
+      event.preventDefault();
+      connectCancelled.value = true;
+      isConnecting.value = false;
+      connectTargetKey.value = null;
+    }
+    if (props.selectedKey != null || props.selectedEdgeKey != null) {
+      event.preventDefault();
+      emit('select-node', null);
+      emit('select-edge', null);
+    }
     return;
   }
   if (props.readonly || !props.selectedKey) {
@@ -1131,21 +1232,39 @@ defineExpose({
     cursor: grabbing;
   }
 
-  // 节点句柄：与老画布的锚点圆点同款（白底 + 品牌色描边，5px 半径）
+  // 节点句柄：与老画布的锚点圆点同款（白底 + 品牌色描边，半径 5px，描边 1.5px）。
+  // Handle 盒子本身就是「锚点区域」：11.5×11.5（= 2×5 + 1.5 描边外扩），Vue Flow 用
+  // `transform: translate(±50%, -50%)` 把它居中到卡片左/右边缘，盒心正好落在老画布的锚点坐标上。
+  // ★ 圆点用内嵌 SVG circle 画（见模板注释）：div 的 1.5px border 会被 Chrome 取整成 1px。
   :deep(.vue-flow__handle.flow-node__port) {
-    width: 10px;
-    height: 10px;
-    min-width: 10px;
-    min-height: 10px;
-    background: var(--td-bg-color-container);
-    border: 1.5px solid var(--td-brand-color);
+    display: grid;
+    place-items: center;
+    box-sizing: border-box;
+    width: 11.5px;
+    height: 11.5px;
+    min-width: 11.5px;
+    min-height: 11.5px;
+    padding: 0;
+    background: transparent;
+    border: none;
     border-radius: 50%;
     cursor: crosshair;
+    transition: scale 0.12s ease;
+  }
 
-    &:hover {
-      background: var(--td-success-color);
-      border-color: var(--td-success-color);
-    }
+  // hover：放大 + 转成功色（老画布只有颜色变化，放大是卡面 ③ 要的「hover 放大」）
+  // `scale` 是独立于 transform 的属性，不会覆盖 Vue Flow 用来定位句柄的 translate
+  :deep(.vue-flow__handle.flow-node__port:hover) {
+    scale: 1.25;
+  }
+
+  // 只读：**元素必须留在 DOM 里**（否则 Vue Flow 拿不到锚点坐标，连线会退化成底部出/顶部进），
+  // 只用 opacity 做视觉隐藏；绝不能 display:none / visibility:hidden / width:0。
+  :deep(.vue-flow__handle.flow-node__port.is-readonly) {
+    opacity: 0;
+    pointer-events: none;
+    cursor: default;
+    scale: 1;
   }
 
   // 边：视觉线不吃指针，命中靠 14px 透明描边（老画布同款分工）
@@ -1269,19 +1388,26 @@ defineExpose({
     }
   }
 
-  // 校验角标（右上角红色 ! 圆点）
+  // 校验角标（胶囊右上角外侧的红 ! 圆点）
+  //
+  // 几何与老画布 `<circle cx="w-4" cy="4" r="8">` 等价：16×16 的圆，右边/上边各外扩 4px。
+  // 它是**卡片的兄弟节点**（不是子节点）：卡片有 overflow: hidden，放里面会被裁成半圆。
+  // 定位基准是 Vue Flow 的节点盒子（与卡片同尺寸），所以 right/top 直接用负偏移。
   &__issue {
     position: absolute;
     top: -4px;
     right: -4px;
+    z-index: 2;
     display: grid;
     place-items: center;
+    box-sizing: border-box;
     width: 16px;
     height: 16px;
     font-size: 11px;
     font-weight: 700;
     line-height: 1;
     color: var(--td-text-color-anti);
+    cursor: help;
     background: var(--td-error-color);
     border-radius: 50%;
   }
@@ -1342,6 +1468,31 @@ defineExpose({
   // 通知：最轻的一档
   &__card.is-notify {
     --node-accent: color-mix(in srgb, var(--td-warning-color) 55%, var(--td-text-color-placeholder));
+  }
+
+  // 锚点圆点（内嵌 SVG：与老画布同一条 `circle r=5 / stroke-width 1.5`，栅格化结果一致）
+  &__port-svg {
+    display: block;
+    width: 11.5px;
+    height: 11.5px;
+    overflow: visible;
+    pointer-events: none;
+  }
+
+  &__port-dot {
+    fill: var(--td-bg-color-container);
+    stroke: var(--td-brand-color);
+    stroke-width: 1.5;
+    transition:
+      fill 0.12s ease,
+      stroke 0.12s ease;
+  }
+
+  // hover 出口锚点 / 拉线落点命中：转成功色（老画布 `.flow-node__port--out:hover`、`.is-target` 同款）
+  &__port:hover &__port-dot,
+  &__port.is-target &__port-dot {
+    fill: var(--td-success-color);
+    stroke: var(--td-success-color);
   }
 
   // ---------- 交互态 ----------

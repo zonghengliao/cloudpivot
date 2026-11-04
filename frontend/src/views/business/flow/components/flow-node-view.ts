@@ -155,6 +155,26 @@ export function nodeSizeOf(type: string): { w: number; h: number } {
 }
 
 /**
+ * 判断一条边是否「已经走过」（进度图高亮）。
+ *
+ * `takenPairs` 的元素格式是 **`${from}>${to}`**（后端 `FlowNodeProgress.taken_edge_key`
+ * / 前端 `takenPairs` 都是这个口径）。抽成函数是为了让单测能直接钉住这个格式 ——
+ * 一旦有人把分隔符写成 `->`，进度图上「走过的边」会整片不亮，而画布本身不会报错。
+ */
+export function isEdgeTaken(takenPairs: Iterable<string> | undefined | null, from: string, to: string): boolean {
+  if (!takenPairs) {
+    return false;
+  }
+  const key = `${from}>${to}`;
+  for (const pair of takenPairs) {
+    if (pair === key) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
  * 把一个 `FlowNode` 变成渲染用视图数据。
  *
  * # 参数

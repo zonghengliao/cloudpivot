@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>VUE-FLOW-2 画布并排比对</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f2f3f5;
+        font-family: system-ui, sans-serif;
+      }
+
+      .bench {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        padding: 8px;
+      }
+
+      .pane {
+        position: relative;
+        flex: none;
+        overflow: hidden;
+      }
+
+      .pane__tag {
+        position: absolute;
+        top: 2px;
+        left: 2px;
+        z-index: 9;
+        padding: 1px 6px;
+        font-size: 11px;
+        color: #fff;
+        background: #0006;
+        border-radius: 0 0 4px 0;
+        pointer-events: none;
+      }
+
+      pre {
+        margin: 0;
+        padding: 6px 8px;
+        font-size: 11px;
+        white-space: pre-wrap;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/devtools/flow-vf2-compare/compare.ts"></script>
+  </body>
+</html>

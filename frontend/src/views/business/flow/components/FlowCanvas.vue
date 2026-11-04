@@ -218,7 +218,11 @@
     </div>
 
     <div v-if="showHint" class="flow-canvas__hint">
-      拖节点移动 · 从右侧圆点拖出连线 · 滚轮缩放 · 空格/空白处拖拽平移 · Delete 删除
+      {{
+        readonly
+          ? '只读模式（已发布版本）· 如需修改请点顶部「另存为新草稿」'
+          : '拖节点移动 · 从右侧圆点拖出连线 · 滚轮缩放 · 空格/空白处拖拽平移 · Delete 删除'
+      }}
     </div>
 
     <div v-if="nodes.length === 0" class="flow-canvas__empty">
