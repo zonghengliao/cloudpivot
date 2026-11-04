@@ -1,0 +1,18 @@
+① 列表页就绪：http://127.0.0.1:5183/business/erp/purchase
+[console.error] Failed to load resource: the server responded with a status of 401 (Unauthorized)
+   表头：["","采购单号","采购类型","合同号","供应商","项目","日期","金额(价税合计)","状态","操作"]
+② 项目下拉选项：["P28FE 归档项目（P28FE-PO-OLD）（已归档）","P28FE 采购挂项目（P28FE-PO-A）","示例：电商后台（DEMO-EC）","云枢平台迭代（CP-ITER）"]
+   未选时提示文案："可空：不归集项目"
+   选中后选择器显示："P28FE 采购挂项目（P28FE-PO-A）"
+   明细：qty=2 price=100
+③ 建单请求体 project_id = "01a1a7fe-3f01-769d-a7d9-59f0145abfbf"
+④ 新单单号：PO-20261105-000099
+   列表「项目」列文本 = "P28FE 采购挂项目"
+⑤ 详情「所属项目」= "P28FE 采购挂项目"
+⑥ 编辑回填：选择器显示 "P28FE 采购挂项目（P28FE-PO-A）"
+   清空后选择器显示 ""
+⑦ 改单请求体：project_id = null，键存在=true
+   清空后列表「项目」列 = "—"
+   清空后详情「所属项目」= "—"
+⑧ 接口回读（清空后）：{"status":200,"row":{"order_no":"PO-20261105-000099","project_id":null,"project_name":null}}
+ALL PASS ✅

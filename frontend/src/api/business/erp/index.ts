@@ -1226,6 +1226,21 @@ export interface PurchaseOrderRow {
   supplier_name: string | null;
   /** 供应商名称快照列原文（存量行 `null`，那时名称不可知） */
   supplier_name_snapshot: string | null;
+  /**
+   * 所属项目 id（V0237 / P2-8）。`null` = **未归集项目**（存量 18 张单全是它）。
+   *
+   * ⚠️ 与 `supplier_id` 不同：这是**弱引用 + 无外键**，项目被软删后本字段仍然保留原 uuid
+   * （历史单据不能因为项目没了就丢掉归集线索），而下面的 `project_name` 会变成 `null`。
+   * 所以「有 id 没名字」= 项目已删，界面显示「（已删除项目）」——**永远不显示 uuid**。
+   */
+  project_id: string | null;
+  /**
+   * 项目**现名**（后端实时关联查 `biz_project`，不是快照）。
+   *
+   * 口径与供应商名相反：项目改名后旧单必须跟着显示新名（否则按项目汇总会因改名裂成两行）；
+   * 项目已软删 / 查不到时为 `null`，此时用 {@link project_id} 判「已删除项目」。
+   */
+  project_name: string | null;
   /** 提交时间 */
   submitted_at: string | null;
   /** 提交人 */
@@ -1390,6 +1405,17 @@ export interface CreatePurchaseOrderReq {
   purchase_type?: PurchaseType;
   /** 合同 id（`CONTRACT` 必填；`SPOT` 必须为空，DTO 会拦） */
   contract_id?: string | null;
+  /**
+   * 所属项目 id（**可空**；V0237 / P2-8）。
+   *
+   * - `null` / 不传 = 未归集项目；
+   * - 非空必须是「存在且未软删」的项目，否则 `400 + 66002`；非法 UUID → `400 + 66006`；
+   * - **归档项目允许挂**（补录当期采购是合法业务，状态过滤交前端下拉）。
+   *
+   * ⚠️ 改单是**整单覆盖**：不传 `project_id` 就等于清空项目归属。所以表单提交必须
+   * 始终带 `project_id: form.project_id || null`（见 `purchase-logic.ts::buildPurchasePayload`）。
+   */
+  project_id?: string | null;
   /** 收货仓库 id（必填） */
   warehouse_id: string;
   /** 下单日期 `YYYY-MM-DD`（不传 = 服务端取北京今天） */
@@ -1427,6 +1453,8 @@ export function fetchPurchaseOrderPage(query: {
   status?: PurchaseOrderStatus | '';
   supplier_id?: string;
   warehouse_id?: string;
+  /** 所属项目筛选（V0237 `idx_biz_po_project`；本卡不做筛选条 UI，只留参数） */
+  project_id?: string;
   date_from?: string;
   date_to?: string;
   page?: number;

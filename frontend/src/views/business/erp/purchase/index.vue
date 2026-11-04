@@ -122,6 +122,17 @@
           </span>
         </template>
 
+        <!--
+          P2-8：项目列 —— 「实时项目名 →（已删除项目）→ —」。
+          **任何情况不显示 uuid**（同 S2 口径）：项目软删后后端只丢名字不丢 id，
+          有 id 没名字就是「项目已删」，不是「未知」。
+        -->
+        <template #project_name="{ row }">
+          <span :data-testid="`purchase-project-${row.order_no}`">
+            {{ projectDisplayName(row.project_id, row.project_name) }}
+          </span>
+        </template>
+
         <template #purchase_type="{ row }">
           <t-tag
             size="small"
@@ -357,6 +368,22 @@
               placeholder="选择收货仓库"
               filterable
               data-testid="purchase-warehouse"
+            />
+          </t-form-item>
+
+          <!--
+            P2-8：所属项目（可空）。**不进表单记忆** —— 项目是一次性选择，
+            记忆它会让下一张单默默挂到上一张的项目上。
+            归档项目照常可选（后端允许），编辑老单时靠 projectOptions 的兜底项显示当前值。
+          -->
+          <t-form-item label="所属项目" name="project_id" class="form-row__col">
+            <t-select
+              v-model="form.project_id"
+              :options="projectOptions"
+              :placeholder="NO_PROJECT_PLACEHOLDER"
+              clearable
+              filterable
+              data-testid="purchase-project"
             />
           </t-form-item>
         </div>
@@ -692,6 +719,11 @@
             </span>
           </div>
           <div class="detail-field"><span class="detail-field__label">收货仓库</span><span class="detail-field__value">{{ warehouseNameOf(detail.warehouse_id) }}</span></div>
+          <!-- P2-8：所属项目（实时项目名 →「（已删除项目）」→ —，不落 uuid） -->
+          <div class="detail-field">
+            <span class="detail-field__label">所属项目</span>
+            <span class="detail-field__value" data-testid="purchase-detail-project">{{ projectDisplayName(detail.project_id, detail.project_name) }}</span>
+          </div>
           <div class="detail-field"><span class="detail-field__label">下单日期</span><span class="detail-field__value">{{ detail.order_date }}</span></div>
           <div class="detail-field"><span class="detail-field__label">期望到货</span><span class="detail-field__value">{{ dash(detail.expect_date) }}</span></div>
           <div class="detail-field"><span class="detail-field__label">账期</span><span class="detail-field__value">{{ detail.credit_days }} 天</span></div>
@@ -807,6 +839,7 @@
 import {
   purchaseOrderBatchStatus,
 } from '@/api/business/batch';
+import { pageProjects, type ProjectItem } from '@/api/business/project-api';
 import BatchActionBar from '@/components/BatchActionBar.vue';
 import { useBatchSelection } from '@/composables/useBatchSelection';
 import { useUserStore } from '@/stores/user';
@@ -862,6 +895,7 @@ import {
   AMOUNT_COLUMN_TITLE,
   MAX_LINES,
   MAX_REMARK,
+  NO_PROJECT_PLACEHOLDER,
   PURCHASE_PAGE_SIZE,
   PURCHASE_STATUS_FILTER_OPTIONS,
   PURCHASE_TYPE_CONTRACT,
@@ -893,6 +927,8 @@ import {
   priceModeLabel,
   priceModeTheme,
   priceModeTip,
+  projectDisplayName,
+  projectSelectOptions,
   purchaseStatusLabel,
   purchaseStatusTheme,
   purchaseTypeLabel,
@@ -931,19 +967,30 @@ const columns: PrimaryTableCol[] = [
   {
     colKey: 'row-select',
     type: 'multiple',
-    width: 50,
+    width: 44,
     disabled: (options: { row: unknown }) => !isSelectable(options.row as PurchaseOrderRow),
   },
+  // 250 是「单号(19 位 mono) + 口径徽标」不换行的最小宽度，别为了腾地方压它
   { colKey: 'order_no', title: '采购单号', width: 250 },
   // A6：采购类型列（合同采购 / 现货采购）—— 一行先看清供应商从哪来
-  { colKey: 'purchase_type', title: '采购类型', width: 100 },
+  { colKey: 'purchase_type', title: '采购类型', width: 88 },
   // A6：合同号列**只读快照列** `contract_no_snapshot`（R3-a / AP-6），不为显示去实时 JOIN 合同表
-  { colKey: 'contract_no_snapshot', title: '合同号', width: 170, ellipsis: true },
-  { colKey: 'supplier_id', title: '供应商', minWidth: 160, ellipsis: true },
-  { colKey: 'order_date', title: '日期', width: 100 },
+  { colKey: 'contract_no_snapshot', title: '合同号', width: 130, ellipsis: true },
+  { colKey: 'supplier_id', title: '供应商', minWidth: 132, ellipsis: true },
+  /*
+   * P2-8：项目列（实时项目名；无名字但有 id = 项目已删；不落 uuid）。
+   *
+   * 加这 160px 后整表超出可视宽（1600 视口 holder 1288px），而「操作」列是 `fixed: 'right'`，
+   * 超出的部分会被它盖住、最早被盖的正是「状态」列。所以同一笔改动里把相邻几列按实际文本宽度
+   * 收窄（合同号 170→130、供应商 160→132、类型 100→88、日期 100→76、金额 150→112、
+   * 状态 110→96、勾选 50→44），把溢出量压回改动前水平（≈40px，和加列之前的 42px 持平）。
+   * 采购单号仍是 250：它是 19 位 mono + 口径徽标，压窄就换行，宁可少收别的列。
+   */
+  { colKey: 'project_name', title: '项目', width: 160, ellipsis: true },
+  { colKey: 'order_date', title: '日期', width: 76 },
   // ★ 金额列标题带「(价税合计)」—— PRD 硬要求，避免两人对着同一单说不同数
-  { colKey: 'total_with_tax', title: AMOUNT_COLUMN_TITLE, width: 150, align: 'right' },
-  { colKey: 'status', title: '状态', width: 110 },
+  { colKey: 'total_with_tax', title: AMOUNT_COLUMN_TITLE, width: 112, align: 'right' },
+  { colKey: 'status', title: '状态', width: 96 },
   { colKey: 'op', title: '操作', width: 240, fixed: 'right' },
 ];
 
@@ -1142,6 +1189,13 @@ const memoryLabels = ref<string[]>([]);
 const suppliers = ref<Supplier[]>([]);
 const warehouses = ref<Warehouse[]>([]);
 const materials = ref<MaterialRow[]>([]);
+/**
+ * 项目清单（P2-8）：表单「所属项目」下拉的数据源。
+ *
+ * 受项目可见性裁剪（只看得到自己参与的项目）—— 普通采购员看不到没参与过的项目，
+ * 这是有意的（项目清单不该绕过项目模块权限）。已归档项目**不筛掉**（后端允许挂）。
+ */
+const projects = ref<ProjectItem[]>([]);
 
 /**
  * id → 供应商名（列表/详情的「现值」反查走它）。
@@ -1190,6 +1244,15 @@ const materialOptions = computed(() =>
  */
 const contractOptions = computed(() =>
   selectableContracts(contracts.value).map((item) => ({ label: contractOptionLabel(item), value: item.id })),
+);
+
+/**
+ * 项目下拉（P2-8）。选项 = 项目清单（含归档），**当前选中值不在清单里时补一条兜底项**：
+ * 我看不到 / 已软删的项目如果不补，`t-select` 会静默显示空 → 用户一保存就 `project_id: null`
+ * 把归属洗掉（改单是整单覆盖）。兜底项的名字取编辑回填时后端下发的 `project_name`。
+ */
+const projectOptions = computed(() =>
+  projectSelectOptions(projects.value, { id: form.project_id, name: editingProjectName.value }),
 );
 
 /** 合同采购时供应商的显示值：合同乙方名 → 供应商主档名 → 占位提示 */
@@ -1279,17 +1342,20 @@ async function loadOrders(page: number = current.value): Promise<void> {
 
 /** 主数据（失败不挡列表：下拉为空时页面还能看单） */
 async function loadBasics(): Promise<void> {
-  const [supplierList, warehousePage, materialPage, contractPage] = await Promise.all([
+  const [supplierList, warehousePage, materialPage, contractPage, projectPage] = await Promise.all([
     fetchSupplierOptions(OPTION_LIMIT).catch(() => [] as Supplier[]),
     fetchWarehousePage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
     fetchMaterialPage({ page: 1, page_size: OPTION_LIMIT }).catch(() => null),
     // A6：合同下拉的数据源（只取一页，过滤在前端做 —— 列表接口不支持「可下单」筛选）
     fetchContractPage({ page: 1, page_size: 100, contract_type: 'PURCHASE' }).catch(() => null),
+    // P2-8：项目下拉（拉不到不影响建单，只是选不了项目 → 显示为空 + 可提交为「未归集」）
+    pageProjects({ page: 1, page_size: 100 }).catch(() => null),
   ]);
   suppliers.value = supplierList;
   warehouses.value = warehousePage?.list ?? [];
   materials.value = materialPage?.list ?? [];
   contracts.value = contractPage?.list ?? [];
+  projects.value = projectPage?.list ?? [];
 }
 
 /**
@@ -1368,6 +1434,13 @@ const submitting = ref(false);
 const submitError = ref('');
 /** 表单 */
 const form = reactive<PurchaseFormState>(emptyPurchaseForm());
+/**
+ * 编辑回填时后端下发的**项目现名**（`null` → 空串）。
+ *
+ * 只给「项目下拉的兜底项」用：项目清单受可见性裁剪，我看不到的项目不在选项里，
+ * 没有这条名字就只能显示「（已删除项目）」—— 而项目其实还在，只是我没参与。
+ */
+const editingProjectName = ref('');
 /** 表单校验结果（点过保存才提示） */
 const formErrors = ref<PurchaseFormErrors>({});
 
@@ -1389,6 +1462,7 @@ function rowErrors(index: number): Record<string, string> {
 /** 重置表单到空态 */
 function resetForm(): void {
   Object.assign(form, emptyPurchaseForm());
+  editingProjectName.value = '';
   formErrors.value = {};
   submitError.value = '';
 }
@@ -1457,6 +1531,8 @@ async function openEditDialog(row: PurchaseOrderRow): Promise<void> {
       fetchPurchaseOrderItems(row.id),
     ]);
     Object.assign(form, detailToForm(order, items));
+    // P2-8：项目下拉的兜底名（项目不在可见清单里时，选项只靠它显示名字）
+    editingProjectName.value = order.project_name ?? '';
   } catch (error) {
     formVisible.value = false;
     MessagePlugin.error(messageOf(error));

@@ -1,0 +1,10 @@
+# pnpm test:unit（全量 759 条，含本卡新增 19 条）
+
+完整 TAP 输出 173KB 未入库，这里只留汇总行；单条明细见 unit-test-p2-8.txt
+
+# tests 759
+# pass 759
+# fail 0
+# cancelled 0
+# skipped 0
+# duration_ms 3120.792296

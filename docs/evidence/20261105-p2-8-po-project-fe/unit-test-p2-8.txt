@@ -1,0 +1,124 @@
+TAP version 13
+# Subtest: 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+ok 1 - 空表单 `project_id` 是空串（= 未选 / 不归集），不是 undefined 也不是 null
+  ---
+  duration_ms: 0.936229
+  type: 'test'
+  ...
+# Subtest: 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+ok 2 - 编辑回填：`project_id = X` → 表单 `X`；`null` / 缺字段 → 空串
+  ---
+  duration_ms: 0.15301
+  type: 'test'
+  ...
+# Subtest: `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+ok 3 - `buildPurchasePayload` 带项目 → `project_id` 是 uuid 原文
+  ---
+  duration_ms: 0.147218
+  type: 'test'
+  ...
+# Subtest: `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+ok 4 - `buildPurchasePayload` 未选项目 → `project_id: null`，**键必须存在**（改单不传即清空）
+  ---
+  duration_ms: 0.177054
+  type: 'test'
+  ...
+# Subtest: 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+ok 5 - 清空项目再保存 = 显式 `null`（不是空串、不是 uuid）
+  ---
+  duration_ms: 0.093797
+  type: 'test'
+  ...
+# Subtest: 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+ok 6 - 有 `project_name` → 显示名字（后端实时 JOIN 的现名，项目改名后跟着变）
+  ---
+  duration_ms: 0.074088
+  type: 'test'
+  ...
+# Subtest: 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+ok 7 - 只有 `project_id`、没有名字 → 「（已删除项目）」（项目被软删）
+  ---
+  duration_ms: 0.135134
+  type: 'test'
+  ...
+# Subtest: id 与名字都没有 → `—`（未归集项目，不留白）
+ok 8 - id 与名字都没有 → `—`（未归集项目，不留白）
+  ---
+  duration_ms: 0.066504
+  type: 'test'
+  ...
+# Subtest: 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+ok 9 - 任何输入组合下都不出现 uuid / uuid 短号（禁落 uuid 的回归闸门）
+  ---
+  duration_ms: 0.400943
+  type: 'test'
+  ...
+# Subtest: 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+ok 10 - 选项文案 = `名称（编码）`；**归档项目加后缀但不筛掉**
+  ---
+  duration_ms: 0.379984
+  type: 'test'
+  ...
+# Subtest: 选中值在清单里 → 原样返回，不重复插兜底项
+ok 11 - 选中值在清单里 → 原样返回，不重复插兜底项
+  ---
+  duration_ms: 0.141384
+  type: 'test'
+  ...
+# Subtest: 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+ok 12 - 选中值**不在**清单里（未参与 / 已删）→ 补一条兜底项，别让选择器静默变空
+  ---
+  duration_ms: 0.136051
+  type: 'test'
+  ...
+# Subtest: 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+ok 13 - 未选项目（空串）→ 不插兜底项（不能凭空给一个「空 uuid」选项）
+  ---
+  duration_ms: 0.061087
+  type: 'test'
+  ...
+# Subtest: 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+ok 14 - 列表 columns 在「供应商」列之后加了「项目」列（宽 160 + 省略）
+  ---
+  duration_ms: 0.112174
+  type: 'test'
+  ...
+# Subtest: 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+ok 15 - 列表插槽走 `projectDisplayName(row.project_id, row.project_name)`，不许出现 shortId / uuid 短号
+  ---
+  duration_ms: 0.136425
+  type: 'test'
+  ...
+# Subtest: 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+ok 16 - 详情抽屉有「所属项目」一行，绑 `projectDisplayName(detail.project_id, detail.project_name)`
+  ---
+  duration_ms: 0.089673
+  type: 'test'
+  ...
+# Subtest: 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+ok 17 - 表单下拉：`purchase-project`、clearable + filterable、placeholder = NO_PROJECT_PLACEHOLDER
+  ---
+  duration_ms: 0.114383
+  type: 'test'
+  ...
+# Subtest: 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+ok 18 - 表单下拉接兜底选项 `projectSelectOptions`，数据源 `pageProjects` 失败不挡页面
+  ---
+  duration_ms: 0.118966
+  type: 'test'
+  ...
+# Subtest: `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+ok 19 - `project_id` 不进表单记忆（否则下一张单会默默挂错项目）
+  ---
+  duration_ms: 0.07388
+  type: 'test'
+  ...
+1..19
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 95.810966

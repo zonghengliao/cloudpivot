@@ -131,6 +131,14 @@ export interface PurchaseFormState {
   supplier_id: string;
   /** 收货仓库 id */
   warehouse_id: string;
+  /**
+   * 所属项目 id（**空串 = 未选 / 不归集**；P2-8 / V0237）。
+   *
+   * ⚠️ 这是**一次性选择**，绝不进 `MEMORY_FIELDS`：记忆它会让下一张单默默挂到上一张的项目上
+   * （用户不会再确认一次），错得没人发现。提交时由 {@link buildPurchasePayload} 换成
+   * `null` 或 uuid —— **改单整单覆盖，不发这个字段就等于清空归属**。
+   */
+  project_id: string;
   /** 下单日期 `YYYY-MM-DD` */
   order_date: string;
   /** 期望到货日（可空） */
@@ -444,6 +452,89 @@ export function shortId(value: string | null | undefined): string {
   return value.length > 8 ? `${value.slice(0, 8)}…` : value;
 }
 
+// ==================== 所属项目（P2-8 / V0237） ====================
+
+/**
+ * 「项目已删除」占位文案。
+ *
+ * 触发条件只有一个：**有 `project_id` 但没有 `project_name`**。后端 `project_name` 是
+ * 实时关联查出来的，项目软删后就查不到 → 名字为 `null` 而 id 仍留在单上（历史归集线索不能丢）。
+ * 这时候**绝不能拿 uuid 顶上去**（口径与 `docs/编码规范.md` §1.10 S2 同一条）。
+ */
+export const DELETED_PROJECT_TEXT = '（已删除项目）';
+
+/** 未选项目时的占位（表单下拉 placeholder，也是「不归集」的显式说法） */
+export const NO_PROJECT_PLACEHOLDER = '可空：不归集项目';
+
+/**
+ * 项目显示名（列表「项目」列 + 详情「所属项目」行）—— **实时项目名 → 「（已删除项目）」→ `—`**。
+ *
+ * # 与供应商名的口径**相反**，别混
+ *
+ * 供应商名是「主档现值 → 单据快照」（快照兜底，因为快照是下单那一刻的事实）；
+ * 项目名**没有快照**：后端实时 JOIN `biz_project`，项目改名后所有旧单必须跟着显示新名，
+ * 否则「按项目汇总」会把同一个项目因为改过名而裂成两行。
+ * 所以这里不需要主数据 Map，也不看任何快照 —— 只认后端下发的 `project_name`。
+ *
+ * @param projectId   单据上的 `project_id`（`null` = 未归集）
+ * @param projectName 后端下发的项目**现名**（`null` = 项目已软删 / 查不到）
+ */
+export function projectDisplayName(
+  projectId: string | null | undefined,
+  projectName: string | null | undefined,
+): string {
+  if (typeof projectName === 'string' && projectName.trim() !== '') {
+    return projectName;
+  }
+  if (projectId) {
+    return DELETED_PROJECT_TEXT;
+  }
+  return '—';
+}
+
+/** 项目下拉能接受的最小形状（只取要用的三列，别把 `project-api` 的整包类型拖进来） */
+export interface ProjectOptionLike {
+  /** 项目 id */
+  id: string;
+  /** 项目名称 */
+  name: string;
+  /** 项目编码 */
+  code: string;
+  /** `ACTIVE` / `ARCHIVED`（缺省按 `ACTIVE` 处理） */
+  status?: string | null;
+}
+
+/**
+ * 项目下拉的选项文案：`名称（编码）`，归档项目加后缀「（已归档）」。
+ *
+ * **不筛掉归档项目**：后端允许挂归档项目（补录当期采购是合法业务），而且编辑老单时
+ * 必须能把「当前选中的那个已归档项目」显示出来，否则选择器会静默变空 → 一提交就把归属洗掉。
+ */
+export function projectOptionLabel(project: ProjectOptionLike): string {
+  const archived = project.status === 'ARCHIVED';
+  return `${project.name}（${project.code}）${archived ? '（已归档）' : ''}`;
+}
+
+/**
+ * 项目下拉选项（含**当前选中值兜底**）。
+ *
+ * 为什么需要兜底：`GET /business/project/page` 受项目可见性裁剪（只能看到自己参与的项目）。
+ * 如果某张单挂着一个「我看不到 / 已删除」的项目，选项里就没有它 —— `t-select` 找不到 value
+ * 会**静默显示为空**，用户随手保存一次就 `project_id: null` 把归属清掉了（整单覆盖口径）。
+ * 所以选中值不在选项里时，按 `selectedName` /「（已删除项目）」补一条临时选项钉住它。
+ */
+export function projectSelectOptions(
+  projects: ReadonlyArray<ProjectOptionLike>,
+  selected: { id: string; name?: string | null },
+): Array<{ label: string; value: string }> {
+  const options = projects.map((project) => ({ label: projectOptionLabel(project), value: project.id }));
+  if (!selected.id || options.some((option) => option.value === selected.id)) {
+    return options;
+  }
+  const name = typeof selected.name === 'string' && selected.name.trim() !== '' ? selected.name : DELETED_PROJECT_TEXT;
+  return [{ label: `${name}（当前所属项目）`, value: selected.id }, ...options];
+}
+
 /** 北京时间的今天（`YYYY-MM-DD`）—— 与后端 `today_cst()` 同口径 */
 export function todayString(now: Date = new Date()): string {
   const shifted = new Date(now.getTime() + 8 * 60 * 60 * 1000);
@@ -664,6 +755,7 @@ export function emptyPurchaseForm(): PurchaseFormState {
     contract_supplier_name: '',
     supplier_id: '',
     warehouse_id: '',
+    project_id: '',
     order_date: todayString(),
     expect_date: '',
     credit_days: 0,
@@ -693,6 +785,7 @@ export function detailToForm(
     contract_supplier_name: order.supplier_name ?? '',
     supplier_id: order.supplier_id ?? '',
     warehouse_id: order.warehouse_id ?? '',
+    project_id: order.project_id ?? '',
     order_date: order.order_date ?? todayString(),
     expect_date: order.expect_date ?? '',
     credit_days: toNumber(order.credit_days),
@@ -817,6 +910,8 @@ export function buildPurchasePayload(form: PurchaseFormState): CreatePurchaseOrd
   return {
     ...head,
     warehouse_id: form.warehouse_id,
+    // ★ 改单是整单覆盖：不传 = 清空归属。所以**永远**发这个字段（空串 → null）
+    project_id: form.project_id || null,
     order_date: form.order_date,
     expect_date: form.expect_date || null,
     price_mode: mode,
