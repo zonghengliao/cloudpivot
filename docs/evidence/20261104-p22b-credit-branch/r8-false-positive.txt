@@ -1,0 +1,45 @@
+修复前（工作区 HEAD 45038a2 原样，未打本卡 patch）首次发布 v2 的真实输出
+==========================================================================================
+（本卡第一次跑「另存草稿 → 存图 → 校验」时的原始报文：图本身没错，是 R8 的假阳性）
+
+[正式] 存图: 200 {"version_id": "01a1a438-2e03-7024-8c98-17ff2a133a9b", "version_no": 2,
+                  "node_count": 9, "edge_count": 11,
+                  "warnings": ["[R8] 汇聚节点 c_low（金额分级①（< 1 万））的入边 c_credit
+                                上游没有分支网关（汇聚必须接在条件 / 并行节点之后）"]}
+[正式] 校验 HTTP 200 passed=False nodes=9 edges=11
+   - [R8] 汇聚节点 c_low（金额分级①（< 1 万））的入边 c_credit 上游没有分支网关
+     （汇聚必须接在条件 / 并行节点之后）
+校验未通过，不发布
+
+--------------------------------------------------------------------------------
+同一轮里的对照组（后置串行拓扑）也是 R8，但那一条是**正确的拦截**：
+   - [R8] 汇聚节点 c_credit2（超信用额度判定(后置)）的入边来自不同分支网关
+     （n_board ← c_mid，n_dept ← c_low，n_pm ← c_mid）—— 禁止混流汇聚，
+     请让同一网关的分支汇到同一个节点
+（原始 JSON 见 bad-topology-issues.json）
+
+--------------------------------------------------------------------------------
+根因（flow::graph::nearest_upstream_fork，修复前）：
+
+    pub fn nearest_upstream_fork(&self, from_key: &str) -> Option<(String, NodeType)> {
+        let input = self.in_edges();
+        ...
+        while let Some(key) = queue.pop_front() {
+            for edge in input.get(key).map(Vec::as_slice).unwrap_or(&[]) {
+                if let Some(node) = self.node(&edge.from).filter(|n| n.node_type.is_gateway()) {
+                    return Some((node.key.clone(), node.node_type));   // ← 只看「上游的入边来源」
+                }
+                ...
+            }
+        }
+        None
+    }
+
+`n_merge`（本例 c_low）的一条入边**直接来自网关**（c_credit）：函数从 c_credit 的入边继续
+往上找，一路走到 s（START）返 None → R8 认定这条入边「没有分支网关」。
+而这条边自己就带着分支身份（它就是 c_credit 的一条出边）。
+
+修复后：先把 `from_key` 自身当候选网关判一次（见 r8-fix.diff），
+单测 `r8_allows_a_bypass_branch_rejoining_the_fork_itself` 同时钉住两个方向：
+  · OR 汇聚 → 合法（不再误报）
+  · AND 汇聚 → 仍必须报 R8「条件分支必须用 OR 汇聚」

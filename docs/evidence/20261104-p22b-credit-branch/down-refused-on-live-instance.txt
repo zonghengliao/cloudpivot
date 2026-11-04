@@ -1,0 +1,2 @@
+ERROR:  V0216 down 回滚中止：仍有 4 张审批单跑在 v2 上（先让它们跑完或撤回）
+CONTEXT:  PL/pgSQL function inline_code_block line 15 at RAISE

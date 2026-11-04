@@ -1,0 +1,102 @@
+# P2-2b：flow::graph::nearest_upstream_fork 修正（HEAD 45038a2 → 本卡）
+
+```diff
+diff --git a/backend/src/business/flow/graph.rs b/backend/src/business/flow/graph.rs
+index 6e26bd9..687cbae 100644
+--- a/backend/src/business/flow/graph.rs
++++ b/backend/src/business/flow/graph.rs
+@@ -768,7 +768,28 @@ impl FlowGraph {
+     /// 用于 R8（禁止混流汇聚，架构 §3.5.3）：汇聚节点的每条入边都要能回答
+     /// 「我是从哪个网关分出来的」。BFS 保证找到的是**最近**的那个（嵌套网关时以最近为准）。
+     /// 找不到（例如整条链上根本没有网关，却有两条入边 —— 其实只能是图上另有环路）→ `None`。
++    ///
++    /// # `from_key` 自身就是网关时**必须返回它自己**
++    ///
++    /// 「有则加一道复核、无则直过」（BPMN 的 exclusive gateway + 旁路）在图上长这样：
++    ///
++    /// ```text
++    ///   c_cond ──条件成立──▶ n_extra ──▶ n_merge
++    ///     └────────兜底（直过）───────▶ n_merge
++    /// ```
++    ///
++    /// `n_merge` 的一条入边**直接来自网关**。若只往上游找，这条边会一路走到 START
++    /// 而返 `None`，R8 于是把「一支加了审批、另一支直接回来」判成
++    /// 「入边 c_cond 上游没有分支网关」（假阳性），而这条边本身恰恰就带着分支身份。
++    /// 反过来，「两条无网关来源的入边真的混流」这种要拦的情况不受影响 —— 那两个来源
++    /// 都不是网关，也不会被这里短路。
+     pub fn nearest_upstream_fork(&self, from_key: &str) -> Option<(String, NodeType)> {
++        if let Some(node) = self
++            .node(from_key)
++            .filter(|node| node.node_type.is_gateway())
++        {
++            return Some((node.key.clone(), node.node_type));
++        }
+         let input = self.in_edges();
+         let mut seen: HashSet<&str> = HashSet::from([from_key]);
+         let mut queue: VecDeque<&str> = VecDeque::from([from_key]);
+@@ -3041,6 +3062,64 @@ mod tests {
+         );
+     }
+ 
++    #[test]
++    fn r8_allows_a_bypass_branch_rejoining_the_fork_itself() {
++        // 「有则加一道复核、无则直过」：n_cond 的一支经 n_extra 再汇合，另一支**直接**汇合。
++        // 汇聚节点 n_merge 的一条入边直接来自网关本身 —— 这是 BPMN 里最常见的写法，
++        // 绝不能判成「上游没有分支网关」（R8 假阳性，P2-2b 实测踩到）。
++        let build = |merge_join: GatewayMode| {
++            let mut cond = NodeSpec::new("n_cond", "超信用额度判定", NodeType::Condition);
++            cond.join_mode = GatewayMode::Or;
++            let mut extra = NodeSpec::new("n_extra", "财务复核", NodeType::Approval);
++            extra.assignee_type = Some(AssigneeKind::Initiator);
++            let mut merge = NodeSpec::new("n_merge", "金额分级①", NodeType::Condition);
++            merge.join_mode = merge_join;
++            FlowGraph {
++                nodes: vec![
++                    NodeSpec::new("n_start", "开始", NodeType::Start),
++                    cond,
++                    extra,
++                    merge,
++                    NodeSpec::new("n_end", "结束", NodeType::End),
++                ],
++                edges: vec![
++                    EdgeSpec::new("e1", "n_start", "n_cond"),
++                    {
++                        let mut edge = EdgeSpec::new("e2", "n_cond", "n_extra");
++                        edge.condition = Some(json!({
++                            "op": "cmp", "field": "form.over_credit_limit", "cmp": "eq", "value": true
++                        }));
++                        edge
++                    },
++                    {
++                        let mut edge = EdgeSpec::new("e3", "n_cond", "n_merge");
++                        edge.is_default = true;
++                        edge
++                    },
++                    EdgeSpec::new("e4", "n_extra", "n_merge"),
++                    EdgeSpec::new("e5", "n_merge", "n_end"),
++                ],
++            }
++        };
++
++        // ① 条件分支 + OR 汇聚 = 合法（这条以前被判成「上游没有分支网关」）
++        let issues = build(GatewayMode::Or).validate();
++        assert!(
++            !rules(&issues).contains(&"R8"),
++            "分支直连汇聚节点是合法建模，不该报 R8：{issues:#?}"
++        );
++
++        // ② 同样的图改用 AND 汇聚 —— 仍必须拦住（条件分支只有一支会激活，AND 会永久卡死）
++        let issues = build(GatewayMode::And).validate();
++        let issue = issues
++            .iter()
++            .find(|issue| issue.rule == "R8")
++            .expect("条件分支用 AND 汇聚必须报 R8");
++        assert_eq!(issue.code, error_code::FLOW_GRAPH_JOIN_MODE);
++        assert!(issue.message.contains("OR"), "{}", issue.message);
++        println!("[R8 直连汇聚·AND 反例] {}", issue.message);
++    }
++
+     #[test]
+     fn r9_rejects_bad_ratio_and_missing_mode() {
+         // ① RATIO 越界
+```

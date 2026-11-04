@@ -1,0 +1,667 @@
+== 库 cloudpivot_p22b_e ==
+--- 迁移前（应只有 v1）
+def|po_approve|PUBLISHED|1
+hash|1|8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de|7/8
+ver|1|PUBLISHED|true
+
+== ① 首次 up ==
+-- ======================================================
+-- V0216：po_approve 加「超信用额度 → 财务复核」条件分支（P2-2b）
+--
+-- 依据：卡 t_c79af27a「拍板 + 配一条边」；上游 P2-2（t_dfdbfcaf，提交 45038a2）已把
+--       `biz_supplier.credit_limit` 做成真生效：采购单**提交时**现算「该供应商累计未结
+--       采购额（含本单）」，超限则单据三列冻结（`over_credit_limit` / `credit_exposure` /
+--       `credit_limit_snapshot`），且超限单**必须走审批**（无已发布 po_approve → 409 + 66036，
+--       `business:erp:skip-approval` 对超限单不开放）。
+--
+-- ── 决策：B（加一条复核），并且是**前置串行** ────────────────────────────
+--   `START → 超信用额度判定 ─┬─ over_credit_limit = true ─▶ 财务复核 ─┬─▶ 金额分级① ─▶ …（原三档）─▶ END
+--                            └─ 兜底（额度内 / 未评估）──────────────┘
+--   · 复核岗位 = `FINANCE_MANAGER`（V0191 已种，财务链标准岗位；不新增岗位）；
+--   · **一律复核**，不按超额比例/绝对额分级：`over_credit_limit` 已是布尔判定，分级要多维护
+--     一套阈值、且会放行「额度 100 万超 1 万」这类本该走「调额度」的单；金额维度的升级由
+--     原有三档（< 1 万部门主管 / 1–10 万采购经理 / ≥ 10 万采购经理+总经理会签）承担 ——
+--     超限 + 大额 = 财务 + 会签，天然是二维升级，不需要第三套阈值；
+--   · **不做「临时提额白名单」**：单据级白名单 = 把内控开关交给采购员，等于额度失效。
+--     紧急采购的正路是「调供应商额度」（主数据权限控制 + 每单 `credit_limit_snapshot`
+--     冻结当时额度 ⇒ 调完之后历史单仍显示当时的判定，审计可追）；
+--   · 复核节点 **空审批人兜底超管**（`FALLBACK_ADMIN`），绝不 SKIP —— SKIP 等于
+--     「没人可派就自动通过」，超限控制静默失效；
+--   · 复核超时 8 小时只 **REMIND**（不自动通过），提前 2 小时提醒。
+--
+-- ── 为什么是「前置」而不是「金额分级之后」 ─────────────────────────────
+--   ① 前置只需**一个新插入点**（e_start 改向 + 3 条边），后置要把三个金额档位的出边全部
+--      改向，图更大、改一次要改三处；
+--   ② 后置汇聚在引擎结构校验里**根本立不住**：三个档位分别来自 c_low / c_mid 两个不同的
+--      条件网关，R8「禁止混流汇聚」直接拒（本卡实测，见 docs/evidence/20261104-p22b-credit-branch/
+--      bad-topology-issues.json：`汇聚节点 c_credit2 的入边来自不同分支网关（n_board ← c_mid,
+--      n_dept ← c_low, n_pm ← c_mid）`）；
+--   ③ 财务先看，业务后批：额度风险在「业务还没背书」时就由财务定量（避免锚定在「采购经理已批」上），
+--      且财务驳回时不会白烧一轮业务审批；机制上制单人 ≠ 复核人（`purchase_bridge::guard_self_approval`）。
+--
+-- ── 顺带修掉的引擎缺陷（本卡唯一一处代码改动）──────────────────────────
+--   `flow::graph::nearest_upstream_fork` 只往**上游**找网关，入边**直接来自网关**时返 None，
+--   于是 R8 把「一支加了一道审批、另一支直过再汇合」（BPMN 最常见的写法）判成
+--   「入边 c_low 上游没有分支网关」假阳性 —— 该函数现在先认 `from_key` 自身。附单测
+--   `r8_allows_a_bypass_branch_rejoining_the_fork_itself`（AND 汇聚仍必须被拦）。
+--
+-- ── 为什么用迁移发布、而不是「只在设计器里点」──────────────────────────
+--   本卡的验收要求「新版本已发布 + 真机跑通」，而**新部署/新租户**没有任何人点过设计器。
+--   所以 v2 的图在这里以**种子**形态落库（固定 UUID、幂等、带自检），与 V0182 种 v1 同一套
+--   做法；客户要改，仍在设计器里「另存为新草稿」发 v3 —— 本迁移只种 v2，永不覆盖 v3+。
+--   ⚠️ v1 的**行与快照一行不动**（只把 is_current 置 false、状态改 ARCHIVED）：已经跑在
+--   v1 上的审批单按各自版本的快照继续跑完，不会被这次发布改道。
+--
+-- ── 幂等与安全 ──────────────────────────────────────────
+--   · 只在「本组织 po_approve 仍是 V0182 种子 v1（hash 逐字节相等）+ 不存在 version_no ≥ 2」时发布，
+--     否则整段 NOTICE 跳过（绝不覆盖客户自己改过的图 / 已有的 v2）；重复执行零变更。
+--   · 回滚：`V0216__erp_p2_2b_po_credit_branch.down.sql` —— **有单据跑在 v2 上就拒绝回滚**
+--     （RAISE EXCEPTION + 计数），否则删掉版本会留下指向空气的审批单。
+-- ======================================================
+-- ---------- 1) 发布 v2（守卫 + 落地，全在一个事务里）----------
+DO $$
+DECLARE
+    c_def uuid := '20000000-0000-4000-8000-0000000a0182';
+    c_v1  uuid := '20000000-0000-4000-8000-0000000a0183';
+    c_v2  uuid := '20000000-0000-4000-8000-0000000a0184';
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def
+                    WHERE id = c_def AND flow_code = 'po_approve' AND deleted_at IS NULL) THEN
+        RAISE NOTICE 'V0216 跳过：本组织没有 V0182 种子 po_approve（客户自建或未种），不替你改图';
+        RETURN;
+    END IF;
+    IF EXISTS (SELECT 1 FROM biz_flow_def_version WHERE def_id = c_def AND version_no >= 2) THEN
+        RAISE NOTICE 'V0216 跳过：po_approve 已有 version_no ≥ 2（客户/其他批次发过版），绝不覆盖';
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def_version
+                    WHERE id = c_v1 AND def_id = c_def AND is_current
+                      AND graph_hash = '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de') THEN
+        RAISE NOTICE 'V0216 跳过：po_approve 的当前版本不是 V0182 种子（管理员改过图），不替你改图';
+        RETURN;
+    END IF;
+
+    -- 1.1 v1 退位（快照/行一行不动，只改状态与当前标记）
+    UPDATE biz_flow_def_version
+       SET is_current = FALSE, version_status = 'ARCHIVED', updated_at = now()
+     WHERE id = c_v1;
+
+    -- 1.2 v2 版本行（graph_hash 由 canonical 快照算得，与设计器发布结果逐字节一致）
+    INSERT INTO biz_flow_def_version (
+        id, def_id, version_no, version_status, is_current, graph_hash, graph_snapshot,
+        node_count, edge_count, change_note, published_at, published_by)
+    VALUES (
+        c_v2, c_def, 2, 'PUBLISHED', TRUE,
+        '4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d',
+        $snapshot${"edges":[{"condition":null,"from":"c_credit","is_default":true,"key":"e_credit_else","label":"额度内 / 未评估 → 原金额分级","priority":10,"to":"c_low"},{"condition":{"cmp":"eq","field":"form.over_credit_limit","op":"cmp","value":true},"from":"c_credit","is_default":false,"key":"e_credit_over","label":"超信用额度 → 财务复核","priority":0,"to":"n_fin"},{"condition":null,"from":"c_low","is_default":true,"key":"e_low_else","label":"金额 ≥ 10000","priority":10,"to":"c_mid"},{"condition":{"cmp":"lt","field":"form.amount","op":"cmp","value":10000},"from":"c_low","is_default":false,"key":"e_low","label":"金额 < 10000","priority":0,"to":"n_dept"},{"condition":null,"from":"c_mid","is_default":true,"key":"e_mid_else","label":"金额 ≥ 100000","priority":10,"to":"n_board"},{"condition":{"cmp":"lt","field":"form.amount","op":"cmp","value":100000},"from":"c_mid","is_default":false,"key":"e_mid","label":"10000 ≤ 金额 < 100000","priority":0,"to":"n_pm"},{"condition":null,"from":"n_board","is_default":false,"key":"e_board_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"n_dept","is_default":false,"key":"e_dept_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"n_fin","is_default":false,"key":"e_fin_next","label":null,"priority":0,"to":"c_low"},{"condition":null,"from":"n_pm","is_default":false,"key":"e_pm_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"s","is_default":false,"key":"e_start","label":null,"priority":0,"to":"c_credit"}],"nodes":[{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_credit","max_remind_times":3,"name":"超信用额度判定","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":2,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":180,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_low","max_remind_times":3,"name":"金额分级①（< 1 万）","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":4,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":580,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_mid","max_remind_times":3,"name":"金额分级②（< 10 万）","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":6,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":780,"y":140},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"e","max_remind_times":3,"name":"结束","node_type":"END","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":9,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":1240,"y":80},{"allow_robot":false,"approval_mode":"ALL","approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0002","sort_order":0},{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0003","sort_order":1}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_board","max_remind_times":2,"name":"采购经理+总经理会签","node_type":"COUNTERSIGN","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":8,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":48,"x":1000,"y":280},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0001","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_dept","max_remind_times":2,"name":"部门主管审批","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":5,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":24,"x":780,"y":-160},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0005","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_fin","max_remind_times":3,"name":"财务复核（超信用额度）","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":2,"self_approval":"ALLOW","sort_order":3,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":8,"x":380,"y":160},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0002","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_pm","max_remind_times":2,"name":"采购经理审批","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":7,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":24,"x":1000,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"s","max_remind_times":3,"name":"开始","node_type":"START","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":1,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":0,"y":0}],"schema_version":1}$snapshot$::jsonb,
+        9, 11,
+        'P2-2b：超信用额度加一道财务复核（前置串行，条件边 form.over_credit_limit eq true）',
+        now(), NULL);
+
+    -- 1.3 节点（v1 的 7 个原样搬，加「超信用额度判定」+「财务复核」）
+    INSERT INTO biz_flow_node (
+        id, version_id, node_key, node_name, node_type, assignee_type, superior_levels,
+        form_var_key, approval_mode, approve_ratio, reject_veto, empty_assignee, self_approval,
+        allow_robot, join_mode, fork_mode, timeout_hours, timeout_action, remind_before_hours,
+        max_remind_times, cc_on_approved, position_x, position_y, sort_order, config)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_credit'::varchar, '超信用额度判定'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 180::int, 0::int, 2::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_low'::varchar, '金额分级①（< 1 万）'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 580::int, 0::int, 4::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_mid'::varchar, '金额分级②（< 10 万）'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 780::int, 140::int, 6::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019f'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e'::varchar, '结束'::varchar, 'END'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 1240::int, 80::int, 9::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_board'::varchar, '采购经理+总经理会签'::varchar, 'COUNTERSIGN'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, 'ALL'::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 48::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 1000::int, 280::int, 8::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019b'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_dept'::varchar, '部门主管审批'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 24::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 780::int, -160::int, 5::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a0199'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_fin'::varchar, '财务复核（超信用额度）'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 8::int, 'REMIND'::varchar, 2::int, 3::smallint,
+     FALSE::bool, 380::int, 160::int, 3::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019d'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_pm'::varchar, '采购经理审批'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 24::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 1000::int, 0::int, 7::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a0197'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 's'::varchar, '开始'::varchar, 'START'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 0::int, 0::int, 1::int, '{}'::jsonb);
+
+    -- 1.4 边（e_start 改向「超信用额度判定」，两支在 c_low 汇聚 = OR 汇聚）
+    INSERT INTO biz_flow_edge (
+        id, version_id, edge_key, from_node_id, to_node_id, condition_expr,
+        condition_label, priority, is_default)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a021a'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_board_end'::varchar, '20000000-0000-4000-8000-0000000a019e'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0212'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_credit_else'::varchar, '20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a019a'::uuid,
+     NULL::jsonb, '额度内 / 未评估 → 原金额分级'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0211'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_credit_over'::varchar, '20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a0199'::uuid,
+     '{"op": "cmp", "cmp": "eq", "field": "form.over_credit_limit", "value": true}'::jsonb, '超信用额度 → 财务复核'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0218'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_dept_end'::varchar, '20000000-0000-4000-8000-0000000a019b'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0213'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_fin_next'::varchar, '20000000-0000-4000-8000-0000000a0199'::uuid, '20000000-0000-4000-8000-0000000a019a'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0214'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_low'::varchar, '20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a019b'::uuid,
+     '{"op": "cmp", "cmp": "lt", "field": "form.amount", "value": 10000}'::jsonb, '金额 < 10000'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0215'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_low_else'::varchar, '20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a019c'::uuid,
+     NULL::jsonb, '金额 ≥ 10000'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0216'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_mid'::varchar, '20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a019d'::uuid,
+     '{"op": "cmp", "cmp": "lt", "field": "form.amount", "value": 100000}'::jsonb, '10000 ≤ 金额 < 100000'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0217'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_mid_else'::varchar, '20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a019e'::uuid,
+     NULL::jsonb, '金额 ≥ 100000'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0219'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_pm_end'::varchar, '20000000-0000-4000-8000-0000000a019d'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0210'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_start'::varchar, '20000000-0000-4000-8000-0000000a0197'::uuid, '20000000-0000-4000-8000-0000000a0198'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool);
+
+    -- 1.5 审批人（与原流程同口径：全部 ROLE，客户只绑人）
+    INSERT INTO biz_flow_node_assignee (node_id, assignee_type, ref_id, sort_order)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0002'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0003'::uuid, 1::int),
+    ('20000000-0000-4000-8000-0000000a019b'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0001'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a0199'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0005'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a019d'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0002'::uuid, 0::int);
+
+    -- 1.6 流程定义指向 v2
+    UPDATE biz_flow_def
+       SET current_version_id = c_v2, current_version_no = 2, updated_at = now()
+     WHERE id = c_def;
+
+    RAISE NOTICE 'V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）';
+END $$;
+NOTICE:  V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）
+-- ---------- 2) 自检（跳过与落地两种路径都要过；落地后逐条钉死）----------
+DO $$
+DECLARE
+    c_def uuid := '20000000-0000-4000-8000-0000000a0182';
+    c_v1  uuid := '20000000-0000-4000-8000-0000000a0183';
+    c_v2  uuid := '20000000-0000-4000-8000-0000000a0184';
+    n_nodes int; n_edges int; n_assignees int; n_cur int; v_hash_1 text; v_hash_2 text;
+    v_state text; v_flow_of boolean; v_join text; v_in int; v_cond jsonb; v_def_ver int;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def_version WHERE id = c_v2) THEN
+        RAISE NOTICE 'V0216 自检：v2 未发布（守卫跳过路径），只校验 v1 未被破坏';
+        SELECT graph_hash INTO v_hash_1 FROM biz_flow_def_version WHERE id = c_v1;
+        IF v_hash_1 IS DISTINCT FROM '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de' THEN
+            RAISE EXCEPTION 'V0216 自检失败：跳过路径下 v1 的快照 hash 被改动（%）', v_hash_1;
+        END IF;
+        RETURN;
+    END IF;
+
+    SELECT graph_hash, version_status INTO v_hash_2, v_state
+      FROM biz_flow_def_version WHERE id = c_v2;
+    IF v_hash_2 IS DISTINCT FROM '4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 的 graph_hash 不是设计器算出的那个（%）', v_hash_2;
+    END IF;
+    IF v_state <> 'PUBLISHED' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 状态是 %，不是 PUBLISHED', v_state;
+    END IF;
+
+    SELECT node_count, edge_count INTO n_nodes, n_edges
+      FROM biz_flow_def_version WHERE id = c_v2;
+    IF n_nodes <> 9 OR n_edges <> 11 THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 声明的节点/边数不对（% / %）', n_nodes, n_edges;
+    END IF;
+    SELECT count(*) INTO n_nodes FROM biz_flow_node WHERE version_id = c_v2;
+    SELECT count(*) INTO n_edges FROM biz_flow_edge WHERE version_id = c_v2;
+    SELECT count(*) INTO n_assignees FROM biz_flow_node_assignee a
+      JOIN biz_flow_node n ON n.id = a.node_id WHERE n.version_id = c_v2;
+    IF n_nodes <> 9 OR n_edges <> 11 OR n_assignees <> 5 THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 实际行数不对（节点 % / 边 % / 审批人 %）',
+            n_nodes, n_edges, n_assignees;
+    END IF;
+
+    -- v1 只退位、不毁图
+    SELECT graph_hash, version_status, is_current INTO v_hash_1, v_state, v_flow_of
+      FROM biz_flow_def_version WHERE id = c_v1;
+    IF v_hash_1 IS DISTINCT FROM '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v1 快照 hash 被改动（%）—— 旧版本必须逐字节不变', v_hash_1;
+    END IF;
+    IF v_state <> 'ARCHIVED' OR v_flow_of THEN
+        RAISE EXCEPTION 'V0216 自检失败：v1 应为 ARCHIVED 且非当前（实际 % / is_current=%）',
+            v_state, v_flow_of;
+    END IF;
+
+    -- 同一流程只能有一个 is_current
+    SELECT count(*) INTO n_cur FROM biz_flow_def_version WHERE def_id = c_def AND is_current;
+    IF n_cur <> 1 THEN
+        RAISE EXCEPTION 'V0216 自检失败：is_current 版本数为 %（应恰好 1）', n_cur;
+    END IF;
+    SELECT current_version_no INTO v_def_ver FROM biz_flow_def WHERE id = c_def;
+    IF v_def_ver <> 2 THEN
+        RAISE EXCEPTION 'V0216 自检失败：流程定义仍指向 v%（应 2）', v_def_ver;
+    END IF;
+
+    -- 条件边：布尔别写成字符串（写错会被 eval 当成「条件不成立」静默走兜底）
+    SELECT e.condition_expr INTO v_cond
+      FROM biz_flow_edge e
+     WHERE e.version_id = c_v2 AND e.edge_key = 'e_credit_over';
+    IF v_cond IS DISTINCT FROM '{"op":"cmp","field":"form.over_credit_limit","cmp":"eq","value":true}'::jsonb THEN
+        RAISE EXCEPTION 'V0216 自检失败：条件边 e_credit_over 的表达式不对（%）', v_cond;
+    END IF;
+
+    -- 汇聚：c_low 两条入边都来自 c_credit，必须 OR 汇聚
+    SELECT join_mode INTO v_join FROM biz_flow_node WHERE version_id = c_v2 AND node_key = 'c_low';
+    SELECT count(*) INTO v_in FROM biz_flow_edge
+     WHERE version_id = c_v2 AND to_node_id = (SELECT id FROM biz_flow_node
+                                                WHERE version_id = c_v2 AND node_key = 'c_low');
+    IF v_join <> 'OR' OR v_in <> 2 THEN
+        RAISE EXCEPTION 'V0216 自检失败：c_low 必须是 OR 汇聚且 2 条入边（实际 join=% / 入边 %）',
+            v_join, v_in;
+    END IF;
+
+    -- 复核人 = 财务经理，且空审批人兜底超管（不许 SKIP）
+    IF NOT EXISTS (
+        SELECT 1 FROM biz_flow_node_assignee a
+          JOIN biz_flow_node n ON n.id = a.node_id
+         WHERE n.version_id = c_v2 AND n.node_key = 'n_fin'
+           AND a.assignee_type = 'ROLE' AND a.ref_id = '20000000-0000-4000-8000-0000000f0005'::uuid) THEN
+        RAISE EXCEPTION 'V0216 自检失败：财务复核节点没绑 FINANCE_MANAGER';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM biz_flow_node
+         WHERE version_id = c_v2 AND node_key = 'n_fin'
+           AND empty_assignee = 'FALLBACK_ADMIN' AND timeout_action = 'REMIND') THEN
+        RAISE EXCEPTION 'V0216 自检失败：财务复核节点的空审批人/超时策略不对';
+    END IF;
+
+    RAISE NOTICE 'V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=%，v1 原样归档', v_hash_2;
+END $$;
+NOTICE:  V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d，v1 原样归档
+--- 首次 up 之后
+def|po_approve|PUBLISHED|2
+hash|1|8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de|7/8
+hash|2|4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d|9/11
+ver|1|ARCHIVED|false
+ver|2|PUBLISHED|true
+
+== ② 再跑一次 up（幂等：应 NOTICE 跳过、零变更）==
+-- ======================================================
+-- V0216：po_approve 加「超信用额度 → 财务复核」条件分支（P2-2b）
+--
+-- 依据：卡 t_c79af27a「拍板 + 配一条边」；上游 P2-2（t_dfdbfcaf，提交 45038a2）已把
+--       `biz_supplier.credit_limit` 做成真生效：采购单**提交时**现算「该供应商累计未结
+--       采购额（含本单）」，超限则单据三列冻结（`over_credit_limit` / `credit_exposure` /
+--       `credit_limit_snapshot`），且超限单**必须走审批**（无已发布 po_approve → 409 + 66036，
+--       `business:erp:skip-approval` 对超限单不开放）。
+--
+-- ── 决策：B（加一条复核），并且是**前置串行** ────────────────────────────
+--   `START → 超信用额度判定 ─┬─ over_credit_limit = true ─▶ 财务复核 ─┬─▶ 金额分级① ─▶ …（原三档）─▶ END
+--                            └─ 兜底（额度内 / 未评估）──────────────┘
+--   · 复核岗位 = `FINANCE_MANAGER`（V0191 已种，财务链标准岗位；不新增岗位）；
+--   · **一律复核**，不按超额比例/绝对额分级：`over_credit_limit` 已是布尔判定，分级要多维护
+--     一套阈值、且会放行「额度 100 万超 1 万」这类本该走「调额度」的单；金额维度的升级由
+--     原有三档（< 1 万部门主管 / 1–10 万采购经理 / ≥ 10 万采购经理+总经理会签）承担 ——
+--     超限 + 大额 = 财务 + 会签，天然是二维升级，不需要第三套阈值；
+--   · **不做「临时提额白名单」**：单据级白名单 = 把内控开关交给采购员，等于额度失效。
+--     紧急采购的正路是「调供应商额度」（主数据权限控制 + 每单 `credit_limit_snapshot`
+--     冻结当时额度 ⇒ 调完之后历史单仍显示当时的判定，审计可追）；
+--   · 复核节点 **空审批人兜底超管**（`FALLBACK_ADMIN`），绝不 SKIP —— SKIP 等于
+--     「没人可派就自动通过」，超限控制静默失效；
+--   · 复核超时 8 小时只 **REMIND**（不自动通过），提前 2 小时提醒。
+--
+-- ── 为什么是「前置」而不是「金额分级之后」 ─────────────────────────────
+--   ① 前置只需**一个新插入点**（e_start 改向 + 3 条边），后置要把三个金额档位的出边全部
+--      改向，图更大、改一次要改三处；
+--   ② 后置汇聚在引擎结构校验里**根本立不住**：三个档位分别来自 c_low / c_mid 两个不同的
+--      条件网关，R8「禁止混流汇聚」直接拒（本卡实测，见 docs/evidence/20261104-p22b-credit-branch/
+--      bad-topology-issues.json：`汇聚节点 c_credit2 的入边来自不同分支网关（n_board ← c_mid,
+--      n_dept ← c_low, n_pm ← c_mid）`）；
+--   ③ 财务先看，业务后批：额度风险在「业务还没背书」时就由财务定量（避免锚定在「采购经理已批」上），
+--      且财务驳回时不会白烧一轮业务审批；机制上制单人 ≠ 复核人（`purchase_bridge::guard_self_approval`）。
+--
+-- ── 顺带修掉的引擎缺陷（本卡唯一一处代码改动）──────────────────────────
+--   `flow::graph::nearest_upstream_fork` 只往**上游**找网关，入边**直接来自网关**时返 None，
+--   于是 R8 把「一支加了一道审批、另一支直过再汇合」（BPMN 最常见的写法）判成
+--   「入边 c_low 上游没有分支网关」假阳性 —— 该函数现在先认 `from_key` 自身。附单测
+--   `r8_allows_a_bypass_branch_rejoining_the_fork_itself`（AND 汇聚仍必须被拦）。
+--
+-- ── 为什么用迁移发布、而不是「只在设计器里点」──────────────────────────
+--   本卡的验收要求「新版本已发布 + 真机跑通」，而**新部署/新租户**没有任何人点过设计器。
+--   所以 v2 的图在这里以**种子**形态落库（固定 UUID、幂等、带自检），与 V0182 种 v1 同一套
+--   做法；客户要改，仍在设计器里「另存为新草稿」发 v3 —— 本迁移只种 v2，永不覆盖 v3+。
+--   ⚠️ v1 的**行与快照一行不动**（只把 is_current 置 false、状态改 ARCHIVED）：已经跑在
+--   v1 上的审批单按各自版本的快照继续跑完，不会被这次发布改道。
+--
+-- ── 幂等与安全 ──────────────────────────────────────────
+--   · 只在「本组织 po_approve 仍是 V0182 种子 v1（hash 逐字节相等）+ 不存在 version_no ≥ 2」时发布，
+--     否则整段 NOTICE 跳过（绝不覆盖客户自己改过的图 / 已有的 v2）；重复执行零变更。
+--   · 回滚：`V0216__erp_p2_2b_po_credit_branch.down.sql` —— **有单据跑在 v2 上就拒绝回滚**
+--     （RAISE EXCEPTION + 计数），否则删掉版本会留下指向空气的审批单。
+-- ======================================================
+-- ---------- 1) 发布 v2（守卫 + 落地，全在一个事务里）----------
+DO $$
+DECLARE
+    c_def uuid := '20000000-0000-4000-8000-0000000a0182';
+    c_v1  uuid := '20000000-0000-4000-8000-0000000a0183';
+    c_v2  uuid := '20000000-0000-4000-8000-0000000a0184';
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def
+                    WHERE id = c_def AND flow_code = 'po_approve' AND deleted_at IS NULL) THEN
+        RAISE NOTICE 'V0216 跳过：本组织没有 V0182 种子 po_approve（客户自建或未种），不替你改图';
+        RETURN;
+    END IF;
+    IF EXISTS (SELECT 1 FROM biz_flow_def_version WHERE def_id = c_def AND version_no >= 2) THEN
+        RAISE NOTICE 'V0216 跳过：po_approve 已有 version_no ≥ 2（客户/其他批次发过版），绝不覆盖';
+        RETURN;
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def_version
+                    WHERE id = c_v1 AND def_id = c_def AND is_current
+                      AND graph_hash = '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de') THEN
+        RAISE NOTICE 'V0216 跳过：po_approve 的当前版本不是 V0182 种子（管理员改过图），不替你改图';
+        RETURN;
+    END IF;
+
+    -- 1.1 v1 退位（快照/行一行不动，只改状态与当前标记）
+    UPDATE biz_flow_def_version
+       SET is_current = FALSE, version_status = 'ARCHIVED', updated_at = now()
+     WHERE id = c_v1;
+
+    -- 1.2 v2 版本行（graph_hash 由 canonical 快照算得，与设计器发布结果逐字节一致）
+    INSERT INTO biz_flow_def_version (
+        id, def_id, version_no, version_status, is_current, graph_hash, graph_snapshot,
+        node_count, edge_count, change_note, published_at, published_by)
+    VALUES (
+        c_v2, c_def, 2, 'PUBLISHED', TRUE,
+        '4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d',
+        $snapshot${"edges":[{"condition":null,"from":"c_credit","is_default":true,"key":"e_credit_else","label":"额度内 / 未评估 → 原金额分级","priority":10,"to":"c_low"},{"condition":{"cmp":"eq","field":"form.over_credit_limit","op":"cmp","value":true},"from":"c_credit","is_default":false,"key":"e_credit_over","label":"超信用额度 → 财务复核","priority":0,"to":"n_fin"},{"condition":null,"from":"c_low","is_default":true,"key":"e_low_else","label":"金额 ≥ 10000","priority":10,"to":"c_mid"},{"condition":{"cmp":"lt","field":"form.amount","op":"cmp","value":10000},"from":"c_low","is_default":false,"key":"e_low","label":"金额 < 10000","priority":0,"to":"n_dept"},{"condition":null,"from":"c_mid","is_default":true,"key":"e_mid_else","label":"金额 ≥ 100000","priority":10,"to":"n_board"},{"condition":{"cmp":"lt","field":"form.amount","op":"cmp","value":100000},"from":"c_mid","is_default":false,"key":"e_mid","label":"10000 ≤ 金额 < 100000","priority":0,"to":"n_pm"},{"condition":null,"from":"n_board","is_default":false,"key":"e_board_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"n_dept","is_default":false,"key":"e_dept_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"n_fin","is_default":false,"key":"e_fin_next","label":null,"priority":0,"to":"c_low"},{"condition":null,"from":"n_pm","is_default":false,"key":"e_pm_end","label":null,"priority":0,"to":"e"},{"condition":null,"from":"s","is_default":false,"key":"e_start","label":null,"priority":0,"to":"c_credit"}],"nodes":[{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_credit","max_remind_times":3,"name":"超信用额度判定","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":2,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":180,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_low","max_remind_times":3,"name":"金额分级①（< 1 万）","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":4,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":580,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"c_mid","max_remind_times":3,"name":"金额分级②（< 10 万）","node_type":"CONDITION","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":6,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":780,"y":140},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"OR","key":"e","max_remind_times":3,"name":"结束","node_type":"END","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":9,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":1240,"y":80},{"allow_robot":false,"approval_mode":"ALL","approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0002","sort_order":0},{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0003","sort_order":1}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_board","max_remind_times":2,"name":"采购经理+总经理会签","node_type":"COUNTERSIGN","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":8,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":48,"x":1000,"y":280},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0001","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_dept","max_remind_times":2,"name":"部门主管审批","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":5,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":24,"x":780,"y":-160},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0005","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_fin","max_remind_times":3,"name":"财务复核（超信用额度）","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":2,"self_approval":"ALLOW","sort_order":3,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":8,"x":380,"y":160},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":"ROLE","assignees":[{"assignee_type":"ROLE","ref_id":"20000000-0000-4000-8000-0000000f0002","sort_order":0}],"cc_on_approved":false,"config":{},"empty_assignee":"FALLBACK_ADMIN","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"n_pm","max_remind_times":2,"name":"采购经理审批","node_type":"APPROVAL","reject_veto":true,"remind_before_hours":null,"self_approval":"ALLOW","sort_order":7,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":24,"x":1000,"y":0},{"allow_robot":false,"approval_mode":null,"approve_ratio":null,"assignee_type":null,"assignees":[],"cc_on_approved":false,"config":{},"empty_assignee":"SKIP","fork_mode":"AND","form_var_key":null,"join_mode":"AND","key":"s","max_remind_times":3,"name":"开始","node_type":"START","reject_veto":true,"remind_before_hours":null,"self_approval":"SKIP","sort_order":1,"superior_levels":1,"timeout_action":"REMIND","timeout_hours":null,"x":0,"y":0}],"schema_version":1}$snapshot$::jsonb,
+        9, 11,
+        'P2-2b：超信用额度加一道财务复核（前置串行，条件边 form.over_credit_limit eq true）',
+        now(), NULL);
+
+    -- 1.3 节点（v1 的 7 个原样搬，加「超信用额度判定」+「财务复核」）
+    INSERT INTO biz_flow_node (
+        id, version_id, node_key, node_name, node_type, assignee_type, superior_levels,
+        form_var_key, approval_mode, approve_ratio, reject_veto, empty_assignee, self_approval,
+        allow_robot, join_mode, fork_mode, timeout_hours, timeout_action, remind_before_hours,
+        max_remind_times, cc_on_approved, position_x, position_y, sort_order, config)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_credit'::varchar, '超信用额度判定'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 180::int, 0::int, 2::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_low'::varchar, '金额分级①（< 1 万）'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 580::int, 0::int, 4::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'c_mid'::varchar, '金额分级②（< 10 万）'::varchar, 'CONDITION'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 780::int, 140::int, 6::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019f'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e'::varchar, '结束'::varchar, 'END'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'OR'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 1240::int, 80::int, 9::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_board'::varchar, '采购经理+总经理会签'::varchar, 'COUNTERSIGN'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, 'ALL'::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 48::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 1000::int, 280::int, 8::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019b'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_dept'::varchar, '部门主管审批'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 24::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 780::int, -160::int, 5::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a0199'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_fin'::varchar, '财务复核（超信用额度）'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 8::int, 'REMIND'::varchar, 2::int, 3::smallint,
+     FALSE::bool, 380::int, 160::int, 3::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a019d'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'n_pm'::varchar, '采购经理审批'::varchar, 'APPROVAL'::varchar,
+     'ROLE'::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'FALLBACK_ADMIN'::varchar, 'ALLOW'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, 24::int, 'REMIND'::varchar, NULL::int, 2::smallint,
+     FALSE::bool, 1000::int, 0::int, 7::int, '{}'::jsonb),
+    ('20000000-0000-4000-8000-0000000a0197'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 's'::varchar, '开始'::varchar, 'START'::varchar,
+     NULL::varchar, 1::int, NULL::varchar, NULL::varchar, NULL::numeric,
+     TRUE::bool, 'SKIP'::varchar, 'SKIP'::varchar, FALSE::bool, 'AND'::varchar,
+     'AND'::varchar, NULL::int, 'REMIND'::varchar, NULL::int, 3::smallint,
+     FALSE::bool, 0::int, 0::int, 1::int, '{}'::jsonb);
+
+    -- 1.4 边（e_start 改向「超信用额度判定」，两支在 c_low 汇聚 = OR 汇聚）
+    INSERT INTO biz_flow_edge (
+        id, version_id, edge_key, from_node_id, to_node_id, condition_expr,
+        condition_label, priority, is_default)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a021a'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_board_end'::varchar, '20000000-0000-4000-8000-0000000a019e'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0212'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_credit_else'::varchar, '20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a019a'::uuid,
+     NULL::jsonb, '额度内 / 未评估 → 原金额分级'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0211'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_credit_over'::varchar, '20000000-0000-4000-8000-0000000a0198'::uuid, '20000000-0000-4000-8000-0000000a0199'::uuid,
+     '{"op": "cmp", "cmp": "eq", "field": "form.over_credit_limit", "value": true}'::jsonb, '超信用额度 → 财务复核'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0218'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_dept_end'::varchar, '20000000-0000-4000-8000-0000000a019b'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0213'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_fin_next'::varchar, '20000000-0000-4000-8000-0000000a0199'::uuid, '20000000-0000-4000-8000-0000000a019a'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0214'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_low'::varchar, '20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a019b'::uuid,
+     '{"op": "cmp", "cmp": "lt", "field": "form.amount", "value": 10000}'::jsonb, '金额 < 10000'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0215'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_low_else'::varchar, '20000000-0000-4000-8000-0000000a019a'::uuid, '20000000-0000-4000-8000-0000000a019c'::uuid,
+     NULL::jsonb, '金额 ≥ 10000'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0216'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_mid'::varchar, '20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a019d'::uuid,
+     '{"op": "cmp", "cmp": "lt", "field": "form.amount", "value": 100000}'::jsonb, '10000 ≤ 金额 < 100000'::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0217'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_mid_else'::varchar, '20000000-0000-4000-8000-0000000a019c'::uuid, '20000000-0000-4000-8000-0000000a019e'::uuid,
+     NULL::jsonb, '金额 ≥ 100000'::varchar, 10::int, TRUE::bool),
+    ('20000000-0000-4000-8000-0000000a0219'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_pm_end'::varchar, '20000000-0000-4000-8000-0000000a019d'::uuid, '20000000-0000-4000-8000-0000000a019f'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool),
+    ('20000000-0000-4000-8000-0000000a0210'::uuid, '20000000-0000-4000-8000-0000000a0184'::uuid, 'e_start'::varchar, '20000000-0000-4000-8000-0000000a0197'::uuid, '20000000-0000-4000-8000-0000000a0198'::uuid,
+     NULL::jsonb, NULL::varchar, 0::int, FALSE::bool);
+
+    -- 1.5 审批人（与原流程同口径：全部 ROLE，客户只绑人）
+    INSERT INTO biz_flow_node_assignee (node_id, assignee_type, ref_id, sort_order)
+    VALUES
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0002'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a019e'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0003'::uuid, 1::int),
+    ('20000000-0000-4000-8000-0000000a019b'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0001'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a0199'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0005'::uuid, 0::int),
+    ('20000000-0000-4000-8000-0000000a019d'::uuid, 'ROLE'::varchar, '20000000-0000-4000-8000-0000000f0002'::uuid, 0::int);
+
+    -- 1.6 流程定义指向 v2
+    UPDATE biz_flow_def
+       SET current_version_id = c_v2, current_version_no = 2, updated_at = now()
+     WHERE id = c_def;
+
+    RAISE NOTICE 'V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）';
+END $$;
+NOTICE:  V0216 跳过：po_approve 已有 version_no ≥ 2（客户/其他批次发过版），绝不覆盖
+-- ---------- 2) 自检（跳过与落地两种路径都要过；落地后逐条钉死）----------
+DO $$
+DECLARE
+    c_def uuid := '20000000-0000-4000-8000-0000000a0182';
+    c_v1  uuid := '20000000-0000-4000-8000-0000000a0183';
+    c_v2  uuid := '20000000-0000-4000-8000-0000000a0184';
+    n_nodes int; n_edges int; n_assignees int; n_cur int; v_hash_1 text; v_hash_2 text;
+    v_state text; v_flow_of boolean; v_join text; v_in int; v_cond jsonb; v_def_ver int;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def_version WHERE id = c_v2) THEN
+        RAISE NOTICE 'V0216 自检：v2 未发布（守卫跳过路径），只校验 v1 未被破坏';
+        SELECT graph_hash INTO v_hash_1 FROM biz_flow_def_version WHERE id = c_v1;
+        IF v_hash_1 IS DISTINCT FROM '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de' THEN
+            RAISE EXCEPTION 'V0216 自检失败：跳过路径下 v1 的快照 hash 被改动（%）', v_hash_1;
+        END IF;
+        RETURN;
+    END IF;
+
+    SELECT graph_hash, version_status INTO v_hash_2, v_state
+      FROM biz_flow_def_version WHERE id = c_v2;
+    IF v_hash_2 IS DISTINCT FROM '4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 的 graph_hash 不是设计器算出的那个（%）', v_hash_2;
+    END IF;
+    IF v_state <> 'PUBLISHED' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 状态是 %，不是 PUBLISHED', v_state;
+    END IF;
+
+    SELECT node_count, edge_count INTO n_nodes, n_edges
+      FROM biz_flow_def_version WHERE id = c_v2;
+    IF n_nodes <> 9 OR n_edges <> 11 THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 声明的节点/边数不对（% / %）', n_nodes, n_edges;
+    END IF;
+    SELECT count(*) INTO n_nodes FROM biz_flow_node WHERE version_id = c_v2;
+    SELECT count(*) INTO n_edges FROM biz_flow_edge WHERE version_id = c_v2;
+    SELECT count(*) INTO n_assignees FROM biz_flow_node_assignee a
+      JOIN biz_flow_node n ON n.id = a.node_id WHERE n.version_id = c_v2;
+    IF n_nodes <> 9 OR n_edges <> 11 OR n_assignees <> 5 THEN
+        RAISE EXCEPTION 'V0216 自检失败：v2 实际行数不对（节点 % / 边 % / 审批人 %）',
+            n_nodes, n_edges, n_assignees;
+    END IF;
+
+    -- v1 只退位、不毁图
+    SELECT graph_hash, version_status, is_current INTO v_hash_1, v_state, v_flow_of
+      FROM biz_flow_def_version WHERE id = c_v1;
+    IF v_hash_1 IS DISTINCT FROM '8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de' THEN
+        RAISE EXCEPTION 'V0216 自检失败：v1 快照 hash 被改动（%）—— 旧版本必须逐字节不变', v_hash_1;
+    END IF;
+    IF v_state <> 'ARCHIVED' OR v_flow_of THEN
+        RAISE EXCEPTION 'V0216 自检失败：v1 应为 ARCHIVED 且非当前（实际 % / is_current=%）',
+            v_state, v_flow_of;
+    END IF;
+
+    -- 同一流程只能有一个 is_current
+    SELECT count(*) INTO n_cur FROM biz_flow_def_version WHERE def_id = c_def AND is_current;
+    IF n_cur <> 1 THEN
+        RAISE EXCEPTION 'V0216 自检失败：is_current 版本数为 %（应恰好 1）', n_cur;
+    END IF;
+    SELECT current_version_no INTO v_def_ver FROM biz_flow_def WHERE id = c_def;
+    IF v_def_ver <> 2 THEN
+        RAISE EXCEPTION 'V0216 自检失败：流程定义仍指向 v%（应 2）', v_def_ver;
+    END IF;
+
+    -- 条件边：布尔别写成字符串（写错会被 eval 当成「条件不成立」静默走兜底）
+    SELECT e.condition_expr INTO v_cond
+      FROM biz_flow_edge e
+     WHERE e.version_id = c_v2 AND e.edge_key = 'e_credit_over';
+    IF v_cond IS DISTINCT FROM '{"op":"cmp","field":"form.over_credit_limit","cmp":"eq","value":true}'::jsonb THEN
+        RAISE EXCEPTION 'V0216 自检失败：条件边 e_credit_over 的表达式不对（%）', v_cond;
+    END IF;
+
+    -- 汇聚：c_low 两条入边都来自 c_credit，必须 OR 汇聚
+    SELECT join_mode INTO v_join FROM biz_flow_node WHERE version_id = c_v2 AND node_key = 'c_low';
+    SELECT count(*) INTO v_in FROM biz_flow_edge
+     WHERE version_id = c_v2 AND to_node_id = (SELECT id FROM biz_flow_node
+                                                WHERE version_id = c_v2 AND node_key = 'c_low');
+    IF v_join <> 'OR' OR v_in <> 2 THEN
+        RAISE EXCEPTION 'V0216 自检失败：c_low 必须是 OR 汇聚且 2 条入边（实际 join=% / 入边 %）',
+            v_join, v_in;
+    END IF;
+
+    -- 复核人 = 财务经理，且空审批人兜底超管（不许 SKIP）
+    IF NOT EXISTS (
+        SELECT 1 FROM biz_flow_node_assignee a
+          JOIN biz_flow_node n ON n.id = a.node_id
+         WHERE n.version_id = c_v2 AND n.node_key = 'n_fin'
+           AND a.assignee_type = 'ROLE' AND a.ref_id = '20000000-0000-4000-8000-0000000f0005'::uuid) THEN
+        RAISE EXCEPTION 'V0216 自检失败：财务复核节点没绑 FINANCE_MANAGER';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM biz_flow_node
+         WHERE version_id = c_v2 AND node_key = 'n_fin'
+           AND empty_assignee = 'FALLBACK_ADMIN' AND timeout_action = 'REMIND') THEN
+        RAISE EXCEPTION 'V0216 自检失败：财务复核节点的空审批人/超时策略不对';
+    END IF;
+
+    RAISE NOTICE 'V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=%，v1 原样归档', v_hash_2;
+END $$;
+NOTICE:  V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d，v1 原样归档
+--- 二次 up 之后
+def|po_approve|PUBLISHED|2
+hash|1|8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de|7/8
+hash|2|4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d|9/11
+ver|1|ARCHIVED|false
+ver|2|PUBLISHED|true
+
+== ③ down（应把 v1 复位、v2 删掉）==
+-- ======================================================
+-- V0216（回滚）：撤掉 po_approve v2，把 v1 复位为当前版本
+--
+-- 安全阀：**有审批单跑在 v2 上就拒绝回滚**（`biz_flow_instance.version_id` 是 RESTRICT 外键，
+-- 但库侧报的是「违反外键」这种看不懂的话，这里先给人话 + 计数）。
+-- v2 的节点/边/审批人随版本行级联删除，不需要单独删。
+-- ======================================================
+DO $$
+DECLARE
+    c_def uuid := '20000000-0000-4000-8000-0000000a0182';
+    c_v1  uuid := '20000000-0000-4000-8000-0000000a0183';
+    c_v2  uuid := '20000000-0000-4000-8000-0000000a0184';
+    n_inst bigint;
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM biz_flow_def_version WHERE id = c_v2) THEN
+        RAISE NOTICE 'V0216 down：没有 v2，无需回滚';
+        RETURN;
+    END IF;
+
+    SELECT count(*) INTO n_inst FROM biz_flow_instance WHERE version_id = c_v2;
+    IF n_inst > 0 THEN
+        RAISE EXCEPTION 'V0216 down 回滚中止：仍有 % 张审批单跑在 v2 上（先让它们跑完或撤回）', n_inst;
+    END IF;
+
+    DELETE FROM biz_flow_def_version WHERE id = c_v2;
+
+    UPDATE biz_flow_def_version
+       SET is_current = TRUE, version_status = 'PUBLISHED', updated_at = now()
+     WHERE id = c_v1;
+
+    UPDATE biz_flow_def
+       SET current_version_id = c_v1, current_version_no = 1, updated_at = now()
+     WHERE id = c_def;
+
+    RAISE NOTICE 'V0216 down：po_approve 已回滚到 v1（金额三档、无超限复核）';
+END $$;
+NOTICE:  V0216 down：po_approve 已回滚到 v1（金额三档、无超限复核）
+--- down 之后
+def|po_approve|PUBLISHED|1
+hash|1|8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de|7/8
+ver|1|PUBLISHED|true
+
+== ④ 再 up（回滚后可重新发布）==
+NOTICE:  V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）
+NOTICE:  V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d，v1 原样归档
+
+    RAISE NOTICE 'V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=%，v1 原样归档', v_hash_2;
+END $$;
+--- 再 up 之后
+def|po_approve|PUBLISHED|2
+hash|1|8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de|7/8
+hash|2|4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d|9/11
+ver|1|ARCHIVED|false
+ver|2|PUBLISHED|true
+
+== ⑤ 边界：客户自己发过 v3 时 up 必须跳过（不覆盖）==
+NOTICE:  V0216 跳过：po_approve 已有 version_no ≥ 2（客户/其他批次发过版），绝不覆盖
+NOTICE:  V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d，v1 原样归档
+--     否则整段 NOTICE 跳过（绝不覆盖客户自己改过的图 / 已有的 v2）；重复执行零变更。
+        RAISE NOTICE 'V0216 跳过：本组织没有 V0182 种子 po_approve（客户自建或未种），不替你改图';
+        RAISE NOTICE 'V0216 跳过：po_approve 已有 version_no ≥ 2（客户/其他批次发过版），绝不覆盖';
+        RAISE NOTICE 'V0216 跳过：po_approve 的当前版本不是 V0182 种子（管理员改过图），不替你改图';
+    RAISE NOTICE 'V0216：po_approve 已发布 v2（超信用额度 → 财务复核 → 原金额三档）';
+        RAISE NOTICE 'V0216 自检：v2 未发布（守卫跳过路径），只校验 v1 未被破坏';
+    RAISE NOTICE 'V0216 自检通过：v2 9 节点 / 11 边 / 5 审批人，hash=%，v1 原样归档', v_hash_2;
+（v3 草稿已清理）

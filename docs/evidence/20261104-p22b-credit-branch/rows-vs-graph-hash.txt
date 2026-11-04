@@ -1,0 +1,10 @@
+v1 [ARCHIVED] 节点 7 边 8
+  stored   = 8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de
+  computed = 8f65819ea25e1145d441d9b947b89b21bd4bfdc5075ac321367ea106a06366de
+  一致     = True
+v2 [PUBLISHED] 节点 9 边 11
+  stored   = 4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d
+  computed = 4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d
+  一致     = True
+
+ drifted = 0

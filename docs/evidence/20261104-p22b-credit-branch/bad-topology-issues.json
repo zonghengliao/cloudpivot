@@ -1,0 +1,14 @@
+{
+ "bad_topology_issues": [
+  {
+   "rule": "R8",
+   "code": 65014,
+   "message": "汇聚节点 c_credit2（超信用额度判定(后置)）的入边来自不同分支网关（n_board ← c_mid，n_dept ← c_low，n_pm ← c_mid）—— 禁止混流汇聚，请让同一网关的分支汇到同一个节点",
+   "nodes": [
+    "c_credit2",
+    "c_low",
+    "c_mid"
+   ]
+  }
+ ]
+}

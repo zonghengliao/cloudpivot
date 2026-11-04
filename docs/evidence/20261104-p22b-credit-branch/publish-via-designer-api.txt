@@ -1,0 +1,9 @@
+  登录成功（admin，令牌 eyJ0eXAiOiJK…）
+草稿版本：v2（01a1a438-2e03-7024-8c98-17ff2a133a9b）
+校验 HTTP 200 passed=True nodes=9 edges=11
+发布 HTTP 200 {"def_id": "20000000-0000-4000-8000-0000000a0182", "version_id": "01a1a438-2e03-7024-8c98-17ff2a133a9b", "version_no": 2, "status": "PUBLISHED", "graph_hash": "4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d", "node_count": 9, "edge_count": 11, "published_at": "2026-11-04T01:50:51.429321Z"}
+设计器发布 hash = 4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d
+迁移里写死的 hash = 4db3fe5731dc8efc7844d6a51a326df20638d8b1eabd4a553444ead503554b7d
+两者一致 = True
+库里版本： [['1', 'ARCHIVED', 'f'], ['2', 'PUBLISHED', 't']]
+流程定义： [['PUBLISHED', '2']]
