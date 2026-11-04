@@ -1,0 +1,39 @@
+==============================================================
+ E2ERES  目标库：cloudpivot @ 127.0.0.1:5432  模式：check
+ 时间：2026-11-04 17:33:44 CST
+==============================================================
+---- 现状快照 ----
+alive_flow_def        = 11
+residue_def(测试残留) = 0
+residue_instance      = 0
+instance PENDING(全部) = 1
+biz_status_log        = 113
+各表总量 def/ver/node/edge/asg/inst/inode/task/cc = 22/27/119/112/36/112/332/146/0
+---- 30 自检 ----
+PASS|residue_biz_flow_def|残留 0 行
+PASS|residue_biz_flow_instance|残留 0 行
+PASS|orphan_biz_flow_def_version|0 个版本没有父定义
+PASS|orphan_biz_flow_node|0 个节点没有父版本
+PASS|orphan_biz_flow_edge|0 条边没有父版本
+PASS|orphan_biz_flow_instance|0 个实例没有父定义
+PASS|orphan_biz_flow_instance_node|0 个实例节点没有父实例
+PASS|orphan_biz_flow_task|0 条待办没有父实例
+PASS|orphan_biz_flow_cc|0 条抄送没有父实例
+PASS|alive_flow_def|实际 11 条（基线 11）
+PASS|keepers_fingerprint|7fcb32a38a193135a8a7e370db1839d5
+PASS|keeper_versions|16 行
+PASS|keeper_nodes|87 行
+PASS|keeper_edges|89 行
+PASS|count_biz_flow_def|actual=22 expected=22
+PASS|count_biz_flow_def_version|actual=27 expected=27
+PASS|count_biz_flow_node|actual=119 expected=119
+PASS|count_biz_flow_edge|actual=112 expected=112
+PASS|count_biz_flow_node_assignee|actual=36 expected=36
+PASS|count_biz_flow_instance|actual=112 expected>=112
+PASS|count_biz_flow_instance_node|actual=332 expected>=332
+PASS|count_biz_flow_task|actual=146 expected>=146
+PASS|biz_status_log_untouched|实际 113 行
+PASS|out_of_scope_deleted_e2e_like_defs|0 条软删定义的 flow_code 带 e2e/diag/vrf/d5/acc 前缀（biz_type 是业务值，本卡不判垃圾）
+PASS|out_of_scope_orphan_instances|0 条存活实例的流程定义已软删（清场前 53，其中 37 条是本卡删掉的 E2E 实例）
+---- 自检：无 FAIL（WARN 见上）----
+==> E2ERES check 结束（2026-11-04 17:33:44）

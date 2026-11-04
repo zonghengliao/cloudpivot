@@ -117,3 +117,18 @@ E2E 实例），它们的 `flow_code` 是 `e2e_reject_*` / `e2e_single_*` / `e2e
 但 `biz_type` 是业务值（`OTHER`），按本卡判据**不算测试残留**，动它们就等于「按 flow_code 猜垃圾」。
 另有 36 条 `flow_code` 带 `e2e_/diag_/vrf_/d5_/acc_` 前缀的软删定义同属此列。
 跟进卡见 `t_61dca492` 的完成说明（`30_verify.sql` 会把这两项以 `WARN` 打出来，不会悄悄消失）。
+
+## 跨批次对账（2026-11-04 补充，卡 t_142317a2 / `scripts/datafix/e2e_residue2/`）
+
+本卡的 `30_verify.sql` 有 8 条「静态表总量 == 删除前 − 本卡删除数」的断言。
+后续的 E2ERES2 又在同 9 张表上物理删了 301 行（36 定义 / 39 版本 / 98 节点 / 55 边 /
+12 审批人 / 16 实例 / 37 实例节点 / 8 待办 / 0 抄送），所以：
+
+* `30_verify.sql` 的 8 处 expected 现在多减一项 `followup_deleted_<表名>`；
+* 这一项由 `e2e_residue2/25_ledger.sql` 写进 `datafix_e2e_residue_guard`
+  （batch 仍是 `E2ERES-20261104`），`e2e_residue2` 的 down 会把它归零；
+* 本卡的 `before` / `deleted_*` / `keepers_*` 基线**一个字节都没改**（历史留痕不动）。
+
+不这么做的话，本卡的 `apply.sh --check` 在 E2ERES2 之后会永久 FAIL（假红），
+哨兵就废了。补完之后实测 `apply.sh --check` = 25 PASS / 0 FAIL，
+原来那两条 `out_of_scope_*` WARN 也变成 PASS（0 行）—— 正是 E2ERES2 消灭的两类。

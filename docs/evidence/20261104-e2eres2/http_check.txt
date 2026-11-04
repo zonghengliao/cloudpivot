@@ -1,0 +1,31 @@
+登录 = 200 code = 0  base = http://127.0.0.1:8023
+PASS  A0 approval-flow/health HTTP 200（实际 200）
+PASS  A1 total=8（实际 8）
+PASS  A2 healthy=8（实际 8）
+PASS  A3 unhealthy=0（实际 0）
+        PO_APPROVE         published=True graph_ok=True 
+        STOCK_IN_POST      published=True graph_ok=True 
+        STOCK_IN_CANCEL    published=True graph_ok=True 
+        PAYABLE_PAY        published=True graph_ok=True 
+        PAYABLE_CANCEL     published=True graph_ok=True 
+        VOUCHER_REVERSE    published=True graph_ok=True 
+        STOCK_TRANSFER     published=True graph_ok=True 
+        TASK_ACCEPT        published=True graph_ok=True 
+PASS  B0 flow/def/page HTTP 200（实际 200）
+PASS  B1 存活流程定义 = 11 条（实际 11）
+PASS  B2 存活定义里没有 e2e/diag/vrf/d5 前缀（实际 无）
+        存活定义清单：
+          po_approve             PUBLISHED  v2  采购订单审批（标准·金额分级）
+          stock_take_post        PUBLISHED  v1  盘点过账审批（标准·差异金额分级）
+          contract_approve       PUBLISHED  v1  合同审批（标准·金额分级）
+          flow_edge_config       PUBLISHED  v1  状态机配置变更审批（改流程规则前先过复核）
+          voucher_reverse        PUBLISHED  v1  凭证红冲审批（标准）
+          payable_cancel         PUBLISHED  v1  应付单作废审批（标准）
+          stock_in_post          PUBLISHED  v1  收货过账审批（标准·金额分级）
+          stock_in_cancel        PUBLISHED  v1  收货单作废审批
+          stock_transfer         PUBLISHED  v1  库存调拨审批
+          task_accept            PUBLISHED  v1  任务验收
+          payable_pay            PUBLISHED  v1  应付付款审批
+PASS  C0 flow/task/todo HTTP 200（实际 200）
+
+结果：全部 PASS（A 8/8 · B 11 条 · C 接口正常）
