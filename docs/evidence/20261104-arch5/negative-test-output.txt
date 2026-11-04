@@ -1,0 +1,22 @@
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:67: NOTICE:  CASE 01 ok  空 fields 数组被 ck_biz_flow_form_def_schema 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:76: NOTICE:  CASE 02 ok  PUBLISHED 缺指纹被 ck_biz_flow_form_def_published 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:85: NOTICE:  CASE 03 ok  DRAFT 挂 is_current 被 ck_biz_flow_form_def_current 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:95: NOTICE:  CASE 04 ok  第二个 is_current 被 uk_biz_flow_form_def_current 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:106: NOTICE:  CASE 05 ok  FORM 节点缺 form_def_id 被 ck_biz_flow_node_work_binding 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:116: NOTICE:  CASE 06 ok  作业形态绑定错配被 ck_biz_flow_node_work_binding 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:127: NOTICE:  CASE 07 ok  第二个验证节点被 uk_biz_flow_node_verifier 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:136: NOTICE:  CASE 08 ok  ESCALATE 缺升级级数被 ck_biz_flow_node_escalate 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:145: NOTICE:  CASE 09 ok  未知 node_type 被 biz_flow_node_node_type_check 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:156: NOTICE:  CASE 10 ok  RANGE 无边界被 ck_biz_flow_checklist_item_judgeable 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:165: NOTICE:  CASE 11 ok  跳过无权限码被 ck_biz_flow_checklist_item_skip 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:174: NOTICE:  CASE 12 ok  倒挂区间被 ck_biz_flow_checklist_item_range 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:186: NOTICE:  CASE 13 ok  跳过无原因被 ck_biz_flow_checklist_result_skip 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:203: NOTICE:  CASE 14 ok  重复结果被 uk_biz_flow_checklist_result 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:214: NOTICE:  CASE 15 ok  证据数量倒挂被 ck_biz_flow_evidence_req_count 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:223: NOTICE:  CASE 16 ok  SIGN 不签被 ck_biz_flow_evidence_req_sign 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:232: NOTICE:  CASE 17 ok  READY 空包被 ck_biz_flow_archive_pack_ready 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:243: NOTICE:  CASE 18 ok  空 cron 被 ck_biz_flow_trigger_shape 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:253: NOTICE:  CASE 19 ok  夹带 SQL 被 ck_biz_flow_trigger_no_sql 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:267: NOTICE:  CASE 20 ok  重复触发被 uk_biz_flow_trigger_fire 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:276: NOTICE:  CASE 21 ok  闭环无归档被 ck_biz_flow_def_closure_archive 拦住
+psql:docs/evidence/20261104-arch5/arch5_negative_tests.sql:283: NOTICE:  ARCH-5 负向测试完成：21 个用例，18 条约束逐条实测被拦
