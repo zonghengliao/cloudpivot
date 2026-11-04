@@ -54,20 +54,37 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 
 ## 三、连跑两轮的一致性（证据）
 
-`docs/manual/evidence/capture-run1.log.txt` / `capture-run2.log.txt` 是同一脚本连续两轮的原始输出：
+`docs/manual/evidence/capture-run1.log.txt` / `capture-run2.log.txt` 是同一脚本（2026-11-04 23:14 / 23:16 两轮）连续执行的全量原始输出：
 
 - 两轮均 **38 张 / 9 个模块目录（task flow purchase stockin stockout inventory transfer finance report）**，模块级 SUMMARY（表头、按钮、页签）逐行一致；
-- 两轮 **0 失败（0 个 `!!`）**，逐行 SUMMARY 完全相同；
+- 两轮 **0 失败（0 个 `!!`）**，`diff` 两轮 `[note]`/`[shot]` 行结果为 0 行差异；
 - 逐图差异仅时间戳/滚动位置，结构一致。
 
-## 四、口径说明
+自检脚本（提交前跑）：
+
+```bash
+python3 scripts/manual/check-structure.py   # 9 篇统一五段结构 + 每篇截图数/步骤数
+python3 scripts/manual/check-links.py       # 图片引用与文件一一对应，无缺失、无未引用
+```
+
+当前结果：9 篇结构全合格；图片引用 38 条 / 文件 38 张，**缺失 0、未引用 0、重复（md5 相同）0**。
+
+## 四、修订记录
+
+| 日期 | 修订 | 证据 |
+| --- | --- | --- |
+| 2026-11-04 | 初版 9 篇 + 38 张真机截图 | `02a7c38` |
+| 2026-11-04 | 修正 04 收货入库 / 07 库存调拨新建表单截图：原截图误截列表页（`dismissOverlays()` 把刚打开的弹窗一起关掉），改为等待 `.t-dialog:visible` 后再截；同步修正「弹窗/抽屉」文案 | `03f81df` + 本文件第三节两轮日志 |
+| 2026-11-04 | 03 采购订单补全弹窗字段（合同、下单日期、期望到货、账期、备注）与按钮口径 | 本次提交 |
+
+## 五、口径说明
 
 - **权限码**取自 `sys_menu.auth_code`（手册实例真实数据），非臆造。
 - **角色**取自 `sys_role`：`SUPER_ADMIN` 为内置超级管理员；`DEPT_LEADER` / `PURCHASE_MANAGER` / `GENERAL_MANAGER` / `WAREHOUSE_MANAGER` / `FINANCE_MANAGER` / `FINANCE_DIRECTOR` / `FLOW_CONFIG_APPROVER` 为审批岗角色，职责描述来自角色记录。**具体业务操作权限需在「角色管理」中授予**，没有内置"采购员"这类开箱角色。
 - **错误提示**只引用系统真实文案（从后端源码与真机返回中取），未逐条复现的错误在同一列里不写"系统提示"，只写原因与处理。
 - 截图里的数据是演示数据，单号、金额、供应商与真实客户无关。
 
-## 五、尚未覆盖（与本手册范围无关）
+## 六、尚未覆盖（与本手册范围无关）
 
 - 基础数据（物料、供应商、仓库、库位、单位、科目）维护，见《后端二开指南》《项目结构与设计亮点》。
 - 库存盘点、序列号管理、合同管理、导入导出、工作流状态机边配置：属于下一批手册（P2-2B）。
