@@ -856,8 +856,8 @@ ALTER TABLE biz_budget_usage
 CREATE TABLE IF NOT EXISTS biz_budget_subject_map (
     id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     map_type     VARCHAR(16)   NOT NULL,         -- MATERIAL 按物料 / MATERIAL_TYPE 按物料类型 / WAREHOUSE 按仓库 / DEFAULT 兜底
-    ref_id       UUID,                           -- MATERIAL/MATERIAL_TYPE/WAREHOUSE 的目标 id（DEFAULT 为空）
-    ref_code     VARCHAR(40),                    -- 目标编码快照（如物料编码；DEFAULT 为空）
+    ref_id       UUID,                           -- 目标 id：MATERIAL=物料 / WAREHOUSE=仓库；MATERIAL_TYPE 与 DEFAULT 恒为空（物料类型是字符串枚举，无独立 id）
+    ref_code     VARCHAR(40),                    -- 目标编码：MATERIAL_TYPE=物料类型编码（7 值枚举）；其余类型为展示/对账用，可空
     account_id   UUID          NOT NULL,         -- 映射到的预算科目（弱引用 biz_account.id）
     dept_id      UUID,                           -- 部门级覆盖（空 = 全公司通用）
     priority     INT           NOT NULL DEFAULT 0, -- 命中优先级（大者优先；同优先级按 map_type 精细度）
@@ -870,14 +870,20 @@ CREATE TABLE IF NOT EXISTS biz_budget_subject_map (
     deleted_at   TIMESTAMPTZ,
 
     CONSTRAINT ck_biz_bsm_type CHECK (map_type IN ('MATERIAL','MATERIAL_TYPE','WAREHOUSE','DEFAULT')),
-    -- MATERIAL/MATERIAL_TYPE/WAREHOUSE 必须给 ref_id；DEFAULT 不许给
+    -- 目标三档（V0240 起，t_ce73ae26）：有 id 的类型要 ref_id；MATERIAL_TYPE 要 ref_code、不许 ref_id；DEFAULT 两个都不要
     CONSTRAINT ck_biz_bsm_ref  CHECK ((map_type = 'DEFAULT' AND ref_id IS NULL)
-                                   OR (map_type <> 'DEFAULT' AND ref_id IS NOT NULL)),
+                                   OR (map_type = 'MATERIAL_TYPE' AND ref_id IS NULL
+                                       AND ref_code IS NOT NULL AND btrim(ref_code) <> '')
+                                   OR (map_type IN ('MATERIAL','WAREHOUSE') AND ref_id IS NOT NULL)),
     CONSTRAINT ck_biz_bsm_status CHECK (status IN (0,1))
 );
 
+-- 目标唯一：有 id 用 id，没有 id 用归一化编码（MATERIAL_TYPE 的唯一性落在 ref_code 上）；
+-- 第三参 '' 不能省：DEFAULT 两列都是 NULL，缺了它 Postgres 会把行当成互不相同（同部门可重复建兜底）
 CREATE UNIQUE INDEX IF NOT EXISTS uk_biz_bsm_target
-    ON biz_budget_subject_map (map_type, ref_id, COALESCE(dept_id, '00000000-0000-0000-0000-000000000000'::uuid))
+    ON biz_budget_subject_map (map_type,
+                               COALESCE(ref_id::text, upper(btrim(ref_code)), ''),
+                               COALESCE(dept_id, '00000000-0000-0000-0000-000000000000'::uuid))
     WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_biz_bsm_account ON biz_budget_subject_map (account_id);
 CREATE INDEX IF NOT EXISTS idx_biz_bsm_dept    ON biz_budget_subject_map (dept_id) WHERE dept_id IS NOT NULL;

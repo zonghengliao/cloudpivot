@@ -27,6 +27,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::business::erp::budget_guard::{BudgetVerdict, ControlMode, UsageRow};
 use crate::business::erp::budget_model::{self, BudgetRow, MapRow, PeriodRow, ReportRow};
+use crate::business::erp::dto::MATERIAL_TYPES;
 use crate::shared::error_code;
 
 /// 默认每页条数。
@@ -613,13 +614,31 @@ impl From<&MapRow> for MappingRes {
 }
 
 /// 映射入参。
+///
+/// # `ref_id` / `ref_code` 的语义（**一张表两种目标形态**，别混用）
+///
+/// 映射表 `biz_budget_subject_map` 的目标有两种落法（DDL 见
+/// `V0240__erp_budget_mapping_material_type`）：
+///
+/// | map_type | `ref_id` | `ref_code` |
+/// |---|---|---|
+/// | `MATERIAL` | **必填**：`biz_material.id` | 可选：物料编码（展示 / 对账用） |
+/// | `WAREHOUSE` | **必填**：`biz_warehouse.id` | 可选：仓库编码（展示 / 对账用） |
+/// | `MATERIAL_TYPE` | **必须为空** —— 物料类型是 `biz_material.material_type` 上的字符串枚举（[`MATERIAL_TYPES`]，7 值），全库没有 `biz_material_type` 表、没有 uuid | **必填**：类型编码，`budget_model::resolve_for_po` 就是拿采购单明细里物料的 `material_type` 与它比对 |
+/// | `DEFAULT` | 必须为空（全公司兜底） | 必须为空（兜底不挂任何目标编码） |
+///
+/// 为什么 `MATERIAL_TYPE` 走编码而不是 id：物料类型从来没有独立主数据表
+/// （`ck_biz_material_type` 是 `biz_material` 上的 CHECK 枚举），造一张表属于
+/// 主数据化功能，不在本缺陷范围内。唯一索引
+/// `uk_biz_bsm_target (map_type, COALESCE(ref_id::text, upper(btrim(ref_code))), dept)`
+/// 负责「同一部门同一目标只能一条」，所以不写 `ref_id` 也不会绕过唯一性。
 #[derive(Debug, Clone, Deserialize)]
 pub struct MappingReq {
     /// MATERIAL / MATERIAL_TYPE / WAREHOUSE / DEFAULT。
     pub map_type: String,
-    /// 目标 id（DEFAULT 必须为空）。
+    /// 目标 id：MATERIAL=物料 id / WAREHOUSE=仓库 id / MATERIAL_TYPE 与 DEFAULT 必须为空。
     pub ref_id: Option<String>,
-    /// 目标编码（MATERIAL_TYPE 用物料类型编码）。
+    /// 目标编码：MATERIAL_TYPE=物料类型编码（必填）；MATERIAL/WAREHOUSE=展示用编码（可选）。
     pub ref_code: Option<String>,
     /// 预算科目 id。
     pub account_id: String,
@@ -634,9 +653,19 @@ pub struct MappingReq {
 }
 
 /// 映射入参校验（纯函数）。
+///
+/// 目标语义见 [`MappingReq`] 的表格 —— 一句话：**有 id 的类型（MATERIAL / WAREHOUSE）要
+/// `ref_id`；没有 id 的类型（MATERIAL_TYPE，物料类型是字符串枚举）要 `ref_code`**；
+/// `DEFAULT` 两个都不要。这条口径与 DDL 的 `ck_biz_bsm_ref`（V0240 三档）逐字对应，
+/// 应用层先拦成 400（带可读文案），库级 CHECK 是最后一道闸。
+///
+/// 库级唯一性：`uk_biz_bsm_target (map_type, COALESCE(ref_id::text, upper(btrim(ref_code))),
+/// COALESCE(dept_id, 0-uuid))`，所以 `MATERIAL_TYPE` 不写 `ref_id` 时唯一性落在
+/// `ref_code` 上（大小写不敏感）。撞键由 handler 翻成 409。
 pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
+    let map_type = req.map_type.trim();
     if !matches!(
-        req.map_type.trim(),
+        map_type,
         "MATERIAL" | "MATERIAL_TYPE" | "WAREHOUSE" | "DEFAULT"
     ) {
         return Err(invalid(format!(
@@ -644,22 +673,53 @@ pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
             req.map_type
         )));
     }
-    let is_default = req.map_type.trim() == "DEFAULT";
-    let has_ref = req
-        .ref_id
-        .as_deref()
-        .map(str::trim)
-        .is_some_and(|t| !t.is_empty());
-    if is_default && has_ref {
-        return Err(invalid(
-            "DEFAULT 映射不许给 ref_id（它是全公司兜底，不指向任何目标）",
-        ));
-    }
-    if !is_default && !has_ref {
-        return Err(invalid(format!(
-            "{} 映射必须给 ref_id（指向物料 / 物料类型 / 仓库）",
-            req.map_type
-        )));
+    let ref_id = trimmed(req.ref_id.as_deref());
+    let ref_code = trimmed(req.ref_code.as_deref());
+    match map_type {
+        "DEFAULT" => {
+            if ref_id.is_some() {
+                return Err(invalid(
+                    "DEFAULT 映射不许给 ref_id（它是全公司兜底，不指向任何目标）",
+                ));
+            }
+            if ref_code.is_some() {
+                return Err(invalid(
+                    "DEFAULT 映射不许给 ref_code（全公司兜底不挂任何目标编码；同一部门只能有一条）",
+                ));
+            }
+        }
+        "MATERIAL_TYPE" => {
+            if ref_id.is_some() {
+                return Err(invalid(
+                    "MATERIAL_TYPE 映射不许给 ref_id：物料类型是 biz_material.material_type 上的\
+                     编码枚举（RAW / SEMI / …），没有独立 id；请用 ref_code 指定类型编码",
+                ));
+            }
+            let Some(code) = ref_code else {
+                return Err(invalid(format!(
+                    "MATERIAL_TYPE 映射必须给 ref_code（物料类型编码，只能是 {}）",
+                    MATERIAL_TYPES.join(" / ")
+                )));
+            };
+            let upper = code.to_ascii_uppercase();
+            if !MATERIAL_TYPES.contains(&upper.as_str()) {
+                return Err(invalid(format!(
+                    "ref_code={code} 非法（物料类型只能是 {}）",
+                    MATERIAL_TYPES.join(" / ")
+                )));
+            }
+        }
+        _ => {
+            // MATERIAL / WAREHOUSE：必须有真实目标 id；ref_code 只是展示/对账用，可空。
+            if ref_id.is_none() {
+                let target = if map_type == "MATERIAL" {
+                    "物料 id"
+                } else {
+                    "仓库 id"
+                };
+                return Err(invalid(format!("{map_type} 映射必须给 ref_id（{target}）")));
+            }
+        }
     }
     if let Some(status) = req.status
         && !matches!(status, 0 | 1)
@@ -669,6 +729,45 @@ pub fn validate_mapping(req: &MappingReq) -> std::result::Result<(), ApiError> {
         )));
     }
     Ok(())
+}
+
+/// 去空白后为空的字符串统一当 `None`（前端 `''` 与 `null` 语义相同）。
+fn trimmed(text: Option<&str>) -> Option<&str> {
+    text.map(str::trim).filter(|value| !value.is_empty())
+}
+
+/// 把 `ref_code` 归一化成**入库形态**。
+///
+/// * `MATERIAL_TYPE`：去空白 + 转大写 —— 与 [`MATERIAL_TYPES`] 值域、以及唯一索引里的
+///   `upper(btrim(ref_code))` 同一口径，配置侧填 `raw` 落库就是 `RAW`；
+/// * 其余类型（`MATERIAL` / `WAREHOUSE` / `DEFAULT`）：只去空白 —— 物料/仓库编码的大小写
+///   由主数据决定，映射表不改写它。
+pub fn normalize_ref_code(map_type: &str, ref_code: Option<&str>) -> Option<String> {
+    let code = trimmed(ref_code)?;
+    if map_type.trim() == "MATERIAL_TYPE" {
+        Some(code.to_ascii_uppercase())
+    } else {
+        Some(code.to_string())
+    }
+}
+
+/// 把「请求里的目标对」归一化成**可以入库的目标对**。
+///
+/// `MATERIAL_TYPE` / `DEFAULT` 的 `ref_id` 一律丢成 `None`（它们没有目标 id），
+/// `ref_code` 按 [`normalize_ref_code`] 归一化。写路径只走这一处，
+/// 校验通过后就不需要调用方再各判一次 map_type。
+pub fn normalize_target(
+    map_type: &str,
+    ref_id: Option<Uuid>,
+    ref_code: Option<&str>,
+) -> (Option<Uuid>, Option<String>) {
+    let kind = map_type.trim();
+    let ref_id = if matches!(kind, "MATERIAL_TYPE" | "DEFAULT") {
+        None
+    } else {
+        ref_id
+    };
+    (ref_id, normalize_ref_code(kind, ref_code))
 }
 
 /// 预算判定的对外视图（详情页 / 提交前预估都能用）。

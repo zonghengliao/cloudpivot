@@ -1,0 +1,8 @@
+   map_type    | ref_id | ref_code |               dept_id                |              account_id              | status | alive 
+---------------+--------+----------+--------------------------------------+--------------------------------------+--------+-------
+ DEFAULT       | NULL   |          | 00000000-0000-0000-0000-0000ce73ae26 | 00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9 |      1 | f
+ DEFAULT       | NULL   |          | 00000000-0000-0000-0000-0000ce73ae26 | 00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9 |      1 | f
+ DEFAULT       | NULL   |          | 00000000-0000-0000-0000-0000ce73ae26 | 00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9 |      1 | t
+ MATERIAL_TYPE | NULL   | RAW      | 00000000-0000-0000-0000-0000ce73ae26 | 00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9 |      1 | t
+(4 rows)
+

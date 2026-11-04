@@ -917,6 +917,10 @@ pub async fn map_page(q: &BudgetFilter) -> DbResult<(Vec<MapRow>, i64)> {
 }
 
 /// 新建映射。
+///
+/// 目标对先过 [`crate::business::erp::budget_dto::normalize_target`]：`MATERIAL_TYPE` /
+/// `DEFAULT` 的 `ref_id` 落库恒为 NULL（它们没有目标 id），`MATERIAL_TYPE` 的
+/// `ref_code` 归一化成大写（与唯一索引 `upper(btrim(ref_code))` 同口径）。
 #[allow(clippy::too_many_arguments)]
 pub async fn map_insert(
     ex: &impl SqlExecutor,
@@ -930,6 +934,8 @@ pub async fn map_insert(
     remark: Option<&str>,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
+    let (ref_id, ref_code) =
+        crate::business::erp::budget_dto::normalize_target(map_type, ref_id, ref_code);
     ex.exec_sql(
         "INSERT INTO biz_budget_subject_map (
              id, map_type, ref_id, ref_code, account_id, dept_id, priority, status, remark,
@@ -942,7 +948,7 @@ pub async fn map_insert(
             Value::from(&id),
             Value::from(map_type.to_string()),
             uuid_text(ref_id),
-            Value::Text(ref_code.map(str::to_string).unwrap_or_default()),
+            Value::Text(ref_code.unwrap_or_default()),
             Value::from(&account_id),
             uuid_text(dept_id),
             Value::from(priority),
@@ -954,10 +960,14 @@ pub async fn map_insert(
 }
 
 /// 修改映射。
+///
+/// `map_type` 只用于归一化 `ref_code`（`MATERIAL_TYPE` 转大写，其余只去空白）；
+/// 目标 id 不可改（换目标 = 删旧建新），所以这里没有 `ref_id` 参数。
 #[allow(clippy::too_many_arguments)]
 pub async fn map_update(
     ex: &impl SqlExecutor,
     id: Uuid,
+    map_type: &str,
     ref_code: Option<&str>,
     account_id: Uuid,
     dept_id: Option<Uuid>,
@@ -966,6 +976,8 @@ pub async fn map_update(
     remark: Option<&str>,
     operator: Option<Uuid>,
 ) -> DbResult<u64> {
+    let (_, ref_code) =
+        crate::business::erp::budget_dto::normalize_target(map_type, None, ref_code);
     ex.exec_sql(
         "UPDATE biz_budget_subject_map
             SET ref_code = NULLIF(?::text,''), account_id = ?::uuid,
@@ -975,7 +987,7 @@ pub async fn map_update(
           WHERE id = ?::uuid AND deleted_at IS NULL"
             .to_string(),
         vec![
-            Value::Text(ref_code.map(str::to_string).unwrap_or_default()),
+            Value::Text(ref_code.unwrap_or_default()),
             Value::from(&account_id),
             uuid_text(dept_id),
             Value::from(priority),
@@ -1007,6 +1019,15 @@ pub async fn map_delete(ex: &impl SqlExecutor, id: Uuid, operator: Option<Uuid>)
 /// ② MATERIAL（按明细物料）→ ③ MATERIAL_TYPE → ④ WAREHOUSE → ⑤ DEFAULT
 /// 同分按 priority DESC，再按 map_type 精细度（MATERIAL 最细）
 /// ```
+///
+/// # 各类型的命中口径（与写入侧 `budget_dto::validate_mapping` 一一对应）
+///
+/// | map_type | 命中条件 | 备注 |
+/// |---|---|---|
+/// | `MATERIAL` | `ref_id ==` 本轮询明细的物料 id | |
+/// | `MATERIAL_TYPE` | `ref_code` 与本单物料的 `material_type` 编码相等（**trim + 忽略大小写**） | 物料类型是 `biz_material.material_type` 上的字符串枚举，没有独立 id，所以 `ref_id` 恒为 NULL（V0240 的 `ck_biz_bsm_ref` 钉死）；比对不区分大小写是为了让配置侧填 `raw` 也能命中 `RAW` |
+/// | `WAREHOUSE` | `ref_id ==` 本单仓库 id | |
+/// | `DEFAULT` | 恒命中（全公司兜底） | |
 ///
 /// 返回 `(account_id, map_type)`。`None` = 一条映射都没有 → 调用方按控制策略处置
 /// （WARN 不占用 + 告警；BLOCK 409）。
@@ -1049,7 +1070,9 @@ pub async fn resolve_for_po(
         let hit = match map_type.as_str() {
             "MATERIAL" => material_id.is_some() && ref_id == material_id,
             "MATERIAL_TYPE" => match material_type {
-                Some(kind) => ref_code.as_deref() == Some(kind),
+                Some(kind) => ref_code
+                    .as_deref()
+                    .is_some_and(|code| code.trim().eq_ignore_ascii_case(kind.trim())),
                 None => false,
             },
             "WAREHOUSE" => warehouse_id.is_some() && ref_id == warehouse_id,

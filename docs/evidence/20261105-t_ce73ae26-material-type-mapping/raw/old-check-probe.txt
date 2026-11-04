@@ -1,0 +1,5 @@
+                    probe                     | old_ck_passes 
+----------------------------------------------+---------------
+ 旧 CHECK 对 MATERIAL_TYPE+NULL ref_id 的判定 | f
+(1 row)
+

@@ -8,8 +8,9 @@
 
   1. 列表的「类型」筛选参数名后端叫 **`status`**（`budget_model::map_page` 复用了 `BudgetFilter`），
      页面走 `fetchBudgetMappingPage` 的语义化 `map_type`，翻译在 API 层做，别在这里改回去；
-  2. `MATERIAL_TYPE` 这一版**存不进去**：校验侧要求 `ref_id`、解析侧只认 `ref_code`。
-     表单里直接拦住并写明原因（`mappingSaveBlocker`），不让用户填半天吃 400。
+  2. `MATERIAL_TYPE` 的目标是**物料类型编码**（`ref_code`），不是 id：后端 `validate_mapping`
+     要求这一档 `ref_id` 留空、`ref_code` 给类型编码，`resolve_for_po` 也按编码命中
+     （t_ce73ae26 起两边口径一致）。表单里选完类型只写 `ref_code`，别拼 `ref_id`。
 -->
 <template>
   <div class="mapping-page">
@@ -140,7 +141,7 @@
       v-model:visible="formVisible"
       :header="editingId ? '编辑映射' : '新建映射'"
       width="640px"
-      :confirm-btn="{ content: '保存', loading: submitting, disabled: !!saveBlocker }"
+      :confirm-btn="{ content: '保存', loading: submitting }"
       :cancel-btn="{ content: '取消' }"
       :close-on-overlay-click="!submitting"
       data-testid="budget-mapping-form-dialog"
@@ -239,15 +240,6 @@
         </t-form-item>
       </t-form>
 
-      <t-alert
-        v-if="saveBlocker"
-        theme="warning"
-        class="form-alert"
-        data-testid="budget-mapping-blocker"
-      >
-        {{ saveBlocker }}
-      </t-alert>
-
       <t-alert v-if="formErrors.length" theme="error" class="form-alert" data-testid="budget-mapping-form-errors">
         <div v-for="(item, index) in formErrors" :key="index">{{ item }}</div>
       </t-alert>
@@ -287,7 +279,6 @@ import {
   mapTypeHint,
   mapTypeLabel,
   mappingFilterParams,
-  mappingSaveBlocker,
   mappingStatusLabel,
   mappingStatusTheme,
   mappingTargetText,
@@ -383,9 +374,6 @@ const submitting = ref(false);
 const formErrors = ref<string[]>([]);
 const draft = reactive<MappingDraft>(emptyMappingDraft());
 
-/** 后端已知缺陷的拦截面（`MATERIAL_TYPE` 这一版存不进去），文案来自逻辑层 */
-const saveBlocker = computed(() => mappingSaveBlocker(draft));
-
 function openCreate(): void {
   editingId.value = '';
   formErrors.value = [];
@@ -437,13 +425,14 @@ function handleWarehouseChange(value: unknown): void {
 }
 
 function handleMaterialTypeChange(value: unknown): void {
-  // 解析侧只看 ref_code；ref_id 由后端校验强制（= 本版的阻塞点），这里不编造
+  // 物料类型的目标只有编码：后端 validate_mapping 要求这一档 ref_id 留空，
+  // resolve_for_po 也按 ref_code 命中（t_ce73ae26 起写入/解析同一口径）
   draft.ref_code = String(value ?? '');
   draft.ref_id = '';
 }
 
 async function submitForm(): Promise<void> {
-  if (submitting.value || saveBlocker.value) {
+  if (submitting.value) {
     return;
   }
   const errors = checkMappingDraft(draft);

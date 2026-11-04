@@ -124,7 +124,11 @@ fn control_mode_validation() {
     assert!(validate_control_mode(Some("STRICT")).is_err());
 }
 
-/// ⑩ 映射校验：DEFAULT 不许给 ref_id，非 DEFAULT 必须给。
+/// ⑩ 映射校验：目标类型分两档 —— 有 id 的（MATERIAL / WAREHOUSE）要 ref_id，
+///    没有 id 的（MATERIAL_TYPE，物料类型是字符串枚举）要 ref_code；DEFAULT 两个都不要。
+///
+/// 本用例是 t_ce73ae26 的回归闸：修复前 `MATERIAL_TYPE` 只给 ref_code 会被 400
+/// 「必须给 ref_id」，而解析侧只看 ref_code ⇒ 该类型根本没有合法请求体。
 #[test]
 fn mapping_validation() {
     let base = MappingReq {
@@ -143,6 +147,41 @@ fn mapping_validation() {
     bad.ref_id = Some(Uuid::now_v7().to_string());
     assert!(validate_mapping(&bad).is_err(), "DEFAULT 不许给 ref_id");
 
+    let mut bad_code = base.clone();
+    bad_code.ref_code = Some("RAW".to_string());
+    assert!(
+        validate_mapping(&bad_code).is_err(),
+        "DEFAULT 不许给 ref_code（兜底不挂目标编码）"
+    );
+
+    // ---- MATERIAL_TYPE：ref_code 是唯一目标，ref_id 必须为空 ----
+    let mut mt = base.clone();
+    mt.map_type = "MATERIAL_TYPE".to_string();
+    assert!(
+        validate_mapping(&mt).is_err(),
+        "MATERIAL_TYPE 缺 ref_code 必须拒绝"
+    );
+
+    mt.ref_code = Some("RAW".to_string());
+    validate_mapping(&mt).expect("MATERIAL_TYPE 只给 ref_code 必须通过（本卡修的正是这条）");
+
+    mt.ref_code = Some("  raw ".to_string());
+    validate_mapping(&mt).expect("物料类型编码容忍空白与大小写");
+
+    mt.ref_code = Some("BOGUS".to_string());
+    let err = validate_mapping(&mt).expect_err("值域外的物料类型必须拒绝");
+    assert!(
+        err.msg.contains("ref_code"),
+        "文案要点名 ref_code：{}",
+        err.msg
+    );
+
+    mt.ref_code = Some("RAW".to_string());
+    mt.ref_id = Some(Uuid::now_v7().to_string());
+    let err = validate_mapping(&mt).expect_err("MATERIAL_TYPE 不许给 ref_id");
+    assert!(err.msg.contains("ref_id"), "文案要点名 ref_id：{}", err.msg);
+
+    // ---- MATERIAL / WAREHOUSE：必须有真实目标 id ----
     let mut material = base.clone();
     material.map_type = "MATERIAL".to_string();
     assert!(
@@ -153,6 +192,15 @@ fn mapping_validation() {
     material.ref_id = Some(Uuid::now_v7().to_string());
     validate_mapping(&material).expect("MATERIAL 合法");
 
+    let mut warehouse = base.clone();
+    warehouse.map_type = "WAREHOUSE".to_string();
+    assert!(
+        validate_mapping(&warehouse).is_err(),
+        "WAREHOUSE 必须给 ref_id"
+    );
+    warehouse.ref_id = Some(Uuid::now_v7().to_string());
+    validate_mapping(&warehouse).expect("WAREHOUSE 合法");
+
     let mut bad_status = base.clone();
     bad_status.status = Some(9);
     assert!(validate_mapping(&bad_status).is_err());
@@ -160,6 +208,36 @@ fn mapping_validation() {
     let mut bad_type = base;
     bad_type.map_type = "SUPPLIER".to_string();
     assert!(validate_mapping(&bad_type).is_err());
+}
+
+/// ⑩-b 入库归一化：`MATERIAL_TYPE` 的编码转大写、其余类型只去空白；
+///      `MATERIAL_TYPE` / `DEFAULT` 的 `ref_id` 一律丢成 `None`（写路径只走这一处）。
+#[test]
+fn mapping_target_normalization() {
+    assert_eq!(
+        normalize_ref_code("MATERIAL_TYPE", Some(" raw ")),
+        Some("RAW".to_string())
+    );
+    assert_eq!(
+        normalize_ref_code("MATERIAL", Some(" m-001 ")),
+        Some("m-001".to_string()),
+        "物料编码大小写由主数据决定，映射不改写"
+    );
+    assert_eq!(normalize_ref_code("MATERIAL_TYPE", Some("   ")), None);
+    assert_eq!(normalize_ref_code("MATERIAL_TYPE", None), None);
+
+    let rid = Uuid::now_v7();
+    let (kept, code) = normalize_target("MATERIAL", Some(rid), Some("m-001"));
+    assert_eq!(kept, Some(rid), "MATERIAL 必须保留目标 id");
+    assert_eq!(code.as_deref(), Some("m-001"));
+
+    let (dropped, code) = normalize_target("MATERIAL_TYPE", Some(rid), Some("fg"));
+    assert_eq!(dropped, None, "物料类型没有目标 id，硬塞的必须丢掉");
+    assert_eq!(code.as_deref(), Some("FG"), "物料类型编码入库时转大写");
+
+    let (dropped, code) = normalize_target("DEFAULT", Some(rid), Some("x"));
+    assert_eq!(dropped, None);
+    assert_eq!(code, Some("x".to_string()));
 }
 
 /// ⑪ 分页归一化：页码 < 1 归 1，页大小 0 用默认、超限截断。

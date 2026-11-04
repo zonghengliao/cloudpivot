@@ -241,4 +241,244 @@ mod db {
         assert_eq!(chain[0].supersedes_id, Some(v1));
         cleanup(&ids).await;
     }
+
+    /// 清场：删本用例建的映射行（按 id 集合，绝不按 map_type 扫全库 ——
+    /// 隔离库上也可能有别人手工配的映射）。
+    async fn cleanup_maps(ids: &[Uuid]) {
+        if ids.is_empty() {
+            return;
+        }
+        let list = ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        let _ = db()
+            .exec_sql(
+                format!("DELETE FROM biz_budget_subject_map WHERE id IN ({list})"),
+                vec![],
+            )
+            .await;
+    }
+
+    /// 清掉「同一目标」的残留映射（上一次跑挂掉、或 HTTP 验收脚本留下的同目标行）。
+    ///
+    /// 只按本用例自己用的目标精确删，不扫全表 —— 共享库上别人的配置一行不碰。
+    /// 存在的理由：`uk_biz_bsm_target` 只对 `deleted_at IS NULL` 生效，残留行会让
+    /// 「① 能落库」这条第一断言直接撞唯一键，用例就成了不可重复跑。
+    async fn purge_target(map_type: &str, ref_code: &str, dept: Option<Uuid>) {
+        db().exec_sql(
+            "DELETE FROM biz_budget_subject_map
+                  WHERE map_type = ?
+                    AND upper(btrim(ref_code)) = upper(btrim(?))
+                    AND COALESCE(dept_id::text, '00000000-0000-0000-0000-000000000000')
+                      = COALESCE(NULLIF(?::text, ''),
+                                 '00000000-0000-0000-0000-000000000000')"
+                .to_string(),
+            vec![
+                Value::from(map_type.to_string()),
+                Value::Text(ref_code.to_string()),
+                uuid_text(dept),
+            ],
+        )
+        .await
+        .expect("清同目标残留映射（失败会让「能落库」断言假红）");
+    }
+
+    /// 除 `exclude` 之外的另一个部门（部门覆盖用例用；库里只有一个部门就跳过）。
+    async fn other_dept(exclude: Uuid) -> Option<Uuid> {
+        let rows = db()
+            .query_sql(
+                "SELECT id FROM sys_dept WHERE deleted_at IS NULL AND id <> ?::uuid
+                  ORDER BY created_at LIMIT 1"
+                    .to_string(),
+                vec![Value::from(&exclude)],
+            )
+            .await
+            .ok()?;
+        rows.first().and_then(|row| row.get_typed("id").ok())
+    }
+
+    /// ⑥ MATERIAL_TYPE 映射全链路（t_ce73ae26 的回归用例）：
+    ///
+    /// 1. **能落库**：只给 `ref_code`（物料类型编码）就能建，`ref_id` 落库恒为 NULL
+    ///    —— 修复前这一步必然 400「必须给 ref_id」；
+    /// 2. **能命中**：`resolve_for_po(material_type=RAW)` 取到这条映射的科目，大小写/空白不敏感；
+    /// 3. **撞唯一键**：同目标（同部门或同为公司级）再建一条 → `UniqueViolation`
+    ///    （handler 翻成可读 409）；
+    /// 4. **互不干扰**：同目标下另一种物料类型可以共存；有第二个部门时可以各配一条；
+    /// 5. **可重建**：软删后同一目标可以重新建（`uk_biz_bsm_target` 只覆盖 `deleted_at IS NULL`）。
+    ///
+    /// 干净库上 `sys_dept` 可能是 0 行（bootstrap 不种部门），此时用「全公司映射」
+    /// （`dept_id = NULL`，索引里 COALESCE 成零 uuid）跑同一条链路 —— 一样命中同一条
+    /// 唯一索引，不会因为缺夹具变成 SKIP 假绿。
+    #[tokio::test]
+    async fn material_type_mapping_roundtrip() {
+        if !ensure_db().await {
+            println!("[SKIP] 未设 ERP_DB_URL");
+            return;
+        }
+        let Some(account) = expense_account().await else {
+            println!("[SKIP] 库里没有 5602.02 科目（先跑迁移）");
+            return;
+        };
+        // 有部门就用部门级映射（顺带验部门进唯一键），没有就退回全公司映射
+        let dept: Option<Uuid> = any_dept().await;
+        match dept {
+            Some(id) => println!("[信息] 用部门 {id} 跑部门级映射"),
+            None => println!("[信息] 库里没有部门，用全公司映射（dept_id = NULL）跑同一链路"),
+        }
+        let mut ids: Vec<Uuid> = Vec::new();
+
+        // 可重复跑：先把本用例要用的目标上的残留（上次失败 / e2e 留下的）精确清掉
+        purge_target("MATERIAL_TYPE", "RAW", dept).await;
+        purge_target("MATERIAL_TYPE", "SEMI", dept).await;
+
+        // ① 只给 ref_code 就能落库；就算硬塞了 ref_id 也会被 normalize 丢掉
+        let raw = Uuid::now_v7();
+        ids.push(raw);
+        map_insert(
+            db(),
+            raw,
+            "MATERIAL_TYPE",
+            Some(Uuid::now_v7()),
+            Some(" raw "),
+            account,
+            dept,
+            0,
+            Some("单测 MATERIAL_TYPE"),
+            None,
+        )
+        .await
+        .expect("MATERIAL_TYPE 映射必须能落库（t_ce73ae26 修的就是这条）");
+
+        let rows = db()
+            .query_sql(
+                "SELECT map_type, ref_id, ref_code FROM biz_budget_subject_map WHERE id = ?::uuid"
+                    .to_string(),
+                vec![Value::from(&raw)],
+            )
+            .await
+            .expect("查回落库行");
+        let saved = rows.first().expect("刚插的行必须存在");
+        assert_eq!(
+            saved.get_typed::<String>("map_type").expect("map_type"),
+            "MATERIAL_TYPE"
+        );
+        assert_eq!(
+            saved.get_typed::<Option<Uuid>>("ref_id").expect("ref_id"),
+            None,
+            "MATERIAL_TYPE 的 ref_id 落库必须是 NULL（V0240 ck_biz_bsm_ref）"
+        );
+        assert_eq!(
+            saved
+                .get_typed::<Option<String>>("ref_code")
+                .expect("ref_code")
+                .as_deref(),
+            Some("RAW"),
+            "物料类型编码入库时归一化成大写"
+        );
+
+        // ② 解析侧命中：传 material_type 能取到该类型映射的科目
+        let (hit_account, hit_type) = resolve_for_po(db(), dept, None, None, Some("RAW"))
+            .await
+            .expect("解析不该报错")
+            .expect("物料类型 RAW 必须命中一条映射");
+        assert_eq!(hit_account, account, "命中的应是这条映射的科目");
+        assert_eq!(hit_type, "MATERIAL_TYPE");
+
+        let lower = resolve_for_po(db(), dept, None, None, Some(" raw "))
+            .await
+            .expect("解析不该报错")
+            .expect("物料类型入参大小写/空白不一致也要命中");
+        assert_eq!(lower.0, account);
+
+        // ③ 同目标同类型再建一条 → 必须撞唯一键（不是静默多一条）
+        let dup = Uuid::now_v7();
+        ids.push(dup);
+        let err = map_insert(
+            db(),
+            dup,
+            "MATERIAL_TYPE",
+            None,
+            Some("RAW"),
+            account,
+            dept,
+            0,
+            None,
+            None,
+        )
+        .await
+        .expect_err("同目标同物料类型必须撞 uk_biz_bsm_target");
+        assert!(
+            matches!(err, DbError::UniqueViolation { .. }),
+            "应为唯一键冲突（handler 会翻成可读 409），实际 {err:?}"
+        );
+
+        // ④ 同一目标下另一种物料类型可以共存
+        let semi = Uuid::now_v7();
+        ids.push(semi);
+        map_insert(
+            db(),
+            semi,
+            "MATERIAL_TYPE",
+            None,
+            Some("SEMI"),
+            account,
+            dept,
+            0,
+            None,
+            None,
+        )
+        .await
+        .expect("同一目标下的另一种物料类型必须能落库（唯一性按 ref_code 而非 map_type）");
+
+        // ④-b 部门覆盖：同类型在另一个部门可以再配一条（库里没有第二个部门就跳过）
+        let other = match dept {
+            Some(id) => other_dept(id).await,
+            None => None,
+        };
+        if let Some(dept2) = other {
+            purge_target("MATERIAL_TYPE", "RAW", Some(dept2)).await;
+            let covered = Uuid::now_v7();
+            ids.push(covered);
+            map_insert(
+                db(),
+                covered,
+                "MATERIAL_TYPE",
+                None,
+                Some("RAW"),
+                account,
+                Some(dept2),
+                0,
+                None,
+                None,
+            )
+            .await
+            .expect("另一个部门覆盖同一物料类型必须能落库（部门进唯一键）");
+        } else {
+            println!("[信息] 库里没有第二个部门，跳过部门覆盖子断言");
+        }
+
+        // ⑤ 软删后同一目标可以重建（部分索引只覆盖未删除行）
+        map_delete(db(), raw, None).await.expect("软删");
+        let again = Uuid::now_v7();
+        ids.push(again);
+        map_insert(
+            db(),
+            again,
+            "MATERIAL_TYPE",
+            None,
+            Some("RAW"),
+            account,
+            dept,
+            0,
+            None,
+            None,
+        )
+        .await
+        .expect("软删后同一目标应可重建（uk 仅覆盖 deleted_at IS NULL）");
+
+        cleanup_maps(&ids).await;
+    }
 }

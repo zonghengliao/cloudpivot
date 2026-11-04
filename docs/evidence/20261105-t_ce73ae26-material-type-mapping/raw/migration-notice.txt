@@ -1,0 +1,6 @@
+-- V0240__erp_budget_mapping_material_type.up.sql
+   kind    |               name               | version |                             checksum                             | success |                               source                               
+-----------+----------------------------------+---------+------------------------------------------------------------------+---------+--------------------------------------------------------------------
+ versioned | erp_budget_mapping_material_type | 240     | 32664aa3a579fc7a4729a674b522ff81cd07c3701b06bcd85a771966622ccba0 | t       | migrations/business/V0240__erp_budget_mapping_material_type.up.sql
+(1 row)
+

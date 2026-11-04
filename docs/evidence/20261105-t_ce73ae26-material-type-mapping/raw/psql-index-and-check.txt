@@ -1,0 +1,10 @@
+                                                                                                                        pg_get_indexdef                                                                                                                        
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE UNIQUE INDEX uk_biz_bsm_target ON public.biz_budget_subject_map USING btree (map_type, COALESCE((ref_id)::text, upper(btrim((ref_code)::text)), ''::text), COALESCE(dept_id, '00000000-0000-0000-0000-000000000000'::uuid)) WHERE (deleted_at IS NULL)
+(1 row)
+
+                                                                                                                                                                  pg_get_constraintdef                                                                                                                                                                   
+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ CHECK (((((map_type)::text = 'DEFAULT'::text) AND (ref_id IS NULL)) OR (((map_type)::text = 'MATERIAL_TYPE'::text) AND (ref_id IS NULL) AND (ref_code IS NOT NULL) AND (btrim((ref_code)::text) <> ''::text)) OR (((map_type)::text = ANY ((ARRAY['MATERIAL'::character varying, 'WAREHOUSE'::character varying])::text[])) AND (ref_id IS NOT NULL))))
+(1 row)
+

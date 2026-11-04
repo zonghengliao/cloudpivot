@@ -929,9 +929,10 @@ pub async fn mapping_create(
     )
     .await
     .map_err(|error| match error {
-        DbError::UniqueViolation { .. } => {
-            conflict("该目标（map_type + ref_id + 部门）已有映射：请直接修改那一条，不要重复新建")
-        }
+        DbError::UniqueViolation { .. } => conflict(
+            "该目标（map_type + 物料/仓库 id 或物料类型编码 + 部门）已有映射：\
+             请直接修改那一条，不要重复新建",
+        ),
         other => utils::db_error(other, "新建预算科目映射"),
     })?;
     Ok(Res::ok(json!({"id": id.to_string()})))
@@ -958,6 +959,7 @@ pub async fn mapping_update(
     let affected = budget_model::map_update(
         db(),
         id,
+        req.map_type.trim(),
         req.ref_code.as_deref(),
         account_id,
         dept_id,
@@ -967,7 +969,14 @@ pub async fn mapping_update(
         operator_of(&claims),
     )
     .await
-    .map_err(|error| utils::db_error(error, "修改预算科目映射"))?;
+    .map_err(|error| match error {
+        // 改部门 / 改编码也可能撞 uk_biz_bsm_target（同一目标在同一部门只有一条）
+        DbError::UniqueViolation { .. } => conflict(
+            "该目标在本部门下已有另一条映射（map_type + 物料/仓库 id 或物料类型编码 + 部门 \
+             唯一）：请改回原部门或先删掉重复的那条",
+        ),
+        other => utils::db_error(other, "修改预算科目映射"),
+    })?;
     if affected == 0 {
         return Err(map_not_found());
     }

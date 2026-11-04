@@ -9,10 +9,13 @@
  * 1. **12 个月分解必须 Σ = 年度额度**，缺月 / 重月 / 负数后端全 400，且报错只点名第一处；
  * 2. **尾差只能记 12 月**（后端文案就是这么说的），前端自己拍一个「四舍五入」会让
  *    最后一分钱凭空多出来或消失；
- * 3. **`MATERIAL_TYPE` 映射的解析只看 `ref_code`**（`budget_model::resolve_for_po`
- *    里 `"MATERIAL_TYPE" => ref_code.as_deref() == Some(kind)`），而 `validate_mapping`
- *    却要求非 DEFAULT 类型都给 `ref_id` —— 这条矛盾必须在 UI 上讲明白，见
- *    {@link mappingSaveBlocker}；
+ * 3. **`MATERIAL_TYPE` 的目标是「物料类型编码」而不是 id**：物料类型是
+ *    `biz_material.material_type` 上的字符串枚举（RAW / SEMI / FINISHED / PACKAGING /
+ *    CONSUMABLE / OFFICE / SERVICE），全库没有物料类型表、没有 uuid。后端
+ *    `budget_dto::validate_mapping` 对这一档要求「`ref_id` 必须为空 + `ref_code` 给类型编码」，
+ *    `budget_model::resolve_for_po` 也按 `ref_code` 命中（大小写不敏感），
+ *    `uk_biz_bsm_target` 的目标键是 `coalesce(ref_id, upper(btrim(ref_code)))`
+ *    —— 三处口径从 t_ce73ae26 起一致，前端只要别给这一档拼 `ref_id` 就行；
  * 4. **映射列表的类型筛选参数名是 `status`**（后端复用 `BudgetFilter`），写错就静默不筛；
  * 5. **动作按钮只能按状态给**：`ACTIVE` 没有「编辑」这条边（ARCH-6 硬规则 4），
  *    给了就是必 409 的按钮。
@@ -845,47 +848,37 @@ export function draftFromMappingRow(row: BudgetMappingRow): MappingDraft {
 }
 
 /**
- * **已知后端缺陷的拦截面**：`MATERIAL_TYPE` 目前存不进去。
+ * 映射表单校验（镜像 `budget_dto::validate_mapping` + 前端必填项）。
  *
- * 事实（两条都能在仓库里核对）：
- * - 解析侧 `budget_model::resolve_for_po` 的 `MATERIAL_TYPE` 分支**只比 `ref_code`**
- *   （`ref_code.as_deref() == Some(kind)`），`ref_id` 根本不参与；
- * - 校验侧 `budget_dto::validate_mapping` 却写「非 DEFAULT 必须给 `ref_id`」，
- *   否则 400「MATERIAL_TYPE 映射必须给 ref_id」。
+ * 三种目标形态各一套必填规则（与后端 `validate_mapping` 逐条对应，见
+ * `mapping.vue` 的注释与 `MappingDraft`）：
  *
- * 结果：按语义填（只给 `ref_code`）必然被后端 400；硬塞一个假 `ref_id` 又会让
- * `uk_biz_bsm_target (map_type, ref_id, dept_id)` 把「同一部门只能有一条
- * MATERIAL_TYPE 映射」钉死。所以 v1 在**前端明确拦住**并说明原因，
- * 等后端把校验改成「MATERIAL_TYPE 校验 `ref_code`」再放开（已建卡给后端）。
- *
- * @returns 有阻塞原因就返回文案；可以保存返回 `null`
+ * - `DEFAULT`：不许有 `ref_id` / `ref_code`（全公司兜底，同一部门只能一条）；
+ * - `MATERIAL_TYPE`：只填 `ref_code`（物料类型编码），`ref_id` 必须留空；
+ * - `MATERIAL` / `WAREHOUSE`：`ref_id` 必填，`ref_code` 只做展示与对账。
  */
-export function mappingSaveBlocker(draft: MappingDraft): string | null {
-  if (draft.map_type === 'MATERIAL_TYPE') {
-    return (
-      '后端校验（budget_dto::validate_mapping）目前要求 MATERIAL_TYPE 也给 ref_id，' +
-      '而解析只用 ref_code —— 该类型暂时存不进去，已建卡给后端修复；' +
-      '先给物料或仓库建映射，或等修复后重试'
-    );
-  }
-  return null;
-}
-
-/** 映射表单校验（镜像 `budget_dto::validate_mapping` + 前端必填项） */
 export function checkMappingDraft(draft: MappingDraft): string[] {
   const errors: string[] = [];
-  const blocker = mappingSaveBlocker(draft);
-  if (blocker) {
-    errors.push(blocker);
-  }
   if (!draft.account_id.trim()) {
     errors.push('请选择预算科目（必须是末级科目）');
   }
   const isDefault = draft.map_type === 'DEFAULT';
+  const isMaterialType = draft.map_type === 'MATERIAL_TYPE';
   if (isDefault && draft.ref_id.trim()) {
     errors.push('DEFAULT 映射不许给 ref_id（它是全公司兜底，不指向任何目标）');
   }
-  if (!isDefault && draft.map_type !== 'MATERIAL_TYPE') {
+  if (isDefault && draft.ref_code.trim()) {
+    errors.push('DEFAULT 映射不许给 ref_code（全公司兜底不挂任何目标编码）');
+  }
+  if (isMaterialType) {
+    if (!draft.ref_code.trim()) {
+      errors.push('物料类型映射必须选一个物料类型（解析按这个编码命中）');
+    }
+    if (draft.ref_id.trim()) {
+      errors.push('物料类型映射不能给 ref_id（物料类型是编码枚举，没有独立 id）');
+    }
+  }
+  if (!isDefault && !isMaterialType) {
     if (!draft.ref_id.trim()) {
       errors.push(`${mapTypeLabel(draft.map_type)} 映射必须选一个目标`);
     }
@@ -902,12 +895,19 @@ export function checkMappingDraft(draft: MappingDraft): string[] {
   return errors;
 }
 
-/** 映射草稿 → 请求体（DEFAULT 的 ref 一律清成 `null`） */
+/**
+ * 映射草稿 → 请求体。
+ *
+ * `DEFAULT` 与 `MATERIAL_TYPE` 的 `ref_id` 一律 `null`：前者是全公司兜底，
+ * 后者的目标只有类型编码（后端对这两种形态都会再把 `ref_id` 归一成 NULL，
+ * 前端这里先发干净，避免联调时看着像「多传了一个字段」）。
+ */
 export function toMappingReq(draft: MappingDraft): BudgetMappingReq {
   const isDefault = draft.map_type === 'DEFAULT';
+  const noRefId = isDefault || draft.map_type === 'MATERIAL_TYPE';
   return {
     map_type: draft.map_type,
-    ref_id: isDefault ? null : draft.ref_id.trim() || null,
+    ref_id: noRefId ? null : draft.ref_id.trim() || null,
     ref_code: isDefault ? null : draft.ref_code.trim() || null,
     account_id: draft.account_id.trim(),
     dept_id: draft.dept_id.trim() || null,

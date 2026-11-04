@@ -1,0 +1,140 @@
+{
+  "results": [
+    {
+      "case": "1. 登录成功（拿得到 token）",
+      "ok": true,
+      "detail": "{'access_token': 'eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJqdGkiOiJhYWNiNGFiMi03OWYwLTQxMjUtYmJjMC1kZDRkOTg3YTE0YWYiLCJzdWIiOiIwMWExYTg1Yi03MWFjLTc0OTMtODM1Yi0xNzQ2ZThhYWE5YWUiLCJ1c2VybmFtZSI6ImFkbWluI"
+    },
+    {
+      "case": "1-b. 取到末级科目 id（5602.02 / 5602.01）",
+      "ok": true,
+      "detail": "acc=00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9 other=45dd7454-839a-4e07-83eb-6b05ae695592"
+    },
+    {
+      "case": "2. 初始映射列表为空",
+      "ok": true,
+      "detail": "rows=0"
+    },
+    {
+      "case": "3. POST MATERIAL_TYPE+ref_code=RAW（不给 ref_id）→ 200",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8dd1-7599-8f35-b03390c2a6b7'}}"
+    },
+    {
+      "case": "4. 列表能查到该映射",
+      "ok": true,
+      "detail": "rows=1"
+    },
+    {
+      "case": "4-b. 落库 ref_id = NULL",
+      "ok": true,
+      "detail": "{\"id\": \"01a1a866-8dd1-7599-8f35-b03390c2a6b7\", \"map_type\": \"MATERIAL_TYPE\", \"ref_id\": null, \"ref_code\": \"RAW\", \"account_id\": \"00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9\", \"account_code\": \"5602.02\", \"account_name\": \"管理费用-差旅费\", \"dept_id\": \"00000000-0000-0000-0000-0000ce73ae26\", \"priority\": 5, \"status\": 1, \"remark\": \"e2e MATERIAL_TYPE 全公司原材料\"}"
+    },
+    {
+      "case": "4-c. 落库 ref_code = RAW（归一化大写）",
+      "ok": true,
+      "detail": "{\"id\": \"01a1a866-8dd1-7599-8f35-b03390c2a6b7\", \"map_type\": \"MATERIAL_TYPE\", \"ref_id\": null, \"ref_code\": \"RAW\", \"account_id\": \"00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9\", \"account_code\": \"5602.02\", \"account_name\": \"管理费用-差旅费\", \"dept_id\": \"00000000-0000-0000-0000-0000ce73ae26\", \"priority\": 5, \"status\": 1, \"remark\": \"e2e MATERIAL_TYPE 全公司原材料\"}"
+    },
+    {
+      "case": "4-d. map_type = MATERIAL_TYPE",
+      "ok": true,
+      "detail": "MATERIAL_TYPE"
+    },
+    {
+      "case": "5. 同部门同类型第二条 → 409 可读文案",
+      "ok": true,
+      "detail": "409 {'code': 10003, 'msg': '该目标（map_type + 物料/仓库 id 或物料类型编码 + 部门）已有映射：请直接修改那一条，不要重复新建'}"
+    },
+    {
+      "case": "6. 同部门 'raw'（小写）→ 409（唯一性大小写不敏感）",
+      "ok": true,
+      "detail": "409 {'code': 10003, 'msg': '该目标（map_type + 物料/仓库 id 或物料类型编码 + 部门）已有映射：请直接修改那一条，不要重复新建'}"
+    },
+    {
+      "case": "7. 同部门另一种类型 SEMI → 200（唯一性按编码）",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8ddd-7372-a59e-9f45e77a13fe'}}"
+    },
+    {
+      "case": "8. 另一个部门同类型 RAW → 200（部门进唯一键）",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8de0-72f0-b3c0-e3b1153ef456'}}"
+    },
+    {
+      "case": "9. MATERIAL_TYPE 带 ref_id → 400 且点名 ref_id",
+      "ok": true,
+      "detail": "400 {'code': 10001, 'msg': 'MATERIAL_TYPE 映射不许给 ref_id：物料类型是 biz_material.material_type 上的编码枚举（RAW / SEMI / …），没有独立 id；请用 ref_code 指定类型编码'}"
+    },
+    {
+      "case": "10. 值域外编码 BOGUS → 400 且点名 ref_code",
+      "ok": true,
+      "detail": "400 {'code': 10001, 'msg': 'ref_code=BOGUS 非法（物料类型只能是 RAW / SEMI / FINISHED / PACKAGING / CONSUMABLE / OFFICE / SERVICE）'}"
+    },
+    {
+      "case": "11. DEFAULT 第一条 → 200",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8de8-74e8-9a24-1d49713dd853'}}"
+    },
+    {
+      "case": "11-b. 同部门第二条 DEFAULT → 409（兜底唯一）",
+      "ok": true,
+      "detail": "409 {'code': 10003, 'msg': '该目标（map_type + 物料/仓库 id 或物料类型编码 + 部门）已有映射：请直接修改那一条，不要重复新建'}"
+    },
+    {
+      "case": "12. PUT 改预算科目 → 200",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8dd1-7599-8f35-b03390c2a6b7', 'updated': True}}"
+    },
+    {
+      "case": "12-b. PUT 改到「已有同目标」的部门 → 409 可读",
+      "ok": true,
+      "detail": "409 {'code': 10003, 'msg': '该目标在本部门下已有另一条映射（map_type + 物料/仓库 id 或物料类型编码 + 部门 唯一）：请改回原部门或先删掉重复的那条'}"
+    },
+    {
+      "case": "13. DELETE（软删）→ 200",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'deleted': True, 'id': '01a1a866-8dd1-7599-8f35-b03390c2a6b7'}}"
+    },
+    {
+      "case": "13-b. 软删后同一目标可重建 → 200",
+      "ok": true,
+      "detail": "200 {'code': 0, 'msg': 'ok', 'data': {'id': '01a1a866-8df7-7334-9b1e-4dae037e3b8d'}}"
+    },
+    {
+      "case": "14. 终态可见映射 4 条（重建 RAW-A / SEMI-A / RAW-B / DEFAULT-A）",
+      "ok": true,
+      "detail": "[[\"DEFAULT\", \"-\", \"00000000-0000-0000-0000-0000ce73ae26\"], [\"MATERIAL_TYPE\", \"RAW\", \"00000000-0000-0000-0000-0000ce73ae26\"], [\"MATERIAL_TYPE\", \"RAW\", \"00000000-0000-0000-0000-0000ce73ae27\"], [\"MATERIAL_TYPE\", \"SEMI\", \"00000000-0000-0000-0000-0000ce73ae26\"]]"
+    }
+  ],
+  "ids": {
+    "raw": "01a1a866-8dd1-7599-8f35-b03390c2a6b7",
+    "semi": "01a1a866-8ddd-7372-a59e-9f45e77a13fe",
+    "raw_b": "01a1a866-8de0-72f0-b3c0-e3b1153ef456",
+    "default": "01a1a866-8de8-74e8-9a24-1d49713dd853",
+    "rebuilt": "01a1a866-8df7-7334-9b1e-4dae037e3b8d",
+    "account": "00e9d3bd-8def-4232-b5f3-3cfd4cfed6d9",
+    "account_other": "45dd7454-839a-4e07-83eb-6b05ae695592"
+  },
+  "final_rows": [
+    [
+      "DEFAULT",
+      "-",
+      "00000000-0000-0000-0000-0000ce73ae26"
+    ],
+    [
+      "MATERIAL_TYPE",
+      "RAW",
+      "00000000-0000-0000-0000-0000ce73ae26"
+    ],
+    [
+      "MATERIAL_TYPE",
+      "RAW",
+      "00000000-0000-0000-0000-0000ce73ae27"
+    ],
+    [
+      "MATERIAL_TYPE",
+      "SEMI",
+      "00000000-0000-0000-0000-0000ce73ae26"
+    ]
+  ]
+}

@@ -1,0 +1,23 @@
+PASS  1. 登录成功（拿得到 token）
+PASS  1-b. 取到末级科目 id（5602.02 / 5602.01）
+PASS  2. 初始映射列表为空
+PASS  3. POST MATERIAL_TYPE+ref_code=RAW（不给 ref_id）→ 200
+PASS  4. 列表能查到该映射
+PASS  4-b. 落库 ref_id = NULL
+PASS  4-c. 落库 ref_code = RAW（归一化大写）
+PASS  4-d. map_type = MATERIAL_TYPE
+PASS  5. 同部门同类型第二条 → 409 可读文案
+PASS  6. 同部门 'raw'（小写）→ 409（唯一性大小写不敏感）
+PASS  7. 同部门另一种类型 SEMI → 200（唯一性按编码）
+PASS  8. 另一个部门同类型 RAW → 200（部门进唯一键）
+PASS  9. MATERIAL_TYPE 带 ref_id → 400 且点名 ref_id
+PASS  10. 值域外编码 BOGUS → 400 且点名 ref_code
+PASS  11. DEFAULT 第一条 → 200
+PASS  11-b. 同部门第二条 DEFAULT → 409（兜底唯一）
+PASS  12. PUT 改预算科目 → 200
+PASS  12-b. PUT 改到「已有同目标」的部门 → 409 可读
+PASS  13. DELETE（软删）→ 200
+PASS  13-b. 软删后同一目标可重建 → 200
+PASS  14. 终态可见映射 4 条（重建 RAW-A / SEMI-A / RAW-B / DEFAULT-A）
+
+== 21 passed / 0 failed ==

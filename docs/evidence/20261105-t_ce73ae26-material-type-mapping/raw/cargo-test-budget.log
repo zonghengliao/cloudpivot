@@ -1,0 +1,48 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 40 tests
+test business::erp::budget_bridge::tests::effective_from_is_next_month_first_day ... ok
+test business::erp::budget_bridge::tests::legal_edges_match_registry ... ok
+test business::erp::budget_bridge::tests::verdict_mapping ... ok
+test business::erp::budget_dto::budget_dto_tests::adjust_requires_reason ... ok
+test business::erp::budget_dto::budget_dto_tests::control_mode_validation ... ok
+test business::erp::budget_dto::budget_dto_tests::create_budget_with_full_periods_passes ... ok
+test business::erp::budget_dto::budget_dto_tests::duplicated_period_is_rejected ... ok
+test business::erp::budget_dto::budget_dto_tests::even_split_puts_remainder_on_december ... ok
+test business::erp::budget_dto::budget_dto_tests::mapping_target_normalization ... ok
+test business::erp::budget_dto::budget_dto_tests::mapping_validation ... ok
+test business::erp::budget_dto::budget_dto_tests::negative_amount_is_rejected ... ok
+test business::erp::budget_dto::budget_dto_tests::page_normalization ... ok
+test business::erp::budget_dto::budget_dto_tests::period_code_must_match_year_and_month ... ok
+test business::erp::budget_dto::budget_dto_tests::period_count_must_be_twelve ... ok
+test business::erp::budget_dto::budget_dto_tests::period_sum_must_equal_total ... ok
+test business::erp::budget_guard::budget_guard_tests::blank_slot_mode_inherits_global ... ok
+test business::erp::budget_guard::budget_guard_tests::both_over_takes_the_worse_gap ... ok
+test business::erp::budget_guard::budget_guard_tests::boundary_equal_is_not_over ... ok
+test business::erp::budget_guard::budget_guard_tests::control_mode_resolution ... ok
+test business::erp::budget_guard::budget_guard_tests::control_mode_vocabulary_round_trips ... ok
+test business::erp::budget_guard::budget_guard_tests::describe_branches_are_distinguishable ... ok
+test business::erp::budget_guard::budget_guard_tests::describe_carries_all_six_numbers ... ok
+test business::erp::budget_guard::budget_guard_tests::missing_budget_is_flagged_but_off_mode_never_blocks ... ok
+test business::erp::budget_guard::budget_guard_tests::missing_budget_only_when_no_limit_and_no_usage ... ok
+test business::erp::budget_guard::budget_guard_tests::month_over_year_within_reports_month_gap_only ... ok
+test business::erp::budget_guard::budget_guard_tests::off_mode_still_reports_gaps_without_blocking ... ok
+test business::erp::budget_guard::budget_guard_tests::one_cent_over_is_over ... ok
+test business::erp::budget_guard::budget_guard_tests::over_amount_is_max_and_never_negative ... ok
+test business::erp::budget_guard::budget_guard_tests::slot_rejects_malformed_period ... ok
+test business::erp::budget_guard::budget_guard_tests::slot_year_window_is_inclusive ... ok
+test business::erp::budget_guard::budget_guard_tests::used_beyond_limit_clamps_available_to_zero ... ok
+test business::erp::budget_guard::budget_guard_tests::within_budget_passes ... ok
+test business::erp::budget_guard::budget_guard_tests::year_over_month_within_reports_year_gap_only ... ok
+test business::erp::budget_guard::budget_guard_tests::zero_amount_is_never_over ... ok
+test business::erp::budget_model::budget_model_tests::budget_no_format ... ok
+test business::erp::budget_model::budget_model_tests::db::material_type_mapping_roundtrip ... [信息] 用部门 00000000-0000-0000-0000-0000ce73ae26 跑部门级映射
+ok
+test business::erp::budget_model::budget_model_tests::db::version_chain_and_single_active ... ok
+test business::erp::budget_model::budget_model_tests::exec_ratio_guards_zero_limit ... ok
+test business::erp::budget_model::budget_model_tests::report_row_takes_occupied_plus_consumed ... ok
+test business::erp::budget_model::budget_model_tests::status_constants_match_state_machine ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 2490 filtered out; finished in 1.24s
+
