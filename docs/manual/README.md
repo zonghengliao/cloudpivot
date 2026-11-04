@@ -7,14 +7,14 @@
 | 1 | 任务管理 | [01-任务管理.md](01-任务管理.md) | `images/task/`（6 张） |
 | 2 | 审批流 | [02-审批流.md](02-审批流.md) | `images/flow/`（7 张） |
 | 3 | 采购订单 | [03-采购订单.md](03-采购订单.md) | `images/purchase/`（5 张） |
-| 4 | 收货入库 | [04-收货入库.md](04-收货入库.md) | `images/stockin/`（4 张） |
-| 5 | 出库单 | [05-出库单.md](05-出库单.md) | `images/stockout/`（4 张） |
+| 4 | 收货入库 | [04-收货入库.md](04-收货入库.md) | `images/stockin/`（3 张） |
+| 5 | 出库单 | [05-出库单.md](05-出库单.md) | `images/stockout/`（3 张） |
 | 6 | 库存查询 | [06-库存查询.md](06-库存查询.md) | `images/inventory/`（3 张） |
 | 7 | 库存调拨 | [07-库存调拨.md](07-库存调拨.md) | `images/transfer/`（3 张） |
 | 8 | 财务管理 | [08-财务管理.md](08-财务管理.md) | `images/finance/`（5 张） |
 | 9 | 报表 | [09-报表.md](09-报表.md) | `images/report/`（3 张） |
 
-合计 **40 张真机截图**（Playwright 截取，非手绘、非拼图）。
+合计 **38 张真机截图**（Playwright 截取，非手绘、非拼图）。
 
 ---
 
@@ -39,6 +39,7 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 - 自动关闭「你有 N 条待处理」登录提醒弹窗；
 - 每个模块输出到 `docs/manual/images/<phase>/<nn>-<name>.png`；
 - 单步失败只记 `!!`，不中断整轮，便于一次跑完 9 个模块；
+- 默认**只读**（不改库）；`MANUAL_WRITE=1` 才允许真机建单取证（任务创建见 `docs/manual/evidence/task-create-verify.log`，返回 `任务已创建：TSK-202611-000007`）；
 - 同时打印 `SUMMARY` 行（表头 / 行数 / 按钮 / 页签），手册正文的列名、按钮名均以此为准。
 
 ## 二、截图环境实况（截图里能看到的数据）
@@ -47,7 +48,7 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 | --- | --- |
 | 实例库 | `cloudpivot_manual2`（迁移至最新，独立于生产库） |
 | 演示账号 | `admin / Manual@123456`（仅手册实例） |
-| 数据量（截图当时） | 任务 5 条、流程定义 20 条、流程实例 14 条、待我审批 8 条、采购单 13 张、收货单 13 张、出库单 1 张、调拨单 2 张、应付单 15 张、凭证 107 张、会计期间 20 个、库存 22 行 |
+| 数据量（截图当时） | 任务 6 条、流程定义 20 条、流程实例 14 条、待我审批 8 条、采购单 13 张、收货单 13 张、出库单 1 张、调拨单 2 张、应付单 15 张、凭证 107 张、会计期间 20 个、库存 22 行 |
 | 出库单样例 | `OUT-20261104-000001`（领用 10，脚本真机录入） |
 | 控制台异常 | 仅 `401 /api/business/notice/stream`（站内信 SSE 探针鉴权，与业务无关） |
 
@@ -55,8 +56,8 @@ MANUAL_BASE=http://127.0.0.1:5180 node scripts/manual/capture.mjs stockout_creat
 
 `docs/manual/evidence/capture-run1.log` / `capture-run2.log` 是同一脚本连续两轮的原始输出：
 
-- 两轮均 **38 张 / 10 个输出目录**，模块级 SUMMARY（表头、按钮、页签）逐行一致；
-- 两轮都只出现同一处 `!!`（采购「提交审批」在演示库里已无待提交单据），属数据状态而非脚本缺陷；
+- 两轮均 **38 张 / 9 个模块目录（task flow purchase stockin stockout inventory transfer finance report）**，模块级 SUMMARY（表头、按钮、页签）逐行一致；
+- 两轮 **0 失败（0 个 `!!`）**，逐行 SUMMARY 完全相同；
 - 逐图差异仅时间戳/滚动位置，结构一致。
 
 ## 四、口径说明

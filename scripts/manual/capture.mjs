@@ -17,6 +17,8 @@ const BASE = process.env.MANUAL_BASE || 'http://127.0.0.1:5180';
 const USER = process.env.MANUAL_USER || 'admin';
 const PASS = process.env.MANUAL_PASSWORD || 'Manual@123456';
 const SHOT_ROOT = process.env.MANUAL_SHOT_ROOT || '/opt/cloudpivot/docs/manual/images';
+// 写库开关：默认只读（不产生脏数据）；MANUAL_WRITE=1 时允许真机建单取证
+const WRITE = process.env.MANUAL_WRITE === '1';
 
 const phases = process.argv.slice(2);
 if (!phases.length) {
@@ -200,9 +202,12 @@ async function pickOption(root, keyword) {
 }
 
 async function confirmDialog(waitMs = 1800) {
-  const b = dlg().locator('.t-dialog__footer button.t-button--theme-primary, .t-drawer__footer button.t-button--theme-primary').last();
-  if (await b.count()) await b.click({ timeout: 8000 });
-  else await page.locator('button:has-text("确定"), button:has-text("确认"), button:has-text("创建"), button:has-text("保存")').last().click({ timeout: 8000 });
+  const d = page.locator('.t-dialog:visible').last();
+  let b = d.locator('.t-dialog__footer button.t-button--theme-primary').last();
+  if (!(await b.count())) b = d.getByRole('button', { name: /^(确定|确认|创建|保存|提交|确认提交)$/ }).last();
+  if (!(await b.count())) b = page.getByRole('button', { name: /^(确定|确认|创建|保存|提交|确认提交)$/ }).last();
+  if (!(await b.count())) throw new Error('弹窗内找不到主按钮');
+  await b.click({ timeout: 8000 });
   await page.waitForTimeout(waitMs);
   await dismissOverlays();
 }
@@ -241,25 +246,34 @@ PH.task = async () => {
   const f = await pageFacts('任务列表');
   await shot('task-list');
 
-  if (f.rows === 0) {
-    await step('新建任务', async () => {
-      await clickBtn('新建任务');
-      await dlg().waitFor({ state: 'visible', timeout: 10000 });
-      await page.waitForTimeout(600);
-      await shot('task-create-dialog');
-      await fillIn(dlg(), 'input[placeholder*="一句话说清"]', '【手册样例】10 月采购对账复核');
-      await fillIn(dlg(), 'textarea[placeholder*="补充上下文"]', '核对 10 月采购订单与收货单金额，差异列入周会。');
+  await step('新建任务弹窗', async () => {
+    await clickBtn('新建任务');
+    await dlg().waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(700);
+    await shot('task-create-dialog');
+    if (f.rows === 0 || WRITE) {
+      await fillIn(page, 'input[placeholder*="一句话说清"]', '【手册样例】10 月采购对账复核');
+      await fillIn(page, 'textarea[placeholder*="补充上下文"]', '核对 10 月采购订单与收货单金额，差异列入周会。');
       await shot('task-create-filled');
       await confirmDialog(2000);
       note(`新建任务返回：${(await toastText()) || '(无 toast)'}`);
       await page.waitForTimeout(1500);
-    });
-  }
+    } else {
+      // 库里有数据时只截图表单，不落库，保证重跑不产生脏数据
+      await closeDialog();
+    }
+  });
   await pageFacts('任务列表(创建后)');
-  await shot('task-list-after-create');
 
   await step('任务详情', async () => {
-    await openFirstRowDetail();
+    await dismissOverlays();
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+    const view = page.locator('tbody tr').first().locator('button:has-text("查看")').first();
+    if (await view.count()) await view.click({ timeout: 8000 });
+    else await page.locator('tbody tr td').first().click({ timeout: 8000, force: true });
+    await page.waitForTimeout(1800);
+    await dismissOverlays();
     await pageFacts('任务详情');
     await shot('task-detail');
     await closeDialog();
@@ -392,13 +406,13 @@ PH.stockin = async () => {
     const btn = page.locator('button:has-text("新建收货"), button:has-text("从采购单生成"), button:has-text("生成收货")').first();
     if (!(await btn.count())) throw new Error('无新建入口');
     await btn.click();
-    await page.waitForTimeout(1200);
-    await shot('stockin-create-picker');
+    await page.waitForTimeout(1500);
+    await dismissOverlays();
     if (await dlg().isVisible().catch(() => false)) {
       await page.waitForTimeout(600);
-      await shot('stockin-create-form');
-      await closeDialog();
     }
+    await shot('stockin-create-form');
+    await closeDialog();
   });
 };
 
