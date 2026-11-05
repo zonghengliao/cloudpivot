@@ -958,7 +958,7 @@ pub trait ExportDefinition: Send + Sync {
 
 /// 校验「导出状态过滤」是否符合本定义的契约（卡 `t_93cba3f4`）。
 ///
-/// 三个入口都必须先过这一关：同步导出（`handler::export_sync`）、异步建任务
+/// 四个入口都必须先过这一关：同步导出（`handler::export_sync`）、异步建任务
 /// （`handler::export_create` / `batch_export::create_by_ids`）、worker 执行（`worker::do_export`）。
 ///
 /// # 为什么必须报错而不是忽略
