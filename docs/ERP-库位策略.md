@@ -12,7 +12,7 @@
 | 动作 | 库位从哪来 | 不指定会怎样 |
 |---|---|---|
 | 收货 | 用户在明细里选 `location_dict_id`（库位字典）；建单只存**意图** | 用该仓默认库位（`biz_location.is_default = 1`）；没有默认 → 进「未分配」桶 + 详情 `location_warnings` 提示 |
-| 出库 | 指定库位账行 → 精确扣该桶 | **FIFO**：按库位账行建账时间升序，挑第一个够量的库位；都不够 → 409 点名各库位余量 |
+| 出库 | 指定库位账行 → 精确扣该桶 | **FIFO 自动分配**（P1-FIX-2）：建单即按库位账行建账时间升序预填，跨库位够量时自动拆成多行；手填库位可覆盖。库存真不够 → 400/409 点名「差多少 + 现存哪些库位 + 怎么办」 |
 | 调拨 | （既有）`from_location_id` / `to_location_id` 已强制成对 | 本卡不动 |
 
 ## 1. 两个 id 的分工（最容易搞混的一处）
@@ -47,14 +47,28 @@ biz_material_serial.location_id     = biz_inventory_location.id ← 同上
 
 过账后的动作（作废 / 红冲）按明细上的 `location_id` 原路退回，与库位选择一致。
 
-## 3. 出库：FIFO + 指定并存（第 2 步的「明确策略」）
+## 3. 出库：FIFO 自动分配 + 手动指定并存（P1-FIX-2 改口径）
 
 ```text
-① 明细指定了库位账行 → 精确扣该桶（校验物料 / 仓库一致）
-② 没指定 → FIFO：SELECT ... WHERE qty >= 本次数量 ORDER BY created_at ASC, id ASC LIMIT 1
-③ 单个库位都不够量 → 409，文案点名「当前各库位可用：A-01-03: 30、A-01-04: 20」
-   —— 不静默跨桶拆扣：一行明细 ↔ 一笔流水 的对应关系会断
+① 建单 / 改单：明细没填库位 → 按 FIFO 预填
+   - 够量  → 按 created_at ASC, id ASC 逐桶贪心取，**一条明细自动拆成 N 行**（每行一个库位账行）
+   - 不够量 → 保持「未指定库位」单行（草稿可存），详情 stock_warnings 给缺口 + 库位分布
+② 明细填了库位 → 原样尊重（覆盖自动值），只扣那一桶
+③ 过账：明细已有库位 → 直接扣；仍为空（老单据 / 手清库位）→ 单个够量的 FIFO 桶兜底
+④ 库存真不够 → 409 点名「第几行、要出多少、该仓可用合计、差多少、现有分布、三条处理办法」
 ```
+
+**为什么「自动拆行」而不是「一行跨桶扣减」**：`biz_stock_out_item` 一行只挂一个
+`location_id`，过账是「一行明细 ↔ 一笔库存流水 ↔ 一个成本账桶」；一行跨桶扣会打断这个
+对应关系（流水没有 location 列），作废原路退回也会失去依据。拆成 N 行后每行仍然一对一，
+下游（过账 / 作废 / 红冲 / 行号）不需要知道「这一行是系统拆出来的」。
+
+**这是对旧口径的修正**：改之前「没指定库位」只挑**单个够量**的库位，都不够量就 409
+「请把这一行拆成多行并分别指定库位」—— 货明明够（分散在 2 个库位），用户却得手工拆行
+（评审实测 `05_chains_run3.txt` ③ 段的 3 分主因）。
+
+**同一张单多行同一物料不会重复分配**：建单期按 `(物料, 库位账行)` 记「已预占量」，
+后一行只看到剩下的量；用户手填库位的那一行也登记占用量。
 
 **FIFO 的排序键是 `biz_inventory_location.created_at`**，即「该库位第一次收到这个物料的时间」
 （并列按行 id）。这是当前库位账能做出的最近似口径：逐笔入库时间没有落在库位账上
@@ -66,7 +80,7 @@ biz_material_serial.location_id     = biz_inventory_location.id ← 同上
 一个必须写下来的实现细节：**「未分配」桶在成本账里是 `location_id IS NULL`，不是它的账行 id**
 （`biz_inventory` 只有「具体库位」才用账行 id）。所以 FIFO 命中 NULL 桶时，回给成本账 / 库位账
 的 key 必须是 `None`，否则会去 `location_id = <账行 id>` 找一行不存在的成本账
-（DC-13 的负库存 / 全链用例会当场 409）。
+（DC-13 的负库存 / 全链用例会当场 409）。「未分配」桶按普通桶参与 FIFO 排序，不是特例。
 
 ## 4. 容量（`biz_location.capacity`）：做预警，不拦截
 
@@ -100,3 +114,4 @@ biz_material_serial.location_id     = biz_inventory_location.id ← 同上
 | 改单可换库位 | `p24_update_draft_can_move_location` |
 | 容量预警（不拦截） | `p24_capacity_overflow_is_warning_only` |
 | 出库指定 / FIFO 扣减正确 | `p24_stockout_with_location_deducts_that_one`、`p24_stockout_without_location_deducts_fifo` |
+| 出库跨库位自动拆行、建单预填、手改覆盖、缺口文案（P1-FIX-2） | `stockout_fifo_tests.rs`（14 条：`fifo_allocate_*` 纯函数 5 条 + 真库 9 条） |

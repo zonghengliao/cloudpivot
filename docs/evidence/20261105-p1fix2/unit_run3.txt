@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 14 tests
+test business::erp::stockout_model::fifo_tests::fifo_allocate_exact_sum_has_no_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_keeps_four_decimals ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_reports_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_takes_earliest_bucket_first ... ok
+test business::erp::stockout_model::fifo_tests::fifo_allocate_without_stock_is_all_shortfall ... ok
+test business::erp::stockout_model::fifo_tests::fifo_create_auto_splits_across_locations_and_posts ... ok
+test business::erp::stockout_model::fifo_tests::fifo_create_prefills_single_location ... ok
+test business::erp::stockout_model::fifo_tests::fifo_insufficient_stock_warns_then_rejects_post ... ok
+test business::erp::stockout_model::fifo_tests::fifo_manual_location_overrides_auto ... ok
+test business::erp::stockout_model::fifo_tests::fifo_multiple_lines_do_not_double_book ... ok
+test business::erp::stockout_model::fifo_tests::fifo_negative_warehouse_still_posts_short ... ok
+test business::erp::stockout_model::fifo_tests::fifo_no_stock_at_all_is_explained ... ok
+test business::erp::stockout_model::fifo_tests::fifo_null_bucket_participates ... ok
+test business::erp::stockout_model::fifo_tests::fifo_split_follows_creation_order ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 2600 filtered out; finished in 12.89s
+

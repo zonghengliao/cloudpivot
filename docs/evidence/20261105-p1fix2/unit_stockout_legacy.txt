@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 7 tests
+test business::erp::stockout_model::tests::dc13_allow_negative_warehouse_lets_qty_go_negative_but_amount_clamps ... ok
+test business::erp::stockout_model::tests::dc13_cancel_restores_ledgers_and_reverses_voucher ... ok
+test business::erp::stockout_model::tests::dc13_full_chain_keeps_six_ledgers_green ... ok
+test business::erp::stockout_model::tests::dc13_negative_stock_is_blocked_and_rolled_back ... ok
+test business::erp::stockout_model::tests::dc13_permission_codes_match_migration ... ok
+test business::erp::stockout_model::tests::dc13_state_machine_and_guards ... ok
+test business::erp::stockout_model::tests::zz_dc13_fixtures_are_cleaned ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2607 filtered out; finished in 11.39s
+

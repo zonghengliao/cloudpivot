@@ -651,8 +651,15 @@ pub async fn deduct_cost(
     })
 }
 
-/// **FIFO 选库位**（P2-4 出库策略）：明细没指定库位时，从该物料该仓的库位账里
+/// **FIFO 选单个库位**（过账时「明细没指定库位」的兜底路径）：从该物料该仓的库位账里
 /// 挑「最早建账」且**单个库位够量**的那一行，返回 `(库位账行 id, 该行数量)`。
+///
+/// # 谁还在用它（P1-FIX-2 之后）
+///
+/// 正常路径上**用不到了**：建单 / 改单已经把 FIFO 结果预填进明细（跨库位够量时自动拆行，
+/// 见 [`allocate_fifo`] / [`fifo_plan`]）。只有「没走建单预填的老单据」「明细被人手工清空库位」
+/// 这类情况会落到这里；都不够量时返回 `None`，由调用方给出带缺口与库位分布的 409
+/// （见 [`FifoPlan::availability_text`]）。
 ///
 /// 口径（卡面 §二「出库时从哪个库位扣：优先 FIFO，或指定」取**FIFO + 指定**并存）：
 ///
@@ -660,10 +667,6 @@ pub async fn deduct_cost(
 ///   这个物料的时间），并列时按行 id。这是当前库位账能做出来的最近似口径 ——
 ///   逐笔入库时间没有落在库位账上（`biz_inventory_txn` 没有 location 列），
 ///   真正的批次库龄 FIFO 要等批次卡，这里不假装它是。
-/// - **只挑够量的库位**：一次出库只扣一个库位桶（明细只有一个 `location_id` 字段，
-///   拆桶会让「一行明细 ↔ 一笔流水」的对应关系断掉）。都不够量 → 返回 `None`，
-///   由调用方给出「分散在 N 个库位、请拆行或指定库位」的可读 409（见
-///   [`location_availability`]）。
 /// - `allow_negative = true` 的仓库放宽为「最早建账的那一行」（负库存是它的既定策略）。
 pub async fn fifo_location_row(
     ex: &impl SqlExecutor,
@@ -704,30 +707,187 @@ pub async fn fifo_location_row(
     }
 }
 
-/// 该物料该仓**各库位的可用量**（`(库位编码或「未分配」, 数量)`，按数量降序）。
+/// FIFO 选库位的一个桶（该物料在该仓的一个库位账行）。
 ///
-/// 只用于 FIFO 失败时的 409 文案：「分散在 A-01-03: 30 / A-01-04: 20，单个库位都不够 60」。
-pub async fn location_availability(
+/// `location_row_id = None` = 「未分配」库位桶（`biz_inventory_location.location_id IS NULL`）。
+#[derive(Debug, Clone)]
+pub struct FifoBucket {
+    /// 库位账行 id（`None` = 未分配库位桶）。
+    pub location_row_id: Option<Uuid>,
+    /// 库位编码（未分配桶显示「未分配」）。
+    pub location_code: String,
+    /// 可用数量（库位账 `qty`，负数桶不参与拣货）。
+    pub available: Decimal,
+}
+
+/// FIFO 拣货的一行：从某个桶里取走多少。
+#[derive(Debug, Clone, PartialEq)]
+pub struct FifoPick {
+    /// 库位账行 id（`None` = 未分配库位桶）。
+    pub location_row_id: Option<Uuid>,
+    /// 库位编码（未分配桶为「未分配」）。
+    pub location_code: String,
+    /// 本次从该桶取走的数量（> 0）。
+    pub take: Decimal,
+}
+
+/// 一条出库明细的 FIFO 分配结论。
+#[derive(Debug, Clone, Default)]
+pub struct FifoPlan {
+    /// 该物料该仓的全部可用桶（**FIFO 序**：库位账 `created_at` 升序，并列按行 id）。
+    pub buckets: Vec<FifoBucket>,
+    /// 逐桶拣货计划（`shortfall > 0` 时只是「够得着的部分」，调用方不要直接落库）。
+    pub picks: Vec<FifoPick>,
+    /// 各库位可用合计（Σ 库位账 `qty`）。
+    pub available: Decimal,
+    /// 缺口 = 需求 − 可用（`≤ 0` 表示够量）。
+    pub shortfall: Decimal,
+}
+
+impl FifoPlan {
+    /// 是否够量（够量才允许把 `picks` 落成多行明细）。
+    pub fn is_complete(&self) -> bool {
+        self.shortfall <= Decimal::ZERO
+    }
+
+    /// 各库位可用量的可读摘要（文案用）：`A-01-03: 30、未分配: 20`。
+    pub fn availability_text(&self) -> String {
+        describe_buckets(&self.buckets)
+    }
+}
+
+/// 桶列表 → 可读摘要：`A-01-03: 30、未分配: 20`（空列表 → 「无库存」）。
+///
+/// 只保留一处拼接口径：过账 409 与详情 `stock_warnings` 说的是同一句话，不许两边各写各的。
+pub fn describe_buckets(buckets: &[FifoBucket]) -> String {
+    if buckets.is_empty() {
+        return "无库存".to_string();
+    }
+    buckets
+        .iter()
+        .map(|bucket| format!("{}: {}", bucket.location_code, bucket.available.round_dp(4)))
+        .collect::<Vec<_>>()
+        .join("、")
+}
+
+/// **FIFO 贪心分配**（纯函数，不碰库）：按桶的 FIFO 顺序依次取，取满即停。
+///
+/// 返回 `(逐桶拣货, 缺口)`：缺口 `> 0` 表示所有桶加一起也不够。
+///
+/// 这是 P1-FIX-2 的核心口径 —— 一条明细跨多个库位时**由系统自动拆成多行**，
+/// 不再让用户手工拆行：每行仍然只对应一个库位账行（一行明细 ↔ 一笔流水 ↔ 一个成本账桶），
+/// 下游（过账 / 作废原位退回 / 流水行号）都不需要知道「这一行是从多行拆出来的」。
+pub fn allocate_fifo(buckets: &[FifoBucket], qty: Decimal) -> (Vec<FifoPick>, Decimal) {
+    let mut remaining = qty.round_dp(4);
+    let mut picks = Vec::new();
+    for bucket in buckets {
+        if remaining <= Decimal::ZERO {
+            break;
+        }
+        let take = bucket.available.round_dp(4).min(remaining);
+        if take <= Decimal::ZERO {
+            continue;
+        }
+        picks.push(FifoPick {
+            location_row_id: bucket.location_row_id,
+            location_code: bucket.location_code.clone(),
+            take,
+        });
+        remaining -= take;
+    }
+    let shortfall = if remaining > Decimal::ZERO {
+        remaining.round_dp(4)
+    } else {
+        Decimal::ZERO
+    };
+    (picks, shortfall)
+}
+
+/// 该物料该仓**可参与拣货的库位桶**（`qty > 0`），按 FIFO 序返回。
+///
+/// FIFO 的排序键是 `biz_inventory_location.created_at`（= 该库位**第一次**收到这个物料的时间），
+/// 并列时按行 id。这是当前库位账能做出来的最近似口径 —— 逐笔入库时间没有落在库位账上
+/// （`biz_inventory_txn` 没有 location 列），真正的批次库龄 FIFO 要等批次卡，这里不假装它是。
+pub async fn fifo_buckets(
     ex: &impl SqlExecutor,
     material_id: Uuid,
     warehouse_id: Uuid,
-) -> DbResult<Vec<(String, Decimal)>> {
+) -> DbResult<Vec<FifoBucket>> {
     let rows = ex
         .query_sql(
-            "SELECT COALESCE(b.location_code, '未分配') AS label, il.qty \
+            "SELECT il.id, il.qty, il.location_id, \
+                    COALESCE(b.location_code, '未分配') AS location_code \
                FROM biz_inventory_location il \
                LEFT JOIN biz_location b ON b.id = il.location_id \
-              WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid \
-              ORDER BY il.qty DESC, il.created_at ASC"
+              WHERE il.material_id = ?::uuid AND il.warehouse_id = ?::uuid AND il.qty > 0 \
+              ORDER BY il.created_at ASC, il.id ASC"
                 .to_string(),
             vec![Value::from(&material_id), Value::from(&warehouse_id)],
         )
         .await?;
-    let mut list = Vec::with_capacity(rows.len());
+    let mut buckets = Vec::with_capacity(rows.len());
     for row in rows {
-        list.push((row.get_typed("label")?, row.get_typed("qty")?));
+        // 「未分配」桶在成本账里是 `biz_inventory.location_id IS NULL`，**不是**它的行 id
+        // （与 [`fifo_location_row`] 同口径）：命中它时明细的 `location_id` 必须留空，
+        // 否则过账会去 `biz_inventory` 找一行不存在的成本账。
+        let ledger_dict: Option<Uuid> = row.get_typed("location_id")?;
+        let location_code: String = row.get_typed("location_code")?;
+        buckets.push(FifoBucket {
+            location_row_id: ledger_dict
+                .map(|_| row.get_typed::<Uuid>("id"))
+                .transpose()?,
+            location_code,
+            available: row.get_typed("qty")?,
+        });
     }
-    Ok(list)
+    Ok(buckets)
+}
+
+/// **FIFO 分配计划**：给一条明细（物料 + 仓库 + 数量）算出逐桶拣货与缺口。
+pub async fn fifo_plan(
+    ex: &impl SqlExecutor,
+    material_id: Uuid,
+    warehouse_id: Uuid,
+    qty: Decimal,
+) -> DbResult<FifoPlan> {
+    let buckets = fifo_buckets(ex, material_id, warehouse_id).await?;
+    let available = buckets
+        .iter()
+        .fold(Decimal::ZERO, |acc, bucket| acc + bucket.available)
+        .round_dp(4);
+    let (picks, shortfall) = allocate_fifo(&buckets, qty);
+    Ok(FifoPlan {
+        buckets,
+        picks,
+        available,
+        shortfall,
+    })
+}
+
+/// 库位账行 id → 库位编码（用于「该库位不够」的 409 文案）。
+///
+/// `None`（未分配桶）或行已不存在 → 「未分配」/「已删除的库位账行」。
+pub async fn location_label(
+    ex: &impl SqlExecutor,
+    location_row_id: Option<Uuid>,
+) -> DbResult<String> {
+    let Some(row_id) = location_row_id else {
+        return Ok("未分配".to_string());
+    };
+    let row = ex
+        .query_first_sql(
+            "SELECT COALESCE(b.location_code, '未分配') AS location_code \
+               FROM biz_inventory_location il \
+               LEFT JOIN biz_location b ON b.id = il.location_id \
+              WHERE il.id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&row_id)],
+        )
+        .await?;
+    Ok(match row {
+        Some(row) => row.get_typed("location_code")?,
+        None => "已删除的库位账行".to_string(),
+    })
 }
 
 /// 过账时把 FIFO 选中的库位账行回写到明细（作废 / 红冲按它原路退回）。
@@ -1003,3 +1163,8 @@ pub async fn period_closed(
 #[cfg(test)]
 #[path = "stockout_tests.rs"]
 mod tests;
+
+/// P1-FIX-2：出库 FIFO 自动分配（建单预填 / 跨库位自动拆行 / 库存不足文案）。只在 `cargo test` 时编译。
+#[cfg(test)]
+#[path = "stockout_fifo_tests.rs"]
+mod fifo_tests;

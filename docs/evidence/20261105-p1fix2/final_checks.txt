@@ -1,0 +1,11 @@
+==================== clippy --lib ====================
+clippy exit=0
+--- 本卡文件的告警（应为空）---
+--- 告警总数 ---
+0
+==================== fifo 单测 round3（fmt 后最终树） ====================
+test exit=0
+test business::erp::stockout_model::fifo_tests::fifo_split_follows_creation_order ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 2600 filtered out; finished in 12.89s
+

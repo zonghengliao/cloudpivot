@@ -148,6 +148,12 @@ async fn plan(
 
     let mut lines = Vec::with_capacity(req.items.len());
     let mut materials: HashMap<Uuid, MaterialInfo> = HashMap::new();
+    // 同一张单里「已经预占掉」的桶量：`(物料, 库位账行 id)` → 数量。
+    //
+    // 为什么需要它：同一物料可以出现在多行（用户分次领用 / 不同批次），每行都跑一次 FIFO
+    // 会把同一个桶的货重复分配（A 只有 30，两行各 30 都挑到 A ⇒ 过账第二行必然 409）。
+    // 用户手填库位的那一行也登记进来 —— 它占用的量后面的自动行不能再取。
+    let mut reserved: HashMap<(Uuid, Option<Uuid>), Decimal> = HashMap::new();
     for (index, item) in req.items.iter().enumerate() {
         let line_no = index + 1;
         let material_id = parse_uuid(&item.material_id, "material_id")?;
@@ -173,6 +179,8 @@ async fn plan(
             )));
         }
         // 单位由物料基础单位带出（DC-09：单据禁用非基本单位，本表干脆不让传单位）
+        let unit_id = info.unit_id;
+        let qty = item.qty.round_dp(4);
         let location_id = optional_uuid(item.location_id.as_ref(), "location_id")?;
         if let Some(row_id) = location_id {
             let reference = stock_out::location_ref(db(), row_id)
@@ -191,15 +199,73 @@ async fn plan(
                     reference.0, reference.1, material_id, warehouse_id
                 )));
             }
+            // 用户手填的库位 = **覆盖自动值**（卡面 §2）：原样尊重，不再跑 FIFO；
+            // 但要登记它占用的桶量，后面的「自动分配」行才不会再从同一个桶里取第二次。
+            *reserved
+                .entry((material_id, Some(row_id)))
+                .or_insert(Decimal::ZERO) += qty;
+            lines.push(NewStockOutLine {
+                material_id,
+                unit_id,
+                qty,
+                location_id: Some(row_id),
+                lot_no: item.lot_no.clone(),
+                remark: item.remark.clone(),
+            });
+        } else {
+            // ★ P1-FIX-2：没指定库位 → **建单就按 FIFO 预填**，跨库位够量时自动拆成多行。
+            //
+            // 改之前：建单只存「没指定库位」，过账才 FIFO 挑**单个够量**的库位，都不够量就
+            // 409 让用户「把这一行拆成多行并分别指定库位」—— 货明明够（分散在 2 个库位），
+            // 用户就得手工拆行（评审实测 ③ 段，操作便捷性 3 分的主因）。
+            //
+            // 现在的口径：
+            //   ① 够量 → 按 FIFO 顺序拆成 N 行，每行一个库位账行（一行明细 ↔ 一笔流水不变）；
+            //   ② 不够量 → 仍存「未指定库位」单行，草稿可存，过账时 409 给出**缺口 + 分布**；
+            //   ③ 手填了库位的行根本不走这里（用户可覆盖自动值）。
+            let plan = stock_out::fifo_plan(db(), material_id, warehouse_id, qty)
+                .await
+                .map_err(|error| utils::db_error(error, "按 FIFO 预分库位"))?;
+            let buckets: Vec<stock_out::FifoBucket> = plan
+                .buckets
+                .iter()
+                .map(|bucket| {
+                    let used = reserved
+                        .get(&(material_id, bucket.location_row_id))
+                        .copied()
+                        .unwrap_or(Decimal::ZERO);
+                    stock_out::FifoBucket {
+                        available: (bucket.available - used).max(Decimal::ZERO),
+                        ..bucket.clone()
+                    }
+                })
+                .collect();
+            let (picks, shortfall) = stock_out::allocate_fifo(&buckets, qty);
+            if shortfall <= Decimal::ZERO && !picks.is_empty() {
+                for pick in picks {
+                    *reserved
+                        .entry((material_id, pick.location_row_id))
+                        .or_insert(Decimal::ZERO) += pick.take;
+                    lines.push(NewStockOutLine {
+                        material_id,
+                        unit_id,
+                        qty: pick.take,
+                        location_id: pick.location_row_id,
+                        lot_no: item.lot_no.clone(),
+                        remark: item.remark.clone(),
+                    });
+                }
+            } else {
+                lines.push(NewStockOutLine {
+                    material_id,
+                    unit_id,
+                    qty,
+                    location_id: None,
+                    lot_no: item.lot_no.clone(),
+                    remark: item.remark.clone(),
+                });
+            }
         }
-        lines.push(NewStockOutLine {
-            material_id,
-            unit_id: info.unit_id,
-            qty: item.qty.round_dp(4),
-            location_id,
-            lot_no: item.lot_no.clone(),
-            remark: item.remark.clone(),
-        });
         materials.insert(material_id, info);
     }
     if out_type == OUT_TYPE_SCRAP || out_type == OUT_TYPE_LOSS {
@@ -532,27 +598,38 @@ async fn post_out_tx(
                     }
                 }
                 None => {
-                    let availability =
-                        stock_out::location_availability(ex, item.material_id, header.warehouse_id)
+                    // ★ P1-FIX-2：不再把「拆行」甩给用户 —— 文案要说清「差多少 + 现有在哪些库位
+                    // + 该怎么办」。改之前这里只报「没有任何一个库位够量，请把这一行拆成多行
+                    // 并分别指定库位」，货明明分布在 2 个库位、加起来够，用户也得手工作业。
+                    let plan =
+                        stock_out::fifo_plan(ex, item.material_id, header.warehouse_id, item.qty)
                             .await
                             .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
-                    let detail = availability
-                        .iter()
-                        .map(|(label, qty)| format!("{label}: {}", qty.round_dp(4)))
-                        .collect::<Vec<_>>()
-                        .join("、");
+                    let distribution = plan.availability_text();
+                    let advice = if plan.available > Decimal::ZERO {
+                        format!(
+                            "② 把本行数量改到 {} 以内；\
+                             ③ 重新保存草稿 —— 系统会按 FIFO 自动把这一行拆成多行、分别占用各库位，\
+                             不需要手工拆行",
+                            plan.available.round_dp(4)
+                        )
+                    } else {
+                        "② 该仓当前一件可用库存都没有：先收货 / 入库，或改用别的仓库；\
+                         ③ 重新保存草稿不影响结论（没货就出不去）"
+                            .to_string()
+                    };
                     return Err(negative_stock(format!(
-                        "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）本次要出库 {}，\
-                         没有任何一个库位够量（按库位建账时间 FIFO 也挑不出来）；当前各库位可用：{}。\
-                         请把这一行拆成多行并分别指定库位，或先补货",
+                        "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）第 {} 行要出库 {}，\
+                         该仓可用合计 {}，差 {}；现有库存分布：{}（按库位建账时间 FIFO 排序，\
+                         单个库位都不够这一行要的量）。处理办法：\
+                         ① 先补货 / 收货后再过账；{advice}",
                         policy.warehouse_code,
                         policy.warehouse_name,
+                        item.line_no,
                         item.qty.round_dp(4),
-                        if detail.is_empty() {
-                            "无库存".to_string()
-                        } else {
-                            detail
-                        }
+                        plan.available.round_dp(4),
+                        plan.shortfall.round_dp(4),
+                        distribution
                     )));
                 }
             }
@@ -574,13 +651,27 @@ async fn post_out_tx(
 
         // 负库存闸（成本账）
         if !policy.allow_negative && bucket.qty < item.qty {
+            // ★ P1-FIX-2：点明「哪个库位 / 差多少 / 全仓还分布在哪」，并给可执行的动作。
+            let location = stock_out::location_label(ex, location_row)
+                .await
+                .map_err(|error| utils::db_error(error, "查询库位编码"))?;
+            let plan = stock_out::fifo_plan(ex, item.material_id, header.warehouse_id, item.qty)
+                .await
+                .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
             return Err(negative_stock(format!(
-                "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）本次要出库 {}，\
-                 账面可用 {}（该库位桶）；该仓未开启「允许负库存」",
+                "库存不足，过账已拒绝：物料 {label} 在仓库 {}（{}）库位 {location} 的第 {} 行\
+                 要出库 {}，该库位可用 {}，差 {}；该仓未开启「允许负库存」。\
+                 该物料在本仓的全部可用：{}（FIFO 序）。处理办法：\
+                 ① 先补货 / 收货后再过账；② 减少本行数量；\
+                 ③ 清空本行库位（或重新保存草稿）让系统按 FIFO 自动分配 —— \
+                 库存分散在多个库位时会自动拆行，不需要手工拆",
                 policy.warehouse_code,
                 policy.warehouse_name,
+                item.line_no,
                 item.qty.round_dp(4),
-                bucket.qty.round_dp(4)
+                bucket.qty.round_dp(4),
+                (item.qty - bucket.qty).round_dp(4),
+                plan.availability_text()
             )));
         }
 
@@ -1130,9 +1221,108 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockOutDetailRes, ApiEr
     // D3：前端按钮跟着**配置**走 —— 详情里的 `next_statuses` 用有效边（BASE ∩ 配置），
     // 不再是代码里的边表；配置禁用 `DRAFT → POSTED` 之后前端按钮会跟着消失。
     let edges = state_machine::effective_edges(db(), state_machine::Entity::StockOut).await;
+    // ★ P1-FIX-2：草稿 / 待过账的单据附带「哪一行不够、差多少、现有货在哪些库位」。
+    let warnings = stock_warnings(&row, &items, &materials).await?;
     Ok(super::stockout_dto::detail_of(
-        &row, items, &materials, &edges,
+        &row, items, &materials, &edges, warnings,
     ))
+}
+
+/// 逐行比「要出的量」与「这一行能拿到的量」，给草稿 / 待过账单据生成库存提示（P1-FIX-2）。
+///
+/// 三个口径：
+///
+/// * **明细没指定库位**（只有「全仓都不够」时建单才会留下这种行）→ 拿该物料该仓的
+///   可用合计比，提示里带「差多少 + 现有分布在哪些库位」；
+/// * **明细指定了库位**（含建单时 FIFO 自动预填、或用户手改后的值）→ 只拿那个库位的量比，
+///   不够就提示「改这个库位 / 清空库位让系统重新按 FIFO 分配」；
+/// * **已过账 / 已作废**的单据不提示（账已经动过，提示没有意义）。
+///
+/// 只提示**不拦截**：草稿可以先建（货在路上），过账时由 409 兜底 —— 这也是「默认自动、
+/// 允许手改」的配套：用户可以先把单排出去，看到提示再补货或调数量。
+async fn stock_warnings(
+    row: &StockOutRow,
+    items: &[StockOutItemRow],
+    materials: &HashMap<Uuid, MaterialInfo>,
+) -> std::result::Result<Vec<String>, ApiError> {
+    if row.status != STATUS_DRAFT && row.status != STATUS_PENDING_POST {
+        return Ok(Vec::new());
+    }
+    // 一个物料只查一次库位桶列表（一张出库单通常 1~3 个物料）
+    let mut cache: HashMap<Uuid, Vec<stock_out::FifoBucket>> = HashMap::new();
+    let mut warnings: Vec<String> = Vec::new();
+    for item in items {
+        let buckets = match cache.get(&item.material_id) {
+            Some(list) => list.clone(),
+            None => {
+                let list = stock_out::fifo_buckets(db(), item.material_id, row.warehouse_id)
+                    .await
+                    .map_err(|error| utils::db_error(error, "统计各库位可用量"))?;
+                cache.insert(item.material_id, list.clone());
+                list
+            }
+        };
+        let label = materials
+            .get(&item.material_id)
+            .map(MaterialInfo::label)
+            .unwrap_or_else(|| item.material_id.to_string());
+        let qty = item.qty.round_dp(4);
+        match item.location_id {
+            Some(row_id) => {
+                match buckets
+                    .iter()
+                    .find(|bucket| bucket.location_row_id == Some(row_id))
+                {
+                    Some(bucket) if bucket.available >= qty => {}
+                    Some(bucket) => warnings.push(format!(
+                        "物料 {label} 第 {} 行：指定库位 {} 只有 {}，本行要出 {}，差 {}；\
+                         该物料在本仓还分布在：{}。清空本行库位（或重新保存草稿）会按 FIFO \
+                         自动分配到有货的库位",
+                        item.line_no,
+                        bucket.location_code,
+                        bucket.available.round_dp(4),
+                        qty,
+                        (qty - bucket.available).round_dp(4),
+                        stock_out::describe_buckets(&buckets)
+                    )),
+                    None => warnings.push(format!(
+                        "物料 {label} 第 {} 行：指定的库位账行已不存在或库存为 0，本行要出 {}；\
+                         该物料在本仓可用：{}。请重新选择库位，或清空库位让系统按 FIFO 自动分配",
+                        item.line_no,
+                        qty,
+                        stock_out::describe_buckets(&buckets)
+                    )),
+                }
+            }
+            None => {
+                let available = buckets
+                    .iter()
+                    .fold(Decimal::ZERO, |acc, bucket| acc + bucket.available)
+                    .round_dp(4);
+                if available >= qty {
+                    continue;
+                }
+                let advice = if available > Decimal::ZERO {
+                    format!(
+                        "请先补货 / 收货，或把数量改到 {available} 以内 —— 够量时保存草稿\
+                         会按 FIFO 自动拆成多行并分别占用库位"
+                    )
+                } else {
+                    "该仓当前一件可用库存都没有：请先收货 / 入库，或改用别的仓库".to_string()
+                };
+                warnings.push(format!(
+                    "物料 {label} 第 {} 行：要出 {}，本仓可用合计 {}，差 {}；现有库存分布：{}。{}",
+                    item.line_no,
+                    qty,
+                    available,
+                    (qty - available).round_dp(4),
+                    stock_out::describe_buckets(&buckets),
+                    advice
+                ));
+            }
+        }
+    }
+    Ok(warnings)
 }
 
 /// 分页核心。

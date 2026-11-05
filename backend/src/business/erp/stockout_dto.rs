@@ -425,17 +425,22 @@ pub struct StockOutDetailRes {
     pub next_statuses: Vec<String>,
     /// 有效边表（与 `next_statuses` 同源，可供调试 / 单测对照）。
     pub legal_edges: Vec<(String, String)>,
+    /// 库存提示（P1-FIX-2）：草稿 / 待过账的单据里，**哪一行不够、差多少、现有货在哪些库位**。
+    ///
+    /// 只提示不拦截（草稿可以先建、等货到再出），过账时由 409 兜底。空数组 = 没发现缺口。
+    pub stock_warnings: Vec<String>,
 }
 
 impl StockOutDetailRes {
     /// 组装详情。
     ///
     /// `edges` 必须是**有效边**（`state_machine::effective_edges` / `edge_resolution`），
-    /// 由 handler 取一次传进来 —— 本函数保持纯函数性质（不碰数据库）。
+    /// `stock_warnings` 由 handler 查库算出（本函数保持纯函数性质：不碰数据库）。
     pub fn of(
         row: &StockOutRow,
         items: &[(StockOutItemRow, Option<MaterialInfo>)],
         edges: &[state_machine::Edge],
+        stock_warnings: Vec<String>,
     ) -> Self {
         let available: Vec<(String, String)> = edges
             .iter()
@@ -453,6 +458,7 @@ impl StockOutDetailRes {
             cancel_reason: row.cancel_reason.clone(),
             next_statuses: available.iter().map(|(_, to)| to.clone()).collect(),
             legal_edges: available,
+            stock_warnings,
         }
     }
 }
@@ -477,11 +483,13 @@ pub struct StockOutPageRes {
 ///
 /// `edges` 传**有效边**（`state_machine::effective_edges`）：前端按钮跟着配置走，
 /// 而不是跟着代码里的边表走（D1 §8.1 的已知边界，D3 收口）。
+/// `stock_warnings` 由 handler 查库算出（缺口 / 库位分布，见 P1-FIX-2）。
 pub fn detail_of(
     row: &StockOutRow,
     items: Vec<StockOutItemRow>,
     materials: &std::collections::HashMap<uuid::Uuid, MaterialInfo>,
     edges: &[state_machine::Edge],
+    stock_warnings: Vec<String>,
 ) -> StockOutDetailRes {
     let pairs: Vec<(StockOutItemRow, Option<MaterialInfo>)> = items
         .into_iter()
@@ -490,7 +498,7 @@ pub fn detail_of(
             (item, info)
         })
         .collect();
-    StockOutDetailRes::of(row, &pairs, edges)
+    StockOutDetailRes::of(row, &pairs, edges, stock_warnings)
 }
 
 /// 提前校验「该状态的单据不能再改」（400，附中文状态名）。

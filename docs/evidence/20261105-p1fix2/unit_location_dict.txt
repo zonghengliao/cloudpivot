@@ -1,0 +1,17 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 10 tests
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_capacity_overflow_is_warning_only ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_conflicting_dict_and_ledger_row_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_cross_warehouse_location_is_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_disabled_and_deleted_location_are_rejected ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_receipt_with_dict_location_writes_that_location ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_receipt_without_default_falls_back_to_unassigned_with_warning ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_receipt_without_location_uses_default ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_stockout_with_location_deducts_that_one ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_stockout_without_location_deducts_fifo ... ok
+test business::erp::stockin_handler::stockin_handler_tests_location_dict::p24_update_draft_can_move_location ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 2604 filtered out; finished in 25.17s
+
