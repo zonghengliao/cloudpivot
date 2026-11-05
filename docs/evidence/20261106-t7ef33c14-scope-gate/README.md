@@ -45,6 +45,7 @@
 | 3 | 门禁自检 `--self-test`（12 组红/绿语料） | 全部 PASS（含 R1 跳过清单断言、R3 字符级跳过、防假绿 guard） | 见下「命令」 |
 | 4 | 清单审计工具（当前树） | `未登记 0 条；登记失效 0 条`，exit 0 | — |
 | 5 | `bash scripts/check.sh`（工作区） | **exit 0「==> 全部检查通过」**，`批次B 门禁汇总：闸①=0 处 闸②=0 处` | `04_check.sh_整体跑通.txt` |
+| 6 | `bash scripts/check.sh` 在**干净工作树**（`git worktree` @ 本卡提交 `00c07b0`，等价 main，不含任何人未提交的 WIP） | **exit 0「==> 全部检查通过」**：fmt / clippy / check / typecheck + 闸⓪–⑧ 全绿 | `05_check.sh_干净工作树_HEAD_00c07b0.txt` |
 
 复跑命令：
 
