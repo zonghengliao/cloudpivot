@@ -1,0 +1,245 @@
+实例: http://127.0.0.1:5180  采集时间: 2026-11-05T00:06:47.460Z
+
+=== 展开「采购管理」===
+▸ dir  系统管理
+      page 用户管理
+      page 角色管理
+      page 菜单管理
+      page 部门管理
+▸ dir  公告与消息 12
+      page 公告中心
+      page 消息中心12
+      page 公告管理
+      page 消息通知
+▸ dir  支撑功能
+      page 字典管理
+      page 参数配置
+      page 文件管理
+      page 操作日志
+      page 定时任务
+      page 在线用户
+      page 账务巡检
+▸ dir  审批流 8
+      page 审批流程定义（编排 / 发布 / 版本）
+      page 发起审批
+      page 审批中心8
+▸ dir  工作任务 6
+      page 任务列表
+      page 任务看板
+      page 甘特图（只读排期）
+      page 任务模板
+  page 数据权限
+  page 字段脱敏
+  page 角色互斥
+▾ dir  采购管理
+      page 收货入库
+      page 应付单
+    ▸ dir  采购订单
+          page 出库单
+      page 供应商
+      page 采购明细
+      page 盘点单
+  page 项目
+▸ dir  仓库管理
+      page 仓库管理
+      page 库位管理
+      page 序列号管理
+      page 即时库存
+      page 库存调拨
+      page 库位库存
+      page 库存流水
+▸ dir  通用底座
+      page 存储管理
+      page 文件管理
+      page 导入向导
+      page 导入任务
+      page 导出任务
+▸ dir  内容管理
+      page 变更日志
+      page 帮助中心
+▸ dir  财务管理
+      page 会计科目
+      page 会计期间
+      page 期初余额
+      page 年度结转
+    ▸ dir  预算管理（编制 / 执行 / 科目映射）
+          page 预算编制（部门 × 科目 × 期间）
+          page 预算执行（已用 / 可用 / 执行率）
+          page 预算科目映射（采购 → 预算科目）
+    ▸ dir  固定资产（卡片 / 分类 / 折旧）
+          page 资产卡片（建卡 / 转移 / 处置）
+          page 资产分类（年限 / 残值率 / 科目）
+          page 折旧计提（月度批次 / 凭证 / 红冲）
+      page 凭证查询
+      page 总账 / 科目余额表
+      page 资产负债表
+      page 利润表
+      page 现金流量表
+      page 单号序列
+  page 合同管理（采购/销售/服务/租赁）
+▸ dir  基础数据
+      page 物料管理
+      page 计量单位
+
+=== 展开「仓库管理」===
+▸ dir  系统管理
+      page 用户管理
+      page 角色管理
+      page 菜单管理
+      page 部门管理
+▸ dir  公告与消息 12
+      page 公告中心
+      page 消息中心12
+      page 公告管理
+      page 消息通知
+▸ dir  支撑功能
+      page 字典管理
+      page 参数配置
+      page 文件管理
+      page 操作日志
+      page 定时任务
+      page 在线用户
+      page 账务巡检
+▸ dir  审批流 8
+      page 审批流程定义（编排 / 发布 / 版本）
+      page 发起审批
+      page 审批中心8
+▸ dir  工作任务 6
+      page 任务列表
+      page 任务看板
+      page 甘特图（只读排期）
+      page 任务模板
+  page 数据权限
+  page 字段脱敏
+  page 角色互斥
+▸ dir  采购管理
+      page 收货入库
+      page 应付单
+    ▸ dir  采购订单
+          page 出库单
+      page 供应商
+      page 采购明细
+      page 盘点单
+  page 项目
+▾ dir  仓库管理
+      page 仓库管理
+      page 库位管理
+      page 序列号管理
+      page 即时库存
+      page 库存调拨
+      page 库位库存
+      page 库存流水
+▸ dir  通用底座
+      page 存储管理
+      page 文件管理
+      page 导入向导
+      page 导入任务
+      page 导出任务
+▸ dir  内容管理
+      page 变更日志
+      page 帮助中心
+▸ dir  财务管理
+      page 会计科目
+      page 会计期间
+      page 期初余额
+      page 年度结转
+    ▸ dir  预算管理（编制 / 执行 / 科目映射）
+          page 预算编制（部门 × 科目 × 期间）
+          page 预算执行（已用 / 可用 / 执行率）
+          page 预算科目映射（采购 → 预算科目）
+    ▸ dir  固定资产（卡片 / 分类 / 折旧）
+          page 资产卡片（建卡 / 转移 / 处置）
+          page 资产分类（年限 / 残值率 / 科目）
+          page 折旧计提（月度批次 / 凭证 / 红冲）
+      page 凭证查询
+      page 总账 / 科目余额表
+      page 资产负债表
+      page 利润表
+      page 现金流量表
+      page 单号序列
+  page 合同管理（采购/销售/服务/租赁）
+▸ dir  基础数据
+      page 物料管理
+      page 计量单位
+
+=== 展开「财务管理」===
+▸ dir  系统管理
+      page 用户管理
+      page 角色管理
+      page 菜单管理
+      page 部门管理
+▸ dir  公告与消息 12
+      page 公告中心
+      page 消息中心12
+      page 公告管理
+      page 消息通知
+▸ dir  支撑功能
+      page 字典管理
+      page 参数配置
+      page 文件管理
+      page 操作日志
+      page 定时任务
+      page 在线用户
+      page 账务巡检
+▸ dir  审批流 8
+      page 审批流程定义（编排 / 发布 / 版本）
+      page 发起审批
+      page 审批中心8
+▸ dir  工作任务 6
+      page 任务列表
+      page 任务看板
+      page 甘特图（只读排期）
+      page 任务模板
+  page 数据权限
+  page 字段脱敏
+  page 角色互斥
+▸ dir  采购管理
+      page 收货入库
+      page 应付单
+    ▸ dir  采购订单
+          page 出库单
+      page 供应商
+      page 采购明细
+      page 盘点单
+  page 项目
+▸ dir  仓库管理
+      page 仓库管理
+      page 库位管理
+      page 序列号管理
+      page 即时库存
+      page 库存调拨
+      page 库位库存
+      page 库存流水
+▸ dir  通用底座
+      page 存储管理
+      page 文件管理
+      page 导入向导
+      page 导入任务
+      page 导出任务
+▸ dir  内容管理
+      page 变更日志
+      page 帮助中心
+▾ dir  财务管理
+      page 会计科目
+      page 会计期间
+      page 期初余额
+      page 年度结转
+    ▸ dir  预算管理（编制 / 执行 / 科目映射）
+          page 预算编制（部门 × 科目 × 期间）
+          page 预算执行（已用 / 可用 / 执行率）
+          page 预算科目映射（采购 → 预算科目）
+    ▸ dir  固定资产（卡片 / 分类 / 折旧）
+          page 资产卡片（建卡 / 转移 / 处置）
+          page 资产分类（年限 / 残值率 / 科目）
+          page 折旧计提（月度批次 / 凭证 / 红冲）
+      page 凭证查询
+      page 总账 / 科目余额表
+      page 资产负债表
+      page 利润表
+      page 现金流量表
+      page 单号序列
+  page 合同管理（采购/销售/服务/租赁）
+▸ dir  基础数据
+      page 物料管理
+      page 计量单位
+
