@@ -183,3 +183,41 @@ data_scope 非 1 的角色    : 0 → 5 个（DEPT_LEADER/PURCHASE/WAREHOUSE=3�
    那是另一个量级的改动（要先解决跨部门勾稽恒等式），需单独立卡。
 
 以上三条已作为后续卡（见卡片评论）交接。
+
+---
+
+## 7. 怎么复跑（评审/后续卡现场核查用）
+
+```bash
+# ① 隔离实例（99）：库 cloudpivot_p0fix2 / 端口 18092 / profile=test
+#    实例当前仍在跑（/tmp/p0fix2/backend.log）；要重建：
+#    su - postgres -c 'dropdb --if-exists cloudpivot_p0fix2'
+#    su - postgres -c 'createdb -O alun cloudpivot_p0fix2'
+#    然后按 scripts/verify/e2e_isolated_instance.sh 的 start_backend 段起（
+#    NIK_DATABASE_NAME=cloudpivot_p0fix2 / NIK_SERVER_LISTEN=127.0.0.1:18092 /
+#    NIK_ADMIN_PASSWORD=Admin@123456 / CLOUDPIVOT_STORAGE_MASTER_KEY=<hex32>），
+#    启动即自动跑到 V0247。
+
+# ② 真机 e2e（幂等，可连跑）
+python3 scripts/verify/p0fix2_data_scope_e2e.py            # 默认打到 18092 / cloudpivot_p0fix2
+P2_BASE=http://127.0.0.1:18092 P2_DB_NAME=cloudpivot_p0fix2 \
+  python3 scripts/verify/p0fix2_data_scope_e2e.py
+
+# ③ 巡检（隔离库 / 生产各一次）
+NIK_DATABASE_NAME=cloudpivot_p0fix2 NIK_DATABASE_USER=alun NIK_DATABASE_PASSWORD=alun \
+  python3 scripts/verify/erp_invariants.py --group 权限
+# 生产（144）：
+ssh root@172.18.10.144 'set -a; . /etc/cloudpivot/cloudpivot.env; set +a; \
+  python3 /opt/cloudpivot/scripts/verify/erp_invariants.py --group 权限'
+
+# ④ 生产生效范围核算（只读）
+ssh root@172.18.10.144 'bash /tmp/prod_verify.sh'   # SQL 见 06_prod_after.txt
+```
+
+注意事项（本卡踩过）：
+- e2e 会在库里造 `P2-*` 夹具（任务/部门/账号），**跑完自动清理**并把
+  `FINANCE_MANAGER` 的集合还原成空，所以可以反复跑；但它会改 `admin` 的初始口令
+  （`must_change_password` 流程 → `P2@Passw0rd!`），`login()` 已做多口令回退。
+- 巡检 N1 是 **WARN** 级：老库（全库 `data_scope=1`、`sys_role_dept` 0 行）会告警，
+  这是**预期**（就是本卡在修的那个状态），不是新引入的失败。
+
