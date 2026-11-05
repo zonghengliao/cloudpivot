@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # 提交前检查：后端 fmt / clippy / check + 前端 typecheck + 批次B 数据权限防漏门禁
+#            + 闸③ERP不变量 / 闸④词表 / 闸⑤快照巡检 / 闸⑥死权限码（handler 注解码必须有菜单承载）
 #
 # 用法：bash scripts/check.sh
 #
@@ -490,6 +491,89 @@ if ! biz_vocab_gate; then
 fi
 
 if ! snapshot_audit_gate; then
+    exit 1
+fi
+
+# ======================================================================
+# 闸⑥ 死权限码常驻闸（handlerCodes − menuAuthCodes 必须为空）
+#
+# 为什么是硬门禁：角色授权只能按 `sys_menu` 的行勾（`sys_role_menu` 挂的是 menu_id），
+# 所以「后端 handler 写了 permission = "x"，但 sys_menu 里没有 auth_code = 'x' 的行」
+# 等价于「这个功能除超管外谁都点不动」—— 不抛异常、不打日志，只在运营点按钮时才暴露。
+# 2026-11-05 实测抓到 3 条（business:erp:voucher:audit / un-audit / post：财务经理
+# 有 voucher:list 却永远审不了、过不了凭证），补齐后本闸就是「防再长」的那道。
+#
+# 口径（详见脚本头注释）：
+#   missing_in_menu（代码在用、菜单没有）→ **必须 0**，否则 exit 1 并点名到文件行；
+#   unused_in_code （菜单有、代码注解无）→ 只报告不判红：行级校验（claims.has_permission）
+#                    与纯前端权限点（router meta.permission）都是合法形态。
+# 白名单必须带理由（源码 `// PERM-EXEMPT: <理由>` 或脚本内 `EXEMPT = {码: 理由}`），
+# 裸白名单 = 关闸，脚本直接判红。
+#
+# 开关：`PERM_MENU_GATE` = block（默认）/ warn / off
+# 无库环境（NIK_DATABASE_PASSWORD / PGPASSWORD 均空）→ 按「无 DB 环境」跳过，
+# 与闸③④⑤ 同口径（CI 里没有库是正常的；本机要跑就先 . /etc/cloudpivot/cloudpivot.env）。
+# ======================================================================
+perm_menu_gate() {
+    local mode="${PERM_MENU_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸⑥：死权限码（PERM_MENU_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸⑥：死权限码（scripts/verify/perm_menu_gate.py）"
+
+    # 判据自检先跑（不连库，秒级）：判据被改坏时自检先红，不会「扫出 0 个码 → 假绿」。
+    local selftest
+    if ! selftest="$(python3 "$ROOT/scripts/verify/perm_menu_gate.py" --self-test 2>&1)"; then
+        echo "  ✗ 闸门自检未通过（判据被改坏了？）：" >&2
+        printf '%s\n' "$selftest" | grep -E '✘' | head -5 >&2
+        return 1
+    fi
+    echo "  ✓ 判据自检通过（$(printf '%s\n' "$selftest" | grep -oE '[0-9]+/[0-9]+ 通过' | head -1)）"
+
+    if [ -f /etc/cloudpivot/cloudpivot.env ]; then
+        # shellcheck disable=SC1091
+        set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+    fi
+    if [ -z "${NIK_DATABASE_PASSWORD:-}" ] && [ -z "${PGPASSWORD:-}" ]; then
+        echo "  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过"
+        echo "    （本机要跑就先 . /etc/cloudpivot/cloudpivot.env；离线比对生产快照用 --menu-codes-file）"
+        return 0
+    fi
+
+    local log rc
+    log="$(mktemp /tmp/perm_menu.XXXXXX.log)"
+    python3 "$ROOT/scripts/verify/perm_menu_gate.py" > "$log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        local summary
+        summary="$(grep -oE '注解码 [0-9]+ 个' "$log" | head -1)"
+        echo "  ✓ missing_in_menu = 0（$summary 全部有菜单承载）"
+        echo "    $(grep -oE 'unused_in_code  = [0-9]+' "$log" | head -1) 只报告不判红（行级校验 / 纯前端权限点）"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$rc" -ge 2 ]; then
+        echo "  ⚠ 巡检环境错误（退出码 $rc：拿不到菜单权限码）→ 跳过，不算失败"
+        sed 's/^/    /' "$log" | head -3
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有死权限码（PERM_MENU_GATE=warn → 不阻断）"
+        awk '/✗ missing_in_menu/{f=1} /^ℹ unused_in_code/{f=0} f' "$log" | sed 's/^/    /' | head -12
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 有权限码在后端被使用、但在 sys_menu 里没有承载行（除超管外无人可授），不许合：" >&2
+    # 只摘 missing 那一段（`ℹ unused_in_code` 之后是只报告档，摘进来会稀释重点）
+    awk '/✗ missing_in_menu/{f=1} /^ℹ unused_in_code/{f=0} f' "$log" | sed 's/^/    /' | head -20 >&2
+    echo "    修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS）；" >&2
+    echo "          确实不该有菜单的，在注解上方写 // PERM-EXEMPT: <理由>。完整报告：$log" >&2
+    return 1
+}
+
+if ! perm_menu_gate; then
     exit 1
 fi
 

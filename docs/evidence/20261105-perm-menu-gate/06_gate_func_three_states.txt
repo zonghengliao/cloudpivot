@@ -1,0 +1,29 @@
+# H) 闸⑥ 函数三态（绿 → 红 → 绿），函数体从 scripts/check.sh 原样抽取：/tmp/perm_gate_fn.KnzRb3.sh
+########## H1 菜单完好 → 期望 func_rc=0 ##########
+==> 闸⑥：死权限码（scripts/verify/perm_menu_gate.py）
+  ✓ 判据自检通过（19/19 通过）
+  ✓ missing_in_menu = 0（注解码 273 个 全部有菜单承载）
+    unused_in_code  = 12 只报告不判红（行级校验 / 纯前端权限点）
+func_rc=0
+EXIT=0
+
+########## H2 软删 business:erp:voucher:audit → 期望 func_rc=1，且文案只摘 missing 段 ##########
+==> 闸⑥：死权限码（scripts/verify/perm_menu_gate.py）
+  ✓ 判据自检通过（19/19 通过）
+  ✗ 有权限码在后端被使用、但在 sys_menu 里没有承载行（除超管外无人可授），不许合：
+    ✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+      · business:erp:voucher:audit
+          用在这：backend/src/business/erp/voucher_write.rs:1589
+      修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+    修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS）；
+          确实不该有菜单的，在注解上方写 // PERM-EXEMPT: <理由>。完整报告：/tmp/perm_menu.PrixXl.log
+func_rc=1
+EXIT=0
+
+########## H3 恢复 → 期望 func_rc=0 ##########
+==> 闸⑥：死权限码（scripts/verify/perm_menu_gate.py）
+  ✓ 判据自检通过（19/19 通过）
+  ✓ missing_in_menu = 0（注解码 273 个 全部有菜单承载）
+    unused_in_code  = 12 只报告不判红（行级校验 / 纯前端权限点）
+func_rc=0
+EXIT=0

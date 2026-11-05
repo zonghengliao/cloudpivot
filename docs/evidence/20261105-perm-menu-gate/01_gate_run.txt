@@ -1,0 +1,148 @@
+# perm_menu_gate 验收证据 · 2026-11-05T17:17:25+08:00
+# repo=/opt/cloudpivot db=cloudpivot_permgate
+# git HEAD: 7be33ba docs(evidence): 补 bizperm 施工后最终现状快照（29_final_check）
+
+################ A) 连库跑（隔离库，迁移完整） ################
+$ NIK_DATABASE_NAME=cloudpivot_permgate python3 scripts/verify/perm_menu_gate.py
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：358 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 273 个（486 处）
+菜单侧：285 个活跃 auth_code（db=cloudpivot_permgate@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+EXIT=0
+
+################ B) 软删一条 sys_menu 行 → 闸必须红 ################
+$ UPDATE sys_menu SET deleted_at = now() WHERE auth_code = 'business:erp:voucher:audit'
+UPDATE 1
+（已软删）
+剩余活跃行：0
+$ python3 scripts/verify/perm_menu_gate.py
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：358 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 273 个（486 处）
+菜单侧：284 个活跃 auth_code（db=cloudpivot_permgate@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · business:erp:voucher:audit
+      用在这：backend/src/business/erp/voucher_write.rs:1589
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：FAIL
+EXIT=1
+
+################ C) 恢复该行 → 闸回到绿 ################
+UPDATE 1
+（已恢复）
+活跃行：1
+$ python3 scripts/verify/perm_menu_gate.py
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：358 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 273 个（486 处）
+菜单侧：285 个活跃 auth_code（db=cloudpivot_permgate@127.0.0.1:5432 user=alun）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+EXIT=0
+
+################ D) 生产快照离线比对（主分支代码 vs 生产 sys_menu） ################
+$ python3 scripts/verify/perm_menu_gate.py --menu-codes-file <生产快照>
+# 生产库 sys_menu 权限码快照（deleted_at is null，去重，一码一行）
+# db=cloudpivot user=cloudpivot host=127.0.0.1:5432  taken_at=2026-11-05T17:14:30+08:00
+business:announcement:create
+快照码数：285
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：358 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 273 个（486 处）
+菜单侧：285 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/prod_menu_codes.txt）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+EXIT=0
+
+################ E) 判据自检 ################
+============================================================================================
+闸门自检：判据红/绿语料（不连库）
+============================================================================================
+✔ 取码 ['a:b:c']  期望 ['a:b:c']  多行属性注解
+✔ 取码 ['a:b:d']  期望 ['a:b:d']  单行属性注解
+✔ 取码 []  期望 []  行注释里的举例不算在用
+✔ 取码 []  期望 []  文档注释里的举例不算在用
+✔ 取码 []  期望 []  块注释里的注解不算在用（且行号不能乱）
+✔ 取码 []  期望 []  测试文件整体排除
+✔ 取码 []  期望 []  字符串里的 // 不能吃掉后面的代码
+✔ 取码 []  期望 []  cfg(test) 项内的夹具码不算在用
+✔ 取码 ['real:c:d']  期望 ['real:c:d']  cfg(test) 之后的真注解仍必须被扫到
+✔ 判定 ok=True missing=[] unused=1  码全在菜单里 → 绿；多出的菜单码只报告
+✔ 判定 ok=False missing=['dead:c:d'] unused=0  代码在用、菜单没有 → 红并点名
+✔ 判定 ok=True missing=[] unused=0  补上菜单后 → 绿
+✔ 判定 ok=True missing=[] unused=0  带理由的脚本白名单 → 放行且进豁免明细
+✔ 判定 ok=True missing=[] unused=0  带理由的源码 PERM-EXEMPT → 放行
+✔ 判定 ok=True missing=[] unused=0  过期豁免不判红（但会进 stale 列表）
+✔ 裸白名单被拒（空理由）：EXEMPT 里 `a:b:c` 没有理由（裸白名单）
+✔ 裸白名单被拒（理由太短）：EXEMPT 里 `a:b:c` 的理由太短（<8 字符）：'todo'
+✔ 裸白名单被拒（理由不是字符串）：EXEMPT 里 `a:b:c` 没有理由（裸白名单）
+✔ 带理由的白名单被接受：OK
+--------------------------------------------------------------------------------------------
+19/19 通过
+EXIT=0

@@ -1,0 +1,62 @@
+# host=ubuntu-svr date=2026-11-05T17:19:01+08:00
+# prod tree: 7d96692 feat(fin): FIN-3 费用报销三页（我的报销 / 待付款 / 费用类型）按 ARCH-6 §4.10 落地
+# db env: cloudpivot@127.0.0.1:5432 user=cloudpivot
+############ A) 生产库直连（--repo 指生产树） ############
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：347 个非测试 .rs（跳过测试文件 62 个、cfg(test) 项内夹具码 0 处）→ 注解码 270 个（483 处）
+菜单侧：285 个活跃 auth_code（db=cloudpivot@127.0.0.1:5432 user=cloudpivot）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+ℹ unused_in_code  = 15  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:erp:voucher:audit         源码零引用（纯前端权限点）
+  · business:erp:voucher:post          源码零引用（纯前端权限点）
+  · business:erp:voucher:un-audit      源码零引用（纯前端权限点）
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+EXIT=0
+
+############ B) 从生产快照里挖掉 business:erp:voucher:list → 闸必须红 ############
+（快照 285 条 → 挖掉 business:erp:voucher:list 后 284 条）
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：347 个非测试 .rs（跳过测试文件 62 个、cfg(test) 项内夹具码 0 处）→ 注解码 270 个（483 处）
+菜单侧：284 个活跃 auth_code（file=/tmp/prodmenu.xI8Kdh.cut）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · business:erp:voucher:list
+      用在这：backend/src/business/erp/voucher_query.rs:676
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 15  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:erp:voucher:audit         源码零引用（纯前端权限点）
+  · business:erp:voucher:post          源码零引用（纯前端权限点）
+  · business:erp:voucher:un-audit      源码零引用（纯前端权限点）
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：FAIL
+EXIT=1

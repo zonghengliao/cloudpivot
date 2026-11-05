@@ -1,0 +1,101 @@
+# F) 白名单机制端到端（仓库副本：/tmp/permtree.PYyGAN）
+
+########## F1 裸注解（菜单里没有这个码）→ 期望 EXIT=1 并点名 ##########
+#[nik::permission(
+    permission = "probe:not:in:menu",
+)]
+async fn probe() {}
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：359 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 274 个（487 处）
+菜单侧：285 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/prod_menu_codes.txt）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · probe:not:in:menu
+      用在这：backend/src/business/erp/zz_permexempt_probe.rs:2
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：FAIL
+EXIT=1
+
+########## F2 加 // PERM-EXEMPT: <理由> → 期望 EXIT=0 且进「白名单放行」 ##########
+// PERM-EXEMPT: 探针：仅用于验证白名单机制，验证完即删（本文件不进仓库）
+#[nik::permission(
+    permission = "probe:not:in:menu",
+)]
+async fn probe() {}
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：359 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 274 个（487 处）
+菜单侧：285 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/prod_menu_codes.txt）
+--------------------------------------------------------------------------------------------
+✓ missing_in_menu = 0   （代码在用的码全部有菜单承载，可被授予）
+  白名单放行 1 条：
+  · probe:not:in:menu  ← 探针：仅用于验证白名单机制，验证完即删（本文件不进仓库）
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+============================================================================================
+==> 闸：PASS
+EXIT=0
+
+########## F3 裸白名单（// PERM-EXEMPT: 后面什么都没有）→ 期望 EXIT=1 ##########
+// PERM-EXEMPT:
+#[nik::permission(
+    permission = "probe:not:in:menu",
+)]
+async fn probe() {}
+============================================================================================
+死权限码常驻闸 · perm_menu_gate.py（handler 注解码 − sys_menu.auth_code）
+============================================================================================
+代码侧：359 个非测试 .rs（跳过测试文件 67 个、cfg(test) 项内夹具码 0 处）→ 注解码 274 个（487 处）
+菜单侧：285 个活跃 auth_code（file=/root/.hermes/profiles/backend-developer/cache/scratch/prod_menu_codes.txt）
+--------------------------------------------------------------------------------------------
+✗ missing_in_menu = 1  ← 必须为 0！这些码授不出去，除超管外任何人都会 403：
+  · probe:not:in:menu
+      用在这：backend/src/business/erp/zz_permexempt_probe.rs:3
+  修法：补一条 sys_menu 行（迁移优先；生产补数走 scripts/datafix/…，固定 uuid + IF NOT EXISTS 幂等）；确实不该有菜单的写 `// PERM-EXEMPT: 理由`。
+ℹ unused_in_code  = 12  （只报告，不判红：行级校验 / 纯前端权限点都合法）
+  · business:attachment:delete         行级/常量引用  backend/src/business/attachment/dto.rs:31
+  · business:erp:skip-approval         行级/常量引用  backend/src/business/erp/approval_gate.rs:76
+  · business:flow:admin                行级/常量引用  backend/src/business/flow/handler.rs:1594
+  · business:project:delete            行级/常量引用  backend/src/business/project/handler.rs:57
+  · business:project:update            行级/常量引用  backend/src/business/project/handler.rs:55
+  · business:task:attachment:delete    行级/常量引用  backend/src/business/task/dto.rs:1407
+  · business:task:comment:delete       行级/常量引用  backend/src/business/task/dto.rs:1404
+  · business:task:dependency           行级/常量引用  backend/src/business/task/dto.rs:1093
+  · business:task:member               行级/常量引用  backend/src/business/task/dto.rs:107
+  · business:task:worklog              行级/常量引用  backend/src/business/task/dto.rs:1410
+  · system:field-mask:plain            行级/常量引用  backend/src/business/masking/registry.rs:47
+  · system:preference:view             源码零引用（纯前端权限点）
+--------------------------------------------------------------------------------------------
+✗ 白名单裸登记 1 条（无理由的豁免等于关闸）：
+  · backend/src/business/erp/zz_permexempt_probe.rs:3 的 `// PERM-EXEMPT:` 理由为空或太短（''）→ 码 probe:not:in:menu 仍判红
+============================================================================================
+==> 闸：FAIL
+EXIT=1
