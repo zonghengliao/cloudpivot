@@ -1,0 +1,81 @@
+===== 1. 代码条目对账（HEAD vs 部件）=====
+测试部件 task_handler_tests.rs            顶层条目 19 个
+测试部件 task_handler_stats_tests.rs      顶层条目 4 个
+测试部件 task_handler_copy_db_tests.rs    顶层条目 11 个
+
+HEAD 顶层条目数：107（含 3 个测试 mod）
+代码部件顶层条目数：114（含 11 个 `__head__` 伪项）
+HEAD 独有（= 3 个测试 mod，已落独立文件，见上）：['copy_db_tests', 'stats_handler_tests', 'tests']
+部件独有（应为空）：无
+跨部件重复（应为空）：无
+结论：PASS（无条目丢失）
+
+===== 2. 测试函数逐个对账（HEAD mod 内层 vs 独立文件）=====
+stats_handler_tests -> task_handler_stats_tests.rs：4 个函数 | 缺失 无 | 内容改动 无 | 纯空白差异 无 | 多出 无
+tests -> task_handler_tests.rs：19 个函数 | 缺失 无 | 内容改动 无 | 纯空白差异 ['user_comment_content_limit_is_strict'] | 多出 无
+copy_db_tests -> task_handler_copy_db_tests.rs：9 个函数 | 缺失 无 | 内容改动 无 | 纯空白差异 无 | 多出 无
+
+===== 3. 可见性对账（不得比 HEAD 更窄）=====
+HEAD pub 条目：20
+
+被改窄（0）—— 必须修：
+
+被放宽（58）—— 拆分的必要代价（跨文件调用）：
+  build_filter                   HEAD=private    部件=pub(super) (task_handler_crud)
+  may_manage_dependencies        HEAD=private    部件=pub(super) (task_handler_dep)
+  forbidden_dependency           HEAD=private    部件=pub(super) (task_handler_dep)
+  dependency_invalid             HEAD=private    部件=pub(super) (task_handler_dep)
+  DEP_CYCLE_PREFIX               HEAD=private    部件=pub(super) (task_handler_dep)
+  DEP_ADVISORY_LOCK              HEAD=private    部件=pub(super) (task_handler_dep)
+  dependency_item_res            HEAD=private    部件=pub(super) (task_handler_dep)
+  dependency_groups              HEAD=private    部件=pub(super) (task_handler_dep)
+  DepWriteOutcome                HEAD=private    部件=pub(super) (task_handler_dep)
+  ensure_task_read_permission    HEAD=private    部件=pub(super) (task_handler_common)
+  ensure_task_create_permission  HEAD=private    部件=pub(super) (task_handler_common)
+  comment_type_verdict           HEAD=private    部件=pub(super) (task_handler_comment)
+  persist_comment                HEAD=private    部件=pub(super) (task_handler_comment)
+  HUMAN_UPLOAD_CATEGORY          HEAD=private    部件=pub(super) (task_handler_attachment)
+  normalize_comment_content      HEAD=private    部件=pub(super) (task_handler_comment)
+  normalize_mentions             HEAD=private    部件=pub(super) (task_handler_comment)
+  read_single_upload             HEAD=private    部件=pub(super) (task_handler_attachment)
+  parent_invalid                 HEAD=private    部件=pub(super) (task_handler_common)
+  require_task                   HEAD=private    部件=pub(super) (task_handler_common)
+  normalize_title                HEAD=private    部件=pub(super) (task_handler_common)
+  normalize_description          HEAD=private    部件=pub(super) (task_handler_common)
+  validate_hours                 HEAD=private    部件=pub(super) (task_handler_common)
+  card_res                       HEAD=private    部件=pub(super) (task_handler_common)
+  save_res                       HEAD=private    部件=pub(super) (task_handler_common)
+  normalize_reason               HEAD=private    部件=pub(super) (task_handler_common)
+  transition_check_error         HEAD=private    部件=pub(super) (task_handler_common)
+  parent_cancelled               HEAD=private    部件=pub(super) (task_handler_common)
+  PARENT_CANCELLED_SENTINEL      HEAD=private    部件=pub(super) (task_handler_common)
+  FLOW_CONFLICT_SENTINEL         HEAD=private    部件=pub(super) (task_handler_common)
+  change_status_tx_error         HEAD=private    部件=pub(super) (task_handler_common)
+  transition_error               HEAD=private    部件=pub(super) (task_handler_common)
+  requested_progress             HEAD=private    部件=pub(super) (task_handler_common)
+  check_dependencies_ready       HEAD=private    部件=pub(super) (task_handler_dep)
+  status_label                   HEAD=private    部件=pub(super) (task_handler_common)
+  TaskNotice                     HEAD=private    部件=pub(super) (task_handler_notice)
+  dispatch_task_notice           HEAD=private    部件=pub(super) (task_handler_notice)
+  task_notice_draft              HEAD=private    部件=pub(super) (task_handler_notice)
+  send_task_notice_draft         HEAD=private    部件=pub(super) (task_handler_notice)
+  notify_status_change           HEAD=private    部件=pub(super) (task_handler_notice)
+  notify_ready_to_close          HEAD=private    部件=pub(super) (task_handler_notice)
+  notify_dependents              HEAD=private    部件=pub(super) (task_handler_notice)
+  ActorRole                      HEAD=private    部件=pub(super) (task_handler_assign)
+  actor_role                     HEAD=private    部件=pub(super) (task_handler_assign)
+  may_assign                     HEAD=private    部件=pub(super) (task_handler_assign)
+  may_manage_members             HEAD=private    部件=pub(super) (task_handler_assign)
+  next_assigner                  HEAD=private    部件=pub(super) (task_handler_assign)
+  protected_member               HEAD=private    部件=pub(super) (task_handler_assign)
+  user_type_of                   HEAD=private    部件=pub(super) (task_handler_assign)
+  is_robot                       HEAD=private    部件=pub(super) (task_handler_assign)
+  forbidden_assign               HEAD=private    部件=pub(super) (task_handler_assign)
+  forbidden_member               HEAD=private    部件=pub(super) (task_handler_assign)
+  ensure_member_quota            HEAD=private    部件=pub(super) (task_handler_assign)
+  member_res                     HEAD=private    部件=pub(super) (task_handler_assign)
+  parse_user_ids                 HEAD=private    部件=pub(super) (task_handler_assign)
+  stats_row                      HEAD=private    部件=pub(super) (task_handler_flow)
+  stats_total                    HEAD=private    部件=pub(super) (task_handler_flow)
+  weighted_average               HEAD=private    部件=pub(super) (task_handler_flow)
+  round_one_decimal              HEAD=private    部件=pub(super) (task_handler_flow)

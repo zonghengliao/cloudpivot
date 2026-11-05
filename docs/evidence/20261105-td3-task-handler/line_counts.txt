@@ -1,0 +1,19 @@
+# 拆分前（HEAD:backend/src/business/task/handler.rs）
+5757
+# 拆分后
+   127 handler.rs
+   280 task_handler_ai.rs
+   707 task_handler_assign.rs
+   228 task_handler_attachment.rs
+   326 task_handler_comment.rs
+   432 task_handler_common.rs
+   395 task_handler_copy_db_tests.rs
+   932 task_handler_crud.rs
+   564 task_handler_dep.rs
+   260 task_handler_flow.rs
+   344 task_handler_hierarchy.rs
+   362 task_handler_notice.rs
+    68 task_handler_stats_tests.rs
+   656 task_handler_status.rs
+   356 task_handler_tests.rs
+  6037 total

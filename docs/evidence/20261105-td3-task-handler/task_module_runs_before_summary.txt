@@ -1,0 +1,21 @@
+  preflight[task] cp_libtest_task :: instances=0 tasks=0 po=0 p0fix_defs=0 users=1
+
+===================================================================
+[task=business::task::] 第 1 轮  filter='business::task::'
+  库：cp_libtest_task    P0FIX：cp_libtest_task_p0fix
+  时间：2026-11-05 15:04:08 CST  HEAD：c947425
+  命令：ERP_DB_URL=…/cp_libtest_task TASK_DB_URL=…/cp_libtest_task P0FIX_DB_URL=…/cp_libtest_task_p0fix \
+        cargo test --lib 'business::task::' -- --test-threads=1
+===================================================================
+test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 32.73s
+
+
+===================================================================
+[task=business::task::] 第 2 轮  filter='business::task::'
+  库：cp_libtest_task    P0FIX：cp_libtest_task_p0fix
+  时间：2026-11-05 15:06:41 CST  HEAD：c947425
+  命令：ERP_DB_URL=…/cp_libtest_task TASK_DB_URL=…/cp_libtest_task P0FIX_DB_URL=…/cp_libtest_task_p0fix \
+        cargo test --lib 'business::task::' -- --test-threads=1
+===================================================================
+test result: ok. 226 passed; 0 failed; 0 ignored; 0 measured; 2395 filtered out; finished in 31.51s
+

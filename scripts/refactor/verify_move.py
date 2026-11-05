@@ -101,7 +101,7 @@ def code_tokens(text: str) -> collections.Counter:
             if s.endswith(";"):
                 in_use = False
             continue
-        if s.startswith(("use ", "pub use ", "pub(super) use ")):
+        if s.startswith(("use ", "pub use ", "pub(super) use ", "pub(crate) use ")):
             if not s.endswith(";"):
                 in_use = True
             continue
@@ -133,6 +133,12 @@ def main():
     # 拆分前的 ref：拆分提交之后要指回拆分前那一版（默认 HEAD 是给「还没提交」用的）
     ref = sys.argv[1] if len(sys.argv) > 1 else "HEAD"
     targets = [
+        # P2-1A：task/handler.rs（5757 行）按职责拆成 11 个代码部件 + 3 个测试部件
+        ("backend/src/business/task/handler.rs",
+         ["backend/src/business/task/handler.rs"] +
+         [f"backend/src/business/task/task_handler_{n}.rs" for n in [
+             "common", "notice", "crud", "status", "hierarchy", "dep", "comment", "attachment",
+             "ai", "assign", "flow", "tests", "stats_tests", "copy_db_tests"]]),
         ("backend/src/business/task/model.rs",
          ["backend/src/business/task/model.rs"] +
          [f"backend/src/business/task/task_model_{n}.rs" for n in [
@@ -150,6 +156,8 @@ def main():
     ]
     ok = True
     for src_path, new_paths in targets:
+        if len(sys.argv) > 2 and sys.argv[2] not in src_path:
+            continue
         print("=" * 78)
         print("%s   （拆分前 ref = %s）" % (src_path, ref))
         before = read_head(src_path, ref)

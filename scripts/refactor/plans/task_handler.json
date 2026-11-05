@@ -1,0 +1,224 @@
+{
+  "src": "src/business/task/handler.rs",
+  "parts": [
+    {
+      "name": "task_handler_common",
+      "note": "底座：错误构造 / 入参归一 / 行转换 / 身份读取与权限闸 / 状态机错误映射",
+      "items": [
+        "__head__",
+        "current_user",
+        "parse_uuid_field",
+        "param_invalid",
+        "not_found",
+        "parent_invalid",
+        "require_task",
+        "normalize_title",
+        "normalize_description",
+        "validate_hours",
+        "card_res",
+        "save_res",
+        "normalize_reason",
+        "display_name",
+        "status_label",
+        "requested_progress",
+        "transition_check_error",
+        "parent_cancelled",
+        "PARENT_CANCELLED_SENTINEL",
+        "FLOW_CONFLICT_SENTINEL",
+        "change_status_tx_error",
+        "transition_error",
+        "TaskReader",
+        "impl:TaskReader",
+        "resolve_reader",
+        "ensure_task_read_permission",
+        "ensure_task_create_permission"
+      ],
+      "extra_uses": [
+        "use super::task_handler_crud::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_notice",
+      "note": "通知扇出：草稿拼装 / 分级发送 / 状态变更与前置联动提醒",
+      "items": [
+        "TaskNotice",
+        "dispatch_task_notice",
+        "task_notice_draft",
+        "send_task_notice_draft",
+        "notify_status_change",
+        "notify_ready_to_close",
+        "notify_dependents"
+      ],
+      "extra_uses": []
+    },
+    {
+      "name": "task_handler_crud",
+      "note": "任务 CRUD：分页 / 按单据查 / 建 / 复制 / 改 / 删 / 详情 / 我的任务",
+      "items": [
+        "page",
+        "by_doc",
+        "build_filter",
+        "build_task_filter",
+        "page_res",
+        "create",
+        "COPY_PERMISSION",
+        "COPY_TITLE_SUFFIX",
+        "copy_title",
+        "copy_task",
+        "task_copy",
+        "update",
+        "delete",
+        "detail",
+        "my"
+      ],
+      "extra_uses": [
+        "use super::task_handler_assign::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_status",
+      "note": "状态机与进度：改状态 / 改进度（含审批门闸、进度联动、事务编排）",
+      "items": [
+        "change_status",
+        "change_progress"
+      ],
+      "extra_uses": [
+        "use super::task_handler_crud::*;\n",
+        "use super::task_handler_dep::*;\n",
+        "use super::task_handler_notice::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_hierarchy",
+      "note": "父子关系：建子任务 / 子任务列表 / 父任务状态巡检修复",
+      "items": [
+        "create_subtask",
+        "list_subtasks",
+        "repair_parent_status"
+      ],
+      "extra_uses": [
+        "use super::task_handler_crud::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_dep",
+      "note": "依赖与甘特：前置/后继读取、加/解依赖（环检测）、进 DOING 前置校验、甘特取数",
+      "items": [
+        "may_manage_dependencies",
+        "forbidden_dependency",
+        "dependency_invalid",
+        "DEP_CYCLE_PREFIX",
+        "DEP_ADVISORY_LOCK",
+        "dependency_item_res",
+        "dependency_groups",
+        "dependencies",
+        "add_dependency",
+        "DepWriteOutcome",
+        "remove_dependency",
+        "gantt",
+        "check_dependencies_ready"
+      ],
+      "extra_uses": [
+        "use super::task_handler_assign::*;\n",
+        "use super::task_handler_crud::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_comment",
+      "note": "评论：加/发评论（任务令牌与人类双身份）、@提及与强制通知",
+      "items": [
+        "CommentLimit",
+        "comment_type_verdict",
+        "MAX_COMMENT_CHARS",
+        "MAX_USER_COMMENT_CHARS",
+        "normalize_comment_content",
+        "normalize_mentions",
+        "add_comment",
+        "post_comment",
+        "persist_comment"
+      ],
+      "extra_uses": []
+    },
+    {
+      "name": "task_handler_attachment",
+      "note": "附件：上传（可见性校验）与单文件读取",
+      "items": [
+        "upload_attachment",
+        "HUMAN_UPLOAD_CATEGORY",
+        "read_single_upload"
+      ],
+      "extra_uses": []
+    },
+    {
+      "name": "task_handler_ai",
+      "note": "AI 执行者入口：ai-progress 回写与 dispatch-ai 派活",
+      "items": [
+        "ai_progress",
+        "dispatch_ai"
+      ],
+      "extra_uses": [
+        "use super::task_handler_assign::*;\n",
+        "use super::task_handler_comment::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_assign",
+      "note": "分配：分派/转派矩阵、协作人增删查、成员配额与 ROBOT 守卫",
+      "items": [
+        "ActorRole",
+        "actor_role",
+        "may_assign",
+        "may_manage_members",
+        "next_assigner",
+        "protected_member",
+        "user_type_of",
+        "is_robot",
+        "forbidden_assign",
+        "forbidden_member",
+        "ensure_member_quota",
+        "member_res",
+        "parse_user_ids",
+        "assign",
+        "add_members",
+        "remove_member",
+        "members"
+      ],
+      "extra_uses": [
+        "use super::task_handler_crud::*;\n",
+        "use super::task_handler_notice::*;\n"
+      ]
+    },
+    {
+      "name": "task_handler_flow",
+      "note": "流程与统计：任务流程来源查询、按执行模式的统计聚合",
+      "items": [
+        "flow_of_task",
+        "stats",
+        "stats_row",
+        "stats_total",
+        "weighted_average",
+        "round_one_decimal"
+      ],
+      "extra_uses": [
+        "use super::task_handler_crud::*;\n"
+      ]
+    }
+  ],
+  "tests": [
+    {
+      "mod": "stats_handler_tests",
+      "file": "task_handler_stats_tests.rs",
+      "note": "统计口径纯函数用例（加权平均 / 合计行 / 舍入）"
+    },
+    {
+      "mod": "tests",
+      "file": "task_handler_tests.rs",
+      "note": "接口层纯逻辑用例（标题归一 / 角色矩阵 / 依赖判定 / 分页归一）"
+    },
+    {
+      "mod": "copy_db_tests",
+      "file": "task_handler_copy_db_tests.rs",
+      "note": "复制任务真库用例（D9）"
+    }
+  ]
+}

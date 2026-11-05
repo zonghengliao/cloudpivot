@@ -99,3 +99,20 @@ mod task_model_rows; // 行结构与入参契约（查询行 / 写库载荷 / �
 mod task_model_schedule; // 改期：排期快照读取与落库
 mod task_model_stats; // 统计：按执行模式的完成率统计
 mod task_model_write; // 写入：建/改/删任务、协作人、评论、进度、转派
+
+// ==================== P2-1A 拆分出的部件（只经 facade 对外） ====================
+// `handler.rs`（5757 行）按职责拆成 11 个代码部件 + 3 个测试部件，**不直接对外**：
+// 公开 API 由 `handler` facade 用 `pub use super::<部件>::*;` 重导出，调用方路径不变
+// （`handler::{assign, change_status}` 等一行未改）。拆法同 TD-2，见
+// `docs/refactor-methodology.md`。
+mod task_handler_ai; // AI 执行者入口：ai-progress 回写 / dispatch-ai 派活
+mod task_handler_assign; // 分配：分派转派矩阵 / 协作人增删查 / 成员配额与 ROBOT 守卫
+mod task_handler_attachment; // 附件：上传（可见性校验）/ 单文件读取
+mod task_handler_comment; // 评论：发评论（双身份）/ @提及 / 强制通知
+mod task_handler_common; // 底座：错误构造 / 入参归一 / 行转换 / 身份与权限闸 / 状态机错误映射
+mod task_handler_crud; // 任务 CRUD：分页 / 建 / 复制 / 改 / 删 / 详情 / 我的任务
+mod task_handler_dep; // 依赖与甘特：加/解依赖（环检测）/ 进 DOING 前置校验 / 甘特取数
+mod task_handler_flow; // 流程与统计：任务流程来源查询 / 按执行模式统计
+mod task_handler_hierarchy; // 父子关系：建子任务 / 子任务列表 / 父状态巡检修复
+mod task_handler_notice; // 通知扇出：草稿拼装 / 分级发送 / 状态与前置联动提醒
+mod task_handler_status; // 状态机与进度：改状态 / 改进度（审批门闸 + 事务编排）

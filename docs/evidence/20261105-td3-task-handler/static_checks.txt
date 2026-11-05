@@ -1,0 +1,12 @@
+=== cargo check --lib  2026-11-05T15:39:47+08:00 ===
+    Checking nik-db v0.4.2 (/opt/cloudpivot/backend/vendor/nik-db)
+    Checking nik-web v0.4.2 (/opt/cloudpivot/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/opt/cloudpivot/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 13.58s
+CHECK_EXIT=0
+
+=== cargo clippy --lib --tests -- -D warnings  2026-11-05T15:40:00+08:00 ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 46s
+CLIPPY_EXIT=0
