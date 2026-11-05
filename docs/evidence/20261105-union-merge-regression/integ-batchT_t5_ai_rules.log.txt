@@ -1,0 +1,13 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchT_t5_ai_rules.rs (/root/regress-9867fbe-target/debug/deps/batchT_t5_ai_rules-e94fa719a53f4eec)
+
+running 6 tests
+test new_change_log_carries_operator_type ... ok
+test migration_shape ... ok
+test explicit_operator_type_skips_lookup ... ok
+test operator_type_of_defaults ... ok
+test record_writes_human_operator_type ... ok
+test record_writes_robot_operator_type ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

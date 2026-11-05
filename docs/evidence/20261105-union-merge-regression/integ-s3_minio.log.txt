@@ -1,0 +1,9 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.18s
+     Running tests/s3_minio.rs (/root/regress-9867fbe-target/debug/deps/s3_minio-944a137d15b0bccc)
+
+running 2 tests
+test s3_minio_real_roundtrip ... ok
+test s3_minio_multipart_upload_matches ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

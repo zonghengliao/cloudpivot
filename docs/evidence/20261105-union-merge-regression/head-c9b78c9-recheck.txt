@@ -1,0 +1,22 @@
+== 复验脚本：/root/regress-verify-head.sh + /root/regress-head-gates.sh 的输出 ==
+== 1) c9b78c9 登记表 4 域 ==
+===== c9b78c9
+  [PASS] ATTACHMENT_DOC SQL=6 Rust=6
+  [PASS] REMINDER_DOC SQL=4 Rust=4
+  [PASS] STATUS_ENTITY SQL=17 Rust=17
+  [PASS] SERIAL_SOURCE SQL=4 Rust=4
+
+口径：4f8230a=原 99 本地 main 父；9ed4bf8=原 144 bare main 父；9867fbe=合并后 main
+== 2) c9b78c9 前端 flow-biz-link（git archive 的已提交文件，软链依赖）==
+# tests 11
+# pass 11
+# fail 0
+== 3) c9b78c9 闸门静态复核 ==
+   FMT-DIFF backend/src/shared/startup_guard.rs
+== c9b78c9 上 SKIP_MANIFEST 是否已登记 FIN 的 4 个测试文件 ==
+   asset_model_tests      已登记=0
+   budget_dto_tests       已登记=0
+   budget_guard_tests     已登记=0
+   budget_model_tests     已登记=0
+== c9b78c9 上 10_checks.sql 视图/登记行数 ==
+31

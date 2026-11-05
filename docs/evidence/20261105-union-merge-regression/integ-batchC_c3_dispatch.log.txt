@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchC_c3_dispatch.rs (/root/regress-9867fbe-target/debug/deps/batchC_c3_dispatch-ae5c7ca4e3b174b4)
+
+running 1 test
+test retry_compensation_is_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+

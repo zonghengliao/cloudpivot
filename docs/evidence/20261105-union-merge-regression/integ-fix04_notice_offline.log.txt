@@ -1,0 +1,62 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/fix04_notice_offline.rs (/root/regress-9867fbe-target/debug/deps/fix04_notice_offline-f7b3cd6ff06a1120)
+
+running 9 tests
+test t3_unread_badge_drops ... FAILED
+test t1_delete_offlines_notice_and_receivers ... FAILED
+test t4_message_center_hides_notice ... FAILED
+test t2_read_receipt_is_preserved ... FAILED
+test t5_second_delete_is_idempotent ... FAILED
+test t6_failure_rolls_back_both ... FAILED
+test t7_pending_scheduled_notice_canceled ... ok
+test t8_other_biz_notice_untouched ... ok
+test t9_announcement_without_notice_is_noop ... ok
+
+failures:
+
+---- t3_unread_badge_drops stdout ----
+
+thread 't3_unread_badge_drops' (132104) panicked at tests/fix04_notice_offline.rs:144:6:
+插入公告夹具: UniqueViolation { column: None, constraint: Some("uk_sys_announcement_no"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23505), message: "duplicate key value violates unique constraint \"uk_sys_announcement_no\"", detail: Some("Key (ann_no)=(fix04-A01a1a946cf6d) already exists."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_announcement"), column: None, datatype: None, constraint: Some("uk_sys_announcement_no"), file: Some("nbtinsert.c"), line: Some(666), routine: Some("_bt_check_unique") }) }) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- t1_delete_offlines_notice_and_receivers stdout ----
+
+thread 't1_delete_offlines_notice_and_receivers' (132102) panicked at tests/fix04_notice_offline.rs:187:10:
+插入公告已读夹具: ForeignKeyViolation { constraint: Some("sys_announcement_read_announcement_id_fkey"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23503), message: "insert or update on table \"sys_announcement_read\" violates foreign key constraint \"sys_announcement_read_announcement_id_fkey\"", detail: Some("Key (announcement_id)=(01a1a946-cf6b-7671-9d23-790855df5833) is not present in table \"sys_announcement\"."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_announcement_read"), column: None, datatype: None, constraint: Some("sys_announcement_read_announcement_id_fkey"), file: Some("ri_triggers.c"), line: Some(2772), routine: Some("ri_ReportViolation") }) }) }
+
+---- t4_message_center_hides_notice stdout ----
+
+thread 't4_message_center_hides_notice' (132105) panicked at tests/fix04_notice_offline.rs:144:6:
+插入公告夹具: Query { sql: "INSERT INTO sys_announcement (id, ann_no, title, summary, content_md, content_html, level, scope_type, status, publish_at, publisher_id, version, receiver_count, read_count) VALUES ($1::uuid, $2::text, 'FIX-04 夹具公告', '摘要', '正文', '<p>正文</p>', 'NORMAL', 'ALL', $3::text, CASE WHEN $4::text = 'DRAFT' THEN NULL ELSE now() END, $5::uuid, 1, 2, 1)", source: Error { kind: Closed, cause: None } }
+
+---- t2_read_receipt_is_preserved stdout ----
+FIX-04 已连接验证库
+
+thread 't2_read_receipt_is_preserved' (132103) panicked at tests/fix04_notice_offline.rs:344:32:
+已读接收行必须还在
+
+---- t5_second_delete_is_idempotent stdout ----
+
+thread 't5_second_delete_is_idempotent' (132110) panicked at tests/fix04_notice_offline.rs:144:6:
+插入公告夹具: UniqueViolation { column: None, constraint: Some("uk_sys_announcement_no"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23505), message: "duplicate key value violates unique constraint \"uk_sys_announcement_no\"", detail: Some("Key (ann_no)=(fix04-A01a1a946cf9d) already exists."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_announcement"), column: None, datatype: None, constraint: Some("uk_sys_announcement_no"), file: Some("nbtinsert.c"), line: Some(666), routine: Some("_bt_check_unique") }) }) }
+
+---- t6_failure_rolls_back_both stdout ----
+
+thread 't6_failure_rolls_back_both' (132111) panicked at tests/fix04_notice_offline.rs:187:10:
+插入公告已读夹具: ForeignKeyViolation { constraint: Some("sys_announcement_read_announcement_id_fkey"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23503), message: "insert or update on table \"sys_announcement_read\" violates foreign key constraint \"sys_announcement_read_announcement_id_fkey\"", detail: Some("Key (announcement_id)=(01a1a946-cf76-727d-8e72-6a4097df4c3f) is not present in table \"sys_announcement\"."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_announcement_read"), column: None, datatype: None, constraint: Some("sys_announcement_read_announcement_id_fkey"), file: Some("ri_triggers.c"), line: Some(2772), routine: Some("ri_ReportViolation") }) }) }
+
+
+failures:
+    t1_delete_offlines_notice_and_receivers
+    t2_read_receipt_is_preserved
+    t3_unread_badge_drops
+    t4_message_center_hides_notice
+    t5_second_delete_is_idempotent
+    t6_failure_rolls_back_both
+
+test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+error: test failed, to rerun pass `--test fix04_notice_offline`
+error: 1 target failed:
+    `--test fix04_notice_offline`

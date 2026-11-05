@@ -1,0 +1,47 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/pflow5.rs (/root/regress-9867fbe-target/debug/deps/pflow5-95270ba44d4fcc13)
+
+running 15 tests
+test enable_refuses_draft_definitions ... ok
+test duplicate_does_not_copy_instances ... FAILED
+test duplicate_conflict_on_existing_code ... ok
+test duplicate_creates_draft_copy_with_graph ... ok
+test enable_restores_default_after_offline ... ok
+test offline_default_leaves_biz_type_without_default ... ok
+test offline_non_default_keeps_other_default ... ok
+test read_only_graph_endpoint_returns_nodes_edges ... ok
+test templates_default_scope_keeps_disabled_standard ... ok
+test templates_default_scope_only_returns_standard ... FAILED
+test templates_grouped_by_category ... ok
+test templates_marks_system_defs ... ok
+test templates_legacy_include_mine_equals_scope_all ... ok
+test templates_summary_from_condition_labels ... ok
+test templates_usage_count_from_instances ... ok
+
+failures:
+
+---- duplicate_does_not_copy_instances stdout ----
+
+thread 'duplicate_does_not_copy_instances' (150298) panicked at tests/pflow5.rs:826:5:
+assertion `left == right` failed: 原模板的历史实例必须原样留着
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- templates_default_scope_only_returns_standard stdout ----
+
+thread 'templates_default_scope_only_returns_standard' (150686) panicked at tests/pflow5.rs:483:5:
+assertion `left == right` failed: scope=all 的 total 必须等于库里全部未软删流程数
+  left: 19
+ right: 17
+
+
+failures:
+    duplicate_does_not_copy_instances
+    templates_default_scope_only_returns_standard
+
+test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.25s
+
+error: test failed, to rerun pass `--test pflow5`
+error: 1 target failed:
+    `--test pflow5`

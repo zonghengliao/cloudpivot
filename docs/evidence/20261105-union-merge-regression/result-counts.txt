@@ -1,0 +1,44 @@
+--- 后端第 1 轮（cargo test --all-targets，单库；lib 红导致集成 target 未执行）
+round1: targets=1 passed=2533 failed=8
+--- 后端第 2 轮 lib（跳过 p0fix 七条，同库残留）
+round2-lib: targets=1 passed=2489 failed=45
+--- 后端第 2 轮 p0fix（独立 p0fix 库）
+round2-p0fix: targets=1 passed=7 failed=0
+--- 后端集成 target（一 target 一库，逐个跑）
+integ-all: targets=20 passed=204 failed=24
+--- 集成 target 逐条
+  batchB_b2_scope          passed=   0 failed=  1
+  batchB_b7_mutex          passed=   1 failed=  0
+  batchC_c3_dispatch       passed=   1 failed=  0
+  batchC_c4_help           passed=  10 failed=  1
+  batchC_c5_changelog      passed=   7 failed=  1
+  batchC_c6_changelog      passed=   4 failed=  0
+  batchC_c7_rollback       passed=   0 failed=  0
+  batchE_e7_dep_cleanup    passed=   1 failed=  0
+  batchT_t1_task           passed=   5 failed=  0
+  batchT_t5_ai_rules       passed=   6 failed=  0
+  fix04_notice_offline     passed=   3 failed=  6
+  impexp_worker            passed=   5 failed=  2
+  invariant_registry       passed=   1 failed=  0
+  linkage                  passed=  54 failed=  8
+  pflow1a                  passed=  11 failed=  1
+  pflow1b                  passed=  12 failed=  2
+  pflow5                   passed=  13 failed=  2
+  pref_preference          passed=   1 failed=  0
+  s3_minio                 passed=   2 failed=  0
+  testd                    passed=  67 failed=  0
+--- 对照：9ed4bf8（合并前 144 bare main）
+  batchB_b2_scope          passed=   0 failed=  1
+  batchC_c4_help           passed=  10 failed=  1
+  batchC_c5_changelog      passed=   8 failed=  0
+  build                    passed=   0 failed=  0
+  fix04_notice_offline     passed=   6 failed=  3
+  fmt                      passed=   0 failed=  0
+  impexp_worker            passed=   6 failed=  1
+  linkage                  passed=  54 failed=  8
+  pflow1a                  passed=  11 failed=  1
+  pflow1b                  passed=  12 failed=  2
+  pflow5                   passed=  12 failed=  0
+  testd                    passed=  67 failed=  0
+  tpl.setup                passed=   0 failed=  0
+  tpl.start                passed=   0 failed=  0

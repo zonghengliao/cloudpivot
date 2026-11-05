@@ -1,0 +1,13 @@
+== 建模板库 cloudpivot_test_tpl_9ed4bf8
+template exit=0
+migrations=163 max=219
+batchC_c4_help       exit=101 test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+batchC_c5_changelog  exit=0   test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+fix04_notice_offline exit=101 test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+impexp_worker        exit=101 test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+batchB_b2_scope      exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+linkage              exit=101 test result: FAILED. 54 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 317.22s
+pflow1a              exit=101 test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.36s
+pflow1b              exit=101 test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 13.08s
+pflow5               exit=0   test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.28s
+testd                exit=0   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 184.01s

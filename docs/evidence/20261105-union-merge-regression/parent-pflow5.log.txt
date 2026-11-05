@@ -1,0 +1,19 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running tests/pflow5.rs (/root/regress-9ed4bf8-target/debug/deps/pflow5-95270ba44d4fcc13)
+
+running 12 tests
+test enable_refuses_draft_definitions ... ok
+test duplicate_conflict_on_existing_code ... ok
+test duplicate_creates_draft_copy_with_graph ... ok
+test duplicate_does_not_copy_instances ... ok
+test enable_restores_default_after_offline ... ok
+test offline_default_leaves_biz_type_without_default ... ok
+test offline_non_default_keeps_other_default ... ok
+test read_only_graph_endpoint_returns_nodes_edges ... ok
+test templates_grouped_by_category ... ok
+test templates_marks_system_defs ... ok
+test templates_summary_from_condition_labels ... ok
+test templates_usage_count_from_instances ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.28s
+

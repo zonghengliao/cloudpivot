@@ -1,0 +1,53 @@
+batchB_b2_scope        exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+    test b2_real_database_acceptance ... FAILED
+    test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+batchB_b7_mutex        exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+batchC_c3_dispatch     exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+batchC_c4_help         exit=101 test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+    test h03_slug_unique_and_format ... FAILED
+    test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+batchC_c5_changelog    exit=101 test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+    test record_in_same_transaction_rolls_back ... FAILED
+    test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+batchC_c6_changelog    exit=0   test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.82s
+batchC_c7_rollback     exit=0   test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+batchE_e7_dep_cleanup  exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+batchT_t1_task         exit=0   test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+batchT_t5_ai_rules     exit=0   test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+fix04_notice_offline   exit=101 test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+    test t3_unread_badge_drops ... FAILED
+    test t1_delete_offlines_notice_and_receivers ... FAILED
+    test t4_message_center_hides_notice ... FAILED
+    test t2_read_receipt_is_preserved ... FAILED
+    test t5_second_delete_is_idempotent ... FAILED
+    test t6_failure_rolls_back_both ... FAILED
+    test result: FAILED. 3 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+impexp_worker          exit=101 test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+    test zombie_reclaim_marks_failed_when_attempts_exhausted ... FAILED
+    test worker_marks_failed_when_definition_missing ... FAILED
+    test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+linkage                exit=101 test result: FAILED. 54 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 301.98s
+    test linkage::stockin_chain::s06_cancel_rolls_back_inventory ... FAILED
+    test linkage::stockin_chain::s07_cancel_rolls_back_location_ledger ... FAILED
+    test linkage::stockin_chain::s08_cancel_writes_reverse_txn ... FAILED
+    test linkage::stockin_chain::s09_cancel_reverses_voucher ... FAILED
+    test linkage::stockin_chain::s10_cancel_cancels_payable ... FAILED
+    test linkage::stockin_chain::s11_cancel_voids_serials ... FAILED
+    test linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline ... FAILED
+    test linkage::stockin_chain::s15_double_cancel_is_conflict ... FAILED
+    test result: FAILED. 54 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 301.98s
+pflow1a                exit=101 test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.88s
+    test publish_regression_keeps_graph_hash ... FAILED
+    test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.88s
+pflow1b                exit=101 test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.43s
+    test approve_mode_reject_follows_on_reject ... FAILED
+    test task_accept_approval_advances_node ... FAILED
+    test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.43s
+pflow5                 exit=101 test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.25s
+    test duplicate_does_not_copy_instances ... FAILED
+    test templates_default_scope_only_returns_standard ... FAILED
+    test result: FAILED. 13 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 7.25s
+pref_preference        exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+testd                  exit=0   test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 136.96s
+invariant_registry FAIL(createdb)
+s3_minio FAIL(createdb)

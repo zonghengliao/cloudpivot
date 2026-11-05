@@ -1,0 +1,38 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/impexp_worker.rs (/root/regress-9867fbe-target/debug/deps/impexp_worker-776cc21154ec2934)
+
+running 7 tests
+test claim_is_exclusive_across_processes ... ok
+test fresh_running_task_is_not_reclaimed ... ok
+test failure_schedules_backoff_and_stays_pending ... ok
+test zombie_reclaim_marks_failed_when_attempts_exhausted ... FAILED
+test expired_artifact_file_is_purged ... ok
+test worker_marks_failed_when_definition_missing ... FAILED
+test zombie_running_task_is_reclaimed ... ok
+
+failures:
+
+---- zombie_reclaim_marks_failed_when_attempts_exhausted stdout ----
+
+thread 'zombie_reclaim_marks_failed_when_attempts_exhausted' (132172) panicked at tests/impexp_worker.rs:95:6:
+插入导出任务失败: Query { sql: "INSERT INTO sys_export_task (id, task_no, biz_type, biz_name, module_code, export_name, format, query_params, columns_snapshot, status, progress, max_attempts, create_by, update_by) VALUES ($1::uuid, $2, $3, $4, 'business', $5, $6, $7::jsonb, $8::jsonb, 'PENDING', 0, $9, NULL, NULL)", source: Error { kind: Closed, cause: None } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- worker_marks_failed_when_definition_missing stdout ----
+worker 报告: impexp_export_worker: claimed=1 succeeded=0 requeued=0 failed=0 canceled=1
+
+thread 'worker_marks_failed_when_definition_missing' (132165) panicked at tests/impexp_worker.rs:414:5:
+assertion `left == right` failed: 未注册定义应判终态失败
+  left: 0
+ right: 1
+
+
+failures:
+    worker_marks_failed_when_definition_missing
+    zombie_reclaim_marks_failed_when_attempts_exhausted
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `--test impexp_worker`
+error: 1 target failed:
+    `--test impexp_worker`

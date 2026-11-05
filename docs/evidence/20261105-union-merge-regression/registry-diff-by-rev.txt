@@ -1,0 +1,22 @@
+===== 4f8230a
+  [FAIL] ATTACHMENT_DOC SQL=0 Rust=6
+      Rust 有 SQL 缺: [('CONTRACT', 'biz_contract'), ('PURCHASE_ORDER', 'biz_purchase_order'), ('STOCK_IN', 'biz_stock_in'), ('PAYABLE', 'biz_payable'), ('PAYMENT', 'biz_payment'), ('FIXED_ASSET', 'biz_fixed_asset')]
+  [FAIL] REMINDER_DOC SQL=0 Rust=4
+      Rust 有 SQL 缺: [('PAYABLE', 'biz_payable'), ('PURCHASE_ORDER', 'biz_purchase_order'), ('CONTRACT', 'biz_contract'), ('INVENTORY', 'biz_inventory')]
+  [FAIL] STATUS_ENTITY SQL=14 Rust=17
+      Rust 有 SQL 缺: [('BUDGET', 'biz_budget'), ('FIXED_ASSET', 'biz_fixed_asset'), ('DEPRECIATION', 'biz_depreciation_batch')]
+  [PASS] SERIAL_SOURCE SQL=4 Rust=4
+===== 9ed4bf8
+  [PASS] ATTACHMENT_DOC SQL=5 Rust=5
+  [PASS] REMINDER_DOC SQL=4 Rust=4
+  [PASS] STATUS_ENTITY SQL=14 Rust=14
+  [PASS] SERIAL_SOURCE SQL=4 Rust=4
+===== 9867fbe
+  [FAIL] ATTACHMENT_DOC SQL=5 Rust=6
+      Rust 有 SQL 缺: [('FIXED_ASSET', 'biz_fixed_asset')]
+  [PASS] REMINDER_DOC SQL=4 Rust=4
+  [FAIL] STATUS_ENTITY SQL=14 Rust=17
+      Rust 有 SQL 缺: [('BUDGET', 'biz_budget'), ('FIXED_ASSET', 'biz_fixed_asset'), ('DEPRECIATION', 'biz_depreciation_batch')]
+  [PASS] SERIAL_SOURCE SQL=4 Rust=4
+
+口径：4f8230a=原 99 本地 main 父；9ed4bf8=原 144 bare main 父；9867fbe=合并后 main

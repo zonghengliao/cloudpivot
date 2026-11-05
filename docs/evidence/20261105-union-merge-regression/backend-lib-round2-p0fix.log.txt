@@ -1,0 +1,14 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running unittests src/lib.rs (/root/regress-9867fbe-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 7 tests
+test business::flow::internal_control::db_tests::countersign_all_excluded_fails_closed ... ok
+test business::flow::internal_control::db_tests::countersign_one_excluded_then_two_approve_passes ... ok
+test business::flow::internal_control::db_tests::countersign_two_excluded_then_one_approves ... ok
+test business::flow::internal_control::db_tests::excluded_user_cannot_bypass_by_calling_approve ... ok
+test business::flow::internal_control::db_tests::remaining_approver_votes_normally ... ok
+test business::flow::internal_control::db_tests::role_members_are_not_excluded ... ok
+test business::flow::internal_control::db_tests::skipped_task_is_not_in_my_todo ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 2534 filtered out; finished in 13.84s
+

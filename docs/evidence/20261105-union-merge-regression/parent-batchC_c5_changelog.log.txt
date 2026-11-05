@@ -1,0 +1,15 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchC_c5_changelog.rs (/root/regress-9ed4bf8-target/debug/deps/batchC_c5_changelog-005976f109feacad)
+
+running 8 tests
+test diff_detects_changed_fields_only ... ok
+test diff_large_field_summarized ... ok
+test diff_pairs_before_after ... ok
+test ddl_month_partitions_without_default ... ok
+test record_in_same_transaction_rolls_back ... ok
+test mask_ignores_operator_role ... ok
+test record_rejects_unregistered_table ... ok
+test mask_applied_on_write ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.11s
+

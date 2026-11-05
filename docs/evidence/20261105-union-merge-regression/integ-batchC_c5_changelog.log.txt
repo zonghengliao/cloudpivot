@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchC_c5_changelog.rs (/root/regress-9867fbe-target/debug/deps/batchC_c5_changelog-005976f109feacad)
+
+running 8 tests
+test diff_detects_changed_fields_only ... ok
+test diff_pairs_before_after ... ok
+test diff_large_field_summarized ... ok
+test ddl_month_partitions_without_default ... ok
+test record_rejects_unregistered_table ... ok
+test mask_applied_on_write ... ok
+test mask_ignores_operator_role ... ok
+test record_in_same_transaction_rolls_back ... FAILED
+
+failures:
+
+---- record_in_same_transaction_rolls_back stdout ----
+清理夹具：删除 0 行 sys_change_log
+回滚前（同事务内）可见行数 = 1
+回滚后 sys_change_log 行数 = 0
+
+thread 'record_in_same_transaction_rolls_back' (131733) panicked at tests/batchC_c5_changelog.rs:547:10:
+对照组事务应提交成功: Transaction("connection closed")
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    record_in_same_transaction_rolls_back
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+error: test failed, to rerun pass `--test batchC_c5_changelog`
+error: 1 target failed:
+    `--test batchC_c5_changelog`

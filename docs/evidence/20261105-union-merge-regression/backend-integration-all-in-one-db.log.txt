@@ -1,0 +1,1108 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running tests/batchB_b2_scope.rs (/root/regress-9867fbe-target/debug/deps/batchB_b2_scope-9a4dbca549b09554)
+
+running 1 test
+test b2_real_database_acceptance ... FAILED
+
+failures:
+
+---- b2_real_database_acceptance stdout ----
+B2 已连接验证库
+B2 夹具已灌入（/root/regress-9867fbe/backend/tests/sql/batchb/b2_scope_fixture.sql）
+
+================ B2 真库验收：五种范围 + 并集 + 降级 ================
+  admin      kind=ALL            dept_set=0  self_only=false own_dept=NULL
+
+thread 'b2_real_database_acceptance' (106405) panicked at tests/batchB_b2_scope.rs:199:5:
+assertion `left == right` failed: 超管看到全部用户
+  left: 36
+ right: 12
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    b2_real_database_acceptance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `--test batchB_b2_scope`
+     Running tests/batchB_b7_mutex.rs (/root/regress-9867fbe-target/debug/deps/batchB_b7_mutex-5c233659c31f740e)
+
+running 1 test
+test b7_real_database_acceptance ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/batchC_c3_dispatch.rs (/root/regress-9867fbe-target/debug/deps/batchC_c3_dispatch-ae5c7ca4e3b174b4)
+
+running 1 test
+test retry_compensation_is_idempotent ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+     Running tests/batchC_c4_help.rs (/root/regress-9867fbe-target/debug/deps/batchC_c4_help-59bad239dd13e203)
+
+running 11 tests
+test h04_publish_requires_published_at ... ok
+test h03_slug_unique_and_format ... FAILED
+test h02_category_not_empty ... ok
+test h01_category_depth_limit ... ok
+test h05_version_snapshots ... ok
+test h06_rollback_creates_new_version ... ok
+test h07_version_cleanup_keeps_latest_20 ... ok
+test h08_search_escapes_wildcards ... ok
+test h09_search_respects_publish_state ... ok
+test h10_h11_h12_snippet_and_toc ... ok
+test search_performance_2000_docs ... ok
+
+failures:
+
+---- h03_slug_unique_and_format stdout ----
+清理夹具：doc=0 category=0
+
+thread 'h03_slug_unique_and_format' (106481) panicked at tests/batchC_c4_help.rs:271:5:
+重复 slug 必须 409，实际：Err(Db(InvalidValue("帮助文档：文档 slug 已存在")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    h03_slug_unique_and_format
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+
+error: test failed, to rerun pass `--test batchC_c4_help`
+     Running tests/batchC_c5_changelog.rs (/root/regress-9867fbe-target/debug/deps/batchC_c5_changelog-005976f109feacad)
+
+running 8 tests
+test diff_large_field_summarized ... ok
+test diff_pairs_before_after ... ok
+test diff_detects_changed_fields_only ... ok
+test ddl_month_partitions_without_default ... ok
+test mask_applied_on_write ... ok
+test record_in_same_transaction_rolls_back ... ok
+test record_rejects_unregistered_table ... ok
+test mask_ignores_operator_role ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/batchC_c6_changelog.rs (/root/regress-9867fbe-target/debug/deps/batchC_c6_changelog-d936d17bd62509b4)
+
+running 4 tests
+test c6_rollback_keeps_zero_residue ... ok
+test c6_find_detail_with_and_without_created_at ... ok
+test c6_change_log_scenarios ... ok
+test c6_timeline_performance_and_partitions ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.36s
+
+     Running tests/batchC_c7_rollback.rs (/root/regress-9867fbe-target/debug/deps/batchC_c7_rollback-e052ed3d61f27ae6)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/batchE_e7_dep_cleanup.rs (/root/regress-9867fbe-target/debug/deps/batchE_e7_dep_cleanup-db68c04c90992926)
+
+running 1 test
+test soft_delete_purges_dependencies_and_guard_counts_orphans ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/batchT_t1_task.rs (/root/regress-9867fbe-target/debug/deps/batchT_t1_task-fc3baf2a44b2e460)
+
+running 5 tests
+test schema_and_indexes_exist ... ok
+test task_no_is_unique_and_increasing ... FAILED
+test my_buckets_and_overdue_scan ... ok
+test crud_roundtrip ... ok
+test visibility_four_scenarios ... ok
+
+failures:
+
+---- task_no_is_unique_and_increasing stdout ----
+任务管理已连接验证库
+
+thread 'task_no_is_unique_and_increasing' (107117) panicked at tests/batchT_t1_task.rs:293:10:
+建任务: Query { sql: "SELECT COALESCE(max(substring(task_no from 12)::bigint), 0) + 1 AS next_no FROM biz_task WHERE task_no LIKE $1 AND substring(task_no from 12) ~ '^[0-9]+$'", source: Error { kind: Closed, cause: None } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    task_no_is_unique_and_increasing
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+
+error: test failed, to rerun pass `--test batchT_t1_task`
+     Running tests/batchT_t5_ai_rules.rs (/root/regress-9867fbe-target/debug/deps/batchT_t5_ai_rules-e94fa719a53f4eec)
+
+running 6 tests
+test new_change_log_carries_operator_type ... ok
+test record_writes_human_operator_type ... ok
+test operator_type_of_defaults ... ok
+test migration_shape ... ok
+test explicit_operator_type_skips_lookup ... ok
+test record_writes_robot_operator_type ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+
+     Running tests/fix04_notice_offline.rs (/root/regress-9867fbe-target/debug/deps/fix04_notice_offline-f7b3cd6ff06a1120)
+
+running 9 tests
+test t1_delete_offlines_notice_and_receivers ... ok
+test t3_unread_badge_drops ... FAILED
+test t2_read_receipt_is_preserved ... FAILED
+test t4_message_center_hides_notice ... ok
+test t5_second_delete_is_idempotent ... ok
+test t6_failure_rolls_back_both ... ok
+test t8_other_biz_notice_untouched ... FAILED
+test t7_pending_scheduled_notice_canceled ... ok
+test t9_announcement_without_notice_is_noop ... ok
+
+failures:
+
+---- t3_unread_badge_drops stdout ----
+
+thread 't3_unread_badge_drops' (107262) panicked at tests/fix04_notice_offline.rs:178:14:
+插入接收人夹具: ForeignKeyViolation { constraint: Some("sys_notice_receiver_notice_id_fkey"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23503), message: "insert or update on table \"sys_notice_receiver\" violates foreign key constraint \"sys_notice_receiver_notice_id_fkey\"", detail: Some("Key (notice_id)=(01a1a942-a8d7-70c5-bae1-2d7f8d93d167) is not present in table \"sys_notice\"."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_notice_receiver"), column: None, datatype: None, constraint: Some("sys_notice_receiver_notice_id_fkey"), file: Some("ri_triggers.c"), line: Some(2772), routine: Some("ri_ReportViolation") }) }) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- t2_read_receipt_is_preserved stdout ----
+
+thread 't2_read_receipt_is_preserved' (107261) panicked at tests/fix04_notice_offline.rs:315:5:
+assertion `left == right` failed: T2: 接收行**一条都不许删**（审计要）
+  left: 0
+ right: 2
+
+---- t8_other_biz_notice_untouched stdout ----
+
+thread 't8_other_biz_notice_untouched' (107289) panicked at tests/fix04_notice_offline.rs:216:28:
+通知行必须存在（本模块不做硬删）
+
+
+failures:
+    t2_read_receipt_is_preserved
+    t3_unread_badge_drops
+    t8_other_biz_notice_untouched
+
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+
+error: test failed, to rerun pass `--test fix04_notice_offline`
+     Running tests/impexp_worker.rs (/root/regress-9867fbe-target/debug/deps/impexp_worker-776cc21154ec2934)
+
+running 7 tests
+test claim_is_exclusive_across_processes ... ok
+test fresh_running_task_is_not_reclaimed ... ok
+test expired_artifact_file_is_purged ... FAILED
+test failure_schedules_backoff_and_stays_pending ... ok
+test zombie_reclaim_marks_failed_when_attempts_exhausted ... ok
+test zombie_running_task_is_reclaimed ... ok
+test worker_marks_failed_when_definition_missing ... FAILED
+
+failures:
+
+---- expired_artifact_file_is_purged stdout ----
+
+thread 'expired_artifact_file_is_purged' (107308) panicked at tests/impexp_worker.rs:355:6:
+制造过期产物失败: Query { sql: "UPDATE sys_export_task SET status = 'SUCCESS', progress = 100, file_path = $1, file_name = '过期用例.xlsx', file_size = 16, file_sha256 = 'deadbeef', expire_at = CURRENT_TIMESTAMP - INTERVAL '1 minute' WHERE id = $2::uuid", source: Error { kind: Closed, cause: None } }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- worker_marks_failed_when_definition_missing stdout ----
+worker 报告: impexp_export_worker: claimed=1 succeeded=1 requeued=0 failed=0 canceled=0
+
+thread 'worker_marks_failed_when_definition_missing' (107321) panicked at tests/impexp_worker.rs:414:5:
+assertion `left == right` failed: 未注册定义应判终态失败
+  left: 0
+ right: 1
+
+
+failures:
+    expired_artifact_file_is_purged
+    worker_marks_failed_when_definition_missing
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+error: test failed, to rerun pass `--test impexp_worker`
+     Running tests/invariant_registry.rs (/root/regress-9867fbe-target/debug/deps/invariant_registry-3a070e3721e40033)
+
+running 1 test
+test n01_check_view_and_registry_are_bijective ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/linkage.rs (/root/regress-9867fbe-target/debug/deps/linkage-b6ef85419c0c306d)
+
+running 62 tests
+test linkage::payable_chain::p04_payment_generates_balanced_voucher ... FAILED
+test linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled ... FAILED
+test linkage::payable_chain::p02_partial_payment_marks_partial_paid ... FAILED
+test linkage::payable_chain::p01_full_payment_settles_payable ... FAILED
+test linkage::payable_chain::p05_over_payment_is_bad_request ... FAILED
+test linkage::payable_chain::p07_cancel_paid_payable_is_conflict ... FAILED
+test linkage::payable_chain::p08_paid_plus_unpaid_equals_amount ... FAILED
+test linkage::payable_chain::p06_pay_settled_is_conflict ... FAILED
+test linkage::stockin_chain::s04_post_creates_serials_for_serial_material ... FAILED
+test linkage::stockin_chain::s05_invariant_b1_location_equals_cost ... FAILED
+test linkage::stockin_chain::s06_cancel_rolls_back_inventory ... FAILED
+test linkage::stockin_chain::s07_cancel_rolls_back_location_ledger ... FAILED
+test linkage::stockin_chain::s08_cancel_writes_reverse_txn ... FAILED
+test linkage::stockin_chain::s09_cancel_reverses_voucher ... FAILED
+test linkage::stockin_chain::s01_post_writes_all_six_ledgers ... FAILED
+test linkage::stockin_chain::s10_cancel_cancels_payable ... FAILED
+test linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline ... FAILED
+test linkage::stockin_chain::s13_cancel_without_reason_is_bad_request ... FAILED
+test linkage::stockin_chain::s03_payable_amount_equals_stock_in_total ... FAILED
+test linkage::stockin_chain::s14_cancel_after_shipping_is_conflict ... FAILED
+test linkage::stockin_chain::s15_double_cancel_is_conflict ... FAILED
+test linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo ... FAILED
+test linkage::task_flow_linkage::t02_task_cancelled_cancels_instance ... FAILED
+test linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp ... FAILED
+test linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node ... FAILED
+test linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts ... FAILED
+test linkage::task_flow_linkage::t05_task_done_keeps_instance_approved ... FAILED
+test linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance ... FAILED
+test linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance ... FAILED
+test linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled ... FAILED
+test linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected ... FAILED
+test linkage::task_flow_linkage::t11_cancel_is_idempotent ... FAILED
+test linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel ... FAILED
+test linkage::task_flow_linkage::t13_submitter_has_no_todo ... FAILED
+test linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child ... FAILED
+test linkage::task_flow_linkage::t14_approver_sees_todo ... FAILED
+test linkage::stockin_chain::s16_failed_cancel_rolls_back_everything ... FAILED
+test linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo ... FAILED
+test linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance ... FAILED
+test linkage::task_flow_linkage::t16_outsider_sees_nothing ... FAILED
+test linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance ... FAILED
+test linkage::transfer_chain::f02_approval_moves_to_approved ... FAILED
+test linkage::transfer_chain::f01_submit_creates_pending_instance ... FAILED
+test linkage::transfer_chain::f04_receive_moves_qty_between_warehouses ... FAILED
+test linkage::stockin_chain::s11_cancel_voids_serials ... FAILED
+test linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock ... FAILED
+test linkage::transfer_chain::f07_pending_cancel_terminates_running_instance ... FAILED
+test linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done ... FAILED
+test linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched ... FAILED
+test linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked ... FAILED
+test linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement ... FAILED
+test linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock ... FAILED
+test linkage::voucher_chain::v01_reverse_creates_mirrored_red_voucher ... FAILED
+test linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert ... FAILED
+test linkage::transfer_chain::f11_serials_follow_the_transfer ... FAILED
+test linkage::voucher_chain::v04_reverse_red_voucher_is_conflict ... FAILED
+test linkage::voucher_chain::v05_unbalanced_manual_voucher_is_bad_request ... FAILED
+test linkage::voucher_chain::v03_double_reverse_is_conflict ... FAILED
+test linkage::voucher_chain::v02_reverse_backfills_pointer_and_keeps_posted ... FAILED
+test linkage::voucher_chain::v08_each_entry_has_exactly_one_non_zero_side ... FAILED
+test linkage::voucher_chain::v06_balanced_manual_voucher_is_posted ... FAILED
+test linkage::voucher_chain::v07_every_voucher_is_balanced ... FAILED
+
+failures:
+
+---- linkage::payable_chain::p04_payment_generates_balanced_voucher stdout ----
+
+thread 'linkage::payable_chain::p04_payment_generates_balanced_voucher' (107365) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled stdout ----
+
+thread 'linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled' (107364) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p02_partial_payment_marks_partial_paid stdout ----
+
+thread 'linkage::payable_chain::p02_partial_payment_marks_partial_paid' (107363) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p01_full_payment_settles_payable stdout ----
+
+thread 'linkage::payable_chain::p01_full_payment_settles_payable' (107362) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p05_over_payment_is_bad_request stdout ----
+
+thread 'linkage::payable_chain::p05_over_payment_is_bad_request' (107368) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p07_cancel_paid_payable_is_conflict stdout ----
+
+thread 'linkage::payable_chain::p07_cancel_paid_payable_is_conflict' (107370) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p08_paid_plus_unpaid_equals_amount stdout ----
+
+thread 'linkage::payable_chain::p08_paid_plus_unpaid_equals_amount' (107371) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::payable_chain::p06_pay_settled_is_conflict stdout ----
+
+thread 'linkage::payable_chain::p06_pay_settled_is_conflict' (107369) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s04_post_creates_serials_for_serial_material stdout ----
+
+thread 'linkage::stockin_chain::s04_post_creates_serials_for_serial_material' (107375) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s05_invariant_b1_location_equals_cost stdout ----
+
+thread 'linkage::stockin_chain::s05_invariant_b1_location_equals_cost' (107376) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s06_cancel_rolls_back_inventory stdout ----
+
+thread 'linkage::stockin_chain::s06_cancel_rolls_back_inventory' (107377) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s07_cancel_rolls_back_location_ledger stdout ----
+
+thread 'linkage::stockin_chain::s07_cancel_rolls_back_location_ledger' (107378) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s08_cancel_writes_reverse_txn stdout ----
+
+thread 'linkage::stockin_chain::s08_cancel_writes_reverse_txn' (107379) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s09_cancel_reverses_voucher stdout ----
+
+thread 'linkage::stockin_chain::s09_cancel_reverses_voucher' (107380) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s01_post_writes_all_six_ledgers stdout ----
+
+thread 'linkage::stockin_chain::s01_post_writes_all_six_ledgers' (107372) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s10_cancel_cancels_payable stdout ----
+
+thread 'linkage::stockin_chain::s10_cancel_cancels_payable' (107381) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline stdout ----
+
+thread 'linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline' (107383) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s13_cancel_without_reason_is_bad_request stdout ----
+
+thread 'linkage::stockin_chain::s13_cancel_without_reason_is_bad_request' (107384) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s03_payable_amount_equals_stock_in_total stdout ----
+
+thread 'linkage::stockin_chain::s03_payable_amount_equals_stock_in_total' (107374) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s14_cancel_after_shipping_is_conflict stdout ----
+
+thread 'linkage::stockin_chain::s14_cancel_after_shipping_is_conflict' (107385) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s15_double_cancel_is_conflict stdout ----
+
+thread 'linkage::stockin_chain::s15_double_cancel_is_conflict' (107386) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo stdout ----
+
+thread 'linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo' (107388) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t02_task_cancelled_cancels_instance stdout ----
+
+thread 'linkage::task_flow_linkage::t02_task_cancelled_cancels_instance' (107389) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp stdout ----
+
+thread 'linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp' (107390) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node stdout ----
+
+thread 'linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node' (107391) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts stdout ----
+
+thread 'linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts' (107373) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t05_task_done_keeps_instance_approved stdout ----
+
+thread 'linkage::task_flow_linkage::t05_task_done_keeps_instance_approved' (107392) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance stdout ----
+
+thread 'linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance' (107394) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance stdout ----
+
+thread 'linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance' (107395) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled stdout ----
+
+thread 'linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled' (107396) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected stdout ----
+
+thread 'linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected' (107397) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t11_cancel_is_idempotent stdout ----
+
+thread 'linkage::task_flow_linkage::t11_cancel_is_idempotent' (107398) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel stdout ----
+
+thread 'linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel' (107399) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t13_submitter_has_no_todo stdout ----
+
+thread 'linkage::task_flow_linkage::t13_submitter_has_no_todo' (107400) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child stdout ----
+
+thread 'linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child' (107393) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t14_approver_sees_todo stdout ----
+
+thread 'linkage::task_flow_linkage::t14_approver_sees_todo' (107401) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s16_failed_cancel_rolls_back_everything stdout ----
+
+thread 'linkage::stockin_chain::s16_failed_cancel_rolls_back_everything' (107387) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo stdout ----
+
+thread 'linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo' (107402) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance stdout ----
+
+thread 'linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance' (107404) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t16_outsider_sees_nothing stdout ----
+
+thread 'linkage::task_flow_linkage::t16_outsider_sees_nothing' (107403) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance stdout ----
+
+thread 'linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance' (107405) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f02_approval_moves_to_approved stdout ----
+
+thread 'linkage::transfer_chain::f02_approval_moves_to_approved' (107407) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f01_submit_creates_pending_instance stdout ----
+
+thread 'linkage::transfer_chain::f01_submit_creates_pending_instance' (107406) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f04_receive_moves_qty_between_warehouses stdout ----
+
+thread 'linkage::transfer_chain::f04_receive_moves_qty_between_warehouses' (107409) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::stockin_chain::s11_cancel_voids_serials stdout ----
+
+thread 'linkage::stockin_chain::s11_cancel_voids_serials' (107382) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock stdout ----
+
+thread 'linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock' (107408) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f07_pending_cancel_terminates_running_instance stdout ----
+
+thread 'linkage::transfer_chain::f07_pending_cancel_terminates_running_instance' (107412) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done stdout ----
+
+thread 'linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done' (107410) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched stdout ----
+
+thread 'linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched' (107411) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked stdout ----
+
+thread 'linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked' (107413) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement stdout ----
+
+thread 'linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement' (107414) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock stdout ----
+
+thread 'linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock' (107415) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v01_reverse_creates_mirrored_red_voucher stdout ----
+
+thread 'linkage::voucher_chain::v01_reverse_creates_mirrored_red_voucher' (107418) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert stdout ----
+
+thread 'linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert' (107417) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::transfer_chain::f11_serials_follow_the_transfer stdout ----
+
+thread 'linkage::transfer_chain::f11_serials_follow_the_transfer' (107416) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v04_reverse_red_voucher_is_conflict stdout ----
+
+thread 'linkage::voucher_chain::v04_reverse_red_voucher_is_conflict' (107421) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v05_unbalanced_manual_voucher_is_bad_request stdout ----
+
+thread 'linkage::voucher_chain::v05_unbalanced_manual_voucher_is_bad_request' (107422) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v03_double_reverse_is_conflict stdout ----
+
+thread 'linkage::voucher_chain::v03_double_reverse_is_conflict' (107420) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v02_reverse_backfills_pointer_and_keeps_posted stdout ----
+
+thread 'linkage::voucher_chain::v02_reverse_backfills_pointer_and_keeps_posted' (107419) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v08_each_entry_has_exactly_one_non_zero_side stdout ----
+
+thread 'linkage::voucher_chain::v08_each_entry_has_exactly_one_non_zero_side' (107425) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v06_balanced_manual_voucher_is_posted stdout ----
+
+thread 'linkage::voucher_chain::v06_balanced_manual_voucher_is_posted' (107423) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+---- linkage::voucher_chain::v07_every_voucher_is_balanced stdout ----
+
+thread 'linkage::voucher_chain::v07_every_voucher_is_balanced' (107424) panicked at tests/linkage/common.rs:72:17:
+LINKAGE_DB_URL 必须指向 cloudpivot_test 库（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）。联动测试会造库存/凭证/应付，指到别的库会毁掉真实账目。
+
+
+failures:
+    linkage::payable_chain::p01_full_payment_settles_payable
+    linkage::payable_chain::p02_partial_payment_marks_partial_paid
+    linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled
+    linkage::payable_chain::p04_payment_generates_balanced_voucher
+    linkage::payable_chain::p05_over_payment_is_bad_request
+    linkage::payable_chain::p06_pay_settled_is_conflict
+    linkage::payable_chain::p07_cancel_paid_payable_is_conflict
+    linkage::payable_chain::p08_paid_plus_unpaid_equals_amount
+    linkage::stockin_chain::s01_post_writes_all_six_ledgers
+    linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts
+    linkage::stockin_chain::s03_payable_amount_equals_stock_in_total
+    linkage::stockin_chain::s04_post_creates_serials_for_serial_material
+    linkage::stockin_chain::s05_invariant_b1_location_equals_cost
+    linkage::stockin_chain::s06_cancel_rolls_back_inventory
+    linkage::stockin_chain::s07_cancel_rolls_back_location_ledger
+    linkage::stockin_chain::s08_cancel_writes_reverse_txn
+    linkage::stockin_chain::s09_cancel_reverses_voucher
+    linkage::stockin_chain::s10_cancel_cancels_payable
+    linkage::stockin_chain::s11_cancel_voids_serials
+    linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline
+    linkage::stockin_chain::s13_cancel_without_reason_is_bad_request
+    linkage::stockin_chain::s14_cancel_after_shipping_is_conflict
+    linkage::stockin_chain::s15_double_cancel_is_conflict
+    linkage::stockin_chain::s16_failed_cancel_rolls_back_everything
+    linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo
+    linkage::task_flow_linkage::t02_task_cancelled_cancels_instance
+    linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp
+    linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node
+    linkage::task_flow_linkage::t05_task_done_keeps_instance_approved
+    linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child
+    linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance
+    linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance
+    linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled
+    linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected
+    linkage::task_flow_linkage::t11_cancel_is_idempotent
+    linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel
+    linkage::task_flow_linkage::t13_submitter_has_no_todo
+    linkage::task_flow_linkage::t14_approver_sees_todo
+    linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo
+    linkage::task_flow_linkage::t16_outsider_sees_nothing
+    linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance
+    linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance
+    linkage::transfer_chain::f01_submit_creates_pending_instance
+    linkage::transfer_chain::f02_approval_moves_to_approved
+    linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock
+    linkage::transfer_chain::f04_receive_moves_qty_between_warehouses
+    linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done
+    linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched
+    linkage::transfer_chain::f07_pending_cancel_terminates_running_instance
+    linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked
+    linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement
+    linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock
+    linkage::transfer_chain::f11_serials_follow_the_transfer
+    linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert
+    linkage::voucher_chain::v01_reverse_creates_mirrored_red_voucher
+    linkage::voucher_chain::v02_reverse_backfills_pointer_and_keeps_posted
+    linkage::voucher_chain::v03_double_reverse_is_conflict
+    linkage::voucher_chain::v04_reverse_red_voucher_is_conflict
+    linkage::voucher_chain::v05_unbalanced_manual_voucher_is_bad_request
+    linkage::voucher_chain::v06_balanced_manual_voucher_is_posted
+    linkage::voucher_chain::v07_every_voucher_is_balanced
+    linkage::voucher_chain::v08_each_entry_has_exactly_one_non_zero_side
+
+test result: FAILED. 0 passed; 62 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--test linkage`
+     Running tests/pflow1a.rs (/root/regress-9867fbe-target/debug/deps/pflow1a-c66f93582066df3e)
+
+running 12 tests
+test flow_detail_carries_on_complete_direct ... FAILED
+test flow_detail_carries_on_complete_verify ... FAILED
+test flow_detail_approval_is_null_for_direct_node ... FAILED
+test flow_detail_carries_approval_progress ... FAILED
+test preview_covers_five_cases ... FAILED
+test flow_detail_is_null_for_manual_task ... FAILED
+test role_multi_resolution_makes_one_task_with_members ... FAILED
+test publish_regression_keeps_graph_hash ... FAILED
+test task_node_end_to_end_creates_one_task ... FAILED
+test task_node_generation_is_idempotent ... FAILED
+test task_page_filters_by_flow_source ... FAILED
+test too_long_title_rolls_back_whole_instance ... FAILED
+
+failures:
+
+---- flow_detail_carries_on_complete_direct stdout ----
+
+thread 'flow_detail_carries_on_complete_direct' (107430) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- flow_detail_carries_on_complete_verify stdout ----
+
+thread 'flow_detail_carries_on_complete_verify' (107431) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- flow_detail_approval_is_null_for_direct_node stdout ----
+
+thread 'flow_detail_approval_is_null_for_direct_node' (107428) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- flow_detail_carries_approval_progress stdout ----
+
+thread 'flow_detail_carries_approval_progress' (107429) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- preview_covers_five_cases stdout ----
+
+thread 'preview_covers_five_cases' (107435) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- flow_detail_is_null_for_manual_task stdout ----
+
+thread 'flow_detail_is_null_for_manual_task' (107434) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- role_multi_resolution_makes_one_task_with_members stdout ----
+
+thread 'role_multi_resolution_makes_one_task_with_members' (107437) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- publish_regression_keeps_graph_hash stdout ----
+
+thread 'publish_regression_keeps_graph_hash' (107436) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- task_node_end_to_end_creates_one_task stdout ----
+
+thread 'task_node_end_to_end_creates_one_task' (107438) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- task_node_generation_is_idempotent stdout ----
+
+thread 'task_node_generation_is_idempotent' (107439) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- task_page_filters_by_flow_source stdout ----
+
+thread 'task_page_filters_by_flow_source' (107440) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+---- too_long_title_rolls_back_whole_instance stdout ----
+
+thread 'too_long_title_rolls_back_whole_instance' (107441) panicked at tests/pflow1a.rs:60:13:
+PFLOW_DB_URL 必须指向 cloudpivot_pflow1a 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）——本套测试会造真实流程实例与任务
+
+
+failures:
+    flow_detail_approval_is_null_for_direct_node
+    flow_detail_carries_approval_progress
+    flow_detail_carries_on_complete_direct
+    flow_detail_carries_on_complete_verify
+    flow_detail_is_null_for_manual_task
+    preview_covers_five_cases
+    publish_regression_keeps_graph_hash
+    role_multi_resolution_makes_one_task_with_members
+    task_node_end_to_end_creates_one_task
+    task_node_generation_is_idempotent
+    task_page_filters_by_flow_source
+    too_long_title_rolls_back_whole_instance
+
+test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--test pflow1a`
+     Running tests/pflow1b.rs (/root/regress-9867fbe-target/debug/deps/pflow1b-f452d356433f23e7)
+
+running 14 tests
+test approve_mode_reject_follows_on_reject ... FAILED
+test complete_without_review_advances_flow ... FAILED
+test approve_mode_full_chain ... FAILED
+test cancel_task_terminates_instance ... FAILED
+test concurrent_complete_only_one_advances ... FAILED
+test flow_task_outcome_four_branches ... FAILED
+test publish_rejects_missing_approve_biz_type ... FAILED
+test reject_stay_keeps_node_active ... FAILED
+test reject_back_to_prev_reopens_previous ... FAILED
+test plain_task_is_untouched ... FAILED
+test conflict_when_instance_already_cancelled ... FAILED
+test review_pass_approves_node ... FAILED
+test task_accept_approval_advances_node ... FAILED
+test withdraw_instance_cancels_unfinished_tasks ... FAILED
+
+failures:
+
+---- approve_mode_reject_follows_on_reject stdout ----
+
+thread 'approve_mode_reject_follows_on_reject' (107446) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- complete_without_review_advances_flow stdout ----
+
+thread 'complete_without_review_advances_flow' (107448) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- approve_mode_full_chain stdout ----
+
+thread 'approve_mode_full_chain' (107445) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- cancel_task_terminates_instance stdout ----
+
+thread 'cancel_task_terminates_instance' (107447) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- concurrent_complete_only_one_advances stdout ----
+
+thread 'concurrent_complete_only_one_advances' (107451) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- flow_task_outcome_four_branches stdout ----
+
+thread 'flow_task_outcome_four_branches' (107453) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- publish_rejects_missing_approve_biz_type stdout ----
+
+thread 'publish_rejects_missing_approve_biz_type' (107455) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- reject_stay_keeps_node_active stdout ----
+
+thread 'reject_stay_keeps_node_active' (107457) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- reject_back_to_prev_reopens_previous stdout ----
+
+thread 'reject_back_to_prev_reopens_previous' (107456) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- plain_task_is_untouched stdout ----
+
+thread 'plain_task_is_untouched' (107454) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- conflict_when_instance_already_cancelled stdout ----
+
+thread 'conflict_when_instance_already_cancelled' (107452) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- review_pass_approves_node stdout ----
+
+thread 'review_pass_approves_node' (107458) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- task_accept_approval_advances_node stdout ----
+
+thread 'task_accept_approval_advances_node' (107460) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- withdraw_instance_cancels_unfinished_tasks stdout ----
+
+thread 'withdraw_instance_cancels_unfinished_tasks' (107461) panicked at tests/pflow1b.rs:55:13:
+PFLOWB_DB_URL 必须指向 cloudpivot_test_pflow1b 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+
+failures:
+    approve_mode_full_chain
+    approve_mode_reject_follows_on_reject
+    cancel_task_terminates_instance
+    complete_without_review_advances_flow
+    concurrent_complete_only_one_advances
+    conflict_when_instance_already_cancelled
+    flow_task_outcome_four_branches
+    plain_task_is_untouched
+    publish_rejects_missing_approve_biz_type
+    reject_back_to_prev_reopens_previous
+    reject_stay_keeps_node_active
+    review_pass_approves_node
+    task_accept_approval_advances_node
+    withdraw_instance_cancels_unfinished_tasks
+
+test result: FAILED. 0 passed; 14 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+error: test failed, to rerun pass `--test pflow1b`
+     Running tests/pflow5.rs (/root/regress-9867fbe-target/debug/deps/pflow5-95270ba44d4fcc13)
+
+running 15 tests
+test enable_refuses_draft_definitions ... FAILED
+test duplicate_conflict_on_existing_code ... FAILED
+test duplicate_does_not_copy_instances ... FAILED
+test duplicate_creates_draft_copy_with_graph ... FAILED
+test offline_default_leaves_biz_type_without_default ... FAILED
+test enable_restores_default_after_offline ... FAILED
+test offline_non_default_keeps_other_default ... FAILED
+test read_only_graph_endpoint_returns_nodes_edges ... FAILED
+test templates_grouped_by_category ... FAILED
+test templates_marks_system_defs ... FAILED
+test templates_summary_from_condition_labels ... FAILED
+test templates_usage_count_from_instances ... FAILED
+test templates_default_scope_keeps_disabled_standard ... FAILED
+test templates_default_scope_only_returns_standard ... FAILED
+test templates_legacy_include_mine_equals_scope_all ... FAILED
+
+failures:
+
+---- enable_refuses_draft_definitions stdout ----
+
+thread 'enable_refuses_draft_definitions' (107467) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- duplicate_conflict_on_existing_code stdout ----
+
+thread 'duplicate_conflict_on_existing_code' (107464) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- duplicate_does_not_copy_instances stdout ----
+
+thread 'duplicate_does_not_copy_instances' (107466) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- duplicate_creates_draft_copy_with_graph stdout ----
+
+thread 'duplicate_creates_draft_copy_with_graph' (107465) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- offline_default_leaves_biz_type_without_default stdout ----
+
+thread 'offline_default_leaves_biz_type_without_default' (107470) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- enable_restores_default_after_offline stdout ----
+
+thread 'enable_restores_default_after_offline' (107469) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- offline_non_default_keeps_other_default stdout ----
+
+thread 'offline_non_default_keeps_other_default' (107471) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- read_only_graph_endpoint_returns_nodes_edges stdout ----
+
+thread 'read_only_graph_endpoint_returns_nodes_edges' (107472) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_grouped_by_category stdout ----
+
+thread 'templates_grouped_by_category' (107475) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_marks_system_defs stdout ----
+
+thread 'templates_marks_system_defs' (107477) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_summary_from_condition_labels stdout ----
+
+thread 'templates_summary_from_condition_labels' (107478) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_usage_count_from_instances stdout ----
+
+thread 'templates_usage_count_from_instances' (107479) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_default_scope_keeps_disabled_standard stdout ----
+
+thread 'templates_default_scope_keeps_disabled_standard' (107473) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_default_scope_only_returns_standard stdout ----
+
+thread 'templates_default_scope_only_returns_standard' (107474) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+---- templates_legacy_include_mine_equals_scope_all stdout ----
+
+thread 'templates_legacy_include_mine_equals_scope_all' (107476) panicked at tests/pflow5.rs:52:13:
+PFLOW5_DB_URL 必须指向 cloudpivot_test_pflow5 或 cloudpivot_test（当前：postgres://alun:alun@127.0.0.1:5432/cloudpivot_regress_20261105）
+
+
+failures:
+    duplicate_conflict_on_existing_code
+    duplicate_creates_draft_copy_with_graph
+    duplicate_does_not_copy_instances
+    enable_refuses_draft_definitions
+    enable_restores_default_after_offline
+    offline_default_leaves_biz_type_without_default
+    offline_non_default_keeps_other_default
+    read_only_graph_endpoint_returns_nodes_edges
+    templates_default_scope_keeps_disabled_standard
+    templates_default_scope_only_returns_standard
+    templates_grouped_by_category
+    templates_legacy_include_mine_equals_scope_all
+    templates_marks_system_defs
+    templates_summary_from_condition_labels
+    templates_usage_count_from_instances
+
+test result: FAILED. 0 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+error: test failed, to rerun pass `--test pflow5`
+     Running tests/pref_preference.rs (/root/regress-9867fbe-target/debug/deps/pref_preference-ad2ec8b470155e23)
+
+running 1 test
+test preference_db_behaviour ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/s3_minio.rs (/root/regress-9867fbe-target/debug/deps/s3_minio-944a137d15b0bccc)
+
+running 2 tests
+test s3_minio_multipart_upload_matches ... ok
+test s3_minio_real_roundtrip ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/testd.rs (/root/regress-9867fbe-target/debug/deps/testd-1a47f69868051575)
+
+running 67 tests
+test testd::announcement::g04_published_announcement_not_editable ... ok
+test testd::announcement::g01_published_announcement_visible_to_target ... ok
+test testd::announcement::g02_read_stats_accurate ... ok
+test testd::announcement::g03_delete_announcement_keeps_read_receipts ... ok
+test testd::announcement::g05_notice_fanout_multiple_targets ... ok
+test testd::announcement::g06_mark_read_decrements_unread ... ok
+test testd::announcement::g07_template_variable_substitution ... ok
+test testd::announcement::g08_channel_failure_visible ... ok
+test testd::announcement::g09_announcement_publish_permission ... ok
+test testd::impexp::i02_error_report_row_and_column ... ok
+test testd::announcement::g10_notice_search_filter_paging ... ok
+test testd::impexp::i01_import_chain_template_precheck_confirm ... ok
+test testd::impexp::i06_task_import_definition_missing ... ok
+test testd::impexp::i03_strict_vs_partial_transaction_boundary ... ok
+test testd::impexp::i04_ten_thousand_rows ... ok
+test testd::impexp::i07_export_sync_content ... ok
+test testd::impexp::i05_duplicate_import_is_idempotent ... ok
+test testd::impexp::i08_export_async_worker_and_download ... ok
+test testd::impexp::i09_export_permission_code_enforced ... ok
+test testd::impexp::i11_failed_export_can_retry ... ok
+test testd::impexp::i12_expired_artifact_returns_410 ... ok
+test testd::impexp::i13_header_mismatch_reports_structured_error ... ok
+test testd::impexp::i14_tampered_import_file_rejected ... ok
+test testd::linkage::k01_announcement_publish_changes_badge ... ok
+test testd::linkage::k02_notice_read_changes_badge ... ok
+test testd::linkage::k03_task_attachment_after_task_delete ... ok
+test testd::linkage::k04_import_task_visibility_scoped_to_creator ... ok
+test testd::linkage::k06_project_delete_keeps_task_tree ... ok
+test testd::linkage::k05_async_export_masked ... ok
+test testd::linkage::k07_state_change_appends_one_log ... ok
+test testd::linkage::k08_mutex_erp_maker_checker_gap ... ok
+test testd::masking::x02_detail_masked_for_plain_user ... ok
+test testd::masking::x03_sync_export_masked ... ok
+test testd::masking::x04_missing_rule_fails_closed ... ok
+test testd::masking::x05_plain_permission_exempt_and_audited ... ok
+test testd::mutex_help_ai::ai01_robot_user_gets_only_role_permissions ... ok
+test testd::mutex_help_ai::ai02_robot_operation_traced_in_changelog ... ok
+test testd::mutex_help_ai::mo01_monitor_collectors_on_real_proc ... ok
+test testd::mutex_help_ai::h01_help_doc_crud ... ok
+test testd::mutex_help_ai::h02_help_search ... ok
+test testd::mutex_help_ai::h03_help_content_xss_sanitized ... ok
+test testd::mutex_help_ai::x01_mutex_pair_is_symmetric ... ok
+test testd::mutex_help_ai::x02_assign_second_mutex_role_rejected ... ok
+test testd::mutex_help_ai::x03_single_request_dual_grant_rejected ... ok
+test testd::mutex_help_ai::x05_mutex_covers_erp_maker_checker ... ok
+test testd::mutex_help_ai::x04_existing_dual_holder_detected ... ok
+test testd::project_log::c03_log_has_no_update_path ... ok
+test testd::project_log::c01_every_state_change_logged ... ok
+test testd::project_log::c02_log_fields_complete ... ok
+test testd::project_log::c04_timeline_by_object ... ok
+test testd::project_log::c05_filter_by_operator_and_time ... ok
+test testd::project_log::p01_create_project_and_bind_task ... ok
+test testd::project_log::p02_delete_project_unbinds_tasks ... ok
+test testd::project_log::p03_project_stats_aggregate_tasks ... ok
+test testd::project_log::c06_ten_objects_log_count_matches ... ok
+test testd::project_log::p04_project_membership_is_not_a_scope ... ok
+test testd::storage::f01_local_store_roundtrip_integrity ... ok
+test testd::project_log::p05_archive_project ... ok
+test testd::storage::f02_oversize_upload_rejected ... ok
+test testd::storage::f03_dangerous_extension_rejected ... ok
+test testd::storage::f04_path_traversal_rejected ... ok
+test testd::storage::f05_download_owner_isolation ... ok
+test testd::storage::f06_both_backends_core_paths ... ok
+test testd::storage::zz_no_fixture_residue_after_full_suite ... ok
+test testd::storage::f07_presign_ttl_and_expiry ... ok
+test testd::storage::f08_delete_is_soft_delete ... ok
+test testd::storage::f09_attachment_lifecycle_vs_document ... ok
+
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 201.17s
+
+     Running unittests examples/announcement_dispatch_retry.rs (/root/regress-9867fbe-target/debug/examples/announcement_dispatch_retry-916c3dab7b0f2553)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 9 targets failed:
+    `--test batchB_b2_scope`
+    `--test batchC_c4_help`
+    `--test batchT_t1_task`
+    `--test fix04_notice_offline`
+    `--test impexp_worker`
+    `--test linkage`
+    `--test pflow1a`
+    `--test pflow1b`
+    `--test pflow5`

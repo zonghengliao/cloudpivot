@@ -1,0 +1,3 @@
+a4_submodule                       threads=4 exit=0   test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 2528 filtered out; finished in 34.35s
+serial_t1_single                   threads=1 exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2540 filtered out; finished in 1.56s
+cashflow_r3_single                 threads=1 exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2540 filtered out; finished in 0.32s

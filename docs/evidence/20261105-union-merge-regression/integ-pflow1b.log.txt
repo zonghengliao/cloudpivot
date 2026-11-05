@@ -1,0 +1,42 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/pflow1b.rs (/root/regress-9867fbe-target/debug/deps/pflow1b-f452d356433f23e7)
+
+running 14 tests
+test approve_mode_reject_follows_on_reject ... FAILED
+test cancel_task_terminates_instance ... ok
+test concurrent_complete_only_one_advances ... ok
+test complete_without_review_advances_flow ... ok
+test plain_task_is_untouched ... ok
+test flow_task_outcome_four_branches ... ok
+test approve_mode_full_chain ... ok
+test publish_rejects_missing_approve_biz_type ... ok
+test conflict_when_instance_already_cancelled ... ok
+test task_accept_approval_advances_node ... FAILED
+test reject_stay_keeps_node_active ... ok
+test review_pass_approves_node ... ok
+test reject_back_to_prev_reopens_previous ... ok
+test withdraw_instance_cancels_unfinished_tasks ... ok
+
+failures:
+
+---- approve_mode_reject_follows_on_reject stdout ----
+
+thread 'approve_mode_reject_follows_on_reject' (149309) panicked at tests/pflow1b.rs:333:33:
+建流程失败：10004 服务器内部错误
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- task_accept_approval_advances_node stdout ----
+
+thread 'task_accept_approval_advances_node' (149942) panicked at tests/pflow1b.rs:1347:10:
+① 提交验收必须自动发起验收审批单
+
+
+failures:
+    approve_mode_reject_follows_on_reject
+    task_accept_approval_advances_node
+
+test result: FAILED. 12 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 9.43s
+
+error: test failed, to rerun pass `--test pflow1b`
+error: 1 target failed:
+    `--test pflow1b`

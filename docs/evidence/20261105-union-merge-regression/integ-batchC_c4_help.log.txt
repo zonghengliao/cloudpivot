@@ -1,0 +1,34 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchC_c4_help.rs (/root/regress-9867fbe-target/debug/deps/batchC_c4_help-59bad239dd13e203)
+
+running 11 tests
+test h01_category_depth_limit ... ok
+test h03_slug_unique_and_format ... FAILED
+test h04_publish_requires_published_at ... ok
+test h02_category_not_empty ... ok
+test h05_version_snapshots ... ok
+test h06_rollback_creates_new_version ... ok
+test h07_version_cleanup_keeps_latest_20 ... ok
+test h08_search_escapes_wildcards ... ok
+test h09_search_respects_publish_state ... ok
+test h10_h11_h12_snippet_and_toc ... ok
+test search_performance_2000_docs ... ok
+
+failures:
+
+---- h03_slug_unique_and_format stdout ----
+清理夹具：doc=0 category=0
+
+thread 'h03_slug_unique_and_format' (131623) panicked at tests/batchC_c4_help.rs:271:5:
+重复 slug 必须 409，实际：Err(Db(InvalidValue("帮助文档：文档 slug 已存在")))
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    h03_slug_unique_and_format
+
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.34s
+
+error: test failed, to rerun pass `--test batchC_c4_help`
+error: 1 target failed:
+    `--test batchC_c4_help`

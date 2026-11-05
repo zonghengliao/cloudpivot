@@ -1,0 +1,38 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.17s
+     Running tests/pflow1a.rs (/root/regress-9ed4bf8-target/debug/deps/pflow1a-c66f93582066df3e)
+
+running 12 tests
+test flow_detail_carries_on_complete_verify ... ok
+test flow_detail_carries_on_complete_direct ... ok
+test preview_covers_five_cases ... ok
+test flow_detail_approval_is_null_for_direct_node ... ok
+test flow_detail_is_null_for_manual_task ... ok
+test role_multi_resolution_makes_one_task_with_members ... ok
+test task_node_end_to_end_creates_one_task ... ok
+test publish_regression_keeps_graph_hash ... FAILED
+test flow_detail_carries_approval_progress ... ok
+test too_long_title_rolls_back_whole_instance ... ok
+test task_node_generation_is_idempotent ... ok
+test task_page_filters_by_flow_source ... ok
+
+failures:
+
+---- publish_regression_keeps_graph_hash stdout ----
+[④] contract_approve v1 → 重新发布 hash 不变（95270c466037cbb4f83a68e42eb02d7476ae520ca0f96da84edd1e47f7b75768），nodes=6 edges=6
+[④] flow_edge_config v1 → 重新发布 hash 不变（c0ad61937b734114f6865f9347b57ab9824f560605e522a204d22650baa30e08），nodes=3 edges=2
+[④] payable_cancel v1 → 重新发布 hash 不变（4f484777debbea1a0cc1a76db28274c4d9986c8cbe8d3936afa7e08a50adf7fc），nodes=3 edges=2
+[④] payable_pay v1 → 重新发布 hash 不变（8341eac726949864d2a9fdb562a34154d8b7eb611a265fc6adc2c1c9e8e5c1c5），nodes=7 edges=8
+
+thread 'publish_regression_keeps_graph_hash' (205821) panicked at tests/pflow1a.rs:448:32:
+流程 pflow_aprd_db2b7f05 不存在
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    publish_regression_keeps_graph_hash
+
+test result: FAILED. 11 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 8.36s
+
+error: test failed, to rerun pass `--test pflow1a`
+error: 1 target failed:
+    `--test pflow1a`

@@ -1,0 +1,33 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/impexp_worker.rs (/root/regress-9ed4bf8-target/debug/deps/impexp_worker-776cc21154ec2934)
+
+running 7 tests
+test claim_is_exclusive_across_processes ... ok
+test fresh_running_task_is_not_reclaimed ... ok
+test failure_schedules_backoff_and_stays_pending ... ok
+test zombie_reclaim_marks_failed_when_attempts_exhausted ... ok
+test zombie_running_task_is_reclaimed ... ok
+test worker_marks_failed_when_definition_missing ... FAILED
+test expired_artifact_file_is_purged ... ok
+
+failures:
+
+---- worker_marks_failed_when_definition_missing stdout ----
+worker 报告: impexp_export_worker: claimed=1 succeeded=0 requeued=0 failed=1 canceled=0
+任务终态: status=PENDING attempt=0/3 message=None
+
+thread 'worker_marks_failed_when_definition_missing' (188268) panicked at tests/impexp_worker.rs:423:5:
+assertion `left == right` failed
+  left: "PENDING"
+ right: "FAILED"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    worker_marks_failed_when_definition_missing
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `--test impexp_worker`
+error: 1 target failed:
+    `--test impexp_worker`

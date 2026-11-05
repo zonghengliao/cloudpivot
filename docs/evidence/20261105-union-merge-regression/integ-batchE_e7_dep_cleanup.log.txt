@@ -1,0 +1,8 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchE_e7_dep_cleanup.rs (/root/regress-9867fbe-target/debug/deps/batchE_e7_dep_cleanup-db68c04c90992926)
+
+running 1 test
+test soft_delete_purges_dependencies_and_guard_counts_orphans ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+

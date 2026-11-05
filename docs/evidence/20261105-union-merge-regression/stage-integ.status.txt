@@ -1,0 +1,82 @@
+C exit=101 elapsed=211s
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.36s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.30s
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: FAILED. 0 passed; 62 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+test result: FAILED. 0 passed; 12 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: FAILED. 0 passed; 14 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+test result: FAILED. 0 passed; 15 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 67 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 201.17s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test b2_real_database_acceptance ... FAILED
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+error: test failed, to rerun pass `--test batchB_b2_scope`
+test h03_slug_unique_and_format ... FAILED
+test result: FAILED. 10 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.51s
+error: test failed, to rerun pass `--test batchC_c4_help`
+test task_no_is_unique_and_increasing ... FAILED
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.82s
+error: test failed, to rerun pass `--test batchT_t1_task`
+test t3_unread_badge_drops ... FAILED
+test t2_read_receipt_is_preserved ... FAILED
+test t8_other_biz_notice_untouched ... FAILED
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.44s
+error: test failed, to rerun pass `--test fix04_notice_offline`
+test expired_artifact_file_is_purged ... FAILED
+test worker_marks_failed_when_definition_missing ... FAILED
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+error: test failed, to rerun pass `--test impexp_worker`
+test linkage::payable_chain::p04_payment_generates_balanced_voucher ... FAILED
+test linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled ... FAILED
+test linkage::payable_chain::p02_partial_payment_marks_partial_paid ... FAILED
+test linkage::payable_chain::p01_full_payment_settles_payable ... FAILED
+test linkage::payable_chain::p05_over_payment_is_bad_request ... FAILED
+test linkage::payable_chain::p07_cancel_paid_payable_is_conflict ... FAILED
+test linkage::payable_chain::p08_paid_plus_unpaid_equals_amount ... FAILED
+test linkage::payable_chain::p06_pay_settled_is_conflict ... FAILED
+test linkage::stockin_chain::s04_post_creates_serials_for_serial_material ... FAILED
+test linkage::stockin_chain::s05_invariant_b1_location_equals_cost ... FAILED
+test linkage::stockin_chain::s06_cancel_rolls_back_inventory ... FAILED
+test linkage::stockin_chain::s07_cancel_rolls_back_location_ledger ... FAILED
+test linkage::stockin_chain::s08_cancel_writes_reverse_txn ... FAILED
+test linkage::stockin_chain::s09_cancel_reverses_voucher ... FAILED
+test linkage::stockin_chain::s01_post_writes_all_six_ledgers ... FAILED
+test linkage::stockin_chain::s10_cancel_cancels_payable ... FAILED
+test linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline ... FAILED
+test linkage::stockin_chain::s13_cancel_without_reason_is_bad_request ... FAILED
+test linkage::stockin_chain::s03_payable_amount_equals_stock_in_total ... FAILED
+test linkage::stockin_chain::s14_cancel_after_shipping_is_conflict ... FAILED
+test linkage::stockin_chain::s15_double_cancel_is_conflict ... FAILED
+test linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo ... FAILED
+test linkage::task_flow_linkage::t02_task_cancelled_cancels_instance ... FAILED
+test linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp ... FAILED
+test linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node ... FAILED
+test linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts ... FAILED
+test linkage::task_flow_linkage::t05_task_done_keeps_instance_approved ... FAILED
+test linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance ... FAILED
+test linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance ... FAILED
+test linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled ... FAILED
+test linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected ... FAILED
+test linkage::task_flow_linkage::t11_cancel_is_idempotent ... FAILED
+test linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel ... FAILED
+test linkage::task_flow_linkage::t13_submitter_has_no_todo ... FAILED
+test linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child ... FAILED
+test linkage::task_flow_linkage::t14_approver_sees_todo ... FAILED
+test linkage::stockin_chain::s16_failed_cancel_rolls_back_everything ... FAILED
+test linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo ... FAILED
+test linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance ... FAILED
+test linkage::task_flow_linkage::t16_outsider_sees_nothing ... FAILED
+test linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance ... FAILED
+test linkage::transfer_chain::f02_approval_moves_to_approved ... FAILED

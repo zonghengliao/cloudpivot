@@ -1,0 +1,49 @@
+==> 后端：cargo clippy -- -D warnings
+    Checking nik-core v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-core)
+    Checking nik-config v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-config)
+    Checking nik-db-core v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-db-core)
+    Checking nik-db-sql v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-db-sql)
+    Checking nik-utils v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-utils)
+   Compiling nik-db-macro v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-db-macro)
+    Checking nik-cache v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-cache)
+    Checking nik-db-driver-postgres v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-db-driver-postgres)
+    Checking nik-log v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-log)
+    Checking nik-plugin v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-plugin)
+    Checking nik-db v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-db)
+    Checking nik-fs v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-fs)
+    Checking nik-web v0.4.2 (/root/regress-9867fbe/backend/vendor/nik-web)
+    Checking nik v0.4.2 (/root/regress-9867fbe/backend/vendor/nik)
+    Checking cloudpivot v0.1.0 (/root/regress-9867fbe/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1m 22s
+==> 后端：cargo check
+    Checking cloudpivot v0.1.0 (/root/regress-9867fbe/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 38.82s
+==> 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+
+> @cloudpivot/web@0.1.0 typecheck /root/regress-9867fbe/frontend
+> vue-tsc --noEmit
+
+==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
+    白名单：business/shared/scope.rs（+ 注释行不计）
+  PASS：0 处（分页全部走 scope::paginate）
+==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
+    登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def biz_project biz_project_member biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc 
+闸② 判定面（v2）：扫描生产面 342 个文件 / 跳过测试面 61 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/erp/asset_handler.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/budget_handler.rs 查询 sys_dept 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：跳过清单断言：backend/src/business/erp/asset_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/regress-9867fbe/backend/src/business/erp/asset_model.rs:1678）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/asset_model_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_dto_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/regress-9867fbe/backend/src/business/erp/budget_dto.rs:839）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_dto_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_guard_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/regress-9867fbe/backend/src/business/erp/budget_guard.rs:818）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_guard_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/regress-9867fbe/backend/src/business/erp/budget_model.rs:1112）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_model_tests.rs",
+  FAIL：2 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/asset_handler.rs (sys_dept, sys_user)
+    business/erp/budget_handler.rs (sys_dept)
+==> 批次B 门禁汇总：闸①=0 处  闸②=2 处  （B0 基线 20 / 21）
+==> 批次B 门禁：1 条未通过。修法（二选一）：
+    ① 分页接口改成 scope::paginate；单条/导出查询用 scope::filter_for
+    ② 确实不需要数据权限的查询，在函数上方写一行 // SCOPE-EXEMPT: <理由>
+    B2–B4 施工期可临时用 BATCHB_GATE=warn bash scripts/check.sh 绕过本门禁。

@@ -1,0 +1,4 @@
+pflow5         templates_default_scope_only_returns_standard        exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 3.76s
+pflow5         duplicate_does_not_copy_instances                    exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 14 filtered out; finished in 3.15s
+batchC_c5_changelog record_in_same_transaction_rolls_back                exit=0   test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 0.28s
+batchC_c4_help h03_slug_unique_and_format                           exit=101 test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 10 filtered out; finished in 0.26s

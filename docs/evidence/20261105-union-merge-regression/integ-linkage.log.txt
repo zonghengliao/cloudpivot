@@ -1,0 +1,140 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running tests/linkage.rs (/root/regress-9867fbe-target/debug/deps/linkage-b6ef85419c0c306d)
+
+running 62 tests
+test linkage::payable_chain::p01_full_payment_settles_payable ... ok
+test linkage::payable_chain::p03_two_partial_payments_accumulate_to_settled ... ok
+test linkage::payable_chain::p04_payment_generates_balanced_voucher ... ok
+test linkage::payable_chain::p02_partial_payment_marks_partial_paid ... ok
+test linkage::payable_chain::p05_over_payment_is_bad_request ... ok
+test linkage::payable_chain::p06_pay_settled_is_conflict ... ok
+test linkage::payable_chain::p07_cancel_paid_payable_is_conflict ... ok
+test linkage::payable_chain::p08_paid_plus_unpaid_equals_amount ... ok
+test linkage::stockin_chain::s01_post_writes_all_six_ledgers ... ok
+test linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts ... ok
+test linkage::stockin_chain::s03_payable_amount_equals_stock_in_total ... ok
+test linkage::stockin_chain::s04_post_creates_serials_for_serial_material ... ok
+test linkage::stockin_chain::s05_invariant_b1_location_equals_cost ... ok
+test linkage::stockin_chain::s06_cancel_rolls_back_inventory ... FAILED
+test linkage::stockin_chain::s07_cancel_rolls_back_location_ledger ... FAILED
+test linkage::stockin_chain::s08_cancel_writes_reverse_txn ... FAILED
+test linkage::stockin_chain::s09_cancel_reverses_voucher ... FAILED
+test linkage::stockin_chain::s10_cancel_cancels_payable ... FAILED
+test linkage::stockin_chain::s11_cancel_voids_serials ... FAILED
+test linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline ... FAILED
+test linkage::stockin_chain::s13_cancel_without_reason_is_bad_request ... ok
+test linkage::stockin_chain::s14_cancel_after_shipping_is_conflict ... ok
+test linkage::stockin_chain::s15_double_cancel_is_conflict ... FAILED
+test linkage::stockin_chain::s16_failed_cancel_rolls_back_everything ... ok
+test linkage::task_flow_linkage::t01_submit_review_starts_instance_and_todo ... ok
+test linkage::task_flow_linkage::t02_task_cancelled_cancels_instance ... ok
+test linkage::task_flow_linkage::t03_task_cancelled_cancels_todo_with_timestamp ... ok
+test linkage::task_flow_linkage::t04_task_cancelled_cancels_instance_node ... ok
+test linkage::task_flow_linkage::t05_task_done_keeps_instance_approved ... ok
+test linkage::task_flow_linkage::t06_parent_cancel_cascades_to_child ... ok
+test linkage::task_flow_linkage::t07_parent_cancel_cancels_child_instance ... ok
+test linkage::task_flow_linkage::t08_task_soft_delete_cancels_instance ... ok
+test linkage::task_flow_linkage::t09_approve_after_cancel_keeps_task_cancelled ... ok
+test linkage::task_flow_linkage::t10_approve_after_cancel_is_rejected ... ok
+test linkage::task_flow_linkage::t11_cancel_is_idempotent ... ok
+test linkage::task_flow_linkage::t12_approved_todo_survives_later_cancel ... ok
+test linkage::task_flow_linkage::t13_submitter_has_no_todo ... ok
+test linkage::task_flow_linkage::t14_approver_sees_todo ... ok
+test linkage::task_flow_linkage::t15_cancelled_task_disappears_from_approver_todo ... ok
+test linkage::task_flow_linkage::t16_outsider_sees_nothing ... ok
+test linkage::task_flow_linkage::t17_missing_flow_falls_back_to_two_level_acceptance ... ok
+test linkage::task_flow_linkage::t18_second_submit_does_not_create_second_instance ... ok
+test linkage::transfer_chain::f01_submit_creates_pending_instance ... ok
+test linkage::transfer_chain::f02_approval_moves_to_approved ... ok
+test linkage::transfer_chain::f03_ship_records_transit_warehouse_without_touching_stock ... ok
+test linkage::transfer_chain::f04_receive_moves_qty_between_warehouses ... ok
+test linkage::transfer_chain::f05_total_qty_and_cost_conserved_after_done ... ok
+test linkage::transfer_chain::f06_draft_cancel_leaves_stock_untouched ... ok
+test linkage::transfer_chain::f07_pending_cancel_terminates_running_instance ... ok
+test linkage::transfer_chain::f08_manual_approve_while_pending_is_blocked ... ok
+test linkage::transfer_chain::f09_over_issue_is_rejected_at_settlement ... ok
+test linkage::transfer_chain::f10_concurrent_transfers_do_not_deadlock ... ok
+test linkage::transfer_chain::f11_serials_follow_the_transfer ... ok
+test linkage::transfer_chain::f12_in_transit_stuck_shipment_should_alert ... ok
+test linkage::voucher_chain::v01_reverse_creates_mirrored_red_voucher ... ok
+test linkage::voucher_chain::v02_reverse_backfills_pointer_and_keeps_posted ... ok
+test linkage::voucher_chain::v03_double_reverse_is_conflict ... ok
+test linkage::voucher_chain::v04_reverse_red_voucher_is_conflict ... ok
+test linkage::voucher_chain::v05_unbalanced_manual_voucher_is_bad_request ... ok
+test linkage::voucher_chain::v06_balanced_manual_voucher_is_posted ... ok
+test linkage::voucher_chain::v07_every_voucher_is_balanced ... ok
+test linkage::voucher_chain::v08_each_entry_has_exactly_one_non_zero_side ... ok
+
+failures:
+
+---- linkage::stockin_chain::s06_cancel_rolls_back_inventory stdout ----
+
+thread 'linkage::stockin_chain::s06_cancel_rolls_back_inventory' (134423) panicked at tests/linkage/stockin_chain.rs:458:5:
+assertion `left == right` failed
+  left: "PENDING_CANCEL"
+ right: "CANCELLED"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- linkage::stockin_chain::s07_cancel_rolls_back_location_ledger stdout ----
+
+thread 'linkage::stockin_chain::s07_cancel_rolls_back_location_ledger' (134640) panicked at tests/linkage/stockin_chain.rs:479:5:
+assertion `left == right` failed: S07：作废后库位账必须回到 0：期望 0，实际 8.0000
+  left: 8.0000
+ right: 0
+
+---- linkage::stockin_chain::s08_cancel_writes_reverse_txn stdout ----
+
+thread 'linkage::stockin_chain::s08_cancel_writes_reverse_txn' (134853) panicked at tests/linkage/stockin_chain.rs:501:5:
+assertion `left == right` failed: S08：作废必须写且只写 1 条 OUT/PURCHASE_IN_CANCEL 反向流水
+  left: 0
+ right: 1
+
+---- linkage::stockin_chain::s09_cancel_reverses_voucher stdout ----
+
+thread 'linkage::stockin_chain::s09_cancel_reverses_voucher' (135096) panicked at tests/linkage/stockin_chain.rs:541:5:
+assertion `left == right` failed: S09：作废后本单名下必须有 2 张凭证（蓝字 + 红字），实际 1 张
+  left: 1
+ right: 2
+
+---- linkage::stockin_chain::s10_cancel_cancels_payable stdout ----
+
+thread 'linkage::stockin_chain::s10_cancel_cancels_payable' (135230) panicked at tests/linkage/stockin_chain.rs:628:5:
+assertion `left == right` failed: S10：作废收货单必须同时作废应付单（否则财务会重复付款）
+  left: "OPEN"
+ right: "CANCELLED"
+
+---- linkage::stockin_chain::s11_cancel_voids_serials stdout ----
+
+thread 'linkage::stockin_chain::s11_cancel_voids_serials' (135432) panicked at tests/linkage/stockin_chain.rs:667:5:
+assertion `left == right` failed: S11：作废必须软删（deleted_at 置位）本单生成的全部序列号
+  left: 2
+ right: 0
+
+---- linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline stdout ----
+
+thread 'linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline' (135578) panicked at tests/linkage/stockin_chain.rs:725:5:
+assertion `left == right` failed: S12：库存必须回到基线：期望 0，实际 12.0000
+  left: 12.0000
+ right: 0
+
+---- linkage::stockin_chain::s15_double_cancel_is_conflict stdout ----
+
+thread 'linkage::stockin_chain::s15_double_cancel_is_conflict' (136047) panicked at tests/linkage/stockin_chain.rs:846:5:
+S15：文案要说明「已经是已作废」，实际：收货入库单 IN-20261105-000025 的作废申请正在审批中（PENDING_CANCEL）：审批通过会自动作废并回滚六本账；想取消本次申请请用「撤回」
+
+
+failures:
+    linkage::stockin_chain::s06_cancel_rolls_back_inventory
+    linkage::stockin_chain::s07_cancel_rolls_back_location_ledger
+    linkage::stockin_chain::s08_cancel_writes_reverse_txn
+    linkage::stockin_chain::s09_cancel_reverses_voucher
+    linkage::stockin_chain::s10_cancel_cancels_payable
+    linkage::stockin_chain::s11_cancel_voids_serials
+    linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline
+    linkage::stockin_chain::s15_double_cancel_is_conflict
+
+test result: FAILED. 54 passed; 8 failed; 0 ignored; 0 measured; 0 filtered out; finished in 301.98s
+
+error: test failed, to rerun pass `--test linkage`
+error: 1 target failed:
+    `--test linkage`

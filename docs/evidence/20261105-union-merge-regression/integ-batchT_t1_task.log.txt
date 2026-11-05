@@ -1,0 +1,12 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchT_t1_task.rs (/root/regress-9867fbe-target/debug/deps/batchT_t1_task-fc3baf2a44b2e460)
+
+running 5 tests
+test task_no_is_unique_and_increasing ... ok
+test schema_and_indexes_exist ... ok
+test crud_roundtrip ... ok
+test my_buckets_and_overdue_scan ... ok
+test visibility_four_scenarios ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
+

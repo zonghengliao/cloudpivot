@@ -1,0 +1,74 @@
+Diff in /root/regress-9ed4bf8/backend/src/bootstrap.rs:81:
+     match crate::shared::startup_guard::count_test_residue().await {
+         Ok(residue) => match crate::shared::startup_guard::test_residue_warning(residue) {
+             Some(message) => tracing::warn!("{message}"),
+-            None => tracing::info!("测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"),
++            None => tracing::info!(
++                "测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"
++            ),
+         },
+         Err(error) => tracing::warn!("测试残留自检无法完成（继续启动）：{error}"),
+     }
+Diff in /root/regress-9ed4bf8/backend/src/business/shared/doc_kind_tests.rs:647:
+         "E2E_AP_E2EMVUARCAT"
+     ));
+     assert!(crate::business::shared::doc_kind::is_test_residue("E2E_"));
+-    assert!(crate::business::shared::doc_kind::is_test_residue("D2_SMOKE"));
++    assert!(crate::business::shared::doc_kind::is_test_residue(
++        "D2_SMOKE"
++    ));
+     // 真阴性：内置流程 / 客户自定义流程 / 形似但不是
+-    for raw in ["PO_APPROVE", "TASK_ACCEPT", "OTHER", "E2EX", "e2e_ap_x", "D2_SMOKE_X"] {
++    for raw in [
++        "PO_APPROVE",
++        "TASK_ACCEPT",
++        "OTHER",
++        "E2EX",
++        "e2e_ap_x",
++        "D2_SMOKE_X",
++    ] {
+         assert!(
+             !crate::business::shared::doc_kind::is_test_residue(raw),
+             "{raw} 不该被当成测试残留"
+Diff in /root/regress-9ed4bf8/backend/src/shared/startup_guard.rs:969:
+ 
+     let defs: i64 = db()
+         .scalar_with_params(
+-            &format!("SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
++            &format!(
++                "SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
++            ),
+             vec![],
+         )
+         .await
+Diff in /root/regress-9ed4bf8/backend/src/shared/startup_guard.rs:1059:
+     /// 只有定义、没有实例（或反过来）同样算残留 —— 半截状态正是「删到一半」的典型。
+     #[test]
+     fn test_residue_partial_counts_still_warn() {
+-        assert!(test_residue_warning(TestResidue {
+-            defs: 1,
+-            instances: 0
+-        })
+-        .is_some());
+-        assert!(test_residue_warning(TestResidue {
+-            defs: 0,
+-            instances: 1
+-        })
+-        .is_some());
++        assert!(
++            test_residue_warning(TestResidue {
++                defs: 1,
++                instances: 0
++            })
++            .is_some()
++        );
++        assert!(
++            test_residue_warning(TestResidue {
++                defs: 0,
++                instances: 1
++            })
++            .is_some()
++        );
+     }
+ 
+     /// 测试用 64 位十六进制密钥（形状与 `openssl rand -hex 32` 一致，非真实密钥）。

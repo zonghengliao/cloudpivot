@@ -1,0 +1,51 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/batchB_b2_scope.rs (/root/regress-9ed4bf8-target/debug/deps/batchB_b2_scope-9a4dbca549b09554)
+
+running 1 test
+test b2_real_database_acceptance ... FAILED
+
+failures:
+
+---- b2_real_database_acceptance stdout ----
+B2 已连接验证库
+B2 夹具已灌入（/root/regress-9ed4bf8/backend/tests/sql/batchb/b2_scope_fixture.sql）
+
+================ B2 真库验收：五种范围 + 并集 + 降级 ================
+  admin      kind=ALL            dept_set=0  self_only=false own_dept=NULL
+  u_all      kind=ALL            dept_set=0  self_only=false own_dept=b2000000-0000-0000-0000-000000000001
+  u_dept     kind=DEPT           dept_set=1  self_only=false own_dept=b2000000-0000-0000-0000-000000000002
+  u_child    kind=DEPT_AND_CHILD dept_set=3  self_only=false own_dept=b2000000-0000-0000-0000-000000000002
+  u_self     kind=SELF           dept_set=0  self_only=true  own_dept=b2000000-0000-0000-0000-000000000005
+  u_custom   kind=CUSTOM         dept_set=2  self_only=false own_dept=b2000000-0000-0000-0000-000000000006
+  u_multi    kind=DEPT           dept_set=1  self_only=true  own_dept=b2000000-0000-0000-0000-000000000002
+  u_nodept   kind=SELF           dept_set=0  self_only=true  own_dept=NULL
+  u_norole   kind=SELF           dept_set=0  self_only=true  own_dept=b2000000-0000-0000-0000-000000000001
+  u_branch   kind=SELF           dept_set=0  self_only=true  own_dept=b2000000-0000-0000-0000-000000000005
+
+[S12] 真库 count 语句（无 ORDER BY，可执行）：
+  SELECT COUNT(*) FROM (SELECT u.*, d.dept_name AS dept_name FROM sys_user u LEFT JOIN sys_dept d ON d.id = u.dept_id AND d.deleted_at IS NULL WHERE u.deleted_at IS NULL AND u.dept_id = ANY(?::text::uuid[])) AS _scope_count
+[S12] 片段：` AND u.dept_id = ANY(?::text::uuid[])` binds=1
+
+[S8/S13] FILTER 标记 + 业务参数 `AND u.username LIKE ?` → total=2 rows=["b2_u_leaf1", "b2_u_leaf2"] ✓
+[S13] 缺 {FILTER} → invalid value: base_sql 带 1 个业务参数但没有 {FILTER} 标记：片段追加到末尾会让 `?` 顺序与参数顺序错位（架构 §2.6 参数顺序契约） ✓
+
+[回退查库] 埋点 ScopeCacheStats { hits: 0, misses: 0, db_loads: 10, cache_unavailable: 10 }
+[回退查库] 无缓存时 9 个用户的解析与可见行数全部正确（见上方逐条断言）✓
+
+[自检] 数据权限自检通过：11 张登记表的部门列/归属列均存在，SUPER_ADMIN 角色存在
+
+thread 'b2_real_database_acceptance' (188312) panicked at tests/batchB_b2_scope.rs:403:5:
+assertion `left == right` failed
+  left: 11
+ right: 10
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    b2_real_database_acceptance
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+error: test failed, to rerun pass `--test batchB_b2_scope`
+error: 1 target failed:
+    `--test batchB_b2_scope`

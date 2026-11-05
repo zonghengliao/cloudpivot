@@ -1,0 +1,43 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.11s
+     Running tests/fix04_notice_offline.rs (/root/regress-9ed4bf8-target/debug/deps/fix04_notice_offline-f7b3cd6ff06a1120)
+
+running 9 tests
+test t1_delete_offlines_notice_and_receivers ... ok
+test t4_message_center_hides_notice ... ok
+test t2_read_receipt_is_preserved ... FAILED
+test t3_unread_badge_drops ... FAILED
+test t5_second_delete_is_idempotent ... ok
+test t6_failure_rolls_back_both ... FAILED
+test t7_pending_scheduled_notice_canceled ... ok
+test t8_other_biz_notice_untouched ... ok
+test t9_announcement_without_notice_is_noop ... ok
+
+failures:
+
+---- t2_read_receipt_is_preserved stdout ----
+
+thread 't2_read_receipt_is_preserved' (188210) panicked at tests/fix04_notice_offline.rs:178:14:
+插入接收人夹具: ForeignKeyViolation { constraint: Some("sys_notice_receiver_notice_id_fkey"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23503), message: "insert or update on table \"sys_notice_receiver\" violates foreign key constraint \"sys_notice_receiver_notice_id_fkey\"", detail: Some("Key (notice_id)=(01a1a956-c107-759c-b965-eaa88706d9f8) is not present in table \"sys_notice\"."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_notice_receiver"), column: None, datatype: None, constraint: Some("sys_notice_receiver_notice_id_fkey"), file: Some("ri_triggers.c"), line: Some(2772), routine: Some("ri_ReportViolation") }) }) }
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- t3_unread_badge_drops stdout ----
+
+thread 't3_unread_badge_drops' (188211) panicked at tests/fix04_notice_offline.rs:144:6:
+插入公告夹具: UniqueViolation { column: None, constraint: Some("uk_sys_announcement_no"), source: Some(Error { kind: Db, cause: Some(DbError { severity: "ERROR", parsed_severity: Some(Error), code: SqlState(E23505), message: "duplicate key value violates unique constraint \"uk_sys_announcement_no\"", detail: Some("Key (ann_no)=(fix04-A01a1a956c111) already exists."), hint: None, position: None, where_: None, schema: Some("public"), table: Some("sys_announcement"), column: None, datatype: None, constraint: Some("uk_sys_announcement_no"), file: Some("nbtinsert.c"), line: Some(666), routine: Some("_bt_check_unique") }) }) }
+
+---- t6_failure_rolls_back_both stdout ----
+
+thread 't6_failure_rolls_back_both' (188219) panicked at tests/fix04_notice_offline.rs:216:28:
+通知行必须存在（本模块不做硬删）
+
+
+failures:
+    t2_read_receipt_is_preserved
+    t3_unread_badge_drops
+    t6_failure_rolls_back_both
+
+test result: FAILED. 6 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+error: test failed, to rerun pass `--test fix04_notice_offline`
+error: 1 target failed:
+    `--test fix04_notice_offline`
