@@ -33,7 +33,7 @@ BEGIN
                      FROM jsonb_array_elements(v_snap -> 'nodes') AS node
                ),
                'edges', (
-                   SELECT jsonb_agg(edge ORDER BY src.sort_order, (edge ->> 'priority')::int, edge ->> 'key')
+                   SELECT jsonb_agg(edge ORDER BY (src ->> 'sort_order')::int, (edge ->> 'priority')::int, edge ->> 'key')
                      FROM jsonb_array_elements(v_snap -> 'edges') AS edge
                      JOIN jsonb_array_elements(v_snap -> 'nodes') AS src
                        ON src ->> 'key' = edge ->> 'from'
