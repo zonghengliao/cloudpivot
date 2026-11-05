@@ -1218,16 +1218,40 @@ mod tests {
              ON CONFLICT DO NOTHING"
         ))
         .await;
-        // 审批人来源是 ADMIN（运行时展开全部超管）：只有两个复核人挂 SUPER_ADMIN；
-        // 制单人**故意不挂** —— 否则他自己那一票批不动（内控），ALL 会签永远凑不齐，
-        // 「正常付款能走完」的用例就没法独立验证了（那条内控由 ⑰ 单独钉住）。
-        let role: String = db()
+        // 审批人来源：V0251（P0-FIX-2B-B）起是**业务角色**（n_dept=DEPT_LEADER /
+        // n_fin=FINANCE_MANAGER / n_board=FINANCE_DIRECTOR+GENERAL_MANAGER），不再是
+        // 「`ADMIN` 运行时展开全部超管」。两个复核人必须同时挂 SUPER_ADMIN（FALLBACK_ADMIN
+        // 兜底口径）与**当前种子节点实际绑定的全部角色**，才能保持本组用例原本的前提
+        // 「每一层都有两个能批的人」（会签凑得齐、制单人那份留痕行也在）。
+        // 角色清单从库里读 ⇒ 换种子（改角色 / 加节点）时这里自动跟着走，不会再假红。
+        // 制单人**故意不挂** —— 否则他自己那一票批不动（内控），ALL 会签永远凑不齐。
+        let super_role: String = db()
             .scalar_with_params(
                 "SELECT id::text FROM sys_role WHERE role_code = 'SUPER_ADMIN' AND deleted_at IS NULL LIMIT 1",
                 vec![],
             )
             .await
             .expect("查询 SUPER_ADMIN 角色失败");
+        let mut roles: Vec<String> = vec![super_role];
+        let seed_roles = db()
+            .find_with_params(
+                "SELECT DISTINCT a.ref_id::text AS role_id \
+                   FROM biz_flow_def d \
+                   JOIN biz_flow_def_version v ON v.id = d.current_version_id \
+                   JOIN biz_flow_node n ON n.version_id = v.id \
+                   JOIN biz_flow_node_assignee a ON a.node_id = n.id \
+                  WHERE d.flow_code = 'payable_pay' AND d.deleted_at IS NULL \
+                    AND a.assignee_type = 'ROLE'",
+                vec![],
+            )
+            .await
+            .expect("查询种子审批节点绑定的角色");
+        for row in &seed_roles {
+            let role_id: String = row.get_typed("role_id").expect("role_id");
+            if !roles.contains(&role_id) {
+                roles.push(role_id);
+            }
+        }
         for (id, name) in [
             (CREATOR, "p17_creator"),
             (APPROVER1, "p17_ap1"),
@@ -1245,11 +1269,13 @@ mod tests {
             if id == CREATOR {
                 continue;
             }
-            exec(&format!(
-                "INSERT INTO sys_user_role (user_id, role_id) VALUES ('{id}'::uuid, '{role}'::uuid) \
-                 ON CONFLICT DO NOTHING"
-            ))
-            .await;
+            for role_id in &roles {
+                exec(&format!(
+                    "INSERT INTO sys_user_role (user_id, role_id) VALUES ('{id}'::uuid, '{role_id}'::uuid) \
+                     ON CONFLICT DO NOTHING"
+                ))
+                .await;
+            }
         }
         // 会计期间必须存在且 OPEN（付款凭证记在「今天（CST）」）
         let today = voucher::today_cst(Utc::now());

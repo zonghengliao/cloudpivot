@@ -1853,21 +1853,36 @@ mod db_tests {
     /// - 上一次 ⑥ 用例把流程软删后若 panic 没来得及恢复 → 这里 `deleted_at = NULL` 自愈；
     /// - 流程被改成非 PUBLISHED（不该发生，但自愈一次代价极低）→ 复原。
     ///
+    /// # 为什么不能把 `current_version_id` 写死成 v1（卡 TEST-ISO-2 实测）
+    ///
+    /// V0251（P0-FIX-2B-B 流程去 ADMIN 化）给 `stock_transfer` 发了 v2 并把 v1 归档，
+    /// `biz_flow_def.current_version_id` 指向 v2。旧版这里硬写 `current_version_id = VER_ID`（= v1）
+    /// ⇒ 定义行指着一个 `ARCHIVED` 版本，自愈反而把库改坏，**52 条 transfer 用例全部红在
+    /// `prepare()` 的「① 当前版本必须是 PUBLISHED」**（left: "ARCHIVED"）。
+    ///
+    /// 所以自愈只改「定义行状态」，当前版本一律从库里**读**（`is_current`，取号最大的那行），
+    /// 只有库里连 `is_current` 行都没有时才退回 v1 兜底。
+    ///
     /// # Panics
     ///
     /// 迁移没应用（测试库停在 V0156 之前）→ 直接 panic 并给出可操作的提示。
     async fn ensure_seed_flow() -> (Uuid, Uuid) {
         exec(
-            "UPDATE biz_flow_def SET status = 'PUBLISHED', is_default = TRUE, deleted_at = NULL, \
-                                    current_version_id = ?::uuid, current_version_no = 1 \
-              WHERE id = ?::uuid",
+            "UPDATE biz_flow_def d SET status = 'PUBLISHED', is_default = TRUE, deleted_at = NULL, \
+                     current_version_id = COALESCE((SELECT v.id FROM biz_flow_def_version v \
+                         WHERE v.def_id = d.id AND v.is_current ORDER BY v.version_no DESC LIMIT 1), \
+                         ?::uuid), \
+                     current_version_no = COALESCE((SELECT v.version_no FROM biz_flow_def_version v \
+                         WHERE v.def_id = d.id AND v.is_current ORDER BY v.version_no DESC LIMIT 1), 1) \
+              WHERE d.id = ?::uuid",
             vec![Value::from(&uuid(VER_ID)), Value::from(&uuid(DEF_ID))],
             "自愈：调拨种子流程状态",
         )
         .await;
         let rows = db()
             .find_with_params(
-                "SELECT d.status, d.is_default, d.biz_type, d.current_version_id, v.version_status \
+                "SELECT d.status, d.is_default, d.biz_type, d.current_version_id::text AS cur_ver, \
+                        v.version_status \
                    FROM biz_flow_def d JOIN biz_flow_def_version v ON v.id = d.current_version_id \
                   WHERE d.id = ?::uuid AND d.deleted_at IS NULL",
                 vec![Value::from(&uuid(DEF_ID))],
@@ -1899,7 +1914,13 @@ mod db_tests {
             "PUBLISHED",
             "① 当前版本必须是 PUBLISHED"
         );
-        (uuid(DEF_ID), uuid(VER_ID))
+        // 返回库里真实的当前版本（V0251 起是 v2），而不是写死的 v1：
+        // 下游用例（⑰-b 的图/hash 自洽）断言的是「当前版本」的内容。
+        let cur_ver = row.get_typed::<String>("cur_ver").expect("cur_ver");
+        (
+            uuid(DEF_ID),
+            Uuid::parse_str(&cur_ver).expect("当前版本 id 非法"),
+        )
     }
 
     fn item(material_id: &str, qty: &str) -> TransferItemReq {
@@ -2655,10 +2676,18 @@ mod db_tests {
             .find(|node| node.key == "n_approve")
             .expect("审批节点");
         assert_eq!(approver.node_type, "APPROVAL");
+        // V0251（P0-FIX-2B-B）起种子口径从「ADMIN = 全部超管」改成业务角色
+        // `WAREHOUSE_MANAGER`；「任何环境都有人收得到待办」由 empty_assignee 兜底，
+        // 所以这里同时钉住「来源 = ROLE」与「空角色 → FALLBACK_ADMIN」两条，
+        // 改种子时漏掉兜底也会红。
         assert_eq!(
             approver.assignee_type.as_deref(),
-            Some("ADMIN"),
-            "① 审批人来源 = ADMIN（超管），保证任何环境都有人收得到待办"
+            Some("ROLE"),
+            "① 审批人来源 = 业务角色（V0251 去 ADMIN 化；不再是 ADMIN 展开全部超管）"
+        );
+        assert_eq!(
+            approver.empty_assignee, "FALLBACK_ADMIN",
+            "① 角色无人时必须兜底到超管，保证任何环境都有人收得到待办"
         );
 
         // ① 行侧与快照侧一致（node/edge 行是编辑器读的来源，不一致会让「打开流程图」看到旧图）
@@ -2673,13 +2702,18 @@ mod db_tests {
     }
 
     // ---------- ⑰-c（P5 ③）提交审批后审批人待办里出现该调拨单 ----------
+    //
+    // V0251（P0-FIX-2B-B 去 ADMIN 化）把 `n_approve` 的审批人来源从 `ADMIN`（展开**全部超管**）
+    // 改成业务角色 `WAREHOUSE_MANAGER`，角色无人时按 `empty_assignee = FALLBACK_ADMIN` 兜底。
+    // 所以「派几条、派给谁」不再写死超管人数，而是**按库里节点的真实绑定算期望**：
+    // 改种子（换角色 / 换兜底策略）时用例自动跟着走，只有「引擎派单与绑定不一致」才红。
 
     #[tokio::test]
-    async fn submit_creates_pending_todo_for_super_admin() {
+    async fn submit_creates_pending_todo_for_seed_assignee() {
         let Some(_guard) = prepare().await else {
             return;
         };
-        ensure_seed_flow().await;
+        let (_, version_id) = ensure_seed_flow().await;
         let (id, row) = transfer_in_status(STATUS_PENDING).await;
         let instance_id = row.approval_instance_id.expect("② 提交审批必须生成实例");
 
@@ -2691,15 +2725,67 @@ mod db_tests {
             )
             .await
             .expect("查审批待办");
+
+        // ① 节点真实绑定（当前版本）+ 空角色策略
+        let binds = db()
+            .find_with_params(
+                "SELECT a.assignee_type, coalesce(r.role_code, '') AS role_code, n.empty_assignee \
+                   FROM biz_flow_node n \
+                   JOIN biz_flow_node_assignee a ON a.node_id = n.id \
+                   LEFT JOIN sys_role r ON r.id = a.ref_id \
+                  WHERE n.version_id = ?::uuid AND n.node_key = 'n_approve'",
+                vec![Value::from(&version_id)],
+            )
+            .await
+            .expect("查审批人绑定");
+        let bind = binds.first().expect("① 种子审批节点必须有审批人绑定");
+        let bind_type = bind
+            .get_typed::<String>("assignee_type")
+            .expect("assignee_type");
+        let role_code: String = bind.get_typed("role_code").expect("role_code");
+        let empty_policy = bind
+            .get_typed::<String>("empty_assignee")
+            .expect("empty_assignee");
+
+        // ② 由绑定推导「期望收件人与来源」（角色无人 → 兜底超管）
         let admins = crate::business::flow::test_support::super_admin_count().await;
+        let (expect_source, expect_count) = match bind_type.as_str() {
+            "ROLE" => {
+                let holders: i64 = db()
+                    .scalar_with_params(
+                        "SELECT count(*) FROM sys_user u \
+                           JOIN sys_user_role ur ON ur.user_id = u.id \
+                           JOIN sys_role r ON r.id = ur.role_id \
+                          WHERE r.role_code = ? AND u.deleted_at IS NULL",
+                        vec![Value::Text(role_code.clone())],
+                    )
+                    .await
+                    .expect("查角色成员");
+                if holders == 0 {
+                    assert_eq!(
+                        empty_policy, "FALLBACK_ADMIN",
+                        "① 角色 `{role_code}` 无人时种子必须兜底到超管，否则提交审批没人收待办"
+                    );
+                    ("ADMIN".to_string(), admins)
+                } else {
+                    ("ROLE".to_string(), holders)
+                }
+            }
+            "ADMIN" => ("ADMIN".to_string(), admins),
+            other => panic!(
+                "① 本用例只覆盖种子节点来源为 ROLE / ADMIN 的口径，实际是 {other}：\
+                 换了来源类型请同步补断言（不允许静默跳过）"
+            ),
+        };
         assert!(
-            admins > 0,
-            "库里必须至少有一个超管（`n_approve` 的审批人来源是 ADMIN）"
+            expect_count > 0,
+            "③ 期望收件人必须 > 0（来源 {expect_source}，否则审批中心里没人看得到）"
         );
         assert_eq!(
             todos.len() as i64,
-            admins,
-            "③ 单节点审批：每个超管各 1 条待办（ADMIN 展开；同一人不得重复派单）"
+            expect_count,
+            "③ 单节点审批：期望 {expect_count} 条待办（来源 {expect_source}；同一人不得重复派单），实际 {}",
+            todos.len()
         );
         let mut seen: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
         for todo in &todos {
@@ -2713,14 +2799,24 @@ mod db_tests {
             );
             assert_eq!(
                 todo.get_typed::<String>("assignee_source").expect("source"),
-                "ADMIN",
-                "③ 审批人来源必须是种子节点的 ADMIN（超管展开）"
+                expect_source,
+                "③ 待办的 assignee_source 必须与节点绑定一致（{expect_source}）"
             );
             let assignee: Uuid = todo.get_typed("assignee_id").expect("assignee_id");
-            assert!(seen.insert(assignee), "③ 同一超管不得被重复派单");
-            // 待办必须落在真实存在的超管账号上（否则审批中心里没人看得到）
-            let is_super: i64 = db()
-                .scalar_with_params(
+            assert!(seen.insert(assignee), "③ 同一人不得被重复派单");
+            // 待办必须落在「真实存在、且确实是该来源成员」的账号上（否则审批中心里没人看得到）
+            let member: i64 = if expect_source == "ROLE" {
+                db().scalar_with_params(
+                    "SELECT count(*) FROM sys_user u \
+                       JOIN sys_user_role ur ON ur.user_id = u.id \
+                       JOIN sys_role r ON r.id = ur.role_id \
+                      WHERE u.id = ?::uuid AND r.role_code = ? AND u.deleted_at IS NULL",
+                    vec![Value::from(&assignee), Value::Text(role_code.clone())],
+                )
+                .await
+                .expect("查角色成员")
+            } else {
+                db().scalar_with_params(
                     "SELECT count(*) FROM sys_user u \
                        JOIN sys_user_role ur ON ur.user_id = u.id \
                        JOIN sys_role r ON r.id = ur.role_id \
@@ -2728,8 +2824,12 @@ mod db_tests {
                     vec![Value::from(&assignee)],
                 )
                 .await
-                .expect("查超管角色");
-            assert_eq!(is_super, 1, "③ 待办审批人必须是 SUPER_ADMIN 角色成员");
+                .expect("查超管角色")
+            };
+            assert_eq!(
+                member, 1,
+                "③ 待办审批人必须是 {expect_source} 的合法成员（{assignee}）"
+            );
         }
 
         // ③ 按调拨单反查也能命中（审批中心「待办」按 biz_type + biz_id 过滤的口径）
@@ -2744,8 +2844,8 @@ mod db_tests {
             .await
             .expect("按单据反查待办");
         assert_eq!(
-            hit, admins,
-            "③ 审批中心里能按调拨单找到全部 {admins} 条待办（实际 {hit}）"
+            hit, expect_count,
+            "③ 审批中心里能按调拨单找到全部 {expect_count} 条待办（实际 {hit}）"
         );
     }
 

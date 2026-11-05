@@ -759,19 +759,45 @@ async fn f09_attachment_lifecycle_vs_document() {
 ///
 /// 命名 `zz_` 前缀在 `--test-threads=1` 下最后执行（cargo 按全名排序）；**但正确性
 /// 不依赖这个顺序** —— 就算它先跑，前面没有用例留下残留在逻辑上也是成立的。
+///
+/// # 为什么要「收敛式」判定而不是查一次（卡 TEST-ISO-2 实测）
+///
+/// `cargo test -j 2` 下本目标内的用例是**并行**跑的，`zz_` 名字不保证最后执行。
+/// 于是会出现这种毫秒级窗口：某条用例刚断言完「`sys_file` 本体必须还在」（附件级联删
+/// 的那条），它自己的 `reset()` 还没跑 —— 本用例这时查库就抓到 `sys_file=1`，报假红
+/// （2026-11-05 全量实测：`sys_file=1`，几十秒后再查已归零）。
+///
+/// 真泄漏（没有任何用例会再回来删）等多久都还在 ⇒ 断言强度仍是「整库最终 0 残留」，
+/// 收敛只吸收「别人正在收尾」的瞬时窗口。口径与 `erp::fixture_hygiene::settle_orphans` 一致。
 #[tokio::test]
 async fn zz_no_fixture_residue_after_full_suite() {
     let Some(()) = c::ready().await else { return };
-    let rows = c::root_residue().await;
-    let dirty: Vec<String> = rows
-        .iter()
-        .filter(|(_, n)| *n > 0)
-        .map(|(name, n)| format!("{name}={n}"))
-        .collect();
-    println!("[Z01] TD- 前缀残留：{:?}", rows);
-    assert!(
-        dirty.is_empty(),
-        "cloudpivot_test 存在本卡夹具残留（{}）：用例没有自清理干净",
-        dirty.join(", ")
-    );
+    let step = std::time::Duration::from_millis(200);
+    let max_wait = std::time::Duration::from_secs(15);
+    let mut waited = std::time::Duration::ZERO;
+    loop {
+        let rows = c::root_residue().await;
+        let dirty: Vec<String> = rows
+            .iter()
+            .filter(|(_, n)| *n > 0)
+            .map(|(name, n)| format!("{name}={n}"))
+            .collect();
+        if dirty.is_empty() {
+            println!("[Z01] TD- 前缀残留：{:?}（等待 {:?}）", rows, waited);
+            return;
+        }
+        if waited >= max_wait {
+            println!(
+                "[Z01] TD- 前缀残留：{:?}（等待 {:?} 仍未收敛）",
+                rows, waited
+            );
+            panic!(
+                "测试库存在本目标夹具残留（{}）：用例没有自清理干净",
+                dirty.join(", ")
+            );
+        }
+        // 用阻塞 sleep：每个 `#[tokio::test]` 是独立 runtime，本函数内没有别的任务要调度。
+        std::thread::sleep(step);
+        waited += step;
+    }
 }
