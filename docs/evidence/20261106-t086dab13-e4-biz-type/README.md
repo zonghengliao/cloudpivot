@@ -126,3 +126,32 @@ NIK_DATABASE_NAME=cloudpivot_st9 python3 scripts/verify/erp_invariants.py
 
 > 回归脚本会**改写**库存轴数据（只碰 `E4REG-` 前缀的夹具行，跑前跑后都清理），
 > 因此内置保护：库名不在 `cloudpivot_*` 白名单、或含 `prod`、或是 `cloudpivot`/`postgres` → 直接退出码 2。
+
+---
+
+## 六、复核（父卡 t_066e9f2d 完成后重新调度，2026-11-06 01:2x）
+
+本卡首次执行时被后来新增的父卡 `t_066e9f2d`（P1-FIX-11）挡住，`complete` 未成；父卡完成后重新调度，
+在**主仓已前进到 `a6e15be`** 的状态下把两条验收口径原样复跑了一遍（脚本 diff 仍为 `fccded1`，未被他人改动：
+
+```
+$ git log --oneline -1 -- scripts/verify/erp_invariants.py scripts/verify/regression/erp_invariants_e4_regression.py
+fccded1 fix(verify): erp_invariants E4 白名单改登记表驱动（补 OPENING/盘点三态）+ E4b/E4c + 回归（t_086dab13）
+$ git status --short -- scripts/verify/erp_invariants.py    # 无输出 = 工作树与提交一致
+```
+
+| 复核项 | 命令 | 结果 | 存档 |
+|---|---|---|---|
+| ① 全量审计（复现库） | `NIK_DATABASE_NAME=cloudpivot_st9 python3 scripts/verify/erp_invariants.py` | **67/68 通过 🚨 BLOCKER 0 ⚠️ WARN 1（N2 账号无部门）**，退出码 0 | `recheck_st9_full.txt` |
+| ② 回归第 1 轮 | `NIK_DATABASE_NAME=cloudpivot_e4reg_t086 python3 scripts/verify/regression/erp_invariants_e4_regression.py` | **21/21 断言通过**，退出码 0 | `recheck_regression_run1.txt` |
+| ③ 回归第 2 轮（同库连跑，验夹具自清理） | 同上 | **21/21 断言通过**，退出码 0 | `recheck_regression_run2.txt` |
+
+E4 / E4b / E4c 在复现库上的逐条输出（`recheck_st9_full.txt` L51-53）：
+
+```
+✅ [状态] E4  作废单的库存已回滚（库存 ≤ 有效入库＋其它合法动账净额＋0.0001）
+✅ [状态] E4b 库存流水 biz_type 已全部登记进 E4 判据
+✅ [状态] E4c 无遗留 biz_type（现行代码已不产，历史行建议确认/清理）
+```
+
+> 注：卡面写的复现库端口 `99` 是误记，实际实例在 `127.0.0.1:5432`（`cloudpivot_st9` / `cloudpivot_e4reg_t086` 均在此）。
