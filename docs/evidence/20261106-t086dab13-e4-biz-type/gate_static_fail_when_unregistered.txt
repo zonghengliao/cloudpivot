@@ -1,0 +1,17 @@
+============================================================================================
+erp_invariants E4/E4b 回归（t_086dab13）
+库: (未指定) @ 127.0.0.1:5432   审计脚本: /opt/cloudpivot/scripts/verify/erp_invariants.py
+============================================================================================
+
+[闸①] 静态漂移：代码里出现过的 biz_type 必须全部登记进 E4 判据
+  🚨 登记表已解析（21 种）
+        ['ADJUST_IN', 'ADJUST_OUT', 'ISSUE_OUT', 'LOSS_OUT', 'OPENING', 'OTHER_OUT', 'PRODUCE_CANCEL', 'PRODUCTION_IN', 'PURCHASE_IN', 'PURCHASE_IN_CANCEL', 'PURCHASE_RETURN', 'SALE_OUT', 'SCRAP_OUT', 'SERIAL_IN', 'SERIAL_OUT', 'SERIAL_SCRAP', 'STOCK_OUT_CANCEL', 'STOCK_TAKE_CANCEL', 'STOCK_TAKE_LOSS', 'TRANSFER_IN', 'TRANSFER_OUT']
+  ✅ doc_kind.rs 的 impl TxnBizType 块可解析
+  ✅ TxnBizType::as_str() 可解析
+  ✅ doc_kind 枚举解析到 19 个 biz_type（应 19）
+  ✅ 代码侧共解析到 22 个 biz_type（枚举 19 + 模块常量 16）
+  🚨 代码里的 biz_type 全部已登记
+        未登记：STOCK_TAKE_GAIN —— 请登记到 scripts/verify/erp_invariants.py::E4_BIZ_TYPE_AXIS
+        ℹ️ 只出现在模块常量、不在 TxnBizType 枚举里的：['STOCK_TAKE_CANCEL', 'STOCK_TAKE_GAIN', 'STOCK_TAKE_LOSS']（E4 曾因漏登记 OPENING/STOCK_TAKE_* 假红）
+
+闸①：4/6 断言通过   🚨 失败 2 条

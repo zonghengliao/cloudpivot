@@ -36,6 +36,65 @@ DB = dict(
 TOL = Decimal("0.0001")
 RESULT = []
 
+# ══════════════════════════════════════════════════════════════════
+# E4 的「库存流水 biz_type」登记表 —— 白名单不许再逐个漏
+# ══════════════════════════════════════════════════════════════════
+# E4 判据是「库存 ≤ 单据能解释的量」。**每漏一个会产 IN 的 biz_type，用它的库就必假红**
+# （OPENING / STOCK_TAKE_* 就是这么漏的：期初建账库、盘盈库恒报「有作废单没退库存」，
+#  既误伤 check.sh 闸③，又把真正的「作废没退库存」淹掉）。
+#
+# 取值域来源（代码里改 biz_type 必须同步这张表；漏登记由两道闸兜住）：
+#   ① `backend/src/business/shared/doc_kind.rs::TxnBizType::ALL`（19 个，唯一拼写）
+#   ② `backend/src/business/erp/stocktake_model.rs`
+#      （STOCK_TAKE_GAIN / STOCK_TAKE_LOSS / STOCK_TAKE_CANCEL —— 盘点轴；
+#       ①② 的枚举与 `TXN_BIZ_TYPE_VALUES` 里**没有**这三个，属已知漂移，故登记在此）
+#   闸一：本套件 E4b 在运行期把库里出现、但此处未登记的 biz_type 直接判 BLOCKER；
+#   闸二：`scripts/verify/regression/erp_invariants_e4_regression.py` 静态逐字比对
+#         上面两处代码常量，代码新增 biz_type 而这里没跟上 → 回归红。
+#
+# 三种归属：
+#   'DOC'    —— 由 `biz_stock_in` **单据轴**解释：过账写 PURCHASE_IN（stockin_write.rs:551），
+#               作废写 PURCHASE_IN_CANCEL（stockin_cancel.rs:270），单据 status 一翻
+#               `posted` 汇总与流水同步涨落 ⇒ **不能再进 other_moves，否则重复扣减**；
+#   'NET'    —— 其它一切动账（期初 / 盘点三态 / 调拨 / 序列号 / 各类出库 / 出库作废 …），
+#               按 txn_type 正负号计入 other_moves；
+#   'LEGACY' —— 现行代码**不产**、但历史库/夹具里确实存在的旧值（如 biz_type='PURCHASE' +
+#               doc_type='PURCHASE_ORDER'）。按 NET 计入（否则老库必假红），
+#               但 E4c 会把它当 WARN 亮出来「建议确认来源/清理」，不静默放过。
+#   ⚠️ 前提：`biz_stock_in` 过账恒写 PURCHASE_IN（`stockin_write::write_txn` 无 biz_type 入参），
+#      所以 PRODUCTION_IN / PURCHASE_RETURN 等即便将来按 in_type 启用也不与 posted 重叠。
+#      一旦改成「按 in_type 分流 biz_type」，必须把对应值改判成 'DOC'。
+E4_BIZ_TYPE_AXIS = {
+    "PURCHASE_IN": "DOC",
+    "PURCHASE_IN_CANCEL": "DOC",
+    "OPENING": "NET",
+    "STOCK_TAKE_GAIN": "NET",
+    "STOCK_TAKE_LOSS": "NET",
+    "STOCK_TAKE_CANCEL": "NET",
+    "TRANSFER_IN": "NET",
+    "TRANSFER_OUT": "NET",
+    "SERIAL_IN": "NET",
+    "SERIAL_OUT": "NET",
+    "SERIAL_SCRAP": "NET",
+    "STOCK_OUT_CANCEL": "NET",
+    "ISSUE_OUT": "NET",
+    "SCRAP_OUT": "NET",
+    "LOSS_OUT": "NET",
+    "OTHER_OUT": "NET",
+    "PURCHASE_RETURN": "NET",
+    "SALE_OUT": "NET",
+    "PRODUCTION_IN": "NET",
+    "PRODUCE_CANCEL": "NET",
+    "ADJUST_IN": "NET",
+    "ADJUST_OUT": "NET",
+    "PURCHASE": "LEGACY",
+}
+E4_OTHER_BIZ_TYPES = tuple(k for k, v in E4_BIZ_TYPE_AXIS.items() if v in ("NET", "LEGACY"))
+E4_LEGACY_BIZ_TYPES = tuple(k for k, v in E4_BIZ_TYPE_AXIS.items() if v == "LEGACY")
+E4_OTHER_IN_SQL = ",".join("'%s'" % b for b in E4_OTHER_BIZ_TYPES)
+E4_KNOWN_IN_SQL = ",".join("'%s'" % b for b in E4_BIZ_TYPE_AXIS)
+E4_LEGACY_IN_SQL = ",".join("'%s'" % b for b in E4_LEGACY_BIZ_TYPES) or "''"
+
 
 def q(sql):
     env = dict(os.environ)
@@ -572,12 +631,17 @@ def group_e():
     # 判定：作废的收货单，其数量不应还留在库存里。
     # 做法：按物料×仓库对比「有效入库」与「库存数量」。
     #
-    # ⚠️ P9 修正（原判定会误报）：有效入库 = POSTED 收货明细 **+ 其他合法净入库**
-    #    （调拨进/出 TRANSFER_IN/OUT、序列号进/出 SERIAL_IN/OUT）。
+    # ⚠️ P9 修正（原判定会误报）：有效入库 = POSTED 收货明细 **+ 其他合法净入库**。
     #    原版只算收货，于是「收货 7 件 + 调拨进 1 件」的仓（库存 8）会被判成
     #    「有作废单没退库存」—— 那是假红。补上其他入库来源后，
     #    本条仍然能抓到真问题：库存 > 所有单据能解释的数量 ⇒ 一定有单子（最常见是作废单）没退库存。
-    bad4 = q("""
+    #
+    # ⚠️ P1-FIX-9 衍生修正（t_086dab13）：原来的「其他入库」是手写白名单
+    #    `('TRANSFER_IN','TRANSFER_OUT','SERIAL_IN','SERIAL_OUT')`，漏了
+    #    OPENING（库存期初）/ STOCK_TAKE_GAIN（盘盈）/ STOCK_TAKE_CANCEL（盘亏作废回补）
+    #    ⇒ 任何用期初建账或做过盘盈的库恒红。现改为查 [`E4_BIZ_TYPE_AXIS`] 登记表，
+    #    并由 E4b 兜住「新 biz_type 没登记」。判据强度未放宽：真·作废没退库存仍然 BLOCKER。
+    bad4 = q(f"""
         with posted as (
             select i.material_id, s.warehouse_id,
                    sum(i.qty) as q
@@ -589,7 +653,7 @@ def group_e():
             select material_id, warehouse_id,
                    sum(case when txn_type = 'IN' then qty else -qty end) as q
             from biz_inventory_txn
-            where biz_type in ('TRANSFER_IN', 'TRANSFER_OUT', 'SERIAL_IN', 'SERIAL_OUT')
+            where biz_type in ({E4_OTHER_IN_SQL})
             group by 1, 2
         ), inv as (
             select material_id, warehouse_id, sum(qty) as q
@@ -605,25 +669,64 @@ def group_e():
         left join biz_warehouse w on w.id = v.warehouse_id
         where coalesce(v.q,0) > coalesce(p.q,0) + coalesce(o.q,0) + 0.0001
     """)
-    check("E4 作废单的库存已回滚（库存 ≤ 有效入库＋调拨/序列号净入）", "状态", "BLOCKER", not bad4,
-          f"{len(bad4)} 组库存大于有效入库量（有作废单没退库存）" if bad4 else "全部已回滚",
-          """with posted as (select i.material_id, s.warehouse_id, sum(i.qty) q
+    check("E4 作废单的库存已回滚（库存 ≤ 有效入库＋其它合法动账净额＋0.0001）", "状态", "BLOCKER", not bad4,
+          f"{len(bad4)} 组库存大于有效入库量（有作废单没退库存）" if bad4 else
+          f"全部已回滚（已登记 {len(E4_BIZ_TYPE_AXIS)} 种 biz_type，其中 "
+          f"{len(E4_OTHER_BIZ_TYPES)} 种按净额计入）",
+          f"""with posted as (select i.material_id, s.warehouse_id, sum(i.qty) q
                             from biz_stock_in s join biz_stock_in_item i on i.stock_in_id=s.id
                             where s.deleted_at is null and s.status='POSTED' group by 1,2),
                   other_moves as (select material_id, warehouse_id,
                                          sum(case when txn_type='IN' then qty else -qty end) q
                                     from biz_inventory_txn
-                                   where biz_type in ('TRANSFER_IN','TRANSFER_OUT','SERIAL_IN','SERIAL_OUT')
+                                   where biz_type in ({E4_OTHER_IN_SQL})
                                    group by 1,2),
                   inv as (select material_id, warehouse_id, sum(qty) q from biz_inventory group by 1,2)
              select m.material_code, w.warehouse_name,
-                    coalesce(p.q,0)::text as 有效入库, coalesce(o.q,0)::text as 调拨序列净入,
+                    coalesce(p.q,0)::text as 有效入库, coalesce(o.q,0)::text as 其它动账净额,
                     v.q::text as 库存, (v.q-coalesce(p.q,0)-coalesce(o.q,0))::text as 多出
              from inv v left join posted p on p.material_id=v.material_id and p.warehouse_id=v.warehouse_id
              left join other_moves o on o.material_id=v.material_id and o.warehouse_id=v.warehouse_id
              left join biz_material m on m.id=v.material_id
              left join biz_warehouse w on w.id=v.warehouse_id
              where v.q > coalesce(p.q,0) + coalesce(o.q,0) + 0.0001""")
+
+    # E4b ★ E4 判据的完整性：库里出现的 biz_type 必须全部登记（否则 E4 会静默漏算）
+    #     为什么是 BLOCKER：没登记的 biz_type 要么让 E4 假红（漏一个 IN 源），要么让它
+    #     静默放宽（漏一个 OUT 源）。两种都不许悄悄发生——加一行登记即可放行。
+    unknown = q(f"""
+        select biz_type, doc_type, txn_type, count(*)::text, coalesce(sum(qty),0)::text
+        from biz_inventory_txn
+        where biz_type is null or biz_type not in ({E4_KNOWN_IN_SQL})
+        group by 1, 2, 3
+        order by 1, 3
+    """)
+    check("E4b 库存流水 biz_type 已全部登记进 E4 判据", "状态", "BLOCKER", not unknown,
+          ("\n".join(f"{r[0]}/{r[1]}/{r[2]} 共 {r[3]} 条 净 {r[4]} —— 未登记，E4 无法判"
+                     f"（登记到 scripts/verify/erp_invariants.py::E4_BIZ_TYPE_AXIS）"
+                     for r in unknown) if unknown else
+           f"全部已登记（{len(E4_BIZ_TYPE_AXIS)} 种）"),
+          f"""select biz_type, doc_type, txn_type, count(*)::text, sum(qty)::text
+                from biz_inventory_txn
+               where biz_type is null or biz_type not in ({E4_KNOWN_IN_SQL})
+               group by 1,2,3""")
+
+    # E4c 遗留 biz_type：现行代码不产、历史库/夹具里还留着（E4 已按净额计入，不误伤），
+    #     但要亮出来——遗留值会让「库存 ≤ 单据」的解释力变弱，值得确认来源或清理。
+    legacy = q(f"""
+        select biz_type, doc_type, txn_type, count(*)::text, coalesce(sum(qty),0)::text
+        from biz_inventory_txn
+        where biz_type in ({E4_LEGACY_IN_SQL})
+        group by 1, 2, 3
+        order by 1, 3
+    """)
+    check("E4c 无遗留 biz_type（现行代码已不产，历史行建议确认/清理）", "状态", "WARN", not legacy,
+          ("\n".join(f"{r[0]}/{r[1]}/{r[2]} 共 {r[3]} 条 净 {r[4]} —— 现行代码不产此值，"
+                     f"E4 已按净额计入；建议查来源后清理" for r in legacy)
+           if legacy else "无遗留类型"),
+          f"""select biz_type, doc_type, txn_type, count(*)::text, sum(qty)::text
+                from biz_inventory_txn where biz_type in ({E4_LEGACY_IN_SQL})
+               group by 1,2,3""")
 
 
 # ══════════════════════════════════════════════════════════════════
