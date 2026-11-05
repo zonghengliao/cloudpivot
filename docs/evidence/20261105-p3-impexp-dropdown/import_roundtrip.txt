@@ -1,0 +1,22 @@
+LOGIN failed for Admin@123456: 401 用户名或密码错误
+LOGIN ok (password=Nereus792379)
+TEMPLATE 200 8705 bytes -> /root/.hermes/profiles/backend-developer/cache/scratch/dv1/tpl_dropdown.xlsx
+DATA VALIDATIONS = 4
+  sqref=E3:E20002        type=list     operator=None formula1='"原料,半成品,成品,服务"' promptTitle='分类'
+  sqref=F3:F20002        type=list     operator=None formula1='"移动加权平均"' promptTitle='成本法'
+  sqref=G3:G20002        type=decimal  operator=greaterThanOrEqual formula1='0' promptTitle='安全库存'
+  sqref=H3:H20002        type=list     operator=None formula1='"启用,停用"' promptTitle='状态'
+COLUMNS WITH VALIDATION = ['E', 'F', 'G', 'H']
+HEADERS = ['物料编码*', '物料名称*', '规格型号', '基本单位*', '分类', '成本法', '安全库存', '状态']
+OK 下拉 成本法（F 列）→ 移动加权平均  sqref=F3:F20002
+OK 下拉 分类（E 列）→ 原料,半成品,成品,服务  sqref=E3:E20002
+OK 下拉 状态（H 列）→ 启用,停用  sqref=H3:H20002
+OK 范围 安全库存（G 列）→ type=decimal operator=greaterThanOrEqual formula1=0
+OK 文本列 A（物料编码）没有验证
+OK 验证区从第 3 行起（表头 + 示例行不受限）
+GOOD FILE = /root/.hermes/profiles/backend-developer/cache/scratch/dv1/good_dropdown.xlsx 7957 bytes
+UPLOAD 200 {"code": 0, "msg": "ok", "data": {"task_id": "01a1ac57-8984-75e2-b1b5-805821e60ac1", "task_no": "IMP20261105-0AC1", "status": "VALIDATED", "report": {"total": 1, "valid": 1, "error": 0, "skipped_example": 0, "skipped_blank": 0, "warnings": [], "errors": [], "truncated": false, "fk_sql_statements": 1, "elapsed_ms": 1}}}
+PRECHECK total=1 valid=1 error=0
+CONFIRM 200 {"code": 0, "msg": "ok", "data": {"task_id": "01a1ac57-8984-75e2-b1b5-805821e60ac1", "status": "SUCCESS", "imported_rows": 1, "message": "共 1 批，入库 1 行（校验失败 0 行已跳过）"}}
+RESULT task_no=IMP20261105-0AC1 status=SUCCESS imported_rows=1
+ALL CHECKS PASSED

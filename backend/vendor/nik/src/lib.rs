@@ -1197,7 +1197,7 @@ pub mod prelude {
     pub use nik_utils::{Crypto, Mask, Sid, Valid};
     pub use nik_utils::export::{Export, Import};
     #[cfg(feature = "xlsx")]
-    pub use nik_utils::export::XlsxSheet;
+    pub use nik_utils::export::{MAX_LIST_CHARS, XlsxSheet, XlsxValidation, XlsxValidationRule};
     #[cfg(feature = "cache")]
     pub use nik_web::middleware::{IdempotencyLayer, NonceLayer};
     // [cloudpivot-patch code-10] `?token=` 白名单解析（App 装配 + 业务启动自检共用一份实现）
@@ -1267,7 +1267,7 @@ pub use nik_utils::{
 /// `Export::to_xlsx_*` / `Import::from_xlsx*` 需要 `xlsx` feature。
 pub use nik_utils::export::{Export, Import};
 #[cfg(feature = "xlsx")]
-pub use nik_utils::export::XlsxSheet;
+pub use nik_utils::export::{MAX_LIST_CHARS, XlsxSheet, XlsxValidation, XlsxValidationRule};
 
 /// HTML 净化（需 `xss` feature）；也可经 prelude 直接 `xss::sanitize_html(..)`。
 #[cfg(feature = "xss")]

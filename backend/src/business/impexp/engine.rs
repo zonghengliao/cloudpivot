@@ -484,14 +484,41 @@ pub fn write_sheet(
     })
 }
 
-/// 多 sheet 写入的入参：`(sheet 名, 表头, 行数据)`。
-pub type WorkbookSheet<'a> = (&'a str, &'a [&'a str], &'a [HashMap<String, String>]);
+/// 多 sheet 写入的入参。
+pub struct WorkbookSheet<'a> {
+    /// sheet 名。
+    pub name: &'a str,
+    /// 表头（列顺序即模板列顺序）。
+    pub headers: &'a [&'a str],
+    /// 行数据。
+    pub rows: &'a [HashMap<String, String>],
+    /// 该 sheet 的数据验证（Excel 下拉 / 数值范围 / 日期范围）；空切片表示不加。
+    pub validations: &'a [XlsxValidation<'a>],
+}
+
+impl<'a> WorkbookSheet<'a> {
+    /// 纯数据 sheet（不带数据验证）。
+    pub fn new(name: &'a str, headers: &'a [&'a str], rows: &'a [HashMap<String, String>]) -> Self {
+        Self {
+            name,
+            headers,
+            rows,
+            validations: &[],
+        }
+    }
+
+    /// 追加数据验证（逐列一条，见 [`XlsxValidation`]）。
+    pub fn with_validations(mut self, validations: &'a [XlsxValidation<'a>]) -> Self {
+        self.validations = validations;
+        self
+    }
+}
 
 /// 生成多 sheet xlsx 字节流（模板用）。
 ///
 /// # 参数
 ///
-/// - `sheets`：`(sheet 名, 表头切片, 行数据切片)` 三元组。
+/// - `sheets`：每个 sheet 的名称 / 表头 / 行数据 / 数据验证。
 ///
 /// # 返回值
 ///
@@ -503,7 +530,10 @@ pub type WorkbookSheet<'a> = (&'a str, &'a [&'a str], &'a [HashMap<String, Strin
 pub fn write_workbook(sheets: &[WorkbookSheet<'_>]) -> std::result::Result<Vec<u8>, ApiError> {
     let built = sheets
         .iter()
-        .map(|(name, headers, rows)| XlsxSheet::new(name, headers, rows))
+        .map(|sheet| {
+            XlsxSheet::new(sheet.name, sheet.headers, sheet.rows)
+                .with_validations(sheet.validations)
+        })
         .collect::<Vec<_>>();
     Export::to_xlsx_workbook(&built).map_err(|error| {
         ApiError::new(

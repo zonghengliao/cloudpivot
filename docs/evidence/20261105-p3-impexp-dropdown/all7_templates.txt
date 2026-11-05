@@ -1,0 +1,13 @@
+DEF SAMPLE = {"biz_type": "business.erp.account", "biz_name": "会计科目", "supports_import": true, "supports_export": false, "template_version": 1, "max_rows": 20000, "allow_partial": true}
+business.erp.account               200   8503B sheets=['数据', '字段说明', '填写须知'] DV=3 {'C': 'list=资产,负债,权益,成本,损益', 'D': 'list=借,贷', 'G': 'list=启用,停用'}
+business.erp.location              200   8622B sheets=['数据', '字段说明', '填写须知'] DV=3 {'D': 'list=存储,拣货,收货,发货,待检,报废', 'F': 'decimal=0', 'G': 'list=启用,停用'}
+business.erp.material              200   8705B sheets=['数据', '字段说明', '填写须知'] DV=4 {'E': 'list=原料,半成品,成品,服务', 'F': 'list=移动加权平均', 'G': 'decimal=0', 'H': 'list=启用,停用'}
+business.erp.supplier              200   8590B sheets=['数据', '字段说明', '填写须知'] DV=2 {'G': 'decimal=0', 'H': 'list=启用,停用'}
+business.erp.unit                  200   8338B sheets=['数据', '字段说明', '填写须知'] DV=1 {'F': 'list=启用,停用'}
+business.erp.warehouse             200   8432B sheets=['数据', '字段说明', '填写须知'] DV=2 {'C': 'list=普通仓,原料仓,成品仓,废品仓,在途仓', 'G': 'list=启用,停用'}
+erp.payable                        skip (template 404)
+erp.stock_in                       skip (template 404)
+erp.voucher                        skip (template 404)
+system.dict_item                   200   8370B sheets=['数据', '字段说明', '填写须知'] DV=2 {'E': 'whole=0', 'G': 'list=启用,停用'}
+system.user                        skip (template 404)
+IMPORTABLE TEMPLATES = 7

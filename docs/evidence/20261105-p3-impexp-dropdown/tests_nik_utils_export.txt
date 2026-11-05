@@ -1,0 +1,19 @@
+   Compiling nik-utils v0.4.2 (/opt/cloudpivot/backend/vendor/nik-utils)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2.42s
+     Running unittests src/lib.rs (/root/nikdv-target/debug/deps/nik_utils-1d9dbf4e30ad2e29)
+
+running 11 tests
+test export::tests::empty_workbook_is_rejected ... ok
+test export::tests::malformed_date_bound_is_rejected ... ok
+test export::tests::leading_zero_text_is_not_coerced_to_number ... ok
+test export::tests::ineffective_validations_are_skipped_without_breaking_the_workbook ... ok
+test export::tests::canonical_numbers_become_numeric_cells ... ok
+test export::tests::overlong_list_is_rejected_instead_of_writing_a_broken_sheet ... ok
+test export::tests::multi_sheet_workbook ... ok
+test export::tests::output_is_a_real_zip_container ... ok
+test export::tests::roundtrip_preserves_header_and_values ... ok
+test export::tests::ranges_and_dates_can_be_written ... ok
+test export::tests::typed_export_and_import ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 0.02s
+

@@ -110,7 +110,10 @@ impl Import {
 mod xlsx_impl {
     use super::{Error, Export, HashMap, Import, Result, Serialize};
     use calamine::{Data, Reader, Xlsx, open_workbook_from_rs};
-    use rust_xlsxwriter::{Color, Format, Workbook, Worksheet};
+    use chrono::{Datelike, NaiveDate};
+    use rust_xlsxwriter::{
+        Color, DataValidation, DataValidationRule, Format, Formula, Workbook, Worksheet,
+    };
     use serde::de::DeserializeOwned;
     use std::io::Cursor;
 
@@ -162,6 +165,238 @@ mod xlsx_impl {
         Ok(())
     }
 
+    // ── 数据验证（Excel「数据 → 数据验证」）──────────────────
+    //
+    // 下拉 / 范围验证是**防错**，不是判据：真正说了算的仍然是导入期的
+    // 逐格校验（`ColumnKind::parse`）。用户可以把 Excel 的验证删掉、也可以
+    // 直接粘文本进来，所以服务端校验一条都不能少。
+
+    /// Excel 单个下拉列表的字符上限（逗号连接后，含逗号）。
+    ///
+    /// 超过时 Excel 会判定整张表损坏并要求修复，因此写入器直接返回错误，
+    /// 由调用方决定「截断 / 换区间引用 / 放弃该列的下拉」。
+    pub const MAX_LIST_CHARS: usize = 255;
+
+    /// 数据验证规则，与 Excel「数据验证」对话框的类型一一对应。
+    #[derive(Debug, Clone)]
+    pub enum XlsxValidationRule<'a> {
+        /// 序列（下拉列表），取值来自固定字符串。
+        List(Vec<&'a str>),
+        /// 整数范围；`None` 表示该侧不设界，两侧都 `None` 等于不验证。
+        IntRange {
+            /// 下界（含）。
+            min: Option<i64>,
+            /// 上界（含）。
+            max: Option<i64>,
+        },
+        /// 小数范围；语义同 [`XlsxValidationRule::IntRange`]。
+        DecimalRange {
+            /// 下界（含）。
+            min: Option<f64>,
+            /// 上界（含）。
+            max: Option<f64>,
+        },
+        /// 日期范围（`YYYY-MM-DD`）；`None` 表示该侧不设界。
+        ///
+        /// 写成 `DATE(y,m,d)` 公式而不是 Excel 序列号，避免 1900/1904
+        /// 两种日期系统下的偏移坑。
+        DateRange {
+            /// 起始日期（含）。
+            min: Option<&'a str>,
+            /// 结束日期（含）。
+            max: Option<&'a str>,
+        },
+    }
+
+    /// 一条数据验证：作用于**某一列**的 `[first_row, last_row]`（0 基行号）。
+    ///
+    /// 行号与 [`Worksheet::write`] 的 `row` 同一坐标系：`0` 是 Excel 第 1 行，
+    /// 所以「从第 3 行起」= `first_row: 2`。
+    #[derive(Debug, Clone)]
+    pub struct XlsxValidation<'a> {
+        /// 列号（0 基）。
+        pub column: u16,
+        /// 起始行（0 基，含）。
+        pub first_row: u32,
+        /// 结束行（0 基，含），必须 ≥ `first_row`。
+        pub last_row: u32,
+        /// 规则。
+        pub rule: XlsxValidationRule<'a>,
+        /// 选中单元格时的提示标题（可选，≤255 字符）。
+        pub title: Option<&'a str>,
+        /// 选中单元格时的提示正文（可选，≤255 字符）。
+        pub message: Option<&'a str>,
+    }
+
+    impl<'a> XlsxValidation<'a> {
+        /// 下拉列表验证。
+        pub fn list(
+            column: u16,
+            first_row: u32,
+            last_row: u32,
+            values: impl IntoIterator<Item = &'a str>,
+        ) -> Self {
+            Self {
+                column,
+                first_row,
+                last_row,
+                rule: XlsxValidationRule::List(values.into_iter().collect()),
+                title: None,
+                message: None,
+            }
+        }
+
+        /// 整数范围验证。
+        pub fn int_range(
+            column: u16,
+            first_row: u32,
+            last_row: u32,
+            min: Option<i64>,
+            max: Option<i64>,
+        ) -> Self {
+            Self {
+                column,
+                first_row,
+                last_row,
+                rule: XlsxValidationRule::IntRange { min, max },
+                title: None,
+                message: None,
+            }
+        }
+
+        /// 小数范围验证。
+        pub fn decimal_range(
+            column: u16,
+            first_row: u32,
+            last_row: u32,
+            min: Option<f64>,
+            max: Option<f64>,
+        ) -> Self {
+            Self {
+                column,
+                first_row,
+                last_row,
+                rule: XlsxValidationRule::DecimalRange { min, max },
+                title: None,
+                message: None,
+            }
+        }
+
+        /// 日期范围验证（`YYYY-MM-DD`）。
+        pub fn date_range(
+            column: u16,
+            first_row: u32,
+            last_row: u32,
+            min: Option<&'a str>,
+            max: Option<&'a str>,
+        ) -> Self {
+            Self {
+                column,
+                first_row,
+                last_row,
+                rule: XlsxValidationRule::DateRange { min, max },
+                title: None,
+                message: None,
+            }
+        }
+
+        /// 补上「选中该格时」的提示（Excel 只在选中时显示，不影响判定）。
+        pub fn with_message(mut self, title: &'a str, message: &'a str) -> Self {
+            self.title = Some(title);
+            self.message = Some(message);
+            self
+        }
+    }
+
+    /// 把一个日期字符串转成 `DATE(y,m,d)` 公式。
+    fn date_formula(value: &str) -> Result<Formula> {
+        let date = NaiveDate::parse_from_str(value, "%Y-%m-%d").map_err(|_| {
+            Error::Msg(format!(
+                "XLSX数据验证失败: 日期「{value}」不是 YYYY-MM-DD 格式"
+            ))
+        })?;
+        Ok(Formula::new(format!(
+            "DATE({},{},{})",
+            date.year(),
+            date.month(),
+            date.day()
+        )))
+    }
+
+    fn int_bound(value: i64) -> Result<i32> {
+        i32::try_from(value).map_err(|_| {
+            Error::Msg(format!(
+                "XLSX数据验证失败: 整数边界 {value} 超出 Excel 的 ±2^31 范围"
+            ))
+        })
+    }
+
+    /// 把一条 [`XlsxValidation`] 编译成 `rust_xlsxwriter` 的验证对象。
+    ///
+    /// 返回 `Ok(None)` 表示「这条验证等于不验证」（空列表 / 两侧都无界），
+    /// 此时**不写 XML 节点**——避免生成一个什么都不限制的空验证。
+    fn build_data_validation(validation: &XlsxValidation<'_>) -> Result<Option<DataValidation>> {
+        let mut dv = DataValidation::new();
+        match &validation.rule {
+            XlsxValidationRule::List(values) => {
+                if values.is_empty() {
+                    return Ok(None);
+                }
+                let joined = values.join(",");
+                let chars = joined.chars().count();
+                if chars > MAX_LIST_CHARS {
+                    return Err(Error::Msg(format!(
+                        "XLSX数据验证失败: 下拉列表「{}」共 {chars} 字符，超过 Excel 上限 {MAX_LIST_CHARS}",
+                        values.first().copied().unwrap_or("")
+                    )));
+                }
+                dv = dv.allow_list_strings(values.as_slice()).map_err(dv_err)?;
+            }
+            XlsxValidationRule::IntRange { min, max } => {
+                let rule = match (min, max) {
+                    (Some(low), Some(high)) => {
+                        DataValidationRule::Between(int_bound(*low)?, int_bound(*high)?)
+                    }
+                    (Some(low), None) => DataValidationRule::GreaterThanOrEqualTo(int_bound(*low)?),
+                    (None, Some(high)) => DataValidationRule::LessThanOrEqualTo(int_bound(*high)?),
+                    (None, None) => return Ok(None),
+                };
+                dv = dv.allow_whole_number(rule);
+            }
+            XlsxValidationRule::DecimalRange { min, max } => {
+                let rule = match (min, max) {
+                    (Some(low), Some(high)) => DataValidationRule::Between(*low, *high),
+                    (Some(low), None) => DataValidationRule::GreaterThanOrEqualTo(*low),
+                    (None, Some(high)) => DataValidationRule::LessThanOrEqualTo(*high),
+                    (None, None) => return Ok(None),
+                };
+                dv = dv.allow_decimal_number(rule);
+            }
+            XlsxValidationRule::DateRange { min, max } => {
+                let low = min.map(date_formula).transpose()?;
+                let high = max.map(date_formula).transpose()?;
+                let rule = match (low, high) {
+                    (Some(low), Some(high)) => DataValidationRule::Between(low, high),
+                    (Some(low), None) => DataValidationRule::GreaterThanOrEqualTo(low),
+                    (None, Some(high)) => DataValidationRule::LessThanOrEqualTo(high),
+                    (None, None) => return Ok(None),
+                };
+                dv = dv.allow_date_formula(rule);
+            }
+        }
+        if let Some(title) = validation.title {
+            dv = dv.set_input_title(title).map_err(dv_err)?;
+        }
+        if let Some(message) = validation.message {
+            dv = dv.set_input_message(message).map_err(dv_err)?;
+        }
+        Ok(Some(dv))
+    }
+
+    fn dv_err<E: std::fmt::Display>(e: E) -> Error {
+        Error::Msg(format!("XLSX数据验证失败: {e}"))
+    }
+
     // ── 写 ───────────────────────────────────────────────────
 
     /// 一个工作表的内容：`name` 为 sheet 名，`columns` 定列顺序，
@@ -178,6 +413,8 @@ mod xlsx_impl {
         pub columns: &'a [&'a str],
         /// 数据行
         pub rows: &'a [HashMap<String, String>],
+        /// 该 sheet 的数据验证（下拉 / 数值范围 / 日期范围）；空切片表示不加
+        pub validations: &'a [XlsxValidation<'a>],
     }
 
     impl<'a> XlsxSheet<'a> {
@@ -190,7 +427,15 @@ mod xlsx_impl {
                 name,
                 columns,
                 rows,
+                validations: &[],
             }
+        }
+
+        /// 追加数据验证（见 [`XlsxValidation`]）。同一条验证只作用于单列，
+        /// 需要多列各加一条。
+        pub fn with_validations(mut self, validations: &'a [XlsxValidation<'a>]) -> Self {
+            self.validations = validations;
+            self
         }
     }
 
@@ -241,6 +486,19 @@ mod xlsx_impl {
                     for (c, col) in sheet.columns.iter().enumerate() {
                         let v = row.get(*col).map(|s| s.as_str()).unwrap_or("");
                         write_cell(ws, r, c as u16, v)?;
+                    }
+                }
+                // 数据验证（下拉 / 范围）：只作用在调用方指定的行区间上
+                for validation in sheet.validations {
+                    if let Some(dv) = build_data_validation(validation)? {
+                        ws.add_data_validation(
+                            validation.first_row,
+                            validation.column,
+                            validation.last_row,
+                            validation.column,
+                            &dv,
+                        )
+                        .map_err(map_err)?;
                     }
                 }
                 // 冻结表头 + 按内容自适应列宽
@@ -407,7 +665,7 @@ mod xlsx_impl {
 }
 
 #[cfg(feature = "xlsx")]
-pub use xlsx_impl::XlsxSheet;
+pub use xlsx_impl::{MAX_LIST_CHARS, XlsxSheet, XlsxValidation, XlsxValidationRule};
 
 #[cfg(test)]
 #[cfg(feature = "xlsx")]
@@ -510,5 +768,68 @@ mod tests {
     #[test]
     fn empty_workbook_is_rejected() {
         assert!(Export::to_xlsx_workbook(&[]).is_err());
+    }
+
+    // ── 数据验证 ────────────────────────────────────────────
+
+    /// 生成一个带验证的 sheet，返回字节流。
+    fn sheet_with(validations: &[XlsxValidation<'_>]) -> Result<Vec<u8>> {
+        let rows = [row("1", "Alice")];
+        let sheet = XlsxSheet::new("Sheet1", &["id", "name"], &rows).with_validations(validations);
+        Export::to_xlsx_workbook(&[sheet])
+    }
+
+    /// Excel 对下拉列表有 255 字符硬上限，超限必须**报错**而不是生成一张
+    /// 打开就提示「修复」的残表。
+    #[test]
+    fn overlong_list_is_rejected_instead_of_writing_a_broken_sheet() {
+        let long: Vec<&str> = (0..40).map(|_| "0123456789").collect();
+        let validations = [XlsxValidation::list(1, 2, 9, long.iter().copied())];
+        let err = sheet_with(&validations).expect_err("超长下拉应报错");
+        let msg = format!("{err}");
+        assert!(msg.contains("255"), "错误信息应点明 255 上限：{msg}");
+    }
+
+    /// 两侧都无界的范围、或空列表，等于「什么都不限制」——不写 XML 节点，
+    /// 但整张表仍然能正常生成。
+    #[test]
+    fn ineffective_validations_are_skipped_without_breaking_the_workbook() {
+        let empty: [&str; 0] = [];
+        let validations = [
+            XlsxValidation::list(1, 2, 9, empty.iter().copied()),
+            XlsxValidation::int_range(0, 2, 9, None, None),
+            XlsxValidation::decimal_range(0, 2, 9, None, None),
+        ];
+        let bytes = sheet_with(&validations).expect("空验证不应影响生成");
+        assert_eq!(&bytes[..4], &[0x50, 0x4B, 0x03, 0x04]);
+        assert_eq!(Import::from_xlsx(&bytes).unwrap()[0]["name"], "Alice");
+    }
+
+    /// 合法区间 / 日期区间必须能真的写进去（不报错），且不破坏单元格内容。
+    #[test]
+    fn ranges_and_dates_can_be_written() {
+        let validations = [
+            XlsxValidation::list(1, 2, 9, ["Pass", "Fail"]).with_message("结果", "Pass / Fail"),
+            XlsxValidation::int_range(0, 2, 9, Some(0), Some(9999)),
+            XlsxValidation::decimal_range(0, 2, 9, Some(0.0), None),
+            XlsxValidation::date_range(0, 2, 9, Some("2020-01-01"), Some("2100-12-31")),
+        ];
+        let bytes = sheet_with(&validations).expect("合法验证应能写入");
+        assert_eq!(&bytes[..4], &[0x50, 0x4B, 0x03, 0x04]);
+        assert_eq!(Import::from_xlsx(&bytes).unwrap()[0]["id"], "1");
+    }
+
+    /// 日期字符串必须严格 `YYYY-MM-DD`，否则写成 `DATE(y,m,d)` 会注入坏公式。
+    #[test]
+    fn malformed_date_bound_is_rejected() {
+        let validations = [XlsxValidation::date_range(
+            0,
+            2,
+            9,
+            Some("2020/01/01"),
+            None,
+        )];
+        let err = sheet_with(&validations).expect_err("非 YYYY-MM-DD 应报错");
+        assert!(format!("{err}").contains("YYYY-MM-DD"));
     }
 }

@@ -152,3 +152,13 @@ ammonia = "4.2"
 name = "c7_rollback_probe"
 path = "examples/c7_rollback_probe.rs"
 required-features = ["test-hooks"]
+
+# ======================================================================
+# 单测专用：回读 xlsx 的 zip 容器（断言 dataValidation XML 节点）
+#
+# **不是新依赖**：`rust_xlsxwriter` 已经依赖 `zip` 8.6（Cargo.lock 里只有一份），
+# 版本与 features 与它声明的完全一致（`deflate`），这里只是把已有的间接依赖
+# 显式化给单测用。业务代码**不要**直接用 `zip`：xlsx 读写一律走 nik-utils。
+# ======================================================================
+[dev-dependencies]
+zip = { version = "8.3", default-features = false, features = ["deflate"] }
