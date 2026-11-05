@@ -215,6 +215,9 @@ biz_task(全量) 846
 # 生产机 144
 ssh root@172.18.10.144 && cd /opt/cloudpivot
 set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+# 脚本随 commit ea6a290 落在 main；144 的部署检出还停在 7d96692，
+# 下次 deploy.sh 才同步。急用时先取这几个文件本身：
+#   git fetch origin && git checkout origin/main -- scripts/verify scripts/datafix/e2e_residue3
 
 # ① 现状（只读；干净 → 退出码 0）
 python3 scripts/verify/e2e_marker.py
