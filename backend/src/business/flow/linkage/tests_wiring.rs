@@ -1,0 +1,238 @@
+//! 触发点接线状态（`spec::TRIGGER_SPECS`）的**漂移守卫**（P1-FIX-5C）。
+//!
+//! # 为什么需要这一组测试
+//!
+//! P1-FIX-5B 的真机实测暴露了一件事：**白名单 ≠ 接线**。`spec::TRIGGERS` 里有 15 个触发点，
+//! 但代码里真正调联动引擎的只有 2 个，其余 13 个上配规则「能保存、能启用、永远不触发」。
+//! 光加一个 `wired: bool` 字段并不能解决问题 —— 手写的 `true` 会随着重构漂移：把调用删掉
+//! 没人发现，或者偷偷多接一个触发点却没更新 `wired`，配置页就会继续骗人。
+//!
+//! 所以这组测试做**双向**核对：
+//!
+//! 1. **正向**：每个 `wired = true` 的触发点，其 `proofs` 点名的文件必须存在且必须含该调用片段
+//!    （删了调用 → 红）；
+//! 2. **反向**：扫描 `src/business` 下全部生产代码，找出所有提到联动引擎的文件，
+//!    这个集合必须**恰好等于** wired 触发点点名的文件集合（多接一个没登记 → 红）。
+//!
+//! 反向扫描用运行时 `std::fs`（`CARGO_MANIFEST_DIR` 在测试运行时可用），不引入新的构建期依赖。
+//!
+//! # 为什么扫描的是「文件里出现 `linkage::engine::<入口>`」而不是语法树
+//!
+//! 本仓库没有把 `syn` 拉进 dev-dependencies，硬加一个解析器只为一条守卫不值得；而「引擎入口
+//! 的名字」在这份代码里是稳定契约（`engine::run` / `run_excluding` / `run_deferred` /
+//! `status_notice` / `stockin_voucher`）。宁可偶尔因为**注释里提到引擎**而让人来更新这张表
+//! （fail-closed），也不要漏掉真实调用。
+
+use std::collections::BTreeSet;
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use super::spec;
+
+/// 引擎的调用入口（出现任意一个 = 这个文件在调联动引擎）。
+///
+/// 加新入口时**必须**同步这里，否则新入口的调用点不会被反向扫描发现。
+const ENGINE_ENTRIES: &[&str] = &[
+    "linkage::engine::run(",
+    "linkage::engine::run_excluding",
+    "linkage::engine::run_deferred",
+    "linkage::engine::status_notice",
+    "linkage::engine::stockin_voucher",
+];
+
+/// `backend/` 根目录（测试运行时可用）。
+fn manifest_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+}
+
+/// 这个路径是不是「联动模块自身的代码」（自己不算调用方）。
+fn is_linkage_module(relative: &Path) -> bool {
+    let text = relative.to_string_lossy().replace('\\', "/");
+    text == "flow/linkage.rs" || text.starts_with("flow/linkage/")
+}
+
+/// 测试文件名（`*_tests.rs` / `tests*.rs`）：测试里调引擎不算生产接线。
+fn is_test_file(relative: &Path) -> bool {
+    let name = relative
+        .file_name()
+        .map(|item| item.to_string_lossy().to_string())
+        .unwrap_or_default();
+    name.ends_with("_tests.rs") || name.starts_with("tests")
+}
+
+/// 递归收集 `src/business` 下的 `.rs` 文件（相对 `src/business` 的路径）。
+fn collect_rs_files(dir: &Path, root: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_rs_files(&path, root, out);
+            continue;
+        }
+        if path.extension().map(|ext| ext == "rs") != Some(true) {
+            continue;
+        }
+        let relative = path.strip_prefix(root).unwrap_or(&path).to_path_buf();
+        out.push(relative);
+    }
+}
+
+/// 扫描生产代码里所有调联动引擎的文件（相对 `src/business`）。
+fn engine_call_sites() -> BTreeSet<String> {
+    let root = manifest_dir().join("src").join("business");
+    let mut files = Vec::new();
+    collect_rs_files(&root, &root, &mut files);
+    let mut sites = BTreeSet::new();
+    for relative in files {
+        if is_linkage_module(&relative) || is_test_file(&relative) {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(root.join(&relative)) else {
+            continue;
+        };
+        if ENGINE_ENTRIES.iter().any(|entry| text.contains(entry)) {
+            sites.insert(format!(
+                "src/business/{}",
+                relative.to_string_lossy().replace('\\', "/")
+            ));
+        }
+    }
+    sites
+}
+
+/// 接线表必须与白名单**逐字、同序**一致（漏一个 = 前端下拉/写入口的判据缺一条）。
+#[test]
+fn trigger_specs_cover_whitelist_in_order() {
+    let entities: Vec<&str> = spec::TRIGGER_SPECS.iter().map(|item| item.entity).collect();
+    assert_eq!(
+        entities,
+        spec::TRIGGERS.to_vec(),
+        "TRIGGER_SPECS 必须与 TRIGGERS 逐字同序（新增触发点必须同时声明接线状态）"
+    );
+    assert_eq!(entities.len(), 15, "当前白名单是 15 个触发点");
+    assert_eq!(
+        spec::wired_triggers(),
+        vec!["STOCK_IN", "STOCK_OUT", "TASK"],
+        "已接线的触发点：STOCK_IN（收货过账）、STOCK_OUT（出库过账，P1-FIX-5C 新接）、\
+         TASK（任务状态变更）；接线状态变化时这份断言要跟着改，改之前先想清楚\
+         「真的有人调引擎了吗」"
+    );
+    assert_eq!(spec::unwired_triggers().len(), 12, "其余 12 个仍未接线");
+}
+
+/// 每条声明都要自洽：已接线的必须有证据对，未接线的必须给出原因且不能有证据对。
+#[test]
+fn every_trigger_declares_wired_and_reason() {
+    for item in spec::TRIGGER_SPECS {
+        assert!(
+            !item.wiring.trim().is_empty(),
+            "触发点 {} 必须写清「接线位置」或「为什么没接」",
+            item.entity
+        );
+        if item.wired {
+            assert!(
+                !item.proofs.is_empty(),
+                "触发点 {} 声明 wired = true 但没有 proofs：拿什么证明有人调引擎",
+                item.entity
+            );
+        } else {
+            assert!(
+                item.proofs.is_empty(),
+                "触发点 {} 声明 wired = false 却给了 proofs",
+                item.entity
+            );
+        }
+    }
+    assert!(
+        !spec::is_wired_trigger("NOT_A_DOC"),
+        "未知触发点必须 fail-closed"
+    );
+}
+
+/// 正向守卫：wired 触发点点名的文件必须存在且含该调用片段。
+#[test]
+fn wired_trigger_proofs_exist_in_source() {
+    let root = manifest_dir();
+    for item in spec::TRIGGER_SPECS.iter().filter(|item| item.wired) {
+        for (file, needle) in item.proofs {
+            let path = root.join(file);
+            let text = fs::read_to_string(&path).unwrap_or_else(|error| {
+                panic!("触发点 {} 的接线文件 {file} 读不到：{error}", item.entity)
+            });
+            assert!(
+                text.contains(needle),
+                "触发点 {} 声明接线在 {file}，但文件里找不到 `{needle}` —— 调用被删/改名了，\
+                 要么改回来，要么把 spec::TRIGGER_SPECS 的 wired 改成 false 并在配置页承认它不生效",
+                item.entity
+            );
+        }
+    }
+}
+
+/// 反向守卫：生产代码里调引擎的文件集合必须恰好等于 wired 触发点的证据文件集合。
+#[test]
+fn wired_triggers_match_call_sites() {
+    let declared: BTreeSet<String> = spec::TRIGGER_SPECS
+        .iter()
+        .filter(|item| item.wired)
+        .flat_map(|item| item.proofs.iter().map(|(file, _)| file.to_string()))
+        .collect();
+    let actual = engine_call_sites();
+    if declared != actual {
+        let undeclared: Vec<&String> = actual.difference(&declared).collect();
+        let missing: Vec<&String> = declared.difference(&actual).collect();
+        panic!(
+            "联动引擎的调用点与 spec::TRIGGER_SPECS 不一致：\n\
+             - 调了引擎但没登记（多接了触发点却没写 wired = true）：{undeclared:?}\n\
+             - 登记了但没调（调用被删 / 路径改了）：{missing:?}\n\
+             实际扫描到：{actual:?}\n\
+             已登记：{declared:?}"
+        );
+    }
+    assert_eq!(
+        actual.len(),
+        4,
+        "当前真实调用点 4 个文件（收货过账 / 出库过账 handler + 出库联动 hook / 任务状态通知）：{actual:?}"
+    );
+}
+
+/// 出库过账的接线细节：必须**真的**走 `run_excluding` 且排除专用路径动作。
+///
+/// 这条防的是「接线了但排除清单丢了」：出库过账自己已经扣了库存、生成了成本结转凭证，
+/// 通用引擎再跑一次 `WRITE_INVENTORY` / `GENERATE_VOUCHER` 就是**重复落账**
+/// （同一行明细扣两次库存、一张单两张凭证）。e2e 能抓到，但改一行代码就静默发生，
+/// 所以在这里把源码原文与排除清单一起钉住。
+#[test]
+fn stockout_post_wires_generic_engine_and_excludes_dedicated_actions() {
+    let handler = include_str!("../../erp/stockout_handler.rs");
+    assert!(
+        handler.contains("linkage::engine::run_excluding("),
+        "出库过账必须调用通用引擎（run_excluding）：否则 STOCK_OUT/POSTED 的联动规则配了也不触发"
+    );
+    assert!(
+        handler.contains("linkage::spec::STOCKOUT_EXCLUDED_ACTIONS"),
+        "出库过账调通用引擎时必须传 spec::STOCKOUT_EXCLUDED_ACTIONS（不许改成写死的空清单）"
+    );
+    for code in [
+        "WRITE_INVENTORY",
+        "WRITE_INVENTORY_TXN",
+        "UPDATE_COST",
+        spec::ACTION_GENERATE_VOUCHER,
+    ] {
+        assert!(
+            spec::STOCKOUT_EXCLUDED_ACTIONS.contains(&code),
+            "出库过账的排除清单漏了 {code}：它在 post_out_tx ③⑤ 有专用落账，通用引擎再跑一次就是重复落账"
+        );
+    }
+    assert!(
+        !spec::STOCKOUT_EXCLUDED_ACTIONS.contains(&spec::ACTION_SEND_NOTICE),
+        "SEND_NOTICE 不能被出库排除：出库过账的通知就靠通用引擎的 AfterCommit 动作"
+    );
+    let hook = include_str!("../../erp/stockout_linkage.rs");
+    assert!(
+        hook.contains("linkage::engine::run_deferred"),
+        "出库过账的提交后动作必须交给 run_deferred（commit 之后跑），否则通知 / 建任务永远不执行"
+    );
+}

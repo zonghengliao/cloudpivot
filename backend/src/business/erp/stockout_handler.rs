@@ -40,6 +40,12 @@ use crate::business::shared::state_machine;
 use crate::shared::error_code;
 use crate::utils;
 
+// 出库过账的跨单据联动接线（P1-FIX-5C）：单独一个文件，只为守住单文件 ≤1500 行。
+#[path = "stockout_linkage.rs"]
+mod linkage_hook;
+
+use crate::business::flow::linkage;
+
 use super::stockout_base::*;
 use super::stockout_dto::{
     CreateStockOutReq, StockOutDetailRes, StockOutEnvelope, StockOutPageQuery, StockOutPageRes,
@@ -448,10 +454,18 @@ pub async fn post_stock_out(
         .map_err(|error| utils::db_error(error, "开启过账事务"))?;
     let outcome = post_out_tx(&tx, id, &op, reason, now).await;
     match outcome {
-        Ok(()) => {
+        Ok(linkage_run) => {
             tx.commit()
                 .await
                 .map_err(|error| utils::db_error(error, "提交过账事务"))?;
+            // 提交**之后**才跑 AfterCommit 动作（发通知 / 建任务）：
+            // 它们在独立事务里，失败只记日志，不回滚已经落定的账。
+            if let Some(row) = stock_out::find(id)
+                .await
+                .map_err(|error| utils::db_error(error, "过账后回查出库单"))?
+            {
+                linkage_hook::run_deferred_linkage(&row, &op, linkage_run).await;
+            }
             Ok(())
         }
         Err(error) => {
@@ -467,7 +481,7 @@ async fn post_out_tx(
     operator: &state_machine::Operator,
     reason: Option<&str>,
     now: nik::prelude::chrono::DateTime<Utc>,
-) -> std::result::Result<(), ApiError> {
+) -> std::result::Result<linkage::LinkageRun, ApiError> {
     // ① 锁单头
     let header = stock_out::lock(ex, id)
         .await
@@ -799,7 +813,29 @@ async fn post_out_tx(
         voucher = voucher_id.map(|v| v.to_string()).unwrap_or_default(),
         "出库单过账完成：三本账已负向，成本结转凭证已生成"
     );
-    Ok(())
+
+    // ⑥ 跨单据联动（P1-FIX-5C）：出库过账的库存 / 成本 / 凭证都已由 ③⑤ 自己落账，
+    //    所以通用引擎必须**显式排除**这四类动作（否则同一行明细扣两次库存、
+    //    一张单两张成本结转凭证 / 回写同一份成本快照）。排除清单在
+    //    `spec::STOCKOUT_EXCLUDED_ACTIONS`，不是写死在引擎里（别的触发点仍可用通用路线）。
+    //
+    //    读规则失败 = 空规则集 = 行为与配置前逐字相同（`model::rules_for` fail-safe）；
+    //    关键动作失败 → `Err` → 调用方整笔回滚（与本函数其它步骤同一口径）。
+    //    提交后动作（发通知 / 建任务）放进 `deferred`，由 `post_stock_out` 在 commit 之后跑。
+    let linkage_ctx = linkage_hook::post_linkage_ctx(&header, operator);
+    let linkage_run =
+        linkage::engine::run_excluding(ex, &linkage_ctx, linkage::spec::STOCKOUT_EXCLUDED_ACTIONS)
+            .await?;
+    if !linkage_run.is_empty() {
+        tracing::info!(
+            stock_out_id = %id,
+            out_no = %header.out_no,
+            in_tx_rules = linkage_run.runs.len(),
+            deferred_rules = linkage_run.deferred.len(),
+            "出库过账：跨单据联动已执行（事务内动作已落库，提交后动作待 commit）"
+        );
+    }
+    Ok(linkage_run)
 }
 
 // ==================== 作废 ====================

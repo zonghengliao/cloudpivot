@@ -41,12 +41,14 @@
 //!
 //! [`ActionSpec::implemented`] 区分「已接管」与「占位」：
 //!
-//! - **已实现（3 个）**：`SEND_NOTICE`（第 2 步接管任务状态通知）、
+//! - **已实现（4 个）**：`SEND_NOTICE`（第 2 步接管任务状态通知）、
 //!   `UPDATE_RECEIVED_QTY`（P2-3 起语义=校验：累计收货量是派生值 `POSTED_RECEIVED_SQL`，
 //!   本动作判「其他单据已过账收货 + 本次 ≤ 订购量」，作为关键动作事务语义的活样本）、
 //!   `GENERATE_VOUCHER`（**D3 第 3 步**：复用 `voucher::create_by_rule`，
-//!   与收货过账的旧路径是同一个函数、同一份取数与取号）；
-//! - **占位（8 个）**：入参契约已定、[`ActionSpec::reuse`] 写清了后续要复用的既有函数；
+//!   与收货过账的旧路径是同一个函数、同一份取数与取号）、
+//!   `CREATE_TASK`（**P1-FIX-5C**：复用 `task::model::create_task`，提交后建自由任务；
+//!   出库过账 → 建复核任务是它的第一个真实用例）；
+//! - **占位（7 个）**：入参契约已定、[`ActionSpec::reuse`] 写清了后续要复用的既有函数；
 //!   在接管之前**不允许配置**（写入口直接 `400`），万一有人绕过 API 直接写库，
 //!   运行时会打 ERROR + 跳过该动作，绝不半执行。
 //!
@@ -229,6 +231,232 @@ pub fn is_known_trigger(entity: &str) -> bool {
     TRIGGERS.contains(&entity)
 }
 
+// ==================== 触发点接线状态（P1-FIX-5C） ====================
+
+/// **一个触发点到底有没有人调引擎**（白名单 ≠ 接线）。
+///
+/// # 为什么白名单之外还要一张接线表
+///
+/// 白名单 [`TRIGGERS`] 回答的是「这个单据类型**允许**作为触发点」（数据库 CHECK、
+/// `model::upsert_rule` 的校验都按它判）。它**不**回答「代码里真的有人在这个状态变更点
+/// 调 [`crate::business::flow::linkage::engine`]」——P1-FIX-5B 实测发现这两件事严重不等：
+/// 15 个白名单触发点里只有 2 个真的接了线，其余 13 个上配规则**能保存、能启用、永远不触发**。
+/// 这是一种最坏的「看起来配好了」：管理员以为生效了，业务上什么都没发生，而且没有任何报错。
+///
+/// 所以每个触发点必须额外声明 [`TriggerSpec::wired`]：
+///
+/// - `true` = 该触发点的状态变更点里有真实调用（[`TriggerSpec::proofs`] 逐条给出
+///   「文件 + 文件里必须出现的调用片段」）；
+/// - `false` = 没人调引擎 ⇒ 写规则的接口要求显式 `allow_unwired`、配置页标注「未接线、
+///   暂不会触发」、预览里给警告。**不许静默保存**。
+///
+/// # 漂移守卫（本表的 `wired` 不是手抄的自证）
+///
+/// 单测 `tests_wiring::wired_triggers_match_call_sites` 会在测试时扫描
+/// `src/business` 下**全部生产代码**，找出所有调用联动引擎入口的文件：
+///
+/// 1. 每个 `wired = true` 的触发点，其 [`TriggerSpec::proofs`] 里点名的文件必须真的存在
+///    且真的含该片段（删了调用 → 红）；
+/// 2. 反过来，扫出来的「调用引擎的文件集合」必须**恰好等于** wired 触发点点名的文件集合
+///    （偷偷多接一个触发点却忘了改本表 → 红）。
+///
+/// 这里刻意不把触发点写进 `TRIGGER_SPECS` 以外的地方：前端下发的 `wired` / `wiring`
+/// 字段、写入口的拦截、单测的判据全部读这张表，**一份真相**。
+#[derive(Debug)]
+pub struct TriggerSpec {
+    /// 触发实体（与 [`TRIGGERS`] 逐字一致，顺序也一致，由单测钉住）。
+    pub entity: &'static str,
+    /// 是否已接线（`false` = 配了规则永远不会触发）。
+    pub wired: bool,
+    /// `wired = true` → 接线位置（`文件::函数`，说明「凭什么算接线」）；
+    /// `wired = false` → 未接线的原因 + 接的时候要动哪里。配置页直接显示这段文字。
+    pub wiring: &'static str,
+    /// 漂移守卫的证据对：`(相对 backend/ 的文件路径, 文件里必须出现的片段)`；未接线 = 空。
+    pub proofs: &'static [(&'static str, &'static str)],
+}
+
+/// 触发点接线表（顺序与 [`TRIGGERS`] 一致）。
+///
+/// 当前 **3/15 已接线**（`STOCK_IN` · `STOCK_OUT` · `TASK`），12 个未接线；逐条原因见
+/// `docs/architecture/P1-FIX-5C-联动触发点接线清单.md`。
+pub const TRIGGER_SPECS: &[TriggerSpec] = &[
+    TriggerSpec {
+        entity: state_machine::ENTITY_STOCK_IN,
+        wired: true,
+        wiring: "已接线：erp/stockin_handler_post.rs::post_in_tx 第 ⑦ 步走凭证专用路由 \
+                 (linkage::engine::stockin_voucher) + 第 ⑧ 步跑通用引擎 \
+                 run_excluding(&[GENERATE_VOUCHER])，commit 后 post_stock_in / \
+                 post_after_approval 调 run_stockin_deferred_linkage → run_deferred",
+        proofs: &[
+            (
+                "src/business/erp/stockin_handler_post.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/stockin_handler_post.rs",
+                "linkage::engine::stockin_voucher",
+            ),
+            (
+                "src/business/erp/stockin_handler_post.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_STOCK_OUT,
+        wired: true,
+        wiring: "已接线：erp/stockout_handler.rs::post_out_tx 第 ⑥ 步跑通用引擎 \
+                 run_excluding(spec::STOCKOUT_EXCLUDED_ACTIONS)（库存 / 成本 / 凭证由 ③⑤ \
+                 专用路径落账，必须排除，否则重复扣库存 + 一张单两张凭证），commit 后 \
+                 post_stock_out 调 stockout_linkage::run_deferred_linkage → run_deferred",
+        proofs: &[
+            (
+                "src/business/erp/stockout_handler.rs",
+                "linkage::engine::run_excluding",
+            ),
+            (
+                "src/business/erp/stockout_linkage.rs",
+                "linkage::engine::run_deferred",
+            ),
+        ],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_TRANSFER,
+        wired: false,
+        wiring: "未接线：状态变更点在 erp/transfer_handler_status.rs（调 \
+                 state_machine::transition + transfer_write::apply_status），同样没有联动调用点。\
+                 接线要动：状态事务内 run_excluding(库存类动作) + commit 后 run_deferred",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_PURCHASE_ORDER,
+        wired: false,
+        wiring: "未接线：采购单状态在 purchase_model::apply_status（部分收货由 \
+                 erp/stockin_purchase.rs 用 transition_if_changed 推进），两处都没有联动调用点。\
+                 接线要动：两处都要接（否则「部分收货 → 全部收货」这条边走不到联动），且必须排除 \
+                 UPDATE_RECEIVED_QTY 之外的库存动作",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_PAYABLE,
+        wired: false,
+        wiring: "未接线：应付单状态由 erp/payable_payment.rs 用 transition_if_changed 推进（付款、\
+                 部分付款、结清都在这个文件）。接线要动：付款事务内 run_excluding(&[\
+                 UPDATE_PAYABLE_BALANCE])（余额已由同事务维护）+ commit 后 run_deferred",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_VOUCHER,
+        wired: false,
+        wiring: "未接线：凭证过账 / 反过账在 erp/voucher_write.rs（append / reverse_posted 已抽成\
+                 唯一实现），但没有联动调用点。注意：在凭证状态上配 GENERATE_VOUCHER 会造「凭证\
+                 生凭证」的环，接线时必须把该动作排除或直接禁止",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_PERIOD,
+        wired: false,
+        wiring: "未接线：会计期间结账 / 反结账在 erp/period.rs（apply_status + \
+                 state_machine::transition），没有联动调用点。接线要动：月结事务内 + commit 后",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_YEAR_END,
+        wired: false,
+        wiring: "未接线：年结批次在 erp/year_end.rs（大批量结转，事务很长）。接线要动：结转事务内\
+                 只放关键动作、通知一律 commit 后；年结的失败回滚代价最大，必须单开卡做真机验证",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_CONTRACT,
+        wired: false,
+        wiring: "未接线：合同状态在 erp/contract_handler.rs（构造 / 审批通过 / 终止），没有联动\
+                 调用点。接线要动：审批通过那一步（与 flow 审批回调相邻，注意别重复触发）",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_STOCK_TAKE,
+        wired: false,
+        wiring: "未接线：盘点单过账 / 作废在 erp/stocktake_handler.rs::post_stock_take / \
+                 change_status（盘盈盘亏由 stocktake_model::apply_status + 库存写入落账），\
+                 没有联动调用点。接线要动：与 STOCK_IN 同形（第 ⑦⑧ 步 + commit 后），并排除\
+                 库存类动作以免重复落账",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_FIXED_ASSET,
+        wired: false,
+        wiring: "未接线：资产停用 / 启用 / 处置 / 作废在 erp/asset_handler.rs（+ asset_bridge.rs \
+                 抛凭证），没有联动调用点",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_DEPRECIATION,
+        wired: false,
+        wiring: "未接线：折旧批次过账 / 红冲在 erp/depreciation_handler.rs（+ \
+                 depreciation_model.rs），没有联动调用点。批次是大批量操作，通知必须走 commit 后",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: state_machine::ENTITY_EXPENSE,
+        wired: false,
+        wiring: "未接线：报销单提交 / 通过 / 付清 / 作废在 erp/expense_handler.rs（+ \
+                 expense_bridge.rs 建应付 / 凭证），没有联动调用点",
+        proofs: &[],
+    },
+    TriggerSpec {
+        entity: TRIGGER_TASK,
+        wired: true,
+        wiring: "已接线：task/task_handler_notice.rs::notify_status_change —— 每次任务状态变更\
+                 都会用 task_notice_draft 算好草稿，再调 linkage::engine::status_notice \
+                 （SHADOW 影子对比 / TAKEOVER 由配置发、旧逻辑不发；校验不过一律退回旧逻辑）",
+        proofs: &[(
+            "src/business/task/task_handler_notice.rs",
+            "linkage::engine::status_notice",
+        )],
+    },
+    TriggerSpec {
+        entity: TRIGGER_FLOW_INSTANCE,
+        wired: false,
+        wiring: "未接线：审批实例状态在 flow 审批回调里推进（approve / reject / cancel），\
+                 那里的「审批通过」还会顺带改业务单据状态，两个触发点的先后顺序必须先定清楚\
+                 （否则同一次审批会跑两遍联动），属于必须单开卡设计的一条",
+        proofs: &[],
+    },
+];
+
+/// 取触发点的接线声明（不在白名单 → `None`）。
+pub fn trigger_spec(entity: &str) -> Option<&'static TriggerSpec> {
+    TRIGGER_SPECS
+        .iter()
+        .find(|spec| spec.entity == entity.trim())
+}
+
+/// 触发点是否**真的接线**（白名单里有但没人调引擎 = `false`）。
+///
+/// 未知触发点一律 `false`（fail-closed：写入口据此要求显式确认，不能因为「查不到」就放行）。
+pub fn is_wired_trigger(entity: &str) -> bool {
+    trigger_spec(entity).map(|spec| spec.wired).unwrap_or(false)
+}
+
+/// 未接线的触发点（顺序与 [`TRIGGERS`] 一致；配置页/文档/单测共用）。
+pub fn unwired_triggers() -> Vec<&'static str> {
+    TRIGGER_SPECS
+        .iter()
+        .filter(|spec| !spec.wired)
+        .map(|spec| spec.entity)
+        .collect()
+}
+
+/// 已接线的触发点。
+pub fn wired_triggers() -> Vec<&'static str> {
+    TRIGGER_SPECS
+        .iter()
+        .filter(|spec| spec.wired)
+        .map(|spec| spec.entity)
+        .collect()
+}
+
 /// 状态机里有、但**明确不做**联动触发点的实体（白名单的例外清单）。
 ///
 /// 加进这里不是「把红测试改绿」——是给「这个实体为什么没有触发点」留一条可查的理由：
@@ -253,6 +481,29 @@ pub const ACTION_UPDATE_RECEIVED_QTY: &str = "UPDATE_RECEIVED_QTY";
 
 /// 生成凭证的动作码（【D3】第 3 步接管：复用 `voucher::create_by_rule`）。
 pub const ACTION_GENERATE_VOUCHER: &str = "GENERATE_VOUCHER";
+
+/// 建工作任务的动作码（P1-FIX-5C 接管：复用 `task::model::create_task`）。
+pub const ACTION_CREATE_TASK: &str = "CREATE_TASK";
+
+/// **出库过账**的专用路由排除清单（P1-FIX-5C）。
+///
+/// 出库过账在 `erp/stockout_handler::post_out_tx` 的 ③⑤ 步里自己写完了
+/// 库存（成本账 + 库位账 + 流水）、成本快照与成本结转凭证，所以通用引擎在这条
+/// 触发点上必须把这四类动作交给专用路径：
+///
+/// - `WRITE_INVENTORY` / `WRITE_INVENTORY_TXN` → 同一行明细扣两次库存；
+/// - `UPDATE_COST` → 成本快照被二次覆盖；
+/// - `GENERATE_VOUCHER` → 一张单两张成本结转凭证。
+///
+/// 排除清单放在**调用方**（这里导出、`post_out_tx` 传入）而不是写死在引擎里：
+/// 换个触发点（如 `PAYABLE/SETTLED`）通用路线仍然要能跑这些动作。
+/// 漂移守卫：`tests_wiring::stockout_post_wires_generic_engine_and_excludes_dedicated_actions`。
+pub const STOCKOUT_EXCLUDED_ACTIONS: &[&str] = &[
+    "WRITE_INVENTORY",
+    "WRITE_INVENTORY_TXN",
+    "UPDATE_COST",
+    ACTION_GENERATE_VOUCHER,
+];
 
 // ==================== 禁用键（SQL 禁令） ====================
 
@@ -551,7 +802,8 @@ pub const ACTIONS: &[ActionSpec] = &[
         label: "生成工作任务",
         phase: Phase::AfterCommit,
         severity: Severity::NonCritical,
-        implemented: false,
+        // ★ 已实现（P1-FIX-5C）：出库过账 → 建复核任务 / 收货过账 → 建跟单任务
+        implemented: true,
         params: &[
             ParamSpec {
                 key: "title",

@@ -266,6 +266,13 @@ pub struct RulePatch {
     pub seq: Option<i32>,
     /// 二次确认（改联动 = 改业务规则）。
     pub confirm: bool,
+    /// **触发点未接线时是否仍然保存**（P1-FIX-5C）。
+    ///
+    /// 默认 `false` ⇒ 在未接线的触发点上建/启用规则一律 `400`。这不是「限制功能」，
+    /// 而是「不许静默保存一条永远不会触发的规则」：白名单 15 个触发点里目前只有 3 个真的
+    /// 调了引擎（见 [`spec::TRIGGER_SPECS`]），其余 12 个上配规则会让管理员以为生效了。
+    /// 确认要预置配置时可以显式传 `true`（配置页会弹二次确认并要求勾选）。
+    pub allow_unwired: bool,
 }
 
 /// 某个触发点允许的状态（第 2 层校验：写错状态 = 规则永远不触发，必须当场拒）。
@@ -366,6 +373,29 @@ pub async fn upsert_rule(
             format!(
                 "{trigger_entity} 没有状态「{trigger_status}」：可用 {}（写错状态的规则永远不触发）",
                 known.join(" / ")
+            ),
+        ));
+    }
+
+    // 第 1 层（应用侧）：触发点必须**真的接线**（P1-FIX-5C）
+    //
+    // 白名单校验只回答「允许不允许」，不回答「有没有人调引擎」。15 个白名单触发点里
+    // 只有 3 个真接线，其余 12 个上配规则「能保存、能启用、永远不触发」——这是最坏的
+    // 一种看起来配好了。所以启用态的规则必须落在已接线的触发点上，否则要求显式
+    // `allow_unwired`（配置页做成二次确认勾选，curl 直连也必须显式传）。
+    let will_enable = patch.enabled.unwrap_or(true);
+    if will_enable && !spec::is_wired_trigger(trigger_entity) && !patch.allow_unwired {
+        let detail = spec::trigger_spec(trigger_entity)
+            .map(|item| item.wiring)
+            .unwrap_or("该触发点不在白名单里");
+        return Err(ApiError::new(
+            400,
+            error_code::PARAM_INVALID,
+            format!(
+                "触发点 {trigger_entity}/{trigger_status} 尚未接线：引擎在这个状态变更点不会被执行，\
+                 规则保存后永远不会触发。{detail}。确认要预置配置（例如为接线做准备）请显式传 \
+                 allow_unwired = true；当前可用（已接线）的触发点：{}",
+                spec::wired_triggers().join(" / ")
             ),
         ));
     }

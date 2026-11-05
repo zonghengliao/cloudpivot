@@ -29,7 +29,7 @@
 
 use std::result::Result;
 
-use nik::prelude::chrono::NaiveDate;
+use nik::prelude::chrono::{Duration, NaiveDate};
 use nik::prelude::rust_decimal::Decimal;
 use nik::prelude::*;
 use nik::uuid::Uuid;
@@ -635,6 +635,100 @@ pub async fn commit_voucher(
     })
 }
 
+// ==================== 提交后动作：建工作任务 ====================
+
+/// 建一条工作任务（`Phase::AfterCommit`，**非关键**动作）。
+///
+/// # 为什么它自己开事务
+///
+/// `Phase::AfterCommit` 动作在业务事务**提交之后**执行（[`super::engine::run_deferred`]），
+/// 那时调用方的事务已经结束；而 `task::model::create_task` 吃的是 `&Transaction`
+/// （取号要靠 `pg_advisory_xact_lock` 的事务级锁）。所以这里 `db().begin()` 开一个**自己的**
+/// 短事务：落库成功即提交，失败只回 [`ActionError::Failed`]，**永不回滚业务**
+/// （发不出待办任务不能把「已经过账」撤销）。
+///
+/// # 只建「自由任务」不挂单据
+///
+/// `biz_task.doc_type` 的值域是 `DocKind ∩ task/doc_ref.rs::DOC_TARGETS`
+/// （`PURCHASE_ORDER` / `STOCK_IN` / `CONTRACT` / `PAYABLE` / `VOUCHER`），
+/// 联动触发的单据类型里多数不在这个白名单内（如 `STOCK_OUT` / `EXPENSE`）。
+/// 为了让「任何触发点都能配」，这里只落自由任务，源单号写进标题与描述
+/// （可读、可 grep）；要挂单据关联得先扩 `DOC_TARGETS`，那是另一张卡的事，不在这里偷跑。
+pub async fn create_task(
+    rule: &LinkageRuleRow,
+    ctx: &LinkageContext<'_>,
+) -> Result<String, ActionError> {
+    let Some(title) = text_param(&rule.action_params, "title") else {
+        return Err(ActionError::Skipped(
+            "CREATE_TASK：title 必填（任务标题不能凭空生成）".to_string(),
+        ));
+    };
+    let strategy = text_param(&rule.action_params, "assignee_strategy")
+        .unwrap_or_else(|| "OPERATOR".to_string());
+    let owner = match strategy.as_str() {
+        "DOC_CREATOR" => ctx.creator,
+        _ => ctx.operator,
+    };
+    let Some(owner) = owner else {
+        return Err(ActionError::Skipped(format!(
+            "CREATE_TASK：assignee_strategy = {strategy} 在触发点没有对应的人，跳过建任务"
+        )));
+    };
+    let creator = ctx.creator.or(ctx.operator).unwrap_or(owner);
+    // 当前 CST 日期 → 月份键（编号按月递增，与任务模块同一口径，不另写一份）
+    let today = voucher::today_cst(ctx.now);
+    let month = crate::business::task::model::month_key(today);
+    let due_days = rule
+        .action_params
+        .get("due_days")
+        .and_then(|value| value.as_i64());
+    let due_date = due_days.map(|days| today + Duration::days(days));
+    let assignment = if owner == creator { "SELF" } else { "ASSIGNED" };
+    let new = crate::business::task::model::NewTask {
+        id: Uuid::now_v7(),
+        title,
+        description: text_param(&rule.action_params, "content"),
+        priority: "P2".to_string(),
+        need_review: false,
+        owner_id: owner,
+        creator_id: creator,
+        assigner_id: if owner == creator { None } else { ctx.operator },
+        dept_id: None,
+        parent_id: None,
+        project_id: None,
+        // 自由任务（见函数文档：doc_type 的值域不含多数联动触发点）
+        doc_type: None,
+        doc_id: None,
+        start_date: None,
+        due_date,
+        estimate_hours: None,
+        source: assignment.to_string(),
+        add_creator_as_collaborator: false,
+    };
+    let operator = ctx.operator.unwrap_or(creator);
+    let tx = db()
+        .begin()
+        .await
+        .map_err(|error| ActionError::Failed(format!("CREATE_TASK：开启事务失败：{error}")))?;
+    let task_no = match crate::business::task::model::create_task(&tx, &new, operator, &month).await
+    {
+        Ok(task_no) => task_no,
+        Err(error) => {
+            let _ = tx.rollback().await;
+            return Err(ActionError::Failed(format!(
+                "CREATE_TASK：任务落库失败（非关键动作，业务不回滚）：{error}"
+            )));
+        }
+    };
+    tx.commit()
+        .await
+        .map_err(|error| ActionError::Failed(format!("CREATE_TASK：提交任务事务失败：{error}")))?;
+    Ok(format!(
+        "任务 {task_no} 已创建（负责人 {owner}，来源单据 {} {})",
+        ctx.entity, ctx.doc_no
+    ))
+}
+
 // ==================== 统一入口 ====================
 
 /// 执行一个**事务内**动作（`Phase::InTx`）。
@@ -670,6 +764,7 @@ pub async fn run_after_commit(
                 outcome.notice_id, outcome.receiver_count, outcome.duplicated
             )
         }),
+        spec::ACTION_CREATE_TASK => create_task(rule, ctx).await,
         other => Err(ActionError::Skipped(not_taken_over(other))),
     }
 }

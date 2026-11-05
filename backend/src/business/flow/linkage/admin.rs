@@ -93,6 +93,9 @@ pub struct RuleUpsertReq {
     /// 二次确认（**必须** `true`：改联动 = 改业务规则）
     #[serde(default)]
     pub confirm: bool,
+    /// 触发点未接线时是否仍然保存（默认 `false` = 拒绝；配置页勾选二次确认后才带 `true`）
+    #[serde(default)]
+    pub allow_unwired: bool,
 }
 
 /// `PUT /business/flow/linkage/toggle` 的请求体（启停）。
@@ -105,6 +108,9 @@ pub struct RuleToggleReq {
     /// 二次确认（**必须** `true`）
     #[serde(default)]
     pub confirm: bool,
+    /// **启用**一条挂在未接线触发点上的规则时是否仍然放行（默认 `false` = 拒绝）
+    #[serde(default)]
+    pub allow_unwired: bool,
 }
 
 /// `DELETE /business/flow/linkage` 的查询参数。
@@ -219,6 +225,11 @@ pub struct TriggerRes {
     pub label: String,
     /// 允许的触发状态（升序，与状态机边表同口径）
     pub statuses: Vec<String>,
+    /// **是否已接线**（`false` = 代码里没人调引擎，配了规则永远不触发；前端据此标注并拦截保存）
+    pub wired: bool,
+    /// 接线位置（`wired = true`）或未接线原因 + 接的时候要动哪里（`wired = false`）。
+    /// 文案由后端下发，前端不维护第二份解释。
+    pub wiring: String,
 }
 
 /// 一个动作参数的类型声明（动态表单用）。
@@ -431,6 +442,8 @@ pub struct PreviewRes {
     pub trigger_entity_label: String,
     /// 触发状态
     pub trigger_status: String,
+    /// **该触发点是否已接线**（`false` = 引擎在这个状态变更点不会被调用，配了也不触发）
+    pub trigger_wired: bool,
     /// 该触发点当前**启用**的规则数
     pub enabled_count: usize,
     /// 按 seq 排好的执行链
@@ -521,6 +534,7 @@ pub async fn upsert_rule(
         enabled: req.enabled,
         seq: req.seq,
         confirm: req.confirm,
+        allow_unwired: req.allow_unwired,
     };
     let tx = db()
         .begin()
@@ -593,6 +607,8 @@ pub async fn toggle_rule(
             enabled: Some(req.enabled),
             seq: Some(row.seq),
             confirm: true,
+            // 停用永远放行；「启用一条未接线触发点上的规则」要显式 allow_unwired
+            allow_unwired: req.allow_unwired,
         };
         model::upsert_rule(&tx, &claims, &patch).await
     }
@@ -713,6 +729,15 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
         .filter(|step| step.phase == "AFTER_COMMIT")
         .count();
     let mut warnings = Vec::new();
+    let trigger_wired = spec::is_wired_trigger(&entity);
+    if !trigger_wired {
+        warnings.push(format!(
+            "【未接线】{entity} 的「{status}」变更点还没有调用联动引擎：这里的规则配了也不会触发。{}",
+            spec::trigger_spec(&entity)
+                .map(|item| item.wiring)
+                .unwrap_or("")
+        ));
+    }
     if steps.is_empty() {
         warnings.push(format!(
             "{entity} 走到 {status} 时当前没有任何启用的联动规则：这次配置保存后，\
@@ -747,6 +772,7 @@ pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes
         trigger_entity: entity.clone(),
         trigger_entity_label: trigger_label(&entity),
         trigger_status: status.clone(),
+        trigger_wired,
         enabled_count: steps.len(),
         steps,
         rollback_risk,
@@ -797,6 +823,20 @@ fn check_draft(
         effect: action.reuse.to_string(),
         overrides_existing,
     };
+    // 触发点未接线 = 这条草稿存下去也永远不触发（P1-FIX-5C）。与 `model::upsert_rule`
+    // 同一份判据：这里给配置页一个**当场可见**的拒绝原因，而不是等保存时才 400。
+    if !spec::is_wired_trigger(entity) {
+        return base(
+            false,
+            format!(
+                "触发点 {entity}/{status} 尚未接线：引擎在这个状态变更点不会被调用，规则保存后\
+                 永远不会触发。{}",
+                spec::trigger_spec(entity)
+                    .map(|item| item.wiring)
+                    .unwrap_or("")
+            ),
+        );
+    }
     if !action.implemented {
         return base(
             false,
@@ -812,9 +852,23 @@ fn check_draft(
     }
 }
 
-/// 一行规则的「自身问题」（不在白名单 / 未接管 / 参数不合法）。
+/// 一行规则的「自身问题」（触发点未接线 / 不在白名单 / 未接管 / 参数不合法）。
 fn rule_problems(row: &LinkageRuleRow) -> Vec<String> {
     let mut problems = Vec::new();
+    // 触发点未接线 = 这条规则永远不会触发（P1-FIX-5C：以前这里什么都不报）
+    if !spec::is_wired_trigger(&row.trigger_entity) {
+        problems.push(format!(
+            "触发点 {} 未接线：联动引擎不会在 {} 的「{}」变更点执行 —— 这条规则{}不会触发",
+            row.trigger_entity,
+            row.trigger_entity,
+            row.trigger_status,
+            if row.enabled {
+                ""
+            } else {
+                "（且已停用）"
+            }
+        ));
+    }
     match row.spec() {
         None => problems.push(format!(
             "动作码 {} 不在白名单里：运行时会被跳过（历史脏行）",
@@ -900,6 +954,10 @@ fn catalog_triggers() -> Vec<TriggerRes> {
                 .into_iter()
                 .map(str::to_string)
                 .collect(),
+            wired: spec::is_wired_trigger(entity),
+            wiring: spec::trigger_spec(entity)
+                .map(|item| item.wiring.to_string())
+                .unwrap_or_default(),
         })
         .collect()
 }
@@ -934,6 +992,35 @@ mod tests {
         for trigger in &triggers {
             assert!(!trigger.statuses.is_empty(), "每个触发点都要有状态可选");
             assert!(!trigger.label.is_empty(), "中文名不能为空");
+        }
+    }
+
+    /// 触发点字典必须带上「是否接线」与其说明（P1-FIX-5C：配置页靠它拦误配）。
+    #[test]
+    fn catalog_triggers_carry_wired_flag() {
+        let triggers = catalog_triggers();
+        let wired: Vec<&str> = triggers
+            .iter()
+            .filter(|item| item.wired)
+            .map(|item| item.entity.as_str())
+            .collect();
+        assert_eq!(
+            wired,
+            vec!["STOCK_IN", "STOCK_OUT", "TASK"],
+            "已接线的触发点：STOCK_IN / STOCK_OUT（P1-FIX-5C 新接）/ TASK"
+        );
+        for trigger in &triggers {
+            assert!(
+                !trigger.wiring.trim().is_empty(),
+                "触发点 {} 必须下发「接线位置 / 未接线原因」",
+                trigger.entity
+            );
+            assert_eq!(
+                trigger.wired,
+                spec::is_wired_trigger(&trigger.entity),
+                "{} 的 wired 必须逐字来自 spec::TRIGGER_SPECS",
+                trigger.entity
+            );
         }
     }
 
@@ -981,6 +1068,27 @@ mod tests {
             &rows,
         );
         assert!(!params.ok, "禁配 SQL 的键必须被拒");
+    }
+
+    /// 未接线触发点的草稿必须在**预览阶段**就被拒（P1-FIX-5C：不许「看起来配好了」）。
+    #[test]
+    fn draft_check_rejects_unwired_trigger() {
+        let rows: Vec<LinkageRuleRow> = Vec::new();
+        let unwired = spec::unwired_triggers();
+        assert!(!unwired.is_empty(), "当前应有未接线的触发点");
+        let res = check_draft(
+            unwired[0],
+            "DRAFT",
+            "SEND_NOTICE",
+            serde_json::json!({"mode": "TAKEOVER"}),
+            &rows,
+        );
+        assert!(!res.ok, "未接线触发点上的草稿必须 ok=false");
+        assert!(
+            res.message.contains("尚未接线"),
+            "拒绝原因必须点名「尚未接线」：{}",
+            res.message
+        );
     }
 
     /// 触发点 / 状态解析：未知值报 400，不静默。

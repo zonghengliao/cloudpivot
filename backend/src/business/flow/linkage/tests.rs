@@ -87,9 +87,11 @@ fn whitelist_has_eight_or_more_actions() {
         vec![
             spec::ACTION_GENERATE_VOUCHER,
             spec::ACTION_UPDATE_RECEIVED_QTY,
+            spec::ACTION_CREATE_TASK,
             spec::ACTION_SEND_NOTICE
         ],
-        "已接管的动作：D2 的 UPDATE_RECEIVED_QTY / SEND_NOTICE + D3 的 GENERATE_VOUCHER（其余留占位）"
+        "已接管的动作：D2 的 UPDATE_RECEIVED_QTY / SEND_NOTICE + D3 的 GENERATE_VOUCHER \
+         + P1-FIX-5C 的 CREATE_TASK（其余留占位）"
     );
 }
 
@@ -598,6 +600,9 @@ fn patch(name: &str, action_code: &str, params: serde_json::Value) -> RulePatch 
         enabled: Some(true),
         seq: Some(10),
         confirm: true,
+        // 默认不允许「未接线触发点」上的静默保存（P1-FIX-5C）：本文件用的 TASK 已接线，
+        // 所以恒为 false 就是最严格的形态；需要预置配置的用例显式改成 true。
+        allow_unwired: false,
     }
 }
 
