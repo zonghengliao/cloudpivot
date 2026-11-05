@@ -1,0 +1,20 @@
+admin        /api/business/impexp/import/page?page=1&page_size=1        -> 200  {"code":0,"msg":"ok","data":{"list":[],"total":0,"page":1,"page_size":1}}
+admin        /api/business/impexp/export/page?page=1&page_size=1        -> 200  {"code":0,"msg":"ok","data":{"list":[],"total":0,"page":1,"page_size":1}}
+admin        /api/business/impexp/def/list                              -> 200  {"code":0,"msg":"ok","data":[{"biz_type":"business.erp.account","biz_name":"会计科目","supports_import":true,"supports_export":false,"te
+admin        POST /api/business/impexp/import/upload                    -> 400  {"code":10001,"msg":"请求体参数校验失败：Invalid `boundary` for `multipart/form-data` request"}
+
+laoliu       /api/business/impexp/import/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:list"}
+laoliu       /api/business/impexp/export/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:export:list"}
+laoliu       /api/business/impexp/def/list                              -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:def:list"}
+laoliu       POST /api/business/impexp/import/upload                    -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:upload"}
+
+laoliu_test  /api/business/impexp/import/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:list"}
+laoliu_test  /api/business/impexp/export/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:export:list"}
+laoliu_test  /api/business/impexp/def/list                              -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:def:list"}
+laoliu_test  POST /api/business/impexp/import/upload                    -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:upload"}
+
+henry.liao   /api/business/impexp/import/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:list"}
+henry.liao   /api/business/impexp/export/page?page=1&page_size=1        -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:export:list"}
+henry.liao   /api/business/impexp/def/list                              -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:def:list"}
+henry.liao   POST /api/business/impexp/import/upload                    -> 403  {"code":403,"msg":"无权限访问，需要权限: business:impexp:import:upload"}
+
