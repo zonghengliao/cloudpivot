@@ -1,0 +1,21 @@
+$ ssh root@172.18.10.144 "su - postgres -c 'psql -d cloudpivot -Atc 
+    "select role_code, role_name from sys_role where deleted_at is null and status=1 order by role_code"
+
+DEPT_LEADER|部门主管
+FINANCE_DIRECTOR|财务总监
+FINANCE_MANAGER|财务经理
+FLOW_CONFIG_APPROVER|流程配置复核员
+GENERAL_MANAGER|总经理
+MUTEX_A|制单员
+MUTEX_B|审核员
+PURCHASE_MANAGER|采购经理
+QA_LIMITED|测试受限管理员
+QA_VIEWER|测试只读员
+SUPER_ADMIN|超级管理员
+WAREHOUSE_MANAGER|仓管主管
+
+-- 对照：库里被软删/未启用的角色（不进白名单）
+T7B_BOARDER|0|t
+TASK_VIEW_ONLY|1|t
+vrf_mx_a_093248|1|t
+vrf_mx_b_093248|1|t

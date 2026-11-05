@@ -1,0 +1,37 @@
+$ python3 $SCRATCH/base_vs_27.py   # 基线名单 vs t_2274dd 的 28 条空跑授权迁移名单
+基线 25 个文件：
+  V0085__seed_changelog_permissions.up.sql -> ['AUDITOR']
+  V0146__erp_purchase_order_permissions.up.sql -> ['ADMIN', 'BUYER', 'PURCHASER']
+  V0147__erp_stock_in_permissions.up.sql -> ['ADMIN', 'BUYER', 'PURCHASER', 'WAREHOUSE_KEEPER']
+  V0150__erp_ledger_permissions.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0151__erp_payable_permissions.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0158__erp_payment_and_voucher_write.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0183__erp_balance_sheet.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0184__erp_income_statement.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0185__erp_cashflow.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0188__erp_period_close.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE']
+  V0189__erp_opening_balance.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'WAREHOUSE']
+  V0190__erp_year_end.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE']
+  V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0203__erp_stock_out.up.sql -> ['ADMIN', 'BUYER', 'PURCHASER', 'WAREHOUSE_KEEPER']
+  V0207__erp_period_remind.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE']
+  V0208__erp_year_end_remind.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE']
+  V0211__erp_stock_take.up.sql -> ['ADMIN', 'WAREHOUSE_KEEPER']
+  V0213__erp_cancel_cascade_permissions.up.sql -> ['ADMIN']
+  V0214__erp_ledger_aux_balance_permission.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0227__erp_budget_tables.up.sql -> ['ADMIN']
+  V0229__erp_asset_tables.up.sql -> ['ADMIN']
+  V0230__erp_depreciation_tables.up.sql -> ['ADMIN']
+  V0242__erp_expense_tables.up.sql -> ['ADMIN']
+  V0255__erp_payable_aging.up.sql -> ['ACCOUNTANT', 'ADMIN', 'FINANCE', 'TEST_UADMIN']
+  V0256__erp_report_item_admin.up.sql -> ['ADMIN']
+
+t_2274dd 名单 28 条；其中在基线里 20 条：
+  基线里但没有未知码（不在名单的其余）： ['V0085__seed_changelog_permissions.up.sql', 'V0227__erp_budget_tables.up.sql', 'V0229__erp_asset_tables.up.sql', 'V0230__erp_depreciation_tables.up.sql', 'V0242__erp_expense_tables.up.sql']
+  名单里但不在基线（只授真实码/超管）： ['V0141__erp_permissions.up.sql', 'V0142__erp_serial_permissions.up.sql', 'V0143__erp_audit_permission.up.sql', 'V0144__erp_transfer_permission.up.sql', 'V0210__erp_business_reminder.up.sql', 'V0212__erp_doc_attachment.up.sql', 'V0250__erp_voucher_three_state.up.sql', 'V0258__business_role_matrix.up.sql']
+
+# 对账结论
+#   t_2274dd 名单 28 条 = 27 条带角色码 + V0258 矩阵（矩阵无 WHERE 角色码，靠矩阵块扫描）
+#   其中 20 条带已证伪码 ⇒ 必须进基线；另 8 条只授真实码/超管 ⇒ 不需要基线
+#   名单外还有 5 条同样带已证伪码（V0085 AUDITOR / V0227 V0229 V0230 V0242 ADMIN）
+#   ⇒ 基线 25 个文件 / 29 条语句 = 20 + 5，与闸的「0 未知」自洽

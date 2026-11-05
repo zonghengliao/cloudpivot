@@ -1,0 +1,23 @@
+$ cat backend/migrations/business/V0261__gate_probe_inlist.up.sql
+INSERT INTO sys_role_menu (role_id, menu_id)
+SELECT r.id, m.id FROM sys_role r CROSS JOIN sys_menu m
+ WHERE r.role_code IN ('ADMIN', 'ACCOUNTANT', 'FINANCE') AND m.auth_code = 'erp:payable:read';
+
+$ python3 /opt/cloudpivot/scripts/verify/role_code_gate.py
+============================================================================================
+迁移授权段角色码闸 · role_code_gate.py（INSERT INTO sys_role_menu 的 role_code 必须真实存在）
+============================================================================================
+扫描面：192 个 *.up.sql / 76 条 INSERT INTO sys_role_menu 语句 / 60 条带 role_code 字面量 / 5 条动态匹配（LIKE / 子查询，只能 WARN）
+白名单：12 个角色（生产活角色 12 + 迁移种子 8：DEPT_LEADER, FINANCE_DIRECTOR, FINANCE_MANAGER, FLOW_CONFIG_APPROVER, GENERAL_MANAGER, PURCHASE_MANAGER, SUPER_ADMIN, WAREHOUSE_MANAGER）
+历史基线：25 个文件（sha256 锁定，改动即失效）
+--------------------------------------------------------------------------------------------
+✗ 未知角色码 3 处（1 条语句）—— 这些码在 sys_role 里不存在，授权会**静默 0 行**：
+  · backend/migrations/business/V0261__gate_probe_inlist.up.sql:1 → 'ADMIN'@L3，'ACCOUNTANT'@L3，'FINANCE'@L3   [新增文件]
+  修法：① 换成生产真实角色码（`select role_code from sys_role where deleted_at is null；见 docs/后端二开指南.md`「迁移授权段怎么拿角色码」）；
+        ② 新业务角色 ⇒ 先在迁移里 `INSERT INTO sys_role` 建出来，再在同一/后续迁移里授；
+        ③ 确属历史个例 ⇒ 在上方写 `-- ROLE-EXEMPT: <为什么这个码可以不存在>`（≥8 字符理由）。
+ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+⚠ 策略提示（WARN，不判红）：新增迁移里有 1 条 `INSERT INTO sys_role_menu` 授权段：
+  · backend/migrations/business/V0261__gate_probe_inlist.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'，'ACCOUNTANT'，'FINANCE'
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+PROBE_RC=1

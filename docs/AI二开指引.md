@@ -70,6 +70,10 @@
 - 不要漏 `/api` 前缀（前端）或写死 `/api` 前缀（后端宏）。
 - 不要写 `unwrap/expect`、不要静默写空串、不要 `tmp/var/data` 命名。
 - 不要新建 `V0018` 或改动已应用迁移；不要写 `t-col-xs-24`、图标用 `user-check`/`speed`。
+- 不要在新迁移的 `INSERT INTO sys_role_menu` 里**抄老迁移的 `role_code` 清单**：`ADMIN` / `ACCOUNTANT` /
+  `FINANCE` / `TEST_UADMIN` / `BUYER` / `PURCHASER` / `WAREHOUSE_KEEPER` / `WAREHOUSE` 在生产**都不存在**，
+  SQL 不报错、迁移照样记账，但授权静默 0 行。角色码只从 `select role_code from sys_role` 拿
+  （见 `docs/后端二开指南.md` §9.1；闸⑧ `scripts/verify/role_code_gate.py` 会拦）。
 
 ---
 
@@ -106,5 +110,7 @@
 ## 七、二开前必做
 
 - 改迁移前先 `ls backend/migrations/*/` 核对当前最大版本号，确认号段。
+- 写 `INSERT INTO sys_role_menu` 授权段前，先 `select role_code from sys_role where deleted_at is null
+  and status = 1` 确认角色码真的存在（闸⑧ 会拦未知码；授权应优先走 `V0258` 角色矩阵）。
 - 新增权限点后，确认 `sys_menu.auth_code` 种子、`#[nik::permission(...)]`、`router.meta.permission` 三处字符串完全一致。
 - 提交前跑 `scripts/check.sh`（后端 fmt/clippy/check + 前端 typecheck）。

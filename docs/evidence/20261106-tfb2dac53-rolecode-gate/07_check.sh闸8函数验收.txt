@@ -1,0 +1,40 @@
+# 从 scripts/check.sh 原样抽取 role_code_gate() 后单独驱动（验证的就是上线的那份代码）
+
+--- ① 干净树（期望 0） ---
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✓ 判据自检通过（38/38 通过）
+  ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+  ℹ 策略提示：32 条历史授权段已在基线内，不重复告警（新增迁移再写授权段会在这里 WARN）。
+  ✓ 无新增/改动的未知角色码（191 个 .up.sql 已扫）
+FUNC_RC=0
+
+--- ② 新增一条 ('ADMIN', …) 的迁移（期望 1，点名 文件:行） ---
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✓ 判据自检通过（38/38 通过）
+  ✗ 迁移里的 role_code 在 sys_role 里不存在（授权会静默 0 行），不许合：
+  ✗ 未知角色码 1 处（1 条语句）—— 这些码在 sys_role 里不存在，授权会**静默 0 行**：
+    · backend/migrations/business/V0260__gate_probe_fn.up.sql:1 → 'ADMIN'@L3   [新增文件]
+    · backend/migrations/business/V0260__gate_probe_fn.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+    修法：① 换成生产真实角色码（select role_code from sys_role where deleted_at is null；
+             见 docs/后端二开指南.md「迁移授权段怎么拿角色码」）；
+          ② 新业务角色 ⇒ 先在迁移里 INSERT INTO sys_role 建出来再授；
+          ③ 历史个例 ⇒ 上方 5 行内写注释  -- ROLE-EXEMPT: <理由≥8 字>。
+    完整报告：/tmp/role_code.ZkOMAe.log
+FUNC_RC=1
+
+--- ③ 同一条但不阻断（ROLE_CODE_GATE=warn，期望 0） ---
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✓ 判据自检通过（38/38 通过）
+  ⚠ 有未知角色码（ROLE_CODE_GATE=warn → 不阻断）
+    · backend/migrations/business/V0260__gate_probe_fn.up.sql:1 → 'ADMIN'@L3   [新增文件]
+    · backend/migrations/business/V0260__gate_probe_fn.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+FUNC_RC=0
+
+--- ④ 显式关闸（ROLE_CODE_GATE=off，期望 0） ---
+==> 闸⑧：迁移授权段角色码（ROLE_CODE_GATE=off → 跳过）
+FUNC_RC=0
+
+--- ⑤ 脚本缺失（模拟路径写错：必须 rc≠0，不能静默绿） ---
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✗ 闸门自检未通过（判据被改坏了？）：
+FUNC_RC=1

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # 提交前检查：后端 fmt / clippy / check + 前端 typecheck + 批次B 数据权限防漏门禁
 #            + 闸③ERP不变量 / 闸④词表 / 闸⑤快照巡检 / 闸⑥死权限码（handler 注解码必须有菜单承载）
+#            + 闸⓪真库用例（**可选档**：CHECK_WITH_DB=1，见文件中部「闸⓪」段）
 #            + 闸⑦孤儿按钮（角色拿到的按钮码必须至少有一个可达父页）
+#            + 闸⑧迁移授权段角色码（INSERT INTO sys_role_menu 里的 role_code 必须真实存在）
 #
 # 用法：bash scripts/check.sh
 #
@@ -26,6 +28,79 @@ echo "==> 后端：cargo check"
 
 echo "==> 前端：pnpm typecheck"
 (cd "$ROOT/frontend" && pnpm typecheck)
+
+# ======================================================================
+# 闸⓪ · 真库用例（**可选档**：`CHECK_WITH_DB=1`，卡 t_977c5189）
+#
+# # 为什么需要这一档
+#
+# 上面几条 `cargo` 门禁都**不连库**。真库用例的写法是
+# `let Ok(url) = env::var("ERP_DB_URL") else { println!("SKIP: …"); return; }`，
+# 而 libtest 把「打印 SKIP 后 return」记成 **passed** ⇒ 默认门禁跑出
+# 「2910 passed / 0 failed」全绿，可是**一条真库断言都没执行**。
+#
+# 代价是实测过的：`payable_bridge`（P17）夹具只在「下一个用例的 setup」里清场，
+# 模块跑完库里留下 2 个**在职超管**（`p17_ap1/p17_ap2`），而 `FALLBACK_ADMIN` 的会签
+# 人数 = 在职超管数 ⇒ `flow::edge_admin_tests` 的 3 条批量审批用例集体假红
+# （落边 0 行 / 实例停在 PENDING）。默认门禁全程绿，只有「真库上跑全量」才暴露。
+#
+# # 用法
+#
+#   CHECK_WITH_DB=1 bash scripts/check.sh                  # 全量 lib（约 12 分钟）
+#   CHECK_WITH_DB=1 CHECK_WITH_DB_FILTER=business::flow \\
+#       bash scripts/check.sh                              # 只跑某段（提交前更快）
+#   ERP_DB_URL=… SYS_DB_URL=… TASK_DB_URL=… CHECK_WITH_DB=1 bash scripts/check.sh
+#
+# 没有现成库时先建一个干净隔离库（发布二进制首启会自动套完迁移）：
+#   bash scripts/verify/erp_clean_db.sh
+#
+# # 判据（三条都硬）
+#
+#   ① 任何一条用例失败 → 红；
+#   ② 日志里出现 `SKIP:` → 红（SKIP 绿等于没跑，不许混进「全绿」）；
+#   ③ 三个库 URL 缺一个 → 红（只给 ERP_DB_URL 会让 `flow::model` / task 模块静默 SKIP）。
+# ======================================================================
+
+if [ "${CHECK_WITH_DB:-0}" = "1" ]; then
+    echo "==> 闸⓪：真库用例（cargo test --lib --features test-hooks -- --test-threads=1）"
+    missing=""
+    for var in ERP_DB_URL SYS_DB_URL TASK_DB_URL; do
+        if [ -z "${!var:-}" ]; then missing="$missing $var"; fi
+    done
+    if [ -n "$missing" ]; then
+        echo "  ✗ CHECK_WITH_DB=1 但库 URL 不全：缺$missing" >&2
+        echo "    只给 ERP_DB_URL 会让 flow::model / task_bridge / notify_node 的真库用例静默 SKIP（假绿）。" >&2
+        echo "    修法：三个都指同一个隔离库，或先 bash scripts/verify/erp_clean_db.sh 建一个。" >&2
+        exit 1
+    fi
+    db_log="$(mktemp /tmp/check_with_db.XXXXXX.log)"
+    db_rc=0
+    # `--test-threads=1`：lib 里有改全局配置（流程定义 / 状态机边 / 期末结账）的用例，
+    # 并行会互踩（详见 skill/SKILL.md「测试卫生」与 docs/测试卫生-真库连库入口清单.md）。
+    ( cd "$ROOT/backend" \
+        && cargo test --lib --features test-hooks -- --test-threads=1 ${CHECK_WITH_DB_FILTER:-} ) \
+        > "$db_log" 2>&1 || db_rc=$?
+    grep -E '^test result:' "$db_log" | sed 's/^/  /' || true
+    skips=$(grep -c '^SKIP:' "$db_log" || true)
+    if [ "$db_rc" -ne 0 ]; then
+        echo "  ✗ 真库用例有失败（退出码 $db_rc）。失败清单：" >&2
+        grep -E '^test .* FAILED' "$db_log" | sed 's/^/    /' >&2 || true
+        echo "    完整日志：$db_log" >&2
+        exit 1
+    fi
+    if [ "${skips:-0}" -gt 0 ]; then
+        echo "  ✗ 有 $skips 条用例打印了 \`SKIP:\`（= 一条断言都没跑，属于假绿）：" >&2
+        grep '^SKIP:' "$db_log" | sort -u | head -5 | sed 's/^/    /' >&2
+        echo "    完整日志：$db_log" >&2
+        exit 1
+    fi
+    echo "  ✓ 真库用例全绿且 0 条 SKIP（日志：$db_log）"
+else
+    echo "==> 闸⓪：真库用例 —— 未启用（CHECK_WITH_DB=1 才跑）"
+    echo "    ⚠ 本档不开时，全部真库用例都会打印 SKIP 并 return（libtest 记 passed）⇒"
+    echo "      「全绿」不代表真库断言跑过；夹具污染 / 真库断言过期这类缺陷只能在本档发现。"
+    echo "      提交前建议：CHECK_WITH_DB=1 CHECK_WITH_DB_FILTER=<受影响模块> bash scripts/check.sh"
+fi
 
 # ======================================================================
 # 批次 B · 数据权限防漏门禁（架构文档 §2.4 的「闸 2」）
@@ -656,6 +731,75 @@ orphan_button_gate() {
 }
 
 if ! orphan_button_gate; then
+    exit 1
+fi
+
+# ======================================================================
+# 闸⑧ 迁移授权段角色码常驻闸（`INSERT INTO sys_role_menu` 里的 role_code 必须真实存在）
+#
+# 为什么是硬门禁：`sys_role_menu` 的授权是「角色 → 菜单行」，role_code 只是字符串字面量 ——
+# 写错一个字母、或从老迁移里抄一份「历史角色码清单」，SQL 不会报错：
+# `WHERE r.role_code IN ('ADMIN','ACCOUNTANT',…)` 一行都匹配不到，`INSERT … SELECT` 选中 0 行，
+# 迁移照样成功、指纹照样记账，**授权等于从没发生过**。2026-11-06 实测：27 条迁移引用的码里
+# ADMIN/ACCOUNTANT/FINANCE/TEST_UADMIN/BUYER/PURCHASER/WAREHOUSE_KEEPER/WAREHOUSE 在生产都不存在，
+# 只有 SUPER_ADMIN 命中 —— 而超管的 `*:*:*` 通配掩盖了这个缺口（V0258 已把业务角色矩阵补齐）。
+#
+# 口径（详见 scripts/verify/role_code_gate.py 头注释）：
+#   白名单 = 生产活角色（12 个，实测 `select role_code from sys_role where deleted_at is null`）
+#            ∪ 迁移 `INSERT INTO sys_role` 种出来的角色（自动解析：新迁移可「先建角色再授」）；
+#   历史基线 = scripts/verify/role_code_gate_baseline.json，**按 sha256 锁文件**：25 个存量文件
+#            逐字不改 ⇒ 豁免（29 条授权语句）；改动历史文件 ⇒ sha 不符 ⇒ 全部重报（已应用迁移不可改）；
+#   新增/改动文件的未知码 ⇒ 判红并点名 `文件:行`；确属历史个例可写 `-- ROLE-EXEMPT: <理由≥8 字>`；
+#   策略提示（WARN，不判红）：基线冻结号 V0259 之后的迁移再写 `INSERT INTO sys_role_menu`
+#            会提示「授权走 V0258 矩阵」，但**不影响退出码**。
+#
+# 防假绿：脚本自带 --self-test（SQL 解析 / 豁免 / 基线 sha / 防呆语料，29 条），
+#         rc=2 = 环境错误（目录不存在 / 扫不到 .up.sql / 基线损坏）⇒ 这里按失败处理，不跳过。
+# 开关：`ROLE_CODE_GATE` = block（默认）/ warn / off
+# ======================================================================
+role_code_gate() {
+    local mode="${ROLE_CODE_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸⑧：迁移授权段角色码（ROLE_CODE_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）"
+
+    local selftest
+    if ! selftest="$(python3 "$ROOT/scripts/verify/role_code_gate.py" --self-test 2>&1)"; then
+        echo "  ✗ 闸门自检未通过（判据被改坏了？）：" >&2
+        printf '%s\n' "$selftest" | grep -E '✘' | head -5 >&2
+        return 1
+    fi
+    echo "  ✓ 判据自检通过（$(printf '%s\n' "$selftest" | grep -oE '[0-9]+/[0-9]+ 通过' | head -1)）"
+
+    local log rc
+    log="$(mktemp /tmp/role_code.XXXXXX.log)"
+    python3 "$ROOT/scripts/verify/role_code_gate.py" > "$log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        grep -E '^(ℹ|⚠)' "$log" | sed 's/^/  /' | head -3
+        echo "  ✓ 无新增/改动的未知角色码（$(grep -oE '扫描面：[0-9]+' "$log" | head -1 | sed 's/扫描面：//') 个 .up.sql 已扫）"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有未知角色码（ROLE_CODE_GATE=warn → 不阻断）"
+        grep -E '^  · ' "$log" | sed 's/^/  /' | head -10 || true
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 迁移里的 role_code 在 sys_role 里不存在（授权会静默 0 行），不许合：" >&2
+    grep -E '^  · |^✗ ' "$log" | sed 's/^/  /' | head -20 >&2
+    echo "    修法：① 换成生产真实角色码（select role_code from sys_role where deleted_at is null；" >&2
+    echo "             见 docs/后端二开指南.md「迁移授权段怎么拿角色码」）；" >&2
+    echo "          ② 新业务角色 ⇒ 先在迁移里 INSERT INTO sys_role 建出来再授；" >&2
+    echo "          ③ 历史个例 ⇒ 上方 5 行内写注释  -- ROLE-EXEMPT: <理由≥8 字>。" >&2
+    echo "    完整报告：$log" >&2
+    return 1
+}
+
+if ! role_code_gate; then
     exit 1
 fi
 

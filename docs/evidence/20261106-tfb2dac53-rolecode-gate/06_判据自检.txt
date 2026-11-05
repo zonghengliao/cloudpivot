@@ -1,0 +1,51 @@
+$ python3 /opt/cloudpivot/scripts/verify/role_code_gate.py --self-test
+✗ 拒绝写入：本次冻结会**放宽**基线（把新的未知角色码吞进去）
+  · 新增文件 backend/migrations/business/V0260__bad_new.up.sql → ['ADMIN']
+  正确修法：把新迁移里的 code 换成真实角色码（或先 INSERT INTO sys_role 建角色）。
+  确属历史补录（评审过），加 --force 重新冻结。
+============================================================================================
+判据自检：SQL 解析 + 豁免 + verdict 红/绿语料（不读仓库、不连库）
+============================================================================================
+✔ 白名单含生产活角色（SUPER_ADMIN / DEPT_LEADER）
+✔ 白名单**不含**历史孤儿码（ADMIN / ACCOUNTANT / FINANCE / TEST_UADMIN）
+✔ 解析：基本 IN 列表（多行） → [('SUPER_ADMIN', 3), ('ADMIN', 4)]
+✔ 解析：单值 = 比较 → [('ACCOUNTANT', 1)]
+✔ 解析：<> 反选也要查（写错码会退化成授给所有人） → [('TEST_UADMIN', 1)]
+✔ 解析：注释掉的码不算 → [('DEPT_LEADER', 2)]
+✔ 解析：字符串里的分号不截断语句 → [('WAREHOUSE', 1)]
+✔ 解析：豁免注释（写在 INSERT 上方 2 行） → [('FINANCE', 2)]  exempt='历史授权段，生产在此码上线前已手工授过'
+✔ 解析：NOT IN 列表 → [('SUPER_ADMIN', 1), ('BUYER', 1)]
+✔ 形状：role_code = ANY (ARRAY[...]) → hits=[('ADMIN', 1), ('FINANCE', 1)] dynamic=False 语句识别=True
+✔ 形状：schema 限定 public.sys_role_menu → hits=[('ADMIN', 1)] dynamic=False 语句识别=True
+✔ 形状：INSERT INTO ONLY sys_role_menu → hits=[('ADMIN', 1)] dynamic=False 语句识别=True
+✔ 形状：IN (SELECT …)：子查询里的 '%财务%' 不能当角色码判红 → hits=[] dynamic=True 语句识别=True
+✔ 形状：lower(role_code) LIKE：静态判不了 ⇒ dynamic（既不判绿也不判红） → hits=[] dynamic=True 语句识别=True
+✔ 形状：注释里的 sys_role_menu 不触发（否则误报） → hits=[] dynamic=False 语句识别=False
+✔ 形状：(role_code) IN (('ADMIN'),…)：给列加括号也拦得住 → hits=[('ADMIN', 1), ('FINANCE', 1)] dynamic=False 语句识别=True
+✔ 形状：脚本不认识的写法 ⇒ 兜底 dynamic（有 WARN，不静默绿） → hits=[] dynamic=True 语句识别=True
+✔ 解析：temp 表矩阵块 → ['DEPT_LEADER', 'ADMIN']
+✔ 解析：CTE 矩阵块 `t(role_code) AS (VALUES …)` → ['SUPER_ADMIN', 'WAREHOUSE']
+✔ 解析：角色定义块不进矩阵扫描（INSERT INTO sys_role 由种子解析负责） → []
+✔ 解析：INSERT INTO sys_role 种子角色 → ['NEW_MANAGER', 'OTHER_DIRECTOR']
+✔ verdict → 0（期望 0）：全部覆盖 → 绿
+✔ verdict → 1（期望 1）：1 处新增未知码 → 红
+✔ verdict → 1（期望 1）：ROLE-EXEMPT 没写理由 → 红
+✔ verdict → 1（期望 1）：历史基线文件被改动 → 红
+✔ verdict → 1（期望 1）：基线里的文件已不存在 → 红（基线漂移需显式收敛）
+✔ 端到端：collect 扫到 2 个文件 / 2 条授权语句
+✔ 端到端：历史文件被基线豁免 → rc=0（期望 0）
+✔ 端到端：改动历史迁移 ⇒ 判红（tampered=1 / unknown=1）→ rc=1（期望 1）
+✔ 端到端：新文件 + 自建角色不因白名单判红（unknown=1，其中 NEW 文件 0 处）
+✔ 端到端：判红只落在改动的历史文件上
+✔ 策略检查：基线内文件不再 WARN，新增文件 2 条被点名 → ['business/V0001__ok.up.sql', 'business/V0003__new.up.sql']
+✔ 策略 WARN 不改退出码：rc=0（期望 0），policy=1 条（期望 1）
+✔ 策略静音边界：frozen_max_version=V0001 时 V0001 不再 WARN（policy=0，期望 0）
+✔ 种子角色并入白名单：seeded=['SEED_ONLY_ROLE'] → rc=0（期望 0）
+已写入基线：/root/.hermes/profiles/backend-developer/cache/scratch/tmp7yv5a6hp/scripts/verify/role_code_gate_baseline.json（1 个文件；policy.frozen_max_version=V0002）
+✔ 基线：首次冻结写入成功
+✔ 基线防呆：新迁移带 'ADMIN' 时拒绝重冻（文件数仍 =1，期望 1）
+已写入基线：/root/.hermes/profiles/backend-developer/cache/scratch/tmp7yv5a6hp/scripts/verify/role_code_gate_baseline.json（2 个文件；policy.frozen_max_version=V0260）
+✔ 基线防呆：--force 才写入（文件数 =2，期望 2；冻结号 V0260，期望 V0260）
+--------------------------------------------------------------------------------------------
+38/38 通过
+SELFTEST_RC=0

@@ -1,0 +1,213 @@
+{
+  "_doc": [
+    "迁移授权段角色码闸的历史基线：只豁免以下文件，且必须 sha256 逐字一致。",
+    "文件一旦被改动（hash 不符）⇒ 该文件的未知角色码全部重报（已应用迁移不可改）。",
+    "生成/更新：python3 scripts/verify/role_code_gate.py --write-baseline [--force]",
+    "新增文件**不能**进基线 —— 新迁移必须用真实角色码（见 docs 与脚本头注释）。",
+    "policy.frozen_max_version：策略 WARN 的静音边界，该号之后的迁移写 sys_role_menu 才告警。"
+  ],
+  "policy": {
+    "frozen_max_version": "V0259",
+    "frozen_at": "2026-11-06",
+    "files_at_freeze": 191
+  },
+  "files": {
+    "business/V0085__seed_changelog_permissions.up.sql": {
+      "sha256": "f9e26dfe6f648e35c36f37af685bb2f28c82833ba95e5dffe7d3433ae7d8f288",
+      "codes": [
+        "AUDITOR"
+      ]
+    },
+    "business/V0146__erp_purchase_order_permissions.up.sql": {
+      "sha256": "54d41927e3fb8a9eb802888ed380886179962644f5368d601b63cc72a47ce98d",
+      "codes": [
+        "ADMIN",
+        "BUYER",
+        "PURCHASER"
+      ]
+    },
+    "business/V0147__erp_stock_in_permissions.up.sql": {
+      "sha256": "0f6706a7907fd6b11c7063f1051811649ffb0dc6fcabb4c85303f2721a75544e",
+      "codes": [
+        "ADMIN",
+        "BUYER",
+        "PURCHASER",
+        "WAREHOUSE_KEEPER"
+      ]
+    },
+    "business/V0150__erp_ledger_permissions.up.sql": {
+      "sha256": "a73c9ffd896cd9d6c0690642dea79ff8e30e0a0a9c9957967e2f1591c252734e",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0151__erp_payable_permissions.up.sql": {
+      "sha256": "c118880863e3730b4fe57b9ff5e1a44ee3212d7138cb8fec4da6fb668ca06139",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0158__erp_payment_and_voucher_write.up.sql": {
+      "sha256": "3fa1b0427d99da5005a3274a9c51bf38b78e456307d1a16277d538951df01d69",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0183__erp_balance_sheet.up.sql": {
+      "sha256": "4cd15393dc50fa68f60d70fc29d897f017211af5288efe0cd793f7ea576e9068",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0184__erp_income_statement.up.sql": {
+      "sha256": "ff1ff521036cb285606fbd2402281a769eeb611b841ceb3b6e889f1f3625e0bc",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0185__erp_cashflow.up.sql": {
+      "sha256": "04c9003e8cb6e1e428a64e0696f145c7b0efa6acfdee85b921fb4a88d7ebb261",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0188__erp_period_close.up.sql": {
+      "sha256": "9026d16fba853c38451d573b85e37aa4b471d5f438776640035d5684f1086963",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE"
+      ]
+    },
+    "business/V0189__erp_opening_balance.up.sql": {
+      "sha256": "08c14a16371b7b91101e84ba509ea69425ca6e23c3685e44ff5048234a6ccd81",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "WAREHOUSE"
+      ]
+    },
+    "business/V0190__erp_year_end.up.sql": {
+      "sha256": "25b179f55e0f495438e6aa0f11a80ec4b900a9f78e22edcbc7703147cb4ef8a9",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE"
+      ]
+    },
+    "business/V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql": {
+      "sha256": "c25f0e8485215245e4edcc98998cbdf3b27e65507d9be508a89e6e4a5c7cb63a",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0203__erp_stock_out.up.sql": {
+      "sha256": "2222dd873161691f7dbc2151e4e846b5fefb05a486d47d489596a6fbb88a265b",
+      "codes": [
+        "ADMIN",
+        "BUYER",
+        "PURCHASER",
+        "WAREHOUSE_KEEPER"
+      ]
+    },
+    "business/V0207__erp_period_remind.up.sql": {
+      "sha256": "0a4fa0dee91c9fed37af4492502926c8d7254fe349fc2222db4a3c0daef1c2a5",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE"
+      ]
+    },
+    "business/V0208__erp_year_end_remind.up.sql": {
+      "sha256": "07c0dc5b7ad6a6576fc2202808ea539c422c2586a47b670cafaaac74bd30d857",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE"
+      ]
+    },
+    "business/V0211__erp_stock_take.up.sql": {
+      "sha256": "139e49ddc6b08d03e73914757e32da56a7565771a38f5e85136325e0c610078d",
+      "codes": [
+        "ADMIN",
+        "WAREHOUSE_KEEPER"
+      ]
+    },
+    "business/V0213__erp_cancel_cascade_permissions.up.sql": {
+      "sha256": "55673c0277ab6d891be1b014df56207838e6b840d172d23666aa085fa185e284",
+      "codes": [
+        "ADMIN"
+      ]
+    },
+    "business/V0214__erp_ledger_aux_balance_permission.up.sql": {
+      "sha256": "3b8179b13c3c27ea294c2e3c7784806b743a37e15a2debcc94684427baecd45d",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0227__erp_budget_tables.up.sql": {
+      "sha256": "280f84197c063b086729ad72386c1bc4b4c43566b664ccf99bf378e69bb4148e",
+      "codes": [
+        "ADMIN"
+      ]
+    },
+    "business/V0229__erp_asset_tables.up.sql": {
+      "sha256": "419f6b987be795f17e5cbf98525e9b3b54c2a46dd8721b29b9dddd24452db37a",
+      "codes": [
+        "ADMIN"
+      ]
+    },
+    "business/V0230__erp_depreciation_tables.up.sql": {
+      "sha256": "7047dbc6de2d2e9ccc15401c0d7a69d04fa18a6a1311bca3623d1ecb13b7b5e7",
+      "codes": [
+        "ADMIN"
+      ]
+    },
+    "business/V0242__erp_expense_tables.up.sql": {
+      "sha256": "1dbb15299fcde02fd479d00d70331ebe95095812adec3d7e8113070b91d8e42f",
+      "codes": [
+        "ADMIN"
+      ]
+    },
+    "business/V0255__erp_payable_aging.up.sql": {
+      "sha256": "691b243c5b5a75aeedf95b9c2297e273d43de4858eb736a831cab648da4ce2ae",
+      "codes": [
+        "ACCOUNTANT",
+        "ADMIN",
+        "FINANCE",
+        "TEST_UADMIN"
+      ]
+    },
+    "business/V0256__erp_report_item_admin.up.sql": {
+      "sha256": "de30da183ed9334615f5ede089e755bb728ca6c86027dd38f31ea706615c21c7",
+      "codes": [
+        "ADMIN"
+      ]
+    }
+  }
+}

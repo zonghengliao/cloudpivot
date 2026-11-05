@@ -1,0 +1,22 @@
+$ cat backend/migrations/business/V0263__gate_probe_exempt.up.sql
+-- ROLE-EXEMPT: 探针用，证明带理由的豁免可以不判红（历史个例通道）
+INSERT INTO sys_role_menu (role_id, menu_id)
+SELECT r.id, m.id FROM sys_role r CROSS JOIN sys_menu m
+ WHERE r.role_code = 'ADMIN' AND m.auth_code = 'erp:payable:read';
+
+$ python3 /opt/cloudpivot/scripts/verify/role_code_gate.py
+============================================================================================
+迁移授权段角色码闸 · role_code_gate.py（INSERT INTO sys_role_menu 的 role_code 必须真实存在）
+============================================================================================
+扫描面：192 个 *.up.sql / 76 条 INSERT INTO sys_role_menu 语句 / 60 条带 role_code 字面量 / 5 条动态匹配（LIKE / 子查询，只能 WARN）
+白名单：12 个角色（生产活角色 12 + 迁移种子 8：DEPT_LEADER, FINANCE_DIRECTOR, FINANCE_MANAGER, FLOW_CONFIG_APPROVER, GENERAL_MANAGER, PURCHASE_MANAGER, SUPER_ADMIN, WAREHOUSE_MANAGER）
+历史基线：25 个文件（sha256 锁定，改动即失效）
+--------------------------------------------------------------------------------------------
+ℹ 显式豁免（ROLE-EXEMPT 注释）1 条语句：
+  · backend/migrations/business/V0263__gate_probe_exempt.up.sql:2  探针用，证明带理由的豁免可以不判红（历史个例通道）
+ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+⚠ 策略提示（WARN，不判红）：新增迁移里有 1 条 `INSERT INTO sys_role_menu` 授权段：
+  · backend/migrations/business/V0263__gate_probe_exempt.up.sql:2  INSERT INTO sys_role_menu  'ADMIN'
+  授权段优先走 V0258 业务角色矩阵（改矩阵）而不是在新迁移里再写一份：空库上 sys_role 还没种出业务角色 ⇒ 写死的 role_code 只会静默 0 行；见 docs/architecture/P2-新装配库权限矩阵-决策.md
+✓ 无**新增/改动**的未知角色码（历史基线全部按指纹豁免）
+PROBE_RC=0

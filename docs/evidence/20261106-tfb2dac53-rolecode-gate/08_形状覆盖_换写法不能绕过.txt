@@ -1,0 +1,26 @@
+$ python3 $SCRATCH/probe_shapes.py   # 在临时根里逐形状造迁移，看闸认不认
+BLOCK rc=1  = ANY(ARRAY['ADMIN'])
+        · backend/migrations/business/V9Y00__shape.up.sql:1 → 'ADMIN'@L1   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+BLOCK rc=1  小写 insert  + 换行分散
+        · backend/migrations/business/V9Y00__shape.up.sql:2 → 'ADMIN'@L6   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:2  INSERT INTO sys_role_menu  'ADMIN'
+BLOCK rc=1  schema 限定 public.sys_role_menu
+        · backend/migrations/business/V9Y00__shape.up.sql:1 → 'ADMIN'@L1   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+WARN  rc=0  lower(role_code) LIKE '%admin%'
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）  ← 动态表达式（LIKE / 子查询），闸无法静态验证角色码，请人工确认
+WARN  rc=0  role_code IN (SELECT …)
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  （无字面量，按子查询/矩阵）  ← 动态表达式（LIKE / 子查询），闸无法静态验证角色码，请人工确认
+BLOCK rc=1  INSERT INTO sys_role_menu 带 ONLY
+        · backend/migrations/business/V9Y00__shape.up.sql:1 → 'ADMIN'@L1   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+BLOCK rc=1  role_code = 'ADMIN'::text
+        · backend/migrations/business/V9Y00__shape.up.sql:1 → 'ADMIN'@L1   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'
+BLOCK rc=1  (role_code) IN (('ADMIN'),('FINANCE'))
+        · backend/migrations/business/V9Y00__shape.up.sql:1 → 'ADMIN'@L1，'FINANCE'@L1   [新增文件]
+        · backend/migrations/business/V9Y00__shape.up.sql:1  INSERT INTO sys_role_menu  'ADMIN'，'FINANCE'
+
+temp root: /root/.hermes/profiles/backend-developer/cache/scratch/gate_shape_4z5rb79_
+SHAPES_RC=0

@@ -1,0 +1,14 @@
+$ python3 $SCRATCH/audit_gate.py   # 不复用闸的解析器，独立粗粒度复核基线覆盖
+*.up.sql 共 191 个；含 sys_role_menu 的 63 个；基线登记 25 个
+
+粗粒度：含已证伪码的文件 24 个
+  其中不在基线里的：无
+  基线里但粗粒度没命中的（可能码在注释/非授权段）：['business/V0085__seed_changelog_permissions.up.sql']
+
+基线 25 个文件 sha256 复核：全部一致
+
+粗粒度未知码文件 3 个：
+  BASELINE business/V0085__seed_changelog_permissions.up.sql -> ['AUDITOR']
+  BASELINE business/V0189__erp_opening_balance.up.sql -> ['WAREHOUSE']
+  BASELINE business/V0190__erp_year_end.up.sql -> ['ADMIN', 'FINANCE']
+AUDIT_RC=0

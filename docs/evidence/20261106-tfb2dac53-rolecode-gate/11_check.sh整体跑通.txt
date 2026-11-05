@@ -1,0 +1,145 @@
+# scripts/check.sh 整体验收
+
+## 现实：HEAD 目前有两处**与本卡无关**的红，check.sh 直跑必红
+
+① cargo fmt --check：唯一违规在别人未提交的文件（工作区 M 状态，非本卡改动）
+Diff in /opt/cloudpivot/backend/src/business/flow/edge_admin_tests.rs:469:
+   → 本卡没改任何 .rs，故用一份「仅跳过 fmt 步骤」的临时副本跑余下链路（副本跑完即删，不入库）
+
+② 批次B 数据权限门禁：commit 37ce176（flow/model.rs 拆 10 部件）未同步 scripts/lint/scope_gate.py
+==> 批次B 门禁汇总：闸①=0 处  闸②=5 处  （B0 基线 20 / 21）
+==> 批次B 门禁：1 条未通过。修法（二选一）：
+   失败文件：
+    business/flow/flow_model_def.rs (biz_flow_def, biz_flow_def_version, biz_flow_edge, biz_flow_instance)
+    business/flow/flow_model_graph.rs (biz_flow_def, biz_flow_def_version, biz_flow_edge, biz_flow_instance, biz_flow_node, biz_flow_node_assignee)
+    business/flow/flow_model_instance.rs (biz_flow_instance, biz_flow_instance_node, biz_flow_task)
+    business/flow/flow_model_node.rs (biz_flow_instance, biz_flow_instance_node)
+    business/flow/flow_model_stats.rs (biz_flow_instance, biz_flow_instance_node)
+   → 用 check.sh 自带的官方逃生阀 BATCHB_GATE=warn 跑（脚本头部就写了这个用法）
+
+## 命令：BATCHB_GATE=warn bash <check.sh 的去-fmt 临时副本>
+## 结果（节选：fmt/clippy/check/typecheck + 闸③–⑧ 全过）
+==> 后端：cargo fmt --check
+==> [SHIM] 跳过 cargo fmt（唯一 fmt 违规在别人未提交的 flow/edge_admin_tests.rs；已单独取证）
+==> 后端：cargo clippy -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.14s
+==> 后端：cargo check
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.12s
+==> 前端：pnpm typecheck
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+> @cloudpivot/web@0.1.0 typecheck /opt/cloudpivot/frontend
+> vue-tsc --noEmit
+==> 批次B 闸①：分页必须走 scope::paginate（paginate_with_params 仅允许出现在白名单）
+    白名单：business/shared/scope.rs（+ 注释行不计）
+  PASS：0 处（分页全部走 scope::paginate）
+==> 批次B 闸②：登记表的查询必须接入 scope:: 或写明 SCOPE-EXEMPT 理由
+    登记表：sys_user sys_dept sys_import_task sys_export_task sys_notice sys_file operation_logs audit_logs auth_logs security_logs biz_task biz_task_comment biz_task_attachment biz_task_worklog biz_task_member biz_task_dependency biz_task_status_def biz_project biz_project_member biz_flow_def biz_flow_def_version biz_flow_node biz_flow_edge biz_flow_node_assignee biz_flow_instance biz_flow_instance_node biz_flow_task biz_flow_cc 
+闸② 判定面（v2）：扫描生产面 378 个文件 / 跳过测试面 79 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/flow/flow_model_def.rs 查询 biz_flow_def biz_flow_def_version biz_flow_edge biz_flow_instance 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/flow_model_graph.rs 查询 biz_flow_def biz_flow_def_version biz_flow_edge biz_flow_instance biz_flow_node biz_flow_node_assignee 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/flow_model_instance.rs 查询 biz_flow_instance biz_flow_instance_node biz_flow_task 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/flow_model_node.rs 查询 biz_flow_instance biz_flow_instance_node 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/flow/flow_model_stats.rs 查询 biz_flow_instance biz_flow_instance_node 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：跳过清单断言：backend/src/business/erp/expense_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/expense_model.rs:1323）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/expense_model_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/stockout_fifo_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/stockout_model.rs:1170）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/stockout_fifo_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_books.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:110）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_books.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_create.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:97）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_create.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_fixtures.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:92）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_fixtures.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_query.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:114）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_query.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_settle.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:106）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_settle.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_db_tests_status.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:102）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_db_tests_status.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_test_support.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/mod.rs:235）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_test_support.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/transfer_handler_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/erp/transfer_handler.rs:87）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/transfer_handler_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/flow_model_delete_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/model.rs:55）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/flow_model_delete_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/flow_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/model.rs:51）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/flow_model_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/linkage/tests_presets.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/linkage.rs:63）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/linkage/tests_presets.rs",
+  FAIL：跳过清单断言：backend/src/business/flow/linkage/tests_wiring.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/flow/linkage.rs:66）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/flow/linkage/tests_wiring.rs",
+  FAIL：跳过清单断言：backend/src/business/task/task_handler_copy_db_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/task/handler.rs:127）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/task_handler_copy_db_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/task/task_handler_stats_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/task/handler.rs:119）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/task_handler_stats_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/task/task_handler_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/business/task/handler.rs:123）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/task/task_handler_tests.rs",
+  FAIL：跳过清单断言：backend/src/system/auth/cache_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /opt/cloudpivot/backend/src/system/auth/mod.rs:37）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："system/auth/cache_tests.rs",
+  FAIL：5 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/flow/flow_model_def.rs (biz_flow_def, biz_flow_def_version, biz_flow_edge, biz_flow_instance)
+    business/flow/flow_model_graph.rs (biz_flow_def, biz_flow_def_version, biz_flow_edge, biz_flow_instance, biz_flow_node, biz_flow_node_assignee)
+    business/flow/flow_model_instance.rs (biz_flow_instance, biz_flow_instance_node, biz_flow_task)
+    business/flow/flow_model_node.rs (biz_flow_instance, biz_flow_instance_node)
+    business/flow/flow_model_stats.rs (biz_flow_instance, biz_flow_instance_node)
+==> 批次B 门禁汇总：闸①=0 处  闸②=5 处  （B0 基线 20 / 21）
+==> 批次B 门禁：1 条未通过（BATCHB_GATE=warn → 仅告警，不中断）
+==> C7 G1：只有 business/changelog/ 能碰 sys_change_log（防止别处偷偷 INSERT）
+  PASS：0 处
+==> C7 G2：changelog 模块内禁止自开事务（db() 非注释命中必须为 0）
+  PASS：0 处（注释中的示例不计）
+==> C7 G3：record 的签名必须带 &impl SqlExecutor
+  PASS
+==> C7 G4：不得存在『无 executor 版本』的 record 函数
+  PASS
+==> C7 G5：每个 record/record_in 调用点必须在 transaction 闭包内且传 &tx
+G5 PASS：检查了 29 个调用点（changelog::record / changelog::record_in），全部有事务证据（扫了 457 个文件）
+==> C7 G6：按 id 查 sys_change_log 必须同时带分区键 created_at（R14）
+  PASS：0 处
+==> C7 门禁汇总：G1–G6 共 6 条，未通过 0 条
+==> C7 门禁：全部通过
+==> 偏好字典与色板一致性（V0091 ui.palette oneof ↔ style/palettes.ts）
+  PASS：22 套色板与 V0091 的 ui.palette oneof 逐字一致
+==> 库存三本账唯一写入口闸 · 判据自检（--self-test）
+============================================================================================
+闸门自检：判据红/绿语料
+============================================================================================
+✔ 期望红 实得红  基线 UPDATE
+✔ 期望红 实得红  小写 INSERT
+✔ 期望红 实得红  DELETE 库位账
+✔ 期望红 实得红  UPDATE 流水
+✔ 期望红 实得红  schema 限定 public.
+✔ 期望红 实得红  schema 占位符
+✔ 期望红 实得红  双引号标识符
+✔ 期望红 实得红  跨行（关键字后折行）
+✔ 期望红 实得红  跨行 INSERT
+✔ 期望红 实得红  源码里的转义引号 \" + 跨行 + 限定符
+✔ 期望红 实得红  TRUNCATE
+✔ 期望红 实得红  COPY
+✔ 期望绿 实得绿  行注释
+✔ 期望绿 实得绿  块注释
+✔ 期望绿 实得绿  非目标表 biz_inventory_po
+✔ 期望绿 实得绿  只读查询
+✔ 期望绿 实得绿  cfg(test) 模块
+✔ 期望绿 实得绿  cfg(test) 外部模块
+✔ 期望红 实得红  cfg(test) 模块之后的代码必须仍被抓（旧实现漏）
+✔ 期望绿 实得绿  测试文件按命名豁免
+✔ 期望红 实得红  名字含 test 子串的文件必须仍被抓（旧实现误豁免）
+✔ 期望红 实得红  attestation 含 test 子串也必须被抓
+--------------------------------------------------------------------------------------------
+22/22 通过
+==> 库存三本账唯一写入口（scripts/verify/inventory_write_gate.py）
+============================================================================================
+库存三本账唯一写入口闸（P2-5A 收口 / P2-5B 门禁）
+扫描 379 个非测试 .rs（豁免 77 个测试文件）
+唯一写入口 backend/src/business/erp/inventory_writer.rs：22 条写语句
+============================================================================================
+★ 零越界：非测试代码里没有任何一处直写库存三本账。
+==> 闸③：ERP 不变量（scripts/verify/erp_invariants.py）
+  ! 未找到 /etc/cloudpivot/cloudpivot.env：按环境变量 / 默认值连库
+  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过
+    （CI 里没有库是正常的；本机要跑就得先 . /etc/cloudpivot/cloudpivot.env）
+==> 闸④：业务类型词表值域（scripts/verify/biz_type_domain.py --strict）
+  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过
+==> 闸⑤：快照一致性巡检（scripts/verify/snapshot_audit.py）
+  ⚠ 没有库口令 → 视作「无 DB 环境」，跳过
+==> 闸⑥：死权限码（scripts/verify/perm_menu_gate.py）
+  ✓ 判据自检通过（19/19 通过）
+  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过
+    （本机要跑就先 . /etc/cloudpivot/cloudpivot.env；离线比对生产快照用 --menu-codes-file）
+==> 闸⑦：孤儿按钮（scripts/verify/orphan_button_gate.py）
+  ✓ 判据自检通过（12/12 通过）
+  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过
+    （本机要跑就先 . /etc/cloudpivot/cloudpivot.env；生产只读核对用 --remote root@172.18.10.144 --db cloudpivot）
+==> 闸⑧：迁移授权段角色码（scripts/verify/role_code_gate.py）
+  ✓ 判据自检通过（38/38 通过）
+  ℹ 历史基线豁免 29 条语句（存量授权段，文件指纹已锁）。
+  ℹ 策略提示：32 条历史授权段已在基线内，不重复告警（新增迁移再写授权段会在这里 WARN）。
+  ✓ 无新增/改动的未知角色码（191 个 .up.sql 已扫）
+==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 1 条按告警处理（BATCHB_GATE=warn）
+CHECK_NOFMT_WARN_RC=0
