@@ -1,0 +1,22 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 54.69s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception' (3132848) panicked at src/system/menu/permission_audit_tests.rs:726:5:
+以下路由既没有 #[nik::permission] 也不在无权限白名单里（疑似越权缺口）：
+POST /business/flow/linkage/preview（business/flow/linkage/admin.rs:682）
+确有理由的请登记到 NO_PERMISSION_ROUTES 并写清「谁在替中间件闸把关」。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... FAILED
+
+failures:
+
+failures:
+    system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2682 filtered out; finished in 0.47s
+
+error: test failed, to rerun pass `--lib`

@@ -679,12 +679,12 @@ pub async fn delete_rule(
 ///
 /// - 400：`trigger_entity` 不在白名单 / `trigger_status` 不在该单据的状态集里；
 /// - 500：数据库异常。
-#[nik::post("/business/flow/linkage/preview")]
 #[nik::permission(
     path = "/business/flow/linkage/preview",
     method = "POST",
     permission = "business:flow:linkage:list"
 )]
+#[nik::post("/business/flow/linkage/preview")]
 pub async fn preview_impact(Json(req): Json<PreviewReq>) -> ResResult<PreviewRes> {
     let entity = parse_trigger(req.trigger_entity.trim())?.to_string();
     let status = req.trigger_status.trim().to_string();

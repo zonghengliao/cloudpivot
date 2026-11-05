@@ -295,7 +295,8 @@ fn strip_comments(src: &str) -> String {
     out
 }
 
-/// 一条路由声明：`#[nik::<method>(...)]` + 紧邻上方 `#[nik::permission(...)]` 的权限码。
+/// 一条路由声明：`#[nik::<method>(...)]` + 同一 item 属性块里的 `#[nik::permission(...)]`。
+/// 属性顺序不限（permission 在上/在下都认），见 [`permission_of_route`]。
 #[derive(Debug, Clone)]
 struct Route {
     method: String,
@@ -356,33 +357,145 @@ fn scan_routes(repo: &Repo) -> Vec<Route> {
                 path: route_path,
                 file: f.rel.clone(),
                 line,
-                permission: permission_above(text, start),
+                permission: permission_of_route(text, start),
             });
         }
     }
     routes
 }
 
-/// 从 `pos` 往上找「紧邻的属性块」里有没有 `permission = "..."`。
+/// 从 `pos`（`#[nik::<method>(...)]` 的起点）取出**同一个 item 属性块**里的权限码。
 ///
-/// 属性块与上一个 item 的边界用 `}` 换行切（本仓的声明顺序恒为
-/// `文档注释 → #[nik::permission] → #[nik::get] → fn`，所以 600 字符窗口足够）。
-fn permission_above(text: &str, pos: usize) -> Option<String> {
-    let mut from = pos.saturating_sub(600);
-    // 窗口起点必须落在 char 边界上（源码里有中文注释/文案，按字节切会 panic）
-    while from < pos && !text.is_char_boundary(from) {
-        from += 1;
-    }
-    let window = &text[from..pos];
-    let cut = window.rfind("}\n").map(|i| i + 2).unwrap_or(0);
-    let window = &window[cut..];
-    let attr = window.find("#[nik::permission(")?;
-    let tail = &window[attr..];
+/// # 判据：不看属性顺序，只看「是否同一个 item」
+///
+/// 旧实现（`permission_above`）从 `pos` 往上开一个 600 字符窗口找
+/// `#[nik::permission(`，前提是「本仓声明顺序恒为 permission → 路由注解 → fn」。
+/// 前提一旦不成立就**假红**：`business/flow/linkage/admin.rs::preview_impact`
+/// 把 `#[nik::post]` 写在 `#[nik::permission]` 上方，明明有注解却被判裸路由
+/// （卡 t_1b5391e7，只在真库档暴露 —— 无库时 n16 打印 SKIP 并 return，libtest 记 passed）。
+///
+/// 宏层面顺序无关紧要：`nik-macros/src/route.rs` 里 `permission_impl` 与
+/// `method_route_impl` 各自独立 `inventory::submit!`（后者经 `parse_macro_input!`
+/// 解析 `ItemFn` 时会保留剩余属性再原样输出），所以「谁在上」只影响这条扫描器，不影响运行时闸门。
+///
+/// # 边界：item 边界，不是字符数
+///
+/// - 向下：属性块到此 item 的声明行（`pub async fn …`）为止 ⇒ **不会**误吞
+///   **下一条**路由的权限注解（否则真裸路由会被旁边的注解洗白，假绿比假红更糟）；
+/// - 向上：吃掉紧邻上方的属性行（含 `#[nik::permission(` 这类多行属性的续行），
+///   遇到别的代码行就停。文档注释在 [`Repo::load`] 里已被剥成空行，不影响判定。
+fn permission_of_route(text: &str, pos: usize) -> Option<String> {
+    let (start, end) = item_attr_block(text, pos);
+    let block = &text[start..end];
+    let attr = block.find("#[nik::permission(")?;
+    let tail = &block[attr..];
     let needle = "permission = \"";
     let at = tail.find(needle)?;
     let rest = &tail[at + needle.len()..];
-    let end = rest.find('"')?;
-    Some(rest[..end].to_string())
+    let stop = rest.find('"')?;
+    Some(rest[..stop].to_string())
+}
+
+/// 一行的下一个换行符之后（行尾，不含换行符本身）；没有换行则文件末尾。
+fn line_end(text: &str, from: usize) -> usize {
+    text[from..]
+        .find('\n')
+        .map(|i| from + i)
+        .unwrap_or(text.len())
+}
+
+/// `pos` 所在行的行首。
+fn line_start(text: &str, pos: usize) -> usize {
+    text.as_bytes()[..pos]
+        .iter()
+        .rposition(|b| *b == b'\n')
+        .map(|i| i + 1)
+        .unwrap_or(0)
+}
+
+/// 一行里方括号的净开量（`[` 数 − `]` 数），**跳过字符串/字符字面量内部**。
+///
+/// 路由路径理论上可以带方括号（`/api/items/[id]`），按整行数括号会被字面量里的
+/// `[` 带偏，导致多行属性的收尾判断错位。字符字面量/生命周期用一个简化状态机处理：
+/// 遇到 `'` 就当作字符字面量起点，本行剩余部分不再计数（属性里不会出现生命周期）。
+fn bracket_delta(line: &str) -> i32 {
+    let mut delta = 0i32;
+    let mut quote: Option<char> = None;
+    let mut escaped = false;
+    for c in line.chars() {
+        if let Some(q) = quote {
+            if escaped {
+                escaped = false;
+            } else if c == '\\' {
+                escaped = true;
+            } else if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '"' | '\'' => quote = Some(c),
+            '[' => delta += 1,
+            ']' => delta -= 1,
+            _ => {}
+        }
+    }
+    delta
+}
+
+/// 单侧最多连续吃多少行（防「括号永远不闭合」时把整个文件吞进来）。
+/// 越界即停在原地 ⇒ 属性块残缺 ⇒ 判裸路由（红），是安全的那一侧。
+const ATTR_BLOCK_MAX_LINES: usize = 40;
+
+/// 取 `pos` 所在「紧邻属性块」的字节区间 `[start, end)`。
+///
+/// 多行属性（`#[nik::permission(` … `)]`）靠方括号净开量累计识别：
+/// 上下两个方向都只在「净开量 == 0」时才允许停下。
+fn item_attr_block(text: &str, pos: usize) -> (usize, usize) {
+    let pos = pos.min(text.len());
+    let start_line = line_start(text, pos);
+    let mut start = start_line;
+    let mut end = line_end(text, pos);
+
+    // ① 向上：属性行、以及多行属性的「收尾行」（如 `)]`，净开量为负）都属于本块
+    let mut balance = bracket_delta(&text[start_line..end]);
+    let mut steps = 0usize;
+    while balance != 0 || start > 0 {
+        if start == 0 || steps >= ATTR_BLOCK_MAX_LINES {
+            break;
+        }
+        let prev_end = start - 1; // 指向上一个 '\n'
+        let prev_start = line_start(text, prev_end);
+        let line = &text[prev_start..prev_end];
+        let trimmed = line.trim();
+        let delta = bracket_delta(line);
+        if balance == 0 && !trimmed.is_empty() && !trimmed.starts_with("#[") && delta >= 0 {
+            break; // 上一个 item 的尾巴 / 别的代码
+        }
+        balance += delta;
+        start = prev_start;
+        steps += 1;
+    }
+
+    // ② 向下
+    let mut balance = bracket_delta(&text[start_line..line_end(text, pos)]);
+    let mut steps = 0usize;
+    while balance != 0 || end < text.len() {
+        if end >= text.len() || steps >= ATTR_BLOCK_MAX_LINES {
+            break;
+        }
+        let next_start = end + 1;
+        let next_end = line_end(text, next_start);
+        let trimmed = text[next_start..next_end].trim();
+        if balance == 0 && !trimmed.starts_with("#[") {
+            break; // item 声明行（pub async fn …）：属性块到此为止
+        }
+        balance += bracket_delta(&text[next_start..next_end]);
+        end = next_end;
+        steps += 1;
+    }
+
+    (start, end)
 }
 
 /// 后端 crate 根（与 `system/menu/tests.rs` 同一套：不依赖 CWD）。
@@ -673,6 +786,11 @@ fn n17_scanner_detects_planted_dead_code() {
 
     let dead_code = "system:dead:code";
     let ok_code = "system:ok:list";
+    let reversed_code = "system:reversed:list";
+    let leak_ok_code = "system:leak-ok:list";
+    // 属性名与码都用占位符拼，避免本文件出现 `permission = "<码>"` 的完整形态
+    // （否则 `system::menu::tests::n10` 会把夹具里的假码当成真注解，库里找不到菜单 ⇒ 假红）
+    let perm_attr = "permission";
 
     std::fs::write(
         dir.join("mod/dead.rs"),
@@ -687,12 +805,12 @@ fn n17_scanner_detects_planted_dead_code() {
 
     std::fs::write(
         dir.join("mod/naked.rs"),
-        "#[nik::post(\"/system/naked\")]\npub async fn naked() {}\n",
+        "//! 裸路由：属性块里没有任何权限注解\n\
+         #[nik::post(\"/system/naked\")]\n\
+         pub async fn naked() {}\n",
     )
     .expect("写 naked.rs");
 
-    // 属性名与码都用占位符拼，避免本文件出现 `permission = "<码>"` 的完整形态
-    let perm_attr = "permission";
     std::fs::write(
         dir.join("mod/ok.rs"),
         format!(
@@ -703,8 +821,35 @@ fn n17_scanner_detects_planted_dead_code() {
     )
     .expect("写 ok.rs");
 
+    // 正样本（卡 t_1b5391e7）：**属性顺序颠倒** —— 路由注解在上、权限注解在下。
+    // 旧扫描器只往上找 ⇒ 判裸路由（`linkage/admin.rs::preview_impact` 就是这么红的）。
+    std::fs::write(
+        dir.join("mod/reversed.rs"),
+        format!(
+            "#[nik::post(\"/system/reversed\")]\n\
+             #[nik::{perm_attr}(\n    path = \"/system/reversed\",\n    method = \"POST\",\n    \
+             {perm_attr} = \"{reversed_code}\"\n)]\n\
+             pub async fn reversed() {{}}\n"
+        ),
+    )
+    .expect("写 reversed.rs");
+
+    // 反样本（放宽判据必须带）：真裸路由，且**紧邻的下一条**路由带权限注解 ——
+    // 向下扫属性块若越过了 item 边界，就会把下一条的注解洗白成这一条的 ⇒ 假绿。
+    std::fs::write(
+        dir.join("mod/leak.rs"),
+        format!(
+            "#[nik::post(\"/system/leak\")]\n\
+             pub async fn leak() {{}}\n\n\
+             #[nik::{perm_attr}(\n    path = \"/system/leak-ok\",\n    method = \"GET\",\n    \
+             {perm_attr} = \"{leak_ok_code}\"\n)]\n\
+             #[nik::get(\"/system/leak-ok\")]\npub async fn leak_ok() {{}}\n"
+        ),
+    )
+    .expect("写 leak.rs");
+
     let repo = Repo::load(&dir);
-    assert_eq!(repo.files.len(), 3, "应读到 3 个源文件");
+    assert_eq!(repo.files.len(), 5, "应读到 5 个源文件");
 
     // ① 只在注释里的码 → 原文里有、剥注释后没有
     let dead_file = repo
@@ -726,27 +871,39 @@ fn n17_scanner_detects_planted_dead_code() {
         "扫描器把注解里的权限码剥掉了（strip_comments 过度）"
     );
 
-    // ③ 路由扫描：三条路由（ok 有注解；dead / naked 都是裸路由）
+    // ③ 路由扫描：6 条路由
     let routes = scan_routes(&repo);
-    assert_eq!(routes.len(), 3, "应扫到 3 条路由，实际 {}", routes.len());
-    let ok = routes
-        .iter()
-        .find(|r| r.path == "/system/ok")
-        .expect("应有 ok");
-    assert_eq!(ok.permission.as_deref(), Some(ok_code));
-    for naked_path in ["/system/naked", "/system/dead"] {
+    assert_eq!(routes.len(), 6, "应扫到 6 条路由，实际 {}", routes.len());
+    for (path, expected) in [
+        ("/system/ok", Some(ok_code)),
+        // 属性顺序颠倒也必须认出来（旧 permission_above 在这里判 None）
+        ("/system/reversed", Some(reversed_code)),
+        ("/system/leak-ok", Some(leak_ok_code)),
+    ] {
+        let route = routes
+            .iter()
+            .find(|r| r.path == path)
+            .unwrap_or_else(|| panic!("应有 {path}"));
+        assert_eq!(
+            route.permission.as_deref(),
+            expected,
+            "{path} 的权限码判定失真（属性块的 item 边界/顺序处理）"
+        );
+    }
+    // 真裸路由仍要红：`naked` 谁都没注解；`leak` 的上方没有、下方那条属于**另一个 item**
+    for naked_path in ["/system/naked", "/system/dead", "/system/leak"] {
         let naked = routes
             .iter()
             .find(|r| r.path == naked_path)
             .unwrap_or_else(|| panic!("应有 {naked_path}"));
         assert!(
             naked.permission.is_none(),
-            "裸路由 {naked_path} 被判成了有权限注解（permission_above 失真）"
+            "裸路由 {naked_path} 被判成了有权限注解（属性块越过了 item 边界 ⇒ 假绿）"
         );
     }
 
     let _ = std::fs::remove_dir_all(&dir);
-    println!("[N17] 扫描器自检通过（死码 / 裸路由都能扫出来）✓");
+    println!("[N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来）✓");
 }
 
 // ==================== N18 例外台账必须是活的 ====================

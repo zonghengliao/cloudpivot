@@ -1,0 +1,11 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 39.10s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-67e4f09c2e780dae)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N16] 517 条路由：501 条有权限注解 + 16 条白名单例外 ✓
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2682 filtered out; finished in 0.47s
+
