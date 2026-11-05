@@ -297,6 +297,27 @@ async function main() {
   });
   page.on('pageerror', (error) => CONSOLE_ERRORS.push(`[pageerror] ${String(error).slice(0, 300)}`));
 
+  /** 关掉会挡住列表操作的模态弹窗（「你有 N 条待处理」等）。
+   *  为什么必须有：弹窗遮罩是 `t-dialog__position` 覆盖整屏，行内「编辑/发布/停用」
+   *  的点击会被遮罩吃掉 → playwright click() 30s 超时（B2/B8/C1 曾因此假红）。 */
+  async function dismissBlockingDialogs() {
+    for (let i = 0; i < 3; i += 1) {
+      const btn = page.locator('.t-dialog button:has-text("知道了"), .t-dialog button:has-text("我知道了")').first();
+      if (await btn.count()) {
+        await btn.click({ timeout: 3000 }).catch(() => {});
+        await page.waitForTimeout(500);
+        continue;
+      }
+      const mask = await page
+        .locator('.t-dialog__position, .t-dialog__modal-default')
+        .filter({ hasNot: page.locator('[style*="display: none"]') })
+        .count();
+      if (mask === 0) return;
+      await page.keyboard.press('Escape').catch(() => {});
+      await page.waitForTimeout(500);
+    }
+  }
+
   /** 引擎判定：默认（不传参数）必须是 Vue Flow 画布 */
   async function assertVueFlowEngine() {
     const flow = await page.locator('.vue-flow').count();
@@ -316,6 +337,7 @@ async function main() {
     await page.waitForSelector('.flow-def-page tbody tr', { timeout: 30000 });
     const rows = await page.locator('.flow-def-page tbody tr').count();
     assert(rows > 0, '流程列表没有数据行');
+    await dismissBlockingDialogs();
     await shot(page, 'b1-flow-list');
     return `${rows} 行`;
   });
@@ -324,6 +346,7 @@ async function main() {
   await check('B2', '点「编辑」进画布 → 加载正常（默认 Vue Flow）', async () => {
     const row = page.locator('.flow-def-page tbody tr').filter({ hasText: '采购订单审批' }).first();
     await row.waitFor({ timeout: 20000 });
+    await dismissBlockingDialogs();
     publishedRow = row;
     await row.getByText('编辑', { exact: true }).click();
     await page.waitForURL(/\/flow\/def\/[0-9a-f-]+\/edit/, { timeout: 30000 });
