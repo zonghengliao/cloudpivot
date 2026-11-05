@@ -54,7 +54,7 @@ async function apiApprove(taskHintTakeNo) {
   // 审批走引擎接口（同一实例、真库）；页面侧只验收盘点模块本身
   const login = await fetch(`${API}/system/auth/login`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username: 'st_wh', password: 'St9@Wh#2026' }),
+    body: JSON.stringify({ username: 'st_wh', password: '${ST9_WH_PASSWORD}' }),
   }).then((r) => r.json());
   const token = login.data.access_token;
   const todo = await fetch(`${API}/business/flow/task/todo?page=1&page_size=20`, { headers: { Authorization: 'Bearer ' + token } }).then((r) => r.json());
@@ -79,7 +79,7 @@ async function apiApprove(taskHintTakeNo) {
 
   try {
     // ---------- 登录 ----------
-    await login(page, 'admin', 'St9@Admin#2026');
+    await login(page, 'admin', '${ST9_ADMIN_PASSWORD}');
     check('admin 真机登录成功', page.url().includes('/'), page.url());
 
     // ---------- ① 期初页面 ----------

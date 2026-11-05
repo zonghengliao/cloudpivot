@@ -27,7 +27,7 @@
 | 实例 | `127.0.0.1:18190`（`NIK_PROFILE=test`，`NIK_ADMIN_PASSWORD=Admin@123456`，二进制品 `/root/st9-bin/cloudpivot`） |
 | 迁移 | 198 条（versioned 188 + seed 10），**最新业务迁移 V0256 `erp_report_item_admin`**（= HEAD 的迁移集），116 张表 |
 | 前端 | vite dev `127.0.0.1:15190`（`BACKEND_ORIGIN=http://127.0.0.1:18190`，源码 = HEAD 工作树，前端无未提交改动） |
-| 账号 | `admin`（首登强制改密 → `St9@Admin#2026`，走真实 `/system/auth/password`）；`st_wh`（新建，`WAREHOUSE_MANAGER`，作**盘点审批人**以避开 `self_approval=FORBID`） |
+| 账号 | `admin`（首登强制改密：口令由 `NIK_ADMIN_PASSWORD` 注入，本报告不入库；新口令经 env 传给脚本）；`st_wh`（新建，`WAREHOUSE_MANAGER`，作**盘点审批人**以避开 `self_approval=FORBID`，口令同样走 env） |
 | 主数据 | 单位 `ST9-PCS`、仓库 `ST9-WH`（level 1）、物料 `ST9-M-001`（`MOVING_AVG`） |
 | 会计期间 | `2026-11` `OPEN`（干净库 V0221 自动开当年前 12 期） |
 

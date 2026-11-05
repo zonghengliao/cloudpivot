@@ -2,7 +2,7 @@ import json, sys
 sys.path.insert(0, '/root/st9-run')
 from apilib import Api
 
-a = Api(); a.login("admin", "St9@Admin#2026")
+a = Api(); a.login("admin", "${ST9_ADMIN_PASSWORD}")
 page = a.ok("GET", "/business/erp/stock-take/page?page=1&page_size=100")
 rows = page.get("list") or []
 for r in rows:

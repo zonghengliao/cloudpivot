@@ -36,7 +36,7 @@ def voucher_entries(v):
 
 today = datetime.date.today().isoformat()
 admin = Api()
-admin.login("admin", "St9@Admin#2026")
+admin.login("admin", "${ST9_ADMIN_PASSWORD}")
 
 unit = (admin.ok("GET", "/business/erp/unit/page?page=1&page_size=200").get("list") or [])
 mid = [r for r in (admin.ok("GET", "/business/erp/material/page?page=1&page_size=200").get("list") or []) if r.get("material_code") == "ST9-M-001"][0]["id"]
@@ -58,7 +58,7 @@ r = admin.call("PATCH", f"/business/erp/stock-take/{tid}/status", {"status": "PE
 check("盘盈-提交审批", r["_ok"], r.get("_error") or "OK")
 
 wh_user = Api()
-wh_user.login("st_wh", "St9@Wh#2026")
+wh_user.login("st_wh", "${ST9_WH_PASSWORD}")
 todo = wh_user.ok("GET", "/business/flow/task/todo?page=1&page_size=20")
 mine = [t for t in (todo.get("list") or []) if str(tid) in json.dumps(t, ensure_ascii=False)]
 emit("G3 待办", [{"id": t.get("id"), "node": t.get("node_name")} for t in mine])

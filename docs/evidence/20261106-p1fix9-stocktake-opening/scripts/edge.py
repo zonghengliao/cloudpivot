@@ -34,7 +34,7 @@ def msg(res):
 
 today = datetime.date.today().isoformat()
 a = Api()
-a.login("admin", "St9@Admin#2026")
+a.login("admin", "${ST9_ADMIN_PASSWORD}")
 
 mat = [r for r in (a.ok("GET", "/business/erp/material/page?page=1&page_size=200").get("list") or []) if r.get("material_code") == "ST9-M-001"][0]
 wh = [r for r in (a.ok("GET", "/business/erp/warehouse/page?page=1&page_size=200").get("list") or []) if r.get("warehouse_code") == "ST9-WH"][0]

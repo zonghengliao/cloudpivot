@@ -12,13 +12,13 @@ def log(title, payload):
 
 
 a = Api()
-a.login("admin", "Admin@123456")
+a.login("admin", "***REDACTED***")
 # 首次登录强制改密（产品红线）：走真实接口，不碰库
-r = a.call("PUT", "/system/auth/password", {"old_password": "Admin@123456", "new_password": "St9@Admin#2026"})
+r = a.call("PUT", "/system/auth/password", {"old_password": "***REDACTED***", "new_password": "${ST9_ADMIN_PASSWORD}"})
 log("1) admin 首登改密", {"http": r["_http"], "ok": r["_ok"], "resp": r.get("_error") or "OK"})
 
 a2 = Api()
-tok = a2.login("admin", "St9@Admin#2026")
+tok = a2.login("admin", "${ST9_ADMIN_PASSWORD}")
 log("2) admin 用新口令登录", {"must_change_password": tok.get("must_change_password"), "user": tok.get("user")})
 a = a2
 
@@ -36,7 +36,7 @@ log("5) 期间（2026 年）", [{"period": x.get("period") or x.get("period_code
 # 第二个用户：仓管主管（盘点审批人，必须 ≠ 制单人）
 created = a.ok("POST", "/system/user", {
     "username": "st_wh",
-    "password": "St9@Wh#2026",
+    "password": "${ST9_WH_PASSWORD}",
     "real_name": "盘点仓管主管",
     "status": 1,
     "role_ids": [wm[0]["id"]] if wm else [],

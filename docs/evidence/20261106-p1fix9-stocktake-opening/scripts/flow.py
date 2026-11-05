@@ -62,7 +62,7 @@ today = datetime.date.today().isoformat()
 PERIOD = today[:7]
 
 admin = Api()
-admin.login("admin", "St9@Admin#2026")
+admin.login("admin", "${ST9_ADMIN_PASSWORD}")
 emit("0.1 登录 admin", {"user": admin.who, "token_head": admin.token[:24] + "..."})
 
 # ---------- 主数据（幂等：已存在则复用） ----------
@@ -248,7 +248,7 @@ inst_id = d.get("approval_instance_id")
 
 # 审批人（仓管主管，≠ 制单人 admin）
 wh_user = Api()
-wh_user.login("st_wh", "St9@Wh#2026")
+wh_user.login("st_wh", "${ST9_WH_PASSWORD}")
 todo = wh_user.ok("GET", "/business/flow/task/todo?page=1&page_size=20")
 trows2 = todo.get("list") or todo.get("rows") or []
 mine = [t for t in trows2 if str(t.get("biz_id") or t.get("doc_id") or "") == str(tid) or str(tid) in json.dumps(t, ensure_ascii=False)]
