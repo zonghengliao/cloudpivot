@@ -14,7 +14,7 @@
 | 拆成 ≥4 个文件，每个 <1500 行 | **PASS**：13 个文件（facade 1 + 代码部件 10 + 测试部件 2），最大 884 行 | `line_counts.txt` |
 | 行为零变化（全量测试对比） | **PASS**：`verify_move` 四重多重集全等；`business::flow::` 359 条用例名+结果在拆分前后**逐条相同**（359/359）；`model` 自身 14 条用例两轮均 14 passed/0 failed | `verify_move.txt` / `baseline_flow_module_tests.txt` vs `split_flow_module_tests.txt` / `split_model_tests_round1.txt`/`round2` |
 | git commit（纯 refactor） | **PASS**：提交只含 `backend/src/business/flow/{model.rs,mod.rs,flow_model_*.rs}` + `scripts/refactor/verify_move.py`（新增一条比对配方）+ 本证据目录 | `git show --stat` |
-| 编译零警告 | **PASS**：`cargo check --lib --tests` EXIT 0，warning 行 0；`rustfmt --check` EXIT 0 | `split_check_lib_tests.txt` |
+| 编译零警告 | **PASS**：`cargo check --lib --tests` EXIT 0，warning 行 0；`cargo clippy --lib --tests -- -D warnings` EXIT 0（0 条 error/warning）；`rustfmt --check` EXIT 0 | `split_check_lib_tests.txt` / `split_clippy_lib_tests.txt` / `inplace_check_lib.txt` |
 
 > 卡面写 4708 行，实测拆分前 **4732 行**（`git show 6a827e2:backend/src/business/flow/model.rs | wc -l`）——卡面数字过期，其余口径一致。
 
@@ -117,6 +117,21 @@ cp_p21b_verify_splitflow  ← split flow 全模块用例
 92     flow_model_tests.rs
 ```
 
+### 4.4 门禁原文（干净树 + 就地工作区各一份）
+
+```
+# 干净隔离树 /root/p21b/wt（= 提交 37ce176 的 tree）
+cargo check --lib --tests                     → EXIT 0, warning 0            (split_check_lib_tests.txt)
+cargo clippy --lib --tests -- -D warnings     → EXIT 0, error/warning 0      (split_clippy_lib_tests.txt, 2m06s)
+rustfmt --edition 2024 --check                → EXIT 0
+
+# /opt/cloudpivot 就地（CARGO_INCREMENTAL=0 强制全量重编，排除增量缓存不重放 warning 的假绿）
+cargo check --lib                             → EXIT 0, warning 0, Finished in 2m11s  (inplace_check_lib.txt)
+```
+
+> 就地那份是提交之后跑的：本卡验证期间另一个 worker 的 `flow/linkage/admin.rs` 半成品让全库编不过，
+> 等其落地后在工作区原树复跑通过 —— 说明「提交进 main 之后，共用工作区本身也是绿的」。
+
 ## 5. 复现步骤
 
 ```bash
@@ -137,8 +152,8 @@ cargo test --lib business::flow::        -- --test-threads=1
 - **卡面 4708 行已过期**：实测拆分前 4732 行（`6a827e2`）。
 - **未跑无关模块回归**：按卡面「只跑受影响的模块」，只跑 `business::flow::`（359 条）+ 全库 `cargo check --lib --tests`；
   ERP/任务等模块一行未动（`verify_move` 也只覆盖 model.rs）。
-- **未跑 `cargo clippy -- -D warnings` 全库**：共用工作区里另一张卡正在改 `erp/*`、`flow/linkage*`，
-  clippy 全库结果会被别人的半成品染色；本卡以 `cargo check` 零警告 + `rustfmt --check` 作为门禁。
+- **`cargo clippy --lib --tests -- -D warnings` 只在干净树跑**：共用工作区里的 `erp/*`、`flow/linkage*` 当时正被别人改到一半，
+  全库 clippy 会被别人的半成品染色；干净树（= 本提交 tree）已 EXIT 0、0 条告警（见 §4.4）。
 - **`/opt/cloudpivot/backend/target` 是共用的**：隔离树复用了它（只重编 cloudpivot crate，依赖复用），
   可能与并发卡互相触发一次重编，但不影响本卡结论。
 - 顺手发现（**不在本卡范围，未修**）：`scripts/refactor/fix_unused_imports.py` 处理「单名 use」时会把它写成
