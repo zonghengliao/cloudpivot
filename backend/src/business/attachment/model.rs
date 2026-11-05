@@ -44,6 +44,8 @@ pub const DOC_PAYABLE: &str = "PAYABLE";
 pub const DOC_PAYMENT: &str = "PAYMENT";
 /// 单据类型：固定资产卡片（FIN-2：发票 / 验收单 / 处置单）。
 pub const DOC_FIXED_ASSET: &str = "FIXED_ASSET";
+/// 单据类型：费用报销单（FIN-3：发票影像）。
+pub const DOC_EXPENSE_REPORT: &str = "EXPENSE_REPORT";
 
 /// 文件角色：合同扫描件。
 pub const ROLE_CONTRACT_SCAN: &str = "CONTRACT_SCAN";
@@ -75,17 +77,20 @@ pub enum DocKind {
     Payment,
     /// 固定资产卡片 → `biz_fixed_asset`（ARCH-6 §6.2.4：发票 / 验收单 / 处置单）
     FixedAsset,
+    /// 费用报销单 → `biz_expense_report`（ARCH-6 §4.7.1：发票影像；明细级附件 v1 不做）
+    ExpenseReport,
 }
 
 impl DocKind {
     /// 全部类型（顺序与前端下拉一致）。
-    pub const ALL: [DocKind; 6] = [
+    pub const ALL: [DocKind; 7] = [
         DocKind::Contract,
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::Payable,
         DocKind::Payment,
         DocKind::FixedAsset,
+        DocKind::ExpenseReport,
     ];
 
     /// 解析单据类型（大小写不敏感、去空白）。
@@ -105,6 +110,7 @@ impl DocKind {
             DOC_PAYABLE => Some(DocKind::Payable),
             DOC_PAYMENT => Some(DocKind::Payment),
             DOC_FIXED_ASSET => Some(DocKind::FixedAsset),
+            DOC_EXPENSE_REPORT => Some(DocKind::ExpenseReport),
             _ => None,
         }
     }
@@ -118,6 +124,7 @@ impl DocKind {
             DocKind::Payable => DOC_PAYABLE,
             DocKind::Payment => DOC_PAYMENT,
             DocKind::FixedAsset => DOC_FIXED_ASSET,
+            DocKind::ExpenseReport => DOC_EXPENSE_REPORT,
         }
     }
 
@@ -130,6 +137,7 @@ impl DocKind {
             DocKind::Payable => "应付单",
             DocKind::Payment => "付款单",
             DocKind::FixedAsset => "固定资产",
+            DocKind::ExpenseReport => "费用报销单",
         }
     }
 
@@ -142,6 +150,7 @@ impl DocKind {
             DocKind::Payable => "biz_payable",
             DocKind::Payment => "biz_payment",
             DocKind::FixedAsset => "biz_fixed_asset",
+            DocKind::ExpenseReport => "biz_expense_report",
         }
     }
 
@@ -167,6 +176,11 @@ impl DocKind {
             // `ck_biz_doc_attachment_type`（V0232 放宽到 6 值）逐字对应。
             DocKind::FixedAsset => {
                 "SELECT 1 FROM biz_fixed_asset WHERE id = ?::uuid AND deleted_at IS NULL"
+            }
+            // FIN-3：报销单（发票影像）。与 V0244 放宽后的
+            // `ck_biz_doc_attachment_type`（7 值）逐字对应。
+            DocKind::ExpenseReport => {
+                "SELECT 1 FROM biz_expense_report WHERE id = ?::uuid AND deleted_at IS NULL"
             }
         }
     }

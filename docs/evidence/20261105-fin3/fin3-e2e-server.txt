@@ -1,0 +1,38 @@
+# 实例运行日志（节选：启动 + 迁移 + 所有 WARN/ERROR 行）
+# 全量日志在运行时机器 /root/fin3-e2e-server.log（不入库，体积大）
+
+[2m2026-11-05T03:50:19.997610Z[0m [32m INFO[0m [2mnik_web::metrics::prometheus[0m[2m:[0m metrics 初始化分解（毫秒） [3mbuilder_ms[0m[2m=[0m0 [3minstall_ms[0m[2m=[0m0 [3mdescribe_ms[0m[2m=[0m0
+[2m2026-11-05T03:50:20.077378Z[0m [32m INFO[0m [2mnik_db::factory[0m[2m:[0m database connection established [3mdb_type[0m[2m=[0mpostgres [3murl[0m[2m=[0mpostgres://alun:***@127.0.0.1:5432/cloudpivot_fin3?sslmode=prefer
+[2m2026-11-05T03:50:20.077469Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s0: SELECT 1
+[2m2026-11-05T03:50:20.077779Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s0 with parameters: []
+[2m2026-11-05T03:50:20.078021Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库连接成功
+[2m2026-11-05T03:50:20.102360Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-05T03:50:20.102821Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s1 with parameters: []
+[2m2026-11-05T03:50:20.104646Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: BEGIN
+[2m2026-11-05T03:50:20.104815Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s2: SELECT pg_try_advisory_lock($1)
+[2m2026-11-05T03:50:20.105029Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s2 with parameters: [Int(7956008334390686208)]
+[2m2026-11-05T03:50:20.105267Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s3: CREATE TABLE IF NOT EXISTS schema_migrations (
+    kind         VARCHAR(16)  NOT NULL,
+    name         VARCHAR(100) NOT NULL,
+    version      VARCHAR(64),
+    checksum     VARCHAR(64),
+    applied_via  VARCHAR(16)  NOT NULL,
+    applied_at   BIGINT       NOT NULL,
+    applied_seq  BIGINT       NOT NULL,
+    execution_ms BIGINT,
+    success      BOOLEAN      NOT NULL,
+    source       VARCHAR(255),
+    PRIMARY KEY (kind, name)
+)
+[2m2026-11-05T03:50:20.105641Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s3 with parameters: []
+[2m2026-11-05T03:50:20.105933Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-05T03:50:20.106005Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s4: SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'schema_migrations' AND indexname = 'idx_schema_migrations_version'
+[2m2026-11-05T03:50:20.106750Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s4 with parameters: []
+[2m2026-11-05T03:50:20.107713Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s5: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-05T03:50:20.107927Z[0m [34mDEBUG[0m [2mtokio_postgres::query[0m[2m:[0m executing statement s5 with parameters: []
+[2m2026-11-05T03:50:20.192128Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: BEGIN
+
+=== WARN / ERROR 行 ===
+=== 行数统计 ===
+3184 fin3-e2e-server.txt
+0

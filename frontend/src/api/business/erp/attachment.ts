@@ -28,7 +28,7 @@ import {
 } from '@/api/business/erp/doc-kinds';
 
 /**
- * 单据类型（附件可挂的 6 类）。
+ * 单据类型（附件可挂的 7 类）。
  *
  * P2-5 词表收敛：取值来自 `doc-kinds.ts` 的 `ATTACHMENT_DOC_TYPES`（唯一真相），
  * 与后端 `doc_kind::ATTACHMENT_DOC_KINDS` + DDL 的 `ck_biz_doc_attachment_type` 逐字一致。
@@ -50,6 +50,7 @@ export const DOC_TYPE_LABELS: Record<DocType, string> = {
   PAYABLE: DOC_KIND_LABELS.PAYABLE,
   PAYMENT: DOC_KIND_LABELS.PAYMENT,
   FIXED_ASSET: DOC_KIND_LABELS.FIXED_ASSET,
+  EXPENSE_REPORT: DOC_KIND_LABELS.EXPENSE_REPORT,
 };
 
 /**
@@ -213,4 +214,6 @@ export const DEFAULT_ROLE_BY_DOC: Record<DocType, FileRole> = {
   PAYMENT: 'INVOICE',
   /** 固定资产卡片附件最常见的是合同/发票影像，但卡片页可自选，默认「其它」与采购单口径一致。 */
   FIXED_ASSET: 'OTHER',
+  /** 报销单附件就是发票影像（ARCH-6 §4.7.1）。 */
+  EXPENSE_REPORT: 'INVOICE',
 };

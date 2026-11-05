@@ -1,0 +1,800 @@
+//! `expense_model` / `expense_bridge` 的真库用例（`ERP_DB_URL` 开关）。
+//!
+//! 不设 `ERP_DB_URL` 时这些用例 **SKIP**（与本仓其它 ERP 用例同口径）。
+//! 交付前必须真跑：
+//!
+//! ```bash
+//! ERP_DB_URL=postgres://alun:alun@127.0.0.1:5432/cloudpivot_fin3 \
+//!   cargo test --lib business::erp::expense -- --test-threads=1
+//! ```
+//!
+//! # 覆盖的验收项（卡面「单测 ≥12 条」逐条对应）
+//!
+//! | # | 用例 | 覆盖 |
+//! |---|---|---|
+//! | 1 | `header_and_items_are_consistent` | 明细合计 = 单头（L1） |
+//! | 2 | `header_tax_sum_constraint` | 单头价税恒等（库 CHECK） |
+//! | 3 | `item_tax_sum_constraint` | 明细价税恒等（库 CHECK） |
+//! | 4 | `item_positive_amount_constraint` | 明细金额必须 > 0（库 CHECK） |
+//! | 5 | `update_draft_only_from_draft` | 改草稿的 CAS（审批中改不动） |
+//! | 6 | `apply_partial_payment` | 部分付款 → PARTIAL |
+//! | 7 | `apply_full_payment` | 付清 → PAID |
+//! | 8 | `overpay_is_rejected_by_database` | 超额付款撞 CHECK / 0 行 |
+//! | 9 | `type_usage_count` | 被引用的类型删不掉（409 的判据） |
+//! | 10 | `check_totals_detects_mismatch` | 跨表恒等式（66042 的判据） |
+//! | 11 | `approval_voucher_is_balanced_with_tax_line` | 入账凭证：借费用+借税 / 贷 2241.01 |
+//! | 12 | `payment_voucher_two_lines` | 付款凭证：借 2241.01 / 贷 1002 |
+//! | 13 | `reverse_vouchers_after_cancel` | 作废红冲（红字凭证 + 蓝字 reversed_by） |
+//! | 14 | `budget_check_and_occupy` | 预算校验 / 占用 / 释放 |
+//! | 15 | `pay_status_three_values_from_db` | pay_status 三值完备（L6） |
+
+use super::*;
+use crate::business::erp::expense_model;
+use crate::business::erp::voucher;
+use nik::prelude::rust_decimal::Decimal;
+
+mod db {
+    use super::*;
+    use tokio::sync::OnceCell;
+
+    /// 金额字面量（不引 `rust_decimal_macros`）。
+    macro_rules! dec {
+        ($v:literal) => {{
+            use std::str::FromStr as _;
+            Decimal::from_str(stringify!($v)).expect("金额字面量非法")
+        }};
+    }
+
+    /// 连库（进程内只做一次初始化）。`false` = 没配 `ERP_DB_URL`，用例直接跳过。
+    async fn ensure_db() -> bool {
+        static READY: OnceCell<bool> = OnceCell::const_new();
+        *READY
+            .get_or_init(|| async {
+                let Ok(url) = std::env::var("ERP_DB_URL") else {
+                    println!("SKIP: 未设置 ERP_DB_URL（不连真实数据库）");
+                    return false;
+                };
+                if try_db().is_some() {
+                    return true;
+                }
+                let mut config = DatabaseConfig::from_url(&url);
+                config.pool.max_lifetime = Some(std::time::Duration::ZERO);
+                config.pool.idle_timeout = Some(std::time::Duration::ZERO);
+                match Db::connect_with(&url, config).await {
+                    Ok(connection) => set_db(connection).is_ok(),
+                    Err(err) => {
+                        println!("SKIP: ERP_DB_URL 连接失败（{err}）");
+                        false
+                    }
+                }
+            })
+            .await
+    }
+
+    /// 取一个部门 id。
+    async fn any_dept() -> Option<Uuid> {
+        let rows = db()
+            .query_sql(
+                "SELECT id FROM sys_dept WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .ok()?;
+        rows.first().and_then(|row| row.get_typed("id").ok())
+    }
+
+    /// 取一个用户 id（报销人）。
+    async fn any_user() -> Option<Uuid> {
+        let rows = db()
+            .query_sql(
+                "SELECT id FROM sys_user WHERE deleted_at IS NULL ORDER BY created_at LIMIT 1"
+                    .to_string(),
+                vec![],
+            )
+            .await
+            .ok()?;
+        rows.first().and_then(|row| row.get_typed("id").ok())
+    }
+
+    /// 取一条费用类型（V0242 种子；`TRAVEL` 优先）。
+    async fn travel_type() -> Option<crate::business::erp::expense_model::TypeRow> {
+        let travel = expense_model::type_find_by_code(db(), "TRAVEL")
+            .await
+            .ok()?;
+        if travel.is_some() {
+            return travel;
+        }
+        expense_model::type_active().await.ok()?.into_iter().next()
+    }
+
+    /// 清场：按 id 集合删本用例造的行（**绝不按前缀扫全库**）。
+    async fn cleanup(report_ids: &[Uuid]) {
+        if report_ids.is_empty() {
+            return;
+        }
+        let list = report_ids
+            .iter()
+            .map(|id| format!("'{id}'::uuid"))
+            .collect::<Vec<_>>()
+            .join(",");
+        for sql in [
+            format!("DELETE FROM biz_expense_payment WHERE report_id IN ({list})"),
+            format!("DELETE FROM biz_expense_item WHERE report_id IN ({list})"),
+            format!(
+                "DELETE FROM biz_voucher_entry WHERE voucher_id IN \
+                   (SELECT id FROM biz_voucher WHERE source_id IN ({list}))"
+            ),
+            format!("DELETE FROM biz_voucher WHERE source_id IN ({list})"),
+            format!("DELETE FROM biz_budget_usage WHERE source_id IN ({list})"),
+            format!(
+                "DELETE FROM biz_status_log WHERE entity_type = 'EXPENSE_REPORT' \
+                   AND entity_id IN ({list})"
+            ),
+            format!("DELETE FROM biz_expense_report WHERE id IN ({list})"),
+        ] {
+            let _ = db().exec_sql(sql, vec![]).await;
+        }
+    }
+
+    fn uniq() -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{}{}", now % 1_000_000_000_000, std::process::id())
+    }
+
+    /// 造一张单的写库载荷（一条明细，税率 6%，可抵扣）。
+    fn insert_of(
+        report_no: String,
+        dept_id: Uuid,
+        reporter_id: Uuid,
+        kind: &crate::business::erp::expense_model::TypeRow,
+        with_tax: Decimal,
+    ) -> crate::business::erp::expense_model::ReportInsert {
+        use crate::business::erp::expense_compute;
+        let split = expense_compute::split(with_tax, dec!(0.06), kind.tax_deductible);
+        crate::business::erp::expense_model::ReportInsert {
+            id: Uuid::now_v7(),
+            report_no,
+            reporter_id,
+            reporter_name: "用例报销人".to_string(),
+            dept_id,
+            dept_name: "用例部门".to_string(),
+            title: "真库用例：差旅报销".to_string(),
+            expense_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap(),
+            period_code: "2026-11".to_string(),
+            total_amount: split.amount,
+            total_tax: split.tax,
+            total_with_tax: split.with_tax,
+            item_count: 1,
+            remark: Some("expense_model_tests".to_string()),
+            items: vec![crate::business::erp::expense_model::ItemInsert {
+                line_no: 1,
+                expense_date: nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap(),
+                expense_type_id: kind.id,
+                type_code: kind.type_code.clone(),
+                type_name: kind.type_name.clone(),
+                account_id: kind.account_id,
+                account_code: kind.account_code.clone(),
+                account_name: kind.account_name.clone(),
+                amount: split.amount,
+                tax_rate: dec!(0.06),
+                tax_amount: split.tax,
+                with_tax_amount: split.with_tax,
+                invoice_no: Some("INV-TEST-001".to_string()),
+                invoice_date: None,
+                invoice_type: Some("VAT_SPECIAL".to_string()),
+                summary: "高铁票".to_string(),
+                remark: None,
+            }],
+        }
+    }
+
+    /// 建一张单（单头 + 明细），返回 id。
+    async fn create_report(insert: &crate::business::erp::expense_model::ReportInsert) -> Uuid {
+        expense_model::report_insert(db(), insert, None)
+            .await
+            .expect("插报销单");
+        expense_model::items_insert_many(db(), insert.id, &insert.items)
+            .await
+            .expect("插明细");
+        insert.id
+    }
+
+    // ==================== 1) 明细合计 = 单头 ====================
+
+    #[tokio::test]
+    async fn header_and_items_are_consistent() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            println!("SKIP: 库缺部门 / 用户 / 费用类型种子");
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        let id = create_report(&insert).await;
+        let (total, tax, count) = expense_model::items_sum(db(), id).await.expect("聚合明细");
+        assert_eq!(count, 1);
+        assert_eq!(total, dec!(1060));
+        assert_eq!(tax, dec!(60), "1060 含税 6% → 税额 60（1000 × 6%）");
+        let row = expense_model::report_find(id).await.unwrap().expect("单据");
+        assert_eq!(row.total_with_tax, total, "单头价税合计 = Σ 明细");
+        assert_eq!(row.total_tax, tax, "单头税额 = Σ 明细");
+        assert_eq!(row.item_count, count);
+        assert_eq!(row.status, "DRAFT");
+        assert_eq!(row.pay_status, "UNPAID");
+        assert_eq!(row.unpaid_amount, row.total_with_tax);
+        // 跨表恒等式（bridge 的复核）
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        crate::business::erp::expense_bridge::check_totals(&row, &items).expect("恒等式");
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 2) 单头价税恒等（库 CHECK） ====================
+
+    #[tokio::test]
+    async fn header_tax_sum_constraint() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        insert.total_tax = dec!(9999); // 破坏 total_with_tax = total_amount + total_tax
+        let err = expense_model::report_insert(db(), &insert, None).await;
+        assert!(err.is_err(), "单头三道恒等式必须由库 CHECK 挡住");
+        cleanup(&[insert.id]).await;
+    }
+
+    // ==================== 3) 明细价税恒等（库 CHECK） ====================
+
+    #[tokio::test]
+    async fn item_tax_sum_constraint() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        insert.items[0].tax_amount = dec!(1);
+        let id = insert.id;
+        expense_model::report_insert(db(), &insert, None)
+            .await
+            .expect("单头合法");
+        let err = expense_model::items_insert_many(db(), id, &insert.items).await;
+        assert!(
+            err.is_err(),
+            "明细 with_tax = amount + tax 必须由库 CHECK 挡住"
+        );
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 4) 明细金额必须 > 0 ====================
+
+    #[tokio::test]
+    async fn item_positive_amount_constraint() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
+        insert.items[0].amount = Decimal::ZERO;
+        insert.items[0].tax_amount = Decimal::ZERO;
+        insert.items[0].with_tax_amount = Decimal::ZERO;
+        let id = insert.id;
+        expense_model::report_insert(db(), &insert, None)
+            .await
+            .expect("单头合法");
+        let err = expense_model::items_insert_many(db(), id, &insert.items).await;
+        assert!(err.is_err(), "零金额明细必须被 ck_biz_exp_item_pos 挡住");
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 5) 审批中改不动 ====================
+
+    #[tokio::test]
+    async fn update_draft_only_from_draft() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        let id = create_report(&insert).await;
+        // DRAFT：能改
+        let ok = expense_model::report_update_draft(db(), id, &insert, None)
+            .await
+            .expect("改草稿");
+        assert_eq!(ok, 1);
+        // 人为置成 SUBMITTED（CAS 的判据：不是草稿就 0 行）
+        db().exec_sql(
+            "UPDATE biz_expense_report SET status = 'SUBMITTED', approval_instance_id = gen_random_uuid() \
+              WHERE id = ?::uuid"
+                .to_string(),
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("置审批中");
+        let blocked = expense_model::report_update_draft(db(), id, &insert, None)
+            .await
+            .expect("改单查询");
+        assert_eq!(blocked, 0, "审批中的单不能再改明细");
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 6/7/8) 付款回写 ====================
+
+    #[tokio::test]
+    async fn apply_partial_payment() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(6600));
+        let id = create_report(&insert).await;
+        db().exec_sql(
+            "UPDATE biz_expense_report SET status = 'APPROVED' WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("置已审批");
+        let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let affected = expense_model::report_apply_payment(
+            db(),
+            id,
+            dec!(1000),
+            date,
+            "PARTIAL",
+            "APPROVED",
+            None,
+        )
+        .await
+        .expect("部分付款");
+        assert_eq!(affected, 1);
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.status, "APPROVED", "部分付款不改状态");
+        assert_eq!(row.pay_status, "PARTIAL");
+        assert_eq!(row.paid_amount, dec!(1000));
+        assert_eq!(row.unpaid_amount, dec!(5600));
+        assert_eq!(row.last_pay_date, Some(date));
+        cleanup(&[id]).await;
+    }
+
+    #[tokio::test]
+    async fn apply_full_payment() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(500));
+        let id = create_report(&insert).await;
+        db().exec_sql(
+            "UPDATE biz_expense_report SET status = 'APPROVED' WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("置已审批");
+        let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let affected =
+            expense_model::report_apply_payment(db(), id, dec!(500), date, "PAID", "PAID", None)
+                .await
+                .expect("付清");
+        assert_eq!(affected, 1);
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.status, "PAID");
+        assert_eq!(row.pay_status, "PAID");
+        assert_eq!(row.unpaid_amount, Decimal::ZERO);
+        cleanup(&[id]).await;
+    }
+
+    #[tokio::test]
+    async fn overpay_is_rejected_by_database() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
+        let id = create_report(&insert).await;
+        db().exec_sql(
+            "UPDATE biz_expense_report SET status = 'APPROVED' WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("置已审批");
+        let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        let affected =
+            expense_model::report_apply_payment(db(), id, dec!(1000), date, "PAID", "PAID", None)
+                .await
+                .expect("超额付款语句本身不报错");
+        assert_eq!(
+            affected, 0,
+            "超额付款必须 0 行（WHERE paid + x <= total 挡住）"
+        );
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.paid_amount, Decimal::ZERO);
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 9) 类型引用计数 ====================
+
+    #[tokio::test]
+    async fn type_usage_count() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let before = expense_model::type_used_count(db(), kind.id)
+            .await
+            .expect("计数");
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(100));
+        let id = create_report(&insert).await;
+        let after = expense_model::type_used_count(db(), kind.id)
+            .await
+            .expect("计数");
+        assert!(
+            after > before,
+            "新建单据后引用计数必须 +1（当前 {before} → {after}）"
+        );
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 10) 跨表恒等式 ====================
+
+    #[tokio::test]
+    async fn check_totals_detects_mismatch() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        let id = create_report(&insert).await;
+        let mut row = expense_model::report_find(id).await.unwrap().unwrap();
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        // 单头被人改成别的数（模拟脏数据）：必须 422 + 66042
+        row.total_with_tax = dec!(9999);
+        let err =
+            crate::business::erp::expense_bridge::check_totals(&row, &items).expect_err("必须报错");
+        assert_eq!(err.status, 422);
+        assert_eq!(
+            err.code,
+            crate::shared::error_code::ERP_EXPENSE_TOTAL_MISMATCH
+        );
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 11) 入账凭证 ====================
+
+    #[tokio::test]
+    async fn approval_voucher_is_balanced_with_tax_line() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let mut insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(3180));
+        // 加第二条：办公费 240（13%），验证「多费用科目 → 多借方行」
+        let office = expense_model::type_find_by_code(db(), "OFFICE")
+            .await
+            .ok()
+            .flatten();
+        if let Some(office) = office {
+            let split = crate::business::erp::expense_compute::split(
+                dec!(240),
+                dec!(0.13),
+                office.tax_deductible,
+            );
+            insert
+                .items
+                .push(crate::business::erp::expense_model::ItemInsert {
+                    line_no: 2,
+                    expense_date: insert.expense_date,
+                    expense_type_id: office.id,
+                    type_code: office.type_code.clone(),
+                    type_name: office.type_name.clone(),
+                    account_id: office.account_id,
+                    account_code: office.account_code.clone(),
+                    account_name: office.account_name.clone(),
+                    amount: split.amount,
+                    tax_rate: dec!(0.13),
+                    tax_amount: split.tax,
+                    with_tax_amount: split.with_tax,
+                    invoice_no: Some("INV-TEST-002".to_string()),
+                    invoice_date: None,
+                    invoice_type: Some("VAT_SPECIAL".to_string()),
+                    summary: "打印耗材".to_string(),
+                    remark: None,
+                });
+            insert.total_amount += split.amount;
+            insert.total_tax += split.tax;
+            insert.total_with_tax += split.with_tax;
+            insert.item_count += 1;
+        }
+        let id = create_report(&insert).await;
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        let tx = db().begin().await.expect("事务");
+        let voucher_id = crate::business::erp::expense_bridge::post_report_voucher(
+            &tx,
+            &row,
+            &items,
+            nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap(),
+            nik::prelude::chrono::Utc::now(),
+        )
+        .await
+        .expect("生成入账凭证");
+        tx.commit().await.expect("提交");
+        let entries = voucher::entries_of(db(), voucher_id).await.expect("分录");
+        let debit: Decimal = entries.iter().map(|entry| entry.debit).sum();
+        let credit: Decimal = entries.iter().map(|entry| entry.credit).sum();
+        assert_eq!(debit, credit, "借贷必须平衡");
+        assert_eq!(debit, row.total_with_tax, "借方合计 = 报销单价税合计");
+        let tax_entry = entries.iter().find(|entry| entry.account.code == "2221.01");
+        assert!(tax_entry.is_some(), "可抵扣明细必须生成进项税行");
+        assert_eq!(
+            tax_entry.unwrap().debit,
+            row.total_tax,
+            "税行金额 = Σ 明细税额"
+        );
+        let credit_entry = entries.iter().find(|entry| entry.credit > Decimal::ZERO);
+        assert_eq!(
+            credit_entry.map(|entry| entry.account.code.as_str()),
+            Some("2241.01"),
+            "贷方必须是 2241.01 员工垫付"
+        );
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 12) 付款凭证 ====================
+
+    #[tokio::test]
+    async fn payment_voucher_two_lines() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        let id = create_report(&insert).await;
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        let tx = db().begin().await.expect("事务");
+        let voucher_id = crate::business::erp::expense_bridge::post_payment_voucher(
+            &tx,
+            &row,
+            "PAY-EXP-TEST-000001",
+            dec!(500),
+            nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap(),
+            "1002",
+            nik::prelude::chrono::Utc::now(),
+        )
+        .await
+        .expect("生成付款凭证");
+        tx.commit().await.expect("提交");
+        let entries = voucher::entries_of(db(), voucher_id).await.expect("分录");
+        assert_eq!(entries.len(), 2, "付款凭证只有两行（借 2241.01 / 贷 1002）");
+        let debit = entries
+            .iter()
+            .find(|entry| entry.debit > Decimal::ZERO)
+            .expect("借方");
+        let credit = entries
+            .iter()
+            .find(|entry| entry.credit > Decimal::ZERO)
+            .expect("贷方");
+        assert_eq!(debit.account.code, "2241.01");
+        assert_eq!(credit.account.code, "1002");
+        assert_eq!(debit.debit, dec!(500));
+        assert_eq!(credit.credit, dec!(500));
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 13) 作废红冲 ====================
+
+    #[tokio::test]
+    async fn reverse_vouchers_after_cancel() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1060));
+        let id = create_report(&insert).await;
+        let row = expense_model::report_find(id).await.unwrap().unwrap();
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        let tx = db().begin().await.expect("事务");
+        let voucher_id = crate::business::erp::expense_bridge::post_report_voucher(
+            &tx,
+            &row,
+            &items,
+            nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap(),
+            nik::prelude::chrono::Utc::now(),
+        )
+        .await
+        .expect("生成入账凭证");
+        // 红冲必须发生在同一事务里（作废的三件事同事务）
+        let reds = crate::business::erp::expense_bridge::reverse_report_vouchers(
+            &tx,
+            id,
+            "报销单填错部门，财务要求整单作废重提",
+            None,
+        )
+        .await
+        .expect("红冲");
+        tx.commit().await.expect("提交");
+        assert_eq!(reds.len(), 1, "一张蓝字凭证对应一张红字凭证");
+        let blue = voucher::find_voucher(db(), voucher_id)
+            .await
+            .expect("查蓝字")
+            .expect("蓝字存在");
+        assert!(blue.reversed_by.is_some(), "蓝字凭证必须被标记已红冲");
+        let red = voucher::find_voucher(db(), reds[0])
+            .await
+            .expect("查红字")
+            .expect("红字存在");
+        assert_eq!(red.is_red, 1, "红字凭证 is_red = 1");
+        // 再冲一次：已经红冲过的不重复冲
+        let again = crate::business::erp::expense_bridge::reverse_report_vouchers(
+            db(),
+            id,
+            "重复作废",
+            None,
+        )
+        .await
+        .expect("重复红冲");
+        assert!(again.is_empty(), "已红冲的蓝字凭证不能重复红冲");
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 14) 预算校验 / 占用 / 释放 ====================
+
+    #[tokio::test]
+    async fn budget_check_and_occupy() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
+        let id = create_report(&insert).await;
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        let slots = vec![crate::business::erp::budget_guard::ExpenseSlotAmount {
+            account_id: items[0].account_id,
+            amount: items[0].with_tax_amount,
+            amount_net: items[0].amount,
+        }];
+        let budget =
+            crate::business::erp::budget_guard::check_for_expense(db(), dept, "2026-11", &slots)
+                .await
+                .expect("预算校验");
+        // 三种策略都可能（取决于库里配置）：只断言「结构完整」与「不误报 BLOCK」
+        assert_eq!(budget.dept_id, dept);
+        if !budget.checks.is_empty() {
+            assert_eq!(budget.checks[0].amount, dec!(1200));
+            if !budget.over() {
+                let tx = db().begin().await.expect("事务");
+                let written = crate::business::erp::budget_guard::occupy_for_expense(
+                    &tx,
+                    &budget,
+                    id,
+                    "EXP-T-BUDGET",
+                    None,
+                )
+                .await
+                .expect("写占用");
+                tx.commit().await.expect("提交");
+                if written > 0 {
+                    let usages =
+                        crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                            .await
+                            .expect("查占用");
+                    assert_eq!(usages.len(), written);
+                    assert_eq!(usages[0].status, "OCCUPIED");
+                    let released = crate::business::erp::budget_guard::release(
+                        db(),
+                        "EXPENSE_REPORT",
+                        id,
+                        "REJECTED",
+                    )
+                    .await
+                    .expect("释放");
+                    assert_eq!(released, u64::try_from(written).unwrap());
+                    let after =
+                        crate::business::erp::budget_guard::usages_of(db(), "EXPENSE_REPORT", id)
+                            .await
+                            .expect("查占用");
+                    assert_eq!(after[0].status, "RELEASED");
+                    assert_eq!(after[0].release_reason.as_deref(), Some("REJECTED"));
+                }
+            }
+        }
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 15) pay_status 三值 ====================
+
+    #[tokio::test]
+    async fn pay_status_three_values_from_db() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            return;
+        };
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(600));
+        let id = create_report(&insert).await;
+        db().exec_sql(
+            "UPDATE biz_expense_report SET status = 'APPROVED' WHERE id = ?::uuid".to_string(),
+            vec![Value::from(&id)],
+        )
+        .await
+        .expect("置已审批");
+        let date = nik::prelude::chrono::NaiveDate::from_ymd_opt(2026, 11, 5).unwrap();
+        // UNPAID → PARTIAL → PAID
+        let mut row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.pay_status, "UNPAID");
+        expense_model::report_apply_payment(db(), id, dec!(200), date, "PARTIAL", "APPROVED", None)
+            .await
+            .expect("第一次付款");
+        row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.pay_status, "PARTIAL");
+        expense_model::report_apply_payment(db(), id, dec!(400), date, "PAID", "PAID", None)
+            .await
+            .expect("第二次付款");
+        row = expense_model::report_find(id).await.unwrap().unwrap();
+        assert_eq!(row.pay_status, "PAID");
+        assert_eq!(row.status, "PAID");
+        assert_eq!(row.paid_amount, row.total_with_tax);
+        assert_eq!(row.unpaid_amount, Decimal::ZERO);
+        cleanup(&[id]).await;
+    }
+}

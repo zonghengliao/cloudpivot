@@ -515,8 +515,8 @@ pub async fn usages_of(
     let rows = ex
         .query_sql(
             "SELECT id, dept_id, account_id, fiscal_year, period_code, amount::text AS amount, \
-                    status, over_budget, over_amount::text AS over_amount, source_no, \
-                    released_at, release_reason \
+                    status, (over_budget <> 0) AS over_budget, over_amount::text AS over_amount, \
+                    source_no, released_at, release_reason \
                FROM biz_budget_usage \
               WHERE source_type = ? AND source_id = ?::uuid AND deleted_at IS NULL \
               ORDER BY created_at"
@@ -809,6 +809,204 @@ pub async fn occupy_for_purchase(
         operator,
     )
     .await
+}
+
+// ==================== 报销侧接线（控制点 ①，ARCH-6 §3.5.1） ====================
+//
+// 与采购侧（控制点 ②）的差别：
+// * 采购是「一个物料 → 一个预算科目」（`resolve_for_po` 按物料 / 类型 / 仓库 / 默认兜底解析）；
+// * 报销是「**明细自带科目**」—— 每条明细在提交时就把 `account_id` 快照下来了
+//   （`biz_expense_item.account_id`），所以只要按 `(部门, 科目)` 聚合就得到槽金额，
+//   不需要再解析映射表（ARCH-6 §3.5.1 的「按明细科目聚合写 N 行（同科目合并）」）。
+// * `budget_controlled = 0` 的费用类型（罚款 / 滞纳金）**不产生 usage、不参与超支判定**
+//   （ARCH-6 §4.6 末段）—— 由调用方在传参前过滤掉。
+
+/// 一条待判定的「槽金额」：同一科目的明细已由调用方聚合。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpenseSlotAmount {
+    /// 预算科目（明细快照的借方科目）。
+    pub account_id: Uuid,
+    /// 含税金额（预算口径：报销按价税合计占额度）。
+    pub amount: Decimal,
+    /// 不含税金额（`amount_net` 列，只做分析，不参与判定）。
+    pub amount_net: Decimal,
+}
+
+/// 一个槽的判定结果（含快照，供 `occupy_for_expense` 写 `budget_id`）。
+#[derive(Debug, Clone)]
+pub struct ExpenseSlotCheck {
+    /// 槽。
+    pub slot: Slot,
+    /// 含税金额。
+    pub amount: Decimal,
+    /// 不含税金额。
+    pub amount_net: Decimal,
+    /// 判定结果。
+    pub verdict: BudgetVerdict,
+    /// 快照（`budget_id` 写进 usage 作审计）。
+    pub snapshot: SlotSnapshot,
+}
+
+/// 报销提交时的预算判定汇总。
+#[derive(Debug, Clone)]
+pub struct ExpenseBudget {
+    /// 生效的全局策略（每个槽可能被槽级 `control_mode` 覆盖）。
+    pub mode: ControlMode,
+    /// 部门。
+    pub dept_id: Uuid,
+    /// 期间（提交时按费用发生日所属期间取；入账时再按期重算不影响 usage，
+    /// 因为 usage 的槽是按提交时期间冻结的审计事实）。
+    pub period_code: String,
+    /// 逐槽结果（同科目已合并）。
+    pub checks: Vec<ExpenseSlotCheck>,
+    /// 一句话说明（日志 / 报文用）。
+    pub reason: String,
+}
+
+impl ExpenseBudget {
+    /// 是否有任一槽超预算。
+    pub fn over(&self) -> bool {
+        self.checks.iter().any(|check| check.verdict.over)
+    }
+
+    /// 是否应该 409 阻断（`BLOCK` + 超预算）。
+    pub fn blocks(&self) -> bool {
+        self.checks
+            .iter()
+            .any(|check| check.verdict.blocks() && check.verdict.over)
+    }
+
+    /// 超支额（多槽取最大；与 `form_data.over_amount` 同口径）。
+    pub fn over_amount(&self) -> Decimal {
+        self.checks
+            .iter()
+            .filter(|check| check.verdict.over)
+            .map(|check| check.verdict.over_amount())
+            .max()
+            .unwrap_or(Decimal::ZERO)
+    }
+
+    /// 是否需要写占用（`OFF` 策略不写）。
+    pub fn should_occupy(&self) -> bool {
+        self.mode.enforces() && !self.checks.is_empty()
+    }
+}
+
+/// 报销提交时的预算判定（**只读**，不写 usage）。
+///
+/// `dept_id` 取报销单上的部门快照（不是「提交人当前部门」—— 单据是部门维度的凭证，
+/// 报销人换了部门不该让历史单据的预算归属漂移）。
+pub async fn check_for_expense(
+    ex: &impl SqlExecutor,
+    dept_id: Uuid,
+    period_code: &str,
+    items: &[ExpenseSlotAmount],
+) -> DbResult<ExpenseBudget> {
+    let global = global_mode(ex).await?;
+    if !global.enforces() || items.is_empty() {
+        return Ok(ExpenseBudget {
+            mode: global,
+            dept_id,
+            period_code: period_code.to_string(),
+            checks: Vec::new(),
+            reason: if items.is_empty() {
+                "本单没有受预算控制的明细（费用类型 budget_controlled = 0）：不占用预算".to_string()
+            } else {
+                "erp.budget.control_mode = OFF：报销提交不做预算校验、不占用预算".to_string()
+            },
+        });
+    }
+    let mut checks = Vec::with_capacity(items.len());
+    for item in items {
+        let Some(slot) = Slot::new(dept_id, item.account_id, period_code) else {
+            return Ok(ExpenseBudget {
+                mode: global,
+                dept_id,
+                period_code: period_code.to_string(),
+                checks: Vec::new(),
+                reason: format!("期间 {period_code} 不是合法会计期间：本单不占用预算"),
+            });
+        };
+        let slot_mode = active_control_mode(ex, &slot).await?;
+        let mode = ControlMode::resolve(slot_mode.as_deref(), global);
+        let snapshot = slot_snapshot(ex, &slot).await?;
+        let verdict = BudgetVerdict::evaluate(
+            mode,
+            snapshot.year_limit,
+            snapshot.year_used,
+            snapshot.month_limit,
+            snapshot.month_used,
+            item.amount,
+        );
+        checks.push(ExpenseSlotCheck {
+            slot,
+            amount: item.amount,
+            amount_net: item.amount_net,
+            verdict,
+            snapshot,
+        });
+    }
+    let over_slots = checks.iter().filter(|check| check.verdict.over).count();
+    let reason = if over_slots == 0 {
+        format!("{} 个预算槽均在额度内", checks.len())
+    } else {
+        format!(
+            "{over_slots}/{} 个预算槽超额度，超支额最大 {}（策略 {}）",
+            checks.len(),
+            checks
+                .iter()
+                .map(|check| check.verdict.over_amount())
+                .max()
+                .unwrap_or(Decimal::ZERO),
+            global.label()
+        )
+    };
+    Ok(ExpenseBudget {
+        mode: global,
+        dept_id,
+        period_code: period_code.to_string(),
+        checks,
+        reason,
+    })
+}
+
+/// 写报销单的占用行（`OCCUPIED`）。**与「状态 → SUBMITTED」同事务**。
+///
+/// 返回实际写入的行数；重复提交（撞 `uk_biz_budget_usage_source`）按幂等成功处理
+/// （`occupy` 返回 `None`），不算错。
+pub async fn occupy_for_expense(
+    ex: &impl SqlExecutor,
+    budget: &ExpenseBudget,
+    source_id: Uuid,
+    source_no: &str,
+    operator: Option<Uuid>,
+) -> DbResult<usize> {
+    if !budget.should_occupy() {
+        return Ok(0);
+    }
+    let mut written = 0;
+    for check in &budget.checks {
+        if !check.verdict.mode.enforces() {
+            continue;
+        }
+        let id = occupy(
+            ex,
+            &check.slot,
+            check.amount,
+            check.amount_net,
+            SOURCE_EXPENSE,
+            source_id,
+            source_no,
+            &check.verdict,
+            &check.snapshot,
+            operator,
+        )
+        .await?;
+        if id.is_some() {
+            written += 1;
+        }
+    }
+    Ok(written)
 }
 
 // ==================== 编译期自检（纯函数，不连库） ====================

@@ -1,0 +1,18 @@
+── up V0239__flow_approver_role_grants
+psql:/opt/cloudpivot/backend/migrations/business/V0239__flow_approver_role_grants.up.sql:239: NOTICE:  V0239 自检通过：审批角色 approve 授权 7 行；8 个实例侧节点合计授权 56 行
+── up V0240__erp_budget_mapping_material_type
+psql:/opt/cloudpivot/backend/migrations/business/V0240__erp_budget_mapping_material_type.up.sql:183: NOTICE:  V0240 ✓ MATERIAL_TYPE 可落库：ck_biz_bsm_ref 三档 + uk_biz_bsm_target 目标键 = coalesce(ref_id, upper(btrim(ref_code)))
+── up V0241__erp_contract_permission_prefix_unify
+psql:/opt/cloudpivot/backend/migrations/business/V0241__erp_contract_permission_prefix_unify.up.sql:182: NOTICE:  V0241 自检通过：5 个 business:erp:contract:* 就位，旧码 0 残留，授权行 0 → 0（零丢失），在途令牌升级 0 人
+── up V0242__erp_expense_tables
+── up V0243__erp_expense_approval_flow
+── up V0244__erp_expense_voucher_rules
+
+== 结果 ==
+tables|4
+types|8
+rules|2
+perm|13
+flow_nodes|7
+flow_edges|8
+config|1

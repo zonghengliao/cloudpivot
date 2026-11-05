@@ -1282,9 +1282,145 @@ def group_k():
           f"{len(bad10)} 张已处置卡没有处置留痕" if bad10 else "全部有留痕")
 
 
+
+# ==================== 报销（ARCH-6 §4.9 L 组，FIN-3） ====================
+
+def group_l():
+    """报销不变量 L1–L8（ARCH-6 §4.9）。"""
+    # L1 主子孙合计：total_with_tax = Σ 明细 with_tax，且 item_count = 条数
+    bad = q("""
+        select r.report_no, r.total_with_tax::text,
+               coalesce((select sum(i.with_tax_amount) from biz_expense_item i
+                          where i.report_id = r.id), 0)::text,
+               r.item_count::text,
+               coalesce((select count(*) from biz_expense_item i where i.report_id = r.id), 0)::text
+          from biz_expense_report r
+         where r.deleted_at is null
+           and (r.total_with_tax <> coalesce((select sum(i.with_tax_amount) from biz_expense_item i
+                                               where i.report_id = r.id), 0)
+                or r.item_count <> (select count(*) from biz_expense_item i where i.report_id = r.id))
+         order by r.report_no
+    """)
+    check("L1 报销单 total_with_tax = Σ 明细 且 item_count = 条数", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 张单明细与单头对不上：{bad[:3]}" if bad else "全部自洽")
+
+    # L2 APPROVED / PAID 必有计提凭证（且凭证未软删）
+    bad = q("""
+        select r.report_no
+          from biz_expense_report r
+          left join biz_voucher v on v.id = r.voucher_id
+         where r.deleted_at is null and r.status in ('APPROVED','PAID')
+           and (r.voucher_id is null or v.id is null or v.deleted_at is not null)
+         order by r.report_no
+    """)
+    check("L2 APPROVED/PAID 必有未删除的计提凭证", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 张已入账单缺凭证：{bad[:3]}" if bad else "全部有凭证")
+
+    # L3 计提凭证借方合计 = 单头价税合计，且贷方科目全为 2241.01
+    bad = q("""
+        select r.report_no,
+               coalesce(sum(e.debit_amount), 0)::text, r.total_with_tax::text
+          from biz_expense_report r
+          join biz_voucher v on v.id = r.voucher_id and v.is_red = 0 and v.deleted_at is null
+          join biz_voucher_entry e on e.voucher_id = v.id
+         where r.deleted_at is null and r.status in ('APPROVED','PAID')
+         group by r.report_no, r.total_with_tax
+        having abs(coalesce(sum(e.debit_amount), 0) - r.total_with_tax) > 0.0001
+         order by r.report_no
+    """)
+    check("L3 计提凭证借方合计 = 单头价税合计", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 张单凭证借方对不上：{bad[:3]}" if bad else "账账一致")
+    bad = q("""
+        select r.report_no, e.account_code
+          from biz_expense_report r
+          join biz_voucher v on v.id = r.voucher_id and v.is_red = 0 and v.deleted_at is null
+          join biz_voucher_entry e on e.voucher_id = v.id
+         where r.deleted_at is null and r.status in ('APPROVED','PAID')
+           and e.credit_amount > 0 and e.account_code <> '2241.01'
+         order by r.report_no
+    """)
+    check("L3' 计提凭证贷方全部是 2241.01 员工垫付", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 行贷方科目不是 2241.01：{bad[:3]}" if bad else "全部正确")
+
+    # L4 2241.01 贷方净额 = Σ(价税合计 − 已付)（未作废的已入账单）
+    rows = q("""
+        select coalesce(sum(e.credit_amount - e.debit_amount), 0)::text
+          from biz_voucher_entry e where e.account_code = '2241.01'
+    """)
+    ledger = Decimal(rows[0][0]) if rows else Decimal("0")
+    rows = q("""
+        select coalesce(sum(total_with_tax - paid_amount), 0)::text
+          from biz_expense_report
+         where deleted_at is null and status in ('APPROVED','PAID')
+    """)
+    expected = Decimal(rows[0][0]) if rows else Decimal("0")
+    check("L4 2241.01 贷方净额 = Σ(报销单未付金额)", "报销", "BLOCKER",
+          abs(ledger - expected) <= TOL,
+          f"科目 {ledger} / 单据 {expected}（差 {ledger - expected}）")
+
+    # L5 审批已终态但单据仍 SUBMITTED 超过 10 分钟（孤儿回调）
+    bad = q("""
+        select r.report_no, i.status, i.updated_at::text
+          from biz_expense_report r
+          join biz_flow_instance i on i.id = r.approval_instance_id
+         where r.deleted_at is null and r.status = 'SUBMITTED'
+           and i.status <> 'PENDING'
+           and i.updated_at < now() - interval '10 minutes'
+         order by r.report_no
+    """)
+    check("L5 无孤儿回调（审批已终态但单据仍 SUBMITTED）", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 张单需人工补做：{bad[:3]}" if bad else "无孤儿")
+
+    # L6 pay_status 与金额自洽（三值完备）
+    bad = q("""
+        select report_no from biz_expense_report
+         where deleted_at is null
+           and ((pay_status = 'UNPAID'  and paid_amount <> 0)
+             or (pay_status = 'PARTIAL' and (paid_amount <= 0 or paid_amount >= total_with_tax))
+             or (pay_status = 'PAID'    and (paid_amount <> total_with_tax or unpaid_amount <> 0))
+             or (unpaid_amount <> total_with_tax - paid_amount))
+         order by report_no
+    """)
+    check("L6 pay_status 与 paid/unpaid 自洽", "报销", "WARN", not bad,
+          f"{len(bad)} 张单金额与状态不自洽：{bad[:3]}" if bad else "全部自洽")
+
+    # L7 已作废且曾入账的报销单，其计提凭证必须已红冲
+    bad = q("""
+        select r.report_no
+          from biz_expense_report r
+          join biz_voucher v on v.id = r.voucher_id
+         where r.deleted_at is null and r.status = 'CANCELLED'
+           and r.voucher_id is not null and v.reversed_by is null
+         order by r.report_no
+    """)
+    check("L7 作废单的有效凭证必须已红冲", "报销", "BLOCKER", not bad,
+          f"{len(bad)} 张作废单凭证未红冲：{bad[:3]}" if bad else "全部已红冲")
+
+    # L8 报销 usage 的 amount 合计 = 受预算控制明细的价税合计
+    bad = q("""
+        select r.report_no, u.total::text, controlled.total::text
+          from biz_expense_report r
+          join (select source_id, coalesce(sum(amount), 0) as total
+                  from biz_budget_usage
+                 where source_type = 'EXPENSE_REPORT' and status in ('OCCUPIED','CONSUMED')
+                   and deleted_at is null
+                 group by source_id) u on u.source_id = r.id
+          join (select i.report_id, coalesce(sum(i.with_tax_amount), 0) as total
+                  from biz_expense_item i
+                  join biz_expense_type t on t.id = i.expense_type_id
+                 where t.budget_controlled = 1
+                 group by i.report_id) controlled on controlled.report_id = r.id
+         where r.deleted_at is null
+           and abs(u.total - controlled.total) > 0.0001
+         order by r.report_no
+    """)
+    check("L8 报销占用合计 = 受控明细价税合计", "报销", "WARN", not bad,
+          f"{len(bad)} 张单预算口径与单据不一致：{bad[:3]}" if bad else "口径一致")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
-          "审批": group_h, "盘点": group_i, "固资": group_k}
+          "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l}
 
 
 def main():

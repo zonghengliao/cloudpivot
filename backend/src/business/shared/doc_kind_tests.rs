@@ -246,15 +246,15 @@ fn domain_consts_match_enums() {
     );
 }
 
-/// 十根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
+/// 十一根轴每一根都必须出现在 `COLUMN_DOMAINS` 里（漏一根就等于漏一列巡检）。
 #[test]
 fn domain_columns_exist_and_cover_all_axes() {
     let axes: std::collections::BTreeSet<&str> =
         COLUMN_DOMAINS.iter().map(|item| item.axis).collect();
     assert_eq!(
         axes.len(),
-        10,
-        "必须覆盖十根轴（⑦ 单据子类型之后加了 ⑧ 预算状态 / ⑨ 预算占用来源 / ⑩ 资产状态），实际：{axes:?}"
+        11,
+        "必须覆盖十一根轴（⑦ 之后加了 ⑧ 预算状态 / ⑨ 预算占用来源 / ⑩ 资产状态 / ⑪ 报销状态），实际：{axes:?}"
     );
     // 每根轴至少一列
     assert!(axes.contains("① 业务对象"));

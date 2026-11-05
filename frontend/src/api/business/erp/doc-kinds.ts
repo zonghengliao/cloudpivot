@@ -55,6 +55,7 @@ export const DOC_KINDS = [
   'BUDGET',
   'FIXED_ASSET',
   'DEPRECIATION',
+  'EXPENSE_REPORT',
 ] as const;
 
 /** 业务对象类型（联合类型 —— 写错编译期就报错）。 */
@@ -79,6 +80,7 @@ export const DOC_KIND_LABELS: Readonly<Record<DocKind, string>> = {
   BUDGET: '预算',
   FIXED_ASSET: '固定资产',
   DEPRECIATION: '折旧批次',
+  EXPENSE_REPORT: '费用报销单',
 };
 
 /**
@@ -143,6 +145,7 @@ export const ATTACHMENT_DOC_TYPES = [
   'PAYABLE',
   'PAYMENT',
   'FIXED_ASSET',
+  'EXPENSE_REPORT',
 ] as const;
 
 /** 能挂业务附件的业务对象（联合类型）。 */
@@ -308,6 +311,8 @@ export const VOUCHER_SOURCE_TYPES = [
   'FIXED_ASSET_ACQ',
   'FIXED_ASSET_DISPOSAL',
   'DEPRECIATION',
+  'EXPENSE_REPORT',
+  'EXPENSE_PAYMENT',
 ] as const;
 
 /** 凭证来源（联合类型）。 */
@@ -328,6 +333,8 @@ export const VOUCHER_SOURCE_TYPE_LABELS: Readonly<Record<VoucherSourceType, stri
   FIXED_ASSET_ACQ: '固定资产购入',
   FIXED_ASSET_DISPOSAL: '固定资产处置',
   DEPRECIATION: '折旧计提',
+  EXPENSE_REPORT: '费用报销入账',
+  EXPENSE_PAYMENT: '费用报销付款',
 };
 
 // ==================== ⑥ 序列号来源 ====================

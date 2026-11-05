@@ -163,6 +163,18 @@ pub async fn of(instance: &flow_model::InstanceRow) -> DbResult<Control> {
             crate::business::erp::budget_bridge::internal_control_creator(instance.biz_id).await?;
         push_exclusion(&mut exclusions, creator, CREATOR_REASON);
         true
+    } else if biz_type == crate::business::erp::expense_bridge::BIZ_TYPE {
+        // FIN-3：费用报销的 `biz_id` 是**报销单 id**（报销人不能批自己的单）
+        let creator =
+            crate::business::erp::expense_bridge::internal_control_creator(instance.biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
+    } else if biz_type == crate::business::erp::asset_bridge::BIZ_TYPE {
+        // FIN-2：资产处置审批的 `biz_id` 是**资产卡片 id**（建卡的人不能批自己这张卡的处置）
+        let creator =
+            crate::business::erp::asset_bridge::internal_control_creator(instance.biz_id).await?;
+        push_exclusion(&mut exclusions, creator, CREATOR_REASON);
+        true
     } else {
         false
     };

@@ -75,17 +75,17 @@ fn claims_of(user: &str, permissions: &[&str]) -> TokenClaims {
     }
 }
 
-/// 六类单据 → 六张表，一一对应且不重复。
+/// 七类单据 → 七张表，一一对应且不重复（FIN-3 加了报销单）。
 #[test]
 fn doc_kinds_cover_five_distinct_tables() {
-    assert_eq!(DocKind::ALL.len(), 6);
+    assert_eq!(DocKind::ALL.len(), 7);
     let mut tables: Vec<&str> = DocKind::ALL.iter().map(|kind| kind.table()).collect();
     tables.sort_unstable();
     tables.dedup();
     assert_eq!(
         tables.len(),
-        6,
-        "六类单据必须落在六张不同的表上：{tables:?}"
+        7,
+        "七类单据必须落在七张不同的表上：{tables:?}"
     );
     for kind in DocKind::ALL {
         // 字面值与 DDL 的 ck_biz_doc_attachment_type 逐字一致

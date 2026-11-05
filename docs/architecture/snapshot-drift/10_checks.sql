@@ -454,7 +454,7 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('FLOW_BIZ', 'CONTRACT_APPROVE', 'biz_contract',       'deleted_at', '合同审批'),
     ('FLOW_BIZ', 'FLOW_EDGE_CFG',    'biz_flow_edge',      NULL,         '状态机边配置变更审批（配置行无软删）'),
     ('FLOW_BIZ', 'TASK_ACCEPT',      'biz_task',           'deleted_at', '任务验收：biz_id = 任务 id（assignee.rs 解析 TASK_OWNER 用的就是它）'),
-    ('FLOW_BIZ', 'EXPENSE',          NULL,                 NULL,         '费用审批：不对应 ERP 实体表'),
+    ('FLOW_BIZ', 'EXPENSE',          'biz_expense_report', 'deleted_at', '费用报销审批（FIN-3：biz_id = 报销单 id）'),
     ('FLOW_BIZ', 'OTHER',            NULL,                 NULL,         '客户端自建流程兜底类型：设计上不参与自检'),
     -- FIN-1 / FIN-2 新增的两个审批动作：`FlowBizType::ALL` 已包含，登记表必须同步，
     -- 否则 DI-19 的「流程实例业务单据悬空」永远看不到预算审批 / 资产处置审批
@@ -480,6 +480,7 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'BUDGET',            'biz_budget',            'deleted_at', '预算单（FIN-1）'),
     ('STATUS_ENTITY', 'FIXED_ASSET',       'biz_fixed_asset',       'deleted_at', '固定资产卡片（FIN-2）'),
     ('STATUS_ENTITY', 'DEPRECIATION',      'biz_depreciation_batch', NULL,        '折旧批次（FIN-2：批次行无软删）'),
+    ('STATUS_ENTITY', 'EXPENSE_REPORT',    'biz_expense_report',    'deleted_at', '费用报销单（FIN-3）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
@@ -492,11 +493,13 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付单附件'),
     ('ATTACHMENT_DOC', 'PAYMENT',        'biz_payment',        'deleted_at', '付款单附件'),
     ('ATTACHMENT_DOC', 'FIXED_ASSET',    'biz_fixed_asset',    'deleted_at', '固定资产卡片附件（FIN-2：处置凭证 / 验收单）'),
+    ('ATTACHMENT_DOC', 'EXPENSE_REPORT', 'biz_expense_report', 'deleted_at', '报销单附件（FIN-3：发票影像）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
     ('REMINDER_DOC', 'CONTRACT',       'biz_contract',       'deleted_at', '合同到期提醒'),
     ('REMINDER_DOC', 'INVENTORY',      'biz_inventory',      NULL,         '低库存提醒（库存行无软删）'),
+    ('REMINDER_DOC', 'EXPENSE_REPORT', 'biz_expense_report', 'deleted_at', '报销待付款提醒（FIN-3）'),
     -- ⑧ 流程抄送来源：biz_flow_cc.source_type + source_ref（P2-6b，取值域 = flow::graph::AssigneeKind）
     --    只有「角色 / 部门」两类会把来源 id 落进 source_ref；人本身记在 receiver_id。
     ('FLOW_CC_SOURCE', 'ROLE',               'sys_role', 'deleted_at', '角色展开的抄送，source_ref = 角色 id'),

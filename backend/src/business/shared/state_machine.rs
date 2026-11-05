@@ -293,6 +293,58 @@ pub const DEPRECIATION_REASON_EDGES: [(&str, &str); 2] =
 /// （重跑走 `REVERSED → CALCULATED` 显式流转）。
 pub const DEPRECIATION_LOCKED: [&str; 2] = ["POSTED", "REVERSED"];
 
+// ==================== FIN-3 费用报销（ARCH-6 第四章） ====================
+
+/// 实体类型：费用报销单（`biz_expense_report`，ARCH-6 §4.3）。
+pub const ENTITY_EXPENSE: &str = DocKind::ExpenseReport.as_str();
+
+/// 报销单合法边（ARCH-6 §4.3.2 逐条一致）。
+///
+/// ```text
+/// DRAFT     → SUBMITTED   提交（预算守卫 + 发起审批 + usage OCCUPIED）
+/// SUBMITTED → DRAFT       驳回 / 撤回（usage RELEASED）
+/// SUBMITTED → APPROVED    审批通过（生成计提凭证 + usage CONSUMED，**同事务**）
+/// APPROVED  → PAID        付清（付款事务里同时改 paid/unpaid/pay_status）
+/// DRAFT     → CANCELLED   草稿作废（无副作用）
+/// SUBMITTED → CANCELLED   审批中作废（先终止审批，再作废）
+/// APPROVED  → CANCELLED   作废已入账（红冲凭证 + usage RELEASED + 状态，**同事务**）
+/// ```
+///
+/// **没有 `PAID → *`**：钱已经付给员工了，要退钱是「员工退款」业务（v2），不是作废。
+/// **没有 `APPROVED → APPROVED` 自环**：部分付款的状态变化只有 `pay_status`，
+/// 状态没变就不该写状态日志（用 `transition_if_changed`，与 `payable_payment` 同款）。
+pub const EXPENSE_EDGES: [(&str, &str); 7] = [
+    ("DRAFT", "SUBMITTED"),
+    ("SUBMITTED", "DRAFT"),
+    ("SUBMITTED", "APPROVED"),
+    ("APPROVED", "PAID"),
+    ("DRAFT", "CANCELLED"),
+    ("SUBMITTED", "CANCELLED"),
+    ("APPROVED", "CANCELLED"),
+];
+
+/// 需要 reason 的报销边：驳回 / 审批中作废 / 作废已入账（都要能追溯到为什么）。
+pub const EXPENSE_REASON_EDGES: [(&str, &str); 3] = [
+    ("SUBMITTED", "DRAFT"),
+    ("SUBMITTED", "CANCELLED"),
+    ("APPROVED", "CANCELLED"),
+];
+
+/// 报销「不可改内容」的状态：提交之后明细 / 金额一律冻结
+/// （要改只能驳回或撤回回草稿；已入账的单据改动等于篡改凭证依据）。
+pub const EXPENSE_LOCKED: [&str; 4] = ["SUBMITTED", "APPROVED", "PAID", "CANCELLED"];
+
+/// 报销单的 BASE_EDGES（与 [`EXPENSE_EDGES`] 逐条对应，顺序一致）。
+pub const EXPENSE_BASE: [BaseEdge; 7] = [
+    BaseEdge::mandatory("DRAFT", "SUBMITTED", "提交审批（预算守卫）", false),
+    BaseEdge::mandatory("SUBMITTED", "DRAFT", "驳回 / 撤回（打回草稿）", true),
+    BaseEdge::mandatory("SUBMITTED", "APPROVED", "审批通过并入账", false),
+    BaseEdge::mandatory("APPROVED", "PAID", "付款付清", false),
+    BaseEdge::mandatory("DRAFT", "CANCELLED", "草稿作废", false),
+    BaseEdge::mandatory("SUBMITTED", "CANCELLED", "审批中作废（先终止审批）", true),
+    BaseEdge::mandatory("APPROVED", "CANCELLED", "作废已入账（红冲凭证）", true),
+];
+
 /// 收货入库单合法边（与 `stockin_model::LEGAL_EDGES` 同源）。
 ///
 /// P16 起多出 3 条**作废审批**边（六本账反向操作必须先复核）：
@@ -882,11 +934,13 @@ pub enum Entity {
     FixedAsset,
     /// 折旧批次 `biz_depreciation_batch`（ARCH-6 §5.5.5 · FIN-2）。
     Depreciation,
+    /// 费用报销单 `biz_expense_report`（ARCH-6 第四章 · FIN-3）。
+    ExpenseReport,
 }
 
 impl Entity {
     /// 全部实体（注册表全量，未知类型就是对表外的字符串）。
-    pub const ALL: [Entity; 13] = [
+    pub const ALL: [Entity; 14] = [
         Entity::StockIn,
         Entity::PurchaseOrder,
         Entity::Transfer,
@@ -900,6 +954,7 @@ impl Entity {
         Entity::Budget,
         Entity::FixedAsset,
         Entity::Depreciation,
+        Entity::ExpenseReport,
     ];
 
     /// 落库的 `entity_type`。
@@ -918,6 +973,7 @@ impl Entity {
             Entity::Budget => ENTITY_BUDGET,
             Entity::FixedAsset => ENTITY_FIXED_ASSET,
             Entity::Depreciation => ENTITY_DEPRECIATION,
+            Entity::ExpenseReport => ENTITY_EXPENSE,
         }
     }
 
@@ -942,6 +998,7 @@ impl Entity {
             Entity::Budget => "预算",
             Entity::FixedAsset => "固定资产",
             Entity::Depreciation => "折旧批次",
+            Entity::ExpenseReport => "费用报销单",
         }
     }
 
@@ -961,6 +1018,7 @@ impl Entity {
             Entity::Budget => &BUDGET_EDGES,
             Entity::FixedAsset => &FIXED_ASSET_EDGES,
             Entity::Depreciation => &DEPRECIATION_EDGES,
+            Entity::ExpenseReport => &EXPENSE_EDGES,
         }
     }
 
@@ -983,6 +1041,7 @@ impl Entity {
             Entity::Budget => &BUDGET_BASE,
             Entity::FixedAsset => &FIXED_ASSET_BASE,
             Entity::Depreciation => &DEPRECIATION_BASE,
+            Entity::ExpenseReport => &EXPENSE_BASE,
         }
     }
 
@@ -1009,6 +1068,7 @@ impl Entity {
             Entity::Budget => &BUDGET_REASON_EDGES,
             Entity::FixedAsset => &FIXED_ASSET_REASON_EDGES,
             Entity::Depreciation => &DEPRECIATION_REASON_EDGES,
+            Entity::ExpenseReport => &EXPENSE_REASON_EDGES,
         }
     }
 
@@ -1028,6 +1088,7 @@ impl Entity {
             Entity::Budget => &BUDGET_LOCKED,
             Entity::FixedAsset => &FIXED_ASSET_LOCKED,
             Entity::Depreciation => &DEPRECIATION_LOCKED,
+            Entity::ExpenseReport => &EXPENSE_LOCKED,
         }
     }
 
@@ -3851,9 +3912,9 @@ mod contract_tests {
         );
         assert_eq!(
             Entity::ALL.len(),
-            13,
+            14,
             "注册表从 7 → 8（CONTRACT）→ 9（STOCK_OUT）→ 10（STOCK_TAKE）→ 11（BUDGET，FIN-1）\
-             → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）"
+             → 12（FIXED_ASSET，FIN-2）→ 13（DEPRECIATION，FIN-2）→ 14（EXPENSE_REPORT，FIN-3）"
         );
 
         // ③ as_str

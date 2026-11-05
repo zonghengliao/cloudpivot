@@ -106,11 +106,19 @@ pub enum DocKind {
     /// 财务问的是「10 月的折旧提了吗 / 提了多少 / 凭证号多少 / 红冲过吗」——
     /// 这四个问题的答案都在批次行上（ARCH-6 §5.2.4）。
     Depreciation,
+    /// 费用报销单 `biz_expense_report`（ARCH-6 第四章 · FIN-3）。
+    ///
+    /// 与应付的区别（ARCH-6 D1）：债权人是**员工**不是供应商、没有账期、
+    /// 有明细（多费用类型 / 多税率）、科目是 `2241.01` 不是 `2202`。
+    /// 付款记录 `biz_expense_payment` 不是独立业务对象（它是报销单的从属台账），
+    /// 所以本枚举**没有** `ExpensePayment` —— 付款凭证的 `source_type` 走
+    /// [`VoucherSourceType::ExpensePayment`]，挂在本对象上。
+    ExpenseReport,
 }
 
 impl DocKind {
     /// 全部业务对象（顺序 = 声明顺序；前端 TS 常量表与巡检按此顺序逐字比对）。
-    pub const ALL: [DocKind; 17] = [
+    pub const ALL: [DocKind; 18] = [
         DocKind::PurchaseOrder,
         DocKind::StockIn,
         DocKind::StockOut,
@@ -128,6 +136,7 @@ impl DocKind {
         DocKind::Budget,
         DocKind::FixedAsset,
         DocKind::Depreciation,
+        DocKind::ExpenseReport,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -150,6 +159,7 @@ impl DocKind {
             DocKind::Budget => "BUDGET",
             DocKind::FixedAsset => "FIXED_ASSET",
             DocKind::Depreciation => "DEPRECIATION",
+            DocKind::ExpenseReport => "EXPENSE_REPORT",
         }
     }
 
@@ -173,6 +183,7 @@ impl DocKind {
             DocKind::Budget => "预算",
             DocKind::FixedAsset => "固定资产",
             DocKind::Depreciation => "折旧批次",
+            DocKind::ExpenseReport => "费用报销单",
         }
     }
 
@@ -195,6 +206,7 @@ impl DocKind {
             DocKind::Budget => "biz_budget",
             DocKind::FixedAsset => "biz_fixed_asset",
             DocKind::Depreciation => "biz_depreciation_batch",
+            DocKind::ExpenseReport => "biz_expense_report",
             // 年结没有实体表：状态记在 `biz_status_log`，`entity_id` 存结转凭证 id
             DocKind::AccountingYear => return None,
         })
@@ -216,6 +228,7 @@ impl DocKind {
                 | DocKind::Budget
                 | DocKind::FixedAsset
                 | DocKind::Depreciation
+                | DocKind::ExpenseReport
         )
     }
 
@@ -233,6 +246,7 @@ impl DocKind {
             DocKind::Budget => "budget",
             DocKind::FixedAsset => "fixed-asset",
             DocKind::Depreciation => "depreciation",
+            DocKind::ExpenseReport => "expense",
             _ => return None,
         })
     }
@@ -263,24 +277,26 @@ impl DocKind {
 /// 能挂附件的对象（与 `ck_biz_doc_attachment_type` 逐字一致）。
 ///
 /// 加成员必须同时改 V0212 的 CHECK，否则写库直接 `check constraint violated`。
-pub const ATTACHMENT_DOC_KINDS: [DocKind; 6] = [
+pub const ATTACHMENT_DOC_KINDS: [DocKind; 7] = [
     DocKind::Contract,
     DocKind::PurchaseOrder,
     DocKind::StockIn,
     DocKind::Payable,
     DocKind::Payment,
     // FIN-2：资产的发票 / 验收单 / 处置单（ARCH-6 §6.2.4）。
-    // `EXPENSE_REPORT` 由 FIN-3 一起加 —— 一次只放宽到自己真用得上的取值，
-    // 免得 CHECK 里出现「代码侧还没实现」的值。
     DocKind::FixedAsset,
+    // FIN-3：报销单的发票影像（V0244 把 CHECK 放宽到 7 值）。
+    DocKind::ExpenseReport,
 ];
 
 /// 能记业务提醒的对象（与 `ck_biz_reminder_log_doc_type` 逐字一致）。
-pub const REMINDER_DOC_KINDS: [DocKind; 4] = [
+pub const REMINDER_DOC_KINDS: [DocKind; 5] = [
     DocKind::Payable,
     DocKind::PurchaseOrder,
     DocKind::Contract,
     DocKind::Inventory,
+    // FIN-3：待付款提醒（V0244 把 CHECK 放宽到 5 值；扫描任务属 P1-5）。
+    DocKind::ExpenseReport,
 ];
 
 // ==================== ② 审批动作 ====================
@@ -446,7 +462,11 @@ impl FlowBizType {
             FlowBizType::FlowEdgeConfig => DocKind::FlowEdgeConfig,
             FlowBizType::BudgetApprove => DocKind::Budget,
             FlowBizType::AssetDisposal => DocKind::FixedAsset,
-            FlowBizType::TaskAccept | FlowBizType::Expense | FlowBizType::Other => return None,
+            // FIN-3（ARCH-6 §6.2.2）：`Expense` 由 `None` 改成 `Some(...)` —— 一处**行为变更**，
+            // `doc_kind_tests` 的期望同步改；`HEALTH_CHECKED` 未扩（它绑着已应用的 V0202
+            // 自检块，改注释都会 checksum 失败，扩清单必须新开迁移重写自检块，超出 FIN-3 范围）。
+            FlowBizType::Expense => DocKind::ExpenseReport,
+            FlowBizType::TaskAccept | FlowBizType::Other => return None,
         })
     }
 
@@ -727,11 +747,15 @@ pub enum VoucherSourceType {
     FixedAssetDisposal,
     /// 折旧计提（月度批次过账，ARCH-6 §5.5.3）。
     Depreciation,
+    /// 费用报销入账（审批通过时生成，ARCH-6 §4.5.1 ①）。
+    ExpenseReport,
+    /// 费用报销付款（每笔付款一张，ARCH-6 §4.5.1 ②）。
+    ExpensePayment,
 }
 
 impl VoucherSourceType {
     /// 全部来源（顺序 = 声明顺序）。
-    pub const ALL: [VoucherSourceType; 13] = [
+    pub const ALL: [VoucherSourceType; 15] = [
         VoucherSourceType::StockIn,
         VoucherSourceType::StockOut,
         VoucherSourceType::Payment,
@@ -745,6 +769,8 @@ impl VoucherSourceType {
         VoucherSourceType::FixedAssetAcq,
         VoucherSourceType::FixedAssetDisposal,
         VoucherSourceType::Depreciation,
+        VoucherSourceType::ExpenseReport,
+        VoucherSourceType::ExpensePayment,
     ];
 
     /// 落库值（大写下划线）。**唯一拼写**。
@@ -763,6 +789,8 @@ impl VoucherSourceType {
             VoucherSourceType::FixedAssetAcq => "FIXED_ASSET_ACQ",
             VoucherSourceType::FixedAssetDisposal => "FIXED_ASSET_DISPOSAL",
             VoucherSourceType::Depreciation => "DEPRECIATION",
+            VoucherSourceType::ExpenseReport => "EXPENSE_REPORT",
+            VoucherSourceType::ExpensePayment => "EXPENSE_PAYMENT",
         }
     }
 
@@ -782,6 +810,8 @@ impl VoucherSourceType {
             VoucherSourceType::FixedAssetAcq => "固定资产购入",
             VoucherSourceType::FixedAssetDisposal => "固定资产处置",
             VoucherSourceType::Depreciation => "折旧计提",
+            VoucherSourceType::ExpenseReport => "费用报销入账",
+            VoucherSourceType::ExpensePayment => "费用报销付款",
         }
     }
 
@@ -801,6 +831,10 @@ impl VoucherSourceType {
                 DocKind::FixedAsset
             }
             VoucherSourceType::Depreciation => DocKind::Depreciation,
+            // 入账与付款两张凭证都挂在报销单上（付款记录不是独立业务对象）
+            VoucherSourceType::ExpenseReport | VoucherSourceType::ExpensePayment => {
+                DocKind::ExpenseReport
+            }
         })
     }
 
@@ -1024,7 +1058,7 @@ pub struct ColumnDomain {
     pub axis: &'static str,
 }
 
-const DOC_KIND_VALUES: [&str; 17] = [
+const DOC_KIND_VALUES: [&str; 18] = [
     "PURCHASE_ORDER",
     "STOCK_IN",
     "STOCK_OUT",
@@ -1042,6 +1076,7 @@ const DOC_KIND_VALUES: [&str; 17] = [
     "BUDGET",
     "FIXED_ASSET",
     "DEPRECIATION",
+    "EXPENSE_REPORT",
 ];
 
 const FLOW_BIZ_TYPE_VALUES: [&str; 15] = [
@@ -1094,7 +1129,7 @@ const TXN_DOC_TYPE_VALUES: [&str; 7] = [
     "ADJUST",
 ];
 
-const VOUCHER_SOURCE_VALUES: [&str; 13] = [
+const VOUCHER_SOURCE_VALUES: [&str; 15] = [
     "STOCK_IN",
     "STOCK_OUT",
     "PAYMENT",
@@ -1108,6 +1143,8 @@ const VOUCHER_SOURCE_VALUES: [&str; 13] = [
     "FIXED_ASSET_ACQ",
     "FIXED_ASSET_DISPOSAL",
     "DEPRECIATION",
+    "EXPENSE_REPORT",
+    "EXPENSE_PAYMENT",
 ];
 
 const SERIAL_SOURCE_VALUES: [&str; 4] = ["PURCHASE", "TRANSFER", "PRODUCE", "RETURN"];
@@ -1149,6 +1186,18 @@ const ASSET_CHANGE_TYPE_VALUES: [&str; 5] = ["TRANSFER", "CUSTODIAN", "DISPOSAL"
 
 /// `biz_depreciation_batch.status` 的取值域（`ck_biz_dep_batch_status`）。
 const DEPRECIATION_STATUS_VALUES: [&str; 4] = ["CALCULATED", "POSTED", "REVERSED", "SKIPPED"];
+
+// ===== FIN-3 费用报销（ARCH-6 第四章）=====
+
+/// `biz_expense_report.status` 的取值域（与 `state_machine::EXPENSE_EDGES` 的节点集合一致）。
+/// **没有 `REJECTED`**：驳回回 `DRAFT`（员工改完要能再提交）。
+const EXPENSE_STATUS_VALUES: [&str; 5] = ["DRAFT", "SUBMITTED", "APPROVED", "PAID", "CANCELLED"];
+
+/// `biz_expense_report.pay_status` 的取值域（派生：`ck_biz_exp_report_pay_match` 保证与金额自洽）。
+const EXPENSE_PAY_STATUS_VALUES: [&str; 3] = ["UNPAID", "PARTIAL", "PAID"];
+
+/// `biz_expense_payment.status` 的取值域（`ck_biz_exp_pay_status`）。
+const EXPENSE_PAYMENT_STATUS_VALUES: [&str; 2] = ["PAID", "CANCELLED"];
 
 /// `biz_voucher_rule.biz_type` 的取值域：**横跨两根轴**（历史事实，不是设计选择）。
 ///
@@ -1198,7 +1247,7 @@ const VOUCHER_RULE_BIZ_TYPE_VALUES: [&str; 29] = [
 ///
 /// 域里**不留**已废弃的别名：`biz_status_log.entity_type = 'TRANSFER'` 已被 V0219
 /// 统一成 `STOCK_TRANSFER`，出现在库里就是 FAIL（不是「历史兼容」）。
-pub const COLUMN_DOMAINS: [ColumnDomain; 21] = [
+pub const COLUMN_DOMAINS: [ColumnDomain; 24] = [
     ColumnDomain {
         table: "biz_status_log",
         column: "entity_type",
@@ -1326,6 +1375,25 @@ pub const COLUMN_DOMAINS: [ColumnDomain; 21] = [
         column: "status",
         values: &DEPRECIATION_STATUS_VALUES,
         axis: "⑩ 资产状态",
+    },
+    // ===== FIN-3 费用报销 =====
+    ColumnDomain {
+        table: "biz_expense_report",
+        column: "status",
+        values: &EXPENSE_STATUS_VALUES,
+        axis: "⑪ 报销状态",
+    },
+    ColumnDomain {
+        table: "biz_expense_report",
+        column: "pay_status",
+        values: &EXPENSE_PAY_STATUS_VALUES,
+        axis: "⑪ 报销状态",
+    },
+    ColumnDomain {
+        table: "biz_expense_payment",
+        column: "status",
+        values: &EXPENSE_PAYMENT_STATUS_VALUES,
+        axis: "⑪ 报销状态",
     },
 ];
 

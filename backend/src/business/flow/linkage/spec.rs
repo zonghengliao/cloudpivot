@@ -217,6 +217,9 @@ pub const TRIGGERS: &[&str] = &[
     state_machine::ENTITY_FIXED_ASSET,
     // ARCH-6 §5.5.5：折旧批次的过账 / 红冲同样是要「状态变更之后做什么」的触发点
     state_machine::ENTITY_DEPRECIATION,
+    // ARCH-6 第四章：报销单的提交 / 通过 / 付清 / 作废都要能挂联动
+    // （典型用法：「报销通过后给财务发待付款提醒」「作废后通知报销人」）
+    state_machine::ENTITY_EXPENSE,
     TRIGGER_TASK,
     TRIGGER_FLOW_INSTANCE,
 ];
