@@ -1,0 +1,35 @@
+# 改后 schema 上 26 个巡检视图逐条执行（库 cloudpivot_dicheck_cdfcd7cf，由 cloudpivot_regress_20261105 模板复制）
+# 目的：证明新增 UNION 分支不会让任何 di.c_diNN 视图在执行期报错
+# 注意：该回归库的存量数据里没有 FIN 三类对象 ⇒ di17/19/20 行数与改前一致；
+#       功能有效性由 fixture-ab-di17-19-20.txt 的夹具 A/B 证明。
+
+  view  | n  
+--------+----
+ c_di01 |  0
+ c_di02 |  0
+ c_di03 |  0
+ c_di04 |  0
+ c_di05 |  0
+ c_di06 |  0
+ c_di07 |  0
+ c_di08 |  0
+ c_di09 |  0
+ c_di10 |  0
+ c_di11 |  7
+ c_di12 |  3
+ c_di13 |  0
+ c_di14 |  0
+ c_di15 |  0
+ c_di16 |  0
+ c_di17 |  8
+ c_di18 | 90
+ c_di19 |  2
+ c_di20 | 14
+ c_di21 |  2
+ c_di22 |  0
+ c_di23 |  0
+ c_di24 |  0
+ c_di25 |  0
+ c_di26 |  5
+(26 rows)
+

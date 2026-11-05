@@ -1,0 +1,59 @@
+# 夹具 A/B：同一批脏数据打在「改前 / 改后」巡检取数层上
+
+库 A = cloudpivot_dicheck_base_cdfcd7cf（HEAD e8a4901 原 10_checks.sql）
+库 B = cloudpivot_dicheck_cdfcd7cf（67e3ae7，本卡修复后）
+两库同源（TEMPLATE cloudpivot_regress_20261105，112 表/182 迁移）
+
+######## A 改前 ########
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 3
+--- DI-17 凭证来源（只看夹具） ---
+ issue_code | entity_no | snapshot_value | truth_value | severity 
+------------+-----------+----------------+-------------+----------
+(0 rows)
+
+--- DI-19 流程实例（只看夹具） ---
+ issue_code | entity_no | snapshot_value | truth_value | severity 
+------------+-----------+----------------+-------------+----------
+(0 rows)
+
+--- DI-20 状态日志实体（只看夹具） ---
+ issue_code | entity_no | snapshot_value | truth_value | severity 
+------------+-----------+----------------+-------------+----------
+(0 rows)
+
+ROLLBACK
+
+######## B 改后 ########
+BEGIN
+INSERT 0 1
+INSERT 0 1
+INSERT 0 3
+INSERT 0 3
+--- DI-17 凭证来源（只看夹具） ---
+ issue_code |  entity_no   |             snapshot_value             | truth_value | severity 
+------------+--------------+----------------------------------------+-------------+----------
+ DI-17      | FIX-DI-V-ACQ | FIXED_ASSET_ACQ → biz_fixed_asset      | ROW_MISSING | ERROR
+ DI-17      | FIX-DI-V-DEP | DEPRECIATION → biz_depreciation_batch  | ROW_MISSING | ERROR
+ DI-17      | FIX-DI-V-DSP | FIXED_ASSET_DISPOSAL → biz_fixed_asset | ROW_MISSING | ERROR
+(3 rows)
+
+--- DI-19 流程实例（只看夹具） ---
+ issue_code |  entity_no   |          snapshot_value          | truth_value | severity 
+------------+--------------+----------------------------------+-------------+----------
+ DI-19      | FIX-DI-AST-1 | ASSET_DISPOSAL → biz_fixed_asset | ROW_MISSING | WARN
+ DI-19      | FIX-DI-BUD-1 | BUDGET_APPROVE → biz_budget      | ROW_MISSING | WARN
+(2 rows)
+
+--- DI-20 状态日志实体（只看夹具） ---
+ issue_code |   entity_no    |            snapshot_value             | truth_value | severity 
+------------+----------------+---------------------------------------+-------------+----------
+ DI-20      | FIX-DI-AST-LOG | FIXED_ASSET → biz_fixed_asset         | ROW_MISSING | INFO
+ DI-20      | FIX-DI-BUD-LOG | BUDGET → biz_budget                   | ROW_MISSING | INFO
+ DI-20      | FIX-DI-DEP-LOG | DEPRECIATION → biz_depreciation_batch | ROW_MISSING | INFO
+(3 rows)
+
+ROLLBACK

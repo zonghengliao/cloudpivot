@@ -1,0 +1,54 @@
+=== 各 rev 的「登记表 ↔ Rust 词表」比对（工具：registry_audit.py，随证据一并提交） ===
+9867fbe = 合并后基线（本卡报告的红点）
+e8a4901 = 9f0bc75 补 4 行之后的 HEAD（本卡接手时）
+67e3ae7 = 本卡修复 commit
+
+######## rev=9867fbe ########
+rev=9867fbe
+登记表域: ATTACHMENT_DOC=5, FLOW_BIZ=13, FLOW_CC_SOURCE=11, REMINDER_DOC=4, SERIAL_SOURCE=4, STATUS_ENTITY=14, TXN_DOC=8, VOUCHER_SOURCE=10
+  [FAIL] VOUCHER_SOURCE (VoucherSourceType) SQL=10 Rust=13
+        Rust 有 / SQL 缺: ['FIXED_ASSET_ACQ', 'FIXED_ASSET_DISPOSAL', 'DEPRECIATION']
+  [PASS] TXN_DOC (TxnDocType) SQL=8 Rust=7
+        SQL 有 / Rust 无（文件已注明的历史遗留值，可接受）: ['PURCHASE_ORDER']
+  [FAIL] FLOW_BIZ (FlowBizType) SQL=13 Rust=15
+        Rust 有 / SQL 缺: ['BUDGET_APPROVE', 'ASSET_DISPOSAL']
+  [PASS] SERIAL_SOURCE (SerialSourceType) SQL=4 Rust=4
+  [FAIL] STATUS_ENTITY (DocKind) SQL=14 Rust=17
+        Rust 有 / SQL 缺: ['BUDGET', 'FIXED_ASSET', 'DEPRECIATION']
+  [INFO] ATTACHMENT_DOC 行数=5（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] REMINDER_DOC 行数=4（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] FLOW_CC_SOURCE 行数=11（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [N/A ] TXN_BIZ: 不是多态引用域（无 id 列），登记表按设计不含该域
+exit=1
+
+######## rev=e8a4901 ########
+rev=e8a4901
+登记表域: ATTACHMENT_DOC=6, FLOW_BIZ=13, FLOW_CC_SOURCE=11, REMINDER_DOC=4, SERIAL_SOURCE=4, STATUS_ENTITY=17, TXN_DOC=8, VOUCHER_SOURCE=10
+  [FAIL] VOUCHER_SOURCE (VoucherSourceType) SQL=10 Rust=13
+        Rust 有 / SQL 缺: ['FIXED_ASSET_ACQ', 'FIXED_ASSET_DISPOSAL', 'DEPRECIATION']
+  [PASS] TXN_DOC (TxnDocType) SQL=8 Rust=7
+        SQL 有 / Rust 无（文件已注明的历史遗留值，可接受）: ['PURCHASE_ORDER']
+  [FAIL] FLOW_BIZ (FlowBizType) SQL=13 Rust=15
+        Rust 有 / SQL 缺: ['BUDGET_APPROVE', 'ASSET_DISPOSAL']
+  [PASS] SERIAL_SOURCE (SerialSourceType) SQL=4 Rust=4
+  [PASS] STATUS_ENTITY (DocKind) SQL=17 Rust=17
+  [INFO] ATTACHMENT_DOC 行数=6（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] REMINDER_DOC 行数=4（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] FLOW_CC_SOURCE 行数=11（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [N/A ] TXN_BIZ: 不是多态引用域（无 id 列），登记表按设计不含该域
+exit=1
+
+######## rev=67e3ae7 ########
+rev=67e3ae7
+登记表域: ATTACHMENT_DOC=6, FLOW_BIZ=15, FLOW_CC_SOURCE=11, REMINDER_DOC=4, SERIAL_SOURCE=4, STATUS_ENTITY=17, TXN_DOC=8, VOUCHER_SOURCE=13
+  [PASS] VOUCHER_SOURCE (VoucherSourceType) SQL=13 Rust=13
+  [PASS] TXN_DOC (TxnDocType) SQL=8 Rust=7
+        SQL 有 / Rust 无（文件已注明的历史遗留值，可接受）: ['PURCHASE_ORDER']
+  [PASS] FLOW_BIZ (FlowBizType) SQL=15 Rust=15
+  [PASS] SERIAL_SOURCE (SerialSourceType) SQL=4 Rust=4
+  [PASS] STATUS_ENTITY (DocKind) SQL=17 Rust=17
+  [INFO] ATTACHMENT_DOC 行数=6（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] REMINDER_DOC 行数=4（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [INFO] FLOW_CC_SOURCE 行数=11（对应 Rust 常量见 doc_kind.rs: ATTACHMENT_DOC_KINDS / REMINDER_DOC_KINDS / AssigneeKind）
+  [N/A ] TXN_BIZ: 不是多态引用域（无 id 列），登记表按设计不含该域
+exit=0
