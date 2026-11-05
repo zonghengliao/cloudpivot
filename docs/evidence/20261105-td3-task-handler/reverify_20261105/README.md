@@ -15,8 +15,8 @@
 |---|---|---|
 | ≥4 文件、每个 <1500 行 | 15 个文件，最大 `task_handler_crud.rs` 932 行 | `line_counts.txt` |
 | 只搬不移（行为零变化） | `verify_move.py bae90c0^` **PASS**：条目 137=137 / SQL 24=24 / 用例名 24=24 / 代码 token 28013=28013，MISSING=ADDED=none | `verify_move.txt` |
-| 任务面全量测试（连库，两轮） | round1 **226 passed / 0 failed**；round2 **226 passed / 0 failed**；与拆分前 226 条用例名逐条 `diff` 为空 | `task_module_round1.log` / `task_module_round2.log` / `test_results.txt` / `test_names_diff.txt` |
-| 无新增 dead_code/编译警告 | `cargo check --lib` EXIT 0，warning 行 **0**；`cargo clippy --lib --tests -- -D warnings` EXIT 0 | `cargo_check.log` / `cargo_clippy.log` / `check_warning_count.txt` |
+| 任务面全量测试（连库，两轮） | round1 **226 passed / 0 failed**；round2 **226 passed / 0 failed**；与拆分前 226 条用例名逐条 `diff` 为空 | `task_module_round1.txt` / `task_module_round2.txt` / `test_results.txt` / `test_names_diff.txt` |
+| 无新增 dead_code/编译警告 | `cargo check --lib` EXIT 0，warning 行 **0**；`cargo clippy --lib --tests -- -D warnings` EXIT 0 | `cargo_check.txt` / `cargo_clippy.txt` / `check_warning_count.txt` |
 
 复跑命令：
 
