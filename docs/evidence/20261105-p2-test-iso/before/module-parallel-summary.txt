@@ -1,0 +1,19 @@
+round=1 rc=101 test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.79s failed_lines=3
+  test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+  test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.79s
+round=2 rc=101 test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.67s failed_lines=3
+  test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+  test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.67s
+round=3 rc=101 test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.64s failed_lines=3
+  test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+  test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.64s
+round=4 rc=101 test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.65s failed_lines=3
+  test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+  test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.65s
+round=5 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.69s failed_lines=2
+  test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.69s

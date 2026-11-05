@@ -1,0 +1,10 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N14] 285 个种子菜单权限码全部有源码落地 ✓（273 条走 #[nik::permission] 注解闸，11 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 1 行）
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2630 filtered out; finished in 3.91s
+

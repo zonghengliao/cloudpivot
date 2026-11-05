@@ -67,6 +67,8 @@ pub(crate) async fn ensure_db() -> bool {
             // 钉住本进程的起点：残留自检据此区分「历史残留」与「本次 run 造的夹具」
             let _ = suite_start();
             if try_db().is_some() {
+                // 库是别的模块先建的：run 起点照样要钉（审计断言依赖它界定判据范围）
+                capture_run_epoch().await;
                 return true;
             }
             match connect_in_dedicated_runtime(&url) {
@@ -75,6 +77,9 @@ pub(crate) async fn ensure_db() -> bool {
                         println!("SKIP: 全局数据库已被别的用例初始化");
                         return false;
                     }
+                    // 关键次序：**先**钉 run 起点，再把控制权交回用例 ——
+                    // 任何夹具行的 created_at 都只会 >= 这个时刻（见 `run_epoch`）
+                    capture_run_epoch().await;
                     println!("测试C 已连接验证库（cloudpivot_test）");
                     true
                 }
@@ -856,6 +861,53 @@ pub(crate) fn suite_start() -> chrono::DateTime<chrono::Utc> {
     use std::sync::OnceLock;
     static START: OnceLock<chrono::DateTime<chrono::Utc>> = OnceLock::new();
     *START.get_or_init(|| chrono::Utc::now() - chrono::TimeDelta::seconds(60))
+}
+
+/// 本进程「开跑时刻」：**首次连库时**（[`ensure_db`]）取一次数据库服务器时钟的 `now()`，零缓冲。
+///
+/// # 与 [`suite_start`] 的分工（两者不能混用，缓冲方向相反）
+///
+/// - `suite_start` 服务**残留清扫**：往前留 60s，宁可少删，避免误删兄弟用例正在用的行；
+/// - `run_epoch` 服务**全表审计型断言的判据范围**：`created_at >= run_epoch` 的行一定是
+///   本次 run 期间造出来的夹具行（种子 / 迁移行永远早于进程启动），必须**排除**，
+///   否则并行跑的兄弟用例（甚至别的模块，如 `system::auth::cache_tests` /
+///   `system::session_tests` 也往 `sys_menu` 插临时行）的**中间态**会被审计断言当成
+///   「库里有、源码里没有」的死码 —— 即 BUG-SYS-05 的假红。
+///
+/// 取**库时钟**而不是进程时钟，是为了免掉进程与 DB 之间的时钟差：`created_at` 的默认值
+/// 也是库时钟，两边同一源才不会出现「夹具行看着早于起点」的边界抖动。
+pub(crate) fn try_run_epoch() -> Option<chrono::DateTime<chrono::Utc>> {
+    run_epoch_cell().get().copied()
+}
+
+/// 同 [`try_run_epoch`]；未初始化视为测试基建错误（审计断言会因此失去范围界定 ⇒ 必须炸，不能静默放宽）。
+pub(crate) fn run_epoch() -> chrono::DateTime<chrono::Utc> {
+    try_run_epoch()
+        .expect("run_epoch 未初始化：必须先 ensure_db() 成功（它负责在首次连库时钉住 run 起点）")
+}
+
+fn run_epoch_cell() -> &'static std::sync::OnceLock<chrono::DateTime<chrono::Utc>> {
+    static EPOCH: std::sync::OnceLock<chrono::DateTime<chrono::Utc>> = std::sync::OnceLock::new();
+    &EPOCH
+}
+
+/// 在 [`ensure_db`] 里钉住 run 起点（幂等：`OnceLock` 只认第一次）。
+async fn capture_run_epoch() {
+    let sql = "SELECT now() AS v";
+    match db().find_with_params(sql, vec![]).await {
+        Ok(rows) => {
+            let value = rows
+                .first()
+                .and_then(|row| row.get_typed::<chrono::DateTime<chrono::Utc>>("v").ok());
+            match value {
+                Some(epoch) => {
+                    let _ = run_epoch_cell().set(epoch);
+                }
+                None => println!("WARN[run_epoch] SELECT now() 未返回可解析的时间戳"),
+            }
+        }
+        Err(error) => println!("WARN[run_epoch] 取库时钟失败：{error}"),
+    }
 }
 
 /// 残留明细：表名 → 行数（附 `id`/名称样例，便于人工定位）。

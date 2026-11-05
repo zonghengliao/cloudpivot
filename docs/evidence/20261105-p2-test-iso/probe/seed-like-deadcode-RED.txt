@@ -1,0 +1,21 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.14s
+     Running unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point' (1965717) panicked at src/system/menu/permission_audit_tests.rs:524:5:
+以下菜单权限码在后端源码里 0 落地（勾给角色永不生效，BUG-SYS-05）：
+probe:dead:code
+修法：A 类补 #[nik::permission] / B 类写迁移删菜单 / C 类登记到 ROUTE_LEVEL_ONLY 并写 TODO。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+
+failures:
+
+failures:
+    system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 2630 filtered out; finished in 4.20s
+
+error: test failed, to rerun pass `--lib`

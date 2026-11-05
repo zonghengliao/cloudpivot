@@ -1,0 +1,15 @@
+round=1 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.62s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.62s
+round=2 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.13s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.13s
+round=3 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.87s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.87s
+round=4 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.20s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.20s
+round=5 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.29s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 4.29s

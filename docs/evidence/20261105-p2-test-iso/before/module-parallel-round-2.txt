@@ -1,0 +1,50 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.16s
+     Running unittests src/lib.rs (target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 20 tests
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::tests::n01_tree_nested_structure_and_sort ... ok
+test system::menu::tests::n02_keyword_matches_name_and_auth_code ... ok
+test system::menu::tests::n03_invalid_menu_type_rejected ... ok
+test system::menu::tests::n04_create_with_missing_parent_404 ... ok
+test system::menu::tests::n05_update_self_as_parent_rejected ... ok
+test system::menu::tests::n06_delete_with_children_rejected ... ok
+test system::menu::tests::n07_delete_cascades_role_menu_binding ... ok
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... ok
+test system::menu::tests::n11_user_menus_filtered_by_role ... ok
+test system::menu::tests::n12_detail_errors_and_cache_invalidation ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::tests::n14_writes_succeed_without_cache ... ok
+test system::menu::tests::n13_permission_change_invalidates_tokens_in_db ... ok
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... FAILED
+
+failures:
+
+---- system::menu::tests::n09_menu_icons_exist_in_tdesign stdout ----
+
+thread 'system::menu::tests::n09_menu_icons_exist_in_tdesign' (1911105) panicked at src/system/menu/tests.rs:626:5:
+以下菜单图标在 tdesign-icons-vue-next 中不存在（侧栏渲染空白）：
+我的报销 → invoice
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point stdout ----
+测试C 已连接验证库（cloudpivot_test）
+
+thread 'system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point' (1911078) panicked at src/system/menu/permission_audit_tests.rs:460:5:
+以下菜单权限码在后端源码里 0 落地（勾给角色永不生效，BUG-SYS-05）：
+N13-T1793877000900009:btn
+修法：A 类补 #[nik::permission] / B 类写迁移删菜单 / C 类登记到 ROUTE_LEVEL_ONLY 并写 TODO。
+
+
+failures:
+    system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point
+    system::menu::tests::n09_menu_icons_exist_in_tdesign
+
+test result: FAILED. 18 passed; 2 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 3.67s
+
+error: test failed, to rerun pass `--lib`

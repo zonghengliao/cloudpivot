@@ -1,0 +1,3 @@
+round=1 rc=101 test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 5.24s
+  FAILED: test system::menu::tests::n09_menu_icons_exist_in_tdesign ... FAILED
+  FAILED: test result: FAILED. 19 passed; 1 failed; 0 ignored; 0 measured; 2611 filtered out; finished in 5.24s

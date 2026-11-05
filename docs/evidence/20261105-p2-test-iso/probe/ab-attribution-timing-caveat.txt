@@ -1,0 +1,16 @@
+== 已回滚到 HEAD 版本，重建（增量）==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 02s
+  Executable unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+== 跑同一实验（A：HEAD 原版，期望红）==
+[N14] 285 个菜单权限码全部有源码落地 ✓（273 条走 #[nik::permission] 注解闸，11 条走行级校验）
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2630 filtered out; finished in 3.74s
+--- 库里留下的行数（进程结束后仍在，属历史残留，按夹具名才排除）---
+20
+== 装回修复版并重建 ==
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 56.78s
+  Executable unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+== 跑同一实验（B：修复版，期望绿）==
+[N14] 285 个种子菜单权限码全部有源码落地 ✓（273 条走 #[nik::permission] 注解闸，11 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 16 行）
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2630 filtered out; finished in 3.60s
+--- 库里留下的行数（进程结束后仍在，属历史残留，按夹具名才排除）---
+20

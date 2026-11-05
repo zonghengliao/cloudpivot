@@ -28,6 +28,11 @@
 //!    调用、或权限常量被行级判定函数消费）；③ 其它代码引用（错误文案、清单常量）。
 //! 3. 源码范围 = `backend/src/**/*.rs`，**排除测试文件**（`tests.rs` / `tests_support.rs` /
 //!    `tests/`）—— 测试里提到某个码不算「有校验点」。
+//! 4. **库侧判据范围 = run 起点之前的种子行**：本文件 N14 / N15 / N18 是全表审计，
+//!    而同一进程里有多个夹具型用例（`menu::tests::n01..n14`、`auth::cache_tests`、
+//!    `session_tests` …）正并行往 `sys_menu` 插临时行；不过滤就会被当成死码（假红，
+//!    卡 t_7f775c91）。口径见 [`SEED_AT_RUN_START`]：**判据强度不变**，只是把
+//!    「本次 run 自己造的临时行」排除在审计对象之外。
 //!
 //! 跑法：
 //! ```bash
@@ -389,13 +394,55 @@ fn src_root() -> PathBuf {
     backend_root().join("src")
 }
 
-/// 库里全部有权限码的菜单行：`(auth_code, name, menu_type)`。
+/// 审计对象的基本形态：有权限码的、未软删的菜单行。
+const AUDITABLE_ROWS: &str = "deleted_at IS NULL AND auth_code IS NOT NULL AND auth_code <> ''";
+
+/// **判据范围**：只审「本进程开跑之前就存在的种子行」。
+///
+/// # 为什么必须收窄（并发假红的根因，卡 t_7f775c91）
+///
+/// 本文件的 N14 / N15 / N18 是**全表审计型**断言（「`sys_menu` 里每一条权限码都…」），
+/// 而同一个 lib 测试进程里还有一批**夹具型**用例正在往 `sys_menu` 插临时行：
+///
+/// | 造夹具的用例 | 行的样子 | 源码里当然没有 |
+/// |---|---|---|
+/// | `system::menu::tests::n13_permission_change_invalidates_tokens_in_db` | `N13-<tag>:btn` | ✅ 会被判死码 |
+/// | `system::menu::tests::n14_writes_succeed_without_cache` | `N14-<tag>:btn` | ✅ |
+/// | `system::menu::tests::n01..n12` | `N01-<tag>:b:list` … | ✅（且形态只有 2 段，N15 也会红） |
+/// | `system::auth::cache_tests`（C05/C06） | `testc3:<tag>:perm` | ✅（跨模块，实测打红 N15） |
+/// | `system::session_tests` | `FIX05S0x_<tag>:btn` | ✅（跨模块） |
+/// | `business::erp::period_test_support::seed_menu` | `business:erp:p2-…` | ✅（跨模块） |
+///
+/// 实测（默认并行，隔离库）：`cargo test --lib system::menu::` 5 轮里 4 轮 N14 红，
+/// 报的正是 `N13-T<ts>:btn`；把 `system::auth::cache_tests` / `system::session_tests`
+/// 一起跑，N15 还会被 `testc3:tc_c3_c06_T<ts>:perm` 打红。
+///
+/// 判据用**时间**而不是名字前缀：夹具命名至少有 4 套互不相同的约定（上表），任何
+/// `name LIKE 'N%-T%'` 这类过滤都盖不全（实测 `testc3:` / `FIX05S0x_` 就漏），而
+/// 「本次 run 期间造的」是一个与命名无关的统一不变量 —— 种子/迁移行必然早于
+/// [`ts::run_epoch`]。
+///
+/// 另叠一条名字口径：`name !~ ts::FIXTURE_PREFIX_REGEX`（仓库既有的夹具前缀白名单，
+/// 见 `tests_support::FIXTURE_PREFIX_REGEX`），用来吸收**上一轮崩溃残留**的夹具行 ——
+/// 那些行早于 run 起点，光靠时间过滤挡不住。
+///
+/// 判据强度没放宽：种子集在进程启动时就已固定，审计对每一条种子码仍然是「源码里
+/// 必须有一处落地」的全量断言；被排除的只有**本次 run 自己造的临时行**，
+/// 且排除条数会打在用例输出里（见 [`fixture_rows_excluded`]）。
+const SEED_AT_RUN_START: &str = "created_at < ? AND name !~ ?";
+
+/// 库里**种子**菜单行（审计判据范围）：`(auth_code, name, menu_type)`。
 async fn menu_auth_codes() -> Vec<(String, String, i16)> {
+    let sql = format!(
+        "SELECT auth_code, name, menu_type FROM sys_menu WHERE {AUDITABLE_ROWS} AND {SEED_AT_RUN_START}"
+    );
     let rows = db()
         .find_with_params(
-            "SELECT auth_code, name, menu_type FROM sys_menu \
-             WHERE deleted_at IS NULL AND auth_code IS NOT NULL AND auth_code <> ''",
-            vec![],
+            &sql,
+            vec![
+                Value::from(ts::run_epoch()),
+                Value::from(ts::FIXTURE_PREFIX_REGEX),
+            ],
         )
         .await
         .expect("查菜单权限码失败");
@@ -408,6 +455,23 @@ async fn menu_auth_codes() -> Vec<(String, String, i16)> {
             )
         })
         .collect()
+}
+
+/// 被判据范围排除的行数（**本次 run 造的夹具** + 历史夹具残留），只用于把「排除了多少」
+/// 打在输出里 —— 排除是显式的、可核对的，不是悄悄放宽。
+async fn fixture_rows_excluded() -> i64 {
+    let sql = format!(
+        "SELECT count(*) AS v FROM sys_menu WHERE {AUDITABLE_ROWS} AND NOT ({SEED_AT_RUN_START})"
+    );
+    db().scalar_with_params(
+        &sql,
+        vec![
+            Value::from(ts::run_epoch()),
+            Value::from(ts::FIXTURE_PREFIX_REGEX),
+        ],
+    )
+    .await
+    .unwrap_or_else(|error| panic!("统计审计排除行失败：{error}\nSQL: {sql}"))
 }
 
 fn distinct_codes(rows: &[(String, String, i16)]) -> BTreeSet<String> {
@@ -464,10 +528,12 @@ async fn n14_menu_auth_codes_have_source_action_point() {
         dead.join("\n")
     );
     println!(
-        "[N14] {} 个菜单权限码全部有源码落地 ✓（{} 条走 #[nik::permission] 注解闸，{} 条走行级校验）",
+        "[N14] {} 个种子菜单权限码全部有源码落地 ✓（{} 条走 #[nik::permission] 注解闸，{} 条走行级校验；\
+         判据范围 = run 起点前的种子行，已排除本次/历史夹具 {} 行）",
         codes.len(),
         annotated,
-        codes.len() - annotated - exceptions.len()
+        codes.len() - annotated - exceptions.len(),
+        fixture_rows_excluded().await
     );
 }
 
@@ -504,7 +570,10 @@ async fn n15_menu_auth_codes_match_module_resource_action() {
         "以下 auth_code 不是 {{模块}}:{{资源}}:{{动作}} 形态（模块名不是权限码）：\n{}",
         bad.join("\n")
     );
-    println!("[N15] {} 条菜单行权限码形态合规 ✓", rows.len());
+    println!(
+        "[N15] {} 条种子菜单行权限码形态合规 ✓（判据范围 = run 起点前的种子行）",
+        rows.len()
+    );
 }
 
 // ==================== N16 路由必须有权限闸 ====================

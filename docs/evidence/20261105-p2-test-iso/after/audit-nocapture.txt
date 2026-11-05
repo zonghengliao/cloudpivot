@@ -1,0 +1,20 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.13s
+     Running unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 6 tests
+[N17] 扫描器自检通过（死码 / 裸路由都能扫出来）✓
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+测试C 已连接验证库（cloudpivot_test）
+[N15] 315 条种子菜单行权限码形态合规 ✓（判据范围 = run 起点前的种子行）
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+[N19] 35 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+[N18] 例外台账 1 条、白名单 16 条，全部有理由且仍然成立 ✓
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+[N16] 502 条路由：486 条有权限注解 + 16 条白名单例外 ✓
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+[N14] 285 个种子菜单权限码全部有源码落地 ✓（273 条走 #[nik::permission] 注解闸，11 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 0 行）
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 2625 filtered out; finished in 3.93s
+

@@ -1,0 +1,26 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.15s
+     Running unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 19 tests
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... ok
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... ok
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... ok
+test system::menu::tests::n01_tree_nested_structure_and_sort ... ok
+test system::menu::tests::n02_keyword_matches_name_and_auth_code ... ok
+test system::menu::tests::n03_invalid_menu_type_rejected ... ok
+test system::menu::tests::n04_create_with_missing_parent_404 ... ok
+test system::menu::tests::n05_update_self_as_parent_rejected ... ok
+test system::menu::tests::n06_delete_with_children_rejected ... ok
+test system::menu::tests::n07_delete_cascades_role_menu_binding ... ok
+test system::menu::tests::n08_menu_paths_all_resolve_in_frontend_router ... ok
+test system::menu::tests::n10_annotated_permissions_have_menu_code ... ok
+test system::menu::tests::n11_user_menus_filtered_by_role ... ok
+test system::menu::tests::n12_detail_errors_and_cache_invalidation ... ok
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... ok
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... ok
+test system::menu::tests::n14_writes_succeed_without_cache ... ok
+test system::menu::tests::n13_permission_change_invalidates_tokens_in_db ... ok
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 2612 filtered out; finished in 4.04s
+
