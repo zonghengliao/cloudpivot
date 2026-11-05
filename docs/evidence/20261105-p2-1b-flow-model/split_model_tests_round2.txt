@@ -1,0 +1,22 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.39s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 14 tests
+test business::flow::model::t12_delete_flow_tests::approved_instance_untouched ... ok
+test business::flow::model::t12_delete_flow_tests::delete_cancel_comment_is_stable ... ok
+test business::flow::model::t12_delete_flow_tests::other_biz_instances_untouched ... ok
+test business::flow::model::t12_delete_flow_tests::pending_flow_task_and_node_cancelled ... ok
+test business::flow::model::t12_delete_flow_tests::pending_instance_cancelled_with_ended_at_and_comment ... ok
+test business::flow::model::t12_delete_flow_tests::rollback_keeps_task_and_pending_instance ... ok
+test business::flow::model::t12_delete_flow_tests::second_call_is_idempotent ... ok
+test business::flow::model::t12_delete_flow_tests::task_without_instances_deleted_ok ... ok
+test business::flow::model::tests::delete_and_publish_sql_are_scoped_to_draft_or_def ... ok
+test business::flow::model::tests::done_status_set_is_my_operations_and_excludes_pending ... ok
+test business::flow::model::tests::identity_wheres_never_use_instance_visibility ... ok
+test business::flow::model::tests::list_orders_follow_index_and_card_spec ... ok
+test business::flow::model::tests::todo_status_set_is_pending_only ... ok
+test business::flow::model::tests::version_editability_follows_status ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 2626 filtered out; finished in 7.29s
+
+EXIT=0

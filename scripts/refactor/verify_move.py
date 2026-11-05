@@ -146,6 +146,12 @@ def main():
              "schedule", "tests", "display_file_name_tests", "depth_tests", "root_only_tests",
              "statuses_filter_tests", "stats_tests", "repair_tests", "cascade_tests",
              "cascade_cancel_tests"]]),
+        # P2-1B：flow/model.rs（4732 行）按职责拆成 10 个代码部件 + 2 个测试部件
+        ("backend/src/business/flow/model.rs",
+         ["backend/src/business/flow/model.rs"] +
+         [f"backend/src/business/flow/flow_model_{n}.rs" for n in [
+             "base", "def", "graph", "guard", "instance", "node", "cancel", "progress",
+             "inbox", "stats", "tests", "delete_tests"]]),
         ("backend/src/business/erp/stockin_handler.rs",
          ["backend/src/business/erp/stockin_handler.rs"] +
          [f"backend/src/business/erp/stockin_handler_{n}.rs" for n in [

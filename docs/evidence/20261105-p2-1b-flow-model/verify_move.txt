@@ -1,0 +1,8 @@
+==============================================================================
+backend/src/business/flow/model.rs   （拆分前 ref = HEAD）
+  条目多重集                前=  207 后=  207  MISSING=none  ADDED=none
+  SQL 字面量              前=  111 后=  111  MISSING=none  ADDED=none
+  用例名                  前=   14 后=   14  MISSING=none  ADDED=none
+  代码 token 多重集         前=24998 后=24998  MISSING=none  ADDED=none
+==============================================================================
+结论： PASS（条目 / SQL / 用例名 / 代码 token 四重多重集全部一一对应，只搬不移）

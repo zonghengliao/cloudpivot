@@ -1,0 +1,285 @@
+// ============================================================================
+// flow_model_instance.rs —— 运行期实例与待办行（状态机）：取实例号、建实例、锁定读、revision 推进、自动通过同步、在跑判定、待办插入/锁定/完结
+//
+// 由 `model.rs` 按职责拆出（TD-2 拆分）。**本文件不含任何行为变更**：
+// 所有函数体、SQL、签名与拆分前一致，只是换了落点；公开 API 由 facade
+// `model.rs` 用 `pub use` 重导出，调用方一行不用改。
+// ============================================================================
+
+use super::flow_model_base::*;
+use nik::prelude::*;
+use nik::uuid::Uuid;
+
+/// 生成单据号 `FLW-YYYYMMDD-<uuid 末 8 位>`。
+///
+/// **用 UUIDv7 的末 8 位而不是前 8 位**：v7 的高位就是时间戳，同一毫秒连发的两条
+/// 会拿到相同前缀 → 撞 `uk_biz_flow_instance_no`（skill cailu-dev §9.12-3 实测）。
+pub fn new_instance_no(now: chrono::DateTime<chrono::Utc>) -> String {
+    let id = Uuid::now_v7().to_string();
+    let tail: String = id.chars().filter(|c| *c != '-').collect::<String>();
+    let tail = tail
+        .get(tail.len().saturating_sub(8)..)
+        .unwrap_or("00000000");
+    format!("FLW-{}-{}", now.format("%Y%m%d"), tail.to_ascii_uppercase())
+}
+
+// ---------- 写：实例 ----------
+
+/// 新建实例（事务内）。
+///
+/// # 异常情况
+///
+/// `uk_biz_flow_instance_biz_active` / `uk_biz_flow_instance_no` 冲突 → [`DbError`]。
+pub async fn create_instance(ex: &Transaction, new: &NewInstance) -> DbResult<()> {
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_instance \
+             (id, instance_no, def_id, version_id, version_no, flow_code, flow_name, \
+              biz_type, biz_id, biz_no, title, status, initiator_id, initiator_name, \
+              initiator_dept_id, form_data, auto_passed_nodes, round_total, revision, \
+              started_at, due_at, created_at, updated_at, create_by, update_by) \
+         VALUES (?::uuid, ?, ?::uuid, ?::uuid, ?, ?, ?, ?, ?::uuid, ?, ?, 'PENDING', \
+                 ?::uuid, ?, ?::uuid, ?::jsonb, 0, 1, 0, now(), ?, now(), now(), ?::uuid, ?::uuid)",
+        vec![
+            Value::from(&new.id),
+            Value::Text(new.instance_no.clone()),
+            Value::from(&new.def_id),
+            Value::from(&new.version_id),
+            Value::from(new.version_no),
+            Value::Text(new.flow_code.clone()),
+            Value::Text(new.flow_name.clone()),
+            Value::Text(new.biz_type.clone()),
+            opt_uuid(new.biz_id),
+            opt_text(new.biz_no.as_deref()),
+            Value::Text(new.title.clone()),
+            Value::from(&new.initiator_id),
+            opt_text(new.initiator_name.as_deref()),
+            opt_uuid(new.initiator_dept_id),
+            Value::Json(new.form_data.to_string()),
+            opt_ts(new.due_at),
+            Value::from(&new.initiator_id),
+            Value::from(&new.initiator_id),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 读实例（含软删过滤）。不存在 → `None`。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_instance(id: Uuid) -> DbResult<Option<InstanceRow>> {
+    let sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i \
+          WHERE i.id = ?::uuid AND i.deleted_at IS NULL"
+    );
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(InstanceRow::from_row).transpose()
+}
+
+/// 锁实例行（`SELECT … FOR UPDATE`，锁序第三）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn lock_instance(ex: &Transaction, id: Uuid) -> DbResult<Option<InstanceRow>> {
+    let sql = format!(
+        "SELECT {INSTANCE_COLUMNS} FROM biz_flow_instance i WHERE i.id = ?::uuid FOR UPDATE"
+    );
+    let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(InstanceRow::from_row).transpose()
+}
+
+/// 实例 CAS：`revision` 自增并写入状态 / 轮次 / 说明。
+///
+/// 返回受影响行数：**0 表示 CAS 失败**（别人先推进了同一实例），调用方重新读取后重试一次
+/// （架构 §4.5.1 第 ⑦ 步）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn bump_instance(
+    ex: &Transaction,
+    id: Uuid,
+    expected_revision: i32,
+    status: Option<&str>,
+    result_comment: Option<&str>,
+    round_total: i32,
+) -> DbResult<u64> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_instance \
+            SET status = COALESCE(?, status), \
+                result_comment = COALESCE(?, result_comment), \
+                round_total = ?, \
+                revision = revision + 1, \
+                ended_at = CASE WHEN COALESCE(?, status) = 'PENDING' THEN NULL ELSE now() END, \
+                updated_at = now() \
+          WHERE id = ?::uuid AND revision = ?",
+        vec![
+            opt_text(status),
+            opt_text(result_comment),
+            Value::from(round_total),
+            opt_text(status),
+            Value::from(&id),
+            Value::from(expected_revision),
+        ],
+    )
+    .await
+}
+
+/// 用 `count(*)` 覆写 `auto_passed_nodes`（**派生值，不是 `+=`**）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn sync_auto_passed(ex: &Transaction, instance_id: Uuid) -> DbResult<i32> {
+    let rows = ex
+        .find_with_params(
+            "UPDATE biz_flow_instance \
+                SET auto_passed_nodes = ( \
+                        SELECT count(*) FROM biz_flow_instance_node \
+                         WHERE instance_id = ?::uuid AND is_auto_passed), \
+                    updated_at = now() \
+              WHERE id = ?::uuid \
+          RETURNING auto_passed_nodes",
+            vec![Value::from(&instance_id), Value::from(&instance_id)],
+        )
+        .await?;
+    match rows.first() {
+        None => Ok(0),
+        Some(row) => row.get_typed("auto_passed_nodes"),
+    }
+}
+
+/// 同一业务单据是否还有在跑的实例（`start` 的前置校验 + 并发兜底）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn biz_instance_running(biz_type: &str, biz_id: Uuid) -> DbResult<bool> {
+    biz_instance_running_in(db(), biz_type, biz_id).await
+}
+
+/// [`biz_instance_running`] 的「任意执行器」版本（P-FLOW-1B：事务内发起前查重）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn biz_instance_running_in(
+    ex: &impl SqlExecutor,
+    biz_type: &str,
+    biz_id: Uuid,
+) -> DbResult<bool> {
+    let total: i64 = ex
+        .scalar_sql(
+            "SELECT count(*) AS total FROM biz_flow_instance \
+              WHERE biz_type = ? AND biz_id = ?::uuid AND status = 'PENDING' AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::Text(biz_type.to_string()), Value::from(&biz_id)],
+        )
+        .await?;
+    Ok(total > 0)
+}
+
+// ---------- 写：实例节点 ----------
+
+/// 插入一条待办行。
+///
+/// **不用 `ON CONFLICT DO NOTHING`**：三层去重的第 2 层必须真的能挡住重复
+/// （验收 2 要贴 23505），并让应用显式走「把 23505 当幂等成功」这条红线路径。
+/// 调用方用 [`is_pending_duplicate`] 判定。
+///
+/// `SKIPPED` 行没有 `PENDING` 槽位，不受部分唯一索引约束。
+///
+/// # 异常情况
+///
+/// `uk_biz_flow_task_pending` 冲突 → [`DbError::UniqueViolation`]；其它 → [`DbError`]。
+pub async fn insert_task(ex: &Transaction, new: &NewTask) -> DbResult<()> {
+    // `completed_at` 必须与 status 同真同假（`ck_biz_flow_task_done`）：
+    // PENDING → NULL；其它（SKIPPED）→ now()。用 CASE 而不是绑时间值，保证与库时钟一致。
+    ex.execute_with_params(
+        "INSERT INTO biz_flow_task \
+             (id, instance_id, instance_node_id, node_key, round, task_kind, assignee_id, \
+              assignee_name, assignee_source, assignee_source_ref, status, is_added_sign, \
+              is_self_approval, is_auto, comment, attachments, transferred_from, due_at, \
+              remind_count, created_at, completed_at, assignee_rule_id) \
+         VALUES (?::uuid, ?::uuid, ?::uuid, ?, ?, ?, ?::uuid, ?, ?, ?::uuid, ?, ?, ?, ?, ?, \
+                 '[]'::jsonb, ?::uuid, ?, 0, now(), \
+                 CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END, ?)",
+        vec![
+            Value::from(&new.id),
+            Value::from(&new.instance_id),
+            Value::from(&new.instance_node_id),
+            Value::Text(new.node_key.clone()),
+            Value::from(new.round),
+            Value::Text(new.task_kind.clone()),
+            Value::from(&new.assignee_id),
+            opt_text(new.assignee_name.as_deref()),
+            Value::Text(new.assignee_source.clone()),
+            opt_uuid(new.assignee_source_ref),
+            Value::Text(new.status.clone()),
+            Value::from(new.is_added_sign),
+            Value::from(new.is_self_approval),
+            Value::from(new.is_auto),
+            opt_text(new.comment.as_deref()),
+            opt_uuid(new.transferred_from),
+            opt_ts(new.due_at),
+            Value::Text(new.status.clone()),
+            opt_text(new.assignee_rule_id.as_deref()),
+        ],
+    )
+    .await?;
+    Ok(())
+}
+
+/// 锁待办行（`SELECT … FOR UPDATE`，锁序第一）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn lock_task(ex: &Transaction, id: Uuid) -> DbResult<Option<TaskRow>> {
+    let sql = format!("SELECT {TASK_COLUMNS} FROM biz_flow_task t WHERE t.id = ?::uuid FOR UPDATE");
+    let rows = ex.find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(TaskRow::from_row).transpose()
+}
+
+/// 读待办（不加锁）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn find_task(id: Uuid) -> DbResult<Option<TaskRow>> {
+    let sql = format!("SELECT {TASK_COLUMNS} FROM biz_flow_task t WHERE t.id = ?::uuid");
+    let rows = db().find_with_params(&sql, vec![Value::from(&id)]).await?;
+    rows.first().map(TaskRow::from_row).transpose()
+}
+
+/// 结束一条待办（写状态 / 意见 / 完成时间）。
+///
+/// # 异常情况
+///
+/// 数据库异常 → [`DbError`]。
+pub async fn finish_task(
+    ex: &Transaction,
+    id: Uuid,
+    status: &str,
+    comment: Option<&str>,
+    is_auto: bool,
+) -> DbResult<()> {
+    ex.execute_with_params(
+        "UPDATE biz_flow_task \
+            SET status = ?, comment = COALESCE(?, comment), is_auto = is_auto OR ?, \
+                completed_at = CASE WHEN ? = 'PENDING' THEN NULL ELSE now() END \
+          WHERE id = ?::uuid",
+        vec![
+            Value::Text(status.to_string()),
+            opt_text(comment),
+            Value::from(is_auto),
+            Value::Text(status.to_string()),
+            Value::from(&id),
+        ],
+    )
+    .await?;
+    Ok(())
+}

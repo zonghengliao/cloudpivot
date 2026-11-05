@@ -1,0 +1,35 @@
+    Blocking waiting for file lock on artifact directory
+   Compiling nik-core v0.4.2 (/root/p21b/wt/backend/vendor/nik-core)
+   Compiling nik-config v0.4.2 (/root/p21b/wt/backend/vendor/nik-config)
+   Compiling nik-db-core v0.4.2 (/root/p21b/wt/backend/vendor/nik-db-core)
+   Compiling nik-db-sql v0.4.2 (/root/p21b/wt/backend/vendor/nik-db-sql)
+   Compiling nik-utils v0.4.2 (/root/p21b/wt/backend/vendor/nik-utils)
+   Compiling nik-db-driver-postgres v0.4.2 (/root/p21b/wt/backend/vendor/nik-db-driver-postgres)
+   Compiling nik-db-macro v0.4.2 (/root/p21b/wt/backend/vendor/nik-db-macro)
+   Compiling nik-cache v0.4.2 (/root/p21b/wt/backend/vendor/nik-cache)
+   Compiling nik-db v0.4.2 (/root/p21b/wt/backend/vendor/nik-db)
+   Compiling nik-log v0.4.2 (/root/p21b/wt/backend/vendor/nik-log)
+   Compiling nik-web v0.4.2 (/root/p21b/wt/backend/vendor/nik-web)
+   Compiling nik-plugin v0.4.2 (/root/p21b/wt/backend/vendor/nik-plugin)
+   Compiling nik-fs v0.4.2 (/root/p21b/wt/backend/vendor/nik-fs)
+   Compiling nik v0.4.2 (/root/p21b/wt/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/root/p21b/wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 41s
+     Running unittests src/lib.rs (/opt/cloudpivot/backend/target/debug/deps/cloudpivot-186d3cfdde06245d)
+business::flow::model::t12_delete_flow_tests::approved_instance_untouched: test
+business::flow::model::t12_delete_flow_tests::delete_cancel_comment_is_stable: test
+business::flow::model::t12_delete_flow_tests::other_biz_instances_untouched: test
+business::flow::model::t12_delete_flow_tests::pending_flow_task_and_node_cancelled: test
+business::flow::model::t12_delete_flow_tests::pending_instance_cancelled_with_ended_at_and_comment: test
+business::flow::model::t12_delete_flow_tests::rollback_keeps_task_and_pending_instance: test
+business::flow::model::t12_delete_flow_tests::second_call_is_idempotent: test
+business::flow::model::t12_delete_flow_tests::task_without_instances_deleted_ok: test
+business::flow::model::tests::delete_and_publish_sql_are_scoped_to_draft_or_def: test
+business::flow::model::tests::done_status_set_is_my_operations_and_excludes_pending: test
+business::flow::model::tests::identity_wheres_never_use_instance_visibility: test
+business::flow::model::tests::list_orders_follow_index_and_card_spec: test
+business::flow::model::tests::todo_status_set_is_pending_only: test
+business::flow::model::tests::version_editability_follows_status: test
+
+14 tests, 0 benchmarks
+EXIT=0

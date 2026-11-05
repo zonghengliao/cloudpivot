@@ -72,6 +72,21 @@ pub mod internal_control;
 pub mod linkage;
 pub mod maintain;
 pub mod model;
+
+// ---- model.rs 的拆分部件（P2-1B：纯搬迁，只由 model.rs 的 facade 重导出，对外不可见）----
+// 声明顺序 = facade 的 `pub use` 顺序：底座 → 定义 → 图/快照 → 校验 → 运行期 →
+// 节点 → 终止 → 进度/参与人 → 三身份列表 → 统计。测试部件按 `#[path]` 挂在 facade 下。
+mod flow_model_base;
+mod flow_model_cancel;
+mod flow_model_def;
+mod flow_model_graph;
+mod flow_model_guard;
+mod flow_model_inbox;
+mod flow_model_instance;
+mod flow_model_node;
+mod flow_model_progress;
+mod flow_model_stats;
+
 pub mod node_config;
 pub mod notify;
 pub mod notify_node;
