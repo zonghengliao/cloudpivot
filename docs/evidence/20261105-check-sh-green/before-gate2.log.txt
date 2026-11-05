@@ -1,0 +1,15 @@
+### 修复前（9765447）: 闸② 用当时代码 + 当时 SKIP_MANIFEST
+闸② 判定面（v2）：扫描生产面 342 个文件 / 跳过测试面 61 个文件
+    跳过依据：父模块 `#[cfg(test)]` 声明（mod x; / #[path=...] mod x;）与文件内 `#[cfg(test)] mod {…}` 内联区（均不进生产编译）
+  PASS：扫描范围已覆盖 backend/src/{business/task,business,system,support,shared}
+    FAIL: business/erp/asset_handler.rs 查询 sys_dept sys_user 未接入 scope:: 且无 SCOPE-EXEMPT
+    FAIL: business/erp/budget_handler.rs 查询 sys_dept 未接入 scope:: 且无 SCOPE-EXEMPT
+  FAIL：跳过清单断言：backend/src/business/erp/asset_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/pre-fix-9765447/backend/src/business/erp/asset_model.rs:1678）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/asset_model_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_dto_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/pre-fix-9765447/backend/src/business/erp/budget_dto.rs:839）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_dto_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_guard_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/pre-fix-9765447/backend/src/business/erp/budget_guard.rs:818）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_guard_tests.rs",
+  FAIL：跳过清单断言：backend/src/business/erp/budget_model_tests.rs 被判成了测试面，但 SKIP_MANIFEST 里没有登记（声明位置 /root/.hermes/profiles/backend-developer/cache/scratch/pre-fix-9765447/backend/src/business/erp/budget_model.rs:1112）—— 这正是「一句 #[cfg(test)] 声明把生产文件藏起来」的形态；确认它确实是测试面后，把这一行补进 scripts/lint/scope_gate.py："business/erp/budget_model_tests.rs",
+  FAIL：2 个文件（按文件计；B0 实测基线 21 处是 file×table 口径，仅作历史参考）
+  失败文件清单（file (tables)，供逐文件裁定核对）：
+    business/erp/asset_handler.rs (sys_dept, sys_user)
+    business/erp/budget_handler.rs (sys_dept)
+exit=1
