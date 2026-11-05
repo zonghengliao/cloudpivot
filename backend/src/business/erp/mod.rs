@@ -37,6 +37,7 @@
 //! | [`report`] | 资产负债表：报表项↔科目映射（`biz_report_item`）+ 勾稽校验（资产 ≡ 负债+权益） | **ERP-R1** |
 //! | [`income_statement`] | 利润表：损益类**发生额**（本期 / 本年累计）+ 两表勾稽（净利润 ≡ 未分配利润变动） | **ERP-R2** |
 //! | [`cash_flow`] | 现金流量表（**简化版**）：按现金收支流水 + 对方科目分经营 / 投资 / 筹资 + 勾稽货币资金 | **ERP-R3** |
+//! | [`payable_aging`] | 应付账款**账龄分析**：按到期日分 未到期 / 1-30 / 31-60 / 61-90 / 90+ 五档 + 按供应商汇总 + 明细 | **P1-FIX-8A** |
 //! | [`opening`] | 期初余额录入（方式 A 按科目 + 库存期初）→ 生成 / 覆盖唯一的期初凭证 | **ERP-R5** |
 //! | [`year_end`] | 年结：损益结转凭证（`YEAR_END`）+ 下年期初台账 + 反年结（五项前置校验） | **ERP-R4** |
 //! | [`batch`] | **批量操作（D7）**：勾选 → 逐条独立事务 → 逐条报告（过账 / 作废 / 删除 / 提交审批 / 导出） | **D7** |
@@ -129,6 +130,7 @@ pub mod ledger;
 pub mod model;
 pub mod opening;
 pub mod payable;
+pub mod payable_aging;
 pub mod payable_bridge;
 pub mod payable_payment;
 pub mod payable_query;

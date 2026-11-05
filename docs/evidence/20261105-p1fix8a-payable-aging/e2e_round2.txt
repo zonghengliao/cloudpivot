@@ -1,0 +1,72 @@
+登录成功 user=admin base=http://127.0.0.1:18144
+[PASS] report_code
+[PASS] as_of 回显
+[PASS] as_of_source=QUERY
+[PASS] 期间回显
+[PASS] 档位表 = 5 档且顺序固定
+[PASS] 档位 NOT_DUE 金额 = 17000
+[PASS] 档位 D0_30 金额 = 11000
+[PASS] 档位 D31_60 金额 = 17000
+[PASS] 档位 D61_90 金额 = 37000
+[PASS] 档位 OVER_90 金额 = 30000
+[PASS] 未付合计 = 112000
+[PASS] 逾期合计 = 95000
+[PASS] 逾期占比 = 84.82
+[PASS] 单据数 = 9（3 张排除样本不算）
+[PASS] 供应商数 = 3
+[PASS] 明细存在 AP-FIX8A-000002
+[PASS] AP-FIX8A-000002 逾期天数 = 0
+[PASS] AP-FIX8A-000002 档位 = NOT_DUE
+[PASS] 明细存在 AP-FIX8A-000003
+[PASS] AP-FIX8A-000003 逾期天数 = 1
+[PASS] AP-FIX8A-000003 档位 = D0_30
+[PASS] 明细存在 AP-FIX8A-000004
+[PASS] AP-FIX8A-000004 逾期天数 = 30
+[PASS] AP-FIX8A-000004 档位 = D0_30
+[PASS] 明细存在 AP-FIX8A-000005
+[PASS] AP-FIX8A-000005 逾期天数 = 31
+[PASS] AP-FIX8A-000005 档位 = D31_60
+[PASS] 明细存在 AP-FIX8A-000006
+[PASS] AP-FIX8A-000006 逾期天数 = 60
+[PASS] AP-FIX8A-000006 档位 = D31_60
+[PASS] 明细存在 AP-FIX8A-000007
+[PASS] AP-FIX8A-000007 逾期天数 = 61
+[PASS] AP-FIX8A-000007 档位 = D61_90
+[PASS] 明细存在 AP-FIX8A-000008
+[PASS] AP-FIX8A-000008 逾期天数 = 90
+[PASS] AP-FIX8A-000008 档位 = D61_90
+[PASS] 明细存在 AP-FIX8A-000009
+[PASS] AP-FIX8A-000009 逾期天数 = 91
+[PASS] AP-FIX8A-000009 档位 = OVER_90
+[PASS] 明细存在 AP-FIX8A-000001
+[PASS] AP-FIX8A-000001 逾期天数 = -15
+[PASS] AP-FIX8A-000001 档位 = NOT_DUE
+[PASS] SETTLED 不进表
+[PASS] CANCELLED 不进表
+[PASS] 基准日之后的期间（2026-12）不进表
+[PASS] 明细未截断
+[PASS] 汇总 NOT_DUE == 明细按档求和（SQL 聚合 vs Rust 逐行分档）
+[PASS] 汇总 D0_30 == 明细按档求和（SQL 聚合 vs Rust 逐行分档）
+[PASS] 汇总 D31_60 == 明细按档求和（SQL 聚合 vs Rust 逐行分档）
+[PASS] 汇总 D61_90 == 明细按档求和（SQL 聚合 vs Rust 逐行分档）
+[PASS] 汇总 OVER_90 == 明细按档求和（SQL 聚合 vs Rust 逐行分档）
+[PASS] 未付合计 == 明细未付之和
+[PASS] 供应商合计之和 == 未付合计
+[PASS] 供应商「丙方服务（账龄测试）」各档之和 == 其未付合计
+[PASS] 供应商「乙方设备（账龄测试）」各档之和 == 其未付合计
+[PASS] 供应商「甲方材料（账龄测试）」各档之和 == 其未付合计
+[PASS] 基准日 +1 天后 AP-FIX8A-000002 逾期 1 天
+[PASS] 基准日 +1 天后 AP-FIX8A-000002 落 1-30 档
+[PASS] 基准日 +1 天后 未到期 少 5000
+[PASS] 基准日 +1 天后 1-30 = 3000+5000（8000 因跨 30→31 挪到 31-60）
+[PASS] 基准日 +1 天后 31-60 = 14000（6000 + 迁入的 8000）
+[PASS] 连跑两轮除 generated_at 外逐字一致
+[PASS] 只传 period=2026-10 时基准日 = 2026-10-31
+[PASS] 只传 period 时 as_of_source=PERIOD
+[PASS] 非法 as_of → 400 + 10001
+[PASS] 非法 period → 400 + 10001
+[PASS] 导出 HTTP 200
+[PASS] 导出是 xlsx（PK 头）
+[PASS] 导出非空（> 4KB）
+
+===== 断言 69 条，FAIL 0 =====

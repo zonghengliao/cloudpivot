@@ -1,0 +1,12 @@
+== 说明：首启（空库）时应用了 197 个迁移并 bootstrap 出 admin；
+   那条日志已被后续重启覆盖（start 脚本每次会清空日志文件），
+   可重复的证据是下面三条：
+
+== 二次启动（同一个库、同一个二进制）→ 0 个迁移（迁移幂等）
+2026-11-05T15:35:04.304308Z  INFO nik_web::app: 数据库迁移完成: 应用 0 个迁移
+
+== schema_migrations 记账（V0255 已应用，引擎认得这条迁移）
+erp_payable_aging | version=255 | success=t | applied_via=executed | source=migrations/business/V0255__erp_payable_aging.up.sql
+
+== 菜单行落地（迁移真的跑过，不只是"记账"）
+见 db_menu_and_grants.txt：sys_menu …1600 存在，4 个角色已授权。

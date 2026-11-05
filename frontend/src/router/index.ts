@@ -629,6 +629,16 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '现金流量表', permission: 'business:erp:report:cash-flow' },
       },
       {
+        // ==================== ERP 应付账龄分析（P1-FIX-8A / PRD E4-03 P0） ====================
+        // `sys_menu` 种子（V0255 …1600）path = `/business/erp/report/payable-aging`，
+        // component `business/erp/report/payable-aging/index`；导出按钮复用
+        // `business:erp:report:export`（不新增按钮行）。**路由手工注册**，漏了 = 点菜单 404。
+        path: 'business/erp/report/payable-aging',
+        name: 'BusinessErpPayableAging',
+        component: () => import('@/views/business/erp/report/payable-aging/index.vue'),
+        meta: { title: '应付账龄分析', permission: 'business:erp:report:payable-aging' },
+      },
+      {
         // ==================== ERP 会计科目（P4-C，只读树形） ====================
         // `sys_menu` 种子（V0141 …0946）path = `/business/erp/account`，component
         // `business/erp/account/index`；V0154 把菜单挂到了「财务管理」目录下，path 没变。

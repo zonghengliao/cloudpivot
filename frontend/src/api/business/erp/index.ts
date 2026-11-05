@@ -4135,3 +4135,120 @@ export function fetchContractPurchaseOrders(contractId: string, pageSize = 50): 
     asParams({ contract_id: contractId, page: 1, page_size: pageSize }),
   );
 }
+
+// ==================== 应付账龄分析（P1-FIX-8A / PRD E4-03 P0） ====================
+
+/**
+ * 账龄档位定义（对应后端 `payable_aging::AgingBucketDef`）。
+ *
+ * **表头一律按 `buckets` 渲染，前端不写死档位**：后端加/改档位（例如加「180 天以上」）
+ * 这一页自动跟上，不会两边各说一套。`max_days = null` 表示无上界。
+ */
+export interface AgingBucketDef {
+  key: string;
+  label: string;
+  min_days: number;
+  max_days: number | null;
+}
+
+/** 某一档的金额（汇总行 / 供应商行的单元格）。金额是字符串（`numeric` → `rust_decimal`）。 */
+export interface AgingBucketAmount {
+  key: string;
+  label: string;
+  /** 未付金额合计 */
+  unpaid: string;
+  /** 单据数 */
+  doc_count: number;
+}
+
+/** 供应商汇总行（后端 `payable_aging::SupplierAgingRes`）。 */
+export interface AgingSupplier {
+  supplier_id: string;
+  supplier_name: string;
+  doc_count: number;
+  total_unpaid: string;
+  /** 与 `buckets` 同序、同长度（缺档补 0） */
+  buckets: AgingBucketAmount[];
+  /** 最长逾期天数（未逾期记 0） */
+  max_overdue_days: number;
+}
+
+/** 明细行（后端 `payable_aging::AgingDetailRes`）。 */
+export interface AgingDetail {
+  payable_id: string;
+  payable_no: string;
+  supplier_id: string;
+  supplier_name: string;
+  source_no: string;
+  invoice_no: string | null;
+  period_code: string;
+  credit_days: number;
+  due_date: string;
+  /** 逾期天数：基准日 − 到期日（正数 = 已逾期；0 = 到期当天；负数 = 未到期） */
+  overdue_days: number;
+  bucket: string;
+  bucket_label: string;
+  amount: string;
+  paid_amount: string;
+  unpaid_amount: string;
+  status: string;
+}
+
+/** 应付账龄分析表（后端 `payable_aging::PayableAgingRes`）。 */
+export interface PayableAging {
+  report_code: string;
+  report_name: string;
+  company_name: string;
+  unit: string;
+  /** 基准日 `yyyy-MM-dd` */
+  as_of: string;
+  /** 基准日来源：`QUERY`（手填）/ `PERIOD`（期间末日）/ `TODAY`（今天） */
+  as_of_source: 'QUERY' | 'PERIOD' | 'TODAY';
+  period: string | null;
+  period_name: string | null;
+  /** 期间状态；期间行不存在时为 null（账龄表不因未开账 400） */
+  period_status: ReportPeriodStatus | null;
+  generated_at: string;
+  buckets: AgingBucketDef[];
+  summary: AgingBucketAmount[];
+  total_unpaid: string;
+  /** 逾期合计 = 除「未到期」以外各档之和 */
+  overdue_unpaid: string;
+  /** 逾期占比（0–100，两位小数） */
+  overdue_ratio: string;
+  total_amount: string;
+  total_paid: string;
+  doc_count: number;
+  supplier_count: number;
+  suppliers: AgingSupplier[];
+  details: AgingDetail[];
+  /** 明细总条数（截断前） */
+  detail_count: number;
+  detail_truncated: boolean;
+  hints: string[];
+}
+
+/**
+ * 编应付账龄分析表（`GET /erp/report/payable-aging`）。
+ *
+ * - `as_of` 优先（`yyyy-MM-dd`）；只传 `period`（`yyyy-MM`）时用**该期间末日**当基准日；
+ *   两个都不传 → 今天（CST）。响应里的 `as_of_source` 会回显这个来源。
+ * - 400 + `10001`：`as_of` / `period` 格式非法。
+ * - **不会**因为「该月没开账」而 400（账龄与期间状态无关，`period_status` 只是回显）。
+ */
+export function fetchPayableAging(query: { period?: string; as_of?: string }): Promise<PayableAging> {
+  return get<PayableAging>(`${BASE}/report/payable-aging`, asParams(query));
+}
+
+/**
+ * 导出应付账龄分析 xlsx（`GET /erp/report/payable-aging/export`）。
+ *
+ * 权限码复用报表导出码 `business:erp:report:export`（与资产负债表 / 利润表 / 现金流量表同一个开关）。
+ */
+export async function exportPayableAging(query: { period?: string; as_of?: string }): Promise<Blob> {
+  const response = await service.get<Blob>(`${BASE}/report/payable-aging/export`, {
+    params: asParams(query),
+    responseType: 'blob',
+  });
+  return response.data;
+}

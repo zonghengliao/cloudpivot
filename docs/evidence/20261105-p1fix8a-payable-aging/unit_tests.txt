@@ -1,0 +1,15 @@
+== cargo test --lib business::erp::payable_aging -- --test-threads=1
+     Running unittests src/lib.rs (/root/p1fix5c-target/debug/deps/cloudpivot-12f8f1e6c8ad4f29)
+
+running 8 tests
+test business::erp::payable_aging::tests::as_of_resolution_priority_and_validation ... ok
+test business::erp::payable_aging::tests::bucket_boundaries_are_exact ... ok
+test business::erp::payable_aging::tests::bucket_case_sql_mirrors_constants ... ok
+test business::erp::payable_aging::tests::buckets_are_contiguous_and_cover_all_days ... ok
+test business::erp::payable_aging::tests::money_text_formats_like_the_pdf ... ok
+test business::erp::payable_aging::tests::overdue_days_counts_from_due_date ... ok
+test business::erp::payable_aging::tests::pivot_fills_missing_buckets_and_sorts_by_amount ... ok
+test business::erp::payable_aging::tests::summary_sums_match_suppliers ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 2669 filtered out; finished in 0.00s
+

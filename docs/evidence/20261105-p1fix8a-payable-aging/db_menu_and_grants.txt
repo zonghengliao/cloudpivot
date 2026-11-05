@@ -1,0 +1,21 @@
+== V0255 种的菜单行
+                  id                  |               name                | menu_type |             auth_code             |                path                |                component                | sort_order |    title     | is_visible | module_code 
+--------------------------------------+-----------------------------------+-----------+-----------------------------------+------------------------------------+-----------------------------------------+------------+--------------+------------+-------------
+ 20000000-0000-0000-0000-000000001600 | business:erp:report:payable-aging |         2 | business:erp:report:payable-aging | /business/erp/report/payable-aging | business/erp/report/payable-aging/index |         47 | 应付账龄分析 | t          | business
+(1 row)
+
+== 授权（角色 → 该菜单）
+    role_code     | rows 
+------------------+------
+ FINANCE_DIRECTOR |    1
+ FINANCE_MANAGER  |    1
+ GENERAL_MANAGER  |    1
+ SUPER_ADMIN      |    1
+(4 rows)
+
+== 迁移记账（V0255 已应用）
+       name        | version | success | applied_via |                       source                        
+-------------------+---------+---------+-------------+-----------------------------------------------------
+ erp_payable_aging | 255     | t       | executed    | migrations/business/V0255__erp_payable_aging.up.sql
+(1 row)
+
