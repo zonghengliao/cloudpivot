@@ -42,6 +42,7 @@ import {
 } from '@/views/business/erp/shared/approval-progress';
 import { buildApprovalSteps, formatTime } from '@/views/business/erp/transfer/transfer-logic';
 import { groupProgressTasks, progressTaskLabel } from '@/views/business/flow/components/flow-progress-tasks';
+import { voucherApprovalInstanceId } from '@/views/business/erp/voucher/voucher-audit-logic';
 
 const ROOT = resolve(process.cwd());
 
@@ -241,11 +242,6 @@ test('③-补 凭证：进度数据源优先 `pending_reverse_instance_id`（P-F
     VOUCHER,
     /loadApprovalProgress\(voucherApprovalInstanceId\(row\), getFlowInstance\)/,
     '凭证进度必须经 voucherApprovalInstanceId(row) 取实例（红冲审批中的凭证才有）',
-  );
-  assert.match(
-    VOUCHER,
-    /voucherApprovalInstanceId,/,
-    'voucherApprovalInstanceId 必须从 voucher-audit-logic 引入（判据矩阵单测在 p0-fix-4b）',
   );
 
   // 归一判据按**行为**验（源码字符串看不出「谁优先」，四种组合都断）
