@@ -1,0 +1,101 @@
+### baseline: c947425 fix(erp): 凭证新增弹窗文案改「保存为草稿」——对齐 P0-FIX-4A 三态（t_248c4ea8）
+=== [1/4] linkage ===
+thread 'linkage::stockin_chain::s10_cancel_cancels_payable' (1260589) panicked at tests/linkage/stockin_chain.rs:209:13:
+S10：发起作废审批失败 65018 节点「作废复核」没有任何可用审批人（来源 ROLE 解析出 0 人；该节点配置了 empty_assignee=ERROR，不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「作废复核」」把审批人设为具体角色或人员，并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。（作废复核岗位没有任何人可派：请在「系统管理 → 角色管理 → 仓管主管（WAREHOUSE_MANAGER）→ 成员」绑定至少一名在职的非制单人；或在「审批中心 → 流程定义 → 收货单作废审批 → 作废复核」把审批人改成具体人员。作废会反向回滚六本账，不允许无人复核，也不会自动兜底给管理员）
+
+---- linkage::stockin_chain::s11_cancel_voids_serials stdout ----
+
+thread 'linkage::stockin_chain::s11_cancel_voids_serials' (1261161) panicked at tests/linkage/stockin_chain.rs:209:13:
+S11：发起作废审批失败 65018 节点「作废复核」没有任何可用审批人（来源 ROLE 解析出 0 人；该节点配置了 empty_assignee=ERROR，不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「作废复核」」把审批人设为具体角色或人员，并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。（作废复核岗位没有任何人可派：请在「系统管理 → 角色管理 → 仓管主管（WAREHOUSE_MANAGER）→ 成员」绑定至少一名在职的非制单人；或在「审批中心 → 流程定义 → 收货单作废审批 → 作废复核」把审批人改成具体人员。作废会反向回滚六本账，不允许无人复核，也不会自动兜底给管理员）
+
+---- linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline stdout ----
+
+thread 'linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline' (1263752) panicked at tests/linkage/stockin_chain.rs:209:13:
+S12：发起作废审批失败 65018 节点「作废复核」没有任何可用审批人（来源 ROLE 解析出 0 人；该节点配置了 empty_assignee=ERROR，不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「作废复核」」把审批人设为具体角色或人员，并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。（作废复核岗位没有任何人可派：请在「系统管理 → 角色管理 → 仓管主管（WAREHOUSE_MANAGER）→ 成员」绑定至少一名在职的非制单人；或在「审批中心 → 流程定义 → 收货单作废审批 → 作废复核」把审批人改成具体人员。作废会反向回滚六本账，不允许无人复核，也不会自动兜底给管理员）
+
+---- linkage::stockin_chain::s15_double_cancel_is_conflict stdout ----
+
+thread 'linkage::stockin_chain::s15_double_cancel_is_conflict' (1266156) panicked at tests/linkage/stockin_chain.rs:209:13:
+S15：发起作废审批失败 65018 节点「作废复核」没有任何可用审批人（来源 ROLE 解析出 0 人；该节点配置了 empty_assignee=ERROR，不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「作废复核」」把审批人设为具体角色或人员，并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。（作废复核岗位没有任何人可派：请在「系统管理 → 角色管理 → 仓管主管（WAREHOUSE_MANAGER）→ 成员」绑定至少一名在职的非制单人；或在「审批中心 → 流程定义 → 收货单作废审批 → 作废复核」把审批人改成具体人员。作废会反向回滚六本账，不允许无人复核，也不会自动兜底给管理员）
+
+---- linkage::voucher_chain::v06_balanced_manual_voucher_is_posted stdout ----
+
+thread 'linkage::voucher_chain::v06_balanced_manual_voucher_is_posted' (1285092) panicked at tests/linkage/voucher_chain.rs:457:5:
+assertion `left == right` failed: V06：手工凭证落库即 POSTED
+  left: "DRAFT"
+ right: "POSTED"
+
+
+failures:
+    linkage::stockin_chain::s06_cancel_rolls_back_inventory
+    linkage::stockin_chain::s07_cancel_rolls_back_location_ledger
+    linkage::stockin_chain::s08_cancel_writes_reverse_txn
+    linkage::stockin_chain::s09_cancel_reverses_voucher
+    linkage::stockin_chain::s10_cancel_cancels_payable
+    linkage::stockin_chain::s11_cancel_voids_serials
+    linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline
+    linkage::stockin_chain::s15_double_cancel_is_conflict
+    linkage::voucher_chain::v06_balanced_manual_voucher_is_posted
+
+test result: FAILED. 53 passed; 9 failed; 0 ignored; 0 measured; 0 filtered out; finished in 312.75s
+
+error: test failed, to rerun pass `--test linkage`
+=== [2/4] pflow1a ===
+   Compiling cloudpivot v0.1.0 (/root/t29-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.61s
+     Running tests/pflow1a.rs (/root/t29-target/debug/deps/pflow1a-c66f93582066df3e)
+
+running 12 tests
+test flow_detail_carries_on_complete_verify ... ok
+test flow_detail_carries_on_complete_direct ... ok
+test preview_covers_five_cases ... ok
+test flow_detail_is_null_for_manual_task ... ok
+test flow_detail_approval_is_null_for_direct_node ... ok
+test role_multi_resolution_makes_one_task_with_members ... ok
+test task_node_end_to_end_creates_one_task ... ok
+test flow_detail_carries_approval_progress ... ok
+test task_node_generation_is_idempotent ... ok
+test task_page_filters_by_flow_source ... ok
+test too_long_title_rolls_back_whole_instance ... ok
+test publish_regression_keeps_graph_hash ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 12.44s
+
+=== [3/4] pflow1b ===
+   Compiling cloudpivot v0.1.0 (/root/t29-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.06s
+     Running tests/pflow1b.rs (/root/t29-target/debug/deps/pflow1b-f452d356433f23e7)
+
+running 14 tests
+test approve_mode_full_chain ... ok
+test complete_without_review_advances_flow ... ok
+test approve_mode_reject_follows_on_reject ... ok
+test cancel_task_terminates_instance ... ok
+test concurrent_complete_only_one_advances ... ok
+test conflict_when_instance_already_cancelled ... ok
+test flow_task_outcome_four_branches ... ok
+test plain_task_is_untouched ... ok
+test publish_rejects_missing_approve_biz_type ... ok
+test reject_back_to_prev_reopens_previous ... ok
+test reject_stay_keeps_node_active ... ok
+test review_pass_approves_node ... ok
+test task_accept_approval_advances_node ... ok
+test withdraw_instance_cancels_unfinished_tasks ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 37.48s
+
+=== [4/4] batchT_t1_task ===
+   Compiling cloudpivot v0.1.0 (/root/t29-wt/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 14.91s
+     Running tests/batchT_t1_task.rs (/root/t29-target/debug/deps/batchT_t1_task-fc3baf2a44b2e460)
+
+running 5 tests
+test schema_and_indexes_exist ... ok
+test task_no_is_unique_and_increasing ... ok
+test crud_roundtrip ... ok
+test my_buckets_and_overdue_scan ... ok
+test visibility_four_scenarios ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.46s
+
+DONE_MARKER

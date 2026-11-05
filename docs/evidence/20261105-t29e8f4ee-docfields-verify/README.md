@@ -34,15 +34,15 @@ cargo clippy --lib --tests -- -D warnings   →  CLIPPY_EXIT=0
 Finished `dev` profile [unoptimized + debuginfo] target(s) in 3m 18s
 ```
 
-原文：`t29-clippy.log`（322 行，无 warning / error，尾部即 EXIT=0）。
+原文：`t29-clippy.txt`（322 行，无 warning / error，尾部即 EXIT=0）。
 
 补充更硬的一条：`cargo test --tests --no-run` → `NORUN_EXIT=0`，**20 个集成测试目标全部编出可执行文件**，
-`Finished test profile in 8m 20s`，全日志 `^warning|^error` 命中 0。原文：`t29-norun.log`。
+`Finished test profile in 8m 20s`，全日志 `^warning|^error` 命中 0。原文：`t29-norun.txt`。
 
 ## 三、验收项 ②：四个受影响目标实跑（真库，非 SKIP）
 
 一律真库（`LINKAGE_REQUIRE_DB=1`，其余三个目标已设 `*_DB_URL`；日志里没有 `SKIP:` 行），
-每套一个从同一迁移指纹拷出的隔离库，避免互相污染。原文：`t29-tests.log`。
+每套一个从同一迁移指纹拷出的隔离库，避免互相污染。原文：`t29-tests.txt`。
 
 | 目标 | 结果 | 说明 |
 |---|---|---|
@@ -116,13 +116,13 @@ TASK_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_test_t29_task' cargo 
 
 | 文件 | 内容 |
 |---|---|
-| `t29-clippy.log` | `cargo clippy --lib --tests -- -D warnings` 全文（尾部 `CLIPPY_EXIT=0`） |
-| `t29-norun.log` | `cargo test --tests --no-run` 全文（20 个 Executable，`NORUN_EXIT=0`） |
-| `t29-tests.log` | 四个目标实跑全文（linkage / pflow1a / pflow1b / batchT_t1_task） |
-| `t29base-build.log` | 反证用 `a802403` 的 `cargo build --bin cloudpivot` + linkage 目标编译 |
-| `t29base-db.log` | 反证库 `cloudpivot_test_t29baselink` 的建库指纹（max=249 / 189 行 / 超管 1 人） |
-| `t29base-stockin.log` | 反证：`stockin_chain` 16 passed / 0 failed |
-| `t29base-v06.log` | 反证：`v06_balanced_manual_voucher_is_posted` 1 passed / 0 failed |
+| `t29-clippy.txt` | `cargo clippy --lib --tests -- -D warnings` 全文（尾部 `CLIPPY_EXIT=0`） |
+| `t29-norun.txt` | `cargo test --tests --no-run` 全文（20 个 Executable，`NORUN_EXIT=0`） |
+| `t29-tests.txt` | 四个目标实跑全文（linkage / pflow1a / pflow1b / batchT_t1_task） |
+| `t29base-build.txt` | 反证用 `a802403` 的 `cargo build --bin cloudpivot` + linkage 目标编译 |
+| `t29base-db.txt` | 反证库 `cloudpivot_test_t29baselink` 的建库指纹（max=249 / 189 行 / 超管 1 人） |
+| `t29base-stockin.txt` | 反证：`stockin_chain` 16 passed / 0 failed |
+| `t29base-v06.txt` | 反证：`v06_balanced_manual_voucher_is_posted` 1 passed / 0 failed |
 
 ## 七、口径说明（别被数字骗了）
 

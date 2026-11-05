@@ -1,0 +1,24 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running tests/linkage.rs (/root/t29-target/debug/deps/linkage-b6ef85419c0c306d)
+
+running 16 tests
+test linkage::stockin_chain::s01_post_writes_all_six_ledgers ... ok
+test linkage::stockin_chain::s02_voucher_is_balanced_with_expected_accounts ... ok
+test linkage::stockin_chain::s03_payable_amount_equals_stock_in_total ... ok
+test linkage::stockin_chain::s04_post_creates_serials_for_serial_material ... ok
+test linkage::stockin_chain::s05_invariant_b1_location_equals_cost ... ok
+test linkage::stockin_chain::s06_cancel_rolls_back_inventory ... ok
+test linkage::stockin_chain::s07_cancel_rolls_back_location_ledger ... ok
+test linkage::stockin_chain::s08_cancel_writes_reverse_txn ... ok
+test linkage::stockin_chain::s09_cancel_reverses_voucher ... ok
+test linkage::stockin_chain::s10_cancel_cancels_payable ... ok
+test linkage::stockin_chain::s11_cancel_voids_serials ... ok
+test linkage::stockin_chain::s12_cancel_returns_all_four_ledgers_to_baseline ... ok
+test linkage::stockin_chain::s13_cancel_without_reason_is_bad_request ... ok
+test linkage::stockin_chain::s14_cancel_after_shipping_is_conflict ... ok
+test linkage::stockin_chain::s15_double_cancel_is_conflict ... ok
+test linkage::stockin_chain::s16_failed_cancel_rolls_back_everything ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 46 filtered out; finished in 88.45s
+
+STOCKIN_EXIT=0
