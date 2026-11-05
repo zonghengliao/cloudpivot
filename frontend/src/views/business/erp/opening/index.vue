@@ -368,6 +368,7 @@ import {
   OPENING_PERMISSIONS,
   balanceOf,
   canSave,
+  defaultOpeningPeriod,
   effectiveEntries,
   inventoryVoucherHint,
   moneyText,
@@ -540,8 +541,10 @@ async function loadPeriods() {
       label: `${row.period_code}（${row.status === 'CLOSED' ? '已结账' : row.status === 'OPEN' ? '已开启' : '未开启'}）`,
     }));
     if (!periodModel.value) {
-      const open = list.find((row) => row.status === 'OPEN') ?? list[0];
-      periodModel.value = open?.period_code ?? '';
+      // 默认期间：当前月（北京时间）优先，其次最早 OPEN，最后兜底最新一条。
+      // 老写法 `list.find(status==='OPEN')` 会落在**最新**已开期间（如 12 月空表），
+      // 用户会以为「期初数据丢了」——判据与兜底顺序见 `defaultOpeningPeriod`。
+      periodModel.value = defaultOpeningPeriod(list);
     }
   } catch (error) {
     loadError.value = errorText(error, '加载会计期间失败');

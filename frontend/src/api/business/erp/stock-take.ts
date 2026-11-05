@@ -115,8 +115,18 @@ export interface StockTakeRow {
   total_diff_amount: string;
   /** 盘点差异凭证（未过账 / 零差异为 `null`） */
   voucher_id: string | null;
+  /**
+   * 盘点差异凭证号（`PZ-yyyyMMdd-000001`，与 `voucher_id` 成对）。
+   *
+   * 后端在 handler 层回查 `biz_voucher` 回填：**只有 id 时前端只能显示 UUID 截断**
+   * （`9256f0e…`），财务拿它去凭证列表按 `voucher_no` 检索核不了账。
+   * 凭证被软删 / 查不到时为 `null` —— 此时不要拿半截 UUID 冒充凭证号。
+   */
+  voucher_no: string | null;
   /** 作废时的红字凭证（未作废 / 未过账为 `null`） */
   reverse_voucher_id: string | null;
+  /** 红冲凭证号（`PZR-yyyyMMdd-000001`，与 `reverse_voucher_id` 成对，口径同上） */
+  reverse_voucher_no: string | null;
   /** 提交审批的实例 id（草稿为 `null`） */
   approval_instance_id: string | null;
   /** 备注（盘点范围 / 组织说明） */

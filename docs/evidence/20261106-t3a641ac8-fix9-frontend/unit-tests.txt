@@ -1,0 +1,299 @@
+TAP version 13
+# Subtest: 三个权限码与 V0189 的 sys_menu 节点逐字一致
+ok 1 - 三个权限码与 V0189 的 sys_menu 节点逐字一致
+  ---
+  duration_ms: 0.71484
+  type: 'test'
+  ...
+# Subtest: 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+ok 2 - 金额解析：字符串 / 数字都能量，非法一律 0（不抛错）
+  ---
+  duration_ms: 0.104465
+  type: 'test'
+  ...
+# Subtest: 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+ok 3 - 合计必须是数值相加，不是字符串拼接（Decimal 回来是 "50000.0000"）
+  ---
+  duration_ms: 21.844885
+  type: 'test'
+  ...
+# Subtest: 借贷平衡判定：差额保留两位，浮点噪声不算不平
+ok 4 - 借贷平衡判定：差额保留两位，浮点噪声不算不平
+  ---
+  duration_ms: 0.870975
+  type: 'test'
+  ...
+# Subtest: 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+ok 5 - 期初状态 → 中文与配色（NONE 未录 / ENTERED 已录 / LOCKED 已锁定）
+  ---
+  duration_ms: 0.116425
+  type: 'test'
+  ...
+# Subtest: 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+ok 6 - 结账后整页只读 + 顶部文案点名期间；未开账也不能录
+  ---
+  duration_ms: 0.205472
+  type: 'test'
+  ...
+# Subtest: 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+ok 7 - 保存按钮：无权限 / 不平衡 / 只读 三种情况都不许点
+  ---
+  duration_ms: 0.208681
+  type: 'test'
+  ...
+# Subtest: 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+ok 8 - 行级校验：空科目 / 负数 / 借贷同填 都要报出来
+  ---
+  duration_ms: 0.164011
+  type: 'test'
+  ...
+# Subtest: 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+ok 9 - 两列都为 0 的空行不参与提交（后端也会直接丢掉）
+  ---
+  duration_ms: 0.341064
+  type: 'test'
+  ...
+# Subtest: 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+ok 10 - 期初凭证摘要：没有凭证时说清楚，有凭证时报号 + 日期 + 分录数
+  ---
+  duration_ms: 0.512451
+  type: 'test'
+  ...
+# Subtest: 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+ok 11 - 库存期初提示：金额为 0 时不打扰，非 0 时说明会自动生成 1405 / 3103 两行
+  ---
+  duration_ms: 0.208347
+  type: 'test'
+  ...
+# Subtest: 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+ok 12 - 默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）
+  ---
+  duration_ms: 0.853057
+  type: 'test'
+  ...
+# Subtest: 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+ok 13 - 默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）
+  ---
+  duration_ms: 0.095673
+  type: 'test'
+  ...
+# Subtest: 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+ok 14 - 默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）
+  ---
+  duration_ms: 0.070005
+  type: 'test'
+  ...
+# Subtest: 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+ok 15 - 默认期间：输入顺序打乱也落同一期间（不依赖后端排序）
+  ---
+  duration_ms: 0.075838
+  type: 'test'
+  ...
+# Subtest: 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+ok 16 - 默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）
+  ---
+  duration_ms: 0.069671
+  type: 'test'
+  ...
+# Subtest: 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+ok 17 - 盘点类型两值与中文名逐字对齐后端 TAKE_TYPES
+  ---
+  duration_ms: 1.510768
+  type: 'test'
+  ...
+# Subtest: 状态四值的译名与标签主题
+ok 18 - 状态四值的译名与标签主题
+  ---
+  duration_ms: 0.161803
+  type: 'test'
+  ...
+# Subtest: 空表单默认全盘 + 今天（CST）+ 无范围行
+ok 19 - 空表单默认全盘 + 今天（CST）+ 无范围行
+  ---
+  duration_ms: 0.470656
+  type: 'test'
+  ...
+# Subtest: 全盘不填范围也能通过校验（范围由服务端快照）
+ok 20 - 全盘不填范围也能通过校验（范围由服务端快照）
+  ---
+  duration_ms: 0.198139
+  type: 'test'
+  ...
+# Subtest: 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+ok 21 - 全盘带 items 必须报错（后端对 FULL + items 直接 400）
+  ---
+  duration_ms: 0.18047
+  type: 'test'
+  ...
+# Subtest: 抽盘没有范围行必须报错
+ok 22 - 抽盘没有范围行必须报错
+  ---
+  duration_ms: 0.709006
+  type: 'test'
+  ...
+# Subtest: 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+ok 23 - 抽盘同一物料同一库位重复 → 报错（否则过账双倍调平）
+  ---
+  duration_ms: 0.226557
+  type: 'test'
+  ...
+# Subtest: 抽盘两个库位桶各一行是合法的（不算重复）
+ok 24 - 抽盘两个库位桶各一行是合法的（不算重复）
+  ---
+  duration_ms: 0.076796
+  type: 'test'
+  ...
+# Subtest: 仓库 / 日期必填
+ok 25 - 仓库 / 日期必填
+  ---
+  duration_ms: 0.497784
+  type: 'test'
+  ...
+# Subtest: 备注超 500 字报错（后端 MAX_REMARK_LEN）
+ok 26 - 备注超 500 字报错（后端 MAX_REMARK_LEN）
+  ---
+  duration_ms: 0.374817
+  type: 'test'
+  ...
+# Subtest: 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+ok 27 - 建单请求体：全盘 items 为空数组，抽盘只带 material_id / location_id
+  ---
+  duration_ms: 0.203972
+  type: 'test'
+  ...
+# Subtest: 详情 → 实盘数编辑态：默认回显后端给的实盘数
+ok 28 - 详情 → 实盘数编辑态：默认回显后端给的实盘数
+  ---
+  duration_ms: 0.17372
+  type: 'test'
+  ...
+# Subtest: 实盘数：空 / 非数字 / 负数都拦，0 合法
+ok 29 - 实盘数：空 / 非数字 / 负数都拦，0 合法
+  ---
+  duration_ms: 0.167011
+  type: 'test'
+  ...
+# Subtest: 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+ok 30 - 改单请求体：lines 用 item_id + actual_qty，日期与备注原样带
+  ---
+  duration_ms: 0.115008
+  type: 'test'
+  ...
+# Subtest: 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+ok 31 - 草稿态只出「提交审批 / 作废」两个按钮 —— 盘点没有「直接过账」
+  ---
+  duration_ms: 0.119633
+  type: 'test'
+  ...
+# Subtest: 待过账态出「过账 / 撤回 / 作废」三个按钮
+ok 32 - 待过账态出「过账 / 撤回 / 作废」三个按钮
+  ---
+  duration_ms: 0.066463
+  type: 'test'
+  ...
+# Subtest: 已过账态只剩作废（且必须写原因）
+ok 33 - 已过账态只剩作废（且必须写原因）
+  ---
+  duration_ms: 0.062337
+  type: 'test'
+  ...
+# Subtest: 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+ok 34 - 未知目标状态一律丢弃（不让页面渲出点不了 / 看不懂的按钮）
+  ---
+  duration_ms: 0.063921
+  type: 'test'
+  ...
+# Subtest: 只有草稿能改 / 能删
+ok 35 - 只有草稿能改 / 能删
+  ---
+  duration_ms: 0.072422
+  type: 'test'
+  ...
+# Subtest: 作废原因必填；已过账的报文要点名红字凭证
+ok 36 - 作废原因必填；已过账的报文要点名红字凭证
+  ---
+  duration_ms: 0.144093
+  type: 'test'
+  ...
+# Subtest: 66033 才算「没配已发布审批流程」
+ok 37 - 66033 才算「没配已发布审批流程」
+  ---
+  duration_ms: 0.074505
+  type: 'test'
+  ...
+# Subtest: 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+ok 38 - 跳过审批理由 ≥ 10 字，请求体带 skip_approval + skip_reason
+  ---
+  duration_ms: 0.087881
+  type: 'test'
+  ...
+# Subtest: 筛选 → 查询参数（空串一律不发）
+ok 39 - 筛选 → 查询参数（空串一律不发）
+  ---
+  duration_ms: 0.108674
+  type: 'test'
+  ...
+# Subtest: 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+ok 40 - 差异方向与符号：正数盘盈带 +，负数盘亏带 -，0 无符号
+  ---
+  duration_ms: 0.078881
+  type: 'test'
+  ...
+# Subtest: 状态历史只为真实发生过的里程碑打点
+ok 41 - 状态历史只为真实发生过的里程碑打点
+  ---
+  duration_ms: 0.116758
+  type: 'test'
+  ...
+# Subtest: 错误文案原样带上后端报文与错误码
+ok 42 - 错误文案原样带上后端报文与错误码
+  ---
+  duration_ms: 0.076088
+  type: 'test'
+  ...
+# Subtest: aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+ok 43 - aggregateDiff：按明细 diff_qty 汇总盘盈 / 盘亏数量
+  ---
+  duration_ms: 0.101049
+  type: 'test'
+  ...
+# Subtest: gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+ok 44 - gainLossDisplay：草稿按明细汇总（标 fromBackend=false），已过账用后端合计
+  ---
+  duration_ms: 0.090006
+  type: 'test'
+  ...
+# Subtest: V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+ok 45 - V0211 的菜单 path 已在 router/index.ts 注册（n08 的前端侧镜像）
+  ---
+  duration_ms: 0.399318
+  type: 'test'
+  ...
+# Subtest: 菜单 component 指向的视图文件真的存在
+ok 46 - 菜单 component 指向的视图文件真的存在
+  ---
+  duration_ms: 0.274602
+  type: 'test'
+  ...
+# Subtest: 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+ok 47 - 详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替
+  ---
+  duration_ms: 0.224598
+  type: 'test'
+  ...
+# Subtest: 详情契约：单头扁平 + items + next_statuses
+ok 48 - 详情契约：单头扁平 + items + next_statuses
+  ---
+  duration_ms: 0.074338
+  type: 'test'
+  ...
+1..48
+# tests 48
+# suites 0
+# pass 48
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 151.444764
+UNIT EXIT=0

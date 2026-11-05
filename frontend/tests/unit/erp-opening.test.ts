@@ -20,6 +20,7 @@ import {
   OPENING_PERMISSIONS,
   balanceOf,
   canSave,
+  defaultOpeningPeriod,
   effectiveEntries,
   inventoryVoucherHint,
   moneyText,
@@ -176,4 +177,66 @@ test('库存期初提示：金额为 0 时不打扰，非 0 时说明会自动�
   assert.match(String(hint), /借 1405/);
   assert.match(String(hint), /贷 3103/);
   assert.match(String(hint), /1,000\.00/);
+});
+
+// ==================== F3：首次进入的默认期间（P1-FIX-9 衍生） ====================
+
+/**
+ * 期间行的顺序照后端 `period_page` 来：`ORDER BY period_code DESC`（最新在前）。
+ * 「现在」取北京时间 2026-11-06 10:00 —— 与卡面实测时刻一致。
+ */
+const NOW = new Date('2026-11-06T02:00:00.000Z');
+
+/** 2026 全年 OPEN（干净库 V0221 一次性开 12 期）⇒ 老代码会落到 2026-12 */
+const allOpen2026 = Array.from({ length: 12 }, (_, index) => ({
+  period_code: `2026-${String(index + 1).padStart(2, '0')}`,
+  status: 'OPEN',
+})).reverse();
+
+test('默认期间：当前月存在且 OPEN 时落当前月（不是最新的 2026-12）', () => {
+  assert.equal(defaultOpeningPeriod(allOpen2026, NOW), '2026-11');
+  // 回归断言：老写法（第一个 OPEN）在同一份数据上给出 2026-12 —— 这就是卡面 F3 的缺陷
+  const legacy = allOpen2026.find((row) => row.status === 'OPEN');
+  assert.equal(legacy?.period_code, '2026-12');
+});
+
+test('默认期间：当前月未开账时落最早的 OPEN 期间（倒序列表的最后一个）', () => {
+  const rows = [
+    { period_code: '2026-12', status: 'OPEN' },
+    { period_code: '2026-11', status: 'OPEN' },
+    { period_code: '2026-10', status: 'OPEN' },
+    { period_code: '2026-09', status: 'CLOSED' },
+  ];
+  const nowDec = new Date('2026-12-02T02:00:00.000Z');
+  assert.equal(defaultOpeningPeriod(rows, nowDec), '2026-12'); // 当前月存在 ⇒ 用它
+  // 当前月是 2027-01（清单里没有）⇒ 最早 OPEN = 2026-10
+  assert.equal(defaultOpeningPeriod(rows, new Date('2027-01-02T02:00:00.000Z')), '2026-10');
+});
+
+test('默认期间：没有 OPEN 时兜底最新一条，空清单返回空串（不抛错）', () => {
+  const closed = [
+    { period_code: '2026-12', status: 'CLOSED' },
+    { period_code: '2026-11', status: 'CLOSED' },
+  ];
+  assert.equal(defaultOpeningPeriod(closed, NOW), '2026-12');
+  assert.equal(defaultOpeningPeriod([], NOW), '');
+});
+
+test('默认期间：输入顺序打乱也落同一期间（不依赖后端排序）', () => {
+  const shuffled = [
+    { period_code: '2026-03', status: 'OPEN' },
+    { period_code: '2026-11', status: 'OPEN' },
+    { period_code: '2026-07', status: 'OPEN' },
+  ];
+  assert.equal(defaultOpeningPeriod(shuffled, NOW), '2026-11');
+  assert.equal(
+    defaultOpeningPeriod([...shuffled].reverse(), new Date('2027-02-02T02:00:00.000Z')),
+    '2026-03',
+  );
+});
+
+test('默认期间：月边界按北京时间取月（UTC 还是上个月时不能落错期间）', () => {
+  // 2026-11-01 00:30 北京时间 = 2026-10-31 16:30 UTC
+  const earlyNov = new Date('2026-10-31T16:30:00.000Z');
+  assert.equal(defaultOpeningPeriod(allOpen2026, earlyNov), '2026-11');
 });

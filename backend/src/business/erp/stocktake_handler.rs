@@ -1071,6 +1071,41 @@ async fn cancel_tx(
 
 // ==================== 详情 / 分页 ====================
 
+/// 给单头（列表 / 详情都走它）回填凭证号 `PZ-…` / `PZR-…`。
+///
+/// 为什么不在 `StockTakeRes::of` 里查：那是个纯函数（单测用假行直接调），带 IO 会让
+/// 断言全得挂库。凭证号是**展示字段**，只在这一层补，序列化出来和 `voucher_id` 成对。
+async fn fill_voucher_nos(res: &mut [StockTakeRes]) -> std::result::Result<(), ApiError> {
+    let mut ids: Vec<Uuid> = Vec::with_capacity(res.len() * 2);
+    for row in res.iter() {
+        for raw in [row.voucher_id.as_deref(), row.reverse_voucher_id.as_deref()]
+            .into_iter()
+            .flatten()
+        {
+            if let Ok(id) = Uuid::parse_str(raw) {
+                ids.push(id);
+            }
+        }
+    }
+    ids.sort_unstable();
+    ids.dedup();
+    if ids.is_empty() {
+        return Ok(());
+    }
+    let map = model::voucher_no_map(db(), &ids)
+        .await
+        .map_err(|error| utils::db_error(error, "查询盘点凭证号"))?;
+    let lookup = |raw: Option<&str>| -> Option<String> {
+        raw.and_then(|text| Uuid::parse_str(text).ok())
+            .and_then(|id| map.get(&id).cloned())
+    };
+    for row in res.iter_mut() {
+        row.voucher_no = lookup(row.voucher_id.as_deref());
+        row.reverse_voucher_no = lookup(row.reverse_voucher_id.as_deref());
+    }
+    Ok(())
+}
+
 /// 详情核心（HTTP 与单测共用）。
 pub async fn detail_of(id: Uuid) -> std::result::Result<StockTakeDetailRes, ApiError> {
     let row = model::find(db(), id)
@@ -1088,7 +1123,9 @@ pub async fn detail_of(id: Uuid) -> std::result::Result<StockTakeDetailRes, ApiE
         pairs.push((item, material));
     }
     let edges = state_machine::effective_edges(db(), state_machine::Entity::StockTake).await;
-    Ok(StockTakeDetailRes::of(&row, &pairs, &edges))
+    let mut detail = StockTakeDetailRes::of(&row, &pairs, &edges);
+    fill_voucher_nos(std::slice::from_mut(&mut detail.header)).await?;
+    Ok(detail)
 }
 
 /// 分页核心。
@@ -1097,8 +1134,10 @@ pub async fn page_of(q: &StockTakePageQuery) -> std::result::Result<StockTakePag
     let (rows, total) = model::page(&filter)
         .await
         .map_err(|error| utils::db_error(error, "查询盘点单列表"))?;
+    let mut list: Vec<StockTakeRes> = rows.iter().map(StockTakeRes::of).collect();
+    fill_voucher_nos(&mut list).await?;
     Ok(StockTakePageRes {
-        list: rows.iter().map(StockTakeRes::of).collect(),
+        list,
         total,
         page: filter.page,
         page_size: filter.page_size,

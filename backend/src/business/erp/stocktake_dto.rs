@@ -410,8 +410,16 @@ pub struct StockTakeRes {
     pub total_diff_amount: String,
     /// 盘点差异凭证（未过账 / 零差异为 null）。
     pub voucher_id: Option<String>,
+    /// 差异凭证号（`biz_voucher.voucher_no`，如 `PZ-20261106-000002`）。
+    ///
+    /// 只有 `voucher_id` 的话前端只能显示 UUID 截断（`9256f0e…`），财务拿它
+    /// **去凭证列表核不了账**（列表按 `voucher_no` 检索）。`StockTakeRes::of` 是纯
+    /// 函数、拿不到库，所以这里默认 `None`，由 handler 回填（见 `fill_voucher_nos`）。
+    pub voucher_no: Option<String>,
     /// 红字凭证。
     pub reverse_voucher_id: Option<String>,
+    /// 红冲凭证号（作废后才有值，如 `PZR-20261106-000003`）。
+    pub reverse_voucher_no: Option<String>,
     /// 提交审批的实例 id。
     pub approval_instance_id: Option<String>,
     /// 备注。
@@ -442,7 +450,10 @@ impl StockTakeRes {
             total_loss_amount: row.total_loss_amount.round_dp(4).to_string(),
             total_diff_amount: row.total_diff_amount().to_string(),
             voucher_id: row.voucher_id.map(|id| id.to_string()),
+            // 凭证号要查 `biz_voucher`，纯函数补不了 —— 由 handler 的 `fill_voucher_nos` 回填。
+            voucher_no: None,
             reverse_voucher_id: row.reverse_voucher_id.map(|id| id.to_string()),
+            reverse_voucher_no: None,
             approval_instance_id: row.approval_instance_id.map(|id| id.to_string()),
             remark: row.remark.clone(),
             created_at: row.created_at.to_rfc3339(),

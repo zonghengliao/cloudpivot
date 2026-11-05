@@ -1,0 +1,190 @@
+
+### 登录
+{
+  "ok": true,
+  "url": "http://127.0.0.1:15191/dashboard"
+}
+
+### 截图 01-opening-default-period
+/root/fix9b-run/shots/round1/01-opening-default-period.png
+
+### 期初页首次进入
+{
+  "picked": {
+    "txt": "2026-11（已开启）",
+    "inputVal": "2026-11（已开启）"
+  },
+  "openingTotalDebit": "5,000.00",
+  "stateTag": "期间 OPEN"
+}
+
+### [PASS] 期初页首次进入默认期间 = 当前月 2026-11（不是最新的 2026-12）
+{
+  "txt": "2026-11（已开启）",
+  "inputVal": "2026-11（已开启）"
+}
+
+### [PASS] 默认期间落在有数据的那一期（合计借方非 0.00，用户不会以为「期初丢了」）
+{
+  "openingTotalDebit": "5,000.00"
+}
+
+### 截图 02-opening-period-2026-12-old-default
+/root/fix9b-run/shots/round1/02-opening-period-2026-12-old-default.png
+
+### 手动切到 2026-12（老逻辑的默认落点）
+{
+  "decPicked": {
+    "txt": "2026-12（已开启）",
+    "inputVal": "2026-12（已开启）"
+  },
+  "decTotalDebit": "0.00",
+  "decState": "期间 OPEN"
+}
+
+### [PASS] 对照：2026-12 是 OPEN 但全空（0.00 / 未录）—— 这就是老默认让人以为数据丢了的原因
+{
+  "decTotalDebit": "0.00",
+  "decState": "期间 OPEN"
+}
+
+### [PASS] 重新进入期初页仍默认当前月（不残留 2026-12）
+{
+  "txt": "2026-11（已开启）",
+  "inputVal": "2026-11（已开启）"
+}
+
+### 截图 03-stocktake-list
+/root/fix9b-run/shots/round1/03-stocktake-list.png
+
+### 盘点列表
+{
+  "count": 6,
+  "takeNo": "ST-20261106-000008"
+}
+
+### [PASS] 盘点列表有已过账/已作废的单
+{
+  "takeNo": "ST-20261106-000008"
+}
+
+### 截图 04-stocktake-detail-vouchers
+/root/fix9b-run/shots/round1/04-stocktake-detail-vouchers.png
+
+### 盘点详情
+{
+  "detailNo": "ST-20261106-000008",
+  "status": "已作废",
+  "voucherText": "PZ-20261106-000007",
+  "reverseText": "PZR-20261106-000006"
+}
+
+### [PASS] 差异凭证显示凭证号 PZ-yyyyMMdd-nnnnnn
+{
+  "voucherText": "PZ-20261106-000007"
+}
+
+### [PASS] 红冲凭证显示凭证号 PZR-yyyyMMdd-nnnnnn（不是只修一半）
+{
+  "reverseText": "PZR-20261106-000006"
+}
+
+### [PASS] 不再显示 UUID 截断（8 位十六进制 + …）
+{
+  "voucherText": "PZ-20261106-000007",
+  "reverseText": "PZR-20261106-000006"
+}
+
+### 截图 05-voucher-list-from-stocktake
+/root/fix9b-run/shots/round1/05-voucher-list-from-stocktake.png
+
+### 点差异凭证跳转
+{
+  "url": "http://127.0.0.1:15191/business/erp/voucher",
+  "filterNo": "PZ-20261106-000007",
+  "meta": "共 1 条",
+  "row": "记 PZ-20261106-000007"
+}
+
+### [PASS] 点差异凭证号 → 凭证列表筛选框预填该号、列表只命中这一张（可核账）
+{
+  "url": "http://127.0.0.1:15191/business/erp/voucher",
+  "filterNo": "PZ-20261106-000007",
+  "meta": "共 1 条",
+  "row": "记 PZ-20261106-000007"
+}
+
+### 截图 06-voucher-list-from-stocktake-reverse
+/root/fix9b-run/shots/round1/06-voucher-list-from-stocktake-reverse.png
+
+### 点红冲凭证跳转
+{
+  "url": "http://127.0.0.1:15191/business/erp/voucher",
+  "filterNo": "PZR-20261106-000006",
+  "row": "记 PZR-20261106-000006"
+}
+
+### [PASS] 点红冲凭证号同样 → 凭证列表预填该号并命中该红字凭证
+{
+  "url": "http://127.0.0.1:15191/business/erp/voucher",
+  "filterNo": "PZR-20261106-000006",
+  "row": "记 PZR-20261106-000006"
+}
+
+### 页面 token 探测
+{
+  "tokenPresent": false,
+  "takeNo_": "ST-20261106-000008"
+}
+
+### ===== 本轮结论 =====
+{
+  "round": "round1",
+  "total": 10,
+  "pass": 10,
+  "fails": []
+}
+
+## VERDICT
+[
+  {
+    "name": "期初页首次进入默认期间 = 当前月 2026-11（不是最新的 2026-12）",
+    "pass": true
+  },
+  {
+    "name": "默认期间落在有数据的那一期（合计借方非 0.00，用户不会以为「期初丢了」）",
+    "pass": true
+  },
+  {
+    "name": "对照：2026-12 是 OPEN 但全空（0.00 / 未录）—— 这就是老默认让人以为数据丢了的原因",
+    "pass": true
+  },
+  {
+    "name": "重新进入期初页仍默认当前月（不残留 2026-12）",
+    "pass": true
+  },
+  {
+    "name": "盘点列表有已过账/已作废的单",
+    "pass": true
+  },
+  {
+    "name": "差异凭证显示凭证号 PZ-yyyyMMdd-nnnnnn",
+    "pass": true
+  },
+  {
+    "name": "红冲凭证显示凭证号 PZR-yyyyMMdd-nnnnnn（不是只修一半）",
+    "pass": true
+  },
+  {
+    "name": "不再显示 UUID 截断（8 位十六进制 + …）",
+    "pass": true
+  },
+  {
+    "name": "点差异凭证号 → 凭证列表筛选框预填该号、列表只命中这一张（可核账）",
+    "pass": true
+  },
+  {
+    "name": "点红冲凭证号同样 → 凭证列表预填该号并命中该红字凭证",
+    "pass": true
+  }
+]

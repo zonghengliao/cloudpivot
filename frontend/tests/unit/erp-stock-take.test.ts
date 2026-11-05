@@ -480,6 +480,30 @@ test('菜单 component 指向的视图文件真的存在', () => {
   assert.match(source, /api\/business\/erp\/stock-take/, '页面必须走盘点单 API 层');
 });
 
+test('详情「差异凭证 / 红冲凭证」必须显示凭证号（PZ-… / PZR-…），不许拿 UUID 截断顶替', () => {
+  const view = resolve(frontendRoot, 'src/views/business/erp/stock-take/index.vue');
+  const source = readFileSync(view, 'utf-8');
+  // 差异凭证块：主值必须是 voucher_no，点击跳凭证列表核账（凭证列表按 voucher_no 检索）
+  const voucherBlock = source.slice(
+    source.indexOf('data-testid="stocktake-detail-voucher"') - 400,
+    source.indexOf('data-testid="stocktake-detail-voucher"') + 900,
+  );
+  assert.match(voucherBlock, /detail\.voucher_no/, '差异凭证必须渲染 voucher_no');
+  assert.ok(
+    !/detail\.voucher_id \? shortId\(detail\.voucher_id\)/.test(source),
+    '不能再把 shortId(voucher_id)（UUID 截断）当凭证号显示',
+  );
+  // 红冲凭证一并处理（作废后才有，别只修一半）
+  const reverseBlock = source.slice(
+    source.indexOf('data-testid="stocktake-detail-reverse-voucher"') - 400,
+    source.indexOf('data-testid="stocktake-detail-reverse-voucher"') + 900,
+  );
+  assert.match(reverseBlock, /detail\.reverse_voucher_no/, '红冲凭证必须渲染 reverse_voucher_no');
+  // 点号跳转：凭证页支持 ?voucher_no= 深链预填筛选
+  assert.match(source, /\/business\/erp\/voucher/, '凭证号应可跳凭证列表核账');
+  assert.match(source, /voucher_no: voucherNo/, '跳转必须带 voucher_no 过滤参数');
+});
+
 /** 让 TS 认为 StockTakeDetail 被用过（详情形状在类型层面校验） */
 test('详情契约：单头扁平 + items + next_statuses', () => {
   const detail: Pick<StockTakeDetail, 'items' | 'next_statuses'> = {

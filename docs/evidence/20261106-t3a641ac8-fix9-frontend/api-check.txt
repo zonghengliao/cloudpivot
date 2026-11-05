@@ -1,0 +1,18 @@
+login ok, token len = 461
+total = 6
+ST-20261106-000008 CANCELLED voucher_id= 92657806 voucher_no= PZ-20261106-000007 reverse_voucher_no= PZR-20261106-000006
+ST-20261106-000007 CANCELLED voucher_id= 5aba6eaa voucher_no= PZ-20261106-000006 reverse_voucher_no= PZR-20261106-000005
+ST-20261106-000006 CANCELLED voucher_id= c8d29e13 voucher_no= PZ-20261106-000005 reverse_voucher_no= PZR-20261106-000004
+ST-20261106-000003 CANCELLED voucher_id= be7f457a voucher_no= PZ-20261106-000004 reverse_voucher_no= PZR-20261106-000003
+ST-20261106-000002 CANCELLED voucher_id= cf57cbbe voucher_no= PZ-20261106-000003 reverse_voucher_no= PZR-20261106-000002
+ST-20261106-000001 CANCELLED voucher_id= bee60b30 voucher_no= PZ-20261106-000002 reverse_voucher_no= PZR-20261106-000001
+detail ST-20261106-000008 voucher_no= PZ-20261106-000007 reverse_voucher_no= PZR-20261106-000006
+voucher_no PZ-20261106-000007 → 凭证列表命中: True total= 1
+voucher_no PZ-20261106-000006 → 凭证列表命中: True total= 1
+voucher_no PZ-20261106-000005 → 凭证列表命中: True total= 1
+voucher_no PZ-20261106-000004 → 凭证列表命中: True total= 1
+voucher_no PZ-20261106-000003 → 凭证列表命中: True total= 1
+voucher_no PZ-20261106-000002 → 凭证列表命中: True total= 1
+
+FAILS: 无
+API EXIT=0

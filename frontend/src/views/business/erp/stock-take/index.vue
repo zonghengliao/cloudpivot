@@ -430,7 +430,34 @@
           <div class="detail-field">
             <span class="detail-field__label">差异凭证</span>
             <span class="detail-field__value mono" data-testid="stocktake-detail-voucher">
-              {{ detail.voucher_id ? shortId(detail.voucher_id) : '—（未过账 / 零差异无凭证）' }}
+              <t-link
+                v-if="detail.voucher_no"
+                theme="primary"
+                :data-testid="`stocktake-voucher-link-${detail.voucher_no}`"
+                @click.stop="openVoucher(detail.voucher_no)"
+              >
+                {{ detail.voucher_no }}
+              </t-link>
+              <span v-else-if="detail.voucher_id" class="muted" data-testid="stocktake-detail-voucher-missing">
+                {{ `凭证 id ${shortId(detail.voucher_id)}（凭证号查不到，可能已删除）` }}
+              </span>
+              <span v-else class="muted">—（未过账 / 零差异无凭证）</span>
+            </span>
+          </div>
+          <div v-if="detail.reverse_voucher_id" class="detail-field">
+            <span class="detail-field__label">红冲凭证</span>
+            <span class="detail-field__value mono" data-testid="stocktake-detail-reverse-voucher">
+              <t-link
+                v-if="detail.reverse_voucher_no"
+                theme="primary"
+                :data-testid="`stocktake-reverse-voucher-link-${detail.reverse_voucher_no}`"
+                @click.stop="openVoucher(detail.reverse_voucher_no)"
+              >
+                {{ detail.reverse_voucher_no }}
+              </t-link>
+              <span v-else class="muted" data-testid="stocktake-detail-reverse-voucher-missing">
+                {{ `凭证 id ${shortId(detail.reverse_voucher_id)}（凭证号查不到，可能已删除）` }}
+              </span>
             </span>
           </div>
           <div class="detail-field">
@@ -639,6 +666,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import { DialogPlugin, MessagePlugin, type PrimaryTableCol } from 'tdesign-vue-next';
 import {
   fetchInventoryLocationPage,
@@ -720,6 +748,9 @@ const PERM = {
 
 /** 主数据下拉一次拉多少（与出库 / 收货页同口径） */
 const OPTION_LIMIT = 200;
+
+/** 路由（「差异凭证 / 红冲凭证」点号跳凭证列表核账） */
+const router = useRouter();
 
 /** 表格列（宽度合计 940px：实测 1280 视口、侧栏展开时表体可视宽 968px，
  *  留 28px 余量 —— 不溢出才不会让固定「操作」列盖住「状态」列） */
@@ -1098,6 +1129,19 @@ const flowNotConfigured = computed(() => errorFlowFlag.value);
 
 async function openDetail(row: StockTakeRow): Promise<void> {
   await loadDetail(row.id);
+}
+
+/**
+ * 跳到凭证列表并按凭证号过滤（核账链路）。
+ *
+ * 财务拿「差异凭证」是去凭证列表核账：列表按 `voucher_no` 检索（`?voucher_no=PZ-…` 是
+ * 凭证页自己支持的深链，会预填筛选并查一次），所以这里只把号带过去，不复制凭证详情。
+ */
+function openVoucher(voucherNo: string | null): void {
+  if (!voucherNo) {
+    return;
+  }
+  void router.push({ path: '/business/erp/voucher', query: { voucher_no: voucherNo } });
 }
 
 function syncActuals(target: StockTakeDetail): void {

@@ -20,6 +20,7 @@
  */
 
 import type { OpeningBalance, OpeningEntry, OpeningInventoryLine } from '@/api/business/erp';
+import { todayPeriod } from '../shared/money';
 
 /** 三个权限码（与 V0189 种的节点逐字一致） */
 export const OPENING_PERMISSIONS = {
@@ -194,4 +195,52 @@ export function inventoryVoucherHint(opening: OpeningBalance | null): string | n
     return null;
   }
   return `库存期初 ${moneyText(amount)} 会自动生成 借 ${opening.inventory_debit_account} / 贷 ${opening.inventory_credit_account} 两行分录`;
+}
+
+// ==================== 首次进入的默认期间 ====================
+
+/** 期间行里本逻辑需要的两列（`AccountPeriodRow` 的子集，便于单测直接造） */
+export interface OpeningPeriodOptionSource {
+  /** 期间编码 `yyyy-MM` */
+  period_code: string;
+  /** 期间状态 `OPEN` / `CLOSED` / `NOT_OPENED` */
+  status: string;
+}
+
+/**
+ * 首次进入期初页该落哪个期间（`periodModel` 为空时调用）。
+ *
+ * # 为什么不能「取第一个 OPEN」
+ *
+ * `fetchPeriodPage` 按 `period_code DESC` 返回 ⇒ 「第一个 OPEN」是**最新**的已开期间。
+ * 2026-11-06 进页面就落到 2026-12（全 0.00、状态「未录」），用户会以为「期初数据丢了」，
+ * 而实际数据在 2026-11 —— 这是 P1-FIX-9 衍生卡 F3 的原始缺陷。
+ *
+ * # 选期顺序（每一档都要有兜底，绝不返回空串把页面打成「未选期间」）
+ *
+ * 1. **当前月**（北京时间 `todayPeriod()`）且它是 `OPEN` → 用它（绝大多数场景：当期做账）；
+ * 2. 否则取**最早**的 `OPEN` 期间（倒序列表里的最后一个；期间码是 `yyyy-MM`，字典序=时间序）。
+ *    「最早未录」里的「未录」判定要逐期间查期初状态（`GET /opening-balance` 一次一个期间），
+ *    首屏为它发 N 个请求不划算 ⇒ 退一档用「最早 OPEN」，用户看到的仍是最可能已录的那个月；
+ * 3. 一个 `OPEN` 都没有（全结账 / 尚未开账）→ 取**最新**一条（后端第一条），只用来展示状态与只读提示。
+ *
+ * @param rows 期间清单（`fetchPeriodPage` 的 `list`，顺序不敏感，内部自己排）
+ * @param now  当前时间（默认 `new Date()`，单测注入固定时刻）
+ */
+export function defaultOpeningPeriod(
+  rows: readonly OpeningPeriodOptionSource[],
+  now: Date = new Date(),
+): string {
+  if (rows.length === 0) {
+    return '';
+  }
+  const byCodeAsc = [...rows].sort((left, right) => left.period_code.localeCompare(right.period_code));
+  const opens = byCodeAsc.filter((row) => row.status === 'OPEN');
+  if (opens.length === 0) {
+    const latest = byCodeAsc[byCodeAsc.length - 1];
+    return latest?.period_code ?? '';
+  }
+  const currentPeriod = todayPeriod(now);
+  const hit = opens.find((row) => row.period_code === currentPeriod);
+  return hit ? hit.period_code : (opens[0]?.period_code ?? '');
 }

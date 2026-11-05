@@ -723,6 +723,43 @@ pub async fn find(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockTakeR
     row.as_ref().map(row_of).transpose()
 }
 
+/// 批量解析凭证号（`biz_voucher.voucher_no`），键 = 凭证 id。
+///
+/// 盘点单只存 `voucher_id` / `reverse_voucher_id`（弱引用，和应付 / 出入库同一口径），
+/// 页面要显示人可读的 `PZ-…` / `PZR-…` 就得回查一次。**一次 `id = ANY(...)` 查完**，
+/// 不做 N+1（一页 20 张单最多 40 个 id）。
+///
+/// 软删的凭证不返回（`deleted_at IS NULL`）：查不到就让前端退回占位，绝不显示半截 UUID 当凭证号。
+pub async fn voucher_no_map(
+    ex: &impl SqlExecutor,
+    ids: &[Uuid],
+) -> DbResult<std::collections::HashMap<Uuid, String>> {
+    if ids.is_empty() {
+        return Ok(std::collections::HashMap::new());
+    }
+    let joined = ids
+        .iter()
+        .map(|id| id.to_string())
+        .collect::<Vec<_>>()
+        .join(",");
+    // SCOPE-EXEMPT: biz_voucher 按主键批量取凭证号，只补展示字段，不产生行集。
+    let rows = ex
+        .query_sql(
+            "SELECT id, voucher_no FROM biz_voucher \
+              WHERE id = ANY(?::text::uuid[]) AND deleted_at IS NULL"
+                .to_string(),
+            vec![Value::Text(format!("{{{joined}}}"))],
+        )
+        .await?;
+    let mut map = std::collections::HashMap::with_capacity(rows.len());
+    for row in rows.iter() {
+        let id: Uuid = row.get_typed("id")?;
+        let no: String = row.get_typed("voucher_no")?;
+        map.insert(id, no);
+    }
+    Ok(map)
+}
+
 /// 锁读单头（`FOR UPDATE`）。
 pub async fn lock(ex: &impl SqlExecutor, id: Uuid) -> DbResult<Option<StockTakeRow>> {
     // SCOPE-EXEMPT: 同上，按主键锁 1 行。
