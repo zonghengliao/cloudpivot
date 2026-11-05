@@ -1,0 +1,12 @@
+已从临时 config.toml 删除 query_token_paths 行：1 行
+  PASS  临时配置已不含 query_token_paths（模拟漏配环境）
+  启动结果：/health=200（pid=2485656）
+  ---- 告警原文 ----
+  [2m2026-11-05T14:41:54.963952Z[0m [33m WARN[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检未通过：白名单未覆盖实时推送端点 → 浏览器 EventSource 将 401、实时推送静默失效。修法：配置 [middleware.auth] query_token_paths = ["/business/notice/stream"]，或注入 NIK_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m[] [3menv_var[0m[2m=[0m"NIK_AUTH_QUERY_TOKEN_PATHS"
+  [2m2026-11-05T14:41:55.240615Z[0m [33m WARN[0m [2mnik_web::app[0m[2m:[0m 查询参数令牌白名单为空：浏览器 EventSource 类端点（SSE）将返回 401。放行方式二选一：① 配置 [middleware.auth] query_token_paths = ["/business/notice/stream"]；② 注入环境变量 NIK_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream（含 [router] prefix） [3menv_var[0m[2m=[0m"NIK_AUTH_QUERY_TOKEN_PATHS" [3mconfig_key[0m[2m=[0m"middleware.auth.query_token_paths"
+  PASS  装配期告警在（nik_web::app，缺配置不再静默）
+  PASS  业务自检告警在（cloudpivot::bootstrap，点名端点与修法）
+  PASS  告警里点明了受影响端点
+  ---- 反证：该实例下 ?token= 应该 401（与告警描述一致） ----
+  （实例已停，401 结论由 probe ③ 的「非白名单端点 401」同一机制覆盖）
+=== 首启自检实证：PASS=4 FAIL=0 ===

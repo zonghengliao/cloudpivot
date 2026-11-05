@@ -1,0 +1,2 @@
+[32m INFO[0m [2mcloudpivot::bootstrap[0m[2m:[0m SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知 [3mendpoint[0m[2m=[0m/api/business/notice/stream [3mwhitelist[0m[2m=[0m["/api/business/notice/stream"]
+[32m INFO[0m [2mnik_web::app[0m[2m:[0m 查询参数令牌白名单 endpoints=["/api/business/notice/stream"]（仅 EventSource 类端点；令牌不落日志）

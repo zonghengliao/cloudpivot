@@ -1,0 +1,30 @@
+=== P1-FIX-6 SSE 鉴权探针（r2，BASE=http://127.0.0.1:5140） ===
+  PASS  登录成功（access_token 长度 461，不落日志）
+curl: (28) Operation timed out after 8007 milliseconds with 13 bytes received
+curl: (28) Operation timed out after 3004 milliseconds with 13 bytes received
+  ① /api/business/notice/stream?token=*** → HTTP 200 | content-type: text/event-stream | TTFB=0.003779s
+  PASS  白名单端点接受 ?token=（200，不再是 401）
+  PASS  响应是事件流（text/event-stream）
+  ① 心跳帧：8s 内未见到（心跳 15s 一次，见下面 15s 那条）
+  ① 首帧（建连即刻必到，浏览器 fetch 就是靠它 resolve）：: connected||
+curl: (28) Operation timed out after 3001 milliseconds with 13 bytes received
+  ② /api/business/notice/stream（Authorization 头）→ HTTP 200
+  PASS  带头认证同样 200（前端 fetch 流走的就是这条）
+  ③ /api/business/notice/unread-count?token=*** → HTTP 401
+  PASS  非白名单端点不采信查询令牌（/api/business/notice/unread-count → 401）
+  ③ /api/system/auth/me?token=*** → HTTP 401
+  PASS  非白名单端点不采信查询令牌（/api/system/auth/me → 401）
+  ③ /api/business/notice/page?token=*** → HTTP 401
+  PASS  非白名单端点不采信查询令牌（/api/business/notice/page → 401）
+  ④ /api/business/notice/stream（无凭证）→ HTTP 401
+  PASS  无凭证仍 401
+  ⑤ 白名单解析（启动日志实证）：
+     INFO[0m [2mnik_web::app[0m[2m:[0m 查询参数令牌白名单 endpoints=["/api/business/notice/stream"]（仅 EventSource 类端点；令牌不落日志）
+  ⑥ 18s 订阅窗口内收到 keep-alive 帧数：1
+  PASS  长连接存活（收到心跳）
+  ⑦ 服务端连接日志（最近 3 条「SSE 订阅请求已受理」）：
+     [2m2026-11-05T14:40:46.337628Z[0m [32m INFO[0m [2mcloudpivot::business::notice::handler[0m[2m:[0m SSE 订阅请求已受理 [3muser_id[0m[2m=[0m01a17bb9-7d99-76c3-b362-58d3a284c270
+     [2m2026-11-05T14:40:49.362451Z[0m [32m INFO[0m [2mcloudpivot::business::notice::handler[0m[2m:[0m SSE 订阅请求已受理 [3muser_id[0m[2m=[0m01a17bb9-7d99-76c3-b362-58d3a284c270
+     [2m2026-11-05T14:40:52.410640Z[0m [32m INFO[0m [2mcloudpivot::business::notice::handler[0m[2m:[0m SSE 订阅请求已受理 [3muser_id[0m[2m=[0m01a17bb9-7d99-76c3-b362-58d3a284c270
+  PASS  服务端有连接日志（累计 89 条）
+=== r2 结果：PASS=10 FAIL=0 ===

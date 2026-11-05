@@ -676,6 +676,7 @@ pub async fn channel_config() -> ResResult<ChannelConfigRes> {
 ///
 /// | 帧 | 内容 |
 /// |----|------|
+/// | 首帧 | 建连即刻一条注释帧 `: connected`（让浏览器 `fetch` 的 Promise 立刻 resolve，见 [`sse_hub`]） |
 /// | 数据帧 | `event: notice` + `data: {notice_id, notice_no, notice_type, level, title, link_url, biz_type, biz_id, receiver_id, created_at}` |
 /// | 心跳帧 | 每 [`sse_hub::HEARTBEAT_SECS`] 秒一条注释帧 `: keep-alive`（不触发 `onmessage`，只防代理超时断连） |
 ///

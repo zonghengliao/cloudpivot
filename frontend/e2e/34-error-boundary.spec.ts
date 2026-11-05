@@ -107,29 +107,45 @@ test.describe('专项5 错误与边界', () => {
   });
 
   /**
-   * 已知缺陷留证（不是「跳过」）：**通知 SSE 每次页面加载都 401**。
+   * P1-FIX-6 回归：**通知实时通道必须连通，且页面加载不许再刷 401**。
    *
-   * 证据链：前端 `stores/notice.ts#connect()` → `buildNoticeSseUrl()` 用 `?token=` 订阅，
-   * 后端 `middleware/auth` 只读 `Authorization` 头（alun-web 0.4.2 无 query-token 白名单）
-   * → 401。后果是「实时推送」从未工作，未读角标靠 30s 轮询兜底（所以用户不容易发现）。
+   * 历史（本用例前身是「已知缺陷留证」）：前端用 `EventSource` + `?token=` 订阅，
+   * 而认证层默认不采信查询令牌 → 每个页面加载都一条
+   * `401 GET /api/business/notice/stream?token=…`（审计 39 页逐页刷屏，`06_ui_run.log`）。
    *
-   * 这条断言的价值：一旦后端补了白名单 / 前端改走 cookie，这条会**变红**，
-   * 提醒把 `_pagecheck.KNOWN_BAD_API` 那条白名单删掉，别再假装它是缺陷。
+   * 修法（两条腿）：
+   *   ① 前端不再用 `EventSource`，改走带 `Authorization` 头的 `fetch` + `ReadableStream`
+   *      （`src/utils/notice-stream.ts`）—— 与普通接口同一套认证，不依赖白名单；
+   *   ② 后端把 `/business/notice/stream` 放进 `[middleware.auth].query_token_paths`
+   *      默认白名单，并为首启自检加告警（漏配时启动日志点名症状与两种修法）。
+   *
+   * 断言口径（缺一条都不算修好）：
+   *   ① 实时订阅**确实发起**了 —— 防「前端干脆不连」的假绿；
+   *   ② 状态码 **200** —— 不许 401 / 403；且整页期间**一条 401 都不许出现**；
+   *   ③ 未读数接口仍 200 —— 轮询兜底没被顺手改坏。
    */
-  test('已知缺陷留证：通知 SSE 每次页面加载都 401，实时推送不通（轮询兜底仍是 200）', async ({ page }) => {
+  test('P1-FIX-6：通知实时通道 200 连通，页面加载不再刷 401', async ({ page }) => {
     const seen: Array<{ url: string; status: number }> = [];
     page.on('response', (r) => {
       if (r.url().includes('/api/business/notice/stream')) {
         seen.push({ url: r.url().replace(/[?].*$/, '?token=***'), status: r.status() });
       }
     });
+
+    // ① 先挂等待再导航：带头流握手成功时 `response` 事件才代表「真的连上了」
+    const streamResp = page.waitForResponse(
+      (r) => r.url().includes('/api/business/notice/stream'),
+      { timeout: 30_000 },
+    );
     await page.goto('/dashboard');
     await expect(page.locator('.basic-layout__aside')).toBeVisible({ timeout: 20_000 });
 
-    // ① SSE 订阅确实发起了（前端没静默不连）
-    expect(seen.length, '应观察到 SSE 订阅请求').toBeGreaterThan(0);
-    // ② 且确实被后端拒了 —— 401，不是 200/403
-    expect(new Set(seen.map((s) => s.status)), 'SSE 订阅状态码').toEqual(new Set([401]));
+    const resp = await streamResp;
+    expect(resp.status(), '实时通道握手状态码').toBe(200);
+    expect(resp.headers()['content-type'] || '', '必须是事件流').toContain('text/event-stream');
+    // ② 页面上不许有任何一条 notice/stream 的 401（历史症状）
+    const bad = seen.filter((s) => s.status >= 400);
+    expect(bad, `实时通道不许出现 4xx：${JSON.stringify(bad)}`).toEqual([]);
 
     // ③ 兜底链路还在：未读数接口 200（所以「角标不更新」不是这条缺陷的直接症状）
     // 注意：`page.request` 不带 localStorage 里的令牌（那是 JS 变量，不是 cookie），

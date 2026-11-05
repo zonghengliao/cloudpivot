@@ -10,6 +10,53 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use tower::{Layer, Service};
 
+/// [cloudpivot-patch code-10] 环境变量名：允许 `?token=` 认证的端点白名单。
+///
+/// 逗号分隔、**含** `[router] prefix`（如 `/api/business/notice/stream`）。
+/// 一旦设置（非空）就**完全覆盖**配置项 `[middleware.auth].query_token_paths`。
+pub const ENV_QUERY_TOKEN_PATHS: &str = "NIK_AUTH_QUERY_TOKEN_PATHS";
+
+/// [cloudpivot-patch code-10] 把白名单条目拼上全局路由前缀（`!` 开头 = 绝对路径）。
+///
+/// 与 `ignore_paths` 同款语义，保证三处（忽略路径 / 查询令牌白名单 / 业务自检）
+/// 对「相对路径」的解释永远一致。
+pub fn join_path_prefix(prefix: &str, path: &str) -> String {
+    match path.strip_prefix('!') {
+        Some(absolute) => absolute.to_string(),
+        None => format!("{}{}", prefix, path),
+    }
+}
+
+/// [cloudpivot-patch code-10] 解析 `?token=` 白名单（**唯一实现**）。
+///
+/// # 解析顺序
+///
+/// 1. 环境变量 [`ENV_QUERY_TOKEN_PATHS`]（逗号分隔、已含前缀，不做二次拼接）；
+/// 2. 配置项 `[middleware.auth].query_token_paths`（相对路径自动拼 `prefix`，`!` 开头为绝对路径）。
+///
+/// 环境变量优先且**完全覆盖**：运维显式给出的清单就是最终清单，不会再被配置文件悄悄追加。
+/// 两者都为空 = 不接受任何查询参数令牌（fail-closed，与打补丁前行为一致）。
+///
+/// `App` 装配认证层与本项目的启动自检都调它，因此「启动日志说了什么」与
+/// 「运行期实际采信哪些路径」永远是同一份数据。
+pub fn resolve_query_token_paths(prefix: &str, from_config: &[String]) -> Vec<String> {
+    let from_env: Vec<String> = std::env::var(ENV_QUERY_TOKEN_PATHS)
+        .unwrap_or_default()
+        .split(',')
+        .map(|item| item.trim().to_string())
+        .filter(|item| !item.is_empty())
+        .collect();
+    if !from_env.is_empty() {
+        return from_env;
+    }
+    from_config
+        .iter()
+        .map(|item| item.trim())
+        .filter(|item| !item.is_empty())
+        .map(|item| join_path_prefix(prefix, item))
+        .collect()
+}
+
 /// JWT 认证中间件
 ///
 /// 从 `Authorization: Bearer <token>` 中提取并验证 JWT，
@@ -322,4 +369,52 @@ pub(crate) fn validate_and_extract_claims(
     }
 
     Ok(token_data.claims)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn join_prefix_handles_relative_and_absolute() {
+        assert_eq!(
+            join_path_prefix("/api", "/business/notice/stream"),
+            "/api/business/notice/stream"
+        );
+        assert_eq!(join_path_prefix("/api", "!/health"), "/health");
+        assert_eq!(join_path_prefix("", "/a"), "/a");
+    }
+
+    #[test]
+    fn resolve_uses_config_when_env_absent() {
+        // 环境变量是进程级的：宿主机若已注入白名单，环境变量优先（本用例不做断言，
+        // 避免测试结果依赖跑测机器）；注入场景由 app 层启动日志与端到端用例覆盖。
+        if std::env::var(ENV_QUERY_TOKEN_PATHS).is_ok() {
+            return;
+        }
+        let got = resolve_query_token_paths(
+            "/api",
+            &[
+                "/business/notice/stream".to_string(),
+                " !/health ".to_string(),
+            ],
+        );
+        assert_eq!(
+            got,
+            vec![
+                "/api/business/notice/stream".to_string(),
+                "/health".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn resolve_empty_config_means_fail_closed() {
+        if std::env::var(ENV_QUERY_TOKEN_PATHS).is_ok() {
+            return;
+        }
+        assert!(resolve_query_token_paths("/api", &[]).is_empty());
+        // 全是空白条目同样视为未配置，不能拼出空前缀路径
+        assert!(resolve_query_token_paths("/api", &[" ".to_string(), "".to_string()]).is_empty());
+    }
 }

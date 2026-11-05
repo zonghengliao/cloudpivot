@@ -449,6 +449,20 @@ pub struct AuthMiddlewareConfig {
     /// Refresh Token 过期（秒）
     #[serde(default = "default_refresh_token_expire")]
     pub refresh_token_expire_secs: u64,
+
+    /// [cloudpivot-patch code-10] 允许用 `?token=<JWT>` 认证的端点白名单。
+    ///
+    /// 只给**浏览器 `EventSource`** 这类无法设置自定义请求头的端点用（当前仅 SSE 推送）。
+    /// 与 `ignore_paths` 同款路径语义：默认按「不含 `[router] prefix`」书写、运行期拼前缀，
+    /// 以 `!` 开头表示绝对路径。
+    ///
+    /// 解析优先级（唯一实现在 `nik_web::middleware::auth::resolve_query_token_paths`）：
+    /// 环境变量 `NIK_AUTH_QUERY_TOKEN_PATHS`（逗号分隔、含前缀）**优先且完全覆盖**本项；
+    /// 未配置环境变量时才用本项。
+    ///
+    /// 空列表 = 完全不接受查询参数令牌（fail-closed）。
+    #[serde(default)]
+    pub query_token_paths: Vec<String>,
 }
 
 /// CORS 配置
@@ -1189,6 +1203,7 @@ impl Default for AuthMiddlewareConfig {
             jwt_secret: String::new(),
             access_token_expire_secs: default_access_token_expire(),
             refresh_token_expire_secs: default_refresh_token_expire(),
+            query_token_paths: vec![],
         }
     }
 }
@@ -1636,6 +1651,11 @@ fn merge_middleware(base: &mut MiddlewareConfig, overlay: &MiddlewareConfig) {
     }
     if !overlay.auth.ignore_paths.is_empty() {
         base.auth.ignore_paths = overlay.auth.ignore_paths.clone();
+    }
+    // [cloudpivot-patch code-10] `?token=` 白名单同样按「非空即覆盖」合并：
+    // profile 没写就保留基础配置（config.toml）里的默认值，写了就整体替换。
+    if !overlay.auth.query_token_paths.is_empty() {
+        base.auth.query_token_paths = overlay.auth.query_token_paths.clone();
     }
     if overlay.cors.enabled != default_mw.cors.enabled {
         base.cors.enabled = overlay.cors.enabled;

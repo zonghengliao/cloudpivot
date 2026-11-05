@@ -10,11 +10,14 @@
  *
  * # SSE
  *
- * 实时推送是普通 `EventSource` 天然拿不到 `Authorization` 头的接口，因此：
- * 1. 优先用 `token` 查询参数订阅（A6 handler 支持 `?token=`，与 `EventSource` 兼容）；
- * 2. 订阅失败（网络 / 403）时降级为**轮询未读数**，保证角标不会长期停在旧值。
+ * 实时推送不走 `EventSource`：它无法设置 `Authorization` 头，只能退化成 `?token=`，而认证层
+ * 只对白名单端点采信查询令牌 —— 漏配时每页刷一条 `401`（P1-FIX-6 的根因）。实际用的是
+ * `utils/notice-stream.ts` 的 `fetch` + `ReadableStream`（带头认证）；断开时降级为**轮询未读数**。
+ *
+ * 后端侧仍保留 `?token=` 能力（[`middleware.auth`] `query_token_paths`，默认放行
+ * `/business/notice/stream`），供第三方不支持自定义请求头的客户端使用。
  */
-import { del, get, post, put, TOKEN_KEY, type PageData } from '@/api/request';
+import { del, get, post, put, type PageData } from '@/api/request';
 
 /** 通知类型 */
 export type NoticeType = 'SYSTEM' | 'TODO' | 'ALERT' | 'WORKFLOW' | 'CIRCULAR';
@@ -384,27 +387,11 @@ export function fetchChannelConfig(): Promise<ChannelConfigRes> {
 }
 
 /**
- * 构造 SSE 订阅地址。
- *
- * `EventSource` 不能自定义请求头，因此令牌走查询参数；调用方需在后端侧确认
- * `notice/stream` 接受 `?token=`（需后端 NIK_AUTH_QUERY_TOKEN_PATHS 白名单放行），
- * 否则降级轮询。
- *
- * 2026-10-30 修：原路径写成 `/notice/sse`，后端实际注册的是 `/notice/stream`，
- * 导致 SSE 连接一直 401、实时推送完全没工作过。
- */
-export function buildNoticeSseUrl(): string {
-  const base = import.meta.env.VITE_APP_BASE_API || '';
-  const token = localStorage.getItem(TOKEN_KEY) || '';
-  const query = token ? `?token=${encodeURIComponent(token)}` : '';
-  return `${base}/api/business/notice/stream${query}`;
-}
-
-/**
  * 构造 SSE 订阅地址（**不带令牌**）。
  *
  * 给 `fetch` + `ReadableStream` 那条读者用：令牌放在 `Authorization` 头里，
- * 不依赖 `NIK_AUTH_QUERY_TOKEN_PATHS` 白名单（该环境变量默认空 ⇒ `?token=` 版本实测 401）。
+ * 不依赖 `query_token_paths` 白名单（那是 `EventSource` 的降级姿势，见
+ * `docs/批次A-SSE鉴权口径.md`）。
  */
 export function buildNoticeStreamUrl(): string {
   const base = import.meta.env.VITE_APP_BASE_API || '';
@@ -428,6 +415,5 @@ export const noticeApi = {
   deleteNoticeTemplate,
   previewNoticeTemplate,
   fetchChannelConfig,
-  buildNoticeSseUrl,
   buildNoticeStreamUrl,
 };

@@ -1,0 +1,639 @@
+{
+  "round": "r2",
+  "base": "http://127.0.0.1:5140",
+  "pages": [
+    {
+      "name": "01_dashboard",
+      "url": "/dashboard",
+      "textLen": 601,
+      "rows": 10,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/01_dashboard.jpg"
+    },
+    {
+      "name": "02_task_list",
+      "url": "/task/list",
+      "textLen": 1157,
+      "rows": 10,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/02_task_list.jpg"
+    },
+    {
+      "name": "03_task_board",
+      "url": "/task/board",
+      "textLen": 2627,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/03_task_board.jpg"
+    },
+    {
+      "name": "04_task_gantt",
+      "url": "/task/gantt",
+      "textLen": 804,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/04_task_gantt.jpg"
+    },
+    {
+      "name": "05_flow_def",
+      "url": "/flow/def",
+      "textLen": 1590,
+      "rows": 16,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/05_flow_def.jpg"
+    },
+    {
+      "name": "06_flow_templates",
+      "url": "/flow/templates",
+      "textLen": 2323,
+      "rows": 2,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/06_flow_templates.jpg"
+    },
+    {
+      "name": "07_flow_task",
+      "url": "/flow/task",
+      "textLen": 130,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/07_flow_task.jpg"
+    },
+    {
+      "name": "08_erp_contract",
+      "url": "/business/erp/contract",
+      "textLen": 342,
+      "rows": 1,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/08_erp_contract.jpg"
+    },
+    {
+      "name": "09_erp_po",
+      "url": "/business/erp/purchase-order",
+      "textLen": 1203,
+      "rows": 14,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/09_erp_po.jpg"
+    },
+    {
+      "name": "10_erp_stockin",
+      "url": "/business/erp/stock-in",
+      "textLen": 1344,
+      "rows": 14,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/10_erp_stockin.jpg"
+    },
+    {
+      "name": "11_erp_stockout",
+      "url": "/business/erp/stock-out",
+      "textLen": 642,
+      "rows": 8,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/11_erp_stockout.jpg"
+    },
+    {
+      "name": "12_erp_transfer",
+      "url": "/business/erp/transfer",
+      "textLen": 498,
+      "rows": 5,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/12_erp_transfer.jpg"
+    },
+    {
+      "name": "13_erp_inventory",
+      "url": "/business/erp/inventory",
+      "textLen": 477,
+      "rows": 3,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/13_erp_inventory.jpg"
+    },
+    {
+      "name": "14_erp_inventory_txn",
+      "url": "/business/erp/inventory-txn",
+      "textLen": 1725,
+      "rows": 20,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/14_erp_inventory_txn.jpg"
+    },
+    {
+      "name": "15_erp_payable",
+      "url": "/business/erp/payable",
+      "textLen": 1253,
+      "rows": 12,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/15_erp_payable.jpg"
+    },
+    {
+      "name": "16_erp_voucher",
+      "url": "/business/erp/voucher",
+      "textLen": 2471,
+      "rows": 22,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/16_erp_voucher.jpg"
+    },
+    {
+      "name": "17_erp_ledger",
+      "url": "/business/erp/ledger",
+      "textLen": 261,
+      "rows": 1,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/17_erp_ledger.jpg"
+    },
+    {
+      "name": "18_erp_balance_sheet",
+      "url": "/business/erp/report/balance-sheet",
+      "textLen": 1058,
+      "rows": 24,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/18_erp_balance_sheet.jpg"
+    },
+    {
+      "name": "19_erp_income",
+      "url": "/business/erp/report/income-statement",
+      "textLen": 572,
+      "rows": 13,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/19_erp_income.jpg"
+    },
+    {
+      "name": "20_erp_cashflow",
+      "url": "/business/erp/report/cash-flow",
+      "textLen": 1089,
+      "rows": 27,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/20_erp_cashflow.jpg"
+    },
+    {
+      "name": "21_erp_period",
+      "url": "/business/erp/period",
+      "textLen": 761,
+      "rows": 12,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/21_erp_period.jpg"
+    },
+    {
+      "name": "22_erp_opening",
+      "url": "/business/erp/opening",
+      "textLen": 375,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/22_erp_opening.jpg"
+    },
+    {
+      "name": "23_erp_year_end",
+      "url": "/business/erp/year-end",
+      "textLen": 1284,
+      "rows": 7,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/23_erp_year_end.jpg"
+    },
+    {
+      "name": "24_erp_material",
+      "url": "/business/erp/material",
+      "textLen": 341,
+      "rows": 5,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/24_erp_material.jpg"
+    },
+    {
+      "name": "25_erp_supplier",
+      "url": "/business/erp/supplier",
+      "textLen": 213,
+      "rows": 1,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/25_erp_supplier.jpg"
+    },
+    {
+      "name": "26_erp_warehouse",
+      "url": "/business/erp/warehouse",
+      "textLen": 320,
+      "rows": 1,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/26_erp_warehouse.jpg"
+    },
+    {
+      "name": "27_erp_account",
+      "url": "/business/erp/account",
+      "textLen": 1709,
+      "rows": 65,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/27_erp_account.jpg"
+    },
+    {
+      "name": "28_system_user",
+      "url": "/system/user",
+      "textLen": 987,
+      "rows": 9,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/28_system_user.jpg"
+    },
+    {
+      "name": "29_system_role",
+      "url": "/system/role",
+      "textLen": 4428,
+      "rows": 87,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/29_system_role.jpg"
+    },
+    {
+      "name": "30_system_menu",
+      "url": "/system/menu",
+      "textLen": 21433,
+      "rows": 331,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/30_system_menu.jpg"
+    },
+    {
+      "name": "31_system_data_scope",
+      "url": "/system/data-scope",
+      "textLen": 612,
+      "rows": 10,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/31_system_data_scope.jpg"
+    },
+    {
+      "name": "32_system_field_mask",
+      "url": "/system/field-mask",
+      "textLen": 327,
+      "rows": 3,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/32_system_field_mask.jpg"
+    },
+    {
+      "name": "33_announcement",
+      "url": "/business/announcement",
+      "textLen": 205,
+      "rows": 2,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/33_announcement.jpg"
+    },
+    {
+      "name": "34_notice",
+      "url": "/business/notice/message",
+      "textLen": 153,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/34_notice.jpg"
+    },
+    {
+      "name": "35_storage",
+      "url": "/business/storage/file",
+      "textLen": 1159,
+      "rows": 10,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/35_storage.jpg"
+    },
+    {
+      "name": "36_impexp",
+      "url": "/business/impexp/import",
+      "textLen": 330,
+      "rows": 0,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/36_impexp.jpg"
+    },
+    {
+      "name": "37_help",
+      "url": "/help",
+      "textLen": 1899,
+      "rows": 10,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/37_help.jpg"
+    },
+    {
+      "name": "38_changelog",
+      "url": "/system/change-log",
+      "textLen": 2892,
+      "rows": 20,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/38_changelog.jpg"
+    },
+    {
+      "name": "39_job",
+      "url": "/support/job",
+      "textLen": 778,
+      "rows": 7,
+      "streamStatus": 200,
+      "streamStatuses": [
+        200
+      ],
+      "stream401": 0,
+      "badApi": [],
+      "console401": 0,
+      "consoleErrors": [],
+      "navErr": "",
+      "shot": "/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r2/39_job.jpg"
+    }
+  ],
+  "totals": {
+    "pages": 39,
+    "stream401": 0,
+    "api4xxPages": 0,
+    "console401": 0,
+    "stream200": 39,
+    "streamUnobserved": 0,
+    "navErr": 0
+  }
+}

@@ -96,7 +96,10 @@ prepare_db() {
     su - postgres -c "createdb -O $E2E_ISO_OWNER $E2E_ISO_DB" >/dev/null || die "createdb 失败"
     say "✅ 新建副本库 $E2E_ISO_DB（owner=$E2E_ISO_OWNER）"
   else
-    say "… 复用已有副本库 $E2E_ISO_DB（要干净副本用 E2E_ISO_FRESH=1）"
+    # 复用既有副本库时必须**跳过** dump：往已有数据的库里再灌一份 prod 快照会撞主键/唯一键
+    # （实测报 `pg_dump 失败（rc=255）` 之后整条流水线中断）。要干净副本请显式 E2E_ISO_FRESH=1。
+    say "… 复用已有副本库 $E2E_ISO_DB，**跳过** dump（要重灌一份干净副本用 E2E_ISO_FRESH=1）"
+    return 0
   fi
 
   [[ "$E2E_ISO_SRC_MODE" == "none" ]] && { say "… E2E_ISO_SRC_MODE=none：空库起，迁移自动跑"; return 0; }

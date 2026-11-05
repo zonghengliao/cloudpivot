@@ -31,18 +31,17 @@ import type { PageSpec } from './_catalog';
  *
  * 为什么不直接改成 `page.route` 屏蔽：屏蔽掉等于把缺陷从证据里删了——
  * 用户看不到「实时推送其实是断的」，报告也就没法回答「哪条接口报 401」。
+ *
+ * # 当前为空（P1-FIX-6，2026-11-05）
+ *
+ * 唯一那条「通知 SSE 每次页面加载都 401」已修：前端不再用 `EventSource`（改用带
+ * `Authorization` 头的 `fetch` + `ReadableStream`，见 `src/utils/notice-stream.ts`），
+ * 后端同时把 `/business/notice/stream` 放进 `[middleware.auth].query_token_paths`
+ * 默认白名单并为 `?token=` 兜底姿势补了首启自检。
+ * **留空数组而不是删掉这个导出**：探针、报告与 34 号用例都还按同一接口取标签，
+ * 以后真再出现「已知但暂不修」的页面级 4xx 时，加一条即可，不用改调用方。
  */
-export const KNOWN_BAD_API: Array<{ match: RegExp; label: string; reason: string }> = [
-  {
-    match: /^\/api\/business\/notice\/stream$/,
-    label: '通知 SSE',
-    reason:
-      'EventSource 不能自定义 Authorization 头，前端改用 ?token= 订阅；' +
-      '但后端认证中间件只读 Authorization（alun-web 0.4.2 无 query-token 白名单，' +
-      '仓库里也搜不到 NIK_AUTH_QUERY_TOKEN_PATHS）→ 每次页面加载都 401，实时推送从未连通，' +
-      '靠 notice store 的 30s 轮询兜底。',
-  },
-];
+export const KNOWN_BAD_API: Array<{ match: RegExp; label: string; reason: string }> = [];
 
 /** 命中已知缺陷返回标签，否则 undefined */
 function knownBadLabel(path: string, status: number): string | undefined {

@@ -1,0 +1,15 @@
+[WARN] The "pnpm" field in package.json is no longer read by pnpm. The following keys were ignored: "pnpm.onlyBuiltDependencies". See https://pnpm.io/settings for the new home of each setting.
+[e2e-target] OK 隔离实例：http://127.0.0.1:5140（回环 + 隔离端口 5140）
+[e2e-target] OK 隔离实例：http://127.0.0.1:5140（回环 + 隔离端口 5140）
+
+Running 5 tests using 1 worker
+
+[e2e-target] OK 隔离实例：http://127.0.0.1:5140（回环 + 隔离端口 5140）
+  ✓  1 [chromium] › e2e/34-error-boundary.spec.ts:16:3 › 专项5 错误与边界 › 接口 500 → 页面给友好提示，不白屏（物料列表） (991ms)
+  ✓  2 [chromium] › e2e/34-error-boundary.spec.ts:36:3 › 专项5 错误与边界 › token 失效 → 跳登录页（不卡空白布局） (1.8s)
+  ✓  3 [chromium] › e2e/34-error-boundary.spec.ts:48:3 › 专项5 错误与边界 › 无权限账号直达无权页面 → 403 结果页 (1.4s)
+  ✓  4 [chromium] › e2e/34-error-boundary.spec.ts:84:3 › 专项5 错误与边界 › 连点两次「新建」→ 只开一个弹窗（不重复提交/不叠弹窗） (16.0s)
+  ✓  5 [chromium] › e2e/34-error-boundary.spec.ts:127:3 › 专项5 错误与边界 › P1-FIX-6：通知实时通道 200 连通，页面加载不再刷 401 (1.2s)
+
+  5 passed (22.3s)
+EXIT=0

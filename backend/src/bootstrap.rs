@@ -61,7 +61,53 @@ pub async fn bootstrap() {
         orphan_dependency_guard(),
         test_residue_guard(),
         ensure_accounting_periods(),
+        sse_query_token_guard(),
     );
+}
+
+/// SSE 实时推送的鉴权自检（P1-FIX-6）。
+///
+/// # 为什么需要
+///
+/// 浏览器 `EventSource` 不能设置 `Authorization` 头，SSE 订阅只能退化成
+/// `?token=<access token>`；而认证层**只**对白名单里的端点采信查询令牌。白名单一旦漏了
+/// 实时推送端点，症状是「每个页面登录后都在控制台刷一条
+/// `401 GET /api/business/notice/stream`」，实时推送静默失效（前端只剩 30 秒轮询兜底）。
+/// 这个症状此前只能靠人肉逐页看控制台发现，因此把判定搬到首启日志里。
+///
+/// 判定用的 [`resolve_query_token_paths`] 与框架装配认证层时调用的是**同一个函数**，
+/// 所以「启动日志说了什么」与「运行期实际采信哪些路径」不会分叉
+/// （环境变量 `NIK_AUTH_QUERY_TOKEN_PATHS` 优先、配置项 `[middleware.auth].query_token_paths` 兜底）。
+///
+/// # 处置
+///
+/// 只告警、不拦启动：漏配只影响实时通道（站内信本身仍可用），不该让它成为部署阻塞项。
+async fn sse_query_token_guard() {
+    // 站内信 SSE 端点在宏里的注册路径（不含 `[router] prefix`）。
+    const SSE_ENDPOINT: &str = "/business/notice/stream";
+
+    let prefix = cfg().router.prefix.clone();
+    let expected = join_path_prefix(&prefix, SSE_ENDPOINT);
+    let whitelist = resolve_query_token_paths(&prefix, &cfg().middleware.auth.query_token_paths);
+    if whitelist
+        .iter()
+        .any(|allowed| allowed.trim_end_matches('/') == expected)
+    {
+        tracing::info!(
+            endpoint = %expected,
+            whitelist = ?whitelist,
+            "SSE 鉴权自检通过：EventSource 可用 ?token= 订阅实时通知"
+        );
+    } else {
+        tracing::warn!(
+            endpoint = %expected,
+            whitelist = ?whitelist,
+            env_var = ENV_QUERY_TOKEN_PATHS,
+            "SSE 鉴权自检未通过：白名单未覆盖实时推送端点 → 浏览器 EventSource 将 401、实时推送静默失效。\
+             修法：配置 [middleware.auth] query_token_paths = [\"/business/notice/stream\"]，\
+             或注入 NIK_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream"
+        );
+    }
 }
 
 /// 启动保底：当年 12 个会计期间行必须都在（卡 P0-FIX-5）。

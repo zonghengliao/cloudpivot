@@ -1200,6 +1200,10 @@ pub mod prelude {
     pub use nik_utils::export::XlsxSheet;
     #[cfg(feature = "cache")]
     pub use nik_web::middleware::{IdempotencyLayer, NonceLayer};
+    // [cloudpivot-patch code-10] `?token=` 白名单解析（App 装配 + 业务启动自检共用一份实现）
+    pub use nik_web::middleware::auth::{
+        ENV_QUERY_TOKEN_PATHS, join_path_prefix, resolve_query_token_paths,
+    };
     pub use nik_web::{
         NikRouter, App, AuthClaims, ClaimsBuilder, JWT, Principal, TokenClaims, TokenType, UserId,
         ValidatedJson,

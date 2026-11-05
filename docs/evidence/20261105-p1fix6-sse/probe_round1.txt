@@ -1,0 +1,12 @@
+=== P1-FIX-6 SSE 鉴权探针（r1，BASE=http://127.0.0.1:5140） ===
+  PASS  登录成功（access_token 长度 461，不落日志）
+curl: (28) Operation timed out after 8003 milliseconds with 13 bytes received
+curl: (28) Operation timed out after 3003 milliseconds with 13 bytes received
+  ① /api/business/notice/stream?token=*** → HTTP 200 | content-type: text/event-stream | TTFB=0.005771s
+  PASS  白名单端点接受 ?token=（200，不再是 401）
+  PASS  响应是事件流（text/event-stream）
+  ① 心跳帧：8s 内未见到（心跳 15s 一次，见下面 15s 那条）
+  ① 首帧（建连即刻必到，浏览器 fetch 就是靠它 resolve）：: connected||
+curl: (28) Operation timed out after 3002 milliseconds with 13 bytes received
+  ② /api/business/notice/stream（Authorization 头）→ HTTP 200
+  PASS  带头认证同样 200（前端 fetch 流走的就是这条）

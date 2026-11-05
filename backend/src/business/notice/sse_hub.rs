@@ -31,11 +31,15 @@
 //! 另外每 5 分钟由 [`register_builtin`] 注册的 `notice_sse_channel_sweep` 兜底巡逻，
 //! 回收「无人订阅且已空置 30 分钟」的频道（例如 `Drop` 未执行就被 panic 打断的极端情况）。
 //!
-//! # 心跳
+//! # 帧序
 //!
-//! [`Subscription::into_sse`] 挂 axum 的 `KeepAlive`：每 [`HEARTBEAT_SECS`] 秒发一条
-//! **SSE 注释帧** `: keep-alive`。注释帧不触发前端 `onmessage`，只用于防反向代理按
-//! 空闲超时（常见 60 s）切断长连接。
+//! 1. **首帧**（建连即刻）：注释帧 `: connected` —— 让浏览器 `fetch()` 的 Promise 立刻
+//!    resolve（它等的是首个字节，不是响应头），否则前端要等第一条心跳才开始认「已连上」
+//!    （`P1-FIX-6` 实测：那条心跳在 15 s 后才到）；
+//! 2. **业务帧**：`event: notice` + `data: {…}`（见 [`EVENT_NAME`]）；
+//! 3. **心跳帧**：每 [`HEARTBEAT_SECS`] 秒一条 SSE 注释帧 `: keep-alive`，防反向代理按
+//!    空闲超时（常见 60 s）切断长连接。注释帧不触发前端 `onmessage`，也不会被
+//!    `utils/notice-stream.ts` 的解析器产出（`data` 行为空的块被丢弃）。
 //!
 //! # 多副本注意
 //!
@@ -51,7 +55,8 @@ use std::time::{Duration, Instant};
 
 use axum::response::sse::{Event, KeepAlive, Sse};
 use futures_util::Stream;
-use futures_util::stream::unfold;
+use futures_util::StreamExt;
+use futures_util::stream::{once, unfold};
 use nik::prelude::*;
 use nik::sse::Broadcaster;
 use serde::{Deserialize, Serialize};
@@ -399,7 +404,17 @@ impl Subscription {
                 }
             }
         });
-        Sse::new(stream).keep_alive(
+        // 首帧（`P1-FIX-6` 实测结论，别删）：
+        //
+        // axum 的 `KeepAlive` 第一条 `: keep-alive` 要等 `HEARTBEAT_SECS`（15s）才发，
+        // 在那之前**响应体一个字节都没有**。而浏览器 `fetch()` 的 Promise 要等**首个字节**
+        // 才 resolve（不是等响应头！）—— 于是前端 `openNoticeStream` 的 `onOpen` 被推迟
+        // 整整 15 秒：这 15 秒里前端以为「还没连上」、继续 30s 轮询，验收侧（Playwright /
+        // CDP `Network.responseReceived`）也**根本看不到这条 200**，只能看到请求发出去。
+        // 一条注释帧把「握手已完成」立刻兑现：解析器会丢弃注释帧（不影响业务帧），
+        // 但字节一到，`fetch` 立刻 resolve、`onOpen` 立刻把 `connected` 置真、轮询立刻停。
+        let hello = once(async { Ok::<Event, Infallible>(Event::default().comment("connected")) });
+        Sse::new(hello.chain(stream)).keep_alive(
             KeepAlive::new()
                 .interval(Duration::from_secs(HEARTBEAT_SECS))
                 .text("keep-alive"),

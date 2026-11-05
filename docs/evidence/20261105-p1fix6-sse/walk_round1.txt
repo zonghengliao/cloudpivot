@@ -1,0 +1,52 @@
+[PASS] /dashboard  文本=601 行=10 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /task/list  文本=1157 行=10 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /task/board  文本=2627 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /task/gantt  文本=804 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /flow/def  文本=1590 行=16 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /flow/templates  文本=2323 行=2 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /flow/task  文本=130 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/contract  文本=342 行=1 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/purchase-order  文本=1203 行=14 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/stock-in  文本=1344 行=14 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/stock-out  文本=642 行=8 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/transfer  文本=498 行=5 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/inventory  文本=477 行=3 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/inventory-txn  文本=1725 行=20 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/payable  文本=1253 行=12 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/voucher  文本=2471 行=22 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/ledger  文本=261 行=1 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/report/balance-sheet  文本=1058 行=24 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/report/income-statement  文本=572 行=13 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/report/cash-flow  文本=1089 行=27 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/period  文本=761 行=12 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/opening  文本=375 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/year-end  文本=1284 行=7 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/material  文本=341 行=5 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/supplier  文本=213 行=1 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/warehouse  文本=320 行=1 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/erp/account  文本=1709 行=65 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/user  文本=987 行=9 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/role  文本=4428 行=87 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/menu  文本=21433 行=331 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/data-scope  文本=612 行=10 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/field-mask  文本=327 行=3 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/announcement  文本=205 行=2 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/notice/message  文本=153 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/storage/file  文本=1159 行=10 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /business/impexp/import  文本=330 行=0 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /help  文本=1899 行=10 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /system/change-log  文本=2892 行=20 stream=200 stream401=0 api4xx=0 console401=0 
+[PASS] /support/job  文本=778 行=7 stream=200 stream401=0 api4xx=0 console401=0 
+
+=== r1 汇总 ===
+{
+  "pages": 39,
+  "stream401": 0,
+  "api4xxPages": 0,
+  "console401": 0,
+  "stream200": 39,
+  "streamUnobserved": 0,
+  "navErr": 0
+}
+明细：/opt/cloudpivot/docs/evidence/20261105-p1fix6-sse/shots-r1/walk_r1.json
+=== r1 结论：PASS（39/39 页零 401，实时通道 200） ===

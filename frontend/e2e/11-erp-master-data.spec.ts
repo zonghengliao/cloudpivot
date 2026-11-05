@@ -47,11 +47,8 @@ function auditNetwork(page: import('@playwright/test').Page): NetAudit {
   page.on('response', (response) => {
     const url = response.url();
     const status = response.status();
-    // 通知 SSE 的 401 是**已知产品缺陷**（后端认证中间件只读 Authorization 头，不认 EventSource 的
-    // `?token=`，见 docs/test-report-e2e.md 第四节）：每页都会命中，不能拿它判「这页坏了」。
-    if (url.includes('/api/business/notice/stream')) {
-      return;
-    }
+    // 通知实时通道（P1-FIX-6 之前每次页面加载都 401）：现在走带 Authorization 头的
+    // `fetch` + `ReadableStream`，与普通接口同一套认证，不再豁免 —— 它若报 4xx 就是真问题。
     if (url.includes('/api/') && status >= 400) {
       audit.failures.push(`${status} ${url}`);
     }

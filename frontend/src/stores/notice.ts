@@ -1,7 +1,6 @@
 import { ref } from 'vue';
 import { defineStore } from 'pinia';
 import {
-  buildNoticeSseUrl,
   buildNoticeStreamUrl,
   fetchUnreadCount,
   pageMyNotices,
@@ -18,9 +17,6 @@ import { openNoticeStream, type SseFrame } from '@/utils/notice-stream';
 /** 未读数轮询间隔（实时通道不可用时的兜底；30 秒足够，不给后端添压力） */
 const POLL_INTERVAL_MS = 30_000;
 
-/** SSE 自定义事件名：后端 `sse_hub::EVENT_NAME`（`EventSource.onmessage` 收不到自定义事件） */
-const SSE_EVENT_NAME = 'notice';
-
 /**
  * 消息通知状态：未读数、实时连接、「最新消息」（右上角自动浮层的数据源）。
  *
@@ -29,15 +25,16 @@ const SSE_EVENT_NAME = 'notice';
  * 由 `BasicLayout` 在挂载时 `connect()`、卸载时 `disconnect()`，全局只有一条连接；
  * 消息中心页面复用同一份未读数，避免顶栏与页面各拉一次导致角标不同步。
  *
- * # 三条到达通道（都汇到 `handleFrame` / `pullLatest`）
+ * # 两条到达通道（都汇到 `handleFrame` / `pullLatest`）
  *
- * 1. **SSE 自定义事件**（`event: notice`，`EventSource`）—— 原路径；
- * 2. **`fetch` + `ReadableStream`**（带 `Authorization` 头）—— `EventSource` 连不上时的追加通道。
- *    实测（2026-11-03）：`?token=` 版本恒 `401`（认证层 `NIK_AUTH_QUERY_TOKEN_PATHS` 默认空），
- *    所以这条才是当前**真正能实时收到**的通道；见 `utils/notice-stream.ts` 头注释；
- * 3. **轮询**（30 秒）—— 上面两条都断了时，靠「未读数上涨」判定有新消息，再拉最新 5 条。
+ * 1. **`fetch` + `ReadableStream`**（带 `Authorization` 头）—— 唯一的实时通道。
+ *    浏览器原生 `EventSource` 不能设置请求头，只能退化成 `?token=`，而认证层只对
+ *    `[middleware.auth].query_token_paths` 白名单里的端点采信查询令牌：一旦某个环境
+ *    漏配，`EventSource` 就**每次页面加载都刷一条 `401`**、并自动重连继续刷
+ *    （P1-FIX-6 的根因）。这里改用带头流 —— 它与普通接口走同一套认证，**不依赖**白名单；
+ * 2. **轮询**（30 秒）—— 实时通道断开时，靠「未读数上涨」判定有新消息，再拉最新 5 条。
  *
- * 三条通道可能**同时**送来同一条消息，所以入队前按 `receiver_id` 去重（`seenReceiverIds`）。
+ * 两条通道可能**同时**送来同一条消息，所以入队前按 `receiver_id` 去重（`seenReceiverIds`）。
  */
 export const useNoticeStore = defineStore('notice', () => {
   /** 未读条数（顶栏角标与消息中心共用） */
@@ -54,7 +51,6 @@ export const useNoticeStore = defineStore('notice', () => {
   /** 每入队一条就 +1；浮层 watch 它决定「有新消息 → 弹」 */
   const popupSeq = ref(0);
 
-  let source: EventSource | null = null;
   let pollTimer: number | undefined;
   let streamAbort: AbortController | null = null;
   let streamRetryTimer: number | undefined;
@@ -202,13 +198,6 @@ export const useNoticeStore = defineStore('notice', () => {
     void refreshUnread();
   }
 
-  /** `EventSource` 的事件回调（`MessageEvent` 与自定义事件同形） */
-  function handleMessageEvent(event: MessageEvent<string>): void {
-    handleFrame({ event: 'message', data: event.data });
-  }
-
-  // ===== 通道 2：fetch + ReadableStream（带 Authorization 头） =====
-
   /** 停掉带头流并取消重连定时器 */
   function stopStream(): void {
     if (streamAbort) {
@@ -274,48 +263,29 @@ export const useNoticeStore = defineStore('notice', () => {
   }
 
   /**
-   * 建立实时订阅。
+   * 建立实时订阅（带头流）。
    *
    * 新消息到达时：自增 `refreshToken`（通知页面刷新列表）、入队到 `latestItems`（弹浮层）并重拉未读数。
-   * `EventSource` 出错（令牌失效 / 后端未开 SSE / 代理不支持）时降级为「轮询 + 带头流」。
+   * 断开 / 被拒（令牌失效、代理不支持长连接）时降级为「轮询」，一个轮询间隔后重试。
+   *
+   * # 为什么不再用 `EventSource`
+   *
+   * `EventSource` 不能设置 `Authorization` 头，只能走 `?token=`，而认证层只对白名单端点
+   * 采信查询令牌 —— 漏配时它**每次页面加载都刷一条 401 并自动重连**（P1-FIX-6）。
+   * 带头流与普通接口同一套认证，既不需要白名单，也不会产生这条噪声。
    */
   function connect(): void {
-    if (source) {
+    if (streamRunning || streamAbort) {
       return;
     }
     void refreshUnread();
-    try {
-      source = new EventSource(buildNoticeSseUrl());
-      source.onopen = () => {
-        connected.value = true;
-        stopPolling();
-        stopStream();
-      };
-      // 后端推的是 `event: notice`（自定义事件名），只写 `onmessage` 收不到 —— 必须显式订阅
-      source.addEventListener(SSE_EVENT_NAME, handleMessageEvent);
-      // 兼容「无 event 名」的帧（后端若改成默认事件，这里照样能收到）
-      source.onmessage = handleMessageEvent;
-      source.onerror = () => {
-        connected.value = false;
-        // EventSource 会自动重连，这里只补一条轮询兜底，避免长时间无更新
-        startPolling();
-        // 追加带认证头的流通道（`?token=` 实测 401，见 utils/notice-stream.ts）
-        void startStream();
-      };
-    } catch {
-      connected.value = false;
-      startPolling();
-      void startStream();
-    }
+    // 先挂上轮询兜底：带头流握手成功（`onOpen`）时会被停掉
+    startPolling();
+    void startStream();
   }
 
   /** 断开订阅并清理定时器 */
   function disconnect(): void {
-    if (source) {
-      source.removeEventListener(SSE_EVENT_NAME, handleMessageEvent);
-      source.close();
-      source = null;
-    }
     stopStream();
     connected.value = false;
     stopPolling();

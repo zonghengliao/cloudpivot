@@ -19,7 +19,7 @@ use std::time::Instant;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::api::{Res, codes};
 use crate::middleware as mw;
@@ -1592,15 +1592,27 @@ impl App {
 
                 #[cfg(feature = "cache")]
                 let cache = try_cache().cloned();
-                // [cloudpivot-patch code-10] `?token=` 白名单（逗号分隔、含全局前缀）。
-                // 默认空 = 关闭（fail-closed）：只有显式配置了 SSE 端点的环境才接受查询令牌。
-                let query_token_paths: Vec<String> = std::env::var("NIK_AUTH_QUERY_TOKEN_PATHS")
-                    .unwrap_or_default()
-                    .split(',')
-                    .map(|item| item.trim().to_string())
-                    .filter(|item| !item.is_empty())
-                    .collect();
-                if !query_token_paths.is_empty() {
+                // [cloudpivot-patch code-10] `?token=` 白名单：环境变量（逗号分隔、含前缀）
+                // 优先且完全覆盖配置项 `[middleware.auth].query_token_paths`（相对路径自动
+                // 拼 `[router] prefix`）。解析逻辑只有一份，见
+                // `crate::middleware::auth::resolve_query_token_paths`。
+                let query_token_paths = crate::middleware::auth::resolve_query_token_paths(
+                    &self.prefix,
+                    &cfg.middleware.auth.query_token_paths,
+                );
+                if query_token_paths.is_empty() {
+                    // 首启自检：白名单空 = 浏览器 `EventSource`（无法设置 Authorization 头）
+                    // 的端点在登录后一律 401。不是崩溃级错误（不影响其它接口），但**必须**在
+                    // 启动日志里说清楚症状与两种修法，否则排查成本极高（历史上每页刷一条
+                    // `401 .../notice/stream` 的红字就是这么来的）。
+                    warn!(
+                        env_var = crate::middleware::auth::ENV_QUERY_TOKEN_PATHS,
+                        config_key = "middleware.auth.query_token_paths",
+                        "查询参数令牌白名单为空：浏览器 EventSource 类端点（SSE）将返回 401。\
+                         放行方式二选一：① 配置 [middleware.auth] query_token_paths = [\"/business/notice/stream\"]；\
+                         ② 注入环境变量 NIK_AUTH_QUERY_TOKEN_PATHS=/api/business/notice/stream（含 [router] prefix）"
+                    );
+                } else {
                     info!(
                         "查询参数令牌白名单 endpoints={:?}（仅 EventSource 类端点；令牌不落日志）",
                         query_token_paths

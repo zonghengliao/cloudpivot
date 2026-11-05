@@ -114,15 +114,10 @@ definePageChecks(
 test.describe('工作任务: /task 根路由 + 四视图切换 + 燃尽图自洽', () => {
   test('① /task 根路径重定向到 /task/list，列表真的加载出数据行', async ({ page }) => {
     const bad: string[] = [];
-    const knownSse: string[] = [];
     page.on('response', (r) => {
       if (r.status() >= 400 && r.url().includes('/api/')) {
-        // 已知缺陷：通知 SSE 的 `?token=` 不被后端认证中间件采纳，恒 401（见 34-error-boundary 的留证用例）。
-        // 它不是本页的问题，但不能悄悄忽略 —— 单独记一笔并断言状态确实是 401。
-        if (r.url().includes('/api/business/notice/stream')) {
-          knownSse.push(`${r.status()}`);
-          return;
-        }
+        // 通知实时通道（P1-FIX-6 之前恒 401）现在走带 Authorization 头的 fetch 流，
+        // 与普通接口同一套认证 —— 不再当「已知缺陷」豁免，4xx 一律算本页问题。
         bad.push(`${r.status()} ${r.url()}`);
       }
     });
@@ -133,7 +128,6 @@ test.describe('工作任务: /task 根路由 + 四视图切换 + 燃尽图自洽
     const empty = await page.locator('.t-table__empty, .t-empty').count();
     expect(rows > 0 || empty > 0, `列表应出数据行或空态（rows=${rows} empty=${empty}）`).toBe(true);
     expect(bad, `加载期不该有 4xx/5xx 接口：${bad.join(' | ')}`).toEqual([]);
-    expect(knownSse.every((s) => s === '401'), `通知 SSE 应为已知的 401：${knownSse.join(',')}`).toBe(true);
   });
 
   test('② 四个 Tab 能互相切：列表→看板→甘特→燃尽，URL 与视图 DOM 都对得上', async ({ page }) => {
