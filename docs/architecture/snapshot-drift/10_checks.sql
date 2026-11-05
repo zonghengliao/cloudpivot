@@ -466,6 +466,11 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('STATUS_ENTITY', 'FLOW_EDGE_CFG',     'biz_flow_edge',         NULL,         '状态机边配置（配置行无软删）'),
     ('STATUS_ENTITY', 'FLOW_LINKAGE_CFG',  'biz_flow_linkage_rule', 'deleted_at', '联动规则配置'),
     ('STATUS_ENTITY', 'ACCOUNTING_YEAR',   NULL,                    NULL,         '年结：无实体表，entity_id 存结转凭证 id'),
+    -- FIN-1 / FIN-2 新增的三个 DocKind：`DocKind::ALL` 已包含，登记表必须同步，
+    -- 否则 DI-20 的「状态日志实体悬空」永远看不到预算 / 固资 / 折旧三类对象
+    ('STATUS_ENTITY', 'BUDGET',            'biz_budget',            'deleted_at', '预算单（FIN-1）'),
+    ('STATUS_ENTITY', 'FIXED_ASSET',       'biz_fixed_asset',       'deleted_at', '固定资产卡片（FIN-2）'),
+    ('STATUS_ENTITY', 'DEPRECIATION',      'biz_depreciation_batch', NULL,        '折旧批次（FIN-2：批次行无软删）'),
     -- ⑤ 序列号来源：biz_material_serial.source_type + source_id（P2-6b 补全映射）
     ('SERIAL_SOURCE', 'PURCHASE', 'biz_stock_in',       'deleted_at', '收货过账生成（in_type=PURCHASE），source_id = 收货单 id'),
     ('SERIAL_SOURCE', 'RETURN',   'biz_stock_in',       'deleted_at', '退货入库生成（in_type=RETURN，同一张收货单表），source_id = 收货单 id'),
@@ -477,6 +482,7 @@ SELECT ref_domain, ref_type, target_table, soft_delete_col, note
     ('ATTACHMENT_DOC', 'STOCK_IN',       'biz_stock_in',       'deleted_at', '收货单附件（发票 / 签收单）'),
     ('ATTACHMENT_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付单附件'),
     ('ATTACHMENT_DOC', 'PAYMENT',        'biz_payment',        'deleted_at', '付款单附件'),
+    ('ATTACHMENT_DOC', 'FIXED_ASSET',    'biz_fixed_asset',    'deleted_at', '固定资产卡片附件（FIN-2：处置凭证 / 验收单）'),
     -- ⑦ 业务提醒台账：biz_reminder_log.doc_type + doc_id（P2-6b，取值域 = REMINDER_DOC_KINDS）
     ('REMINDER_DOC', 'PAYABLE',        'biz_payable',        'deleted_at', '应付到期提醒'),
     ('REMINDER_DOC', 'PURCHASE_ORDER', 'biz_purchase_order', 'deleted_at', '采购超期提醒'),
@@ -946,6 +952,17 @@ SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_typ
   JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
   LEFT JOIN biz_payment t ON t.id = a.doc_id
  WHERE a.deleted_at IS NULL AND a.doc_type = 'PAYMENT' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
+-- FIN-2：固定资产卡片附件（登记表已加 ATTACHMENT_DOC.FIXED_ASSET，这里必须有对应分支，
+-- 否则「登记了但不查」= DI-22 绿、DI-23 漏报，比不登记更糟）
+UNION ALL
+SELECT m.ref_domain, 'biz_doc_attachment', a.id, a.id::text, 'doc_id', m.ref_type, a.doc_id,
+       m.target_table, 'DANGLING',
+       CASE WHEN t.id IS NULL THEN 'ROW_MISSING' ELSE 'SOFT_DELETED' END,
+       (m.target_table || '.' || coalesce(m.soft_delete_col, 'id'))::text
+  FROM biz_doc_attachment a
+  JOIN di.v_poly_ref_map m ON m.ref_domain = 'ATTACHMENT_DOC' AND m.ref_type = a.doc_type
+  LEFT JOIN biz_fixed_asset t ON t.id = a.doc_id
+ WHERE a.deleted_at IS NULL AND a.doc_type = 'FIXED_ASSET' AND (t.id IS NULL OR t.deleted_at IS NOT NULL)
 -- ========== ⑦ 业务提醒台账（P2-6b） ==========
 --   `biz_reminder_log` 是幂等台账（只增不改）：单据被删是正常生命周期，
 --   所以这里只报 DANGLING，不加 MISSING_ID（`doc_id` 列 NOT NULL，缺 id 写不进来）。

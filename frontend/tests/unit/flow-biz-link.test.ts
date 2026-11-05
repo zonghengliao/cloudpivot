@@ -54,9 +54,10 @@ function rustFlowBizTypes(): string[] {
   return [...body.matchAll(/FlowBizType::\w+ => "([A-Z_]+)"/g)].map((match) => match[1] ?? '');
 }
 
-test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，13 个）', () => {
+test('后端 FlowBizType 的落库字面量 = 前端 FLOW_BIZ_TYPES（逐字、同序，15 个）', () => {
   const rust = rustFlowBizTypes();
-  assert.equal(rust.length, 13, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
+  // 13 → 15：FIN-1 加 BUDGET_APPROVE、FIN-2 加 ASSET_DISPOSAL（镜像已同步，只有本断言漏改）
+  assert.equal(rust.length, 15, `解析到 ${rust.length} 个字面量：${rust.join(',')}`);
   assert.deepEqual([...FLOW_BIZ_TYPES], rust);
 });
 

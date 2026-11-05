@@ -140,6 +140,7 @@ trap p5_cleanup_on_exit EXIT
 echo "==> 0. 清理上一轮 e2e 残留（先撤审批实例/待办，再删单据；只动 P5-E2E 夹具）"
 e2e_cleanup_transfer_flow "$SCOPE" || bad "上一轮 e2e 残留没清干净（见上一行计数）"
 psql_x "DELETE FROM biz_inventory_txn WHERE warehouse_id IN ('$WH_FROM','$WH_TO')" >/dev/null
+psql_x "DELETE FROM biz_inventory_location WHERE warehouse_id IN ('$WH_FROM','$WH_TO')" >/dev/null
 psql_x "DELETE FROM biz_inventory WHERE warehouse_id IN ('$WH_FROM','$WH_TO')" >/dev/null
 
 # ---------- 0.5 前置硬校验：库里持 SUPER_ADMIN 的账号必须恰好 1 个 ----------
@@ -212,6 +213,14 @@ psql_x "INSERT INTO biz_inventory (id, material_id, warehouse_id, location_id, q
         ON CONFLICT (material_id, warehouse_id,
                      COALESCE(location_id, '00000000-0000-0000-0000-000000000000'::uuid))
         DO UPDATE SET qty = 100, locked_qty = 0, avg_cost = 10, amount = 1000, updated_at = now()" >/dev/null
+# 库位账必须与成本账同步（NIGHT-REGRESSION t_43738265）：
+# 调拨结算会做「库位账 vs 成本账逐仓相等」的不变量校验（transfer_settle.rs §invariant），
+# 早先只造成本账的夹具在这一步 409（66001）整单回滚 —— 不是产品回归，是夹具漏了库位账。
+# 整仓汇总桶 = location_id IS NULL（与 uk_biz_inv_loc 的 NULLS NOT DISTINCT 对应）。
+psql_x "INSERT INTO biz_inventory_location (id, material_id, warehouse_id, location_id, qty, locked_qty, last_txn_at)
+        VALUES (gen_random_uuid(), '$MAT', '$WH_FROM', NULL, 100, 0, now())
+        ON CONFLICT (material_id, warehouse_id, location_id)
+        DO UPDATE SET qty = 100, locked_qty = 0, updated_at = now()" >/dev/null
 assert_num "100" "$(psql_q "SELECT qty FROM biz_inventory WHERE material_id='$MAT' AND warehouse_id='$WH_FROM' AND location_id IS NULL")" \
     "夹具：调出仓 100 件 @10"
 

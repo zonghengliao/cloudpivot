@@ -383,6 +383,116 @@ if ! erp_invariants_gate; then
     exit 1
 fi
 
+# ======================================================================
+# 闸④ 业务类型词表值域（P2-5 / ARCH-3 §5 DC-21）
+#
+# 为什么是硬门禁：词表漂移不会报错 —— 落一个新 `biz_type` 字面量，报表按类型分组就多一行、
+# 巡检按类型 JOIN 就漏一类。唯一真相是 `backend/src/business/shared/doc_kind.rs` 的
+# `COLUMN_DOMAINS`，本闸就是「拿词表去查库」。E2E 残留（`E2E_*` / `D2_SMOKE`）用 --strict 判红。
+#
+# 开关：`BIZ_VOCAB_GATE` = block（默认）/ warn / off
+# ======================================================================
+biz_vocab_gate() {
+    local mode="${BIZ_VOCAB_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸④：业务类型词表（BIZ_VOCAB_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸④：业务类型词表值域（scripts/verify/biz_type_domain.py --strict）"
+    if [ -f /etc/cloudpivot/cloudpivot.env ]; then
+        # shellcheck disable=SC1091
+        set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+    fi
+    if [ -z "${NIK_DATABASE_PASSWORD:-}" ] && [ -z "${PGPASSWORD:-}" ]; then
+        echo "  ⚠ 没有库口令（NIK_DATABASE_PASSWORD / PGPASSWORD 均为空）→ 视作「无 DB 环境」，跳过"
+        return 0
+    fi
+    local log rc
+    log="$(mktemp /tmp/biz_vocab.XXXXXX.log)"
+    python3 "$ROOT/scripts/verify/biz_type_domain.py" --strict > "$log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  ✓ 所有业务类型列的值都在 doc_kind.rs 词表域内"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$rc" -ge 2 ]; then
+        echo "  ⚠ 巡检环境错误（退出码 $rc：连不上库）→ 跳过，不算失败"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有域外值（BIZ_VOCAB_GATE=warn → 不阻断）"
+        grep '✗' "$log" | head -10 || true
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 词表域外值，不许合（改代码或补词表，别在库里留第 9 套词表）：" >&2
+    grep '✗' "$log" | head -10 >&2 || true
+    echo "    完整报告：$log" >&2
+    return 1
+}
+
+# ======================================================================
+# 闸⑤ 快照一致性巡检（B1 / DI-01..DI-26）
+#
+# 为什么是硬门禁：这 26 条查的是「快照字段与真相源漂移」——单据名改了快照没改、
+# 多态引用指向已删单据、结构护栏（约束/唯一索引）被删。它们都不是「会抛异常」的错，
+# 只会在报表/追溯上安静地错。BLOCKER 一条都不许合。
+#
+# `di` 视图缺失（退出码 2）= 本库没执行过 `snapshot_audit.py --install-views`，
+# 属环境未准备，跳过并提示，不阻断。
+# 开关：`SNAPSHOT_AUDIT_GATE` = block（默认）/ warn / off
+# ======================================================================
+snapshot_audit_gate() {
+    local mode="${SNAPSHOT_AUDIT_GATE:-block}"
+    if [ "$mode" = "off" ]; then
+        echo "==> 闸⑤：快照一致性巡检（SNAPSHOT_AUDIT_GATE=off → 跳过）"
+        return 0
+    fi
+    echo "==> 闸⑤：快照一致性巡检（scripts/verify/snapshot_audit.py）"
+    if [ -f /etc/cloudpivot/cloudpivot.env ]; then
+        # shellcheck disable=SC1091
+        set -a; . /etc/cloudpivot/cloudpivot.env; set +a
+    fi
+    if [ -z "${NIK_DATABASE_PASSWORD:-}" ] && [ -z "${PGPASSWORD:-}" ]; then
+        echo "  ⚠ 没有库口令 → 视作「无 DB 环境」，跳过"
+        return 0
+    fi
+    local log rc
+    log="$(mktemp /tmp/snapshot_audit.XXXXXX.log)"
+    python3 "$ROOT/scripts/verify/snapshot_audit.py" > "$log" 2>&1
+    rc=$?
+    if [ "$rc" -eq 0 ]; then
+        echo "  ✓ 快照巡检 BLOCKER 0（$(grep -oE '巡检项 [0-9]+' "$log" | head -1)）"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$rc" -eq 2 ] || [ "$rc" -eq 3 ]; then
+        echo "  ⚠ 巡检未执行（退出码 $rc：di 视图缺失 / 上一轮还在跑）→ 跳过，先跑 --install-views"
+        rm -f "$log"
+        return 0
+    fi
+    if [ "$mode" = "warn" ]; then
+        echo "  ⚠ 有 BLOCKER（SNAPSHOT_AUDIT_GATE=warn → 不阻断）"
+        grep '✗' "$log" | head -10 || true
+        rm -f "$log"
+        return 0
+    fi
+    echo "  ✗ 快照巡检有 BLOCKER，不许合：" >&2
+    grep '✗' "$log" | head -10 >&2 || true
+    echo "    完整报告：$log" >&2
+    return 1
+}
+
+if ! biz_vocab_gate; then
+    exit 1
+fi
+
+if ! snapshot_audit_gate; then
+    exit 1
+fi
+
 # 批次B 的 warn 模式提示保留在最后（C7 门禁是硬门禁，没有 warn 开关）
 if [ "$BATCHB_GATE_WARNED" -gt 0 ]; then
     echo "==> 检查完成：fmt / clippy / check / typecheck 通过；批次B 门禁 $BATCHB_GATE_WARNED 条按告警处理（BATCHB_GATE=warn）"

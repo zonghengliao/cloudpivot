@@ -1,0 +1,66 @@
+[
+  {
+    "name": "chain1-01-contract",
+    "route": "/business/erp/contract",
+    "desc": "合同列表（链路①：合同已签订）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain1-01-contract.png",
+    "rows": 3,
+    "ok": true
+  },
+  {
+    "name": "chain1-02-purchase-order",
+    "route": "/business/erp/purchase-order",
+    "desc": "采购单列表（链路①：合同采购单已审批/已收货）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain1-02-purchase-order.png",
+    "rows": 6,
+    "ok": true
+  },
+  {
+    "name": "chain1-03-stock-in",
+    "route": "/business/erp/stock-in",
+    "desc": "收货单列表（链路①：已过账 / 链路②：已作废）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain1-03-stock-in.png",
+    "rows": 6,
+    "ok": true
+  },
+  {
+    "name": "chain1-04-payable",
+    "route": "/business/erp/payable",
+    "desc": "应付单列表（链路①：已结清）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain1-04-payable.png",
+    "rows": 6,
+    "ok": true
+  },
+  {
+    "name": "chain3-01-stock-out",
+    "route": "/business/erp/stock-out",
+    "desc": "出库单列表（链路③：领用已过账 + 成本结转凭证）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain3-01-stock-out.png",
+    "rows": 5,
+    "ok": true
+  },
+  {
+    "name": "chain4-01-transfer",
+    "route": "/business/erp/transfer",
+    "desc": "调拨单列表（链路④：在途 / 已完成）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain4-01-transfer.png",
+    "rows": 1,
+    "ok": true
+  },
+  {
+    "name": "chain5-01-todo",
+    "route": "/flow/task",
+    "desc": "审批中心待办（链路⑤：金额分级 + 超信用额度分支）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain5-01-todo.png",
+    "rows": 0,
+    "ok": true
+  },
+  {
+    "name": "chain6-00-flow-list",
+    "route": "/flow/def",
+    "desc": "流程定义列表（链路⑥：进入编辑器的入口）",
+    "file": "docs/evidence/20261104-nightreg/shots/list/chain6-00-flow-list.png",
+    "rows": 16,
+    "ok": true
+  }
+]
