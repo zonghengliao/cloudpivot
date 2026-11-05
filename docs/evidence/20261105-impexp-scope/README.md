@@ -56,10 +56,11 @@ ssh root@172.18.10.144 '
 |---|---|---|
 | `prod/01_menu_tree_and_columns.txt` | `psql -f probe_menu_tree.sql`（生产，只读） | 3 页节点；14 个后代按钮码；现状只有 `SUPER_ADMIN` 持有；三张单据表只有 `create_by`、**无 `dept_id`**；行数 14/12/21 |
 | `prod/02_read_vs_full_expansion.txt` | 副本上 `psql -f probe_expand_driver.sql`（`BEGIN…ROLLBACK`） | **A**：3 页 × 3 角色 `mode=READ` 真实展开 → 每个角色 7 个去重码，`create/confirm/delete/retry` 全 0；**B**：`mode=FULL` → 17 个去重码，含 `export:create`+`import:confirm` |
-| `prod/03_content_vs_list_scope.txt` | 副本上 `psql -f probe_content_scope.sql` | 导出 count = 列表 count（14/14、12/12、21/21）；单据 100% 属 HQ；按 TECH 子树过滤应得 0；6 张主数据表 `dept_id` 列数 = 0 |
+| `prod/03_content_vs_list_scope.txt` | 副本上 `psql -f probe_content_scope.sql` | 导出 count = 列表 count（14/14、12/12、21/21）；单据几乎全属 HQ（另有 payable/voucher 各 1 行归属人未落部门）；按 TECH 子树过滤应得 0；6 张主数据表 `dept_id` 列数 = 0 |
 | `prod/04_code_chain_grep.txt` | `grep -n` / `sed -n` | 所有 `file:line` 的原始出处（导出链路、默认实现、唯一 override、登记表、裸 SQL、`SCOPE-EXEMPT`、`ImportCtx`） |
-| `prod/05_prod_http_current.txt` | `bash probe_http_403.sh`（生产，真身份令牌） | `admin` 对照 200/200/200/400(multipart)；`laoliu` / `laoliu_test` / `henry.liao` 四个接口全 **403** |
+| `prod/05_prod_http_current.txt` | `bash probe_http_403.sh`（生产，真身份令牌，**作业前**） | `admin` 对照 200/200/200/400(multipart)；`laoliu` / `laoliu_test` / `henry.liao` 四个接口全 **403** |
 | `prod/06_list_visibility_now.txt` | `bash probe_list_visibility.sh`（生产，真身份令牌） | `laoliu_test`：stock-in 200 total=14、payable 200 total=12、voucher **403**；`admin`：14/12/21 |
+| `prod/07_after_check_closed.txt` | `bash probe_http_403.sh` 再跑一次（**作业后**） | 与 05 逐行一致（全 403）⇒ 本卡作业对生产授权**零净变更** |
 | `probe_menu_tree.sql` | 手写只读 SQL | 证据 01 |
 | `probe_plan_read.sql` / `probe_plan_full.sql` | 手写计划（3 页 × 3 角色，READ / FULL） | 证据 02 的输入；形状与 `scripts/datafix/bizperm/plan.sql` 的 `_plan` 一致 |
 | `probe_expand_driver.sql` | 手写驱动，`\i` 仓库原文 `expand.sql` | 证据 02 |
