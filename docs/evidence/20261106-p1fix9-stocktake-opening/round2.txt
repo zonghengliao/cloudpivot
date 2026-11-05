@@ -1,0 +1,902 @@
+
+### 0.1 登录 admin
+{
+  "user": "admin",
+  "token_head": "eyJ0eXAiOiJKV1QiLCJhbGci..."
+}
+
+### 0.5 主数据
+{
+  "material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+  "warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690",
+  "unit_id": "01a1ac80-e1fe-7641-9866-3a1a2d3795b9"
+}
+
+### ===== ① 期初余额 =====
+（导入/录入 → 建账 → 库存+凭证齐）
+
+### 1.1 录入科目期初（方式A：借 1002 5000 / 贷 3001 5000）
+{
+  "period": "2026-11",
+  "period_status": "OPEN",
+  "state": "ENTERED",
+  "debit_total": "5000.0000",
+  "credit_total": "5000.0000",
+  "combined_debit_total": "6000.0000",
+  "combined_credit_total": "6000.0000",
+  "difference": "0.0000",
+  "balanced": true,
+  "voucher": {
+    "id": "eb4fadc9-52ab-4736-acfe-2ec86f3b3f2f",
+    "voucher_no": "PZ-20261106-000001",
+    "voucher_date": "2026-11-01",
+    "status": "POSTED",
+    "total_debit": "6000.0000",
+    "total_credit": "6000.0000",
+    "entry_count": 4
+  }
+}
+
+### 1.2 录入库存期初（100 个 @ 10 元 = 1000）
+{
+  "period": "2026-11",
+  "state": "ENTERED",
+  "inventory": [
+    {
+      "material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "material_code": "ST9-M-001",
+      "material_name": "验收物料A",
+      "warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690",
+      "warehouse_code": "ST9-WH",
+      "warehouse_name": "P1-FIX-9 验收总仓",
+      "qty": "100.0000",
+      "unit_cost": "10.000000",
+      "amount": "1000.0000"
+    }
+  ],
+  "inventory_amount": "1000.0000",
+  "inventory_debit_account": "1405",
+  "inventory_credit_account": "3103",
+  "combined_debit_total": "6000.0000",
+  "combined_credit_total": "6000.0000",
+  "difference": "0.0000",
+  "balanced": true,
+  "voucher": {
+    "id": "eb4fadc9-52ab-4736-acfe-2ec86f3b3f2f",
+    "voucher_no": "PZ-20261106-000001",
+    "voucher_date": "2026-11-01",
+    "status": "POSTED",
+    "total_debit": "6000.0000",
+    "total_credit": "6000.0000",
+    "entry_count": 4
+  },
+  "hints": [
+    "库存期初 1000.0000 已自动生成「借 1405 / 贷 3103」；方式 A 里不要再单独录这两个科目的期初（会重复计数）"
+  ]
+}
+
+### 1.3 期初总览（再次读取，独立复核）
+{
+  "state": "ENTERED",
+  "debit_total": "5000.0000",
+  "credit_total": "5000.0000",
+  "inventory_amount": "1000.0000",
+  "combined_debit_total": "6000.0000",
+  "combined_credit_total": "6000.0000",
+  "difference": "0.0000",
+  "balanced": true,
+  "entries": [
+    {
+      "account_id": "0c00f7ef-1148-4a7c-a007-2131c159623f",
+      "account_code": "1002",
+      "account_name": "银行存款",
+      "account_category": "ASSET",
+      "debit": "5000.0000",
+      "credit": "0.0000",
+      "remark": null,
+      "source": "MANUAL"
+    },
+    {
+      "account_id": "3750b485-b819-4bc5-840e-ddd6068f0505",
+      "account_code": "3001",
+      "account_name": "实收资本",
+      "account_category": "EQUITY",
+      "debit": "0.0000",
+      "credit": "5000.0000",
+      "remark": null,
+      "source": "MANUAL"
+    }
+  ],
+  "inventory": [
+    {
+      "material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "material_code": "ST9-M-001",
+      "material_name": "验收物料A",
+      "warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690",
+      "warehouse_code": "ST9-WH",
+      "warehouse_name": "P1-FIX-9 验收总仓",
+      "qty": "100.0000",
+      "unit_cost": "10.000000",
+      "amount": "1000.0000"
+    }
+  ],
+  "voucher": {
+    "id": "eb4fadc9-52ab-4736-acfe-2ec86f3b3f2f",
+    "voucher_no": "PZ-20261106-000001",
+    "voucher_date": "2026-11-01",
+    "status": "POSTED",
+    "total_debit": "6000.0000",
+    "total_credit": "6000.0000",
+    "entry_count": 4
+  },
+  "hints": [
+    "库存期初 1000.0000 已自动生成「借 1405 / 贷 3103」；方式 A 里不要再单独录这两个科目的期初（会重复计数）"
+  ]
+}
+
+### [PASS] 期初-合并借贷平衡（借=贷=6000）
+{
+  "combined_debit_total": "6000.0000",
+  "combined_credit_total": "6000.0000",
+  "difference": "0.0000"
+}
+
+### [PASS] 期初-状态 ENTERED
+{
+  "state": "ENTERED"
+}
+
+### 1.4 期初凭证详情
+{
+  "voucher_no": "PZ-20261106-000001",
+  "voucher_type": "OPENING",
+  "status": "POSTED",
+  "period": "2026-11",
+  "total_debit": "6000.0000",
+  "total_credit": "6000.0000",
+  "entries": [
+    {
+      "line": 1,
+      "account": "1002",
+      "account_name": "银行存款",
+      "debit": "5000.0000",
+      "credit": "0.0000",
+      "summary": "银行存款 期初",
+      "aux_material_id": null,
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 2,
+      "account": "3001",
+      "account_name": "实收资本",
+      "debit": "0.0000",
+      "credit": "5000.0000",
+      "summary": "实收资本 期初",
+      "aux_material_id": null,
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 3,
+      "account": "1405",
+      "account_name": "库存商品",
+      "debit": "1000.0000",
+      "credit": "0.0000",
+      "summary": "库存期初",
+      "aux_material_id": null,
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 4,
+      "account": "3103",
+      "account_name": "本年利润",
+      "debit": "0.0000",
+      "credit": "1000.0000",
+      "summary": "库存期初（对方科目）",
+      "aux_material_id": null,
+      "aux_warehouse_id": null
+    }
+  ]
+}
+
+### [PASS] 期初凭证-含 1405 与 3103 且已记账（POSTED）
+{
+  "codes": [
+    "1002",
+    "1405",
+    "3001",
+    "3103"
+  ],
+  "status": "POSTED"
+}
+
+### 1.5 库存（成本账）
+{
+  "material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+  "warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690",
+  "qty": "100.0000",
+  "amount": "1000.0000",
+  "avg_cost": "10.000000"
+}
+
+### 1.6 库存（库位账）
+[
+  {
+    "location_id": null,
+    "qty": "100.0000"
+  }
+]
+
+### 1.7 库存流水
+[
+  {
+    "txn_type": "IN",
+    "biz_type": "STOCK_TAKE_CANCEL",
+    "qty": "8.0000",
+    "amount": "80.0000",
+    "period_code": "2026-11"
+  },
+  {
+    "txn_type": "OUT",
+    "biz_type": "STOCK_TAKE_LOSS",
+    "qty": "8.0000",
+    "amount": "80.0000",
+    "period_code": "2026-11"
+  },
+  {
+    "txn_type": "IN",
+    "biz_type": "OPENING",
+    "qty": "100.0000",
+    "amount": "1000.0000",
+    "period_code": "2026-11"
+  }
+]
+
+### [PASS] 期初-库存三本账齐（成本账 100/1000）
+{
+  "qty": "100.0000",
+  "amount": "1000.0000",
+  "avg_cost": "10.000000"
+}
+
+### [PASS] 期初-流水 OPENING/IN 一条
+[
+  {
+    "txn_type": "IN",
+    "biz_type": "STOCK_TAKE_CANCEL",
+    "qty": "8.0000"
+  },
+  {
+    "txn_type": "OUT",
+    "biz_type": "STOCK_TAKE_LOSS",
+    "qty": "8.0000"
+  },
+  {
+    "txn_type": "IN",
+    "biz_type": "OPENING",
+    "qty": "100.0000"
+  }
+]
+
+### ===== ② 盘点单 =====
+（建单 → 实盘 → 差异 → 审批 → 过账 → 库存调整 → 作废回滚）
+
+### 2.1 建单（全盘，账面数由服务端快照）
+{
+  "id": "01a1ac81-416c-7440-a3d7-e549f52c614c",
+  "take_no": "ST-20261106-000002",
+  "status": "DRAFT",
+  "status_label": "草稿",
+  "take_type": "FULL",
+  "take_date": "2026-11-06",
+  "total_book_qty": "100.0000"
+}
+
+### 2.2 详情：账面快照
+{
+  "take_no": "ST-20261106-000002",
+  "status": "DRAFT",
+  "items": [
+    {
+      "item_id": "01a1ac81-416c-7440-a3d7-e54add8f8907",
+      "line_no": 1,
+      "material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "book_qty": "100.0000",
+      "actual_qty": "100.0000",
+      "diff_qty": "0.0000",
+      "diff_amount": "0.0000",
+      "unit_cost": "10.000000"
+    }
+  ]
+}
+
+### [PASS] 盘点-账面数=库存 100（服务端快照）
+{
+  "book_qty": 100.0
+}
+
+### 2.3 录入实盘数 92
+{
+  "status": "DRAFT",
+  "total_actual_qty": "92.0000",
+  "total_loss_qty": "0.0000",
+  "total_gain_qty": "0.0000",
+  "total_diff_amount": "0.0000",
+  "items": [
+    {
+      "actual_qty": "92.0000",
+      "diff_qty": "-8.0000",
+      "diff_amount": "0.0000",
+      "unit_cost": "10.000000"
+    }
+  ]
+}
+
+### [PASS] 盘点-差异数量 = -8（生成列 actual−book）
+{
+  "diff_qty": "-8.0000",
+  "diff_amount_草稿阶段": "0.0000"
+}
+
+### 2.4 提交审批（DRAFT → PENDING_POST）
+{
+  "http": 200,
+  "ok": true,
+  "resp": "OK"
+}
+
+### [PASS] 盘点-提交审批成功
+OK
+
+### 2.5 提交后详情
+{
+  "status": "PENDING_POST",
+  "approval_instance_id": "01a1ac81-417e-7448-bbc5-646dcedb4f6b"
+}
+
+### 2.6 仓管主管待办
+[
+  {
+    "id": "01a1ac81-4185-760e-8bc5-a5cfcf4f0070",
+    "node_key": "n_wh",
+    "status": "PENDING",
+    "assignee_id": "01a1ac80-d851-731f-9dbf-017255349800"
+  }
+]
+
+### 2.7 审批同意
+{
+  "task_id": "01a1ac81-4185-760e-8bc5-a5cfcf4f0070",
+  "http": 200,
+  "ok": true,
+  "resp": {
+    "instance_id": "01a1ac81-417e-7448-bbc5-646dcedb4f6b",
+    "instance_status": "APPROVED",
+    "node_status": "APPROVED",
+    "done": true,
+    "idempotent": false,
+    "next_nodes": [],
+    "auto_passed_nodes": 0,
+    "approver_count": 1,
+    "approved_count": 1,
+    "rejected_count": 0
+  }
+}
+
+### [PASS] 盘点-审批通过
+OK
+
+### 2.8 审批后详情
+{
+  "status": "PENDING_POST",
+  "approval_instance_id": "01a1ac81-417e-7448-bbc5-646dcedb4f6b"
+}
+
+### 2.9 过账（PENDING_POST → POSTED）
+{
+  "http": 200,
+  "ok": true,
+  "resp": "OK"
+}
+
+### [PASS] 盘点-过账成功
+OK
+
+### 2.10 过账后详情（差异凭证）
+{
+  "status": "POSTED",
+  "voucher_id": "cf57cbbe-329f-47f1-bf94-9ff9fd303a48",
+  "total_diff_amount": "80.0000",
+  "total_gain_amount": "0.0000",
+  "total_loss_amount": "80.0000",
+  "items": [
+    {
+      "book_qty": "100.0000",
+      "actual_qty": "92.0000",
+      "diff_qty": "-8.0000",
+      "diff_amount": "80.0000"
+    }
+  ],
+  "posted_by": "01a1ac80-d070-714b-9d82-5dd7adeef76a",
+  "posted_at": "2026-11-05T16:18:34.859371+00:00"
+}
+
+### [PASS] 盘点-过账后差异金额 = 80（盘亏）
+{
+  "total_loss_amount": "80.0000",
+  "item_diff_amount": "80.0000"
+}
+
+### 2.11 过账后库存调整
+{
+  "inventory": {
+    "qty": "92.0000",
+    "amount": "920.0000",
+    "avg_cost": "10.000000"
+  },
+  "txns": [
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "doc_no": "ST-20261106-000002",
+      "qty": "8.0000",
+      "amount": "80.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "doc_no": "ST-20261106-000001",
+      "qty": "8.0000",
+      "amount": "80.0000"
+    },
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "doc_no": "ST-20261106-000001",
+      "qty": "8.0000",
+      "amount": "80.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "OPENING",
+      "doc_no": "OPENING-2026-11",
+      "qty": "100.0000",
+      "amount": "1000.0000"
+    }
+  ]
+}
+
+### [PASS] 盘点-库存已调整 100 → 92（成本账）
+{
+  "qty": "92.0000",
+  "amount": "920.0000"
+}
+
+### [PASS] 盘点-出库流水 8 存在
+[
+  {
+    "txn_type": "OUT",
+    "biz_type": "STOCK_TAKE_LOSS",
+    "qty": "8.0000"
+  },
+  {
+    "txn_type": "IN",
+    "biz_type": "STOCK_TAKE_CANCEL",
+    "qty": "8.0000"
+  },
+  {
+    "txn_type": "OUT",
+    "biz_type": "STOCK_TAKE_LOSS",
+    "qty": "8.0000"
+  },
+  {
+    "txn_type": "IN",
+    "biz_type": "OPENING",
+    "qty": "100.0000"
+  }
+]
+
+### 2.12 盘点差异凭证
+{
+  "voucher_no": "PZ-20261106-000003",
+  "status": "POSTED",
+  "period": "2026-11",
+  "total_debit": "80.0000",
+  "total_credit": "80.0000",
+  "entries": [
+    {
+      "line": 1,
+      "account": "1901",
+      "account_name": "待处理财产损溢",
+      "debit": "80.0000",
+      "credit": "0.0000",
+      "summary": "盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 2,
+      "account": "1405",
+      "account_name": "库存商品",
+      "debit": "0.0000",
+      "credit": "80.0000",
+      "summary": "盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690"
+    }
+  ]
+}
+
+### [PASS] 盘点-差异凭证 借1901 80 / 贷1405 80 且 POSTED
+{
+  "codes": [
+    "1405",
+    "1901"
+  ],
+  "status": "POSTED",
+  "借1901_80": true,
+  "贷1405_80": true
+}
+
+### 2.13 作废（POSTED → CANCELLED，必填原因）
+{
+  "http": 200,
+  "ok": true,
+  "resp": "OK"
+}
+
+### [PASS] 盘点-作废成功
+OK
+
+### 2.14 作废后回滚结果
+{
+  "status": "CANCELLED",
+  "reverse_voucher_id": "46abfd0d-6b31-46f4-a3bb-d15131720409",
+  "inventory": {
+    "qty": "100.0000",
+    "amount": "1000.0000",
+    "avg_cost": "10.000000"
+  },
+  "txn_count": 5,
+  "txns": [
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "doc_no": "ST-20261106-000002",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "doc_no": "ST-20261106-000002",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "doc_no": "ST-20261106-000001",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "doc_no": "ST-20261106-000001",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "OPENING",
+      "doc_no": "OPENING-2026-11",
+      "qty": "100.0000"
+    }
+  ]
+}
+
+### [PASS] 盘点-作废回滚：库存回到 100
+{
+  "qty": "100.0000",
+  "amount": "1000.0000"
+}
+
+### [PASS] 盘点-红冲凭证已生成
+{
+  "reverse_voucher_id": "46abfd0d-6b31-46f4-a3bb-d15131720409"
+}
+
+### 2.15 红冲凭证
+{
+  "voucher_no": "PZR-20261106-000002",
+  "status": "POSTED",
+  "total_debit": "80.0000",
+  "total_credit": "80.0000",
+  "entries": [
+    {
+      "line": 1,
+      "account": "1901",
+      "account_name": "待处理财产损溢",
+      "debit": "0.0000",
+      "credit": "80.0000",
+      "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 2,
+      "account": "1405",
+      "account_name": "库存商品",
+      "debit": "80.0000",
+      "credit": "0.0000",
+      "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690"
+    }
+  ]
+}
+
+### [PASS] 盘点-红冲凭证方向相反（贷1901 80 / 借1405 80）
+{
+  "entries": [
+    {
+      "line": 1,
+      "account": "1901",
+      "account_name": "待处理财产损溢",
+      "debit": "0.0000",
+      "credit": "80.0000",
+      "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": null
+    },
+    {
+      "line": 2,
+      "account": "1405",
+      "account_name": "库存商品",
+      "debit": "80.0000",
+      "credit": "0.0000",
+      "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+      "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+      "aux_warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690"
+    }
+  ]
+}
+
+### 2.16 盘点单列表（列表接口复核）
+{
+  "total": 2,
+  "rows": [
+    {
+      "take_no": "ST-20261106-000002",
+      "status": "CANCELLED",
+      "status_label": "已作废",
+      "total_diff_amount": "80.0000",
+      "voucher_id": "cf57cbbe-329f-47f1-bf94-9ff9fd303a48"
+    },
+    {
+      "take_no": "ST-20261106-000001",
+      "status": "CANCELLED",
+      "status_label": "已作废",
+      "total_diff_amount": "80.0000",
+      "voucher_id": "bee60b30-49fa-42c5-922a-098a1ccd7c0a"
+    }
+  ]
+}
+
+### [PASS] 盘点-列表可见本单
+{
+  "total": 2
+}
+
+### ===== 结论 =====
+{
+  "round": "2",
+  "checks": {
+    "期初-合并借贷平衡（借=贷=6000）": true,
+    "期初-状态 ENTERED": true,
+    "期初凭证-含 1405 与 3103 且已记账（POSTED）": true,
+    "期初-库存三本账齐（成本账 100/1000）": true,
+    "期初-流水 OPENING/IN 一条": true,
+    "盘点-账面数=库存 100（服务端快照）": true,
+    "盘点-差异数量 = -8（生成列 actual−book）": true,
+    "盘点-提交审批成功": true,
+    "盘点-审批通过": true,
+    "盘点-过账成功": true,
+    "盘点-过账后差异金额 = 80（盘亏）": true,
+    "盘点-库存已调整 100 → 92（成本账）": true,
+    "盘点-出库流水 8 存在": true,
+    "盘点-差异凭证 借1901 80 / 贷1405 80 且 POSTED": true,
+    "盘点-作废成功": true,
+    "盘点-作废回滚：库存回到 100": true,
+    "盘点-红冲凭证已生成": true,
+    "盘点-红冲凭证方向相反（贷1901 80 / 借1405 80）": true,
+    "盘点-列表可见本单": true
+  },
+  "fails": [],
+  "take_no": "ST-20261106-000002",
+  "take_id": "01a1ac81-416c-7440-a3d7-e549f52c614c"
+}
+
+## VERDICT
+{
+  "round": "2",
+  "checks": {
+    "期初-合并借贷平衡（借=贷=6000）": {
+      "pass": true,
+      "detail": {
+        "combined_debit_total": "6000.0000",
+        "combined_credit_total": "6000.0000",
+        "difference": "0.0000"
+      }
+    },
+    "期初-状态 ENTERED": {
+      "pass": true,
+      "detail": {
+        "state": "ENTERED"
+      }
+    },
+    "期初凭证-含 1405 与 3103 且已记账（POSTED）": {
+      "pass": true,
+      "detail": {
+        "codes": [
+          "1002",
+          "1405",
+          "3001",
+          "3103"
+        ],
+        "status": "POSTED"
+      }
+    },
+    "期初-库存三本账齐（成本账 100/1000）": {
+      "pass": true,
+      "detail": {
+        "qty": "100.0000",
+        "amount": "1000.0000",
+        "avg_cost": "10.000000"
+      }
+    },
+    "期初-流水 OPENING/IN 一条": {
+      "pass": true,
+      "detail": [
+        {
+          "txn_type": "IN",
+          "biz_type": "STOCK_TAKE_CANCEL",
+          "qty": "8.0000"
+        },
+        {
+          "txn_type": "OUT",
+          "biz_type": "STOCK_TAKE_LOSS",
+          "qty": "8.0000"
+        },
+        {
+          "txn_type": "IN",
+          "biz_type": "OPENING",
+          "qty": "100.0000"
+        }
+      ]
+    },
+    "盘点-账面数=库存 100（服务端快照）": {
+      "pass": true,
+      "detail": {
+        "book_qty": 100.0
+      }
+    },
+    "盘点-差异数量 = -8（生成列 actual−book）": {
+      "pass": true,
+      "detail": {
+        "diff_qty": "-8.0000",
+        "diff_amount_草稿阶段": "0.0000"
+      }
+    },
+    "盘点-提交审批成功": {
+      "pass": true,
+      "detail": "OK"
+    },
+    "盘点-审批通过": {
+      "pass": true,
+      "detail": "OK"
+    },
+    "盘点-过账成功": {
+      "pass": true,
+      "detail": "OK"
+    },
+    "盘点-过账后差异金额 = 80（盘亏）": {
+      "pass": true,
+      "detail": {
+        "total_loss_amount": "80.0000",
+        "item_diff_amount": "80.0000"
+      }
+    },
+    "盘点-库存已调整 100 → 92（成本账）": {
+      "pass": true,
+      "detail": {
+        "qty": "92.0000",
+        "amount": "920.0000"
+      }
+    },
+    "盘点-出库流水 8 存在": {
+      "pass": true,
+      "detail": [
+        {
+          "txn_type": "OUT",
+          "biz_type": "STOCK_TAKE_LOSS",
+          "qty": "8.0000"
+        },
+        {
+          "txn_type": "IN",
+          "biz_type": "STOCK_TAKE_CANCEL",
+          "qty": "8.0000"
+        },
+        {
+          "txn_type": "OUT",
+          "biz_type": "STOCK_TAKE_LOSS",
+          "qty": "8.0000"
+        },
+        {
+          "txn_type": "IN",
+          "biz_type": "OPENING",
+          "qty": "100.0000"
+        }
+      ]
+    },
+    "盘点-差异凭证 借1901 80 / 贷1405 80 且 POSTED": {
+      "pass": true,
+      "detail": {
+        "codes": [
+          "1405",
+          "1901"
+        ],
+        "status": "POSTED",
+        "借1901_80": true,
+        "贷1405_80": true
+      }
+    },
+    "盘点-作废成功": {
+      "pass": true,
+      "detail": "OK"
+    },
+    "盘点-作废回滚：库存回到 100": {
+      "pass": true,
+      "detail": {
+        "qty": "100.0000",
+        "amount": "1000.0000"
+      }
+    },
+    "盘点-红冲凭证已生成": {
+      "pass": true,
+      "detail": {
+        "reverse_voucher_id": "46abfd0d-6b31-46f4-a3bb-d15131720409"
+      }
+    },
+    "盘点-红冲凭证方向相反（贷1901 80 / 借1405 80）": {
+      "pass": true,
+      "detail": {
+        "entries": [
+          {
+            "line": 1,
+            "account": "1901",
+            "account_name": "待处理财产损溢",
+            "debit": "0.0000",
+            "credit": "80.0000",
+            "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+            "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+            "aux_warehouse_id": null
+          },
+          {
+            "line": 2,
+            "account": "1405",
+            "account_name": "库存商品",
+            "debit": "80.0000",
+            "credit": "0.0000",
+            "summary": "红冲（P1-FIX-9 验收：作废回滚验证 R2）盘点盘亏 ST-20261106-000002 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 80.0000",
+            "aux_material_id": "01a1ac80-e211-719c-9be9-28b19642248b",
+            "aux_warehouse_id": "01a1ac80-e206-724e-95e1-0a989ff21690"
+          }
+        ]
+      }
+    },
+    "盘点-列表可见本单": {
+      "pass": true,
+      "detail": {
+        "total": 2
+      }
+    }
+  },
+  "fails": []
+}

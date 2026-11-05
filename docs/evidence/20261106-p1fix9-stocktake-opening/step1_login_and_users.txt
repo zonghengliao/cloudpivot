@@ -1,0 +1,145 @@
+### 1) admin 首登改密
+{
+  "http": 200,
+  "ok": true,
+  "resp": "OK"
+}
+### 2) admin 用新口令登录
+{
+  "must_change_password": false,
+  "user": {
+    "id": "01a1ac80-d070-714b-9d82-5dd7adeef76a",
+    "username": "admin",
+    "real_name": "超级管理员"
+  }
+}
+### 3) 角色清单（截取）
+[
+  {
+    "role_code": "SUPER_ADMIN",
+    "id": "c9bfc034-8d19-48bb-b652-6e748131f64e",
+    "role_name": "超级管理员"
+  },
+  {
+    "role_code": "DEPT_LEADER",
+    "id": "20000000-0000-4000-8000-0000000f0001",
+    "role_name": "部门主管"
+  },
+  {
+    "role_code": "PURCHASE_MANAGER",
+    "id": "20000000-0000-4000-8000-0000000f0002",
+    "role_name": "采购经理"
+  },
+  {
+    "role_code": "GENERAL_MANAGER",
+    "id": "20000000-0000-4000-8000-0000000f0003",
+    "role_name": "总经理"
+  },
+  {
+    "role_code": "WAREHOUSE_MANAGER",
+    "id": "20000000-0000-4000-8000-0000000f0004",
+    "role_name": "仓管主管"
+  },
+  {
+    "role_code": "FLOW_CONFIG_APPROVER",
+    "id": "20000000-0000-4000-8000-0000000f0015",
+    "role_name": "流程配置复核员"
+  },
+  {
+    "role_code": "FINANCE_MANAGER",
+    "id": "20000000-0000-4000-8000-0000000f0005",
+    "role_name": "财务经理"
+  },
+  {
+    "role_code": "FINANCE_DIRECTOR",
+    "id": "20000000-0000-4000-8000-0000000f0006",
+    "role_name": "财务总监"
+  }
+]
+### 4) WAREHOUSE_MANAGER
+[
+  {
+    "id": "20000000-0000-4000-8000-0000000f0004",
+    "role_code": "WAREHOUSE_MANAGER",
+    "role_name": "仓管主管",
+    "description": "收货过账审批（≥ 1000）+ 小额免审知会",
+    "status": 1,
+    "data_scope": 3,
+    "sort_order": 13,
+    "remark": "P-FLOW-3A 预置审批角色",
+    "created_at": "2026-11-05T16:18:04.368446Z"
+  }
+]
+### 5) 期间（2026 年）
+[
+  {
+    "period": "2026-12",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-11",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-10",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-09",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-08",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-07",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-06",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-05",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-04",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-03",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-02",
+    "status": "OPEN"
+  },
+  {
+    "period": "2026-01",
+    "status": "OPEN"
+  }
+]
+### 6) 建审批用户 st_wh
+{
+  "id": "01a1ac80-d851-731f-9dbf-017255349800",
+  "username": "st_wh",
+  "real_name": "盘点仓管主管",
+  "email": "",
+  "mobile": "",
+  "dept_id": null,
+  "dept_name": "",
+  "status": 1,
+  "is_locked": false,
+  "last_login_at": null,
+  "created_at": "2026-11-05T16:18:07.893201455Z",
+  "user_type": "HUMAN",
+  "roles": [
+    {
+      "role_id": "20000000-0000-4000-8000-0000000f0004",
+      "role_code": "WAREHOUSE_MANAGER",
+      "role_name": "仓管主管"
+    }
+  ]
+}

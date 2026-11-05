@@ -1,0 +1,58 @@
+== ① 库存（成本账）==
+ material_code | warehouse_code |   qty    |  amount   | avg_cost  
+---------------+----------------+----------+-----------+-----------
+ ST9-M-001     | ST9-WH         | 100.0000 | 1000.0000 | 10.000000
+(1 row)
+
+== ② 库位账合计 ==
+ loc_qty  
+----------
+ 100.0000
+(1 row)
+
+== ③ 流水净额（全部 biz_type）==
+ txn_net  |                         biz_types                         
+----------+-----------------------------------------------------------
+ 100.0000 | OPENING,STOCK_TAKE_CANCEL,STOCK_TAKE_GAIN,STOCK_TAKE_LOSS
+(1 row)
+
+== ④ 总账 1405 / 1901 余额（只认 POSTED 且非红冲在途）==
+ account_code |  account_name  |   debit   |  credit   |  balance   
+--------------+----------------+-----------+-----------+------------
+ 1002         | 银行存款       | 5000.0000 | 0.0000    | 5000.0000
+ 1405         | 库存商品       | 1210.0000 | 210.0000  | 1000.0000
+ 1901         | 待处理财产损溢 | 210.0000  | 210.0000  | 0.0000
+ 3001         | 实收资本       | 0.0000    | 5000.0000 | -5000.0000
+ 3103         | 本年利润       | 0.0000    | 1000.0000 | -1000.0000
+(5 rows)
+
+== ⑤ 本库全部 inventory_txn 的 biz_type 分布 ==
+     biz_type      | txn_type | rows |   qty    
+-------------------+----------+------+----------
+ OPENING           | IN       |    1 | 100.0000
+ STOCK_TAKE_CANCEL | IN       |    2 | 16.0000
+ STOCK_TAKE_CANCEL | OUT      |    1 | 5.0000
+ STOCK_TAKE_GAIN   | IN       |    1 | 5.0000
+ STOCK_TAKE_LOSS   | OUT      |    2 | 16.0000
+(5 rows)
+
+== ⑥ 盘点单 / 凭证一览 ==
+      take_no       |  status   | take_type | total_book_qty | total_actual_qty | total_gain_amount | total_loss_amount |              voucher_id              |          reverse_voucher_id          |         approval_instance_id         
+--------------------+-----------+-----------+----------------+------------------+-------------------+-------------------+--------------------------------------+--------------------------------------+--------------------------------------
+ ST-20261106-000001 | CANCELLED | FULL      | 100.0000       | 92.0000          | 0.0000            | 80.0000           | bee60b30-49fa-42c5-922a-098a1ccd7c0a | 78fd704a-757c-4e19-8fd6-ff982b95c042 | 01a1ac80-e255-77ec-9b53-cfac044fc797
+ ST-20261106-000002 | CANCELLED | FULL      | 100.0000       | 92.0000          | 0.0000            | 80.0000           | cf57cbbe-329f-47f1-bf94-9ff9fd303a48 | 46abfd0d-6b31-46f4-a3bb-d15131720409 | 01a1ac81-417e-7448-bbc5-646dcedb4f6b
+ ST-20261106-000003 | CANCELLED | FULL      | 100.0000       | 105.0000         | 50.0000           | 0.0000            | be7f457a-c7e1-4fec-aa8f-3a7fb99a0278 | cc5ffc1a-9852-4599-9ff9-c7ce4135575c | 01a1ac81-76e5-73e0-8aca-0653de0d4346
+ ST-20261106-000004 | DRAFT     | PARTIAL   | 100.0000       | 100.0000         | 0.0000            | 0.0000            |                                      |                                      | 
+(4 rows)
+
+     voucher_no      | voucher_type | status | period  | total_debit | total_credit | is_red | source_type |              reverse_of              
+---------------------+--------------+--------+---------+-------------+--------------+--------+-------------+--------------------------------------
+ PZ-20261106-000001  | OPENING      | POSTED | 2026-11 | 6000.0000   | 6000.0000    |      0 | OPENING     | 
+ PZ-20261106-000002  | AUTO         | POSTED | 2026-11 | 80.0000     | 80.0000      |      0 | STOCK_TAKE  | 
+ PZ-20261106-000003  | AUTO         | POSTED | 2026-11 | 80.0000     | 80.0000      |      0 | STOCK_TAKE  | 
+ PZ-20261106-000004  | AUTO         | POSTED | 2026-11 | 50.0000     | 50.0000      |      0 | STOCK_TAKE  | 
+ PZR-20261106-000001 | AUTO         | POSTED | 2026-11 | 80.0000     | 80.0000      |      1 | STOCK_TAKE  | bee60b30-49fa-42c5-922a-098a1ccd7c0a
+ PZR-20261106-000002 | AUTO         | POSTED | 2026-11 | 80.0000     | 80.0000      |      1 | STOCK_TAKE  | cf57cbbe-329f-47f1-bf94-9ff9fd303a48
+ PZR-20261106-000003 | AUTO         | POSTED | 2026-11 | 50.0000     | 50.0000      |      1 | STOCK_TAKE  | be7f457a-c7e1-4fec-aa8f-3a7fb99a0278
+(7 rows)
+

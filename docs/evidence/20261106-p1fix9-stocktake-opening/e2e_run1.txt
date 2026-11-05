@@ -1,0 +1,256 @@
+
+### [PASS] admin 真机登录成功
+http://127.0.0.1:15190/dashboard
+
+### 期初页默认期间
+
+
+### 期初页（按科目录入）
+{
+  "stateText": "期初已录",
+  "debitTotal": "5,000.00",
+  "creditTotal": "5,000.00",
+  "voucherInfo": "PZ-20261106-000001 · 2026-11-01 · 4 条分录 · 借 6,000.00"
+}
+
+### 截图 01-opening-account-tab
+/root/st9-run/shots/01-opening-account-tab.png
+
+### [PASS] 期初页显示已录状态 + 凭证信息
+{
+  "stateText": "期初已录",
+  "voucherInfo": "PZ-20261106-000001 · 2026-11-01 · 4 条分录 · 借 6,000.00"
+}
+
+### 期初页（库存期初）
+{
+  "invTotal": "1,000.00",
+  "invQty": "100"
+}
+
+### 截图 02-opening-inventory-tab
+/root/st9-run/shots/02-opening-inventory-tab.png
+
+### [PASS] 库存期初页显示 100 / 1,000.00
+{
+  "invQty": "100",
+  "invTotal": "1,000.00"
+}
+
+### 截图 03-balance-sheet-after-opening
+/root/st9-run/shots/03-balance-sheet-after-opening.png
+
+### [PASS] 资产负债表含存货 1,000.00 / 资产总计 6,000.00
+{
+  "hasInventory": true,
+  "has1000": true
+}
+
+### 截图 04-stocktake-list
+/root/st9-run/shots/04-stocktake-list.png
+
+### 盘点列表
+共 3 条
+
+### 截图 05-stocktake-create-drawer
+/root/st9-run/shots/05-stocktake-create-drawer.png
+
+### UI 建单结果
+{
+  "detailTakeNo": "ST-20261106-000006",
+  "listRows": [
+    "ST-20261106-000006",
+    "ST-20261106-000003",
+    "ST-20261106-000002",
+    "ST-20261106-000001"
+  ]
+}
+
+### [PASS] UI 建单成功（详情抽屉出现新单号 ST-）
+{
+  "takeNo": "ST-20261106-000006"
+}
+
+### 截图 06-stocktake-detail-draft
+/root/st9-run/shots/06-stocktake-detail-draft.png
+
+### 详情（草稿）
+{
+  "takeNo": "ST-20261106-000006",
+  "bookQty": "100"
+}
+
+### [PASS] 详情账面数 = 100（服务端快照）
+{
+  "bookQty": "100"
+}
+
+### 截图 07-stocktake-actual-diff
+/root/st9-run/shots/07-stocktake-actual-diff.png
+
+### 录入实盘 90 后
+{
+  "diffText": "过账后才有值",
+  "diffQty": "-10"
+}
+
+### [PASS] 差异行显示 -10
+{
+  "diffQty": "-10"
+}
+
+### 截图 08-stocktake-pending-post
+/root/st9-run/shots/08-stocktake-pending-post.png
+
+### 提交审批后
+{
+  "statusAfterSubmit": "待过账"
+}
+
+### [PASS] 提交后状态 = 待过账
+{
+  "statusAfterSubmit": "待过账"
+}
+
+### 仓管主管审批（引擎接口）
+{
+  "task_id": "01a1ac85-d3ae-7749-9b1d-215d9ae7022a",
+  "resp": {
+    "code": 0,
+    "msg": "ok",
+    "data": {
+      "instance_id": "01a1ac85-d3a6-773e-9487-7c6a1cd1110e",
+      "instance_status": "APPROVED",
+      "node_status": "APPROVED",
+      "done": true,
+      "idempotent": false,
+      "next_nodes": [],
+      "auto_passed_nodes": 0,
+      "approver_count": 1,
+      "approved_count": 1,
+      "rejected_count": 0
+    }
+  }
+}
+
+### [PASS] 审批接口返回成功
+{
+  "code": 0,
+  "msg": "ok",
+  "data": {
+    "instance_id": "01a1ac85-d3a6-773e-9487-7c6a1cd1110e",
+    "instance_status": "APPROVED",
+    "node_status": "APPROVED",
+    "done": true,
+    "idempotent": false,
+    "next_nodes": [],
+    "auto_passed_nodes": 0,
+    "approver_count": 1,
+    "approved_count": 1,
+    "rejected_count": 0
+  }
+}
+
+### 截图 09-stocktake-posted
+/root/st9-run/shots/09-stocktake-posted.png
+
+### 过账后详情
+{
+  "statusAfterPost": "已过账",
+  "voucherText": "c8d29e13…"
+}
+
+### [FAIL] 过账后状态 = 已过账 且有差异凭证号
+{
+  "statusAfterPost": "已过账",
+  "voucherText": "c8d29e13…"
+}
+
+### 截图 10-inventory-after-post
+/root/st9-run/shots/10-inventory-after-post.png
+
+### [PASS] 库存页可见 ST9-M-001 且数量 90
+{}
+
+### 截图 11-stocktake-cancelled
+/root/st9-run/shots/11-stocktake-cancelled.png
+
+### 作废后状态
+{
+  "statusAfterCancel": "已作废"
+}
+
+### [PASS] 作废后状态 = 已作废
+{
+  "statusAfterCancel": "已作废"
+}
+
+### 截图 12-inventory-after-cancel
+/root/st9-run/shots/12-inventory-after-cancel.png
+
+### [PASS] 作废回滚后库存页回到 100
+{}
+
+### ===== e2e 结论 =====
+{
+  "total": 13,
+  "fails": [
+    "过账后状态 = 已过账 且有差异凭证号"
+  ]
+}
+
+## VERDICT
+[
+  {
+    "name": "admin 真机登录成功",
+    "pass": true
+  },
+  {
+    "name": "期初页显示已录状态 + 凭证信息",
+    "pass": true
+  },
+  {
+    "name": "库存期初页显示 100 / 1,000.00",
+    "pass": true
+  },
+  {
+    "name": "资产负债表含存货 1,000.00 / 资产总计 6,000.00",
+    "pass": true
+  },
+  {
+    "name": "UI 建单成功（详情抽屉出现新单号 ST-）",
+    "pass": true
+  },
+  {
+    "name": "详情账面数 = 100（服务端快照）",
+    "pass": true
+  },
+  {
+    "name": "差异行显示 -10",
+    "pass": true
+  },
+  {
+    "name": "提交后状态 = 待过账",
+    "pass": true
+  },
+  {
+    "name": "审批接口返回成功",
+    "pass": true
+  },
+  {
+    "name": "过账后状态 = 已过账 且有差异凭证号",
+    "pass": false
+  },
+  {
+    "name": "库存页可见 ST9-M-001 且数量 90",
+    "pass": true
+  },
+  {
+    "name": "作废后状态 = 已作废",
+    "pass": true
+  },
+  {
+    "name": "作废回滚后库存页回到 100",
+    "pass": true
+  }
+]

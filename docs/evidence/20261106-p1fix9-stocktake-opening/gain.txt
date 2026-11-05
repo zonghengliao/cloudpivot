@@ -1,0 +1,182 @@
+
+### G1 建单
+{
+  "take_no": "ST-20261106-000003",
+  "total_book_qty": "100.0000"
+}
+
+### G2 录入实盘 105（盘盈 5）
+{
+  "diff_qty": "5.0000",
+  "unit_cost": "10.000000"
+}
+
+### [PASS] 盘盈-差异数量 +5
+{
+  "diff_qty": "5.0000"
+}
+
+### [PASS] 盘盈-提交审批
+OK
+
+### G3 待办
+[
+  {
+    "id": "01a1ac81-76eb-74c8-8f7d-11990d5a41c7",
+    "node": null
+  }
+]
+
+### [PASS] 盘盈-审批通过
+{
+  "instance_id": "01a1ac81-76e5-73e0-8aca-0653de0d4346",
+  "instance_status": "APPROVED",
+  "node_status": "APPROVED",
+  "done": true,
+  "idempotent": false,
+  "next_nodes": [],
+  "auto_passed_nodes": 0,
+  "approver_count": 1,
+  "approved_count": 1,
+  "rejected_count": 0
+}
+
+### [PASS] 盘盈-过账
+OK
+
+### G4 过账后
+{
+  "status": "POSTED",
+  "total_gain_amount": "50.0000",
+  "inventory": {
+    "qty": "105.0000",
+    "amount": "1050.0000",
+    "avg_cost": "10.000000"
+  },
+  "voucher_id": "be7f457a-c7e1-4fec-aa8f-3a7fb99a0278"
+}
+
+### [PASS] 盘盈-库存 100→105/金额 1050
+{
+  "qty": "105.0000",
+  "amount": "1050.0000"
+}
+
+### G5 盘盈差异凭证
+{
+  "voucher_no": "PZ-20261106-000004",
+  "status": "POSTED",
+  "entries": [
+    {
+      "line": 1,
+      "account": "1405",
+      "debit": "50.0000",
+      "credit": "0.0000",
+      "summary": "盘点盘盈 ST-20261106-000003 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 50.0000"
+    },
+    {
+      "line": 2,
+      "account": "1901",
+      "debit": "0.0000",
+      "credit": "50.0000",
+      "summary": "盘点盘盈 ST-20261106-000003 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 50.0000"
+    }
+  ]
+}
+
+### [PASS] 盘盈-借1405 50 / 贷1901 50
+{
+  "entries": [
+    {
+      "line": 1,
+      "account": "1405",
+      "debit": "50.0000",
+      "credit": "0.0000",
+      "summary": "盘点盘盈 ST-20261106-000003 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 50.0000"
+    },
+    {
+      "line": 2,
+      "account": "1901",
+      "debit": "0.0000",
+      "credit": "50.0000",
+      "summary": "盘点盘盈 ST-20261106-000003 第 1 行：物料 01a1ac80-e211-719c-9be9-28b19642248b 差异金额 50.0000"
+    }
+  ]
+}
+
+### [PASS] 盘盈-作废
+OK
+
+### G6 作废后回滚
+{
+  "status": "CANCELLED",
+  "reverse_voucher_id": "cc5ffc1a-9852-4599-9ff9-c7ce4135575c",
+  "inventory": {
+    "qty": "100.0000",
+    "amount": "1000.0000"
+  },
+  "txns": [
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "qty": "5.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_GAIN",
+      "qty": "5.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "STOCK_TAKE_CANCEL",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "OUT",
+      "biz_type": "STOCK_TAKE_LOSS",
+      "qty": "8.0000"
+    },
+    {
+      "txn_type": "IN",
+      "biz_type": "OPENING",
+      "qty": "100.0000"
+    }
+  ]
+}
+
+### [PASS] 盘盈-作废回滚：库存回 100 / 1000
+{
+  "qty": "100.0000",
+  "amount": "1000.0000"
+}
+
+### [PASS] 盘盈-红冲凭证已生成
+{
+  "reverse_voucher_id": "cc5ffc1a-9852-4599-9ff9-c7ce4135575c"
+}
+
+### ===== 结论 =====
+{
+  "checks": {
+    "盘盈-差异数量 +5": true,
+    "盘盈-提交审批": true,
+    "盘盈-审批通过": true,
+    "盘盈-过账": true,
+    "盘盈-库存 100→105/金额 1050": true,
+    "盘盈-借1405 50 / 贷1901 50": true,
+    "盘盈-作废": true,
+    "盘盈-作废回滚：库存回 100 / 1000": true,
+    "盘盈-红冲凭证已生成": true
+  },
+  "fails": []
+}
