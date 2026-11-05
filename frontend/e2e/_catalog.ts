@@ -109,7 +109,7 @@ const raw: PageSpec[] = [
   { key: '采购订单', path: '/business/erp/purchase-order', kind: 'list', listApi: '/api/business/erp/purchase-order/page', legacyPath: '/business/erp/purchase' },
   { key: '收货入库', path: '/business/erp/stock-in', kind: 'list', listApi: '/api/business/erp/stock-in/page', legacyPath: '/business/erp/stockin' },
   { key: '应付单', path: '/business/erp/payable', kind: 'list', listApi: '/api/business/erp/payable/page' },
-  { key: '记账凭证', path: '/business/erp/voucher', kind: 'list', listApi: '/api/business/erp/voucher/page', knownBug: { checks: ['⑥'], reason: '新增凭证弹窗空提交后未观察到任何必填校验文案（按钮「保存并记账」），需要人工复核是否漏了必填校验' } },
+  { key: '记账凭证', path: '/business/erp/voucher', kind: 'list', listApi: '/api/business/erp/voucher/page', knownBug: { checks: ['⑥'], reason: '新增凭证弹窗空提交后未观察到任何必填校验文案（按钮「保存为草稿」），需要人工复核是否漏了必填校验' } },
   { key: '总账', path: '/business/erp/ledger', kind: 'list', listApi: '/api/business/erp/account/page', note: '总账是「先选科目再查流水」，进页面只会拉科目下拉（/account/page）；列接口在选科目后才发' },
   { key: '会计科目', path: '/business/erp/account', kind: 'list', listApi: '/api/business/erp/account/page' },
   { key: '会计期间', path: '/business/erp/period', kind: 'list', listApi: '/api/business/erp/period/page' },

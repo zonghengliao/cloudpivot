@@ -570,7 +570,7 @@
       header="新增手工凭证"
       width="880px"
       :confirm-btn="{
-        content: '保存并记账',
+        content: '保存为草稿',
         loading: createSubmitting,
         theme: 'primary',
         disabled: !createBalanced,
@@ -663,8 +663,8 @@
         </div>
 
         <p class="form-tip">
-          手工凭证保存即记账（status = POSTED，与自动凭证同口径）；期间必须是「已开启」，
-          借贷不平衡时保存按钮不可用（后端同样会 400 并点名差额）。
+          手工凭证保存为<strong>草稿</strong>（status = DRAFT）：别人审核（AUDITED）后才记账（POSTED）、才进总账；
+          期间必须是「已开启」，借贷不平衡时保存按钮不可用（后端同样会 400 并点名差额）。
         </p>
         <t-alert v-if="createError" theme="error" :message="createError" data-testid="voucher-create-error" />
       </div>
@@ -1468,7 +1468,7 @@ const createTotals = computed(() => {
   };
 });
 
-/** 借贷平衡且非零：不平衡时「保存并记账」按钮禁用（卡面 §二 ③）。 */
+/** 借贷平衡且非零：不平衡时「保存为草稿」按钮禁用（卡面 §二 ③）。 */
 const createBalanced = computed(
   () => createTotals.value.diffCents === 0 && createTotals.value.debitCents > 0,
 );
@@ -1537,7 +1537,7 @@ async function submitCreate(): Promise<void> {
   try {
     const created = await createVoucher(body);
     createVisible.value = false;
-    void MessagePlugin.success(`已生成凭证 ${created.voucher_no}`);
+    void MessagePlugin.success(`已生成草稿 ${created.voucher_no}，待审核`);
     void loadVouchers(1);
     detail.value = created;
     detailVisible.value = true;
