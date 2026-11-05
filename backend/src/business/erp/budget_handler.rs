@@ -70,6 +70,8 @@ fn map_not_found() -> ApiError {
 }
 
 /// 部门名快照（部门不存在 → 400，不允许编出「无主预算」）。
+// SCOPE-EXEMPT: 按主键取单个部门的 dept_name（预算单上的部门名快照），不涉及行级可见性，
+//   非列表 / 导出查询；注入数据范围会让「别的部门的预算」查不到自己挂的部门名。
 async fn dept_name_of(dept_id: Uuid) -> std::result::Result<String, ApiError> {
     let rows = db()
         .find_with_params(

@@ -81,7 +81,11 @@ REQUIRED_PRODUCTION = (
 SKIP_MANIFEST = frozenset(
     """
 business/attachment/tests.rs
+business/erp/asset_model_tests.rs
 business/erp/aux_tests.rs
+business/erp/budget_dto_tests.rs
+business/erp/budget_guard_tests.rs
+business/erp/budget_model_tests.rs
 business/erp/cancel_cascade_tests.rs
 business/erp/contract_approval_tests.rs
 business/erp/fixture_hygiene.rs

@@ -969,7 +969,9 @@ pub async fn count_test_residue() -> std::result::Result<TestResidue, Error> {
 
     let defs: i64 = db()
         .scalar_with_params(
-            &format!("SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"),
+            &format!(
+                "SELECT count(*) FROM biz_flow_def WHERE deleted_at IS NULL AND {TEST_RESIDUE_SQL}"
+            ),
             vec![],
         )
         .await
@@ -1059,16 +1061,20 @@ mod tests {
     /// 只有定义、没有实例（或反过来）同样算残留 —— 半截状态正是「删到一半」的典型。
     #[test]
     fn test_residue_partial_counts_still_warn() {
-        assert!(test_residue_warning(TestResidue {
-            defs: 1,
-            instances: 0
-        })
-        .is_some());
-        assert!(test_residue_warning(TestResidue {
-            defs: 0,
-            instances: 1
-        })
-        .is_some());
+        assert!(
+            test_residue_warning(TestResidue {
+                defs: 1,
+                instances: 0
+            })
+            .is_some()
+        );
+        assert!(
+            test_residue_warning(TestResidue {
+                defs: 0,
+                instances: 1
+            })
+            .is_some()
+        );
     }
 
     /// 测试用 64 位十六进制密钥（形状与 `openssl rand -hex 32` 一致，非真实密钥）。

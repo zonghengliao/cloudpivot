@@ -1132,6 +1132,9 @@ pub async fn asset_dispose_cancel(
 // ==================== 辅助查询 ====================
 
 /// 部门名（不存在 / 已删 → 400，不允许编出「无主资产」）。
+// SCOPE-EXEMPT: 按主键取单个部门的 dept_name（资产卡 / 处置单上的部门名快照），
+//   只影响这一张单据的展示字段，不涉及行级可见性，也不是列表 / 导出查询；
+//   注入数据范围反而会让「别的部门的资产」查不到自己挂的部门名。
 pub async fn dept_name_of(dept_id: Uuid) -> Result<String, ApiError> {
     let rows = db()
         .find_with_params(
@@ -1151,6 +1154,8 @@ pub async fn dept_name_of(dept_id: Uuid) -> Result<String, ApiError> {
 }
 
 /// 用户姓名（不存在 → 400）。
+// SCOPE-EXEMPT: 按主键取单个账号的显示名（使用人姓名快照），不涉及行级可见性，
+//   非列表 / 导出查询（口径同上方 dept_name_of）。
 async fn user_name_of(user_id: Uuid) -> Result<String, ApiError> {
     let rows = db()
         .find_with_params(

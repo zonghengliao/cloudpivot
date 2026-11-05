@@ -112,7 +112,9 @@ async fn test_residue_guard() {
     match crate::shared::startup_guard::count_test_residue().await {
         Ok(residue) => match crate::shared::startup_guard::test_residue_warning(residue) {
             Some(message) => tracing::warn!("{message}"),
-            None => tracing::info!("测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"),
+            None => tracing::info!(
+                "测试残留自检通过：biz_flow_def / biz_flow_instance 均 0 行 E2E_*, D2_SMOKE"
+            ),
         },
         Err(error) => tracing::warn!("测试残留自检无法完成（继续启动）：{error}"),
     }
