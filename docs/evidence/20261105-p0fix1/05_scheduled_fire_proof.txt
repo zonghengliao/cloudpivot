@@ -1,0 +1,15 @@
+① PUT cron=`15 13 4 * * *` -> HTTP 200 ok
+   预期触发：UTC 04:13:15 / 北京 12:13:15
+② 触发前 erp_low_stock_scan 的 sys_job_log 条数 = 5
+③ 等 110s（不碰任何接口，纯等调度器自己动）...
+④ 触发后条数 = 6（增量 1）
+   新增行：
+erp_low_stock_scan | status=1 | 2026-11-05 12:13:15 | erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | status=1 | 2026-11-05 12:07:50 | erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | status=1 | 2026-11-05 12:07:46 | erp_low_stock_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+⑤ 服务端日志里「业务提醒扫描完成」（内置注册那一路）出现 0 次
+   = 0 ⇒ 这一轮只有 sys_job 驱动的那条在跑，不存在「同一 cron 跑两遍」
+⑥ 还原 cron=`0 40 7 * * *` -> HTTP 200 ok
+   当前行：0 40 7 * * * | status=1 | next=2026-11-06 12:13:15
+
+结论：✅ 一次且仅一次，到点真触发

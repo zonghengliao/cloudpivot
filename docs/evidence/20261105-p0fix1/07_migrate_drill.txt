@@ -1,0 +1,25 @@
+== 0. 当前（V0245 已应用）
+erp_contract_expire_scan | 1 | 合同到期提醒（启用：每天 15:30 北京时间 = 07:30 UTC 
+erp_low_stock_scan | 1 | 低库存提醒（启用：每天 15:40 北京时间 = 07:40 UTC 扫
+erp_payable_due_scan | 1 | 应付到期提醒（启用：每天 15:10 北京时间 = 07:10 UTC 
+erp_po_overdue_scan | 1 | 采购超期提醒（启用：每天 15:20 北京时间 = 07:20 UTC 
+   ✅ 断言通过：4 行 status=1，remark 匹配『（启用：每天…）』
+
+== 1. 执行 down（回到 V0210 的停用形态，remark 逐字还原）
+erp_contract_expire_scan | 0 | 合同到期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:30
+erp_low_stock_scan | 0 | 低库存提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:40 
+erp_payable_due_scan | 0 | 应付到期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:10
+erp_po_overdue_scan | 0 | 采购超期提醒（内置任务已注册，本行仅供查看/手动执行）：每天 07:20
+   ✅ 断言通过：4 行 status=0，remark 匹配『（内置任务已注册，本行仅供查看/手动执行）：每天…』
+
+== 2. 再执行 up
+erp_contract_expire_scan | 1 | 合同到期提醒（启用：每天 15:30 北京时间 = 07:30 UTC 
+erp_low_stock_scan | 1 | 低库存提醒（启用：每天 15:40 北京时间 = 07:40 UTC 扫
+erp_payable_due_scan | 1 | 应付到期提醒（启用：每天 15:10 北京时间 = 07:10 UTC 
+erp_po_overdue_scan | 1 | 采购超期提醒（启用：每天 15:20 北京时间 = 07:20 UTC 
+   ✅ 断言通过：4 行 status=1，remark 匹配『（启用：每天…）』
+
+== 3. 再跑一次 up（幂等重放：不应报错，状态不变）
+   ✅ 断言通过：4 行 status=1，remark 匹配『（启用：每天…）』
+
+结论：up → down → up → up 四步全过，remark 逐字还原，可重放

@@ -582,9 +582,15 @@ async fn run_builtin(invoke_target: &'static str) {
 /// 内置处理器标识集中登记在 [`LOG_CLEAN_TASKS`]，供定时任务管理接口在新建 / 更新时
 /// 校验 `invoke_target`，避免落库一个永远无法执行的调用目标。
 ///
+/// 与 [`run_handler`] 的分支必须**一一对应**：`run_handler` 里能跑的标识，这里就得算
+/// 「已注册」。R-P1-2 的 4 个业务提醒（`erp_payable_due_scan` 等）早就在 `run_handler`
+/// 的 RemindKind 分支里可执行，却没进这份名单 —— 后果是「定时任务」页对这些行做
+/// **新建 / 编辑**（PUT）一律 422「未注册的任务处理器」，运维只能停在停用位
+/// （P0-FIX-1 的现场）。启停（PATCH status）不查名单，所以只有编辑路径会被卡。
+///
 /// # 参数
 ///
-/// - `target`：处理器标识（调用目标）。
+/// - `target`：调用目标标识。
 ///
 /// # 返回值
 ///
@@ -592,6 +598,8 @@ async fn run_builtin(invoke_target: &'static str) {
 pub fn is_registered_target(target: &str) -> bool {
     LOG_CLEAN_TASKS.iter().any(|(name, _)| *name == target)
         || target == crate::support::invariant::runner::TASK_NAME
+        // R-P1-2：4 类业务提醒（应付到期 / 采购超期 / 合同到期 / 低库存）
+        || crate::business::erp::reminder::RemindKind::from_task_name(target).is_some()
 }
 
 /// 执行指定处理器。
@@ -692,4 +700,90 @@ async fn cleanup_json_logs(
         .await
         .map_err(|e| utils::db_error(e, "清理日志"))?;
     Ok(format!("已清理 {affected} 条{label}"))
+}
+
+// ==================== 用例：注册表去重 + 处理器名单 ====================
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 取某个调度名在框架注册表里的条目（正常情况下最多 1 条）。
+    fn entries(scheduler: &Scheduler, name: &str) -> Vec<(String, String, String)> {
+        scheduler
+            .inner
+            .list()
+            .into_iter()
+            .filter(|(registered, _, _)| registered == name)
+            .collect()
+    }
+
+    /// 内置注册 + `sys_job` 动态注册同名任务时，注册表里**只能留一条**。
+    ///
+    /// 为什么必须有用例守着：迁移 V0245 把那 4 行 `sys_job` 打开成 `status = 1` 之后，
+    /// `reload()` 会先 `register_builtin()`（`reminder::register_builtin` 用同一个
+    /// `job_name` 注册）再从 `sys_job` 走 `register_job()` 注册同样的名字。
+    /// 框架 `SchedulerPlugin::insert` 是 `HashMap::insert`（按名字覆盖），所以只会剩一条；
+    /// 一旦以后有人把它改成 `Vec` / 追加语义，同一个 cron 一天会跑两遍（台账与通知幂等键
+    /// 只兜住重复通知，白跑的那一轮无人发现）——这条用例就是那道红线。
+    #[test]
+    fn dynamic_registration_overwrites_builtin_of_same_name() {
+        let scheduler = Scheduler::new();
+        scheduler.register_builtin();
+
+        for kind in crate::business::erp::reminder::RemindKind::ALL {
+            let name = kind.task_name();
+            let builtin = entries(&scheduler, name);
+            assert_eq!(
+                builtin.len(),
+                1,
+                "内置注册后 {name} 应恰好 1 条，实际 {}",
+                builtin.len()
+            );
+            assert_eq!(
+                builtin[0].1,
+                kind.cron(),
+                "{name} 内置 cron 应为 {}",
+                kind.cron()
+            );
+
+            // 模拟 load_db_jobs → register_job：同样的名字、同样的 cron
+            scheduler.register_cron(name, kind.cron(), "系统任务：来自 sys_job", || {
+                tokio::spawn(async {})
+            });
+
+            let after = entries(&scheduler, name);
+            assert_eq!(
+                after.len(),
+                1,
+                "{name} 被动态任务再注册一次后仍应只有 1 条调度（否则一天跑两遍），实际 {}",
+                after.len()
+            );
+            assert_eq!(
+                after[0].2, "系统任务：来自 sys_job",
+                "{name} 后注册者（sys_job 行）应覆盖前者的描述，证明是覆盖而不是并存"
+            );
+        }
+    }
+
+    /// `run_handler` 能跑的标识必须都算「已注册」，否则管理接口会 422 卡住编辑。
+    #[test]
+    fn registered_targets_cover_reminder_jobs() {
+        for kind in crate::business::erp::reminder::RemindKind::ALL {
+            assert!(
+                is_registered_target(kind.task_name()),
+                "业务提醒 {} 由 run_handler 执行，必须算已注册",
+                kind.task_name()
+            );
+        }
+        // 提醒的 cron 与本文件的其它内置任务不冲突（防止同秒同分撞车）
+        for kind in crate::business::erp::reminder::RemindKind::ALL {
+            let cron = kind.cron();
+            assert!(
+                CronSchedule::parse(cron).is_ok(),
+                "{} 的 cron `{cron}` 必须能被调度器解析",
+                kind.task_name()
+            );
+        }
+    }
 }

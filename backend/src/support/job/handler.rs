@@ -972,7 +972,8 @@ mod tests {
 
     // ---------- ④ 处理器注册表（「能存不能跑」的另一半） ----------
 
-    /// 五张日志表清理 + 不变量巡检必须都算「已注册」，未注册的处理器不能被存进 `sys_job`。
+    /// 五张日志表清理 + 不变量巡检 + 4 个业务提醒必须都算「已注册」，
+    /// 未注册的处理器不能被存进 `sys_job`。
     #[test]
     fn registered_targets_cover_builtin_jobs_and_reject_unknown() {
         for target in [
@@ -982,6 +983,12 @@ mod tests {
             "clean_security_log",
             "clean_password_log",
             crate::support::invariant::runner::TASK_NAME,
+            // P0-FIX-1：4 个业务提醒由 run_handler 的 RemindKind 分支执行，
+            // 名单漏了他们 ⇒ 定时任务页编辑这些行 422，运维只能停在停用位
+            "erp_payable_due_scan",
+            "erp_po_overdue_scan",
+            "erp_contract_expire_scan",
+            "erp_low_stock_scan",
         ] {
             assert!(
                 crate::task::is_registered_target(target),
@@ -993,6 +1000,9 @@ mod tests {
             "",
             "clean_operation_log ",
             "CLEAN_AUDIT_LOG",
+            // 提醒名不做模糊匹配：少一个字符就不是同一个任务
+            "erp_payable_due",
+            "ERP_LOW_STOCK_SCAN",
         ] {
             assert!(
                 !crate::task::is_registered_target(bad),

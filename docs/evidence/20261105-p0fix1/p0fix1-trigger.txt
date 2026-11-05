@@ -1,0 +1,4 @@
+erp_contract_expire_scan: http=200 log 3->4  erp_contract_expire_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan: http=200 log 4->5  erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan: http=200 log 5->6  erp_payable_due_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_po_overdue_scan: http=200 log 3->4  erp_po_overdue_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0

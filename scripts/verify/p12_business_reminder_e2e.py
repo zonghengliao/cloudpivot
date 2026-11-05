@@ -11,6 +11,8 @@
   ⑥ sys_job 手动执行：/support/job/{id}/trigger 走到 run_handler（不是 422）
   ⑦ kind=all 汇总 + 非法 kind → 400
   ⑧ 无权限用户 → 403（权限码真的在拦）
+  ⑨ P0-FIX-1：4 行启用（status=1）/ 启停走 PATCH status / PUT 编辑不再 422 /
+     4 个手动执行各落 1 条 sys_job_log + last_run_at 回写
 
 用法：python3 scripts/verify/p12_business_reminder_e2e.py
 退出码：0 全过 / 1 有失败。
@@ -290,14 +292,17 @@ def main():
     jobs = psql("SELECT job_name || '|' || cron_expr || '|' || invoke_target || '|' || status "
                 "FROM sys_job WHERE job_name LIKE 'erp\\_%\\_scan' AND deleted_at IS NULL "
                 "ORDER BY job_name")
+    # P0-FIX-1：4 行必须是**启用**（status = 1）。V0210 当年种成 0，理由是「内置注册已在跑，
+    # 再开动态注册会重复」—— 实测框架注册表按名字覆盖（见 task/mod.rs 的用例），
+    # 而内置那轮不写 sys_job_log，业务方库里查不到任何「跑过」的证据。V0245 已改 1。
     expected_jobs = {
-        "erp_payable_due_scan|0 10 7 * * *|erp_payable_due_scan|0",
-        "erp_po_overdue_scan|0 20 7 * * *|erp_po_overdue_scan|0",
-        "erp_contract_expire_scan|0 30 7 * * *|erp_contract_expire_scan|0",
-        "erp_low_stock_scan|0 40 7 * * *|erp_low_stock_scan|0",
+        "erp_payable_due_scan|0 10 7 * * *|erp_payable_due_scan|1",
+        "erp_po_overdue_scan|0 20 7 * * *|erp_po_overdue_scan|1",
+        "erp_contract_expire_scan|0 30 7 * * *|erp_contract_expire_scan|1",
+        "erp_low_stock_scan|0 40 7 * * *|erp_low_stock_scan|1",
     }
     got_jobs = set(filter(None, jobs.splitlines()))
-    check(got_jobs == expected_jobs, "①b sys_job 4 条种子（名称|cron|调用目标|停用）",
+    check(got_jobs == expected_jobs, "①b sys_job 4 条种子（名称|cron|调用目标|启用）",
           f"实际 {sorted(got_jobs)}")
 
     check(psql("SELECT COUNT(*) FROM sys_menu WHERE auth_code = 'business:erp:reminder:run' "
@@ -397,6 +402,51 @@ def main():
     # ---------- ⑧ 权限 ----------
     st, res = run_kind("payable_due", limited_token)
     check(st == 403, "⑧ 无 business:erp:reminder:run 的用户 → 403", f"{st} {res}")
+
+    # ---------- ⑨ P0-FIX-1：4 个任务必须「启用 + 能编辑 + 手动执行有日志」 ----------
+    # 三处缺口各一条：
+    #   ⑨b 启停走项目接口（PATCH status）——不是拿 SQL 直接改库；
+    #   ⑨c 编辑（PUT）以前一律 422，因为 is_registered_target 漏了这 4 个标识；
+    #   ⑨d 手动执行必须真的落 sys_job_log（内置注册那一轮只打 tracing，库里查不到）。
+    job_map = dict(
+        row.split("|")
+        for row in psql("SELECT job_name || '|' || id FROM sys_job "
+                        "WHERE deleted_at IS NULL AND job_name LIKE 'erp\\_%\\_scan'").splitlines()
+    )
+    check(len(job_map) == 4, "⑨a 4 个提醒任务行都在", f"{sorted(job_map)}")
+
+    probe = "erp_low_stock_scan"
+    pid = job_map.get(probe, "")
+    st_off, _ = call("PATCH", f"/api/support/job/{pid}/status", {"status": 0}, token)
+    v_off = psql(f"SELECT status FROM sys_job WHERE id = '{pid}'")
+    st_on, _ = call("PATCH", f"/api/support/job/{pid}/status", {"status": 1}, token)
+    v_on = psql(f"SELECT status FROM sys_job WHERE id = '{pid}'")
+    check(st_off == 200 and st_on == 200 and v_off == "0" and v_on == "1",
+          "⑨b 启停走 PATCH /support/job/{id}/status（0 → 1 真实落库）",
+          f"{st_off}/{st_on} db={v_off}->{v_on}")
+
+    st, res = call("PUT", f"/api/support/job/{pid}",
+                   {"job_name": probe, "job_group": "ERP", "cron_expr": "0 40 7 * * *",
+                    "invoke_target": probe, "status": 1,
+                    "remark": "低库存提醒（e2e 编辑一次，证明 PUT 不再 422）"}, token)
+    check(st == 200, "⑨c 编辑（PUT）不再 422「未注册的任务处理器」", f"{st} {res}")
+
+    problems = []
+    for name, job_id in sorted(job_map.items()):
+        before = int(psql(f"SELECT count(*) FROM sys_job_log WHERE job_id = '{job_id}'"))
+        st, res = call("POST", f"/api/support/job/{job_id}/trigger", None, token)
+        after = int(psql(f"SELECT count(*) FROM sys_job_log WHERE job_id = '{job_id}'"))
+        last = psql(f"SELECT status::text || '|' || COALESCE(message, '') FROM sys_job_log "
+                    f"WHERE job_id = '{job_id}' ORDER BY started_at DESC LIMIT 1")
+        if not (st == 200 and after == before + 1 and last.startswith("1|")):
+            problems.append(f"{name}: http={st} log {before}->{after} last={last[:80]}")
+    check(not problems, "⑨d 4 个任务手动执行全部成功且各落 1 条成功日志",
+          " | ".join(problems))
+
+    touched = psql("SELECT COUNT(*) FROM sys_job WHERE deleted_at IS NULL "
+                   "AND job_name LIKE 'erp\\_%\\_scan' "
+                   "AND last_run_at IS NOT NULL AND next_run_at IS NOT NULL")
+    check(touched == "4", "⑨e 4 行的 last_run_at / next_run_at 已回写", touched)
 
     print(f"\n== 结果：{len(PASSED)} 通过 / {len(FAILED)} 失败")
     if FAILED:

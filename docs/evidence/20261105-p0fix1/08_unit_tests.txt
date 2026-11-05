@@ -1,0 +1,34 @@
+== cargo clippy --all-targets -- -D warnings
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.29s
+
+== cargo test --lib task::tests support::job::handler::tests
+
+running 25 tests
+test support::job::handler::tests::cron_accepts_lists_ranges_and_steps ... ok
+test support::job::handler::tests::cron_impossible_date_yields_no_next_time ... ok
+test support::job::handler::tests::cron_leap_day_is_handled ... ok
+test support::job::handler::tests::cron_month_rollover_is_handled ... ok
+test support::job::handler::tests::cron_rejects_wrong_field_count ... ok
+test support::job::handler::tests::cron_five_field_next_after_is_three_am ... ok
+test support::job::handler::tests::cron_six_field_supports_second_precision ... ok
+test support::job::handler::tests::cron_rejects_out_of_range_values ... ok
+test support::job::handler::tests::job_log_res_maps_nulls_to_empty_values ... ok
+test support::job::handler::tests::job_log_status_maps_to_documented_integers ... ok
+test support::job::handler::tests::job_res_maps_absent_params_and_remark_to_empty_string ... ok
+test support::job::handler::tests::enable_status_accepts_only_zero_and_one ... ok
+test support::job::handler::tests::job_res_keeps_params_json_and_paused_status ... ok
+test support::job::handler::tests::job_save_req_deserializes_without_optional_fields ... ok
+test support::job::handler::tests::job_save_req_accepts_boundary_lengths ... ok
+test support::job::handler::tests::parse_params_falls_back_to_plain_string ... ok
+test support::job::handler::tests::job_save_req_rejects_over_length_fields ... ok
+test support::job::handler::tests::job_status_req_requires_explicit_status ... ok
+test support::job::handler::tests::parse_params_trims_outer_whitespace_before_parsing ... ok
+test support::job::handler::tests::job_save_req_rejects_blank_required_fields ... ok
+test support::job::handler::tests::parse_params_keeps_valid_json_of_every_shape ... ok
+test support::job::handler::tests::parse_params_treats_none_and_blank_as_absent ... ok
+test task::tests::registered_targets_cover_reminder_jobs ... ok
+test support::job::handler::tests::registered_targets_cover_builtin_jobs_and_reject_unknown ... ok
+test task::tests::dynamic_registration_overwrites_builtin_of_same_name ... ok
+
+test result: ok. 25 passed; 0 failed; 0 ignored; 0 measured; 2557 filtered out; finished in 0.02s
+

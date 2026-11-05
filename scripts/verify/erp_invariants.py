@@ -1418,9 +1418,124 @@ def group_l():
           f"{len(bad)} 张单预算口径与单据不一致：{bad[:3]}" if bad else "口径一致")
 
 
+# ══════════════════════════════════════════════════════════════════
+# J. 定时任务 —— 自动提醒必须「配得上 + 真的在跑」（P0-FIX-1）
+#
+# 为什么单开一组只查调度、不查账：账错了有人看得见（报表对不上、余额不平），
+# 而「提醒任务根本没跑」是**静默失效** —— 单据该到期不提醒、库存该补不提醒、
+# 合同该续签不提醒，业务方以为系统在管，实际一条通知都没发过。这类故障
+# 唯一的证伪证据就是执行日志，所以这组查的是 `sys_job` + `sys_job_log`。
+#
+# 判定口径（两条，缺一不可）：
+#   J1 配置真相：4 行存在且 status = 1（停用 → 调度器根本不会装载它）
+#   J2 运行真相：每条近 7 天至少一条 status = 1（成功）的 sys_job_log
+#
+# J1 / J2 为什么要拆两级判断、J2 为什么带前置条件：
+#   `sys_job_log` 只有「服务真的在这个库上跑过 sys_job 任务」才会有行。全新迁移出来、
+#   服务还没起过的库（CI / 演练库）拿不到任何执行记录，此时判红纯属噪音（既不是账错，
+#   也不能说明提醒坏了）。所以：近 7 天整库 0 条执行记录 → J2 记 INFO 跳过；
+#   只要有任一任务在这库上跑过（说明调度器活着），这 4 个提醒就**必须**各有成功记录。
+#   这条闸要抓的是「库在跑、提醒却哑了」——那才是业务被坑的状态。
+# ══════════════════════════════════════════════════════════════════
+
+# 4 个关键提醒任务：job_name → 人话（与 `erp::reminder::RemindKind` 一一对应）
+REMINDER_JOBS = {
+    "erp_payable_due_scan": "应付到期",
+    "erp_po_overdue_scan": "采购超期",
+    "erp_contract_expire_scan": "合同到期",
+    "erp_low_stock_scan": "低库存",
+}
+
+
+def group_j():
+    """定时任务不变量 J1–J2（P0-FIX-1）。"""
+    print("\n" + "=" * 92)
+    print("J. 定时任务（4 个自动提醒必须已启用、且近期真的跑成功过）")
+    print("=" * 92)
+
+    if not table_exists("sys_job"):
+        check("J1 4 个 ERP 提醒任务已启用", "任务", "INFO", True,
+              "本库无 sys_job 表（迁移未跑到定时任务模块），跳过")
+        return
+
+    names = ",".join(f"'{n}'" for n in REMINDER_JOBS)
+    rows = q(f"""
+        select j.job_name,
+               j.status::text,
+               coalesce(to_char(j.last_run_at at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI'), '-'),
+               (select count(*)::text from sys_job_log l
+                 where l.job_id = j.id and l.status = 1
+                   and l.started_at >= now() - interval '7 days'),
+               (select count(*)::text from sys_job_log l
+                 where l.job_id = j.id)
+          from sys_job j
+         where j.deleted_at is null
+           and j.job_name in ({names})
+         order by j.job_name
+    """)
+    got = {r[0]: r for r in rows}
+
+    # ---------- J1 配置：4 行都在、都启用 ----------
+    missing = [n for n in REMINDER_JOBS if n not in got]
+    disabled = [(n, r[1]) for n, r in got.items() if r[1] != "1"]
+    reasons = []
+    if missing:
+        reasons.append(f"缺 {len(missing)} 行：{', '.join(missing)}（迁移没种 / 行被删）")
+    if disabled:
+        reasons.append("停用（status≠1，调度器不会装它）："
+                       + "、".join(f"{n}(status={s})" for n, s in disabled))
+    check("J1 4 个 ERP 提醒任务已启用（status = 1）", "任务", "BLOCKER",
+          not missing and not disabled,
+          "\n".join(reasons) if reasons else
+          "4 行全部启用：" + "、".join(f"{n}({REMINDER_JOBS[n]})" for n in sorted(got)),
+          f"""select job_name, status::text as 状态, coalesce(left(remark, 40), '') as 备注
+                from sys_job where deleted_at is null and job_name in ({names})
+               order by job_name""")
+
+    if missing:
+        # 行都不在，J2 没有可查的 job_id；J1 已报红，不再叠一条噪音
+        return
+
+    # ---------- J2 运行：近 7 天各有成功执行记录 ----------
+    alive = int(one("select count(*) from sys_job_log "
+                    "where started_at >= now() - interval '7 days'") or 0)
+    if alive == 0:
+        # 显式打一行：`check()` 只在 FAIL 时打印 detail，INFO 通过时不留痕就分不清
+        # 「真的每条都有成功记录」和「整库还没跑过任何任务、新鲜度判定被跳过」。
+        print("        ℹ️ 近 7 天整库 0 条 sys_job 执行记录（服务未起 / 新库）⇒ "
+              "新鲜度判定跳过，本组只校验了配置（J1）")
+        check("J2 4 个提醒近 7 天各有成功执行记录", "任务", "INFO", True,
+              "近 7 天整库没有任何 sys_job 执行记录（服务未起 / 新库），新鲜度判定跳过；"
+              "J1 已保证配置为启用，服务起来后第一轮会自动落 sys_job_log")
+        return
+
+    stale = [(n, r) for n, r in got.items() if int(r[3]) == 0]
+    detail = "\n".join(
+        f"{n}（{REMINDER_JOBS[n]}）：近 7 天成功 0 条，历史共 {r[4]} 条，"
+        f"last_run_at={r[2]}（时区 +08:00）"
+        for n, r in stale)
+    check("J2 4 个提醒近 7 天各有成功执行记录", "任务", "BLOCKER",
+          not stale,
+          detail if stale else
+          "、".join(f"{n} 近7天成功 {r[3]} 条（last={r[2]}）" for n, r in sorted(got.items())),
+          f"""select j.job_name, l.status::text as 状态,
+                     to_char(l.started_at at time zone 'Asia/Shanghai', 'YYYY-MM-DD HH24:MI') as 开始,
+                     coalesce(left(l.message, 60), left(l.error, 60), '') as 摘要
+                from sys_job j left join sys_job_log l on l.job_id = j.id
+               where j.deleted_at is null and j.job_name in ({names})
+               order by j.job_name, l.started_at desc""")
+
+    # ---------- 附带：调度器注册表与 DB 的 cron 一致性（INFO，人工核对用） ----------
+    # 这里只做提示：真正「注册没注册」要看进程日志（`定时任务 xxx [cron] 已排程`），
+    # 巡检不读日志文件，避免把「日志轮转」当成故障。
+    print("        ℹ️ 抽查口径：cron 按 UTC 解释（`0 10 7 * * *` = 北京时间 15:10），"
+          "与「定时任务」页 remark 一致")
+
+
 GROUPS = {"会计": group_a, "账账": group_b, "账实": group_c,
           "单据链": group_d, "状态": group_e, "期间": group_f, "闭环": group_g,
-          "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l}
+          "审批": group_h, "盘点": group_i, "固资": group_k, "报销": group_l,
+          "任务": group_j}
 
 
 def main():

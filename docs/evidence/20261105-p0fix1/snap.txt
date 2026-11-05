@@ -1,0 +1,44 @@
+### 1. sys_job（4 个提醒 + 其它）
+erp_contract_expire_scan | ERP | 0 30 7 * * * | erp_contract_expire_scan | 1 | 2026-11-05 12:07:50 | 2026-11-05 15:30:00 | 合同到期提醒（启用：每天 15:30 北京时间 = 07:30 UTC 扫描「3
+erp_depreciation_run | ERP | 0 30 1 1 * * | erp_depreciation_run | 0 | - | - | 折旧计提（内置任务已注册，本行仅供查看/手动执行）：每月 1 日 01:30 计
+erp_low_stock_scan | ERP | 0 40 7 * * * | erp_low_stock_scan | 1 | 2026-11-05 12:07:50 | 2026-11-05 15:40:00 | 低库存提醒（启用：每天 15:40 北京时间 = 07:40 UTC 扫描「当前
+erp_payable_due_scan | ERP | 0 10 7 * * * | erp_payable_due_scan | 1 | 2026-11-05 12:07:50 | 2026-11-05 15:10:00 | 应付到期提醒（启用：每天 15:10 北京时间 = 07:10 UTC 扫描「7
+erp_po_overdue_scan | ERP | 0 20 7 * * * | erp_po_overdue_scan | 1 | 2026-11-05 12:07:50 | 2026-11-05 15:20:00 | 采购超期提醒（启用：每天 15:20 北京时间 = 07:20 UTC 扫描「超
+invariant_audit | SYSTEM | 0 20 2 * * * | invariant_audit | 0 | - | - | ERP 账务不变量巡检（内置任务已注册，本行仅供查看/手动执行）：每天 02:2
+
+### 2. sys_job_log 全量（按时间正序；含 12:05:00 那次『到点自动触发』）
+erp_payable_due_scan | 1 | 2026-11-05 12:03:06 | 1 | erp_payable_due_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_contract_expire_scan | 1 | 2026-11-05 12:03:06 | 0 | erp_contract_expire_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | 1 | 2026-11-05 12:03:06 | 0 | erp_low_stock_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan | 1 | 2026-11-05 12:03:06 | 1 | erp_payable_due_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_po_overdue_scan | 1 | 2026-11-05 12:03:06 | 1 | erp_po_overdue_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | 1 | 2026-11-05 12:05:00 | 3 | erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_contract_expire_scan | 1 | 2026-11-05 12:06:08 | 0 | erp_contract_expire_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | 1 | 2026-11-05 12:06:09 | 0 | erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan | 1 | 2026-11-05 12:06:09 | 0 | erp_payable_due_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_po_overdue_scan | 1 | 2026-11-05 12:06:09 | 0 | erp_po_overdue_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan | 1 | 2026-11-05 12:07:46 | 1 | erp_payable_due_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_contract_expire_scan | 1 | 2026-11-05 12:07:46 | 0 | erp_contract_expire_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | 1 | 2026-11-05 12:07:46 | 1 | erp_low_stock_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan | 1 | 2026-11-05 12:07:47 | 1 | erp_payable_due_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_po_overdue_scan | 1 | 2026-11-05 12:07:47 | 1 | erp_po_overdue_scan: scanned=1 sent=0 skipped_reminded=1 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_contract_expire_scan | 1 | 2026-11-05 12:07:50 | 0 | erp_contract_expire_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_low_stock_scan | 1 | 2026-11-05 12:07:50 | 0 | erp_low_stock_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_payable_due_scan | 1 | 2026-11-05 12:07:50 | 0 | erp_payable_due_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+erp_po_overdue_scan | 1 | 2026-11-05 12:07:50 | 0 | erp_po_overdue_scan: scanned=0 sent=0 skipped_reminded=0 skipped_recent=0 skipped_no_recipient=0 failed=0
+
+### 3. 每个任务的成功执行条数
+erp_contract_expire_scan | 4
+erp_low_stock_scan | 5
+erp_payable_due_scan | 6
+erp_po_overdue_scan | 4
+
+### 4. 通知 sys_notice / 台账 biz_reminder_log
+0 条通知 / 0 行台账
+
+### 5. 迁移记录 V0245
+245 | erp_reminder_jobs_enabled
+
+### 6. 审计日志里的启停 / 触发（走接口的痕迹）
+JOB_STATUS x4
+JOB_TRIGGER x18

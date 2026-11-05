@@ -1,0 +1,64 @@
+== 库/服务
+cloudpivot | 2026-11-05 12:06:32+08
+active
+
+== sys_job（erp_*_scan 4 行）job_name | cron | invoke_target | status | last_run_at(CST) | next_run_at(CST)
+erp_contract_expire_scan | 0 30 7 * * * | erp_contract_expire_scan | 0 | - | -
+erp_low_stock_scan | 0 40 7 * * * | erp_low_stock_scan | 0 | - | -
+erp_payable_due_scan | 0 10 7 * * * | erp_payable_due_scan | 0 | - | -
+erp_po_overdue_scan | 0 20 7 * * * | erp_po_overdue_scan | 0 | - | -
+
+== sys_job_log 行数 / sys_job 全部行数
+0 / 6
+
+== 现在触发会命中多少业务（不会发通知，只读）
+ERROR:  column "quantity" does not exist
+LINE 8:      (select count(*) from biz_inventory where quantity < sa...
+                                                       ^
+
+== 台账 biz_reminder_log / 通知 sys_notice 里 ERP 提醒的历史
+0 / 0
+
+== 迁移表里 V0241 及以后（有没有 V0242-V0245）
+241 erp_contract_permission_prefix_unify
+3 create_sys_user_role
+4 create_sys_menu
+40 create_storage_config
+41 create_impexp_task
+42 create_impexp_error_detail
+43 create_notice
+44 create_notice_template
+45 seed_notice_permissions
+46 seed_storage_permissions
+47 seed_impexp_notice_permissions
+48 seed_storage_default_and_policies
+49 notice_indexes
+5 create_sys_role_menu
+50 alter_impexp_task_runtime
+51 notice_scheduled_dispatch
+52 seed_impexp_export_retry
+6 create_sys_dept
+60 alter_sys_role_add_data_scope
+61 create_sys_role_dept
+62 create_sys_field_mask
+63 create_sys_role_mutex
+64 batchb_indexes
+65 seed_batchb_permissions
+66 seed_default_field_masks
+67 alter_export_task_add_mask_applied
+68 role_mutex_conflict_perm
+7 create_sys_dict_type
+8 create_sys_dict_item
+80 create_announcement
+81 announcement_indexes
+82 create_help
+83 help_indexes
+84 create_change_log
+85 seed_changelog_permissions
+86 seed_announcement_storage_and_configs
+87 seed_announcement_read_permission
+88 seed_help_permissions
+89 group_content_menus
+9 create_sys_config
+90 create_sys_user_preference
+91 seed_preference_def

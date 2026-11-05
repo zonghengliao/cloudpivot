@@ -1,0 +1,38 @@
+== P1-2 真机验收：BASE=http://127.0.0.1:18111 DB=cloudpivot_p0fix1 业务日=2026-11-05
+[PASS] ①a 4 个通知模板已种
+[PASS] ①b sys_job 4 条种子（名称|cron|调用目标|启用）
+[PASS] ①c 权限节点 business:erp:reminder:run 存在
+[PASS] ①d 2 个重提醒间隔参数存在
+[PASS] ①e 台账幂等唯一索引存在
+[PASS] ②a 管理员登录成功
+[PASS] ②b 无权限用户登录成功
+[PASS] ③a 应付到期：首次触发发出 1 条通知
+[PASS] ③b 通知落库 1 条
+[PASS] ③c 通知含 单号 / 到期日 / 剩余天数 / 该做什么
+[PASS] ③d 收件人 = 财务经理 + 供应商对应采购员
+[PASS] ③e 台账写回 1 行（已提醒时间戳）
+[PASS] ③f 第 2 次触发：sent=0 / 已提醒跳过=1（幂等）
+[PASS] ③f 第 3 次触发：sent=0 / 已提醒跳过=1（幂等）
+[PASS] ③g 连跑 3 次后通知仍只有 1 条（防轰炸）
+[PASS] ③h 台账仍只有 1 行
+[PASS] ④a 低库存：首次触发发出 1 条
+[PASS] ④b 通知含 物料 / 仓库 / 当前量 / 安全库存 / 缺口 / 该做什么
+[PASS] ④c 收件人 = 仓管主管
+[PASS] ④d 同一天再触发：不再发（幂等）
+[PASS] ⑤a 采购超期：触发发出通知
+[PASS] ⑤b 采购超期通知含单号 + 该做什么
+[PASS] ⑤c 采购超期收件人 = 制单人（+采购经理），不发仓管
+[PASS] ⑤d 合同到期：触发发出通知
+[PASS] ⑤e 合同到期通知含合同号 / 到期日 / 该做什么
+[PASS] ⑥a 定时任务页「立即执行」可用（run_handler 已接上）
+[PASS] ⑥b 执行日志里有本任务的摘要
+[PASS] ⑦a kind=all 一次跑完 4 类
+[PASS] ⑦b 非法 kind → 400
+[PASS] ⑧ 无 business:erp:reminder:run 的用户 → 403
+[PASS] ⑨a 4 个提醒任务行都在
+[PASS] ⑨b 启停走 PATCH /support/job/{id}/status（0 → 1 真实落库）
+[PASS] ⑨c 编辑（PUT）不再 422「未注册的任务处理器」
+[PASS] ⑨d 4 个任务手动执行全部成功且各落 1 条成功日志
+[PASS] ⑨e 4 行的 last_run_at / next_run_at 已回写
+
+== 结果：35 通过 / 0 失败
