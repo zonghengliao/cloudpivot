@@ -1,0 +1,10 @@
+=== toolchain ===
+cargo 1.94.1 (29ea6fb6a 2026-03-24)
+rustc 1.94.1 (e408947bf 2026-03-25)
+=== clippy --all-targets -- -D warnings ===
+    Checking cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 32.46s
+CLIPPY_RC=0
+=== fmt check (only my files) ===
+FMT_RC=0
+=== done ===

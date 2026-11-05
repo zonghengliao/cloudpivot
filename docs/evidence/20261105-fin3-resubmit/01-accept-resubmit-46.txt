@@ -1,0 +1,64 @@
+========================================================================================
+FIN-3 撤回后重新提交回归（t_b9c992d1）
+实例 http://127.0.0.1:18034  库 cloudpivot_fin3fix3
+========================================================================================
+
+Ⓐ 连续 3 轮「提交 → 撤回」→ 再提交（唯一键不再撞 RELEASED 行）
+  ✅ 建单：2 条明细落在 2 个预算槽（2 槽）
+  ✅ 第 1 轮提交 200（200 ok）
+  ✅ 第 1 轮提交后 SUBMITTED
+  ✅ 第 1 轮 usage 仍 2 行且全 OCCUPIED（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'OCCUPIED', '3180.0000', ''], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'OCCUPIED', '1060.0000']]）
+  ✅ 第 1 轮复用同一批 usage 行（不新插）（01a1aa1c-8718-71a8-a909-dfdf9dc43cce,01a…）
+  ✅ 第 1 轮撤回 200（200 ok）
+  ✅ 第 1 轮撤回后 DRAFT
+  ✅ 第 1 轮撤回后 usage 仍 2 行且全 RELEASED(WITHDRAWN)（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'RELEASED', '3180.0000', 'WITHDRAWN'], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'RELEASED', '1060.0000', 'WITHDRAWN']]）
+  ✅ 第 2 轮提交 200（200 ok）
+  ✅ 第 2 轮提交后 SUBMITTED
+  ✅ 第 2 轮 usage 仍 2 行且全 OCCUPIED（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'OCCUPIED', '3180.0000', ''], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'OCCUPIED', '1060.0000']]）
+  ✅ 第 2 轮复用同一批 usage 行（不新插）（01a1aa1c-8718-71a8-a909-dfdf9dc43cce,01a…）
+  ✅ 第 2 轮撤回 200（200 ok）
+  ✅ 第 2 轮撤回后 DRAFT
+  ✅ 第 2 轮撤回后 usage 仍 2 行且全 RELEASED(WITHDRAWN)（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'RELEASED', '3180.0000', 'WITHDRAWN'], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'RELEASED', '1060.0000', 'WITHDRAWN']]）
+  ✅ 第 3 轮提交 200（200 ok）
+  ✅ 第 3 轮提交后 SUBMITTED
+  ✅ 第 3 轮 usage 仍 2 行且全 OCCUPIED（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'OCCUPIED', '3180.0000', ''], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'OCCUPIED', '1060.0000']]）
+  ✅ 第 3 轮复用同一批 usage 行（不新插）（01a1aa1c-8718-71a8-a909-dfdf9dc43cce,01a…）
+  ✅ 第 3 轮撤回 200（200 ok）
+  ✅ 第 3 轮撤回后 DRAFT
+  ✅ 第 3 轮撤回后 usage 仍 2 行且全 RELEASED(WITHDRAWN)（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'RELEASED', '3180.0000', 'WITHDRAWN'], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'RELEASED', '1060.0000', 'WITHDRAWN']]）
+  ✅ 第 4 次提交 200（旧实现此处 500：23505 → 事务 aborted → 25P02）（200 ok）
+
+Ⓑ 再提交后走完审批 → APPROVED（usage 转 CONSUMED，仍 2 行）
+  ✅ 待办全部批完（≥2 站）（2 站）
+  ✅ 单据 APPROVED
+  ✅ APPROVED 必绑计提凭证（6e0557ba-bf13-442d-b949-a60ea765ce7b）
+  ✅ usage 仍 2 行且全 CONSUMED（[['01a1aa1c-8718-71a8-a909-dfdf9dc43cce', '3e7be544-f490-468a-a5f9-e58c1b172057', 'CONSUMED', '3180.0000', ''], ['01a1aa1c-8719-75be-afc5-fbfef4b09212', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'CONSUMED', '1060.0000']]）
+  ✅ 占用合计 = 单头价税合计 4240（L8 口径）（4240.0000）
+
+Ⓒ 草稿作废（DRAFT→CANCELLED）后再提交必须 409
+  ✅ 草稿作废 200（200 ok）
+  ✅ 单据 CANCELLED
+  ✅ 作废后再提交 → 409（状态机不放宽）（409 code=66041 报销单 EXP-20261105-000002 当前是「已作废」：只有草稿能提交）
+  ✅ 作废的单状态仍是 CANCELLED
+
+Ⓓ 审批中作废（SUBMITTED→CANCELLED）后再提交必须 409
+  ✅ 先提交 200（200 ok）
+  ✅ 审批中作废 200（200 code=0 ok）
+  ✅ 单据 CANCELLED
+  ✅ 作废后 usage 2 行全 RELEASED(CANCELLED)（[['01a1aa1c-8a80-7125-ac18-921efb18f8a1', '3e7be544-f490-468a-a5f9-e58c1b172057', 'RELEASED', '3180.0000', 'CANCELLED'], ['01a1aa1c-8a81-715c-9930-9b022676e522', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'RELEASED', '1060.0000', 'CANCELLED']]）
+  ✅ 作废后再提交 → 409（409 code=66041 报销单 EXP-20261105-000003 当前是「已作废」：只有草稿能提交）
+  ✅ 作废的 usage 行数没变（仍是 2 行，没有被修法偷偷复活）
+
+Ⓕ 撤回后改费用科目（预算槽变了）再提交：旧行留痕 + 新行占用
+  ✅ 先提交 200（200）
+  ✅ 撤回 200（200）
+  ✅ 草稿改明细 200（换槽）（200 ok）
+  ✅ 换槽后再提交 200（不能撞旧科目的 RELEASED 行）（200 ok）
+  ✅ usage = 旧槽 RELEASED + 新槽 OCCUPIED 各 1 行（MEAL 行被复用而非新插）（[['01a1aa1c-8b0e-7498-85f7-9f9741f8b282', '3e7be544-f490-468a-a5f9-e58c1b172057', 'RELEASED', '3180.0000', 'WITHDRAWN'], ['01a1aa1c-8b10-7101-bdd2-be0eaf553ee6', '83d79b3f-63c4-4660-83a0-054b3c8defba', 'OCCUPIED', '1060.0000']]）
+  ✅ 有效占用合计 = 改后明细 1060（L8 口径）（1060.0）
+  ✅ 无重复 usage 行（同单同槽只有一行）（[]）
+  ✅ DRAFT/CANCELLED 的单不许挂着 OCCUPIED 占用（[]）
+
+========================================================================================
+通过 46 条 / 失败 0 条
+========================================================================================

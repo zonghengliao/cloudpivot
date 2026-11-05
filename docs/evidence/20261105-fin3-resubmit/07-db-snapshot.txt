@@ -1,0 +1,39 @@
+== 库 cloudpivot_fin3fix3：单据状态 ==
+      report_no      |  status   | pay_status | total_with_tax | has_voucher 
+---------------------+-----------+------------+----------------+-------------
+ EXP-20261105-000001 | APPROVED  | UNPAID     |      4240.0000 | t
+ EXP-20261105-000002 | CANCELLED | UNPAID     |      4240.0000 | f
+ EXP-20261105-000003 | CANCELLED | UNPAID     |      4240.0000 | f
+ EXP-20261105-000004 | SUBMITTED | UNPAID     |      1060.0000 | f
+(4 rows)
+
+== 每张单的 usage 行（同单同槽只该有一行）==
+      source_no      |   acct   |  status  |  amount   | release_reason 
+---------------------+----------+----------+-----------+----------------
+ EXP-20261105-000001 | 3e7be544 | CONSUMED | 3180.0000 | 
+ EXP-20261105-000001 | 83d79b3f | CONSUMED | 1060.0000 | 
+ EXP-20261105-000003 | 3e7be544 | RELEASED | 3180.0000 | CANCELLED
+ EXP-20261105-000003 | 83d79b3f | RELEASED | 1060.0000 | CANCELLED
+ EXP-20261105-000004 | 3e7be544 | RELEASED | 3180.0000 | WITHDRAWN
+ EXP-20261105-000004 | 83d79b3f | OCCUPIED | 1060.0000 | 
+(6 rows)
+
+== 唯一索引定义（未修改）==
+                                                                                  indexdef                                                                                   
+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ CREATE UNIQUE INDEX uk_biz_budget_usage_source ON public.biz_budget_usage USING btree (source_type, source_id, dept_id, account_id, fiscal_year) WHERE (deleted_at IS NULL)
+(1 row)
+
+== 五元组重复的有效行（必须 0 行）==
+ source_type | source_id | dept_id | account_id | fiscal_year | count 
+-------------+-----------+---------+------------+-------------+-------
+(0 rows)
+
+== 同一张单的历史行数（含 REPEATED 提交留下的单行复用痕迹）==
+      source_no      | rows | occupied | released | consumed 
+---------------------+------+----------+----------+----------
+ EXP-20261105-000001 |    2 |        0 |        0 |        2
+ EXP-20261105-000003 |    2 |        0 |        2 |        0
+ EXP-20261105-000004 |    2 |        1 |        1 |        0
+(3 rows)
+

@@ -31,6 +31,9 @@
 //!
 //! 两张单同时提交都超预算 → 两张都带标记进审批（可接受：人都能看见）；
 //! 同一张单双击 → 第二次撞 `uk_biz_budget_usage_source`，调用方把 23505 当**幂等成功**；
+//! 撤回 / 驳回后重新提交 → 同键已有 `RELEASED` 行，[`occupy`] 先把它**拉回** `OCCUPIED`
+//! 而不是再插一条（唯一键的谓词只有 `deleted_at IS NULL`，`RELEASED` 行也在里面，
+//! 纯 INSERT 会撞键 → 整个提交事务回滚）；
 //! `BLOCK` 模式若真要做到「一分不超」，才需要 `pg_advisory_xact_lock(hashtext(dept||account||year))`
 //! —— 本设计**预留但不实现**（§3.6.2 已论证代价）。
 
@@ -408,6 +411,30 @@ pub async fn check_slot(
 ///   历史单据的「当时超没超」不许跟着变）；
 /// * `budget_id` 只写审计列（D5：不参与计算）；
 /// * 撞 `uk_biz_budget_usage_source`（重复提交 / 重试）→ 返回 `None`，调用方当**幂等成功**。
+///
+/// # 先复用、后插入（撤回 / 驳回后重新提交）
+///
+/// 释放（[`release`]）只把行改成 `RELEASED`，**不删行**（留痕，`deleted_at` 仍为 `NULL`），
+/// 而 `uk_biz_budget_usage_source` 的唯一性覆盖 `RELEASED` 行 —— 所以「提交 → 撤回 → 再提交」
+/// 时直接 `INSERT` 必然撞 23505，整个提交事务被回滚（真机缺陷：重提 500，单据卡在 DRAFT）。
+///
+/// 因此这里的第一条语句是**条件 UPDATE**：同键若已有 `RELEASED` 行就把它拉回 `OCCUPIED`
+/// （重置 `amount / amount_net / period_code / over_budget / over_amount / budget_id`，
+/// 清空 `released_at / release_reason / consumed_at / voucher_id`），只有没命中才 `INSERT`。
+///
+/// * 唯一键语义不变：同一张单 × 同一槽天生只有一行，状态在 `OCCUPIED ↔ RELEASED` 之间往返；
+/// * 历史可追溯：`id` / `created_at` 不动，`release_reason` 留在状态日志与审批轨迹里；
+/// * `UPDATE … WHERE status = 'RELEASED' … RETURNING id` 是**原子**的（`UPDATE` 重新求值谓词
+///   并持行锁），并发两个提交只有一个能把行拉回来。
+///
+/// # 为什么不能靠「撞 23505 当幂等」（本次 500 的真实链路）
+///
+/// 提交是**一个事务**（改状态 + 写占用 + 发审批单）。PostgreSQL 里任何一条语句报错都会把
+/// 事务打成 aborted，之后每条语句只返回 `25P02`（`current transaction is aborted`）。
+/// 于是旧实现的两行占用是这样炸的：第 1 行 23505 被 `occupy` 当幂等吞掉 → 第 2 行再执行时
+/// 撞 `25P02`（这个码没有被映射成任何具体变体，落成 `DbError::Query`，文案就是
+/// `query failed: : db error`）→ 整个提交 500。**吞掉 23505 并不能救事务**，
+/// 所以正确做法是压根不产生冲突：有释放行就复用。
 #[allow(clippy::too_many_arguments)]
 pub async fn occupy(
     ex: &impl SqlExecutor,
@@ -421,6 +448,52 @@ pub async fn occupy(
     snapshot: &SlotSnapshot,
     operator: Option<Uuid>,
 ) -> DbResult<Option<Uuid>> {
+    let budget_id = snapshot
+        .budget_id
+        .map(|id| id.to_string())
+        .unwrap_or_default();
+    // ① 复用：同键的 RELEASED 行拉回 OCCUPIED（撤回 / 驳回后重新提交）。
+    let revived = ex
+        .query_first_sql(
+            "UPDATE biz_budget_usage \
+                SET status = 'OCCUPIED', \
+                    period_code = ?, \
+                    amount = ?::text::numeric, \
+                    amount_net = ?::text::numeric, \
+                    source_no = ?, \
+                    budget_id = NULLIF(?::text,'')::uuid, \
+                    over_budget = ?, \
+                    over_amount = ?::text::numeric, \
+                    released_at = NULL, \
+                    release_reason = NULL, \
+                    consumed_at = NULL, \
+                    voucher_id = NULL, \
+                    updated_at = now() \
+              WHERE source_type = ? AND source_id = ?::uuid \
+                AND dept_id = ?::uuid AND account_id = ?::uuid AND fiscal_year = ?::int \
+                AND status = 'RELEASED' AND deleted_at IS NULL \
+             RETURNING id"
+                .to_string(),
+            vec![
+                Value::Text(slot.period_code.clone()),
+                Value::Text(amount.to_string()),
+                Value::Text(amount_net.to_string()),
+                Value::Text(source_no.to_string()),
+                Value::Text(budget_id.clone()),
+                Value::from(i32::from(verdict.over)),
+                Value::Text(verdict.over_amount().to_string()),
+                Value::Text(source_type.to_string()),
+                Value::from(&source_id),
+                Value::from(&slot.dept_id),
+                Value::from(&slot.account_id),
+                Value::from(i32::from(slot.fiscal_year)),
+            ],
+        )
+        .await?;
+    if let Some(row) = revived {
+        return Ok(Some(row.get_typed("id")?));
+    }
+    // ② 没命中释放行 → 正常插入（首次提交）。
     let id = Uuid::now_v7();
     let result = ex
         .exec_sql(
@@ -443,12 +516,7 @@ pub async fn occupy(
                 Value::Text(source_type.to_string()),
                 Value::from(&source_id),
                 Value::Text(source_no.to_string()),
-                Value::Text(
-                    snapshot
-                        .budget_id
-                        .map(|id| id.to_string())
-                        .unwrap_or_default(),
-                ),
+                Value::Text(budget_id),
                 Value::from(i32::from(verdict.over)),
                 Value::Text(verdict.over_amount().to_string()),
                 Value::Text(operator.map(|id| id.to_string()).unwrap_or_default()),

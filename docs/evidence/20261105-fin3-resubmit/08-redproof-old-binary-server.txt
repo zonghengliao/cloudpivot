@@ -1,0 +1,18 @@
+# 修复前二进制（HEAD 1aa2a09 构建的 target/debug/cloudpivot）在 :18027 / 库 cloudpivot_fin3fe 上
+# 对 entity 01a1a9f8-2b86-70ca-a890-d43f0d7bc2ad（EXP-20261105-000005）再次 POST /submit 的日志节选。
+# 观察：两条明细各执行一次 INSERT INTO biz_budget_usage … 'OCCUPIED'（statement s72），
+#       随后 ERROR 写预算占用 + ROLLBACK + HTTP 500 —— 与库上两条 RELEASED 行撞唯一键。
+# 时间戳为 UTC（04:57:30Z = 北京时间 12:57:30）。
+
+                 id, dept_id, account_id, fiscal_year, period_code,
+                 amount, amount_net, source_type, source_id, source_no,
+                 status, budget_id, over_budget, over_amount, create_by)
+             VALUES ($1, $2::uuid, $3::uuid, $4::int, $5, $6::text::numeric, $7::text::numeric,
+                     $8, $9::uuid, $10, 'OCCUPIED', NULLIF($11::text,'')::uuid, $12::int, $13::text::numeric,
+                     NULLIF($14::text,'')::uuid)
+2026-11-05T04:57:30.992774Z DEBUG tokio_postgres::query: executing statement s72 with parameters: [Uuid([1, 161, 170, 17, 186, 112, 115, 116, 168, 19, 209, 30, 70, 218, 17, 190]), Uuid([137, 112, 59, 87, 6, 1, 67, 248, 147, 50, 207, 26, 218, 161, 218, 255]), Uuid([62, 123, 229, 68, 244, 144, 70, 138, 165, 249, 229, 140, 27, 23, 32, 87]), Int(2026), Text("2026-11"), Text("3180.0000"), Text("3000.0000"), Text("EXPENSE_REPORT"), Uuid([1, 161, 169, 248, 43, 134, 112, 202, 168, 144, 212, 63, 13, 123, 194, 173]), Text("EXP-20261105-000005"), Text(""), Int(1), Text("3180.0000"), Text("01a1a77b-ea13-715d-863d-95611e40d57d")]
+2026-11-05T04:57:30.993190Z DEBUG tokio_postgres::query: executing statement s72 with parameters: [Uuid([1, 161, 170, 17, 186, 113, 116, 11, 184, 237, 229, 219, 155, 209, 175, 181]), Uuid([137, 112, 59, 87, 6, 1, 67, 248, 147, 50, 207, 26, 218, 161, 218, 255]), Uuid([131, 215, 155, 63, 99, 196, 70, 96, 131, 160, 5, 75, 60, 141, 239, 186]), Int(2026), Text("2026-11"), Text("1060.0000"), Text("1060.0000"), Text("EXPENSE_REPORT"), Uuid([1, 161, 169, 248, 43, 134, 112, 202, 168, 144, 212, 63, 13, 123, 194, 173]), Text("EXP-20261105-000005"), Text(""), Int(1), Text("1060.0000"), Text("01a1a77b-ea13-715d-863d-95611e40d57d")]
+2026-11-05T04:57:30.993374Z ERROR cloudpivot::utils: 数据库操作失败 context="写预算占用" error=query failed: : db error
+2026-11-05T04:57:30.993409Z DEBUG tokio_postgres::simple_query: executing statement batch: ROLLBACK
+2026-11-05T04:57:30.993553Z ERROR nik_web::api: 请求处理异常 status=500 code=10004 detail=写预算占用: query failed: : db error
+2026-11-05T04:57:30.993642Z  WARN nik_web::middleware::request_log: 请求异常 method=POST path=/api/business/erp/expense/01a1a9f8-2b86-70ca-a890-d43f0d7bc2ad/submit status=500 duration=12ms request_id=- ip=Some("127.0.0.1")

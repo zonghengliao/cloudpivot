@@ -1,0 +1,22 @@
+BEGIN
+INSERT 0 1
+        step        | rows 
+--------------------+------
+ ① 首次占用插入成功 |    1
+(1 row)
+
+UPDATE 1
+                      step                       |  status  | has_released_at | deleted_at 
+-------------------------------------------------+----------+-----------------+------------
+ ② 模拟撤回：行仍在、status=RELEASED、deleted_at | RELEASED | t               | 
+(1 row)
+
+psql:/root/fin3fix-redproof.sql:24: ERROR:  duplicate key value violates unique constraint "uk_biz_budget_usage_source"
+DETAIL:  Key (source_type, source_id, dept_id, account_id, fiscal_year)=(EXPENSE_REPORT, 33333333-3333-4333-8333-333333333333, 11111111-1111-4111-8111-111111111111, 22222222-2222-4222-8222-222222222222, 2026) already exists.
+psql:/root/fin3fix-redproof.sql:25: ERROR:  current transaction is aborted, commands ignored until end of transaction block
+ROLLBACK
+            step            | count 
+----------------------------+-------
+ ④ 回滚后残留行数（必须 0） |     0
+(1 row)
+

@@ -27,6 +27,7 @@
 //! | 13 | `reverse_vouchers_after_cancel` | 作废红冲（红字凭证 + 蓝字 reversed_by） |
 //! | 14 | `budget_check_and_occupy` | 预算校验 / 占用 / 释放 |
 //! | 15 | `pay_status_three_values_from_db` | pay_status 三值完备（L6） |
+//! | 16 | `resubmit_after_release_reuses_same_usage_row` | 撤回 / 驳回后**重提复用同一行**（本卡缺陷回归：唯一键把 `RELEASED` 也算唯一） |
 
 use super::*;
 use crate::business::erp::expense_model;
@@ -795,6 +796,134 @@ mod db {
         assert_eq!(row.status, "PAID");
         assert_eq!(row.paid_amount, row.total_with_tax);
         assert_eq!(row.unpaid_amount, Decimal::ZERO);
+        cleanup(&[id]).await;
+    }
+
+    // ==================== 16) 撤回后重新提交：复用同一行（缺陷回归） ====================
+
+    /// 卡面缺陷回归：`提交 → 撤回 → 再提交` **不能再撞唯一键**。
+    ///
+    /// 释放（`release`）只把 usage 置 `RELEASED`、不删行（留痕，`deleted_at` 仍为 NULL），
+    /// 而 `uk_biz_budget_usage_source` 的谓词只有 `deleted_at IS NULL` —— 第二次提交若走
+    /// 纯 INSERT 必然 23505 → 整个提交事务 ROLLBACK（真机上的「重提 500，单据卡 DRAFT」）。
+    ///
+    /// 修法：`occupy` 先条件 UPDATE 把同键的 `RELEASED` 行拉回 `OCCUPIED`，没命中才 INSERT。
+    /// 本用例钉四件事：
+    /// 1. 连续 3 轮「释放 → 再占用」**复用同一个 id**，库里永远只有 1 行；
+    /// 2. 复用时金额 / 期间 / 超支快照被重置成**这一次**的值；
+    /// 3. `released_at / release_reason` 清空（库 CHECK `ck_biz_budget_usage_done` 要求
+    ///    `RELEASED` ⟺ `released_at` 非空，所以状态改回来必须一起清）；
+    /// 4. 并发两个「再提交」也只会得到 1 行（一个复用成功、另一个走 23505 幂等路径）。
+    #[tokio::test]
+    async fn resubmit_after_release_reuses_same_usage_row() {
+        if !ensure_db().await {
+            return;
+        }
+        let (Some(dept), Some(user), Some(kind)) =
+            (any_dept().await, any_user().await, travel_type().await)
+        else {
+            println!("SKIP: 库缺部门 / 用户 / 费用类型种子");
+            return;
+        };
+        use crate::business::erp::budget_guard;
+        let insert = insert_of(format!("EXP-T{}", uniq()), dept, user, &kind, dec!(1200));
+        let id = create_report(&insert).await;
+        let items = expense_model::items_of(db(), id).await.expect("明细");
+        let slot = budget_guard::Slot::new(dept, items[0].account_id, &insert.period_code)
+            .expect("槽（期间码合法）");
+        let verdict = budget_guard::BudgetVerdict::evaluate(
+            budget_guard::ControlMode::Warn,
+            dec!(100000),
+            Decimal::ZERO,
+            dec!(100000),
+            Decimal::ZERO,
+            dec!(1200),
+        );
+        assert!(!verdict.over, "额度充足时不该标超支");
+        let snapshot = budget_guard::SlotSnapshot {
+            budget_id: None,
+            year_limit: dec!(100000),
+            year_used: Decimal::ZERO,
+            month_limit: dec!(100000),
+            month_used: Decimal::ZERO,
+        };
+        let occupy = |amount: Decimal| {
+            budget_guard::occupy(
+                db(),
+                &slot,
+                amount,
+                amount,
+                budget_guard::SOURCE_EXPENSE,
+                id,
+                "EXP-T-RESUBMIT",
+                &verdict,
+                &snapshot,
+                None,
+            )
+        };
+        // 第一次提交：库里没有同键行 → 必然插入新行。
+        let first_id = occupy(dec!(1200))
+            .await
+            .expect("首次占用")
+            .expect("首次必须插新行");
+        // 3 轮「撤回 → 再提交」：id 必须不变、行数必须不涨。
+        for round in 1..=3 {
+            let released =
+                budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
+                    .await
+                    .expect("释放");
+            assert_eq!(released, 1, "第 {round} 轮释放 1 行");
+            let again = occupy(dec!(1200))
+                .await
+                .expect("再次占用不能再报错（旧实现这里 23505 → 提交事务回滚）");
+            assert_eq!(
+                again,
+                Some(first_id),
+                "第 {round} 轮必须复用同一行，不能新插一条"
+            );
+            let usages = budget_guard::usages_of(db(), budget_guard::SOURCE_EXPENSE, id)
+                .await
+                .expect("查占用");
+            assert_eq!(usages.len(), 1, "第 {round} 轮后 usage 仍只有一份");
+            assert_eq!(usages[0].status, "OCCUPIED", "第 {round} 轮后回到占用中");
+            assert_eq!(usages[0].amount, dec!(1200));
+            assert!(
+                usages[0].released_at.is_none() && usages[0].release_reason.is_none(),
+                "第 {round} 轮复用后释放痕迹必须清空（ck_biz_budget_usage_done）"
+            );
+        }
+        // 复用时金额被重置成「这一次」的值（草稿里改过金额再提交）。
+        budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
+            .await
+            .expect("改金额前释放");
+        let changed = occupy(dec!(800))
+            .await
+            .expect("改金额后再占用")
+            .expect("复用同一行");
+        assert_eq!(changed, first_id, "金额变了也还是同一行");
+        let usages = budget_guard::usages_of(db(), budget_guard::SOURCE_EXPENSE, id)
+            .await
+            .expect("查占用");
+        assert_eq!(usages.len(), 1);
+        assert_eq!(usages[0].amount, dec!(800), "金额必须重置成这次提交的值");
+        assert_eq!(usages[0].period_code, insert.period_code);
+        // 并发两个「再提交」：一个复用、一个走 23505 幂等路径，结果仍是 1 行。
+        budget_guard::release(db(), budget_guard::SOURCE_EXPENSE, id, "WITHDRAWN")
+            .await
+            .expect("并发前释放");
+        let (left, right) = tokio::join!(occupy(dec!(800)), occupy(dec!(800)));
+        let left = left.expect("并发占用 A");
+        let right = right.expect("并发占用 B");
+        assert_eq!(
+            [left, right].iter().filter(|value| value.is_some()).count(),
+            1,
+            "并发两个提交只能有一个把行拉回来（另一个当重复提交幂等成功）"
+        );
+        let usages = budget_guard::usages_of(db(), budget_guard::SOURCE_EXPENSE, id)
+            .await
+            .expect("查占用");
+        assert_eq!(usages.len(), 1, "并发后也不能产生第二行");
+        assert_eq!(usages[0].status, "OCCUPIED");
         cleanup(&[id]).await;
     }
 }
