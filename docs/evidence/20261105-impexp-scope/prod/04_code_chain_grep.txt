@@ -1,0 +1,143 @@
+### 01. 导出执行链路（同步 / 异步 / 批量）——grep 原始输出
+--- handler.rs（同步导出）
+748:pub async fn export_sync(
+761:/// 取数走 `count_scoped` / `fetch_scoped`，出参走
+763:async fn export_sync_response(
+768:        .export_definition(query.biz_type.trim())
+782:        .count_scoped(&filter, Some(&principal))
+810:            .fetch_scoped(&filter, after_id.as_deref(), PAGE, Some(&principal))
+1113:        .count_scoped(&filter, Some(&principal))
+--- handler.rs（异步导出建任务）
+1:pub async fn export_create(
+8:    let biz_type = req.biz_type.trim().to_string();
+10:        .export_definition(&biz_type)
+11:        .ok_or_else(|| def_not_found(&biz_type))?;
+21:        .count_scoped(&filter, Some(&principal))
+10:1102-        .export_definition(&biz_type)
+21:1113-        .count_scoped(&filter, Some(&principal))
+--- worker.rs（异步执行器）
+512:async fn do_export(
+525:    let filter = filter_from_params(task.query_params.as_deref());
+530:        Some(user_id) => Some(principal::resolve(&user_id).await.map_err(|error| {
+540:        .count_scoped(&filter, principal.as_ref())
+580:            .fetch_scoped(
+687:pub fn filter_from_params(raw: Option<&str>) -> ExportFilter {
+982:    fn filter_from_params_parses_keyword_and_status() {
+983:        let filter = filter_from_params(Some("{\"keyword\":\"  物料 \",\"status\":1}"));
+989:    fn filter_from_params_tolerates_broken_json() {
+991:        let filter = filter_from_params(Some("not-json"));
+994:        let filter = filter_from_params(None);
+999:    fn filter_from_params_drops_blank_keyword() {
+1000:        let filter = filter_from_params(Some("{\"keyword\":\"   \"}"));
+--- batch_export.rs（列表页批量导出 D7）
+26://! （`count_scoped` / `fetch_scoped`），任务本身的读回仍走 impexp 的现有入口。
+74:pub async fn create_by_ids(
+151:        max_attempts: worker::DEFAULT_MAX_ATTEMPTS,
+
+### 02. scope 入口定义（框架侧）
+893:    async fn count_scoped(
+910:    async fn fetch_scoped(
+--- 默认实现体：忽略 principal、回落 count/fetch
+6:        let _ = principal;
+7:        self.count(filter).await
+25:        let _ = principal;
+26:        self.fetch(filter, after_id, limit).await
+
+### 03. 谁是唯一 override 的导出定义
+backend/src/business/masking/user_export.rs:154:    async fn count_scoped(
+backend/src/business/masking/user_export.rs:173:    async fn fetch_scoped(
+
+### 04. 导出定义登记表（registry）
+backend/src/business/impexp/builtin/mod.rs:32:    registry.register_import(std::sync::Arc::new(dict_item::DictItemImport))?;
+backend/src/business/impexp/builtin/mod.rs:33:    registry.register_export(std::sync::Arc::new(dict_item::DictItemExport))?;
+backend/src/business/impexp/builtin/mod.rs:36:    registry.register_import(std::sync::Arc::new(master_data::supplier::SupplierImport))?;
+backend/src/business/impexp/builtin/mod.rs:37:    registry.register_import(std::sync::Arc::new(master_data::material::MaterialImport))?;
+backend/src/business/impexp/builtin/mod.rs:38:    registry.register_import(std::sync::Arc::new(master_data::unit::UnitImport))?;
+backend/src/business/impexp/builtin/mod.rs:39:    registry.register_import(std::sync::Arc::new(master_data::account::AccountImport))?;
+backend/src/business/impexp/builtin/mod.rs:40:    registry.register_import(std::sync::Arc::new(master_data::warehouse::WarehouseImport))?;
+backend/src/business/impexp/builtin/mod.rs:41:    registry.register_import(std::sync::Arc::new(master_data::location::LocationImport))?;
+backend/src/business/impexp/builtin/mod.rs:44:        registry.register_export(std::sync::Arc::new(definition))?;
+backend/src/business/impexp/registry.rs:59:    pub fn register_import(
+backend/src/business/impexp/registry.rs:80:    pub fn register_export(
+backend/src/business/impexp/registry.rs:181:        if let Err(error) = registry.register_export(std::sync::Arc::new(
+547:pub fn definitions() -> [ErpDocExport; 3] {
+548-    [
+549-        ErpDocExport { spec: &STOCK_IN },
+550-        ErpDocExport { spec: &PAYABLE },
+551-        ErpDocExport { spec: &VOUCHER },
+552-    ]
+553-}
+554-
+555-#[cfg(test)]
+556-mod tests {
+557-    use super::*;
+558-
+559-    #[test]
+
+### 05. 每个导出定义取数用的 SQL（有 scope 吗）
+backend/src/business/impexp/builtin/dict_item.rs:327:    async fn count(&self, filter: &ExportFilter) -> std::result::Result<i64, DbError> {
+backend/src/business/impexp/builtin/dict_item.rs:329:            "SELECT COUNT(*) FROM sys_dict_item i \
+backend/src/business/impexp/builtin/dict_item.rs:347:    async fn fetch(
+backend/src/business/impexp/builtin/erp_doc.rs:465:    async fn count(&self, filter: &ExportFilter) -> std::result::Result<i64, DbError> {
+backend/src/business/impexp/builtin/erp_doc.rs:466:        let mut sql = format!("SELECT COUNT(*) {}", self.spec.from);
+backend/src/business/impexp/builtin/erp_doc.rs:472:    async fn fetch(
+backend/src/business/impexp/builtin/erp_doc.rs:478:        // `spec.select` 自带 `SELECT …` 前缀（与 `count` 的 `SELECT COUNT(*)` 对称），
+backend/src/business/impexp/builtin/erp_doc.rs:481:        let mut sql = format!("{} {}", self.spec.select, self.spec.from);
+
+### 06. 三张 ERP 单据表在**列表侧**就是 unscoped（导出与列表同口径的根据）
+backend/src/business/erp/stockin_base.rs:632:pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped("biz_stock_in");
+backend/src/business/erp/payable_query.rs:100:pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(TABLE);
+backend/src/business/erp/payable_query.rs:459:        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
+backend/src/business/erp/voucher_query.rs:102:pub const LIST_TARGET: scope::ScopeTarget = scope::ScopeTarget::unscoped(TABLE);
+backend/src/business/erp/voucher_query.rs:581:        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
+backend/src/business/erp/stockin_query.rs:191:        // 子查询而不是 JOIN：`paginate_unscoped` 会对 `sql` 原样包一层 count(*)，
+backend/src/business/erp/stockin_query.rs:209:        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
+backend/src/business/erp/payable_query.rs:32://! 1. **列表分页走 `scope::paginate_unscoped`**（卡面 §四 要求「走 scope::paginate」）：
+backend/src/business/erp/payable_query.rs:459:        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
+backend/src/business/erp/voucher_query.rs:30://! 1. **列表分页走 `scope::paginate_unscoped`**（卡面硬红线 6）：凭证是会计台账，
+backend/src/business/erp/voucher_query.rs:581:        scope::paginate_unscoped(LIST_TARGET, &sql, params, Some(LIST_ORDER), page, page_size)
+--- SCOPE-EXEMPT 登记原文
+//! SCOPE-EXEMPT: 凭证 / 分录 / 科目映射规则是会计台账（V0149 建表，无 dept_id / 归属人列），
+//! 数据范围（SELF / DEPT_*）表达不出来；可见性由 business:erp:voucher:* 权限码控制（P2-D1 落地）。
+//! SCOPE-EXEMPT: biz_seq 是全局取号规则字典，没有归属列；biz_account 是会计科目表，属全局主数据。
+//! ```
+//!
+//! ```text
+//! SCOPE-EXEMPT: biz_voucher / biz_purchase_order / biz_stock_in / biz_stock_transfer /
+//! biz_inventory 都是按「会计期间」取的全局台账（无 dept_id 与归属人列），
+//! 可见性由 business:erp:period:{close,remind} 控制；这里不注入数据范围。
+//! ```
+
+### 07. 导入侧：ImportCtx 里没有 principal/数据范围
+790:pub struct ImportCtx {
+791-    /// 任务 ID。
+792-    pub task_id: uuid::Uuid,
+793-    /// 操作人。
+794-    pub operator: Option<uuid::Uuid>,
+795-    /// 导入模式。
+796-    pub mode: ImportMode,
+797-}
+798-
+--- import_confirm 只做任务可见性校验（load_task 带 scope），不做目标表行级范围校验
+pub async fn import_confirm(
+    Path(id): Path<String>,
+    Extension(AuthClaims(claims)): Extension<AuthClaims>,
+) -> ResResult<ConfirmRes> {
+    let principal = principal::resolve_for_claims(&claims).await?;
+    let task = load_task(&id, &principal).await?;
+    if task.status != "VALIDATED" {
+        return Err(ApiError::new(
+            409,
+            error_code::IMPORT_STATUS_INVALID,
+            format!(
+315:pub async fn validate(
+--- 6 个主数据导入的写入语句：ON CONFLICT DO UPDATE（全局 upsert，无归属条件）
+backend/src/business/impexp/builtin/master_data/account.rs:17://! `ON CONFLICT` 命中 —— 导入把它 `deleted_at = NULL` 复活，历史凭证指向的科目因此不变。
+backend/src/business/impexp/builtin/master_data/account.rs:295:             ON CONFLICT (account_code) {}",
+backend/src/business/impexp/builtin/master_data/location.rs:312:             ON CONFLICT (warehouse_id, location_code) WHERE deleted_at IS NULL {}",
+backend/src/business/impexp/builtin/master_data/material.rs:236:             ON CONFLICT (material_code) WHERE deleted_at IS NULL {}",
+backend/src/business/impexp/builtin/master_data/mod.rs:19://! 4. **幂等**：按业务编码 upsert（`ON CONFLICT ... DO UPDATE`），重复上传同一份文件不产生重复行；
+backend/src/business/impexp/builtin/master_data/mod.rs:44://!   快照了科目编码），所以 `ON CONFLICT` 命中的是那条已删行：导入把它**复活**
+backend/src/business/impexp/builtin/master_data/supplier.rs:194:             ON CONFLICT (supplier_code) WHERE deleted_at IS NULL {}",
+backend/src/business/impexp/builtin/master_data/unit.rs:355:             ON CONFLICT (unit_code) WHERE deleted_at IS NULL {}",
+backend/src/business/impexp/builtin/master_data/warehouse.rs:216:             ON CONFLICT (warehouse_code) WHERE deleted_at IS NULL {}",

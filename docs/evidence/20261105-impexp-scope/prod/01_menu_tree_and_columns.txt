@@ -1,0 +1,69 @@
+== 1) 三个导入导出页节点（menu_type=2）==
+                  id                  |             path             | menu_type |           auth_code           |   name   
+--------------------------------------+------------------------------+-----------+-------------------------------+----------
+ 22000000-0000-0000-0000-000000000030 | /business/impexp/export-task |         2 | business:impexp:export:list   | 导出任务
+ 22000000-0000-0000-0000-000000000010 | /business/impexp/import      |         2 | business:impexp:import:upload | 导入向导
+ 22000000-0000-0000-0000-000000000020 | /business/impexp/import-task |         2 | business:impexp:import:list   | 导入任务
+(3 rows)
+
+
+== 2) 三个页面的全部后代（按钮码），按 auth_code 末段动作排序 ==
+             page             |            auth_code            | menu_type |              name               | depth |  action  
+------------------------------+---------------------------------+-----------+---------------------------------+-------+----------
+ /business/impexp/export-task | business:impexp:export:cancel   |         3 | business:impexp:export:cancel   |     1 | cancel
+ /business/impexp/export-task | business:impexp:export:create   |         3 | business:impexp:export:create   |     1 | create
+ /business/impexp/export-task | business:impexp:export:delete   |         3 | business:impexp:export:delete   |     1 | delete
+ /business/impexp/export-task | business:impexp:export:download |         3 | business:impexp:export:download |     1 | download
+ /business/impexp/export-task | business:impexp:export:list     |         3 | business:impexp:export:list     |     1 | list
+ /business/impexp/export-task | business:impexp:export:retry    |         3 | business:impexp:export:retry    |     1 | retry
+ /business/impexp/import      | business:impexp:def:list        |         3 | business:impexp:def:list        |     1 | list
+ /business/impexp/import      | business:impexp:import:template |         3 | business:impexp:import:template |     1 | template
+ /business/impexp/import      | business:impexp:import:upload   |         3 | business:impexp:import:upload   |     1 | upload
+ /business/impexp/import-task | business:impexp:import:cancel   |         3 | business:impexp:import:cancel   |     1 | cancel
+ /business/impexp/import-task | business:impexp:import:confirm  |         3 | business:impexp:import:confirm  |     1 | confirm
+ /business/impexp/import-task | business:impexp:import:download |         3 | business:impexp:import:download |     1 | download
+ /business/impexp/import-task | business:impexp:import:list     |         3 | business:impexp:import:list     |     1 | list
+ /business/impexp/import-task | business:impexp:import:retry    |         3 | business:impexp:import:retry    |     1 | retry
+(14 rows)
+
+
+== 3) 现状：哪些角色已经持有这些码（应为：无业务角色）==
+  role_code  |            auth_code            
+-------------+---------------------------------
+ SUPER_ADMIN | business:impexp:def:list
+ SUPER_ADMIN | business:impexp:export:cancel
+ SUPER_ADMIN | business:impexp:export:create
+ SUPER_ADMIN | business:impexp:export:delete
+ SUPER_ADMIN | business:impexp:export:download
+ SUPER_ADMIN | business:impexp:export:list
+ SUPER_ADMIN | business:impexp:export:list
+ SUPER_ADMIN | business:impexp:export:retry
+ SUPER_ADMIN | business:impexp:import:cancel
+ SUPER_ADMIN | business:impexp:import:confirm
+ SUPER_ADMIN | business:impexp:import:download
+ SUPER_ADMIN | business:impexp:import:list
+ SUPER_ADMIN | business:impexp:import:list
+ SUPER_ADMIN | business:impexp:import:retry
+ SUPER_ADMIN | business:impexp:import:template
+ SUPER_ADMIN | business:impexp:import:upload
+ SUPER_ADMIN | business:impexp:import:upload
+(17 rows)
+
+
+== 4) 三张 ERP 单据表的归属列（dept_id 是否存在）==
+  table_name  | column_name 
+--------------+-------------
+ biz_payable  | create_by
+ biz_stock_in | create_by
+ biz_voucher  | create_by
+(3 rows)
+
+
+== 5) 行数（导出内容查询的"全量"基准）==
+      t       | rows 
+--------------+------
+ biz_stock_in |   14
+ biz_payable  |   12
+ biz_voucher  |   21
+(3 rows)
+

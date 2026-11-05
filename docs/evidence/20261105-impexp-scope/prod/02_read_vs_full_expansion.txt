@@ -1,0 +1,114 @@
+################ A) 3 页 x 3 角色 mode=READ —— 真实展开结果（复用 expand.sql 原文，md5 见 02 文件）################
+psql:/tmp/impexp_probe/expand.sql:16: NOTICE:  table "_read_actions" does not exist, skipping
+psql:/tmp/impexp_probe/expand.sql:119: NOTICE:  table "_new_menus" does not exist, skipping
+-- A1) 每个角色最终会被授予的 impexp 权限码（_sel ∩ sys_menu）
+     role_code     |            auth_code            |  action  
+-------------------+---------------------------------+----------
+ FINANCE_MANAGER   | business:impexp:def:list        | list
+ FINANCE_MANAGER   | business:impexp:export:download | download
+ FINANCE_MANAGER   | business:impexp:export:list     | list
+ FINANCE_MANAGER   | business:impexp:export:list     | list
+ FINANCE_MANAGER   | business:impexp:import:download | download
+ FINANCE_MANAGER   | business:impexp:import:list     | list
+ FINANCE_MANAGER   | business:impexp:import:list     | list
+ FINANCE_MANAGER   | business:impexp:import:template | template
+ FINANCE_MANAGER   | business:impexp:import:upload   | upload
+ PURCHASE_MANAGER  | business:impexp:def:list        | list
+ PURCHASE_MANAGER  | business:impexp:export:download | download
+ PURCHASE_MANAGER  | business:impexp:export:list     | list
+ PURCHASE_MANAGER  | business:impexp:export:list     | list
+ PURCHASE_MANAGER  | business:impexp:import:download | download
+ PURCHASE_MANAGER  | business:impexp:import:list     | list
+ PURCHASE_MANAGER  | business:impexp:import:list     | list
+ PURCHASE_MANAGER  | business:impexp:import:template | template
+ PURCHASE_MANAGER  | business:impexp:import:upload   | upload
+ WAREHOUSE_MANAGER | business:impexp:def:list        | list
+ WAREHOUSE_MANAGER | business:impexp:export:download | download
+ WAREHOUSE_MANAGER | business:impexp:export:list     | list
+ WAREHOUSE_MANAGER | business:impexp:export:list     | list
+ WAREHOUSE_MANAGER | business:impexp:import:download | download
+ WAREHOUSE_MANAGER | business:impexp:import:list     | list
+ WAREHOUSE_MANAGER | business:impexp:import:list     | list
+ WAREHOUSE_MANAGER | business:impexp:import:template | template
+ WAREHOUSE_MANAGER | business:impexp:import:upload   | upload
+(27 rows)
+
+-- A2) 断言：READ 展开里绝不能出现 export:create / import:confirm（出现即为外带/写入入口）
+ has_export_create | has_import_confirm | has_export_delete | has_import_retry 
+-------------------+--------------------+-------------------+------------------
+                 0 |                  0 |                 0 |                0
+(1 row)
+
+-- A3) 每个角色被授的 impexp 码个数
+     role_code     | impexp_codes 
+-------------------+--------------
+ FINANCE_MANAGER   |            9
+ PURCHASE_MANAGER  |            9
+ WAREHOUSE_MANAGER |            9
+(3 rows)
+
+
+################ B) 对照：同样 3 页 mode=FULL —— 展开结果 ################
+psql:/tmp/impexp_probe/expand.sql:16: NOTICE:  table "_read_actions" does not exist, skipping
+psql:/tmp/impexp_probe/expand.sql:119: NOTICE:  table "_new_menus" does not exist, skipping
+     role_code     |            auth_code            |  action  
+-------------------+---------------------------------+----------
+ FINANCE_MANAGER   | business:impexp:def:list        | list
+ FINANCE_MANAGER   | business:impexp:export:cancel   | cancel
+ FINANCE_MANAGER   | business:impexp:export:create   | create
+ FINANCE_MANAGER   | business:impexp:export:delete   | delete
+ FINANCE_MANAGER   | business:impexp:export:download | download
+ FINANCE_MANAGER   | business:impexp:export:list     | list
+ FINANCE_MANAGER   | business:impexp:export:list     | list
+ FINANCE_MANAGER   | business:impexp:export:retry    | retry
+ FINANCE_MANAGER   | business:impexp:import:cancel   | cancel
+ FINANCE_MANAGER   | business:impexp:import:confirm  | confirm
+ FINANCE_MANAGER   | business:impexp:import:download | download
+ FINANCE_MANAGER   | business:impexp:import:list     | list
+ FINANCE_MANAGER   | business:impexp:import:list     | list
+ FINANCE_MANAGER   | business:impexp:import:retry    | retry
+ FINANCE_MANAGER   | business:impexp:import:template | template
+ FINANCE_MANAGER   | business:impexp:import:upload   | upload
+ FINANCE_MANAGER   | business:impexp:import:upload   | upload
+ PURCHASE_MANAGER  | business:impexp:def:list        | list
+ PURCHASE_MANAGER  | business:impexp:export:cancel   | cancel
+ PURCHASE_MANAGER  | business:impexp:export:create   | create
+ PURCHASE_MANAGER  | business:impexp:export:delete   | delete
+ PURCHASE_MANAGER  | business:impexp:export:download | download
+ PURCHASE_MANAGER  | business:impexp:export:list     | list
+ PURCHASE_MANAGER  | business:impexp:export:list     | list
+ PURCHASE_MANAGER  | business:impexp:export:retry    | retry
+ PURCHASE_MANAGER  | business:impexp:import:cancel   | cancel
+ PURCHASE_MANAGER  | business:impexp:import:confirm  | confirm
+ PURCHASE_MANAGER  | business:impexp:import:download | download
+ PURCHASE_MANAGER  | business:impexp:import:list     | list
+ PURCHASE_MANAGER  | business:impexp:import:list     | list
+ PURCHASE_MANAGER  | business:impexp:import:retry    | retry
+ PURCHASE_MANAGER  | business:impexp:import:template | template
+ PURCHASE_MANAGER  | business:impexp:import:upload   | upload
+ PURCHASE_MANAGER  | business:impexp:import:upload   | upload
+ WAREHOUSE_MANAGER | business:impexp:def:list        | list
+ WAREHOUSE_MANAGER | business:impexp:export:cancel   | cancel
+ WAREHOUSE_MANAGER | business:impexp:export:create   | create
+ WAREHOUSE_MANAGER | business:impexp:export:delete   | delete
+ WAREHOUSE_MANAGER | business:impexp:export:download | download
+ WAREHOUSE_MANAGER | business:impexp:export:list     | list
+ WAREHOUSE_MANAGER | business:impexp:export:list     | list
+ WAREHOUSE_MANAGER | business:impexp:export:retry    | retry
+ WAREHOUSE_MANAGER | business:impexp:import:cancel   | cancel
+ WAREHOUSE_MANAGER | business:impexp:import:confirm  | confirm
+ WAREHOUSE_MANAGER | business:impexp:import:download | download
+ WAREHOUSE_MANAGER | business:impexp:import:list     | list
+ WAREHOUSE_MANAGER | business:impexp:import:list     | list
+ WAREHOUSE_MANAGER | business:impexp:import:retry    | retry
+ WAREHOUSE_MANAGER | business:impexp:import:template | template
+ WAREHOUSE_MANAGER | business:impexp:import:upload   | upload
+ WAREHOUSE_MANAGER | business:impexp:import:upload   | upload
+(51 rows)
+
+-- B1) FULL 展开里是否出现外带/写入入口（这就是"能办"的代价）
+ has_export_create | has_import_confirm 
+-------------------+--------------------
+                 3 |                  3
+(1 row)
+

@@ -1,0 +1,8 @@
+laoliu_test  /api/business/erp/stock-in/page?page=1&page_size=5   -> 200  total=14
+laoliu_test  /api/business/erp/payable/page?page=1&page_size=5    -> 200  total=12
+laoliu_test  /api/business/erp/voucher/page?page=1&page_size=5    -> 403  total=None
+
+admin        /api/business/erp/stock-in/page?page=1&page_size=5   -> 200  total=14
+admin        /api/business/erp/payable/page?page=1&page_size=5    -> 200  total=12
+admin        /api/business/erp/voucher/page?page=1&page_size=5    -> 200  total=21
+

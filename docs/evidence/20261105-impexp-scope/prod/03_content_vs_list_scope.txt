@@ -1,0 +1,65 @@
+################ C) 导出内容查询 vs 列表查询：同一张表、同一个口径（均在隔离副本 cloudpivot_impexp_iso1 上只读）################
+-- C1) 导出定义 erp.stock_in 的 COUNT(*)（SQL 原文取自 backend/src/business/impexp/builtin/erp_doc.rs:466 的 format!("SELECT COUNT(*) {}", self.spec.from) + :395 的 from）
+ export_count 
+--------------
+           14
+(1 row)
+
+-- C2) 收货入库单列表口径（stockin_base.rs:632 LIST_TARGET = unscoped("biz_stock_in")；paginate_unscoped 注入的是 AND 1 = 1）
+ list_count 
+------------
+         14
+(1 row)
+
+-- C3) 应付单：导出（erp_doc.rs:414 from）vs 列表（payable_query.rs:100 LIST_TARGET unscoped）
+ export_count | list_count 
+--------------+------------
+           12 |         12
+(1 row)
+
+-- C4) 凭证：导出（erp_doc.rs:433 from）vs 列表（voucher_query.rs:102 LIST_TARGET unscoped）
+ export_count | list_count 
+--------------+------------
+           21 |         21
+(1 row)
+
+
+-- C5) 这些单据到底归属几个部门？（若导出真按部门过滤，条数应远小于 C1/C3/C4）
+      t       | depts | rows 
+--------------+-------+------
+ biz_stock_in |     1 |   14
+ biz_payable  |     1 |   12
+ biz_voucher  |     1 |   21
+(3 rows)
+
+
+-- C6) 逐部门分布（含 NULL = 归属人不在 sys_user 或未落部门）：导出**不做**这个切分
+   dept   |    t     | rows 
+----------+----------+------
+ 云枢总部 | payable  |   11
+ (无部门) | payable  |    1
+ 云枢总部 | stock_in |   14
+ 云枢总部 | voucher  |   20
+ (无部门) | voucher  |    1
+(5 rows)
+
+
+-- C7) 若"导出按部门过滤"，3 档账号（laoliu_test 所在 TECH 子树）能导出多少？（对比 C1/C3/C4 的全量）
+ stock_in_dept | payable_dept | voucher_dept 
+---------------+--------------+--------------
+             0 |            0 |            0
+(1 row)
+
+
+################ D) 导入侧：6 张主数据表有没有部门列（有才谈得上"只能导入本部门"）################
+  table_name   | dept_id_cols 
+---------------+--------------
+ biz_account   |            0
+ biz_location  |            0
+ biz_material  |            0
+ biz_supplier  |            0
+ biz_unit      |            0
+ biz_warehouse |            0
+ sys_dict_item |            0
+(7 rows)
+
