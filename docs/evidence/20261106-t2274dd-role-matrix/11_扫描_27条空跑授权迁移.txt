@@ -1,0 +1,34 @@
+共 28 条迁移带空跑保护
+
+| 迁移 | 授予的权限码数 | 涉及菜单数 | 目标角色码 |
+|---|---|---|---|
+| `V0141__erp_permissions.up.sql` | 32 | 34 | SUPER_ADMIN |
+| `V0142__erp_serial_permissions.up.sql` | 5 | 6 | SUPER_ADMIN |
+| `V0143__erp_audit_permission.up.sql` | 1 | 2 | SUPER_ADMIN |
+| `V0144__erp_transfer_permission.up.sql` | 6 | 8 | SUPER_ADMIN |
+| `V0146__erp_purchase_order_permissions.up.sql` | 5 | 6 | ADMIN,BUYER,PURCHASER,SUPER_ADMIN |
+| `V0147__erp_stock_in_permissions.up.sql` | 6 | 7 | ADMIN,BUYER,PURCHASER,SUPER_ADMIN,WAREHOUSE_KEEPER |
+| `V0150__erp_ledger_permissions.up.sql` | 4 | 5 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0151__erp_payable_permissions.up.sql` | 2 | 3 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0158__erp_payment_and_voucher_write.up.sql` | 4 | 6 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0183__erp_balance_sheet.up.sql` | 2 | 3 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0184__erp_income_statement.up.sql` | 1 | 2 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0185__erp_cashflow.up.sql` | 1 | 2 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0188__erp_period_close.up.sql` | 3 | 4 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN |
+| `V0189__erp_opening_balance.up.sql` | 3 | 4 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,WAREHOUSE |
+| `V0190__erp_year_end.up.sql` | 3 | 4 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN |
+| `V0192__pflow3b_grant_new_codes_by_old_matrix.up.sql` | 6 | 4 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0203__erp_stock_out.up.sql` | 6 | 7 | ADMIN,BUYER,PURCHASER,SUPER_ADMIN,WAREHOUSE_KEEPER |
+| `V0207__erp_period_remind.up.sql` | 1 | 2 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN |
+| `V0208__erp_year_end_remind.up.sql` | 1 | 2 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN |
+| `V0210__erp_business_reminder.up.sql` | 1 | 2 | FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER |
+| `V0211__erp_stock_take.up.sql` | 6 | 22 | ADMIN,FINANCE_MANAGER,SUPER_ADMIN,WAREHOUSE_KEEPER,WAREHOUSE_MANAGER |
+| `V0212__erp_doc_attachment.up.sql` | 3 | 4 | FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,PURCHASE_MANAGER,SUPER_ADMIN,WAREHOUSE_MANAGER |
+| `V0213__erp_cancel_cascade_permissions.up.sql` | 5 | 0 | ADMIN,SUPER_ADMIN |
+| `V0214__erp_ledger_aux_balance_permission.up.sql` | 2 | 0 | ACCOUNTANT,ADMIN,FINANCE,SUPER_ADMIN,TEST_UADMIN |
+| `V0250__erp_voucher_three_state.up.sql` | 4 | 4 | SUPER_ADMIN |
+| `V0255__erp_payable_aging.up.sql` | 1 | 2 | ACCOUNTANT,ADMIN,FINANCE,FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,SUPER_ADMIN,TEST_UADMIN |
+| `V0256__erp_report_item_admin.up.sql` | 2 | 4 | ADMIN,FINANCE_DIRECTOR,FINANCE_MANAGER,GENERAL_MANAGER,SUPER_ADMIN |
+| `V0258__business_role_matrix.up.sql` | 187 | 0 | - |
+
+角色码出现次数： {'SUPER_ADMIN': 27, 'ADMIN': 20, 'BUYER': 3, 'PURCHASER': 3, 'WAREHOUSE_KEEPER': 3, 'ACCOUNTANT': 14, 'FINANCE': 14, 'TEST_UADMIN': 9, 'WAREHOUSE': 1, 'FINANCE_DIRECTOR': 4, 'FINANCE_MANAGER': 5, 'GENERAL_MANAGER': 4, 'PURCHASE_MANAGER': 2, 'WAREHOUSE_MANAGER': 3}

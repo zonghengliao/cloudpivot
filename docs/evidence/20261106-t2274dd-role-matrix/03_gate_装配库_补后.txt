@@ -1,0 +1,8 @@
+矩阵对: 450  缺授权对: 0  缺权限码: 0  缺角色: 0
+5 个验收码现状:
+  business:erp:period:remind -> FINANCE_MANAGER
+  business:erp:stock-in:status -> WAREHOUSE_MANAGER
+  business:erp:transfer:status -> WAREHOUSE_MANAGER
+  business:erp:voucher:create -> FINANCE_MANAGER
+  business:erp:voucher:post -> FINANCE_MANAGER,SUPER_ADMIN
+OK（若目标库是生产 ⇒ 执行本迁移零变更）

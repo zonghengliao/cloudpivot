@@ -1,0 +1,32 @@
+--- 并集覆盖的业务页数 / 业务页总数
+ biz_pages_total | covered_union 
+-----------------+---------------
+              52 |            15
+(1 row)
+
+--- 逐角色覆盖的业务页数
+      role_code       | pages 
+----------------------+-------
+ DEPT_LEADER          |    12
+ FINANCE_DIRECTOR     |    14
+ FINANCE_MANAGER      |    15
+ FLOW_CONFIG_APPROVER |     3
+ GENERAL_MANAGER      |     5
+ PURCHASE_MANAGER     |     3
+ SUPER_ADMIN          |     1
+ WAREHOUSE_MANAGER    |     4
+(8 rows)
+
+--- 每角色 business 权限码数
+      role_code       | codes 
+----------------------+-------
+ DEPT_LEADER          |    48
+ FINANCE_DIRECTOR     |    54
+ FINANCE_MANAGER      |    61
+ FLOW_CONFIG_APPROVER |    14
+ GENERAL_MANAGER      |    20
+ PURCHASE_MANAGER     |    18
+ SUPER_ADMIN          |    25
+ WAREHOUSE_MANAGER    |    24
+(8 rows)
+

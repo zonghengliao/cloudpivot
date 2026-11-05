@@ -1,0 +1,14 @@
+=== 基线（V0258 已应用）===
+  sys_role_menu=688  FINANCE_MANAGER=149  财务三码=3
+=== ① 重放 up（幂等，期望 0 行 + NOTICE 0）===
+psql:/opt/cloudpivot/backend/migrations/business/V0258__business_role_matrix.up.sql:393: NOTICE:  V0258 完成：矩阵 450 对 / 本次新增授权 0 行 / 推进 token_version 0 个账号
+  sys_role_menu=688（期望 688）
+=== ② down（期望回到无 V0258 的基线）===
+psql:/opt/cloudpivot/backend/migrations/business/V0258__business_role_matrix.down.sql:247: NOTICE:  V0258 down 完成：删除授权 367 行 / 推进 token_version 0 个账号
+  sys_role_menu=321  FINANCE_MANAGER=73  财务三码=0
+=== ③ 重放 down（幂等，期望删除 0 行）===
+psql:/opt/cloudpivot/backend/migrations/business/V0258__business_role_matrix.down.sql:247: NOTICE:  V0258 down 完成：删除授权 0 行 / 推进 token_version 0 个账号
+  sys_role_menu=321
+=== ④ 再 up（期望恢复）===
+psql:/opt/cloudpivot/backend/migrations/business/V0258__business_role_matrix.up.sql:393: NOTICE:  V0258 完成：矩阵 450 对 / 本次新增授权 367 行 / 推进 token_version 0 个账号
+  sys_role_menu=688（期望 688）  财务三码=3

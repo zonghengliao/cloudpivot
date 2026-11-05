@@ -1,0 +1,41 @@
+--- ① 5 个验收码的持有角色（期望：财务三码→FINANCE_MANAGER，仓库两码→WAREHOUSE_MANAGER）
+          auth_code           |            roles            
+------------------------------+-----------------------------
+ business:erp:period:remind   | FINANCE_MANAGER
+ business:erp:stock-in:status | WAREHOUSE_MANAGER
+ business:erp:transfer:status | WAREHOUSE_MANAGER
+ business:erp:voucher:create  | FINANCE_MANAGER
+ business:erp:voucher:post    | FINANCE_MANAGER,SUPER_ADMIN
+(5 rows)
+
+--- ② 每角色 business 码数 / 全部授权行
+      role_code       | biz_codes | rows_all 
+----------------------+-----------+----------
+ DEPT_LEADER          |        67 |       91
+ FINANCE_DIRECTOR     |        54 |       67
+ FINANCE_MANAGER      |       120 |      149
+ FLOW_CONFIG_APPROVER |        14 |       22
+ GENERAL_MANAGER      |        94 |      125
+ PURCHASE_MANAGER     |        75 |       98
+ SUPER_ADMIN          |        25 |       33
+ WAREHOUSE_MANAGER    |        80 |      103
+(8 rows)
+
+--- ③ 催办按钮节点（…1212）现在谁持有
+    role_code    
+-----------------
+ FINANCE_MANAGER
+(1 row)
+
+--- ④ 孤儿按钮自检：持有按钮码却没持有父页码的 (角色,码) —— 期望与生产同形
+ orphan_button_codes 
+---------------------
+                   2
+                   3
+(2 rows)
+
+--- ⑤ 治理页越界（期望 0 行）
+ role_code | path | auth_code 
+-----------+------+-----------
+(0 rows)
+
