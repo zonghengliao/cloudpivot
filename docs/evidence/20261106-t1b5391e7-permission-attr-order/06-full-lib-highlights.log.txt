@@ -1,0 +1,15 @@
+test business::erp::asset_model::asset_model_tests::db::change_rows_are_append_only ... [SKIP] 库里没有部门或资产分类
+test business::erp::asset_model::asset_model_tests::db::insert_asset_computes_derived_amounts ... [SKIP] 库里没有部门或资产分类（先跑 V0229）
+test business::erp::asset_model::asset_model_tests::db::source_can_only_be_converted_once ... [SKIP] 库里没有部门或资产分类
+test business::erp::asset_model::asset_model_tests::db::status_cas_is_atomic ... [SKIP] 库里没有部门或资产分类
+test business::erp::budget_model::budget_model_tests::db::version_chain_and_single_active ... [SKIP] 库里没有部门或 5602.02 科目（先跑迁移）
+test business::erp::expense_model::expense_model_tests::db::header_and_items_are_consistent ... SKIP: 库缺部门 / 用户 / 费用类型种子
+test business::erp::expense_model::expense_model_tests::db::resubmit_after_release_reuses_same_usage_row ... SKIP: 库缺部门 / 用户 / 费用类型种子
+test business::shared::principal::tests::real_redis_cache_roundtrip ... SKIP: 未设置 B2_REDIS_URL（不连真实 Redis）
+test system::menu::permission_audit_tests::n14_menu_auth_codes_have_source_action_point ... [N14] 290 个种子菜单权限码全部有源码落地 ✓（278 条走 #[nik::permission] 注解闸，11 条走行级校验；判据范围 = run 起点前的种子行，已排除本次/历史夹具 0 行）
+test system::menu::permission_audit_tests::n15_menu_auth_codes_match_module_resource_action ... [N15] 322 条种子菜单行权限码形态合规 ✓（判据范围 = run 起点前的种子行）
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... [N16] 517 条路由：501 条有权限注解 + 16 条白名单例外 ✓
+test system::menu::permission_audit_tests::n17_scanner_detects_planted_dead_code ... [N17] 扫描器自检通过（死码 / 裸路由都能扫出来；属性顺序颠倒也能认出来）✓
+test system::menu::permission_audit_tests::n18_route_level_exception_ledger_is_live ... [N18] 例外台账 1 条、白名单 16 条，全部有理由且仍然成立 ✓
+test system::menu::permission_audit_tests::n19_approval_node_role_assignees_have_approve_permission ... [N19] 35 处 ROLE 指派的审批节点，全部持有 business:flow:approve ✓
+test result: ok. 2676 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 1401.02s

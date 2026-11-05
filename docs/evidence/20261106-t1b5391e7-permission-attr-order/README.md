@@ -11,6 +11,8 @@
 
 ## 1. 现象（已在起点 HEAD 上复现）
 
+> 原始现场逐字摘录见 `01-repro.log.txt`（父卡全量真库日志第 2939–2946 行 + 本卡开工时于 `66c1208` 复跑，两者一致）。
+
 ```bash
 cd backend && SYS_DB_URL='postgres://alun:***@127.0.0.1:5432/cloudpivot_iso977' \
   cargo test --lib --features test-hooks -- --nocapture --exact \
@@ -93,7 +95,18 @@ pub async fn preview_impact(...)
 | 2 | 属性顺序归位后跑整个审计模块（N14–N19） | `6 passed; 0 failed` | `03-audit-module-green.log.txt` |
 | 3 | **真树负样本**：把 `preview_impact` 的 `#[nik::permission]` 删掉再跑 N16 | 仍然红，点名同一条路由 ⇒ 没把判据放宽成假绿 | `04-negative-removed-attr.log.txt` |
 | 4 | `cargo fmt --check` / `clippy -D warnings` / `cargo check` / `pnpm typecheck` | 全绿（`scripts/check.sh` 前四步） | `05-check-with-db.log.txt` |
-| 5 | `CHECK_WITH_DB=1 ERP_DB_URL=… SYS_DB_URL=… TASK_DB_URL=… bash scripts/check.sh` | PLACEHOLDER_FULL_DB | `05-check-with-db.log.txt` |
+| 5 | `CHECK_WITH_DB=1 ERP_DB_URL=… SYS_DB_URL=… TASK_DB_URL=… bash scripts/check.sh` | `全部检查通过`（exit 0）：`cargo fmt --check` / `clippy -D warnings` / `cargo check` / `pnpm typecheck` 全绿 + 真库档 `test result: ok. **2676 passed; 0 failed**; 7 filtered out; finished in 1401.02s`，0 条「库未配置」假绿 SKIP（另有 3 条「数据前提缺失」类 SKIP，如实报告环境差异） | `05-check-with-db.log.txt`、`06-full-lib-highlights.log.txt` |
 
 > 第 1 条是关键：**源码还颠倒着**时 N16 就已经绿了，说明修的是扫描器的方向，而不是「把红的源码改掉让测试闭嘴」。
 > 第 3 条保证这个放宽没有副作用。
+> 第 5 条把父卡那 1 条红彻底清零：修前同一隔离库是 `2675 passed; 1 failed`（唯一红 = n16），
+> 现在是 `2676 passed; 0 failed`。
+
+## 5. 遗留说明（给下一个人）
+
+- 判据仍是「有 `#[nik::permission]` 注解或进白名单」，**没有**因为这次改造多认任何东西：
+  全仓 517 条路由里 501 条有注解 + 16 条白名单，数字与修前只差被误判的那 1 条。
+- `bracket_delta` 对字符字面量/生命周期的处理是简化的（遇 `'` 当字面量起点）。
+  属性里不会出现生命周期，所以够用；若将来有 `#[nik::layer(foo::Bar<'a>)]` 之类，
+  请同时给它补一条 N17 反样本再改。
+- 同类「无库时 SKIP 记 passed」的假绿由父卡的门禁 `CHECK_WITH_DB=1` 兜底，本卡不需要再动脚本。

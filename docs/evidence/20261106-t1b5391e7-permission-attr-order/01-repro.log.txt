@@ -1,0 +1,9 @@
+# 起点 HEAD 66c1208 上的原始现场（父卡 t_977c5189 全量真库档 08-full-lib-db.log.txt 第 2939-2946 行，逐字摘录）
+# 同一命令在本卡开工时于 66c1208 复跑，输出与下面完全一致（0.48s 内 FAILED）
+test system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception ... 
+thread 'system::menu::permission_audit_tests::n16_every_route_has_permission_gate_or_documented_exception' (3110482) panicked at src/system/menu/permission_audit_tests.rs:616:5:
+以下路由既没有 #[nik::permission] 也不在无权限白名单里（疑似越权缺口）：
+POST /business/flow/linkage/preview（business/flow/linkage/admin.rs:682）
+确有理由的请登记到 NO_PERMISSION_ROUTES 并写清「谁在替中间件闸把关」。
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
