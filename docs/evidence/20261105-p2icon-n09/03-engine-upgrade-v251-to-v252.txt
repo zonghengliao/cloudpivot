@@ -1,0 +1,15 @@
+[2m2026-11-05T11:31:57.927780Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s1: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+[2m2026-11-05T11:31:57.932141Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s3: CREATE TABLE IF NOT EXISTS schema_migrations (
+[2m2026-11-05T11:31:57.933053Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: relation "schema_migrations" already exists, skipping
+[2m2026-11-05T11:31:57.933172Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s4: SELECT indexname FROM pg_indexes WHERE schemaname = current_schema() AND tablename = 'schema_migrations' AND indexname = 'idx_schema_migrations_version'
+[2m2026-11-05T11:31:57.935276Z[0m [34mDEBUG[0m [2mtokio_postgres::prepare[0m[2m:[0m preparing query s5: SELECT kind, name, version, checksum, applied_via, applied_seq, success FROM schema_migrations
+-- V0252__menu_expense_icon_bill.up.sql
+-- V0242 已应用到 prod 与所有既有库，`schema_migrations.checksum` 与文件内容绑定，
+        RAISE NOTICE 'V0252：菜单 % 「我的报销」不存在（客户库已裁剪），跳过', c_id;
+        RAISE NOTICE 'V0252：菜单「%」当前 icon = %，不是 invoice（已修过或客户自定义），跳过',
+        RAISE EXCEPTION 'V0252 自检失败：期望更新 1 行，实际 %', n_hit;
+        RAISE EXCEPTION 'V0252 自检失败：icon 未落成 bill';
+    RAISE NOTICE 'V0252：「%」图标 invoice → bill 已修（1 行）', v_name;
+[2m2026-11-05T11:31:58.030758Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0252：「我的报销」图标 invoice → bill 已修（1 行）
+[2m2026-11-05T11:31:58.030873Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'menu_expense_icon_bill', '252', '4fedc7d5912f25bbeacdc536807da6841b07d779101c143e895d888874581c64', 'executed', 1793878318, 194, 2, TRUE, 'migrations/business/V0252__menu_expense_icon_bill.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-05T11:31:58.033134Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 1 个迁移

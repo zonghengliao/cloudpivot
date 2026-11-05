@@ -1,0 +1,13 @@
+-- 应用成功后重启即为「应用 0 个迁移」（C8 已验证过这条口径）。
+-- 「待应用迁移的版本低于已应用最大值（乱序补迁）」WARN —— 不阻断，应用成功后重启即「应用 0 个迁移」
+--   「应用 0 个迁移」。
+--   「应用 0 个迁移」。
+-- V0252__menu_expense_icon_bill.up.sql
+        RAISE NOTICE 'V0252：菜单 % 「我的报销」不存在（客户库已裁剪），跳过', c_id;
+        RAISE NOTICE 'V0252：菜单「%」当前 icon = %，不是 invoice（已修过或客户自定义），跳过',
+        RAISE EXCEPTION 'V0252 自检失败：期望更新 1 行，实际 %', n_hit;
+        RAISE EXCEPTION 'V0252 自检失败：icon 未落成 bill';
+    RAISE NOTICE 'V0252：「%」图标 invoice → bill 已修（1 行）', v_name;
+[2m2026-11-05T11:32:07.592602Z[0m [32m INFO[0m [2mtokio_postgres::connection[0m[2m:[0m NOTICE: V0252：「我的报销」图标 invoice → bill 已修（1 行）
+[2m2026-11-05T11:32:07.592698Z[0m [34mDEBUG[0m [2mtokio_postgres::simple_query[0m[2m:[0m executing statement batch: INSERT INTO schema_migrations (kind, name, version, checksum, applied_via, applied_at, applied_seq, execution_ms, success, source) VALUES ('versioned', 'menu_expense_icon_bill', '252', '4fedc7d5912f25bbeacdc536807da6841b07d779101c143e895d888874581c64', 'executed', 1793878327, 184, 0, TRUE, 'migrations/business/V0252__menu_expense_icon_bill.up.sql') ON CONFLICT (kind, name) DO UPDATE SET version = excluded.version, checksum = excluded.checksum, applied_via = excluded.applied_via, applied_at = excluded.applied_at, applied_seq = excluded.applied_seq, execution_ms = excluded.execution_ms, success = excluded.success, source = excluded.source;
+[2m2026-11-05T11:32:07.622636Z[0m [32m INFO[0m [2mnik_web::app[0m[2m:[0m 数据库迁移完成: 应用 194 个迁移

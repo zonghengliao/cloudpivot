@@ -1,0 +1,31 @@
+bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+bash: no job control in this shell
+=== n09 单跑：postgres://alun:alun@127.0.0.1:5432/cloudpivot_p2icon_fresh
+   Compiling nik-core v0.4.2 (/root/p2icon-src/backend/vendor/nik-core)
+   Compiling nik-config v0.4.2 (/root/p2icon-src/backend/vendor/nik-config)
+   Compiling nik-db-core v0.4.2 (/root/p2icon-src/backend/vendor/nik-db-core)
+   Compiling nik-db-build v0.4.2 (/root/p2icon-src/backend/vendor/nik-db-build)
+   Compiling nik-db v0.4.2 (/root/p2icon-src/backend/vendor/nik-db)
+   Compiling nik-db-sql v0.4.2 (/root/p2icon-src/backend/vendor/nik-db-sql)
+   Compiling nik-utils v0.4.2 (/root/p2icon-src/backend/vendor/nik-utils)
+   Compiling nik-db-macro v0.4.2 (/root/p2icon-src/backend/vendor/nik-db-macro)
+   Compiling nik-db-driver-postgres v0.4.2 (/root/p2icon-src/backend/vendor/nik-db-driver-postgres)
+   Compiling nik-cache v0.4.2 (/root/p2icon-src/backend/vendor/nik-cache)
+   Compiling nik-log v0.4.2 (/root/p2icon-src/backend/vendor/nik-log)
+   Compiling nik-macros v0.4.2 (/root/p2icon-src/backend/vendor/nik-macros)
+   Compiling nik-web v0.4.2 (/root/p2icon-src/backend/vendor/nik-web)
+   Compiling nik-plugin v0.4.2 (/root/p2icon-src/backend/vendor/nik-plugin)
+   Compiling nik-fs v0.4.2 (/root/p2icon-src/backend/vendor/nik-fs)
+   Compiling nik v0.4.2 (/root/p2icon-src/backend/vendor/nik)
+   Compiling cloudpivot v0.1.0 (/root/p2icon-src/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 3m 24s
+     Running unittests src/lib.rs (/root/menu-iso-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 1 test
+测试C 已连接验证库（cloudpivot_test）
+[N09] 全部菜单图标均真实存在 ✓
+test system::menu::tests::n09_menu_icons_exist_in_tdesign ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 2630 filtered out; finished in 0.22s
+
+=== n09 EXIT=0

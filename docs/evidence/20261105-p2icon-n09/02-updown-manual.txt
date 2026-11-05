@@ -1,0 +1,21 @@
+### 0) 迁移前（库里是 V0242 原样）
+icon = invoice
+
+### 1) 跑 up.sql
+    psql:/opt/cloudpivot/backend/migrations/business/V0252__menu_expense_icon_bill.up.sql:84: NOTICE:  V0252：「我的报销」图标 invoice → bill 已修（1 行）
+icon = bill   [期望 bill]
+
+### 2) 再跑一次 up.sql（幂等：应 NOTICE 跳过，0 行改动）
+    psql:/opt/cloudpivot/backend/migrations/business/V0252__menu_expense_icon_bill.up.sql:84: NOTICE:  V0252：菜单「我的报销」当前 icon = bill，不是 invoice（已修过或客户自定义），跳过
+icon = bill   [期望仍 bill]
+
+### 3) 跑 down.sql
+    psql:/opt/cloudpivot/backend/migrations/business/V0252__menu_expense_icon_bill.down.sql:26: NOTICE:  V0252 down：「我的报销」图标已改回 invoice（1 行）
+icon = invoice   [期望 invoice]
+
+### 4) 再跑一次 down.sql（幂等：应 NOTICE 跳过）
+    psql:/opt/cloudpivot/backend/migrations/business/V0252__menu_expense_icon_bill.down.sql:26: NOTICE:  V0252 down：菜单 20000000-0000-0000-0000-000000001501 当前 icon 不是 bill（已回滚过 / 客户改过），跳过
+icon = invoice   [期望仍 invoice]
+
+### 5) 复原：再跑 up.sql，交给迁移引擎之前把库留在 invoice 原样？不——
+    （此步保留 down 后的 invoice 状态，随后用应用引擎整体重建干净库验收）
