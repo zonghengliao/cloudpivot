@@ -1,0 +1,26 @@
+==> 备份到 /root/datafix-backup-orglanding-20261105-155815（库 cloudpivot@127.0.0.1:5432）
+==> 完成，清单：
+ORGLANDING (P0-FIX-2B-A) datafix backup
+time      : 2026-11-05T15:58:15+08:00
+database  : cloudpivot on 127.0.0.1:5432 (user cloudpivot)
+created by: scripts/datafix/org_landing/00_backup.sh
+
+== md5 ==
+10d2005efd5192279f25ad8f1f43f56e  ./affected_rows.txt
+d4d889b8829e2845d50fe66e971d8594  ./full.dump
+1b3b63fc714d0fdc8aa212e9d4d670a1  ./MANIFEST.txt
+ed11b53f0cc6f6312c2d17d65d126c89  ./schema.sql
+5aa10973330d224ad58a0a4d266ed974  ./sys_dept.sql
+34718a0d1a685c589f7e29769b794b95  ./sys_user_role.sql
+目录：/root/datafix-backup-orglanding-20261105-155815
+----- 备份体积核对 -----
+DIR=/root/datafix-backup-orglanding-20261105-155815
+total 2636
+-rw-r--r-- 1 root root     630 Nov  5 15:58 MANIFEST.txt
+-rw-r--r-- 1 root root    2779 Nov  5 15:58 affected_rows.txt
+-rw-r--r-- 1 root root 2092538 Nov  5 15:58 full.dump
+-rw-r--r-- 1 root root  576977 Nov  5 15:58 schema.sql
+-rw-r--r-- 1 root root    2201 Nov  5 15:58 sys_dept.sql
+-rw-r--r-- 1 root root   11255 Nov  5 15:58 sys_user.sql
+-rw-r--r-- 1 root root    3219 Nov  5 15:58 sys_user_role.sql
+full.dump bytes = 2092538

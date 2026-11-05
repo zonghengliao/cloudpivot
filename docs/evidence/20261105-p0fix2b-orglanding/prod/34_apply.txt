@@ -1,0 +1,38 @@
+== 目标库：cloudpivot @ 127.0.0.1:5432（apply）==
+---- 现状快照（15:58:18）----
+  admin          → (无部门)
+  cl_43870       → (无部门)
+  henry.liao     → (无部门)
+  laoliu         → (无部门)
+  laoliu_test    → (无部门)
+  qa.viewer      → (无部门)
+  verify-ai      → (无部门)
+  sys_user_role 行数 = 16
+  biz_task.dept_id 非空 = 0
+  biz_project.dept_id 非空 = 0
+  sys_dept.leader_id 非空 = 0
+  datafix_orglanding_snapshot 行数 = (表还没建；本库还没跑过 apply)
+==> 使用备份：/root/datafix-backup-orglanding-20261105-155815
+==> 应用 10_org_landing
+NOTICE:  ORGLANDING: 快照就绪 4 行（batch=ORGLANDING-20261105，本次新插入 4 行），与目标行数一致
+NOTICE:  ORGLANDING: admin → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu_test → TECH：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: cl_43870 → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: 本次共变更 4 行
+NOTICE:  ORGLANDING: 收口复核通过 —— sys_user_role 16 行未变、biz_task/biz_project dept_id 非空 0/0 行未变、sys_dept.leader_id 非空 0 行未变
+NOTICE:  ORGLANDING: 完成（batch=ORGLANDING-20261105）：admin/laoliu/cl_43870 → HQ，laoliu_test → TECH；henry.liao / verify-ai / qa.* 未动
+---- 现状快照（15:58:18）----
+  admin          → HQ
+  cl_43870       → HQ
+  henry.liao     → (无部门)
+  laoliu         → HQ
+  laoliu_test    → TECH
+  qa.viewer      → (无部门)
+  verify-ai      → (无部门)
+  sys_user_role 行数 = 16
+  biz_task.dept_id 非空 = 0
+  biz_project.dept_id 非空 = 0
+  sys_dept.leader_id 非空 = 0
+  datafix_orglanding_snapshot 行数 = 4
+== 完成（apply）==

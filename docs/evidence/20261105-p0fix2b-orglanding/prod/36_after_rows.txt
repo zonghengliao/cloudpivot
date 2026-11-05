@@ -1,0 +1,13 @@
+  username   | status | is_locked | user_type |   dept   
+-------------+--------+-----------+-----------+----------
+ admin       |      1 | f         | HUMAN     | HQ
+ cl_43870    |      0 | f         | HUMAN     | HQ
+ henry.liao  |      1 | f         | HUMAN     | (无部门)
+ laoliu      |      1 | f         | HUMAN     | HQ
+ laoliu_test |      0 | f         | HUMAN     | TECH
+ qa.limited  |      0 | t         | HUMAN     | TECH
+ qa.mutex    |      0 | t         | HUMAN     | SALES
+ qa.viewer   |      0 | f         | HUMAN     | (无部门)
+ verify-ai   |      0 | f         | ROBOT     | (无部门)
+(9 rows)
+

@@ -1,0 +1,15 @@
+
+== 逐账号对照（落位前 → 落位后）==
+账号            kind                      dept_ids      self            sys_user              task                  project               budget                expense_report        
+------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+admin         All                       0             False           9                     71                    3                     0                     0                     
+cl_43870      SelfOnly                  0             True            1                     0                     0                     0                     0                     
+henry.liao    All                       0             False           9                     71                    3                     0                     0                     
+laoliu        All                       0             False           9                     71                    3                     0                     0                     
+laoliu_test   All                       0             False           9                     71                    3                     0                     0                     
+qa.limited    SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.mutex      SelfOnly                  0             True            1                     0                     0                     0                     0                     
+qa.viewer     SelfOnly                  0             True            1                     0                     0                     0                     0                     
+verify-ai     SelfOnly                  0             True            1                     1                     0                     0                     0                     
+
+✅ 影响面零变化：9 个在用账号的 (kind, dept_ids, self_only) 与 5 张受控表可见行数，落位前后完全一致。

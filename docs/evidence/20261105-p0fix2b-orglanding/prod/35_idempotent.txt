@@ -1,0 +1,23 @@
+== 第 1 遍 ==
+NOTICE:  relation "datafix_orglanding_snapshot" already exists, skipping
+NOTICE:  ORGLANDING: 快照就绪 4 行（batch=ORGLANDING-20261105，本次新插入 0 行），与目标行数一致
+NOTICE:  ORGLANDING: admin → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu_test → TECH：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: cl_43870 → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: 本次共变更 0 行
+NOTICE:  ORGLANDING: 收口复核通过 —— sys_user_role 16 行未变、biz_task/biz_project dept_id 非空 0/0 行未变、sys_dept.leader_id 非空 0 行未变
+NOTICE:  ORGLANDING: 完成（batch=ORGLANDING-20261105）：admin/laoliu/cl_43870 → HQ，laoliu_test → TECH；henry.liao / verify-ai / qa.* 未动
+== 第 2 遍（同库再跑一次）==
+NOTICE:  relation "datafix_orglanding_snapshot" already exists, skipping
+NOTICE:  ORGLANDING: 快照就绪 4 行（batch=ORGLANDING-20261105，本次新插入 0 行），与目标行数一致
+NOTICE:  ORGLANDING: admin → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu_test → TECH：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: cl_43870 → HQ：变更 0 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: 本次共变更 0 行
+NOTICE:  ORGLANDING: 收口复核通过 —— sys_user_role 16 行未变、biz_task/biz_project dept_id 非空 0/0 行未变、sys_dept.leader_id 非空 0 行未变
+NOTICE:  ORGLANDING: 完成（batch=ORGLANDING-20261105）：admin/laoliu/cl_43870 → HQ，laoliu_test → TECH；henry.liao / verify-ai / qa.* 未动
+== 对比两遍之后的受影响行 ==
+PASS：第二遍零改动（受影响 4 行 + 快照逐字节一致，NOTICE「本次共变更 0 行」已出现）
+报告目录：/tmp/orglanding-idem.1JLMpE

@@ -1,0 +1,40 @@
+== 回滚前 ==
+admin=HQ
+cl_43870=HQ
+henry.liao=NULL
+laoliu=HQ
+laoliu_test=TECH
+qa.viewer=NULL
+verify-ai=NULL
+== 执行回滚 ==
+==> 回滚 10_org_landing
+NOTICE:  ORGLANDING/10 down: 已还原 4 行 dept_id（第二遍跑会报 0；快照 4 行保留，供再 up 前核对）
+== 回滚后 ==
+admin=NULL
+cl_43870=NULL
+henry.liao=NULL
+laoliu=NULL
+laoliu_test=NULL
+qa.viewer=NULL
+verify-ai=NULL
+PASS：回滚后 4 个账号逐字节等于快照（dept_id 全 NULL）
+== 再应用一遍（证明 down → up 可往返）==
+==> 应用 10_org_landing
+NOTICE:  relation "datafix_orglanding_snapshot" already exists, skipping
+NOTICE:  ORGLANDING: 快照就绪 4 行（batch=ORGLANDING-20261105，本次新插入 0 行），与目标行数一致
+NOTICE:  ORGLANDING: admin → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: laoliu_test → TECH：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: cl_43870 → HQ：变更 1 行（0 = 已经是目标态，幂等）
+NOTICE:  ORGLANDING: 本次共变更 4 行
+NOTICE:  ORGLANDING: 收口复核通过 —— sys_user_role 16 行未变、biz_task/biz_project dept_id 非空 0/0 行未变、sys_dept.leader_id 非空 0 行未变
+NOTICE:  ORGLANDING: 完成（batch=ORGLANDING-20261105）：admin/laoliu/cl_43870 → HQ，laoliu_test → TECH；henry.liao / verify-ai / qa.* 未动
+== 重新应用后 ==
+admin=HQ
+cl_43870=HQ
+henry.liao=NULL
+laoliu=HQ
+laoliu_test=TECH
+qa.viewer=NULL
+verify-ai=NULL
+PASS：down → up 往返成立（4 行回到 HQ/HQ/TECH/HQ）

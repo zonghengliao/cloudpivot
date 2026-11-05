@@ -5,9 +5,9 @@
 > 影响面 `scripts/verify/org_landing_impact.py`｜真机 `scripts/verify/org_landing_e2e.py`
 
 **标的空间**：生产副本 → 99 的 `cloudpivot_orgland`（`pg_dump` 自 144 prod，只读）；
-隔离实例 `127.0.0.1:18095`（profile=test，同一副本库）。
-**生产写库（apply）尚未执行** —— 按卡面 §5，需要老大在卡上留书面一句话；本目录里的
-产物是「一切就绪、只差那一句话」的状态。
+隔离实例 `127.0.0.1:18095`（profile=test，同一副本库）；
+**生产 144 已按授权执行**（2026-11-05 15:58–15:59 CST，见 `prod/` 子目录 21 份现场输出）。
+
 
 ---
 
@@ -20,6 +20,8 @@
 - 巡检 N2 上线：落位前 ⚠️ 点名 3 个（`admin`/`henry.liao`/`laoliu`）→ 落位后只剩 `henry.liao`；
   反向对照 ✅→⚠️（点名 `laoliu`）→✅（`13_`）；
 - 真机：部门隔离 16/16（含 `data_scope` 1↔5 反向对照、建单 `dept_id` 快照）+ 落位因果 8/8（`19_`/`20_`）。
+- **生产 144 已执行**（15:58–15:59）：4 行落成 HQ/HQ/TECH/HQ、幂等第 2 次 0 行、回滚往返 PASS、
+  影响面零变化、N2 3 → 1、`perm:user_scope_epoch` 2→3（往返后再 4→5）、`health=200` —— 见 `prod/`。
 
 ## 1. 验收逐条对照
 
@@ -30,12 +32,12 @@
 | A3 | 连跑 2 次第 2 次 0 行；`down` 回到落位前；快照 4 行 | ✅ | `11_idempotent.txt`、`12_rollback.txt`、`07_snapshot_rows.txt` |
 | A4 | N1 仍 ✅；N2 前 → 后收敛；反向对照 ✅→⚠️→✅ | ✅ | `02_invariants_before.txt`、`08_invariants_after.txt`、`13_invariant_negative_control.txt` |
 | A5 | 隔离库：部门隔离 + 反向对照 + 建单 dept 快照 | ✅ 16/16 + 8/8 | `19_iso_e2e_departments.txt`、`20_iso_e2e_landing.txt` |
-| A6 | 生产 `health=200`、`INCR perm:user_scope_epoch`、全量 BLOCKER 0 / WARN 0 | ⛔ **未执行**（等老大书面确认） | 副本库全量：65/66、BLOCKER 0、WARN 1（= N2 的 henry.liao），见 `14_invariants_full.txt` |
+| A6 | 生产 `health=200`、`INCR perm:user_scope_epoch`、全量 BLOCKER 0 / WARN 0 | ✅ 前两条；**WARN=1（= N2 的 henry.liao，按 D-5 设计长期亮，A6 的「WARN 0」在设计上不可达）** | 生产 `prod/37_`（epoch 2→3、往返后 4→5）、`prod/43_`/`prod/47_`（65/66、BLOCKER 0、WARN 1）、`prod/44_`（admin 真机登录 total 9/71）、`prod/` 其余 21 份 |
 
-> A1 / A2 / A3 / A4 的「生产」字面要求，本轮落在**生产副本**上（同一个 `pg_dump`、同一批 26 个账号、
-> 同一棵 4 部门组织树、同一份 16 条角色绑定）。等拿到确认后在 prod 原样重跑同一组命令，
-> 输出会追加为 `3x_prod_*.txt`（`00_backup.sh` → `apply.sh` → `verify_idempotent.sh` →
-> `erp_invariants.py` → `org_landing_impact.py --after`）。
+> 生产已在 144 原样重跑同一组命令（`00_backup.sh` → `apply.sh` → `verify_idempotent.sh` →
+> `erp_invariants.py` → `org_landing_impact.py --after` + 回滚往返 + 真机登录），
+> 输出见 `prod/`（`30_`–`49_`）与 `prod/README.md`。生产副本与本卡结论完全一致。
+
 
 ## 2. 影响面核算（A2 原文）
 

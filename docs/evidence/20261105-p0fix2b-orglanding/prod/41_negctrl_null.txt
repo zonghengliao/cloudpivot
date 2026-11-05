@@ -1,0 +1,4 @@
+  ⚠️ [权限] N2 在用 HUMAN 账号必须有部门归属
+        在用 HUMAN 账号（status=1/未锁/未删）里 2 个没有部门：admin(status=1)、henry.liao(status=1)
+结果：1/2 通过   🚨 BLOCKER 0   ⚠️ WARN 1
+  · [权限] N2 在用 HUMAN 账号必须有部门归属  —  在用 HUMAN 账号（status=1/未锁/未删）里 2 个没有部门：admin(status=1)、henry.liao(status=1)

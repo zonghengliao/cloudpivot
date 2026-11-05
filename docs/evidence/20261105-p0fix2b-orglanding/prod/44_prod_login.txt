@@ -1,0 +1,15 @@
+== 生产真机（http://127.0.0.1:8023）==
+
+[1] admin 登录（env 种子口令，单次尝试）
+  login: http=200 code=0 msg=ok
+  ✓ 拿到 token（长度 461）
+  /system/auth/me: http=200 username=admin dept=None dept_id=01a18381-b7c4-753c-8fe6-d39684ead5cd
+  me 返回字段：['dept_id', 'email', 'id', 'mobile', 'must_change_password', 'permissions', 'real_name', 'roles', 'username']
+  sys_user: http=200 total=9 rows=9（影响面核算表：9）
+  biz_task: http=200 total=71 rows=71（影响面核算表：71）
+
+[2] 停用号登录必须被拒（status 检查在密码校验之前 → 不需要真实口令）
+  login laoliu_test: http=403 code=20002 msg=账号已被禁用，请联系管理员
+  login cl_43870: http=403 code=20002 msg=账号已被禁用，请联系管理员
+
+[3] laoliu：status=1 但生产口令无凭据 → 不尝试（数据范围以 impact 核算为准）

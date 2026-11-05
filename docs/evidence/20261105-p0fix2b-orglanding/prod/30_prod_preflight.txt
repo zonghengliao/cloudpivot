@@ -1,0 +1,52 @@
+===== [1] 服务健康 =====
+active
+health=200
+
+===== [2] 目标账号现状（A1 落位前）=====
+  username   | status | is_locked | user_type |   dept   | deleted_at |          updated_at           
+-------------+--------+-----------+-----------+----------+------------+-------------------------------
+ admin       |      1 | f         | HUMAN     | (无部门) |            | 2026-11-05 10:59:02.943674+08
+ cl_43870    |      0 | f         | HUMAN     | (无部门) |            | 2026-11-05 13:44:19.27849+08
+ henry.liao  |      1 | f         | HUMAN     | (无部门) |            | 2026-11-05 10:59:02.943674+08
+ laoliu      |      1 | f         | HUMAN     | (无部门) |            | 2026-11-05 10:59:02.943674+08
+ laoliu_test |      0 | f         | HUMAN     | (无部门) |            | 2026-11-05 13:44:19.27849+08
+ qa.limited  |      0 | t         | HUMAN     | TECH     |            | 2026-11-05 13:44:19.27849+08
+ qa.mutex    |      0 | t         | HUMAN     | SALES    |            | 2026-11-05 13:44:19.27849+08
+ qa.viewer   |      0 | f         | HUMAN     | (无部门) |            | 2026-11-05 13:44:19.27849+08
+ verify-ai   |      0 | f         | ROBOT     | (无部门) |            | 2026-11-05 13:44:19.27849+08
+(9 rows)
+
+===== [3] 组织树（dept_code 解析依据 / leader_id 必须全 NULL）=====
+ dept_code | dept_name | is_root | leader_id | status 
+-----------+-----------+---------+-----------+--------
+ FIN       | 财务部    | f       | NULL      |      1
+ HQ        | 云枢总部  | t       | NULL      |      1
+ SALES     | 销售部    | f       | NULL      |      1
+ TECH      | 技术部    | f       | NULL      |      1
+(4 rows)
+
+===== [4] 三个「不该变」的计数（落位前后必须逐字一致）=====
+sys_user_role 行数|16
+biz_task.dept_id 非空|0
+biz_project.dept_id 非空|0
+sys_dept.leader_id 非空|0
+datafix_orglanding_snapshot 存在|0
+
+===== [5] Redis perm:user_scope_epoch（落位后要 INCR）=====
+2
+
+===== [6] apply.sh --check =====
+== 目标库：cloudpivot @ 127.0.0.1:5432（check）==
+---- 现状快照（15:58:07）----
+  admin          → (无部门)
+  cl_43870       → (无部门)
+  henry.liao     → (无部门)
+  laoliu         → (无部门)
+  laoliu_test    → (无部门)
+  qa.viewer      → (无部门)
+  verify-ai      → (无部门)
+  sys_user_role 行数 = 16
+  biz_task.dept_id 非空 = 0
+  biz_project.dept_id 非空 = 0
+  sys_dept.leader_id 非空 = 0
+  datafix_orglanding_snapshot 行数 = (表还没建；本库还没跑过 apply)
