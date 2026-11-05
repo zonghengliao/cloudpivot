@@ -80,10 +80,12 @@ def snapshot(tag):
 
 
 def ensure_second_approver():
-    """作废复核 `stock_in_cancel / n_review` 是 `self_approval=FORBID`（内控：作废必须他人复核）。
+    """作废复核 `stock_in_cancel / n_review` = `WAREHOUSE_MANAGER` 角色 + `self_approval=FORBID`
+    + `empty_assignee=ERROR`（P1-FIX-1：审批人是「仓管主管」这个岗位，不再指超管，也不兜底超管）。
 
-    脚本以前用 admin 一人提交 + 作废，P0/P17 之后会 422 + 65019 直接拒单 —— 不是回归，
-    是产品把内控收紧了。这里备一个**非发起人**的超管复核账号（口令哈希抄 admin）。
+    因此复核账号必须**同时**满足：① 在 `WAREHOUSE_MANAGER` 角色里（才会被派单）；
+    ② 有 `business:flow:approve` 权限（角色授权已随 V0239 给到该角色，超管另有短路）。
+    另外它必须 ≠ 发起人（FORBID：作废必须他人复核）。
     """
     psql(
         "insert into sys_user (id, username, password, real_name, status, must_change_password, token_version) "
@@ -91,6 +93,15 @@ def ensure_second_approver():
         "       'P9 作废复核人', 1, false, 1 from sys_user u where u.username = 'admin' "
         "  and not exists (select 1 from sys_user where username = 'p9_cancel_approver')"
     )
+    # 复核岗位：WAREHOUSE_MANAGER（P1-FIX-1 起 n_review 的唯一候选来源）
+    psql(
+        "insert into sys_user_role (user_id, role_id) "
+        "select 'a2a9cccc-0000-4000-8000-0000000000cc'::uuid, r.id from sys_role r "
+        " where r.role_code = 'WAREHOUSE_MANAGER' and r.deleted_at is null "
+        "   and not exists (select 1 from sys_user_role x "
+        "                    where x.user_id = 'a2a9cccc-0000-4000-8000-0000000000cc'::uuid and x.role_id = r.id)"
+    )
+    # 兼容旧库：老种子下复核人靠 SUPER_ADMIN 短路拿权限；这里保留超管绑定（不影响候选来源）
     psql(
         "insert into sys_user_role (user_id, role_id) "
         "select 'a2a9cccc-0000-4000-8000-0000000000cc'::uuid, r.id from sys_role r "

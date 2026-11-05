@@ -2956,10 +2956,24 @@ mod tests {
     /// `401 发起作废审批需要登录用户`（V0174 起作废先走审批，必须有发起人）。
     /// 这里把三步串起来，走的仍是**生产同一条路径**，所以旧断言（红字凭证 / 应付作废）不变。
     ///
-    /// ⚠️ 复核节点是 `assignee_type = 'ADMIN'` + `join_mode = AND` ⇒ **会签**：
-    /// 库里超管有几个就有几条待办，只批一条会让实例停在 `PENDING`、`on_cancel_settled`
-    /// 根本不被调到（单据卡在 `PENDING_CANCEL`）。所以这里批到终态并断言 `APPROVED`。
+    /// ⚠️ 复核节点是 `assignee_type = 'ROLE'`（`WAREHOUSE_MANAGER`，P1-FIX-1 起）
+    /// + `empty_assignee=ERROR`（不兜底超管）⇒ **复核岗位必须先在册有人**，否则发起就 422。
+    /// 角色成员是共享资源，这里只留本模块的复核人（`p2c1_reviewer`）。
     async fn cancel_via_approval(stock_in_id: Uuid, reason: &str) {
+        for sql_text in [
+            "DELETE FROM sys_user_role WHERE role_id = '20000000-0000-4000-8000-0000000f0004'::uuid \
+                AND user_id <> 'b2c10009-0000-4000-8000-000000000002'::uuid",
+            "INSERT INTO sys_user (id, username, password, real_name, status) \
+             VALUES ('b2c10009-0000-4000-8000-000000000002'::uuid, 'p2c1_reviewer', 'x', \
+                     'P2C1 作废复核人', 1) ON CONFLICT (id) DO NOTHING",
+            "INSERT INTO sys_user_role (user_id, role_id) \
+             VALUES ('b2c10009-0000-4000-8000-000000000002'::uuid, \
+                     '20000000-0000-4000-8000-0000000f0004'::uuid) ON CONFLICT DO NOTHING",
+        ] {
+            db().execute_with_params(sql_text, vec![])
+                .await
+                .unwrap_or_else(|err| panic!("作废复核岗位夹具失败：{err}"));
+        }
         change_stock_in_status(stock_in_id, &cancel_req(reason), Some(uid(KEEPER)))
             .await
             .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));

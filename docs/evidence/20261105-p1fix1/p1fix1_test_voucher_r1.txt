@@ -1,0 +1,30 @@
+   Compiling cloudpivot v0.1.0 (/opt/cloudpivot/backend)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1m 13s
+     Running unittests src/lib.rs (/root/p1fix1-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 21 tests
+test business::erp::voucher::tests::account_mapping_uses_voucher_rule ... ok
+test business::erp::voucher::tests::amount_basis_inventory_excludes_tax_payable_includes_tax ... ok
+test business::erp::voucher::tests::cancel_creates_red_voucher_with_negative_net_effect ... ok
+test business::erp::voucher::tests::cancel_marks_payable_cancelled ... ok
+test business::erp::voucher::tests::db_rejects_entry_with_both_sides ... ok
+test business::erp::voucher::tests::db_rejects_unbalanced_voucher ... ok
+test business::erp::voucher::tests::material_account_is_used_when_rule_missing ... ok
+test business::erp::voucher::tests::missing_rule_falls_back_to_default_accounts ... ok
+test business::erp::voucher::tests::post_creates_open_payable_with_with_tax_amount ... ok
+test business::erp::voucher::tests::post_creates_posted_auto_voucher ... ok
+test business::erp::voucher::tests::post_creates_three_entries_debit_inventory_debit_tax_credit_payable ... ok
+test business::erp::voucher::tests::post_writes_back_voucher_and_payable_ids ... ok
+test business::erp::voucher::tests::red_voucher_links_back_to_original ... ok
+test business::erp::voucher::tests::reversed_lines_swap_sides_and_keep_amounts ... ok
+test business::erp::voucher::tests::voucher_failure_rolls_back_inventory ... ok
+test business::erp::voucher::tests::voucher_no_format_is_pz_prefix_with_six_digits ... ok
+test business::erp::voucher::tests::voucher_period_follows_stock_in_date ... ok
+test business::erp::voucher::tests::voucher_totals_are_balanced ... ok
+test business::erp::voucher::tests::zero_tax_receipt_has_two_entries ... ok
+test business::erp::voucher::tests::zz_teardown_purges_finance_status_logs ... ok
+test business::erp::voucher::tests::zz_teardown_purges_fixture_accounts ... ok
+
+test result: ok. 21 passed; 0 failed; 0 ignored; 0 measured; 2579 filtered out; finished in 34.39s
+
+EXIT=0

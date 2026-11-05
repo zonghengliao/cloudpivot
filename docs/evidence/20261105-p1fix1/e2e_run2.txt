@@ -1,0 +1,40 @@
+=== P1-FIX-1 真机作废链路（round 2）base=http://127.0.0.1:8023 db=cloudpivot_p1fix1_a ===
+  · 三个账号登录成功（制单人/复核人/管理员）；物料=d1370003… 仓库=d1370001…
+
+## A. 非超管制单人发起作废（POSTED → PENDING_CANCEL）
+  · 作废前: 库存 qty=0.0000 amount=0.0000 ｜ 凭证 8（红字 4）｜ 库存流水 8
+  [PASS] 制单人建单   200 ok
+  [PASS] 制单人过账   200 ok IN-20261105-000005
+  · 过账后: 库存 qty=4.0000 amount=40.0000 ｜ 凭证 9（红字 4）｜ 库存流水 9
+  [PASS] 过账使库存增加 4   0.0000 → 4.0000
+  [PASS] 非超管制单人发起作废 → 200（修复前这里是 422 自审禁止）   200 ok
+  [PASS] 单据进入「作废审批中」   PENDING_CANCEL
+  · 发起作废后（账不许动）: 库存 qty=4.0000 amount=40.0000 ｜ 凭证 9（红字 4）｜ 库存流水 9
+  [PASS] 发起作废不动账
+  [PASS] 待办恰好 1 条且落在仓管主管（复核人）头上   [['PENDING', 'p1fix1_reviewer']]
+
+## B. 仓管主管复核通过 → CANCELLED（六本账回滚）
+  [PASS] 复核人审批通过   200 ok
+  [PASS] 单据落 CANCELLED   CANCELLED
+  · 作废后（回滚 + 红冲）: 库存 qty=0.0000 amount=0.0000 ｜ 凭证 10（红字 5）｜ 库存流水 10
+  [PASS] 库存回到作废前   (Decimal('0.0000'), Decimal('0.0000')) vs (Decimal('0.0000'), Decimal('0.0000'))
+  [PASS] 凭证红冲出红字   红字 4 → 5
+  [PASS] 审批单落 APPROVED   [['APPROVED']]
+
+## C. 反例①：复核人自己发起作废 → 422 + 65019（自审仍被拒）
+  [PASS] 复核人 = 发起人 → 422 + 65019   422 code=65019
+  [PASS] 报文点名复核岗位与配置路径   审批人 P1FIX1 复核人 是发起人本人，本节点不允许自审（self_approval=FORBID）（内控要求：作废复核人不能是发起人本人。本流程的复核岗位是「仓管主管（WAREHOUSE_MANAGER）」，而你本人就在这个岗位上：请
+  [PASS] 被拒后单据仍是 POSTED（整笔回滚）   POSTED
+
+## D. 反例②：复核岗位 0 人 → 422 + 65018，报文给配置指引（不兜底超管）
+  [PASS] 角色 0 人 → 422 + 65018   422 code=65018
+  [PASS] 报文说清「没有候选人 + 去哪儿配」   节点「作废复核」没有任何可用审批人（来源 ROLE 解析出 0 人；该节点配置了 empty_assignee=ERROR，不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「作废复核」」把审批人设为具体角色或人员，并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。（作
+  [PASS] 没有偷偷兜底给超管（没有派给 admin）
+  [PASS] 把复核人补回岗位后同一张单再发起 → 200   200 ok
+  [PASS] 补人后复核通过 → CANCELLED   200 ok
+
+## E. 快照/行 一致性（由 `flow::maintain` 与 p16 单测覆盖）
+  · 行 ↔ graph_hash 重算 = 见 cargo test p16_graph_snapshot_selfcheck_is_clean（maintain::run_once 实跑）
+  · 快照 ↔ graph_hash 自洽 = 见 p16_seed_flow_is_self_consistent
+
+=== 汇总：PASS=20 FAIL=0 ===

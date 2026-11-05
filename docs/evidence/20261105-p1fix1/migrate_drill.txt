@@ -1,0 +1,29 @@
+== ① 现状（V0248 已应用）==
+  节点: ROLE/ERROR/FORBID
+  绑定: WAREHOUSE_MANAGER
+  hash: 0267661a1b7d37ebc94a3e8859eecde63173325f57d3949970dcbdd4f8b9b5a0
+-- SELECT count(*) 断言：应为 ROLE/ERROR/FORBID + WAREHOUSE_MANAGER + 026766… --
+  [PASS] 节点口径
+  [PASS] hash = 026766…
+
+== ② down（回滚到 V0174 种子口径）==
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.down.sql:48: NOTICE:  V0248 down：作废复核已回滚为 ADMIN + FALLBACK_ADMIN，hash 026766… → 78d34c…
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.down.sql:74: NOTICE:  V0248 down 自检通过：节点与 hash 均已回到 V0174 种子口径
+  节点: ADMIN/FALLBACK_ADMIN/FORBID
+  绑定: 
+  hash: 78d34c4557630fd8a57c45f901b427649db06ee380baf1868d257813f6e4e56c
+  [PASS] 已回滚为 ADMIN/FALLBACK_ADMIN/FORBID
+  [PASS] 审批人绑定已清空
+
+== ③ 再 up（幂等重放）==
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.up.sql:130: NOTICE:  V0248：stock_in_cancel 作废复核已改为 WAREHOUSE_MANAGER（empty_assignee=ERROR），hash 78d34c… → 026766…
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.up.sql:187: NOTICE:  V0248 自检通过：作废复核 = WAREHOUSE_MANAGER 角色 + ERROR 兜底 + 禁止自审，快照与 hash 自洽
+  节点: ROLE/ERROR/FORBID
+  绑定: WAREHOUSE_MANAGER
+  hash: 0267661a1b7d37ebc94a3e8859eecde63173325f57d3949970dcbdd4f8b9b5a0
+  [PASS] 重新应用后口径正确
+  [PASS] hash 回到 026766…
+
+== ④ 再 up 一次（幂等：应 NOTICE 已迁移并 0 变更）==
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.up.sql:130: NOTICE:  V0248：stock_in_cancel 已是仓管主管复核口径（hash=026766…），跳过
+psql:/opt/cloudpivot/backend/migrations/business/V0248__stock_in_cancel_reviewer_role.up.sql:187: NOTICE:  V0248 自检通过：作废复核 = WAREHOUSE_MANAGER 角色 + ERROR 兜底 + 禁止自审，快照与 hash 自洽

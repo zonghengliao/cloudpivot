@@ -359,10 +359,40 @@ pub(super) async fn cancel(id: Uuid, reason: &str) {
 }
 
 /// 只**发起**作废审批（不进审批），返回审批单落库后的库存三值快照。
+///
+/// 发起前先确保复核岗位上有人（[`setup_cancel_reviewer`]）：P1-FIX-1 起
+/// `stock_in_cancel.n_review` 的审批人来源是 `WAREHOUSE_MANAGER` **角色** +
+/// `empty_assignee=ERROR`，角色 0 人时发起会 `422 + 65018`（「不许无人复核、也不兜底超管」），
+/// 那不是本 helper 想测的东西。
 pub(super) async fn cancel_request(id: Uuid, reason: &str) {
+    setup_cancel_reviewer().await;
     change_stock_in_status(id, &cancel_req(Some(reason)), Some(uuid_keeper()))
         .await
         .unwrap_or_else(|err| panic!("发起作废审批失败：{} {}", err.code, err.msg));
+}
+
+/// 作废复核岗位（`WAREHOUSE_MANAGER`）的夹具：只留本模块的复核人。
+///
+/// 角色成员是**共享资源**（`stock_in_post.n_wh` 也用它），多一个成员就多一条会签待办 ⇒
+/// 「派给谁 / 有几条待办」不可判定。与 [`setup_post_approval`] 同一范式：先删掉别人的绑定，
+/// 再绑本模块的复核人。
+pub(super) async fn setup_cancel_reviewer() {
+    sql(&format!(
+        "DELETE FROM sys_user_role WHERE role_id = '{ROLE_WH_MGR}'::uuid \
+            AND user_id <> '{U_CANCEL_REVIEWER}'::uuid"
+    ))
+    .await;
+    sql(&format!(
+        "INSERT INTO sys_user (id, username, password, real_name, status) \
+         VALUES ('{U_CANCEL_REVIEWER}'::uuid, 'p16_reviewer', 'x', 'P16 作废复核人', 1) \
+         ON CONFLICT (id) DO NOTHING"
+    ))
+    .await;
+    sql(&format!(
+        "INSERT INTO sys_user_role (user_id, role_id) \
+         VALUES ('{U_CANCEL_REVIEWER}'::uuid, '{ROLE_WH_MGR}'::uuid) ON CONFLICT DO NOTHING"
+    ))
+    .await;
 }
 
 /// 取某单作废审批实例 id（没有 → panic）。

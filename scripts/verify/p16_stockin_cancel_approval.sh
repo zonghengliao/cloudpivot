@@ -105,10 +105,23 @@ fi
 forbid=$(q "select n.self_approval || '|' || n.assignee_type || '|' || n.empty_assignee
               from biz_flow_node n join biz_flow_def d on d.current_version_id = n.version_id
              where d.flow_code='stock_in_cancel' and n.node_type='APPROVAL'")
-if [ "$forbid" = "FORBID|ADMIN|FALLBACK_ADMIN" ]; then
-  pass "审批节点 = ADMIN + 空审批人兜底 + **禁止自审**（内控）"
+if [ "$forbid" = "FORBID|ROLE|ERROR" ]; then
+  pass "审批节点 = ROLE + 空审批人报错（不兜底超管）+ **禁止自审**（内控，P1-FIX-1）"
 else
-  fail "审批节点策略不对：$forbid（期望 FORBID|ADMIN|FALLBACK_ADMIN）"
+  fail "审批节点策略不对：$forbid（期望 FORBID|ROLE|ERROR）"
+fi
+
+wh_role=$(q "select coalesce(string_agg(r.role_code, ','), '')
+               from biz_flow_node_assignee a
+               join biz_flow_node n on n.id = a.node_id
+               join biz_flow_def_version v on v.id = n.version_id
+               join biz_flow_def d on d.id = v.def_id
+               join sys_role r on r.id = a.ref_id and r.deleted_at is null
+              where d.flow_code='stock_in_cancel' and v.is_current and n.node_type='APPROVAL'")
+if [ "$wh_role" = "WAREHOUSE_MANAGER" ]; then
+  pass "作废复核岗位 = 仓管主管（WAREHOUSE_MANAGER，P1-FIX-1：不再指超管）"
+else
+  fail "作废复核岗位绑定不对：$wh_role（期望 WAREHOUSE_MANAGER）"
 fi
 
 # 状态分布（给人看：审批中 / 已作废各多少）

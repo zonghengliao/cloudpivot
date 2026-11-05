@@ -62,13 +62,21 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
     );
     assert_eq!(voucher_count(id, Some(1)).await, 0, "发起审批不许红冲");
     // 审批中心真的有待办（否则等于没人能复核）。
-    // ⚠️ `n_review` 的审批人来源是 `ADMIN`（运行时展开**全部超管**）+ `join_mode=AND`（会签）
-    //    ⇒ 待办数 = 超管人数（库里多一个超管就多一条，写死 1 会在有第二个超管时假红）。
-    let admins = crate::business::flow::test_support::super_admin_count().await;
-    assert!(
-        admins > 0,
-        "库里必须至少有一个超管，否则 `ADMIN` 节点只能走 `FALLBACK_ADMIN` 兜底"
-    );
+    // P1-FIX-1 起 `n_review` 的审批人来源是 **`WAREHOUSE_MANAGER` 角色**（不再是「全部超管」），
+    // 夹具 [`setup_cancel_reviewer`] 只留一个在职复核人 ⇒ 待办恰好 1 条、落在他头上。
+    let reviewers: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(DISTINCT u.id) FROM sys_user u \
+               JOIN sys_user_role ur ON ur.user_id = u.id \
+               JOIN sys_role r ON r.id = ur.role_id \
+              WHERE r.role_code = 'WAREHOUSE_MANAGER' AND r.deleted_at IS NULL \
+                AND u.deleted_at IS NULL AND u.status = 1",
+            vec![],
+        )
+        .await
+        .unwrap()
+        .unwrap_or(0);
+    assert_eq!(reviewers, 1, "夹具自检：作废复核岗位必须恰好 1 名在职成员");
     let todos: i64 = db()
         .scalar_with_params(
             "SELECT count(*) FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
@@ -77,8 +85,20 @@ async fn p16_submit_moves_to_pending_cancel_with_instance() {
         .await
         .unwrap();
     assert_eq!(
-        todos, admins,
-        "发起后审批中心必须给**每个超管**各 1 条待办（ADMIN 展开 + 会签：待办数 {todos}，超管 {admins}）"
+        todos, reviewers,
+        "发起后必须给复核岗位成员各 1 条待办（实际 {todos}）"
+    );
+    let assignee: Option<Uuid> = db()
+        .scalar_with_params(
+            "SELECT assignee_id FROM biz_flow_task WHERE instance_id = ?::uuid AND status = 'PENDING'",
+            vec![Value::from(&Uuid::parse_str(&instance_id).unwrap())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        assignee,
+        Some(uid_of(U_CANCEL_REVIEWER)),
+        "待办必须落在「仓管主管」角色的成员身上（不是随便一个超管）"
     );
 }
 
@@ -616,39 +636,36 @@ async fn p16_withdraw_failure_rolls_back() {
     assert_eq!(instance.status, "PENDING", "审批单还在跑");
 }
 
-/// ⑮ 内控：作废复核人**不能是制单人**（`self_approval=FORBID` 硬拦在派单）。
+/// ⑮ 内控：作废复核人**不能是发起人本人**（`self_approval=FORBID` 硬拦在派单）。
 ///
-/// 构造：制单人是超管（= 唯一的审批候选人），由仓管员代发起 → 引擎派单时命中
-/// 「候选人是发起人？不是；但流程节点 FORBID…」—— 这里断言的是**发起人=超管**的场景：
-/// 超管自己发起作废，候选里就有他自己 → 422 + 65019，单据保持 POSTED，账不动。
+/// P1-FIX-1 之后复核岗位是 `WAREHOUSE_MANAGER` 角色（不再是「全部超管」）。这里让
+/// **复核岗位成员本人**去发起作废 —— 他既在候选里、又是发起人 ⇒ 引擎 422 + 65019，
+/// 单据保持 POSTED、账不动、库里不留半截审批单。内控没有被本卡放宽（验收 ③）。
 #[tokio::test]
 async fn p16_self_approval_is_forbidden() {
     let _db = match setup().await {
         Some(guard) => guard,
         None => return,
     };
+    setup_cancel_reviewer().await;
     let id = post_new(vec![line(MATERIAL_A, "3", "2", "0")]).await;
-    // 库里唯一的超管（种子流程的审批候选人）
-    let admin: Uuid = db()
-        .scalar_with_params::<Option<Uuid>>(
-            "SELECT u.id FROM sys_user u \
-               JOIN sys_user_role ur ON ur.user_id = u.id \
-               JOIN sys_role r ON r.id = ur.role_id \
-              WHERE r.role_code = 'SUPER_ADMIN' LIMIT 1",
-            vec![],
-        )
-        .await
-        .unwrap()
-        .expect("库里必须有超管");
+    // 复核岗位成员本人（他就是 `n_review` 的候选人）
+    let reviewer = uid_of(U_CANCEL_REVIEWER);
 
-    let err = change_stock_in_status(id, &cancel_req(Some("超管自批试试")), Some(admin))
+    let err = change_stock_in_status(id, &cancel_req(Some("自己作废自己批试试")), Some(reviewer))
         .await
-        .expect_err("审批人 = 发起人 必须被内控拦下");
+        .expect_err("复核人 = 发起人 必须被内控拦下");
     assert_eq!(err.status, 422, "{}", err.msg);
     assert_eq!(err.code, error_code::FLOW_SELF_APPROVAL_FORBIDDEN);
     assert!(
         err.msg.contains("内控") && err.msg.contains("复核人"),
-        "报文要说清内控口径与出路：{}",
+        "报文要说清内控口径：{}",
+        err.msg
+    );
+    // 文案指引（本卡要求）：必须点名复核岗位与配置路径，不能只说「不许自审」
+    assert!(
+        err.msg.contains("WAREHOUSE_MANAGER") && err.msg.contains("仓管主管"),
+        "报文要点名复核岗位与出路：{}",
         err.msg
     );
     // 整笔回滚：单据仍是已过账、没有审批单、账没动
@@ -656,10 +673,20 @@ async fn p16_self_approval_is_forbidden() {
     assert_eq!(detail.header.status, STATUS_POSTED);
     assert!(detail.header.approval_instance_id.is_none());
     assert_eq!(inventory_of(MATERIAL_A).await.0, dec("3"));
+    let instances: i64 = db()
+        .scalar_with_params::<Option<i64>>(
+            "SELECT count(*) FROM biz_flow_instance \
+              WHERE biz_type = 'STOCK_IN_CANCEL' AND biz_id = ?::uuid",
+            vec![Value::from(&id)],
+        )
+        .await
+        .unwrap()
+        .unwrap_or(0);
+    assert_eq!(instances, 0, "被内控拒绝后不许留审批单");
 }
 
 /// ⑯ 种子流程自洽：`graph_hash = sha256(canonical_json(快照))`（改了快照不改 hash 就该红），
-/// 且审批节点确实是「超管 + 禁自审」。
+/// 且审批节点确实是「仓管主管角色 + 禁止自审 + 不兜底超管」（P1-FIX-1 口径）。
 #[tokio::test]
 async fn p16_seed_flow_is_self_consistent() {
     let _db = match setup().await {
@@ -710,6 +737,55 @@ async fn p16_seed_flow_is_self_consistent() {
         .iter()
         .find(|node| node.node_type == "APPROVAL")
         .expect("必须有审批节点");
-    assert_eq!(review.assignee_type.as_deref(), Some("ADMIN"));
+    assert_eq!(
+        review.assignee_type.as_deref(),
+        Some("ROLE"),
+        "审批人来源必须是角色"
+    );
     assert_eq!(review.self_approval, "FORBID", "内控：不许自审自批");
+    assert_eq!(
+        review.empty_assignee, "ERROR",
+        "角色 0 人时必须报配置错，不许偷偷兜底超管"
+    );
+    assert_eq!(
+        review.assignees.len(),
+        1,
+        "作废复核必须恰好绑定一个审批角色"
+    );
+    assert_eq!(review.assignees[0].assignee_type, "ROLE");
+    // 角色码必须是「仓管主管」（ref_id → sys_role.role_code）
+    let ref_id = Uuid::parse_str(review.assignees[0].ref_id.trim())
+        .expect("快照里的审批角色 ref_id 必须是 uuid");
+    let role_code: String = db()
+        .scalar_with_params::<Option<String>>(
+            "SELECT role_code FROM sys_role WHERE id = ?::uuid AND deleted_at IS NULL",
+            vec![Value::from(&ref_id)],
+        )
+        .await
+        .unwrap()
+        .expect("快照里的审批角色必须真实存在");
+    assert_eq!(role_code, "WAREHOUSE_MANAGER", "作废复核岗位 = 仓管主管");
+}
+
+/// ⑰ `flow::maintain` 的「行 → graph_hash 重算」必须干净。
+///
+/// V0248 是**就地改图**（节点行 + 快照 + hash 三处同步）。最容易踩的坑是改了两处漏了第三处：
+/// 那样每日 03:30 的 `flow_graph_selfcheck` 会报 `RowsEdited` / `SnapshotEdited` 漂移。
+/// 这条用例把那次自检搬进回归：全库 PUBLISHED 版本 0 漂移才算绿。
+#[tokio::test]
+async fn p16_graph_snapshot_selfcheck_is_clean() {
+    let _db = match setup().await {
+        Some(guard) => guard,
+        None => return,
+    };
+    let report = crate::business::flow::maintain::run_once()
+        .await
+        .expect("审批图快照自检跑不起来");
+    assert!(
+        report.is_clean(),
+        "审批图自检必须 0 漂移（行 / 快照 / graph_hash 三方对账）：{} | {:?}",
+        report.summary(),
+        report.drifted
+    );
+    assert!(report.versions > 0, "自检至少要扫到一个 PUBLISHED 版本");
 }

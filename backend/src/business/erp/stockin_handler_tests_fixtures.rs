@@ -470,6 +470,10 @@ pub(super) const ROLE_WH_MGR: &str = "20000000-0000-4000-8000-0000000f0004";
 pub(super) const U_WH_MGR: &str = "b2b1000a-0000-4000-8000-000000000002";
 /// 制单人（P16 夹具里的仓管员，本卡用来验证「自己提自己批」被拦）。
 pub(super) const U_KEEPER: &str = "b2b10009-0000-4000-8000-000000000001";
+/// 作废复核人（P1-FIX-1 起 `stock_in_cancel.n_review` 的审批人是 `WAREHOUSE_MANAGER` **角色**，
+/// 不再是「全部超管」—— 这个夹具就是那个岗位上的在职成员，由
+/// [`setup_cancel_reviewer`] 绑定）。
+pub(super) const U_CANCEL_REVIEWER: &str = "b2b1000b-0000-4000-8000-000000000001";
 
 pub(super) fn uid_of(raw: &str) -> Uuid {
     Uuid::parse_str(raw).expect("夹具 UUID 非法")

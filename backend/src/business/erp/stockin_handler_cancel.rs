@@ -154,12 +154,23 @@ pub(super) async fn submit_cancel_tx(
         .await
         .map_err(|error| submit_conflict(error, "发起作废审批单", &row.in_no))?;
     if let Some(rejected) = out.rejected {
-        // 例如 self_approval=FORBID 命中（65019）：内控要求复核人 ≠ 发起人。
-        // 原样把引擎的码与文案交给前端，再补一句「怎么解决」。
-        let hint = if rejected.code == error_code::FLOW_SELF_APPROVAL_FORBIDDEN {
-            "（内控要求：作废复核人不能是发起人本人。请由他人发起，或让另一个账号具备复核权限后再审）"
-        } else {
-            ""
+        // 作废是**反向记账**（六本账回滚 + 红冲），复核岗位没配好就不许发起。
+        // 两类失败的出路完全不同，报文必须点名岗位与配置路径 —— 只说「不许自审」等于把人堵死：
+        //   · 65019 `self_approval=FORBID` 命中：发起人本人就在复核岗位上；
+        //   · 65018 复核岗位一个人都解析不出来（角色没绑人 / 绑的人被停用）。
+        // （t_e63b600f 实测：生产 4 个超管当复核人、发起人也是超管 ⇒ 作废永远 422 走不通。）
+        let hint = match rejected.code {
+            error_code::FLOW_SELF_APPROVAL_FORBIDDEN => {
+                "（内控要求：作废复核人不能是发起人本人。本流程的复核岗位是「仓管主管（WAREHOUSE_MANAGER）」，\
+                 而你本人就在这个岗位上：请让另一位复核人发起本单，或把一位非发起人的同事加入「仓管主管」角色后再发起。\
+                 配置路径：系统管理 → 角色管理 → 仓管主管 → 成员）"
+            }
+            error_code::FLOW_NO_ASSIGNEE => {
+                "（作废复核岗位没有任何人可派：请在「系统管理 → 角色管理 → 仓管主管（WAREHOUSE_MANAGER）→ 成员」\
+                 绑定至少一名在职的非制单人；或在「审批中心 → 流程定义 → 收货单作废审批 → 作废复核」把审批人改成具体人员。\
+                 作废会反向回滚六本账，不允许无人复核，也不会自动兜底给管理员）"
+            }
+            _ => "",
         };
         return Err(ApiError::new(
             rejected.status,

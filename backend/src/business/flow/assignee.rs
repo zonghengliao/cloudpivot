@@ -656,6 +656,23 @@ pub async fn resolve(
         ctx.initiator_id,
     );
     finalized.rule_id = rule_id;
+    // `empty_assignee=ERROR`：把「本节点没有一个可用审批人」补成**可执行**的配置指引。
+    // 只改这一种策略的报文（SKIP / FALLBACK_ADMIN 各有自己的语义，一字不动）——
+    // 报文里出现节点名与「去哪儿配」，发起人才知道下一步做什么
+    // （t_e63b600f：作废复核岗位没人时，旧报文只说「没有一个可用审批人」，等于死路）。
+    if let Some(error) = finalized.error.as_mut()
+        && error.code == error_code::FLOW_NO_ASSIGNEE
+        && error.msg.contains("empty_assignee=ERROR")
+    {
+        error.msg = format!(
+            "节点「{}」没有任何可用审批人（来源 {} 解析出 0 人；该节点配置了 empty_assignee=ERROR，\
+             不会兜底给管理员）。请到「流程定义 → 本流程 → 节点「{}」」把审批人设为具体角色或人员，\
+             并确认该角色下有在职成员（角色管理 → 成员）；若该岗位确实无人，可改由有审批权的人提交本单。",
+            node.name,
+            node.assignee_type.as_deref().unwrap_or("未配置"),
+            node.name
+        );
+    }
     trace.push(format!(
         "去重 + 策略后：待办 {} 行 / SKIPPED 留痕 {} 行 / 自动通过={}",
         finalized.approvers.len(),

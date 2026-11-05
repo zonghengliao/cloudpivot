@@ -1,0 +1,46 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.26s
+     Running unittests src/lib.rs (/root/p1fix1-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 16 tests
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_generates_red_voucher ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_rolls_back_six_ledgers ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_uses_posted_amount_not_current_avg ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_approval_voids_serials ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_duplicate_submit_is_409 ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_graph_snapshot_selfcheck_is_clean ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_other_path_cancel_reconciles_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_pending_cancel_is_locked ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_reject_restores_posted ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_resubmit_after_reject ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_seed_flow_is_self_consistent ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_self_approval_is_forbidden ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_soft_deleted_doc_reconciles_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_submit_moves_to_pending_cancel_with_instance ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_withdraw_failure_rolls_back ... ok
+test business::erp::stockin_handler::stockin_handler_tests_p16::p16_withdraw_restores_posted ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 2584 filtered out; finished in 56.69s
+
+EXIT=0
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.54s
+     Running unittests src/lib.rs (/root/p1fix1-target/debug/deps/cloudpivot-186d3cfdde06245d)
+
+running 14 tests
+test business::erp::cancel_cascade_tests::p15_cascade_blocked_when_payable_already_paid ... ok
+test business::erp::cancel_cascade_tests::p15_cascade_is_idempotent_on_cancelled_document ... ok
+test business::erp::cancel_cascade_tests::p15_cascade_rolls_back_when_later_step_fails ... ok
+test business::erp::cancel_cascade_tests::p15_cascade_voids_downstream_then_order ... ok
+test business::erp::cancel_cascade_tests::p15_cascade_without_downstream_only_voids_order ... ok
+test business::erp::cancel_cascade_tests::p15_doc_type_is_normalized_and_unknown_is_rejected ... ok
+test business::erp::cancel_cascade_tests::p15_impact_is_read_only ... ok
+test business::erp::cancel_cascade_tests::p15_impact_lists_stock_in_voucher_payable_and_order ... ok
+test business::erp::cancel_cascade_tests::p15_impact_marks_cancelled_stock_in_as_skip ... ok
+test business::erp::cancel_cascade_tests::p15_payable_cascade_reverses_voucher ... ok
+test business::erp::cancel_cascade_tests::p15_purchase_order_can_be_cancelled_after_receipt ... ok
+test business::erp::cancel_cascade_tests::p15_reason_is_required_and_long_enough ... ok
+test business::erp::cancel_cascade_tests::p15_stock_in_impact_lists_voucher_and_payable ... ok
+test business::erp::cancel_cascade_tests::p15_transfer_is_rejected_with_alternative ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 2586 filtered out; finished in 22.38s
+
+EXIT2=0
