@@ -1,0 +1,13 @@
+验收项                                                            结果
+------------------------------------------------------------------
+主仓 HEAD / origin/main                                    81b89441 / 81b89441
+  ✅ HEAD == origin/main
+迁移：磁盘 up.sql = 190 ，库内 versioned success = 190
+  ✅ 磁盘迁移全部已记账（差集为空）
+BIN_TS=1793898821  BE_TS(backend/src 最近改动)=1793898068
+  ✅ 二进制比最近后端改动新 753s
+DIST_TS=1793896074  FE_TS(frontend/src 最近改动)=1793895165
+  ✅ dist 比最近前端改动新 909s
+服务状态=active   /health=200   进程==磁盘二进制=yes
+线上前端入口 chunk=assets/index-Cv1a5LCm.js
+备份目录：/root/deploy-backup-autodep-t2431e625

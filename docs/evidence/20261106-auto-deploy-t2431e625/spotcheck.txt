@@ -1,0 +1,21 @@
+=== 1. 健康检查 ===
+  PASS  /health                                        HTTP 200  {"code":0,"msg":"ok","data":{"status":"ok","app":"cloudpivot","profile":"prod","time":"2026-11-05T17:19:04.566987471+00:
+=== 2. 登录（admin）===
+  PASS  POST /api/system/auth/login                    HTTP 200  
+  PASS  拿到 access_token（461 字符）
+=== 3. 入口页 + 前端静态资源（nginx 真入口）===
+  PASS  GET / （SPA 入口）                         HTTP 200  
+  线上入口 chunk：assets/index-Cv1a5LCm.js
+  PASS  GET /assets/index-Cv1a5LCm.js                  HTTP 200  
+=== 4. 系统只读接口 ===
+  PASS  GET /api/system/user/page                      HTTP 200  total= 9
+  PASS  GET /api/system/menu/tree                      HTTP 200  菜单树顶层= 16
+  新页在菜单树上： ['应付账龄分析 → /business/erp/report/payable-aging', '报表项维护（报表项 ↔ 科目映射 / 取数公式 / 排序） → /business/erp/report/report-item']
+=== 5. 本次上线的新能力 ===
+  PASS  GET /erp/report-item/catalog (P1-FIX-8B)       HTTP 200  catalog keys= ['reports', 'sides', 'levels', 'pattern_tips']
+  PASS  GET /erp/report-item/list (53 行可配)       HTTP 200  items= 41
+  PASS  GET /erp/report/payable-aging (P1-FIX-8A)      HTTP 200  buckets= ['NOT_DUE', 'D0_30', 'D31_60', 'D61_90', 'OVER_90'] suppliers= 1
+=== 6. SSE 鉴权（P1-FIX-6：query token 不许 401）===
+  PASS  GET /notice/stream?token=… → HTTP 200（非 401）
+
+===== 真机抽查汇总：PASS 11 / FAIL 0 =====
