@@ -1,0 +1,18 @@
+== OPS_ADMIN 运维动作清单 · http://127.0.0.1:18097 ==
+  [PASS] 登录                           POST   /api/system/auth/login             http=200 code=0 msg=ok
+  [PASS] 身份 · roles 含 OPS_ADMIN       GET    /api/system/auth/me                http=200 code=0 msg=ok · roles=['GENERAL_MANAGER', 'OPS_ADMIN'] perms=73
+  [PASS] 身份 · roles 不含 SUPER_ADMIN    GET    /api/system/auth/me                http=200 code=0 msg=ok · roles=['GENERAL_MANAGER', 'OPS_ADMIN']
+  [PASS] 读 · 用户管理                     GET    /api/system/user/page?page=1&page_size=5 http=200 code=0 msg=ok
+  [PASS] 用户管理 · total 覆盖全量            GET    /api/system/user/page              http=200 code=0 msg=ok · total=9 期望=9
+  [PASS] 读 · 角色管理                     GET    /api/system/role/page?page=1&page_size=20 http=200 code=0 msg=ok
+  [PASS] 读 · 部门管理                     GET    /api/system/dept/tree              http=200 code=0 msg=ok
+  [PASS] 读 · 菜单管理                     GET    /api/system/menu/tree              http=200 code=0 msg=ok
+  [PASS] 读 · 系统参数                     GET    /api/support/config/page?page=1&page_size=10 http=200 code=0 msg=ok
+  [PASS] 读 · 操作日志                     GET    /api/support/log/page?page=1&page_size=10 http=200 code=0 msg=ok
+  [PASS] 读 · 侧边栏菜单树                   GET    /api/system/auth/menus             http=200 code=0 msg=ok · 顶层 6 个：工作台,system,support,审批流,帮助中心,外观设置
+  [PASS] 写 · 新建系统参数                   POST   /api/support/config                http=200 code=0 msg=ok · config_key=superconv.probe.1793866752
+  [PASS] 写 · 删除系统参数(清理)               DELETE /api/support/config/{id}           http=200 code=0 msg=ok · 净零：探针行不留库
+  [PASS] 边界 · 业务接口必须 403              GET    /api/business/erp/account/page?page=1&page_size=5 http=403 code=403 msg=无权限访问，需要权限: business:erp:account:list · data_scope=1 不是业务后门：业务边界靠权限码收
+
+== 结果：14 条断言，FAIL=0 ==
+✓ 运维动作清单逐条通过

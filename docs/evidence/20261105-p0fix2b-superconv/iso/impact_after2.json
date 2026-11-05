@@ -1,0 +1,169 @@
+{
+  "generated_at": "2026-11-05T16:18:17+08:00",
+  "db": "cloudpivot_superconv_c1",
+  "host": "127.0.0.1",
+  "users": [
+    {
+      "username": "admin",
+      "user_type": "HUMAN",
+      "status": "1",
+      "is_locked": "false",
+      "own_dept_id": "01a18381-b7c4-753c-8fe6-d39684ead5cd",
+      "kind": "All",
+      "dept_ids": [],
+      "self_only": false,
+      "visible": {
+        "sys_user": 9,
+        "biz_task": 71,
+        "biz_project": 3,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "cl_43870",
+      "user_type": "HUMAN",
+      "status": "0",
+      "is_locked": "false",
+      "own_dept_id": "01a18381-b7c4-753c-8fe6-d39684ead5cd",
+      "kind": "SelfOnly",
+      "dept_ids": [],
+      "self_only": true,
+      "visible": {
+        "sys_user": 1,
+        "biz_task": 0,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "henry.liao",
+      "user_type": "HUMAN",
+      "status": "1",
+      "is_locked": "false",
+      "own_dept_id": null,
+      "kind": "All",
+      "dept_ids": [],
+      "self_only": false,
+      "visible": {
+        "sys_user": 9,
+        "biz_task": 71,
+        "biz_project": 3,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "laoliu",
+      "user_type": "HUMAN",
+      "status": "1",
+      "is_locked": "false",
+      "own_dept_id": "01a18381-b7c4-753c-8fe6-d39684ead5cd",
+      "kind": "All",
+      "dept_ids": [],
+      "self_only": false,
+      "visible": {
+        "sys_user": 9,
+        "biz_task": 71,
+        "biz_project": 3,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "laoliu_test",
+      "user_type": "HUMAN",
+      "status": "1",
+      "is_locked": "false",
+      "own_dept_id": "01a18381-b7d4-76ef-a290-8aa40bd4fd37",
+      "kind": "DeptAndChild",
+      "dept_ids": [
+        "01a18381-b7d4-76ef-a290-8aa40bd4fd37"
+      ],
+      "self_only": false,
+      "visible": {
+        "sys_user": 2,
+        "biz_task": 0,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "qa.limited",
+      "user_type": "HUMAN",
+      "status": "0",
+      "is_locked": "true",
+      "own_dept_id": "01a18381-b7d4-76ef-a290-8aa40bd4fd37",
+      "kind": "SelfOnly",
+      "dept_ids": [],
+      "self_only": true,
+      "visible": {
+        "sys_user": 1,
+        "biz_task": 0,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "qa.mutex",
+      "user_type": "HUMAN",
+      "status": "0",
+      "is_locked": "true",
+      "own_dept_id": "01a18381-b7e3-7770-90fc-c215cfb566e5",
+      "kind": "SelfOnly",
+      "dept_ids": [],
+      "self_only": true,
+      "visible": {
+        "sys_user": 1,
+        "biz_task": 0,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "qa.viewer",
+      "user_type": "HUMAN",
+      "status": "0",
+      "is_locked": "false",
+      "own_dept_id": null,
+      "kind": "SelfOnly",
+      "dept_ids": [],
+      "self_only": true,
+      "visible": {
+        "sys_user": 1,
+        "biz_task": 0,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    },
+    {
+      "username": "verify-ai",
+      "user_type": "ROBOT",
+      "status": "0",
+      "is_locked": "false",
+      "own_dept_id": null,
+      "kind": "SelfOnly",
+      "dept_ids": [],
+      "self_only": true,
+      "visible": {
+        "sys_user": 1,
+        "biz_task": 1,
+        "biz_project": 0,
+        "biz_budget": 0,
+        "biz_expense_report": 0
+      }
+    }
+  ],
+  "tables_present": [
+    "biz_budget",
+    "biz_expense_report",
+    "biz_project",
+    "biz_task",
+    "sys_user"
+  ]
+}

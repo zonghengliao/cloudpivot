@@ -1,0 +1,24 @@
+== SUPERCONV 四步演练 · cloudpivot_superconv_c1 ==
+起始：ur_rows=15 snap=5 SUPER=admin,henry.liao laoliu_test_scopes=1:3
+归一后：ur_rows=16 SUPER=admin,henry.liao,laoliu,laoliu_test
+
+[1] 10 up（建角色 + 授权 + 绑定）
+  [PASS] grant 后 sys_user_role = 18
+[2] 10 up 再跑一次（幂等）
+  [PASS] 幂等重放后 sys_user_role 不变 = 18
+[3] 20 up（摘 3 行）
+  [PASS] revoke 后 sys_user_role = 15
+  [PASS] revoke 后 SUPER_ADMIN 成员 = admin,henry.liao
+  [PASS] revoke 后 laoliu_test 只剩 3 档 = 1:3
+[4] 20 up 再跑一次（幂等）
+  [PASS] 幂等重放后 sys_user_role 不变 = 15
+  [PASS] 快照行数（3 绑定 + 2 账号） = 5
+[5] 20 down（回滚：3 行加回去）
+  [PASS] 回滚后 sys_user_role = 18
+  [PASS] 回滚后 SUPER_ADMIN 成员 = admin,henry.liao,laoliu,laoliu_test
+[6] 20 up 再上一次（回到目标态）
+  [PASS] 二次 revoke 后 sys_user_role = 15
+  [PASS] 二次 revoke 后 SUPER_ADMIN 成员 = admin,henry.liao
+
+== 四步演练结果：FAIL=0 ==
+✓ up→up→down→up 全绿
